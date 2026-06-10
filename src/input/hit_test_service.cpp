@@ -26,16 +26,11 @@ TableRowHit FindTableRow(const Node& node, const NodeLayoutEntry& entry, float e
 
     // row_cum_y[r]: 行 r の上端（サイズ row_count+1）。
     if (tl.row_cum_y.size() == row_count + 1) {
-        const float local_y = dip_y - entry_text_top;
-        const auto it = std::ranges::upper_bound(tl.row_cum_y, local_y);
-        if (it == tl.row_cum_y.begin()) {
+        const int idx = tl.RowIndexAt(dip_y - entry_text_top);
+        if (idx < 0) {
             return { -1, 0.0f };
         }
-        const auto idx = std::ranges::distance(tl.row_cum_y.begin(), it) - 1;
-        if (static_cast<size_t>(idx) >= row_count) {
-            return { -1, 0.0f };
-        }
-        return { static_cast<int>(idx), entry_text_top + tl.row_cum_y[static_cast<size_t>(idx)] };
+        return { idx, entry_text_top + tl.row_cum_y[static_cast<size_t>(idx)] };
     }
 
     const float border = TABLE_BORDER_WIDTH;

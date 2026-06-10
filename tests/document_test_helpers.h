@@ -31,7 +31,7 @@ inline int FindAnchorNodeIndexLinear(const std::pmr::vector<Node>& nodes, std::s
     if (anchor.empty()) {
         return -1;
     }
-    const std::pmr::string target = ToLowerAscii(anchor);
+    const std::pmr::string target = ToLowerAsciiCopy(anchor);
     for (const auto& [i, node] : nodes | std::views::enumerate) {
         if (node.type == NodeType::Heading && node.anchor_id() == target) {
             return static_cast<int>(i);

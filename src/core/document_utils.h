@@ -19,7 +19,7 @@ struct WordBoundary {
 WordBoundary FindWordBoundaries(std::string_view text, uint32_t pos) noexcept;
 WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept;
 
-std::pmr::string ToLowerAscii(std::string_view text);
+std::pmr::string ToLowerAsciiCopy(std::string_view text);
 
 // GitHub スタイル: ASCII 小文字化、空白→'-'、CJK 保持、句読点スキップ。
 std::pmr::string GenerateAnchorId(std::string_view text);

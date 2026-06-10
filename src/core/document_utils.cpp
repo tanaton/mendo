@@ -9,7 +9,7 @@
 #include <iterator>
 #include <ranges>
 
-std::pmr::string ToLowerAscii(std::string_view text)
+std::pmr::string ToLowerAsciiCopy(std::string_view text)
 {
     std::pmr::string result;
     result.resize_and_overwrite(text.size(), [&text](char* buf, size_t count) noexcept -> size_t {

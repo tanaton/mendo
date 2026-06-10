@@ -9,7 +9,7 @@
 
 namespace stream_util {
 
-inline std::pmr::vector<uint8_t> ReadAllBytes(IStream* stream)
+inline std::pmr::vector<uint8_t> ReadStreamToEnd(IStream* stream)
 {
     if (!stream) {
         return {};

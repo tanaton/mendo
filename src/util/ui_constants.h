@@ -144,6 +144,24 @@ inline float SnapToPhysicalPixel(float v, float dpi_scale) noexcept
     return std::round(v * dpi_scale) / dpi_scale;
 }
 
+// DIP → ピクセル変換（切り捨て）。ウィンドウサイズ・クリッピング等の整数ピクセル値に使う。
+inline int DipToPixel(float v, float dpi_scale) noexcept
+{
+    return static_cast<int>(v * dpi_scale);
+}
+
+// DIP → ピクセル変換（切り上げ）。ウィンドウサイズのはみ出し防止等に使う。
+inline int DipToPixelCeil(float v, float dpi_scale) noexcept
+{
+    return static_cast<int>(std::ceil(v * dpi_scale));
+}
+
+// ピクセル → DIP 変換。Win32 メッセージ座標を DIP 座標系に戻す際に使う。
+inline float PixelToDip(float v, float dpi_scale) noexcept
+{
+    return v / dpi_scale;
+}
+
 // タイトルバーのテキストフォントサイズ（DIP）。
 // pane_font_size と共有すると Zoom に追従してしまうため、専用の固定値を用意する。
 inline constexpr float TITLEBAR_TEXT_FONT_SIZE = 13.0f;

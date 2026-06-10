@@ -2004,43 +2004,43 @@ TEST(CalcScrollYForDiff, ReadsCachedTextTopFieldNotFenwick)
 }
 
 // ============================================================
-// ToLowerAscii
+// ToLowerAsciiCopy
 // ============================================================
 
-TEST(ToLowerAscii, AllUppercase)
+TEST(ToLowerAsciiCopy, AllUppercase)
 {
-    EXPECT_EQ(ToLowerAscii("HELLO"), "hello");
+    EXPECT_EQ(ToLowerAsciiCopy("HELLO"), "hello");
 }
 
-TEST(ToLowerAscii, AllLowercase)
+TEST(ToLowerAsciiCopy, AllLowercase)
 {
-    EXPECT_EQ(ToLowerAscii("hello"), "hello");
+    EXPECT_EQ(ToLowerAsciiCopy("hello"), "hello");
 }
 
-TEST(ToLowerAscii, MixedCase)
+TEST(ToLowerAsciiCopy, MixedCase)
 {
-    EXPECT_EQ(ToLowerAscii("HeLLo WoRLd"), "hello world");
+    EXPECT_EQ(ToLowerAsciiCopy("HeLLo WoRLd"), "hello world");
 }
 
-TEST(ToLowerAscii, Empty)
+TEST(ToLowerAsciiCopy, Empty)
 {
-    EXPECT_TRUE(ToLowerAscii("").empty());
+    EXPECT_TRUE(ToLowerAsciiCopy("").empty());
 }
 
-TEST(ToLowerAscii, NonAsciiUnchanged)
+TEST(ToLowerAsciiCopy, NonAsciiUnchanged)
 {
-    EXPECT_EQ(ToLowerAscii("日本語"), "日本語");
+    EXPECT_EQ(ToLowerAsciiCopy("日本語"), "日本語");
 }
 
-TEST(ToLowerAscii, DigitsAndSymbols)
+TEST(ToLowerAsciiCopy, DigitsAndSymbols)
 {
-    EXPECT_EQ(ToLowerAscii("ABC-123_XYZ"), "abc-123_xyz");
+    EXPECT_EQ(ToLowerAsciiCopy("ABC-123_XYZ"), "abc-123_xyz");
 }
 
-TEST(ToLowerAscii, BoundaryChars)
+TEST(ToLowerAsciiCopy, BoundaryChars)
 {
     // A(0x41)の直前@(0x40)、Z(0x5A)の直後[(0x5B)は変換されないこと
-    EXPECT_EQ(ToLowerAscii("@A[Z"), "@a[z");
+    EXPECT_EQ(ToLowerAsciiCopy("@A[Z"), "@a[z");
 }
 
 // ============================================================
