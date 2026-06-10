@@ -64,6 +64,7 @@ struct ParseContext {
     std::pmr::vector<size_t> heading_indices;
     std::pmr::vector<size_t> image_indices;
     std::pmr::vector<size_t> diagram_indices;
+    std::pmr::vector<size_t> table_indices;
     // DetectAlerts 後に破棄するため parse_resource に載せられる（他 indices は ParseResult 経由で持ち出すので不可）。
     std::pmr::vector<size_t> blockquote_indices{ parse_resource.resource() };
     size_t current_node_index = 0;
@@ -442,6 +443,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 
     case MD_BLOCK_TABLE: {
         ctx->BeginNode(NodeType::Table);
+        ctx->table_indices.emplace_back(ctx->current_node_index);
         // 後続の TR/TH/TD で nullable チェックなく参照できるよう先に確保する。
         // これに依存して TR/TH/TD は has_table() ガードを省いている。
         auto* tbl = ctx->current_node->ensure_table();
@@ -929,6 +931,7 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     ctx.anchor_counts.reserve(heading_hint);
     ctx.image_indices.reserve(std::clamp(input_size / kInputBytesPerImage, 4uz, 256uz));
     ctx.diagram_indices.reserve(std::clamp(input_size / kInputBytesPerDiagram, 4uz, 128uz));
+    ctx.table_indices.reserve(std::clamp(input_size / kInputBytesPerDiagram, 4uz, 128uz));
     ctx.blockquote_indices.reserve(std::clamp(input_size / kInputBytesPerBlockquote, 4uz, 256uz));
 
     MD_PARSER parser{};
@@ -964,6 +967,7 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     result.heading_indices = std::move(ctx.heading_indices);
     result.image_indices = std::move(ctx.image_indices);
     result.diagram_indices = std::move(ctx.diagram_indices);
+    result.table_indices = std::move(ctx.table_indices);
     return result;
 }
 

@@ -542,6 +542,11 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
     while (i < node_count) {
         const int group = nodes[i].blockquote_group;
         if (group < 0) {
+            // text_top は単調なので、非引用ノードが下端を超えたら以降のグループも全て可視域外。
+            // ここで break しないと引用が可視域以降に無い文書で毎フレーム末尾まで全走査する。
+            if (cache[i].text_top - snap > local_viewport_bottom) {
+                break;
+            }
             i++;
             continue;
         }
@@ -874,7 +879,33 @@ void CommandGenerator::GenTable(
     float y = entry_text_top;
     size_t bg_cursor = 0;
 
-    for (size_t r = 0; r < row_count; r++) {
+    // 可視行帯を row_cum_y の二分探索で求め、その範囲だけループする
+    // (ApplyTableEffects / FindTableRow と同じパターン)。巨大テーブルで
+    // 毎フレーム row_count 回の continue ループが走るのを防ぐ。
+    size_t r_begin = 0;
+    size_t r_end = row_count;
+    const bool has_row_geometry = tl.row_cum_y.size() == row_count + 1;
+    if (has_row_geometry) {
+        const float local_top = viewport_top - entry_text_top;
+        const float local_bottom = viewport_bottom - entry_text_top;
+        const auto upper = std::ranges::upper_bound(tl.row_cum_y, local_top);
+        if (upper != tl.row_cum_y.begin()) {
+            r_begin = static_cast<size_t>(std::ranges::distance(tl.row_cum_y.begin(), upper)) - 1;
+        }
+        const auto lower = std::ranges::lower_bound(tl.row_cum_y, local_bottom);
+        if (lower != tl.row_cum_y.end()) {
+            r_end = std::min(static_cast<size_t>(row_count), static_cast<size_t>(std::ranges::distance(tl.row_cum_y.begin(), lower)));
+        }
+        y = entry_text_top + tl.row_cum_y[r_begin];
+        // bg リストは追記順が乱れうるため二分探索せず、既存セマンティクス
+        // (前進スキップ) で r_begin 直前まで進める。サイズは bg 持ちセル数のみ。
+        const uint32_t first_cell = static_cast<uint32_t>(r_begin * tl.col_count);
+        while (bg_cursor < tl.cell_inline_code_bgs.size() && tl.cell_inline_code_bgs[bg_cursor].cell_index < first_cell) {
+            ++bg_cursor;
+        }
+    }
+
+    for (size_t r = r_begin; r < r_end; r++) {
         const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme_->font_size_body * TABLE_ROW_HEIGHT_FACTOR);
 
         const float row_bottom = y + row_h + border;
@@ -938,5 +969,7 @@ void CommandGenerator::GenTable(
         y += row_h + border;
     }
 
-    cmds.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y), theme_->hr_color, border, BrushId::Hr });
+    // r_end で打ち切った場合も下端線はテーブル全体の底に置く (可視外ならクリップされる)
+    const float table_bottom = has_row_geometry ? entry_text_top + tl.row_cum_y[row_count] : y;
+    cmds.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, table_bottom), D2D1::Point2F(offset_x + table_width, table_bottom), theme_->hr_color, border, BrushId::Hr });
 }

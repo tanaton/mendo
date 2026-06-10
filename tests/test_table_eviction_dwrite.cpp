@@ -3,6 +3,7 @@
 // 再可視化時の MeasureTable で null セルが復元される一連のフローを検証する。
 #include <gtest/gtest.h>
 #include "dwrite_test_base.h"
+#include <array>
 #include <string>
 
 namespace {
@@ -65,7 +66,7 @@ TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsMarksDirtyAndCreatesNullCells)
     // テーブル後半は範囲外になる。buffer は 0 にして外行を確実に evict する。
     const float vp_top = entry.text_top;
     const float vp_bottom = entry.text_top + 80.0f;
-    pl.cache.EvictInvisibleTableRows(vp_top, vp_bottom, 0.0f);
+    pl.cache.EvictInvisibleTableRows(std::array{ static_cast<size_t>(idx) }, vp_top, vp_bottom, 0.0f);
 
     EXPECT_TRUE(tl.cells_partially_evicted);
     EXPECT_TRUE(entry.layout_dirty);
@@ -87,7 +88,7 @@ TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsNoOpWhenAllVisible)
     entry.layout_dirty = false;
     tl.cells_partially_evicted = false;
 
-    pl.cache.EvictInvisibleTableRows(entry.text_top - 100.0f, entry.text_top + entry.height + 100.0f, 50.0f);
+    pl.cache.EvictInvisibleTableRows(std::array{ static_cast<size_t>(idx) }, entry.text_top - 100.0f, entry.text_top + entry.height + 100.0f, 50.0f);
 
     EXPECT_FALSE(tl.cells_partially_evicted);
     EXPECT_FALSE(entry.layout_dirty);
@@ -108,7 +109,7 @@ TEST_F(TableEvictionDWriteTest, MeasureAfterEvictionRestoresNullCells)
     const size_t total_cells = tl.cell_layouts.size();
     ASSERT_GT(total_cells, 0u);
 
-    pl.cache.EvictInvisibleTableRows(entry.text_top, entry.text_top + 80.0f, 0.0f);
+    pl.cache.EvictInvisibleTableRows(std::array{ static_cast<size_t>(idx) }, entry.text_top, entry.text_top + 80.0f, 0.0f);
     ASSERT_TRUE(tl.cells_partially_evicted);
     ASSERT_LT(CountNonNullCells(tl), total_cells);
 
@@ -136,7 +137,7 @@ TEST_F(TableEvictionDWriteTest, MeasureWithViewportRestoresOnlyVisibleRows)
     ASSERT_GT(total_cells, 0u);
 
     // テーブル全体を一旦 evict (viewport より遠い範囲) → ほぼ全セルが null になる。
-    pl.cache.EvictInvisibleTableRows(entry.text_top - 10000.0f, entry.text_top - 9000.0f, 0.0f);
+    pl.cache.EvictInvisibleTableRows(std::array{ static_cast<size_t>(idx) }, entry.text_top - 10000.0f, entry.text_top - 9000.0f, 0.0f);
     const size_t after_evict = CountNonNullCells(tl);
     ASSERT_LT(after_evict, total_cells);
     ASSERT_TRUE(tl.cells_partially_evicted);
@@ -168,7 +169,7 @@ TEST_F(TableEvictionDWriteTest, ProgressivelyRestoresAcrossScrolls)
     auto& tl = *entry.table_layout;
 
     const size_t total_cells = tl.cell_layouts.size();
-    pl.cache.EvictInvisibleTableRows(entry.text_top - 10000.0f, entry.text_top - 9000.0f, 0.0f);
+    pl.cache.EvictInvisibleTableRows(std::array{ static_cast<size_t>(idx) }, entry.text_top - 10000.0f, entry.text_top - 9000.0f, 0.0f);
     ASSERT_LT(CountNonNullCells(tl), total_cells);
 
     const float content_width = theme_.ContentWidth(800.0f);

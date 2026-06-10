@@ -14,6 +14,7 @@ struct ParseResult {
     std::pmr::vector<size_t> heading_indices;
     std::pmr::vector<size_t> image_indices;
     std::pmr::vector<size_t> diagram_indices;
+    std::pmr::vector<size_t> table_indices;
 };
 
 // 本物の Markdown パーサ。md4c を UTF-8 モード (MD_CHAR=char) で起動するため入力は char 列。

@@ -356,7 +356,7 @@ public:
         deps_.cache->EvictTextLayouts(static_cast<size_t>(first_keep), static_cast<size_t>(last_keep));
 
         // 可視範囲をまたぐ巨大テーブルでは、ノード単位 evict では拾えない不可視行のセルを別途解放する。
-        deps_.cache->EvictInvisibleTableRows(viewport_top, viewport_top + viewport_height, buffer);
+        deps_.cache->EvictInvisibleTableRows(deps_.doc->GetTableNodeIndices(), viewport_top, viewport_top + viewport_height, buffer);
 
         // image/diagram bitmap の evict も可視範囲外（[0, first_keep) と
         // [last_keep, node_count)）だけを走査する。IndexSlice で配列の該当部分を
