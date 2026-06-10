@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "parser.h"
+#include "html_entities.h"
 
 namespace {
 

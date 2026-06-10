@@ -32,9 +32,3 @@ std::string_view GetAlertLabel(AlertType type) noexcept;
 // AlertTypeに対応するアイコン文字列を返す（テスト用に公開）
 std::string_view GetAlertIcon(AlertType type) noexcept;
 
-// HTML エンティティ (例: "&amp;", "&#x1F600;") を解決する。
-// 戻り値: 解決成功なら char 文字列の view、失敗なら nullopt (呼び出し側で元の入力を
-// そのままテキストとして再投入することを示す)。
-// view が指す領域は (a) static なリテラル または (b) 呼び出し側が渡した buffer のいずれか。
-// buffer のスコープ内でのみ valid。UTF-8 では U+10FFFF までを最大 4 byte で表現できる。
-[[nodiscard]] std::optional<std::string_view> ResolveHtmlEntity(std::string_view entity, char (&buffer)[4]);

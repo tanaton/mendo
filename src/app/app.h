@@ -213,6 +213,10 @@ private:
     // サイドペインのホバー状態をリセットし、変化があれば invalidate する。
     // reset_hover_index=true のとき hover index もリセット（タイトルバー移動時など）。
     void ResetSidePaneHover(PaneTarget t, const ::PaneLayout& pane_layout, bool reset_hover_index);
+    // サイドペインキャッシュ無効化とペイン再描画リクエストをまとめて発行する。
+    void InvalidateSidePaneAndPane(PaneTarget t, const ::PaneLayout& pane_layout);
+    // ViewportLayout と SyncMaxScroll を連続発行するヘルパー。
+    void EmitViewportLayoutAndSyncScroll(float md_width, float md_height);
 
     PaneScrollInfo ComputePaneScrollInfo(const PaneRect& rect, float total_content) const;
 

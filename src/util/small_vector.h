@@ -159,6 +159,20 @@ public:
         }
     }
 
+    // 個数は size_t で受ける (operator[] と同じ理由)。
+    constexpr void assign(std::size_t n, const T& v)
+    {
+        const auto count = static_cast<size_type>(n);
+        clear();
+        if (count > capacity_) {
+            grow_to(count);
+        }
+        for (size_type i = 0; i < count; ++i) {
+            data_[i] = v;
+        }
+        size_ = count;
+    }
+
     template <typename... Args>
     constexpr reference emplace_back(Args&&... args)
     {

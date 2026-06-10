@@ -20,8 +20,7 @@ void App::ResetSidePaneHover(PaneTarget t, const PaneLayout& pane_layout, bool r
         changed |= state_.view.panes.SetSideRefreshHovered(t, false);
     }
     if (changed) {
-        renderer_.InvalidateSidePaneCache(t);
-        InvalidatePane(pane_layout.Get(t));
+        InvalidateSidePaneAndPane(t, pane_layout);
     }
 }
 
@@ -295,8 +294,7 @@ void App::OnMouseHover(int px, int py)
         // clang-format on
         SetCursor(hr.any_button_hit ? cursors_.Hand() : cursors_.Arrow());
         if (hr.button_changed) {
-            renderer_.InvalidateSidePaneCache(target);
-            InvalidatePane(pane_layout.Get(target));
+            InvalidateSidePaneAndPane(target, pane_layout);
         }
         new_hover[static_cast<size_t>(target)] = hr.hovered_index;
         Dispatch(UpdateTooltipAction{ hr.tooltip, px, py });
@@ -313,8 +311,7 @@ void App::OnMouseHover(int px, int py)
 
     for (auto t : { PaneTarget::File, PaneTarget::Toc }) {
         if (state_.view.panes.SetHoveredSideIndex(t, new_hover[static_cast<size_t>(t)])) {
-            renderer_.InvalidateSidePaneCache(t);
-            InvalidatePane(pane_layout.Get(t));
+            InvalidateSidePaneAndPane(t, pane_layout);
         }
     }
 }

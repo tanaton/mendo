@@ -1,12 +1,14 @@
 #include "selection_html.h"
 #include "nav.h"
 #include "profiler.h"
+#include "small_vector.h"
 #include "syntax.h"
 #include "theme_palette.h"
 #include <algorithm>
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <cstring>
 #include <format>
 #include <iterator>
 #include <optional>
@@ -177,7 +179,8 @@ constexpr void AppendInlineHtml(
         Safe = 1,
         Unsafe = 2
     };
-    std::pmr::vector<UrlSafety> url_safety(out.get_allocator().resource());
+    // URL 数は典型的に少数のためスタック上にインライン格納する。
+    mendo::small_vector<UrlSafety, 4> url_safety;
     url_safety.assign(link_urls.size(), UrlSafety::Unchecked);
 
     while (pos < end) {
@@ -215,17 +218,28 @@ constexpr void AppendInlineHtml(
             scope.Open(current, link_urls);
         }
 
-        for (uint32_t i = pos; i < segment_end; ++i) {
-            const char c = text[i];
-            if (c == mendo::doc_lf) {
+        // LF の位置で区切り、連続する非 LF 区間をまとめて AppendHtmlEscaped に渡す。
+        uint32_t batch = pos;
+        while (batch < segment_end) {
+            const auto* lf_ptr = static_cast<const char*>(
+                std::memchr(text.data() + batch, mendo::doc_lf, segment_end - batch));
+            const uint32_t lf_pos = lf_ptr ? static_cast<uint32_t>(lf_ptr - text.data()) : segment_end;
+
+            if (batch < lf_pos) {
+                if (!scope.IsApplied()) {
+                    scope.Open(current, link_urls);
+                }
+                AppendHtmlEscaped(out, text.substr(batch, lf_pos - batch));
+            }
+
+            if (lf_ptr) {
                 scope.CloseAll();
                 out.append("<br>");
-                continue;
+                batch = lf_pos + 1;
             }
-            if (!scope.IsApplied()) {
-                scope.Open(current, link_urls);
+            else {
+                batch = segment_end;
             }
-            AppendHtmlEscaped(out, std::string_view(&c, 1));
         }
         pos = segment_end;
     }

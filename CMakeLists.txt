@@ -123,11 +123,14 @@ add_library(mendo_core STATIC
     src/core/document_service.cpp
     src/core/document_utils.cpp
     src/core/parser.cpp
+    src/core/parser_alerts.cpp
+    src/core/html_entities.cpp
     src/core/reload.cpp
     src/core/selection_html.cpp
     src/core/toc.cpp
     src/core/syntax.cpp
     # layout - レイアウト計算
+    src/layout/layout_cache.cpp
     src/layout/layout.cpp
     src/layout/layout_computer.cpp
     src/layout/dirty_scheduler.cpp
@@ -136,6 +139,8 @@ add_library(mendo_core STATIC
     src/layout/doc_dwrite_bridge.cpp
     # render - 描画パイプライン
     src/render/command_generator.cpp
+    src/render/command_generator_table.cpp
+    src/render/command_generator_highlights.cpp
     src/render/command_executor.cpp
     # app - クリップボード操作 (CopyCodeBlock / SaveDiagramAsPng / CopyDiagramAsSvg)
     src/app/clipboard_manager.cpp
@@ -171,6 +176,12 @@ add_library(mendo_core STATIC
     # app - アプリケーション制御
     src/app/app_controller.cpp
     src/app/reducer.cpp
+    src/app/reducer_scroll.cpp
+    src/app/reducer_search.cpp
+    src/app/reducer_input.cpp
+    src/app/reducer_navigation.cpp
+    src/app/reducer_ui.cpp
+    src/app/reducer_system.cpp
     # util - ユーティリティ
     src/util/file_io.cpp
     src/util/task_scheduler.cpp

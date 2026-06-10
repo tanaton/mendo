@@ -78,6 +78,18 @@ void App::FinalizeLayout(float md_pane_height)
     ScheduleDeferredLayoutIfNeeded();
 }
 
+void App::EmitViewportLayoutAndSyncScroll(float md_width, float md_height)
+{
+    EmitEffect(effect::ViewportLayout{ md_width, md_height });
+    EmitEffect(effect::SyncMaxScroll{ md_height });
+}
+
+void App::InvalidateSidePaneAndPane(PaneTarget t, const PaneLayout& pane_layout)
+{
+    renderer_.InvalidateSidePaneCache(t);
+    InvalidatePane(pane_layout.Get(t));
+}
+
 const PaneLayout& App::GetPaneLayout()
 {
     if (!state_.pane_layout_cache.IsValid()) {
