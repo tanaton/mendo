@@ -175,6 +175,12 @@ add_library(mendo_core STATIC
     # app - アプリケーション制御
     src/app/app_controller.cpp
     src/app/reducer.cpp
+    src/app/reducer_scroll.cpp
+    src/app/reducer_search.cpp
+    src/app/reducer_input.cpp
+    src/app/reducer_navigation.cpp
+    src/app/reducer_ui.cpp
+    src/app/reducer_system.cpp
     # util - ユーティリティ
     src/util/file_io.cpp
     src/util/task_scheduler.cpp
