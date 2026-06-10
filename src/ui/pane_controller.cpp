@@ -4,7 +4,6 @@ bool PaneController::ScrollPaneBy(ScrollState& state, float delta, float max_scr
 {
     const float old = state.scroll_y;
     state.scroll_y = std::clamp(state.scroll_y + delta, 0.0f, max_scroll);
-    state.max_scroll = max_scroll;
     return state.scroll_y != old;
 }
 
@@ -78,7 +77,6 @@ void PaneController::ApplyZoom(float ratio) noexcept
     for (int i = 0; i < 2; ++i) {
         widths_[i] *= ratio;
         instances_[i].scroll.scroll_y *= ratio;
-        instances_[i].scroll.max_scroll *= ratio;
     }
 }
 
@@ -96,8 +94,3 @@ PaneLayout PaneController::ComputeLayout(float total_w, float total_h, float spl
         top_offset);
 }
 
-PaneZone PaneController::DetectZone(float dip_x, float total_w, float total_h, float splitter_w) const noexcept
-{
-    const auto layout = ComputeLayout(total_w, total_h, splitter_w);
-    return DetectPaneZone(dip_x, layout, splitter_w, instances_[0].show, instances_[1].show);
-}

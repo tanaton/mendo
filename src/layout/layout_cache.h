@@ -451,11 +451,17 @@ public:
     // 可視範囲をまたぐテーブルの可視外行で cell_layouts を Reset する。
     // 再表示時は MeasureTable の lazy 復元経路で CreateTextLayout を再発行する。
     // viewport は文書グローバル座標で渡す (entry ローカル座標ではない)。
-    void EvictInvisibleTableRows(float viewport_top, float viewport_bottom, float buffer_screens_height) noexcept
+    // table_indices は Document::GetTableNodeIndices()。全エントリ走査だと 100MB 級
+    // 文書でスクロール休止のたびに ~100万エントリを読むため、index リストで絞る。
+    void EvictInvisibleTableRows(std::span<const size_t> table_indices, float viewport_top, float viewport_bottom, float buffer_screens_height) noexcept
     {
         const float keep_top = viewport_top - buffer_screens_height;
         const float keep_bottom = viewport_bottom + buffer_screens_height;
-        for (auto& e : entries_) {
+        for (const size_t idx : table_indices) {
+            if (idx >= entries_.size()) {
+                continue;
+            }
+            auto& e = entries_[idx];
             if (!e.table_layout) {
                 continue;
             }

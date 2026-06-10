@@ -24,17 +24,12 @@ public:
     std::vector<app_timer::Id> kill_timer_calls;
     int set_capture_count = 0;
     int release_capture_count = 0;
-    std::vector<effect::CursorType> set_cursor_calls;
     std::vector<std::string> clipboard_text_calls;
     std::vector<std::pair<std::string, std::string>> clipboard_html_calls;
     std::vector<std::wstring> shell_open_calls;
-    std::vector<int> show_window_cmd_calls;
-    std::vector<std::tuple<UINT, WPARAM, LPARAM>> post_message_calls;
-    std::vector<std::wstring> set_window_title_calls;
     std::vector<std::tuple<int, int, int, int>> set_window_position_calls;
     std::vector<POINT> client_to_screen_inputs;
     POINT client_to_screen_translation{ 0, 0 };
-    std::vector<bool> apply_dark_mode_calls;
 
     void Invalidate() override
     {
@@ -64,10 +59,6 @@ public:
     {
         release_capture_count++;
     }
-    void SetCursor(effect::CursorType type) override
-    {
-        set_cursor_calls.push_back(type);
-    }
     void WriteClipboardText(std::string_view text) override
     {
         clipboard_text_calls.emplace_back(text);
@@ -80,14 +71,6 @@ public:
     {
         shell_open_calls.emplace_back(std::wstring_view{ url });
     }
-    void ShowWindowCmd(int cmd) override
-    {
-        show_window_cmd_calls.push_back(cmd);
-    }
-    void PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp) override
-    {
-        post_message_calls.emplace_back(msg, wp, lp);
-    }
     std::vector<effect::SearchFocus> search_focus_calls;
     std::vector<effect::SearchUnfocus> search_unfocus_calls;
     void SearchFocus(effect::SearchFocus action) override
@@ -98,10 +81,6 @@ public:
     {
         search_unfocus_calls.push_back(action);
     }
-    void SetWindowTitle(const std::pmr::wstring& title) override
-    {
-        set_window_title_calls.emplace_back(std::wstring_view{ title });
-    }
     void SetWindowPosition(int x, int y, int cx, int cy) override
     {
         set_window_position_calls.emplace_back(x, y, cx, cy);
@@ -111,10 +90,6 @@ public:
         client_to_screen_inputs.push_back(client_pt);
         return { client_pt.x + client_to_screen_translation.x,
                  client_pt.y + client_to_screen_translation.y };
-    }
-    void ApplyDarkMode(bool dark) override
-    {
-        apply_dark_mode_calls.push_back(dark);
     }
 };
 
@@ -234,14 +209,6 @@ struct TestSideEffectCallbacks {
     }
 
     void schedule_bitmap_manage()
-    {}
-    void schedule_mermaid_batch()
-    {}
-    void load_images()
-    {}
-    void request_mermaid_renders()
-    {}
-    void cancel_mermaid_batch()
     {}
     void on_app_image_loaded()
     {}
@@ -531,19 +498,6 @@ TEST_F(SideEffectExecutorTest, SetCaptureAndReleaseCaptureForwardToHost)
     EXPECT_EQ(host_.release_capture_count, 1);
 }
 
-TEST_F(SideEffectExecutorTest, SetCursorForwardsTypeToHost)
-{
-    exec_.ExecuteOne(effect::SetCursor{ effect::CursorType::Arrow });
-    exec_.ExecuteOne(effect::SetCursor{ effect::CursorType::Hand });
-    exec_.ExecuteOne(effect::SetCursor{ effect::CursorType::IBeam });
-    exec_.ExecuteOne(effect::SetCursor{ effect::CursorType::SizeWE });
-    ASSERT_EQ(host_.set_cursor_calls.size(), 4u);
-    EXPECT_EQ(host_.set_cursor_calls[0], effect::CursorType::Arrow);
-    EXPECT_EQ(host_.set_cursor_calls[1], effect::CursorType::Hand);
-    EXPECT_EQ(host_.set_cursor_calls[2], effect::CursorType::IBeam);
-    EXPECT_EQ(host_.set_cursor_calls[3], effect::CursorType::SizeWE);
-}
-
 TEST_F(SideEffectExecutorTest, ClipboardEffectsForwardToHost)
 {
     exec_.ExecuteOne(effect::ClipboardWrite{ std::pmr::string{ "hello" } });
@@ -563,22 +517,6 @@ TEST_F(SideEffectExecutorTest, ShellOpenForwardsUrlToHost)
     EXPECT_EQ(host_.shell_open_calls[0], L"https://example.com");
 }
 
-TEST_F(SideEffectExecutorTest, ShowWindowCmdForwardsValueToHost)
-{
-    exec_.ExecuteOne(effect::ShowWindowCmd{ SW_MAXIMIZE });
-    ASSERT_EQ(host_.show_window_cmd_calls.size(), 1u);
-    EXPECT_EQ(host_.show_window_cmd_calls[0], SW_MAXIMIZE);
-}
-
-TEST_F(SideEffectExecutorTest, PostWindowMessageForwardsToHost)
-{
-    exec_.ExecuteOne(effect::PostWindowMessage{ WM_USER + 1, 7, 13 });
-    ASSERT_EQ(host_.post_message_calls.size(), 1u);
-    EXPECT_EQ(std::get<0>(host_.post_message_calls[0]), UINT{ WM_USER + 1 });
-    EXPECT_EQ(std::get<1>(host_.post_message_calls[0]), WPARAM{ 7 });
-    EXPECT_EQ(std::get<2>(host_.post_message_calls[0]), LPARAM{ 13 });
-}
-
 TEST_F(SideEffectExecutorTest, SearchFocusForwardsToHost)
 {
     exec_.ExecuteOne(effect::SearchFocus{
@@ -587,7 +525,6 @@ TEST_F(SideEffectExecutorTest, SearchFocusForwardsToHost)
     EXPECT_EQ(host_.search_focus_calls[0].mode, effect::SearchFocus::Mode::SetSelection);
     EXPECT_EQ(host_.search_focus_calls[0].anchor, 3);
     EXPECT_EQ(host_.search_focus_calls[0].caret, 7);
-    EXPECT_TRUE(host_.post_message_calls.empty());
 }
 
 TEST_F(SideEffectExecutorTest, SearchUnfocusForwardsToHost)
@@ -595,14 +532,6 @@ TEST_F(SideEffectExecutorTest, SearchUnfocusForwardsToHost)
     exec_.ExecuteOne(effect::SearchUnfocus{ /*clear_text=*/true });
     ASSERT_EQ(host_.search_unfocus_calls.size(), 1u);
     EXPECT_TRUE(host_.search_unfocus_calls[0].clear_text);
-    EXPECT_TRUE(host_.post_message_calls.empty());
-}
-
-TEST_F(SideEffectExecutorTest, SetWindowTitleForwardsToHost)
-{
-    exec_.ExecuteOne(effect::SetWindowTitle{ std::pmr::wstring(L"mendo — doc.md") });
-    ASSERT_EQ(host_.set_window_title_calls.size(), 1u);
-    EXPECT_EQ(host_.set_window_title_calls[0], L"mendo — doc.md");
 }
 
 TEST_F(SideEffectExecutorTest, SetWindowPositionForwardsToHost)
@@ -610,15 +539,6 @@ TEST_F(SideEffectExecutorTest, SetWindowPositionForwardsToHost)
     exec_.ExecuteOne(effect::SetWindowPosition{ 10, 20, 800, 600 });
     ASSERT_EQ(host_.set_window_position_calls.size(), 1u);
     EXPECT_EQ(host_.set_window_position_calls[0], std::make_tuple(10, 20, 800, 600));
-}
-
-TEST_F(SideEffectExecutorTest, ApplyDarkModeForwardsFlagToHost)
-{
-    exec_.ExecuteOne(effect::ApplyDarkMode{ true });
-    exec_.ExecuteOne(effect::ApplyDarkMode{ false });
-    ASSERT_EQ(host_.apply_dark_mode_calls.size(), 2u);
-    EXPECT_TRUE(host_.apply_dark_mode_calls[0]);
-    EXPECT_FALSE(host_.apply_dark_mode_calls[1]);
 }
 
 TEST_F(SideEffectExecutorTest, InvalidateTitleBarComputesRectFromCachedWidthAndDpi)

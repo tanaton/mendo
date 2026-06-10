@@ -169,12 +169,17 @@ void App::UpdateTitleBar()
 
 PaneZone App::PaneAtPoint(float dip_x)
 {
-    const auto* rt = renderer_.GetRenderTarget();
-    if (!rt) {
+    if (!renderer_.GetRenderTarget()) {
         return PaneZone::None;
     }
-    const auto size = rt->GetSize();
-    return state_.view.panes.DetectZone(dip_x, size.width, size.height, renderer_.GetTheme().splitter_width);
+    // ホバー/ホイール系と同じキャッシュ済みレイアウト + DetectPaneZone を使い、
+    // クリック系とでゾーン判定が食い違わないようにする。
+    return DetectPaneZone(
+        dip_x,
+        GetPaneLayout(),
+        renderer_.GetTheme().splitter_width,
+        state_.view.panes.IsSidePaneVisible(PaneTarget::File),
+        state_.view.panes.IsSidePaneVisible(PaneTarget::Toc));
 }
 
 float App::GetMarkdownPaneWidth()

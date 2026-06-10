@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "hit_test_service.h"
 #include "ui_constants.h"
 #include "d2d_util.h"
 #include <algorithm>
@@ -14,8 +15,10 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool 
 
     const bool is_dark = theme_.IsDark();
 
-    const float base_x = md_pane_rect.x + md_pane_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2 - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
-    const float base_y = md_pane_rect.y + md_pane_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
+    // クリック判定 (NavButtonHitTest) と同じ矩形 API を使い、描画とヒットのズレを防ぐ
+    const ButtonRect back_rect = NavBackButtonRect(md_pane_rect);
+    const float base_x = back_rect.x;
+    const float base_y = back_rect.y;
 
     // SetColor は SetOpacity より重いため、固定色ブラシを is_dark で選んで
     // 透明度のみ切り替える。
@@ -61,7 +64,7 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool 
     };
 
     drawButton(base_x, can_back, hovered == 1, nav_back_layout_.Get());
-    drawButton(base_x + NAV_BTN_SIZE + NAV_BTN_GAP, can_forward, hovered == 2, nav_forward_layout_.Get());
+    drawButton(NavForwardButtonRect(md_pane_rect).x, can_forward, hovered == 2, nav_forward_layout_.Get());
 }
 
 void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points)

@@ -5,6 +5,15 @@
 class PaneControllerTest : public ::testing::Test {
 protected:
     PaneController panes_;
+
+    // 本体 (App::PaneAtPoint) と同じ ComputeLayout + DetectPaneZone の合成でゾーン判定する。
+    PaneZone DetectZoneAt(float dip_x, float total_w = 1200.0f, float total_h = 800.0f, float splitter_w = 4.0f) const
+    {
+        const auto layout = panes_.ComputeLayout(total_w, total_h, splitter_w);
+        return DetectPaneZone(dip_x, layout, splitter_w,
+                              panes_.IsSidePaneVisible(PaneTarget::File),
+                              panes_.IsSidePaneVisible(PaneTarget::Toc));
+    }
 };
 
 // ═══════════════════════════════════════════════
@@ -62,7 +71,6 @@ TEST_F(PaneControllerTest, ScrollFilePaneByPositive)
     bool changed = panes_.ScrollSidePaneBy(PaneTarget::File, 50.0f, 200.0f);
     EXPECT_TRUE(changed);
     EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::File).scroll_y, 50.0f);
-    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::File).max_scroll, 200.0f);
 }
 
 TEST_F(PaneControllerTest, ScrollFilePaneClampsToMax)
@@ -203,7 +211,6 @@ TEST_F(PaneControllerTest, ApplyZoomScalesScrollPositions)
     panes_.ScrollSidePaneBy(PaneTarget::File, 50.0f, 200.0f);
     panes_.ApplyZoom(1.5f);
     EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::File).scroll_y, 75.0f);
-    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::File).max_scroll, 300.0f);
 }
 
 // ═══════════════════════════════════════════════
@@ -230,14 +237,12 @@ TEST_F(PaneControllerTest, ComputeLayoutNoFilePane)
 
 TEST_F(PaneControllerTest, DetectZoneMdPane)
 {
-    auto zone = panes_.DetectZone(800.0f, 1200.0f, 800.0f, 4.0f);
-    EXPECT_EQ(zone, PaneZone::MdPane);
+    EXPECT_EQ(DetectZoneAt(800.0f), PaneZone::MdPane);
 }
 
 TEST_F(PaneControllerTest, DetectZoneFilePane)
 {
-    auto zone = panes_.DetectZone(10.0f, 1200.0f, 800.0f, 4.0f);
-    EXPECT_EQ(zone, PaneZone::FilePane);
+    EXPECT_EQ(DetectZoneAt(10.0f), PaneZone::FilePane);
 }
 
 // ═══════════════════════════════════════════════
@@ -248,16 +253,14 @@ TEST_F(PaneControllerTest, DetectZoneSplitter1)
 {
     // Splitter1はファイルペインの直後
     float file_w = panes_.GetSidePaneWidth(PaneTarget::File); // 220
-    auto zone = panes_.DetectZone(file_w + 2.0f, 1200.0f, 800.0f, 4.0f);
-    EXPECT_EQ(zone, PaneZone::Splitter1);
+    EXPECT_EQ(DetectZoneAt(file_w + 2.0f), PaneZone::Splitter1);
 }
 
 TEST_F(PaneControllerTest, DetectZoneTocPane)
 {
     auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
     float toc_mid = layout.toc_rect.x + layout.toc_rect.width * 0.5f;
-    auto zone = panes_.DetectZone(toc_mid, 1200.0f, 800.0f, 4.0f);
-    EXPECT_EQ(zone, PaneZone::TocPane);
+    EXPECT_EQ(DetectZoneAt(toc_mid), PaneZone::TocPane);
 }
 
 // ═══════════════════════════════════════════════

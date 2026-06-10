@@ -69,9 +69,6 @@ public:
             [this](const effect::ReleaseCapture&) {
                 deps_.host->ReleaseCapture();
             },
-            [this](const effect::SetCursor& ev) {
-                deps_.host->SetCursor(ev.type);
-            },
             [this](const effect::ClipboardWrite& ev) {
                 deps_.host->WriteClipboardText(ev.text);
             },
@@ -99,26 +96,14 @@ public:
                 cb_.show_context_menu(ev.screen_x, ev.screen_y);
             },
             // ---- Window ----
-            [this](const effect::ShowWindowCmd& ev) {
-                deps_.host->ShowWindowCmd(ev.cmd);
-            },
-            [this](const effect::PostWindowMessage& ev) {
-                deps_.host->PostWindowMessage(ev.msg, ev.wp, ev.lp);
-            },
             [this](const effect::SearchFocus& ev) {
                 deps_.host->SearchFocus(ev);
             },
             [this](const effect::SearchUnfocus& ev) {
                 deps_.host->SearchUnfocus(ev);
             },
-            [this](const effect::SetWindowTitle& ev) {
-                deps_.host->SetWindowTitle(ev.title);
-            },
             [this](const effect::SetWindowPosition& ev) {
                 deps_.host->SetWindowPosition(ev.x, ev.y, ev.cx, ev.cy);
-            },
-            [this](const effect::ApplyDarkMode& ev) {
-                deps_.host->ApplyDarkMode(ev.dark);
             },
             [this](const effect::ApplyThemeChange& ev) {
                 cb_.apply_theme_change(ev);
@@ -149,16 +134,8 @@ public:
                 cb_.open_file_dialog();
             },
             // ---- Layout ----
-            [this](const effect::DeferredLayout&) {
-                if (deps_.layout_service->HasDirtyNodes()) {
-                    deps_.host->SetTimer(app_timer::Id::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS);
-                }
-            },
             [this](const effect::BitmapManage&) {
                 cb_.schedule_bitmap_manage();
-            },
-            [this](const effect::MermaidBatch&) {
-                cb_.schedule_mermaid_batch();
             },
             [this](const effect::InvalidatePaneCache& ev) {
                 cb_.invalidate_pane_cache(ev.pane);
@@ -184,15 +161,6 @@ public:
                     ev.md_pane_height);
             },
             // ---- Resource ----
-            [this](const effect::LoadImages&) {
-                cb_.load_images();
-            },
-            [this](const effect::RequestMermaidRenders&) {
-                cb_.request_mermaid_renders();
-            },
-            [this](const effect::CancelMermaidBatch&) {
-                cb_.cancel_mermaid_batch();
-            },
             [this](const effect::NotifyImageLoaded&) {
                 cb_.on_app_image_loaded();
             },

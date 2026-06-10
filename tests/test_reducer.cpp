@@ -37,6 +37,16 @@ protected:
             state.document.layout_cache,
             AppSearchBarCallbacks{});
     }
+
+    // MD スクロールバー系テスト用: reducer が ComputeTotalContentHeight で導出する
+    // 総コンテンツ高が total になるよう doc と layout_cache を構築する (margin_top=0 前提)。
+    void SetupMdContentHeight(float total)
+    {
+        state.document.doc = Document::FromMarkdown(std::pmr::string("Hello"), L"test.md");
+        state.document.layout_cache.Resize(state.document.doc.GetNodes().size());
+        state.document.layout_cache[0].text_top = 0.0f;
+        state.document.layout_cache[0].height = total;
+    }
 };
 
 // ---- KeyScrollAction テスト ----
@@ -720,11 +730,12 @@ TEST_F(ReducerTest, MdScrollbarDragStarted_ThumbHit_StoresOffsetOnly)
 {
     // fixture で md_rect.height = 500, total_height = 1000 → content_height=500, max_scroll=500
     // thumb_height = max(24, 500 * 500/1000) = 250, scroll_y=0 → thumb_y = 0
+    SetupMdContentHeight(1000.0f);
     state.view.viewport.ScrollTo(0.0f);
     const float dip_y = 100.0f; // thumb 内（0〜250）
     const float old_scroll = state.view.viewport.GetScrollY();
 
-    auto effects = Reduce(state, MdScrollbarDragStartedAction{ dip_y, 1000.0f });
+    auto effects = Reduce(state, MdScrollbarDragStartedAction{ dip_y });
 
     EXPECT_EQ(state.view.panes.GetDragTarget(), PaneController::DragTarget::MdScrollbar);
     EXPECT_TRUE(state.view.viewport.IsScrollbarTracking());
@@ -738,10 +749,11 @@ TEST_F(ReducerTest, MdScrollbarDragStarted_ThumbHit_StoresOffsetOnly)
 TEST_F(ReducerTest, MdScrollbarDragStarted_ThumbMiss_JumpsAndEmitsInvalidate)
 {
     // つまみ外クリック (thumb 領域外の dip_y=400)
+    SetupMdContentHeight(1000.0f);
     state.view.viewport.ScrollTo(0.0f);
     const float dip_y = 400.0f;
 
-    auto effects = Reduce(state, MdScrollbarDragStartedAction{ dip_y, 1000.0f });
+    auto effects = Reduce(state, MdScrollbarDragStartedAction{ dip_y });
 
     EXPECT_EQ(state.view.panes.GetDragTarget(), PaneController::DragTarget::MdScrollbar);
     EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
@@ -752,11 +764,12 @@ TEST_F(ReducerTest, MdScrollbarDragStarted_ThumbMiss_JumpsAndEmitsInvalidate)
 
 TEST_F(ReducerTest, MdScrollbarDragMoved_WhileDragging_UpdatesScroll)
 {
+    SetupMdContentHeight(1000.0f);
     state.view.panes.StartDrag(PaneController::DragTarget::MdScrollbar);
     state.view.panes.SetDragScrollOffset(0.0f);
     state.view.viewport.ScrollTo(0.0f);
 
-    auto effects = Reduce(state, MdScrollbarDragMovedAction{ 200.0f, 1000.0f });
+    auto effects = Reduce(state, MdScrollbarDragMovedAction{ 200.0f });
 
     EXPECT_GT(state.view.viewport.GetScrollY(), 0.0f);
     EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
@@ -765,7 +778,7 @@ TEST_F(ReducerTest, MdScrollbarDragMoved_WhileDragging_UpdatesScroll)
 TEST_F(ReducerTest, MdScrollbarDragMoved_NotDragging_NoOp)
 {
     // drag_target が MdScrollbar でない → 何もしない
-    auto effects = Reduce(state, MdScrollbarDragMovedAction{ 200.0f, 1000.0f });
+    auto effects = Reduce(state, MdScrollbarDragMovedAction{ 200.0f });
     EXPECT_TRUE(effects.empty());
 }
 

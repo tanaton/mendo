@@ -109,11 +109,9 @@ struct SearchInputDragMovedAction {
 struct SearchInputDragEndedAction {};
 struct MdScrollbarDragStartedAction {
     float dip_y;
-    float total_height;
 };
 struct MdScrollbarDragMovedAction {
     float dip_y;
-    float total_height;
 };
 struct MdScrollbarDragEndedAction {};
 struct PaneScrollbarDragStartedAction {

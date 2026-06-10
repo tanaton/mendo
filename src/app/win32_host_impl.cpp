@@ -1,18 +1,15 @@
 #include "win32_host_impl.h"
 #include "app_constants.h"
 #include "clipboard_util.h"
-#include "cursor_manager.h"
 #include "d2d_util.h"
-#include "darkmode_util.h"
 #include "win_handle.h"
 #include <memory_resource>
 #include <shellapi.h>
 #include <utility>
 
-void Win32Host::Init(HWND hwnd, CursorManager& cursors) noexcept
+void Win32Host::Init(HWND hwnd) noexcept
 {
     hwnd_ = hwnd;
-    cursors_ = &cursors;
 }
 
 void Win32Host::Invalidate()
@@ -59,31 +56,6 @@ void Win32Host::ReleaseCapture()
     ::ReleaseCapture();
 }
 
-void Win32Host::SetCursor(effect::CursorType type)
-{
-    if (!cursors_) {
-        return;
-    }
-    HCURSOR cursor = nullptr;
-    switch (type) {
-    case effect::CursorType::Arrow:
-        cursor = cursors_->Arrow();
-        break;
-    case effect::CursorType::Hand:
-        cursor = cursors_->Hand();
-        break;
-    case effect::CursorType::IBeam:
-        cursor = cursors_->IBeam();
-        break;
-    case effect::CursorType::SizeWE:
-        cursor = cursors_->SizeWE();
-        break;
-    }
-    if (cursor) {
-        ::SetCursor(cursor);
-    }
-}
-
 void Win32Host::WriteClipboardText(std::string_view text)
 {
     ::WriteClipboardText(hwnd_, text);
@@ -97,16 +69,6 @@ void Win32Host::WriteClipboardHtml(std::string_view html, std::string_view plain
 void Win32Host::ShellOpen(const std::pmr::wstring& url)
 {
     ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-}
-
-void Win32Host::ShowWindowCmd(int cmd)
-{
-    ShowWindow(hwnd_, cmd);
-}
-
-void Win32Host::PostWindowMessage(UINT msg, WPARAM wp, LPARAM lp)
-{
-    PostMessageW(hwnd_, msg, wp, lp);
 }
 
 void Win32Host::SearchFocus(effect::SearchFocus action)
@@ -134,11 +96,6 @@ void Win32Host::SearchUnfocus(effect::SearchUnfocus action)
     PostMessageW(hwnd_, app_msg::SEARCH_UNFOCUS, wp, 0);
 }
 
-void Win32Host::SetWindowTitle(const std::pmr::wstring& title)
-{
-    SetWindowTextW(hwnd_, title.c_str());
-}
-
 void Win32Host::SetWindowPosition(int x, int y, int cx, int cy)
 {
     SetWindowPos(hwnd_, nullptr, x, y, cx, cy, SWP_NOZORDER | SWP_NOACTIVATE);
@@ -148,9 +105,4 @@ POINT Win32Host::ClientToScreen(POINT client_pt)
 {
     ::ClientToScreen(hwnd_, &client_pt);
     return client_pt;
-}
-
-void Win32Host::ApplyDarkMode(bool dark)
-{
-    ApplyDarkModeToWindow(hwnd_, dark);
 }

@@ -91,6 +91,7 @@ void Document::MoveFrom(Document&& other) noexcept
     anchor_index_ = std::move(other.anchor_index_);
     image_node_indices_ = std::move(other.image_node_indices_);
     diagram_node_indices_ = std::move(other.diagram_node_indices_);
+    table_node_indices_ = std::move(other.table_node_indices_);
     RebaseViews(old_base);
 }
 
@@ -136,6 +137,7 @@ void Document::ReplaceContent(ParseResult&& result)
     nodes_ = std::move(result.nodes);
     image_node_indices_ = std::move(result.image_indices);
     diagram_node_indices_ = std::move(result.diagram_indices);
+    table_node_indices_ = std::move(result.table_indices);
     BuildHeadingIndices(result.heading_indices);
 }
 

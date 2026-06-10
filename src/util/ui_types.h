@@ -33,7 +33,6 @@ struct PaneRect {
 
 struct ScrollState {
     float scroll_y = 0.0f;
-    float max_scroll = 0.0f;
 };
 
 inline constexpr float PANE_SCROLLBAR_WIDTH = 8.0f;

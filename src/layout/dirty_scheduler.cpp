@@ -26,8 +26,15 @@ DirtyBatchResult DirtyScheduler::RunSerial(
     const bool has_batch_limit = (budget.max_nodes > 0);
     const auto start = has_time_budget ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
 
-    for (size_t i = 0; i < node_count; i++) {
+    // text_top は単調なので、クリップ時は帯の開始を二分探索し下端超過で break する
+    const size_t plan_begin = has_viewport_limit
+        ? static_cast<size_t>(FindFirstVisibleNodeIndex(cache, node_count, limit_top))
+        : 0;
+    for (size_t i = plan_begin; i < node_count; i++) {
         auto& entry = cache[i];
+        if (has_viewport_limit && entry.text_top > limit_bottom) {
+            break;
+        }
         if (!ViewportClip::ShouldMeasure(entry, has_viewport_limit, limit_top, limit_bottom)) {
             continue;
         }

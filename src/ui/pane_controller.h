@@ -112,7 +112,6 @@ public:
     void ApplyZoom(float ratio) noexcept;
 
     PaneLayout ComputeLayout(float total_w, float total_h, float splitter_w, float top_offset = 0.0f) const noexcept;
-    PaneZone DetectZone(float dip_x, float total_w, float total_h, float splitter_w) const noexcept;
 
     static constexpr float PANE_DEFAULT_WIDTH = 220.0f;
     static constexpr float PANE_MIN_WIDTH = 100.0f;

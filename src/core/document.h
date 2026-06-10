@@ -85,6 +85,10 @@ public:
     {
         return diagram_node_indices_;
     }
+    constexpr const std::pmr::vector<size_t>& GetTableNodeIndices() const noexcept
+    {
+        return table_node_indices_;
+    }
 
 private:
     // ParseResult を nodes_ に取り込み、TOC / anchor_index_ / image / diagram の各種
@@ -120,6 +124,7 @@ private:
     std::pmr::vector<std::pair<std::uint64_t, int>> anchor_index_;
     std::pmr::vector<size_t> image_node_indices_;
     std::pmr::vector<size_t> diagram_node_indices_;
+    std::pmr::vector<size_t> table_node_indices_;
     std::pmr::wstring cached_directory_;
 
     void RebuildCachedDirectory();

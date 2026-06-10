@@ -97,8 +97,8 @@ TEST_F(CopyButtonTest, HitOnCopyButtonReturnsNodeIndex)
 
     auto [cx, cy] = CopyBtnCenter(pr, code_idx);
     float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
-    int result = hit_test_.CopyButtonHitTest(
-        { pr.nodes, pr.cache, theme_, 0.0f, 0.0f, 1.0f, cx, cy, content_width, 2000.0f });
+    int result = hit_test_.CodeBlockButtonsHitTest(
+        { pr.nodes, pr.cache, theme_, 0.0f, 0.0f, 1.0f, cx, cy, content_width, 2000.0f }).copy_node;
     EXPECT_EQ(result, code_idx);
 }
 
@@ -107,8 +107,8 @@ TEST_F(CopyButtonTest, HitOutsideCopyButtonReturnsNegative)
     auto pr = Parse("```\nsome code\n```");
     float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
     // 明らかにボタン外の座標（左上端）
-    int result = hit_test_.CopyButtonHitTest(
-        { pr.nodes, pr.cache, theme_, 0.0f, 0.0f, 1.0f, 5, 5, content_width, 2000.0f });
+    int result = hit_test_.CodeBlockButtonsHitTest(
+        { pr.nodes, pr.cache, theme_, 0.0f, 0.0f, 1.0f, 5, 5, content_width, 2000.0f }).copy_node;
     EXPECT_EQ(result, -1);
 }
 
@@ -117,8 +117,8 @@ TEST_F(CopyButtonTest, NonCodeBlockReturnsNegative)
     auto pr = Parse("Just a paragraph");
     float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
     // ドキュメント中央をクリック
-    int result = hit_test_.CopyButtonHitTest(
-        { pr.nodes, pr.cache, theme_, 0.0f, 0.0f, 1.0f, 400, 20, content_width, 2000.0f });
+    int result = hit_test_.CodeBlockButtonsHitTest(
+        { pr.nodes, pr.cache, theme_, 0.0f, 0.0f, 1.0f, 400, 20, content_width, 2000.0f }).copy_node;
     EXPECT_EQ(result, -1);
 }
 
@@ -136,8 +136,8 @@ TEST_F(CopyButtonTest, MermaidBlockReturnsNegative)
     }
     if (mermaid_idx >= 0) {
         auto [cx, cy] = CopyBtnCenter(pr, mermaid_idx);
-        int result = hit_test_.CopyButtonHitTest(
-            { pr.nodes, pr.cache, theme_, 0.0f, 0.0f, 1.0f, cx, cy, content_width, 2000.0f });
+        int result = hit_test_.CodeBlockButtonsHitTest(
+            { pr.nodes, pr.cache, theme_, 0.0f, 0.0f, 1.0f, cx, cy, content_width, 2000.0f }).copy_node;
         EXPECT_EQ(result, -1);
     }
 }
@@ -157,8 +157,8 @@ TEST_F(CopyButtonTest, LatexMathBlockReturnsNegative)
     }
     ASSERT_GE(latex_idx, 0);
     auto [cx, cy] = CopyBtnCenter(pr, latex_idx);
-    int result = hit_test_.CopyButtonHitTest(
-        { pr.nodes, pr.cache, theme_, 0.0f, 0.0f, 1.0f, cx, cy, content_width, 2000.0f });
+    int result = hit_test_.CodeBlockButtonsHitTest(
+        { pr.nodes, pr.cache, theme_, 0.0f, 0.0f, 1.0f, cx, cy, content_width, 2000.0f }).copy_node;
     EXPECT_EQ(result, -1);
 }
 
@@ -178,14 +178,14 @@ TEST_F(CopyButtonTest, MultipleCodeBlocksHitCorrectOne)
 
     // 1つ目のコピーボタンをクリック
     auto [cx1, cy1] = CopyBtnCenter(pr, code_indices[0]);
-    int r1 = hit_test_.CopyButtonHitTest(
-        { pr.nodes, pr.cache, theme_, 0.0f, 0.0f, 1.0f, cx1, cy1, content_width, 2000.0f });
+    int r1 = hit_test_.CodeBlockButtonsHitTest(
+        { pr.nodes, pr.cache, theme_, 0.0f, 0.0f, 1.0f, cx1, cy1, content_width, 2000.0f }).copy_node;
     EXPECT_EQ(r1, code_indices[0]);
 
     // 2つ目のコピーボタンをクリック
     auto [cx2, cy2] = CopyBtnCenter(pr, code_indices[1]);
-    int r2 = hit_test_.CopyButtonHitTest(
-        { pr.nodes, pr.cache, theme_, 0.0f, 0.0f, 1.0f, cx2, cy2, content_width, 2000.0f });
+    int r2 = hit_test_.CodeBlockButtonsHitTest(
+        { pr.nodes, pr.cache, theme_, 0.0f, 0.0f, 1.0f, cx2, cy2, content_width, 2000.0f }).copy_node;
     EXPECT_EQ(r2, code_indices[1]);
 }
 
@@ -193,8 +193,8 @@ TEST_F(CopyButtonTest, EmptyDocumentReturnsNegative)
 {
     auto pr = Parse("");
     float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
-    int result = hit_test_.CopyButtonHitTest(
-        { pr.nodes, pr.cache, theme_, 0.0f, 0.0f, 1.0f, 400, 400, content_width, 2000.0f });
+    int result = hit_test_.CodeBlockButtonsHitTest(
+        { pr.nodes, pr.cache, theme_, 0.0f, 0.0f, 1.0f, 400, 400, content_width, 2000.0f }).copy_node;
     EXPECT_EQ(result, -1);
 }
 
@@ -234,7 +234,7 @@ TEST_F(CopyButtonTest, ScrolledViewportHitTest)
     int sx = static_cast<int>((btn.left + btn.right) * 0.5f);
     int sy = static_cast<int>((btn.top + btn.bottom) * 0.5f - scroll_y);
 
-    int result = hit_test_.CopyButtonHitTest(
-        { pr.nodes, pr.cache, theme_, scroll_y, 0.0f, 1.0f, sx, sy, content_width, 600.0f });
+    int result = hit_test_.CodeBlockButtonsHitTest(
+        { pr.nodes, pr.cache, theme_, scroll_y, 0.0f, 1.0f, sx, sy, content_width, 600.0f }).copy_node;
     EXPECT_EQ(result, code_idx);
 }

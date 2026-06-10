@@ -64,13 +64,26 @@ DirtyBatchResult RunParallel(
     const bool has_batch_limit = (budget.max_nodes > 0);
 
     std::pmr::vector<size_t> indices(std::pmr::get_default_resource());
-    // 最悪ケースは全ノード dirty。size_t 8B × 数千 ≒ 数十 KB で global arena には軽い。
-    // 過小予約による push_back 中の再確保を避けるほうが利得が大きい。
-    indices.reserve(node_count);
     {
         MENDO_PROFILE("RunParallel.Plan");
-        for (size_t i = 0; i < node_count; i++) {
+        size_t plan_begin = 0;
+        if (has_viewport_limit) {
+            // text_top は単調なので、帯の開始は二分探索で求め、下端超過で break する。
+            // 全走査 + reserve(node_count) は 100MB 級文書で 16ms タイマーごとに
+            // 数 MB の確保と全エントリ読みを繰り返してしまう。
+            plan_begin = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, node_count, limit_top));
+            indices.reserve(has_batch_limit ? std::min(node_count, static_cast<size_t>(budget.max_nodes)) : node_count);
+        }
+        else {
+            // 最悪ケースは全ノード dirty。size_t 8B × 数千 ≒ 数十 KB で global arena には軽い。
+            // 過小予約による push_back 中の再確保を避けるほうが利得が大きい。
+            indices.reserve(node_count);
+        }
+        for (size_t i = plan_begin; i < node_count; i++) {
             const auto& entry = cache[i];
+            if (has_viewport_limit && entry.text_top > limit_bottom) {
+                break;
+            }
             if (!ViewportClip::ShouldMeasure(entry, has_viewport_limit, limit_top, limit_bottom)) {
                 continue;
             }

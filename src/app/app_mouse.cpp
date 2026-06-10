@@ -154,7 +154,7 @@ void App::OnMouseMove(int px, int py)
         Dispatch(PaneScrollbarDragMovedAction{ PaneTarget::Toc, dip.y });
         return;
     case PaneController::DragTarget::MdScrollbar:
-        Dispatch(MdScrollbarDragMovedAction{ dip.y, ScrollableContentHeight() });
+        Dispatch(MdScrollbarDragMovedAction{ dip.y });
         return;
     case PaneController::DragTarget::None:
         break;

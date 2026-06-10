@@ -35,10 +35,6 @@ struct AppSideEffectCallbacks {
     void sync_toc_active();
 
     void schedule_bitmap_manage();
-    void schedule_mermaid_batch();
-    void load_images();
-    void request_mermaid_renders();
-    void cancel_mermaid_batch();
     void on_app_image_loaded();
 };
 

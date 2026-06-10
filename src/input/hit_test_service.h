@@ -58,6 +58,16 @@ struct PaneDip {
     float x;
     float y;
 };
+
+// node のブロック横スクロール量。マップ未設定・未登録は 0。
+inline float LookupBlockScrollX(const MdPaneHitContext& ctx, int node) noexcept
+{
+    if (!ctx.block_scroll_x) {
+        return 0.0f;
+    }
+    const auto it = ctx.block_scroll_x->find(node);
+    return (it != ctx.block_scroll_x->end()) ? it->second : 0.0f;
+}
 inline constexpr PaneDip ScreenToPaneDip(const MdPaneHitContext& ctx) noexcept
 {
     return {
@@ -84,10 +94,6 @@ public:
 
     NavButtonHover NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) const noexcept;
 
-    int CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcept;
-
-    int SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcept;
-
     // 可視ノード走査・座標変換・キャッシュ照合を共有して Copy / Save / SvgCopy を一度に判定する。
     struct CodeBlockButtonHit {
         int copy_node = -1;
@@ -104,18 +110,28 @@ private:
         int screen_x = std::numeric_limits<int>::min(), screen_y = std::numeric_limits<int>::min();
         float scroll_y = 0.0f;
         uint32_t effects_gen = std::numeric_limits<uint32_t>::max();
+        // 結果がブロック横スクロールに依存する場合のスナップショット (-1 = 非依存)。
+        // 該当ノードの scroll_x が変わったらミス扱いにする。effects_generation を
+        // 横スクロールで進める方式だと、Renderer の effects 再適用まで巻き添えになる。
+        int h_scroll_node = -1;
+        float h_scroll_x = 0.0f;
         T result{};
 
         constexpr bool Matches(const MdPaneHitContext& ctx, uint32_t gen) const noexcept
         {
-            return ctx.screen_x == screen_x && ctx.screen_y == screen_y && ctx.scroll_y == scroll_y && gen == effects_gen;
+            if (ctx.screen_x != screen_x || ctx.screen_y != screen_y || ctx.scroll_y != scroll_y || gen != effects_gen) {
+                return false;
+            }
+            return h_scroll_node < 0 || LookupBlockScrollX(ctx, h_scroll_node) == h_scroll_x;
         }
-        constexpr void Store(const MdPaneHitContext& ctx, uint32_t gen, const T& r) noexcept
+        constexpr void Store(const MdPaneHitContext& ctx, uint32_t gen, const T& r, int scroll_node = -1, float scroll_x = 0.0f) noexcept
         {
             screen_x = ctx.screen_x;
             screen_y = ctx.screen_y;
             scroll_y = ctx.scroll_y;
             effects_gen = gen;
+            h_scroll_node = scroll_node;
+            h_scroll_x = scroll_x;
             result = r;
         }
     };

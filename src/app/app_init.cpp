@@ -60,7 +60,7 @@ bool App::Init(HWND hwnd)
             .theme_service = &theme_service_,
         },
         AppResourceManagerCallbacks{ this });
-    win32_host_.Init(hwnd_, cursors_);
+    win32_host_.Init(hwnd_);
     effect_executor_.Init(
         SideEffectExecutorDeps{
             .host = &win32_host_,

@@ -356,43 +356,31 @@ public:
         deps_.cache->EvictTextLayouts(static_cast<size_t>(first_keep), static_cast<size_t>(last_keep));
 
         // 可視範囲をまたぐ巨大テーブルでは、ノード単位 evict では拾えない不可視行のセルを別途解放する。
-        deps_.cache->EvictInvisibleTableRows(viewport_top, viewport_top + viewport_height, buffer);
+        deps_.cache->EvictInvisibleTableRows(deps_.doc->GetTableNodeIndices(), viewport_top, viewport_top + viewport_height, buffer);
 
         // image/diagram bitmap の evict も可視範囲外（[0, first_keep) と
         // [last_keep, node_count)）だけを走査する。IndexSlice で配列の該当部分を
         // 切り出して、各々 bitmap をリセット。
-        const auto& image_indices = deps_.doc->GetImageNodeIndices();
-        const auto img_keep = VisibleSlice(image_indices, static_cast<size_t>(first_keep), static_cast<size_t>(last_keep));
-        for (auto it = image_indices.begin(); it != img_keep.begin; ++it) {
-            auto& diagram = deps_.cache->GetDiagram(*it);
-            if (diagram.bitmap) {
-                diagram.bitmap.Reset();
+        const auto evict_outside_keep = [&](const std::pmr::vector<size_t>& indices) {
+            const auto keep = VisibleSlice(indices, static_cast<size_t>(first_keep), static_cast<size_t>(last_keep));
+            const auto reset_bitmap = [&](size_t i) {
+                auto& diagram = deps_.cache->GetDiagram(i);
+                if (diagram.bitmap) {
+                    diagram.bitmap.Reset();
+                }
+            };
+            for (auto it = indices.begin(); it != keep.begin; ++it) {
+                reset_bitmap(*it);
             }
-        }
-        for (auto it = img_keep.end; it != image_indices.end(); ++it) {
-            auto& diagram = deps_.cache->GetDiagram(*it);
-            if (diagram.bitmap) {
-                diagram.bitmap.Reset();
-            }
-        }
-
-        const auto& diagram_indices = deps_.doc->GetDiagramNodeIndices();
-        const auto dia_keep = VisibleSlice(diagram_indices, static_cast<size_t>(first_keep), static_cast<size_t>(last_keep));
-        // オフスクリーンの diagram bitmap (layout 側) だけ解放する。レンダ済みビットマップの
-        // 二次キャッシュ (mermaid 内 LRU, 128 件) は自前で上限管理されるため全消去しない。
-        // 全消去すると可視中の図まで捨てて WebView2 再レンダの cliff を生むため。
-        auto evict_mermaid = [&](size_t i) {
-            auto& diagram = deps_.cache->GetDiagram(i);
-            if (diagram.bitmap) {
-                diagram.bitmap.Reset();
+            for (auto it = keep.end; it != indices.end(); ++it) {
+                reset_bitmap(*it);
             }
         };
-        for (auto it = diagram_indices.begin(); it != dia_keep.begin; ++it) {
-            evict_mermaid(*it);
-        }
-        for (auto it = dia_keep.end; it != diagram_indices.end(); ++it) {
-            evict_mermaid(*it);
-        }
+        evict_outside_keep(deps_.doc->GetImageNodeIndices());
+        // diagram はオフスクリーンの bitmap (layout 側) だけ解放する。レンダ済みビットマップの
+        // 二次キャッシュ (mermaid 内 LRU, 128 件) は自前で上限管理されるため全消去しない。
+        // 全消去すると可視中の図まで捨てて WebView2 再レンダの cliff を生むため。
+        evict_outside_keep(deps_.doc->GetDiagramNodeIndices());
     }
 
     void FlushPendingResources()

@@ -22,15 +22,6 @@ struct InvalidateTitleBar {};
 struct InvalidateMdPane {};
 struct SetCapture {};
 struct ReleaseCapture {};
-enum class CursorType : uint8_t {
-    Arrow,
-    Hand,
-    IBeam,
-    SizeWE
-};
-struct SetCursor {
-    CursorType type;
-};
 struct ClipboardWrite {
     // text は Document テキスト由来の UTF-8 string。
     // executor 側で CF_UNICODETEXT 用に wstring 変換する。
@@ -54,14 +45,6 @@ struct ShowContextMenu {
     int screen_y;
 };
 
-struct ShowWindowCmd {
-    int cmd;
-};
-struct PostWindowMessage {
-    UINT msg;
-    WPARAM wp;
-    LPARAM lp;
-};
 struct SearchFocus {
     enum class Mode : uint8_t {
         SelectAll,    // 既存テキスト全選択
@@ -75,17 +58,11 @@ struct SearchFocus {
 struct SearchUnfocus {
     bool clear_text = false; // ファイル切替時に true。検索ボックスのテキストを消去する。
 };
-struct SetWindowTitle {
-    std::pmr::wstring title;
-};
 struct SetWindowPosition {
     int x;
     int y;
     int cx;
     int cy;
-};
-struct ApplyDarkMode {
-    bool dark;
 };
 struct ApplyThemeChange {
     enum class Type : uint8_t {
@@ -114,9 +91,7 @@ struct LoadFile {
 struct ReloadFile {};
 struct OpenFileDialog {};
 
-struct DeferredLayout {};
 struct BitmapManage {};
-struct MermaidBatch {};
 struct InvalidatePaneCache {
     PaneZone pane;
 };
@@ -132,9 +107,6 @@ struct SyncMaxScroll {
     float md_pane_height;
 };
 
-struct LoadImages {};
-struct RequestMermaidRenders {};
-struct CancelMermaidBatch {};
 struct NotifyImageLoaded {};
 struct ClearFileCache {};
 struct StartFileWatch {
@@ -171,7 +143,6 @@ using SideEffect = std::variant<
     effect::InvalidateMdPane,
     effect::SetCapture,
     effect::ReleaseCapture,
-    effect::SetCursor,
     effect::ClipboardWrite,
     effect::ClipboardWriteHtml,
     effect::ShowTooltip,
@@ -179,13 +150,9 @@ using SideEffect = std::variant<
     effect::ShowToast,
     effect::ShowContextMenu,
     // Window
-    effect::ShowWindowCmd,
-    effect::PostWindowMessage,
     effect::SearchFocus,
     effect::SearchUnfocus,
-    effect::SetWindowTitle,
     effect::SetWindowPosition,
-    effect::ApplyDarkMode,
     effect::ApplyThemeChange,
     effect::PerformResizeEnd,
     effect::PerformSizingUpdate,
@@ -197,18 +164,13 @@ using SideEffect = std::variant<
     effect::ReloadFile,
     effect::OpenFileDialog,
     // Layout
-    effect::DeferredLayout,
     effect::BitmapManage,
-    effect::MermaidBatch,
     effect::InvalidatePaneCache,
     effect::RefreshPaneLayout,
     effect::SyncTocActive,
     effect::ViewportLayout,
     effect::SyncMaxScroll,
     // Resource
-    effect::LoadImages,
-    effect::RequestMermaidRenders,
-    effect::CancelMermaidBatch,
     effect::NotifyImageLoaded,
     effect::ClearFileCache,
     effect::StartFileWatch,

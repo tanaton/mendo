@@ -1,6 +1,7 @@
 #pragma once
 #include "win_handle.h"
 #include <windows.h>
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <limits>
@@ -45,6 +46,23 @@ struct OpenedFile {
 // out_error が非 null の場合、CreateFileW 失敗時の GetLastError() を格納する。
 [[nodiscard]] std::pair<std::unique_ptr<uint8_t[]>, size_t> ReadAllBytes(
     const std::filesystem::path& path, DWORD* out_error = nullptr);
+
+// 指定バイト数を ReadFile の DWORD 上限でチャンク分割して読み切る。
+// EOF・パイプ切断 (bytes_read == 0) は失敗として false を返す。
+[[nodiscard]] inline bool ReadExact(HANDLE file, void* dst, size_t size) noexcept
+{
+    auto* const out = static_cast<uint8_t*>(dst);
+    size_t total_read = 0;
+    while (total_read < size) {
+        DWORD bytes_read = 0;
+        const DWORD to_read = static_cast<DWORD>(std::min<size_t>(size - total_read, UINT32_MAX));
+        if (!ReadFile(file, out + total_read, to_read, &bytes_read, nullptr) || bytes_read == 0) {
+            return false;
+        }
+        total_read += bytes_read;
+    }
+    return true;
+}
 
 // 読み込み済みコンテンツの後にファイルがさらに伸びていれば、エディタ側が
 // 書き込み途中である可能性が高い。BOM の 3 バイトずれ等を吸収するため
