@@ -2140,3 +2140,76 @@ TEST(IsHelpPath, CaseSensitive)
 {
     EXPECT_FALSE(IsHelpPath(L"MENDO://HELP"));
 }
+
+// ============================================================
+// AppendInlineHtml の LF バッチ化境界ケース
+// ============================================================
+
+// Node を手動構築して <br> の出力同一性を検証するヘルパー。
+static std::pmr::string HtmlFromNodeText(std::string_view text_with_lf)
+{
+    Node n;
+    n.type = NodeType::Paragraph;
+    const auto lf_count = static_cast<int32_t>(
+        std::ranges::count(text_with_lf, '\n'));
+    n.SetTextWithLineCount(text_with_lf, lf_count);
+    std::pmr::vector<Node> nodes;
+    nodes.emplace_back(std::move(n));
+    auto sel = TextSelection::MakeOrdered(
+        0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    return ExtractSelectedTextAsHtml(nodes, sel);
+}
+
+// LF が1個: <br>が1つ出力されること。
+TEST(ExtractSelectedTextAsHtml, SingleLfProducesBr)
+{
+    auto html = HtmlFromNodeText("line1\nline2");
+    EXPECT_NE(html.find("<br>"), std::string::npos);
+    EXPECT_NE(html.find("line1"), std::string::npos);
+    EXPECT_NE(html.find("line2"), std::string::npos);
+    // <br> が 1 個だけであること
+    const auto pos1 = html.find("<br>");
+    ASSERT_NE(pos1, std::string::npos);
+    EXPECT_EQ(html.find("<br>", pos1 + 1), std::string::npos);
+}
+
+// 先頭 LF: <br> が先頭に出て後続テキストが続く。
+TEST(ExtractSelectedTextAsHtml, LeadingLfProducesBrFirst)
+{
+    auto html = HtmlFromNodeText("\nafter");
+    EXPECT_NE(html.find("<br>"), std::string::npos);
+    EXPECT_NE(html.find("after"), std::string::npos);
+    // <br> が "after" より前にある。
+    EXPECT_LT(html.find("<br>"), html.find("after"));
+}
+
+// 末尾 LF: テキスト後に <br> が出力される。
+TEST(ExtractSelectedTextAsHtml, TrailingLfProducesBrLast)
+{
+    auto html = HtmlFromNodeText("before\n");
+    EXPECT_NE(html.find("<br>"), std::string::npos);
+    EXPECT_NE(html.find("before"), std::string::npos);
+    EXPECT_GT(html.find("<br>"), html.find("before"));
+}
+
+// 連続 LF: LF の数だけ <br> が出力される。
+TEST(ExtractSelectedTextAsHtml, ConsecutiveLfsProduceMultipleBrs)
+{
+    auto html = HtmlFromNodeText("a\n\nb");
+    // <br> が2個。
+    const auto pos1 = html.find("<br>");
+    ASSERT_NE(pos1, std::string::npos);
+    const auto pos2 = html.find("<br>", pos1 + 1);
+    EXPECT_NE(pos2, std::string::npos);
+    // 3個目はない。
+    EXPECT_EQ(html.find("<br>", pos2 + 1), std::string::npos);
+}
+
+// テキストが LF のみ: <br> だけが出力される。
+TEST(ExtractSelectedTextAsHtml, OnlyLf)
+{
+    auto html = HtmlFromNodeText("\n");
+    EXPECT_NE(html.find("<br>"), std::string::npos);
+    // テキストコンテンツなし。
+    EXPECT_EQ(html.find("<br>"), html.find("<p>") + 3);
+}

@@ -34,9 +34,7 @@ void App::FinishThemeOrZoomChange()
     float md_width = layout.md_rect.width;
     float md_height = layout.md_rect.height;
 
-    EmitEffect(effect::ViewportLayout{ md_width, md_height });
-
-    EmitEffect(effect::SyncMaxScroll{ md_height });
+    EmitViewportLayoutAndSyncScroll(md_width, md_height);
     resource_manager_.RequestMermaidRenders();
     ScheduleDeferredLayoutIfNeeded();
     Invalidate();

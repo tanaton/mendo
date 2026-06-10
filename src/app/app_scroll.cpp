@@ -90,10 +90,8 @@ void App::OnResizeEnd()
 
     {
         MENDO_PROFILE("ViewportLayout(Resize)");
-        EmitEffect(effect::ViewportLayout{ md_width, md_height });
+        EmitViewportLayoutAndSyncScroll(md_width, md_height);
     }
-
-    EmitEffect(effect::SyncMaxScroll{ md_height });
     Invalidate();
 
     ScheduleDeferredLayoutIfNeeded();

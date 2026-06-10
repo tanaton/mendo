@@ -48,8 +48,7 @@ void App::LoadHelpDocument()
     state_.view.viewport.SetScrollY(0.0f);
     {
         const auto pane_layout = GetPaneLayout();
-        EmitEffect(effect::ViewportLayout{ pane_layout.md_rect.width, pane_layout.md_rect.height });
-        EmitEffect(effect::SyncMaxScroll{ pane_layout.md_rect.height });
+        EmitViewportLayoutAndSyncScroll(pane_layout.md_rect.width, pane_layout.md_rect.height);
     }
     Invalidate();
     ScheduleDeferredLayoutIfNeeded();
