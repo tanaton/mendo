@@ -130,6 +130,7 @@ add_library(mendo_core STATIC
     src/core/toc.cpp
     src/core/syntax.cpp
     # layout - レイアウト計算
+    src/layout/layout_cache.cpp
     src/layout/layout.cpp
     src/layout/layout_computer.cpp
     src/layout/dirty_scheduler.cpp
