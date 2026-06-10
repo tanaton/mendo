@@ -38,6 +38,11 @@ std::pmr::string ExtractSelectedText(const std::pmr::vector<Node>& nodes, const 
 
 namespace {
 
+constexpr uint32_t ClampEndToText(uint32_t end, size_t text_size) noexcept
+{
+    return end > text_size ? static_cast<uint32_t>(text_size) : end;
+}
+
 constexpr void AppendHtmlEscaped(std::pmr::string& out, std::string_view text)
 {
     for (const char c : text) {
@@ -157,9 +162,7 @@ constexpr void AppendInlineHtml(
     std::span<const std::pmr::string> link_urls,
     uint32_t start, uint32_t end)
 {
-    if (end > text.size()) {
-        end = static_cast<uint32_t>(text.size());
-    }
+    end = ClampEndToText(end, text.size());
     if (start >= end) {
         return;
     }
@@ -299,9 +302,7 @@ void AppendCodeBlockHtml(std::pmr::string& out, const Node& node, uint32_t start
     }
     out.append(kStyleTail);
     const auto& text = node.GetText();
-    if (end > text.size()) {
-        end = static_cast<uint32_t>(text.size());
-    }
+    end = ClampEndToText(end, text.size());
     if (start < end) {
         const std::string_view text_view{ text };
         const auto& tokens = node.syntax_tokens();
@@ -426,9 +427,7 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
     const auto* tbl = node.table_data();
     if (!tbl || tbl->row_count == 0) {
         const auto& text = node.GetText();
-        if (end > text.size()) {
-            end = static_cast<uint32_t>(text.size());
-        }
+        end = ClampEndToText(end, text.size());
         out.append("<pre>");
         if (start < end) {
             AppendHtmlEscaped(out, std::string_view(text).substr(start, end - start));

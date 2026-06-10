@@ -175,7 +175,7 @@ int Document::FindAnchorIndex(std::string_view anchor) const
         ascii_util::AsciiToLowerOnly(anchor.data(), stack_buf, anchor.size());
         return FindNormalizedAnchorIndex(std::string_view{ stack_buf, anchor.size() });
     }
-    const std::pmr::string target = ToLowerAscii(anchor);
+    const std::pmr::string target = ToLowerAsciiCopy(anchor);
     return FindNormalizedAnchorIndex(target);
 }
 

@@ -260,7 +260,7 @@ LRESULT Win32Window::HitTestResizeFrame(POINT pt) const noexcept
     if (pt.x >= rc.right - right_border) {
         if (pt.x < rc.right - border) {
             const float dpi_scale = app_->GetDpiScale();
-            if (app_->IsOverMdScrollbar(pt.x / dpi_scale, pt.y / dpi_scale)) {
+            if (app_->IsOverMdScrollbar(PixelToDip(static_cast<float>(pt.x), dpi_scale), PixelToDip(static_cast<float>(pt.y), dpi_scale))) {
                 return HTCLIENT;
             }
         }
@@ -273,8 +273,8 @@ LRESULT Win32Window::HitTestResizeFrame(POINT pt) const noexcept
 LRESULT Win32Window::HitTestTitleBar(POINT pt) const noexcept
 {
     const float dpi_scale = app_->GetDpiScale();
-    const float dip_x = pt.x / dpi_scale;
-    const float dip_y = pt.y / dpi_scale;
+    const float dip_x = PixelToDip(static_cast<float>(pt.x), dpi_scale);
+    const float dip_y = PixelToDip(static_cast<float>(pt.y), dpi_scale);
     const float titlebar_height = app_->GetTitleBarHeightDip();
 
     if (dip_y >= titlebar_height) {
@@ -422,7 +422,7 @@ LRESULT Win32Window::HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam)
             POINT pt = { sx, sy };
             ScreenToClient(hwnd_, &pt);
             const float dpi_scale = app_->GetDpiScale();
-            const float dip_y = pt.y / dpi_scale;
+            const float dip_y = PixelToDip(static_cast<float>(pt.y), dpi_scale);
             if (dip_y < app_->GetTitleBarHeightDip()) {
                 return 0;
             }

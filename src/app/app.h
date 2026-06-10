@@ -210,6 +210,10 @@ private:
     void HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout);
     static bool IsOverPaneScrollbar(float dip_x, const PaneRect& rect, float total_content, const PaneScrollInfo& scroll_info) noexcept;
 
+    // サイドペインのホバー状態をリセットし、変化があれば invalidate する。
+    // reset_hover_index=true のとき hover index もリセット（タイトルバー移動時など）。
+    void ResetSidePaneHover(PaneTarget t, const ::PaneLayout& pane_layout, bool reset_hover_index);
+
     PaneScrollInfo ComputePaneScrollInfo(const PaneRect& rect, float total_content) const;
 
     void ScheduleDeferredLayoutIfNeeded();

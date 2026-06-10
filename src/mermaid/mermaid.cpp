@@ -769,7 +769,7 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStr
 
         if (file_cache_ && w.current_request.node) {
             const uint64_t fkey = mermaid_util::NodeDiagramHash(*w.current_request.node, w.current_request.max_width, w.current_request.dark_mode);
-            auto png_bytes = stream_util::ReadAllBytes(png_stream);
+            auto png_bytes = stream_util::ReadStreamToEnd(png_stream);
             if (!png_bytes.empty()) {
                 file_cache_->StoreAsync(fkey, draw_w, draw_h, std::move(png_bytes));
             }

@@ -9,6 +9,22 @@
 #include "string_convert.h"
 #include "ui_constants.h"
 
+void App::ResetSidePaneHover(PaneTarget t, const PaneLayout& pane_layout, bool reset_hover_index)
+{
+    bool changed = false;
+    if (reset_hover_index) {
+        changed |= state_.view.panes.SetHoveredSideIndex(t, -1);
+    }
+    changed |= state_.view.panes.SetSideCloseHovered(t, false);
+    if (t == PaneTarget::File) {
+        changed |= state_.view.panes.SetSideRefreshHovered(t, false);
+    }
+    if (changed) {
+        renderer_.InvalidateSidePaneCache(t);
+        InvalidatePane(pane_layout.Get(t));
+    }
+}
+
 bool App::IsOverMdScrollbar(float dip_x, float dip_y, const PaneLayout& layout) const noexcept
 {
     const float total_h = ScrollableContentHeight();
@@ -178,15 +194,7 @@ void App::OnMouseHover(int px, int py)
         {
             const auto pane_layout = GetPaneLayout();
             for (auto t : { PaneTarget::File, PaneTarget::Toc }) {
-                bool changed = state_.view.panes.SetHoveredSideIndex(t, -1);
-                changed |= state_.view.panes.SetSideCloseHovered(t, false);
-                if (t == PaneTarget::File) {
-                    changed |= state_.view.panes.SetSideRefreshHovered(t, false);
-                }
-                if (changed) {
-                    renderer_.InvalidateSidePaneCache(t);
-                    InvalidatePane(pane_layout.Get(t));
-                }
+                ResetSidePaneHover(t, pane_layout, true);
             }
         }
         Dispatch(UpdateTooltipAction{ BuildTitleBarTooltip(tb_zone, IsZoomed(hwnd_)), px, py });
@@ -207,21 +215,11 @@ void App::OnMouseHover(int px, int py)
     const auto hovered_target = ToPaneTarget(zone);
 
     // ペインゾーン外に出たらヘッダーボタンのホバーをリセット（無効化忘れ防止）。
-    auto reset_pane_buttons = [&](PaneTarget t) {
-        bool changed = state_.view.panes.SetSideCloseHovered(t, false);
-        if (t == PaneTarget::File) {
-            changed |= state_.view.panes.SetSideRefreshHovered(t, false);
-        }
-        if (changed) {
-            renderer_.InvalidateSidePaneCache(t);
-            InvalidatePane(pane_layout.Get(t));
-        }
-    };
     if (hovered_target != PaneTarget::File) {
-        reset_pane_buttons(PaneTarget::File);
+        ResetSidePaneHover(PaneTarget::File, pane_layout, false);
     }
     if (hovered_target != PaneTarget::Toc) {
-        reset_pane_buttons(PaneTarget::Toc);
+        ResetSidePaneHover(PaneTarget::Toc, pane_layout, false);
     }
 
     int new_hover[2] = { -1, -1 };

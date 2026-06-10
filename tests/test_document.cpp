@@ -352,7 +352,7 @@ TEST(DocumentTest, BuildIndicesNoSpecialNodes)
 TEST(DocumentTest, FindAnchorIndexUppercaseQueryNormalized)
 {
     // parser 側スラグは小文字確定だが、クエリ引数に大文字混在があっても
-    // ToLowerAscii 経由で hit すること。
+    // ToLowerAsciiCopy 経由で hit すること。
     auto doc = Document::FromMarkdown("# Hello World", L"test.md");
     EXPECT_EQ(doc.FindAnchorIndex("hello-world"), 0);
     EXPECT_EQ(doc.FindAnchorIndex("Hello-World"), 0);
@@ -368,7 +368,7 @@ TEST(DocumentTest, FindAnchorIndexEmptyQuery)
 TEST(DocumentTest, FindNormalizedAnchorIndexHitsLowercase)
 {
     // anchor_id() は parser で小文字 ASCII へ正規化済み。
-    // FindNormalizedAnchorIndex は ToLowerAscii を介さず直接 hit する。
+    // FindNormalizedAnchorIndex は ToLowerAsciiCopy を介さず直接 hit する。
     auto doc = Document::FromMarkdown("# Hello World", L"test.md");
     EXPECT_EQ(doc.FindNormalizedAnchorIndex("hello-world"), 0);
     EXPECT_EQ(doc.FindNormalizedAnchorIndex(""), -1);

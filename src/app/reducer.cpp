@@ -858,7 +858,7 @@ void ScrollToAnchor(AppState& state, SideEffectList& effects, std::string_view a
     ScrollToResolvedAnchor(state, effects, state.document.doc.FindAnchorIndex(anchor_id));
 }
 
-// anchor_id() 由来など、既に正規化済み入力向け（ToLowerAscii の確保を回避する）。
+// anchor_id() 由来など、既に正規化済み入力向け（ToLowerAsciiCopy の確保を回避する）。
 void ScrollToNormalizedAnchor(AppState& state, SideEffectList& effects, std::string_view anchor_id)
 {
     ScrollToResolvedAnchor(state, effects, state.document.doc.FindNormalizedAnchorIndex(anchor_id));

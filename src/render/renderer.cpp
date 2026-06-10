@@ -206,19 +206,9 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
     size_t r_end = row_count;
     const bool cull_by_viewport = !first_pass && viewport_top >= 0.0f && tl.row_cum_y.size() == row_count + 1;
     if (cull_by_viewport) {
-        const float local_top = viewport_top - entry_text_top;
-        const float local_bottom = viewport_bottom - entry_text_top;
-        // row_cum_y[r+1] は行 r の下端 (= 次行の上端、border 込み)。最初に local_top を超える
-        // 境界点を upper_bound で求め、その 1 つ手前が viewport 先頭にかかる行。
-        auto upper = std::ranges::upper_bound(tl.row_cum_y, local_top);
-        if (upper != tl.row_cum_y.begin()) {
-            r_begin = static_cast<size_t>(std::ranges::distance(tl.row_cum_y.begin(), upper)) - 1;
-        }
-        auto lower = std::ranges::lower_bound(tl.row_cum_y, local_bottom);
-        if (lower != tl.row_cum_y.end()) {
-            const auto idx = static_cast<size_t>(std::ranges::distance(tl.row_cum_y.begin(), lower));
-            r_end = std::min(row_count, idx);
-        }
+        const auto [rb, re] = tl.VisibleRowRange(viewport_top - entry_text_top, viewport_bottom - entry_text_top);
+        r_begin = rb;
+        r_end = re;
     }
 
     float row_y = entry_text_top;

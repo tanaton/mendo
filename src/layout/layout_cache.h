@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <ranges>
 #include <span>
+#include <utility>
 
 struct Theme;
 
@@ -64,6 +65,49 @@ struct TableLayoutData {
     {
         const size_t idx = CellIndex(row, col);
         return (idx < cell_layouts.size()) ? cell_layouts[idx].Get() : nullptr;
+    }
+
+    // [local_top, local_bottom] に重なる行帯 [r_begin, r_end) を二分探索で返す。
+    // 座標はいずれもエントリ上端からのローカル系。row_cum_y が空なら [0, 0)。
+    std::pair<size_t, size_t> VisibleRowRange(float local_top, float local_bottom) const noexcept
+    {
+        if (row_cum_y.empty()) {
+            return { 0, 0 };
+        }
+        const size_t row_count = row_cum_y.size() - 1;
+        size_t r_begin = 0;
+        size_t r_end = row_count;
+        // row_cum_y[r+1] は行 r の下端 (= 次行の上端、border 込み)。最初に local_top を
+        // 超える境界点を upper_bound で求め、その 1 つ手前が viewport 先頭にかかる行。
+        const auto upper = std::ranges::upper_bound(row_cum_y, local_top);
+        if (upper != row_cum_y.begin()) {
+            r_begin = static_cast<size_t>(std::ranges::distance(row_cum_y.begin(), upper)) - 1;
+        }
+        const auto lower = std::ranges::lower_bound(row_cum_y, local_bottom);
+        if (lower != row_cum_y.end()) {
+            const auto idx = static_cast<size_t>(std::ranges::distance(row_cum_y.begin(), lower));
+            r_end = std::min(row_count, idx);
+        }
+        return { r_begin, r_end };
+    }
+
+    // local_y がヒットする行インデックスを返す。ヒットなしは -1。
+    // 座標はエントリ上端からのローカル系。row_cum_y が空でもヒットなし扱い。
+    int RowIndexAt(float local_y) const noexcept
+    {
+        if (row_cum_y.empty()) {
+            return -1;
+        }
+        const size_t row_count = row_cum_y.size() - 1;
+        const auto it = std::ranges::upper_bound(row_cum_y, local_y);
+        if (it == row_cum_y.begin()) {
+            return -1;
+        }
+        const auto idx = std::ranges::distance(row_cum_y.begin(), it) - 1;
+        if (static_cast<size_t>(idx) >= row_count) {
+            return -1;
+        }
+        return static_cast<int>(idx);
     }
 };
 

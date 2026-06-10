@@ -75,7 +75,7 @@ public:
     void ReplaceFromMarkdown(std::pmr::string text, size_t byte_size);
     int FindAnchorIndex(std::string_view anchor) const;
     // 既に anchor_id 形式（小文字 ASCII 正規化済み）と判明している入力向け。
-    // 呼び出し側で正規化が保証されていれば、ToLowerAscii の確保を回避できる。
+    // 呼び出し側で正規化が保証されていれば、ToLowerAsciiCopy の確保を回避できる。
     int FindNormalizedAnchorIndex(std::string_view anchor) const;
     constexpr const std::pmr::vector<size_t>& GetImageNodeIndices() const noexcept
     {

@@ -3,6 +3,7 @@
 // context_menu.cpp（Win32/D2D 本体）の両方からインクルードする。
 // 本ヘッダ自体は Impl 構造体の定義（D2D フィールドを含む）を提供する。
 #include "context_menu.h"
+#include "ui_constants.h"
 #include <d2d1.h>
 #include <dwrite.h>
 #include <wrl/client.h>
@@ -12,10 +13,10 @@
 
 namespace context_menu_constants {
 inline constexpr float ITEM_HEIGHT = 28.0f;
-inline constexpr float NAV_BTN_SIZE = 28.0f;
-inline constexpr float NAV_BTN_GAP = 16.0f;
-inline constexpr float NAV_ROW_PAD_Y = 5.0f;
-inline constexpr float NAV_BTN_CORNER = 4.0f;
+inline constexpr float CTX_NAV_BTN_SIZE = 28.0f;
+inline constexpr float CTX_NAV_BTN_GAP = 16.0f;
+inline constexpr float CTX_NAV_ROW_PAD_Y = 5.0f;
+inline constexpr float CTX_NAV_BTN_CORNER = 4.0f;
 inline constexpr float SEPARATOR_HEIGHT = 9.0f;
 inline constexpr float PAD_X = 28.0f;
 inline constexpr float PAD_Y = 4.0f;

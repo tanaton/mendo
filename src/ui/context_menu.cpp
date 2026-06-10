@@ -63,8 +63,8 @@ bool ContextMenu::Impl::CreatePopupWindow(int screen_x, int screen_y)
     }
     rt.Reset();
 
-    const int pixel_w = static_cast<int>(std::ceil(menu_width * dpi_scale));
-    const int pixel_h = static_cast<int>(std::ceil(menu_height * dpi_scale));
+    const int pixel_w = DipToPixelCeil(menu_width, dpi_scale);
+    const int pixel_h = DipToPixelCeil(menu_height, dpi_scale);
 
     // 画面外にはみ出さないよう調整
     const HMONITOR monitor = MonitorFromPoint({ screen_x, screen_y }, MONITOR_DEFAULTTONEAREST);
@@ -105,7 +105,7 @@ bool ContextMenu::Impl::CreatePopupWindow(int screen_x, int screen_y)
 
     // 角丸クリッピング用リージョン
     // SetWindowRgn は成功時のみ rgn の所有権を OS に移譲する。失敗時は呼び出し側で DeleteObject。
-    const int corner_px = static_cast<int>(MENU_CORNER * dpi_scale);
+    const int corner_px = DipToPixel(MENU_CORNER, dpi_scale);
     const HRGN rgn = CreateRoundRectRgn(0, 0, pixel_w + 1, pixel_h + 1, corner_px, corner_px);
     if (rgn && !SetWindowRgn(hwnd, rgn, FALSE)) {
         DeleteObject(rgn);
@@ -183,8 +183,8 @@ LRESULT ContextMenu::Impl::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     }
 
     case WM_MOUSEMOVE: {
-        const float x = static_cast<short>(LOWORD(lParam)) / dpi_scale;
-        const float y = static_cast<short>(HIWORD(lParam)) / dpi_scale;
+        const float x = PixelToDip(static_cast<float>(static_cast<short>(LOWORD(lParam))), dpi_scale);
+        const float y = PixelToDip(static_cast<float>(static_cast<short>(HIWORD(lParam))), dpi_scale);
 
         const int old_hovered = hovered_id;
         const int old_nav = hovered_nav;
@@ -213,8 +213,8 @@ LRESULT ContextMenu::Impl::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_LBUTTONDOWN:
     case WM_RBUTTONDOWN: {
-        const float x = static_cast<short>(LOWORD(lParam)) / dpi_scale;
-        const float y = static_cast<short>(HIWORD(lParam)) / dpi_scale;
+        const float x = PixelToDip(static_cast<float>(static_cast<short>(LOWORD(lParam))), dpi_scale);
+        const float y = PixelToDip(static_cast<float>(static_cast<short>(HIWORD(lParam))), dpi_scale);
 
         if (x < 0 || y < 0 || x >= menu_width || y >= menu_height) {
             done = true;
@@ -365,7 +365,7 @@ void ContextMenu::Impl::DrawNavRow()
     auto draw_btn = [&](const DipRect& dr, const wchar_t* glyph, bool enabled, bool hovered) {
         const D2D1_RECT_F rc{ dr.left, dr.top, dr.right, dr.bottom };
         if (hovered) {
-            const D2D1_ROUNDED_RECT rr = { rc, NAV_BTN_CORNER, NAV_BTN_CORNER };
+            const D2D1_ROUNDED_RECT rr = { rc, CTX_NAV_BTN_CORNER, CTX_NAV_BTN_CORNER };
             rt->FillRoundedRectangle(rr, brush_hover.Get());
         }
         auto* brush = enabled ? brush_text.Get() : brush_gray.Get();
