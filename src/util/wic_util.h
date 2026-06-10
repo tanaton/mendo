@@ -24,6 +24,33 @@ inline Microsoft::WRL::ComPtr<IWICImagingFactory> CreateWicFactory(const wchar_t
     return factory;
 }
 
+// IWICBitmapSource を GUID_WICPixelFormat32bppPBGRA に変換する。
+// HICON 由来の IWICBitmap など、デコーダを経由しないソースにも使用する。
+//
+// 注意: IWICFormatConverter は呼び出し元が CreateBitmapFromWicBitmap などで
+// 利用するため、この関数の戻り値の lifetime に渡って保持される。
+// 別スレッド/別呼び出しで Initialize を再呼び出ししてしまうと既存の戻り値が
+// 別ソースを指してしまうため、毎回新規生成する（プールしない）。
+// CreateFormatConverter 自体は CoCreateInstance に比べて軽量。
+inline Microsoft::WRL::ComPtr<IWICFormatConverter> ConvertBitmapSource(IWICImagingFactory* wic, IWICBitmapSource* source)
+{
+    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
+    HRESULT hr = wic->CreateFormatConverter(&converter);
+    if (FAILED(hr)) {
+        return nullptr;
+    }
+
+    hr = converter->Initialize(
+        source, GUID_WICPixelFormat32bppPBGRA,
+        WICBitmapDitherTypeNone, nullptr, 0.0f,
+        WICBitmapPaletteTypeCustom);
+    if (FAILED(hr)) {
+        return nullptr;
+    }
+
+    return converter;
+}
+
 // WIC デコード結果。ピクセルサイズと FormatConverter を保持する。
 struct DecodeResult {
     Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
@@ -32,13 +59,8 @@ struct DecodeResult {
 };
 
 // IStream から画像をデコードし、GUID_WICPixelFormat32bppPBGRA 形式の
-// FormatConverter とピクセルサイズを返す。
-//
-// 注意: IWICFormatConverter は呼び出し元が CreateBitmapFromWicBitmap などで
-// 利用するため、この関数の戻り値の lifetime に渡って保持される。
-// 別スレッド/別呼び出しで Initialize を再呼び出ししてしまうと既存の戻り値が
-// 別ソースを指してしまうため、毎回新規生成する（プールしない）。
-// CreateFormatConverter 自体は CoCreateInstance に比べて軽量。
+// FormatConverter とピクセルサイズを返す。converter の lifetime 注意は
+// ConvertBitmapSource を参照。
 inline std::optional<DecodeResult> DecodeFromStream(
     IWICImagingFactory* wic, IStream* stream)
 {
@@ -54,17 +76,8 @@ inline std::optional<DecodeResult> DecodeFromStream(
         return std::nullopt;
     }
 
-    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
-    hr = wic->CreateFormatConverter(&converter);
-    if (FAILED(hr)) {
-        return std::nullopt;
-    }
-
-    hr = converter->Initialize(
-        frame.Get(), GUID_WICPixelFormat32bppPBGRA,
-        WICBitmapDitherTypeNone, nullptr, 0.0f,
-        WICBitmapPaletteTypeCustom);
-    if (FAILED(hr)) {
+    auto converter = ConvertBitmapSource(wic, frame.Get());
+    if (!converter) {
         return std::nullopt;
     }
 
@@ -99,27 +112,6 @@ inline std::optional<CreatedBitmap> CreateD2DBitmapFromStream(IWICImagingFactory
         return std::nullopt;
     }
     return CreatedBitmap{ std::move(bitmap), decoded->pixel_width, decoded->pixel_height };
-}
-
-// IWICBitmapSource を GUID_WICPixelFormat32bppPBGRA に変換する。
-// HICON 由来の IWICBitmap など、デコーダを経由しないソースに使用する。
-inline Microsoft::WRL::ComPtr<IWICFormatConverter> ConvertBitmapSource(IWICImagingFactory* wic, IWICBitmapSource* source)
-{
-    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
-    HRESULT hr = wic->CreateFormatConverter(&converter);
-    if (FAILED(hr)) {
-        return nullptr;
-    }
-
-    hr = converter->Initialize(
-        source, GUID_WICPixelFormat32bppPBGRA,
-        WICBitmapDitherTypeNone, nullptr, 0.0f,
-        WICBitmapPaletteTypeCustom);
-    if (FAILED(hr)) {
-        return nullptr;
-    }
-
-    return converter;
 }
 
 } // namespace wic_util
