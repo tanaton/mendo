@@ -123,6 +123,8 @@ add_library(mendo_core STATIC
     src/core/document_service.cpp
     src/core/document_utils.cpp
     src/core/parser.cpp
+    src/core/parser_alerts.cpp
+    src/core/html_entities.cpp
     src/core/reload.cpp
     src/core/selection_html.cpp
     src/core/toc.cpp
@@ -136,6 +138,8 @@ add_library(mendo_core STATIC
     src/layout/doc_dwrite_bridge.cpp
     # render - 描画パイプライン
     src/render/command_generator.cpp
+    src/render/command_generator_table.cpp
+    src/render/command_generator_highlights.cpp
     src/render/command_executor.cpp
     # app - クリップボード操作 (CopyCodeBlock / SaveDiagramAsPng / CopyDiagramAsSvg)
     src/app/clipboard_manager.cpp
