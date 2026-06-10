@@ -174,7 +174,9 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
             }
         }
     }
-    else {
+    // candidate より前に非空ノードが無い場合 (文頭が HR/Image 等) も含め、
+    // 先頭の非空ノードの先頭へ倒して常に有効なヒットを返す。
+    if (result.node_index < 0) {
         for (const auto& [i, node] : ctx.nodes | std::views::enumerate) {
             if (!node.GetText().empty()) {
                 result.node_index = static_cast<int>(i);
