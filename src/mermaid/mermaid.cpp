@@ -371,9 +371,14 @@ void MermaidRenderer::CancelPending()
 void MermaidRenderer::RecoverWorker(int index)
 {
     auto& w = workers_[index];
-    // SVG 呼び出し元の in-flight 固着を防ぐ。PNG リクエストはプレースホルダのまま
-    // 残り、次の RequestRender で再試行される。
+    // SVG は失敗完了で呼び出し元の in-flight 固着を防ぐ。PNG は捨てると再リクエストの
+    // 契機が無く図が Loading のまま固着するためキューに戻す。クラッシュを誘発する
+    // 入力での再起動ループは retried で 1 回に打ち切る。
     InvokeSvgCallbackIfAny(w.current_request, {}, false);
+    if (!w.current_request.svg_only && w.current_request.node && !w.current_request.retried) {
+        w.current_request.retried = true;
+        pending_requests_.push(std::move(w.current_request));
+    }
     w.current_request = {};
     w.rendering = false;
     w.ready = false;

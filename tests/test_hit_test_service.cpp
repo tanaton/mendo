@@ -223,6 +223,27 @@ TEST_F(HitTestServiceTest, HitTest_GapBetweenNodesClampsToPrecedingNodeEnd)
     EXPECT_EQ(r.text_pos, pr.nodes[0].GetText().size());
 }
 
+TEST_F(HitTestServiceTest, HitTest_TextlessCandidateFallsForwardToFirstNonEmpty)
+{
+    // candidate がテキストを持たないノード (alt 空の画像) の場合、
+    // 後方探索が外れても -1 ではなく先頭の非空ノードに倒れること
+    auto pr = Parse("![](x.png)\n\nHello");
+    ASSERT_GE(pr.nodes.size(), 2u);
+    ASSERT_TRUE(pr.nodes[0].GetText().empty());
+    ASSERT_FALSE(pr.nodes[1].GetText().empty());
+    ASSERT_GT(pr.cache[0].height, 0.0f);
+
+    // 画像ノードの範囲内クリック (text_layout が無いためフォールバック経路に入る)
+    const float mid_y = pr.cache[0].text_top + pr.cache[0].height * 0.5f;
+    MdPaneHitContext ctx{
+        pr.nodes, pr.cache, theme_,
+        mid_y, 0.0f, 1.0f, 50, 0
+    };
+    auto r = hit_test_.HitTest(ctx);
+    EXPECT_EQ(r.node_index, 1);
+    EXPECT_EQ(r.text_pos, 0u);
+}
+
 // ---- HitTestTable ----
 
 TEST_F(HitTestServiceTest, HitTestTable_NoLayoutDataReturnsTextEnd)
