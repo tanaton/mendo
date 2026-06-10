@@ -104,6 +104,8 @@ private:
     void EnsureInitialized();
     void CreateWebView2Environment();
     void SetupWorker(int index);
+    // WebView2 プロセス障害 (ProcessFailed) からワーカーを復旧する。
+    void RecoverWorker(int index);
     void ProcessQueue();
     void FailPendingRequests();
     void RenderInWorker(Worker& worker);

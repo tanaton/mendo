@@ -397,10 +397,28 @@ LRESULT Win32Window::HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         if (in_sys_menu_) {
             return 0;
         }
-        const int sx = GET_X_LPARAM(lParam);
-        const int sy = GET_Y_LPARAM(lParam);
-        // マウス由来の場合、タイトルバー上の右クリックは抑制する
-        if (sx != -1 || sy != -1) {
+        int sx = GET_X_LPARAM(lParam);
+        int sy = GET_Y_LPARAM(lParam);
+        if (sx == -1 && sy == -1) {
+            // キーボード起動 (VK_APPS / Shift+F10) は lParam が座標を持たない
+            RECT rc{};
+            GetClientRect(hwnd_, &rc);
+            POINT pt{};
+            bool use_cursor = false;
+            if (GetCursorPos(&pt)) {
+                POINT client = pt;
+                ScreenToClient(hwnd_, &client);
+                use_cursor = PtInRect(&rc, client) != FALSE;
+            }
+            if (!use_cursor) {
+                pt = { (rc.left + rc.right) / 2, (rc.top + rc.bottom) / 2 };
+                ClientToScreen(hwnd_, &pt);
+            }
+            sx = pt.x;
+            sy = pt.y;
+        }
+        else {
+            // マウス由来の場合、タイトルバー上の右クリックは抑制する
             POINT pt = { sx, sy };
             ScreenToClient(hwnd_, &pt);
             const float dpi_scale = app_->GetDpiScale();
@@ -595,7 +613,10 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return DefWindowProcW(hwnd_, msg, wParam, lParam);
 
     case WM_CAPTURECHANGED:
-        app_->OnCaptureChanged();
+        // 自分自身への SetCapture (ドラッグ開始) でも届くため、喪失時のみ処理する
+        if (reinterpret_cast<HWND>(lParam) != hwnd_) {
+            app_->OnCaptureChanged();
+        }
         return 0;
 
     case WM_DESTROY:

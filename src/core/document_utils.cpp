@@ -167,11 +167,21 @@ constexpr auto kAsciiSlugTable = [] {
 }();
 
 // CJK ・ 全角文字範囲の句読点・記号はアンカーに含めない。
-// code point 単位で判定 (0x3000 以降の Unicode コードポイント)。
+// アンカー (GitHub 互換スラグ) に採用しない記号・句読点か。非 ASCII コードポイント単位で判定。
+// Unicode 全カテゴリテーブルは持たないため、主要な記号ブロックの近似で判定する
+// (文字 (Letter) を誤って落とすより、稀な記号を通す方向に倒す)。
 constexpr bool IsAnchorSkippableSymbol(uint32_t cp) noexcept
 {
+    // ラテン1補助の記号 (U+00A0–U+00BF)
+    if (cp >= 0x00A0 && cp <= 0x00BF) {
+        return true;
+    }
+    // 一般句読点・通貨・矢印・数学記号等 (U+2000–U+2BFF)、補助句読点 (U+2E00–U+2E7F)
+    if ((cp >= 0x2000 && cp <= 0x2BFF) || (cp >= 0x2E00 && cp <= 0x2E7F)) {
+        return true;
+    }
     // CJK 記号と句読点 (U+3000–U+303F)
-    if (cp <= 0x303F) {
+    if (cp >= 0x3000 && cp <= 0x303F) {
         return true;
     }
     // 全角 ASCII 対応の記号関連
@@ -212,8 +222,7 @@ void GenerateAnchorIdInto(std::string_view text, std::pmr::string& slug)
             }
             const auto decoded = utf8_codec::DecodeAt(text, static_cast<uint32_t>(pos));
             // U+FFFD は不正/truncated バイト由来。アンカーには採用しない。
-            if (decoded.cp != utf8_codec::kReplacement &&
-                decoded.cp >= 0x3000 && !IsAnchorSkippableSymbol(decoded.cp)) {
+            if (decoded.cp != utf8_codec::kReplacement && !IsAnchorSkippableSymbol(decoded.cp)) {
                 for (uint32_t i = 0; i < decoded.len; ++i) {
                     *dst++ = text[pos + i];
                 }

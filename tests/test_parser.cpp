@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "parser.h"
+#include <limits>
 #include <stop_token>
 #include <string>
 
@@ -167,6 +168,38 @@ TEST(Parser, ParagraphWithNoLink)
     for (const auto& run : nodes[0].runs) {
         EXPECT_FALSE(run.has_link());
     }
+}
+
+TEST(Parser, LinkUrlCountCappedAtInt16Max)
+{
+    // link_url_index は int16_t。上限を超えた URL はリンクなしとして扱われ、
+    // wrap して別 URL へ誤マッピングしないこと。テーブルは全体が 1 ノードで
+    // link_urls を共有するため上限へ到達しうる。
+    constexpr int kUrls = 32769;
+    std::string md = "| col |\n|---|\n";
+    md.reserve(md.size() + static_cast<size_t>(kUrls) * 20);
+    for (int i = 0; i < kUrls; ++i) {
+        md += "| [t](u";
+        md += std::to_string(i);
+        md += ") |\n";
+    }
+    auto nodes = ParseMarkdown(md).nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    const auto urls = nodes[0].view_link_urls();
+    EXPECT_EQ(urls.size(), static_cast<size_t>(std::numeric_limits<int16_t>::max()));
+    // 上限超過後の run はリンクなし。全 run の index が urls 範囲内に収まること
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_NE(tbl, nullptr);
+    bool found_unlinked = false;
+    for (const auto& run : tbl->all_runs) {
+        if (run.has_link()) {
+            EXPECT_LT(static_cast<size_t>(run.link_url_index), urls.size());
+        }
+        else {
+            found_unlinked = true;
+        }
+    }
+    EXPECT_TRUE(found_unlinked);
 }
 
 // ---- コードブロック ----

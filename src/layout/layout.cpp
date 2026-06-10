@@ -154,7 +154,8 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
     bool any_updated = false;
     int last_measured = -1;
 
-    const auto node_count = nodes.size();
+    // doc 差し替え直後などの過渡状態では nodes.size() > cache.size() になりうる
+    const auto node_count = std::min(nodes.size(), cache.size());
     const int lo = FindFirstVisibleNodeIndex(cache, node_count, viewport_top);
 
     for (int i = lo; i < static_cast<int>(node_count); i++) {

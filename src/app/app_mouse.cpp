@@ -180,7 +180,11 @@ bool App::OnRButtonDown(int px, int py)
     if (!IsRenderReady()) {
         return false;
     }
-    if (state_.view.viewport.IsDragging()) {
+    // 左ドラッグ進行中にジェスチャを開始すると、完了時の ReleaseCapture が
+    // 進行中ドラッグのキャプチャを破壊する。
+    if (state_.view.viewport.IsDragging() ||
+        state_.view.panes.GetDragTarget() != PaneController::DragTarget::None ||
+        state_.view.h_drag_node >= 0) {
         return false;
     }
     const auto dip = PixelToDip(px, py);

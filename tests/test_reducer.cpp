@@ -450,6 +450,34 @@ TEST_F(ReducerTest, CaptureChanged_ResetsGesture)
     EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
+TEST_F(ReducerTest, CaptureChanged_ResetsTextSelectionDrag)
+{
+    // キャプチャ喪失 (Alt+Tab 等) では WM_LBUTTONUP が来ないため、ここで解除しないと
+    // IsDragging 残留でファイル自動リロードが永久延期される
+    state.view.viewport.SetDragging(true);
+    auto effects = Reduce(state, CaptureChangedAction{});
+    EXPECT_FALSE(state.view.viewport.IsDragging());
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+}
+
+TEST_F(ReducerTest, CaptureChanged_ResetsScrollbarDrag)
+{
+    state.view.panes.StartDrag(PaneController::DragTarget::MdScrollbar);
+    state.view.viewport.SetScrollbarTracking(true);
+    auto effects = Reduce(state, CaptureChangedAction{});
+    EXPECT_EQ(state.view.panes.GetDragTarget(), PaneController::DragTarget::None);
+    EXPECT_FALSE(state.view.viewport.IsScrollbarTracking());
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+}
+
+TEST_F(ReducerTest, CaptureChanged_ResetsBlockHScrollDrag)
+{
+    state.view.h_drag_node = 3;
+    auto effects = Reduce(state, CaptureChangedAction{});
+    EXPECT_EQ(state.view.h_drag_node, -1);
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+}
+
 // ---- タイマーテスト（代表ケース） ----
 
 TEST_F(ReducerTest, Timer_Toast_EmitsInvalidate)

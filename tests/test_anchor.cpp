@@ -46,6 +46,24 @@ TEST(AnchorId, CjkCharactersPreserved)
     EXPECT_EQ(GenerateAnchorId("見出しレベル2"), "見出しレベル2");
 }
 
+TEST(AnchorId, LatinAccentPreserved)
+{
+    // U+0080–U+2FFF の文字 (アクセント付きラテン等) が脱落しないこと。
+    // ASCII 以外は小文字化されない (FindAnchorIndex 側も ASCII のみ小文字化)。
+    EXPECT_EQ(GenerateAnchorId("Café"), "café");
+}
+
+TEST(AnchorId, CyrillicPreserved)
+{
+    EXPECT_EQ(GenerateAnchorId("Привет"), "Привет");
+}
+
+TEST(AnchorId, GeneralPunctuationStripped)
+{
+    // 一般句読点 (U+2000–U+206F) は記号として除外される
+    EXPECT_EQ(GenerateAnchorId("em—dash…"), "emdash");
+}
+
 TEST(AnchorId, MixedAsciiAndCjk)
 {
     EXPECT_EQ(GenerateAnchorId("Step 1: テスト"), "step-1-テスト");

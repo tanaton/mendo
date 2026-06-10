@@ -27,6 +27,10 @@ NavEntry CurrentNavEntry(const AppState& state)
 
 void PushCurrentNavEntry(AppState& state)
 {
+    // doc 未ロード (パス空) の状態は戻り先にならないため積まない
+    if (state.document.doc.GetFilePath().empty()) {
+        return;
+    }
     state.view.nav_history.Push(CurrentNavEntry(state));
 }
 
@@ -37,6 +41,27 @@ void ClearTooltip(AppState& state, SideEffectList& effects)
     state.interaction.tooltip.Hide();
     state.interaction.tooltip.ResetTarget();
     PushEffect(effects, effect::ClearTooltip{});
+}
+
+// マウスがペイン上を経由せずに離れた経路 (ウィンドウ外退出等) で呼ばないと
+// ホバーハイライトが残留する。
+void ClearSidePaneHoverState(AppState& state, SideEffectList& effects)
+{
+    bool changed = false;
+    for (auto t : { PaneTarget::File, PaneTarget::Toc }) {
+        bool pane_changed = state.view.panes.SetHoveredSideIndex(t, -1);
+        pane_changed |= state.view.panes.SetSideCloseHovered(t, false);
+        if (t == PaneTarget::File) {
+            pane_changed |= state.view.panes.SetSideRefreshHovered(t, false);
+        }
+        if (pane_changed) {
+            PushEffect(effects, effect::InvalidatePaneCache{ t == PaneTarget::File ? PaneZone::FilePane : PaneZone::TocPane });
+            changed = true;
+        }
+    }
+    if (changed) {
+        PushEffect(effects, effect::InvalidateWindow{});
+    }
 }
 
 // スクロール位置が変わった時に共通で発火する副作用列。
@@ -482,8 +507,30 @@ void ReduceSearchStep(AppState& state, bool forward)
 void ReduceCaptureChanged(AppState& state, SideEffectList& effects)
 {
     state.search.search_bar_ctrl.OnCaptureChanged();
+    bool invalidate = false;
     if (state.interaction.gesture.GetPhase() != GesturePhase::Idle) {
         state.interaction.gesture.Reset();
+        invalidate = true;
+    }
+    // キャプチャ喪失時 (Alt+Tab・他アプリの SetCapture 等) は WM_LBUTTONUP が
+    // 届かないため、進行中の全ドラッグ状態をここで解除する
+    if (state.view.viewport.IsDragging()) {
+        state.view.viewport.SetDragging(false);
+        invalidate = true;
+    }
+    if (state.view.viewport.IsScrollbarTracking()) {
+        state.view.viewport.SetScrollbarTracking(false);
+        invalidate = true;
+    }
+    if (state.view.panes.GetDragTarget() != PaneController::DragTarget::None) {
+        state.view.panes.EndDrag();
+        invalidate = true;
+    }
+    if (state.view.h_drag_node >= 0) {
+        state.view.h_drag_node = -1;
+        invalidate = true;
+    }
+    if (invalidate) {
         PushEffect(effects, effect::InvalidateWindow{});
     }
 }
@@ -1010,6 +1057,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const MouseLeaveAction&) {
             state.interaction.hover_throttle.Reset();
             ClearTooltip(state, effects);
+            ClearSidePaneHoverState(state, effects);
         },
         [&](const CaptureChangedAction&) { ReduceCaptureChanged(state, effects); },
         [&](const MdPaneNavHoverAction& a) { ReduceMdPaneNavHover(state, effects, a); },

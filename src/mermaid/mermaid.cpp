@@ -218,6 +218,16 @@ void MermaidRenderer::SetupWorker(int index)
             LogHrFailure(L"add_WebMessageReceived", w.webview->add_WebMessageReceived(Microsoft::WRL::Callback<ICoreWebView2WebMessageReceivedEventHandler>(f).Get(), nullptr));
         }
 
+        // レンダラ/ブラウザプロセスのクラッシュを放置するとワーカーが rendering=true の
+        // まま恒久的にビジー扱いになり、全ワーカー喪失で以後の図が Loading 固着する。
+        {
+            const auto f = [this, index](ICoreWebView2*, ICoreWebView2ProcessFailedEventArgs*) -> HRESULT {
+                RecoverWorker(index);
+                return S_OK;
+            };
+            LogHrFailure(L"add_ProcessFailed", w.webview->add_ProcessFailed(Microsoft::WRL::Callback<ICoreWebView2ProcessFailedEventHandler>(f).Get(), nullptr));
+        }
+
         // ナビゲーションを制限: app.local以外へのナビゲーションをブロック
         {
             const auto f = [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) static -> HRESULT {
@@ -355,6 +365,28 @@ void MermaidRenderer::CancelPending()
         InvokeSvgCallbackIfAny(w.current_request, {}, true);
         w.rendering = false;
         w.current_request = {};
+    }
+}
+
+void MermaidRenderer::RecoverWorker(int index)
+{
+    auto& w = workers_[index];
+    // SVG 呼び出し元の in-flight 固着を防ぐ。PNG リクエストはプレースホルダのまま
+    // 残り、次の RequestRender で再試行される。
+    InvokeSvgCallbackIfAny(w.current_request, {}, false);
+    w.current_request = {};
+    w.rendering = false;
+    w.ready = false;
+    // 死んだプロセスの webview/controller は再利用できない
+    if (w.controller) {
+        w.controller->Close();
+    }
+    w.controller.Reset();
+    w.webview.Reset();
+    // init_retries は ready 受信で 0 に戻る。連続クラッシュ時の無限再作成はここで止める。
+    if (webview_env_ && w.init_retries < MAX_WORKER_RETRIES) {
+        ++w.init_retries;
+        SetupWorker(index);
     }
 }
 

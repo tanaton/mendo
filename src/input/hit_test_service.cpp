@@ -163,11 +163,24 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
         }
     }
 
-    for (const auto& [i, node] : ctx.nodes | std::views::enumerate | std::views::reverse) {
-        if (const auto& text = node.GetText(); !text.empty()) {
-            result.node_index = static_cast<int>(i);
-            result.text_pos = static_cast<uint32_t>(text.size());
-            break;
+    // 高さ範囲外 (ノード間の余白等) は最寄りの非空ノードにクランプする。
+    // 文書全体の末尾へ飛ばすと、余白クリックからのドラッグで巨大選択になる。
+    if (candidate >= 0) {
+        for (int i = candidate; i >= 0; --i) {
+            if (const auto& text = ctx.nodes[static_cast<size_t>(i)].GetText(); !text.empty()) {
+                result.node_index = i;
+                result.text_pos = static_cast<uint32_t>(text.size());
+                break;
+            }
+        }
+    }
+    else {
+        for (const auto& [i, node] : ctx.nodes | std::views::enumerate) {
+            if (!node.GetText().empty()) {
+                result.node_index = static_cast<int>(i);
+                result.text_pos = 0;
+                break;
+            }
         }
     }
     last_md_hit_.Store(ctx, gen, result);

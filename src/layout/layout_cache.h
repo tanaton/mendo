@@ -374,6 +374,15 @@ public:
         InvalidateDiagramBitmaps(nodes);
     }
 
+    // デバイスロスト時用。旧デバイス上のビットマップは新 RT で描画できず、
+    // 残すと EndDraw が D2DERR_WRONG_RESOURCE_DOMAIN で失敗し続ける。
+    void InvalidateAllDiagramBitmaps() noexcept
+    {
+        for (auto& d : diagrams_) {
+            d.bitmap.Reset();
+        }
+    }
+
     // ダイアグラム系ノードのビットマップを無効化する。
     // ダークモード切替時に text_layout とエフェクトを保持したまま図だけ再描画したい場合に使う。
     void InvalidateDiagramBitmaps(const std::pmr::vector<Node>& nodes) noexcept
