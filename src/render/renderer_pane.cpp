@@ -145,7 +145,7 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
         rt->SetTransform(D2D1::Matrix3x2F::Identity());
         rt->PopAxisAlignedClip();
 
-        const float total_content = static_cast<float>(sp.item_count) * sp.theme.pane_item_height;
+        const float total_content = SidePaneContentHeight(static_cast<size_t>(sp.item_count), sp.theme.pane_item_height);
         DrawPaneScrollbar(rt, sp.scrollbar_thumb_brush, sp.rect.width, content_top, content_height, sp.scroll.scroll_y, total_content);
 
         const HRESULT end_hr = rt->EndDraw();

@@ -252,17 +252,17 @@ void CommandGenerator::GenerateNode(
         return;
 
     case NodeType::Table: {
-        const float natural_w = entry.has_table_layout() ? entry.table_layout->natural_total_width : 0.0f;
-        const bool needs_clip = natural_w > cw;
-        const float scroll_x = needs_clip ? std::clamp(fc.h_scroll.GetScrollX(node_index), 0.0f, natural_w - cw) : 0.0f;
+        // 幾何はヒットテスト/reducer と共有の GetBlockHScrollGeometry に寄せる
+        const auto geom = GetBlockHScrollGeometry(node, entry, cw);
+        const float scroll_x = geom.can_scroll() ? std::clamp(fc.h_scroll.GetScrollX(node_index), 0.0f, geom.scroll_max()) : 0.0f;
         {
             BlockHScrollScope guard(
                 cmds,
                 D2D1::RectF(x, entry_text_top, x + cw, entry_text_top + entry.height),
-                fc.pane_transform, scroll_x, needs_clip);
+                fc.pane_transform, scroll_x, geom.can_scroll());
             GenTable(cmds, fc, node, entry, node_index, x, entry_text_top, scroll_x);
         }
-        EmitBlockHScrollbarIfActive(cmds, fc, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, 0.0f), BlockHScrollGeometry{ .natural_width = natural_w, .visible_width = cw }, scroll_x);
+        EmitBlockHScrollbarIfActive(cmds, fc, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, 0.0f), geom, scroll_x);
         return;
     }
 
@@ -285,18 +285,17 @@ void CommandGenerator::GenerateNode(
         GenCodeBlockBg(cmds, entry, x, cw, entry_text_top);
         // 背景とコピーボタンはクリップ外で固定描画 (GitHub と同じ挙動)。テキスト本体だけ scroll_x 分平行移動。
         {
-            const float natural_w = entry.natural_code_width;
-            const bool needs_clip = natural_w > cw;
-            const float scroll_x = needs_clip ? std::clamp(fc.h_scroll.GetScrollX(node_index), 0.0f, natural_w - cw) : 0.0f;
+            const auto geom = GetBlockHScrollGeometry(node, entry, cw);
+            const float scroll_x = geom.can_scroll() ? std::clamp(fc.h_scroll.GetScrollX(node_index), 0.0f, geom.scroll_max()) : 0.0f;
             const float pad = theme_->code_block_padding;
             {
                 BlockHScrollScope guard(
                     cmds,
                     D2D1::RectF(x, entry_text_top - pad, x + cw, entry_text_top + entry.height + pad),
-                    fc.pane_transform, scroll_x, needs_clip);
+                    fc.pane_transform, scroll_x, geom.can_scroll());
                 GenNodeTextDecorations(cmds, fc, node, entry, node_index, x, text_x, entry_text_top);
             }
-            EmitBlockHScrollbarIfActive(cmds, fc, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, pad), BlockHScrollGeometry{ .natural_width = natural_w, .visible_width = cw }, scroll_x);
+            EmitBlockHScrollbarIfActive(cmds, fc, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, pad), geom, scroll_x);
         }
         GenCopyButton(cmds, entry, x, cw, node_index == fc.hovered.copy, entry_text_top);
         return;

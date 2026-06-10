@@ -99,7 +99,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         return;
     }
     if (IsOverMdScrollbar(dip_x, dip_y, pane_layout)) {
-        Dispatch(MdScrollbarDragStartedAction{ dip_y, ScrollableContentHeight() });
+        Dispatch(MdScrollbarDragStartedAction{ dip_y });
         return;
     }
 
@@ -169,7 +169,7 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const
         is_file
             ? static_cast<int>(state_.file_explorer.GetEntries().size())
             : static_cast<int>(state_.document.doc.GetToc().GetEntries().size());
-    const float total_content = static_cast<float>(item_count) * theme.pane_item_height;
+    const float total_content = SidePaneContentHeight(static_cast<size_t>(item_count), theme.pane_item_height);
     const auto scroll_info = ComputePaneScrollInfo(rect, total_content);
 
     if (IsOverPaneScrollbar(dip_x, rect, total_content, scroll_info)) {

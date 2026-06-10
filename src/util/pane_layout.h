@@ -85,6 +85,13 @@ private:
     bool valid_ = false;
 };
 
+// サイドペイン (ファイル/TOC) の総コンテンツ高。スクロール計算・描画・自動スクロールの
+// 全層がこの式を共有する (項目の可変高等を導入する際はここだけ変える)。
+constexpr float SidePaneContentHeight(size_t item_count, float pane_item_height) noexcept
+{
+    return static_cast<float>(item_count) * pane_item_height;
+}
+
 PaneLayout ComputePaneLayout(
     float total_width, float total_height,
     float file_pane_width, float toc_pane_width,

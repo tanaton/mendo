@@ -35,7 +35,7 @@ void App::SyncTocActiveAndAutoScroll()
 
     // アクティブ見出しが目次ペインの表示範囲から外れていたら、自動スクロールで追従する。
     const float item_y = static_cast<float>(new_active) * theme.pane_item_height;
-    const float total = static_cast<float>(state_.document.doc.GetToc().GetEntries().size()) * theme.pane_item_height;
+    const float total = SidePaneContentHeight(state_.document.doc.GetToc().GetEntries().size(), theme.pane_item_height);
     const auto info = ComputePaneScrollInfo(layout.toc_rect, total);
     auto& toc_scroll = state_.view.panes.SidePaneScroll(PaneTarget::Toc);
     float& sy = toc_scroll.scroll_y;

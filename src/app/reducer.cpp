@@ -112,11 +112,11 @@ SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
     const float item_h = state.theme->pane_item_height;
     const float header_h = state.theme->pane_header_height;
     const auto& layout = state.pane_layout_cache.Get();
-    const float item_count = static_cast<float>(
+    const size_t item_count =
         pane == PaneTarget::File
             ? state.file_explorer.GetEntries().size()
-            : state.document.doc.GetToc().GetEntries().size());
-    const float total = item_count * item_h;
+            : state.document.doc.GetToc().GetEntries().size();
+    const float total = SidePaneContentHeight(item_count, item_h);
     const PaneRect& rect = layout.Get(pane);
     return {
         rect,
@@ -370,8 +370,20 @@ BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node
         state.pane_layout_cache.Get().md_rect.width);
 }
 
-// HitTestService 側のキャッシュキーには block_scroll_x が含まれないため、
-// 値が変わったタイミングで effects_generation を進めて last_md_hit_ の再計算を強制する。
+// MD ペインの総コンテンツ高 (LayoutService::GetScrollableContentHeight と同じ式)。
+// アクションのペイロードで運ぶと、遅延レイアウト進行中にドラッグ開始と移動で
+// 別計測の値が混ざりサム位置が跳ねるため、reducer 側で都度導出する。
+float MdScrollableContentHeight(const AppState& state) noexcept
+{
+    return ComputeTotalContentHeight(
+        state.document.layout_cache,
+        state.document.doc.GetNodes().size(),
+        state.theme->margin_top);
+}
+
+// HitTestService 側のキャッシュは対象ノードの block_scroll_x をキーに含むため、
+// ここで effects_generation を進める必要はない (進めると Renderer の effects
+// 再適用まで横スクロール 1 ノッチごとに巻き添えになる)。
 bool ApplyBlockHScrollDelta(AppState& state, int node_index, float new_value, float scroll_max)
 {
     const float clamped = std::clamp(new_value, 0.0f, scroll_max);
@@ -385,7 +397,6 @@ bool ApplyBlockHScrollDelta(AppState& state, int node_index, float new_value, fl
     else {
         state.view.block_scroll_x[node_index] = clamped;
     }
-    state.document.layout_cache.IncrementEffectsGeneration();
     return true;
 }
 
@@ -635,7 +646,7 @@ constexpr ScrollbarDragGrip ComputeScrollbarDragGrip(
 void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, const MdScrollbarDragStartedAction& a)
 {
     const auto& md_rect = state.pane_layout_cache.Get().md_rect;
-    const auto info = ComputeScrollInfo(md_rect, 0.0f, a.total_height);
+    const auto info = ComputeScrollInfo(md_rect, 0.0f, MdScrollableContentHeight(state));
     const float thumb_y = ComputeThumbY(info, state.view.viewport.GetScrollY());
     const auto grip = ComputeScrollbarDragGrip(thumb_y, info.thumb_height, a.dip_y);
     const auto drag_offset = grip.drag_offset;
@@ -660,7 +671,7 @@ void ReduceMdScrollbarDragMoved(AppState& state, SideEffectList& effects, const 
         return;
     }
     const auto& md_rect = state.pane_layout_cache.Get().md_rect;
-    const auto info = ComputeScrollInfo(md_rect, 0.0f, a.total_height);
+    const auto info = ComputeScrollInfo(md_rect, 0.0f, MdScrollableContentHeight(state));
     const float new_thumb_y = a.dip_y - state.view.panes.GetDragScrollOffset();
     const float old_scroll = state.view.viewport.GetScrollY();
     state.view.viewport.ScrollTo(ScrollFromThumbY(info, new_thumb_y));

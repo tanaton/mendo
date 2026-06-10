@@ -18,11 +18,12 @@ struct BlockHScrollGeometry {
     }
 };
 
+// 呼び出し側が可視幅 (ContentWidth − indent) を計算済みの場合のオーバーロード。
 inline BlockHScrollGeometry GetBlockHScrollGeometry(
-    const Node& node, const NodeLayoutEntry& entry, const Theme& theme, float md_pane_width) noexcept
+    const Node& node, const NodeLayoutEntry& entry, float visible_width) noexcept
 {
     BlockHScrollGeometry g;
-    g.visible_width = theme.ContentWidth(md_pane_width) - mendo::layout::NodeIndent(node, theme);
+    g.visible_width = visible_width;
     if (node.type == NodeType::Table && entry.has_table_layout()) {
         g.natural_width = entry.table_layout->natural_total_width;
     }
@@ -30,4 +31,10 @@ inline BlockHScrollGeometry GetBlockHScrollGeometry(
         g.natural_width = entry.natural_code_width;
     }
     return g;
+}
+
+inline BlockHScrollGeometry GetBlockHScrollGeometry(
+    const Node& node, const NodeLayoutEntry& entry, const Theme& theme, float md_pane_width) noexcept
+{
+    return GetBlockHScrollGeometry(node, entry, theme.ContentWidth(md_pane_width) - mendo::layout::NodeIndent(node, theme));
 }

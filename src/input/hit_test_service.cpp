@@ -131,17 +131,11 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
         const auto& node = ctx.nodes[candidate];
         const auto& entry = ctx.cache[candidate];
 
-        float h_scroll_x = 0.0f;
-        if (ctx.block_scroll_x) {
-            const auto sit = ctx.block_scroll_x->find(candidate);
-            if (sit != ctx.block_scroll_x->end()) {
-                h_scroll_x = sit->second;
-            }
-        }
+        const float h_scroll_x = LookupBlockScrollX(ctx, candidate);
 
         if (node.type == NodeType::Table) {
             result = HitTestTable(node, entry, candidate_text_top, candidate, ctx.theme, dip_x, dip_y, h_scroll_x);
-            last_md_hit_.Store(ctx, gen, result);
+            last_md_hit_.Store(ctx, gen, result, candidate, h_scroll_x);
             return result;
         }
 
@@ -158,7 +152,7 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
             result.node_index = candidate;
             const auto& wv = md_wv_cache_.Get(node.GetText());
             result.text_pos = wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0));
-            last_md_hit_.Store(ctx, gen, result);
+            last_md_hit_.Store(ctx, gen, result, candidate, h_scroll_x);
             return result;
         }
     }
