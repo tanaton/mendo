@@ -904,6 +904,7 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     //   - kInputBytesPerImage=512     → 画像頻度 ~0.2%。
     //   - kInputBytesPerBlockquote=512 → blockquote 頻度 (image と同程度)。
     //   - kInputBytesPerDiagram=1024  → ダイアグラム頻度 ~0.1%。
+    //   - kInputBytesPerTable=1024    → テーブル頻度 (ダイアグラムと同程度を想定)。
     constexpr size_t kArenaInputBytesPerByte = 20;
     constexpr size_t kScratchInputBytesPerByte = 8;
     constexpr size_t kInputBytesPerNode = 64;
@@ -911,6 +912,7 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     constexpr size_t kInputBytesPerImage = 512;
     constexpr size_t kInputBytesPerBlockquote = 512;
     constexpr size_t kInputBytesPerDiagram = 1024;
+    constexpr size_t kInputBytesPerTable = 1024;
     constexpr size_t kArenaMin = 128 * 1024;
     constexpr size_t kArenaMax = 5 * 1024 * 1024;
     const size_t input_size = markdown_text.size();
@@ -931,7 +933,7 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     ctx.anchor_counts.reserve(heading_hint);
     ctx.image_indices.reserve(std::clamp(input_size / kInputBytesPerImage, 4uz, 256uz));
     ctx.diagram_indices.reserve(std::clamp(input_size / kInputBytesPerDiagram, 4uz, 128uz));
-    ctx.table_indices.reserve(std::clamp(input_size / kInputBytesPerDiagram, 4uz, 128uz));
+    ctx.table_indices.reserve(std::clamp(input_size / kInputBytesPerTable, 4uz, 128uz));
     ctx.blockquote_indices.reserve(std::clamp(input_size / kInputBytesPerBlockquote, 4uz, 256uz));
 
     MD_PARSER parser{};
