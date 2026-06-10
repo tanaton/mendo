@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <memory_resource>
 #include <span>
 #include <string_view>
@@ -2209,7 +2210,8 @@ TEST(ExtractSelectedTextAsHtml, ConsecutiveLfsProduceMultipleBrs)
 TEST(ExtractSelectedTextAsHtml, OnlyLf)
 {
     auto html = HtmlFromNodeText("\n");
-    EXPECT_NE(html.find("<br>"), std::string::npos);
-    // テキストコンテンツなし。
-    EXPECT_EQ(html.find("<br>"), html.find("<p>") + 3);
+    const auto p_pos = html.find("<p>");
+    ASSERT_NE(p_pos, std::string::npos);
+    // テキストコンテンツなし: <p> の直後に <br> が来る。
+    EXPECT_EQ(html.find("<br>"), p_pos + 3);
 }
