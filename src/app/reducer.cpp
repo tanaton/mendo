@@ -5,7 +5,6 @@
 #include "file_io.h"
 #include "layout_computer.h"
 #include "overloaded.h"
-#include "scroll_drag.h"
 #include "ui_constants.h"
 #include "utility.h"
 #include <algorithm>
@@ -433,19 +432,13 @@ void ReduceBlockHScrollDragStarted(AppState& state, SideEffectList& effects, con
     if (!ResolveBlockHScrollGeometry(state, a.node_index).can_scroll()) {
         return;
     }
-    // clang-format off
-    mendo::RunScrollDragStarted(
-        effects,
-        [&sv = state.view, node_index = a.node_index, dip_x = a.dip_x] {
-            sv.h_drag_node = node_index;
-            sv.h_drag_start_x = dip_x;
-            sv.h_drag_start_scroll = sv.GetBlockScrollX(node_index);
-        },
-        [&effects] {
-            PushEffect(effects, effect::InvalidateWindow{});
-        }
-    );
-    // clang-format on
+    // ドラッグ state の初期化は SetCapture より前に行う
+    auto& sv = state.view;
+    sv.h_drag_node = a.node_index;
+    sv.h_drag_start_x = a.dip_x;
+    sv.h_drag_start_scroll = sv.GetBlockScrollX(a.node_index);
+    PushEffect(effects, effect::SetCapture{});
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ReduceBlockHScrollDragMoved(AppState& state, SideEffectList& effects, const BlockHScrollDragMovedAction& a)
@@ -475,17 +468,9 @@ void ReduceBlockHScrollDragEnded(AppState& state, SideEffectList& effects, const
     if (state.view.h_drag_node < 0) {
         return;
     }
-    // clang-format off
-    mendo::RunScrollDragEnded(
-        effects,
-        [&state] {
-            state.view.h_drag_node = -1;
-        },
-        [&effects] {
-            PushEffect(effects, effect::InvalidateWindow{});
-        }
-    );
-    // clang-format on
+    state.view.h_drag_node = -1;
+    PushEffect(effects, effect::ReleaseCapture{});
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ReduceSearchStep(AppState& state, bool forward)
@@ -655,22 +640,17 @@ void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, cons
     const auto grip = ComputeScrollbarDragGrip(thumb_y, info.thumb_height, a.dip_y);
     const auto drag_offset = grip.drag_offset;
 
-    auto begin = [&sv = state.view, drag_offset] {
-        sv.panes.StartDrag(PaneController::DragTarget::MdScrollbar);
-        sv.viewport.SetScrollbarTracking(true);
-        sv.panes.SetDragScrollOffset(drag_offset);
-    };
+    // ドラッグ state の初期化は SetCapture より前に行う
+    auto& sv = state.view;
+    sv.panes.StartDrag(PaneController::DragTarget::MdScrollbar);
+    sv.viewport.SetScrollbarTracking(true);
+    sv.panes.SetDragScrollOffset(drag_offset);
+    PushEffect(effects, effect::SetCapture{});
     // thumb 内クリックなら 1st jump は不要 (thumb-grip オフセット記録だけ)。
-    if (grip.inside_thumb) {
-        mendo::RunScrollDragStarted(effects, begin);
-    }
-    else {
-        auto jump = [&state, &effects, info, new_thumb_y = a.dip_y - drag_offset] {
-            const float old_scroll = state.view.viewport.GetScrollY();
-            state.view.viewport.ScrollTo(ScrollFromThumbY(info, new_thumb_y));
-            EmitScrollEffects(state, effects, old_scroll);
-        };
-        mendo::RunScrollDragStarted(effects, begin, jump);
+    if (!grip.inside_thumb) {
+        const float old_scroll = sv.viewport.GetScrollY();
+        sv.viewport.ScrollTo(ScrollFromThumbY(info, a.dip_y - drag_offset));
+        EmitScrollEffects(state, effects, old_scroll);
     }
 }
 
@@ -692,19 +672,11 @@ void ReduceMdScrollbarDragEnded(AppState& state, SideEffectList& effects)
     if (state.view.panes.GetDragTarget() != PaneController::DragTarget::MdScrollbar) {
         return;
     }
-    // clang-format off
-    mendo::RunScrollDragEnded(
-        effects,
-        [&state] {
-            state.view.viewport.SetScrollbarTracking(false);
-            state.view.panes.EndDrag();
-        },
-        [&effects] {
-            PushEffect(effects, effect::PerformResizeEnd{});
-            PushEffect(effects, effect::BitmapManage{});
-        }
-    );
-    // clang-format on
+    state.view.viewport.SetScrollbarTracking(false);
+    state.view.panes.EndDrag();
+    PushEffect(effects, effect::ReleaseCapture{});
+    PushEffect(effects, effect::PerformResizeEnd{});
+    PushEffect(effects, effect::BitmapManage{});
 }
 
 void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, const PaneScrollbarDragStartedAction& a)
@@ -717,21 +689,14 @@ void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, co
     const auto grip = ComputeScrollbarDragGrip(thumb_y, ctx.info.thumb_height, a.dip_y);
     const auto drag_offset = grip.drag_offset;
 
-    auto begin = [&state, drag_target = ctx.drag_target, drag_offset] {
-        state.view.panes.StartDrag(drag_target);
-        state.view.panes.SetDragScrollOffset(drag_offset);
-    };
-    if (grip.inside_thumb) {
-        mendo::RunScrollDragStarted(effects, begin);
-    }
-    else {
-        auto jump = [&effects, &ctx, new_thumb_y = a.dip_y - drag_offset] {
-            ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, new_thumb_y);
-            ctx.scroll.max_scroll = ctx.info.max_scroll;
-            PushEffect(effects, effect::InvalidatePaneCache{ ctx.pane_zone });
-            PushEffect(effects, effect::InvalidateWindow{});
-        };
-        mendo::RunScrollDragStarted(effects, begin, jump);
+    // ドラッグ state の初期化は SetCapture より前に行う
+    state.view.panes.StartDrag(ctx.drag_target);
+    state.view.panes.SetDragScrollOffset(drag_offset);
+    PushEffect(effects, effect::SetCapture{});
+    if (!grip.inside_thumb) {
+        ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, a.dip_y - drag_offset);
+        PushEffect(effects, effect::InvalidatePaneCache{ ctx.pane_zone });
+        PushEffect(effects, effect::InvalidateWindow{});
     }
 }
 
@@ -745,7 +710,6 @@ void ReducePaneScrollbarDragMoved(AppState& state, SideEffectList& effects, cons
     auto ctx = GetSidePaneContext(state, a.pane);
     const float new_thumb_y = a.dip_y - state.view.panes.GetDragScrollOffset();
     ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, new_thumb_y);
-    ctx.scroll.max_scroll = ctx.info.max_scroll;
     PushEffect(effects, effect::InvalidatePaneCache{ ctx.pane_zone });
     PushEffect(effects, effect::InvalidateWindow{});
 }
@@ -757,9 +721,8 @@ void ReducePaneScrollbarDragEnded(AppState& state, SideEffectList& effects)
     if (drag != FileScrollbar && drag != TocScrollbar) {
         return;
     }
-    mendo::RunScrollDragEnded(effects, [&state] {
-        state.view.panes.EndDrag();
-    });
+    state.view.panes.EndDrag();
+    PushEffect(effects, effect::ReleaseCapture{});
 }
 
 void ReduceTextSelectionStarted(AppState& state, SideEffectList& effects, const TextSelectionStartedAction& a)

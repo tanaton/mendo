@@ -318,7 +318,7 @@ TEST_F(HitTestServiceTest, SaveButton_NoDiagramReturnsNegative)
         0.0f, 0.0f, 1.0f, 400, 100,
         content_width, 600.0f
     };
-    EXPECT_EQ(hit_test_.SaveButtonHitTest(ctx), -1);
+    EXPECT_EQ(hit_test_.CodeBlockButtonsHitTest(ctx).save_node, -1);
 }
 
 TEST_F(HitTestServiceTest, SaveButton_NonDiagramCodeBlockReturnsNegative)
@@ -330,7 +330,7 @@ TEST_F(HitTestServiceTest, SaveButton_NonDiagramCodeBlockReturnsNegative)
         0.0f, 0.0f, 1.0f, 400, 100,
         content_width, 600.0f
     };
-    EXPECT_EQ(hit_test_.SaveButtonHitTest(ctx), -1);
+    EXPECT_EQ(hit_test_.CodeBlockButtonsHitTest(ctx).save_node, -1);
 }
 
 TEST_F(HitTestServiceTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
@@ -357,7 +357,7 @@ TEST_F(HitTestServiceTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
         static_cast<int>(entry_text_top + 5),
         content_width, 600.0f
     };
-    EXPECT_EQ(hit_test_.SaveButtonHitTest(ctx), -1);
+    EXPECT_EQ(hit_test_.CodeBlockButtonsHitTest(ctx).save_node, -1);
 }
 
 TEST_F(HitTestServiceTest, SaveButton_EmptyDocumentReturnsNegative)
@@ -369,5 +369,5 @@ TEST_F(HitTestServiceTest, SaveButton_EmptyDocumentReturnsNegative)
         0.0f, 0.0f, 1.0f, 400, 100,
         content_width, 600.0f
     };
-    EXPECT_EQ(hit_test_.SaveButtonHitTest(ctx), -1);
+    EXPECT_EQ(hit_test_.CodeBlockButtonsHitTest(ctx).save_node, -1);
 }

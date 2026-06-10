@@ -84,10 +84,6 @@ public:
 
     NavButtonHover NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) const noexcept;
 
-    int CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcept;
-
-    int SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcept;
-
     // 可視ノード走査・座標変換・キャッシュ照合を共有して Copy / Save / SvgCopy を一度に判定する。
     struct CodeBlockButtonHit {
         int copy_node = -1;

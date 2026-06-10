@@ -246,16 +246,6 @@ HitTestService::HitResult HitTestService::HitTestTable(
     return result;
 }
 
-int HitTestService::CopyButtonHitTest(const MdPaneHitContext& ctx) const noexcept
-{
-    return CodeBlockButtonsHitTest(ctx).copy_node;
-}
-
-int HitTestService::SaveButtonHitTest(const MdPaneHitContext& ctx) const noexcept
-{
-    return CodeBlockButtonsHitTest(ctx).save_node;
-}
-
 HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const MdPaneHitContext& ctx) const noexcept
 {
     if (ctx.nodes.empty()) {

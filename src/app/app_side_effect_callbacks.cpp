@@ -119,26 +119,6 @@ void AppSideEffectCallbacks::schedule_bitmap_manage()
     app->resource_manager_.ScheduleBitmapManage();
 }
 
-void AppSideEffectCallbacks::schedule_mermaid_batch()
-{
-    app->resource_manager_.ScheduleMermaidBatch();
-}
-
-void AppSideEffectCallbacks::load_images()
-{
-    app->resource_manager_.LoadImages();
-}
-
-void AppSideEffectCallbacks::request_mermaid_renders()
-{
-    app->resource_manager_.RequestMermaidRenders();
-}
-
-void AppSideEffectCallbacks::cancel_mermaid_batch()
-{
-    app->resource_manager_.CancelMermaidBatch();
-}
-
 void AppSideEffectCallbacks::on_app_image_loaded()
 {
     app->resource_manager_.OnAppImageLoaded();

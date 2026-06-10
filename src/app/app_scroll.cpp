@@ -38,7 +38,6 @@ void App::SyncTocActiveAndAutoScroll()
     const float total = static_cast<float>(state_.document.doc.GetToc().GetEntries().size()) * theme.pane_item_height;
     const auto info = ComputePaneScrollInfo(layout.toc_rect, total);
     auto& toc_scroll = state_.view.panes.SidePaneScroll(PaneTarget::Toc);
-    toc_scroll.max_scroll = info.max_scroll;
     float& sy = toc_scroll.scroll_y;
     sy = std::clamp(sy, 0.0f, info.max_scroll);
     if (info.content_height > 0.0f) {
