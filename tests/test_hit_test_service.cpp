@@ -188,29 +188,60 @@ TEST_F(HitTestServiceTest, HitTest_BelowAllNodesReturnsLastNonEmpty)
               static_cast<uint32_t>(pr.nodes[expected_idx].GetText().size()));
 }
 
-TEST_F(HitTestServiceTest, HitTest_TextLayoutNullFallsBackToLastNode)
+TEST_F(HitTestServiceTest, HitTest_AboveFirstNodeClampsToFirstNodeStart)
 {
     // MockTextMeasurer は text_layout=nullptr を設定する。
-    // ノード範囲内をクリックしても entry.text_layout 経由の分岐に入らず、
-    // 末尾フォールバック（最後の非空ノード末尾）が返る。
+    // 先頭ノードより上 (margin_top 内) のクリックは先頭の非空ノードの先頭に返る。
     auto pr = Parse("Hello\n\nWorld");
-    ASSERT_GE(pr.nodes.size(), 1u);
+    ASSERT_GE(pr.nodes.size(), 2u);
 
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,
-        0.0f, 0.0f, 1.0f, 50, 5
+        0.0f, 0.0f, 1.0f, 50, 0
     };
     auto r = hit_test_.HitTest(ctx);
+    EXPECT_EQ(r.node_index, 0);
+    EXPECT_EQ(r.text_pos, 0u);
+}
 
-    int expected_idx = -1;
-    for (int i = static_cast<int>(pr.nodes.size()) - 1; i >= 0; --i) {
-        if (!pr.nodes[i].GetText().empty()) {
-            expected_idx = i;
-            break;
-        }
-    }
-    ASSERT_GE(expected_idx, 0);
-    EXPECT_EQ(r.node_index, expected_idx);
+TEST_F(HitTestServiceTest, HitTest_GapBetweenNodesClampsToPrecedingNodeEnd)
+{
+    // ノード間の余白クリックは直前の非空ノード末尾に返る。
+    // 文書全体の末尾へ飛ばすと、余白からのドラッグで巨大選択が作られてしまう。
+    auto pr = Parse("Hello\n\nWorld");
+    ASSERT_GE(pr.nodes.size(), 2u);
+    const float node0_bottom = pr.cache[0].text_top + pr.cache[0].height;
+    ASSERT_LT(node0_bottom, pr.cache[1].text_top) << "ノード間に余白があること";
+
+    const float gap_y = (node0_bottom + pr.cache[1].text_top) * 0.5f;
+    MdPaneHitContext ctx{
+        pr.nodes, pr.cache, theme_,
+        gap_y, 0.0f, 1.0f, 50, 0
+    };
+    auto r = hit_test_.HitTest(ctx);
+    EXPECT_EQ(r.node_index, 0);
+    EXPECT_EQ(r.text_pos, pr.nodes[0].GetText().size());
+}
+
+TEST_F(HitTestServiceTest, HitTest_TextlessCandidateFallsForwardToFirstNonEmpty)
+{
+    // candidate がテキストを持たないノード (alt 空の画像) の場合、
+    // 後方探索が外れても -1 ではなく先頭の非空ノードに倒れること
+    auto pr = Parse("![](x.png)\n\nHello");
+    ASSERT_GE(pr.nodes.size(), 2u);
+    ASSERT_TRUE(pr.nodes[0].GetText().empty());
+    ASSERT_FALSE(pr.nodes[1].GetText().empty());
+    ASSERT_GT(pr.cache[0].height, 0.0f);
+
+    // 画像ノードの範囲内クリック (text_layout が無いためフォールバック経路に入る)
+    const float mid_y = pr.cache[0].text_top + pr.cache[0].height * 0.5f;
+    MdPaneHitContext ctx{
+        pr.nodes, pr.cache, theme_,
+        mid_y, 0.0f, 1.0f, 50, 0
+    };
+    auto r = hit_test_.HitTest(ctx);
+    EXPECT_EQ(r.node_index, 1);
+    EXPECT_EQ(r.text_pos, 0u);
 }
 
 // ---- HitTestTable ----

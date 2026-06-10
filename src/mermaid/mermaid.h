@@ -70,6 +70,8 @@ private:
         float css_height = 0.0f;
         float dpr = 1.0f;            // JSから取得したdevicePixelRatio
         unsigned int request_id = 0; // リクエスト固有のID（JS側のpostMessageと照合）
+        // プロセス障害からの requeue 済みフラグ。クラッシュ誘発入力での再起動ループを防ぐ。
+        bool retried = false;
 
         // SVGクリップボードコピー用リクエスト。true の場合 layout/diagram は使わず、
         // SVG文字列を svg_callback で返す。
@@ -104,6 +106,8 @@ private:
     void EnsureInitialized();
     void CreateWebView2Environment();
     void SetupWorker(int index);
+    // WebView2 プロセス障害 (ProcessFailed) からワーカーを復旧する。
+    void RecoverWorker(int index);
     void ProcessQueue();
     void FailPendingRequests();
     void RenderInWorker(Worker& worker);

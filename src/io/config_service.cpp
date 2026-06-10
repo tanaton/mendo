@@ -88,7 +88,12 @@ void ConfigService::Load()
     if (!buf) {
         return;
     }
-    data_ = ini::Parse(std::string_view(reinterpret_cast<const char*>(buf.get()), size));
+    std::string_view content(reinterpret_cast<const char*>(buf.get()), size);
+    // 手編集ツールが付ける UTF-8 BOM を除去しないと先頭セクションが認識されない
+    if (content.starts_with("\xEF\xBB\xBF")) {
+        content.remove_prefix(3);
+    }
+    data_ = ini::Parse(content);
 }
 
 void ConfigService::Flush()

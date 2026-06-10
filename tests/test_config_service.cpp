@@ -183,6 +183,18 @@ TEST_F(ConfigServiceTest, LoadEmptyDirectoryProducesDefaults)
     EXPECT_FALSE(config_.LoadBool("View", "DarkMode"));
 }
 
+TEST_F(ConfigServiceTest, LoadSkipsUtf8Bom)
+{
+    // メモ帳等の BOM 付き UTF-8 で手編集された settings.ini でも
+    // 先頭セクションが無言で失われないこと
+    {
+        std::ofstream out(temp_dir_ / L"settings.ini", std::ios::binary);
+        out << "\xEF\xBB\xBF[Window]\r\nX=42\r\n";
+    }
+    config_.Load();
+    EXPECT_EQ(config_.LoadInt("Window", "X", 0, 0, 100), 42);
+}
+
 // ---- 複数セクションの独立性 ----
 
 TEST_F(ConfigServiceTest, MultipleSectionsIndependent)

@@ -116,6 +116,37 @@ TEST(ParserImage, ImageInBlockquoteBecomesImageNode)
     EXPECT_EQ(nodes[0].image_data()->src, "img.png");
 }
 
+TEST(ParserImage, ImageInTableCellDoesNotCorruptTable)
+{
+    // テーブルセル内の画像が variant の NodeTableData を破壊しないこと。
+    // 破壊されると active_text_buffer がダングリングになり UAF / クラッシュする。
+    auto nodes = ParseMarkdown("| ![badge](a.png) text | b |\n|---|---|\n| c | d |").nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::Table);
+    ASSERT_NE(nodes[0].table_data(), nullptr);
+    EXPECT_EQ(nodes[0].table_data()->row_count, 2u);
+    EXPECT_FALSE(nodes[0].has_image());
+}
+
+TEST(ParserImage, ImageInHeadingKeepsHeadingLevel)
+{
+    // 見出し内の画像バッジが NodeHeadingData を破壊しないこと
+    auto nodes = ParseMarkdown("# ![logo](l.png) Title").nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::Heading);
+    EXPECT_EQ(nodes[0].heading_level(), 1);
+    EXPECT_FALSE(nodes[0].has_image());
+}
+
+TEST(ParserImage, NestedImageUsesOutermostSrc)
+{
+    // CommonMark では画像説明内に画像記法を書ける。ノードの src は最外側を採用する
+    auto nodes = ParseMarkdown("![outer ![inner](inner.png)](outer.png)").nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::Image);
+    EXPECT_EQ(nodes[0].image_data()->src, "outer.png");
+}
+
 TEST(ParserImage, ImageInTightListStaysListItem)
 {
     // タイトリスト内の画像はP生成されないため、ListItem のまま

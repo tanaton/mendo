@@ -86,10 +86,12 @@ bool App::Init(HWND hwnd)
         image_loader_.CancelPending();
         image_loader_.SetRenderTarget(new_rt);
         image_loader_.ClearCache();
-        resource_manager_.LoadImages();
         // IDWriteTextLayout が SetDrawingEffect 経由で AddRef した旧 RT 由来のブラシと、
-        // DiagramEntry::bitmap が新 RT で描画拒否されるのを防ぐ。
+        // DiagramEntry::bitmap が新 RT で描画拒否されるのを防ぐ。ApplyCachedImages は
+        // bitmap 残存ノードをスキップするため、LoadImages の前に破棄する必要がある。
         state_.document.layout_cache.InvalidateEffectsAndDiagramBitmaps(state_.document.doc.GetNodes());
+        state_.document.layout_cache.InvalidateAllDiagramBitmaps();
+        resource_manager_.LoadImages();
     });
 
     theme_service_.LoadDarkMode();

@@ -583,7 +583,9 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     // セル幅・行高さ・累積位置・行オフセットすべて変化しないため、layout_dirty を倒すだけで終える。
     // 検索ハイライト矩形・effects・inline_code_bgs もテキスト位置に依存するので保持できる。
     // cells_partially_evicted 時は null セルの再生成が必要なので素通り禁止。
-    if (has_compatible_layouts && !tl_existing->cells_partially_evicted && tl_existing->last_applied_max_width >= 0.0f && std::abs(tl_existing->last_applied_max_width - max_width) < CELL_WIDTH_EPSILON) {
+    // col_widths が空 (EstimateInvisibleNodeHeight が幾何を破棄済み) のまま通すと
+    // GenTable が空テーブルを描画し続ける。
+    if (has_compatible_layouts && !tl_existing->cells_partially_evicted && !tl_existing->col_widths.empty() && tl_existing->last_applied_max_width >= 0.0f && std::abs(tl_existing->last_applied_max_width - max_width) < CELL_WIDTH_EPSILON) {
         entry.layout_dirty = false;
         return;
     }
@@ -596,6 +598,9 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     entry.effects_applied = false;
     auto& tl = entry.ensure_table_layout();
     tl.cell_inline_code_bgs.clear();
+    // 計算済みフラグを残すと、幅変更時に画面外だった行の inline code 背景が
+    // 再計算されずに欠落する (ApplyTableEffects の resize は既存要素を保持するため)。
+    tl.row_bgs_computed.clear();
     tl.row_heights.resize(row_count);
 
     // セルレイアウトが既に存在し、かつストライドが現在の列数と一致する場合のみ

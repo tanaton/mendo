@@ -130,7 +130,9 @@ struct ParseContext {
     std::pmr::unordered_map<std::pmr::string, int, mendo::StringTransparentHash, std::equal_to<>> anchor_counts{ &pool };
 
     // 画像スパンの src 蓄積バッファ。NodeImageData::src へは allocator 不一致を避けるため assign(view) でコピー。
+    // ネスト画像 (![a ![b](inner)](outer)) では最外側の src を採用するため深度を追跡する。
     std::pmr::string pending_image_src{ &pool };
+    int image_span_depth = 0;
 
     // display math スパンが 1 個だけで他の内容が無い段落を LatexMath コードブロックに昇格する状態
     bool in_display_math = false;
@@ -247,6 +249,11 @@ struct ParseContext {
                 current_link_url_index = static_cast<int16_t>(i);
                 return;
             }
+        }
+        // link_url_index (int16_t) を超える URL はリンクなしとして扱う
+        if (n >= static_cast<size_t>(std::numeric_limits<int16_t>::max())) {
+            current_link_url_index = -1;
+            return;
         }
         auto& urls = current_node->ensure_link_urls();
         const int16_t new_index = static_cast<int16_t>(urls.size());
@@ -687,7 +694,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     }
     case MD_SPAN_IMG: {
         auto* const img = static_cast<MD_SPAN_IMG_DETAIL*>(detail);
-        if (img->src.text && img->src.size > 0) {
+        if (++ctx->image_span_depth == 1 && img->src.text && img->src.size > 0) {
             ctx->pending_image_src.assign(img->src.text, static_cast<size_t>(img->src.size));
         }
         break;
@@ -749,12 +756,20 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
         ctx->current_link_url_index = -1;
         break;
     case MD_SPAN_IMG:
-        if (auto* cn = ctx->current_node; cn && !ctx->pending_image_src.empty()) {
-            // pending_image_src は pool allocator で、NodeImageData::src は default 。
-            // allocator 不一致で std::move しても内部的にコピーされるので、明示的に assign(view) する。
-            cn->ensure_image()->src.assign(ctx->pending_image_src.data(), ctx->pending_image_src.size());
+        if (--ctx->image_span_depth == 0) {
+            // Table / Heading で ensure_image を呼ぶと variant の既存データが破壊され、
+            // テーブルでは active_text_buffer がダングリングになるため、Image 昇格候補と
+            // リスト項目 (型を保ったまま src を持つ既存仕様) に限定する。
+            if (auto* cn = ctx->current_node;
+                cn && !ctx->pending_image_src.empty() &&
+                (cn->type == NodeType::Paragraph || cn->type == NodeType::BlockQuote ||
+                 cn->type == NodeType::ListItem || cn->type == NodeType::TaskListItem)) {
+                // pending_image_src は pool allocator で、NodeImageData::src は default 。
+                // allocator 不一致で std::move しても内部的にコピーされるので、明示的に assign(view) する。
+                cn->ensure_image()->src.assign(ctx->pending_image_src.data(), ctx->pending_image_src.size());
+            }
+            ctx->pending_image_src.clear();
         }
-        ctx->pending_image_src.clear();
         break;
     case MD_SPAN_LATEXMATH_DISPLAY:
         ctx->in_display_math = false;
