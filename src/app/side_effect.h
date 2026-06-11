@@ -99,6 +99,9 @@ struct RefreshPaneLayout {};
 struct SyncTocActive {
     // false: ハイライト更新のみで目次ペインの自動スクロールを行わない。
     // 目次ペイン操作由来のジャンプでクリック先が動く混乱を防ぐ (issue#259)。
+    // ジャンプ由来の判断は reducer 層 (EmitScrollChangedSideEffects) が明示引数で担い、
+    // SyncTocActive{} で発火する App 側の再同期 (リサイズ/ロード等) は常に追従で正しい。
+    // デフォルトを外すと {} が値初期化で false になり挙動が静かに反転するため維持する。
     bool auto_scroll = true;
 };
 // 可視範囲のレイアウトを即時計測する。md_width/md_height はペインレイアウトのキャッシュ値。
