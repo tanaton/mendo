@@ -96,7 +96,11 @@ struct InvalidatePaneCache {
     PaneZone pane;
 };
 struct RefreshPaneLayout {};
-struct SyncTocActive {};
+struct SyncTocActive {
+    // false: ハイライト更新のみで目次ペインの自動スクロールを行わない。
+    // 目次ペイン操作由来のジャンプでクリック先が動く混乱を防ぐ (issue#259)。
+    bool auto_scroll = true;
+};
 // 可視範囲のレイアウトを即時計測する。md_width/md_height はペインレイアウトのキャッシュ値。
 struct ViewportLayout {
     float md_width;

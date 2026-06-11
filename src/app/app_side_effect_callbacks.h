@@ -32,7 +32,7 @@ struct AppSideEffectCallbacks {
     void destroy();
     void handle_parse_complete();
     void show_context_menu(int x, int y);
-    void sync_toc_active();
+    void sync_toc_active(bool auto_scroll);
 
     void schedule_bitmap_manage();
     void on_app_image_loaded();

@@ -1,6 +1,7 @@
 #pragma once
 #include "ui_constants.h"
 #include "ui_types.h"
+#include <algorithm>
 #include <optional>
 
 enum class PaneZone : uint8_t {
@@ -90,6 +91,12 @@ private:
 constexpr float SidePaneContentHeight(size_t item_count, float pane_item_height) noexcept
 {
     return static_cast<float>(item_count) * pane_item_height;
+}
+
+// 指定項目をペイン表示域の縦中央に置くスクロール位置。先頭/末尾付近は端にクランプする (issue#259)。
+constexpr float CenterPaneScrollY(float item_y, float item_height, const PaneScrollInfo& info) noexcept
+{
+    return std::clamp(item_y - (info.content_height - item_height) * 0.5f, 0.0f, info.max_scroll);
 }
 
 PaneLayout ComputePaneLayout(

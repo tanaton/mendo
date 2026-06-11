@@ -117,7 +117,7 @@ struct CallbackTracker {
     int handle_parse_complete_count = 0;
     std::pair<int, int> last_context_menu_pos{ 0, 0 };
     int show_context_menu_count = 0;
-    int sync_toc_active_count = 0;
+    std::vector<bool> sync_toc_auto_scroll_calls;
 };
 
 struct TestSideEffectCallbacks {
@@ -203,9 +203,9 @@ struct TestSideEffectCallbacks {
         t->last_context_menu_pos = { x, y };
         t->show_context_menu_count++;
     }
-    void sync_toc_active()
+    void sync_toc_active(bool auto_scroll)
     {
-        t->sync_toc_active_count++;
+        t->sync_toc_auto_scroll_calls.push_back(auto_scroll);
     }
 
     void schedule_bitmap_manage()
@@ -302,6 +302,15 @@ TEST_F(SideEffectExecutorTest, RefreshPaneLayoutDispatchesToCallback)
 {
     exec_.ExecuteOne(effect::RefreshPaneLayout{});
     EXPECT_EQ(refresh_pane_layout_count_, 1);
+}
+
+TEST_F(SideEffectExecutorTest, SyncTocActiveForwardsAutoScrollFlag)
+{
+    exec_.ExecuteOne(effect::SyncTocActive{});
+    exec_.ExecuteOne(effect::SyncTocActive{ /*auto_scroll=*/false });
+    ASSERT_EQ(tracker_.sync_toc_auto_scroll_calls.size(), 2u);
+    EXPECT_TRUE(tracker_.sync_toc_auto_scroll_calls[0]);
+    EXPECT_FALSE(tracker_.sync_toc_auto_scroll_calls[1]);
 }
 
 TEST_F(SideEffectExecutorTest, RendererResizeForwardsDimensions)

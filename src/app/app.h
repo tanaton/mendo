@@ -228,7 +228,7 @@ private:
     void RefreshFilePane();
     void OnDeferredLayout();
 
-    void SyncTocActiveAndAutoScroll();
+    void SyncTocActiveAndAutoScroll(bool auto_scroll = true);
 
     void ReloadCurrentFile();
     void DoReloadCurrentFile();
