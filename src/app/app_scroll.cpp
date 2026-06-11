@@ -13,7 +13,7 @@ void App::InvalidateHitPositions()
     Dispatch(ClearTooltipAction{});
 }
 
-void App::SyncTocActiveAndAutoScroll()
+void App::SyncTocActiveAndAutoScroll(bool auto_scroll)
 {
     if (!state_.view.panes.IsSidePaneVisible(PaneTarget::Toc)) {
         return;
@@ -29,27 +29,19 @@ void App::SyncTocActiveAndAutoScroll()
     state_.active_toc_index = new_active;
     renderer_.InvalidateSidePaneCache(PaneTarget::Toc);
 
-    if (new_active < 0) {
+    // auto_scroll=false (目次クリック由来) ではハイライト更新のみ。
+    // ユーザーが操作中の目次ペインのスクロール位置を勝手に動かさない (issue#259)。
+    if (!auto_scroll || new_active < 0) {
         return;
     }
 
-    // アクティブ見出しが目次ペインの表示範囲から外れていたら、自動スクロールで追従する。
+    // アクティブ見出しを目次ペインの中央に保つように追従スクロールする。
     const float item_y = static_cast<float>(new_active) * theme.pane_item_height;
     const float total = SidePaneContentHeight(state_.document.doc.GetToc().GetEntries().size(), theme.pane_item_height);
     const auto info = ComputePaneScrollInfo(layout.toc_rect, total);
-    auto& toc_scroll = state_.view.panes.SidePaneScroll(PaneTarget::Toc);
-    float& sy = toc_scroll.scroll_y;
-    sy = std::clamp(sy, 0.0f, info.max_scroll);
     if (info.content_height > 0.0f) {
-        // フォーカスを表示領域の 1/5〜4/5 帯に留める（端ぴったりだと前後が見えにくい）。
-        const float zone_upper = info.content_height * (1.0f / 5.0f);
-        const float zone_lower = info.content_height * (4.0f / 5.0f);
-        if (item_y < sy + zone_upper) {
-            sy = std::clamp(item_y - zone_upper, 0.0f, info.max_scroll);
-        }
-        else if (item_y + theme.pane_item_height > sy + zone_lower) {
-            sy = std::clamp(item_y + theme.pane_item_height - zone_lower, 0.0f, info.max_scroll);
-        }
+        state_.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y =
+            CenterPaneScrollY(item_y, theme.pane_item_height, info);
     }
 }
 

@@ -109,9 +109,9 @@ void AppSideEffectCallbacks::show_context_menu(int x, int y)
     app->OnContextMenu(x, y);
 }
 
-void AppSideEffectCallbacks::sync_toc_active()
+void AppSideEffectCallbacks::sync_toc_active(bool auto_scroll)
 {
-    app->SyncTocActiveAndAutoScroll();
+    app->SyncTocActiveAndAutoScroll(auto_scroll);
 }
 
 void AppSideEffectCallbacks::schedule_bitmap_manage()

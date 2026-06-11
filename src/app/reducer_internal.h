@@ -14,9 +14,11 @@
 void ClearTooltip(AppState& state, SideEffectList& effects);
 void ClearSidePaneHoverState(AppState& state, SideEffectList& effects);
 
-void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects);
+// toc_auto_scroll は発火元がスクロール先を決める: 目次ペイン操作由来のみ false (issue#259)。
+// デフォルト引数にすると新経路が暗黙で true を拾うため、呼び出し側で必ず明示する。
+void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects, bool toc_auto_scroll);
 void EmitScrollEffects(AppState& state, SideEffectList& effects, float old_scroll);
-void ApplyScrollTargetAndEmit(AppState& state, SideEffectList& effects, int node, float offset);
+void ApplyScrollTargetAndEmit(AppState& state, SideEffectList& effects, int node, float offset, bool toc_auto_scroll);
 
 // つまみ上クリック → 位置維持 (オフセットのみ記録)、つまみ外 → 中心へジャンプ。
 struct ScrollbarDragGrip {

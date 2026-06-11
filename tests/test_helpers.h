@@ -153,6 +153,19 @@ inline std::optional<size_t> IndexOfEffect(const SideEffectList& effects) noexce
     return std::nullopt;
 }
 
+// SideEffectList の中で型 T が最初に現れる要素を返す。無ければ nullptr。
+// フィールド値の検証 (HasEffect では型の有無しか見られない) に使う。
+template <typename T>
+inline const T* FindEffect(const SideEffectList& effects) noexcept
+{
+    for (const auto& se : effects) {
+        if (const T* p = GetEffect<T>(se)) {
+            return p;
+        }
+    }
+    return nullptr;
+}
+
 enum class EffectOrdering {
     Before, // A が先、B が後
     After,  // B が先、A が後

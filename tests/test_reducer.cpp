@@ -1190,6 +1190,59 @@ TEST_F(ReducerTest, TocItemClicked_TailSection_ClampsToMaxScroll)
     EXPECT_FALSE(state.view.viewport.HasScrollTarget());
 }
 
+// issue#259: 目次クリック由来のジャンプでは目次ペインの自動スクロールを抑制する
+// (ハイライト更新のみ)。クリック先の項目が画面内で動いて見失う混乱を防ぐ契約。
+TEST_F(ReducerTest, TocItemClicked_SuppressesTocAutoScroll)
+{
+    state.document.doc = Document::FromMarkdown(std::pmr::string("# First\n\n# Second"), L"C:\\file.md");
+    auto& cache = state.document.layout_cache;
+    const auto& nodes = state.document.doc.GetNodes();
+    cache.Resize(nodes.size());
+    cache[1].text_top = 100.0f;
+
+    const auto anchor = nodes[1].anchor_id();
+    if (anchor.empty()) {
+        GTEST_SKIP() << "anchor_id が空のため検証できない";
+    }
+
+    auto effects = Reduce(state, TocItemClickedAction{ std::pmr::string(anchor) });
+
+    const auto* sync = FindEffect<effect::SyncTocActive>(effects);
+    ASSERT_NE(sync, nullptr);
+    EXPECT_FALSE(sync->auto_scroll);
+}
+
+// MD ペインのスクロール由来では従来通り目次が追従する。
+TEST_F(ReducerTest, KeyScroll_KeepsTocAutoScroll)
+{
+    auto effects = Reduce(state, KeyScrollAction{ ScrollType::LineDown });
+
+    const auto* sync = FindEffect<effect::SyncTocActive>(effects);
+    ASSERT_NE(sync, nullptr);
+    EXPECT_TRUE(sync->auto_scroll);
+}
+
+// MD ペイン内のアンカーリンク由来でも追従を維持する (抑制は目次クリックのみ)。
+TEST_F(ReducerTest, NavigateAnchor_KeepsTocAutoScroll)
+{
+    state.document.doc = Document::FromMarkdown(std::pmr::string("# First\n\n# Second"), L"C:\\file.md");
+    auto& cache = state.document.layout_cache;
+    const auto& nodes = state.document.doc.GetNodes();
+    cache.Resize(nodes.size());
+    cache[1].text_top = 100.0f;
+
+    const auto anchor = nodes[1].anchor_id();
+    if (anchor.empty()) {
+        GTEST_SKIP() << "anchor_id が空のため検証できない";
+    }
+
+    auto effects = Reduce(state, NavigateAnchorAction{ std::pmr::string(anchor) });
+
+    const auto* sync = FindEffect<effect::SyncTocActive>(effects);
+    ASSERT_NE(sync, nullptr);
+    EXPECT_TRUE(sync->auto_scroll);
+}
+
 // ---- 副作用順序ヘルパーの利用例 (test_helpers.h::HasEffectInOrder) ----
 // EmitScrollEffects は InvalidateMdPane → BitmapManage の順で push する契約。
 // 順序が逆転すると BitmapManage 側が古い viewport で動くなどの実害があるため、

@@ -62,30 +62,30 @@ void ClearSidePaneHoverState(AppState& state, SideEffectList& effects)
 // スクロール位置が変わった時に共通で発火する副作用列。
 // InvalidateMdPane → BitmapManage の順序は test_reducer の HasEffectInOrder で契約として担保。
 // MD ペイン限定無効化により、タイトルバー/サイドペインビットマップキャッシュの再描画を避ける。
-void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects)
+void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects, bool toc_auto_scroll)
 {
     state.interaction.hover_throttle.Reset();
     ClearTooltip(state, effects);
     PushEffect(effects, effect::InvalidateMdPane{});
     PushEffect(effects, effect::BitmapManage{});
-    PushEffect(effects, effect::SyncTocActive{});
+    PushEffect(effects, effect::SyncTocActive{ toc_auto_scroll });
 }
 
 void EmitScrollEffects(AppState& state, SideEffectList& effects, float old_scroll)
 {
     if (state.view.viewport.GetScrollY() != old_scroll) {
-        EmitScrollChangedSideEffects(state, effects);
+        EmitScrollChangedSideEffects(state, effects, /*toc_auto_scroll=*/true);
     }
 }
 
-void ApplyScrollTargetAndEmit(AppState& state, SideEffectList& effects, int node, float offset)
+void ApplyScrollTargetAndEmit(AppState& state, SideEffectList& effects, int node, float offset, bool toc_auto_scroll)
 {
     state.view.viewport.SetScrollTarget(node, offset);
     state.view.viewport.ApplyScrollTarget(state.document.layout_cache);
     // 末尾セクションへのジャンプで scroll_y > max_scroll になると、後続の DirectScrollBy で
     // 位置が一気に飛ぶ。事前クランプ + target 無効化で範囲外への復帰を抑える。
     state.view.viewport.ClampAndDetach();
-    EmitScrollChangedSideEffects(state, effects);
+    EmitScrollChangedSideEffects(state, effects, toc_auto_scroll);
 }
 
 constexpr PaneController::DragTarget SidePaneDragTargetImpl(PaneTarget pane) noexcept
