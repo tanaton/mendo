@@ -5,12 +5,16 @@
 
 void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, const TableRowGeom& g, bool is_header, bool is_even_row)
 {
-    if (is_header) {
-        cmds.emplace_back(FillRectCmd{ D2D1::RectF(g.x, g.y, g.x + g.table_width, g.y + g.row_h + g.border), theme_->code_bg_color, BrushId::CodeBg });
+    if (!is_header && !is_even_row) {
+        return;
     }
-    else if (is_even_row) {
+    const D2D1_RECT_F rect = D2D1::RectF(g.x, g.y, g.x + g.table_width, g.y + g.row_h + g.border);
+    if (is_header) {
+        cmds.emplace_back(FillRectCmd{ rect, theme_->code_bg_color, BrushId::CodeBg });
+    }
+    else {
         // cached_stripe_color_ と Renderer の brushes_[TableStripe] は同じ式 (renderer_resources.cpp) で算出する。
-        cmds.emplace_back(FillRectCmd{ D2D1::RectF(g.x, g.y, g.x + g.table_width, g.y + g.row_h + g.border), cached_stripe_color_, BrushId::TableStripe });
+        cmds.emplace_back(FillRectCmd{ rect, cached_stripe_color_, BrushId::TableStripe });
     }
 }
 

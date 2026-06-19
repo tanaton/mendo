@@ -29,23 +29,9 @@ struct ToLowerAsciiFn {
 inline constexpr ToLowerAsciiFn ToLowerAscii{};
 
 template <typename Char>
-constexpr Char ToUpperAscii(Char c) noexcept
-{
-    return (c >= static_cast<Char>('a') && c <= static_cast<Char>('z')) ? static_cast<Char>(c - static_cast<Char>('a') + static_cast<Char>('A')) : c;
-}
-
-template <typename Char>
 constexpr bool IsAsciiDigit(Char c) noexcept
 {
     return c >= static_cast<Char>('0') && c <= static_cast<Char>('9');
-}
-
-template <typename Char>
-constexpr bool IsAsciiHexDigit(Char c) noexcept
-{
-    return IsAsciiDigit(c) ||
-           (c >= static_cast<Char>('a') && c <= static_cast<Char>('f')) ||
-           (c >= static_cast<Char>('A') && c <= static_cast<Char>('F'));
 }
 
 // CJK は対象外。

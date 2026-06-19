@@ -70,6 +70,12 @@ inline D2D1_RECT_F ToD2DRect(const DipRect& r) noexcept
     return std::bit_cast<D2D1_RECT_F>(r);
 }
 
+// PaneRect は {x,y,width,height} で D2D1_RECT_F とビット等価ではないため計算で変換する。
+inline D2D1_RECT_F ToD2DRect(const PaneRect& r) noexcept
+{
+    return D2D1::RectF(r.x, r.y, r.x + r.width, r.y + r.height);
+}
+
 // File / TOC ペインの対称な状態をまとめた値型。SidePaneState::panes[2] の要素。
 struct SidePaneInstance {
     PaneRect rect{};

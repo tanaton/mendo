@@ -364,10 +364,8 @@ public:
         const auto evict_outside_keep = [&](const std::pmr::vector<size_t>& indices) {
             const auto keep = VisibleSlice(indices, static_cast<size_t>(first_keep), static_cast<size_t>(last_keep));
             const auto reset_bitmap = [&](size_t i) {
-                auto& diagram = deps_.cache->GetDiagram(i);
-                if (diagram.bitmap) {
-                    diagram.bitmap.Reset();
-                }
+                // ComPtr::Reset() は null でも安全な no-op。
+                deps_.cache->GetDiagram(i).bitmap.Reset();
             };
             for (auto it = indices.begin(); it != keep.begin; ++it) {
                 reset_bitmap(*it);
