@@ -285,9 +285,7 @@ void App::OnMouseHover(int px, int py)
                 return state_.view.panes.SetSideRefreshHovered(target, v);
             },
             [this, is_file](float y, float h) noexcept {
-                return is_file
-                    ? state_.file_explorer.HitTest(y, h)
-                    : state_.document.doc.GetToc().HitTest(y, h);
+                return  is_file ? state_.file_explorer.HitTest(y, h) : state_.document.doc.GetToc().HitTest(y, h);
             },
             tooltip
         );

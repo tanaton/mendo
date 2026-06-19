@@ -39,4 +39,3 @@ void App::OnLButtonDblClk(int px, int py)
     state_.view.viewport.SetSelection(TextSelection::MakeOrdered(hit.node_index, wb.start, hit.node_index, wb.end));
     InvalidateMdPane(layout.md_rect);
 }
-

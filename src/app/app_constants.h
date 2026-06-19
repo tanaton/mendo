@@ -58,8 +58,8 @@ inline constexpr UINT END = WM_APP + 7;
 namespace app_param {
 
 inline constexpr WPARAM SEARCH_FOCUS_SELECT_ALL = 0;
-inline constexpr WPARAM SEARCH_FOCUS_SET_CARET = 1;          // lParam = caret (int)
-inline constexpr WPARAM SEARCH_FOCUS_SET_SELECTION = 2;      // lParam = (anchor << 32) | caret (int x 2)
+inline constexpr WPARAM SEARCH_FOCUS_SET_CARET = 1;     // lParam = caret (int)
+inline constexpr WPARAM SEARCH_FOCUS_SET_SELECTION = 2; // lParam = (anchor << 32) | caret (int x 2)
 inline constexpr WPARAM SEARCH_UNFOCUS_CLOSE = 0;
 inline constexpr WPARAM SEARCH_UNFOCUS_FILE_SWITCH = 1;
 

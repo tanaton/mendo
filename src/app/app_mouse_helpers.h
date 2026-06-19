@@ -93,8 +93,7 @@ struct PaneHoverResult {
     bool any_button_hit = false;
 };
 
-template <typename SetCloseHoveredFn, typename SetRefreshHoveredFn,
-          typename HitTestFn, typename BuildTooltipFn>
+template <typename SetCloseHoveredFn, typename SetRefreshHoveredFn, typename HitTestFn, typename BuildTooltipFn>
     requires std::predicate<SetCloseHoveredFn&, bool> && std::predicate<SetRefreshHoveredFn&, bool> && std::invocable<HitTestFn&, float, float> && std::convertible_to<std::invoke_result_t<HitTestFn&, float, float>, int> && std::invocable<BuildTooltipFn&, bool, bool, int> && std::convertible_to<std::invoke_result_t<BuildTooltipFn&, bool, bool, int>, TooltipTarget>
 PaneHoverResult ProcessSidePaneHover(
     float dip_x, float dip_y,

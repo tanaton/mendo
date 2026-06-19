@@ -27,8 +27,9 @@ public:
     // ファクトリ。本体は (text, byte_size, path) の 3 引数版。
     // 2 引数版は byte_size 計算を内蔵した便利ラッパー (テスト / Help リソース経路、入力は BOM 無し前提)。
     // default-constructed の stop_token はキャンセル不可で従来通り動作。
-    static Document FromMarkdown(std::pmr::string text, size_t byte_size, std::wstring_view path,
-                                 std::stop_token stop_token = {});
+    static Document FromMarkdown(
+        std::pmr::string text, size_t byte_size, std::wstring_view path,
+        std::stop_token stop_token = {});
     static Document FromMarkdown(std::pmr::string utf8, std::wstring_view path);
 
     constexpr const std::pmr::vector<Node>& GetNodes() const noexcept
@@ -65,7 +66,10 @@ public:
     {
         return loaded_byte_size_;
     }
-    const std::pmr::wstring& GetDirectory() const noexcept { return cached_directory_; }
+    const std::pmr::wstring& GetDirectory() const noexcept
+    {
+        return cached_directory_;
+    }
 
     void SetFilePath(std::wstring_view path)
     {
