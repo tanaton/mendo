@@ -4,6 +4,15 @@
 #include <algorithm>
 #include <limits>
 
+namespace {
+// ビットマップ描画ノード (画像 / ダイアグラムコードブロック) はテキストハイライト不可のため検索対象外。
+bool IsNonSearchableDrawNode(const Node& node) noexcept
+{
+    return node.type == NodeType::Image ||
+           (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language()));
+}
+} // namespace
+
 void SearchState::SetQuery(std::string_view query)
 {
     query_.assign(query);
@@ -54,9 +63,7 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
             }
         }
         else if (const auto& text = node.GetText(); !text.empty()) {
-            // ビットマップ描画ノードはテキストハイライト不可のため検索対象外
-            if (node.type == NodeType::Image ||
-                (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language()))) {
+            if (IsNonSearchableDrawNode(node)) {
                 continue;
             }
             const auto search_text = case_sensitive_ ? text : lower_cache_.GetText(i);
@@ -105,7 +112,7 @@ void SearchState::EnsureLowercaseCache(const std::pmr::vector<Node>& nodes)
             table.offsets = std::span<const uint32_t>{ tbl->cell_text_starts.data(), tbl->cell_text_starts.size() };
             lower_cache_.tables.emplace(static_cast<int>(i), std::move(table));
         }
-        else if (node.type == NodeType::Image || (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language()))) {
+        else if (IsNonSearchableDrawNode(node)) {
             // 検索対象外ノードは空スライス
             lower_cache_.offsets.push_back(static_cast<uint32_t>(lower_cache_.buffer.size()));
         }

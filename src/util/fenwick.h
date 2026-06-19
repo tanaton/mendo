@@ -59,13 +59,7 @@ public:
             }
         }
         tree_.resize(n, 0.0f);
-        // 個別値配列から Fenwick を再構築 (Build(span) と同じ本体)。
-        for (std::size_t i = 1; i <= n; ++i) {
-            const std::size_t parent = i + (i & (~i + 1));
-            if (parent <= n) {
-                tree_[parent - 1] += tree_[i - 1];
-            }
-        }
+        BuildFromPoints(n);
     }
 
     constexpr std::size_t size() const noexcept
@@ -139,12 +133,7 @@ public:
         if (n > 0) {
             std::copy_n(values.data(), n, tree_.data());
         }
-        for (std::size_t i = 1; i <= n; ++i) {
-            const std::size_t parent = i + (i & (~i + 1));
-            if (parent <= n) {
-                tree_[parent - 1] += tree_[i - 1];
-            }
-        }
+        BuildFromPoints(n);
     }
 
 private:
@@ -158,6 +147,17 @@ private:
         const std::size_t n = tree_.size();
         for (std::size_t k = i + 1; k <= n; k += k & (~k + 1)) {
             tree_[k - 1] += diff;
+        }
+    }
+
+    // 個別値が tree_[0..n) に入っている状態から Fenwick 構造へ in-place 変換する。
+    void BuildFromPoints(std::size_t n) noexcept
+    {
+        for (std::size_t i = 1; i <= n; ++i) {
+            const std::size_t parent = i + (i & (~i + 1));
+            if (parent <= n) {
+                tree_[parent - 1] += tree_[i - 1];
+            }
         }
     }
 

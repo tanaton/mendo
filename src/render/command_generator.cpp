@@ -1,5 +1,6 @@
 #include "command_generator.h"
 #include "command_generator_internal.h"
+#include "render_params.h"
 #include "i18n.h"
 #include "layout.h"
 #include "layout_computer.h"
@@ -104,10 +105,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         cmds.reserve(last_cmds_size_ + last_cmds_size_ / 8 + 16);
     }
 
-    const D2D1_RECT_F md_clip = D2D1::RectF(
-        md_pane_rect.x, md_pane_rect.y,
-        md_pane_rect.x + md_pane_rect.width, md_pane_rect.y + md_pane_rect.height);
-    cmds.emplace_back(PushClipCmd{ md_clip });
+    cmds.emplace_back(PushClipCmd{ ToD2DRect(md_pane_rect) });
     // スクロール位置を物理ピクセル境界にスナップし、ClearTypeヒンティングの
     // フレーム間変動によるテキストのガタつきを防止する。スナップは描画 Y のみに
     // 適用し、二分探索 (FindFirstVisibleNodeIndex) には未スナップ scroll_y を渡す。

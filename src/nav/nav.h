@@ -75,6 +75,9 @@ private:
     InternalEntry ToInternal(const NavEntry& e);
     NavEntry ToExternal(const InternalEntry& e) const;
 
+    // GoBack/GoForward の対称処理を集約する。
+    bool Move(std::pmr::deque<InternalEntry>& from, std::pmr::deque<InternalEntry>& to, const NavEntry& current, NavEntry& out);
+
     // path_pool_ は deque にして emplace_back での参照安定性を保証し、
     // path_index_ のキー (std::wstring_view) が pool 内の文字列を指し続けるようにする。
     // 典型的なセッションのエントリ数は数十〜数百で、文字列ハッシュの計算コストと

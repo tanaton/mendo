@@ -90,41 +90,34 @@ void NavHistory::Push(const NavEntry& current)
     }
 }
 
-bool NavHistory::GoBack(const NavEntry& current, NavEntry& out)
+bool NavHistory::Move(std::pmr::deque<InternalEntry>& from, std::pmr::deque<InternalEntry>& to, const NavEntry& current, NavEntry& out)
 {
-    if (back_stack_.empty()) {
+    if (from.empty()) {
         return false;
     }
 
-    forward_stack_.emplace_back(ToInternal(current));
-    if (forward_stack_.size() > MAX_HISTORY) {
-        ReleasePath(forward_stack_.front().path_index);
-        forward_stack_.pop_front();
+    // 現在地を反対側スタックへ。容量超過時は最古を解放して捨てる
+    // (放置すると往復で容量超過 + path slot 参照が滞留する)。
+    to.emplace_back(ToInternal(current));
+    if (to.size() > MAX_HISTORY) {
+        ReleasePath(to.front().path_index);
+        to.pop_front();
     }
-    const auto top = back_stack_.back();
+    const auto top = from.back();
     out = ToExternal(top);
-    back_stack_.pop_back();
+    from.pop_back();
     ReleasePath(top.path_index);
     return true;
 }
 
+bool NavHistory::GoBack(const NavEntry& current, NavEntry& out)
+{
+    return Move(back_stack_, forward_stack_, current, out);
+}
+
 bool NavHistory::GoForward(const NavEntry& current, NavEntry& out)
 {
-    if (forward_stack_.empty()) {
-        return false;
-    }
-
-    back_stack_.emplace_back(ToInternal(current));
-    // 抜けると往復で容量超過 + path slot 参照が滞留する。
-    if (back_stack_.size() > MAX_HISTORY) {
-        ReleasePath(back_stack_.front().path_index);
-        back_stack_.pop_front();
-    }
-    const auto top = forward_stack_.back();
-    out = ToExternal(top);
-    forward_stack_.pop_back();
-    ReleasePath(top.path_index);
-    return true;
+    return Move(forward_stack_, back_stack_, current, out);
 }
 
 void NavHistory::Clear() noexcept

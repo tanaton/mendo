@@ -163,8 +163,7 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
     }
 
     if (sp.cache.cached_bitmap) {
-        const D2D1_RECT_F dest = D2D1::RectF(sp.rect.x, sp.rect.y, sp.rect.x + sp.rect.width, sp.rect.y + sp.rect.height);
-        sp.main_rt->DrawBitmap(sp.cache.cached_bitmap.Get(), dest);
+        sp.main_rt->DrawBitmap(sp.cache.cached_bitmap.Get(), ToD2DRect(sp.rect));
     }
 }
 
