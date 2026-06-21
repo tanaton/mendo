@@ -2,6 +2,7 @@
 #include "d2d_util.h"
 #include "theme.h"
 #include "resource.h"
+#include "ui_constants.h"
 #include <cmath>
 #include <mutex>
 
@@ -289,7 +290,7 @@ bool ContextMenu::Impl::EnsureRenderTarget(float dpi)
 
 bool ContextMenu::Impl::RecreateDeviceResources()
 {
-    if (!EnsureRenderTarget(dpi_scale * 96.0f)) {
+    if (!EnsureRenderTarget(dpi_scale * DEFAULT_DPI)) {
         return false;
     }
     CreateBrushes();

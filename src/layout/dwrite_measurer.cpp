@@ -240,7 +240,7 @@ void DWriteTextMeasurer::MeasureNode(
     // ダイアグラム系コードブロック: ビットマップがレンダリングされるまでのプレースホルダー高さ
     if (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language())) {
         if (entry.height <= 0) {
-            entry.height = std::max(MIN_DIAGRAM_PLACEHOLDER_HEIGHT, theme_->font_size_body * 3.0f);
+            entry.height = mendo::layout::PlaceholderHeight(*theme_);
         }
         entry.layout_dirty = false;
         return;
@@ -258,7 +258,7 @@ void DWriteTextMeasurer::MeasureNode(
             entry.height = h;
         }
         else if (entry.height <= 0) {
-            entry.height = std::max(MIN_DIAGRAM_PLACEHOLDER_HEIGHT, theme_->font_size_body * 3.0f);
+            entry.height = mendo::layout::PlaceholderHeight(*theme_);
         }
         entry.layout_dirty = false;
         return;
@@ -463,8 +463,9 @@ void DWriteTextMeasurer::FinalizeTableLayout(
     const auto* tbl = node.table_data();
     const auto row_count = tbl->row_count;
     bool any_row_unrestored = false;
+    const float base_row_height = theme_->font_size_body * TABLE_ROW_HEIGHT_FACTOR;
     for (size_t r = 0; r < row_count; r++) {
-        float row_height = theme_->font_size_body * TABLE_ROW_HEIGHT_FACTOR;
+        float row_height = base_row_height;
         bool row_has_null_cell = false;
         for (size_t c = 0; c < col_count; c++) {
             const float cw = (c < tl.col_widths.size()) ? tl.col_widths[c] : DEFAULT_COLUMN_WIDTH;

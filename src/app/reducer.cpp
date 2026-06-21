@@ -50,7 +50,7 @@ void ClearSidePaneHoverState(AppState& state, SideEffectList& effects)
             pane_changed |= state.view.panes.SetSideRefreshHovered(t, false);
         }
         if (pane_changed) {
-            PushEffect(effects, effect::InvalidatePaneCache{ t == PaneTarget::File ? PaneZone::FilePane : PaneZone::TocPane });
+            PushEffect(effects, effect::InvalidatePaneCache{ ToPaneZone(t) });
             changed = true;
         }
     }
@@ -69,6 +69,12 @@ void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects, bool
     PushEffect(effects, effect::InvalidateMdPane{});
     PushEffect(effects, effect::BitmapManage{});
     PushEffect(effects, effect::SyncTocActive{ toc_auto_scroll });
+}
+
+void EmitSidePaneScrollChanged(SideEffectList& effects, PaneZone zone)
+{
+    PushEffect(effects, effect::InvalidatePaneCache{ zone });
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void EmitScrollEffects(AppState& state, SideEffectList& effects, float old_scroll)

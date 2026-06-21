@@ -362,6 +362,9 @@ private:
     // (DPI 変更パスは bg を作り直すまで維持する設計)。
     static void ResetTableLayoutGeometry(TableLayoutData& tl) noexcept;
 
+    // table_layout / layout_dirty の扱いは呼び出し側ごとに異なるため触らない。
+    static void ResetEntryTextLayout(NodeLayoutEntry& e) noexcept;
+
     static void EvictEntryLayout(NodeLayoutEntry& e) noexcept;
 
     // 1 行分の cell_layouts を Reset し、cell_heights / cell_applied_widths を再計測待ちに戻す。

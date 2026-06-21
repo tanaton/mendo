@@ -34,6 +34,10 @@ void PublishCmdGenStats() noexcept
 // 値を小さくすると下線は見出し文字に近づき、下線と次行の間隔が広がる。
 static constexpr float HEADING_UNDERLINE_OFFSET_RATIO = 0.25f;
 
+// AlertBrushIdFromIndex (brush_id.h) の table が AlertType 全種を網羅することを担保する。
+// 旧 renderer.cpp の static_assert に代わり、core 側 ALERT_TYPE_COUNT との一致をここで検証する。
+static_assert(ALERT_BRUSH_COUNT == ALERT_TYPE_COUNT, "AlertBrushIdFromIndex table must cover every AlertType");
+
 namespace {
 
 // ブロックローカル横スクロールの clip と Translate を RAII で囲み、push/pop の対称性を強制する。
@@ -584,11 +588,8 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
             const float bar_x = offset_x + bar_indent_x - theme_->indent_width * 0.5f;
             const bool is_alert_bar = (level == 1 && alert_type != AlertType::None);
             const D2D1_COLOR_F bar_color = is_alert_bar ? theme_->alert_color[AlertColorIndex(alert_type)] : theme_->blockquote_bar_color;
-            // BrushId::AlertNote..AlertCaution は AlertColorIndex(0..4) で連番に並んでいる。
             const BrushId bar_brush =
-                is_alert_bar
-                    ? static_cast<BrushId>(std::to_underlying(BrushId::AlertNote) + AlertColorIndex(alert_type))
-                    : BrushId::BlockquoteBar;
+                is_alert_bar ? AlertBrushIdFromIndex(AlertColorIndex(alert_type)) : BrushId::BlockquoteBar;
 
             const auto emit_bar = [&](float top, float bottom) {
                 cmds.emplace_back(DrawLineCmd{

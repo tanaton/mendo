@@ -109,6 +109,7 @@ private:
     // WebView2 プロセス障害 (ProcessFailed) からワーカーを復旧する。
     void RecoverWorker(int index);
     void ProcessQueue();
+    void DrainPendingRequests(bool cancelled);
     void FailPendingRequests();
     void RenderInWorker(Worker& worker);
     void OnRenderResult(int worker_idx, std::wstring_view json);

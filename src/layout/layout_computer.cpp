@@ -115,7 +115,7 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
         return line_height * 1.5f * static_cast<float>(row_count);
     }
     case NodeType::Image:
-        return std::max(MIN_DIAGRAM_PLACEHOLDER_HEIGHT, theme.font_size_body * 3.0f);
+        return PlaceholderHeight(theme);
     case NodeType::ListItem:
     case NodeType::TaskListItem:
         // 空 LI に高さを与えると bullet と直下 P の文字 Y が分離する (issue#237)。

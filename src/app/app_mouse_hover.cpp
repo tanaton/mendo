@@ -214,11 +214,10 @@ void App::OnMouseHover(int px, int py)
     const auto hovered_target = ToPaneTarget(zone);
 
     // ペインゾーン外に出たらヘッダーボタンのホバーをリセット（無効化忘れ防止）。
-    if (hovered_target != PaneTarget::File) {
-        ResetSidePaneHover(PaneTarget::File, pane_layout, false);
-    }
-    if (hovered_target != PaneTarget::Toc) {
-        ResetSidePaneHover(PaneTarget::Toc, pane_layout, false);
+    for (auto t : { PaneTarget::File, PaneTarget::Toc }) {
+        if (hovered_target != t) {
+            ResetSidePaneHover(t, pane_layout, false);
+        }
     }
 
     int new_hover[2] = { -1, -1 };
