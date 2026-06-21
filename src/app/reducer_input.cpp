@@ -188,8 +188,7 @@ void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, co
     PushEffect(effects, effect::SetCapture{});
     if (!grip.inside_thumb) {
         ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, a.dip_y - drag_offset);
-        PushEffect(effects, effect::InvalidatePaneCache{ ctx.pane_zone });
-        PushEffect(effects, effect::InvalidateWindow{});
+        EmitSidePaneScrollChanged(effects, ctx.pane_zone);
     }
 }
 
@@ -203,8 +202,7 @@ void ReducePaneScrollbarDragMoved(AppState& state, SideEffectList& effects, cons
     auto ctx = GetSidePaneContext(state, a.pane);
     const float new_thumb_y = a.dip_y - state.view.panes.GetDragScrollOffset();
     ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, new_thumb_y);
-    PushEffect(effects, effect::InvalidatePaneCache{ ctx.pane_zone });
-    PushEffect(effects, effect::InvalidateWindow{});
+    EmitSidePaneScrollChanged(effects, ctx.pane_zone);
 }
 
 void ReducePaneScrollbarDragEnded(AppState& state, SideEffectList& effects)

@@ -339,24 +339,26 @@ void MermaidRenderer::InvokeSvgCallbackIfAny(RenderRequest& req, std::pmr::wstri
     }
 }
 
-void MermaidRenderer::FailPendingRequests()
+void MermaidRenderer::DrainPendingRequests(bool cancelled)
 {
-    // 初期化が恒久的に失敗した場合に呼ぶ。待機中の SVG リクエストを失敗
-    // (cancelled=false) で完了させ、呼び出し元の in-flight フラグ固着を防ぐ。
+    // 待機中の SVG リクエストを完了させ、呼び出し元の in-flight フラグ固着を防ぐ。
     while (!pending_requests_.empty()) {
-        InvokeSvgCallbackIfAny(pending_requests_.front(), {}, false);
+        InvokeSvgCallbackIfAny(pending_requests_.front(), {}, cancelled);
         pending_requests_.pop();
     }
+}
+
+void MermaidRenderer::FailPendingRequests()
+{
+    // 初期化が恒久的に失敗した場合に呼ぶ。
+    DrainPendingRequests(false);
 }
 
 void MermaidRenderer::CancelPending()
 {
     // SVG 専用リクエストのコールバックは cancelled=true で呼び、呼び出し元の状態をリセットさせる。
     // PNG レンダリング (on_complete) は無引数のため呼び出し元側でフラグを持っていない前提。
-    while (!pending_requests_.empty()) {
-        InvokeSvgCallbackIfAny(pending_requests_.front(), {}, true);
-        pending_requests_.pop();
-    }
+    DrainPendingRequests(true);
 
     // current_request の request_id が 0 に戻るため、処理中の非同期コールバックは
     // ID 不一致で自動的に無視される。

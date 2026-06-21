@@ -2,6 +2,8 @@
 #include "document_types.h"
 #include "layout_cache.h"
 #include "theme.h"
+#include "ui_constants.h"
+#include <algorithm>
 #include <limits>
 #include <memory_resource>
 #include <stop_token>
@@ -16,6 +18,12 @@ inline float NodeIndent(const Node& node, const Theme& theme) noexcept
 inline float NodeTextXOffset(const Node& node, const Theme& theme) noexcept
 {
     return (node.type == NodeType::CodeBlock) ? theme.code_block_padding : 0.0f;
+}
+
+// ダイアグラム/画像ノードのビットマップ未確定時に使うプレースホルダー高さ。
+inline float PlaceholderHeight(const Theme& theme) noexcept
+{
+    return std::max(MIN_DIAGRAM_PLACEHOLDER_HEIGHT, theme.font_size_body * 3.0f);
 }
 
 float GetSpacingAbove(const Node& node, const Theme& theme) noexcept;

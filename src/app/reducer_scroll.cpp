@@ -50,8 +50,7 @@ void ReduceScrollPane(AppState& state, SideEffectList& effects, const ScrollPane
     }
     const auto ctx = GetSidePaneContext(state, *target);
     if (state.view.panes.ScrollSidePaneBy(*target, a.delta, ctx.info.max_scroll)) {
-        PushEffect(effects, effect::InvalidatePaneCache{ ctx.pane_zone });
-        PushEffect(effects, effect::InvalidateWindow{});
+        EmitSidePaneScrollChanged(effects, ctx.pane_zone);
     }
 }
 

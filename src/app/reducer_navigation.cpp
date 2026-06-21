@@ -41,8 +41,7 @@ void ReduceFilePaneDirectoryClicked(AppState& state, SideEffectList& effects, co
         state.file_explorer.SetCurrentFile(state.document.doc.GetFilePath());
     }
     state.view.panes.SidePaneScroll(PaneTarget::File) = {};
-    PushEffect(effects, effect::InvalidatePaneCache{ PaneZone::FilePane });
-    PushEffect(effects, effect::InvalidateWindow{});
+    EmitSidePaneScrollChanged(effects, PaneZone::FilePane);
 }
 
 void ReduceFilePaneFileClicked(AppState& state, SideEffectList& effects, const FilePaneFileClickedAction& a)

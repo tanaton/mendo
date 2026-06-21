@@ -92,19 +92,24 @@ void LayoutCache::ResetTableLayoutGeometry(TableLayoutData& tl) noexcept
     tl.cells_partially_evicted = false;
 }
 
-void LayoutCache::EvictEntryLayout(NodeLayoutEntry& e) noexcept
+void LayoutCache::ResetEntryTextLayout(NodeLayoutEntry& e) noexcept
 {
-    if (!e.text_layout && !e.table_layout) {
-        return;
-    }
     e.text_layout.Reset();
     e.effects_applied = false;
     e.first_line_height = 0.0f;
     e.natural_code_width = 0.0f;
     e.clear_inline_code_bgs();
+    e.invalidate_per_frame_hl_caches();
+}
+
+void LayoutCache::EvictEntryLayout(NodeLayoutEntry& e) noexcept
+{
+    if (!e.text_layout && !e.table_layout) {
+        return;
+    }
+    ResetEntryTextLayout(e);
     e.table_layout.reset();
     e.layout_dirty = true;
-    e.invalidate_per_frame_hl_caches();
 }
 
 void LayoutCache::EvictTableRow(TableLayoutData& tl, size_t row_index) noexcept
@@ -192,12 +197,7 @@ void LayoutCache::Reset(size_t node_count, bool shrink)
 void LayoutCache::InvalidateAllLayouts() noexcept
 {
     for (auto& e : entries_) {
-        e.text_layout.Reset();
-        e.effects_applied = false;
-        e.first_line_height = 0.0f;
-        e.natural_code_width = 0.0f;
-        e.clear_inline_code_bgs();
-        e.invalidate_per_frame_hl_caches();
+        ResetEntryTextLayout(e);
         if (e.table_layout) {
             ResetTableLayoutGeometry(*e.table_layout);
             e.table_layout->cell_inline_code_bgs.clear();

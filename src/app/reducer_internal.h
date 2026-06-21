@@ -18,6 +18,9 @@ void ClearSidePaneHoverState(AppState& state, SideEffectList& effects);
 // デフォルト引数にすると新経路が暗黙で true を拾うため、呼び出し側で必ず明示する。
 void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects, bool toc_auto_scroll);
 void EmitScrollEffects(AppState& state, SideEffectList& effects, float old_scroll);
+
+// サイドペイン (ファイル/目次) のスクロール位置が変わった際の無効化副作用。
+void EmitSidePaneScrollChanged(SideEffectList& effects, PaneZone zone);
 void ApplyScrollTargetAndEmit(AppState& state, SideEffectList& effects, int node, float offset, bool toc_auto_scroll);
 
 // つまみ上クリック → 位置維持 (オフセットのみ記録)、つまみ外 → 中心へジャンプ。
