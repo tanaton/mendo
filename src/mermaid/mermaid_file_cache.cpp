@@ -2,6 +2,7 @@
 #include "profiler.h"
 #include "task_scheduler.h"
 #include "file_io.h"
+#include "scope_guard.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -289,15 +290,10 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
     auto path = GetPngPath(key);
     const bool posted = scheduler_->Post([this, key, path = std::move(path), data = std::move(png_data), gen, latch_guard = latch_.Acquire()] {
         // タスク完遂・キャンセルどちらの場合も pending を必ず解除する
-        struct PendingGuard {
-            MermaidFileCache* self;
-            uint64_t key;
-            ~PendingGuard()
-            {
-                std::lock_guard lock(self->pending_mutex_);
-                self->pending_writes_.erase(key);
-            }
-        } guard{ this, key };
+        auto guard = ScopeGuard([this, key] {
+            std::lock_guard lock(pending_mutex_);
+            pending_writes_.erase(key);
+        });
 
         if (write_gen_.load() != gen) {
             return;
@@ -321,9 +317,9 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
         (void)WriteAllBytes(path, data.data(), data.size());
     });
     if (!posted) {
-        // lambda が走らないので latch::Guard / PendingGuard は capture 内で destruct され
-        // 自動 Release。pending_writes_ に key を残すと Lookup が stale 扱いを抑止し続けるため
-        // ここで巻き戻す。
+        // lambda 本体が走らず body 内 ScopeGuard は構築されないため pending_writes_ は解除されない。
+        // capture の latch::Guard は closure 破棄時に自動 Release されるので、ここでは Post 前に
+        // insert した key だけを巻き戻す (残すと Lookup が stale 扱いを抑止し続ける)。
         std::lock_guard lock(pending_mutex_);
         pending_writes_.erase(key);
     }
