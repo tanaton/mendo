@@ -3,6 +3,7 @@
 #include "theme.h"
 #include "resource.h"
 #include "ui_constants.h"
+#include "scope_guard.h"
 #include <cmath>
 #include <mutex>
 
@@ -153,10 +154,11 @@ int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
     s.owner = owner_hwnd;
     s.theme = params.theme;
     s.dpi_scale = params.dpi_scale;
+    // theme は呼び出し側 Theme の借用ポインタ。Show 終了後にダングリングさせないよう必ず手放す。
+    auto theme_guard = ScopeGuard([&s] { s.theme = nullptr; });
 
     s.PrepareContent(params);
     if (!s.CreatePopupWindow(params.screen_x, params.screen_y)) {
-        s.theme = nullptr;
         return 0;
     }
     s.RunModalLoop();
@@ -167,7 +169,6 @@ int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
         s.hwnd = nullptr;
     }
     s.rt.Reset();
-    s.theme = nullptr;
 
     return s.selected_id;
 }

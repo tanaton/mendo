@@ -3,6 +3,7 @@
 #include "i18n.h"
 #include "memory_resource.h"
 #include "profiler.h"
+#include "scope_guard.h"
 #include <windows.h>
 #include <shellapi.h>
 #include <shellscalingapi.h>
@@ -38,6 +39,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     if (FAILED(hr)) {
         return 1;
     }
+    // CoUninitialize は Win32Window 破棄（COM オブジェクト解放）より後に走らせる必要がある。
+    // window より先にこのガードを宣言することで、全 return 経路でこの順序を保証する。
+    auto com_guard = ScopeGuard([] { CoUninitialize(); });
     INITCOMMONCONTROLSEX icc{};
     icc.dwSize = sizeof(icc);
     icc.dwICC = ICC_STANDARD_CLASSES;
@@ -106,7 +110,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
         {
             MENDO_PROFILE("wWinMain - Create Window");
             if (!window.Create(hInstance, nCmdShow)) {
-                CoUninitialize();
                 return 1;
             }
         }
@@ -120,8 +123,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
         }
 
         result = window.RunMessageLoop();
-    } // Win32Window破棄（COMオブジェクト解放）をCoUninitializeの前に完了させる
+    } // Win32Window破棄（COMオブジェクト解放）を com_guard の CoUninitialize より前に完了させる
 
-    CoUninitialize();
     return result;
 }
