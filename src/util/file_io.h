@@ -14,8 +14,7 @@ namespace path_util {
 // 外部エディタとの同時アクセスを許容する共有モード。
 // 編集中のファイルを mendo で開いたまま再読込できるようにするため、
 // Markdown / 画像ファイルを扱う経路ではこれを指定する。
-inline constexpr DWORD kFileShareRWDelete =
-    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+inline constexpr DWORD kFileShareRWDelete = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
 
 // ReadAllBytes が許容する最大サイズ。ReadFile は DWORD (32bit unsigned) で
 // バイト数を扱うので、それを超えるサイズは 1 回の ReadFile で読み切れない。
@@ -44,8 +43,7 @@ struct OpenedFile {
 [[nodiscard]] OpenedFile OpenFileForReadShared(const std::filesystem::path& path, DWORD share_mode, LONGLONG max_size, DWORD* out_error = nullptr) noexcept;
 
 // out_error が非 null の場合、CreateFileW 失敗時の GetLastError() を格納する。
-[[nodiscard]] std::pair<std::unique_ptr<uint8_t[]>, size_t> ReadAllBytes(
-    const std::filesystem::path& path, DWORD* out_error = nullptr);
+[[nodiscard]] std::pair<std::unique_ptr<uint8_t[]>, size_t> ReadAllBytes(const std::filesystem::path& path, DWORD* out_error = nullptr);
 
 // 指定バイト数を ReadFile の DWORD 上限でチャンク分割して読み切る。
 // EOF・パイプ切断 (bytes_read == 0) は失敗として false を返す。
