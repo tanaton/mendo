@@ -37,7 +37,7 @@ private:
 };
 
 // EmptyClipboard より前にバッファを確保できるよう、構築と SetClipboardData を分離する。
-// 確保失敗時に既存クリップボードを破壊しないための土台 (WriteClipboardSvg 参照)。
+// 確保失敗時に既存クリップボードを破壊しないための土台 (WriteClipboardDiagram 参照)。
 template <typename CharT>
 inline UniqueGlobalMem BuildGlobalZeroTerminated(std::basic_string_view<CharT> text) noexcept
 {
@@ -141,38 +141,77 @@ inline std::string BuildCfHtmlPayload(std::string_view fragment_utf8)
     return payload;
 }
 
-// "image/svg+xml": Office (Word/Excel/PowerPoint 2016+) の「形式を選択して貼り付け → SVG」
-//                  および Inkscape などのベクタ編集アプリがベクタ画像として認識する。
-// CF_UNICODETEXT:  テキストエディタへの貼り付けフォールバック（SVG マークアップ原文）。
-// 全滅時は false（呼び出し側でトースト表示用）。
-inline bool WriteClipboardSvg(HWND hwnd, std::wstring_view svg_text) noexcept
+// CF_DIB (32bpp トップダウン BGRA) のバイト数: BITMAPINFOHEADER + ピクセル列。
+// 桁あふれ時は 0 を返す。色テーブルは 32bpp では不要。
+inline size_t DibTotalBytes(UINT width, UINT height) noexcept
 {
-    if (svg_text.empty()) {
+    if (width == 0 || height == 0) {
+        return 0;
+    }
+    const size_t stride = static_cast<size_t>(width) * 4; // 32bpp は常に 4 バイト境界
+    if (height > (std::numeric_limits<size_t>::max() - sizeof(BITMAPINFOHEADER)) / stride) {
+        return 0;
+    }
+    return sizeof(BITMAPINFOHEADER) + stride * height;
+}
+
+// dst 先頭に CF_DIB 用 BITMAPINFOHEADER を書き込む。続くピクセル領域 (dst + sizeof(header))
+// に呼び出し側がトップダウン 32bpp BGRA を width*4*height バイト書く。
+// CF_DIB を載せれば Windows が CF_BITMAP / CF_DIBV5 を自動合成するため広く貼り付け可能。
+inline void WriteDibHeader(void* dst, UINT width, UINT height) noexcept
+{
+    auto* bih = static_cast<BITMAPINFOHEADER*>(dst);
+    *bih = {};
+    bih->biSize = sizeof(BITMAPINFOHEADER);
+    bih->biWidth = static_cast<LONG>(width);
+    bih->biHeight = -static_cast<LONG>(height); // 負 = トップダウン
+    bih->biPlanes = 1;
+    bih->biBitCount = 32;
+    bih->biCompression = BI_RGB;
+    bih->biSizeImage = static_cast<DWORD>(static_cast<size_t>(width) * 4 * height);
+}
+
+// ダイアグラム (Mermaid/LaTeX) をクリップボードへコピーする統合書き込み。
+// "image/svg+xml": Office 2016+ や Inkscape がベクタ画像として認識 (Mermaid のみ svg 非空)。
+// CF_DIB:          画像。Paint / チャット / Office などへの貼り付け用。両ダイアグラム共通の基本形式。
+// CF_UNICODETEXT:  SVG マークアップ原文のテキストフォールバック。
+// 並び順 = 優先度。ベクタを優先する貼り付け先のため SVG を先頭に積む。
+// 戻り値: 画像 (CF_DIB) が載れば true。画像は両ダイアグラムが約束する基本形式なので、
+//         成功判定はこれで行う (svg/テキストはベストエフォートの付加形式)。
+// WideToUtf8 が確保失敗で送出し得るため noexcept にはしない。
+inline bool WriteClipboardDiagram(HWND hwnd, UniqueGlobalMem dib, std::wstring_view svg_text)
+{
+    // EmptyClipboard より前に各バッファを確保する (HTML/SVG 経路と同じ「揃ってから開く」方針)。
+    UniqueGlobalMem svg_unicode;
+    UniqueGlobalMem svg_utf8_mem;
+    if (!svg_text.empty()) {
+        svg_unicode = BuildGlobalZeroTerminated<wchar_t>(svg_text);
+        const std::string svg_utf8 = string_convert::WideToUtf8(svg_text);
+        if (!svg_utf8.empty()) {
+            svg_utf8_mem = BuildGlobalZeroTerminated<char>(std::string_view(svg_utf8));
+        }
+    }
+    if (!dib && !svg_unicode && !svg_utf8_mem) {
         return false;
     }
-    // EmptyClipboard より前に各バッファを確保する。確保に失敗しても既存クリップボードを
-    // 破壊しない (HTML 経路と同様の「揃ってから開く」方針)。
-    UniqueGlobalMem unicode_mem = BuildGlobalZeroTerminated<wchar_t>(svg_text);
-    if (!unicode_mem) {
-        return false;
-    }
-    const std::string svg_utf8 = string_convert::WideToUtf8(svg_text);
-    UniqueGlobalMem svg_mem = svg_utf8.empty()
-        ? UniqueGlobalMem{}
-        : BuildGlobalZeroTerminated<char>(std::string_view(svg_utf8));
 
     ClipboardSession session(hwnd);
     if (!session) {
         return false;
     }
 
-    bool any_set = false;
-    if (svg_mem) {
+    if (svg_utf8_mem) {
         static const UINT cf_svg = RegisterClipboardFormatW(L"image/svg+xml");
-        any_set |= CommitClipboardGlobal(cf_svg, std::move(svg_mem));
+        CommitClipboardGlobal(cf_svg, std::move(svg_utf8_mem));
     }
-    any_set |= CommitClipboardGlobal(CF_UNICODETEXT, std::move(unicode_mem));
-    return any_set;
+    bool dib_committed = false;
+    if (dib) {
+        dib_committed = CommitClipboardGlobal(CF_DIB, std::move(dib));
+    }
+    if (svg_unicode) {
+        CommitClipboardGlobal(CF_UNICODETEXT, std::move(svg_unicode));
+    }
+    return dib_committed;
 }
 
 // plain_text_utf8: 書式付きに対応していないアプリ向けのフォールバック (UTF-8)。

@@ -126,7 +126,7 @@ TEST_F(CopyButtonTest, MermaidBlockReturnsNegative)
 {
     auto pr = Parse("```mermaid\ngraph TD\n```");
     float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
-    // Mermaidブロックがある場合でもコピーボタンは無効
+    // ダイアグラムにはテキスト用コピーボタン(copy_node)は付かない (専用のダイアグラムコピーボタンは別)
     int mermaid_idx = -1;
     for (size_t i = 0; i < pr.nodes.size(); i++) {
         if (pr.nodes[i].type == NodeType::CodeBlock) {
@@ -144,7 +144,7 @@ TEST_F(CopyButtonTest, MermaidBlockReturnsNegative)
 
 TEST_F(CopyButtonTest, LatexMathBlockReturnsNegative)
 {
-    // LatexMath ブロックも Mermaid 同様コピーボタン非対応
+    // LatexMath も Mermaid 同様、テキスト用コピーボタン(copy_node)は付かない (専用のダイアグラムコピーボタンは別)
     auto pr = Parse("$$E = mc^2$$");
     float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
     int latex_idx = -1;

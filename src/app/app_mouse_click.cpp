@@ -80,7 +80,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         Dispatch(NavigateForwardAction{});
         return;
     }
-    // コピー/SVG コピー/保存ボタンを 1 回の可視ノード走査でまとめて判定する。
+    // コピー/ダイアグラムコピー/保存ボタンを 1 回の可視ノード走査でまとめて判定する。
     const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
     const auto btn_hit = hit_test_.CodeBlockButtonsHitTest(hit_ctx);
     if (btn_hit.copy_node >= 0) {
@@ -88,11 +88,13 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         clipboard_manager_.CopyCodeBlock(state_.document.doc, btn_hit.copy_node, dark);
         return;
     }
-    if (btn_hit.svg_copy_node >= 0 || btn_hit.save_node >= 0) {
+    if (btn_hit.diagram_copy_node >= 0 || btn_hit.save_node >= 0) {
         const float md_width = renderer_.GetTheme().ContentWidth(GetMarkdownPaneWidth());
         const bool dark = renderer_.GetTheme().IsDark();
-        if (btn_hit.svg_copy_node >= 0) {
-            clipboard_manager_.CopyDiagramAsSvg(state_.document.doc, btn_hit.svg_copy_node, md_width, dark);
+        if (btn_hit.diagram_copy_node >= 0) {
+            // 画像は表示中ビットマップと同寿命の DiagramEntry::png から取る (ボタン表示条件と一致)。
+            const auto& diagram = state_.document.layout_cache.GetDiagram(btn_hit.diagram_copy_node);
+            clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, btn_hit.diagram_copy_node, diagram.png, md_width, dark);
             return;
         }
         clipboard_manager_.SaveDiagramAsPng(state_.document.doc, btn_hit.save_node, md_width, dark);

@@ -329,7 +329,7 @@ inline constexpr float GESTURE_TRAIL_STROKE_WIDTH = 4.0f;
 // 値は OverlayButtonRect の button_index に対応し、0 が最も右、左隣に並ぶごとに +1。
 enum class DiagramButtonSlot : uint8_t {
     Save = 0,
-    SvgCopy = 1,
+    Copy = 1,
 };
 
 // 要素の右上を基準にオーバーレイボタン（コピー/保存）の矩形を返す。

@@ -4,6 +4,7 @@
 #include "document_test_helpers.h"
 #include "mermaid_renderer_interface.h"
 #include <atomic>
+#include <memory>
 #include <memory_resource>
 #include <string>
 #include <string_view>
@@ -15,9 +16,12 @@ namespace {
 // MermaidFileCache 系は HWND/TaskScheduler 依存のため触らない経路だけ踏む。
 class MockMermaidRenderer : public IMermaidRenderer {
 public:
-    void RequestRender(Node&, NodeLayoutEntry&, DiagramEntry&, float, bool, Callback) override {}
-    void CancelPending() override {}
-    void ClearCache() override {}
+    void RequestRender(Node&, NodeLayoutEntry&, DiagramEntry&, float, bool, Callback) override
+    {}
+    void CancelPending() override
+    {}
+    void ClearCache() override
+    {}
 
     void RequestSvg(std::wstring_view code, float max_width, bool dark_mode, SvgCallback cb) override
     {
@@ -57,12 +61,16 @@ struct ToastRecorder {
 ClipboardManager MakeManager(MockMermaidRenderer* renderer, ToastRecorder& toast)
 {
     ClipboardManager m;
-    // HWND nullptr は production では成立しないが、ガード経路の単体テストに限り許容。
-    m.Init(nullptr, nullptr, renderer, toast.Callback());
+    // HWND/WIC/file_cache nullptr は production では成立しないが、ガード経路の単体テストに限り許容。
+    // png 無し (nullptr) のため BuildDib は空を返し、クリップボード書き込みは行われない。
+    m.Init(nullptr, nullptr, renderer, nullptr, toast.Callback());
     return m;
 }
 
 constexpr float kDefaultMdWidth = 800.0f;
+
+// テストは png 無しでガード経路のみ踏むため、共通の空 PNG ハンドルを使う。
+const std::shared_ptr<const std::pmr::vector<uint8_t>> kNoPng;
 
 } // namespace
 
@@ -121,47 +129,51 @@ TEST(ClipboardManager, SaveDiagramAsPngNoOpWhenFileCacheNullptr)
     EXPECT_TRUE(toast.messages.empty());
 }
 
-// ---- CopyDiagramAsSvg 入力検証 ----
+// ---- CopyDiagramToClipboard 入力検証 ----
 
-TEST(ClipboardManager, CopyDiagramAsSvgNoOpForOutOfRangeIndex)
+TEST(ClipboardManager, CopyDiagramToClipboardNoOpForOutOfRangeIndex)
 {
     auto doc = Document::FromMarkdown("```mermaid\ngraph TD; A-->B\n```\n", L"t.md");
     MockMermaidRenderer renderer;
     ToastRecorder toast;
     auto m = MakeManager(&renderer, toast);
-    m.CopyDiagramAsSvg(doc, -1, kDefaultMdWidth, false);
-    m.CopyDiagramAsSvg(doc, 9999, kDefaultMdWidth, false);
+    m.CopyDiagramToClipboard(doc, -1, kNoPng, kDefaultMdWidth, false);
+    m.CopyDiagramToClipboard(doc, 9999, kNoPng, kDefaultMdWidth, false);
     EXPECT_EQ(renderer.request_count, 0);
     EXPECT_TRUE(toast.messages.empty());
 }
 
-TEST(ClipboardManager, CopyDiagramAsSvgNoOpForLatexMath)
+TEST(ClipboardManager, CopyDiagramToClipboardLatexMathCopiesImageWithoutRenderer)
 {
-    // LatexMath は IsSvgExportable=false (Mermaid のみ対象)。
-    auto doc = Document::FromMarkdown("```math\nx^2\n```\n", L"t.md");
+    // LatexMath は IsSvgExportable=false。画像 (CF_DIB) のみを同期コピーし、SVG レンダラは呼ばない。
+    // LatexMath は $$..$$ 段落の昇格でのみ生成される (parser.cpp)。
+    // png 無しのため画像構築は失敗し、同期パスは結果トースト (失敗) を 1 回出す。
+    auto doc = Document::FromMarkdown("$$x^2$$\n", L"t.md");
     MockMermaidRenderer renderer;
     ToastRecorder toast;
     auto m = MakeManager(&renderer, toast);
     const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::CodeBlock);
     ASSERT_GE(cb_idx, 0);
-    m.CopyDiagramAsSvg(doc, cb_idx, kDefaultMdWidth, false);
-    EXPECT_EQ(renderer.request_count, 0);
+    ASSERT_EQ(doc.GetNodes()[cb_idx].code_language(), SyntaxLanguage::LatexMath);
+    m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, kDefaultMdWidth, false);
+    EXPECT_EQ(renderer.request_count, 0); // SVG レンダラには行かない
+    EXPECT_EQ(toast.messages.size(), 1u); // 同期パスが結果を報告する (旧実装の no-op ではない)
 }
 
-TEST(ClipboardManager, CopyDiagramAsSvgNoOpWhenRendererNullptr)
+TEST(ClipboardManager, CopyDiagramToClipboardNoOpWhenRendererNullptr)
 {
     auto doc = Document::FromMarkdown("```mermaid\ngraph TD; A-->B\n```\n", L"t.md");
     ToastRecorder toast;
     auto m = MakeManager(nullptr, toast);
     const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::CodeBlock);
     ASSERT_GE(cb_idx, 0);
-    m.CopyDiagramAsSvg(doc, cb_idx, kDefaultMdWidth, false);
+    m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, kDefaultMdWidth, false);
     EXPECT_TRUE(toast.messages.empty());
 }
 
-// ---- CopyDiagramAsSvg 主要パス ----
+// ---- CopyDiagramToClipboard 主要パス ----
 
-TEST(ClipboardManager, CopyDiagramAsSvgRequestsRendererForMermaid)
+TEST(ClipboardManager, CopyDiagramToClipboardRequestsRendererForMermaid)
 {
     auto doc = Document::FromMarkdown("```mermaid\ngraph TD; A-->B\n```\n", L"t.md");
     MockMermaidRenderer renderer;
@@ -170,14 +182,14 @@ TEST(ClipboardManager, CopyDiagramAsSvgRequestsRendererForMermaid)
     const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::CodeBlock);
     ASSERT_GE(cb_idx, 0);
 
-    m.CopyDiagramAsSvg(doc, cb_idx, kDefaultMdWidth, false);
+    m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, kDefaultMdWidth, false);
     EXPECT_EQ(renderer.request_count, 1);
     ASSERT_FALSE(toast.messages.empty());
     EXPECT_FLOAT_EQ(renderer.last_width, kDefaultMdWidth);
     EXPECT_FALSE(renderer.last_dark);
 }
 
-TEST(ClipboardManager, CopyDiagramAsSvgInFlightGuardBlocksReentry)
+TEST(ClipboardManager, CopyDiagramToClipboardInFlightGuardBlocksReentry)
 {
     auto doc = Document::FromMarkdown("```mermaid\ngraph TD; A-->B\n```\n", L"t.md");
     MockMermaidRenderer renderer;
@@ -186,18 +198,18 @@ TEST(ClipboardManager, CopyDiagramAsSvgInFlightGuardBlocksReentry)
     const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::CodeBlock);
     ASSERT_GE(cb_idx, 0);
 
-    m.CopyDiagramAsSvg(doc, cb_idx, kDefaultMdWidth, false);
+    m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, kDefaultMdWidth, false);
     EXPECT_EQ(renderer.request_count, 1);
-    m.CopyDiagramAsSvg(doc, cb_idx, kDefaultMdWidth, false);
+    m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, kDefaultMdWidth, false);
     EXPECT_EQ(renderer.request_count, 1);
 
     // cancelled 経路で in-flight だけ解除 (svg_cache に何も入れない)。
     renderer.FireCallback({}, true);
-    m.CopyDiagramAsSvg(doc, cb_idx, kDefaultMdWidth, false);
+    m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, kDefaultMdWidth, false);
     EXPECT_EQ(renderer.request_count, 2);
 }
 
-TEST(ClipboardManager, CopyDiagramAsSvgCancelledCallbackEmitsNoToast)
+TEST(ClipboardManager, CopyDiagramToClipboardCancelledCallbackEmitsNoToast)
 {
     auto doc = Document::FromMarkdown("```mermaid\ngraph TD; A-->B\n```\n", L"t.md");
     MockMermaidRenderer renderer;
@@ -206,15 +218,15 @@ TEST(ClipboardManager, CopyDiagramAsSvgCancelledCallbackEmitsNoToast)
     const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::CodeBlock);
     ASSERT_GE(cb_idx, 0);
 
-    m.CopyDiagramAsSvg(doc, cb_idx, kDefaultMdWidth, false);
+    m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, kDefaultMdWidth, false);
     const auto toast_count_before = toast.messages.size();
     renderer.FireCallback({}, true);
     EXPECT_EQ(toast.messages.size(), toast_count_before);
-    m.CopyDiagramAsSvg(doc, cb_idx, kDefaultMdWidth, false);
+    m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, kDefaultMdWidth, false);
     EXPECT_EQ(renderer.request_count, 2);
 }
 
-TEST(ClipboardManager, CopyDiagramAsSvgEmptyResultEmitsFailToast)
+TEST(ClipboardManager, CopyDiagramToClipboardEmptyResultEmitsFailToast)
 {
     auto doc = Document::FromMarkdown("```mermaid\ngraph TD; A-->B\n```\n", L"t.md");
     MockMermaidRenderer renderer;
@@ -223,13 +235,13 @@ TEST(ClipboardManager, CopyDiagramAsSvgEmptyResultEmitsFailToast)
     const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::CodeBlock);
     ASSERT_GE(cb_idx, 0);
 
-    m.CopyDiagramAsSvg(doc, cb_idx, kDefaultMdWidth, false);
+    m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, kDefaultMdWidth, false);
     const auto before = toast.messages.size();
     renderer.FireCallback({}, false);
     EXPECT_EQ(toast.messages.size(), before + 1);
 }
 
-TEST(ClipboardManager, CopyDiagramAsSvgPassesCodeAndDarkModeToRenderer)
+TEST(ClipboardManager, CopyDiagramToClipboardPassesCodeAndDarkModeToRenderer)
 {
     auto doc = Document::FromMarkdown("```mermaid\ngraph LR; X-->Y\n```\n", L"t.md");
     MockMermaidRenderer renderer;
@@ -238,7 +250,7 @@ TEST(ClipboardManager, CopyDiagramAsSvgPassesCodeAndDarkModeToRenderer)
     const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::CodeBlock);
     ASSERT_GE(cb_idx, 0);
 
-    m.CopyDiagramAsSvg(doc, cb_idx, 1024.0f, true);
+    m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, 1024.0f, true);
     EXPECT_EQ(renderer.request_count, 1);
     EXPECT_FLOAT_EQ(renderer.last_width, 1024.0f);
     EXPECT_TRUE(renderer.last_dark);

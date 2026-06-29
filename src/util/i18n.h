@@ -40,8 +40,8 @@ struct Strings {
     // 保存ボタン tooltip
     std::wstring_view tooltip_save_image;
 
-    // SVG コピーボタン tooltip
-    std::wstring_view tooltip_copy_svg;
+    // ダイアグラムコピーボタン tooltip
+    std::wstring_view tooltip_copy_diagram;
 
     // コンテキストメニュー
     std::wstring_view menu_edit_file;
@@ -64,9 +64,9 @@ struct Strings {
     std::wstring_view toast_file_read_failed;
     std::wstring_view toast_image_saved;
     std::wstring_view toast_image_save_failed;
-    std::wstring_view toast_svg_copying;
-    std::wstring_view toast_svg_copied;
-    std::wstring_view toast_svg_copy_failed;
+    std::wstring_view toast_diagram_copying;
+    std::wstring_view toast_diagram_copied;
+    std::wstring_view toast_diagram_copy_failed;
 
     // ローディング
     std::wstring_view loading;
@@ -103,8 +103,8 @@ inline constexpr Strings kJa = {
     L"書式付きコピー",
     // 保存ボタン tooltip
     L"画像を保存",
-    // SVG コピーボタン tooltip
-    L"SVGとしてコピー",
+    // ダイアグラムコピーボタン tooltip
+    L"クリップボードにコピー",
     // コンテキストメニュー
     L"エディタで開く",
     L"コピー",
@@ -123,9 +123,9 @@ inline constexpr Strings kJa = {
     L"ファイルの読み込みに失敗しました",
     L"画像を保存しました",
     L"画像の保存に失敗しました",
-    L"SVGをコピー中...",
-    L"SVGをコピーしました",
-    L"SVGのコピーに失敗しました",
+    L"クリップボードにコピー中...",
+    L"クリップボードにコピーしました",
+    L"コピーに失敗しました",
     // ローディング
     L"読み込み中...",
     // ヘルプリソースID
@@ -160,8 +160,8 @@ inline constexpr Strings kEn = {
     L"Copy as HTML",
     // 保存ボタン tooltip
     L"Save Image",
-    // SVG コピーボタン tooltip
-    L"Copy as SVG",
+    // ダイアグラムコピーボタン tooltip
+    L"Copy to clipboard",
     // コンテキストメニュー
     L"Open in Editor",
     L"Copy",
@@ -180,9 +180,9 @@ inline constexpr Strings kEn = {
     L"Failed to read file",
     L"Image saved",
     L"Failed to save image",
-    L"Copying SVG...",
-    L"SVG copied",
-    L"Failed to copy SVG",
+    L"Copying to clipboard...",
+    L"Copied to clipboard",
+    L"Copy failed",
     // ローディング
     L"Loading...",
     // ヘルプリソースID

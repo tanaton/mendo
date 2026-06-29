@@ -179,7 +179,7 @@ private:
     void GenOverlayButton(DrawCommandList& cmds, D2D1_RECT_F btn, wchar_t icon, bool is_hovered);
     void GenCopyButton(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, bool is_hovered, float entry_text_top);
     void GenSaveButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered);
-    void GenSvgCopyButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered);
+    void GenDiagramCopyButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered);
     // ブロックローカルの水平スクロールバー。ホバー中 / ドラッグ中の対象ブロックでのみ emit する。
     // block_x はブロック左端、bar_y はバー上端 (ペイン内ローカル座標)。
     // geom.visible_width / natural_width は BlockHScrollGeometry と同じ意味。

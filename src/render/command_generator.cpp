@@ -258,9 +258,7 @@ void CommandGenerator::GenerateNode(
                 const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, entry_text_top);
                 cmds.emplace_back(DrawBitmapCmd{ diagram.bitmap.Get(), bmp });
                 GenSaveButton(cmds, bmp.right, bmp.top, node_index == fc.hovered.save);
-                if (IsSvgExportable(lang)) {
-                    GenSvgCopyButton(cmds, bmp.right, bmp.top, node_index == fc.hovered.svg_copy);
-                }
+                GenDiagramCopyButton(cmds, bmp.right, bmp.top, node_index == fc.hovered.diagram_copy);
             }
             else {
                 GenDiagramPlaceholder(cmds, x, entry_text_top, cw, entry.height);
@@ -421,12 +419,12 @@ void CommandGenerator::GenSaveButton(DrawCommandList& cmds, float bitmap_right, 
     GenOverlayButton(cmds, btn, L'\uE896', is_hovered);
 }
 
-void CommandGenerator::GenSvgCopyButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered)
+void CommandGenerator::GenDiagramCopyButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered)
 {
     if (!formats_.copy_btn_icon) {
         return;
     }
-    const D2D1_RECT_F btn = OverlayButtonRect(bitmap_right, bitmap_top, std::to_underlying(DiagramButtonSlot::SvgCopy));
+    const D2D1_RECT_F btn = OverlayButtonRect(bitmap_right, bitmap_top, std::to_underlying(DiagramButtonSlot::Copy));
     GenOverlayButton(cmds, btn, L'\uE8C8', is_hovered);
 }
 
