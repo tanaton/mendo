@@ -209,6 +209,26 @@ TEST(ClipboardManager, CopyDiagramToClipboardInFlightGuardBlocksReentry)
     EXPECT_EQ(renderer.request_count, 2);
 }
 
+TEST(ClipboardManager, CopyDiagramToClipboardInFlightReentryDoesNotStaleInProgress)
+{
+    // in-flight 中の再入(2回目)で世代を進めてしまうと、進行中リクエストのコールバックが
+    // stale 扱いになり結果(トースト)が出ずに終わる退行を防ぐ。
+    auto doc = Document::FromMarkdown("```mermaid\ngraph TD; A-->B\n```\n", L"t.md");
+    MockMermaidRenderer renderer;
+    ToastRecorder toast;
+    auto m = MakeManager(&renderer, toast);
+    const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::CodeBlock);
+    ASSERT_GE(cb_idx, 0);
+
+    m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, kDefaultMdWidth, false); // request 1 (gen 捕捉)
+    m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, kDefaultMdWidth, false); // in-flight で弾く (世代は進めない)
+    EXPECT_EQ(renderer.request_count, 1);
+
+    const auto before = toast.messages.size();
+    renderer.FireCallback({}, false); // request 1 完了。stale でないので結果トーストを出す
+    EXPECT_EQ(toast.messages.size(), before + 1);
+}
+
 TEST(ClipboardManager, CopyDiagramToClipboardCancelledCallbackEmitsNoToast)
 {
     auto doc = Document::FromMarkdown("```mermaid\ngraph TD; A-->B\n```\n", L"t.md");

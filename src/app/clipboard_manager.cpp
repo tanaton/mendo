@@ -137,18 +137,21 @@ void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_inde
     }
     const auto& node = *node_ptr;
     const uint64_t key = mermaid_util::NodeDiagramHash(node, md_width, dark);
-    // この要求の世代。LaTeX(同期)・Mermaid(キャッシュヒット同期)も含め必ず進めることで、
-    // 保留中の古い非同期 SVG コールバックを stale 化し、後発コピーの上書きを防ぐ。
-    const uint64_t gen = ++copy_generation_;
+
+    // 世代は「実際に書き込む経路」でのみ進める。in-flight で弾く再入では進めないことで、
+    // 進行中リクエストのコールバックを誤って stale 化しない。同期コピー(LaTeX / SVG キャッシュ
+    // ヒット)は保留中の非同期コールバックの上書きを防ぐため世代を進める。
 
     // LaTeX は flowchart ラッパなので SVG は意味を成さない。画像 (CF_DIB) のみを同期コピーする。
     if (!IsSvgExportable(node.code_language())) {
+        ++copy_generation_;
         EmitCopyResult(WriteClipboardDiagram(hwnd_, BuildDib(png), {}));
         return;
     }
 
     // Mermaid は SVG + 画像。SVG は WebView2 経由の非同期取得のためキャッシュ優先。
     if (const auto* hit = svg_cache_.Find(key)) {
+        ++copy_generation_;
         EmitCopyResult(WriteClipboardDiagram(hwnd_, BuildDib(png), *hit));
         return;
     }
@@ -159,6 +162,7 @@ void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_inde
         return;
     }
 
+    const uint64_t gen = ++copy_generation_;
     show_toast_(i18n::S().toast_diagram_copying);
     copy_in_flight_ = true;
 
