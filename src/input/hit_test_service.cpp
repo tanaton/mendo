@@ -283,10 +283,10 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const
                         out.save_node = i;
                     }
                 }
-                if (out.svg_copy_node < 0 && IsSvgExportable(node.code_language())) {
-                    const D2D1_RECT_F btn2 = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::SvgCopy));
+                if (out.diagram_copy_node < 0) {
+                    const D2D1_RECT_F btn2 = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::Copy));
                     if (PointInRectInclusive(dip_x, dip_y, btn2)) {
-                        out.svg_copy_node = i;
+                        out.diagram_copy_node = i;
                     }
                 }
             }
@@ -299,9 +299,9 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const
                 out.copy_node = i;
             }
         }
-        // マウス座標は1点なので、コピー/保存/SVGコピーボタンが同時にヒットすることはない。
+        // マウス座標は1点なので、コピー/保存/ダイアグラムコピーボタンが同時にヒットすることはない。
         // 1つでも見つかった時点で残りの可視ノード走査をスキップする。
-        if (out.copy_node >= 0 || out.save_node >= 0 || out.svg_copy_node >= 0) {
+        if (out.copy_node >= 0 || out.save_node >= 0 || out.diagram_copy_node >= 0) {
             break;
         }
     }

@@ -80,14 +80,14 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         return;
     }
 
-    // 距離+時間スロットリングで再計算を抑え、1 回の可視ノード走査でコピー/保存/SVG コピー
+    // 距離+時間スロットリングで再計算を抑え、1 回の可視ノード走査でコピー/保存/ダイアグラムコピー
     // ボタンのホバーを同時に判定する。
     const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
     auto& ht = state_.interaction.hover_throttle;
     HoveredButtons new_hover = state_.interaction.hovered;
     if (ht.TryMarkMoved(ht.last_copy_hit_pos, ht.last_copy_hit_tick, px, py)) {
         const auto btn_hit = hit_test_.CodeBlockButtonsHitTest(hit_ctx);
-        new_hover = { btn_hit.copy_node, btn_hit.save_node, btn_hit.svg_copy_node };
+        new_hover = { btn_hit.copy_node, btn_hit.save_node, btn_hit.diagram_copy_node };
     }
     if (new_hover != state_.interaction.hovered) {
         Dispatch(MdPaneButtonHoverChangedAction{ new_hover });
@@ -104,8 +104,8 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         emit_button_hover(TooltipTarget::Zone::CopyButton, i18n::S().tooltip_copy);
         return;
     }
-    if (new_hover.svg_copy >= 0) {
-        emit_button_hover(TooltipTarget::Zone::SvgCopyButton, i18n::S().tooltip_copy_svg);
+    if (new_hover.diagram_copy >= 0) {
+        emit_button_hover(TooltipTarget::Zone::DiagramCopyButton, i18n::S().tooltip_copy_diagram);
         return;
     }
     if (new_hover.save >= 0) {

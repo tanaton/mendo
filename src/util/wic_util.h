@@ -32,7 +32,9 @@ inline Microsoft::WRL::ComPtr<IWICImagingFactory> CreateWicFactory(const wchar_t
 // 別スレッド/別呼び出しで Initialize を再呼び出ししてしまうと既存の戻り値が
 // 別ソースを指してしまうため、毎回新規生成する（プールしない）。
 // CreateFormatConverter 自体は CoCreateInstance に比べて軽量。
-inline Microsoft::WRL::ComPtr<IWICFormatConverter> ConvertBitmapSource(IWICImagingFactory* wic, IWICBitmapSource* source)
+inline Microsoft::WRL::ComPtr<IWICFormatConverter> ConvertBitmapSource(
+    IWICImagingFactory* wic, IWICBitmapSource* source,
+    const WICPixelFormatGUID& pixel_format = GUID_WICPixelFormat32bppPBGRA)
 {
     Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
     HRESULT hr = wic->CreateFormatConverter(&converter);
@@ -41,7 +43,7 @@ inline Microsoft::WRL::ComPtr<IWICFormatConverter> ConvertBitmapSource(IWICImagi
     }
 
     hr = converter->Initialize(
-        source, GUID_WICPixelFormat32bppPBGRA,
+        source, pixel_format,
         WICBitmapDitherTypeNone, nullptr, 0.0f,
         WICBitmapPaletteTypeCustom);
     if (FAILED(hr)) {
@@ -62,7 +64,8 @@ struct DecodeResult {
 // FormatConverter とピクセルサイズを返す。converter の lifetime 注意は
 // ConvertBitmapSource を参照。
 inline std::optional<DecodeResult> DecodeFromStream(
-    IWICImagingFactory* wic, IStream* stream)
+    IWICImagingFactory* wic, IStream* stream,
+    const WICPixelFormatGUID& pixel_format = GUID_WICPixelFormat32bppPBGRA)
 {
     Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
     HRESULT hr = wic->CreateDecoderFromStream(stream, nullptr, WICDecodeMetadataCacheOnLoad, &decoder);
@@ -76,7 +79,7 @@ inline std::optional<DecodeResult> DecodeFromStream(
         return std::nullopt;
     }
 
-    auto converter = ConvertBitmapSource(wic, frame.Get());
+    auto converter = ConvertBitmapSource(wic, frame.Get(), pixel_format);
     if (!converter) {
         return std::nullopt;
     }

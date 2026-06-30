@@ -3,6 +3,7 @@
 #include "fenwick.h"
 #include "pmr_unique_ptr.h"
 #include <vector>
+#include <memory>
 #include <memory_resource>
 #include <wrl/client.h>
 #include <d2d1.h>
@@ -213,6 +214,9 @@ struct DiagramEntry {
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
     float width = 0.0f;
     float height = 0.0f;
+    // クリップボードコピー用の元 PNG。bitmap と同時に設定/破棄されるため、
+    // コピーボタンの表示条件 (bitmap 有無) とデータの有無が常に一致する。
+    std::shared_ptr<const std::pmr::vector<uint8_t>> png;
 };
 
 class LayoutCache {

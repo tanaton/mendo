@@ -14,6 +14,7 @@
 #include <functional>
 #include "lru_cache.h"
 #include <queue>
+#include <memory>
 #include <memory_resource>
 
 
@@ -101,7 +102,7 @@ private:
     static void InvokeSvgCallbackIfAny(RenderRequest& req, std::pmr::wstring svg, bool cancelled);
 
     struct CachedBitmap;
-    // キャッシュヒット時に layout_entry / diagram_entry の 5 フィールドを更新する。
+    // キャッシュヒット時に layout_entry / diagram_entry の各フィールドを更新する。
     static void ApplyCachedBitmap(NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry, const CachedBitmap& cached) noexcept;
     void EnsureInitialized();
     void CreateWebView2Environment();
@@ -140,6 +141,8 @@ private:
         Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
         float width = 0.0f;
         float height = 0.0f;
+        // クリップボードコピー用 PNG。bitmap と同じ寿命で DiagramEntry へ伝播する。
+        std::shared_ptr<const std::pmr::vector<uint8_t>> png;
     };
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
     LruCache<uint64_t, CachedBitmap, MAX_CACHE_ENTRIES> cache_;

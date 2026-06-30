@@ -67,7 +67,7 @@ struct ScrollRestoration {
 struct HoveredButtons {
     int copy = -1;
     int save = -1;
-    int svg_copy = -1;
+    int diagram_copy = -1;
 
     bool operator==(const HoveredButtons&) const = default;
 };

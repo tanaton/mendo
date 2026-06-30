@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "clipboard_util.h"
 #include <charconv>
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -16,8 +17,9 @@ size_t ParseOffset(std::string_view payload, std::string_view key)
     }
     const auto digit_start = pos + key.size();
     size_t value = 0;
-    auto [_, ec] = std::from_chars(payload.data() + digit_start,
-                                   payload.data() + digit_start + kCfHtmlOffsetDigits, value);
+    auto [_, ec] = std::from_chars(
+        payload.data() + digit_start,
+        payload.data() + digit_start + kCfHtmlOffsetDigits, value);
     if (ec != std::errc{}) {
         return std::string_view::npos;
     }
@@ -58,8 +60,7 @@ TEST(BuildCfHtmlPayload, OffsetsArePositionsOfMarkers)
     // StartFragment 直後は fragment 本体。
     EXPECT_EQ(p.substr(start_fragment, fragment.size()), fragment);
     // EndFragment は <!--EndFragment--> の開始位置。
-    EXPECT_EQ(p.substr(end_fragment, std::string_view{ "<!--EndFragment-->" }.size()),
-              "<!--EndFragment-->");
+    EXPECT_EQ(p.substr(end_fragment, std::string_view{ "<!--EndFragment-->" }.size()), "<!--EndFragment-->");
     // EndHTML は payload 末尾 (= </html> の終端)。
     EXPECT_EQ(end_html, p.size());
 }
@@ -122,4 +123,34 @@ TEST(BuildCfHtmlPayload, LongFragmentOffsetWithinTenDigitRange)
     const size_t end_html = ParseOffset(p, "EndHTML:");
     EXPECT_EQ(end_html, p.size());
     EXPECT_LT(end_html, 10ULL * 1000ULL * 1000ULL * 1000ULL);
+}
+
+// ---- DibTotalBytes / WriteDibHeader (CF_DIB 用ビットマップ構築の部品) ----
+
+TEST(DibTotalBytes, HeaderPlusPixels)
+{
+    EXPECT_EQ(DibTotalBytes(2, 2), sizeof(BITMAPINFOHEADER) + 2u * 2u * 4u);
+    EXPECT_EQ(DibTotalBytes(1, 1), sizeof(BITMAPINFOHEADER) + 4u);
+}
+
+TEST(DibTotalBytes, RejectsZeroOrOverflow)
+{
+    EXPECT_EQ(DibTotalBytes(0, 2), 0u);
+    EXPECT_EQ(DibTotalBytes(2, 0), 0u);
+    // height * width*4 が size_t を溢れる組み合わせは 0。
+    EXPECT_EQ(DibTotalBytes(0xFFFFFFFFu, 0xFFFFFFFFu), 0u);
+}
+
+TEST(WriteDibHeader, ProducesTopDown32bppRgb)
+{
+    alignas(BITMAPINFOHEADER) uint8_t buf[sizeof(BITMAPINFOHEADER)] = {};
+    WriteDibHeader(buf, 2, 3);
+    const auto* bih = reinterpret_cast<const BITMAPINFOHEADER*>(buf);
+    EXPECT_EQ(bih->biSize, sizeof(BITMAPINFOHEADER));
+    EXPECT_EQ(bih->biWidth, 2);
+    EXPECT_EQ(bih->biHeight, -3); // 負 = トップダウン
+    EXPECT_EQ(bih->biPlanes, 1);
+    EXPECT_EQ(bih->biBitCount, 32);
+    EXPECT_EQ(bih->biCompression, static_cast<DWORD>(BI_RGB));
+    EXPECT_EQ(bih->biSizeImage, 2u * 3u * 4u);
 }

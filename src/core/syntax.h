@@ -27,7 +27,8 @@ constexpr bool IsDiagramLanguage(SyntaxLanguage lang) noexcept
     return lang == SyntaxLanguage::Mermaid || lang == SyntaxLanguage::LatexMath;
 }
 
-// SVG クリップボードコピーの対象。LatexMath は flowchart ラッパなので意味のある SVG にならず除外する。
+// クリップボードコピー時に SVG も載せる対象。LatexMath は flowchart ラッパなので
+// 意味のある SVG にならず、画像 (CF_DIB) のみコピーする。
 constexpr bool IsSvgExportable(SyntaxLanguage lang) noexcept
 {
     return lang == SyntaxLanguage::Mermaid;

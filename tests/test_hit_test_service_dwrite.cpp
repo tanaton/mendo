@@ -111,7 +111,7 @@ TEST_F(HitTestDWriteTest, CodeBlockButtonsHitTest_CopyHitReturnsNode)
     const auto hits = hit_.CodeBlockButtonsHitTest(ctx);
     EXPECT_EQ(hits.copy_node, code_idx);
     EXPECT_EQ(hits.save_node, -1);
-    EXPECT_EQ(hits.svg_copy_node, -1);
+    EXPECT_EQ(hits.diagram_copy_node, -1);
 }
 
 // CodeBlockButtonsHitTest はキャッシュ機構を持つ: 同じ ctx + 同じ effects_generation
@@ -128,7 +128,7 @@ TEST_F(HitTestDWriteTest, CodeBlockButtonsHitTest_RepeatCallReturnsSameResult)
     const auto b = hit_.CodeBlockButtonsHitTest(ctx);
     EXPECT_EQ(a.copy_node, b.copy_node);
     EXPECT_EQ(a.save_node, b.save_node);
-    EXPECT_EQ(a.svg_copy_node, b.svg_copy_node);
+    EXPECT_EQ(a.diagram_copy_node, b.diagram_copy_node);
 }
 
 // 回帰テスト: HitTest は partition_point と local_y 計算で同じ entry.text_top を

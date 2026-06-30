@@ -402,6 +402,7 @@ void MermaidRenderer::ApplyCachedBitmap(NodeLayoutEntry& layout_entry, DiagramEn
     diagram_entry.bitmap = cached.bitmap;
     diagram_entry.width = cached.width;
     diagram_entry.height = cached.height;
+    diagram_entry.png = cached.png;
     layout_entry.height = cached.height;
     layout_entry.layout_dirty = false;
 }
@@ -435,7 +436,10 @@ void MermaidRenderer::RequestRender(
                 Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
                 float bw = 0, bh = 0;
                 if (SUCCEEDED(CreateBitmapFromPngStream(stream.Get(), &bitmap, &bw, &bh)) && bitmap) {
-                    CachedBitmap cached{ bitmap, fentry.css_width, fentry.css_height };
+                    // ディスクから復元した PNG もメモリ保持し、コピー時の再ディスク読みを避ける。
+                    auto png_shared = std::make_shared<const std::pmr::vector<uint8_t>>(
+                        png.data.get(), png.data.get() + png.size);
+                    CachedBitmap cached{ bitmap, fentry.css_width, fentry.css_height, std::move(png_shared) };
                     ApplyCachedBitmap(layout_entry, diagram_entry, cached);
                     cache_.Insert(hash, std::move(cached));
 
@@ -757,24 +761,31 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStr
             draw_h = bh;
         }
 
-        cache_.Insert(code_hash, CachedBitmap{ bitmap, draw_w, draw_h });
+        // PNG バイト列は bitmap と同じ寿命でメモリ保持し、クリップボードコピーが
+        // 非同期/退避され得る file_cache に依存しないようにする。shared で in-memory
+        // キャッシュ・DiagramEntry・(コピーして) ディスク書き込みに共有する。
+        auto png_bytes = stream_util::ReadStreamToEnd(png_stream);
+        std::shared_ptr<const std::pmr::vector<uint8_t>> png_shared;
+        if (!png_bytes.empty()) {
+            png_shared = std::make_shared<const std::pmr::vector<uint8_t>>(std::move(png_bytes));
+        }
+
+        cache_.Insert(code_hash, CachedBitmap{ bitmap, draw_w, draw_h, png_shared });
 
         if (w.current_request.diagram_entry) {
             w.current_request.diagram_entry->bitmap = bitmap;
             w.current_request.diagram_entry->width = draw_w;
             w.current_request.diagram_entry->height = draw_h;
+            w.current_request.diagram_entry->png = png_shared;
         }
         if (w.current_request.layout_entry) {
             w.current_request.layout_entry->height = draw_h;
             w.current_request.layout_entry->layout_dirty = false;
         }
 
-        if (file_cache_ && w.current_request.node) {
+        if (file_cache_ && w.current_request.node && png_shared) {
             const uint64_t fkey = mermaid_util::NodeDiagramHash(*w.current_request.node, w.current_request.max_width, w.current_request.dark_mode);
-            auto png_bytes = stream_util::ReadStreamToEnd(png_stream);
-            if (!png_bytes.empty()) {
-                file_cache_->StoreAsync(fkey, draw_w, draw_h, std::move(png_bytes));
-            }
+            file_cache_->StoreAsync(fkey, draw_w, draw_h, *png_shared);
         }
     }
 
