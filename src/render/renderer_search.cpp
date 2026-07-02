@@ -81,15 +81,15 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
 
         // 比較は scalar → 空になりやすい ime_comp → query の順で短絡させる
         Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
-        const bool cache_hit = cached_search_layout_ && cached_search_width_ == input_w && cached_search_caret_pos_ == key_caret_pos && cached_search_ime_comp_ == sb.ime_composition && cached_search_query_ == sb.query;
+        const bool cache_hit = search_cache_.layout && search_cache_.width == input_w && search_cache_.caret_pos == key_caret_pos && search_cache_.ime_comp == sb.ime_composition && search_cache_.query == sb.query;
         if (cache_hit) {
-            text_layout = cached_search_layout_;
-            display_text = cached_search_text_;
+            text_layout = search_cache_.layout;
+            display_text = search_cache_.text;
             // 前フレームの下線範囲と異なる可能性があるため、キャッシュ上に下線が残っていれば
             // 常に全体をクリアする。IME 非アクティブ継続時はクリアも発行されない。
-            if (cached_search_has_underline_) {
-                text_layout->SetUnderline(FALSE, DWRITE_TEXT_RANGE{ 0, static_cast<UINT32>(cached_search_text_.size()) });
-                cached_search_has_underline_ = false;
+            if (search_cache_.has_underline) {
+                text_layout->SetUnderline(FALSE, DWRITE_TEXT_RANGE{ 0, static_cast<UINT32>(search_cache_.text.size()) });
+                search_cache_.has_underline = false;
             }
         }
         else {
@@ -109,13 +109,13 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
                 input_h,
                 &text_layout);
             if (text_layout) {
-                cached_search_layout_ = text_layout;
-                cached_search_text_.assign(display_text);
-                cached_search_query_.assign(sb.query);
-                cached_search_ime_comp_.assign(sb.ime_composition);
-                cached_search_caret_pos_ = key_caret_pos;
-                cached_search_width_ = input_w;
-                cached_search_has_underline_ = false;
+                search_cache_.layout = text_layout;
+                search_cache_.text.assign(display_text);
+                search_cache_.query.assign(sb.query);
+                search_cache_.ime_comp.assign(sb.ime_composition);
+                search_cache_.caret_pos = key_caret_pos;
+                search_cache_.width = input_w;
+                search_cache_.has_underline = false;
             }
         }
         if (text_layout) {
@@ -125,7 +125,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
                     static_cast<UINT32>(comp_len)
                 };
                 text_layout->SetUnderline(TRUE, range);
-                cached_search_has_underline_ = true;
+                search_cache_.has_underline = true;
             }
 
             // テキストの背面に描画
@@ -176,17 +176,17 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
             // 直前と同じ入力）は HitTestTextPosition を省く。layout 失効時は cache_hit が
             // false になり、その経路で text_layout を作り直す前に effective_pos キャッシュも
             // 落としておく必要があるため、ここでは layout 一致を直前 update 済み
-            // cached_search_layout_ で判定する。
-            if (cache_hit && cached_search_effective_pos_ == effective_pos) {
-                caret_x = cached_search_caret_x_;
+            // search_cache_.layout で判定する。
+            if (cache_hit && search_cache_.effective_pos == effective_pos) {
+                caret_x = search_cache_.caret_x;
             }
             else {
                 FLOAT px, py;
                 DWRITE_HIT_TEST_METRICS htm{};
                 text_layout->HitTestTextPosition(static_cast<UINT32>(effective_pos), false, &px, &py, &htm);
                 caret_x = text_left + px;
-                cached_search_effective_pos_ = effective_pos;
-                cached_search_caret_x_ = caret_x;
+                search_cache_.effective_pos = effective_pos;
+                search_cache_.caret_x = caret_x;
             }
         }
     }
@@ -264,14 +264,14 @@ int Renderer::HitTestSearchInput(std::wstring_view query, float local_x, float m
         return 0;
     }
     Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
-    // DrawSearchBar が直前に作成した cached_search_layout_ を再利用できるケース
+    // DrawSearchBar が直前に作成した search_cache_.layout を再利用できるケース
     // （IME コンポジションが無く、query と表示テキストが一致）を高速パスに。
     // IME 合成中は表示テキスト = query + comp string となり layout のヒット判定対象が
-    // ずれるため、cached_search_caret_pos_ != -1 (= 合成中) の場合は安全側でキャッシュを捨てて
+    // ずれるため、search_cache_.caret_pos != -1 (= 合成中) の場合は安全側でキャッシュを捨てて
     // 再生成する。クリック応答性は損なわない (IME 合成中はキャレット移動を主に DefSubclassProc が処理)。
-    const bool cache_hit = cached_search_layout_ && cached_search_width_ == max_width && cached_search_caret_pos_ == -1 && cached_search_query_ == query;
+    const bool cache_hit = search_cache_.layout && search_cache_.width == max_width && search_cache_.caret_pos == -1 && search_cache_.query == query;
     if (cache_hit) {
-        layout = cached_search_layout_;
+        layout = search_cache_.layout;
     }
     else {
         backend_.GetDWriteFactory()->CreateTextLayout(

@@ -240,15 +240,7 @@ void Renderer::RecreatePaneFormats()
     gesture_forward_layout_.Reset();
     cached_toast_layout_.Reset();
     cached_toast_text_.clear();
-    cached_search_layout_.Reset();
-    cached_search_text_.clear();
-    cached_search_query_.clear();
-    cached_search_ime_comp_.clear();
-    cached_search_caret_pos_ = -1;
-    cached_search_width_ = -1.0f;
-    cached_search_has_underline_ = false;
-    cached_search_effective_pos_ = -2;
-    cached_search_caret_x_ = 0.0f;
+    search_cache_.Reset();
 
     for (auto& c : pane_caches_) {
         c.Reset();
