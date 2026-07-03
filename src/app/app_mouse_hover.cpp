@@ -35,7 +35,7 @@ bool App::IsOverMdScrollbar(float dip_x, float dip_y, const PaneLayout& layout) 
         return false;
     }
     const float md_right = layout.md_rect.x + layout.md_rect.width;
-    const float sb_left = md_right - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+    const float sb_left = VScrollbarLeftX(md_right);
     const float sb_right = md_right - PANE_SCROLLBAR_MARGIN;
     return dip_x >= sb_left - PANE_SCROLLBAR_HIT_PADDING && dip_x <= sb_right;
 }

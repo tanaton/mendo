@@ -49,6 +49,13 @@ inline constexpr float TABLE_STRIPE_ALPHA_LIGHT = 0.02f;
 // Shift+Wheel / WM_MOUSEHWHEEL の delta (WHEEL_DELTA = 120 単位) を DIP に換算する。
 inline constexpr float HSCROLL_DIP_PER_NOTCH = 60.0f;
 
+// 縦スクロールバーの左端 X。right_edge はペイン右端 (ローカル/スクリーンどちらの系でも可)。
+// 描画 (renderer_pane) とヒットテスト (app_mouse_*) で同じ式を共有する。
+inline constexpr float VScrollbarLeftX(float right_edge) noexcept
+{
+    return right_edge - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+}
+
 // ブロック横スクロールバーの bar 上端 Y 座標 (ペインローカル document Y)。
 // extra_padding は CodeBlock の背景下端 padding 内に置く場合に渡す (Table は 0)。
 inline constexpr float BlockHScrollbarBarY(float entry_text_top, float entry_height, float extra_padding) noexcept

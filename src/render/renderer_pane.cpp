@@ -48,7 +48,7 @@ static void DrawPaneScrollbar(
     const float thumb_height = info.thumb_height;
     const float thumb_y = ComputeThumbY(info, scroll_y);
 
-    const float thumb_x = pane_width - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+    const float thumb_x = VScrollbarLeftX(pane_width);
 
     D2D1_ROUNDED_RECT thumb_rect;
     thumb_rect.rect = D2D1::RectF(thumb_x, thumb_y, thumb_x + PANE_SCROLLBAR_WIDTH, thumb_y + thumb_height);
@@ -303,7 +303,7 @@ void Renderer::DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, flo
 
     const auto info = ComputeScrollInfo(md_pane_rect, 0.0f, total_content_height);
     const float thumb_y = ComputeThumbY(info, scroll_y);
-    const float track_x = md_pane_rect.x + md_pane_rect.width - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
+    const float track_x = VScrollbarLeftX(md_pane_rect.x + md_pane_rect.width);
 
     D2D1_ROUNDED_RECT thumb_rect;
     thumb_rect.rect = D2D1::RectF(track_x, thumb_y, track_x + PANE_SCROLLBAR_WIDTH, thumb_y + info.thumb_height);

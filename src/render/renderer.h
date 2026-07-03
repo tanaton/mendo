@@ -180,31 +180,51 @@ private:
     std::pmr::wstring cached_toast_text_{ GetThreadLocalPoolResource() };
 
     // 検索バーの入力テキストレイアウトキャッシュ。
-    // キー: (query, ime_composition, caret_pos, input 幅)
-    // 値:   cached_search_layout_ と合成済み表示テキスト cached_search_text_。
+    // キー: (query, ime_comp, caret_pos, width) 入力 height は定数なのでキーに含めない。
     // キャレット点滅や同一入力継続フレームで CreateTextLayout と
-    // 表示テキスト合成の双方を回避する。入力 height は定数なのでキーに含めない。
-    mutable Microsoft::WRL::ComPtr<IDWriteTextLayout> cached_search_layout_;
-    mutable std::pmr::wstring cached_search_text_{ GetThreadLocalPoolResource() };     // 合成後の表示テキスト (IME 未使用時は query と同一)
-    mutable std::pmr::wstring cached_search_query_{ GetThreadLocalPoolResource() };    // 直近フレームの sb.query
-    mutable std::pmr::wstring cached_search_ime_comp_{ GetThreadLocalPoolResource() }; // 直近フレームの sb.ime_composition
-    mutable int cached_search_caret_pos_ = -1;                                         // IME 合成時の挿入位置（無いとき -1）
-    mutable float cached_search_width_ = -1.0f;
-    mutable bool cached_search_has_underline_ = false;
-    // キャレット x 位置のフレーム間キャッシュ。点滅フレームのみ caret_visible が変わる
-    // ケースで HitTestTextPosition の COM 越境呼び出しを省く。
-    // 有効性は (cached_search_layout_, effective_pos) 一致で判定する。
-    mutable int cached_search_effective_pos_ = -2; // -2 = 未確定
-    mutable float cached_search_caret_x_ = 0.0f;
+    // 表示テキスト合成の双方を回避する。
+    struct SearchLayoutCache {
+        Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+        std::pmr::wstring text{ GetThreadLocalPoolResource() };     // 合成後の表示テキスト (IME 未使用時は query と同一)
+        std::pmr::wstring query{ GetThreadLocalPoolResource() };    // 直近フレームの sb.query
+        std::pmr::wstring ime_comp{ GetThreadLocalPoolResource() }; // 直近フレームの sb.ime_composition
+        int caret_pos = -1;                                         // IME 合成時の挿入位置（無いとき -1）
+        float width = -1.0f;
+        bool has_underline = false;
+        // キャレット x 位置のフレーム間キャッシュ。点滅フレームのみ caret_visible が変わる
+        // ケースで HitTestTextPosition の COM 越境呼び出しを省く。
+        // 有効性は (layout, effective_pos) 一致で判定する。
+        int effective_pos = -2; // -2 = 未確定
+        float caret_x = 0.0f;
+
+        void Reset()
+        {
+            layout.Reset();
+            text.clear();
+            query.clear();
+            ime_comp.clear();
+            caret_pos = -1;
+            width = -1.0f;
+            has_underline = false;
+            effective_pos = -2;
+            caret_x = 0.0f;
+        }
+    };
+    mutable SearchLayoutCache search_cache_;
     Microsoft::WRL::ComPtr<ID2D1Bitmap> app_icon_bitmap_;
     void LoadAppIconBitmap();
     Microsoft::WRL::ComPtr<ID2D1StrokeStyle> gesture_stroke_style_;
 
     PaneCache pane_caches_[2];
 
-    uint32_t last_effects_gen_ = std::numeric_limits<uint32_t>::max();
-    int last_effects_first_ = -1;
-    int last_effects_bottom_q_ = -1;
+    // 直近フレームで ApplyVisibleEffects を実行したキー。(世代, 可視域) が一致すれば再適用を省く。
+    struct EffectsKey {
+        uint32_t gen = std::numeric_limits<uint32_t>::max();
+        int first_visible = -1;
+        int viewport_bottom_q = -1;
+        bool operator==(const EffectsKey&) const = default;
+    };
+    EffectsKey last_effects_;
 
     Theme theme_;
     DWriteTextMeasurer measurer_;
