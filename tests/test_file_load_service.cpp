@@ -1,10 +1,34 @@
 #include <gtest/gtest.h>
 #include "file_load_service.h"
+#include "test_helpers.h"
+#include "theme.h"
 
 class FileLoadServiceTest : public ::testing::Test {
 protected:
     FileLoadService service_;
 };
+
+namespace {
+constexpr auto kPollTimeout = std::chrono::seconds(5);
+} // namespace
+
+// preload と StartAsyncLoad を跨ぐキャンセル挙動は実 scheduler が要るため専用 fixture。
+class FileLoadServicePreloadTest : public ::testing::Test {
+protected:
+    static TaskScheduler scheduler_;
+    FileLoadService service_;
+
+    static void SetUpTestSuite()
+    {
+        scheduler_.Init(1);
+    }
+    static void TearDownTestSuite()
+    {
+        scheduler_.Shutdown();
+    }
+};
+
+TaskScheduler FileLoadServicePreloadTest::scheduler_;
 
 TEST_F(FileLoadServiceTest, InitiallyNotLoading)
 {
@@ -104,4 +128,23 @@ TEST_F(FileLoadServiceTest, CancelAsyncLoadDoesNotCrash)
     // 非同期ロードが進行中でなくてもキャンセルは安全
     service_.CancelAsyncLoad();
     EXPECT_FALSE(service_.TakeAsyncResult().has_value());
+}
+
+TEST_F(FileLoadServicePreloadTest, StartAsyncLoadCancelsPreloadResult)
+{
+    TempFile preload_file(L"fls_preload", "# preload doc\n");
+    TempFile new_file(L"fls_newload", "# new doc\n");
+
+    service_.StartPreloadAsync(preload_file.PmrPath());
+    // preload worker が結果を sink に積んで cv.wait (hwnd 待ち) に入るまで待つ。
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+
+    service_.SetLoadingPath(new_file.PmrPath());
+    service_.StartAsyncLoad(scheduler_, nullptr, 0, GetLightTheme());
+
+    std::optional<AsyncLoadResult> result;
+    PollUntil([&] { result = service_.TakeAsyncResult(); return result.has_value(); }, kPollTimeout);
+    ASSERT_TRUE(result.has_value());
+    // preload 結果 (fls_preload) ではなく StartAsyncLoad の結果 (fls_newload) を返すこと。
+    EXPECT_EQ(result->doc.GetFilePath(), new_file.PmrPath());
 }

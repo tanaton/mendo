@@ -390,29 +390,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
 
         // 5. 文字列リテラル
         if (c == '"' || (c == '\'' && !Cfg.skip_single_quote)) {
-            // C++生文字列の確認: R"(...)"。raw_string 対応言語 (C/C++) のみで判定する。
-            // 他言語で識別子末尾の R + 文字列を誤って生文字列扱いしないようゲートする。
-            if (Cfg.raw_string && c == '"' && i > 0 && text[i - 1] == 'R' && (i < 2 || !IsIdentChar(text[i - 2]))) {
-                // 調整: Rは既にプレーンバッファにあるので除去する。
-                if (in_plain) {
-                    if (static_cast<uint32_t>(i - 1) > plain_start) {
-                        EmitToken(tokens, plain_start, static_cast<uint32_t>(i - 1) - plain_start, SyntaxTokenType::Plain);
-                    }
-                    in_plain = false;
-                }
-                const size_t start = i - 1;
-                // デリミタを検索: R"DELIM( ... )DELIM"
-                const size_t paren = text.find('(', i + 1);
-                if (paren != std::string_view::npos) {
-                    i = ScanCppRawString(text, i, paren);
-                }
-                else {
-                    i = ScanString(text, i, c, false);
-                }
-                EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::String);
-                at_line_start = false;
-                continue;
-            }
+            // 生文字列 R"(...)" の R は識別子として step 8 で消費されるため、ここでは通常の文字列として扱う。
             flush_plain();
             const size_t start = i;
             i = ScanString(text, i, c, false);
@@ -452,6 +430,24 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
             }
 
             const std::string_view word(text.data() + start, i - start);
+
+            if constexpr (Cfg.raw_string) {
+                // R"..." の R はプレフィックスとして String トークンに含める。
+                // word == "R" なら直前が非識別子文字であることも保証される。
+                if (word == "R" && i < text.size() && text[i] == '"') {
+                    const size_t paren = text.find('(', i + 1);
+                    if (paren != std::string_view::npos) {
+                        i = ScanCppRawString(text, i, paren);
+                    }
+                    else {
+                        i = ScanString(text, i, '"', false);
+                    }
+                    EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::String);
+                    at_line_start = false;
+                    continue;
+                }
+            }
+
             std::string_view lookup_word = word;
             if constexpr (Cfg.case_insensitive) {
                 if (ascii_util::HasAsciiUpper(word.data(), word.size())) {

@@ -53,7 +53,7 @@ bool IsFileLargerThan(const std::filesystem::path& path, size_t reference_size, 
     return current_size > static_cast<uint64_t>(reference_size) + tolerance;
 }
 
-bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size)
+bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size, bool flush_buffers)
 {
     if (size > std::numeric_limits<uint32_t>::max()) {
         return false;
@@ -67,6 +67,9 @@ bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t s
         bytes_written != static_cast<DWORD>(size)) {
         return false;
     }
+    if (flush_buffers && !FlushFileBuffers(hFile.get())) {
+        return false;
+    }
     return true;
 }
 
@@ -75,14 +78,17 @@ bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, si
     std::filesystem::path tmp_path = path;
     tmp_path += L".tmp";
 
-    if (!WriteAllBytes(tmp_path, data, size)) {
+    // tmp のデータブロックを flush してから write-through rename する。
+    // rename のメタデータだけが先にディスクへコミットされると、電源断時に
+    // 対象ファイルが 0 バイト化し旧内容が復元不能になるため。
+    if (!WriteAllBytes(tmp_path, data, size, /* flush_buffers = */ true)) {
         // 書き込み途中失敗でも CREATE_ALWAYS で tmp は生成済み。部分書き込みの
         // 孤児 tmp を残さないよう掃除する。
         DeleteFileW(tmp_path.c_str());
         return false;
     }
 
-    if (MoveFileExW(tmp_path.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+    if (MoveFileExW(tmp_path.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         return true;
     }
 

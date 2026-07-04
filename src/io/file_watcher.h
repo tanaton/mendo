@@ -28,6 +28,8 @@ private:
     void BeginRead();
 
     std::pmr::wstring watch_filename_;
+    // 通知は 8.3 短縮名で来ることがある (未規定)。長い名前と一致しない場合のみ保持。
+    std::pmr::wstring watch_filename_short_;
     ChangeCallback on_change_;
     bool watching_ = false;
 

@@ -713,6 +713,31 @@ TEST(Syntax, CppRawString)
     EXPECT_TRUE(has_string);
 }
 
+// バグ修正: R"(...)"はRを含めて単一のStringトークンになるべき（PlainとStringの重複禁止）
+TEST(Syntax, CppRawStringRPrefixMergedIntoSingleToken)
+{
+    std::string code = "R\"(abc)\"";
+    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+    // 連続・非重複であることを確認（gapless coverageは重複がないことも保証する）
+    AssertTokensCoverText(tokens, code.size());
+
+    ASSERT_EQ(tokens.size(), 1u);
+    EXPECT_EQ(tokens[0].type, SyntaxTokenType::String);
+    EXPECT_EQ(tokens[0].start, 0u);
+    EXPECT_EQ(tokens[0].length, 8u);
+}
+
+// トークンがstart昇順・非重複であることを確認（複数の生文字列を含む入力）
+TEST(Syntax, CppRawStringTokensAreOrderedAndNonOverlapping)
+{
+    std::string code = "R\"(one)\" + R\"delim(two)delim\" + normalCall()";
+    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+    AssertTokensCoverText(tokens, code.size());
+    for (size_t i = 1; i < tokens.size(); i++) {
+        EXPECT_LE(tokens[i - 1].start + tokens[i - 1].length, tokens[i].start);
+    }
+}
+
 // C++ 8進数
 TEST(Syntax, CppNumberOctal)
 {
@@ -923,11 +948,12 @@ TEST(Syntax, CppRawStringWithDelimiter)
 {
     std::string code = "R\"delim(hello \"world\")delim\"";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
-    // Rは別の識別子として出力され、その後に生文字列が続く
+    AssertTokensCoverText(tokens, code.size());
+    // RはStringトークンに含まれ、R"delim(...)delim"全体が単一のStringトークンになる
     auto* str = FindToken(tokens, SyntaxTokenType::String);
     ASSERT_NE(str, nullptr);
-    // R"delim(...)delim"全体がキャプチャされる（Rはプレーン + 文字列本体）
-    EXPECT_GT(str->length, 10u);
+    EXPECT_EQ(str->start, 0u);
+    EXPECT_EQ(str->length, static_cast<uint32_t>(code.size()));
 }
 
 // ============================================================
@@ -1075,6 +1101,31 @@ TEST(Syntax, CppRawStringAfterSpaceR)
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
     auto* str = FindToken(tokens, SyntaxTokenType::String);
     ASSERT_NE(str, nullptr);
+}
+
+TEST(Syntax, CppRawStringNotTriggeredWhenRIsPartOfLongerIdentifier)
+{
+    // "xR\"(a)\"" — 識別子が"R"単独でない（"xR"）ため生文字列扱いされず、
+    // "(a)"は通常の文字列として解釈される
+    std::string code = "xR\"(a)\"";
+    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+    AssertTokensCoverText(tokens, code.size());
+
+    bool found_xr = false;
+    bool found_string = false;
+    for (const auto& t : tokens) {
+        std::string text = GetTokenText(code, t);
+        if (text == "xR") {
+            found_xr = true;
+            EXPECT_NE(t.type, SyntaxTokenType::String);
+        }
+        if (text == "\"(a)\"") {
+            found_string = true;
+            EXPECT_EQ(t.type, SyntaxTokenType::String);
+        }
+    }
+    EXPECT_TRUE(found_xr) << "xRが独立したトークンとして見つかるべき";
+    EXPECT_TRUE(found_string) << "\"(a)\"が通常の文字列トークンとして見つかるべき";
 }
 
 // ============================================================

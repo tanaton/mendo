@@ -241,6 +241,24 @@ TEST(ViewportManagerTest, SelectAllEmpty)
     EXPECT_FALSE(vm.GetSelection().active);
 }
 
+// 最終ノードが Table のとき、GetText() は空なので LinearizedText (= concat_text) を終端に使う必要がある。
+TEST(ViewportManagerTest, SelectAllLastNodeIsTable)
+{
+    std::pmr::vector<Node> nodes;
+    nodes.push_back(MakeTextNode("hello"));
+    nodes.push_back(MakeTableNode("cell0", "cell1"));
+
+    ViewportManager vm;
+    vm.SelectAll(nodes);
+
+    EXPECT_TRUE(vm.GetSelection().active);
+    EXPECT_EQ(vm.GetSelection().start_node, 0);
+    EXPECT_EQ(vm.GetSelection().start_pos, 0u);
+    EXPECT_EQ(vm.GetSelection().end_node, 1);
+    EXPECT_EQ(vm.GetSelection().end_pos, static_cast<uint32_t>(nodes[1].LinearizedText().size()));
+    EXPECT_GT(vm.GetSelection().end_pos, static_cast<uint32_t>(nodes[1].GetText().size()));
+}
+
 // ---- ズームテスト ----
 
 TEST(ViewportManagerTest, ZoomInAdvancesIndex)

@@ -179,15 +179,26 @@ void App::OnParseComplete()
 {
     MENDO_PROFILE("OnParseComplete");
 
+    auto result = file_load_service_.TakeAsyncResult();
+    std::optional<FileLoadError> err;
+    if (!result) {
+        err = file_load_service_.TakeAsyncError();
+        // 結果もエラーも無いのに別のロードが進行中 → Start の ResetSinks で無効化された
+        // stale メッセージ。進行中ロードのアニメーションや FileWatcher 状態に触らず無視する。
+        if (!err && file_load_service_.IsAsyncLoading()) {
+            MENDO_TRACE("OnParseComplete: stale message ignored (new load in progress)");
+            return;
+        }
+    }
+
     EmitEffect(effect::KillTimer{ app_timer::Id::LOADING_ANIM });
     file_load_service_.StopLoading();
 
-    auto result = file_load_service_.TakeAsyncResult();
     if (!result) {
         MENDO_TRACE("OnParseComplete: no result (cancelled or load failed)");
         // 失敗パスでも paused 状態の FileWatcher を必ず再開させる。
         EmitEffect(effect::ResumeFileWatch{});
-        if (auto err = file_load_service_.TakeAsyncError()) {
+        if (err) {
             ShowToast(FileLoadErrorMessage(*err, i18n::S()));
         }
         HandleLoadFailureFallback();

@@ -285,6 +285,7 @@ private:
     TaskScheduler scheduler_;
     TaskScheduler layout_scheduler_;
     MermaidFileCache file_cache_; // mermaid_renderer_ より先に宣言する（mermaid_renderer_ は破棄時に file_cache_ を参照する）
+    ClipboardManager clipboard_manager_; // mermaid_renderer_ より先に宣言する（~MermaidRenderer の CancelPending が in-flight コールバック経由で clipboard_manager_ に触るため、後に破棄させる）
     MermaidRenderer mermaid_renderer_;
     ImageLoader image_loader_;
     FileWatcher file_watcher_;
@@ -302,6 +303,4 @@ private:
     SideEffectExecutor effect_executor_;
 
     void ShowToast(std::wstring_view message);
-
-    ClipboardManager clipboard_manager_;
 };

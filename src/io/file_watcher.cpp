@@ -15,6 +15,16 @@ void FileWatcher::StartWatching(const std::pmr::wstring& file_path, ChangeCallba
     const std::filesystem::path p(file_path);
     watch_filename_ = std::pmr::wstring{ p.filename().native() };
 
+    watch_filename_short_.clear();
+    wchar_t short_buf[MAX_PATH];
+    const DWORD short_len = GetShortPathNameW(file_path.c_str(), short_buf, MAX_PATH);
+    if (short_len > 0 && short_len < MAX_PATH) {
+        std::pmr::wstring short_name{ std::filesystem::path(short_buf).filename().native() };
+        if (!path_util::iequal(short_name, watch_filename_)) {
+            watch_filename_short_ = std::move(short_name);
+        }
+    }
+
     const auto dir = p.parent_path();
     if (dir.empty()) {
         return;
@@ -130,9 +140,11 @@ void FileWatcher::CheckForChanges()
                 break;
             }
             const std::wstring_view changed_name{ info->FileName, name_bytes / sizeof(wchar_t) };
+            const bool name_matches = path_util::iequal(changed_name, watch_filename_) ||
+                (!watch_filename_short_.empty() && path_util::iequal(changed_name, watch_filename_short_));
             if (info->Action != FILE_ACTION_REMOVED &&
                 info->Action != FILE_ACTION_RENAMED_OLD_NAME &&
-                path_util::iequal(changed_name, watch_filename_)) {
+                name_matches) {
                 target_changed = true;
                 break;
             }
