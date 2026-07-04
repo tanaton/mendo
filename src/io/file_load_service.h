@@ -57,6 +57,7 @@ public:
     void CancelAsyncLoad() noexcept
     {
         coordinator_.Cancel();
+        preloader_.Cancel();
     }
 
     // App::Init 前から走らせる経路。

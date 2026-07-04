@@ -29,6 +29,9 @@ std::expected<void, FileLoadError> FileLoadService::ExecuteLoad(Document& doc, L
 
 void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, const Theme& theme)
 {
+    // 新しいロードが preload を置き換える。放置すると TakeAsyncResult が preload 結果を
+    // 優先返却し、表示中ドキュメントを上書きする。
+    preloader_.Cancel();
     coordinator_.Start(scheduler, loading_path_, hwnd, msg_id, theme);
 }
 

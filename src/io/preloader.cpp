@@ -32,19 +32,26 @@ void Preloader::Start(std::pmr::wstring path)
 
         // stop_token なしだと Parse 完走まで終了時の join が数百 ms ブロックする。
         auto load_result = DocumentService::LoadFile(path, st);
-        // sink 書き込み前に abort 確認。直後の publish + main 側即破棄を回避。
         if (st.stop_requested()) {
             return;
         }
+        LayoutCache cache;
         if (load_result) {
-            LayoutCache cache;
             cache.Reset(load_result->GetNodes().size(), /* shrink = */ false);
-            const std::lock_guard lock(sink_mutex_);
-            result_.emplace(AsyncLoadResult{ std::move(*load_result), std::move(cache), /* heights_estimated = */ false });
         }
-        else {
+        {
             const std::lock_guard lock(sink_mutex_);
-            error_ = load_result.error();
+            // Cancel の sink クリアと同一 mutex 上で直列化し、クリア後の再 publish を防ぐ
+            // (coordinator の try_publish と同じパターン)。
+            if (st.stop_requested()) {
+                return;
+            }
+            if (load_result) {
+                result_.emplace(AsyncLoadResult{ std::move(*load_result), std::move(cache), /* heights_estimated = */ false });
+            }
+            else {
+                error_ = load_result.error();
+            }
         }
 
         std::unique_lock lk(ctx->mtx);
@@ -67,10 +74,11 @@ bool Preloader::IsDoneLocked() const
 
 void Preloader::Join()
 {
-    if (!ctx_) {
-        return;
+    // Cancel 済み (ctx_ が null) でも worker が走行中のことがあるため、
+    // joinable のみで判定する。
+    if (ctx_) {
+        ctx_->SignalAbort();
     }
-    ctx_->SignalAbort();
     if (thread_.joinable()) {
         thread_.request_stop();
         thread_.join();
@@ -126,4 +134,19 @@ std::optional<AsyncLoadResult> Preloader::TakeResult()
 std::optional<FileLoadError> Preloader::TakeError()
 {
     return TakeFromSink(error_);
+}
+
+void Preloader::Cancel() noexcept
+{
+    // join しない: worker が Parse 中だと UI スレッドが数百 ms ブロックするため。
+    // 以後の publish は worker 側の lock 内 stop 確認で弾かれ、走行中スレッドは
+    // 次の Start() か破棄時の Join() が回収する。
+    if (ctx_) {
+        ctx_->SignalAbort();
+        thread_.request_stop();
+        ctx_.reset();
+    }
+    const std::lock_guard lock(sink_mutex_);
+    result_.reset();
+    error_.reset();
 }

@@ -203,8 +203,10 @@ public:
             return;
         }
         const int last = static_cast<int>(nodes.size()) - 1;
+        // Table は GetText() が空 (実体は concat_text)。
+        // 抽出側 (ExtractSelectedText) と同じ LinearizedText で終端を取る。
         selection_ = TextSelection::MakeOrdered(
-            0, 0, last, static_cast<uint32_t>(nodes[last].GetText().size()));
+            0, 0, last, static_cast<uint32_t>(nodes[last].LinearizedText().size()));
     }
 
     // ---- ズーム ----

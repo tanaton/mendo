@@ -8,38 +8,29 @@
 namespace app_timer {
 
 // Win32 API に渡す際は std::to_underlying でキャスト。
+// 先頭のみ明示値。自動インクリメントにより 1 からのギャップなし連番が言語保証され、
+// kFirstTimer/kLastTimer の範囲判定の前提が崩れない。
 enum class Id : UINT_PTR {
     DEFERRED_LAYOUT = 1,
-    LOADING_ANIM = 2,
-    SWIPE_OVERLAY = 3,
-    TOAST = 4,
-    SEARCH_CARET = 5,
-    TOOLTIP = 6,
-    SEARCH_DEBOUNCE = 7,
-    MERMAID_BATCH = 8,
-    BITMAP_MANAGE = 9,
-    MERMAID_INIT_RETRY = 10,
-    FILE_RELOAD_DEBOUNCE = 11,
+    LOADING_ANIM,
+    SWIPE_OVERLAY,
+    TOAST,
+    SEARCH_CARET,
+    TOOLTIP,
+    SEARCH_DEBOUNCE,
+    MERMAID_BATCH,
+    BITMAP_MANAGE,
+    MERMAID_INIT_RETRY,
+    FILE_RELOAD_DEBOUNCE,
+    END, // 番兵。タイマーとしては使わない。新規タイマーはこの直前に追加する。
 };
 
 inline constexpr UINT FRAME_INTERVAL_MS = 16;        // ~60fps アニメーション用
 inline constexpr UINT FILE_RELOAD_DEBOUNCE_MS = 200; // ファイル変更通知のデバウンス
 inline constexpr UINT FILE_RELOAD_RETRY_MS = 50;     // truncate→rewrite 検出後の短縮リトライ
 
-// 新規タイマーを足したらここに追加すること。
-inline constexpr Id ALL_TIMERS[] = {
-    Id::DEFERRED_LAYOUT,
-    Id::LOADING_ANIM,
-    Id::SWIPE_OVERLAY,
-    Id::TOAST,
-    Id::SEARCH_CARET,
-    Id::SEARCH_DEBOUNCE,
-    Id::TOOLTIP,
-    Id::MERMAID_BATCH,
-    Id::BITMAP_MANAGE,
-    Id::MERMAID_INIT_RETRY,
-    Id::FILE_RELOAD_DEBOUNCE,
-};
+inline constexpr Id kFirstTimer = Id::DEFERRED_LAYOUT;
+inline constexpr Id kLastTimer = static_cast<Id>(std::to_underlying(Id::END) - 1);
 
 } // namespace app_timer
 

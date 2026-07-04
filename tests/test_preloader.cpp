@@ -147,3 +147,31 @@ TEST(Preloader, TakeAfterFinalizeReturnsNullopt)
     EXPECT_FALSE(p.TakeResult().has_value());
     EXPECT_FALSE(p.TakeError().has_value());
 }
+
+TEST(Preloader, CancelDiscardsCompletedResult)
+{
+    TempFile tmp(L"preload_cancel", "# will be cancelled\n");
+    Preloader p;
+    p.Start(tmp.PmrPath());
+    std::this_thread::sleep_for(kWorkerCompleteWait);
+
+    p.Cancel();
+
+    EXPECT_FALSE(p.IsActive());
+    EXPECT_FALSE(p.TakeResult().has_value());
+    EXPECT_FALSE(p.TakeError().has_value());
+}
+
+TEST(Preloader, CancelAbortsInFlightWorker)
+{
+    TempFile tmp(L"preload_cancel_inflight", "# in flight\n");
+    Preloader p;
+    p.Start(tmp.PmrPath());
+    // Cancel は join しないが、worker がどの段階にいても stop 要求 + lock 内再確認で
+    // publish は弾かれるため、結果は決定的に空になる。
+    p.Cancel();
+
+    EXPECT_FALSE(p.IsActive());
+    EXPECT_FALSE(p.TakeResult().has_value());
+    EXPECT_FALSE(p.TakeError().has_value());
+}

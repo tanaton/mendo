@@ -1668,8 +1668,12 @@ TEST_F(LayoutTest, LooseTaskListCheckboxIsEmitted)
     for (const auto& cmd : cmds) {
         if (auto* t = std::get_if<DrawTextCmd>(&cmd); t && t->text_len == 1) {
             const wchar_t ch = t->text()[0];
-            if (ch == L'☐') ++unchecked;
-            else if (ch == L'☑') ++checked;
+            if (ch == L'☐') {
+                ++unchecked;
+            }
+            else if (ch == L'☑') {
+                ++checked;
+            }
         }
     }
     EXPECT_EQ(unchecked, 1);
@@ -1708,22 +1712,7 @@ TEST(RecomputeYPositionsTest, DISABLED_BenchLargeDocument)
         }
     }
 
-    Theme theme;
-    theme.margin_top = 10.0f;
-    theme.heading_spacing_above = 8.0f;
-    theme.heading_spacing_below = 4.0f;
-    theme.heading_spacing_below_h1h2 = 6.0f;
-    theme.code_block_spacing_above = 12.0f;
-    theme.paragraph_spacing = 5.0f;
-    theme.font_size_body = 14.0f;
-    theme.font_size_code = 12.0f;
-    for (int i = 0; i < 6; ++i) {
-        theme.font_size_h[i] = 18.0f - static_cast<float>(i);
-    }
-    theme.list_item_spacing = 3.0f;
-    theme.code_block_padding = 4.0f;
-    theme.indent_width = 16.0f;
-    theme.hr_thickness = 1.0f;
+    Theme theme = MakeLayoutTestTheme();
 
     LayoutCache cache;
     cache.Resize(N);

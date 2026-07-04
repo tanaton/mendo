@@ -164,7 +164,9 @@ TEST_F(NavHistoryTest, MaxHistoryCapsForwardStack)
     // 全件GoBackして進むスタックに移す
     NavEntry out;
     for (size_t i = 0; i < NavHistory::MAX_HISTORY; ++i) {
-        if (!hist_.GoBack({ L"cur.md", 0, 0.0f }, out)) break;
+        if (!hist_.GoBack({ L"cur.md", 0, 0.0f }, out)) {
+            break;
+        }
     }
     EXPECT_LE(hist_.ForwardSize(), NavHistory::MAX_HISTORY);
 }

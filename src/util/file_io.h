@@ -67,7 +67,9 @@ struct OpenedFile {
 // 16 バイトの許容範囲を持たせる。
 bool IsFileLargerThan(const std::filesystem::path& path, size_t reference_size, size_t tolerance = 16) noexcept;
 
-[[nodiscard]] bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size);
+// flush_buffers: true の場合、close 前に FlushFileBuffers でデータブロックを
+// ディスクへコミットする。rename と組み合わせて使う経路 (AtomicWriteAllBytes) 向け。
+[[nodiscard]] bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size, bool flush_buffers = false);
 
 // tmp ファイルへ書いてから MoveFileExW(REPLACE_EXISTING) で原子的に置き換える。
 // rename が失敗 (クロスボリューム等) した場合は tmp を削除し false を返す。直書きフォールバックは
