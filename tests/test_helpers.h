@@ -17,6 +17,7 @@
 #include "document_types.h"
 #include "layout_cache.h"
 #include "side_effect.h"
+#include "theme.h"
 
 // Node::view_ は実バッファへの非 null ポインタを必要とする。テストでは中身が
 // 任意で十分大きい固定 base を返し、SetSourceOffset(base, offset) と SourceOffsetFrom(base)
@@ -94,6 +95,29 @@ inline LayoutCache MakeUniformCache(int count, float node_height = 100.0f)
         cache.BuildBlockHeights(std::span<const float>(block_heights.data(), block_heights.size()));
     }
     return cache;
+}
+
+// レイアウト系テスト共通の Theme。Theme は zoom 以外初期化子なしの集約のため、
+// value-init + 明示設定で未初期化読み（flaky の温床）を防ぐ。
+inline Theme MakeLayoutTestTheme()
+{
+    Theme theme{};
+    theme.margin_top = 10.0f;
+    theme.heading_spacing_above = 8.0f;
+    theme.heading_spacing_below = 4.0f;
+    theme.heading_spacing_below_h1h2 = 6.0f;
+    theme.code_block_spacing_above = 12.0f;
+    theme.paragraph_spacing = 5.0f;
+    theme.font_size_body = 14.0f;
+    theme.font_size_code = 12.0f;
+    for (int i = 0; i < 6; ++i) {
+        theme.font_size_h[i] = 18.0f - static_cast<float>(i);
+    }
+    theme.list_item_spacing = 3.0f;
+    theme.code_block_padding = 4.0f;
+    theme.indent_width = 16.0f;
+    theme.hr_thickness = 1.0f;
+    return theme;
 }
 
 // テストケースごとに temp ディレクトリを自動で用意・破棄するフィクスチャ基底。

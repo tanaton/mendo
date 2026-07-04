@@ -14,7 +14,6 @@
 #include "ui_constants.h"
 #include "d2d_util.h"
 #include <windowsx.h>
-#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <utility>
@@ -418,9 +417,8 @@ void App::OnFileWatchEvent()
 
 void App::HandleTimer(UINT_PTR timer_id)
 {
-    const auto it = std::ranges::find(app_timer::ALL_TIMERS, static_cast<app_timer::Id>(timer_id));
-    if (it != std::ranges::end(app_timer::ALL_TIMERS)) {
-        Dispatch(TimerAction{ *it });
+    if (timer_id >= std::to_underlying(app_timer::kFirstTimer) && timer_id <= std::to_underlying(app_timer::kLastTimer)) {
+        Dispatch(TimerAction{ static_cast<app_timer::Id>(timer_id) });
     }
 }
 
@@ -475,8 +473,8 @@ void App::OnDestroy()
     // 個別 Save 呼び出しでは write が遅延されるため、終了前に明示 flush で
     // すべての設定値を 1 度のディスク書き込みにまとめる。
     config_.Flush();
-    for (app_timer::Id id : app_timer::ALL_TIMERS) {
-        KillTimer(hwnd_, std::to_underlying(id));
+    for (UINT_PTR id = std::to_underlying(app_timer::kFirstTimer); id <= std::to_underlying(app_timer::kLastTimer); ++id) {
+        KillTimer(hwnd_, id);
     }
 }
 
