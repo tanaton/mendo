@@ -285,16 +285,7 @@ std::pmr::wstring mermaid_util::ParseJsonString(std::wstring_view json, std::wst
                 break;
             }
             unsigned int cp = 0;
-            bool valid = true;
-            for (int i = 0; i < 4; ++i) {
-                const wchar_t h = json[pos + i];
-                cp <<= 4;
-                if (h >= L'0' && h <= L'9') { cp |= static_cast<unsigned int>(h - L'0'); }
-                else if (h >= L'a' && h <= L'f') { cp |= static_cast<unsigned int>(h - L'a' + 10); }
-                else if (h >= L'A' && h <= L'F') { cp |= static_cast<unsigned int>(h - L'A' + 10); }
-                else { valid = false; break; }
-            }
-            if (!valid) {
+            if (ascii_util::from_chars(json.data() + pos, 4, cp, 16u) != json.data() + pos + 4) {
                 return result;
             }
             pos += 4;
@@ -322,7 +313,8 @@ std::pmr::wstring mermaid_util::SanitizeErrorMessage(std::wstring_view msg, size
     bool truncated = false;
     for (size_t i = 0; i < msg.size(); ++i) {
         const wchar_t c = msg[i];
-        if (c == L'\n' || c == L'\r' || c == L'\t' || c == L' ') {
+        // 改行・タブに加え、JSON の \u00XX から復元された制御文字 (豆腐表示になる) も空白に潰す。
+        if (c <= L' ') {
             if (!prev_space) {
                 result += L' ';
                 prev_space = true;

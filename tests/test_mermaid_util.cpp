@@ -485,6 +485,12 @@ TEST(SanitizeErrorMessage, CollapsesWhitespaceRuns)
               L"Parse error on line 2: ----^ got 'X'");
 }
 
+TEST(SanitizeErrorMessage, CollapsesControlChars)
+{
+    // JSON の \u00XX から復元された制御文字 (垂直タブ・ESC 等) も豆腐表示にせず空白に潰す
+    EXPECT_EQ(mermaid_util::SanitizeErrorMessage(L"got\x0b\x1bhere", 100), L"got here");
+}
+
 TEST(SanitizeErrorMessage, TrimsLeadingAndTrailingWhitespace)
 {
     EXPECT_EQ(mermaid_util::SanitizeErrorMessage(L"  \n boom \n ", 100), L"boom");

@@ -31,8 +31,8 @@ bool ParseJsonTrueFlag(std::wstring_view json, std::wstring_view key) noexcept;
 // キーが無い・値が文字列でない・閉じ引用符が無い場合は空を返す。
 std::pmr::wstring ParseJsonString(std::wstring_view json, std::wstring_view key);
 
-// エラーメッセージの表示用整形: 改行・タブを空白1個に潰し、max_len で切り詰める
-// (DrawTextCmd の 255 文字上限内に収める)。切り詰め時は末尾に U+2026 を付ける。
+// エラーメッセージの表示用整形: 空白・改行・制御文字の連続を空白1個に潰し、max_len で
+// 切り詰める (DrawTextCmd の 255 文字上限内に収める)。切り詰め時は末尾に U+2026 を付ける。
 std::pmr::wstring SanitizeErrorMessage(std::wstring_view msg, size_t max_len);
 
 struct RequestPrefix {
