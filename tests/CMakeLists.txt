@@ -59,6 +59,7 @@ add_executable(mendo_tests
     test_command_generator_frame.cpp
     test_command_generator_content.cpp
     test_command_generator_highlight.cpp
+    test_diagram_placeholder.cpp
     test_measurer_parity.cpp
     test_command_executor.cpp
     test_resource_manager.cpp

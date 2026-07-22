@@ -186,7 +186,8 @@ private:
     void EmitBlockHScrollbarIfActive(DrawCommandList& cmds, const FrameContext& fc, int node_index, float block_x, float bar_y, const BlockHScrollGeometry& geom, float scroll_x);
     void GenListBullet(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top);
     void GenBlockQuoteGroupDecorations(DrawCommandList& cmds, const FrameContext& fc, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible);
-    void GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h);
+    // error 非空時は「読み込み中...」の代わりにエラーメッセージを表示する (issue #271)。
+    void GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h, std::wstring_view error = {});
     void EmitHighlightRects(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y, D2D1_COLOR_F color, BrushId brush_id = BrushId::Custom);
     // HitTestTextRange の結果をレイアウト原点相対の D2D1_RECT_F に変換し out へ append する。
     // SearchHlCache / SelectionHlCache の rebuild に共用する。

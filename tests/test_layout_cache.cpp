@@ -93,6 +93,22 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesDiagramEntries)
     EXPECT_FLOAT_EQ(cache.GetDiagram(1).height, 250.0f);
 }
 
+// テーマ変更等の全ダイアグラム無効化でエラー状態もクリアされ、
+// 再試行の契機になることを検証する (issue #271)。
+TEST(LayoutCacheTest, InvalidateAllDiagramBitmapsClearsError)
+{
+    LayoutCache cache;
+    cache.Resize(2);
+
+    cache.GetDiagram(0).error = L"Parse error on line 1";
+    cache.GetDiagram(1).error = L"Parse error on line 3";
+
+    cache.InvalidateAllDiagramBitmaps();
+
+    EXPECT_TRUE(cache.GetDiagram(0).error.empty());
+    EXPECT_TRUE(cache.GetDiagram(1).error.empty());
+}
+
 // SetBlockHeight 経由で Fenwick が更新され、GetBlockTop /
 // GetTotalHeightFromFenwick が margin_top を考慮した正しい値を返すことを検証する。
 TEST(LayoutCacheTest, BlockHeightFenwickRoundTrip)

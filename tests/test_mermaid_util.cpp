@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include "mermaid_util.h"
 
+using namespace std::literals;
+
 // ============================================================
 // JsEscape テスト
 // ============================================================
@@ -403,6 +405,105 @@ TEST(ParseJsonTrueFlag, KeyWithoutColonReturnsFalse)
 {
     // キー直後にコロンが来ない異常形式は false
     EXPECT_FALSE(mermaid_util::ParseJsonTrueFlag(L"\"ok\" true", L"\"ok\""));
+}
+
+// ============================================================
+// ParseJsonString テスト
+// ============================================================
+
+TEST(ParseJsonString, MissingKeyReturnsEmpty)
+{
+    EXPECT_TRUE(mermaid_util::ParseJsonString(L"{\"ok\":false}", L"\"error\"").empty());
+}
+
+TEST(ParseJsonString, EmptyJsonReturnsEmpty)
+{
+    EXPECT_TRUE(mermaid_util::ParseJsonString(L"", L"\"error\"").empty());
+}
+
+TEST(ParseJsonString, BasicString)
+{
+    EXPECT_EQ(mermaid_util::ParseJsonString(L"{\"ok\":false,\"error\":\"boom\"}", L"\"error\""), L"boom");
+}
+
+TEST(ParseJsonString, AllowsSpaceAfterColon)
+{
+    EXPECT_EQ(mermaid_util::ParseJsonString(L"{\"error\": \"boom\"}", L"\"error\""), L"boom");
+}
+
+TEST(ParseJsonString, NonStringValueReturnsEmpty)
+{
+    EXPECT_TRUE(mermaid_util::ParseJsonString(L"{\"error\":123}", L"\"error\"").empty());
+}
+
+TEST(ParseJsonString, UnterminatedStringReturnsEmpty)
+{
+    EXPECT_TRUE(mermaid_util::ParseJsonString(L"{\"error\":\"boom", L"\"error\"").empty());
+}
+
+TEST(ParseJsonString, UnescapesCommonEscapes)
+{
+    EXPECT_EQ(mermaid_util::ParseJsonString(L"{\"error\":\"a\\nb\\t\\\"c\\\"\\\\d\"}", L"\"error\""),
+              L"a\nb\t\"c\"\\d");
+}
+
+TEST(ParseJsonString, UnescapesUnicodeEscape)
+{
+    EXPECT_EQ(mermaid_util::ParseJsonString(L"{\"error\":\"\\u0041\\u3042\"}", L"\"error\""), L"Aあ");
+}
+
+TEST(ParseJsonString, InvalidUnicodeEscapeReturnsEmpty)
+{
+    EXPECT_TRUE(mermaid_util::ParseJsonString(L"{\"error\":\"\\uZZZZ\"}", L"\"error\"").empty());
+}
+
+TEST(ParseJsonString, MermaidParseErrorMessage)
+{
+    // JSON.stringify が生成する実際のエラー形式 (改行は \n にエスケープされる)
+    const auto json = L"{\"ok\":false,\"error\":\"Parse error on line 2:\\n...graph TD\\n----^\\nExpecting 'SEMI'\"}"sv;
+    EXPECT_EQ(mermaid_util::ParseJsonString(json, L"\"error\""),
+              L"Parse error on line 2:\n...graph TD\n----^\nExpecting 'SEMI'");
+}
+
+// ============================================================
+// SanitizeErrorMessage テスト
+// ============================================================
+
+TEST(SanitizeErrorMessage, EmptyReturnsEmpty)
+{
+    EXPECT_TRUE(mermaid_util::SanitizeErrorMessage(L"", 100).empty());
+}
+
+TEST(SanitizeErrorMessage, PlainTextUnchanged)
+{
+    EXPECT_EQ(mermaid_util::SanitizeErrorMessage(L"simple error", 100), L"simple error");
+}
+
+TEST(SanitizeErrorMessage, CollapsesWhitespaceRuns)
+{
+    EXPECT_EQ(mermaid_util::SanitizeErrorMessage(L"Parse error on line 2:\n\n----^\t got 'X'", 100),
+              L"Parse error on line 2: ----^ got 'X'");
+}
+
+TEST(SanitizeErrorMessage, TrimsLeadingAndTrailingWhitespace)
+{
+    EXPECT_EQ(mermaid_util::SanitizeErrorMessage(L"  \n boom \n ", 100), L"boom");
+}
+
+TEST(SanitizeErrorMessage, TruncatesWithEllipsis)
+{
+    const auto result = mermaid_util::SanitizeErrorMessage(L"abcdefghij", 5);
+    EXPECT_EQ(result, L"abcd…");
+}
+
+TEST(SanitizeErrorMessage, ExactMaxLenNotTruncated)
+{
+    EXPECT_EQ(mermaid_util::SanitizeErrorMessage(L"abcde", 5), L"abcde");
+}
+
+TEST(SanitizeErrorMessage, WhitespaceOnlyReturnsEmpty)
+{
+    EXPECT_TRUE(mermaid_util::SanitizeErrorMessage(L" \n\t ", 100).empty());
 }
 
 // ============================================================

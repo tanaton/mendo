@@ -71,6 +71,9 @@ struct Strings {
     // ローディング
     std::wstring_view loading;
 
+    // ダイアグラム描画エラー (詳細メッセージが取れなかった場合のフォールバック)
+    std::wstring_view diagram_error;
+
     // ヘルプリソースID
     UINT help_resource_id;
 };
@@ -128,6 +131,8 @@ inline constexpr Strings kJa = {
     L"コピーに失敗しました",
     // ローディング
     L"読み込み中...",
+    // ダイアグラム描画エラー
+    L"図の描画に失敗しました",
     // ヘルプリソースID
     IDR_HELP_MD,
 };
@@ -185,6 +190,8 @@ inline constexpr Strings kEn = {
     L"Copy failed",
     // ローディング
     L"Loading...",
+    // ダイアグラム描画エラー
+    L"Failed to render diagram",
     // ヘルプリソースID
     IDR_HELP_EN_MD,
 };

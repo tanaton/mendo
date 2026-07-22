@@ -231,6 +231,7 @@ void LayoutCache::InvalidateAllDiagramBitmaps() noexcept
 {
     for (auto& d : diagrams_) {
         d.bitmap.Reset();
+        d.error.clear();
     }
 }
 
@@ -243,6 +244,7 @@ void LayoutCache::InvalidateDiagramBitmaps(const std::pmr::vector<Node>& nodes) 
         }
         if (IsDiagramLanguage(node.code_language())) {
             diagrams_[static_cast<size_t>(idx)].bitmap.Reset();
+            diagrams_[static_cast<size_t>(idx)].error.clear();
         }
     }
 }
