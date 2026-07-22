@@ -12,6 +12,11 @@
 #include <vector>
 #include <memory_resource>
 
+// CRLF / 旧式 CR を LF に正規化する (in-place)。FromMarkdown / ReplaceFromMarkdown が
+// パース前に必ず通すため raw_text_ は常に LF-only。リロード diff (AnalyzeReloadDiff) の
+// 新テキストも比較前にこれで揃えないと、CRLF ファイルで全行が差分扱いになる (issue #273)。
+void NormalizeNewlines(std::pmr::string& s);
+
 class Document {
 public:
     constexpr Document() noexcept = default;

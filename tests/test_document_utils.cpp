@@ -1816,6 +1816,16 @@ TEST(CalcScrollYForDiff, FallbackWhenNoNodes)
     EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, "content", 0, 500.0f, 42.0f), 42.0f);
 }
 
+TEST(CalcScrollYForDiff, FallbackWhenDiffPosIsNpos)
+{
+    // npos = 差分位置なし (改行コード変換のみのリロード等)。現在位置を維持する。
+    std::string content(300, 'x');
+    auto nodes = MakeNodes(content.data(), 3, 100);
+    auto cache = MakeUniformCache(3, 100.0f);
+    EXPECT_FLOAT_EQ(
+        CalcScrollYForDiff(nodes, cache, content, std::string_view::npos, 500.0f, 123.0f), 123.0f);
+}
+
 TEST(CalcScrollYForDiff, FallbackWhenNodeNotFound)
 {
     // すべてのノードの source_offset が diff_pos より大きい。

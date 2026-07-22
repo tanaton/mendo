@@ -18,7 +18,8 @@ inline char* FindDocCr(char* p, size_t len) noexcept
     return static_cast<char*>(std::memchr(p, mendo::doc_cr, len));
 }
 
-// CRLF / 旧式 CR を LF に正規化する (in-place)。
+} // namespace
+
 // 改行を LF に揃えておくと、パーサ中の current_text と raw_text_ の memcmp 一致判定が成立し、
 // 大半の code block / 複数行 paragraph で view モード化 (owned_text_ 確保ゼロ) が選べる。
 // CR まで一気にスキップし、その間は memmove でブロックコピーする (MSVC UCRT で SIMD)。
@@ -62,8 +63,6 @@ void NormalizeNewlines(std::pmr::string& s)
     s.resize(static_cast<size_t>(dst - data));
     MENDO_STATF("NormalizeNewlines: in={} out={} shrunk={}", n, s.size(), n - s.size());
 }
-
-} // namespace
 
 Document::Document(Document&& other) noexcept
 {
