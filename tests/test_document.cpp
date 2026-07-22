@@ -13,6 +13,43 @@ void ReplaceMarkdown(Document& doc, std::string_view text)
 }
 } // namespace
 
+// リロード diff (AnalyzeReloadDiff) は raw_text_ と同じ LF 正規化を新テキストにも
+// 適用してから比較する前提 (issue #273)。その契約を担保する。
+TEST(NormalizeNewlines, CrlfToLf)
+{
+    std::pmr::string s{ "a\r\nb\r\nc\r\n" };
+    NormalizeNewlines(s);
+    EXPECT_EQ(s, "a\nb\nc\n");
+}
+
+TEST(NormalizeNewlines, LoneCrToLf)
+{
+    std::pmr::string s{ "a\rb\rc" };
+    NormalizeNewlines(s);
+    EXPECT_EQ(s, "a\nb\nc");
+}
+
+TEST(NormalizeNewlines, LfOnlyUnchanged)
+{
+    std::pmr::string s{ "a\nb\nc\n" };
+    NormalizeNewlines(s);
+    EXPECT_EQ(s, "a\nb\nc\n");
+}
+
+TEST(NormalizeNewlines, EmptyUnchanged)
+{
+    std::pmr::string s;
+    NormalizeNewlines(s);
+    EXPECT_TRUE(s.empty());
+}
+
+TEST(NormalizeNewlines, MixedAndTrailingCr)
+{
+    std::pmr::string s{ "a\r\nb\nc\r" };
+    NormalizeNewlines(s);
+    EXPECT_EQ(s, "a\nb\nc\n");
+}
+
 TEST(DocumentTest, DefaultIsEmpty)
 {
     Document doc;

@@ -15,6 +15,8 @@
 class LayoutCache;
 
 // 新旧コンテンツの最初の差分 UTF-8 byte 位置を返す。同一の場合は npos。
+// 前提: 両テキストとも LF 正規化済みであること (NormalizeNewlines)。old は raw_text_
+// 由来で常に正規化済み、new は呼び出し側で比較前に揃える (issue #273)。
 size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept;
 
 // diff_pos が短い方の末尾と一致するかを判定する。
@@ -45,7 +47,8 @@ ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new
 [[nodiscard]] int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, const char* raw_base, size_t diff_offset) noexcept;
 
 // diff 位置のノードに基づくスクロールY座標を計算する。
-// ノードが見つからない場合は fallback_scroll を返す。
+// diff_pos が npos (差分位置なし = スクロール維持) またはノードが見つからない場合は
+// fallback_scroll を返す。
 float CalcScrollYForDiff(
     const std::pmr::vector<Node>& nodes,
     const LayoutCache& cache,

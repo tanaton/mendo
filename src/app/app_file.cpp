@@ -374,6 +374,12 @@ void App::DoReloadCurrentFile()
     const size_t byte_size = load_result->byte_size;
     std::pmr::string new_text = std::move(load_result->text);
 
+    // old (raw_text_) は FromMarkdown / ReplaceFromMarkdown で常に LF 正規化済み。
+    // 新テキストも比較前に揃えないと、CRLF ファイルで全行が差分になり diff が
+    // 1 行目末尾を指してしまう (issue #273: 改行コードを変換して保存するエディタ)。
+    // ReplaceFromMarkdown 内の再正規化は LF-only 高速パスで素通りする。
+    NormalizeNewlines(new_text);
+
     const std::string_view old_view(state_.document.doc.GetRawText());
     const std::string_view new_view(new_text);
     const auto decision = AnalyzeReloadDiff(old_view, new_view);

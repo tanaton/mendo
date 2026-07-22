@@ -89,6 +89,9 @@ float CalcScrollYForDiff(
     float viewport_height,
     float fallback_scroll) noexcept
 {
+    if (diff_pos == std::string_view::npos) {
+        return fallback_scroll;
+    }
     const char* const raw_base = content.data();
     const auto changed_node = FindNodeBySourceOffset(nodes, raw_base, diff_pos);
     if (changed_node < 0 || changed_node >= static_cast<int>(cache.size())) {
