@@ -507,6 +507,12 @@ TEST(SanitizeErrorMessage, ExactMaxLenNotTruncated)
     EXPECT_EQ(mermaid_util::SanitizeErrorMessage(L"abcde", 5), L"abcde");
 }
 
+TEST(SanitizeErrorMessage, TrailingWhitespaceOnlyAfterMaxLenNotTruncated)
+{
+    // max_len 到達後の残りが空白のみなら実質切り詰め無し → 省略記号を付けない
+    EXPECT_EQ(mermaid_util::SanitizeErrorMessage(L"abcde \n\t ", 5), L"abcde");
+}
+
 TEST(SanitizeErrorMessage, WhitespaceOnlyReturnsEmpty)
 {
     EXPECT_TRUE(mermaid_util::SanitizeErrorMessage(L" \n\t ", 100).empty());

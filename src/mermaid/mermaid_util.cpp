@@ -323,8 +323,10 @@ std::pmr::wstring mermaid_util::SanitizeErrorMessage(std::wstring_view msg, size
         }
         prev_space = false;
         result += c;
-        if (result.size() >= max_len && i + 1 < msg.size()) {
-            truncated = true;
+        if (result.size() >= max_len) {
+            // 残りが空白のみなら実質切り詰め無しなので省略記号を付けない。
+            const auto rest = msg.substr(i + 1);
+            truncated = std::ranges::any_of(rest, [](wchar_t r) { return r > L' '; });
             break;
         }
     }
