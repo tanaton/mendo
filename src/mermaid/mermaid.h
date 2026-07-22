@@ -101,6 +101,10 @@ private:
     // 同じパターン（cancel / render-error / svg-result の各経路）を1か所に集約する。
     static void InvokeSvgCallbackIfAny(RenderRequest& req, std::pmr::wstring svg, bool cancelled);
 
+    // 表示用リクエストの diagram_entry にエラーを確定させる。msg が空なら i18n の
+    // 汎用文言を入れ、「非空 = 失敗」の不変条件を保つ (issue #271)。
+    static void SetDiagramError(RenderRequest& req, std::wstring_view msg);
+
     struct CachedBitmap;
     // キャッシュヒット時に layout_entry / diagram_entry の各フィールドを更新する。
     static void ApplyCachedBitmap(NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry, const CachedBitmap& cached) noexcept;

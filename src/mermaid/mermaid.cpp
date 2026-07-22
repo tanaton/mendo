@@ -11,6 +11,7 @@
 #include "wic_util.h"
 #include "resource.h"
 #include "ascii_util.h"
+#include "i18n.h"
 #include <wrl/event.h>
 #include <filesystem>
 #include <functional>
@@ -329,6 +330,20 @@ void MermaidRenderer::ClearCache()
     cache_.Clear();
 }
 
+void MermaidRenderer::SetDiagramError(RenderRequest& req, std::wstring_view msg)
+{
+    if (req.svg_only || !req.diagram_entry) {
+        return;
+    }
+    // DrawTextCmd の 255 文字上限とプレースホルダ高さ (約3行) に収まる長さ。
+    constexpr size_t MAX_ERROR_LEN = 200;
+    auto sanitized = mermaid_util::SanitizeErrorMessage(msg, MAX_ERROR_LEN);
+    if (sanitized.empty()) {
+        sanitized = i18n::S().diagram_error;
+    }
+    req.diagram_entry->error = std::move(sanitized);
+}
+
 void MermaidRenderer::InvokeSvgCallbackIfAny(RenderRequest& req, std::pmr::wstring svg, bool cancelled)
 {
     if (!req.svg_only) {
@@ -377,9 +392,18 @@ void MermaidRenderer::RecoverWorker(int index)
     // 契機が無く図が Loading のまま固着するためキューに戻す。クラッシュを誘発する
     // 入力での再起動ループは retried で 1 回に打ち切る。
     InvokeSvgCallbackIfAny(w.current_request, {}, false);
-    if (!w.current_request.svg_only && w.current_request.node && !w.current_request.retried) {
-        w.current_request.retried = true;
-        pending_requests_.push(std::move(w.current_request));
+    Callback failed_cb;
+    if (!w.current_request.svg_only && w.current_request.node) {
+        if (!w.current_request.retried) {
+            w.current_request.retried = true;
+            pending_requests_.push(std::move(w.current_request));
+        }
+        else {
+            // リトライ済みの再クラッシュ。エラー確定にしないと Loading 固着かつ
+            // 完了通知も出ないため、汎用エラーを設定し on_complete で再描画させる。
+            SetDiagramError(w.current_request, {});
+            failed_cb = std::move(w.current_request.on_complete);
+        }
     }
     w.current_request = {};
     w.rendering = false;
@@ -394,6 +418,10 @@ void MermaidRenderer::RecoverWorker(int index)
     if (webview_env_ && w.init_retries < MAX_WORKER_RETRIES) {
         ++w.init_retries;
         SetupWorker(index);
+    }
+    // ワーカー状態の復旧が済んでから呼び、再入 (recompute → RequestRender) を安全にする。
+    if (failed_cb) {
+        failed_cb();
     }
 }
 
@@ -644,6 +672,7 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
         return;
     case WebMessageKind::RenderError:
         if (req_id_match) {
+            SetDiagramError(w.current_request, req.has_payload ? req.payload : std::wstring_view{});
             InvokeSvgCallbackIfAny(w.current_request, {}, false);
             FinishWorkerRequest(w);
         }
@@ -675,6 +704,9 @@ void MermaidRenderer::OnRenderResult(int worker_idx, std::wstring_view json)
     const bool ok = mermaid_util::ParseJsonTrueFlag(json, L"\"ok\"");
 
     if (!ok || dw <= 0 || dh <= 0) {
+        // JS 側 renderMermaid が返す {ok:false, error:...} の内容をプレースホルダに
+        // 表示させる。放置すると「読み込み中」のまま固着する (issue #271)。
+        SetDiagramError(w.current_request, mermaid_util::ParseJsonString(json, L"\"error\""));
         FinishWorkerRequest(w);
         return;
     }

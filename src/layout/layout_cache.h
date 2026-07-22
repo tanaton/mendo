@@ -217,6 +217,27 @@ struct DiagramEntry {
     // クリップボードコピー用の元 PNG。bitmap と同時に設定/破棄されるため、
     // コピーボタンの表示条件 (bitmap 有無) とデータの有無が常に一致する。
     std::shared_ptr<const std::pmr::vector<uint8_t>> png;
+    // レンダリング失敗時のエラーメッセージ (表示用整形済み)。非空 = 失敗確定で、
+    // プレースホルダにこの文言を表示し再リクエストを止める。リロード・幅変更・
+    // テーマ変更でクリアされ再試行の契機になる。オフスクリーン evict では保持する。
+    std::pmr::wstring error;
+
+    // 未確定 (成功も失敗もしていない) でレンダ要求すべき状態か。
+    bool NeedsRender() const noexcept
+    {
+        return !bitmap && error.empty();
+    }
+
+    // レンダ結果 (成功/失敗とも) を破棄し再試行可能に戻す。幅変更・テーマ変更用。
+    // オフスクリーン evict は bitmap のみ破棄する別意図なのでこれを使わない。
+    void ResetForRetry() noexcept
+    {
+        bitmap.Reset();
+        width = 0.0f;
+        height = 0.0f;
+        png.reset();
+        error.clear();
+    }
 };
 
 class LayoutCache {

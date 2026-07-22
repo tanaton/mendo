@@ -261,7 +261,7 @@ void CommandGenerator::GenerateNode(
                 GenDiagramCopyButton(cmds, bmp.right, bmp.top, node_index == fc.hovered.diagram_copy);
             }
             else {
-                GenDiagramPlaceholder(cmds, x, entry_text_top, cw, entry.height);
+                GenDiagramPlaceholder(cmds, x, entry_text_top, cw, entry.height, diagram.error);
             }
             return;
         }
@@ -622,13 +622,18 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
     }
 }
 
-void CommandGenerator::GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h)
+void CommandGenerator::GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h, std::wstring_view error)
 {
     const D2D1_RECT_F bg = D2D1::RectF(x, y, x + w, y + h);
     cmds.emplace_back(FillRoundedRectCmd{ bg, CODE_BLOCK_CORNER, CODE_BLOCK_CORNER, theme_->code_bg_color, BrushId::CodeBg });
-    if (formats_.placeholder_text) {
-        const auto loading_text = i18n::S().loading;
-        cmds.emplace_back(MakeTextCmd(loading_text.data(), loading_text.size(), bg, formats_.placeholder_text, theme_->blockquote_text_color, BrushId::BlockquoteText));
+    if (!formats_.placeholder_text) {
+        return;
     }
+    if (!error.empty()) {
+        cmds.emplace_back(MakeTextCmd(error.data(), error.size(), bg, formats_.placeholder_text, theme_->alert_color[AlertColorIndex(AlertType::Caution)], BrushId::AlertCaution));
+        return;
+    }
+    const auto loading_text = i18n::S().loading;
+    cmds.emplace_back(MakeTextCmd(loading_text.data(), loading_text.size(), bg, formats_.placeholder_text, theme_->blockquote_text_color, BrushId::BlockquoteText));
 }
 

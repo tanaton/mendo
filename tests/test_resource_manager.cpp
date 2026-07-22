@@ -379,6 +379,46 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersZeroWidthIsNoOp)
     EXPECT_EQ(mock_mermaid_.request_render_count, 0);
 }
 
+// エラー確定 (error 非空) の図は再リクエストされない (issue #271: 失敗レンダの無限リトライ防止)。
+TEST_F(ResourceManagerTest, RequestMermaidRendersSkipsErroredDiagram)
+{
+    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
+    ASSERT_FALSE(doc_.GetDiagramNodeIndices().empty());
+    cache_.GetDiagram(doc_.GetDiagramNodeIndices()[0]).error = L"Parse error on line 1";
+
+    EXPECT_EQ(rm_.RequestMermaidRenders(), 0);
+    EXPECT_EQ(mock_mermaid_.request_render_count, 0);
+}
+
+TEST_F(ResourceManagerTest, ProcessMermaidBatchSkipsErroredDiagram)
+{
+    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
+    ASSERT_FALSE(doc_.GetDiagramNodeIndices().empty());
+    cache_.GetDiagram(doc_.GetDiagramNodeIndices()[0]).error = L"Parse error on line 1";
+
+    rm_.ProcessMermaidBatch();
+    EXPECT_EQ(mock_mermaid_.request_render_count, 0);
+}
+
+// 量子化幅の変化でエラーがクリアされ、再試行される (issue #271)。
+TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeClearsError)
+{
+    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
+    ASSERT_FALSE(doc_.GetDiagramNodeIndices().empty());
+    const size_t diagram_index = doc_.GetDiagramNodeIndices()[0];
+
+    tracker_.content_width = 800.0f;
+    rm_.RequestMermaidRenders();
+    ASSERT_EQ(mock_mermaid_.request_render_count, 1);
+
+    cache_.GetDiagram(diagram_index).error = L"Parse error on line 1";
+
+    tracker_.content_width = 1000.0f;
+    rm_.RequestMermaidRenders();
+    EXPECT_TRUE(cache_.GetDiagram(diagram_index).error.empty());
+    EXPECT_EQ(mock_mermaid_.request_render_count, 2);
+}
+
 TEST_F(ResourceManagerTest, RequestMermaidRendersUsesDarkModeFromThemeService)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");

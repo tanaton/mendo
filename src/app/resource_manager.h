@@ -220,7 +220,8 @@ public:
             const size_t i = *it;
             auto& node = deps_.doc->GetNodesMut()[i];
             auto& diagram = deps_.cache->GetDiagram(i);
-            if (diagram.bitmap) {
+            // エラー確定した図も NeedsRender()=false で弾き、失敗レンダの無限リトライを防ぐ。
+            if (!diagram.NeedsRender()) {
                 continue;
             }
 
@@ -308,7 +309,7 @@ public:
             auto& node = deps_.doc->GetNodesMut()[i];
             auto& diagram = deps_.cache->GetDiagram(i);
 
-            if (!diagram.bitmap) {
+            if (diagram.NeedsRender()) {
                 deps_.mermaid->RequestRender(node, (*deps_.cache)[i], diagram, content_width, dark_mode, [this] { OnMermaidRenderComplete(); });
                 if (diagram.bitmap) {
                     any_loaded = true;
@@ -455,9 +456,8 @@ private:
                     diagram.width + 1.0f < min_width) {
                     continue;
                 }
-                diagram.bitmap.Reset();
-                diagram.width = 0;
-                diagram.height = 0;
+                // 幅が変わればエラー結果も変わりうるため、error 込みで破棄して再試行させる。
+                diagram.ResetForRetry();
                 any_invalidated = true;
             }
             if (any_invalidated) {

@@ -243,6 +243,102 @@ bool mermaid_util::ParseJsonTrueFlag(std::wstring_view json, std::wstring_view k
     return json.compare(pos, kTrue.size(), kTrue) == 0;
 }
 
+std::pmr::wstring mermaid_util::ParseJsonString(std::wstring_view json, std::wstring_view key)
+{
+    std::pmr::wstring result;
+    auto pos = ascii_util::Find(json, key);
+    if (pos == ascii_util::npos) {
+        return result;
+    }
+    pos = json.find_first_not_of(L": "sv, pos + key.size());
+    if (pos == std::wstring_view::npos || json[pos] != L'"') {
+        return result;
+    }
+    ++pos;
+
+    std::pmr::wstring buf;
+    bool closed = false;
+    while (pos < json.size()) {
+        const wchar_t c = json[pos];
+        if (c == L'"') {
+            closed = true;
+            break;
+        }
+        if (c != L'\\') {
+            buf += c;
+            ++pos;
+            continue;
+        }
+        if (++pos >= json.size()) {
+            break;
+        }
+        const wchar_t esc = json[pos++];
+        switch (esc) {
+        case L'n': buf += L'\n'; break;
+        case L'r': buf += L'\r'; break;
+        case L't': buf += L'\t'; break;
+        case L'b': buf += L'\b'; break;
+        case L'f': buf += L'\f'; break;
+        case L'u': {
+            if (json.size() - pos < 4) {
+                pos = json.size();
+                break;
+            }
+            unsigned int cp = 0;
+            if (ascii_util::from_chars(json.data() + pos, 4, cp, 16u) != json.data() + pos + 4) {
+                return result;
+            }
+            pos += 4;
+            // サロゲートペアもそのまま格納する (wchar_t は UTF-16)。
+            buf += static_cast<wchar_t>(cp);
+            break;
+        }
+        default:
+            // \" \\ \/ およびその他は文字そのまま。
+            buf += esc;
+            break;
+        }
+    }
+    if (closed) {
+        result = std::move(buf);
+    }
+    return result;
+}
+
+std::pmr::wstring mermaid_util::SanitizeErrorMessage(std::wstring_view msg, size_t max_len)
+{
+    std::pmr::wstring result;
+    result.reserve((std::min)(msg.size(), max_len));
+    bool prev_space = true; // 先頭の空白は落とす
+    bool truncated = false;
+    for (size_t i = 0; i < msg.size(); ++i) {
+        const wchar_t c = msg[i];
+        // 改行・タブに加え、JSON の \u00XX から復元された制御文字 (豆腐表示になる) も空白に潰す。
+        if (c <= L' ') {
+            if (!prev_space) {
+                result += L' ';
+                prev_space = true;
+            }
+            continue;
+        }
+        prev_space = false;
+        result += c;
+        if (result.size() >= max_len) {
+            // 残りが空白のみなら実質切り詰め無しなので省略記号を付けない。
+            const auto rest = msg.substr(i + 1);
+            truncated = std::ranges::any_of(rest, [](wchar_t r) { return r > L' '; });
+            break;
+        }
+    }
+    while (!result.empty() && result.back() == L' ') {
+        result.pop_back();
+    }
+    if (truncated && !result.empty()) {
+        result.back() = L'…';
+    }
+    return result;
+}
+
 uint64_t mermaid_util::NodeDiagramHash(const Node& node, float max_width, bool dark_mode) noexcept
 {
     // LatexMath を Mermaid とキャッシュ衝突させないためのソルト（任意の定数）。
