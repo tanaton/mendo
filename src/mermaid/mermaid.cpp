@@ -10,7 +10,6 @@
 #include "utility.h"
 #include "wic_util.h"
 #include "resource.h"
-#include "ascii_util.h"
 #include "i18n.h"
 #include <wrl/event.h>
 #include <filesystem>
@@ -25,6 +24,8 @@ static constexpr std::wstring_view MERMAID_HOST_CLASS = L"mendo_MermaidHost";
 
 static constexpr std::wstring_view APP_LOCAL_ORIGIN_PREFIX = L"https://app.local/";
 static constexpr wchar_t APP_LOCAL_INDEX_URL[] = L"https://app.local/index.html";
+// res/mermaid.html の <script src> と一致させる
+static constexpr std::wstring_view APP_LOCAL_MERMAID_JS_URL = L"https://app.local/mermaid.min.js";
 
 using mendo::LogHrFailure;
 
@@ -267,45 +268,43 @@ void MermaidRenderer::SetupWorker(int index)
                 const std::pmr::wstring url(uri ? uri : L"");
                 CoTaskMemFree(uri);
 
+                const auto respond = [&](IStream* body, int status, const wchar_t* reason, const wchar_t* response_headers) {
+                    Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;
+                    webview_env_->CreateWebResourceResponse(body, status, reason, response_headers, &response);
+                    args->put_Response(response.Get());
+                    return S_OK;
+                };
+
                 // https://app.local/ 以外へのリクエストをブロックする。
                 // NavigationStartingと判定ロジックを揃え、app.local.evil.comのような
                 // 部分一致によるサブドメイン経由の経路を塞ぐ。
                 if (!url.starts_with(APP_LOCAL_ORIGIN_PREFIX)) {
-                    Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;
-                    webview_env_->CreateWebResourceResponse(nullptr, 403, L"Blocked", L"", &response);
-                    args->put_Response(response.Get());
-                    return S_OK;
+                    return respond(nullptr, 403, L"Blocked", L"");
                 }
 
-                std::span<const std::byte> payload;
+                Microsoft::WRL::ComPtr<IStream> stream;
                 const wchar_t* headers = nullptr;
 
-                if (ascii_util::Contains(url, L"/mermaid.min.js.gz")) {
-                    // gzip圧縮されたmermaid.jsを配信する。JSがDecompressionStreamで展開する
-                    payload = LoadRcData(IDR_MERMAID_JS_GZ);
-                    headers = L"Content-Type: application/gzip";
+                if (url == APP_LOCAL_MERMAID_JS_URL) {
+                    // WebView2はContent-Encodingを解釈しないため、要求ごとにC++側で展開して返す。
+                    // 展開結果は常駐させずレスポンス解放と共に破棄する
+                    stream = stream_util::CreateMemoryStreamFromMszip(LoadRcData(IDR_MERMAID_JS_MSZIP));
+                    headers = L"Content-Type: text/javascript; charset=utf-8";
                 }
                 else {
                     // その他のパスにはHTMLテンプレート（res/mermaid.html）を配信する
-                    payload = LoadRcData(IDR_MERMAID_HTML);
+                    const auto html = LoadRcData(IDR_MERMAID_HTML);
+                    if (!html.empty()) {
+                        stream = stream_util::CreateMemoryStream(html.data(), html.size());
+                    }
                     headers = L"Content-Type: text/html; charset=utf-8";
                 }
 
-                // リソースが見つからない場合は空ボディを200で返さず500を返して失敗を明示する
-                if (payload.empty()) {
-                    Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;
-                    webview_env_->CreateWebResourceResponse(nullptr, 500, L"Resource missing", L"", &response);
-                    args->put_Response(response.Get());
-                    return S_OK;
+                // リソース欠落や展開失敗時は空ボディを200で返さず500を返して失敗を明示する
+                if (!stream) {
+                    return respond(nullptr, 500, L"Resource unavailable", L"");
                 }
-
-                const auto stream = stream_util::CreateMemoryStream(payload.data(), payload.size());
-                if (stream) {
-                    Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;
-                    webview_env_->CreateWebResourceResponse(stream.Get(), 200, L"OK", headers, &response);
-                    args->put_Response(response.Get());
-                }
-                return S_OK;
+                return respond(stream.Get(), 200, L"OK", headers);
             };
             LogHrFailure(L"add_WebResourceRequested", w.webview->add_WebResourceRequested(Microsoft::WRL::Callback<ICoreWebView2WebResourceRequestedEventHandler>(f).Get(), nullptr));
         }

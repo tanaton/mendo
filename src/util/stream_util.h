@@ -3,9 +3,12 @@
 #include "win_handle.h"
 #include <wrl/client.h>
 #include <objidl.h>
+#include <compressapi.h>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <memory_resource>
+#include <span>
 #include <vector>
 
 namespace stream_util {
@@ -70,10 +73,11 @@ inline Microsoft::WRL::ComPtr<IStream> CreateMemoryStream(const void* data, size
     return stream;
 }
 
-// 大きな画像ファイルで一時バッファへのコピーを避けるため、ReadFile を HGLOBAL にロックしたまま呼ぶ。
-inline Microsoft::WRL::ComPtr<IStream> CreateMemoryStreamFromFile(HANDLE file, size_t size)
+// 一時バッファへのコピーを避けるため、fill(void* dst) に HGLOBAL をロックしたまま直接書き込ませる。
+template <class Fill>
+Microsoft::WRL::ComPtr<IStream> CreateHGlobalStream(size_t size, Fill&& fill)
 {
-    if (!file || file == INVALID_HANDLE_VALUE || size == 0 || size > std::numeric_limits<ULONG>::max()) {
+    if (size == 0 || size > std::numeric_limits<ULONG>::max()) {
         return nullptr;
     }
 
@@ -86,7 +90,7 @@ inline Microsoft::WRL::ComPtr<IStream> CreateMemoryStreamFromFile(HANDLE file, s
     if (!ptr) {
         return nullptr;
     }
-    const bool ok = ReadExact(file, ptr, static_cast<size_t>(size));
+    const bool ok = fill(ptr);
     GlobalUnlock(hMem.get());
     if (!ok) {
         return nullptr;
@@ -98,6 +102,53 @@ inline Microsoft::WRL::ComPtr<IStream> CreateMemoryStreamFromFile(HANDLE file, s
     }
     hMem.release();
     return stream;
+}
+
+inline Microsoft::WRL::ComPtr<IStream> CreateMemoryStreamFromFile(HANDLE file, size_t size)
+{
+    if (!file || file == INVALID_HANDLE_VALUE) {
+        return nullptr;
+    }
+    return CreateHGlobalStream(size, [&](void* dst) { return ReadExact(file, dst, size); });
+}
+
+struct DecompressorTraits {
+    using type = DECOMPRESSOR_HANDLE;
+    static type invalid() noexcept
+    {
+        return nullptr;
+    }
+    static void close(type h) noexcept
+    {
+        CloseDecompressor(h);
+    }
+};
+using UniqueDecompressor = UniqueResource<DecompressorTraits>;
+
+// Compression API のバッファモード (MSZIP) で圧縮されたデータを展開する。
+inline Microsoft::WRL::ComPtr<IStream> CreateMemoryStreamFromMszip(std::span<const std::byte> compressed)
+{
+    if (compressed.empty()) {
+        return nullptr;
+    }
+
+    DECOMPRESSOR_HANDLE raw = nullptr;
+    if (!CreateDecompressor(COMPRESS_ALGORITHM_MSZIP, nullptr, &raw)) {
+        return nullptr;
+    }
+    const UniqueDecompressor decompressor{ raw };
+
+    // 出力バッファ無しで呼ぶとヘッダに記録された展開後サイズが返る
+    SIZE_T size = 0;
+    if (!Decompress(decompressor.get(), compressed.data(), compressed.size(), nullptr, 0, &size)
+        && GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+        return nullptr;
+    }
+
+    return CreateHGlobalStream(size, [&](void* dst) {
+        SIZE_T written = 0;
+        return Decompress(decompressor.get(), compressed.data(), compressed.size(), dst, size, &written) && written == size;
+    });
 }
 
 } // namespace stream_util

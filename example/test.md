@@ -1499,7 +1499,7 @@ private:
 
 1. 非表示ポップアップウィンドウを作成
 2. WebView2環境を非同期初期化
-3. gzip圧縮された `mermaid.min.js` をリソースから展開
+3. MSZIP 圧縮された `mermaid.min.js` をリソースから展開
 4. HTMLテンプレートに埋め込み、`NavigateToString()` で読み込み
 
 ---
@@ -2934,9 +2934,9 @@ build/tests/Release/mendo_tests.exe --gtest_brief=1
 
 `mendo_core` には **Win32/Direct2D/WebView2 抽象化越し** のサービスが入る — `IWin32Host` / `IRenderBackend` / `IMermaidRenderer` / `ITextMeasurer` を通して、具象実装（`Win32Host` / `D2DRenderBackend` / `MermaidRenderer` / `DWriteMeasurer`）は `mendo` 実行ファイル側、もしくは Direct2D/DirectWrite 依存ヘッダを取り込む形でリンクされる（`DWriteMeasurer` は `mendo_core` に含まれるが、`dwrite.lib` への依存を持つ）。
 
-### 6.4 mermaid.min.js gzip 圧縮
+### 6.4 mermaid.min.js MSZIP 圧縮
 
-配布 EXE のサイズを削減するため、`mermaid.min.js` はビルド時に gzip 圧縮される（`cmake/gzip.ps1`）。実行時にメモリ上で展開し、WebView2 に渡す。
+配布 EXE のサイズを削減するため、`mermaid.min.js` はビルド時に Windows Compression API の MSZIP 形式で圧縮される（`cmake/mszip.ps1`）。WebView2 は差し込んだレスポンスの `Content-Encoding` を解釈しないため、要求ごとに C++ 側で展開して配信する。
 
 ### 6.5 MSVC ビルド最適化
 
