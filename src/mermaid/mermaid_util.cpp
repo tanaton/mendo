@@ -1,7 +1,6 @@
 #include "mermaid_util.h"
 #include "document_types.h"
 #include "fnv1a.h"
-#include "pmr_format.h"
 #include "syntax.h"
 #include "utility.h"
 #include "ascii_util.h"
@@ -55,11 +54,6 @@ std::pmr::wstring mermaid_util::JsEscape(std::wstring_view input)
         }
     }
     return result;
-}
-
-std::pmr::wstring mermaid_util::SimpleHash(std::wstring_view input)
-{
-    return PmrFormat(L"{:016x}", mendo::Fnv1a64(input));
 }
 
 // コード本体は FNV-1a で hash し、幅と dark_mode は別 prime で xor mix する。
@@ -138,22 +132,33 @@ std::pmr::wstring mermaid_util::BuildLatexFlowchartCode(std::wstring_view latex)
     return result;
 }
 
+// key の直後の ':' と空白を読み飛ばした値の先頭位置。見つからなければ npos。
+static size_t FindJsonValueStart(std::wstring_view json, std::wstring_view key) noexcept
+{
+    const auto pos = ascii_util::Find(json, key);
+    if (pos == ascii_util::npos) {
+        return std::wstring_view::npos;
+    }
+    return json.find_first_not_of(L": "sv, pos + key.size());
+}
+
+// wstring_view は null 終端が保証されないため、数値部分を切り出してから wcstof に渡す。
+static float ParseFloatPrefix(std::wstring_view s) noexcept
+{
+    wchar_t buf[64];
+    const auto num_len = (std::min)(s.size(), std::size(buf) - 1);
+    std::char_traits<wchar_t>::copy(buf, s.data(), num_len);
+    buf[num_len] = L'\0';
+    return std::wcstof(buf, nullptr);
+}
+
 float mermaid_util::ParseJsonNumber(std::wstring_view json, std::wstring_view key) noexcept
 {
-    auto pos = ascii_util::Find(json, key);
-    if (pos == ascii_util::npos) {
-        return 0.0f;
-    }
-    pos = json.find_first_not_of(L": "sv, pos + key.size());
+    const auto pos = FindJsonValueStart(json, key);
     if (pos == std::wstring_view::npos) {
         return 0.0f;
     }
-    // wstring_view は null 終端が保証されないため、数値部分を切り出してから wcstof に渡す。
-    wchar_t buf[64];
-    const auto num_len = (std::min)(json.size() - pos, std::size(buf) - 1);
-    std::char_traits<wchar_t>::copy(buf, json.data() + pos, num_len);
-    buf[num_len] = L'\0';
-    return std::wcstof(buf, nullptr);
+    return ParseFloatPrefix(json.substr(pos));
 }
 
 mermaid_util::RequestPrefix mermaid_util::ParseRequestPrefix(std::wstring_view body) noexcept
@@ -191,10 +196,8 @@ mermaid_util::ParsedWebMessage mermaid_util::ParseWebMessage(std::wstring_view m
     ParsedWebMessage out;
 
     if (msg.starts_with(L"mermaid-ready:"sv)) {
-        const auto body = msg.substr(std::size(L"mermaid-ready:") - 1);
-        // wcstof は const wchar_t* を要求するが、msg は LPWSTR (NUL 終端) なので body.data() がその位置を指す。
         out.kind = WebMessageKind::Ready;
-        out.ready_dpr = std::wcstof(body.data(), nullptr);
+        out.ready_dpr = ParseFloatPrefix(msg.substr(std::size(L"mermaid-ready:") - 1));
         return out;
     }
     if (msg == L"mermaid-failed"sv) {
@@ -246,11 +249,7 @@ bool mermaid_util::ParseJsonTrueFlag(std::wstring_view json, std::wstring_view k
 std::pmr::wstring mermaid_util::ParseJsonString(std::wstring_view json, std::wstring_view key)
 {
     std::pmr::wstring result;
-    auto pos = ascii_util::Find(json, key);
-    if (pos == ascii_util::npos) {
-        return result;
-    }
-    pos = json.find_first_not_of(L": "sv, pos + key.size());
+    auto pos = FindJsonValueStart(json, key);
     if (pos == std::wstring_view::npos || json[pos] != L'"') {
         return result;
     }

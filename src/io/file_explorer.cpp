@@ -1,5 +1,6 @@
 #include "file_explorer.h"
 #include "file_io.h"
+#include "pane_layout.h"
 #include "document_utils.h"
 #include "win_handle.h"
 #include <algorithm>
@@ -96,14 +97,7 @@ void FileExplorer::Refresh()
 
 int FileExplorer::HitTest(float local_y, float item_height) const noexcept
 {
-    if (local_y < 0 || item_height <= 0) {
-        return -1;
-    }
-    const int index = static_cast<int>(local_y / item_height);
-    if (index < 0 || index >= static_cast<int>(entries_.size())) {
-        return -1;
-    }
-    return index;
+    return HitTestUniformList(local_y, item_height, entries_.size());
 }
 
 void FileExplorer::SetCurrentFile(std::wstring_view path)

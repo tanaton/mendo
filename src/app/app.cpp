@@ -43,7 +43,8 @@ void ApplyDarkModeToWindow(HWND hwnd, bool dark)
 
 App::DipPoint App::PixelToDip(int px, int py) const noexcept
 {
-    return { px / state_.window.cached_dpi_scale, py / state_.window.cached_dpi_scale };
+    const float s = state_.window.cached_dpi_scale;
+    return { ::PixelToDip(static_cast<float>(px), s), ::PixelToDip(static_cast<float>(py), s) };
 }
 
 PaneScrollInfo App::ComputePaneScrollInfo(
@@ -183,11 +184,15 @@ PaneZone App::PaneAtPoint(float dip_x)
     if (!renderer_.GetRenderTarget()) {
         return PaneZone::None;
     }
-    // ホバー/ホイール系と同じキャッシュ済みレイアウト + DetectPaneZone を使い、
-    // クリック系とでゾーン判定が食い違わないようにする。
+    return ZoneAt(dip_x, GetPaneLayout());
+}
+
+// ホバー/ホイール/クリック系のゾーン判定を 1 箇所に揃え、食い違わないようにする。
+PaneZone App::ZoneAt(float dip_x, const PaneLayout& layout) const noexcept
+{
     return DetectPaneZone(
         dip_x,
-        GetPaneLayout(),
+        layout,
         renderer_.GetTheme().splitter_width,
         state_.view.panes.IsSidePaneVisible(PaneTarget::File),
         state_.view.panes.IsSidePaneVisible(PaneTarget::Toc));
@@ -364,12 +369,7 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
 
     const auto dip = PixelToDip(px, py);
     const auto pane_layout = GetPaneLayout();
-    const auto zone = DetectPaneZone(
-        dip.x,
-        pane_layout,
-        renderer_.GetTheme().splitter_width,
-        state_.view.panes.IsSidePaneVisible(PaneTarget::File),
-        state_.view.panes.IsSidePaneVisible(PaneTarget::Toc));
+    const auto zone = ZoneAt(dip.x, pane_layout);
 
     const MouseWheelEvent event{ delta, false, zone };
     Dispatch(app_controller::HandleMouseWheel(event));
@@ -452,7 +452,6 @@ void App::OnDestroy()
         session_.SaveLastFilePath(state_.document.doc.GetFilePath());
         if (const int node = state_.view.viewport.FindFirstVisibleNode(state_.document.layout_cache, state_.document.doc.GetNodes().size()); node >= 0) {
             // 復元側 (NodeOffsetToScrollY) と同じ cache[node].text_top を読む。
-            // Fenwick PrefixSum 経由は加算順が違うため大規模ノードで誤差が累積する。
             const float text_top = state_.document.layout_cache[node].text_top;
             session_.SaveScrollPosition(node, state_.view.viewport.GetScrollY(), text_top);
         }
@@ -501,16 +500,11 @@ RECT App::GetSearchEditRect()
     const auto sbl = ComputeSearchBarLayoutForMd(layout.md_rect);
     const float s = state_.window.cached_dpi_scale;
     return {
-        static_cast<LONG>(sbl.input_rect.left * s),
-        static_cast<LONG>(sbl.input_rect.top * s),
-        static_cast<LONG>(sbl.input_rect.right * s),
-        static_cast<LONG>(sbl.input_rect.bottom * s),
+        DipToPixel(sbl.input_rect.left, s),
+        DipToPixel(sbl.input_rect.top, s),
+        DipToPixel(sbl.input_rect.right, s),
+        DipToPixel(sbl.input_rect.bottom, s),
     };
-}
-
-std::pmr::wstring App::LoadLastFilePath() const
-{
-    return session_.LoadLastFilePath();
 }
 
 void App::ShowDirectory(std::wstring_view dir_path)

@@ -93,54 +93,6 @@ TEST(JsEscape, ParagraphSeparatorEscaped)
 }
 
 // ============================================================
-// SimpleHash テスト
-// ============================================================
-
-TEST(SimpleHash, EmptyString)
-{
-    auto hash = mermaid_util::SimpleHash(L"");
-    EXPECT_EQ(hash.size(), 16u); // 16進数文字16文字
-}
-
-TEST(SimpleHash, DeterministicOutput)
-{
-    auto h1 = mermaid_util::SimpleHash(L"hello");
-    auto h2 = mermaid_util::SimpleHash(L"hello");
-    EXPECT_EQ(h1, h2);
-}
-
-TEST(SimpleHash, DifferentInputsDifferentHashes)
-{
-    auto h1 = mermaid_util::SimpleHash(L"hello");
-    auto h2 = mermaid_util::SimpleHash(L"world");
-    EXPECT_NE(h1, h2);
-}
-
-TEST(SimpleHash, HashLength)
-{
-    auto hash = mermaid_util::SimpleHash(L"test input");
-    EXPECT_EQ(hash.size(), 16u);
-    // 有効な16進数文字であること
-    for (wchar_t c : hash) {
-        EXPECT_TRUE((c >= L'0' && c <= L'9') || (c >= L'a' && c <= L'f'));
-    }
-}
-
-TEST(SimpleHash, SingleCharDifference)
-{
-    auto h1 = mermaid_util::SimpleHash(L"abc");
-    auto h2 = mermaid_util::SimpleHash(L"abd");
-    EXPECT_NE(h1, h2);
-}
-
-TEST(SimpleHash, LongInput)
-{
-    std::wstring input(10000, L'a');
-    auto hash = mermaid_util::SimpleHash(input);
-    EXPECT_EQ(hash.size(), 16u);
-}
-
-// ============================================================
 // CombinedHash テスト
 // ============================================================
 

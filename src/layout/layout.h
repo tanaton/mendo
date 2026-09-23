@@ -57,27 +57,12 @@ public:
     {
         return has_dirty_nodes_;
     }
-    constexpr float GetTotalHeight() const noexcept
-    {
-        return total_height_;
-    }
-    constexpr void SetTotalHeight(float h) noexcept
-    {
-        total_height_ = h;
-    }
     constexpr float GetMarginTop() const noexcept
     {
         return theme_ ? theme_->margin_top : 0.0f;
     }
 
 private:
-    // ComputeLayout 末尾の Fenwick 反映: フルパス完走 → bulk load (O(N))、
-    // 途中 break 時は処理した分のみ個別 Set。total_height_ は bulk 経路でのみ更新する
-    // (incremental 経路は ProcessDirtyBatch / EnsureVisibleLayout が後続で再計算)。
-    void ApplyComputeLayoutBlockHeights(
-        LayoutCache& cache, const std::pmr::vector<float>& block_heights,
-        bool broke_early, float final_y) noexcept;
-
     // 同一の ITextMeasurer 派生から得た 2 つの IF view。lifecycle 系 (Init/RecreateFormats/UpdateTheme)
     // は UI スレッドからのみ呼び、backend (MeasureNode/MeasureTable) は const 経由で
     // layout_scheduler_ 上の worker から並列呼び出しされる。
@@ -87,8 +72,6 @@ private:
     mendo::layout::DirtyScheduler scheduler_{};
     TaskScheduler* layout_scheduler_ = nullptr;
 
-    std::pmr::vector<float> block_heights_buf_;
-    float total_height_ = 0.0f;
     float last_viewport_width_ = 0.0f;
     bool has_dirty_nodes_ = false;
 };
@@ -119,10 +102,6 @@ public:
     constexpr bool HasDirtyNodes() const noexcept
     {
         return engine_.HasDirtyNodes();
-    }
-    constexpr void SetTotalHeight(float h) noexcept
-    {
-        engine_.SetTotalHeight(h);
     }
     // スクロール上限/スクロールバー計算に使う高さ。詳細は layout_cache.h の
     // ComputeTotalContentHeight 注記参照。

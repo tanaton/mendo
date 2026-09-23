@@ -45,10 +45,7 @@ void ClearSidePaneHoverState(AppState& state, SideEffectList& effects)
     bool changed = false;
     for (auto t : { PaneTarget::File, PaneTarget::Toc }) {
         bool pane_changed = state.view.panes.SetHoveredSideIndex(t, -1);
-        pane_changed |= state.view.panes.SetSideCloseHovered(t, false);
-        if (t == PaneTarget::File) {
-            pane_changed |= state.view.panes.SetSideRefreshHovered(t, false);
-        }
+        pane_changed |= state.view.panes.ClearSideButtonHover(t);
         if (pane_changed) {
             PushEffect(effects, effect::InvalidatePaneCache{ ToPaneZone(t) });
             changed = true;
@@ -94,17 +91,6 @@ void ApplyScrollTargetAndEmit(AppState& state, SideEffectList& effects, int node
     EmitScrollChangedSideEffects(state, effects, toc_auto_scroll);
 }
 
-constexpr PaneController::DragTarget SidePaneDragTargetImpl(PaneTarget pane) noexcept
-{
-    using enum PaneController::DragTarget;
-    return (pane == PaneTarget::File) ? FileScrollbar : TocScrollbar;
-}
-
-PaneController::DragTarget SidePaneDragTarget(PaneTarget pane) noexcept
-{
-    return SidePaneDragTargetImpl(pane);
-}
-
 SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
 {
     const float item_h = state.theme->pane_item_height;
@@ -121,7 +107,7 @@ SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
         total,
         ComputeScrollInfo(rect, header_h, total),
         state.view.panes.SidePaneScroll(pane),
-        SidePaneDragTargetImpl(pane),
+        SidePaneDragTarget(pane),
         ToPaneZone(pane),
     };
 }
@@ -291,9 +277,6 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
 
         // ---- ライフサイクル ----
         [&](const DestroyAction&) { PushEffect(effects, effect::Destroy{}); },
-
-        // ---- 未処理のアクション ----
-        [](const auto&) {},
     }, action);
     // clang-format on
     return effects;

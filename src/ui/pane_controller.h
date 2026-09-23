@@ -83,6 +83,8 @@ public:
         return Inst(t).refresh_hovered;
     }
     bool SetSideRefreshHovered(PaneTarget t, bool h) noexcept;
+    // ヘッダーボタン (close/refresh) のホバーを解除する。変化があれば true。
+    bool ClearSideButtonHover(PaneTarget t) noexcept;
 
 public:
     constexpr DragTarget GetDragTarget() const noexcept

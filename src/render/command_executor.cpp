@@ -33,7 +33,7 @@ ID2D1SolidColorBrush* CommandExecutor::ResolveBrush(ID2D1RenderTarget* rt, Brush
     if (id == BrushId::Custom || !fixed_brushes_) {
         return GetBrush(rt, color);
     }
-    if (auto* fixed = (*fixed_brushes_)[std::to_underlying(id)]) {
+    if (auto* fixed = (*fixed_brushes_)[std::to_underlying(id)].Get()) {
         return fixed;
     }
     return GetBrush(rt, color);

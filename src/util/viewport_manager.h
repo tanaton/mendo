@@ -132,15 +132,6 @@ public:
         scroll_y_ = y;
     }
 
-    constexpr bool IsScrollbarTracking() const noexcept
-    {
-        return is_scrollbar_tracking_;
-    }
-    constexpr void SetScrollbarTracking(bool v) noexcept
-    {
-        is_scrollbar_tracking_ = v;
-    }
-
     // ---- 選択 ----
 
     constexpr auto& GetSelection(this auto& self) noexcept
@@ -272,6 +263,5 @@ private:
 
     // --- 1 バイトアライメント ---
     uint8_t zoom_index_ = static_cast<uint8_t>(ZOOM_DEFAULT_INDEX);
-    bool is_scrollbar_tracking_ = false;
     bool is_dragging_ = false;
 };

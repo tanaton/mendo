@@ -1,4 +1,5 @@
 #pragma once
+#include "block_h_scroll_context.h"
 #include "doc_dwrite_bridge.h"
 #include "document_types.h"
 #include "layout_cache.h"
@@ -59,14 +60,9 @@ struct PaneDip {
     float y;
 };
 
-// node のブロック横スクロール量。マップ未設定・未登録は 0。
 inline float LookupBlockScrollX(const MdPaneHitContext& ctx, int node) noexcept
 {
-    if (!ctx.block_scroll_x) {
-        return 0.0f;
-    }
-    const auto it = ctx.block_scroll_x->find(node);
-    return (it != ctx.block_scroll_x->end()) ? it->second : 0.0f;
+    return LookupBlockScrollX(ctx.block_scroll_x, node);
 }
 inline constexpr PaneDip ScreenToPaneDip(const MdPaneHitContext& ctx) noexcept
 {

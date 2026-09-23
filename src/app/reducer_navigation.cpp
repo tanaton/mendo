@@ -113,15 +113,13 @@ void ReduceRestoreScrollAfterLoad(AppState& state, SideEffectList& /*effects*/, 
 
 void ReduceDropFiles(AppState& state, SideEffectList& effects, const DropFilesAction& a)
 {
-    if (!state.document.doc.GetFilePath().empty()) {
-        PushCurrentNavEntry(state);
-    }
+    PushCurrentNavEntry(state);
     PushEffect(effects, effect::LoadFile{ a.path });
 }
 
 void ReduceShowHelp(AppState& state, SideEffectList& effects)
 {
-    if (!state.document.doc.GetFilePath().empty() && !IsHelpPath(state.document.doc.GetFilePath())) {
+    if (!IsHelpPath(state.document.doc.GetFilePath())) {
         PushCurrentNavEntry(state);
     }
     PushEffect(effects, effect::LoadFile{ std::pmr::wstring(HELP_PATH) });

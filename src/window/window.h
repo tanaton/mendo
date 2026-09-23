@@ -16,9 +16,7 @@ public:
     bool Create(HINSTANCE hInstance, int nCmdShow);
     int RunMessageLoop();
 
-    void LoadMarkdownFile(std::wstring_view path);
     void LoadHelpDocument();
-    std::pmr::wstring LoadLastFilePath() const;
     void ShowDirectory(std::wstring_view dir_path);
     void StartPreloadAsync(std::pmr::wstring path);
 

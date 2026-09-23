@@ -120,7 +120,7 @@ void App::OnDeferredLayout()
     // ビューポート後のノードが計測されると total_height が縮小し、中間的な
     // max_scroll に基づくクランプで scroll_y が不当に引き下げられるのを防ぐ。
     // スクロールバートラッキング中はユーザー操作を優先してクランプを反映する。
-    if (state_.view.viewport.IsScrollbarTracking()) {
+    if (state_.view.panes.GetDragTarget() == PaneController::DragTarget::MdScrollbar) {
         EmitEffect(effect::SyncMaxScroll{ md_height });
     }
 

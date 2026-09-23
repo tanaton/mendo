@@ -44,7 +44,6 @@ DirtyBatchResult DirtyScheduler::RunSerial(
             const auto elapsed = std::chrono::steady_clock::now() - start;
             if (std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count() >= budget.time_us) {
                 result.reason = StopReason::TimeBudget;
-                result.any_nearby_skipped = true;
                 break;
             }
         }
@@ -62,7 +61,6 @@ DirtyBatchResult DirtyScheduler::RunSerial(
 
         if (has_batch_limit && result.processed >= budget.max_nodes) {
             result.reason = StopReason::BatchLimit;
-            result.any_nearby_skipped = true;
             break;
         }
     }

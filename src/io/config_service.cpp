@@ -1,6 +1,7 @@
 #include "config_service.h"
 #include "string_convert.h"
 #include "file_io.h"
+#include "utf8_codec.h"
 #include <algorithm>
 #include <charconv>
 #include <cmath>
@@ -90,8 +91,8 @@ void ConfigService::Load()
     }
     std::string_view content(reinterpret_cast<const char*>(buf.get()), size);
     // 手編集ツールが付ける UTF-8 BOM を除去しないと先頭セクションが認識されない
-    if (content.starts_with("\xEF\xBB\xBF")) {
-        content.remove_prefix(3);
+    if (content.starts_with(utf8_codec::kBom)) {
+        content.remove_prefix(utf8_codec::kBom.size());
     }
     data_ = ini::Parse(content);
 }
@@ -208,7 +209,7 @@ void SessionService::SavePaneState(const PaneState& state)
     config_.SaveInt(kSectionPane, kKeyTocWidth, static_cast<int>(std::lround(state.toc_width)));
 }
 
-SessionService::PaneState SessionService::LoadPaneState([[maybe_unused]] float client_width, float min_width, float default_width) const
+SessionService::PaneState SessionService::LoadPaneState(float min_width, float default_width) const
 {
     PaneState s;
     s.show_file = config_.LoadBool(kSectionPane, kKeyShowFile, true);
@@ -219,7 +220,7 @@ SessionService::PaneState SessionService::LoadPaneState([[maybe_unused]] float c
 
     // 過剰幅の表示制限は ComputePaneLayout 側 (side 幅を表示時に clamp して MD ペインと
     // スプリッタを画面内に保つ。論理幅は不変) に委ね、ここでは下限のみ保証する。
-    // client_width で上限 clamp すると狭いウィンドウ起動時に保存値が min へ潰れ、
+    // ウィンドウ幅で上限 clamp すると狭いウィンドウ起動時に保存値が min へ潰れ、
     // 終了時の再保存で恒久喪失するため。破損 INI 対策に実用上限のみ設ける。
     constexpr int kPaneWidthLoadMax = 10000;
     const int file_w = config_.LoadInt(kSectionPane, kKeyFileWidth, default_int, min_int, kPaneWidthLoadMax);

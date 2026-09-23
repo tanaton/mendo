@@ -26,18 +26,10 @@ struct DirtyFixture {
             nodes.push_back(MakeTextNode("x"));
         }
         cache.Resize(n);
-        // Paragraph の spacing_above は 0 なので text_top = block_top = PrefixSum。
-        // 各ノードの block_height = 100 で text_top(i) = i * 100 を再現する。
-        std::pmr::vector<float> bh;
-        bh.reserve(n);
         for (size_t i = 0; i < n; ++i) {
             cache[i].text_top = static_cast<float>(i) * 100.0f;
             cache[i].height = 80.0f;
             cache[i].layout_dirty = false;
-            bh.push_back(100.0f);
-        }
-        if (n > 0) {
-            cache.BuildBlockHeights(std::span<const float>(bh.data(), bh.size()));
         }
         for (size_t idx : dirty_indices) {
             cache[idx].layout_dirty = true;
@@ -66,7 +58,7 @@ TEST_F(DirtySchedulerTest, NoneDirtyReturnsNoneDirty)
     const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, SerialBudget{});
     EXPECT_EQ(r.processed, 0);
     EXPECT_EQ(r.reason, StopReason::NoneDirty);
-    EXPECT_FALSE(r.any_nearby_skipped);
+    EXPECT_FALSE(r.any_nearby_skipped());
 }
 
 TEST_F(DirtySchedulerTest, AllDirtyProcessedReturnsDone)
@@ -76,7 +68,7 @@ TEST_F(DirtySchedulerTest, AllDirtyProcessedReturnsDone)
     const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, SerialBudget{});
     EXPECT_EQ(r.processed, 5);
     EXPECT_EQ(r.reason, StopReason::Done);
-    EXPECT_FALSE(r.any_nearby_skipped);
+    EXPECT_FALSE(r.any_nearby_skipped());
     EXPECT_EQ(r.first_processed, 0u);
     EXPECT_EQ(r.last_processed, 4u);
 }
@@ -88,7 +80,7 @@ TEST_F(DirtySchedulerTest, BatchLimitStopsAtMaxNodes)
     const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, SerialBudget{ 3, 0 });
     EXPECT_EQ(r.processed, 3);
     EXPECT_EQ(r.reason, StopReason::BatchLimit);
-    EXPECT_TRUE(r.any_nearby_skipped);
+    EXPECT_TRUE(r.any_nearby_skipped());
     EXPECT_EQ(r.first_processed, 0u);
     EXPECT_EQ(r.last_processed, 2u);
 }
@@ -103,7 +95,7 @@ TEST_F(DirtySchedulerTest, TimeBudgetGuaranteesProgressOfAtLeastOneNode)
     // 処理が 1 件で打ち切られた場合: TimeBudget。全件入った場合: Done。
     if (r.processed < 5) {
         EXPECT_EQ(r.reason, StopReason::TimeBudget);
-        EXPECT_TRUE(r.any_nearby_skipped);
+        EXPECT_TRUE(r.any_nearby_skipped());
     }
 }
 
@@ -122,7 +114,7 @@ TEST_F(DirtySchedulerTest, ViewportClipSkipsOffscreenDirty)
                                         ViewportClip{ 150.0f, 200.0f, 0.0f }, SerialBudget{});
     EXPECT_EQ(r.processed, 3);
     EXPECT_EQ(r.reason, StopReason::Done);
-    EXPECT_FALSE(r.any_nearby_skipped);
+    EXPECT_FALSE(r.any_nearby_skipped());
     EXPECT_EQ(r.first_processed, 1u);
     EXPECT_EQ(r.last_processed, 3u);
 }
@@ -164,7 +156,7 @@ TEST_F(DirtySchedulerTest, BudgetZeroIsUnlimited)
     const auto r = scheduler_.RunSerial(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, SerialBudget{ 0, 0 });
     EXPECT_EQ(r.processed, 50);
     EXPECT_EQ(r.reason, StopReason::Done);
-    EXPECT_FALSE(r.any_nearby_skipped);
+    EXPECT_FALSE(r.any_nearby_skipped());
 }
 
 TEST_F(DirtySchedulerTest, MeasureNodeIsCalledOnEachProcessed)

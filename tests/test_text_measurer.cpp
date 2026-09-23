@@ -26,7 +26,7 @@ TEST_F(MockLayoutTest, EmptyNodesGiveMarginHeight)
     std::pmr::vector<Node> nodes;
     LayoutCache cache;
     engine_.ComputeLayout(nodes, cache, 800.0f);
-    EXPECT_FLOAT_EQ(engine_.GetTotalHeight(), theme_.margin_top * 2);
+    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top), 0.0f);
 }
 
 TEST_F(MockLayoutTest, SingleParagraphPositiveHeight)
@@ -35,7 +35,7 @@ TEST_F(MockLayoutTest, SingleParagraphPositiveHeight)
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
-    EXPECT_GT(engine_.GetTotalHeight(), 0.0f);
+    EXPECT_GT(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top), 0.0f);
     EXPECT_GT(cache[0].height, 0.0f);
 }
 
@@ -153,13 +153,13 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchNoDirtyPreservesHeight)
     engine_.ComputeLayout(nodes, cache, 800.0f);
     EXPECT_FALSE(engine_.HasDirtyNodes());
 
-    float height_before = engine_.GetTotalHeight();
+    float height_before = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top);
     EXPECT_GT(height_before, 0.0f);
 
     // ダーティなものがない場合のProcessDirtyBatchはtotal_heightを破損させないべき
     bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 100);
     EXPECT_FALSE(more);
-    EXPECT_FLOAT_EQ(engine_.GetTotalHeight(), height_before);
+    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top), height_before);
 }
 
 // ---- 幅の変更 ----
@@ -224,7 +224,7 @@ TEST_F(MockLayoutTest, EnsureVisibleLayoutUpdatesViewport)
     EXPECT_TRUE(engine_.HasDirtyNodes());
 
     // より後の領域のレイアウトを確保
-    float total = engine_.GetTotalHeight();
+    float total = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top);
     engine_.EnsureVisibleLayout(nodes, cache, 800.0f, total * 0.5f, total * 0.7f);
     // 一部のノードはクリーンになっているべき
 }
@@ -237,7 +237,7 @@ TEST_F(MockLayoutTest, LayoutNodesFullLayout)
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.LayoutNodes(nodes, cache, 800.0f);
-    EXPECT_GT(engine_.GetTotalHeight(), 0.0f);
+    EXPECT_GT(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top), 0.0f);
     EXPECT_FALSE(engine_.HasDirtyNodes());
 }
 
@@ -452,9 +452,10 @@ TEST_F(MockLayoutTest, ManyNodesProduceLargeHeight)
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
-    EXPECT_GT(engine_.GetTotalHeight(), 500.0f);
+    const float total = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top);
+    EXPECT_GT(total, 500.0f);
     size_t last = nodes.size() - 1;
-    EXPECT_LE(cache[last].text_top + cache[last].height, engine_.GetTotalHeight());
+    EXPECT_LE(cache[last].text_top + cache[last].height, total);
 }
 
 // ---- ファイル切り替えリグレッションテスト ----

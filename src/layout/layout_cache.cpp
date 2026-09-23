@@ -144,8 +144,6 @@ void LayoutCache::Resize(size_t node_count)
     if (entries_.size() != node_count) {
         entries_.resize(node_count);
         diagrams_.resize(node_count);
-        block_heights_.Reset();
-        block_heights_.Resize(node_count);
         effects_generation_++;
         ResetEvictionTracking();
     }
@@ -160,7 +158,6 @@ void LayoutCache::ResizePreservingPrefix(size_t new_node_count)
     if (new_node_count > old_count) {
         entries_.resize(new_node_count);
         diagrams_.resize(new_node_count);
-        block_heights_.GrowTo(new_node_count);
         if (old_count > 0) {
             const float end_y = entries_[old_count - 1].text_top + entries_[old_count - 1].height;
             for (size_t i = old_count; i < new_node_count; i++) {
@@ -171,7 +168,6 @@ void LayoutCache::ResizePreservingPrefix(size_t new_node_count)
         ResetEvictionTracking();
     }
     else {
-        // 縮小: Fenwick も含めてリセット
         Resize(new_node_count);
     }
 }
@@ -188,8 +184,6 @@ void LayoutCache::Reset(size_t node_count, bool shrink)
         diagrams_.shrink_to_fit();
     }
     diagrams_.resize(node_count);
-    block_heights_.Reset();
-    block_heights_.Resize(node_count);
     effects_generation_++;
     ResetEvictionTracking();
 }

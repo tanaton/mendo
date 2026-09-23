@@ -93,6 +93,19 @@ constexpr float SidePaneContentHeight(size_t item_count, float pane_item_height)
     return static_cast<float>(item_count) * pane_item_height;
 }
 
+// 等高リストのペイン内ローカル Y から項目 index を返す。範囲外は -1。
+constexpr int HitTestUniformList(float local_y, float item_height, size_t count) noexcept
+{
+    if (local_y < 0 || item_height <= 0) {
+        return -1;
+    }
+    const int index = static_cast<int>(local_y / item_height);
+    if (index < 0 || index >= static_cast<int>(count)) {
+        return -1;
+    }
+    return index;
+}
+
 // 指定項目をペイン表示域の縦中央に置くスクロール位置。先頭/末尾付近は端にクランプする (issue#259)。
 constexpr float CenterPaneScrollY(float item_y, float item_height, const PaneScrollInfo& info) noexcept
 {

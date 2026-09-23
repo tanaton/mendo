@@ -37,6 +37,13 @@ bool PaneController::SetSideRefreshHovered(PaneTarget t, bool h) noexcept
     return SetFlag(Inst(t).refresh_hovered, h);
 }
 
+bool PaneController::ClearSideButtonHover(PaneTarget t) noexcept
+{
+    const bool close_changed = SetSideCloseHovered(t, false);
+    const bool refresh_changed = SetSideRefreshHovered(t, false);
+    return close_changed || refresh_changed;
+}
+
 float PaneController::ConstrainSplitterWidth(
     float requested_width, float total_width,
     float splitter_w, float other_width,

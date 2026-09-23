@@ -339,16 +339,6 @@ TEST(ViewportManagerTest, SetZoomIndexAcceptsValidValues)
     EXPECT_FLOAT_EQ(vm.GetCurrentZoom(), ZOOM_STEPS[3]);
 }
 
-// ---- スクロールバー追跡テスト ----
-
-TEST(ViewportManagerTest, ScrollbarTracking)
-{
-    ViewportManager vm;
-    EXPECT_FALSE(vm.IsScrollbarTracking());
-    vm.SetScrollbarTracking(true);
-    EXPECT_TRUE(vm.IsScrollbarTracking());
-}
-
 // ---- バグ #17: scroll_y の非負クランプ ----
 
 TEST(ViewportManagerTest, ApplyScrollTargetClampsNegative)

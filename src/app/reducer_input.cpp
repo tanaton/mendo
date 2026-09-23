@@ -3,7 +3,7 @@
 
 void ReduceCaptureChanged(AppState& state, SideEffectList& effects)
 {
-    state.search.search_bar_ctrl.OnCaptureChanged();
+    state.search.search_bar_ctrl.EndDrag();
     bool invalidate = false;
     if (state.interaction.gesture.GetPhase() != GesturePhase::Idle) {
         state.interaction.gesture.Reset();
@@ -13,10 +13,6 @@ void ReduceCaptureChanged(AppState& state, SideEffectList& effects)
     // 届かないため、進行中の全ドラッグ状態をここで解除する
     if (state.view.viewport.IsDragging()) {
         state.view.viewport.SetDragging(false);
-        invalidate = true;
-    }
-    if (state.view.viewport.IsScrollbarTracking()) {
-        state.view.viewport.SetScrollbarTracking(false);
         invalidate = true;
     }
     if (state.view.panes.GetDragTarget() != PaneController::DragTarget::None) {
@@ -136,7 +132,6 @@ void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, cons
     // ドラッグ state の初期化は SetCapture より前に行う
     auto& sv = state.view;
     sv.panes.StartDrag(PaneController::DragTarget::MdScrollbar);
-    sv.viewport.SetScrollbarTracking(true);
     sv.panes.SetDragScrollOffset(drag_offset);
     PushEffect(effects, effect::SetCapture{});
     // thumb 内クリックなら 1st jump は不要 (thumb-grip オフセット記録だけ)。
@@ -165,7 +160,6 @@ void ReduceMdScrollbarDragEnded(AppState& state, SideEffectList& effects)
     if (state.view.panes.GetDragTarget() != PaneController::DragTarget::MdScrollbar) {
         return;
     }
-    state.view.viewport.SetScrollbarTracking(false);
     state.view.panes.EndDrag();
     PushEffect(effects, effect::ReleaseCapture{});
     PushEffect(effects, effect::PerformResizeEnd{});

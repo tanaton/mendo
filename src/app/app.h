@@ -39,7 +39,6 @@ public:
 
     void LoadMarkdownFile(std::wstring_view path);
     void LoadHelpDocument();
-    std::pmr::wstring LoadLastFilePath() const;
     void ShowDirectory(std::wstring_view dir_path);
 
     // 起動時にウィンドウ生成と並列で I/O + パースを開始する。Init 末尾の
@@ -270,6 +269,7 @@ private:
         state_.pane_layout_cache.Invalidate();
     }
     ::PaneZone PaneAtPoint(float dip_x);
+    ::PaneZone ZoneAt(float dip_x, const ::PaneLayout& layout) const noexcept;
     float GetMarkdownPaneWidth();
     // スクロール上限/スクロールバー計算用のコンテンツ高さ。
     float ScrollableContentHeight() const noexcept;

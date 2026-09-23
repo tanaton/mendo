@@ -241,11 +241,6 @@ public:
         return drag_anchor_;
     }
 
-    void OnCaptureChanged() noexcept
-    {
-        dragging_ = false;
-    }
-
     void UpdateHoverFromZone(SearchBarHitZone zone)
     {
         // Input ゾーンはテキスト編集領域でホバー強調は不要なので None に丸める。
@@ -280,11 +275,7 @@ public:
         sb.ime_composition = ime_composition_;
         sb.case_sensitive = state_->IsCaseSensitive();
         sb.highlight_enabled = state_->IsHighlightEnabled();
-        sb.up_btn_hovered = (hover_ == SearchBarHitZone::Up);
-        sb.down_btn_hovered = (hover_ == SearchBarHitZone::Down);
-        sb.close_btn_hovered = (hover_ == SearchBarHitZone::Close);
-        sb.case_btn_hovered = (hover_ == SearchBarHitZone::CaseSensitive);
-        sb.highlight_btn_hovered = (hover_ == SearchBarHitZone::Highlight);
+        sb.hovered = hover_;
         return sb;
     }
 

@@ -116,14 +116,7 @@ bool App::Init(HWND hwnd)
     }
 
     {
-        float client_width = 0.0f;
-        if (hwnd_) {
-            RECT rc{};
-            if (GetClientRect(hwnd_, &rc)) {
-                client_width = static_cast<float>(rc.right - rc.left);
-            }
-        }
-        const auto s = session_.LoadPaneState(client_width, PaneController::PANE_MIN_WIDTH, PaneController::PANE_DEFAULT_WIDTH);
+        const auto s = session_.LoadPaneState(PaneController::PANE_MIN_WIDTH, PaneController::PANE_DEFAULT_WIDTH);
         auto& panes = state_.view.panes;
         panes.SetSidePaneVisible(PaneTarget::File, s.show_file);
         panes.SetSidePaneVisible(PaneTarget::Toc, s.show_toc);

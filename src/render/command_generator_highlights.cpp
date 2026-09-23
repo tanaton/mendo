@@ -1,8 +1,10 @@
 #include "command_generator.h"
 #include "command_generator_internal.h"
 #include "profiler.h"
+#include <algorithm>
 #include <cassert>
 #include <ranges>
+#include <utility>
 
 // DWRITE_HIT_TEST_METRICS を origin 加算付きの D2D1_RECT_F に変換する。
 static inline D2D1_RECT_F RectFromHitTest(const DWRITE_HIT_TEST_METRICS& m, float origin_x = 0.0f, float origin_y = 0.0f) noexcept
@@ -14,15 +16,7 @@ static inline D2D1_RECT_F RectFromHitTest(const DWRITE_HIT_TEST_METRICS& m, floa
         origin_y + m.top + m.height);
 }
 
-void CommandGenerator::EmitHighlightRects(
-    DrawCommandList& cmds,
-    IDWriteTextLayout* layout,
-    uint32_t start,
-    uint32_t length,
-    float origin_x,
-    float origin_y,
-    D2D1_COLOR_F color,
-    BrushId brush_id)
+void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y)
 {
     if (!layout || length == 0) {
         return;
@@ -32,13 +26,8 @@ void CommandGenerator::EmitHighlightRects(
     MENDO_COUNT_INC(g_cmd_gen_stats.hittest_range);
     const UINT32 count = FetchHitTestMetrics(layout, start, length, buf);
     for (UINT32 i = 0; i < count; i++) {
-        cmds.emplace_back(FillRectCmd{ RectFromHitTest(buf[i], origin_x, origin_y), color, brush_id });
+        cmds.emplace_back(FillRectCmd{ RectFromHitTest(buf[i], origin_x, origin_y), SELECTION_COLOR, BrushId::Selection });
     }
-}
-
-void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y)
-{
-    EmitHighlightRects(cmds, layout, start, length, origin_x, origin_y, SELECTION_COLOR, BrushId::Selection);
 }
 
 void CommandGenerator::CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::pmr::vector<D2D1_RECT_F>& out)
@@ -151,12 +140,22 @@ void CommandGenerator::EmitSearchHlCommands(
 {
     // 呼び出し側（セル/ノード本体）に属する match のみ描画する。
     const size_t node_match_count = cache.rect_ends.size();
+    size_t begin = 0;
+    size_t end = node_match_count;
+    if (table_row >= 0) {
+        // テーブル内 match は (row, col, start) 昇順なので、セル範囲を二分探索で切り出す。
+        const auto node_matches = matches.subspan(first_global, node_match_count);
+        const auto cell = std::ranges::equal_range(
+            node_matches, std::pair{ table_row, table_col }, {},
+            [](const SearchMatch& m) noexcept { return std::pair{ m.table_row, m.table_col }; });
+        begin = static_cast<size_t>(cell.begin() - node_matches.begin());
+        end = static_cast<size_t>(cell.end() - node_matches.begin());
+    }
 
-    for (size_t node_mi = 0; node_mi < node_match_count; ++node_mi) {
+    for (size_t node_mi = begin; node_mi < end; ++node_mi) {
         const size_t mi = first_global + node_mi;
         const auto& m = matches[mi];
-        const bool is_here = (table_row >= 0) ? (m.table_row == table_row && m.table_col == table_col) : (m.table_row < 0);
-        if (!is_here) {
+        if (table_row < 0 && m.table_row >= 0) {
             continue;
         }
 

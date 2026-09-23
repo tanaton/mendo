@@ -155,7 +155,7 @@ void ExpectBitExactEqual(const StressFixture& s, const StressFixture& p,
     EXPECT_EQ(rs.first_processed, rp.first_processed);
     EXPECT_EQ(rs.last_processed, rp.last_processed);
     EXPECT_EQ(rs.reason, rp.reason);
-    EXPECT_EQ(rs.any_nearby_skipped, rp.any_nearby_skipped);
+    EXPECT_EQ(rs.any_nearby_skipped(), rp.any_nearby_skipped());
 
     ASSERT_EQ(s.nodes.size(), p.nodes.size());
     const size_t n = s.nodes.size();

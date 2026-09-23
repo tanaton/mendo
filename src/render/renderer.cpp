@@ -219,16 +219,11 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
         const float row_bottom = row_y + row_h + border;
 
         const bool row_visible = (viewport_top < 0.0f) || (row_bottom >= viewport_top && row_y <= viewport_bottom);
-        // 2回目以降のパスではオフスクリーン行の背景走査をスキップ
-        if (!first_pass && !row_visible) {
-            row_y = row_bottom;
-            continue;
-        }
         // row_bgs_computed フラグで O(1) 判定（O(cells × runs) の走査を排除）
         const bool bgs_done = !first_pass && r < tl.row_bgs_computed.size() && tl.row_bgs_computed[r];
         const bool need_bgs = row_visible && !bgs_done;
 
-        // 2回目以降: インラインコード背景の計算が不要な行はスキップ
+        // 2回目以降: オフスクリーン行や計算済みの行はスキップ
         if (!first_pass && !need_bgs) {
             row_y = row_bottom;
             continue;
@@ -500,7 +495,7 @@ void Renderer::Render(const RenderParams& p)
         const float dpi_scale = DpiScaleFrom(backend_.GetDpi());
         const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, first_visible, p.hovered, dpi_scale, p.block_h_scroll);
 
-        cmd_executor_.Execute(cmds, rt(), &fixed_brushes_cache_);
+        cmd_executor_.Execute(cmds, rt(), &brushes_);
     }
 
     if (p.can_go_back || p.can_go_forward) {

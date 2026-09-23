@@ -130,8 +130,7 @@ private:
         return backend_.GetD2DFactory();
     }
 
-    std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>, std::to_underlying(BrushId::Count)> brushes_;
-    FixedBrushArray fixed_brushes_cache_{};
+    FixedBrushArray brushes_;
 
     ID2D1SolidColorBrush* Brush(BrushId id) const noexcept
     {

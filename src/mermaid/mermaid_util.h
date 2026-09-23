@@ -15,8 +15,6 @@ uint64_t NodeDiagramHash(const Node& node, float max_width, bool dark_mode) noex
 
 std::pmr::wstring JsEscape(std::wstring_view input);
 
-std::pmr::wstring SimpleHash(std::wstring_view input);
-
 uint64_t CombinedHash(std::wstring_view code, int max_width_int, bool dark_mode) noexcept;
 uint64_t CombinedHash(std::string_view code, int max_width_int, bool dark_mode) noexcept;
 

@@ -30,7 +30,7 @@ constexpr uint32_t PackColor(D2D1_COLOR_F c) noexcept
 
 } // namespace command_executor_internal
 
-using FixedBrushArray = std::array<ID2D1SolidColorBrush*, std::to_underlying(BrushId::Count)>;
+using FixedBrushArray = std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>, std::to_underlying(BrushId::Count)>;
 
 class CommandExecutor {
 public:

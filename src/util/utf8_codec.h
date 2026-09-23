@@ -10,6 +10,7 @@
 namespace utf8_codec {
 
 inline constexpr uint32_t kReplacement = 0xFFFD;
+inline constexpr std::string_view kBom = "\xEF\xBB\xBF";
 
 struct DecodedCp {
     uint32_t cp;

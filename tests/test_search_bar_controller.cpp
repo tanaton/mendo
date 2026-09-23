@@ -252,15 +252,6 @@ TEST_F(SearchBarControllerTest, DragLifecycle)
     EXPECT_FALSE(ctrl_.IsDragging());
 }
 
-TEST_F(SearchBarControllerTest, OnCaptureChangedEndsDrag)
-{
-    ctrl_.StartDrag(0);
-    EXPECT_TRUE(ctrl_.IsDragging());
-
-    ctrl_.OnCaptureChanged();
-    EXPECT_FALSE(ctrl_.IsDragging());
-}
-
 // ═══════════════════════════════════════════════
 // キャレットブリンク
 // ═══════════════════════════════════════════════

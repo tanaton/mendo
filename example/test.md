@@ -158,9 +158,7 @@ public:
     bool Create(HINSTANCE hInstance, int nCmdShow);
     int  RunMessageLoop();
 
-    void LoadMarkdownFile(std::wstring_view path);
     void LoadHelpDocument();
-    std::pmr::wstring LoadLastFilePath() const;
     void ShowDirectory(std::wstring_view dir_path);
     void RestoreScrollPosition();
     void StartPreloadAsync(std::pmr::wstring path);
@@ -222,7 +220,6 @@ public:
 
     void LoadMarkdownFile(std::wstring_view path);
     void LoadHelpDocument();
-    std::pmr::wstring LoadLastFilePath() const;
     void ShowDirectory(std::wstring_view dir_path);
 
     // Win32Window から呼ばれるイベントハンドラ
@@ -936,8 +933,6 @@ public:
                              float viewport_top, float viewport_bottom);
 
     constexpr bool  HasDirtyNodes() const noexcept;
-    constexpr float GetTotalHeight() const noexcept;
-    constexpr void  SetTotalHeight(float h) noexcept;
 };
 
 class LayoutService {
@@ -1660,8 +1655,6 @@ public:
     constexpr int   FindFirstVisibleNode(const LayoutCache& cache, size_t count) const noexcept;
     constexpr void  SetScrollY(float y) noexcept;            // target を触らずクランプもしない
     constexpr void  ClampAndDetach() noexcept;               // scroll_y をクランプし target を無効化
-    constexpr bool  IsScrollbarTracking() const noexcept;
-    constexpr void  SetScrollbarTracking(bool v) noexcept;
 
     // ScrollTarget — ノード相対位置によるスクロール復元
     constexpr void SetScrollTarget(int node, float offset) noexcept;
@@ -1905,7 +1898,7 @@ public:
         float toc_width  = 0.0f;
     };
     void      SavePaneState(const PaneState& state);
-    PaneState LoadPaneState(float client_width, float min_width, float default_width) const;
+    PaneState LoadPaneState(float min_width, float default_width) const;
 
     struct ScrollPosition {
         int node   = -1;
@@ -2067,7 +2060,6 @@ public:
     void StartDrag(int anchor_pos) noexcept;
     int  GetDragAnchor() const noexcept;
     void EndDrag() noexcept;
-    void OnCaptureChanged() noexcept;
     void UpdateHoverFromZone(SearchBarHitZone zone);
     SearchBarHitZone GetHover() const noexcept;
     void ResetHover() noexcept;
@@ -2895,11 +2887,11 @@ graph TD
     EXE --> RC[mendo.rc<br>リソース]
     TEST --> CORE
     TEST --> GTEST[Google Test v1.17.0<br>FetchContent]
+    TEST --> SHLWAPI[shlwapi.lib]
 
     CORE --> D2D1[d2d1.lib]
     CORE --> DWRITE[dwrite.lib]
     CORE --> WIC_LIB[windowscodecs.lib]
-    CORE --> SHLWAPI[shlwapi.lib]
     CORE --> COMCTL[comctl32.lib]
 ```
 
@@ -3357,7 +3349,6 @@ src/
     ├── ascii_util.h               # ASCII 操作
     ├── scope_guard.h              # スコープ終了時実行ガード
     ├── lru_cache.h                # LruCache (汎用LRU)
-    ├── fenwick.h                  # Fenwick tree (累積和)
     ├── fnv1a.h                    # FNV-1a ハッシュ
     ├── small_vector.h             # 小サイズ最適化 vector
     ├── pmr_unique_ptr.h           # std::pmr アロケータ向け unique_ptr

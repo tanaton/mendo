@@ -141,12 +141,8 @@ struct SearchBarRenderState {
     // チェックボックス状態
     bool case_sensitive = false;
     bool highlight_enabled = true;
-    // 検索バー内のボタンホバー状態
-    bool up_btn_hovered = false;
-    bool down_btn_hovered = false;
-    bool close_btn_hovered = false;
-    bool case_btn_hovered = false;
-    bool highlight_btn_hovered = false;
+    // 検索バー内でホバー中のボタン
+    SearchBarHitZone hovered = SearchBarHitZone::None;
 };
 
 struct RenderParams {
