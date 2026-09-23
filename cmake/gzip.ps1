@@ -1,7 +1,0 @@
-param([string]$InputFile, [string]$OutputFile)
-$fs = [IO.File]::OpenRead($InputFile)
-$out = [IO.File]::Create($OutputFile)
-$gs = [IO.Compression.GZipStream]::new($out, [IO.Compression.CompressionLevel]::Optimal)
-$fs.CopyTo($gs)
-$gs.Dispose()
-$fs.Dispose()

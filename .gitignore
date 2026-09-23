@@ -3,8 +3,8 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
-# Build-generated gzip of mermaid.min.js
-third_party/mermaid/*.gz
+# Build-generated MSZIP of mermaid.min.js
+third_party/mermaid/*.mszip
 
 # User-specific files
 *.rsuser

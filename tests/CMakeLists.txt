@@ -74,6 +74,7 @@ add_executable(mendo_tests
     test_doc_dwrite_bridge.cpp
     test_utf8_codec.cpp
     test_fnv1a.cpp
+    test_stream_util.cpp
     test_worker_latch.cpp
     test_async_load_coordinator.cpp
     test_layout_computer_invisible.cpp

@@ -81,19 +81,13 @@
 
   (async function() {
     try {
-      const resp = await fetch('https://app.local/mermaid.min.js.gz');
-      const ds = new DecompressionStream('gzip');
-      const text = await new Response(resp.body.pipeThrough(ds)).text();
-      const blob = new Blob([text], {type: 'application/javascript'});
-      const url = URL.createObjectURL(blob);
       await new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = url;
+        s.src = 'https://app.local/mermaid.min.js';
         s.onload = resolve;
         s.onerror = reject;
         document.head.appendChild(s);
       });
-      URL.revokeObjectURL(url);
       var dpr = window.devicePixelRatio || 1;
       window.chrome.webview.postMessage(
         mermaidReady() ? ('mermaid-ready:' + dpr) : 'mermaid-failed');
