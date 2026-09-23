@@ -1,4 +1,5 @@
 #pragma once
+#include "block_h_scroll_context.h"
 #include "document.h"
 #include "layout_cache.h"
 #include "viewport_manager.h"
@@ -42,10 +43,9 @@ struct ViewState {
     float h_drag_start_x = 0.0f;
     float h_drag_start_scroll = 0.0f;
 
-    float GetBlockScrollX(int node_index) const
+    float GetBlockScrollX(int node_index) const noexcept
     {
-        const auto it = block_scroll_x.find(node_index);
-        return (it != block_scroll_x.end()) ? it->second : 0.0f;
+        return LookupBlockScrollX(&block_scroll_x, node_index);
     }
 
     // 再パースでノード index がずれると別ノードを指すため、リロード時にクリアする per-node-index 一時状態。

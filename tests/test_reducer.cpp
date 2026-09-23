@@ -473,10 +473,8 @@ TEST_F(ReducerTest, CaptureChanged_ResetsTextSelectionDrag)
 TEST_F(ReducerTest, CaptureChanged_ResetsScrollbarDrag)
 {
     state.view.panes.StartDrag(PaneController::DragTarget::MdScrollbar);
-    state.view.viewport.SetScrollbarTracking(true);
     auto effects = Reduce(state, CaptureChangedAction{});
     EXPECT_EQ(state.view.panes.GetDragTarget(), PaneController::DragTarget::None);
-    EXPECT_FALSE(state.view.viewport.IsScrollbarTracking());
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -738,7 +736,6 @@ TEST_F(ReducerTest, MdScrollbarDragStarted_ThumbHit_StoresOffsetOnly)
     auto effects = Reduce(state, MdScrollbarDragStartedAction{ dip_y });
 
     EXPECT_EQ(state.view.panes.GetDragTarget(), PaneController::DragTarget::MdScrollbar);
-    EXPECT_TRUE(state.view.viewport.IsScrollbarTracking());
     EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
     EXPECT_FLOAT_EQ(state.view.panes.GetDragScrollOffset(), dip_y);
     // つまみ上クリックではスクロール位置は変化しない
@@ -785,12 +782,10 @@ TEST_F(ReducerTest, MdScrollbarDragMoved_NotDragging_NoOp)
 TEST_F(ReducerTest, MdScrollbarDragEnded_ReleasesAndSchedulesResize)
 {
     state.view.panes.StartDrag(PaneController::DragTarget::MdScrollbar);
-    state.view.viewport.SetScrollbarTracking(true);
 
     auto effects = Reduce(state, MdScrollbarDragEndedAction{});
 
     EXPECT_EQ(state.view.panes.GetDragTarget(), PaneController::DragTarget::None);
-    EXPECT_FALSE(state.view.viewport.IsScrollbarTracking());
     EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
     EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
     EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));

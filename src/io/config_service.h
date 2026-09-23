@@ -60,8 +60,7 @@ public:
         float toc_width = 220.0f;
     };
     void SavePaneState(const PaneState& state);
-    // 狭いウィンドウで既定値が dynamic_max を超える対策。
-    PaneState LoadPaneState(float client_width, float min_width, float default_width) const;
+    PaneState LoadPaneState(float min_width, float default_width) const;
 
     struct ScrollPosition {
         int node = -1;

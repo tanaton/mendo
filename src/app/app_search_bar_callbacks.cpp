@@ -10,10 +10,9 @@ void AppSearchBarCallbacks::invalidate()
 
 void AppSearchBarCallbacks::invalidate_search_bar()
 {
-    const auto& layout = app->GetPaneLayout();
-    const auto& r = layout.md_rect;
-    const PaneRect search_area{ r.x, r.y + r.height - SEARCH_BAR_HEIGHT, r.width, SEARCH_BAR_HEIGHT };
-    app->InvalidatePane(search_area);
+    const auto& r = app->GetPaneLayout().md_rect;
+    const auto sbl = app->ComputeSearchBarLayoutForMd(r);
+    app->InvalidatePane(PaneRect{ r.x, sbl.bar_top, r.width, sbl.bar_bottom - sbl.bar_top });
 }
 
 void AppSearchBarCallbacks::set_timer(app_timer::Id id, UINT ms)

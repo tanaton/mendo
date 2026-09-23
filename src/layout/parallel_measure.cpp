@@ -90,7 +90,6 @@ DirtyBatchResult RunParallel(
             indices.push_back(i);
             if (has_batch_limit && static_cast<int>(indices.size()) >= budget.max_nodes) {
                 result.reason = StopReason::BatchLimit;
-                result.any_nearby_skipped = true;
                 break;
             }
         }
@@ -168,12 +167,11 @@ DirtyBatchResult RunParallel(
 
         const int failed = failed_node_count.load(std::memory_order_relaxed);
         if (failed > 0) {
-            // 失敗分は processed から外し、any_nearby_skipped 経由で次フレーム再試行に乗せる。
+            // 失敗分は processed から外し、any_nearby_skipped() 経由で次フレーム再試行に乗せる。
             result.processed -= failed;
             if (result.reason == StopReason::Done) {
                 result.reason = StopReason::Error;
             }
-            result.any_nearby_skipped = true;
         }
 
         MENDO_PLOT("layout.parallel.chunk_count", static_cast<int64_t>(chunk_count));

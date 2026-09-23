@@ -1,4 +1,5 @@
 #pragma once
+#include "file_io.h"
 #include "win_handle.h"
 #include <wrl/client.h>
 #include <objidl.h>
@@ -85,10 +86,9 @@ inline Microsoft::WRL::ComPtr<IStream> CreateMemoryStreamFromFile(HANDLE file, s
     if (!ptr) {
         return nullptr;
     }
-    DWORD bytes_read = 0;
-    const BOOL ok = ReadFile(file, ptr, static_cast<DWORD>(size), &bytes_read, nullptr);
+    const bool ok = ReadExact(file, ptr, static_cast<size_t>(size));
     GlobalUnlock(hMem.get());
-    if (!ok || bytes_read != size) {
+    if (!ok) {
         return nullptr;
     }
 

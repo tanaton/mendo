@@ -191,7 +191,7 @@ target_compile_definitions(mendo_core PUBLIC
     UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
 )
 target_link_libraries(mendo_core PUBLIC
-    md4c d2d1 dwrite windowscodecs shlwapi comctl32
+    md4c d2d1 dwrite windowscodecs comctl32
 )
 if(MENDO_USE_TRACY)
     # MENDO_USE_TRACY: profiler.h のマクロを Tracy 呼び出しに展開するスイッチ。

@@ -3,16 +3,6 @@
 #include "file_loader.h"
 #include "profiler.h"
 
-std::expected<Document, FileLoadError> DocumentService::LoadFile(const std::pmr::wstring& path)
-{
-    auto result = FileLoader::LoadFile(path);
-    if (!result) {
-        return std::unexpected(result.error());
-    }
-    MENDO_PROFILE("Document::FromMarkdown");
-    return Document::FromMarkdown(std::move(result->text), result->byte_size, path);
-}
-
 std::expected<Document, FileLoadError> DocumentService::LoadFile(const std::pmr::wstring& path, std::stop_token stop_token)
 {
     // I/O 前にも check しないと、呼び出し時点で既にキャンセル済みでも無駄に同期 I/O を実行する。

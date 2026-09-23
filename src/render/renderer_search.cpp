@@ -230,8 +230,8 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
     };
 
     const float nav_alpha = sb.total_matches > 0 ? 1.0f : 0.3f;
-    drawIconBtn(sbl.up_btn, L"\uE70E", sb.up_btn_hovered, nav_alpha);
-    drawIconBtn(sbl.down_btn, L"\uE70D", sb.down_btn_hovered, nav_alpha);
+    drawIconBtn(sbl.up_btn, L"\uE70E", sb.hovered == SearchBarHitZone::Up, nav_alpha);
+    drawIconBtn(sbl.down_btn, L"\uE70D", sb.hovered == SearchBarHitZone::Down, nav_alpha);
 
     if (fmt_.search_count && !sb.query.empty()) {
         // 「N / M」形式で表示。M は実用上 4-5 桁に収まる (md 内 hit 数) ので
@@ -253,9 +253,9 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         }
     }
 
-    drawToggleBtn(sbl.case_btn, L"Aa", 2, fmt_.search_count.Get(), sb.case_sensitive, sb.case_btn_hovered);
-    drawToggleBtn(sbl.highlight_btn, L"\uE7E6", 1, fmt_.search_icon.Get(), sb.highlight_enabled, sb.highlight_btn_hovered);
-    drawIconBtn(sbl.close_btn, L"\uE8BB", sb.close_btn_hovered);
+    drawToggleBtn(sbl.case_btn, L"Aa", 2, fmt_.search_count.Get(), sb.case_sensitive, sb.hovered == SearchBarHitZone::CaseSensitive);
+    drawToggleBtn(sbl.highlight_btn, L"\uE7E6", 1, fmt_.search_icon.Get(), sb.highlight_enabled, sb.hovered == SearchBarHitZone::Highlight);
+    drawIconBtn(sbl.close_btn, L"\uE8BB", sb.hovered == SearchBarHitZone::Close);
 }
 
 int Renderer::HitTestSearchInput(std::wstring_view query, float local_x, float max_width) const

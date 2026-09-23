@@ -118,10 +118,6 @@ void Renderer::RecreateBrushes()
         }
         mendo::CreateSolidColorBrushOrFallback(render_target_, s.color, brush);
     }
-
-    for (size_t i = 0; i < fixed_brushes_cache_.size(); ++i) {
-        fixed_brushes_cache_[i] = brushes_[i].Get();
-    }
 }
 
 void Renderer::InvalidateBrushes() noexcept
@@ -129,7 +125,6 @@ void Renderer::InvalidateBrushes() noexcept
     for (auto& b : brushes_) {
         b.Reset();
     }
-    fixed_brushes_cache_.fill(nullptr);
 }
 
 static std::wstring ResolveFontFamily(IDWriteFontCollection* collection, std::initializer_list<const wchar_t*> candidates)

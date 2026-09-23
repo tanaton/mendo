@@ -15,10 +15,7 @@ void App::ResetSidePaneHover(PaneTarget t, const PaneLayout& pane_layout, bool r
     if (reset_hover_index) {
         changed |= state_.view.panes.SetHoveredSideIndex(t, -1);
     }
-    changed |= state_.view.panes.SetSideCloseHovered(t, false);
-    if (t == PaneTarget::File) {
-        changed |= state_.view.panes.SetSideRefreshHovered(t, false);
-    }
+    changed |= state_.view.panes.ClearSideButtonHover(t);
     if (changed) {
         InvalidateSidePaneAndPane(t, pane_layout);
     }
@@ -159,7 +156,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
                 tt.text += src_wide;
             }
         }
-        Dispatch(UpdateTooltipAction{ tt, px, py });
+        Dispatch(UpdateTooltipAction{ std::move(tt), px, py });
     }
     SetCursor(ht.last_md_cursor_hand ? cursors_.Hand() : cursors_.IBeam());
 }
@@ -204,12 +201,7 @@ void App::OnMouseHover(int px, int py)
     }
 
     const auto pane_layout = GetPaneLayout();
-    const auto zone = DetectPaneZone(
-        dip_x,
-        pane_layout,
-        renderer_.GetTheme().splitter_width,
-        state_.view.panes.IsSidePaneVisible(PaneTarget::File),
-        state_.view.panes.IsSidePaneVisible(PaneTarget::Toc));
+    const auto zone = ZoneAt(dip_x, pane_layout);
 
     const auto hovered_target = ToPaneTarget(zone);
 
@@ -263,13 +255,13 @@ void App::OnMouseHover(int px, int py)
                     const auto text = state_.document.doc.GetNodes()[toc_entries[idx].node_index].GetText();
                     std::pmr::wstring text_wide;
                     string_convert::Utf8ToWide(text, text_wide);
-                    return { TooltipTarget::Zone::TocPaneItem, text_wide };
+                    return { TooltipTarget::Zone::TocPaneItem, std::move(text_wide) };
                 }
             }
             return {};
         };
         // clang-format off
-        const auto hr = ProcessSidePaneHover(
+        auto hr = ProcessSidePaneHover(
             dip_x,
             dip_y,
             pane_layout.Get(target),
@@ -294,7 +286,7 @@ void App::OnMouseHover(int px, int py)
             InvalidateSidePaneAndPane(target, pane_layout);
         }
         new_hover[static_cast<size_t>(target)] = hr.hovered_index;
-        Dispatch(UpdateTooltipAction{ hr.tooltip, px, py });
+        Dispatch(UpdateTooltipAction{ std::move(hr.tooltip), px, py });
         break;
     }
     case PaneZone::MdPane:

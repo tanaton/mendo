@@ -56,9 +56,6 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     bool any_measured = false;
     bool broke_early = false;
 
-    block_heights_buf_.clear();
-    block_heights_buf_.reserve(node_count);
-
     for (size_t i = 0; i < node_count; i++) {
         auto& node = nodes[i];
         auto& entry = cache[i];
@@ -98,9 +95,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         const float sa = GetSpacingAbove(node, *theme_);
         const float sb = GetSpacingBelow(node, *theme_);
 
-        const auto adv = AdvanceNodeY(y, sa, entry.height, sb);
-        entry.text_top = adv.text_top;
-        block_heights_buf_.push_back(adv.block_height);
+        entry.text_top = AdvanceNodeY(y, sa, entry.height, sb);
 
         // 幅の変更がなく、ビューポートを超えた後に高さの変更もなければ、
         // 残りの Y 位置は変わらないので早期終了する。
@@ -113,7 +108,6 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         }
     }
 
-    ApplyComputeLayoutBlockHeights(cache, block_heights_buf_, broke_early, y);
     has_dirty_nodes_ = any_dirty;
     if (any_measured) {
         cache.IncrementEffectsGeneration();
@@ -123,21 +117,6 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     MENDO_PLOT("layout.compute.width_changed", static_cast<int64_t>(width_changed));
     MENDO_PLOT("layout.compute.node_count", static_cast<int64_t>(node_count));
     MENDO_PLOT("layout.compute.broke_early", static_cast<int64_t>(broke_early));
-}
-
-void LayoutEngine::ApplyComputeLayoutBlockHeights(
-    LayoutCache& cache, const std::pmr::vector<float>& block_heights,
-    bool broke_early, float final_y) noexcept
-{
-    if (!broke_early) {
-        cache.BuildBlockHeights(block_heights);
-        total_height_ = final_y + theme_->margin_top;
-    }
-    else {
-        for (size_t i = 0; i < block_heights.size(); ++i) {
-            cache.SetBlockHeight(i, block_heights[i]);
-        }
-    }
 }
 
 void LayoutEngine::LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
@@ -175,9 +154,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
 
     if (any_updated) {
         cache.IncrementEffectsGeneration();
-        const auto result = RecomputeYPositions(nodes, cache, *theme_, static_cast<size_t>(lo), has_dirty_nodes_, static_cast<size_t>(last_measured));
-        total_height_ = result.total_height;
-        has_dirty_nodes_ = result.has_dirty_nodes;
+        has_dirty_nodes_ = RecomputeYPositions(nodes, cache, *theme_, static_cast<size_t>(lo), has_dirty_nodes_, static_cast<size_t>(last_measured)).has_dirty_nodes;
     }
     return any_updated;
 }
@@ -206,14 +183,12 @@ bool LayoutEngine::ProcessDirtyBatch(
     }
 
     cache.IncrementEffectsGeneration();
-    const auto y_result = RecomputeYPositions(nodes, cache, *theme_, result.first_processed, false, result.last_processed);
-    total_height_ = y_result.total_height;
-    has_dirty_nodes_ = y_result.has_dirty_nodes;
+    has_dirty_nodes_ = RecomputeYPositions(nodes, cache, *theme_, result.first_processed, false, result.last_processed).has_dirty_nodes;
 
     // ビューポート制限時: 付近のダーティノードが全て処理済みなら完了とみなす。
     // 遠方のダーティノードはスクロール時に EnsureVisibleLayout で処理される。
     const bool has_viewport_limit = (viewport_top >= 0.0f && viewport_height > 0.0f);
-    if (has_viewport_limit && has_dirty_nodes_ && !result.any_nearby_skipped) {
+    if (has_viewport_limit && has_dirty_nodes_ && !result.any_nearby_skipped()) {
         has_dirty_nodes_ = false;
     }
 
@@ -255,8 +230,7 @@ bool LayoutService::EnsureVisibleLayout(Document& doc, LayoutCache& cache, float
 
 void LayoutService::RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme) noexcept
 {
-    const auto result = RecomputeYPositions(doc.GetNodesMut(), cache, theme);
-    engine_.SetTotalHeight(result.total_height);
+    RecomputeYPositions(doc.GetNodesMut(), cache, theme);
     viewport_.ApplyScrollTarget(cache);
 }
 

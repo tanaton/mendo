@@ -67,7 +67,6 @@ add_executable(mendo_tests
     test_html_entity.cpp
     test_small_vector.cpp
     test_pmr_unique_ptr.cpp
-    test_fenwick.cpp
     test_dirty_scheduler.cpp
     test_parallel_measure.cpp
     test_parallel_measure_stress.cpp
@@ -88,6 +87,7 @@ add_executable(mendo_tests
 target_link_libraries(mendo_tests PRIVATE
     mendo_core
     GTest::gtest_main
+    shlwapi
 )
 target_compile_definitions(mendo_tests PRIVATE MENDO_TESTING)
 # test_view_stats 等が cwd に依存せず example/ を開けるよう、ソースツリーの絶対パスを渡す。

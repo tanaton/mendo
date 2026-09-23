@@ -143,9 +143,6 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
     const auto node_count = nodes.size();
     MENDO_PLOT("layout.estimate.node_count", static_cast<int64_t>(node_count));
 
-    std::pmr::vector<float> block_heights;
-    block_heights.reserve(node_count);
-
     float y = theme.margin_top;
     for (size_t i = 0; i < node_count; i++) {
         if ((i & 0xFFFu) == 0u && stop_token.stop_requested()) {
@@ -156,12 +153,9 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
         const float sa = GetSpacingAbove(node, theme);
         const float sb = GetSpacingBelow(node, theme);
 
-        const auto adv = AdvanceNodeY(y, sa, h, sb);
         cache[i].height = h;
-        cache[i].text_top = adv.text_top;
-        block_heights.push_back(adv.block_height);
+        cache[i].text_top = AdvanceNodeY(y, sa, h, sb);
     }
-    cache.BuildBlockHeights(block_heights);
 }
 
 bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const Theme& theme, float node_width) noexcept
@@ -210,17 +204,9 @@ YPositionResult RecomputeYPositions(
         y += GetSpacingBelow(nodes[from_index - 1], theme);
     }
 
-    // safe_exit_after の契約: 以降のノードは height/sa/sb が不変。よって block_height も不変で
-    // Fenwick 更新は不要、text_top は一定 delta のシフトで済む。size_t 飽和は node_count にクランプ。
+    // safe_exit_after の契約: 以降のノードは height/sa/sb が不変なので、
+    // text_top は一定 delta のシフトで済む。size_t 飽和は node_count にクランプ。
     const size_t tail_start = (safe_exit_after < node_count) ? safe_exit_after + 1 : node_count;
-
-    // 全件処理時のみ Fenwick を BuildBlockHeights で一括ロード。中間早期終了の可能性がある
-    // 場合は per-element Set で逐次同期し、tail-shift パスからも参照可能にする。
-    const bool can_bulk_build = (from_index == 0) && (tail_start >= node_count);
-    std::pmr::vector<float> block_heights;
-    if (can_bulk_build) {
-        block_heights.reserve(node_count);
-    }
 
     for (size_t i = from_index; i < tail_start; i++) {
         auto& entry = cache[i];
@@ -230,21 +216,7 @@ YPositionResult RecomputeYPositions(
 
         const float sa = GetSpacingAbove(nodes[i], theme);
         const float sb = GetSpacingBelow(nodes[i], theme);
-
-        const auto adv = AdvanceNodeY(y, sa, entry.height, sb);
-        entry.text_top = adv.text_top;
-        if (can_bulk_build) {
-            block_heights.push_back(adv.block_height);
-        }
-        else {
-            cache.SetBlockHeight(i, adv.block_height);
-        }
-    }
-
-    if (can_bulk_build) {
-        cache.BuildBlockHeights(block_heights);
-        result.total_height = y + theme.margin_top;
-        return result;
+        entry.text_top = AdvanceNodeY(y, sa, entry.height, sb);
     }
 
     // |delta| < EPSILON なら text_top も実質変化なし → write 自体スキップ (dirty 集計のみ)。
@@ -280,13 +252,7 @@ YPositionResult RecomputeYPositions(
                 cache[i].text_top += delta;
             }
         }
-
-        const size_t last_idx = node_count - 1;
-        result.total_height = cache[last_idx].text_top + cache[last_idx].height + GetSpacingBelow(nodes[last_idx], theme) + theme.margin_top;
-        return result;
     }
-
-    result.total_height = y + theme.margin_top;
     return result;
 }
 

@@ -7,9 +7,6 @@
 #include "ui_constants.h"
 #include "wic_util.h"
 #include "win_handle.h"
-#include <shlwapi.h>
-
-#pragma comment(lib, "shlwapi.lib")
 
 static Microsoft::WRL::ComPtr<IStream> ReadFileToStream(const std::wstring& path)
 {

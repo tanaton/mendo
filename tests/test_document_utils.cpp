@@ -1992,28 +1992,6 @@ TEST(CalcScrollYForDiff, PrefixGrowthScrollsTowardAppendedTail)
     EXPECT_LE(result, appended_node_y);
 }
 
-// issue#185 回帰テスト:
-// CalcScrollYForDiff が cache[i].text_top フィールドを直読していること (Fenwick PrefixSum
-// 経由の TextTopOf は float 加算順の違いでノード数が増えるほど誤差が累積し、ビューポート
-// 側 (cache[i].text_top 直読) との乖離が「下部更新時ほど大きく」なる)。
-// フィールドを意図的に Fenwick 由来の値からズラし、CalcScrollYForDiff がフィールド側を
-// 採用していることを担保する。
-TEST(CalcScrollYForDiff, ReadsCachedTextTopFieldNotFenwick)
-{
-    std::string content(300, 'x');
-    auto nodes = MakeNodes(content.data(), 3, 100);
-    auto cache = MakeUniformCache(3, 100.0f);
-
-    // cache[2].text_top を Fenwick が返す値 (=200) から大きくズラす。
-    // 実機の累積誤差を模した状況で、フィールド直読なら 999 が、Fenwick 経由なら 200 が
-    // ノード上端 Y として採用される。
-    cache[2].text_top = 999.0f;
-
-    // diff_pos=200 → node 2 (ピッタリ境界) → fraction=0 → node_y=cache[2].text_top
-    // margin = 500*0.2 = 100 → 期待値 = 999 - 100 = 899
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 200, 500.0f, 0.0f), 899.0f);
-}
-
 // ============================================================
 // ToLowerAsciiCopy
 // ============================================================

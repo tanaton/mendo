@@ -140,7 +140,7 @@ private:
     // ベースカラー、インラインコード背景、検索/選択ハイライト、本文テキストを描画する。
     void GenNodeTextDecorations(
         DrawCommandList& cmds, const FrameContext& fc, const Node& node,
-        const NodeLayoutEntry& entry, int node_index, float x, float text_x, float entry_text_top);
+        const NodeLayoutEntry& entry, int node_index, float text_x, float entry_text_top);
     // text_layout 非依存。loose task list (空 TaskListItem) でも GenNodeTextDecorations の
     // early return を経由せず描画したいため独立メソッド化。
     void GenTaskListCheckbox(DrawCommandList& cmds, const Node& node, float x, float entry_text_top);
@@ -151,7 +151,7 @@ private:
     };
     NodeBaseStyle GetNodeBaseStyle(const Node& node) const noexcept;
 
-    void GenHorizontalRule(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, float entry_text_top);
+    void GenHorizontalRule(DrawCommandList& cmds, float x, float w, float entry_text_top);
     void GenTable(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, int node_index, float x, float entry_text_top, float h_scroll_x = 0.0f);
     // テーブル 1 行分の幾何。GenTableRowBg と内部ループで使い回す。
     struct TableRowGeom {
@@ -177,7 +177,7 @@ private:
     void GenTableCellContent(DrawCommandList& cmds, std::string_view cell_text, const CellDrawContext& ctx);
     void GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, float entry_text_top);
     void GenOverlayButton(DrawCommandList& cmds, D2D1_RECT_F btn, wchar_t icon, bool is_hovered);
-    void GenCopyButton(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, bool is_hovered, float entry_text_top);
+    void GenCopyButton(DrawCommandList& cmds, float x, float w, bool is_hovered, float entry_text_top);
     void GenSaveButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered);
     void GenDiagramCopyButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered);
     // ブロックローカルの水平スクロールバー。ホバー中 / ドラッグ中の対象ブロックでのみ emit する。
@@ -188,7 +188,6 @@ private:
     void GenBlockQuoteGroupDecorations(DrawCommandList& cmds, const FrameContext& fc, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible);
     // error 非空時は「読み込み中...」の代わりにエラーメッセージを表示する (issue #271)。
     void GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h, std::wstring_view error = {});
-    void EmitHighlightRects(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y, D2D1_COLOR_F color, BrushId brush_id = BrushId::Custom);
     // HitTestTextRange の結果をレイアウト原点相対の D2D1_RECT_F に変換し out へ append する。
     // SearchHlCache / SelectionHlCache の rebuild に共用する。
     void CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::pmr::vector<D2D1_RECT_F>& out);

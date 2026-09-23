@@ -42,17 +42,9 @@ Win32Window::Win32Window(ConfigService& config)
 }
 Win32Window::~Win32Window() = default;
 
-void Win32Window::LoadMarkdownFile(std::wstring_view path)
-{
-    app_->LoadMarkdownFile(path);
-}
 void Win32Window::LoadHelpDocument()
 {
     app_->LoadHelpDocument();
-}
-std::pmr::wstring Win32Window::LoadLastFilePath() const
-{
-    return app_->LoadLastFilePath();
 }
 void Win32Window::ShowDirectory(std::wstring_view dir_path)
 {

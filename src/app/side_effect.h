@@ -142,7 +142,7 @@ struct HandleParseComplete {};
 } // namespace effect
 
 // 全 effect を 1 段 variant に束ねる。論理グループ (Ui/Window/Navigation/Layout/Resource/Timer/Lifecycle)
-// は side_effect_executor.cpp の単一 visitor 内のコメント区切りで表現する。
+// は side_effect_executor.h の単一 visitor 内のコメント区切りで表現する。
 using SideEffect = std::variant<
     // Ui
     effect::InvalidateWindow,

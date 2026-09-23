@@ -74,6 +74,10 @@ void CommandGenerator::GenTable(
 
     float y = entry_text_top;
     size_t bg_cursor = 0;
+    // cell_inline_code_bgs は cell_index 昇順 (renderer.cpp の追記/rotate が維持) なので二分探索で進める。
+    const auto seek_bg = [&bgs = tl.cell_inline_code_bgs](uint32_t cell) noexcept {
+        return static_cast<size_t>(std::ranges::lower_bound(bgs, cell, {}, &CellInlineCodeBg::cell_index) - bgs.begin());
+    };
 
     // 可視行帯を row_cum_y の二分探索で求め、その範囲だけループする
     // (ApplyTableEffects / FindTableRow と同じパターン)。巨大テーブルで
@@ -86,12 +90,7 @@ void CommandGenerator::GenTable(
         r_begin = rb;
         r_end = re;
         y = entry_text_top + tl.row_cum_y[r_begin];
-        // bg リストは追記順が乱れうるため二分探索せず、既存セマンティクス
-        // (前進スキップ) で r_begin 直前まで進める。サイズは bg 持ちセル数のみ。
-        const uint32_t first_cell = static_cast<uint32_t>(r_begin * tl.col_count);
-        while (bg_cursor < tl.cell_inline_code_bgs.size() && tl.cell_inline_code_bgs[bg_cursor].cell_index < first_cell) {
-            ++bg_cursor;
-        }
+        bg_cursor = seek_bg(static_cast<uint32_t>(r_begin * tl.col_count));
     }
 
     for (size_t r = r_begin; r < r_end; r++) {
@@ -100,12 +99,7 @@ void CommandGenerator::GenTable(
         const float row_bottom = y + row_h + border;
         if (row_bottom < viewport_top || y > viewport_bottom) {
             y = row_bottom;
-            if (!tl.cell_inline_code_bgs.empty() && bg_cursor < tl.cell_inline_code_bgs.size()) {
-                const uint32_t next_cell = static_cast<uint32_t>((r + 1) * tl.col_count);
-                while (bg_cursor < tl.cell_inline_code_bgs.size() && tl.cell_inline_code_bgs[bg_cursor].cell_index < next_cell) {
-                    ++bg_cursor;
-                }
-            }
+            bg_cursor = seek_bg(static_cast<uint32_t>((r + 1) * tl.col_count));
             continue;
         }
 

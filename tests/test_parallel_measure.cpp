@@ -30,17 +30,10 @@ struct ParallelFixture {
             nodes.push_back(MakeTextNode("x"));
         }
         cache.Resize(n);
-        // Paragraph の sa=0 なので block_height=100 で text_top(i) = i * 100 を再現する。
-        std::pmr::vector<float> bh;
-        bh.reserve(n);
         for (size_t i = 0; i < n; ++i) {
             cache[i].text_top = static_cast<float>(i) * 100.0f;
             cache[i].height = 80.0f;
             cache[i].layout_dirty = all_dirty;
-            bh.push_back(100.0f);
-        }
-        if (n > 0) {
-            cache.BuildBlockHeights(std::span<const float>(bh.data(), bh.size()));
         }
     }
 };
@@ -143,7 +136,7 @@ TEST_F(ParallelMeasureTest, BatchLimitClampsProcessed)
                                ViewportClip{}, ParallelBudget{ 10 }, task_scheduler_);
     EXPECT_EQ(r.processed, 10);
     EXPECT_EQ(r.reason, StopReason::BatchLimit);
-    EXPECT_TRUE(r.any_nearby_skipped);
+    EXPECT_TRUE(r.any_nearby_skipped());
 }
 
 TEST_F(ParallelMeasureTest, AllDirtyClearedAfterRun)

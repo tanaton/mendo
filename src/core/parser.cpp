@@ -110,9 +110,6 @@ struct ParseContext {
     // スタックアダプタを挟まず vector を直接扱う (back/push_back/pop_back)。
     std::pmr::vector<int> list_counter{ parse_resource.resource() };
 
-    // テーブル追跡
-    bool in_table = false;
-    bool in_thead = false;
     // セル内かどうか (AppendDoc / FlushPendingRun の振り分けに使う)。
     bool in_table_cell = false;
     // 現在セルの concat_text 内開始 offset。run.start を cell-local に保つために保持する。
@@ -461,16 +458,11 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
             tbl->aligns.reserve(tbl->col_count);
             tbl->is_header_row.reserve(total_rows);
         }
-        ctx->in_table = true;
         break;
     }
 
     case MD_BLOCK_THEAD:
-        ctx->in_thead = true;
-        break;
-
     case MD_BLOCK_TBODY:
-        ctx->in_thead = false;
         break;
 
     case MD_BLOCK_TR:
@@ -595,7 +587,6 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
                 tbl->aligns.resize(tbl->col_count, TableAlign::Default);
             }
         }
-        ctx->in_table = false;
         ctx->FinalizeCurrentNode();
         ctx->ClearCurrentNode();
         break;

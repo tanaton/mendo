@@ -121,15 +121,13 @@ private:
         int table_row = -1, int table_col = -1);
     void EnsureLowercaseCache(const std::pmr::vector<Node>& nodes);
 
-    // マッチ一覧と関連する世代カウンタ・トランケーションフラグを同時にリセットする。
-    // これらは常に一緒に更新しないとキャッシュ有効性判定が壊れるためヘルパに集約している。
+    // マッチ一覧と世代カウンタを同時にリセットする。
     // 0 は search_hl_gen の未初期化センチネルなので、32bit ラップアラウンドで 0 に
     // 戻るケースだけはスキップして必ず非ゼロを維持する。
     void ClearMatches() noexcept
     {
         matches_.clear();
         current_match_ = -1;
-        matches_truncated_ = false;
         if (++generation_ == 0) {
             generation_ = 1;
         }
@@ -148,6 +146,15 @@ private:
         std::pmr::string buffer;
         std::span<const uint32_t> offsets;
         uint16_t col_count = 0;
+
+        std::string_view GetCell(int row, int col) const noexcept
+        {
+            const size_t idx = static_cast<size_t>(row) * col_count + static_cast<size_t>(col);
+            const uint32_t b = offsets[idx];
+            const uint32_t e = offsets[idx + 1];
+            const auto len = CellLengthFromOffsets(b, e, static_cast<uint32_t>(buffer.size()));
+            return std::string_view{ buffer.data() + b, len };
+        }
     };
     struct LowercaseCache {
         std::pmr::string buffer;                             // 全ノードの lower text を連結
@@ -160,18 +167,10 @@ private:
             const uint32_t e = offsets[node_index + 1];
             return std::string_view{ buffer.data() + b, e - b };
         }
-        std::string_view GetCell(int node_index, int row, int col) const noexcept
+        const LowercaseTable* FindTable(int node_index) const noexcept
         {
             const auto it = tables.find(node_index);
-            if (it == tables.end()) {
-                return {};
-            }
-            const auto& t = it->second;
-            const size_t idx = static_cast<size_t>(row) * t.col_count + static_cast<size_t>(col);
-            const uint32_t b = t.offsets[idx];
-            const uint32_t e = t.offsets[idx + 1];
-            const auto len = CellLengthFromOffsets(b, e, static_cast<uint32_t>(t.buffer.size()));
-            return std::string_view{ t.buffer.data() + b, len };
+            return (it != tables.end()) ? &it->second : nullptr;
         }
     };
 
@@ -185,5 +184,4 @@ private:
     bool visible_ = false;
     bool case_sensitive_ = false;
     bool highlight_enabled_ = true;
-    bool matches_truncated_ = false; // マッチ数が上限に達した場合true
 };

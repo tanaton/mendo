@@ -38,7 +38,11 @@ struct SidePaneContext {
     PaneController::DragTarget drag_target;
     PaneZone pane_zone;
 };
-PaneController::DragTarget SidePaneDragTarget(PaneTarget pane) noexcept;
+constexpr PaneController::DragTarget SidePaneDragTarget(PaneTarget pane) noexcept
+{
+    using enum PaneController::DragTarget;
+    return (pane == PaneTarget::File) ? FileScrollbar : TocScrollbar;
+}
 SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane);
 
 BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node_index) noexcept;

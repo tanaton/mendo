@@ -3,6 +3,7 @@
 #include "layout_cache.h"
 #include "mermaid_renderer_interface.h"
 #include "mermaid_util.h"
+#include "wic_util.h"
 #include <d2d1.h>
 #include <wincodec.h>
 #include <wrl/client.h>
@@ -16,6 +17,7 @@
 #include <queue>
 #include <memory>
 #include <memory_resource>
+#include <optional>
 
 
 class MermaidFileCache;
@@ -69,7 +71,6 @@ private:
         uint64_t code_hash = 0;
         float css_width = 0.0f; // JSから取得したCSSピクセル寸法（DIP）
         float css_height = 0.0f;
-        float dpr = 1.0f;            // JSから取得したdevicePixelRatio
         unsigned int request_id = 0; // リクエスト固有のID（JS側のpostMessageと照合）
         // プロセス障害からの requeue 済みフラグ。クラッシュ誘発入力での再起動ループを防ぐ。
         bool retried = false;
@@ -124,7 +125,7 @@ private:
     void DoCapturePreview(int worker_idx);
     void OnCaptureComplete(int worker_idx, uint64_t code_hash, IStream* png_stream);
     void FinishWorkerRequest(Worker& worker);
-    HRESULT CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap** bitmap, float* width, float* height);
+    std::optional<wic_util::CreatedBitmap> CreateBitmapFromPngStream(IStream* stream);
 
     HWND hwnd_ = nullptr; // メインウィンドウ
     ID2D1RenderTarget* render_target_ = nullptr;

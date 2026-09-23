@@ -461,13 +461,11 @@ void MermaidRenderer::RequestRender(
         if (file_cache_->Lookup(hash, fentry, png)) {
             auto stream = stream_util::CreateMemoryStream(png.data.get(), png.size);
             if (stream) {
-                Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-                float bw = 0, bh = 0;
-                if (SUCCEEDED(CreateBitmapFromPngStream(stream.Get(), &bitmap, &bw, &bh)) && bitmap) {
+                if (auto created = CreateBitmapFromPngStream(stream.Get())) {
                     // ディスクから復元した PNG もメモリ保持し、コピー時の再ディスク読みを避ける。
                     auto png_shared = std::make_shared<const std::pmr::vector<uint8_t>>(
                         png.data.get(), png.data.get() + png.size);
-                    CachedBitmap cached{ bitmap, fentry.css_width, fentry.css_height, std::move(png_shared) };
+                    CachedBitmap cached{ std::move(created->bitmap), fentry.css_width, fentry.css_height, std::move(png_shared) };
                     ApplyCachedBitmap(layout_entry, diagram_entry, cached);
                     cache_.Insert(hash, std::move(cached));
 
@@ -714,7 +712,6 @@ void MermaidRenderer::OnRenderResult(int worker_idx, std::wstring_view json)
     // 描画サイズ（DIP）として後で使用するためにCSSピクセル寸法を保存する
     w.current_request.css_width = dw;
     w.current_request.css_height = dh;
-    w.current_request.dpr = dpr;
 
     // キャプチャ用にWebViewをダイアグラムの正確なサイズにリサイズする。
     // CSSピクセルにdevicePixelRatioを掛けて物理ピクセルを求める。
@@ -778,19 +775,17 @@ void MermaidRenderer::DoCapturePreview(int worker_idx)
 void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStream* png_stream)
 {
     auto& w = workers_[worker_idx];
-    Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-    float bw = 0, bh = 0;
 
-    if (SUCCEEDED(CreateBitmapFromPngStream(png_stream, &bitmap, &bw, &bh)) && bitmap) {
+    if (auto created = CreateBitmapFromPngStream(png_stream)) {
         // 描画にはCSSピクセル寸法（DIP）を使用する。DPIスケーリングを含む
         // ビットマップピクセル寸法は使用しない。
         float draw_w = w.current_request.css_width;
         float draw_h = w.current_request.css_height;
         if (draw_w <= 0) {
-            draw_w = bw; // フォールバック
+            draw_w = static_cast<float>(created->pixel_width); // フォールバック
         }
         if (draw_h <= 0) {
-            draw_h = bh;
+            draw_h = static_cast<float>(created->pixel_height);
         }
 
         // PNG バイト列は bitmap と同じ寿命でメモリ保持し、クリップボードコピーが
@@ -802,18 +797,12 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStr
             png_shared = std::make_shared<const std::pmr::vector<uint8_t>>(std::move(png_bytes));
         }
 
-        cache_.Insert(code_hash, CachedBitmap{ bitmap, draw_w, draw_h, png_shared });
-
-        if (w.current_request.diagram_entry) {
-            w.current_request.diagram_entry->bitmap = bitmap;
-            w.current_request.diagram_entry->width = draw_w;
-            w.current_request.diagram_entry->height = draw_h;
-            w.current_request.diagram_entry->png = png_shared;
+        CachedBitmap cached{ std::move(created->bitmap), draw_w, draw_h, png_shared };
+        // layout_entry / diagram_entry は RequestRender で常に対で設定される (svg_only は両方 null)。
+        if (w.current_request.layout_entry && w.current_request.diagram_entry) {
+            ApplyCachedBitmap(*w.current_request.layout_entry, *w.current_request.diagram_entry, cached);
         }
-        if (w.current_request.layout_entry) {
-            w.current_request.layout_entry->height = draw_h;
-            w.current_request.layout_entry->layout_dirty = false;
-        }
+        cache_.Insert(code_hash, std::move(cached));
 
         if (file_cache_ && w.current_request.node && png_shared) {
             const uint64_t fkey = mermaid_util::NodeDiagramHash(*w.current_request.node, w.current_request.max_width, w.current_request.dark_mode);
@@ -824,22 +813,12 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStr
     FinishWorkerRequest(w);
 }
 
-HRESULT MermaidRenderer::CreateBitmapFromPngStream(IStream* stream, ID2D1Bitmap** bitmap, float* width, float* height)
+std::optional<wic_util::CreatedBitmap> MermaidRenderer::CreateBitmapFromPngStream(IStream* stream)
 {
-    if (!stream || !bitmap || !width || !height) {
-        return E_FAIL;
+    if (!stream) {
+        return std::nullopt;
     }
-
     const LARGE_INTEGER zero = {};
     stream->Seek(zero, STREAM_SEEK_SET, nullptr);
-
-    auto created = wic_util::CreateD2DBitmapFromStream(wic_factory_.Get(), render_target_, stream);
-    if (!created) {
-        return E_FAIL;
-    }
-
-    *bitmap = created->bitmap.Detach();
-    *width = static_cast<float>(created->pixel_width);
-    *height = static_cast<float>(created->pixel_height);
-    return S_OK;
+    return wic_util::CreateD2DBitmapFromStream(wic_factory_.Get(), render_target_, stream);
 }

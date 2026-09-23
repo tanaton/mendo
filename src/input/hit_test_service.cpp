@@ -112,9 +112,7 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
     });
     const int candidate = (it != first) ? static_cast<int>(std::prev(it) - first) : -1;
 
-    // partition_point は entry.text_top で比較しているため、局所座標 (local_y) の基準も
-    // 同じ entry.text_top を直接参照する。TextTopOf (Fenwick 経由) は等価であるべきだが、
-    // 累積誤差や部分更新中の不同期で乖離するとマウス位置と一致しないため避ける。
+    // partition_point と同じ entry.text_top を局所座標 (local_y) の基準にする。
     const float candidate_text_top = (candidate >= 0) ? ctx.cache[candidate].text_top : 0.0f;
     // CodeBlock は背景が text 範囲の上下に padding 分はみ出る。padding 部分 (横スクロールバーを
     // 置きたい領域) もそのノードのヒットとして扱い、ホバーが切れないようにする。

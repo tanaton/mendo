@@ -48,6 +48,7 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
             // 存在しない)。col_count は uint16 上限なので常に int に収まる。
             const size_t row_limit = std::min<size_t>(tbl->row_count, std::numeric_limits<int>::max());
             const size_t col_count = tbl->col_count;
+            const auto* lower_tbl = case_sensitive_ ? nullptr : lower_cache_.FindTable(i);
             for (size_t r = 0; r < row_limit && matches_.size() < MAX_MATCHES; r++) {
                 for (size_t c = 0; c < col_count && matches_.size() < MAX_MATCHES; c++) {
                     const auto cell_text = tbl->GetCellText(r, c);
@@ -57,7 +58,9 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
                     // r < row_limit <= INT_MAX、c < col_count <= 65535 のため int 変換は安全。
                     const auto ri = static_cast<int>(r);
                     const auto ci = static_cast<int>(c);
-                    const auto search_text = case_sensitive_ ? cell_text : lower_cache_.GetCell(i, ri, ci);
+                    const auto search_text = case_sensitive_ ? cell_text
+                                           : lower_tbl       ? lower_tbl->GetCell(ri, ci)
+                                                             : std::string_view{};
                     FindMatches(search_text, cell_text, lower_query, i, ri, ci);
                 }
             }
@@ -70,7 +73,6 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
             FindMatches(search_text, text, lower_query, i);
         }
     }
-    matches_truncated_ = (matches_.size() >= MAX_MATCHES);
 }
 
 void SearchState::EnsureLowercaseCache(const std::pmr::vector<Node>& nodes)

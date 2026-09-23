@@ -313,7 +313,7 @@ TEST_F(CmdGenTest, ScrolledViewportCullsTopNodes)
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
 
-    float total = engine_.GetTotalHeight();
+    float total = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top);
     float half_scroll = total * 0.5f;
 
     PaneRect pane{ 0, 0, 800.0f, 200.0f };

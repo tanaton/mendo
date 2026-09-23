@@ -3,6 +3,7 @@
 #include "layout_cache.h"
 #include "layout_computer.h"
 #include "theme.h"
+#include <algorithm>
 
 struct BlockHScrollGeometry {
     float natural_width = 0.0f;
@@ -15,6 +16,10 @@ struct BlockHScrollGeometry {
     constexpr float scroll_max() const noexcept
     {
         return natural_width > visible_width ? natural_width - visible_width : 0.0f;
+    }
+    constexpr float ClampScrollX(float x) const noexcept
+    {
+        return can_scroll() ? std::clamp(x, 0.0f, scroll_max()) : 0.0f;
     }
 };
 

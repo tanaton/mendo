@@ -10,6 +10,7 @@
 #include "theme_service.h"
 #include "profiler.h"
 #include "ascii_util.h"
+#include "string_convert.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -68,9 +69,8 @@ public:
     int ApplyCachedImages(bool respect_viewport = true)
     {
         using resource_manager_detail::IndexSlice;
-        using resource_manager_detail::VisibleSlice;
 
-        const std::pmr::wstring doc_dir = deps_.doc->GetDirectory();
+        const std::pmr::wstring& doc_dir = deps_.doc->GetDirectory();
         if (doc_dir.empty()) {
             return 0;
         }
@@ -87,18 +87,9 @@ public:
         // 通常描画は可視範囲に intersect する image index のみを走査。
         // リロード時 (respect_viewport=false) は CalcScrollForDiff の Y 計算用に全件処理する。
         // viewport_height <= 0.0f の時は初期化中等なのでレイアウト範囲無視（全件）で従来挙動を保つ。
-        IndexSlice slice{ image_indices.begin(), image_indices.end() };
-        if (respect_viewport) {
-            const float viewport_height = cb_.get_viewport_height();
-            if (viewport_height > 0.0f) {
-                const float viewport_top = deps_.viewport->GetScrollY();
-                const float buffer = viewport_height * PREFETCH_BUFFER_SCREENS;
-                const float range_top = viewport_top - buffer;
-                const float range_bottom = viewport_top + viewport_height + buffer;
-                const auto vr = ComputeVisibleNodeRange(*deps_.cache, nodes.size(), range_top, range_bottom);
-                slice = VisibleSlice(image_indices, vr.first, vr.last_plus_1);
-            }
-        }
+        const IndexSlice slice = respect_viewport
+            ? BufferedSlice(image_indices, PREFETCH_BUFFER_SCREENS)
+            : IndexSlice{ image_indices.begin(), image_indices.end() };
 
         int applied = 0;
         for (auto it = slice.begin; it != slice.end; ++it) {
@@ -121,7 +112,8 @@ public:
                 // canonical() は symlink 解決のためにファイルシステムを叩くので、
                 // UI 同期パスから外すため absolute() + lexically_normal() を使う。
                 // 画像参照が symlink を跨ぐのはレアケースとして許容する。
-                std::filesystem::path img_path(img->src);
+                // src は UTF-8。char から直接構築すると ACP 解釈になり非 ASCII パスが壊れる。
+                std::filesystem::path img_path(string_convert::Utf8ToWide(img->src));
                 if (img_path.is_relative()) {
                     img_path = std::filesystem::path(doc_dir) / img_path;
                 }
@@ -185,9 +177,6 @@ public:
 
     int RequestMermaidRenders()
     {
-        using resource_manager_detail::IndexSlice;
-        using resource_manager_detail::VisibleSlice;
-
         const float content_width = cb_.get_content_width();
         InvalidateMermaidForWidthChange(content_width);
 
@@ -195,19 +184,7 @@ public:
             return 0;
         }
 
-        const float viewport_top = deps_.viewport->GetScrollY();
-        const float viewport_height = cb_.get_viewport_height();
-        const float buffer = viewport_height * PREFETCH_BUFFER_SCREENS;
-        const float range_top = viewport_top - buffer;
-        const float range_bottom = viewport_top + viewport_height + buffer;
-
-        const auto& diagram_indices = deps_.doc->GetDiagramNodeIndices();
-        IndexSlice slice{ diagram_indices.begin(), diagram_indices.end() };
-        if (viewport_height > 0.0f) {
-            const auto& nodes = deps_.doc->GetNodes();
-            const auto vr = ComputeVisibleNodeRange(*deps_.cache, nodes.size(), range_top, range_bottom);
-            slice = VisibleSlice(diagram_indices, vr.first, vr.last_plus_1);
-        }
+        const auto slice = BufferedSlice(deps_.doc->GetDiagramNodeIndices(), PREFETCH_BUFFER_SCREENS);
 
         // 同期キャッシュヒットの度に OnMermaidRenderComplete が recompute_layout_anchored を
         // 発火するのを抑止し、ループ後にまとめて 1 回だけ呼ぶ。nested 呼び出し
@@ -275,12 +252,6 @@ public:
             return;
         }
 
-        const float viewport_top = deps_.viewport->GetScrollY();
-        const float viewport_height = cb_.get_viewport_height();
-        const float buffer = viewport_height * EVICT_BUFFER_SCREENS;
-        const float range_top = viewport_top - buffer;
-        const float range_bottom = viewport_top + viewport_height + buffer;
-
         const bool dark_mode = deps_.theme_service->IsDarkMode();
         const auto& indices = deps_.doc->GetDiagramNodeIndices();
         bool any_loaded = false;
@@ -290,16 +261,11 @@ public:
         // バッチ範囲を可視 + buffer の部分レンジに限定する。
         // mermaid_batch_next_ は indices 内の position（indices[n] が node index）。
         // 進捗の意味を保ったまま、可視レンジ内のみを走査。
-        size_t slice_end = indices.size();
-        if (viewport_height > 0.0f) {
-            const auto& nodes = deps_.doc->GetNodes();
-            const auto vr = ComputeVisibleNodeRange(*deps_.cache, nodes.size(), range_top, range_bottom);
-            const auto s = VisibleSlice(indices, vr.first, vr.last_plus_1);
-            const size_t slice_start = static_cast<size_t>(s.begin - indices.begin());
-            slice_end = static_cast<size_t>(s.end - indices.begin());
-            if (mermaid_batch_next_ < slice_start) {
-                mermaid_batch_next_ = slice_start;
-            }
+        const auto s = BufferedSlice(indices, EVICT_BUFFER_SCREENS);
+        const size_t slice_start = static_cast<size_t>(s.begin - indices.begin());
+        const size_t slice_end = static_cast<size_t>(s.end - indices.begin());
+        if (mermaid_batch_next_ < slice_start) {
+            mermaid_batch_next_ = slice_start;
         }
 
         mermaid_batch_loading_ = true;
@@ -351,19 +317,17 @@ public:
         const size_t node_count = deps_.doc->GetNodes().size();
 
         const auto vr = ComputeVisibleNodeRange(*deps_.cache, node_count, evict_top, evict_bottom);
-        const int first_keep = static_cast<int>(vr.first);
-        const int last_keep = static_cast<int>(vr.last_plus_1);
 
-        deps_.cache->EvictTextLayouts(static_cast<size_t>(first_keep), static_cast<size_t>(last_keep));
+        deps_.cache->EvictTextLayouts(vr.first, vr.last_plus_1);
 
         // 可視範囲をまたぐ巨大テーブルでは、ノード単位 evict では拾えない不可視行のセルを別途解放する。
         deps_.cache->EvictInvisibleTableRows(deps_.doc->GetTableNodeIndices(), viewport_top, viewport_top + viewport_height, buffer);
 
-        // image/diagram bitmap の evict も可視範囲外（[0, first_keep) と
-        // [last_keep, node_count)）だけを走査する。IndexSlice で配列の該当部分を
+        // image/diagram bitmap の evict も可視範囲外（[0, vr.first) と
+        // [vr.last_plus_1, node_count)）だけを走査する。IndexSlice で配列の該当部分を
         // 切り出して、各々 bitmap をリセット。
         const auto evict_outside_keep = [&](const std::pmr::vector<size_t>& indices) {
-            const auto keep = VisibleSlice(indices, static_cast<size_t>(first_keep), static_cast<size_t>(last_keep));
+            const auto keep = VisibleSlice(indices, vr.first, vr.last_plus_1);
             const auto reset_bitmap = [&](size_t i) {
                 // ComPtr::Reset() は null でも安全な no-op。
                 deps_.cache->GetDiagram(i).bitmap.Reset();
@@ -439,6 +403,20 @@ public:
     }
 
 private:
+    // indices のうち、可視範囲 ± viewport_height * screens に交差する部分。
+    // viewport_height <= 0 (初期化中等) は範囲が決まらないため全件を返す。
+    resource_manager_detail::IndexSlice BufferedSlice(const std::pmr::vector<size_t>& indices, float screens)
+    {
+        const float viewport_height = cb_.get_viewport_height();
+        if (viewport_height <= 0.0f) {
+            return { indices.begin(), indices.end() };
+        }
+        const float viewport_top = deps_.viewport->GetScrollY();
+        const float buffer = viewport_height * screens;
+        const auto vr = ComputeVisibleNodeRange(*deps_.cache, deps_.doc->GetNodes().size(), viewport_top - buffer, viewport_top + viewport_height + buffer);
+        return resource_manager_detail::VisibleSlice(indices, vr.first, vr.last_plus_1);
+    }
+
     void InvalidateMermaidForWidthChange(float content_width)
     {
         if (content_width <= 0.0f) {

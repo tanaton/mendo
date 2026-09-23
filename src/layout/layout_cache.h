@@ -1,6 +1,5 @@
 #pragma once
 #include "document_types.h"
-#include "fenwick.h"
 #include "pmr_unique_ptr.h"
 #include <vector>
 #include <memory>
@@ -112,12 +111,8 @@ constexpr T& EnsurePmrUnique(mendo::pmr_unique_ptr<T>& p)
 } // namespace mendo::layout::detail
 
 struct NodeLayoutEntry {
-    // テキスト上端 Y の denormalized cache。値としては cache.GetBlockTop(i, margin_top) + GetSpacingAbove(node)
-    // と等価で、TextTopOf でも導出可能だが、その経路は Fenwick PrefixSum で O(log N) かかる。
-    // hit-test の partition_point 述語 / visible-node loop / scroll bound 計算など per-frame hot path で
-    // 直接 O(1) 参照したいため field として保持する (TextTopOf は navigation/reload 等の cold path 専用)。
-    // WRITE 経路 (RecomputeYPositions / ComputeLayout / EstimateNodeHeights / ResizePreservingPrefix) で
-    // Fenwick block_heights_ と lockstep 同期される。MeasureNode は触らない (= 中間状態は古い値のまま)。
+    // ノード Y 位置の唯一の真実。WRITE 経路は RecomputeYPositions / ComputeLayout /
+    // EstimateNodeHeights / ResizePreservingPrefix のみ。MeasureNode は触らない (= 中間状態は古い値のまま)。
     float text_top = 0.0f;
     float height = 0.0f;
     // GetLineMetrics(&lm, 1, &lc) の結果をキャッシュ。0 なら未確定 (フォールバック計算する)。
@@ -344,43 +339,6 @@ public:
         effects_generation_++;
     }
 
-    // ノード i の block height (= spacing_above + height + spacing_below) を Fenwick に反映する。
-    // RecomputeYPositions が各ノードの新しいブロック高さを書き込む際に呼ぶ。
-    void SetBlockHeight(size_t i, float block_height) noexcept
-    {
-        block_heights_.Set(i, block_height);
-    }
-
-    // 全 N ノードの block_height を O(N) で一括再構築する。values.size() == size() 必須。
-    void BuildBlockHeights(std::span<const float> values) noexcept
-    {
-        block_heights_.Build(values);
-    }
-
-    // ノード i のブロック上端 Y を Fenwick から O(log N) で取得する。
-    // ここで「ブロック上端」とは spacing_above を含まない手前の位置で、
-    // テキスト上端 (entry.text_top) は GetBlockTop(i) + spacing_above[i] と一致する。
-    float GetBlockTop(size_t i, float margin_top) const noexcept
-    {
-        return margin_top + block_heights_.PrefixSum(i);
-    }
-
-    // ノード i の block_height (= spacing_above + height + spacing_below) を Fenwick から取得する。
-    float GetBlockHeight(size_t i) const noexcept
-    {
-        return block_heights_.GetPoint(i);
-    }
-
-    // 文書 layout の総高さ (上下マージン + 全ノードの block_height 合計) を Fenwick から O(log N) で取得する。
-    // = 2 * margin_top + sum(spacing_above[i] + height[i] + spacing_below[i]) for i in [0, N)
-    // 用途: テーマ変更時の layout 健全性検査、effects_generation 更新の差分検知。
-    // 注意: スクロール上限には ComputeTotalContentHeight (sb[last] を含まない) を使うこと。
-    // 末尾の spacing_below は viewport 外の余白扱いのため、スクロール先には含めない。
-    float GetTotalHeightFromFenwick(float margin_top) const noexcept
-    {
-        return margin_top * 2.0f + block_heights_.PrefixSum(block_heights_.size());
-    }
-
 private:
     // 列幅 / 行高さ / セルメトリクス系の派生キャッシュを既定値に戻す。
     // cell_inline_code_bgs は呼び出し側で必要に応じて別途クリアする
@@ -398,16 +356,13 @@ private:
 
     std::pmr::vector<NodeLayoutEntry> entries_;
     std::pmr::vector<DiagramEntry> diagrams_;
-    // 各ノードの block height (spacing_above + height + spacing_below) を保持する Fenwick tree。
-    // RecomputeYPositions が更新し、GetBlockTop / GetTotalHeightFromFenwick で参照する。
-    mendo::FloatFenwick block_heights_;
     uint32_t effects_generation_ = 0;
     size_t last_evict_fk_ = 0;
     size_t last_evict_lk_ = 0;
 };
 
 // 「コンテンツ末尾までの高さ」(末尾 node の text_top + height + 上端マージン)。
-// = スクロール上限計算に使う高さ。末尾 node の spacing_below は含まない (= GetTotalHeightFromFenwick と sb[last] 分ずれる)。
+// = スクロール上限計算に使う高さ。末尾 node の spacing_below は含まない。
 // node_count > cache.size() の過渡状態 (doc 差し替え直後など) でも安全なよう effective にクランプする
 // (FindFirstVisibleNodeIndex / EnsureScrollTarget と同じ防御)。effective が 0 なら 0 を返し underflow を回避。
 constexpr float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_count, float margin_top) noexcept

@@ -47,6 +47,21 @@ static void CacheFirstLineHeight(IDWriteTextLayout* layout, NodeLayoutEntry& ent
     entry.first_line_height = ((SUCCEEDED(hr) || hr == E_NOT_SUFFICIENT_BUFFER) && lc > 0) ? lm.height : 0.0f;
 }
 
+// entry.text_layout の計測結果を確定する。折り返し行が変わるためエフェクト位置 /
+// ハイライト矩形は無効化する (text_layout のフォーマット属性は保持される)。
+static void FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TEXT_METRICS& metrics) noexcept
+{
+    entry.height = metrics.height;
+    entry.layout_dirty = false;
+    CacheFirstLineHeight(entry.text_layout.Get(), entry);
+    if (node.type == NodeType::CodeBlock) {
+        entry.natural_code_width = metrics.widthIncludingTrailingWhitespace;
+    }
+    entry.effects_applied = false;
+    entry.clear_inline_code_bgs();
+    entry.invalidate_per_frame_hl_caches();
+}
+
 static HRESULT CreateFormat(IDWriteFactory* factory, const wchar_t* family, float size, DWRITE_FONT_WEIGHT weight, IDWriteTextFormat** out)
 {
     return factory->CreateTextFormat(
@@ -276,7 +291,6 @@ void DWriteTextMeasurer::MeasureNode(
     // CodeBlock は fmt_code_ に SetWordWrapping(NO_WRAP) を設定済みなので layout_width は無視される。
     // それ以外のノードでは max_width が折り返し位置を決める。
     const float layout_width = (node.type == NodeType::CodeBlock) ? LAYOUT_INFINITY : max_width;
-    const float dynamic_max_height = LAYOUT_INFINITY;
 
     // 高速パス: 既存の text_layout が残っていれば SetMaxWidth で再計測する。
     // text_layout は内容変更時に呼び出し側 (LayoutCache::InvalidateAllLayouts /
@@ -288,22 +302,12 @@ void DWriteTextMeasurer::MeasureNode(
         MENDO_PROFILE("MeasureNode.fastpath");
         HRESULT hr = entry.text_layout->SetMaxWidth(layout_width);
         if (SUCCEEDED(hr)) {
-            hr = entry.text_layout->SetMaxHeight(dynamic_max_height);
+            hr = entry.text_layout->SetMaxHeight(LAYOUT_INFINITY);
         }
         if (SUCCEEDED(hr)) {
             DWRITE_TEXT_METRICS metrics{};
             entry.text_layout->GetMetrics(&metrics);
-            entry.height = metrics.height;
-            entry.layout_dirty = false;
-            CacheFirstLineHeight(entry.text_layout.Get(), entry);
-            if (node.type == NodeType::CodeBlock) {
-                entry.natural_code_width = metrics.widthIncludingTrailingWhitespace;
-            }
-            // 折り返し行が変わるためエフェクト位置 / ハイライト矩形は無効化する。
-            // text_layout 自体は破棄しない (フォーマット属性は保持される)。
-            entry.effects_applied = false;
-            entry.clear_inline_code_bgs();
-            entry.invalidate_per_frame_hl_caches();
+            FinishTextMeasure(node, entry, metrics);
             return;
         }
         // 失敗時はスローパスでフルに作り直す。
@@ -317,9 +321,7 @@ void DWriteTextMeasurer::MeasureNode(
     const mendo::WideViewForDWrite wv{ text };
 
     ComPtr<IDWriteTextLayout> layout;
-    const HRESULT hr = [&] {
-        return mendo::CreateDocTextLayout(dwrite_, wv, fmt, layout_width, dynamic_max_height, &layout);
-    }();
+    const HRESULT hr = mendo::CreateDocTextLayout(dwrite_, wv, fmt, layout_width, LAYOUT_INFINITY, &layout);
     if (FAILED(hr)) {
         return;
     }
@@ -351,17 +353,8 @@ void DWriteTextMeasurer::MeasureNode(
         }
     }
 
-    CacheFirstLineHeight(layout.Get(), entry);
-
     entry.text_layout = std::move(layout);
-    entry.height = metrics.height;
-    entry.layout_dirty = false;
-    entry.effects_applied = false;
-    if (node.type == NodeType::CodeBlock) {
-        entry.natural_code_width = metrics.widthIncludingTrailingWhitespace;
-    }
-    entry.clear_inline_code_bgs();
-    entry.invalidate_per_frame_hl_caches();
+    FinishTextMeasure(node, entry, metrics);
 }
 
 void DWriteTextMeasurer::BuildCellLayout(const NodeTableData* tbl, size_t r, size_t c, size_t ci, IDWriteTextFormat* row_fmt, TableLayoutData& tl) const
@@ -606,8 +599,7 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
 
     // セルレイアウトが既に存在し、かつストライドが現在の列数と一致する場合のみ
     // 第1パス（テキストレイアウト作成）をスキップして列幅再計算だけ行う。
-    const bool has_existing_layouts = has_compatible_layouts;
-    if (has_existing_layouts) {
+    if (has_compatible_layouts) {
         RestoreNullCellLayouts(node, entry, viewport);
         if (tl.natural_col_widths.size() == col_count) {
             // キャッシュ済み自然幅を使用し、DirectWrite呼び出しを回避

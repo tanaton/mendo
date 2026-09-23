@@ -69,9 +69,12 @@ struct DirtyBatchResult {
     size_t first_processed = std::numeric_limits<size_t>::max();
     size_t last_processed = 0;
     StopReason reason = StopReason::NoneDirty;
-    // viewport buffer 内に未処理 dirty が残ったか (BatchLimit/TimeBudget/Error 中断時のみ true)。
-    // Done 時は false。viewport_top<0 (no clip) でも、中断したなら true。
-    bool any_nearby_skipped = false;
+
+    // viewport buffer 内に未処理 dirty が残ったか。viewport_top<0 (no clip) でも、中断したなら true。
+    constexpr bool any_nearby_skipped() const noexcept
+    {
+        return reason == StopReason::BatchLimit || reason == StopReason::TimeBudget || reason == StopReason::Error;
+    }
 };
 
 class DirtyScheduler {

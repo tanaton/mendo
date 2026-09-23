@@ -14,8 +14,7 @@ TEST_F(LayoutTest, EmptyNodesProduceZeroHeight)
     std::pmr::vector<Node> nodes;
     LayoutCache cache;
     engine_.ComputeLayout(nodes, cache, 800.0f);
-    // margin_topのみが寄与
-    EXPECT_FLOAT_EQ(engine_.GetTotalHeight(), theme_.margin_top * 2);
+    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top), 0.0f);
 }
 
 TEST_F(LayoutTest, SingleParagraphHasPositiveHeight)
@@ -24,7 +23,7 @@ TEST_F(LayoutTest, SingleParagraphHasPositiveHeight)
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
-    EXPECT_GT(engine_.GetTotalHeight(), 0.0f);
+    EXPECT_GT(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top), 0.0f);
     EXPECT_GT(cache[0].height, 0.0f);
 }
 
@@ -71,27 +70,6 @@ TEST_F(LayoutTest, NodesDoNotOverlap)
         float prev_bottom = cache[i - 1].text_top + cache[i - 1].height;
         EXPECT_LE(prev_bottom, cache[i].text_top)
             << "ノード " << (i - 1) << " がノード " << i << " と重なっている";
-    }
-}
-
-// ComputeLayout (full pass) 後に Fenwick が total_height と整合していること。
-// 個別の Y は spacing_above ぶん entry.text_top と意味が異なる (Fenwick は
-// ブロック上端、entry はテキスト上端) ので、ここでは total のみ確認する。
-TEST_F(LayoutTest, FenwickMatchesTotalHeightAfterFullLayout)
-{
-    auto nodes = ParseMarkdown("# Heading\n\nParagraph\n\n---\n\n- A\n- B\n\nLast").nodes;
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f); // partial = false
-
-    EXPECT_NEAR(cache.GetTotalHeightFromFenwick(theme_.margin_top), engine_.GetTotalHeight(), 0.01f);
-
-    // 隣接ノード間の Y 差分は Fenwick の block_height に等しい。
-    // (i 番目ブロック上端と i+1 番目ブロック上端の差 = block_height[i])
-    for (size_t i = 1; i < nodes.size(); i++) {
-        const float fenwick_top_i = cache.GetBlockTop(i, theme_.margin_top);
-        const float fenwick_top_prev = cache.GetBlockTop(i - 1, theme_.margin_top);
-        EXPECT_GT(fenwick_top_i, fenwick_top_prev) << "ノード " << i;
     }
 }
 
@@ -249,7 +227,7 @@ TEST_F(LayoutTest, TotalHeightWithManyNodes)
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
 
-    float total = engine_.GetTotalHeight();
+    float total = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top);
     EXPECT_GT(total, 1000.0f); // 100段落あればかなり高くなるはず
 
     // 最後のノードの下端が全体の高さ以内であること
@@ -504,7 +482,6 @@ TEST(RecomputeYPositionsTest, EmptyNodes)
     LayoutCache cache;
     Theme theme = GetLightTheme();
     auto result = RecomputeYPositions(nodes, cache, theme);
-    EXPECT_FLOAT_EQ(result.total_height, theme.margin_top * 2);
     EXPECT_FALSE(result.has_dirty_nodes);
 }
 
@@ -554,7 +531,6 @@ TEST(RecomputeYPositionsTest, SingleParagraph)
 
     auto result = RecomputeYPositions(nodes, cache, theme);
     EXPECT_FLOAT_EQ(cache[0].text_top, theme.margin_top);
-    EXPECT_GT(result.total_height, theme.margin_top + 20.0f);
     EXPECT_FALSE(result.has_dirty_nodes);
 }
 
@@ -817,18 +793,15 @@ TEST_F(LayoutTest, EnsureVisibleLayoutUpdatesTotalHeight)
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
 
-    float height_before = engine_.GetTotalHeight();
     engine_.EnsureVisibleLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
-    float height_after = engine_.GetTotalHeight();
 
     // 表示ノードが再レイアウトされると全体の高さが変わる可能性があるが
     // 正の値を維持すること
-    EXPECT_GT(height_after, 0.0f);
-    (void)height_before;
+    EXPECT_GT(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top), 0.0f);
 }
 
 // 部分モードで不可視ノードの古い height を引きずらないこと（High-1 回帰）。
-// ズーム/テーマ変更直後の SyncMaxScroll が stale な total_height_ を読まないことを保証する。
+// ズーム/テーマ変更直後の Y 位置に stale な height が混入しないことを保証する。
 TEST_F(LayoutTest, PartialLayoutRefreshesStaleInvisibleHeights)
 {
     std::string md;
@@ -841,7 +814,7 @@ TEST_F(LayoutTest, PartialLayoutRefreshesStaleInvisibleHeights)
 
     // フル幅でフルレイアウト → 全ノード正確な height を持つ
     engine_.ComputeLayout(nodes, cache, 800.0f);
-    const float baseline_total = engine_.GetTotalHeight();
+    const float baseline_total = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top);
     ASSERT_GT(baseline_total, 0.0f);
 
     // 不可視（後方）ノードを「旧テーマで非常に大きかった」状態にしてダーティ化する。
@@ -856,12 +829,12 @@ TEST_F(LayoutTest, PartialLayoutRefreshesStaleInvisibleHeights)
     // 部分レイアウト：可視範囲は先頭わずかのみ。後方の invisible ダーティ群は
     // 現テーマでの推定値に置き換わるはずで、stale な巨大 height は混ざらない。
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
-    const float total_after = engine_.GetTotalHeight();
+    const float last_top_after = cache[node_count - 1].text_top;
 
     // baseline と同程度（推定誤差ぶんはあり得る）に収束し、stale の合計を
     // 引きずった巨大値にはならないこと。
-    EXPECT_LT(total_after, baseline_total * 2.0f)
-        << "stale height (=" << STALE_HEIGHT << ") を total_height に取り込んでいる";
+    EXPECT_LT(last_top_after, baseline_total * 2.0f)
+        << "stale height (=" << STALE_HEIGHT << ") を Y 位置に取り込んでいる";
 }
 
 // ---- RecomputeYPositions 追加テスト ----
@@ -924,16 +897,12 @@ TEST(RecomputeYPositionsTest, AllNodeTypesProduceValidPositions)
         cache[i].layout_dirty = false;
     }
 
-    auto result = RecomputeYPositions(nodes, cache, theme);
+    RecomputeYPositions(nodes, cache, theme);
 
     // すべての位置が単調増加であること
     for (size_t i = 1; i < nodes.size(); i++) {
         EXPECT_GT(cache[i].text_top, cache[i - 1].text_top);
     }
-    // 全体の高さが最後のノードの下端を超えること
-    size_t last = nodes.size() - 1;
-    float last_bottom = cache[last].text_top + cache[last].height;
-    EXPECT_GE(result.total_height, last_bottom);
 }
 
 // ---- FindFirstVisibleNodeIndex テスト（layout_cache.h のフリー関数） ----

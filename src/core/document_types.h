@@ -106,14 +106,10 @@ struct NodeTableData {
         return r * static_cast<size_t>(col_count) + c;
     }
 
-    // セルの concat_text 内開始 / 終了 offset。終端は次セル開始 (= 末尾区切り '\t'/'\n' を含む)。
+    // セルの concat_text 内開始 offset。
     constexpr uint32_t CellTextStart(size_t r, size_t c) const noexcept
     {
         return cell_text_starts[CellIndex(r, c)];
-    }
-    constexpr uint32_t CellTextEnd(size_t r, size_t c) const noexcept
-    {
-        return cell_text_starts[CellIndex(r, c) + 1];
     }
 
     constexpr std::string_view GetCellText(size_t r, size_t c) const noexcept

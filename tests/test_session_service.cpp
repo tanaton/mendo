@@ -21,8 +21,7 @@ TEST_F(SessionServiceTest, SaveAndLoadPaneState)
     };
     session_.SavePaneState(saved);
 
-    const auto loaded = session_.LoadPaneState(1200.0f,
-                                               PaneController::PANE_MIN_WIDTH,
+    const auto loaded = session_.LoadPaneState(PaneController::PANE_MIN_WIDTH,
                                                PaneController::PANE_DEFAULT_WIDTH);
 
     EXPECT_FALSE(loaded.show_file);
@@ -34,15 +33,13 @@ TEST_F(SessionServiceTest, SaveAndLoadPaneState)
 TEST_F(SessionServiceTest, LoadPaneStateKeepsSavedWidthWithoutWindowClamp)
 {
     // 過剰幅の制限はレイアウト側 (md_width = max(md_min_width, total_width - x) で MD ペイン
-    // 下限を保証) に委ねるため、LoadPaneState は client_width に基づく上限 clamp を行わず、
+    // 下限を保証) に委ねるため、LoadPaneState はウィンドウ幅に基づく上限 clamp を行わず、
     // 保存値をそのまま返す。これにより狭いウィンドウ起動時に保存値が min へ潰れて
     // 終了時の再保存で恒久喪失するのを防ぐ。
     config_.SaveInt("Pane", "FileWidth", 500);
     config_.SaveInt("Pane", "TocWidth", 500);
 
-    // 狭い client_width=300 でも保存値はそのまま保持される
-    const auto loaded = session_.LoadPaneState(300.0f,
-                                               PaneController::PANE_MIN_WIDTH,
+    const auto loaded = session_.LoadPaneState(PaneController::PANE_MIN_WIDTH,
                                                PaneController::PANE_DEFAULT_WIDTH);
 
     EXPECT_FLOAT_EQ(loaded.file_width, 500.0f);
@@ -52,8 +49,7 @@ TEST_F(SessionServiceTest, LoadPaneStateKeepsSavedWidthWithoutWindowClamp)
 TEST_F(SessionServiceTest, LoadPaneStateUsesDefaultWhenWindowFitsIt)
 {
     // 通常幅のウィンドウでは、欠落値は DEFAULT_WIDTH のまま使われる
-    const auto loaded = session_.LoadPaneState(1200.0f,
-                                               PaneController::PANE_MIN_WIDTH,
+    const auto loaded = session_.LoadPaneState(PaneController::PANE_MIN_WIDTH,
                                                PaneController::PANE_DEFAULT_WIDTH);
 
     EXPECT_FLOAT_EQ(loaded.file_width, PaneController::PANE_DEFAULT_WIDTH);

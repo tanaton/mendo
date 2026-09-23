@@ -50,12 +50,7 @@ void App::OnLButtonDown(int px, int py)
     }
 
     const auto pane_layout = GetPaneLayout();
-    const auto zone = DetectPaneZone(
-        dip.x,
-        pane_layout,
-        renderer_.GetTheme().splitter_width,
-        state_.view.panes.IsSidePaneVisible(PaneTarget::File),
-        state_.view.panes.IsSidePaneVisible(PaneTarget::Toc));
+    const auto zone = ZoneAt(dip.x, pane_layout);
 
     switch (zone) {
     case PaneZone::None:
