@@ -288,6 +288,18 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadKeepsHeightWhenWithinConte
     EXPECT_FLOAT_EQ(cache_[img_idx].height, 300.0f);
 }
 
+// src は UTF-8。path を char から直接構築すると ACP (CP932 等) 解釈で非 ASCII 名が化け、キャッシュを引けない。
+TEST_F(ResourceManagerTest, ApplyCachedImagesResolvesNonAsciiFileName)
+{
+    LoadMarkdown("![alt](\xE7\x94\xBB\xE5\x83\x8F.png)\n"); // 画像.png
+    image_loader_.InsertCacheEntry(L"C:\\dir\\\u753B\u50CF.png", 400.0f, 300.0f);
+
+    EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 1);
+
+    const size_t img_idx = doc_.GetImageNodeIndices()[0];
+    EXPECT_FLOAT_EQ(cache_[img_idx].height, 300.0f);
+}
+
 TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadReturnsZeroWhenCacheMisses)
 {
     LoadMarkdown("![alt](missing.png)\n");
