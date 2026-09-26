@@ -56,10 +56,9 @@ void App::CancelPendingResources()
 
 void App::ResetViewForNewDocument()
 {
-    state_.view.viewport.ClearSelection();
+    state_.view.ResetForNewDocument();
     CancelPendingResources();
     renderer_.ShrinkBuffers();
-    state_.view.panes.ResetScrollStates();
     renderer_.InvalidateAllSidePaneCaches();
 }
 

@@ -91,9 +91,6 @@ void ReduceNavigateAnchor(AppState& state, SideEffectList& effects, const Naviga
 
 void ReduceRestoreScrollAfterLoad(AppState& state, SideEffectList& /*effects*/, const RestoreScrollAfterLoadAction& a)
 {
-    // ノードインデックスはセッション内の識別子で、再パース後は別ノードを指しうる。
-    state.view.ResetPerNodeTransientState();
-
     state.view.viewport.ClearScrollTarget();
     if (a.has_reload_diff) {
         state.view.viewport.SetScrollY(a.reload_diff_scroll_y);

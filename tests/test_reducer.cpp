@@ -288,18 +288,26 @@ TEST_F(ReducerTest, BlockHHoverChanged_SameValue_NoEffect)
     EXPECT_TRUE(effects.empty());
 }
 
-TEST_F(ReducerTest, RestoreScrollAfterLoad_ClearsBlockHScroll)
+// ヘルプ表示もファイルオープンと同じくこのリセットを通る。旧文書の横スクロール量が
+// 残ると、同じ index の段落でヒットテストだけがずれる。
+TEST_F(ReducerTest, ViewStateResetForNewDocument_ClearsPerNodeAndPaneState)
 {
     state.view.block_scroll_x[3] = 100.0f;
     state.view.block_scroll_x[7] = 250.0f;
     state.view.hovered_h_block = 3;
     state.view.h_drag_node = 7;
+    state.view.viewport.SetSelection(TextSelection{ .start_node = 1, .end_node = 2, .end_pos = 3, .active = true });
+    state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y = 40.0f;
+    state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y = 80.0f;
 
-    Reduce(state, RestoreScrollAfterLoadAction{ false, 0.0f });
+    state.view.ResetForNewDocument();
 
     EXPECT_TRUE(state.view.block_scroll_x.empty());
     EXPECT_EQ(state.view.hovered_h_block, -1);
     EXPECT_EQ(state.view.h_drag_node, -1);
+    EXPECT_FALSE(state.view.viewport.GetSelection().active);
+    EXPECT_FLOAT_EQ(state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y, 0.0f);
+    EXPECT_FLOAT_EQ(state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y, 0.0f);
 }
 
 TEST_F(ReducerTest, BlockHScrollDragEnded_ReleasesCapture)
