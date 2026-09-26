@@ -37,14 +37,12 @@ public:
     {
         visible_ = false;
         ClearMatches();
-        InvalidateLowercaseCache();
     }
     void Reset() noexcept
     {
         visible_ = false;
         ClearMatches();
         query_.clear();
-        InvalidateLowercaseCache();
     }
 
     // ExecuteSearch / Hide / Reset のたびにインクリメントされる世代カウンタ。
@@ -53,20 +51,6 @@ public:
     constexpr uint32_t GetGeneration() const noexcept
     {
         return generation_;
-    }
-
-    // ドキュメントが切り替わった/構造が変わったときに呼ぶ。
-    // 次回 ExecuteSearch 時に lowercase キャッシュが再生成される。
-    // buffer は文書全体の複製 (100MB 級) になり得るので容量ごと返す。
-    void InvalidateLowercaseCache() noexcept
-    {
-        lower_cache_.buffer.clear();
-        lower_cache_.buffer.shrink_to_fit();
-        lower_cache_.offsets.clear();
-        lower_cache_.offsets.shrink_to_fit();
-        lower_cache_.tables.clear();
-        cached_nodes_ptr_ = nullptr;
-        cached_node_count_ = 0;
     }
 
     constexpr const std::pmr::string& GetQuery() const noexcept
@@ -114,15 +98,11 @@ public:
     void SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) noexcept;
 
 private:
-    // search_text は ascii_util::Find で走査する対象 (lowercase キャッシュ or 元 UTF-8)。
-    // utf16_text は UTF-16 オフセット算出に使う元の UTF-8 (= ノード/セルテキスト)。
-    // 両者は同一バイト長で位置対応が一致するが、ASCII lowercase はインプレース変換可能なので
-    // start オフセットを共有できる。
-    void FindMatches(
-        std::string_view search_text, std::string_view utf16_text,
-        const std::pmr::string& lower_query, int node_index,
-        int table_row = -1, int table_col = -1);
-    void EnsureLowercaseCache(const std::pmr::vector<Node>& nodes);
+    // query は case-insensitive (fold) 時は ASCII 小文字化済み。
+    void FindTextMatches(std::string_view text, std::string_view query, bool fold, int node_index);
+    // concat_text を 1 回だけ走査し、セル境界をまたぐヒットを除いてセル単位のマッチに振り分ける。
+    // セルごとに Find を呼ぶと 1 セル十数バイトでは SIMD ループに入らず呼び出しコストが支配的になる。
+    void FindTableMatches(const NodeTableData& tbl, std::string_view query, bool fold, int node_index);
 
     // マッチ一覧と世代カウンタを同時にリセットする。
     // 0 は search_hl_gen の未初期化センチネルなので、32bit ラップアラウンドで 0 に
@@ -138,50 +118,8 @@ private:
 
     static constexpr size_t MAX_MATCHES = 10000;
 
-    // 大文字小文字無視検索の lowercase キャッシュ。
-    // メタオーバーヘッドを抑えるため、全ノードの lower text を 1 本の連続バッファに
-    // 詰め、各ノードのスライスを offsets で参照する。
-    // Why: LowercaseEntry を vector<vector<vector<pmr::wstring>>> で持つと、1 万ノードで
-    // pmr::wstring/vector メタだけで ~500KB を死蔵する。
-    // 連続バッファ化で metadata は offsets の 4B/ノード のみとなり、
-    // CPU キャッシュ効率も向上する。
-    struct LowercaseTable {
-        std::pmr::string buffer;
-        std::span<const uint32_t> offsets;
-        uint16_t col_count = 0;
-
-        std::string_view GetCell(int row, int col) const noexcept
-        {
-            const size_t idx = static_cast<size_t>(row) * col_count + static_cast<size_t>(col);
-            const uint32_t b = offsets[idx];
-            const uint32_t e = offsets[idx + 1];
-            const auto len = CellLengthFromOffsets(b, e, static_cast<uint32_t>(buffer.size()));
-            return std::string_view{ buffer.data() + b, len };
-        }
-    };
-    struct LowercaseCache {
-        std::pmr::string buffer;                             // 全ノードの lower text を連結
-        std::pmr::vector<uint32_t> offsets;                  // size = node_count + 1（末尾 sentinel）
-        std::pmr::unordered_map<int, LowercaseTable> tables; // テーブルノードのみ確保
-
-        std::string_view GetText(int node_index) const noexcept
-        {
-            const uint32_t b = offsets[node_index];
-            const uint32_t e = offsets[node_index + 1];
-            return std::string_view{ buffer.data() + b, e - b };
-        }
-        const LowercaseTable* FindTable(int node_index) const noexcept
-        {
-            const auto it = tables.find(node_index);
-            return (it != tables.end()) ? &it->second : nullptr;
-        }
-    };
-
     std::pmr::string query_;
     std::pmr::vector<SearchMatch> matches_;
-    LowercaseCache lower_cache_;
-    const Node* cached_nodes_ptr_ = nullptr;
-    size_t cached_node_count_ = 0;
     int current_match_ = -1;
     uint32_t generation_ = 1;
     bool visible_ = false;

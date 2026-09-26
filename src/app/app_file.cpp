@@ -30,7 +30,7 @@ void App::LoadHelpDocument()
     file_load_service_.CancelAsyncLoad();
     EmitEffect(effect::StopFileWatch{});
     ResetViewForNewDocument();
-    // SearchState の lowercase キャッシュが旧 nodes ポインタを保持したまま誤再利用されるのを防ぐ。
+    // 旧文書のマッチ位置が新 nodes に対して誤用されるのを防ぐ。
     state_.search.search_bar_ctrl.Reset();
     EmitEffect(effect::SearchUnfocus{ /*clear_text=*/true });
     state_.active_toc_index = -1;
@@ -477,13 +477,8 @@ void App::FinishReload(size_t diff_pos, bool cache_ready)
                  state_.view.viewport.GetScrollY(),
                  state_.view.viewport.GetMaxScroll());
 
-    if (state_.search.search_state.IsVisible()) {
-        // PMR プール再利用で (nodes.data(), size) が一致すると古いキャッシュを
-        // 誤用するため、クエリ有無に関わらず明示破棄する。
-        state_.search.search_state.InvalidateLowercaseCache();
-        if (!state_.search.search_state.GetQuery().empty()) {
-            state_.search.search_bar_ctrl.RunSearchAndLocate(state_.document.doc.GetNodes());
-        }
+    if (state_.search.search_state.IsVisible() && !state_.search.search_state.GetQuery().empty()) {
+        state_.search.search_bar_ctrl.RunSearchAndLocate(state_.document.doc.GetNodes());
     }
 
     EmitEffect(effect::SyncTocActive{});

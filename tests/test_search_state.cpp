@@ -551,3 +551,64 @@ TEST(SearchStateTest, NonMermaidCodeBlockIncludedInSearch)
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].node_index, 0);
 }
+
+// ═══════════════════════════════════════════════
+// テーブル一括走査 / 大文字小文字無視の畳み込み
+// ═══════════════════════════════════════════════
+
+// concat_text 一括走査でもセル区切りをまたぐ一致は拾わない。
+TEST(SearchStateTest, TableMatchDoesNotCrossCellBoundary)
+{
+    std::pmr::vector<Node> nodes;
+    nodes.push_back(MakeTableNode("abc", "def"));
+    SearchState s;
+    s.SetQuery("c\td");
+    s.ExecuteSearch(nodes);
+    EXPECT_EQ(s.GetMatchCount(), 0);
+
+    s.SetQuery("cd");
+    s.ExecuteSearch(nodes);
+    EXPECT_EQ(s.GetMatchCount(), 0);
+}
+
+TEST(SearchStateTest, TableMatchesCarryCellLocalOffsets)
+{
+    std::pmr::vector<Node> nodes;
+    nodes.push_back(MakeTableNode("xx Foo", "\xE3\x81\x82" "foo foo"));
+    SearchState s;
+    s.SetQuery("FOO");
+    s.ExecuteSearch(nodes);
+    ASSERT_EQ(s.GetMatchCount(), 3);
+    EXPECT_EQ(s.GetMatches()[0].table_col, 0);
+    EXPECT_EQ(s.GetMatches()[0].start, 3u);
+    EXPECT_EQ(s.GetMatches()[0].start_w, 3u);
+    EXPECT_EQ(s.GetMatches()[1].table_col, 1);
+    EXPECT_EQ(s.GetMatches()[1].start, 3u);
+    EXPECT_EQ(s.GetMatches()[1].start_w, 1u);
+    EXPECT_EQ(s.GetMatches()[1].length_w, 3u);
+    EXPECT_EQ(s.GetMatches()[2].start, 7u);
+    EXPECT_EQ(s.GetMatches()[2].start_w, 5u);
+}
+
+TEST(SearchStateTest, CaseInsensitiveFoldsAsciiOnTheFly)
+{
+    std::pmr::vector<Node> nodes;
+    nodes.push_back(MakeTextNode("Hello HELLO hello"));
+    SearchState s;
+    s.SetQuery("hELLo");
+    s.ExecuteSearch(nodes);
+    EXPECT_EQ(s.GetMatchCount(), 3);
+}
+
+TEST(SearchStateTest, JapaneseMatchUtf16Offsets)
+{
+    std::pmr::vector<Node> nodes;
+    nodes.push_back(MakeTextNode("\xF0\x9F\x98\x80\xE3\x81\x82\xE3\x81\x84"));
+    SearchState s;
+    s.SetQuery("\xE3\x81\x84");
+    s.ExecuteSearch(nodes);
+    ASSERT_EQ(s.GetMatchCount(), 1);
+    EXPECT_EQ(s.GetMatches()[0].start, 7u);
+    EXPECT_EQ(s.GetMatches()[0].start_w, 3u) << "サロゲートペア 2 + 'あ' 1";
+    EXPECT_EQ(s.GetMatches()[0].length_w, 1u);
+}
