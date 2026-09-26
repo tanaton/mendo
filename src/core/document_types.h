@@ -532,6 +532,12 @@ private:
 static_assert(sizeof(Node) <= 144,
               "Node size regression: exceeded 144 bytes — see comment above for remediation steps");
 
+// Mermaid / LaTeX 等、テキストではなくビットマップで描画するコードブロック。
+constexpr bool IsDiagramCodeBlock(const Node& node) noexcept
+{
+    return node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language());
+}
+
 // CodeBlock かつ非 Diagram 言語。ブロック横スクロール対象判定で頻出する組合せ。
 constexpr bool IsScrollableCodeBlock(const Node& node) noexcept
 {

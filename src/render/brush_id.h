@@ -33,7 +33,6 @@ enum class BrushId : uint8_t {
     TitleBarButtonActive,
     TitleBarCloseRed,
     TitleBarCloseWhite,
-    PaneBg,
     Splitter,
     PaneItemHover,
     PaneItemActive,

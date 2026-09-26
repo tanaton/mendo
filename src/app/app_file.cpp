@@ -403,7 +403,7 @@ void App::FinishReload(size_t diff_pos)
     MENDO_PROFILE("FinishReload");
 
     // ノード index がずれると per-node-index の一時状態が別ノードを指すためクリアする
-    // (フルオープン経路の ReduceRestoreScrollAfterLoad / ResetViewForNewDocument と同等)。
+    // (別文書への切替は ViewState::ResetForNewDocument が担う)。
     state_.view.viewport.ClearSelection();
     state_.view.ResetPerNodeTransientState();
 

@@ -6,6 +6,7 @@
 #include "scope_guard.h"
 #include <cmath>
 #include <mutex>
+#include <windowsx.h>
 
 using Microsoft::WRL::ComPtr;
 using namespace context_menu_constants;
@@ -185,8 +186,8 @@ LRESULT ContextMenu::Impl::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     }
 
     case WM_MOUSEMOVE: {
-        const float x = PixelToDip(static_cast<float>(static_cast<short>(LOWORD(lParam))), dpi_scale);
-        const float y = PixelToDip(static_cast<float>(static_cast<short>(HIWORD(lParam))), dpi_scale);
+        const float x = PixelToDip(static_cast<float>(GET_X_LPARAM(lParam)), dpi_scale);
+        const float y = PixelToDip(static_cast<float>(GET_Y_LPARAM(lParam)), dpi_scale);
 
         const int old_hovered = hovered_id;
         const int old_nav = hovered_nav;
@@ -215,8 +216,8 @@ LRESULT ContextMenu::Impl::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_LBUTTONDOWN:
     case WM_RBUTTONDOWN: {
-        const float x = PixelToDip(static_cast<float>(static_cast<short>(LOWORD(lParam))), dpi_scale);
-        const float y = PixelToDip(static_cast<float>(static_cast<short>(HIWORD(lParam))), dpi_scale);
+        const float x = PixelToDip(static_cast<float>(GET_X_LPARAM(lParam)), dpi_scale);
+        const float y = PixelToDip(static_cast<float>(GET_Y_LPARAM(lParam)), dpi_scale);
 
         if (x < 0 || y < 0 || x >= menu_width || y >= menu_height) {
             done = true;

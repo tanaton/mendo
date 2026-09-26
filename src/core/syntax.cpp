@@ -264,6 +264,12 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
         }
     };
 
+    // [start, i) を確定する。スキャン済みトークンは非空白で終わる (改行は未消費) ため行頭状態も解除する。
+    const auto emit_from = [&](size_t start, SyntaxTokenType type) {
+        EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), type);
+        at_line_start = false;
+    };
+
     const auto start_plain = [&]() {
         if (!in_plain) {
             plain_start = static_cast<uint32_t>(i);
@@ -280,9 +286,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
                 flush_plain();
                 const size_t start = i;
                 i = SkipToEol(text, i);
-                EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
-                // i は '\n' (まだ未消費) または末尾を指す。'\n' を含む場合でも本体は非空白で終わるので false。
-                at_line_start = false;
+                emit_from(start, SyntaxTokenType::Comment);
                 continue;
             }
         }
@@ -293,9 +297,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
                 flush_plain();
                 const size_t start = i;
                 i = ScanBlockComment(text, i, '#', '>');
-                EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
-                // 終端 #> は非空白。複数行コメントでも i 直前の文字は '>' で確定。
-                at_line_start = false;
+                emit_from(start, SyntaxTokenType::Comment);
                 continue;
             }
         }
@@ -305,8 +307,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
                 flush_plain();
                 const size_t start = i;
                 i = SkipToEol(text, i);
-                EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
-                at_line_start = false;
+                emit_from(start, SyntaxTokenType::Comment);
                 continue;
             }
         }
@@ -317,8 +318,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
                 flush_plain();
                 const size_t start = i;
                 i = ScanBlockComment(text, i, '*', '/');
-                EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
-                at_line_start = false;
+                emit_from(start, SyntaxTokenType::Comment);
                 continue;
             }
         }
@@ -342,8 +342,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
                     i = p;
                     break;
                 }
-                EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Preprocessor);
-                at_line_start = false;
+                emit_from(start, SyntaxTokenType::Preprocessor);
                 continue;
             }
         }
@@ -354,8 +353,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
                 flush_plain();
                 const size_t start = i;
                 i = SkipToEol(text, i);
-                EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
-                at_line_start = false;
+                emit_from(start, SyntaxTokenType::Comment);
                 continue;
             }
         }
@@ -370,8 +368,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
                 flush_plain();
                 const size_t start = i;
                 i = SkipToEol(text, i);
-                EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Comment);
-                at_line_start = false;
+                emit_from(start, SyntaxTokenType::Comment);
                 continue;
             }
         }
@@ -382,8 +379,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
                 flush_plain();
                 const size_t start = i;
                 i = ScanTripleQuote(text, i, c);
-                EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::String);
-                at_line_start = false;
+                emit_from(start, SyntaxTokenType::String);
                 continue;
             }
         }
@@ -394,8 +390,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
             flush_plain();
             const size_t start = i;
             i = ScanString(text, i, c, false);
-            EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::String);
-            at_line_start = false;
+            emit_from(start, SyntaxTokenType::String);
             continue;
         }
 
@@ -405,8 +400,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
                 flush_plain();
                 const size_t start = i;
                 i = ScanString(text, i, '`', true, !Cfg.raw_backtick);
-                EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::String);
-                at_line_start = false;
+                emit_from(start, SyntaxTokenType::String);
                 continue;
             }
         }
@@ -416,8 +410,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
             flush_plain();
             const size_t start = i;
             i = ScanNumber(text, i);
-            EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::Number);
-            at_line_start = false;
+            emit_from(start, SyntaxTokenType::Number);
             continue;
         }
 
@@ -442,8 +435,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
                     else {
                         i = ScanString(text, i, '"', false);
                     }
-                    EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), SyntaxTokenType::String);
-                    at_line_start = false;
+                    emit_from(start, SyntaxTokenType::String);
                     continue;
                 }
             }
@@ -468,8 +460,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
                 tt = SyntaxTokenType::Function;
             }
 
-            EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), tt);
-            at_line_start = false;
+            emit_from(start, tt);
             continue;
         }
 
@@ -556,102 +547,48 @@ SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept
         ascii_util::DocLowercaseLiteral name;
         SyntaxLanguage language;
     };
-
-    auto search = [&](const Alias* begin, const Alias* end) noexcept -> SyntaxLanguage {
-        for (auto it = begin; it != end; ++it) {
-            if (ascii_util::iequal(lang, it->name)) {
-                return it->language;
-            }
-        }
-        return SyntaxLanguage::None;
+    static constexpr Alias kAliases[]{
+        { "c", SyntaxLanguage::Cpp },
+        { "h", SyntaxLanguage::Cpp },
+        { "cc", SyntaxLanguage::Cpp },
+        { "cpp", SyntaxLanguage::Cpp },
+        { "c++", SyntaxLanguage::Cpp },
+        { "cxx", SyntaxLanguage::Cpp },
+        { "hpp", SyntaxLanguage::Cpp },
+        { "hxx", SyntaxLanguage::Cpp },
+        { "js", SyntaxLanguage::JavaScript },
+        { "jsx", SyntaxLanguage::JavaScript },
+        { "javascript", SyntaxLanguage::JavaScript },
+        { "ts", SyntaxLanguage::TypeScript },
+        { "tsx", SyntaxLanguage::TypeScript },
+        { "typescript", SyntaxLanguage::TypeScript },
+        { "py", SyntaxLanguage::Python },
+        { "python", SyntaxLanguage::Python },
+        { "go", SyntaxLanguage::Go },
+        { "golang", SyntaxLanguage::Go },
+        { "rs", SyntaxLanguage::Rust },
+        { "rust", SyntaxLanguage::Rust },
+        { "sh", SyntaxLanguage::Bash },
+        { "zsh", SyntaxLanguage::Bash },
+        { "bash", SyntaxLanguage::Bash },
+        { "shell", SyntaxLanguage::Bash },
+        { "json", SyntaxLanguage::Json },
+        { "jsonc", SyntaxLanguage::Json },
+        { "json5", SyntaxLanguage::Json },
+        { "cmd", SyntaxLanguage::Cmd },
+        { "bat", SyntaxLanguage::Cmd },
+        { "batch", SyntaxLanguage::Cmd },
+        { "dosbatch", SyntaxLanguage::Cmd },
+        { "ps1", SyntaxLanguage::PowerShell },
+        { "pwsh", SyntaxLanguage::PowerShell },
+        { "powershell", SyntaxLanguage::PowerShell },
+        { "mermaid", SyntaxLanguage::Mermaid },
     };
-
-    // 長さ別テーブル — switch がジャンプテーブルにコンパイルされ O(1) でグループに到達
-    switch (lang.size()) {
-    case 1: {
-        static constexpr Alias k[]{
-            { "c", SyntaxLanguage::Cpp },
-            { "h", SyntaxLanguage::Cpp },
-        };
-        return search(k, k + std::size(k));
-    }
-    case 2: {
-        static constexpr Alias k[]{
-            { "js", SyntaxLanguage::JavaScript },
-            { "ts", SyntaxLanguage::TypeScript },
-            { "py", SyntaxLanguage::Python     },
-            { "go", SyntaxLanguage::Go         },
-            { "rs", SyntaxLanguage::Rust       },
-            { "sh", SyntaxLanguage::Bash       },
-            { "cc", SyntaxLanguage::Cpp        },
-        };
-        return search(k, k + std::size(k));
-    }
-    case 3: {
-        static constexpr Alias k[]{
-            { "cpp", SyntaxLanguage::Cpp        },
-            { "c++", SyntaxLanguage::Cpp        },
-            { "cxx", SyntaxLanguage::Cpp        },
-            { "hpp", SyntaxLanguage::Cpp        },
-            { "hxx", SyntaxLanguage::Cpp        },
-            { "jsx", SyntaxLanguage::JavaScript },
-            { "tsx", SyntaxLanguage::TypeScript },
-            { "cmd", SyntaxLanguage::Cmd        },
-            { "bat", SyntaxLanguage::Cmd        },
-            { "ps1", SyntaxLanguage::PowerShell },
-            { "zsh", SyntaxLanguage::Bash       },
-        };
-        return search(k, k + std::size(k));
-    }
-    case 4: {
-        static constexpr Alias k[]{
-            { "rust", SyntaxLanguage::Rust       },
-            { "bash", SyntaxLanguage::Bash       },
-            { "json", SyntaxLanguage::Json       },
-            { "pwsh", SyntaxLanguage::PowerShell },
-        };
-        return search(k, k + std::size(k));
-    }
-    case 5: {
-        static constexpr Alias k[]{
-            { "shell", SyntaxLanguage::Bash },
-            { "jsonc", SyntaxLanguage::Json },
-            { "json5", SyntaxLanguage::Json },
-            { "batch", SyntaxLanguage::Cmd  },
-        };
-        return search(k, k + std::size(k));
-    }
-    case 6: {
-        static constexpr Alias k[]{
-            { "python", SyntaxLanguage::Python },
-            { "golang", SyntaxLanguage::Go     },
-        };
-        return search(k, k + std::size(k));
-    }
-    case 7: {
-        if (ascii_util::iequal(lang, ascii_util::DocLowercaseLiteral{ "mermaid" })) {
-            return SyntaxLanguage::Mermaid;
-        }
-        break;
-    }
-    case 8: {
-        if (ascii_util::iequal(lang, ascii_util::DocLowercaseLiteral{ "dosbatch" })) {
-            return SyntaxLanguage::Cmd;
-        }
-        break;
-    }
-    case 10: {
-        static constexpr Alias k[]{
-            { "javascript", SyntaxLanguage::JavaScript },
-            { "typescript", SyntaxLanguage::TypeScript },
-            { "powershell", SyntaxLanguage::PowerShell },
-        };
-        return search(k, k + std::size(k));
-    }
-    default:
-        break;
-    }
-    return SyntaxLanguage::None;
+    // コードブロック 1 個につき 1 回しか呼ばれないので線形探索で十分 (iequal は長さ不一致で即 false)。
+    const auto it = std::ranges::find_if(kAliases, [&](const Alias& a) noexcept {
+        return ascii_util::iequal(lang, a.name);
+    });
+    return it != std::end(kAliases) ? it->language : SyntaxLanguage::None;
 }
 
 std::pmr::vector<SyntaxToken> Tokenize(std::string_view text, SyntaxLanguage language)

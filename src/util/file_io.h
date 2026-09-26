@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <utility>
 
@@ -61,6 +62,9 @@ struct OpenedFile {
     }
     return true;
 }
+
+// 取得できなければ nullopt (存在しない・アクセス不可・仮想パス)。
+std::optional<uint64_t> QueryFileSize(const wchar_t* path) noexcept;
 
 // 読み込み済みコンテンツの後にファイルがさらに伸びていれば、エディタ側が
 // 書き込み途中である可能性が高い。BOM の 3 バイトずれ等を吸収するため

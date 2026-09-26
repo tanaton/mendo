@@ -112,7 +112,7 @@ constexpr T& EnsurePmrUnique(mendo::pmr_unique_ptr<T>& p)
 
 struct NodeLayoutEntry {
     // ノード Y 位置の唯一の真実。WRITE 経路は RecomputeYPositions / ComputeLayout /
-    // EstimateNodeHeights / ResizePreservingPrefix のみ。MeasureNode は触らない (= 中間状態は古い値のまま)。
+    // EstimateNodeHeights のみ。MeasureNode は触らない (= 中間状態は古い値のまま)。
     float text_top = 0.0f;
     float height = 0.0f;
     // GetLineMetrics(&lm, 1, &lc) の結果をキャッシュ。0 なら未確定 (フォールバック計算する)。
@@ -239,10 +239,6 @@ class LayoutCache {
 public:
     void Resize(size_t node_count);
 
-    // prefix 部分のキャッシュを保持したままリサイズする。
-    // 追加エントリの text_top を旧末尾に配置し、二分探索の単調性を維持する。
-    void ResizePreservingPrefix(size_t new_node_count);
-
     void Reset(size_t node_count, bool shrink = true);
 
     constexpr size_t size() const noexcept
@@ -283,10 +279,6 @@ public:
     // ダイアグラム/Mermaid キャッシュの処理は呼び出し側で別途行うこと。
     void InvalidateAllLayouts() noexcept;
 
-    // フォント幾何が変わるテーマ変更（ズーム等）用。レイアウトと bitmap の両方を破棄する。
-    // 色のみの変更なら InvalidateEffectsAndDiagramBitmaps の方がレイアウト維持で軽い。
-    void InvalidateAllWithDiagrams(const std::pmr::vector<Node>& nodes) noexcept;
-
     // 色のみが変わるテーマ変更（ライト/ダーク切替）用。
     // 文字幾何 (IDWriteTextLayout / table cell layouts) は維持し、ApplyEffects を再走らせるため
     // effects_applied フラグだけ落とす。Mermaid bitmap はテーマ色を持つので破棄する。
@@ -321,9 +313,6 @@ public:
     // table_indices は Document::GetTableNodeIndices()。全エントリ走査だと 100MB 級
     // 文書でスクロール休止のたびに ~100万エントリを読むため、index リストで絞る。
     void EvictInvisibleTableRows(std::span<const size_t> table_indices, float viewport_top, float viewport_bottom, float buffer_screens_height) noexcept;
-
-    // フォント・テーマ・ズーム変更時の全リセット。DPI 単独変更には NotifyDpiChanged を使う。
-    void MarkAllDirty() noexcept;
 
     // DPI 変更時の最小リセット。IDWriteTextLayout は DIP 単位なので不変、effects_generation のみ進める。
     void NotifyDpiChanged() noexcept;

@@ -131,12 +131,8 @@ public:
                 img->height = diagram.height;
 
                 const float indent = node.indent_level * indent_width;
-                const float node_width = content_width - indent;
-                float h = diagram.height;
-                if (diagram.width > node_width && diagram.width > 0) {
-                    h *= node_width / diagram.width;
-                }
-                (*deps_.cache)[i].height = h;
+                (*deps_.cache)[i].height =
+                    mendo::layout::ImageDisplayHeight(diagram.width, diagram.height, content_width - indent);
                 (*deps_.cache)[i].layout_dirty = false;
                 ++applied;
             }

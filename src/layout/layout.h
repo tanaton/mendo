@@ -17,14 +17,12 @@ class Document;
 using mendo::layout::AdvanceNodeY;
 using mendo::layout::ComputeColumnWidths;
 using mendo::layout::EstimateInvisibleNodeHeight;
-using mendo::layout::EstimateNodeHeight;
 using mendo::layout::EstimateNodeHeights;
 using mendo::layout::GetSpacingAbove;
 using mendo::layout::GetSpacingBelow;
 using mendo::layout::NodeIndent;
 using mendo::layout::NodeTextXOffset;
 using mendo::layout::RecomputeYPositions;
-using mendo::layout::YPositionResult;
 
 class LayoutEngine {
 public:

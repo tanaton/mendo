@@ -60,7 +60,7 @@ void Tooltip::Init(HWND parent_hwnd)
     SendMessageW(s.hwnd, TTM_SETMAXTIPWIDTH, 0, 600);
 }
 
-bool Tooltip::Update(const TooltipTarget& target, [[maybe_unused]] int screen_x, [[maybe_unused]] int screen_y)
+bool Tooltip::Update(const TooltipTarget& target)
 {
     auto& s = *impl_;
     if (target == s.current) {

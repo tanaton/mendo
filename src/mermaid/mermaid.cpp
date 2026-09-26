@@ -758,7 +758,7 @@ void MermaidRenderer::DoCapturePreview(int worker_idx)
             return S_OK;
         }
         if (SUCCEEDED(hr3) && pngStream) {
-            OnCaptureComplete(worker_idx, w.current_request.code_hash, pngStream.Get());
+            OnCaptureComplete(worker_idx, pngStream.Get());
         }
         else {
             FinishWorkerRequest(w);
@@ -771,9 +771,10 @@ void MermaidRenderer::DoCapturePreview(int worker_idx)
     }
 }
 
-void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStream* png_stream)
+void MermaidRenderer::OnCaptureComplete(int worker_idx, IStream* png_stream)
 {
     auto& w = workers_[worker_idx];
+    const uint64_t code_hash = w.current_request.code_hash;
 
     if (auto created = CreateBitmapFromPngStream(png_stream)) {
         // 描画にはCSSピクセル寸法（DIP）を使用する。DPIスケーリングを含む
@@ -804,8 +805,7 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, uint64_t code_hash, IStr
         cache_.Insert(code_hash, std::move(cached));
 
         if (file_cache_ && w.current_request.node && png_shared) {
-            const uint64_t fkey = mermaid_util::NodeDiagramHash(*w.current_request.node, w.current_request.max_width, w.current_request.dark_mode);
-            file_cache_->StoreAsync(fkey, draw_w, draw_h, *png_shared);
+            file_cache_->StoreAsync(code_hash, draw_w, draw_h, *png_shared);
         }
     }
 

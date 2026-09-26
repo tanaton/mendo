@@ -49,19 +49,10 @@ float PaneController::ConstrainSplitterWidth(
     float splitter_w, float other_width,
     bool other_visible) noexcept
 {
-    float w = std::max(PANE_MIN_WIDTH, requested_width);
-    float used = w + splitter_w;
-    if (other_visible) {
-        used += other_width + splitter_w;
-    }
-    if (total_width - used < MD_PANE_MIN_WIDTH) {
-        w = total_width - MD_PANE_MIN_WIDTH - splitter_w;
-        if (other_visible) {
-            w -= other_width + splitter_w;
-        }
-        w = std::max(PANE_MIN_WIDTH, w);
-    }
-    return w;
+    // MD ペインの最小幅を残せる上限。ただし PANE_MIN_WIDTH を下回らせない。
+    const float others = splitter_w + (other_visible ? other_width + splitter_w : 0.0f);
+    const float max_w = total_width - MD_PANE_MIN_WIDTH - others;
+    return std::max(PANE_MIN_WIDTH, std::min(requested_width, max_w));
 }
 
 void PaneController::DragSplitterTo(DragTarget target, float dip_x, float total_width, float splitter_w) noexcept

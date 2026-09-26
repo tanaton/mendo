@@ -109,7 +109,7 @@ void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points)
     rt()->DrawGeometry(path.Get(), trail_brush, GESTURE_TRAIL_STROKE_WIDTH, gesture_stroke_style_.Get());
 }
 
-void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect)
+void Renderer::DrawGestureOverlay(int direction, const PaneRect& md_pane_rect)
 {
     if (!rt() || direction == 0) {
         return;
@@ -127,7 +127,7 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
     // 専用色ブラシ + OpacityScope で毎フレーム SetColor を回避する。
     auto* const bg_brush = is_dark ? Brush(BrushId::OverlayGestureBg) : Brush(BrushId::OverlayBlack);
     if (bg_brush) {
-        const float bg_alpha = is_dark ? (alpha * 0.8f) : (alpha * 0.6f);
+        const float bg_alpha = is_dark ? 0.8f : 0.6f;
         mendo::OpacityScope guard{ bg_brush, bg_alpha };
         const D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, GESTURE_OVERLAY_CORNER, GESTURE_OVERLAY_CORNER);
         rt()->FillRoundedRectangle(rrect, bg_brush);
@@ -136,7 +136,6 @@ void Renderer::DrawGestureOverlay(int direction, float alpha, const PaneRect& md
     auto* gesture_layout = (direction < 0) ? gesture_back_layout_.Get() : gesture_forward_layout_.Get();
     if (gesture_layout) {
         if (auto* white = Brush(BrushId::OverlayWhite)) {
-            mendo::OpacityScope guard{ white, alpha };
             rt()->DrawTextLayout(D2D1::Point2F(rect.left, rect.top), gesture_layout, white);
         }
     }

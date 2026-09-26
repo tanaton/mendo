@@ -105,23 +105,13 @@ UniqueGlobalMem ClipboardManager::BuildDib(const PngBytes& png) const
     if (total == 0) {
         return {};
     }
-    UniqueGlobalMem mem{ GlobalAlloc(GMEM_MOVEABLE, total) };
-    if (!mem) {
-        return {};
-    }
-    auto* base = static_cast<uint8_t*>(GlobalLock(mem.get()));
-    if (!base) {
-        return {};
-    }
-    WriteDibHeader(base, w, h);
-    const UINT stride = w * 4;
-    const HRESULT hr = decoded->converter->CopyPixels(
-        nullptr, stride, stride * h, base + sizeof(BITMAPINFOHEADER));
-    GlobalUnlock(mem.get());
-    if (FAILED(hr)) {
-        return {};
-    }
-    return mem;
+    return AllocGlobalFilled(total, [&](void* p) {
+        auto* base = static_cast<uint8_t*>(p);
+        WriteDibHeader(base, w, h);
+        const UINT stride = w * 4;
+        return SUCCEEDED(decoded->converter->CopyPixels(
+            nullptr, stride, stride * h, base + sizeof(BITMAPINFOHEADER)));
+    });
 }
 
 void ClipboardManager::EmitCopyResult(bool ok) const

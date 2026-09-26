@@ -121,10 +121,10 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     const int delta = static_cast<int>(new_content_start) - static_cast<int>(marker_end);
 
     TextRunList new_runs;
-    // ラベル用の太字ラン（アイコン + スペース + ラベルテキスト）
+    // アイコン絵文字は太字にしない (スペース + ラベルテキストのみ太字)。
     TextRun label_run;
-    label_run.start = 0;
-    label_run.length = static_cast<uint32_t>(full_label_len);
+    label_run.start = static_cast<uint32_t>(icon.size());
+    label_run.length = static_cast<uint32_t>(full_label_len - icon.size());
     label_run.set_bold(true);
     new_runs.emplace_back(label_run);
 

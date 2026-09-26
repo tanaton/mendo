@@ -70,10 +70,8 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
                 // 部分レイアウトでは可視範囲を渡してテーブル内行を絞り込む。
                 // partial=false (フルレイアウト) では vp_top/bottom が ±inf なので全範囲扱い。
                 const MeasureViewportRange vp{ vp_top, vp_bottom };
-                backend_->MeasureNode(node, entry, node_width, nullptr, vp);
+                MeasureEntry(*backend_, node, entry, node_width, nullptr, vp);
                 any_measured = true;
-                entry.cached_width = node_width;
-                entry.cached_height = entry.height;
                 if (entry.height != old_height) {
                     any_height_changed = true;
                 }
@@ -147,7 +145,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
         }
         const float indent = NodeIndent(nodes[i], *theme_);
         const MeasureViewportRange vp{ viewport_top, viewport_bottom };
-        backend_->MeasureNode(nodes[i], entry, content_width - indent, nullptr, vp);
+        MeasureEntry(*backend_, nodes[i], entry, content_width - indent, nullptr, vp);
         any_updated = true;
         last_measured = i;
     }

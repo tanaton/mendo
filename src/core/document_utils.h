@@ -1,7 +1,5 @@
 #pragma once
 #include "document_types.h"
-#include "reload.h"
-#include "selection_html.h"
 #include <cstdint>
 #include <memory_resource>
 #include <string>
@@ -26,6 +24,9 @@ std::pmr::string GenerateAnchorId(std::string_view text);
 
 // 呼び出し側で allocator を揃えたい場合に使う。
 void GenerateAnchorIdInto(std::string_view text, std::pmr::string& slug);
+
+// 最後のパス区切り以降の "." を含む拡張子。無ければ空。
+std::wstring_view ExtensionView(std::wstring_view path) noexcept;
 
 // 拡張子の大文字小文字は区別しない。
 bool IsMarkdownFile(std::wstring_view path);

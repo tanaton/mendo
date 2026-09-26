@@ -99,7 +99,6 @@ TEST_F(MouseGestureTest, OverlayVisibleDuringTrackingWithDirection)
     gesture_.OnMouseMove(200.0f, 100.0f);  // 右
     EXPECT_TRUE(gesture_.IsGestureActive());
     EXPECT_TRUE(gesture_.IsOverlayVisible());
-    EXPECT_FLOAT_EQ(gesture_.GetOverlayAlpha(), 1.0f);
 }
 
 TEST_F(MouseGestureTest, OverlayHiddenDuringTrackingWithNoDirection)

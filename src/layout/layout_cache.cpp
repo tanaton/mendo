@@ -149,29 +149,6 @@ void LayoutCache::Resize(size_t node_count)
     }
 }
 
-void LayoutCache::ResizePreservingPrefix(size_t new_node_count)
-{
-    const size_t old_count = entries_.size();
-    if (old_count == new_node_count) {
-        return;
-    }
-    if (new_node_count > old_count) {
-        entries_.resize(new_node_count);
-        diagrams_.resize(new_node_count);
-        if (old_count > 0) {
-            const float end_y = entries_[old_count - 1].text_top + entries_[old_count - 1].height;
-            for (size_t i = old_count; i < new_node_count; i++) {
-                entries_[i].text_top = end_y;
-            }
-        }
-        effects_generation_++;
-        ResetEvictionTracking();
-    }
-    else {
-        Resize(new_node_count);
-    }
-}
-
 void LayoutCache::Reset(size_t node_count, bool shrink)
 {
     entries_.clear();
@@ -201,12 +178,6 @@ void LayoutCache::InvalidateAllLayouts() noexcept
     ResetEvictionTracking();
 }
 
-void LayoutCache::InvalidateAllWithDiagrams(const std::pmr::vector<Node>& nodes) noexcept
-{
-    InvalidateAllLayouts();
-    InvalidateDiagramBitmaps(nodes);
-}
-
 void LayoutCache::InvalidateEffectsAndDiagramBitmaps(const std::pmr::vector<Node>& nodes) noexcept
 {
     for (auto& e : entries_) {
@@ -232,10 +203,7 @@ void LayoutCache::InvalidateDiagramBitmaps(const std::pmr::vector<Node>& nodes) 
 {
     const auto count = std::min(nodes.size(), diagrams_.size());
     for (const auto& [idx, node] : nodes | std::views::take(count) | std::views::enumerate) {
-        if (node.type != NodeType::CodeBlock) {
-            continue;
-        }
-        if (IsDiagramLanguage(node.code_language())) {
+        if (IsDiagramCodeBlock(node)) {
             diagrams_[static_cast<size_t>(idx)].ResetForRetry();
         }
     }
@@ -309,22 +277,6 @@ void LayoutCache::EvictInvisibleTableRows(
             e.layout_dirty = true;
         }
     }
-}
-
-void LayoutCache::MarkAllDirty() noexcept
-{
-    for (auto& e : entries_) {
-        e.layout_dirty = true;
-        e.text_layout.Reset();
-        e.first_line_height = 0.0f;
-        e.natural_code_width = 0.0f;
-        e.invalidate_per_frame_hl_caches();
-        if (e.table_layout) {
-            ResetTableLayoutGeometry(*e.table_layout);
-        }
-    }
-    effects_generation_++;
-    ResetEvictionTracking();
 }
 
 void LayoutCache::NotifyDpiChanged() noexcept

@@ -57,10 +57,13 @@ public:
 
     // ドキュメントが切り替わった/構造が変わったときに呼ぶ。
     // 次回 ExecuteSearch 時に lowercase キャッシュが再生成される。
+    // buffer は文書全体の複製 (100MB 級) になり得るので容量ごと返す。
     void InvalidateLowercaseCache() noexcept
     {
         lower_cache_.buffer.clear();
+        lower_cache_.buffer.shrink_to_fit();
         lower_cache_.offsets.clear();
+        lower_cache_.offsets.shrink_to_fit();
         lower_cache_.tables.clear();
         cached_nodes_ptr_ = nullptr;
         cached_node_count_ = 0;

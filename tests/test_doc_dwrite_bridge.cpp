@@ -26,6 +26,25 @@ TEST(WideViewForDWrite, AsciiOnly)
     }
 }
 
+TEST(WideViewForDWrite, AsciiOnlyOutOfRangeClampsToSize)
+{
+    WideViewForDWrite wv{ "Hello" };
+    EXPECT_EQ(wv.WideOffsetFromDocOffset(100), 5u);
+    EXPECT_EQ(wv.DocOffsetFromWideOffset(100), 5u);
+}
+
+TEST(WideViewForDWrite, AsciiPrefixBeforeNonAscii)
+{
+    // "ab" は恒等区間、"日" (3 bytes / 1 wide) 以降は対応表で引く
+    WideViewForDWrite wv{ "ab日c" };
+    EXPECT_EQ(wv.wide(), L"ab日c");
+    EXPECT_EQ(wv.WideOffsetFromDocOffset(1), 1u);
+    EXPECT_EQ(wv.WideOffsetFromDocOffset(2), 2u);
+    EXPECT_EQ(wv.WideOffsetFromDocOffset(5), 3u);
+    EXPECT_EQ(wv.WideOffsetFromDocOffset(6), 4u);
+    EXPECT_EQ(wv.DocOffsetFromWideOffset(3), 5u);
+}
+
 TEST(WideViewForDWrite, Cjk3ByteRoundTrip)
 {
     // テスト = 3 文字, UTF-8 9 bytes, UTF-16 3 wide units

@@ -56,6 +56,20 @@ void Theme::ApplyZoom(float new_zoom) noexcept
 }
 
 // ライトテーマとダークテーマで共有するレイアウト定数
+// selection_html (HTML コピー) と共有するコード/シンタックス色。
+static void ApplySharedColors(Theme& t, const theme_palette::SharedColors& p)
+{
+    t.code_bg_color = D2D1::ColorF(p.code_bg);
+    t.code_text_color = D2D1::ColorF(p.code_text);
+    t.syntax_keyword = D2D1::ColorF(p.syntax_keyword);
+    t.syntax_type = D2D1::ColorF(p.syntax_type);
+    t.syntax_string = D2D1::ColorF(p.syntax_string);
+    t.syntax_number = D2D1::ColorF(p.syntax_number);
+    t.syntax_comment = D2D1::ColorF(p.syntax_comment);
+    t.syntax_preprocessor = D2D1::ColorF(p.syntax_preprocessor);
+    t.syntax_function = D2D1::ColorF(p.syntax_function);
+}
+
 static void ApplyCommonLayout(Theme& t)
 {
     t.font_family = L"Yu Gothic UI";
@@ -101,8 +115,6 @@ static Theme BuildLightTheme()
     t.bg_color = D2D1::ColorF(0xFFFFFF);
     t.text_color = D2D1::ColorF(0x24292e);
     t.heading_color = D2D1::ColorF(0x1a1a1a);
-    t.code_bg_color = D2D1::ColorF(theme_palette::kLight.code_bg);
-    t.code_text_color = D2D1::ColorF(theme_palette::kLight.code_text);
     t.link_color = D2D1::ColorF(0x0366d6);
     t.hr_color = D2D1::ColorF(0xd0d0d0);
     t.blockquote_bar_color = D2D1::ColorF(0xdfe2e5);
@@ -120,14 +132,7 @@ static Theme BuildLightTheme()
     t.alert_bg_color[3] = D2D1::ColorF(0xfff8c5, 0.4f); // Warning bg
     t.alert_bg_color[4] = D2D1::ColorF(0xffebe9, 0.4f); // Caution bg
 
-    // シンタックスハイライト
-    t.syntax_keyword = D2D1::ColorF(theme_palette::kLight.syntax_keyword);
-    t.syntax_type = D2D1::ColorF(theme_palette::kLight.syntax_type);
-    t.syntax_string = D2D1::ColorF(theme_palette::kLight.syntax_string);
-    t.syntax_number = D2D1::ColorF(theme_palette::kLight.syntax_number);
-    t.syntax_comment = D2D1::ColorF(theme_palette::kLight.syntax_comment);
-    t.syntax_preprocessor = D2D1::ColorF(theme_palette::kLight.syntax_preprocessor);
-    t.syntax_function = D2D1::ColorF(theme_palette::kLight.syntax_function);
+    ApplySharedColors(t, theme_palette::kLight);
 
     ApplyCommonLayout(t);
 
@@ -162,8 +167,6 @@ static Theme BuildDarkTheme()
     t.bg_color = D2D1::ColorF(0x1e1e1e);
     t.text_color = D2D1::ColorF(0xd4d4d4);
     t.heading_color = D2D1::ColorF(0xe0e0e0);
-    t.code_bg_color = D2D1::ColorF(theme_palette::kDark.code_bg);
-    t.code_text_color = D2D1::ColorF(theme_palette::kDark.code_text);
     t.link_color = D2D1::ColorF(0x569cd6);
     t.hr_color = D2D1::ColorF(0x404040);
     t.blockquote_bar_color = D2D1::ColorF(0x505050);
@@ -181,14 +184,7 @@ static Theme BuildDarkTheme()
     t.alert_bg_color[3] = D2D1::ColorF(0x2a1e02, 0.5f); // Warning bg
     t.alert_bg_color[4] = D2D1::ColorF(0x2e0b0d, 0.5f); // Caution bg
 
-    // シンタックスハイライト（VS Code Dark+風）
-    t.syntax_keyword = D2D1::ColorF(theme_palette::kDark.syntax_keyword);
-    t.syntax_type = D2D1::ColorF(theme_palette::kDark.syntax_type);
-    t.syntax_string = D2D1::ColorF(theme_palette::kDark.syntax_string);
-    t.syntax_number = D2D1::ColorF(theme_palette::kDark.syntax_number);
-    t.syntax_comment = D2D1::ColorF(theme_palette::kDark.syntax_comment);
-    t.syntax_preprocessor = D2D1::ColorF(theme_palette::kDark.syntax_preprocessor);
-    t.syntax_function = D2D1::ColorF(theme_palette::kDark.syntax_function);
+    ApplySharedColors(t, theme_palette::kDark);
 
     ApplyCommonLayout(t);
 

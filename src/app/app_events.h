@@ -187,11 +187,9 @@ struct DropFilesAction {
     std::pmr::wstring path;
 };
 
-// target.IsEmpty() なら非表示要求。px/py はクライアント座標。
+// target.IsEmpty() なら非表示要求。表示位置は Tooltip::Show 時点のカーソル位置。
 struct UpdateTooltipAction {
     TooltipTarget target;
-    int px;
-    int py;
 };
 
 struct ClearTooltipAction {};
@@ -210,13 +208,11 @@ struct ActivateAction {
 struct EnterSizeMoveAction {};
 struct ExitSizeMoveAction {};
 struct CaptureChangedAction {};
-struct DestroyAction {};
 
 struct TimerAction {
     app_timer::Id timer_id;
 };
 struct FileWatchAction {};
-struct ParseCompleteAction {};
 struct ImageLoadedAction {};
 
 struct SearchTextChangedAction {
@@ -293,10 +289,8 @@ using AppAction = std::variant<
     EnterSizeMoveAction,
     ExitSizeMoveAction,
     CaptureChangedAction,
-    DestroyAction,
     TimerAction,
     FileWatchAction,
-    ParseCompleteAction,
     ImageLoadedAction,
     SearchTextChangedAction,
     ToggleCaseSensitiveAction,

@@ -1,6 +1,7 @@
 #include "search_state.h"
 #include "ascii_util.h"
 #include "doc_dwrite_bridge.h"
+#include "document_utils.h"
 #include <algorithm>
 #include <limits>
 
@@ -8,8 +9,7 @@ namespace {
 // ビットマップ描画ノード (画像 / ダイアグラムコードブロック) はテキストハイライト不可のため検索対象外。
 bool IsNonSearchableDrawNode(const Node& node) noexcept
 {
-    return node.type == NodeType::Image ||
-           (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language()));
+    return node.type == NodeType::Image || IsDiagramCodeBlock(node);
 }
 } // namespace
 
@@ -29,8 +29,7 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
     // 大文字小文字無視の場合、クエリの小文字変換をループ外で1回だけ行う
     std::pmr::string lower_query;
     if (!case_sensitive_) {
-        lower_query.resize(query_.size());
-        ascii_util::AsciiToLowerOnly(query_.data(), lower_query.data(), query_.size());
+        lower_query = ToLowerAsciiCopy(query_);
         // ドキュメント単位で lowercase 化結果をキャッシュし、入力1文字ごとの
         // 全文再変換コストを除去する。ドキュメント切替時は自動で再生成される。
         EnsureLowercaseCache(nodes);

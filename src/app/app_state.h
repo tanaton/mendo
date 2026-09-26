@@ -55,6 +55,15 @@ struct ViewState {
         hovered_h_block = -1;
         h_drag_node = -1;
     }
+
+    // 別文書 (ヘルプ含む) へ切り替える時のリセット。同一文書の再パースと違い
+    // サイドペインのスクロールも先頭へ戻す。
+    void ResetForNewDocument()
+    {
+        viewport.ClearSelection();
+        panes.ResetScrollStates();
+        ResetPerNodeTransientState();
+    }
 };
 
 struct InteractionState {

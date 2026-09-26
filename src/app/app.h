@@ -9,6 +9,7 @@
 #include "mermaid.h"
 #include "image_loader.h"
 #include "document_utils.h"
+#include "reload.h"
 #include "file_watcher.h"
 #include "layout.h"
 #include "app_controller.h"
@@ -155,7 +156,7 @@ public:
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
     void InvalidatePane(const PaneRect& rect) noexcept;
-    void InvalidateTitleBar() noexcept;
+    void InvalidateTitleBar();
     constexpr float GetDpiScale() const noexcept
     {
         return state_.window.cached_dpi_scale;
@@ -216,8 +217,6 @@ private:
     void InvalidateSidePaneAndPane(PaneTarget t, const ::PaneLayout& pane_layout);
     // ViewportLayout と SyncMaxScroll を連続発行するヘルパー。
     void EmitViewportLayoutAndSyncScroll(float md_width, float md_height);
-
-    PaneScrollInfo ComputePaneScrollInfo(const PaneRect& rect, float total_content) const;
 
     void ScheduleDeferredLayoutIfNeeded();
     void InvalidateMdPane(const PaneRect& md_rect);

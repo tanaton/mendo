@@ -28,81 +28,34 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
         }
     };
 
-    drawButton(
-        tb.open_file.rect,
-        L"\uE838",
-        is_hovered(TitleBarHitZone::OpenFile),
-        BrushId::TitleBarButtonHover,
-        BrushId::TitleBarText,
-        text_alpha);
-    drawButton(
-        tb.help.rect,
-        L"\uE897",
-        is_hovered(TitleBarHitZone::Help),
-        BrushId::TitleBarButtonHover,
-        BrushId::TitleBarText,
-        text_alpha);
-    drawButton(
-        tb.theme_toggle.rect,
-        tb.is_dark_mode ? L"\uE706" : L"\uE708",
-        is_hovered(TitleBarHitZone::ThemeToggle),
-        BrushId::TitleBarButtonHover,
-        BrushId::TitleBarText,
-        text_alpha);
+    const auto draw_plain = [&](const DipRect& rect, const wchar_t* icon, TitleBarHitZone zone) {
+        drawButton(rect, icon, is_hovered(zone), BrushId::TitleBarButtonHover, BrushId::TitleBarText, text_alpha);
+    };
     // active > hover の優先度
-    drawButton(
-        tb.search.rect,
-        L"\uE721",
-        tb.search_active || is_hovered(TitleBarHitZone::Search),
-        tb.search_active ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
-        BrushId::TitleBarText,
-        text_alpha);
-    drawButton(
-        tb.file_toggle.rect,
-        L"\uE8B7",
-        tb.file_pane_visible || is_hovered(TitleBarHitZone::FileToggle),
-        tb.file_pane_visible ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
-        BrushId::TitleBarText,
-        text_alpha);
-    drawButton(
-        tb.toc_toggle.rect,
-        L"\uE8FD",
-        tb.toc_pane_visible || is_hovered(TitleBarHitZone::TocToggle),
-        tb.toc_pane_visible ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
-        BrushId::TitleBarText,
-        text_alpha);
-    drawButton(
-        tb.minimize.rect,
-        L"\uE921",
-        is_hovered(TitleBarHitZone::Minimize),
-        BrushId::TitleBarButtonHover,
-        BrushId::TitleBarText,
-        text_alpha);
-
-    const wchar_t max_icon[]{ tb.is_maximized ? L'\uE923' : L'\uE922', L'\0' };
-    drawButton(
-        tb.maximize.rect,
-        max_icon,
-        is_hovered(TitleBarHitZone::Maximize),
-        BrushId::TitleBarButtonHover,
-        BrushId::TitleBarText,
-        text_alpha);
-    if (is_hovered(TitleBarHitZone::Close)) {
+    const auto draw_toggle = [&](const DipRect& rect, const wchar_t* icon, bool active, TitleBarHitZone zone) {
         drawButton(
-            tb.close.rect, L"\uE8BB",
-            true,
-            BrushId::TitleBarCloseRed,
-            BrushId::TitleBarCloseWhite,
-            1.0f);
-    }
-    else {
-        drawButton(
-            tb.close.rect,
-            L"\uE8BB",
-            false,
-            BrushId::TitleBarButtonHover,
+            rect,
+            icon,
+            active || is_hovered(zone),
+            active ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
             BrushId::TitleBarText,
             text_alpha);
+    };
+
+    draw_plain(tb.open_file.rect, L"\uE838", TitleBarHitZone::OpenFile);
+    draw_plain(tb.help.rect, L"\uE897", TitleBarHitZone::Help);
+    draw_plain(tb.theme_toggle.rect, tb.is_dark_mode ? L"\uE706" : L"\uE708", TitleBarHitZone::ThemeToggle);
+    draw_toggle(tb.search.rect, L"\uE721", tb.search_active, TitleBarHitZone::Search);
+    draw_toggle(tb.file_toggle.rect, L"\uE8B7", tb.file_pane_visible, TitleBarHitZone::FileToggle);
+    draw_toggle(tb.toc_toggle.rect, L"\uE8FD", tb.toc_pane_visible, TitleBarHitZone::TocToggle);
+    draw_plain(tb.minimize.rect, L"\uE921", TitleBarHitZone::Minimize);
+    const wchar_t max_icon[]{ tb.is_maximized ? L'\uE923' : L'\uE922', L'\0' };
+    draw_plain(tb.maximize.rect, max_icon, TitleBarHitZone::Maximize);
+    if (is_hovered(TitleBarHitZone::Close)) {
+        drawButton(tb.close.rect, L"\uE8BB", true, BrushId::TitleBarCloseRed, BrushId::TitleBarCloseWhite, 1.0f);
+    }
+    else {
+        draw_plain(tb.close.rect, L"\uE8BB", TitleBarHitZone::Close);
     }
 
     if (app_icon_bitmap_) {

@@ -2,8 +2,6 @@
 #include "ascii_util.h"
 #include "resource.h"
 #include "document_utils.h"
-#include <shellapi.h>
-#include <filesystem>
 
 namespace {
 
@@ -12,8 +10,7 @@ bool IsEditableTextFile(std::wstring_view path)
     if (IsMarkdownFile(path)) {
         return true;
     }
-    const auto ext = std::filesystem::path(path).extension().wstring();
-    return ascii_util::iequal(ext, L".txt");
+    return ascii_util::iequal(ExtensionView(path), L".txt");
 }
 
 } // namespace
@@ -51,7 +48,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
     case IDM_EDIT_FILE: {
         const auto& file_path = state_.document.doc.GetFilePath();
         if (IsEditableTextFile(file_path)) {
-            ShellExecuteW(hwnd_, L"open", file_path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            win32_host_.ShellOpen(file_path);
         }
         break;
     }

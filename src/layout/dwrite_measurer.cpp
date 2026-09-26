@@ -19,24 +19,6 @@ static constexpr float DEFAULT_COLUMN_WIDTH = 60.0f;
 // セル幅がこれ以下の差分なら前回の計測高さを再利用する
 static constexpr float CELL_WIDTH_EPSILON = 0.5f;
 
-// Alert ボックスの先頭アイコン文字 (e.g. 💡 ⚠️ ❗) を UTF-16 で何 code unit 占有するかを返す。
-// 💡 (U+1F4A1) のみ surrogate pair で 2 code unit、他の 5 種は BMP の 1 code unit。
-static constexpr UINT32 WideUnitCountForAlertIcon(AlertType type) noexcept
-{
-    switch (type) {
-    case AlertType::Tip:
-        return 2;
-    case AlertType::Note:
-    case AlertType::Important:
-    case AlertType::Warning:
-    case AlertType::Caution:
-        return 1;
-    case AlertType::None:
-        return 0;
-    }
-    return 0;
-}
-
 // 1 行目の高さを取得し entry にキャッシュする。layout 自体は変えない。
 static void CacheFirstLineHeight(IDWriteTextLayout* layout, NodeLayoutEntry& entry) noexcept
 {
@@ -253,7 +235,7 @@ void DWriteTextMeasurer::MeasureNode(
     }
 
     // ダイアグラム系コードブロック: ビットマップがレンダリングされるまでのプレースホルダー高さ
-    if (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language())) {
+    if (IsDiagramCodeBlock(node)) {
         if (entry.height <= 0) {
             entry.height = mendo::layout::PlaceholderHeight(*theme_);
         }
@@ -265,12 +247,7 @@ void DWriteTextMeasurer::MeasureNode(
     // 未設定ならプレースホルダー高さ
     if (node.type == NodeType::Image) {
         if (const auto* img = node.image_data(); img && img->width > 0 && img->height > 0) {
-            const float w = img->width;
-            float h = img->height;
-            if (w > max_width) {
-                h *= max_width / w;
-            }
-            entry.height = h;
+            entry.height = mendo::layout::ImageDisplayHeight(img->width, img->height, max_width);
         }
         else if (entry.height <= 0) {
             entry.height = mendo::layout::PlaceholderHeight(*theme_);
@@ -294,7 +271,7 @@ void DWriteTextMeasurer::MeasureNode(
 
     // 高速パス: 既存の text_layout が残っていれば SetMaxWidth で再計測する。
     // text_layout は内容変更時に呼び出し側 (LayoutCache::InvalidateAllLayouts /
-    // MarkAllDirty / EvictTextLayouts) で必ず Reset される契約のため、現存している
+    // EvictTextLayouts) で必ず Reset される契約のため、現存している
     // 場合はテキスト/runs/フォント幾何が一致している。CreateTextLayout は内部で
     // BiDi 解析と shaping を走らせるためリサイズ時の最大コスト要因で、SetMaxWidth は
     // ラインブレーク再計算のみで済むので大幅に軽い。
@@ -328,14 +305,6 @@ void DWriteTextMeasurer::MeasureNode(
 
     ApplyRunFormatting(layout.Get(), node.runs, wv, RunFormatScope::ForNode(node.type));
 
-    // Alert ノードのアイコン文字のフォントウェイトを設定。
-    // 6 種類のアイコンは UTF-16 で 1 code unit (BMP) または 2 code unit (Tip 💡 = U+1F4A1 サロゲートペア) と
-    // コンパイル時に確定するため、対応表で済ませて WideViewForDWrite の構築を回避する。
-    if (node.type == NodeType::BlockQuote && node.alert_type != AlertType::None && node.alert_label_length() > 0) {
-        const DWRITE_TEXT_RANGE icon_range{ 0, WideUnitCountForAlertIcon(node.alert_type) };
-        layout->SetFontWeight(DWRITE_FONT_WEIGHT_NORMAL, icon_range);
-    }
-
     DWRITE_TEXT_METRICS metrics{};
     layout->GetMetrics(&metrics);
 
@@ -343,7 +312,7 @@ void DWriteTextMeasurer::MeasureNode(
     // 描画パス（ApplyNodeEffects）での遅延トークン化を排除し、フレーム落ちを防止する。
     if (node.type == NodeType::CodeBlock) {
         const auto lang = node.code_language();
-        if (lang != SyntaxLanguage::None && !IsDiagramLanguage(lang) && node.syntax_tokens().empty()) {
+        if (lang != SyntaxLanguage::None && node.syntax_tokens().empty()) {
             if (tokens_out != nullptr) {
                 *tokens_out = Tokenize(text, lang);
             }
@@ -431,14 +400,14 @@ void DWriteTextMeasurer::RestoreNullCellLayouts(Node& node, NodeLayoutEntry& ent
     }
 }
 
-void DWriteTextMeasurer::FinalizeTableLayout(
-    Node& node, NodeLayoutEntry& entry, float max_width,
-    size_t col_count, std::pmr::vector<float>& natural_widths) const
+void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width) const
 {
     MENDO_PROFILE("FinalizeTableLayout");
     const float cell_padding = TABLE_CELL_PADDING;
     const float border_width = TABLE_BORDER_WIDTH;
     auto& tl = *entry.table_layout;
+    const size_t col_count = tl.col_count;
+    const auto& natural_widths = tl.natural_col_widths;
 
     const float available = max_width - (static_cast<float>(col_count) + 1.0f) * border_width - static_cast<float>(col_count) * cell_padding * 2.0f;
     ComputeColumnWidths(tl.col_widths, natural_widths, available, col_count);
@@ -599,42 +568,17 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
 
     // セルレイアウトが既に存在し、かつストライドが現在の列数と一致する場合のみ
     // 第1パス（テキストレイアウト作成）をスキップして列幅再計算だけ行う。
+    // natural_col_widths は cell_layouts と同時にしか破棄されない (ResetTableLayoutGeometry) ため、
+    // 互換レイアウトがあればキャッシュ済み自然幅をそのまま使える。
     if (has_compatible_layouts) {
         RestoreNullCellLayouts(node, entry, viewport);
-        if (tl.natural_col_widths.size() == col_count) {
-            // キャッシュ済み自然幅を使用し、DirectWrite呼び出しを回避
-            FinalizeTableLayout(node, entry, max_width, col_count, tl.natural_col_widths);
-        }
-        else {
-            // 既存レイアウトから自然幅を再取得
-            std::pmr::vector<float> natural_widths(col_count, 0.0f);
-            for (size_t r = 0; r < row_count; r++) {
-                for (size_t c = 0; c < col_count; c++) {
-                    const size_t ci = tl.CellIndex(r, c);
-                    if (tl.cell_layouts[ci]) {
-                        tl.cell_layouts[ci]->SetMaxWidth(LAYOUT_INFINITY);
-                        DWRITE_TEXT_METRICS metrics{};
-                        tl.cell_layouts[ci]->GetMetrics(&metrics);
-                        natural_widths[c] = std::max(natural_widths[c], metrics.width);
-                    }
-                }
-            }
-            FinalizeTableLayout(node, entry, max_width, col_count, natural_widths);
-            tl.natural_col_widths = std::move(natural_widths);
-        }
     }
     else {
         tl.col_count = col_count;
         tl.cell_layouts.assign(row_count * col_count, {});
-
         // 初回構築は常に全行を作る (列幅判定に全行の自然幅が必要なため)。
-        std::pmr::vector<float> natural_widths(col_count, 0.0f);
-        MeasureTableCells(node, entry, natural_widths);
-
-        // リサイズ高速パス用に自然幅をキャッシュ
-        tl.natural_col_widths = std::move(natural_widths);
-
-        // 第2パス: 列幅を設定し、行の高さを計測
-        FinalizeTableLayout(node, entry, max_width, col_count, tl.natural_col_widths);
+        tl.natural_col_widths.assign(col_count, 0.0f);
+        MeasureTableCells(node, entry, tl.natural_col_widths);
     }
+    FinalizeTableLayout(node, entry, max_width);
 }

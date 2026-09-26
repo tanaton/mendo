@@ -206,20 +206,18 @@ TEST_F(ReducerTest, MouseLeave_ClearsTooltip)
 TEST_F(ReducerTest, UpdateTooltipAction_EmitsShowTooltipEffectWithSameTarget)
 {
     TooltipTarget target{ TooltipTarget::Zone::MdLink, L"https://example.com" };
-    auto effects = Reduce(state, UpdateTooltipAction{ target, 100, 200 });
+    auto effects = Reduce(state, UpdateTooltipAction{ target });
 
     ASSERT_EQ(effects.size(), 1u);
     const auto* show = GetEffect<effect::ShowTooltip>(effects[0]);
     ASSERT_NE(show, nullptr);
     EXPECT_EQ(show->target, target);
-    EXPECT_EQ(show->px, 100);
-    EXPECT_EQ(show->py, 200);
 }
 
 TEST_F(ReducerTest, UpdateTooltipAction_SameTargetAsCurrent_NoEffect)
 {
     // 現在のターゲットと同一なら変更検出でスキップ（初期状態は空 → 空アクションは no-op）
-    auto effects = Reduce(state, UpdateTooltipAction{ TooltipTarget{}, 0, 0 });
+    auto effects = Reduce(state, UpdateTooltipAction{ TooltipTarget{} });
     EXPECT_TRUE(effects.empty());
 }
 
@@ -227,9 +225,9 @@ TEST_F(ReducerTest, UpdateTooltipAction_ClearsAfterPrevTarget)
 {
     // 既にターゲットが設定済みなら、空ターゲットへの遷移で ShowTooltip が発行される（Executor でタイマー停止）
     state.interaction.tooltip.Update(
-        TooltipTarget{ TooltipTarget::Zone::MdLink, L"x" }, 0, 0);
+        TooltipTarget{ TooltipTarget::Zone::MdLink, L"x" });
 
-    auto effects = Reduce(state, UpdateTooltipAction{ TooltipTarget{}, 0, 0 });
+    auto effects = Reduce(state, UpdateTooltipAction{ TooltipTarget{} });
     ASSERT_EQ(effects.size(), 1u);
     EXPECT_TRUE(HasEffect<effect::ShowTooltip>(effects));
 }
@@ -237,7 +235,7 @@ TEST_F(ReducerTest, UpdateTooltipAction_ClearsAfterPrevTarget)
 TEST_F(ReducerTest, ClearTooltipAction_EmitsClearTooltipAndResetsState)
 {
     state.interaction.tooltip.Update(
-        TooltipTarget{ TooltipTarget::Zone::MdLink, L"x" }, 0, 0);
+        TooltipTarget{ TooltipTarget::Zone::MdLink, L"x" });
 
     auto effects = Reduce(state, ClearTooltipAction{});
 
@@ -290,18 +288,26 @@ TEST_F(ReducerTest, BlockHHoverChanged_SameValue_NoEffect)
     EXPECT_TRUE(effects.empty());
 }
 
-TEST_F(ReducerTest, RestoreScrollAfterLoad_ClearsBlockHScroll)
+// ヘルプ表示もファイルオープンと同じくこのリセットを通る。旧文書の横スクロール量が
+// 残ると、同じ index の段落でヒットテストだけがずれる。
+TEST_F(ReducerTest, ViewStateResetForNewDocument_ClearsPerNodeAndPaneState)
 {
     state.view.block_scroll_x[3] = 100.0f;
     state.view.block_scroll_x[7] = 250.0f;
     state.view.hovered_h_block = 3;
     state.view.h_drag_node = 7;
+    state.view.viewport.SetSelection(TextSelection{ .start_node = 1, .end_node = 2, .end_pos = 3, .active = true });
+    state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y = 40.0f;
+    state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y = 80.0f;
 
-    Reduce(state, RestoreScrollAfterLoadAction{ false, 0.0f });
+    state.view.ResetForNewDocument();
 
     EXPECT_TRUE(state.view.block_scroll_x.empty());
     EXPECT_EQ(state.view.hovered_h_block, -1);
     EXPECT_EQ(state.view.h_drag_node, -1);
+    EXPECT_FALSE(state.view.viewport.GetSelection().active);
+    EXPECT_FLOAT_EQ(state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y, 0.0f);
+    EXPECT_FLOAT_EQ(state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y, 0.0f);
 }
 
 TEST_F(ReducerTest, BlockHScrollDragEnded_ReleasesCapture)
@@ -501,21 +507,6 @@ TEST_F(ReducerTest, Timer_DeferredLayout_EmitsProcessDeferredLayout)
     EXPECT_TRUE(HasEffect<effect::ProcessDeferredLayout>(effects));
 }
 
-// ---- Destroy / ParseComplete テスト ----
-
-TEST_F(ReducerTest, Destroy_EmitsDestroyEffect)
-{
-    auto effects = Reduce(state, DestroyAction{});
-    EXPECT_EQ(effects.size(), 1u);
-    EXPECT_TRUE(HasEffect<effect::Destroy>(effects));
-}
-
-TEST_F(ReducerTest, ParseComplete_EmitsHandleParseComplete)
-{
-    auto effects = Reduce(state, ParseCompleteAction{});
-    EXPECT_EQ(effects.size(), 1u);
-    EXPECT_TRUE(HasEffect<effect::HandleParseComplete>(effects));
-}
 
 // ---- MdPaneNavHoverAction テスト ----
 

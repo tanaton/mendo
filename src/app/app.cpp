@@ -47,12 +47,6 @@ App::DipPoint App::PixelToDip(int px, int py) const noexcept
     return { ::PixelToDip(static_cast<float>(px), s), ::PixelToDip(static_cast<float>(py), s) };
 }
 
-PaneScrollInfo App::ComputePaneScrollInfo(
-    const PaneRect& rect, float total_content) const
-{
-    return ComputeScrollInfo(rect, renderer_.GetTheme().pane_header_height, total_content);
-}
-
 void App::CancelPendingResources()
 {
     resource_manager_.CancelMermaidBatch();
@@ -62,10 +56,9 @@ void App::CancelPendingResources()
 
 void App::ResetViewForNewDocument()
 {
-    state_.view.viewport.ClearSelection();
+    state_.view.ResetForNewDocument();
     CancelPendingResources();
     renderer_.ShrinkBuffers();
-    state_.view.panes.ResetScrollStates();
     renderer_.InvalidateAllSidePaneCaches();
 }
 
@@ -112,18 +105,9 @@ void App::InvalidatePane(const PaneRect& rect) noexcept
     mendo::InvalidateDipRect(hwnd_, rect.x, rect.y, rect.width, rect.height, state_.window.cached_dpi_scale);
 }
 
-void App::InvalidateTitleBar() noexcept
+void App::InvalidateTitleBar()
 {
-    const float tb_h = state_.window.titlebar.GetHeight();
-    if (tb_h <= 0.0f) {
-        return;
-    }
-    // 幅未計算 (初期化直後) は次のリサイズで全描画されるので何もしない。
-    const float window_w = state_.pane_layout_cache.WindowWidth();
-    if (window_w <= 0.0f) {
-        return;
-    }
-    mendo::InvalidateDipRect(hwnd_, 0.0f, 0.0f, window_w, tb_h, state_.window.cached_dpi_scale);
+    EmitEffect(effect::InvalidateTitleBar{});
 }
 
 bool App::HandleTitleBarClick(float dip_x, float dip_y)

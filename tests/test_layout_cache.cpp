@@ -44,23 +44,6 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesPositions)
     EXPECT_FLOAT_EQ(cache[1].height, 30.0f);
 }
 
-TEST(LayoutCacheTest, MarkAllDirty)
-{
-    LayoutCache cache;
-    cache.Resize(3);
-
-    cache[0].layout_dirty = false;
-    cache[1].layout_dirty = false;
-    cache[2].layout_dirty = false;
-
-    cache.MarkAllDirty();
-
-    for (size_t i = 0; i < 3; ++i) {
-        EXPECT_TRUE(cache[i].layout_dirty) << "index " << i;
-        EXPECT_EQ(cache[i].text_layout.Get(), nullptr) << "index " << i;
-    }
-}
-
 TEST(LayoutCacheTest, InvalidateEmptyCache)
 {
     LayoutCache cache;
@@ -68,7 +51,6 @@ TEST(LayoutCacheTest, InvalidateEmptyCache)
 
     // クラッシュしないこと
     cache.InvalidateAllLayouts();
-    cache.MarkAllDirty();
 }
 
 // ズーム時に使用されるInvalidateAllLayoutsがダイアグラムのビットマップ/サイズを

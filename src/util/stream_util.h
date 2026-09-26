@@ -9,6 +9,7 @@
 #include <limits>
 #include <memory_resource>
 #include <span>
+#include <utility>
 #include <vector>
 
 namespace stream_util {
@@ -81,18 +82,8 @@ Microsoft::WRL::ComPtr<IStream> CreateHGlobalStream(size_t size, Fill&& fill)
         return nullptr;
     }
 
-    UniqueGlobalMem hMem{ GlobalAlloc(GMEM_MOVEABLE, static_cast<SIZE_T>(size)) };
+    UniqueGlobalMem hMem = AllocGlobalFilled(size, std::forward<Fill>(fill));
     if (!hMem) {
-        return nullptr;
-    }
-
-    void* ptr = GlobalLock(hMem.get());
-    if (!ptr) {
-        return nullptr;
-    }
-    const bool ok = fill(ptr);
-    GlobalUnlock(hMem.get());
-    if (!ok) {
         return nullptr;
     }
 

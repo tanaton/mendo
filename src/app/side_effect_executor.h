@@ -76,8 +76,7 @@ public:
                 deps_.host->WriteClipboardHtml(ev.html, ev.plain);
             },
             [this](const effect::ShowTooltip& ev) {
-                const POINT screen_pos = deps_.host->ClientToScreen({ ev.px, ev.py });
-                if (deps_.state->interaction.tooltip.Update(ev.target, screen_pos.x, screen_pos.y)) {
+                if (deps_.state->interaction.tooltip.Update(ev.target)) {
                     deps_.host->SetTimer(app_timer::Id::TOOLTIP, TOOLTIP_DELAY_MS);
                 }
                 else if (ev.target.IsEmpty()) {
@@ -203,13 +202,6 @@ public:
             },
             [this](const effect::MermaidInitRetry&) {
                 cb_.mermaid_init_retry();
-            },
-            // ---- Lifecycle ----
-            [this](const effect::Destroy&) {
-                cb_.destroy();
-            },
-            [this](const effect::HandleParseComplete&) {
-                cb_.handle_parse_complete();
             },
         }, e);
         // clang-format on

@@ -15,12 +15,10 @@ inline GestureRenderState ResolveGestureOverlay(
         (gesture.GetDirection() == GestureDirection::Left)    ? -1
         : (gesture.GetDirection() == GestureDirection::Right) ? 1
                                                               : 0;
-    gs.overlay_alpha = gesture.GetOverlayAlpha();
 
     if (!gs.overlay_visible && swipe.IsOverlayVisible()) {
         gs.overlay_visible = true;
         gs.direction = swipe.GetOverlayDirection();
-        gs.overlay_alpha = swipe.GetOverlayAlpha();
     }
     return gs;
 }

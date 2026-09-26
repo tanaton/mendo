@@ -139,16 +139,25 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     };
 
     // SelectionHlCache は lazy 確保のみで自動破棄経路が無く、選択範囲外に出たノード分が
-    // 居残ってメモリが漸増する。前フレームの範囲との差分で、外れたノードを巻き戻す。
+    // 居残ってメモリが漸増する。前フレームの範囲との差分区間だけ巻き戻す
+    // (Ctrl+A 後のドラッグ等で範囲全体を毎回走査しない)。
     {
         const int new_start = selection.active ? selection.start_node : -1;
         const int new_end = selection.active ? selection.end_node : -1;
         if ((new_start != prev_sel_start_node_ || new_end != prev_sel_end_node_) && prev_sel_start_node_ >= 0) {
-            const int upper = std::min(prev_sel_end_node_, static_cast<int>(cache.size()) - 1);
-            for (int i = prev_sel_start_node_; i <= upper; i++) {
-                if (new_start < 0 || i < new_start || i > new_end) {
+            const int lo = prev_sel_start_node_;
+            const int hi = std::min(prev_sel_end_node_, static_cast<int>(cache.size()) - 1);
+            const auto invalidate_range = [&](int first, int last) {
+                for (int i = std::max(first, lo); i <= std::min(last, hi); i++) {
                     cache[i].invalidate_selection_hl_cache();
                 }
+            };
+            if (new_start < 0) {
+                invalidate_range(lo, hi);
+            }
+            else {
+                invalidate_range(lo, new_start - 1);
+                invalidate_range(new_end + 1, hi);
             }
         }
         prev_sel_start_node_ = new_start;
@@ -257,8 +266,8 @@ void CommandGenerator::GenerateNode(
             if (diagram.bitmap) {
                 const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, cw, entry_text_top);
                 cmds.emplace_back(DrawBitmapCmd{ diagram.bitmap.Get(), bmp });
-                GenSaveButton(cmds, bmp.right, bmp.top, node_index == fc.hovered.save);
-                GenDiagramCopyButton(cmds, bmp.right, bmp.top, node_index == fc.hovered.diagram_copy);
+                GenDiagramButton(cmds, bmp.right, bmp.top, DiagramButtonSlot::Save, L'', node_index == fc.hovered.save);
+                GenDiagramButton(cmds, bmp.right, bmp.top, DiagramButtonSlot::Copy, L'', node_index == fc.hovered.diagram_copy);
             }
             else {
                 GenDiagramPlaceholder(cmds, x, entry_text_top, cw, entry.height, diagram.error);
@@ -410,22 +419,13 @@ void CommandGenerator::GenCopyButton(DrawCommandList& cmds, float x, float w, bo
     GenOverlayButton(cmds, btn, L'\uE8C8', is_hovered);
 }
 
-void CommandGenerator::GenSaveButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered)
+void CommandGenerator::GenDiagramButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, DiagramButtonSlot slot, wchar_t icon, bool is_hovered)
 {
     if (!formats_.copy_btn_icon) {
         return;
     }
-    const D2D1_RECT_F btn = OverlayButtonRect(bitmap_right, bitmap_top, std::to_underlying(DiagramButtonSlot::Save));
-    GenOverlayButton(cmds, btn, L'\uE896', is_hovered);
-}
-
-void CommandGenerator::GenDiagramCopyButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, bool is_hovered)
-{
-    if (!formats_.copy_btn_icon) {
-        return;
-    }
-    const D2D1_RECT_F btn = OverlayButtonRect(bitmap_right, bitmap_top, std::to_underlying(DiagramButtonSlot::Copy));
-    GenOverlayButton(cmds, btn, L'\uE8C8', is_hovered);
+    const D2D1_RECT_F btn = OverlayButtonRect(bitmap_right, bitmap_top, std::to_underlying(slot));
+    GenOverlayButton(cmds, btn, icon, is_hovered);
 }
 
 void CommandGenerator::EmitBlockHScrollbarIfActive(DrawCommandList& cmds, const FrameContext& fc, int node_index, float block_x, float bar_y, const BlockHScrollGeometry& geom, float scroll_x)

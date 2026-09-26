@@ -108,3 +108,24 @@ struct GlobalMemTraits {
 };
 using UniqueGlobalMem = UniqueResource<GlobalMemTraits>;
 
+// GMEM_MOVEABLE で確保し、ロック中の領域へ fill(void* dst) -> bool で直接書き込ませる。
+// 確保・ロック・fill のいずれかが失敗したら空を返す (確保済みメモリは解放される)。
+template <class Fill>
+UniqueGlobalMem AllocGlobalFilled(size_t size, Fill&& fill)
+{
+    UniqueGlobalMem mem{ GlobalAlloc(GMEM_MOVEABLE, size) };
+    if (!mem) {
+        return {};
+    }
+    void* ptr = GlobalLock(mem.get());
+    if (!ptr) {
+        return {};
+    }
+    const bool ok = fill(ptr);
+    GlobalUnlock(mem.get());
+    if (!ok) {
+        return {};
+    }
+    return mem;
+}
+

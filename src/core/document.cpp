@@ -98,13 +98,8 @@ Document Document::FromMarkdown(std::pmr::string text, size_t byte_size, std::ws
                                 std::stop_token stop_token)
 {
     Document doc;
-    doc.file_path_ = path;
-    doc.RebuildCachedDirectory();
-    // RawText に入った後の relocate を避けるため、normalize は Replace の前に行う。
-    NormalizeNewlines(text);
-    doc.raw_text_.Replace(std::move(text));
-    doc.loaded_byte_size_ = byte_size;
-    doc.ReplaceContent(ParseMarkdown(doc.raw_text_, std::move(stop_token)));
+    doc.SetFilePath(path);
+    doc.ReplaceFromMarkdown(std::move(text), byte_size, std::move(stop_token));
     return doc;
 }
 
@@ -155,13 +150,14 @@ void Document::RebaseViews(const char* old_base) noexcept
     }
 }
 
-void Document::ReplaceFromMarkdown(std::pmr::string text, size_t byte_size)
+void Document::ReplaceFromMarkdown(std::pmr::string text, size_t byte_size, std::stop_token stop_token)
 {
     MENDO_PROFILE("Document::ReplaceFromMarkdown");
+    // RawText に入った後の relocate を避けるため、normalize は Replace の前に行う。
     NormalizeNewlines(text);
     raw_text_.Replace(std::move(text));
     loaded_byte_size_ = byte_size;
-    ReplaceContent(ParseMarkdown(raw_text_));
+    ReplaceContent(ParseMarkdown(raw_text_, std::move(stop_token)));
 }
 
 int Document::FindAnchorIndex(std::string_view anchor) const

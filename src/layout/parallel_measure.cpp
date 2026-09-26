@@ -33,7 +33,7 @@ void MeasureChunk(
     for (size_t k = 0; k < chunk_indices.size(); ++k) {
         const size_t i = chunk_indices[k];
         const float indent = NodeIndent(nodes[i], theme);
-        backend.MeasureNode(nodes[i], cache[i], content_width - indent, &chunk_slot_tokens[k], viewport);
+        MeasureEntry(backend, nodes[i], cache[i], content_width - indent, &chunk_slot_tokens[k], viewport);
     }
 }
 

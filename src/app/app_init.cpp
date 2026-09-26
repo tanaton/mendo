@@ -139,7 +139,7 @@ bool App::Init(HWND hwnd)
     using PreloadAttachResult = FileLoadService::PreloadAttachResult;
     switch (file_load_service_.AttachOrApplyPreload(hwnd_, app_msg::PARSE_COMPLETE)) {
     case PreloadAttachResult::AppliedSync:
-        EmitEffect(effect::HandleParseComplete{});
+        OnParseComplete();
         break;
     case PreloadAttachResult::AttachedAsync:
         if (DocumentService::ShouldShowLoadingAnimation(file_load_service_.GetLoadingPath())) {

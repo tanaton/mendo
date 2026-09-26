@@ -43,14 +43,19 @@ std::pair<std::unique_ptr<uint8_t[]>, size_t> ReadAllBytes(const std::filesystem
     return { std::move(buf), r.size };
 }
 
-bool IsFileLargerThan(const std::filesystem::path& path, size_t reference_size, size_t tolerance) noexcept
+std::optional<uint64_t> QueryFileSize(const wchar_t* path) noexcept
 {
     WIN32_FILE_ATTRIBUTE_DATA attr{};
-    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attr)) {
-        return false;
+    if (!GetFileAttributesExW(path, GetFileExInfoStandard, &attr)) {
+        return std::nullopt;
     }
-    const uint64_t current_size = (static_cast<uint64_t>(attr.nFileSizeHigh) << 32) | static_cast<uint64_t>(attr.nFileSizeLow);
-    return current_size > static_cast<uint64_t>(reference_size) + tolerance;
+    return (static_cast<uint64_t>(attr.nFileSizeHigh) << 32) | static_cast<uint64_t>(attr.nFileSizeLow);
+}
+
+bool IsFileLargerThan(const std::filesystem::path& path, size_t reference_size, size_t tolerance) noexcept
+{
+    const auto size = QueryFileSize(path.c_str());
+    return size && *size > static_cast<uint64_t>(reference_size) + tolerance;
 }
 
 bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size, bool flush_buffers)
