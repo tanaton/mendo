@@ -494,11 +494,32 @@ TEST_F(ReducerTest, CaptureChanged_ResetsBlockHScrollDrag)
 
 // ---- タイマーテスト（代表ケース） ----
 
-TEST_F(ReducerTest, Timer_Toast_EmitsInvalidate)
+TEST_F(ReducerTest, Timer_Toast_HoldPhaseSkipsInvalidate)
 {
     state.interaction.toast.Show(L"test");
     auto effects = Reduce(state, TimerAction{ app_timer::Id::TOAST });
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+    EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
+    EXPECT_FALSE(HasEffect<effect::KillTimer>(effects));
+}
+
+TEST_F(ReducerTest, Timer_Toast_FadePhaseEmitsInvalidateAndKillsAtEnd)
+{
+    state.interaction.toast.Show(L"test");
+    bool fade_invalidated = false;
+    bool killed = false;
+    for (int i = 0; i < 200 && !killed; ++i) {
+        auto effects = Reduce(state, TimerAction{ app_timer::Id::TOAST });
+        if (state.interaction.toast.GetRenderAlpha() < 1.0f && HasEffect<effect::InvalidateWindow>(effects)) {
+            fade_invalidated = true;
+        }
+        if (HasEffect<effect::KillTimer>(effects)) {
+            killed = true;
+            EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+        }
+    }
+    EXPECT_TRUE(fade_invalidated);
+    EXPECT_TRUE(killed);
+    EXPECT_FALSE(state.interaction.toast.IsVisible());
 }
 
 TEST_F(ReducerTest, Timer_DeferredLayout_EmitsProcessDeferredLayout)

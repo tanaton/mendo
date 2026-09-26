@@ -213,7 +213,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const CloseSearchBarAction&) { state.search.search_bar_ctrl.OnClose(); },
         [&](const SearchNextAction&) { ReduceSearchStep(state, true); },
         [&](const SearchPrevAction&) { ReduceSearchStep(state, false); },
-        [&](const SearchTextChangedAction& a) { state.search.search_bar_ctrl.OnTextChanged(a.text, state.document.doc.GetNodes()); },
+        [&](const SearchTextChangedAction& a) { state.search.search_bar_ctrl.OnTextChanged(a.text, state.document.doc.GetNodes(), state.document.doc.GetRawText().size()); },
         [&](const ToggleCaseSensitiveAction&) { state.search.search_bar_ctrl.OnToggleCaseSensitive(state.document.doc.GetNodes()); },
         [&](const ToggleHighlightAction&) { state.search.search_bar_ctrl.OnToggleHighlight(); },
         [&](const SearchSelectionAction& a) { state.search.search_bar_ctrl.SetSelection(a.sel_start, a.sel_end); },

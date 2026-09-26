@@ -78,7 +78,11 @@ public:
         cb_.invalidate();
     }
 
-    void OnTextChanged(std::wstring_view text, const std::pmr::vector<Node>& nodes)
+    // 1 ノードの巨大テーブル/コードブロックもあるため、ノード数だけでなくバイト数でも判定する。
+    static constexpr size_t kImmediateSearchMaxNodes = 1000;
+    static constexpr size_t kImmediateSearchMaxBytes = 256 * 1024;
+
+    void OnTextChanged(std::wstring_view text, const std::pmr::vector<Node>& nodes, size_t doc_bytes)
     {
         // 検索バー入力は IME 経由で wstring。SearchState は Document テキスト (UTF-8) と比較するため変換。
         std::pmr::string text_utf8;
@@ -92,8 +96,7 @@ public:
             return;
         }
 
-        // 小規模ドキュメント（≤1000ノード）: 即座に検索実行
-        if (nodes.size() <= 1000) {
+        if (nodes.size() <= kImmediateSearchMaxNodes && doc_bytes <= kImmediateSearchMaxBytes) {
             RunSearchAndLocate(nodes, true);
             cb_.invalidate();
             return;
@@ -150,6 +153,23 @@ public:
         if (has_focus_) {
             cb_.invalidate_search_bar();
         }
+    }
+
+    // 非アクティブ中も点滅タイマーを回すと、キャレット以外変化のない全画面再描画が毎秒走る。
+    void OnWindowActivate(bool active)
+    {
+        if (!state_->IsVisible() || !has_focus_) {
+            return;
+        }
+        if (active) {
+            caret_visible_ = true;
+            RestartCaretBlink();
+        }
+        else {
+            caret_visible_ = false;
+            cb_.kill_timer(app_timer::Id::SEARCH_CARET);
+        }
+        cb_.invalidate_search_bar();
     }
 
     void OnDebounceTimer(const std::pmr::vector<Node>& nodes)
