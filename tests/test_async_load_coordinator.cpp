@@ -129,3 +129,65 @@ TEST_F(AsyncLoadCoordinatorTest, RestartBeforeFirstCompletesCancelsFirst)
     ASSERT_TRUE(result.has_value());
     EXPECT_FALSE(c.IsActive());
 }
+
+// ---- リロード (reload_base 指定) ----
+
+namespace {
+
+std::optional<AsyncLoadResult> RunReload(TaskScheduler& scheduler, const TempFile& tmp, std::string_view old_text)
+{
+    auto base = std::make_shared<const std::pmr::string>(old_text);
+    AsyncLoadCoordinator c;
+    c.Start(scheduler, tmp.PmrPath(), nullptr, 0, GetLightTheme(), base);
+    std::optional<AsyncLoadResult> result;
+    PollUntil([&] { result = c.TakeResult(); return result.has_value(); }, kPollTimeout);
+    if (result && result->reload) {
+        EXPECT_EQ(result->reload->base, base);
+    }
+    return result;
+}
+
+} // namespace
+
+TEST_F(AsyncLoadCoordinatorTest, ReloadWithoutChangeSkipsParse)
+{
+    TempFile tmp(L"aload_reload_same", "# Title\n\nbody\n");
+    auto result = RunReload(scheduler_, tmp, "# Title\n\nbody\n");
+    ASSERT_TRUE(result.has_value());
+    ASSERT_TRUE(result->reload.has_value());
+    EXPECT_EQ(result->reload->decision.op, ReloadOp::NoChange);
+    EXPECT_TRUE(result->doc.IsEmpty()) << "変更なしならパースしない";
+}
+
+// CRLF で保存し直されただけのファイルも、LF 正規化後の比較で変更なしになる (issue #273)。
+TEST_F(AsyncLoadCoordinatorTest, ReloadNormalizesNewlinesBeforeDiff)
+{
+    TempFile tmp(L"aload_reload_crlf", "# Title\r\n\r\nbody\r\n");
+    auto result = RunReload(scheduler_, tmp, "# Title\n\nbody\n");
+    ASSERT_TRUE(result.has_value());
+    ASSERT_TRUE(result->reload.has_value());
+    EXPECT_EQ(result->reload->decision.op, ReloadOp::NoChange);
+}
+
+TEST_F(AsyncLoadCoordinatorTest, ReloadPrefixShrinkSkipsParse)
+{
+    TempFile tmp(L"aload_reload_shrink", "# Title\n");
+    auto result = RunReload(scheduler_, tmp, "# Title\n\nbody\n");
+    ASSERT_TRUE(result.has_value());
+    ASSERT_TRUE(result->reload.has_value());
+    EXPECT_EQ(result->reload->decision.op, ReloadOp::DeferPrefixShrink);
+    EXPECT_TRUE(result->doc.IsEmpty());
+}
+
+TEST_F(AsyncLoadCoordinatorTest, ReloadWithChangeParsesAndCarriesDecision)
+{
+    TempFile tmp(L"aload_reload_change", "# Title\n\nchanged\n");
+    auto result = RunReload(scheduler_, tmp, "# Title\n\nbody\n");
+    ASSERT_TRUE(result.has_value());
+    ASSERT_TRUE(result->reload.has_value());
+    EXPECT_EQ(result->reload->decision.op, ReloadOp::FullReload);
+    EXPECT_EQ(result->reload->decision.diff_pos, 9u);
+    EXPECT_FALSE(result->doc.IsEmpty());
+    EXPECT_TRUE(result->heights_estimated);
+    EXPECT_EQ(result->reload->loaded_byte_size, result->doc.GetLoadedByteSize());
+}

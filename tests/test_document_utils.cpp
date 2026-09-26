@@ -1362,6 +1362,19 @@ TEST(FindFirstDifference, CjkContent)
     EXPECT_EQ(diff, 8u);
 }
 
+// 粗いチャンク比較 → 細かいチャンク → バイト単位の各境界で差分位置が正確に出る。
+TEST(FindFirstDifference, LargeInputAcrossChunkBoundaries)
+{
+    const std::string base(200 * 1024, 'a');
+    for (const size_t pos : { size_t{ 0 }, size_t{ 63 }, size_t{ 64 }, size_t{ 65535 }, size_t{ 65536 }, size_t{ 131071 }, base.size() - 1 }) {
+        std::string changed = base;
+        changed[pos] = 'b';
+        EXPECT_EQ(FindFirstDifference(base, changed), pos) << "pos=" << pos;
+    }
+    EXPECT_EQ(FindFirstDifference(base, base), std::string_view::npos);
+    EXPECT_EQ(FindFirstDifference(base, base + "x"), base.size());
+}
+
 // ============================================================
 // AnalyzeReloadDiff
 // ============================================================

@@ -56,7 +56,7 @@ void App::LoadHelpDocument()
     UpdateTitleBar();
 }
 
-void App::BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation)
+void App::BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation, std::shared_ptr<const std::pmr::string> reload_base)
 {
     // ライブリロード時はアニメーションを表示しない。
     // 大きいファイルを編集中の差分リロードでスピナーが点滅すると視認性が下がるため、
@@ -73,7 +73,7 @@ void App::BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation)
         MENDO_PROFILE("App::BeginAsyncLoad without animation");
         file_load_service_.SetLoadingPath(std::move(path));
     }
-    file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE, renderer_.GetTheme());
+    file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE, renderer_.GetTheme(), std::move(reload_base));
 }
 
 // DeferPrefixShrink はエディタの truncate→rewrite 2段階保存の前半。
@@ -205,10 +205,40 @@ void App::OnParseComplete()
         return;
     }
 
+    if (result->reload) {
+        // リロード: worker がパース前に差分判定を済ませている (NoChange 等は doc が空)。
+        const auto& rc = *result->reload;
+        if (rc.base != state_.document.doc.GetRawText().Share() || !path_util::iequal(rc.path, state_.document.doc.GetFilePath())) {
+            // 判定後に表示文書が差し替わった。前提が崩れているので取り直す。
+            DeferReloadRetry();
+            return;
+        }
+        if (DeferIfPartialWrite(rc.path, rc.loaded_byte_size)) {
+            return;
+        }
+
+        MENDO_TRACEF("OnParseComplete: reload(worker diff) node_count={} diff_pos={} new_size={} op={}",
+                     result->doc.GetNodes().size(), rc.decision.diff_pos, result->doc.GetRawText().size(),
+                     std::to_underlying(rc.decision.op));
+
+        if (ApplyReloadDecisionEarly(rc.decision) == ReloadFlow::Handled) {
+            return;
+        }
+        if (rc.decision.op == ReloadOp::PrefixGrowth) {
+            resource_manager_.CancelMermaidBatch();
+            image_loader_.ResetFailedPaths();
+            state_.active_toc_index = -1;
+            state_.document.doc = std::move(result->doc);
+            state_.document.layout_cache = std::move(result->cache);
+            FinishReload(rc.decision.diff_pos, /*cache_ready=*/true);
+            return;
+        }
+        state_.reload_diff_pos = rc.decision.diff_pos;
+    }
     // 差分ベースのスキップ／スクロール復元は同一パスのリロード時のみ有効。
     // 非同期のファイルオープンでも OnParseComplete() が使われるため、
     // 別ファイル読み込み時は差分ロジックをスキップする。
-    if (path_util::iequal(result->doc.GetFilePath(), state_.document.doc.GetFilePath())) {
+    else if (path_util::iequal(result->doc.GetFilePath(), state_.document.doc.GetFilePath())) {
         if (DeferIfPartialWrite(result->doc.GetFilePath(), result->doc.GetLoadedByteSize())) {
             return;
         }
@@ -340,7 +370,7 @@ void App::ReloadCurrentFile()
 
     if (DocumentService::IsAsyncLoadCandidate(path)) {
         MENDO_TRACE("ReloadCurrentFile: async path");
-        BeginAsyncLoad(path, /* suppress_animation = */ true);
+        BeginAsyncLoad(path, /* suppress_animation = */ true, state_.document.doc.GetRawText().Share());
     }
     else {
         MENDO_TRACE("ReloadCurrentFile: sync path (DoReloadCurrentFile)");
@@ -398,7 +428,7 @@ void App::DoReloadCurrentFile()
 
 // DoReloadCurrentFile / OnParseComplete 共通のリロード後処理。
 // ドキュメントは更新済みの状態で呼ばれる。
-void App::FinishReload(size_t diff_pos)
+void App::FinishReload(size_t diff_pos, bool cache_ready)
 {
     MENDO_PROFILE("FinishReload");
 
@@ -407,8 +437,10 @@ void App::FinishReload(size_t diff_pos)
     state_.view.viewport.ClearSelection();
     state_.view.ResetPerNodeTransientState();
 
-    state_.document.layout_cache.Reset(state_.document.doc.GetNodes().size(), false);
-    EstimateNodeHeights(state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme());
+    if (!cache_ready) {
+        state_.document.layout_cache.Reset(state_.document.doc.GetNodes().size(), false);
+        EstimateNodeHeights(state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme());
+    }
 
     renderer_.InvalidateSidePaneCache(PaneTarget::Toc);
 
