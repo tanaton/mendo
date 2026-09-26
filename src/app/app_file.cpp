@@ -36,7 +36,7 @@ void App::LoadHelpDocument()
     state_.active_toc_index = -1;
 
     std::pmr::string utf8(reinterpret_cast<const char*>(rc.data()), rc.size());
-    state_.document.doc = Document::FromMarkdown(std::move(utf8), HELP_PATH);
+    ReplaceDocument(Document::FromMarkdown(std::move(utf8), HELP_PATH));
     state_.document.layout_cache.Reset(state_.document.doc.GetNodes().size());
 
     state_.file_explorer.SetCurrentFile(L"");
@@ -54,6 +54,18 @@ void App::LoadHelpDocument()
     ScheduleDeferredLayoutIfNeeded();
 
     UpdateTitleBar();
+}
+
+void App::ReplaceDocument(Document next)
+{
+    // 100MB 級の旧文書は数十万ノードの解放で UI を数十 ms 止めるため worker で破棄する。
+    // Document は COM を持たず、確保元 (既定の pmr リソース) はスレッド安全。
+    // LayoutCache は D2D 由来の参照を持つので対象外 (UI スレッドで破棄する)。
+    constexpr size_t kBackgroundDisposeMinNodes = 4096;
+    Document old = std::exchange(state_.document.doc, std::move(next));
+    if (old.GetNodes().size() >= kBackgroundDisposeMinNodes) {
+        scheduler_.Post([doc = std::move(old)] {});
+    }
 }
 
 void App::BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation, std::shared_ptr<const std::pmr::string> reload_base)
@@ -228,7 +240,7 @@ void App::OnParseComplete()
             resource_manager_.CancelMermaidBatch();
             image_loader_.ResetFailedPaths();
             state_.active_toc_index = -1;
-            state_.document.doc = std::move(result->doc);
+            ReplaceDocument(std::move(result->doc));
             state_.document.layout_cache = std::move(result->cache);
             FinishReload(rc.decision.diff_pos, /*cache_ready=*/true);
             return;
@@ -258,7 +270,7 @@ void App::OnParseComplete()
             resource_manager_.CancelMermaidBatch();
             image_loader_.ResetFailedPaths();
             state_.active_toc_index = -1;
-            state_.document.doc = std::move(result->doc);
+            ReplaceDocument(std::move(result->doc));
             FinishReload(decision.diff_pos);
             return;
         }
@@ -269,7 +281,7 @@ void App::OnParseComplete()
     }
 
     const bool heights_estimated = result->heights_estimated;
-    state_.document.doc = std::move(result->doc);
+    ReplaceDocument(std::move(result->doc));
     state_.document.layout_cache = std::move(result->cache);
 
     FinishLoadMarkdownFile(heights_estimated);

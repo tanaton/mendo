@@ -40,6 +40,8 @@ public:
 
     void LoadMarkdownFile(std::wstring_view path);
     void LoadHelpDocument();
+    // 表示文書を差し替え、旧文書の破棄を worker に回す。
+    void ReplaceDocument(Document next);
     void ShowDirectory(std::wstring_view dir_path);
 
     // 起動時にウィンドウ生成と並列で I/O + パースを開始する。Init 末尾の
