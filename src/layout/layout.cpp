@@ -155,6 +155,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
 
     bool any_restored = false;
     const MeasureViewportRange vp{ viewport_top, viewport_bottom };
+    std::pmr::vector<size_t> dirty_indices;
     for (int i = lo; i < static_cast<int>(node_count); i++) {
         auto& entry = cache[i];
         const float entry_top = cache.Top(i);
@@ -162,9 +163,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
             break;
         }
         if (entry.layout_dirty) {
-            const float indent = NodeIndent(nodes[i], *theme_);
-            MeasureEntry(*backend_, nodes[i], entry, content_width - indent, nullptr, vp, entry_top);
-            any_updated = true;
+            dirty_indices.push_back(static_cast<size_t>(i));
             last_measured = i;
         }
         else if (entry.has_table_layout() && entry.table_layout->HasEvictedRows()) {
@@ -176,6 +175,21 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
                 last_measured = i;
             }
         }
+    }
+
+    if (!dirty_indices.empty()) {
+        // 未計測領域へのジャンプやスクロールバードラッグでは 1 画面分 (数十〜百ノード) を
+        // 毎フレーム計測するため、scheduler があれば並列化する。
+        if (layout_scheduler_) {
+            constexpr size_t kMinVisibleForParallel = 8;
+            mendo::layout::MeasureIndicesParallel(nodes, cache, content_width, *theme_, *backend_, dirty_indices, vp, *layout_scheduler_, kMinVisibleForParallel);
+        }
+        else {
+            for (const size_t i : dirty_indices) {
+                MeasureEntry(*backend_, nodes[i], cache[i], content_width - NodeIndent(nodes[i], *theme_), nullptr, vp, cache.Top(i));
+            }
+        }
+        any_updated = true;
     }
 
     if (any_updated || any_restored) {

@@ -203,6 +203,8 @@ void App::OnPaint()
         const bool updated = layout_service_->EnsureVisibleLayout(state_.document.doc, state_.document.layout_cache, layout.md_rect.width, layout.md_rect.height);
         if (updated) {
             EmitEffect(effect::SyncMaxScroll{ layout.md_rect.height });
+            // 未計測領域に入った。スクロール先を先読み計測させ、以降のフレームでの同期計測を減らす。
+            ScheduleDeferredLayoutIfNeeded();
         }
     }
 
