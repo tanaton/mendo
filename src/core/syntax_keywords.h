@@ -19,16 +19,11 @@ using namespace std::literals;
 // バケット最大長。全テーブルで現状最長 23 (`ConstructorParameters`) なので余裕を持たせて 32。
 inline constexpr size_t KEYWORD_MAX_LEN = 32;
 
-// type-erased view。LANGUAGE_DEFS で言語ごとに異なる N を 1 つの配列に格納するため、
+// type-erased view。言語ごとに異なる N を 1 つの配列に格納するため、
 // 各 BucketedTable<N> から暗黙変換できる軽量ビューを使う。
 struct KeywordTable {
     std::span<const std::string_view> entries;
     std::span<const uint16_t> bucket_offsets; // size = KEYWORD_MAX_LEN + 2
-
-    [[nodiscard]] constexpr bool empty() const noexcept
-    {
-        return entries.empty();
-    }
 
     [[nodiscard]] constexpr bool contains(std::string_view word) const noexcept
     {

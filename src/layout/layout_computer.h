@@ -26,6 +26,12 @@ inline float PlaceholderHeight(const Theme& theme) noexcept
     return std::max(MIN_DIAGRAM_PLACEHOLDER_HEIGHT, theme.font_size_body * 3.0f);
 }
 
+// 画像は max_width を超える場合のみアスペクト比を保って縮小する (拡大はしない)。
+constexpr float ImageDisplayHeight(float width, float height, float max_width) noexcept
+{
+    return (width > max_width && width > 0.0f) ? height * (max_width / width) : height;
+}
+
 float GetSpacingAbove(const Node& node, const Theme& theme) noexcept;
 float GetSpacingBelow(const Node& node, const Theme& theme) noexcept;
 

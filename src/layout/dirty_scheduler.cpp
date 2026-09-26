@@ -55,7 +55,7 @@ DirtyBatchResult DirtyScheduler::RunSerial(
         const MeasureViewportRange vp = has_viewport_limit
             ? MeasureViewportRange{ limit_top, limit_bottom }
             : MeasureViewportRange{};
-        backend.MeasureNode(nodes[i], entry, content_width - indent, nullptr, vp);
+        MeasureEntry(backend, nodes[i], entry, content_width - indent, nullptr, vp);
         result.last_processed = i;
         ++result.processed;
 

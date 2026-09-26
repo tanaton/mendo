@@ -1,6 +1,7 @@
 #include "app.h"
 #include "app_constants.h"
 #include "app_events.h"
+#include "app_state_queries.h"
 #include "pane_layout.h"
 #include "profiler.h"
 #include "toc.h"
@@ -37,11 +38,9 @@ void App::SyncTocActiveAndAutoScroll(bool auto_scroll)
 
     // アクティブ見出しを目次ペインの中央に保つように追従スクロールする。
     const float item_y = static_cast<float>(new_active) * theme.pane_item_height;
-    const float total = SidePaneContentHeight(state_.document.doc.GetToc().GetEntries().size(), theme.pane_item_height);
-    const auto info = ComputePaneScrollInfo(layout.toc_rect, total);
-    if (info.content_height > 0.0f) {
-        state_.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y =
-            CenterPaneScrollY(item_y, theme.pane_item_height, info);
+    const auto ctx = GetSidePaneContext(state_, PaneTarget::Toc);
+    if (ctx.info.content_height > 0.0f) {
+        ctx.scroll.scroll_y = CenterPaneScrollY(item_y, theme.pane_item_height, ctx.info);
     }
 }
 

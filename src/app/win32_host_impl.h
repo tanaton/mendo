@@ -19,7 +19,6 @@ public:
     void SearchFocus(effect::SearchFocus action) override;
     void SearchUnfocus(effect::SearchUnfocus action) override;
     void SetWindowPosition(int x, int y, int cx, int cy) override;
-    POINT ClientToScreen(POINT client_pt) override;
 
 private:
     HWND hwnd_ = nullptr;

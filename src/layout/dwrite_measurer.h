@@ -75,7 +75,7 @@ private:
     void BuildCellLayout(const NodeTableData* tbl, size_t r, size_t c, size_t ci, IDWriteTextFormat* row_fmt, TableLayoutData& tl) const;
     void MeasureTableCells(Node& node, NodeLayoutEntry& entry, std::pmr::vector<float>& natural_widths) const;
     void RestoreNullCellLayouts(Node& node, NodeLayoutEntry& entry, MeasureViewportRange viewport) const;
-    void FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width, size_t col_count, std::pmr::vector<float>& natural_widths) const;
+    void FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width) const;
 
     IDWriteFactory* dwrite_ = nullptr;
     const Theme* theme_ = nullptr;

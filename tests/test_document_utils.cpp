@@ -8,6 +8,8 @@
 #include "layout_computer.h"
 #include "test_helpers.h"
 #include "parser.h"
+#include "reload.h"
+#include "selection_html.h"
 #include "syntax.h"
 #include "theme.h"
 

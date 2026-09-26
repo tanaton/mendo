@@ -7,7 +7,6 @@
 #include "syntax.h"
 
 using mermaid_lifecycle::Lifecycle;
-using mermaid_lifecycle::ShouldTriggerInitForNode;
 
 // ═══════════════════════════════════════════════
 // 初期状態
@@ -85,7 +84,7 @@ TEST(MermaidLifecycle, ResetAllowsReinitialization)
 }
 
 // ═══════════════════════════════════════════════
-// ShouldTriggerInitForNode
+// IsDiagramCodeBlock (lazy-init のトリガー判定)
 // ═══════════════════════════════════════════════
 
 TEST(MermaidLifecycle, MermaidCodeBlockTriggersInit)
@@ -93,7 +92,7 @@ TEST(MermaidLifecycle, MermaidCodeBlockTriggersInit)
     Node node;
     node.type = NodeType::CodeBlock;
     node.ensure_code()->code_language = SyntaxLanguage::Mermaid;
-    EXPECT_TRUE(ShouldTriggerInitForNode(node));
+    EXPECT_TRUE(IsDiagramCodeBlock(node));
 }
 
 TEST(MermaidLifecycle, LatexMathCodeBlockTriggersInit)
@@ -101,7 +100,7 @@ TEST(MermaidLifecycle, LatexMathCodeBlockTriggersInit)
     Node node;
     node.type = NodeType::CodeBlock;
     node.ensure_code()->code_language = SyntaxLanguage::LatexMath;
-    EXPECT_TRUE(ShouldTriggerInitForNode(node));
+    EXPECT_TRUE(IsDiagramCodeBlock(node));
 }
 
 TEST(MermaidLifecycle, CppCodeBlockDoesNotTriggerInit)
@@ -109,7 +108,7 @@ TEST(MermaidLifecycle, CppCodeBlockDoesNotTriggerInit)
     Node node;
     node.type = NodeType::CodeBlock;
     node.ensure_code()->code_language = SyntaxLanguage::Cpp;
-    EXPECT_FALSE(ShouldTriggerInitForNode(node));
+    EXPECT_FALSE(IsDiagramCodeBlock(node));
 }
 
 TEST(MermaidLifecycle, NonCodeBlockDoesNotTriggerInit)
@@ -118,7 +117,7 @@ TEST(MermaidLifecycle, NonCodeBlockDoesNotTriggerInit)
     node.type = NodeType::Paragraph;
     // CodeBlock ではない場合、言語によらず false
     node.ensure_code()->code_language = SyntaxLanguage::Mermaid;
-    EXPECT_FALSE(ShouldTriggerInitForNode(node));
+    EXPECT_FALSE(IsDiagramCodeBlock(node));
 }
 
 TEST(MermaidLifecycle, NoneLanguageCodeBlockDoesNotTriggerInit)
@@ -126,5 +125,5 @@ TEST(MermaidLifecycle, NoneLanguageCodeBlockDoesNotTriggerInit)
     Node node;
     node.type = NodeType::CodeBlock;
     node.ensure_code()->code_language = SyntaxLanguage::None;
-    EXPECT_FALSE(ShouldTriggerInitForNode(node));
+    EXPECT_FALSE(IsDiagramCodeBlock(node));
 }

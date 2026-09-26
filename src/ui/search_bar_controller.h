@@ -55,12 +55,7 @@ public:
     void OnClose()
     {
         state_->Hide();
-        hover_ = SearchBarHitZone::None;
-        has_focus_ = false;
-        caret_visible_ = false;
-        ime_composition_.clear();
-        cb_.kill_timer(app_timer::Id::SEARCH_CARET);
-        cb_.kill_timer(app_timer::Id::SEARCH_DEBOUNCE);
+        ResetInteractionState();
         cb_.unfocus();
         cb_.invalidate();
     }
@@ -209,15 +204,10 @@ public:
     void Reset()
     {
         state_->Reset();
-        hover_ = SearchBarHitZone::None;
-        has_focus_ = false;
-        caret_visible_ = false;
+        ResetInteractionState();
         caret_pos_ = -1;
         selection_start_ = -1;
         dragging_ = false;
-        ime_composition_.clear();
-        cb_.kill_timer(app_timer::Id::SEARCH_CARET);
-        cb_.kill_timer(app_timer::Id::SEARCH_DEBOUNCE);
     }
 
     bool IsDragging() const noexcept
@@ -314,6 +304,16 @@ public:
     }
 
 private:
+    void ResetInteractionState()
+    {
+        hover_ = SearchBarHitZone::None;
+        has_focus_ = false;
+        caret_visible_ = false;
+        ime_composition_.clear();
+        cb_.kill_timer(app_timer::Id::SEARCH_CARET);
+        cb_.kill_timer(app_timer::Id::SEARCH_DEBOUNCE);
+    }
+
     void RestartCaretBlink()
     {
         cb_.kill_timer(app_timer::Id::SEARCH_CARET);

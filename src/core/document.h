@@ -81,7 +81,7 @@ public:
         file_path_ = path;
         RebuildCachedDirectory();
     }
-    void ReplaceFromMarkdown(std::pmr::string text, size_t byte_size);
+    void ReplaceFromMarkdown(std::pmr::string text, size_t byte_size, std::stop_token stop_token = {});
     int FindAnchorIndex(std::string_view anchor) const;
     // 既に anchor_id 形式（小文字 ASCII 正規化済み）と判明している入力向け。
     // 呼び出し側で正規化が保証されていれば、ToLowerAsciiCopy の確保を回避できる。

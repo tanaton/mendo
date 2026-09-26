@@ -10,71 +10,51 @@
 #include <windows.h>
 #include <wrl/client.h>
 
-// レンダーバックエンドの抽象インターフェース（D2Dファクトリ、レンダーターゲット、DPI）。
-// ブラシとテキストフォーマットは抽象化コストが高すぎるためRendererに残す。
-class IRenderBackend {
+// D2D ファクトリ・レンダーターゲット・DPI を保持するレンダーバックエンド。
+// ブラシとテキストフォーマットは Renderer 側で管理する。
+class D2DRenderBackend final {
 public:
-    virtual ~IRenderBackend() = default;
-
-    virtual bool Init(HWND hwnd) = 0;
-    virtual void Resize(UINT width, UINT height) noexcept = 0;
-    virtual void SetDpi(float dpi) noexcept = 0;
-    virtual float GetDpi() const noexcept = 0;
-    virtual bool RecreateRenderTarget() = 0;
-
-    virtual ID2D1Factory* GetD2DFactory() const noexcept = 0;
-    virtual ID2D1DeviceContext* GetRenderTarget() const noexcept = 0;
-    virtual IDWriteFactory* GetDWriteFactory() const noexcept = 0;
-    virtual IWICImagingFactory* GetWICFactory() const noexcept = 0;
-    virtual HWND GetHwnd() const noexcept = 0;
+    bool Init(HWND hwnd);
+    void Resize(UINT width, UINT height) noexcept;
+    void SetDpi(float dpi) noexcept;
+    float GetDpi() const noexcept
+    {
+        return dpi_;
+    }
+    bool RecreateRenderTarget();
 
     // BeginDraw 前に呼び出す。Frame Latency Waitable Object で GPU パイプラインの
     // 1 フレーム遅れに同期し、CPU 側を Present 直前まで詰めずに済ませる。
-    virtual void WaitForFrameLatency() noexcept = 0;
+    void WaitForFrameLatency() noexcept;
 
     // EndDraw 後に呼び出す。Present の HRESULT を返し、呼び出し側がデバイスロスト等を判定する。
-    virtual HRESULT Present() noexcept = 0;
+    HRESULT Present() noexcept;
 
     // Resize / Present が DXGI_ERROR_DEVICE_REMOVED/RESET を検知した、もしくは
     // CreateSwapChainBitmap が失敗した時に true を返す。Renderer が次フレーム頭で
     // RecreateRenderTarget を呼んでフラグをクリアする想定。
-    virtual bool IsDeviceLost() const noexcept = 0;
-};
-
-class D2DRenderBackend final : public IRenderBackend {
-public:
-    bool Init(HWND hwnd) override;
-    void Resize(UINT width, UINT height) noexcept override;
-    void SetDpi(float dpi) noexcept override;
-    float GetDpi() const noexcept override
-    {
-        return dpi_;
-    }
-    bool RecreateRenderTarget() override;
-    void WaitForFrameLatency() noexcept override;
-    HRESULT Present() noexcept override;
-    bool IsDeviceLost() const noexcept override
+    bool IsDeviceLost() const noexcept
     {
         return device_lost_;
     }
 
-    ID2D1Factory* GetD2DFactory() const noexcept override
+    ID2D1Factory* GetD2DFactory() const noexcept
     {
         return d2d_factory_.Get();
     }
-    ID2D1DeviceContext* GetRenderTarget() const noexcept override
+    ID2D1DeviceContext* GetRenderTarget() const noexcept
     {
         return device_context_.Get();
     }
-    IDWriteFactory* GetDWriteFactory() const noexcept override
+    IDWriteFactory* GetDWriteFactory() const noexcept
     {
         return dwrite_factory_.Get();
     }
-    IWICImagingFactory* GetWICFactory() const noexcept override
+    IWICImagingFactory* GetWICFactory() const noexcept
     {
         return wic_factory_.Get();
     }
-    HWND GetHwnd() const noexcept override
+    HWND GetHwnd() const noexcept
     {
         return hwnd_;
     }

@@ -163,7 +163,7 @@ bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
     // ダイアグラム系コードブロックの高さは描画完了時にビットマップ実寸で確定する。
     // テキスト基準の EstimateNodeHeight で上書きすると描画時に bitmap が後続ノードへ
     // はみ出すため既存値を維持する。
-    if (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language())) {
+    if (IsDiagramCodeBlock(node)) {
         return false;
     }
     // 同じ幅での実測キャッシュがあればそれを使い、無ければ推定値で成長させる。

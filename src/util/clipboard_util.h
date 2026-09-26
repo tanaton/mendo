@@ -46,19 +46,12 @@ inline UniqueGlobalMem BuildGlobalZeroTerminated(std::basic_string_view<CharT> t
     if (text.size() > std::numeric_limits<UINT>::max() / sizeof(CharT) - 1) {
         return {};
     }
-    const size_t bytes = (text.size() + 1) * sizeof(CharT);
-    UniqueGlobalMem hMem{ GlobalAlloc(GMEM_MOVEABLE, bytes) };
-    if (!hMem) {
-        return {};
-    }
-    auto* dest = static_cast<CharT*>(GlobalLock(hMem.get()));
-    if (!dest) {
-        return {};
-    }
-    std::char_traits<CharT>::copy(dest, text.data(), text.size());
-    dest[text.size()] = CharT{};
-    GlobalUnlock(hMem.get());
-    return hMem;
+    return AllocGlobalFilled((text.size() + 1) * sizeof(CharT), [text](void* p) noexcept {
+        auto* dest = static_cast<CharT*>(p);
+        std::char_traits<CharT>::copy(dest, text.data(), text.size());
+        dest[text.size()] = CharT{};
+        return true;
+    });
 }
 
 inline bool CommitClipboardGlobal(UINT format, UniqueGlobalMem mem) noexcept

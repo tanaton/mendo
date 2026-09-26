@@ -92,16 +92,6 @@ void AppSideEffectCallbacks::mermaid_init_retry()
     app->mermaid_renderer_.OnInitRetryTimer();
 }
 
-void AppSideEffectCallbacks::destroy()
-{
-    app->OnDestroy();
-}
-
-void AppSideEffectCallbacks::handle_parse_complete()
-{
-    app->OnParseComplete();
-}
-
 void AppSideEffectCallbacks::show_context_menu(int x, int y)
 {
     app->OnContextMenu(x, y);

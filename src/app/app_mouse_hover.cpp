@@ -2,6 +2,7 @@
 #include "app_constants.h"
 #include "app_events.h"
 #include "app_mouse_helpers.h"
+#include "app_state_queries.h"
 #include "block_h_scroll.h"
 #include "i18n.h"
 #include "layout_computer.h"
@@ -53,7 +54,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
             state_.search.search_bar_ctrl.UpdateHoverFromZone(zone);
 
             SetCursor(zone == SearchBarHitZone::Input ? cursors_.IBeam() : cursors_.Arrow());
-            Dispatch(UpdateTooltipAction{ mendo::app_mouse::BuildSearchBarTooltip(zone), px, py });
+            Dispatch(UpdateTooltipAction{ mendo::app_mouse::BuildSearchBarTooltip(zone) });
             return;
         }
 
@@ -65,7 +66,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
 
     if (IsOverMdScrollbar(dip_x, dip_y, pane_layout)) {
         SetCursor(cursors_.Arrow());
-        Dispatch(UpdateTooltipAction{ TooltipTarget{}, px, py });
+        Dispatch(UpdateTooltipAction{ TooltipTarget{} });
         return;
     }
 
@@ -73,7 +74,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
     Dispatch(MdPaneNavHoverAction{ nav_hit });
     if (nav_hit != NavButtonHover::None) {
         SetCursor(cursors_.Hand());
-        Dispatch(UpdateTooltipAction{ mendo::app_mouse::BuildNavButtonTooltip(nav_hit), px, py });
+        Dispatch(UpdateTooltipAction{ mendo::app_mouse::BuildNavButtonTooltip(nav_hit) });
         return;
     }
 
@@ -92,10 +93,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
 
     const auto emit_button_hover = [&](TooltipTarget::Zone zone, std::wstring_view text) {
         SetCursor(cursors_.Hand());
-        Dispatch(UpdateTooltipAction{
-            TooltipTarget{ zone, text },
-            px, py
-        });
+        Dispatch(UpdateTooltipAction{ TooltipTarget{ zone, text } });
     };
     if (new_hover.copy >= 0) {
         emit_button_hover(TooltipTarget::Zone::CopyButton, i18n::S().tooltip_copy);
@@ -119,18 +117,8 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
         // 横スクロール対象 (Table / CodeBlock) で自然幅 > 可視幅 のときだけバーを出す。
         // ドラッグ中は hovered を固定して、スクロールバー直下に出ても見た目が動かないようにする。
         if (state_.view.h_drag_node < 0) {
-            int new_h_block = -1;
-            if (hit.node_index >= 0) {
-                const auto& nodes = state_.document.doc.GetNodes();
-                const auto& cache = state_.document.layout_cache;
-                if (hit.node_index < static_cast<int>(nodes.size()) && hit.node_index < static_cast<int>(cache.size())) {
-                    const auto geom = GetBlockHScrollGeometry(
-                        nodes[hit.node_index], cache[hit.node_index], renderer_.GetTheme(), pane_layout.md_rect.width);
-                    if (geom.can_scroll()) {
-                        new_h_block = hit.node_index;
-                    }
-                }
-            }
+            const int new_h_block =
+                ResolveBlockHScrollGeometry(state_, hit.node_index).can_scroll() ? hit.node_index : -1;
             if (new_h_block != state_.view.hovered_h_block) {
                 Dispatch(BlockHHoverChangedAction{ new_h_block });
             }
@@ -156,7 +144,7 @@ void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const Pane
                 tt.text += src_wide;
             }
         }
-        Dispatch(UpdateTooltipAction{ std::move(tt), px, py });
+        Dispatch(UpdateTooltipAction{ std::move(tt) });
     }
     SetCursor(ht.last_md_cursor_hand ? cursors_.Hand() : cursors_.IBeam());
 }
@@ -193,7 +181,7 @@ void App::OnMouseHover(int px, int py)
                 ResetSidePaneHover(t, pane_layout, true);
             }
         }
-        Dispatch(UpdateTooltipAction{ BuildTitleBarTooltip(tb_zone, IsZoomed(hwnd_)), px, py });
+        Dispatch(UpdateTooltipAction{ BuildTitleBarTooltip(tb_zone, IsZoomed(hwnd_)) });
         return;
     }
     if (state_.window.titlebar.SetHovered(TitleBarHitZone::None)) {
@@ -218,7 +206,7 @@ void App::OnMouseHover(int px, int py)
     case PaneZone::Splitter1:
     case PaneZone::Splitter2:
         SetCursor(cursors_.SizeWE());
-        Dispatch(UpdateTooltipAction{ TooltipTarget{}, px, py });
+        Dispatch(UpdateTooltipAction{ TooltipTarget{} });
         break;
     case PaneZone::FilePane:
     case PaneZone::TocPane: {
@@ -286,7 +274,7 @@ void App::OnMouseHover(int px, int py)
             InvalidateSidePaneAndPane(target, pane_layout);
         }
         new_hover[static_cast<size_t>(target)] = hr.hovered_index;
-        Dispatch(UpdateTooltipAction{ std::move(hr.tooltip), px, py });
+        Dispatch(UpdateTooltipAction{ std::move(hr.tooltip) });
         break;
     }
     case PaneZone::MdPane:
@@ -294,7 +282,7 @@ void App::OnMouseHover(int px, int py)
         break;
     default:
         SetCursor(cursors_.Arrow());
-        Dispatch(UpdateTooltipAction{ TooltipTarget{}, px, py });
+        Dispatch(UpdateTooltipAction{ TooltipTarget{} });
         break;
     }
 

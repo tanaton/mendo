@@ -38,6 +38,17 @@ public:
                               MeasureViewportRange viewport = {}) const = 0;
 };
 
+// 全計測経路の入口。実測値を cached_width/height に残し、同じ幅へ戻った際に
+// EstimateInvisibleNodeHeight が推定値で上書きしないようにする。
+inline void MeasureEntry(
+    const IMeasureBackend& backend, Node& node, NodeLayoutEntry& entry, float node_width,
+    std::pmr::vector<SyntaxToken>* tokens_out, MeasureViewportRange viewport)
+{
+    backend.MeasureNode(node, entry, node_width, tokens_out, viewport);
+    entry.cached_width = node_width;
+    entry.cached_height = entry.height;
+}
+
 // UI スレッドからのみ呼ぶ。並列計測中は呼ばない契約。
 class IMeasureLifecycle {
 public:

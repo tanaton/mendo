@@ -77,7 +77,6 @@ public:
                 trail_points_.emplace_back(x, y);
             }
             UpdateDirection();
-            overlay_alpha_ = (direction_ != GestureDirection::None) ? 1.0f : 0.0f;
         }
     }
 
@@ -115,7 +114,6 @@ public:
         start_y_ = 0.0f;
         current_x_ = 0.0f;
         current_y_ = 0.0f;
-        overlay_alpha_ = 0.0f;
         trail_points_.clear();
     }
 
@@ -125,7 +123,7 @@ public:
     }
     constexpr bool IsOverlayVisible() const noexcept
     {
-        return overlay_alpha_ > 0.0f;
+        return phase_ == GesturePhase::Tracking && direction_ != GestureDirection::None;
     }
     constexpr const std::pmr::deque<GesturePoint>& GetTrailPoints() const noexcept
     {
@@ -138,10 +136,6 @@ public:
     constexpr GesturePhase GetPhase() const noexcept
     {
         return phase_;
-    }
-    constexpr float GetOverlayAlpha() const noexcept
-    {
-        return overlay_alpha_;
     }
 
 private:
@@ -164,6 +158,5 @@ private:
     float start_y_ = 0.0f;
     float current_x_ = 0.0f;
     float current_y_ = 0.0f;
-    float overlay_alpha_ = 0.0f;
     std::pmr::deque<GesturePoint> trail_points_;
 };

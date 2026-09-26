@@ -1,5 +1,6 @@
 #include "document_service.h"
 #include "app_constants.h"
+#include "file_io.h"
 #include "file_loader.h"
 #include "profiler.h"
 
@@ -27,11 +28,8 @@ std::expected<Document, FileLoadError> DocumentService::LoadFile(const std::pmr:
 // 仮想パスや存在しないパスは「大きい」扱いにする (非同期ロード経路で失敗を検出させるため)。
 bool DocumentService::IsLargerThan(const std::pmr::wstring& path, DWORD threshold) noexcept
 {
-    WIN32_FILE_ATTRIBUTE_DATA attr{};
-    if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attr) && attr.nFileSizeHigh == 0 && attr.nFileSizeLow <= threshold) {
-        return false;
-    }
-    return true;
+    const auto size = QueryFileSize(path.c_str());
+    return !size || *size > threshold;
 }
 
 bool DocumentService::IsAsyncLoadCandidate(const std::pmr::wstring& path) noexcept

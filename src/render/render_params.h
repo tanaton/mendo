@@ -20,7 +20,6 @@
 struct GestureRenderState {
     const std::pmr::deque<GesturePoint>* trail_points = nullptr;
     int direction = 0; // -1=Left(戻る), 1=Right(進む)
-    float overlay_alpha = 0.0f;
     bool trail_active = false;
     bool overlay_visible = false;
 };

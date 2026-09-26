@@ -9,7 +9,6 @@ TEST(GestureOverlay, Idle)
     EXPECT_FALSE(gs.trail_active);
     EXPECT_FALSE(gs.overlay_visible);
     EXPECT_EQ(gs.direction, 0);
-    EXPECT_FLOAT_EQ(gs.overlay_alpha, 0.0f);
     ASSERT_NE(gs.trail_points, nullptr);
     EXPECT_TRUE(gs.trail_points->empty());
 }
@@ -25,7 +24,6 @@ TEST(GestureOverlay, TrackingLeft)
     EXPECT_TRUE(gs.trail_active);
     EXPECT_TRUE(gs.overlay_visible);
     EXPECT_EQ(gs.direction, -1);
-    EXPECT_GT(gs.overlay_alpha, 0.0f);
 }
 
 TEST(GestureOverlay, TrackingRight)
@@ -49,7 +47,6 @@ TEST(GestureOverlay, SwipeFallback_WhenGestureIdle)
     EXPECT_FALSE(gs.trail_active);
     EXPECT_TRUE(gs.overlay_visible);
     EXPECT_EQ(gs.direction, -1);
-    EXPECT_FLOAT_EQ(gs.overlay_alpha, 1.0f);
 }
 
 TEST(GestureOverlay, GestureTakesPrecedenceOverSwipe)

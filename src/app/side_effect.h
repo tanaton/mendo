@@ -33,8 +33,6 @@ struct ClipboardWriteHtml {
 };
 struct ShowTooltip {
     TooltipTarget target;
-    int px;
-    int py;
 };
 struct ClearTooltip {};
 struct ShowToast {
@@ -136,12 +134,9 @@ struct ProcessMermaidBatchTimer {};
 struct ProcessBitmapManage {};
 struct MermaidInitRetry {};
 
-struct Destroy {};
-struct HandleParseComplete {};
-
 } // namespace effect
 
-// 全 effect を 1 段 variant に束ねる。論理グループ (Ui/Window/Navigation/Layout/Resource/Timer/Lifecycle)
+// 全 effect を 1 段 variant に束ねる。論理グループ (Ui/Window/Navigation/Layout/Resource/Timer)
 // は side_effect_executor.h の単一 visitor 内のコメント区切りで表現する。
 using SideEffect = std::variant<
     // Ui
@@ -191,10 +186,7 @@ using SideEffect = std::variant<
     effect::TickLoadingAnimation,
     effect::ProcessMermaidBatchTimer,
     effect::ProcessBitmapManage,
-    effect::MermaidInitRetry,
-    // Lifecycle
-    effect::Destroy,
-    effect::HandleParseComplete>;
+    effect::MermaidInitRetry>;
 
 using SideEffectList = std::pmr::vector<SideEffect>;
 
@@ -203,19 +195,4 @@ template <typename T>
 void PushEffect(SideEffectList& effects, T&& e)
 {
     effects.emplace_back(std::forward<T>(e));
-}
-
-template <typename T>
-bool HasEffect(const SideEffectList& effects) noexcept
-{
-    return std::ranges::any_of(effects, [](const SideEffect& se) {
-        return std::holds_alternative<T>(se);
-    });
-}
-
-// SideEffect から特定の effect 型を取り出す。該当しなければ nullptr。
-template <typename T>
-const T* GetEffect(const SideEffect& se) noexcept
-{
-    return std::get_if<T>(&se);
 }

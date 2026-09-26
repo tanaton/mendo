@@ -15,12 +15,10 @@ uint64_t NodeDiagramHash(const Node& node, float max_width, bool dark_mode) noex
 
 std::pmr::wstring JsEscape(std::wstring_view input);
 
-uint64_t CombinedHash(std::wstring_view code, int max_width_int, bool dark_mode) noexcept;
 uint64_t CombinedHash(std::string_view code, int max_width_int, bool dark_mode) noexcept;
 
 int ComputeWorkerCount(unsigned int processor_count) noexcept;
 int QuantizeWidth(float max_width) noexcept;
-uint64_t HashCode(std::wstring_view code, float max_width, bool dark_mode) noexcept;
 uint64_t HashCode(std::string_view code, float max_width, bool dark_mode) noexcept;
 float ParseJsonNumber(std::wstring_view json, std::wstring_view key) noexcept;
 bool ParseJsonTrueFlag(std::wstring_view json, std::wstring_view key) noexcept;
@@ -105,8 +103,5 @@ private:
     bool initialized_ = false;
     bool ready_ = false;
 };
-
-// Node.type と code_language だけを参照し、レンダラーの状態には依存しない。
-bool ShouldTriggerInitForNode(const Node& node) noexcept;
 
 } // namespace mermaid_lifecycle

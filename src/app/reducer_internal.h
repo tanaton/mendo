@@ -1,7 +1,7 @@
 #pragma once
 #include "app_state.h"
 #include "app_events.h"
-#include "block_h_scroll.h"
+#include "app_state_queries.h"
 #include "side_effect.h"
 
 // reducer.cpp の std::visit ディスパッチから各ドメイン (reducer_scroll.cpp /
@@ -30,23 +30,6 @@ struct ScrollbarDragGrip {
 };
 ScrollbarDragGrip ComputeScrollbarDragGrip(float thumb_y, float thumb_height, float click_y) noexcept;
 
-struct SidePaneContext {
-    const PaneRect& rect;
-    float total_content;
-    PaneScrollInfo info;
-    ScrollState& scroll;
-    PaneController::DragTarget drag_target;
-    PaneZone pane_zone;
-};
-constexpr PaneController::DragTarget SidePaneDragTarget(PaneTarget pane) noexcept
-{
-    using enum PaneController::DragTarget;
-    return (pane == PaneTarget::File) ? FileScrollbar : TocScrollbar;
-}
-SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane);
-
-BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node_index) noexcept;
-float MdScrollableContentHeight(const AppState& state) noexcept;
 bool ApplyBlockHScrollDelta(AppState& state, int node_index, float new_value, float scroll_max);
 
 // ---- スクロール (reducer_scroll.cpp) ----

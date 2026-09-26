@@ -4,6 +4,7 @@
 #include "document_utils.h"
 #include "pane_layout.h"
 #include "resource.h"
+#include "selection_html.h"
 #include "ui_constants.h"
 
 App::HitResult App::HitTest(int screen_x, int screen_y)

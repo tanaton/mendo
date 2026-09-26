@@ -185,7 +185,6 @@ TEST_F(SwipeDetectorTest, OverlayNotVisibleInitially)
 {
     EXPECT_FALSE(detector_.IsOverlayVisible());
     EXPECT_EQ(detector_.GetOverlayDirection(), 0);
-    EXPECT_FLOAT_EQ(detector_.GetOverlayAlpha(), 0.0f);
 }
 
 TEST_F(SwipeDetectorTest, OverlayNotVisibleBelowThreshold)
@@ -193,14 +192,12 @@ TEST_F(SwipeDetectorTest, OverlayNotVisibleBelowThreshold)
     detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD - 1, now_);
     EXPECT_FALSE(detector_.IsOverlayVisible());
     EXPECT_EQ(detector_.GetOverlayDirection(), 0);
-    EXPECT_FLOAT_EQ(detector_.GetOverlayAlpha(), 0.0f);
 }
 
 TEST_F(SwipeDetectorTest, OverlayVisibleAtThreshold)
 {
     detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_);
     EXPECT_TRUE(detector_.IsOverlayVisible());
-    EXPECT_FLOAT_EQ(detector_.GetOverlayAlpha(), 1.0f);
 }
 
 TEST_F(SwipeDetectorTest, OverlayDirectionBackOnPositiveDelta)
@@ -223,7 +220,6 @@ TEST_F(SwipeDetectorTest, OverlayDisappearsAfterCommit)
     detector_.Commit();
     EXPECT_FALSE(detector_.IsOverlayVisible());
     EXPECT_EQ(detector_.GetOverlayDirection(), 0);
-    EXPECT_FLOAT_EQ(detector_.GetOverlayAlpha(), 0.0f);
 }
 
 TEST_F(SwipeDetectorTest, OverlayDisappearsAfterVScroll)

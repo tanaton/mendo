@@ -98,36 +98,36 @@ TEST(JsEscape, ParagraphSeparatorEscaped)
 
 TEST(CombinedHash, SameInputProducesSameHash)
 {
-    auto h1 = mermaid_util::CombinedHash(L"graph TD; A-->B;", 800, false);
-    auto h2 = mermaid_util::CombinedHash(L"graph TD; A-->B;", 800, false);
+    auto h1 = mermaid_util::CombinedHash("graph TD; A-->B;", 800, false);
+    auto h2 = mermaid_util::CombinedHash("graph TD; A-->B;", 800, false);
     EXPECT_EQ(h1, h2);
 }
 
 TEST(CombinedHash, DifferentCodeProducesDifferentHash)
 {
-    auto h1 = mermaid_util::CombinedHash(L"graph TD; A-->B;", 800, false);
-    auto h2 = mermaid_util::CombinedHash(L"graph LR; A-->B;", 800, false);
+    auto h1 = mermaid_util::CombinedHash("graph TD; A-->B;", 800, false);
+    auto h2 = mermaid_util::CombinedHash("graph LR; A-->B;", 800, false);
     EXPECT_NE(h1, h2);
 }
 
 TEST(CombinedHash, DifferentWidthProducesDifferentHash)
 {
-    auto h1 = mermaid_util::CombinedHash(L"graph TD; A-->B;", 800, false);
-    auto h2 = mermaid_util::CombinedHash(L"graph TD; A-->B;", 600, false);
+    auto h1 = mermaid_util::CombinedHash("graph TD; A-->B;", 800, false);
+    auto h2 = mermaid_util::CombinedHash("graph TD; A-->B;", 600, false);
     EXPECT_NE(h1, h2);
 }
 
 TEST(CombinedHash, DifferentDarkModeProducesDifferentHash)
 {
-    auto h1 = mermaid_util::CombinedHash(L"graph TD; A-->B;", 800, false);
-    auto h2 = mermaid_util::CombinedHash(L"graph TD; A-->B;", 800, true);
+    auto h1 = mermaid_util::CombinedHash("graph TD; A-->B;", 800, false);
+    auto h2 = mermaid_util::CombinedHash("graph TD; A-->B;", 800, true);
     EXPECT_NE(h1, h2);
 }
 
 TEST(CombinedHash, IdenticalDiagramsShareCacheKey)
 {
     // 同じ図が複数配置されている場合、同一ハッシュでキャッシュを共有する
-    std::wstring_view diagram = L"sequenceDiagram\n    Alice->>Bob: Hello\n    Bob-->>Alice: Hi";
+    std::string_view diagram = "sequenceDiagram\n    Alice->>Bob: Hello\n    Bob-->>Alice: Hi";
     auto h1 = mermaid_util::CombinedHash(diagram, 1000, false);
     auto h2 = mermaid_util::CombinedHash(diagram, 1000, false);
     auto h3 = mermaid_util::CombinedHash(diagram, 1000, false);
@@ -137,15 +137,15 @@ TEST(CombinedHash, IdenticalDiagramsShareCacheKey)
 
 TEST(CombinedHash, WidthZero)
 {
-    auto h1 = mermaid_util::CombinedHash(L"graph TD;", 0, false);
-    auto h2 = mermaid_util::CombinedHash(L"graph TD;", 1, false);
+    auto h1 = mermaid_util::CombinedHash("graph TD;", 0, false);
+    auto h2 = mermaid_util::CombinedHash("graph TD;", 1, false);
     EXPECT_NE(h1, h2);
 }
 
 TEST(CombinedHash, EmptyCode)
 {
-    auto h1 = mermaid_util::CombinedHash(L"", 800, false);
-    auto h2 = mermaid_util::CombinedHash(L"", 800, true);
+    auto h1 = mermaid_util::CombinedHash("", 800, false);
+    auto h2 = mermaid_util::CombinedHash("", 800, true);
     EXPECT_NE(h1, h2);
 }
 

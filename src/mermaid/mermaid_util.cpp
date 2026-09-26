@@ -58,23 +58,12 @@ std::pmr::wstring mermaid_util::JsEscape(std::wstring_view input)
 
 // コード本体は FNV-1a で hash し、幅と dark_mode は別 prime で xor mix する。
 // 既存キャッシュキー (MermaidCache 内ファイル名) と互換性を保つため hash 値は不変。
-template <class SV>
-static uint64_t CombinedHashImpl(SV code, int max_width_int, bool dark_mode) noexcept
+uint64_t mermaid_util::CombinedHash(std::string_view code, int max_width_int, bool dark_mode) noexcept
 {
     uint64_t h = mendo::Fnv1a64(code);
     h ^= static_cast<uint64_t>(max_width_int) * mendo::kFnv1a64Prime;
     h ^= static_cast<uint64_t>(dark_mode) * 2654435761ULL; // Knuth multiplicative
     return h;
-}
-
-uint64_t mermaid_util::CombinedHash(std::wstring_view code, int max_width_int, bool dark_mode) noexcept
-{
-    return CombinedHashImpl(code, max_width_int, dark_mode);
-}
-
-uint64_t mermaid_util::CombinedHash(std::string_view code, int max_width_int, bool dark_mode) noexcept
-{
-    return CombinedHashImpl(code, max_width_int, dark_mode);
 }
 
 int mermaid_util::ComputeWorkerCount(unsigned int processor_count) noexcept
@@ -90,11 +79,6 @@ int mermaid_util::QuantizeWidth(float max_width) noexcept
         return kQuantum;
     }
     return static_cast<int>(std::ceil(max_width / static_cast<float>(kQuantum))) * kQuantum;
-}
-
-uint64_t mermaid_util::HashCode(std::wstring_view code, float max_width, bool dark_mode) noexcept
-{
-    return CombinedHash(code, QuantizeWidth(max_width), dark_mode);
 }
 
 uint64_t mermaid_util::HashCode(std::string_view code, float max_width, bool dark_mode) noexcept
@@ -347,9 +331,4 @@ uint64_t mermaid_util::NodeDiagramHash(const Node& node, float max_width, bool d
         h ^= LATEX_MATH_HASH_SALT;
     }
     return h;
-}
-
-bool mermaid_lifecycle::ShouldTriggerInitForNode(const Node& node) noexcept
-{
-    return node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language());
 }

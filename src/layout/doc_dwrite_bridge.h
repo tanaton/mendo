@@ -24,7 +24,7 @@ public:
 
     std::wstring_view wide() const noexcept
     {
-        return view_;
+        return scratch_;
     }
 
     // 範囲外時は clamping。
@@ -41,10 +41,8 @@ public:
     }
 
 private:
-    // view_ の所有元。
     std::pmr::wstring scratch_;
-    std::wstring_view view_;
-    // 番兵: [utf8_size] = wide_size。
+    // 番兵: [utf8_size] = wide_size。空なら ASCII のみ (byte と code unit が恒等対応)。
     std::pmr::vector<uint32_t> utf16_offsets_;
 };
 
@@ -103,11 +101,6 @@ private:
 // ApplyRunFormatting と view を共有し二重 decode を回避。
 HRESULT CreateDocTextLayout(
     IDWriteFactory* factory, const WideViewForDWrite& view,
-    IDWriteTextFormat* fmt, float max_w, float max_h,
-    IDWriteTextLayout** out) noexcept;
-
-HRESULT CreateDocTextLayout(
-    IDWriteFactory* factory, std::string_view text,
     IDWriteTextFormat* fmt, float max_w, float max_h,
     IDWriteTextLayout** out) noexcept;
 

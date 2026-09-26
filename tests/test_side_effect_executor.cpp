@@ -28,8 +28,6 @@ public:
     std::vector<std::pair<std::string, std::string>> clipboard_html_calls;
     std::vector<std::wstring> shell_open_calls;
     std::vector<std::tuple<int, int, int, int>> set_window_position_calls;
-    std::vector<POINT> client_to_screen_inputs;
-    POINT client_to_screen_translation{ 0, 0 };
 
     void Invalidate() override
     {
@@ -85,12 +83,6 @@ public:
     {
         set_window_position_calls.emplace_back(x, y, cx, cy);
     }
-    POINT ClientToScreen(POINT client_pt) override
-    {
-        client_to_screen_inputs.push_back(client_pt);
-        return { client_pt.x + client_to_screen_translation.x,
-                 client_pt.y + client_to_screen_translation.y };
-    }
 };
 
 struct CallbackTracker {
@@ -113,8 +105,6 @@ struct CallbackTracker {
     int process_mermaid_batch_timer_count = 0;
     int process_bitmap_manage_count = 0;
     int mermaid_init_retry_count = 0;
-    int destroy_count = 0;
-    int handle_parse_complete_count = 0;
     std::pair<int, int> last_context_menu_pos{ 0, 0 };
     int show_context_menu_count = 0;
     std::vector<bool> sync_toc_auto_scroll_calls;
@@ -190,14 +180,6 @@ struct TestSideEffectCallbacks {
     {
         t->mermaid_init_retry_count++;
     }
-    void destroy()
-    {
-        t->destroy_count++;
-    }
-    void handle_parse_complete()
-    {
-        t->handle_parse_complete_count++;
-    }
     void show_context_menu(int x, int y)
     {
         t->last_context_menu_pos = { x, y };
@@ -248,8 +230,6 @@ protected:
     int& process_mermaid_batch_timer_count_ = tracker_.process_mermaid_batch_timer_count;
     int& process_bitmap_manage_count_ = tracker_.process_bitmap_manage_count;
     int& mermaid_init_retry_count_ = tracker_.mermaid_init_retry_count;
-    int& destroy_count_ = tracker_.destroy_count;
-    int& handle_parse_complete_count_ = tracker_.handle_parse_complete_count;
     std::pair<int, int>& last_context_menu_pos_ = tracker_.last_context_menu_pos;
     int& show_context_menu_count_ = tracker_.show_context_menu_count;
 
@@ -386,18 +366,6 @@ TEST_F(SideEffectExecutorTest, MermaidInitRetryDispatchesToCallback)
     EXPECT_EQ(mermaid_init_retry_count_, 1);
 }
 
-TEST_F(SideEffectExecutorTest, DestroyDispatchesToCallback)
-{
-    exec_.ExecuteOne(effect::Destroy{});
-    EXPECT_EQ(destroy_count_, 1);
-}
-
-TEST_F(SideEffectExecutorTest, HandleParseCompleteDispatchesToCallback)
-{
-    exec_.ExecuteOne(effect::HandleParseComplete{});
-    EXPECT_EQ(handle_parse_complete_count_, 1);
-}
-
 TEST_F(SideEffectExecutorTest, ShowContextMenuForwardsScreenPosition)
 {
     exec_.ExecuteOne(effect::ShowContextMenu{ 150, 200 });
@@ -433,12 +401,12 @@ TEST_F(SideEffectExecutorTest, ExecuteRunsAllEffectsInOrder)
     list.emplace_back(effect::ReloadFile{});
     list.emplace_back(effect::LoadFile{ std::pmr::wstring(L"A") });
     list.emplace_back(effect::LoadFile{ std::pmr::wstring(L"B") });
-    list.emplace_back(effect::Destroy{});
+    list.emplace_back(effect::MermaidInitRetry{});
 
     exec_.Execute(list);
 
     EXPECT_EQ(reload_file_count_, 1);
-    EXPECT_EQ(destroy_count_, 1);
+    EXPECT_EQ(mermaid_init_retry_count_, 1);
     ASSERT_EQ(load_file_paths_.size(), 2u);
     EXPECT_EQ(load_file_paths_[0], L"A");
     EXPECT_EQ(load_file_paths_[1], L"B");
@@ -449,7 +417,7 @@ TEST_F(SideEffectExecutorTest, ExecuteEmptyListIsNoop)
     std::pmr::vector<SideEffect> list;
     exec_.Execute(list);
     EXPECT_EQ(reload_file_count_, 0);
-    EXPECT_EQ(destroy_count_, 0);
+    EXPECT_EQ(mermaid_init_retry_count_, 0);
 }
 
 // ═══════════════════════════════════════════════

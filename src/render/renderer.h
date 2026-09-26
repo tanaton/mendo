@@ -79,12 +79,12 @@ public:
 
     constexpr void InvalidateSidePaneCache(PaneTarget t) noexcept
     {
-        pane_caches_[static_cast<size_t>(t)].dirty = true;
+        pane_caches_[static_cast<size_t>(t)].Invalidate();
     }
     constexpr void InvalidateAllSidePaneCaches() noexcept
     {
         for (auto& c : pane_caches_) {
-            c.dirty = true;
+            c.Invalidate();
         }
     }
 
@@ -116,7 +116,7 @@ private:
     // hovered: 0=なし, 1=戻る, 2=進む
     void DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool can_forward, int hovered);
     void DrawGestureTrail(const std::pmr::deque<GesturePoint>& points);
-    void DrawGestureOverlay(int direction, float alpha, const PaneRect& md_pane_rect);
+    void DrawGestureOverlay(int direction, const PaneRect& md_pane_rect);
     void DrawToastOverlay(const ToastRenderState& toast, const PaneRect& md_pane_rect);
     void DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_pane_rect);
 

@@ -271,11 +271,6 @@ inline size_t Find(std::wstring_view text, std::wstring_view query, size_t start
     return npos;
 }
 
-inline bool Contains(std::wstring_view text, std::wstring_view query) noexcept
-{
-    return Find(text, query) != npos;
-}
-
 // UTF-8 multi-byte シーケンスの中間バイトがクエリ先頭バイトと衝突する可能性はあるが、
 // 後続の memcmp で正確に弾けるため正しさは保たれる (UTF-8 self-synchronizing 性は使わずに済む)。
 inline size_t Find(std::string_view text, std::string_view query, size_t start = 0) noexcept

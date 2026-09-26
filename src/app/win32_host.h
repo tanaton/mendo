@@ -32,5 +32,4 @@ public:
     virtual void SearchFocus(effect::SearchFocus action) = 0;
     virtual void SearchUnfocus(effect::SearchUnfocus action) = 0;
     virtual void SetWindowPosition(int x, int y, int cx, int cy) = 0;
-    virtual POINT ClientToScreen(POINT client_pt) = 0;
 };

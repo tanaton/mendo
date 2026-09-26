@@ -51,7 +51,7 @@ public:
     Tooltip& operator=(Tooltip&&) noexcept;
 
     void Init(HWND parent_hwnd);
-    bool Update(const TooltipTarget& target, int screen_x, int screen_y);
+    bool Update(const TooltipTarget& target);
     void Show();
     void Hide();
     void ApplyDarkMode(bool dark);

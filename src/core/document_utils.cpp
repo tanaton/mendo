@@ -109,6 +109,16 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept
     return FindWordBoundariesImpl(text, pos);
 }
 
+std::wstring_view ExtensionView(std::wstring_view path) noexcept
+{
+    const auto last_sep = path.find_last_of(L"\\/");
+    const auto dot_pos = path.rfind(L'.');
+    if (dot_pos == std::wstring_view::npos || (last_sep != std::wstring_view::npos && dot_pos < last_sep)) {
+        return {};
+    }
+    return path.substr(dot_pos);
+}
+
 bool IsMarkdownFile(std::wstring_view path)
 {
     static constexpr ascii_util::LowercaseAsciiLiteral kMarkdownExts[]{
@@ -116,12 +126,7 @@ bool IsMarkdownFile(std::wstring_view path)
         L".markdown",
         L".mkd",
     };
-    const auto last_sep = path.find_last_of(L"\\/");
-    const auto dot_pos = path.rfind(L'.');
-    if (dot_pos == std::wstring_view::npos || (last_sep != std::wstring_view::npos && dot_pos < last_sep)) {
-        return false;
-    }
-    const auto ext = path.substr(dot_pos);
+    const auto ext = ExtensionView(path);
     return std::ranges::any_of(kMarkdownExts, [&](const auto& e) noexcept {
         return ascii_util::iequal(ext, e);
     });

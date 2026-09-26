@@ -2,6 +2,7 @@
 #include "app_constants.h"
 #include "app_events.h"
 #include "app_mouse_helpers.h"
+#include "app_state_queries.h"
 #include "block_h_scroll.h"
 #include "document_utils.h"
 #include "i18n.h"
@@ -106,26 +107,19 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
     }
 
     // ホバー中ブロックの水平スクロールバー上ならドラッグ開始 (テキスト選択より優先)。
-    if (state_.view.hovered_h_block >= 0) {
-        const int hover = state_.view.hovered_h_block;
-        const auto& nodes = state_.document.doc.GetNodes();
-        const auto& cache = state_.document.layout_cache;
-        if (hover < static_cast<int>(nodes.size()) && hover < static_cast<int>(cache.size())) {
-            const auto& node = nodes[hover];
-            const auto& entry = cache[hover];
-            const auto& theme = renderer_.GetTheme();
-            const auto geom = GetBlockHScrollGeometry(node, entry, theme, pane_layout.md_rect.width);
-            if (geom.can_scroll()) {
-                const float pad = IsScrollableCodeBlock(node) ? theme.code_block_padding : 0.0f;
-                const float bar_y_local = BlockHScrollbarBarY(entry.text_top, entry.height, pad);
-                // 描画 transform は Translation(md_x, -scroll_y) で md_rect.y は加算しない規約。
-                const float bar_y_screen = bar_y_local - state_.view.viewport.GetScrollY();
-                const float block_x_screen = pane_layout.md_rect.x + theme.margin_left + mendo::layout::NodeIndent(node, theme);
-                if (PointInRect(dip_x, dip_y, BlockHScrollbarHitRect(block_x_screen, geom.visible_width, bar_y_screen))) {
-                    Dispatch(BlockHScrollDragStartedAction{ hover, dip_x });
-                    return;
-                }
-            }
+    const int hover = state_.view.hovered_h_block;
+    if (const auto geom = ResolveBlockHScrollGeometry(state_, hover); geom.can_scroll()) {
+        const auto& node = state_.document.doc.GetNodes()[hover];
+        const auto& entry = state_.document.layout_cache[hover];
+        const auto& theme = renderer_.GetTheme();
+        const float pad = IsScrollableCodeBlock(node) ? theme.code_block_padding : 0.0f;
+        const float bar_y_local = BlockHScrollbarBarY(entry.text_top, entry.height, pad);
+        // 描画 transform は Translation(md_x, -scroll_y) で md_rect.y は加算しない規約。
+        const float bar_y_screen = bar_y_local - state_.view.viewport.GetScrollY();
+        const float block_x_screen = pane_layout.md_rect.x + theme.margin_left + mendo::layout::NodeIndent(node, theme);
+        if (PointInRect(dip_x, dip_y, BlockHScrollbarHitRect(block_x_screen, geom.visible_width, bar_y_screen))) {
+            Dispatch(BlockHScrollDragStartedAction{ hover, dip_x });
+            return;
         }
     }
 
@@ -167,23 +161,21 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const
         return;
     }
 
-    const int item_count =
-        is_file
-            ? static_cast<int>(state_.file_explorer.GetEntries().size())
-            : static_cast<int>(state_.document.doc.GetToc().GetEntries().size());
-    const float total_content = SidePaneContentHeight(static_cast<size_t>(item_count), theme.pane_item_height);
-    const auto scroll_info = ComputePaneScrollInfo(rect, total_content);
-
-    if (IsOverPaneScrollbar(dip_x, rect, total_content, scroll_info)) {
+    const auto ctx = GetSidePaneContext(state_, target);
+    if (IsOverPaneScrollbar(dip_x, rect, ctx.total_content, ctx.info)) {
         Dispatch(PaneScrollbarDragStartedAction{ target, dip_y });
         return;
     }
-    const float local_y = dip_y - scroll_info.content_top + state_.view.panes.SidePaneScroll(target).scroll_y;
+    const float local_y = dip_y - ctx.info.content_top + ctx.scroll.scroll_y;
+    const size_t item_count =
+        is_file
+            ? state_.file_explorer.GetEntries().size()
+            : state_.document.doc.GetToc().GetEntries().size();
     const int idx =
         is_file
             ? state_.file_explorer.HitTest(local_y, theme.pane_item_height)
             : state_.document.doc.GetToc().HitTest(local_y, theme.pane_item_height);
-    if (idx < 0 || idx >= item_count) {
+    if (idx < 0 || static_cast<size_t>(idx) >= item_count) {
         return;
     }
     if (is_file) {

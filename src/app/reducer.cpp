@@ -255,7 +255,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
             if (a.target == state.interaction.tooltip.GetCurrent()) {
                 return;
             }
-            PushEffect(effects, effect::ShowTooltip{ a.target, a.px, a.py });
+            PushEffect(effects, effect::ShowTooltip{ a.target });
         },
         [&](const ClearTooltipAction&) { ClearTooltip(state, effects); },
 
@@ -273,10 +273,6 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const TimerAction& a) { ReduceTimer(state, effects, a); },
         [&](const FileWatchAction&) { PushEffect(effects, effect::CheckFileChanges{}); },
         [&](const ImageLoadedAction&) { PushEffect(effects, effect::NotifyImageLoaded{}); },
-        [&](const ParseCompleteAction&) { PushEffect(effects, effect::HandleParseComplete{}); },
-
-        // ---- ライフサイクル ----
-        [&](const DestroyAction&) { PushEffect(effects, effect::Destroy{}); },
     }, action);
     // clang-format on
     return effects;

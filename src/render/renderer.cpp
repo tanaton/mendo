@@ -454,9 +454,9 @@ void Renderer::DrawLoading(
         }
     }
 
-    // ローディング中でもフェードアウト中は表示
-    if (gesture.overlay_visible && gesture.overlay_alpha > 0.0f) {
-        DrawGestureOverlay(gesture.direction, gesture.overlay_alpha, md_pane_rect);
+    // ローディング中もジェスチャーオーバーレイは表示する
+    if (gesture.overlay_visible) {
+        DrawGestureOverlay(gesture.direction, md_pane_rect);
     }
 
     if (toast.visible) {
@@ -506,8 +506,8 @@ void Renderer::Render(const RenderParams& p)
         DrawGestureTrail(*p.gesture.trail_points);
     }
 
-    if (p.gesture.overlay_visible && p.gesture.overlay_alpha > 0.0f) {
-        DrawGestureOverlay(p.gesture.direction, p.gesture.overlay_alpha, p.md_pane_rect);
+    if (p.gesture.overlay_visible) {
+        DrawGestureOverlay(p.gesture.direction, p.md_pane_rect);
     }
 
     if (p.toast.visible) {

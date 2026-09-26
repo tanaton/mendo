@@ -100,9 +100,3 @@ void Win32Host::SetWindowPosition(int x, int y, int cx, int cy)
 {
     SetWindowPos(hwnd_, nullptr, x, y, cx, cy, SWP_NOZORDER | SWP_NOACTIVATE);
 }
-
-POINT Win32Host::ClientToScreen(POINT client_pt)
-{
-    ::ClientToScreen(hwnd_, &client_pt);
-    return client_pt;
-}

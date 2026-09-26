@@ -1240,10 +1240,11 @@ TEST(Parser, AlertLabelIsBold)
     auto nodes = ParseMarkdown("> [!NOTE]\n> Some text").nodes;
     ASSERT_GE(nodes.size(), 1u);
     ASSERT_GE(nodes[0].runs.size(), 1u);
-    // 最初のランはラベル部分で太字であるべき
+    // 最初のランはラベル部分で太字、アイコン絵文字は含まない
+    const auto icon_len = static_cast<uint32_t>(GetAlertIcon(AlertType::Note).size());
     EXPECT_TRUE(nodes[0].runs[0].bold());
-    EXPECT_EQ(nodes[0].runs[0].start, 0u);
-    EXPECT_EQ(nodes[0].runs[0].length, nodes[0].alert_label_length());
+    EXPECT_EQ(nodes[0].runs[0].start, icon_len);
+    EXPECT_EQ(nodes[0].runs[0].start + nodes[0].runs[0].length, nodes[0].alert_label_length());
 }
 
 TEST(Parser, AlertLabelLength)

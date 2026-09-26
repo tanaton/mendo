@@ -158,6 +158,21 @@ protected:
     }
 };
 
+template <typename T>
+bool HasEffect(const SideEffectList& effects) noexcept
+{
+    return std::ranges::any_of(effects, [](const SideEffect& se) {
+        return std::holds_alternative<T>(se);
+    });
+}
+
+// SideEffect から特定の effect 型を取り出す。該当しなければ nullptr。
+template <typename T>
+const T* GetEffect(const SideEffect& se) noexcept
+{
+    return std::get_if<T>(&se);
+}
+
 // SideEffectList の中で型 T が最初に現れる位置を返す。
 // 型 T はいずれかのドメイン variant のメンバである必要がある。
 template <typename T>
