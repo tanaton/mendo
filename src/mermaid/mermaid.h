@@ -160,7 +160,10 @@ private:
         std::shared_ptr<const std::pmr::vector<uint8_t>> png;
     };
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
+    // ディスクキャッシュから戻せるので画像より控えめにする。
+    static constexpr size_t MAX_CACHE_BYTES = 64u * 1024 * 1024;
     LruCache<uint64_t, CachedBitmap, MAX_CACHE_ENTRIES> cache_;
+    void InsertCache(uint64_t hash, CachedBitmap cached);
 
     MermaidFileCache* file_cache_ = nullptr;
 

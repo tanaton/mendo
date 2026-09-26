@@ -329,6 +329,19 @@ void MermaidRenderer::ClearCache()
     cache_.Clear();
 }
 
+void MermaidRenderer::InsertCache(uint64_t hash, CachedBitmap cached)
+{
+    cache_.Insert(hash, std::move(cached));
+    cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedBitmap& c) {
+        size_t bytes = c.png ? c.png->size() : 0;
+        if (c.bitmap) {
+            const auto size = c.bitmap->GetPixelSize();
+            bytes += static_cast<size_t>(size.width) * size.height * 4;
+        }
+        return bytes;
+    });
+}
+
 void MermaidRenderer::SetDiagramError(RenderRequest& req, std::wstring_view msg)
 {
     if (req.svg_only || !req.diagram_entry) {
@@ -468,7 +481,7 @@ void MermaidRenderer::RequestRender(
                         png.data.get(), png.data.get() + png.size);
                     CachedBitmap cached{ std::move(created->bitmap), fentry.css_width, fentry.css_height, std::move(png_shared) };
                     ApplyCachedBitmap(layout_entry, diagram_entry, cached);
-                    cache_.Insert(hash, std::move(cached));
+                    InsertCache(hash, std::move(cached));
 
                     if (on_complete) {
                         on_complete();
@@ -810,7 +823,7 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, IStream* png_stream)
         if (w.current_request.layout_entry && w.current_request.diagram_entry) {
             ApplyCachedBitmap(*w.current_request.layout_entry, *w.current_request.diagram_entry, cached);
         }
-        cache_.Insert(code_hash, std::move(cached));
+        InsertCache(code_hash, std::move(cached));
 
         if (file_cache_ && w.current_request.node && png_shared) {
             file_cache_->StoreAsync(code_hash, draw_w, draw_h, *png_shared);
