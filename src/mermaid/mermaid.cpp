@@ -382,6 +382,7 @@ void MermaidRenderer::CancelPending()
         w.rendering = false;
         w.current_request = {};
     }
+    inflight_entries_.clear();
 }
 
 void MermaidRenderer::RecoverWorker(int index)
@@ -402,6 +403,7 @@ void MermaidRenderer::RecoverWorker(int index)
             // 完了通知も出ないため、汎用エラーを設定し on_complete で再描画させる。
             SetDiagramError(w.current_request, {});
             failed_cb = std::move(w.current_request.on_complete);
+            ReleaseInflight(w.current_request);
         }
     }
     w.current_request = {};
@@ -482,6 +484,10 @@ void MermaidRenderer::RequestRender(
         return;
     }
 
+    if (!inflight_entries_.insert(&diagram_entry).second) {
+        return;
+    }
+
     RenderRequest req;
     req.node = &node;
     req.layout_entry = &layout_entry;
@@ -526,6 +532,7 @@ void MermaidRenderer::ProcessQueue()
         const CachedBitmap* png_hit = front.svg_only ? nullptr : cache_.Find(front.code_hash);
         if (png_hit) {
             ApplyCachedBitmap(*front.layout_entry, *front.diagram_entry, *png_hit);
+            ReleaseInflight(front);
             auto cb = std::move(front.on_complete);
             pending_requests_.pop();
             if (cb) {
@@ -556,6 +563,7 @@ void MermaidRenderer::ProcessQueue()
 void MermaidRenderer::FinishWorkerRequest(Worker& worker)
 {
     worker.rendering = false;
+    ReleaseInflight(worker.current_request);
     auto cb = std::move(worker.current_request.on_complete);
     worker.current_request = {};
     if (cb) {

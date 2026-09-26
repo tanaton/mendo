@@ -209,7 +209,7 @@ struct DiagramEntry {
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
     float width = 0.0f;
     float height = 0.0f;
-    // クリップボードコピー用の元 PNG。bitmap と同時に設定/破棄されるため、
+    // クリップボードコピー用の元 PNG。bitmap と同時に設定/破棄されるため (EvictBitmap 含む)、
     // コピーボタンの表示条件 (bitmap 有無) とデータの有無が常に一致する。
     std::shared_ptr<const std::pmr::vector<uint8_t>> png;
     // レンダリング失敗時のエラーメッセージ (表示用整形済み)。非空 = 失敗確定で、
@@ -221,6 +221,13 @@ struct DiagramEntry {
     bool NeedsRender() const noexcept
     {
         return !bitmap && error.empty();
+    }
+
+    // オフスクリーン evict 用。寸法とエラーはレイアウト維持/再試行抑止のため残す。
+    void EvictBitmap() noexcept
+    {
+        bitmap.Reset();
+        png.reset();
     }
 
     // レンダ結果 (成功/失敗とも) を破棄し再試行可能に戻す。幅変更・テーマ変更用。

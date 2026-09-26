@@ -18,6 +18,7 @@
 #include <memory>
 #include <memory_resource>
 #include <optional>
+#include <unordered_set>
 
 
 class MermaidFileCache;
@@ -140,6 +141,15 @@ private:
     std::move_only_function<void()> on_all_ready_; // 最初のワーカー準備完了時に1回だけ呼び出す
 
     std::queue<RenderRequest, std::pmr::deque<RenderRequest>> pending_requests_;
+    // 待機中/描画中の表示用リクエストの図。未完了の図はスクロールのたびに NeedsRender() が
+    // true のまま再要求されるため、ここで重複を弾く (二重描画・キュー肥大の防止)。
+    std::pmr::unordered_set<const DiagramEntry*> inflight_entries_;
+    void ReleaseInflight(const RenderRequest& req) noexcept
+    {
+        if (req.diagram_entry) {
+            inflight_entries_.erase(req.diagram_entry);
+        }
+    }
 
     // キャッシュ: code_hash -> {bitmap, width, height} (LruCache の挙動は src/util/lru_cache.h 参照)。
     struct CachedBitmap {

@@ -579,6 +579,30 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesOutOfRangeTextLayouts)
     }
 }
 
+TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesDiagramPngButKeepsSize)
+{
+    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n",
+                 /*block_height=*/10000.0f);
+    const auto& indices = doc_.GetDiagramNodeIndices();
+    ASSERT_GE(indices.size(), 2u);
+    for (const size_t i : indices) {
+        auto& d = cache_.GetDiagram(i);
+        d.png = std::make_shared<const std::pmr::vector<uint8_t>>(4, uint8_t{ 1 });
+        d.width = 320.0f;
+        d.height = 240.0f;
+    }
+
+    viewport_.SetScrollY(0.0f);
+    rm_.EvictOffscreenBitmaps();
+
+    const auto& near_diagram = cache_.GetDiagram(indices[0]);
+    const auto& far_diagram = cache_.GetDiagram(indices[1]);
+    EXPECT_NE(near_diagram.png, nullptr);
+    EXPECT_EQ(far_diagram.png, nullptr);
+    EXPECT_FLOAT_EQ(far_diagram.width, 320.0f);
+    EXPECT_FLOAT_EQ(far_diagram.height, 240.0f);
+}
+
 TEST_F(ResourceManagerTest, ScheduleBitmapManageSetsTimer)
 {
     LoadMarkdown("# heading\n");
