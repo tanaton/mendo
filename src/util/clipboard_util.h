@@ -73,65 +73,121 @@ inline bool SetClipboardZeroTerminated(UINT format, std::basic_string_view<CharT
     return CommitClipboardGlobal(format, BuildGlobalZeroTerminated<CharT>(text));
 }
 
-// Utf8ToWide 失敗時に EmptyClipboard で既存内容を破壊しないよう、変換成功後にセッションを開く。
+// UTF-8 を GlobalAlloc 先へ直接 UTF-16 変換する。巨大な全選択コピーで中間 wstring
+// (UTF-8 byte 数ぶんの上限確保) とそのコピーを持たないため。失敗時は空。
+inline UniqueGlobalMem BuildGlobalWideFromUtf8(std::string_view utf8) noexcept
+{
+    if (utf8.empty() || utf8.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        return {};
+    }
+    const int src_len = static_cast<int>(utf8.size());
+    const int wide_len = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), src_len, nullptr, 0);
+    if (wide_len <= 0) {
+        return {};
+    }
+    return AllocGlobalFilled((static_cast<size_t>(wide_len) + 1) * sizeof(wchar_t), [&](void* p) noexcept {
+        auto* dst = static_cast<wchar_t*>(p);
+        const int written = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), src_len, dst, wide_len);
+        dst[wide_len] = L'\0';
+        return written == wide_len;
+    });
+}
+
+// 変換に失敗したら EmptyClipboard で既存内容を破壊しないよう、確保成功後にセッションを開く。
 inline void WriteClipboardText(HWND hwnd, std::string_view text_utf8) noexcept
 {
-    std::pmr::wstring text_wide;
-    string_convert::Utf8ToWide(text_utf8, text_wide);
-    if (text_wide.empty()) {
+    auto mem = BuildGlobalWideFromUtf8(text_utf8);
+    if (!mem) {
         return;
     }
     ClipboardSession session(hwnd);
     if (!session) {
         return;
     }
-    SetClipboardZeroTerminated<wchar_t>(CF_UNICODETEXT, text_wide);
+    CommitClipboardGlobal(CF_UNICODETEXT, std::move(mem));
 }
 
 // HTML Format 仕様: https://learn.microsoft.com/windows/win32/dataxchg/html-clipboard-format
 // ヘッダ内の各オフセットは UTF-8 バイト位置で 10 桁ゼロ埋め。
-inline std::string BuildCfHtmlPayload(std::string_view fragment_utf8)
+namespace cf_html_detail {
+
+inline constexpr std::string_view kBeforeStartHtml = "Version:0.9\r\nStartHTML:";
+inline constexpr std::string_view kBeforeEndHtml = "\r\nEndHTML:";
+inline constexpr std::string_view kBeforeStartFragment = "\r\nStartFragment:";
+inline constexpr std::string_view kBeforeEndFragment = "\r\nEndFragment:";
+inline constexpr std::string_view kHeaderSuffix = "\r\n";
+inline constexpr std::string_view kDigitPlaceholder = "0000000000";
+inline constexpr std::string_view kHtmlPrefix = "<html>\r\n<body>\r\n<!--StartFragment-->";
+inline constexpr std::string_view kHtmlSuffix = "<!--EndFragment-->\r\n</body>\r\n</html>";
+
+inline constexpr size_t kStartHtmlDigits = kBeforeStartHtml.size();
+inline constexpr size_t kEndHtmlDigits = kStartHtmlDigits + kDigitPlaceholder.size() + kBeforeEndHtml.size();
+inline constexpr size_t kStartFragmentDigits = kEndHtmlDigits + kDigitPlaceholder.size() + kBeforeStartFragment.size();
+inline constexpr size_t kEndFragmentDigits = kStartFragmentDigits + kDigitPlaceholder.size() + kBeforeEndFragment.size();
+inline constexpr size_t kHeaderSize = kEndFragmentDigits + kDigitPlaceholder.size() + kHeaderSuffix.size();
+
+} // namespace cf_html_detail
+
+constexpr size_t CfHtmlPayloadSize(size_t fragment_size) noexcept
 {
-    constexpr std::string_view kBeforeStartHtml = "Version:0.9\r\nStartHTML:";
-    constexpr std::string_view kBeforeEndHtml = "\r\nEndHTML:";
-    constexpr std::string_view kBeforeStartFragment = "\r\nStartFragment:";
-    constexpr std::string_view kBeforeEndFragment = "\r\nEndFragment:";
-    constexpr std::string_view kHeaderSuffix = "\r\n";
-    constexpr std::string_view kDigitPlaceholder = "0000000000";
-    constexpr std::string_view kHtmlPrefix = "<html>\r\n<body>\r\n<!--StartFragment-->";
-    constexpr std::string_view kHtmlSuffix = "<!--EndFragment-->\r\n</body>\r\n</html>";
+    using namespace cf_html_detail;
+    return kHeaderSize + kHtmlPrefix.size() + fragment_size + kHtmlSuffix.size();
+}
 
-    constexpr size_t kStartHtmlDigits = kBeforeStartHtml.size();
-    constexpr size_t kEndHtmlDigits = kStartHtmlDigits + kDigitPlaceholder.size() + kBeforeEndHtml.size();
-    constexpr size_t kStartFragmentDigits = kEndHtmlDigits + kDigitPlaceholder.size() + kBeforeStartFragment.size();
-    constexpr size_t kEndFragmentDigits = kStartFragmentDigits + kDigitPlaceholder.size() + kBeforeEndFragment.size();
-    constexpr size_t kHeaderSize = kEndFragmentDigits + kDigitPlaceholder.size() + kHeaderSuffix.size();
+// dst に CfHtmlPayloadSize(fragment.size()) バイトの CF_HTML ペイロードを書く (NUL 終端は含まない)。
+inline void WriteCfHtmlPayload(char* dst, std::string_view fragment_utf8) noexcept
+{
+    using namespace cf_html_detail;
+    char* p = dst;
+    const auto put = [&p](std::string_view s) noexcept {
+        std::char_traits<char>::copy(p, s.data(), s.size());
+        p += s.size();
+    };
+    put(kBeforeStartHtml);
+    put(kDigitPlaceholder);
+    put(kBeforeEndHtml);
+    put(kDigitPlaceholder);
+    put(kBeforeStartFragment);
+    put(kDigitPlaceholder);
+    put(kBeforeEndFragment);
+    put(kDigitPlaceholder);
+    put(kHeaderSuffix);
+    const size_t start_html = static_cast<size_t>(p - dst);
+    put(kHtmlPrefix);
+    const size_t start_fragment = static_cast<size_t>(p - dst);
+    put(fragment_utf8);
+    const size_t end_fragment = static_cast<size_t>(p - dst);
+    put(kHtmlSuffix);
+    const size_t end_html = static_cast<size_t>(p - dst);
 
-    std::string payload;
-    payload.reserve(kHeaderSize + kHtmlPrefix.size() + fragment_utf8.size() + kHtmlSuffix.size());
-    payload.append(kBeforeStartHtml).append(kDigitPlaceholder);
-    payload.append(kBeforeEndHtml).append(kDigitPlaceholder);
-    payload.append(kBeforeStartFragment).append(kDigitPlaceholder);
-    payload.append(kBeforeEndFragment).append(kDigitPlaceholder);
-    payload.append(kHeaderSuffix);
-    const size_t start_html = payload.size();
-    payload.append(kHtmlPrefix);
-    const size_t start_fragment = payload.size();
-    payload.append(fragment_utf8);
-    const size_t end_fragment = payload.size();
-    payload.append(kHtmlSuffix);
-    const size_t end_html = payload.size();
-
-    auto write_offset = [&payload](size_t digit_offset, size_t value) noexcept {
+    const auto write_offset = [dst](size_t digit_offset, size_t value) noexcept {
         char buf[11];
         std::snprintf(buf, sizeof(buf), "%010zu", value);
-        std::char_traits<char>::copy(payload.data() + digit_offset, buf, 10);
+        std::char_traits<char>::copy(dst + digit_offset, buf, 10);
     };
     write_offset(kStartHtmlDigits, start_html);
     write_offset(kEndHtmlDigits, end_html);
     write_offset(kStartFragmentDigits, start_fragment);
     write_offset(kEndFragmentDigits, end_fragment);
+}
+
+inline std::string BuildCfHtmlPayload(std::string_view fragment_utf8)
+{
+    std::string payload(CfHtmlPayloadSize(fragment_utf8.size()), '\0');
+    WriteCfHtmlPayload(payload.data(), fragment_utf8);
     return payload;
+}
+
+// CF_HTML ペイロードを GlobalAlloc 先に直接組み立てる (中間 std::string のコピーを持たない)。
+inline UniqueGlobalMem BuildGlobalCfHtml(std::string_view fragment_utf8) noexcept
+{
+    const size_t size = CfHtmlPayloadSize(fragment_utf8.size());
+    return AllocGlobalFilled(size + 1, [&](void* p) noexcept {
+        auto* dst = static_cast<char*>(p);
+        WriteCfHtmlPayload(dst, fragment_utf8);
+        dst[size] = '\0';
+        return true;
+    });
 }
 
 // CF_DIB (32bpp トップダウン BGRA) のバイト数: BITMAPINFOHEADER + ピクセル列。
@@ -210,10 +266,10 @@ inline bool WriteClipboardDiagram(HWND hwnd, UniqueGlobalMem dib, std::wstring_v
 // plain_text_utf8: 書式付きに対応していないアプリ向けのフォールバック (UTF-8)。
 inline void WriteClipboardHtml(HWND hwnd, std::string_view fragment_utf8, std::string_view plain_text_utf8) noexcept
 {
-    // EmptyClipboard で既存内容を破壊しないよう、ペイロードが 1 つも揃わなければセッションを開かない。
-    std::pmr::wstring plain_wide;
-    string_convert::Utf8ToWide(plain_text_utf8, plain_wide);
-    if (fragment_utf8.empty() && plain_wide.empty()) {
+    // EmptyClipboard で既存内容を破壊しないよう、ペイロードを揃えてからセッションを開く。
+    UniqueGlobalMem html = fragment_utf8.empty() ? UniqueGlobalMem{} : BuildGlobalCfHtml(fragment_utf8);
+    UniqueGlobalMem plain = BuildGlobalWideFromUtf8(plain_text_utf8);
+    if (!html && !plain) {
         return;
     }
     ClipboardSession session(hwnd);
@@ -221,13 +277,11 @@ inline void WriteClipboardHtml(HWND hwnd, std::string_view fragment_utf8, std::s
         return;
     }
 
-    if (!fragment_utf8.empty()) {
-        const std::string payload = BuildCfHtmlPayload(fragment_utf8);
+    if (html) {
         static const UINT cf_html = RegisterClipboardFormatW(L"HTML Format");
-        SetClipboardZeroTerminated<char>(cf_html, payload);
+        CommitClipboardGlobal(cf_html, std::move(html));
     }
-
-    if (!plain_wide.empty()) {
-        SetClipboardZeroTerminated<wchar_t>(CF_UNICODETEXT, plain_wide);
+    if (plain) {
+        CommitClipboardGlobal(CF_UNICODETEXT, std::move(plain));
     }
 }

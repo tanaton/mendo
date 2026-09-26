@@ -17,6 +17,21 @@
 // ExtractSelectedText
 // ============================================================
 
+// 全選択で倍々成長の再確保をしないよう、正確な長さで 1 回だけ確保する。
+TEST(ExtractSelectedText, ReservesExactLength)
+{
+    std::pmr::vector<Node> nodes;
+    nodes.push_back(MakeTextNode("first paragraph"));
+    nodes.push_back(MakeTextNode("second"));
+    nodes.push_back(MakeTextNode("third one"));
+    TextSelection sel = TextSelection::MakeOrdered(0, 6, 2, 5);
+    sel.active = true;
+    const auto text = ExtractSelectedText(nodes, sel);
+    EXPECT_EQ(text, "paragraph\r\nsecond\r\nthird");
+    // reserve は確保粒度 (16 byte) までの切り上げのみ許容する。
+    EXPECT_LT(text.capacity(), text.size() + 16);
+}
+
 TEST(ExtractSelectedText, InactiveSelectionReturnsEmpty)
 {
     auto nodes = ParseMarkdown("Hello world").nodes;
