@@ -138,6 +138,9 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         .h_scroll = block_h_scroll,
     };
 
+    cull_top_ = fc.viewport_top;
+    cull_bottom_ = fc.viewport_bottom;
+
     // SelectionHlCache は lazy 確保のみで自動破棄経路が無く、選択範囲外に出たノード分が
     // 居残ってメモリが漸増する。前フレームの範囲との差分区間だけ巻き戻す
     // (Ctrl+A 後のドラッグ等で範囲全体を毎回走査しない)。
@@ -358,7 +361,7 @@ void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const Frame
 
     const auto [base_color, base_brush] = GetNodeBaseStyle(node);
 
-    GenInlineCodeBgs(cmds, entry.view_inline_code_bgs(), text_x, entry_text_top, theme_->code_bg_color);
+    GenInlineCodeBgs(cmds, entry.view_inline_code_bgs(), text_x, entry_text_top, theme_->code_bg_color, cull_top_, cull_bottom_);
 
     // 検索マッチのハイライト（選択より先に描画し、選択が最前面になるようにする）
     GenSearchHighlights(cmds, entry, node_index, text_x, entry_text_top);

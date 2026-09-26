@@ -241,3 +241,31 @@ TEST_F(HighlightOrderTest, SelectionHighlightHandlesUtf8MultibyteOffset)
     ASSERT_TRUE(rect2.has_value());
     EXPECT_NEAR(rect2->right - rect2->left, rect1->right - rect1->left, 2.0f);
 }
+
+// 巨大ノードの全選択でも、可視 Y 範囲外の選択矩形は FillRect を積まない。
+TEST_F(HighlightOrderTest, SelectionRectsCulledToViewport)
+{
+    std::string md = "```\n";
+    for (int i = 0; i < 1000; ++i) {
+        md += "line " + std::to_string(i) + "\n";
+    }
+    md += "```\n";
+    auto pl = ParseAndLayout(md);
+    ASSERT_EQ(pl.nodes.size(), 1u);
+    const auto text_size = static_cast<uint32_t>(pl.nodes[0].GetText().size());
+
+    TextSelection sel = TextSelection::MakeOrdered(0, 0, 0, text_size);
+    sel.active = true;
+    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 200.0f };
+    const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, sel);
+
+    size_t selection_rects = 0;
+    for (const auto& c : cmds) {
+        if (auto* fr = std::get_if<FillRectCmd>(&c); fr && ColorEq(fr->color, SELECTION_COLOR)) {
+            ++selection_rects;
+            EXPECT_LE(fr->rect.top, pane.height);
+        }
+    }
+    EXPECT_GT(selection_rects, 0u);
+    EXPECT_LT(selection_rects, 50u) << "1000 行ぶんの矩形を積んでいる";
+}
