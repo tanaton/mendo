@@ -203,6 +203,8 @@ void App::OnPaint()
         const bool updated = layout_service_->EnsureVisibleLayout(state_.document.doc, state_.document.layout_cache, layout.md_rect.width, layout.md_rect.height);
         if (updated) {
             EmitEffect(effect::SyncMaxScroll{ layout.md_rect.height });
+            // 未計測領域に入った。スクロール先を先読み計測させ、以降のフレームでの同期計測を減らす。
+            ScheduleDeferredLayoutIfNeeded();
         }
     }
 
@@ -330,6 +332,11 @@ void App::OnAppImageLoaded()
     Dispatch(ImageLoadedAction{});
 }
 
+void App::OnMermaidDiskLoaded()
+{
+    resource_manager_.BatchMermaidCompletions([this] { mermaid_renderer_.ProcessDiskLoads(); });
+}
+
 void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
 {
     if (!IsRenderReady()) {
@@ -424,7 +431,7 @@ void App::OnDestroy()
     mermaid_renderer_.Shutdown();
     // 走行中タスクが latch.wait 中の参照を保ったまま解放されないよう、
     // LayoutEngine の参照解除 → Shutdown (join) → ターゲット deinit の順を守る。
-    renderer_.GetLayout().SetLayoutScheduler(nullptr);
+    renderer_.SetLayoutScheduler(nullptr);
     layout_scheduler_.Shutdown();
     scheduler_.Shutdown();
     file_cache_.Shutdown();
@@ -436,7 +443,7 @@ void App::OnDestroy()
         session_.SaveLastFilePath(state_.document.doc.GetFilePath());
         if (const int node = state_.view.viewport.FindFirstVisibleNode(state_.document.layout_cache, state_.document.doc.GetNodes().size()); node >= 0) {
             // 復元側 (NodeOffsetToScrollY) と同じ cache[node].text_top を読む。
-            const float text_top = state_.document.layout_cache[node].text_top;
+            const float text_top = state_.document.layout_cache.Top(static_cast<size_t>(node));
             session_.SaveScrollPosition(node, state_.view.viewport.GetScrollY(), text_top);
         }
     }

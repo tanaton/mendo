@@ -21,6 +21,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <type_traits>
 #include <utility>
 
 namespace {
@@ -954,6 +955,18 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     {
         MENDO_PROFILE("DetectAlerts");
         DetectAlerts(ctx.nodes, std::span<const size_t>{ ctx.blockquote_indices });
+    }
+
+    // kInputBytesPerNode は再確保を避けるため多めに見積もっており、平均的な文書では容量が
+    // 実数の 2 倍超 (100MB 入力で ~140MB) 残る。Document の寿命中コミットされ続けるので切り詰める。
+    {
+        static_assert(std::is_nothrow_move_constructible_v<Node>, "shrink_to_fit がコピーにならないこと");
+        constexpr size_t kShrinkMinWasteBytes = 4 * 1024 * 1024;
+        const size_t waste = (ctx.nodes.capacity() - ctx.nodes.size()) * sizeof(Node);
+        if (waste > kShrinkMinWasteBytes && waste > ctx.nodes.size() * sizeof(Node) / 4) {
+            MENDO_PROFILE("nodes.shrink_to_fit");
+            ctx.nodes.shrink_to_fit();
+        }
     }
 
     ParseResult result;

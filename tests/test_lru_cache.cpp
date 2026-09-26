@@ -264,3 +264,33 @@ TEST(LruCache, RepeatedInsertExistingKeyClimbsToFront)
     EXPECT_EQ(cache.Find(2), nullptr);
     EXPECT_NE(cache.Find(5), nullptr);
 }
+
+TEST(LruCache, TrimToBudgetEvictsFromTail)
+{
+    LruCache<int, int, 5> cache;
+    cache.Insert(1, 10);
+    cache.Insert(2, 20);
+    cache.Insert(3, 30);
+    // 内部 [3, 2, 1]、cost 合計 60
+
+    cache.TrimToBudget(50, [](int v) { return static_cast<size_t>(v); });
+    EXPECT_EQ(cache.Size(), 2u);
+    EXPECT_EQ(cache.Find(1), nullptr);
+    EXPECT_NE(cache.Find(3), nullptr);
+
+    // 挿入は引き続き可能 (size_ と head_ の整合が保たれる)
+    cache.Insert(4, 1);
+    EXPECT_NE(cache.Find(4), nullptr);
+    EXPECT_EQ(cache.Size(), 3u);
+}
+
+TEST(LruCache, TrimToBudgetKeepsMostRecentEvenIfOverBudget)
+{
+    LruCache<int, int, 3> cache;
+    cache.Insert(1, 100);
+    cache.Insert(2, 200);
+
+    cache.TrimToBudget(10, [](int v) { return static_cast<size_t>(v); });
+    EXPECT_EQ(cache.Size(), 1u);
+    EXPECT_NE(cache.Find(2), nullptr);
+}

@@ -16,8 +16,8 @@ struct AppResourceManagerCallbacks {
     float get_content_width();
     float get_viewport_height();
     float get_indent_width();
-    void recompute_layout();
-    void recompute_layout_anchored();
+    void recompute_layout(mendo::layout::HeightChangeRange changed);
+    void recompute_layout_anchored(mendo::layout::HeightChangeRange changed);
 };
 
 using ResourceManager = ResourceManagerT<AppResourceManagerCallbacks>;

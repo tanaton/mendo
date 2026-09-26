@@ -164,6 +164,29 @@ TEST_F(MermaidFileCacheTest, LookupCleansUpStaleIndexEntry)
     EXPECT_EQ(cache_.EntryCount(), 0u);
 }
 
+// LookupPath はファイルを読まずにパスと寸法を返し、読み込み失敗は OnReadFailed で反映する。
+TEST_F(MermaidFileCacheTest, LookupPathAndOnReadFailed)
+{
+    InitCache();
+    cache_.StoreAsync(42, 100.0f, 50.0f, MakeDummyPng(256));
+    FlushAndReopen();
+
+    MermaidFileCache::CacheEntry entry;
+    std::filesystem::path path;
+    ASSERT_TRUE(cache_.LookupPath(42, entry, path));
+    EXPECT_FLOAT_EQ(entry.css_width, 100.0f);
+    EXPECT_FLOAT_EQ(entry.css_height, 50.0f);
+    EXPECT_TRUE(std::filesystem::exists(path));
+
+    // 共有違反などの一時エラーではエントリを保持する。
+    cache_.OnReadFailed(42, ERROR_SHARING_VIOLATION);
+    EXPECT_EQ(cache_.EntryCount(), 1u);
+
+    cache_.OnReadFailed(42, ERROR_FILE_NOT_FOUND);
+    EXPECT_EQ(cache_.EntryCount(), 0u);
+    EXPECT_FALSE(cache_.LookupPath(42, entry, path));
+}
+
 // ═══════════════════════════════════════════════
 // LRU削除 — エントリ数上限
 // ═══════════════════════════════════════════════

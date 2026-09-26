@@ -21,12 +21,12 @@ class Document {
 public:
     constexpr Document() noexcept = default;
 
-    // move-only: nodes_ は view モード時に raw_text_.data() を view_.data() に持つため、
-    // move 後に RebaseViews() で旧 base から新 base への delta を反映する必要がある。
+    // move-only: nodes_ は view モード時に raw_text_ のバッファを直接指す。RawText は共有文字列を
+    // 持つため move でバッファは relocate せず、view の付け替えは不要。
     Document(const Document&) = delete;
     Document& operator=(const Document&) = delete;
-    Document(Document&& other) noexcept;
-    Document& operator=(Document&& other) noexcept;
+    Document(Document&& other) noexcept = default;
+    Document& operator=(Document&& other) noexcept = default;
     ~Document() = default;
 
     // ファクトリ。本体は (text, byte_size, path) の 3 引数版。
@@ -103,22 +103,10 @@ private:
     // ParseResult を nodes_ に取り込み、TOC / anchor_index_ / image / diagram の各種
     // インデックスを再構築する。
     // 契約: 入力 ParseResult のノード view_ は raw_text_.data() を base にしていること。
-    // FromMarkdown / ReplaceFromMarkdown 経由でのみ呼ぶ。Document を後で move する際の
-    // RebaseViews が異種 array 間のポインタ減算を起こさないようこの不変条件が必要。
+    // FromMarkdown / ReplaceFromMarkdown 経由でのみ呼ぶ。
     void ReplaceContent(ParseResult&& result);
 
     void BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indices);
-
-    // move 後にノードの view_ を新しい raw_text_.data() へ rebase する。
-    // raw_text_ の relocate (resize/assign) は禁止契約のため、通常のパース完了後は不要だが、
-    // Document 自身の move 後は raw_text_ のヒープバッファが移動する可能性があるため呼び直す。
-    // old_base は move 前 (raw_text_ を move する直前) に取得しておく必要がある。
-    void RebaseViews(const char* old_base) noexcept;
-
-    // ムーブ構築/ムーブ代入で共有する移送処理。other の raw_text_ を move する前に
-    // old_base を確保しないと、move 後の other.raw_text_.data() が空文字列を指し
-    // rebase が壊れる。共通化により両経路で同じ順序を保証する。
-    void MoveFrom(Document&& other) noexcept;
 
     std::pmr::vector<Node> nodes_;
     std::pmr::wstring file_path_;

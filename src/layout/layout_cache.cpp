@@ -82,6 +82,11 @@ void LayoutCache::ResetTableLayoutGeometry(TableLayoutData& tl) noexcept
 {
     tl.cell_layouts.clear();
     tl.row_bgs_computed.clear();
+    tl.row_links_applied.clear();
+    tl.row_evicted.clear();
+    tl.evicted_row_count = 0;
+    tl.live_row_begin = 0;
+    tl.live_row_end = 0;
     tl.natural_col_widths.clear();
     tl.cell_heights.clear();
     tl.cell_applied_widths.clear();
@@ -89,7 +94,6 @@ void LayoutCache::ResetTableLayoutGeometry(TableLayoutData& tl) noexcept
     tl.last_applied_max_width = -1.0f;
     tl.cached_table_width = 0.0f;
     tl.natural_total_width = 0.0f;
-    tl.cells_partially_evicted = false;
 }
 
 void LayoutCache::ResetEntryTextLayout(NodeLayoutEntry& e) noexcept
@@ -104,12 +108,33 @@ void LayoutCache::ResetEntryTextLayout(NodeLayoutEntry& e) noexcept
 
 void LayoutCache::EvictEntryLayout(NodeLayoutEntry& e) noexcept
 {
+    // テーブルは列幅・行高さを残してセル layout だけ捨てる。幾何ごと捨てると再表示時に
+    // 全セルの CreateTextLayout (巨大テーブルで秒単位) をやり直すことになる。
+    if (e.table_layout && HasRowTracking(*e.table_layout)) {
+        e.invalidate_per_frame_hl_caches();
+        auto& tl = *e.table_layout;
+        for (size_t r = tl.live_row_begin; r < tl.live_row_end; ++r) {
+            EvictTableRow(tl, r);
+        }
+        tl.live_row_begin = 0;
+        tl.live_row_end = 0;
+        return;
+    }
     if (!e.text_layout && !e.table_layout) {
         return;
     }
     ResetEntryTextLayout(e);
     e.table_layout.reset();
     e.layout_dirty = true;
+}
+
+bool LayoutCache::HasRowTracking(const TableLayoutData& tl) noexcept
+{
+    if (tl.cell_layouts.empty() || tl.col_count == 0 || tl.row_cum_y.empty()) {
+        return false;
+    }
+    const size_t row_count = tl.row_cum_y.size() - 1;
+    return row_count * tl.col_count == tl.cell_layouts.size() && tl.row_evicted.size() == row_count;
 }
 
 void LayoutCache::EvictTableRow(TableLayoutData& tl, size_t row_index) noexcept
@@ -126,7 +151,7 @@ void LayoutCache::EvictTableRow(TableLayoutData& tl, size_t row_index) noexcept
         const size_t ci = base + c;
         if (tl.cell_layouts[ci]) {
             tl.cell_layouts[ci].Reset();
-            tl.cells_partially_evicted = true;
+            tl.MarkRowEvicted(row_index);
         }
         if (ci < tl.cell_heights.size()) {
             tl.cell_heights[ci] = 0.0f;
@@ -143,6 +168,7 @@ void LayoutCache::Resize(size_t node_count)
 {
     if (entries_.size() != node_count) {
         entries_.resize(node_count);
+        tops_.resize(node_count);
         diagrams_.resize(node_count);
         effects_generation_++;
         ResetEvictionTracking();
@@ -152,10 +178,13 @@ void LayoutCache::Resize(size_t node_count)
 void LayoutCache::Reset(size_t node_count, bool shrink)
 {
     entries_.clear();
+    tops_.clear();
     if (shrink) {
         entries_.shrink_to_fit();
+        tops_.shrink_to_fit();
     }
     entries_.resize(node_count);
+    tops_.resize(node_count);
     diagrams_.clear();
     if (shrink) {
         diagrams_.shrink_to_fit();
@@ -186,6 +215,7 @@ void LayoutCache::InvalidateEffectsAndDiagramBitmaps(const std::pmr::vector<Node
         if (e.table_layout) {
             e.table_layout->cell_inline_code_bgs.clear();
             e.table_layout->row_bgs_computed.clear();
+            e.table_layout->row_links_applied.clear();
         }
     }
     effects_generation_++;
@@ -257,24 +287,26 @@ void LayoutCache::EvictInvisibleTableRows(
             continue;
         }
         auto& e = entries_[idx];
-        if (!e.table_layout) {
+        if (!e.table_layout || !HasRowTracking(*e.table_layout)) {
             continue;
         }
         auto& tl = *e.table_layout;
-        if (tl.cell_layouts.empty() || tl.col_count == 0 || tl.row_cum_y.empty()) {
-            continue;
+        // 既に evict 済みの行はなめ直さず、生存範囲のうち keep 外の差分だけ捨てる。
+        // 再可視化は dirty を経由せず LayoutEngine::EnsureVisibleLayout の行復元で行う。
+        const auto [keep_begin, keep_end] = tl.VisibleRowRange(keep_top - tops_[idx], keep_bottom - tops_[idx]);
+        const size_t live_begin = tl.live_row_begin;
+        const size_t live_end = tl.live_row_end;
+        for (size_t r = live_begin; r < std::min(live_end, keep_begin); ++r) {
+            EvictTableRow(tl, r);
         }
-        const size_t row_count = tl.row_cum_y.size() - 1;
-        const float entry_top = e.text_top;
-        for (size_t r = 0; r < row_count; ++r) {
-            const float row_top = entry_top + tl.row_cum_y[r];
-            const float row_bottom = entry_top + tl.row_cum_y[r + 1];
-            if (row_bottom < keep_top || row_top > keep_bottom) {
-                EvictTableRow(tl, r);
-            }
+        for (size_t r = std::max(live_begin, keep_end); r < live_end; ++r) {
+            EvictTableRow(tl, r);
         }
-        if (tl.cells_partially_evicted) {
-            e.layout_dirty = true;
+        tl.live_row_begin = std::max(live_begin, keep_begin);
+        tl.live_row_end = std::min(live_end, keep_end);
+        if (tl.live_row_begin >= tl.live_row_end) {
+            tl.live_row_begin = 0;
+            tl.live_row_end = 0;
         }
     }
 }

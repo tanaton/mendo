@@ -3,6 +3,7 @@
 #include <wincodec.h>
 #include <d2d1.h>
 #include <wrl/client.h>
+#include <algorithm>
 #include <optional>
 
 namespace wic_util {
@@ -91,6 +92,56 @@ inline std::optional<DecodeResult> DecodeFromStream(
     }
 
     return DecodeResult{ std::move(converter), w, h };
+}
+
+struct PixelSize {
+    UINT width = 0;
+    UINT height = 0;
+    constexpr bool operator==(const PixelSize&) const = default;
+};
+
+// 表示に要る解像度までアスペクト比を保って縮小したサイズ。拡大はしない。
+// max_width: 表示で使われうる最大幅 (px)、max_dim: GPU ビットマップの最大辺 (px)。0 は無制限。
+constexpr PixelSize ComputeDecodeSize(UINT width, UINT height, UINT max_width, UINT max_dim) noexcept
+{
+    if (width == 0 || height == 0) {
+        return { width, height };
+    }
+    double scale = 1.0;
+    if (max_width > 0 && width > max_width) {
+        scale = static_cast<double>(max_width) / width;
+    }
+    if (max_dim > 0) {
+        const UINT longest = width > height ? width : height;
+        scale = std::min(scale, static_cast<double>(max_dim) / longest);
+    }
+    if (scale >= 1.0) {
+        return { width, height };
+    }
+    const auto scaled = [scale](UINT v) {
+        const auto s = static_cast<UINT>(v * scale + 0.5);
+        return s > 0 ? s : 1u;
+    };
+    return { scaled(width), scaled(height) };
+}
+
+// PBGRA へのデコードをこのスレッドで確定させた IWICBitmap を作る。IWICFormatConverter のまま
+// 渡すと実デコードは CreateBitmapFromWicBitmap (UI スレッド) の CopyPixels まで遅延される。
+inline Microsoft::WRL::ComPtr<IWICBitmap> DecodeToWicBitmap(IWICImagingFactory* wic, IWICBitmapSource* source, PixelSize original, PixelSize target)
+{
+    Microsoft::WRL::ComPtr<IWICBitmapSource> src = source;
+    if (target != original) {
+        Microsoft::WRL::ComPtr<IWICBitmapScaler> scaler;
+        if (SUCCEEDED(wic->CreateBitmapScaler(&scaler)) &&
+            SUCCEEDED(scaler->Initialize(source, target.width, target.height, WICBitmapInterpolationModeFant))) {
+            src = scaler;
+        }
+    }
+    Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
+    if (FAILED(wic->CreateBitmapFromSource(src.Get(), WICBitmapCacheOnLoad, &bitmap))) {
+        return nullptr;
+    }
+    return bitmap;
 }
 
 struct CreatedBitmap {

@@ -4,7 +4,9 @@
 #include <memory_resource>
 #include <thread>
 #include "dirty_scheduler.h"
+#include "layout.h"
 #include "mock_text_measurer.h"
+#include "parser.h"
 #include "parallel_measure.h"
 #include "task_scheduler.h"
 #include "test_helpers.h"
@@ -31,7 +33,7 @@ struct ParallelFixture {
         }
         cache.Resize(n);
         for (size_t i = 0; i < n; ++i) {
-            cache[i].text_top = static_cast<float>(i) * 100.0f;
+            cache.SetTop(i, static_cast<float>(i) * 100.0f);
             cache[i].height = 80.0f;
             cache[i].layout_dirty = all_dirty;
         }
@@ -151,5 +153,41 @@ TEST_F(ParallelMeasureTest, AllDirtyClearedAfterRun)
     for (size_t i = 0; i < N; ++i) {
         EXPECT_FALSE(f.cache[i].layout_dirty) << "i=" << i;
         EXPECT_GT(f.cache[i].height, 0.0f) << "i=" << i;
+    }
+}
+
+// EnsureVisibleLayout も scheduler があれば可視 dirty を並列計測し、直列と同じ結果になる。
+TEST_F(ParallelMeasureTest, EnsureVisibleLayoutParallelMatchesSerial)
+{
+    std::string md;
+    for (int i = 0; i < 300; i++) {
+        md += "Paragraph " + std::to_string(i) + " " + std::string(static_cast<size_t>(i % 50), 'w') + "\n\n";
+    }
+    const auto build = [&](LayoutEngine& engine, std::pmr::vector<Node>& nodes, LayoutCache& cache) {
+        nodes = ParseMarkdown(md).nodes;
+        cache.Resize(nodes.size());
+        EstimateNodeHeights(nodes, cache, theme_);
+        engine.EnsureVisibleLayout(nodes, cache, 800.0f, 0.0f, 100000.0f);
+    };
+
+    LayoutEngine serial;
+    ASSERT_TRUE(serial.Init(&mock_, theme_));
+    std::pmr::vector<Node> s_nodes;
+    LayoutCache s_cache;
+    build(serial, s_nodes, s_cache);
+
+    LayoutEngine parallel;
+    ASSERT_TRUE(parallel.Init(&mock_, theme_));
+    parallel.SetLayoutScheduler(&task_scheduler_);
+    std::pmr::vector<Node> p_nodes;
+    LayoutCache p_cache;
+    build(parallel, p_nodes, p_cache);
+    parallel.SetLayoutScheduler(nullptr);
+
+    ASSERT_EQ(s_nodes.size(), p_nodes.size());
+    for (size_t i = 0; i < s_nodes.size(); ++i) {
+        EXPECT_FLOAT_EQ(s_cache[i].height, p_cache[i].height) << "i=" << i;
+        EXPECT_FLOAT_EQ(s_cache.Top(i), p_cache.Top(i)) << "i=" << i;
+        EXPECT_EQ(s_cache[i].layout_dirty, p_cache[i].layout_dirty) << "i=" << i;
     }
 }

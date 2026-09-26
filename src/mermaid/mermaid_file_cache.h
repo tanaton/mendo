@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <map>
 #include <atomic>
+#include <windows.h>
 
 class TaskScheduler;
 
@@ -41,6 +42,11 @@ public:
 
     void Init(float current_dpr, TaskScheduler& scheduler);
     bool Lookup(uint64_t key, CacheEntry& entry, PngBlob& png);
+    // インデックスにあれば PNG のパスと寸法を返し LRU を更新する。読み込み (ReadAllBytes) は
+    // 呼び出し側が任意のスレッドで行い、失敗したら OnReadFailed で UI スレッドに戻して反映する。
+    bool LookupPath(uint64_t key, CacheEntry& entry, std::filesystem::path& png_path);
+    // ファイルが確実に存在しない場合のみインデックスから除く (共有違反などの一時エラーは保持)。
+    void OnReadFailed(uint64_t key, DWORD read_error);
     bool LookupDimensions(uint64_t key, CacheEntry& entry) const noexcept;
     void StoreAsync(uint64_t key, float css_width, float css_height, std::pmr::vector<uint8_t> png_data);
     void SaveIndex();

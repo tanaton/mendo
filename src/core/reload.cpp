@@ -8,8 +8,16 @@
 size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept
 {
     const size_t min_len = std::min(old_text.size(), new_text.size());
+    // 大半が一致する前提で、粗いチャンクで当たりを付けてから細かいチャンクへ絞る
+    // (64B 単位だけだと 100MB で memcmp 呼び出しが 160 万回になる)。
+    constexpr size_t kCoarseChunk = 64 * 1024;
     constexpr size_t kChunk = 64;
     size_t i = 0;
+    for (; i + kCoarseChunk <= min_len; i += kCoarseChunk) {
+        if (std::memcmp(old_text.data() + i, new_text.data() + i, kCoarseChunk) != 0) {
+            break;
+        }
+    }
     for (; i + kChunk <= min_len; i += kChunk) {
         if (std::memcmp(old_text.data() + i, new_text.data() + i, kChunk) != 0) {
             break;
@@ -98,7 +106,7 @@ float CalcScrollYForDiff(
         return fallback_scroll;
     }
 
-    float node_y = cache[changed_node].text_top;
+    float node_y = cache.Top(static_cast<size_t>(changed_node));
     const float node_h = cache[changed_node].height;
 
     const auto node_start = nodes[changed_node].SourceOffsetFrom(raw_base);

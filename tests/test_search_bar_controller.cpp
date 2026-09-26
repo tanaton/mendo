@@ -161,7 +161,7 @@ TEST_F(SearchBarControllerTest, OnTextChangedEmptyQuery)
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode("hello world"));
 
-    ctrl_.OnTextChanged(L"", nodes);
+    ctrl_.OnTextChanged(L"", nodes, 0);
     EXPECT_TRUE(state_.GetQuery().empty());
     EXPECT_EQ(state_.GetMatchCount(), 0);
 }
@@ -171,10 +171,10 @@ TEST_F(SearchBarControllerTest, OnTextChangedSmallDocImmediate)
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode("hello world"));
     cache_.Resize(nodes.size());
-    cache_[0].text_top = 0.0f;
+    cache_.SetTop(0, 0.0f);
     cache_[0].height = 100.0f;
 
-    ctrl_.OnTextChanged(L"hello", nodes);
+    ctrl_.OnTextChanged(L"hello", nodes, 0);
     EXPECT_EQ(state_.GetMatchCount(), 1);
 }
 
@@ -186,9 +186,22 @@ TEST_F(SearchBarControllerTest, OnTextChangedLargeDocDebounces)
     }
 
     const int before = set_timer_count_;
-    ctrl_.OnTextChanged(L"text", nodes);
+    ctrl_.OnTextChanged(L"text", nodes, 0);
     EXPECT_GT(set_timer_count_, before);
     EXPECT_EQ(last_timer_id_, app_timer::Id::SEARCH_DEBOUNCE);
+}
+
+// 巨大テーブル/コードブロックは 1 ノードでも打鍵ごとの全走査が重いのでバイト数でもデバウンスする
+TEST_F(SearchBarControllerTest, OnTextChangedFewNodesLargeBytesDebounces)
+{
+    std::pmr::vector<Node> nodes;
+    nodes.push_back(MakeTextNode("text"));
+
+    const int before = set_timer_count_;
+    ctrl_.OnTextChanged(L"text", nodes, decltype(ctrl_)::kImmediateSearchMaxBytes + 1);
+    EXPECT_GT(set_timer_count_, before);
+    EXPECT_EQ(last_timer_id_, app_timer::Id::SEARCH_DEBOUNCE);
+    EXPECT_EQ(state_.GetMatchCount(), 0);
 }
 
 // ═══════════════════════════════════════════════
@@ -273,6 +286,30 @@ TEST_F(SearchBarControllerTest, CaretBlinkToggles)
     EXPECT_TRUE(rs3.caret_visible);
 }
 
+TEST_F(SearchBarControllerTest, WindowDeactivateStopsCaretBlink)
+{
+    std::pmr::vector<Node> nodes;
+    ctrl_.OnOpen(nodes);
+
+    ctrl_.OnWindowActivate(false);
+    EXPECT_EQ(last_killed_timer_, app_timer::Id::SEARCH_CARET);
+    EXPECT_FALSE(ctrl_.BuildRenderState().caret_visible);
+    EXPECT_TRUE(ctrl_.HasFocus());
+
+    ctrl_.OnWindowActivate(true);
+    EXPECT_TRUE(ctrl_.BuildRenderState().caret_visible);
+}
+
+TEST_F(SearchBarControllerTest, WindowActivateIgnoredWhenClosed)
+{
+    const int kills = kill_timer_count_;
+    const int sets = set_timer_count_;
+    ctrl_.OnWindowActivate(false);
+    ctrl_.OnWindowActivate(true);
+    EXPECT_EQ(kill_timer_count_, kills);
+    EXPECT_EQ(set_timer_count_, sets);
+}
+
 // ═══════════════════════════════════════════════
 // 大文字小文字切替・ハイライト切替
 // ═══════════════════════════════════════════════
@@ -324,11 +361,11 @@ TEST_F(SearchBarControllerTest, BuildRenderStateReflectsState)
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode("abc"));
     cache_.Resize(1);
-    cache_[0].text_top = 0.0f;
+    cache_.SetTop(0, 0.0f);
     cache_[0].height = 100.0f;
 
     ctrl_.OnOpen(nodes);
-    ctrl_.OnTextChanged(L"abc", nodes);
+    ctrl_.OnTextChanged(L"abc", nodes, 0);
 
     const auto rs = ctrl_.BuildRenderState();
     EXPECT_TRUE(rs.visible);
@@ -350,9 +387,9 @@ TEST_F(SearchBarControllerTest, ScrollToMatchClearsScrollTarget)
     nodes.push_back(MakeTextNode("world hello"));
 
     cache_.Resize(2);
-    cache_[0].text_top = 0.0f;
+    cache_.SetTop(0, 0.0f);
     cache_[0].height = 500.0f;
-    cache_[1].text_top = 500.0f;
+    cache_.SetTop(1, 500.0f);
     cache_[1].height = 500.0f;
 
     viewport_.SyncMaxScroll(1000.0f, 800.0f);
@@ -360,7 +397,7 @@ TEST_F(SearchBarControllerTest, ScrollToMatchClearsScrollTarget)
     EXPECT_TRUE(viewport_.HasScrollTarget());
 
     state_.Show();
-    ctrl_.OnTextChanged(L"hello", nodes);
+    ctrl_.OnTextChanged(L"hello", nodes, 0);
     ctrl_.OnNext();
 
     EXPECT_FALSE(viewport_.HasScrollTarget());
@@ -375,14 +412,14 @@ TEST_F(SearchBarControllerTest, ScrollToMatchPassesMdPaneHeightToCallback)
     nodes.push_back(MakeTextNode("target"));
 
     cache_.Resize(2);
-    cache_[0].text_top = 0.0f;
+    cache_.SetTop(0, 0.0f);
     cache_[0].height = 1000.0f;
-    cache_[1].text_top = 1000.0f;
+    cache_.SetTop(1, 1000.0f);
     cache_[1].height = 1000.0f;
 
     viewport_.SyncMaxScroll(2000.0f, md_pane_height_);
     state_.Show();
-    ctrl_.OnTextChanged(L"target", nodes);
+    ctrl_.OnTextChanged(L"target", nodes, 0);
     on_scroll_changed_count_ = 0;
     last_scroll_changed_value_ = -1.0f;
     ctrl_.OnNext();
@@ -410,7 +447,7 @@ TEST_F(SearchBarControllerTest, NextMatchAcrossTableRowsAdvancesScroll)
     nodes.push_back(std::move(table));
 
     cache_.Resize(1);
-    cache_[0].text_top = 0.0f;
+    cache_.SetTop(0, 0.0f);
     cache_[0].height = 2000.0f;
     auto& tl = cache_[0].ensure_table_layout();
     tl.col_count = 1;
@@ -421,7 +458,7 @@ TEST_F(SearchBarControllerTest, NextMatchAcrossTableRowsAdvancesScroll)
     viewport_.SyncMaxScroll(2000.0f, md_pane_height_);
 
     state_.Show();
-    ctrl_.OnTextChanged(L"hit", nodes);
+    ctrl_.OnTextChanged(L"hit", nodes, 0);
 
     float prev_scroll = viewport_.GetScrollY();
     int advanced = 0;
@@ -444,12 +481,12 @@ TEST_F(SearchBarControllerTest, ScrollToMatchNoOpWhenAlreadyVisible)
     nodes.push_back(MakeTextNode("hello"));
 
     cache_.Resize(1);
-    cache_[0].text_top = 100.0f;
+    cache_.SetTop(0, 100.0f);
     cache_[0].height = 50.0f;
 
     viewport_.SyncMaxScroll(1000.0f, md_pane_height_);
     state_.Show();
-    ctrl_.OnTextChanged(L"hello", nodes);
+    ctrl_.OnTextChanged(L"hello", nodes, 0);
 
     on_scroll_changed_count_ = 0;
     const float before = viewport_.GetScrollY();

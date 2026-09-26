@@ -2,6 +2,7 @@
 #include "memory_resource.h"
 #include "utf8_codec.h"
 #include <algorithm>
+#include <emmintrin.h>
 #include <limits>
 #include <numeric>
 
@@ -57,6 +58,29 @@ WideViewForDWrite::WideViewForDWrite(std::string_view text)
         byte_pos += decoded.len;
     }
     utf16_offsets_[n] = wide_pos;
+}
+
+uint32_t Utf16OffsetCursor::WideAt(uint32_t byte_target) noexcept
+{
+    byte_target = std::min(byte_target, static_cast<uint32_t>(text_.size()));
+    while (byte_ < byte_target) {
+        // ASCII 区間は byte と UTF-16 が 1:1 なので 16 byte 単位で読み飛ばす。
+        if (byte_ + 16 <= byte_target) {
+            const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(text_.data() + byte_));
+            if (_mm_movemask_epi8(c) == 0) {
+                byte_ += 16;
+                wide_ += 16;
+                continue;
+            }
+        }
+        const auto decoded = utf8_codec::DecodeAt(text_, byte_);
+        if (byte_ + decoded.len > byte_target) {
+            break;
+        }
+        wide_ += (decoded.cp > 0xFFFF) ? 2u : 1u;
+        byte_ += decoded.len;
+    }
+    return wide_;
 }
 
 uint32_t WideViewForDWrite::WideOffsetFromDocOffset(doc_offset doc_off) const noexcept

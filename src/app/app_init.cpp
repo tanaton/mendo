@@ -32,7 +32,7 @@ bool App::Init(HWND hwnd)
         const int layout_workers = static_cast<int>(std::clamp<unsigned>(
             cores > 0 ? cores - 1 : kMinLayoutWorkers, kMinLayoutWorkers, kMaxLayoutWorkers));
         layout_scheduler_.Init(layout_workers);
-        renderer_.GetLayout().SetLayoutScheduler(&layout_scheduler_);
+        renderer_.SetLayoutScheduler(&layout_scheduler_);
     }
 
     // PixelToDip 用に DPI スケールをキャッシュ（OnDpiChanged でも更新する）。
@@ -47,6 +47,7 @@ bool App::Init(HWND hwnd)
     }
     file_cache_.Init(state_.window.cached_dpi_scale, scheduler_);
     mermaid_renderer_.SetFileCache(&file_cache_);
+    mermaid_renderer_.SetBackgroundScheduler(&scheduler_, app_msg::MERMAID_DISK_LOADED);
 
     clipboard_manager_.Init(hwnd_, &file_cache_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });
 

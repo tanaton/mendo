@@ -17,6 +17,21 @@
 // ExtractSelectedText
 // ============================================================
 
+// 全選択で倍々成長の再確保をしないよう、正確な長さで 1 回だけ確保する。
+TEST(ExtractSelectedText, ReservesExactLength)
+{
+    std::pmr::vector<Node> nodes;
+    nodes.push_back(MakeTextNode("first paragraph"));
+    nodes.push_back(MakeTextNode("second"));
+    nodes.push_back(MakeTextNode("third one"));
+    TextSelection sel = TextSelection::MakeOrdered(0, 6, 2, 5);
+    sel.active = true;
+    const auto text = ExtractSelectedText(nodes, sel);
+    EXPECT_EQ(text, "paragraph\r\nsecond\r\nthird");
+    // reserve は確保粒度 (16 byte) までの切り上げのみ許容する。
+    EXPECT_LT(text.capacity(), text.size() + 16);
+}
+
 TEST(ExtractSelectedText, InactiveSelectionReturnsEmpty)
 {
     auto nodes = ParseMarkdown("Hello world").nodes;
@@ -1362,6 +1377,19 @@ TEST(FindFirstDifference, CjkContent)
     EXPECT_EQ(diff, 8u);
 }
 
+// 粗いチャンク比較 → 細かいチャンク → バイト単位の各境界で差分位置が正確に出る。
+TEST(FindFirstDifference, LargeInputAcrossChunkBoundaries)
+{
+    const std::string base(200 * 1024, 'a');
+    for (const size_t pos : { size_t{ 0 }, size_t{ 63 }, size_t{ 64 }, size_t{ 65535 }, size_t{ 65536 }, size_t{ 131071 }, base.size() - 1 }) {
+        std::string changed = base;
+        changed[pos] = 'b';
+        EXPECT_EQ(FindFirstDifference(base, changed), pos) << "pos=" << pos;
+    }
+    EXPECT_EQ(FindFirstDifference(base, base), std::string_view::npos);
+    EXPECT_EQ(FindFirstDifference(base, base + "x"), base.size());
+}
+
 // ============================================================
 // AnalyzeReloadDiff
 // ============================================================
@@ -1940,7 +1968,7 @@ TEST(CalcScrollYForDiff, ParsedMarkdownIntegration)
     ASSERT_GE(nodes.size(), 4u);
 
     // 等間隔 cache (text_top=0,50,100,...) を構築。spacing/Heading 個別寸法は無視し、
-    // CalcScrollYForDiff が cache[i].text_top をどう参照するかだけを見る統合テスト。
+    // CalcScrollYForDiff が cache.Top(i) をどう参照するかだけを見る統合テスト。
     auto cache = MakeUniformCache(static_cast<int>(nodes.size()), 50.0f);
 
     // "Second paragraph" の先頭で diff
@@ -1974,8 +2002,8 @@ TEST(CalcScrollYForDiff, PrefixGrowthScrollsTowardAppendedTail)
     ASSERT_GE(nodes.size(), 4u);
 
     auto cache = MakeUniformCache(static_cast<int>(nodes.size()), 100.0f);
-    const float last_old_node_y = cache[nodes.size() - 2].text_top;
-    const float appended_node_y = cache[nodes.size() - 1].text_top;
+    const float last_old_node_y = cache.Top(nodes.size() - 2);
+    const float appended_node_y = cache.Top(nodes.size() - 1);
 
     // ユーザが先頭付近 (scroll_y=0) を見ている状態で末尾追記が起きたシナリオ。
     // 旧コード (is_prefix_only ? old_scroll : ...) では desired_scroll が

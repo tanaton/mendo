@@ -133,6 +133,7 @@ struct TickLoadingAnimation {};
 struct ProcessMermaidBatchTimer {};
 struct ProcessBitmapManage {};
 struct MermaidInitRetry {};
+struct MermaidIdle {};
 
 } // namespace effect
 
@@ -186,7 +187,8 @@ using SideEffect = std::variant<
     effect::TickLoadingAnimation,
     effect::ProcessMermaidBatchTimer,
     effect::ProcessBitmapManage,
-    effect::MermaidInitRetry>;
+    effect::MermaidInitRetry,
+    effect::MermaidIdle>;
 
 using SideEffectList = std::pmr::vector<SideEffect>;
 

@@ -1,4 +1,5 @@
 #include "image_loader.h"
+#include "d2d_util.h"
 #include "file_io.h"
 #include "file_loader.h"
 #include "log_hr.h"
@@ -16,6 +17,22 @@ static Microsoft::WRL::ComPtr<IStream> ReadFileToStream(const std::wstring& path
     }
 
     return stream_util::CreateMemoryStreamFromFile(r.handle.get(), r.size);
+}
+
+// 画像は原寸 (1 px = 1 物理 px) より大きく描かず、ペイン幅はモニタ幅を超えないため、
+// 最も広いモニタの幅が表示に要る最大解像度になる。
+static UINT MaxMonitorWidthPx() noexcept
+{
+    UINT max_width = 0;
+    EnumDisplayMonitors(nullptr, nullptr, [](HMONITOR mon, HDC, LPRECT, LPARAM lp) -> BOOL {
+        MONITORINFO mi{ .cbSize = sizeof(MONITORINFO) };
+        if (GetMonitorInfoW(mon, &mi)) {
+            auto& w = *reinterpret_cast<UINT*>(lp);
+            w = std::max(w, static_cast<UINT>(mi.rcMonitor.right - mi.rcMonitor.left));
+        }
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&max_width));
+    return max_width;
 }
 
 
@@ -36,7 +53,7 @@ void ImageLoader::GetDpiScale(float& scale_x, float& scale_y) const
 
 bool ImageLoader::Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic)
 {
-    render_target_ = rt;
+    SetRenderTarget(rt);
     if (wic) {
         wic_factory_ = wic;
         return true;
@@ -129,10 +146,12 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
             const auto stream = ReadFileToStream(path);
             if (stream) {
                 if (const auto decoded = wic_util::DecodeFromStream(wic_factory_.Get(), stream.Get())) {
-                    result.converter = decoded->converter;
-                    result.width = static_cast<float>(decoded->pixel_width);
-                    result.height = static_cast<float>(decoded->pixel_height);
-                    result.success = true;
+                    const wic_util::PixelSize original{ decoded->pixel_width, decoded->pixel_height };
+                    const auto target = wic_util::ComputeDecodeSize(original.width, original.height, MaxMonitorWidthPx(), max_bitmap_dim_.load());
+                    result.bitmap = wic_util::DecodeToWicBitmap(wic_factory_.Get(), decoded->converter.Get(), original, target);
+                    result.width = static_cast<float>(original.width);
+                    result.height = static_cast<float>(original.height);
+                    result.success = result.bitmap != nullptr;
                 }
             }
         }
@@ -184,10 +203,10 @@ void ImageLoader::ProcessCompletedDecodes()
     Callback last_cb;
 
     for (auto& r : results) {
-        if (r.success && r.converter && render_target_) {
+        if (r.success && r.bitmap && render_target_) {
             if (!cache_.Contains(r.path)) {
                 Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-                const HRESULT hr = render_target_->CreateBitmapFromWicBitmap(r.converter.Get(), &bitmap);
+                const HRESULT hr = render_target_->CreateBitmapFromWicBitmap(r.bitmap.Get(), &bitmap);
                 if (SUCCEEDED(hr) && bitmap) {
                     CreateAndCacheImage(r.path, std::move(bitmap), static_cast<UINT>(r.width), static_cast<UINT>(r.height));
                 }
@@ -226,6 +245,7 @@ std::pair<float, float> ImageLoader::CreateAndCacheImage(
     const float w = cached.width;
     const float h = cached.height;
     cache_.Insert(path, std::move(cached));
+    cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedImage& c) { return mendo::BitmapBytes(c.bitmap.Get()); });
     return { w, h };
 }
 

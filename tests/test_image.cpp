@@ -8,6 +8,7 @@
 #include "layout_cache.h"
 #include "mock_text_measurer.h"
 #include "image_loader.h"
+#include "wic_util.h"
 #include "task_scheduler.h"
 #include "test_helpers.h"
 #include <d2d1.h>
@@ -359,8 +360,8 @@ TEST_F(ImageLayoutTest, ImageNodesDoNotOverlap)
     engine_.ComputeLayout(nodes, cache, 800.0f);
 
     for (size_t i = 1; i < nodes.size(); i++) {
-        float prev_bottom = cache[i - 1].text_top + cache[i - 1].height;
-        EXPECT_GE(cache[i].text_top, prev_bottom) << "ノード " << i << " が前のノードと重なっている";
+        float prev_bottom = cache.Top(i - 1) + cache[i - 1].height;
+        EXPECT_GE(cache.Top(i), prev_bottom) << "ノード " << i << " が前のノードと重なっている";
     }
 }
 
@@ -376,8 +377,8 @@ TEST_F(ImageLayoutTest, ImageBetweenTextNodesDoNotOverlap)
     engine_.ComputeLayout(nodes, cache, 800.0f);
 
     for (size_t i = 1; i < nodes.size(); i++) {
-        float prev_bottom = cache[i - 1].text_top + cache[i - 1].height;
-        EXPECT_GE(cache[i].text_top, prev_bottom);
+        float prev_bottom = cache.Top(i - 1) + cache[i - 1].height;
+        EXPECT_GE(cache.Top(i), prev_bottom);
     }
 }
 
@@ -1501,4 +1502,49 @@ TEST_F(ImageLoaderAsyncTest, ResetFailedPathsAllowsRetry)
     EXPECT_TRUE(loader_.GetCachedImage(path, entry));
     EXPECT_FLOAT_EQ(entry.width, 33.0f);
     EXPECT_FLOAT_EQ(entry.height, 22.0f);
+}
+
+// ============================================================
+// デコードサイズ計算
+// ============================================================
+
+TEST(ComputeDecodeSize, KeepsSizeWithinLimits)
+{
+    EXPECT_EQ(wic_util::ComputeDecodeSize(800, 600, 1920, 16384), (wic_util::PixelSize{ 800, 600 }));
+}
+
+TEST(ComputeDecodeSize, ShrinksToMaxWidthKeepingAspect)
+{
+    EXPECT_EQ(wic_util::ComputeDecodeSize(6000, 4000, 1920, 16384), (wic_util::PixelSize{ 1920, 1280 }));
+}
+
+TEST(ComputeDecodeSize, ShrinksTallImageToMaxDimension)
+{
+    EXPECT_EQ(wic_util::ComputeDecodeSize(1000, 40000, 1920, 16384), (wic_util::PixelSize{ 410, 16384 }));
+}
+
+TEST(ComputeDecodeSize, ZeroLimitsMeanUnlimited)
+{
+    EXPECT_EQ(wic_util::ComputeDecodeSize(6000, 4000, 0, 0), (wic_util::PixelSize{ 6000, 4000 }));
+}
+
+TEST(ComputeDecodeSize, NeverProducesZeroDimension)
+{
+    EXPECT_EQ(wic_util::ComputeDecodeSize(100000, 1, 1000, 0), (wic_util::PixelSize{ 1000, 1 }));
+}
+
+TEST_F(ImageLoaderAsyncTest, AsyncLoadedBitmapIsUploadedFromDecodedPixels)
+{
+    ASSERT_TRUE(CreateTestImage(L"decoded.png", GUID_ContainerFormatPng, 64, 32));
+    auto path = GetTestImagePath(L"decoded.png");
+
+    loader_.RequestLoadAsync(path, OnComplete);
+    ASSERT_TRUE(WaitForResults(1));
+
+    DiagramEntry entry;
+    ASSERT_TRUE(loader_.GetCachedImage(path, entry));
+    ASSERT_TRUE(entry.bitmap);
+    const auto px = entry.bitmap->GetPixelSize();
+    EXPECT_EQ(px.width, 64u);
+    EXPECT_EQ(px.height, 32u);
 }

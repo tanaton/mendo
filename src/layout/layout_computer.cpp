@@ -154,7 +154,7 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
         const float sb = GetSpacingBelow(node, theme);
 
         cache[i].height = h;
-        cache[i].text_top = AdvanceNodeY(y, sa, h, sb);
+        cache.SetTop(i, AdvanceNodeY(y, sa, h, sb));
     }
 }
 
@@ -199,8 +199,7 @@ YPositionResult RecomputeYPositions(
     float y = theme.margin_top;
 
     if (from_index > 0 && from_index < node_count) {
-        auto& prev = cache[from_index - 1];
-        y = prev.text_top + prev.height;
+        y = cache.Bottom(from_index - 1);
         y += GetSpacingBelow(nodes[from_index - 1], theme);
     }
 
@@ -216,42 +215,20 @@ YPositionResult RecomputeYPositions(
 
         const float sa = GetSpacingAbove(nodes[i], theme);
         const float sb = GetSpacingBelow(nodes[i], theme);
-        entry.text_top = AdvanceNodeY(y, sa, entry.height, sb);
+        cache.SetTop(i, AdvanceNodeY(y, sa, entry.height, sb));
     }
 
-    // |delta| < EPSILON なら text_top も実質変化なし → write 自体スキップ (dirty 集計のみ)。
     if (tail_start < node_count) {
-        auto& first_tail = cache[tail_start];
-        const float sa_first = GetSpacingAbove(nodes[tail_start], theme);
-        const float new_text_top = y + sa_first;
-        const float delta = new_text_top - first_tail.text_top;
-
-        if (std::abs(delta) < Y_POSITION_EPSILON) {
-            if (!result.has_dirty_nodes) {
-                result.has_dirty_nodes = std::ranges::any_of(
-                    std::views::iota(tail_start, node_count),
-                    [&cache](size_t j) { return cache[j].layout_dirty; });
-            }
+        const float new_text_top = y + GetSpacingAbove(nodes[tail_start], theme);
+        const float delta = new_text_top - cache.Top(tail_start);
+        // |delta| < EPSILON なら実質変化なしなので write 自体スキップする。
+        if (std::abs(delta) >= Y_POSITION_EPSILON) {
+            cache.ShiftTops(tail_start, delta);
         }
-        else {
-            // dirty 確定までは layout_dirty を観測しつつシフト、確定後は分岐なしの純粋シフトに
-            // 切り替えて auto-vectorize を許可する。
-            size_t i = tail_start;
-            if (!result.has_dirty_nodes) {
-                for (; i < node_count; ++i) {
-                    auto& entry = cache[i];
-                    entry.text_top += delta;
-                    if (entry.layout_dirty) {
-                        result.has_dirty_nodes = true;
-                        ++i;
-                        break;
-                    }
-                }
-            }
-            for (; i < node_count; ++i) {
-                cache[i].text_top += delta;
-            }
-        }
+        // 後続の dirty 有無を調べるには AoS の全エントリを読む必要があり、シフトを SoA にした
+        // 意味がなくなるため保守的に true とする。ProcessDirtyBatch は可視帯に dirty が
+        // 無ければ即 false に戻すので、誤って true でも余分なのはタイマー 1 tick だけ。
+        result.has_dirty_nodes = true;
     }
     return result;
 }

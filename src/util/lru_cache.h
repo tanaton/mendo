@@ -63,6 +63,24 @@ public:
         }
     }
 
+    // 件数上限だけではビットマップ等の巨大値でメモリが青天井になるため、cost 合計が
+    // budget 以下になるまで論理末尾 (最も使われていない側) から捨てる。先頭 1 件は常に残す。
+    template <class CostFn>
+    constexpr void TrimToBudget(size_t budget, CostFn cost)
+    {
+        size_t total = 0;
+        for (size_t i = 0; i < size_; i++) {
+            total += cost(values_[physical(i)]);
+        }
+        while (size_ > 1 && total > budget) {
+            const size_t p = physical(size_ - 1);
+            total -= cost(values_[p]);
+            keys_[p] = Key{};
+            values_[p] = Value{};
+            --size_;
+        }
+    }
+
     constexpr void Clear()
     {
         for (size_t i = 0; i < size_; i++) {

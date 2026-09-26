@@ -49,7 +49,9 @@ public:
 
     std::expected<void, FileLoadError> ExecuteLoad(Document& doc, LayoutCache& cache);
 
-    void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, const Theme& theme);
+    // reload_base の意味は AsyncLoadCoordinator::Start を参照。
+    void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, const Theme& theme,
+                        std::shared_ptr<const std::pmr::string> reload_base = nullptr);
     // preload 優先。
     std::optional<AsyncLoadResult> TakeAsyncResult();
     // OnParseComplete の null パスで取り出してトースト表示に使う。

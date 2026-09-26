@@ -27,12 +27,13 @@ std::expected<void, FileLoadError> FileLoadService::ExecuteLoad(Document& doc, L
     return {};
 }
 
-void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, const Theme& theme)
+void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, const Theme& theme,
+                                     std::shared_ptr<const std::pmr::string> reload_base)
 {
     // 新しいロードが preload を置き換える。放置すると TakeAsyncResult が preload 結果を
     // 優先返却し、表示中ドキュメントを上書きする。
     preloader_.Cancel();
-    coordinator_.Start(scheduler, loading_path_, hwnd, msg_id, theme);
+    coordinator_.Start(scheduler, loading_path_, hwnd, msg_id, theme, std::move(reload_base));
 }
 
 std::optional<AsyncLoadResult> FileLoadService::TakeAsyncResult()

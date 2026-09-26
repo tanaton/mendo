@@ -26,140 +26,101 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
         return;
     }
 
-    // 大文字小文字無視の場合、クエリの小文字変換をループ外で1回だけ行う
+    // ASCII 英字を含まないクエリは大文字小文字を無視しても通常一致と結果が同じなので、
+    // 比較時の小文字化 (fold) を省く。文書の小文字コピーは持たず走査中に畳み込む。
+    const bool fold = !case_sensitive_ && ascii_util::HasAsciiLetter(query_);
     std::pmr::string lower_query;
-    if (!case_sensitive_) {
+    if (fold) {
         lower_query = ToLowerAsciiCopy(query_);
-        // ドキュメント単位で lowercase 化結果をキャッシュし、入力1文字ごとの
-        // 全文再変換コストを除去する。ドキュメント切替時は自動で再生成される。
-        EnsureLowercaseCache(nodes);
     }
+    const std::string_view query = fold ? std::string_view(lower_query) : std::string_view(query_);
 
     const auto node_count = static_cast<int>(nodes.size());
     for (int i = 0; i < node_count && matches_.size() < MAX_MATCHES; i++) {
         const auto& node = nodes[i];
         if (node.type == NodeType::Table && node.has_table()) {
-            const auto* tbl = node.table_data();
-            // row_count は uint32 (数百万行) になりうるため size_t で走査する。int 走査だと
-            // INT_MAX 超でループ境界が負になりテーブル全体が検索対象から落ちる。
-            // SearchMatch::table_row / lower_cache_.GetCell は行を int で持つため、走査は
-            // INT_MAX 行までに制限し int 変換の overflow/OOB を防ぐ (それを超える行は実用上
-            // 存在しない)。col_count は uint16 上限なので常に int に収まる。
-            const size_t row_limit = std::min<size_t>(tbl->row_count, std::numeric_limits<int>::max());
-            const size_t col_count = tbl->col_count;
-            const auto* lower_tbl = case_sensitive_ ? nullptr : lower_cache_.FindTable(i);
-            for (size_t r = 0; r < row_limit && matches_.size() < MAX_MATCHES; r++) {
-                for (size_t c = 0; c < col_count && matches_.size() < MAX_MATCHES; c++) {
-                    const auto cell_text = tbl->GetCellText(r, c);
-                    if (cell_text.empty()) {
-                        continue;
-                    }
-                    // r < row_limit <= INT_MAX、c < col_count <= 65535 のため int 変換は安全。
-                    const auto ri = static_cast<int>(r);
-                    const auto ci = static_cast<int>(c);
-                    const auto search_text = case_sensitive_ ? cell_text
-                                           : lower_tbl       ? lower_tbl->GetCell(ri, ci)
-                                                             : std::string_view{};
-                    FindMatches(search_text, cell_text, lower_query, i, ri, ci);
-                }
-            }
+            FindTableMatches(*node.table_data(), query, fold, i);
         }
         else if (const auto& text = node.GetText(); !text.empty()) {
             if (IsNonSearchableDrawNode(node)) {
                 continue;
             }
-            const auto search_text = case_sensitive_ ? text : lower_cache_.GetText(i);
-            FindMatches(search_text, text, lower_query, i);
+            FindTextMatches(text, query, fold, i);
         }
     }
 }
 
-void SearchState::EnsureLowercaseCache(const std::pmr::vector<Node>& nodes)
+static size_t FindNext(std::string_view text, std::string_view query, bool fold, size_t pos) noexcept
 {
-    if (cached_nodes_ptr_ == nodes.data() && cached_node_count_ == nodes.size()) {
-        return;
-    }
-
-    lower_cache_.buffer.clear();
-    lower_cache_.offsets.clear();
-    lower_cache_.tables.clear();
-
-    // バッファ容量の概算: ノード総文字数。reserve で一度に確保しておくと
-    // 連結中の再アロケーションで wstring_view が破綻するのを回避できる。
-    size_t total_chars = 0;
-    for (const auto& node : nodes) {
-        if (node.type != NodeType::Table) {
-            total_chars += node.GetText().size();
-        }
-    }
-    lower_cache_.buffer.reserve(total_chars);
-    lower_cache_.offsets.reserve(nodes.size() + 1);
-    lower_cache_.offsets.push_back(0);
-
-    for (size_t i = 0; i < nodes.size(); ++i) {
-        const auto& node = nodes[i];
-        if (node.type == NodeType::Table && node.has_table()) {
-            // テーブルノードはノード本体のテキストを持たないので空スライス。
-            // セル群は別バッファに連続配置する。
-            lower_cache_.offsets.push_back(static_cast<uint32_t>(lower_cache_.buffer.size()));
-
-            const auto* tbl = node.table_data();
-            // concat_text を 1 回の bulk ToLower でコピー&小文字化し、cell_text_starts を
-            // そのまま offsets として共有する。区切り '\t'/'\n' は ToLower 不変なのでそのまま残せる。
-            LowercaseTable table;
-            table.col_count = tbl->col_count;
-            table.buffer.resize(tbl->concat_text.size());
-            ascii_util::AsciiToLowerOnly(tbl->concat_text.data(), table.buffer.data(), tbl->concat_text.size());
-            table.offsets = std::span<const uint32_t>{ tbl->cell_text_starts.data(), tbl->cell_text_starts.size() };
-            lower_cache_.tables.emplace(static_cast<int>(i), std::move(table));
-        }
-        else if (IsNonSearchableDrawNode(node)) {
-            // 検索対象外ノードは空スライス
-            lower_cache_.offsets.push_back(static_cast<uint32_t>(lower_cache_.buffer.size()));
-        }
-        else {
-            const auto& src = node.GetText();
-            const size_t prev = lower_cache_.buffer.size();
-            lower_cache_.buffer.resize(prev + src.size());
-            ascii_util::AsciiToLowerOnly(src.data(), lower_cache_.buffer.data() + prev, src.size());
-            lower_cache_.offsets.push_back(static_cast<uint32_t>(lower_cache_.buffer.size()));
-        }
-    }
-
-    cached_nodes_ptr_ = nodes.data();
-    cached_node_count_ = nodes.size();
+    return fold ? ascii_util::FindAsciiCaseInsensitive(text, query, pos) : ascii_util::Find(text, query, pos);
 }
 
-void SearchState::FindMatches(
-    std::string_view search_text, std::string_view utf16_text,
-    const std::pmr::string& lower_query, int node_index,
-    int table_row, int table_col)
+void SearchState::FindTextMatches(std::string_view text, std::string_view query, bool fold, int node_index)
 {
-    if (matches_.size() >= MAX_MATCHES) {
-        return;
-    }
-    const uint32_t query_len = static_cast<uint32_t>(query_.size());
-    const std::string_view query = case_sensitive_ ? std::string_view(query_) : std::string_view(lower_query);
-
-    // utf16_text に対する WideViewForDWrite は最初のマッチ確定時にだけ作る (lazy)。
-    // マッチ 0 件のノード/セルでは UTF-8→UTF-16 decode を完全にスキップできる。
-    std::optional<mendo::WideViewForDWrite> wv;
-
+    const uint32_t query_len = static_cast<uint32_t>(query.size());
+    // UTF-16 位置は最初のヒットから前方へ数えるだけにし、ノード全文の UTF-16 化を避ける。
+    mendo::Utf16OffsetCursor cursor{ text };
     size_t pos = 0;
-    while (matches_.size() < MAX_MATCHES && (pos = ascii_util::Find(search_text, query, pos)) != ascii_util::npos) {
-        const uint32_t byte_start = static_cast<uint32_t>(pos);
-        if (!wv.has_value()) {
-            wv.emplace(utf16_text);
-        }
-        const auto wr = wv->WideRange(byte_start, query_len);
+    while (matches_.size() < MAX_MATCHES && (pos = FindNext(text, query, fold, pos)) != ascii_util::npos) {
+        const auto byte_start = static_cast<uint32_t>(pos);
+        const uint32_t w_start = cursor.WideAt(byte_start);
+        const uint32_t w_end = cursor.WideAt(byte_start + query_len);
         matches_.emplace_back(SearchMatch{
             .node_index = node_index,
             .start = byte_start,
             .length = query_len,
-            .table_row = table_row,
-            .table_col = table_col,
-            .start_w = wr.startPosition,
-            .length_w = wr.length,
+            .start_w = w_start,
+            .length_w = w_end - w_start,
+        });
+        pos += query_len;
+    }
+}
+
+void SearchState::FindTableMatches(const NodeTableData& tbl, std::string_view query, bool fold, int node_index)
+{
+    const std::string_view concat = tbl.concat_text;
+    const auto& starts = tbl.cell_text_starts;
+    const size_t col_count = tbl.col_count;
+    if (col_count == 0 || starts.size() < 2) {
+        return;
+    }
+    // SearchMatch::table_row は int。INT_MAX 行を超えるセルは対象外にする (実用上存在しない)。
+    const size_t row_limit = std::min<size_t>(tbl.row_count, std::numeric_limits<int>::max());
+    const size_t cell_limit = std::min(row_limit * col_count, starts.size() - 1);
+    const uint32_t query_len = static_cast<uint32_t>(query.size());
+    const auto concat_size = static_cast<uint32_t>(concat.size());
+
+    size_t cursor_cell = std::numeric_limits<size_t>::max();
+    std::optional<mendo::Utf16OffsetCursor> cursor;
+    size_t pos = 0;
+    while (matches_.size() < MAX_MATCHES && (pos = FindNext(concat, query, fold, pos)) != ascii_util::npos) {
+        const auto it = std::upper_bound(starts.begin(), starts.begin() + static_cast<std::ptrdiff_t>(cell_limit + 1), static_cast<uint32_t>(pos));
+        const size_t cell = static_cast<size_t>(it - starts.begin()) - 1;
+        if (cell >= cell_limit) {
+            break;
+        }
+        const uint32_t cell_start = starts[cell];
+        const uint32_t cell_len = CellLengthFromOffsets(cell_start, starts[cell + 1], concat_size);
+        const auto local = static_cast<uint32_t>(pos) - cell_start;
+        if (local + query_len > cell_len) {
+            // セル区切り ('\t' / '\n') をまたぐヒット。1 byte 進めて探し直す。
+            pos += 1;
+            continue;
+        }
+        if (cell != cursor_cell) {
+            cursor.emplace(concat.substr(cell_start, cell_len));
+            cursor_cell = cell;
+        }
+        const uint32_t w_start = cursor->WideAt(local);
+        const uint32_t w_end = cursor->WideAt(local + query_len);
+        matches_.emplace_back(SearchMatch{
+            .node_index = node_index,
+            .start = local,
+            .length = query_len,
+            .table_row = static_cast<int>(cell / col_count),
+            .table_col = static_cast<int>(cell % col_count),
+            .start_w = w_start,
+            .length_w = w_end - w_start,
         });
         pos += query_len;
     }
@@ -208,7 +169,7 @@ void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) 
             return false;
         }
         const auto& e = cache[m.node_index];
-        const auto [y, h] = e.GetMatchYRange(m.table_row, m.table_col, m.start_w, e.text_top);
+        const auto [y, h] = e.GetMatchYRange(m.table_row, m.table_col, m.start_w, cache.Top(static_cast<size_t>(m.node_index)));
         (void)h;
         return y < scroll_y;
     });

@@ -138,6 +138,9 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         .h_scroll = block_h_scroll,
     };
 
+    cull_top_ = fc.viewport_top;
+    cull_bottom_ = fc.viewport_bottom;
+
     // SelectionHlCache は lazy 確保のみで自動破棄経路が無く、選択範囲外に出たノード分が
     // 居残ってメモリが漸増する。前フレームの範囲との差分区間だけ巻き戻す
     // (Ctrl+A 後のドラッグ等で範囲全体を毎回走査しない)。
@@ -180,7 +183,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
 
     int visible_count = 0;
     for (int i = first_visible; i < node_count; i++) {
-        const float local_text_top = cache[i].text_top - snapped_y;
+        const float local_text_top = cache.Top(i) - snapped_y;
         if (local_text_top > fc.viewport_bottom) {
             break;
         }
@@ -358,7 +361,7 @@ void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const Frame
 
     const auto [base_color, base_brush] = GetNodeBaseStyle(node);
 
-    GenInlineCodeBgs(cmds, entry.view_inline_code_bgs(), text_x, entry_text_top, theme_->code_bg_color);
+    GenInlineCodeBgs(cmds, entry.view_inline_code_bgs(), text_x, entry_text_top, theme_->code_bg_color, cull_top_, cull_bottom_);
 
     // 検索マッチのハイライト（選択より先に描画し、選択が最前面になるようにする）
     GenSearchHighlights(cmds, entry, node_index, text_x, entry_text_top);
@@ -526,13 +529,13 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
         if (group < 0) {
             // text_top は単調なので、非引用ノードが下端を超えたら以降のグループも全て可視域外。
             // ここで break しないと引用が可視域以降に無い文書で毎フレーム末尾まで全走査する。
-            if (cache[i].text_top - snap > local_viewport_bottom) {
+            if (cache.Top(i) - snap > local_viewport_bottom) {
                 break;
             }
             i++;
             continue;
         }
-        const float group_top = cache[i].text_top - snap;
+        const float group_top = cache.Top(i) - snap;
         if (group_top > local_viewport_bottom) {
             break;
         }
@@ -544,7 +547,7 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
 
         int j = i + 1;
         while (j < node_count && nodes[j].blockquote_group == group) {
-            const float bottom = cache[j].text_top - snap + cache[j].height;
+            const float bottom = cache.Bottom(j) - snap;
             if (bottom > group_bottom) {
                 group_bottom = bottom;
             }
@@ -600,7 +603,7 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
             float region_top = 0.0f;
             float region_bottom = 0.0f;
             for (int k = i; k < j; ++k) {
-                const float local_top_k = cache[k].text_top - snap;
+                const float local_top_k = cache.Top(k) - snap;
                 if (nodes[k].quote_depth >= level) {
                     if (!in_region) {
                         in_region = true;

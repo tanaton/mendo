@@ -46,6 +46,23 @@ private:
     std::pmr::vector<uint32_t> utf16_offsets_;
 };
 
+// UTF-8 byte 位置に対応する UTF-16 位置を前方へ数えるカーソル。WideViewForDWrite と同じ
+// decode 規則 (不正バイトは U+FFFD 1 単位、sequence 途中の byte はその文字の直前位置) に従う。
+// 全文の UTF-16 化と 4B/byte の対応表を作らずに済むため、巨大ノード内の少数のヒット位置を
+// 求める検索に使う。WideAt に渡す byte 位置は単調非減少であること。
+class Utf16OffsetCursor {
+public:
+    explicit Utf16OffsetCursor(std::string_view text) noexcept : text_(text)
+    {}
+
+    uint32_t WideAt(uint32_t byte_target) noexcept;
+
+private:
+    std::string_view text_;
+    uint32_t byte_ = 0;
+    uint32_t wide_ = 0;
+};
+
 // 直近に渡された文字列に対する WideViewForDWrite を再利用する identity ベースキャッシュ。
 // std::string_view の (data ポインタ + size) で同一性を判定し、異なる文字列が来た時のみ
 // 再構築する。連続フレームで同じノード/セルの選択や検索ハイライトを描画する典型ケースで
