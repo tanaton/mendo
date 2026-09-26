@@ -136,6 +136,7 @@ struct CallbackTracker {
     int kill_timer = 0;
     int recompute_layout = 0;
     int recompute_layout_anchored = 0;
+    mendo::layout::HeightChangeRange last_change = mendo::layout::HeightChangeRange::None();
     app_timer::Id last_set_timer_id{};
     UINT last_set_timer_ms = 0;
     app_timer::Id last_killed_timer_id{};
@@ -175,13 +176,15 @@ struct TestResourceManagerCallbacks {
     {
         return t->indent_width;
     }
-    void recompute_layout()
+    void recompute_layout(mendo::layout::HeightChangeRange changed)
     {
         t->recompute_layout++;
+        t->last_change = changed;
     }
-    void recompute_layout_anchored()
+    void recompute_layout_anchored(mendo::layout::HeightChangeRange changed)
     {
         t->recompute_layout_anchored++;
+        t->last_change = changed;
     }
 };
 
@@ -274,6 +277,20 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesHeightFromCache)
     // height=800 * 0.8 = 640
     EXPECT_FLOAT_EQ(cache_[img_idx].height, 640.0f);
     EXPECT_FALSE(cache_[img_idx].layout_dirty);
+}
+
+// 高さを更新したノードだけを再計算範囲として渡す (先頭からの全件再計算を避ける)。
+TEST_F(ResourceManagerTest, LoadImagesPassesChangedNodeRangeToRecompute)
+{
+    LoadMarkdown("# heading\n\ntext\n\n![alt](foo.png)\n");
+    image_loader_.InsertCacheEntry(L"C:\\dir\\foo.png", 400.0f, 300.0f);
+    const size_t img_idx = doc_.GetImageNodeIndices()[0];
+
+    rm_.LoadImages();
+
+    EXPECT_EQ(tracker_.recompute_layout, 1);
+    EXPECT_EQ(tracker_.last_change.first, img_idx);
+    EXPECT_EQ(tracker_.last_change.last, img_idx);
 }
 
 TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadKeepsHeightWhenWithinContentWidth)

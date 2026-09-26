@@ -425,7 +425,7 @@ void DWriteTextMeasurer::RestoreNullCellLayouts(Node& node, NodeLayoutEntry& ent
     const bool has_row_geometry = tl.row_cum_y.size() == row_count + 1;
     const bool clip_rows = has_row_geometry && !viewport.is_full();
     const auto [r_begin, r_end] = clip_rows
-        ? tl.VisibleRowRange(viewport.top - entry.text_top, viewport.bottom - entry.text_top)
+        ? tl.VisibleRowRange(viewport.top, viewport.bottom)
         : std::pair<size_t, size_t>{ 0, row_count };
 
     for (size_t r = r_begin; r < r_end; r++) {
@@ -552,7 +552,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(Node& node, NodeL
 
     const auto [r_begin, r_end] = viewport.is_full()
         ? std::pair<size_t, size_t>{ 0, row_count }
-        : tl.VisibleRowRange(viewport.top - entry.text_top, viewport.bottom - entry.text_top);
+        : tl.VisibleRowRange(viewport.top, viewport.bottom);
     const float cell_padding = TABLE_CELL_PADDING;
     const float base_row_height = theme_->font_size_body * TABLE_ROW_HEIGHT_FACTOR;
     IDWriteTextFormat* const fmt = fmt_body_.Get();

@@ -134,6 +134,7 @@ public:
                 (*deps_.cache)[i].height =
                     mendo::layout::ImageDisplayHeight(diagram.width, diagram.height, content_width - indent);
                 (*deps_.cache)[i].layout_dirty = false;
+                height_changed_.Add(i);
                 ++applied;
             }
             else if (respect_viewport) {
@@ -153,7 +154,7 @@ public:
     void LoadImages()
     {
         if (ApplyCachedImages() > 0) {
-            cb_.recompute_layout();
+            cb_.recompute_layout(TakeHeightChanges());
             cb_.invalidate();
         }
     }
@@ -167,7 +168,7 @@ public:
     {
         pending_flush_ = true;
         if (ApplyCachedImages() > 0) {
-            cb_.recompute_layout_anchored();
+            cb_.recompute_layout_anchored(TakeHeightChanges());
         }
     }
 
@@ -198,8 +199,9 @@ public:
                 continue;
             }
 
-            deps_.mermaid->RequestRender(node, (*deps_.cache)[i], diagram, content_width, deps_.theme_service->IsDarkMode(), [this] { OnMermaidRenderComplete(); });
+            deps_.mermaid->RequestRender(node, (*deps_.cache)[i], diagram, content_width, deps_.theme_service->IsDarkMode(), [this, i] { OnMermaidRenderComplete(i); });
             if (diagram.bitmap) {
+                height_changed_.Add(i);
                 ++applied;
             }
         }
@@ -208,24 +210,26 @@ public:
 
         if (!outer_batch && applied > 0) {
             pending_flush_ = true;
-            cb_.recompute_layout_anchored();
+            cb_.recompute_layout_anchored(TakeHeightChanges());
         }
         return applied;
     }
 
-    void OnMermaidRenderComplete()
+    void OnMermaidRenderComplete(size_t node_index)
     {
+        height_changed_.Add(node_index);
         if (mermaid_batch_loading_) {
             return;
         }
         pending_flush_ = true;
-        cb_.recompute_layout_anchored();
+        cb_.recompute_layout_anchored(TakeHeightChanges());
     }
 
     void CancelMermaidBatch()
     {
         deps_.mermaid->CancelPending();
         cb_.kill_timer(app_timer::Id::MERMAID_BATCH);
+        height_changed_ = mendo::layout::HeightChangeRange::None();
     }
 
     void ScheduleMermaidBatch()
@@ -272,8 +276,9 @@ public:
             auto& diagram = deps_.cache->GetDiagram(i);
 
             if (diagram.NeedsRender()) {
-                deps_.mermaid->RequestRender(node, (*deps_.cache)[i], diagram, content_width, dark_mode, [this] { OnMermaidRenderComplete(); });
+                deps_.mermaid->RequestRender(node, (*deps_.cache)[i], diagram, content_width, dark_mode, [this, i] { OnMermaidRenderComplete(i); });
                 if (diagram.bitmap) {
+                    height_changed_.Add(i);
                     any_loaded = true;
                 }
             }
@@ -288,7 +293,7 @@ public:
         mermaid_batch_loading_ = false;
 
         if (any_loaded) {
-            cb_.recompute_layout_anchored();
+            cb_.recompute_layout_anchored(TakeHeightChanges());
         }
 
         if (mermaid_batch_next_ >= slice_end) {
@@ -362,7 +367,7 @@ public:
         mermaid_batch_loading_ = false;
 
         if (changed) {
-            cb_.recompute_layout();
+            cb_.recompute_layout(TakeHeightChanges());
         }
     }
 
@@ -398,6 +403,11 @@ public:
     }
 
 private:
+    mendo::layout::HeightChangeRange TakeHeightChanges() noexcept
+    {
+        return std::exchange(height_changed_, mendo::layout::HeightChangeRange::None());
+    }
+
     // indices のうち、可視範囲 ± viewport_height * screens に交差する部分。
     // viewport_height <= 0 (初期化中等) は範囲が決まらないため全件を返す。
     resource_manager_detail::IndexSlice BufferedSlice(const std::pmr::vector<size_t>& indices, float screens)
@@ -451,4 +461,6 @@ private:
     std::unordered_map<size_t, std::wstring> resolved_image_paths_;
     bool pending_flush_ = false;
     std::chrono::steady_clock::time_point last_flush_time_{};
+    // 画像/図の適用で高さを更新したノード範囲。Y 再計算をこの範囲に限定する。
+    mendo::layout::HeightChangeRange height_changed_ = mendo::layout::HeightChangeRange::None();
 };

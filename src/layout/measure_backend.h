@@ -6,6 +6,7 @@
 #include <limits>
 #include <memory_resource>
 
+// 計測バックエンドに渡すときはエントリ上端からのローカル座標 (ToLocal 済み)。
 struct MeasureViewportRange {
     static constexpr float kInf = std::numeric_limits<float>::infinity();
     float top = -kInf;
@@ -13,6 +14,10 @@ struct MeasureViewportRange {
     constexpr bool is_full() const noexcept
     {
         return top == -kInf && bottom == kInf;
+    }
+    constexpr MeasureViewportRange ToLocal(float entry_top) const noexcept
+    {
+        return { top - entry_top, bottom - entry_top };
     }
 };
 
@@ -53,11 +58,12 @@ public:
 
 // 全計測経路の入口。実測値を cached_width/height に残し、同じ幅へ戻った際に
 // EstimateInvisibleNodeHeight が推定値で上書きしないようにする。
+// viewport は文書座標で受け取り、entry_top 基準のローカル座標に直してバックエンドへ渡す。
 inline void MeasureEntry(
     const IMeasureBackend& backend, Node& node, NodeLayoutEntry& entry, float node_width,
-    std::pmr::vector<SyntaxToken>* tokens_out, MeasureViewportRange viewport)
+    std::pmr::vector<SyntaxToken>* tokens_out, MeasureViewportRange viewport, float entry_top)
 {
-    backend.MeasureNode(node, entry, node_width, tokens_out, viewport);
+    backend.MeasureNode(node, entry, node_width, tokens_out, viewport.ToLocal(entry_top));
     entry.cached_width = node_width;
     entry.cached_height = entry.height;
 }

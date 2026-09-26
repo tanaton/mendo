@@ -56,11 +56,26 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     bool any_measured = false;
     bool broke_early = false;
 
-    for (size_t i = 0; i < node_count; i++) {
+    // 幅が不変なら可視範囲より上のノードは計測も推定も変わらないため、先頭からではなく
+    // 可視先頭から始める (ウィンドウ移動やスクロールバードラッグ終了でも全件走査していた)。
+    size_t start = 0;
+    if (!width_changed && partial) {
+        start = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, node_count, vp_top));
+        if (start > 0 && start < node_count) {
+            y = cache.Bottom(start - 1) + GetSpacingBelow(nodes[start - 1], *theme_);
+            // 上側の dirty は走査しないので保守的に仮定する。
+            any_dirty = true;
+        }
+    }
+
+    for (size_t i = start; i < node_count; i++) {
         auto& node = nodes[i];
         auto& entry = cache[i];
         const float indent = NodeIndent(node, *theme_);
         const float node_width = content_width - indent;
+
+        const float sa = GetSpacingAbove(node, *theme_);
+        const float sb = GetSpacingBelow(node, *theme_);
 
         if (width_changed || entry.layout_dirty) {
             const float node_bottom = y + entry.height; // 古い高さを使って推定
@@ -70,7 +85,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
                 // 部分レイアウトでは可視範囲を渡してテーブル内行を絞り込む。
                 // partial=false (フルレイアウト) では vp_top/bottom が ±inf なので全範囲扱い。
                 const MeasureViewportRange vp{ vp_top, vp_bottom };
-                MeasureEntry(*backend_, node, entry, node_width, nullptr, vp);
+                MeasureEntry(*backend_, node, entry, node_width, nullptr, vp, y + sa);
                 any_measured = true;
                 if (entry.height != old_height) {
                     any_height_changed = true;
@@ -90,14 +105,17 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
             any_dirty = true;
         }
 
-        const float sa = GetSpacingAbove(node, *theme_);
-        const float sb = GetSpacingBelow(node, *theme_);
+        cache.SetTop(i, AdvanceNodeY(y, sa, entry.height, sb));
 
-        entry.text_top = AdvanceNodeY(y, sa, entry.height, sb);
-
-        // 幅の変更がなく、ビューポートを超えた後に高さの変更もなければ、
-        // 残りの Y 位置は変わらないので早期終了する。
-        if (!width_changed && !any_height_changed && y > vp_bottom) {
+        // 幅の変更がなければビューポートより下の高さは変わらないので早期終了する。
+        // 可視範囲で高さが変わった場合も、残りは一定量のシフトで済む。
+        if (!width_changed && y > vp_bottom) {
+            if (any_height_changed && i + 1 < node_count) {
+                const float delta = y + GetSpacingAbove(nodes[i + 1], *theme_) - cache.Top(i + 1);
+                for (float& top : cache.TopsMut().subspan(i + 1)) {
+                    top += delta;
+                }
+            }
             // 中断地点より先にダーティノードが存在する可能性を保守的に仮定する。
             // ProcessDirtyBatch が存在しない場合は速やかに確認・クリアする。
             any_dirty = true;
@@ -139,18 +157,19 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
     const MeasureViewportRange vp{ viewport_top, viewport_bottom };
     for (int i = lo; i < static_cast<int>(node_count); i++) {
         auto& entry = cache[i];
-        if (entry.text_top > viewport_bottom) {
+        const float entry_top = cache.Top(i);
+        if (entry_top > viewport_bottom) {
             break;
         }
         if (entry.layout_dirty) {
             const float indent = NodeIndent(nodes[i], *theme_);
-            MeasureEntry(*backend_, nodes[i], entry, content_width - indent, nullptr, vp);
+            MeasureEntry(*backend_, nodes[i], entry, content_width - indent, nullptr, vp, entry_top);
             any_updated = true;
             last_measured = i;
         }
         else if (entry.has_table_layout() && entry.table_layout->HasEvictedRows()) {
             const float indent = NodeIndent(nodes[i], *theme_);
-            const auto restored = backend_->RestoreEvictedTableRows(nodes[i], entry, content_width - indent, vp);
+            const auto restored = backend_->RestoreEvictedTableRows(nodes[i], entry, content_width - indent, vp.ToLocal(entry_top));
             any_restored |= restored.restored;
             if (restored.height_changed) {
                 any_updated = true;
@@ -237,9 +256,12 @@ bool LayoutService::EnsureVisibleLayout(Document& doc, LayoutCache& cache, float
     return updated;
 }
 
-void LayoutService::RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme) noexcept
+void LayoutService::RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme,
+                                          mendo::layout::HeightChangeRange changed) noexcept
 {
-    RecomputeYPositions(doc.GetNodesMut(), cache, theme);
+    if (!changed.empty()) {
+        RecomputeYPositions(doc.GetNodesMut(), cache, theme, changed.first, false, changed.last);
+    }
     viewport_.ApplyScrollTarget(cache);
 }
 

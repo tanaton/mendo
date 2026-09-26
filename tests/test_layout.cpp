@@ -54,7 +54,7 @@ TEST_F(LayoutTest, YPositionsIncreaseMonotonically)
     engine_.ComputeLayout(nodes, cache, 800.0f);
 
     for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GT(cache[i].text_top, cache[i - 1].text_top)
+        EXPECT_GT(cache.Top(i), cache.Top(i - 1))
             << "ノード " << i << " のyはノード " << (i - 1) << " より大きいこと";
     }
 }
@@ -67,8 +67,8 @@ TEST_F(LayoutTest, NodesDoNotOverlap)
     engine_.ComputeLayout(nodes, cache, 800.0f);
 
     for (size_t i = 1; i < nodes.size(); i++) {
-        float prev_bottom = cache[i - 1].text_top + cache[i - 1].height;
-        EXPECT_LE(prev_bottom, cache[i].text_top)
+        float prev_bottom = cache.Top(i - 1) + cache[i - 1].height;
+        EXPECT_LE(prev_bottom, cache.Top(i))
             << "ノード " << (i - 1) << " がノード " << i << " と重なっている";
     }
 }
@@ -232,7 +232,7 @@ TEST_F(LayoutTest, TotalHeightWithManyNodes)
 
     // 最後のノードの下端が全体の高さ以内であること
     size_t last = nodes.size() - 1;
-    EXPECT_LE(cache[last].text_top + cache[last].height, total);
+    EXPECT_LE(cache.Top(last) + cache[last].height, total);
 }
 
 // ---- ProcessDirtyBatch テスト ----
@@ -254,7 +254,7 @@ TEST_F(LayoutTest, ProcessDirtyBatchCleansNodes)
 
     // すべてのノードが有効な位置を持つこと
     for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GT(cache[i].text_top, cache[i - 1].text_top);
+        EXPECT_GT(cache.Top(i), cache.Top(i - 1));
     }
 }
 
@@ -382,14 +382,14 @@ TEST_F(LayoutTest, HeadingHasSpacingAboveAndBelow)
     ASSERT_EQ(nodes.size(), 3u);
 
     // 見出しの上に間隔があること（段落の下端と見出しのyの間隔）
-    float para_bottom = cache[0].text_top + cache[0].height;
-    float heading_y = cache[1].text_top;
+    float para_bottom = cache.Top(0) + cache[0].height;
+    float heading_y = cache.Top(1);
     float gap_above = heading_y - para_bottom;
     EXPECT_GT(gap_above, theme_.paragraph_spacing);
 
     // 見出しの下に間隔があること
-    float heading_bottom = cache[1].text_top + cache[1].height;
-    float next_y = cache[2].text_top;
+    float heading_bottom = cache.Top(1) + cache[1].height;
+    float next_y = cache.Top(2);
     float gap_below = next_y - heading_bottom;
     EXPECT_GT(gap_below, 0.0f);
 }
@@ -498,7 +498,7 @@ TEST(ComputeTotalContentHeightTest, SingleNode)
 {
     LayoutCache cache;
     cache.Resize(1);
-    cache[0].text_top = 15.0f;
+    cache.SetTop(0, 15.0f);
     cache[0].height = 50.0f;
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 1, 15.0f), 80.0f);
 }
@@ -507,11 +507,11 @@ TEST(ComputeTotalContentHeightTest, MultipleNodes)
 {
     LayoutCache cache;
     cache.Resize(3);
-    cache[0].text_top = 10.0f;
+    cache.SetTop(0, 10.0f);
     cache[0].height = 20.0f;
-    cache[1].text_top = 40.0f;
+    cache.SetTop(1, 40.0f);
     cache[1].height = 30.0f;
-    cache[2].text_top = 80.0f;
+    cache.SetTop(2, 80.0f);
     cache[2].height = 25.0f;
     // 最後のノードのみが関係: 80 + 25 + 10 = 115
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 3, 10.0f), 115.0f);
@@ -530,7 +530,7 @@ TEST(RecomputeYPositionsTest, SingleParagraph)
     Theme theme = GetLightTheme();
 
     auto result = RecomputeYPositions(nodes, cache, theme);
-    EXPECT_FLOAT_EQ(cache[0].text_top, theme.margin_top);
+    EXPECT_FLOAT_EQ(cache.Top(0), theme.margin_top);
     EXPECT_FALSE(result.has_dirty_nodes);
 }
 
@@ -564,13 +564,13 @@ TEST(RecomputeYPositionsTest, HeadingSpacing)
     RecomputeYPositions(nodes, cache, theme);
 
     // 見出しの上に追加の間隔があること
-    float para_bottom = cache[0].text_top + cache[0].height + theme.paragraph_spacing;
-    float heading_y = cache[1].text_top;
+    float para_bottom = cache.Top(0) + cache[0].height + theme.paragraph_spacing;
+    float heading_y = cache.Top(1);
     EXPECT_FLOAT_EQ(heading_y, para_bottom + theme.heading_spacing_above);
 
     // 見出しの後: paragraph_spacingではなくheading_spacing_below
-    float heading_bottom = cache[1].text_top + cache[1].height + theme.heading_spacing_below;
-    EXPECT_FLOAT_EQ(cache[2].text_top, heading_bottom);
+    float heading_bottom = cache.Top(1) + cache[1].height + theme.heading_spacing_below;
+    EXPECT_FLOAT_EQ(cache.Top(2), heading_bottom);
 }
 
 TEST(RecomputeYPositionsTest, H1H2UseLargerSpacingBelow)
@@ -611,11 +611,11 @@ TEST(RecomputeYPositionsTest, H1H2UseLargerSpacingBelow)
     RecomputeYPositions(nodes, cache, theme);
 
     // h1 の後: heading_spacing_below_h1h2 が使われる
-    float h1_gap = cache[1].text_top - (cache[0].text_top + cache[0].height);
+    float h1_gap = cache.Top(1) - (cache.Top(0) + cache[0].height);
     EXPECT_FLOAT_EQ(h1_gap, theme.heading_spacing_below_h1h2);
 
     // h3 の後: heading_spacing_below（h3以降用）が使われる
-    float h3_gap = cache[3].text_top - (cache[2].text_top + cache[2].height);
+    float h3_gap = cache.Top(3) - (cache.Top(2) + cache[2].height);
     EXPECT_FLOAT_EQ(h3_gap, theme.heading_spacing_below);
 
     // 両者は実際に異なる値であること（テスト対象の分岐が意味を持つ前提）
@@ -664,7 +664,7 @@ TEST(RecomputeYPositionsTest, MonotonicallyIncreasingY)
     RecomputeYPositions(nodes, cache, theme);
 
     for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GT(cache[i].text_top, cache[i - 1].text_top);
+        EXPECT_GT(cache.Top(i), cache.Top(i - 1));
     }
 }
 
@@ -704,12 +704,12 @@ TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes)
 
     // 表示範囲内のノードはもうダーティでないこと
     for (size_t i = 0; i < nodes.size(); i++) {
-        if (cache[i].text_top + cache[i].height < 0.0f)
+        if (cache.Top(i) + cache[i].height < 0.0f)
             continue;
-        if (cache[i].text_top > 100.0f)
+        if (cache.Top(i) > 100.0f)
             break;
         EXPECT_FALSE(cache[i].layout_dirty)
-            << "y=" << cache[i].text_top << " の表示ノードがまだダーティ";
+            << "y=" << cache.Top(i) << " の表示ノードがまだダーティ";
     }
 }
 
@@ -777,7 +777,7 @@ TEST_F(LayoutTest, EnsureVisibleLayoutRecomputesYPositions)
 
     // Y位置が単調増加を維持していること
     for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GT(cache[i].text_top, cache[i - 1].text_top)
+        EXPECT_GT(cache.Top(i), cache.Top(i - 1))
             << "ノード " << i << " のyはノード " << (i - 1) << " より大きいこと";
     }
 }
@@ -829,7 +829,7 @@ TEST_F(LayoutTest, PartialLayoutRefreshesStaleInvisibleHeights)
     // 部分レイアウト：可視範囲は先頭わずかのみ。後方の invisible ダーティ群は
     // 現テーマでの推定値に置き換わるはずで、stale な巨大 height は混ざらない。
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
-    const float last_top_after = cache[node_count - 1].text_top;
+    const float last_top_after = cache.Top(node_count - 1);
 
     // baseline と同程度（推定誤差ぶんはあり得る）に収束し、stale の合計を
     // 引きずった巨大値にはならないこと。
@@ -863,11 +863,11 @@ TEST(RecomputeYPositionsTest, MultipleHeadingsHaveCorrectSpacing)
     RecomputeYPositions(nodes, cache, theme);
 
     // 最初の見出し: margin_top + heading_spacing_above
-    EXPECT_FLOAT_EQ(cache[0].text_top, theme.margin_top + theme.heading_spacing_above);
+    EXPECT_FLOAT_EQ(cache.Top(0), theme.margin_top + theme.heading_spacing_above);
 
     // 2番目の見出し: 最初の見出しの後 + heading_spacing_below + heading_spacing_above
-    float expected_y = cache[0].text_top + cache[0].height + theme.heading_spacing_below + theme.heading_spacing_above;
-    EXPECT_FLOAT_EQ(cache[1].text_top, expected_y);
+    float expected_y = cache.Top(0) + cache[0].height + theme.heading_spacing_below + theme.heading_spacing_above;
+    EXPECT_FLOAT_EQ(cache.Top(1), expected_y);
 }
 
 TEST(RecomputeYPositionsTest, AllNodeTypesProduceValidPositions)
@@ -901,7 +901,7 @@ TEST(RecomputeYPositionsTest, AllNodeTypesProduceValidPositions)
 
     // すべての位置が単調増加であること
     for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GT(cache[i].text_top, cache[i - 1].text_top);
+        EXPECT_GT(cache.Top(i), cache.Top(i - 1));
     }
 }
 
@@ -978,8 +978,8 @@ TEST(RecomputeYPositionsTest, CodeBlockHasSpacingAbove)
 
     RecomputeYPositions(nodes, cache, theme);
 
-    float para_bottom = cache[0].text_top + cache[0].height;
-    float gap = cache[1].text_top - para_bottom;
+    float para_bottom = cache.Top(0) + cache[0].height;
+    float gap = cache.Top(1) - para_bottom;
     // paragraph_spacing + code_block_spacing_above
     EXPECT_FLOAT_EQ(gap, theme.paragraph_spacing + theme.code_block_spacing_above);
 }
@@ -1004,8 +1004,8 @@ TEST(RecomputeYPositionsTest, CodeBlockHasSpacingBelow)
 
     RecomputeYPositions(nodes, cache, theme);
 
-    float code_bottom = cache[0].text_top + cache[0].height;
-    float gap = cache[1].text_top - code_bottom;
+    float code_bottom = cache.Top(0) + cache[0].height;
+    float gap = cache.Top(1) - code_bottom;
     // コードブロック後: paragraph_spacing + code_block_spacing_above
     EXPECT_FLOAT_EQ(gap, theme.paragraph_spacing + theme.code_block_spacing_above);
 }
@@ -1032,8 +1032,8 @@ TEST(RecomputeYPositionsTest, BlockQuoteHasSpacingAbove)
 
     RecomputeYPositions(nodes, cache, theme);
 
-    float para_bottom = cache[0].text_top + cache[0].height;
-    float gap = cache[1].text_top - para_bottom;
+    float para_bottom = cache.Top(0) + cache[0].height;
+    float gap = cache.Top(1) - para_bottom;
     // paragraph_spacing + code_block_spacing_above
     EXPECT_FLOAT_EQ(gap, theme.paragraph_spacing + theme.code_block_spacing_above);
 }
@@ -1063,7 +1063,7 @@ TEST(RecomputeYPositionsTest, ListItemUsesListItemSpacing)
 
     RecomputeYPositions(nodes, cache, theme);
 
-    float gap = cache[1].text_top - (cache[0].text_top + cache[0].height);
+    float gap = cache.Top(1) - (cache.Top(0) + cache[0].height);
     EXPECT_FLOAT_EQ(gap, theme.list_item_spacing);
 }
 
@@ -1089,7 +1089,7 @@ TEST(RecomputeYPositionsTest, TaskListItemUsesListItemSpacing)
 
     RecomputeYPositions(nodes, cache, theme);
 
-    float gap = cache[1].text_top - (cache[0].text_top + cache[0].height);
+    float gap = cache.Top(1) - (cache.Top(0) + cache[0].height);
     EXPECT_FLOAT_EQ(gap, theme.list_item_spacing);
 }
 
@@ -1115,11 +1115,11 @@ TEST(RecomputeYPositionsTest, FromIndexCodeBlock)
 
     // まず全体を計算
     RecomputeYPositions(nodes, cache, theme);
-    float expected_y1 = cache[1].text_top;
+    float expected_y1 = cache.Top(1);
 
     // from_index=1 で途中から再計算
     RecomputeYPositions(nodes, cache, theme, 1);
-    EXPECT_FLOAT_EQ(cache[1].text_top, expected_y1);
+    EXPECT_FLOAT_EQ(cache.Top(1), expected_y1);
 }
 
 TEST(RecomputeYPositionsTest, FromIndexListItem)
@@ -1141,10 +1141,10 @@ TEST(RecomputeYPositionsTest, FromIndexListItem)
     cache[1].layout_dirty = false;
 
     RecomputeYPositions(nodes, cache, theme);
-    float expected_y1 = cache[1].text_top;
+    float expected_y1 = cache.Top(1);
 
     RecomputeYPositions(nodes, cache, theme, 1);
-    EXPECT_FLOAT_EQ(cache[1].text_top, expected_y1);
+    EXPECT_FLOAT_EQ(cache.Top(1), expected_y1);
 }
 
 // ---- リスト箇条書き記号の垂直位置（実DWriteレイアウト使用） ----
@@ -1256,7 +1256,7 @@ TEST(EstimateNodeHeightsTest, SingleParagraph)
     EstimateNodeHeights(nodes, cache, theme);
 
     EXPECT_GT(cache[0].height, 0.0f);
-    EXPECT_GE(cache[0].text_top, theme.margin_top);
+    EXPECT_GE(cache.Top(0), theme.margin_top);
 }
 
 TEST(EstimateNodeHeightsTest, YPositionsIncreaseMonotonically)
@@ -1269,7 +1269,7 @@ TEST(EstimateNodeHeightsTest, YPositionsIncreaseMonotonically)
     EstimateNodeHeights(nodes, cache, theme);
 
     for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GT(cache[i].text_top, cache[i - 1].text_top)
+        EXPECT_GT(cache.Top(i), cache.Top(i - 1))
             << "ノード " << i << " のy_positionがノード " << (i - 1) << " より大きいこと";
     }
 }
@@ -1284,8 +1284,8 @@ TEST(EstimateNodeHeightsTest, NodesDoNotOverlap)
     EstimateNodeHeights(nodes, cache, theme);
 
     for (size_t i = 1; i < nodes.size(); i++) {
-        float prev_bottom = cache[i - 1].text_top + cache[i - 1].height;
-        EXPECT_LE(prev_bottom, cache[i].text_top)
+        float prev_bottom = cache.Top(i - 1) + cache[i - 1].height;
+        EXPECT_LE(prev_bottom, cache.Top(i))
             << "ノード " << (i - 1) << " がノード " << i << " と重なっている";
     }
 }
@@ -1534,7 +1534,7 @@ TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout)
     ASSERT_GT(lc, 0u);
 
     // bullet 中心は物理ピクセル境界へスナップされるため、期待値も同じ規則でスナップする。
-    float expected_y = SnapToPhysicalPixel(cache[0].text_top + lm.height * 0.5f, 1.0f);
+    float expected_y = SnapToPhysicalPixel(cache.Top(0) + lm.height * 0.5f, 1.0f);
 
     CommandGenerator gen;
     gen.SetTheme(&theme_);
@@ -1566,8 +1566,8 @@ TEST_F(LayoutTest, LooseListBulletAlignsWithFollowingParagraphText)
     ASSERT_EQ(nodes[2].type, NodeType::ListItem);
     ASSERT_EQ(nodes[3].type, NodeType::Paragraph);
 
-    EXPECT_NEAR(cache[0].text_top, cache[1].text_top, 0.01f);
-    EXPECT_NEAR(cache[2].text_top, cache[3].text_top, 0.01f);
+    EXPECT_NEAR(cache.Top(0), cache.Top(1), 0.01f);
+    EXPECT_NEAR(cache.Top(2), cache.Top(3), 0.01f);
 }
 
 // 空 LI の first_line_height はフォールバック (font_size*FALLBACK_LINE_HEIGHT_FACTOR) なので
@@ -1592,7 +1592,7 @@ TEST_F(LayoutTest, LooseListBulletCenteredOnFollowingParagraphLine)
     PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
     auto cmds = gen.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
 
-    const float expected_y = cache[1].text_top + lm.height * 0.5f;
+    const float expected_y = cache.Top(1) + lm.height * 0.5f;
     bool found = false;
     for (const auto& cmd : cmds) {
         if (auto* e = std::get_if<FillEllipseCmd>(&cmd)) {
@@ -1724,4 +1724,61 @@ TEST(RecomputeYPositionsTest, DISABLED_BenchLargeDocument)
               << " ITER=" << ITER
               << " total=" << elapsed2_us << "us"
               << " avg=" << (static_cast<double>(elapsed2_us) / ITER) << "us/iter\n";
+}
+
+// 幅不変の部分レイアウトは可視先頭から走査し、可視範囲の高さ変化は後続へ一括シフトする。
+// 結果の Y 位置は全件レイアウトと一致しなければならない。
+TEST_F(LayoutTest, PartialLayoutFromVisibleStartMatchesFullLayout)
+{
+    std::string md;
+    for (int i = 0; i < 200; i++) {
+        md += "Paragraph " + std::to_string(i) + " with some words\n\n";
+    }
+    auto nodes = ParseMarkdown(md).nodes;
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+    std::vector<float> ref_tops(nodes.size());
+    for (size_t i = 0; i < nodes.size(); i++) {
+        ref_tops[i] = cache.Top(i);
+    }
+
+    // 可視帯のノードだけ高さを狂わせて dirty にし、Y をその高さで組み直しておく。
+    for (size_t i = 100; i < 105; i++) {
+        cache[i].height += 37.0f;
+        cache[i].layout_dirty = true;
+    }
+    RecomputeYPositions(nodes, cache, theme_);
+    ASSERT_NE(cache.Top(150), ref_tops[150]);
+
+    engine_.ComputeLayout(nodes, cache, 800.0f, cache.Top(100), cache.Bottom(104));
+
+    for (size_t i = 0; i < nodes.size(); i++) {
+        EXPECT_FLOAT_EQ(cache.Top(i), ref_tops[i]) << "i=" << i;
+    }
+    EXPECT_TRUE(engine_.HasDirtyNodes()) << "走査しない範囲の dirty は保守的に仮定する";
+}
+
+// 範囲指定の RecomputeYPositions は、範囲外の後続ノードを一定量シフトするだけで全件計算と一致する。
+TEST_F(LayoutTest, RecomputeYPositionsWithRangeMatchesFull)
+{
+    std::string md;
+    for (int i = 0; i < 50; i++) {
+        md += "Paragraph " + std::to_string(i) + "\n\n";
+    }
+    auto nodes = ParseMarkdown(md).nodes;
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+
+    cache[20].height += 50.0f;
+    RecomputeYPositions(nodes, cache, theme_, 20, false, 20);
+    std::vector<float> ranged(nodes.size());
+    for (size_t i = 0; i < nodes.size(); i++) {
+        ranged[i] = cache.Top(i);
+    }
+    RecomputeYPositions(nodes, cache, theme_);
+    for (size_t i = 0; i < nodes.size(); i++) {
+        EXPECT_FLOAT_EQ(ranged[i], cache.Top(i)) << "i=" << i;
+    }
 }

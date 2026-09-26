@@ -360,8 +360,8 @@ TEST_F(ImageLayoutTest, ImageNodesDoNotOverlap)
     engine_.ComputeLayout(nodes, cache, 800.0f);
 
     for (size_t i = 1; i < nodes.size(); i++) {
-        float prev_bottom = cache[i - 1].text_top + cache[i - 1].height;
-        EXPECT_GE(cache[i].text_top, prev_bottom) << "ノード " << i << " が前のノードと重なっている";
+        float prev_bottom = cache.Top(i - 1) + cache[i - 1].height;
+        EXPECT_GE(cache.Top(i), prev_bottom) << "ノード " << i << " が前のノードと重なっている";
     }
 }
 
@@ -377,8 +377,8 @@ TEST_F(ImageLayoutTest, ImageBetweenTextNodesDoNotOverlap)
     engine_.ComputeLayout(nodes, cache, 800.0f);
 
     for (size_t i = 1; i < nodes.size(); i++) {
-        float prev_bottom = cache[i - 1].text_top + cache[i - 1].height;
-        EXPECT_GE(cache[i].text_top, prev_bottom);
+        float prev_bottom = cache.Top(i - 1) + cache[i - 1].height;
+        EXPECT_GE(cache.Top(i), prev_bottom);
     }
 }
 

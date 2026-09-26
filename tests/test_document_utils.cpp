@@ -1953,7 +1953,7 @@ TEST(CalcScrollYForDiff, ParsedMarkdownIntegration)
     ASSERT_GE(nodes.size(), 4u);
 
     // 等間隔 cache (text_top=0,50,100,...) を構築。spacing/Heading 個別寸法は無視し、
-    // CalcScrollYForDiff が cache[i].text_top をどう参照するかだけを見る統合テスト。
+    // CalcScrollYForDiff が cache.Top(i) をどう参照するかだけを見る統合テスト。
     auto cache = MakeUniformCache(static_cast<int>(nodes.size()), 50.0f);
 
     // "Second paragraph" の先頭で diff
@@ -1987,8 +1987,8 @@ TEST(CalcScrollYForDiff, PrefixGrowthScrollsTowardAppendedTail)
     ASSERT_GE(nodes.size(), 4u);
 
     auto cache = MakeUniformCache(static_cast<int>(nodes.size()), 100.0f);
-    const float last_old_node_y = cache[nodes.size() - 2].text_top;
-    const float appended_node_y = cache[nodes.size() - 1].text_top;
+    const float last_old_node_y = cache.Top(nodes.size() - 2);
+    const float appended_node_y = cache.Top(nodes.size() - 1);
 
     // ユーザが先頭付近 (scroll_y=0) を見ている状態で末尾追記が起きたシナリオ。
     // 旧コード (is_prefix_only ? old_scroll : ...) では desired_scroll が

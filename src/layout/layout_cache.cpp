@@ -168,6 +168,7 @@ void LayoutCache::Resize(size_t node_count)
 {
     if (entries_.size() != node_count) {
         entries_.resize(node_count);
+        tops_.resize(node_count);
         diagrams_.resize(node_count);
         effects_generation_++;
         ResetEvictionTracking();
@@ -177,10 +178,13 @@ void LayoutCache::Resize(size_t node_count)
 void LayoutCache::Reset(size_t node_count, bool shrink)
 {
     entries_.clear();
+    tops_.clear();
     if (shrink) {
         entries_.shrink_to_fit();
+        tops_.shrink_to_fit();
     }
     entries_.resize(node_count);
+    tops_.resize(node_count);
     diagrams_.clear();
     if (shrink) {
         diagrams_.shrink_to_fit();
@@ -289,7 +293,7 @@ void LayoutCache::EvictInvisibleTableRows(
         auto& tl = *e.table_layout;
         // 既に evict 済みの行はなめ直さず、生存範囲のうち keep 外の差分だけ捨てる。
         // 再可視化は dirty を経由せず LayoutEngine::EnsureVisibleLayout の行復元で行う。
-        const auto [keep_begin, keep_end] = tl.VisibleRowRange(keep_top - e.text_top, keep_bottom - e.text_top);
+        const auto [keep_begin, keep_end] = tl.VisibleRowRange(keep_top - tops_[idx], keep_bottom - tops_[idx]);
         const size_t live_begin = tl.live_row_begin;
         const size_t live_end = tl.live_row_end;
         for (size_t r = live_begin; r < std::min(live_end, keep_begin); ++r) {

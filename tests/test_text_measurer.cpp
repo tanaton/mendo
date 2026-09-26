@@ -46,7 +46,7 @@ TEST_F(MockLayoutTest, YPositionsAreMonotonicallyIncreasing)
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
     for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GT(cache[i].text_top, cache[i - 1].text_top);
+        EXPECT_GT(cache.Top(i), cache.Top(i - 1));
     }
 }
 
@@ -57,8 +57,8 @@ TEST_F(MockLayoutTest, NoOverlapBetweenNodes)
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f);
     for (size_t i = 1; i < nodes.size(); i++) {
-        float prev_bottom = cache[i - 1].text_top + cache[i - 1].height;
-        EXPECT_GE(cache[i].text_top, prev_bottom);
+        float prev_bottom = cache.Top(i - 1) + cache[i - 1].height;
+        EXPECT_GE(cache.Top(i), prev_bottom);
     }
 }
 
@@ -72,8 +72,8 @@ TEST_F(MockLayoutTest, HeadingHasExtraSpacing)
     engine_.ComputeLayout(nodes, cache, 800.0f);
     ASSERT_EQ(nodes.size(), 3u);
 
-    float para_bottom = cache[0].text_top + cache[0].height;
-    float heading_y = cache[1].text_top;
+    float para_bottom = cache.Top(0) + cache[0].height;
+    float heading_y = cache.Top(1);
     EXPECT_GT(heading_y - para_bottom, theme_.paragraph_spacing);
 }
 
@@ -122,7 +122,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchResolvesDirty)
     }
 
     for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GT(cache[i].text_top, cache[i - 1].text_top);
+        EXPECT_GT(cache.Top(i), cache.Top(i - 1));
     }
 }
 
@@ -378,8 +378,8 @@ TEST_F(MockLayoutTest, LongTableHeightNotShrunkByEstimateInPartialMode)
         << "partial モードで実測済みテーブルの高さが推定値で縮められた";
 
     // テーブル直後の段落の y_position もテーブル下端より下にあること
-    const float table_bottom = cache[table_idx].text_top + cache[table_idx].height;
-    EXPECT_GE(cache[para_idx].text_top, table_bottom)
+    const float table_bottom = cache.Top(table_idx) + cache[table_idx].height;
+    EXPECT_GE(cache.Top(para_idx), table_bottom)
         << "テーブル直後ノードの y_position がテーブル下端より上に詰まっている (issue #158)";
 }
 
@@ -455,7 +455,7 @@ TEST_F(MockLayoutTest, ManyNodesProduceLargeHeight)
     const float total = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top);
     EXPECT_GT(total, 500.0f);
     size_t last = nodes.size() - 1;
-    EXPECT_LE(cache[last].text_top + cache[last].height, total);
+    EXPECT_LE(cache.Top(last) + cache[last].height, total);
 }
 
 // ---- ファイル切り替えリグレッションテスト ----

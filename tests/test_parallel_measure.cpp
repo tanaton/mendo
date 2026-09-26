@@ -31,7 +31,7 @@ struct ParallelFixture {
         }
         cache.Resize(n);
         for (size_t i = 0; i < n; ++i) {
-            cache[i].text_top = static_cast<float>(i) * 100.0f;
+            cache.SetTop(i, static_cast<float>(i) * 100.0f);
             cache[i].height = 80.0f;
             cache[i].layout_dirty = all_dirty;
         }

@@ -171,7 +171,7 @@ TEST_F(SearchBarControllerTest, OnTextChangedSmallDocImmediate)
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode("hello world"));
     cache_.Resize(nodes.size());
-    cache_[0].text_top = 0.0f;
+    cache_.SetTop(0, 0.0f);
     cache_[0].height = 100.0f;
 
     ctrl_.OnTextChanged(L"hello", nodes, 0);
@@ -361,7 +361,7 @@ TEST_F(SearchBarControllerTest, BuildRenderStateReflectsState)
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode("abc"));
     cache_.Resize(1);
-    cache_[0].text_top = 0.0f;
+    cache_.SetTop(0, 0.0f);
     cache_[0].height = 100.0f;
 
     ctrl_.OnOpen(nodes);
@@ -387,9 +387,9 @@ TEST_F(SearchBarControllerTest, ScrollToMatchClearsScrollTarget)
     nodes.push_back(MakeTextNode("world hello"));
 
     cache_.Resize(2);
-    cache_[0].text_top = 0.0f;
+    cache_.SetTop(0, 0.0f);
     cache_[0].height = 500.0f;
-    cache_[1].text_top = 500.0f;
+    cache_.SetTop(1, 500.0f);
     cache_[1].height = 500.0f;
 
     viewport_.SyncMaxScroll(1000.0f, 800.0f);
@@ -412,9 +412,9 @@ TEST_F(SearchBarControllerTest, ScrollToMatchPassesMdPaneHeightToCallback)
     nodes.push_back(MakeTextNode("target"));
 
     cache_.Resize(2);
-    cache_[0].text_top = 0.0f;
+    cache_.SetTop(0, 0.0f);
     cache_[0].height = 1000.0f;
-    cache_[1].text_top = 1000.0f;
+    cache_.SetTop(1, 1000.0f);
     cache_[1].height = 1000.0f;
 
     viewport_.SyncMaxScroll(2000.0f, md_pane_height_);
@@ -447,7 +447,7 @@ TEST_F(SearchBarControllerTest, NextMatchAcrossTableRowsAdvancesScroll)
     nodes.push_back(std::move(table));
 
     cache_.Resize(1);
-    cache_[0].text_top = 0.0f;
+    cache_.SetTop(0, 0.0f);
     cache_[0].height = 2000.0f;
     auto& tl = cache_[0].ensure_table_layout();
     tl.col_count = 1;
@@ -481,7 +481,7 @@ TEST_F(SearchBarControllerTest, ScrollToMatchNoOpWhenAlreadyVisible)
     nodes.push_back(MakeTextNode("hello"));
 
     cache_.Resize(1);
-    cache_[0].text_top = 100.0f;
+    cache_.SetTop(0, 100.0f);
     cache_[0].height = 50.0f;
 
     viewport_.SyncMaxScroll(1000.0f, md_pane_height_);

@@ -436,7 +436,7 @@ void App::OnDestroy()
         session_.SaveLastFilePath(state_.document.doc.GetFilePath());
         if (const int node = state_.view.viewport.FindFirstVisibleNode(state_.document.layout_cache, state_.document.doc.GetNodes().size()); node >= 0) {
             // 復元側 (NodeOffsetToScrollY) と同じ cache[node].text_top を読む。
-            const float text_top = state_.document.layout_cache[node].text_top;
+            const float text_top = state_.document.layout_cache.Top(static_cast<size_t>(node));
             session_.SaveScrollPosition(node, state_.view.viewport.GetScrollY(), text_top);
         }
     }

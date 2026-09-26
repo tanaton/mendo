@@ -22,12 +22,12 @@ struct ViewportClip {
 
     // dirty 選定で「処理対象として残すべきか」を返す共通述語。
     // limit_top / limit_bottom の計算は呼び出しごとに 1 度だけ済ませた値を渡す。
-    static constexpr bool ShouldMeasure(const NodeLayoutEntry& e, bool has_limit, float limit_top, float limit_bottom) noexcept
+    static constexpr bool ShouldMeasure(const NodeLayoutEntry& e, float top, bool has_limit, float limit_top, float limit_bottom) noexcept
     {
         if (!e.layout_dirty) {
             return false;
         }
-        if (has_limit && IsOffscreen(e.text_top, e.height, limit_top, limit_bottom)) {
+        if (has_limit && IsOffscreen(top, e.height, limit_top, limit_bottom)) {
             return false;
         }
         return true;

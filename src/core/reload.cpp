@@ -106,7 +106,7 @@ float CalcScrollYForDiff(
         return fallback_scroll;
     }
 
-    float node_y = cache[changed_node].text_top;
+    float node_y = cache.Top(static_cast<size_t>(changed_node));
     const float node_h = cache[changed_node].height;
 
     const auto node_start = nodes[changed_node].SourceOffsetFrom(raw_base);

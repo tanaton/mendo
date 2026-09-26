@@ -205,7 +205,7 @@ public:
         const auto& entry = (*cache_)[match.node_index];
         // Why: ブロック先頭/行先頭に丸めると、長い段落内の複数マッチ間で同じ Y に集約され
         //      「次へ」を押してもスクロールしない。start_w で行単位の Y を出す。
-        const auto [match_y, match_h] = entry.GetMatchYRange(match.table_row, match.table_col, match.start_w, entry.text_top);
+        const auto [match_y, match_h] = entry.GetMatchYRange(match.table_row, match.table_col, match.start_w, cache_->Top(static_cast<size_t>(match.node_index)));
         const float md_pane_height = cb_.get_md_pane_height();
         const float visible_height = md_pane_height - (state_->IsVisible() ? SEARCH_BAR_HEIGHT : 0.0f);
         const float scroll_y = viewport_->GetScrollY();

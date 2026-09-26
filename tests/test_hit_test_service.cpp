@@ -163,7 +163,7 @@ TEST_F(HitTestServiceTest, HitTest_BelowAllNodesReturnsLastNonEmpty)
     // 全ノードの下端より十分下（dpi=1, scroll=0 なので dip_y = screen_y）
     float last_bottom = 0.0f;
     for (size_t i = 0; i < pr.nodes.size(); ++i) {
-        const float text_top = pr.cache[i].text_top;
+        const float text_top = pr.cache.Top(i);
         last_bottom = std::max(last_bottom, text_top + pr.cache[i].height);
     }
     MdPaneHitContext ctx{
@@ -210,10 +210,10 @@ TEST_F(HitTestServiceTest, HitTest_GapBetweenNodesClampsToPrecedingNodeEnd)
     // 文書全体の末尾へ飛ばすと、余白からのドラッグで巨大選択が作られてしまう。
     auto pr = Parse("Hello\n\nWorld");
     ASSERT_GE(pr.nodes.size(), 2u);
-    const float node0_bottom = pr.cache[0].text_top + pr.cache[0].height;
-    ASSERT_LT(node0_bottom, pr.cache[1].text_top) << "ノード間に余白があること";
+    const float node0_bottom = pr.cache.Top(0) + pr.cache[0].height;
+    ASSERT_LT(node0_bottom, pr.cache.Top(1)) << "ノード間に余白があること";
 
-    const float gap_y = (node0_bottom + pr.cache[1].text_top) * 0.5f;
+    const float gap_y = (node0_bottom + pr.cache.Top(1)) * 0.5f;
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,
         gap_y, 0.0f, 1.0f, 50, 0
@@ -234,7 +234,7 @@ TEST_F(HitTestServiceTest, HitTest_TextlessCandidateFallsForwardToFirstNonEmpty)
     ASSERT_GT(pr.cache[0].height, 0.0f);
 
     // 画像ノードの範囲内クリック (text_layout が無いためフォールバック経路に入る)
-    const float mid_y = pr.cache[0].text_top + pr.cache[0].height * 0.5f;
+    const float mid_y = pr.cache.Top(0) + pr.cache[0].height * 0.5f;
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,
         mid_y, 0.0f, 1.0f, 50, 0
@@ -263,7 +263,7 @@ TEST_F(HitTestServiceTest, HitTestTable_NoLayoutDataReturnsTextEnd)
     entry.table_layout.reset();
     ASSERT_FALSE(entry.has_table_layout());
 
-    const float entry_text_top = pr.cache[static_cast<size_t>(table_idx)].text_top;
+    const float entry_text_top = pr.cache.Top(static_cast<size_t>(table_idx));
     auto r = hit_test_.HitTestTable(pr.nodes[table_idx], entry, entry_text_top, table_idx,
                                     theme_, 100.0f, entry_text_top + 5.0f);
     EXPECT_EQ(r.node_index, table_idx);
@@ -287,7 +287,7 @@ TEST_F(HitTestServiceTest, HitTestTable_ClickAboveAllRowsReturnsTextEnd)
     ASSERT_TRUE(entry.has_table_layout());
 
     // テーブル上端より 10 dip 上 → FindTableRow は -1 を返す
-    const float entry_text_top = pr.cache[static_cast<size_t>(table_idx)].text_top;
+    const float entry_text_top = pr.cache.Top(static_cast<size_t>(table_idx));
     auto r = hit_test_.HitTestTable(pr.nodes[table_idx], entry, entry_text_top, table_idx,
                                     theme_,
                                     theme_.margin_left + 10.0f,
@@ -318,7 +318,7 @@ TEST_F(HitTestServiceTest, HitTestTable_LinearScanHitsFirstRow)
     ASSERT_GE(tl.row_heights.size(), 1u);
     ASSERT_GE(tl.col_widths.size(), 1u);
 
-    const float entry_text_top = pr.cache[static_cast<size_t>(table_idx)].text_top;
+    const float entry_text_top = pr.cache.Top(static_cast<size_t>(table_idx));
     const float row0_mid_y = entry_text_top + tl.row_heights[0] * 0.5f;
     const float col0_mid_x = theme_.margin_left + tl.col_widths[0] * 0.5f;
 
@@ -370,7 +370,7 @@ TEST_F(HitTestServiceTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
     ASSERT_FALSE(pr.cache.GetDiagram(static_cast<size_t>(mermaid_idx)).bitmap);
 
     const float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
-    const float entry_text_top = pr.cache[static_cast<size_t>(mermaid_idx)].text_top;
+    const float entry_text_top = pr.cache.Top(static_cast<size_t>(mermaid_idx));
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,
         0.0f, 0.0f, 1.0f,

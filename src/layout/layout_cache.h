@@ -152,9 +152,7 @@ constexpr T& EnsurePmrUnique(mendo::pmr_unique_ptr<T>& p)
 } // namespace mendo::layout::detail
 
 struct NodeLayoutEntry {
-    // ノード Y 位置の唯一の真実。WRITE 経路は RecomputeYPositions / ComputeLayout /
-    // EstimateNodeHeights のみ。MeasureNode は触らない (= 中間状態は古い値のまま)。
-    float text_top = 0.0f;
+    // ノード Y 位置 (text_top) は LayoutCache::Top(i) に分離して持つ (SoA)。
     float height = 0.0f;
     // GetLineMetrics(&lm, 1, &lc) の結果をキャッシュ。0 なら未確定 (フォールバック計算する)。
     // MeasureNode で text_layout 確定時に同時に求める。
@@ -314,6 +312,27 @@ public:
         return entries_[i];
     }
 
+    // ノード Y 位置の唯一の真実。WRITE 経路は RecomputeYPositions / ComputeLayout /
+    // EstimateNodeHeights のみ。MeasureNode は触らない (= 中間状態は古い値のまま)。
+    // 高さ変化時の後続ノード一括シフトが 72B ストライドの AoS を全件なめないよう、
+    // 連続 float 配列として entries_ とは別に持つ。
+    constexpr float Top(size_t i) const noexcept
+    {
+        return tops_[i];
+    }
+    constexpr void SetTop(size_t i, float y) noexcept
+    {
+        tops_[i] = y;
+    }
+    constexpr float Bottom(size_t i) const noexcept
+    {
+        return tops_[i] + entries_[i].height;
+    }
+    std::span<float> TopsMut() noexcept
+    {
+        return tops_;
+    }
+
     constexpr DiagramEntry& GetDiagram(size_t i) noexcept
     {
         return diagrams_[i];
@@ -395,6 +414,7 @@ private:
     static void EvictTableRow(TableLayoutData& tl, size_t row_index) noexcept;
 
     std::pmr::vector<NodeLayoutEntry> entries_;
+    std::pmr::vector<float> tops_;
     std::pmr::vector<DiagramEntry> diagrams_;
     uint32_t effects_generation_ = 0;
     size_t last_evict_fk_ = 0;
@@ -411,8 +431,7 @@ constexpr float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_
     if (effective == 0) {
         return 0.0f;
     }
-    const size_t last = effective - 1;
-    return cache[last].text_top + cache[last].height + margin_top;
+    return cache.Bottom(effective - 1) + margin_top;
 }
 
 // ノードの Y 範囲 [y, y+h] が [range_top, range_bottom] と重ならない場合 true を返す。
@@ -430,12 +449,11 @@ constexpr bool IsOffscreen(float y, float h, float range_top, float range_bottom
 constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_count, float viewport_top) noexcept
 {
     const size_t effective = std::min(node_count, cache.size());
-    const auto first = cache.cbegin();
-    const auto last = first + static_cast<ptrdiff_t>(effective);
-    const auto it = std::ranges::partition_point(first, last, [viewport_top](const NodeLayoutEntry& e) noexcept {
-        return e.text_top + e.height <= viewport_top;
+    const auto indices = std::views::iota(size_t{ 0 }, effective);
+    const auto it = std::ranges::partition_point(indices, [&cache, viewport_top](size_t i) noexcept {
+        return cache.Bottom(i) <= viewport_top;
     });
-    return static_cast<int>(it - first);
+    return static_cast<int>(it == indices.end() ? effective : *it);
 }
 
 struct VisibleRange {
@@ -453,7 +471,7 @@ inline VisibleRange ComputeVisibleNodeRange(const LayoutCache& cache, size_t nod
     const size_t first = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, effective, range_top));
     size_t last_plus_1 = first;
     for (size_t i = first; i < effective; ++i) {
-        if (cache[i].text_top > range_bottom) {
+        if (cache.Top(i) > range_bottom) {
             break;
         }
         last_plus_1 = i + 1;
@@ -469,5 +487,5 @@ constexpr float NodeOffsetToScrollY(const LayoutCache& cache, int node, float of
         return 0.0f;
     }
     const int clamped = std::min(node, static_cast<int>(cache.size()) - 1);
-    return std::max(0.0f, cache[clamped].text_top + offset);
+    return std::max(0.0f, cache.Top(static_cast<size_t>(clamped)) + offset);
 }

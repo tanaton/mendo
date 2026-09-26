@@ -104,16 +104,16 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
 
     const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
 
-    const auto first = ctx.cache.cbegin();
     // nodes と cache のサイズは非同期リロード中などに過渡的に不一致になりうる。
-    const auto last = first + static_cast<ptrdiff_t>(std::min(ctx.nodes.size(), ctx.cache.size()));
-    const auto it = std::ranges::partition_point(first, last, [dip_y](const NodeLayoutEntry& e) noexcept {
-        return e.text_top <= dip_y;
+    const auto indices = std::views::iota(size_t{ 0 }, std::min(ctx.nodes.size(), ctx.cache.size()));
+    const auto it = std::ranges::partition_point(indices, [&ctx, dip_y](size_t i) noexcept {
+        return ctx.cache.Top(i) <= dip_y;
     });
-    const int candidate = (it != first) ? static_cast<int>(std::prev(it) - first) : -1;
+    const size_t first_above = (it == indices.end()) ? indices.size() : *it;
+    const int candidate = static_cast<int>(first_above) - 1;
 
-    // partition_point と同じ entry.text_top を局所座標 (local_y) の基準にする。
-    const float candidate_text_top = (candidate >= 0) ? ctx.cache[candidate].text_top : 0.0f;
+    // partition_point と同じ text_top を局所座標 (local_y) の基準にする。
+    const float candidate_text_top = (candidate >= 0) ? ctx.cache.Top(static_cast<size_t>(candidate)) : 0.0f;
     // CodeBlock は背景が text 範囲の上下に padding 分はみ出る。padding 部分 (横スクロールバーを
     // 置きたい領域) もそのノードのヒットとして扱い、ホバーが切れないようにする。
     const float bottom_extension =
@@ -258,8 +258,7 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const
 
     CodeBlockButtonHit out;
     for (int i = first; i < count; i++) {
-        const auto& entry = ctx.cache[i];
-        const float entry_text_top = entry.text_top;
+        const float entry_text_top = ctx.cache.Top(static_cast<size_t>(i));
         if (entry_text_top - ctx.theme.code_block_padding > viewport_bottom) {
             break;
         }

@@ -121,7 +121,7 @@ public:
         const size_t effective = std::min(node_count, cache.size());
         const int idx = FindFirstVisibleNodeIndex(cache, effective, scroll_y_);
         if (idx < static_cast<int>(effective)) {
-            scroll_target_ = { idx, scroll_y_ - cache[idx].text_top };
+            scroll_target_ = { idx, scroll_y_ - cache.Top(static_cast<size_t>(idx)) };
         }
     }
 

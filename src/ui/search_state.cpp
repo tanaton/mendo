@@ -208,7 +208,7 @@ void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) 
             return false;
         }
         const auto& e = cache[m.node_index];
-        const auto [y, h] = e.GetMatchYRange(m.table_row, m.table_col, m.start_w, e.text_top);
+        const auto [y, h] = e.GetMatchYRange(m.table_row, m.table_col, m.start_w, cache.Top(static_cast<size_t>(m.node_index)));
         (void)h;
         return y < scroll_y;
     });

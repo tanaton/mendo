@@ -66,6 +66,31 @@ struct YPositionResult {
     bool has_dirty_nodes = false;
 };
 
+// 高さが変わったノードの閉区間 [first, last]。以降のノードは一定量のシフトで済むため、
+// 再計算を先頭からの全件ではなくこの範囲に限定できる。既定値は「全件」。
+struct HeightChangeRange {
+    size_t first = 0;
+    size_t last = std::numeric_limits<size_t>::max();
+
+    constexpr bool empty() const noexcept
+    {
+        return first > last;
+    }
+    constexpr void Add(size_t i) noexcept
+    {
+        if (empty()) {
+            first = last = i;
+            return;
+        }
+        first = std::min(first, i);
+        last = std::max(last, i);
+    }
+    static constexpr HeightChangeRange None() noexcept
+    {
+        return { std::numeric_limits<size_t>::max(), 0 };
+    }
+};
+
 YPositionResult RecomputeYPositions(
     std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
     size_t from_index = 0, bool has_earlier_dirty = false,

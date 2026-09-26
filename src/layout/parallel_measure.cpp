@@ -33,7 +33,7 @@ void MeasureChunk(
     for (size_t k = 0; k < chunk_indices.size(); ++k) {
         const size_t i = chunk_indices[k];
         const float indent = NodeIndent(nodes[i], theme);
-        MeasureEntry(backend, nodes[i], cache[i], content_width - indent, &chunk_slot_tokens[k], viewport);
+        MeasureEntry(backend, nodes[i], cache[i], content_width - indent, &chunk_slot_tokens[k], viewport, cache.Top(i));
     }
 }
 
@@ -80,11 +80,11 @@ DirtyBatchResult RunParallel(
             indices.reserve(node_count);
         }
         for (size_t i = plan_begin; i < node_count; i++) {
-            const auto& entry = cache[i];
-            if (has_viewport_limit && entry.text_top > limit_bottom) {
+            const float entry_top = cache.Top(i);
+            if (has_viewport_limit && entry_top > limit_bottom) {
                 break;
             }
-            if (!ViewportClip::ShouldMeasure(entry, has_viewport_limit, limit_top, limit_bottom)) {
+            if (!ViewportClip::ShouldMeasure(cache[i], entry_top, has_viewport_limit, limit_top, limit_bottom)) {
                 continue;
             }
             indices.push_back(i);

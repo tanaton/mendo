@@ -44,7 +44,7 @@ protected:
     {
         state.document.doc = Document::FromMarkdown(std::pmr::string("Hello"), L"test.md");
         state.document.layout_cache.Resize(state.document.doc.GetNodes().size());
-        state.document.layout_cache[0].text_top = 0.0f;
+        state.document.layout_cache.SetTop(0, 0.0f);
         state.document.layout_cache[0].height = total;
     }
 };
@@ -1158,7 +1158,7 @@ TEST_F(ReducerTest, TocItemClicked_ValidAnchor_ScrollsAndInvalidates)
     const auto& nodes = state.document.doc.GetNodes();
     cache.Resize(nodes.size());
     // 2番目の見出しに仮の y 座標を割り当て
-    cache[1].text_top = 100.0f;
+    cache.SetTop(1, 100.0f);
 
     const auto anchor = nodes[1].anchor_id();
     if (anchor.empty()) {
@@ -1184,7 +1184,7 @@ TEST_F(ReducerTest, TocItemClicked_TailSection_ClampsToMaxScroll)
     cache.Resize(nodes.size());
     // 末尾見出しを max_scroll (= 500) より遥か下に配置 → ペイン上端へ持ってくると要求 scroll_y > max_scroll
     const int tail = static_cast<int>(nodes.size()) - 1;
-    cache[tail].text_top = 900.0f;
+    cache.SetTop(tail, 900.0f);
 
     const auto anchor = nodes[tail].anchor_id();
     if (anchor.empty()) {
@@ -1205,7 +1205,7 @@ TEST_F(ReducerTest, TocItemClicked_SuppressesTocAutoScroll)
     auto& cache = state.document.layout_cache;
     const auto& nodes = state.document.doc.GetNodes();
     cache.Resize(nodes.size());
-    cache[1].text_top = 100.0f;
+    cache.SetTop(1, 100.0f);
 
     const auto anchor = nodes[1].anchor_id();
     if (anchor.empty()) {
@@ -1236,7 +1236,7 @@ TEST_F(ReducerTest, NavigateAnchor_KeepsTocAutoScroll)
     auto& cache = state.document.layout_cache;
     const auto& nodes = state.document.doc.GetNodes();
     cache.Resize(nodes.size());
-    cache[1].text_top = 100.0f;
+    cache.SetTop(1, 100.0f);
 
     const auto anchor = nodes[1].anchor_id();
     if (anchor.empty()) {
@@ -1298,15 +1298,15 @@ TEST_F(ReducerTest, RestoreScrollAfterLoad_HasNodeRestore_SetsScrollTarget)
         std::pmr::string("# A\n\n# B\n\n# C"), L"test.md");
     auto& cache = state.document.layout_cache;
     cache.Resize(state.document.doc.GetNodes().size());
-    cache[0].text_top = 0.0f;
-    cache[1].text_top = 100.0f;
-    cache[2].text_top = 200.0f;
+    cache.SetTop(0, 0.0f);
+    cache.SetTop(1, 100.0f);
+    cache.SetTop(2, 200.0f);
     state.view.scroll_restore.SetNodeRestore(1, 7);
 
     Reduce(state, RestoreScrollAfterLoadAction{ false, 0.0f });
 
     // ApplyScrollTarget 後は scroll_target が消費される実装になり得るため
-    // ScrollY 側で検証する (cache[1].text_top + offset)。
+    // ScrollY 側で検証する (cache.Top(1) + offset)。
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 107.0f);
     EXPECT_FALSE(state.view.scroll_restore.HasNodeRestore()); // 消費される
 }
@@ -1346,7 +1346,7 @@ TEST_F(ReducerTest, ZoomIn_PreservesScrollAnchorOnVisibleNode)
     auto& cache = state.document.layout_cache;
     cache.Resize(state.document.doc.GetNodes().size());
     for (size_t i = 0; i < cache.size(); ++i) {
-        cache[i].text_top = static_cast<float>(i * 100);
+        cache.SetTop(i, static_cast<float>(i * 100));
     }
     state.view.viewport.ScrollTo(120.0f); // node 1 が可視先頭
 
@@ -1374,7 +1374,7 @@ TEST_F(ReducerTest, ToggleDarkMode_PreservesScrollAnchorOnVisibleNode)
     auto& cache = state.document.layout_cache;
     cache.Resize(state.document.doc.GetNodes().size());
     for (size_t i = 0; i < cache.size(); ++i) {
-        cache[i].text_top = static_cast<float>(i * 100);
+        cache.SetTop(i, static_cast<float>(i * 100));
     }
     state.view.viewport.ScrollTo(120.0f);
 
