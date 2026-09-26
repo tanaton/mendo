@@ -116,6 +116,30 @@ struct DecompressorTraits {
 };
 using UniqueDecompressor = UniqueResource<DecompressorTraits>;
 
+// Compression API のバッファモード (MSZIP) で圧縮されたデータをメモリに展開する。失敗時は空。
+inline std::pmr::vector<uint8_t> DecompressMszip(std::span<const std::byte> compressed)
+{
+    if (compressed.empty()) {
+        return {};
+    }
+    DECOMPRESSOR_HANDLE raw = nullptr;
+    if (!CreateDecompressor(COMPRESS_ALGORITHM_MSZIP, nullptr, &raw)) {
+        return {};
+    }
+    const UniqueDecompressor decompressor{ raw };
+    SIZE_T size = 0;
+    if (!Decompress(decompressor.get(), compressed.data(), compressed.size(), nullptr, 0, &size)
+        && GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+        return {};
+    }
+    std::pmr::vector<uint8_t> out(size);
+    SIZE_T written = 0;
+    if (!Decompress(decompressor.get(), compressed.data(), compressed.size(), out.data(), size, &written) || written != size) {
+        return {};
+    }
+    return out;
+}
+
 // Compression API のバッファモード (MSZIP) で圧縮されたデータを展開する。
 inline Microsoft::WRL::ComPtr<IStream> CreateMemoryStreamFromMszip(std::span<const std::byte> compressed)
 {

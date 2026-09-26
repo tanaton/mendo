@@ -29,6 +29,7 @@ struct AppSideEffectCallbacks {
     void process_mermaid_batch_timer();
     void process_bitmap_manage();
     void mermaid_init_retry();
+    void mermaid_idle();
     void show_context_menu(int x, int y);
     void sync_toc_active(bool auto_scroll);
 

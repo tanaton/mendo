@@ -26,5 +26,9 @@ public:
     // max_width は CSS ビューポート幅（DIP）。表示中の図と同じ折返し結果を得るため、PNG と同じ値を渡す。
     virtual void RequestSvg(std::wstring_view code, float max_width, bool dark_mode, SvgCallback callback) = 0;
     virtual void CancelPending() = 0;
+    // 描画待ちの表示用要求だけを捨てる (描画中と SVG 要求は維持)。大きく移動した後に
+    // 旧位置の図が先に描かれて可視の図が待たされるのを防ぐ。捨てた図は再要求される。
+    virtual void DropQueued()
+    {}
     virtual void ClearCache() = 0;
 };

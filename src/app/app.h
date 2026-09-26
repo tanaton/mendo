@@ -91,6 +91,7 @@ public:
     void HandleTimer(UINT_PTR timer_id);
     void OnAppImageLoaded();
     void OnParseComplete();
+    void OnMermaidDiskLoaded();
     void OnCaptureChanged();
     void OnDestroy();
 

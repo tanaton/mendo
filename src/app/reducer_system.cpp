@@ -164,6 +164,9 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
     case app_timer::Id::MERMAID_INIT_RETRY:
         PushEffect(effects, effect::MermaidInitRetry{});
         return;
+    case app_timer::Id::MERMAID_IDLE:
+        PushEffect(effects, effect::MermaidIdle{});
+        return;
     case app_timer::Id::FILE_RELOAD_DEBOUNCE:
         PushEffect(effects, effect::KillTimer{ app_timer::Id::FILE_RELOAD_DEBOUNCE });
         PushEffect(effects, effect::ReloadFile{});

@@ -451,6 +451,10 @@ LRESULT Win32Window::HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lPara
         app_->OnParseComplete();
         return 0;
 
+    case app_msg::MERMAID_DISK_LOADED:
+        app_->OnMermaidDiskLoaded();
+        return 0;
+
     case app_msg::SEARCH_FOCUS: {
         if (search_edit_) {
             RepositionSearchEdit();

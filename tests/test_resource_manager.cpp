@@ -116,10 +116,15 @@ public:
     {
         cancel_pending_count++;
     }
+    void DropQueued() override
+    {
+        drop_queued_count++;
+    }
     void ClearCache() override
     {
         clear_cache_count++;
     }
+    int drop_queued_count = 0;
 
 private:
     static StubD2D1Bitmap& SharedStubBitmap() noexcept
@@ -518,6 +523,22 @@ TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeFiresOnQuantizedWidth
     // any_invalidated が true になるため ClearCache も呼ばれる。
     EXPECT_GT(mock_mermaid_.cancel_pending_count, initial_cancel);
     EXPECT_GT(mock_mermaid_.clear_cache_count, initial_clear);
+}
+
+// 保持範囲を越えて移動したら、旧位置で積んだ描画待ちを捨ててから要求し直す。
+TEST_F(ResourceManagerTest, RequestMermaidRendersDropsQueueAfterLargeJump)
+{
+    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n", /*block_height=*/100000.0f);
+    rm_.RequestMermaidRenders();
+    EXPECT_EQ(mock_mermaid_.drop_queued_count, 0);
+
+    viewport_.SetScrollY(100.0f);
+    rm_.RequestMermaidRenders();
+    EXPECT_EQ(mock_mermaid_.drop_queued_count, 0) << "小さな移動では捨てない";
+
+    viewport_.SetScrollY(tracker_.viewport_height * 20.0f);
+    rm_.RequestMermaidRenders();
+    EXPECT_EQ(mock_mermaid_.drop_queued_count, 1);
 }
 
 TEST_F(ResourceManagerTest, CancelMermaidBatchInvokesRendererCancelAndKillsTimer)

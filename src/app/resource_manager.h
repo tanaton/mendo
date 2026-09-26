@@ -181,6 +181,7 @@ public:
             return 0;
         }
 
+        DropMermaidQueueIfJumped();
         const auto slice = BufferedSlice(deps_.doc->GetDiagramNodeIndices(), PREFETCH_BUFFER_SCREENS);
 
         // 同期キャッシュヒットの度に OnMermaidRenderComplete が recompute_layout_anchored を
@@ -252,6 +253,7 @@ public:
             return;
         }
 
+        DropMermaidQueueIfJumped();
         const bool dark_mode = deps_.theme_service->IsDarkMode();
         const auto& indices = deps_.doc->GetDiagramNodeIndices();
         bool any_loaded = false;
@@ -403,6 +405,18 @@ public:
     }
 
 private:
+    // 保持範囲 (±EVICT_BUFFER_SCREENS) を越えて移動していたら、旧位置で積んだ描画待ちを捨てる。
+    // FIFO のままだと TOC ジャンプや Ctrl+End の後に可視の図が旧位置の図の後回しになる。
+    void DropMermaidQueueIfJumped()
+    {
+        const float scroll_y = deps_.viewport->GetScrollY();
+        const float viewport_height = cb_.get_viewport_height();
+        if (viewport_height > 0.0f && std::abs(scroll_y - last_mermaid_request_scroll_) > viewport_height * EVICT_BUFFER_SCREENS) {
+            deps_.mermaid->DropQueued();
+        }
+        last_mermaid_request_scroll_ = scroll_y;
+    }
+
     mendo::layout::HeightChangeRange TakeHeightChanges() noexcept
     {
         return std::exchange(height_changed_, mendo::layout::HeightChangeRange::None());
@@ -456,6 +470,7 @@ private:
     Cb cb_{};
 
     float last_mermaid_content_width_ = 0.0f;
+    float last_mermaid_request_scroll_ = 0.0f;
     bool mermaid_batch_loading_ = false;
     size_t mermaid_batch_next_ = 0;
     std::unordered_map<size_t, std::wstring> resolved_image_paths_;

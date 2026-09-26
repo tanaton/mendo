@@ -67,6 +67,15 @@ TEST(StreamUtilMszip, RoundTrip)
     EXPECT_TRUE(std::ranges::equal(std::as_bytes(std::span{ restored }), original));
 }
 
+TEST(StreamUtilMszip, DecompressToMemoryRoundTrip)
+{
+    const auto original = MakeSampleData();
+    const auto compressed = CompressMszip(original);
+    const auto restored = stream_util::DecompressMszip(compressed);
+    EXPECT_TRUE(std::ranges::equal(std::as_bytes(std::span{ restored }), original));
+    EXPECT_TRUE(stream_util::DecompressMszip({}).empty());
+}
+
 TEST(StreamUtilMszip, EmptyInputReturnsNull)
 {
     EXPECT_FALSE(stream_util::CreateMemoryStreamFromMszip({}));
