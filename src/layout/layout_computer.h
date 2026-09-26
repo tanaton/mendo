@@ -67,10 +67,10 @@ struct YPositionResult {
 };
 
 // 高さが変わったノードの閉区間 [first, last]。以降のノードは一定量のシフトで済むため、
-// 再計算を先頭からの全件ではなくこの範囲に限定できる。既定値は「全件」。
+// 再計算を先頭からの全件ではなくこの範囲に限定できる。既定値は空。
 struct HeightChangeRange {
-    size_t first = 0;
-    size_t last = std::numeric_limits<size_t>::max();
+    size_t first = std::numeric_limits<size_t>::max();
+    size_t last = 0;
 
     constexpr bool empty() const noexcept
     {
@@ -84,10 +84,6 @@ struct HeightChangeRange {
         }
         first = std::min(first, i);
         last = std::max(last, i);
-    }
-    static constexpr HeightChangeRange None() noexcept
-    {
-        return { std::numeric_limits<size_t>::max(), 0 };
     }
 };
 

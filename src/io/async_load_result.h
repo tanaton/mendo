@@ -11,7 +11,8 @@
 struct ReloadCheck {
     ReloadDecision decision{ ReloadOp::NoChange, std::string_view::npos };
     // 判定に使った旧テキスト。UI 側の文書がこれと同一のときだけ decision を信用できる。
-    std::shared_ptr<const std::pmr::string> base;
+    // 弱参照なので、判定後に UI が文書を差し替えれば旧テキストはその時点で解放される。
+    std::weak_ptr<const std::pmr::string> base;
     std::pmr::wstring path;
     size_t loaded_byte_size = 0;
 };

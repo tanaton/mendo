@@ -1,4 +1,5 @@
 #include "image_loader.h"
+#include "d2d_util.h"
 #include "file_io.h"
 #include "file_loader.h"
 #include "log_hr.h"
@@ -32,15 +33,6 @@ static UINT MaxMonitorWidthPx() noexcept
         return TRUE;
     }, reinterpret_cast<LPARAM>(&max_width));
     return max_width;
-}
-
-static size_t BitmapBytes(ID2D1Bitmap* bitmap) noexcept
-{
-    if (!bitmap) {
-        return 0;
-    }
-    const auto size = bitmap->GetPixelSize();
-    return static_cast<size_t>(size.width) * size.height * 4;
 }
 
 
@@ -253,7 +245,7 @@ std::pair<float, float> ImageLoader::CreateAndCacheImage(
     const float w = cached.width;
     const float h = cached.height;
     cache_.Insert(path, std::move(cached));
-    cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedImage& c) { return BitmapBytes(c.bitmap.Get()); });
+    cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedImage& c) { return mendo::BitmapBytes(c.bitmap.Get()); });
     return { w, h };
 }
 

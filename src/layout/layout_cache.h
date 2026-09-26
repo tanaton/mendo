@@ -328,9 +328,11 @@ public:
     {
         return tops_[i] + entries_[i].height;
     }
-    std::span<float> TopsMut() noexcept
+    void ShiftTops(size_t from, float delta) noexcept
     {
-        return tops_;
+        for (float& top : std::span(tops_).subspan(from)) {
+            top += delta;
+        }
     }
 
     constexpr DiagramEntry& GetDiagram(size_t i) noexcept

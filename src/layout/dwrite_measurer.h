@@ -87,6 +87,8 @@ private:
     void BuildCellLayout(const NodeTableData* tbl, size_t r, size_t c, size_t ci, IDWriteTextFormat* row_fmt, TableLayoutData& tl) const;
     void MeasureTableCells(Node& node, NodeLayoutEntry& entry, std::pmr::vector<float>& natural_widths) const;
     void RestoreNullCellLayouts(Node& node, NodeLayoutEntry& entry, MeasureViewportRange viewport) const;
+    // evict 行 r の null セルを再生成し、復元済みにする。
+    void RestoreRowCells(const NodeTableData* tbl, TableLayoutData& tl, size_t r) const;
     void FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width) const;
 
     IDWriteFactory* dwrite_ = nullptr;

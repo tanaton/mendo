@@ -66,12 +66,6 @@ inline bool CommitClipboardGlobal(UINT format, UniqueGlobalMem mem) noexcept
     return true;
 }
 
-template <typename CharT>
-inline bool SetClipboardZeroTerminated(UINT format, std::basic_string_view<CharT> text) noexcept
-{
-    // format==0 と確保失敗の判定は CommitClipboardGlobal 側に集約する。
-    return CommitClipboardGlobal(format, BuildGlobalZeroTerminated<CharT>(text));
-}
 
 // UTF-8 を GlobalAlloc 先へ直接 UTF-16 変換する。巨大な全選択コピーで中間 wstring
 // (UTF-8 byte 数ぶんの上限確保) とそのコピーを持たないため。失敗時は空。
@@ -171,12 +165,6 @@ inline void WriteCfHtmlPayload(char* dst, std::string_view fragment_utf8) noexce
     write_offset(kEndFragmentDigits, end_fragment);
 }
 
-inline std::string BuildCfHtmlPayload(std::string_view fragment_utf8)
-{
-    std::string payload(CfHtmlPayloadSize(fragment_utf8.size()), '\0');
-    WriteCfHtmlPayload(payload.data(), fragment_utf8);
-    return payload;
-}
 
 // CF_HTML ペイロードを GlobalAlloc 先に直接組み立てる (中間 std::string のコピーを持たない)。
 inline UniqueGlobalMem BuildGlobalCfHtml(std::string_view fragment_utf8) noexcept

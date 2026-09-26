@@ -96,7 +96,7 @@ public:
         ViewportLimit viewport = {});
     bool EnsureVisibleLayout(Document& doc, LayoutCache& cache, float width, float height);
     void RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme,
-                               mendo::layout::HeightChangeRange changed = {}) noexcept;
+                               mendo::layout::HeightChangeRange changed) noexcept;
 
     constexpr bool HasDirtyNodes() const noexcept
     {

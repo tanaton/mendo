@@ -142,7 +142,7 @@ std::optional<AsyncLoadResult> RunReload(TaskScheduler& scheduler, const TempFil
     std::optional<AsyncLoadResult> result;
     PollUntil([&] { result = c.TakeResult(); return result.has_value(); }, kPollTimeout);
     if (result && result->reload) {
-        EXPECT_EQ(result->reload->base, base);
+        EXPECT_EQ(result->reload->base.lock(), base);
     }
     return result;
 }

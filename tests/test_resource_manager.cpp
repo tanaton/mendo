@@ -141,7 +141,7 @@ struct CallbackTracker {
     int kill_timer = 0;
     int recompute_layout = 0;
     int recompute_layout_anchored = 0;
-    mendo::layout::HeightChangeRange last_change = mendo::layout::HeightChangeRange::None();
+    mendo::layout::HeightChangeRange last_change = {};
     app_timer::Id last_set_timer_id{};
     UINT last_set_timer_ms = 0;
     app_timer::Id last_killed_timer_id{};

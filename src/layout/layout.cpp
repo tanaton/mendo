@@ -110,11 +110,8 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         // 幅の変更がなければビューポートより下の高さは変わらないので早期終了する。
         // 可視範囲で高さが変わった場合も、残りは一定量のシフトで済む。
         if (!width_changed && y > vp_bottom) {
-            if (any_height_changed && i + 1 < node_count) {
-                const float delta = y + GetSpacingAbove(nodes[i + 1], *theme_) - cache.Top(i + 1);
-                for (float& top : cache.TopsMut().subspan(i + 1)) {
-                    top += delta;
-                }
+            if (any_height_changed) {
+                RecomputeYPositions(nodes, cache, *theme_, i + 1, false, i);
             }
             // 中断地点より先にダーティノードが存在する可能性を保守的に仮定する。
             // ProcessDirtyBatch が存在しない場合は速やかに確認・クリアする。
@@ -180,15 +177,8 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
     if (!dirty_indices.empty()) {
         // 未計測領域へのジャンプやスクロールバードラッグでは 1 画面分 (数十〜百ノード) を
         // 毎フレーム計測するため、scheduler があれば並列化する。
-        if (layout_scheduler_) {
-            constexpr size_t kMinVisibleForParallel = 8;
-            mendo::layout::MeasureIndicesParallel(nodes, cache, content_width, *theme_, *backend_, dirty_indices, vp, *layout_scheduler_, kMinVisibleForParallel);
-        }
-        else {
-            for (const size_t i : dirty_indices) {
-                MeasureEntry(*backend_, nodes[i], cache[i], content_width - NodeIndent(nodes[i], *theme_), nullptr, vp, cache.Top(i));
-            }
-        }
+        constexpr size_t kMinVisibleForParallel = 8;
+        mendo::layout::MeasureIndicesParallel(nodes, cache, content_width, *theme_, *backend_, dirty_indices, vp, layout_scheduler_, kMinVisibleForParallel);
         any_updated = true;
     }
 

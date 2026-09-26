@@ -208,7 +208,6 @@ struct Node {
     //   view_.data() == nullptr                : source_offset 未設定 (HorizontalRule 等)。
     //   view_.data() != nullptr, view_.size() == 0 : owned モード。表示は owned_text_、data() は raw 内位置。
     //   view_.data() != nullptr, view_.size()  > 0 : view モード。view_ をそのまま表示テキストとして使う。
-    // Document::RebaseViews() が move 時に rebase する。
     std::string_view view_;
 
     // --- 4 バイトアライメント ---
@@ -244,13 +243,6 @@ struct Node {
         view_ = std::string_view{ base + offset, length };
     }
 
-    // raw_text_ の data() が relocate された (Document move) 時に view_ を rebase する。
-    constexpr void RebaseSourceOffset(const char* old_base, const char* new_base) noexcept
-    {
-        if (HasSourceOffset()) {
-            view_ = std::string_view{ new_base + (view_.data() - old_base), view_.size() };
-        }
-    }
 
     constexpr bool HasText() const noexcept
     {

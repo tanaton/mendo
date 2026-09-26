@@ -140,11 +140,14 @@ private:
     void FailPendingRequests();
     void RenderInWorker(Worker& worker);
     // WebView2 ワーカーでの描画待ちキューに積む (初期化前なら初期化だけ起動して戻る)。
-    void EnqueueWebRender(Node& node, NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry,
-                          float max_width, bool dark_mode, Callback on_complete, uint64_t hash);
-    bool PostDiskLoad(Node& node, NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry,
-                      float max_width, bool dark_mode, Callback& on_complete, uint64_t hash,
-                      float css_width, float css_height, std::filesystem::path png_path);
+    void EnqueueWebRender(RenderRequest req);
+    struct DiskLoad;
+    // scheduler が無ければその場で読み込んで適用する。
+    void StartDiskLoad(RenderRequest req, std::filesystem::path png_path);
+    // worker で呼ぶ。
+    void LoadDiskJob(DiskLoad& job, const std::filesystem::path& path);
+    void ApplyDiskLoad(DiskLoad& r);
+    void DestroyWorker(Worker& w);
     // 展開済み mermaid.js。未展開ならこの場で展開する。
     std::shared_ptr<const std::pmr::vector<uint8_t>> AcquireMermaidJs();
     void PrefetchMermaidJs();
@@ -199,15 +202,7 @@ private:
 
     struct DiskLoad {
         uint32_t gen = 0;
-        Node* node = nullptr;
-        NodeLayoutEntry* layout_entry = nullptr;
-        DiagramEntry* diagram_entry = nullptr;
-        float max_width = 0.0f;
-        bool dark_mode = false;
-        Callback on_complete;
-        uint64_t hash = 0;
-        float css_width = 0.0f;
-        float css_height = 0.0f;
+        RenderRequest req;
         // worker でデコード確定済み。失敗時は null で read_error に理由が入る。
         Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
         std::shared_ptr<const std::pmr::vector<uint8_t>> png;

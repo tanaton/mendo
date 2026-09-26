@@ -334,7 +334,7 @@ void App::OnAppImageLoaded()
 
 void App::OnMermaidDiskLoaded()
 {
-    mermaid_renderer_.ProcessDiskLoads();
+    resource_manager_.BatchMermaidCompletions([this] { mermaid_renderer_.ProcessDiskLoads(); });
 }
 
 void App::OnMouseWheel(int px, int py, short delta, bool ctrl)

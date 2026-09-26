@@ -39,14 +39,14 @@ inline D2D1_RECT_F OffsetRectF(const D2D1_RECT_F& r, float origin_x, float origi
     return D2D1::RectF(origin_x + r.left, origin_y + r.top, origin_x + r.right, origin_y + r.bottom);
 }
 
-// インラインコードの背景矩形を描画する。
-// bgsにはパディング適用済みのレイアウト原点相対矩形が格納されている。
 // 可視 Y 範囲 [cull_top, cull_bottom] (ペインローカル) と重なるか。
 constexpr bool OverlapsY(const D2D1_RECT_F& r, float cull_top, float cull_bottom) noexcept
 {
-    return r.bottom >= cull_top && r.top <= cull_bottom;
+    return !IsOffscreen(r.top, r.bottom - r.top, cull_top, cull_bottom);
 }
 
+// インラインコードの背景矩形を描画する。
+// bgsにはパディング適用済みのレイアウト原点相対矩形が格納されている。
 inline void GenInlineCodeBgs(DrawCommandList& cmds, std::span<const InlineCodeBg> bgs, float origin_x, float origin_y, D2D1_COLOR_F color, float cull_top, float cull_bottom)
 {
     for (const auto& bg : bgs) {

@@ -60,37 +60,25 @@ TEST(StreamUtilMszip, RoundTrip)
     ASSERT_FALSE(compressed.empty());
     ASSERT_LT(compressed.size(), original.size());
 
-    const auto stream = stream_util::CreateMemoryStreamFromMszip(compressed);
-    ASSERT_TRUE(stream);
-
-    const auto restored = stream_util::ReadStreamToEnd(stream.Get());
+    const auto restored = stream_util::DecompressMszip(compressed);
     EXPECT_TRUE(std::ranges::equal(std::as_bytes(std::span{ restored }), original));
 }
 
-TEST(StreamUtilMszip, DecompressToMemoryRoundTrip)
+TEST(StreamUtilMszip, EmptyInputReturnsEmpty)
 {
-    const auto original = MakeSampleData();
-    const auto compressed = CompressMszip(original);
-    const auto restored = stream_util::DecompressMszip(compressed);
-    EXPECT_TRUE(std::ranges::equal(std::as_bytes(std::span{ restored }), original));
     EXPECT_TRUE(stream_util::DecompressMszip({}).empty());
 }
 
-TEST(StreamUtilMszip, EmptyInputReturnsNull)
-{
-    EXPECT_FALSE(stream_util::CreateMemoryStreamFromMszip({}));
-}
-
-TEST(StreamUtilMszip, NonCompressedInputReturnsNull)
+TEST(StreamUtilMszip, NonCompressedInputReturnsEmpty)
 {
     const std::array<std::byte, 1024> data{};
-    EXPECT_FALSE(stream_util::CreateMemoryStreamFromMszip(data));
+    EXPECT_TRUE(stream_util::DecompressMszip(data).empty());
 }
 
 // ヘッダ上の展開後サイズは取得できるが本体が欠けているケース
-TEST(StreamUtilMszip, TruncatedInputReturnsNull)
+TEST(StreamUtilMszip, TruncatedInputReturnsEmpty)
 {
     const auto compressed = CompressMszip(MakeSampleData());
     ASSERT_GT(compressed.size(), 64u);
-    EXPECT_FALSE(stream_util::CreateMemoryStreamFromMszip(std::span{ compressed }.first(compressed.size() / 2)));
+    EXPECT_TRUE(stream_util::DecompressMszip(std::span{ compressed }.first(compressed.size() / 2)).empty());
 }

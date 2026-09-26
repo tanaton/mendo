@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "ascii_util.h"
+#include "document_utils.h"
 #include <cwctype>
 #include <string>
 #include <string_view>
@@ -242,20 +243,11 @@ TEST(SimdAsciiFindTest, StartBeyondLast)
 
 namespace {
 
-std::string AsciiLowerCopy(std::string_view s)
-{
-    std::string r(s);
-    for (auto& c : r) {
-        c = ascii_util::ToLowerAscii(c);
-    }
-    return r;
-}
-
 // 各開始位置から参照実装 (std::string_view::find) と一致するかを総当たりで確かめる。
 void ExpectFindMatchesReference(std::string_view text, std::string_view query)
 {
-    const std::string lower_text = AsciiLowerCopy(text);
-    const std::string lower_query = AsciiLowerCopy(query);
+    const auto lower_text = ToLowerAsciiCopy(text);
+    const auto lower_query = ToLowerAsciiCopy(query);
     for (size_t start = 0; start <= text.size(); ++start) {
         const size_t expected = text.find(query, start);
         EXPECT_EQ(ascii_util::Find(text, query, start), expected == std::string_view::npos ? ascii_util::npos : expected)

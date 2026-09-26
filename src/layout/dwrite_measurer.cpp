@@ -54,6 +54,15 @@ static void RebuildRowCumY(TableLayoutData& tl, size_t row_count, float border_w
 }
 
 // 1 行目の高さを取得し entry にキャッシュする。layout 自体は変えない。
+// viewport と交差する行範囲。行ジオメトリ未確定なら全行を返す。
+static std::pair<size_t, size_t> RowsInViewport(const TableLayoutData& tl, size_t row_count, MeasureViewportRange viewport) noexcept
+{
+    if (viewport.is_full() || tl.row_cum_y.size() != row_count + 1) {
+        return { 0, row_count };
+    }
+    return tl.VisibleRowRange(viewport.top, viewport.bottom);
+}
+
 static void CacheFirstLineHeight(IDWriteTextLayout* layout, NodeLayoutEntry& entry) noexcept
 {
     DWRITE_LINE_METRICS lm{};
@@ -415,34 +424,26 @@ void DWriteTextMeasurer::RestoreNullCellLayouts(Node& node, NodeLayoutEntry& ent
     // EvictInvisibleTableRows で Reset された null セルを再生成する。
     // viewport が部分範囲なら、その範囲外の行はスキップして CreateTextLayout を回避する。
     MENDO_PROFILE("RestoreNullCellLayouts");
-    IDWriteTextFormat* const fmt = fmt_body_.Get();
-    IDWriteTextFormat* const fmt_bold = fmt_h_[3].Get();
     const auto* tbl = node.table_data();
     auto& tl = *entry.table_layout;
-    const auto row_count = tbl->row_count;
-    const auto col_count = tbl->col_count;
-
-    const bool has_row_geometry = tl.row_cum_y.size() == row_count + 1;
-    const bool clip_rows = has_row_geometry && !viewport.is_full();
-    const auto [r_begin, r_end] = clip_rows
-        ? tl.VisibleRowRange(viewport.top, viewport.bottom)
-        : std::pair<size_t, size_t>{ 0, row_count };
-
+    const auto [r_begin, r_end] = RowsInViewport(tl, tbl->row_count, viewport);
     for (size_t r = r_begin; r < r_end; r++) {
-        if (!tl.row_evicted[r]) {
-            continue;
+        if (tl.row_evicted[r]) {
+            RestoreRowCells(tbl, tl, r);
         }
-        tl.MarkRowRestored(r);
-        const bool is_header = tbl->IsHeaderRow(r);
-        IDWriteTextFormat* const row_fmt = is_header ? fmt_bold : fmt;
-        for (size_t c = 0; c < col_count; c++) {
-            const size_t ci = tl.CellIndex(r, c);
-            if (ci >= tl.cell_layouts.size() || tl.cell_layouts[ci]) {
-                continue;
-            }
+    }
+}
+
+void DWriteTextMeasurer::RestoreRowCells(const NodeTableData* tbl, TableLayoutData& tl, size_t r) const
+{
+    IDWriteTextFormat* const row_fmt = tbl->IsHeaderRow(r) ? fmt_h_[3].Get() : fmt_body_.Get();
+    for (size_t c = 0; c < tbl->col_count; c++) {
+        const size_t ci = tl.CellIndex(r, c);
+        if (ci < tl.cell_layouts.size() && !tl.cell_layouts[ci]) {
             BuildCellLayout(tbl, r, c, ci, row_fmt, tl);
         }
     }
+    tl.MarkRowRestored(r);
 }
 
 void DWriteTextMeasurer::FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width) const
@@ -550,30 +551,22 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(Node& node, NodeL
         return result;
     }
 
-    const auto [r_begin, r_end] = viewport.is_full()
-        ? std::pair<size_t, size_t>{ 0, row_count }
-        : tl.VisibleRowRange(viewport.top, viewport.bottom);
+    const auto [r_begin, r_end] = RowsInViewport(tl, row_count, viewport);
     const float cell_padding = TABLE_CELL_PADDING;
     const float base_row_height = theme_->font_size_body * TABLE_ROW_HEIGHT_FACTOR;
-    IDWriteTextFormat* const fmt = fmt_body_.Get();
-    IDWriteTextFormat* const fmt_bold = fmt_h_[3].Get();
 
     for (size_t r = r_begin; r < r_end; r++) {
         if (!tl.row_evicted[r]) {
             continue;
         }
-        IDWriteTextFormat* const row_fmt = tbl->IsHeaderRow(r) ? fmt_bold : fmt;
+        RestoreRowCells(tbl, tl, r);
         float row_height = base_row_height;
         for (size_t c = 0; c < col_count; c++) {
             const size_t ci = tl.CellIndex(r, c);
-            if (!tl.cell_layouts[ci]) {
-                BuildCellLayout(tbl, r, c, ci, row_fmt, tl);
-            }
             if (tl.cell_layouts[ci]) {
                 row_height = std::max(row_height, ApplyCellWidth(tl, ci, tl.col_widths[c], tbl->ColAlign(c)) + cell_padding * 2.0f);
             }
         }
-        tl.MarkRowRestored(r);
         result.restored = true;
         // 幅変更時に evict 中だった行は旧幅の行高さのまま残っているため、ここで実測に揃える。
         if (row_height != tl.row_heights[r]) {

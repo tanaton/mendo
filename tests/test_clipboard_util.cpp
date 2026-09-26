@@ -26,6 +26,13 @@ size_t ParseOffset(std::string_view payload, std::string_view key)
     return value;
 }
 
+std::string BuildCfHtmlPayload(std::string_view fragment_utf8)
+{
+    std::string payload(CfHtmlPayloadSize(fragment_utf8.size()), '\0');
+    WriteCfHtmlPayload(payload.data(), fragment_utf8);
+    return payload;
+}
+
 } // namespace
 
 TEST(BuildCfHtmlPayload, EmptyFragmentStillProducesValidHeader)

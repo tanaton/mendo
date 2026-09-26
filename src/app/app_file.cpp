@@ -217,10 +217,14 @@ void App::OnParseComplete()
         return;
     }
 
+    // 差分ベースのスキップ／スクロール復元は同一パスのリロード時のみ有効。
+    // 非同期のファイルオープンでも OnParseComplete() が使われるため、
+    // 別ファイル読み込み時は差分ロジックをスキップする。
+    std::optional<ReloadDecision> decision;
     if (result->reload) {
         // リロード: worker がパース前に差分判定を済ませている (NoChange 等は doc が空)。
         const auto& rc = *result->reload;
-        if (rc.base != state_.document.doc.GetRawText().Share() || !path_util::iequal(rc.path, state_.document.doc.GetFilePath())) {
+        if (rc.base.lock() != state_.document.doc.GetRawText().Share() || !path_util::iequal(rc.path, state_.document.doc.GetFilePath())) {
             // 判定後に表示文書が差し替わった。前提が崩れているので取り直す。
             DeferReloadRetry();
             return;
@@ -228,59 +232,38 @@ void App::OnParseComplete()
         if (DeferIfPartialWrite(rc.path, rc.loaded_byte_size)) {
             return;
         }
-
-        MENDO_TRACEF("OnParseComplete: reload(worker diff) node_count={} diff_pos={} new_size={} op={}",
-                     result->doc.GetNodes().size(), rc.decision.diff_pos, result->doc.GetRawText().size(),
-                     std::to_underlying(rc.decision.op));
-
-        if (ApplyReloadDecisionEarly(rc.decision) == ReloadFlow::Handled) {
-            return;
-        }
-        if (rc.decision.op == ReloadOp::PrefixGrowth) {
-            resource_manager_.CancelMermaidBatch();
-            image_loader_.ResetFailedPaths();
-            state_.active_toc_index = -1;
-            ReplaceDocument(std::move(result->doc));
-            state_.document.layout_cache = std::move(result->cache);
-            FinishReload(rc.decision.diff_pos, /*cache_ready=*/true);
-            return;
-        }
-        state_.reload_diff_pos = rc.decision.diff_pos;
+        decision = rc.decision;
     }
-    // 差分ベースのスキップ／スクロール復元は同一パスのリロード時のみ有効。
-    // 非同期のファイルオープンでも OnParseComplete() が使われるため、
-    // 別ファイル読み込み時は差分ロジックをスキップする。
     else if (path_util::iequal(result->doc.GetFilePath(), state_.document.doc.GetFilePath())) {
         if (DeferIfPartialWrite(result->doc.GetFilePath(), result->doc.GetLoadedByteSize())) {
             return;
         }
+        decision = AnalyzeReloadDiff(std::string_view(state_.document.doc.GetRawText()), std::string_view(result->doc.GetRawText()));
+    }
 
-        const std::string_view old_view(state_.document.doc.GetRawText());
-        const std::string_view new_view(result->doc.GetRawText());
-        const auto decision = AnalyzeReloadDiff(old_view, new_view);
+    const bool heights_estimated = result->heights_estimated;
+    if (decision) {
+        MENDO_TRACEF("OnParseComplete: reload worker_diff={} node_count={} diff_pos={} new_size={} op={}",
+                     result->reload.has_value(), result->doc.GetNodes().size(), decision->diff_pos,
+                     result->doc.GetRawText().size(), std::to_underlying(decision->op));
 
-        MENDO_TRACEF("OnParseComplete: reload node_count={} diff_pos={} old_size={} new_size={} op={}",
-                     result->doc.GetNodes().size(), decision.diff_pos, old_view.size(), new_view.size(),
-                     std::to_underlying(decision.op));
-
-        if (ApplyReloadDecisionEarly(decision) == ReloadFlow::Handled) {
+        if (ApplyReloadDecisionEarly(*decision) == ReloadFlow::Handled) {
             return;
         }
-        if (decision.op == ReloadOp::PrefixGrowth) {
+        if (decision->op == ReloadOp::PrefixGrowth) {
             resource_manager_.CancelMermaidBatch();
             image_loader_.ResetFailedPaths();
             state_.active_toc_index = -1;
             ReplaceDocument(std::move(result->doc));
-            FinishReload(decision.diff_pos);
+            if (heights_estimated) {
+                state_.document.layout_cache = std::move(result->cache);
+            }
+            FinishReload(decision->diff_pos, heights_estimated);
             return;
         }
-        state_.reload_diff_pos = decision.diff_pos;
-    }
-    else {
-        state_.reload_diff_pos = std::string_view::npos;
     }
 
-    const bool heights_estimated = result->heights_estimated;
+    state_.reload_diff_pos = decision ? decision->diff_pos : std::string_view::npos;
     ReplaceDocument(std::move(result->doc));
     state_.document.layout_cache = std::move(result->cache);
 

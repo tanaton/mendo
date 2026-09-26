@@ -127,6 +127,7 @@ inline std::pmr::vector<uint8_t> DecompressMszip(std::span<const std::byte> comp
         return {};
     }
     const UniqueDecompressor decompressor{ raw };
+    // 出力バッファ無しで呼ぶとヘッダに記録された展開後サイズが返る
     SIZE_T size = 0;
     if (!Decompress(decompressor.get(), compressed.data(), compressed.size(), nullptr, 0, &size)
         && GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
@@ -138,32 +139,6 @@ inline std::pmr::vector<uint8_t> DecompressMszip(std::span<const std::byte> comp
         return {};
     }
     return out;
-}
-
-// Compression API のバッファモード (MSZIP) で圧縮されたデータを展開する。
-inline Microsoft::WRL::ComPtr<IStream> CreateMemoryStreamFromMszip(std::span<const std::byte> compressed)
-{
-    if (compressed.empty()) {
-        return nullptr;
-    }
-
-    DECOMPRESSOR_HANDLE raw = nullptr;
-    if (!CreateDecompressor(COMPRESS_ALGORITHM_MSZIP, nullptr, &raw)) {
-        return nullptr;
-    }
-    const UniqueDecompressor decompressor{ raw };
-
-    // 出力バッファ無しで呼ぶとヘッダに記録された展開後サイズが返る
-    SIZE_T size = 0;
-    if (!Decompress(decompressor.get(), compressed.data(), compressed.size(), nullptr, 0, &size)
-        && GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
-        return nullptr;
-    }
-
-    return CreateHGlobalStream(size, [&](void* dst) {
-        SIZE_T written = 0;
-        return Decompress(decompressor.get(), compressed.data(), compressed.size(), dst, size, &written) && written == size;
-    });
 }
 
 } // namespace stream_util

@@ -1,5 +1,6 @@
 #include "mermaid.h"
 #include "app_constants.h"
+#include "d2d_util.h"
 #include "file_io.h"
 #include "log_hr.h"
 #include "mermaid_file_cache.h"
@@ -46,17 +47,7 @@ void MermaidRenderer::Shutdown()
     }
 
     for (int i = 0; i < worker_count_; i++) {
-        if (workers_[i].controller) {
-            workers_[i].controller->Close();
-            workers_[i].controller.Reset();
-        }
-        if (workers_[i].webview) {
-            workers_[i].webview.Reset();
-        }
-        if (workers_[i].hwnd) {
-            DestroyWindow(workers_[i].hwnd);
-            workers_[i].hwnd = nullptr;
-        }
+        DestroyWorker(workers_[i]);
     }
     worker_count_ = 0;
     webview_env_.Reset();
@@ -185,36 +176,27 @@ void MermaidRenderer::OnIdleTimer()
         }
     }
     for (int i = worker_count_ - 1; i >= 1; i--) {
-        auto& w = workers_[i];
-        if (w.controller) {
-            w.controller->Close();
-        }
-        if (w.hwnd) {
-            DestroyWindow(w.hwnd);
-        }
-        w = Worker{};
+        DestroyWorker(workers_[i]);
     }
     worker_count_ = std::min(worker_count_, 1);
 }
 
+void MermaidRenderer::DestroyWorker(Worker& w)
+{
+    if (w.controller) {
+        w.controller->Close();
+    }
+    if (w.hwnd) {
+        DestroyWindow(w.hwnd);
+    }
+    w = Worker{};
+}
+
 void MermaidRenderer::PrefetchMermaidJs()
 {
-    {
-        const std::lock_guard lock(js_mutex_);
-        if (js_bytes_) {
-            return;
-        }
+    if (bg_scheduler_) {
+        bg_scheduler_->Post([this, guard = latch_.Acquire()] { (void)AcquireMermaidJs(); });
     }
-    if (!bg_scheduler_) {
-        return;
-    }
-    bg_scheduler_->Post([this, guard = latch_.Acquire()] {
-        auto bytes = std::make_shared<const std::pmr::vector<uint8_t>>(stream_util::DecompressMszip(LoadRcData(IDR_MERMAID_JS_MSZIP)));
-        const std::lock_guard lock(js_mutex_);
-        if (!js_bytes_ && !bytes->empty()) {
-            js_bytes_ = std::move(bytes);
-        }
-    });
 }
 
 std::shared_ptr<const std::pmr::vector<uint8_t>> MermaidRenderer::AcquireMermaidJs()
@@ -439,12 +421,7 @@ void MermaidRenderer::InsertCache(uint64_t hash, CachedBitmap cached)
 {
     cache_.Insert(hash, std::move(cached));
     cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedBitmap& c) {
-        size_t bytes = c.png ? c.png->size() : 0;
-        if (c.bitmap) {
-            const auto size = c.bitmap->GetPixelSize();
-            bytes += static_cast<size_t>(size.width) * size.height * 4;
-        }
-        return bytes;
+        return (c.png ? c.png->size() : 0) + mendo::BitmapBytes(c.bitmap.Get());
     });
 }
 
@@ -602,88 +579,101 @@ void MermaidRenderer::RequestRender(
         return;
     }
 
-    if (file_cache_) {
-        MermaidFileCache::CacheEntry fentry;
-        std::filesystem::path png_path;
-        if (file_cache_->LookupPath(hash, fentry, png_path)) {
-            // ファイル読み込みと PNG デコードは worker で行う (UI では時間予算なしに積み上がる)。
-            if (PostDiskLoad(node, layout_entry, diagram_entry, max_width, dark_mode, on_complete, hash, fentry.css_width, fentry.css_height, std::move(png_path))) {
-                return;
-            }
-            MermaidFileCache::PngBlob png;
-            if (file_cache_->Lookup(hash, fentry, png)) {
-                auto stream = stream_util::CreateMemoryStream(png.data.get(), png.size);
-                if (stream) {
-                    if (auto created = CreateBitmapFromPngStream(stream.Get())) {
-                        // ディスクから復元した PNG もメモリ保持し、コピー時の再ディスク読みを避ける。
-                        auto png_shared = std::make_shared<const std::pmr::vector<uint8_t>>(
-                            png.data.get(), png.data.get() + png.size);
-                        CachedBitmap cached{ std::move(created->bitmap), fentry.css_width, fentry.css_height, std::move(png_shared) };
-                        ApplyCachedBitmap(layout_entry, diagram_entry, cached);
-                        InsertCache(hash, std::move(cached));
-
-                        if (on_complete) {
-                            on_complete();
-                        }
-                        return;
-                    }
-                }
-            }
-        }
-    }
-
-    EnqueueWebRender(node, layout_entry, diagram_entry, max_width, dark_mode, std::move(on_complete), hash);
-}
-
-bool MermaidRenderer::PostDiskLoad(Node& node, NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry,
-                                   float max_width, bool dark_mode, Callback& on_complete, uint64_t hash,
-                                   float css_width, float css_height, std::filesystem::path png_path)
-{
-    if (!bg_scheduler_ || !hwnd_ || disk_loaded_msg_ == 0) {
-        return false;
-    }
-    DiskLoad job{
-        .gen = disk_gen_.load(),
+    RenderRequest req{
         .node = &node,
         .layout_entry = &layout_entry,
         .diagram_entry = &diagram_entry,
         .max_width = max_width,
         .dark_mode = dark_mode,
         .on_complete = std::move(on_complete),
-        .hash = hash,
-        .css_width = css_width,
-        .css_height = css_height,
+        .code_hash = hash,
     };
-    inflight_entries_.insert(&diagram_entry);
+    if (file_cache_) {
+        MermaidFileCache::CacheEntry fentry;
+        std::filesystem::path png_path;
+        if (file_cache_->LookupPath(hash, fentry, png_path)) {
+            req.css_width = fentry.css_width;
+            req.css_height = fentry.css_height;
+            StartDiskLoad(std::move(req), std::move(png_path));
+            return;
+        }
+    }
+
+    EnqueueWebRender(std::move(req));
+}
+
+void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path png_path)
+{
+    inflight_entries_.insert(req.diagram_entry);
+    DiskLoad job{ .gen = disk_gen_.load(), .req = std::move(req) };
+    // ファイル読み込みと PNG デコードは worker で行う (UI では時間予算なしに積み上がる)。
+    if (!bg_scheduler_ || !hwnd_ || disk_loaded_msg_ == 0) {
+        LoadDiskJob(job, png_path);
+        ApplyDiskLoad(job);
+        return;
+    }
+    const DiagramEntry* entry = job.req.diagram_entry;
     const bool posted = bg_scheduler_->Post([this, job = std::move(job), path = std::move(png_path), guard = latch_.Acquire()]() mutable {
         if (disk_gen_.load() != job.gen) {
             return;
         }
-        auto [data, size] = ReadAllBytes(path, &job.read_error);
-        if (data) {
-            job.png = std::make_shared<const std::pmr::vector<uint8_t>>(data.get(), data.get() + size);
-            if (const auto stream = stream_util::CreateMemoryStream(job.png->data(), job.png->size())) {
-                if (const auto decoded = wic_util::DecodeFromStream(wic_factory_.Get(), stream.Get())) {
-                    const wic_util::PixelSize px{ decoded->pixel_width, decoded->pixel_height };
-                    job.bitmap = wic_util::DecodeToWicBitmap(wic_factory_.Get(), decoded->converter.Get(), px, px);
-                }
-            }
-        }
+        LoadDiskJob(job, path);
+        bool was_empty = false;
         {
             const std::lock_guard lock(disk_mutex_);
             if (disk_gen_.load() != job.gen) {
                 return;
             }
+            was_empty = disk_results_.empty();
             disk_results_.push_back(std::move(job));
         }
-        ::PostMessageW(hwnd_, disk_loaded_msg_, 0, 0);
+        // 未回収の結果があれば通知済みで、受信側がまとめて回収する。
+        if (was_empty) {
+            ::PostMessageW(hwnd_, disk_loaded_msg_, 0, 0);
+        }
     });
     if (!posted) {
-        inflight_entries_.erase(&diagram_entry);
         // lambda に move 済みの on_complete は失われるが、図は NeedsRender のまま残り次の走査で再要求される。
-        return false;
+        inflight_entries_.erase(entry);
     }
-    return true;
+}
+
+void MermaidRenderer::LoadDiskJob(DiskLoad& job, const std::filesystem::path& path)
+{
+    auto [data, size] = ReadAllBytes(path, &job.read_error);
+    if (!data) {
+        return;
+    }
+    job.png = std::make_shared<const std::pmr::vector<uint8_t>>(data.get(), data.get() + size);
+    // job.png はデコード完了まで生きているので、コピーせずに参照するストリームで読む。
+    Microsoft::WRL::ComPtr<IWICStream> stream;
+    if (FAILED(wic_factory_->CreateStream(&stream)) ||
+        FAILED(stream->InitializeFromMemory(const_cast<BYTE*>(job.png->data()), static_cast<DWORD>(job.png->size())))) {
+        return;
+    }
+    if (const auto decoded = wic_util::DecodeFromStream(wic_factory_.Get(), stream.Get())) {
+        const wic_util::PixelSize px{ decoded->pixel_width, decoded->pixel_height };
+        job.bitmap = wic_util::DecodeToWicBitmap(wic_factory_.Get(), decoded->converter.Get(), px, px);
+    }
+}
+
+void MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
+{
+    ReleaseInflight(r.req);
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
+    if (r.bitmap && render_target_ && SUCCEEDED(render_target_->CreateBitmapFromWicBitmap(r.bitmap.Get(), &bitmap)) && bitmap) {
+        CachedBitmap cached{ std::move(bitmap), r.req.css_width, r.req.css_height, std::move(r.png) };
+        ApplyCachedBitmap(*r.req.layout_entry, *r.req.diagram_entry, cached);
+        InsertCache(r.req.code_hash, std::move(cached));
+        if (r.req.on_complete) {
+            r.req.on_complete();
+        }
+        return;
+    }
+    if (file_cache_ && !r.png) {
+        file_cache_->OnReadFailed(r.req.code_hash, r.read_error);
+    }
+    EnqueueWebRender(std::move(r.req));
 }
 
 void MermaidRenderer::ProcessDiskLoads()
@@ -695,50 +685,26 @@ void MermaidRenderer::ProcessDiskLoads()
     }
     const uint32_t gen = disk_gen_.load();
     for (auto& r : results) {
-        if (r.gen != gen) {
-            continue;
+        if (r.gen == gen) {
+            ApplyDiskLoad(r);
         }
-        inflight_entries_.erase(r.diagram_entry);
-        Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-        if (r.bitmap && render_target_ && SUCCEEDED(render_target_->CreateBitmapFromWicBitmap(r.bitmap.Get(), &bitmap)) && bitmap) {
-            CachedBitmap cached{ std::move(bitmap), r.css_width, r.css_height, std::move(r.png) };
-            ApplyCachedBitmap(*r.layout_entry, *r.diagram_entry, cached);
-            InsertCache(r.hash, std::move(cached));
-            if (r.on_complete) {
-                r.on_complete();
-            }
-            continue;
-        }
-        if (file_cache_ && !r.png) {
-            file_cache_->OnReadFailed(r.hash, r.read_error);
-        }
-        EnqueueWebRender(*r.node, *r.layout_entry, *r.diagram_entry, r.max_width, r.dark_mode, std::move(r.on_complete), r.hash);
     }
 }
 
-void MermaidRenderer::EnqueueWebRender(Node& node, NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry,
-                                       float max_width, bool dark_mode, Callback on_complete, uint64_t hash)
+void MermaidRenderer::EnqueueWebRender(RenderRequest req)
 {
     if (!lifecycle_.IsReady()) {
         EnsureInitialized();
         return;
     }
 
-    if (!inflight_entries_.insert(&diagram_entry).second) {
+    if (!inflight_entries_.insert(req.diagram_entry).second) {
         return;
     }
     if (hwnd_) {
         KillTimer(hwnd_, std::to_underlying(app_timer::Id::MERMAID_IDLE));
     }
 
-    RenderRequest req;
-    req.node = &node;
-    req.layout_entry = &layout_entry;
-    req.diagram_entry = &diagram_entry;
-    req.max_width = max_width;
-    req.dark_mode = dark_mode;
-    req.on_complete = std::move(on_complete);
-    req.code_hash = hash;
     pending_requests_.push(std::move(req));
 
     ProcessQueue();

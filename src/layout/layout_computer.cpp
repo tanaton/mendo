@@ -223,9 +223,7 @@ YPositionResult RecomputeYPositions(
         const float delta = new_text_top - cache.Top(tail_start);
         // |delta| < EPSILON なら実質変化なしなので write 自体スキップする。
         if (std::abs(delta) >= Y_POSITION_EPSILON) {
-            for (float& top : cache.TopsMut().subspan(tail_start, node_count - tail_start)) {
-                top += delta;
-            }
+            cache.ShiftTops(tail_start, delta);
         }
         // 後続の dirty 有無を調べるには AoS の全エントリを読む必要があり、シフトを SoA にした
         // 意味がなくなるため保守的に true とする。ProcessDirtyBatch は可視帯に dirty が

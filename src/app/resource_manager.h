@@ -14,10 +14,12 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <concepts>
 #include <filesystem>
 #include <iterator>
 #include <unordered_map>
 #include <string>
+#include <utility>
 #include <windows.h>
 
 // ResourceManager が依存するサービス群を 1 つにまとめる DI コンテナ。
@@ -216,6 +218,19 @@ public:
         return applied;
     }
 
+    // f の中で完了した図の再レイアウトを 1 回にまとめる (ディスクキャッシュの一括完了など)。
+    template <std::invocable F>
+    void BatchMermaidCompletions(F&& f)
+    {
+        const bool outer_batch = std::exchange(mermaid_batch_loading_, true);
+        std::forward<F>(f)();
+        mermaid_batch_loading_ = outer_batch;
+        if (!outer_batch && !height_changed_.empty()) {
+            pending_flush_ = true;
+            cb_.recompute_layout_anchored(TakeHeightChanges());
+        }
+    }
+
     void OnMermaidRenderComplete(size_t node_index)
     {
         height_changed_.Add(node_index);
@@ -230,7 +245,7 @@ public:
     {
         deps_.mermaid->CancelPending();
         cb_.kill_timer(app_timer::Id::MERMAID_BATCH);
-        height_changed_ = mendo::layout::HeightChangeRange::None();
+        height_changed_ = {};
     }
 
     void ScheduleMermaidBatch()
@@ -419,7 +434,7 @@ private:
 
     mendo::layout::HeightChangeRange TakeHeightChanges() noexcept
     {
-        return std::exchange(height_changed_, mendo::layout::HeightChangeRange::None());
+        return std::exchange(height_changed_, {});
     }
 
     // indices のうち、可視範囲 ± viewport_height * screens に交差する部分。
@@ -477,5 +492,5 @@ private:
     bool pending_flush_ = false;
     std::chrono::steady_clock::time_point last_flush_time_{};
     // 画像/図の適用で高さを更新したノード範囲。Y 再計算をこの範囲に限定する。
-    mendo::layout::HeightChangeRange height_changed_ = mendo::layout::HeightChangeRange::None();
+    mendo::layout::HeightChangeRange height_changed_ = {};
 };
