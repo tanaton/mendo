@@ -9,6 +9,7 @@
 
 struct NodeTableData;
 struct TableLayoutData;
+class TaskScheduler;
 
 // ITextMeasurer の DirectWrite 実装。IDWriteTextFormat (重い再利用可能オブジェクト) を
 // theme ごとに所有し、計測のたびに per-call で IDWriteTextLayout を生成する分業構造。
@@ -33,11 +34,22 @@ public:
         NodeLayoutEntry& entry,
         float max_width,
         MeasureViewportRange viewport = {}) const override;
+    TableRestoreResult RestoreEvictedTableRows(
+        Node& node,
+        NodeLayoutEntry& entry,
+        float max_width,
+        MeasureViewportRange viewport) const override;
 
     // 外部のIDWriteFactoryで初期化する（Initの前に呼び出す必要がある）。
     void SetFactory(IDWriteFactory* factory) noexcept
     {
         dwrite_ = factory;
+    }
+    // 巨大テーブルのセル生成を並列化する先。nullptr なら直列。LayoutEngine と同じ契約で
+    // scheduler の Shutdown より前に nullptr へ戻すこと。
+    void SetScheduler(TaskScheduler* scheduler) noexcept
+    {
+        scheduler_ = scheduler;
     }
 
 private:
@@ -79,6 +91,7 @@ private:
 
     IDWriteFactory* dwrite_ = nullptr;
     const Theme* theme_ = nullptr;
+    TaskScheduler* scheduler_ = nullptr;
 
     Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_body_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_h_[6];

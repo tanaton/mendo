@@ -186,48 +186,45 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
         return;
     }
 
-    const bool first_pass = !entry.effects_applied;
     const auto row_count = static_cast<size_t>(tbl->row_count);
     const auto col_count = static_cast<size_t>(tbl->col_count);
     auto& tl = *entry.table_layout;
-    if (first_pass) {
+    if (!entry.effects_applied) {
         entry.effects_applied = true;
         tl.cell_inline_code_bgs.clear();
+        tl.row_bgs_computed.assign(row_count, 0);
+        tl.row_links_applied.assign(row_count, 0);
+    }
+    else if (tl.row_bgs_computed.size() != row_count || tl.row_links_applied.size() != row_count) {
         tl.row_bgs_computed.resize(row_count, 0);
+        tl.row_links_applied.resize(row_count, 0);
     }
 
-    const float border = TABLE_BORDER_WIDTH;
-
-    // 2回目以降のパスは row_cum_y で可視範囲を二分探索し、その帯だけループする。
-    // 1万行テーブルの大半をスキップしていたフレーム毎の row_count 線形 continue を排除する。
+    // リンク色・インラインコード背景とも可視行だけに適用し、行単位フラグで再適用を省く。
+    // 全行を毎回なめると巨大テーブルで effects 世代が変わるたびに O(行×列) になる。
     size_t r_begin = 0;
     size_t r_end = row_count;
-    const bool cull_by_viewport = !first_pass && viewport_top >= 0.0f && tl.row_cum_y.size() == row_count + 1;
-    if (cull_by_viewport) {
+    if (viewport_top >= 0.0f && tl.row_cum_y.size() == row_count + 1) {
         const auto [rb, re] = tl.VisibleRowRange(viewport_top - entry_text_top, viewport_bottom - entry_text_top);
         r_begin = rb;
         r_end = re;
     }
 
-    float row_y = entry_text_top;
-    if (r_begin > 0) {
-        row_y = entry_text_top + tl.row_cum_y[r_begin];
-    }
-
     for (size_t r = r_begin; r < r_end; r++) {
-        const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme_.font_size_body * TABLE_ROW_HEIGHT_FACTOR);
-        const float row_bottom = row_y + row_h + border;
-
-        const bool row_visible = (viewport_top < 0.0f) || (row_bottom >= viewport_top && row_y <= viewport_bottom);
-        // row_bgs_computed フラグで O(1) 判定（O(cells × runs) の走査を排除）
-        const bool bgs_done = !first_pass && r < tl.row_bgs_computed.size() && tl.row_bgs_computed[r];
-        const bool need_bgs = row_visible && !bgs_done;
-
-        // 2回目以降: オフスクリーン行や計算済みの行はスキップ
-        if (!first_pass && !need_bgs) {
-            row_y = row_bottom;
+        if (tl.row_links_applied[r] && tl.row_bgs_computed[r]) {
             continue;
         }
+        // evict 済みで未復元のセルが残る行は、復元後に改めて適用させるため完了扱いにしない
+        // (背景矩形は二重登録を避けるため完了時にだけ積む。リンク色は冪等なので先行適用してよい)。
+        bool row_complete = true;
+        for (size_t c = 0; c < col_count; c++) {
+            if (!tl.GetCellLayout(r, c) && !tbl->GetCellText(r, c).empty()) {
+                row_complete = false;
+                break;
+            }
+        }
+        const bool need_links = !tl.row_links_applied[r];
+        const bool need_bgs = !tl.row_bgs_computed[r] && row_complete;
 
         for (size_t c = 0; c < col_count; c++) {
             IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c);
@@ -242,8 +239,7 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
             // link/code を一切含まないセル (大半を占める) では構築を回避する。
             std::optional<mendo::WideViewForDWrite> wv;
             for (const auto& run : runs) {
-                // リンク色: 初回パスで全行に適用（軽量・冪等）
-                if (first_pass && run.has_link()) {
+                if (need_links && run.has_link()) {
                     if (!wv) {
                         wv.emplace(tbl->GetCellText(r, c));
                     }
@@ -288,11 +284,10 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
                 }
             }
         }
-        // この行のインラインコード背景計算が完了したことを記録
-        if (need_bgs && r < tl.row_bgs_computed.size()) {
-            tl.row_bgs_computed[r] = true;
+        if (row_complete) {
+            tl.row_links_applied[r] = 1;
+            tl.row_bgs_computed[r] = 1;
         }
-        row_y = row_bottom;
     }
 }
 
@@ -300,8 +295,7 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
 // pre-render パス。CommandGenerator の DrawCommand には乗らない (text-layout 状態は不可搬なため)。
 void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom)
 {
-    // テーブルノード: ビューポートカリング付きの増分処理を行う。
-    // リンク色は全行に適用（軽量・冪等）、インラインコード背景は可視行のみ計算する。
+    // テーブルノード: ビューポートカリング付きの行単位増分処理を行う。
     if (node.type == NodeType::Table) {
         ApplyTableEffects(node, entry, entry_text_top, viewport_top, viewport_bottom);
         return;

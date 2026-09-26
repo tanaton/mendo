@@ -135,26 +135,37 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
     const auto node_count = std::min(nodes.size(), cache.size());
     const int lo = FindFirstVisibleNodeIndex(cache, node_count, viewport_top);
 
+    bool any_restored = false;
+    const MeasureViewportRange vp{ viewport_top, viewport_bottom };
     for (int i = lo; i < static_cast<int>(node_count); i++) {
         auto& entry = cache[i];
         if (entry.text_top > viewport_bottom) {
             break;
         }
-        if (!entry.layout_dirty) {
-            continue;
+        if (entry.layout_dirty) {
+            const float indent = NodeIndent(nodes[i], *theme_);
+            MeasureEntry(*backend_, nodes[i], entry, content_width - indent, nullptr, vp);
+            any_updated = true;
+            last_measured = i;
         }
-        const float indent = NodeIndent(nodes[i], *theme_);
-        const MeasureViewportRange vp{ viewport_top, viewport_bottom };
-        MeasureEntry(*backend_, nodes[i], entry, content_width - indent, nullptr, vp);
-        any_updated = true;
-        last_measured = i;
+        else if (entry.has_table_layout() && entry.table_layout->HasEvictedRows()) {
+            const float indent = NodeIndent(nodes[i], *theme_);
+            const auto restored = backend_->RestoreEvictedTableRows(nodes[i], entry, content_width - indent, vp);
+            any_restored |= restored.restored;
+            if (restored.height_changed) {
+                any_updated = true;
+                last_measured = i;
+            }
+        }
     }
 
-    if (any_updated) {
+    if (any_updated || any_restored) {
         cache.IncrementEffectsGeneration();
+    }
+    if (any_updated) {
         has_dirty_nodes_ = RecomputeYPositions(nodes, cache, *theme_, static_cast<size_t>(lo), has_dirty_nodes_, static_cast<size_t>(last_measured)).has_dirty_nodes;
     }
-    return any_updated;
+    return any_updated || any_restored;
 }
 
 bool LayoutEngine::ProcessDirtyBatch(

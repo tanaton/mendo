@@ -37,6 +37,8 @@ struct TableLayoutData {
     std::pmr::vector<float> cell_heights;        // 各セルに最後に適用した幅での計測高さ
     std::pmr::vector<float> cell_applied_widths; // 各セルに最後に適用した max_width（変更判定用）
     std::pmr::vector<uint8_t> row_bgs_computed;  // 各行のインラインコード背景計算済みフラグ
+    std::pmr::vector<uint8_t> row_links_applied; // 各行のリンク色適用済みフラグ (セル再生成で落ちる)
+    std::pmr::vector<uint8_t> row_evicted;       // 行単位 evict でセル layout を捨てた行
     // ヒットテスト高速化用の累積オフセット。
     // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ。サイズは row_count+1。
     // col_cum_x[c] = base_x からの列 c の左端までの累積幅。サイズは col_count+1。
@@ -51,9 +53,48 @@ struct TableLayoutData {
     // 圧縮を行わなかった場合の自然な総幅。横スクロールのクランプ計算用に保持する。
     // cached_table_width と一致することもあるが、圧縮分岐を通った場合は乖離する。
     float natural_total_width = 0.0f;
-    // 立っている間は MeasureTable の超高速パスをバイパスし RestoreNullCellLayouts を走らせる。
-    // FinalizeTableLayout 完了でクリア。
-    bool cells_partially_evicted = false;
+    size_t evicted_row_count = 0;
+    // セル layout が生存しうる行範囲 [live_row_begin, live_row_end)。差分 evict の走査範囲で、
+    // evict 済み行を毎回なめ直さないためのもの。
+    size_t live_row_begin = 0;
+    size_t live_row_end = 0;
+
+    constexpr bool HasEvictedRows() const noexcept
+    {
+        return evicted_row_count > 0;
+    }
+    void ResetRowEviction(size_t row_count)
+    {
+        row_evicted.assign(row_count, 0);
+        evicted_row_count = 0;
+        live_row_begin = 0;
+        live_row_end = row_count;
+    }
+    constexpr void MarkRowEvicted(size_t r) noexcept
+    {
+        if (r < row_evicted.size() && !row_evicted[r]) {
+            row_evicted[r] = 1;
+            ++evicted_row_count;
+        }
+        if (r < row_links_applied.size()) {
+            row_links_applied[r] = 0;
+        }
+    }
+    constexpr void MarkRowRestored(size_t r) noexcept
+    {
+        if (r < row_evicted.size() && row_evicted[r]) {
+            row_evicted[r] = 0;
+            --evicted_row_count;
+        }
+        if (live_row_begin >= live_row_end) {
+            live_row_begin = r;
+            live_row_end = r + 1;
+        }
+        else {
+            live_row_begin = std::min(live_row_begin, r);
+            live_row_end = std::max(live_row_end, r + 1);
+        }
+    }
     // フラットインデックスへの変換
     constexpr size_t CellIndex(size_t row, size_t col) const noexcept
     {
@@ -345,6 +386,9 @@ private:
     static void ResetEntryTextLayout(NodeLayoutEntry& e) noexcept;
 
     static void EvictEntryLayout(NodeLayoutEntry& e) noexcept;
+
+    // 行単位 evict できる状態 (幾何と管理配列が揃っている) か。管理配列は MeasureTable が確保する。
+    static bool HasRowTracking(const TableLayoutData& tl) noexcept;
 
     // 1 行分の cell_layouts を Reset し、cell_heights / cell_applied_widths を再計測待ちに戻す。
     // 行/列の幾何 (row_cum_y, col_cum_x, row_heights, col_widths) は維持する。

@@ -32,7 +32,7 @@ bool App::Init(HWND hwnd)
         const int layout_workers = static_cast<int>(std::clamp<unsigned>(
             cores > 0 ? cores - 1 : kMinLayoutWorkers, kMinLayoutWorkers, kMaxLayoutWorkers));
         layout_scheduler_.Init(layout_workers);
-        renderer_.GetLayout().SetLayoutScheduler(&layout_scheduler_);
+        renderer_.SetLayoutScheduler(&layout_scheduler_);
     }
 
     // PixelToDip 用に DPI スケールをキャッシュ（OnDpiChanged でも更新する）。

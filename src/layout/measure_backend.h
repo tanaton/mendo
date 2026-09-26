@@ -16,6 +16,12 @@ struct MeasureViewportRange {
     }
 };
 
+struct TableRestoreResult {
+    bool restored = false;
+    // 旧幅の行高さのまま evict されていた行を実測し直して高さが変わった
+    bool height_changed = false;
+};
+
 // IDWriteFactory はスレッドセーフで IDWriteTextLayout は per-call 生成のため、
 // 同一インスタンスを複数ワーカーから const 経由で叩いて良い。lifecycle 系
 // (Init/RecreateFormats/UpdateTheme) は IMeasureLifecycle に分離してあり、
@@ -36,6 +42,13 @@ public:
         MeasureViewportRange viewport = {}) const = 0;
     virtual void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width,
                               MeasureViewportRange viewport = {}) const = 0;
+    // 幅不変のまま行単位 evict されたテーブルの、viewport 内の evict 行だけセルを再生成する。
+    // layout_dirty を経由しないため、可視中に毎フレーム全行を再計測することがない。
+    virtual TableRestoreResult RestoreEvictedTableRows(Node& /*node*/, NodeLayoutEntry& /*entry*/, float /*max_width*/,
+                                                       MeasureViewportRange /*viewport*/) const
+    {
+        return {};
+    }
 };
 
 // 全計測経路の入口。実測値を cached_width/height に残し、同じ幅へ戻った際に
