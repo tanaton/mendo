@@ -42,9 +42,12 @@ bool TaskScheduler::Post(std::move_only_function<void()> task)
 
 void TaskScheduler::Shutdown()
 {
-    // shutdown_ は atomic なので lock を取らずに store して良い。cv_.wait(lock, predicate) は
-    // unlock と wait を atomic に行うため、lock 外 store でも notify_all を取り逃さない。
-    shutdown_.store(true, std::memory_order_release);
+    // store は mutex 下で行う。lock 外だと、worker が述語 (false) を評価してから wait に入るまでの
+    // 隙間に store と notify_all が割り込んで通知を取りこぼし、join が永久に戻らない。
+    {
+        const std::lock_guard lock(mutex_);
+        shutdown_.store(true, std::memory_order_release);
+    }
     cv_.notify_all();
     for (auto& t : workers_) {
         if (t.joinable()) {
