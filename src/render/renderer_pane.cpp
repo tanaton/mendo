@@ -118,8 +118,10 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
             header_text_right = reveal_rect.left - 4.0f;
         }
 
-        if (sp.fmt_header) {
-            const D2D1_RECT_F header_rect = D2D1::RectF(8.0f, 0, header_text_right, sp.theme.pane_header_height);
+        // 最小幅付近ではボタンだけで埋まり、見出しの矩形が反転する。
+        constexpr float header_text_left = 8.0f;
+        if (sp.fmt_header && header_text_right > header_text_left) {
+            const D2D1_RECT_F header_rect = D2D1::RectF(header_text_left, 0, header_text_right, sp.theme.pane_header_height);
             rt->DrawText(
                 sp.header_text.data(),
                 static_cast<UINT32>(sp.header_text.size()),
