@@ -453,7 +453,9 @@ void MermaidRenderer::DrainPendingRequests(bool cancelled)
 {
     // 待機中の SVG リクエストを完了させ、呼び出し元の in-flight フラグ固着を防ぐ。
     while (!pending_requests_.empty()) {
-        InvokeSvgCallbackIfAny(pending_requests_.front(), {}, cancelled);
+        auto& req = pending_requests_.front();
+        InvokeSvgCallbackIfAny(req, {}, cancelled);
+        ReleaseInflight(req);
         pending_requests_.pop();
     }
 }

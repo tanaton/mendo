@@ -23,12 +23,13 @@ void TaskScheduler::Init(int thread_count)
 
 bool TaskScheduler::Post(std::move_only_function<void()> task)
 {
-    // Shutdown 後の Post は早期棄却。worker が join 中の状態で queue に積んでも実行されない。
-    if (shutdown_.load(std::memory_order_acquire)) {
-        return false;
-    }
     {
         const std::lock_guard lock(mutex_);
+        // Shutdown 後の Post は棄却。判定を lock 外で行うと、Shutdown の store → join 完了の後に
+        // push して true を返し、誰も実行しないタスクが残る。
+        if (shutdown_.load(std::memory_order_acquire)) {
+            return false;
+        }
         if (queue_.size() >= MAX_PENDING_TASKS) {
             OutputDebugStringW(L"[TaskScheduler] queue saturated, dropping task\n");
             MENDO_TRACE("TaskScheduler: queue saturated, task dropped");

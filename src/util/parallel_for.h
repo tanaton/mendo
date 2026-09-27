@@ -53,8 +53,13 @@ void ParallelFor(TaskScheduler* scheduler, size_t count, size_t grain, Fn&& fn)
     };
 
     for (size_t i = 0; i < helper_count; ++i) {
-        // Post 失敗時は呼び出し元が残りを消化するので無視してよい。
-        scheduler->Post([state, drain] { drain(*state); });
+        // Post 失敗時は呼び出し元が残りを消化するので無視してよい。例外もここで止めないと、
+        // 投入済みの helper が巻き戻し後の fn (スタック上) を参照してしまう。
+        try {
+            scheduler->Post([state, drain] { drain(*state); });
+        } catch (...) {
+            OutputDebugStringW(L"[mendo] ParallelFor Post threw exception\n");
+        }
     }
     drain(*state);
     for (size_t d = state->done.load(); d < chunk_count; d = state->done.load()) {

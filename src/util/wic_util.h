@@ -131,11 +131,13 @@ inline Microsoft::WRL::ComPtr<IWICBitmap> DecodeToWicBitmap(IWICImagingFactory* 
 {
     Microsoft::WRL::ComPtr<IWICBitmapSource> src = source;
     if (target != original) {
+        // 縮小できなければ失敗扱いにする。原寸へ倒すとサイズ上限を素通りしてメモリが跳ねる。
         Microsoft::WRL::ComPtr<IWICBitmapScaler> scaler;
-        if (SUCCEEDED(wic->CreateBitmapScaler(&scaler)) &&
-            SUCCEEDED(scaler->Initialize(source, target.width, target.height, WICBitmapInterpolationModeFant))) {
-            src = scaler;
+        if (FAILED(wic->CreateBitmapScaler(&scaler)) ||
+            FAILED(scaler->Initialize(source, target.width, target.height, WICBitmapInterpolationModeFant))) {
+            return nullptr;
         }
+        src = scaler;
     }
     Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
     if (FAILED(wic->CreateBitmapFromSource(src.Get(), WICBitmapCacheOnLoad, &bitmap))) {
