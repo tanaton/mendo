@@ -105,6 +105,7 @@ struct CallbackTracker {
     int process_mermaid_batch_timer_count = 0;
     int process_bitmap_manage_count = 0;
     int mermaid_init_retry_count = 0;
+    int mermaid_idle_count = 0;
     std::pair<int, int> last_context_menu_pos{ 0, 0 };
     int show_context_menu_count = 0;
     std::vector<bool> sync_toc_auto_scroll_calls;
@@ -179,6 +180,10 @@ struct TestSideEffectCallbacks {
     void mermaid_init_retry()
     {
         t->mermaid_init_retry_count++;
+    }
+    void mermaid_idle()
+    {
+        t->mermaid_idle_count++;
     }
     void show_context_menu(int x, int y)
     {
@@ -364,6 +369,12 @@ TEST_F(SideEffectExecutorTest, MermaidInitRetryDispatchesToCallback)
 {
     exec_.ExecuteOne(effect::MermaidInitRetry{});
     EXPECT_EQ(mermaid_init_retry_count_, 1);
+}
+
+TEST_F(SideEffectExecutorTest, MermaidIdleForwardsToCallback)
+{
+    exec_.ExecuteOne(effect::MermaidIdle{});
+    EXPECT_EQ(tracker_.mermaid_idle_count, 1);
 }
 
 TEST_F(SideEffectExecutorTest, ShowContextMenuForwardsScreenPosition)

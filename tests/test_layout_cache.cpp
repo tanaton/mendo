@@ -30,17 +30,17 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesPositions)
 {
     LayoutCache cache;
     cache.Resize(2);
-    cache[0].text_top = 100.0f;
+    cache.SetTop(0, 100.0f);
     cache[0].height = 50.0f;
-    cache[1].text_top = 150.0f;
+    cache.SetTop(1, 150.0f);
     cache[1].height = 30.0f;
 
     cache.InvalidateAllLayouts();
 
     // 位置は保持されること
-    EXPECT_FLOAT_EQ(cache[0].text_top, 100.0f);
+    EXPECT_FLOAT_EQ(cache.Top(0), 100.0f);
     EXPECT_FLOAT_EQ(cache[0].height, 50.0f);
-    EXPECT_FLOAT_EQ(cache[1].text_top, 150.0f);
+    EXPECT_FLOAT_EQ(cache.Top(1), 150.0f);
     EXPECT_FLOAT_EQ(cache[1].height, 30.0f);
 }
 
@@ -118,7 +118,7 @@ TEST(LayoutCacheTest, RecomputeYPositionsEarlyExitKeepsTextTop)
     std::vector<float> expected;
     for (size_t i = 0; i < cache.size(); ++i) {
         cache[i].layout_dirty = false;
-        expected.push_back(cache[i].text_top);
+        expected.push_back(cache.Top(i));
     }
 
     // safe_exit_after=2 で、index >= 3 のノードについて text_top と y が一致なら早期終了。
@@ -126,7 +126,7 @@ TEST(LayoutCacheTest, RecomputeYPositionsEarlyExitKeepsTextTop)
     mendo::layout::RecomputeYPositions(nodes, cache, theme, 0, false, 2);
 
     for (size_t i = 0; i < cache.size(); ++i) {
-        EXPECT_FLOAT_EQ(cache[i].text_top, expected[i]) << "after early-exit, index " << i;
+        EXPECT_FLOAT_EQ(cache.Top(i), expected[i]) << "after early-exit, index " << i;
     }
 }
 

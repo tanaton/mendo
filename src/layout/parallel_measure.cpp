@@ -1,11 +1,11 @@
 #include "parallel_measure.h"
 #include "layout_computer.h"
+#include "parallel_for.h"
 #include "profiler.h"
 #include "task_scheduler.h"
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
-#include <latch>
 #include <vector>
 #include <windows.h>
 
@@ -17,8 +17,6 @@ namespace {
 // 上限は数百件の dirty でも複数 worker に行き渡らせるための上限。
 constexpr size_t kMinChunkSize = 16;
 constexpr size_t kMaxChunkSize = 512;
-// dispatch + latch のオーバーヘッドが per-node 並列利得を上回る境界。
-constexpr size_t kMinDirtyForParallel = 32;
 
 void MeasureChunk(
     std::pmr::vector<Node>& nodes,
@@ -33,11 +31,58 @@ void MeasureChunk(
     for (size_t k = 0; k < chunk_indices.size(); ++k) {
         const size_t i = chunk_indices[k];
         const float indent = NodeIndent(nodes[i], theme);
-        MeasureEntry(backend, nodes[i], cache[i], content_width - indent, &chunk_slot_tokens[k], viewport);
+        MeasureEntry(backend, nodes[i], cache[i], content_width - indent, &chunk_slot_tokens[k], viewport, cache.Top(i));
     }
 }
 
 } // namespace
+
+int MeasureIndicesParallel(
+    std::pmr::vector<Node>& nodes,
+    LayoutCache& cache,
+    float content_width,
+    const Theme& theme,
+    const IMeasureBackend& backend,
+    std::span<const size_t> indices,
+    MeasureViewportRange measure_vp,
+    TaskScheduler* scheduler,
+    size_t min_parallel)
+{
+    // slot k は indices[k] に対応。worker は自スロットへ書き、UI スレッドで Node に集約する。
+    // 事前サイズ確定なので chunk 完了順に依存せず、sort も merge も不要。
+    std::pmr::vector<std::pmr::vector<SyntaxToken>> slot_tokens(
+        indices.size(), std::pmr::get_default_resource());
+
+    const size_t worker_count = scheduler ? std::max<size_t>(scheduler->WorkerCount(), 1) : 1;
+    const size_t chunk_size = indices.size() < min_parallel
+        ? indices.size()
+        : std::clamp(indices.size() / (worker_count * 4), kMinChunkSize, kMaxChunkSize);
+    std::atomic<int> failed_node_count{ 0 };
+    ParallelFor(scheduler, indices.size(), chunk_size, [&](size_t begin, size_t end) {
+        MENDO_PROFILE("MeasureNode.chunk");
+        try {
+            MeasureChunk(nodes, cache, content_width, theme, backend, indices.subspan(begin, end - begin),
+                         std::span(slot_tokens).subspan(begin, end - begin), measure_vp);
+        } catch (...) {
+            failed_node_count.fetch_add(static_cast<int>(end - begin), std::memory_order_relaxed);
+            OutputDebugStringW(L"[mendo] MeasureIndicesParallel chunk threw exception\n");
+        }
+    });
+    const int failed = failed_node_count.load(std::memory_order_relaxed);
+    MENDO_PLOT("layout.parallel.error_count", static_cast<int64_t>(failed));
+
+    {
+        MENDO_PROFILE("RunParallel.Aggregate");
+        // 非 CodeBlock や既トークン化済みノードでは MeasureNode が tokens_out に書かない。
+        // 空 vector で既存トークンを上書きすると zoom/theme 変更後にハイライトが失われる。
+        for (size_t k = 0; k < indices.size(); ++k) {
+            if (!slot_tokens[k].empty()) {
+                nodes[indices[k]].syntax_tokens_mut() = std::move(slot_tokens[k]);
+            }
+        }
+    }
+    return failed;
+}
 
 DirtyBatchResult RunParallel(
     std::pmr::vector<Node>& nodes,
@@ -80,11 +125,11 @@ DirtyBatchResult RunParallel(
             indices.reserve(node_count);
         }
         for (size_t i = plan_begin; i < node_count; i++) {
-            const auto& entry = cache[i];
-            if (has_viewport_limit && entry.text_top > limit_bottom) {
+            const float entry_top = cache.Top(i);
+            if (has_viewport_limit && entry_top > limit_bottom) {
                 break;
             }
-            if (!ViewportClip::ShouldMeasure(entry, has_viewport_limit, limit_top, limit_bottom)) {
+            if (!ViewportClip::ShouldMeasure(cache[i], entry_top, has_viewport_limit, limit_top, limit_bottom)) {
                 continue;
             }
             indices.push_back(i);
@@ -107,85 +152,12 @@ DirtyBatchResult RunParallel(
     result.last_processed = indices.back();
     result.processed = static_cast<int>(indices.size());
 
-    // slot k は indices[k] に対応。worker は自スロットへ書き、UI スレッドで Node に集約する。
-    // 事前サイズ確定なので chunk 完了順に依存せず、sort も merge も不要。
-    std::pmr::vector<std::pmr::vector<SyntaxToken>> slot_tokens(
-        indices.size(), std::pmr::get_default_resource());
-
-    if (indices.size() < kMinDirtyForParallel) {
-        MENDO_PROFILE("RunParallel.Inline");
-        MeasureChunk(nodes, cache, content_width, theme, backend, indices, { slot_tokens.data(), slot_tokens.size() }, measure_vp);
-    }
-    else {
-        const size_t worker_count = std::max<size_t>(scheduler.WorkerCount(), 1);
-        const size_t target_chunks = worker_count * 4;
-        const size_t chunk_size = std::clamp(indices.size() / target_chunks, kMinChunkSize, kMaxChunkSize);
-        const size_t chunk_count = (indices.size() + chunk_size - 1) / chunk_size;
-
-        std::latch latch(static_cast<ptrdiff_t>(chunk_count));
-        std::atomic<int> failed_node_count{ 0 };
-
-        // 例外が latch.count_down() の前で抜けると wait() が永久ブロックするので必ず try/catch で覆う。
-        auto run_chunk = [&](std::span<const size_t> ci, std::span<std::pmr::vector<SyntaxToken>> co) {
-            try {
-                MeasureChunk(nodes, cache, content_width, theme, backend, ci, co, measure_vp);
-            } catch (...) {
-                failed_node_count.fetch_add(static_cast<int>(ci.size()), std::memory_order_relaxed);
-                OutputDebugStringW(L"[mendo] RunParallel chunk threw exception\n");
-            }
-            latch.count_down();
-        };
-
-        {
-            MENDO_PROFILE("RunParallel.Dispatch");
-            for (size_t chunk_idx = 0; chunk_idx < chunk_count; chunk_idx++) {
-                const size_t begin = chunk_idx * chunk_size;
-                const size_t end = std::min(begin + chunk_size, indices.size());
-                const std::span<const size_t> chunk_indices{ indices.data() + begin, end - begin };
-                const std::span<std::pmr::vector<SyntaxToken>> chunk_slots{ slot_tokens.data() + begin, end - begin };
-                bool posted = false;
-                try {
-                    posted = scheduler.Post([&, chunk_indices, chunk_slots]() {
-                        MENDO_PROFILE("MeasureNode.worker");
-                        run_chunk(chunk_indices, chunk_slots);
-                    });
-                } catch (...) {
-                    // Post 自体が throw すると latch.count_down() が漏れて wait() が永久ブロック。
-                    OutputDebugStringW(L"[mendo] RunParallel scheduler.Post threw exception\n");
-                }
-                if (!posted) {
-                    MENDO_PROFILE("MeasureNode.fallback");
-                    run_chunk(chunk_indices, chunk_slots);
-                }
-            }
-        }
-
-        {
-            MENDO_PROFILE("RunParallel.Wait");
-            latch.wait();
-        }
-
-        const int failed = failed_node_count.load(std::memory_order_relaxed);
-        if (failed > 0) {
-            // 失敗分は processed から外し、any_nearby_skipped() 経由で次フレーム再試行に乗せる。
-            result.processed -= failed;
-            if (result.reason == StopReason::Done) {
-                result.reason = StopReason::Error;
-            }
-        }
-
-        MENDO_PLOT("layout.parallel.chunk_count", static_cast<int64_t>(chunk_count));
-        MENDO_PLOT("layout.parallel.error_count", static_cast<int64_t>(failed));
-    }
-
-    {
-        MENDO_PROFILE("RunParallel.Aggregate");
-        // 非 CodeBlock や既トークン化済みノードでは MeasureNode が tokens_out に書かない。
-        // 空 vector で既存トークンを上書きすると zoom/theme 変更後にハイライトが失われる。
-        for (size_t k = 0; k < indices.size(); ++k) {
-            if (!slot_tokens[k].empty()) {
-                nodes[indices[k]].syntax_tokens_mut() = std::move(slot_tokens[k]);
-            }
+    const int failed = MeasureIndicesParallel(nodes, cache, content_width, theme, backend, indices, measure_vp, &scheduler);
+    if (failed > 0) {
+        // 失敗分は processed から外し、any_nearby_skipped() 経由で次フレーム再試行に乗せる。
+        result.processed -= failed;
+        if (result.reason == StopReason::Done) {
+            result.reason = StopReason::Error;
         }
     }
 

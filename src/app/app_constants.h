@@ -22,6 +22,7 @@ enum class Id : UINT_PTR {
     BITMAP_MANAGE,
     MERMAID_INIT_RETRY,
     FILE_RELOAD_DEBOUNCE,
+    MERMAID_IDLE,
     END, // 番兵。タイマーとしては使わない。新規タイマーはこの直前に追加する。
 };
 
@@ -40,9 +41,10 @@ inline constexpr UINT IMAGE_LOADED = WM_APP + 2;
 inline constexpr UINT SEARCH_FOCUS = WM_APP + 4;
 inline constexpr UINT SEARCH_UNFOCUS = WM_APP + 5;
 inline constexpr UINT PARSE_COMPLETE = WM_APP + 6;
+inline constexpr UINT MERMAID_DISK_LOADED = WM_APP + 7;
 
 // 判定に [WM_APP, END) を使う。
-inline constexpr UINT END = WM_APP + 7;
+inline constexpr UINT END = WM_APP + 8;
 
 } // namespace app_msg
 

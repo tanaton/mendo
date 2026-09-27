@@ -194,38 +194,33 @@ void MermaidFileCache::SaveIndex()
 
 bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, PngBlob& png)
 {
+    std::filesystem::path path;
+    if (!LookupPath(key, entry, path)) {
+        return false;
+    }
+    DWORD read_error = 0;
+    auto [data, data_size] = ReadAllBytes(path, &read_error);
+    if (!data) {
+        OnReadFailed(key, read_error);
+        return false;
+    }
+    png.data = std::move(data);
+    png.size = data_size;
+    return true;
+}
+
+bool MermaidFileCache::LookupPath(uint64_t key, CacheEntry& entry, std::filesystem::path& png_path)
+{
     key = InternalKey(key);
     auto it = index_.find(key);
     if (it == index_.end()) {
         return false;
     }
 
-    const auto path = GetPngPath(key);
-    if (path.empty()) {
+    png_path = GetPngPath(key);
+    if (png_path.empty()) {
         return false;
     }
-
-    DWORD read_error = 0;
-    auto [data, data_size] = ReadAllBytes(path, &read_error);
-    if (!data) {
-        // ファイルが確実に存在しない場合のみインデックスエントリを除去する。
-        // 共有違反など一時的なエラーではエントリを保持する。
-        // また、StoreAsync 直後でバックグラウンド書き込みが in-flight なら
-        // 「未着地＝stale」と早合点せず entry を保持する（次回 Lookup で着地する）。
-        if (read_error == ERROR_FILE_NOT_FOUND || read_error == ERROR_PATH_NOT_FOUND) {
-            bool pending = false;
-            {
-                std::lock_guard lock(pending_mutex_);
-                pending = pending_writes_.contains(key);
-            }
-            if (!pending) {
-                RemoveIndexEntry(it);
-            }
-        }
-        return false;
-    }
-    png.data = std::move(data);
-    png.size = data_size;
 
     entry.css_width = it->second.css_width;
     entry.css_height = it->second.css_height;
@@ -234,8 +229,28 @@ bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, PngBlob& png)
     // 「stale 先頭は再挿入してから判定」で吸収する。Lookup ホットパスでの
     // multimap O(log N) erase/emplace を回避する（lru_iter は旧時刻の位置を指したまま）。
     it->second.last_used = NextLruSeq();
-
     return true;
+}
+
+void MermaidFileCache::OnReadFailed(uint64_t key, DWORD read_error)
+{
+    if (read_error != ERROR_FILE_NOT_FOUND && read_error != ERROR_PATH_NOT_FOUND) {
+        return;
+    }
+    key = InternalKey(key);
+    const auto it = index_.find(key);
+    if (it == index_.end()) {
+        return;
+    }
+    // StoreAsync 直後でバックグラウンド書き込みが in-flight なら「未着地＝stale」と
+    // 早合点せず entry を保持する（次回 Lookup で着地する）。
+    {
+        std::lock_guard lock(pending_mutex_);
+        if (pending_writes_.contains(key)) {
+            return;
+        }
+    }
+    RemoveIndexEntry(it);
 }
 
 bool MermaidFileCache::LookupDimensions(uint64_t key, CacheEntry& entry) const noexcept

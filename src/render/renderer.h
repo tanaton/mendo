@@ -55,6 +55,12 @@ public:
     {
         return layout_;
     }
+    // 並列計測 (ノード単位 / 巨大テーブルのセル単位) に使う scheduler。Shutdown 前に nullptr へ戻す契約。
+    void SetLayoutScheduler(TaskScheduler* scheduler) noexcept
+    {
+        layout_.SetLayoutScheduler(scheduler);
+        measurer_.SetScheduler(scheduler);
+    }
     constexpr const Theme& GetTheme() const noexcept
     {
         return theme_;

@@ -92,6 +92,11 @@ void AppSideEffectCallbacks::mermaid_init_retry()
     app->mermaid_renderer_.OnInitRetryTimer();
 }
 
+void AppSideEffectCallbacks::mermaid_idle()
+{
+    app->mermaid_renderer_.OnIdleTimer();
+}
+
 void AppSideEffectCallbacks::show_context_menu(int x, int y)
 {
     app->OnContextMenu(x, y);

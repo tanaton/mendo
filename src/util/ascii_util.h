@@ -271,9 +271,54 @@ inline size_t Find(std::wstring_view text, std::wstring_view query, size_t start
     return npos;
 }
 
-// UTF-8 multi-byte シーケンスの中間バイトがクエリ先頭バイトと衝突する可能性はあるが、
-// 後続の memcmp で正確に弾けるため正しさは保たれる (UTF-8 self-synchronizing 性は使わずに済む)。
-inline size_t Find(std::string_view text, std::string_view query, size_t start = 0) noexcept
+namespace detail {
+
+template <bool kFold>
+inline __m128i LoadBytes(const char* p) noexcept
+{
+    const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(p));
+    if constexpr (kFold) {
+        return _mm_add_epi8(c, AsciiUpperToLowerAdd<char>(c));
+    }
+    else {
+        return c;
+    }
+}
+
+template <bool kFold>
+constexpr char FoldByte(char c) noexcept
+{
+    if constexpr (kFold) {
+        return ToLowerAscii(c);
+    }
+    else {
+        return c;
+    }
+}
+
+template <bool kFold>
+inline bool EqualBytes(const char* t, const char* q, size_t n) noexcept
+{
+    if constexpr (kFold) {
+        for (size_t k = 0; k < n; ++k) {
+            if (ToLowerAscii(t[k]) != q[k]) {
+                return false;
+            }
+        }
+        return true;
+    }
+    else {
+        return std::memcmp(t, q, n) == 0;
+    }
+}
+
+// kFold=true のとき query は ASCII 小文字化済みで、text 側をその場で ASCII 小文字化して比較する
+// (文書全体の小文字コピーを持たずに済む)。
+// 候補は先頭バイトと末尾バイトの 2 点一致で絞る。UTF-8 の日本語は先頭バイトが 0xE3〜0xE9 に
+// 集中するため、先頭 1 点だけだと約 3 バイトに 1 回候補が立ち memcmp が支配的になる。
+// multi-byte シーケンスの中間バイトとの偶然一致は後続の比較で正確に弾ける。
+template <bool kFold>
+inline size_t FindImpl(std::string_view text, std::string_view query, size_t start) noexcept
 {
     const size_t qlen = query.size();
     const size_t tlen = text.size();
@@ -287,15 +332,14 @@ inline size_t Find(std::string_view text, std::string_view query, size_t start =
     const char* tp = text.data();
     const char* qp = query.data();
     const char first = qp[0];
-    const __m128i bcast = _mm_set1_epi8(first);
+    const __m128i v_first = _mm_set1_epi8(first);
     const size_t last = tlen - qlen;
 
     size_t i = start;
 
     if (qlen == 1) {
         while (i + 16 <= tlen) {
-            const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(tp + i));
-            const __m128i eq = _mm_cmpeq_epi8(c, bcast);
+            const __m128i eq = _mm_cmpeq_epi8(LoadBytes<kFold>(tp + i), v_first);
             const unsigned mask = static_cast<unsigned>(_mm_movemask_epi8(eq));
             if (mask != 0) {
                 unsigned long bit_idx;
@@ -305,37 +349,59 @@ inline size_t Find(std::string_view text, std::string_view query, size_t start =
             i += 16;
         }
         for (; i <= last; ++i) {
-            if (tp[i] == first) {
+            if (FoldByte<kFold>(tp[i]) == first) {
                 return i;
             }
         }
         return npos;
     }
 
-    while (i + 16 <= tlen) {
-        const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(tp + i));
-        const __m128i eq = _mm_cmpeq_epi8(c, bcast);
-        unsigned mask = static_cast<unsigned>(_mm_movemask_epi8(eq));
+    const size_t tail = qlen - 1;
+    const __m128i v_last = _mm_set1_epi8(qp[tail]);
+    // 16 個の開始候補 [i, i+16) を 1 ブロックで判定する。末尾側のロードが text 内に収まる範囲。
+    while (i + 16 <= last + 1) {
+        const __m128i eq_first = _mm_cmpeq_epi8(LoadBytes<kFold>(tp + i), v_first);
+        const __m128i eq_last = _mm_cmpeq_epi8(LoadBytes<kFold>(tp + i + tail), v_last);
+        unsigned mask = static_cast<unsigned>(_mm_movemask_epi8(_mm_and_si128(eq_first, eq_last)));
         while (mask != 0) {
             unsigned long bit_idx;
             _BitScanForward(&bit_idx, mask);
             mask &= mask - 1;
             const size_t pos = i + bit_idx;
-            if (pos > last) {
-                return npos;
-            }
-            if (std::memcmp(tp + pos + 1, qp + 1, qlen - 1) == 0) {
+            if (EqualBytes<kFold>(tp + pos + 1, qp + 1, qlen - 2)) {
                 return pos;
             }
         }
         i += 16;
     }
     for (; i <= last; ++i) {
-        if (tp[i] == first && std::memcmp(tp + i + 1, qp + 1, qlen - 1) == 0) {
+        if (FoldByte<kFold>(tp[i]) == first && FoldByte<kFold>(tp[i + tail]) == qp[tail] &&
+            EqualBytes<kFold>(tp + i + 1, qp + 1, qlen - 2)) {
             return i;
         }
     }
     return npos;
+}
+
+} // namespace detail
+
+inline size_t Find(std::string_view text, std::string_view query, size_t start = 0) noexcept
+{
+    return detail::FindImpl<false>(text, query, start);
+}
+
+// ASCII の大文字小文字を区別しない検索。lower_query は ASCII 小文字化済みであること。
+inline size_t FindAsciiCaseInsensitive(std::string_view text, std::string_view lower_query, size_t start = 0) noexcept
+{
+    return detail::FindImpl<true>(text, lower_query, start);
+}
+
+// ASCII 英字を含むか。含まなければ ASCII 大文字小文字無視の検索は通常検索と同一の結果になる。
+inline bool HasAsciiLetter(std::string_view s) noexcept
+{
+    return std::ranges::any_of(s, [](char c) noexcept {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+    });
 }
 
 inline bool Contains(std::string_view text, std::string_view query) noexcept

@@ -31,6 +31,7 @@ public:
     void SetRenderTarget(ID2D1RenderTarget* rt) noexcept
     {
         render_target_ = rt;
+        max_bitmap_dim_.store(rt ? rt->GetMaximumBitmapSize() : 0u);
     }
 
     void InitAsync(HWND hwnd, UINT msg_id, TaskScheduler& scheduler);
@@ -68,7 +69,8 @@ private:
 
     struct DecodeResult {
         std::wstring path;
-        Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
+        // worker でデコード確定・縮小済み。width/height は縮小前の原寸 (レイアウトは原寸基準)。
+        Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
         float width = 0.0f;
         float height = 0.0f;
         Callback on_complete;
@@ -79,10 +81,13 @@ private:
     std::pair<float, float> CreateAndCacheImage(const std::wstring& path, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap, UINT pixel_width, UINT pixel_height);
 
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
+    static constexpr size_t MAX_CACHE_BYTES = 128u * 1024 * 1024;
     static constexpr uint32_t kMaxImageRetries = 3;
 
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     ID2D1RenderTarget* render_target_ = nullptr;
+    // worker が縮小サイズ計算に使う。render_target_ は worker から触れないので値で持つ。
+    std::atomic<UINT> max_bitmap_dim_{ 0 };
     LruCache<std::wstring, CachedImage, MAX_CACHE_ENTRIES> cache_;
 
     HWND hwnd_ = nullptr;

@@ -116,10 +116,15 @@ public:
     {
         cancel_pending_count++;
     }
+    void DropQueued() override
+    {
+        drop_queued_count++;
+    }
     void ClearCache() override
     {
         clear_cache_count++;
     }
+    int drop_queued_count = 0;
 
 private:
     static StubD2D1Bitmap& SharedStubBitmap() noexcept
@@ -136,6 +141,7 @@ struct CallbackTracker {
     int kill_timer = 0;
     int recompute_layout = 0;
     int recompute_layout_anchored = 0;
+    mendo::layout::HeightChangeRange last_change = {};
     app_timer::Id last_set_timer_id{};
     UINT last_set_timer_ms = 0;
     app_timer::Id last_killed_timer_id{};
@@ -175,13 +181,15 @@ struct TestResourceManagerCallbacks {
     {
         return t->indent_width;
     }
-    void recompute_layout()
+    void recompute_layout(mendo::layout::HeightChangeRange changed)
     {
         t->recompute_layout++;
+        t->last_change = changed;
     }
-    void recompute_layout_anchored()
+    void recompute_layout_anchored(mendo::layout::HeightChangeRange changed)
     {
         t->recompute_layout_anchored++;
+        t->last_change = changed;
     }
 };
 
@@ -274,6 +282,20 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesHeightFromCache)
     // height=800 * 0.8 = 640
     EXPECT_FLOAT_EQ(cache_[img_idx].height, 640.0f);
     EXPECT_FALSE(cache_[img_idx].layout_dirty);
+}
+
+// 高さを更新したノードだけを再計算範囲として渡す (先頭からの全件再計算を避ける)。
+TEST_F(ResourceManagerTest, LoadImagesPassesChangedNodeRangeToRecompute)
+{
+    LoadMarkdown("# heading\n\ntext\n\n![alt](foo.png)\n");
+    image_loader_.InsertCacheEntry(L"C:\\dir\\foo.png", 400.0f, 300.0f);
+    const size_t img_idx = doc_.GetImageNodeIndices()[0];
+
+    rm_.LoadImages();
+
+    EXPECT_EQ(tracker_.recompute_layout, 1);
+    EXPECT_EQ(tracker_.last_change.first, img_idx);
+    EXPECT_EQ(tracker_.last_change.last, img_idx);
 }
 
 TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadKeepsHeightWhenWithinContentWidth)
@@ -503,6 +525,22 @@ TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeFiresOnQuantizedWidth
     EXPECT_GT(mock_mermaid_.clear_cache_count, initial_clear);
 }
 
+// 保持範囲を越えて移動したら、旧位置で積んだ描画待ちを捨ててから要求し直す。
+TEST_F(ResourceManagerTest, RequestMermaidRendersDropsQueueAfterLargeJump)
+{
+    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n", /*block_height=*/100000.0f);
+    rm_.RequestMermaidRenders();
+    EXPECT_EQ(mock_mermaid_.drop_queued_count, 0);
+
+    viewport_.SetScrollY(100.0f);
+    rm_.RequestMermaidRenders();
+    EXPECT_EQ(mock_mermaid_.drop_queued_count, 0) << "小さな移動では捨てない";
+
+    viewport_.SetScrollY(tracker_.viewport_height * 20.0f);
+    rm_.RequestMermaidRenders();
+    EXPECT_EQ(mock_mermaid_.drop_queued_count, 1);
+}
+
 TEST_F(ResourceManagerTest, CancelMermaidBatchInvokesRendererCancelAndKillsTimer)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
@@ -577,6 +615,30 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesOutOfRangeTextLayouts)
     for (size_t i = 0; i < cache_.size(); i++) {
         EXPECT_FALSE(cache_[i].layout_dirty) << "node " << i;
     }
+}
+
+TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesDiagramPngButKeepsSize)
+{
+    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n",
+                 /*block_height=*/10000.0f);
+    const auto& indices = doc_.GetDiagramNodeIndices();
+    ASSERT_GE(indices.size(), 2u);
+    for (const size_t i : indices) {
+        auto& d = cache_.GetDiagram(i);
+        d.png = std::make_shared<const std::pmr::vector<uint8_t>>(4, uint8_t{ 1 });
+        d.width = 320.0f;
+        d.height = 240.0f;
+    }
+
+    viewport_.SetScrollY(0.0f);
+    rm_.EvictOffscreenBitmaps();
+
+    const auto& near_diagram = cache_.GetDiagram(indices[0]);
+    const auto& far_diagram = cache_.GetDiagram(indices[1]);
+    EXPECT_NE(near_diagram.png, nullptr);
+    EXPECT_EQ(far_diagram.png, nullptr);
+    EXPECT_FLOAT_EQ(far_diagram.width, 320.0f);
+    EXPECT_FLOAT_EQ(far_diagram.height, 240.0f);
 }
 
 TEST_F(ResourceManagerTest, ScheduleBitmapManageSetsTimer)

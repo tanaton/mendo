@@ -40,6 +40,8 @@ public:
 
     void LoadMarkdownFile(std::wstring_view path);
     void LoadHelpDocument();
+    // 表示文書を差し替え、旧文書の破棄を worker に回す。
+    void ReplaceDocument(Document next);
     void ShowDirectory(std::wstring_view dir_path);
 
     // 起動時にウィンドウ生成と並列で I/O + パースを開始する。Init 末尾の
@@ -89,6 +91,7 @@ public:
     void HandleTimer(UINT_PTR timer_id);
     void OnAppImageLoaded();
     void OnParseComplete();
+    void OnMermaidDiskLoaded();
     void OnCaptureChanged();
     void OnDestroy();
 
@@ -231,7 +234,9 @@ private:
     void ReloadCurrentFile();
     void DoReloadCurrentFile();
     void DoLoadMarkdownFile();
-    void BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation = false);
+    // reload_base は同一ファイルのリロード時の現在テキスト (worker でパース前に差分判定させる)。
+    void BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation = false,
+                        std::shared_ptr<const std::pmr::string> reload_base = nullptr);
     void FinishLoadMarkdownFile(bool heights_estimated = false);
     void HandleLoadFailureFallback();
     bool ApplyMermaidCacheHeights(float md_width);
@@ -240,7 +245,8 @@ private:
     void ApplyCachedHeightsAndRecompute(float md_width);
     void UpdateTitleBar();
 
-    void FinishReload(size_t diff_pos);
+    // cache_ready: layout_cache が新文書向けに推定済み (worker 推定を move 済み) なら true。
+    void FinishReload(size_t diff_pos, bool cache_ready = false);
 
     // pending_reload_retry を確定し、NoChange / DeferPrefixShrink を early-return で処理する。
     // 呼び出し側は戻り値で「処理済み (Handled) → 呼び出し元 return」「続行 (ContinueWithReload) →

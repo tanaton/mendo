@@ -113,7 +113,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         const auto& entry = state_.document.layout_cache[hover];
         const auto& theme = renderer_.GetTheme();
         const float pad = IsScrollableCodeBlock(node) ? theme.code_block_padding : 0.0f;
-        const float bar_y_local = BlockHScrollbarBarY(entry.text_top, entry.height, pad);
+        const float bar_y_local = BlockHScrollbarBarY(state_.document.layout_cache.Top(static_cast<size_t>(hover)), entry.height, pad);
         // 描画 transform は Translation(md_x, -scroll_y) で md_rect.y は加算しない規約。
         const float bar_y_screen = bar_y_local - state_.view.viewport.GetScrollY();
         const float block_x_screen = pane_layout.md_rect.x + theme.margin_left + mendo::layout::NodeIndent(node, theme);

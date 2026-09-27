@@ -203,6 +203,9 @@ public:
             [this](const effect::MermaidInitRetry&) {
                 cb_.mermaid_init_retry();
             },
+            [this](const effect::MermaidIdle&) {
+                cb_.mermaid_idle();
+            },
         }, e);
         // clang-format on
     }

@@ -32,10 +32,11 @@ DirtyBatchResult DirtyScheduler::RunSerial(
         : 0;
     for (size_t i = plan_begin; i < node_count; i++) {
         auto& entry = cache[i];
-        if (has_viewport_limit && entry.text_top > limit_bottom) {
+        const float entry_top = cache.Top(i);
+        if (has_viewport_limit && entry_top > limit_bottom) {
             break;
         }
-        if (!ViewportClip::ShouldMeasure(entry, has_viewport_limit, limit_top, limit_bottom)) {
+        if (!ViewportClip::ShouldMeasure(entry, entry_top, has_viewport_limit, limit_top, limit_bottom)) {
             continue;
         }
 
@@ -55,7 +56,7 @@ DirtyBatchResult DirtyScheduler::RunSerial(
         const MeasureViewportRange vp = has_viewport_limit
             ? MeasureViewportRange{ limit_top, limit_bottom }
             : MeasureViewportRange{};
-        MeasureEntry(backend, nodes[i], entry, content_width - indent, nullptr, vp);
+        MeasureEntry(backend, nodes[i], entry, content_width - indent, nullptr, vp, entry_top);
         result.last_processed = i;
         ++result.processed;
 

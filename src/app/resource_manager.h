@@ -14,10 +14,12 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <concepts>
 #include <filesystem>
 #include <iterator>
 #include <unordered_map>
 #include <string>
+#include <utility>
 #include <windows.h>
 
 // ResourceManager が依存するサービス群を 1 つにまとめる DI コンテナ。
@@ -134,6 +136,7 @@ public:
                 (*deps_.cache)[i].height =
                     mendo::layout::ImageDisplayHeight(diagram.width, diagram.height, content_width - indent);
                 (*deps_.cache)[i].layout_dirty = false;
+                height_changed_.Add(i);
                 ++applied;
             }
             else if (respect_viewport) {
@@ -153,7 +156,7 @@ public:
     void LoadImages()
     {
         if (ApplyCachedImages() > 0) {
-            cb_.recompute_layout();
+            cb_.recompute_layout(TakeHeightChanges());
             cb_.invalidate();
         }
     }
@@ -167,7 +170,7 @@ public:
     {
         pending_flush_ = true;
         if (ApplyCachedImages() > 0) {
-            cb_.recompute_layout_anchored();
+            cb_.recompute_layout_anchored(TakeHeightChanges());
         }
     }
 
@@ -180,6 +183,7 @@ public:
             return 0;
         }
 
+        DropMermaidQueueIfJumped();
         const auto slice = BufferedSlice(deps_.doc->GetDiagramNodeIndices(), PREFETCH_BUFFER_SCREENS);
 
         // 同期キャッシュヒットの度に OnMermaidRenderComplete が recompute_layout_anchored を
@@ -198,8 +202,9 @@ public:
                 continue;
             }
 
-            deps_.mermaid->RequestRender(node, (*deps_.cache)[i], diagram, content_width, deps_.theme_service->IsDarkMode(), [this] { OnMermaidRenderComplete(); });
+            deps_.mermaid->RequestRender(node, (*deps_.cache)[i], diagram, content_width, deps_.theme_service->IsDarkMode(), [this, i] { OnMermaidRenderComplete(i); });
             if (diagram.bitmap) {
+                height_changed_.Add(i);
                 ++applied;
             }
         }
@@ -208,24 +213,39 @@ public:
 
         if (!outer_batch && applied > 0) {
             pending_flush_ = true;
-            cb_.recompute_layout_anchored();
+            cb_.recompute_layout_anchored(TakeHeightChanges());
         }
         return applied;
     }
 
-    void OnMermaidRenderComplete()
+    // f の中で完了した図の再レイアウトを 1 回にまとめる (ディスクキャッシュの一括完了など)。
+    template <std::invocable F>
+    void BatchMermaidCompletions(F&& f)
     {
+        const bool outer_batch = std::exchange(mermaid_batch_loading_, true);
+        std::forward<F>(f)();
+        mermaid_batch_loading_ = outer_batch;
+        if (!outer_batch && !height_changed_.empty()) {
+            pending_flush_ = true;
+            cb_.recompute_layout_anchored(TakeHeightChanges());
+        }
+    }
+
+    void OnMermaidRenderComplete(size_t node_index)
+    {
+        height_changed_.Add(node_index);
         if (mermaid_batch_loading_) {
             return;
         }
         pending_flush_ = true;
-        cb_.recompute_layout_anchored();
+        cb_.recompute_layout_anchored(TakeHeightChanges());
     }
 
     void CancelMermaidBatch()
     {
         deps_.mermaid->CancelPending();
         cb_.kill_timer(app_timer::Id::MERMAID_BATCH);
+        height_changed_ = {};
     }
 
     void ScheduleMermaidBatch()
@@ -248,6 +268,7 @@ public:
             return;
         }
 
+        DropMermaidQueueIfJumped();
         const bool dark_mode = deps_.theme_service->IsDarkMode();
         const auto& indices = deps_.doc->GetDiagramNodeIndices();
         bool any_loaded = false;
@@ -272,8 +293,9 @@ public:
             auto& diagram = deps_.cache->GetDiagram(i);
 
             if (diagram.NeedsRender()) {
-                deps_.mermaid->RequestRender(node, (*deps_.cache)[i], diagram, content_width, dark_mode, [this] { OnMermaidRenderComplete(); });
+                deps_.mermaid->RequestRender(node, (*deps_.cache)[i], diagram, content_width, dark_mode, [this, i] { OnMermaidRenderComplete(i); });
                 if (diagram.bitmap) {
+                    height_changed_.Add(i);
                     any_loaded = true;
                 }
             }
@@ -288,7 +310,7 @@ public:
         mermaid_batch_loading_ = false;
 
         if (any_loaded) {
-            cb_.recompute_layout_anchored();
+            cb_.recompute_layout_anchored(TakeHeightChanges());
         }
 
         if (mermaid_batch_next_ >= slice_end) {
@@ -325,8 +347,7 @@ public:
         const auto evict_outside_keep = [&](const std::pmr::vector<size_t>& indices) {
             const auto keep = VisibleSlice(indices, vr.first, vr.last_plus_1);
             const auto reset_bitmap = [&](size_t i) {
-                // ComPtr::Reset() は null でも安全な no-op。
-                deps_.cache->GetDiagram(i).bitmap.Reset();
+                deps_.cache->GetDiagram(i).EvictBitmap();
             };
             for (auto it = indices.begin(); it != keep.begin; ++it) {
                 reset_bitmap(*it);
@@ -363,7 +384,7 @@ public:
         mermaid_batch_loading_ = false;
 
         if (changed) {
-            cb_.recompute_layout();
+            cb_.recompute_layout(TakeHeightChanges());
         }
     }
 
@@ -399,6 +420,23 @@ public:
     }
 
 private:
+    // 保持範囲 (±EVICT_BUFFER_SCREENS) を越えて移動していたら、旧位置で積んだ描画待ちを捨てる。
+    // FIFO のままだと TOC ジャンプや Ctrl+End の後に可視の図が旧位置の図の後回しになる。
+    void DropMermaidQueueIfJumped()
+    {
+        const float scroll_y = deps_.viewport->GetScrollY();
+        const float viewport_height = cb_.get_viewport_height();
+        if (viewport_height > 0.0f && std::abs(scroll_y - last_mermaid_request_scroll_) > viewport_height * EVICT_BUFFER_SCREENS) {
+            deps_.mermaid->DropQueued();
+        }
+        last_mermaid_request_scroll_ = scroll_y;
+    }
+
+    mendo::layout::HeightChangeRange TakeHeightChanges() noexcept
+    {
+        return std::exchange(height_changed_, {});
+    }
+
     // indices のうち、可視範囲 ± viewport_height * screens に交差する部分。
     // viewport_height <= 0 (初期化中等) は範囲が決まらないため全件を返す。
     resource_manager_detail::IndexSlice BufferedSlice(const std::pmr::vector<size_t>& indices, float screens)
@@ -447,9 +485,12 @@ private:
     Cb cb_{};
 
     float last_mermaid_content_width_ = 0.0f;
+    float last_mermaid_request_scroll_ = 0.0f;
     bool mermaid_batch_loading_ = false;
     size_t mermaid_batch_next_ = 0;
     std::unordered_map<size_t, std::wstring> resolved_image_paths_;
     bool pending_flush_ = false;
     std::chrono::steady_clock::time_point last_flush_time_{};
+    // 画像/図の適用で高さを更新したノード範囲。Y 再計算をこの範囲に限定する。
+    mendo::layout::HeightChangeRange height_changed_ = {};
 };

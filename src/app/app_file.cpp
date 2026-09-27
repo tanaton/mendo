@@ -30,13 +30,13 @@ void App::LoadHelpDocument()
     file_load_service_.CancelAsyncLoad();
     EmitEffect(effect::StopFileWatch{});
     ResetViewForNewDocument();
-    // SearchState の lowercase キャッシュが旧 nodes ポインタを保持したまま誤再利用されるのを防ぐ。
+    // 旧文書のマッチ位置が新 nodes に対して誤用されるのを防ぐ。
     state_.search.search_bar_ctrl.Reset();
     EmitEffect(effect::SearchUnfocus{ /*clear_text=*/true });
     state_.active_toc_index = -1;
 
     std::pmr::string utf8(reinterpret_cast<const char*>(rc.data()), rc.size());
-    state_.document.doc = Document::FromMarkdown(std::move(utf8), HELP_PATH);
+    ReplaceDocument(Document::FromMarkdown(std::move(utf8), HELP_PATH));
     state_.document.layout_cache.Reset(state_.document.doc.GetNodes().size());
 
     state_.file_explorer.SetCurrentFile(L"");
@@ -56,7 +56,19 @@ void App::LoadHelpDocument()
     UpdateTitleBar();
 }
 
-void App::BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation)
+void App::ReplaceDocument(Document next)
+{
+    // 100MB 級の旧文書は数十万ノードの解放で UI を数十 ms 止めるため worker で破棄する。
+    // Document は COM を持たず、確保元 (既定の pmr リソース) はスレッド安全。
+    // LayoutCache は D2D 由来の参照を持つので対象外 (UI スレッドで破棄する)。
+    constexpr size_t kBackgroundDisposeMinNodes = 4096;
+    Document old = std::exchange(state_.document.doc, std::move(next));
+    if (old.GetNodes().size() >= kBackgroundDisposeMinNodes) {
+        scheduler_.Post([doc = std::move(old)] {});
+    }
+}
+
+void App::BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation, std::shared_ptr<const std::pmr::string> reload_base)
 {
     // ライブリロード時はアニメーションを表示しない。
     // 大きいファイルを編集中の差分リロードでスピナーが点滅すると視認性が下がるため、
@@ -73,7 +85,7 @@ void App::BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation)
         MENDO_PROFILE("App::BeginAsyncLoad without animation");
         file_load_service_.SetLoadingPath(std::move(path));
     }
-    file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE, renderer_.GetTheme());
+    file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE, renderer_.GetTheme(), std::move(reload_base));
 }
 
 // DeferPrefixShrink はエディタの truncate→rewrite 2段階保存の前半。
@@ -208,38 +220,51 @@ void App::OnParseComplete()
     // 差分ベースのスキップ／スクロール復元は同一パスのリロード時のみ有効。
     // 非同期のファイルオープンでも OnParseComplete() が使われるため、
     // 別ファイル読み込み時は差分ロジックをスキップする。
-    if (path_util::iequal(result->doc.GetFilePath(), state_.document.doc.GetFilePath())) {
+    std::optional<ReloadDecision> decision;
+    if (result->reload) {
+        // リロード: worker がパース前に差分判定を済ませている (NoChange 等は doc が空)。
+        const auto& rc = *result->reload;
+        if (rc.base.lock() != state_.document.doc.GetRawText().Share() || !path_util::iequal(rc.path, state_.document.doc.GetFilePath())) {
+            // 判定後に表示文書が差し替わった。前提が崩れているので取り直す。
+            DeferReloadRetry();
+            return;
+        }
+        if (DeferIfPartialWrite(rc.path, rc.loaded_byte_size)) {
+            return;
+        }
+        decision = rc.decision;
+    }
+    else if (path_util::iequal(result->doc.GetFilePath(), state_.document.doc.GetFilePath())) {
         if (DeferIfPartialWrite(result->doc.GetFilePath(), result->doc.GetLoadedByteSize())) {
             return;
         }
-
-        const std::string_view old_view(state_.document.doc.GetRawText());
-        const std::string_view new_view(result->doc.GetRawText());
-        const auto decision = AnalyzeReloadDiff(old_view, new_view);
-
-        MENDO_TRACEF("OnParseComplete: reload node_count={} diff_pos={} old_size={} new_size={} op={}",
-                     result->doc.GetNodes().size(), decision.diff_pos, old_view.size(), new_view.size(),
-                     std::to_underlying(decision.op));
-
-        if (ApplyReloadDecisionEarly(decision) == ReloadFlow::Handled) {
-            return;
-        }
-        if (decision.op == ReloadOp::PrefixGrowth) {
-            resource_manager_.CancelMermaidBatch();
-            image_loader_.ResetFailedPaths();
-            state_.active_toc_index = -1;
-            state_.document.doc = std::move(result->doc);
-            FinishReload(decision.diff_pos);
-            return;
-        }
-        state_.reload_diff_pos = decision.diff_pos;
-    }
-    else {
-        state_.reload_diff_pos = std::string_view::npos;
+        decision = AnalyzeReloadDiff(std::string_view(state_.document.doc.GetRawText()), std::string_view(result->doc.GetRawText()));
     }
 
     const bool heights_estimated = result->heights_estimated;
-    state_.document.doc = std::move(result->doc);
+    if (decision) {
+        MENDO_TRACEF("OnParseComplete: reload worker_diff={} node_count={} diff_pos={} new_size={} op={}",
+                     result->reload.has_value(), result->doc.GetNodes().size(), decision->diff_pos,
+                     result->doc.GetRawText().size(), std::to_underlying(decision->op));
+
+        if (ApplyReloadDecisionEarly(*decision) == ReloadFlow::Handled) {
+            return;
+        }
+        if (decision->op == ReloadOp::PrefixGrowth) {
+            resource_manager_.CancelMermaidBatch();
+            image_loader_.ResetFailedPaths();
+            state_.active_toc_index = -1;
+            ReplaceDocument(std::move(result->doc));
+            if (heights_estimated) {
+                state_.document.layout_cache = std::move(result->cache);
+            }
+            FinishReload(decision->diff_pos, heights_estimated);
+            return;
+        }
+    }
+
+    state_.reload_diff_pos = decision ? decision->diff_pos : std::string_view::npos;
+    ReplaceDocument(std::move(result->doc));
     state_.document.layout_cache = std::move(result->cache);
 
     FinishLoadMarkdownFile(heights_estimated);
@@ -340,7 +365,7 @@ void App::ReloadCurrentFile()
 
     if (DocumentService::IsAsyncLoadCandidate(path)) {
         MENDO_TRACE("ReloadCurrentFile: async path");
-        BeginAsyncLoad(path, /* suppress_animation = */ true);
+        BeginAsyncLoad(path, /* suppress_animation = */ true, state_.document.doc.GetRawText().Share());
     }
     else {
         MENDO_TRACE("ReloadCurrentFile: sync path (DoReloadCurrentFile)");
@@ -398,7 +423,7 @@ void App::DoReloadCurrentFile()
 
 // DoReloadCurrentFile / OnParseComplete 共通のリロード後処理。
 // ドキュメントは更新済みの状態で呼ばれる。
-void App::FinishReload(size_t diff_pos)
+void App::FinishReload(size_t diff_pos, bool cache_ready)
 {
     MENDO_PROFILE("FinishReload");
 
@@ -407,8 +432,10 @@ void App::FinishReload(size_t diff_pos)
     state_.view.viewport.ClearSelection();
     state_.view.ResetPerNodeTransientState();
 
-    state_.document.layout_cache.Reset(state_.document.doc.GetNodes().size(), false);
-    EstimateNodeHeights(state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme());
+    if (!cache_ready) {
+        state_.document.layout_cache.Reset(state_.document.doc.GetNodes().size(), false);
+        EstimateNodeHeights(state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme());
+    }
 
     renderer_.InvalidateSidePaneCache(PaneTarget::Toc);
 
@@ -445,13 +472,8 @@ void App::FinishReload(size_t diff_pos)
                  state_.view.viewport.GetScrollY(),
                  state_.view.viewport.GetMaxScroll());
 
-    if (state_.search.search_state.IsVisible()) {
-        // PMR プール再利用で (nodes.data(), size) が一致すると古いキャッシュを
-        // 誤用するため、クエリ有無に関わらず明示破棄する。
-        state_.search.search_state.InvalidateLowercaseCache();
-        if (!state_.search.search_state.GetQuery().empty()) {
-            state_.search.search_bar_ctrl.RunSearchAndLocate(state_.document.doc.GetNodes());
-        }
+    if (state_.search.search_state.IsVisible() && !state_.search.search_state.GetQuery().empty()) {
+        state_.search.search_bar_ctrl.RunSearchAndLocate(state_.document.doc.GetNodes());
     }
 
     EmitEffect(effect::SyncTocActive{});

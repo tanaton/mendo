@@ -613,7 +613,7 @@ TEST_F(CmdGenTest, UnorderedListBulletCenteredOnFirstLine)
 
     // text_layout が null のフォールバック: first_line_h = font_size_body * 1.3
     // bullet 中心は物理ピクセル境界へスナップされるため、期待値も同じ規則でスナップする。
-    float expected_y = SnapToPhysicalPixel(cache[0].text_top + theme_.font_size_body * 1.3f * 0.5f, 1.0f);
+    float expected_y = SnapToPhysicalPixel(cache.Top(0) + theme_.font_size_body * 1.3f * 0.5f, 1.0f);
 
     for (const auto& cmd : cmds) {
         if (auto* e = std::get_if<FillEllipseCmd>(&cmd)) {
@@ -634,8 +634,8 @@ TEST_F(CmdGenTest, NestedListBulletCenteredOnFirstLine)
     auto cmds = gen_.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
 
     // bullet 中心は物理ピクセル境界へスナップされるため、期待値も同じ規則でスナップする。
-    float expected_y0 = SnapToPhysicalPixel(cache[0].text_top + theme_.font_size_body * 1.3f * 0.5f, 1.0f);
-    float expected_y1 = SnapToPhysicalPixel(cache[1].text_top + theme_.font_size_body * 1.3f * 0.5f, 1.0f);
+    float expected_y0 = SnapToPhysicalPixel(cache.Top(0) + theme_.font_size_body * 1.3f * 0.5f, 1.0f);
+    float expected_y1 = SnapToPhysicalPixel(cache.Top(1) + theme_.font_size_body * 1.3f * 0.5f, 1.0f);
 
     int idx = 0;
     for (const auto& cmd : cmds) {

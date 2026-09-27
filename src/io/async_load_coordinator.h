@@ -5,6 +5,7 @@
 #include "worker_latch.h"
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <memory_resource>
 #include <mutex>
 #include <optional>
@@ -32,7 +33,10 @@ public:
 
     // path は worker capture コピーで安全に持ち回す。theme も値コピー: UI スレッドの SetTheme が
     // std::wstring メンバを非アトミックに書き換えるため、参照キャプチャだと EstimateNodeHeights と race。
-    void Start(TaskScheduler& scheduler, std::pmr::wstring path, HWND hwnd, UINT msg_id, const Theme& theme);
+    // reload_base を渡すと同一ファイルのリロードとして扱い、パース前に旧テキストとの差分判定を行う。
+    // 変更なし / 書き込み途中 (prefix shrink) ならパースを省いて判定結果だけ返す。
+    void Start(TaskScheduler& scheduler, std::pmr::wstring path, HWND hwnd, UINT msg_id, const Theme& theme,
+               std::shared_ptr<const std::pmr::string> reload_base = nullptr);
 
     // ロード結果の取り出し。fired から TakeResult までの間に Cancel が走った場合 sink は破棄済み。
     std::optional<AsyncLoadResult> TakeResult();

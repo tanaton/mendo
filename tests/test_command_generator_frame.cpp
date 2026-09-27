@@ -46,7 +46,7 @@ TEST_F(CmdGenFrameTest, TransformTranslatesByPaneOriginOnly)
     // スクロール量は HR の Y 座標に CPU 側で直接合算される。
     const auto* line = FindFirst<DrawLineCmd>(cmds);
     ASSERT_NE(line, nullptr);
-    const float expected_y = cache_[0].text_top - scroll_y + theme_.paragraph_spacing * 0.5f;
+    const float expected_y = cache_.Top(0) - scroll_y + theme_.paragraph_spacing * 0.5f;
     EXPECT_FLOAT_EQ(line->p0.y, expected_y);
 }
 
@@ -67,7 +67,7 @@ TEST_F(CmdGenFrameTest, ScrollSnapsToPixelWithDpi)
     const auto* line = FindFirst<DrawLineCmd>(cmds);
     ASSERT_NE(line, nullptr);
     const float snapped_scroll = 0.5f; // round(0.3 * 2) / 2
-    const float expected_y = cache_[0].text_top - snapped_scroll + theme_.paragraph_spacing * 0.5f;
+    const float expected_y = cache_.Top(0) - snapped_scroll + theme_.paragraph_spacing * 0.5f;
     EXPECT_FLOAT_EQ(line->p0.y, expected_y);
 }
 

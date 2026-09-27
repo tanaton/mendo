@@ -23,6 +23,16 @@ inline void CreateSolidColorBrushOrFallback(
     }
 }
 
+// PBGRA 前提の GPU メモリ見積もり。キャッシュのバイト予算に使う。
+inline size_t BitmapBytes(ID2D1Bitmap* bitmap) noexcept
+{
+    if (!bitmap) {
+        return 0;
+    }
+    const auto size = bitmap->GetPixelSize();
+    return static_cast<size_t>(size.width) * size.height * 4;
+}
+
 inline D2D1_COLOR_F MonochromeOverlay(bool is_dark, float alpha) noexcept
 {
     return is_dark ? D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha)

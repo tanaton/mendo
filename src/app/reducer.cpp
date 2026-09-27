@@ -10,7 +10,7 @@ ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
 {
     const auto& cache = state.document.layout_cache;
     const int node = state.view.viewport.FindFirstVisibleNode(cache, cache.size());
-    const float y_before = (node >= 0) ? cache[node].text_top : 0.0f;
+    const float y_before = (node >= 0) ? cache.Top(static_cast<size_t>(node)) : 0.0f;
     return { node, state.view.viewport.GetScrollY() - y_before };
 }
 
@@ -213,7 +213,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const CloseSearchBarAction&) { state.search.search_bar_ctrl.OnClose(); },
         [&](const SearchNextAction&) { ReduceSearchStep(state, true); },
         [&](const SearchPrevAction&) { ReduceSearchStep(state, false); },
-        [&](const SearchTextChangedAction& a) { state.search.search_bar_ctrl.OnTextChanged(a.text, state.document.doc.GetNodes()); },
+        [&](const SearchTextChangedAction& a) { state.search.search_bar_ctrl.OnTextChanged(a.text, state.document.doc.GetNodes(), state.document.doc.GetRawText().size()); },
         [&](const ToggleCaseSensitiveAction&) { state.search.search_bar_ctrl.OnToggleCaseSensitive(state.document.doc.GetNodes()); },
         [&](const ToggleHighlightAction&) { state.search.search_bar_ctrl.OnToggleHighlight(); },
         [&](const SearchSelectionAction& a) { state.search.search_bar_ctrl.SetSelection(a.sel_start, a.sel_end); },

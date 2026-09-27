@@ -26,7 +26,10 @@ void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextL
     MENDO_COUNT_INC(g_cmd_gen_stats.hittest_range);
     const UINT32 count = FetchHitTestMetrics(layout, start, length, buf);
     for (UINT32 i = 0; i < count; i++) {
-        cmds.emplace_back(FillRectCmd{ RectFromHitTest(buf[i], origin_x, origin_y), SELECTION_COLOR, BrushId::Selection });
+        const auto r = RectFromHitTest(buf[i], origin_x, origin_y);
+        if (OverlapsY(r, cull_top_, cull_bottom_)) {
+            cmds.emplace_back(FillRectCmd{ r, SELECTION_COLOR, BrushId::Selection });
+        }
     }
 }
 
@@ -65,8 +68,11 @@ void CommandGenerator::GenSelectionHighlightCached(DrawCommandList& cmds, const 
     else {
         MENDO_COUNT_INC(g_cmd_gen_stats.sel_hl_cache_hit);
     }
-    for (const auto& r : cache.rects) {
-        cmds.emplace_back(FillRectCmd{ OffsetRectF(r, origin_x, origin_y), SELECTION_COLOR, BrushId::Selection });
+    for (const auto& local : cache.rects) {
+        const auto r = OffsetRectF(local, origin_x, origin_y);
+        if (OverlapsY(r, cull_top_, cull_bottom_)) {
+            cmds.emplace_back(FillRectCmd{ r, SELECTION_COLOR, BrushId::Selection });
+        }
     }
 }
 
@@ -166,7 +172,10 @@ void CommandGenerator::EmitSearchHlCommands(
         const D2D1_COLOR_F color = is_current ? theme_->search_highlight_current_color : theme_->search_highlight_color;
         const BrushId hl_brush = is_current ? BrushId::SearchHighlightCurrent : BrushId::SearchHighlight;
         for (uint32_t k = rb; k < re; ++k) {
-            cmds.emplace_back(FillRectCmd{ OffsetRectF(cache.rects[k], origin_x, origin_y), color, hl_brush });
+            const auto r = OffsetRectF(cache.rects[k], origin_x, origin_y);
+            if (OverlapsY(r, cull_top_, cull_bottom_)) {
+                cmds.emplace_back(FillRectCmd{ r, color, hl_brush });
+            }
         }
     }
 }

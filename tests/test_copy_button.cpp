@@ -41,14 +41,13 @@ protected:
     std::pair<int, int> CopyBtnCenter(const ParsedLayout& pr, int node_index, float viewport_w = 800.0f)
     {
         const auto& node = pr.nodes[node_index];
-        const auto& entry = pr.cache[node_index];
         float indent = node.indent_level * theme_.indent_width;
         float content_width = viewport_w - theme_.margin_left - theme_.margin_right;
         float x = theme_.margin_left + indent;
         float w = content_width - indent;
         float pad = theme_.code_block_padding;
         float block_right = x + w;
-        float block_top = entry.text_top - pad;
+        float block_top = pr.cache.Top(node_index) - pad;
         D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
         float cx = (btn.left + btn.right) * 0.5f;
         float cy = (btn.top + btn.bottom) * 0.5f;
@@ -218,18 +217,17 @@ TEST_F(CopyButtonTest, ScrolledViewportHitTest)
 
     float content_width = 800.0f - theme_.margin_left - theme_.margin_right;
     // コードブロックが見えるようにスクロール
-    float scroll_y = pr.cache[code_idx].text_top - 50.0f;
+    float scroll_y = pr.cache.Top(code_idx) - 50.0f;
     if (scroll_y < 0)
         scroll_y = 0;
 
     // コピーボタンの座標を計算（スクロール後のスクリーン座標）
     const auto& node = pr.nodes[code_idx];
-    const auto& entry = pr.cache[code_idx];
     float indent = node.indent_level * theme_.indent_width;
     float cw = content_width - indent;
     float x = theme_.margin_left + indent;
     float pad = theme_.code_block_padding;
-    D2D1_RECT_F btn = OverlayButtonRect(x + cw, entry.text_top - pad);
+    D2D1_RECT_F btn = OverlayButtonRect(x + cw, pr.cache.Top(code_idx) - pad);
     // screen_y = dip_y - scroll_y (dpi=1)
     int sx = static_cast<int>((btn.left + btn.right) * 0.5f);
     int sy = static_cast<int>((btn.top + btn.bottom) * 0.5f - scroll_y);

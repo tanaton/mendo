@@ -20,21 +20,28 @@ std::pmr::string ExtractSelectedText(const std::pmr::vector<Node>& nodes, const 
         return {};
     }
 
+    // 全選択 (100MB 級) で倍々成長の再確保と旧新バッファの同時保持が起きないよう、
+    // 先に正確な長さを数えて 1 回で確保する。
+    const auto for_each_piece = [&](auto&& sink) {
+        for (int i = selection.start_node; i <= selection.end_node; i++) {
+            if (i < 0 || i >= static_cast<int>(nodes.size())) {
+                continue;
+            }
+            const std::string_view text = nodes[i].LinearizedText();
+            const auto [start, end] = selection.ClampedRange(i, text.size());
+            if (start < end) {
+                sink(text.substr(start, end - start));
+            }
+            if (i < selection.end_node) {
+                sink(std::string_view{ "\r\n" });
+            }
+        }
+    };
+    size_t total = 0;
+    for_each_piece([&total](std::string_view s) { total += s.size(); });
     std::pmr::string result;
-    for (int i = selection.start_node; i <= selection.end_node; i++) {
-        if (i < 0 || i >= static_cast<int>(nodes.size())) {
-            continue;
-        }
-        const std::string_view text = nodes[i].LinearizedText();
-
-        const auto [start, end] = selection.ClampedRange(i, text.size());
-        if (start < end) {
-            result.append(text.data() + start, end - start);
-        }
-        if (i < selection.end_node) {
-            result += "\r\n";
-        }
-    }
+    result.reserve(total);
+    for_each_piece([&result](std::string_view s) { result.append(s); });
     return result;
 }
 
@@ -45,30 +52,39 @@ constexpr uint32_t ClampEndToText(uint32_t end, size_t text_size) noexcept
     return end > text_size ? static_cast<uint32_t>(text_size) : end;
 }
 
+constexpr std::string_view HtmlEscapeOf(char c) noexcept
+{
+    switch (c) {
+    case '&':
+        return "&amp;";
+    case '<':
+        return "&lt;";
+    case '>':
+        return "&gt;";
+    case '"':
+        return "&quot;";
+    case '\'':
+        return "&#39;";
+    default:
+        return {};
+    }
+}
+
+// 1 byte ずつ push_back すると巨大選択で容量チェックと NUL 書き込みが毎回走るため、
+// エスケープ不要な区間をまとめて append する。
 constexpr void AppendHtmlEscaped(std::pmr::string& out, std::string_view text)
 {
-    for (const char c : text) {
-        switch (c) {
-        case '&':
-            out.append("&amp;");
-            break;
-        case '<':
-            out.append("&lt;");
-            break;
-        case '>':
-            out.append("&gt;");
-            break;
-        case '"':
-            out.append("&quot;");
-            break;
-        case '\'':
-            out.append("&#39;");
-            break;
-        default:
-            out.push_back(c);
-            break;
+    size_t run_begin = 0;
+    for (size_t i = 0; i < text.size(); ++i) {
+        const auto escaped = HtmlEscapeOf(text[i]);
+        if (escaped.empty()) {
+            continue;
         }
+        out.append(text.data() + run_begin, i - run_begin);
+        out.append(escaped);
+        run_begin = i + 1;
     }
+    out.append(text.data() + run_begin, text.size() - run_begin);
 }
 
 struct InlineState {
@@ -561,9 +577,9 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
             estimated += nodes[i].LinearizedText().size();
         }
     }
-    // シンタックスハイライトの span やテーブルの style 属性でタグのオーバーヘッドが増えるため、
-    // 平均的なドキュメントが一回の allocation で収まるよう多めに確保する。
-    out.reserve(estimated * 3 + 128);
+    // シンタックスハイライトの span やテーブルの style 属性でタグのオーバーヘッドが増える。
+    // 3 倍の予約は 100MB 選択で 300MB を確保するため 2 倍に留め、超過分は成長に任せる。
+    out.reserve(estimated * 2 + 128);
 
     const char* list_close_tag = nullptr;
     auto close_list = [&]() {

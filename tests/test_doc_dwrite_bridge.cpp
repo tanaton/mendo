@@ -244,3 +244,32 @@ TEST(WideViewCache, ResetIfBufferChangedClearsCacheForNewOwner)
     cache.ResetIfBufferChanged(&owner_b, 1); // 別 owner → Reset
     EXPECT_EQ(cache.Get(sv).wide(), L"Jello");
 }
+
+// ─────────────────────────────────────────────
+// Utf16OffsetCursor
+// ─────────────────────────────────────────────
+
+// 前方カーソルの結果は WideViewForDWrite の対応表と全 byte 位置で一致する (不正バイト含む)。
+TEST(Utf16OffsetCursor, MatchesWideViewForEveryOffset)
+{
+    std::string text = "ascii \xE3\x81\x82\xE3\x81\x84 \xF0\x9F\x98\x80 bad\xE3\x81 \xFF\x80 end";
+    for (int i = 0; i < 3; ++i) {
+        text += "0123456789abcdef0123456789";
+    }
+    text += "\xE6\x97\xA5";
+    const WideViewForDWrite wv{ text };
+    mendo::Utf16OffsetCursor cursor{ text };
+    for (uint32_t b = 0; b <= text.size(); ++b) {
+        EXPECT_EQ(cursor.WideAt(b), wv.WideOffsetFromDocOffset(b)) << "byte=" << b;
+    }
+}
+
+TEST(Utf16OffsetCursor, SkipsForwardWithoutVisitingEveryOffset)
+{
+    const std::string text = std::string(100, 'a') + "\xE3\x81\x82" + std::string(40, 'b');
+    const WideViewForDWrite wv{ text };
+    mendo::Utf16OffsetCursor cursor{ text };
+    EXPECT_EQ(cursor.WideAt(50), 50u);
+    EXPECT_EQ(cursor.WideAt(103), wv.WideOffsetFromDocOffset(103));
+    EXPECT_EQ(cursor.WideAt(static_cast<uint32_t>(text.size())), wv.WideOffsetFromDocOffset(static_cast<uint32_t>(text.size())));
+}

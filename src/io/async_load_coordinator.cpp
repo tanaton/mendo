@@ -1,6 +1,5 @@
 #include "async_load_coordinator.h"
 #include "document.h"
-#include "document_service.h"
 #include "layout.h"
 #include "layout_cache.h"
 #include "profiler.h"
@@ -23,7 +22,8 @@ void AsyncLoadCoordinator::ResetSinks() noexcept
     // stale_result / stale_error はここで lock 外で破棄される。
 }
 
-void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring path, HWND hwnd, UINT msg_id, const Theme& theme)
+void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring path, HWND hwnd, UINT msg_id, const Theme& theme,
+                                 std::shared_ptr<const std::pmr::string> reload_base)
 {
     // Cancel() と同じく gen を最初に進めて、旧 worker の try_publish を確実に弾く。
     const uint32_t gen = gen_.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -36,7 +36,7 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
     stop_source_ = std::stop_source{};
     auto stop_token = stop_source_.get_token();
 
-    const bool posted = scheduler.Post([this, path = std::move(path), hwnd, msg_id, gen, theme, stop_token = std::move(stop_token), guard = latch_.Acquire()] {
+    const bool posted = scheduler.Post([this, path = std::move(path), hwnd, msg_id, gen, theme, stop_token = std::move(stop_token), reload_base = std::move(reload_base), guard = latch_.Acquire()]() mutable {
         MENDO_PROFILE("AsyncLoadCoordinator::Start Posted Task");
         // sink 書き込みは Cancel との直列化のため lock 内で gen を再確認してから行う。
         // I/O / Parse / Estimate の前段の gen check は重い処理を skip するための short-circuit。
@@ -54,24 +54,44 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
             }
         };
 
-        if (gen_.load(std::memory_order_relaxed) != gen) {
+        if (gen_.load(std::memory_order_relaxed) != gen || stop_token.stop_requested()) {
             return;
         }
 
-        auto load_result = DocumentService::LoadFile(path, stop_token);
-        if (!load_result) {
-            if (load_result.error() == FileLoadError::Cancelled) {
+        auto file = FileLoader::LoadFile(path);
+        if (!file) {
+            try_publish([&] { error_ = file.error(); });
+            return;
+        }
+        if (stop_token.stop_requested()) {
+            return;
+        }
+
+        std::optional<ReloadCheck> reload;
+        if (reload_base) {
+            // 無変更の保存や truncate→rewrite の前半でも全文パース (100MB で ~0.6s) と
+            // 新旧 Document の二重保持が起きないよう、パース前に差分判定する。
+            NormalizeNewlines(file->text);
+            reload.emplace(ReloadCheck{ AnalyzeReloadDiff(*reload_base, file->text), reload_base, path, file->byte_size });
+            // 以降のパース中に UI が文書を差し替えても旧テキストを延命しない。
+            reload_base.reset();
+            const auto op = reload->decision.op;
+            if (op == ReloadOp::NoChange || op == ReloadOp::DeferPrefixShrink) {
+                try_publish([&] {
+                    result_.emplace(AsyncLoadResult{ .reload = std::move(reload) });
+                });
                 return;
             }
-            try_publish([&] { error_ = load_result.error(); });
-            return;
         }
 
-        if (gen_.load(std::memory_order_relaxed) != gen) {
+        Document doc;
+        {
+            MENDO_PROFILE("Document::FromMarkdown");
+            doc = Document::FromMarkdown(std::move(file->text), file->byte_size, path, stop_token);
+        }
+        if (stop_token.stop_requested() || gen_.load(std::memory_order_relaxed) != gen) {
             return;
         }
-
-        Document doc = std::move(*load_result);
 
         LayoutCache cache;
         cache.Reset(doc.GetNodes().size(), /* shrink = */ false);
@@ -82,7 +102,7 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
         }
 
         try_publish([&] {
-            result_.emplace(AsyncLoadResult{ std::move(doc), std::move(cache), /* heights_estimated = */ true });
+            result_.emplace(AsyncLoadResult{ std::move(doc), std::move(cache), /* heights_estimated = */ true, std::move(reload) });
         });
     });
 

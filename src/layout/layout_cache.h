@@ -37,6 +37,8 @@ struct TableLayoutData {
     std::pmr::vector<float> cell_heights;        // 各セルに最後に適用した幅での計測高さ
     std::pmr::vector<float> cell_applied_widths; // 各セルに最後に適用した max_width（変更判定用）
     std::pmr::vector<uint8_t> row_bgs_computed;  // 各行のインラインコード背景計算済みフラグ
+    std::pmr::vector<uint8_t> row_links_applied; // 各行のリンク色適用済みフラグ (セル再生成で落ちる)
+    std::pmr::vector<uint8_t> row_evicted;       // 行単位 evict でセル layout を捨てた行
     // ヒットテスト高速化用の累積オフセット。
     // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ。サイズは row_count+1。
     // col_cum_x[c] = base_x からの列 c の左端までの累積幅。サイズは col_count+1。
@@ -51,9 +53,48 @@ struct TableLayoutData {
     // 圧縮を行わなかった場合の自然な総幅。横スクロールのクランプ計算用に保持する。
     // cached_table_width と一致することもあるが、圧縮分岐を通った場合は乖離する。
     float natural_total_width = 0.0f;
-    // 立っている間は MeasureTable の超高速パスをバイパスし RestoreNullCellLayouts を走らせる。
-    // FinalizeTableLayout 完了でクリア。
-    bool cells_partially_evicted = false;
+    size_t evicted_row_count = 0;
+    // セル layout が生存しうる行範囲 [live_row_begin, live_row_end)。差分 evict の走査範囲で、
+    // evict 済み行を毎回なめ直さないためのもの。
+    size_t live_row_begin = 0;
+    size_t live_row_end = 0;
+
+    constexpr bool HasEvictedRows() const noexcept
+    {
+        return evicted_row_count > 0;
+    }
+    void ResetRowEviction(size_t row_count)
+    {
+        row_evicted.assign(row_count, 0);
+        evicted_row_count = 0;
+        live_row_begin = 0;
+        live_row_end = row_count;
+    }
+    constexpr void MarkRowEvicted(size_t r) noexcept
+    {
+        if (r < row_evicted.size() && !row_evicted[r]) {
+            row_evicted[r] = 1;
+            ++evicted_row_count;
+        }
+        if (r < row_links_applied.size()) {
+            row_links_applied[r] = 0;
+        }
+    }
+    constexpr void MarkRowRestored(size_t r) noexcept
+    {
+        if (r < row_evicted.size() && row_evicted[r]) {
+            row_evicted[r] = 0;
+            --evicted_row_count;
+        }
+        if (live_row_begin >= live_row_end) {
+            live_row_begin = r;
+            live_row_end = r + 1;
+        }
+        else {
+            live_row_begin = std::min(live_row_begin, r);
+            live_row_end = std::max(live_row_end, r + 1);
+        }
+    }
     // フラットインデックスへの変換
     constexpr size_t CellIndex(size_t row, size_t col) const noexcept
     {
@@ -111,9 +152,7 @@ constexpr T& EnsurePmrUnique(mendo::pmr_unique_ptr<T>& p)
 } // namespace mendo::layout::detail
 
 struct NodeLayoutEntry {
-    // ノード Y 位置の唯一の真実。WRITE 経路は RecomputeYPositions / ComputeLayout /
-    // EstimateNodeHeights のみ。MeasureNode は触らない (= 中間状態は古い値のまま)。
-    float text_top = 0.0f;
+    // ノード Y 位置 (text_top) は LayoutCache::Top(i) に分離して持つ (SoA)。
     float height = 0.0f;
     // GetLineMetrics(&lm, 1, &lc) の結果をキャッシュ。0 なら未確定 (フォールバック計算する)。
     // MeasureNode で text_layout 確定時に同時に求める。
@@ -209,7 +248,7 @@ struct DiagramEntry {
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
     float width = 0.0f;
     float height = 0.0f;
-    // クリップボードコピー用の元 PNG。bitmap と同時に設定/破棄されるため、
+    // クリップボードコピー用の元 PNG。bitmap と同時に設定/破棄されるため (EvictBitmap 含む)、
     // コピーボタンの表示条件 (bitmap 有無) とデータの有無が常に一致する。
     std::shared_ptr<const std::pmr::vector<uint8_t>> png;
     // レンダリング失敗時のエラーメッセージ (表示用整形済み)。非空 = 失敗確定で、
@@ -221,6 +260,13 @@ struct DiagramEntry {
     bool NeedsRender() const noexcept
     {
         return !bitmap && error.empty();
+    }
+
+    // オフスクリーン evict 用。寸法とエラーはレイアウト維持/再試行抑止のため残す。
+    void EvictBitmap() noexcept
+    {
+        bitmap.Reset();
+        png.reset();
     }
 
     // レンダ結果 (成功/失敗とも) を破棄し再試行可能に戻す。幅変更・テーマ変更用。
@@ -264,6 +310,29 @@ public:
     constexpr const NodeLayoutEntry& operator[](size_t i) const noexcept
     {
         return entries_[i];
+    }
+
+    // ノード Y 位置の唯一の真実。WRITE 経路は RecomputeYPositions / ComputeLayout /
+    // EstimateNodeHeights のみ。MeasureNode は触らない (= 中間状態は古い値のまま)。
+    // 高さ変化時の後続ノード一括シフトが 72B ストライドの AoS を全件なめないよう、
+    // 連続 float 配列として entries_ とは別に持つ。
+    constexpr float Top(size_t i) const noexcept
+    {
+        return tops_[i];
+    }
+    constexpr void SetTop(size_t i, float y) noexcept
+    {
+        tops_[i] = y;
+    }
+    constexpr float Bottom(size_t i) const noexcept
+    {
+        return tops_[i] + entries_[i].height;
+    }
+    void ShiftTops(size_t from, float delta) noexcept
+    {
+        for (float& top : std::span(tops_).subspan(from)) {
+            top += delta;
+        }
     }
 
     constexpr DiagramEntry& GetDiagram(size_t i) noexcept
@@ -339,11 +408,15 @@ private:
 
     static void EvictEntryLayout(NodeLayoutEntry& e) noexcept;
 
+    // 行単位 evict できる状態 (幾何と管理配列が揃っている) か。管理配列は MeasureTable が確保する。
+    static bool HasRowTracking(const TableLayoutData& tl) noexcept;
+
     // 1 行分の cell_layouts を Reset し、cell_heights / cell_applied_widths を再計測待ちに戻す。
     // 行/列の幾何 (row_cum_y, col_cum_x, row_heights, col_widths) は維持する。
     static void EvictTableRow(TableLayoutData& tl, size_t row_index) noexcept;
 
     std::pmr::vector<NodeLayoutEntry> entries_;
+    std::pmr::vector<float> tops_;
     std::pmr::vector<DiagramEntry> diagrams_;
     uint32_t effects_generation_ = 0;
     size_t last_evict_fk_ = 0;
@@ -360,8 +433,7 @@ constexpr float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_
     if (effective == 0) {
         return 0.0f;
     }
-    const size_t last = effective - 1;
-    return cache[last].text_top + cache[last].height + margin_top;
+    return cache.Bottom(effective - 1) + margin_top;
 }
 
 // ノードの Y 範囲 [y, y+h] が [range_top, range_bottom] と重ならない場合 true を返す。
@@ -379,12 +451,11 @@ constexpr bool IsOffscreen(float y, float h, float range_top, float range_bottom
 constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_count, float viewport_top) noexcept
 {
     const size_t effective = std::min(node_count, cache.size());
-    const auto first = cache.cbegin();
-    const auto last = first + static_cast<ptrdiff_t>(effective);
-    const auto it = std::ranges::partition_point(first, last, [viewport_top](const NodeLayoutEntry& e) noexcept {
-        return e.text_top + e.height <= viewport_top;
+    const auto indices = std::views::iota(size_t{ 0 }, effective);
+    const auto it = std::ranges::partition_point(indices, [&cache, viewport_top](size_t i) noexcept {
+        return cache.Bottom(i) <= viewport_top;
     });
-    return static_cast<int>(it - first);
+    return static_cast<int>(it == indices.end() ? effective : *it);
 }
 
 struct VisibleRange {
@@ -402,7 +473,7 @@ inline VisibleRange ComputeVisibleNodeRange(const LayoutCache& cache, size_t nod
     const size_t first = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, effective, range_top));
     size_t last_plus_1 = first;
     for (size_t i = first; i < effective; ++i) {
-        if (cache[i].text_top > range_bottom) {
+        if (cache.Top(i) > range_bottom) {
             break;
         }
         last_plus_1 = i + 1;
@@ -418,5 +489,5 @@ constexpr float NodeOffsetToScrollY(const LayoutCache& cache, int node, float of
         return 0.0f;
     }
     const int clamped = std::min(node, static_cast<int>(cache.size()) - 1);
-    return std::max(0.0f, cache[clamped].text_top + offset);
+    return std::max(0.0f, cache.Top(static_cast<size_t>(clamped)) + offset);
 }
