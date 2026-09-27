@@ -19,6 +19,13 @@ enum class PaneTarget : uint8_t {
     Toc
 };
 
+enum class PaneHeaderButton : uint8_t {
+    None,
+    Close,
+    Refresh, // ファイルペインのみ
+    Reveal,  // ファイルペインのみ
+};
+
 constexpr std::optional<PaneTarget> ToPaneTarget(PaneZone zone) noexcept
 {
     switch (zone) {

@@ -147,10 +147,18 @@ Launch the Tracy GUI (download from [Releases](https://github.com/wolfpld/tracy/
 ## Usage
 
 ```
-mendo.exe [filepath]
+mendo.exe [filepath | folderpath]
 ```
 
-If launched without arguments, open a file with `Ctrl+O` or drag & drop.
+| Argument | Document shown | File pane folder |
+|---|---|---|
+| none | last opened file | current directory |
+| file | the given file | the file's folder |
+| folder | last opened file | the given folder |
+
+When the current directory is a system folder or mendo.exe's folder (e.g. launched from the Start menu), the last file's folder is shown instead. The button at the top of the file pane jumps to the folder of the file being viewed.
+
+If there is no last opened file, open a file with `Ctrl+O` or drag & drop.
 
 ## Tech Stack
 

@@ -42,7 +42,8 @@ public:
     void LoadHelpDocument();
     // 表示文書を差し替え、旧文書の破棄を worker に回す。
     void ReplaceDocument(Document next);
-    void ShowDirectory(std::wstring_view dir_path);
+    // Init 前に呼ぶ。初回描画に含まれるため無効化はしない。
+    void SetInitialDirectory(std::wstring_view dir_path);
 
     // 起動時にウィンドウ生成と並列で I/O + パースを開始する。Init 末尾の
     // OnInitComplete で hwnd が解禁されると、worker は ::PostMessageW(PARSE_COMPLETE)
@@ -237,7 +238,7 @@ private:
     // reload_base は同一ファイルのリロード時の現在テキスト (worker でパース前に差分判定させる)。
     void BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation = false,
                         std::shared_ptr<const std::pmr::string> reload_base = nullptr);
-    void FinishLoadMarkdownFile(bool heights_estimated = false);
+    void FinishLoadMarkdownFile(bool follow_file_pane, bool heights_estimated = false);
     void HandleLoadFailureFallback();
     bool ApplyMermaidCacheHeights(float md_width);
     // Mermaid/画像キャッシュの実測値でノード高さを上書きし、変化があれば Y 位置を再計算する。

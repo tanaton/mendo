@@ -1,5 +1,6 @@
 #include "app.h"
 #include "app_constants.h"
+#include "app_state_queries.h"
 #include "darkmode_util.h"
 #include "gesture_overlay.h"
 #include "search_bar_controller.h"
@@ -211,20 +212,21 @@ void App::OnPaint()
     const auto gs = ResolveGestureOverlay(state_.interaction.gesture, state_.interaction.swipe_detector);
 
     const auto& panes = state_.view.panes;
-    auto make_side_pane = [&panes](PaneTarget t, PaneRect rect, bool with_refresh) {
+    const bool can_reveal = CanRevealCurrentFile(state_);
+    auto make_side_pane = [&panes, can_reveal](PaneTarget t, PaneRect rect) {
         return SidePaneInstance{
             .rect = rect,
             .scroll = panes.SidePaneScroll(t),
             .hovered_index = panes.GetHoveredSideIndex(t),
             .show = panes.IsSidePaneVisible(t),
-            .close_hovered = panes.IsSideCloseHovered(t),
-            .refresh_hovered = with_refresh && panes.IsSideRefreshHovered(t),
+            .hovered_button = panes.GetSideHoveredButton(t),
+            .reveal_enabled = t == PaneTarget::File && can_reveal,
         };
     };
     const SidePaneState sp{
         .panes = {
-                  make_side_pane(PaneTarget::File, layout.file_rect, true),
-                  make_side_pane(PaneTarget::Toc, layout.toc_rect, false),
+                  make_side_pane(PaneTarget::File, layout.file_rect),
+                  make_side_pane(PaneTarget::Toc, layout.toc_rect),
                   },
         .file_entries = state_.file_explorer.GetEntries(),
         .toc_entries = state_.document.doc.GetToc().GetEntries(),
@@ -498,9 +500,7 @@ RECT App::GetSearchEditRect()
     };
 }
 
-void App::ShowDirectory(std::wstring_view dir_path)
+void App::SetInitialDirectory(std::wstring_view dir_path)
 {
     state_.file_explorer.SetDirectory(dir_path);
-    renderer_.InvalidateSidePaneCache(PaneTarget::File);
-    Invalidate();
 }

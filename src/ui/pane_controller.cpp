@@ -20,28 +20,12 @@ bool PaneController::SetHoveredSideIndex(PaneTarget t, int idx) noexcept
     return changed;
 }
 
-bool PaneController::SetFlag(bool& current, bool value) noexcept
+bool PaneController::SetSideHoveredButton(PaneTarget t, PaneHeaderButton button) noexcept
 {
-    const bool changed = current != value;
-    current = value;
+    auto& cur = Inst(t).hovered_button;
+    const bool changed = cur != button;
+    cur = button;
     return changed;
-}
-
-bool PaneController::SetSideCloseHovered(PaneTarget t, bool h) noexcept
-{
-    return SetFlag(Inst(t).close_hovered, h);
-}
-
-bool PaneController::SetSideRefreshHovered(PaneTarget t, bool h) noexcept
-{
-    return SetFlag(Inst(t).refresh_hovered, h);
-}
-
-bool PaneController::ClearSideButtonHover(PaneTarget t) noexcept
-{
-    const bool close_changed = SetSideCloseHovered(t, false);
-    const bool refresh_changed = SetSideRefreshHovered(t, false);
-    return close_changed || refresh_changed;
 }
 
 float PaneController::ConstrainSplitterWidth(

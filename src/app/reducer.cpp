@@ -248,6 +248,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const RightClickGestureCompletedAction& a) { ReduceRightClickGestureCompleted(state, effects, a); },
         [&](const FilePaneDirectoryClickedAction& a) { ReduceFilePaneDirectoryClicked(state, effects, a); },
         [&](const FilePaneFileClickedAction& a) { ReduceFilePaneFileClicked(state, effects, a); },
+        [&](const FilePaneRevealCurrentFileAction&) { ReduceFilePaneRevealCurrentFile(state, effects); },
         [&](const TocItemClickedAction& a) { ReduceTocItemClicked(state, effects, a); },
         [&](const NavigateAnchorAction& a) { ReduceNavigateAnchor(state, effects, a); },
         [&](const RestoreScrollAfterLoadAction& a) { ReduceRestoreScrollAfterLoad(state, effects, a); },

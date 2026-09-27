@@ -17,7 +17,7 @@ public:
     int RunMessageLoop();
 
     void LoadHelpDocument();
-    void ShowDirectory(std::wstring_view dir_path);
+    void SetInitialDirectory(std::wstring_view dir_path);
     void StartPreloadAsync(std::pmr::wstring path);
 
     // App::Init が AttachOrApplyPreload で同期復元するパスに備えて、Create より前に呼ぶ。

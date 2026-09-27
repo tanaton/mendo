@@ -46,9 +46,9 @@ void Win32Window::LoadHelpDocument()
 {
     app_->LoadHelpDocument();
 }
-void Win32Window::ShowDirectory(std::wstring_view dir_path)
+void Win32Window::SetInitialDirectory(std::wstring_view dir_path)
 {
-    app_->ShowDirectory(dir_path);
+    app_->SetInitialDirectory(dir_path);
 }
 void Win32Window::StartPreloadAsync(std::pmr::wstring path)
 {

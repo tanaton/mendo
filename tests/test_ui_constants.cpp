@@ -301,6 +301,34 @@ TEST(PaneRefreshButtonRectTest, ButtonSizeScalesWithHeaderHeight)
 }
 
 // ═══════════════════════════════════════════════
+// PaneRevealButtonRect
+// ═══════════════════════════════════════════════
+
+TEST(PaneRevealButtonRectTest, SameSizeAsRefreshButton)
+{
+    auto refresh = PaneRefreshButtonRect(220.0f, 32.0f);
+    auto reveal = PaneRevealButtonRect(220.0f, 32.0f);
+    EXPECT_FLOAT_EQ(reveal.right - reveal.left, refresh.right - refresh.left);
+    EXPECT_FLOAT_EQ(reveal.bottom - reveal.top, refresh.bottom - refresh.top);
+}
+
+TEST(PaneRevealButtonRectTest, PositionedLeftOfRefreshButtonWithoutOverlap)
+{
+    auto refresh = PaneRefreshButtonRect(220.0f, 32.0f);
+    auto reveal = PaneRevealButtonRect(220.0f, 32.0f);
+    EXPECT_LE(reveal.right, refresh.left);
+    EXPECT_FLOAT_EQ(reveal.top, refresh.top);
+}
+
+TEST(PaneRevealButtonRectTest, FitsInHeader)
+{
+    auto r = PaneRevealButtonRect(220.0f, 32.0f);
+    EXPECT_GE(r.left, 0.0f);
+    EXPECT_GE(r.top, 0.0f);
+    EXPECT_LE(r.bottom, 32.0f);
+}
+
+// ═══════════════════════════════════════════════
 // ComputeSearchBarLayout — close ボタンの右寄せ (issue #253)
 // ═══════════════════════════════════════════════
 

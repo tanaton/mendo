@@ -49,6 +49,7 @@ add_executable(mendo_tests
     test_search_bar_controller.cpp
     test_session_service.cpp
     test_reducer.cpp
+    test_startup_plan.cpp
     test_string_convert.cpp
     test_gesture_overlay.cpp
     test_file_io.cpp

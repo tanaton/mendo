@@ -77,6 +77,7 @@ void ReduceNavigateBack(AppState& state, SideEffectList& effects);
 void ReduceNavigateForward(AppState& state, SideEffectList& effects);
 void ReduceFilePaneDirectoryClicked(AppState& state, SideEffectList& effects, const FilePaneDirectoryClickedAction& a);
 void ReduceFilePaneFileClicked(AppState& state, SideEffectList& effects, const FilePaneFileClickedAction& a);
+void ReduceFilePaneRevealCurrentFile(AppState& state, SideEffectList& effects);
 void ReduceTocItemClicked(AppState& state, SideEffectList& effects, const TocItemClickedAction& a);
 void ReduceNavigateAnchor(AppState& state, SideEffectList& effects, const NavigateAnchorAction& a);
 void ReduceRestoreScrollAfterLoad(AppState& state, SideEffectList& effects, const RestoreScrollAfterLoadAction& a);

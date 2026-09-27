@@ -49,6 +49,7 @@ TEST_F(LocaleTest, JaStringsAreNotEmpty)
     EXPECT_FALSE(s.tooltip_close.empty());
     EXPECT_FALSE(s.tooltip_pane_close.empty());
     EXPECT_FALSE(s.tooltip_pane_refresh.empty());
+    EXPECT_FALSE(s.tooltip_pane_reveal.empty());
     EXPECT_FALSE(s.tooltip_search_prev.empty());
     EXPECT_FALSE(s.tooltip_search_next.empty());
     EXPECT_FALSE(s.tooltip_search_case.empty());
@@ -83,6 +84,7 @@ TEST_F(LocaleTest, EnStringsAreNotEmpty)
     EXPECT_FALSE(s.tooltip_close.empty());
     EXPECT_FALSE(s.tooltip_pane_close.empty());
     EXPECT_FALSE(s.tooltip_pane_refresh.empty());
+    EXPECT_FALSE(s.tooltip_pane_reveal.empty());
     EXPECT_FALSE(s.tooltip_search_prev.empty());
     EXPECT_FALSE(s.tooltip_search_next.empty());
     EXPECT_FALSE(s.tooltip_search_case.empty());

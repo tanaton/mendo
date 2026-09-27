@@ -1,5 +1,6 @@
 #pragma once
 // app_mouse_*.cpp 群の共通ヘルパー（内部ヘッダ）。
+#include "app_state_queries.h"
 #include "i18n.h"
 #include "ui_types.h"
 #include "pane_layout.h"
@@ -25,6 +26,36 @@ constexpr bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rec
         return false;
     }
     return PointInRect(local_x, local_y, ButtonRectFn(rect.width, header_height));
+}
+
+// サイドペインヘッダーのボタン構成。Refresh/Reveal はファイルペインのみ。
+struct SidePaneHeaderButtons {
+    bool has_file_buttons = false;
+    // 無効時は描画のみ行い、ヒットしない。
+    bool reveal_enabled = false;
+};
+
+inline SidePaneHeaderButtons SidePaneHeaderButtonsFor(const AppState& state, PaneTarget target) noexcept
+{
+    const bool is_file = target == PaneTarget::File;
+    return { .has_file_buttons = is_file, .reveal_enabled = is_file && CanRevealCurrentFile(state) };
+}
+
+constexpr PaneHeaderButton HitSidePaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_h, SidePaneHeaderButtons buttons)
+{
+    if (HitPaneHeaderButton<PaneCloseButtonRect>(dip_x, dip_y, rect, header_h)) {
+        return PaneHeaderButton::Close;
+    }
+    if (!buttons.has_file_buttons) {
+        return PaneHeaderButton::None;
+    }
+    if (HitPaneHeaderButton<PaneRefreshButtonRect>(dip_x, dip_y, rect, header_h)) {
+        return PaneHeaderButton::Refresh;
+    }
+    if (buttons.reveal_enabled && HitPaneHeaderButton<PaneRevealButtonRect>(dip_x, dip_y, rect, header_h)) {
+        return PaneHeaderButton::Reveal;
+    }
+    return PaneHeaderButton::None;
 }
 
 inline TooltipTarget BuildTitleBarTooltip(TitleBarHitZone zone, bool is_maximized) noexcept
@@ -93,63 +124,48 @@ struct PaneHoverResult {
     bool any_button_hit = false;
 };
 
-template <typename SetCloseHoveredFn, typename SetRefreshHoveredFn, typename HitTestFn, typename BuildTooltipFn>
-    requires std::predicate<SetCloseHoveredFn&, bool> && std::predicate<SetRefreshHoveredFn&, bool> && std::invocable<HitTestFn&, float, float> && std::convertible_to<std::invoke_result_t<HitTestFn&, float, float>, int> && std::invocable<BuildTooltipFn&, bool, bool, int> && std::convertible_to<std::invoke_result_t<BuildTooltipFn&, bool, bool, int>, TooltipTarget>
+template <typename SetHoveredFn, typename HitTestFn, typename BuildTooltipFn>
+    requires std::predicate<SetHoveredFn&, PaneHeaderButton> && std::invocable<HitTestFn&, float, float> && std::convertible_to<std::invoke_result_t<HitTestFn&, float, float>, int> && std::invocable<BuildTooltipFn&, PaneHeaderButton, int> && std::convertible_to<std::invoke_result_t<BuildTooltipFn&, PaneHeaderButton, int>, TooltipTarget>
 PaneHoverResult ProcessSidePaneHover(
     float dip_x, float dip_y,
     const PaneRect& rect, float header_h, float item_height,
-    bool has_refresh_btn, float scroll_y,
-    SetCloseHoveredFn&& set_close_hovered,
-    SetRefreshHoveredFn&& set_refresh_hovered,
+    SidePaneHeaderButtons buttons, float scroll_y,
+    SetHoveredFn&& set_hovered,
     HitTestFn&& hit_test_fn,
     BuildTooltipFn&& build_tooltip)
 {
     PaneHoverResult result;
 
-    const bool close_hit = HitPaneHeaderButton<PaneCloseButtonRect>(dip_x, dip_y, rect, header_h);
-    bool refresh_hit = false;
-    if (has_refresh_btn) {
-        refresh_hit = HitPaneHeaderButton<PaneRefreshButtonRect>(dip_x, dip_y, rect, header_h);
-    }
-    result.any_button_hit = close_hit || refresh_hit;
-
-    bool changed = set_close_hovered(close_hit);
-    if (has_refresh_btn) {
-        changed |= set_refresh_hovered(refresh_hit);
-    }
-    result.button_changed = changed;
+    const PaneHeaderButton hit = HitSidePaneHeaderButton(dip_x, dip_y, rect, header_h, buttons);
+    result.any_button_hit = hit != PaneHeaderButton::None;
+    result.button_changed = set_hovered(hit);
 
     const float content_top = rect.y + header_h;
     const float local_y = dip_y - content_top + scroll_y;
     result.hovered_index = hit_test_fn(local_y, item_height);
 
-    result.tooltip = build_tooltip(close_hit, refresh_hit, result.hovered_index);
+    result.tooltip = build_tooltip(hit, result.hovered_index);
 
     return result;
 }
 
 // ヘッダー領域内のクリックは (ボタン外含め) 全て消費して true を返す。
-template <typename ToggleFn, typename RefreshFn>
-    requires std::invocable<ToggleFn&> && std::invocable<RefreshFn&>
+template <typename OnButtonFn>
+    requires std::invocable<OnButtonFn&, PaneHeaderButton>
 bool ProcessSidePaneHeaderClick(
     float dip_x, float dip_y,
     const PaneRect& rect, float header_h,
-    bool has_refresh_btn,
-    ToggleFn&& toggle_fn,
-    RefreshFn&& refresh_fn)
+    SidePaneHeaderButtons buttons,
+    OnButtonFn&& on_button)
 {
     if (dip_y - rect.y >= header_h) {
         return false;
     }
-    if (HitPaneHeaderButton<PaneCloseButtonRect>(dip_x, dip_y, rect, header_h)) {
-        toggle_fn();
-        return true;
+    const PaneHeaderButton hit = HitSidePaneHeaderButton(dip_x, dip_y, rect, header_h, buttons);
+    if (hit != PaneHeaderButton::None) {
+        on_button(hit);
     }
-    if (has_refresh_btn && HitPaneHeaderButton<PaneRefreshButtonRect>(dip_x, dip_y, rect, header_h)) {
-        refresh_fn();
-        return true;
-    }
-    return true; // ヘッダー領域内だがボタン外 — 消費済みとして扱う
+    return true; // ボタン外でもヘッダー領域内は消費済みとして扱う
 }
 
 } // namespace mendo::app_mouse

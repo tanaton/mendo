@@ -137,9 +137,6 @@ bool App::IsOverPaneScrollbar(float dip_x, const PaneRect& rect, float total_con
 void App::RefreshFilePane()
 {
     state_.file_explorer.Refresh();
-    if (!state_.document.doc.GetFilePath().empty()) {
-        state_.file_explorer.SetCurrentFile(state_.document.doc.GetFilePath());
-    }
     renderer_.InvalidateSidePaneCache(PaneTarget::File);
     Invalidate();
 }
@@ -147,16 +144,27 @@ void App::RefreshFilePane()
 void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout)
 {
     using mendo::app_mouse::ProcessSidePaneHeaderClick;
+    using mendo::app_mouse::SidePaneHeaderButtonsFor;
 
     const auto& theme = renderer_.GetTheme();
     const bool is_file = target == PaneTarget::File;
     const PaneRect& rect = layout.Get(target);
 
-    if (ProcessSidePaneHeaderClick(dip_x, dip_y, rect, theme.pane_header_height, is_file, [this, target]() {
-        state_.view.panes.ToggleSidePane(target);
-        RefreshPaneLayout();
-    }, [this]() {
-        RefreshFilePane();
+    if (ProcessSidePaneHeaderClick(dip_x, dip_y, rect, theme.pane_header_height, SidePaneHeaderButtonsFor(state_, target), [this, target](PaneHeaderButton hit) {
+        switch (hit) {
+        case PaneHeaderButton::Close:
+            state_.view.panes.ToggleSidePane(target);
+            RefreshPaneLayout();
+            break;
+        case PaneHeaderButton::Refresh:
+            RefreshFilePane();
+            break;
+        case PaneHeaderButton::Reveal:
+            Dispatch(FilePaneRevealCurrentFileAction{});
+            break;
+        case PaneHeaderButton::None:
+            break;
+        }
     })) {
         return;
     }

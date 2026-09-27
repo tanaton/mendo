@@ -2,6 +2,7 @@
 #include <memory_resource>
 #include <string_view>
 #include "file_explorer.h"
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <windows.h>
@@ -44,6 +45,30 @@ protected:
         fs::create_directories(temp_dir_ / name);
     }
 };
+
+// ---- 現在ファイルの強調表示 ----
+
+TEST_F(FileExplorerTest, CurrentFileSurvivesRefreshAndDirectoryChange)
+{
+    CreateFile(L"a.md");
+    CreateDir(L"sub");
+    const auto current = (temp_dir_ / L"a.md").wstring();
+
+    FileExplorer explorer;
+    explorer.SetCurrentFile(current);
+    explorer.SetDirectory(temp_dir_.wstring());
+    const auto is_current = [](const FileEntry& e) { return e.is_current(); };
+    EXPECT_EQ(std::ranges::count_if(explorer.GetEntries(), is_current), 1);
+
+    explorer.SetDirectory((temp_dir_ / L"sub").wstring());
+    EXPECT_EQ(std::ranges::count_if(explorer.GetEntries(), is_current), 0);
+
+    explorer.SetDirectory(temp_dir_.wstring());
+    EXPECT_EQ(std::ranges::count_if(explorer.GetEntries(), is_current), 1);
+
+    explorer.Refresh();
+    EXPECT_EQ(std::ranges::count_if(explorer.GetEntries(), is_current), 1);
+}
 
 // ---- 基本的な列挙 ----
 

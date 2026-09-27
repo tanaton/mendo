@@ -30,8 +30,7 @@ public:
         if (s.show != v) {
             s.show = v;
             s.hovered_index = -1;
-            s.close_hovered = false;
-            s.refresh_hovered = false;
+            s.hovered_button = PaneHeaderButton::None;
         }
     }
     constexpr void ToggleSidePane(PaneTarget t) noexcept
@@ -72,19 +71,16 @@ public:
     // 変化した場合 true。
     bool SetHoveredSideIndex(PaneTarget t, int idx) noexcept;
 
-    constexpr bool IsSideCloseHovered(PaneTarget t) const noexcept
+    constexpr PaneHeaderButton GetSideHoveredButton(PaneTarget t) const noexcept
     {
-        return Inst(t).close_hovered;
+        return Inst(t).hovered_button;
     }
-    bool SetSideCloseHovered(PaneTarget t, bool h) noexcept;
-
-    constexpr bool IsSideRefreshHovered(PaneTarget t) const noexcept
+    // 変化した場合 true。
+    bool SetSideHoveredButton(PaneTarget t, PaneHeaderButton button) noexcept;
+    bool ClearSideButtonHover(PaneTarget t) noexcept
     {
-        return Inst(t).refresh_hovered;
+        return SetSideHoveredButton(t, PaneHeaderButton::None);
     }
-    bool SetSideRefreshHovered(PaneTarget t, bool h) noexcept;
-    // ヘッダーボタン (close/refresh) のホバーを解除する。変化があれば true。
-    bool ClearSideButtonHover(PaneTarget t) noexcept;
 
 public:
     constexpr DragTarget GetDragTarget() const noexcept
@@ -123,8 +119,7 @@ private:
         ScrollState scroll{};
         int hovered_index = -1;
         bool show = true;
-        bool close_hovered = false;
-        bool refresh_hovered = false;
+        PaneHeaderButton hovered_button = PaneHeaderButton::None;
     };
     Instance instances_[2];
     float widths_[2] = { PANE_DEFAULT_WIDTH, PANE_DEFAULT_WIDTH };
@@ -150,7 +145,6 @@ private:
     }
 
     static bool ScrollPaneBy(ScrollState& state, float delta, float max_scroll) noexcept;
-    static bool SetFlag(bool& current, bool value) noexcept;
     static float ConstrainSplitterWidth(float requested_width, float total_width,
                                         float splitter_w, float other_width,
                                         bool other_visible) noexcept;

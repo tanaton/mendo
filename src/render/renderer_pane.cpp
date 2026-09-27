@@ -1,5 +1,6 @@
 #include "renderer.h"
 #include "doc_dwrite_bridge.h"
+#include "d2d_util.h"
 #include "i18n.h"
 #include "pane_layout.h"
 #include "ui_constants.h"
@@ -74,9 +75,10 @@ struct SidePaneDrawContext {
     IDWriteTextFormat* fmt_header;
     IDWriteTextFormat* fmt_close_icon;
     ID2D1SolidColorBrush* close_hover_brush;
-    bool close_hovered;
-    bool show_refresh;
-    bool refresh_hovered;
+    PaneHeaderButton hovered_button;
+    // 以下はファイルペインのみ。
+    bool show_file_buttons;
+    bool reveal_enabled;
 };
 
 template <typename DrawItemFn>
@@ -95,25 +97,25 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
         const D2D1_RECT_F header_bg = D2D1::RectF(0, 0, sp.rect.width, sp.theme.pane_header_height);
         rt->FillRectangle(header_bg, sp.splitter_brush);
 
-        const D2D1_RECT_F close_rect = PaneCloseButtonRect(sp.rect.width, sp.theme.pane_header_height);
-        if (sp.close_hovered) {
-            rt->FillRectangle(close_rect, sp.close_hover_brush);
-        }
-        if (sp.fmt_close_icon) {
-            rt->DrawText(L"\uE8BB", 1, sp.fmt_close_icon, close_rect, sp.text_brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
-        }
-
-        // ファイルペインのみ。閉じるボタンの左隣に置く。
-        float header_text_right = close_rect.left - 4.0f;
-        if (sp.show_refresh) {
-            const D2D1_RECT_F refresh_rect = PaneRefreshButtonRect(sp.rect.width, sp.theme.pane_header_height);
-            if (sp.refresh_hovered) {
-                rt->FillRectangle(refresh_rect, sp.close_hover_brush);
+        // 無効なボタンはホバー状態が残っていても強調しない (ヘルプへ切替直後など)。
+        auto draw_button = [&](const D2D1_RECT_F& rect, const wchar_t* icon, PaneHeaderButton button, bool enabled = true) {
+            if (enabled && sp.hovered_button == button) {
+                rt->FillRectangle(rect, sp.close_hover_brush);
             }
             if (sp.fmt_close_icon) {
-                rt->DrawText(L"\uE72C", 1, sp.fmt_close_icon, refresh_rect, sp.text_brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                mendo::OpacityScope dim{ enabled ? nullptr : sp.text_brush, PANE_BUTTON_DISABLED_ALPHA };
+                rt->DrawText(icon, 1, sp.fmt_close_icon, rect, sp.text_brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
             }
-            header_text_right = refresh_rect.left - 4.0f;
+        };
+
+        const D2D1_RECT_F close_rect = PaneCloseButtonRect(sp.rect.width, sp.theme.pane_header_height);
+        draw_button(close_rect, L"\uE8BB", PaneHeaderButton::Close);
+        float header_text_right = close_rect.left - 4.0f;
+        if (sp.show_file_buttons) {
+            draw_button(PaneRefreshButtonRect(sp.rect.width, sp.theme.pane_header_height), L"\uE72C", PaneHeaderButton::Refresh);
+            const D2D1_RECT_F reveal_rect = PaneRevealButtonRect(sp.rect.width, sp.theme.pane_header_height);
+            draw_button(reveal_rect, L"\uE81D", PaneHeaderButton::Reveal, sp.reveal_enabled);
+            header_text_right = reveal_rect.left - 4.0f;
         }
 
         if (sp.fmt_header) {
@@ -168,8 +170,7 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
     }
 }
 
-void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const PaneRect& rect,
-                                const ScrollState& scroll, int hovered_index, bool close_hovered, bool refresh_hovered)
+void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const SidePaneInstance& pane)
 {
     constexpr float icon_col_width = 24.0f;
     auto draw_item = [&](ID2D1RenderTarget* rt, int i, float item_y, float width) {
@@ -179,7 +180,7 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
         if (entry.is_current()) {
             rt->FillRectangle(item_rect, Brush(BrushId::PaneItemActive));
         }
-        else if (i == hovered_index) {
+        else if (i == pane.hovered_index) {
             rt->FillRectangle(item_rect, Brush(BrushId::PaneItemHover));
         }
 
@@ -213,8 +214,8 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
     const SidePaneDrawContext sp{
         .cache = SidePaneCache(PaneTarget::File),
         .main_rt = rt(),
-        .rect = rect,
-        .scroll = scroll,
+        .rect = pane.rect,
+        .scroll = pane.scroll,
         .item_count = static_cast<int>(entries.size()),
         .header_text = i18n::S().pane_header_files,
         .theme = theme_,
@@ -224,20 +225,20 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
         .fmt_header = fmt_.pane_header.Get(),
         .fmt_close_icon = fmt_.pane_icon.Get(),
         .close_hover_brush = Brush(BrushId::PaneItemHover),
-        .close_hovered = close_hovered,
-        .show_refresh = true,
-        .refresh_hovered = refresh_hovered,
+        .hovered_button = pane.hovered_button,
+        .show_file_buttons = true,
+        .reveal_enabled = pane.reveal_enabled,
     };
     DrawSidePaneImpl(sp, draw_item);
 }
 
 void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const std::pmr::vector<Node>& nodes,
-                       const PaneRect& rect, const ScrollState& scroll, int hovered_index, bool close_hovered, int active_index)
+                       const SidePaneInstance& pane, int active_index)
 {
     auto draw_item = [&](ID2D1RenderTarget* rt, int i, float item_y, float width) {
         const auto& entry = entries[i];
 
-        if (i == active_index || i == hovered_index) {
+        if (i == active_index || i == pane.hovered_index) {
             const D2D1_RECT_F item_rect = D2D1::RectF(0, item_y, width, item_y + theme_.pane_item_height);
             const auto bid = (i == active_index) ? BrushId::PaneItemActive : BrushId::PaneItemHover;
             rt->FillRectangle(item_rect, Brush(bid));
@@ -266,8 +267,8 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const std::pmr
     const SidePaneDrawContext sp{
         .cache = SidePaneCache(PaneTarget::Toc),
         .main_rt = rt(),
-        .rect = rect,
-        .scroll = scroll,
+        .rect = pane.rect,
+        .scroll = pane.scroll,
         .item_count = static_cast<int>(entries.size()),
         .header_text = i18n::S().pane_header_toc,
         .theme = theme_,
@@ -277,9 +278,9 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const std::pmr
         .fmt_header = fmt_.pane_header.Get(),
         .fmt_close_icon = fmt_.pane_icon.Get(),
         .close_hover_brush = Brush(BrushId::PaneItemHover),
-        .close_hovered = close_hovered,
-        .show_refresh = false,
-        .refresh_hovered = false,
+        .hovered_button = pane.hovered_button,
+        .show_file_buttons = false,
+        .reveal_enabled = false,
     };
     DrawSidePaneImpl(sp, draw_item);
 }

@@ -22,6 +22,7 @@ struct Strings {
     // ペインボタン tooltip
     std::wstring_view tooltip_pane_close;
     std::wstring_view tooltip_pane_refresh;
+    std::wstring_view tooltip_pane_reveal;
 
     // 検索バー tooltip
     std::wstring_view tooltip_search_prev;
@@ -93,6 +94,7 @@ inline constexpr Strings kJa = {
     // ペインボタン tooltip
     L"閉じる",
     L"更新",
+    L"現在のファイルの場所へ移動",
     // 検索バー tooltip
     L"前のマッチ (Shift+Enter)",
     L"次のマッチ (Enter)",
@@ -152,6 +154,7 @@ inline constexpr Strings kEn = {
     // ペインボタン tooltip
     L"Close",
     L"Refresh",
+    L"Go to current file location",
     // 検索バー tooltip
     L"Previous Match (Shift+Enter)",
     L"Next Match (Enter)",

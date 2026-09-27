@@ -23,15 +23,11 @@ bool ShouldListEntry(const WIN32_FIND_DATAW& fd) noexcept
 
 void FileExplorer::SetDirectory(std::wstring_view dir_path)
 {
-    std::pmr::wstring normalized{ dir_path };
-    // ルートパスは除く
-    while (normalized.size() > 3 && (normalized.back() == L'\\' || normalized.back() == L'/')) {
-        normalized.pop_back();
-    }
+    const std::wstring_view normalized = path_util::TrimTrailingSeparators(dir_path);
     if (directory_ == normalized) {
         return;
     }
-    directory_ = std::move(normalized);
+    directory_ = normalized;
     Refresh();
 }
 
@@ -41,6 +37,12 @@ void FileExplorer::Refresh()
     if (directory_.empty()) {
         return;
     }
+    ListEntries();
+    ApplyCurrentFile();
+}
+
+void FileExplorer::ListEntries()
+{
 
     // ルートでは ".." を出さない
     {
@@ -102,7 +104,13 @@ int FileExplorer::HitTest(float local_y, float item_height) const noexcept
 
 void FileExplorer::SetCurrentFile(std::wstring_view path)
 {
+    current_file_ = path;
+    ApplyCurrentFile();
+}
+
+void FileExplorer::ApplyCurrentFile()
+{
     for (auto& entry : entries_) {
-        entry.set_current(!entry.is_directory() && path_util::iequal(entry.full_path, path));
+        entry.set_current(!entry.is_directory() && path_util::iequal(entry.full_path, current_file_));
     }
 }

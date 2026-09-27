@@ -66,6 +66,7 @@ public:
         return entries_;
     }
     int HitTest(float local_y, float item_height) const noexcept;
+    // 以降の SetDirectory / Refresh でも強調表示が維持される。
     void SetCurrentFile(std::wstring_view path);
     constexpr const std::pmr::wstring& GetDirectory() const noexcept
     {
@@ -73,6 +74,10 @@ public:
     }
 
 private:
+    void ListEntries();
+    void ApplyCurrentFile();
+
     std::pmr::wstring directory_;
+    std::pmr::wstring current_file_;
     std::pmr::vector<FileEntry> entries_;
 };
