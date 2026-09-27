@@ -182,6 +182,7 @@ add_library(mendo_core STATIC
     src/app/reducer_navigation.cpp
     src/app/reducer_ui.cpp
     src/app/reducer_system.cpp
+    src/app/startup_plan.cpp
     # util - ユーティリティ
     src/util/file_io.cpp
     src/util/task_scheduler.cpp

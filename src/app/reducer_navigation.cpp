@@ -1,6 +1,7 @@
 #include "reducer_internal.h"
 #include "document_utils.h"
 #include "file_io.h"
+#include <algorithm>
 #include <cmath>
 
 namespace {
@@ -37,9 +38,6 @@ void ReduceNavigateForward(AppState& state, SideEffectList& effects)
 void ReduceFilePaneDirectoryClicked(AppState& state, SideEffectList& effects, const FilePaneDirectoryClickedAction& a)
 {
     state.file_explorer.SetDirectory(a.full_path);
-    if (!state.document.doc.GetFilePath().empty()) {
-        state.file_explorer.SetCurrentFile(state.document.doc.GetFilePath());
-    }
     state.view.panes.SidePaneScroll(PaneTarget::File) = {};
     EmitSidePaneScrollChanged(effects, PaneZone::FilePane);
 }
@@ -48,6 +46,23 @@ void ReduceFilePaneFileClicked(AppState& state, SideEffectList& effects, const F
 {
     PushCurrentNavEntry(state);
     PushEffect(effects, effect::LoadFile{ a.full_path });
+}
+
+void ReduceFilePaneRevealCurrentFile(AppState& state, SideEffectList& effects)
+{
+    if (!CanRevealCurrentFile(state)) {
+        return;
+    }
+    state.file_explorer.SetDirectory(state.document.doc.GetDirectory());
+
+    const auto& entries = state.file_explorer.GetEntries();
+    const auto it = std::ranges::find_if(entries, &FileEntry::is_current);
+    const auto ctx = GetSidePaneContext(state, PaneTarget::File);
+    const float item_h = state.theme->pane_item_height;
+    ctx.scroll.scroll_y = it != entries.end()
+                              ? CenterPaneScrollY(static_cast<float>(std::distance(entries.begin(), it)) * item_h, item_h, ctx.info)
+                              : 0.0f;
+    EmitSidePaneScrollChanged(effects, PaneZone::FilePane);
 }
 
 namespace {

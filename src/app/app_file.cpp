@@ -14,6 +14,17 @@
 #include <algorithm>
 #include <utility>
 
+namespace {
+
+// 起動直後の最初の文書はペインのフォルダを起動引数から決めているため追従しない。
+// 同じ文書の再読み込みも、ユーザーがペインで移動した先を保つため追従しない。
+bool FilePaneFollowsLoad(std::wstring_view prev_path, std::wstring_view next_path) noexcept
+{
+    return !prev_path.empty() && !path_util::iequal(prev_path, next_path);
+}
+
+} // namespace
+
 void App::LoadHelpDocument()
 {
     if (IsHelpPath(state_.document.doc.GetFilePath())) {
@@ -164,6 +175,7 @@ void App::DoLoadMarkdownFile()
 
     EmitEffect(effect::KillTimer{ app_timer::Id::LOADING_ANIM });
 
+    const bool follow_file_pane = FilePaneFollowsLoad(state_.document.doc.GetFilePath(), file_load_service_.GetLoadingPath());
     {
         MENDO_PROFILE("ExecuteLoad(FileIO+Parse)");
         auto load_result = file_load_service_.ExecuteLoad(state_.document.doc, state_.document.layout_cache);
@@ -174,7 +186,7 @@ void App::DoLoadMarkdownFile()
         }
     }
 
-    FinishLoadMarkdownFile();
+    FinishLoadMarkdownFile(follow_file_pane);
 }
 
 void App::HandleLoadFailureFallback()
@@ -242,6 +254,7 @@ void App::OnParseComplete()
     }
 
     const bool heights_estimated = result->heights_estimated;
+    const bool follow_file_pane = FilePaneFollowsLoad(state_.document.doc.GetFilePath(), result->doc.GetFilePath());
     if (decision) {
         MENDO_TRACEF("OnParseComplete: reload worker_diff={} node_count={} diff_pos={} new_size={} op={}",
                      result->reload.has_value(), result->doc.GetNodes().size(), decision->diff_pos,
@@ -267,10 +280,10 @@ void App::OnParseComplete()
     ReplaceDocument(std::move(result->doc));
     state_.document.layout_cache = std::move(result->cache);
 
-    FinishLoadMarkdownFile(heights_estimated);
+    FinishLoadMarkdownFile(follow_file_pane, heights_estimated);
 }
 
-void App::FinishLoadMarkdownFile(bool heights_estimated)
+void App::FinishLoadMarkdownFile(bool follow_file_pane, bool heights_estimated)
 {
     MENDO_PROFILE("FinishLoadMarkdownFile");
 
@@ -279,11 +292,11 @@ void App::FinishLoadMarkdownFile(bool heights_estimated)
     EmitEffect(effect::SearchUnfocus{ /*clear_text=*/true });
     state_.active_toc_index = -1;
 
-    const std::pmr::wstring dir = state_.document.doc.GetDirectory();
-    if (!dir.empty()) {
+    const std::pmr::wstring& dir = state_.document.doc.GetDirectory();
+    if (follow_file_pane && !dir.empty()) {
         state_.file_explorer.SetDirectory(dir);
-        state_.file_explorer.SetCurrentFile(state_.document.doc.GetFilePath());
     }
+    state_.file_explorer.SetCurrentFile(state_.document.doc.GetFilePath());
 
     const auto pane_layout = GetPaneLayout();
     const float md_width = pane_layout.md_rect.width;

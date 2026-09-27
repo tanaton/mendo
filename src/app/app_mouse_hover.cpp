@@ -153,6 +153,7 @@ void App::OnMouseHover(int px, int py)
 {
     using mendo::app_mouse::BuildTitleBarTooltip;
     using mendo::app_mouse::ProcessSidePaneHover;
+    using mendo::app_mouse::SidePaneHeaderButtonsFor;
 
     if (!IsRenderReady()) {
         return;
@@ -212,18 +213,19 @@ void App::OnMouseHover(int px, int py)
     case PaneZone::TocPane: {
         const PaneTarget target = *hovered_target;
         const bool is_file = target == PaneTarget::File;
-        const auto tooltip = [&](bool close_hit, bool refresh_hit, int idx) -> TooltipTarget {
-            if (close_hit) {
+        const auto tooltip = [&](PaneHeaderButton hit, int idx) -> TooltipTarget {
+            switch (hit) {
+            case PaneHeaderButton::Close:
                 return {
                     is_file ? TooltipTarget::Zone::FilePaneButton : TooltipTarget::Zone::TocPaneButton,
                     i18n::S().tooltip_pane_close
                 };
-            }
-            if (refresh_hit) {
-                return {
-                    TooltipTarget::Zone::FilePaneButton,
-                    i18n::S().tooltip_pane_refresh
-                };
+            case PaneHeaderButton::Refresh:
+                return { TooltipTarget::Zone::FilePaneButton, i18n::S().tooltip_pane_refresh };
+            case PaneHeaderButton::Reveal:
+                return { TooltipTarget::Zone::FilePaneButton, i18n::S().tooltip_pane_reveal };
+            case PaneHeaderButton::None:
+                break;
             }
             if (is_file) {
                 const auto& entries = state_.file_explorer.GetEntries();
@@ -255,13 +257,10 @@ void App::OnMouseHover(int px, int py)
             pane_layout.Get(target),
             renderer_.GetTheme().pane_header_height,
             renderer_.GetTheme().pane_item_height,
-            is_file,
+            SidePaneHeaderButtonsFor(state_, target),
             state_.view.panes.SidePaneScroll(target).scroll_y,
-            [this, target](bool v) noexcept {
-                return state_.view.panes.SetSideCloseHovered(target, v);
-            },
-            [this, target](bool v) noexcept {
-                return state_.view.panes.SetSideRefreshHovered(target, v);
+            [this, target](PaneHeaderButton hit) noexcept {
+                return state_.view.panes.SetSideHoveredButton(target, hit);
             },
             [this, is_file](float y, float h) noexcept {
                 return  is_file ? state_.file_explorer.HitTest(y, h) : state_.document.doc.GetToc().HitTest(y, h);

@@ -81,8 +81,8 @@ struct SidePaneInstance {
     ScrollState scroll{};
     int hovered_index = -1;
     bool show = false;
-    bool close_hovered = false;
-    bool refresh_hovered = false; // TOC 側は常に false
+    PaneHeaderButton hovered_button = PaneHeaderButton::None;
+    bool reveal_enabled = false; // TOC 側は常に false
 };
 
 struct SidePaneState {

@@ -155,6 +155,7 @@ struct FilePaneDirectoryClickedAction {
 struct FilePaneFileClickedAction {
     std::pmr::wstring full_path;
 };
+struct FilePaneRevealCurrentFileAction {};
 struct TocItemClickedAction {
     std::pmr::string anchor_id;
 };
@@ -272,6 +273,7 @@ using AppAction = std::variant<
     RightClickGestureCompletedAction,
     FilePaneDirectoryClickedAction,
     FilePaneFileClickedAction,
+    FilePaneRevealCurrentFileAction,
     TocItemClickedAction,
     NavigateAnchorAction,
     RestoreScrollAfterLoadAction,

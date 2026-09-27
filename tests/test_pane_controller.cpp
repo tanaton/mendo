@@ -435,94 +435,45 @@ TEST_F(PaneControllerTest, SetVisibleAffectsLayout)
 }
 
 // ═══════════════════════════════════════════════
-// 閉じるボタンのホバー状態
+// ヘッダーボタンのホバー状態
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, CloseHoverDefaultFalse)
+TEST_F(PaneControllerTest, HoveredButtonDefaultNone)
 {
-    EXPECT_FALSE(panes_.IsSideCloseHovered(PaneTarget::File));
-    EXPECT_FALSE(panes_.IsSideCloseHovered(PaneTarget::Toc));
+    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::File), PaneHeaderButton::None);
+    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::Toc), PaneHeaderButton::None);
 }
 
-TEST_F(PaneControllerTest, SetFileCloseHoveredReturnsTrueOnChange)
+TEST_F(PaneControllerTest, SetSideHoveredButtonReturnsTrueOnChange)
 {
-    EXPECT_TRUE(panes_.SetSideCloseHovered(PaneTarget::File, true));
-    EXPECT_TRUE(panes_.IsSideCloseHovered(PaneTarget::File));
+    EXPECT_TRUE(panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::Refresh));
+    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::File), PaneHeaderButton::Refresh);
+
+    EXPECT_TRUE(panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::Reveal));
+    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::File), PaneHeaderButton::Reveal);
 }
 
-TEST_F(PaneControllerTest, SetFileCloseHoveredReturnsFalseOnSame)
+TEST_F(PaneControllerTest, SetSideHoveredButtonReturnsFalseOnSame)
 {
-    panes_.SetSideCloseHovered(PaneTarget::File, true);
-    EXPECT_FALSE(panes_.SetSideCloseHovered(PaneTarget::File, true));
+    panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::Close);
+    EXPECT_FALSE(panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::Close));
 }
 
-TEST_F(PaneControllerTest, SetFileCloseHoveredReset)
+TEST_F(PaneControllerTest, ClearSideButtonHover)
 {
-    panes_.SetSideCloseHovered(PaneTarget::File, true);
-    EXPECT_TRUE(panes_.SetSideCloseHovered(PaneTarget::File, false));
-    EXPECT_FALSE(panes_.IsSideCloseHovered(PaneTarget::File));
+    panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::Reveal);
+    EXPECT_TRUE(panes_.ClearSideButtonHover(PaneTarget::File));
+    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::File), PaneHeaderButton::None);
+    EXPECT_FALSE(panes_.ClearSideButtonHover(PaneTarget::File));
 }
 
-TEST_F(PaneControllerTest, SetTocCloseHoveredReturnsTrueOnChange)
+TEST_F(PaneControllerTest, FileAndTocHoveredButtonIndependent)
 {
-    EXPECT_TRUE(panes_.SetSideCloseHovered(PaneTarget::Toc, true));
-    EXPECT_TRUE(panes_.IsSideCloseHovered(PaneTarget::Toc));
-}
-
-TEST_F(PaneControllerTest, SetTocCloseHoveredReturnsFalseOnSame)
-{
-    panes_.SetSideCloseHovered(PaneTarget::Toc, true);
-    EXPECT_FALSE(panes_.SetSideCloseHovered(PaneTarget::Toc, true));
-}
-
-TEST_F(PaneControllerTest, FileAndTocCloseHoverIndependent)
-{
-    panes_.SetSideCloseHovered(PaneTarget::File, true);
-    panes_.SetSideCloseHovered(PaneTarget::Toc, true);
-    EXPECT_TRUE(panes_.IsSideCloseHovered(PaneTarget::File));
-    EXPECT_TRUE(panes_.IsSideCloseHovered(PaneTarget::Toc));
-    panes_.SetSideCloseHovered(PaneTarget::File, false);
-    EXPECT_FALSE(panes_.IsSideCloseHovered(PaneTarget::File));
-    EXPECT_TRUE(panes_.IsSideCloseHovered(PaneTarget::Toc));
-}
-
-// ═══════════════════════════════════════════════
-// 更新ボタンのホバー状態
-// ═══════════════════════════════════════════════
-
-TEST_F(PaneControllerTest, RefreshHoverDefaultFalse)
-{
-    EXPECT_FALSE(panes_.IsSideRefreshHovered(PaneTarget::File));
-}
-
-TEST_F(PaneControllerTest, SetFileRefreshHoveredReturnsTrueOnChange)
-{
-    EXPECT_TRUE(panes_.SetSideRefreshHovered(PaneTarget::File, true));
-    EXPECT_TRUE(panes_.IsSideRefreshHovered(PaneTarget::File));
-}
-
-TEST_F(PaneControllerTest, SetFileRefreshHoveredReturnsFalseOnSame)
-{
-    panes_.SetSideRefreshHovered(PaneTarget::File, true);
-    EXPECT_FALSE(panes_.SetSideRefreshHovered(PaneTarget::File, true));
-}
-
-TEST_F(PaneControllerTest, SetFileRefreshHoveredReset)
-{
-    panes_.SetSideRefreshHovered(PaneTarget::File, true);
-    EXPECT_TRUE(panes_.SetSideRefreshHovered(PaneTarget::File, false));
-    EXPECT_FALSE(panes_.IsSideRefreshHovered(PaneTarget::File));
-}
-
-TEST_F(PaneControllerTest, RefreshAndCloseHoverIndependent)
-{
-    panes_.SetSideCloseHovered(PaneTarget::File, true);
-    panes_.SetSideRefreshHovered(PaneTarget::File, true);
-    EXPECT_TRUE(panes_.IsSideCloseHovered(PaneTarget::File));
-    EXPECT_TRUE(panes_.IsSideRefreshHovered(PaneTarget::File));
-    panes_.SetSideCloseHovered(PaneTarget::File, false);
-    EXPECT_FALSE(panes_.IsSideCloseHovered(PaneTarget::File));
-    EXPECT_TRUE(panes_.IsSideRefreshHovered(PaneTarget::File));
+    panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::Close);
+    panes_.SetSideHoveredButton(PaneTarget::Toc, PaneHeaderButton::Close);
+    panes_.ClearSideButtonHover(PaneTarget::File);
+    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::File), PaneHeaderButton::None);
+    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::Toc), PaneHeaderButton::Close);
 }
 
 // ═══════════════════════════════════════════════
@@ -532,52 +483,46 @@ TEST_F(PaneControllerTest, RefreshAndCloseHoverIndependent)
 TEST_F(PaneControllerTest, ToggleFilePaneResetsHover)
 {
     panes_.SetHoveredSideIndex(PaneTarget::File, 3);
-    panes_.SetSideCloseHovered(PaneTarget::File, true);
-    panes_.SetSideRefreshHovered(PaneTarget::File, true);
+    panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::Refresh);
     panes_.ToggleSidePane(PaneTarget::File); // 非表示にする
     EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::File), -1);
-    EXPECT_FALSE(panes_.IsSideCloseHovered(PaneTarget::File));
-    EXPECT_FALSE(panes_.IsSideRefreshHovered(PaneTarget::File));
+    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::File), PaneHeaderButton::None);
 }
 
 TEST_F(PaneControllerTest, ToggleTocPaneResetsHover)
 {
     panes_.SetHoveredSideIndex(PaneTarget::Toc, 5);
-    panes_.SetSideCloseHovered(PaneTarget::Toc, true);
+    panes_.SetSideHoveredButton(PaneTarget::Toc, PaneHeaderButton::Close);
     panes_.ToggleSidePane(PaneTarget::Toc);
     EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::Toc), -1);
-    EXPECT_FALSE(panes_.IsSideCloseHovered(PaneTarget::Toc));
+    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::Toc), PaneHeaderButton::None);
 }
 
 TEST_F(PaneControllerTest, SetFilePaneVisibleResetsHoverOnChange)
 {
     panes_.SetHoveredSideIndex(PaneTarget::File, 2);
-    panes_.SetSideCloseHovered(PaneTarget::File, true);
-    panes_.SetSideRefreshHovered(PaneTarget::File, true);
+    panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::Reveal);
     panes_.SetSidePaneVisible(PaneTarget::File, false);
     EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::File), -1);
-    EXPECT_FALSE(panes_.IsSideCloseHovered(PaneTarget::File));
-    EXPECT_FALSE(panes_.IsSideRefreshHovered(PaneTarget::File));
+    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::File), PaneHeaderButton::None);
 }
 
 TEST_F(PaneControllerTest, SetFilePaneVisibleNoResetOnSameValue)
 {
     panes_.SetHoveredSideIndex(PaneTarget::File, 2);
-    panes_.SetSideCloseHovered(PaneTarget::File, true);
-    panes_.SetSideRefreshHovered(PaneTarget::File, true);
+    panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::Refresh);
     panes_.SetSidePaneVisible(PaneTarget::File, true); // 変化なし
     EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::File), 2);
-    EXPECT_TRUE(panes_.IsSideCloseHovered(PaneTarget::File));
-    EXPECT_TRUE(panes_.IsSideRefreshHovered(PaneTarget::File));
+    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::File), PaneHeaderButton::Refresh);
 }
 
 TEST_F(PaneControllerTest, SetTocPaneVisibleResetsHoverOnChange)
 {
     panes_.SetHoveredSideIndex(PaneTarget::Toc, 4);
-    panes_.SetSideCloseHovered(PaneTarget::Toc, true);
+    panes_.SetSideHoveredButton(PaneTarget::Toc, PaneHeaderButton::Close);
     panes_.SetSidePaneVisible(PaneTarget::Toc, false);
     EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::Toc), -1);
-    EXPECT_FALSE(panes_.IsSideCloseHovered(PaneTarget::Toc));
+    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::Toc), PaneHeaderButton::None);
 }
 
 // ═══════════════════════════════════════════════

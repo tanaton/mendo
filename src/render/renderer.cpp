@@ -389,12 +389,12 @@ void Renderer::DrawSidePanes(const SidePaneState& sp)
 {
     const auto& fp = sp.Get(PaneTarget::File);
     if (fp.show) {
-        DrawFileExplorer(sp.file_entries, fp.rect, fp.scroll, fp.hovered_index, fp.close_hovered, fp.refresh_hovered);
+        DrawFileExplorer(sp.file_entries, fp);
         DrawSplitter(fp.rect.x + fp.rect.width, fp.rect.y, fp.rect.y + fp.rect.height);
     }
     const auto& tp = sp.Get(PaneTarget::Toc);
     if (tp.show) {
-        DrawToc(sp.toc_entries, sp.nodes, tp.rect, tp.scroll, tp.hovered_index, tp.close_hovered, sp.active_toc_index);
+        DrawToc(sp.toc_entries, sp.nodes, tp, sp.active_toc_index);
         DrawSplitter(tp.rect.x + tp.rect.width, tp.rect.y, tp.rect.y + tp.rect.height);
     }
 }

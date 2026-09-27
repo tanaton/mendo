@@ -6,6 +6,11 @@
 #include "app_state.h"
 #include "theme.h"
 #include "test_helpers.h"
+#include "document_utils.h"
+#include "file_io.h"
+#include <filesystem>
+#include <format>
+#include <fstream>
 
 class ReducerTest : public ::testing::Test {
 protected:
@@ -1134,6 +1139,107 @@ TEST_F(ReducerTest, FilePaneFileClicked_PushesHistoryAndLoads)
 
     EXPECT_TRUE(state.view.nav_history.CanGoBack());
     EXPECT_TRUE(HasEffect<effect::LoadFile>(effects));
+}
+
+// ---- FilePaneRevealCurrentFile テスト ----
+
+class FilePaneRevealTest : public ReducerTest {
+protected:
+    std::filesystem::path dir_;
+
+    void SetUp() override
+    {
+        ReducerTest::SetUp();
+        const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
+        dir_ = std::filesystem::temp_directory_path() / std::format("mendo_reveal_test_{}_{}", info->name(), ::GetCurrentProcessId());
+        std::error_code ec;
+        std::filesystem::remove_all(dir_, ec);
+        std::filesystem::create_directories(dir_);
+        // ".." + f00.md〜f29.md の 31 項目
+        for (int i = 0; i < 30; ++i) {
+            std::ofstream(dir_ / std::format(L"f{:02}.md", i)) << "x";
+        }
+        // ファイルペインの内容領域は 10 項目分 (280 DIP)
+        PaneLayout pl{};
+        pl.md_rect.height = 500.0f;
+        pl.file_rect.height = theme.pane_header_height + 280.0f;
+        state.pane_layout_cache.Set(0.0f, pl);
+    }
+
+    void TearDown() override
+    {
+        std::error_code ec;
+        std::filesystem::remove_all(dir_, ec);
+    }
+
+    // App::FinishLoadMarkdownFile と同じく現在ファイルも登録する。
+    void OpenDocument(const wchar_t* name)
+    {
+        state.document.doc = Document::FromMarkdown(std::pmr::string("x"), (dir_ / name).wstring());
+        state.file_explorer.SetCurrentFile(state.document.doc.GetFilePath());
+    }
+
+    float FileScroll() const
+    {
+        return state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y;
+    }
+};
+
+TEST_F(FilePaneRevealTest, MovesToDocumentDirectoryAndCentersCurrentFile)
+{
+    OpenDocument(L"f15.md");
+    state.file_explorer.SetDirectory(dir_.parent_path().wstring());
+
+    auto effects = Reduce(state, FilePaneRevealCurrentFileAction{});
+
+    EXPECT_TRUE(path_util::iequal(state.file_explorer.GetDirectory(), dir_.wstring()));
+    const auto& entries = state.file_explorer.GetEntries();
+    ASSERT_EQ(entries.size(), 31u);
+    EXPECT_TRUE(entries[16].is_current());
+    // index 16 の上端 448 から (280 - 28) / 2 を引いて中央に置く
+    EXPECT_FLOAT_EQ(FileScroll(), 322.0f);
+    EXPECT_TRUE(HasEffect<effect::InvalidatePaneCache>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+}
+
+TEST_F(FilePaneRevealTest, ClampsScrollNearEnd)
+{
+    OpenDocument(L"f29.md");
+
+    Reduce(state, FilePaneRevealCurrentFileAction{});
+
+    // max_scroll = 31 * 28 - 280
+    EXPECT_FLOAT_EQ(FileScroll(), 588.0f);
+}
+
+TEST_F(FilePaneRevealTest, SameDirectoryStillScrollsToCurrentFile)
+{
+    OpenDocument(L"f15.md");
+    state.file_explorer.SetDirectory(dir_.wstring());
+
+    Reduce(state, FilePaneRevealCurrentFileAction{});
+
+    EXPECT_FLOAT_EQ(FileScroll(), 322.0f);
+}
+
+TEST_F(FilePaneRevealTest, HelpDocumentIsNoOp)
+{
+    state.document.doc = Document::FromMarkdown(std::pmr::string("help"), HELP_PATH);
+    state.file_explorer.SetDirectory(dir_.wstring());
+    state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y = 100.0f;
+
+    auto effects = Reduce(state, FilePaneRevealCurrentFileAction{});
+
+    EXPECT_TRUE(effects.empty());
+    EXPECT_FLOAT_EQ(FileScroll(), 100.0f);
+}
+
+TEST_F(FilePaneRevealTest, NoDocumentIsNoOp)
+{
+    auto effects = Reduce(state, FilePaneRevealCurrentFileAction{});
+
+    EXPECT_TRUE(effects.empty());
+    EXPECT_TRUE(state.file_explorer.GetDirectory().empty());
 }
 
 // ---- TocItemClicked テスト ----

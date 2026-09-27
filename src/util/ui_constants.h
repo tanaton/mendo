@@ -123,6 +123,9 @@ inline constexpr int CLICK_DISTANCE_THRESHOLD_SQ = 25;
 // ペインヘッダー閉じるボタンの余白
 inline constexpr float PANE_CLOSE_BTN_MARGIN = 2.0f;
 
+// 無効なペインヘッダーボタンのアイコン不透明度
+inline constexpr float PANE_BUTTON_DISABLED_ALPHA = 0.35f;
+
 // ペインヘッダー内の閉じるボタン矩形を返す（ペインローカル座標）。
 inline D2D1_RECT_F PaneCloseButtonRect(float pane_width, float header_height) noexcept
 {
@@ -132,14 +135,24 @@ inline D2D1_RECT_F PaneCloseButtonRect(float pane_width, float header_height) no
     return D2D1::RectF(btn_x, btn_y, btn_x + btn_size, btn_y + btn_size);
 }
 
+// 指定ボタンの左隣に同サイズで並ぶボタン矩形を返す。
+inline D2D1_RECT_F PaneButtonLeftOf(const D2D1_RECT_F& right) noexcept
+{
+    const float btn_size = right.right - right.left;
+    const float btn_x = right.left - btn_size - PANE_CLOSE_BTN_MARGIN;
+    return D2D1::RectF(btn_x, right.top, btn_x + btn_size, right.top + btn_size);
+}
+
 // ペインヘッダー内の更新ボタン矩形を返す（閉じるボタンの左隣、ペインローカル座標）。
 inline D2D1_RECT_F PaneRefreshButtonRect(float pane_width, float header_height) noexcept
 {
-    const D2D1_RECT_F close_rect = PaneCloseButtonRect(pane_width, header_height);
-    const float btn_size = close_rect.right - close_rect.left;
-    const float btn_x = close_rect.left - btn_size - PANE_CLOSE_BTN_MARGIN;
-    const float btn_y = close_rect.top;
-    return D2D1::RectF(btn_x, btn_y, btn_x + btn_size, btn_y + btn_size);
+    return PaneButtonLeftOf(PaneCloseButtonRect(pane_width, header_height));
+}
+
+// ペインヘッダー内の「現在のファイルの場所へ移動」ボタン矩形を返す（更新ボタンの左隣、ペインローカル座標）。
+inline D2D1_RECT_F PaneRevealButtonRect(float pane_width, float header_height) noexcept
+{
+    return PaneButtonLeftOf(PaneRefreshButtonRect(pane_width, header_height));
 }
 
 // DIP 値を物理ピクセル境界にスナップする。
