@@ -23,13 +23,11 @@
 #include <dwmapi.h>
 #include <uxtheme.h>
 
-#pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "shcore.lib")
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "uxtheme.lib")
 
-#include "utility.h"
 #include "profiler.h"
 
 void ApplyDarkModeToWindow(HWND hwnd, bool dark)
@@ -58,6 +56,9 @@ void App::CancelPendingResources()
 void App::ResetViewForNewDocument()
 {
     state_.view.ResetForNewDocument();
+    // 旧文書のマッチ位置が新 nodes に対して誤用されるのを防ぐ。
+    state_.search.search_bar_ctrl.Reset();
+    EmitEffect(effect::SearchUnfocus{ /*clear_text=*/true });
     CancelPendingResources();
     renderer_.ShrinkBuffers();
     renderer_.InvalidateAllSidePaneCaches();
@@ -67,15 +68,19 @@ void App::FinalizeLayout(float md_pane_height)
 {
     resource_manager_.LoadImages();
     resource_manager_.RequestMermaidRenders();
-    EmitEffect(effect::SyncMaxScroll{ md_pane_height });
+    SyncMaxScroll(md_pane_height);
     Invalidate();
     ScheduleDeferredLayoutIfNeeded();
 }
 
-void App::EmitViewportLayoutAndSyncScroll(float md_width, float md_height)
+void App::ViewportLayout(float md_width, float md_height)
 {
-    EmitEffect(effect::ViewportLayout{ md_width, md_height });
-    EmitEffect(effect::SyncMaxScroll{ md_height });
+    layout_service_->ViewportLayout(state_.document.doc, state_.document.layout_cache, md_width, md_height);
+}
+
+void App::SyncMaxScroll(float md_height)
+{
+    state_.view.viewport.SyncMaxScroll(ScrollableContentHeight(), md_height);
 }
 
 void App::InvalidateSidePaneAndPane(PaneTarget t, const PaneLayout& pane_layout)
@@ -183,10 +188,10 @@ PaneZone App::ZoneAt(float dip_x, const PaneLayout& layout) const noexcept
         state_.view.panes.IsSidePaneVisible(PaneTarget::Toc));
 }
 
-float App::GetMarkdownPaneWidth()
+// Mermaid のキャッシュキーに入るため、全経路でこの値を使う (ずれるとキャッシュを外す)。
+float App::MdContentWidth()
 {
-    const auto layout = GetPaneLayout();
-    return layout.md_rect.width;
+    return renderer_.GetTheme().ContentWidth(GetPaneLayout().md_rect.width);
 }
 
 void App::OnPaint()
@@ -197,13 +202,13 @@ void App::OnPaint()
     BeginPaint(hwnd_, &ps);
 
     const auto& layout = GetPaneLayout();
-    const bool show_loading = file_load_service_.IsLoading() && !state_.pending_reload_retry;
+    const bool show_loading = file_load_service_.IsLoading();
     if (!show_loading) {
         EnsureScrollTarget();
 
         const bool updated = layout_service_->EnsureVisibleLayout(state_.document.doc, state_.document.layout_cache, layout.md_rect.width, layout.md_rect.height);
         if (updated) {
-            EmitEffect(effect::SyncMaxScroll{ layout.md_rect.height });
+            SyncMaxScroll(layout.md_rect.height);
             // 未計測領域に入った。スクロール先を先読み計測させ、以降のフレームでの同期計測を減らす。
             ScheduleDeferredLayoutIfNeeded();
         }
@@ -212,7 +217,7 @@ void App::OnPaint()
     const auto gs = ResolveGestureOverlay(state_.interaction.gesture, state_.interaction.swipe_detector);
 
     const auto& panes = state_.view.panes;
-    const bool can_reveal = CanRevealCurrentFile(state_);
+    const bool can_reveal = state_.document.doc.HasBackingFile();
     auto make_side_pane = [&panes, can_reveal](PaneTarget t, PaneRect rect) {
         return SidePaneInstance{
             .rect = rect,
@@ -231,7 +236,7 @@ void App::OnPaint()
         .file_entries = state_.file_explorer.GetEntries(),
         .toc_entries = state_.document.doc.GetToc().GetEntries(),
         .nodes = state_.document.doc.GetNodes(),
-        .active_toc_index = state_.active_toc_index,
+        .active_toc_index = state_.view.active_toc_index,
     };
 
     const auto& tbar = state_.window.titlebar;
@@ -294,7 +299,7 @@ void App::OnPaint()
             { state_.document.doc.GetNodes(), state_.document.layout_cache,
               state_.view.viewport.GetSelection(), layout.md_rect, sp, tb, gs, ts, sb,
               state_.view.viewport.GetScrollY(), ScrollableContentHeight(),
-              std::to_underlying(state_.interaction.nav_hover), state_.interaction.hovered,
+              state_.interaction.nav_hover, state_.interaction.hovered,
               state_.view.nav_history.CanGoBack(), state_.view.nav_history.CanGoForward(),
               layout_service_->HasDirtyNodes(), h_scroll });
     }
@@ -305,11 +310,8 @@ void App::OnPaint()
 
 float App::ScrollableContentHeight() const noexcept
 {
-    if (!layout_service_) {
-        return 0.0f;
-    }
-    const auto& ds = state_.document;
-    return layout_service_->GetScrollableContentHeight(ds.doc, ds.layout_cache);
+    // WM_NCHITTEST は Init 前にも届く。
+    return state_.theme ? MdScrollableContentHeight(state_) : 0.0f;
 }
 
 void App::OnResize(UINT width, UINT height)
@@ -439,9 +441,9 @@ void App::OnDestroy()
     file_cache_.Shutdown();
     file_cache_.SaveIndex();
 
-    // SaveScrollPosition だけ IsHelpPath ガード外に置くと、Help 表示中に終了したとき
+    // SaveScrollPosition だけガード外に置くと、Help 表示中に終了したとき
     // 前回 LastFilePath に Help の node index が紐付き、次回起動時に誤位置へジャンプする。
-    if (!IsHelpPath(state_.document.doc.GetFilePath())) {
+    if (state_.document.doc.HasBackingFile()) {
         session_.SaveLastFilePath(state_.document.doc.GetFilePath());
         if (const int node = state_.view.viewport.FindFirstVisibleNode(state_.document.layout_cache, state_.document.doc.GetNodes().size()); node >= 0) {
             // 復元側 (NodeOffsetToScrollY) と同じ cache[node].text_top を読む。

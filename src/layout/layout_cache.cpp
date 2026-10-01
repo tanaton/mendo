@@ -245,26 +245,14 @@ void LayoutCache::EvictTextLayouts(size_t first_keep_inclusive, size_t last_keep
     const size_t fk = std::min(first_keep_inclusive, n);
     const size_t lk = std::min(last_keep_exclusive, n);
 
-    if (last_evict_fk_ == 0 && last_evict_lk_ == 0) {
-        for (size_t i = 0; i < fk; ++i) {
-            EvictEntryLayout(entries_[i]);
-        }
-        for (size_t i = lk; i < n; ++i) {
-            EvictEntryLayout(entries_[i]);
-        }
+    // keep 範囲が縮小した差分のみ evict する。未追跡 (0, 0) は前回 keep を全域 [0, n) とみなす。
+    const size_t prev_fk = last_evict_fk_;
+    const size_t prev_lk = (last_evict_fk_ == 0 && last_evict_lk_ == 0) ? n : last_evict_lk_;
+    for (size_t i = prev_fk; i < fk; ++i) {
+        EvictEntryLayout(entries_[i]);
     }
-    else {
-        // keep 範囲が縮小した差分のみ evict
-        if (fk > last_evict_fk_) {
-            for (size_t i = last_evict_fk_; i < fk; ++i) {
-                EvictEntryLayout(entries_[i]);
-            }
-        }
-        if (lk < last_evict_lk_) {
-            for (size_t i = lk; i < last_evict_lk_; ++i) {
-                EvictEntryLayout(entries_[i]);
-            }
-        }
+    for (size_t i = lk; i < prev_lk; ++i) {
+        EvictEntryLayout(entries_[i]);
     }
     last_evict_fk_ = fk;
     last_evict_lk_ = lk;

@@ -1,29 +1,12 @@
 #include <gtest/gtest.h>
 #include "task_scheduler.h"
+#include "test_helpers.h"
 #include <atomic>
 #include <chrono>
 #include <mutex>
 #include <condition_variable>
-#include <functional>
 #include <set>
 #include <thread>
-
-namespace {
-
-bool WaitFor(std::function<bool()> cond, int timeout_ms = 2000)
-{
-    const auto start = std::chrono::steady_clock::now();
-    while (!cond()) {
-        if (std::chrono::steady_clock::now() - start >
-            std::chrono::milliseconds(timeout_ms)) {
-            return false;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
-    return true;
-}
-
-} // namespace
 
 // ═══════════════════════════════════════════════
 // 基本的な Post → 実行
@@ -35,7 +18,7 @@ TEST(TaskScheduler, SingleTaskExecutes)
     sch.Init(1);
     std::atomic<bool> ran{false};
     sch.Post([&] { ran.store(true); });
-    EXPECT_TRUE(WaitFor([&] { return ran.load(); }));
+    EXPECT_TRUE(PollUntil([&] { return ran.load(); }));
     sch.Shutdown();
 }
 
@@ -48,7 +31,7 @@ TEST(TaskScheduler, MultipleTasksAllExecute)
     for (int i = 0; i < N; ++i) {
         sch.Post([&] { count.fetch_add(1); });
     }
-    EXPECT_TRUE(WaitFor([&] { return count.load() == N; }));
+    EXPECT_TRUE(PollUntil([&] { return count.load() == N; }));
     sch.Shutdown();
     EXPECT_EQ(count.load(), N);
 }
@@ -64,7 +47,7 @@ TEST(TaskScheduler, TasksRunOnWorkerThreadsNotCaller)
         different_thread.store(std::this_thread::get_id() != caller_id);
         ran.store(true);
     });
-    EXPECT_TRUE(WaitFor([&] { return ran.load(); }));
+    EXPECT_TRUE(PollUntil([&] { return ran.load(); }));
     EXPECT_TRUE(different_thread.load());
     sch.Shutdown();
 }
@@ -94,12 +77,12 @@ TEST(TaskScheduler, TasksDistributedAcrossWorkers)
                 observed_threads.insert(std::this_thread::get_id());
             }
             // 他のワーカーも到達するまで少し待つ
-            WaitFor([&] { return running.load() >= 2; }, 500);
+            PollUntil([&] { return running.load() >= 2; }, std::chrono::milliseconds(500));
             finished.fetch_add(1);
         });
     }
 
-    EXPECT_TRUE(WaitFor([&] { return finished.load() == WORKERS; }));
+    EXPECT_TRUE(PollUntil([&] { return finished.load() == WORKERS; }));
     sch.Shutdown();
 
     // 最低でも2つ以上の異なるスレッドで処理されているはず
@@ -122,11 +105,11 @@ TEST(TaskScheduler, ShutdownProcessesRemainingQueuedTasks)
     std::atomic<bool> gate_open{false};
     sch.Post([&] {
         first_entered.store(true);
-        WaitFor([&] { return gate_open.load(); }, 2000);
+        PollUntil([&] { return gate_open.load(); }, std::chrono::seconds(2));
         count.fetch_add(1);
     });
     // 先頭タスクがワーカーを掴んだことを確定させてから残りを投入する
-    ASSERT_TRUE(WaitFor([&] { return first_entered.load(); }));
+    ASSERT_TRUE(PollUntil([&] { return first_entered.load(); }));
     for (int i = 0; i < 20; ++i) {
         sch.Post([&] { count.fetch_add(1); });
     }
@@ -151,7 +134,7 @@ TEST(TaskScheduler, ShutdownTwiceIsSafe)
     sch.Init(2);
     std::atomic<int> count{0};
     sch.Post([&] { count.fetch_add(1); });
-    EXPECT_TRUE(WaitFor([&] { return count.load() == 1; }));
+    EXPECT_TRUE(PollUntil([&] { return count.load() == 1; }));
     sch.Shutdown();
     sch.Shutdown(); // 2回目は no-op
     SUCCEED();
@@ -179,10 +162,11 @@ TEST(TaskScheduler, AcceptsMoveOnlyCallable)
 {
     TaskScheduler sch;
     sch.Init(1);
-    auto ptr = std::make_unique<std::atomic<int>>(0);
-    auto* raw = ptr.get();
-    sch.Post([p = std::move(ptr)]() mutable { p->fetch_add(42); });
-    EXPECT_TRUE(WaitFor([&] { return raw->load() == 42; }));
+    // 実行後のタスクは worker 側で破棄されるので、結果はタスク外の変数で受け取る。
+    std::atomic<int> result{ 0 };
+    auto ptr = std::make_unique<int>(42);
+    sch.Post([p = std::move(ptr), &result]() mutable { result.store(*p); });
+    EXPECT_TRUE(PollUntil([&] { return result.load() == 42; }));
     sch.Shutdown();
 }
 
@@ -196,7 +180,7 @@ TEST(TaskScheduler, PostWithoutInitThenInitProcessesQueued)
     std::atomic<bool> ran{false};
     sch.Post([&] { ran.store(true); }); // Init 前に Post
     sch.Init(1); // ワーカー起動後にキュー消化
-    EXPECT_TRUE(WaitFor([&] { return ran.load(); }));
+    EXPECT_TRUE(PollUntil([&] { return ran.load(); }));
     sch.Shutdown();
 }
 

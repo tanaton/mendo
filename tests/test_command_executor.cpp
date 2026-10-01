@@ -191,7 +191,6 @@ TEST_F(CommandExecutorIntegrationTest, AllShapeCommandsExecuteWithoutError)
 {
     CommandExecutor exec;
     DrawCommandList cmds;
-    cmds.emplace_back(ClearCmd{ D2D1::ColorF(D2D1::ColorF::Black, 0.0f) });
     cmds.emplace_back(FillRectCmd{ D2D1::RectF(0, 0, 8, 8), D2D1::ColorF(D2D1::ColorF::Red) });
     cmds.emplace_back(FillRoundedRectCmd{
         D2D1::RectF(8, 0, 16, 8), 2.0f, 2.0f, D2D1::ColorF(D2D1::ColorF::Green) });
@@ -213,8 +212,7 @@ TEST_F(CommandExecutorIntegrationTest, NullBitmapDrawIsSkipped)
 {
     CommandExecutor exec;
     DrawCommandList cmds;
-    cmds.emplace_back(DrawBitmapCmd{
-        nullptr, D2D1::RectF(0, 0, 8, 8), 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR });
+    cmds.emplace_back(DrawBitmapCmd{ nullptr, D2D1::RectF(0, 0, 8, 8) });
 
     rt_->BeginDraw();
     exec.Execute(cmds, rt_.Get());

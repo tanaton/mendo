@@ -15,13 +15,12 @@ void App::HandleLinkClick(std::string_view url)
     case LinkClickResult::Type::None:
         return;
     case LinkClickResult::Type::Anchor:
-        PushCurrentNavEntry(state_);
         Dispatch(NavigateAnchorAction{ std::move(result.target) });
         return;
     case LinkClickResult::Type::ExternalUrl: {
         std::pmr::wstring url_wide;
         string_convert::Utf8ToWide(result.target, url_wide);
-        EmitEffect(effect::ShellOpen{ std::move(url_wide) });
+        win32_host_.ShellOpen(url_wide);
         return;
     }
     }
@@ -34,7 +33,8 @@ void App::FinishThemeOrZoomChange()
     float md_width = layout.md_rect.width;
     float md_height = layout.md_rect.height;
 
-    EmitViewportLayoutAndSyncScroll(md_width, md_height);
+    ViewportLayout(md_width, md_height);
+    SyncMaxScroll(md_height);
     resource_manager_.RequestMermaidRenders();
     ScheduleDeferredLayoutIfNeeded();
     Invalidate();
@@ -46,10 +46,10 @@ void App::HandleApplyThemeChange(const effect::ApplyThemeChange& e)
 {
     if (e.type == effect::ApplyThemeChange::Type::Zoom) {
         const Theme base = theme_service_.CreateTheme();
-        renderer_.ApplyZoomFromBase(base, ZOOM_STEPS[e.zoom_index]);
+        renderer_.ApplyZoomFromBase(base, state_.view.viewport.GetCurrentZoom());
         FinishThemeOrZoomChange();
         UpdateTitleBar();
-        theme_service_.SaveZoomLevel(e.zoom_index);
+        theme_service_.SaveZoomLevel(state_.view.viewport.GetZoomIndex());
     }
     else {
         theme_service_.ToggleDarkMode();

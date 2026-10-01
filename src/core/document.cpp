@@ -2,68 +2,12 @@
 #include "ascii_util.h"
 #include "document_utils.h"
 #include "fnv1a.h"
+#include "newline_util.h"
 #include "parser.h"
 #include "profiler.h"
 #include <algorithm>
+#include <cassert>
 #include <cstring>
-#include <cwchar>
-#include <filesystem>
-
-namespace {
-
-// CR は ASCII 1 byte なので UTF-8 multi-byte シーケンスの中間バイトとは絶対に衝突しない
-// (UTF-8 continuation byte は 10xxxxxx で 0x80-0xBF)。memchr(_, _, 0) は規格上 nullptr を返す。
-inline char* FindDocCr(char* p, size_t len) noexcept
-{
-    return static_cast<char*>(std::memchr(p, mendo::doc_cr, len));
-}
-
-} // namespace
-
-// 改行を LF に揃えておくと、パーサ中の current_text と raw_text_ の memcmp 一致判定が成立し、
-// 大半の code block / 複数行 paragraph で view モード化 (owned_text_ 確保ゼロ) が選べる。
-// CR まで一気にスキップし、その間は memmove でブロックコピーする (MSVC UCRT で SIMD)。
-// LF-only ファイルでは memchr 1 回で素通し。
-void NormalizeNewlines(std::pmr::string& s)
-{
-    MENDO_PROFILE("NormalizeNewlines");
-    const size_t n = s.size();
-    if (n == 0) {
-        return;
-    }
-
-    char* const data = s.data();
-    char* const end = data + n;
-
-    char* first_cr = FindDocCr(data, n);
-    if (!first_cr) {
-        MENDO_STATF("NormalizeNewlines: in={} out={} shrunk=0 (fast LF-only)", n, n);
-        return;
-    }
-
-    // ループ進入時、src は必ず CR を指す (first_cr または直前反復の FindDocCr 結果)。
-    char* dst = first_cr;
-    char* src = first_cr;
-    do {
-        *dst++ = mendo::doc_lf;
-        ++src;
-        if (src < end && *src == mendo::doc_lf) {
-            ++src; // CRLF を LF 1 つに縮約
-        }
-
-        char* next_cr = FindDocCr(src, static_cast<size_t>(end - src));
-        const size_t chunk = next_cr ? static_cast<size_t>(next_cr - src) : static_cast<size_t>(end - src);
-        if (chunk > 0) {
-            std::memmove(dst, src, chunk * sizeof(char));
-            src += chunk;
-            dst += chunk;
-        }
-    } while (src < end);
-
-    s.resize(static_cast<size_t>(dst - data));
-    MENDO_STATF("NormalizeNewlines: in={} out={} shrunk={}", n, s.size(), n - s.size());
-}
-
 
 Document Document::FromMarkdown(std::pmr::string text, size_t byte_size, std::wstring_view path,
                                 std::stop_token stop_token)
@@ -76,21 +20,16 @@ Document Document::FromMarkdown(std::pmr::string text, size_t byte_size, std::ws
 
 Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
 {
-    // 入力 (Help 埋め込みリソース / テスト文字列) は BOM 無しが保証されているため、
-    // size 計算のみ行い 3 引数版へ委譲する。
+    // 入力 (Help 埋め込みリソース / テスト文字列) は BOM 無しが保証されている。
+    // FileLoader を通らないため、ここで LF 正規化してから 3 引数版へ委譲する。
     const size_t byte_size = utf8.size();
+    NormalizeNewlines(utf8);
     return FromMarkdown(std::move(utf8), byte_size, path);
 }
 
 void Document::RebuildCachedDirectory()
 {
-    if (file_path_.empty()) {
-        cached_directory_.clear();
-    }
-    else {
-        const auto dir = std::filesystem::path(file_path_).parent_path();
-        cached_directory_ = dir.native();
-    }
+    cached_directory_ = ParentDirectory(file_path_);
 }
 
 void Document::ReplaceContent(ParseResult&& result)
@@ -109,11 +48,15 @@ void Document::ReplaceContent(ParseResult&& result)
 void Document::ReplaceFromMarkdown(std::pmr::string text, size_t byte_size, std::stop_token stop_token)
 {
     MENDO_PROFILE("Document::ReplaceFromMarkdown");
-    // RawText に入った後の relocate を避けるため、normalize は Replace の前に行う。
-    NormalizeNewlines(text);
+    assert(std::memchr(text.data(), '\r', text.size()) == nullptr);
     raw_text_.Replace(std::move(text));
     loaded_byte_size_ = byte_size;
     ReplaceContent(ParseMarkdown(raw_text_, std::move(stop_token)));
+}
+
+bool Document::HasBackingFile() const noexcept
+{
+    return !file_path_.empty() && !IsHelpPath(file_path_);
 }
 
 int Document::FindAnchorIndex(std::string_view anchor) const

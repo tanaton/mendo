@@ -5,14 +5,12 @@
 #include <set>
 
 using mendo::Fnv1a64;
-using mendo::Fnv1a64Update;
 using mendo::kFnv1a64OffsetBasis;
 using mendo::kFnv1a64Prime;
 
 TEST(Fnv1a64, EmptyStringReturnsOffsetBasis)
 {
     EXPECT_EQ(Fnv1a64(std::string_view{}), kFnv1a64OffsetBasis);
-    EXPECT_EQ(Fnv1a64(std::wstring_view{}), kFnv1a64OffsetBasis);
 }
 
 // FNV-1a 64-bit リファレンスベクター (RFC 草案 / isthe.com の参照値)。
@@ -29,16 +27,6 @@ TEST(Fnv1a64, ReferenceVector_foobar)
     EXPECT_EQ(Fnv1a64(std::string_view{ "foobar" }), 0x85944171f73967e8ULL);
 }
 
-TEST(Fnv1a64, IncrementalUpdateMatchesBatch)
-{
-    const std::string_view input = "hello world";
-    uint64_t h = kFnv1a64OffsetBasis;
-    for (char c : input) {
-        h = Fnv1a64Update(h, static_cast<unsigned char>(c));
-    }
-    EXPECT_EQ(h, Fnv1a64(input));
-}
-
 TEST(Fnv1a64, DifferentLengthsDifferentHashes)
 {
     EXPECT_NE(Fnv1a64(std::string_view{ "abc" }), Fnv1a64(std::string_view{ "abcd" }));
@@ -49,16 +37,6 @@ TEST(Fnv1a64, DifferentLengthsDifferentHashes)
 TEST(Fnv1a64, OneCharDifferenceProducesDifferentHash)
 {
     EXPECT_NE(Fnv1a64(std::string_view{ "abcd" }), Fnv1a64(std::string_view{ "abce" }));
-}
-
-TEST(Fnv1a64, CharAndWcharDifferentKeySpacesForMultibyte)
-{
-    // UTF-8 マルチバイト文字 (3 bytes) と UTF-16 1 unit ではハッシュが異なる。
-    // ASCII のみで比較すると char/wchar_t のいずれも数値が一致してしまうため、
-    // 非 ASCII で「両 CharT を同一 key 空間で混用してはいけない」性質を確認する。
-    const auto h_char = Fnv1a64(std::string_view{ "\xE3\x81\x82" }); // UTF-8 'あ'
-    const auto h_wchar = Fnv1a64(std::wstring_view{ L"あ" });        // UTF-16 'あ'
-    EXPECT_NE(h_char, h_wchar);
 }
 
 TEST(Fnv1a64, HighByteHandledAsUnsigned)
@@ -88,11 +66,4 @@ TEST(Fnv1a64, NoCollisionsOnSmallSet)
         const auto inserted = seen.insert(Fnv1a64(std::string_view{ s })).second;
         ASSERT_TRUE(inserted) << "collision at i=" << i;
     }
-}
-
-TEST(Fnv1a64Update, ZeroByteUpdateStillChangesHash)
-{
-    // h XOR 0 * prime ≠ h なので、Fnv1a64Update は「empty 文字を append しても何もしない」
-    // という性質を持たない (= 入力 0 byte と 0 だけ含む 1 byte 入力は別ハッシュ)。
-    EXPECT_NE(Fnv1a64Update(kFnv1a64OffsetBasis, 0), kFnv1a64OffsetBasis);
 }

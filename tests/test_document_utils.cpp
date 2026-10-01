@@ -173,11 +173,8 @@ TEST(ExtractSelectedTextAsHtml, LinkProducesAnchor)
 
 TEST(ExtractSelectedTextAsHtml, EscapesSpecialChars)
 {
-    Node n;
-    n.type = NodeType::Paragraph;
-    n.SetTextWithLineCount(std::string_view{ "a<b&c>d\"e'f" }, 0);
     std::pmr::vector<Node> nodes;
-    nodes.emplace_back(std::move(n));
+    nodes.emplace_back(MakeTextNode("a<b&c>d\"e'f"));
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel),
               "<p>a&lt;b&amp;c&gt;d&quot;e&#39;f</p>");
@@ -638,175 +635,134 @@ TEST(FindAnchorNodeIndex, SkipsNonHeadings)
 // FindWordBoundaries
 // ============================================================
 
-TEST(FindWordBoundaries, EmptyText)
+namespace {
+
+template <class SV>
+struct WordCase {
+    const char* name;
+    SV text;
+    uint32_t pos;
+    bool found;
+    uint32_t start;
+    uint32_t end;
+};
+
+// 見つからない場合は {0, 0, false}
+template <class SV, size_t N>
+void ExpectWordBoundaries(const WordCase<SV> (&cases)[N])
 {
-    auto result = FindWordBoundaries("", 0);
-    EXPECT_FALSE(result.found);
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.name);
+        const auto result = FindWordBoundaries(c.text, c.pos);
+        EXPECT_EQ(result.found, c.found);
+        EXPECT_EQ(result.start, c.start);
+        EXPECT_EQ(result.end, c.end);
+    }
 }
 
-TEST(FindWordBoundaries, SingleWord)
+} // namespace
+
+// pos は UTF-8 byte 単位 (かな・漢字・全角は 3 byte、BMP 外は 4 byte)。
+TEST(FindWordBoundaries, Utf8)
 {
-    auto result = FindWordBoundaries("hello", 2);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 0u);
-    EXPECT_EQ(result.end, 5u);
+    constexpr WordCase<std::string_view> kCases[] = {
+        { "EmptyText", "", 0, false, 0, 0 },
+        { "SingleWord", "hello", 2, true, 0, 5 },
+        { "WordAtStart", "hello world", 0, true, 0, 5 },
+        { "WordAtEnd", "hello world", 6, true, 6, 11 },
+        { "PositionOnSpace", "hello world", 5, false, 0, 0 },
+        { "PositionOnPunctuation", "hello, world", 5, false, 0, 0 },
+        { "WordWithUnderscore", "my_variable = 1", 3, true, 0, 11 },
+        { "WordWithNumbers", "var123 = x", 3, true, 0, 6 },
+        // 最後の文字にクランプされる
+        { "PositionBeyondEnd", "hello", 100, true, 0, 5 },
+        { "SingleCharWord", "a", 0, true, 0, 1 },
+        { "AllSpaces", "   ", 1, false, 0, 0 },
+        { "MixedPunctuationAndWords", "(hello)", 3, true, 1, 6 },
+        // 同一文字種の連続区間を一塊にし、別カテゴリで止まる
+        { "KatakanaSequence", "テスト test", 0, true, 0, 9 },
+        { "AsciiWordAfterCjk", "テスト test", 10, true, 10, 14 },
+        { "HiraganaSequence", "これはテスト", 0, true, 0, 9 },
+        { "HanSequence", "日本語です", 3, true, 0, 9 },
+        { "HiraganaAfterHan", "日本語です", 9, true, 9, 15 },
+        // 長音「ー」(U+30FC) はカタカナと同カテゴリ
+        { "KatakanaWithLongVowel", "コーヒー", 3, true, 0, 12 },
+        { "FullwidthAlnumSequence", "ＡＢＣ１２３", 6, true, 0, 18 },
+        // 全角句読点「、」(U+3001) は Other
+        { "FullwidthSymbolNotSelected", "、", 0, false, 0, 0 },
+        // 「々」(U+3005) は Han
+        { "HanRepetitionMark", "人々", 0, true, 0, 6 },
+        // 𠮷 = U+20BB7 (4 byte) と 田 (3 byte) はどちらも Han
+        { "HanInSupplementaryPlane", "𠮷田", 0, true, 0, 7 },
+        // マルチバイトの途中を指しても先頭バイトにスナップする
+        { "PosOnUtf8ContinuationByte", "テスト", 1, true, 0, 9 },
+        { "PosOnUtf8FourByteContinuation", "𠮷田", 2, true, 0, 7 },
+    };
+    ExpectWordBoundaries(kCases);
 }
 
-TEST(FindWordBoundaries, WordAtStart)
+// pos は UTF-16 コード単位 (BMP 外はサロゲートペアで 2 単位)。
+TEST(FindWordBoundariesW, Utf16)
 {
-    auto result = FindWordBoundaries("hello world", 0);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 0u);
-    EXPECT_EQ(result.end, 5u);
-}
-
-TEST(FindWordBoundaries, WordAtEnd)
-{
-    auto result = FindWordBoundaries("hello world", 6);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 6u);
-    EXPECT_EQ(result.end, 11u);
-}
-
-TEST(FindWordBoundaries, PositionOnSpace)
-{
-    auto result = FindWordBoundaries("hello world", 5);
-    EXPECT_FALSE(result.found);
-}
-
-TEST(FindWordBoundaries, PositionOnPunctuation)
-{
-    auto result = FindWordBoundaries("hello, world", 5);
-    EXPECT_FALSE(result.found);
-}
-
-TEST(FindWordBoundaries, WordWithUnderscore)
-{
-    auto result = FindWordBoundaries("my_variable = 1", 3);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 0u);
-    EXPECT_EQ(result.end, 11u);
-}
-
-TEST(FindWordBoundaries, WordWithNumbers)
-{
-    auto result = FindWordBoundaries("var123 = x", 3);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 0u);
-    EXPECT_EQ(result.end, 6u);
-}
-
-TEST(FindWordBoundaries, PositionBeyondEnd)
-{
-    auto result = FindWordBoundaries("hello", 100);
-    // 最後の文字にクランプされるべき
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 0u);
-    EXPECT_EQ(result.end, 5u);
-}
-
-TEST(FindWordBoundaries, KatakanaSequence)
-{
-    // カタカナ連続区間は同一カテゴリで一塊に選択される (UTF-8 で各 3 byte)。
-    auto result = FindWordBoundaries("テスト test", 0);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 0u);
-    EXPECT_EQ(result.end, 9u);
-}
-
-TEST(FindWordBoundaries, AsciiWordAfterCjk)
-{
-    // CJK の後の ASCII 単語をクリックすると動作するべき。pos は UTF-8 byte。
-    // テスト = 9 byte, ' ' = 1 byte, "test" は offset 10
-    auto result = FindWordBoundaries("テスト test", 10);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 10u);
-    EXPECT_EQ(result.end, 14u);
-}
-
-TEST(FindWordBoundariesW, SingleWord)
-{
-    auto result = FindWordBoundaries(std::wstring_view{ L"hello world" }, 2);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 0u);
-    EXPECT_EQ(result.end, 5u);
-}
-
-TEST(FindWordBoundariesW, PositionOnSpace)
-{
-    auto result = FindWordBoundaries(std::wstring_view{ L"hello world" }, 5);
-    EXPECT_FALSE(result.found);
-}
-
-TEST(FindWordBoundariesW, AsciiWordAfterCjk)
-{
-    // wstring (UTF-16) では CJK は 1 wchar_t、空白 1、"test" 4。"t" は offset 4。
-    auto result = FindWordBoundaries(std::wstring_view{ L"テスト test" }, 4);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 4u);
-    EXPECT_EQ(result.end, 8u);
-}
-
-TEST(FindWordBoundariesW, KatakanaSequence)
-{
-    // UTF-16 のカタカナ連続区間 (各 1 wchar_t)。
-    auto result = FindWordBoundaries(std::wstring_view{ L"テスト" }, 0);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 0u);
-    EXPECT_EQ(result.end, 3u);
+    constexpr WordCase<std::wstring_view> kCases[] = {
+        { "SingleWord", L"hello world", 2, true, 0, 5 },
+        { "PositionOnSpace", L"hello world", 5, false, 0, 0 },
+        { "AsciiWordAfterCjk", L"テスト test", 4, true, 4, 8 },
+        { "KatakanaSequence", L"テスト", 0, true, 0, 3 },
+        { "HiraganaSequence", L"これはテスト", 0, true, 0, 3 },
+        { "HanAndHiraganaBoundary", L"日本語です", 3, true, 3, 5 },
+        { "HanSurrogatePair", L"𠮷田", 0, true, 0, 3 },
+        // low surrogate を指しても high surrogate にスナップする
+        { "PosOnLowSurrogate", L"𠮷田", 1, true, 0, 3 },
+    };
+    ExpectWordBoundaries(kCases);
 }
 
 // ============================================================
 // ExtractFilename
 // ============================================================
 
-TEST(ExtractFilename, EmptyPath)
+TEST(ExtractFilename, ReturnsLastPathComponent)
 {
-    EXPECT_TRUE(ExtractFilename(L"").empty());
-}
-
-TEST(ExtractFilename, BackslashPath)
-{
-    EXPECT_EQ(ExtractFilename(L"C:\\Users\\test\\file.md"), L"file.md");
-}
-
-TEST(ExtractFilename, ForwardSlashPath)
-{
-    EXPECT_EQ(ExtractFilename(L"C:/Users/test/file.md"), L"file.md");
-}
-
-TEST(ExtractFilename, FilenameOnly)
-{
-    EXPECT_EQ(ExtractFilename(L"file.md"), L"file.md");
-}
-
-TEST(ExtractFilename, TrailingSeparator)
-{
-    EXPECT_EQ(ExtractFilename(L"C:\\dir\\"), L"");
-}
-
-TEST(ExtractFilename, JapaneseFilename)
-{
-    EXPECT_EQ(ExtractFilename(L"C:\\ドキュメント\\ファイル.md"), L"ファイル.md");
+    struct Case {
+        std::wstring_view path;
+        std::wstring_view expected;
+    };
+    constexpr Case kCases[] = {
+        { L"", L"" },
+        { L"file.md", L"file.md" },
+        { L"C:\\Users\\test\\file.md", L"file.md" },
+        { L"C:/Users/test/file.md", L"file.md" },
+        { L"C:\\dir/subdir\\file.md", L"file.md" },
+        { L"\\\\server\\share\\file.md", L"file.md" },
+        { L"C:\\dir\\", L"" },
+        { L"C:\\ドキュメント\\ファイル.md", L"ファイル.md" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
+        EXPECT_EQ(ExtractFilename(c.path), c.expected);
+    }
 }
 
 // ============================================================
 // BuildTitleString
 // ============================================================
 
-TEST(BuildTitleString, EmptyPath)
+TEST(BuildTitleString, PrefixesFilenameToAppName)
 {
-    EXPECT_EQ(BuildTitleString(L""), L"mendo");
-}
-
-TEST(BuildTitleString, WithPath)
-{
-    EXPECT_EQ(BuildTitleString(L"C:\\dir\\test.md"), L"test.md - mendo");
-}
-
-TEST(BuildTitleString, FilenameOnly)
-{
-    EXPECT_EQ(BuildTitleString(L"readme.md"), L"readme.md - mendo");
+    struct Case {
+        std::wstring_view path;
+        std::wstring_view expected;
+    };
+    constexpr Case kCases[] = {
+        { L"", L"mendo" },
+        { L"C:\\dir\\test.md", L"test.md - mendo" },
+        { L"readme.md", L"readme.md - mendo" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
+        EXPECT_EQ(BuildTitleString(c.path), c.expected);
+    }
 }
 
 // ============================================================
@@ -1150,231 +1106,34 @@ TEST(FindAnchorNodeIndex, DuplicateAnchors)
     EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, "title-1"), 1);
 }
 
-// ---- FindWordBoundaries 追加テスト ----
-
-TEST(FindWordBoundaries, SingleCharWord)
-{
-    auto result = FindWordBoundaries("a", 0);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 0u);
-    EXPECT_EQ(result.end, 1u);
-}
-
-TEST(FindWordBoundaries, AllSpaces)
-{
-    auto result = FindWordBoundaries("   ", 1);
-    EXPECT_FALSE(result.found);
-}
-
-TEST(FindWordBoundaries, MixedPunctuationAndWords)
-{
-    auto result = FindWordBoundaries("(hello)", 3);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 1u);
-    EXPECT_EQ(result.end, 6u);
-}
-
-// ---- FindWordBoundaries 文字種カテゴリ (UTF-8) ----
-
-TEST(FindWordBoundaries, HiraganaSequence)
-{
-    // 「これはテスト」で「これは」(ひらがな) の最初の文字をクリック
-    // ひらがな = 各 3 byte。「これは」= 9 byte、「テスト」は別カテゴリで止まる。
-    auto result = FindWordBoundaries("これはテスト", 0);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 0u);
-    EXPECT_EQ(result.end, 9u);
-}
-
-TEST(FindWordBoundaries, HanSequence)
-{
-    // 「日本語」(漢字 3 文字, 各 3 byte = 9 byte)
-    auto result = FindWordBoundaries("日本語です", 3);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 0u);
-    EXPECT_EQ(result.end, 9u);
-}
-
-TEST(FindWordBoundaries, HiraganaAfterHan)
-{
-    // 「日本語です」の「で」(offset 9) をクリック → 「です」(6 byte) が選択
-    auto result = FindWordBoundaries("日本語です", 9);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 9u);
-    EXPECT_EQ(result.end, 15u);
-}
-
-TEST(FindWordBoundaries, KatakanaWithLongVowel)
-{
-    // 「コーヒー」: 長音「ー」(U+30FC) はカタカナと同カテゴリ。各 3 byte = 12 byte。
-    auto result = FindWordBoundaries("コーヒー", 3);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 0u);
-    EXPECT_EQ(result.end, 12u);
-}
-
-TEST(FindWordBoundaries, FullwidthAlnumSequence)
-{
-    // 全角「ＡＢＣ１２３」: U+FF21 U+FF22 U+FF23 U+FF11 U+FF12 U+FF13 (各 3 byte = 18 byte)
-    auto result = FindWordBoundaries("ＡＢＣ１２３", 6);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 0u);
-    EXPECT_EQ(result.end, 18u);
-}
-
-TEST(FindWordBoundaries, PosOnUtf8ContinuationByte)
-{
-    // 「テスト」の中間バイト (例: 1) を指しても先頭バイトにスナップして同じ結果
-    auto result = FindWordBoundaries("テスト", 1);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 0u);
-    EXPECT_EQ(result.end, 9u);
-}
-
-TEST(FindWordBoundaries, FullwidthSymbolNotSelected)
-{
-    // 全角句読点「、」(U+3001) は Other → 選択されない
-    auto result = FindWordBoundaries("、", 0);
-    EXPECT_FALSE(result.found);
-}
-
-TEST(FindWordBoundaries, HanRepetitionMark)
-{
-    // 「人々」: 「々」(U+3005) は Han として「人」(U+4EBA) と連続して選択される
-    auto result = FindWordBoundaries("人々", 0);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 0u);
-    EXPECT_EQ(result.end, 6u);
-}
-
-// ---- FindWordBoundaries 文字種カテゴリ (UTF-16) ----
-
-TEST(FindWordBoundariesW, HiraganaSequence)
-{
-    auto result = FindWordBoundaries(std::wstring_view{ L"これはテスト" }, 0);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 0u);
-    EXPECT_EQ(result.end, 3u);
-}
-
-TEST(FindWordBoundariesW, HanAndHiraganaBoundary)
-{
-    // 「日本語です」 (UTF-16) で 「で」(offset 3) をクリック → 「です」が選択
-    auto result = FindWordBoundaries(std::wstring_view{ L"日本語です" }, 3);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 3u);
-    EXPECT_EQ(result.end, 5u);
-}
-
-// ---- BMP 外文字 (4byte UTF-8 / サロゲートペア) ----
-
-TEST(FindWordBoundaries, HanInSupplementaryPlane)
-{
-    // 「𠮷田」: 𠮷 = U+20BB7 (UTF-8 4byte = F0 A0 AE B7), 田 = U+7530 (3byte)。
-    // 両方 Han カテゴリで連続して選択されるはず。
-    auto result = FindWordBoundaries("𠮷田", 0);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 0u);
-    EXPECT_EQ(result.end, 7u);
-}
-
-TEST(FindWordBoundaries, PosOnUtf8FourByteContinuation)
-{
-    // 「𠮷田」の 4byte シーケンス内側 (pos=2) を指しても先頭にスナップ。
-    auto result = FindWordBoundaries("𠮷田", 2);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 0u);
-    EXPECT_EQ(result.end, 7u);
-}
-
-TEST(FindWordBoundariesW, HanSurrogatePair)
-{
-    // L"𠮷田" = { 0xD842, 0xDFB7, 0x7530 }、長さ 3。
-    auto result = FindWordBoundaries(std::wstring_view{ L"𠮷田" }, 0);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 0u);
-    EXPECT_EQ(result.end, 3u);
-}
-
-TEST(FindWordBoundariesW, PosOnLowSurrogate)
-{
-    // pos=1 (low surrogate) を指しても high surrogate にスナップして同じ結果。
-    auto result = FindWordBoundaries(std::wstring_view{ L"𠮷田" }, 1);
-    ASSERT_TRUE(result.found);
-    EXPECT_EQ(result.start, 0u);
-    EXPECT_EQ(result.end, 3u);
-}
-
-// ---- ExtractFilename 追加テスト ----
-
-TEST(ExtractFilename, UncPath)
-{
-    EXPECT_EQ(ExtractFilename(L"\\\\server\\share\\file.md"), L"file.md");
-}
-
-TEST(ExtractFilename, MixedSeparators)
-{
-    EXPECT_EQ(ExtractFilename(L"C:\\dir/subdir\\file.md"), L"file.md");
-}
-
 // ============================================================
 // FindFirstDifference (UTF-16 コード単位の差分検出)
 // ============================================================
 
-TEST(FindFirstDifference, IdenticalStrings)
+TEST(FindFirstDifference, ReturnsFirstDifferingByte)
 {
-    EXPECT_EQ(FindFirstDifference("hello", "hello"), std::string_view::npos);
-}
-
-TEST(FindFirstDifference, BothEmpty)
-{
-    EXPECT_EQ(FindFirstDifference("", ""), std::string_view::npos);
-}
-
-TEST(FindFirstDifference, DifferentFirstUnit)
-{
-    EXPECT_EQ(FindFirstDifference("abc", "xbc"), 0u);
-}
-
-TEST(FindFirstDifference, DifferentMiddle)
-{
-    EXPECT_EQ(FindFirstDifference("abcdef", "abcXef"), 3u);
-}
-
-TEST(FindFirstDifference, DifferentLastUnit)
-{
-    EXPECT_EQ(FindFirstDifference("abc", "abX"), 2u);
-}
-
-TEST(FindFirstDifference, NewLongerThanOld)
-{
-    EXPECT_EQ(FindFirstDifference("abc", "abcdef"), 3u);
-}
-
-TEST(FindFirstDifference, OldLongerThanNew)
-{
-    EXPECT_EQ(FindFirstDifference("abcdef", "abc"), 3u);
-}
-
-TEST(FindFirstDifference, EmptyOld)
-{
-    EXPECT_EQ(FindFirstDifference("", "new"), 0u);
-}
-
-TEST(FindFirstDifference, EmptyNew)
-{
-    EXPECT_EQ(FindFirstDifference("old", ""), 0u);
-}
-
-TEST(FindFirstDifference, CjkContent)
-{
-    // UTF-8 byte 単位で先頭差分位置を返す。
-    std::string a = "あいう";
-    std::string b = "あいえ";
-    size_t diff = FindFirstDifference(a, b);
-    // UTF-8: あ E3 81 82 / い E3 81 84 / う E3 81 86 vs え E3 81 88
-    // 先頭 6 byte ("あい") + "う" の 1〜2 byte目 (E3 81) 一致 → 8 byte 目で差分
-    EXPECT_EQ(diff, 8u);
+    struct Case {
+        std::string_view old_text;
+        std::string_view new_text;
+        size_t expected;
+    };
+    constexpr Case kCases[] = {
+        { "hello", "hello", std::string_view::npos },
+        { "", "", std::string_view::npos },
+        { "abc", "xbc", 0 },
+        { "abcdef", "abcXef", 3 },
+        { "abc", "abX", 2 },
+        { "abc", "abcdef", 3 },
+        { "abcdef", "abc", 3 },
+        { "", "new", 0 },
+        { "old", "", 0 },
+        // う E3 81 86 と え E3 81 88 は 3 byte 目で分かれるので 6 + 2
+        { "あいう", "あいえ", 8 },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(c.old_text) + " -> " + ::testing::PrintToString(c.new_text));
+        EXPECT_EQ(FindFirstDifference(c.old_text, c.new_text), c.expected);
+    }
 }
 
 // 粗いチャンク比較 → 細かいチャンク → バイト単位の各境界で差分位置が正確に出る。
@@ -1394,84 +1153,35 @@ TEST(FindFirstDifference, LargeInputAcrossChunkBoundaries)
 // AnalyzeReloadDiff
 // ============================================================
 
-TEST(AnalyzeReloadDiff, IdenticalContentReturnsNoChange)
+// diff_pos は UTF-8 byte。NoChange のときのみ npos。
+TEST(AnalyzeReloadDiff, ClassifiesEdit)
 {
-    const auto d = AnalyzeReloadDiff("hello world", "hello world");
-    EXPECT_EQ(d.op, ReloadOp::NoChange);
-    EXPECT_EQ(d.diff_pos, std::string_view::npos);
-}
-
-TEST(AnalyzeReloadDiff, BothEmptyReturnsNoChange)
-{
-    const auto d = AnalyzeReloadDiff("", "");
-    EXPECT_EQ(d.op, ReloadOp::NoChange);
-    EXPECT_EQ(d.diff_pos, std::string_view::npos);
-}
-
-TEST(AnalyzeReloadDiff, AppendedSuffixIsPrefixGrowth)
-{
-    // 末尾に追記 → prefix-only growth（スクロール維持）
-    const auto d = AnalyzeReloadDiff("abc", "abcdef");
-    EXPECT_EQ(d.op, ReloadOp::PrefixGrowth);
-    EXPECT_EQ(d.diff_pos, 3u);
-}
-
-TEST(AnalyzeReloadDiff, EmptyToContentIsPrefixGrowth)
-{
-    // 空ファイル → 何か書いた。prefix-only growth として扱う。
-    const auto d = AnalyzeReloadDiff("", "new content");
-    EXPECT_EQ(d.op, ReloadOp::PrefixGrowth);
-    EXPECT_EQ(d.diff_pos, 0u);
-}
-
-TEST(AnalyzeReloadDiff, TruncatedSuffixIsDeferPrefixShrink)
-{
-    // 末尾が消えた = truncate。エディタの truncate→rewrite 前半の可能性があるため defer。
-    const auto d = AnalyzeReloadDiff("abcdef", "abc");
-    EXPECT_EQ(d.op, ReloadOp::DeferPrefixShrink);
-    EXPECT_EQ(d.diff_pos, 3u);
-}
-
-TEST(AnalyzeReloadDiff, ContentToEmptyIsDeferPrefixShrink)
-{
-    // 全消去も truncate → rewrite の前半とみなして defer する
-    const auto d = AnalyzeReloadDiff("old content", "");
-    EXPECT_EQ(d.op, ReloadOp::DeferPrefixShrink);
-    EXPECT_EQ(d.diff_pos, 0u);
-}
-
-TEST(AnalyzeReloadDiff, MiddleChangeIsFullReload)
-{
-    // 中間で変化した。prefix-only ではないので全体リロード。
-    const auto d = AnalyzeReloadDiff("abcdef", "abcXef");
-    EXPECT_EQ(d.op, ReloadOp::FullReload);
-    EXPECT_EQ(d.diff_pos, 3u);
-}
-
-TEST(AnalyzeReloadDiff, FirstUnitChangeIsFullReload)
-{
-    // 先頭で差分があれば必ず FullReload（同一長さなので prefix-only にならない）。
-    const auto d = AnalyzeReloadDiff("abc", "Xbc");
-    EXPECT_EQ(d.op, ReloadOp::FullReload);
-    EXPECT_EQ(d.diff_pos, 0u);
-}
-
-TEST(AnalyzeReloadDiff, LengthChangedWithMiddleDiffIsFullReload)
-{
-    // 途中で差分があり、かつ長さも変わる → prefix-only ではなく FullReload。
-    const auto d = AnalyzeReloadDiff("abcdef", "abcYYYz");
-    EXPECT_EQ(d.op, ReloadOp::FullReload);
-    EXPECT_EQ(d.diff_pos, 3u);
-}
-
-TEST(AnalyzeReloadDiff, CjkSuffixAppendedIsPrefixGrowth)
-{
-    // CJK 末尾追記も prefix-only growth として扱える。diff_pos は UTF-8 byte。
-    const std::string old_text = "あいう";
-    const std::string new_text = "あいうえお";
-    const auto d = AnalyzeReloadDiff(old_text, new_text);
-    EXPECT_EQ(d.op, ReloadOp::PrefixGrowth);
-    EXPECT_EQ(d.diff_pos, 9u); // "あいう" = 9 byte UTF-8
+    struct Case {
+        std::string_view old_text;
+        std::string_view new_text;
+        ReloadOp op;
+        size_t diff_pos;
+    };
+    constexpr Case kCases[] = {
+        { "hello world", "hello world", ReloadOp::NoChange, std::string_view::npos },
+        { "", "", ReloadOp::NoChange, std::string_view::npos },
+        // 末尾追記はスクロールを維持する prefix-only growth
+        { "abc", "abcdef", ReloadOp::PrefixGrowth, 3 },
+        { "", "new content", ReloadOp::PrefixGrowth, 0 },
+        { "あいう", "あいうえお", ReloadOp::PrefixGrowth, 9 },
+        // truncate→rewrite の前半の可能性があるため defer
+        { "abcdef", "abc", ReloadOp::DeferPrefixShrink, 3 },
+        { "old content", "", ReloadOp::DeferPrefixShrink, 0 },
+        { "abcdef", "abcXef", ReloadOp::FullReload, 3 },
+        { "abc", "Xbc", ReloadOp::FullReload, 0 },
+        { "abcdef", "abcYYYz", ReloadOp::FullReload, 3 },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(c.old_text) + " -> " + ::testing::PrintToString(c.new_text));
+        const auto d = AnalyzeReloadDiff(c.old_text, c.new_text);
+        EXPECT_EQ(d.op, c.op);
+        EXPECT_EQ(d.diff_pos, c.diff_pos);
+    }
 }
 
 // ============================================================
@@ -1765,47 +1475,29 @@ TEST(DiffToNode, LargeDocumentMiddleEdit)
 // IsPrefixOnlyDiff
 // ============================================================
 
-TEST(IsPrefixOnlyDiff, IdenticalSizes)
+// diff_pos が短い方の長さと一致するときだけ true
+TEST(IsPrefixOnlyDiff, TrueWhenDiffAtShorterEnd)
 {
-    // diff_pos=5, old_size=10, new_size=10 → min=10, 5!=10 → false
-    EXPECT_FALSE(IsPrefixOnlyDiff(5, 10, 10));
-}
-
-TEST(IsPrefixOnlyDiff, OldIsPrefix)
-{
-    // old="abc"(3), new="abcdef"(6) → diff_pos=3=min(3,6) → true
-    EXPECT_TRUE(IsPrefixOnlyDiff(3, 3, 6));
-}
-
-TEST(IsPrefixOnlyDiff, NewIsPrefix)
-{
-    // old="abcdef"(6), new="abc"(3) → diff_pos=3=min(6,3) → true
-    EXPECT_TRUE(IsPrefixOnlyDiff(3, 6, 3));
-}
-
-TEST(IsPrefixOnlyDiff, DiffBeforeEnd)
-{
-    // old="abXdef"(6), new="abc"(3) → diff_pos=2, min=3 → false
-    EXPECT_FALSE(IsPrefixOnlyDiff(2, 6, 3));
-}
-
-TEST(IsPrefixOnlyDiff, EmptyOld)
-{
-    // old=""(0), new="abc"(3) → diff_pos=0=min(0,3) → true
-    EXPECT_TRUE(IsPrefixOnlyDiff(0, 0, 3));
-}
-
-TEST(IsPrefixOnlyDiff, EmptyNew)
-{
-    // old="abc"(3), new=""(0) → diff_pos=0=min(3,0) → true
-    EXPECT_TRUE(IsPrefixOnlyDiff(0, 3, 0));
-}
-
-TEST(IsPrefixOnlyDiff, BothEmpty)
-{
-    // diff_pos=0, old=0, new=0 → 0=min(0,0) → true
-    // ただし通常 FindFirstDifference は npos を返すのでここには到達しない
-    EXPECT_TRUE(IsPrefixOnlyDiff(0, 0, 0));
+    struct Case {
+        size_t diff_pos;
+        size_t old_size;
+        size_t new_size;
+        bool expected;
+    };
+    constexpr Case kCases[] = {
+        { 5, 10, 10, false },
+        { 3, 3, 6, true },
+        { 3, 6, 3, true },
+        { 2, 6, 3, false },
+        { 0, 0, 3, true },
+        { 0, 3, 0, true },
+        // 通常 FindFirstDifference は npos を返すのでここには到達しない
+        { 0, 0, 0, true },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::Message() << "diff_pos=" << c.diff_pos << " old=" << c.old_size << " new=" << c.new_size);
+        EXPECT_EQ(IsPrefixOnlyDiff(c.diff_pos, c.old_size, c.new_size), c.expected);
+    }
 }
 
 TEST(IsPrefixOnlyDiff, IntegrationWithFindFirstDifference)
@@ -2026,139 +1718,62 @@ TEST(CalcScrollYForDiff, PrefixGrowthScrollsTowardAppendedTail)
 // ToLowerAsciiCopy
 // ============================================================
 
-TEST(ToLowerAsciiCopy, AllUppercase)
+TEST(ToLowerAsciiCopy, LowersOnlyAsciiLetters)
 {
-    EXPECT_EQ(ToLowerAsciiCopy("HELLO"), "hello");
-}
-
-TEST(ToLowerAsciiCopy, AllLowercase)
-{
-    EXPECT_EQ(ToLowerAsciiCopy("hello"), "hello");
-}
-
-TEST(ToLowerAsciiCopy, MixedCase)
-{
-    EXPECT_EQ(ToLowerAsciiCopy("HeLLo WoRLd"), "hello world");
-}
-
-TEST(ToLowerAsciiCopy, Empty)
-{
-    EXPECT_TRUE(ToLowerAsciiCopy("").empty());
-}
-
-TEST(ToLowerAsciiCopy, NonAsciiUnchanged)
-{
-    EXPECT_EQ(ToLowerAsciiCopy("日本語"), "日本語");
-}
-
-TEST(ToLowerAsciiCopy, DigitsAndSymbols)
-{
-    EXPECT_EQ(ToLowerAsciiCopy("ABC-123_XYZ"), "abc-123_xyz");
-}
-
-TEST(ToLowerAsciiCopy, BoundaryChars)
-{
-    // A(0x41)の直前@(0x40)、Z(0x5A)の直後[(0x5B)は変換されないこと
-    EXPECT_EQ(ToLowerAsciiCopy("@A[Z"), "@a[z");
+    struct Case {
+        std::string_view in;
+        std::string_view expected;
+    };
+    constexpr Case kCases[] = {
+        { "", "" },
+        { "HELLO", "hello" },
+        { "hello", "hello" },
+        { "HeLLo WoRLd", "hello world" },
+        { "日本語", "日本語" },
+        { "ABC-123_XYZ", "abc-123_xyz" },
+        // A(0x41) の直前 @(0x40) と Z(0x5A) の直後 [(0x5B) は変換しない
+        { "@A[Z", "@a[z" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(c.in));
+        EXPECT_EQ(ToLowerAsciiCopy(c.in), c.expected);
+    }
 }
 
 // ============================================================
 // IsMarkdownFile
 // ============================================================
 
-TEST(IsMarkdownFile, DotMd)
+TEST(IsMarkdownFile, MatchesMarkdownExtensionsCaseInsensitively)
 {
-    EXPECT_TRUE(IsMarkdownFile(L"readme.md"));
-}
-
-TEST(IsMarkdownFile, DotMarkdown)
-{
-    EXPECT_TRUE(IsMarkdownFile(L"doc.markdown"));
-}
-
-TEST(IsMarkdownFile, DotMkd)
-{
-    EXPECT_TRUE(IsMarkdownFile(L"notes.mkd"));
-}
-
-TEST(IsMarkdownFile, UpperCaseExtension)
-{
-    EXPECT_TRUE(IsMarkdownFile(L"README.MD"));
-}
-
-TEST(IsMarkdownFile, MixedCaseExtension)
-{
-    EXPECT_TRUE(IsMarkdownFile(L"test.Markdown"));
-}
-
-TEST(IsMarkdownFile, FullPath)
-{
-    EXPECT_TRUE(IsMarkdownFile(L"C:\\Users\\user\\Documents\\file.md"));
-}
-
-TEST(IsMarkdownFile, NotMarkdown)
-{
-    EXPECT_FALSE(IsMarkdownFile(L"test.txt"));
-}
-
-TEST(IsMarkdownFile, NoExtension)
-{
-    EXPECT_FALSE(IsMarkdownFile(L"readme"));
-}
-
-TEST(IsMarkdownFile, EmptyPath)
-{
-    EXPECT_FALSE(IsMarkdownFile(L""));
-}
-
-TEST(IsMarkdownFile, DotOnly)
-{
-    EXPECT_FALSE(IsMarkdownFile(L"."));
-}
-
-TEST(IsMarkdownFile, SimilarExtension)
-{
-    EXPECT_FALSE(IsMarkdownFile(L"file.mdd"));
-}
-
-TEST(IsMarkdownFile, HtmlFile)
-{
-    EXPECT_FALSE(IsMarkdownFile(L"page.html"));
-}
-
-TEST(IsMarkdownFile, DotInDirectory)
-{
-    EXPECT_TRUE(IsMarkdownFile(L"C:\\my.project\\docs\\readme.md"));
+    struct Case {
+        std::wstring_view path;
+        bool expected;
+    };
+    constexpr Case kCases[] = {
+        { L"readme.md", true },
+        { L"doc.markdown", true },
+        { L"notes.mkd", true },
+        { L"README.MD", true },
+        { L"test.Markdown", true },
+        { L"C:\\Users\\user\\Documents\\file.md", true },
+        { L"C:\\my.project\\docs\\readme.md", true },
+        { L"test.txt", false },
+        { L"readme", false },
+        { L"", false },
+        { L".", false },
+        { L"file.mdd", false },
+        { L"page.html", false },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
+        EXPECT_EQ(IsMarkdownFile(c.path), c.expected);
+    }
 }
 
 // ============================================================
-// IsHelpPath
+// IsHelpPath (残りのケースは test_help.cpp)
 // ============================================================
-
-TEST(IsHelpPath, CorrectPath)
-{
-    EXPECT_TRUE(IsHelpPath(L"mendo://help"));
-}
-
-TEST(IsHelpPath, WrongPath)
-{
-    EXPECT_FALSE(IsHelpPath(L"mendo://other"));
-}
-
-TEST(IsHelpPath, EmptyPath)
-{
-    EXPECT_FALSE(IsHelpPath(L""));
-}
-
-TEST(IsHelpPath, PartialMatch)
-{
-    EXPECT_FALSE(IsHelpPath(L"mendo://hel"));
-}
-
-TEST(IsHelpPath, CaseSensitive)
-{
-    EXPECT_FALSE(IsHelpPath(L"MENDO://HELP"));
-}
 
 // ============================================================
 // AppendInlineHtml の LF バッチ化境界ケース

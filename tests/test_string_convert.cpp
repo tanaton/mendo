@@ -2,307 +2,95 @@
 #include "string_convert.h"
 
 using namespace string_convert;
+using namespace std::literals;
 
-// ═══════════════════════════════════════════════
-// Utf8ToWide
-// ═══════════════════════════════════════════════
+namespace {
 
-TEST(StringConvert, Utf8ToWideAscii)
+struct ConvertCase {
+    std::string_view utf8;
+    std::wstring_view wide;
+};
+
+constexpr ConvertCase kConvertCases[] = {
+    { ""sv, L""sv },
+    { "A"sv, L"A"sv },
+    { "test"sv, L"test"sv },
+    { "Hello"sv, L"Hello"sv },
+    { "Hello, World!"sv, L"Hello, World!"sv },
+    { "a\tb\nc\r\nd"sv, L"a\tb\nc\r\nd"sv },
+    // string_view ベースなので途中の NUL も保持する
+    { "a\0b"sv, L"a\0b"sv },
+    { "\xC3\xA9"sv, L"é"sv },
+    { "\xE3\x81\x82"sv, L"あ"sv },
+    // BMP 外はサロゲートペアになる
+    { "\xF0\x9F\x98\x80"sv, L"\xD83D\xDE00"sv },
+    { "\xF0\x9F\x98\x80\xF0\x9F\x8E\x89"sv, L"\xD83D\xDE00\xD83C\xDF89"sv },
+    { "日本語テスト"sv, L"日本語テスト"sv },
+    { "マークダウンビュアー"sv, L"マークダウンビュアー"sv },
+    { "Hello, 世界!"sv, L"Hello, 世界!"sv },
+    { "# 見出し\n\nHello 世界 123"sv, L"# 見出し\n\nHello 世界 123"sv },
+
+    // 16 byte チャンク境界の前後
+    { "0123456789ABCDE"sv, L"0123456789ABCDE"sv },
+    { "0123456789ABCDEF"sv, L"0123456789ABCDEF"sv },
+    { "0123456789ABCDEFG"sv, L"0123456789ABCDEFG"sv },
+    { "0123456789ABCDEFghijklmnopqrstu"sv, L"0123456789ABCDEFghijklmnopqrstu"sv },
+    { "0123456789ABCDEFghijklmnopqrstuv"sv, L"0123456789ABCDEFghijklmnopqrstuv"sv },
+    { "\xE3\x81\x82" "0123456789ABCDE"sv, L"あ" L"0123456789ABCDE"sv },
+    { "abc\xE3\x81\x82" "def" "\xE4\xB8\x96" "ghi"sv, L"abcあ" L"def世" L"ghi"sv },
+    // 13 byte ASCII + 3 byte CJK でちょうど 1 チャンク
+    { "0123456789ABC" "\xE3\x81\x82"sv, L"0123456789ABCあ"sv },
+    // leading byte が境界に来る
+    { "0123456789ABCDE" "\xE3\x81\x82"sv, L"0123456789ABCDEあ"sv },
+    { "xxxxxxxxxxxxxxx" "\xF0\x9F\x98\x80"sv, L"xxxxxxxxxxxxxxx\xD83D\xDE00"sv },
+};
+
+} // namespace
+
+TEST(StringConvert, ConvertsBothDirections)
 {
-    auto result = Utf8ToWide("Hello");
-    EXPECT_EQ(result, L"Hello");
-}
+    for (const auto& c : kConvertCases) {
+        SCOPED_TRACE(::testing::PrintToString(c.utf8));
+        EXPECT_EQ(Utf8ToWide(c.utf8), c.wide);
+        EXPECT_EQ(WideToUtf8(c.wide), c.utf8);
 
-TEST(StringConvert, Utf8ToWideEmpty)
-{
-    auto result = Utf8ToWide("");
-    EXPECT_TRUE(result.empty());
-}
-
-TEST(StringConvert, Utf8ToWideJapanese)
-{
-    auto result = Utf8ToWide("日本語テスト");
-    EXPECT_EQ(result, L"日本語テスト");
-}
-
-TEST(StringConvert, Utf8ToWideEmoji)
-{
-    // BMP外の絵文字（サロゲートペアになる）
-    auto result = Utf8ToWide("\xF0\x9F\x98\x80"); // 😀
-    EXPECT_EQ(result.size(), 2u); // サロゲートペア
-}
-
-TEST(StringConvert, Utf8ToWideMixed)
-{
-    auto result = Utf8ToWide("Hello, 世界!");
-    EXPECT_EQ(result, L"Hello, 世界!");
-}
-
-TEST(StringConvert, Utf8ToWideRefVersion)
-{
-    std::pmr::wstring out;
-    Utf8ToWide("test", out);
-    EXPECT_EQ(out, L"test");
-}
-
-TEST(StringConvert, Utf8ToWideRefClearsOnEmpty)
-{
-    std::pmr::wstring out = L"old";
-    Utf8ToWide("", out);
-    EXPECT_TRUE(out.empty());
-}
-
-// ═══════════════════════════════════════════════
-// WideToUtf8
-// ═══════════════════════════════════════════════
-
-TEST(StringConvert, WideToUtf8Ascii)
-{
-    auto result = WideToUtf8(L"Hello");
-    EXPECT_EQ(result, "Hello");
-}
-
-TEST(StringConvert, WideToUtf8Empty)
-{
-    auto result = WideToUtf8(L"");
-    EXPECT_TRUE(result.empty());
-}
-
-TEST(StringConvert, WideToUtf8Japanese)
-{
-    auto result = WideToUtf8(L"日本語テスト");
-    EXPECT_EQ(result, "日本語テスト");
-}
-
-TEST(StringConvert, WideToUtf8RefVersion)
-{
-    std::string out;
-    WideToUtf8(L"test", out);
-    EXPECT_EQ(out, "test");
-}
-
-TEST(StringConvert, WideToUtf8RefClearsOnEmpty)
-{
-    std::string out = "old";
-    WideToUtf8(L"", out);
-    EXPECT_TRUE(out.empty());
-}
-
-// ═══════════════════════════════════════════════
-// ラウンドトリップ
-// ═══════════════════════════════════════════════
-
-TEST(StringConvert, RoundTripAscii)
-{
-    std::string original = "Hello, World!";
-    auto wide = Utf8ToWide(original);
-    auto back = WideToUtf8(wide);
-    EXPECT_EQ(back, original);
-}
-
-TEST(StringConvert, RoundTripJapanese)
-{
-    std::string original = "マークダウンビュアー";
-    auto wide = Utf8ToWide(original);
-    auto back = WideToUtf8(wide);
-    EXPECT_EQ(back, original);
-}
-
-TEST(StringConvert, RoundTripMixed)
-{
-    std::string original = "# 見出し\n\nHello 世界 123";
-    auto wide = Utf8ToWide(original);
-    auto back = WideToUtf8(wide);
-    EXPECT_EQ(back, original);
-}
-
-TEST(StringConvert, RoundTripSpecialChars)
-{
-    std::string original = "a\tb\nc\r\nd";
-    auto wide = Utf8ToWide(original);
-    auto back = WideToUtf8(wide);
-    EXPECT_EQ(back, original);
-}
-
-TEST(StringConvert, RoundTripEmoji)
-{
-    std::string original = "\xF0\x9F\x98\x80\xF0\x9F\x8E\x89"; // 😀🎉
-    auto wide = Utf8ToWide(original);
-    auto back = WideToUtf8(wide);
-    EXPECT_EQ(back, original);
-}
-
-// ═══════════════════════════════════════════════
-// エッジケース
-// ═══════════════════════════════════════════════
-
-TEST(StringConvert, SingleCharUtf8ToWide)
-{
-    auto result = Utf8ToWide("A");
-    EXPECT_EQ(result, L"A");
-    EXPECT_EQ(result.size(), 1u);
-}
-
-TEST(StringConvert, SingleCharWideToUtf8)
-{
-    auto result = WideToUtf8(L"A");
-    EXPECT_EQ(result, "A");
-    EXPECT_EQ(result.size(), 1u);
-}
-
-TEST(StringConvert, LongString)
-{
-    std::string utf8(10000, 'x');
-    auto wide = Utf8ToWide(utf8);
-    EXPECT_EQ(wide.size(), 10000u);
-    auto back = WideToUtf8(wide);
-    EXPECT_EQ(back, utf8);
-}
-
-TEST(StringConvert, NullByteInMiddle)
-{
-    // string_view ベースなので null バイトも扱える
-    std::string utf8("a\0b", 3);
-    auto wide = Utf8ToWide(utf8);
-    EXPECT_EQ(wide.size(), 3u);
-    EXPECT_EQ(wide[0], L'a');
-    EXPECT_EQ(wide[1], L'\0');
-    EXPECT_EQ(wide[2], L'b');
-}
-
-TEST(StringConvert, MultiByteBoundary)
-{
-    // 2バイトUTF-8文字 (U+00E9 é)
-    auto result = Utf8ToWide("\xC3\xA9");
-    EXPECT_EQ(result, L"\u00E9");
-    EXPECT_EQ(result.size(), 1u);
-}
-
-TEST(StringConvert, ThreeByteBoundary)
-{
-    // 3バイトUTF-8文字 (U+3042 あ)
-    auto result = Utf8ToWide("\xE3\x81\x82");
-    EXPECT_EQ(result, L"\u3042");
-    EXPECT_EQ(result.size(), 1u);
-}
-
-// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-// 16 \u30d0\u30a4\u30c8\u5883\u754c / \u5404\u7a2e\u9577\u3055\u30fb\u6df7\u5728\u30d1\u30bf\u30fc\u30f3\u306e\u56de\u5e30\u30c6\u30b9\u30c8
-// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-
-TEST(StringConvert, Utf8ToWide16ByteExact)
-{
-    std::string utf8 = "0123456789ABCDEF";
-    EXPECT_EQ(utf8.size(), 16u);
-    auto result = Utf8ToWide(utf8);
-    EXPECT_EQ(result, L"0123456789ABCDEF");
-    EXPECT_EQ(result.size(), 16u);
-}
-
-TEST(StringConvert, Utf8ToWide32ByteExact)
-{
-    std::string utf8 = "0123456789ABCDEFghijklmnopqrstuv";
-    EXPECT_EQ(utf8.size(), 32u);
-    auto result = Utf8ToWide(utf8);
-    EXPECT_EQ(result.size(), 32u);
-    EXPECT_EQ(result, L"0123456789ABCDEFghijklmnopqrstuv");
-}
-
-TEST(StringConvert, Utf8ToWide15ByteJustUnderBoundary)
-{
-    std::string utf8 = "0123456789ABCDE";
-    EXPECT_EQ(utf8.size(), 15u);
-    auto result = Utf8ToWide(utf8);
-    EXPECT_EQ(result, L"0123456789ABCDE");
-}
-
-TEST(StringConvert, Utf8ToWide17ByteJustOverBoundary)
-{
-    std::string utf8 = "0123456789ABCDEFG";
-    auto result = Utf8ToWide(utf8);
-    EXPECT_EQ(result, L"0123456789ABCDEFG");
-}
-
-TEST(StringConvert, Utf8ToWide31ByteJustUnderTwoChunks)
-{
-    std::string utf8 = "0123456789ABCDEFghijklmnopqrstu";
-    auto result = Utf8ToWide(utf8);
-    EXPECT_EQ(result.size(), 31u);
-    EXPECT_EQ(result, L"0123456789ABCDEFghijklmnopqrstu");
-}
-
-TEST(StringConvert, Utf8ToWide1024Byte)
-{
-    std::string utf8(1024, 'A');
-    auto result = Utf8ToWide(utf8);
-    EXPECT_EQ(result.size(), 1024u);
-    for (size_t i = 0; i < result.size(); ++i) {
-        EXPECT_EQ(result[i], L'A');
+        // 出力引数版は既存内容を上書きする
+        std::pmr::wstring wide_out = L"old";
+        Utf8ToWide(c.utf8, wide_out);
+        EXPECT_EQ(wide_out, c.wide);
+        std::string utf8_out = "old";
+        WideToUtf8(c.wide, utf8_out);
+        EXPECT_EQ(utf8_out, c.utf8);
     }
 }
 
-TEST(StringConvert, Utf8ToWideNonAsciiAtBoundaryStart)
+TEST(StringConvert, LongAsciiRoundTrip)
 {
-    // \u5148\u982d\u30d0\u30a4\u30c8\u5373\u975e ASCII\u3002U+3042 (\xE3\x81\x82) + ASCII 15 byte
-    std::string utf8 = "\xE3\x81\x82" "0123456789ABCDE";
-    auto result = Utf8ToWide(utf8);
-    EXPECT_EQ(result, L"\u3042" L"0123456789ABCDE");
-}
-
-TEST(StringConvert, Utf8ToWideNonAsciiInMiddle)
-{
-    // "abc" + U+3042 + "def" + U+4E16 + "ghi"
-    std::string utf8 = "abc\xE3\x81\x82" "def" "\xE4\xB8\x96" "ghi";
-    auto result = Utf8ToWide(utf8);
-    EXPECT_EQ(result, L"abc\u3042" L"def\u4e16" L"ghi");
-}
-
-TEST(StringConvert, Utf8ToWideNonAsciiAtBoundaryEnd)
-{
-    // 13 byte ASCII + 3 byte CJK = 16 byte (1 \u30c1\u30e3\u30f3\u30af)
-    std::string utf8 = "0123456789ABC" "\xE3\x81\x82";
-    auto result = Utf8ToWide(utf8);
-    EXPECT_EQ(result, L"0123456789ABC\u3042");
-}
-
-TEST(StringConvert, Utf8ToWideNonAsciiSpansBoundary)
-{
-    // 15 byte ASCII + 3 byte CJK = 18 byte\u3002\u5883\u754c\u306b leading byte \u304c\u6765\u308b\u3002
-    std::string utf8 = "0123456789ABCDE" "\xE3\x81\x82";
-    auto result = Utf8ToWide(utf8);
-    EXPECT_EQ(result, L"0123456789ABCDE\u3042");
+    for (const size_t size : { size_t{ 1024 }, size_t{ 10000 } }) {
+        SCOPED_TRACE(size);
+        const std::string utf8(size, 'A');
+        const auto wide = Utf8ToWide(utf8);
+        EXPECT_EQ(wide, std::pmr::wstring(size, L'A'));
+        EXPECT_EQ(WideToUtf8(wide), utf8);
+    }
 }
 
 TEST(StringConvert, Utf8ToWideAlternatingAsciiCjk)
 {
-    // U+3053 U+3093 U+306B U+3061 U+306F = "\u3053\u3093\u306b\u3061\u306f"
     std::string utf8;
     std::pmr::wstring expected;
     for (int i = 0; i < 50; ++i) {
         utf8 += "Hello world! ";
         utf8 += "\xE3\x81\x93\xE3\x82\x93\xE3\x81\xAB\xE3\x81\xA1\xE3\x81\xAF ";
         expected += L"Hello world! ";
-        expected += L"\u3053\u3093\u306b\u3061\u306f ";
+        expected += L"こんにちは ";
     }
     auto result = Utf8ToWide(utf8);
     EXPECT_EQ(result, expected);
 }
 
-TEST(StringConvert, Utf8ToWideEmojiAtBoundary)
-{
-    // \u88dc\u52a9\u9762\u6587\u5b57\u3092 16 byte \u5883\u754c\u306b\u7f6e\u3044\u3066\u30b5\u30ed\u30b2\u30fc\u30c8\u30da\u30a2\u304c\u6b63\u3057\u304f\u51fa\u529b\u3055\u308c\u308b\u3053\u3068
-    std::string utf8(15, 'x');
-    utf8 += "\xF0\x9F\x98\x80"; // U+1F600 (4 byte UTF-8 \u2192 2 wchar surrogate pair)
-    auto result = Utf8ToWide(utf8);
-    EXPECT_EQ(result.size(), 17u);
-    EXPECT_EQ(result.substr(0, 15), std::pmr::wstring(15, L'x'));
-    EXPECT_EQ(result[15], static_cast<wchar_t>(0xD83D));
-    EXPECT_EQ(result[16], static_cast<wchar_t>(0xDE00));
-}
-
 TEST(StringConvert, Utf8ToWideAllAsciiCodepoints)
 {
-    // 0x00 \u301c 0x7F \u306e\u5168 ASCII \u7bc4\u56f2\u3092\u542b\u3080\u6587\u5b57\u5217\u3092\u5909\u63db\u3057\u3066\u3082 1:1 \u3067\u5bfe\u5fdc
     std::string utf8;
     utf8.reserve(128);
     for (int c = 0; c < 128; ++c) {

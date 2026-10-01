@@ -20,6 +20,12 @@ inline float NodeTextXOffset(const Node& node, const Theme& theme) noexcept
     return (node.type == NodeType::CodeBlock) ? theme.code_block_padding : 0.0f;
 }
 
+// ブロック背景がテキスト範囲の上下にはみ出す量。背景・ヒット判定・横スクロールバー位置で共有する。
+inline float NodeBoxPadY(const Node& node, const Theme& theme) noexcept
+{
+    return (node.type == NodeType::CodeBlock) ? theme.code_block_padding : 0.0f;
+}
+
 // ダイアグラム/画像ノードのビットマップ未確定時に使うプレースホルダー高さ。
 inline float PlaceholderHeight(const Theme& theme) noexcept
 {
@@ -62,10 +68,6 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
 // table_layout を invalidate) を内部に閉じ込める。戻り値: 高さが更新されたら true。
 bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const Theme& theme, float node_width) noexcept;
 
-struct YPositionResult {
-    bool has_dirty_nodes = false;
-};
-
 // 高さが変わったノードの閉区間 [first, last]。以降のノードは一定量のシフトで済むため、
 // 再計算を先頭からの全件ではなくこの範囲に限定できる。既定値は空。
 struct HeightChangeRange {
@@ -87,9 +89,9 @@ struct HeightChangeRange {
     }
 };
 
-YPositionResult RecomputeYPositions(
+// 戻り値: 再計算範囲 (tail シフト時は以降も保守的に含む) に dirty ノードが残っているか。
+bool RecomputeYPositions(
     std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
-    size_t from_index = 0, bool has_earlier_dirty = false,
-    size_t safe_exit_after = std::numeric_limits<size_t>::max()) noexcept;
+    size_t from_index = 0, size_t safe_exit_after = std::numeric_limits<size_t>::max()) noexcept;
 
 } // namespace mendo::layout

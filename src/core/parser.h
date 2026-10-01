@@ -1,5 +1,6 @@
 #pragma once
 #include "document_types.h"
+#include <concepts>
 #include <optional>
 #include <span>
 #include <stop_token>
@@ -21,6 +22,12 @@ struct ParseResult {
 // stop_token を渡すと md4c コールバックから途中で abort できる。default-constructed の場合は
 // 永久に stop_requested() == false なので、従来どおり最後まで走る。
 ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token = {});
+
+// ノードは入力テキストを参照するため、一時文字列を渡すと戻り値が即座にダングリングする。
+template <class S>
+    requires(!std::is_lvalue_reference_v<S> &&
+             (std::same_as<std::remove_cv_t<S>, std::string> || std::same_as<std::remove_cv_t<S>, std::pmr::string>))
+ParseResult ParseMarkdown(S&& markdown_text, std::stop_token stop_token = {}) = delete;
 
 // BlockQuoteノードからGitHub Alertsを検出し、マーカー除去・ラベル挿入・グルーピングを行う（テスト用に公開）。
 // blockquote_indices は ParseMarkdown が収集した BlockQuote ノードのインデックス。

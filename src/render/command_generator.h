@@ -34,6 +34,16 @@ inline UINT32 FetchHitTestMetrics(IDWriteTextLayout* layout, UINT32 start, UINT3
     return count;
 }
 
+// DWRITE_HIT_TEST_METRICS を origin 加算付きの D2D1_RECT_F に変換する。
+inline D2D1_RECT_F RectFromHitTest(const DWRITE_HIT_TEST_METRICS& m, float origin_x = 0.0f, float origin_y = 0.0f) noexcept
+{
+    return D2D1::RectF(
+        origin_x + m.left,
+        origin_y + m.top,
+        origin_x + m.left + m.width,
+        origin_y + m.top + m.height);
+}
+
 inline D2D1_RECT_F OffsetRectF(const D2D1_RECT_F& r, float origin_x, float origin_y) noexcept
 {
     return D2D1::RectF(origin_x + r.left, origin_y + r.top, origin_x + r.right, origin_y + r.bottom);
@@ -92,8 +102,7 @@ public:
     {
         theme_ = theme;
         cached_is_dark_ = theme->IsDark();
-        const float a = cached_is_dark_ ? TABLE_STRIPE_ALPHA_DARK : TABLE_STRIPE_ALPHA_LIGHT;
-        cached_stripe_color_ = mendo::MonochromeOverlay(cached_is_dark_, a);
+        cached_stripe_color_ = mendo::TableStripeColor(cached_is_dark_);
     }
     constexpr void SetFormats(const Formats& fmts) noexcept
     {
@@ -184,9 +193,10 @@ private:
         bool is_header = false;
     };
     void GenTableCellContent(DrawCommandList& cmds, std::string_view cell_text, const CellDrawContext& ctx);
-    void GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, float entry_text_top);
+    // box は padding 込みのコードブロック矩形 (ペインローカル)。
+    void GenCodeBlockBg(DrawCommandList& cmds, const D2D1_RECT_F& box);
     void GenOverlayButton(DrawCommandList& cmds, D2D1_RECT_F btn, wchar_t icon, bool is_hovered);
-    void GenCopyButton(DrawCommandList& cmds, float x, float w, bool is_hovered, float entry_text_top);
+    void GenCopyButton(DrawCommandList& cmds, float box_right, float box_top, bool is_hovered);
     void GenDiagramButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, DiagramButtonSlot slot, wchar_t icon, bool is_hovered);
     // ブロックローカルの水平スクロールバー。ホバー中 / ドラッグ中の対象ブロックでのみ emit する。
     // block_x はブロック左端、bar_y はバー上端 (ペイン内ローカル座標)。
@@ -259,13 +269,11 @@ private:
         }
         if (c.text_len <= DrawTextCmd::INLINE_TEXT_CAPACITY) {
             std::char_traits<wchar_t>::copy(c.inline_buf, src, c.text_len);
-            c.is_inline = true;
         }
         else {
             auto* buf = static_cast<wchar_t*>(frame_resource_.resource()->allocate(c.text_len * sizeof(wchar_t), alignof(wchar_t)));
             std::char_traits<wchar_t>::copy(buf, src, c.text_len);
             c.text_ptr = buf;
-            c.is_inline = false;
         }
         return c;
     }
@@ -278,9 +286,8 @@ private:
     int prev_sel_start_node_ = -1;
     int prev_sel_end_node_ = -1;
 
-    // 選択ハイライトの UTF-8→UTF-16 decode を、本文ノードとテーブルセルそれぞれで
-    // 連続フレーム間に渡って再利用する。GenerateMdPane 冒頭で ResetIfBufferChanged を
-    // 呼び、ドキュメント切り替え時に string_view の dangling を防ぐ。
+    // 本文ノードの選択ハイライトの UTF-8→UTF-16 decode を連続フレーム間で再利用する。
+    // GenerateMdPane 冒頭で ResetIfBufferChanged を呼び、ドキュメント切り替え時に
+    // string_view の dangling を防ぐ。
     mendo::WideViewCache node_wv_;
-    mendo::WideViewCache cell_wv_;
 };

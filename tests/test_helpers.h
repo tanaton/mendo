@@ -38,7 +38,7 @@ constexpr bool ColorEq(D2D1_COLOR_F a, D2D1_COLOR_F b) noexcept
 // 任意の文字列を受け取るテストヘルパーでは内容から自動算出したい。
 inline void SetNodeTextCounted(Node& n, std::string_view sv)
 {
-    const int32_t lc = static_cast<int32_t>(std::ranges::count(sv, mendo::doc_lf));
+    const int32_t lc = static_cast<int32_t>(std::ranges::count(sv, '\n'));
     n.SetTextWithLineCount(sv, lc);
 }
 
@@ -61,7 +61,7 @@ inline Node MakeTableNode(const char* cell0, const char* cell1)
     tbl->row_count = 1;
     tbl->col_count = 2;
     tbl->concat_text.append(cell0);
-    tbl->concat_text.push_back(mendo::doc_tab);
+    tbl->concat_text.push_back('\t');
     tbl->concat_text.append(cell1);
     tbl->cell_text_starts.push_back(0);
     tbl->cell_text_starts.push_back(static_cast<uint32_t>(std::char_traits<char>::length(cell0) + 1));
@@ -91,6 +91,15 @@ inline LayoutCache MakeUniformCache(int count, float node_height = 100.0f)
     return cache;
 }
 
+inline size_t CountDirty(const LayoutCache& cache) noexcept
+{
+    size_t n = 0;
+    for (size_t i = 0; i < cache.size(); ++i) {
+        n += cache[i].layout_dirty ? 1 : 0;
+    }
+    return n;
+}
+
 // レイアウト系テスト共通の Theme。Theme は zoom 以外初期化子なしの集約のため、
 // value-init + 明示設定で未初期化読み（flaky の温床）を防ぐ。
 inline Theme MakeLayoutTestTheme()
@@ -114,13 +123,12 @@ inline Theme MakeLayoutTestTheme()
     return theme;
 }
 
-// テストケースごとに temp ディレクトリを自動で用意・破棄するフィクスチャ基底。
-// テスト名とプロセスIDで一意な名前を生成するため、並列実行や異常終了時も衝突しない。
-class TempDirTestBase : public ::testing::Test {
-protected:
-    std::filesystem::path temp_dir_;
-
-    void SetUp() override
+// temp ディレクトリを RAII で用意・破棄する。テスト名とプロセスIDで一意な名前を生成するため、
+// 並列実行や異常終了時も衝突しない。gtest はフィクスチャ生成前に current_test_info を
+// 設定するので、フィクスチャのメンバとして保持できる。
+class ScopedTempDir {
+public:
+    ScopedTempDir()
     {
         const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
         std::string name = "mendo_test_";
@@ -131,20 +139,34 @@ protected:
             name += "_";
         }
         name += std::to_string(::GetCurrentProcessId());
-        temp_dir_ = std::filesystem::temp_directory_path() / name;
-        std::filesystem::create_directories(temp_dir_);
+        // 値パラメータ化テスト名の '/' でネストしたディレクトリにならないようにする
+        std::ranges::replace(name, '/', '_');
+        path_ = std::filesystem::temp_directory_path() / name;
+        std::error_code ec;
+        // PID 再利用時に前回の異常終了の残骸を引き継がない
+        std::filesystem::remove_all(path_, ec);
+        std::filesystem::create_directories(path_, ec);
+        if (ec) {
+            ADD_FAILURE() << "Failed to create temp dir: " << path_.string() << ": " << ec.message();
+        }
     }
-
-    void TearDown() override
+    ~ScopedTempDir()
     {
         std::error_code ec;
-        std::filesystem::remove_all(temp_dir_, ec);
+        std::filesystem::remove_all(path_, ec);
+    }
+    ScopedTempDir(const ScopedTempDir&) = delete;
+    ScopedTempDir& operator=(const ScopedTempDir&) = delete;
+
+    const std::filesystem::path& path() const noexcept
+    {
+        return path_;
     }
 
-    // バイナリで temp_dir_ 配下にファイルを作成し、絶対パスを返す。
-    std::filesystem::path WriteTempFile(std::wstring_view name, std::string_view content) const
+    // バイナリで配下にファイルを作成し、絶対パスを返す。
+    std::filesystem::path Write(std::wstring_view name, std::string_view content = {}) const
     {
-        auto path = temp_dir_ / name;
+        auto path = path_ / name;
         std::ofstream f(path, std::ios::binary);
         if (!f.is_open()) {
             ADD_FAILURE() << "Failed to open temp file: " << path.string();
@@ -155,6 +177,24 @@ protected:
             ADD_FAILURE() << "Failed to write temp file: " << path.string();
         }
         return path;
+    }
+
+private:
+    std::filesystem::path path_;
+};
+
+// テストケースごとに temp ディレクトリを自動で用意・破棄するフィクスチャ基底。
+// ディレクトリは派生クラスのメンバ破棄後に消えるため、ファイルを開いたままのメンバがいても安全。
+class TempDirTestBase : public ::testing::Test {
+private:
+    ScopedTempDir scoped_temp_dir_;
+
+protected:
+    const std::filesystem::path temp_dir_ = scoped_temp_dir_.path();
+
+    std::filesystem::path WriteTempFile(std::wstring_view name, std::string_view content = {}) const
+    {
+        return scoped_temp_dir_.Write(name, content);
     }
 };
 
@@ -199,44 +239,18 @@ inline const T* FindEffect(const SideEffectList& effects) noexcept
     return nullptr;
 }
 
-enum class EffectOrdering {
-    Before, // A が先、B が後
-    After,  // B が先、A が後
-    OnlyA,  // A だけ存在
-    OnlyB,  // B だけ存在
-    Neither // どちらも無し
-};
-
-// effects 内で A が B より先に現れるか判定する。
-// 順序の意味づけが分岐ごとに違う場合があるので、Before / After 以外も
-// 失敗時に何が起きたかを呼び出し側が EXPECT_EQ で識別できるよう列挙する。
-template <typename A, typename B>
-inline EffectOrdering EffectOrder(const SideEffectList& effects) noexcept
-{
-    const auto a = IndexOfEffect<A>(effects);
-    const auto b = IndexOfEffect<B>(effects);
-    if (!a && !b) {
-        return EffectOrdering::Neither;
-    }
-    if (a && !b) {
-        return EffectOrdering::OnlyA;
-    }
-    if (!a && b) {
-        return EffectOrdering::OnlyB;
-    }
-    return *a < *b ? EffectOrdering::Before : EffectOrdering::After;
-}
-
 // effects 内で A が存在し、かつ B が存在し、A が B より先に現れる場合のみ true。
 template <typename A, typename B>
 inline bool HasEffectInOrder(const SideEffectList& effects) noexcept
 {
-    return EffectOrder<A, B>(effects) == EffectOrdering::Before;
+    const auto a = IndexOfEffect<A>(effects);
+    const auto b = IndexOfEffect<B>(effects);
+    return a && b && *a < *b;
 }
 
 // プロセス内一意の一時ファイルを RAII で作成・削除する。
 // jthread / 非同期ロード系テストで「実ファイルを 1 つ」だけ要求するケースに使う。
-// 大量ファイルや subdir 構造が要るテストは TempDirTestBase を使うこと。
+// 大量ファイルや subdir 構造が要るテストは TempDirTestBase / ScopedTempDir を使うこと。
 class TempFile {
 public:
     TempFile(std::wstring_view name_hint, std::string_view content)

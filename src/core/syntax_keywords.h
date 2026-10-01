@@ -4,7 +4,6 @@
 // 二分探索する。長さ違いのキーワードと wmemcmp する無駄を排除する。
 // MakeBucketed は consteval なのでバケット境界はコンパイル時に確定する。
 #pragma once
-#include "doc_text.h"
 #include <algorithm>
 #include <array>
 #include <span>

@@ -169,7 +169,7 @@ void ReduceMdScrollbarDragEnded(AppState& state, SideEffectList& effects)
 void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, const PaneScrollbarDragStartedAction& a)
 {
     auto ctx = GetSidePaneContext(state, a.pane);
-    if (ctx.total_content <= ctx.info.content_height) {
+    if (ctx.info.total_content <= ctx.info.content_height) {
         return;
     }
     const float thumb_y = ComputeThumbY(ctx.info, ctx.scroll.scroll_y);
@@ -177,12 +177,12 @@ void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, co
     const auto drag_offset = grip.drag_offset;
 
     // ドラッグ state の初期化は SetCapture より前に行う
-    state.view.panes.StartDrag(ctx.drag_target);
+    state.view.panes.StartDrag(SidePaneDragTarget(a.pane));
     state.view.panes.SetDragScrollOffset(drag_offset);
     PushEffect(effects, effect::SetCapture{});
     if (!grip.inside_thumb) {
         ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, a.dip_y - drag_offset);
-        EmitSidePaneScrollChanged(effects, ctx.pane_zone);
+        EmitSidePaneScrollChanged(effects, a.pane);
     }
 }
 
@@ -196,7 +196,7 @@ void ReducePaneScrollbarDragMoved(AppState& state, SideEffectList& effects, cons
     auto ctx = GetSidePaneContext(state, a.pane);
     const float new_thumb_y = a.dip_y - state.view.panes.GetDragScrollOffset();
     ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, new_thumb_y);
-    EmitSidePaneScrollChanged(effects, ctx.pane_zone);
+    EmitSidePaneScrollChanged(effects, a.pane);
 }
 
 void ReducePaneScrollbarDragEnded(AppState& state, SideEffectList& effects)

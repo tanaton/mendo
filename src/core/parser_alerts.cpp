@@ -86,7 +86,7 @@ AlertType DetectAlertMarker(std::string_view text, size_t& marker_end)
 
     marker_end = close + 1;
     // マーカー直後のスペースまたは改行を1つスキップ
-    if (marker_end < text.size() && (text[marker_end] == mendo::doc_sp || text[marker_end] == mendo::doc_lf)) {
+    if (marker_end < text.size() && (text[marker_end] == ' ' || text[marker_end] == '\n')) {
         marker_end++;
     }
     return type;
@@ -107,12 +107,12 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     std::pmr::string new_text;
     new_text.reserve(full_label_len + 4 + (has_content ? current_text.size() - marker_end : 0));
     new_text.append(icon);
-    new_text += mendo::doc_sp;
+    new_text += ' ';
     new_text.append(label);
 
     size_t new_content_start = full_label_len;
     if (has_content) {
-        new_text += mendo::doc_lf;
+        new_text += '\n';
         new_content_start = full_label_len + 1;
         new_text.append(current_text.data() + marker_end, current_text.size() - marker_end);
     }
@@ -147,7 +147,7 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     // 全文走査で改行を数え直すと O(text) かかるため、ここで差分計算する。
     // マーカー [!TYPE] 本体には改行が入らず、DetectAlertMarker で 1 文字だけスキップする
     // 文字が \n の場合のみ改行 1 個。marker_end 直前の 1 文字だけを見ればよい。
-    const int32_t marker_newlines = (marker_end > 0 && current_text[marker_end - 1] == mendo::doc_lf);
+    const int32_t marker_newlines = (marker_end > 0 && current_text[marker_end - 1] == '\n');
     const int32_t new_line_count = node.line_count - marker_newlines + has_content;
     node.SetTextWithLineCount(std::move(new_text), new_line_count);
     node.runs = std::move(new_runs);

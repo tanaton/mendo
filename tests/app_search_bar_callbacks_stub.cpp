@@ -28,8 +28,6 @@ float AppSearchBarCallbacks::get_md_pane_height()
 {
     return 0.0f;
 }
-void AppSearchBarCallbacks::on_scroll_changed(float)
-{}
 void AppSearchBarCallbacks::on_wrap_around()
 {}
 

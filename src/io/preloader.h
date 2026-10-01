@@ -48,17 +48,22 @@ public:
     // 進行中の preload を非ブロッキングで中断し、取り込まれていない結果も破棄する。
     void Cancel() noexcept;
 
+#ifdef MENDO_TESTING
+    // worker が結果を sink に積んだか。AppliedSync 経路のテストが固定 sleep せずに待つために使う。
+    bool HasPublishedForTest() const
+    {
+        return IsDoneLocked();
+    }
+#endif
+
 private:
     // worker は cv.wait で hwnd セットを待ってから PostMessage する。
-    // main 側の早期終了時は aborted=true + cv.notify_all でデッドロックを避ける。
+    // condition_variable_any は stop 要求でも起床するため、早期終了時も join が詰まらない。
     struct Context {
         std::mutex mtx;
-        std::condition_variable cv;
+        std::condition_variable_any cv;
         HWND hwnd = nullptr;
         UINT msg_id = 0;
-        bool aborted = false;
-
-        void SignalAbort();
     };
 
     bool IsDoneLocked() const;

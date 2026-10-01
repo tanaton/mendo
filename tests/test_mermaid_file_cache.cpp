@@ -2,34 +2,26 @@
 #include "mermaid_file_cache.h"
 #include "task_scheduler.h"
 #include "mermaid_util.h"
+#include "test_helpers.h"
 #include <filesystem>
 #include <fstream>
 #include <cstring>
 #include <memory>
-#include <thread>
-#include <chrono>
 
 // ダミーPNGデータを生成する（ファイルキャッシュの単体テスト用、有効なPNGである必要はない）。
-static std::pmr::vector<uint8_t> MakeDummyPng(size_t size = 1024)
+static MermaidFileCache::PngBytes MakeDummyPng(size_t size = 1024)
 {
     std::pmr::vector<uint8_t> data(size);
     for (size_t i = 0; i < size; ++i) {
         data[i] = static_cast<uint8_t>(i & 0xFF);
     }
-    return data;
+    return std::make_shared<const std::pmr::vector<uint8_t>>(std::move(data));
 }
 
-class MermaidFileCacheTest : public ::testing::Test {
+class MermaidFileCacheTest : public TempDirTestBase {
 protected:
     void SetUp() override
     {
-        // テストごとに一意のディレクトリを使用（並列実行時の衝突回避）
-        auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        std::string test_name = info->name();
-        std::wstring wname(test_name.begin(), test_name.end());
-        temp_dir_ = std::filesystem::temp_directory_path() / L"mendo_test_cache" / wname;
-        std::error_code ec;
-        std::filesystem::remove_all(temp_dir_, ec);
         cache_.SetCacheDir(temp_dir_);
         scheduler_.Init(2);
     }
@@ -37,8 +29,6 @@ protected:
     void TearDown() override
     {
         scheduler_.Shutdown();
-        std::error_code ec;
-        std::filesystem::remove_all(temp_dir_, ec);
     }
 
     void InitCache(float dpr = 1.0f)
@@ -64,7 +54,6 @@ protected:
         return fresh;
     }
 
-    std::filesystem::path temp_dir_;
     TaskScheduler scheduler_;
     MermaidFileCache cache_;
 };
@@ -89,8 +78,8 @@ TEST_F(MermaidFileCacheTest, StoreAndLookupRoundTrip)
     EXPECT_TRUE(cache_.Lookup(key, entry, out));
     EXPECT_EQ(entry.css_width, 400.0f);
     EXPECT_EQ(entry.css_height, 300.0f);
-    ASSERT_EQ(out.size, png.size());
-    EXPECT_EQ(std::memcmp(out.data.get(), png.data(), out.size), 0);
+    ASSERT_EQ(out.size, png->size());
+    EXPECT_EQ(std::memcmp(out.data.get(), png->data(), out.size), 0);
 }
 
 TEST_F(MermaidFileCacheTest, LookupMissReturnsFalse)
@@ -196,16 +185,13 @@ TEST_F(MermaidFileCacheTest, EvictsOldestWhenMaxEntriesExceeded)
     cache_.SetLimits(3, 1ULL * 1024 * 1024 * 1024);
     InitCache();
 
-    // 3エントリを格納（タイムスタンプの差を確保）
+    // 3エントリを格納
     cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
     cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
     cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyPng(100));
     EXPECT_EQ(cache_.EntryCount(), 3u);
 
     // 4つ目を追加 → 最古のエントリ(key=1)が削除される
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
     cache_.StoreAsync(4, 100.0f, 50.0f, MakeDummyPng(100));
     EXPECT_EQ(cache_.EntryCount(), 3u);
 
@@ -231,13 +217,11 @@ TEST_F(MermaidFileCacheTest, EvictsWhenMaxSizeExceeded)
     InitCache();
 
     cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(200));
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
     cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(200));
     EXPECT_EQ(cache_.EntryCount(), 2u);
     EXPECT_EQ(cache_.TotalSize(), 400u);
 
     // 300バイト追加 → 合計700 > 500 → 最古エントリを削除
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
     cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyPng(300));
     // key=1が削除されて合計500バイト以内になる
     EXPECT_LE(cache_.TotalSize(), 500u);
@@ -531,7 +515,7 @@ TEST_F(MermaidFileCacheTest, OperationsWithoutInitAreNoOp)
 }
 
 // ═══════════════════════════════════════════════
-// LRU — Lookupがタイムスタンプを更新する
+// LRU — Lookupが使用順を更新する
 // ═══════════════════════════════════════════════
 
 TEST_F(MermaidFileCacheTest, LookupRefreshesTimestamp)
@@ -541,13 +525,10 @@ TEST_F(MermaidFileCacheTest, LookupRefreshesTimestamp)
 
     // key=1を最初に格納
     cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
 
-    // key=2を格納（key=1より新しいタイムスタンプ）
+    // key=2を格納（key=1より新しい使用順）
     cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
     scheduler_.Shutdown();
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
 
     cache_.SetCacheDir(temp_dir_);
     cache_.SetLimits(2, 1ULL * 1024 * 1024 * 1024);
@@ -555,7 +536,7 @@ TEST_F(MermaidFileCacheTest, LookupRefreshesTimestamp)
     scheduler_.Init(2);
     cache_.Init(1.0f, scheduler_);
 
-    // key=1をLookupしてタイムスタンプを更新（key=2より新しくなる）
+    // key=1をLookupして使用順を更新（key=2より新しくなる）
     MermaidFileCache::CacheEntry entry;
     MermaidFileCache::PngBlob out;
     EXPECT_TRUE(cache_.Lookup(1, entry, out));
@@ -611,13 +592,12 @@ TEST_F(MermaidFileCacheTest, LookupDimensionsSurvivesPersistence)
 
 TEST_F(MermaidFileCacheTest, LookupDimensionsDoesNotUpdateLru)
 {
-    // LookupDimensionsはLRUタイムスタンプを更新しないことを確認する。
+    // LookupDimensionsはLRU使用順を更新しないことを確認する。
     // エビクション対象の選択に影響しないため、推定専用の軽量パスとして安全。
     cache_.SetLimits(2, 1ULL * 1024 * 1024 * 1024);
     InitCache();
 
     cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
     cache_.StoreAsync(2, 200.0f, 100.0f, MakeDummyPng(100));
     EXPECT_EQ(cache_.EntryCount(), 2u);
 
@@ -626,7 +606,6 @@ TEST_F(MermaidFileCacheTest, LookupDimensionsDoesNotUpdateLru)
     EXPECT_TRUE(cache_.LookupDimensions(1, entry));
 
     // key=3を追加 → LRU未更新のkey=1が最古として削除されるはず
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
     cache_.StoreAsync(3, 300.0f, 150.0f, MakeDummyPng(100));
     EXPECT_EQ(cache_.EntryCount(), 2u);
 

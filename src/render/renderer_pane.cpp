@@ -1,8 +1,8 @@
 #include "renderer.h"
-#include "doc_dwrite_bridge.h"
 #include "d2d_util.h"
 #include "i18n.h"
 #include "pane_layout.h"
+#include "string_convert.h"
 #include "ui_constants.h"
 #include <algorithm>
 #include <cmath>
@@ -250,10 +250,8 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const std::pmr
         if (fmt_.pane_item) {
             const D2D1_RECT_F text_rect = D2D1::RectF(
                 8.0f + indent, item_y, width - 4.0f, item_y + theme_.pane_item_height);
-            const auto text = nodes[entry.node_index].GetText();
-            const mendo::WideViewForDWrite wv{ text };
-            const auto wide = wv.wide();
-            rt->DrawText(wide.data(), static_cast<UINT32>(wide.size()), fmt_.pane_item.Get(), text_rect, Brush(BrushId::Text), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            string_convert::Utf8ToWide(nodes[entry.node_index].GetText(), toc_text_scratch_);
+            rt->DrawText(toc_text_scratch_.data(), static_cast<UINT32>(toc_text_scratch_.size()), fmt_.pane_item.Get(), text_rect, Brush(BrushId::Text), D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
 
         if (i == active_index) {

@@ -107,7 +107,6 @@ add_library(md4c STATIC third_party/md4c/md4c.c)
 target_include_directories(md4c PUBLIC third_party/md4c)
 if(MSVC)
     target_compile_options(md4c PRIVATE /W0)
-    set_target_properties(md4c PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
 # ---- サブディレクトリ定義 ----
@@ -187,12 +186,12 @@ add_library(mendo_core STATIC
     src/util/file_io.cpp
     src/util/task_scheduler.cpp
 )
-target_include_directories(mendo_core PUBLIC ${MENDO_SRC_DIRS} third_party/md4c)
+target_include_directories(mendo_core PUBLIC ${MENDO_SRC_DIRS})
 target_compile_definitions(mendo_core PUBLIC
     UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
 )
 target_link_libraries(mendo_core PUBLIC
-    md4c d2d1 dwrite windowscodecs comctl32 cabinet
+    md4c d2d1 dwrite windowscodecs cabinet
 )
 if(MENDO_USE_TRACY)
     # MENDO_USE_TRACY: profiler.h のマクロを Tracy 呼び出しに展開するスイッチ。
@@ -202,9 +201,9 @@ if(MENDO_USE_TRACY)
 endif()
 if(MSVC)
     # /Zc:preprocessor: C++20 準拠 preprocessor (__VA_OPT__ 等)。
-    # profiler.h の MENDO_LOGF/STATF/TRACEF が __VA_OPT__ を使うため必須。
-    # Tracy 等のサードパーティ target は PRIVATE フラグ管理で影響を受けない。
-    target_compile_options(mendo_core PRIVATE /W4 /utf-8 /Zc:preprocessor)
+    # profiler.h の MENDO_LOGF/STATF/TRACEF が __VA_OPT__ を使い、利用側 TU にも展開されるため
+    # PUBLIC で伝播させる (依存先の Tracy/md4c には伝播しない)。
+    target_compile_options(mendo_core PUBLIC /W4 /utf-8 /Zc:preprocessor)
 endif()
 
 # ---- プリコンパイル済みヘッダー ----
@@ -257,12 +256,9 @@ add_executable(mendo WIN32
 )
 add_dependencies(mendo mermaid_mszip)
 target_include_directories(mendo PRIVATE ${WEBVIEW2_INCLUDE} ${WIL_INCLUDE})
-target_link_libraries(mendo PRIVATE mendo_core
+target_link_libraries(mendo PRIVATE mendo_core comctl32
     "${WEBVIEW2_LIB_DIR}/WebView2LoaderStatic.lib"
 )
-if(MSVC)
-    target_compile_options(mendo PRIVATE /W4 /utf-8 /Zc:preprocessor)
-endif()
 # 自動生成マニフェストを無効化（RC経由で独自のマニフェストを提供するため）
 set_target_properties(mendo PROPERTIES LINK_FLAGS "/MANIFEST:NO")
 
@@ -271,7 +267,6 @@ target_precompile_headers(mendo REUSE_FROM mendo_core)
 # ---- テスト ----
 option(MENDO_BUILD_TESTS "Build tests" ON)
 if(MENDO_BUILD_TESTS)
-    include(FetchContent)
     FetchContent_Declare(
         googletest
         URL https://github.com/google/googletest/archive/refs/tags/v1.17.0.zip

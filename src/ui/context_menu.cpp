@@ -48,13 +48,6 @@ LRESULT CALLBACK ContextMenu::Impl::WndProc(HWND hwnd, UINT msg, WPARAM wParam, 
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
-void ContextMenu::Impl::PrepareContent(const ContextMenuParams& params)
-{
-    BuildItems(params);
-    CreateTextFormats(*theme);
-    ComputeLayout();
-}
-
 bool ContextMenu::Impl::CreatePopupWindow(int screen_x, int screen_y)
 {
     if (!RegisterWindowClass()) {
@@ -100,7 +93,7 @@ bool ContextMenu::Impl::CreatePopupWindow(int screen_x, int screen_y)
         return false;
     }
 
-    if (!RecreateDeviceResources()) {
+    if (!CreateDeviceResources()) {
         DestroyWindow(hwnd);
         hwnd = nullptr;
         return false;
@@ -158,7 +151,9 @@ int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
     // theme は呼び出し側 Theme の借用ポインタ。Show 終了後にダングリングさせないよう必ず手放す。
     auto theme_guard = ScopeGuard([&s] { s.theme = nullptr; });
 
-    s.PrepareContent(params);
+    s.BuildItems(params);
+    s.CreateTextFormats(*s.theme);
+    s.ComputeLayout();
     if (!s.CreatePopupWindow(params.screen_x, params.screen_y)) {
         return 0;
     }
@@ -192,21 +187,8 @@ LRESULT ContextMenu::Impl::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         const int old_hovered = hovered_id;
         const int old_nav = hovered_nav;
 
-        hovered_id = 0;
-        hovered_nav = 0;
-
-        if (!items.empty() && items[0].type == ItemType::NavRow) {
-            if (nav_layout.back_enabled && PointInRect(x, y, nav_layout.back_rect)) {
-                hovered_nav = -1;
-            }
-            else if (nav_layout.fwd_enabled && PointInRect(x, y, nav_layout.fwd_rect)) {
-                hovered_nav = 1;
-            }
-        }
-
-        if (hovered_nav == 0) {
-            hovered_id = HitTest(x, y);
-        }
+        hovered_nav = NavHitTest(x, y);
+        hovered_id = hovered_nav == 0 ? HitTest(x, y) : 0;
 
         if (hovered_id != old_hovered || hovered_nav != old_nav) {
             InvalidateRect(hwnd, nullptr, FALSE);
@@ -224,20 +206,13 @@ LRESULT ContextMenu::Impl::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
 
-        const int nav_hit = NavHitTest(x, y);
-        if (nav_hit != 0) {
-            selected_id = nav_hit;
-            done = true;
-            return 0;
+        int hit = NavHitTest(x, y);
+        if (hit == 0) {
+            hit = HitTest(x, y);
         }
-
-        const int hit = HitTest(x, y);
-        for (const auto& item : items) {
-            if (item.id == hit && item.enabled) {
-                selected_id = hit;
-                done = true;
-                return 0;
-            }
+        if (hit != 0) {
+            selected_id = hit;
+            done = true;
         }
         return 0;
     }
@@ -272,38 +247,21 @@ LRESULT ContextMenu::Impl::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     }
 }
 
-bool ContextMenu::Impl::EnsureRenderTarget(float dpi)
+bool ContextMenu::Impl::CreateDeviceResources()
 {
-    if (rt) {
-        return true;
-    }
     RECT rc{};
     if (!GetClientRect(hwnd, &rc)) {
         return false;
     }
     const D2D1_SIZE_U size{ static_cast<UINT32>(rc.right), static_cast<UINT32>(rc.bottom) };
     D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties();
-    rtProps.dpiX = dpi;
-    rtProps.dpiY = dpi;
+    rtProps.dpiX = dpi_scale * DEFAULT_DPI;
+    rtProps.dpiY = dpi_scale * DEFAULT_DPI;
     const auto hwndProps = D2D1::HwndRenderTargetProperties(hwnd, size);
-    const HRESULT hr = d2d_factory->CreateHwndRenderTarget(rtProps, hwndProps, &rt);
-    return SUCCEEDED(hr);
-}
-
-bool ContextMenu::Impl::RecreateDeviceResources()
-{
-    if (!EnsureRenderTarget(dpi_scale * DEFAULT_DPI)) {
+    if (FAILED(d2d_factory->CreateHwndRenderTarget(rtProps, hwndProps, &rt))) {
         return false;
     }
-    CreateBrushes();
-    return true;
-}
 
-void ContextMenu::Impl::CreateBrushes()
-{
-    if (!rt || !theme) {
-        return;
-    }
     auto make = [&](D2D1_COLOR_F c) {
         ComPtr<ID2D1SolidColorBrush> b;
         mendo::CreateSolidColorBrushOrFallback(rt.Get(), c, b);
@@ -319,15 +277,14 @@ void ContextMenu::Impl::CreateBrushes()
 
     brush_hover = make(theme->pane_item_hover_color);
     brush_check = make(theme->link_color);
+    return true;
 }
 
 void ContextMenu::Impl::Paint()
 {
-    if (!rt) {
-        // デバイスロスト後 (EndDraw が D2DERR_RECREATE_TARGET で rt を破棄) はここで再生成する。
-        if (!RecreateDeviceResources()) {
-            return;
-        }
+    // デバイスロスト後 (EndDraw が D2DERR_RECREATE_TARGET で rt を破棄) はここで再生成する。
+    if (!rt && !CreateDeviceResources()) {
+        return;
     }
     rt->BeginDraw();
     rt->Clear(theme->pane_bg_color);
@@ -377,8 +334,8 @@ void ContextMenu::Impl::DrawNavRow()
         }
     };
 
-    draw_btn(nav_layout.back_rect, GLYPH_BACK, nav_layout.back_enabled, hovered_nav == -1);
-    draw_btn(nav_layout.fwd_rect, GLYPH_FORWARD, nav_layout.fwd_enabled, hovered_nav == 1);
+    draw_btn(nav_layout.back_rect, GLYPH_BACK, nav_layout.back_enabled, hovered_nav == IDM_NAV_BACK);
+    draw_btn(nav_layout.fwd_rect, GLYPH_FORWARD, nav_layout.fwd_enabled, hovered_nav == IDM_NAV_FORWARD);
 }
 
 void ContextMenu::Impl::DrawSeparator(const Item& item)
@@ -394,7 +351,7 @@ void ContextMenu::Impl::DrawSeparator(const Item& item)
 
 void ContextMenu::Impl::DrawTextItem(const Item& item)
 {
-    const bool hovered = (item.id != 0 && item.id == hovered_id && item.enabled);
+    const bool hovered = item.id != 0 && item.id == hovered_id;
 
     if (hovered) {
         const float margin = 4.0f;

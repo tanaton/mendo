@@ -13,7 +13,6 @@ void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, const TableRowGeom& 
         cmds.emplace_back(FillRectCmd{ rect, theme_->code_bg_color, BrushId::CodeBg });
     }
     else {
-        // cached_stripe_color_ と Renderer の brushes_[TableStripe] は同じ式 (renderer_resources.cpp) で算出する。
         cmds.emplace_back(FillRectCmd{ rect, cached_stripe_color_, BrushId::TableStripe });
     }
 }
@@ -26,9 +25,10 @@ void CommandGenerator::GenTableCellContent(DrawCommandList& cmds, std::string_vi
         const uint32_t ov_end = std::min(ctx.sel_end, ctx.flat_offset + cell_len);
         if (ov_end > ov_start) {
             // sel_start/sel_end は UTF-8 byte offset。HitTestTextRange 用に UTF-16 へ変換する。
-            const auto wr = cell_wv_.WideRange(cell_text, ov_start - ctx.flat_offset, ov_end - ov_start);
-            if (wr.length > 0) {
-                GenSelectionHighlight(cmds, ctx.layout, wr.startPosition, wr.length, ctx.text_x, ctx.text_y);
+            mendo::Utf16OffsetCursor cursor{ cell_text };
+            const auto range = cursor.WideRange(ov_start - ctx.flat_offset, ov_end - ov_start);
+            if (range.length > 0) {
+                GenSelectionHighlight(cmds, ctx.layout, range.startPosition, range.length, ctx.text_x, ctx.text_y);
             }
         }
     }
@@ -72,8 +72,6 @@ void CommandGenerator::GenTable(
         }
     }
 
-    float y = entry_text_top;
-    size_t bg_cursor = 0;
     // cell_inline_code_bgs は cell_index 昇順 (renderer.cpp の追記/rotate が維持) なので二分探索で進める。
     const auto seek_bg = [&bgs = tl.cell_inline_code_bgs](uint32_t cell) noexcept {
         return static_cast<size_t>(std::ranges::lower_bound(bgs, cell, {}, &CellInlineCodeBg::cell_index) - bgs.begin());
@@ -82,16 +80,10 @@ void CommandGenerator::GenTable(
     // 可視行帯を row_cum_y の二分探索で求め、その範囲だけループする
     // (ApplyTableEffects / FindTableRow と同じパターン)。巨大テーブルで
     // 毎フレーム row_count 回の continue ループが走るのを防ぐ。
-    size_t r_begin = 0;
-    size_t r_end = row_count;
-    const bool has_row_geometry = tl.row_cum_y.size() == row_count + 1;
-    if (has_row_geometry) {
-        const auto [rb, re] = tl.VisibleRowRange(viewport_top - entry_text_top, viewport_bottom - entry_text_top);
-        r_begin = rb;
-        r_end = re;
-        y = entry_text_top + tl.row_cum_y[r_begin];
-        bg_cursor = seek_bg(static_cast<uint32_t>(r_begin * tl.col_count));
-    }
+    const bool has_row_geometry = tl.HasRowGeometry(row_count);
+    const auto [r_begin, r_end] = tl.RowsInViewport(row_count, viewport_top - entry_text_top, viewport_bottom - entry_text_top);
+    float y = has_row_geometry ? entry_text_top + tl.row_cum_y[r_begin] : entry_text_top;
+    size_t bg_cursor = seek_bg(static_cast<uint32_t>(r_begin * tl.col_count));
 
     for (size_t r = r_begin; r < r_end; r++) {
         const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme_->font_size_body * TABLE_ROW_HEIGHT_FACTOR);

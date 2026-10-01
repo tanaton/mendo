@@ -10,7 +10,6 @@
 #include "stream_util.h"
 #include "string_convert.h"
 #include "task_scheduler.h"
-#include "utility.h"
 #include "wic_util.h"
 #include "resource.h"
 #include "i18n.h"
@@ -91,7 +90,7 @@ void MermaidRenderer::EnsureInitialized()
         // 次回 RequestRender/RequestSvg で再試行できるようにする。
         // 既にキューされた SVG リクエストは失敗で完了させ in-flight 固着を防ぐ。
         lifecycle_.Reset();
-        FailPendingRequests();
+        DrainPendingRequests(/*cancelled=*/false);
         return;
     }
 
@@ -244,7 +243,7 @@ void MermaidRenderer::CreateWebView2Environment()
                 // initialized_ が立ったままで EnsureInitialized が二度と走らず、以後の
                 // リクエストが処理も失敗もされず in-flight 固着する。worker/env を残したまま
                 // 再 init するとリークするため Shutdown 経由で破棄する。
-                FailPendingRequests();
+                DrainPendingRequests(/*cancelled=*/false);
                 env_retry_count_ = 0;
                 Shutdown();
             }
@@ -427,7 +426,7 @@ void MermaidRenderer::InsertCache(uint64_t hash, CachedBitmap cached)
 
 void MermaidRenderer::SetDiagramError(RenderRequest& req, std::wstring_view msg)
 {
-    if (req.svg_only || !req.diagram_entry) {
+    if (!req.diagram_entry) {
         return;
     }
     // DrawTextCmd の 255 文字上限とプレースホルダ高さ (約3行) に収まる長さ。
@@ -441,9 +440,6 @@ void MermaidRenderer::SetDiagramError(RenderRequest& req, std::wstring_view msg)
 
 void MermaidRenderer::InvokeSvgCallbackIfAny(RenderRequest& req, std::pmr::wstring svg, bool cancelled)
 {
-    if (!req.svg_only) {
-        return;
-    }
     if (auto cb = std::move(req.svg_callback)) {
         cb(std::move(svg), cancelled);
     }
@@ -458,12 +454,6 @@ void MermaidRenderer::DrainPendingRequests(bool cancelled)
         ReleaseInflight(req);
         pending_requests_.pop();
     }
-}
-
-void MermaidRenderer::FailPendingRequests()
-{
-    // 初期化が恒久的に失敗した場合に呼ぶ。
-    DrainPendingRequests(false);
 }
 
 void MermaidRenderer::CancelPending()
@@ -514,7 +504,7 @@ void MermaidRenderer::RecoverWorker(int index)
     // 入力での再起動ループは retried で 1 回に打ち切る。
     InvokeSvgCallbackIfAny(w.current_request, {}, false);
     Callback failed_cb;
-    if (!w.current_request.svg_only && w.current_request.node) {
+    if (w.current_request.node) {
         if (!w.current_request.retried) {
             w.current_request.retried = true;
             pending_requests_.push(std::move(w.current_request));
@@ -1018,7 +1008,7 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, IStream* png_stream)
 
         // PNG バイト列は bitmap と同じ寿命でメモリ保持し、クリップボードコピーが
         // 非同期/退避され得る file_cache に依存しないようにする。shared で in-memory
-        // キャッシュ・DiagramEntry・(コピーして) ディスク書き込みに共有する。
+        // キャッシュ・DiagramEntry・ディスク書き込みに共有する。
         auto png_bytes = stream_util::ReadStreamToEnd(png_stream);
         std::shared_ptr<const std::pmr::vector<uint8_t>> png_shared;
         if (!png_bytes.empty()) {
@@ -1033,7 +1023,7 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, IStream* png_stream)
         InsertCache(code_hash, std::move(cached));
 
         if (file_cache_ && w.current_request.node && png_shared) {
-            file_cache_->StoreAsync(code_hash, draw_w, draw_h, *png_shared);
+            file_cache_->StoreAsync(code_hash, draw_w, draw_h, png_shared);
         }
     }
 

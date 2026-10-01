@@ -89,6 +89,31 @@ void PrintStats(const std::string& label, const Stats& s)
     std::cout << "  empty nodes: " << s.empty_nodes << "\n";
 }
 
+const char* NodeTypeLabel(NodeType t)
+{
+    switch (t) {
+    case NodeType::Heading:
+        return "Heading";
+    case NodeType::Paragraph:
+        return "Paragraph";
+    case NodeType::CodeBlock:
+        return "CodeBlock";
+    case NodeType::HorizontalRule:
+        return "HR";
+    case NodeType::ListItem:
+        return "ListItem";
+    case NodeType::BlockQuote:
+        return "BlockQuote";
+    case NodeType::Table:
+        return "Table";
+    case NodeType::TaskListItem:
+        return "TaskListItem";
+    case NodeType::Image:
+        return "Image";
+    }
+    return "?";
+}
+
 } // namespace
 
 TEST(ViewStats, TestMd)
@@ -115,38 +140,15 @@ TEST(ViewStats, NestedMd)
     EXPECT_GT(s.view_nodes + s.owned_nodes, 0u);
 }
 
-// code block / 段落 / 見出しの典型ケースで view 化されるかを個別に確認
-TEST(ViewStats, BreakdownByNodeType)
+// NodeType 別の view/owned 内訳を出力する診断ダンプ (assert なし)。
+// 手元で実行: --gtest_also_run_disabled_tests --gtest_filter="ViewStats.DISABLED_*"
+TEST(ViewStats, DISABLED_BreakdownByNodeType)
 {
     auto bytes = ReadFileBytes("example/test.md");
     if (bytes.empty()) {
         GTEST_SKIP() << "example/test.md not found";
     }
     auto doc = Document::FromMarkdown(std::move(bytes), L"test.md");
-
-    auto bucket_label = [](NodeType t) -> const char* {
-        switch (t) {
-        case NodeType::Heading:
-            return "Heading";
-        case NodeType::Paragraph:
-            return "Paragraph";
-        case NodeType::CodeBlock:
-            return "CodeBlock";
-        case NodeType::HorizontalRule:
-            return "HR";
-        case NodeType::ListItem:
-            return "ListItem";
-        case NodeType::BlockQuote:
-            return "BlockQuote";
-        case NodeType::Table:
-            return "Table";
-        case NodeType::TaskListItem:
-            return "TaskListItem";
-        case NodeType::Image:
-            return "Image";
-        }
-        return "?";
-    };
 
     std::cout << "=== breakdown by NodeType (test.md) ===\n";
     for (NodeType type : { NodeType::Heading, NodeType::Paragraph, NodeType::CodeBlock,
@@ -166,7 +168,7 @@ TEST(ViewStats, BreakdownByNodeType)
                 owned_chars += n.GetText().size();
             }
         }
-        std::cout << "  " << bucket_label(type) << ": view=" << view_count << " (" << view_chars
+        std::cout << "  " << NodeTypeLabel(type) << ": view=" << view_count << " (" << view_chars
                   << " chars), owned=" << owned_count << " (" << owned_chars << " chars)\n";
     }
 }
@@ -179,8 +181,7 @@ TEST(ViewStats, SimpleCodeBlockIsViewed)
     for (const auto& n : doc.GetNodes()) {
         if (n.type == NodeType::CodeBlock) {
             found_code = true;
-            std::cout << "  code block is_view=" << n.IsViewMode()
-                      << ", text.size()=" << n.GetText().size() << "\n";
+            EXPECT_TRUE(n.IsViewMode());
         }
     }
     ASSERT_TRUE(found_code);
@@ -234,12 +235,14 @@ TEST(ViewStats, DISABLED_BenchFromMarkdownCrlfVsLf)
 TEST(ViewStats, SimpleParagraphIsViewed)
 {
     auto doc = Document::FromMarkdown("Just a plain paragraph without any markup.", L"test.md");
+    bool found_paragraph = false;
     for (const auto& n : doc.GetNodes()) {
         if (n.type == NodeType::Paragraph) {
-            std::cout << "  paragraph is_view=" << n.IsViewMode()
-                      << ", text.size()=" << n.GetText().size() << "\n";
+            found_paragraph = true;
+            EXPECT_TRUE(n.IsViewMode());
         }
     }
+    ASSERT_TRUE(found_paragraph);
 }
 
 namespace {
@@ -338,38 +341,14 @@ TEST(ViewStats, RunsSizeHistogramTextNodesOnly)
     EXPECT_GT(total, 0u);
 }
 
-// NodeType 別の runs.size() の中央値・平均・最大。
-TEST(ViewStats, RunsSizeBreakdownByNodeType)
+// NodeType 別の runs.size() の中央値・平均・最大を出力する診断ダンプ (assert なし)。
+TEST(ViewStats, DISABLED_RunsSizeBreakdownByNodeType)
 {
     auto bytes = ReadFileBytes("example/test.md");
     if (bytes.empty()) {
         GTEST_SKIP() << "example/test.md not found";
     }
     auto doc = Document::FromMarkdown(std::move(bytes), L"test.md");
-
-    auto bucket_label = [](NodeType t) -> const char* {
-        switch (t) {
-        case NodeType::Heading:
-            return "Heading";
-        case NodeType::Paragraph:
-            return "Paragraph";
-        case NodeType::CodeBlock:
-            return "CodeBlock";
-        case NodeType::HorizontalRule:
-            return "HR";
-        case NodeType::ListItem:
-            return "ListItem";
-        case NodeType::BlockQuote:
-            return "BlockQuote";
-        case NodeType::Table:
-            return "Table";
-        case NodeType::TaskListItem:
-            return "TaskListItem";
-        case NodeType::Image:
-            return "Image";
-        }
-        return "?";
-    };
 
     std::cout << "=== runs.size() per NodeType (test.md) ===\n";
     std::cout << "  type            | count | sum  | avg  | median | max | sbo4_hit\n";
@@ -392,7 +371,7 @@ TEST(ViewStats, RunsSizeBreakdownByNodeType)
         const size_t sbo4_hit = std::ranges::count_if(sizes, [](size_t s) { return s <= 4; });
         const double avg = static_cast<double>(sum) / sizes.size();
         const double sbo4_pct = 100.0 * sbo4_hit / sizes.size();
-        std::cout << "  " << bucket_label(type)
+        std::cout << "  " << NodeTypeLabel(type)
                   << " | count=" << sizes.size()
                   << " sum=" << sum
                   << " avg=" << avg
@@ -402,8 +381,8 @@ TEST(ViewStats, RunsSizeBreakdownByNodeType)
     }
 }
 
-// test.md の owned code block の最初の数個を表示し、なぜ view 化されないかの手がかりを得る
-TEST(ViewStats, DumpFirstOwnedCodeBlocks)
+// test.md の owned code block の最初の数個を表示し、なぜ view 化されないかの手がかりを得る診断ダンプ (assert なし)。
+TEST(ViewStats, DISABLED_DumpFirstOwnedCodeBlocks)
 {
     auto bytes = ReadFileBytes("example/test.md");
     if (bytes.empty()) {

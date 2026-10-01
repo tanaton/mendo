@@ -40,11 +40,11 @@ public:
 
     constexpr float GetSidePaneWidth(PaneTarget t) const noexcept
     {
-        return Width(t);
+        return Inst(t).width;
     }
     constexpr void SetSidePaneWidth(PaneTarget t, float w) noexcept
     {
-        Width(t) = std::max(w, PANE_MIN_WIDTH);
+        Inst(t).width = std::max(w, PANE_MIN_WIDTH);
     }
 
     constexpr ScrollState& SidePaneScroll(PaneTarget t) noexcept
@@ -117,12 +117,12 @@ public:
 private:
     struct Instance {
         ScrollState scroll{};
+        float width = PANE_DEFAULT_WIDTH;
         int hovered_index = -1;
         bool show = true;
         PaneHeaderButton hovered_button = PaneHeaderButton::None;
     };
     Instance instances_[2];
-    float widths_[2] = { PANE_DEFAULT_WIDTH, PANE_DEFAULT_WIDTH };
 
     DragTarget drag_target_ = DragTarget::None;
     float drag_scroll_offset_ = 0.0f;
@@ -135,16 +135,7 @@ private:
     {
         return instances_[static_cast<size_t>(t)];
     }
-    constexpr float& Width(PaneTarget t) noexcept
-    {
-        return widths_[static_cast<size_t>(t)];
-    }
-    constexpr float Width(PaneTarget t) const noexcept
-    {
-        return widths_[static_cast<size_t>(t)];
-    }
 
-    static bool ScrollPaneBy(ScrollState& state, float delta, float max_scroll) noexcept;
     static float ConstrainSplitterWidth(float requested_width, float total_width,
                                         float splitter_w, float other_width,
                                         bool other_visible) noexcept;

@@ -582,11 +582,22 @@ TEST_F(ResourceManagerTest, ProcessMermaidBatchKillsTimerWhenAllProcessed)
 
 TEST_F(ResourceManagerTest, EvictOffscreenBitmapsNoOpsWhenViewportHeightIsZero)
 {
-    LoadMarkdown("# heading\n\nparagraph\n");
+    // viewport 高さ 0 (初期化中) では保持範囲が潰れるため、遠方の図も含め何も解放しない。
+    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n",
+                 /*block_height=*/10000.0f);
+    const auto& indices = doc_.GetDiagramNodeIndices();
+    ASSERT_GE(indices.size(), 2u);
+    for (const size_t i : indices) {
+        cache_.GetDiagram(i).png = std::make_shared<const std::pmr::vector<uint8_t>>(4, uint8_t{ 1 });
+    }
     tracker_.viewport_height = 0.0f;
-    // 例外を投げず即 return することを確認
+    viewport_.SetScrollY(0.0f);
+
     rm_.EvictOffscreenBitmaps();
-    SUCCEED();
+
+    for (const size_t i : indices) {
+        EXPECT_NE(cache_.GetDiagram(i).png, nullptr) << "node " << i;
+    }
 }
 
 TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesOutOfRangeTextLayouts)
@@ -668,9 +679,16 @@ TEST_F(ResourceManagerTest, FlushPendingResourcesIsNoopWhenNotPending)
 
 // ---- ファイル切替時クリーンアップ ----
 
-TEST_F(ResourceManagerTest, ClearResolvedPathsRunsWithoutError)
+// 解決済みパスはノード index をキーに持つため、ファイル切替後に同じ index が別画像を指すと
+// クリアしない限り旧パスでキャッシュを引いてしまう。
+TEST_F(ResourceManagerTest, ClearResolvedPathsDropsStalePathOnFileSwitch)
 {
-    LoadMarkdown("# heading\n");
+    LoadMarkdown("![alt](old.png)\n");
+    EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 0);
+
+    LoadMarkdown("![alt](new.png)\n");
+    image_loader_.InsertCacheEntry(L"C:\\dir\\new.png", 400.0f, 300.0f);
     rm_.ClearResolvedPaths();
-    SUCCEED();
+
+    EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 1);
 }

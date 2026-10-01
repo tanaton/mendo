@@ -2,15 +2,6 @@
 #include "document_service.h"
 #include "profiler.h"
 
-void Preloader::Context::SignalAbort()
-{
-    {
-        const std::lock_guard lk(mtx);
-        aborted = true;
-    }
-    cv.notify_all();
-}
-
 Preloader::~Preloader()
 {
     Join();
@@ -18,8 +9,7 @@ Preloader::~Preloader()
 
 void Preloader::Start(std::pmr::wstring path)
 {
-    // 二重呼び出し防御: 前回 worker が cv.wait 中に thread_ を再代入すると、
-    // jthread の暗黙 request_stop は cv を notify しないので join が無限ブロックする。
+    // 二重呼び出し防御: 前回 worker を回収し ctx_ も差し替える。
     Join();
 
     auto ctx = std::make_shared<Context>();
@@ -55,8 +45,8 @@ void Preloader::Start(std::pmr::wstring path)
         }
 
         std::unique_lock lk(ctx->mtx);
-        ctx->cv.wait(lk, [&] { return ctx->hwnd != nullptr || ctx->aborted || st.stop_requested(); });
-        if (ctx->aborted || st.stop_requested()) {
+        ctx->cv.wait(lk, st, [&] { return ctx->hwnd != nullptr; });
+        if (st.stop_requested()) {
             return;
         }
         const HWND h = ctx->hwnd;
@@ -76,9 +66,6 @@ void Preloader::Join()
 {
     // Cancel 済み (ctx_ が null) でも worker が走行中のことがあるため、
     // joinable のみで判定する。
-    if (ctx_) {
-        ctx_->SignalAbort();
-    }
     if (thread_.joinable()) {
         thread_.request_stop();
         thread_.join();
@@ -142,7 +129,6 @@ void Preloader::Cancel() noexcept
     // 以後の publish は worker 側の lock 内 stop 確認で弾かれ、走行中スレッドは
     // 次の Start() か破棄時の Join() が回収する。
     if (ctx_) {
-        ctx_->SignalAbort();
         thread_.request_stop();
         ctx_.reset();
     }

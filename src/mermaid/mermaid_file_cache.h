@@ -48,7 +48,9 @@ public:
     // ファイルが確実に存在しない場合のみインデックスから除く (共有違反などの一時エラーは保持)。
     void OnReadFailed(uint64_t key, DWORD read_error);
     bool LookupDimensions(uint64_t key, CacheEntry& entry) const noexcept;
-    void StoreAsync(uint64_t key, float css_width, float css_height, std::pmr::vector<uint8_t> png_data);
+    // png_data は表示側 (メモリキャッシュ / DiagramEntry) と共有し、書き込み用にコピーしない。
+    using PngBytes = std::shared_ptr<const std::pmr::vector<uint8_t>>;
+    void StoreAsync(uint64_t key, float css_width, float css_height, PngBytes png_data);
     void SaveIndex();
     void ClearAll();
     void Shutdown();

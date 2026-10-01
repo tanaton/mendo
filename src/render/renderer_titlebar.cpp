@@ -42,20 +42,20 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
             text_alpha);
     };
 
-    draw_plain(tb.open_file.rect, L"\uE838", TitleBarHitZone::OpenFile);
-    draw_plain(tb.help.rect, L"\uE897", TitleBarHitZone::Help);
-    draw_plain(tb.theme_toggle.rect, tb.is_dark_mode ? L"\uE706" : L"\uE708", TitleBarHitZone::ThemeToggle);
-    draw_toggle(tb.search.rect, L"\uE721", tb.search_active, TitleBarHitZone::Search);
-    draw_toggle(tb.file_toggle.rect, L"\uE8B7", tb.file_pane_visible, TitleBarHitZone::FileToggle);
-    draw_toggle(tb.toc_toggle.rect, L"\uE8FD", tb.toc_pane_visible, TitleBarHitZone::TocToggle);
-    draw_plain(tb.minimize.rect, L"\uE921", TitleBarHitZone::Minimize);
+    draw_plain(tb.open_file, L"\uE838", TitleBarHitZone::OpenFile);
+    draw_plain(tb.help, L"\uE897", TitleBarHitZone::Help);
+    draw_plain(tb.theme_toggle, tb.is_dark_mode ? L"\uE706" : L"\uE708", TitleBarHitZone::ThemeToggle);
+    draw_toggle(tb.search, L"\uE721", tb.search_active, TitleBarHitZone::Search);
+    draw_toggle(tb.file_toggle, L"\uE8B7", tb.file_pane_visible, TitleBarHitZone::FileToggle);
+    draw_toggle(tb.toc_toggle, L"\uE8FD", tb.toc_pane_visible, TitleBarHitZone::TocToggle);
+    draw_plain(tb.minimize, L"\uE921", TitleBarHitZone::Minimize);
     const wchar_t max_icon[]{ tb.is_maximized ? L'\uE923' : L'\uE922', L'\0' };
-    draw_plain(tb.maximize.rect, max_icon, TitleBarHitZone::Maximize);
+    draw_plain(tb.maximize, max_icon, TitleBarHitZone::Maximize);
     if (is_hovered(TitleBarHitZone::Close)) {
-        drawButton(tb.close.rect, L"\uE8BB", true, BrushId::TitleBarCloseRed, BrushId::TitleBarCloseWhite, 1.0f);
+        drawButton(tb.close, L"\uE8BB", true, BrushId::TitleBarCloseRed, BrushId::TitleBarCloseWhite, 1.0f);
     }
     else {
-        draw_plain(tb.close.rect, L"\uE8BB", TitleBarHitZone::Close);
+        draw_plain(tb.close, L"\uE8BB", TitleBarHitZone::Close);
     }
 
     if (app_icon_bitmap_) {

@@ -1,6 +1,5 @@
 #pragma once
 #include "doc_dwrite_bridge.h"
-#include "doc_text.h"
 #include "text_measurer.h"
 #include <dwrite.h>
 #include <wrl/client.h>
@@ -28,11 +27,6 @@ public:
         NodeLayoutEntry& entry,
         float max_width,
         std::pmr::vector<SyntaxToken>* tokens_out = nullptr,
-        MeasureViewportRange viewport = {}) const override;
-    void MeasureTable(
-        Node& node,
-        NodeLayoutEntry& entry,
-        float max_width,
         MeasureViewportRange viewport = {}) const override;
     TableRestoreResult RestoreEvictedTableRows(
         Node& node,
@@ -81,6 +75,7 @@ private:
 
     bool CreateAllFormats();
     IDWriteTextFormat* GetTextFormat(const Node& node) const noexcept;
+    void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width, MeasureViewportRange viewport) const;
     void ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, const mendo::WideViewForDWrite& view, RunFormatScope scope) const;
     // MeasureTableCells / RestoreNullCellLayouts 共通のセル生成処理。空セルは layout を
     // null のまま残し、呼び出し側のスキップ判定に委ねる。

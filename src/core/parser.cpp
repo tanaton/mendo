@@ -1,26 +1,20 @@
 #include "parser.h"
 #include "html_entities.h"
-#include "ascii_util.h"
 #include "document_utils.h"
 #include "syntax.h"
 #include "memory_resource.h"
 #include "profiler.h"
-#include "utility.h"
-#include "utf8_codec.h"
 #include "md4c.h"
-#include <cstring>
 #include <functional>
 #include <unordered_map>
-#include <charconv>
-#include <climits>
 #include <format>
 #include <iterator>
 #include <algorithm>
+#include <limits>
 #include <ranges>
 #include <stop_token>
 #include <string>
 #include <string_view>
-#include <system_error>
 #include <type_traits>
 #include <utility>
 
@@ -29,6 +23,15 @@ namespace {
 // current_text スクラッチの初期確保サイズ。入力サイズから動的に決める。
 constexpr size_t SCRATCH_RESERVE_MIN = 1024;
 constexpr size_t SCRATCH_RESERVE_MAX = 64 * 1024;
+
+// pmr::string キーの unordered_map を string_view で引いてもキーを確保しないための透過ハッシュ。
+struct StringTransparentHash {
+    using is_transparent = void;
+    size_t operator()(std::string_view sv) const noexcept
+    {
+        return std::hash<std::string_view>{}(sv);
+    }
+};
 
 struct ParseContext {
     explicit ParseContext(size_t initial_arena_bytes)
@@ -111,23 +114,25 @@ struct ParseContext {
     // スタックアダプタを挟まず vector を直接扱う (back/push_back/pop_back)。
     std::pmr::vector<int> list_counter{ parse_resource.resource() };
 
-    // セル内かどうか (AppendDoc / FlushPendingRun の振り分けに使う)。
-    bool in_table_cell = false;
-    // 現在セルの concat_text 内開始 offset。run.start を cell-local に保つために保持する。
-    uint32_t current_table_cell_text_start = 0;
-
     // 現在構築中のノード
     Node* current_node = nullptr;
 
     // AppendDoc / FlushPendingRun のターゲットバッファのキャッシュ。
-    // 47-94 万回呼ばれる hot path で in_table_cell + has_table() の variant 判定を
-    // 毎回行わないよう、状態遷移点 (BeginNode / TD/TH 進入退出 / current_node clear) で
-    // 更新したポインタを直接使う。nullptr のときは AppendDoc / FlushPendingRun は no-op。
+    // 47-94 万回呼ばれる hot path で has_table() の variant 判定を毎回行わないよう、
+    // 状態遷移点 (BeginNode / TD/TH 進入退出 / current_node clear) で更新したポインタを直接使う。
+    // &current_text 以外を指すのはテーブルセル内 (NodeTableData::concat_text) のときだけ。
+    // nullptr のときは AppendDoc / FlushPendingRun は no-op。
     std::pmr::string* active_text_buffer = nullptr;
 
     // アンカーIDの一意性追跡: スラグ -> 出現回数。
     // 再ハッシュ時の旧 bucket は pool 内で再利用されるため monotonic は膨らまない。
-    std::pmr::unordered_map<std::pmr::string, int, mendo::StringTransparentHash, std::equal_to<>> anchor_counts{ &pool };
+    std::pmr::unordered_map<std::pmr::string, int, StringTransparentHash, std::equal_to<>> anchor_counts{ &pool };
+
+    // 現在ノードの link_urls の URL -> インデックス索引。URL 数が kLinkUrlLinearScanMax を
+    // 超えたノードでのみ構築する (テーブルは全セルで 1 ノードのため数万 URL になりうる)。
+    // urls 内の SSO 文字列は vector 伸長で移動するため string_view ではなく複製をキーにする。
+    static constexpr size_t kLinkUrlLinearScanMax = 8;
+    std::pmr::unordered_map<std::pmr::string, int16_t, StringTransparentHash, std::equal_to<>> link_url_lookup{ &pool };
 
     // 画像スパンの src 蓄積バッファ。NodeImageData::src へは allocator 不一致を避けるため assign(view) でコピー。
     // ネスト画像 (![a ![b](inner)](outer)) では最外側の src を採用するため深度を追跡する。
@@ -219,6 +224,7 @@ struct ParseContext {
         }
         // runs は SBO 内で初期確保ゼロを狙う。reserve すると SBO の利点が消えるので呼ばない。
         current_node_owned_only = false;
+        link_url_lookup.clear();
     }
 
     constexpr TextRun MakeRun(uint32_t start, uint32_t length)
@@ -232,11 +238,10 @@ struct ParseContext {
     }
 
     // url を Node::link_urls に登録し、インデックスを current_link_url_index にキャッシュする。
-    // 1 ノードあたりの URL 数は典型的に < 8 なので、ハッシュマップではなく線形探索する。
-    // ハッシュマップにはキーの string 複製・per-node clear()・URL 文字列ハッシュの
-    // コストがあり、N が小さい領域では線形 memcmp の方が速い。脚注で urls 数が増えても
-    // 比較は string_view 同士なので allocator 確保を伴わない。
-    constexpr void ResolveLinkUrlIndex(std::string_view url)
+    // 1 ノードあたりの URL 数は典型的に < 8 で、その領域ではキー複製・ハッシュ計算を伴う
+    // ハッシュマップより線形 memcmp の方が速い。数が増えたノードだけ link_url_lookup に切り替え、
+    // テーブル等で O(n^2) になるのを防ぐ。
+    void ResolveLinkUrlIndex(std::string_view url)
     {
         if (!current_node || url.empty()) {
             current_link_url_index = -1;
@@ -244,9 +249,22 @@ struct ParseContext {
         }
         const auto existing = current_node->view_link_urls();
         const size_t n = existing.size();
-        for (size_t i = 0; i < n; ++i) {
-            if (existing[i] == url) {
-                current_link_url_index = static_cast<int16_t>(i);
+        if (n <= kLinkUrlLinearScanMax) {
+            for (size_t i = 0; i < n; ++i) {
+                if (existing[i] == url) {
+                    current_link_url_index = static_cast<int16_t>(i);
+                    return;
+                }
+            }
+        }
+        else {
+            if (link_url_lookup.empty()) {
+                for (size_t i = 0; i < n; ++i) {
+                    link_url_lookup.emplace(existing[i], static_cast<int16_t>(i));
+                }
+            }
+            if (const auto it = link_url_lookup.find(url); it != link_url_lookup.end()) {
+                current_link_url_index = it->second;
                 return;
             }
         }
@@ -258,6 +276,9 @@ struct ParseContext {
         auto& urls = current_node->ensure_link_urls();
         const int16_t new_index = static_cast<int16_t>(urls.size());
         urls.emplace_back(url);
+        if (!link_url_lookup.empty()) {
+            link_url_lookup.emplace(url, new_index);
+        }
         current_link_url_index = new_index;
     }
 
@@ -265,7 +286,7 @@ struct ParseContext {
     // 同じ span 状態で連続して呼ばれると 1 つの TextRun に統合される (cell も統合対象)。
     // セル切替・span 切替・ブロック退出の各タイミングで FlushPendingRun が走る前提。
     // セル内では active_text_buffer が NodeTableData::concat_text を指す。pending_run_start は
-    // バッファサイズベースだが、cell 内では current_table_cell_text_start からの相対 (cell-local) として扱う。
+    // バッファサイズベースで、FlushPendingRun が現在セルの開始 offset を引いて cell-local にする。
     constexpr void AppendDoc(std::string_view text)
     {
         std::pmr::string* const target = active_text_buffer;
@@ -280,7 +301,7 @@ struct ParseContext {
         // 1-char chunk fastpath: md4c は \n / 空白 / 単一 entity 等を size==1 で渡してくるので push_back に振り分ける。
         if (text.size() == 1) {
             const char c = text[0];
-            pending_run_newlines += (c == mendo::doc_lf);
+            pending_run_newlines += (c == '\n');
             target->push_back(c);
         }
         else {
@@ -291,19 +312,21 @@ struct ParseContext {
     // 未確定 TextRun を確定して runs に push する。
     // span 状態が変わる直前 (OnEnter/Leave Span)、セル切替、OnLeaveBlock の冒頭で呼ぶ。
     // line_count はノード単位なので、セル内では更新しない。
+    // active_text_buffer が非 null なら current_node も非 null (両者は対で更新される)。
     constexpr void FlushPendingRun()
     {
         if (has_pending_run) {
             std::pmr::string* const buf = active_text_buffer;
             if (buf && buf->size() > pending_run_start) {
                 const uint32_t length = static_cast<uint32_t>(buf->size() - pending_run_start);
-                if (in_table_cell && current_node && current_node->has_table()) {
-                    const uint32_t cell_local_start = pending_run_start - current_table_cell_text_start;
-                    current_node->table_data()->all_runs.push_back(MakeRun(cell_local_start, length));
-                }
-                else if (current_node) {
+                if (buf == &current_text) {
                     current_node->line_count += pending_run_newlines;
                     current_node->runs.emplace_back(MakeRun(pending_run_start, length));
+                }
+                else {
+                    // セル内: cell_text_starts.back() は TD/TH 進入時に積んだ現在セルの開始 offset。
+                    auto* const tbl = current_node->table_data();
+                    tbl->all_runs.push_back(MakeRun(pending_run_start - tbl->cell_text_starts.back(), length));
                 }
             }
         }
@@ -481,15 +504,13 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
             const bool first_row = (tbl->row_count == 1);
             // 区切り: 行内 2 セル目以降は '\t'、行頭かつ 2 行目以降は '\n'。
             if (!first_cell_in_row) {
-                tbl->concat_text.push_back(mendo::doc_tab);
+                tbl->concat_text.push_back('\t');
             }
             else if (!first_row) {
-                tbl->concat_text.push_back(mendo::doc_lf);
+                tbl->concat_text.push_back('\n');
             }
             tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
             tbl->cell_run_starts.push_back(static_cast<uint32_t>(tbl->all_runs.size()));
-            ctx->current_table_cell_text_start = static_cast<uint32_t>(tbl->concat_text.size());
-            ctx->in_table_cell = true;
             ctx->active_text_buffer = &tbl->concat_text;
 
             // 1 行目で列単位の align を確定 (列属性は header 行で決まる)。
@@ -528,7 +549,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         auto* cn = ctx->current_node;
         ctx->in_code_block = false;
         // 末尾の改行があれば除去（current_text スクラッチに対して操作）
-        if (cn && !ctx->current_text.empty() && ctx->current_text.back() == mendo::doc_lf) {
+        if (cn && !ctx->current_text.empty() && ctx->current_text.back() == '\n') {
             ctx->current_text.pop_back();
             cn->line_count--;
             if (!cn->runs.empty()) {
@@ -599,7 +620,6 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 
     case MD_BLOCK_TH:
     case MD_BLOCK_TD:
-        ctx->in_table_cell = false;
         // セル退出後は table ノード自体への AppendDoc は想定されないため nullptr に倒す。
         // 次の TR/TD/TH 進入で再設定される。
         ctx->active_text_buffer = nullptr;
@@ -757,8 +777,7 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
             // リスト項目 (型を保ったまま src を持つ既存仕様) に限定する。
             if (auto* cn = ctx->current_node;
                 cn && !ctx->pending_image_src.empty() &&
-                (cn->type == NodeType::Paragraph || cn->type == NodeType::BlockQuote ||
-                 cn->type == NodeType::ListItem || cn->type == NodeType::TaskListItem)) {
+                (cn->type == NodeType::Paragraph || cn->type == NodeType::BlockQuote || IsListItem(*cn))) {
                 // pending_image_src は pool allocator で、NodeImageData::src は default 。
                 // allocator 不一致で std::move しても内部的にコピーされるので、明示的に assign(view) する。
                 cn->ensure_image()->src.assign(ctx->pending_image_src.data(), ctx->pending_image_src.size());
@@ -829,10 +848,10 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
             // size==1 のとき md4c が \n をそのまま渡してくるケースが多いのでスカラ比較で済ませ、
             // size>1 のときだけ std::ranges::count にフォールバックする両対応。
             if (chunk.size() == 1) {
-                ctx->display_math_newlines += (chunk[0] == mendo::doc_lf);
+                ctx->display_math_newlines += (chunk[0] == '\n');
             }
             else {
-                ctx->display_math_newlines += static_cast<int32_t>(std::ranges::count(chunk, mendo::doc_lf));
+                ctx->display_math_newlines += static_cast<int32_t>(std::ranges::count(chunk, '\n'));
             }
             ctx->display_math_buf.append(chunk);
         }

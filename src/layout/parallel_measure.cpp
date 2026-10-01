@@ -94,16 +94,10 @@ DirtyBatchResult RunParallel(
     ParallelBudget budget,
     TaskScheduler& scheduler)
 {
-    MENDO_PROFILE("DirtyScheduler::RunParallel");
+    MENDO_PROFILE("layout::RunParallel");
     DirtyBatchResult result;
     const auto node_count = nodes.size();
-
-    const bool has_viewport_limit = clip.active();
-    const float limit_top = has_viewport_limit ? clip.limit_top() : 0.0f;
-    const float limit_bottom = has_viewport_limit ? clip.limit_bottom() : 0.0f;
-    const MeasureViewportRange measure_vp = has_viewport_limit
-        ? MeasureViewportRange{ limit_top, limit_bottom }
-        : MeasureViewportRange{};
+    const MeasureViewportRange range = clip.Range();
     // ParallelBudget には time_us が無い (シグネチャで明示)。
     // worker 側に polling checkpoint が無いため、time-based 制御は RunSerial 専用。
     const bool has_batch_limit = (budget.max_nodes > 0);
@@ -111,12 +105,7 @@ DirtyBatchResult RunParallel(
     std::pmr::vector<size_t> indices(std::pmr::get_default_resource());
     {
         MENDO_PROFILE("RunParallel.Plan");
-        size_t plan_begin = 0;
-        if (has_viewport_limit) {
-            // text_top は単調なので、帯の開始は二分探索で求め、下端超過で break する。
-            // 全走査 + reserve(node_count) は 100MB 級文書で 16ms タイマーごとに
-            // 数 MB の確保と全エントリ読みを繰り返してしまう。
-            plan_begin = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, node_count, limit_top));
+        if (clip.active()) {
             indices.reserve(has_batch_limit ? std::min(node_count, static_cast<size_t>(budget.max_nodes)) : node_count);
         }
         else {
@@ -124,12 +113,16 @@ DirtyBatchResult RunParallel(
             // 過小予約による push_back 中の再確保を避けるほうが利得が大きい。
             indices.reserve(node_count);
         }
+        // text_top は単調なので、帯の開始は二分探索で求め、下端超過で break する。
+        // 全走査 + reserve(node_count) は 100MB 級文書で 16ms タイマーごとに
+        // 数 MB の確保と全エントリ読みを繰り返してしまう。
+        const auto plan_begin = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, node_count, range.top));
         for (size_t i = plan_begin; i < node_count; i++) {
             const float entry_top = cache.Top(i);
-            if (has_viewport_limit && entry_top > limit_bottom) {
+            if (entry_top > range.bottom) {
                 break;
             }
-            if (!ViewportClip::ShouldMeasure(cache[i], entry_top, has_viewport_limit, limit_top, limit_bottom)) {
+            if (!ViewportClip::ShouldMeasure(cache[i], entry_top, range)) {
                 continue;
             }
             indices.push_back(i);
@@ -152,7 +145,7 @@ DirtyBatchResult RunParallel(
     result.last_processed = indices.back();
     result.processed = static_cast<int>(indices.size());
 
-    const int failed = MeasureIndicesParallel(nodes, cache, content_width, theme, backend, indices, measure_vp, &scheduler);
+    const int failed = MeasureIndicesParallel(nodes, cache, content_width, theme, backend, indices, range, &scheduler);
     if (failed > 0) {
         // 失敗分は processed から外し、any_nearby_skipped() 経由で次フレーム再試行に乗せる。
         result.processed -= failed;

@@ -20,7 +20,7 @@ void AppResourceManagerCallbacks::kill_timer(app_timer::Id id)
 
 float AppResourceManagerCallbacks::get_content_width()
 {
-    return app->renderer_.GetTheme().ContentWidth(app->GetMarkdownPaneWidth());
+    return app->MdContentWidth();
 }
 
 float AppResourceManagerCallbacks::get_viewport_height()
@@ -54,7 +54,7 @@ void AppResourceManagerCallbacks::recompute_layout_anchored(mendo::layout::Heigh
         app->renderer_.GetTheme(),
         changed);
     const auto layout = app->GetPaneLayout();
-    app->EmitEffect(effect::SyncMaxScroll{ layout.md_rect.height });
+    app->SyncMaxScroll(layout.md_rect.height);
     // リフローで停止中のカーソル直下のノード/リンクが変わりうるため、ホバーの
     // ヒットキャッシュを無効化し次のマウス移動で再評価させる (カーソル形状の陳腐化対策)。
     app->InvalidateHitPositions();

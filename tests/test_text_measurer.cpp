@@ -1,23 +1,12 @@
 #include <gtest/gtest.h>
 #include <memory_resource>
-#include "layout.h"
+#include "document_test_helpers.h"
 #include "mock_text_measurer.h"
-#include "parser.h"
+#include "test_helpers.h"
 
 // MockTextMeasurerを通じてLayoutEngineのロジックをテストする（COM / DirectWrite不要）。
 
-class MockLayoutTest : public ::testing::Test {
-protected:
-    MockTextMeasurer mock_;
-    LayoutEngine engine_;
-    Theme theme_;
-
-    void SetUp() override
-    {
-        theme_ = GetLightTheme();
-        ASSERT_TRUE(engine_.Init(&mock_, theme_));
-    }
-};
+class MockLayoutTest : public MockLayoutTestBase {};
 
 // ---- 基本レイアウト ----
 
@@ -31,20 +20,14 @@ TEST_F(MockLayoutTest, EmptyNodesGiveMarginHeight)
 
 TEST_F(MockLayoutTest, SingleParagraphPositiveHeight)
 {
-    auto nodes = ParseMarkdown("Hello world").nodes;
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    auto [nodes, cache] = ParseAndLayout("Hello world");
     EXPECT_GT(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top), 0.0f);
     EXPECT_GT(cache[0].height, 0.0f);
 }
 
 TEST_F(MockLayoutTest, YPositionsAreMonotonicallyIncreasing)
 {
-    auto nodes = ParseMarkdown("A\n\nB\n\nC\n\nD").nodes;
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    auto [nodes, cache] = ParseAndLayout("A\n\nB\n\nC\n\nD");
     for (size_t i = 1; i < nodes.size(); i++) {
         EXPECT_GT(cache.Top(i), cache.Top(i - 1));
     }
@@ -52,10 +35,7 @@ TEST_F(MockLayoutTest, YPositionsAreMonotonicallyIncreasing)
 
 TEST_F(MockLayoutTest, NoOverlapBetweenNodes)
 {
-    auto nodes = ParseMarkdown("First\n\nSecond\n\nThird").nodes;
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    auto [nodes, cache] = ParseAndLayout("First\n\nSecond\n\nThird");
     for (size_t i = 1; i < nodes.size(); i++) {
         float prev_bottom = cache.Top(i - 1) + cache[i - 1].height;
         EXPECT_GE(cache.Top(i), prev_bottom);
@@ -66,10 +46,7 @@ TEST_F(MockLayoutTest, NoOverlapBetweenNodes)
 
 TEST_F(MockLayoutTest, HeadingHasExtraSpacing)
 {
-    auto nodes = ParseMarkdown("Paragraph\n\n# Heading\n\nAnother").nodes;
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    auto [nodes, cache] = ParseAndLayout("Paragraph\n\n# Heading\n\nAnother");
     ASSERT_EQ(nodes.size(), 3u);
 
     float para_bottom = cache.Top(0) + cache[0].height;
@@ -79,10 +56,7 @@ TEST_F(MockLayoutTest, HeadingHasExtraSpacing)
 
 TEST_F(MockLayoutTest, HeadingTallerThanParagraph)
 {
-    auto nodes = ParseMarkdown("# Heading\n\nParagraph").nodes;
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    auto [nodes, cache] = ParseAndLayout("# Heading\n\nParagraph");
     ASSERT_EQ(nodes.size(), 2u);
     EXPECT_GT(cache[0].height, cache[1].height);
 }
@@ -91,10 +65,7 @@ TEST_F(MockLayoutTest, HeadingTallerThanParagraph)
 
 TEST_F(MockLayoutTest, NoDirtyAfterFullLayout)
 {
-    auto nodes = ParseMarkdown("A\n\nB\n\nC").nodes;
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    ParseAndLayout("A\n\nB\n\nC");
     EXPECT_FALSE(engine_.HasDirtyNodes());
 }
 
@@ -128,9 +99,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchResolvesDirty)
 
 TEST_F(MockLayoutTest, ProcessDirtyBatchSmallBatch)
 {
-    std::string md;
-    for (int i = 0; i < 50; i++)
-        md += "P" + std::to_string(i) + "\n\n";
+    const auto md = MakeParagraphs(50);
     auto nodes = ParseMarkdown(md).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -146,11 +115,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchSmallBatch)
 
 TEST_F(MockLayoutTest, ProcessDirtyBatchNoDirtyPreservesHeight)
 {
-    auto nodes = ParseMarkdown("A\n\nB\n\nC").nodes;
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    // フルレイアウト — ダーティノードなし
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    auto [nodes, cache] = ParseAndLayout("A\n\nB\n\nC");
     EXPECT_FALSE(engine_.HasDirtyNodes());
 
     float height_before = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top);
@@ -166,10 +131,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchNoDirtyPreservesHeight)
 
 TEST_F(MockLayoutTest, WidthChangeRecalculates)
 {
-    auto nodes = ParseMarkdown("Some text that could wrap when narrower").nodes;
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    auto [nodes, cache] = ParseAndLayout("Some text that could wrap when narrower");
     float h_wide = cache[0].height;
     engine_.ComputeLayout(nodes, cache, 200.0f);
     float h_narrow = cache[0].height;
@@ -180,42 +142,27 @@ TEST_F(MockLayoutTest, WidthChangeRecalculates)
 
 TEST_F(MockLayoutTest, TableHasPositiveHeight)
 {
-    auto nodes = ParseMarkdown("| A | B |\n|---|---|\n| 1 | 2 |").nodes;
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f);
-    bool found_table = false;
-    for (size_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i].type == NodeType::Table) {
-            EXPECT_GT(cache[i].height, 0.0f);
-            found_table = true;
-        }
-    }
-    EXPECT_TRUE(found_table);
+    auto [nodes, cache] = ParseAndLayout("| A | B |\n|---|---|\n| 1 | 2 |");
+    const int idx = FindFirstNodeIndexByType(nodes, NodeType::Table);
+    ASSERT_GE(idx, 0);
+    EXPECT_GT(cache[idx].height, 0.0f);
 }
 
 // ---- 水平線モック ----
 
 TEST_F(MockLayoutTest, HorizontalRuleHasHeight)
 {
-    auto nodes = ParseMarkdown("Above\n\n---\n\nBelow").nodes;
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f);
-    for (size_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i].type == NodeType::HorizontalRule) {
-            EXPECT_GT(cache[i].height, 0.0f);
-        }
-    }
+    auto [nodes, cache] = ParseAndLayout("Above\n\n---\n\nBelow");
+    const int idx = FindFirstNodeIndexByType(nodes, NodeType::HorizontalRule);
+    ASSERT_GE(idx, 0);
+    EXPECT_GT(cache[idx].height, 0.0f);
 }
 
 // ---- EnsureVisibleLayout ----
 
 TEST_F(MockLayoutTest, EnsureVisibleLayoutUpdatesViewport)
 {
-    std::string md;
-    for (int i = 0; i < 20; i++)
-        md += "Paragraph " + std::to_string(i) + "\n\n";
+    const auto md = MakeParagraphs(20);
     auto nodes = ParseMarkdown(md).nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -223,10 +170,12 @@ TEST_F(MockLayoutTest, EnsureVisibleLayoutUpdatesViewport)
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
     EXPECT_TRUE(engine_.HasDirtyNodes());
 
+    const auto dirty_before = CountDirty(cache);
+
     // より後の領域のレイアウトを確保
     float total = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top);
-    engine_.EnsureVisibleLayout(nodes, cache, 800.0f, total * 0.5f, total * 0.7f);
-    // 一部のノードはクリーンになっているべき
+    EXPECT_TRUE(engine_.EnsureVisibleLayout(nodes, cache, 800.0f, total * 0.5f, total * 0.7f));
+    EXPECT_LT(CountDirty(cache), dirty_before) << "可視範囲のダーティノードがクリーンになるべき";
 }
 
 // ---- LayoutNodes 便利関数 ----
@@ -246,10 +195,7 @@ TEST_F(MockLayoutTest, LayoutNodesFullLayout)
 // Mermaidブロックの初回レイアウトでプレースホルダー高さが設定されること
 TEST_F(MockLayoutTest, MermaidBlockGetsPlaceholderHeight)
 {
-    auto nodes = ParseMarkdown("```mermaid\ngraph TD;\n  A-->B;\n```").nodes;
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    auto [nodes, cache] = ParseAndLayout("```mermaid\ngraph TD;\n  A-->B;\n```");
 
     for (size_t i = 0; i < nodes.size(); i++) {
         if (nodes[i].code_language() == SyntaxLanguage::Mermaid) {
@@ -352,20 +298,14 @@ TEST_F(MockLayoutTest, LongTableHeightNotShrunkByEstimateInPartialMode)
 
     // 1) フルレイアウトでテーブルの実測高さを取得
     engine_.LayoutNodes(nodes, cache, 800.0f);
-    size_t table_idx = 0;
-    for (size_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i].type == NodeType::Table) {
-            table_idx = i;
-            break;
-        }
-    }
-    ASSERT_EQ(nodes[table_idx].type, NodeType::Table);
+    const int table_idx = FindFirstNodeIndexByType(nodes, NodeType::Table);
+    ASSERT_GE(table_idx, 0);
     const float measured_table_h = cache[table_idx].height;
     EXPECT_GT(measured_table_h, 0.0f);
 
     // テーブル直後の段落
-    ASSERT_LT(table_idx + 1, nodes.size());
-    const size_t para_idx = table_idx + 1;
+    const size_t para_idx = static_cast<size_t>(table_idx) + 1;
+    ASSERT_LT(para_idx, nodes.size());
 
     // 2) 幅変更 + partial モード（viewport は冒頭の小さい領域のみ）
     //    テーブルは viewport 外なので不可視扱いになり、現行バグでは推定値で
@@ -413,14 +353,8 @@ TEST_F(MockLayoutTest, PartialModeClearsTableColWidthsWhenHeightGrows)
     cache.Resize(nodes.size());
 
     engine_.LayoutNodes(nodes, cache, 800.0f);
-    size_t table_idx = 0;
-    for (size_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i].type == NodeType::Table) {
-            table_idx = i;
-            break;
-        }
-    }
-    ASSERT_EQ(nodes[table_idx].type, NodeType::Table);
+    const int table_idx = FindFirstNodeIndexByType(nodes, NodeType::Table);
+    ASSERT_GE(table_idx, 0);
     ASSERT_TRUE(cache[table_idx].has_table_layout());
     ASSERT_FALSE(cache[table_idx].table_layout->col_widths.empty());
 
@@ -436,22 +370,26 @@ TEST_F(MockLayoutTest, PartialModeClearsTableColWidthsWhenHeightGrows)
 
 // ---- RecreateFormats ----
 
-TEST_F(MockLayoutTest, RecreateFormatsSucceeds)
+// フォーマット再生成後は幅が同じでも全ノードを再計測させる。
+TEST_F(MockLayoutTest, RecreateFormatsForcesRemeasureAtSameWidth)
 {
+    auto [nodes, cache] = ParseAndLayout("Hello");
+    const float h = cache[0].height;
+
+    mock_.line_height *= 2.0f;
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+    ASSERT_FLOAT_EQ(cache[0].height, h) << "幅不変かつ dirty なしなら再計測しない前提";
+
     EXPECT_TRUE(engine_.RecreateFormats());
+    engine_.ComputeLayout(nodes, cache, 800.0f);
+    EXPECT_FLOAT_EQ(cache[0].height, h * 2.0f);
 }
 
 // ---- 多数ノードの合計高さ ----
 
 TEST_F(MockLayoutTest, ManyNodesProduceLargeHeight)
 {
-    std::string md;
-    for (int i = 0; i < 100; i++)
-        md += "Paragraph " + std::to_string(i) + "\n\n";
-    auto nodes = ParseMarkdown(md).nodes;
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    auto [nodes, cache] = ParseAndLayout(MakeParagraphs(100));
     const float total = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top);
     EXPECT_GT(total, 500.0f);
     size_t last = nodes.size() - 1;
@@ -462,10 +400,7 @@ TEST_F(MockLayoutTest, ManyNodesProduceLargeHeight)
 
 TEST_F(MockLayoutTest, ResetClearsAllEntries)
 {
-    auto nodes = ParseMarkdown("Hello\n\nWorld").nodes;
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    auto [nodes, cache] = ParseAndLayout("Hello\n\nWorld");
 
     // レイアウト後、すべてのエントリはクリーンであるべき
     for (size_t i = 0; i < cache.size(); i++) {

@@ -1,7 +1,6 @@
 #include "command_executor.h"
 #include "overloaded.h"
 #include "profiler.h"
-#include "utility.h"
 
 #ifdef MENDO_USE_TRACY
 namespace {
@@ -99,9 +98,6 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
     fixed_brushes_ = brushes;
 
     cmds.Visit(mendo::overloaded{
-        [&](const ClearCmd& c) {
-            rt->Clear(c.color);
-        },
         [&](const FillRectCmd& c) {
             auto* b = ResolveBrush(rt, c.brush_id, c.color);
             if (b) {
@@ -139,7 +135,7 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
         },
         [&](const DrawBitmapCmd& c) {
             if (c.bitmap) {
-                rt->DrawBitmap(c.bitmap, c.dest, c.opacity, c.interpolation_mode);
+                rt->DrawBitmap(c.bitmap, c.dest);
             }
         },
         [&](const FillEllipseCmd& c) {

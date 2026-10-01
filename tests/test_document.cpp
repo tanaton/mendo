@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "document.h"
+#include "newline_util.h"
 #include <string>
 #include <string_view>
 #include <utility>
@@ -13,8 +14,8 @@ void ReplaceMarkdown(Document& doc, std::string_view text)
 }
 } // namespace
 
-// リロード diff (AnalyzeReloadDiff) は raw_text_ と同じ LF 正規化を新テキストにも
-// 適用してから比較する前提 (issue #273)。その契約を担保する。
+// リロード diff (AnalyzeReloadDiff) は raw_text_ と FileLoader 出力が同じ LF 正規化済みである
+// 前提 (issue #273)。その正規化自体を担保する。
 TEST(NormalizeNewlines, CrlfToLf)
 {
     std::pmr::string s{ "a\r\nb\r\nc\r\n" };
@@ -199,25 +200,6 @@ TEST(DocumentTest, GetRawTextIndependentOfNodes)
     EXPECT_EQ(doc.GetRawText(), "hello");
 }
 
-TEST(DocumentTest, RawTextSourceOffsetConsistency)
-{
-    // raw_text_ 内の UTF-8 byte オフセットがノードの source_offset と一致することを確認
-    std::pmr::string md = "# Title\n\nBody text";
-    auto doc = Document::FromMarkdown(md, L"test.md");
-    const auto& nodes = doc.GetNodes();
-    const auto& raw = doc.GetRawText();
-    ASSERT_GE(nodes.size(), 2u);
-
-    // source_offset 位置の文字がノードのテキスト先頭と対応する
-    const char* const raw_base = raw.data();
-    for (const auto& n : nodes) {
-        const size_t off = n.SourceOffsetFrom(raw_base);
-        if (off != kUnsetSourceOffset && off < raw.size()) {
-            EXPECT_LT(off, raw.size());
-        }
-    }
-}
-
 TEST(DocumentTest, SourceOffsetPointsToNodeTextStart)
 {
     // 入力は HTML 実体参照やインライン書式を含まない素のテキストのみで、
@@ -400,17 +382,6 @@ TEST(DocumentTest, FindAnchorIndexEmptyQuery)
 {
     auto doc = Document::FromMarkdown("# Heading", L"test.md");
     EXPECT_EQ(doc.FindAnchorIndex(""), -1);
-}
-
-TEST(DocumentTest, FindNormalizedAnchorIndexHitsLowercase)
-{
-    // anchor_id() は parser で小文字 ASCII へ正規化済み。
-    // FindNormalizedAnchorIndex は ToLowerAsciiCopy を介さず直接 hit する。
-    auto doc = Document::FromMarkdown("# Hello World", L"test.md");
-    EXPECT_EQ(doc.FindNormalizedAnchorIndex("hello-world"), 0);
-    EXPECT_EQ(doc.FindNormalizedAnchorIndex(""), -1);
-    // 大文字混在は normalized 経路では hit しない（呼び出し側責任の API）。
-    EXPECT_EQ(doc.FindNormalizedAnchorIndex("Hello-World"), -1);
 }
 
 TEST(DocumentTest, FindAnchorIndexAfterDocumentMove)

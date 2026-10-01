@@ -1,4 +1,5 @@
 #pragma once
+#include "ui_constants.h"
 #include <d2d1.h>
 #include <wrl/client.h>
 #include <windows.h>
@@ -37,6 +38,12 @@ inline D2D1_COLOR_F MonochromeOverlay(bool is_dark, float alpha) noexcept
 {
     return is_dark ? D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha)
                    : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha);
+}
+
+// Renderer の brushes_[TableStripe] と CommandGenerator のストライプ色で共有する。
+inline D2D1_COLOR_F TableStripeColor(bool is_dark) noexcept
+{
+    return MonochromeOverlay(is_dark, is_dark ? TABLE_STRIPE_ALPHA_DARK : TABLE_STRIPE_ALPHA_LIGHT);
 }
 
 // null ブラシは no-op。

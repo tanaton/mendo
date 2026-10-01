@@ -5,15 +5,6 @@
 class PaneControllerTest : public ::testing::Test {
 protected:
     PaneController panes_;
-
-    // 本体 (App::PaneAtPoint) と同じ ComputeLayout + DetectPaneZone の合成でゾーン判定する。
-    PaneZone DetectZoneAt(float dip_x, float total_w = 1200.0f, float total_h = 800.0f, float splitter_w = 4.0f) const
-    {
-        const auto layout = panes_.ComputeLayout(total_w, total_h, splitter_w);
-        return DetectPaneZone(dip_x, layout, splitter_w,
-                              panes_.IsSidePaneVisible(PaneTarget::File),
-                              panes_.IsSidePaneVisible(PaneTarget::Toc));
-    }
 };
 
 // ═══════════════════════════════════════════════
@@ -214,56 +205,6 @@ TEST_F(PaneControllerTest, ApplyZoomScalesScrollPositions)
 }
 
 // ═══════════════════════════════════════════════
-// レイアウト計算
-// ═══════════════════════════════════════════════
-
-TEST_F(PaneControllerTest, ComputeLayoutBothPanes)
-{
-    auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
-    // ファイルペインはx=0から開始
-    EXPECT_FLOAT_EQ(layout.file_rect.x, 0.0f);
-    EXPECT_GT(layout.file_rect.width, 0.0f);
-    // MDペインが存在すべき
-    EXPECT_GT(layout.md_rect.width, 0.0f);
-}
-
-TEST_F(PaneControllerTest, ComputeLayoutNoFilePane)
-{
-    panes_.ToggleSidePane(PaneTarget::File);
-    auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
-    EXPECT_FLOAT_EQ(layout.file_rect.width, 0.0f);
-    EXPECT_GT(layout.md_rect.width, 0.0f);
-}
-
-TEST_F(PaneControllerTest, DetectZoneMdPane)
-{
-    EXPECT_EQ(DetectZoneAt(800.0f), PaneZone::MdPane);
-}
-
-TEST_F(PaneControllerTest, DetectZoneFilePane)
-{
-    EXPECT_EQ(DetectZoneAt(10.0f), PaneZone::FilePane);
-}
-
-// ═══════════════════════════════════════════════
-// DetectZone — 追加ゾーン
-// ═══════════════════════════════════════════════
-
-TEST_F(PaneControllerTest, DetectZoneSplitter1)
-{
-    // Splitter1はファイルペインの直後
-    float file_w = panes_.GetSidePaneWidth(PaneTarget::File); // 220
-    EXPECT_EQ(DetectZoneAt(file_w + 2.0f), PaneZone::Splitter1);
-}
-
-TEST_F(PaneControllerTest, DetectZoneTocPane)
-{
-    auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
-    float toc_mid = layout.toc_rect.x + layout.toc_rect.width * 0.5f;
-    EXPECT_EQ(DetectZoneAt(toc_mid), PaneZone::TocPane);
-}
-
-// ═══════════════════════════════════════════════
 // スプリッタードラッグ — ファイルペイン非表示時
 // ═══════════════════════════════════════════════
 
@@ -278,25 +219,15 @@ TEST_F(PaneControllerTest, DragSplitter1WithFilePaneHidden)
 TEST_F(PaneControllerTest, DragSplitter2WithTocPaneHidden)
 {
     panes_.ToggleSidePane(PaneTarget::Toc); // 目次ペインを非表示
-    auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
     panes_.DragSplitterTo(PaneController::DragTarget::Splitter2, 1000.0f, 1200.0f, 4.0f);
     EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::Toc), PaneController::PANE_MIN_WIDTH);
 }
 
 // ═══════════════════════════════════════════════
-// ComputeLayout — 各種構成
+// ComputeLayout — 表示状態の受け渡し
+// 幾何計算自体は test_pane_layout.cpp で検証済み。ここでは File/Toc の表示フラグが
+// 取り違えずに ComputePaneLayout へ渡ることだけを確認する。
 // ═══════════════════════════════════════════════
-
-TEST_F(PaneControllerTest, ComputeLayoutNoPanes)
-{
-    panes_.ToggleSidePane(PaneTarget::File);
-    panes_.ToggleSidePane(PaneTarget::Toc);
-    auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
-    // 全幅がMDペインに割り当てられる
-    EXPECT_FLOAT_EQ(layout.file_rect.width, 0.0f);
-    EXPECT_FLOAT_EQ(layout.toc_rect.width, 0.0f);
-    EXPECT_GT(layout.md_rect.width, 0.0f);
-}
 
 TEST_F(PaneControllerTest, ComputeLayoutOnlyTocPane)
 {
@@ -424,14 +355,6 @@ TEST_F(PaneControllerTest, SetTocPaneVisible)
     EXPECT_FALSE(panes_.IsSidePaneVisible(PaneTarget::Toc));
     panes_.SetSidePaneVisible(PaneTarget::Toc, true);
     EXPECT_TRUE(panes_.IsSidePaneVisible(PaneTarget::Toc));
-}
-
-TEST_F(PaneControllerTest, SetVisibleAffectsLayout)
-{
-    panes_.SetSidePaneVisible(PaneTarget::File, false);
-    auto layout = panes_.ComputeLayout(1200.0f, 800.0f, 4.0f);
-    EXPECT_FLOAT_EQ(layout.file_rect.width, 0.0f);
-    EXPECT_GT(layout.md_rect.width, 0.0f);
 }
 
 // ═══════════════════════════════════════════════

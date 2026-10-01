@@ -42,25 +42,27 @@ struct ViewState {
     int h_drag_node = -1;
     float h_drag_start_x = 0.0f;
     float h_drag_start_scroll = 0.0f;
+    int active_toc_index = -1;
 
     float GetBlockScrollX(int node_index) const noexcept
     {
         return LookupBlockScrollX(&block_scroll_x, node_index);
     }
 
-    // 再パースでノード index がずれると別ノードを指すため、リロード時にクリアする per-node-index 一時状態。
+    // 再パースでノード/見出し index がずれると別の要素を指すため、リロード時にクリアする一時状態。
     void ResetPerNodeTransientState()
     {
+        viewport.ClearSelection();
         block_scroll_x.clear();
         hovered_h_block = -1;
         h_drag_node = -1;
+        active_toc_index = -1;
     }
 
     // 別文書 (ヘルプ含む) へ切り替える時のリセット。同一文書の再パースと違い
     // サイドペインのスクロールも先頭へ戻す。
     void ResetForNewDocument()
     {
-        viewport.ClearSelection();
         panes.ResetScrollStates();
         ResetPerNodeTransientState();
     }
@@ -103,14 +105,6 @@ struct AppState {
 
     FileExplorer file_explorer;
     ContextMenu ctx_menu;
-    int active_toc_index = -1;
-
-    // 差分位置は UTF-8 byte offset (CalcScrollYForDiff の string_view 引数と同じドメイン)。
-    // npos が「未設定」のセンチネル。
-    size_t reload_diff_pos = std::string_view::npos;
-    // 短縮タイマーで再リロード予約済み（DeferPrefixShrink / partial-read race）。
-    // ローディングアニメーションを抑制するために参照される。
-    bool pending_reload_retry = false;
 
     std::pmr::wstring cached_title_text = L"mendo";
     PaneLayoutCache pane_layout_cache;

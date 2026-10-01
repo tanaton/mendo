@@ -3,20 +3,15 @@
 #include "win32_host.h"
 #include "file_watcher.h"
 #include "app_state.h"
-#include "layout.h"
 #include "app_constants.h"
 #include "overloaded.h"
-#include "utility.h"
 #include "ui_constants.h"
 #include <string_view>
-
-class LayoutService;
 
 struct SideEffectExecutorDeps {
     IWin32Host* host = nullptr;
     FileWatcher* file_watcher = nullptr;
     AppState* state = nullptr;
-    LayoutService* layout_service = nullptr;
 };
 
 template <class Cb>
@@ -120,9 +115,6 @@ public:
                 cb_.renderer_set_dpi(ev.dpi);
             },
             // ---- Navigation ----
-            [this](const effect::ShellOpen& ev) {
-                deps_.host->ShellOpen(ev.url);
-            },
             [this](const effect::LoadFile& ev) {
                 cb_.load_file(ev.path);
             },
@@ -144,20 +136,6 @@ public:
             },
             [this](const effect::SyncTocActive& ev) {
                 cb_.sync_toc_active(ev.auto_scroll);
-            },
-            [this](const effect::ViewportLayout& ev) {
-                deps_.layout_service->ViewportLayout(
-                    deps_.state->document.doc,
-                    deps_.state->document.layout_cache,
-                    ev.md_width,
-                    ev.md_height
-                );
-            },
-            [this](const effect::SyncMaxScroll& ev) {
-                const auto& ds = deps_.state->document;
-                deps_.state->view.viewport.SyncMaxScroll(
-                    deps_.layout_service->GetScrollableContentHeight(ds.doc, ds.layout_cache),
-                    ev.md_pane_height);
             },
             // ---- Resource ----
             [this](const effect::NotifyImageLoaded&) {

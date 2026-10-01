@@ -39,7 +39,7 @@ void ReduceFilePaneDirectoryClicked(AppState& state, SideEffectList& effects, co
 {
     state.file_explorer.SetDirectory(a.full_path);
     state.view.panes.SidePaneScroll(PaneTarget::File) = {};
-    EmitSidePaneScrollChanged(effects, PaneZone::FilePane);
+    EmitSidePaneScrollChanged(effects, PaneTarget::File);
 }
 
 void ReduceFilePaneFileClicked(AppState& state, SideEffectList& effects, const FilePaneFileClickedAction& a)
@@ -50,7 +50,8 @@ void ReduceFilePaneFileClicked(AppState& state, SideEffectList& effects, const F
 
 void ReduceFilePaneRevealCurrentFile(AppState& state, SideEffectList& effects)
 {
-    if (!CanRevealCurrentFile(state)) {
+    // ヘルプ表示中は移動先のフォルダがない。
+    if (!state.document.doc.HasBackingFile()) {
         return;
     }
     state.file_explorer.SetDirectory(state.document.doc.GetDirectory());
@@ -58,58 +59,43 @@ void ReduceFilePaneRevealCurrentFile(AppState& state, SideEffectList& effects)
     const auto& entries = state.file_explorer.GetEntries();
     const auto it = std::ranges::find_if(entries, &FileEntry::is_current);
     const auto ctx = GetSidePaneContext(state, PaneTarget::File);
-    const float item_h = state.theme->pane_item_height;
     ctx.scroll.scroll_y = it != entries.end()
-                              ? CenterPaneScrollY(static_cast<float>(std::distance(entries.begin(), it)) * item_h, item_h, ctx.info)
+                              ? CenterPaneScrollOnItem(static_cast<size_t>(std::distance(entries.begin(), it)), state.theme->pane_item_height, ctx.info)
                               : 0.0f;
-    EmitSidePaneScrollChanged(effects, PaneZone::FilePane);
+    EmitSidePaneScrollChanged(effects, PaneTarget::File);
 }
 
 namespace {
-void ScrollToResolvedAnchor(AppState& state, SideEffectList& effects, int idx, bool toc_auto_scroll)
+void ScrollToHeading(AppState& state, SideEffectList& effects, int node_index, bool toc_auto_scroll)
 {
-    if (idx < 0) {
+    if (node_index < 0) {
         return;
     }
     const auto target = MakeHeadingTopTarget(
-        idx,
+        node_index,
         state.theme->heading_spacing_above,
         state.pane_layout_cache.Get().md_rect.y);
     ApplyScrollTargetAndEmit(state, effects, target.node, target.offset, toc_auto_scroll);
-}
-
-void ScrollToAnchor(AppState& state, SideEffectList& effects, std::string_view anchor_id)
-{
-    ScrollToResolvedAnchor(state, effects, state.document.doc.FindAnchorIndex(anchor_id), /*toc_auto_scroll=*/true);
-}
-
-// anchor_id() 由来など、既に正規化済み入力向け（ToLowerAsciiCopy の確保を回避する）。
-void ScrollToNormalizedAnchor(AppState& state, SideEffectList& effects, std::string_view anchor_id, bool toc_auto_scroll)
-{
-    ScrollToResolvedAnchor(state, effects, state.document.doc.FindNormalizedAnchorIndex(anchor_id), toc_auto_scroll);
 }
 } // namespace
 
 void ReduceTocItemClicked(AppState& state, SideEffectList& effects, const TocItemClickedAction& a)
 {
     PushCurrentNavEntry(state);
-    // TOC は anchor_id() を直接渡すため、改めての正規化は不要。
     // 目次クリック由来では目次ペインの自動スクロールを抑制する (issue#259)。
-    ScrollToNormalizedAnchor(state, effects, a.anchor_id, /*toc_auto_scroll=*/false);
+    ScrollToHeading(state, effects, a.node_index, /*toc_auto_scroll=*/false);
 }
 
 void ReduceNavigateAnchor(AppState& state, SideEffectList& effects, const NavigateAnchorAction& a)
 {
-    // nav 履歴の push は呼び出し側 (App::HandleLinkClick) で行われる。
-    ScrollToAnchor(state, effects, a.anchor_id);
+    PushCurrentNavEntry(state);
+    ScrollToHeading(state, effects, state.document.doc.FindAnchorIndex(a.anchor_id), /*toc_auto_scroll=*/true);
 }
 
 void ReduceRestoreScrollAfterLoad(AppState& state, SideEffectList& /*effects*/, const RestoreScrollAfterLoadAction& a)
 {
-    state.view.viewport.ClearScrollTarget();
-    if (a.has_reload_diff) {
-        state.view.viewport.SetScrollY(a.reload_diff_scroll_y);
-        state.reload_diff_pos = std::string_view::npos;
+    if (a.reload_diff_scroll_y) {
+        state.view.viewport.SetScrollY(*a.reload_diff_scroll_y);
     }
     else if (state.view.scroll_restore.HasNodeRestore()) {
         state.view.viewport.SetScrollTarget(

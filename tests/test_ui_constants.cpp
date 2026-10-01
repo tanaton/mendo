@@ -1,62 +1,37 @@
 #include <gtest/gtest.h>
+#include <iterator>
+#include <string>
 #include "ui_constants.h"
 
 // ═══════════════════════════════════════════════
 // PointInRect
 // ═══════════════════════════════════════════════
 
-TEST(PointInRectTest, InsideRect)
+// left/top は内側、right/bottom は外側 (half-open)
+TEST(PointInRectTest, HalfOpenBounds)
 {
-    D2D1_RECT_F r = D2D1::RectF(10.0f, 20.0f, 50.0f, 60.0f);
-    EXPECT_TRUE(PointInRect(30.0f, 40.0f, r));
-}
-
-TEST(PointInRectTest, OnLeftEdgeIsInside)
-{
-    D2D1_RECT_F r = D2D1::RectF(10.0f, 20.0f, 50.0f, 60.0f);
-    EXPECT_TRUE(PointInRect(10.0f, 40.0f, r));
-}
-
-TEST(PointInRectTest, OnTopEdgeIsInside)
-{
-    D2D1_RECT_F r = D2D1::RectF(10.0f, 20.0f, 50.0f, 60.0f);
-    EXPECT_TRUE(PointInRect(30.0f, 20.0f, r));
-}
-
-TEST(PointInRectTest, OnRightEdgeIsOutside)
-{
-    D2D1_RECT_F r = D2D1::RectF(10.0f, 20.0f, 50.0f, 60.0f);
-    EXPECT_FALSE(PointInRect(50.0f, 40.0f, r));
-}
-
-TEST(PointInRectTest, OnBottomEdgeIsOutside)
-{
-    D2D1_RECT_F r = D2D1::RectF(10.0f, 20.0f, 50.0f, 60.0f);
-    EXPECT_FALSE(PointInRect(30.0f, 60.0f, r));
-}
-
-TEST(PointInRectTest, OutsideLeft)
-{
-    D2D1_RECT_F r = D2D1::RectF(10.0f, 20.0f, 50.0f, 60.0f);
-    EXPECT_FALSE(PointInRect(5.0f, 40.0f, r));
-}
-
-TEST(PointInRectTest, OutsideAbove)
-{
-    D2D1_RECT_F r = D2D1::RectF(10.0f, 20.0f, 50.0f, 60.0f);
-    EXPECT_FALSE(PointInRect(30.0f, 10.0f, r));
-}
-
-TEST(PointInRectTest, TopLeftCorner)
-{
-    D2D1_RECT_F r = D2D1::RectF(10.0f, 20.0f, 50.0f, 60.0f);
-    EXPECT_TRUE(PointInRect(10.0f, 20.0f, r));
-}
-
-TEST(PointInRectTest, BottomRightCornerIsOutside)
-{
-    D2D1_RECT_F r = D2D1::RectF(10.0f, 20.0f, 50.0f, 60.0f);
-    EXPECT_FALSE(PointInRect(50.0f, 60.0f, r));
+    const D2D1_RECT_F r = D2D1::RectF(10.0f, 20.0f, 50.0f, 60.0f);
+    struct Case {
+        const char* name;
+        float x;
+        float y;
+        bool inside;
+    };
+    constexpr Case kCases[] = {
+        { "Inside", 30.0f, 40.0f, true },
+        { "LeftEdge", 10.0f, 40.0f, true },
+        { "TopEdge", 30.0f, 20.0f, true },
+        { "TopLeftCorner", 10.0f, 20.0f, true },
+        { "RightEdge", 50.0f, 40.0f, false },
+        { "BottomEdge", 30.0f, 60.0f, false },
+        { "BottomRightCorner", 50.0f, 60.0f, false },
+        { "OutsideLeft", 5.0f, 40.0f, false },
+        { "OutsideAbove", 30.0f, 10.0f, false },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.name);
+        EXPECT_EQ(PointInRect(c.x, c.y, r), c.inside);
+    }
 }
 
 TEST(PointInRectTest, ZeroSizeRect)
@@ -159,27 +134,93 @@ TEST(SnapToPhysicalPixelTest, SnapErrorWithinOnePixel)
 }
 
 // ═══════════════════════════════════════════════
-// PaneCloseButtonRect
+// PaneCloseButtonRect / PaneRefreshButtonRect / PaneRevealButtonRect
 // ═══════════════════════════════════════════════
 
-TEST(PaneCloseButtonRectTest, ButtonFitsInHeader)
-{
-    float pane_width = 220.0f;
-    float header_height = 32.0f;
-    auto r = PaneCloseButtonRect(pane_width, header_height);
+namespace {
 
-    EXPECT_GE(r.left, 0.0f);
-    EXPECT_LE(r.right, pane_width);
-    EXPECT_GE(r.top, 0.0f);
-    EXPECT_LE(r.bottom, header_height);
+struct PaneHeaderButton {
+    const char* name;
+    D2D1_RECT_F (*rect)(float pane_width, float header_height) noexcept;
+};
+
+// 右端から左へ並ぶ順
+constexpr PaneHeaderButton kPaneHeaderButtons[] = {
+    { "Close", PaneCloseButtonRect },
+    { "Refresh", PaneRefreshButtonRect },
+    { "Reveal", PaneRevealButtonRect },
+};
+
+} // namespace
+
+TEST(PaneHeaderButtonRectTest, FitsInHeader)
+{
+    constexpr float pane_width = 220.0f;
+    constexpr float header_height = 32.0f;
+    for (const auto& b : kPaneHeaderButtons) {
+        SCOPED_TRACE(b.name);
+        const auto r = b.rect(pane_width, header_height);
+        EXPECT_GE(r.left, 0.0f);
+        EXPECT_LE(r.right, pane_width);
+        EXPECT_GE(r.top, 0.0f);
+        EXPECT_LE(r.bottom, header_height);
+    }
 }
 
-TEST(PaneCloseButtonRectTest, ButtonIsSquare)
+TEST(PaneHeaderButtonRectTest, IsSquare)
 {
-    auto r = PaneCloseButtonRect(220.0f, 32.0f);
-    float width = r.right - r.left;
-    float height = r.bottom - r.top;
-    EXPECT_FLOAT_EQ(width, height);
+    for (const auto& b : kPaneHeaderButtons) {
+        SCOPED_TRACE(b.name);
+        const auto r = b.rect(220.0f, 32.0f);
+        EXPECT_FLOAT_EQ(r.right - r.left, r.bottom - r.top);
+    }
+}
+
+TEST(PaneHeaderButtonRectTest, IsVerticallyCentered)
+{
+    constexpr float header_height = 32.0f;
+    for (const auto& b : kPaneHeaderButtons) {
+        SCOPED_TRACE(b.name);
+        const auto r = b.rect(220.0f, header_height);
+        EXPECT_NEAR((r.top + r.bottom) / 2.0f, header_height / 2.0f, 0.01f);
+    }
+}
+
+TEST(PaneHeaderButtonRectTest, SizeScalesWithHeaderHeight)
+{
+    for (const auto& b : kPaneHeaderButtons) {
+        SCOPED_TRACE(b.name);
+        const auto r1 = b.rect(220.0f, 32.0f);
+        const auto r2 = b.rect(220.0f, 64.0f);
+        EXPECT_GT(r2.right - r2.left, r1.right - r1.left);
+    }
+}
+
+// 右寄せなのでサイズは同じまま位置だけが動く
+TEST(PaneHeaderButtonRectTest, PositionAdaptsToWidth)
+{
+    for (const auto& b : kPaneHeaderButtons) {
+        SCOPED_TRACE(b.name);
+        const auto r1 = b.rect(200.0f, 32.0f);
+        const auto r2 = b.rect(400.0f, 32.0f);
+        EXPECT_FLOAT_EQ(r1.right - r1.left, r2.right - r2.left);
+        EXPECT_GT(r2.left, r1.left);
+    }
+}
+
+TEST(PaneHeaderButtonRectTest, SitsLeftOfNeighborWithSameSize)
+{
+    for (size_t i = 1; i < std::size(kPaneHeaderButtons); ++i) {
+        const auto& left_btn = kPaneHeaderButtons[i];
+        const auto& right_btn = kPaneHeaderButtons[i - 1];
+        SCOPED_TRACE(std::string{ left_btn.name } + " vs " + right_btn.name);
+        const auto l = left_btn.rect(220.0f, 32.0f);
+        const auto r = right_btn.rect(220.0f, 32.0f);
+        EXPECT_FLOAT_EQ(l.right - l.left, r.right - r.left);
+        EXPECT_FLOAT_EQ(l.bottom - l.top, r.bottom - r.top);
+        EXPECT_FLOAT_EQ(l.top, r.top);
+        EXPECT_LT(l.right, r.left);
+    }
 }
 
 TEST(PaneCloseButtonRectTest, ButtonIsOnRightSide)
@@ -188,144 +229,6 @@ TEST(PaneCloseButtonRectTest, ButtonIsOnRightSide)
     auto r = PaneCloseButtonRect(pane_width, 32.0f);
     float center_x = (r.left + r.right) / 2.0f;
     EXPECT_GT(center_x, pane_width / 2.0f);
-}
-
-TEST(PaneCloseButtonRectTest, ButtonIsVerticallyCentered)
-{
-    float header_height = 32.0f;
-    auto r = PaneCloseButtonRect(220.0f, header_height);
-    float center_y = (r.top + r.bottom) / 2.0f;
-    EXPECT_NEAR(center_y, header_height / 2.0f, 0.01f);
-}
-
-TEST(PaneCloseButtonRectTest, ButtonSizeScalesWithHeaderHeight)
-{
-    auto r1 = PaneCloseButtonRect(220.0f, 32.0f);
-    auto r2 = PaneCloseButtonRect(220.0f, 64.0f);
-    float size1 = r1.right - r1.left;
-    float size2 = r2.right - r2.left;
-    EXPECT_GT(size2, size1);
-}
-
-TEST(PaneCloseButtonRectTest, ButtonPositionAdaptsToWidth)
-{
-    auto r1 = PaneCloseButtonRect(200.0f, 32.0f);
-    auto r2 = PaneCloseButtonRect(400.0f, 32.0f);
-    // ボタンサイズは同じだが、右寄せなので位置が異なる
-    float size1 = r1.right - r1.left;
-    float size2 = r2.right - r2.left;
-    EXPECT_FLOAT_EQ(size1, size2);
-    EXPECT_GT(r2.left, r1.left);
-}
-
-// ═══════════════════════════════════════════════
-// PaneRefreshButtonRect
-// ═══════════════════════════════════════════════
-
-TEST(PaneRefreshButtonRectTest, ButtonFitsInHeader)
-{
-    float pane_width = 220.0f;
-    float header_height = 32.0f;
-    auto r = PaneRefreshButtonRect(pane_width, header_height);
-
-    EXPECT_GE(r.left, 0.0f);
-    EXPECT_LE(r.right, pane_width);
-    EXPECT_GE(r.top, 0.0f);
-    EXPECT_LE(r.bottom, header_height);
-}
-
-TEST(PaneRefreshButtonRectTest, ButtonIsSquare)
-{
-    auto r = PaneRefreshButtonRect(220.0f, 32.0f);
-    float width = r.right - r.left;
-    float height = r.bottom - r.top;
-    EXPECT_FLOAT_EQ(width, height);
-}
-
-TEST(PaneRefreshButtonRectTest, SameSizeAsCloseButton)
-{
-    float pane_width = 220.0f;
-    float header_height = 32.0f;
-    auto close = PaneCloseButtonRect(pane_width, header_height);
-    auto refresh = PaneRefreshButtonRect(pane_width, header_height);
-    float close_size = close.right - close.left;
-    float refresh_size = refresh.right - refresh.left;
-    EXPECT_FLOAT_EQ(close_size, refresh_size);
-}
-
-TEST(PaneRefreshButtonRectTest, PositionedLeftOfCloseButton)
-{
-    float pane_width = 220.0f;
-    float header_height = 32.0f;
-    auto close = PaneCloseButtonRect(pane_width, header_height);
-    auto refresh = PaneRefreshButtonRect(pane_width, header_height);
-    EXPECT_LT(refresh.right, close.left);
-}
-
-TEST(PaneRefreshButtonRectTest, ButtonIsVerticallyCentered)
-{
-    float header_height = 32.0f;
-    auto r = PaneRefreshButtonRect(220.0f, header_height);
-    float center_y = (r.top + r.bottom) / 2.0f;
-    EXPECT_NEAR(center_y, header_height / 2.0f, 0.01f);
-}
-
-TEST(PaneRefreshButtonRectTest, NoOverlapWithCloseButton)
-{
-    float pane_width = 220.0f;
-    float header_height = 32.0f;
-    auto close = PaneCloseButtonRect(pane_width, header_height);
-    auto refresh = PaneRefreshButtonRect(pane_width, header_height);
-    // 更新ボタンの右端が閉じるボタンの左端より小さいことを確認
-    EXPECT_LE(refresh.right, close.left);
-}
-
-TEST(PaneRefreshButtonRectTest, ButtonPositionAdaptsToWidth)
-{
-    auto r1 = PaneRefreshButtonRect(200.0f, 32.0f);
-    auto r2 = PaneRefreshButtonRect(400.0f, 32.0f);
-    // ボタンサイズは同じだが、位置が異なる
-    float size1 = r1.right - r1.left;
-    float size2 = r2.right - r2.left;
-    EXPECT_FLOAT_EQ(size1, size2);
-    EXPECT_GT(r2.left, r1.left);
-}
-
-TEST(PaneRefreshButtonRectTest, ButtonSizeScalesWithHeaderHeight)
-{
-    auto r1 = PaneRefreshButtonRect(220.0f, 32.0f);
-    auto r2 = PaneRefreshButtonRect(220.0f, 64.0f);
-    float size1 = r1.right - r1.left;
-    float size2 = r2.right - r2.left;
-    EXPECT_GT(size2, size1);
-}
-
-// ═══════════════════════════════════════════════
-// PaneRevealButtonRect
-// ═══════════════════════════════════════════════
-
-TEST(PaneRevealButtonRectTest, SameSizeAsRefreshButton)
-{
-    auto refresh = PaneRefreshButtonRect(220.0f, 32.0f);
-    auto reveal = PaneRevealButtonRect(220.0f, 32.0f);
-    EXPECT_FLOAT_EQ(reveal.right - reveal.left, refresh.right - refresh.left);
-    EXPECT_FLOAT_EQ(reveal.bottom - reveal.top, refresh.bottom - refresh.top);
-}
-
-TEST(PaneRevealButtonRectTest, PositionedLeftOfRefreshButtonWithoutOverlap)
-{
-    auto refresh = PaneRefreshButtonRect(220.0f, 32.0f);
-    auto reveal = PaneRevealButtonRect(220.0f, 32.0f);
-    EXPECT_LE(reveal.right, refresh.left);
-    EXPECT_FLOAT_EQ(reveal.top, refresh.top);
-}
-
-TEST(PaneRevealButtonRectTest, FitsInHeader)
-{
-    auto r = PaneRevealButtonRect(220.0f, 32.0f);
-    EXPECT_GE(r.left, 0.0f);
-    EXPECT_GE(r.top, 0.0f);
-    EXPECT_LE(r.bottom, 32.0f);
 }
 
 // ═══════════════════════════════════════════════

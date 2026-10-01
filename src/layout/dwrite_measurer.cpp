@@ -54,15 +54,6 @@ static void RebuildRowCumY(TableLayoutData& tl, size_t row_count, float border_w
 }
 
 // 1 行目の高さを取得し entry にキャッシュする。layout 自体は変えない。
-// viewport と交差する行範囲。行ジオメトリ未確定なら全行を返す。
-static std::pair<size_t, size_t> RowsInViewport(const TableLayoutData& tl, size_t row_count, MeasureViewportRange viewport) noexcept
-{
-    if (viewport.is_full() || tl.row_cum_y.size() != row_count + 1) {
-        return { 0, row_count };
-    }
-    return tl.VisibleRowRange(viewport.top, viewport.bottom);
-}
-
 static void CacheFirstLineHeight(IDWriteTextLayout* layout, NodeLayoutEntry& entry) noexcept
 {
     DWRITE_LINE_METRICS lm{};
@@ -72,19 +63,29 @@ static void CacheFirstLineHeight(IDWriteTextLayout* layout, NodeLayoutEntry& ent
     entry.first_line_height = ((SUCCEEDED(hr) || hr == E_NOT_SUFFICIENT_BUFFER) && lc > 0) ? lm.height : 0.0f;
 }
 
-// entry.text_layout の計測結果を確定する。折り返し行が変わるためエフェクト位置 /
-// ハイライト矩形は無効化する (text_layout のフォーマット属性は保持される)。
-static void FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TEXT_METRICS& metrics) noexcept
+// entry.text_layout の計測結果を確定する。折り返し行が変わるためハイライト矩形は無効化する。
+// reused_layout (SetMaxWidth のみ) では SetDrawingEffect/SetUnderline の範囲が残るので、
+// 折り返しに依存するインラインコード背景だけを作り直させる。
+static void FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TEXT_METRICS& metrics, bool reused_layout) noexcept
 {
     entry.height = metrics.height;
     entry.layout_dirty = false;
     CacheFirstLineHeight(entry.text_layout.Get(), entry);
+    entry.invalidate_per_frame_hl_caches();
     if (node.type == NodeType::CodeBlock) {
         entry.natural_code_width = metrics.widthIncludingTrailingWhitespace;
+        // NO_WRAP なので再利用時は行も変わらず、インラインコード背景も持たない。
+        if (reused_layout) {
+            return;
+        }
     }
-    entry.effects_applied = false;
     entry.clear_inline_code_bgs();
-    entry.invalidate_per_frame_hl_caches();
+    if (reused_layout) {
+        entry.inline_code_bgs_stale = true;
+    }
+    else {
+        entry.effects_applied = false;
+    }
 }
 
 static HRESULT CreateFormat(IDWriteFactory* factory, const wchar_t* family, float size, DWRITE_FONT_WEIGHT weight, IDWriteTextFormat** out)
@@ -327,7 +328,7 @@ void DWriteTextMeasurer::MeasureNode(
         if (SUCCEEDED(hr)) {
             DWRITE_TEXT_METRICS metrics{};
             entry.text_layout->GetMetrics(&metrics);
-            FinishTextMeasure(node, entry, metrics);
+            FinishTextMeasure(node, entry, metrics, true);
             return;
         }
         // 失敗時はスローパスでフルに作り直す。
@@ -366,7 +367,7 @@ void DWriteTextMeasurer::MeasureNode(
     }
 
     entry.text_layout = std::move(layout);
-    FinishTextMeasure(node, entry, metrics);
+    FinishTextMeasure(node, entry, metrics, false);
 }
 
 void DWriteTextMeasurer::BuildCellLayout(const NodeTableData* tbl, size_t r, size_t c, size_t ci, IDWriteTextFormat* row_fmt, TableLayoutData& tl) const
@@ -426,7 +427,7 @@ void DWriteTextMeasurer::RestoreNullCellLayouts(Node& node, NodeLayoutEntry& ent
     MENDO_PROFILE("RestoreNullCellLayouts");
     const auto* tbl = node.table_data();
     auto& tl = *entry.table_layout;
-    const auto [r_begin, r_end] = RowsInViewport(tl, tbl->row_count, viewport);
+    const auto [r_begin, r_end] = tl.RowsInViewport(tbl->row_count, viewport.top, viewport.bottom);
     for (size_t r = r_begin; r < r_end; r++) {
         if (tl.row_evicted[r]) {
             RestoreRowCells(tbl, tl, r);
@@ -551,7 +552,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(Node& node, NodeL
         return result;
     }
 
-    const auto [r_begin, r_end] = RowsInViewport(tl, row_count, viewport);
+    const auto [r_begin, r_end] = tl.RowsInViewport(row_count, viewport.top, viewport.bottom);
     const float cell_padding = TABLE_CELL_PADDING;
     const float base_row_height = theme_->font_size_body * TABLE_ROW_HEIGHT_FACTOR;
 

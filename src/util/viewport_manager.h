@@ -7,7 +7,7 @@
 
 // スクロール位置の「目的地」を表す値型。
 // node が有効な間、レイアウトが変化するたびに scroll_y = text_top[node] + offset として再評価される。
-// ユーザー発のピクセルスクロールや ClearScrollTarget で無効化される。
+// ユーザー発のピクセルスクロール (SetScrollY / ScrollTo / DirectScrollBy) で無効化される。
 struct ScrollTarget {
     int node = -1;       // -1 = 無効
     float offset = 0.0f; // ノード先頭からのピクセル距離
@@ -84,10 +84,6 @@ public:
         scroll_target_ = { node, offset };
     }
 
-    constexpr void ClearScrollTarget() noexcept
-    {
-        scroll_target_ = {};
-    }
     constexpr bool HasScrollTarget() const noexcept
     {
         return scroll_target_.IsValid();
@@ -125,11 +121,12 @@ public:
         }
     }
 
-    // target を触らずクランプも掛けない生の scroll_y 書き込み。
-    // max_scroll が未確定な段階（ファイルロード直後など）のシード投入に使う。target との整合は呼び出し側責任。
+    // クランプを掛けない scroll_y 書き込み。scroll_target を無効化する。
+    // max_scroll が未確定な段階（ファイルロード直後など）のシード投入に使う。
     constexpr void SetScrollY(float y) noexcept
     {
         scroll_y_ = y;
+        scroll_target_ = {};
     }
 
     // ---- 選択 ----

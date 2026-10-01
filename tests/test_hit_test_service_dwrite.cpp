@@ -4,6 +4,7 @@
 // 経由の text_pos 計算は到達できない。本ファイルでは実 IDWriteFactory を
 // 使う DWriteTestBase の上で、その経路を踏む。
 #include <gtest/gtest.h>
+#include "document_test_helpers.h"
 #include "dwrite_test_base.h"
 #include "hit_test_service.h"
 #include "ui_constants.h"
@@ -14,11 +15,6 @@ namespace {
 class HitTestDWriteTest : public DWriteTestBase {
 protected:
     HitTestService hit_;
-
-    float ContentWidth(float pane_w) const noexcept
-    {
-        return pane_w - theme_.margin_left - theme_.margin_right;
-    }
 };
 
 } // namespace
@@ -33,7 +29,7 @@ TEST_F(HitTestDWriteTest, ParagraphHitReturnsTextPositionFromTextLayout)
 
     // 段落の中央付近 (margin_left + 数文字分) をクリックする想定。
     // dpi=1, md_pane_left=0, scroll_y=0 で screen 座標 == DIP。
-    const float content_width = ContentWidth(800.0f);
+    const float content_width = theme_.ContentWidth(800.0f);
     const int screen_x = static_cast<int>(theme_.margin_left + 50.0f);
     const int screen_y = static_cast<int>(pl.cache.Top(0) + 4.0f);
 
@@ -55,13 +51,7 @@ TEST_F(HitTestDWriteTest, TableHitDetectsRowAndColumn)
 {
     auto pl = ParseAndLayout("| H1 | H2 |\n|---|---|\n| 11 | 12 |\n| 21 | 22 |");
 
-    int table_idx = -1;
-    for (size_t i = 0; i < pl.nodes.size(); ++i) {
-        if (pl.nodes[i].type == NodeType::Table) {
-            table_idx = static_cast<int>(i);
-            break;
-        }
-    }
+    const int table_idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
     ASSERT_GE(table_idx, 0);
     ASSERT_TRUE(pl.cache[table_idx].has_table_layout());
 
@@ -70,7 +60,7 @@ TEST_F(HitTestDWriteTest, TableHitDetectsRowAndColumn)
     const int sx = static_cast<int>(theme_.margin_left + 30.0f);
     const int sy = static_cast<int>(pl.cache.Top(table_idx) + entry.height * 0.5f);
 
-    const float content_width = ContentWidth(800.0f);
+    const float content_width = theme_.ContentWidth(800.0f);
     const MdPaneHitContext ctx{
         pl.nodes, pl.cache, theme_, 0.0f, 0.0f, 1.0f,
         sx, sy, content_width, 600.0f
@@ -87,16 +77,10 @@ TEST_F(HitTestDWriteTest, CodeBlockButtonsHitTest_CopyHitReturnsNode)
 {
     auto pl = ParseAndLayout("```\nint main() { return 0; }\n```");
 
-    int code_idx = -1;
-    for (size_t i = 0; i < pl.nodes.size(); ++i) {
-        if (pl.nodes[i].type == NodeType::CodeBlock) {
-            code_idx = static_cast<int>(i);
-            break;
-        }
-    }
+    const int code_idx = FindFirstNodeIndexByType(pl.nodes, NodeType::CodeBlock);
     ASSERT_GE(code_idx, 0);
 
-    const float content_width = ContentWidth(800.0f);
+    const float content_width = theme_.ContentWidth(800.0f);
     const float block_right = theme_.margin_left + content_width;
     const float block_top = pl.cache.Top(code_idx) - theme_.code_block_padding;
     const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
@@ -118,7 +102,7 @@ TEST_F(HitTestDWriteTest, CodeBlockButtonsHitTest_CopyHitReturnsNode)
 TEST_F(HitTestDWriteTest, CodeBlockButtonsHitTest_RepeatCallReturnsSameResult)
 {
     auto pl = ParseAndLayout("```\nfoo\n```");
-    const float content_width = ContentWidth(800.0f);
+    const float content_width = theme_.ContentWidth(800.0f);
     const MdPaneHitContext ctx{
         pl.nodes, pl.cache, theme_, 0.0f, 0.0f, 1.0f,
         100, 100, content_width, 600.0f

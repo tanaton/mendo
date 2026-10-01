@@ -18,7 +18,7 @@
 using mendo::layout::DirtyBatchResult;
 using mendo::layout::ParallelBudget;
 using mendo::layout::SerialBudget;
-using mendo::layout::DirtyScheduler;
+using mendo::layout::RunSerial;
 using mendo::layout::RunParallel;
 using mendo::layout::StopReason;
 using mendo::layout::ViewportClip;
@@ -65,18 +65,9 @@ Node MakeStressNode(size_t i, bool include_code_block)
         return n;
     }
     if (bucket < 17) {
-        n.type = NodeType::Table;
-        n.ensure_table();
-        auto* tbl = n.table_data();
-        // 1 行 2 列の "a\tb"
-        tbl->row_count = 1;
-        tbl->col_count = 2;
-        tbl->concat_text = "a\tb";
-        tbl->cell_text_starts = { 0u, 2u, 3u };
-        tbl->cell_run_starts = { 0u, 0u, 0u };
-        tbl->aligns = { TableAlign::Default, TableAlign::Default };
-        tbl->is_header_row = { false };
-        return n;
+        Node table = MakeTableNode("a", "b");
+        table.SetSourceOffset(SourceOffsetTestBase(), i);
+        return table;
     }
     if (bucket < 19) {
         n.type = NodeType::Image;
@@ -111,7 +102,7 @@ struct StressFixture {
 };
 
 // CodeBlock の syntax_tokens を Serial / Parallel どちらの経路でも書く派生 mock。
-// Serial パス (DirtyScheduler::RunSerial) は tokens_out=nullptr で呼ぶため node.syntax_tokens_mut() に直接書き、
+// Serial パス (RunSerial) は tokens_out=nullptr で呼ぶため node.syntax_tokens_mut() に直接書き、
 // Parallel パス (RunParallel) は per-slot vector を渡してくるため *tokens_out に書く。
 // どちらも最終的に node.syntax_tokens() に同じ 3 個のトークンが格納される (UI 集約後)。
 class MockTextMeasurerWithTokens : public MockTextMeasurer {
@@ -179,7 +170,6 @@ class ParallelMeasureStressTest : public ::testing::Test {
 protected:
     MockTextMeasurerWithTokens mock_;
     Theme theme_;
-    DirtyScheduler scheduler_;
     TaskScheduler task_scheduler_;
 
     void SetUp() override
@@ -205,8 +195,8 @@ TEST_F(ParallelMeasureStressTest, MatchesSerialOutputOnLargeMixedFixture)
     StressFixture p;
     p.Build(N, /*include_code_block=*/false, /*all_dirty=*/true);
 
-    const auto rs = scheduler_.RunSerial(s.nodes, s.cache, 800.0f, theme_, mock_,
-                                         ViewportClip{}, SerialBudget{});
+    const auto rs = RunSerial(s.nodes, s.cache, 800.0f, theme_, mock_,
+                              ViewportClip{}, SerialBudget{});
     const auto rp = RunParallel(p.nodes, p.cache, 800.0f, theme_, mock_,
                                 ViewportClip{}, ParallelBudget{}, task_scheduler_);
 
@@ -224,8 +214,8 @@ TEST_F(ParallelMeasureStressTest, CodeBlockSyntaxTokensAggregatedInOrder)
     StressFixture p;
     p.Build(N, /*include_code_block=*/true, /*all_dirty=*/true);
 
-    const auto rs = scheduler_.RunSerial(s.nodes, s.cache, 800.0f, theme_, mock_,
-                                         ViewportClip{}, SerialBudget{});
+    const auto rs = RunSerial(s.nodes, s.cache, 800.0f, theme_, mock_,
+                              ViewportClip{}, SerialBudget{});
     const auto rp = RunParallel(p.nodes, p.cache, 800.0f, theme_, mock_,
                                 ViewportClip{}, ParallelBudget{}, task_scheduler_);
 
@@ -256,7 +246,6 @@ class ParallelWorkerCountTest : public ::testing::TestWithParam<int> {
 protected:
     MockTextMeasurerWithTokens mock_;
     Theme theme_;
-    DirtyScheduler scheduler_;
 
     void SetUp() override
     {
@@ -276,8 +265,8 @@ TEST_P(ParallelWorkerCountTest, BitExactAcrossWorkerCount)
     StressFixture p;
     p.Build(N, /*include_code_block=*/true, /*all_dirty=*/true);
 
-    const auto rs = scheduler_.RunSerial(s.nodes, s.cache, 800.0f, theme_, mock_,
-                                         ViewportClip{}, SerialBudget{});
+    const auto rs = RunSerial(s.nodes, s.cache, 800.0f, theme_, mock_,
+                              ViewportClip{}, SerialBudget{});
     const auto rp = RunParallel(p.nodes, p.cache, 800.0f, theme_, mock_,
                                 ViewportClip{}, ParallelBudget{}, ts);
 
@@ -369,7 +358,6 @@ TEST(ParallelMeasureBench, DISABLED_ChunkSizeSweep)
     SlowMockMeasurer mock;
     mock.spin_us = 100;
     Theme theme = GetLightTheme();
-    DirtyScheduler scheduler;
     TaskScheduler ts;
     ts.Init(4);
 
@@ -383,8 +371,8 @@ TEST(ParallelMeasureBench, DISABLED_ChunkSizeSweep)
         pf.Build(N, /*include_code_block=*/false, /*all_dirty=*/true);
 
         const double us_serial = MeasureUs([&] {
-            scheduler.RunSerial(sf.nodes, sf.cache, 800.0f, theme, mock,
-                                ViewportClip{}, SerialBudget{});
+            RunSerial(sf.nodes, sf.cache, 800.0f, theme, mock,
+                      ViewportClip{}, SerialBudget{});
         });
         const double us_parallel = MeasureUs([&] {
             RunParallel(pf.nodes, pf.cache, 800.0f, theme, mock,

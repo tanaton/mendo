@@ -1,4 +1,5 @@
 #pragma once
+#include "ui_constants.h"
 #include "win_handle.h"
 #include <d2d1_1.h>
 #include <d3d11.h>
@@ -27,8 +28,8 @@ public:
     // 1 フレーム遅れに同期し、CPU 側を Present 直前まで詰めずに済ませる。
     void WaitForFrameLatency() noexcept;
 
-    // EndDraw 後に呼び出す。Present の HRESULT を返し、呼び出し側がデバイスロスト等を判定する。
-    HRESULT Present() noexcept;
+    // EndDraw 後に呼び出す。デバイスロスト系の失敗は IsDeviceLost() で通知する。
+    void Present() noexcept;
 
     // Resize / Present が DXGI_ERROR_DEVICE_REMOVED/RESET を検知した、もしくは
     // CreateSwapChainBitmap が失敗した時に true を返す。Renderer が次フレーム頭で
@@ -65,7 +66,7 @@ private:
     void ConfigureFrameLatency() noexcept;
 
     HWND hwnd_ = nullptr;
-    float dpi_ = 96.0f;
+    float dpi_ = DEFAULT_DPI;
     bool device_lost_ = false;
     Microsoft::WRL::ComPtr<ID2D1Factory1> d2d_factory_;
     Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;

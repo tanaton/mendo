@@ -262,8 +262,8 @@ void App::OnMouseHover(int px, int py)
             [this, target](PaneHeaderButton hit) noexcept {
                 return state_.view.panes.SetSideHoveredButton(target, hit);
             },
-            [this, is_file](float y, float h) noexcept {
-                return  is_file ? state_.file_explorer.HitTest(y, h) : state_.document.doc.GetToc().HitTest(y, h);
+            [this, target](float y, float h) noexcept {
+                return SidePaneHitTest(state_, target, y, h);
             },
             tooltip
         );

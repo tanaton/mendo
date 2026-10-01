@@ -16,7 +16,7 @@ PaneLayout ComputePaneLayout(
 
     // 保存幅がウィンドウより広い場合 (広いモニタで保存→狭い画面で起動した等) でも
     // MD ペインとスプリッタを画面内に保つため、表示上の side 幅を clamp する。論理幅
-    // (PaneController::widths_) は変更しないので、ウィンドウを広げれば元に戻る。
+    // (PaneController の Instance::width) は変更しないので、ウィンドウを広げれば元に戻る。
     // side がウィンドウに収まる通常時は no-op。
     float fw = show_file ? file_pane_width : 0.0f;
     float tw = show_toc ? toc_pane_width : 0.0f;

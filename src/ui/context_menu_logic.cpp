@@ -180,7 +180,7 @@ void ContextMenu::Impl::ComputeLayout()
 int ContextMenu::Impl::HitTest(float x, float y) const noexcept
 {
     for (const auto& item : items) {
-        if (item.type != ItemType::Text || item.id == 0) {
+        if (item.type != ItemType::Text || item.id == 0 || !item.enabled) {
             continue;
         }
         if (PointInRect(x, y, item.rect)) {

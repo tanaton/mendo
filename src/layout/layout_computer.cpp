@@ -99,10 +99,8 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
 {
     const float line_height = theme.font_size_body * 1.5f;
     switch (node.type) {
-    case NodeType::Heading: {
-        const int level = std::clamp(static_cast<int>(node.heading_level()), 1, 6) - 1;
-        return theme.font_size_h[level] * 1.5f;
-    }
+    case NodeType::Heading:
+        return theme.GetHeadingSize(node.heading_level()) * 1.5f;
     case NodeType::CodeBlock: {
         const int lines = 1 + node.line_count;
         const float h = theme.font_size_code * 1.3f * static_cast<float>(lines);
@@ -188,13 +186,12 @@ bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
     return true;
 }
 
-YPositionResult RecomputeYPositions(
+bool RecomputeYPositions(
     std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
-    size_t from_index, bool has_earlier_dirty, size_t safe_exit_after) noexcept
+    size_t from_index, size_t safe_exit_after) noexcept
 {
     MENDO_PROFILE("RecomputeYPositions");
-    YPositionResult result;
-    result.has_dirty_nodes = has_earlier_dirty;
+    bool has_dirty_nodes = false;
     const auto node_count = nodes.size();
     float y = theme.margin_top;
 
@@ -210,7 +207,7 @@ YPositionResult RecomputeYPositions(
     for (size_t i = from_index; i < tail_start; i++) {
         auto& entry = cache[i];
         if (entry.layout_dirty) {
-            result.has_dirty_nodes = true;
+            has_dirty_nodes = true;
         }
 
         const float sa = GetSpacingAbove(nodes[i], theme);
@@ -228,9 +225,9 @@ YPositionResult RecomputeYPositions(
         // 後続の dirty 有無を調べるには AoS の全エントリを読む必要があり、シフトを SoA にした
         // 意味がなくなるため保守的に true とする。ProcessDirtyBatch は可視帯に dirty が
         // 無ければ即 false に戻すので、誤って true でも余分なのはタイマー 1 tick だけ。
-        result.has_dirty_nodes = true;
+        has_dirty_nodes = true;
     }
-    return result;
+    return has_dirty_nodes;
 }
 
 } // namespace mendo::layout

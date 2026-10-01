@@ -1,5 +1,4 @@
 #pragma once
-#include "doc_text.h"
 #include <cstddef>
 #include <cstdint>
 #include <dwrite.h>
@@ -17,6 +16,9 @@
 // それらは std::wstring 経路を維持し、CreateDocTextLayout / WideViewForDWrite を経由しない。
 
 namespace mendo {
+
+// UTF-8 byte 単位。
+using doc_offset = uint32_t;
 
 class WideViewForDWrite {
 public:
@@ -56,6 +58,12 @@ public:
     {}
 
     uint32_t WideAt(uint32_t byte_target) noexcept;
+
+    DWRITE_TEXT_RANGE WideRange(uint32_t byte_start, uint32_t byte_length) noexcept
+    {
+        const uint32_t w_start = WideAt(byte_start);
+        return DWRITE_TEXT_RANGE{ w_start, WideAt(byte_start + byte_length) - w_start };
+    }
 
 private:
     std::string_view text_;

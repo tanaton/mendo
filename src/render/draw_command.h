@@ -11,10 +11,6 @@
 #include <type_traits>
 #include <cstdint>
 
-struct ClearCmd {
-    D2D1_COLOR_F color;
-};
-
 struct FillRectCmd {
     D2D1_RECT_F rect;
     D2D1_COLOR_F color;
@@ -55,7 +51,6 @@ struct DrawTextCmd {
     D2D1_RECT_F rect{};
     D2D1_COLOR_F color{};
     uint8_t text_len = 0;
-    bool is_inline = false;
     BrushId brush_id = BrushId::Custom;
 
     DrawTextCmd() noexcept : text_ptr(nullptr)
@@ -63,15 +58,13 @@ struct DrawTextCmd {
 
     const wchar_t* text() const noexcept
     {
-        return is_inline ? inline_buf : text_ptr;
+        return (text_len <= INLINE_TEXT_CAPACITY) ? inline_buf : text_ptr;
     }
 };
 
 struct DrawBitmapCmd {
     ID2D1Bitmap* bitmap; // 非所有; ライフタイムはLayoutCache::DiagramEntryが管理。
     D2D1_RECT_F dest;
-    float opacity = 1.0f;
-    D2D1_BITMAP_INTERPOLATION_MODE interpolation_mode = D2D1_BITMAP_INTERPOLATION_MODE_LINEAR;
 };
 
 struct FillEllipseCmd {
@@ -101,7 +94,6 @@ struct SetTransformCmd {
 
 // 本番経路は Visit() を使う。テスト/デバッグ用。
 using DrawCommand = std::variant<
-    ClearCmd,
     FillRectCmd,
     FillRoundedRectCmd,
     DrawLineCmd,
@@ -117,7 +109,7 @@ using DrawCommand = std::variant<
 class DrawCommandList {
 public:
     explicit constexpr DrawCommandList(std::pmr::memory_resource* mr = std::pmr::get_default_resource())
-        : clears_(mr), fill_rects_(mr), fill_rounded_rects_(mr), lines_(mr),
+        : fill_rects_(mr), fill_rounded_rects_(mr), lines_(mr),
           text_layouts_(mr), texts_(mr), bitmaps_(mr),
           fill_ellipses_(mr), ellipses_(mr), push_clips_(mr), transforms_(mr),
           seq_(mr)
@@ -132,7 +124,6 @@ public:
 
     constexpr void clear() noexcept
     {
-        clears_.clear();
         fill_rects_.clear();
         fill_rounded_rects_.clear();
         lines_.clear();
@@ -161,10 +152,6 @@ public:
         return seq_.size();
     }
 
-    constexpr void push_back(const ClearCmd& c)
-    {
-        Append(Kind::Clear, clears_, c);
-    }
     constexpr void push_back(const FillRectCmd& c)
     {
         Append(Kind::FillRect, fill_rects_, c);
@@ -222,9 +209,6 @@ public:
     {
         const uint32_t idx = GetIndex(entry);
         switch (GetKind(entry)) {
-        case Kind::Clear:
-            v(clears_[idx]);
-            return;
         case Kind::FillRect:
             v(fill_rects_[idx]);
             return;
@@ -279,8 +263,6 @@ public:
         const Kind k = GetKind(entry);
         const uint32_t idx = GetIndex(entry);
         switch (k) {
-        case Kind::Clear:
-            return clears_[idx];
         case Kind::FillRect:
             return fill_rects_[idx];
         case Kind::FillRoundedRect:
@@ -377,7 +359,6 @@ public:
 
 private:
     enum class Kind : uint8_t {
-        Clear,
         FillRect,
         FillRoundedRect,
         DrawLine,
@@ -415,7 +396,6 @@ private:
         seq_.push_back(Pack(k, idx));
     }
 
-    std::pmr::vector<ClearCmd> clears_;
     std::pmr::vector<FillRectCmd> fill_rects_;
     std::pmr::vector<FillRoundedRectCmd> fill_rounded_rects_;
     std::pmr::vector<DrawLineCmd> lines_;

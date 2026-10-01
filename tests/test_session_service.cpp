@@ -71,15 +71,19 @@ TEST_F(SessionServiceTest, SaveAndLoadScrollPosition)
 
 TEST_F(SessionServiceTest, SaveLastFilePathStoresPath)
 {
-    session_.SaveLastFilePath(L"C:\\test.md");
-    // 保存されたパスのファイルが存在しない場合は空が返る
-    // (テスト環境でファイルが存在しないため)
+    // LoadLastFilePath は実在しないパスを弾くため、実ファイルを作って往復させる。
+    const auto file = WriteTempFile(L"last.md", "# last").wstring();
+    session_.SaveLastFilePath(file);
+    EXPECT_EQ(session_.LoadLastFilePath(), std::wstring_view{ file });
 }
 
 TEST_F(SessionServiceTest, SaveLastFilePathSkipsEmpty)
 {
+    // 空パスで既存の保存値を上書きしない。
+    const auto file = WriteTempFile(L"last.md", "# last").wstring();
+    session_.SaveLastFilePath(file);
     session_.SaveLastFilePath(L"");
-    // 空パスは保存されない
+    EXPECT_EQ(session_.LoadLastFilePath(), std::wstring_view{ file });
 }
 
 TEST_F(SessionServiceTest, LoadLastFilePathRejectsUncPaths)

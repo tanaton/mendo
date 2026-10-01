@@ -57,7 +57,6 @@ void ClearSidePaneHoverState(AppState& state, SideEffectList& effects)
 }
 
 // スクロール位置が変わった時に共通で発火する副作用列。
-// InvalidateMdPane → BitmapManage の順序は test_reducer の HasEffectInOrder で契約として担保。
 // MD ペイン限定無効化により、タイトルバー/サイドペインビットマップキャッシュの再描画を避ける。
 void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects, bool toc_auto_scroll)
 {
@@ -68,9 +67,9 @@ void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects, bool
     PushEffect(effects, effect::SyncTocActive{ toc_auto_scroll });
 }
 
-void EmitSidePaneScrollChanged(SideEffectList& effects, PaneZone zone)
+void EmitSidePaneScrollChanged(SideEffectList& effects, PaneTarget pane)
 {
-    PushEffect(effects, effect::InvalidatePaneCache{ zone });
+    PushEffect(effects, effect::InvalidatePaneCache{ ToPaneZone(pane) });
     PushEffect(effects, effect::InvalidateWindow{});
 }
 
@@ -100,15 +99,9 @@ SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
         pane == PaneTarget::File
             ? state.file_explorer.GetEntries().size()
             : state.document.doc.GetToc().GetEntries().size();
-    const float total = SidePaneContentHeight(item_count, item_h);
-    const PaneRect& rect = layout.Get(pane);
     return {
-        rect,
-        total,
-        ComputeScrollInfo(rect, header_h, total),
+        ComputeScrollInfo(layout.Get(pane), header_h, SidePaneContentHeight(item_count, item_h)),
         state.view.panes.SidePaneScroll(pane),
-        SidePaneDragTarget(pane),
-        ToPaneZone(pane),
     };
 }
 
@@ -129,7 +122,7 @@ BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node
         state.pane_layout_cache.Get().md_rect.width);
 }
 
-// MD ペインの総コンテンツ高 (LayoutService::GetScrollableContentHeight と同じ式)。
+// MD ペインの総コンテンツ高。詳細は layout_cache.h の ComputeTotalContentHeight 注記参照。
 // アクションのペイロードで運ぶと、遅延レイアウト進行中にドラッグ開始と移動で
 // 別計測の値が混ざりサム位置が跳ねるため、reducer 側で都度導出する。
 float MdScrollableContentHeight(const AppState& state) noexcept
@@ -185,6 +178,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         // ---- ペイン・選択・クリップボード ----
         [&](const TogglePaneAction& a) { ReduceTogglePane(state, effects, a); },
         [&](const SelectAllAction&) { ReduceSelectAll(state, effects); },
+        [&](const SelectWordAction& a) { ReduceSelectWord(state, effects, a); },
         [&](const ClearSelectionAction&) { ReduceClearSelection(state, effects); },
         [&](const CopyClipboardAction&) { ReduceCopyClipboard(state, effects); },
         [&](const CopyFormattedClipboardAction&) { ReduceCopyFormattedClipboard(state, effects); },
@@ -211,9 +205,9 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         // ---- 検索 ----
         [&](const OpenSearchBarAction&) { state.search.search_bar_ctrl.OnOpen(state.document.doc.GetNodes()); },
         [&](const CloseSearchBarAction&) { state.search.search_bar_ctrl.OnClose(); },
-        [&](const SearchNextAction&) { ReduceSearchStep(state, true); },
-        [&](const SearchPrevAction&) { ReduceSearchStep(state, false); },
-        [&](const SearchTextChangedAction& a) { state.search.search_bar_ctrl.OnTextChanged(a.text, state.document.doc.GetNodes(), state.document.doc.GetRawText().size()); },
+        [&](const SearchNextAction&) { ReduceSearchStep(state, effects, true); },
+        [&](const SearchPrevAction&) { ReduceSearchStep(state, effects, false); },
+        [&](const SearchTextChangedAction& a) { ReduceSearchTextChanged(state, effects, a); },
         [&](const ToggleCaseSensitiveAction&) { state.search.search_bar_ctrl.OnToggleCaseSensitive(state.document.doc.GetNodes()); },
         [&](const ToggleHighlightAction&) { state.search.search_bar_ctrl.OnToggleHighlight(); },
         [&](const SearchSelectionAction& a) { state.search.search_bar_ctrl.SetSelection(a.sel_start, a.sel_end); },

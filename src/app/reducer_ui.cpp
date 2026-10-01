@@ -1,4 +1,5 @@
 #include "reducer_internal.h"
+#include "document_utils.h"
 #include "selection_html.h"
 
 void ReduceTogglePane(AppState& state, SideEffectList& effects, const TogglePaneAction& a)
@@ -15,6 +16,25 @@ void ReduceSelectAll(AppState& state, SideEffectList& effects)
 {
     state.view.viewport.SelectAll(state.document.doc.GetNodes());
     PushEffect(effects, effect::InvalidateWindow{});
+}
+
+void ReduceSelectWord(AppState& state, SideEffectList& effects, const SelectWordAction& a)
+{
+    const auto& nodes = state.document.doc.GetNodes();
+    if (a.node_index < 0 || a.node_index >= static_cast<int>(nodes.size())) {
+        return;
+    }
+    const std::string_view text = nodes[a.node_index].LinearizedText();
+    if (text.empty()) {
+        return;
+    }
+    const auto wb = FindWordBoundaries(text, a.text_pos);
+    if (!wb.found) {
+        return;
+    }
+    state.view.viewport.SetAnchor(a.node_index, wb.start);
+    state.view.viewport.SetSelection(TextSelection::MakeOrdered(a.node_index, wb.start, a.node_index, wb.end));
+    PushEffect(effects, effect::InvalidateMdPane{});
 }
 
 void ReduceClearSelection(AppState& state, SideEffectList& effects)

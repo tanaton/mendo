@@ -1,5 +1,6 @@
 #include "file_loader.h"
 #include "file_io.h"
+#include "newline_util.h"
 #include "profiler.h"
 #include "utf8_codec.h"
 #include <algorithm>
@@ -58,5 +59,6 @@ std::expected<LoadedFileDoc, FileLoadError> FileLoader::LoadFile(const std::pmr:
     if (result.text.size() != out_size) {
         return std::unexpected(FileLoadError::ReadFailed);
     }
+    NormalizeNewlines(result.text);
     return result;
 }

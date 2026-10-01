@@ -39,5 +39,8 @@ inline constexpr bool IsHelpPath(std::wstring_view path) noexcept
 
 std::pmr::wstring ExtractFilename(std::wstring_view path);
 
+// 空パスや区切りを含まないパスでは空を返す。
+std::pmr::wstring ParentDirectory(std::wstring_view path);
+
 // zoom_percent: 0 または 100 はデフォルト（省略）、それ以外は "(125%)" 等として表示。
 std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent = 0);

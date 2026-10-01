@@ -169,7 +169,6 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     // ドキュメント切替で string_view が dangling 化するため reset する。PMR pool が
     // 同じアドレスを再利用しうるので (data, size) の両方で同一性を判定する。
     node_wv_.ResetIfBufferChanged(nodes.data(), nodes.size());
-    cell_wv_.ResetIfBufferChanged(nodes.data(), nodes.size());
 
     const int node_count = static_cast<int>(nodes.size());
     if (first_visible < 0) {
@@ -259,7 +258,7 @@ void CommandGenerator::GenerateNode(
                 fc.pane_transform, scroll_x, geom.can_scroll());
             GenTable(cmds, fc, node, entry, node_index, x, entry_text_top, scroll_x);
         }
-        EmitBlockHScrollbarIfActive(cmds, fc, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, 0.0f), geom, scroll_x);
+        EmitBlockHScrollbarIfActive(cmds, fc, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, NodeBoxPadY(node, *theme_)), geom, scroll_x);
         return;
     }
 
@@ -277,22 +276,20 @@ void CommandGenerator::GenerateNode(
             }
             return;
         }
-        GenCodeBlockBg(cmds, entry, x, cw, entry_text_top);
+        const float pad = NodeBoxPadY(node, *theme_);
+        const D2D1_RECT_F box = D2D1::RectF(x, entry_text_top - pad, x + cw, entry_text_top + entry.height + pad);
+        GenCodeBlockBg(cmds, box);
         // 背景とコピーボタンはクリップ外で固定描画 (GitHub と同じ挙動)。テキスト本体だけ scroll_x 分平行移動。
         {
             const auto geom = GetBlockHScrollGeometry(node, entry, cw);
             const float scroll_x = geom.ClampScrollX(fc.h_scroll.GetScrollX(node_index));
-            const float pad = theme_->code_block_padding;
             {
-                BlockHScrollScope guard(
-                    cmds,
-                    D2D1::RectF(x, entry_text_top - pad, x + cw, entry_text_top + entry.height + pad),
-                    fc.pane_transform, scroll_x, geom.can_scroll());
+                BlockHScrollScope guard(cmds, box, fc.pane_transform, scroll_x, geom.can_scroll());
                 GenNodeTextDecorations(cmds, fc, node, entry, node_index, text_x, entry_text_top);
             }
             EmitBlockHScrollbarIfActive(cmds, fc, node_index, x, BlockHScrollbarBarY(entry_text_top, entry.height, pad), geom, scroll_x);
         }
-        GenCopyButton(cmds, x, cw, node_index == fc.hovered.copy, entry_text_top);
+        GenCopyButton(cmds, box.right, box.top, node_index == fc.hovered.copy);
         return;
     }
 
@@ -400,26 +397,17 @@ void CommandGenerator::GenHorizontalRule(DrawCommandList& cmds, float x, float w
         theme_->hr_color, theme_->hr_thickness, BrushId::Hr });
 }
 
-void CommandGenerator::GenCodeBlockBg(DrawCommandList& cmds, const NodeLayoutEntry& entry, float x, float w, float entry_text_top)
+void CommandGenerator::GenCodeBlockBg(DrawCommandList& cmds, const D2D1_RECT_F& box)
 {
-    const float pad = theme_->code_block_padding;
-    const D2D1_RECT_F bg_rect = D2D1::RectF(
-        x,
-        entry_text_top - pad,
-        x + w,
-        entry_text_top + entry.height + pad);
-    cmds.emplace_back(FillRoundedRectCmd{ bg_rect, CODE_BLOCK_CORNER, CODE_BLOCK_CORNER, theme_->code_bg_color, BrushId::CodeBg });
+    cmds.emplace_back(FillRoundedRectCmd{ box, CODE_BLOCK_CORNER, CODE_BLOCK_CORNER, theme_->code_bg_color, BrushId::CodeBg });
 }
 
-void CommandGenerator::GenCopyButton(DrawCommandList& cmds, float x, float w, bool is_hovered, float entry_text_top)
+void CommandGenerator::GenCopyButton(DrawCommandList& cmds, float box_right, float box_top, bool is_hovered)
 {
     if (!formats_.copy_btn_icon) {
         return;
     }
-
-    const float pad = theme_->code_block_padding;
-    const D2D1_RECT_F btn = OverlayButtonRect(x + w, entry_text_top - pad);
-    GenOverlayButton(cmds, btn, L'\uE8C8', is_hovered);
+    GenOverlayButton(cmds, OverlayButtonRect(box_right, box_top), L'\uE8C8', is_hovered);
 }
 
 void CommandGenerator::GenDiagramButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, DiagramButtonSlot slot, wchar_t icon, bool is_hovered)

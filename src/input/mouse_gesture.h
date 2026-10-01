@@ -40,9 +40,6 @@ public:
         phase_ = GesturePhase::Pressed;
         start_x_ = x;
         start_y_ = y;
-        current_x_ = x;
-        current_y_ = y;
-        trail_points_.clear();
         trail_points_.emplace_back(x, y);
     }
 
@@ -52,18 +49,12 @@ public:
             return;
         }
 
-        current_x_ = x;
-        current_y_ = y;
-
         const float dx = x - start_x_;
         const float dy = y - start_y_;
         const float dist_sq = dx * dx + dy * dy;
 
-        if (phase_ == GesturePhase::Pressed) {
-            if (dist_sq >= GESTURE_THRESHOLD_SQ) {
-                phase_ = GesturePhase::Tracking;
-                UpdateDirection();
-            }
+        if (phase_ == GesturePhase::Pressed && dist_sq >= GESTURE_THRESHOLD_SQ) {
+            phase_ = GesturePhase::Tracking;
         }
 
         if (phase_ == GesturePhase::Tracking) {
@@ -76,7 +67,7 @@ public:
                 }
                 trail_points_.emplace_back(x, y);
             }
-            UpdateDirection();
+            UpdateDirection(dx, dy, dist_sq);
         }
     }
 
@@ -112,8 +103,6 @@ public:
         direction_ = GestureDirection::None;
         start_x_ = 0.0f;
         start_y_ = 0.0f;
-        current_x_ = 0.0f;
-        current_y_ = 0.0f;
         trail_points_.clear();
     }
 
@@ -139,12 +128,8 @@ public:
     }
 
 private:
-    void UpdateDirection() noexcept
+    void UpdateDirection(float dx, float dy, float dist_sq) noexcept
     {
-        const float dx = current_x_ - start_x_;
-        const float dy = current_y_ - start_y_;
-        const float dist_sq = dx * dx + dy * dy;
-
         if (dist_sq < GESTURE_THRESHOLD_SQ || std::abs(dx) <= std::abs(dy)) {
             direction_ = GestureDirection::None;
             return;
@@ -156,7 +141,5 @@ private:
     GestureDirection direction_ = GestureDirection::None;
     float start_x_ = 0.0f;
     float start_y_ = 0.0f;
-    float current_x_ = 0.0f;
-    float current_y_ = 0.0f;
     std::pmr::deque<GesturePoint> trail_points_;
 };

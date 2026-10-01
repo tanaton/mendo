@@ -24,8 +24,7 @@ TableRowHit FindTableRow(const Node& node, const NodeLayoutEntry& entry, float e
         return { -1, 0.0f };
     }
 
-    // row_cum_y[r]: 行 r の上端（サイズ row_count+1）。
-    if (tl.row_cum_y.size() == row_count + 1) {
+    if (tl.HasRowGeometry(row_count)) {
         const int idx = tl.RowIndexAt(dip_y - entry_text_top);
         if (idx < 0) {
             return { -1, 0.0f };
@@ -114,13 +113,9 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
 
     // partition_point と同じ text_top を局所座標 (local_y) の基準にする。
     const float candidate_text_top = (candidate >= 0) ? ctx.cache.Top(static_cast<size_t>(candidate)) : 0.0f;
-    // CodeBlock は背景が text 範囲の上下に padding 分はみ出る。padding 部分 (横スクロールバーを
-    // 置きたい領域) もそのノードのヒットとして扱い、ホバーが切れないようにする。
-    const float bottom_extension =
-        (candidate >= 0 && ctx.nodes[candidate].type == NodeType::CodeBlock)
-            ? ctx.theme.code_block_padding
-            : 0.0f;
-    if (candidate >= 0 && dip_y <= candidate_text_top + ctx.cache[candidate].height + bottom_extension) {
+    // 背景の下側はみ出し部分 (横スクロールバーを置きたい領域) もそのノードのヒットとして扱い、
+    // ホバーが切れないようにする。
+    if (candidate >= 0 && dip_y <= candidate_text_top + ctx.cache[candidate].height + NodeBoxPadY(ctx.nodes[candidate], ctx.theme)) {
         const auto& node = ctx.nodes[candidate];
         const auto& entry = ctx.cache[candidate];
 
@@ -269,29 +264,23 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const
         const float indent = NodeIndent(node, ctx.theme);
         const float x = ctx.theme.margin_left + indent;
         const float w = ctx.content_width - indent;
-        const float pad = ctx.theme.code_block_padding;
+        // 1 つ見つかった時点でループを抜けるため、ここに来る時点で out は全て未ヒット。
         if (IsDiagramLanguage(node.code_language())) {
             const auto& diagram = ctx.cache.GetDiagram(i);
             if (diagram.bitmap) {
                 const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, w, entry_text_top);
-                if (out.save_node < 0) {
-                    const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::Save));
-                    if (PointInRectInclusive(dip_x, dip_y, btn)) {
-                        out.save_node = i;
-                    }
+                const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::Save));
+                if (PointInRectInclusive(dip_x, dip_y, btn)) {
+                    out.save_node = i;
                 }
-                if (out.diagram_copy_node < 0) {
-                    const D2D1_RECT_F btn2 = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::Copy));
-                    if (PointInRectInclusive(dip_x, dip_y, btn2)) {
-                        out.diagram_copy_node = i;
-                    }
+                const D2D1_RECT_F btn2 = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::Copy));
+                if (PointInRectInclusive(dip_x, dip_y, btn2)) {
+                    out.diagram_copy_node = i;
                 }
             }
         }
-        else if (x_in_copy_band && out.copy_node < 0) {
-            const float block_right = x + w;
-            const float block_top = entry_text_top - pad;
-            const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
+        else if (x_in_copy_band) {
+            const D2D1_RECT_F btn = OverlayButtonRect(x + w, entry_text_top - NodeBoxPadY(node, ctx.theme));
             if (PointInRectInclusive(dip_x, dip_y, btn)) {
                 out.copy_node = i;
             }
@@ -309,10 +298,10 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const
 
 NavButtonHover HitTestService::NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) const noexcept
 {
-    if (NavBackButtonRect(md_rect).Contains(dip_x, dip_y)) {
+    if (PointInRectInclusive(dip_x, dip_y, NavBackButtonRect(md_rect))) {
         return NavButtonHover::Back;
     }
-    if (NavForwardButtonRect(md_rect).Contains(dip_x, dip_y)) {
+    if (PointInRectInclusive(dip_x, dip_y, NavForwardButtonRect(md_rect))) {
         return NavButtonHover::Forward;
     }
     return NavButtonHover::None;

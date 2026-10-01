@@ -1,11 +1,7 @@
 #pragma once
 #include "app_constants.h"
-#include "doc_text.h"
-#include "ui_types.h"
 #include "pane_layout.h"
 #include "tooltip.h"
-#include <algorithm>
-#include <type_traits>
 #include <variant>
 #include <string>
 #include <memory_resource>
@@ -68,7 +64,6 @@ struct ApplyThemeChange {
         DarkMode
     };
     Type type;
-    uint8_t zoom_index; // Zoom 値は ZOOM_STEPS[zoom_index] で復元する。
 };
 struct PerformResizeEnd {};
 struct PerformSizingUpdate {};
@@ -80,9 +75,6 @@ struct RendererSetDpi {
     float dpi;
 };
 
-struct ShellOpen {
-    std::pmr::wstring url;
-};
 struct LoadFile {
     std::pmr::wstring path;
 };
@@ -101,15 +93,6 @@ struct SyncTocActive {
     // SyncTocActive{} で発火する App 側の再同期 (リサイズ/ロード等) は常に追従で正しい。
     // デフォルトを外すと {} が値初期化で false になり挙動が静かに反転するため維持する。
     bool auto_scroll = true;
-};
-// 可視範囲のレイアウトを即時計測する。md_width/md_height はペインレイアウトのキャッシュ値。
-struct ViewportLayout {
-    float md_width;
-    float md_height;
-};
-// LayoutService の合計高さを viewport.max_scroll に反映する。
-struct SyncMaxScroll {
-    float md_pane_height;
 };
 
 struct NotifyImageLoaded {};
@@ -162,7 +145,6 @@ using SideEffect = std::variant<
     effect::RendererResize,
     effect::RendererSetDpi,
     // Navigation
-    effect::ShellOpen,
     effect::LoadFile,
     effect::ReloadFile,
     effect::OpenFileDialog,
@@ -171,8 +153,6 @@ using SideEffect = std::variant<
     effect::InvalidatePaneCache,
     effect::RefreshPaneLayout,
     effect::SyncTocActive,
-    effect::ViewportLayout,
-    effect::SyncMaxScroll,
     // Resource
     effect::NotifyImageLoaded,
     effect::ClearFileCache,

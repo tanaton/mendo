@@ -11,7 +11,6 @@
 #include <algorithm>
 #include <utility>
 #include <variant>
-#include "doc_text.h"
 #include "pmr_unique_ptr.h"
 #include "small_vector.h"
 #include "syntax.h"
@@ -464,13 +463,10 @@ struct Node {
         return SpanOrEmpty(link_urls_);
     }
 
-    const std::pmr::vector<SyntaxToken>& syntax_tokens() const noexcept
+    constexpr std::span<const SyntaxToken> syntax_tokens() const noexcept
     {
-        if (const auto* cd = code_data(); cd && cd->tokens) {
-            return *cd->tokens;
-        }
-        static const std::pmr::vector<SyntaxToken> empty;
-        return empty;
+        const auto* cd = code_data();
+        return cd ? SpanOrEmpty(cd->tokens) : std::span<const SyntaxToken>{};
     }
     std::pmr::vector<SyntaxToken>& syntax_tokens_mut() noexcept
     {
@@ -536,9 +532,14 @@ constexpr bool IsScrollableCodeBlock(const Node& node) noexcept
     return node.type == NodeType::CodeBlock && !IsDiagramLanguage(node.code_language());
 }
 
+constexpr bool IsListItem(const Node& node) noexcept
+{
+    return node.type == NodeType::ListItem || node.type == NodeType::TaskListItem;
+}
+
 // loose list の LI (md4c が中身を MD_BLOCK_P に外出しするためテキストを持たない枠)。
 // 高さ / spacing / cull / bullet 描画で同じ判定を共有するため集約する (issue#237)。
 constexpr bool IsEmptyListItemContainer(const Node& node) noexcept
 {
-    return (node.type == NodeType::ListItem || node.type == NodeType::TaskListItem) && !node.HasText();
+    return IsListItem(node) && !node.HasText();
 }

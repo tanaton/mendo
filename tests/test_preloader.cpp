@@ -36,10 +36,11 @@ private:
     HWND hwnd_ = nullptr;
 };
 
-// worker が「ファイル read + Document 構築 + sink emplace + cv.wait 入り」まで
-// 到達するのに 100ms 程度を見込む保守値。これより短いと AppliedSync 経路が
-// race で AttachedAsync に転ぶ可能性がある。
-constexpr auto kWorkerCompleteWait = std::chrono::milliseconds(150);
+// AppliedSync 経路は worker が sink に結果を積んだ後でないと検証できない。
+void WaitForPublish(const Preloader& p)
+{
+    ASSERT_TRUE(PollUntil([&] { return p.HasPublishedForTest(); }));
+}
 
 } // namespace
 
@@ -64,7 +65,7 @@ TEST(Preloader, AppliedSyncWhenWorkerCompletedBeforeAttach)
     MessageOnlyWindow w;
     Preloader p;
     p.Start(tmp.PmrPath());
-    std::this_thread::sleep_for(kWorkerCompleteWait);
+    WaitForPublish(p);
 
     const auto r = p.AttachOrApply(w.Get(), 0);
     EXPECT_EQ(r, Preloader::AttachResult::AppliedSync);
@@ -95,7 +96,7 @@ TEST(Preloader, NotFoundFileSetsError)
     Preloader p;
     MessageOnlyWindow w;
     p.Start(std::pmr::wstring(L"C:\\__mendo_no_such_preload__.md"));
-    std::this_thread::sleep_for(kWorkerCompleteWait);
+    WaitForPublish(p);
     const auto r = p.AttachOrApply(w.Get(), 0);
     EXPECT_EQ(r, Preloader::AttachResult::AppliedSync);
     auto err = p.TakeError();
@@ -115,7 +116,7 @@ TEST(Preloader, RestartCancelsPreviousWorker)
     p.Start(tmp2.PmrPath()); // Start 内の Join() で前回 worker は abort される
     EXPECT_TRUE(p.IsActive());
 
-    std::this_thread::sleep_for(kWorkerCompleteWait);
+    WaitForPublish(p);
     const auto r = p.AttachOrApply(w.Get(), 0);
     EXPECT_EQ(r, Preloader::AttachResult::AppliedSync);
     auto result = p.TakeResult();
@@ -128,7 +129,7 @@ TEST(Preloader, DestructorAbortsBlockedWorker)
     {
         Preloader p;
         p.Start(tmp.PmrPath());
-        // dtor が cv.wait に入った worker を SignalAbort で起こして join。
+        // dtor が cv.wait に入った worker を stop 要求で起こして join。
     }
     SUCCEED();
 }
@@ -139,7 +140,7 @@ TEST(Preloader, TakeAfterFinalizeReturnsNullopt)
     MessageOnlyWindow w;
     Preloader p;
     p.Start(tmp.PmrPath());
-    std::this_thread::sleep_for(kWorkerCompleteWait);
+    WaitForPublish(p);
     const auto r = p.AttachOrApply(w.Get(), 0);
     ASSERT_EQ(r, Preloader::AttachResult::AppliedSync);
     auto first = p.TakeResult();
@@ -153,7 +154,7 @@ TEST(Preloader, CancelDiscardsCompletedResult)
     TempFile tmp(L"preload_cancel", "# will be cancelled\n");
     Preloader p;
     p.Start(tmp.PmrPath());
-    std::this_thread::sleep_for(kWorkerCompleteWait);
+    WaitForPublish(p);
 
     p.Cancel();
 

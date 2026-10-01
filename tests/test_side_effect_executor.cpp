@@ -3,8 +3,6 @@
 #include "win32_host.h"
 #include "app_constants.h"
 #include "app_state.h"
-#include "config_service.h"
-#include "layout.h"
 #include "file_watcher.h"
 
 // tooltip.cpp (mendo_core) が extern 参照するシンボルのダミー。本体は app.cpp。
@@ -208,35 +206,9 @@ protected:
     // --- 依存クラスの実体（default-construct） ---
     RecordingWin32Host host_;
     FileWatcher watcher_;
-    ConfigService config_;
     AppState state_;
-    LayoutEngine engine_;
-    LayoutService layout_service_{ engine_, state_.view.viewport };
     CallbackTracker tracker_;
     SideEffectExecutorT<TestSideEffectCallbacks> exec_;
-
-    // --- スパイ記録 (旧 API 互換の参照) ---
-    std::vector<std::wstring>& load_file_paths_ = tracker_.load_file_paths;
-    int& reload_file_count_ = tracker_.reload_file_count;
-    int& open_file_dialog_count_ = tracker_.open_file_dialog_count;
-    std::vector<PaneZone>& invalidate_pane_cache_calls_ = tracker_.invalidate_pane_cache_calls;
-    int& refresh_pane_layout_count_ = tracker_.refresh_pane_layout_count;
-    std::pair<UINT, UINT>& last_renderer_resize_ = tracker_.last_renderer_resize;
-    int& renderer_resize_count_ = tracker_.renderer_resize_count;
-    float& last_renderer_dpi_ = tracker_.last_renderer_dpi;
-    int& renderer_set_dpi_count_ = tracker_.renderer_set_dpi_count;
-    int& clear_file_cache_count_ = tracker_.clear_file_cache_count;
-    int& perform_resize_end_count_ = tracker_.perform_resize_end_count;
-    int& perform_sizing_update_count_ = tracker_.perform_sizing_update_count;
-    effect::ApplyThemeChange& last_theme_change_ = tracker_.last_theme_change;
-    int& apply_theme_change_count_ = tracker_.apply_theme_change_count;
-    int& process_deferred_layout_count_ = tracker_.process_deferred_layout_count;
-    int& tick_loading_animation_count_ = tracker_.tick_loading_animation_count;
-    int& process_mermaid_batch_timer_count_ = tracker_.process_mermaid_batch_timer_count;
-    int& process_bitmap_manage_count_ = tracker_.process_bitmap_manage_count;
-    int& mermaid_init_retry_count_ = tracker_.mermaid_init_retry_count;
-    std::pair<int, int>& last_context_menu_pos_ = tracker_.last_context_menu_pos;
-    int& show_context_menu_count_ = tracker_.show_context_menu_count;
 
     void SetUp() override
     {
@@ -245,7 +217,6 @@ protected:
                 .host = &host_,
                 .file_watcher = &watcher_,
                 .state = &state_,
-                .layout_service = &layout_service_,
             },
             TestSideEffectCallbacks{ &tracker_ });
     }
@@ -258,35 +229,35 @@ protected:
 TEST_F(SideEffectExecutorTest, LoadFileDispatchesToCallback)
 {
     exec_.ExecuteOne(effect::LoadFile{ std::pmr::wstring(L"C:/doc.md") });
-    ASSERT_EQ(load_file_paths_.size(), 1u);
-    EXPECT_EQ(load_file_paths_[0], L"C:/doc.md");
+    ASSERT_EQ(tracker_.load_file_paths.size(), 1u);
+    EXPECT_EQ(tracker_.load_file_paths[0], L"C:/doc.md");
 }
 
 TEST_F(SideEffectExecutorTest, ReloadFileDispatchesToCallback)
 {
     exec_.ExecuteOne(effect::ReloadFile{});
-    EXPECT_EQ(reload_file_count_, 1);
+    EXPECT_EQ(tracker_.reload_file_count, 1);
 }
 
 TEST_F(SideEffectExecutorTest, OpenFileDialogDispatchesToCallback)
 {
     exec_.ExecuteOne(effect::OpenFileDialog{});
-    EXPECT_EQ(open_file_dialog_count_, 1);
+    EXPECT_EQ(tracker_.open_file_dialog_count, 1);
 }
 
 TEST_F(SideEffectExecutorTest, InvalidatePaneCacheForwardsPaneZone)
 {
     exec_.ExecuteOne(effect::InvalidatePaneCache{ PaneZone::MdPane });
     exec_.ExecuteOne(effect::InvalidatePaneCache{ PaneZone::FilePane });
-    ASSERT_EQ(invalidate_pane_cache_calls_.size(), 2u);
-    EXPECT_EQ(invalidate_pane_cache_calls_[0], PaneZone::MdPane);
-    EXPECT_EQ(invalidate_pane_cache_calls_[1], PaneZone::FilePane);
+    ASSERT_EQ(tracker_.invalidate_pane_cache_calls.size(), 2u);
+    EXPECT_EQ(tracker_.invalidate_pane_cache_calls[0], PaneZone::MdPane);
+    EXPECT_EQ(tracker_.invalidate_pane_cache_calls[1], PaneZone::FilePane);
 }
 
 TEST_F(SideEffectExecutorTest, RefreshPaneLayoutDispatchesToCallback)
 {
     exec_.ExecuteOne(effect::RefreshPaneLayout{});
-    EXPECT_EQ(refresh_pane_layout_count_, 1);
+    EXPECT_EQ(tracker_.refresh_pane_layout_count, 1);
 }
 
 TEST_F(SideEffectExecutorTest, SyncTocActiveForwardsAutoScrollFlag)
@@ -301,74 +272,70 @@ TEST_F(SideEffectExecutorTest, SyncTocActiveForwardsAutoScrollFlag)
 TEST_F(SideEffectExecutorTest, RendererResizeForwardsDimensions)
 {
     exec_.ExecuteOne(effect::RendererResize{ 1920, 1080 });
-    EXPECT_EQ(renderer_resize_count_, 1);
-    EXPECT_EQ(last_renderer_resize_, std::make_pair(UINT{ 1920 }, UINT{ 1080 }));
+    EXPECT_EQ(tracker_.renderer_resize_count, 1);
+    EXPECT_EQ(tracker_.last_renderer_resize, std::make_pair(UINT{ 1920 }, UINT{ 1080 }));
 }
 
 TEST_F(SideEffectExecutorTest, RendererSetDpiForwardsDpiValue)
 {
     exec_.ExecuteOne(effect::RendererSetDpi{ 144.0f });
-    EXPECT_EQ(renderer_set_dpi_count_, 1);
-    EXPECT_FLOAT_EQ(last_renderer_dpi_, 144.0f);
+    EXPECT_EQ(tracker_.renderer_set_dpi_count, 1);
+    EXPECT_FLOAT_EQ(tracker_.last_renderer_dpi, 144.0f);
 }
 
 TEST_F(SideEffectExecutorTest, ClearFileCacheDispatchesToCallback)
 {
     exec_.ExecuteOne(effect::ClearFileCache{});
-    EXPECT_EQ(clear_file_cache_count_, 1);
+    EXPECT_EQ(tracker_.clear_file_cache_count, 1);
 }
 
 TEST_F(SideEffectExecutorTest, PerformResizeEndDispatchesToCallback)
 {
     exec_.ExecuteOne(effect::PerformResizeEnd{});
-    EXPECT_EQ(perform_resize_end_count_, 1);
+    EXPECT_EQ(tracker_.perform_resize_end_count, 1);
 }
 
 TEST_F(SideEffectExecutorTest, PerformSizingUpdateDispatchesToCallback)
 {
     exec_.ExecuteOne(effect::PerformSizingUpdate{});
-    EXPECT_EQ(perform_sizing_update_count_, 1);
+    EXPECT_EQ(tracker_.perform_sizing_update_count, 1);
 }
 
 TEST_F(SideEffectExecutorTest, ApplyThemeChangeForwardsStruct)
 {
-    effect::ApplyThemeChange in{};
-    in.type = effect::ApplyThemeChange::Type::Zoom;
-    in.zoom_index = 4;
-    exec_.ExecuteOne(in);
-    EXPECT_EQ(apply_theme_change_count_, 1);
-    EXPECT_EQ(last_theme_change_.type, effect::ApplyThemeChange::Type::Zoom);
-    EXPECT_EQ(last_theme_change_.zoom_index, 4);
+    exec_.ExecuteOne(effect::ApplyThemeChange{ effect::ApplyThemeChange::Type::Zoom });
+    EXPECT_EQ(tracker_.apply_theme_change_count, 1);
+    EXPECT_EQ(tracker_.last_theme_change.type, effect::ApplyThemeChange::Type::Zoom);
 }
 
 TEST_F(SideEffectExecutorTest, ProcessDeferredLayoutDispatchesToCallback)
 {
     exec_.ExecuteOne(effect::ProcessDeferredLayout{});
-    EXPECT_EQ(process_deferred_layout_count_, 1);
+    EXPECT_EQ(tracker_.process_deferred_layout_count, 1);
 }
 
 TEST_F(SideEffectExecutorTest, TickLoadingAnimationDispatchesToCallback)
 {
     exec_.ExecuteOne(effect::TickLoadingAnimation{});
-    EXPECT_EQ(tick_loading_animation_count_, 1);
+    EXPECT_EQ(tracker_.tick_loading_animation_count, 1);
 }
 
 TEST_F(SideEffectExecutorTest, ProcessMermaidBatchTimerDispatchesToCallback)
 {
     exec_.ExecuteOne(effect::ProcessMermaidBatchTimer{});
-    EXPECT_EQ(process_mermaid_batch_timer_count_, 1);
+    EXPECT_EQ(tracker_.process_mermaid_batch_timer_count, 1);
 }
 
 TEST_F(SideEffectExecutorTest, ProcessBitmapManageDispatchesToCallback)
 {
     exec_.ExecuteOne(effect::ProcessBitmapManage{});
-    EXPECT_EQ(process_bitmap_manage_count_, 1);
+    EXPECT_EQ(tracker_.process_bitmap_manage_count, 1);
 }
 
 TEST_F(SideEffectExecutorTest, MermaidInitRetryDispatchesToCallback)
 {
     exec_.ExecuteOne(effect::MermaidInitRetry{});
-    EXPECT_EQ(mermaid_init_retry_count_, 1);
+    EXPECT_EQ(tracker_.mermaid_init_retry_count, 1);
 }
 
 TEST_F(SideEffectExecutorTest, MermaidIdleForwardsToCallback)
@@ -380,8 +347,8 @@ TEST_F(SideEffectExecutorTest, MermaidIdleForwardsToCallback)
 TEST_F(SideEffectExecutorTest, ShowContextMenuForwardsScreenPosition)
 {
     exec_.ExecuteOne(effect::ShowContextMenu{ 150, 200 });
-    EXPECT_EQ(show_context_menu_count_, 1);
-    EXPECT_EQ(last_context_menu_pos_, std::make_pair(150, 200));
+    EXPECT_EQ(tracker_.show_context_menu_count, 1);
+    EXPECT_EQ(tracker_.last_context_menu_pos, std::make_pair(150, 200));
 }
 
 // ═══════════════════════════════════════════════
@@ -416,19 +383,19 @@ TEST_F(SideEffectExecutorTest, ExecuteRunsAllEffectsInOrder)
 
     exec_.Execute(list);
 
-    EXPECT_EQ(reload_file_count_, 1);
-    EXPECT_EQ(mermaid_init_retry_count_, 1);
-    ASSERT_EQ(load_file_paths_.size(), 2u);
-    EXPECT_EQ(load_file_paths_[0], L"A");
-    EXPECT_EQ(load_file_paths_[1], L"B");
+    EXPECT_EQ(tracker_.reload_file_count, 1);
+    EXPECT_EQ(tracker_.mermaid_init_retry_count, 1);
+    ASSERT_EQ(tracker_.load_file_paths.size(), 2u);
+    EXPECT_EQ(tracker_.load_file_paths[0], L"A");
+    EXPECT_EQ(tracker_.load_file_paths[1], L"B");
 }
 
 TEST_F(SideEffectExecutorTest, ExecuteEmptyListIsNoop)
 {
     std::pmr::vector<SideEffect> list;
     exec_.Execute(list);
-    EXPECT_EQ(reload_file_count_, 0);
-    EXPECT_EQ(mermaid_init_retry_count_, 0);
+    EXPECT_EQ(tracker_.reload_file_count, 0);
+    EXPECT_EQ(tracker_.mermaid_init_retry_count, 0);
 }
 
 // ═══════════════════════════════════════════════
@@ -496,13 +463,6 @@ TEST_F(SideEffectExecutorTest, ClipboardEffectsForwardToHost)
     ASSERT_EQ(host_.clipboard_html_calls.size(), 1u);
     EXPECT_EQ(host_.clipboard_html_calls[0].first, "<p>html</p>");
     EXPECT_EQ(host_.clipboard_html_calls[0].second, "plain");
-}
-
-TEST_F(SideEffectExecutorTest, ShellOpenForwardsUrlToHost)
-{
-    exec_.ExecuteOne(effect::ShellOpen{ std::pmr::wstring(L"https://example.com") });
-    ASSERT_EQ(host_.shell_open_calls.size(), 1u);
-    EXPECT_EQ(host_.shell_open_calls[0], L"https://example.com");
 }
 
 TEST_F(SideEffectExecutorTest, SearchFocusForwardsToHost)

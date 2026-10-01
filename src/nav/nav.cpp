@@ -74,20 +74,23 @@ NavEntry NavHistory::ToExternal(const InternalEntry& e) const
     return NavEntry(path_pool_[e.path_index].text, e.node, e.offset);
 }
 
+void NavHistory::PushCapped(std::pmr::deque<InternalEntry>& stack, const NavEntry& e)
+{
+    stack.emplace_back(ToInternal(e));
+    if (stack.size() > MAX_HISTORY) {
+        ReleasePath(stack.front().path_index);
+        stack.pop_front();
+    }
+}
+
 void NavHistory::Push(const NavEntry& current)
 {
-    back_stack_.emplace_back(ToInternal(current));
+    PushCapped(back_stack_, current);
     // 新規ナビゲーションでは進むスタックを破棄する。各エントリの参照を解放する
     for (const auto& fe : forward_stack_) {
         ReleasePath(fe.path_index);
     }
     forward_stack_.clear();
-
-    // 履歴サイズを制限（dequeなのでpop_frontはO(1)）
-    if (back_stack_.size() > MAX_HISTORY) {
-        ReleasePath(back_stack_.front().path_index);
-        back_stack_.pop_front();
-    }
 }
 
 bool NavHistory::Move(std::pmr::deque<InternalEntry>& from, std::pmr::deque<InternalEntry>& to, const NavEntry& current, NavEntry& out)
@@ -96,13 +99,7 @@ bool NavHistory::Move(std::pmr::deque<InternalEntry>& from, std::pmr::deque<Inte
         return false;
     }
 
-    // 現在地を反対側スタックへ。容量超過時は最古を解放して捨てる
-    // (放置すると往復で容量超過 + path slot 参照が滞留する)。
-    to.emplace_back(ToInternal(current));
-    if (to.size() > MAX_HISTORY) {
-        ReleasePath(to.front().path_index);
-        to.pop_front();
-    }
+    PushCapped(to, current);
     const auto top = from.back();
     out = ToExternal(top);
     from.pop_back();

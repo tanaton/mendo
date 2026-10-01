@@ -2,6 +2,7 @@
 // EvictInvisibleTableRows で行単位 evict された行が、dirty を経由せず
 // RestoreEvictedTableRows / EnsureVisibleLayout で可視行だけ復元される一連のフローを検証する。
 #include <gtest/gtest.h>
+#include "document_test_helpers.h"
 #include "dwrite_test_base.h"
 #include "task_scheduler.h"
 #include <array>
@@ -20,16 +21,6 @@ protected:
             md += "| r" + std::to_string(i) + "c2 |\n";
         }
         return md;
-    }
-
-    static int FindTableNode(const std::pmr::vector<Node>& nodes)
-    {
-        for (size_t i = 0; i < nodes.size(); ++i) {
-            if (nodes[i].type == NodeType::Table) {
-                return static_cast<int>(i);
-            }
-        }
-        return -1;
     }
 
     static size_t CountNonNullCells(const TableLayoutData& tl)
@@ -63,7 +54,7 @@ protected:
 TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsCreatesNullCellsWithoutDirty)
 {
     auto pl = ParseAndLayout(MakeBigTableMd(40));
-    const int idx = FindTableNode(pl.nodes);
+    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
     ASSERT_GE(idx, 0);
     auto& entry = pl.cache[idx];
     ASSERT_TRUE(entry.has_table_layout());
@@ -86,7 +77,7 @@ TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsCreatesNullCellsWithoutDirty)
 TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsNoOpWhenAllVisible)
 {
     auto pl = ParseAndLayout(MakeBigTableMd(5));
-    const int idx = FindTableNode(pl.nodes);
+    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
     ASSERT_GE(idx, 0);
     auto& entry = pl.cache[idx];
     ASSERT_TRUE(entry.has_table_layout());
@@ -104,7 +95,7 @@ TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsNoOpWhenAllVisible)
 TEST_F(TableEvictionDWriteTest, SameWidthMeasureTakesFastPathAfterEviction)
 {
     auto pl = ParseAndLayout(MakeBigTableMd(40));
-    const int idx = FindTableNode(pl.nodes);
+    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
     ASSERT_GE(idx, 0);
     auto& entry = pl.cache[idx];
     auto& tl = *entry.table_layout;
@@ -126,7 +117,7 @@ TEST_F(TableEvictionDWriteTest, SameWidthMeasureTakesFastPathAfterEviction)
 TEST_F(TableEvictionDWriteTest, RestoreRestoresOnlyVisibleRows)
 {
     auto pl = ParseAndLayout(MakeBigTableMd(60));
-    const int idx = FindTableNode(pl.nodes);
+    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
     ASSERT_GE(idx, 0);
     auto& entry = pl.cache[idx];
     auto& tl = *entry.table_layout;
@@ -154,7 +145,7 @@ TEST_F(TableEvictionDWriteTest, RestoreRestoresOnlyVisibleRows)
 TEST_F(TableEvictionDWriteTest, ProgressivelyRestoresAcrossScrolls)
 {
     auto pl = ParseAndLayout(MakeBigTableMd(60));
-    const int idx = FindTableNode(pl.nodes);
+    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
     ASSERT_GE(idx, 0);
     auto& entry = pl.cache[idx];
     auto& tl = *entry.table_layout;
@@ -178,7 +169,7 @@ TEST_F(TableEvictionDWriteTest, ProgressivelyRestoresAcrossScrolls)
 TEST_F(TableEvictionDWriteTest, EvictIsDifferentialAgainstLiveRange)
 {
     auto pl = ParseAndLayout(MakeBigTableMd(60));
-    const int idx = FindTableNode(pl.nodes);
+    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
     ASSERT_GE(idx, 0);
     auto& entry = pl.cache[idx];
     auto& tl = *entry.table_layout;
@@ -200,7 +191,7 @@ TEST_F(TableEvictionDWriteTest, EvictIsDifferentialAgainstLiveRange)
 TEST_F(TableEvictionDWriteTest, NodeEvictionKeepsTableGeometry)
 {
     auto pl = ParseAndLayout("para\n\n" + MakeBigTableMd(40));
-    const int idx = FindTableNode(pl.nodes);
+    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
     ASSERT_GE(idx, 0);
     auto& entry = pl.cache[idx];
     ASSERT_TRUE(entry.has_table_layout());
@@ -233,7 +224,7 @@ TEST_F(TableEvictionDWriteTest, RestoreAfterWidthChangeCorrectsRowHeights)
         md += "| long text that wraps when the column becomes narrow " + std::to_string(i) + " | another long text in the second column |\n";
     }
     auto pl = ParseAndLayout(md);
-    const int idx = FindTableNode(pl.nodes);
+    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
     ASSERT_GE(idx, 0);
     auto& entry = pl.cache[idx];
 
@@ -262,7 +253,7 @@ TEST_F(TableEvictionDWriteTest, RestoreAfterWidthChangeCorrectsRowHeights)
 TEST_F(TableEvictionDWriteTest, EnsureVisibleLayoutRestoresEvictedVisibleRows)
 {
     auto pl = ParseAndLayout(MakeBigTableMd(60));
-    const int idx = FindTableNode(pl.nodes);
+    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
     ASSERT_GE(idx, 0);
     auto& entry = pl.cache[idx];
     auto& tl = *entry.table_layout;
@@ -292,7 +283,7 @@ TEST_F(TableEvictionDWriteTest, ParallelCellBuildMatchesSerial)
     measurer_.SetScheduler(nullptr);
     scheduler.Shutdown();
 
-    const int idx = FindTableNode(serial.nodes);
+    const int idx = FindFirstNodeIndexByType(serial.nodes, NodeType::Table);
     ASSERT_GE(idx, 0);
     const auto& s = *serial.cache[idx].table_layout;
     const auto& p = *parallel.cache[idx].table_layout;

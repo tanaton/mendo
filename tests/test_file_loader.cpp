@@ -2,31 +2,22 @@
 #include "file_loader.h"
 #include "file_watcher.h"
 #include "test_helpers.h"
-#include <filesystem>
-
-namespace fs = std::filesystem;
 
 class FileLoaderTest : public TempDirTestBase {
 protected:
-    fs::path WriteFile(std::wstring_view name, std::string_view content)
-    {
-        return WriteTempFile(name, content);
-    }
-
-    // イベントハンドルを使って変更通知を待つヘルパー
-    void WaitForEvent(FileWatcher& watcher, int timeout_ms = 2000)
+    // イベントハンドルで変更通知を待ってから CheckForChanges する。通知が届いたら true。
+    bool WaitForEvent(FileWatcher& watcher, int timeout_ms = 2000)
     {
         HANDLE h = watcher.GetEventHandle();
-        if (h) {
-            WaitForSingleObject(h, static_cast<DWORD>(timeout_ms));
-        }
+        const bool signaled = h && WaitForSingleObject(h, static_cast<DWORD>(timeout_ms)) == WAIT_OBJECT_0;
         watcher.CheckForChanges();
+        return signaled;
     }
 };
 
 TEST_F(FileLoaderTest, LoadsUtf8File)
 {
-    auto path = WriteFile(L"test.md", "Hello, World!");
+    auto path = WriteTempFile(L"test.md", "Hello, World!");
     auto result = FileLoader::LoadFile(path.native().c_str());
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->text, "Hello, World!");
@@ -35,16 +26,26 @@ TEST_F(FileLoaderTest, LoadsUtf8File)
 
 TEST_F(FileLoaderTest, LoadsMultilineFile)
 {
-    auto path = WriteFile(L"multi.md", "line1\nline2\nline3");
+    auto path = WriteTempFile(L"multi.md", "line1\nline2\nline3");
     auto result = FileLoader::LoadFile(path.native().c_str());
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->text, "line1\nline2\nline3");
 }
 
-// FileLoader は UTF-8 BOM 除去のみ行う。byte_size は BOM 含む元サイズ。
+// byte_size は正規化前のディスク上サイズのまま (部分書き込み検出で使うため)。
+TEST_F(FileLoaderTest, NormalizesNewlinesToLf)
+{
+    auto path = WriteTempFile(L"crlf.md", "line1\r\nline2\rline3\r\n");
+    auto result = FileLoader::LoadFile(path.native().c_str());
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->text, "line1\nline2\nline3\n");
+    EXPECT_EQ(result->byte_size, 20u);
+}
+
+// byte_size は BOM 含む元サイズ。
 TEST_F(FileLoaderTest, StripsUtf8Bom)
 {
-    auto path = WriteFile(L"bom.md", "\xEF\xBB\xBF" "Hello");
+    auto path = WriteTempFile(L"bom.md", "\xEF\xBB\xBF" "Hello");
     auto result = FileLoader::LoadFile(path.native().c_str());
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->text, "Hello");
@@ -60,7 +61,7 @@ TEST_F(FileLoaderTest, NonExistentFileReturnsError)
 
 TEST_F(FileLoaderTest, EmptyFileReturnsEmpty)
 {
-    auto path = WriteFile(L"empty.md", "");
+    auto path = WriteTempFile(L"empty.md", "");
     auto result = FileLoader::LoadFile(path.native().c_str());
     ASSERT_TRUE(result.has_value());
     EXPECT_TRUE(result->text.empty());
@@ -69,7 +70,7 @@ TEST_F(FileLoaderTest, EmptyFileReturnsEmpty)
 
 TEST_F(FileLoaderTest, LoadsJapaneseUtf8)
 {
-    auto path = WriteFile(L"jp.md", "日本語テスト");
+    auto path = WriteTempFile(L"jp.md", "日本語テスト");
     auto result = FileLoader::LoadFile(path.native().c_str());
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->text, "日本語テスト");
@@ -77,7 +78,7 @@ TEST_F(FileLoaderTest, LoadsJapaneseUtf8)
 
 TEST_F(FileLoaderTest, BomOnlyFileReturnsEmpty)
 {
-    auto path = WriteFile(L"bomonly.md", "\xEF\xBB\xBF");
+    auto path = WriteTempFile(L"bomonly.md", "\xEF\xBB\xBF");
     auto result = FileLoader::LoadFile(path.native().c_str());
     ASSERT_TRUE(result.has_value());
     EXPECT_TRUE(result->text.empty());
@@ -88,21 +89,21 @@ TEST_F(FileLoaderTest, BomOnlyFileReturnsEmpty)
 
 TEST_F(FileLoaderTest, WatcherDetectsChange)
 {
-    auto path = WriteFile(L"watch.md", "original");
+    auto path = WriteTempFile(L"watch.md", "original");
 
     FileWatcher watcher;
     bool changed = false;
     watcher.StartWatching(path.native().c_str(), [&]() { changed = true; });
 
     Sleep(100);
-    WriteFile(L"watch.md", "modified");
+    WriteTempFile(L"watch.md", "modified");
     WaitForEvent(watcher);
     EXPECT_TRUE(changed);
 }
 
 TEST_F(FileLoaderTest, WatcherDoesNotFireWithoutChange)
 {
-    auto path = WriteFile(L"nochange.md", "content");
+    auto path = WriteTempFile(L"nochange.md", "content");
 
     FileWatcher watcher;
     bool changed = false;
@@ -116,14 +117,14 @@ TEST_F(FileLoaderTest, WatcherDoesNotFireWithoutChange)
 
 TEST_F(FileLoaderTest, StopWatchingPreventsCallback)
 {
-    auto path = WriteFile(L"stop.md", "content");
+    auto path = WriteTempFile(L"stop.md", "content");
 
     FileWatcher watcher;
     bool changed = false;
     watcher.StartWatching(path.native().c_str(), [&]() { changed = true; });
     watcher.StopWatching();
 
-    WriteFile(L"stop.md", "modified");
+    WriteTempFile(L"stop.md", "modified");
     Sleep(50);
     watcher.CheckForChanges();
     EXPECT_FALSE(changed);
@@ -135,7 +136,7 @@ TEST_F(FileLoaderTest, LargeFile)
 {
     // 1MBのファイルを作成
     std::string large_content(1024 * 1024, 'A');
-    auto path = WriteFile(L"large.md", large_content);
+    auto path = WriteTempFile(L"large.md", large_content);
     auto result = FileLoader::LoadFile(path.native().c_str());
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->text.size(), large_content.size());
@@ -144,47 +145,43 @@ TEST_F(FileLoaderTest, LargeFile)
 
 TEST_F(FileLoaderTest, WatcherRestartOnNewFile)
 {
-    auto path1 = WriteFile(L"watch1.md", "content1");
-    auto path2 = WriteFile(L"watch2.md", "content2");
+    auto path1 = WriteTempFile(L"watch1.md", "content1");
+    auto path2 = WriteTempFile(L"watch2.md", "content2");
 
     FileWatcher watcher;
-    int change_count = 0;
-    watcher.StartWatching(path1.native().c_str(), [&]() { change_count++; });
+    int old_count = 0;
+    int new_count = 0;
+    watcher.StartWatching(path1.native().c_str(), [&]() { old_count++; });
 
     // 別のファイルの監視に切り替え
-    watcher.StartWatching(path2.native().c_str(), [&]() { change_count++; });
+    watcher.StartWatching(path2.native().c_str(), [&]() { new_count++; });
 
-    // 元のファイルを変更 - ファイル名フィルタでコールバックが発火しないこと
+    // 元のファイルを変更 - ディレクトリ通知は届くが、ファイル名フィルタでコールバックが発火しないこと。
+    // 誤って発火すると一時停止に入り後続の通知を握りつぶすため、最終回数ではなくここで検証する。
     Sleep(100);
-    WriteFile(L"watch1.md", "modified1");
-    for (int i = 0; i < 10; i++) {
-        WaitForEvent(watcher, 100);
-    }
-    EXPECT_EQ(change_count, 0);
+    WriteTempFile(L"watch1.md", "modified1");
+    ASSERT_TRUE(WaitForEvent(watcher)) << "watch1.md の変更通知が届かなかった";
+    EXPECT_EQ(old_count, 0);
+    EXPECT_EQ(new_count, 0);
 
-    // 新しいファイルを変更 - コールバックが発火すること
-    Sleep(100);
-    WriteFile(L"watch2.md", "modified2");
-    WaitForEvent(watcher);
-    EXPECT_EQ(change_count, 1);
+    // 新しいファイルを変更 - コールバックが発火すること (watch1 の残りの通知が先に届くことがある)
+    WriteTempFile(L"watch2.md", "modified2");
+    ASSERT_TRUE(PollUntil([&] {
+        watcher.CheckForChanges();
+        return new_count > 0;
+    }));
+    EXPECT_EQ(old_count, 0);
+    EXPECT_EQ(new_count, 1);
 }
 
 TEST_F(FileLoaderTest, WatcherDestructorDoesNotCrash)
 {
-    auto path = WriteFile(L"destructor.md", "content");
+    auto path = WriteTempFile(L"destructor.md", "content");
     {
         FileWatcher watcher;
         watcher.StartWatching(path.native().c_str(), []() static {});
         // デストラクタで安全に監視が停止されること
     }
-}
-
-TEST_F(FileLoaderTest, FileWithNewlines)
-{
-    auto path = WriteFile(L"newlines.md", "line1\r\nline2\r\nline3");
-    auto result = FileLoader::LoadFile(path.native().c_str());
-    ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(result->text, "line1\r\nline2\r\nline3");
 }
 
 // ---- 監視一時停止 / ResumeWatching テスト ----
@@ -198,20 +195,20 @@ TEST_F(FileLoaderTest, ResumeWatchingWithoutWatching)
 
 TEST_F(FileLoaderTest, WatchPausedAfterChangeDetected)
 {
-    auto path = WriteFile(L"pause.md", "original");
+    auto path = WriteTempFile(L"pause.md", "original");
 
     FileWatcher watcher;
     int change_count = 0;
     watcher.StartWatching(path.native().c_str(), [&]() { change_count++; });
 
     Sleep(100);
-    WriteFile(L"pause.md", "modified1");
+    WriteTempFile(L"pause.md", "modified1");
     WaitForEvent(watcher);
     ASSERT_EQ(change_count, 1);
 
     // 変更検出後は一時停止（コールバック抑制、I/Oは継続）
     Sleep(100);
-    WriteFile(L"pause.md", "modified2");
+    WriteTempFile(L"pause.md", "modified2");
     WaitForEvent(watcher, 500);
     EXPECT_EQ(change_count, 1);
 
@@ -222,14 +219,14 @@ TEST_F(FileLoaderTest, WatchPausedAfterChangeDetected)
 
 TEST_F(FileLoaderTest, ResumeWatchingReenablesDetection)
 {
-    auto path = WriteFile(L"resume.md", "original");
+    auto path = WriteTempFile(L"resume.md", "original");
 
     FileWatcher watcher;
     int change_count = 0;
     watcher.StartWatching(path.native().c_str(), [&]() { change_count++; });
 
     Sleep(100);
-    WriteFile(L"resume.md", "modified1");
+    WriteTempFile(L"resume.md", "modified1");
     WaitForEvent(watcher);
     ASSERT_EQ(change_count, 1);
 
@@ -237,7 +234,7 @@ TEST_F(FileLoaderTest, ResumeWatchingReenablesDetection)
     EXPECT_NE(watcher.GetEventHandle(), nullptr);
 
     Sleep(100);
-    WriteFile(L"resume.md", "modified2");
+    WriteTempFile(L"resume.md", "modified2");
     WaitForEvent(watcher);
     EXPECT_EQ(change_count, 2);
 }
@@ -252,7 +249,7 @@ TEST_F(FileLoaderTest, GetEventHandleNullWhenNotWatching)
 
 TEST_F(FileLoaderTest, GetEventHandleValidWhileWatching)
 {
-    auto path = WriteFile(L"evthandle.md", "content");
+    auto path = WriteTempFile(L"evthandle.md", "content");
     FileWatcher watcher;
     watcher.StartWatching(path.native().c_str(), []() static {});
     EXPECT_NE(watcher.GetEventHandle(), nullptr);
@@ -260,7 +257,7 @@ TEST_F(FileLoaderTest, GetEventHandleValidWhileWatching)
 
 TEST_F(FileLoaderTest, GetEventHandleNullAfterStopWatching)
 {
-    auto path = WriteFile(L"evtstop.md", "content");
+    auto path = WriteTempFile(L"evtstop.md", "content");
     FileWatcher watcher;
     watcher.StartWatching(path.native().c_str(), []() static {});
     EXPECT_NE(watcher.GetEventHandle(), nullptr);

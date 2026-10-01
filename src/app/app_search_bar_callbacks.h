@@ -21,7 +21,6 @@ struct AppSearchBarCallbacks {
     void focus_select_all();
     void unfocus();
     float get_md_pane_height();
-    void on_scroll_changed(float md_pane_height);
     void on_wrap_around();
 };
 

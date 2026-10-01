@@ -4,6 +4,7 @@
 #include "reducer.h"
 #include "document.h"
 #include "app_state.h"
+#include "app_state_queries.h"
 #include "theme.h"
 #include "test_helpers.h"
 #include "document_utils.h"
@@ -134,6 +135,34 @@ TEST_F(ReducerTest, SelectAll_WithNodes)
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
+// ---- SelectWordAction テスト ----
+
+TEST_F(ReducerTest, SelectWord_SelectsWordAndSetsAnchor)
+{
+    state.document.doc = Document::FromMarkdown(std::pmr::string("Hello world"), L"test.md");
+
+    auto effects = Reduce(state, SelectWordAction{ 0, 7 });
+
+    const auto& sel = state.view.viewport.GetSelection();
+    ASSERT_TRUE(sel.active);
+    EXPECT_EQ(sel.start_node, 0);
+    EXPECT_EQ(sel.start_pos, 6u);
+    EXPECT_EQ(sel.end_pos, 11u);
+    EXPECT_EQ(state.view.viewport.GetAnchorNode(), 0);
+    EXPECT_EQ(state.view.viewport.GetAnchorPos(), 6u);
+    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
+}
+
+TEST_F(ReducerTest, SelectWord_InvalidNode_NoOp)
+{
+    state.document.doc = Document::FromMarkdown(std::pmr::string("Hello"), L"test.md");
+
+    auto effects = Reduce(state, SelectWordAction{ -1, 0 });
+
+    EXPECT_FALSE(state.view.viewport.GetSelection().active);
+    EXPECT_TRUE(effects.empty());
+}
+
 // ---- ClearSelectionAction テスト ----
 
 TEST_F(ReducerTest, ClearSelection_WhenNotVisible)
@@ -154,6 +183,38 @@ TEST_F(ReducerTest, ClearSelection_ClosesSearchBar)
     // 検索バーが閉じられる
     EXPECT_FALSE(state.search.search_state.IsVisible());
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+}
+
+// ---- 検索ジャンプ ----
+
+// 検索ジャンプのスクロールも通常スクロールと同じ副作用 (ツールチップ消去・ビットマップ管理・TOC 追従) を積む。
+TEST_F(ReducerTest, SearchJumpEmitsScrollEffects)
+{
+    state.document.doc = Document::FromMarkdown(std::pmr::string("a\n\ntarget"), L"test.md");
+    state.document.layout_cache = MakeUniformCache(2, 1000.0f);
+    state.view.viewport.SyncMaxScroll(2000.0f, 500.0f);
+    state.search.search_state.Show();
+
+    auto effects = Reduce(state, SearchTextChangedAction{ std::pmr::wstring(L"target") });
+
+    EXPECT_GT(state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_TRUE(HasEffect<effect::ClearTooltip>(effects));
+    EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
+    EXPECT_TRUE(HasEffect<effect::SyncTocActive>(effects));
+}
+
+TEST_F(ReducerTest, SearchWithoutScrollEmitsNoScrollEffects)
+{
+    state.document.doc = Document::FromMarkdown(std::pmr::string("target"), L"test.md");
+    state.document.layout_cache = MakeUniformCache(1, 10.0f);
+    state.view.viewport.SyncMaxScroll(0.0f, 500.0f);
+    state.search.search_state.Show();
+
+    auto effects = Reduce(state, SearchTextChangedAction{ std::pmr::wstring(L"target") });
+
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_FALSE(HasEffect<effect::BitmapManage>(effects));
+    EXPECT_FALSE(HasEffect<effect::SyncTocActive>(effects));
 }
 
 // ---- NoOpAction テスト ----
@@ -301,6 +362,7 @@ TEST_F(ReducerTest, ViewStateResetForNewDocument_ClearsPerNodeAndPaneState)
     state.view.block_scroll_x[7] = 250.0f;
     state.view.hovered_h_block = 3;
     state.view.h_drag_node = 7;
+    state.view.active_toc_index = 2;
     state.view.viewport.SetSelection(TextSelection{ .start_node = 1, .end_node = 2, .end_pos = 3, .active = true });
     state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y = 40.0f;
     state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y = 80.0f;
@@ -310,6 +372,7 @@ TEST_F(ReducerTest, ViewStateResetForNewDocument_ClearsPerNodeAndPaneState)
     EXPECT_TRUE(state.view.block_scroll_x.empty());
     EXPECT_EQ(state.view.hovered_h_block, -1);
     EXPECT_EQ(state.view.h_drag_node, -1);
+    EXPECT_EQ(state.view.active_toc_index, -1);
     EXPECT_FALSE(state.view.viewport.GetSelection().active);
     EXPECT_FLOAT_EQ(state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y, 0.0f);
     EXPECT_FLOAT_EQ(state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y, 0.0f);
@@ -707,6 +770,28 @@ TEST_F(ReducerTest, SearchInputDragStarted_BeginsDragAndCaptures)
     EXPECT_TRUE(HasEffect<effect::SearchFocus>(effects));
 }
 
+// 右ボタンジェスチャの開始可否はこの判定に依存する (検索入力ドラッグも含めること)。
+TEST_F(ReducerTest, IsLeftDragActive_CoversEveryDragKind)
+{
+    EXPECT_FALSE(IsLeftDragActive(state));
+
+    Reduce(state, SearchInputDragStartedAction{ 0 });
+    EXPECT_TRUE(IsLeftDragActive(state));
+    Reduce(state, CaptureChangedAction{});
+    EXPECT_FALSE(IsLeftDragActive(state));
+
+    state.view.h_drag_node = 2;
+    EXPECT_TRUE(IsLeftDragActive(state));
+    state.view.h_drag_node = -1;
+
+    state.view.panes.StartDrag(PaneController::DragTarget::Splitter1);
+    EXPECT_TRUE(IsLeftDragActive(state));
+    state.view.panes.EndDrag();
+
+    state.view.viewport.SetDragging(true);
+    EXPECT_TRUE(IsLeftDragActive(state));
+}
+
 TEST_F(ReducerTest, SearchInputDragMoved_NotDragging_NoOp)
 {
     auto effects = Reduce(state, SearchInputDragMovedAction{ 3 });
@@ -1067,16 +1152,10 @@ TEST_F(ReducerTest, RightClickGestureCompleted_Pressed_ShowsContextMenu)
 
     EXPECT_EQ(state.interaction.gesture.GetPhase(), GesturePhase::Idle);
     EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
-    EXPECT_TRUE(HasEffect<effect::ShowContextMenu>(effects));
-    bool found = false;
-    for (const auto& e : effects) {
-        if (auto* p = GetEffect<effect::ShowContextMenu>(e)) {
-            found = true;
-            EXPECT_EQ(p->screen_x, 400);
-            EXPECT_EQ(p->screen_y, 500);
-        }
-    }
-    EXPECT_TRUE(found);
+    const auto* menu = FindEffect<effect::ShowContextMenu>(effects);
+    ASSERT_NE(menu, nullptr);
+    EXPECT_EQ(menu->screen_x, 400);
+    EXPECT_EQ(menu->screen_y, 500);
 }
 
 TEST_F(ReducerTest, RightClickGestureCompleted_TrackingLeft_NavigatesBack)
@@ -1145,31 +1224,21 @@ TEST_F(ReducerTest, FilePaneFileClicked_PushesHistoryAndLoads)
 
 class FilePaneRevealTest : public ReducerTest {
 protected:
-    std::filesystem::path dir_;
+    ScopedTempDir temp_dir_;
+    const std::filesystem::path dir_ = temp_dir_.path();
 
     void SetUp() override
     {
         ReducerTest::SetUp();
-        const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        dir_ = std::filesystem::temp_directory_path() / std::format("mendo_reveal_test_{}_{}", info->name(), ::GetCurrentProcessId());
-        std::error_code ec;
-        std::filesystem::remove_all(dir_, ec);
-        std::filesystem::create_directories(dir_);
         // ".." + f00.md〜f29.md の 31 項目
         for (int i = 0; i < 30; ++i) {
-            std::ofstream(dir_ / std::format(L"f{:02}.md", i)) << "x";
+            temp_dir_.Write(std::format(L"f{:02}.md", i), "x");
         }
         // ファイルペインの内容領域は 10 項目分 (280 DIP)
         PaneLayout pl{};
         pl.md_rect.height = 500.0f;
         pl.file_rect.height = theme.pane_header_height + 280.0f;
         state.pane_layout_cache.Set(0.0f, pl);
-    }
-
-    void TearDown() override
-    {
-        std::error_code ec;
-        std::filesystem::remove_all(dir_, ec);
     }
 
     // App::FinishLoadMarkdownFile と同じく現在ファイルも登録する。
@@ -1244,12 +1313,11 @@ TEST_F(FilePaneRevealTest, NoDocumentIsNoOp)
 
 // ---- TocItemClicked テスト ----
 
-TEST_F(ReducerTest, TocItemClicked_UnknownAnchor_PushesHistoryOnly)
+TEST_F(ReducerTest, TocItemClicked_InvalidIndex_PushesHistoryOnly)
 {
     state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\file.md");
 
-    auto effects = Reduce(state, TocItemClickedAction{
-                                     std::pmr::string("nonexistent") });
+    auto effects = Reduce(state, TocItemClickedAction{ -1 });
 
     EXPECT_TRUE(state.view.nav_history.CanGoBack());
     EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
@@ -1266,12 +1334,7 @@ TEST_F(ReducerTest, TocItemClicked_ValidAnchor_ScrollsAndInvalidates)
     // 2番目の見出しに仮の y 座標を割り当て
     cache.SetTop(1, 100.0f);
 
-    const auto anchor = nodes[1].anchor_id();
-    if (anchor.empty()) {
-        GTEST_SKIP() << "anchor_id が空のため検証できない";
-    }
-
-    auto effects = Reduce(state, TocItemClickedAction{ std::pmr::string(anchor) });
+    auto effects = Reduce(state, TocItemClickedAction{ 1 });
 
     EXPECT_TRUE(state.view.nav_history.CanGoBack());
     EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
@@ -1292,12 +1355,7 @@ TEST_F(ReducerTest, TocItemClicked_TailSection_ClampsToMaxScroll)
     const int tail = static_cast<int>(nodes.size()) - 1;
     cache.SetTop(tail, 900.0f);
 
-    const auto anchor = nodes[tail].anchor_id();
-    if (anchor.empty()) {
-        GTEST_SKIP() << "anchor_id が空のため検証できない";
-    }
-
-    Reduce(state, TocItemClickedAction{ std::pmr::string(anchor) });
+    Reduce(state, TocItemClickedAction{ tail });
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), state.view.viewport.GetMaxScroll());
     EXPECT_FALSE(state.view.viewport.HasScrollTarget());
@@ -1313,12 +1371,7 @@ TEST_F(ReducerTest, TocItemClicked_SuppressesTocAutoScroll)
     cache.Resize(nodes.size());
     cache.SetTop(1, 100.0f);
 
-    const auto anchor = nodes[1].anchor_id();
-    if (anchor.empty()) {
-        GTEST_SKIP() << "anchor_id が空のため検証できない";
-    }
-
-    auto effects = Reduce(state, TocItemClickedAction{ std::pmr::string(anchor) });
+    auto effects = Reduce(state, TocItemClickedAction{ 1 });
 
     const auto* sync = FindEffect<effect::SyncTocActive>(effects);
     ASSERT_NE(sync, nullptr);
@@ -1345,33 +1398,18 @@ TEST_F(ReducerTest, NavigateAnchor_KeepsTocAutoScroll)
     cache.SetTop(1, 100.0f);
 
     const auto anchor = nodes[1].anchor_id();
-    if (anchor.empty()) {
-        GTEST_SKIP() << "anchor_id が空のため検証できない";
-    }
+    ASSERT_FALSE(anchor.empty());
 
     auto effects = Reduce(state, NavigateAnchorAction{ std::pmr::string(anchor) });
 
     const auto* sync = FindEffect<effect::SyncTocActive>(effects);
     ASSERT_NE(sync, nullptr);
     EXPECT_TRUE(sync->auto_scroll);
+    EXPECT_TRUE(state.view.nav_history.CanGoBack());
 }
 
-// ---- 副作用順序ヘルパーの利用例 (test_helpers.h::HasEffectInOrder) ----
-// EmitScrollEffects は InvalidateMdPane → BitmapManage の順で push する契約。
-// 順序が逆転すると BitmapManage 側が古い viewport で動くなどの実害があるため、
-// 並びそのものを検証する。
-TEST_F(ReducerTest, KeyScrollLineDown_EmitsInvalidateBeforeBitmapManage)
-{
-    auto effects = Reduce(state, KeyScrollAction{ ScrollType::LineDown });
-    EXPECT_TRUE((HasEffectInOrder<effect::InvalidateMdPane, effect::BitmapManage>(effects)));
-}
-
-TEST_F(ReducerTest, DirectScrollBy_EmitsInvalidateBeforeBitmapManage)
-{
-    auto effects = Reduce(state, DirectScrollByAction{ 100.0f });
-    EXPECT_TRUE((HasEffectInOrder<effect::InvalidateMdPane, effect::BitmapManage>(effects)));
-}
-
+// ---- 副作用順序 (test_helpers.h::HasEffectInOrder) ----
+// PerformSizingUpdate はリサイズ済みの render target を読むため、順序そのものを検証する。
 TEST_F(ReducerTest, Resize_EmitsRendererResizeBeforeSizingUpdate)
 {
     state.window.is_sizing = true;
@@ -1380,21 +1418,19 @@ TEST_F(ReducerTest, Resize_EmitsRendererResizeBeforeSizingUpdate)
 }
 
 // ---- RestoreScrollAfterLoadAction: 3 分岐 ----
-// 仕様 (reducer.cpp::ReduceRestoreScrollAfterLoad):
-//   1. has_reload_diff -> SetScrollY(reload_diff_scroll_y)
+// 仕様 (reducer_navigation.cpp::ReduceRestoreScrollAfterLoad):
+//   1. reload_diff_scroll_y あり -> SetScrollY(reload_diff_scroll_y)
 //   2. (else) HasNodeRestore -> SetScrollTarget(node, offset)
 //   3. (else) -> SetScrollY(0)
 // 1 が 2 に優先することも合わせて検証する。
 
 TEST_F(ReducerTest, RestoreScrollAfterLoad_HasReloadDiff_SetsScrollY)
 {
-    state.reload_diff_pos = 12; // npos 以外なら何でもよい
     state.view.viewport.ScrollTo(50.0f);
 
-    Reduce(state, RestoreScrollAfterLoadAction{ true, 250.0f });
+    Reduce(state, RestoreScrollAfterLoadAction{ 250.0f });
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 250.0f);
-    EXPECT_EQ(state.reload_diff_pos, std::string_view::npos); // 消費されてクリアされる
     EXPECT_FALSE(state.view.viewport.HasScrollTarget());
 }
 
@@ -1402,14 +1438,10 @@ TEST_F(ReducerTest, RestoreScrollAfterLoad_HasNodeRestore_SetsScrollTarget)
 {
     state.document.doc = Document::FromMarkdown(
         std::pmr::string("# A\n\n# B\n\n# C"), L"test.md");
-    auto& cache = state.document.layout_cache;
-    cache.Resize(state.document.doc.GetNodes().size());
-    cache.SetTop(0, 0.0f);
-    cache.SetTop(1, 100.0f);
-    cache.SetTop(2, 200.0f);
+    state.document.layout_cache = MakeUniformCache(static_cast<int>(state.document.doc.GetNodes().size()), 100.0f);
     state.view.scroll_restore.SetNodeRestore(1, 7);
 
-    Reduce(state, RestoreScrollAfterLoadAction{ false, 0.0f });
+    Reduce(state, RestoreScrollAfterLoadAction{});
 
     // ApplyScrollTarget 後は scroll_target が消費される実装になり得るため
     // ScrollY 側で検証する (cache.Top(1) + offset)。
@@ -1421,7 +1453,7 @@ TEST_F(ReducerTest, RestoreScrollAfterLoad_NoRestoreInfo_ScrollsToTop)
 {
     state.view.viewport.ScrollTo(300.0f);
 
-    Reduce(state, RestoreScrollAfterLoadAction{ false, 0.0f });
+    Reduce(state, RestoreScrollAfterLoadAction{});
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
 }
@@ -1429,13 +1461,12 @@ TEST_F(ReducerTest, RestoreScrollAfterLoad_NoRestoreInfo_ScrollsToTop)
 TEST_F(ReducerTest, RestoreScrollAfterLoad_HasReloadDiff_TakesPrecedenceOverNodeRestore)
 {
     // reload_diff と node_restore が同時に立っている場合は reload_diff が勝つ仕様。
-    state.reload_diff_pos = 5;
     state.view.scroll_restore.SetNodeRestore(2, 0);
 
-    Reduce(state, RestoreScrollAfterLoadAction{ true, 75.0f });
+    Reduce(state, RestoreScrollAfterLoadAction{ 75.0f });
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 75.0f);
-    // node_restore は has_reload_diff 分岐では触られないため残る
+    // node_restore は reload_diff 分岐では触られないため残る
     EXPECT_TRUE(state.view.scroll_restore.HasNodeRestore());
 }
 

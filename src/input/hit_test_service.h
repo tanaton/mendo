@@ -12,31 +12,19 @@
 #include <memory_resource>
 #include <unordered_map>
 
-// ボタン矩形の純粋表現。テスト側が実装の式を再構築せずに済むよう、
-// 各ボタンの矩形を返す API は本ヘッダから提供する。
-struct ButtonRect {
-    float x = 0.0f;
-    float y = 0.0f;
-    float w = 0.0f;
-    float h = 0.0f;
-    constexpr bool Contains(float px, float py) const noexcept
-    {
-        return px >= x && px <= x + w && py >= y && py <= y + h;
-    }
-};
-
-// NavButtonHitTest と同一の式。
-inline constexpr ButtonRect NavBackButtonRect(const PaneRect& md_rect) noexcept
+// 描画とヒットテスト (NavButtonHitTest) が共有するナビボタン矩形。テストもこの API で座標を得る。
+inline D2D1_RECT_F NavBackButtonRect(const PaneRect& md_rect) noexcept
 {
     const float x = md_rect.x + md_rect.width - NAV_BTN_MARGIN - NAV_BTN_SIZE * 2.0f - NAV_BTN_GAP - NAV_BTN_SCROLLBAR_OFFSET;
     const float y = md_rect.y + md_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE;
-    return { x, y, NAV_BTN_SIZE, NAV_BTN_SIZE };
+    return D2D1::RectF(x, y, x + NAV_BTN_SIZE, y + NAV_BTN_SIZE);
 }
 
-inline constexpr ButtonRect NavForwardButtonRect(const PaneRect& md_rect) noexcept
+inline D2D1_RECT_F NavForwardButtonRect(const PaneRect& md_rect) noexcept
 {
-    const ButtonRect back = NavBackButtonRect(md_rect);
-    return { back.x + NAV_BTN_SIZE + NAV_BTN_GAP, back.y, NAV_BTN_SIZE, NAV_BTN_SIZE };
+    const D2D1_RECT_F back = NavBackButtonRect(md_rect);
+    const float x = back.right + NAV_BTN_GAP;
+    return D2D1::RectF(x, back.top, x + NAV_BTN_SIZE, back.bottom);
 }
 
 struct MdPaneHitContext {

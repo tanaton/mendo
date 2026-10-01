@@ -6,28 +6,28 @@ void TitleBar::UpdateLayout(float window_width_dip) noexcept
     icon_rect_ = DipRect{ ICON_LEFT_MARGIN, icon_top, ICON_LEFT_MARGIN + ICON_SIZE, icon_top + ICON_SIZE };
 
     float left = ICON_LEFT_MARGIN + ICON_SIZE + ICON_RIGHT_GAP;
-    open_file_.rect = DipRect{ left, 0.0f, left + BUTTON_WIDTH, BASE_HEIGHT };
+    open_file_ = DipRect{ left, 0.0f, left + BUTTON_WIDTH, BASE_HEIGHT };
     left += BUTTON_WIDTH;
-    search_.rect = DipRect{ left, 0.0f, left + BUTTON_WIDTH, BASE_HEIGHT };
+    search_ = DipRect{ left, 0.0f, left + BUTTON_WIDTH, BASE_HEIGHT };
     left += BUTTON_WIDTH;
-    theme_toggle_.rect = DipRect{ left, 0.0f, left + BUTTON_WIDTH, BASE_HEIGHT };
+    theme_toggle_ = DipRect{ left, 0.0f, left + BUTTON_WIDTH, BASE_HEIGHT };
     left += BUTTON_WIDTH;
-    help_.rect = DipRect{ left, 0.0f, left + BUTTON_WIDTH, BASE_HEIGHT };
+    help_ = DipRect{ left, 0.0f, left + BUTTON_WIDTH, BASE_HEIGHT };
     left += BUTTON_WIDTH;
 
     float right = window_width_dip;
-    close_.rect = DipRect{ right - CAPTION_BTN_WIDTH, 0.0f, right, BASE_HEIGHT };
+    close_ = DipRect{ right - CAPTION_BTN_WIDTH, 0.0f, right, BASE_HEIGHT };
     right -= CAPTION_BTN_WIDTH;
-    maximize_.rect = DipRect{ right - CAPTION_BTN_WIDTH, 0.0f, right, BASE_HEIGHT };
+    maximize_ = DipRect{ right - CAPTION_BTN_WIDTH, 0.0f, right, BASE_HEIGHT };
     right -= CAPTION_BTN_WIDTH;
-    minimize_.rect = DipRect{ right - CAPTION_BTN_WIDTH, 0.0f, right, BASE_HEIGHT };
+    minimize_ = DipRect{ right - CAPTION_BTN_WIDTH, 0.0f, right, BASE_HEIGHT };
     right -= CAPTION_BTN_WIDTH;
 
-    toc_toggle_.rect = DipRect{ right - BUTTON_WIDTH, 0.0f, right, BASE_HEIGHT };
+    toc_toggle_ = DipRect{ right - BUTTON_WIDTH, 0.0f, right, BASE_HEIGHT };
     right -= BUTTON_WIDTH;
-    file_toggle_.rect = DipRect{ right - BUTTON_WIDTH, 0.0f, right, BASE_HEIGHT };
+    file_toggle_ = DipRect{ right - BUTTON_WIDTH, 0.0f, right, BASE_HEIGHT };
 
-    const float title_right = file_toggle_.rect.left;
+    const float title_right = file_toggle_.left;
     title_text_rect_ = DipRect{ left, 0.0f, (title_right > left) ? title_right : left, BASE_HEIGHT };
 }
 
@@ -36,31 +36,31 @@ TitleBarHitZone TitleBar::HitTest(float dip_x, float dip_y) const noexcept
     if (dip_y < 0.0f || dip_y >= BASE_HEIGHT) {
         return TitleBarHitZone::None;
     }
-    if (PointInRect(dip_x, dip_y, close_.rect)) {
+    if (PointInRect(dip_x, dip_y, close_)) {
         return TitleBarHitZone::Close;
     }
-    if (PointInRect(dip_x, dip_y, maximize_.rect)) {
+    if (PointInRect(dip_x, dip_y, maximize_)) {
         return TitleBarHitZone::Maximize;
     }
-    if (PointInRect(dip_x, dip_y, minimize_.rect)) {
+    if (PointInRect(dip_x, dip_y, minimize_)) {
         return TitleBarHitZone::Minimize;
     }
-    if (PointInRect(dip_x, dip_y, open_file_.rect)) {
+    if (PointInRect(dip_x, dip_y, open_file_)) {
         return TitleBarHitZone::OpenFile;
     }
-    if (PointInRect(dip_x, dip_y, search_.rect)) {
+    if (PointInRect(dip_x, dip_y, search_)) {
         return TitleBarHitZone::Search;
     }
-    if (PointInRect(dip_x, dip_y, theme_toggle_.rect)) {
+    if (PointInRect(dip_x, dip_y, theme_toggle_)) {
         return TitleBarHitZone::ThemeToggle;
     }
-    if (PointInRect(dip_x, dip_y, help_.rect)) {
+    if (PointInRect(dip_x, dip_y, help_)) {
         return TitleBarHitZone::Help;
     }
-    if (PointInRect(dip_x, dip_y, file_toggle_.rect)) {
+    if (PointInRect(dip_x, dip_y, file_toggle_)) {
         return TitleBarHitZone::FileToggle;
     }
-    if (PointInRect(dip_x, dip_y, toc_toggle_.rect)) {
+    if (PointInRect(dip_x, dip_y, toc_toggle_)) {
         return TitleBarHitZone::TocToggle;
     }
     // アイコン領域（クリックしやすいようアイコン右のギャップまで含む）

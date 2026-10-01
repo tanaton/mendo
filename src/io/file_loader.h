@@ -1,5 +1,4 @@
 #pragma once
-#include "doc_text.h"
 #include <string>
 #include <string_view>
 #include <memory_resource>
@@ -35,7 +34,7 @@ inline std::wstring_view FileLoadErrorMessage(FileLoadError e, const auto& strin
     }
 }
 
-// LoadFile が返す UTF-8 ドキュメントテキスト (BOM 除去済) + 元の UTF-8 バイト数 (BOM 込み)。
+// LoadFile が返す UTF-8 ドキュメントテキスト (BOM 除去・LF 正規化済) + 元の UTF-8 バイト数 (BOM 込み)。
 // byte_size はリロード時の二段階保存検出 (IsFileLargerThan) や AnalyzeReloadDiff の参照用。
 struct LoadedFileDoc {
     std::pmr::string text;
@@ -46,7 +45,8 @@ struct LoadedFileDoc {
 // path 選択は file_dialog_service.h に分離してある。
 class FileLoader {
 public:
-    // ファイルを ReadFile で string バッファへ直接読み込み、UTF-8 BOM を除去して返す。
+    // ファイルを ReadFile で string バッファへ直接読み込み、UTF-8 BOM を除去して LF に正規化して返す。
+    // Document とリロード diff はこの出力が LF-only であることを前提にする (issue #273)。
     // wstring 経由の二重変換 (UTF-8 → wstring → UTF-8) を行わないため巨大ファイルで高速。
     static std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::pmr::wstring& path);
 };

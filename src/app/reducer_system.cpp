@@ -34,10 +34,7 @@ void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
     }
     PushEffect(
         effects,
-        effect::ApplyThemeChange{
-            .type = effect::ApplyThemeChange::Type::Zoom,
-            .zoom_index = static_cast<uint8_t>(state.view.viewport.GetZoomIndex()),
-        });
+        effect::ApplyThemeChange{ effect::ApplyThemeChange::Type::Zoom });
 }
 
 void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
@@ -52,10 +49,7 @@ void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
     }
     PushEffect(
         effects,
-        effect::ApplyThemeChange{
-            .type = effect::ApplyThemeChange::Type::DarkMode,
-            .zoom_index = static_cast<uint8_t>(state.view.viewport.GetZoomIndex()),
-        });
+        effect::ApplyThemeChange{ effect::ApplyThemeChange::Type::DarkMode });
 }
 
 void ReduceActivate(AppState& state, SideEffectList& effects, const ActivateAction& a)
@@ -129,7 +123,7 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
         state.interaction.tooltip.Show();
         return;
     case app_timer::Id::SEARCH_DEBOUNCE:
-        state.search.search_bar_ctrl.OnDebounceTimer(state.document.doc.GetNodes());
+        ReduceSearchDebounce(state, effects);
         return;
     case app_timer::Id::SWIPE_OVERLAY: {
         const auto result = state.interaction.swipe_detector.Commit();

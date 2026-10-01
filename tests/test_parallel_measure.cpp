@@ -3,6 +3,7 @@
 #include <chrono>
 #include <memory_resource>
 #include <thread>
+#include "dirty_node_fixture.h"
 #include "dirty_scheduler.h"
 #include "layout.h"
 #include "mock_text_measurer.h"
@@ -14,37 +15,18 @@
 
 using mendo::layout::DirtyBatchResult;
 using mendo::layout::ParallelBudget;
-using mendo::layout::SerialBudget;
-using mendo::layout::DirtyScheduler;
 using mendo::layout::RunParallel;
+using mendo::layout::RunSerial;
+using mendo::layout::SerialBudget;
 using mendo::layout::StopReason;
 using mendo::layout::ViewportClip;
 
 namespace {
 
-struct ParallelFixture {
-    std::pmr::vector<Node> nodes;
-    LayoutCache cache;
-
-    void Build(size_t n, bool all_dirty)
-    {
-        for (size_t i = 0; i < n; ++i) {
-            nodes.push_back(MakeTextNode("x"));
-        }
-        cache.Resize(n);
-        for (size_t i = 0; i < n; ++i) {
-            cache.SetTop(i, static_cast<float>(i) * 100.0f);
-            cache[i].height = 80.0f;
-            cache[i].layout_dirty = all_dirty;
-        }
-    }
-};
-
 class ParallelMeasureTest : public ::testing::Test {
 protected:
     MockTextMeasurer mock_;
-    Theme theme_;
-    DirtyScheduler scheduler_;
+    Theme theme_{};
     TaskScheduler task_scheduler_;
 
     void SetUp() override
@@ -62,7 +44,7 @@ protected:
 
 TEST_F(ParallelMeasureTest, EmptyDirtyReturnsNoneDirty)
 {
-    ParallelFixture f;
+    DirtyNodeFixture f;
     f.Build(10, false);
     const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_,
                                ViewportClip{}, ParallelBudget{}, task_scheduler_);
@@ -75,13 +57,13 @@ TEST_F(ParallelMeasureTest, MatchesSerialOutputOnSmallFixture)
     // 同じ fixture を 2 つ作り、片方を Serial、片方を Parallel に通して
     // entry.height / layout_dirty / total processed が一致することを確認する。
     constexpr size_t N = 200;
-    ParallelFixture f_serial;
+    DirtyNodeFixture f_serial;
     f_serial.Build(N, true);
-    ParallelFixture f_parallel;
+    DirtyNodeFixture f_parallel;
     f_parallel.Build(N, true);
 
-    const auto r_serial = scheduler_.RunSerial(f_serial.nodes, f_serial.cache, 800.0f, theme_, mock_,
-                                               ViewportClip{}, SerialBudget{});
+    const auto r_serial = RunSerial(f_serial.nodes, f_serial.cache, 800.0f, theme_, mock_,
+                                    ViewportClip{}, SerialBudget{});
     const auto r_parallel = RunParallel(f_parallel.nodes, f_parallel.cache, 800.0f, theme_, mock_,
                                         ViewportClip{}, ParallelBudget{}, task_scheduler_);
 
@@ -102,7 +84,7 @@ TEST_F(ParallelMeasureTest, ChunkBoundary)
     // 256-1, 256, 256+1, 512+1 の前後で挙動が変わらないか確認。
     for (size_t N : { static_cast<size_t>(255), static_cast<size_t>(256),
                       static_cast<size_t>(257), static_cast<size_t>(513) }) {
-        ParallelFixture f;
+        DirtyNodeFixture f;
         f.Build(N, true);
         const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_,
                                    ViewportClip{}, ParallelBudget{}, task_scheduler_);
@@ -118,7 +100,7 @@ TEST_F(ParallelMeasureTest, ViewportClipSkipsOffscreen)
     // 0..99 のうち、viewport [200, 600] に重なる buffer 圏内の dirty だけ処理される。
     // buffer_screens=1 なので clip [200-400, 600+400] = [-200, 1000] → y_pos が
     // この区間に含まれるノード (0..9) が対象になる。
-    ParallelFixture f;
+    DirtyNodeFixture f;
     f.Build(100, true);
     ViewportClip clip{ 200.0f, 400.0f, 1.0f };
     const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_,
@@ -132,7 +114,7 @@ TEST_F(ParallelMeasureTest, ViewportClipSkipsOffscreen)
 
 TEST_F(ParallelMeasureTest, BatchLimitClampsProcessed)
 {
-    ParallelFixture f;
+    DirtyNodeFixture f;
     f.Build(100, true);
     const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_,
                                ViewportClip{}, ParallelBudget{ 10 }, task_scheduler_);
@@ -145,7 +127,7 @@ TEST_F(ParallelMeasureTest, AllDirtyClearedAfterRun)
 {
     // 散在 dirty を含む大きめのケースで、全 dirty が処理 (= layout_dirty=false 化) されること。
     constexpr size_t N = 1000;
-    ParallelFixture f;
+    DirtyNodeFixture f;
     f.Build(N, true);
     const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_,
                                ViewportClip{}, ParallelBudget{}, task_scheduler_);

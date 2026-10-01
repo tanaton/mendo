@@ -20,7 +20,7 @@ void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects, bool
 void EmitScrollEffects(AppState& state, SideEffectList& effects, float old_scroll);
 
 // サイドペイン (ファイル/目次) のスクロール位置が変わった際の無効化副作用。
-void EmitSidePaneScrollChanged(SideEffectList& effects, PaneZone zone);
+void EmitSidePaneScrollChanged(SideEffectList& effects, PaneTarget pane);
 void ApplyScrollTargetAndEmit(AppState& state, SideEffectList& effects, int node, float offset, bool toc_auto_scroll);
 
 // つまみ上クリック → 位置維持 (オフセットのみ記録)、つまみ外 → 中心へジャンプ。
@@ -45,7 +45,9 @@ void ReduceBlockHScrollDragEnded(AppState& state, SideEffectList& effects, const
 
 // ---- 検索 (reducer_search.cpp) ----
 
-void ReduceSearchStep(AppState& state, bool forward);
+void ReduceSearchStep(AppState& state, SideEffectList& effects, bool forward);
+void ReduceSearchTextChanged(AppState& state, SideEffectList& effects, const SearchTextChangedAction& a);
+void ReduceSearchDebounce(AppState& state, SideEffectList& effects);
 
 // ---- 入力・マウス (reducer_input.cpp) ----
 
@@ -88,6 +90,7 @@ void ReduceShowHelp(AppState& state, SideEffectList& effects);
 
 void ReduceTogglePane(AppState& state, SideEffectList& effects, const TogglePaneAction& a);
 void ReduceSelectAll(AppState& state, SideEffectList& effects);
+void ReduceSelectWord(AppState& state, SideEffectList& effects, const SelectWordAction& a);
 void ReduceClearSelection(AppState& state, SideEffectList& effects);
 void ReduceCopyClipboard(const AppState& state, SideEffectList& effects);
 void ReduceCopyFormattedClipboard(const AppState& state, SideEffectList& effects);

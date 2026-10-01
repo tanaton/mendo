@@ -24,10 +24,10 @@ void App::SyncTocActiveAndAutoScroll(bool auto_scroll)
     const float toc_margin = layout.md_rect.y + theme.heading_spacing_above;
     const int new_active = state_.document.doc.GetToc().FindActiveIndex(
         state_.document.layout_cache, state_.view.viewport.GetScrollY(), toc_margin);
-    if (new_active == state_.active_toc_index) {
+    if (new_active == state_.view.active_toc_index) {
         return;
     }
-    state_.active_toc_index = new_active;
+    state_.view.active_toc_index = new_active;
     renderer_.InvalidateSidePaneCache(PaneTarget::Toc);
 
     // auto_scroll=false (目次クリック由来) ではハイライト更新のみ。
@@ -37,21 +37,10 @@ void App::SyncTocActiveAndAutoScroll(bool auto_scroll)
     }
 
     // アクティブ見出しを目次ペインの中央に保つように追従スクロールする。
-    const float item_y = static_cast<float>(new_active) * theme.pane_item_height;
     const auto ctx = GetSidePaneContext(state_, PaneTarget::Toc);
     if (ctx.info.content_height > 0.0f) {
-        ctx.scroll.scroll_y = CenterPaneScrollY(item_y, theme.pane_item_height, ctx.info);
+        ctx.scroll.scroll_y = CenterPaneScrollOnItem(static_cast<size_t>(new_active), theme.pane_item_height, ctx.info);
     }
-}
-
-void App::InvalidateMdPane(const PaneRect& md_rect)
-{
-    if (!IsRenderReady()) {
-        Invalidate();
-        return;
-    }
-    // MD ペインの本文領域のみ無効化（タイトルバーは別途 InvalidateTitleBar() で扱う）。
-    InvalidatePane(md_rect);
 }
 
 void App::EnsureScrollTarget()
@@ -81,9 +70,9 @@ void App::OnResizeEnd()
 
     {
         MENDO_PROFILE("ViewportLayout(Resize)");
-        EmitEffect(effect::ViewportLayout{ md_width, md_height });
+        ViewportLayout(md_width, md_height);
     }
-    EmitEffect(effect::SyncMaxScroll{ md_height });
+    SyncMaxScroll(md_height);
     Invalidate();
 
     ScheduleDeferredLayoutIfNeeded();
@@ -120,7 +109,7 @@ void App::OnDeferredLayout()
     // max_scroll に基づくクランプで scroll_y が不当に引き下げられるのを防ぐ。
     // スクロールバートラッキング中はユーザー操作を優先してクランプを反映する。
     if (state_.view.panes.GetDragTarget() == PaneController::DragTarget::MdScrollbar) {
-        EmitEffect(effect::SyncMaxScroll{ md_height });
+        SyncMaxScroll(md_height);
     }
 
     if (!more) {
@@ -131,7 +120,7 @@ void App::OnDeferredLayout()
         // ブロックするのを防ぐ。
         resource_manager_.ScheduleMermaidBatch();
 
-        EmitEffect(effect::SyncMaxScroll{ md_height });
+        SyncMaxScroll(md_height);
         Invalidate();
 
         // 遅延レイアウト確定で layout_cache の text_top が安定したので
