@@ -3,7 +3,6 @@
 #include "raw_text.h"
 #include "toc.h"
 #include "parser.h"
-#include "utility.h"
 #include <cstdint>
 #include <stop_token>
 #include <string>
@@ -11,11 +10,6 @@
 #include <utility>
 #include <vector>
 #include <memory_resource>
-
-// CRLF / 旧式 CR を LF に正規化する (in-place)。FromMarkdown / ReplaceFromMarkdown が
-// パース前に必ず通すため raw_text_ は常に LF-only。リロード diff (AnalyzeReloadDiff) の
-// 新テキストも比較前にこれで揃えないと、CRLF ファイルで全行が差分扱いになる (issue #273)。
-void NormalizeNewlines(std::pmr::string& s);
 
 class Document {
 public:
@@ -29,8 +23,8 @@ public:
     Document& operator=(Document&& other) noexcept = default;
     ~Document() = default;
 
-    // ファクトリ。本体は (text, byte_size, path) の 3 引数版。
-    // 2 引数版は byte_size 計算を内蔵した便利ラッパー (テスト / Help リソース経路、入力は BOM 無し前提)。
+    // ファクトリ。本体は (text, byte_size, path) の 3 引数版で、text は LF 正規化済み (FileLoader 出力) であること。
+    // 2 引数版は byte_size 計算と LF 正規化を内蔵した便利ラッパー (テスト / Help リソース経路、入力は BOM 無し前提)。
     // default-constructed の stop_token はキャンセル不可で従来通り動作。
     static Document FromMarkdown(
         std::pmr::string text, size_t byte_size, std::wstring_view path,
@@ -49,6 +43,8 @@ public:
     {
         return file_path_;
     }
+    // ディスク上の実ファイルに対応するか。空パスとヘルプの仮想パスは false。
+    bool HasBackingFile() const noexcept;
     constexpr const TableOfContents& GetToc() const noexcept
     {
         return toc_;
@@ -81,11 +77,9 @@ public:
         file_path_ = path;
         RebuildCachedDirectory();
     }
+    // text は LF 正規化済みであること。
     void ReplaceFromMarkdown(std::pmr::string text, size_t byte_size, std::stop_token stop_token = {});
     int FindAnchorIndex(std::string_view anchor) const;
-    // 既に anchor_id 形式（小文字 ASCII 正規化済み）と判明している入力向け。
-    // 呼び出し側で正規化が保証されていれば、ToLowerAsciiCopy の確保を回避できる。
-    int FindNormalizedAnchorIndex(std::string_view anchor) const;
     constexpr const std::pmr::vector<size_t>& GetImageNodeIndices() const noexcept
     {
         return image_node_indices_;
@@ -100,6 +94,9 @@ public:
     }
 
 private:
+    // anchor は小文字 ASCII 正規化済みであること。
+    int FindNormalizedAnchorIndex(std::string_view anchor) const;
+
     // ParseResult を nodes_ に取り込み、TOC / anchor_index_ / image / diagram の各種
     // インデックスを再構築する。
     // 契約: 入力 ParseResult のノード view_ は raw_text_.data() を base にしていること。
@@ -113,6 +110,7 @@ private:
     // RawText は append/resize 等の relocate API を提供しないため、view モードノードの
     // view_.data() が指し続けるバッファの安全性が型レベルで担保される。差し替えは
     // ReplaceFromMarkdown / FromMarkdown 経由の Replace() のみ許される。
+    // 常に LF-only (FileLoader または 2 引数 FromMarkdown が正規化する)。
     RawText raw_text_;
     size_t loaded_byte_size_ = 0;
     TableOfContents toc_;

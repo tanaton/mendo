@@ -119,8 +119,7 @@ private:
     void DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const SidePaneInstance& pane);
     void DrawToc(const std::pmr::vector<TocEntry>& entries, const std::pmr::vector<Node>& nodes, const SidePaneInstance& pane, int active_index);
     void DrawSplitter(float x, float top, float bottom);
-    // hovered: 0=なし, 1=戻る, 2=進む
-    void DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool can_forward, int hovered);
+    void DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool can_forward, NavButtonHover hovered);
     void DrawGestureTrail(const std::pmr::deque<GesturePoint>& points);
     void DrawGestureOverlay(int direction, const PaneRect& md_pane_rect);
     void DrawToastOverlay(const ToastRenderState& toast, const PaneRect& md_pane_rect);
@@ -145,13 +144,13 @@ private:
 
     ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const noexcept;
     void ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom);
-    void ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top = -1.0f, float viewport_bottom = -1.0f);
+    void ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom);
     void RecreateBrushes();
     void InvalidateBrushes() noexcept;
     void ResolveThemeFonts();
     void RecreatePaneFormats();
     Microsoft::WRL::ComPtr<IDWriteTextFormat> CreatePaneFormat(const wchar_t* family, DWRITE_FONT_WEIGHT weight, float size, const wchar_t* locale);
-    bool CheckEndDraw();
+    void CheckEndDraw();
     bool RecreateRenderTarget();
     // 再描画要求を出した場合 true。
     bool HandleDeviceLost();
@@ -183,6 +182,8 @@ private:
     Microsoft::WRL::ComPtr<IDWriteTextLayout> gesture_forward_layout_;
     Microsoft::WRL::ComPtr<IDWriteTextLayout> cached_toast_layout_;
     std::pmr::wstring cached_toast_text_{ GetThreadLocalPoolResource() };
+    // 目次項目の描画ごとの UTF-16 変換先。項目ごとの確保を避けて再利用する。
+    std::pmr::wstring toc_text_scratch_{ GetThreadLocalPoolResource() };
 
     // 検索バーの入力テキストレイアウトキャッシュ。
     // キー: (query, ime_comp, caret_pos, width) 入力 height は定数なのでキーに含めない。

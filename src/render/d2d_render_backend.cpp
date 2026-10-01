@@ -242,10 +242,10 @@ void D2DRenderBackend::WaitForFrameLatency() noexcept
     (void)WaitForSingleObjectEx(frame_latency_waitable_.get(), 1000, FALSE);
 }
 
-HRESULT D2DRenderBackend::Present() noexcept
+void D2DRenderBackend::Present() noexcept
 {
     if (!swap_chain_) {
-        return E_FAIL;
+        return;
     }
     const HRESULT hr = swap_chain_->Present(1, 0);
     // TDR / ドライバ内部障害もデバイス再生成で復旧するため REMOVED/RESET と同様に扱う。
@@ -254,7 +254,6 @@ HRESULT D2DRenderBackend::Present() noexcept
         hr == DXGI_ERROR_DEVICE_HUNG || hr == DXGI_ERROR_DRIVER_INTERNAL_ERROR) {
         device_lost_ = true;
     }
-    return hr;
 }
 
 bool D2DRenderBackend::RecreateRenderTarget()

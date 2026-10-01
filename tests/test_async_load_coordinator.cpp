@@ -24,8 +24,6 @@ protected:
 
 TaskScheduler AsyncLoadCoordinatorTest::scheduler_;
 
-constexpr auto kPollTimeout = std::chrono::seconds(5);
-
 } // namespace
 
 TEST_F(AsyncLoadCoordinatorTest, DefaultConstructionIsInactive)
@@ -71,7 +69,7 @@ TEST_F(AsyncLoadCoordinatorTest, SuccessfulLoadProducesResult)
     c.Start(scheduler_, tmp.PmrPath(), nullptr, 0, GetLightTheme());
 
     std::optional<AsyncLoadResult> result;
-    PollUntil([&] { result = c.TakeResult(); return result.has_value(); }, kPollTimeout);
+    PollUntil([&] { result = c.TakeResult(); return result.has_value(); });
     ASSERT_TRUE(result.has_value());
     EXPECT_TRUE(result->heights_estimated);
     EXPECT_FALSE(result->doc.IsEmpty());
@@ -84,7 +82,7 @@ TEST_F(AsyncLoadCoordinatorTest, NotFoundFileProducesError)
     c.Start(scheduler_, std::pmr::wstring(L"C:\\__mendo_no_such_file__.md"), nullptr, 0, GetLightTheme());
 
     std::optional<FileLoadError> err;
-    PollUntil([&] { err = c.TakeError(); return err.has_value(); }, kPollTimeout);
+    PollUntil([&] { err = c.TakeError(); return err.has_value(); });
     ASSERT_TRUE(err.has_value());
     EXPECT_EQ(*err, FileLoadError::NotFound);
 }
@@ -125,7 +123,7 @@ TEST_F(AsyncLoadCoordinatorTest, RestartBeforeFirstCompletesCancelsFirst)
     c.Start(scheduler_, tmp2.PmrPath(), nullptr, 0, GetLightTheme());
 
     std::optional<AsyncLoadResult> result;
-    PollUntil([&] { result = c.TakeResult(); return result.has_value(); }, kPollTimeout);
+    PollUntil([&] { result = c.TakeResult(); return result.has_value(); });
     ASSERT_TRUE(result.has_value());
     EXPECT_FALSE(c.IsActive());
 }
@@ -140,7 +138,7 @@ std::optional<AsyncLoadResult> RunReload(TaskScheduler& scheduler, const TempFil
     AsyncLoadCoordinator c;
     c.Start(scheduler, tmp.PmrPath(), nullptr, 0, GetLightTheme(), base);
     std::optional<AsyncLoadResult> result;
-    PollUntil([&] { result = c.TakeResult(); return result.has_value(); }, kPollTimeout);
+    PollUntil([&] { result = c.TakeResult(); return result.has_value(); });
     if (result && result->reload) {
         EXPECT_EQ(result->reload->base.lock(), base);
     }

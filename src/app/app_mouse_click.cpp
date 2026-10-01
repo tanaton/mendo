@@ -90,7 +90,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         return;
     }
     if (btn_hit.diagram_copy_node >= 0 || btn_hit.save_node >= 0) {
-        const float md_width = renderer_.GetTheme().ContentWidth(GetMarkdownPaneWidth());
+        const float md_width = hit_ctx.content_width;
         const bool dark = renderer_.GetTheme().IsDark();
         if (btn_hit.diagram_copy_node >= 0) {
             // 画像は表示中ビットマップと同寿命の DiagramEntry::png から取る (ボタン表示条件と一致)。
@@ -112,8 +112,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         const auto& node = state_.document.doc.GetNodes()[hover];
         const auto& entry = state_.document.layout_cache[hover];
         const auto& theme = renderer_.GetTheme();
-        const float pad = IsScrollableCodeBlock(node) ? theme.code_block_padding : 0.0f;
-        const float bar_y_local = BlockHScrollbarBarY(state_.document.layout_cache.Top(static_cast<size_t>(hover)), entry.height, pad);
+        const float bar_y_local = BlockHScrollbarBarY(state_.document.layout_cache.Top(static_cast<size_t>(hover)), entry.height, mendo::layout::NodeBoxPadY(node, theme));
         // 描画 transform は Translation(md_x, -scroll_y) で md_rect.y は加算しない規約。
         const float bar_y_screen = bar_y_local - state_.view.viewport.GetScrollY();
         const float block_x_screen = pane_layout.md_rect.x + theme.margin_left + mendo::layout::NodeIndent(node, theme);
@@ -127,11 +126,11 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
     Dispatch(TextSelectionStartedAction{ hit.node_index, hit.text_pos, px, py });
 }
 
-bool App::IsOverPaneScrollbar(float dip_x, const PaneRect& rect, float total_content, const PaneScrollInfo& scroll_info) noexcept
+bool App::IsOverPaneScrollbar(float dip_x, const PaneRect& rect, const PaneScrollInfo& scroll_info) noexcept
 {
     const float local_x = dip_x - rect.x;
     const float hit_left = VScrollbarLeftX(rect.width) - PANE_SCROLLBAR_HIT_PADDING;
-    return local_x >= hit_left && total_content > scroll_info.content_height;
+    return local_x >= hit_left && scroll_info.total_content > scroll_info.content_height;
 }
 
 void App::RefreshFilePane()
@@ -153,8 +152,7 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const
     if (ProcessSidePaneHeaderClick(dip_x, dip_y, rect, theme.pane_header_height, SidePaneHeaderButtonsFor(state_, target), [this, target](PaneHeaderButton hit) {
         switch (hit) {
         case PaneHeaderButton::Close:
-            state_.view.panes.ToggleSidePane(target);
-            RefreshPaneLayout();
+            Dispatch(TogglePaneAction{ target });
             break;
         case PaneHeaderButton::Refresh:
             RefreshFilePane();
@@ -170,20 +168,13 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const
     }
 
     const auto ctx = GetSidePaneContext(state_, target);
-    if (IsOverPaneScrollbar(dip_x, rect, ctx.total_content, ctx.info)) {
+    if (IsOverPaneScrollbar(dip_x, rect, ctx.info)) {
         Dispatch(PaneScrollbarDragStartedAction{ target, dip_y });
         return;
     }
     const float local_y = dip_y - ctx.info.content_top + ctx.scroll.scroll_y;
-    const size_t item_count =
-        is_file
-            ? state_.file_explorer.GetEntries().size()
-            : state_.document.doc.GetToc().GetEntries().size();
-    const int idx =
-        is_file
-            ? state_.file_explorer.HitTest(local_y, theme.pane_item_height)
-            : state_.document.doc.GetToc().HitTest(local_y, theme.pane_item_height);
-    if (idx < 0 || static_cast<size_t>(idx) >= item_count) {
+    const int idx = SidePaneHitTest(state_, target, local_y, theme.pane_item_height);
+    if (idx < 0) {
         return;
     }
     if (is_file) {
@@ -201,8 +192,6 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const
         }
     }
     else {
-        const auto& toc_entry = state_.document.doc.GetToc().GetEntries()[idx];
-        const auto anchor = state_.document.doc.GetNodes()[toc_entry.node_index].anchor_id();
-        Dispatch(TocItemClickedAction{ std::pmr::string(anchor) });
+        Dispatch(TocItemClickedAction{ state_.document.doc.GetToc().GetEntries()[idx].node_index });
     }
 }

@@ -63,14 +63,13 @@ void SearchState::FindTextMatches(std::string_view text, std::string_view query,
     size_t pos = 0;
     while (matches_.size() < MAX_MATCHES && (pos = FindNext(text, query, fold, pos)) != ascii_util::npos) {
         const auto byte_start = static_cast<uint32_t>(pos);
-        const uint32_t w_start = cursor.WideAt(byte_start);
-        const uint32_t w_end = cursor.WideAt(byte_start + query_len);
+        const auto w = cursor.WideRange(byte_start, query_len);
         matches_.emplace_back(SearchMatch{
             .node_index = node_index,
             .start = byte_start,
             .length = query_len,
-            .start_w = w_start,
-            .length_w = w_end - w_start,
+            .start_w = w.startPosition,
+            .length_w = w.length,
         });
         pos += query_len;
     }
@@ -111,16 +110,15 @@ void SearchState::FindTableMatches(const NodeTableData& tbl, std::string_view qu
             cursor.emplace(concat.substr(cell_start, cell_len));
             cursor_cell = cell;
         }
-        const uint32_t w_start = cursor->WideAt(local);
-        const uint32_t w_end = cursor->WideAt(local + query_len);
+        const auto w = cursor->WideRange(local, query_len);
         matches_.emplace_back(SearchMatch{
             .node_index = node_index,
             .start = local,
             .length = query_len,
             .table_row = static_cast<int>(cell / col_count),
             .table_col = static_cast<int>(cell % col_count),
-            .start_w = w_start,
-            .length_w = w_end - w_start,
+            .start_w = w.startPosition,
+            .length_w = w.length,
         });
         pos += query_len;
     }

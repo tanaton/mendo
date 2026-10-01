@@ -120,7 +120,6 @@ public:
     // 開いたタグと対の閉じタグをスタックにペアで積むため、フィールドと閉じ文字列のズレが起きない。
     constexpr void Open(const InlineState& s, std::span<const std::pmr::string> link_urls)
     {
-        applied_ = true;
         if (s.link_url_index >= 0 && static_cast<size_t>(s.link_url_index) < link_urls.size()) {
             out_.append("<a href=\"");
             AppendHtmlEscaped(out_, link_urls[static_cast<size_t>(s.link_url_index)]);
@@ -147,7 +146,6 @@ public:
 
     constexpr void CloseAll()
     {
-        applied_ = false;
         while (count_ > 0) {
             out_.append(close_stack_[--count_]);
         }
@@ -155,7 +153,7 @@ public:
 
     constexpr bool IsApplied() const noexcept
     {
-        return applied_;
+        return count_ != 0;
     }
 
 private:
@@ -168,7 +166,6 @@ private:
     std::pmr::string& out_;
     std::array<std::string_view, 5> close_stack_{};
     size_t count_ = 0;
-    bool applied_ = false;
 };
 
 // runs は start 昇順・非重複で並ぶ前提。run 境界単位で処理することで
@@ -238,7 +235,7 @@ constexpr void AppendInlineHtml(
         uint32_t batch = pos;
         while (batch < segment_end) {
             const auto* lf_ptr = static_cast<const char*>(
-                std::memchr(text.data() + batch, mendo::doc_lf, segment_end - batch));
+                std::memchr(text.data() + batch, '\n', segment_end - batch));
             const uint32_t lf_pos = lf_ptr ? static_cast<uint32_t>(lf_ptr - text.data()) : segment_end;
 
             if (batch < lf_pos) {
@@ -509,14 +506,9 @@ void AppendHeadingCloseTag(std::pmr::string& out, int level)
     std::format_to(std::back_inserter(out), "</h{}>", level);
 }
 
-constexpr bool IsListNode(const Node& n) noexcept
-{
-    return n.type == NodeType::ListItem || n.type == NodeType::TaskListItem;
-}
-
 constexpr bool IsOrderedList(const Node& n) noexcept
 {
-    return IsListNode(n) && n.list_ordered();
+    return IsListItem(n) && n.list_ordered();
 }
 
 std::optional<std::pmr::string> FindLinkInRuns(std::span<const TextRun> runs, std::span<const std::pmr::string> link_urls, uint32_t pos)
@@ -598,7 +590,7 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
 
         const auto [start, end] = selection.ClampedRange(i, text.size());
 
-        if (IsListNode(node)) {
+        if (IsListItem(node)) {
             const char* want_close = IsOrderedList(node) ? "</ol>" : "</ul>";
             if (list_close_tag != want_close) {
                 close_list();

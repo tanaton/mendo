@@ -20,26 +20,20 @@ struct ViewportClip {
         return top >= 0.0f && height > 0.0f;
     }
 
-    // dirty 選定で「処理対象として残すべきか」を返す共通述語。
-    // limit_top / limit_bottom の計算は呼び出しごとに 1 度だけ済ませた値を渡す。
-    static constexpr bool ShouldMeasure(const NodeLayoutEntry& e, float top, bool has_limit, float limit_top, float limit_bottom) noexcept
+    // dirty 選定で「処理対象として残すべきか」を返す共通述語。range は Range() の結果を渡す。
+    static constexpr bool ShouldMeasure(const NodeLayoutEntry& e, float top, MeasureViewportRange range) noexcept
     {
-        if (!e.layout_dirty) {
-            return false;
-        }
-        if (has_limit && IsOffscreen(top, e.height, limit_top, limit_bottom)) {
-            return false;
-        }
-        return true;
+        return e.layout_dirty && !IsOffscreen(top, e.height, range.top, range.bottom);
     }
 
-    constexpr float limit_top() const noexcept
+    // 非クリップ時は ±∞ なので、帯の二分探索・下端 break・オフスクリーン判定がすべて素通りになる。
+    constexpr MeasureViewportRange Range() const noexcept
     {
-        return top - height * buffer_screens;
-    }
-    constexpr float limit_bottom() const noexcept
-    {
-        return top + height + height * buffer_screens;
+        if (!active()) {
+            return {};
+        }
+        const float buffer = height * buffer_screens;
+        return { top - buffer, top + height + buffer };
     }
 };
 
@@ -77,16 +71,13 @@ struct DirtyBatchResult {
     }
 };
 
-class DirtyScheduler {
-public:
-    DirtyBatchResult RunSerial(
-        std::pmr::vector<Node>& nodes,
-        LayoutCache& cache,
-        float content_width,
-        const Theme& theme,
-        const IMeasureBackend& backend,
-        ViewportClip clip,
-        SerialBudget budget) const;
-};
+DirtyBatchResult RunSerial(
+    std::pmr::vector<Node>& nodes,
+    LayoutCache& cache,
+    float content_width,
+    const Theme& theme,
+    const IMeasureBackend& backend,
+    ViewportClip clip,
+    SerialBudget budget);
 
 } // namespace mendo::layout

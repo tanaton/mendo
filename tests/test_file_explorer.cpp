@@ -2,44 +2,14 @@
 #include <memory_resource>
 #include <string_view>
 #include "file_explorer.h"
+#include "test_helpers.h"
 #include <algorithm>
 #include <filesystem>
-#include <fstream>
-#include <windows.h>
 
 namespace fs = std::filesystem;
 
-class FileExplorerTest : public ::testing::Test {
+class FileExplorerTest : public TempDirTestBase {
 protected:
-    fs::path temp_dir_;
-
-    void SetUp() override
-    {
-        wchar_t tmp[MAX_PATH];
-        GetTempPathW(MAX_PATH, tmp);
-        // テストごとに一意のディレクトリを使用（CTest並列実行での競合を防止）
-        auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        std::string suffix = std::string(info->test_suite_name()) + "_" + info->name();
-        temp_dir_ = fs::path(tmp) / L"mendo_explorer_test" / fs::path(suffix);
-        std::error_code ec;
-        fs::remove_all(temp_dir_, ec);  // 前回の残りを確実に削除
-        fs::create_directories(temp_dir_);
-    }
-
-    void TearDown() override
-    {
-        std::error_code ec;
-        fs::remove_all(temp_dir_, ec);
-    }
-
-    void CreateFile(const std::wstring& name, const std::string& content = "")
-    {
-        auto path = temp_dir_ / name;
-        std::ofstream f(path, std::ios::binary);
-        f.write(content.data(), content.size());
-        f.close();
-    }
-
     void CreateDir(const std::wstring& name)
     {
         fs::create_directories(temp_dir_ / name);
@@ -50,7 +20,7 @@ protected:
 
 TEST_F(FileExplorerTest, CurrentFileSurvivesRefreshAndDirectoryChange)
 {
-    CreateFile(L"a.md");
+    WriteTempFile(L"a.md");
     CreateDir(L"sub");
     const auto current = (temp_dir_ / L"a.md").wstring();
 
@@ -87,7 +57,7 @@ TEST_F(FileExplorerTest, EmptyDirectoryHasParentOnly)
 
 TEST_F(FileExplorerTest, TrailingBackslashNormalized)
 {
-    CreateFile(L"test.md");
+    WriteTempFile(L"test.md");
     FileExplorer explorer;
 
     std::wstring with_slash = temp_dir_.wstring() + L"\\";
@@ -106,7 +76,7 @@ TEST_F(FileExplorerTest, TrailingBackslashNormalized)
 
 TEST_F(FileExplorerTest, TrailingSlashDoesNotCreateDoubleBackslash)
 {
-    CreateFile(L"hello.md");
+    WriteTempFile(L"hello.md");
     FileExplorer explorer;
 
     std::wstring with_slash = temp_dir_.wstring() + L"\\";
@@ -128,8 +98,8 @@ TEST_F(FileExplorerTest, TrailingSlashDoesNotCreateDoubleBackslash)
 
 TEST_F(FileExplorerTest, ShowsMdFiles)
 {
-    CreateFile(L"readme.md");
-    CreateFile(L"notes.md");
+    WriteTempFile(L"readme.md");
+    WriteTempFile(L"notes.md");
 
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
@@ -141,7 +111,7 @@ TEST_F(FileExplorerTest, ShowsMdFiles)
 
 TEST_F(FileExplorerTest, ShowsMarkdownExtension)
 {
-    CreateFile(L"doc.markdown");
+    WriteTempFile(L"doc.markdown");
 
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
@@ -154,7 +124,7 @@ TEST_F(FileExplorerTest, ShowsMarkdownExtension)
 
 TEST_F(FileExplorerTest, ShowsMkdExtension)
 {
-    CreateFile(L"doc.mkd");
+    WriteTempFile(L"doc.mkd");
 
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
@@ -166,10 +136,10 @@ TEST_F(FileExplorerTest, ShowsMkdExtension)
 
 TEST_F(FileExplorerTest, HidesNonMarkdownFiles)
 {
-    CreateFile(L"readme.md");
-    CreateFile(L"image.png");
-    CreateFile(L"data.json");
-    CreateFile(L"script.py");
+    WriteTempFile(L"readme.md");
+    WriteTempFile(L"image.png");
+    WriteTempFile(L"data.json");
+    WriteTempFile(L"script.py");
 
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
@@ -182,7 +152,7 @@ TEST_F(FileExplorerTest, HidesNonMarkdownFiles)
 TEST_F(FileExplorerTest, ShowsDirectories)
 {
     CreateDir(L"subdir");
-    CreateFile(L"test.md");
+    WriteTempFile(L"test.md");
 
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
@@ -194,7 +164,7 @@ TEST_F(FileExplorerTest, ShowsDirectories)
 
 TEST_F(FileExplorerTest, DirectoriesBeforeFiles)
 {
-    CreateFile(L"aaa.md");
+    WriteTempFile(L"aaa.md");
     CreateDir(L"zzz_dir");
 
     FileExplorer explorer;
@@ -210,9 +180,9 @@ TEST_F(FileExplorerTest, DirectoriesBeforeFiles)
 
 TEST_F(FileExplorerTest, EntriesSortedCaseInsensitive)
 {
-    CreateFile(L"Bbb.md");
-    CreateFile(L"aaa.md");
-    CreateFile(L"ccc.md");
+    WriteTempFile(L"Bbb.md");
+    WriteTempFile(L"aaa.md");
+    WriteTempFile(L"ccc.md");
 
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
@@ -227,7 +197,7 @@ TEST_F(FileExplorerTest, EntriesSortedCaseInsensitive)
 
 TEST_F(FileExplorerTest, CaseInsensitiveMdExtension)
 {
-    CreateFile(L"upper.MD");
+    WriteTempFile(L"upper.MD");
 
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
@@ -240,8 +210,8 @@ TEST_F(FileExplorerTest, CaseInsensitiveMdExtension)
 
 TEST_F(FileExplorerTest, SetCurrentFileMarksEntry)
 {
-    CreateFile(L"a.md");
-    CreateFile(L"b.md");
+    WriteTempFile(L"a.md");
+    WriteTempFile(L"b.md");
 
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
@@ -281,8 +251,8 @@ TEST_F(FileExplorerTest, SetCurrentFileDoesNotMarkDirectories)
 
 TEST_F(FileExplorerTest, HitTestValidIndex)
 {
-    CreateFile(L"a.md");
-    CreateFile(L"b.md");
+    WriteTempFile(L"a.md");
+    WriteTempFile(L"b.md");
 
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
@@ -295,7 +265,7 @@ TEST_F(FileExplorerTest, HitTestValidIndex)
 
 TEST_F(FileExplorerTest, HitTestOutOfRange)
 {
-    CreateFile(L"a.md");
+    WriteTempFile(L"a.md");
 
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
@@ -315,8 +285,8 @@ TEST_F(FileExplorerTest, HitTestZeroItemHeight)
 
 TEST_F(FileExplorerTest, SetDirectoryWithoutCurrentFileHasNoCurrent)
 {
-    CreateFile(L"a.md");
-    CreateFile(L"b.md");
+    WriteTempFile(L"a.md");
+    WriteTempFile(L"b.md");
 
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
@@ -346,11 +316,11 @@ TEST_F(FileExplorerTest, SetDirectoryWithCurrentWorkingDirectory)
 TEST_F(FileExplorerTest, SetDirectoryThenSetDirectoryAgainSwitches)
 {
     // 初回起動でcwdを表示した後、ファイルのあるディレクトリに切り替えるシナリオ
-    CreateFile(L"test.md");
+    WriteTempFile(L"test.md");
 
-    fs::path other_dir = temp_dir_ / L"other";
-    fs::create_directories(other_dir);
-    std::ofstream(other_dir / L"other.md", std::ios::binary).close();
+    CreateDir(L"other");
+    WriteTempFile(L"other/other.md");
+    const fs::path other_dir = temp_dir_ / L"other";
 
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
@@ -376,7 +346,7 @@ TEST_F(FileExplorerTest, SetDirectoryThenSetDirectoryAgainSwitches)
 
 TEST_F(FileExplorerTest, SetDirectorySamePathNoRefresh)
 {
-    CreateFile(L"a.md");
+    WriteTempFile(L"a.md");
 
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());
@@ -393,7 +363,7 @@ TEST_F(FileExplorerTest, RefreshPicksUpNewFiles)
     explorer.SetDirectory(temp_dir_.wstring());
     size_t before = explorer.GetEntries().size();
 
-    CreateFile(L"new.md");
+    WriteTempFile(L"new.md");
     explorer.Refresh();
 
     EXPECT_EQ(explorer.GetEntries().size(), before + 1);
@@ -401,7 +371,7 @@ TEST_F(FileExplorerTest, RefreshPicksUpNewFiles)
 
 TEST_F(FileExplorerTest, FullPathIsCorrect)
 {
-    CreateFile(L"test.md");
+    WriteTempFile(L"test.md");
 
     FileExplorer explorer;
     explorer.SetDirectory(temp_dir_.wstring());

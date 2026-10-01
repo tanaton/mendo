@@ -1,5 +1,4 @@
 #pragma once
-#include "dirty_scheduler.h"
 #include "document_types.h"
 #include "layout_cache.h"
 #include "layout_computer.h"
@@ -20,6 +19,7 @@ using mendo::layout::EstimateInvisibleNodeHeight;
 using mendo::layout::EstimateNodeHeights;
 using mendo::layout::GetSpacingAbove;
 using mendo::layout::GetSpacingBelow;
+using mendo::layout::NodeBoxPadY;
 using mendo::layout::NodeIndent;
 using mendo::layout::NodeTextXOffset;
 using mendo::layout::RecomputeYPositions;
@@ -36,7 +36,7 @@ public:
     void UpdateTheme(const Theme& theme) noexcept
     {
         theme_ = &theme;
-        lifecycle_->UpdateTheme(theme);
+        measurer_->UpdateTheme(theme);
     }
     bool RecreateFormats();
     void ComputeLayout(
@@ -55,19 +55,12 @@ public:
     {
         return has_dirty_nodes_;
     }
-    constexpr float GetMarginTop() const noexcept
-    {
-        return theme_ ? theme_->margin_top : 0.0f;
-    }
 
 private:
-    // 同一の ITextMeasurer 派生から得た 2 つの IF view。lifecycle 系 (Init/RecreateFormats/UpdateTheme)
-    // は UI スレッドからのみ呼び、backend (MeasureNode/MeasureTable) は const 経由で
-    // layout_scheduler_ 上の worker から並列呼び出しされる。
-    IMeasureLifecycle* lifecycle_ = nullptr;
-    IMeasureBackend* backend_ = nullptr;
+    // lifecycle 系 (Init/RecreateFormats/UpdateTheme) は UI スレッドからのみ呼び、
+    // MeasureNode は const 経由で layout_scheduler_ 上の worker から並列呼び出しされる。
+    ITextMeasurer* measurer_ = nullptr;
     const Theme* theme_ = nullptr;
-    mendo::layout::DirtyScheduler scheduler_{};
     TaskScheduler* layout_scheduler_ = nullptr;
 
     float last_viewport_width_ = 0.0f;
@@ -102,10 +95,6 @@ public:
     {
         return engine_.HasDirtyNodes();
     }
-    // スクロール上限/スクロールバー計算に使う高さ。詳細は layout_cache.h の
-    // ComputeTotalContentHeight 注記参照。
-    float GetScrollableContentHeight(const Document& doc, const LayoutCache& cache) const noexcept;
-
 private:
     LayoutEngine& engine_;
     ViewportManager& viewport_;

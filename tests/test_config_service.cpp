@@ -1,28 +1,17 @@
 #include <gtest/gtest.h>
 #include "config_service.h"
+#include "test_helpers.h"
 #include <filesystem>
 #include <fstream>
 #include <string>
-#include <Windows.h>
 
-namespace fs = std::filesystem;
-
-class ConfigServiceTest : public ::testing::Test {
+class ConfigServiceTest : public TempDirTestBase {
 protected:
-    fs::path temp_dir_;
     ConfigService config_;
 
     void SetUp() override
     {
-        temp_dir_ = fs::temp_directory_path() / (L"mendo_test_config_" + std::to_wstring(GetCurrentProcessId()));
-        fs::remove_all(temp_dir_);
-        fs::create_directories(temp_dir_);
         config_.SetConfigDirOverride(temp_dir_);
-    }
-
-    void TearDown() override
-    {
-        fs::remove_all(temp_dir_);
     }
 
     // 同じ temp_dir_ を共有する別インスタンス。Flush 後に Load してラウンドトリップを検証する。
@@ -187,10 +176,7 @@ TEST_F(ConfigServiceTest, LoadSkipsUtf8Bom)
 {
     // メモ帳等の BOM 付き UTF-8 で手編集された settings.ini でも
     // 先頭セクションが無言で失われないこと
-    {
-        std::ofstream out(temp_dir_ / L"settings.ini", std::ios::binary);
-        out << "\xEF\xBB\xBF[Window]\r\nX=42\r\n";
-    }
+    WriteTempFile(L"settings.ini", "\xEF\xBB\xBF[Window]\r\nX=42\r\n");
     config_.Load();
     EXPECT_EQ(config_.LoadInt("Window", "X", 0, 0, 100), 42);
 }

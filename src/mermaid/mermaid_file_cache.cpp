@@ -265,14 +265,14 @@ bool MermaidFileCache::LookupDimensions(uint64_t key, CacheEntry& entry) const n
     return true;
 }
 
-void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_height, std::pmr::vector<uint8_t> png_data)
+void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_height, PngBytes png_data)
 {
-    if (png_data.empty()) {
+    if (!png_data || png_data->empty()) {
         return;
     }
     key = InternalKey(key);
 
-    const uint32_t png_size = static_cast<uint32_t>(png_data.size());
+    const uint32_t png_size = static_cast<uint32_t>(png_data->size());
 
     // 既存キーの上書きは新規スロットを要さない。先に旧エントリを除去してから EvictIfNeeded を
     // 呼び、満杯時に無関係なエントリを巻き込んで削除しないようにする。
@@ -329,7 +329,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
         }
 
         // 書き込み失敗時はキャッシュ未保存のままになるが、再生成可能なので致命的ではない
-        (void)WriteAllBytes(path, data.data(), data.size());
+        (void)WriteAllBytes(path, data->data(), data->size());
     });
     if (!posted) {
         // lambda 本体が走らず body 内 ScopeGuard は構築されないため pending_writes_ は解除されない。
@@ -408,7 +408,7 @@ void MermaidFileCache::ClearAll()
         for (const auto& [key, _] : index_) {
             std::filesystem::remove(GetPngPath(dir, key), ec);
         }
-        std::filesystem::remove(dir / L"index.bin", ec);
+        std::filesystem::remove(GetIndexPath(), ec);
     }
 
     index_.clear();

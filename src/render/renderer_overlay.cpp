@@ -7,28 +7,18 @@
 
 using Microsoft::WRL::ComPtr;
 
-void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool can_forward, int hovered)
+void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool can_forward, NavButtonHover hovered)
 {
-    if (!rt()) {
-        return;
-    }
-
     const bool is_dark = theme_.IsDark();
-
-    // クリック判定 (NavButtonHitTest) と同じ矩形 API を使い、描画とヒットのズレを防ぐ
-    const ButtonRect back_rect = NavBackButtonRect(md_pane_rect);
-    const float base_x = back_rect.x;
-    const float base_y = back_rect.y;
 
     // SetColor は SetOpacity より重いため、固定色ブラシを is_dark で選んで
     // 透明度のみ切り替える。
     ID2D1SolidColorBrush* const overlay_brush = is_dark ? Brush(BrushId::OverlayWhite) : Brush(BrushId::OverlayBlack);
 
-    auto drawButton = [&](float x, bool enabled, bool is_hovered, IDWriteTextLayout* arrow_layout) {
+    auto drawButton = [&](const D2D1_RECT_F& rect, bool enabled, bool is_hovered, IDWriteTextLayout* arrow_layout) {
         if (!overlay_brush) {
             return;
         }
-        const D2D1_RECT_F rect = D2D1::RectF(x, base_y, x + NAV_BTN_SIZE, base_y + NAV_BTN_SIZE);
 
         float bg_alpha;
         if (!enabled) {
@@ -59,17 +49,18 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool 
                 text_alpha = is_dark ? 0.6f : 0.5f;
             }
             mendo::OpacityScope guard{ overlay_brush, text_alpha };
-            rt()->DrawTextLayout(D2D1::Point2F(x, base_y), arrow_layout, overlay_brush);
+            rt()->DrawTextLayout(D2D1::Point2F(rect.left, rect.top), arrow_layout, overlay_brush);
         }
     };
 
-    drawButton(base_x, can_back, hovered == 1, nav_back_layout_.Get());
-    drawButton(NavForwardButtonRect(md_pane_rect).x, can_forward, hovered == 2, nav_forward_layout_.Get());
+    // クリック判定 (NavButtonHitTest) と同じ矩形 API を使い、描画とヒットのズレを防ぐ
+    drawButton(NavBackButtonRect(md_pane_rect), can_back, hovered == NavButtonHover::Back, nav_back_layout_.Get());
+    drawButton(NavForwardButtonRect(md_pane_rect), can_forward, hovered == NavButtonHover::Forward, nav_forward_layout_.Get());
 }
 
 void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points)
 {
-    if (!rt() || points.size() < 2) {
+    if (points.size() < 2) {
         return;
     }
     auto* const trail_brush = Brush(BrushId::GestureTrail);
@@ -111,7 +102,7 @@ void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points)
 
 void Renderer::DrawGestureOverlay(int direction, const PaneRect& md_pane_rect)
 {
-    if (!rt() || direction == 0) {
+    if (direction == 0) {
         return;
     }
 
@@ -143,7 +134,7 @@ void Renderer::DrawGestureOverlay(int direction, const PaneRect& md_pane_rect)
 
 void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& md_pane_rect)
 {
-    if (!rt() || toast.message.empty()) {
+    if (toast.message.empty()) {
         return;
     }
 

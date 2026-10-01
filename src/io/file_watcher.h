@@ -21,7 +21,7 @@ public:
     void ResumeWatching();
     constexpr HANDLE GetEventHandle() const noexcept
     {
-        return (watching_ && read_pending_) ? overlapped_.hEvent : nullptr;
+        return read_pending_ ? overlapped_.hEvent : nullptr;
     }
 
 private:
@@ -31,7 +31,6 @@ private:
     // 通知は 8.3 短縮名で来ることがある (未規定)。長い名前と一致しない場合のみ保持。
     std::pmr::wstring watch_filename_short_;
     ChangeCallback on_change_;
-    bool watching_ = false;
 
     UniqueHandle dir_handle_;
     UniqueEventHandle event_;
@@ -39,6 +38,7 @@ private:
     // ReadDirectoryChangesW はバッファ溢れで以降の通知を失うため余裕を持って 64KB 確保。
     static constexpr size_t CHANGE_BUF_SIZE = 64 * 1024;
     alignas(DWORD) char change_buf_[CHANGE_BUF_SIZE]{};
+    // true なら dir_handle_ も有効。
     bool read_pending_ = false;
     bool paused_ = false;
     bool pending_change_ = false;

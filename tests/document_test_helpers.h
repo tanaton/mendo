@@ -1,12 +1,12 @@
 #pragma once
 // テスト専用のドキュメント関連 helper。production では別経路 (Document::FindAnchorIndex,
 // Document::BuildHeadingIndices) を使うため、これらの関数は tests/ 内でのみ意味を持つ。
-#include "doc_text.h"
 #include "document_types.h"
 #include "document_utils.h"
 #include "toc.h"
 #include <memory_resource>
 #include <ranges>
+#include <string>
 #include <string_view>
 
 // 指定 NodeType の最初のインデックスを返す。テストで「パース結果から特定種別の
@@ -20,6 +20,19 @@ inline int FindFirstNodeIndexByType(const std::pmr::vector<Node>& nodes, NodeTyp
         }
     }
     return -1;
+}
+
+// "Paragraph 0<suffix>\n\nParagraph 1<suffix>\n\n..." の n 段落 Markdown を返す。
+inline std::string MakeParagraphs(int n, std::string_view suffix = {})
+{
+    std::string md;
+    for (int i = 0; i < n; ++i) {
+        md += "Paragraph ";
+        md += std::to_string(i);
+        md += suffix;
+        md += "\n\n";
+    }
+    return md;
 }
 
 // 全ノードを線形走査して、見出しの anchor_id が `anchor` (大文字小文字無視) と

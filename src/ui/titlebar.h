@@ -16,10 +16,6 @@ enum class TitleBarHitZone : uint8_t {
     Close,
 };
 
-struct TitleBarButton {
-    DipRect rect{};
-};
-
 class TitleBar {
 public:
     static constexpr float BASE_HEIGHT = 32.0f;
@@ -46,39 +42,39 @@ public:
     {
         return hovered_;
     }
-    constexpr const TitleBarButton& GetOpenFileButton() const noexcept
+    constexpr const DipRect& GetOpenFileButton() const noexcept
     {
         return open_file_;
     }
-    constexpr const TitleBarButton& GetHelpButton() const noexcept
+    constexpr const DipRect& GetHelpButton() const noexcept
     {
         return help_;
     }
-    constexpr const TitleBarButton& GetThemeToggleButton() const noexcept
+    constexpr const DipRect& GetThemeToggleButton() const noexcept
     {
         return theme_toggle_;
     }
-    constexpr const TitleBarButton& GetSearchButton() const noexcept
+    constexpr const DipRect& GetSearchButton() const noexcept
     {
         return search_;
     }
-    constexpr const TitleBarButton& GetFileToggleButton() const noexcept
+    constexpr const DipRect& GetFileToggleButton() const noexcept
     {
         return file_toggle_;
     }
-    constexpr const TitleBarButton& GetTocToggleButton() const noexcept
+    constexpr const DipRect& GetTocToggleButton() const noexcept
     {
         return toc_toggle_;
     }
-    constexpr const TitleBarButton& GetMinimizeButton() const noexcept
+    constexpr const DipRect& GetMinimizeButton() const noexcept
     {
         return minimize_;
     }
-    constexpr const TitleBarButton& GetMaximizeButton() const noexcept
+    constexpr const DipRect& GetMaximizeButton() const noexcept
     {
         return maximize_;
     }
-    constexpr const TitleBarButton& GetCloseButton() const noexcept
+    constexpr const DipRect& GetCloseButton() const noexcept
     {
         return close_;
     }
@@ -92,15 +88,15 @@ public:
     }
 
 private:
-    TitleBarButton open_file_;
-    TitleBarButton help_;
-    TitleBarButton theme_toggle_;
-    TitleBarButton search_;
-    TitleBarButton file_toggle_;
-    TitleBarButton toc_toggle_;
-    TitleBarButton minimize_;
-    TitleBarButton maximize_;
-    TitleBarButton close_;
+    DipRect open_file_;
+    DipRect help_;
+    DipRect theme_toggle_;
+    DipRect search_;
+    DipRect file_toggle_;
+    DipRect toc_toggle_;
+    DipRect minimize_;
+    DipRect maximize_;
+    DipRect close_;
     DipRect icon_rect_{};
     DipRect title_text_rect_{};
     TitleBarHitZone hovered_ = TitleBarHitZone::None;

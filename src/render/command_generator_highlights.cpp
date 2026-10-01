@@ -6,16 +6,6 @@
 #include <ranges>
 #include <utility>
 
-// DWRITE_HIT_TEST_METRICS を origin 加算付きの D2D1_RECT_F に変換する。
-static inline D2D1_RECT_F RectFromHitTest(const DWRITE_HIT_TEST_METRICS& m, float origin_x = 0.0f, float origin_y = 0.0f) noexcept
-{
-    return D2D1::RectF(
-        origin_x + m.left,
-        origin_y + m.top,
-        origin_x + m.left + m.width,
-        origin_y + m.top + m.height);
-}
-
 void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y)
 {
     if (!layout || length == 0) {

@@ -27,6 +27,7 @@ TEST(HelpPathTest, RejectsSimilarPath)
     EXPECT_FALSE(IsHelpPath(L"mendo://help/extra"));
     EXPECT_FALSE(IsHelpPath(L"mendo://hel"));
     EXPECT_FALSE(IsHelpPath(L"MENDO://HELP"));
+    EXPECT_FALSE(IsHelpPath(L"mendo://other"));
 }
 
 TEST(HelpPathTest, ConstantValueIsCorrect)
@@ -44,6 +45,13 @@ TEST(HelpDocumentTest, FromMarkdownWithHelpPath)
     EXPECT_FALSE(doc.IsEmpty());
     EXPECT_EQ(doc.GetFilePath(), HELP_PATH);
     EXPECT_TRUE(IsHelpPath(doc.GetFilePath()));
+}
+
+TEST(HelpDocumentTest, HasBackingFileOnlyForRealPath)
+{
+    EXPECT_FALSE(Document::FromMarkdown("# Help", HELP_PATH).HasBackingFile());
+    EXPECT_FALSE(Document::FromMarkdown("# Empty", L"").HasBackingFile());
+    EXPECT_TRUE(Document::FromMarkdown("# File", L"C:/docs/readme.md").HasBackingFile());
 }
 
 TEST(HelpDocumentTest, HelpDocumentHasToc)

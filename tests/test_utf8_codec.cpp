@@ -8,156 +8,63 @@ using utf8_codec::DecodePrev;
 using utf8_codec::EncodeCp;
 using utf8_codec::SnapToCpStart;
 using utf8_codec::kReplacement;
+using namespace std::literals;
 
-// ---- UTF-8: 正常系 ----
+// ---- DecodeAt ----
 
-TEST(Utf8Codec, DecodeAsciiByte)
+template <class SV>
+struct DecodeCase {
+    const char* name;
+    SV units;
+    uint32_t cp;
+    uint32_t len;
+};
+
+// 不正系はすべて { kReplacement, 1 }
+constexpr DecodeCase<std::string_view> kUtf8DecodeCases[] = {
+    { "Ascii", "A"sv, 0x41u, 1u },
+    // U+0000 は 1 byte で正規。overlong (C0 80) との対比
+    { "AsciiNul", "\x00"sv, 0u, 1u },
+    { "TwoByte U+00E9", "\xC3\xA9"sv, 0xE9u, 2u },
+    { "ThreeByte U+3042", "\xE3\x81\x82"sv, 0x3042u, 3u },
+    { "FourByte U+1F600", "\xF0\x9F\x98\x80"sv, 0x1F600u, 4u },
+    { "MaxValid U+10FFFF", "\xF4\x8F\xBF\xBF"sv, 0x10FFFFu, 4u },
+    { "ContinuationByteAsLeading", "\x80"sv, kReplacement, 1u },
+    { "TruncatedTwoByte", "\xC3"sv, kReplacement, 1u },
+    { "InvalidContinuationByte", "\xC3\x41"sv, kReplacement, 1u },
+    { "OverlongTwoByte U+0000", "\xC0\x80"sv, kReplacement, 1u },
+    { "OverlongThreeByte U+0000", "\xE0\x80\x80"sv, kReplacement, 1u },
+    { "OverlongFourByte U+0020", "\xF0\x80\x80\xA0"sv, kReplacement, 1u },
+    { "Surrogate U+D800", "\xED\xA0\x80"sv, kReplacement, 1u },
+    { "AboveUnicodeRange U+110000", "\xF4\x90\x80\x80"sv, kReplacement, 1u },
+};
+
+constexpr DecodeCase<std::wstring_view> kUtf16DecodeCases[] = {
+    { "IsolatedHighSurrogate", L"\xD800" L"A"sv, kReplacement, 1u },
+    { "IsolatedLowSurrogate", L"\xDC00" L"A"sv, kReplacement, 1u },
+    { "HighSurrogateAtEnd", L"\xD800"sv, kReplacement, 1u },
+    { "ValidSurrogatePair U+1F600", L"\xD83D\xDE00"sv, 0x1F600u, 2u },
+};
+
+template <class SV, size_t N>
+void ExpectDecodes(const DecodeCase<SV> (&cases)[N])
 {
-    const auto r = DecodeAt(std::string_view{ "A" }, 0);
-    EXPECT_EQ(r.cp, 0x41u);
-    EXPECT_EQ(r.len, 1u);
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.name);
+        const auto r = DecodeAt(c.units, 0);
+        EXPECT_EQ(r.cp, c.cp);
+        EXPECT_EQ(r.len, c.len);
+    }
 }
 
-TEST(Utf8Codec, DecodeAsciiNul)
+TEST(Utf8Codec, DecodeUtf8)
 {
-    // U+0000 は 1 byte で正規。overlong (C0 80) との対比。
-    const auto r = DecodeAt(std::string_view{ "\x00", 1 }, 0);
-    EXPECT_EQ(r.cp, 0u);
-    EXPECT_EQ(r.len, 1u);
+    ExpectDecodes(kUtf8DecodeCases);
 }
 
-TEST(Utf8Codec, DecodeTwoByteSequence)
+TEST(Utf8Codec, DecodeUtf16)
 {
-    // U+00E9 (é) = C3 A9
-    const auto r = DecodeAt(std::string_view{ "\xC3\xA9" }, 0);
-    EXPECT_EQ(r.cp, 0xE9u);
-    EXPECT_EQ(r.len, 2u);
-}
-
-TEST(Utf8Codec, DecodeThreeByteSequence)
-{
-    // U+3042 (あ) = E3 81 82
-    const auto r = DecodeAt(std::string_view{ "\xE3\x81\x82" }, 0);
-    EXPECT_EQ(r.cp, 0x3042u);
-    EXPECT_EQ(r.len, 3u);
-}
-
-TEST(Utf8Codec, DecodeFourByteSequence)
-{
-    // U+1F600 (😀) = F0 9F 98 80
-    const auto r = DecodeAt(std::string_view{ "\xF0\x9F\x98\x80" }, 0);
-    EXPECT_EQ(r.cp, 0x1F600u);
-    EXPECT_EQ(r.len, 4u);
-}
-
-// ---- UTF-8: 不正系。すべて { kReplacement, 1 } ----
-
-TEST(Utf8Codec, ContinuationByteAsLeading)
-{
-    // 0x80: 単独の continuation byte は不正 leading
-    const auto r = DecodeAt(std::string_view{ "\x80" }, 0);
-    EXPECT_EQ(r.cp, kReplacement);
-    EXPECT_EQ(r.len, 1u);
-}
-
-TEST(Utf8Codec, TruncatedTwoByte)
-{
-    // C3 (続きのバイトなし)
-    const auto r = DecodeAt(std::string_view{ "\xC3" }, 0);
-    EXPECT_EQ(r.cp, kReplacement);
-    EXPECT_EQ(r.len, 1u);
-}
-
-TEST(Utf8Codec, InvalidContinuationByte)
-{
-    // C3 41: 2 byte目が継続バイトでない
-    const auto r = DecodeAt(std::string_view{ "\xC3\x41" }, 0);
-    EXPECT_EQ(r.cp, kReplacement);
-    EXPECT_EQ(r.len, 1u);
-}
-
-TEST(Utf8Codec, OverlongTwoByte)
-{
-    // C0 80: U+0000 の overlong エンコード (本来は 1 byte)
-    const auto r = DecodeAt(std::string_view{ "\xC0\x80" }, 0);
-    EXPECT_EQ(r.cp, kReplacement);
-    EXPECT_EQ(r.len, 1u);
-}
-
-TEST(Utf8Codec, OverlongThreeByte)
-{
-    // E0 80 80: U+0000 の overlong エンコード (本来は 1 byte)
-    const auto r = DecodeAt(std::string_view{ "\xE0\x80\x80" }, 0);
-    EXPECT_EQ(r.cp, kReplacement);
-    EXPECT_EQ(r.len, 1u);
-}
-
-TEST(Utf8Codec, OverlongFourByteAsAscii)
-{
-    // F0 80 80 A0: U+0020 の overlong エンコード (本来は 1 byte)
-    const auto r = DecodeAt(std::string_view{ "\xF0\x80\x80\xA0" }, 0);
-    EXPECT_EQ(r.cp, kReplacement);
-    EXPECT_EQ(r.len, 1u);
-}
-
-TEST(Utf8Codec, SurrogateInUtf8)
-{
-    // ED A0 80: U+D800 (high surrogate) の UTF-8 表現は無効
-    const auto r = DecodeAt(std::string_view{ "\xED\xA0\x80" }, 0);
-    EXPECT_EQ(r.cp, kReplacement);
-    EXPECT_EQ(r.len, 1u);
-}
-
-TEST(Utf8Codec, CodePointAboveUnicodeRange)
-{
-    // F4 90 80 80: U+110000 (Unicode 範囲外、最大は U+10FFFF)
-    const auto r = DecodeAt(std::string_view{ "\xF4\x90\x80\x80" }, 0);
-    EXPECT_EQ(r.cp, kReplacement);
-    EXPECT_EQ(r.len, 1u);
-}
-
-TEST(Utf8Codec, MaxValidCodePoint)
-{
-    // F4 8F BF BF: U+10FFFF (最大有効 code point)
-    const auto r = DecodeAt(std::string_view{ "\xF4\x8F\xBF\xBF" }, 0);
-    EXPECT_EQ(r.cp, 0x10FFFFu);
-    EXPECT_EQ(r.len, 4u);
-}
-
-// ---- UTF-16: 孤立サロゲート ----
-
-TEST(Utf8Codec, Utf16IsolatedHighSurrogate)
-{
-    const wchar_t s[] = { 0xD800, L'A', 0 };
-    const auto r = DecodeAt(std::wstring_view{ s, 2 }, 0);
-    EXPECT_EQ(r.cp, kReplacement);
-    EXPECT_EQ(r.len, 1u);
-}
-
-TEST(Utf8Codec, Utf16IsolatedLowSurrogate)
-{
-    const wchar_t s[] = { 0xDC00, L'A', 0 };
-    const auto r = DecodeAt(std::wstring_view{ s, 2 }, 0);
-    EXPECT_EQ(r.cp, kReplacement);
-    EXPECT_EQ(r.len, 1u);
-}
-
-TEST(Utf8Codec, Utf16HighSurrogateAtEnd)
-{
-    // 末尾の high surrogate (low が続かない)
-    const wchar_t s[] = { 0xD800, 0 };
-    const auto r = DecodeAt(std::wstring_view{ s, 1 }, 0);
-    EXPECT_EQ(r.cp, kReplacement);
-    EXPECT_EQ(r.len, 1u);
-}
-
-TEST(Utf8Codec, Utf16ValidSurrogatePair)
-{
-    // U+1F600 のサロゲートペア: D83D DE00
-    const wchar_t s[] = { 0xD83D, 0xDE00, 0 };
-    const auto r = DecodeAt(std::wstring_view{ s, 2 }, 0);
-    EXPECT_EQ(r.cp, 0x1F600u);
-    EXPECT_EQ(r.len, 2u);
+    ExpectDecodes(kUtf16DecodeCases);
 }
 
 // ---- SnapToCpStart ----
@@ -222,30 +129,17 @@ TEST(Utf8Codec, EncodeBoundaries)
 
 // 部分書き込み (途中の byte だけ更新) を将来の refactor で混入させないため、
 // sentinel で全 byte 不変を確認する保険。
-void ExpectEncodeRejectsAndPreservesBuf(uint32_t cp)
+TEST(Utf8Codec, EncodeRejectsAndPreservesBuf)
 {
     constexpr char kSentinel[4] = { '\x5A', '\x5A', '\x5A', '\x5A' };
-    char buf[4] = { kSentinel[0], kSentinel[1], kSentinel[2], kSentinel[3] };
-    EXPECT_EQ(EncodeCp(cp, buf), 0u) << "cp=" << cp;
-    for (size_t i = 0; i < 4; ++i) {
-        EXPECT_EQ(buf[i], kSentinel[i]) << "cp=" << cp << ", i=" << i;
+    for (const uint32_t cp : { 0xD800u, 0xDFFFu, 0x110000u, 0xFFFFFFFFu }) {
+        SCOPED_TRACE(cp);
+        char buf[4] = { kSentinel[0], kSentinel[1], kSentinel[2], kSentinel[3] };
+        EXPECT_EQ(EncodeCp(cp, buf), 0u);
+        for (size_t i = 0; i < 4; ++i) {
+            EXPECT_EQ(buf[i], kSentinel[i]) << "i=" << i;
+        }
     }
-}
-
-TEST(Utf8Codec, EncodeRejectsSurrogateLow)
-{
-    ExpectEncodeRejectsAndPreservesBuf(0xD800u);
-}
-
-TEST(Utf8Codec, EncodeRejectsSurrogateHigh)
-{
-    ExpectEncodeRejectsAndPreservesBuf(0xDFFFu);
-}
-
-TEST(Utf8Codec, EncodeRejectsAboveUnicodeRange)
-{
-    ExpectEncodeRejectsAndPreservesBuf(0x110000u);
-    ExpectEncodeRejectsAndPreservesBuf(0xFFFFFFFFu);
 }
 
 // ---- EncodeCp <-> DecodeAt 往復 ----

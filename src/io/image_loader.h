@@ -69,12 +69,11 @@ private:
 
     struct DecodeResult {
         std::wstring path;
-        // worker でデコード確定・縮小済み。width/height は縮小前の原寸 (レイアウトは原寸基準)。
+        // worker でデコード確定・縮小済み (失敗時は null)。width/height は縮小前の原寸 (レイアウトは原寸基準)。
         Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
         float width = 0.0f;
         float height = 0.0f;
         Callback on_complete;
-        bool success = false;
     };
 
     void GetDpiScale(float& scale_x, float& scale_y) const;

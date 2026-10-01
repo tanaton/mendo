@@ -246,8 +246,9 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
     std::pmr::vector<SyntaxToken> tokens;
     tokens.reserve(text.size() / 16);
     size_t i = 0;
+    // 各トークン分岐は flush_plain() → スキャン → emit_from() の順なので、
+    // 未確定の Plain 区間は常に [直前トークン末尾, i) になる。
     uint32_t plain_start = 0;
-    bool in_plain = false;
     // 行頭判定の状態フラグ。pos i において、現在行の開始から i までが空白のみなら true。
     // 反復の開始時点で位置 i の at-line-start 状態を表す。i を進めた後に更新する。
     [[maybe_unused]] bool at_line_start = true;
@@ -258,23 +259,14 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
     }
 
     const auto flush_plain = [&]() {
-        if (in_plain && static_cast<uint32_t>(i) > plain_start) {
-            EmitToken(tokens, plain_start, static_cast<uint32_t>(i) - plain_start, SyntaxTokenType::Plain);
-            in_plain = false;
-        }
+        EmitToken(tokens, plain_start, static_cast<uint32_t>(i) - plain_start, SyntaxTokenType::Plain);
     };
 
     // [start, i) を確定する。スキャン済みトークンは非空白で終わる (改行は未消費) ため行頭状態も解除する。
     const auto emit_from = [&](size_t start, SyntaxTokenType type) {
         EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), type);
+        plain_start = static_cast<uint32_t>(i);
         at_line_start = false;
-    };
-
-    const auto start_plain = [&]() {
-        if (!in_plain) {
-            plain_start = static_cast<uint32_t>(i);
-            in_plain = true;
-        }
     };
 
     while (i < text.size()) {
@@ -360,10 +352,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
 
         // 3c. REMコメント: 行頭のREM（cmd）
         if constexpr (Cfg.rem_comment) {
-            if ((c == 'r' || c == 'R') && at_line_start &&
-                i + 2 < text.size() &&
-                (text[i + 1] == 'e' || text[i + 1] == 'E') &&
-                (text[i + 2] == 'm' || text[i + 2] == 'M') &&
+            if (at_line_start && ascii_util::istarts_with(text.substr(i), "rem") &&
                 (i + 3 >= text.size() || !IsIdentChar(text[i + 3]))) {
                 flush_plain();
                 const size_t start = i;
@@ -465,7 +454,6 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
         }
 
         // 9. その他: プレーンとして蓄積
-        start_plain();
         // 行頭判定を読む言語のみフラグを更新する。それ以外は per-char ストアを丸ごと省略。
         if constexpr (kNeedAtLineStart) {
             if (c == '\n') {
@@ -593,7 +581,7 @@ SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept
 
 std::pmr::vector<SyntaxToken> Tokenize(std::string_view text, SyntaxLanguage language)
 {
-    if (text.empty() || language == SyntaxLanguage::None || IsDiagramLanguage(language)) {
+    if (text.empty()) {
         return {};
     }
     switch (language) {

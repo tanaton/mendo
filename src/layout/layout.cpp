@@ -11,21 +11,18 @@
 
 bool LayoutEngine::Init(ITextMeasurer* measurer, const Theme& theme)
 {
-    // ITextMeasurer は IMeasureBackend と IMeasureLifecycle を多重継承する合成 IF。
-    // 同一インスタンスを 2 つの view として保持し、hot path は backend_ (const) を使う。
-    lifecycle_ = measurer;
-    backend_ = measurer;
+    measurer_ = measurer;
     theme_ = &theme;
-    return lifecycle_->Init(theme);
+    return measurer_->Init(theme);
 }
 
 bool LayoutEngine::RecreateFormats()
 {
-    if (!lifecycle_) {
+    if (!measurer_) {
         return false;
     }
     last_viewport_width_ = 0.0f;
-    return lifecycle_->RecreateFormats();
+    return measurer_->RecreateFormats();
 }
 
 void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width, float viewport_top, float viewport_bottom)
@@ -78,14 +75,13 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         const float sb = GetSpacingBelow(node, *theme_);
 
         if (width_changed || entry.layout_dirty) {
-            const float node_bottom = y + entry.height; // 古い高さを使って推定
-            const bool visible = (node_bottom >= vp_top && y <= vp_bottom);
-            if (visible) {
+            // 可視判定は古い高さを使った推定。
+            if (!IsOffscreen(y, entry.height, vp_top, vp_bottom)) {
                 const float old_height = entry.height;
                 // 部分レイアウトでは可視範囲を渡してテーブル内行を絞り込む。
                 // partial=false (フルレイアウト) では vp_top/bottom が ±inf なので全範囲扱い。
                 const MeasureViewportRange vp{ vp_top, vp_bottom };
-                MeasureEntry(*backend_, node, entry, node_width, nullptr, vp, y + sa);
+                MeasureEntry(*measurer_, node, entry, node_width, nullptr, vp, y + sa);
                 any_measured = true;
                 if (entry.height != old_height) {
                     any_height_changed = true;
@@ -111,7 +107,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
         // 可視範囲で高さが変わった場合も、残りは一定量のシフトで済む。
         if (!width_changed && y > vp_bottom) {
             if (any_height_changed) {
-                RecomputeYPositions(nodes, cache, *theme_, i + 1, false, i);
+                RecomputeYPositions(nodes, cache, *theme_, i + 1, i);
             }
             // 中断地点より先にダーティノードが存在する可能性を保守的に仮定する。
             // ProcessDirtyBatch が存在しない場合は速やかに確認・クリアする。
@@ -165,7 +161,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
         }
         else if (entry.has_table_layout() && entry.table_layout->HasEvictedRows()) {
             const float indent = NodeIndent(nodes[i], *theme_);
-            const auto restored = backend_->RestoreEvictedTableRows(nodes[i], entry, content_width - indent, vp.ToLocal(entry_top));
+            const auto restored = measurer_->RestoreEvictedTableRows(nodes[i], entry, content_width - indent, vp.ToLocal(entry_top));
             any_restored |= restored.restored;
             if (restored.height_changed) {
                 any_updated = true;
@@ -178,7 +174,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
         // 未計測領域へのジャンプやスクロールバードラッグでは 1 画面分 (数十〜百ノード) を
         // 毎フレーム計測するため、scheduler があれば並列化する。
         constexpr size_t kMinVisibleForParallel = 8;
-        mendo::layout::MeasureIndicesParallel(nodes, cache, content_width, *theme_, *backend_, dirty_indices, vp, layout_scheduler_, kMinVisibleForParallel);
+        mendo::layout::MeasureIndicesParallel(nodes, cache, content_width, *theme_, *measurer_, dirty_indices, vp, layout_scheduler_, kMinVisibleForParallel);
         any_updated = true;
     }
 
@@ -186,7 +182,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
         cache.IncrementEffectsGeneration();
     }
     if (any_updated) {
-        has_dirty_nodes_ = RecomputeYPositions(nodes, cache, *theme_, static_cast<size_t>(lo), has_dirty_nodes_, static_cast<size_t>(last_measured)).has_dirty_nodes;
+        has_dirty_nodes_ |= RecomputeYPositions(nodes, cache, *theme_, static_cast<size_t>(lo), static_cast<size_t>(last_measured));
     }
     return any_updated || any_restored;
 }
@@ -206,8 +202,8 @@ bool LayoutEngine::ProcessDirtyBatch(
     // 小規模 dirty は RunParallel 内部で inline 直列に倒れる。
     const auto result =
         layout_scheduler_
-            ? mendo::layout::RunParallel(nodes, cache, content_width, *theme_, *backend_, clip, mendo::layout::ParallelBudget{ batch_size }, *layout_scheduler_)
-            : scheduler_.RunSerial(nodes, cache, content_width, *theme_, *backend_, clip, mendo::layout::SerialBudget{ batch_size, time_budget_us });
+            ? mendo::layout::RunParallel(nodes, cache, content_width, *theme_, *measurer_, clip, mendo::layout::ParallelBudget{ batch_size }, *layout_scheduler_)
+            : mendo::layout::RunSerial(nodes, cache, content_width, *theme_, *measurer_, clip, mendo::layout::SerialBudget{ batch_size, time_budget_us });
 
     if (result.processed == 0) {
         has_dirty_nodes_ = false;
@@ -215,12 +211,11 @@ bool LayoutEngine::ProcessDirtyBatch(
     }
 
     cache.IncrementEffectsGeneration();
-    has_dirty_nodes_ = RecomputeYPositions(nodes, cache, *theme_, result.first_processed, false, result.last_processed).has_dirty_nodes;
+    has_dirty_nodes_ = RecomputeYPositions(nodes, cache, *theme_, result.first_processed, result.last_processed);
 
     // ビューポート制限時: 付近のダーティノードが全て処理済みなら完了とみなす。
     // 遠方のダーティノードはスクロール時に EnsureVisibleLayout で処理される。
-    const bool has_viewport_limit = (viewport_top >= 0.0f && viewport_height > 0.0f);
-    if (has_viewport_limit && has_dirty_nodes_ && !result.any_nearby_skipped()) {
+    if (clip.active() && has_dirty_nodes_ && !result.any_nearby_skipped()) {
         has_dirty_nodes_ = false;
     }
 
@@ -264,12 +259,7 @@ void LayoutService::RecomputeAfterDiagram(Document& doc, LayoutCache& cache, con
                                           mendo::layout::HeightChangeRange changed) noexcept
 {
     if (!changed.empty()) {
-        RecomputeYPositions(doc.GetNodesMut(), cache, theme, changed.first, false, changed.last);
+        RecomputeYPositions(doc.GetNodesMut(), cache, theme, changed.first, changed.last);
     }
     viewport_.ApplyScrollTarget(cache);
-}
-
-float LayoutService::GetScrollableContentHeight(const Document& doc, const LayoutCache& cache) const noexcept
-{
-    return ComputeTotalContentHeight(cache, doc.GetNodes().size(), engine_.GetMarginTop());
 }

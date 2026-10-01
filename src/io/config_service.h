@@ -19,7 +19,6 @@ public:
     void Load();
     // 書き込みはアプリ終了時 (WM_DESTROY) に集約する。
     void Flush();
-    void Clear() noexcept;
 
     void SaveBool(std::string_view section, std::string_view key, bool value);
     bool LoadBool(std::string_view section, std::string_view key, bool default_value = false) const;

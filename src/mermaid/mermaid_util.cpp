@@ -2,10 +2,10 @@
 #include "document_types.h"
 #include "fnv1a.h"
 #include "syntax.h"
-#include "utility.h"
 #include "ascii_util.h"
 #include <algorithm>
 #include <cmath>
+#include <cwchar>
 #include <format>
 #include <iterator>
 #include <limits>
@@ -119,8 +119,8 @@ std::pmr::wstring mermaid_util::BuildLatexFlowchartCode(std::wstring_view latex)
 // key の直後の ':' と空白を読み飛ばした値の先頭位置。見つからなければ npos。
 static size_t FindJsonValueStart(std::wstring_view json, std::wstring_view key) noexcept
 {
-    const auto pos = ascii_util::Find(json, key);
-    if (pos == ascii_util::npos) {
+    const auto pos = json.find(key);
+    if (pos == std::wstring_view::npos) {
         return std::wstring_view::npos;
     }
     return json.find_first_not_of(L": "sv, pos + key.size());
@@ -148,7 +148,7 @@ float mermaid_util::ParseJsonNumber(std::wstring_view json, std::wstring_view ke
 mermaid_util::RequestPrefix mermaid_util::ParseRequestPrefix(std::wstring_view body) noexcept
 {
     RequestPrefix out;
-    if (body.empty() || body[0] < L'0' || body[0] > L'9') {
+    if (body.empty() || !ascii_util::IsAsciiDigit(body[0])) {
         return out;
     }
     // wstring_view から直接桁を読み取る。unsigned int に収まらない ID は無効扱いにする。
@@ -157,7 +157,7 @@ mermaid_util::RequestPrefix mermaid_util::ParseRequestPrefix(std::wstring_view b
     size_t i = 0;
     for (; i < body.size(); ++i) {
         const wchar_t c = body[i];
-        if (c < L'0' || c > L'9') {
+        if (!ascii_util::IsAsciiDigit(c)) {
             break;
         }
         acc = acc * 10 + static_cast<uint64_t>(c - L'0');
@@ -211,8 +211,8 @@ mermaid_util::ParsedWebMessage mermaid_util::ParseWebMessage(std::wstring_view m
 bool mermaid_util::ParseJsonTrueFlag(std::wstring_view json, std::wstring_view key) noexcept
 {
     // 生成側が "ok":true / "ok": true の両形式を出す可能性があるため両方許容。
-    auto pos = ascii_util::Find(json, key);
-    if (pos == ascii_util::npos) {
+    auto pos = json.find(key);
+    if (pos == std::wstring_view::npos) {
         return false;
     }
     pos += key.size();

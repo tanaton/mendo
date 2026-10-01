@@ -38,7 +38,7 @@ struct SidePaneHeaderButtons {
 inline SidePaneHeaderButtons SidePaneHeaderButtonsFor(const AppState& state, PaneTarget target) noexcept
 {
     const bool is_file = target == PaneTarget::File;
-    return { .has_file_buttons = is_file, .reveal_enabled = is_file && CanRevealCurrentFile(state) };
+    return { .has_file_buttons = is_file, .reveal_enabled = is_file && state.document.doc.HasBackingFile() };
 }
 
 constexpr PaneHeaderButton HitSidePaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_h, SidePaneHeaderButtons buttons)

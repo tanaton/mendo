@@ -1,14 +1,12 @@
 #pragma once
 #include "app_constants.h"
-#include "doc_text.h"
 #include "layout_cache.h"
-#include "renderer.h"
+#include "render_params.h"
 #include "search_state.h"
 #include "string_convert.h"
 #include "ui_constants.h"
 #include "viewport_manager.h"
 #include <algorithm>
-#include <cmath>
 #include <memory_resource>
 #include <string>
 #include <string_view>
@@ -206,18 +204,13 @@ public:
         // Why: ブロック先頭/行先頭に丸めると、長い段落内の複数マッチ間で同じ Y に集約され
         //      「次へ」を押してもスクロールしない。start_w で行単位の Y を出す。
         const auto [match_y, match_h] = entry.GetMatchYRange(match.table_row, match.table_col, match.start_w, cache_->Top(static_cast<size_t>(match.node_index)));
-        const float md_pane_height = cb_.get_md_pane_height();
-        const float visible_height = md_pane_height - (state_->IsVisible() ? SEARCH_BAR_HEIGHT : 0.0f);
+        const float visible_height = cb_.get_md_pane_height() - (state_->IsVisible() ? SEARCH_BAR_HEIGHT : 0.0f);
         const float scroll_y = viewport_->GetScrollY();
         const float effective_bottom = scroll_y + visible_height;
 
         if (match_y < scroll_y || match_y + match_h > effective_bottom) {
             const float target = std::max(0.0f, match_y - visible_height / 3.0f);
-            // Why: ScrollTo は scroll_target_ を無効化してくれる。SetScrollY のままだと、
-            //      直後のレイアウト変化 (Mermaid 読込等) で古い scroll_target から再計算されて
-            //      検索ジャンプが上書きされる恐れがある。
             viewport_->ScrollTo(target);
-            cb_.on_scroll_changed(md_pane_height);
         }
     }
 

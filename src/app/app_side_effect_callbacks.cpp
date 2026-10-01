@@ -58,7 +58,7 @@ void AppSideEffectCallbacks::perform_resize_end()
 void AppSideEffectCallbacks::perform_sizing_update()
 {
     const auto& sizing_layout = app->GetPaneLayout();
-    app->EmitEffect(effect::SyncMaxScroll{ sizing_layout.md_rect.height });
+    app->SyncMaxScroll(sizing_layout.md_rect.height);
     app->Invalidate();
 }
 

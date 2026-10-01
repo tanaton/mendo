@@ -21,8 +21,8 @@ TEST_F(CmdGenFrameTest, PushClipMatchesPaneRect)
     const PaneRect pane{ 100.0f, 50.0f, 600.0f, 400.0f };
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
 
-    const auto* clip = FindFirst<PushClipCmd>(cmds);
-    ASSERT_NE(clip, nullptr);
+    const auto clip = FindFirst<PushClipCmd>(cmds);
+    ASSERT_TRUE(clip.has_value());
     EXPECT_FLOAT_EQ(clip->rect.left, 100.0f);
     EXPECT_FLOAT_EQ(clip->rect.top, 50.0f);
     EXPECT_FLOAT_EQ(clip->rect.right, 700.0f);
@@ -38,14 +38,14 @@ TEST_F(CmdGenFrameTest, TransformTranslatesByPaneOriginOnly)
     const PaneRect pane{ origin_x, 0.0f, 600.0f, 400.0f };
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, scroll_y, TextSelection{});
 
-    const auto* first_xform = FindFirst<SetTransformCmd>(cmds);
-    ASSERT_NE(first_xform, nullptr);
+    const auto first_xform = FindFirst<SetTransformCmd>(cmds);
+    ASSERT_TRUE(first_xform.has_value());
     EXPECT_FLOAT_EQ(first_xform->transform._31, origin_x);
     EXPECT_FLOAT_EQ(first_xform->transform._32, 0.0f);
 
     // スクロール量は HR の Y 座標に CPU 側で直接合算される。
-    const auto* line = FindFirst<DrawLineCmd>(cmds);
-    ASSERT_NE(line, nullptr);
+    const auto line = FindFirst<DrawLineCmd>(cmds);
+    ASSERT_TRUE(line.has_value());
     const float expected_y = cache_.Top(0) - scroll_y + theme_.paragraph_spacing * 0.5f;
     EXPECT_FLOAT_EQ(line->p0.y, expected_y);
 }
@@ -60,12 +60,12 @@ TEST_F(CmdGenFrameTest, ScrollSnapsToPixelWithDpi)
     const float dpi = 2.0f;
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, scroll_y, TextSelection{}, -1, HoveredButtons{}, dpi);
 
-    const auto* xform = FindFirst<SetTransformCmd>(cmds);
-    ASSERT_NE(xform, nullptr);
+    const auto xform = FindFirst<SetTransformCmd>(cmds);
+    ASSERT_TRUE(xform.has_value());
     EXPECT_FLOAT_EQ(xform->transform._32, 0.0f);
 
-    const auto* line = FindFirst<DrawLineCmd>(cmds);
-    ASSERT_NE(line, nullptr);
+    const auto line = FindFirst<DrawLineCmd>(cmds);
+    ASSERT_TRUE(line.has_value());
     const float snapped_scroll = 0.5f; // round(0.3 * 2) / 2
     const float expected_y = cache_.Top(0) - snapped_scroll + theme_.paragraph_spacing * 0.5f;
     EXPECT_FLOAT_EQ(line->p0.y, expected_y);
@@ -83,10 +83,7 @@ TEST_F(CmdGenFrameTest, ScrolledBeyondBottomProducesOnlyFrameCommands)
     // 全ノードより下にスクロール → DrawLineCmd なし
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 10000.0f, TextSelection{});
 
-    auto draw_lines = std::ranges::count_if(cmds, [](const auto& c) {
-        return std::holds_alternative<DrawLineCmd>(c);
-    });
-    EXPECT_EQ(draw_lines, 0) << "すべてのノードがビューポート下ならDrawLineCmdは生成されない";
+    EXPECT_EQ(CountCmd<DrawLineCmd>(cmds), 0) << "すべてのノードがビューポート上ならDrawLineCmdは生成されない";
     // PushClip + SetTransform×2 + PopClip のみ
     EXPECT_EQ(cmds.size(), 4u);
 }
@@ -127,10 +124,7 @@ TEST_F(CmdGenFrameTest, FirstVisibleBeyondEndProducesNoContent)
 
     // first_visible がノード数以上 → 本体ループに入らない
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{}, 999);
-    auto draw_lines = std::ranges::count_if(cmds, [](const auto& c) {
-        return std::holds_alternative<DrawLineCmd>(c);
-    });
-    EXPECT_EQ(draw_lines, 0);
+    EXPECT_EQ(CountCmd<DrawLineCmd>(cmds), 0);
 }
 
 // ═══════════════════════════════════════════════
@@ -155,10 +149,7 @@ TEST_F(CmdGenFrameTest, SetSearchMatchesWithEmptyProducesNoHighlight)
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
     // マッチ空のため FillRectCmd は選択ハイライト経路以外は生成されない
     // (paragraph text_layout=null なので選択経路も走らない)
-    auto fill_rects = std::ranges::count_if(cmds, [](const auto& c) {
-        return std::holds_alternative<FillRectCmd>(c);
-    });
-    EXPECT_EQ(fill_rects, 0);
+    EXPECT_EQ(CountCmd<FillRectCmd>(cmds), 0);
 }
 
 // ═══════════════════════════════════════════════

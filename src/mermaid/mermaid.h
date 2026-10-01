@@ -41,11 +41,6 @@ public:
     // user_data_folder は WebView2 のセッションデータの保存先（空なら WebView2 既定の場所）。
     void Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic, const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_ready);
 
-    constexpr bool IsReady() const noexcept
-    {
-        return lifecycle_.IsReady();
-    }
-
     void RequestRender(Node& node, NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry, float max_width, bool dark_mode, Callback on_complete) override;
     void RequestSvg(std::wstring_view code, float max_width, bool dark_mode, SvgCallback callback) override;
     void SetRenderTarget(ID2D1RenderTarget* render_target);
@@ -68,13 +63,6 @@ public:
     void OnInitRetryTimer();
     // 一定時間描画要求が無ければ先頭以外のワーカーを閉じる (renderer プロセスのメモリ解放)。
     void OnIdleTimer();
-
-#ifdef MENDO_TESTING
-    constexpr bool IsInitialized() const noexcept
-    {
-        return lifecycle_.IsInitialized();
-    }
-#endif
 
 private:
     struct RenderRequest {
@@ -137,7 +125,6 @@ private:
     void RecoverWorker(int index);
     void ProcessQueue();
     void DrainPendingRequests(bool cancelled);
-    void FailPendingRequests();
     void RenderInWorker(Worker& worker);
     // WebView2 ワーカーでの描画待ちキューに積む (初期化前なら初期化だけ起動して戻る)。
     void EnqueueWebRender(RenderRequest req);

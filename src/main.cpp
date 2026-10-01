@@ -12,20 +12,10 @@
 #include <commctrl.h>
 #include <array>
 #include <filesystem>
-#include <memory>
 #include <string>
 #include <system_error>
 
 namespace {
-
-struct LocalFreeDeleter {
-    void operator()(LPWSTR* p) const noexcept
-    {
-        if (p) {
-            LocalFree(p);
-        }
-    }
-};
 
 template <typename GetDirFn>
 std::wstring QueryDirectory(GetDirFn get_dir)
@@ -114,10 +104,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     config.Load();
     i18n::Init(config.LoadWString("General", "Language"));
 
-    // unique_ptr で管理することで、window.Create 失敗の早期 return でも LocalFree される。
     int argc = 0;
-    const std::unique_ptr<LPWSTR, LocalFreeDeleter> argv_owner(CommandLineToArgvW(GetCommandLineW(), &argc));
-    LPWSTR* const argv = argv_owner.get();
+    LPWSTR* const argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    auto argv_guard = ScopeGuard([argv] { LocalFree(argv); });
     const std::wstring_view arg = (argv && argc > 1) ? std::wstring_view{ argv[1] } : std::wstring_view{};
 
     // SessionService::LoadLastFilePath は UNC/デバイスパスや実在しないパスを除外する。
@@ -125,40 +114,35 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     const auto last_file = session.LoadLastFilePath();
     StartupPlan plan = PlanStartup(arg, last_file);
 
-    int result;
+    Win32Window window(config);
+
+    // ウィンドウクラス登録 + CreateWindowExW + App::Init (D3D/D2D/DWrite) と並列に
+    // I/O + Markdown パースを進める。worker は App::Init 末尾で hwnd を受け取り
+    // ::PostMessageW(PARSE_COMPLETE) を発行、メッセージループ内で OnParseComplete に合流する。
+    const bool has_preload = !plan.document_path.empty();
+    if (has_preload) {
+        window.StartPreloadAsync(std::move(plan.document_path));
+    }
+
+    // preload が Create 内 (App::Init) で同期完了するパスに備え、復元情報を先にセット。
+    if (plan.restore_scroll) {
+        window.RestoreScrollPosition();
+    }
+    // Create 末尾の初回描画に間に合わせる。
+    if (!plan.pane_directory.empty()) {
+        window.SetInitialDirectory(plan.pane_directory);
+    }
+
     {
-        Win32Window window(config);
-
-        // ウィンドウクラス登録 + CreateWindowExW + App::Init (D3D/D2D/DWrite) と並列に
-        // I/O + Markdown パースを進める。worker は App::Init 末尾で hwnd を受け取り
-        // ::PostMessageW(PARSE_COMPLETE) を発行、メッセージループ内で OnParseComplete に合流する。
-        const bool has_preload = !plan.document_path.empty();
-        if (has_preload) {
-            window.StartPreloadAsync(std::move(plan.document_path));
+        MENDO_PROFILE("wWinMain - Create Window");
+        if (!window.Create(hInstance, nCmdShow)) {
+            return 1;
         }
+    }
 
-        // preload が Create 内 (App::Init) で同期完了するパスに備え、復元情報を先にセット。
-        if (plan.restore_scroll) {
-            window.RestoreScrollPosition();
-        }
-        // Create 末尾の初回描画に間に合わせる。
-        if (!plan.pane_directory.empty()) {
-            window.SetInitialDirectory(plan.pane_directory);
-        }
+    if (!has_preload) {
+        window.LoadHelpDocument();
+    }
 
-        {
-            MENDO_PROFILE("wWinMain - Create Window");
-            if (!window.Create(hInstance, nCmdShow)) {
-                return 1;
-            }
-        }
-
-        if (!has_preload) {
-            window.LoadHelpDocument();
-        }
-
-        result = window.RunMessageLoop();
-    } // Win32Window破棄（COMオブジェクト解放）を com_guard の CoUninitialize より前に完了させる
-
-    return result;
+    return window.RunMessageLoop();
 }

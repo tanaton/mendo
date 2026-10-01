@@ -15,8 +15,8 @@
 class LayoutCache;
 
 // 新旧コンテンツの最初の差分 UTF-8 byte 位置を返す。同一の場合は npos。
-// 前提: 両テキストとも LF 正規化済みであること (NormalizeNewlines)。old は raw_text_
-// 由来で常に正規化済み、new は呼び出し側で比較前に揃える (issue #273)。
+// 前提: 両テキストとも LF 正規化済みであること。old は raw_text_、new は FileLoader 由来で
+// どちらも正規化済み (issue #273)。
 size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept;
 
 // diff_pos が短い方の末尾と一致するかを判定する。

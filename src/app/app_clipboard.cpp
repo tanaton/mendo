@@ -1,5 +1,4 @@
 #include "app.h"
-#include "document_utils.h"
 
 void App::OnLButtonDblClk(int px, int py)
 {
@@ -22,20 +21,5 @@ void App::OnLButtonDblClk(int px, int py)
         return;
     }
     const auto hit = HitTest(px, py);
-    if (hit.node_index < 0) {
-        return;
-    }
-    const auto& node = state_.document.doc.GetNodes()[hit.node_index];
-    const std::string_view text = node.LinearizedText();
-    if (text.empty()) {
-        return;
-    }
-    const auto wb = FindWordBoundaries(text, hit.text_pos);
-    if (!wb.found) {
-        return;
-    }
-
-    state_.view.viewport.SetAnchor(hit.node_index, wb.start);
-    state_.view.viewport.SetSelection(TextSelection::MakeOrdered(hit.node_index, wb.start, hit.node_index, wb.end));
-    InvalidateMdPane(layout.md_rect);
+    Dispatch(SelectWordAction{ hit.node_index, hit.text_pos });
 }

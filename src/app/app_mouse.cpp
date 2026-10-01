@@ -1,6 +1,7 @@
 #include "app.h"
 #include "app_constants.h"
 #include "app_events.h"
+#include "app_state_queries.h"
 #include "document_utils.h"
 #include "pane_layout.h"
 #include "resource.h"
@@ -178,9 +179,7 @@ bool App::OnRButtonDown(int px, int py)
     }
     // 左ドラッグ進行中にジェスチャを開始すると、完了時の ReleaseCapture が
     // 進行中ドラッグのキャプチャを破壊する。
-    if (state_.view.viewport.IsDragging() ||
-        state_.view.panes.GetDragTarget() != PaneController::DragTarget::None ||
-        state_.view.h_drag_node >= 0) {
+    if (IsLeftDragActive(state_)) {
         return false;
     }
     const auto dip = PixelToDip(px, py);

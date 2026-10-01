@@ -7,9 +7,7 @@
 // 載るため、本ヘッダは独立させて使うテストだけが include する設計とする。
 #include "test_helpers.h"
 #include "dwrite_measurer.h"
-#include "layout.h"
-#include "layout_cache.h"
-#include "parser.h"
+#include "parsed_layout.h"
 #include "theme.h"
 #include <dwrite.h>
 #include <wrl/client.h>
@@ -38,18 +36,11 @@ protected:
         ASSERT_TRUE(engine_.Init(&measurer_, theme_));
     }
 
-    struct ParsedLayout {
-        std::pmr::vector<Node> nodes;
-        LayoutCache cache;
-    };
-
-    // パース → レイアウト計測まで一括実施。多くのテストで定型的に使う。
     ParsedLayout ParseAndLayout(std::string_view md, float viewport_w = 800.0f)
     {
-        ParsedLayout r;
-        r.nodes = ParseMarkdown(md).nodes;
-        r.cache.Resize(r.nodes.size());
-        engine_.ComputeLayout(r.nodes, r.cache, viewport_w);
-        return r;
+        return sources_.ParseAndLayout(engine_, md, viewport_w);
     }
+
+private:
+    LayoutSourceStore sources_;
 };

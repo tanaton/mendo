@@ -35,7 +35,7 @@ void ConfigService::SetConfigDirOverride(const std::filesystem::path& dir)
 const std::filesystem::path& ConfigService::DefaultConfigDir()
 {
     // magic static: SHGetKnownFolderPath はプロセス全体で 1 回のみ呼び出される。
-    // 失敗時は空 path のままキャッシュされ、callsite (GetConfigPath/Load/Flush) で空チェックされる。
+    // 失敗時は空 path のままキャッシュされ、GetConfigPath で空チェックされる。
     static const std::filesystem::path kDir = []() noexcept {
         wchar_t* appdata = nullptr;
         std::filesystem::path result;
@@ -79,12 +79,10 @@ std::filesystem::path ConfigService::GetConfigPath(std::wstring_view filename) c
 
 void ConfigService::Load()
 {
-    const auto dir = GetConfigDir();
-    if (dir.empty()) {
+    const auto ini_path = GetConfigPath(L"settings.ini");
+    if (ini_path.empty()) {
         return;
     }
-
-    const auto ini_path = dir / L"settings.ini";
     auto [buf, size] = ReadAllBytes(ini_path);
     if (!buf) {
         return;
@@ -99,24 +97,18 @@ void ConfigService::Load()
 
 void ConfigService::Flush()
 {
-    const auto dir = GetConfigDir();
-    if (dir.empty()) {
+    const auto ini_path = GetConfigPath(L"settings.ini");
+    if (ini_path.empty()) {
         return;
     }
     std::error_code ec;
-    std::filesystem::create_directories(dir, ec);
+    std::filesystem::create_directories(ini_path.parent_path(), ec);
     if (ec) {
         return;
     }
 
-    const auto ini_path = dir / L"settings.ini";
     const std::string content = ini::Serialize(data_);
     (void)AtomicWriteAllBytes(ini_path, content.data(), content.size());
-}
-
-void ConfigService::Clear() noexcept
-{
-    data_.clear();
 }
 
 const std::string* ConfigService::FindValue(std::string_view section, std::string_view key) const

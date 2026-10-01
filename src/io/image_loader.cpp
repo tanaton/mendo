@@ -151,7 +151,6 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
                     result.bitmap = wic_util::DecodeToWicBitmap(wic_factory_.Get(), decoded->converter.Get(), original, target);
                     result.width = static_cast<float>(original.width);
                     result.height = static_cast<float>(original.height);
-                    result.success = result.bitmap != nullptr;
                 }
             }
         }
@@ -194,7 +193,7 @@ void ImageLoader::ProcessCompletedDecodes()
         const std::lock_guard lock(pending_mutex_);
         for (auto& r : results) {
             pending_paths_.erase(r.path);
-            if (!r.success) {
+            if (!r.bitmap) {
                 ++failed_paths_[r.path];
             }
         }
@@ -203,7 +202,7 @@ void ImageLoader::ProcessCompletedDecodes()
     Callback last_cb;
 
     for (auto& r : results) {
-        if (r.success && r.bitmap && render_target_) {
+        if (r.bitmap && render_target_) {
             if (!cache_.Contains(r.path)) {
                 Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
                 const HRESULT hr = render_target_->CreateBitmapFromWicBitmap(r.bitmap.Get(), &bitmap);

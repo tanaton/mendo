@@ -1,24 +1,44 @@
 #include <gtest/gtest.h>
 #include "theme.h"
 
-TEST(Theme, LightThemeHasPositiveFontSizes)
+namespace {
+
+struct ThemeCase {
+    const char* name;
+    const Theme& (*get)();
+};
+
+constexpr ThemeCase kBothThemes[] = {
+    { "light", GetLightTheme },
+    { "dark", GetDarkTheme },
+};
+
+} // namespace
+
+TEST(Theme, HasPositiveFontSizes)
 {
-    Theme t = GetLightTheme();
-    EXPECT_GT(t.font_size_body, 0.0f);
-    for (int i = 0; i < 6; ++i) {
-        EXPECT_GT(t.font_size_h[i], 0.0f);
+    for (const auto& [name, get] : kBothThemes) {
+        SCOPED_TRACE(name);
+        const Theme& t = get();
+        EXPECT_GT(t.font_size_body, 0.0f);
+        for (int i = 0; i < 6; ++i) {
+            EXPECT_GT(t.font_size_h[i], 0.0f);
+        }
+        EXPECT_GT(t.font_size_code, 0.0f);
     }
-    EXPECT_GT(t.font_size_code, 0.0f);
 }
 
 TEST(Theme, HeadingSizesDecrease)
 {
-    Theme t = GetLightTheme();
-    EXPECT_GT(t.font_size_h[0], t.font_size_h[1]);
-    EXPECT_GT(t.font_size_h[1], t.font_size_h[2]);
-    EXPECT_GE(t.font_size_h[2], t.font_size_h[3]);
-    EXPECT_GE(t.font_size_h[3], t.font_size_h[4]);
-    EXPECT_GE(t.font_size_h[4], t.font_size_h[5]);
+    for (const auto& [name, get] : kBothThemes) {
+        SCOPED_TRACE(name);
+        const Theme& t = get();
+        EXPECT_GT(t.font_size_h[0], t.font_size_h[1]);
+        EXPECT_GT(t.font_size_h[1], t.font_size_h[2]);
+        EXPECT_GE(t.font_size_h[2], t.font_size_h[3]);
+        EXPECT_GE(t.font_size_h[3], t.font_size_h[4]);
+        EXPECT_GE(t.font_size_h[4], t.font_size_h[5]);
+    }
 }
 
 TEST(Theme, GetHeadingSizeReturnsCorrectLevel)
@@ -42,19 +62,25 @@ TEST(Theme, GetHeadingSizeInvalidLevelReturnsBody)
 
 TEST(Theme, PositiveMargins)
 {
-    Theme t = GetLightTheme();
-    EXPECT_GT(t.margin_left, 0.0f);
-    EXPECT_GT(t.margin_right, 0.0f);
-    EXPECT_GT(t.margin_top, 0.0f);
-    EXPECT_GT(t.paragraph_spacing, 0.0f);
-    EXPECT_GT(t.indent_width, 0.0f);
+    for (const auto& [name, get] : kBothThemes) {
+        SCOPED_TRACE(name);
+        const Theme& t = get();
+        EXPECT_GT(t.margin_left, 0.0f);
+        EXPECT_GT(t.margin_right, 0.0f);
+        EXPECT_GT(t.margin_top, 0.0f);
+        EXPECT_GT(t.paragraph_spacing, 0.0f);
+        EXPECT_GT(t.indent_width, 0.0f);
+    }
 }
 
 TEST(Theme, FontFamilyNotEmpty)
 {
-    Theme t = GetLightTheme();
-    EXPECT_GT(t.font_family.size(), 0u);
-    EXPECT_GT(t.monospace_font.size(), 0u);
+    for (const auto& [name, get] : kBothThemes) {
+        SCOPED_TRACE(name);
+        const Theme& t = get();
+        EXPECT_GT(t.font_family.size(), 0u);
+        EXPECT_GT(t.monospace_font.size(), 0u);
+    }
 }
 
 TEST(Theme, BackgroundColorIsWhite)
@@ -66,26 +92,6 @@ TEST(Theme, BackgroundColorIsWhite)
 }
 
 // ---- ダークテーマテスト ----
-
-TEST(Theme, DarkThemeHasPositiveFontSizes)
-{
-    Theme t = GetDarkTheme();
-    EXPECT_GT(t.font_size_body, 0.0f);
-    for (int i = 0; i < 6; ++i) {
-        EXPECT_GT(t.font_size_h[i], 0.0f);
-    }
-    EXPECT_GT(t.font_size_code, 0.0f);
-}
-
-TEST(Theme, DarkThemeHeadingSizesDecrease)
-{
-    Theme t = GetDarkTheme();
-    EXPECT_GT(t.font_size_h[0], t.font_size_h[1]);
-    EXPECT_GT(t.font_size_h[1], t.font_size_h[2]);
-    EXPECT_GE(t.font_size_h[2], t.font_size_h[3]);
-    EXPECT_GE(t.font_size_h[3], t.font_size_h[4]);
-    EXPECT_GE(t.font_size_h[4], t.font_size_h[5]);
-}
 
 TEST(Theme, DarkThemeBackgroundIsDark)
 {
@@ -103,23 +109,6 @@ TEST(Theme, DarkThemeTextIsLight)
     EXPECT_GT(t.text_color.r, 0.7f);
     EXPECT_GT(t.text_color.g, 0.7f);
     EXPECT_GT(t.text_color.b, 0.7f);
-}
-
-TEST(Theme, DarkThemePositiveMargins)
-{
-    Theme t = GetDarkTheme();
-    EXPECT_GT(t.margin_left, 0.0f);
-    EXPECT_GT(t.margin_right, 0.0f);
-    EXPECT_GT(t.margin_top, 0.0f);
-    EXPECT_GT(t.paragraph_spacing, 0.0f);
-    EXPECT_GT(t.indent_width, 0.0f);
-}
-
-TEST(Theme, DarkThemeFontFamilyNotEmpty)
-{
-    Theme t = GetDarkTheme();
-    EXPECT_GT(t.font_family.size(), 0u);
-    EXPECT_GT(t.monospace_font.size(), 0u);
 }
 
 TEST(Theme, DarkAndLightHaveSameFontSizes)
@@ -343,24 +332,17 @@ TEST(Theme, ApplyZoomScalesBulletRadius)
 
 // ---- GitHub Alerts テーマ色テスト ----
 
-TEST(Theme, LightThemeAlertColorsAreDefined)
+TEST(Theme, AlertColorsAreDefined)
 {
-    Theme t = GetLightTheme();
-    for (size_t i = 0; i < ALERT_TYPE_COUNT; ++i) {
-        // 各Alert色がゼロでない（黒一色でない）ことを確認
-        float sum = t.alert_color[i].r + t.alert_color[i].g + t.alert_color[i].b;
-        EXPECT_GT(sum, 0.0f) << "alert_color[" << i << "] はゼロでないべき";
-        EXPECT_FLOAT_EQ(t.alert_color[i].a, 1.0f) << "alert_color[" << i << "] のアルファは1.0";
-    }
-}
-
-TEST(Theme, DarkThemeAlertColorsAreDefined)
-{
-    Theme t = GetDarkTheme();
-    for (size_t i = 0; i < ALERT_TYPE_COUNT; ++i) {
-        float sum = t.alert_color[i].r + t.alert_color[i].g + t.alert_color[i].b;
-        EXPECT_GT(sum, 0.0f) << "alert_color[" << i << "] はゼロでないべき";
-        EXPECT_FLOAT_EQ(t.alert_color[i].a, 1.0f);
+    for (const auto& [name, get] : kBothThemes) {
+        SCOPED_TRACE(name);
+        const Theme& t = get();
+        for (size_t i = 0; i < ALERT_TYPE_COUNT; ++i) {
+            // 各Alert色がゼロでない（黒一色でない）ことを確認
+            float sum = t.alert_color[i].r + t.alert_color[i].g + t.alert_color[i].b;
+            EXPECT_GT(sum, 0.0f) << "alert_color[" << i << "] はゼロでないべき";
+            EXPECT_FLOAT_EQ(t.alert_color[i].a, 1.0f) << "alert_color[" << i << "] のアルファは1.0";
+        }
     }
 }
 

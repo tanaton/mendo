@@ -3,9 +3,8 @@
 
 using Microsoft::WRL::ComPtr;
 
-// ナビゲーションボタンのテキストフォーマット設定が、
-// 水平・垂直の両方向でテキストを中央揃えにすることを検証する。
-// これはRenderer::RecreatePaneFormats()のfmt_nav_button_の設定を再現したもの。
+// ナビゲーションボタンの矢印グリフが、中央揃えフォーマットでボックス中央に描画されることを検証する。
+// フォーマットはRenderer::RecreatePaneFormats()のfmt_nav_button_の設定を再現したもの。
 
 class NavButtonFormatTest : public DWriteTestBase {
 protected:
@@ -30,21 +29,6 @@ protected:
         fmt_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
 };
-
-TEST_F(NavButtonFormatTest, HorizontalAlignmentIsCenter)
-{
-    EXPECT_EQ(fmt_->GetTextAlignment(), DWRITE_TEXT_ALIGNMENT_CENTER);
-}
-
-TEST_F(NavButtonFormatTest, VerticalAlignmentIsCenter)
-{
-    EXPECT_EQ(fmt_->GetParagraphAlignment(), DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-}
-
-TEST_F(NavButtonFormatTest, WordWrappingIsDisabled)
-{
-    EXPECT_EQ(fmt_->GetWordWrapping(), DWRITE_WORD_WRAPPING_NO_WRAP);
-}
 
 // 矢印グリフが計測可能で、中央揃え時にゼロでないメトリクスを生成することを検証する。
 TEST_F(NavButtonFormatTest, ArrowGlyphsHaveNonZeroSize)

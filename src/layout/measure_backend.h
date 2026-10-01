@@ -11,10 +11,6 @@ struct MeasureViewportRange {
     static constexpr float kInf = std::numeric_limits<float>::infinity();
     float top = -kInf;
     float bottom = kInf;
-    constexpr bool is_full() const noexcept
-    {
-        return top == -kInf && bottom == kInf;
-    }
     constexpr MeasureViewportRange ToLocal(float entry_top) const noexcept
     {
         return { top - entry_top, bottom - entry_top };
@@ -29,8 +25,7 @@ struct TableRestoreResult {
 
 // IDWriteFactory はスレッドセーフで IDWriteTextLayout は per-call 生成のため、
 // 同一インスタンスを複数ワーカーから const 経由で叩いて良い。lifecycle 系
-// (Init/RecreateFormats/UpdateTheme) は IMeasureLifecycle に分離してあり、
-// 並列計測中に呼ばない契約。
+// (Init/RecreateFormats/UpdateTheme) は ITextMeasurer 側にあり、並列計測中に呼ばない契約。
 class IMeasureBackend {
 public:
     virtual ~IMeasureBackend() = default;
@@ -40,13 +35,11 @@ public:
     // 触らない (UI スレッドで集約後に書き戻す責務は呼び出し側にある)。
     // tokens_out == nullptr (default) のシリアル経路では従来通り
     // node.syntax_tokens_mut() に直接書き込む。
-    // viewport は MeasureTable 配下で行単位の部分復元判定に用いる。
+    // viewport はテーブルで行単位の部分復元判定に用いる。
     virtual void MeasureNode(
         Node& node, NodeLayoutEntry& entry, float max_width,
         std::pmr::vector<SyntaxToken>* tokens_out = nullptr,
         MeasureViewportRange viewport = {}) const = 0;
-    virtual void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width,
-                              MeasureViewportRange viewport = {}) const = 0;
     // 幅不変のまま行単位 evict されたテーブルの、viewport 内の evict 行だけセルを再生成する。
     // layout_dirty を経由しないため、可視中に毎フレーム全行を再計測することがない。
     virtual TableRestoreResult RestoreEvictedTableRows(Node& /*node*/, NodeLayoutEntry& /*entry*/, float /*max_width*/,
@@ -67,12 +60,3 @@ inline void MeasureEntry(
     entry.cached_width = node_width;
     entry.cached_height = entry.height;
 }
-
-// UI スレッドからのみ呼ぶ。並列計測中は呼ばない契約。
-class IMeasureLifecycle {
-public:
-    virtual ~IMeasureLifecycle() = default;
-    virtual bool Init(const Theme& theme) = 0;
-    virtual bool RecreateFormats() = 0;
-    virtual void UpdateTheme(const Theme& theme) noexcept = 0;
-};

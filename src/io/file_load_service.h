@@ -75,6 +75,13 @@ public:
         return preloader_.AttachOrApply(hwnd, msg_id);
     }
 
+#ifdef MENDO_TESTING
+    bool PreloadPublishedForTest() const
+    {
+        return preloader_.HasPublishedForTest();
+    }
+#endif
+
     constexpr const std::pmr::wstring& GetLoadingPath() const noexcept
     {
         return loading_path_;

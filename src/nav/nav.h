@@ -1,5 +1,4 @@
 #pragma once
-#include "doc_text.h"
 #include <string>
 #include <string_view>
 #include <deque>
@@ -77,6 +76,8 @@ private:
 
     // GoBack/GoForward の対称処理を集約する。
     bool Move(std::pmr::deque<InternalEntry>& from, std::pmr::deque<InternalEntry>& to, const NavEntry& current, NavEntry& out);
+    // 容量超過時は最古を解放して捨てる (放置すると path slot の参照が滞留する)。
+    void PushCapped(std::pmr::deque<InternalEntry>& stack, const NavEntry& e);
 
     // path_pool_ は deque にして emplace_back での参照安定性を保証し、
     // path_index_ のキー (std::wstring_view) が pool 内の文字列を指し続けるようにする。
@@ -103,7 +104,7 @@ struct LinkClickResult {
     };
     Type type = Type::None;
     // Anchor: アンカー名 (UTF-8、先頭 '#' を除いた部分)。NavigateAnchorAction にそのまま渡せる。
-    // ExternalUrl: URL (UTF-8)。effect::ShellOpen に渡す直前で wstring 化する。
+    // ExternalUrl: URL (UTF-8)。ShellOpen に渡す直前で wstring 化する。
     std::pmr::string target;
 };
 

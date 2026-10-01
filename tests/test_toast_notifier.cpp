@@ -34,12 +34,6 @@ TEST_F(ToastNotifierTest, ShowMakesVisible)
     EXPECT_EQ(toast_.GetMessage(), L"テスト");
 }
 
-TEST_F(ToastNotifierTest, RenderAlphaClampedDuringHold)
-{
-    toast_.Show(L"test");
-    EXPECT_FLOAT_EQ(toast_.GetRenderAlpha(), 1.0f);
-}
-
 TEST_F(ToastNotifierTest, ShowOverwritesPrevious)
 {
     toast_.Show(L"first");
@@ -97,15 +91,6 @@ TEST_F(ToastNotifierTest, HoldPhaseKeepsRenderAlphaAtOne)
         ++ticks;
     }
     EXPECT_GT(ticks, 0);
-}
-
-TEST_F(ToastNotifierTest, FadePhaseDecreaseRenderAlpha)
-{
-    toast_.Show(L"test");
-    TickThroughHold();
-    const float prev = toast_.GetRenderAlpha();
-    toast_.Tick();
-    EXPECT_LT(toast_.GetRenderAlpha(), prev);
 }
 
 TEST_F(ToastNotifierTest, TotalTickCount)

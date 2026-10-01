@@ -40,16 +40,6 @@ float AppSearchBarCallbacks::get_md_pane_height()
     return app->GetPaneLayout().md_rect.height;
 }
 
-void AppSearchBarCallbacks::on_scroll_changed(float md_pane_height)
-{
-    app->EmitEffect(effect::SyncMaxScroll{ md_pane_height });
-    // 通常スクロール経路 (EmitScrollChangedSideEffects) と同様、検索ジャンプでも
-    // TOC のアクティブ見出しを追従させる。
-    app->EmitEffect(effect::SyncTocActive{});
-    app->InvalidateHitPositions();
-    app->resource_manager_.ScheduleBitmapManage();
-}
-
 void AppSearchBarCallbacks::on_wrap_around()
 {
     MessageBeep(MB_OK);

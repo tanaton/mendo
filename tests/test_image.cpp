@@ -1,8 +1,6 @@
 #include <gtest/gtest.h>
 #include <memory_resource>
 #include <filesystem>
-#include <fstream>
-#include <chrono>
 #include "parser.h"
 #include "layout.h"
 #include "layout_cache.h"
@@ -251,16 +249,15 @@ TEST(ParserImage, ImageWithJapanesePath)
 // レイアウトテスト: 画像ノードの高さ計算
 // ============================================================
 
-class ImageLayoutTest : public ::testing::Test {
+// 画像寸法をパース後に書き換えてからレイアウトするため、ParseAndLayout ではなく Layout を使う。
+class ImageLayoutTest : public MockLayoutTestBase {
 protected:
-    MockTextMeasurer mock_;
-    LayoutEngine engine_;
-    Theme theme_;
-
-    void SetUp() override
+    LayoutCache Layout(std::pmr::vector<Node>& nodes, float viewport_w = 800.0f)
     {
-        theme_ = GetLightTheme();
-        ASSERT_TRUE(engine_.Init(&mock_, theme_));
+        LayoutCache cache;
+        cache.Resize(nodes.size());
+        engine_.ComputeLayout(nodes, cache, viewport_w);
+        return cache;
     }
 };
 
@@ -270,9 +267,7 @@ TEST_F(ImageLayoutTest, ImagePlaceholderHeight)
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Image);
 
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    auto cache = Layout(nodes);
 
     EXPECT_GT(cache[0].height, 0.0f) << "画像プレースホルダーの高さは正であるべき";
     EXPECT_FALSE(cache[0].layout_dirty);
@@ -286,9 +281,7 @@ TEST_F(ImageLayoutTest, ImageWithDimensionsUsesScaledHeight)
     nodes[0].image_data()->width = 400.0f;
     nodes[0].image_data()->height = 300.0f;
 
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    auto cache = Layout(nodes);
 
     // 幅400 < コンテンツ幅のため、元の高さ300が使われる
     EXPECT_FLOAT_EQ(cache[0].height, 300.0f);
@@ -302,9 +295,7 @@ TEST_F(ImageLayoutTest, WideImageScaledDown)
     nodes[0].image_data()->width = 1600.0f;
     nodes[0].image_data()->height = 900.0f;
 
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    auto cache = Layout(nodes);
 
     // スケールダウンされて元の高さより小さくなること
     EXPECT_LT(cache[0].height, 900.0f);
@@ -318,9 +309,7 @@ TEST_F(ImageLayoutTest, SmallImageNotScaledUp)
     nodes[0].image_data()->width = 100.0f;
     nodes[0].image_data()->height = 80.0f;
 
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    auto cache = Layout(nodes);
 
     // 小さい画像は拡大されない
     EXPECT_FLOAT_EQ(cache[0].height, 80.0f);
@@ -355,9 +344,7 @@ TEST_F(ImageLayoutTest, ImageNodesDoNotOverlap)
         n.image_data()->height = 150.0f;
     }
 
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    auto cache = Layout(nodes);
 
     for (size_t i = 1; i < nodes.size(); i++) {
         float prev_bottom = cache.Top(i - 1) + cache[i - 1].height;
@@ -372,9 +359,7 @@ TEST_F(ImageLayoutTest, ImageBetweenTextNodesDoNotOverlap)
     nodes[1].image_data()->width = 400.0f;
     nodes[1].image_data()->height = 300.0f;
 
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    auto cache = Layout(nodes);
 
     for (size_t i = 1; i < nodes.size(); i++) {
         float prev_bottom = cache.Top(i - 1) + cache[i - 1].height;
@@ -389,9 +374,7 @@ TEST_F(ImageLayoutTest, ImageWithZeroDimensionsGetsPlaceholder)
     // image_width/heightはデフォルトの0.0f
     ASSERT_FLOAT_EQ(nodes[0].image_data()->width, 0.0f);
 
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    auto cache = Layout(nodes);
 
     EXPECT_GT(cache[0].height, 0.0f) << "プレースホルダー高さが設定されるべき";
 }
@@ -402,13 +385,10 @@ TEST_F(ImageLayoutTest, ImageAspectRatioPreserved)
     nodes[0].image_data()->width = 1000.0f;
     nodes[0].image_data()->height = 500.0f;
 
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    // margin を除いたコンテンツ幅を考慮
-    float viewport_width = 600.0f;
-    engine_.ComputeLayout(nodes, cache, viewport_width);
+    const float viewport_width = 600.0f;
+    auto cache = Layout(nodes, viewport_width);
 
-    float content_width = viewport_width - theme_.margin_left - theme_.margin_right;
+    const float content_width = theme_.ContentWidth(viewport_width);
     // コンテンツ幅 < 画像幅なのでスケールされる
     // アスペクト比 = 500/1000 = 0.5
     float expected_height = content_width * (500.0f / 1000.0f);
@@ -421,127 +401,89 @@ TEST_F(ImageLayoutTest, ImageAspectRatioPreserved)
 
 class ImageLoaderTest : public ComApartmentTest {
 protected:
+    // loader_ や COM オブジェクトより後に破棄し、ファイル削除を最後に行う
+    ScopedTempDir temp_dir_;
     ComPtr<ID2D1Factory> d2d_factory_;
     ComPtr<IWICImagingFactory> wic_factory_;
     ComPtr<ID2D1RenderTarget> render_target_;
     ImageLoader loader_;
-    std::filesystem::path temp_dir_;
 
     void SetUp() override
     {
-        // D2Dファクトリ作成
-        HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
-                                       d2d_factory_.GetAddressOf());
+        const HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
+                                             d2d_factory_.GetAddressOf());
         ASSERT_TRUE(SUCCEEDED(hr)) << "D2Dファクトリ作成に失敗";
 
-        // WICファクトリ作成
-        hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr,
-                              CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic_factory_));
-        ASSERT_TRUE(SUCCEEDED(hr)) << "WICファクトリ作成に失敗";
+        wic_factory_ = wic_util::CreateWicFactory(L"ImageLoaderTest");
+        ASSERT_TRUE(wic_factory_) << "WICファクトリ作成に失敗";
 
-        // WICビットマップベースのレンダーターゲットを作成（HWND不要）
-        ComPtr<IWICBitmap> wic_bitmap;
-        hr = wic_factory_->CreateBitmap(1, 1, GUID_WICPixelFormat32bppPBGRA,
-                                        WICBitmapCacheOnLoad, &wic_bitmap);
-        ASSERT_TRUE(SUCCEEDED(hr)) << "WICビットマップ作成に失敗";
-
-        hr = d2d_factory_->CreateWicBitmapRenderTarget(
-            wic_bitmap.Get(), D2D1::RenderTargetProperties(), &render_target_);
-        ASSERT_TRUE(SUCCEEDED(hr)) << "レンダーターゲット作成に失敗";
+        render_target_ = CreateRenderTarget();
+        ASSERT_TRUE(render_target_) << "レンダーターゲット作成に失敗";
 
         loader_.Init(render_target_.Get());
-
-        // テスト用一時ディレクトリ（並列実行時の競合を避けるためテスト名で分離）
-        auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        temp_dir_ = std::filesystem::temp_directory_path() / ("mendo_test_images_" + std::string(info->name()));
-        std::filesystem::create_directories(temp_dir_);
     }
 
     void TearDown() override
     {
         loader_.ClearCache();
-        std::error_code ec;
-        std::filesystem::remove_all(temp_dir_, ec);
     }
 
-    // WICエンコーダーでテスト画像を作成するヘルパー
-    bool CreateTestImage(const std::wstring& filename, const GUID& container_format,
+    // WIC ビットマップを描画先にするので HWND 不要。dpi 0 は D2D 既定 (96 DPI)。
+    ComPtr<ID2D1RenderTarget> CreateRenderTarget(float dpi = 0.0f)
+    {
+        ComPtr<IWICBitmap> wic_bitmap;
+        if (FAILED(wic_factory_->CreateBitmap(1, 1, GUID_WICPixelFormat32bppPBGRA,
+                                              WICBitmapCacheOnLoad, &wic_bitmap))) {
+            return nullptr;
+        }
+
+        auto props = D2D1::RenderTargetProperties();
+        props.dpiX = dpi;
+        props.dpiY = dpi;
+
+        ComPtr<ID2D1RenderTarget> rt;
+        if (FAILED(d2d_factory_->CreateWicBitmapRenderTarget(wic_bitmap.Get(), props, &rt))) {
+            return nullptr;
+        }
+        return rt;
+    }
+
+    // WIC エンコーダで単色画像を temp_dir_ 配下に書き出す。
+    bool CreateTestImage(std::wstring_view filename, const GUID& container_format,
                          UINT width, UINT height)
     {
-        auto path = temp_dir_ / filename;
-        ComPtr<IWICBitmapEncoder> encoder;
-        HRESULT hr = wic_factory_->CreateEncoder(container_format, nullptr, &encoder);
-        if (FAILED(hr)) {
-            return false;
-        }
-
         ComPtr<IStream> stream;
-        hr = SHCreateStreamOnFileW(path.wstring().c_str(), STGM_CREATE | STGM_WRITE, &stream);
-        if (FAILED(hr)) {
-            return false;
-        }
-
-        hr = encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache);
-        if (FAILED(hr)) {
-            return false;
-        }
-
+        ComPtr<IWICBitmapEncoder> encoder;
         ComPtr<IWICBitmapFrameEncode> frame;
-        hr = encoder->CreateNewFrame(&frame, nullptr);
-        if (FAILED(hr)) {
-            return false;
-        }
-
-        hr = frame->Initialize(nullptr);
-        if (FAILED(hr)) {
-            return false;
-        }
-
-        hr = frame->SetSize(width, height);
-        if (FAILED(hr)) {
-            return false;
-        }
-
         WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
-        hr = frame->SetPixelFormat(&format);
-        if (FAILED(hr)) {
+        if (FAILED(wic_factory_->CreateEncoder(container_format, nullptr, &encoder)) ||
+            FAILED(SHCreateStreamOnFileW(GetTestImagePath(filename).c_str(), STGM_CREATE | STGM_WRITE, &stream)) ||
+            FAILED(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache)) ||
+            FAILED(encoder->CreateNewFrame(&frame, nullptr)) ||
+            FAILED(frame->Initialize(nullptr)) ||
+            FAILED(frame->SetSize(width, height)) ||
+            FAILED(frame->SetPixelFormat(&format))) {
             return false;
         }
 
-        // 赤色のピクセルデータを1行ずつ書き込み（大画像でもメモリ使用量を抑える）
-        UINT stride = width * 4;
+        // 不透明な赤 (BGRA) の 1 行を使い回し、大画像でもメモリ使用量を抑える
+        const UINT stride = width * 4;
         std::vector<BYTE> row(stride);
-        for (UINT x = 0; x < width; x++) {
-            UINT offset = x * 4;
-            row[offset + 0] = 0;   // B
-            row[offset + 1] = 0;   // G
-            row[offset + 2] = 255; // R
-            row[offset + 3] = 255; // A
+        for (UINT x = 0; x < width; ++x) {
+            row[x * 4 + 2] = 255;
+            row[x * 4 + 3] = 255;
         }
-        for (UINT y = 0; y < height; y++) {
-            hr = frame->WritePixels(1, stride, stride, row.data());
-            if (FAILED(hr)) {
+        for (UINT y = 0; y < height; ++y) {
+            if (FAILED(frame->WritePixels(1, stride, stride, row.data()))) {
                 return false;
             }
         }
-        // WritePixels の最終結果は上のループ内で検査済み
-        hr = S_OK;
-        if (FAILED(hr)) {
-            return false;
-        }
-
-        hr = frame->Commit();
-        if (FAILED(hr)) {
-            return false;
-        }
-
-        hr = encoder->Commit();
-        return SUCCEEDED(hr);
+        return SUCCEEDED(frame->Commit()) && SUCCEEDED(encoder->Commit());
     }
 
-    std::wstring GetTestImagePath(const std::wstring& filename)
+    std::wstring GetTestImagePath(std::wstring_view filename) const
     {
-        return (temp_dir_ / filename).wstring();
+        return (temp_dir_.path() / filename).wstring();
     }
 };
 
@@ -666,11 +608,8 @@ TEST_F(ImageLoaderTest, EmptyPathReturnsFalse)
 
 TEST_F(ImageLoaderTest, CorruptedPngReturnsFalse)
 {
-    auto path = temp_dir_ / "corrupt.png";
     // PNGヘッダの途中で切れたデータ
-    std::ofstream f(path, std::ios::binary);
-    f.write("\x89PNG\r\n\x1a\n\x00\x00", 10);
-    f.close();
+    const auto path = temp_dir_.Write(L"corrupt.png", std::string_view("\x89PNG\r\n\x1a\n\x00\x00", 10));
 
     DiagramEntry entry;
     EXPECT_FALSE(loader_.LoadImage(path.wstring(), entry));
@@ -679,9 +618,7 @@ TEST_F(ImageLoaderTest, CorruptedPngReturnsFalse)
 
 TEST_F(ImageLoaderTest, EmptyFileReturnsFalse)
 {
-    auto path = temp_dir_ / "empty.png";
-    std::ofstream f(path, std::ios::binary);
-    f.close();
+    const auto path = temp_dir_.Write(L"empty.png");
 
     DiagramEntry entry;
     EXPECT_FALSE(loader_.LoadImage(path.wstring(), entry));
@@ -690,11 +627,8 @@ TEST_F(ImageLoaderTest, EmptyFileReturnsFalse)
 
 TEST_F(ImageLoaderTest, RandomBytesReturnsFalse)
 {
-    auto path = temp_dir_ / "random.png";
-    std::ofstream f(path, std::ios::binary);
     const char garbage[] = "This is not an image file at all!";
-    f.write(garbage, sizeof(garbage));
-    f.close();
+    const auto path = temp_dir_.Write(L"random.png", std::string_view(garbage, sizeof(garbage)));
 
     DiagramEntry entry;
     EXPECT_FALSE(loader_.LoadImage(path.wstring(), entry));
@@ -704,10 +638,7 @@ TEST_F(ImageLoaderTest, RandomBytesReturnsFalse)
 TEST_F(ImageLoaderTest, TruncatedJpegReturnsFalse)
 {
     // JPEG SOIマーカーのみの不完全データ
-    auto path = temp_dir_ / "truncated.jpg";
-    std::ofstream f(path, std::ios::binary);
-    f.write("\xFF\xD8\xFF\xE0\x00\x10", 6);
-    f.close();
+    const auto path = temp_dir_.Write(L"truncated.jpg", std::string_view("\xFF\xD8\xFF\xE0\x00\x10", 6));
 
     DiagramEntry entry;
     EXPECT_FALSE(loader_.LoadImage(path.wstring(), entry));
@@ -718,10 +649,7 @@ TEST_F(ImageLoaderTest, TruncatedJpegReturnsFalse)
 
 TEST_F(ImageLoaderTest, TextFileReturnsFalse)
 {
-    auto path = temp_dir_ / "readme.txt";
-    std::ofstream f(path);
-    f << "Hello, World!";
-    f.close();
+    const auto path = temp_dir_.Write(L"readme.txt", "Hello, World!");
 
     DiagramEntry entry;
     EXPECT_FALSE(loader_.LoadImage(path.wstring(), entry));
@@ -730,10 +658,7 @@ TEST_F(ImageLoaderTest, TextFileReturnsFalse)
 
 TEST_F(ImageLoaderTest, HtmlFileReturnsFalse)
 {
-    auto path = temp_dir_ / "page.html";
-    std::ofstream f(path);
-    f << "<html><body>test</body></html>";
-    f.close();
+    const auto path = temp_dir_.Write(L"page.html", "<html><body>test</body></html>");
 
     DiagramEntry entry;
     EXPECT_FALSE(loader_.LoadImage(path.wstring(), entry));
@@ -867,11 +792,7 @@ TEST_F(ImageLoaderTest, FileCanBeDeletedAfterLoad)
 TEST_F(ImageLoaderTest, FileNotLockedAfterFailedLoad)
 {
     // 壊れた画像でも読み込み後にファイルがロックされないこと
-    auto path = temp_dir_ / "bad_lock.png";
-    {
-        std::ofstream f(path, std::ios::binary);
-        f.write("\x89PNG\r\n\x1a\n\x00\x00", 10);
-    }
+    const auto path = temp_dir_.Write(L"bad_lock.png", std::string_view("\x89PNG\r\n\x1a\n\x00\x00", 10));
 
     DiagramEntry entry;
     loader_.LoadImage(path.wstring(), entry);
@@ -889,120 +810,18 @@ TEST_F(ImageLoaderTest, FileNotLockedAfterFailedLoad)
 // DPI スケーリングテスト: 画像サイズが DIP 単位で返されること
 // ============================================================
 
-class ImageLoaderDpiTest : public ComApartmentTest {
-protected:
-    ComPtr<ID2D1Factory> d2d_factory_;
-    ComPtr<IWICImagingFactory> wic_factory_;
-    std::filesystem::path temp_dir_;
-
-    void SetUp() override
-    {
-        HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
-                                       d2d_factory_.GetAddressOf());
-        ASSERT_TRUE(SUCCEEDED(hr));
-
-        hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr,
-                              CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic_factory_));
-        ASSERT_TRUE(SUCCEEDED(hr));
-
-        auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-        temp_dir_ = std::filesystem::temp_directory_path() / ("mendo_test_dpi_" + std::string(info->name()));
-        std::filesystem::create_directories(temp_dir_);
-    }
-
-    void TearDown() override
-    {
-        std::error_code ec;
-        std::filesystem::remove_all(temp_dir_, ec);
-    }
-
-    // 指定DPIのレンダーターゲットを作成
-    ComPtr<ID2D1RenderTarget> CreateRenderTargetWithDpi(float dpi)
-    {
-        ComPtr<IWICBitmap> wic_bitmap;
-        wic_factory_->CreateBitmap(1, 1, GUID_WICPixelFormat32bppPBGRA,
-                                   WICBitmapCacheOnLoad, &wic_bitmap);
-
-        auto props = D2D1::RenderTargetProperties();
-        props.dpiX = dpi;
-        props.dpiY = dpi;
-
-        ComPtr<ID2D1RenderTarget> rt;
-        d2d_factory_->CreateWicBitmapRenderTarget(wic_bitmap.Get(), props, &rt);
-        return rt;
-    }
-
-    bool CreateTestImage(const std::wstring& filename, UINT width, UINT height)
-    {
-        auto path = temp_dir_ / filename;
-        ComPtr<IWICBitmapEncoder> encoder;
-        HRESULT hr = wic_factory_->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder);
-        if (FAILED(hr)) {
-            return false;
-        }
-
-        ComPtr<IStream> stream;
-        hr = SHCreateStreamOnFileW(path.wstring().c_str(), STGM_CREATE | STGM_WRITE, &stream);
-        if (FAILED(hr)) {
-            return false;
-        }
-
-        hr = encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache);
-        if (FAILED(hr)) {
-            return false;
-        }
-
-        ComPtr<IWICBitmapFrameEncode> frame;
-        hr = encoder->CreateNewFrame(&frame, nullptr);
-        if (FAILED(hr)) {
-            return false;
-        }
-        hr = frame->Initialize(nullptr);
-        if (FAILED(hr)) {
-            return false;
-        }
-        hr = frame->SetSize(width, height);
-        if (FAILED(hr)) {
-            return false;
-        }
-
-        WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
-        hr = frame->SetPixelFormat(&format);
-        if (FAILED(hr)) {
-            return false;
-        }
-
-        UINT stride = width * 4;
-        std::vector<BYTE> row(stride, 0);
-        for (UINT y = 0; y < height; y++) {
-            hr = frame->WritePixels(1, stride, stride, row.data());
-            if (FAILED(hr)) {
-                return false;
-            }
-        }
-
-        hr = frame->Commit();
-        if (FAILED(hr)) {
-            return false;
-        }
-        return SUCCEEDED(encoder->Commit());
-    }
-
-    std::wstring GetTestImagePath(const std::wstring& filename)
-    {
-        return (temp_dir_ / filename).wstring();
-    }
-};
+// 基底の loader_ (既定 DPI) は使わず、各テストで CreateRenderTarget(dpi) から DPI 別のローダーを作る。
+class ImageLoaderDpiTest : public ImageLoaderTest {};
 
 TEST_F(ImageLoaderDpiTest, At96DpiSizeEqualsPixels)
 {
-    auto rt = CreateRenderTargetWithDpi(96.0f);
+    auto rt = CreateRenderTarget(96.0f);
     ASSERT_TRUE(rt);
 
     ImageLoader loader;
     loader.Init(rt.Get());
 
-    ASSERT_TRUE(CreateTestImage(L"test96.png", 200, 100));
+    ASSERT_TRUE(CreateTestImage(L"test96.png", GUID_ContainerFormatPng, 200, 100));
     DiagramEntry entry;
     EXPECT_TRUE(loader.LoadImage(GetTestImagePath(L"test96.png"), entry));
     // 96 DPI: 1 pixel = 1 DIP
@@ -1013,13 +832,13 @@ TEST_F(ImageLoaderDpiTest, At96DpiSizeEqualsPixels)
 TEST_F(ImageLoaderDpiTest, At144DpiSizeDividedByScale)
 {
     // 150% スケーリング (144 DPI)
-    auto rt = CreateRenderTargetWithDpi(144.0f);
+    auto rt = CreateRenderTarget(144.0f);
     ASSERT_TRUE(rt);
 
     ImageLoader loader;
     loader.Init(rt.Get());
 
-    ASSERT_TRUE(CreateTestImage(L"test144.png", 300, 150));
+    ASSERT_TRUE(CreateTestImage(L"test144.png", GUID_ContainerFormatPng, 300, 150));
     DiagramEntry entry;
     EXPECT_TRUE(loader.LoadImage(GetTestImagePath(L"test144.png"), entry));
     // 300px / 1.5 = 200 DIP, 150px / 1.5 = 100 DIP
@@ -1030,13 +849,13 @@ TEST_F(ImageLoaderDpiTest, At144DpiSizeDividedByScale)
 TEST_F(ImageLoaderDpiTest, At192DpiSizeDividedByScale)
 {
     // 200% スケーリング (192 DPI)
-    auto rt = CreateRenderTargetWithDpi(192.0f);
+    auto rt = CreateRenderTarget(192.0f);
     ASSERT_TRUE(rt);
 
     ImageLoader loader;
     loader.Init(rt.Get());
 
-    ASSERT_TRUE(CreateTestImage(L"test192.png", 400, 200));
+    ASSERT_TRUE(CreateTestImage(L"test192.png", GUID_ContainerFormatPng, 400, 200));
     DiagramEntry entry;
     EXPECT_TRUE(loader.LoadImage(GetTestImagePath(L"test192.png"), entry));
     // 400px / 2.0 = 200 DIP, 200px / 2.0 = 100 DIP
@@ -1047,13 +866,13 @@ TEST_F(ImageLoaderDpiTest, At192DpiSizeDividedByScale)
 TEST_F(ImageLoaderDpiTest, At120DpiSizeDividedByScale)
 {
     // 125% スケーリング (120 DPI)
-    auto rt = CreateRenderTargetWithDpi(120.0f);
+    auto rt = CreateRenderTarget(120.0f);
     ASSERT_TRUE(rt);
 
     ImageLoader loader;
     loader.Init(rt.Get());
 
-    ASSERT_TRUE(CreateTestImage(L"test120.png", 250, 100));
+    ASSERT_TRUE(CreateTestImage(L"test120.png", GUID_ContainerFormatPng, 250, 100));
     DiagramEntry entry;
     EXPECT_TRUE(loader.LoadImage(GetTestImagePath(L"test120.png"), entry));
     // 250px / 1.25 = 200 DIP, 100px / 1.25 = 80 DIP
@@ -1063,13 +882,13 @@ TEST_F(ImageLoaderDpiTest, At120DpiSizeDividedByScale)
 
 TEST_F(ImageLoaderDpiTest, CacheReturnsDipSize)
 {
-    auto rt = CreateRenderTargetWithDpi(144.0f);
+    auto rt = CreateRenderTarget(144.0f);
     ASSERT_TRUE(rt);
 
     ImageLoader loader;
     loader.Init(rt.Get());
 
-    ASSERT_TRUE(CreateTestImage(L"cache_dpi.png", 300, 150));
+    ASSERT_TRUE(CreateTestImage(L"cache_dpi.png", GUID_ContainerFormatPng, 300, 150));
     auto path = GetTestImagePath(L"cache_dpi.png");
 
     // 1回目: LoadImage でキャッシュに格納
@@ -1115,20 +934,35 @@ protected:
         ImageLoaderTest::TearDown();
     }
 
-    // ワーカーの処理完了を待つ（最大 timeout_ms ミリ秒）
-    bool WaitForResults(int expected_count, int timeout_ms = 5000)
+    // ProcessCompletedDecodes は失敗結果でも on_complete を呼ぶので、失敗の完了待ちにも使える。
+    bool WaitForResults(int expected_count)
     {
-        auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
-        while (std::chrono::steady_clock::now() < deadline) {
+        return PollUntil([&] {
             loader_.ProcessCompletedDecodes();
-            if (callback_count_.load() >= expected_count) {
-                return true;
+            return callback_count_.load() >= expected_count;
+        });
+    }
+
+    // 完了通知はバッチごとに 1 回なので、複数リクエストの完了はキャッシュ件数で待つ。
+    bool WaitForCached(size_t count)
+    {
+        return PollUntil([&] {
+            loader_.ProcessCompletedDecodes();
+            return loader_.CacheSize() >= count;
+        });
+    }
+
+    // path の非同期ロードを 1 件ずつ完了させながら times 回失敗させる。
+    bool FailLoads(const std::wstring& path, int times)
+    {
+        for (int i = 0; i < times; ++i) {
+            const int before = callback_count_.load();
+            loader_.RequestLoadAsync(path, OnComplete);
+            if (!WaitForResults(before + 1)) {
+                return false;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
-        // 最後にもう一度試行
-        loader_.ProcessCompletedDecodes();
-        return callback_count_.load() >= expected_count;
+        return true;
     }
 };
 
@@ -1174,8 +1008,8 @@ TEST_F(ImageLoaderAsyncTest, MultiplePathsAllCached)
     loader_.RequestLoadAsync(path_a, OnComplete);
     loader_.RequestLoadAsync(path_b, OnComplete);
 
-    // 少なくとも1回コールバックが来るのを待つ
-    ASSERT_TRUE(WaitForResults(1));
+    ASSERT_TRUE(WaitForCached(2));
+    EXPECT_GE(callback_count_.load(), 1);
 
     DiagramEntry entry_a, entry_b;
     EXPECT_TRUE(loader_.GetCachedImage(path_a, entry_a));
@@ -1209,18 +1043,8 @@ TEST_F(ImageLoaderAsyncTest, AsyncLoadReturnsDipSizeAt150Percent)
     loader_.Shutdown();
     loader_.ClearCache();
 
-    ComPtr<IWICBitmap> wic_bitmap;
-    HRESULT hr = wic_factory_->CreateBitmap(1, 1, GUID_WICPixelFormat32bppPBGRA,
-                                            WICBitmapCacheOnLoad, &wic_bitmap);
-    ASSERT_TRUE(SUCCEEDED(hr));
-
-    auto rt_props = D2D1::RenderTargetProperties();
-    rt_props.dpiX = 144.0f;
-    rt_props.dpiY = 144.0f;
-    ComPtr<ID2D1RenderTarget> rt_144;
-    hr = d2d_factory_->CreateWicBitmapRenderTarget(
-        wic_bitmap.Get(), rt_props, &rt_144);
-    ASSERT_TRUE(SUCCEEDED(hr));
+    const auto rt_144 = CreateRenderTarget(144.0f);
+    ASSERT_TRUE(rt_144);
 
     loader_.Init(rt_144.Get());
     loader_.InitAsync(nullptr, 0, scheduler_);
@@ -1247,8 +1071,8 @@ TEST_F(ImageLoaderAsyncTest, CancelPendingClearsQueue)
     loader_.RequestLoadAsync(path, OnComplete);
     loader_.CancelPending();
 
-    // キャンセル後、短時間待ってもコールバックが来ないこと
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    // Shutdown はキュー済みタスクを実行し切ってから戻るので、以降に結果が届くことはない
+    scheduler_.Shutdown();
     loader_.ProcessCompletedDecodes();
 
     // キャンセルのタイミングにより結果はゼロまたはキャッシュ済みになりうるが、
@@ -1275,7 +1099,8 @@ TEST_F(ImageLoaderAsyncTest, ManyImagesAllCachedCorrectly)
         loader_.RequestLoadAsync(p, OnComplete);
     }
 
-    ASSERT_TRUE(WaitForResults(1)) << "非同期読み込みが完了しなかった";
+    ASSERT_TRUE(WaitForCached(paths.size())) << "非同期読み込みが完了しなかった";
+    EXPECT_GE(callback_count_.load(), 1);
 
     for (int i = 0; i < kImageCount; ++i) {
         DiagramEntry entry;
@@ -1353,17 +1178,10 @@ TEST_F(ImageLoaderAsyncTest, CancelDuringHeavyLoadThenReload)
     // キャンセル直後は進行中だったワーカーの結果が先に返る可能性があるため、
     // コールバック回数ではなく対象画像がキャッシュされるまで直接ポーリングする
     DiagramEntry entry;
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    bool found = false;
-    while (std::chrono::steady_clock::now() < deadline) {
+    ASSERT_TRUE(PollUntil([&] {
         loader_.ProcessCompletedDecodes();
-        if (loader_.GetCachedImage(path, entry)) {
-            found = true;
-            break;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    ASSERT_TRUE(found) << "キャンセル後のリクエストが完了しなかった";
+        return loader_.GetCachedImage(path, entry);
+    })) << "キャンセル後のリクエストが完了しなかった";
     EXPECT_FLOAT_EQ(entry.width, 88.0f);
     EXPECT_FLOAT_EQ(entry.height, 66.0f);
 }
@@ -1375,28 +1193,15 @@ TEST_F(ImageLoaderAsyncTest, NonexistentPathBlockedAfterMaxRetries)
     const auto path = GetTestImagePath(L"does_not_exist.png");
 
     // kMaxImageRetries (3) 回失敗するまではリトライが許可される
-    for (int i = 0; i < 3; ++i) {
-        callback_count_.store(0);
-        loader_.RequestLoadAsync(path, OnComplete);
+    ASSERT_TRUE(FailLoads(path, 3));
 
-        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-        while (std::chrono::steady_clock::now() < deadline) {
-            loader_.ProcessCompletedDecodes();
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            // pending_paths_ から消えたら処理完了
-            // callback は発火しないので ProcessCompletedDecodes のループで確認
-            break;
-        }
-        // ワーカーが処理する時間を確保
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        loader_.ProcessCompletedDecodes();
-    }
-
-    // 4回目のリクエストはブロックされ、ワーカーが起動しないこと
+    // 4回目のリクエストはブロックされ、ワーカーが起動しないこと。
+    // Shutdown はキュー済みタスクを実行し切ってから戻るので、投入されていれば結果が残る。
     callback_count_.store(0);
     loader_.RequestLoadAsync(path, OnComplete);
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    scheduler_.Shutdown();
     loader_.ProcessCompletedDecodes();
+    EXPECT_EQ(callback_count_.load(), 0);
 
     DiagramEntry entry;
     EXPECT_FALSE(loader_.GetCachedImage(path, entry));
@@ -1407,11 +1212,7 @@ TEST_F(ImageLoaderAsyncTest, CancelPendingClearsFailedPaths)
     const auto path = GetTestImagePath(L"fail_then_clear.png");
 
     // 3回失敗させてブラックリスト化
-    for (int i = 0; i < 3; ++i) {
-        loader_.RequestLoadAsync(path, OnComplete);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        loader_.ProcessCompletedDecodes();
-    }
+    ASSERT_TRUE(FailLoads(path, 3));
 
     // CancelPending でクリア
     loader_.CancelPending();
@@ -1434,11 +1235,7 @@ TEST_F(ImageLoaderAsyncTest, ClearCacheAlsoClearsFailedPaths)
     const auto path = GetTestImagePath(L"fail_then_clearcache.png");
 
     // 3回失敗させてブラックリスト化
-    for (int i = 0; i < 3; ++i) {
-        loader_.RequestLoadAsync(path, OnComplete);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        loader_.ProcessCompletedDecodes();
-    }
+    ASSERT_TRUE(FailLoads(path, 3));
 
     // ClearCache でもクリアされること
     loader_.ClearCache();
@@ -1460,9 +1257,7 @@ TEST_F(ImageLoaderAsyncTest, TransientFailureRetries)
     const auto path = GetTestImagePath(L"transient.png");
 
     // 1回目: ファイルが存在しないので失敗
-    loader_.RequestLoadAsync(path, OnComplete);
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    loader_.ProcessCompletedDecodes();
+    ASSERT_TRUE(FailLoads(path, 1));
 
     // ファイルを作成（一時障害から復帰を模擬）
     ASSERT_TRUE(CreateTestImage(L"transient.png", GUID_ContainerFormatPng, 70, 50));
@@ -1483,11 +1278,7 @@ TEST_F(ImageLoaderAsyncTest, ResetFailedPathsAllowsRetry)
     const auto path = GetTestImagePath(L"reset_failed.png");
 
     // 3回失敗させてブラックリスト化
-    for (int i = 0; i < 3; ++i) {
-        loader_.RequestLoadAsync(path, OnComplete);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        loader_.ProcessCompletedDecodes();
-    }
+    ASSERT_TRUE(FailLoads(path, 3));
 
     // ResetFailedPaths でクリア
     loader_.ResetFailedPaths();

@@ -140,6 +140,11 @@ std::pmr::wstring ExtractFilename(std::wstring_view path)
     return std::pmr::wstring{ std::filesystem::path(path).filename().native() };
 }
 
+std::pmr::wstring ParentDirectory(std::wstring_view path)
+{
+    return std::pmr::wstring{ std::filesystem::path(path).parent_path().native() };
+}
+
 namespace {
 
 // GenerateAnchorId の ASCII (0x00–0x7F) 処理を 1 回の lookup で判定するテーブル。

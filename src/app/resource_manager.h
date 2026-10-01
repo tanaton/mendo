@@ -9,7 +9,6 @@
 #include "mermaid_util.h"
 #include "theme_service.h"
 #include "profiler.h"
-#include "ascii_util.h"
 #include "string_convert.h"
 #include <algorithm>
 #include <chrono>
@@ -103,7 +102,7 @@ public:
             }
 
             auto* const img = node.image_data();
-            if (!img || ascii_util::Contains(img->src, "://")) {
+            if (!img || img->src.contains("://")) {
                 continue;
             }
 
@@ -185,40 +184,20 @@ public:
 
         DropMermaidQueueIfJumped();
         const auto slice = BufferedSlice(deps_.doc->GetDiagramNodeIndices(), PREFETCH_BUFFER_SCREENS);
+        const bool dark_mode = deps_.theme_service->IsDarkMode();
 
-        // 同期キャッシュヒットの度に OnMermaidRenderComplete が recompute_layout_anchored を
-        // 発火するのを抑止し、ループ後にまとめて 1 回だけ呼ぶ。nested 呼び出し
-        // (FlushPendingResources 経由) では外側が責任を持つよう save+restore する。
-        const bool outer_batch = mermaid_batch_loading_;
-        mermaid_batch_loading_ = true;
-
+        // 同期キャッシュヒットの度に再レイアウトせず、ループ後にまとめて 1 回だけ行う。
         int applied = 0;
-        for (auto it = slice.begin; it != slice.end; ++it) {
-            const size_t i = *it;
-            auto& node = deps_.doc->GetNodesMut()[i];
-            auto& diagram = deps_.cache->GetDiagram(i);
-            // エラー確定した図も NeedsRender()=false で弾き、失敗レンダの無限リトライを防ぐ。
-            if (!diagram.NeedsRender()) {
-                continue;
+        BatchMermaidCompletions([&] {
+            for (auto it = slice.begin; it != slice.end; ++it) {
+                applied += RequestDiagramRender(*it, content_width, dark_mode) ? 1 : 0;
             }
-
-            deps_.mermaid->RequestRender(node, (*deps_.cache)[i], diagram, content_width, deps_.theme_service->IsDarkMode(), [this, i] { OnMermaidRenderComplete(i); });
-            if (diagram.bitmap) {
-                height_changed_.Add(i);
-                ++applied;
-            }
-        }
-
-        mermaid_batch_loading_ = outer_batch;
-
-        if (!outer_batch && applied > 0) {
-            pending_flush_ = true;
-            cb_.recompute_layout_anchored(TakeHeightChanges());
-        }
+        });
         return applied;
     }
 
     // f の中で完了した図の再レイアウトを 1 回にまとめる (ディスクキャッシュの一括完了など)。
+    // nested 呼び出し (FlushPendingResources 経由) では外側が再レイアウトの責任を持つ。
     template <std::invocable F>
     void BatchMermaidCompletions(F&& f)
     {
@@ -229,6 +208,19 @@ public:
             pending_flush_ = true;
             cb_.recompute_layout_anchored(TakeHeightChanges());
         }
+    }
+
+    // 同期キャッシュヒットは RequestRender 内で OnMermaidRenderComplete まで完了する。
+    // 戻り値: その場で bitmap が確定したか。
+    bool RequestDiagramRender(size_t i, float content_width, bool dark_mode)
+    {
+        auto& diagram = deps_.cache->GetDiagram(i);
+        // エラー確定した図も NeedsRender()=false で弾き、失敗レンダの無限リトライを防ぐ。
+        if (!diagram.NeedsRender()) {
+            return false;
+        }
+        deps_.mermaid->RequestRender(deps_.doc->GetNodesMut()[i], (*deps_.cache)[i], diagram, content_width, dark_mode, [this, i] { OnMermaidRenderComplete(i); });
+        return diagram.bitmap != nullptr;
     }
 
     void OnMermaidRenderComplete(size_t node_index)
@@ -271,7 +263,6 @@ public:
         DropMermaidQueueIfJumped();
         const bool dark_mode = deps_.theme_service->IsDarkMode();
         const auto& indices = deps_.doc->GetDiagramNodeIndices();
-        bool any_loaded = false;
 
         const auto start = std::chrono::steady_clock::now();
 
@@ -285,33 +276,17 @@ public:
             mermaid_batch_next_ = slice_start;
         }
 
-        mermaid_batch_loading_ = true;
-        while (mermaid_batch_next_ < slice_end) {
-            const size_t i = indices[mermaid_batch_next_];
+        BatchMermaidCompletions([&] {
+            while (mermaid_batch_next_ < slice_end) {
+                RequestDiagramRender(indices[mermaid_batch_next_], content_width, dark_mode);
+                mermaid_batch_next_++;
 
-            auto& node = deps_.doc->GetNodesMut()[i];
-            auto& diagram = deps_.cache->GetDiagram(i);
-
-            if (diagram.NeedsRender()) {
-                deps_.mermaid->RequestRender(node, (*deps_.cache)[i], diagram, content_width, dark_mode, [this, i] { OnMermaidRenderComplete(i); });
-                if (diagram.bitmap) {
-                    height_changed_.Add(i);
-                    any_loaded = true;
+                const auto elapsed = std::chrono::steady_clock::now() - start;
+                if (std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count() >= BATCH_TIME_BUDGET_US) {
+                    break;
                 }
             }
-
-            mermaid_batch_next_++;
-
-            const auto elapsed = std::chrono::steady_clock::now() - start;
-            if (std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count() >= BATCH_TIME_BUDGET_US) {
-                break;
-            }
-        }
-        mermaid_batch_loading_ = false;
-
-        if (any_loaded) {
-            cb_.recompute_layout_anchored(TakeHeightChanges());
-        }
+        });
 
         if (mermaid_batch_next_ >= slice_end) {
             cb_.kill_timer(app_timer::Id::MERMAID_BATCH);
@@ -379,9 +354,10 @@ public:
 
         bool changed = (ApplyCachedImages() > 0);
 
-        mermaid_batch_loading_ = true;
+        // 外側でバッチ扱いにし、内側の anchored 再レイアウトを下の recompute_layout 1 回へ統合する。
+        const bool outer_batch = std::exchange(mermaid_batch_loading_, true);
         changed |= (RequestMermaidRenders() > 0);
-        mermaid_batch_loading_ = false;
+        mermaid_batch_loading_ = outer_batch;
 
         if (changed) {
             cb_.recompute_layout(TakeHeightChanges());

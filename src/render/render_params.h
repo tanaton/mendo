@@ -32,20 +32,20 @@ struct ToastRenderState {
 
 struct TitleBarRenderState {
     std::wstring_view title_text;
-    TitleBarButton open_file;
-    TitleBarButton help;
-    TitleBarButton theme_toggle;
-    TitleBarButton search;
-    TitleBarButton file_toggle;
-    TitleBarButton toc_toggle;
-    TitleBarButton minimize;
-    TitleBarButton maximize;
-    TitleBarButton close;
+    DipRect open_file;
+    DipRect help;
+    DipRect theme_toggle;
+    DipRect search;
+    DipRect file_toggle;
+    DipRect toc_toggle;
+    DipRect minimize;
+    DipRect maximize;
+    DipRect close;
     DipRect icon_rect{};
     DipRect title_text_rect{};
     float height = 0.0f;
     float window_width = 0.0f;
-    // ホバー中のボタン。各 TitleBarButton に bool を持たせず一元管理する。
+    // ホバー中のボタン。ボタンごとに bool を持たせず一元管理する。
     TitleBarHitZone hovered_zone = TitleBarHitZone::None;
     bool is_dark_mode = false;
     bool search_active = false;
@@ -156,7 +156,7 @@ struct RenderParams {
     const SearchBarRenderState& search_bar;
     float scroll_y = 0.0f;
     float total_content_height = 0.0f;
-    int nav_hovered = 0;
+    NavButtonHover nav_hovered = NavButtonHover::None;
     HoveredButtons hovered;
     bool can_go_back = false;
     bool can_go_forward = false;

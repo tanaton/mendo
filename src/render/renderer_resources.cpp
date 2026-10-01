@@ -54,7 +54,6 @@ void Renderer::RecreateBrushes()
 
     const bool is_dark = theme_.IsDark();
 
-    const float stripe_alpha = is_dark ? TABLE_STRIPE_ALPHA_DARK : TABLE_STRIPE_ALPHA_LIGHT;
     const float thumb_alpha = is_dark ? 0.4f : 0.25f;
 
     struct BrushSpec {
@@ -71,7 +70,7 @@ void Renderer::RecreateBrushes()
         { BrushId::BlockquoteBar, theme_.blockquote_bar_color },
         { BrushId::BlockquoteText, theme_.blockquote_text_color },
         { BrushId::Selection, SELECTION_COLOR },
-        { BrushId::TableStripe, mendo::MonochromeOverlay(is_dark, stripe_alpha) },
+        { BrushId::TableStripe, mendo::TableStripeColor(is_dark) },
         { BrushId::SyntaxKeyword, theme_.syntax_keyword },
         { BrushId::SyntaxType, theme_.syntax_type },
         { BrushId::SyntaxString, theme_.syntax_string },
@@ -254,8 +253,8 @@ void Renderer::RecreatePaneFormats()
         if (fmt_.gesture_overlay) {
             static constexpr wchar_t GESTURE_BACK[] = L"\x2190 \x623B\x308B";
             static constexpr wchar_t GESTURE_FORWARD[] = L"\x2192 \x9032\x3080";
-            dw->CreateTextLayout(GESTURE_BACK, 4, fmt_.gesture_overlay.Get(), 280.0f, 80.0f, &gesture_back_layout_);
-            dw->CreateTextLayout(GESTURE_FORWARD, 4, fmt_.gesture_overlay.Get(), 280.0f, 80.0f, &gesture_forward_layout_);
+            dw->CreateTextLayout(GESTURE_BACK, 4, fmt_.gesture_overlay.Get(), GESTURE_OVERLAY_WIDTH, GESTURE_OVERLAY_HEIGHT, &gesture_back_layout_);
+            dw->CreateTextLayout(GESTURE_FORWARD, 4, fmt_.gesture_overlay.Get(), GESTURE_OVERLAY_WIDTH, GESTURE_OVERLAY_HEIGHT, &gesture_forward_layout_);
         }
     }
 }

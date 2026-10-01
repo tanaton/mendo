@@ -5,38 +5,33 @@
 
 namespace mendo::layout {
 
-DirtyBatchResult DirtyScheduler::RunSerial(
+DirtyBatchResult RunSerial(
     std::pmr::vector<Node>& nodes,
     LayoutCache& cache,
     float content_width,
     const Theme& theme,
     const IMeasureBackend& backend,
     ViewportClip clip,
-    SerialBudget budget) const
+    SerialBudget budget)
 {
-    MENDO_PROFILE("DirtyScheduler::RunSerial");
+    MENDO_PROFILE("layout::RunSerial");
     DirtyBatchResult result;
     const auto node_count = nodes.size();
-
-    const bool has_viewport_limit = clip.active();
-    const float limit_top = has_viewport_limit ? clip.limit_top() : 0.0f;
-    const float limit_bottom = has_viewport_limit ? clip.limit_bottom() : 0.0f;
+    const MeasureViewportRange range = clip.Range();
 
     const bool has_time_budget = (budget.time_us > 0);
     const bool has_batch_limit = (budget.max_nodes > 0);
     const auto start = has_time_budget ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
 
-    // text_top は単調なので、クリップ時は帯の開始を二分探索し下端超過で break する
-    const size_t plan_begin = has_viewport_limit
-        ? static_cast<size_t>(FindFirstVisibleNodeIndex(cache, node_count, limit_top))
-        : 0;
+    // text_top は単調なので、帯の開始を二分探索し下端超過で break する
+    const auto plan_begin = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, node_count, range.top));
     for (size_t i = plan_begin; i < node_count; i++) {
         auto& entry = cache[i];
         const float entry_top = cache.Top(i);
-        if (has_viewport_limit && entry_top > limit_bottom) {
+        if (entry_top > range.bottom) {
             break;
         }
-        if (!ViewportClip::ShouldMeasure(entry, entry_top, has_viewport_limit, limit_top, limit_bottom)) {
+        if (!ViewportClip::ShouldMeasure(entry, entry_top, range)) {
             continue;
         }
 
@@ -53,10 +48,7 @@ DirtyBatchResult DirtyScheduler::RunSerial(
             result.first_processed = i;
         }
         const float indent = NodeIndent(nodes[i], theme);
-        const MeasureViewportRange vp = has_viewport_limit
-            ? MeasureViewportRange{ limit_top, limit_bottom }
-            : MeasureViewportRange{};
-        MeasureEntry(backend, nodes[i], entry, content_width - indent, nullptr, vp, entry_top);
+        MeasureEntry(backend, nodes[i], entry, content_width - indent, nullptr, range, entry_top);
         result.last_processed = i;
         ++result.processed;
 

@@ -1,14 +1,9 @@
 #include "startup_plan.h"
+#include "document_utils.h"
 #include "file_io.h"
 #include <algorithm>
-#include <filesystem>
 
 namespace {
-
-std::pmr::wstring ParentDirectory(std::wstring_view path)
-{
-    return std::pmr::wstring{ std::filesystem::path(path).parent_path().native() };
-}
 
 bool IsIgnoredCwd(const StartupContext& ctx)
 {

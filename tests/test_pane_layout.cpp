@@ -171,37 +171,37 @@ TEST(ComputeScrollInfo, ZeroContent)
 }
 
 // ============================================================
-// CenterPaneScrollY (issue#259: アクティブ項目の中央追従)
+// CenterPaneScrollOnItem (issue#259: アクティブ項目の中央追従)
 // ============================================================
 
-TEST(CenterPaneScrollY, CentersItemInViewport)
+TEST(CenterPaneScrollOnItem, CentersItemInViewport)
 {
     PaneScrollInfo info{};
     info.content_height = 400.0f;
     info.max_scroll = 600.0f;
 
-    // 500 - (400 - 20) / 2 = 310
-    EXPECT_FLOAT_EQ(CenterPaneScrollY(500.0f, 20.0f, info), 310.0f);
+    // 25 * 20 - (400 - 20) / 2 = 310
+    EXPECT_FLOAT_EQ(CenterPaneScrollOnItem(25, 20.0f, info), 310.0f);
 }
 
-TEST(CenterPaneScrollY, ClampsAtTop)
+TEST(CenterPaneScrollOnItem, ClampsAtTop)
 {
     PaneScrollInfo info{};
     info.content_height = 400.0f;
     info.max_scroll = 600.0f;
 
     // 先頭付近の項目は中央に置けないので 0 で止める
-    EXPECT_FLOAT_EQ(CenterPaneScrollY(50.0f, 20.0f, info), 0.0f);
+    EXPECT_FLOAT_EQ(CenterPaneScrollOnItem(2, 20.0f, info), 0.0f);
 }
 
-TEST(CenterPaneScrollY, ClampsAtBottom)
+TEST(CenterPaneScrollOnItem, ClampsAtBottom)
 {
     PaneScrollInfo info{};
     info.content_height = 400.0f;
     info.max_scroll = 600.0f;
 
-    // 900 - 190 = 710 > max_scroll → 末尾で止める
-    EXPECT_FLOAT_EQ(CenterPaneScrollY(900.0f, 20.0f, info), 600.0f);
+    // 45 * 20 - 190 = 710 > max_scroll → 末尾で止める
+    EXPECT_FLOAT_EQ(CenterPaneScrollOnItem(45, 20.0f, info), 600.0f);
 }
 
 // ============================================================

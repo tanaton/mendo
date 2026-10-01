@@ -52,7 +52,6 @@ void FileWatcher::StartWatching(const std::pmr::wstring& file_path, ChangeCallba
     overlapped_ = {};
     overlapped_.hEvent = event_.get();
 
-    watching_ = true;
     BeginRead();
 }
 
@@ -93,7 +92,6 @@ void FileWatcher::StopWatching() noexcept
     event_.reset();
     overlapped_ = {};
     dir_handle_.reset();
-    watching_ = false;
     paused_ = false;
     pending_change_ = false;
     on_change_ = nullptr;
@@ -101,7 +99,7 @@ void FileWatcher::StopWatching() noexcept
 
 void FileWatcher::CheckForChanges()
 {
-    if (!watching_ || !read_pending_ || !dir_handle_) {
+    if (!read_pending_) {
         return;
     }
 
@@ -178,7 +176,7 @@ void FileWatcher::CheckForChanges()
 
 void FileWatcher::ResumeWatching()
 {
-    if (!watching_) {
+    if (!dir_handle_) {
         return;
     }
     paused_ = false;

@@ -1,15 +1,14 @@
 #pragma once
 #include "app_constants.h"
-#include "doc_text.h"
 #include "pane_layout.h"
 #include "ui_types.h"
 #include "pane_controller.h"
 #include "tooltip.h"
+#include <optional>
 #include <variant>
 #include <string>
 #include <cstdint>
 #include <memory_resource>
-#include <optional>
 
 // DPI 変更時に Win32 RECT から詰め替えて reducer に渡す。
 struct PixelRect {
@@ -57,6 +56,11 @@ struct ScrollPaneAction {
 struct CopyClipboardAction {};
 struct CopyFormattedClipboardAction {};
 struct SelectAllAction {};
+// ダブルクリック位置の単語を選択する。
+struct SelectWordAction {
+    int node_index;
+    uint32_t text_pos;
+};
 struct ClearSelectionAction {};
 
 struct TogglePaneAction {
@@ -157,7 +161,7 @@ struct FilePaneFileClickedAction {
 };
 struct FilePaneRevealCurrentFileAction {};
 struct TocItemClickedAction {
-    std::pmr::string anchor_id;
+    int node_index;
 };
 struct NavigateAnchorAction {
     std::pmr::string anchor_id;
@@ -165,8 +169,7 @@ struct NavigateAnchorAction {
 
 // 優先順: reload_diff → pending_restore_node → 先頭。
 struct RestoreScrollAfterLoadAction {
-    bool has_reload_diff;
-    float reload_diff_scroll_y;
+    std::optional<float> reload_diff_scroll_y;
 };
 struct HWheelAction {
     short delta;
@@ -237,6 +240,7 @@ using AppAction = std::variant<
     CopyClipboardAction,
     CopyFormattedClipboardAction,
     SelectAllAction,
+    SelectWordAction,
     ClearSelectionAction,
     TogglePaneAction,
     ZoomAction,

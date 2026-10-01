@@ -1,6 +1,7 @@
 #pragma once
 #include "document_types.h"
 #include "pmr_unique_ptr.h"
+#include "utility.h"
 #include <vector>
 #include <memory>
 #include <memory_resource>
@@ -112,6 +113,21 @@ struct TableLayoutData {
     // 座標はいずれもエントリ上端からのローカル系。row_cum_y が空なら [0, 0)。
     std::pair<size_t, size_t> VisibleRowRange(float local_top, float local_bottom) const noexcept;
 
+    // row_cum_y が row_count 行分確定しているか (未計測・evict 直後は false)。
+    bool HasRowGeometry(size_t row_count) const noexcept
+    {
+        return row_cum_y.size() == row_count + 1;
+    }
+
+    // 行幾何が row_count と揃っていれば VisibleRowRange、未確定なら全行 [0, row_count)。
+    std::pair<size_t, size_t> RowsInViewport(size_t row_count, float local_top, float local_bottom) const noexcept
+    {
+        if (!HasRowGeometry(row_count)) {
+            return { 0, row_count };
+        }
+        return VisibleRowRange(local_top, local_bottom);
+    }
+
     // local_y がヒットする行インデックスを返す。ヒットなしは -1。
     // 座標はエントリ上端からのローカル系。row_cum_y が空でもヒットなし扱い。
     int RowIndexAt(float local_y) const noexcept;
@@ -174,6 +190,9 @@ struct NodeLayoutEntry {
     Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
     bool layout_dirty = true;
     bool effects_applied = false;
+    // SetMaxWidth だけの再計測は描画エフェクト/下線を保持するため、折り返しに依存する
+    // インラインコード背景だけ作り直させる。effects_applied が true のときのみ意味を持つ。
+    bool inline_code_bgs_stale = false;
     // インラインコード持ちノードでのみ確保される。空の vector ヘッダ (24B/個) を全ノード分背負わない。
     mendo::pmr_unique_ptr<std::pmr::vector<InlineCodeBg>> inline_code_bgs;
     mendo::pmr_unique_ptr<TableLayoutData> table_layout; // テーブルのみ確保
@@ -290,17 +309,6 @@ public:
     constexpr size_t size() const noexcept
     {
         return entries_.size();
-    }
-
-    using const_iterator = std::pmr::vector<NodeLayoutEntry>::const_iterator;
-
-    constexpr const_iterator cbegin() const noexcept
-    {
-        return entries_.begin();
-    }
-    constexpr const_iterator cend() const noexcept
-    {
-        return entries_.end();
     }
 
     constexpr NodeLayoutEntry& operator[](size_t i) noexcept

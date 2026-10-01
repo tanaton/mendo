@@ -8,7 +8,7 @@
 
 void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_pane_rect)
 {
-    if (!rt() || !sb.visible) {
+    if (!sb.visible) {
         return;
     }
 

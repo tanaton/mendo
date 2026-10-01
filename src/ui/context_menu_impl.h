@@ -37,15 +37,12 @@ struct ContextMenu::Impl {
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
 
     // CreatePopupWindow が false を返したら Show() は早期 return。
-    void PrepareContent(const ContextMenuParams& params);
     bool CreatePopupWindow(int screen_x, int screen_y);
     void RunModalLoop();
 
     void BuildItems(const ContextMenuParams& params);
     void ComputeLayout();
-    bool EnsureRenderTarget(float dpi);
-    void CreateBrushes();
-    bool RecreateDeviceResources();
+    bool CreateDeviceResources();
     void CreateTextFormats(const Theme& theme);
 
     void Paint();
@@ -63,6 +60,7 @@ struct ContextMenu::Impl {
     int selected_id = 0;
 
     int hovered_id = 0;
+    // IDM_NAV_BACK / IDM_NAV_FORWARD / 0
     int hovered_nav = 0;
 
     std::vector<Item> items;

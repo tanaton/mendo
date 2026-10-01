@@ -1,15 +1,11 @@
 #include "pane_controller.h"
 
-bool PaneController::ScrollPaneBy(ScrollState& state, float delta, float max_scroll) noexcept
-{
-    const float old = state.scroll_y;
-    state.scroll_y = std::clamp(state.scroll_y + delta, 0.0f, max_scroll);
-    return state.scroll_y != old;
-}
-
 bool PaneController::ScrollSidePaneBy(PaneTarget t, float delta, float max_scroll) noexcept
 {
-    return ScrollPaneBy(Inst(t).scroll, delta, max_scroll);
+    auto& scroll_y = Inst(t).scroll.scroll_y;
+    const float old = scroll_y;
+    scroll_y = std::clamp(scroll_y + delta, 0.0f, max_scroll);
+    return scroll_y != old;
 }
 
 bool PaneController::SetHoveredSideIndex(PaneTarget t, int idx) noexcept
@@ -41,37 +37,38 @@ float PaneController::ConstrainSplitterWidth(
 
 void PaneController::DragSplitterTo(DragTarget target, float dip_x, float total_width, float splitter_w) noexcept
 {
+    auto& file = Inst(PaneTarget::File);
+    auto& toc = Inst(PaneTarget::Toc);
     if (target == DragTarget::Splitter1) {
-        widths_[0] = ConstrainSplitterWidth(
-            dip_x, total_width, splitter_w, widths_[1], instances_[1].show);
+        file.width = ConstrainSplitterWidth(dip_x, total_width, splitter_w, toc.width, toc.show);
     }
     else if (target == DragTarget::Splitter2) {
         // toc_left はレイアウトから既知; dip_x は新しい右端
         const auto layout = ComputeLayout(total_width, 0.0f, splitter_w);
-        const float new_width = dip_x - layout.toc_rect.x;
-        widths_[1] = ConstrainSplitterWidth(
-            new_width, total_width, splitter_w, widths_[0], instances_[0].show);
+        toc.width = ConstrainSplitterWidth(dip_x - layout.toc_rect.x, total_width, splitter_w, file.width, file.show);
     }
 }
 
 void PaneController::ApplyZoom(float ratio) noexcept
 {
-    for (int i = 0; i < 2; ++i) {
-        widths_[i] *= ratio;
-        instances_[i].scroll.scroll_y *= ratio;
+    for (auto& inst : instances_) {
+        inst.width *= ratio;
+        inst.scroll.scroll_y *= ratio;
     }
 }
 
 PaneLayout PaneController::ComputeLayout(float total_w, float total_h, float splitter_w, float top_offset) const noexcept
 {
+    const auto& file = Inst(PaneTarget::File);
+    const auto& toc = Inst(PaneTarget::Toc);
     return ComputePaneLayout(
         total_w,
         total_h,
-        widths_[0],
-        widths_[1],
+        file.width,
+        toc.width,
         splitter_w,
-        instances_[0].show,
-        instances_[1].show,
+        file.show,
+        toc.show,
         MD_PANE_MIN_WIDTH,
         top_offset);
 }

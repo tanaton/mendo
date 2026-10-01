@@ -212,18 +212,19 @@ private:
     bool HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& layout, bool is_double_click);
     void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& layout);
     void HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout);
-    static bool IsOverPaneScrollbar(float dip_x, const PaneRect& rect, float total_content, const PaneScrollInfo& scroll_info) noexcept;
+    static bool IsOverPaneScrollbar(float dip_x, const PaneRect& rect, const PaneScrollInfo& scroll_info) noexcept;
 
     // サイドペインのホバー状態をリセットし、変化があれば invalidate する。
     // reset_hover_index=true のとき hover index もリセット（タイトルバー移動時など）。
     void ResetSidePaneHover(PaneTarget t, const ::PaneLayout& pane_layout, bool reset_hover_index);
     // サイドペインキャッシュ無効化とペイン再描画リクエストをまとめて発行する。
     void InvalidateSidePaneAndPane(PaneTarget t, const ::PaneLayout& pane_layout);
-    // ViewportLayout と SyncMaxScroll を連続発行するヘルパー。
-    void EmitViewportLayoutAndSyncScroll(float md_width, float md_height);
+    // 可視範囲を即時計測し、scroll_target があれば scroll_y を再評価する。
+    void ViewportLayout(float md_width, float md_height);
+    // 合計コンテンツ高を max_scroll に反映し scroll_y をクランプする。
+    void SyncMaxScroll(float md_height);
 
     void ScheduleDeferredLayoutIfNeeded();
-    void InvalidateMdPane(const PaneRect& md_rect);
     void InvalidateHitPositions();
     void OnResizeEnd();
     void RefreshPaneLayout();
@@ -238,18 +239,20 @@ private:
     // reload_base は同一ファイルのリロード時の現在テキスト (worker でパース前に差分判定させる)。
     void BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation = false,
                         std::shared_ptr<const std::pmr::string> reload_base = nullptr);
-    void FinishLoadMarkdownFile(bool follow_file_pane, bool heights_estimated = false);
+    // reload_diff_pos: 同一パス再読込時の差分位置 (UTF-8 byte offset)。npos なら差分なし。
+    void FinishLoadMarkdownFile(bool follow_file_pane, bool heights_estimated = false,
+                                size_t reload_diff_pos = std::string_view::npos);
     void HandleLoadFailureFallback();
-    bool ApplyMermaidCacheHeights(float md_width);
+    bool ApplyMermaidCacheHeights();
     // Mermaid/画像キャッシュの実測値でノード高さを上書きし、変化があれば Y 位置を再計算する。
     // 呼び出し前にノード高さの初期化 (EstimateNodeHeights) は完了していること。
-    void ApplyCachedHeightsAndRecompute(float md_width);
+    void ApplyCachedHeightsAndRecompute();
     void UpdateTitleBar();
 
     // cache_ready: layout_cache が新文書向けに推定済み (worker 推定を move 済み) なら true。
     void FinishReload(size_t diff_pos, bool cache_ready = false);
 
-    // pending_reload_retry を確定し、NoChange / DeferPrefixShrink を early-return で処理する。
+    // NoChange / DeferPrefixShrink を early-return で処理する。
     // 呼び出し側は戻り値で「処理済み (Handled) → 呼び出し元 return」「続行 (ContinueWithReload) →
     // decision.op に基づく本格的な reload / load 処理」を分岐する。
     enum class ReloadFlow : uint8_t {
@@ -276,7 +279,7 @@ private:
     }
     ::PaneZone PaneAtPoint(float dip_x);
     ::PaneZone ZoneAt(float dip_x, const ::PaneLayout& layout) const noexcept;
-    float GetMarkdownPaneWidth();
+    float MdContentWidth();
     // スクロール上限/スクロールバー計算用のコンテンツ高さ。
     float ScrollableContentHeight() const noexcept;
     void HandleApplyThemeChange(const effect::ApplyThemeChange& e);

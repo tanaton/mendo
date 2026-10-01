@@ -8,10 +8,6 @@ protected:
     FileLoadService service_;
 };
 
-namespace {
-constexpr auto kPollTimeout = std::chrono::seconds(5);
-} // namespace
-
 // preload と StartAsyncLoad を跨ぐキャンセル挙動は実 scheduler が要るため専用 fixture。
 class FileLoadServicePreloadTest : public ::testing::Test {
 protected:
@@ -136,14 +132,13 @@ TEST_F(FileLoadServicePreloadTest, StartAsyncLoadCancelsPreloadResult)
     TempFile new_file(L"fls_newload", "# new doc\n");
 
     service_.StartPreloadAsync(preload_file.PmrPath());
-    // preload worker が結果を sink に積んで cv.wait (hwnd 待ち) に入るまで待つ。
-    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    ASSERT_TRUE(PollUntil([&] { return service_.PreloadPublishedForTest(); }));
 
     service_.SetLoadingPath(new_file.PmrPath());
     service_.StartAsyncLoad(scheduler_, nullptr, 0, GetLightTheme());
 
     std::optional<AsyncLoadResult> result;
-    PollUntil([&] { result = service_.TakeAsyncResult(); return result.has_value(); }, kPollTimeout);
+    PollUntil([&] { result = service_.TakeAsyncResult(); return result.has_value(); });
     ASSERT_TRUE(result.has_value());
     // preload 結果 (fls_preload) ではなく StartAsyncLoad の結果 (fls_newload) を返すこと。
     EXPECT_EQ(result->doc.GetFilePath(), new_file.PmrPath());

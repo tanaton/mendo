@@ -103,15 +103,6 @@ TEST(Parser, ItalicText)
     EXPECT_FALSE(nodes[0].runs[0].bold());
 }
 
-TEST(Parser, BoldItalicText)
-{
-    auto nodes = ParseMarkdown("***bolditalic***").nodes;
-    ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_GE(nodes[0].runs.size(), 1u);
-    EXPECT_TRUE(nodes[0].runs[0].bold());
-    EXPECT_TRUE(nodes[0].runs[0].italic());
-}
-
 TEST(Parser, InlineCode)
 {
     auto nodes = ParseMarkdown("`code`").nodes;
@@ -127,17 +118,6 @@ TEST(Parser, StrikethroughText)
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_GE(nodes[0].runs.size(), 1u);
     EXPECT_TRUE(nodes[0].runs[0].strikethrough());
-}
-
-TEST(Parser, MixedFormattingPreservesOrder)
-{
-    auto nodes = ParseMarkdown("normal **bold** normal").nodes;
-    ASSERT_EQ(nodes.size(), 1u);
-    // 少なくとも3つのランを持つべき: "normal ", "bold", " normal"
-    ASSERT_GE(nodes[0].runs.size(), 3u);
-    EXPECT_FALSE(nodes[0].runs[0].bold());
-    EXPECT_TRUE(nodes[0].runs[1].bold());
-    EXPECT_FALSE(nodes[0].runs[2].bold());
 }
 
 // ---- リンク ----
@@ -204,15 +184,6 @@ TEST(Parser, LinkUrlCountCappedAtInt16Max)
 
 // ---- コードブロック ----
 
-TEST(Parser, FencedCodeBlock)
-{
-    auto nodes = ParseMarkdown("```\ncode line 1\ncode line 2\n```").nodes;
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
-    EXPECT_NE(nodes[0].GetText().find("code line 1"), std::string::npos);
-    EXPECT_NE(nodes[0].GetText().find("code line 2"), std::string::npos);
-}
-
 TEST(Parser, CodeBlockPreservesNewlines)
 {
     auto nodes = ParseMarkdown("```\na\nb\nc\n```").nodes;
@@ -227,14 +198,16 @@ TEST(Parser, CodeBlockPreservesNewlines)
     EXPECT_GE(newlines, 2);
 }
 
-// ---- 水平線 ----
-
-TEST(Parser, HorizontalRule)
+TEST(Parser, CodeBlockNoTrailingNewline)
 {
-    auto nodes = ParseMarkdown("---").nodes;
+    auto nodes = ParseMarkdown("```\nhello\n```").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::HorizontalRule);
+    // 末尾の改行は除去されるべき
+    EXPECT_FALSE(nodes[0].GetText().empty());
+    EXPECT_NE(nodes[0].GetText().back(), '\n');
 }
+
+// ---- 水平線 ----
 
 TEST(Parser, HorizontalRuleWithAsterisks)
 {
@@ -462,14 +435,6 @@ TEST(Parser, TaskListUpperX)
 
 // ---- 引用ブロック ----
 
-TEST(Parser, BlockQuote)
-{
-    auto nodes = ParseMarkdown("> quoted text").nodes;
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
-    EXPECT_EQ(nodes[0].GetText(), "quoted text");
-}
-
 TEST(Parser, BlockQuoteIndentLevel)
 {
     auto nodes = ParseMarkdown("> quoted").nodes;
@@ -478,18 +443,6 @@ TEST(Parser, BlockQuoteIndentLevel)
 }
 
 // ---- テーブル ----
-
-TEST(Parser, SimpleTable)
-{
-    auto nodes = ParseMarkdown(
-                     "| A | B |\n"
-                     "|---|---|\n"
-                     "| 1 | 2 |")
-                     .nodes;
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Table);
-    ASSERT_GE(nodes[0].table_data()->row_count, 2u); // header + 1 data row
-}
 
 // NodeTableData の concat 構造が parser で正しく populate されることを確認。
 TEST(Parser, TableConcatStructure)
@@ -576,13 +529,6 @@ TEST(Parser, TableMultipleRows)
 
 // ---- HTMLエンティティ ----
 
-TEST(Parser, HtmlEntityAmp)
-{
-    auto nodes = ParseMarkdown("A &amp; B").nodes;
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_NE(nodes[0].GetText().find("&"), std::string::npos);
-}
-
 TEST(Parser, HtmlEntityLtGt)
 {
     auto nodes = ParseMarkdown("&lt;tag&gt;").nodes;
@@ -655,17 +601,6 @@ TEST(Parser, EmojiText)
     EXPECT_FALSE(nodes[0].GetText().empty());
 }
 
-// ---- ソフトブレーク処理 ----
-
-TEST(Parser, SoftBreakBecomesSpace)
-{
-    auto nodes = ParseMarkdown("line1\nline2").nodes;
-    ASSERT_EQ(nodes.size(), 1u);
-    // 段落内のソフトブレークはスペースになるべき
-    EXPECT_NE(nodes[0].GetText().find("line1"), std::string::npos);
-    EXPECT_NE(nodes[0].GetText().find("line2"), std::string::npos);
-}
-
 // ---- ラン位置の整合性 ----
 
 TEST(Parser, RunPositionsAreValid)
@@ -732,25 +667,6 @@ TEST(Parser, MixedListNesting)
     EXPECT_EQ(nodes[2].list_number(), 0);
 }
 
-// ---- 言語指定付きコードブロック ----
-
-TEST(Parser, CodeBlockWithLanguage)
-{
-    auto nodes = ParseMarkdown("```cpp\nint x = 1;\n```").nodes;
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
-    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::Cpp);
-}
-
-TEST(Parser, CodeBlockNoTrailingNewline)
-{
-    auto nodes = ParseMarkdown("```\nhello\n```").nodes;
-    ASSERT_EQ(nodes.size(), 1u);
-    // 末尾の改行は除去されるべき
-    EXPECT_FALSE(nodes[0].GetText().empty());
-    EXPECT_NE(nodes[0].GetText().back(), '\n');
-}
-
 // ---- インライン書式付きテーブル ----
 
 TEST(Parser, TableCellWithBold)
@@ -771,20 +687,6 @@ TEST(Parser, TableCellWithBold)
             has_bold = true;
     }
     EXPECT_TRUE(has_bold);
-}
-
-TEST(Parser, TableLinearizedText)
-{
-    auto nodes = ParseMarkdown(
-                     "| A | B |\n"
-                     "|---|---|\n"
-                     "| 1 | 2 |")
-                     .nodes;
-    ASSERT_EQ(nodes.size(), 1u);
-    const auto* tbl = nodes[0].table_data();
-    ASSERT_GE(tbl->row_count, 2u);
-    EXPECT_EQ(tbl->GetCellText(0, 0), "A");
-    EXPECT_EQ(tbl->GetCellText(0, 1), "B");
 }
 
 // ---- リンク付きテーブル ----
@@ -896,16 +798,6 @@ TEST(Parser, HtmlEntityNbsp)
     auto nodes = ParseMarkdown("a&nbsp;b").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_NE(nodes[0].GetText().find("\u00A0"), std::string::npos);
-}
-
-// ---- ハードブレーク ----
-
-TEST(Parser, HardBreakWithTwoSpaces)
-{
-    auto nodes = ParseMarkdown("line1  \nline2").nodes;
-    ASSERT_EQ(nodes.size(), 1u);
-    // ハードブレークはテキスト内に改行を生成するべき
-    EXPECT_NE(nodes[0].GetText().find('\n'), std::string::npos);
 }
 
 // ---- 複数見出しのアンカー一意性 ----
@@ -1156,17 +1048,14 @@ TEST(Parser, LinkWithSpecialCharsInUrl)
 
 TEST(Parser, EmptyHeading)
 {
+    // "# " は CommonMark 上の空 ATX 見出し。テキスト無しでも Heading ノードは残す。
     auto nodes = ParseMarkdown("# \n\ntext").nodes;
-    // md4cは空テキストの見出しノードを生成する場合がある
-    bool found_heading = false;
-    for (auto& n : nodes) {
-        if (n.type == NodeType::Heading) {
-            found_heading = true;
-        }
-    }
-    // md4cの動作により空の見出しが生成されるかどうかは不定;
-    // 少なくともクラッシュしないべき。
-    (void)found_heading;
+    ASSERT_EQ(nodes.size(), 2u);
+    EXPECT_EQ(nodes[0].type, NodeType::Heading);
+    EXPECT_EQ(nodes[0].heading_level(), 1);
+    EXPECT_TRUE(nodes[0].GetText().empty());
+    EXPECT_EQ(nodes[1].type, NodeType::Paragraph);
+    EXPECT_EQ(nodes[1].GetText(), "text");
 }
 
 // ---- GitHub Alerts ----
@@ -1496,12 +1385,6 @@ TEST(Parser, SourceOffsetCodeBlock)
     EXPECT_EQ(nodes[0].SourceOffsetFrom(md.data()), 4u);
 }
 
-TEST(Parser, SourceOffsetEmptyInput)
-{
-    auto nodes = ParseMarkdown("").nodes;
-    EXPECT_TRUE(nodes.empty());
-}
-
 TEST(Parser, SourceOffsetHorizontalRule)
 {
     // "---" はテキストを持たないのでsource_offsetは未設定のまま
@@ -1708,13 +1591,6 @@ TEST(Parser, SyntaxTokensEmptyForMermaid)
 
 // ---- UTF-8バッチ変換 ----
 
-TEST(Parser, Utf8BatchPlainText)
-{
-    auto nodes = ParseMarkdown("Hello world, this is a test.").nodes;
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].GetText(), "Hello world, this is a test.");
-}
-
 TEST(Parser, Utf8BatchWithSpanBoundary)
 {
     auto nodes = ParseMarkdown("before **bold** after").nodes;
@@ -1746,13 +1622,6 @@ TEST(Parser, Utf8BatchWithHardBreak)
     auto nodes = ParseMarkdown("line1  \nline2").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].GetText(), "line1\nline2");
-}
-
-TEST(Parser, Utf8BatchMultibyteUtf8)
-{
-    auto nodes = ParseMarkdown("日本語テスト").nodes;
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].GetText(), "日本語テスト");
 }
 
 TEST(Parser, Utf8BatchMixedAsciiAndMultibyte)

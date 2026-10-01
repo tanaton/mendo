@@ -64,6 +64,7 @@ public:
 
     int Show(HWND owner_hwnd, const ContextMenuParams& params);
 
+    // 無効項目・区切り上は 0。
     int HitTest(float x, float y) const noexcept;
     int NavHitTest(float x, float y) const noexcept;
 

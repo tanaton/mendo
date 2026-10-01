@@ -114,8 +114,9 @@ constexpr int HitTestUniformList(float local_y, float item_height, size_t count)
 }
 
 // 指定項目をペイン表示域の縦中央に置くスクロール位置。先頭/末尾付近は端にクランプする (issue#259)。
-constexpr float CenterPaneScrollY(float item_y, float item_height, const PaneScrollInfo& info) noexcept
+constexpr float CenterPaneScrollOnItem(size_t index, float item_height, const PaneScrollInfo& info) noexcept
 {
+    const float item_y = SidePaneContentHeight(index, item_height);
     return std::clamp(item_y - (info.content_height - item_height) * 0.5f, 0.0f, info.max_scroll);
 }
 

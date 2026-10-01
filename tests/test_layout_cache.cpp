@@ -98,15 +98,7 @@ TEST(LayoutCacheTest, RecomputeYPositionsEarlyExitKeepsTextTop)
     LayoutCache cache;
     cache.Resize(8);
 
-    Theme theme{};
-    theme.margin_top = 5.0f;
-    theme.paragraph_spacing = 4.0f;
-    theme.font_size_body = 14.0f;
-    theme.font_size_code = 12.0f;
-    for (int i = 0; i < 6; ++i) {
-        theme.font_size_h[i] = 18.0f - static_cast<float>(i);
-    }
-    theme.list_item_spacing = 3.0f;
+    const Theme theme = MakeLayoutTestTheme();
 
     std::pmr::vector<Node> nodes;
     nodes.resize(8);
@@ -123,7 +115,7 @@ TEST(LayoutCacheTest, RecomputeYPositionsEarlyExitKeepsTextTop)
 
     // safe_exit_after=2 で、index >= 3 のノードについて text_top と y が一致なら早期終了。
     // EstimateNodeHeights 直後なので一致するはず → 早期終了経路を通る。
-    mendo::layout::RecomputeYPositions(nodes, cache, theme, 0, false, 2);
+    mendo::layout::RecomputeYPositions(nodes, cache, theme, 0, 2);
 
     for (size_t i = 0; i < cache.size(); ++i) {
         EXPECT_FLOAT_EQ(cache.Top(i), expected[i]) << "after early-exit, index " << i;

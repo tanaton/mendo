@@ -1,8 +1,14 @@
 #pragma once
+#include <gtest/gtest.h>
+#include "layout.h"
 #include "layout_computer.h"
+#include "parsed_layout.h"
 #include "text_measurer.h"
+#include "theme.h"
 #include "ui_constants.h"
 #include <cmath>
+#include <memory_resource>
+#include <string_view>
 
 // DirectWriteなしでLayoutEngineをテストするためのモックテキスト計測器。
 // テキスト長とノード種別から高さを決定論的に計算する。
@@ -27,7 +33,7 @@ public:
 
     void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
                      std::pmr::vector<SyntaxToken>* /*tokens_out*/ = nullptr,
-                     MeasureViewportRange viewport = {}) const override
+                     MeasureViewportRange /*viewport*/ = {}) const override
     {
         if (node.type == NodeType::HorizontalRule) {
             entry.height = 10.0f;
@@ -35,7 +41,7 @@ public:
             return;
         }
         if (node.type == NodeType::Table) {
-            MeasureTable(node, entry, max_width, viewport);
+            MeasureTable(node, entry, max_width);
             return;
         }
 
@@ -88,8 +94,8 @@ public:
         entry.effects_applied = false;
     }
 
-    void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width,
-                      MeasureViewportRange /*viewport*/ = {}) const override
+private:
+    void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) const
     {
         const auto* tbl = node.table_data();
         if (!tbl || tbl->row_count == 0) {
@@ -123,4 +129,26 @@ public:
         entry.height = total;
         entry.layout_dirty = false;
     }
+};
+
+// MockTextMeasurer + LayoutEngine のフィクスチャ基底。ParseAndLayout は DWriteTestBase と同じ API。
+class MockLayoutTestBase : public ::testing::Test {
+protected:
+    MockTextMeasurer mock_;
+    LayoutEngine engine_;
+    Theme theme_;
+
+    void SetUp() override
+    {
+        theme_ = GetLightTheme();
+        ASSERT_TRUE(engine_.Init(&mock_, theme_));
+    }
+
+    ParsedLayout ParseAndLayout(std::string_view md, float viewport_w = 800.0f)
+    {
+        return sources_.ParseAndLayout(engine_, md, viewport_w);
+    }
+
+private:
+    LayoutSourceStore sources_;
 };

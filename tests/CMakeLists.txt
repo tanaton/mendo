@@ -96,12 +96,6 @@ target_compile_definitions(mendo_tests PRIVATE MENDO_TESTING)
 # u8 リテラルで定義し、std::filesystem::path(const char8_t*) に直接渡せるようにする (UTF-8 保証)。
 target_compile_definitions(mendo_tests PRIVATE "MENDO_EXAMPLE_DIR=u8\"${CMAKE_SOURCE_DIR}/example\"")
 
-if(MSVC)
-    # /Zc:preprocessor: profiler.h の __VA_OPT__ 系マクロが mendo_core 経由で
-    # テスト TU にも展開されるため必須。
-    target_compile_options(mendo_tests PRIVATE /W4 /utf-8 /Zc:preprocessor)
-endif()
-
 # ---- プリコンパイル済みヘッダー ----
 # `<test_pch.h>` 形式は日本語パス + `/utf-8` 衝突回避のため。tests/ を include path に追加する必要がある。
 target_include_directories(mendo_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

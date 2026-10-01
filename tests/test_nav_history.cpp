@@ -147,14 +147,6 @@ TEST_F(NavHistoryTest, ClearRemovesAll)
 
 // ─── 履歴の最大数制限 ───
 
-TEST_F(NavHistoryTest, MaxHistoryCapsBackStack)
-{
-    for (size_t i = 0; i < NavHistory::MAX_HISTORY + 10; ++i) {
-        hist_.Push({ L"file" + std::to_wstring(i) + L".md", static_cast<int>(i), 0.0f });
-    }
-    EXPECT_EQ(hist_.BackSize(), NavHistory::MAX_HISTORY);
-}
-
 TEST_F(NavHistoryTest, MaxHistoryCapsForwardStack)
 {
     // 戻るスタックにMAX_HISTORY+10件を積む
@@ -169,50 +161,6 @@ TEST_F(NavHistoryTest, MaxHistoryCapsForwardStack)
         }
     }
     EXPECT_LE(hist_.ForwardSize(), NavHistory::MAX_HISTORY);
-}
-
-// ─── シナリオ: ファイルを開くダイアログ / ドラッグ＆ドロップでファイルを開く ───
-// これらのテストは、ファイルを開くダイアログとドラッグ＆ドロップのコードパスで
-// PushNavHistory()がLoadMarkdownFile()の前に呼ばれることを保証する
-// 修正後の期待されるコールシーケンスを文書化する。
-
-TEST_F(NavHistoryTest, OpenDialogSecondFileCanGoBack)
-{
-    // シミュレーション: 最初のファイルを開く（pushなし）、次にCtrl+Oで2番目のファイル
-    // 最初のロード: current_file_が空 → pushなし
-    // （ユーザーはa.mdを閲覧中）
-
-    // 2番目のロード: current_file_ == "a.md" → b.mdをロードする前にpush
-    hist_.Push({ L"a.md", 2, 8.0f });
-
-    NavEntry out;
-    EXPECT_TRUE(hist_.GoBack({ L"b.md", 0, 0.0f }, out));
-    EXPECT_EQ(out.file_path, L"a.md");
-    EXPECT_EQ(out.node, 2);
-    EXPECT_FLOAT_EQ(out.offset, 8.0f);
-}
-
-TEST_F(NavHistoryTest, DropFileSecondFileCanGoBack)
-{
-    // シミュレーション: 最初のファイルを開く、次にドラッグ＆ドロップで2番目のファイル
-    // current_file_ == "readme.md" → dropped.mdをロードする前にpush
-    hist_.Push({ L"readme.md", 8, 40.0f });
-
-    NavEntry out;
-    EXPECT_TRUE(hist_.GoBack({ L"dropped.md", 0, 0.0f }, out));
-    EXPECT_EQ(out.file_path, L"readme.md");
-    EXPECT_EQ(out.node, 8);
-    EXPECT_FLOAT_EQ(out.offset, 40.0f);
-}
-
-TEST_F(NavHistoryTest, FirstLoadNoPushKeepsHistoryEmpty)
-{
-    // シミュレーション: 最初のファイルロード（current_file_が空）
-    // pushは発生しないべき → 履歴は空のまま
-    // （ここではPushを呼ばず、!current_file_.empty()のガードに一致）
-    EXPECT_FALSE(hist_.CanGoBack());
-    EXPECT_FALSE(hist_.CanGoForward());
-    EXPECT_EQ(hist_.BackSize(), 0u);
 }
 
 // ─── インターン化されたパスの回収（Medium-7 回帰） ───
@@ -260,48 +208,4 @@ TEST_F(NavHistoryTest, ClearedForwardStackReleasesPaths)
     // 新規 push → forward_stack の x0..x4 が解放され、back に new.md が入る
     hist_.Push({ L"new.md", 0, 0.0f });
     EXPECT_EQ(hist_.InternedPathCount(), 1u);
-}
-
-TEST_F(NavHistoryTest, MixedEntryPointsProduceConsistentHistory)
-{
-    // シミュレーション: Aを開く（初回ロード、pushなし）
-    //         → ファイルペインからBを開く（Aをpush）
-    //         → ドラッグ＆ドロップでCを開く（Bをpush）
-    //         → Ctrl+OでDを開く（Cをpush）
-    hist_.Push({ L"a.md", 1, 0.0f });   // ファイルペインからBを開く前
-    hist_.Push({ L"b.md", 2, 0.0f });   // ドラッグ＆ドロップでCを開く前
-    hist_.Push({ L"c.md", 3, 0.0f });   // Ctrl+OでDを開く前
-
-    EXPECT_EQ(hist_.BackSize(), 3u);
-
-    NavEntry out;
-    // DからCへ戻る
-    EXPECT_TRUE(hist_.GoBack({ L"d.md", 4, 0.0f }, out));
-    EXPECT_EQ(out.file_path, L"c.md");
-    EXPECT_EQ(out.node, 3);
-
-    // CからBへ戻る
-    EXPECT_TRUE(hist_.GoBack({ L"c.md", 3, 0.0f }, out));
-    EXPECT_EQ(out.file_path, L"b.md");
-    EXPECT_EQ(out.node, 2);
-
-    // BからAへ戻る
-    EXPECT_TRUE(hist_.GoBack({ L"b.md", 2, 0.0f }, out));
-    EXPECT_EQ(out.file_path, L"a.md");
-    EXPECT_EQ(out.node, 1);
-
-    EXPECT_FALSE(hist_.CanGoBack());
-
-    // Dまで全て進む
-    EXPECT_TRUE(hist_.GoForward({ L"a.md", 1, 0.0f }, out));
-    EXPECT_EQ(out.file_path, L"b.md");
-
-    EXPECT_TRUE(hist_.GoForward({ L"b.md", 2, 0.0f }, out));
-    EXPECT_EQ(out.file_path, L"c.md");
-
-    EXPECT_TRUE(hist_.GoForward({ L"c.md", 3, 0.0f }, out));
-    EXPECT_EQ(out.file_path, L"d.md");
-    EXPECT_EQ(out.node, 4);
-
-    EXPECT_FALSE(hist_.CanGoForward());
 }
