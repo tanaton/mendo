@@ -147,6 +147,7 @@ add_library(mendo_core STATIC
     # context_menu.cpp は Win32/D2D 描画層（本体）と logic 層（mendo_core 入り）に
     # 分割されており、logic 側のみを mendo_core に含める。
     src/ui/context_menu_logic.cpp
+    src/ui/darkmode_util.cpp
     src/ui/pane_layout.cpp
     src/ui/pane_controller.cpp
     src/ui/search_state.cpp
@@ -232,13 +233,12 @@ add_executable(mendo WIN32
     src/app/app.cpp
     src/app/app_init.cpp
     src/app/app_file.cpp
-    src/app/app_scroll.cpp
+    src/app/app_layout.cpp
     src/app/app_mouse.cpp
     src/app/app_mouse_click.cpp
     src/app/app_mouse_hover.cpp
-    src/app/app_navigate.cpp
+    src/app/app_theme.cpp
     src/app/app_context_menu.cpp
-    src/app/app_clipboard.cpp
     src/app/app_side_effect_callbacks.cpp
     src/app/app_resource_manager_callbacks.cpp
     src/app/app_search_bar_callbacks.cpp

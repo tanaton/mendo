@@ -19,7 +19,6 @@ uint64_t CombinedHash(std::string_view code, int max_width_int, bool dark_mode) 
 
 int ComputeWorkerCount(unsigned int processor_count) noexcept;
 int QuantizeWidth(float max_width) noexcept;
-uint64_t HashCode(std::string_view code, float max_width, bool dark_mode) noexcept;
 float ParseJsonNumber(std::wstring_view json, std::wstring_view key) noexcept;
 bool ParseJsonTrueFlag(std::wstring_view json, std::wstring_view key) noexcept;
 

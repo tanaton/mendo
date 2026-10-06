@@ -4,10 +4,8 @@
 #include "app_state_queries.h"
 #include "side_effect.h"
 
-// reducer.cpp の std::visit ディスパッチから各ドメイン (reducer_scroll.cpp /
-// reducer_input.cpp / reducer_navigation.cpp / reducer_ui.cpp / reducer_system.cpp)
-// の Reduce* 関数を呼ぶための内部宣言。reducer_internal.h は app 内専用で、
-// 公開 API (reducer.h) には含めない。
+// reducer.cpp の std::visit ディスパッチから各ドメインの Reduce* 関数を呼ぶための内部宣言。
+// app 内専用で、公開 API (reducer.h) には含めない。
 
 // ---- 複数ドメイン横断の共有ヘルパー (定義は reducer.cpp) ----
 
@@ -41,7 +39,7 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
 void ReduceBlockHHoverChanged(AppState& state, SideEffectList& effects, const BlockHHoverChangedAction& a);
 void ReduceBlockHScrollDragStarted(AppState& state, SideEffectList& effects, const BlockHScrollDragStartedAction& a);
 void ReduceBlockHScrollDragMoved(AppState& state, SideEffectList& effects, const BlockHScrollDragMovedAction& a);
-void ReduceBlockHScrollDragEnded(AppState& state, SideEffectList& effects, const BlockHScrollDragEndedAction& a);
+void ReduceBlockHScrollDragEnded(AppState& state, SideEffectList& effects);
 
 // ---- 検索 (reducer_search.cpp) ----
 
@@ -51,6 +49,8 @@ void ReduceSearchDebounce(AppState& state, SideEffectList& effects);
 
 // ---- 入力・マウス (reducer_input.cpp) ----
 
+void ReduceMouseLeave(AppState& state, SideEffectList& effects);
+void ReduceUpdateTooltip(const AppState& state, SideEffectList& effects, const UpdateTooltipAction& a);
 void ReduceCaptureChanged(AppState& state, SideEffectList& effects);
 void ReduceMdPaneNavHover(AppState& state, SideEffectList& effects, const MdPaneNavHoverAction& a);
 void ReduceMdPaneButtonHoverChanged(AppState& state, SideEffectList& effects, const MdPaneButtonHoverChangedAction& a);
@@ -82,7 +82,7 @@ void ReduceFilePaneFileClicked(AppState& state, SideEffectList& effects, const F
 void ReduceFilePaneRevealCurrentFile(AppState& state, SideEffectList& effects);
 void ReduceTocItemClicked(AppState& state, SideEffectList& effects, const TocItemClickedAction& a);
 void ReduceNavigateAnchor(AppState& state, SideEffectList& effects, const NavigateAnchorAction& a);
-void ReduceRestoreScrollAfterLoad(AppState& state, SideEffectList& effects, const RestoreScrollAfterLoadAction& a);
+void ReduceRestoreScrollAfterLoad(AppState& state, const RestoreScrollAfterLoadAction& a);
 void ReduceDropFiles(AppState& state, SideEffectList& effects, const DropFilesAction& a);
 void ReduceShowHelp(AppState& state, SideEffectList& effects);
 
@@ -101,5 +101,6 @@ void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a);
 void ReduceToggleDarkMode(AppState& state, SideEffectList& effects);
 void ReduceActivate(AppState& state, SideEffectList& effects, const ActivateAction& a);
 void ReduceResize(AppState& state, SideEffectList& effects, const ResizeAction& a);
+void ReduceExitSizeMove(AppState& state, SideEffectList& effects);
 void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChangedAction& a);
 void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a);

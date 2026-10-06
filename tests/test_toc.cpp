@@ -2,6 +2,7 @@
 #include <memory_resource>
 #include "document_test_helpers.h"
 #include "toc.h"
+#include "layout_cache.h"
 #include "parser.h"
 
 TEST(Toc, EmptyDocument)

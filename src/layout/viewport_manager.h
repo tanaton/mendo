@@ -57,8 +57,7 @@ public:
     // ユーザー発のピクセルスクロール。scroll_target を無効化する。
     constexpr void DirectScrollBy(float delta) noexcept
     {
-        scroll_y_ = std::clamp(scroll_y_ + delta, 0.0f, max_scroll_);
-        scroll_target_ = {};
+        ScrollTo(scroll_y_ + delta);
     }
 
     constexpr void SyncMaxScroll(float total_height, float viewport_height) noexcept
@@ -71,6 +70,8 @@ public:
     // 表示可能なノードが存在しない場合は-1を返す。
     constexpr int FindFirstVisibleNode(const LayoutCache& cache, size_t node_count) const noexcept
     {
+        // node_count > cache.size() の過渡状態に備えて effective に揃えてから渡す。
+        // 「該当なし」のときは FindFirstVisibleNodeIndex が effective を返す契約。
         const size_t effective = std::min(node_count, cache.size());
         const int idx = FindFirstVisibleNodeIndex(cache, effective, scroll_y_);
         return idx < static_cast<int>(effective) ? idx : -1;
@@ -112,11 +113,7 @@ public:
         if (scroll_target_.IsValid()) {
             return;
         }
-        // node_count > cache.size() の過渡状態に備えて effective に揃えてから渡す。
-        // 「該当なし」のときは FindFirstVisibleNodeIndex が effective を返す契約。
-        const size_t effective = std::min(node_count, cache.size());
-        const int idx = FindFirstVisibleNodeIndex(cache, effective, scroll_y_);
-        if (idx < static_cast<int>(effective)) {
+        if (const int idx = FindFirstVisibleNode(cache, node_count); idx >= 0) {
             scroll_target_ = { idx, scroll_y_ - cache.Top(static_cast<size_t>(idx)) };
         }
     }

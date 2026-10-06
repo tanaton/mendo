@@ -1,7 +1,6 @@
 #include "document_service.h"
 #include "app_constants.h"
 #include "file_io.h"
-#include "file_loader.h"
 #include "profiler.h"
 
 std::expected<Document, FileLoadError> DocumentService::LoadFile(const std::pmr::wstring& path, std::stop_token stop_token)

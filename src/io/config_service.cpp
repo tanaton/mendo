@@ -16,6 +16,7 @@
 // 既存の ini ファイル下位互換が要求されるため値の変更は禁止。
 namespace {
 using namespace std::literals;
+constexpr auto kSettingsFile = L"settings.ini"sv;
 constexpr auto kSectionSession = "Session"sv;
 constexpr auto kKeyLastFile = "LastFile"sv;
 constexpr auto kKeyScrollNode = "ScrollNode"sv;
@@ -79,7 +80,7 @@ std::filesystem::path ConfigService::GetConfigPath(std::wstring_view filename) c
 
 void ConfigService::Load()
 {
-    const auto ini_path = GetConfigPath(L"settings.ini");
+    const auto ini_path = GetConfigPath(kSettingsFile);
     if (ini_path.empty()) {
         return;
     }
@@ -97,7 +98,7 @@ void ConfigService::Load()
 
 void ConfigService::Flush()
 {
-    const auto ini_path = GetConfigPath(L"settings.ini");
+    const auto ini_path = GetConfigPath(kSettingsFile);
     if (ini_path.empty()) {
         return;
     }
@@ -124,9 +125,14 @@ const std::string* ConfigService::FindValue(std::string_view section, std::strin
     return &kit->second;
 }
 
+void ConfigService::StoreValue(std::string_view section, std::string_view key, std::string value)
+{
+    data_[std::string(section)][std::string(key)] = std::move(value);
+}
+
 void ConfigService::SaveBool(std::string_view section, std::string_view key, bool value)
 {
-    data_[std::string(section)][std::string(key)] = value ? "1" : "0";
+    StoreValue(section, key, value ? "1" : "0");
 }
 
 bool ConfigService::LoadBool(std::string_view section, std::string_view key, bool default_value) const
@@ -137,7 +143,7 @@ bool ConfigService::LoadBool(std::string_view section, std::string_view key, boo
 
 void ConfigService::SaveInt(std::string_view section, std::string_view key, int value)
 {
-    data_[std::string(section)][std::string(key)] = std::to_string(value);
+    StoreValue(section, key, std::to_string(value));
 }
 
 int ConfigService::LoadInt(std::string_view section, std::string_view key, int def, int min_v, int max_v) const
@@ -160,7 +166,7 @@ int ConfigService::LoadInt(std::string_view section, std::string_view key, int d
 
 void ConfigService::SaveWString(std::string_view section, std::string_view key, std::wstring_view value)
 {
-    data_[std::string(section)][std::string(key)] = string_convert::WideToUtf8(value);
+    StoreValue(section, key, string_convert::WideToUtf8(value));
 }
 
 std::pmr::wstring ConfigService::LoadWString(std::string_view section, std::string_view key) const

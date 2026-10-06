@@ -1,4 +1,3 @@
-#include "command_generator.h"
 #include "command_generator_internal.h"
 #include "profiler.h"
 #include <algorithm>
@@ -6,32 +5,37 @@
 #include <ranges>
 #include <utility>
 
+std::span<const DWRITE_HIT_TEST_METRICS> CommandGenerator::HitTestRange(IDWriteTextLayout* layout, uint32_t start, uint32_t length)
+{
+    assert(hit_test_buffer_ && "SetHitTestBuffer must be called before GenerateMdPane");
+    MENDO_COUNT_INC(g_cmd_gen_stats.hittest_range);
+    const UINT32 count = FetchHitTestMetrics(layout, start, length, *hit_test_buffer_);
+    return { hit_test_buffer_->data(), count };
+}
+
+void CommandGenerator::EmitFillRectIfVisible(DrawCommandList& cmds, const D2D1_RECT_F& r, D2D1_COLOR_F color, BrushId brush)
+{
+    if (OverlapsY(r, cull_top_, cull_bottom_)) {
+        cmds.emplace_back(FillRectCmd{ r, color, brush });
+    }
+}
+
 void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y)
 {
     if (!layout || length == 0) {
         return;
     }
-    assert(hit_test_buffer_ && "SetHitTestBuffer must be called before GenerateMdPane");
-    auto& buf = *hit_test_buffer_;
-    MENDO_COUNT_INC(g_cmd_gen_stats.hittest_range);
-    const UINT32 count = FetchHitTestMetrics(layout, start, length, buf);
-    for (UINT32 i = 0; i < count; i++) {
-        const auto r = RectFromHitTest(buf[i], origin_x, origin_y);
-        if (OverlapsY(r, cull_top_, cull_bottom_)) {
-            cmds.emplace_back(FillRectCmd{ r, SELECTION_COLOR, BrushId::Selection });
-        }
+    for (const auto& m : HitTestRange(layout, start, length)) {
+        EmitFillRectIfVisible(cmds, RectFromHitTest(m, origin_x, origin_y), SELECTION_COLOR, BrushId::Selection);
     }
 }
 
 void CommandGenerator::CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::pmr::vector<D2D1_RECT_F>& out)
 {
-    assert(hit_test_buffer_ && "SetHitTestBuffer must be called before GenerateMdPane");
-    auto& buf = *hit_test_buffer_;
-    MENDO_COUNT_INC(g_cmd_gen_stats.hittest_range);
-    const UINT32 count = FetchHitTestMetrics(layout, start, length, buf);
-    out.reserve(out.size() + count);
-    for (UINT32 i = 0; i < count; i++) {
-        out.emplace_back(RectFromHitTest(buf[i]));
+    const auto metrics = HitTestRange(layout, start, length);
+    out.reserve(out.size() + metrics.size());
+    for (const auto& m : metrics) {
+        out.emplace_back(RectFromHitTest(m));
     }
 }
 
@@ -59,10 +63,7 @@ void CommandGenerator::GenSelectionHighlightCached(DrawCommandList& cmds, const 
         MENDO_COUNT_INC(g_cmd_gen_stats.sel_hl_cache_hit);
     }
     for (const auto& local : cache.rects) {
-        const auto r = OffsetRectF(local, origin_x, origin_y);
-        if (OverlapsY(r, cull_top_, cull_bottom_)) {
-            cmds.emplace_back(FillRectCmd{ r, SELECTION_COLOR, BrushId::Selection });
-        }
+        EmitFillRectIfVisible(cmds, OffsetRectF(local, origin_x, origin_y), SELECTION_COLOR, BrushId::Selection);
     }
 }
 
@@ -150,8 +151,7 @@ void CommandGenerator::EmitSearchHlCommands(
 
     for (size_t node_mi = begin; node_mi < end; ++node_mi) {
         const size_t mi = first_global + node_mi;
-        const auto& m = matches[mi];
-        if (table_row < 0 && m.table_row >= 0) {
+        if (table_row < 0 && matches[mi].table_row >= 0) {
             continue;
         }
 
@@ -162,10 +162,7 @@ void CommandGenerator::EmitSearchHlCommands(
         const D2D1_COLOR_F color = is_current ? theme_->search_highlight_current_color : theme_->search_highlight_color;
         const BrushId hl_brush = is_current ? BrushId::SearchHighlightCurrent : BrushId::SearchHighlight;
         for (uint32_t k = rb; k < re; ++k) {
-            const auto r = OffsetRectF(cache.rects[k], origin_x, origin_y);
-            if (OverlapsY(r, cull_top_, cull_bottom_)) {
-                cmds.emplace_back(FillRectCmd{ r, color, hl_brush });
-            }
+            EmitFillRectIfVisible(cmds, OffsetRectF(cache.rects[k], origin_x, origin_y), color, hl_brush);
         }
     }
 }

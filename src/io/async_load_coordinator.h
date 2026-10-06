@@ -1,7 +1,6 @@
 #pragma once
 #include "async_load_result.h"
 #include "file_loader.h"
-#include "task_scheduler.h"
 #include "worker_latch.h"
 #include <atomic>
 #include <cstdint>
@@ -14,6 +13,7 @@
 #include <windows.h>
 
 struct Theme;
+class TaskScheduler;
 
 // gen による cancellation、mutex 保護の result/error sink、in_flight フラグを 1 クラスに閉じる。
 // 全 public API は UI スレッドからのみ呼ぶ前提 (in_flight_ は非 atomic)。
@@ -55,6 +55,14 @@ public:
     }
 
 private:
+    // worker スレッド本体。I/O → リロード差分判定 → Parse → Estimate の各段で gen/stop を確認する。
+    void RunWorker(const std::pmr::wstring& path, uint32_t gen, const Theme& theme, const std::stop_token& stop_token,
+                   std::shared_ptr<const std::pmr::string> reload_base, HWND hwnd, UINT msg_id);
+    bool IsStale(uint32_t gen) const noexcept
+    {
+        return gen_.load(std::memory_order_relaxed) != gen;
+    }
+
     // sink を swap-out して lock 解放後に破棄する。100MB 級の Document/LayoutCache の
     // destruction を mutex 保持時間に乗せないため。
     void ResetSinks() noexcept;

@@ -4,14 +4,23 @@
 #include "resource.h"
 #include "ui_constants.h"
 #include "scope_guard.h"
-#include <cmath>
+#include <algorithm>
 #include <mutex>
 #include <windowsx.h>
 
 using Microsoft::WRL::ComPtr;
 using namespace context_menu_constants;
 
-static constexpr wchar_t kContextMenuClass[] = L"mendoContextMenu";
+namespace {
+
+constexpr wchar_t kContextMenuClass[] = L"mendoContextMenu";
+
+DipPoint DipPointFromLParam(LPARAM lParam, float dpi_scale) noexcept
+{
+    return PixelToDip(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), dpi_scale);
+}
+
+} // namespace
 
 bool ContextMenu::Impl::RegisterWindowClass()
 {
@@ -53,10 +62,7 @@ bool ContextMenu::Impl::CreatePopupWindow(int screen_x, int screen_y)
     if (!RegisterWindowClass()) {
         return false;
     }
-    if (hwnd) {
-        DestroyWindow(hwnd);
-        hwnd = nullptr;
-    }
+    DestroyPopupWindow();
     rt.Reset();
 
     const int pixel_w = DipToPixelCeil(menu_width, dpi_scale);
@@ -67,20 +73,9 @@ bool ContextMenu::Impl::CreatePopupWindow(int screen_x, int screen_y)
     MONITORINFO mi = { sizeof(mi) };
     GetMonitorInfoW(monitor, &mi);
 
-    int x = screen_x;
-    int y = screen_y;
-    if (x + pixel_w > mi.rcWork.right) {
-        x = mi.rcWork.right - pixel_w;
-    }
-    if (y + pixel_h > mi.rcWork.bottom) {
-        y = mi.rcWork.bottom - pixel_h;
-    }
-    if (x < mi.rcWork.left) {
-        x = mi.rcWork.left;
-    }
-    if (y < mi.rcWork.top) {
-        y = mi.rcWork.top;
-    }
+    // 作業領域より大きいメニューは左上端を優先する (std::clamp は lo > hi で使えない)。
+    const int x = std::max(std::min(screen_x, static_cast<int>(mi.rcWork.right) - pixel_w), static_cast<int>(mi.rcWork.left));
+    const int y = std::max(std::min(screen_y, static_cast<int>(mi.rcWork.bottom) - pixel_h), static_cast<int>(mi.rcWork.top));
 
     hwnd = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
@@ -94,8 +89,7 @@ bool ContextMenu::Impl::CreatePopupWindow(int screen_x, int screen_y)
     }
 
     if (!CreateDeviceResources()) {
-        DestroyWindow(hwnd);
-        hwnd = nullptr;
+        DestroyPopupWindow();
         return false;
     }
 
@@ -161,9 +155,8 @@ int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
 
     if (s.hwnd) {
         ReleaseCapture();
-        DestroyWindow(s.hwnd);
-        s.hwnd = nullptr;
     }
+    s.DestroyPopupWindow();
     s.rt.Reset();
 
     return s.selected_id;
@@ -181,9 +174,7 @@ LRESULT ContextMenu::Impl::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     }
 
     case WM_MOUSEMOVE: {
-        const float x = PixelToDip(static_cast<float>(GET_X_LPARAM(lParam)), dpi_scale);
-        const float y = PixelToDip(static_cast<float>(GET_Y_LPARAM(lParam)), dpi_scale);
-
+        const auto [x, y] = DipPointFromLParam(lParam, dpi_scale);
         const int old_hovered = hovered_id;
         const int old_nav = hovered_nav;
 
@@ -198,18 +189,14 @@ LRESULT ContextMenu::Impl::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_LBUTTONDOWN:
     case WM_RBUTTONDOWN: {
-        const float x = PixelToDip(static_cast<float>(GET_X_LPARAM(lParam)), dpi_scale);
-        const float y = PixelToDip(static_cast<float>(GET_Y_LPARAM(lParam)), dpi_scale);
-
+        const auto [x, y] = DipPointFromLParam(lParam, dpi_scale);
         if (x < 0 || y < 0 || x >= menu_width || y >= menu_height) {
             done = true;
             return 0;
         }
 
-        int hit = NavHitTest(x, y);
-        if (hit == 0) {
-            hit = HitTest(x, y);
-        }
+        const int nav_hit = NavHitTest(x, y);
+        const int hit = nav_hit != 0 ? nav_hit : HitTest(x, y);
         if (hit != 0) {
             selected_id = hit;
             done = true;
@@ -272,7 +259,7 @@ bool ContextMenu::Impl::CreateDeviceResources()
     brush_text = make(theme->text_color);
 
     auto gray = theme->text_color;
-    gray.a = 0.35f;
+    gray.a = DISABLED_UI_ALPHA;
     brush_gray = make(gray);
 
     brush_hover = make(theme->pane_item_hover_color);
@@ -341,10 +328,9 @@ void ContextMenu::Impl::DrawNavRow()
 void ContextMenu::Impl::DrawSeparator(const Item& item)
 {
     const float cy = (item.rect.top + item.rect.bottom) / 2.0f;
-    const float margin = 12.0f;
     rt->DrawLine(
-        { item.rect.left + margin, cy },
-        { item.rect.right - margin, cy },
+        { item.rect.left + SEPARATOR_MARGIN_X, cy },
+        { item.rect.right - SEPARATOR_MARGIN_X, cy },
         brush_border.Get(),
         1.0f);
 }
@@ -354,34 +340,31 @@ void ContextMenu::Impl::DrawTextItem(const Item& item)
     const bool hovered = item.id != 0 && item.id == hovered_id;
 
     if (hovered) {
-        const float margin = 4.0f;
         const D2D1_ROUNDED_RECT rr{
-            { item.rect.left + margin,
+            { item.rect.left + HOVER_MARGIN_X,
              item.rect.top + 1.0f,
-             item.rect.right - margin,
+             item.rect.right - HOVER_MARGIN_X,
              item.rect.bottom - 1.0f },
-            4.0f,
-            4.0f
+            HOVER_CORNER,
+            HOVER_CORNER
         };
         rt->FillRoundedRectangle(rr, brush_hover.Get());
     }
 
     auto* brush = item.enabled ? brush_text.Get() : brush_gray.Get();
 
-    if (item.checked) {
+    if (item.checked && fmt_icon) {
         const D2D1_RECT_F check_rc = {
-            item.rect.left + 8.0f, item.rect.top,
+            item.rect.left + CHECK_LEFT, item.rect.top,
             item.rect.left + CHECK_WIDTH + 4.0f, item.rect.bottom
         };
-        if (fmt_icon) {
-            rt->DrawText(GLYPH_CHECKMARK, 1, fmt_icon.Get(), check_rc, brush_check.Get());
-        }
+        rt->DrawText(GLYPH_CHECKMARK, 1, fmt_icon.Get(), check_rc, brush_check.Get());
     }
 
     if (fmt_text && !item.text.empty()) {
         const D2D1_RECT_F text_rc = {
             item.rect.left + PAD_X, item.rect.top,
-            item.rect.right - 8.0f, item.rect.bottom
+            item.rect.right - TEXT_PAD_RIGHT, item.rect.bottom
         };
         rt->DrawText(item.text.data(), static_cast<UINT32>(item.text.size()), fmt_text.Get(), text_rc, brush);
     }

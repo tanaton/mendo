@@ -5,8 +5,6 @@
 #include <d3d11.h>
 #include <dwrite.h>
 #include <dxgi1_2.h>
-// IDXGISwapChain2 / SetMaximumFrameLatency / GetFrameLatencyWaitableObject 用。
-#include <dxgi1_3.h>
 #include <wincodec.h>
 #include <windows.h>
 #include <wrl/client.h>

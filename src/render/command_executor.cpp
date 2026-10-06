@@ -29,24 +29,40 @@ void PublishBrushStats() noexcept
 
 ID2D1SolidColorBrush* CommandExecutor::ResolveBrush(ID2D1RenderTarget* rt, BrushId id, D2D1_COLOR_F color)
 {
-    if (id == BrushId::Custom || !fixed_brushes_) {
-        return GetBrush(rt, color);
-    }
-    if (auto* fixed = (*fixed_brushes_)[std::to_underlying(id)].Get()) {
-        return fixed;
+    if (id != BrushId::Custom && fixed_brushes_) {
+        if (auto* fixed = (*fixed_brushes_)[std::to_underlying(id)].Get()) {
+            return fixed;
+        }
     }
     return GetBrush(rt, color);
+}
+
+void CommandExecutor::BindRenderTarget(ID2D1RenderTarget* rt)
+{
+    brush_pool_.clear();
+    lru_keys_.clear();
+    bound_rt_ = rt;
+    last_brush_ = nullptr;
+    MENDO_COUNT_INC(g_brush_stats.rt_switch);
+}
+
+void CommandExecutor::EvictOldestBrush()
+{
+    const auto oldest_it = brush_pool_.find(lru_keys_.back());
+    if (oldest_it != brush_pool_.end()) {
+        if (last_brush_ == oldest_it->second.brush.Get()) {
+            last_brush_ = nullptr;
+        }
+        brush_pool_.erase(oldest_it);
+    }
+    lru_keys_.pop_back();
+    MENDO_COUNT_INC(g_brush_stats.pool_evict);
 }
 
 ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLOR_F color)
 {
     if (rt != bound_rt_) {
-        // ブラシは RT 付随リソースなので、RT 切替・デバイス再作成では破棄する
-        brush_pool_.clear();
-        lru_keys_.clear();
-        bound_rt_ = rt;
-        last_brush_ = nullptr;
-        MENDO_COUNT_INC(g_brush_stats.rt_switch);
+        BindRenderTarget(rt);
     }
     const uint32_t key = command_executor_internal::PackColor(color);
     // 直前と同色なら hash lookup を完全にスキップ。同色連続発行（罫線、ハイライト、
@@ -63,17 +79,7 @@ ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLO
         return last_brush_;
     }
     if (brush_pool_.size() >= MAX_POOLED_BRUSHES) {
-        // 全消去によるフレームスパイクを避けるため最古エントリ 1 つだけ追い出す。
-        const uint32_t oldest_key = lru_keys_.back();
-        const auto oldest_it = brush_pool_.find(oldest_key);
-        if (oldest_it != brush_pool_.end()) {
-            if (last_brush_ == oldest_it->second.brush.Get()) {
-                last_brush_ = nullptr;
-            }
-            brush_pool_.erase(oldest_it);
-        }
-        lru_keys_.pop_back();
-        MENDO_COUNT_INC(g_brush_stats.pool_evict);
+        EvictOldestBrush();
     }
     MENDO_COUNT_INC(g_brush_stats.pool_miss);
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
@@ -81,7 +87,7 @@ ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLO
         return nullptr;
     }
     lru_keys_.push_front(key);
-    auto [it, _] = brush_pool_.emplace(key, BrushEntry{ std::move(brush), lru_keys_.begin() });
+    const auto [it, _] = brush_pool_.emplace(key, BrushEntry{ std::move(brush), lru_keys_.begin() });
     last_brush_key_ = key;
     last_brush_ = it->second.brush.Get();
     return last_brush_;
@@ -99,38 +105,34 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
 
     cmds.Visit(mendo::overloaded{
         [&](const FillRectCmd& c) {
-            auto* b = ResolveBrush(rt, c.brush_id, c.color);
-            if (b) {
+            if (auto* b = ResolveBrush(rt, c.brush_id, c.color)) {
                 rt->FillRectangle(c.rect, b);
             }
         },
         [&](const FillRoundedRectCmd& c) {
-            auto* b = ResolveBrush(rt, c.brush_id, c.color);
-            if (b) {
-                const D2D1_ROUNDED_RECT rr = { c.rect, c.rx, c.ry };
-                rt->FillRoundedRectangle(rr, b);
+            if (auto* b = ResolveBrush(rt, c.brush_id, c.color)) {
+                rt->FillRoundedRectangle(D2D1_ROUNDED_RECT{ c.rect, c.rx, c.ry }, b);
             }
         },
         [&](const DrawLineCmd& c) {
-            auto* b = ResolveBrush(rt, c.brush_id, c.color);
-            if (b) {
+            if (auto* b = ResolveBrush(rt, c.brush_id, c.color)) {
                 rt->DrawLine(c.p0, c.p1, b, c.stroke_width);
             }
         },
         [&](const DrawTextLayoutCmd& c) {
-            if (c.layout) {
-                auto* b = ResolveBrush(rt, c.brush_id, c.color);
-                if (b) {
-                    rt->DrawTextLayout(c.origin, c.layout, b);
-                }
+            if (!c.layout) {
+                return;
+            }
+            if (auto* b = ResolveBrush(rt, c.brush_id, c.color)) {
+                rt->DrawTextLayout(c.origin, c.layout, b);
             }
         },
         [&](const DrawTextCmd& c) {
-            if (c.format && c.text_len > 0) {
-                auto* b = ResolveBrush(rt, c.brush_id, c.color);
-                if (b) {
-                    rt->DrawText(c.text(), static_cast<UINT32>(c.text_len), c.format, c.rect, b);
-                }
+            if (!c.format || c.text_len == 0) {
+                return;
+            }
+            if (auto* b = ResolveBrush(rt, c.brush_id, c.color)) {
+                rt->DrawText(c.text(), static_cast<UINT32>(c.text_len), c.format, c.rect, b);
             }
         },
         [&](const DrawBitmapCmd& c) {
@@ -139,17 +141,13 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
             }
         },
         [&](const FillEllipseCmd& c) {
-            auto* b = ResolveBrush(rt, c.brush_id, c.color);
-            if (b) {
-                const D2D1_ELLIPSE e = D2D1::Ellipse(c.center, c.rx, c.ry);
-                rt->FillEllipse(e, b);
+            if (auto* b = ResolveBrush(rt, c.brush_id, c.color)) {
+                rt->FillEllipse(D2D1::Ellipse(c.center, c.rx, c.ry), b);
             }
         },
         [&](const DrawEllipseCmd& c) {
-            auto* b = ResolveBrush(rt, c.brush_id, c.color);
-            if (b) {
-                const D2D1_ELLIPSE e = D2D1::Ellipse(c.center, c.rx, c.ry);
-                rt->DrawEllipse(e, b, c.stroke_width);
+            if (auto* b = ResolveBrush(rt, c.brush_id, c.color)) {
+                rt->DrawEllipse(D2D1::Ellipse(c.center, c.rx, c.ry), b, c.stroke_width);
             }
         },
         [&](const PushClipCmd& c) {

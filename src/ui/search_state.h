@@ -1,11 +1,11 @@
 #pragma once
 #include "document_types.h"
 #include "layout_cache.h"
-#include <span>
-#include <string>
-#include <vector>
+#include <cstdint>
 #include <memory_resource>
-#include <unordered_map>
+#include <string>
+#include <string_view>
+#include <vector>
 
 // 検索マッチの位置情報。
 // start / length は UTF-8 byte 単位 (ascii_util::Find の戻り値)。
@@ -40,8 +40,7 @@ public:
     }
     void Reset() noexcept
     {
-        visible_ = false;
-        ClearMatches();
+        Hide();
         query_.clear();
     }
 

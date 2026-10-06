@@ -21,11 +21,32 @@ inline constexpr DWORD kFileShareRWDelete = FILE_SHARE_READ | FILE_SHARE_WRITE |
 // バイト数を扱うので、それを超えるサイズは 1 回の ReadFile で読み切れない。
 inline constexpr size_t MAX_READABLE_FILE_SIZE = std::numeric_limits<uint32_t>::max();
 
+// `CompareStringOrdinal(..., TRUE)` ベースで NTFS と挙動が一致する
+// Unicode 込みの ordinal case-insensitive 比較。
+inline bool iequal(std::wstring_view a, std::wstring_view b) noexcept
+{
+    return ::CompareStringOrdinal(a.data(), static_cast<int>(a.size()), b.data(), static_cast<int>(b.size()), TRUE) == CSTR_EQUAL;
+}
+
+inline bool iless(std::wstring_view a, std::wstring_view b) noexcept
+{
+    return ::CompareStringOrdinal(a.data(), static_cast<int>(a.size()), b.data(), static_cast<int>(b.size()), TRUE) == CSTR_LESS_THAN;
+}
+
+// "C:\" のようなルートの区切りは残す。
+constexpr std::wstring_view TrimTrailingSeparators(std::wstring_view path) noexcept
+{
+    while (path.size() > 3 && (path.back() == L'\\' || path.back() == L'/')) {
+        path.remove_suffix(1);
+    }
+    return path;
+}
+
 } // namespace path_util
 
 // OpenFileForReadShared の失敗区分。
 enum class OpenFileError : uint8_t {
-    None,            // 成功
+    None,
     NotFound,        // CreateFileW 失敗（存在しない/アクセス拒否など）
     SizeQueryFailed, // GetFileSizeEx 失敗 or 負のサイズ
     TooLarge,        // max_size を超過
@@ -54,7 +75,7 @@ struct OpenedFile {
     size_t total_read = 0;
     while (total_read < size) {
         DWORD bytes_read = 0;
-        const DWORD to_read = static_cast<DWORD>(std::min<size_t>(size - total_read, UINT32_MAX));
+        const DWORD to_read = static_cast<DWORD>(std::min<size_t>(size - total_read, std::numeric_limits<DWORD>::max()));
         if (!ReadFile(file, out + total_read, to_read, &bytes_read, nullptr) || bytes_read == 0) {
             return false;
         }
@@ -82,29 +103,3 @@ bool IsFileLargerThan(const std::filesystem::path& path, size_t reference_size, 
 // 呼び出し側で排他制御すること (現 callsite は UI スレッド単一発火で安全)。
 // 戻り値はアトミックな置換に成功したか。false の場合は原本が変更されていないことを保証する。
 bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, size_t size);
-
-// ファイル名・フルパス比較ユーティリティ。
-// `CompareStringOrdinal(..., TRUE)` ベースで NTFS と挙動が一致する
-// Unicode 込みの ordinal case-insensitive 比較を提供する。
-namespace path_util {
-
-inline bool iequal(std::wstring_view a, std::wstring_view b) noexcept
-{
-    return ::CompareStringOrdinal(a.data(), static_cast<int>(a.size()), b.data(), static_cast<int>(b.size()), TRUE) == CSTR_EQUAL;
-}
-
-inline bool iless(std::wstring_view a, std::wstring_view b) noexcept
-{
-    return ::CompareStringOrdinal(a.data(), static_cast<int>(a.size()), b.data(), static_cast<int>(b.size()), TRUE) == CSTR_LESS_THAN;
-}
-
-// "C:\" のようなルートの区切りは残す。
-constexpr std::wstring_view TrimTrailingSeparators(std::wstring_view path) noexcept
-{
-    while (path.size() > 3 && (path.back() == L'\\' || path.back() == L'/')) {
-        path.remove_suffix(1);
-    }
-    return path;
-}
-
-} // namespace path_util

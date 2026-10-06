@@ -15,11 +15,10 @@
 #include <cmath>
 #include <concepts>
 #include <filesystem>
-#include <iterator>
-#include <unordered_map>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <utility>
-#include <windows.h>
 
 // ResourceManager が依存するサービス群を 1 つにまとめる DI コンテナ。
 // 各ポインタは ResourceManager の生存期間中 valid である必要がある。
@@ -56,8 +55,6 @@ public:
     static constexpr float EVICT_BUFFER_SCREENS = 5.0f;
     static constexpr float PREFETCH_BUFFER_SCREENS = 3.0f;
     static constexpr int BATCH_TIME_BUDGET_US = 6000;
-
-    ResourceManagerT() = default;
 
     constexpr void Init(const ResourceManagerDeps& deps, Cb cb) noexcept
     {
@@ -106,42 +103,26 @@ public:
                 continue;
             }
 
-            // 解決済みパスのキャッシュを確認し、再計算を回避する。
-            auto [path_it, inserted] = resolved_image_paths_.try_emplace(i);
-            auto& abs_str = std::get<1>(*path_it);
-            if (inserted) {
-                // canonical() は symlink 解決のためにファイルシステムを叩くので、
-                // UI 同期パスから外すため absolute() + lexically_normal() を使う。
-                // 画像参照が symlink を跨ぐのはレアケースとして許容する。
-                // src は UTF-8。char から直接構築すると ACP 解釈になり非 ASCII パスが壊れる。
-                std::filesystem::path img_path(string_convert::Utf8ToWide(img->src));
-                if (img_path.is_relative()) {
-                    img_path = std::filesystem::path(doc_dir) / img_path;
-                }
-                std::error_code ec;
-                auto abs_path = std::filesystem::absolute(img_path, ec);
-                if (ec) {
-                    resolved_image_paths_.erase(i);
-                    continue;
-                }
-                abs_str = abs_path.lexically_normal().wstring();
+            const std::wstring* abs_path = ResolveImagePath(i, img->src, doc_dir);
+            if (!abs_path) {
+                continue;
             }
 
-            if (deps_.image_loader->GetCachedImage(abs_str, diagram)) {
+            if (deps_.image_loader->GetCachedImage(*abs_path, diagram)) {
                 img->width = diagram.width;
                 img->height = diagram.height;
 
                 const float indent = node.indent_level * indent_width;
-                (*deps_.cache)[i].height =
-                    mendo::layout::ImageDisplayHeight(diagram.width, diagram.height, content_width - indent);
-                (*deps_.cache)[i].layout_dirty = false;
+                auto& entry = (*deps_.cache)[i];
+                entry.height = mendo::layout::ImageDisplayHeight(diagram.width, diagram.height, content_width - indent);
+                entry.layout_dirty = false;
                 height_changed_.Add(i);
                 ++applied;
             }
             else if (respect_viewport) {
                 // 通常運用時のみ未キャッシュ画像を非同期ロード起動。
                 // リロード時は後続の LoadImages effect で起動するためスキップ。
-                deps_.image_loader->RequestLoadAsync(abs_str, [this] { OnImageLoadComplete(); });
+                deps_.image_loader->RequestLoadAsync(*abs_path, [this] { OnImageLoadComplete(); });
             }
         }
         return applied;
@@ -243,13 +224,11 @@ public:
     void ScheduleMermaidBatch()
     {
         mermaid_batch_next_ = 0;
-        cb_.set_timer(app_timer::Id::MERMAID_BATCH, 16);
+        cb_.set_timer(app_timer::Id::MERMAID_BATCH, app_timer::FRAME_INTERVAL_MS);
     }
 
     void ProcessMermaidBatch()
     {
-        using resource_manager_detail::VisibleSlice;
-
         MENDO_PROFILE("ProcessMermaidBatch");
 
         const float content_width = cb_.get_content_width();
@@ -272,14 +251,12 @@ public:
         const auto s = BufferedSlice(indices, EVICT_BUFFER_SCREENS);
         const size_t slice_start = static_cast<size_t>(s.begin - indices.begin());
         const size_t slice_end = static_cast<size_t>(s.end - indices.begin());
-        if (mermaid_batch_next_ < slice_start) {
-            mermaid_batch_next_ = slice_start;
-        }
+        mermaid_batch_next_ = std::max(mermaid_batch_next_, slice_start);
 
         BatchMermaidCompletions([&] {
             while (mermaid_batch_next_ < slice_end) {
                 RequestDiagramRender(indices[mermaid_batch_next_], content_width, dark_mode);
-                mermaid_batch_next_++;
+                ++mermaid_batch_next_;
 
                 const auto elapsed = std::chrono::steady_clock::now() - start;
                 if (std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count() >= BATCH_TIME_BUDGET_US) {
@@ -349,7 +326,7 @@ public:
         }
         pending_flush_ = false;
         // ScheduleBitmapManage 以外（OnBitmapManageTimer 等）からのフラッシュでも
-        // last_flush_time_ を一元的に更新し、両経路で 50ms スロットリングが効くようにする。
+        // last_flush_time_ を一元的に更新し、両経路でスロットリングが効くようにする。
         last_flush_time_ = std::chrono::steady_clock::now();
 
         bool changed = (ApplyCachedImages() > 0);
@@ -366,16 +343,15 @@ public:
 
     void ScheduleBitmapManage()
     {
-        // 直近 50ms 以内に既に flush していれば再実行を抑止する。
+        // 直近の flush から間がなければ再実行を抑止する。
         // 細かいスクロールで FlushPendingResources が毎フレーム走るのを防ぎ、
-        // タイマー (150ms) 側で集約的に処理する。
-        const auto now = std::chrono::steady_clock::now();
-        const auto since_last = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_flush_time_).count();
+        // タイマー側で集約的に処理する。
+        constexpr auto kFlushThrottle = std::chrono::milliseconds(50);
         pending_flush_ = true;
-        if (since_last >= 50) {
+        if (std::chrono::steady_clock::now() - last_flush_time_ >= kFlushThrottle) {
             FlushPendingResources();
         }
-        cb_.set_timer(app_timer::Id::BITMAP_MANAGE, 150);
+        cb_.set_timer(app_timer::Id::BITMAP_MANAGE, app_timer::BITMAP_MANAGE_DELAY_MS);
     }
 
     void OnBitmapManageTimer()
@@ -396,6 +372,31 @@ public:
     }
 
 private:
+    // 解決済みパスはノード単位でキャッシュする。解決できなければ nullptr。
+    const std::wstring* ResolveImagePath(size_t node_index, std::string_view src, const std::pmr::wstring& doc_dir)
+    {
+        auto [it, inserted] = resolved_image_paths_.try_emplace(node_index);
+        if (!inserted) {
+            return &it->second;
+        }
+        // canonical() は symlink 解決のためにファイルシステムを叩くので、
+        // UI 同期パスから外すため absolute() + lexically_normal() を使う。
+        // 画像参照が symlink を跨ぐのはレアケースとして許容する。
+        // src は UTF-8。char から直接構築すると ACP 解釈になり非 ASCII パスが壊れる。
+        std::filesystem::path img_path(string_convert::Utf8ToWide(src));
+        if (img_path.is_relative()) {
+            img_path = std::filesystem::path(doc_dir) / img_path;
+        }
+        std::error_code ec;
+        const auto abs_path = std::filesystem::absolute(img_path, ec);
+        if (ec) {
+            resolved_image_paths_.erase(it);
+            return nullptr;
+        }
+        it->second = abs_path.lexically_normal().wstring();
+        return &it->second;
+    }
+
     // 保持範囲 (±EVICT_BUFFER_SCREENS) を越えて移動していたら、旧位置で積んだ描画待ちを捨てる。
     // FIFO のままだと TOC ジャンプや Ctrl+End の後に可視の図が旧位置の図の後回しになる。
     void DropMermaidQueueIfJumped()

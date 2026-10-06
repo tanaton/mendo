@@ -1,9 +1,8 @@
 #pragma once
 #include <algorithm>
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
 #include <concepts>
+#include <cstddef>
+#include <cstring>
 #include <emmintrin.h>
 #include <intrin.h>
 #include <string_view>
@@ -13,15 +12,31 @@ namespace ascii_util {
 
 inline constexpr size_t npos = static_cast<size_t>(-1);
 
+namespace detail {
+
+template <typename Char>
+constexpr bool IsAsciiUpper(Char c) noexcept
+{
+    return c >= static_cast<Char>('A') && c <= static_cast<Char>('Z');
+}
+
+template <typename Char>
+constexpr bool IsAsciiLower(Char c) noexcept
+{
+    return c >= static_cast<Char>('a') && c <= static_cast<Char>('z');
+}
+
+} // namespace detail
+
 // std::tolower の locale 依存 (トルコ語の I→ı 等) を回避。
 struct ToLowerAsciiFn {
     static constexpr wchar_t operator()(wchar_t c) noexcept
     {
-        return (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c - L'A' + L'a') : c;
+        return detail::IsAsciiUpper(c) ? static_cast<wchar_t>(c - L'A' + L'a') : c;
     }
     static constexpr char operator()(char c) noexcept
     {
-        return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+        return detail::IsAsciiUpper(c) ? static_cast<char>(c - 'A' + 'a') : c;
     }
 };
 inline constexpr ToLowerAsciiFn ToLowerAscii{};
@@ -36,10 +51,7 @@ constexpr bool IsAsciiDigit(Char c) noexcept
 template <typename Char>
 constexpr bool IsAsciiWordChar(Char c) noexcept
 {
-    return IsAsciiDigit(c) ||
-           (c >= static_cast<Char>('a') && c <= static_cast<Char>('z')) ||
-           (c >= static_cast<Char>('A') && c <= static_cast<Char>('Z')) ||
-           c == static_cast<Char>('_');
+    return IsAsciiDigit(c) || detail::IsAsciiLower(c) || detail::IsAsciiUpper(c) || c == static_cast<Char>('_');
 }
 
 namespace detail {
@@ -89,12 +101,7 @@ inline bool HasAsciiUpper(const char* s, size_t n) noexcept
         }
         i += detail::kSimdStep;
     }
-    for (; i < n; ++i) {
-        if (s[i] >= 'A' && s[i] <= 'Z') {
-            return true;
-        }
-    }
-    return false;
+    return std::ranges::any_of(s + i, s + n, detail::IsAsciiUpper<char>);
 }
 
 namespace detail {
@@ -164,7 +171,7 @@ inline size_t FindImpl(std::string_view text, std::string_view query, size_t sta
     size_t i = start;
 
     if (qlen == 1) {
-        while (i + 16 <= tlen) {
+        while (i + kSimdStep <= tlen) {
             const __m128i eq = _mm_cmpeq_epi8(LoadBytes<kFold>(tp + i), v_first);
             const unsigned mask = static_cast<unsigned>(_mm_movemask_epi8(eq));
             if (mask != 0) {
@@ -172,7 +179,7 @@ inline size_t FindImpl(std::string_view text, std::string_view query, size_t sta
                 _BitScanForward(&bit_idx, mask);
                 return i + bit_idx;
             }
-            i += 16;
+            i += kSimdStep;
         }
         for (; i <= last; ++i) {
             if (FoldByte<kFold>(tp[i]) == first) {
@@ -184,8 +191,8 @@ inline size_t FindImpl(std::string_view text, std::string_view query, size_t sta
 
     const size_t tail = qlen - 1;
     const __m128i v_last = _mm_set1_epi8(qp[tail]);
-    // 16 個の開始候補 [i, i+16) を 1 ブロックで判定する。末尾側のロードが text 内に収まる範囲。
-    while (i + 16 <= last + 1) {
+    // kSimdStep 個の開始候補を 1 ブロックで判定する。末尾側のロードが text 内に収まる範囲。
+    while (i + kSimdStep <= last + 1) {
         const __m128i eq_first = _mm_cmpeq_epi8(LoadBytes<kFold>(tp + i), v_first);
         const __m128i eq_last = _mm_cmpeq_epi8(LoadBytes<kFold>(tp + i + tail), v_last);
         unsigned mask = static_cast<unsigned>(_mm_movemask_epi8(_mm_and_si128(eq_first, eq_last)));
@@ -198,7 +205,7 @@ inline size_t FindImpl(std::string_view text, std::string_view query, size_t sta
                 return pos;
             }
         }
-        i += 16;
+        i += kSimdStep;
     }
     for (; i <= last; ++i) {
         if (FoldByte<kFold>(tp[i]) == first && FoldByte<kFold>(tp[i + tail]) == qp[tail] &&
@@ -226,20 +233,18 @@ inline size_t FindAsciiCaseInsensitive(std::string_view text, std::string_view l
 inline bool HasAsciiLetter(std::string_view s) noexcept
 {
     return std::ranges::any_of(s, [](char c) noexcept {
-        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+        return detail::IsAsciiLower(c) || detail::IsAsciiUpper(c);
     });
 }
 
-// consteval 契約違反を CTE (compile-time error) として表面化させるためのタグ。
-// 関数本体で throw を実行することで、constant evaluation 中に呼ばれると
-// 「constant expression で例外を投げられない」CTE になる仕組み。runtime からは
-// 呼ばれない (consteval 文脈以外では消える) 想定で、msg はエラー診断に出る。
-namespace ascii_util_detail {
+namespace detail {
+// constant evaluation 中に throw へ到達するとコンパイルエラーになることを利用し、
+// consteval 契約違反を診断メッセージ付きで表面化させる。
 [[noreturn]] inline void consteval_fail(const char* msg)
 {
     throw msg;
 }
-} // namespace ascii_util_detail
+} // namespace detail
 
 // コンパイル時に契約違反を検出する。
 //  - NUL 終端 (literal[N-1] == '\0')。
@@ -254,15 +259,15 @@ struct BasicLowercaseAsciiLiteral {
         : value(literal, N - 1)
     {
         if (literal[N - 1] != CharT{}) {
-            ascii_util_detail::consteval_fail("LowercaseAsciiLiteral: literal must be NUL-terminated");
+            detail::consteval_fail("LowercaseAsciiLiteral: literal must be NUL-terminated");
         }
         for (size_t i = 0; i < N - 1; ++i) {
             // char (signed) で 0x80+ は負値になるので unsigned 変換で判定。
             if (static_cast<std::make_unsigned_t<CharT>>(literal[i]) > 0x7F) {
-                ascii_util_detail::consteval_fail("LowercaseAsciiLiteral: literal must contain only ASCII characters");
+                detail::consteval_fail("LowercaseAsciiLiteral: literal must contain only ASCII characters");
             }
-            if (literal[i] >= static_cast<CharT>('A') && literal[i] <= static_cast<CharT>('Z')) {
-                ascii_util_detail::consteval_fail("LowercaseAsciiLiteral: literal must be lowercase ASCII");
+            if (detail::IsAsciiUpper(literal[i])) {
+                detail::consteval_fail("LowercaseAsciiLiteral: literal must be lowercase ASCII");
             }
         }
     }

@@ -1,6 +1,7 @@
 #include "preloader.h"
 #include "document_service.h"
 #include "profiler.h"
+#include <utility>
 
 Preloader::~Preloader()
 {
@@ -56,7 +57,7 @@ void Preloader::Start(std::pmr::wstring path)
     });
 }
 
-bool Preloader::IsDoneLocked() const
+bool Preloader::HasPublished() const
 {
     const std::lock_guard lock(sink_mutex_);
     return result_.has_value() || error_.has_value();
@@ -78,7 +79,7 @@ Preloader::AttachResult Preloader::AttachOrApply(HWND hwnd, UINT msg_id)
     if (!ctx_) {
         return AttachResult::None;
     }
-    if (IsDoneLocked()) {
+    if (HasPublished()) {
         Join();
         return AttachResult::AppliedSync;
     }
@@ -106,8 +107,7 @@ Opt Preloader::TakeFromSink(Opt& sink)
     Opt out;
     {
         const std::lock_guard lock(sink_mutex_);
-        out = std::move(sink);
-        sink.reset();
+        out = std::exchange(sink, std::nullopt);
     }
     FinalizeIfDrained(out.has_value());
     return out;

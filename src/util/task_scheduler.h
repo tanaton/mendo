@@ -31,7 +31,10 @@ public:
     void Shutdown();
 
     // Init 前 / Shutdown 後は 0。
-    size_t WorkerCount() const noexcept { return workers_.size(); }
+    size_t WorkerCount() const noexcept
+    {
+        return workers_.size();
+    }
 
 private:
     void WorkerLoop();

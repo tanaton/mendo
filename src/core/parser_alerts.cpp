@@ -1,10 +1,8 @@
 #include "parser.h"
 #include "ascii_util.h"
-#include "document_types.h"
-#include <memory_resource>
-#include <span>
-#include <string>
-#include <string_view>
+#include <algorithm>
+#include <iterator>
+#include <utility>
 
 std::string_view GetAlertLabel(AlertType type) noexcept
 {
@@ -33,8 +31,7 @@ std::string_view GetAlertIcon(AlertType type) noexcept
     case AlertType::Note:
         return "ℹ"; // ℹ Information Source (BMP)
     case AlertType::Tip:
-        // 💡 (U+1F4A1) は BMP 外なので UTF-8 4 byte。MENDO_LIT は実体非変更なので直接バイト列で渡す。
-        return "\xF0\x9F\x92\xA1";
+        return "\xF0\x9F\x92\xA1"; // 💡 (U+1F4A1)
     case AlertType::Important:
         return "❗"; // ❗ Heavy Exclamation Mark
     case AlertType::Warning:
@@ -47,19 +44,22 @@ std::string_view GetAlertIcon(AlertType type) noexcept
 
 namespace {
 
-// テキスト先頭から [!TYPE] パターンを検出し、AlertTypeを返す。
+struct AlertMarker {
+    AlertType type = AlertType::None;
+    size_t end = 0; // マーカー直後の区切り 1 文字を含む終端位置
+};
+
+// テキスト先頭の [!TYPE] パターンを検出する。
 // Alert マーカーは GitHub 仕様で ASCII 固定なので大小無視 ASCII 比較でよい。
-AlertType DetectAlertMarker(std::string_view text, size_t& marker_end)
+AlertMarker DetectAlertMarker(std::string_view text)
 {
     if (text.size() < 3 || text[0] != '[' || text[1] != '!') {
-        return AlertType::None;
+        return {};
     }
     const auto close = text.find(']');
     if (close == std::string_view::npos || close <= 2) {
-        return AlertType::None;
+        return {};
     }
-
-    const auto type_str = text.substr(2, close - 2);
 
     struct AlertEntry {
         ascii_util::DocLowercaseLiteral name;
@@ -72,24 +72,19 @@ AlertType DetectAlertMarker(std::string_view text, size_t& marker_end)
         { "warning",   AlertType::Warning   },
         { "caution",   AlertType::Caution   },
     };
-
-    AlertType type = AlertType::None;
-    for (const auto& [name, t] : kAlerts) {
-        if (ascii_util::iequal(type_str, name)) {
-            type = t;
-            break;
-        }
-    }
-    if (type == AlertType::None) {
-        return AlertType::None;
+    const auto type_str = text.substr(2, close - 2);
+    const auto it = std::ranges::find_if(kAlerts, [type_str](const AlertEntry& e) noexcept {
+        return ascii_util::iequal(type_str, e.name);
+    });
+    if (it == std::end(kAlerts)) {
+        return {};
     }
 
-    marker_end = close + 1;
-    // マーカー直後のスペースまたは改行を1つスキップ
-    if (marker_end < text.size() && (text[marker_end] == ' ' || text[marker_end] == '\n')) {
-        marker_end++;
+    size_t end = close + 1;
+    if (end < text.size() && (text[end] == ' ' || text[end] == '\n')) {
+        end++;
     }
-    return type;
+    return { it->type, end };
 }
 
 // マーカーを除去しアイコン+ラベルを挿入する。TextRunも調整する。
@@ -98,12 +93,10 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
 {
     const std::string_view label = GetAlertLabel(type);
     const std::string_view icon = GetAlertIcon(type);
-    const auto& current_text = node.GetText();
+    const std::string_view current_text = node.GetText();
     const bool has_content = (marker_end < current_text.size());
 
-    // 新しいテキストを構築: "[icon] Label" (+ "\n \n" + 残りテキスト)
-    const size_t icon_prefix_len = icon.size() + 1; // アイコン文字列 + スペース
-    const size_t full_label_len = icon_prefix_len + label.size();
+    const size_t full_label_len = icon.size() + 1 + label.size(); // "icon Label"
     std::pmr::string new_text;
     new_text.reserve(full_label_len + 4 + (has_content ? current_text.size() - marker_end : 0));
     new_text.append(icon);
@@ -114,11 +107,8 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     if (has_content) {
         new_text += '\n';
         new_content_start = full_label_len + 1;
-        new_text.append(current_text.data() + marker_end, current_text.size() - marker_end);
+        new_text.append(current_text.substr(marker_end));
     }
-
-    // TextRun の調整
-    const int delta = static_cast<int>(new_content_start) - static_cast<int>(marker_end);
 
     TextRunList new_runs;
     // アイコン絵文字は太字にしない (スペース + ラベルテキストのみ太字)。
@@ -128,19 +118,19 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     label_run.set_bold(true);
     new_runs.emplace_back(label_run);
 
-    // 元のランを調整（マーカー部分を除外）
-    for (const auto& run : node.runs) {
-        const uint32_t run_end = run.start + run.length;
-        if (run_end <= static_cast<uint32_t>(marker_end)) {
+    // マーカー部分を除外し、残りを新しい本文開始位置へ平行移動する。
+    const auto marker = static_cast<uint32_t>(marker_end);
+    const auto content_start = static_cast<uint32_t>(new_content_start);
+    for (TextRun adjusted : node.runs) {
+        const uint32_t run_end = adjusted.start + adjusted.length;
+        if (run_end <= marker) {
             continue;
         }
-        TextRun adjusted = run;
-        if (adjusted.start < static_cast<uint32_t>(marker_end)) {
-            const uint32_t trim = static_cast<uint32_t>(marker_end) - adjusted.start;
-            adjusted.start = static_cast<uint32_t>(marker_end);
-            adjusted.length -= trim;
+        if (adjusted.start < marker) {
+            adjusted.start = marker;
+            adjusted.length = run_end - marker;
         }
-        adjusted.start = static_cast<uint32_t>(static_cast<int>(adjusted.start) + delta);
+        adjusted.start = content_start + (adjusted.start - marker);
         new_runs.emplace_back(adjusted);
     }
 
@@ -173,8 +163,7 @@ void DetectAlertAt(std::pmr::vector<Node>& nodes, size_t i)
     if (node.quote_depth != 1) {
         return;
     }
-    size_t marker_end = 0;
-    const AlertType type = DetectAlertMarker(node.GetText(), marker_end);
+    const auto [type, marker_end] = DetectAlertMarker(node.GetText());
     if (type == AlertType::None) {
         return;
     }

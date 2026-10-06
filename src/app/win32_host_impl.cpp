@@ -2,8 +2,6 @@
 #include "app_constants.h"
 #include "clipboard_util.h"
 #include "d2d_util.h"
-#include "win_handle.h"
-#include <memory_resource>
 #include <shellapi.h>
 #include <utility>
 

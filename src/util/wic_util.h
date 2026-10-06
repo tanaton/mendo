@@ -5,6 +5,7 @@
 #include <wrl/client.h>
 #include <algorithm>
 #include <optional>
+#include <utility>
 
 namespace wic_util {
 
@@ -38,19 +39,10 @@ inline Microsoft::WRL::ComPtr<IWICFormatConverter> ConvertBitmapSource(
     const WICPixelFormatGUID& pixel_format = GUID_WICPixelFormat32bppPBGRA)
 {
     Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
-    HRESULT hr = wic->CreateFormatConverter(&converter);
-    if (FAILED(hr)) {
+    if (FAILED(wic->CreateFormatConverter(&converter)) ||
+        FAILED(converter->Initialize(source, pixel_format, WICBitmapDitherTypeNone, nullptr, 0.0f, WICBitmapPaletteTypeCustom))) {
         return nullptr;
     }
-
-    hr = converter->Initialize(
-        source, pixel_format,
-        WICBitmapDitherTypeNone, nullptr, 0.0f,
-        WICBitmapPaletteTypeCustom);
-    if (FAILED(hr)) {
-        return nullptr;
-    }
-
     return converter;
 }
 
@@ -69,14 +61,9 @@ inline std::optional<DecodeResult> DecodeFromStream(
     const WICPixelFormatGUID& pixel_format = GUID_WICPixelFormat32bppPBGRA)
 {
     Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
-    HRESULT hr = wic->CreateDecoderFromStream(stream, nullptr, WICDecodeMetadataCacheOnLoad, &decoder);
-    if (FAILED(hr)) {
-        return std::nullopt;
-    }
-
     Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
-    hr = decoder->GetFrame(0, &frame);
-    if (FAILED(hr)) {
+    if (FAILED(wic->CreateDecoderFromStream(stream, nullptr, WICDecodeMetadataCacheOnLoad, &decoder)) ||
+        FAILED(decoder->GetFrame(0, &frame))) {
         return std::nullopt;
     }
 
@@ -85,13 +72,11 @@ inline std::optional<DecodeResult> DecodeFromStream(
         return std::nullopt;
     }
 
-    UINT w = 0, h = 0;
-    hr = frame->GetSize(&w, &h);
-    if (FAILED(hr)) {
+    DecodeResult result{ std::move(converter) };
+    if (FAILED(frame->GetSize(&result.pixel_width, &result.pixel_height))) {
         return std::nullopt;
     }
-
-    return DecodeResult{ std::move(converter), w, h };
+    return result;
 }
 
 struct PixelSize {
@@ -112,8 +97,7 @@ constexpr PixelSize ComputeDecodeSize(UINT width, UINT height, UINT max_width, U
         scale = static_cast<double>(max_width) / width;
     }
     if (max_dim > 0) {
-        const UINT longest = width > height ? width : height;
-        scale = std::min(scale, static_cast<double>(max_dim) / longest);
+        scale = std::min(scale, static_cast<double>(max_dim) / std::max(width, height));
     }
     if (scale >= 1.0) {
         return { width, height };
@@ -163,8 +147,7 @@ inline std::optional<CreatedBitmap> CreateD2DBitmapFromStream(IWICImagingFactory
         return std::nullopt;
     }
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-    const HRESULT hr = rt->CreateBitmapFromWicBitmap(decoded->converter.Get(), &bitmap);
-    if (FAILED(hr)) {
+    if (FAILED(rt->CreateBitmapFromWicBitmap(decoded->converter.Get(), &bitmap))) {
         return std::nullopt;
     }
     return CreatedBitmap{ std::move(bitmap), decoded->pixel_width, decoded->pixel_height };

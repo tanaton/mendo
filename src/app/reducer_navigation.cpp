@@ -17,22 +17,46 @@ void ApplyNavResult(AppState& state, SideEffectList& effects, NavEntry&& entry)
     }
 }
 
-} // namespace
-
-void ReduceNavigateBack(AppState& state, SideEffectList& effects)
+void NavigateHistory(AppState& state, SideEffectList& effects, bool forward)
 {
+    auto& history = state.view.nav_history;
+    const NavEntry current = CurrentNavEntry(state);
     NavEntry out;
-    if (state.view.nav_history.GoBack(CurrentNavEntry(state), out)) {
+    const bool moved = forward ? history.GoForward(current, out) : history.GoBack(current, out);
+    if (moved) {
         ApplyNavResult(state, effects, std::move(out));
     }
 }
 
+// 現在位置を履歴に積んでから別ファイルを開く。
+void OpenFileWithHistory(AppState& state, SideEffectList& effects, const std::pmr::wstring& path)
+{
+    PushCurrentNavEntry(state);
+    PushEffect(effects, effect::LoadFile{ path });
+}
+
+void ScrollToHeading(AppState& state, SideEffectList& effects, int node_index, bool toc_auto_scroll)
+{
+    if (node_index < 0) {
+        return;
+    }
+    const auto target = MakeHeadingTopTarget(
+        node_index,
+        state.theme->heading_spacing_above,
+        state.pane_layout_cache.Get().md_rect.y);
+    ApplyScrollTargetAndEmit(state, effects, target.node, target.offset, toc_auto_scroll);
+}
+
+} // namespace
+
+void ReduceNavigateBack(AppState& state, SideEffectList& effects)
+{
+    NavigateHistory(state, effects, /*forward=*/false);
+}
+
 void ReduceNavigateForward(AppState& state, SideEffectList& effects)
 {
-    NavEntry out;
-    if (state.view.nav_history.GoForward(CurrentNavEntry(state), out)) {
-        ApplyNavResult(state, effects, std::move(out));
-    }
+    NavigateHistory(state, effects, /*forward=*/true);
 }
 
 void ReduceFilePaneDirectoryClicked(AppState& state, SideEffectList& effects, const FilePaneDirectoryClickedAction& a)
@@ -44,8 +68,7 @@ void ReduceFilePaneDirectoryClicked(AppState& state, SideEffectList& effects, co
 
 void ReduceFilePaneFileClicked(AppState& state, SideEffectList& effects, const FilePaneFileClickedAction& a)
 {
-    PushCurrentNavEntry(state);
-    PushEffect(effects, effect::LoadFile{ a.full_path });
+    OpenFileWithHistory(state, effects, a.full_path);
 }
 
 void ReduceFilePaneRevealCurrentFile(AppState& state, SideEffectList& effects)
@@ -65,20 +88,6 @@ void ReduceFilePaneRevealCurrentFile(AppState& state, SideEffectList& effects)
     EmitSidePaneScrollChanged(effects, PaneTarget::File);
 }
 
-namespace {
-void ScrollToHeading(AppState& state, SideEffectList& effects, int node_index, bool toc_auto_scroll)
-{
-    if (node_index < 0) {
-        return;
-    }
-    const auto target = MakeHeadingTopTarget(
-        node_index,
-        state.theme->heading_spacing_above,
-        state.pane_layout_cache.Get().md_rect.y);
-    ApplyScrollTargetAndEmit(state, effects, target.node, target.offset, toc_auto_scroll);
-}
-} // namespace
-
 void ReduceTocItemClicked(AppState& state, SideEffectList& effects, const TocItemClickedAction& a)
 {
     PushCurrentNavEntry(state);
@@ -92,27 +101,26 @@ void ReduceNavigateAnchor(AppState& state, SideEffectList& effects, const Naviga
     ScrollToHeading(state, effects, state.document.doc.FindAnchorIndex(a.anchor_id), /*toc_auto_scroll=*/true);
 }
 
-void ReduceRestoreScrollAfterLoad(AppState& state, SideEffectList& /*effects*/, const RestoreScrollAfterLoadAction& a)
+void ReduceRestoreScrollAfterLoad(AppState& state, const RestoreScrollAfterLoadAction& a)
 {
+    auto& viewport = state.view.viewport;
+    auto& restore = state.view.scroll_restore;
     if (a.reload_diff_scroll_y) {
-        state.view.viewport.SetScrollY(*a.reload_diff_scroll_y);
+        viewport.SetScrollY(*a.reload_diff_scroll_y);
     }
-    else if (state.view.scroll_restore.HasNodeRestore()) {
-        state.view.viewport.SetScrollTarget(
-            state.view.scroll_restore.pending_restore_node,
-            static_cast<float>(state.view.scroll_restore.pending_restore_offset));
-        state.view.viewport.ApplyScrollTarget(state.document.layout_cache);
-        state.view.scroll_restore.ClearNodeRestore();
+    else if (restore.HasNodeRestore()) {
+        viewport.SetScrollTarget(restore.pending_restore_node, static_cast<float>(restore.pending_restore_offset));
+        viewport.ApplyScrollTarget(state.document.layout_cache);
+        restore.ClearNodeRestore();
     }
     else {
-        state.view.viewport.SetScrollY(0.0f);
+        viewport.SetScrollY(0.0f);
     }
 }
 
 void ReduceDropFiles(AppState& state, SideEffectList& effects, const DropFilesAction& a)
 {
-    PushCurrentNavEntry(state);
-    PushEffect(effects, effect::LoadFile{ a.path });
+    OpenFileWithHistory(state, effects, a.path);
 }
 
 void ReduceShowHelp(AppState& state, SideEffectList& effects)

@@ -3,7 +3,6 @@
 #include "d2d_util.h"
 #include <algorithm>
 #include <format>
-#include <ranges>
 #include <wrl/client.h>
 
 void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_pane_rect)
@@ -26,13 +25,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
 
     rt()->DrawLine(D2D1::Point2F(bar_rect.left, sbl.bar_top), D2D1::Point2F(bar_rect.right, sbl.bar_top), Brush(BrushId::SearchBarBorder), 1.0f);
 
-    if (fmt_.search_icon) {
-        auto* brush = Brush(BrushId::SearchInputText);
-        if (brush) {
-            mendo::OpacityScope guard{ brush, 0.6f };
-            rt()->DrawText(L"\uE721", 1, fmt_.search_icon.Get(), sbl.icon_rect, brush);
-        }
-    }
+    DrawTextWithOpacity(L"\uE721", fmt_.search_icon.Get(), sbl.icon_rect, BrushId::SearchInputText, 0.6f);
 
     const D2D1_ROUNDED_RECT input_rrect = D2D1::RoundedRect(sbl.input_rect, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER);
     const bool no_match = !sb.query.empty() && sb.total_matches == 0;
@@ -40,25 +33,81 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
 
     // フォーカス時はリンク色で強調
     if (sb.has_focus) {
-        auto* focus_brush = Brush(BrushId::Link);
-        if (focus_brush) {
+        if (auto* focus_brush = Brush(BrushId::Link)) {
             rt()->DrawRoundedRectangle(input_rrect, focus_brush, 1.5f);
         }
     }
-    else {
-        auto* border_brush = Brush(BrushId::SearchBarBorder);
-        if (border_brush) {
-            mendo::OpacityScope guard{ border_brush, 0.5f };
-            rt()->DrawRoundedRectangle(input_rrect, border_brush, 1.0f);
-        }
+    else if (auto* border_brush = Brush(BrushId::SearchBarBorder)) {
+        mendo::OpacityScope guard{ border_brush, 0.5f };
+        rt()->DrawRoundedRectangle(input_rrect, border_brush, 1.0f);
     }
 
-    // レイアウトを1回だけ作成し、描画とキャレット計測で共用する。
-    // IMEコンポジション中は確定済みテキスト+変換中テキストを合成して表示。
-    const float text_left = sbl.text_left();
-    float caret_x = text_left;
+    const float caret_x = DrawSearchInputText(sb, sbl);
 
+    // コンポジション中はIME側がキャレットを表示するため非表示
+    if (sb.caret_visible && sb.ime_composition.empty()) {
+        const float x = std::min(caret_x + 1.0f, sbl.text_right());
+        rt()->DrawLine(
+            D2D1::Point2F(x, sbl.input_rect.top + 3.0f),
+            D2D1::Point2F(x, sbl.input_rect.bottom - 3.0f),
+            Brush(BrushId::SearchInputText),
+            1.0f);
+    }
+
+    DrawSearchBarButtons(sb, sbl);
+}
+
+IDWriteTextLayout* Renderer::AcquireSearchInputLayout(const SearchBarRenderState& sb, int comp_start, float width, float height, bool& cache_hit)
+{
+    auto& c = search_cache_;
     const bool has_comp = !sb.ime_composition.empty();
+    const int key_caret_pos = has_comp ? comp_start : -1;
+
+    // 比較は scalar → 空になりやすい ime_comp → query の順で短絡させる
+    cache_hit = c.layout && c.width == width && c.caret_pos == key_caret_pos && c.ime_comp == sb.ime_composition && c.query == sb.query;
+    if (cache_hit) {
+        // 前フレームの下線範囲と異なる可能性があるため、キャッシュ上に下線が残っていれば
+        // 常に全体をクリアする。IME 非アクティブ継続時はクリアも発行されない。
+        if (c.has_underline) {
+            c.layout->SetUnderline(FALSE, DWRITE_TEXT_RANGE{ 0, static_cast<UINT32>(c.text.size()) });
+            c.has_underline = false;
+        }
+        return c.layout.Get();
+    }
+
+    // IMEコンポジション中は確定済みテキストのキャレット位置に変換中テキストを挿入して表示する。
+    c.text.assign(sb.query);
+    if (has_comp) {
+        c.text.insert(static_cast<size_t>(comp_start), sb.ime_composition);
+    }
+    c.layout.Reset();
+    backend_.GetDWriteFactory()->CreateTextLayout(
+        c.text.data(),
+        static_cast<UINT32>(c.text.size()),
+        fmt_.search_input.Get(),
+        width,
+        height,
+        &c.layout);
+    if (!c.layout) {
+        c.Reset();
+        return nullptr;
+    }
+    c.query.assign(sb.query);
+    c.ime_comp.assign(sb.ime_composition);
+    c.caret_pos = key_caret_pos;
+    c.width = width;
+    c.has_underline = false;
+    return c.layout.Get();
+}
+
+float Renderer::DrawSearchInputText(const SearchBarRenderState& sb, const SearchBarLayout& sbl)
+{
+    const float text_left = sbl.text_left();
+    const bool has_comp = !sb.ime_composition.empty();
+    if (!fmt_.search_input || (sb.query.empty() && !has_comp) || !backend_.GetDWriteFactory()) {
+        return text_left;
+    }
+
     const int comp_len = static_cast<int>(sb.ime_composition.size());
     int comp_start = 0;
     if (has_comp) {
@@ -68,194 +117,108 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
             comp_start = qlen;
         }
     }
-    // キャッシュキーは (query, caret_pos, ime_composition, width, height)。
-    // 表示テキスト (display_buf) の合成はキャッシュミス時まで遅延する。
-    const int key_caret_pos = has_comp ? comp_start : -1;
 
-    std::wstring_view display_text = sb.query;
-    std::pmr::wstring display_buf{ GetThreadLocalPoolResource() };
+    // レイアウトを1回だけ作成し、描画とキャレット計測で共用する。
+    bool cache_hit = false;
+    IDWriteTextLayout* const text_layout = AcquireSearchInputLayout(
+        sb, comp_start, sbl.text_width(), sbl.input_rect.bottom - sbl.input_rect.top, cache_hit);
+    if (!text_layout) {
+        return text_left;
+    }
 
-    if (fmt_.search_input && (!sb.query.empty() || has_comp) && backend_.GetDWriteFactory()) {
-        const float input_w = sbl.text_width();
-        const float input_h = sbl.input_rect.bottom - sbl.input_rect.top;
+    if (has_comp) {
+        text_layout->SetUnderline(TRUE, DWRITE_TEXT_RANGE{ static_cast<UINT32>(comp_start), static_cast<UINT32>(comp_len) });
+        search_cache_.has_underline = true;
+    }
 
-        // 比較は scalar → 空になりやすい ime_comp → query の順で短絡させる
-        Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
-        const bool cache_hit = search_cache_.layout && search_cache_.width == input_w && search_cache_.caret_pos == key_caret_pos && search_cache_.ime_comp == sb.ime_composition && search_cache_.query == sb.query;
-        if (cache_hit) {
-            text_layout = search_cache_.layout;
-            display_text = search_cache_.text;
-            // 前フレームの下線範囲と異なる可能性があるため、キャッシュ上に下線が残っていれば
-            // 常に全体をクリアする。IME 非アクティブ継続時はクリアも発行されない。
-            if (search_cache_.has_underline) {
-                text_layout->SetUnderline(FALSE, DWRITE_TEXT_RANGE{ 0, static_cast<UINT32>(search_cache_.text.size()) });
-                search_cache_.has_underline = false;
-            }
-        }
-        else {
-            // キャッシュミス時のみ display_buf を合成する。
-            if (has_comp) {
-                display_buf.reserve(sb.query.size() + sb.ime_composition.size());
-                display_buf.append(sb.query.data(), static_cast<size_t>(comp_start));
-                display_buf.append(sb.ime_composition.data(), sb.ime_composition.size());
-                display_buf.append(sb.query.data() + comp_start, sb.query.size() - static_cast<size_t>(comp_start));
-                display_text = display_buf;
-            }
-            backend_.GetDWriteFactory()->CreateTextLayout(
-                display_text.data(),
-                static_cast<UINT32>(display_text.size()),
-                fmt_.search_input.Get(),
-                input_w,
-                input_h,
-                &text_layout);
-            if (text_layout) {
-                search_cache_.layout = text_layout;
-                search_cache_.text.assign(display_text);
-                search_cache_.query.assign(sb.query);
-                search_cache_.ime_comp.assign(sb.ime_composition);
-                search_cache_.caret_pos = key_caret_pos;
-                search_cache_.width = input_w;
-                search_cache_.has_underline = false;
-            }
-        }
-        if (text_layout) {
-            if (has_comp) {
-                const DWRITE_TEXT_RANGE range = {
-                    static_cast<UINT32>(comp_start),
-                    static_cast<UINT32>(comp_len)
-                };
-                text_layout->SetUnderline(TRUE, range);
-                search_cache_.has_underline = true;
-            }
-
-            // テキストの背面に描画
-            const int text_len = static_cast<int>(display_text.size());
-            const bool has_selection = !has_comp && sb.selection_start >= 0 && sb.caret_pos >= 0 && sb.selection_start != sb.caret_pos;
-            if (has_selection) {
-                int sel_min = std::min(sb.selection_start, sb.caret_pos);
-                int sel_max = std::max(sb.selection_start, sb.caret_pos);
-                sel_min = std::clamp(sel_min, 0, text_len);
-                sel_max = std::clamp(sel_max, 0, text_len);
-                if (sel_min < sel_max) {
-                    // 単一行テキストなのでメトリクスは1つで十分
-                    DWRITE_HIT_TEST_METRICS htm_sel{};
-                    UINT32 actual = 0;
-                    text_layout->HitTestTextRange(
-                        static_cast<UINT32>(sel_min),
-                        static_cast<UINT32>(sel_max - sel_min),
-                        text_left, sbl.input_rect.top,
-                        &htm_sel, 1, &actual);
-                    if (actual > 0) {
-                        const D2D1_RECT_F sel_rect = D2D1::RectF(
-                            htm_sel.left,
-                            sbl.input_rect.top + 2.0f,
-                            htm_sel.left + htm_sel.width,
-                            sbl.input_rect.bottom - 2.0f);
-                        rt()->FillRectangle(sel_rect, Brush(BrushId::Selection));
-                    }
-                }
-            }
-
-            rt()->DrawTextLayout(
-                D2D1::Point2F(text_left, sbl.input_rect.top),
-                text_layout.Get(),
-                Brush(BrushId::SearchInputText));
-
-            // コンポジション中はその末尾、それ以外は通常のキャレット位置
-            int effective_pos;
-            if (has_comp) {
-                effective_pos = comp_start + comp_len;
-            }
-            else {
-                effective_pos = sb.caret_pos;
-                if (effective_pos < 0 || effective_pos > text_len) {
-                    effective_pos = text_len;
-                }
-            }
-            // layout が同じで effective_pos が一致するフレーム（典型的にはキャレット点滅
-            // 直前と同じ入力）は HitTestTextPosition を省く。layout 失効時は cache_hit が
-            // false になり、その経路で text_layout を作り直す前に effective_pos キャッシュも
-            // 落としておく必要があるため、ここでは layout 一致を直前 update 済み
-            // search_cache_.layout で判定する。
-            if (cache_hit && search_cache_.effective_pos == effective_pos) {
-                caret_x = search_cache_.caret_x;
-            }
-            else {
-                FLOAT px, py;
-                DWRITE_HIT_TEST_METRICS htm{};
-                text_layout->HitTestTextPosition(static_cast<UINT32>(effective_pos), false, &px, &py, &htm);
-                caret_x = text_left + px;
-                search_cache_.effective_pos = effective_pos;
-                search_cache_.caret_x = caret_x;
+    // 選択範囲はテキストの背面に描画
+    const int text_len = static_cast<int>(search_cache_.text.size());
+    const bool has_selection = !has_comp && sb.selection_start >= 0 && sb.caret_pos >= 0 && sb.selection_start != sb.caret_pos;
+    if (has_selection) {
+        const int sel_min = std::clamp(std::min(sb.selection_start, sb.caret_pos), 0, text_len);
+        const int sel_max = std::clamp(std::max(sb.selection_start, sb.caret_pos), 0, text_len);
+        if (sel_min < sel_max) {
+            // 単一行テキストなのでメトリクスは1つで十分
+            DWRITE_HIT_TEST_METRICS htm_sel{};
+            UINT32 actual = 0;
+            text_layout->HitTestTextRange(
+                static_cast<UINT32>(sel_min),
+                static_cast<UINT32>(sel_max - sel_min),
+                text_left, sbl.input_rect.top,
+                &htm_sel, 1, &actual);
+            if (actual > 0) {
+                const D2D1_RECT_F sel_rect = D2D1::RectF(
+                    htm_sel.left,
+                    sbl.input_rect.top + 2.0f,
+                    htm_sel.left + htm_sel.width,
+                    sbl.input_rect.bottom - 2.0f);
+                rt()->FillRectangle(sel_rect, Brush(BrushId::Selection));
             }
         }
     }
 
-    // コンポジション中はIME側がキャレットを表示するため非表示
-    if (sb.caret_visible && !has_comp) {
-        caret_x = std::min(caret_x + 1.0f, sbl.text_right());
-        rt()->DrawLine(
-            D2D1::Point2F(caret_x, sbl.input_rect.top + 3.0f),
-            D2D1::Point2F(caret_x, sbl.input_rect.bottom - 3.0f),
-            Brush(BrushId::SearchInputText),
-            1.0f);
-    }
+    rt()->DrawTextLayout(
+        D2D1::Point2F(text_left, sbl.input_rect.top),
+        text_layout,
+        Brush(BrushId::SearchInputText));
 
-    auto drawIconBtn = [&](const D2D1_RECT_F& r, const wchar_t* icon, bool hovered, float alpha = 1.0f) {
+    // コンポジション中はその末尾、それ以外は通常のキャレット位置
+    int effective_pos = has_comp ? comp_start + comp_len : sb.caret_pos;
+    if (!has_comp && (effective_pos < 0 || effective_pos > text_len)) {
+        effective_pos = text_len;
+    }
+    // layout が同じで effective_pos が一致するフレーム（典型的にはキャレット点滅で
+    // 直前と同じ入力）は HitTestTextPosition を省く。キャッシュミス時は layout を
+    // 作り直しているため、caret_x キャッシュも cache_hit 時のみ信用する。
+    if (cache_hit && search_cache_.effective_pos == effective_pos) {
+        return search_cache_.caret_x;
+    }
+    FLOAT px, py;
+    DWRITE_HIT_TEST_METRICS htm{};
+    text_layout->HitTestTextPosition(static_cast<UINT32>(effective_pos), false, &px, &py, &htm);
+    const float caret_x = text_left + px;
+    search_cache_.effective_pos = effective_pos;
+    search_cache_.caret_x = caret_x;
+    return caret_x;
+}
+
+void Renderer::DrawSearchBarButtons(const SearchBarRenderState& sb, const SearchBarLayout& sbl)
+{
+    const auto draw_icon_btn = [&](const D2D1_RECT_F& r, const wchar_t* icon, bool hovered, float alpha = 1.0f) {
         if (hovered) {
             rt()->FillRoundedRectangle(D2D1::RoundedRect(r, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER), Brush(BrushId::TitleBarButtonHover));
         }
-        if (fmt_.search_icon) {
-            auto* brush = Brush(BrushId::SearchInputText);
-            if (brush) {
-                mendo::OpacityScope guard{ brush, alpha };
-                rt()->DrawText(icon, 1, fmt_.search_icon.Get(), r, brush);
-            }
-        }
+        DrawTextWithOpacity(icon, fmt_.search_icon.Get(), r, BrushId::SearchInputText, alpha);
     };
 
-    auto drawToggleBtn = [&](const D2D1_RECT_F& r, const wchar_t* label, UINT32 len, IDWriteTextFormat* fmt, bool checked, bool hovered) {
+    const auto draw_toggle_btn = [&](const D2D1_RECT_F& r, std::wstring_view label, IDWriteTextFormat* fmt, bool checked, bool hovered) {
         if (hovered || checked) {
             rt()->FillRoundedRectangle(
                 D2D1::RoundedRect(r, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER),
                 Brush(checked ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover));
         }
-        if (fmt) {
-            auto* brush = Brush(BrushId::SearchInputText);
-            if (brush) {
-                mendo::OpacityScope guard{ brush, checked ? 1.0f : 0.5f };
-                rt()->DrawText(label, len, fmt, r, brush);
-            }
-        }
+        DrawTextWithOpacity(label, fmt, r, BrushId::SearchInputText, checked ? 1.0f : 0.5f);
     };
 
     const float nav_alpha = sb.total_matches > 0 ? 1.0f : 0.3f;
-    drawIconBtn(sbl.up_btn, L"\uE70E", sb.hovered == SearchBarHitZone::Up, nav_alpha);
-    drawIconBtn(sbl.down_btn, L"\uE70D", sb.hovered == SearchBarHitZone::Down, nav_alpha);
+    draw_icon_btn(sbl.up_btn, L"\uE70E", sb.hovered == SearchBarHitZone::Up, nav_alpha);
+    draw_icon_btn(sbl.down_btn, L"\uE70D", sb.hovered == SearchBarHitZone::Down, nav_alpha);
 
     if (fmt_.search_count && !sb.query.empty()) {
         // 「N / M」形式で表示。M は実用上 4-5 桁に収まる (md 内 hit 数) ので
         // 32 wchar_t は十分な余裕。format_to_n で先端から書き、長さを返してもらう。
         constexpr size_t kCountBufLen = 32;
         wchar_t count_text[kCountBufLen];
-        std::format_to_n_result<wchar_t*> r{};
-        if (sb.total_matches == 0) {
-            r = std::format_to_n(count_text, kCountBufLen - 1, L"0");
-        }
-        else {
-            r = std::format_to_n(count_text, kCountBufLen - 1, L"{} / {}", sb.current_match + 1, sb.total_matches);
-        }
-        const auto written = static_cast<UINT32>(r.out - count_text);
-        auto* brush = Brush(BrushId::SearchInputText);
-        if (brush) {
-            mendo::OpacityScope guard{ brush, 0.7f };
-            rt()->DrawText(count_text, written, fmt_.search_count.Get(), sbl.count_rect, brush);
-        }
+        const auto r = (sb.total_matches == 0)
+                           ? std::format_to_n(count_text, kCountBufLen - 1, L"0")
+                           : std::format_to_n(count_text, kCountBufLen - 1, L"{} / {}", sb.current_match + 1, sb.total_matches);
+        const auto written = static_cast<size_t>(r.out - count_text);
+        DrawTextWithOpacity({ count_text, written }, fmt_.search_count.Get(), sbl.count_rect, BrushId::SearchInputText, 0.7f);
     }
 
-    drawToggleBtn(sbl.case_btn, L"Aa", 2, fmt_.search_count.Get(), sb.case_sensitive, sb.hovered == SearchBarHitZone::CaseSensitive);
-    drawToggleBtn(sbl.highlight_btn, L"\uE7E6", 1, fmt_.search_icon.Get(), sb.highlight_enabled, sb.hovered == SearchBarHitZone::Highlight);
-    drawIconBtn(sbl.close_btn, L"\uE8BB", sb.hovered == SearchBarHitZone::Close);
+    draw_toggle_btn(sbl.case_btn, L"Aa", fmt_.search_count.Get(), sb.case_sensitive, sb.hovered == SearchBarHitZone::CaseSensitive);
+    draw_toggle_btn(sbl.highlight_btn, L"\uE7E6", fmt_.search_icon.Get(), sb.highlight_enabled, sb.hovered == SearchBarHitZone::Highlight);
+    draw_icon_btn(sbl.close_btn, L"\uE8BB", sb.hovered == SearchBarHitZone::Close);
 }
 
 int Renderer::HitTestSearchInput(std::wstring_view query, float local_x, float max_width) const

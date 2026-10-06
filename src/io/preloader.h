@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <condition_variable>
 #include <memory>
+#include <memory_resource>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -52,7 +53,7 @@ public:
     // worker が結果を sink に積んだか。AppliedSync 経路のテストが固定 sleep せずに待つために使う。
     bool HasPublishedForTest() const
     {
-        return IsDoneLocked();
+        return HasPublished();
     }
 #endif
 
@@ -66,7 +67,7 @@ private:
         UINT msg_id = 0;
     };
 
-    bool IsDoneLocked() const;
+    bool HasPublished() const;
     void Join();
     // Take{Result,Error} 共通の末尾。`taken` が true なら worker は PostMessage 直後に
     // return しているので即 join できる。ctx_ も解放してまとめて IsActive() を false にする。

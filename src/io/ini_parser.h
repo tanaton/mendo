@@ -7,6 +7,17 @@ namespace ini {
 
 using IniData = std::map<std::string, std::map<std::string, std::string, std::less<>>, std::less<>>;
 
+namespace detail {
+constexpr std::string_view TrimBlanks(std::string_view s) noexcept
+{
+    const size_t first = s.find_first_not_of(" \t");
+    if (first == std::string_view::npos) {
+        return {};
+    }
+    return s.substr(first, s.find_last_not_of(" \t") - first + 1);
+}
+} // namespace detail
+
 // セクション外のキーは空文字列セクションに格納。
 inline IniData Parse(std::string_view text)
 {
@@ -19,7 +30,7 @@ inline IniData Parse(std::string_view text)
         if (eol == std::string_view::npos) {
             eol = text.size();
         }
-        std::string_view line = text.substr(pos, eol - pos);
+        const std::string_view line = detail::TrimBlanks(text.substr(pos, eol - pos));
 
         pos = eol;
         if (pos < text.size() && text[pos] == '\r') {
@@ -29,13 +40,7 @@ inline IniData Parse(std::string_view text)
             ++pos;
         }
 
-        const size_t start = line.find_first_not_of(" \t");
-        if (start == std::string_view::npos) {
-            continue;
-        }
-        line = line.substr(start);
-
-        if (line[0] == ';' || line[0] == '#') {
+        if (line.empty() || line[0] == ';' || line[0] == '#') {
             continue;
         }
 
@@ -57,25 +62,11 @@ inline IniData Parse(std::string_view text)
             continue;
         }
 
-        const std::string_view key_part = line.substr(0, eq);
-        const size_t key_end = key_part.find_last_not_of(" \t");
-        std::string key;
-        if (key_end != std::string_view::npos) {
-            key = std::string(key_part.substr(0, key_end + 1));
-        }
+        const std::string_view key = detail::TrimBlanks(line.substr(0, eq));
         if (key.empty()) {
             continue;
         }
-
-        const std::string_view val_part = line.substr(eq + 1);
-        const size_t val_start = val_part.find_first_not_of(" \t");
-        std::string value;
-        if (val_start != std::string_view::npos) {
-            const size_t val_end = val_part.find_last_not_of(" \t");
-            value = std::string(val_part.substr(val_start, val_end - val_start + 1));
-        }
-
-        data[current_section][std::move(key)] = std::move(value);
+        data[current_section][std::string(key)] = std::string(detail::TrimBlanks(line.substr(eq + 1)));
     }
 
     return data;

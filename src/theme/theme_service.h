@@ -1,7 +1,6 @@
 #pragma once
 #include "config_service.h"
 #include "theme.h"
-#include <string>
 
 class ThemeService {
 public:

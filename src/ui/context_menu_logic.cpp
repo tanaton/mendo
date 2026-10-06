@@ -2,6 +2,7 @@
 #include "theme.h"
 #include "i18n.h"
 #include "resource.h"
+#include <algorithm>
 
 using Microsoft::WRL::ComPtr;
 using namespace context_menu_constants;
@@ -63,10 +64,7 @@ void ContextMenu::Impl::BuildItems(const ContextMenuParams& params)
 {
     items.clear();
 
-    Item nav_row;
-    nav_row.type = ItemType::NavRow;
-    nav_row.id = 0;
-    items.emplace_back(std::move(nav_row));
+    items.emplace_back(ItemType::NavRow);
     nav_layout.back_enabled = params.can_go_back;
     nav_layout.fwd_enabled = params.can_go_forward;
 
@@ -94,24 +92,21 @@ void ContextMenu::Impl::CreateTextFormats(const Theme& t)
         return;
     }
 
-    fmt_text.Reset();
-    fmt_icon.Reset();
+    const auto create = [this](const wchar_t* family, float size, ComPtr<IDWriteTextFormat>& out) {
+        dwrite_factory->CreateTextFormat(
+            family, nullptr,
+            DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL, size,
+            L"ja-jp", out.ReleaseAndGetAddressOf());
+    };
 
-    dwrite_factory->CreateTextFormat(
-        t.font_family.c_str(), nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, t.pane_font_size,
-        L"ja-jp", &fmt_text);
+    create(t.font_family.c_str(), t.pane_font_size, fmt_text);
     if (fmt_text) {
         fmt_text->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         fmt_text->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     }
 
-    dwrite_factory->CreateTextFormat(
-        t.icon_font.c_str(), nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, ICON_FONT_SIZE,
-        L"ja-jp", &fmt_icon);
+    create(t.icon_font.c_str(), ICON_FONT_SIZE, fmt_icon);
     if (fmt_icon) {
         fmt_icon->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
         fmt_icon->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
@@ -137,9 +132,7 @@ void ContextMenu::Impl::ComputeLayout()
         if (layout) {
             DWRITE_TEXT_METRICS metrics{};
             layout->GetMetrics(&metrics);
-            if (metrics.width > max_text_w) {
-                max_text_w = metrics.width;
-            }
+            max_text_w = std::max(max_text_w, metrics.width);
         }
     }
 

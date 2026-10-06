@@ -11,9 +11,9 @@
 #include "ui_constants.h"
 #include "memory_resource.h"
 #include "search_state.h"
-#include <cassert>
 #include <memory_resource>
 #include <span>
+#include <string_view>
 
 // HitTestTextRange 初期バッファ容量。1 行中の inline code run が
 // 折り返される想定最大数に合わせる。描画 hot path 中の resize を避けるのが目的。
@@ -42,44 +42,6 @@ inline D2D1_RECT_F RectFromHitTest(const DWRITE_HIT_TEST_METRICS& m, float origi
         origin_y + m.top,
         origin_x + m.left + m.width,
         origin_y + m.top + m.height);
-}
-
-inline D2D1_RECT_F OffsetRectF(const D2D1_RECT_F& r, float origin_x, float origin_y) noexcept
-{
-    return D2D1::RectF(origin_x + r.left, origin_y + r.top, origin_x + r.right, origin_y + r.bottom);
-}
-
-// 可視 Y 範囲 [cull_top, cull_bottom] (ペインローカル) と重なるか。
-constexpr bool OverlapsY(const D2D1_RECT_F& r, float cull_top, float cull_bottom) noexcept
-{
-    return !IsOffscreen(r.top, r.bottom - r.top, cull_top, cull_bottom);
-}
-
-// インラインコードの背景矩形を描画する。
-// bgsにはパディング適用済みのレイアウト原点相対矩形が格納されている。
-inline void GenInlineCodeBgs(DrawCommandList& cmds, std::span<const InlineCodeBg> bgs, float origin_x, float origin_y, D2D1_COLOR_F color, float cull_top, float cull_bottom)
-{
-    for (const auto& bg : bgs) {
-        const auto r = OffsetRectF(bg, origin_x, origin_y);
-        if (OverlapsY(r, cull_top, cull_bottom)) {
-            cmds.emplace_back(FillRoundedRectCmd{ r, INLINE_CODE_CORNER, INLINE_CODE_CORNER, color });
-        }
-    }
-}
-
-// テーブルセルのインラインコード背景を描画する。
-// bgs は cell_index 昇順を維持しているため、cursor を進めるだけで O(N) 全体で済む。
-// 戻り値は次回呼び出し向けに進めた cursor。
-inline size_t GenCellInlineCodeBgs(DrawCommandList& cmds, std::span<const CellInlineCodeBg> bgs, size_t cursor, uint32_t cell_index, float origin_x, float origin_y, D2D1_COLOR_F color)
-{
-    while (cursor < bgs.size() && bgs[cursor].cell_index < cell_index) {
-        ++cursor;
-    }
-    while (cursor < bgs.size() && bgs[cursor].cell_index == cell_index) {
-        cmds.emplace_back(FillRoundedRectCmd{ OffsetRectF(bgs[cursor].rect, origin_x, origin_y), INLINE_CODE_CORNER, INLINE_CODE_CORNER, color });
-        ++cursor;
-    }
-    return cursor;
 }
 
 // ドキュメントデータとビューポート状態から DrawCommandList を生成する。
@@ -153,6 +115,9 @@ private:
         BlockHScrollContext h_scroll;
     };
 
+    // 選択範囲外に出たノードの SelectionHlCache を前フレームとの差分区間だけ解放する。
+    void ReleaseStaleSelectionHlCaches(const LayoutCache& cache, const TextSelection& selection);
+
     void GenerateNode(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram, int node_index, float entry_text_top);
 
     // ベースカラー、インラインコード背景、検索/選択ハイライト、本文テキストを描画する。
@@ -170,7 +135,7 @@ private:
     NodeBaseStyle GetNodeBaseStyle(const Node& node) const noexcept;
 
     void GenHorizontalRule(DrawCommandList& cmds, float x, float w, float entry_text_top);
-    void GenTable(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, int node_index, float x, float entry_text_top, float h_scroll_x = 0.0f);
+    void GenTable(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, int node_index, float offset_x, float entry_text_top, float h_scroll_x = 0.0f);
     // テーブル 1 行分の幾何。GenTableRowBg と内部ループで使い回す。
     struct TableRowGeom {
         float x;
@@ -204,8 +169,14 @@ private:
     void EmitBlockHScrollbarIfActive(DrawCommandList& cmds, const FrameContext& fc, int node_index, float block_x, float bar_y, const BlockHScrollGeometry& geom, float scroll_x);
     void GenListBullet(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top);
     void GenBlockQuoteGroupDecorations(DrawCommandList& cmds, const FrameContext& fc, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible);
+    // nodes[first, last) が 1 つの引用グループ。group_top / group_bottom はペインローカル Y。
+    void GenBlockQuoteGroup(DrawCommandList& cmds, const FrameContext& fc, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int first, int last, int max_depth, float group_top, float group_bottom);
     // error 非空時は「読み込み中...」の代わりにエラーメッセージを表示する (issue #271)。
     void GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h, std::wstring_view error = {});
+    // 共有バッファへ HitTestTextRange を発行し、取得したメトリクスを返す。次回呼び出しまで有効。
+    std::span<const DWRITE_HIT_TEST_METRICS> HitTestRange(IDWriteTextLayout* layout, uint32_t start, uint32_t length);
+    // 可視 Y 範囲 [cull_top_, cull_bottom_] と重なる矩形だけ FillRectCmd を積む。
+    void EmitFillRectIfVisible(DrawCommandList& cmds, const D2D1_RECT_F& r, D2D1_COLOR_F color, BrushId brush);
     // HitTestTextRange の結果をレイアウト原点相対の D2D1_RECT_F に変換し out へ append する。
     // SearchHlCache / SelectionHlCache の rebuild に共用する。
     void CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::pmr::vector<D2D1_RECT_F>& out);
@@ -228,6 +199,9 @@ private:
         DrawCommandList& cmds, const SearchHlCache& cache,
         std::span<const SearchMatch> matches, size_t first_global,
         float origin_x, float origin_y, int table_row, int table_col);
+
+    // INLINE_TEXT_CAPACITY を超える文字列は frame_resource_ にコピーする (寿命は次フレームまで)。
+    DrawTextCmd MakeTextCmd(const wchar_t* src, size_t len, D2D1_RECT_F r, IDWriteTextFormat* fmt, D2D1_COLOR_F col, BrushId brush_id = BrushId::Custom);
 
     const Theme* theme_ = nullptr;
     Formats formats_;
@@ -255,29 +229,7 @@ private:
 
     std::pmr::vector<DWRITE_HIT_TEST_METRICS>* hit_test_buffer_ = nullptr;
 
-    DrawTextCmd MakeTextCmd(const wchar_t* src, size_t len, D2D1_RECT_F r, IDWriteTextFormat* fmt, D2D1_COLOR_F col, BrushId brush_id = BrushId::Custom)
-    {
-        assert(len <= 255 && "DrawTextCmd text exceeds uint8_t range");
-        DrawTextCmd c{};
-        c.text_len = static_cast<uint8_t>((std::min)(len, size_t(255)));
-        c.rect = r;
-        c.format = fmt;
-        c.color = col;
-        c.brush_id = brush_id;
-        if (c.text_len == 0) {
-            return c;
-        }
-        if (c.text_len <= DrawTextCmd::INLINE_TEXT_CAPACITY) {
-            std::char_traits<wchar_t>::copy(c.inline_buf, src, c.text_len);
-        }
-        else {
-            auto* buf = static_cast<wchar_t*>(frame_resource_.resource()->allocate(c.text_len * sizeof(wchar_t), alignof(wchar_t)));
-            std::char_traits<wchar_t>::copy(buf, src, c.text_len);
-            c.text_ptr = buf;
-        }
-        return c;
-    }
-
+    // SetTheme 時に theme_ から導出する。
     D2D1_COLOR_F cached_stripe_color_{};
     bool cached_is_dark_ = false;
 

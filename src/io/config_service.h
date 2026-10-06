@@ -31,6 +31,7 @@ public:
 
 private:
     [[nodiscard]] const std::string* FindValue(std::string_view section, std::string_view key) const;
+    void StoreValue(std::string_view section, std::string_view key, std::string value);
 
     // SHGetKnownFolderPath の結果をプロセス全体で 1 回だけ resolve する。
     // 関数ローカル static (magic static) は C++11 以降 thread-safe な lazy init を保証するため、

@@ -51,6 +51,10 @@ public:
 private:
     ID2D1SolidColorBrush* GetBrush(ID2D1RenderTarget* rt, D2D1_COLOR_F color);
     ID2D1SolidColorBrush* ResolveBrush(ID2D1RenderTarget* rt, BrushId id, D2D1_COLOR_F color);
+    // ブラシは RT 付随リソースなので、RT 切替・デバイス再作成時にプールを破棄する。
+    void BindRenderTarget(ID2D1RenderTarget* rt);
+    // 全消去によるフレームスパイクを避けるため最古エントリ 1 つだけ追い出す。
+    void EvictOldestBrush();
 
     static constexpr size_t MAX_POOLED_BRUSHES = 256;
 

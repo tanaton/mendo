@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -65,16 +66,8 @@ public:
 
     constexpr small_vector& operator=(std::initializer_list<T> il)
     {
-        clear();
-        const auto n = static_cast<size_type>(il.size());
-        if (n > capacity_) {
-            grow_to(n);
-        }
-        size_type i = 0;
-        for (const T& v : il) {
-            data_[i++] = v;
-        }
-        size_ = n;
+        reset_for_overwrite(il.size());
+        std::ranges::copy(il, data_);
         return *this;
     }
 
@@ -162,15 +155,8 @@ public:
     // 個数は size_t で受ける (operator[] と同じ理由)。
     constexpr void assign(std::size_t n, const T& v)
     {
-        const auto count = static_cast<size_type>(n);
-        clear();
-        if (count > capacity_) {
-            grow_to(count);
-        }
-        for (size_type i = 0; i < count; ++i) {
-            data_[i] = v;
-        }
-        size_ = count;
+        reset_for_overwrite(n);
+        std::fill_n(data_, size_, v);
     }
 
     template <typename... Args>
@@ -216,6 +202,15 @@ private:
     static constexpr void deallocate(T* p) noexcept
     {
         ::operator delete(p);
+    }
+
+    // 既存要素を捨てて n 要素ぶんの領域を用意し size_ を n にする。要素の書き込みは呼び出し側が行う。
+    constexpr void reset_for_overwrite(std::size_t n)
+    {
+        const auto count = static_cast<size_type>(n);
+        clear();
+        reserve(count);
+        size_ = count;
     }
 
     constexpr void grow_to(size_type new_cap)
@@ -278,7 +273,7 @@ private:
     }
 
     template <typename U>
-    constexpr void constexpr_memcpy(U* dest, const U* src, std::size_t count)
+    static constexpr void constexpr_memcpy(U* dest, const U* src, std::size_t count)
     {
         if consteval {
             for (std::size_t i = 0; i < count; ++i) {

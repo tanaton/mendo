@@ -1,5 +1,6 @@
 #pragma once
 #include "measure_backend.h"
+#include "theme.h"
 
 // lifecycle 系は UI スレッドからのみ呼ぶ。並列計測中は呼ばない契約。
 class ITextMeasurer : public IMeasureBackend {

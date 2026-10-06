@@ -11,22 +11,22 @@
 #include <dwmapi.h>
 #include <commctrl.h>
 #include <imm.h>
-#include <climits>
-#include <memory_resource>
+#include <algorithm>
 
 #pragma comment(lib, "shcore.lib")
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "imm32.lib")
 
-static constexpr wchar_t WINDOW_CLASS[] = L"mendoWindow";
+namespace {
+
+constexpr wchar_t WINDOW_CLASS[] = L"mendoWindow";
 
 // システムメニュー（タスクバー右クリック）のカスタムコマンドID
 // 0xF000以上はシステム予約（SC_KEYMENU=0xF100等）のため、下位4bitが0のカスタム値を使う
-static constexpr UINT SC_RESET_WINDOW = 0x0010;
+constexpr UINT SC_RESET_WINDOW = 0x0010;
 
 // ini 永続化キー。既存設定との互換性のため値の変更は禁止。
-namespace {
 using namespace std::literals;
 constexpr auto kSectionWindow = "Window"sv;
 constexpr auto kKeyWindowX = "X"sv;
@@ -34,6 +34,57 @@ constexpr auto kKeyWindowY = "Y"sv;
 constexpr auto kKeyWindowWidth = "Width"sv;
 constexpr auto kKeyWindowHeight = "Height"sv;
 constexpr auto kKeyWindowMaximized = "Maximized"sv;
+
+bool IsKeyDown(int vk) noexcept
+{
+    return (GetKeyState(vk) & 0x8000) != 0;
+}
+
+// IME 変換候補ウィンドウを入力フィールドの下、キャレット位置に合わせる。
+void PlaceImeWindowsBelowCaret(HWND edit)
+{
+    const HIMC himc = ImmGetContext(edit);
+    if (!himc) {
+        return;
+    }
+    RECT rc{};
+    GetClientRect(edit, &rc);
+
+    DWORD sel_end = 0;
+    SendMessageW(edit, EM_GETSEL, 0, reinterpret_cast<LPARAM>(&sel_end));
+    LONG caret_x = 0;
+    if (sel_end > 0) {
+        const LRESULT pos = SendMessageW(edit, EM_POSFROMCHAR, sel_end - 1, 0);
+        if (pos != -1) {
+            caret_x = static_cast<SHORT>(LOWORD(pos)) + IME_CARET_X_OFFSET;
+        }
+    }
+
+    const POINT ime_pos = { caret_x, rc.bottom - rc.top };
+    COMPOSITIONFORM cf{};
+    cf.dwStyle = CFS_POINT;
+    cf.ptCurrentPos = ime_pos;
+    ImmSetCompositionWindow(himc, &cf);
+    CANDIDATEFORM cdf{};
+    cdf.dwIndex = 0;
+    cdf.dwStyle = CFS_CANDIDATEPOS;
+    cdf.ptCurrentPos = ime_pos;
+    ImmSetCandidateWindow(himc, &cdf);
+    ImmReleaseContext(edit, himc);
+}
+
+// 確定前のコンポジション文字列 (D2D 描画用)。取得できなければ空。
+std::pmr::wstring GetImeCompositionString(HIMC himc)
+{
+    const LONG bytes = ImmGetCompositionStringW(himc, GCS_COMPSTR, nullptr, 0);
+    if (bytes <= 0) {
+        return {};
+    }
+    std::pmr::wstring comp(static_cast<size_t>(bytes) / sizeof(wchar_t), L'\0');
+    ImmGetCompositionStringW(himc, GCS_COMPSTR, comp.data(), static_cast<DWORD>(bytes));
+    return comp;
+}
+
 } // namespace
 
 Win32Window::Win32Window(ConfigService& config)
@@ -92,7 +143,7 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
         return false;
     }
 
-    // 検索用の非表示EDITコントロールを作成（IME対応のため）
+    // IME 対応のため、検索入力は非表示の EDIT コントロールで受ける
     search_edit_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 1, 1, hwnd_, nullptr, hInstance, nullptr);
     if (search_edit_) {
         SetWindowSubclass(search_edit_, SearchEditProc, 0, reinterpret_cast<DWORD_PTR>(this));
@@ -150,7 +201,6 @@ int Win32Window::RunMessageLoop()
             app_->OnFileWatchEvent();
         }
 
-        // キューのメッセージをすべて排出
         while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
             if (msg.message == WM_QUIT) {
                 return static_cast<int>(msg.wParam);
@@ -184,20 +234,19 @@ LRESULT CALLBACK Win32Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
 
 LRESULT Win32Window::OnNcCalcSize(WPARAM wParam, LPARAM lParam)
 {
-    if (wParam == TRUE) {
-        auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam);
-        // NC領域を完全に除去: クライアント領域 = ウィンドウ全体。
-
-        // 最大化時はフレーム厚分だけ内側に縮小（タスクバー隠れ防止）
-        if (IsZoomed(hwnd_)) {
-            params->rgrc[0].top += cached_nchit_frame_y_;
-            params->rgrc[0].left += cached_nchit_right_border_;
-            params->rgrc[0].right -= cached_nchit_right_border_;
-            params->rgrc[0].bottom -= cached_nchit_frame_y_;
-        }
-        return 0;
+    if (wParam != TRUE) {
+        return DefWindowProcW(hwnd_, WM_NCCALCSIZE, wParam, lParam);
     }
-    return DefWindowProcW(hwnd_, WM_NCCALCSIZE, wParam, lParam);
+    // NC領域を完全に除去: クライアント領域 = ウィンドウ全体。
+    // 最大化時はフレーム厚分だけ内側に縮小（タスクバー隠れ防止）
+    if (IsZoomed(hwnd_)) {
+        auto& rc = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam)->rgrc[0];
+        rc.top += cached_nchit_frame_y_;
+        rc.left += cached_nchit_right_border_;
+        rc.right -= cached_nchit_right_border_;
+        rc.bottom -= cached_nchit_frame_y_;
+    }
+    return 0;
 }
 
 LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
@@ -213,7 +262,6 @@ LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
 
 LRESULT Win32Window::HitTestResizeFrame(POINT pt) const noexcept
 {
-    // 最大化時はリサイズ不可
     if (IsZoomed(hwnd_)) {
         return HTNOWHERE;
     }
@@ -227,49 +275,34 @@ LRESULT Win32Window::HitTestResizeFrame(POINT pt) const noexcept
         return HTNOWHERE;
     }
 
+    const bool left = pt.x < border;
+    const bool right = pt.x >= rc.right - right_border;
     if (pt.y < frame_y) {
-        if (pt.x < border) {
-            return HTTOPLEFT;
-        }
-        if (pt.x >= rc.right - right_border) {
-            return HTTOPRIGHT;
-        }
-        return HTTOP;
+        return left ? HTTOPLEFT : (right ? HTTOPRIGHT : HTTOP);
     }
     if (pt.y >= rc.bottom - border) {
-        if (pt.x < border) {
-            return HTBOTTOMLEFT;
-        }
-        if (pt.x >= rc.right - right_border) {
-            return HTBOTTOMRIGHT;
-        }
-        return HTBOTTOM;
+        return left ? HTBOTTOMLEFT : (right ? HTBOTTOMRIGHT : HTBOTTOM);
     }
-    if (pt.x < border) {
+    if (left) {
         return HTLEFT;
     }
-    // 右辺: スクロールバー領域は HTCLIENT を優先するが、最外側 border はリサイズを優先
-    if (pt.x >= rc.right - right_border) {
-        if (pt.x < rc.right - border) {
-            const float dpi_scale = app_->GetDpiScale();
-            if (app_->IsOverMdScrollbar(PixelToDip(static_cast<float>(pt.x), dpi_scale), PixelToDip(static_cast<float>(pt.y), dpi_scale))) {
-                return HTCLIENT;
-            }
-        }
-        return HTRIGHT;
+    if (!right) {
+        return HTNOWHERE;
     }
-
-    return HTNOWHERE;
+    // 右辺: スクロールバー領域は HTCLIENT を優先するが、最外側 border はリサイズを優先
+    if (pt.x < rc.right - border) {
+        const auto dip = PixelToDip(pt.x, pt.y, app_->GetDpiScale());
+        if (app_->IsOverMdScrollbar(dip.x, dip.y)) {
+            return HTCLIENT;
+        }
+    }
+    return HTRIGHT;
 }
 
 LRESULT Win32Window::HitTestTitleBar(POINT pt) const noexcept
 {
-    const float dpi_scale = app_->GetDpiScale();
-    const float dip_x = PixelToDip(static_cast<float>(pt.x), dpi_scale);
-    const float dip_y = PixelToDip(static_cast<float>(pt.y), dpi_scale);
-    const float titlebar_height = app_->GetTitleBarHeightDip();
-
-    if (dip_y >= titlebar_height) {
+    const auto [dip_x, dip_y] = PixelToDip(pt.x, pt.y, app_->GetDpiScale());
+    if (dip_y >= app_->GetTitleBarHeightDip()) {
         return HTCLIENT;
     }
 
@@ -294,12 +327,16 @@ LRESULT Win32Window::HitTestTitleBar(POINT pt) const noexcept
 
 LRESULT Win32Window::HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
+    // WM_MOUSEWHEEL / WM_CONTEXTMENU ではスクリーン座標、それ以外はクライアント座標。
+    const int x = GET_X_LPARAM(lParam);
+    const int y = GET_Y_LPARAM(lParam);
+
     switch (msg) {
     case WM_RBUTTONDOWN:
         if (in_sys_menu_) {
             return 0;
         }
-        if (!app_->OnRButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam))) {
+        if (!app_->OnRButtonDown(x, y)) {
             return DefWindowProcW(hwnd_, msg, wParam, lParam);
         }
         return 0;
@@ -308,17 +345,17 @@ LRESULT Win32Window::HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         if (in_sys_menu_) {
             return 0;
         }
-        if (!app_->OnRButtonUp(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam))) {
+        if (!app_->OnRButtonUp(x, y)) {
             return DefWindowProcW(hwnd_, msg, wParam, lParam);
         }
         return 0;
 
     case WM_LBUTTONDOWN:
-        app_->OnLButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        app_->OnLButtonDown(x, y);
         return 0;
 
     case WM_LBUTTONUP:
-        app_->OnLButtonUp(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        app_->OnLButtonUp(x, y);
         return 0;
 
     case WM_MOUSEMOVE:
@@ -331,13 +368,13 @@ LRESULT Win32Window::HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam)
             tracking_mouse_ = true;
         }
         if (wParam & MK_LBUTTON) {
-            app_->OnMouseMove(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            app_->OnMouseMove(x, y);
         }
         else if (wParam & MK_RBUTTON) {
-            app_->OnRButtonMove(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            app_->OnRButtonMove(x, y);
         }
         else {
-            app_->OnMouseHover(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+            app_->OnMouseHover(x, y);
         }
         return 0;
 
@@ -353,75 +390,34 @@ LRESULT Win32Window::HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return DefWindowProcW(hwnd_, msg, wParam, lParam);
 
     case WM_LBUTTONDBLCLK:
-        app_->OnLButtonDblClk(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        app_->OnLButtonDblClk(x, y);
         return 0;
 
     case WM_MOUSEWHEEL: {
         const short wheel_delta = GET_WHEEL_DELTA_WPARAM(wParam);
-        const bool ctrl = (LOWORD(wParam) & MK_CONTROL) != 0;
-        const bool shift = (LOWORD(wParam) & MK_SHIFT) != 0;
-
-        if (ctrl) {
+        const auto keys = LOWORD(wParam);
+        if (keys & MK_CONTROL) {
             app_->OnMouseWheel(0, 0, wheel_delta, true);
         }
-        else if (shift) {
+        else if (keys & MK_SHIFT) {
             // Shift+Wheel は横スクロール扱い。Web ブラウザの慣習に合わせ wheel-down を右スクロールに反転する。
             app_->OnMouseHWheel(static_cast<short>(-wheel_delta));
         }
         else {
-            POINT pt;
-            pt.x = GET_X_LPARAM(lParam);
-            pt.y = GET_Y_LPARAM(lParam);
+            POINT pt = { x, y };
             ScreenToClient(hwnd_, &pt);
             app_->OnMouseWheel(pt.x, pt.y, wheel_delta);
         }
         return 0;
     }
 
-    case WM_MOUSEHWHEEL: {
-        const short wheel_delta = GET_WHEEL_DELTA_WPARAM(wParam);
-        app_->OnMouseHWheel(wheel_delta);
+    case WM_MOUSEHWHEEL:
+        app_->OnMouseHWheel(GET_WHEEL_DELTA_WPARAM(wParam));
         return 0;
-    }
 
-    case WM_CONTEXTMENU: {
-        // システムメニュー表示中はカスタムメニューを抑制
-        if (in_sys_menu_) {
-            return 0;
-        }
-        int sx = GET_X_LPARAM(lParam);
-        int sy = GET_Y_LPARAM(lParam);
-        if (sx == -1 && sy == -1) {
-            // キーボード起動 (VK_APPS / Shift+F10) は lParam が座標を持たない
-            RECT rc{};
-            GetClientRect(hwnd_, &rc);
-            POINT pt{};
-            bool use_cursor = false;
-            if (GetCursorPos(&pt)) {
-                POINT client = pt;
-                ScreenToClient(hwnd_, &client);
-                use_cursor = PtInRect(&rc, client) != FALSE;
-            }
-            if (!use_cursor) {
-                pt = { (rc.left + rc.right) / 2, (rc.top + rc.bottom) / 2 };
-                ClientToScreen(hwnd_, &pt);
-            }
-            sx = pt.x;
-            sy = pt.y;
-        }
-        else {
-            // マウス由来の場合、タイトルバー上の右クリックは抑制する
-            POINT pt = { sx, sy };
-            ScreenToClient(hwnd_, &pt);
-            const float dpi_scale = app_->GetDpiScale();
-            const float dip_y = PixelToDip(static_cast<float>(pt.y), dpi_scale);
-            if (dip_y < app_->GetTitleBarHeightDip()) {
-                return 0;
-            }
-        }
-        app_->OnContextMenu(sx, sy);
+    case WM_CONTEXTMENU:
+        OnContextMenu(x, y);
         return 0;
-    }
 
     case WM_XBUTTONDOWN: {
         const WORD button = GET_XBUTTON_WPARAM(wParam);
@@ -440,6 +436,45 @@ LRESULT Win32Window::HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     return DefWindowProcW(hwnd_, msg, wParam, lParam);
 }
 
+void Win32Window::OnContextMenu(int screen_x, int screen_y)
+{
+    // システムメニュー表示中はカスタムメニューを抑制
+    if (in_sys_menu_) {
+        return;
+    }
+    // キーボード起動 (VK_APPS / Shift+F10) は lParam が座標を持たない
+    if (screen_x == -1 && screen_y == -1) {
+        const POINT pt = KeyboardContextMenuPoint();
+        app_->OnContextMenu(pt.x, pt.y);
+        return;
+    }
+    // マウス由来の場合、タイトルバー上の右クリックは抑制する
+    POINT pt = { screen_x, screen_y };
+    ScreenToClient(hwnd_, &pt);
+    if (PixelToDip(static_cast<float>(pt.y), app_->GetDpiScale()) < app_->GetTitleBarHeightDip()) {
+        return;
+    }
+    app_->OnContextMenu(screen_x, screen_y);
+}
+
+POINT Win32Window::KeyboardContextMenuPoint() const
+{
+    // カーソルがクライアント内にあればその位置、なければクライアント中央 (スクリーン座標)。
+    RECT rc{};
+    GetClientRect(hwnd_, &rc);
+    POINT pt{};
+    if (GetCursorPos(&pt)) {
+        POINT client = pt;
+        ScreenToClient(hwnd_, &client);
+        if (PtInRect(&rc, client)) {
+            return pt;
+        }
+    }
+    pt = { (rc.left + rc.right) / 2, (rc.top + rc.bottom) / 2 };
+    ClientToScreen(hwnd_, &pt);
+    return pt;
+}
+
 LRESULT Win32Window::HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg) {
@@ -455,25 +490,9 @@ LRESULT Win32Window::HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lPara
         app_->OnMermaidDiskLoaded();
         return 0;
 
-    case app_msg::SEARCH_FOCUS: {
-        if (search_edit_) {
-            RepositionSearchEdit();
-            SetFocus(search_edit_);
-            if (wParam == app_param::SEARCH_FOCUS_SET_CARET) {
-                const auto pos = static_cast<int>(lParam);
-                SendMessageW(search_edit_, EM_SETSEL, pos, pos);
-            }
-            else if (wParam == app_param::SEARCH_FOCUS_SET_SELECTION) {
-                const auto [anchor, caret] = app_param::UnpackSearchSelectionLParam(lParam);
-                SendMessageW(search_edit_, EM_SETSEL, anchor, caret);
-            }
-            else {
-                SendMessageW(search_edit_, EM_SETSEL, 0, -1);
-            }
-            SyncSearchCaretFromEdit();
-        }
+    case app_msg::SEARCH_FOCUS:
+        FocusSearchEdit(wParam, lParam);
         return 0;
-    }
 
     case app_msg::SEARCH_UNFOCUS:
         SetFocus(hwnd_);
@@ -490,7 +509,6 @@ LRESULT Win32Window::HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lPara
 
 LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
-    // マウス入力メッセージ
     switch (msg) {
     case WM_RBUTTONDOWN:
     case WM_RBUTTONUP:
@@ -509,7 +527,6 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         break;
     }
 
-    // WM_APP+N カスタム通知メッセージ
     if (msg >= WM_APP && msg < app_msg::END) {
         return HandleAppNotification(msg, wParam, lParam);
     }
@@ -526,23 +543,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_SIZE:
-        // Windows 11 は SIZE_MINIMIZED 時に (0,0) ではなくタスクバーサムネイル寸法
-        // （例: 237×39）を通知してくる。そのままResizeBuffersを呼ぶとスワップチェーンが
-        // その小サイズになり、DWM合成時にアプリサイズへ引き伸ばされてフラッシュになる。
-        if (wParam == SIZE_MINIMIZED) {
-            was_minimized_ = true;
-            return 0;
-        }
-        app_->OnResize(LOWORD(lParam), HIWORD(lParam));
-        RepositionSearchEdit();
-        // ResizeBuffers直後のバックバッファは未定義。DWMが復元アニメーション中に
-        // その未定義フレームを合成してしまう前に、同期的にWM_PAINTを走らせて
-        // 新フレームをPresentしておく。対話的リサイズでは不要なので、
-        // 最小化からの復元時に限定する。
-        if (was_minimized_ && (wParam == SIZE_RESTORED || wParam == SIZE_MAXIMIZED)) {
-            UpdateWindow(hwnd_);
-            was_minimized_ = false;
-        }
+        OnSize(wParam, lParam);
         return 0;
 
     case WM_ACTIVATE:
@@ -573,13 +574,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_COMMAND:
         if (HIWORD(wParam) == EN_CHANGE && reinterpret_cast<HWND>(lParam) == search_edit_) {
-            const int text_len = GetWindowTextLengthW(search_edit_);
-            const size_t needed = static_cast<size_t>(std::max(text_len, 0));
-            search_text_buf_.assign(needed, L'\0');
-            const int copied = GetWindowTextW(search_edit_, search_text_buf_.data(), text_len + 1);
-            search_text_buf_.resize(static_cast<size_t>(std::max(copied, 0)));
-            app_->OnSearchTextChanged(search_text_buf_);
-            SyncSearchCaretFromEdit();
+            OnSearchEditChanged();
             return 0;
         }
         break;
@@ -588,14 +583,11 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         app_->OnDropFiles(reinterpret_cast<HDROP>(wParam));
         return 0;
 
-    case WM_DPICHANGED: {
-        const UINT dpi = HIWORD(wParam);
-        const auto* suggested = reinterpret_cast<const RECT*>(lParam);
-        app_->OnDpiChanged(dpi, suggested);
+    case WM_DPICHANGED:
+        app_->OnDpiChanged(HIWORD(wParam), reinterpret_cast<const RECT*>(lParam));
         UpdateDwmFrame();
         UpdateDpiMetricsCache();
         return 0;
-    }
 
     case WM_TIMER:
         app_->HandleTimer(wParam);
@@ -627,8 +619,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_NCRBUTTONDOWN:
-        // システムメニューアイコン上の右クリックを抑制
-        // （システムメニュー表示中に右クリックメニューが重なるのを防ぐ）
+        // システムメニュー表示中に右クリックメニューが重なるのを防ぐ
         if (wParam == HTSYSMENU) {
             return 0;
         }
@@ -638,6 +629,27 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         break;
     }
     return DefWindowProcW(hwnd_, msg, wParam, lParam);
+}
+
+void Win32Window::OnSize(WPARAM wParam, LPARAM lParam)
+{
+    // Windows 11 は SIZE_MINIMIZED 時に (0,0) ではなくタスクバーサムネイル寸法
+    // （例: 237×39）を通知してくる。そのままResizeBuffersを呼ぶとスワップチェーンが
+    // その小サイズになり、DWM合成時にアプリサイズへ引き伸ばされてフラッシュになる。
+    if (wParam == SIZE_MINIMIZED) {
+        was_minimized_ = true;
+        return;
+    }
+    app_->OnResize(LOWORD(lParam), HIWORD(lParam));
+    RepositionSearchEdit();
+    // ResizeBuffers直後のバックバッファは未定義。DWMが復元アニメーション中に
+    // その未定義フレームを合成してしまう前に、同期的にWM_PAINTを走らせて
+    // 新フレームをPresentしておく。対話的リサイズでは不要なので、
+    // 最小化からの復元時に限定する。
+    if (was_minimized_ && (wParam == SIZE_RESTORED || wParam == SIZE_MAXIMIZED)) {
+        UpdateWindow(hwnd_);
+        was_minimized_ = false;
+    }
 }
 
 // システムメニュー（タスクバー右クリック）
@@ -653,7 +665,6 @@ void Win32Window::InitSystemMenu()
 
 void Win32Window::ResetWindowPlacement()
 {
-    // 最大化・最小化を解除してから配置をリセットする
     if (IsZoomed(hwnd_) || IsIconic(hwnd_)) {
         ShowWindow(hwnd_, SW_RESTORE);
     }
@@ -672,7 +683,6 @@ void Win32Window::ResetWindowPlacement()
     SetWindowPos(hwnd_, nullptr, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 }
 
-// ウィンドウ配置の永続化
 void Win32Window::SaveWindowPlacement()
 {
     WINDOWPLACEMENT wp{};
@@ -693,7 +703,7 @@ void Win32Window::SaveWindowPlacement()
 
 bool Win32Window::RestoreWindowPlacement(int nCmdShow)
 {
-    // 保存済みのウィンドウサイズを読み込み（なければデフォルト表示へフォールバック）
+    // 未保存 (0) ならデフォルト表示へフォールバックさせる
     const int w = config_.LoadInt(kSectionWindow, kKeyWindowWidth, 0, 100, 100000);
     const int h = config_.LoadInt(kSectionWindow, kKeyWindowHeight, 0, 100, 100000);
     if (w == 0 || h == 0) {
@@ -731,121 +741,126 @@ void Win32Window::RestoreScrollPosition()
     app_->SetPendingRestoreNode(pos.node, pos.offset);
 }
 
-// 検索EDITコントロールのサブクラスプロシージャ
 LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR /*uIdSubclass*/, DWORD_PTR dwRefData)
 {
     auto* self = reinterpret_cast<Win32Window*>(dwRefData);
 
-    // 単行EDITは\rを受け取るとビープ音を鳴らすので抑制
-    if (msg == WM_CHAR && wParam == L'\r') {
-        return 0;
-    }
-
-    if (msg == WM_KEYDOWN) {
-        const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-        const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-        const auto step = [&] {
-            if (shift) {
-                self->app_->OnSearchPrev();
-            }
-            else {
-                self->app_->OnSearchNext();
-            }
-        };
-
-        switch (wParam) {
-        case VK_ESCAPE:
-            self->app_->OnSearchClose();
-            SetFocus(self->hwnd_);
+    switch (msg) {
+    case WM_CHAR:
+        // 単行EDITは\rを受け取るとビープ音を鳴らすので抑制
+        if (wParam == L'\r') {
             return 0;
-        case VK_RETURN:
-        case VK_F3:
-            step();
-            return 0;
-        case 'F':
-            if (ctrl) {
-                self->app_->OnSearchClose();
-                SetFocus(self->hwnd_);
-                return 0;
-            }
-            break;
-        case 'G':
-            if (ctrl) {
-                step();
-                return 0;
-            }
-            break;
-        case 'A':
-            if (ctrl) {
-                // Ctrl+A: EDIT内の全選択（メインウィンドウに伝播しない）
-                SendMessageW(hwnd, EM_SETSEL, 0, -1);
-                self->SyncSearchCaretFromEdit();
-                return 0;
-            }
-            break;
         }
+        break;
 
-        // 方向キー等: DefSubclassProcに処理させた後、キャレット位置を同期
-        LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
-        self->SyncSearchCaretFromEdit();
-        return result;
-    }
+    case WM_KEYDOWN:
+        return self->OnSearchEditKeyDown(hwnd, wParam, lParam);
 
-    // IME変換候補ウィンドウを入力フィールドの下に配置
-    if (msg == WM_IME_STARTCOMPOSITION) {
-        HIMC himc = ImmGetContext(hwnd);
-        if (himc) {
-            RECT rc{};
-            GetClientRect(hwnd, &rc);
-
-            DWORD sel_end = 0;
-            SendMessageW(hwnd, EM_GETSEL, 0, reinterpret_cast<LPARAM>(&sel_end));
-            LONG caret_x = 0;
-            if (sel_end > 0) {
-                LRESULT pos = SendMessageW(hwnd, EM_POSFROMCHAR, sel_end - 1, 0);
-                if (pos != -1) {
-                    caret_x = static_cast<SHORT>(LOWORD(pos)) + IME_CARET_X_OFFSET;
-                }
-            }
-
-            const POINT ime_pos = { caret_x, rc.bottom - rc.top };
-            COMPOSITIONFORM cf{};
-            cf.dwStyle = CFS_POINT;
-            cf.ptCurrentPos = ime_pos;
-            ImmSetCompositionWindow(himc, &cf);
-            CANDIDATEFORM cdf{};
-            cdf.dwIndex = 0;
-            cdf.dwStyle = CFS_CANDIDATEPOS;
-            cdf.ptCurrentPos = ime_pos;
-            ImmSetCandidateWindow(himc, &cdf);
-            ImmReleaseContext(hwnd, himc);
-        }
+    case WM_IME_STARTCOMPOSITION:
+        PlaceImeWindowsBelowCaret(hwnd);
         // DefSubclassProcに渡すと非表示EDITのデフォルト処理で位置が上書きされるため、ここでreturn
         return 0;
-    }
 
-    // IMEコンポジション文字列をD2D描画用に取得
-    if (msg == WM_IME_COMPOSITION && (lParam & GCS_COMPSTR)) {
-        HIMC himc = ImmGetContext(hwnd);
-        if (himc) {
-            const int bytes = ImmGetCompositionStringW(himc, GCS_COMPSTR, nullptr, 0);
-            if (bytes > 0) {
-                std::pmr::wstring comp(static_cast<size_t>(bytes) / sizeof(wchar_t), L'\0');
-                ImmGetCompositionStringW(himc, GCS_COMPSTR, comp.data(), static_cast<DWORD>(bytes));
-                self->app_->SetImeComposition(std::move(comp));
+    case WM_IME_COMPOSITION:
+        if (lParam & GCS_COMPSTR) {
+            if (const HIMC himc = ImmGetContext(hwnd)) {
+                self->app_->SetImeComposition(GetImeCompositionString(himc));
+                ImmReleaseContext(hwnd, himc);
             }
-            else {
-                self->app_->SetImeComposition(L"");
-            }
-            ImmReleaseContext(hwnd, himc);
         }
-    }
+        break;
 
-    if (msg == WM_IME_ENDCOMPOSITION) {
+    case WM_IME_ENDCOMPOSITION:
         self->app_->SetImeComposition(L"");
+        break;
+
+    default:
+        break;
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+LRESULT Win32Window::OnSearchEditKeyDown(HWND edit, WPARAM wParam, LPARAM lParam)
+{
+    const bool ctrl = IsKeyDown(VK_CONTROL);
+    const auto close = [this] {
+        app_->OnSearchClose();
+        SetFocus(hwnd_);
+        return 0;
+    };
+    const auto step = [this] {
+        if (IsKeyDown(VK_SHIFT)) {
+            app_->OnSearchPrev();
+        }
+        else {
+            app_->OnSearchNext();
+        }
+        return 0;
+    };
+
+    switch (wParam) {
+    case VK_ESCAPE:
+        return close();
+    case VK_RETURN:
+    case VK_F3:
+        return step();
+    case 'F':
+        if (ctrl) {
+            return close();
+        }
+        break;
+    case 'G':
+        if (ctrl) {
+            return step();
+        }
+        break;
+    case 'A':
+        if (ctrl) {
+            // EDIT 内の全選択に留め、メインウィンドウに伝播させない
+            SendMessageW(edit, EM_SETSEL, 0, -1);
+            SyncSearchCaretFromEdit();
+            return 0;
+        }
+        break;
+    default:
+        break;
     }
 
-    return DefSubclassProc(hwnd, msg, wParam, lParam);
+    // 方向キー等: DefSubclassProcに処理させた後、キャレット位置を同期
+    const LRESULT result = DefSubclassProc(edit, WM_KEYDOWN, wParam, lParam);
+    SyncSearchCaretFromEdit();
+    return result;
+}
+
+void Win32Window::OnSearchEditChanged()
+{
+    const int text_len = GetWindowTextLengthW(search_edit_);
+    search_text_buf_.assign(static_cast<size_t>(std::max(text_len, 0)), L'\0');
+    const int copied = GetWindowTextW(search_edit_, search_text_buf_.data(), text_len + 1);
+    search_text_buf_.resize(static_cast<size_t>(std::max(copied, 0)));
+    app_->OnSearchTextChanged(search_text_buf_);
+    SyncSearchCaretFromEdit();
+}
+
+void Win32Window::FocusSearchEdit(WPARAM mode, LPARAM selection)
+{
+    if (!search_edit_) {
+        return;
+    }
+    RepositionSearchEdit();
+    SetFocus(search_edit_);
+    if (mode == app_param::SEARCH_FOCUS_SET_CARET) {
+        const auto pos = static_cast<int>(selection);
+        SendMessageW(search_edit_, EM_SETSEL, pos, pos);
+    }
+    else if (mode == app_param::SEARCH_FOCUS_SET_SELECTION) {
+        const auto [anchor, caret] = app_param::UnpackSearchSelectionLParam(selection);
+        SendMessageW(search_edit_, EM_SETSEL, anchor, caret);
+    }
+    else {
+        SendMessageW(search_edit_, EM_SETSEL, 0, -1);
+    }
+    SyncSearchCaretFromEdit();
 }
 
 void Win32Window::RepositionSearchEdit()
@@ -862,7 +877,8 @@ void Win32Window::SyncSearchCaretFromEdit()
     if (!search_edit_) {
         return;
     }
-    DWORD sel_start, sel_end;
+    DWORD sel_start = 0;
+    DWORD sel_end = 0;
     SendMessageW(search_edit_, EM_GETSEL, reinterpret_cast<WPARAM>(&sel_start), reinterpret_cast<LPARAM>(&sel_end));
     app_->SetSearchSelection(static_cast<int>(sel_start), static_cast<int>(sel_end));
 }

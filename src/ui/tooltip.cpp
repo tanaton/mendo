@@ -5,7 +5,17 @@
 
 namespace {
 constexpr UINT_PTR TOOL_ID = 1;
+
+// TTF_TRACK ツールを 1 つだけ登録し、全操作でそれを指す。
+TOOLINFOW MakeToolInfo(HWND parent) noexcept
+{
+    TOOLINFOW ti{};
+    ti.cbSize = sizeof(ti);
+    ti.hwnd = parent;
+    ti.uId = TOOL_ID;
+    return ti;
 }
+} // namespace
 
 struct Tooltip::Impl {
     HWND hwnd = nullptr;
@@ -47,12 +57,9 @@ void Tooltip::Init(HWND parent_hwnd)
         return;
     }
 
-    // TTF_TRACK ツールを1つだけ登録（手動で位置・表示を制御するため）
-    TOOLINFOW ti{};
-    ti.cbSize = sizeof(ti);
+    // 位置と表示を手動で制御するため TTF_TRACK で登録する。
+    TOOLINFOW ti = MakeToolInfo(s.parent);
     ti.uFlags = TTF_TRACK | TTF_ABSOLUTE;
-    ti.hwnd = s.parent;
-    ti.uId = TOOL_ID;
     ti.lpszText = const_cast<LPWSTR>(L"");
     SendMessageW(s.hwnd, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
 
@@ -69,11 +76,7 @@ bool Tooltip::Update(const TooltipTarget& target)
 
     Hide();
     s.current = target;
-
-    if (s.current.IsEmpty()) {
-        return false;
-    }
-    return true;
+    return !s.current.IsEmpty();
 }
 
 void Tooltip::Show()
@@ -83,10 +86,7 @@ void Tooltip::Show()
         return;
     }
 
-    TOOLINFOW ti{};
-    ti.cbSize = sizeof(ti);
-    ti.hwnd = s.parent;
-    ti.uId = TOOL_ID;
+    TOOLINFOW ti = MakeToolInfo(s.parent);
     ti.lpszText = const_cast<LPWSTR>(s.current.text.c_str());
     SendMessageW(s.hwnd, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&ti));
 
@@ -109,19 +109,15 @@ void Tooltip::Hide()
     if (!s.hwnd || !s.visible) {
         return;
     }
-    TOOLINFOW ti{};
-    ti.cbSize = sizeof(ti);
-    ti.hwnd = s.parent;
-    ti.uId = TOOL_ID;
+    TOOLINFOW ti = MakeToolInfo(s.parent);
     SendMessageW(s.hwnd, TTM_TRACKACTIVATE, FALSE, reinterpret_cast<LPARAM>(&ti));
     s.visible = false;
 }
 
 void Tooltip::ApplyDarkMode(bool dark)
 {
-    auto& s = *impl_;
-    if (s.hwnd) {
-        ApplyDarkModeToWindow(s.hwnd, dark);
+    if (impl_->hwnd) {
+        ApplyDarkModeToWindow(impl_->hwnd, dark);
     }
 }
 

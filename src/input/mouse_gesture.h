@@ -1,7 +1,7 @@
 #pragma once
-#include <deque>
-#include <vector>
 #include <cmath>
+#include <cstdint>
+#include <deque>
 #include <memory_resource>
 
 enum class GesturePhase : uint8_t {

@@ -29,6 +29,8 @@ enum class Id : UINT_PTR {
 inline constexpr UINT FRAME_INTERVAL_MS = 16;        // ~60fps アニメーション用
 inline constexpr UINT FILE_RELOAD_DEBOUNCE_MS = 200; // ファイル変更通知のデバウンス
 inline constexpr UINT FILE_RELOAD_RETRY_MS = 50;     // truncate→rewrite 検出後の短縮リトライ
+inline constexpr UINT SEARCH_DEBOUNCE_MS = 150;      // 大きな文書での検索入力のデバウンス
+inline constexpr UINT BITMAP_MANAGE_DELAY_MS = 150;  // スクロール停止後のビットマップ解放/再構築
 
 inline constexpr Id kFirstTimer = Id::DEFERRED_LAYOUT;
 inline constexpr Id kLastTimer = static_cast<Id>(std::to_underlying(Id::END) - 1);

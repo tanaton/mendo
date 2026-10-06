@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "file_load_service.h"
+#include "task_scheduler.h"
 #include "test_helpers.h"
 #include "theme.h"
 

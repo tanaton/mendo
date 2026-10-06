@@ -1,10 +1,8 @@
 #include "app.h"
 #include "app_constants.h"
-#include "app_events.h"
+#include "app_controller.h"
 #include "app_state_queries.h"
-#include "document_utils.h"
 #include "pane_layout.h"
-#include "resource.h"
 #include "selection_html.h"
 #include "ui_constants.h"
 
@@ -32,11 +30,11 @@ MdPaneHitContext App::BuildMdPaneHitContext(int px, int py, const PaneLayout& pa
 
 std::optional<std::pmr::string> App::GetLinkAtHit(const HitResult& hit) const
 {
-    if (hit.node_index < 0 || hit.node_index >= static_cast<int>(state_.document.doc.GetNodes().size())) {
+    const auto& nodes = state_.document.doc.GetNodes();
+    if (hit.node_index < 0 || hit.node_index >= static_cast<int>(nodes.size())) {
         return std::nullopt;
     }
-
-    return FindLinkAtPosition(state_.document.doc.GetNodes()[hit.node_index], hit.text_pos);
+    return FindLinkAtPosition(nodes[hit.node_index], hit.text_pos);
 }
 
 void App::OnLButtonDown(int px, int py)
@@ -102,19 +100,42 @@ void App::OnLButtonUp(int px, int py)
         break;
     }
 
-    if (state_.view.viewport.IsDragging()) {
-        const auto hit = HitTest(px, py);
-        const int dx = px - state_.view.viewport.GetClickStartX();
-        const int dy = py - state_.view.viewport.GetClickStartY();
-        const bool small_click = (dx * dx + dy * dy) < CLICK_DISTANCE_THRESHOLD_SQ;
-        Dispatch(TextSelectionEndedAction{ hit.node_index, hit.text_pos });
-        if (small_click && !state_.view.viewport.GetSelection().active) {
-            const auto link = GetLinkAtHit(hit);
-            if (link.has_value()) {
-                HandleLinkClick(link.value());
-            }
-        }
+    if (!state_.view.viewport.IsDragging()) {
+        return;
     }
+    const auto hit = HitTest(px, py);
+    const int dx = px - state_.view.viewport.GetClickStartX();
+    const int dy = py - state_.view.viewport.GetClickStartY();
+    const bool small_click = (dx * dx + dy * dy) < CLICK_DISTANCE_THRESHOLD_SQ;
+    Dispatch(TextSelectionEndedAction{ hit.node_index, hit.text_pos });
+    if (!small_click || state_.view.viewport.GetSelection().active) {
+        return;
+    }
+    if (const auto link = GetLinkAtHit(hit)) {
+        HandleLinkClick(*link);
+    }
+}
+
+void App::OnLButtonDblClk(int px, int py)
+{
+    if (!IsRenderReady()) {
+        return;
+    }
+    const auto dip = PixelToDip(px, py);
+    // CS_DBLCLKS により連続クリックの2回目は WM_LBUTTONDBLCLK になるため、
+    // タイトルバーボタンのクリックを先に処理する。
+    if (HandleTitleBarClick(dip.x, dip.y)) {
+        return;
+    }
+    if (PaneAtPoint(dip.x) != PaneZone::MdPane) {
+        return;
+    }
+    // 検索バーのボタンも連打として扱う (タイトルバーボタンと同じ理由)。
+    if (HandleSearchBarClick(dip.x, dip.y, GetPaneLayout(), true)) {
+        return;
+    }
+    const auto hit = HitTest(px, py);
+    Dispatch(SelectWordAction{ hit.node_index, hit.text_pos });
 }
 
 void App::OnMouseMove(int px, int py)
@@ -125,24 +146,18 @@ void App::OnMouseMove(int px, int py)
     }
 
     const auto dip = PixelToDip(px, py);
-    const float dip_x = dip.x;
-    const auto size = rt->GetSize();
 
     if (state_.search.search_bar_ctrl.IsDragging()) {
-        const auto layout = GetPaneLayout();
-        const auto& query_wide = state_.search.search_bar_ctrl.GetQueryWide();
-        const auto sbl = ComputeSearchBarLayoutForMd(layout.md_rect);
-        const int pos = HitTestSearchInputPos(sbl, query_wide, dip.x);
+        const auto sbl = ComputeSearchBarLayoutForMd(GetPaneLayout().md_rect);
+        const int pos = HitTestSearchInputPos(sbl, state_.search.search_bar_ctrl.GetQueryWide(), dip.x);
         Dispatch(SearchInputDragMovedAction{ pos });
         return;
     }
 
-    switch (state_.view.panes.GetDragTarget()) {
+    switch (const auto drag = state_.view.panes.GetDragTarget()) {
     case PaneController::DragTarget::Splitter1:
-        Dispatch(SplitterDragMovedAction{ PaneController::DragTarget::Splitter1, dip_x, size.width });
-        return;
     case PaneController::DragTarget::Splitter2:
-        Dispatch(SplitterDragMovedAction{ PaneController::DragTarget::Splitter2, dip_x, size.width });
+        Dispatch(SplitterDragMovedAction{ drag, dip.x, rt->GetSize().width });
         return;
     case PaneController::DragTarget::FileScrollbar:
         Dispatch(PaneScrollbarDragMovedAction{ PaneTarget::File, dip.y });
@@ -158,7 +173,7 @@ void App::OnMouseMove(int px, int py)
     }
 
     if (state_.view.h_drag_node >= 0) {
-        Dispatch(BlockHScrollDragMovedAction{ dip_x });
+        Dispatch(BlockHScrollDragMovedAction{ dip.x });
         return;
     }
 
@@ -172,6 +187,35 @@ void App::OnMouseMove(int px, int py)
     Dispatch(TextSelectionMovedAction{ hit.node_index, hit.text_pos });
 }
 
+void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
+{
+    if (!IsRenderReady()) {
+        return;
+    }
+
+    if (ctrl) {
+        Dispatch(app_controller::HandleMouseWheel(MouseWheelEvent{ delta, true, PaneZone::MdPane }));
+        return;
+    }
+
+    // 縦スクロールが発生した時点で SwipeDetector の軸ロックを更新（再武装）し、
+    // 直後の水平ホイールがスワイプとして誤検出されないようにする。
+    const bool had_overlay = state_.interaction.swipe_detector.IsOverlayVisible();
+    state_.interaction.swipe_detector.NotifyVScroll(GetTickCount64());
+    if (had_overlay) {
+        EmitEffect(effect::KillTimer{ app_timer::Id::SWIPE_OVERLAY });
+        Invalidate();
+    }
+
+    const auto dip = PixelToDip(px, py);
+    Dispatch(app_controller::HandleMouseWheel(MouseWheelEvent{ delta, false, ZoneAt(dip.x, GetPaneLayout()) }));
+}
+
+void App::OnMouseHWheel(short delta)
+{
+    Dispatch(HWheelAction{ delta, GetTickCount64() });
+}
+
 bool App::OnRButtonDown(int px, int py)
 {
     if (!IsRenderReady()) {
@@ -183,8 +227,7 @@ bool App::OnRButtonDown(int px, int py)
         return false;
     }
     const auto dip = PixelToDip(px, py);
-    const auto zone = PaneAtPoint(dip.x);
-    if (zone != PaneZone::MdPane) {
+    if (PaneAtPoint(dip.x) != PaneZone::MdPane) {
         return false;
     }
     Dispatch(RightClickGestureStartedAction{ dip.x, dip.y });

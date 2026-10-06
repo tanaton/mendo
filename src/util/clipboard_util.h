@@ -7,8 +7,6 @@
 #include <string>
 #include <string_view>
 
-// win_handle.h と責務を分離するためにこのヘッダにまとめる。
-
 class ClipboardSession {
 public:
     explicit ClipboardSession(HWND hwnd) noexcept
@@ -66,7 +64,6 @@ inline bool CommitClipboardGlobal(UINT format, UniqueGlobalMem mem) noexcept
     return true;
 }
 
-
 // UTF-8 を GlobalAlloc 先へ直接 UTF-16 変換する。巨大な全選択コピーで中間 wstring
 // (UTF-8 byte 数ぶんの上限確保) とそのコピーを持たないため。失敗時は空。
 inline UniqueGlobalMem BuildGlobalWideFromUtf8(std::string_view utf8) noexcept
@@ -85,20 +82,6 @@ inline UniqueGlobalMem BuildGlobalWideFromUtf8(std::string_view utf8) noexcept
         dst[wide_len] = L'\0';
         return written == wide_len;
     });
-}
-
-// 変換に失敗したら EmptyClipboard で既存内容を破壊しないよう、確保成功後にセッションを開く。
-inline void WriteClipboardText(HWND hwnd, std::string_view text_utf8) noexcept
-{
-    auto mem = BuildGlobalWideFromUtf8(text_utf8);
-    if (!mem) {
-        return;
-    }
-    ClipboardSession session(hwnd);
-    if (!session) {
-        return;
-    }
-    CommitClipboardGlobal(CF_UNICODETEXT, std::move(mem));
 }
 
 // HTML Format 仕様: https://learn.microsoft.com/windows/win32/dataxchg/html-clipboard-format
@@ -164,7 +147,6 @@ inline void WriteCfHtmlPayload(char* dst, std::string_view fragment_utf8) noexce
     write_offset(kStartFragmentDigits, start_fragment);
     write_offset(kEndFragmentDigits, end_fragment);
 }
-
 
 // CF_HTML ペイロードを GlobalAlloc 先に直接組み立てる (中間 std::string のコピーを持たない)。
 inline UniqueGlobalMem BuildGlobalCfHtml(std::string_view fragment_utf8) noexcept
@@ -272,4 +254,9 @@ inline void WriteClipboardHtml(HWND hwnd, std::string_view fragment_utf8, std::s
     if (plain) {
         CommitClipboardGlobal(CF_UNICODETEXT, std::move(plain));
     }
+}
+
+inline void WriteClipboardText(HWND hwnd, std::string_view text_utf8) noexcept
+{
+    WriteClipboardHtml(hwnd, {}, text_utf8);
 }

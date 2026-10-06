@@ -12,10 +12,28 @@ namespace utf8_codec {
 inline constexpr uint32_t kReplacement = 0xFFFD;
 inline constexpr std::string_view kBom = "\xEF\xBB\xBF";
 
+// 関数内の constexpr 配列だと MSVC が呼び出しごとにスタック上へ再構築するため名前空間スコープに置く。
+inline constexpr uint32_t kMinCpForLen[] = { 0, 0, 0x80u, 0x800u, 0x10000u };
+
 struct DecodedCp {
     uint32_t cp;
     uint32_t len; // 単位は decode 入力の code unit (UTF-8 なら byte 1-4、UTF-16 なら wchar_t 1-2)。
 };
+
+constexpr bool IsHighSurrogate(uint32_t c) noexcept
+{
+    return c >= 0xD800u && c <= 0xDBFFu;
+}
+
+constexpr bool IsLowSurrogate(uint32_t c) noexcept
+{
+    return c >= 0xDC00u && c <= 0xDFFFu;
+}
+
+constexpr bool IsSurrogate(uint32_t c) noexcept
+{
+    return c >= 0xD800u && c <= 0xDFFFu;
+}
 
 constexpr uint32_t SnapToCpStart(std::string_view text, uint32_t pos) noexcept
 {
@@ -28,9 +46,7 @@ constexpr uint32_t SnapToCpStart(std::string_view text, uint32_t pos) noexcept
 constexpr uint32_t SnapToCpStart(std::wstring_view text, uint32_t pos) noexcept
 {
     if (pos > 0) {
-        const auto c = static_cast<uint16_t>(text[pos]);
-        const auto p = static_cast<uint16_t>(text[pos - 1]);
-        if (c >= 0xDC00 && c <= 0xDFFF && p >= 0xD800 && p <= 0xDBFF) {
+        if (IsLowSurrogate(static_cast<uint16_t>(text[pos])) && IsHighSurrogate(static_cast<uint16_t>(text[pos - 1]))) {
             return pos - 1;
         }
     }
@@ -73,19 +89,7 @@ constexpr DecodedCp DecodeAt(std::string_view text, uint32_t pos) noexcept
     // 非スカラー値の排除:
     //   overlong (より短い符号化が可能な値)、UTF-16 サロゲート領域、Unicode 範囲外。
     //   これらをそのまま返すと UTF-16 化で孤立サロゲートを生むなど後続処理で破綻する。
-    uint32_t min_cp = 0;
-    switch (len) {
-    case 2:
-        min_cp = 0x80u;
-        break;
-    case 3:
-        min_cp = 0x800u;
-        break;
-    case 4:
-        min_cp = 0x10000u;
-        break;
-    }
-    if (cp < min_cp || cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu)) {
+    if (cp < kMinCpForLen[len] || cp > 0x10FFFFu || IsSurrogate(cp)) {
         return { kReplacement, 1 };
     }
     return { cp, len };
@@ -93,21 +97,17 @@ constexpr DecodedCp DecodeAt(std::string_view text, uint32_t pos) noexcept
 
 constexpr DecodedCp DecodeAt(std::wstring_view text, uint32_t pos) noexcept
 {
-    const auto c = static_cast<uint16_t>(text[pos]);
-    if (c >= 0xD800 && c <= 0xDBFF) {
-        if (static_cast<size_t>(pos) + 1 < text.size()) {
-            const auto c2 = static_cast<uint16_t>(text[pos + 1]);
-            if (c2 >= 0xDC00 && c2 <= 0xDFFF) {
-                const uint32_t cp = 0x10000u + ((static_cast<uint32_t>(c) - 0xD800u) << 10) + (static_cast<uint32_t>(c2) - 0xDC00u);
-                return { cp, 2 };
-            }
+    const uint32_t c = static_cast<uint16_t>(text[pos]);
+    if (!IsSurrogate(c)) {
+        return { c, 1 };
+    }
+    if (IsHighSurrogate(c) && static_cast<size_t>(pos) + 1 < text.size()) {
+        const uint32_t c2 = static_cast<uint16_t>(text[pos + 1]);
+        if (IsLowSurrogate(c2)) {
+            return { 0x10000u + ((c - 0xD800u) << 10) + (c2 - 0xDC00u), 2 };
         }
-        return { kReplacement, 1 }; // 孤立 high surrogate
     }
-    if (c >= 0xDC00 && c <= 0xDFFF) {
-        return { kReplacement, 1 }; // 孤立 low surrogate
-    }
-    return { c, 1 };
+    return { kReplacement, 1 }; // 孤立サロゲート
 }
 
 // pos > 0 が前提。
@@ -120,7 +120,7 @@ constexpr DecodedCp DecodePrev(SV text, uint32_t pos) noexcept
 // 不正な scalar 値は 0 を返す。
 constexpr uint32_t EncodeCp(uint32_t cp, char buf[4]) noexcept
 {
-    if (cp >= 0xD800u && cp <= 0xDFFFu) {
+    if (IsSurrogate(cp)) {
         return 0;
     }
     if (cp < 0x80u) {

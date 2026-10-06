@@ -10,8 +10,6 @@
 #include "stream_util.h"
 #include "string_convert.h"
 #include "wic_util.h"
-#include <memory_resource>
-#include <vector>
 
 namespace {
 
@@ -27,6 +25,16 @@ const Node* ValidateCodeBlockNode(const Document& doc, int node_index) noexcept
         return nullptr;
     }
     return &node;
+}
+
+// ダイアグラム言語の CodeBlock であれば node を返す。
+const Node* ValidateDiagramNode(const Document& doc, int node_index) noexcept
+{
+    const Node* node = ValidateCodeBlockNode(doc, node_index);
+    if (!node || !IsDiagramLanguage(node->code_language())) {
+        return nullptr;
+    }
+    return node;
 }
 
 } // namespace
@@ -53,16 +61,12 @@ void ClipboardManager::CopyCodeBlock(const Document& doc, int node_index, bool d
 
 void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, float md_width, bool dark)
 {
-    const Node* node_ptr = ValidateCodeBlockNode(doc, node_index);
-    if (!node_ptr || !IsDiagramLanguage(node_ptr->code_language())) {
-        return;
-    }
-    const auto& node = *node_ptr;
-    if (!file_cache_) {
+    const Node* node = ValidateDiagramNode(doc, node_index);
+    if (!node || !file_cache_) {
         return;
     }
 
-    const uint64_t key = mermaid_util::NodeDiagramHash(node, md_width, dark);
+    const uint64_t key = mermaid_util::NodeDiagramHash(*node, md_width, dark);
 
     MermaidFileCache::CacheEntry entry;
     MermaidFileCache::PngBlob png;
@@ -77,12 +81,8 @@ void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, flo
 
     // 既存ファイルを上書き選択した場合でも、失敗時に原本を破壊しないよう
     // tmp+rename のアトミック書き込みを使う。
-    if (AtomicWriteAllBytes(filename.c_str(), png.data.get(), png.size)) {
-        show_toast_(i18n::S().toast_image_saved);
-    }
-    else {
-        show_toast_(i18n::S().toast_image_save_failed);
-    }
+    const bool ok = AtomicWriteAllBytes(filename.c_str(), png.data.get(), png.size);
+    show_toast_(ok ? i18n::S().toast_image_saved : i18n::S().toast_image_save_failed);
 }
 
 UniqueGlobalMem ClipboardManager::BuildDib(const PngBytes& png) const
@@ -121,8 +121,8 @@ void ClipboardManager::EmitCopyResult(bool ok) const
 
 void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_index, PngBytes png, float md_width, bool dark)
 {
-    const Node* node_ptr = ValidateCodeBlockNode(doc, node_index);
-    if (!node_ptr || !IsDiagramLanguage(node_ptr->code_language())) {
+    const Node* node_ptr = ValidateDiagramNode(doc, node_index);
+    if (!node_ptr) {
         return;
     }
     const auto& node = *node_ptr;
@@ -145,10 +145,7 @@ void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_inde
         EmitCopyResult(WriteClipboardDiagram(hwnd_, BuildDib(png), *hit));
         return;
     }
-    if (copy_in_flight_) {
-        return;
-    }
-    if (!mermaid_renderer_) {
+    if (copy_in_flight_ || !mermaid_renderer_) {
         return;
     }
 
@@ -162,8 +159,7 @@ void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_inde
     // RequestSvg は WebView2 経路のため wstring。UTF-8 → wide に変換して渡す。
     std::pmr::wstring code_wide;
     string_convert::Utf8ToWide(node.GetText(), code_wide);
-    const std::wstring_view code_view = code_wide;
-    mermaid_renderer_->RequestSvg(code_view, md_width, dark,
+    mermaid_renderer_->RequestSvg(code_wide, md_width, dark,
         [this, key, gen, dib = std::move(dib)](std::pmr::wstring svg, bool cancelled) mutable {
             copy_in_flight_ = false;
             if (cancelled || gen != copy_generation_) {

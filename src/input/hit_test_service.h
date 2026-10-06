@@ -3,11 +3,9 @@
 #include "doc_dwrite_bridge.h"
 #include "document_types.h"
 #include "layout_cache.h"
-#include "layout_computer.h"
 #include "ui_types.h"
 #include "theme.h"
 #include "ui_constants.h"
-#include <concepts>
 #include <limits>
 #include <memory_resource>
 #include <unordered_map>
@@ -43,21 +41,9 @@ struct MdPaneHitContext {
     const std::pmr::unordered_map<int, float>* block_scroll_x = nullptr;
 };
 
-struct PaneDip {
-    float x;
-    float y;
-};
-
 inline float LookupBlockScrollX(const MdPaneHitContext& ctx, int node) noexcept
 {
     return LookupBlockScrollX(ctx.block_scroll_x, node);
-}
-inline constexpr PaneDip ScreenToPaneDip(const MdPaneHitContext& ctx) noexcept
-{
-    return {
-        ctx.screen_x / ctx.dpi_scale - ctx.md_pane_left,
-        ctx.screen_y / ctx.dpi_scale + ctx.scroll_y,
-    };
 }
 
 class HitTestService {

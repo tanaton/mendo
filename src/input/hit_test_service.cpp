@@ -1,12 +1,48 @@
 #include "hit_test_service.h"
 #include "doc_dwrite_bridge.h"
-#include "layout.h"
 #include "layout_computer.h"
 #include "ui_constants.h"
+#include <algorithm>
 #include <ranges>
 #include <utility>
 
+using mendo::layout::NodeBoxPadY;
+using mendo::layout::NodeIndent;
+using mendo::layout::NodeTextXOffset;
+
 namespace {
+
+struct PaneDip {
+    float x;
+    float y;
+};
+
+constexpr PaneDip ScreenToPaneDip(const MdPaneHitContext& ctx) noexcept
+{
+    return {
+        ctx.screen_x / ctx.dpi_scale - ctx.md_pane_left,
+        ctx.screen_y / ctx.dpi_scale + ctx.scroll_y,
+    };
+}
+
+// ノード高さ範囲外 (ノード間の余白等) のヒットを最寄りの非空ノードにクランプする。
+// 文書全体の末尾へ飛ばすと、余白クリックからのドラッグで巨大選択になる。
+HitTestService::HitResult ClampToNearestTextNode(const std::pmr::vector<Node>& nodes, int candidate) noexcept
+{
+    for (int i = candidate; i >= 0; --i) {
+        if (const auto& text = nodes[static_cast<size_t>(i)].GetText(); !text.empty()) {
+            return { i, static_cast<uint32_t>(text.size()) };
+        }
+    }
+    // candidate より前に非空ノードが無い場合 (文頭が HR/Image 等) も含め、
+    // 先頭の非空ノードの先頭へ倒して常に有効なヒットを返す。
+    for (const auto& [i, node] : nodes | std::views::enumerate) {
+        if (!node.GetText().empty()) {
+            return { static_cast<int>(i), 0 };
+        }
+    }
+    return {};
+}
 
 struct TableRowHit {
     int row;
@@ -145,28 +181,7 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
         }
     }
 
-    // 高さ範囲外 (ノード間の余白等) は最寄りの非空ノードにクランプする。
-    // 文書全体の末尾へ飛ばすと、余白クリックからのドラッグで巨大選択になる。
-    if (candidate >= 0) {
-        for (int i = candidate; i >= 0; --i) {
-            if (const auto& text = ctx.nodes[static_cast<size_t>(i)].GetText(); !text.empty()) {
-                result.node_index = i;
-                result.text_pos = static_cast<uint32_t>(text.size());
-                break;
-            }
-        }
-    }
-    // candidate より前に非空ノードが無い場合 (文頭が HR/Image 等) も含め、
-    // 先頭の非空ノードの先頭へ倒して常に有効なヒットを返す。
-    if (result.node_index < 0) {
-        for (const auto& [i, node] : ctx.nodes | std::views::enumerate) {
-            if (!node.GetText().empty()) {
-                result.node_index = static_cast<int>(i);
-                result.text_pos = 0;
-                break;
-            }
-        }
-    }
+    result = ClampToNearestTextNode(ctx.nodes, candidate);
     last_md_hit_.Store(ctx, gen, result);
     return result;
 }
@@ -182,7 +197,6 @@ HitTestService::HitResult HitTestService::HitTestTable(
     result.node_index = node_index;
 
     if (!entry.has_table_layout()) {
-        result.text_pos = 0;
         return result;
     }
     const auto& tl = *entry.table_layout;
@@ -202,12 +216,10 @@ HitTestService::HitResult HitTestService::HitTestTable(
     float cell_left_x = 0.0f;
     const int hit_col = FindTableCol(tl, base_x, dip_x, cell_left_x);
 
-    const uint32_t flat_offset = tbl->CellTextStart(static_cast<size_t>(hit_row), static_cast<size_t>(hit_col));
-
-    const size_t r = static_cast<size_t>(hit_row);
-    const size_t c = static_cast<size_t>(hit_col);
-    IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c);
-    if (cell_layout) {
+    const auto r = static_cast<size_t>(hit_row);
+    const auto c = static_cast<size_t>(hit_col);
+    const uint32_t flat_offset = tbl->CellTextStart(r, c);
+    if (IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c)) {
         const float text_x = cell_left_x + TABLE_CELL_PADDING;
         const float text_y = row_top_y + TABLE_CELL_PADDING;
 

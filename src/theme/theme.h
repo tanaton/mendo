@@ -1,9 +1,8 @@
 #pragma once
 #include <d2d1.h>
-#include <cstdint>
+#include <iterator>
 #include <string>
 #include "document_types.h"
-#include "theme_palette.h"
 
 struct Theme {
     // 色
@@ -109,8 +108,9 @@ inline constexpr float ZOOM_STEPS[] = {
     1.00f,
     1.10f, 1.25f, 1.50f, 1.75f, 2.00f, 2.50f, 3.00f, 4.00f, 5.00f
 };
-inline constexpr int ZOOM_STEP_COUNT = sizeof(ZOOM_STEPS) / sizeof(ZOOM_STEPS[0]);
-inline constexpr int ZOOM_DEFAULT_INDEX = 7; // 1.00f
+inline constexpr int ZOOM_STEP_COUNT = static_cast<int>(std::size(ZOOM_STEPS));
+inline constexpr int ZOOM_DEFAULT_INDEX = 7;
+static_assert(ZOOM_STEPS[ZOOM_DEFAULT_INDEX] == 1.0f);
 
 // プロセス内で 1 度だけ初期化される定数テーマへの参照を返す。
 // 値変更が必要な場合は呼び出し側でコピーして ApplyZoom 等を行うこと。

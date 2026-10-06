@@ -4,12 +4,18 @@
 #include "document_utils.h"
 #include <algorithm>
 #include <limits>
+#include <optional>
 
 namespace {
 // ビットマップ描画ノード (画像 / ダイアグラムコードブロック) はテキストハイライト不可のため検索対象外。
 bool IsNonSearchableDrawNode(const Node& node) noexcept
 {
     return node.type == NodeType::Image || IsDiagramCodeBlock(node);
+}
+
+size_t FindNext(std::string_view text, std::string_view query, bool fold, size_t pos) noexcept
+{
+    return fold ? ascii_util::FindAsciiCaseInsensitive(text, query, pos) : ascii_util::Find(text, query, pos);
 }
 } // namespace
 
@@ -41,18 +47,10 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
         if (node.type == NodeType::Table && node.has_table()) {
             FindTableMatches(*node.table_data(), query, fold, i);
         }
-        else if (const auto& text = node.GetText(); !text.empty()) {
-            if (IsNonSearchableDrawNode(node)) {
-                continue;
-            }
+        else if (const auto& text = node.GetText(); !text.empty() && !IsNonSearchableDrawNode(node)) {
             FindTextMatches(text, query, fold, i);
         }
     }
-}
-
-static size_t FindNext(std::string_view text, std::string_view query, bool fold, size_t pos) noexcept
-{
-    return fold ? ascii_util::FindAsciiCaseInsensitive(text, query, pos) : ascii_util::Find(text, query, pos);
 }
 
 void SearchState::FindTextMatches(std::string_view text, std::string_view query, bool fold, int node_index)
@@ -166,10 +164,8 @@ void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) 
             // partition_point の単調性 (true→false) を保ち、current_match を誤らせない。
             return false;
         }
-        const auto& e = cache[m.node_index];
-        const auto [y, h] = e.GetMatchYRange(m.table_row, m.table_col, m.start_w, cache.Top(static_cast<size_t>(m.node_index)));
-        (void)h;
-        return y < scroll_y;
+        const float match_y = cache[m.node_index].GetMatchYRange(m.table_row, m.table_col, m.start_w, cache.Top(static_cast<size_t>(m.node_index))).first;
+        return match_y < scroll_y;
     });
     current_match_ = (it != matches_.end()) ? static_cast<int>(it - matches_.begin()) : 0;
 }

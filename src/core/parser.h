@@ -1,11 +1,11 @@
 #pragma once
 #include "document_types.h"
 #include <concepts>
-#include <optional>
 #include <span>
 #include <stop_token>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 #include <memory_resource>
 

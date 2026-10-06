@@ -1,4 +1,17 @@
 #include "pane_controller.h"
+#include <utility>
+
+namespace {
+
+float ConstrainSplitterWidth(float requested_width, float total_width, float splitter_w, float other_width, bool other_visible) noexcept
+{
+    // MD ペインの最小幅を残せる上限。ただし PANE_MIN_WIDTH を下回らせない。
+    const float others = splitter_w + (other_visible ? other_width + splitter_w : 0.0f);
+    const float max_w = total_width - MD_PANE_MIN_WIDTH - others;
+    return std::max(PaneController::PANE_MIN_WIDTH, std::min(requested_width, max_w));
+}
+
+} // namespace
 
 bool PaneController::ScrollSidePaneBy(PaneTarget t, float delta, float max_scroll) noexcept
 {
@@ -10,29 +23,12 @@ bool PaneController::ScrollSidePaneBy(PaneTarget t, float delta, float max_scrol
 
 bool PaneController::SetHoveredSideIndex(PaneTarget t, int idx) noexcept
 {
-    auto& cur = Inst(t).hovered_index;
-    const bool changed = cur != idx;
-    cur = idx;
-    return changed;
+    return std::exchange(Inst(t).hovered_index, idx) != idx;
 }
 
 bool PaneController::SetSideHoveredButton(PaneTarget t, PaneHeaderButton button) noexcept
 {
-    auto& cur = Inst(t).hovered_button;
-    const bool changed = cur != button;
-    cur = button;
-    return changed;
-}
-
-float PaneController::ConstrainSplitterWidth(
-    float requested_width, float total_width,
-    float splitter_w, float other_width,
-    bool other_visible) noexcept
-{
-    // MD ペインの最小幅を残せる上限。ただし PANE_MIN_WIDTH を下回らせない。
-    const float others = splitter_w + (other_visible ? other_width + splitter_w : 0.0f);
-    const float max_w = total_width - MD_PANE_MIN_WIDTH - others;
-    return std::max(PANE_MIN_WIDTH, std::min(requested_width, max_w));
+    return std::exchange(Inst(t).hovered_button, button) != button;
 }
 
 void PaneController::DragSplitterTo(DragTarget target, float dip_x, float total_width, float splitter_w) noexcept
@@ -61,15 +57,6 @@ PaneLayout PaneController::ComputeLayout(float total_w, float total_h, float spl
 {
     const auto& file = Inst(PaneTarget::File);
     const auto& toc = Inst(PaneTarget::Toc);
-    return ComputePaneLayout(
-        total_w,
-        total_h,
-        file.width,
-        toc.width,
-        splitter_w,
-        file.show,
-        toc.show,
-        MD_PANE_MIN_WIDTH,
-        top_offset);
+    return ComputePaneLayout(total_w, total_h, file.width, toc.width, splitter_w, file.show, toc.show, MD_PANE_MIN_WIDTH, top_offset);
 }
 

@@ -14,26 +14,20 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     const float text_alpha = tb.window_active ? 1.0f : 0.5f;
     const auto is_hovered = [&](TitleBarHitZone z) noexcept { return tb.hovered_zone == z; };
 
-    auto drawButton = [&](const DipRect& dip_rect, const wchar_t* icon, bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
+    const auto draw_button = [&](const DipRect& dip_rect, wchar_t icon, bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
         const D2D1_RECT_F rect = ToD2DRect(dip_rect);
         if (show_bg) {
             rt()->FillRectangle(rect, Brush(bg_id));
         }
-        if (fmt_.titlebar_icon) {
-            auto* brush = Brush(text_id);
-            if (brush) {
-                mendo::OpacityScope guard{ brush, alpha };
-                rt()->DrawText(icon, 1, fmt_.titlebar_icon.Get(), rect, brush);
-            }
-        }
+        DrawTextWithOpacity({ &icon, 1 }, fmt_.titlebar_icon.Get(), rect, text_id, alpha);
     };
 
-    const auto draw_plain = [&](const DipRect& rect, const wchar_t* icon, TitleBarHitZone zone) {
-        drawButton(rect, icon, is_hovered(zone), BrushId::TitleBarButtonHover, BrushId::TitleBarText, text_alpha);
+    const auto draw_plain = [&](const DipRect& rect, wchar_t icon, TitleBarHitZone zone) {
+        draw_button(rect, icon, is_hovered(zone), BrushId::TitleBarButtonHover, BrushId::TitleBarText, text_alpha);
     };
     // active > hover の優先度
-    const auto draw_toggle = [&](const DipRect& rect, const wchar_t* icon, bool active, TitleBarHitZone zone) {
-        drawButton(
+    const auto draw_toggle = [&](const DipRect& rect, wchar_t icon, bool active, TitleBarHitZone zone) {
+        draw_button(
             rect,
             icon,
             active || is_hovered(zone),
@@ -42,37 +36,36 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
             text_alpha);
     };
 
-    draw_plain(tb.open_file, L"\uE838", TitleBarHitZone::OpenFile);
-    draw_plain(tb.help, L"\uE897", TitleBarHitZone::Help);
-    draw_plain(tb.theme_toggle, tb.is_dark_mode ? L"\uE706" : L"\uE708", TitleBarHitZone::ThemeToggle);
-    draw_toggle(tb.search, L"\uE721", tb.search_active, TitleBarHitZone::Search);
-    draw_toggle(tb.file_toggle, L"\uE8B7", tb.file_pane_visible, TitleBarHitZone::FileToggle);
-    draw_toggle(tb.toc_toggle, L"\uE8FD", tb.toc_pane_visible, TitleBarHitZone::TocToggle);
-    draw_plain(tb.minimize, L"\uE921", TitleBarHitZone::Minimize);
-    const wchar_t max_icon[]{ tb.is_maximized ? L'\uE923' : L'\uE922', L'\0' };
-    draw_plain(tb.maximize, max_icon, TitleBarHitZone::Maximize);
+    draw_plain(tb.open_file, L'\uE838', TitleBarHitZone::OpenFile);
+    draw_plain(tb.help, L'\uE897', TitleBarHitZone::Help);
+    draw_plain(tb.theme_toggle, tb.is_dark_mode ? L'\uE706' : L'\uE708', TitleBarHitZone::ThemeToggle);
+    draw_toggle(tb.search, L'\uE721', tb.search_active, TitleBarHitZone::Search);
+    draw_toggle(tb.file_toggle, L'\uE8B7', tb.file_pane_visible, TitleBarHitZone::FileToggle);
+    draw_toggle(tb.toc_toggle, L'\uE8FD', tb.toc_pane_visible, TitleBarHitZone::TocToggle);
+    draw_plain(tb.minimize, L'\uE921', TitleBarHitZone::Minimize);
+    draw_plain(tb.maximize, tb.is_maximized ? L'\uE923' : L'\uE922', TitleBarHitZone::Maximize);
     if (is_hovered(TitleBarHitZone::Close)) {
-        drawButton(tb.close, L"\uE8BB", true, BrushId::TitleBarCloseRed, BrushId::TitleBarCloseWhite, 1.0f);
+        draw_button(tb.close, L'\uE8BB', true, BrushId::TitleBarCloseRed, BrushId::TitleBarCloseWhite, 1.0f);
     }
     else {
-        draw_plain(tb.close, L"\uE8BB", TitleBarHitZone::Close);
+        draw_plain(tb.close, L'\uE8BB', TitleBarHitZone::Close);
     }
 
     if (app_icon_bitmap_) {
-        const float icon_alpha = tb.window_active ? 1.0f : 0.5f;
-        rt()->DrawBitmap(app_icon_bitmap_.Get(), ToD2DRect(tb.icon_rect), icon_alpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        rt()->DrawBitmap(app_icon_bitmap_.Get(), ToD2DRect(tb.icon_rect), text_alpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     }
 
-    if (fmt_.titlebar_text && !tb.title_text.empty()) {
-        auto* brush = Brush(BrushId::TitleBarText);
-        if (brush) {
-            mendo::OpacityScope guard{ brush, text_alpha };
-            rt()->DrawText(
-                tb.title_text.data(),
-                static_cast<UINT32>(tb.title_text.size()),
-                fmt_.titlebar_text.Get(),
-                ToD2DRect(tb.title_text_rect),
-                brush);
-        }
+    if (!tb.title_text.empty()) {
+        DrawTextWithOpacity(tb.title_text, fmt_.titlebar_text.Get(), ToD2DRect(tb.title_text_rect), BrushId::TitleBarText, text_alpha);
     }
+}
+
+void Renderer::DrawTextWithOpacity(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha)
+{
+    auto* const brush = Brush(brush_id);
+    if (!fmt || !brush) {
+        return;
+    }
+    mendo::OpacityScope guard{ brush, alpha };
+    rt()->DrawText(text.data(), static_cast<UINT32>(text.size()), fmt, rect, brush);
 }
