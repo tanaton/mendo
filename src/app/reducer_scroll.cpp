@@ -23,8 +23,9 @@ void ReduceKeyScroll(AppState& state, SideEffectList& effects, const KeyScrollAc
         viewport.DirectScrollBy(page_size * SCROLL_PAGE_FACTOR);
         break;
     case ScrollType::Home:
-        viewport.SetScrollTarget(0, 0.0f);
-        viewport.ApplyScrollTarget(state.document.layout_cache);
+        // ノード 0 の target だと scroll_y = Top(0) になり上余白が隠れる (ロード直後の 0 と不一致)。
+        // 短い文書では max_scroll も超えるため、ピクセルで 0 を指定する。
+        viewport.ScrollTo(0.0f);
         break;
     case ScrollType::End:
         // 末尾は max_scroll に依存するためピクセル指定。scroll target は無効化される。

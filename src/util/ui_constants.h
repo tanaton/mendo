@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <numbers>
+#include <optional>
 
 // 選択範囲のハイライトカラー
 inline constexpr D2D1_COLOR_F SELECTION_COLOR = { 0.26f, 0.56f, 0.84f, 0.3f };
@@ -153,6 +154,20 @@ inline D2D1_RECT_F PaneRefreshButtonRect(float pane_width, float header_height) 
 inline D2D1_RECT_F PaneRevealButtonRect(float pane_width, float header_height) noexcept
 {
     return PaneButtonLeftOf(PaneRefreshButtonRect(pane_width, header_height));
+}
+
+// ペインヘッダーの見出し矩形（ペインローカル座標）。ウィンドウが狭くサイド幅が縮小されると
+// ボタンだけで埋まり矩形が反転するため、その場合は nullopt (見出しを描かない)。
+inline std::optional<D2D1_RECT_F> PaneHeaderTextRect(float pane_width, float header_height, bool with_file_buttons) noexcept
+{
+    constexpr float TEXT_LEFT = 8.0f;
+    constexpr float BUTTON_GAP = 4.0f;
+    const D2D1_RECT_F leftmost_button = with_file_buttons ? PaneRevealButtonRect(pane_width, header_height) : PaneCloseButtonRect(pane_width, header_height);
+    const float right = leftmost_button.left - BUTTON_GAP;
+    if (right <= TEXT_LEFT) {
+        return std::nullopt;
+    }
+    return D2D1::RectF(TEXT_LEFT, 0.0f, right, header_height);
 }
 
 // DIP 値を物理ピクセル境界にスナップする。

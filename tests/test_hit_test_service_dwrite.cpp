@@ -6,9 +6,14 @@
 #include <gtest/gtest.h>
 #include "document_test_helpers.h"
 #include "dwrite_test_base.h"
+#include "command_generator.h"
 #include "hit_test_service.h"
 #include "ui_constants.h"
+#include <algorithm>
+#include <string_view>
 #include <utility>
+#include <variant>
+#include <vector>
 
 namespace {
 
@@ -112,4 +117,118 @@ TEST_F(HitTestDWriteTest, CodeBlockButtonsHitTest_RepeatCallReturnsSameResult)
     EXPECT_EQ(a.copy_node, b.copy_node);
     EXPECT_EQ(a.save_node, b.save_node);
     EXPECT_EQ(a.diagram_copy_node, b.diagram_copy_node);
+}
+
+// ---- FindTableRow / FindTableCol: 累積配列経路と線形フォールバックの一致 ----
+
+namespace {
+
+// 列幅がばらけ、折り返しで行高も揃わないテーブル。
+constexpr std::string_view VARIED_TABLE_MD =
+    "| a | header two | h3 |\n"
+    "|---|---|---|\n"
+    "| x | wrapped cell text that should span several lines in a narrow pane | 1 |\n"
+    "| yy | z | 22 |\n"
+    "| q | r | longer third column value |";
+constexpr float VARIED_TABLE_VIEWPORT_W = 420.0f;
+
+struct VariedTable {
+    const TableLayoutData* tl;
+    size_t row_count;
+    float height;
+    float top;
+};
+
+} // namespace
+
+class FindTableCellTest : public HitTestDWriteTest {
+protected:
+    ParsedLayout pl_;
+    VariedTable t_{};
+    // 累積配列 (row_cum_y / col_cum_x) を落として線形フォールバックに落とした複製。
+    TableLayoutData linear_;
+    float fallback_row_h_ = 0.0f;
+
+    void SetUp() override
+    {
+        ASSERT_NO_FATAL_FAILURE(HitTestDWriteTest::SetUp());
+        pl_ = ParseAndLayout(VARIED_TABLE_MD, VARIED_TABLE_VIEWPORT_W);
+        const int idx = FindFirstNodeIndexByType(pl_.nodes, NodeType::Table);
+        ASSERT_GE(idx, 0);
+        ASSERT_TRUE(pl_.cache[idx].has_table_layout());
+        const auto& tl = *pl_.cache[idx].table_layout;
+        t_ = { &tl, pl_.nodes[idx].table_data()->row_count, pl_.cache[idx].height, pl_.cache.Top(static_cast<size_t>(idx)) };
+        ASSERT_TRUE(tl.HasRowGeometry(t_.row_count));
+        ASSERT_EQ(tl.col_cum_x.size(), tl.col_widths.size() + 1);
+        linear_ = tl;
+        linear_.row_cum_y.clear();
+        linear_.col_cum_x.clear();
+        fallback_row_h_ = theme_.font_size_body * TABLE_ROW_HEIGHT_FACTOR;
+    }
+};
+
+TEST_F(FindTableCellTest, CumulativeAndLinearPathsAgree)
+{
+    for (float y = -2.0f; y <= t_.height + 2.0f; y += 0.25f) {
+        const auto a = FindTableRow(*t_.tl, t_.row_count, fallback_row_h_, y);
+        const auto b = FindTableRow(linear_, t_.row_count, fallback_row_h_, y);
+        ASSERT_EQ(a.row, b.row) << "local_y=" << y;
+        if (a.row >= 0) {
+            ASSERT_FLOAT_EQ(a.row_top, b.row_top) << "local_y=" << y;
+        }
+    }
+    for (float x = -4.0f; x <= t_.tl->cached_table_width + 4.0f; x += 0.25f) {
+        const auto a = FindTableCol(*t_.tl, x);
+        const auto b = FindTableCol(linear_, x);
+        ASSERT_EQ(a.col, b.col) << "local_x=" << x;
+        ASSERT_FLOAT_EQ(a.cell_left, b.cell_left) << "local_x=" << x;
+    }
+}
+
+// 罫線上の点は、描画でその罫線を発行しているセル (列は左罫線、行は上罫線の持ち主) に帰属する。
+TEST_F(FindTableCellTest, BordersAttributedLikeDrawing)
+{
+    const size_t col_count = t_.tl->col_widths.size();
+    ASSERT_GE(col_count, 2u);
+
+    CommandGenerator gen;
+    gen.SetTheme(&theme_);
+    gen.SetFormats({});
+    const auto& cmds = gen.GenerateMdPane(pl_.nodes, pl_.cache, PaneRect{ 0.0f, 0.0f, 4000.0f, 2000.0f }, 0.0f, TextSelection{});
+
+    std::vector<float> col_lines;
+    std::vector<float> row_lines;
+    for (const auto& c : cmds) {
+        const auto* l = std::get_if<DrawLineCmd>(&c);
+        if (!l || l->brush_id != BrushId::Hr) {
+            continue;
+        }
+        if (l->p0.x == l->p1.x) {
+            col_lines.push_back(l->p0.x - theme_.margin_left);
+        }
+        else if (l->p0.y == l->p1.y) {
+            row_lines.push_back(l->p0.y - t_.top);
+        }
+    }
+    std::ranges::sort(col_lines);
+    col_lines.erase(std::ranges::unique(col_lines).begin(), col_lines.end());
+    std::ranges::sort(row_lines);
+    row_lines.erase(std::ranges::unique(row_lines).begin(), row_lines.end());
+    // 末尾は右端/下端の外枠で、どのセルの持ち物でもない。
+    ASSERT_EQ(col_lines.size(), col_count + 1);
+    ASSERT_EQ(row_lines.size(), t_.row_count + 1);
+
+    for (const auto* data : { t_.tl, static_cast<const TableLayoutData*>(&linear_) }) {
+        SCOPED_TRACE(data == t_.tl ? "cumulative" : "linear");
+        for (size_t c = 0; c < col_count; c++) {
+            EXPECT_EQ(FindTableCol(*data, col_lines[c]).col, static_cast<int>(c)) << "col line " << c;
+            if (c > 0) {
+                EXPECT_EQ(FindTableCol(*data, col_lines[c] - 0.25f).col, static_cast<int>(c) - 1) << "col line " << c;
+            }
+        }
+        for (size_t r = 0; r < t_.row_count; r++) {
+            EXPECT_EQ(FindTableRow(*data, t_.row_count, fallback_row_h_, row_lines[r]).row, static_cast<int>(r)) << "row line " << r;
+            EXPECT_EQ(FindTableRow(*data, t_.row_count, fallback_row_h_, row_lines[r] - 0.25f).row, static_cast<int>(r) - 1) << "row line " << r;
+        }
+    }
 }

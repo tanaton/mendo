@@ -90,6 +90,15 @@ public:
 
 private:
     // GenerateMdPane の 1 フレーム呼び出しスコープでだけ意味を持つ入力をまとめる。
+    // ノードの [text_top, text_top + height] の外へはみ出して描く量の全種別での上限
+    // (見出し下線・空 LI の bullet・コード背景・引用装飾等)。ノード単位のカリングはこの余裕幅で
+    // 判定し、実際の切り抜きは md ペインのクリップに任せる。
+    struct NodeOverhang {
+        float above;
+        float below;
+    };
+    NodeOverhang MaxNodeOverhang() const noexcept;
+
     struct FrameContext {
         float offset_x = 0.0f;
         // ビューポート Y 範囲は **ペインローカル Y** (= 0 〜 pane_height)。GenerateNode に
@@ -113,6 +122,7 @@ private:
         const TextSelection& selection;
         HoveredButtons hovered;
         BlockHScrollContext h_scroll;
+        NodeOverhang overhang;
     };
 
     // 選択範囲外に出たノードの SelectionHlCache を前フレームとの差分区間だけ解放する。

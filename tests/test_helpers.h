@@ -305,6 +305,48 @@ inline bool PollUntil(Pred pred, std::chrono::milliseconds timeout = std::chrono
     return false;
 }
 
+// worker から PostMessage される HWND の提供と、届いた通知の計数に使う。
+// HWND_MESSAGE 親で可視化されず、メッセージループ不要 (作成スレッドのキューに積まれる)。
+class MessageOnlyWindow {
+public:
+    MessageOnlyWindow()
+    {
+        const wchar_t* class_name = L"MendoTestMsgWnd";
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = ::DefWindowProcW;
+        wc.hInstance = ::GetModuleHandleW(nullptr);
+        wc.lpszClassName = class_name;
+        ::RegisterClassExW(&wc);
+        hwnd_ = ::CreateWindowExW(0, class_name, L"", 0, 0, 0, 0, 0,
+                                  HWND_MESSAGE, nullptr, wc.hInstance, nullptr);
+    }
+    ~MessageOnlyWindow()
+    {
+        if (hwnd_) {
+            ::DestroyWindow(hwnd_);
+        }
+    }
+    MessageOnlyWindow(const MessageOnlyWindow&) = delete;
+    MessageOnlyWindow& operator=(const MessageOnlyWindow&) = delete;
+
+    HWND Get() const noexcept { return hwnd_; }
+
+    // キューに溜まった msg_id を取り出して数える。
+    int DrainMessages(UINT msg_id) const noexcept
+    {
+        int n = 0;
+        MSG m;
+        while (::PeekMessageW(&m, hwnd_, msg_id, msg_id, PM_REMOVE)) {
+            ++n;
+        }
+        return n;
+    }
+
+private:
+    HWND hwnd_ = nullptr;
+};
+
 // COM apartment 初期化を管理する基底フィクスチャ。
 // 既に他スイートで別モードで初期化済みのケース (RPC_E_CHANGED_MODE) では
 // CoUninitialize を呼ばずに既存 apartment のカウントを保つ — そうしないと

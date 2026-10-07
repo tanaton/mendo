@@ -171,6 +171,8 @@ struct NavigateAnchorAction {
 struct RestoreScrollAfterLoadAction {
     std::optional<float> reload_diff_scroll_y;
 };
+// ファイルロードが失敗した (RestoreScrollAfterLoadAction が来ない) ことの通知。
+struct LoadFailedAction {};
 struct HWheelAction {
     short delta;
     uint64_t tick;
@@ -281,6 +283,7 @@ using AppAction = std::variant<
     TocItemClickedAction,
     NavigateAnchorAction,
     RestoreScrollAfterLoadAction,
+    LoadFailedAction,
     HWheelAction,
     BlockHHoverChangedAction,
     BlockHScrollDragStartedAction,

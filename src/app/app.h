@@ -263,9 +263,6 @@ private:
     void BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation = false,
                         std::shared_ptr<const std::pmr::string> reload_base = nullptr);
     void StopLoadingAnimation();
-    // 同一パスの再読込なら差分判定を decision に入れる。前提崩れや partial-write で
-    // リトライを予約した場合は false (呼び出し元は return)。
-    bool ResolveReloadDecision(const AsyncLoadResult& result, std::optional<ReloadDecision>& decision);
     // reload_diff_pos: 同一パス再読込時の差分位置 (UTF-8 byte offset)。npos なら差分なし。
     void FinishLoadMarkdownFile(bool follow_file_pane, bool heights_estimated = false,
                                 size_t reload_diff_pos = std::string_view::npos);
@@ -295,6 +292,7 @@ private:
 
     void CancelPendingResources();
     void ResetViewForNewDocument();
+    void ReleaseCaptureIfDragDropped(bool had_left_drag);
 
     // ---- テーマ (app_theme.cpp) ----
     void HandleApplyThemeChange(const effect::ApplyThemeChange& e);

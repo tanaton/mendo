@@ -5,37 +5,6 @@
 
 namespace {
 
-// worker の cv.wait predicate `hwnd != nullptr` を満たす最小の HWND 提供。
-// HWND_MESSAGE 親で可視化されず、メッセージループ不要。
-class MessageOnlyWindow {
-public:
-    MessageOnlyWindow()
-    {
-        const wchar_t* class_name = L"MendoPreloaderTestMsgWnd";
-        WNDCLASSEXW wc{};
-        wc.cbSize = sizeof(wc);
-        wc.lpfnWndProc = ::DefWindowProcW;
-        wc.hInstance = ::GetModuleHandleW(nullptr);
-        wc.lpszClassName = class_name;
-        ::RegisterClassExW(&wc);
-        hwnd_ = ::CreateWindowExW(0, class_name, L"", 0, 0, 0, 0, 0,
-                                  HWND_MESSAGE, nullptr, wc.hInstance, nullptr);
-    }
-    ~MessageOnlyWindow()
-    {
-        if (hwnd_) {
-            ::DestroyWindow(hwnd_);
-        }
-    }
-    MessageOnlyWindow(const MessageOnlyWindow&) = delete;
-    MessageOnlyWindow& operator=(const MessageOnlyWindow&) = delete;
-
-    HWND Get() const noexcept { return hwnd_; }
-
-private:
-    HWND hwnd_ = nullptr;
-};
-
 // AppliedSync 経路は worker が sink に結果を積んだ後でないと検証できない。
 void WaitForPublish(const Preloader& p)
 {

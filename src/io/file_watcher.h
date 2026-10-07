@@ -1,10 +1,17 @@
 #pragma once
 #include "win_handle.h"
 #include <functional>
+#include <cstddef>
 #include <memory_resource>
+#include <span>
 #include <string>
 #include <string_view>
 #include <windows.h>
+
+// ReadDirectoryChangesW の通知列に監視対象 (name、または空でなければ 8.3 短縮名 short_name。大小無視) の
+// 更新 (削除・改名元以外) が含まれるか。空の buf はカーネルが内容を捨てたバッファ溢れなので取りこぼし回避で true。
+// 切り詰め・破損したエントリに当たったらそこで打ち切り、buf の外は読まない。
+[[nodiscard]] bool NotifyBufferHasTargetChange(std::span<const std::byte> buf, std::wstring_view name, std::wstring_view short_name) noexcept;
 
 class FileWatcher {
 public:
@@ -27,9 +34,6 @@ public:
 
 private:
     void BeginRead();
-    // change_buf_ の通知列に監視対象の更新 (削除・改名元以外) が含まれるか。
-    bool IsTargetChanged(DWORD bytes_returned) const noexcept;
-    bool MatchesWatchedName(std::wstring_view changed_name) const noexcept;
     // 通知後は ResumeWatching まで paused_ で後続通知を pending_change_ に溜める。
     void FireChange();
 

@@ -33,14 +33,26 @@ bool PaneController::SetSideHoveredButton(PaneTarget t, PaneHeaderButton button)
 
 void PaneController::DragSplitterTo(DragTarget target, float dip_x, float total_width, float splitter_w) noexcept
 {
+    if (!IsSplitterDragTarget(target)) {
+        return;
+    }
     auto& file = Inst(PaneTarget::File);
     auto& toc = Inst(PaneTarget::Toc);
+    const auto layout = ComputeLayout(total_width, 0.0f, splitter_w);
+    // ウィンドウが保存幅より狭く表示幅だけ縮小されている間は、見えている幅を論理幅として確定させる。
+    // 論理幅のまま制約すると、触った瞬間に縮小が解けて反対側のペインが元の幅へジャンプする。
+    const auto adopt_displayed = [](Instance& inst, float displayed) noexcept {
+        if (inst.show && displayed < inst.width) {
+            inst.width = std::max(displayed, PANE_MIN_WIDTH);
+        }
+    };
+    adopt_displayed(file, layout.file_rect.width);
+    adopt_displayed(toc, layout.toc_rect.width);
     if (target == DragTarget::Splitter1) {
         file.width = ConstrainSplitterWidth(dip_x, total_width, splitter_w, toc.width, toc.show);
     }
-    else if (target == DragTarget::Splitter2) {
-        // toc_left はレイアウトから既知; dip_x は新しい右端
-        const auto layout = ComputeLayout(total_width, 0.0f, splitter_w);
+    else {
+        // dip_x は新しい右端
         toc.width = ConstrainSplitterWidth(dip_x - layout.toc_rect.x, total_width, splitter_w, file.width, file.show);
     }
 }

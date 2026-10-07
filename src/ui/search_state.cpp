@@ -155,17 +155,34 @@ void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) 
         return;
     }
 
-    // matches_ は node_index 昇順、同一ノード内では start 昇順、同一テーブル内では
-    // (row, col, start) 昇順で追加される。GetMatchYRange も同じ順序で単調非減少となるため
-    // 二分探索が使える。
-    const auto it = std::ranges::partition_point(matches_, [&](const SearchMatch& m) noexcept {
-        if (m.node_index >= static_cast<int>(cache.size())) {
-            // cache 未同期の過渡状態では範囲外マッチを末尾扱い (false) にして
-            // partition_point の単調性 (true→false) を保ち、current_match を誤らせない。
+    // cache 未同期の過渡状態では範囲外マッチを末尾扱いにし、current_match を誤らせない。
+    const auto in_cache = [&cache](const SearchMatch& m) noexcept {
+        return m.node_index < static_cast<int>(cache.size());
+    };
+    const auto match_y = [&cache](const SearchMatch& m) noexcept {
+        const auto node = static_cast<size_t>(m.node_index);
+        return cache[node].GetMatchYRange(m.table_row, m.table_col, m.start_w, cache.Top(node)).first;
+    };
+    // matches_ は文書順 (テーブル内は (row, col, start) 順)。表の同一行内では左列の折り返し後半が
+    // 右列の先頭行より下に来るため match_y は単調でない。行下端は単調なので、表のマッチは
+    // 「行ごと scroll_y より上か」で二分探索し、境界の行の中だけ線形に見る。
+    const auto above = [&](const SearchMatch& m) noexcept {
+        if (!in_cache(m)) {
             return false;
         }
-        const float match_y = cache[m.node_index].GetMatchYRange(m.table_row, m.table_col, m.start_w, cache.Top(static_cast<size_t>(m.node_index))).first;
-        return match_y < scroll_y;
-    });
+        if (m.table_row >= 0) {
+            const auto& entry = cache[m.node_index];
+            const auto row = static_cast<size_t>(m.table_row);
+            if (entry.has_table_layout() && row + 1 < entry.table_layout->row_cum_y.size()) {
+                return cache.Top(static_cast<size_t>(m.node_index)) + entry.table_layout->row_cum_y[row + 1] <= scroll_y;
+            }
+        }
+        return match_y(m) < scroll_y;
+    };
+    // 境界の行より後のマッチは次の行以降 (行下端 > scroll_y) にあるので、走査はその行内で止まる。
+    auto it = std::ranges::partition_point(matches_, above);
+    while (it != matches_.end() && in_cache(*it) && match_y(*it) < scroll_y) {
+        ++it;
+    }
     current_match_ = (it != matches_.end()) ? static_cast<int>(it - matches_.begin()) : 0;
 }

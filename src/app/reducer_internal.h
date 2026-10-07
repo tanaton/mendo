@@ -83,6 +83,7 @@ void ReduceFilePaneRevealCurrentFile(AppState& state, SideEffectList& effects);
 void ReduceTocItemClicked(AppState& state, SideEffectList& effects, const TocItemClickedAction& a);
 void ReduceNavigateAnchor(AppState& state, SideEffectList& effects, const NavigateAnchorAction& a);
 void ReduceRestoreScrollAfterLoad(AppState& state, const RestoreScrollAfterLoadAction& a);
+void ReduceLoadFailed(AppState& state);
 void ReduceDropFiles(AppState& state, SideEffectList& effects, const DropFilesAction& a);
 void ReduceShowHelp(AppState& state, SideEffectList& effects);
 

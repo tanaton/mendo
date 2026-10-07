@@ -163,6 +163,10 @@ void DetectAlertAt(std::pmr::vector<Node>& nodes, size_t i)
     if (node.quote_depth != 1) {
         return;
     }
+    // GitHub 仕様: マーカーは blockquote の先頭でのみ有効。"> intro" の後に続く段落の [!NOTE] は通常の引用。
+    if (i > 0 && nodes[i - 1].blockquote_group == node.blockquote_group) {
+        return;
+    }
     const auto [type, marker_end] = DetectAlertMarker(node.GetText());
     if (type == AlertType::None) {
         return;

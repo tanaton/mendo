@@ -24,6 +24,9 @@ using mendo::layout::RecomputeYPositions;
 
 class LayoutEngine {
 public:
+    // 小刻みな WM_SIZE で全ノード再レイアウトが頻発するのを防ぐ幅変化の閾値。
+    static constexpr float kWidthChangeThreshold = 2.0f;
+
     bool Init(ITextMeasurer* measurer, const Theme& theme);
     // nullptr で常に RunSerial。Shutdown 時は scheduler の Shutdown より前に
     // SetLayoutScheduler(nullptr) を呼んで参照を切る契約。

@@ -4,6 +4,9 @@
 #include <initializer_list>
 #include <iostream>
 #include <memory_resource>
+#include <numeric>
+#include <random>
+#include <string>
 #include <string_view>
 #include "command_generator.h"
 #include "document_test_helpers.h"
@@ -447,6 +450,77 @@ TEST(ComputeColumnWidthsTest, ZeroNaturalWidths)
     // それでも有効な幅を生成すること
     for (auto w : widths) {
         EXPECT_GT(w, 0.0f);
+    }
+}
+
+// 合計が使える幅を超えてよいのは「自然幅のまま横スクロールに任せる」分岐だけ。
+// それ以外で超えると natural_total_width 基準の横スクロールも出ず、表がペイン外へはみ出す。
+// 自然幅が収まる場合は、どの列も自然幅を割らず、合計は使える幅ちょうどになること。
+TEST(ComputeColumnWidthsTest, TotalFitsAvailableUnlessLeftAtNaturalForScroll)
+{
+    constexpr float kMinColumnWidth = 30.0f;
+    constexpr float kEps = 0.05f;
+    for (const uint32_t seed : { 1u, 2u, 3u, 4u, 5u }) {
+        std::mt19937 rng(seed);
+        std::uniform_int_distribution<size_t> col_dist(1, 8);
+        std::uniform_real_distribution<float> narrow_dist(0.0f, 60.0f);
+        std::uniform_real_distribution<float> wide_dist(0.0f, 1000.0f);
+        std::uniform_real_distribution<float> avail_dist(0.0f, 2000.0f);
+        std::bernoulli_distribution pick_narrow(0.5);
+        for (int step = 0; step < 2000; ++step) {
+            const size_t n = col_dist(rng);
+            std::pmr::vector<float> natural(n);
+            for (auto& w : natural) {
+                w = pick_narrow(rng) ? narrow_dist(rng) : wide_dist(rng);
+            }
+            const float available = avail_dist(rng);
+            std::pmr::vector<float> out;
+            ComputeColumnWidths(out, natural, available, n);
+
+            // 失敗時だけ評価されるメッセージで使い、成功ケースで文字列を組み立てない。
+            const auto input = [&] {
+                std::string s = "seed=" + std::to_string(seed) + " step=" + std::to_string(step) + " available=" + std::to_string(available) + " natural=";
+                for (const float w : natural) {
+                    s += std::to_string(w) + ",";
+                }
+                return s;
+            };
+            ASSERT_EQ(out.size(), n) << input();
+
+            const float effective = std::max(available, static_cast<float>(n) * kMinColumnWidth);
+            const float natural_total = std::reduce(natural.begin(), natural.end(), 0.0f);
+            const float out_total = std::reduce(out.begin(), out.end(), 0.0f);
+            if (natural_total > effective && std::ranges::equal(out, natural)) {
+                continue;
+            }
+            ASSERT_LE(out_total, effective + kEps) << input();
+            if (natural_total <= effective) {
+                ASSERT_NEAR(out_total, effective, kEps) << input();
+                for (size_t c = 0; c < n; ++c) {
+                    ASSERT_GE(out[c], natural[c] - kEps) << "c=" << c << " " << input();
+                }
+            }
+        }
+    }
+}
+
+// DWrite 実測でも、表の描画幅はノード幅か横スクロール上限 (natural_total_width) のいずれかに収まる。
+TEST_F(LayoutTest, TableWidthFitsNodeOrScrollableNaturalWidth)
+{
+    // 短い列と長い列 (均等幅を超えるが合計は収まる) の組み合わせ。
+    const std::string md =
+        "| a | " + std::string(40, 'w') + " |\n"
+        "|---|---|\n"
+        "| b | c |\n";
+    for (const float viewport_w : { 500.0f, 600.0f, 700.0f, 800.0f, 1200.0f }) {
+        SCOPED_TRACE("viewport_w=" + std::to_string(viewport_w));
+        auto [nodes, cache] = ParseAndLayout(md, viewport_w);
+        ASSERT_EQ(nodes.size(), 1u);
+        ASSERT_TRUE(cache[0].has_table_layout());
+        const auto& tl = *cache[0].table_layout;
+        const float node_width = theme_.ContentWidth(viewport_w) - NodeIndent(nodes[0], theme_);
+        EXPECT_LE(tl.cached_table_width, std::max(node_width, tl.natural_total_width) + 0.05f)
+            << "natural_total_width=" << tl.natural_total_width << " node_width=" << node_width;
     }
 }
 

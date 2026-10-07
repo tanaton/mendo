@@ -56,6 +56,10 @@ int MeasureIndicesParallel(
     const size_t chunk_size = indices.size() < min_parallel
                                   ? indices.size()
                                   : std::clamp(indices.size() / (worker_count * 4), kMinChunkSize, kMaxChunkSize);
+    if (!indices.empty()) {
+        const auto [lo, hi] = std::ranges::minmax(indices);
+        cache.NoteMaterialized(lo, hi);
+    }
     std::atomic<int> failed_node_count{ 0 };
     ParallelFor(scheduler, indices.size(), chunk_size, [&](size_t begin, size_t end) {
         MENDO_PROFILE("MeasureNode.chunk");

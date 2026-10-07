@@ -1,6 +1,41 @@
 #include "file_watcher.h"
 #include "file_io.h"
+#include <cstring>
 #include <filesystem>
+
+bool NotifyBufferHasTargetChange(std::span<const std::byte> buf, std::wstring_view name, std::wstring_view short_name) noexcept
+{
+    if (buf.empty()) {
+        return true;
+    }
+    constexpr size_t kHeaderBytes = offsetof(FILE_NOTIFY_INFORMATION, FileName);
+    size_t offset = 0;
+    for (;;) {
+        // カーネルが切り詰めた通知に備え、現在エントリの固定部と名前が buf に収まることを
+        // 参照前に検証する (NextEntryOffset の検証だけでは先頭エントリを守れない)。
+        const size_t remaining = buf.size() - offset;
+        if (remaining < kHeaderBytes) {
+            return false;
+        }
+        FILE_NOTIFY_INFORMATION header;
+        std::memcpy(&header, buf.data() + offset, kHeaderBytes);
+        const size_t name_bytes = header.FileNameLength;
+        if (name_bytes > remaining - kHeaderBytes) {
+            return false;
+        }
+        if (header.Action != FILE_ACTION_REMOVED && header.Action != FILE_ACTION_RENAMED_OLD_NAME) {
+            const std::wstring_view changed{ reinterpret_cast<const wchar_t*>(buf.data() + offset + kHeaderBytes), name_bytes / sizeof(wchar_t) };
+            if (path_util::iequal(changed, name) || (!short_name.empty() && path_util::iequal(changed, short_name))) {
+                return true;
+            }
+        }
+        const size_t next = header.NextEntryOffset;
+        if (next == 0 || next > remaining) {
+            return false;
+        }
+        offset += next;
+    }
+}
 
 FileWatcher::~FileWatcher()
 {
@@ -114,8 +149,8 @@ void FileWatcher::CheckForChanges()
 
     read_pending_ = false;
 
-    // bytes_returned == 0 はバッファ溢れでカーネルが変更内容を破棄した状態。取りこぼし回避のため変更ありとして扱う。
-    const bool target_changed = bytes_returned == 0 || IsTargetChanged(bytes_returned);
+    const bool target_changed = NotifyBufferHasTargetChange(
+        std::as_bytes(std::span{ change_buf_, bytes_returned }), watch_filename_, watch_filename_short_);
     if (target_changed) {
         if (paused_) {
             pending_change_ = true;
@@ -125,48 +160,6 @@ void FileWatcher::CheckForChanges()
         }
     }
     BeginRead();
-}
-
-bool FileWatcher::IsTargetChanged(DWORD bytes_returned) const noexcept
-{
-    const char* const buf_end = change_buf_ + bytes_returned;
-    const char* cur = change_buf_;
-    for (;;) {
-        // カーネルが切り詰めた通知に備え、現在エントリの範囲を buf_end で検証してから
-        // 参照する (NextEntryOffset の検証は次エントリ用で先頭エントリを守らない)。
-        const char* name_begin = cur + offsetof(FILE_NOTIFY_INFORMATION, FileName);
-        if (name_begin > buf_end) {
-            return false;
-        }
-        const auto* info = reinterpret_cast<const FILE_NOTIFY_INFORMATION*>(cur);
-        const size_t name_bytes = info->FileNameLength;
-        // 巨大/破損した FileNameLength で OOB ポインタ (name_begin + name_bytes) を
-        // 形成する前に、残りバッファ長と byte 数を比較する。
-        if (name_bytes > static_cast<size_t>(buf_end - name_begin)) {
-            return false;
-        }
-        if (info->Action != FILE_ACTION_REMOVED && info->Action != FILE_ACTION_RENAMED_OLD_NAME &&
-            MatchesWatchedName({ info->FileName, name_bytes / sizeof(wchar_t) })) {
-            return true;
-        }
-        const size_t next_off = info->NextEntryOffset;
-        if (next_off == 0) {
-            return false;
-        }
-        // 次エントリも OOB ポインタを作る前に、残りバッファ長で NextEntryOffset を
-        // 検証する (固定部 offsetof(FileName) が収まることも要求する)。
-        const size_t remaining = static_cast<size_t>(buf_end - cur);
-        if (next_off > remaining || remaining - next_off < offsetof(FILE_NOTIFY_INFORMATION, FileName)) {
-            return false;
-        }
-        cur += next_off;
-    }
-}
-
-bool FileWatcher::MatchesWatchedName(std::wstring_view changed_name) const noexcept
-{
-    return path_util::iequal(changed_name, watch_filename_) ||
-        (!watch_filename_short_.empty() && path_util::iequal(changed_name, watch_filename_short_));
 }
 
 void FileWatcher::FireChange()

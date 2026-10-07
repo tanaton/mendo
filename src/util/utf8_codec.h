@@ -35,14 +35,6 @@ constexpr bool IsSurrogate(uint32_t c) noexcept
     return c >= 0xD800u && c <= 0xDFFFu;
 }
 
-constexpr uint32_t SnapToCpStart(std::string_view text, uint32_t pos) noexcept
-{
-    while (pos > 0 && (static_cast<unsigned char>(text[pos]) & 0xC0) == 0x80) {
-        --pos;
-    }
-    return pos;
-}
-
 constexpr uint32_t SnapToCpStart(std::wstring_view text, uint32_t pos) noexcept
 {
     if (pos > 0) {
@@ -110,11 +102,34 @@ constexpr DecodedCp DecodeAt(std::wstring_view text, uint32_t pos) noexcept
     return { kReplacement, 1 }; // 孤立サロゲート
 }
 
-// pos > 0 が前提。
+// 先頭から DecodeAt を繰り返したときの区切りに揃える。
+// 遡りは最大 3 byte: 有効な先頭バイトに属さない継続バイトは各々が単独の U+FFFD になるため、
+// 上限なく遡ると直前の文字に吸収してしまい前方 decode と食い違う。
+constexpr uint32_t SnapToCpStart(std::string_view text, uint32_t pos) noexcept
+{
+    if ((static_cast<unsigned char>(text[pos]) & 0xC0) != 0x80) {
+        return pos;
+    }
+    const uint32_t limit = pos >= 3 ? pos - 3 : 0;
+    for (uint32_t lead = pos; lead > limit;) {
+        --lead;
+        if ((static_cast<unsigned char>(text[lead]) & 0xC0) != 0x80) {
+            return DecodeAt(text, lead).len > pos - lead ? lead : pos;
+        }
+    }
+    return pos;
+}
+
+// pos > 0 が前提。pos が区切りでなくても len <= pos を保証し、呼び出し側の pos - len をラップさせない。
 template <typename SV>
 constexpr DecodedCp DecodePrev(SV text, uint32_t pos) noexcept
 {
-    return DecodeAt(text, SnapToCpStart(text, pos - 1));
+    const uint32_t start = SnapToCpStart(text, pos - 1);
+    const auto d = DecodeAt(text, start);
+    if (start + d.len != pos) {
+        return { kReplacement, 1 };
+    }
+    return d;
 }
 
 // 不正な scalar 値は 0 を返す。

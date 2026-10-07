@@ -1,5 +1,6 @@
 #include "app.h"
 #include "app_constants.h"
+#include "app_state_queries.h"
 #include "document_service.h"
 #include "file_loader.h"
 #include "file_io.h"
@@ -9,18 +10,17 @@
 #include "layout.h"
 #include "profiler.h"
 #include "rc_resource.h"
+#include "reload_flow.h"
 #include <utility>
 
-namespace {
-
-// 起動直後の最初の文書はペインのフォルダを起動引数から決めているため追従しない。
-// 同じ文書の再読み込みも、ユーザーがペインで移動した先を保つため追従しない。
-bool FilePaneFollowsLoad(std::wstring_view prev_path, std::wstring_view next_path) noexcept
+// 一時状態のリセットで左ドラッグ状態だけが消えると、LButtonUp がどの終了経路にも入らず
+// SetCapture が残る (タイトルバーのドラッグや MouseLeave 検出が効かなくなる)。
+void App::ReleaseCaptureIfDragDropped(bool had_left_drag)
 {
-    return !prev_path.empty() && !path_util::iequal(prev_path, next_path);
+    if (had_left_drag && !IsLeftDragActive(state_) && state_.interaction.gesture.GetPhase() == GesturePhase::Idle) {
+        EmitEffect(effect::ReleaseCapture{});
+    }
 }
-
-} // namespace
 
 void App::CancelPendingResources()
 {
@@ -31,9 +31,11 @@ void App::CancelPendingResources()
 
 void App::ResetViewForNewDocument()
 {
+    const bool had_left_drag = IsLeftDragActive(state_);
     state_.view.ResetForNewDocument();
     // 旧文書のマッチ位置が新 nodes に対して誤用されるのを防ぐ。
     state_.search.search_bar_ctrl.Reset();
+    ReleaseCaptureIfDragDropped(had_left_drag);
     EmitEffect(effect::SearchUnfocus{ /*clear_text=*/true });
     CancelPendingResources();
     renderer_.ShrinkBuffers();
@@ -182,6 +184,7 @@ void App::DoLoadMarkdownFile()
 
 void App::HandleLoadFailureFallback()
 {
+    Dispatch(LoadFailedAction{});
     if (state_.document.doc.IsEmpty()) {
         LoadHelpDocument();
     }
@@ -198,87 +201,61 @@ void App::OnParseComplete()
     std::optional<FileLoadError> err;
     if (!result) {
         err = file_load_service_.TakeAsyncError();
-        // 結果もエラーも無いのに別のロードが進行中 → Start の ResetSinks で無効化された
-        // stale メッセージ。進行中ロードのアニメーションや FileWatcher 状態に触らず無視する。
-        if (!err && file_load_service_.IsAsyncLoading()) {
-            MENDO_TRACE("OnParseComplete: stale message ignored (new load in progress)");
-            return;
-        }
+    }
+    const auto plan = PlanParseComplete(
+        result ? &*result : nullptr, err, file_load_service_.IsAsyncLoading(), state_.document.doc,
+        [](const std::pmr::wstring& path, size_t read_size) { return IsFileLargerThan(path.c_str(), read_size); });
+
+    if (plan.step == ParseCompleteStep::IgnoreStale) {
+        MENDO_TRACE("OnParseComplete: stale message ignored (new load in progress)");
+        return;
     }
 
     StopLoadingAnimation();
 
-    if (!result) {
+    if (plan.reload) {
+        MENDO_TRACEF("OnParseComplete: reload worker_diff={} node_count={} diff_pos={} new_size={} op={}",
+                     result->reload.has_value(), result->doc.GetNodes().size(), plan.reload->diff_pos,
+                     result->doc.GetRawText().size(), std::to_underlying(plan.reload->op));
+    }
+
+    switch (plan.step) {
+    case ParseCompleteStep::IgnoreStale:
+        return;
+    case ParseCompleteStep::Fail:
         MENDO_TRACE("OnParseComplete: no result (cancelled or load failed)");
-        // 失敗パスでも paused 状態の FileWatcher を必ず再開させる。
         EmitEffect(effect::ResumeFileWatch{});
-        if (err) {
-            ShowToast(FileLoadErrorMessage(*err, i18n::S()));
+        if (plan.error) {
+            ShowToast(FileLoadErrorMessage(*plan.error, i18n::S()));
         }
         HandleLoadFailureFallback();
         return;
-    }
-
-    std::optional<ReloadDecision> decision;
-    if (!ResolveReloadDecision(*result, decision)) {
+    case ParseCompleteStep::RetryDocumentChanged:
+    case ParseCompleteStep::RetryPartialWrite:
+        DeferReloadRetry();
+        return;
+    case ParseCompleteStep::ApplyReload: {
+        if (ApplyReloadDecisionEarly(*plan.reload) == ReloadFlow::Handled) {
+            return;
+        }
+        const bool heights_estimated = result->heights_estimated;
+        resource_manager_.CancelMermaidBatch();
+        image_loader_.ResetFailedPaths();
+        ReplaceDocument(std::move(result->doc));
+        if (heights_estimated) {
+            state_.document.layout_cache = std::move(result->cache);
+        }
+        FinishReload(plan.reload->diff_pos, heights_estimated);
         return;
     }
-
-    const bool heights_estimated = result->heights_estimated;
-    const bool follow_file_pane = FilePaneFollowsLoad(state_.document.doc.GetFilePath(), result->doc.GetFilePath());
-    if (decision) {
-        MENDO_TRACEF("OnParseComplete: reload worker_diff={} node_count={} diff_pos={} new_size={} op={}",
-                     result->reload.has_value(), result->doc.GetNodes().size(), decision->diff_pos,
-                     result->doc.GetRawText().size(), std::to_underlying(decision->op));
-
-        if (ApplyReloadDecisionEarly(*decision) == ReloadFlow::Handled) {
-            return;
-        }
-        if (decision->op == ReloadOp::PrefixGrowth) {
-            resource_manager_.CancelMermaidBatch();
-            image_loader_.ResetFailedPaths();
-            ReplaceDocument(std::move(result->doc));
-            if (heights_estimated) {
-                state_.document.layout_cache = std::move(result->cache);
-            }
-            FinishReload(decision->diff_pos, heights_estimated);
-            return;
-        }
+    case ParseCompleteStep::ReplaceWithResult: {
+        const bool heights_estimated = result->heights_estimated;
+        ReplaceDocument(std::move(result->doc));
+        state_.document.layout_cache = std::move(result->cache);
+        FinishLoadMarkdownFile(plan.follow_file_pane, heights_estimated, plan.reload ? plan.reload->diff_pos : std::string_view::npos);
+        return;
     }
-
-    ReplaceDocument(std::move(result->doc));
-    state_.document.layout_cache = std::move(result->cache);
-
-    FinishLoadMarkdownFile(follow_file_pane, heights_estimated, decision ? decision->diff_pos : std::string_view::npos);
-}
-
-// 差分ベースのスキップ／スクロール復元は同一パスのリロード時のみ有効。
-// 非同期のファイルオープンでも OnParseComplete() が使われるため、
-// 別ファイル読み込み時は decision を空のままにする。
-bool App::ResolveReloadDecision(const AsyncLoadResult& result, std::optional<ReloadDecision>& decision)
-{
-    const auto& doc = state_.document.doc;
-    if (result.reload) {
-        // リロード: worker がパース前に差分判定を済ませている (NoChange 等は doc が空)。
-        const auto& rc = *result.reload;
-        if (rc.base.lock() != doc.GetRawText().Share() || !path_util::iequal(rc.path, doc.GetFilePath())) {
-            // 判定後に表示文書が差し替わった。前提が崩れているので取り直す。
-            DeferReloadRetry();
-            return false;
-        }
-        if (DeferIfPartialWrite(rc.path, rc.loaded_byte_size)) {
-            return false;
-        }
-        decision = rc.decision;
-        return true;
     }
-    if (path_util::iequal(result.doc.GetFilePath(), doc.GetFilePath())) {
-        if (DeferIfPartialWrite(result.doc.GetFilePath(), result.doc.GetLoadedByteSize())) {
-            return false;
-        }
-        decision = AnalyzeReloadDiff(std::string_view(doc.GetRawText()), std::string_view(result.doc.GetRawText()));
-    }
-    return true;
 }
 
 void App::FinishLoadMarkdownFile(bool follow_file_pane, bool heights_estimated, size_t reload_diff_pos)
@@ -421,7 +398,9 @@ void App::FinishReload(size_t diff_pos, bool cache_ready)
 
     // ノード index がずれると per-node-index の一時状態が別ノードを指すためクリアする
     // (別文書への切替は ViewState::ResetForNewDocument が担う)。
+    const bool had_left_drag = IsLeftDragActive(state_);
     state_.view.ResetPerNodeTransientState();
+    ReleaseCaptureIfDragDropped(had_left_drag);
 
     if (!cache_ready) {
         state_.document.layout_cache.Reset(state_.document.doc.GetNodes().size(), false);

@@ -48,6 +48,7 @@ DirtyBatchResult RunSerial(
             result.first_processed = i;
         }
         const float indent = NodeIndent(nodes[i], theme);
+        cache.NoteMaterialized(i);
         MeasureEntry(backend, nodes[i], entry, content_width - indent, nullptr, range, entry_top);
         result.last_processed = i;
         ++result.processed;

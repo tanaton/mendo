@@ -6,6 +6,7 @@
 #include "app_state.h"
 #include "app_state_queries.h"
 #include "theme.h"
+#include "reducer_harness.h"
 #include "test_helpers.h"
 #include "document_utils.h"
 #include "file_io.h"
@@ -30,18 +31,7 @@ protected:
         PaneLayout pl{};
         pl.md_rect.height = 500.0f;
         state.pane_layout_cache.Set(0.0f, pl);
-        // 上の value-init で POD フィールドは 0。reducer が読む非ゼロ値だけ明示する。
-        theme.pane_item_height = 28.0f;
-        theme.pane_header_height = 32.0f;
-        theme.splitter_width = 4.0f;
-        theme.zoom = 1.0f;
-        state.theme = &theme;
-        // search_bar_ctrl は内部 state_ ポインタを Init で受け取る (未呼び出しだと nullptr deref)。
-        state.search.search_bar_ctrl.Init(
-            state.search.search_state,
-            state.view.viewport,
-            state.document.layout_cache,
-            AppSearchBarCallbacks{});
+        InitReducerState(state, theme);
     }
 
     // MD スクロールバー系テスト用: reducer が ComputeTotalContentHeight で導出する
@@ -1468,6 +1458,27 @@ TEST_F(ReducerTest, RestoreScrollAfterLoad_HasReloadDiff_TakesPrecedenceOverNode
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 75.0f);
     // node_restore は reload_diff 分岐では触られないため残る
     EXPECT_TRUE(state.view.scroll_restore.HasNodeRestore());
+}
+
+// 戻る先のファイルが削除済み等でロードに失敗した場合、その復元情報が次に開く別ファイルへ
+// 持ち越されると、無関係なノード位置へスクロールする。
+TEST_F(ReducerTest, LoadFailed_DropsPendingRestoreForNextDocument)
+{
+    state.document.doc = Document::FromMarkdown(std::pmr::string("# A\n\n# B\n\n# C"), L"C:\\current.md");
+    state.view.nav_history.Push(NavEntry{ L"C:\\deleted.md", 2, 30.0f });
+    auto effects = Reduce(state, NavigateBackAction{});
+    ASSERT_TRUE(HasEffect<effect::LoadFile>(effects));
+    ASSERT_TRUE(state.view.scroll_restore.HasNodeRestore());
+
+    Reduce(state, LoadFailedAction{});
+
+    // 続けてユーザーが別ファイルを開き、ロードに成功する。
+    Reduce(state, FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\other.md") });
+    state.document.doc = Document::FromMarkdown(std::pmr::string("# X\n\n# Y\n\n# Z"), L"C:\\other.md");
+    state.document.layout_cache = MakeUniformCache(static_cast<int>(state.document.doc.GetNodes().size()), 100.0f);
+    Reduce(state, RestoreScrollAfterLoadAction{});
+
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
 }
 
 // ---- Zoom / ToggleDarkMode: 可視位置の anchor 保持 ----

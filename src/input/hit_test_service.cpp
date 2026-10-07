@@ -44,82 +44,6 @@ HitTestService::HitResult ClampToNearestTextNode(const std::pmr::vector<Node>& n
     return {};
 }
 
-struct TableRowHit {
-    int row;
-    float row_top_y;
-};
-TableRowHit FindTableRow(const Node& node, const NodeLayoutEntry& entry, float entry_text_top, const Theme& theme, float dip_y) noexcept
-{
-    if (!entry.has_table_layout()) {
-        return { -1, 0.0f };
-    }
-    const auto& tl = *entry.table_layout;
-    const auto* tbl = node.table_data();
-    const size_t row_count = tbl ? tbl->row_count : 0;
-    if (row_count == 0) {
-        return { -1, 0.0f };
-    }
-
-    if (tl.HasRowGeometry(row_count)) {
-        const int idx = tl.RowIndexAt(dip_y - entry_text_top);
-        if (idx < 0) {
-            return { -1, 0.0f };
-        }
-        return { idx, entry_text_top + tl.row_cum_y[static_cast<size_t>(idx)] };
-    }
-
-    const float border = TABLE_BORDER_WIDTH;
-    float ry = entry_text_top;
-    for (size_t r = 0; r < row_count; r++) {
-        const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme.font_size_body * TABLE_ROW_HEIGHT_FACTOR);
-        const float row_bottom = ry + row_h + border;
-        if (dip_y < row_bottom) {
-            return { static_cast<int>(r), ry };
-        }
-        ry += row_h + border;
-    }
-    return { -1, 0.0f };
-}
-
-// 見つからない場合は最終列にクランプ。
-int FindTableCol(const TableLayoutData& tl, float base_x, float dip_x, float& cell_left_x) noexcept
-{
-    const auto col_count = tl.col_widths.size();
-
-    // col_cum_x[c]: 列 c の左端（サイズ col_count+1）。
-    if (col_count > 0 && tl.col_cum_x.size() == col_count + 1) {
-        const float local_x = dip_x - base_x;
-        auto it = std::ranges::upper_bound(tl.col_cum_x, local_x);
-        if (it == tl.col_cum_x.begin()) {
-            ++it; // base_x + border より左の場合は最初の列にクランプ
-        }
-        size_t idx = static_cast<size_t>(std::ranges::distance(tl.col_cum_x.begin(), it) - 1);
-        if (idx >= col_count) {
-            idx = col_count - 1; // 最終列にクランプ
-        }
-        cell_left_x = base_x + tl.col_cum_x[idx];
-        return static_cast<int>(idx);
-    }
-
-    const float cell_padding = TABLE_CELL_PADDING;
-    const float border = TABLE_BORDER_WIDTH;
-    float cx = base_x + border;
-    for (size_t c = 0; c < col_count; c++) {
-        const float col_right = cx + tl.col_widths[c] + cell_padding * 2.0f;
-        if (dip_x < col_right) {
-            cell_left_x = cx;
-            return static_cast<int>(c);
-        }
-        cx += tl.col_widths[c] + cell_padding * 2.0f + border;
-    }
-    if (col_count > 0) {
-        cell_left_x = cx - tl.col_widths[col_count - 1] - cell_padding * 2.0f - border;
-        return static_cast<int>(col_count - 1);
-    }
-    cell_left_x = base_x + border;
-    return 0;
-}
-
 } // namespace
 
 HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) const noexcept
@@ -207,14 +131,16 @@ HitTestService::HitResult HitTestService::HitTestTable(
     const float base_x = theme.margin_left + indent - h_scroll_x;
 
     const auto* tbl = node.table_data();
-    const auto [hit_row, row_top_y] = FindTableRow(node, entry, entry_text_top, theme, dip_y);
+    const size_t row_count = tbl ? tbl->row_count : 0;
+    const auto [hit_row, row_top] = FindTableRow(tl, row_count, theme.font_size_body * TABLE_ROW_HEIGHT_FACTOR, dip_y - entry_text_top);
     if (hit_row < 0) {
         result.text_pos = tbl ? static_cast<uint32_t>(tbl->concat_text.size()) : 0u;
         return result;
     }
+    const float row_top_y = entry_text_top + row_top;
 
-    float cell_left_x = 0.0f;
-    const int hit_col = FindTableCol(tl, base_x, dip_x, cell_left_x);
+    const auto [hit_col, cell_left] = FindTableCol(tl, dip_x - base_x);
+    const float cell_left_x = base_x + cell_left;
 
     const auto r = static_cast<size_t>(hit_row);
     const auto c = static_cast<size_t>(hit_col);
