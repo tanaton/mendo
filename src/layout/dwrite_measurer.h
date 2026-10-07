@@ -75,16 +75,18 @@ private:
 
     bool CreateAllFormats();
     IDWriteTextFormat* GetTextFormat(const Node& node) const noexcept;
+    IDWriteTextFormat* GetTableRowFormat(const NodeTableData& tbl, size_t r) const noexcept;
     void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width, MeasureViewportRange viewport) const;
     void ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, const mendo::WideViewForDWrite& view, RunFormatScope scope) const;
-    // MeasureTableCells / RestoreNullCellLayouts 共通のセル生成処理。空セルは layout を
+    // MeasureTableCells / RestoreRowCells 共通のセル生成処理。空セルは layout を
     // null のまま残し、呼び出し側のスキップ判定に委ねる。
-    void BuildCellLayout(const NodeTableData* tbl, size_t r, size_t c, size_t ci, IDWriteTextFormat* row_fmt, TableLayoutData& tl) const;
-    void MeasureTableCells(Node& node, NodeLayoutEntry& entry, std::pmr::vector<float>& natural_widths) const;
-    void RestoreNullCellLayouts(Node& node, NodeLayoutEntry& entry, MeasureViewportRange viewport) const;
+    void BuildCellLayout(const NodeTableData& tbl, size_t r, size_t c, IDWriteTextFormat* row_fmt, TableLayoutData& tl) const;
+    // 全セルを生成し、列ごとの自然幅を tl.natural_col_widths に集計する。
+    void MeasureTableCells(const NodeTableData& tbl, TableLayoutData& tl) const;
+    void RestoreNullCellLayouts(const NodeTableData& tbl, TableLayoutData& tl, MeasureViewportRange viewport) const;
     // evict 行 r の null セルを再生成し、復元済みにする。
-    void RestoreRowCells(const NodeTableData* tbl, TableLayoutData& tl, size_t r) const;
-    void FinalizeTableLayout(Node& node, NodeLayoutEntry& entry, float max_width) const;
+    void RestoreRowCells(const NodeTableData& tbl, TableLayoutData& tl, size_t r) const;
+    void FinalizeTableLayout(const NodeTableData& tbl, NodeLayoutEntry& entry, float max_width) const;
 
     IDWriteFactory* dwrite_ = nullptr;
     const Theme* theme_ = nullptr;

@@ -57,8 +57,9 @@ public:
     }
     constexpr void ResetScrollStates() noexcept
     {
-        instances_[0].scroll = {};
-        instances_[1].scroll = {};
+        for (auto& inst : instances_) {
+            inst.scroll = {};
+        }
     }
 
     // 変化した場合 true。
@@ -82,7 +83,6 @@ public:
         return SetSideHoveredButton(t, PaneHeaderButton::None);
     }
 
-public:
     constexpr DragTarget GetDragTarget() const noexcept
     {
         return drag_target_;
@@ -135,8 +135,4 @@ private:
     {
         return instances_[static_cast<size_t>(t)];
     }
-
-    static float ConstrainSplitterWidth(float requested_width, float total_width,
-                                        float splitter_w, float other_width,
-                                        bool other_visible) noexcept;
 };

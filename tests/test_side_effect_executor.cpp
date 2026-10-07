@@ -5,11 +5,6 @@
 #include "app_state.h"
 #include "file_watcher.h"
 
-// tooltip.cpp (mendo_core) が extern 参照するシンボルのダミー。本体は app.cpp。
-// テストでは実行されないが、リンク充足のために必要。
-void ApplyDarkModeToWindow(HWND, bool)
-{}
-
 namespace {
 
 // 副作用発火を記録する IWin32Host mock

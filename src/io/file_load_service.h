@@ -1,18 +1,17 @@
 #pragma once
 #include "async_load_coordinator.h"
 #include "async_load_result.h"
-#include "document_service.h"
-#include "document.h"
 #include "file_loader.h"
-#include "layout_cache.h"
 #include "loading_animation.h"
 #include "preloader.h"
-#include "task_scheduler.h"
-#include <string>
-#include <optional>
 #include <expected>
+#include <memory>
+#include <optional>
+#include <string>
+#include <windows.h>
 
 struct Theme;
+class TaskScheduler;
 
 // ファイル読み込みのオーケストレーション。
 // 内部に LoadingAnimation / Preloader / AsyncLoadCoordinator を持ち、
@@ -67,9 +66,7 @@ public:
 
     using PreloadAttachResult = Preloader::AttachResult;
 
-    // App::Init 末尾で呼ぶ。preload の状態に応じて以下のいずれかを行う:
-    //   完了済み: Join (= AppliedSync)。呼び出し側で OnParseComplete を発火。
-    //   未完了:   worker に hwnd を渡して PostMessage を解禁 (= AttachedAsync)。
+    // App::Init 末尾で呼ぶ。挙動は Preloader::AttachOrApply を参照。
     PreloadAttachResult AttachOrApplyPreload(HWND hwnd, UINT msg_id)
     {
         return preloader_.AttachOrApply(hwnd, msg_id);

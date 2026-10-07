@@ -51,12 +51,7 @@ void MermaidFileCache::SetLimits(size_t max_entries, uint64_t max_total_size)
     max_total_size_ = max_total_size;
 }
 
-std::filesystem::path MermaidFileCache::GetCacheDir() const
-{
-    return cache_dir_;
-}
-
-std::filesystem::path MermaidFileCache::GetPngPath(const std::filesystem::path& dir, uint64_t key) const
+std::filesystem::path MermaidFileCache::GetPngPath(const std::filesystem::path& dir, uint64_t key)
 {
     wchar_t name[24];
     const auto r = std::format_to_n(name, std::ranges::size(name) - 1, L"{:016x}.png", key);
@@ -65,33 +60,30 @@ std::filesystem::path MermaidFileCache::GetPngPath(const std::filesystem::path& 
 
 std::filesystem::path MermaidFileCache::GetPngPath(uint64_t key) const
 {
-    const auto dir = GetCacheDir();
-    if (dir.empty()) {
+    if (cache_dir_.empty()) {
         return {};
     }
-    return GetPngPath(dir, key);
+    return GetPngPath(cache_dir_, key);
 }
 
 std::filesystem::path MermaidFileCache::GetIndexPath() const
 {
-    const auto dir = GetCacheDir();
-    if (dir.empty()) {
+    if (cache_dir_.empty()) {
         return {};
     }
-    return dir / L"index.bin";
+    return cache_dir_ / L"index.bin";
 }
 
 void MermaidFileCache::Init(float current_dpr, TaskScheduler& scheduler)
 {
     scheduler_ = &scheduler;
     current_dpr_ = current_dpr;
-    const auto dir = GetCacheDir();
-    if (dir.empty()) {
+    if (cache_dir_.empty()) {
         return;
     }
 
     std::error_code ec;
-    std::filesystem::create_directories(dir, ec);
+    std::filesystem::create_directories(cache_dir_, ec);
     if (ec) {
         return;
     }
@@ -115,7 +107,7 @@ void MermaidFileCache::LoadIndex()
     }
 
     auto [buf, buf_size] = ReadAllBytes(path);
-    if (!buf || buf_size < 16) {
+    if (!buf || buf_size < sizeof(IndexHeader)) {
         return;
     }
 
@@ -150,17 +142,20 @@ void MermaidFileCache::LoadIndex()
             continue;
         }
 
-        auto& entry_ref = index_[record.key];
-        entry_ref.css_width = record.css_width;
-        entry_ref.css_height = record.css_height;
-        entry_ref.png_size = record.png_size;
-        entry_ref.last_used = record.last_used;
-        entry_ref.lru_iter = lru_order_.emplace(record.last_used, record.key);
-        total_size_ += record.png_size;
-        if (record.last_used > lru_seq_) {
-            lru_seq_ = record.last_used;
-        }
+        AddIndexEntry(record.key, record.css_width, record.css_height, record.png_size, record.last_used);
+        lru_seq_ = std::max(lru_seq_, record.last_used);
     }
+}
+
+void MermaidFileCache::AddIndexEntry(uint64_t key, float css_width, float css_height, uint32_t png_size, int64_t last_used)
+{
+    auto& entry = index_[key];
+    entry.css_width = css_width;
+    entry.css_height = css_height;
+    entry.png_size = png_size;
+    entry.last_used = last_used;
+    entry.lru_iter = lru_order_.emplace(last_used, key);
+    total_size_ += png_size;
 }
 
 void MermaidFileCache::SaveIndex()
@@ -245,7 +240,7 @@ void MermaidFileCache::OnReadFailed(uint64_t key, DWORD read_error)
     // StoreAsync 直後でバックグラウンド書き込みが in-flight なら「未着地＝stale」と
     // 早合点せず entry を保持する（次回 Lookup で着地する）。
     {
-        std::lock_guard lock(pending_mutex_);
+        const std::lock_guard lock(pending_mutex_);
         if (pending_writes_.contains(key)) {
             return;
         }
@@ -282,13 +277,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
 
     EvictIfNeeded(png_size);
 
-    auto& entry = index_[key];
-    entry.css_width = css_width;
-    entry.css_height = css_height;
-    entry.png_size = png_size;
-    entry.last_used = NextLruSeq();
-    total_size_ += png_size;
-    entry.lru_iter = lru_order_.emplace(entry.last_used, key);
+    AddIndexEntry(key, css_width, css_height, png_size, NextLruSeq());
 
     if (!scheduler_) {
         return;
@@ -297,7 +286,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
     // 書き込み開始前に in-flight セットへ登録しておく。
     // Lookup がファイル未着地を stale 扱いで index から消すのを防ぐ。
     {
-        std::lock_guard lock(pending_mutex_);
+        const std::lock_guard lock(pending_mutex_);
         pending_writes_.insert(key);
     }
 
@@ -306,7 +295,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
     const bool posted = scheduler_->Post([this, key, path = std::move(path), data = std::move(png_data), gen, latch_guard = latch_.Acquire()] {
         // タスク完遂・キャンセルどちらの場合も pending を必ず解除する
         auto guard = ScopeGuard([this, key] {
-            std::lock_guard lock(pending_mutex_);
+            const std::lock_guard lock(pending_mutex_);
             pending_writes_.erase(key);
         });
 
@@ -335,15 +324,13 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
         // lambda 本体が走らず body 内 ScopeGuard は構築されないため pending_writes_ は解除されない。
         // capture の latch::Guard は closure 破棄時に自動 Release されるので、ここでは Post 前に
         // insert した key だけを巻き戻す (残すと Lookup が stale 扱いを抑止し続ける)。
-        std::lock_guard lock(pending_mutex_);
+        const std::lock_guard lock(pending_mutex_);
         pending_writes_.erase(key);
     }
 }
 
 void MermaidFileCache::EvictIfNeeded(uint32_t new_png_size)
 {
-    const auto dir = GetCacheDir();
-
     while ((index_.size() >= max_entries_ || total_size_ + new_png_size > max_total_size_) && !lru_order_.empty()) {
         const auto oldest_lru = lru_order_.begin();
         const uint64_t evict_key = oldest_lru->second;
@@ -365,9 +352,9 @@ void MermaidFileCache::EvictIfNeeded(uint32_t new_png_size)
 
         lru_order_.erase(oldest_lru);
 
-        if (!dir.empty()) {
+        if (!cache_dir_.empty()) {
             std::error_code ec;
-            std::filesystem::remove(GetPngPath(dir, evict_key), ec);
+            std::filesystem::remove(GetPngPath(cache_dir_, evict_key), ec);
         }
 
         DecrementTotalSize(it->second.png_size);
@@ -386,12 +373,7 @@ void MermaidFileCache::RemoveIndexEntry(std::pmr::unordered_map<uint64_t, IndexE
 
 void MermaidFileCache::DecrementTotalSize(uint32_t png_size) noexcept
 {
-    if (total_size_ >= png_size) {
-        total_size_ -= png_size;
-    }
-    else {
-        total_size_ = 0;
-    }
+    total_size_ -= std::min<uint64_t>(total_size_, png_size);
 }
 
 void MermaidFileCache::ClearAll()
@@ -402,11 +384,10 @@ void MermaidFileCache::ClearAll()
     MENDO_PROFILE("MermaidFileCache::ClearAll::Wait");
     latch_.Wait();
 
-    const auto dir = GetCacheDir();
-    if (!dir.empty()) {
+    if (!cache_dir_.empty()) {
         std::error_code ec;
         for (const auto& [key, _] : index_) {
-            std::filesystem::remove(GetPngPath(dir, key), ec);
+            std::filesystem::remove(GetPngPath(cache_dir_, key), ec);
         }
         std::filesystem::remove(GetIndexPath(), ec);
     }

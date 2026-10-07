@@ -57,8 +57,7 @@ public:
 
     constexpr bool IsOverlayVisible() const noexcept
     {
-        const int abs_d = accumulated_delta_ < 0 ? -accumulated_delta_ : accumulated_delta_;
-        return abs_d >= TRIGGER_THRESHOLD;
+        return GetOverlayDirection() != 0;
     }
 
     constexpr int GetOverlayDirection() const noexcept

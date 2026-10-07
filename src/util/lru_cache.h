@@ -1,9 +1,7 @@
 #pragma once
 #include <array>
-#include <algorithm>
+#include <concepts>
 #include <cstddef>
-#include <ranges>
-#include <span>
 #include <type_traits>
 #include <utility>
 
@@ -22,31 +20,25 @@ public:
 
     constexpr auto* Find(this auto& self, const Key& key)
     {
-        for (size_t i = 0; i < self.size_; i++) {
-            const size_t p = self.physical(i);
-            if (self.keys_[p] == key) {
-                if constexpr (!std::is_const_v<std::remove_reference_t<decltype(self)>>) {
-                    if (i > 0) {
-                        const size_t prev_p = self.physical(i - 1);
-                        std::ranges::swap(self.keys_[p], self.keys_[prev_p]);
-                        std::ranges::swap(self.values_[p], self.values_[prev_p]);
-                        return self.values_.data() + prev_p;
-                    }
-                }
-                return self.values_.data() + p;
+        const size_t i = self.FindLogical(key);
+        if (i == self.size_) {
+            return decltype(self.values_.data()){ nullptr };
+        }
+        size_t p = self.physical(i);
+        if constexpr (!std::is_const_v<std::remove_reference_t<decltype(self)>>) {
+            if (i > 0) {
+                const size_t prev_p = self.physical(i - 1);
+                std::ranges::swap(self.keys_[p], self.keys_[prev_p]);
+                std::ranges::swap(self.values_[p], self.values_[prev_p]);
+                p = prev_p;
             }
         }
-        return decltype(self.values_.data()){ nullptr };
+        return self.values_.data() + p;
     }
 
     constexpr bool Contains(const Key& key) const
     {
-        for (size_t i = 0; i < size_; i++) {
-            if (keys_[physical(i)] == key) {
-                return true;
-            }
-        }
-        return false;
+        return FindLogical(key) < size_;
     }
 
     constexpr void Insert(const Key& key, Value value)
@@ -75,8 +67,7 @@ public:
         while (size_ > 1 && total > budget) {
             const size_t p = physical(size_ - 1);
             total -= cost(values_[p]);
-            keys_[p] = Key{};
-            values_[p] = Value{};
+            ResetSlot(p);
             --size_;
         }
     }
@@ -84,9 +75,7 @@ public:
     constexpr void Clear()
     {
         for (size_t i = 0; i < size_; i++) {
-            const size_t p = physical(i);
-            keys_[p] = Key{};
-            values_[p] = Value{};
+            ResetSlot(physical(i));
         }
         size_ = 0;
         head_ = 0;
@@ -109,6 +98,24 @@ private:
     constexpr size_t physical(size_t logical) const noexcept
     {
         return (head_ + logical) % MaxEntries;
+    }
+
+    // 見つからなければ size_ を返す。
+    constexpr size_t FindLogical(const Key& key) const
+    {
+        for (size_t i = 0; i < size_; i++) {
+            if (keys_[physical(i)] == key) {
+                return i;
+            }
+        }
+        return size_;
+    }
+
+    // 保持値 (ビットマップ等) の解放を遅らせないよう、論理的に捨てたスロットは即座に空値へ戻す。
+    constexpr void ResetSlot(size_t p)
+    {
+        keys_[p] = Key{};
+        values_[p] = Value{};
     }
 
     std::array<Key, MaxEntries> keys_{};

@@ -1,16 +1,13 @@
 #include "app.h"
 #include "ascii_util.h"
-#include "resource.h"
 #include "document_utils.h"
+#include "resource.h"
 
 namespace {
 
 bool IsEditableTextFile(std::wstring_view path)
 {
-    if (IsMarkdownFile(path)) {
-        return true;
-    }
-    return ascii_util::iequal(ExtensionView(path), L".txt");
+    return IsMarkdownFile(path) || ascii_util::iequal(ExtensionView(path), L".txt");
 }
 
 } // namespace
@@ -20,25 +17,25 @@ void App::OnContextMenu(int screen_x, int screen_y)
     POINT client_pt{ screen_x, screen_y };
     ScreenToClient(hwnd_, &client_pt);
     const auto dip = PixelToDip(client_pt.x, client_pt.y);
-    const auto zone = PaneAtPoint(dip.x);
 
-    ContextMenuParams params;
-    params.screen_x = screen_x;
-    params.screen_y = screen_y;
-    params.dpi_scale = state_.window.cached_dpi_scale;
-    params.can_go_back = state_.view.nav_history.CanGoBack();
-    params.can_go_forward = state_.view.nav_history.CanGoForward();
-    params.has_file = !state_.document.doc.GetFilePath().empty();
-    params.has_selection = state_.view.viewport.GetSelection().active && state_.view.viewport.GetSelection().start_node >= 0;
-    params.dark_mode_checked = theme_service_.IsDarkMode();
-    params.file_pane_checked = state_.view.panes.IsSidePaneVisible(PaneTarget::File);
-    params.toc_pane_checked = state_.view.panes.IsSidePaneVisible(PaneTarget::Toc);
-    params.show_file_items = (zone == PaneZone::MdPane);
-    params.theme = &renderer_.GetTheme();
+    const auto& selection = state_.view.viewport.GetSelection();
+    const auto& panes = state_.view.panes;
+    const ContextMenuParams params{
+        .screen_x = screen_x,
+        .screen_y = screen_y,
+        .dpi_scale = state_.window.cached_dpi_scale,
+        .can_go_back = state_.view.nav_history.CanGoBack(),
+        .can_go_forward = state_.view.nav_history.CanGoForward(),
+        .has_file = !state_.document.doc.GetFilePath().empty(),
+        .has_selection = selection.active && selection.start_node >= 0,
+        .dark_mode_checked = theme_service_.IsDarkMode(),
+        .file_pane_checked = panes.IsSidePaneVisible(PaneTarget::File),
+        .toc_pane_checked = panes.IsSidePaneVisible(PaneTarget::Toc),
+        .show_file_items = PaneAtPoint(dip.x) == PaneZone::MdPane,
+        .theme = &renderer_.GetTheme(),
+    };
 
-    const int cmd = state_.ctx_menu.Show(hwnd_, params);
-
-    switch (cmd) {
+    switch (state_.ctx_menu.Show(hwnd_, params)) {
     case IDM_NAV_BACK:
         Dispatch(NavigateBackAction{});
         break;

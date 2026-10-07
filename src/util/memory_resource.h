@@ -1,13 +1,15 @@
 #pragma once
-#include <array>
-#include <memory_resource>
 #include <cstddef>
 #include <memory>
+#include <memory_resource>
+
+namespace memory_resource_detail {
+inline constexpr std::pmr::pool_options kPoolOptions{ /*max_blocks_per_chunk=*/0, /*largest_required_pool_block=*/1 << 20 };
+} // namespace memory_resource_detail
 
 inline std::pmr::synchronized_pool_resource& GetGlobalPoolResource()
 {
-    static std::pmr::pool_options opts{ /*max_blocks_per_chunk=*/0, /*largest_required_pool_block=*/1 << 20 };
-    static std::pmr::synchronized_pool_resource pool{ opts, std::pmr::new_delete_resource() };
+    static std::pmr::synchronized_pool_resource pool{ memory_resource_detail::kPoolOptions, std::pmr::new_delete_resource() };
     return pool;
 }
 
@@ -50,7 +52,6 @@ private:
 // thread 跨ぎでメモリを引き渡してはならない。
 inline std::pmr::memory_resource* GetThreadLocalPoolResource()
 {
-    constexpr std::pmr::pool_options opts{ /*max_blocks_per_chunk=*/0, /*largest_required_pool_block=*/1 << 20 };
-    thread_local std::pmr::unsynchronized_pool_resource pool{ opts, std::pmr::new_delete_resource() };
+    thread_local std::pmr::unsynchronized_pool_resource pool{ memory_resource_detail::kPoolOptions, std::pmr::new_delete_resource() };
     return &pool;
 }

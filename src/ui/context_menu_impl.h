@@ -3,7 +3,6 @@
 // context_menu.cpp（Win32/D2D 本体）の両方からインクルードする。
 // 本ヘッダ自体は Impl 構造体の定義（D2D フィールドを含む）を提供する。
 #include "context_menu.h"
-#include "ui_constants.h"
 #include <d2d1.h>
 #include <dwrite.h>
 #include <wrl/client.h>
@@ -25,6 +24,11 @@ inline constexpr float MENU_CORNER = 8.0f;
 inline constexpr float MENU_BORDER = 1.0f;
 inline constexpr float MIN_MENU_WIDTH = 160.0f;
 inline constexpr float ICON_FONT_SIZE = 14.0f;
+inline constexpr float SEPARATOR_MARGIN_X = 12.0f;
+inline constexpr float HOVER_MARGIN_X = 4.0f;
+inline constexpr float HOVER_CORNER = 4.0f;
+inline constexpr float CHECK_LEFT = 8.0f;
+inline constexpr float TEXT_PAD_RIGHT = 8.0f;
 
 inline constexpr wchar_t GLYPH_BACK[] = L"\xE72B";
 inline constexpr wchar_t GLYPH_FORWARD[] = L"\xE72A";
@@ -38,6 +42,14 @@ struct ContextMenu::Impl {
 
     // CreatePopupWindow が false を返したら Show() は早期 return。
     bool CreatePopupWindow(int screen_x, int screen_y);
+    // ~Impl (mendo_core 側) からも呼ぶため inline で定義する。
+    void DestroyPopupWindow() noexcept
+    {
+        if (hwnd) {
+            DestroyWindow(hwnd);
+            hwnd = nullptr;
+        }
+    }
     void RunModalLoop();
 
     void BuildItems(const ContextMenuParams& params);
@@ -89,9 +101,6 @@ struct ContextMenu::Impl {
 
     ~Impl()
     {
-        if (hwnd) {
-            DestroyWindow(hwnd);
-            hwnd = nullptr;
-        }
+        DestroyPopupWindow();
     }
 };

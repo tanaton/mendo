@@ -1,5 +1,4 @@
 #include "layout_cache.h"
-#include "document_types.h"
 #include <algorithm>
 #include <ranges>
 
@@ -83,10 +82,7 @@ void LayoutCache::ResetTableLayoutGeometry(TableLayoutData& tl) noexcept
     tl.cell_layouts.clear();
     tl.row_bgs_computed.clear();
     tl.row_links_applied.clear();
-    tl.row_evicted.clear();
-    tl.evicted_row_count = 0;
-    tl.live_row_begin = 0;
-    tl.live_row_end = 0;
+    tl.ResetRowEviction(0);
     tl.natural_col_widths.clear();
     tl.cell_heights.clear();
     tl.cell_applied_widths.clear();
@@ -177,19 +173,16 @@ void LayoutCache::Resize(size_t node_count)
 
 void LayoutCache::Reset(size_t node_count, bool shrink)
 {
-    entries_.clear();
-    tops_.clear();
-    if (shrink) {
-        entries_.shrink_to_fit();
-        tops_.shrink_to_fit();
-    }
-    entries_.resize(node_count);
-    tops_.resize(node_count);
-    diagrams_.clear();
-    if (shrink) {
-        diagrams_.shrink_to_fit();
-    }
-    diagrams_.resize(node_count);
+    const auto reset = [node_count, shrink](auto& v) {
+        v.clear();
+        if (shrink) {
+            v.shrink_to_fit();
+        }
+        v.resize(node_count);
+    };
+    reset(entries_);
+    reset(tops_);
+    reset(diagrams_);
     effects_generation_++;
     ResetEvictionTracking();
 }

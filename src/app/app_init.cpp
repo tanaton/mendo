@@ -2,15 +2,24 @@
 #include "app_constants.h"
 #include "darkmode_util.h"
 #include "document_service.h"
-#include "file_dialog_service.h"
-#include "file_loader.h"
-#include "i18n.h"
 #include "mermaid_util.h"
-#include "pane_layout.h"
-#include "resource.h"
 #include "ui_constants.h"
 #include <algorithm>
 #include <thread>
+
+namespace {
+
+// 上限 16 は超大規模 dirty バッチでも latch 待ちオーバーヘッドが利得を相殺する境界。
+// 下限 2 は hardware_concurrency()==0 や 1 コア環境でも並列計測の枠組みを保つため。
+int LayoutWorkerCount(unsigned cores) noexcept
+{
+    constexpr unsigned kMinLayoutWorkers = 2u;
+    constexpr unsigned kMaxLayoutWorkers = 16u;
+    return static_cast<int>(std::clamp<unsigned>(
+        cores > 0 ? cores - 1 : kMinLayoutWorkers, kMinLayoutWorkers, kMaxLayoutWorkers));
+}
+
+} // namespace
 
 bool App::Init(HWND hwnd)
 {
@@ -23,23 +32,14 @@ bool App::Init(HWND hwnd)
     layout_service_.emplace(renderer_.GetLayout(), state_.view.viewport);
 
     // Mermaid 共有 scheduler_ と詰まり合わないよう独立して立ち上げる。
-    {
-        // 上限 16 は超大規模 dirty バッチでも latch 待ちオーバーヘッドが利得を相殺する境界。
-        // 下限 2 は hardware_concurrency()==0 や 1 コア環境でも並列計測の枠組みを保つため。
-        constexpr unsigned kMinLayoutWorkers = 2u;
-        constexpr unsigned kMaxLayoutWorkers = 16u;
-        const auto cores = std::thread::hardware_concurrency();
-        const int layout_workers = static_cast<int>(std::clamp<unsigned>(
-            cores > 0 ? cores - 1 : kMinLayoutWorkers, kMinLayoutWorkers, kMaxLayoutWorkers));
-        layout_scheduler_.Init(layout_workers);
-        renderer_.SetLayoutScheduler(&layout_scheduler_);
-    }
+    const auto cores = std::thread::hardware_concurrency();
+    layout_scheduler_.Init(LayoutWorkerCount(cores));
+    renderer_.SetLayoutScheduler(&layout_scheduler_);
 
     // PixelToDip 用に DPI スケールをキャッシュ（OnDpiChanged でも更新する）。
-    const float init_dpi = static_cast<float>(GetDpiForWindow(hwnd_));
-    state_.window.cached_dpi_scale = DpiScaleFrom(init_dpi);
+    state_.window.cached_dpi_scale = DpiScaleFrom(static_cast<float>(GetDpiForWindow(hwnd_)));
 
-    scheduler_.Init(mermaid_util::ComputeWorkerCount(std::thread::hardware_concurrency()));
+    scheduler_.Init(mermaid_util::ComputeWorkerCount(cores));
 
     file_cache_.SetCacheDir(config_.GetConfigPath(L"MermaidCache"));
     file_cache_.Init(state_.window.cached_dpi_scale, scheduler_);
@@ -90,35 +90,16 @@ bool App::Init(HWND hwnd)
         resource_manager_.LoadImages();
     });
 
-    theme_service_.LoadDarkMode();
-    state_.view.viewport.SetZoomIndex(theme_service_.LoadZoomIndex());
-    if (theme_service_.IsDarkMode() || state_.view.viewport.GetZoomIndex() != ZOOM_DEFAULT_INDEX) {
-        renderer_.SetTheme(theme_service_.CreateTheme(state_.view.viewport.GetZoomIndex()));
-        if (state_.view.viewport.GetZoomIndex() != ZOOM_DEFAULT_INDEX) {
-            state_.view.panes.ApplyZoom(state_.view.viewport.GetCurrentZoom());
-        }
-    }
-    state_.theme = &renderer_.GetTheme();
-    if (theme_service_.IsDarkMode()) {
-        ApplyDarkModeToWindow(hwnd_, true);
-    }
+    RestoreThemeAndZoom();
 
     cursors_.Init();
 
     {
         const auto* rt = renderer_.GetRenderTarget();
-        const float window_w = rt ? rt->GetSize().width : FALLBACK_WINDOW_WIDTH;
-        state_.window.titlebar.UpdateLayout(window_w);
+        state_.window.titlebar.UpdateLayout(rt ? rt->GetSize().width : FALLBACK_WINDOW_WIDTH);
     }
 
-    {
-        const auto s = session_.LoadPaneState(PaneController::PANE_MIN_WIDTH, PaneController::PANE_DEFAULT_WIDTH);
-        auto& panes = state_.view.panes;
-        panes.SetSidePaneVisible(PaneTarget::File, s.show_file);
-        panes.SetSidePaneVisible(PaneTarget::Toc, s.show_toc);
-        panes.SetSidePaneWidth(PaneTarget::File, s.file_width);
-        panes.SetSidePaneWidth(PaneTarget::Toc, s.toc_width);
-    }
+    RestorePaneState();
 
     state_.ctx_menu.Init(renderer_.GetD2DFactory(), renderer_.GetDWriteFactory());
 
@@ -129,6 +110,40 @@ bool App::Init(HWND hwnd)
 
     state_.search.search_bar_ctrl.Init(state_.search.search_state, state_.view.viewport, state_.document.layout_cache, AppSearchBarCallbacks{ this });
 
+    AttachPreload();
+    return true;
+}
+
+void App::RestoreThemeAndZoom()
+{
+    theme_service_.LoadDarkMode();
+    auto& viewport = state_.view.viewport;
+    viewport.SetZoomIndex(theme_service_.LoadZoomIndex());
+    const bool zoomed = viewport.GetZoomIndex() != ZOOM_DEFAULT_INDEX;
+    if (theme_service_.IsDarkMode() || zoomed) {
+        renderer_.SetTheme(theme_service_.CreateTheme(viewport.GetZoomIndex()));
+        if (zoomed) {
+            state_.view.panes.ApplyZoom(viewport.GetCurrentZoom());
+        }
+    }
+    state_.theme = &renderer_.GetTheme();
+    if (theme_service_.IsDarkMode()) {
+        ApplyDarkModeToWindow(hwnd_, true);
+    }
+}
+
+void App::RestorePaneState()
+{
+    const auto s = session_.LoadPaneState(PaneController::PANE_MIN_WIDTH, PaneController::PANE_DEFAULT_WIDTH);
+    auto& panes = state_.view.panes;
+    panes.SetSidePaneVisible(PaneTarget::File, s.show_file);
+    panes.SetSidePaneVisible(PaneTarget::Toc, s.show_toc);
+    panes.SetSidePaneWidth(PaneTarget::File, s.file_width);
+    panes.SetSidePaneWidth(PaneTarget::Toc, s.toc_width);
+}
+
+void App::AttachPreload()
+{
     // small file は preload が App::Init より先に完了している場合が多い。直後の
     // ShowWindow/UpdateWindow が同期 WM_PAINT を発行するため、ここで結果を取り込んで
     // おかないと初回フレームが空ウィンドウになってしまう。
@@ -147,6 +162,4 @@ bool App::Init(HWND hwnd)
     case PreloadAttachResult::None:
         break;
     }
-
-    return true;
 }

@@ -1,7 +1,5 @@
 #include "layout_computer.h"
-#include "memory_resource.h"
 #include "profiler.h"
-#include "ui_constants.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -187,25 +185,20 @@ bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
 }
 
 bool RecomputeYPositions(
-    std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
+    const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
     size_t from_index, size_t safe_exit_after) noexcept
 {
     MENDO_PROFILE("RecomputeYPositions");
     bool has_dirty_nodes = false;
     const auto node_count = nodes.size();
-    float y = theme.margin_top;
-
-    if (from_index > 0 && from_index < node_count) {
-        y = cache.Bottom(from_index - 1);
-        y += GetSpacingBelow(nodes[from_index - 1], theme);
-    }
+    float y = (from_index < node_count) ? NodeStartY(nodes, cache, theme, from_index) : theme.margin_top;
 
     // safe_exit_after の契約: 以降のノードは height/sa/sb が不変なので、
     // text_top は一定 delta のシフトで済む。size_t 飽和は node_count にクランプ。
     const size_t tail_start = (safe_exit_after < node_count) ? safe_exit_after + 1 : node_count;
 
     for (size_t i = from_index; i < tail_start; i++) {
-        auto& entry = cache[i];
+        const auto& entry = cache[i];
         if (entry.layout_dirty) {
             has_dirty_nodes = true;
         }

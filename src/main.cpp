@@ -8,7 +8,6 @@
 #include "startup_plan.h"
 #include <windows.h>
 #include <shellapi.h>
-#include <shellscalingapi.h>
 #include <commctrl.h>
 #include <array>
 #include <filesystem>
@@ -36,6 +35,31 @@ std::wstring ExeDirectory()
     return std::wstring{ exe.substr(0, exe.find_last_of(L'\\')) };
 }
 
+// "." や相対パスを FileExplorer / 前回ファイル比較でそのまま扱えるよう絶対パス化する。
+// MSVC の absolute は GetFullPathNameW 経由で "." / ".." も解決する。
+std::wstring ToAbsolutePath(std::wstring_view path)
+{
+    std::error_code ec;
+    const auto abs = std::filesystem::absolute(path, ec);
+    return ec ? std::wstring{ path } : abs.native();
+}
+
+StartupArgKind ClassifyPath(const std::wstring& path)
+{
+    const DWORD attrs = GetFileAttributesW(path.c_str());
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        return StartupArgKind::Invalid;
+    }
+    return (attrs & FILE_ATTRIBUTE_DIRECTORY) ? StartupArgKind::Directory : StartupArgKind::File;
+}
+
+// 大文字小文字・スラッシュ違いを吸収するため filesystem::equivalent でも比較する。
+bool IsSameFile(std::wstring_view a, std::wstring_view b)
+{
+    std::error_code ec;
+    return path_util::iequal(a, b) || std::filesystem::equivalent(a, b, ec);
+}
+
 StartupPlan PlanStartup(std::wstring_view arg, std::wstring_view last_file)
 {
     const std::wstring cwd = QueryDirectory([](wchar_t* b, UINT n) { return GetCurrentDirectoryW(n, b); });
@@ -51,27 +75,12 @@ StartupPlan PlanStartup(std::wstring_view arg, std::wstring_view last_file)
         .ignored_cwds = ignored_cwd_views,
     };
 
-    // "." や相対パスを FileExplorer / 前回ファイル比較でそのまま扱えるよう絶対パス化する。
-    // MSVC の absolute は GetFullPathNameW 経由で "." / ".." も解決する。
     std::wstring arg_path;
     if (!arg.empty()) {
-        std::error_code ec;
-        const auto abs = std::filesystem::absolute(arg, ec);
-        arg_path = ec ? std::wstring{ arg } : abs.native();
+        arg_path = ToAbsolutePath(arg);
         ctx.arg_path = arg_path;
-
-        const DWORD attrs = GetFileAttributesW(arg_path.c_str());
-        if (attrs == INVALID_FILE_ATTRIBUTES) {
-            ctx.arg_kind = StartupArgKind::Invalid;
-        }
-        else if (attrs & FILE_ATTRIBUTE_DIRECTORY) {
-            ctx.arg_kind = StartupArgKind::Directory;
-        }
-        else {
-            ctx.arg_kind = StartupArgKind::File;
-            // 大文字小文字・スラッシュ違いを吸収するため filesystem::equivalent で比較する。
-            ctx.arg_is_last_file = !last_file.empty() && (path_util::iequal(arg_path, last_file) || std::filesystem::equivalent(arg_path, last_file, ec));
-        }
+        ctx.arg_kind = ClassifyPath(arg_path);
+        ctx.arg_is_last_file = ctx.arg_kind == StartupArgKind::File && !last_file.empty() && IsSameFile(arg_path, last_file);
     }
     return DecideStartupPlan(ctx);
 }

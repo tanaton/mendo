@@ -20,10 +20,6 @@
 
 namespace {
 
-// current_text スクラッチの初期確保サイズ。入力サイズから動的に決める。
-constexpr size_t SCRATCH_RESERVE_MIN = 1024;
-constexpr size_t SCRATCH_RESERVE_MAX = 64 * 1024;
-
 // pmr::string キーの unordered_map を string_view で引いてもキーを確保しないための透過ハッシュ。
 struct StringTransparentHash {
     using is_transparent = void;
@@ -65,7 +61,7 @@ struct ParseContext {
 
     std::pmr::vector<Node> nodes;
 
-    // パース中に構築する特殊ノードインデックス（BuildIndicesのO(n)走査を除去）
+    // パース後の全ノード走査を避けるため、特殊ノードのインデックスはパース中に構築する。
     std::pmr::vector<size_t> heading_indices;
     std::pmr::vector<size_t> image_indices;
     std::pmr::vector<size_t> diagram_indices;
@@ -89,8 +85,8 @@ struct ParseContext {
     // CommonMark で <a> はネスト禁止のため leave までこの値が安定する。
     int16_t current_link_url_index = -1;
 
-    // 現在ノード用のテキスト蓄積スクラッチ (UTF-8)。FinalizeCurrentNode で Node::text_ へ view コピーされる
-    // (allocator 不一致を避けるため move ではなくコピー)。
+    // 現在ノード用のテキスト蓄積スクラッチ (UTF-8)。FinalizeCurrentNode で view 化されるか
+    // Node::owned_text_ へコピーされる (allocator 不一致を避けるため move ではなくコピー)。
     std::pmr::string current_text{ &pool };
 
     // current_text 内の「未確定 TextRun」の開始位置 (UTF-8 byte unit)。
@@ -199,12 +195,25 @@ struct ParseContext {
         current_text.clear();
     }
 
-    // OnLeaveBlock (TABLE / H / P / LI / HR) でノード構築を終えるときの後処理。
     // current_node と active_text_buffer は対で管理する不変式があるため一括で nullptr に倒す。
     constexpr void ClearCurrentNode() noexcept
     {
         current_node = nullptr;
         active_text_buffer = nullptr;
+    }
+
+    void EndNode()
+    {
+        FinalizeCurrentNode();
+        ClearCurrentNode();
+    }
+
+    // display math 以外の内容が段落に現れたことを記録する (昇格判定用)。
+    constexpr void NoteNonMathContent() noexcept
+    {
+        if (!in_display_math) {
+            paragraph_has_other_content = true;
+        }
     }
 
     void BeginNode(NodeType type)
@@ -227,6 +236,21 @@ struct ParseContext {
         link_url_lookup.clear();
     }
 
+    // md4c は MD_TEXT_NULLCHAR / MD_TEXT_BR / MD_TEXT_SOFTBR や、CODE/LATEXMATH/HTML の改行・空白置換で
+    // _T(""), _T("\n"), _T(" ") といった内部静的リテラルを text として渡すことがある。
+    // 異なる array 同士のポインタ減算は UB なので、範囲判定もオフセット計算も uintptr_t の
+    // 整数演算で行う (std::less<T*> の total order はアドレスの数値順と一致する保証がない)。
+    // 範囲外 (静的リテラル) のときは記録せず、後続の実体テキストで設定できるようにする。
+    void RecordSourceOffset(const char* text) noexcept
+    {
+        const auto text_addr = reinterpret_cast<uintptr_t>(text);
+        const auto base_addr = reinterpret_cast<uintptr_t>(markdown_base);
+        const auto end_addr = base_addr + markdown_size;
+        if (text_addr >= base_addr && text_addr < end_addr) {
+            current_node->SetSourceOffset(markdown_base, static_cast<size_t>(text_addr - base_addr));
+        }
+    }
+
     constexpr TextRun MakeRun(uint32_t start, uint32_t length)
     {
         TextRun run;
@@ -243,17 +267,17 @@ struct ParseContext {
     // テーブル等で O(n^2) になるのを防ぐ。
     void ResolveLinkUrlIndex(std::string_view url)
     {
-        if (!current_node || url.empty()) {
-            current_link_url_index = -1;
-            return;
-        }
+        current_link_url_index = (current_node && !url.empty()) ? FindOrAddLinkUrl(url) : int16_t{ -1 };
+    }
+
+    int16_t FindOrAddLinkUrl(std::string_view url)
+    {
         const auto existing = current_node->view_link_urls();
         const size_t n = existing.size();
         if (n <= kLinkUrlLinearScanMax) {
             for (size_t i = 0; i < n; ++i) {
                 if (existing[i] == url) {
-                    current_link_url_index = static_cast<int16_t>(i);
-                    return;
+                    return static_cast<int16_t>(i);
                 }
             }
         }
@@ -264,22 +288,20 @@ struct ParseContext {
                 }
             }
             if (const auto it = link_url_lookup.find(url); it != link_url_lookup.end()) {
-                current_link_url_index = it->second;
-                return;
+                return it->second;
             }
         }
         // link_url_index (int16_t) を超える URL はリンクなしとして扱う
         if (n >= static_cast<size_t>(std::numeric_limits<int16_t>::max())) {
-            current_link_url_index = -1;
-            return;
+            return -1;
         }
         auto& urls = current_node->ensure_link_urls();
-        const int16_t new_index = static_cast<int16_t>(urls.size());
+        const auto new_index = static_cast<int16_t>(urls.size());
         urls.emplace_back(url);
         if (!link_url_lookup.empty()) {
             link_url_lookup.emplace(url, new_index);
         }
-        current_link_url_index = new_index;
+        return new_index;
     }
 
     // テキストを現在のノードまたはセルに追加する (UTF-8)。
@@ -367,10 +389,149 @@ constexpr bool TryPromoteParagraphToDisplayMath(ParseContext* ctx)
     node->type = NodeType::CodeBlock;
     node->ensure_code()->code_language = SyntaxLanguage::LatexMath;
     node->runs.clear();
-    // current_text 経由で渡すと FinalizeCurrentNode で 2 回目のコピーが走るため、Node::text_ へ直接書く。
+    // current_text 経由で渡すと FinalizeCurrentNode で 2 回目のコピーが走るため、ノードへ直接書く。
     node->SetTextWithLineCount(ctx->display_math_buf, ctx->display_math_newlines);
     ctx->diagram_indices.emplace_back(ctx->current_node_index);
     return true;
+}
+
+void BeginListItem(ParseContext* ctx, const MD_BLOCK_LI_DETAIL* li)
+{
+    const bool is_task = li->is_task;
+    ctx->BeginNode(is_task ? NodeType::TaskListItem : NodeType::ListItem);
+    // unordered (counter<0) かつ非 task のときは NodeListData を確保しない
+    // (getter が ordered=false / list_number=0 / task_checked=false を返すため)。
+    const int counter = ctx->list_counter.empty() ? -1 : ctx->list_counter.back();
+    const bool ordered = (counter >= 0); // OL は start>=0、UL は番兵 -1
+    if (!is_task && !ordered) {
+        return;
+    }
+    auto* const ld = ctx->current_node->ensure_list();
+    if (is_task) {
+        ld->task_checked = (li->task_mark == 'x' || li->task_mark == 'X');
+    }
+    if (ordered) {
+        ld->ordered = true;
+        ld->list_number = counter;
+        ctx->list_counter.back()++;
+    }
+}
+
+void BeginTable(ParseContext* ctx, const MD_BLOCK_TABLE_DETAIL* detail)
+{
+    ctx->BeginNode(NodeType::Table);
+    ctx->table_indices.emplace_back(ctx->current_node_index);
+    // 後続の TR/TH/TD で nullable チェックなく参照できるよう先に確保する。
+    // これに依存して TR/TH/TD は has_table() ガードを省いている。
+    auto* const tbl = ctx->current_node->ensure_table();
+    if (!detail) {
+        return;
+    }
+    // md4c から正確なテーブルサイズが渡されるので、各 vector を一度に reserve して
+    // 巨大テーブル時の段階的 realloc (~quadratic コスト) を避ける。
+    const size_t total_rows = static_cast<size_t>(detail->head_row_count) + detail->body_row_count;
+    tbl->col_count = static_cast<uint16_t>(std::min<unsigned>(detail->col_count, std::numeric_limits<uint16_t>::max()));
+    const size_t total_cells = total_rows * tbl->col_count;
+    tbl->cell_text_starts.reserve(total_cells + 1);
+    tbl->cell_run_starts.reserve(total_cells + 1);
+    // 1 セル平均 16 byte + 区切り 1 byte の見積もり。
+    tbl->concat_text.reserve(total_cells * 17);
+    tbl->aligns.reserve(tbl->col_count);
+    tbl->is_header_row.reserve(total_rows);
+}
+
+void BeginTableCell(ParseContext* ctx, bool is_header, const MD_BLOCK_TD_DETAIL* detail)
+{
+    auto* const cn = ctx->current_node;
+    if (!cn || cn->type != NodeType::Table) {
+        return;
+    }
+    auto* const tbl = cn->table_data();
+    if (tbl->row_count == 0) {
+        return;
+    }
+    // 行内セル数 (is_header_row エントリ数が現 row_count 未満なら未確定 = 行頭)。
+    const bool first_cell_in_row = (tbl->is_header_row.size() < tbl->row_count);
+    const bool first_row = (tbl->row_count == 1);
+    // 区切り: 行内 2 セル目以降は '\t'、行頭かつ 2 行目以降は '\n'。
+    if (!first_cell_in_row) {
+        tbl->concat_text.push_back('\t');
+    }
+    else if (!first_row) {
+        tbl->concat_text.push_back('\n');
+    }
+    tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
+    tbl->cell_run_starts.push_back(static_cast<uint32_t>(tbl->all_runs.size()));
+    ctx->active_text_buffer = &tbl->concat_text;
+
+    // 列単位の align は header 行 (1 行目) で決まる。col_count は BeginTable で確定済み。
+    if (first_row) {
+        tbl->aligns.push_back(detail ? static_cast<TableAlign>(detail->align) : TableAlign::Default);
+    }
+    // md4c は TR 内で TH/TD を混在させないため、1 セル目で行の種別が確定する。
+    if (first_cell_in_row) {
+        tbl->is_header_row.push_back(is_header);
+    }
+}
+
+// offset テーブルを R*C+1 サイズに揃える。行内セル数が col_count に満たない行は空セル扱い
+// (offset は concat 末尾に詰めて padding)。
+void FinalizeTableOffsets(NodeTableData& tbl)
+{
+    const size_t expected_cells = static_cast<size_t>(tbl.row_count) * tbl.col_count;
+    const auto text_end = static_cast<uint32_t>(tbl.concat_text.size());
+    const auto run_end = static_cast<uint32_t>(tbl.all_runs.size());
+    // padding は extend のみ (md4c が誤ってセル超過した場合に切り詰めない)。
+    if (tbl.cell_text_starts.size() < expected_cells) {
+        tbl.cell_text_starts.resize(expected_cells, text_end);
+        tbl.cell_run_starts.resize(expected_cells, run_end);
+    }
+    tbl.cell_text_starts.push_back(text_end);
+    tbl.cell_run_starts.push_back(run_end);
+    if (tbl.is_header_row.size() < tbl.row_count) {
+        tbl.is_header_row.resize(tbl.row_count, false);
+    }
+    if (tbl.aligns.size() < tbl.col_count) {
+        tbl.aligns.resize(tbl.col_count, TableAlign::Default);
+    }
+}
+
+void LeaveCodeBlock(ParseContext* ctx)
+{
+    ctx->in_code_block = false;
+    auto* const cn = ctx->current_node;
+    if (!cn) {
+        return;
+    }
+    // md4c はコード各行を改行付きで渡すため、最終行の改行を表示テキストから落とす。
+    if (!ctx->current_text.empty() && ctx->current_text.back() == '\n') {
+        ctx->current_text.pop_back();
+        cn->line_count--;
+        if (!cn->runs.empty()) {
+            auto& last = cn->runs.back();
+            if (last.length > 0) {
+                last.length--;
+            }
+        }
+    }
+    if (cn->code_language() == SyntaxLanguage::Mermaid) {
+        ctx->diagram_indices.emplace_back(ctx->current_node_index);
+    }
+}
+
+// 重複する見出しは "-N" を付けて一意化する。
+void AssignHeadingAnchor(ParseContext* ctx, Node& heading)
+{
+    // base_id を ctx->pool 上に構築することで anchor_counts (同じ pool) の try_emplace を真の move にする。
+    std::pmr::string base_id{ &ctx->pool };
+    GenerateAnchorIdInto(heading.GetText(), base_id);
+    const auto [it, inserted] = ctx->anchor_counts.try_emplace(std::move(base_id), 0);
+    const int count = it->second++;
+    auto& aid = heading.ensure_anchor_id_mut();
+    aid.assign(it->first.data(), it->first.size());
+    if (count > 0) {
+        std::format_to(std::back_inserter(aid), "-{}", count);
+    }
 }
 
 int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
@@ -437,53 +598,17 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         break;
     }
 
-    case MD_BLOCK_LI: {
-        auto* const li = static_cast<MD_BLOCK_LI_DETAIL*>(detail);
-        const bool is_task = li->is_task;
-        ctx->BeginNode(is_task ? NodeType::TaskListItem : NodeType::ListItem);
-        // unordered (counter<0) かつ非 task のときは NodeListData を確保しない
-        // (getter が ordered=false / list_number=0 / task_checked=false を返すため)。
-        const int counter = ctx->list_counter.empty() ? -1 : ctx->list_counter.back();
-        const bool ordered = (counter >= 0); // OL は start>=0、UL は番兵 -1
-        if (is_task || ordered) {
-            auto* ld = ctx->current_node->ensure_list();
-            if (is_task) {
-                ld->task_checked = (li->task_mark == 'x' || li->task_mark == 'X');
-            }
-            if (ordered) {
-                ld->ordered = true;
-                ld->list_number = counter;
-                ctx->list_counter.back()++;
-            }
-        }
+    case MD_BLOCK_LI:
+        BeginListItem(ctx, static_cast<const MD_BLOCK_LI_DETAIL*>(detail));
         break;
-    }
 
     case MD_BLOCK_HR:
         ctx->BeginNode(NodeType::HorizontalRule);
         break;
 
-    case MD_BLOCK_TABLE: {
-        ctx->BeginNode(NodeType::Table);
-        ctx->table_indices.emplace_back(ctx->current_node_index);
-        // 後続の TR/TH/TD で nullable チェックなく参照できるよう先に確保する。
-        // これに依存して TR/TH/TD は has_table() ガードを省いている。
-        auto* tbl = ctx->current_node->ensure_table();
-        // md4c から正確なテーブルサイズが渡されるので、各 vector を一度に reserve して
-        // 巨大テーブル時の段階的 realloc (~quadratic コスト) を避ける。
-        if (auto* td = static_cast<MD_BLOCK_TABLE_DETAIL*>(detail); td) {
-            const size_t total_rows = static_cast<size_t>(td->head_row_count) + td->body_row_count;
-            tbl->col_count = static_cast<uint16_t>(std::min<unsigned>(td->col_count, std::numeric_limits<uint16_t>::max()));
-            const size_t total_cells = total_rows * tbl->col_count;
-            tbl->cell_text_starts.reserve(total_cells + 1);
-            tbl->cell_run_starts.reserve(total_cells + 1);
-            // 1 セル平均 16 wchar + 区切り 1 wchar の見積もり。
-            tbl->concat_text.reserve(total_cells * 17);
-            tbl->aligns.reserve(tbl->col_count);
-            tbl->is_header_row.reserve(total_rows);
-        }
+    case MD_BLOCK_TABLE:
+        BeginTable(ctx, static_cast<const MD_BLOCK_TABLE_DETAIL*>(detail));
         break;
-    }
 
     case MD_BLOCK_THEAD:
     case MD_BLOCK_TBODY:
@@ -496,36 +621,10 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         break;
 
     case MD_BLOCK_TH:
-    case MD_BLOCK_TD: {
-        if (auto* cn = ctx->current_node; cn && cn->type == NodeType::Table && cn->table_data()->row_count > 0) {
-            auto* tbl = cn->table_data();
-            // 行内セル数 (is_header_row エントリ数が現 row_count 未満なら未確定 = 行頭)。
-            const bool first_cell_in_row = (tbl->is_header_row.size() < tbl->row_count);
-            const bool first_row = (tbl->row_count == 1);
-            // 区切り: 行内 2 セル目以降は '\t'、行頭かつ 2 行目以降は '\n'。
-            if (!first_cell_in_row) {
-                tbl->concat_text.push_back('\t');
-            }
-            else if (!first_row) {
-                tbl->concat_text.push_back('\n');
-            }
-            tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
-            tbl->cell_run_starts.push_back(static_cast<uint32_t>(tbl->all_runs.size()));
-            ctx->active_text_buffer = &tbl->concat_text;
-
-            // 1 行目で列単位の align を確定 (列属性は header 行で決まる)。
-            // col_count は MD_BLOCK_TABLE で md4c から取得済みなのでここでは触らない。
-            if (first_row) {
-                const auto align = detail ? static_cast<TableAlign>(static_cast<MD_BLOCK_TD_DETAIL*>(detail)->align) : TableAlign::Default;
-                tbl->aligns.push_back(align);
-            }
-            // 1 セル目で is_header_row を確定 (md4c は TR 内で TH/TD を混在させない)。
-            if (first_cell_in_row) {
-                tbl->is_header_row.push_back(type == MD_BLOCK_TH);
-            }
-        }
+    case MD_BLOCK_TD:
+        BeginTableCell(ctx, type == MD_BLOCK_TH, static_cast<const MD_BLOCK_TD_DETAIL*>(detail));
         break;
-    }
+
     case MD_BLOCK_HTML:
         break;
     default:
@@ -545,25 +644,10 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
     ctx->FlushPendingRun();
 
     switch (type) {
-    case MD_BLOCK_CODE: {
-        auto* cn = ctx->current_node;
-        ctx->in_code_block = false;
-        // 末尾の改行があれば除去（current_text スクラッチに対して操作）
-        if (cn && !ctx->current_text.empty() && ctx->current_text.back() == '\n') {
-            ctx->current_text.pop_back();
-            cn->line_count--;
-            if (!cn->runs.empty()) {
-                auto& last = cn->runs.back();
-                if (last.length > 0) {
-                    last.length--;
-                }
-            }
-        }
-        if (cn && cn->code_language() == SyntaxLanguage::Mermaid) {
-            ctx->diagram_indices.emplace_back(ctx->current_node_index);
-        }
+    case MD_BLOCK_CODE:
+        LeaveCodeBlock(ctx);
         break;
-    }
+
     case MD_BLOCK_QUOTE:
         if (ctx->blockquote_depth > 0) {
             ctx->blockquote_depth--;
@@ -588,29 +672,10 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         break;
 
     case MD_BLOCK_TABLE:
-        // テーブル終了時に offset テーブルを R*C+1 サイズに揃える。
-        // 行内セル数が col_count に満たない行は空セル扱い (offset は concat 末尾に詰めて padding)。
-        if (auto* cn = ctx->current_node; cn && cn->has_table()) {
-            auto* tbl = cn->table_data();
-            const size_t expected_cells = static_cast<size_t>(tbl->row_count) * tbl->col_count;
-            const auto text_end = static_cast<uint32_t>(tbl->concat_text.size());
-            const auto run_end = static_cast<uint32_t>(tbl->all_runs.size());
-            // padding (extend のみ; md4c が誤ってセル超過した場合に切り詰めない) と番兵末尾。
-            if (tbl->cell_text_starts.size() < expected_cells) {
-                tbl->cell_text_starts.resize(expected_cells, text_end);
-                tbl->cell_run_starts.resize(expected_cells, run_end);
-            }
-            tbl->cell_text_starts.push_back(text_end);
-            tbl->cell_run_starts.push_back(run_end);
-            if (tbl->is_header_row.size() < tbl->row_count) {
-                tbl->is_header_row.resize(tbl->row_count, false);
-            }
-            if (tbl->aligns.size() < tbl->col_count) {
-                tbl->aligns.resize(tbl->col_count, TableAlign::Default);
-            }
+        if (auto* const cn = ctx->current_node; cn && cn->has_table()) {
+            FinalizeTableOffsets(*cn->table_data());
         }
-        ctx->FinalizeCurrentNode();
-        ctx->ClearCurrentNode();
+        ctx->EndNode();
         break;
 
     case MD_BLOCK_THEAD:
@@ -626,34 +691,25 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         break;
 
     case MD_BLOCK_H:
-        if (auto* cn = ctx->current_node; cn && cn->type == NodeType::Heading) {
-            // 見出しテキストを先行確定してアンカーID生成。
-            // base_id を ctx->pool 上に構築することで anchor_counts (同じ pool) の try_emplace を真の move にする。
+        if (auto* const cn = ctx->current_node; cn && cn->type == NodeType::Heading) {
+            // アンカー生成に確定済みテキストが必要なので先に Finalize する。
             ctx->FinalizeCurrentNode();
-            std::pmr::string base_id{ &ctx->pool };
-            GenerateAnchorIdInto(cn->GetText(), base_id);
-            auto [it, inserted] = ctx->anchor_counts.try_emplace(std::move(base_id), 0);
-            const int count = it->second++;
-            auto& aid = cn->ensure_anchor_id_mut();
-            aid.assign(it->first.data(), it->first.size());
-            if (count > 0) {
-                std::format_to(std::back_inserter(aid), "-{}", count);
-            }
+            AssignHeadingAnchor(ctx, *cn);
             ctx->heading_indices.emplace_back(ctx->current_node_index);
         }
         ctx->ClearCurrentNode();
         break;
+
     case MD_BLOCK_P:
         if (!TryPromoteParagraphToImage(ctx)) {
             TryPromoteParagraphToDisplayMath(ctx);
         }
-        ctx->FinalizeCurrentNode();
-        ctx->ClearCurrentNode();
+        ctx->EndNode();
         break;
+
     case MD_BLOCK_LI:
     case MD_BLOCK_HR:
-        ctx->FinalizeCurrentNode();
-        ctx->ClearCurrentNode();
+        ctx->EndNode();
         break;
 
     case MD_BLOCK_DOC:
@@ -739,6 +795,25 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     return 0;
 }
 
+void LeaveImageSpan(ParseContext* ctx)
+{
+    // ネスト画像では最外側の src だけを採用する。
+    if (--ctx->image_span_depth != 0) {
+        return;
+    }
+    // Table / Heading で ensure_image を呼ぶと variant の既存データが破壊され、
+    // テーブルでは active_text_buffer がダングリングになるため、Image 昇格候補と
+    // リスト項目 (型を保ったまま src を持つ既存仕様) に限定する。
+    if (auto* const cn = ctx->current_node;
+        cn && !ctx->pending_image_src.empty() &&
+        (cn->type == NodeType::Paragraph || cn->type == NodeType::BlockQuote || IsListItem(*cn))) {
+        // pending_image_src は pool allocator で、NodeImageData::src は default 。
+        // allocator 不一致で std::move しても内部的にコピーされるので、明示的に assign(view) する。
+        cn->ensure_image()->src.assign(ctx->pending_image_src.data(), ctx->pending_image_src.size());
+    }
+    ctx->pending_image_src.clear();
+}
+
 int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
@@ -771,19 +846,7 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
         ctx->current_link_url_index = -1;
         break;
     case MD_SPAN_IMG:
-        if (--ctx->image_span_depth == 0) {
-            // Table / Heading で ensure_image を呼ぶと variant の既存データが破壊され、
-            // テーブルでは active_text_buffer がダングリングになるため、Image 昇格候補と
-            // リスト項目 (型を保ったまま src を持つ既存仕様) に限定する。
-            if (auto* cn = ctx->current_node;
-                cn && !ctx->pending_image_src.empty() &&
-                (cn->type == NodeType::Paragraph || cn->type == NodeType::BlockQuote || IsListItem(*cn))) {
-                // pending_image_src は pool allocator で、NodeImageData::src は default 。
-                // allocator 不一致で std::move しても内部的にコピーされるので、明示的に assign(view) する。
-                cn->ensure_image()->src.assign(ctx->pending_image_src.data(), ctx->pending_image_src.size());
-            }
-            ctx->pending_image_src.clear();
-        }
+        LeaveImageSpan(ctx);
         break;
     case MD_SPAN_LATEXMATH_DISPLAY:
         ctx->in_display_math = false;
@@ -814,20 +877,9 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         return 0;
     }
 
-    // 各ノードの最初のテキストコールバックでソースオフセットを記録（UTF-8 byte）。
-    // md4c は MD_TEXT_NULLCHAR / MD_TEXT_BR / MD_TEXT_SOFTBR や、CODE/LATEXMATH/HTML の改行・空白置換で
-    // _T(""), _T("\n"), _T(" ") といった内部静的リテラルを text として渡すことがある。
-    // 異なる array 同士のポインタ減算は UB なので、範囲判定もオフセット計算も uintptr_t の
-    // 整数演算で行う (std::less<T*> の total order はアドレスの数値順と一致する保証がない)。
-    // 範囲外マッチ (静的リテラル) のときは flag を立てず、後続の実体テキストで上書きできるようにする。
+    // 各ノードの最初のテキストコールバックでソースオフセットを記録する。
     if (!ctx->current_node->HasSourceOffset()) [[unlikely]] {
-        const auto text_addr = reinterpret_cast<uintptr_t>(text);
-        const auto base_addr = reinterpret_cast<uintptr_t>(ctx->markdown_base);
-        const auto end_addr = base_addr + ctx->markdown_size * sizeof(char);
-        if (text_addr >= base_addr && text_addr < end_addr) {
-            const auto offset = static_cast<size_t>((text_addr - base_addr) / sizeof(char));
-            ctx->current_node->SetSourceOffset(ctx->markdown_base, offset);
-        }
+        ctx->RecordSourceOffset(text);
     }
 
     const std::string_view chunk{ text, static_cast<size_t>(size) };
@@ -835,9 +887,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     switch (type) {
     case MD_TEXT_NORMAL:
     case MD_TEXT_CODE:
-        if (!ctx->in_display_math) {
-            ctx->paragraph_has_other_content = true;
-        }
+        ctx->NoteNonMathContent();
         ctx->AppendDoc(chunk);
         break;
 
@@ -858,9 +908,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         break;
 
     case MD_TEXT_ENTITY: {
-        if (!ctx->in_display_math) {
-            ctx->paragraph_has_other_content = true;
-        }
+        ctx->NoteNonMathContent();
         // entity (`&amp;` 等) は現状文字に解決される。原文 (`&amp;`) と current_text (`&`) が
         // 不一致になり view 化失敗確定。memcmp スキップフラグを立てる。
         ctx->current_node_owned_only = true;
@@ -875,18 +923,14 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     }
 
     case MD_TEXT_BR:
-        if (!ctx->in_display_math) {
-            ctx->paragraph_has_other_content = true;
-        }
+        ctx->NoteNonMathContent();
         // BR / SOFTBR は原文の `<br>` や 2 個の半角空白+改行を `\n`/` ` に置換するため raw_slice 不一致。
         ctx->current_node_owned_only = true;
         ctx->AppendDoc("\n");
         break;
 
     case MD_TEXT_SOFTBR:
-        if (!ctx->in_display_math) {
-            ctx->paragraph_has_other_content = true;
-        }
+        ctx->NoteNonMathContent();
         ctx->current_node_owned_only = true;
         ctx->AppendDoc(" ");
         break;
@@ -902,39 +946,32 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     return 0;
 }
 
-} // namespace
+// 各種予約サイズのヒント定数。実測 (100MB 入力 = 30k ノード相当) を基準に、
+// 初期確保サイズと再確保回数のバランスで決めている。値は「入力 N byte あたり 1 個」を表す:
+//   - kArenaInputBytesPerByte=20  → 入力の 5% を初期 arena に。new_delete 直結回数を削減。
+//   - kScratchInputBytesPerByte=8 → ノード当たりの平均テキスト長 ~8B 想定の scratch。
+//   - kInputBytesPerNode=64       → 1 ノードあたり ~64 入力 byte (realloc 14 回→4 回相当)。
+//   - kInputBytesPerHeading=4096  → 1MB あたり 256 個の見出し相当。実測数十〜数百に収まる。
+//   - kInputBytesPerImage=512     → 画像頻度 ~0.2%。
+//   - kInputBytesPerBlockquote=512 → blockquote 頻度 (image と同程度)。
+//   - kInputBytesPerDiagram=1024  → ダイアグラム頻度 ~0.1%。
+//   - kInputBytesPerTable=1024    → テーブル頻度 (ダイアグラムと同程度を想定)。
+constexpr size_t kArenaInputBytesPerByte = 20;
+constexpr size_t kScratchInputBytesPerByte = 8;
+constexpr size_t kInputBytesPerNode = 64;
+constexpr size_t kInputBytesPerHeading = 4096;
+constexpr size_t kInputBytesPerImage = 512;
+constexpr size_t kInputBytesPerBlockquote = 512;
+constexpr size_t kInputBytesPerDiagram = 1024;
+constexpr size_t kInputBytesPerTable = 1024;
+constexpr size_t kArenaMin = 128 * 1024;
+constexpr size_t kArenaMax = 5 * 1024 * 1024;
+constexpr size_t kScratchReserveMin = 1024;
+constexpr size_t kScratchReserveMax = 64 * 1024;
 
-ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token)
+void ReserveForInput(ParseContext& ctx, size_t input_size)
 {
-    MENDO_PROFILE("ParseMarkdown");
-    // 各種予約サイズのヒント定数。実測 (100MB 入力 = 30k ノード相当) を基準に、
-    // 初期確保サイズと再確保回数のバランスで決めている。値は「入力 N byte あたり 1 個」を表す:
-    //   - kArenaInputBytesPerByte=20  → 入力の 5% を初期 arena に。new_delete 直結回数を削減。
-    //   - kScratchInputBytesPerByte=8 → ノード当たりの平均テキスト長 ~8B 想定の scratch。
-    //   - kInputBytesPerNode=64       → 1 ノードあたり ~64 入力 byte (realloc 14 回→4 回相当)。
-    //   - kInputBytesPerHeading=4096  → 1MB あたり 256 個の見出し相当。実測数十〜数百に収まる。
-    //   - kInputBytesPerImage=512     → 画像頻度 ~0.2%。
-    //   - kInputBytesPerBlockquote=512 → blockquote 頻度 (image と同程度)。
-    //   - kInputBytesPerDiagram=1024  → ダイアグラム頻度 ~0.1%。
-    //   - kInputBytesPerTable=1024    → テーブル頻度 (ダイアグラムと同程度を想定)。
-    constexpr size_t kArenaInputBytesPerByte = 20;
-    constexpr size_t kScratchInputBytesPerByte = 8;
-    constexpr size_t kInputBytesPerNode = 64;
-    constexpr size_t kInputBytesPerHeading = 4096;
-    constexpr size_t kInputBytesPerImage = 512;
-    constexpr size_t kInputBytesPerBlockquote = 512;
-    constexpr size_t kInputBytesPerDiagram = 1024;
-    constexpr size_t kInputBytesPerTable = 1024;
-    constexpr size_t kArenaMin = 128 * 1024;
-    constexpr size_t kArenaMax = 5 * 1024 * 1024;
-    const size_t input_size = markdown_text.size();
-    const size_t arena_bytes = std::clamp(input_size / kArenaInputBytesPerByte, kArenaMin, kArenaMax);
-    MENDO_STATF("parse_resource arena: input={} arena={}", input_size, arena_bytes);
-    ParseContext ctx{ arena_bytes };
-    ctx.stop_token = std::move(stop_token);
-    ctx.markdown_base = markdown_text.data();
-    ctx.markdown_size = input_size;
-    ctx.current_text.reserve(std::clamp(input_size / kScratchInputBytesPerByte, SCRATCH_RESERVE_MIN, SCRATCH_RESERVE_MAX));
+    ctx.current_text.reserve(std::clamp(input_size / kScratchInputBytesPerByte, kScratchReserveMin, kScratchReserveMax));
     const size_t nodes_reserve = std::max(input_size / kInputBytesPerNode, 64uz);
     ctx.nodes.reserve(nodes_reserve);
     ctx.list_counter.reserve(8);
@@ -947,6 +984,34 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     ctx.diagram_indices.reserve(std::clamp(input_size / kInputBytesPerDiagram, 4uz, 128uz));
     ctx.table_indices.reserve(std::clamp(input_size / kInputBytesPerTable, 4uz, 128uz));
     ctx.blockquote_indices.reserve(std::clamp(input_size / kInputBytesPerBlockquote, 4uz, 256uz));
+}
+
+// kInputBytesPerNode は再確保を避けるため多めに見積もっており、平均的な文書では容量が
+// 実数の 2 倍超 (100MB 入力で ~140MB) 残る。Document の寿命中コミットされ続けるので切り詰める。
+void ShrinkNodesIfWasteful(std::pmr::vector<Node>& nodes)
+{
+    static_assert(std::is_nothrow_move_constructible_v<Node>, "shrink_to_fit がコピーにならないこと");
+    constexpr size_t kShrinkMinWasteBytes = 4 * 1024 * 1024;
+    const size_t waste = (nodes.capacity() - nodes.size()) * sizeof(Node);
+    if (waste > kShrinkMinWasteBytes && waste > nodes.size() * sizeof(Node) / 4) {
+        MENDO_PROFILE("nodes.shrink_to_fit");
+        nodes.shrink_to_fit();
+    }
+}
+
+} // namespace
+
+ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token)
+{
+    MENDO_PROFILE("ParseMarkdown");
+    const size_t input_size = markdown_text.size();
+    const size_t arena_bytes = std::clamp(input_size / kArenaInputBytesPerByte, kArenaMin, kArenaMax);
+    MENDO_STATF("parse_resource arena: input={} arena={}", input_size, arena_bytes);
+    ParseContext ctx{ arena_bytes };
+    ctx.stop_token = std::move(stop_token);
+    ctx.markdown_base = markdown_text.data();
+    ctx.markdown_size = input_size;
+    ReserveForInput(ctx, input_size);
 
     MD_PARSER parser{};
     parser.abi_version = 0;
@@ -976,17 +1041,7 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         DetectAlerts(ctx.nodes, std::span<const size_t>{ ctx.blockquote_indices });
     }
 
-    // kInputBytesPerNode は再確保を避けるため多めに見積もっており、平均的な文書では容量が
-    // 実数の 2 倍超 (100MB 入力で ~140MB) 残る。Document の寿命中コミットされ続けるので切り詰める。
-    {
-        static_assert(std::is_nothrow_move_constructible_v<Node>, "shrink_to_fit がコピーにならないこと");
-        constexpr size_t kShrinkMinWasteBytes = 4 * 1024 * 1024;
-        const size_t waste = (ctx.nodes.capacity() - ctx.nodes.size()) * sizeof(Node);
-        if (waste > kShrinkMinWasteBytes && waste > ctx.nodes.size() * sizeof(Node) / 4) {
-            MENDO_PROFILE("nodes.shrink_to_fit");
-            ctx.nodes.shrink_to_fit();
-        }
-    }
+    ShrinkNodesIfWasteful(ctx.nodes);
 
     ParseResult result;
     result.nodes = std::move(ctx.nodes);

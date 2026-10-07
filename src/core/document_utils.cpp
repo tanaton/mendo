@@ -7,7 +7,6 @@
 #include <filesystem>
 #include <format>
 #include <iterator>
-#include <ranges>
 
 std::pmr::string ToLowerAsciiCopy(std::string_view text)
 {
@@ -252,7 +251,6 @@ std::pmr::string GenerateAnchorId(std::string_view text)
 
 std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent)
 {
-    // タイトル文字列はウィンドウタイトル用なので wstring 固定 (alias 影響外)。
     std::pmr::wstring title;
     if (path.empty()) {
         title = L"mendo";

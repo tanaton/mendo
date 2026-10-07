@@ -3,24 +3,27 @@
 #include "ui_constants.h"
 #include <utility>
 
+namespace {
+
+bool StepZoom(ViewportManager& viewport, ZoomDirection direction)
+{
+    switch (direction) {
+    case ZoomDirection::In:
+        return viewport.ZoomIn();
+    case ZoomDirection::Out:
+        return viewport.ZoomOut();
+    case ZoomDirection::Reset:
+        return viewport.ZoomReset();
+    }
+    std::unreachable();
+}
+
+} // namespace
+
 void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
 {
-    {
-        bool changed = false;
-        switch (a.direction) {
-        case ZoomDirection::In:
-            changed = state.view.viewport.ZoomIn();
-            break;
-        case ZoomDirection::Out:
-            changed = state.view.viewport.ZoomOut();
-            break;
-        case ZoomDirection::Reset:
-            changed = state.view.viewport.ZoomReset();
-            break;
-        }
-        if (!changed) {
-            return;
-        }
+    if (!StepZoom(state.view.viewport, a.direction)) {
+        return;
     }
     const auto anchor = SnapshotVisibleTarget(state);
     state.pane_layout_cache.Invalidate();
@@ -32,9 +35,7 @@ void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
         // offset もズーム比でスケールしないと、ノード内の同じ位置が可視先頭に残らない。
         state.view.viewport.SetScrollTarget(anchor.node, anchor.offset * zoom_ratio);
     }
-    PushEffect(
-        effects,
-        effect::ApplyThemeChange{ effect::ApplyThemeChange::Type::Zoom });
+    PushEffect(effects, effect::ApplyThemeChange{ effect::ApplyThemeChange::Type::Zoom });
 }
 
 void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
@@ -47,9 +48,7 @@ void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
         // Mermaid 再レンダリングで微小な高さ変化が起きるので target で追従する。
         state.view.viewport.SetScrollTarget(anchor.node, anchor.offset);
     }
-    PushEffect(
-        effects,
-        effect::ApplyThemeChange{ effect::ApplyThemeChange::Type::DarkMode });
+    PushEffect(effects, effect::ApplyThemeChange{ effect::ApplyThemeChange::Type::DarkMode });
 }
 
 void ReduceActivate(AppState& state, SideEffectList& effects, const ActivateAction& a)
@@ -81,6 +80,12 @@ void ReduceResize(AppState& state, SideEffectList& effects, const ResizeAction& 
     }
 }
 
+void ReduceExitSizeMove(AppState& state, SideEffectList& effects)
+{
+    state.window.is_sizing = false;
+    PushEffect(effects, effect::PerformResizeEnd{});
+}
+
 void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChangedAction& a)
 {
     state.window.cached_dpi_scale = DpiScaleFrom(static_cast<float>(a.dpi));
@@ -89,14 +94,8 @@ void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChanged
     state.document.layout_cache.NotifyDpiChanged();
     PushEffect(effects, effect::RendererSetDpi{ static_cast<float>(a.dpi) });
     PushEffect(effects, effect::ClearFileCache{});
-    PushEffect(
-        effects,
-        effect::SetWindowPosition{
-            static_cast<int>(a.suggested.left),
-            static_cast<int>(a.suggested.top),
-            static_cast<int>(a.suggested.right - a.suggested.left),
-            static_cast<int>(a.suggested.bottom - a.suggested.top),
-        });
+    const auto& rc = a.suggested;
+    PushEffect(effects, effect::SetWindowPosition{ rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top });
 }
 
 void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)

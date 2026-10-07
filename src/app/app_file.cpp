@@ -9,8 +9,6 @@
 #include "layout.h"
 #include "profiler.h"
 #include "rc_resource.h"
-#include "string_convert.h"
-#include <algorithm>
 #include <utility>
 
 namespace {
@@ -24,6 +22,30 @@ bool FilePaneFollowsLoad(std::wstring_view prev_path, std::wstring_view next_pat
 
 } // namespace
 
+void App::CancelPendingResources()
+{
+    resource_manager_.CancelMermaidBatch();
+    image_loader_.CancelPending();
+    resource_manager_.ClearResolvedPaths();
+}
+
+void App::ResetViewForNewDocument()
+{
+    state_.view.ResetForNewDocument();
+    // 旧文書のマッチ位置が新 nodes に対して誤用されるのを防ぐ。
+    state_.search.search_bar_ctrl.Reset();
+    EmitEffect(effect::SearchUnfocus{ /*clear_text=*/true });
+    CancelPendingResources();
+    renderer_.ShrinkBuffers();
+    renderer_.InvalidateAllSidePaneCaches();
+}
+
+void App::StopLoadingAnimation()
+{
+    EmitEffect(effect::KillTimer{ app_timer::Id::LOADING_ANIM });
+    file_load_service_.StopLoading();
+}
+
 void App::LoadHelpDocument()
 {
     if (IsHelpPath(state_.document.doc.GetFilePath())) {
@@ -35,8 +57,7 @@ void App::LoadHelpDocument()
         return;
     }
 
-    EmitEffect(effect::KillTimer{ app_timer::Id::LOADING_ANIM });
-    file_load_service_.StopLoading();
+    StopLoadingAnimation();
     file_load_service_.CancelAsyncLoad();
     EmitEffect(effect::StopFileWatch{});
 
@@ -125,14 +146,13 @@ void App::LoadMarkdownFile(std::wstring_view path)
         return;
     }
     std::pmr::wstring path_str{ path };
-    if (!DocumentService::IsAsyncLoadCandidate(path_str)) {
-        file_load_service_.CancelAsyncLoad();
-        file_load_service_.SetLoadingPath(std::move(path_str));
-        DoLoadMarkdownFile();
-    }
-    else {
+    if (DocumentService::IsAsyncLoadCandidate(path_str)) {
         BeginAsyncLoad(std::move(path_str));
+        return;
     }
+    file_load_service_.CancelAsyncLoad();
+    file_load_service_.SetLoadingPath(std::move(path_str));
+    DoLoadMarkdownFile();
 }
 
 void App::StartPreloadAsync(std::pmr::wstring path)
@@ -186,8 +206,7 @@ void App::OnParseComplete()
         }
     }
 
-    EmitEffect(effect::KillTimer{ app_timer::Id::LOADING_ANIM });
-    file_load_service_.StopLoading();
+    StopLoadingAnimation();
 
     if (!result) {
         MENDO_TRACE("OnParseComplete: no result (cancelled or load failed)");
@@ -200,28 +219,9 @@ void App::OnParseComplete()
         return;
     }
 
-    // 差分ベースのスキップ／スクロール復元は同一パスのリロード時のみ有効。
-    // 非同期のファイルオープンでも OnParseComplete() が使われるため、
-    // 別ファイル読み込み時は差分ロジックをスキップする。
     std::optional<ReloadDecision> decision;
-    if (result->reload) {
-        // リロード: worker がパース前に差分判定を済ませている (NoChange 等は doc が空)。
-        const auto& rc = *result->reload;
-        if (rc.base.lock() != state_.document.doc.GetRawText().Share() || !path_util::iequal(rc.path, state_.document.doc.GetFilePath())) {
-            // 判定後に表示文書が差し替わった。前提が崩れているので取り直す。
-            DeferReloadRetry();
-            return;
-        }
-        if (DeferIfPartialWrite(rc.path, rc.loaded_byte_size)) {
-            return;
-        }
-        decision = rc.decision;
-    }
-    else if (path_util::iequal(result->doc.GetFilePath(), state_.document.doc.GetFilePath())) {
-        if (DeferIfPartialWrite(result->doc.GetFilePath(), result->doc.GetLoadedByteSize())) {
-            return;
-        }
-        decision = AnalyzeReloadDiff(std::string_view(state_.document.doc.GetRawText()), std::string_view(result->doc.GetRawText()));
+    if (!ResolveReloadDecision(*result, decision)) {
+        return;
     }
 
     const bool heights_estimated = result->heights_estimated;
@@ -252,6 +252,35 @@ void App::OnParseComplete()
     FinishLoadMarkdownFile(follow_file_pane, heights_estimated, decision ? decision->diff_pos : std::string_view::npos);
 }
 
+// 差分ベースのスキップ／スクロール復元は同一パスのリロード時のみ有効。
+// 非同期のファイルオープンでも OnParseComplete() が使われるため、
+// 別ファイル読み込み時は decision を空のままにする。
+bool App::ResolveReloadDecision(const AsyncLoadResult& result, std::optional<ReloadDecision>& decision)
+{
+    const auto& doc = state_.document.doc;
+    if (result.reload) {
+        // リロード: worker がパース前に差分判定を済ませている (NoChange 等は doc が空)。
+        const auto& rc = *result.reload;
+        if (rc.base.lock() != doc.GetRawText().Share() || !path_util::iequal(rc.path, doc.GetFilePath())) {
+            // 判定後に表示文書が差し替わった。前提が崩れているので取り直す。
+            DeferReloadRetry();
+            return false;
+        }
+        if (DeferIfPartialWrite(rc.path, rc.loaded_byte_size)) {
+            return false;
+        }
+        decision = rc.decision;
+        return true;
+    }
+    if (path_util::iequal(result.doc.GetFilePath(), doc.GetFilePath())) {
+        if (DeferIfPartialWrite(result.doc.GetFilePath(), result.doc.GetLoadedByteSize())) {
+            return false;
+        }
+        decision = AnalyzeReloadDiff(std::string_view(doc.GetRawText()), std::string_view(result.doc.GetRawText()));
+    }
+    return true;
+}
+
 void App::FinishLoadMarkdownFile(bool follow_file_pane, bool heights_estimated, size_t reload_diff_pos)
 {
     MENDO_PROFILE("FinishLoadMarkdownFile");
@@ -264,9 +293,7 @@ void App::FinishLoadMarkdownFile(bool follow_file_pane, bool heights_estimated, 
     }
     state_.file_explorer.SetCurrentFile(state_.document.doc.GetFilePath());
 
-    const auto pane_layout = GetPaneLayout();
-    const float md_width = pane_layout.md_rect.width;
-    const float md_height = pane_layout.md_rect.height;
+    const PaneRect md = GetPaneLayout().md_rect;
 
     const bool has_reload_diff = (reload_diff_pos != std::string_view::npos);
 
@@ -292,23 +319,23 @@ void App::FinishLoadMarkdownFile(bool follow_file_pane, bool heights_estimated, 
         ApplyCachedHeightsAndRecompute();
     }
 
-    // CalcScrollYForDiff は md_height (layout 値) に依存するため reducer に渡せず、
+    // CalcScrollYForDiff は MD ペイン高 (layout 値) に依存するため reducer に渡せず、
     // App 側で先に解決してから Dispatch する。
     std::optional<float> reload_diff_scroll_y;
     if (has_reload_diff) {
         reload_diff_scroll_y = CalcScrollYForDiff(
             state_.document.doc.GetNodes(), state_.document.layout_cache,
             std::string_view{ state_.document.doc.GetRawText() },
-            reload_diff_pos, md_height, state_.view.viewport.GetScrollY());
+            reload_diff_pos, md.height, state_.view.viewport.GetScrollY());
     }
     Dispatch(RestoreScrollAfterLoadAction{ reload_diff_scroll_y });
 
     {
         MENDO_PROFILE("ViewportLayout(Initial)");
-        ViewportLayout(md_width, md_height);
+        ViewportLayout(md.width, md.height);
     }
 
-    FinalizeLayout(md_height);
+    FinalizeLayout(md.height);
 
     MENDO_TRACEF("FinishLoad: scroll_y={:.1f} max_scroll={:.1f} reload_diff_scroll_y={:.1f}",
                  state_.view.viewport.GetScrollY(),
@@ -346,12 +373,11 @@ void App::ReloadCurrentFile()
     const auto& path = state_.document.doc.GetFilePath();
     if (DocumentService::IsAsyncLoadCandidate(path)) {
         MENDO_TRACE("ReloadCurrentFile: async path");
-        BeginAsyncLoad(path, /* suppress_animation = */ true, state_.document.doc.GetRawText().Share());
+        BeginAsyncLoad(path, /*suppress_animation=*/true, state_.document.doc.GetRawText().Share());
+        return;
     }
-    else {
-        MENDO_TRACE("ReloadCurrentFile: sync path (DoReloadCurrentFile)");
-        DoReloadCurrentFile();
-    }
+    MENDO_TRACE("ReloadCurrentFile: sync path (DoReloadCurrentFile)");
+    DoReloadCurrentFile();
 }
 
 void App::DoReloadCurrentFile()
@@ -404,9 +430,7 @@ void App::FinishReload(size_t diff_pos, bool cache_ready)
 
     renderer_.InvalidateSidePaneCache(PaneTarget::Toc);
 
-    const auto pane_layout = GetPaneLayout();
-    const float md_width = pane_layout.md_rect.width;
-    const float md_height = pane_layout.md_rect.height;
+    const PaneRect md = GetPaneLayout().md_rect;
 
     // Mermaid/LaTeX 図と通常画像の推定高さを実測値 (file_cache_ / image_loader メモリキャッシュ) で
     // 上書きし、CalcScrollYForDiff の Y 計算がずれないようにする。
@@ -415,7 +439,7 @@ void App::FinishReload(size_t diff_pos, bool cache_ready)
     const float desired_scroll = CalcScrollYForDiff(
         state_.document.doc.GetNodes(), state_.document.layout_cache,
         std::string_view{ state_.document.doc.GetRawText() },
-        diff_pos, md_height, state_.view.viewport.GetScrollY());
+        diff_pos, md.height, state_.view.viewport.GetScrollY());
 
     MENDO_TRACEF("FinishReload: desired_scroll={:.1f} diff_pos={}",
                  desired_scroll, diff_pos);
@@ -427,10 +451,10 @@ void App::FinishReload(size_t diff_pos, bool cache_ready)
 
     {
         MENDO_PROFILE("Reload::ViewportLayout");
-        ViewportLayout(md_width, md_height);
+        ViewportLayout(md.width, md.height);
     }
 
-    FinalizeLayout(md_height);
+    FinalizeLayout(md.height);
 
     MENDO_TRACEF("FinishReload: after-finalize scroll_y={:.1f} max_scroll={:.1f}",
                  state_.view.viewport.GetScrollY(),

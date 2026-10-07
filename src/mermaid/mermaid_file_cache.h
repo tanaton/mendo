@@ -28,13 +28,11 @@ public:
     MermaidFileCache(const MermaidFileCache&) = delete;
     MermaidFileCache& operator=(const MermaidFileCache&) = delete;
 
-    // Lookup結果のメタデータ
     struct CacheEntry {
         float css_width = 0.0f;
         float css_height = 0.0f;
     };
 
-    // サイズ付きバイトバッファ
     struct PngBlob {
         std::unique_ptr<uint8_t[]> data;
         size_t size = 0;
@@ -91,11 +89,11 @@ private:
         LruOrder::iterator lru_iter{};
     };
 
-    std::filesystem::path GetCacheDir() const;
-    std::filesystem::path GetPngPath(const std::filesystem::path& dir, uint64_t key) const;
+    static std::filesystem::path GetPngPath(const std::filesystem::path& dir, uint64_t key);
     std::filesystem::path GetPngPath(uint64_t key) const;
     std::filesystem::path GetIndexPath() const;
     void LoadIndex();
+    void AddIndexEntry(uint64_t key, float css_width, float css_height, uint32_t png_size, int64_t last_used);
     void EvictIfNeeded(uint32_t new_png_size);
     void RemoveIndexEntry(std::pmr::unordered_map<uint64_t, IndexEntry>::iterator it) noexcept;
     void DecrementTotalSize(uint32_t png_size) noexcept;
@@ -126,7 +124,6 @@ private:
     size_t max_entries_ = DEFAULT_MAX_ENTRIES;
     uint64_t max_total_size_ = DEFAULT_MAX_TOTAL_SIZE;
 
-    // バックグラウンド書き込み
     TaskScheduler* scheduler_ = nullptr;
     std::atomic<uint32_t> write_gen_{ 0 };
 

@@ -1,14 +1,77 @@
 #include "app.h"
-#include "app_constants.h"
-#include "app_events.h"
 #include "app_mouse_helpers.h"
 #include "app_state_queries.h"
 #include "block_h_scroll.h"
 #include "document_utils.h"
 #include "i18n.h"
 #include "layout_computer.h"
+#include "nav.h"
 #include "pane_layout.h"
+#include "string_convert.h"
 #include "ui_constants.h"
+
+void App::HandleLinkClick(std::string_view url)
+{
+    if (url.empty()) {
+        return;
+    }
+    auto result = ::HandleLinkClick(url);
+    switch (result.type) {
+    case LinkClickResult::Type::None:
+        return;
+    case LinkClickResult::Type::Anchor:
+        Dispatch(NavigateAnchorAction{ std::move(result.target) });
+        return;
+    case LinkClickResult::Type::ExternalUrl: {
+        std::pmr::wstring url_wide;
+        string_convert::Utf8ToWide(result.target, url_wide);
+        win32_host_.ShellOpen(url_wide);
+        return;
+    }
+    }
+    std::unreachable();
+}
+
+bool App::HandleTitleBarClick(float dip_x, float dip_y)
+{
+    if (dip_y >= state_.window.titlebar.GetHeight()) {
+        return false;
+    }
+
+    switch (state_.window.titlebar.HitTest(dip_x, dip_y)) {
+    case TitleBarHitZone::OpenFile:
+        Dispatch(OpenFileAction{});
+        break;
+    case TitleBarHitZone::Help:
+        Dispatch(ShowHelpAction{});
+        break;
+    case TitleBarHitZone::Search:
+        Dispatch(OpenSearchBarAction{});
+        break;
+    case TitleBarHitZone::ThemeToggle:
+        Dispatch(ToggleDarkModeAction{});
+        break;
+    case TitleBarHitZone::FileToggle:
+        Dispatch(TogglePaneAction{ PaneTarget::File });
+        break;
+    case TitleBarHitZone::TocToggle:
+        Dispatch(TogglePaneAction{ PaneTarget::Toc });
+        break;
+    case TitleBarHitZone::Minimize:
+        ShowWindow(hwnd_, SW_MINIMIZE);
+        break;
+    case TitleBarHitZone::Maximize:
+        ShowWindow(hwnd_, IsZoomed(hwnd_) ? SW_RESTORE : SW_MAXIMIZE);
+        break;
+    case TitleBarHitZone::Close:
+        PostMessageW(hwnd_, WM_CLOSE, 0, 0);
+        break;
+    default:
+        // タイトルバーのドラッグ領域などは WM_NCHITTEST で処理済み。
+        break;
+    }
+    return true;
+}
 
 bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_layout, bool is_double_click)
 {
@@ -26,37 +89,36 @@ bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_
         }
         break;
     case SearchBarHitZone::Up:
-        OnSearchPrev();
+        Dispatch(SearchPrevAction{});
         break;
     case SearchBarHitZone::Down:
-        OnSearchNext();
+        Dispatch(SearchNextAction{});
         break;
     case SearchBarHitZone::CaseSensitive:
-        OnToggleCaseSensitive();
+        Dispatch(ToggleCaseSensitiveAction{});
         break;
     case SearchBarHitZone::Highlight:
-        OnToggleHighlight();
+        Dispatch(ToggleHighlightAction{});
         break;
     case SearchBarHitZone::Close:
-        OnSearchClose();
+        Dispatch(CloseSearchBarAction{});
         break;
     case SearchBarHitZone::Input: {
         const auto& query_wide = state_.search.search_bar_ctrl.GetQueryWide();
         const int pos = HitTestSearchInputPos(sbl, query_wide, dip_x);
-        if (is_double_click) {
-            // 検索 EDIT は非表示で WM_LBUTTONDBLCLK を直接受けないため、
-            // 自前で単語境界を計算して EM_SETSEL を発行する。
-            const auto wb = FindWordBoundaries(std::wstring_view{ query_wide }, static_cast<uint32_t>(pos));
-            if (wb.found) {
-                EmitEffect(effect::SearchFocus{
-                    effect::SearchFocus::Mode::SetSelection,
-                    static_cast<int>(wb.start),
-                    static_cast<int>(wb.end),
-                });
-            }
-        }
-        else {
+        if (!is_double_click) {
             Dispatch(SearchInputDragStartedAction{ pos });
+            break;
+        }
+        // 検索 EDIT は非表示で WM_LBUTTONDBLCLK を直接受けないため、
+        // 自前で単語境界を計算して EM_SETSEL を発行する。
+        const auto wb = FindWordBoundaries(std::wstring_view{ query_wide }, static_cast<uint32_t>(pos));
+        if (wb.found) {
+            EmitEffect(effect::SearchFocus{
+                effect::SearchFocus::Mode::SetSelection,
+                static_cast<int>(wb.start),
+                static_cast<int>(wb.end),
+            });
         }
         break;
     }
@@ -66,60 +128,76 @@ bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_
     return true;
 }
 
+bool App::HandleCodeBlockButtonClick(const MdPaneHitContext& hit_ctx)
+{
+    // コピー/ダイアグラムコピー/保存ボタンを 1 回の可視ノード走査でまとめて判定する。
+    const auto btn_hit = hit_test_.CodeBlockButtonsHitTest(hit_ctx);
+    const bool dark = renderer_.GetTheme().IsDark();
+    if (btn_hit.copy_node >= 0) {
+        clipboard_manager_.CopyCodeBlock(state_.document.doc, btn_hit.copy_node, dark);
+        return true;
+    }
+    if (btn_hit.diagram_copy_node >= 0) {
+        // 画像は表示中ビットマップと同寿命の DiagramEntry::png から取る (ボタン表示条件と一致)。
+        const auto& diagram = state_.document.layout_cache.GetDiagram(btn_hit.diagram_copy_node);
+        clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, btn_hit.diagram_copy_node, diagram.png, hit_ctx.content_width, dark);
+        return true;
+    }
+    if (btn_hit.save_node >= 0) {
+        clipboard_manager_.SaveDiagramAsPng(state_.document.doc, btn_hit.save_node, hit_ctx.content_width, dark);
+        return true;
+    }
+    return false;
+}
+
+bool App::TryStartBlockHScrollDrag(float dip_x, float dip_y, const PaneLayout& pane_layout)
+{
+    const int hover = state_.view.hovered_h_block;
+    const auto geom = ResolveBlockHScrollGeometry(state_, hover);
+    if (!geom.can_scroll()) {
+        return false;
+    }
+    const auto& node = state_.document.doc.GetNodes()[hover];
+    const auto& cache = state_.document.layout_cache;
+    const auto& theme = renderer_.GetTheme();
+    const float bar_y_local = BlockHScrollbarBarY(cache.Top(static_cast<size_t>(hover)), cache[hover].height, mendo::layout::NodeBoxPadY(node, theme));
+    // 描画 transform は Translation(md_x, -scroll_y) で md_rect.y は加算しない規約。
+    const float bar_y_screen = bar_y_local - state_.view.viewport.GetScrollY();
+    const float block_x_screen = pane_layout.md_rect.x + theme.margin_left + mendo::layout::NodeIndent(node, theme);
+    if (!PointInRect(dip_x, dip_y, BlockHScrollbarHitRect(block_x_screen, geom.visible_width, bar_y_screen))) {
+        return false;
+    }
+    Dispatch(BlockHScrollDragStartedAction{ hover, dip_x });
+    return true;
+}
+
 void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout)
 {
     if (HandleSearchBarClick(dip_x, dip_y, pane_layout, false)) {
         return;
     }
 
-    const auto nav_hit = hit_test_.NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect);
-    if (nav_hit == NavButtonHover::Back) {
+    switch (hit_test_.NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect)) {
+    case NavButtonHover::Back:
         Dispatch(NavigateBackAction{});
         return;
-    }
-    if (nav_hit == NavButtonHover::Forward) {
+    case NavButtonHover::Forward:
         Dispatch(NavigateForwardAction{});
         return;
+    default:
+        break;
     }
-    // コピー/ダイアグラムコピー/保存ボタンを 1 回の可視ノード走査でまとめて判定する。
-    const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
-    const auto btn_hit = hit_test_.CodeBlockButtonsHitTest(hit_ctx);
-    if (btn_hit.copy_node >= 0) {
-        const bool dark = renderer_.GetTheme().IsDark();
-        clipboard_manager_.CopyCodeBlock(state_.document.doc, btn_hit.copy_node, dark);
-        return;
-    }
-    if (btn_hit.diagram_copy_node >= 0 || btn_hit.save_node >= 0) {
-        const float md_width = hit_ctx.content_width;
-        const bool dark = renderer_.GetTheme().IsDark();
-        if (btn_hit.diagram_copy_node >= 0) {
-            // 画像は表示中ビットマップと同寿命の DiagramEntry::png から取る (ボタン表示条件と一致)。
-            const auto& diagram = state_.document.layout_cache.GetDiagram(btn_hit.diagram_copy_node);
-            clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, btn_hit.diagram_copy_node, diagram.png, md_width, dark);
-            return;
-        }
-        clipboard_manager_.SaveDiagramAsPng(state_.document.doc, btn_hit.save_node, md_width, dark);
+
+    if (HandleCodeBlockButtonClick(BuildMdPaneHitContext(px, py, pane_layout))) {
         return;
     }
     if (IsOverMdScrollbar(dip_x, dip_y, pane_layout)) {
         Dispatch(MdScrollbarDragStartedAction{ dip_y });
         return;
     }
-
-    // ホバー中ブロックの水平スクロールバー上ならドラッグ開始 (テキスト選択より優先)。
-    const int hover = state_.view.hovered_h_block;
-    if (const auto geom = ResolveBlockHScrollGeometry(state_, hover); geom.can_scroll()) {
-        const auto& node = state_.document.doc.GetNodes()[hover];
-        const auto& entry = state_.document.layout_cache[hover];
-        const auto& theme = renderer_.GetTheme();
-        const float bar_y_local = BlockHScrollbarBarY(state_.document.layout_cache.Top(static_cast<size_t>(hover)), entry.height, mendo::layout::NodeBoxPadY(node, theme));
-        // 描画 transform は Translation(md_x, -scroll_y) で md_rect.y は加算しない規約。
-        const float bar_y_screen = bar_y_local - state_.view.viewport.GetScrollY();
-        const float block_x_screen = pane_layout.md_rect.x + theme.margin_left + mendo::layout::NodeIndent(node, theme);
-        if (PointInRect(dip_x, dip_y, BlockHScrollbarHitRect(block_x_screen, geom.visible_width, bar_y_screen))) {
-            Dispatch(BlockHScrollDragStartedAction{ hover, dip_x });
-            return;
-        }
+    // テキスト選択より優先する。
+    if (TryStartBlockHScrollDrag(dip_x, dip_y, pane_layout)) {
+        return;
     }
 
     const auto hit = HitTest(px, py);
@@ -140,16 +218,32 @@ void App::RefreshFilePane()
     Invalidate();
 }
 
+void App::HandleFileEntryClick(const FileEntry& entry)
+{
+    if (entry.is_directory()) {
+        Dispatch(FilePaneDirectoryClickedAction{ entry.full_path });
+        return;
+    }
+    if (entry.is_current()) {
+        return;
+    }
+    if (GetFileAttributesW(entry.full_path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        RefreshFilePane();
+        ShowToast(i18n::S().toast_file_not_found);
+        return;
+    }
+    Dispatch(FilePaneFileClickedAction{ entry.full_path });
+}
+
 void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout)
 {
     using mendo::app_mouse::ProcessSidePaneHeaderClick;
     using mendo::app_mouse::SidePaneHeaderButtonsFor;
 
     const auto& theme = renderer_.GetTheme();
-    const bool is_file = target == PaneTarget::File;
     const PaneRect& rect = layout.Get(target);
 
-    if (ProcessSidePaneHeaderClick(dip_x, dip_y, rect, theme.pane_header_height, SidePaneHeaderButtonsFor(state_, target), [this, target](PaneHeaderButton hit) {
+    const auto on_header_button = [this, target](PaneHeaderButton hit) {
         switch (hit) {
         case PaneHeaderButton::Close:
             Dispatch(TogglePaneAction{ target });
@@ -163,7 +257,8 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const
         case PaneHeaderButton::None:
             break;
         }
-    })) {
+    };
+    if (ProcessSidePaneHeaderClick(dip_x, dip_y, rect, theme.pane_header_height, SidePaneHeaderButtonsFor(state_, target), on_header_button)) {
         return;
     }
 
@@ -177,19 +272,8 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const
     if (idx < 0) {
         return;
     }
-    if (is_file) {
-        const auto& file_entry = state_.file_explorer.GetEntries()[idx];
-        if (file_entry.is_directory()) {
-            Dispatch(FilePaneDirectoryClickedAction{ file_entry.full_path });
-        }
-        else if (!file_entry.is_current()) {
-            if (GetFileAttributesW(file_entry.full_path.c_str()) == INVALID_FILE_ATTRIBUTES) {
-                RefreshFilePane();
-                ShowToast(i18n::S().toast_file_not_found);
-                return;
-            }
-            Dispatch(FilePaneFileClickedAction{ file_entry.full_path });
-        }
+    if (target == PaneTarget::File) {
+        HandleFileEntryClick(state_.file_explorer.GetEntries()[idx]);
     }
     else {
         Dispatch(TocItemClickedAction{ state_.document.doc.GetToc().GetEntries()[idx].node_index });

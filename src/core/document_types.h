@@ -8,7 +8,7 @@
 #include <limits>
 #include <memory>
 #include <memory_resource>
-#include <algorithm>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include "pmr_unique_ptr.h"
@@ -158,7 +158,7 @@ struct NodeListData {
 };
 
 // alert_type は同一 blockquote_group の後続ノードにも伝播するため Node 直下に置く
-// (parser.cpp:DetectAlertAt 参照)。alert_label_length は BlockQuote 本体専用なので variant 内。
+// (parser_alerts.cpp:DetectAlertAt 参照)。alert_label_length は BlockQuote 本体専用なので variant 内。
 struct NodeAlertData {
     uint32_t alert_label_length = 0;
 };
@@ -242,7 +242,6 @@ struct Node {
         view_ = std::string_view{ base + offset, length };
     }
 
-
     constexpr bool HasText() const noexcept
     {
         // view モードが多数派 (parse 結果で view ノードが過半) なので先に分岐させる。
@@ -318,27 +317,15 @@ struct Node {
         return std::get_if<NodeAlertData>(&self.extra);
     }
 
-    // table / image は variant に NodePtr (pmr_unique_ptr) を格納する形なので、
+    // table / image は variant に pmr_unique_ptr を格納する形なので、
     // alternative の存在 → 内部 unique_ptr の中身、と 2 段で取り出す。
-    constexpr NodeTableData* table_data() noexcept
+    constexpr auto* table_data(this auto& self) noexcept
     {
-        auto* p = std::get_if<NodeTablePtr>(&extra);
-        return p ? p->get() : nullptr;
+        return GetPtrAlt<NodeTablePtr>(self);
     }
-    constexpr const NodeTableData* table_data() const noexcept
+    constexpr auto* image_data(this auto& self) noexcept
     {
-        const auto* p = std::get_if<NodeTablePtr>(&extra);
-        return p ? p->get() : nullptr;
-    }
-    constexpr NodeImageData* image_data() noexcept
-    {
-        auto* p = std::get_if<NodeImagePtr>(&extra);
-        return p ? p->get() : nullptr;
-    }
-    constexpr const NodeImageData* image_data() const noexcept
-    {
-        const auto* p = std::get_if<NodeImagePtr>(&extra);
-        return p ? p->get() : nullptr;
+        return GetPtrAlt<NodeImagePtr>(self);
     }
 
     constexpr bool has_heading() const noexcept
@@ -497,6 +484,15 @@ private:
         assert(std::holds_alternative<std::monostate>(extra) &&
                "ensure_*<T>: Node already holds a different alternative — parser contract violation");
         return &extra.emplace<T>();
+    }
+
+    // unique_ptr::get() は const でも非 const ポインタを返すため、self の const 性を明示的に伝播する。
+    template <class Ptr, class Self>
+    static constexpr auto* GetPtrAlt(Self& self) noexcept
+    {
+        using T = std::conditional_t<std::is_const_v<Self>, const typename Ptr::element_type, typename Ptr::element_type>;
+        const auto* p = std::get_if<Ptr>(&self.extra);
+        return p ? static_cast<T*>(p->get()) : nullptr;
     }
 
     template <class Ptr>

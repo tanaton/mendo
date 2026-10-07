@@ -23,7 +23,7 @@ inline constexpr float DOT_FADE_FACTOR = 0.85f;
 inline constexpr float DEFAULT_DPI = 96.0f;
 
 // dpi が 0 以下なら 1.0 (DPI 未初期化時のフォールバック)、それ以外は dpi / 96。
-inline constexpr float DpiScaleFrom(float dpi) noexcept
+constexpr float DpiScaleFrom(float dpi) noexcept
 {
     return (dpi > 0.0f) ? (dpi / DEFAULT_DPI) : 1.0f;
 }
@@ -51,21 +51,21 @@ inline constexpr float HSCROLL_DIP_PER_NOTCH = 60.0f;
 
 // 縦スクロールバーの左端 X。right_edge はペイン右端 (ローカル/スクリーンどちらの系でも可)。
 // 描画 (renderer_pane) とヒットテスト (app_mouse_*) で同じ式を共有する。
-inline constexpr float VScrollbarLeftX(float right_edge) noexcept
+constexpr float VScrollbarLeftX(float right_edge) noexcept
 {
     return right_edge - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
 }
 
 // ブロック横スクロールバーの bar 上端 Y 座標 (ペインローカル document Y)。
 // extra_padding は CodeBlock の背景下端 padding 内に置く場合に渡す (Table は 0)。
-inline constexpr float BlockHScrollbarBarY(float entry_text_top, float entry_height, float extra_padding) noexcept
+constexpr float BlockHScrollbarBarY(float entry_text_top, float entry_height, float extra_padding) noexcept
 {
     return entry_text_top + entry_height + extra_padding - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
 }
 
 // thumb の幅 (DIP)。track の縦と異なり最小幅張り付き時もドラッグ範囲を可動域に揃える必要があるので、
 // 描画とドラッグの ratio 計算で同じ式を共有する。
-inline float BlockHScrollbarThumbWidth(float visible_width, float natural_width) noexcept
+constexpr float BlockHScrollbarThumbWidth(float visible_width, float natural_width) noexcept
 {
     if (natural_width <= 0.0f) {
         return 0.0f;
@@ -123,8 +123,8 @@ inline constexpr int CLICK_DISTANCE_THRESHOLD_SQ = 25;
 // ペインヘッダー閉じるボタンの余白
 inline constexpr float PANE_CLOSE_BTN_MARGIN = 2.0f;
 
-// 無効なペインヘッダーボタンのアイコン不透明度
-inline constexpr float PANE_BUTTON_DISABLED_ALPHA = 0.35f;
+// 無効状態の UI (ペインヘッダーボタン・メニュー項目) の不透明度
+inline constexpr float DISABLED_UI_ALPHA = 0.35f;
 
 // ペインヘッダー内の閉じるボタン矩形を返す（ペインローカル座標）。
 inline D2D1_RECT_F PaneCloseButtonRect(float pane_width, float header_height) noexcept
@@ -165,7 +165,7 @@ inline float SnapToPhysicalPixel(float v, float dpi_scale) noexcept
 }
 
 // DIP → ピクセル変換（切り捨て）。ウィンドウサイズ・クリッピング等の整数ピクセル値に使う。
-inline int DipToPixel(float v, float dpi_scale) noexcept
+constexpr int DipToPixel(float v, float dpi_scale) noexcept
 {
     return static_cast<int>(v * dpi_scale);
 }
@@ -177,9 +177,14 @@ inline int DipToPixelCeil(float v, float dpi_scale) noexcept
 }
 
 // ピクセル → DIP 変換。Win32 メッセージ座標を DIP 座標系に戻す際に使う。
-inline float PixelToDip(float v, float dpi_scale) noexcept
+constexpr float PixelToDip(float v, float dpi_scale) noexcept
 {
     return v / dpi_scale;
+}
+
+constexpr DipPoint PixelToDip(int px, int py, float dpi_scale) noexcept
+{
+    return { PixelToDip(static_cast<float>(px), dpi_scale), PixelToDip(static_cast<float>(py), dpi_scale) };
 }
 
 // タイトルバーのテキストフォントサイズ（DIP）。
@@ -218,15 +223,15 @@ struct SearchBarLayout {
     float bar_bottom = 0.0f;
 
     // 検索入力のテキスト描画領域。描画(renderer_search)とヒットテスト(app)で共有する。
-    float text_left() const noexcept
+    constexpr float text_left() const noexcept
     {
         return input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;
     }
-    float text_right() const noexcept
+    constexpr float text_right() const noexcept
     {
         return input_rect.right - SEARCH_INPUT_TEXT_PAD_RIGHT;
     }
-    float text_width() const noexcept
+    constexpr float text_width() const noexcept
     {
         return text_right() - text_left();
     }
@@ -240,36 +245,30 @@ inline SearchBarLayout ComputeSearchBarLayout(float md_left, float md_width, flo
     l.bar_top = md_bottom - SEARCH_BAR_HEIGHT;
     l.bar_bottom = md_bottom;
 
-    const float btn = SEARCH_BTN_SIZE;
-    const float gap = SEARCH_BAR_GAP;
-    const float input_h = SEARCH_INPUT_HEIGHT;
-    const float center_y = l.bar_top + (SEARCH_BAR_HEIGHT - input_h) / 2.0f;
+    const float center_y = l.bar_top + (SEARCH_BAR_HEIGHT - SEARCH_INPUT_HEIGHT) / 2.0f;
+    const float center_bottom = center_y + SEARCH_INPUT_HEIGHT;
 
+    // 左から順に幅 w の要素を詰めて置く。
     float x = bar_left + SEARCH_BAR_PADDING;
-    l.icon_rect = D2D1::RectF(x, l.bar_top, x + btn, l.bar_bottom);
-    x += btn + gap;
+    const auto place = [&x](float w, float top, float bottom) noexcept {
+        const D2D1_RECT_F r = D2D1::RectF(x, top, x + w, bottom);
+        x += w + SEARCH_BAR_GAP;
+        return r;
+    };
+    const auto place_btn = [&] { return place(SEARCH_BTN_SIZE, center_y, center_bottom); };
 
-    const float input_w = std::min(SEARCH_INPUT_MAX_WIDTH, (bar_right - bar_left) * 0.5f);
-    l.input_rect = D2D1::RectF(x, center_y, x + input_w, center_y + input_h);
-    x += input_w + gap;
-
-    l.up_btn = D2D1::RectF(x, center_y, x + btn, center_y + input_h);
-    x += btn + gap;
-    l.down_btn = D2D1::RectF(x, center_y, x + btn, center_y + input_h);
-    x += btn + gap;
-
+    l.icon_rect = place(SEARCH_BTN_SIZE, l.bar_top, l.bar_bottom);
+    l.input_rect = place(std::min(SEARCH_INPUT_MAX_WIDTH, (bar_right - bar_left) * 0.5f), center_y, center_bottom);
+    l.up_btn = place_btn();
+    l.down_btn = place_btn();
     if (has_query) {
-        l.count_rect = D2D1::RectF(x, l.bar_top, x + SEARCH_MATCH_COUNT_WIDTH, l.bar_bottom);
-        x += SEARCH_MATCH_COUNT_WIDTH + gap;
+        l.count_rect = place(SEARCH_MATCH_COUNT_WIDTH, l.bar_top, l.bar_bottom);
     }
-
-    l.case_btn = D2D1::RectF(x, center_y, x + btn, center_y + input_h);
-    x += btn + gap;
-    l.highlight_btn = D2D1::RectF(x, center_y, x + btn, center_y + input_h);
-    x += btn + gap;
+    l.case_btn = place_btn();
+    l.highlight_btn = place_btn();
     // close_btn だけバー右端へ寄せる。狭幅で左側ボタン群と重なる場合は従来の左詰め位置 x へフォールバック
-    const float close_x = std::max(x, bar_right - SEARCH_BAR_PADDING - btn);
-    l.close_btn = D2D1::RectF(close_x, center_y, close_x + btn, center_y + input_h);
+    const float close_x = std::max(x, bar_right - SEARCH_BAR_PADDING - SEARCH_BTN_SIZE);
+    l.close_btn = D2D1::RectF(close_x, center_y, close_x + SEARCH_BTN_SIZE, center_bottom);
 
     return l;
 }
@@ -285,28 +284,26 @@ enum class SearchBarHitZone : uint8_t {
     Input,
 };
 
-inline constexpr SearchBarHitZone HitTestSearchBar(const SearchBarLayout& sbl, float x, float y) noexcept
+constexpr SearchBarHitZone HitTestSearchBar(const SearchBarLayout& sbl, float x, float y) noexcept
 {
     if (y < sbl.bar_top) {
         return SearchBarHitZone::None;
     }
-    if (PointInRect(x, y, sbl.up_btn)) {
-        return SearchBarHitZone::Up;
-    }
-    if (PointInRect(x, y, sbl.down_btn)) {
-        return SearchBarHitZone::Down;
-    }
-    if (PointInRect(x, y, sbl.case_btn)) {
-        return SearchBarHitZone::CaseSensitive;
-    }
-    if (PointInRect(x, y, sbl.highlight_btn)) {
-        return SearchBarHitZone::Highlight;
-    }
-    if (PointInRect(x, y, sbl.close_btn)) {
-        return SearchBarHitZone::Close;
-    }
-    if (PointInRect(x, y, sbl.input_rect)) {
-        return SearchBarHitZone::Input;
+    const struct {
+        const D2D1_RECT_F& rect;
+        SearchBarHitZone zone;
+    } targets[] = {
+        { sbl.up_btn, SearchBarHitZone::Up },
+        { sbl.down_btn, SearchBarHitZone::Down },
+        { sbl.case_btn, SearchBarHitZone::CaseSensitive },
+        { sbl.highlight_btn, SearchBarHitZone::Highlight },
+        { sbl.close_btn, SearchBarHitZone::Close },
+        { sbl.input_rect, SearchBarHitZone::Input },
+    };
+    for (const auto& t : targets) {
+        if (PointInRect(x, y, t.rect)) {
+            return t.zone;
+        }
     }
     return SearchBarHitZone::None;
 }

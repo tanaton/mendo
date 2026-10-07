@@ -50,9 +50,11 @@ void ReduceClearSelection(AppState& state, SideEffectList& effects)
 
 void ReduceCopyClipboard(const AppState& state, SideEffectList& effects)
 {
-    if (state.view.viewport.GetSelection().active) {
-        PushEffect(effects, effect::ClipboardWrite{ ExtractSelectedText(state.document.doc.GetNodes(), state.view.viewport.GetSelection()) });
+    const auto& sel = state.view.viewport.GetSelection();
+    if (!sel.active) {
+        return;
     }
+    PushEffect(effects, effect::ClipboardWrite{ ExtractSelectedText(state.document.doc.GetNodes(), sel) });
 }
 
 void ReduceCopyFormattedClipboard(const AppState& state, SideEffectList& effects)

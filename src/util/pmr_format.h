@@ -3,6 +3,7 @@
 #include <iterator>
 #include <memory_resource>
 #include <string>
+#include <utility>
 
 template <typename... Args>
 inline std::pmr::wstring PmrFormat(std::wformat_string<Args...> fmt, Args&&... args)

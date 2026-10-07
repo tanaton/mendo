@@ -33,6 +33,9 @@ private:
     LRESULT HitTestTitleBar(POINT pt) const noexcept;
     LRESULT HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lParam);
+    void OnContextMenu(int screen_x, int screen_y);
+    POINT KeyboardContextMenuPoint() const;
+    void OnSize(WPARAM wParam, LPARAM lParam);
     void UpdateDwmFrame();
     void InitSystemMenu();
     void ResetWindowPlacement();
@@ -40,6 +43,10 @@ private:
     bool RestoreWindowPlacement(int nCmdShow);
 
     static LRESULT CALLBACK SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+    LRESULT OnSearchEditKeyDown(HWND edit, WPARAM wParam, LPARAM lParam);
+    void OnSearchEditChanged();
+    // mode は app_param::SEARCH_FOCUS_*。
+    void FocusSearchEdit(WPARAM mode, LPARAM selection);
     void RepositionSearchEdit();
     void SyncSearchCaretFromEdit();
 

@@ -1,5 +1,6 @@
 #pragma once
 #include "ui_types.h"
+#include <cstdint>
 #include <memory>
 #include <string_view>
 #include <vector>
@@ -73,11 +74,7 @@ public:
     float GetMenuWidth() const noexcept;
     float GetMenuHeight() const noexcept;
 
-    // テスト補助 API（Impl の BuildItems / CreateTextFormats / ComputeLayout へ
-    // 直接 forward するフックポイント）。定義は mendo_core に含まれるため
-    // Release/LTCG のように /OPT:REF が効くビルドでは mendo 実行体から未参照で
-    // リンカに除去される可能性があるが、Debug 等の未最適化ビルドではバイナリ
-    // に残り得る。"Test" プレフィックスで用途を明示している。
+    // テスト専用。ウィンドウを作らずに Impl の各段階を直接呼ぶ。
     void TestBuildItems(const ContextMenuParams& params);
     void TestCreateTextFormats(const Theme& theme);
     void TestComputeLayout();

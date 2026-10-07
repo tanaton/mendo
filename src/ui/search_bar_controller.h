@@ -10,6 +10,7 @@
 #include <memory_resource>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <windows.h>
 
 // 検索バーのUI状態管理。
@@ -19,8 +20,6 @@
 template <class Cb>
 class SearchBarControllerT {
 public:
-    SearchBarControllerT() = default;
-
     constexpr void Init(SearchState& state, ViewportManager& viewport, LayoutCache& cache, Cb cb) noexcept
     {
         state_ = &state;
@@ -38,8 +37,7 @@ public:
         state_->Show();
         has_focus_ = true;
         caret_visible_ = true;
-        caret_pos_ = -1;
-        selection_start_ = -1;
+        ResetCaretAndSelection();
 
         if (!state_->GetQuery().empty()) {
             RunSearchAndLocate(nodes);
@@ -60,20 +58,12 @@ public:
 
     void OnNext()
     {
-        if (state_->NextMatch() && state_->GetMatchCount() > 1) {
-            cb_.on_wrap_around();
-        }
-        ScrollToCurrentMatch();
-        cb_.invalidate();
+        AfterMatchStep(state_->NextMatch());
     }
 
     void OnPrev()
     {
-        if (state_->PrevMatch() && state_->GetMatchCount() > 1) {
-            cb_.on_wrap_around();
-        }
-        ScrollToCurrentMatch();
-        cb_.invalidate();
+        AfterMatchStep(state_->PrevMatch());
     }
 
     // 1 ノードの巨大テーブル/コードブロックもあるため、ノード数だけでなくバイト数でも判定する。
@@ -102,7 +92,7 @@ public:
 
         // 大規模ドキュメント: デバウンスで連続入力中の再検索を抑制
         cb_.invalidate();
-        cb_.set_timer(app_timer::Id::SEARCH_DEBOUNCE, 150);
+        cb_.set_timer(app_timer::Id::SEARCH_DEBOUNCE, app_timer::SEARCH_DEBOUNCE_MS);
     }
 
     void OnToggleCaseSensitive(const std::pmr::vector<Node>& nodes)
@@ -218,8 +208,7 @@ public:
     {
         state_->Reset();
         ResetInteractionState();
-        caret_pos_ = -1;
-        selection_start_ = -1;
+        ResetCaretAndSelection();
         dragging_ = false;
     }
 
@@ -317,6 +306,21 @@ public:
     }
 
 private:
+    void AfterMatchStep(bool wrapped)
+    {
+        if (wrapped && state_->GetMatchCount() > 1) {
+            cb_.on_wrap_around();
+        }
+        ScrollToCurrentMatch();
+        cb_.invalidate();
+    }
+
+    constexpr void ResetCaretAndSelection() noexcept
+    {
+        caret_pos_ = -1;
+        selection_start_ = -1;
+    }
+
     void ResetInteractionState()
     {
         hover_ = SearchBarHitZone::None;

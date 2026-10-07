@@ -47,20 +47,19 @@ void Renderer::LoadAppIconBitmap()
 
 void Renderer::RecreateBrushes()
 {
-    auto* render_target_ = backend_.GetRenderTarget();
-    if (!render_target_) {
+    auto* const target = backend_.GetRenderTarget();
+    if (!target) {
         return;
     }
 
     const bool is_dark = theme_.IsDark();
-
     const float thumb_alpha = is_dark ? 0.4f : 0.25f;
 
     struct BrushSpec {
         BrushId id;
         D2D1_COLOR_F color;
     };
-    BrushSpec specs[] = {
+    const BrushSpec specs[] = {
         { BrushId::Text, theme_.text_color },
         { BrushId::Heading, theme_.heading_color },
         { BrushId::CodeBg, theme_.code_bg_color },
@@ -114,7 +113,7 @@ void Renderer::RecreateBrushes()
             brush->SetColor(s.color);
             continue;
         }
-        mendo::CreateSolidColorBrushOrFallback(render_target_, s.color, brush);
+        mendo::CreateSolidColorBrushOrFallback(target, s.color, brush);
     }
 }
 
@@ -193,7 +192,7 @@ void Renderer::RecreatePaneFormats()
         bool no_wrap;
     };
 
-    FormatSpec specs[] = {
+    const FormatSpec specs[] = {
         { &fmt_.icon_font,        body_font, W,                            theme_.font_size_body,        L"ja-jp", TA_LEAD, PA_TOP, false },
         { &fmt_.copy_btn_icon,    icon_font, W,                            theme_.font_size_body,        L"en-us", TA_CTR,  PA_CTR, true  },
         { &fmt_.list_number,      body_font, W,                            theme_.font_size_body,        L"ja-jp", TA_TAIL, PA_TOP, false },
@@ -213,16 +212,18 @@ void Renderer::RecreatePaneFormats()
 
     for (const auto& s : specs) {
         *s.target = CreatePaneFormat(s.family, s.weight, s.size, s.locale);
-        if (*s.target) {
-            if (s.no_wrap) {
-                (*s.target)->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-            }
-            if (s.text_align != TA_LEAD) {
-                (*s.target)->SetTextAlignment(s.text_align);
-            }
-            if (s.para_align != PA_TOP) {
-                (*s.target)->SetParagraphAlignment(s.para_align);
-            }
+        auto* const fmt = s.target->Get();
+        if (!fmt) {
+            continue;
+        }
+        if (s.no_wrap) {
+            fmt->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        }
+        if (s.text_align != TA_LEAD) {
+            fmt->SetTextAlignment(s.text_align);
+        }
+        if (s.para_align != PA_TOP) {
+            fmt->SetParagraphAlignment(s.para_align);
         }
     }
 
@@ -234,27 +235,25 @@ void Renderer::RecreatePaneFormats()
     cached_toast_layout_.Reset();
     cached_toast_text_.clear();
     search_cache_.Reset();
-
-    for (auto& c : pane_caches_) {
-        c.Reset();
-    }
+    ResetSidePaneCaches();
 
     cmd_generator_.SetFormats({ fmt_.list_number.Get(), fmt_.icon_font.Get(), fmt_.copy_btn_icon.Get(), fmt_.placeholder_text.Get() });
 
     // ナビ/ジェスチャー用レイアウトを eager 作成。描画ホットパス上の null 分岐を排除する。
-    auto* dw = backend_.GetDWriteFactory();
-    if (dw) {
-        if (fmt_.nav_button) {
-            static constexpr wchar_t BACK_ICON[] = L"\x25C0";
-            static constexpr wchar_t FORWARD_ICON[] = L"\x25B6";
-            dw->CreateTextLayout(BACK_ICON, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_back_layout_);
-            dw->CreateTextLayout(FORWARD_ICON, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_forward_layout_);
-        }
-        if (fmt_.gesture_overlay) {
-            static constexpr wchar_t GESTURE_BACK[] = L"\x2190 \x623B\x308B";
-            static constexpr wchar_t GESTURE_FORWARD[] = L"\x2192 \x9032\x3080";
-            dw->CreateTextLayout(GESTURE_BACK, 4, fmt_.gesture_overlay.Get(), GESTURE_OVERLAY_WIDTH, GESTURE_OVERLAY_HEIGHT, &gesture_back_layout_);
-            dw->CreateTextLayout(GESTURE_FORWARD, 4, fmt_.gesture_overlay.Get(), GESTURE_OVERLAY_WIDTH, GESTURE_OVERLAY_HEIGHT, &gesture_forward_layout_);
-        }
+    auto* const dw = backend_.GetDWriteFactory();
+    if (!dw) {
+        return;
+    }
+    if (fmt_.nav_button) {
+        static constexpr wchar_t BACK_ICON[] = L"\x25C0";
+        static constexpr wchar_t FORWARD_ICON[] = L"\x25B6";
+        dw->CreateTextLayout(BACK_ICON, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_back_layout_);
+        dw->CreateTextLayout(FORWARD_ICON, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_forward_layout_);
+    }
+    if (fmt_.gesture_overlay) {
+        static constexpr wchar_t GESTURE_BACK[] = L"\x2190 \x623B\x308B";
+        static constexpr wchar_t GESTURE_FORWARD[] = L"\x2192 \x9032\x3080";
+        dw->CreateTextLayout(GESTURE_BACK, 4, fmt_.gesture_overlay.Get(), GESTURE_OVERLAY_WIDTH, GESTURE_OVERLAY_HEIGHT, &gesture_back_layout_);
+        dw->CreateTextLayout(GESTURE_FORWARD, 4, fmt_.gesture_overlay.Get(), GESTURE_OVERLAY_WIDTH, GESTURE_OVERLAY_HEIGHT, &gesture_forward_layout_);
     }
 }

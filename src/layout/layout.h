@@ -4,13 +4,11 @@
 #include "layout_computer.h"
 #include "text_measurer.h"
 #include "theme.h"
-#include "viewport_manager.h"
-#include <dwrite.h>
 #include <memory_resource>
 
-class TaskScheduler;
-
 class Document;
+class TaskScheduler;
+class ViewportManager;
 
 // レガシー呼び出しサイト互換のための using エイリアス。実体は mendo::layout namespace にある。
 using mendo::layout::AdvanceNodeY;
@@ -95,6 +93,7 @@ public:
     {
         return engine_.HasDirtyNodes();
     }
+
 private:
     LayoutEngine& engine_;
     ViewportManager& viewport_;

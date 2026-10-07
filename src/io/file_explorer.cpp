@@ -5,19 +5,21 @@
 #include "win_handle.h"
 #include <algorithm>
 #include <filesystem>
-#include <iterator>
 
 namespace {
-// 列挙エントリを一覧に含めるか。"."/".."・システム属性を除外し、
-// ディレクトリまたは Markdown ファイルのみ対象とする。
+bool IsDirectory(const WIN32_FIND_DATAW& fd) noexcept
+{
+    return (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+}
+
+// "."/".."・システム属性を除外し、ディレクトリまたは Markdown ファイルのみ一覧に含める。
 bool ShouldListEntry(const WIN32_FIND_DATAW& fd) noexcept
 {
     const std::wstring_view name{ fd.cFileName };
     if (name == L"." || name == L".." || (fd.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM) != 0) {
         return false;
     }
-    const bool is_dir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-    return is_dir || IsMarkdownFile(fd.cFileName);
+    return IsDirectory(fd) || IsMarkdownFile(fd.cFileName);
 }
 } // namespace
 
@@ -43,23 +45,18 @@ void FileExplorer::Refresh()
 
 void FileExplorer::ListEntries()
 {
-
+    const std::filesystem::path dir_base{ directory_ };
     // ルートでは ".." を出さない
-    {
-        const std::filesystem::path dir_path{ directory_ };
-        const auto parent = dir_path.parent_path();
-        if (parent != dir_path) {
-            FileEntry pe;
-            pe.full_path.assign(parent.native());
-            pe.set_directory(true);
-            pe.set_parent(true);
-            entries_.emplace_back(std::move(pe));
-        }
+    if (auto parent = dir_base.parent_path(); parent != dir_base) {
+        FileEntry pe;
+        pe.full_path.assign(parent.native());
+        pe.set_directory(true);
+        pe.set_parent(true);
+        entries_.emplace_back(std::move(pe));
     }
     // ".." はソート対象外で常に先頭。後段ソートはこの範囲を除く。
     const size_t sort_begin = entries_.size();
 
-    const std::filesystem::path dir_base{ directory_ };
     const auto pattern = dir_base / L"*";
     WIN32_FIND_DATAW fd;
     UniqueFindHandle hFind{ FindFirstFileW(pattern.c_str(), &fd) };
@@ -73,7 +70,7 @@ void FileExplorer::ListEntries()
         if (ShouldListEntry(fd)) {
             FileEntry entry;
             entry.full_path.assign((dir_base / fd.cFileName).native());
-            entry.set_directory((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0);
+            entry.set_directory(IsDirectory(fd));
             entries_.emplace_back(std::move(entry));
         }
         if (entries_.size() - sort_begin >= MAX_ENTRIES) {

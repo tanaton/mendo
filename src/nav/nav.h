@@ -1,11 +1,12 @@
 #pragma once
-#include <string>
-#include <string_view>
+#include <cstdint>
 #include <deque>
 #include <limits>
-#include <vector>
-#include <memory_resource>
 #include <map>
+#include <memory_resource>
+#include <string>
+#include <string_view>
+#include <vector>
 
 // ファイルが編集されて絶対 y 座標が変わっても、同じノードの相対位置に戻れる。
 struct NavEntry {
@@ -75,7 +76,7 @@ private:
     NavEntry ToExternal(const InternalEntry& e) const;
 
     // GoBack/GoForward の対称処理を集約する。
-    bool Move(std::pmr::deque<InternalEntry>& from, std::pmr::deque<InternalEntry>& to, const NavEntry& current, NavEntry& out);
+    bool Transfer(std::pmr::deque<InternalEntry>& from, std::pmr::deque<InternalEntry>& to, const NavEntry& current, NavEntry& out);
     // 容量超過時は最古を解放して捨てる (放置すると path slot の参照が滞留する)。
     void PushCapped(std::pmr::deque<InternalEntry>& stack, const NavEntry& e);
 

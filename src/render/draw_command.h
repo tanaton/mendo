@@ -4,7 +4,6 @@
 #include <dwrite.h>
 #include <variant>
 #include <vector>
-#include <algorithm>
 #include <iterator>
 #include <memory_resource>
 #include <utility>
@@ -122,21 +121,6 @@ public:
     constexpr DrawCommandList(DrawCommandList&&) noexcept = default;
     constexpr DrawCommandList& operator=(DrawCommandList&&) noexcept = default;
 
-    constexpr void clear() noexcept
-    {
-        fill_rects_.clear();
-        fill_rounded_rects_.clear();
-        lines_.clear();
-        text_layouts_.clear();
-        texts_.clear();
-        bitmaps_.clear();
-        fill_ellipses_.clear();
-        ellipses_.clear();
-        push_clips_.clear();
-        transforms_.clear();
-        seq_.clear();
-    }
-
     constexpr void reserve(size_t n)
     {
         seq_.reserve(n);
@@ -252,41 +236,16 @@ public:
     constexpr void Visit(Visitor&& v) const
     {
         for (uint32_t entry : seq_) {
-            Visit(std::forward<Visitor>(v), entry);
+            Visit(v, entry);
         }
     }
 
     // テスト用: 呼び出し毎に variant を構築する。本番経路は Visit() を使うこと。
     constexpr DrawCommand At(size_t i) const
     {
-        const uint32_t entry = seq_[i];
-        const Kind k = GetKind(entry);
-        const uint32_t idx = GetIndex(entry);
-        switch (k) {
-        case Kind::FillRect:
-            return fill_rects_[idx];
-        case Kind::FillRoundedRect:
-            return fill_rounded_rects_[idx];
-        case Kind::DrawLine:
-            return lines_[idx];
-        case Kind::DrawTextLayout:
-            return text_layouts_[idx];
-        case Kind::DrawText:
-            return texts_[idx];
-        case Kind::DrawBitmap:
-            return bitmaps_[idx];
-        case Kind::FillEllipse:
-            return fill_ellipses_[idx];
-        case Kind::DrawEllipse:
-            return ellipses_[idx];
-        case Kind::PushClip:
-            return push_clips_[idx];
-        case Kind::SetTransform:
-            return transforms_[idx];
-        case Kind::PopClip:
-            return PopClipCmd{};
-        }
-        std::unreachable();
+        DrawCommand out;
+        Visit([&out](const auto& c) { out = c; }, seq_[i]);
+        return out;
     }
 
     constexpr DrawCommand operator[](size_t i) const
@@ -337,10 +296,6 @@ public:
         constexpr bool operator==(const const_iterator& o) const noexcept
         {
             return i_ == o.i_ && owner_ == o.owner_;
-        }
-        constexpr bool operator!=(const const_iterator& o) const noexcept
-        {
-            return !(*this == o);
         }
 
     private:

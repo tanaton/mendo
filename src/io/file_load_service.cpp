@@ -1,7 +1,5 @@
 #include "file_load_service.h"
-#include "file_loader.h"
-#include "layout.h"
-#include "profiler.h"
+#include "document_service.h"
 
 void FileLoadService::StartLoading(std::pmr::wstring path)
 {

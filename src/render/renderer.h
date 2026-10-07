@@ -14,12 +14,12 @@
 #include <wrl/client.h>
 #include <functional>
 #include <limits>
-#include <vector>
-#include <array>
-#include <memory>
 #include <memory_resource>
+#include <string_view>
 #include <utility>
+#include <vector>
 
+struct SidePaneDrawContext;
 
 class Renderer {
 public:
@@ -70,8 +70,6 @@ public:
     // 累積適用による誤差蓄積を避けるため、ズーム変更経路はこの関数に統一する。
     void ApplyZoomFromBase(const Theme& base_theme, float new_zoom);
 
-    void UpdateLayoutTheme();
-
     void SetDeviceLostCallback(std::move_only_function<void(ID2D1RenderTarget*)> cb)
     {
         on_device_lost_ = std::move(cb);
@@ -85,7 +83,7 @@ public:
 
     constexpr void InvalidateSidePaneCache(PaneTarget t) noexcept
     {
-        pane_caches_[static_cast<size_t>(t)].Invalidate();
+        SidePaneCache(t).Invalidate();
     }
     constexpr void InvalidateAllSidePaneCaches() noexcept
     {
@@ -108,8 +106,17 @@ public:
 private:
     constexpr PaneCache& SidePaneCache(PaneTarget t) noexcept
     {
-        return pane_caches_[static_cast<size_t>(t)];
+        return pane_caches_[std::to_underlying(t)];
     }
+    void ResetSidePaneCaches() noexcept;
+
+    // テーマのフォント/寸法変更をレイアウト・テキストフォーマット・コマンド生成へ反映する。
+    void ApplyThemeMetrics();
+
+    // フレーム共通の前処理 (デバイスロスト復旧・BeginDraw・タイトルバー・サイドペイン)。
+    // 描画できない場合 false を返し、その場合 BeginDraw は呼ばれていない。
+    bool BeginFrame(const TitleBarRenderState& titlebar, const SidePaneState& side_panes);
+    void DrawLoadingSpinner(float angle, const PaneRect& md_pane_rect);
 
     void ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache, int first_visible, float viewport_top, float viewport_bottom);
 
@@ -124,6 +131,16 @@ private:
     void DrawGestureOverlay(int direction, const PaneRect& md_pane_rect);
     void DrawToastOverlay(const ToastRenderState& toast, const PaneRect& md_pane_rect);
     void DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_pane_rect);
+    // 入力欄のテキスト・選択範囲を描画し、キャレットの x 座標を返す。
+    float DrawSearchInputText(const SearchBarRenderState& sb, const SearchBarLayout& sbl);
+    // search_cache_ を再利用、またはミス時に作り直した入力欄レイアウトを返す (所有は search_cache_)。
+    IDWriteTextLayout* AcquireSearchInputLayout(const SearchBarRenderState& sb, int comp_start, float width, float height, bool& cache_hit);
+    void DrawSearchBarButtons(const SearchBarRenderState& sb, const SearchBarLayout& sbl);
+    // ジェスチャー/トーストの背景パネル。テーマに応じた単色ブラシを alpha で塗る。
+    void FillOverlayPanel(const D2D1_RECT_F& rect, float corner, float alpha);
+    // fmt または brush が無い場合は何もしない。
+    void DrawTextWithOpacity(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha);
+    SidePaneDrawContext MakeSidePaneContext(PaneTarget target, const SidePaneInstance& pane, size_t item_count, std::wstring_view header_text);
 
     D2DRenderBackend backend_;
     ID2D1DeviceContext* rt() const noexcept
@@ -144,7 +161,10 @@ private:
 
     ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const noexcept;
     void ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom);
+    // hit_test_buffer_ の先頭 count 件をセルのインラインコード背景として cell_index 昇順を保って追加する。
+    void AppendCellInlineCodeBgs(TableLayoutData& tl, uint32_t cell_index, UINT32 count);
     void ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom);
+    void ApplySyntaxEffects(IDWriteTextLayout* layout, const Node& node);
     void RecreateBrushes();
     void InvalidateBrushes() noexcept;
     void ResolveThemeFonts();

@@ -5,8 +5,8 @@
 #include "task_scheduler.h"
 #include <algorithm>
 #include <atomic>
+#include <ranges>
 #include <cstdint>
-#include <vector>
 #include <windows.h>
 
 namespace mendo::layout {
@@ -28,10 +28,9 @@ void MeasureChunk(
     std::span<std::pmr::vector<SyntaxToken>> chunk_slot_tokens,
     MeasureViewportRange viewport)
 {
-    for (size_t k = 0; k < chunk_indices.size(); ++k) {
-        const size_t i = chunk_indices[k];
+    for (auto&& [i, tokens] : std::views::zip(chunk_indices, chunk_slot_tokens)) {
         const float indent = NodeIndent(nodes[i], theme);
-        MeasureEntry(backend, nodes[i], cache[i], content_width - indent, &chunk_slot_tokens[k], viewport, cache.Top(i));
+        MeasureEntry(backend, nodes[i], cache[i], content_width - indent, &tokens, viewport, cache.Top(i));
     }
 }
 
@@ -55,8 +54,8 @@ int MeasureIndicesParallel(
 
     const size_t worker_count = scheduler ? std::max<size_t>(scheduler->WorkerCount(), 1) : 1;
     const size_t chunk_size = indices.size() < min_parallel
-        ? indices.size()
-        : std::clamp(indices.size() / (worker_count * 4), kMinChunkSize, kMaxChunkSize);
+                                  ? indices.size()
+                                  : std::clamp(indices.size() / (worker_count * 4), kMinChunkSize, kMaxChunkSize);
     std::atomic<int> failed_node_count{ 0 };
     ParallelFor(scheduler, indices.size(), chunk_size, [&](size_t begin, size_t end) {
         MENDO_PROFILE("MeasureNode.chunk");
@@ -72,12 +71,12 @@ int MeasureIndicesParallel(
     MENDO_PLOT("layout.parallel.error_count", static_cast<int64_t>(failed));
 
     {
-        MENDO_PROFILE("RunParallel.Aggregate");
+        MENDO_PROFILE("MeasureIndicesParallel.Aggregate");
         // 非 CodeBlock や既トークン化済みノードでは MeasureNode が tokens_out に書かない。
         // 空 vector で既存トークンを上書きすると zoom/theme 変更後にハイライトが失われる。
-        for (size_t k = 0; k < indices.size(); ++k) {
-            if (!slot_tokens[k].empty()) {
-                nodes[indices[k]].syntax_tokens_mut() = std::move(slot_tokens[k]);
+        for (auto&& [i, tokens] : std::views::zip(indices, slot_tokens)) {
+            if (!tokens.empty()) {
+                nodes[i].syntax_tokens_mut() = std::move(tokens);
             }
         }
     }
@@ -105,14 +104,8 @@ DirtyBatchResult RunParallel(
     std::pmr::vector<size_t> indices(std::pmr::get_default_resource());
     {
         MENDO_PROFILE("RunParallel.Plan");
-        if (clip.active()) {
-            indices.reserve(has_batch_limit ? std::min(node_count, static_cast<size_t>(budget.max_nodes)) : node_count);
-        }
-        else {
-            // 最悪ケースは全ノード dirty。size_t 8B × 数千 ≒ 数十 KB で global arena には軽い。
-            // 過小予約による push_back 中の再確保を避けるほうが利得が大きい。
-            indices.reserve(node_count);
-        }
+        // 上限が無ければ最悪ケース (全ノード dirty) で予約し、push_back 中の再確保を避ける。
+        indices.reserve(has_batch_limit ? std::min(node_count, static_cast<size_t>(budget.max_nodes)) : node_count);
         // text_top は単調なので、帯の開始は二分探索で求め、下端超過で break する。
         // 全走査 + reserve(node_count) は 100MB 級文書で 16ms タイマーごとに
         // 数 MB の確保と全エントリ読みを繰り返してしまう。

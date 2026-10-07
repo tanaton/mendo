@@ -1,6 +1,12 @@
 #pragma once
+#include <cstdint>
 
 // include 連鎖を浅く保つため 1 か所に集約。
+
+struct DipPoint {
+    float x = 0.0f;
+    float y = 0.0f;
+};
 
 // <d2d1.h> を巻き込まずに矩形を扱う。
 struct DipRect {
@@ -12,14 +18,14 @@ struct DipRect {
 
 // D2D 規約に合わせ右辺・下辺は排他的。
 template <class Rect>
-inline constexpr bool PointInRect(float x, float y, const Rect& r) noexcept
+constexpr bool PointInRect(float x, float y, const Rect& r) noexcept
 {
     return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
 }
 
 // 右辺・下辺を含む inclusive 版。
 template <class Rect>
-inline constexpr bool PointInRectInclusive(float x, float y, const Rect& r) noexcept
+constexpr bool PointInRectInclusive(float x, float y, const Rect& r) noexcept
 {
     return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
 }

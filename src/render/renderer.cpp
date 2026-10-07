@@ -1,11 +1,12 @@
 #include "renderer.h"
 #include "d2d_util.h"
 #include "doc_dwrite_bridge.h"
-#include "syntax.h"
 #include "ui_constants.h"
 #include "profiler.h"
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <ranges>
 #include <utility>
 
 #ifdef MENDO_USE_TRACY
@@ -32,11 +33,6 @@ void PublishEffectStats() noexcept
 
 } // namespace
 #endif
-
-using Microsoft::WRL::ComPtr;
-
-#pragma comment(lib, "d2d1.lib")
-#pragma comment(lib, "dwrite.lib")
 
 bool Renderer::Init(HWND hwnd)
 {
@@ -68,9 +64,7 @@ void Renderer::SetTheme(const Theme& theme)
 {
     theme_ = theme;
     ResolveThemeFonts();
-    UpdateLayoutTheme();
-    RecreatePaneFormats();
-    cmd_generator_.SetTheme(&theme_);
+    ApplyThemeMetrics();
     if (!backend_.GetRenderTarget()) {
         return;
     }
@@ -85,6 +79,11 @@ void Renderer::Resize(UINT width, UINT height) noexcept
 void Renderer::SetDpi(float dpi) noexcept
 {
     backend_.SetDpi(dpi);
+    ResetSidePaneCaches();
+}
+
+void Renderer::ResetSidePaneCaches() noexcept
+{
     for (auto& c : pane_caches_) {
         c.Reset();
     }
@@ -97,21 +96,20 @@ void Renderer::ApplyZoomFromBase(const Theme& base_theme, float new_zoom)
     if (new_zoom != 1.0f) {
         theme_.ApplyZoom(new_zoom);
     }
-    UpdateLayoutTheme();
-    RecreatePaneFormats();
-    cmd_generator_.SetTheme(&theme_);
+    ApplyThemeMetrics();
 }
 
-void Renderer::UpdateLayoutTheme()
+void Renderer::ApplyThemeMetrics()
 {
     layout_.UpdateTheme(theme_);
     layout_.RecreateFormats();
+    RecreatePaneFormats();
+    cmd_generator_.SetTheme(&theme_);
 }
 
 // ApplyNodeEffects は IDWriteTextLayout の mutable state (SetDrawingEffect/SetUnderline) を
 // 書き換える性質上、値型 DrawCommand には乗せられず、描画前パスとして実行する。
 // effects_applied フラグで初回のみ走り、以降のフレームでは no-op。
-
 void Renderer::PrepareVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y, float md_pane_height)
 {
     const float viewport_top = scroll_y;
@@ -206,13 +204,9 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
         }
         // evict 済みで未復元のセルが残る行は、復元後に改めて適用させるため完了扱いにしない
         // (背景矩形は二重登録を避けるため完了時にだけ積む。リンク色は冪等なので先行適用してよい)。
-        bool row_complete = true;
-        for (size_t c = 0; c < col_count; c++) {
-            if (!tl.GetCellLayout(r, c) && !tbl->GetCellText(r, c).empty()) {
-                row_complete = false;
-                break;
-            }
-        }
+        const bool row_complete = std::ranges::none_of(std::views::iota(size_t{ 0 }, col_count), [&](size_t c) {
+            return !tl.GetCellLayout(r, c) && !tbl->GetCellText(r, c).empty();
+        });
         const bool need_links = !tl.row_links_applied[r];
         const bool need_bgs = !tl.row_bgs_computed[r] && row_complete;
 
@@ -234,36 +228,11 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
                     cell_layout->SetDrawingEffect(Brush(BrushId::Link), range);
                     MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);
                 }
-                // インラインコード背景: 可視かつ未計算の行のみ。
-                // cell_index 昇順を維持するため、新規行が末尾以降ならば append、
-                // それ以外（上方向スクロールで前段の行が後から追加される稀ケース）は
-                // upper_bound 位置に insert する。可視ノードが下方向に増える典型ケースは
-                // 完全 append (O(1)/elem) で済む。
                 if (add_bg) {
                     MENDO_COUNT_INC(g_effect_stats.hittest_range);
                     const UINT32 count = FetchHitTestMetrics(cell_layout, range.startPosition, range.length, hit_test_buffer_);
                     MENDO_COUNT_ADD(g_effect_stats.inline_code_bg_added, count);
-                    const auto cell_index = static_cast<uint32_t>(tl.CellIndex(r, c));
-                    auto& bgs = tl.cell_inline_code_bgs;
-                    const bool can_append = bgs.empty() || bgs.back().cell_index <= cell_index;
-                    if (can_append) {
-                        bgs.reserve(bgs.size() + count);
-                        for (UINT32 hi = 0; hi < count; hi++) {
-                            bgs.emplace_back(CellInlineCodeBg{ cell_index, MakeInlineCodeBg(hit_test_buffer_[hi]) });
-                        }
-                    }
-                    else {
-                        const auto func = [](uint32_t v, const CellInlineCodeBg& e) noexcept { return v < e.cell_index; };
-                        // 上方向スクロールで前段の行が後から追加される稀ケース。
-                        // 末尾に一括 push してから rotate で正しい位置に移すと、tail shift が 1 回で済む。
-                        const size_t insert_at_index = static_cast<size_t>(std::upper_bound(bgs.begin(), bgs.end(), cell_index, func) - bgs.begin());
-                        bgs.reserve(bgs.size() + count);
-                        const size_t old_size = bgs.size();
-                        for (UINT32 hi = 0; hi < count; hi++) {
-                            bgs.emplace_back(CellInlineCodeBg{ cell_index, MakeInlineCodeBg(hit_test_buffer_[hi]) });
-                        }
-                        std::rotate(bgs.begin() + insert_at_index, bgs.begin() + old_size, bgs.end());
-                    }
+                    AppendCellInlineCodeBgs(tl, static_cast<uint32_t>(tl.CellIndex(r, c)), count);
                 }
             }
         }
@@ -274,8 +243,60 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
     }
 }
 
-// ApplyNodeEffects は IDWriteTextLayout の内部状態 (SetDrawingEffect/SetUnderline) を直接書き換える
-// pre-render パス。CommandGenerator の DrawCommand には乗らない (text-layout 状態は不可搬なため)。
+// cell_index 昇順を維持するため、新規行が末尾以降ならば append、それ以外 (上方向スクロールで
+// 前段の行が後から追加される稀ケース) は末尾に一括 push してから rotate で upper_bound 位置へ移す
+// (tail shift が 1 回で済む)。可視ノードが下方向に増える典型ケースは完全 append (O(1)/elem) で済む。
+void Renderer::AppendCellInlineCodeBgs(TableLayoutData& tl, uint32_t cell_index, UINT32 count)
+{
+    auto& bgs = tl.cell_inline_code_bgs;
+    const size_t old_size = bgs.size();
+    const bool can_append = bgs.empty() || bgs.back().cell_index <= cell_index;
+    const size_t insert_at = can_append
+                                 ? old_size
+                                 : static_cast<size_t>(std::ranges::upper_bound(bgs, cell_index, {}, &CellInlineCodeBg::cell_index) - bgs.begin());
+    bgs.reserve(old_size + count);
+    for (UINT32 i = 0; i < count; i++) {
+        bgs.emplace_back(CellInlineCodeBg{ cell_index, MakeInlineCodeBg(hit_test_buffer_[i]) });
+    }
+    if (insert_at != old_size) {
+        std::rotate(bgs.begin() + insert_at, bgs.begin() + old_size, bgs.end());
+    }
+}
+
+// 同じ type の隣接トークンをマージして SetDrawingEffect の呼び出し回数を減らす
+// (内部で range tree を再構築するため)。
+void Renderer::ApplySyntaxEffects(IDWriteTextLayout* layout, const Node& node)
+{
+    mendo::Utf16OffsetCursor cursor{ node.GetText() };
+    SyntaxTokenType pending_type = SyntaxTokenType::Plain;
+    uint32_t pending_start = 0;
+    uint32_t pending_end = 0;
+    const auto flush = [&]() {
+        if (pending_type != SyntaxTokenType::Plain && pending_end > pending_start) {
+            if (auto* brush = GetSyntaxBrush(pending_type)) {
+                layout->SetDrawingEffect(brush, cursor.WideRange(pending_start, pending_end - pending_start));
+                MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);
+            }
+        }
+        pending_type = SyntaxTokenType::Plain;
+    };
+    for (const auto& token : node.syntax_tokens()) {
+        if (token.type == SyntaxTokenType::Plain) {
+            flush();
+            continue;
+        }
+        if (pending_type == token.type && pending_end == token.start) {
+            pending_end = token.start + token.length;
+            continue;
+        }
+        flush();
+        pending_type = token.type;
+        pending_start = token.start;
+        pending_end = token.start + token.length;
+    }
+    flush();
+}
+
 void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom)
 {
     // テーブルノード: ビューポートカリング付きの行単位増分処理を行う。
@@ -303,38 +324,8 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_
     // パスごとのカーソルで前進させる。
     const std::string_view text = node.GetText();
 
-    // 同じ type の隣接トークンをマージして SetDrawingEffect の呼び出し回数を減らす
-    // (内部で range tree を再構築するため)。
     if (apply_brushes && node.type == NodeType::CodeBlock) {
-        mendo::Utf16OffsetCursor cursor{ text };
-        SyntaxTokenType pending_type = SyntaxTokenType::Plain;
-        uint32_t pending_start = 0;
-        uint32_t pending_end = 0;
-        const auto flush = [&]() {
-            if (pending_type != SyntaxTokenType::Plain && pending_end > pending_start) {
-                if (auto* brush = GetSyntaxBrush(pending_type)) {
-                    layout->SetDrawingEffect(brush, cursor.WideRange(pending_start, pending_end - pending_start));
-                    MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);
-                }
-            }
-            pending_type = SyntaxTokenType::Plain;
-        };
-        for (const auto& token : node.syntax_tokens()) {
-            if (token.type == SyntaxTokenType::Plain) {
-                flush();
-                continue;
-            }
-            if (pending_type == token.type && pending_end == token.start) {
-                pending_end = token.start + token.length;
-            }
-            else {
-                flush();
-                pending_type = token.type;
-                pending_start = token.start;
-                pending_end = token.start + token.length;
-            }
-        }
-        flush();
+        ApplySyntaxEffects(layout, node);
     }
 
     if (apply_brushes && node.type == NodeType::BlockQuote && node.alert_type != AlertType::None && node.alert_label_length() > 0) {
@@ -388,19 +379,13 @@ void Renderer::DrawSidePanes(const SidePaneState& sp)
     }
 }
 
-void Renderer::DrawLoading(
-    float angle,
-    const PaneRect& md_pane_rect,
-    const SidePaneState& sp,
-    const TitleBarRenderState& titlebar,
-    const GestureRenderState& gesture,
-    const ToastRenderState& toast)
+bool Renderer::BeginFrame(const TitleBarRenderState& titlebar, const SidePaneState& side_panes)
 {
     if (HandleDeviceLost()) {
-        return;
+        return false;
     }
     if (!rt()) {
-        return;
+        return false;
     }
 
     // GPU パイプライン詰まり時の CPU バックプレッシャを Present(Vsync) ではなく
@@ -411,11 +396,16 @@ void Renderer::DrawLoading(
     rt()->Clear(theme_.bg_color);
 
     DrawTitleBar(titlebar);
+    DrawSidePanes(side_panes);
+    return true;
+}
 
-    DrawSidePanes(sp);
-
-    const float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
-    const float cy = md_pane_rect.y + md_pane_rect.height / 2.0f;
+void Renderer::DrawLoadingSpinner(float angle, const PaneRect& md_pane_rect)
+{
+    auto* const text_brush = Brush(BrushId::Text);
+    if (!text_brush) {
+        return;
+    }
     // alpha はドットインデックスのみに依存するためコンパイル時に決定する。
     static constexpr auto kSpinnerAlphas = []() noexcept {
         std::array<float, spinner::DOT_COUNT> a{};
@@ -424,19 +414,34 @@ void Renderer::DrawLoading(
         }
         return a;
     }();
-    if (auto* const text_brush = Brush(BrushId::Text)) {
-        // ループ内で毎回 SetOpacity を上書きする。guard は scope 終了時の 1.0f 復帰のみ担う。
-        mendo::OpacityScope guard{ text_brush, 1.0f };
-        for (int i = 0; i < spinner::DOT_COUNT; i++) {
-            const float a = angle - i * (TWO_PI / spinner::DOT_COUNT);
-            const float dx = cx + spinner::RADIUS * std::cos(a);
-            const float dy = cy + spinner::RADIUS * std::sin(a);
+    const float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
+    const float cy = md_pane_rect.y + md_pane_rect.height / 2.0f;
+    // ループ内で毎回 SetOpacity を上書きする。guard は scope 終了時の 1.0f 復帰のみ担う。
+    mendo::OpacityScope guard{ text_brush, 1.0f };
+    for (int i = 0; i < spinner::DOT_COUNT; i++) {
+        const float a = angle - i * (TWO_PI / spinner::DOT_COUNT);
+        const float dx = cx + spinner::RADIUS * std::cos(a);
+        const float dy = cy + spinner::RADIUS * std::sin(a);
 
-            const D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(dx, dy), spinner::DOT_RADIUS, spinner::DOT_RADIUS);
-            text_brush->SetOpacity(kSpinnerAlphas[i]);
-            rt()->FillEllipse(ellipse, text_brush);
-        }
+        const D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(dx, dy), spinner::DOT_RADIUS, spinner::DOT_RADIUS);
+        text_brush->SetOpacity(kSpinnerAlphas[i]);
+        rt()->FillEllipse(ellipse, text_brush);
     }
+}
+
+void Renderer::DrawLoading(
+    float angle,
+    const PaneRect& md_pane_rect,
+    const SidePaneState& sp,
+    const TitleBarRenderState& titlebar,
+    const GestureRenderState& gesture,
+    const ToastRenderState& toast)
+{
+    if (!BeginFrame(titlebar, sp)) {
+        return;
+    }
+
+    DrawLoadingSpinner(angle, md_pane_rect);
 
     // ローディング中もジェスチャーオーバーレイは表示する
     if (gesture.overlay_visible) {
@@ -454,29 +459,15 @@ void Renderer::Render(const RenderParams& p)
 {
     MENDO_PROFILE("Render");
 
-    if (HandleDeviceLost()) {
+    if (!BeginFrame(p.titlebar, p.side_panes)) {
         return;
     }
-    if (!rt()) {
-        return;
-    }
-
-    backend_.WaitForFrameLatency();
-
-    rt()->BeginDraw();
-    rt()->Clear(theme_.bg_color);
-
-    DrawTitleBar(p.titlebar);
-
-    DrawSidePanes(p.side_panes);
 
     {
         // ヒットテストとの座標一致のためスナップ前の scroll_y を使う。
-        const float viewport_top = p.scroll_y;
-        const int first_visible = FindFirstVisibleNodeIndex(p.cache, p.nodes.size(), viewport_top);
+        const int first_visible = FindFirstVisibleNodeIndex(p.cache, p.nodes.size(), p.scroll_y);
         const float dpi_scale = DpiScaleFrom(backend_.GetDpi());
         const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, first_visible, p.hovered, dpi_scale, p.block_h_scroll);
-
         cmd_executor_.Execute(cmds, rt(), &brushes_);
     }
 
@@ -544,10 +535,8 @@ bool Renderer::RecreateRenderTarget()
     InvalidateBrushes();
     RecreateBrushes();
     LoadAppIconBitmap();
-    for (auto& c : pane_caches_) {
-        c.Reset();
-    }
-    // バインドされたレンダーターゲットをリセットする
+    ResetSidePaneCaches();
+    // 旧 RT に紐付いたブラシプールと bound RT を捨てる
     cmd_executor_ = CommandExecutor{};
 
     if (on_device_lost_) {

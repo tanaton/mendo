@@ -2,7 +2,6 @@
 #include "document_types.h"
 #include "layout_cache.h"
 #include "syntax.h"
-#include "theme.h"
 #include <limits>
 #include <memory_resource>
 

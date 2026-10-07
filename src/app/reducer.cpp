@@ -152,9 +152,7 @@ bool ApplyBlockHScrollDelta(AppState& state, int node_index, float new_value, fl
     return true;
 }
 
-// つまみ上クリック → 位置維持 (オフセットのみ記録)、つまみ外 → 中心へジャンプ。
-ScrollbarDragGrip ComputeScrollbarDragGrip(
-    float thumb_y, float thumb_height, float click_y) noexcept
+ScrollbarDragGrip ComputeScrollbarDragGrip(float thumb_y, float thumb_height, float click_y) noexcept
 {
     if (click_y >= thumb_y && click_y <= thumb_y + thumb_height) {
         return { click_y - thumb_y, true };
@@ -190,17 +188,14 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         // ---- ウィンドウ・システムイベント ----
         [&](const ActivateAction& a) { ReduceActivate(state, effects, a); },
         [&](const EnterSizeMoveAction&) { state.window.is_sizing = true; },
-        [&](const ExitSizeMoveAction&) {
-            state.window.is_sizing = false;
-            PushEffect(effects, effect::PerformResizeEnd{});
-        },
+        [&](const ExitSizeMoveAction&) { ReduceExitSizeMove(state, effects); },
         [&](const ResizeAction& a) { ReduceResize(state, effects, a); },
         [&](const DpiChangedAction& a) { ReduceDpiChanged(state, effects, a); },
         [&](const HWheelAction& a) { ReduceHWheel(state, effects, a); },
         [&](const BlockHHoverChangedAction& a) { ReduceBlockHHoverChanged(state, effects, a); },
         [&](const BlockHScrollDragStartedAction& a) { ReduceBlockHScrollDragStarted(state, effects, a); },
         [&](const BlockHScrollDragMovedAction& a) { ReduceBlockHScrollDragMoved(state, effects, a); },
-        [&](const BlockHScrollDragEndedAction& a) { ReduceBlockHScrollDragEnded(state, effects, a); },
+        [&](const BlockHScrollDragEndedAction&) { ReduceBlockHScrollDragEnded(state, effects); },
 
         // ---- 検索 ----
         [&](const OpenSearchBarAction&) { state.search.search_bar_ctrl.OnOpen(state.document.doc.GetNodes()); },
@@ -214,11 +209,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const ImeCompositionAction& a) { state.search.search_bar_ctrl.SetImeComposition(a.text); },
 
         // ---- マウス関連 ----
-        [&](const MouseLeaveAction&) {
-            state.interaction.hover_throttle.Reset();
-            ClearTooltip(state, effects);
-            ClearSidePaneHoverState(state, effects);
-        },
+        [&](const MouseLeaveAction&) { ReduceMouseLeave(state, effects); },
         [&](const CaptureChangedAction&) { ReduceCaptureChanged(state, effects); },
         [&](const MdPaneNavHoverAction& a) { ReduceMdPaneNavHover(state, effects, a); },
         [&](const MdPaneButtonHoverChangedAction& a) { ReduceMdPaneButtonHoverChanged(state, effects, a); },
@@ -245,13 +236,8 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const FilePaneRevealCurrentFileAction&) { ReduceFilePaneRevealCurrentFile(state, effects); },
         [&](const TocItemClickedAction& a) { ReduceTocItemClicked(state, effects, a); },
         [&](const NavigateAnchorAction& a) { ReduceNavigateAnchor(state, effects, a); },
-        [&](const RestoreScrollAfterLoadAction& a) { ReduceRestoreScrollAfterLoad(state, effects, a); },
-        [&](const UpdateTooltipAction& a) {
-            if (a.target == state.interaction.tooltip.GetCurrent()) {
-                return;
-            }
-            PushEffect(effects, effect::ShowTooltip{ a.target });
-        },
+        [&](const RestoreScrollAfterLoadAction& a) { ReduceRestoreScrollAfterLoad(state, a); },
+        [&](const UpdateTooltipAction& a) { ReduceUpdateTooltip(state, effects, a); },
         [&](const ClearTooltipAction&) { ClearTooltip(state, effects); },
 
         // ---- ナビゲーション ----

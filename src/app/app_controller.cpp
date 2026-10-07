@@ -33,9 +33,7 @@ AppAction HandleKeyDown(const KeyDownEvent& event)
             if (event.shift) {
                 return SearchPrevAction{};
             }
-            else {
-                return SearchNextAction{};
-            }
+            return SearchNextAction{};
         case '1':
             return TogglePaneAction{ PaneTarget::File };
         case '2':
@@ -72,9 +70,7 @@ AppAction HandleKeyDown(const KeyDownEvent& event)
         if (event.shift) {
             return SearchPrevAction{};
         }
-        else {
-            return SearchNextAction{};
-        }
+        return SearchNextAction{};
     case VK_F5:
         return ReloadFileAction{};
     case VK_ESCAPE:
@@ -92,14 +88,10 @@ AppAction HandleMouseWheel(const MouseWheelEvent& event)
 
     const float scroll_amount = -event.delta * MOUSE_WHEEL_SCROLL_MULTIPLIER;
 
-    switch (event.zone) {
-    case PaneZone::FilePane:
-        return ScrollPaneAction{ PaneZone::FilePane, scroll_amount };
-    case PaneZone::TocPane:
-        return ScrollPaneAction{ PaneZone::TocPane, scroll_amount };
-    default:
-        return DirectScrollByAction{ scroll_amount };
+    if (event.zone == PaneZone::FilePane || event.zone == PaneZone::TocPane) {
+        return ScrollPaneAction{ event.zone, scroll_amount };
     }
+    return DirectScrollByAction{ scroll_amount };
 }
 
 } // namespace app_controller

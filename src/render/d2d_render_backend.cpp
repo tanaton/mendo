@@ -2,6 +2,8 @@
 #include "log_hr.h"
 #include "ui_constants.h"
 #include "wic_util.h"
+// IDXGISwapChain2 / SetMaximumFrameLatency / GetFrameLatencyWaitableObject 用。
+#include <dxgi1_3.h>
 
 using Microsoft::WRL::ComPtr;
 
@@ -65,11 +67,7 @@ bool D2DRenderBackend::Init(HWND hwnd)
         return false;
     }
 
-    if (!CreateDeviceResources()) {
-        return false;
-    }
-
-    return true;
+    return CreateDeviceResources();
 }
 
 bool D2DRenderBackend::CreateDeviceResources()
@@ -80,18 +78,16 @@ bool D2DRenderBackend::CreateDeviceResources()
         D3D_FEATURE_LEVEL_10_1,
         D3D_FEATURE_LEVEL_10_0,
     };
-    const UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
-
-    HRESULT hr = D3D11CreateDevice(
-        nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
-        flags, feature_levels, ARRAYSIZE(feature_levels),
-        D3D11_SDK_VERSION, &d3d_device_, nullptr, nullptr);
+    const auto create_device = [&](D3D_DRIVER_TYPE driver_type) {
+        return D3D11CreateDevice(
+            nullptr, driver_type, nullptr,
+            D3D11_CREATE_DEVICE_BGRA_SUPPORT, feature_levels, ARRAYSIZE(feature_levels),
+            D3D11_SDK_VERSION, &d3d_device_, nullptr, nullptr);
+    };
+    HRESULT hr = create_device(D3D_DRIVER_TYPE_HARDWARE);
     if (FAILED(hr)) {
         // ハードウェアが利用できない場合はWARPフォールバック
-        hr = D3D11CreateDevice(
-            nullptr, D3D_DRIVER_TYPE_WARP, nullptr,
-            flags, feature_levels, ARRAYSIZE(feature_levels),
-            D3D11_SDK_VERSION, &d3d_device_, nullptr, nullptr);
+        hr = create_device(D3D_DRIVER_TYPE_WARP);
         if (FAILED(hr)) {
             mendo::LogHrFailure(L"D3D11CreateDevice (WARP)", hr);
             return false;
@@ -145,18 +141,18 @@ bool D2DRenderBackend::CreateDeviceResources()
     scd.SampleDesc.Count = 1;
     scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     scd.BufferCount = 2;
-    scd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     // Waitable で GPU が次フレームのバッファを準備できるまで CPU を待たせる。
     // これがないと Present の Vsync ブロックで CPU が完全停止する。
     scd.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 
-    hr = dxgi_factory->CreateSwapChainForHwnd(
-        d3d_device_.Get(), hwnd_, &scd, nullptr, nullptr, &swap_chain_);
+    const auto create_swap_chain = [&](DXGI_SWAP_EFFECT effect) {
+        scd.SwapEffect = effect;
+        return dxgi_factory->CreateSwapChainForHwnd(d3d_device_.Get(), hwnd_, &scd, nullptr, nullptr, &swap_chain_);
+    };
+    hr = create_swap_chain(DXGI_SWAP_EFFECT_FLIP_DISCARD);
     if (FAILED(hr)) {
         // FLIP_DISCARD非対応の場合はFLIP_SEQUENTIALで再試行
-        scd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-        hr = dxgi_factory->CreateSwapChainForHwnd(
-            d3d_device_.Get(), hwnd_, &scd, nullptr, nullptr, &swap_chain_);
+        hr = create_swap_chain(DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL);
         if (FAILED(hr)) {
             mendo::LogHrFailure(L"CreateSwapChainForHwnd (FLIP_SEQUENTIAL)", hr);
             return false;
@@ -164,12 +160,7 @@ bool D2DRenderBackend::CreateDeviceResources()
     }
 
     ConfigureFrameLatency();
-
-    if (!CreateSwapChainBitmap()) {
-        return false;
-    }
-
-    return true;
+    return CreateSwapChainBitmap();
 }
 
 bool D2DRenderBackend::CreateSwapChainBitmap()
@@ -199,10 +190,7 @@ bool D2DRenderBackend::CreateSwapChainBitmap()
 
 void D2DRenderBackend::Resize(UINT width, UINT height) noexcept
 {
-    if (!swap_chain_ || !device_context_) {
-        return;
-    }
-    if (width == 0 || height == 0) {
+    if (!swap_chain_ || !device_context_ || width == 0 || height == 0) {
         return;
     }
 
@@ -264,9 +252,9 @@ bool D2DRenderBackend::RecreateRenderTarget()
     swap_chain_.Reset();
     d3d_device_.Reset();
 
-    const bool ok = CreateDeviceResources();
-    if (ok) {
-        device_lost_ = false;
+    if (!CreateDeviceResources()) {
+        return false;
     }
-    return ok;
+    device_lost_ = false;
+    return true;
 }

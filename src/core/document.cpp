@@ -34,16 +34,13 @@ void Document::RebuildCachedDirectory()
 
 void Document::ReplaceContent(ParseResult&& result)
 {
-    // private 化された内部 helper。呼び出し元 (FromMarkdown / ReplaceFromMarkdown) は
-    // 必ず ParseMarkdown(raw_text_) を渡しており、各ノードの view_.data() のベースが
-    // raw_text_.data() と一致するため rebase 不要。
+    // ParseMarkdown(raw_text_) の結果なので view_.data() は raw_text_ を指しており rebase 不要。
     nodes_ = std::move(result.nodes);
     image_node_indices_ = std::move(result.image_indices);
     diagram_node_indices_ = std::move(result.diagram_indices);
     table_node_indices_ = std::move(result.table_indices);
     BuildHeadingIndices(result.heading_indices);
 }
-
 
 void Document::ReplaceFromMarkdown(std::pmr::string text, size_t byte_size, std::stop_token stop_token)
 {
@@ -75,9 +72,6 @@ int Document::FindAnchorIndex(std::string_view anchor) const
 
 int Document::FindNormalizedAnchorIndex(std::string_view anchor) const
 {
-    if (anchor.empty()) {
-        return -1;
-    }
     const std::uint64_t h = mendo::Fnv1a64(anchor);
     // FNV-1a 衝突時に異なる anchor_id を取り違えないよう、hash 一致範囲を文字列比較で絞る。
     const auto [lo, hi] = std::ranges::equal_range(anchor_index_, h, {}, &decltype(anchor_index_)::value_type::first);

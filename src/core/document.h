@@ -2,14 +2,15 @@
 #include "document_types.h"
 #include "raw_text.h"
 #include "toc.h"
-#include "parser.h"
 #include <cstdint>
+#include <memory_resource>
 #include <stop_token>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
-#include <memory_resource>
+
+struct ParseResult;
 
 class Document {
 public:
@@ -67,7 +68,7 @@ public:
     {
         return loaded_byte_size_;
     }
-    const std::pmr::wstring& GetDirectory() const noexcept
+    constexpr const std::pmr::wstring& GetDirectory() const noexcept
     {
         return cached_directory_;
     }
@@ -94,16 +95,15 @@ public:
     }
 
 private:
-    // anchor は小文字 ASCII 正規化済みであること。
+    // anchor は小文字 ASCII 正規化済みかつ非空であること。
     int FindNormalizedAnchorIndex(std::string_view anchor) const;
 
-    // ParseResult を nodes_ に取り込み、TOC / anchor_index_ / image / diagram の各種
-    // インデックスを再構築する。
     // 契約: 入力 ParseResult のノード view_ は raw_text_.data() を base にしていること。
-    // FromMarkdown / ReplaceFromMarkdown 経由でのみ呼ぶ。
     void ReplaceContent(ParseResult&& result);
 
     void BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indices);
+
+    void RebuildCachedDirectory();
 
     std::pmr::vector<Node> nodes_;
     std::pmr::wstring file_path_;
@@ -121,6 +121,4 @@ private:
     std::pmr::vector<size_t> diagram_node_indices_;
     std::pmr::vector<size_t> table_node_indices_;
     std::pmr::wstring cached_directory_;
-
-    void RebuildCachedDirectory();
 };

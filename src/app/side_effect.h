@@ -2,13 +2,14 @@
 #include "app_constants.h"
 #include "pane_layout.h"
 #include "tooltip.h"
-#include <variant>
-#include <string>
 #include <memory_resource>
+#include <string>
+#include <utility>
+#include <variant>
+#include <vector>
 #include <windows.h>
 
-// Reducer が返す副作用の型定義。ドメインごとに variant 化し、SideEffect はそれらを束ねた二段 variant。
-// 新機能追加時の Action/Effect/Executor 同期ポイントが該当ドメインに閉じることを狙う。
+// Reducer が返す副作用の型定義。実行は side_effect_executor.h。
 
 namespace effect {
 
@@ -120,8 +121,7 @@ struct MermaidIdle {};
 
 } // namespace effect
 
-// 全 effect を 1 段 variant に束ねる。論理グループ (Ui/Window/Navigation/Layout/Resource/Timer)
-// は side_effect_executor.h の単一 visitor 内のコメント区切りで表現する。
+// 論理グループ (Ui/Window/Navigation/Layout/Resource/Timer) は executor の visitor と同じ並び。
 using SideEffect = std::variant<
     // Ui
     effect::InvalidateWindow,
@@ -172,7 +172,6 @@ using SideEffect = std::variant<
 
 using SideEffectList = std::pmr::vector<SideEffect>;
 
-// effect::XXX{} を effects に追加する。
 template <typename T>
 void PushEffect(SideEffectList& effects, T&& e)
 {

@@ -1,6 +1,4 @@
-#include "command_generator.h"
-#include "layout.h"
-#include "layout_computer.h"
+#include "command_generator_internal.h"
 #include <algorithm>
 
 void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, const TableRowGeom& g, bool is_header, bool is_even_row)
@@ -19,7 +17,10 @@ void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, const TableRowGeom& 
 
 void CommandGenerator::GenTableCellContent(DrawCommandList& cmds, std::string_view cell_text, const CellDrawContext& ctx)
 {
-    if (ctx.has_selection && ctx.layout) {
+    if (!ctx.layout) {
+        return;
+    }
+    if (ctx.has_selection) {
         const uint32_t cell_len = static_cast<uint32_t>(cell_text.size());
         const uint32_t ov_start = std::max(ctx.sel_start, ctx.flat_offset);
         const uint32_t ov_end = std::min(ctx.sel_end, ctx.flat_offset + cell_len);
@@ -32,11 +33,9 @@ void CommandGenerator::GenTableCellContent(DrawCommandList& cmds, std::string_vi
             }
         }
     }
-    if (ctx.layout) {
-        const D2D1_COLOR_F cell_color = ctx.is_header ? theme_->heading_color : theme_->text_color;
-        const BrushId cell_brush = ctx.is_header ? BrushId::Heading : BrushId::Text;
-        cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(ctx.text_x, ctx.text_y), ctx.layout, cell_color, cell_brush });
-    }
+    const D2D1_COLOR_F cell_color = ctx.is_header ? theme_->heading_color : theme_->text_color;
+    const BrushId cell_brush = ctx.is_header ? BrushId::Heading : BrushId::Text;
+    cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(ctx.text_x, ctx.text_y), ctx.layout, cell_color, cell_brush });
 }
 
 void CommandGenerator::GenTable(
@@ -60,6 +59,10 @@ void CommandGenerator::GenTable(
     const auto col_count = static_cast<size_t>(tbl->col_count);
 
     const float table_width = tl.cached_table_width;
+    // 横スクロール時は画面に映る範囲が h_scroll_x だけ右にずれる。
+    const float cull_left = offset_x + fc.viewport_left + h_scroll_x;
+    const float cull_right = offset_x + fc.viewport_right + h_scroll_x;
+    const size_t drawn_cols = std::min(col_count, tl.col_widths.size());
 
     bool has_selection = selection.active && (node_index >= selection.start_node) && (node_index <= selection.end_node);
     uint32_t sel_start = 0, sel_end = 0;
@@ -102,11 +105,7 @@ void CommandGenerator::GenTable(
         cmds.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y), theme_->hr_color, border, BrushId::Hr });
 
         // 可視列のみコマンド生成、画面外は cell_text_starts で flat_offset を直接取得。
-        // 横スクロール時は画面に映る範囲が h_scroll_x だけ右にずれる。
-        const float cull_left = offset_x + fc.viewport_left + h_scroll_x;
-        const float cull_right = offset_x + fc.viewport_right + h_scroll_x;
         float cx = offset_x + border;
-        const size_t drawn_cols = std::min(col_count, tl.col_widths.size());
         for (size_t c = 0; c < drawn_cols; c++) {
             const float cw = tl.col_widths[c];
             const float col_right = cx + cw + cell_padding * 2.0f;

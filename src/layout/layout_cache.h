@@ -13,9 +13,6 @@
 #include <span>
 #include <utility>
 
-struct Theme;
-
-
 // インラインコードの背景矩形（レイアウト原点からの相対座標、パディング適用済み）
 using InlineCodeBg = D2D1_RECT_F;
 

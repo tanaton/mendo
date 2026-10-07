@@ -1,9 +1,7 @@
 #include "reload.h"
 #include "layout_cache.h"
 #include <algorithm>
-#include <cstdint>
 #include <cstring>
-#include <ranges>
 
 size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept
 {
@@ -53,41 +51,50 @@ int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, const char* raw_
 {
     // source_offset はパース順で基本的に単調増加するため二分探索を使用。
     // 未設定ノードに当たった場合は左に有効ノードを探してから判定する。
-    int lo = 0, hi = static_cast<int>(nodes.size()) - 1;
+    int lo = 0;
+    int hi = static_cast<int>(nodes.size()) - 1;
     int result = -1;
     while (lo <= hi) {
         const int mid = lo + (hi - lo) / 2;
-        const auto offset = nodes[mid].SourceOffsetFrom(raw_base);
-        if (offset == kUnsetSourceOffset) {
-            int probe = mid - 1;
-            while (probe >= lo && !nodes[probe].HasSourceOffset()) {
-                probe--;
-            }
-            if (probe < lo) {
-                lo = mid + 1;
-            }
-            else {
-                const auto probe_offset = nodes[probe].SourceOffsetFrom(raw_base);
-                if (probe_offset <= diff_offset) {
-                    result = probe;
-                    lo = mid + 1;
-                }
-                else {
-                    hi = probe - 1;
-                }
-            }
+        int probe = mid;
+        while (probe >= lo && !nodes[probe].HasSourceOffset()) {
+            probe--;
+        }
+        if (probe < lo) {
+            lo = mid + 1;
             continue;
         }
-        if (offset <= diff_offset) {
-            result = mid;
+        if (nodes[probe].SourceOffsetFrom(raw_base) <= diff_offset) {
+            result = probe;
             lo = mid + 1;
         }
         else {
-            hi = mid - 1;
+            hi = probe - 1;
         }
     }
     return result;
 }
+
+namespace {
+
+// node_index より後ろで node_start を超える最初の source offset。見つからなければ fallback。
+// 途中に offset 無しノード (HR や空のルーズリスト等) が連続しても取り逃さないよう探索するが、
+// 末尾まで線形走査すると大規模ファイルのリロードが重くなるため上限を設ける
+// (通常は最初の有効 offset で見つかるため上限には届かない)。
+size_t NextSourceOffset(const std::pmr::vector<Node>& nodes, const char* raw_base, int node_index, size_t node_start, size_t fallback) noexcept
+{
+    constexpr int kMaxOffsetProbe = 4096;
+    const int probe_limit = std::min(static_cast<int>(nodes.size()), node_index + 1 + kMaxOffsetProbe);
+    for (int i = node_index + 1; i < probe_limit; ++i) {
+        const auto off = nodes[i].SourceOffsetFrom(raw_base);
+        if (off != kUnsetSourceOffset && off > node_start) {
+            return off;
+        }
+    }
+    return fallback;
+}
+
+} // namespace
 
 float CalcScrollYForDiff(
     const std::pmr::vector<Node>& nodes,
@@ -111,20 +118,7 @@ float CalcScrollYForDiff(
 
     const auto node_start = nodes[changed_node].SourceOffsetFrom(raw_base);
     if (node_start != kUnsetSourceOffset) {
-        auto next_start = content.size();
-        const auto node_count = static_cast<int>(nodes.size());
-        // 途中に offset 無しノード (HR や空のルーズリスト等) が連続しても次の有効 offset を取り逃さない
-        // よう探索する。末尾まで線形走査すると大規模ファイルのリロードが重くなるため上限を設ける
-        // (通常は最初の有効 offset で break するため上限には届かない)。
-        constexpr int kMaxOffsetProbe = 4096;
-        const int probe_limit = std::min(node_count, changed_node + 1 + kMaxOffsetProbe);
-        for (int i = changed_node + 1; i < probe_limit; ++i) {
-            const auto off = nodes[i].SourceOffsetFrom(raw_base);
-            if (off != kUnsetSourceOffset && off > node_start) {
-                next_start = off;
-                break;
-            }
-        }
+        const size_t next_start = NextSourceOffset(nodes, raw_base, changed_node, node_start, content.size());
         if (next_start > node_start) {
             const float fraction = static_cast<float>(diff_pos - node_start) / static_cast<float>(next_start - node_start);
             node_y += node_h * std::min(fraction, 1.0f);

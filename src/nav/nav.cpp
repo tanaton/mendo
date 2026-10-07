@@ -93,7 +93,7 @@ void NavHistory::Push(const NavEntry& current)
     forward_stack_.clear();
 }
 
-bool NavHistory::Move(std::pmr::deque<InternalEntry>& from, std::pmr::deque<InternalEntry>& to, const NavEntry& current, NavEntry& out)
+bool NavHistory::Transfer(std::pmr::deque<InternalEntry>& from, std::pmr::deque<InternalEntry>& to, const NavEntry& current, NavEntry& out)
 {
     if (from.empty()) {
         return false;
@@ -109,12 +109,12 @@ bool NavHistory::Move(std::pmr::deque<InternalEntry>& from, std::pmr::deque<Inte
 
 bool NavHistory::GoBack(const NavEntry& current, NavEntry& out)
 {
-    return Move(back_stack_, forward_stack_, current, out);
+    return Transfer(back_stack_, forward_stack_, current, out);
 }
 
 bool NavHistory::GoForward(const NavEntry& current, NavEntry& out)
 {
-    return Move(forward_stack_, back_stack_, current, out);
+    return Transfer(forward_stack_, back_stack_, current, out);
 }
 
 void NavHistory::Clear() noexcept

@@ -14,6 +14,12 @@
 
 namespace stream_util {
 
+inline bool SeekToBegin(IStream* stream) noexcept
+{
+    const LARGE_INTEGER zero{};
+    return SUCCEEDED(stream->Seek(zero, STREAM_SEEK_SET, nullptr));
+}
+
 inline std::pmr::vector<uint8_t> ReadStreamToEnd(IStream* stream)
 {
     if (!stream) {
@@ -31,8 +37,7 @@ inline std::pmr::vector<uint8_t> ReadStreamToEnd(IStream* stream)
     }
     const auto size = static_cast<size_t>(size64);
 
-    const LARGE_INTEGER zero{};
-    if (FAILED(stream->Seek(zero, STREAM_SEEK_SET, nullptr))) {
+    if (!SeekToBegin(stream)) {
         return {};
     }
 
@@ -63,11 +68,7 @@ inline Microsoft::WRL::ComPtr<IStream> CreateMemoryStream(const void* data, size
     }
     if (size > 0) {
         ULONG written = 0;
-        if (FAILED(stream->Write(data, static_cast<ULONG>(size), &written)) || written != size) {
-            return nullptr;
-        }
-        const LARGE_INTEGER zero{};
-        if (FAILED(stream->Seek(zero, STREAM_SEEK_SET, nullptr))) {
+        if (FAILED(stream->Write(data, static_cast<ULONG>(size), &written)) || written != size || !SeekToBegin(stream.Get())) {
             return nullptr;
         }
     }

@@ -40,24 +40,16 @@ void AppResourceManagerCallbacks::recompute_layout(mendo::layout::HeightChangeRa
         app->state_.document.layout_cache,
         app->renderer_.GetTheme(),
         changed);
-    // anchored 版と同様、リフローで停止中のカーソル直下のノード/リンクが変わりうるため
-    // ホバーのヒットキャッシュを無効化し次のマウス移動で再評価させる。
+    // リフローで停止中のカーソル直下のノード/リンクが変わりうるため、ホバーの
+    // ヒットキャッシュを無効化し次のマウス移動で再評価させる (カーソル形状の陳腐化対策)。
     app->InvalidateHitPositions();
 }
 
 void AppResourceManagerCallbacks::recompute_layout_anchored(mendo::layout::HeightChangeRange changed)
 {
     app->EnsureScrollTarget();
-    app->layout_service_->RecomputeAfterDiagram(
-        app->state_.document.doc,
-        app->state_.document.layout_cache,
-        app->renderer_.GetTheme(),
-        changed);
-    const auto layout = app->GetPaneLayout();
-    app->SyncMaxScroll(layout.md_rect.height);
-    // リフローで停止中のカーソル直下のノード/リンクが変わりうるため、ホバーの
-    // ヒットキャッシュを無効化し次のマウス移動で再評価させる (カーソル形状の陳腐化対策)。
-    app->InvalidateHitPositions();
+    recompute_layout(changed);
+    app->SyncMaxScroll(app->GetPaneLayout().md_rect.height);
     app->Invalidate();
 }
 

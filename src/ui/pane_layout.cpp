@@ -9,10 +9,7 @@ PaneLayout ComputePaneLayout(
 {
     PaneLayout layout{};
     float x = 0.0f;
-    float pane_height = total_height - top_offset;
-    if (pane_height < 0.0f) {
-        pane_height = 0.0f;
-    }
+    const float pane_height = std::max(total_height - top_offset, 0.0f);
 
     // 保存幅がウィンドウより広い場合 (広いモニタで保存→狭い画面で起動した等) でも
     // MD ペインとスプリッタを画面内に保つため、表示上の side 幅を clamp する。論理幅
@@ -52,31 +49,29 @@ PaneLayout ComputePaneLayout(
 
 PaneZone DetectPaneZone(float dip_x, const PaneLayout& layout, float splitter_width, bool show_file, bool show_toc) noexcept
 {
+    // サイドペイン本体と、その右隣のスプリッタを判定する。
+    const auto hit_side = [&](const PaneRect& rect, PaneZone pane, PaneZone splitter) noexcept {
+        const float splitter_x = rect.x + rect.width;
+        if (dip_x >= rect.x && dip_x < splitter_x) {
+            return pane;
+        }
+        if (dip_x >= splitter_x && dip_x < splitter_x + splitter_width) {
+            return splitter;
+        }
+        return PaneZone::None;
+    };
+
     if (show_file) {
-        const float s1_x = layout.file_rect.x + layout.file_rect.width;
-        if (dip_x >= layout.file_rect.x && dip_x < s1_x) {
-            return PaneZone::FilePane;
-        }
-        if (dip_x >= s1_x && dip_x < s1_x + splitter_width) {
-            return PaneZone::Splitter1;
+        if (const auto zone = hit_side(layout.file_rect, PaneZone::FilePane, PaneZone::Splitter1); zone != PaneZone::None) {
+            return zone;
         }
     }
-
     if (show_toc) {
-        const float s2_x = layout.toc_rect.x + layout.toc_rect.width;
-        if (dip_x >= layout.toc_rect.x && dip_x < s2_x) {
-            return PaneZone::TocPane;
-        }
-        if (dip_x >= s2_x && dip_x < s2_x + splitter_width) {
-            return PaneZone::Splitter2;
+        if (const auto zone = hit_side(layout.toc_rect, PaneZone::TocPane, PaneZone::Splitter2); zone != PaneZone::None) {
+            return zone;
         }
     }
-
-    if (dip_x >= layout.md_rect.x) {
-        return PaneZone::MdPane;
-    }
-
-    return PaneZone::None;
+    return dip_x >= layout.md_rect.x ? PaneZone::MdPane : PaneZone::None;
 }
 
 PaneScrollInfo ComputeScrollInfo(const PaneRect& rect, float header_height, float total_content, float thumb_min) noexcept
@@ -101,7 +96,6 @@ float ComputeThumbY(const PaneScrollInfo& info, float scroll_y) noexcept
 float ScrollFromThumbY(const PaneScrollInfo& info, float thumb_y) noexcept
 {
     const float track_range = info.content_height - info.thumb_height;
-    float ratio = (track_range > 0) ? (thumb_y - info.content_top) / track_range : 0.0f;
-    ratio = std::clamp(ratio, 0.0f, 1.0f);
-    return ratio * info.max_scroll;
+    const float ratio = (track_range > 0) ? (thumb_y - info.content_top) / track_range : 0.0f;
+    return std::clamp(ratio, 0.0f, 1.0f) * info.max_scroll;
 }

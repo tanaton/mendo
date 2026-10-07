@@ -1,92 +1,22 @@
 #include "app.h"
 #include "app_constants.h"
-#include "app_state_queries.h"
-#include "darkmode_util.h"
+#include "app_controller.h"
+#include "d2d_util.h"
+#include "document_utils.h"
 #include "gesture_overlay.h"
-#include "search_bar_controller.h"
-#include "file_loader.h"
-#include "parser.h"
-#include "resource.h"
 #include "i18n.h"
 #include "pane_layout.h"
-#include "document_utils.h"
-#include "mermaid_util.h"
-#include "layout.h"
+#include "profiler.h"
+#include "reducer.h"
+#include "search_bar_controller.h"
 #include "ui_constants.h"
-#include "d2d_util.h"
-#include <windowsx.h>
-#include <chrono>
-#include <cmath>
 #include <utility>
-#include <variant>
-#include <filesystem>
-#include <dwmapi.h>
-#include <uxtheme.h>
 
 #pragma comment(lib, "shell32.lib")
-#pragma comment(lib, "shcore.lib")
-#pragma comment(lib, "dwmapi.lib")
-#pragma comment(lib, "uxtheme.lib")
 
-#include "profiler.h"
-
-void ApplyDarkModeToWindow(HWND hwnd, bool dark)
+DipPoint App::PixelToDip(int px, int py) const noexcept
 {
-    const BOOL value = dark ? TRUE : FALSE;
-    DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &value, sizeof(value));
-
-    // エクスプローラーのダークテーマを適用すると非クライアントスクロールバーも
-    // ダーク化される（Windows 標準の挙動を借用）。
-    SetWindowTheme(hwnd, dark ? L"DarkMode_Explorer" : L"Explorer", nullptr);
-}
-
-App::DipPoint App::PixelToDip(int px, int py) const noexcept
-{
-    const float s = state_.window.cached_dpi_scale;
-    return { ::PixelToDip(static_cast<float>(px), s), ::PixelToDip(static_cast<float>(py), s) };
-}
-
-void App::CancelPendingResources()
-{
-    resource_manager_.CancelMermaidBatch();
-    image_loader_.CancelPending();
-    resource_manager_.ClearResolvedPaths();
-}
-
-void App::ResetViewForNewDocument()
-{
-    state_.view.ResetForNewDocument();
-    // 旧文書のマッチ位置が新 nodes に対して誤用されるのを防ぐ。
-    state_.search.search_bar_ctrl.Reset();
-    EmitEffect(effect::SearchUnfocus{ /*clear_text=*/true });
-    CancelPendingResources();
-    renderer_.ShrinkBuffers();
-    renderer_.InvalidateAllSidePaneCaches();
-}
-
-void App::FinalizeLayout(float md_pane_height)
-{
-    resource_manager_.LoadImages();
-    resource_manager_.RequestMermaidRenders();
-    SyncMaxScroll(md_pane_height);
-    Invalidate();
-    ScheduleDeferredLayoutIfNeeded();
-}
-
-void App::ViewportLayout(float md_width, float md_height)
-{
-    layout_service_->ViewportLayout(state_.document.doc, state_.document.layout_cache, md_width, md_height);
-}
-
-void App::SyncMaxScroll(float md_height)
-{
-    state_.view.viewport.SyncMaxScroll(ScrollableContentHeight(), md_height);
-}
-
-void App::InvalidateSidePaneAndPane(PaneTarget t, const PaneLayout& pane_layout)
-{
-    renderer_.InvalidateSidePaneCache(t);
-    InvalidatePane(pane_layout.Get(t));
+    return ::PixelToDip(px, py, state_.window.cached_dpi_scale);
 }
 
 const PaneLayout& App::GetPaneLayout()
@@ -116,47 +46,6 @@ void App::InvalidateTitleBar()
     EmitEffect(effect::InvalidateTitleBar{});
 }
 
-bool App::HandleTitleBarClick(float dip_x, float dip_y)
-{
-    if (dip_y >= state_.window.titlebar.GetHeight()) {
-        return false;
-    }
-
-    switch (state_.window.titlebar.HitTest(dip_x, dip_y)) {
-    case TitleBarHitZone::OpenFile:
-        Dispatch(OpenFileAction{});
-        break;
-    case TitleBarHitZone::Help:
-        Dispatch(ShowHelpAction{});
-        break;
-    case TitleBarHitZone::Search:
-        Dispatch(OpenSearchBarAction{});
-        break;
-    case TitleBarHitZone::ThemeToggle:
-        Dispatch(ToggleDarkModeAction{});
-        break;
-    case TitleBarHitZone::FileToggle:
-        Dispatch(TogglePaneAction{ PaneTarget::File });
-        break;
-    case TitleBarHitZone::TocToggle:
-        Dispatch(TogglePaneAction{ PaneTarget::Toc });
-        break;
-    case TitleBarHitZone::Minimize:
-        ShowWindow(hwnd_, SW_MINIMIZE);
-        break;
-    case TitleBarHitZone::Maximize:
-        ShowWindow(hwnd_, IsZoomed(hwnd_) ? SW_RESTORE : SW_MAXIMIZE);
-        break;
-    case TitleBarHitZone::Close:
-        PostMessageW(hwnd_, WM_CLOSE, 0, 0);
-        break;
-    default:
-        // タイトルバーのドラッグ領域などは WM_NCHITTEST で処理済み。
-        break;
-    }
-    return true;
-}
-
 void App::UpdateTitleBar()
 {
     const int zoom_percent = static_cast<int>(ZOOM_STEPS[state_.view.viewport.GetZoomIndex()] * 100.0f + 0.5f);
@@ -171,7 +60,7 @@ void App::UpdateTitleBar()
 
 PaneZone App::PaneAtPoint(float dip_x)
 {
-    if (!renderer_.GetRenderTarget()) {
+    if (!IsRenderReady()) {
         return PaneZone::None;
     }
     return ZoneAt(dip_x, GetPaneLayout());
@@ -188,10 +77,70 @@ PaneZone App::ZoneAt(float dip_x, const PaneLayout& layout) const noexcept
         state_.view.panes.IsSidePaneVisible(PaneTarget::Toc));
 }
 
-// Mermaid のキャッシュキーに入るため、全経路でこの値を使う (ずれるとキャッシュを外す)。
-float App::MdContentWidth()
+SidePaneState App::BuildSidePaneState(const PaneLayout& layout) const
 {
-    return renderer_.GetTheme().ContentWidth(GetPaneLayout().md_rect.width);
+    const auto& panes = state_.view.panes;
+    const bool can_reveal = state_.document.doc.HasBackingFile();
+    const auto make_side_pane = [&panes, can_reveal](PaneTarget t, PaneRect rect) {
+        return SidePaneInstance{
+            .rect = rect,
+            .scroll = panes.SidePaneScroll(t),
+            .hovered_index = panes.GetHoveredSideIndex(t),
+            .show = panes.IsSidePaneVisible(t),
+            .hovered_button = panes.GetSideHoveredButton(t),
+            .reveal_enabled = t == PaneTarget::File && can_reveal,
+        };
+    };
+    return SidePaneState{
+        .panes = {
+                  make_side_pane(PaneTarget::File, layout.file_rect),
+                  make_side_pane(PaneTarget::Toc, layout.toc_rect),
+                  },
+        .file_entries = state_.file_explorer.GetEntries(),
+        .toc_entries = state_.document.doc.GetToc().GetEntries(),
+        .nodes = state_.document.doc.GetNodes(),
+        .active_toc_index = state_.view.active_toc_index,
+    };
+}
+
+TitleBarRenderState App::BuildTitleBarRenderState() const
+{
+    const auto& tbar = state_.window.titlebar;
+    const auto& panes = state_.view.panes;
+    return TitleBarRenderState{
+        .title_text = state_.cached_title_text,
+        .open_file = tbar.GetOpenFileButton(),
+        .help = tbar.GetHelpButton(),
+        .theme_toggle = tbar.GetThemeToggleButton(),
+        .search = tbar.GetSearchButton(),
+        .file_toggle = tbar.GetFileToggleButton(),
+        .toc_toggle = tbar.GetTocToggleButton(),
+        .minimize = tbar.GetMinimizeButton(),
+        .maximize = tbar.GetMaximizeButton(),
+        .close = tbar.GetCloseButton(),
+        .icon_rect = tbar.GetIconRect(),
+        .title_text_rect = tbar.GetTitleTextRect(),
+        .height = tbar.GetHeight(),
+        .window_width = state_.pane_layout_cache.WindowWidth(),
+        .hovered_zone = tbar.GetHovered(),
+        .is_dark_mode = theme_service_.IsDarkMode(),
+        .search_active = state_.search.search_state.IsVisible(),
+        .file_pane_visible = panes.IsSidePaneVisible(PaneTarget::File),
+        .toc_pane_visible = panes.IsSidePaneVisible(PaneTarget::Toc),
+        .is_maximized = IsZoomed(hwnd_) != FALSE,
+        .window_active = state_.window.window_active,
+    };
+}
+
+void App::SyncRendererSearchMatches()
+{
+    const auto& ss = state_.search.search_state;
+    if (ss.IsVisible() && ss.IsHighlightEnabled() && !ss.GetMatches().empty()) {
+        renderer_.SetSearchMatches(&ss.GetMatches(), ss.GetCurrentMatchIndex(), ss.GetGeneration());
+    }
+    else {
+        renderer_.SetSearchMatches(nullptr, -1, 0);
+    }
 }
 
 void App::OnPaint()
@@ -215,81 +164,26 @@ void App::OnPaint()
     }
 
     const auto gs = ResolveGestureOverlay(state_.interaction.gesture, state_.interaction.swipe_detector);
-
-    const auto& panes = state_.view.panes;
-    const bool can_reveal = state_.document.doc.HasBackingFile();
-    auto make_side_pane = [&panes, can_reveal](PaneTarget t, PaneRect rect) {
-        return SidePaneInstance{
-            .rect = rect,
-            .scroll = panes.SidePaneScroll(t),
-            .hovered_index = panes.GetHoveredSideIndex(t),
-            .show = panes.IsSidePaneVisible(t),
-            .hovered_button = panes.GetSideHoveredButton(t),
-            .reveal_enabled = t == PaneTarget::File && can_reveal,
-        };
-    };
-    const SidePaneState sp{
-        .panes = {
-                  make_side_pane(PaneTarget::File, layout.file_rect),
-                  make_side_pane(PaneTarget::Toc, layout.toc_rect),
-                  },
-        .file_entries = state_.file_explorer.GetEntries(),
-        .toc_entries = state_.document.doc.GetToc().GetEntries(),
-        .nodes = state_.document.doc.GetNodes(),
-        .active_toc_index = state_.view.active_toc_index,
-    };
-
-    const auto& tbar = state_.window.titlebar;
-    const TitleBarRenderState tb{
-        .title_text = state_.cached_title_text,
-        .open_file = tbar.GetOpenFileButton(),
-        .help = tbar.GetHelpButton(),
-        .theme_toggle = tbar.GetThemeToggleButton(),
-        .search = tbar.GetSearchButton(),
-        .file_toggle = tbar.GetFileToggleButton(),
-        .toc_toggle = tbar.GetTocToggleButton(),
-        .minimize = tbar.GetMinimizeButton(),
-        .maximize = tbar.GetMaximizeButton(),
-        .close = tbar.GetCloseButton(),
-        .icon_rect = tbar.GetIconRect(),
-        .title_text_rect = tbar.GetTitleTextRect(),
-        .height = tbar.GetHeight(),
-        .window_width = state_.pane_layout_cache.WindowWidth(),
-        .hovered_zone = tbar.GetHovered(),
-        .is_dark_mode = theme_service_.IsDarkMode(),
-        .search_active = state_.search.search_state.IsVisible(),
-        .file_pane_visible = panes.IsSidePaneVisible(PaneTarget::File),
-        .toc_pane_visible = panes.IsSidePaneVisible(PaneTarget::Toc),
-        .is_maximized = IsZoomed(hwnd_) != FALSE,
-        .window_active = state_.window.window_active,
-    };
-
+    const SidePaneState sp = BuildSidePaneState(layout);
+    const TitleBarRenderState tb = BuildTitleBarRenderState();
     const ToastRenderState ts{
         .visible = state_.interaction.toast.IsVisible(),
         .alpha = state_.interaction.toast.GetRenderAlpha(),
         .message = state_.interaction.toast.GetMessage(),
     };
 
-    const auto sb = state_.search.search_bar_ctrl.BuildRenderState();
-
     if (show_loading) {
         renderer_.DrawLoading(file_load_service_.GetLoadingAngle(), layout.md_rect, sp, tb, gs, ts);
     }
     else {
-        auto& ss = state_.search.search_state;
-        if (ss.IsVisible() && ss.IsHighlightEnabled() && !ss.GetMatches().empty()) {
-            renderer_.SetSearchMatches(&ss.GetMatches(), ss.GetCurrentMatchIndex(), ss.GetGeneration());
-        }
-        else {
-            renderer_.SetSearchMatches(nullptr, -1, 0);
-        }
+        SyncRendererSearchMatches();
 
-        // PrepareVisibleEffects は Render の前に実行する必要がある（描画コマンドが
-        // 各ノードのエフェクト状態を参照するため）。
+        // 描画コマンドが各ノードのエフェクト状態を参照するため Render より前に行う。
         renderer_.PrepareVisibleEffects(
             state_.document.doc.GetNodesMut(), state_.document.layout_cache,
             state_.view.viewport.GetScrollY(), layout.md_rect.height);
 
+        const auto sb = state_.search.search_bar_ctrl.BuildRenderState();
         const BlockHScrollContext h_scroll{
             .scroll_x = &state_.view.block_scroll_x,
             .hovered_block = state_.view.hovered_h_block,
@@ -306,12 +200,6 @@ void App::OnPaint()
 
     EndPaint(hwnd_, &ps);
     MENDO_FRAME_MARK();
-}
-
-float App::ScrollableContentHeight() const noexcept
-{
-    // WM_NCHITTEST は Init 前にも届く。
-    return state_.theme ? MdScrollableContentHeight(state_) : 0.0f;
 }
 
 void App::OnResize(UINT width, UINT height)
@@ -341,40 +229,6 @@ void App::OnMermaidDiskLoaded()
     resource_manager_.BatchMermaidCompletions([this] { mermaid_renderer_.ProcessDiskLoads(); });
 }
 
-void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
-{
-    if (!IsRenderReady()) {
-        return;
-    }
-
-    if (ctrl) {
-        const MouseWheelEvent event{ delta, true, PaneZone::MdPane };
-        Dispatch(app_controller::HandleMouseWheel(event));
-        return;
-    }
-
-    // 縦スクロールが発生した時点で SwipeDetector の軸ロックを更新（再武装）し、
-    // 直後の水平ホイールがスワイプとして誤検出されないようにする。
-    const bool had_overlay = state_.interaction.swipe_detector.IsOverlayVisible();
-    state_.interaction.swipe_detector.NotifyVScroll(GetTickCount64());
-    if (had_overlay) {
-        EmitEffect(effect::KillTimer{ app_timer::Id::SWIPE_OVERLAY });
-        Invalidate();
-    }
-
-    const auto dip = PixelToDip(px, py);
-    const auto pane_layout = GetPaneLayout();
-    const auto zone = ZoneAt(dip.x, pane_layout);
-
-    const MouseWheelEvent event{ delta, false, zone };
-    Dispatch(app_controller::HandleMouseWheel(event));
-}
-
-void App::OnMouseHWheel(short delta)
-{
-    Dispatch(HWheelAction{ delta, GetTickCount64() });
-}
-
 void App::OnKeyDown(WPARAM key)
 {
     const KeyDownEvent event{
@@ -388,6 +242,7 @@ void App::OnKeyDown(WPARAM key)
 
 void App::Dispatch(const AppAction& action)
 {
+    // reducer は pane_layout_cache を参照するだけなので、ここで確実に確定させておく。
     GetPaneLayout();
     auto effects = Reduce(state_, action);
     effect_executor_.Execute(effects);
@@ -427,7 +282,35 @@ void App::ShowToast(std::wstring_view message)
     if (message.empty()) {
         return;
     }
-    effect_executor_.ExecuteOne(effect::ShowToast{ std::pmr::wstring{ message } });
+    EmitEffect(effect::ShowToast{ std::pmr::wstring{ message } });
+}
+
+void App::SaveSession()
+{
+    // SaveScrollPosition だけガード外に置くと、Help 表示中に終了したとき
+    // 前回 LastFilePath に Help の node index が紐付き、次回起動時に誤位置へジャンプする。
+    const auto& doc = state_.document.doc;
+    if (doc.HasBackingFile()) {
+        session_.SaveLastFilePath(doc.GetFilePath());
+        const auto& cache = state_.document.layout_cache;
+        if (const int node = state_.view.viewport.FindFirstVisibleNode(cache, doc.GetNodes().size()); node >= 0) {
+            // 復元側 (NodeOffsetToScrollY) と同じ cache[node].text_top を読む。
+            session_.SaveScrollPosition(node, state_.view.viewport.GetScrollY(), cache.Top(static_cast<size_t>(node)));
+        }
+    }
+
+    const auto& panes = state_.view.panes;
+    session_.SavePaneState({
+        .show_file = panes.IsSidePaneVisible(PaneTarget::File),
+        .show_toc = panes.IsSidePaneVisible(PaneTarget::Toc),
+        .file_width = panes.GetSidePaneWidth(PaneTarget::File),
+        .toc_width = panes.GetSidePaneWidth(PaneTarget::Toc),
+    });
+
+    config_.SaveWString("General", "Language", i18n::GetLangKey());
+    // 個別 Save 呼び出しでは write が遅延されるため、終了前に明示 flush で
+    // すべての設定値を 1 度のディスク書き込みにまとめる。
+    config_.Flush();
 }
 
 void App::OnDestroy()
@@ -441,32 +324,8 @@ void App::OnDestroy()
     file_cache_.Shutdown();
     file_cache_.SaveIndex();
 
-    // SaveScrollPosition だけガード外に置くと、Help 表示中に終了したとき
-    // 前回 LastFilePath に Help の node index が紐付き、次回起動時に誤位置へジャンプする。
-    if (state_.document.doc.HasBackingFile()) {
-        session_.SaveLastFilePath(state_.document.doc.GetFilePath());
-        if (const int node = state_.view.viewport.FindFirstVisibleNode(state_.document.layout_cache, state_.document.doc.GetNodes().size()); node >= 0) {
-            // 復元側 (NodeOffsetToScrollY) と同じ cache[node].text_top を読む。
-            const float text_top = state_.document.layout_cache.Top(static_cast<size_t>(node));
-            session_.SaveScrollPosition(node, state_.view.viewport.GetScrollY(), text_top);
-        }
-    }
+    SaveSession();
 
-    {
-        const auto& panes = state_.view.panes;
-        const SessionService::PaneState s{
-            .show_file = panes.IsSidePaneVisible(PaneTarget::File),
-            .show_toc = panes.IsSidePaneVisible(PaneTarget::Toc),
-            .file_width = panes.GetSidePaneWidth(PaneTarget::File),
-            .toc_width = panes.GetSidePaneWidth(PaneTarget::Toc),
-        };
-        session_.SavePaneState(s);
-    }
-
-    config_.SaveWString("General", "Language", i18n::GetLangKey());
-    // 個別 Save 呼び出しでは write が遅延されるため、終了前に明示 flush で
-    // すべての設定値を 1 度のディスク書き込みにまとめる。
-    config_.Flush();
     for (UINT_PTR id = std::to_underlying(app_timer::kFirstTimer); id <= std::to_underlying(app_timer::kLastTimer); ++id) {
         KillTimer(hwnd_, id);
     }
@@ -491,8 +350,7 @@ RECT App::GetSearchEditRect()
     if (!state_.search.search_state.IsVisible()) {
         return { 0, 0, 1, 1 };
     }
-    const auto& layout = GetPaneLayout();
-    const auto sbl = ComputeSearchBarLayoutForMd(layout.md_rect);
+    const auto sbl = ComputeSearchBarLayoutForMd(GetPaneLayout().md_rect);
     const float s = state_.window.cached_dpi_scale;
     return {
         DipToPixel(sbl.input_rect.left, s),

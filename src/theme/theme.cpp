@@ -1,4 +1,5 @@
 #include "theme.h"
+#include "theme_palette.h"
 
 // Theme 内の「ズームでスケールする float メンバ」を一元管理する。
 // 新規のスケーラブルフィールドを追加する際はここに追記すれば
@@ -55,7 +56,6 @@ void Theme::ApplyZoom(float new_zoom) noexcept
     }
 }
 
-// ライトテーマとダークテーマで共有するレイアウト定数
 // selection_html (HTML コピー) と共有するコード/シンタックス色。
 static void ApplySharedColors(Theme& t, const theme_palette::SharedColors& p)
 {
@@ -70,6 +70,7 @@ static void ApplySharedColors(Theme& t, const theme_palette::SharedColors& p)
     t.syntax_function = D2D1::ColorF(p.syntax_function);
 }
 
+// ライトテーマとダークテーマで共有するフォントとレイアウト定数。
 static void ApplyCommonLayout(Theme& t)
 {
     t.font_family = L"Yu Gothic UI";
@@ -212,8 +213,8 @@ static Theme BuildDarkTheme()
     return t;
 }
 
-// 静的初期化はプロセス終了時に1回だけ走る。Magic statics の保護コストは
-// 関数呼び出しごとの atomic ロードのみで、ホットパスでもほぼ無視できる。
+// 初回呼び出し時に 1 回だけ構築する。Magic statics の保護コストは
+// 呼び出しごとの atomic ロードのみで、ホットパスでもほぼ無視できる。
 const Theme& GetLightTheme()
 {
     static const Theme kLight = BuildLightTheme();

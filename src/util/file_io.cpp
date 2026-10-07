@@ -1,6 +1,4 @@
 #include "file_io.h"
-#include <limits>
-#include <utility>
 
 OpenedFile OpenFileForReadShared(const std::filesystem::path& path, DWORD share_mode, LONGLONG max_size, DWORD* out_error) noexcept
 {
@@ -60,7 +58,7 @@ bool IsFileLargerThan(const std::filesystem::path& path, size_t reference_size, 
 
 bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size, bool flush_buffers)
 {
-    if (size > std::numeric_limits<uint32_t>::max()) {
+    if (size > std::numeric_limits<DWORD>::max()) {
         return false;
     }
     UniqueHandle hFile(CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));

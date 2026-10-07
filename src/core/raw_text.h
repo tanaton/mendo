@@ -11,7 +11,7 @@
 // `append/resize/operator+=` のような relocate を発生させ得る関数を型レベルで遮断する。
 //
 // 不変条件: 一度 Replace されたヒープバッファは Document の生存期間中、再 Replace か
-// move-assign 以外で relocate しない。これによって、view モードノードの view_base_ が
+// move-assign 以外で relocate しない。これによって、view モードノードの view_ が
 // 指し続けるバッファの安全性が型レベルで担保される。
 // 本体は不変の共有文字列で持ち、非同期リロードの worker が Document の差し替えと無関係に
 // 旧テキストを読めるようにする (Share)。move でバッファが relocate しない利点もある。

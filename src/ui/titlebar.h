@@ -88,15 +88,15 @@ public:
     }
 
 private:
-    DipRect open_file_;
-    DipRect help_;
-    DipRect theme_toggle_;
-    DipRect search_;
-    DipRect file_toggle_;
-    DipRect toc_toggle_;
-    DipRect minimize_;
-    DipRect maximize_;
-    DipRect close_;
+    DipRect open_file_{};
+    DipRect help_{};
+    DipRect theme_toggle_{};
+    DipRect search_{};
+    DipRect file_toggle_{};
+    DipRect toc_toggle_{};
+    DipRect minimize_{};
+    DipRect maximize_{};
+    DipRect close_{};
     DipRect icon_rect_{};
     DipRect title_text_rect_{};
     TitleBarHitZone hovered_ = TitleBarHitZone::None;

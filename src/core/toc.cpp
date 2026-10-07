@@ -1,6 +1,8 @@
 #include "toc.h"
+#include "layout_cache.h"
 #include "pane_layout.h"
 #include <algorithm>
+#include <iterator>
 
 void TableOfContents::AddEntry(const Node& node, int node_index)
 {

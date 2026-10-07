@@ -6,14 +6,15 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 #include <windows.h>
-#include <string>
-#include <map>
-#include <set>
-#include <vector>
-#include <mutex>
 #include <atomic>
+#include <cstdint>
 #include <functional>
-
+#include <map>
+#include <mutex>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
 
 class TaskScheduler;
 
@@ -44,8 +45,7 @@ public:
     void ClearCache()
     {
         cache_.Clear();
-        const std::lock_guard lock(pending_mutex_);
-        failed_paths_.clear();
+        ResetFailedPaths();
     }
     void ResetFailedPaths()
     {
@@ -76,8 +76,11 @@ private:
         Callback on_complete;
     };
 
-    void GetDpiScale(float& scale_x, float& scale_y) const;
-    std::pair<float, float> CreateAndCacheImage(const std::wstring& path, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap, UINT pixel_width, UINT pixel_height);
+    static void CopyTo(const CachedImage& cached, DiagramEntry& out);
+    // worker で呼ぶ。失敗時は result.bitmap を null のまま残す。
+    void DecodeForDisplay(const std::wstring& path, DecodeResult& result) const;
+    // 物理 px を DIP に換算してキャッシュし、DIP 寸法を返す。
+    std::pair<float, float> CacheBitmap(const std::wstring& path, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap, UINT pixel_width, UINT pixel_height);
 
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
     static constexpr size_t MAX_CACHE_BYTES = 128u * 1024 * 1024;

@@ -41,6 +41,15 @@ constexpr float ImageDisplayHeight(float width, float height, float max_width) n
 float GetSpacingAbove(const Node& node, const Theme& theme) noexcept;
 float GetSpacingBelow(const Node& node, const Theme& theme) noexcept;
 
+// nodes[index] の spacing_above を足す前の Y (直前ノードの下端 + spacing_below)。index == 0 は margin_top。
+inline float NodeStartY(const std::pmr::vector<Node>& nodes, const LayoutCache& cache, const Theme& theme, size_t index) noexcept
+{
+    if (index == 0) {
+        return theme.margin_top;
+    }
+    return cache.Bottom(index - 1) + GetSpacingBelow(nodes[index - 1], theme);
+}
+
 // 1 ノード分の Y 進行。戻り値はテキスト上端。加算順序 (above → height → below) は大規模ファイルでの
 // catastrophic cancellation 回避のため既存の累積順序を厳密に保持する。
 inline float AdvanceNodeY(float& y, float spacing_above, float height, float spacing_below) noexcept
@@ -91,7 +100,7 @@ struct HeightChangeRange {
 
 // 戻り値: 再計算範囲 (tail シフト時は以降も保守的に含む) に dirty ノードが残っているか。
 bool RecomputeYPositions(
-    std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
+    const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
     size_t from_index = 0, size_t safe_exit_after = std::numeric_limits<size_t>::max()) noexcept;
 
 } // namespace mendo::layout

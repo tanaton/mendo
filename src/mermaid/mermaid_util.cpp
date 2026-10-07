@@ -81,11 +81,6 @@ int mermaid_util::QuantizeWidth(float max_width) noexcept
     return static_cast<int>(std::ceil(max_width / static_cast<float>(kQuantum))) * kQuantum;
 }
 
-uint64_t mermaid_util::HashCode(std::string_view code, float max_width, bool dark_mode) noexcept
-{
-    return CombinedHash(code, QuantizeWidth(max_width), dark_mode);
-}
-
 std::pmr::wstring mermaid_util::BuildLatexFlowchartCode(std::wstring_view latex)
 {
     // mermaid ラベル内で特殊文字をエスケープする:
@@ -116,8 +111,10 @@ std::pmr::wstring mermaid_util::BuildLatexFlowchartCode(std::wstring_view latex)
     return result;
 }
 
+namespace {
+
 // key の直後の ':' と空白を読み飛ばした値の先頭位置。見つからなければ npos。
-static size_t FindJsonValueStart(std::wstring_view json, std::wstring_view key) noexcept
+size_t FindJsonValueStart(std::wstring_view json, std::wstring_view key) noexcept
 {
     const auto pos = json.find(key);
     if (pos == std::wstring_view::npos) {
@@ -127,7 +124,7 @@ static size_t FindJsonValueStart(std::wstring_view json, std::wstring_view key) 
 }
 
 // wstring_view は null 終端が保証されないため、数値部分を切り出してから wcstof に渡す。
-static float ParseFloatPrefix(std::wstring_view s) noexcept
+float ParseFloatPrefix(std::wstring_view s) noexcept
 {
     wchar_t buf[64];
     const auto num_len = (std::min)(s.size(), std::size(buf) - 1);
@@ -135,6 +132,8 @@ static float ParseFloatPrefix(std::wstring_view s) noexcept
     buf[num_len] = L'\0';
     return std::wcstof(buf, nullptr);
 }
+
+} // namespace
 
 float mermaid_util::ParseJsonNumber(std::wstring_view json, std::wstring_view key) noexcept
 {
@@ -176,12 +175,12 @@ mermaid_util::RequestPrefix mermaid_util::ParseRequestPrefix(std::wstring_view b
 
 mermaid_util::ParsedWebMessage mermaid_util::ParseWebMessage(std::wstring_view msg) noexcept
 {
-    using namespace std::literals;
     ParsedWebMessage out;
 
-    if (msg.starts_with(L"mermaid-ready:"sv)) {
+    constexpr auto kReadyPrefix = L"mermaid-ready:"sv;
+    if (msg.starts_with(kReadyPrefix)) {
         out.kind = WebMessageKind::Ready;
-        out.ready_dpr = ParseFloatPrefix(msg.substr(std::size(L"mermaid-ready:") - 1));
+        out.ready_dpr = ParseFloatPrefix(msg.substr(kReadyPrefix.size()));
         return out;
     }
     if (msg == L"mermaid-failed"sv) {
@@ -232,27 +231,23 @@ bool mermaid_util::ParseJsonTrueFlag(std::wstring_view json, std::wstring_view k
 
 std::pmr::wstring mermaid_util::ParseJsonString(std::wstring_view json, std::wstring_view key)
 {
-    std::pmr::wstring result;
     auto pos = FindJsonValueStart(json, key);
     if (pos == std::wstring_view::npos || json[pos] != L'"') {
-        return result;
+        return {};
     }
     ++pos;
 
     std::pmr::wstring buf;
-    bool closed = false;
     while (pos < json.size()) {
-        const wchar_t c = json[pos];
+        const wchar_t c = json[pos++];
         if (c == L'"') {
-            closed = true;
-            break;
+            return buf;
         }
         if (c != L'\\') {
             buf += c;
-            ++pos;
             continue;
         }
-        if (++pos >= json.size()) {
+        if (pos >= json.size()) {
             break;
         }
         const wchar_t esc = json[pos++];
@@ -263,13 +258,9 @@ std::pmr::wstring mermaid_util::ParseJsonString(std::wstring_view json, std::wst
         case L'b': buf += L'\b'; break;
         case L'f': buf += L'\f'; break;
         case L'u': {
-            if (json.size() - pos < 4) {
-                pos = json.size();
-                break;
-            }
             unsigned int cp = 0;
-            if (ascii_util::from_chars(json.data() + pos, 4, cp, 16u) != json.data() + pos + 4) {
-                return result;
+            if (json.size() - pos < 4 || ascii_util::from_chars(json.data() + pos, 4, cp, 16u) != json.data() + pos + 4) {
+                return {};
             }
             pos += 4;
             // サロゲートペアもそのまま格納する (wchar_t は UTF-16)。
@@ -282,10 +273,7 @@ std::pmr::wstring mermaid_util::ParseJsonString(std::wstring_view json, std::wst
             break;
         }
     }
-    if (closed) {
-        result = std::move(buf);
-    }
-    return result;
+    return {};
 }
 
 std::pmr::wstring mermaid_util::SanitizeErrorMessage(std::wstring_view msg, size_t max_len)
@@ -326,7 +314,7 @@ uint64_t mermaid_util::NodeDiagramHash(const Node& node, float max_width, bool d
 {
     // LatexMath を Mermaid とキャッシュ衝突させないためのソルト（任意の定数）。
     constexpr uint64_t LATEX_MATH_HASH_SALT = 0xA1B2C3D4E5F60718ULL;
-    uint64_t h = HashCode(node.GetText(), max_width, dark_mode);
+    uint64_t h = CombinedHash(node.GetText(), QuantizeWidth(max_width), dark_mode);
     if (node.code_language() == SyntaxLanguage::LatexMath) {
         h ^= LATEX_MATH_HASH_SALT;
     }

@@ -1,10 +1,9 @@
 #pragma once
 #include "document_types.h"
-#include "layout_cache.h"
-#include <string>
-#include <vector>
 #include <memory_resource>
-#include <ranges>
+#include <vector>
+
+class LayoutCache;
 
 struct TocEntry {
     int node_index = -1;

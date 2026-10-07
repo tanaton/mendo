@@ -12,40 +12,25 @@
 #include <format>
 #include <iterator>
 #include <optional>
-#include <ranges>
-
-std::pmr::string ExtractSelectedText(const std::pmr::vector<Node>& nodes, const TextSelection& selection)
-{
-    if (!selection.active) {
-        return {};
-    }
-
-    // 全選択 (100MB 級) で倍々成長の再確保と旧新バッファの同時保持が起きないよう、
-    // 先に正確な長さを数えて 1 回で確保する。
-    const auto for_each_piece = [&](auto&& sink) {
-        for (int i = selection.start_node; i <= selection.end_node; i++) {
-            if (i < 0 || i >= static_cast<int>(nodes.size())) {
-                continue;
-            }
-            const std::string_view text = nodes[i].LinearizedText();
-            const auto [start, end] = selection.ClampedRange(i, text.size());
-            if (start < end) {
-                sink(text.substr(start, end - start));
-            }
-            if (i < selection.end_node) {
-                sink(std::string_view{ "\r\n" });
-            }
-        }
-    };
-    size_t total = 0;
-    for_each_piece([&total](std::string_view s) { total += s.size(); });
-    std::pmr::string result;
-    result.reserve(total);
-    for_each_piece([&result](std::string_view s) { result.append(s); });
-    return result;
-}
+#include <span>
 
 namespace {
+
+// 範囲外の node index を飛ばしながら選択範囲内のノードを走査する。
+template <class Fn>
+void ForEachSelectedNode(const std::pmr::vector<Node>& nodes, const TextSelection& selection, Fn&& fn)
+{
+    const int first = std::max(selection.start_node, 0);
+    const int last = std::min(selection.end_node, static_cast<int>(nodes.size()) - 1);
+    for (int i = first; i <= last; ++i) {
+        fn(i, nodes[i]);
+    }
+}
+
+constexpr const theme_palette::SharedColors& PaletteFor(bool dark_mode) noexcept
+{
+    return dark_mode ? theme_palette::kDark : theme_palette::kLight;
+}
 
 constexpr uint32_t ClampEndToText(uint32_t end, size_t text_size) noexcept
 {
@@ -127,20 +112,16 @@ public:
             Push("</a>");
         }
         if (s.bold) {
-            out_.append("<strong>");
-            Push("</strong>");
+            OpenTag("<strong>", "</strong>");
         }
         if (s.italic) {
-            out_.append("<em>");
-            Push("</em>");
+            OpenTag("<em>", "</em>");
         }
         if (s.strike) {
-            out_.append("<s>");
-            Push("</s>");
+            OpenTag("<s>", "</s>");
         }
         if (s.code) {
-            out_.append("<code>");
-            Push("</code>");
+            OpenTag("<code>", "</code>");
         }
     }
 
@@ -157,6 +138,12 @@ public:
     }
 
 private:
+    constexpr void OpenTag(std::string_view open_tag, std::string_view close_tag)
+    {
+        out_.append(open_tag);
+        Push(close_tag);
+    }
+
     constexpr void Push(std::string_view close_tag) noexcept
     {
         assert(count_ < close_stack_.size());
@@ -167,6 +154,29 @@ private:
     std::array<std::string_view, 5> close_stack_{};
     size_t count_ = 0;
 };
+
+enum class UrlSafety : uint8_t {
+    Unchecked,
+    Safe,
+    Unsafe,
+};
+
+// 危険なスキームのリンクは外す。IsSafeUrlScheme の結果は URL ごとに url_safety へキャッシュする。
+InlineState InlineStateOf(const TextRun& r, std::span<const std::pmr::string> link_urls, std::span<UrlSafety> url_safety)
+{
+    InlineState s{ r.bold(), r.italic(), r.code(), r.strikethrough(), r.link_url_index };
+    if (s.link_url_index < 0 || static_cast<size_t>(s.link_url_index) >= link_urls.size()) {
+        return s;
+    }
+    auto& safety = url_safety[static_cast<size_t>(s.link_url_index)];
+    if (safety == UrlSafety::Unchecked) {
+        safety = IsSafeUrlScheme(link_urls[static_cast<size_t>(s.link_url_index)]) ? UrlSafety::Safe : UrlSafety::Unsafe;
+    }
+    if (safety == UrlSafety::Unsafe) {
+        s.link_url_index = -1;
+    }
+    return s;
+}
 
 // runs は start 昇順・非重複で並ぶ前提。run 境界単位で処理することで
 // 同一 state 区間の比較と IsSafeUrlScheme を run あたり 1 回に抑える。
@@ -187,11 +197,6 @@ constexpr void AppendInlineHtml(
     size_t run_idx = 0;
     uint32_t pos = start;
 
-    enum class UrlSafety : uint8_t {
-        Unchecked = 0,
-        Safe = 1,
-        Unsafe = 2
-    };
     // URL 数は典型的に少数のためスタック上にインライン格納する。
     mendo::small_vector<UrlSafety, 4> url_safety;
     url_safety.assign(link_urls.size(), UrlSafety::Unchecked);
@@ -208,24 +213,11 @@ constexpr void AppendInlineHtml(
         }
         else {
             const auto& r = runs[run_idx];
-            s.bold = r.bold();
-            s.italic = r.italic();
-            s.code = r.code();
-            s.strike = r.strikethrough();
-            s.link_url_index = r.link_url_index;
-            if (s.link_url_index >= 0 && static_cast<size_t>(s.link_url_index) < link_urls.size()) {
-                const size_t ui = static_cast<size_t>(s.link_url_index);
-                if (url_safety[ui] == UrlSafety::Unchecked) {
-                    url_safety[ui] = IsSafeUrlScheme(link_urls[ui]) ? UrlSafety::Safe : UrlSafety::Unsafe;
-                }
-                if (url_safety[ui] == UrlSafety::Unsafe) {
-                    s.link_url_index = -1;
-                }
-            }
+            s = InlineStateOf(r, link_urls, url_safety);
             segment_end = std::min(end, r.start + r.length);
         }
 
-        if (!(s == current)) {
+        if (s != current) {
             scope.CloseAll();
             current = s;
             scope.Open(current, link_urls);
@@ -267,12 +259,9 @@ constexpr void AppendHexColor(std::pmr::string& out, uint32_t rgb)
 {
     constexpr char kDigits[] = "0123456789abcdef";
     out.push_back('#');
-    out.push_back(kDigits[(rgb >> 20) & 0xF]);
-    out.push_back(kDigits[(rgb >> 16) & 0xF]);
-    out.push_back(kDigits[(rgb >> 12) & 0xF]);
-    out.push_back(kDigits[(rgb >> 8) & 0xF]);
-    out.push_back(kDigits[(rgb >> 4) & 0xF]);
-    out.push_back(kDigits[rgb & 0xF]);
+    for (int shift = 20; shift >= 0; shift -= 4) {
+        out.push_back(kDigits[(rgb >> shift) & 0xF]);
+    }
 }
 
 constexpr std::optional<uint32_t> SyntaxTokenColor(SyntaxTokenType type, const theme_palette::SharedColors& palette) noexcept
@@ -298,9 +287,10 @@ constexpr std::optional<uint32_t> SyntaxTokenColor(SyntaxTokenType type, const t
     std::unreachable();
 }
 
-constexpr void AppendSyntaxHighlightedSpan(std::pmr::string& out, std::string_view chunk, SyntaxTokenType type, bool dark_mode)
+// Plain は span を付けずにエスケープのみ行う。
+constexpr void AppendSyntaxHighlightedSpan(
+    std::pmr::string& out, std::string_view chunk, SyntaxTokenType type, const theme_palette::SharedColors& palette)
 {
-    const auto& palette = dark_mode ? theme_palette::kDark : theme_palette::kLight;
     const auto color = SyntaxTokenColor(type, palette);
     if (!color) {
         AppendHtmlEscaped(out, chunk);
@@ -313,13 +303,46 @@ constexpr void AppendSyntaxHighlightedSpan(std::pmr::string& out, std::string_vi
     out.append("</span>");
 }
 
+// tokens は start 昇順・非重複の前提。トークンの隙間は Plain として出力する。
+void AppendHighlightedCode(
+    std::pmr::string& out,
+    std::string_view text,
+    std::span<const SyntaxToken> tokens,
+    uint32_t start, uint32_t end,
+    const theme_palette::SharedColors& palette)
+{
+    uint32_t pos = start;
+    for (const auto& tok : tokens) {
+        const uint32_t tok_end = tok.start + tok.length;
+        if (tok_end <= pos) {
+            continue;
+        }
+        if (tok.start >= end) {
+            break;
+        }
+        if (tok.start > pos) {
+            AppendHtmlEscaped(out, text.substr(pos, tok.start - pos));
+            pos = tok.start;
+        }
+        const uint32_t seg_end = std::min(tok_end, end);
+        AppendSyntaxHighlightedSpan(out, text.substr(pos, seg_end - pos), tok.type, palette);
+        pos = seg_end;
+        if (pos >= end) {
+            break;
+        }
+    }
+    if (pos < end) {
+        AppendHtmlEscaped(out, text.substr(pos, end - pos));
+    }
+}
+
 void AppendCodeBlockHtml(std::pmr::string& out, const Node& node, uint32_t start, uint32_t end, bool dark_mode)
 {
     constexpr std::string_view kStyleTail =
         ";padding:12px;border-radius:4px;overflow:auto;font-family:Consolas,'Courier New',monospace;font-size:13px;line-height:1.45;\"><code>";
     constexpr std::string_view kClose = "</code></pre>";
 
-    const auto& palette = dark_mode ? theme_palette::kDark : theme_palette::kLight;
+    const auto& palette = PaletteFor(dark_mode);
     out.append("<pre style=\"background-color:");
     AppendHexColor(out, palette.code_bg);
     // ダーク時のみテキスト色を明示する（ライトは呼び出し側の親要素の色を継承）。
@@ -328,50 +351,10 @@ void AppendCodeBlockHtml(std::pmr::string& out, const Node& node, uint32_t start
         AppendHexColor(out, palette.code_text);
     }
     out.append(kStyleTail);
-    const auto& text = node.GetText();
+    const std::string_view text = node.GetText();
     end = ClampEndToText(end, text.size());
     if (start < end) {
-        const std::string_view text_view{ text };
-        const auto& tokens = node.syntax_tokens();
-        if (tokens.empty()) {
-            AppendHtmlEscaped(out, text_view.substr(start, end - start));
-        }
-        else {
-            // tokens は start 昇順・連続配置の前提。Plain 区間は span を省略する。
-            uint32_t pos = start;
-            for (const auto& tok : tokens) {
-                const uint32_t tok_end = tok.start + tok.length;
-                if (tok_end <= pos) {
-                    continue;
-                }
-                if (tok.start >= end) {
-                    break;
-                }
-                if (tok.start > pos) {
-                    const uint32_t plain_end = std::min(tok.start, end);
-                    AppendHtmlEscaped(out, text_view.substr(pos, plain_end - pos));
-                    pos = plain_end;
-                    if (pos >= end) {
-                        break;
-                    }
-                }
-                const uint32_t seg_start = std::max(pos, tok.start);
-                const uint32_t seg_end = std::min(tok_end, end);
-                if (seg_start < seg_end) {
-                    const auto chunk = text_view.substr(seg_start, seg_end - seg_start);
-                    if (tok.type == SyntaxTokenType::Plain) {
-                        AppendHtmlEscaped(out, chunk);
-                    }
-                    else {
-                        AppendSyntaxHighlightedSpan(out, chunk, tok.type, dark_mode);
-                    }
-                    pos = seg_end;
-                }
-            }
-            if (pos < end) {
-                AppendHtmlEscaped(out, text_view.substr(pos, end - pos));
-            }
-        }
+        AppendHighlightedCode(out, text, node.syntax_tokens(), start, end, palette);
     }
     out.append(kClose);
 }
@@ -432,9 +415,8 @@ private:
 constexpr void AppendTableCellStyle(std::pmr::string& out, TableAlign align, bool dark_mode)
 {
     // 共通の border+padding を先に出し、align 指定があれば追加して閉じる。
-    const auto& palette = dark_mode ? theme_palette::kDark : theme_palette::kLight;
     out.append(" style=\"border:1px solid ");
-    AppendHexColor(out, palette.table_border);
+    AppendHexColor(out, PaletteFor(dark_mode).table_border);
     out.append(";padding:6px 13px");
     switch (align) {
     case TableAlign::Center:
@@ -453,11 +435,11 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
 {
     const auto* tbl = node.table_data();
     if (!tbl || tbl->row_count == 0) {
-        const auto& text = node.GetText();
+        const std::string_view text = node.GetText();
         end = ClampEndToText(end, text.size());
         out.append("<pre>");
         if (start < end) {
-            AppendHtmlEscaped(out, std::string_view(text).substr(start, end - start));
+            AppendHtmlEscaped(out, text.substr(start, end - start));
         }
         out.append("</pre>");
         return;
@@ -496,35 +478,24 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
     out.append("</table>");
 }
 
-void AppendHeadingOpenTag(std::pmr::string& out, int level)
-{
-    std::format_to(std::back_inserter(out), "<h{}>", level);
-}
-
-void AppendHeadingCloseTag(std::pmr::string& out, int level)
-{
-    std::format_to(std::back_inserter(out), "</h{}>", level);
-}
-
-constexpr bool IsOrderedList(const Node& n) noexcept
-{
-    return IsListItem(n) && n.list_ordered();
-}
-
 std::optional<std::pmr::string> FindLinkInRuns(std::span<const TextRun> runs, std::span<const std::pmr::string> link_urls, uint32_t pos)
 {
     const auto it = std::ranges::find_if(runs, [pos](const TextRun& run) noexcept {
         return run.has_link() && (pos >= run.start) && (pos < run.start + run.length);
     });
-    if (it == runs.end() || it->link_url_index < 0 || static_cast<size_t>(it->link_url_index) >= link_urls.size()) {
+    if (it == runs.end() || static_cast<size_t>(it->link_url_index) >= link_urls.size()) {
         return std::nullopt;
     }
     return link_urls[static_cast<size_t>(it->link_url_index)];
 }
 
-// 指定 text_pos のセルの runs を span で返す。見つからなければ空 span。
-// text_pos は linearized 形式 (concat_text) の offset。
-std::span<const TextRun> FindTableCellRuns(const Node& node, uint32_t text_pos, uint32_t& local_pos)
+struct CellRunsHit {
+    std::span<const TextRun> runs;
+    uint32_t local_pos = 0;
+};
+
+// text_pos は linearized 形式 (concat_text) の offset。セル外 (区切り文字・padding) なら runs は空。
+CellRunsHit FindTableCellRuns(const Node& node, uint32_t text_pos)
 {
     const auto* tbl = node.table_data();
     if (!tbl || tbl->row_count == 0 || tbl->col_count == 0) {
@@ -546,15 +517,45 @@ std::span<const TextRun> FindTableCellRuns(const Node& node, uint32_t text_pos, 
     }
     const uint32_t start = starts[idx];
     // 末尾区切りを除いたセル長で in-range 判定。padding セルは長さ 0 で必ず外れる。
-    const auto cell_len = tbl->GetCellText(r, c).size();
-    if (text_pos >= start + cell_len) {
+    if (text_pos >= start + tbl->GetCellText(r, c).size()) {
         return {};
     }
-    local_pos = text_pos - start;
-    return tbl->GetCellRuns(r, c);
+    return { tbl->GetCellRuns(r, c), text_pos - start };
 }
 
 } // namespace
+
+std::pmr::string ExtractSelectedText(const std::pmr::vector<Node>& nodes, const TextSelection& selection)
+{
+    if (!selection.active) {
+        return {};
+    }
+
+    // 全選択 (100MB 級) で倍々成長の再確保と旧新バッファの同時保持が起きないよう、
+    // 先に正確な長さを数えて 1 回で確保する。
+    const auto for_each_piece = [&](auto&& sink) {
+        ForEachSelectedNode(nodes, selection, [&](int i, const Node& node) {
+            const std::string_view text = node.LinearizedText();
+            const auto [start, end] = selection.ClampedRange(i, text.size());
+            if (start < end) {
+                sink(text.substr(start, end - start));
+            }
+            if (i < selection.end_node) {
+                sink(std::string_view{ "\r\n" });
+            }
+        });
+    };
+    size_t total = 0;
+    for_each_piece([&total](std::string_view s) {
+        total += s.size();
+    });
+    std::pmr::string result;
+    result.reserve(total);
+    for_each_piece([&result](std::string_view s) {
+        result.append(s);
+    });
+    return result;
+}
 
 std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, const TextSelection& selection, bool dark_mode)
 {
@@ -564,37 +565,31 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
 
     std::pmr::string out;
     size_t estimated = 0;
-    for (int i = selection.start_node; i <= selection.end_node; ++i) {
-        if (i >= 0 && i < static_cast<int>(nodes.size())) {
-            estimated += nodes[i].LinearizedText().size();
-        }
-    }
+    ForEachSelectedNode(nodes, selection, [&estimated](int, const Node& node) {
+        estimated += node.LinearizedText().size();
+    });
     // シンタックスハイライトの span やテーブルの style 属性でタグのオーバーヘッドが増える。
     // 3 倍の予約は 100MB 選択で 300MB を確保するため 2 倍に留め、超過分は成長に任せる。
     out.reserve(estimated * 2 + 128);
 
-    const char* list_close_tag = nullptr;
-    auto close_list = [&]() {
-        if (list_close_tag) {
+    std::string_view list_close_tag;
+    const auto close_list = [&]() {
+        if (!list_close_tag.empty()) {
             out.append(list_close_tag);
-            list_close_tag = nullptr;
+            list_close_tag = {};
         }
     };
 
-    for (int i = selection.start_node; i <= selection.end_node; ++i) {
-        if (i < 0 || i >= static_cast<int>(nodes.size())) {
-            continue;
-        }
-        const auto& node = nodes[i];
+    ForEachSelectedNode(nodes, selection, [&](int i, const Node& node) {
         const auto text = node.LinearizedText();
-
         const auto [start, end] = selection.ClampedRange(i, text.size());
 
         if (IsListItem(node)) {
-            const char* want_close = IsOrderedList(node) ? "</ol>" : "</ul>";
+            const bool ordered = node.list_ordered();
+            const std::string_view want_close = ordered ? "</ol>" : "</ul>";
             if (list_close_tag != want_close) {
                 close_list();
-                out.append(IsOrderedList(node) ? "<ol>" : "<ul>");
+                out.append(ordered ? "<ol>" : "<ul>");
                 list_close_tag = want_close;
             }
         }
@@ -605,9 +600,9 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
         switch (node.type) {
         case NodeType::Heading: {
             const int level = std::clamp(static_cast<int>(node.heading_level()), 1, 6);
-            AppendHeadingOpenTag(out, level);
+            std::format_to(std::back_inserter(out), "<h{}>", level);
             AppendNodeInlineHtml(out, node, start, end);
-            AppendHeadingCloseTag(out, level);
+            std::format_to(std::back_inserter(out), "</h{}>", level);
             break;
         }
         case NodeType::Paragraph:
@@ -648,12 +643,12 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
             }
             out.append("\" alt=\"");
             if (start < end) {
-                AppendHtmlEscaped(out, std::string_view(text).substr(start, end - start));
+                AppendHtmlEscaped(out, text.substr(start, end - start));
             }
             out.append("\">");
             break;
         }
-    }
+    });
     close_list();
     return out;
 }
@@ -664,19 +659,17 @@ std::pmr::string BuildCodeBlockHtmlFragment(const Node& node, bool dark_mode)
     if (node.type != NodeType::CodeBlock) {
         return out;
     }
-    const auto& text = node.GetText();
-    const uint32_t end = static_cast<uint32_t>(text.size());
+    const std::string_view text = node.GetText();
     out.reserve(text.size() * 3 + 128);
-    AppendCodeBlockHtml(out, node, 0, end, dark_mode);
+    AppendCodeBlockHtml(out, node, 0, static_cast<uint32_t>(text.size()), dark_mode);
     return out;
 }
 
 std::optional<std::pmr::string> FindLinkAtPosition(const Node& node, uint32_t text_pos)
 {
     if (node.type == NodeType::Table) {
-        uint32_t local_pos = 0;
-        const auto runs = FindTableCellRuns(node, text_pos, local_pos);
+        const auto [runs, local_pos] = FindTableCellRuns(node, text_pos);
         return runs.empty() ? std::nullopt : FindLinkInRuns(runs, node.view_link_urls(), local_pos);
     }
-    return FindLinkInRuns(std::span<const TextRun>{ node.runs.data(), node.runs.size() }, node.view_link_urls(), text_pos);
+    return FindLinkInRuns(node.runs, node.view_link_urls(), text_pos);
 }
