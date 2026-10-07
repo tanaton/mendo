@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <atomic>
 #include <chrono>
+#include <limits>
 #include <memory_resource>
 #include <stdexcept>
 #include <string>
@@ -47,17 +48,38 @@ protected:
 class ThrowingMeasurer : public MockTextMeasurer {
 public:
     const Node* throw_on = nullptr;
+    // throw_on の計測を最初の throw_times 回だけ失敗させる。worker から呼ばれるので試行回数は atomic。
+    int throw_times = std::numeric_limits<int>::max();
+    mutable std::atomic<int> attempts{ 0 };
+    // 本番の MeasureNode は CodeBlock のトークン化を先に行うため、失敗時にも途中のトークンが残りうる。
+    bool write_token_before_throw = false;
 
     void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
                      std::pmr::vector<SyntaxToken>* tokens_out = nullptr,
                      MeasureViewportRange viewport = {}) const override
     {
-        if (&node == throw_on) {
+        if (&node == throw_on && attempts.fetch_add(1) < throw_times) {
+            if (write_token_before_throw && tokens_out) {
+                tokens_out->emplace_back();
+            }
             throw std::runtime_error("measure failed");
         }
         MockTextMeasurer::MeasureNode(node, entry, max_width, tokens_out, viewport);
     }
 };
+
+// ProcessDirtyBatch を残り dirty なしまで回し、回したバッチ数を返す。収束しなければ失敗にする。
+int DrainDirtyBatches(LayoutEngine& engine, std::pmr::vector<Node>& nodes, LayoutCache& cache)
+{
+    constexpr int kMaxBatches = 20;
+    for (int batches = 1; batches <= kMaxBatches; ++batches) {
+        if (!engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200)) {
+            return batches;
+        }
+    }
+    ADD_FAILURE() << "ProcessDirtyBatch が収束しない";
+    return kMaxBatches;
+}
 
 } // namespace
 
@@ -235,4 +257,128 @@ TEST_F(ParallelMeasureTest, ProcessDirtyBatchRetriesAfterChunkException)
         EXPECT_TRUE(engine.HasDirtyNodes()) << "計測できなかった dirty の再試行が止まる";
         EXPECT_TRUE(YChainConsistent(nodes, cache, theme_));
     }
+}
+
+// 常に例外を投げるノードは kMaxMeasureAttempts 回で諦めて dirty を外し、ダーティ処理を止める。
+// 同じ chunk の他のノードは例外に巻き込まれず計測される。諦めた記録は全レイアウトの無効化で消え、再び試される。
+TEST_F(ParallelMeasureTest, AlwaysThrowingNodeStopsRetryingAfterMaxAttempts)
+{
+    constexpr size_t kFirstDirty = 5;
+    constexpr size_t kDirtyCount = 10;
+    constexpr size_t kThrower = kFirstDirty + 3;
+    ThrowingMeasurer measurer;
+    LayoutEngine engine;
+    ASSERT_TRUE(engine.Init(&measurer, theme_));
+    LayoutSourceStore store;
+    auto [nodes, cache] = store.ParseAndLayout(engine, MakeParagraphs(60), 800.0f);
+
+    measurer.line_height *= 1.5f;
+    for (size_t k = 0; k < kDirtyCount; ++k) {
+        cache[kFirstDirty + k].layout_dirty = true;
+    }
+    measurer.throw_on = &nodes[kThrower];
+
+    engine.SetLayoutScheduler(&task_scheduler_);
+    ASSERT_TRUE(engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200));
+    for (size_t k = 0; k < kDirtyCount; ++k) {
+        const size_t i = kFirstDirty + k;
+        if (i != kThrower) {
+            EXPECT_FALSE(cache[i].layout_dirty) << "i=" << i << " は例外を投げたノードと同じ chunk でも計測される";
+        }
+    }
+    // RecomputeYPositions は末尾シフト時に dirty 残りを保守的に true と返すため、諦めた後に 1 バッチ余分に回りうる。
+    EXPECT_LE(1 + DrainDirtyBatches(engine, nodes, cache), static_cast<int>(LayoutCache::kMaxMeasureAttempts) + 1);
+    EXPECT_EQ(measurer.attempts.load(), LayoutCache::kMaxMeasureAttempts);
+    EXPECT_FALSE(engine.HasDirtyNodes()) << "諦めた後もダーティ処理が続いている";
+    EXPECT_FALSE(cache[kThrower].layout_dirty);
+    EXPECT_TRUE(YChainConsistent(nodes, cache, theme_));
+
+    cache.InvalidateAllLayouts();
+    cache[kThrower].layout_dirty = true;
+    DrainDirtyBatches(engine, nodes, cache);
+    engine.SetLayoutScheduler(nullptr);
+    EXPECT_EQ(measurer.attempts.load(), 2 * LayoutCache::kMaxMeasureAttempts) << "無効化後は改めて上限回数まで試す";
+}
+
+// 一時的な失敗は再試行で計測され、上限に達する前に成功すれば諦めない。成功すると失敗の記録は消える。
+TEST_F(ParallelMeasureTest, TransientMeasureFailureIsRetriedUntilMeasured)
+{
+    constexpr size_t kThrower = 7;
+    ThrowingMeasurer measurer;
+    LayoutEngine engine;
+    ASSERT_TRUE(engine.Init(&measurer, theme_));
+    LayoutSourceStore store;
+    auto [nodes, cache] = store.ParseAndLayout(engine, MakeParagraphs(30), 800.0f);
+    const float measured_height = cache[kThrower].height;
+
+    cache[kThrower].layout_dirty = true;
+    cache[kThrower].height = 0.0f;
+    measurer.throw_on = &nodes[kThrower];
+    measurer.throw_times = LayoutCache::kMaxMeasureAttempts - 1;
+
+    engine.SetLayoutScheduler(&task_scheduler_);
+    DrainDirtyBatches(engine, nodes, cache);
+    EXPECT_EQ(measurer.attempts.load(), LayoutCache::kMaxMeasureAttempts);
+    EXPECT_FALSE(cache[kThrower].layout_dirty);
+    EXPECT_FLOAT_EQ(cache[kThrower].height, measured_height) << "最後の試行で計測できている";
+    EXPECT_TRUE(YChainConsistent(nodes, cache, theme_));
+
+    // 成功で失敗の記録が消えるので、後で失敗し始めても改めて上限回数まで試す。
+    measurer.throw_times = std::numeric_limits<int>::max();
+    const int before = measurer.attempts.load();
+    cache[kThrower].layout_dirty = true;
+    DrainDirtyBatches(engine, nodes, cache);
+    engine.SetLayoutScheduler(nullptr);
+    EXPECT_EQ(measurer.attempts.load() - before, LayoutCache::kMaxMeasureAttempts);
+}
+
+// 失敗回数は MeasureEntry を通るどの経路で成功しても 0 に戻る (並列計測以外の成功で残ると、
+// 以後の一時的な失敗 1 回で諦めてしまう)。
+TEST_F(ParallelMeasureTest, MeasureSuccessOnAnyPathResetsFailureCount)
+{
+    constexpr size_t kThrower = 7;
+    ThrowingMeasurer measurer;
+    LayoutEngine engine;
+    ASSERT_TRUE(engine.Init(&measurer, theme_));
+    LayoutSourceStore store;
+    auto [nodes, cache] = store.ParseAndLayout(engine, MakeParagraphs(30), 800.0f);
+
+    cache[kThrower].layout_dirty = true;
+    measurer.throw_on = &nodes[kThrower];
+    measurer.throw_times = LayoutCache::kMaxMeasureAttempts - 1;
+    engine.SetLayoutScheduler(&task_scheduler_);
+    for (int k = 0; k + 1 < LayoutCache::kMaxMeasureAttempts; ++k) {
+        engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200);
+    }
+    engine.SetLayoutScheduler(nullptr);
+    ASSERT_EQ(cache[kThrower].measure_failures, LayoutCache::kMaxMeasureAttempts - 1);
+    ASSERT_TRUE(cache[kThrower].layout_dirty);
+
+    // 幅変更の全レイアウトは ComputeLayout から直接計測する。
+    engine.ComputeLayout(nodes, cache, 700.0f);
+    EXPECT_FALSE(cache[kThrower].layout_dirty);
+    EXPECT_EQ(cache[kThrower].measure_failures, 0);
+}
+
+// 計測が例外で失敗したノードに、例外の手前で書かれた途中のトークンを残さない。
+TEST_F(ParallelMeasureTest, FailedMeasureDoesNotKeepPartialTokens)
+{
+    ThrowingMeasurer measurer;
+    LayoutEngine engine;
+    ASSERT_TRUE(engine.Init(&measurer, theme_));
+    LayoutSourceStore store;
+    auto [nodes, cache] = store.ParseAndLayout(engine, "```cpp\nint x;\n```\n\npara\n", 800.0f);
+    const int code_idx = FindFirstNodeIndexByType(nodes, NodeType::CodeBlock);
+    ASSERT_GE(code_idx, 0);
+    const auto code = static_cast<size_t>(code_idx);
+    const size_t tokens_before = nodes[code].syntax_tokens().size();
+
+    cache[code].layout_dirty = true;
+    measurer.throw_on = &nodes[code];
+    measurer.write_token_before_throw = true;
+    engine.SetLayoutScheduler(&task_scheduler_);
+    engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200);
+    engine.SetLayoutScheduler(nullptr);
+    EXPECT_TRUE(cache[code].layout_dirty);
+    EXPECT_EQ(nodes[code].syntax_tokens().size(), tokens_before);
 }

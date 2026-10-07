@@ -5,10 +5,13 @@
 #include "parser.h"
 #include "selection_html.h"
 #include "syntax.h"
+#include "test_helpers.h"
 #include "utf8_codec.h"
+#include <algorithm>
 #include <format>
 #include <limits>
 #include <memory_resource>
+#include <optional>
 #include <random>
 #include <string>
 #include <string_view>
@@ -16,7 +19,7 @@
 
 // コピー時は CF_HTML とプレーンテキストを同時にクリップボードへ載せるため、貼り付け先によって
 // 内容が食い違わないよう「HTML からタグを除いたテキスト == プレーンテキスト」を保つ。
-// 表は HTML 側が常に表全体を出す (部分選択を反映しない) 仕様差があるため比較から除外する。
+// 表はセルを要素で区切るため、プレーンテキストのタブ・改行区切りを除いて比べる。
 
 namespace {
 
@@ -115,6 +118,40 @@ StrippedHtml StripHtml(std::string_view html)
     return r;
 }
 
+std::string WithoutTableSeparators(std::string_view s)
+{
+    std::string out;
+    for (const char ch : s) {
+        if (ch != '\t' && ch != '\n') {
+            out += ch;
+        }
+    }
+    return out;
+}
+
+// 出力される行数 (セル単位の総当たり)。選択文字を含むセルがある行と、行全体が選択範囲に含まれる行のうち、
+// 最初から最後までの行数。区切り文字だけにかかる行は数えず、全選択では空セルだけの行も数える。
+size_t ExpectedTableRowCount(const Node& node, uint32_t start, uint32_t end)
+{
+    const auto* tbl = node.table_data();
+    if (start >= end || tbl->col_count == 0) {
+        return 0;
+    }
+    std::optional<size_t> first;
+    size_t last = 0;
+    for (size_t r = 0; r < tbl->row_count; ++r) {
+        bool selected = start <= tbl->CellTextStart(r, 0) && tbl->CellTextEnd(r, tbl->col_count - 1) <= end;
+        for (size_t c = 0; c < tbl->col_count; ++c) {
+            selected = selected || std::max(start, tbl->CellTextStart(r, c)) < std::min(end, tbl->CellTextEnd(r, c));
+        }
+        if (selected) {
+            first = first.value_or(r);
+            last = r;
+        }
+    }
+    return first ? last - *first + 1 : 0;
+}
+
 // ノードを単独で選んだときの HTML (タグ除去後) とプレーンテキストの一致を見る。
 // 複数ノード選択の HTML は単独 HTML の連結 (リスト枠を除く) と同じ本文になるはずなので、それも確かめる。
 void CheckSelectionRoundTrip(const std::pmr::vector<Node>& nodes, const TextSelection& sel, bool dark)
@@ -129,13 +166,20 @@ void CheckSelectionRoundTrip(const std::pmr::vector<Node>& nodes, const TextSele
         one.start_node = one.end_node = i;
         one.start_pos = (i == sel.start_node) ? sel.start_pos : 0;
         one.end_pos = (i == sel.end_node) ? sel.end_pos : std::numeric_limits<uint32_t>::max();
-        const auto html = StripHtml(ExtractSelectedTextAsHtml(nodes, one, dark));
+        const auto raw_html = ExtractSelectedTextAsHtml(nodes, one, dark);
+        const auto html = StripHtml(raw_html);
         ASSERT_EQ(html.error, "") << "node " << i;
         expected_full += html.text;
-        if (nodes[i].type == NodeType::Table) {
+        const auto plain = ExtractSelectedText(nodes, one);
+        if (nodes[i].type == NodeType::Table && nodes[i].table_data() && nodes[i].table_data()->row_count > 0) {
+            // HTML はセルを要素で区切るので、プレーンテキストのタブ・改行区切りを除いて本文を比べる。
+            const auto [start, end] = one.ClampedRange(i, nodes[i].LinearizedText().size());
+            ASSERT_EQ(WithoutTableSeparators(html.text), WithoutTableSeparators(plain))
+                << "table node " << i << " range [" << start << ", " << end << ")";
+            ASSERT_EQ(CountOccurrences(raw_html, "<tr>"), ExpectedTableRowCount(nodes[i], start, end))
+                << "table node " << i << " range [" << start << ", " << end << ")";
             continue;
         }
-        const auto plain = ExtractSelectedText(nodes, one);
         ASSERT_EQ(html.text, std::string_view{ plain })
             << "node " << i << " type " << static_cast<int>(nodes[i].type) << " range [" << one.start_pos << ", " << one.end_pos << ")";
     }

@@ -201,7 +201,7 @@ bool LayoutEngine::ProcessDirtyBatch(
             ? mendo::layout::RunParallel(nodes, cache, content_width, *theme_, *measurer_, clip, mendo::layout::ParallelBudget{ batch_size }, *layout_scheduler_)
             : mendo::layout::RunSerial(nodes, cache, content_width, *theme_, *measurer_, clip, mendo::layout::SerialBudget{ batch_size, time_budget_us });
 
-    // processed では判定しない: 並列計測の chunk が全滅しても例外の手前で計測できたノードは
+    // processed では判定しない: 例外で計測できなかったノードがあっても、計測できたノードは
     // 高さが変わっているので Y を組み直し、残った dirty は再試行に回す必要がある。
     if (result.reason == mendo::layout::StopReason::NoneDirty) {
         has_dirty_nodes_ = false;

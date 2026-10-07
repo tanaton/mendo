@@ -191,6 +191,8 @@ struct NodeLayoutEntry {
     // SetMaxWidth だけの再計測は描画エフェクト/下線を保持するため、折り返しに依存する
     // インラインコード背景だけ作り直させる。effects_applied が true のときのみ意味を持つ。
     bool inline_code_bgs_stale = false;
+    // 計測が例外で失敗した連続回数 (成功で 0 に戻る)。bool 群の後ろのパディングに収まり、エントリのサイズは増えない。
+    uint8_t measure_failures = 0;
     // インラインコード持ちノードでのみ確保される。空の vector ヘッダ (24B/個) を全ノード分背負わない。
     mendo::pmr_unique_ptr<std::pmr::vector<InlineCodeBg>> inline_code_bgs;
     mendo::pmr_unique_ptr<TableLayoutData> table_layout; // テーブルのみ確保
@@ -390,6 +392,10 @@ public:
     {
         NoteMaterialized(i, i);
     }
+
+    // 計測が例外で失敗し続けるノードの試行回数の上限 (NodeLayoutEntry::measure_failures)。
+    // 超えたら dirty を外して諦め、ダーティ処理タイマーが同じノードを毎 tick 計測し続けるのを止める。
+    static constexpr uint8_t kMaxMeasureAttempts = 3;
 
     // 全 text_layout を破棄する操作の後に呼ぶ。差分エビクトが「破棄済み」と誤認して
     // 再生成済みの画面外レイアウトを取り逃がさないよう、追跡境界を初期化する。

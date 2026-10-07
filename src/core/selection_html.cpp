@@ -12,6 +12,7 @@
 #include <format>
 #include <iterator>
 #include <optional>
+#include <ranges>
 #include <span>
 
 namespace {
@@ -431,10 +432,12 @@ constexpr void AppendTableCellStyle(std::pmr::string& out, TableAlign align, boo
     out.append(";\"");
 }
 
+// start / end は concat_text の offset。プレーンテキスト版と同じく読み順の範囲で切り取り、
+// 範囲にかかる最初の行から最後の行までを出す。範囲外のセルは表の形を保つため空セルにする。
 void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, uint32_t end, bool dark_mode)
 {
     const auto* tbl = node.table_data();
-    if (!tbl || tbl->row_count == 0) {
+    if (!tbl || tbl->row_count == 0 || tbl->col_count == 0) {
         const std::string_view text = node.GetText();
         end = ClampEndToText(end, text.size());
         out.append("<pre>");
@@ -445,14 +448,50 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
         return;
     }
 
-    const auto row_count = tbl->row_count;
+    // [start, end) は呼び出し側で LinearizedText (= concat_text) の長さにクランプ済み。
+    if (start >= end) {
+        return;
+    }
     const auto col_count = static_cast<size_t>(tbl->col_count);
     const auto link_urls = node.view_link_urls();
+
+    // 行のセル文字範囲 [行頭セルの開始, 行末セルの終端] は読み順で単調なので、範囲にかかりうる行帯を二分探索で求める。
+    const auto row_begin = [&](size_t r) {
+        return tbl->CellTextStart(r, 0);
+    };
+    const auto row_end = [&](size_t r) {
+        return tbl->CellTextEnd(r, col_count - 1);
+    };
+    const auto rows = std::views::iota(size_t{ 0 }, static_cast<size_t>(tbl->row_count));
+    size_t first_row = static_cast<size_t>(std::ranges::partition_point(rows, [&](size_t r) { return row_end(r) < start; }) - rows.begin());
+    size_t end_row = static_cast<size_t>(std::ranges::partition_point(rows, [&](size_t r) { return row_begin(r) <= end; }) - rows.begin());
+    // 端の行は、選択文字を持つセルがあるか、行全体が選択範囲に含まれるときだけ出す。
+    // 区切り文字だけにかかる行は出さず、全選択では空セルだけの行 (空のヘッダ行など) も落とさない。
+    const auto row_selected = [&](size_t r) {
+        if (start <= row_begin(r) && row_end(r) <= end) {
+            return true;
+        }
+        for (size_t c = 0; c < col_count; c++) {
+            if (std::max(start, tbl->CellTextStart(r, c)) < std::min(end, tbl->CellTextEnd(r, c))) {
+                return true;
+            }
+        }
+        return false;
+    };
+    while (first_row < end_row && !row_selected(first_row)) {
+        ++first_row;
+    }
+    while (end_row > first_row && !row_selected(end_row - 1)) {
+        --end_row;
+    }
+    if (first_row >= end_row) {
+        return;
+    }
 
     out.append("<table style=\"border-collapse:collapse;\">");
     {
         TableSectionScope section(out);
-        for (size_t r = 0; r < row_count; r++) {
+        for (size_t r = first_row; r < end_row; r++) {
             const bool header_row = tbl->IsHeaderRow(r);
             if (header_row) {
                 section.EnterThead();
@@ -468,8 +507,10 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
                 out.append(open_tag);
                 AppendTableCellStyle(out, tbl->ColAlign(c), dark_mode);
                 out.append(">");
-                const auto cell_text = tbl->GetCellText(r, c);
-                AppendInlineHtml(out, cell_text, tbl->GetCellRuns(r, c), link_urls, 0, static_cast<uint32_t>(cell_text.size()));
+                const uint32_t cell_start = tbl->CellTextStart(r, c);
+                const uint32_t cell_end = tbl->CellTextEnd(r, c);
+                AppendInlineHtml(out, tbl->GetCellText(r, c), tbl->GetCellRuns(r, c), link_urls,
+                                 std::clamp(start, cell_start, cell_end) - cell_start, std::clamp(end, cell_start, cell_end) - cell_start);
                 out.append(close_tag);
             }
             out.append("</tr>");
@@ -565,8 +606,12 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
 
     std::pmr::string out;
     size_t estimated = 0;
-    ForEachSelectedNode(nodes, selection, [&estimated](int, const Node& node) {
-        estimated += node.LinearizedText().size();
+    // ノード全体ではなく選択範囲で見積もる (巨大な表の数セルだけのコピーでノード全体分を確保しない)。
+    ForEachSelectedNode(nodes, selection, [&](int i, const Node& node) {
+        const auto [start, end] = selection.ClampedRange(i, node.LinearizedText().size());
+        if (start < end) {
+            estimated += end - start;
+        }
     });
     // シンタックスハイライトの span やテーブルの style 属性でタグのオーバーヘッドが増える。
     // 3 倍の予約は 100MB 選択で 300MB を確保するため 2 倍に留め、超過分は成長に任せる。

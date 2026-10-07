@@ -281,14 +281,10 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockDarkModeUsesDarkColors)
     EXPECT_NE(html.find("color:#d4d4d4"), std::string::npos);
 }
 
-// テーブルノードは node.GetText() の線形化テキストがレイアウトパス後にのみ埋まるため、
-// テストではダミーの線形化テキストを設定して selection.active を立てる。
-static TextSelection MakeTableFullSelection(Node& table)
+// 表の選択座標は LinearizedText (concat_text) の offset。
+static TextSelection MakeTableFullSelection(const Node& table)
 {
-    if (table.GetText().empty()) {
-        table.SetTextWithLineCount(std::string_view{ "table" }, 0);
-    }
-    return TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(table.GetText().size()));
+    return TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(table.LinearizedText().size()));
 }
 
 TEST(ExtractSelectedTextAsHtml, TableRendersAsTableStructure)
@@ -346,6 +342,85 @@ TEST(ExtractSelectedTextAsHtml, TablePreservesInlineFormatting)
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
     EXPECT_NE(html.find("<strong>bold</strong>"), std::string::npos);
     EXPECT_NE(html.find("<a href=\"https://example.com\">link</a>"), std::string::npos);
+}
+
+// 表の部分選択はプレーンテキストと同じく読み順の範囲で切り取り、範囲にかかる行だけを出す。
+// 範囲外のセルは表の形を保つため空セルになる。
+TEST(ExtractSelectedTextAsHtml, TablePartialSelectionEmitsOnlySelectedRowsAndText)
+{
+    auto nodes = ParseMarkdown(
+                     "| A | B |\n"
+                     "|---|---|\n"
+                     "| 1 | 2 |\n"
+                     "| 3 | 4 |")
+                     .nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_EQ(nodes[0].LinearizedText(), "A\tB\n1\t2\n3\t4");
+    const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 6, 0, 9));
+    EXPECT_EQ(html.find("<thead>"), std::string::npos);
+    EXPECT_EQ(html.find(">A</th>"), std::string::npos);
+    EXPECT_EQ(html.find(">1</td>"), std::string::npos);
+    EXPECT_EQ(html.find(">4</td>"), std::string::npos);
+    EXPECT_NE(html.find(">2</td>"), std::string::npos);
+    EXPECT_NE(html.find(">3</td>"), std::string::npos);
+    EXPECT_EQ(CountOccurrences(html, "<tr>"), 2u);
+    EXPECT_EQ(CountOccurrences(html, "<td"), 4u);
+}
+
+TEST(ExtractSelectedTextAsHtml, TableSelectionInsideOneCellEmitsThatSubstring)
+{
+    auto nodes = ParseMarkdown(
+                     "| hello | world |\n"
+                     "|---|---|\n"
+                     "| a | b |")
+                     .nodes;
+    ASSERT_EQ(nodes[0].LinearizedText(), "hello\tworld\na\tb");
+    const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 1, 0, 4));
+    EXPECT_NE(html.find(">ell</th>"), std::string::npos);
+    EXPECT_EQ(html.find("world"), std::string::npos);
+    EXPECT_EQ(html.find("<tbody>"), std::string::npos);
+}
+
+// 区切り文字 (セル間のタブ) だけを選んだ場合は、文字を含むセルが無いので表を出さない。
+TEST(ExtractSelectedTextAsHtml, TableSelectionOfSeparatorOnlyEmitsNothing)
+{
+    auto nodes = ParseMarkdown(
+                     "| A | B |\n"
+                     "|---|---|\n"
+                     "| 1 | 2 |")
+                     .nodes;
+    ASSERT_EQ(nodes[0].LinearizedText(), "A\tB\n1\t2");
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 1, 0, 2)), "");
+}
+
+// 空セルだけの行 (見出し無し表の空ヘッダ行など) も、選択範囲に丸ごと含まれれば出す。
+TEST(ExtractSelectedTextAsHtml, TableFullSelectionKeepsEmptyHeaderRow)
+{
+    auto nodes = ParseMarkdown(
+                     "| | |\n"
+                     "|---|---|\n"
+                     "| a | b |")
+                     .nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_EQ(nodes[0].type, NodeType::Table);
+    const auto html = ExtractSelectedTextAsHtml(nodes, MakeTableFullSelection(nodes[0]));
+    EXPECT_NE(html.find("<thead>"), std::string::npos);
+    EXPECT_EQ(CountOccurrences(html, "<tr>"), 2u);
+}
+
+// 列数 0 の表 (md4c が TABLE detail を渡さない場合) でも範囲外を読まない。
+TEST(ExtractSelectedTextAsHtml, TableWithoutColumnsDoesNotReadOutOfRange)
+{
+    std::pmr::vector<Node> nodes(1);
+    nodes[0].type = NodeType::Table;
+    auto* tbl = nodes[0].ensure_table();
+    tbl->row_count = 1;
+    tbl->col_count = 0;
+    tbl->cell_text_starts.push_back(0);
+    tbl->cell_run_starts.push_back(0);
+    tbl->is_header_row.push_back(false);
+    const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 0, 0, 1));
+    EXPECT_EQ(html.find("<table"), std::string::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, TableDarkModeUsesDarkBorder)
