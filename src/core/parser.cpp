@@ -251,6 +251,31 @@ struct ParseContext {
         }
     }
 
+    // 引用内の段落は BlockQuote ノードとして作り、Alert 検出対象に登録する。
+    void BeginParagraphNode()
+    {
+        const auto node_type = (blockquote_depth > 0) ? NodeType::BlockQuote : NodeType::Paragraph;
+        BeginNode(node_type);
+        if (node_type == NodeType::BlockQuote) {
+            blockquote_indices.emplace_back(current_node_index);
+        }
+    }
+
+    // md4c は tight list の LI 直下の段落を MD_BLOCK_P で囲まないため、LI 内で見出し / HR /
+    // フェンス等の後に続く本文は current_node 無しで届く。loose list と同じ段落ノードを補って受け止める。
+    bool EnsureNodeForListItemText()
+    {
+        if (current_node) {
+            return true;
+        }
+        // md4c は UL/OL 直下に LI しか置かないため、list_counter が空でなければ LI 内にいる。
+        if (list_counter.empty()) {
+            return false;
+        }
+        BeginParagraphNode();
+        return true;
+    }
+
     constexpr TextRun MakeRun(uint32_t start, uint32_t length)
     {
         TextRun run;
@@ -526,12 +551,20 @@ void AssignHeadingAnchor(ParseContext* ctx, Node& heading)
     std::pmr::string base_id{ &ctx->pool };
     GenerateAnchorIdInto(heading.GetText(), base_id);
     const auto [it, inserted] = ctx->anchor_counts.try_emplace(std::move(base_id), 0);
-    const int count = it->second++;
     auto& aid = heading.ensure_anchor_id_mut();
-    aid.assign(it->first.data(), it->first.size());
-    if (count > 0) {
-        std::format_to(std::back_inserter(aid), "-{}", count);
+    if (inserted) {
+        aid.assign(it->first.data(), it->first.size());
+        return;
     }
+    // "A","A","A-1" のように連番付きスラグが別見出しの素のスラグと衝突しうるため、
+    // github-slugger と同じく未使用になるまで連番を進め、採用したスラグ自体も登録する。
+    std::pmr::string candidate{ &ctx->pool };
+    do {
+        candidate.assign(it->first);
+        std::format_to(std::back_inserter(candidate), "-{}", ++it->second);
+    } while (ctx->anchor_counts.contains(candidate));
+    aid.assign(candidate.data(), candidate.size());
+    ctx->anchor_counts.try_emplace(std::move(candidate), 0);
 }
 
 int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
@@ -554,11 +587,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 
     case MD_BLOCK_P:
         if (!ctx->in_code_block) {
-            const auto node_type = (ctx->blockquote_depth > 0) ? NodeType::BlockQuote : NodeType::Paragraph;
-            ctx->BeginNode(node_type);
-            if (node_type == NodeType::BlockQuote) {
-                ctx->blockquote_indices.emplace_back(ctx->current_node_index);
-            }
+            ctx->BeginParagraphNode();
         }
         ctx->paragraph_display_math_count = 0;
         ctx->paragraph_has_other_content = false;
@@ -646,6 +675,9 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
     switch (type) {
     case MD_BLOCK_CODE:
         LeaveCodeBlock(ctx);
+        // 他のリーフブロックと同様に leave で閉じる。残すと tight list でフェンス直後に
+        // MD_BLOCK_P 無しで届く本文がコードに混入する。
+        ctx->EndNode();
         break;
 
     case MD_BLOCK_QUOTE:
@@ -694,6 +726,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         if (auto* const cn = ctx->current_node; cn && cn->type == NodeType::Heading) {
             // アンカー生成に確定済みテキストが必要なので先に Finalize する。
             ctx->FinalizeCurrentNode();
+
             AssignHeadingAnchor(ctx, *cn);
             ctx->heading_indices.emplace_back(ctx->current_node_index);
         }
@@ -730,6 +763,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         return 1;
     }
 
+    ctx->EnsureNodeForListItemText();
     ctx->FlushPendingRun();
     // span markup (** _ ` [] 等) は原文にあるが current_text には入らないため、
     // どの span でも view 化は構造的に失敗する。FinalizeCurrentNode の memcmp をスキップさせる。
@@ -873,8 +907,10 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         return 1;
     }
 
-    if (!ctx->current_node) {
-        return 0;
+    if (!ctx->current_node) [[unlikely]] {
+        if (type == MD_TEXT_HTML || type == MD_TEXT_NULLCHAR || !ctx->EnsureNodeForListItemText()) {
+            return 0;
+        }
     }
 
     // 各ノードの最初のテキストコールバックでソースオフセットを記録する。

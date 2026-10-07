@@ -1,6 +1,10 @@
 #include <gtest/gtest.h>
 #include "pane_controller.h"
 #include "ui_constants.h"
+#include <format>
+#include <optional>
+#include <random>
+#include <string>
 
 class PaneControllerTest : public ::testing::Test {
 protected:
@@ -456,4 +460,121 @@ TEST_F(PaneControllerTest, DefaultWidthConstant)
 {
     EXPECT_FLOAT_EQ(PaneController::PANE_DEFAULT_WIDTH, 220.0f);
     EXPECT_GT(PaneController::PANE_DEFAULT_WIDTH, PaneController::PANE_MIN_WIDTH);
+}
+
+// ═══════════════════════════════════════════════
+// スプリッタードラッグ — 表示幅が縮小されている状態 (保存幅 > ウィンドウ)
+// ═══════════════════════════════════════════════
+
+namespace {
+
+constexpr float SPLITTER_W = 4.0f;
+constexpr float WINDOW_H = 600.0f;
+constexpr PaneController::DragTarget SPLITTERS[] = { PaneController::DragTarget::Splitter1, PaneController::DragTarget::Splitter2 };
+
+struct DragCase {
+    float window_w;
+    float file_w;
+    float toc_w;
+
+    std::string Describe(int seed, int step) const
+    {
+        return std::format("seed={} step={} window={} file={} toc={}", seed, step, window_w, file_w, toc_w);
+    }
+};
+
+// 論理幅の合計がウィンドウを超えて表示幅が縮小されるケースを多めに含む。
+DragCase RandomDragCase(std::mt19937& rng)
+{
+    const float min_window = MD_PANE_MIN_WIDTH + SPLITTER_W * 2.0f + PaneController::PANE_MIN_WIDTH * 2.0f;
+    std::uniform_real_distribution<float> window(min_window, 2400.0f);
+    std::uniform_real_distribution<float> width(PaneController::PANE_MIN_WIDTH, 1400.0f);
+    const float w = window(rng);
+    const float f = width(rng);
+    const float t = width(rng);
+    return { w, f, t };
+}
+
+// 表示幅が PANE_MIN_WIDTH 未満まで縮んだケースは、ドラッグ側の最小幅制約が優先されるので対象外。
+std::optional<PaneController> MakePanes(const DragCase& c)
+{
+    PaneController panes;
+    panes.SetSidePaneWidth(PaneTarget::File, c.file_w);
+    panes.SetSidePaneWidth(PaneTarget::Toc, c.toc_w);
+    const auto layout = panes.ComputeLayout(c.window_w, WINDOW_H, SPLITTER_W);
+    if (layout.file_rect.width < PaneController::PANE_MIN_WIDTH || layout.toc_rect.width < PaneController::PANE_MIN_WIDTH) {
+        return std::nullopt;
+    }
+    return panes;
+}
+
+const char* SplitterName(PaneController::DragTarget t)
+{
+    return t == PaneController::DragTarget::Splitter1 ? "Splitter1" : "Splitter2";
+}
+
+} // namespace
+
+// 表示中のスプリッタ位置へドラッグ (= 掴んだだけで動かしていない) してもレイアウトは変わらない。
+TEST(PaneControllerDragProperty, DragToCurrentSplitterPositionKeepsLayout)
+{
+    int shrunk_cases = 0;
+    for (int seed = 1; seed <= 4; seed++) {
+        std::mt19937 rng(seed);
+        for (int step = 0; step < 300; step++) {
+            const auto c = RandomDragCase(rng);
+            for (const auto target : SPLITTERS) {
+                auto panes = MakePanes(c);
+                if (!panes) {
+                    continue;
+                }
+                const auto before = panes->ComputeLayout(c.window_w, WINDOW_H, SPLITTER_W);
+                shrunk_cases += (before.file_rect.width < c.file_w) ? 1 : 0;
+                const auto& dragged = (target == PaneController::DragTarget::Splitter1) ? before.file_rect : before.toc_rect;
+                SCOPED_TRACE(c.Describe(seed, step) + " " + SplitterName(target));
+
+                panes->DragSplitterTo(target, dragged.x + dragged.width, c.window_w, SPLITTER_W);
+                const auto after = panes->ComputeLayout(c.window_w, WINDOW_H, SPLITTER_W);
+                for (const auto t : { PaneTarget::File, PaneTarget::Toc }) {
+                    EXPECT_NEAR(after.Get(t).x, before.Get(t).x, 1e-3f);
+                    EXPECT_NEAR(after.Get(t).width, before.Get(t).width, 1e-3f);
+                }
+                EXPECT_NEAR(after.md_rect.x, before.md_rect.x, 1e-3f);
+                if (HasFailure()) {
+                    return;
+                }
+            }
+        }
+    }
+    // 縮小表示の分岐を十分に踏んでいること (乱数範囲を変えたときの空振り防止)。
+    EXPECT_GT(shrunk_cases, 200);
+}
+
+// 片方のスプリッタを動かしても、もう片方のペインの表示幅は変わらない。
+TEST(PaneControllerDragProperty, DraggingOneSplitterKeepsOtherPaneWidth)
+{
+    for (int seed = 1; seed <= 4; seed++) {
+        std::mt19937 rng(seed + 100);
+        for (int step = 0; step < 300; step++) {
+            const auto c = RandomDragCase(rng);
+            const float dip_x = std::uniform_real_distribution<float>(0.0f, c.window_w)(rng);
+            for (const auto target : SPLITTERS) {
+                auto panes = MakePanes(c);
+                if (!panes) {
+                    continue;
+                }
+                const auto before = panes->ComputeLayout(c.window_w, WINDOW_H, SPLITTER_W);
+                const auto other = (target == PaneController::DragTarget::Splitter1) ? PaneTarget::Toc : PaneTarget::File;
+                SCOPED_TRACE(c.Describe(seed, step) + std::format(" {} dip_x={}", SplitterName(target), dip_x));
+
+                panes->DragSplitterTo(target, dip_x, c.window_w, SPLITTER_W);
+                const auto after = panes->ComputeLayout(c.window_w, WINDOW_H, SPLITTER_W);
+                EXPECT_NEAR(after.Get(other).width, before.Get(other).width, 1e-3f);
+                EXPECT_GE(after.md_rect.width, MD_PANE_MIN_WIDTH - 1e-3f);
+                if (HasFailure()) {
+                    return;
+                }
+            }
+        }
+    }
 }

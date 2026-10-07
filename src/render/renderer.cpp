@@ -464,10 +464,9 @@ void Renderer::Render(const RenderParams& p)
     }
 
     {
-        // ヒットテストとの座標一致のためスナップ前の scroll_y を使う。
-        const int first_visible = FindFirstVisibleNodeIndex(p.cache, p.nodes.size(), p.scroll_y);
+        // 開始ノードは GenerateMdPane が描画のはみ出し幅込みで求める (first_visible = -1)。
         const float dpi_scale = DpiScaleFrom(backend_.GetDpi());
-        const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, first_visible, p.hovered, dpi_scale, p.block_h_scroll);
+        const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, -1, p.hovered, dpi_scale, p.block_h_scroll);
         cmd_executor_.Execute(cmds, rt(), &brushes_);
     }
 

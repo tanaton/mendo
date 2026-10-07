@@ -1,8 +1,13 @@
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <format>
+#include <iterator>
 #include <memory_resource>
+#include <random>
 #include <span>
+#include <string>
 #include <string_view>
+#include <vector>
 #include "document_utils.h"
 #include "document_test_helpers.h"
 #include "layout_computer.h"
@@ -12,6 +17,7 @@
 #include "selection_html.h"
 #include "syntax.h"
 #include "theme.h"
+#include "utf8_fuzz_helpers.h"
 
 // ============================================================
 // ExtractSelectedText
@@ -697,8 +703,68 @@ TEST(FindWordBoundaries, Utf8)
         // マルチバイトの途中を指しても先頭バイトにスナップする
         { "PosOnUtf8ContinuationByte", "テスト", 1, true, 0, 9 },
         { "PosOnUtf8FourByteContinuation", "𠮷田", 2, true, 0, 7 },
+        // 孤立した継続バイトは直前の文字に吸収せず単独の U+FFFD (単語外) として扱う。
+        // 旧実装は後方走査で start がラップし範囲外を読んでいた。
+        { "StrayContinuationBetweenHiragana", "あ\x82" "あ", 4, true, 4, 7 },
+        { "StrayContinuationAfterHiragana", "あ\x82", 3, false, 0, 0 },
+        { "StrayContinuationRunAfterAscii", "ab\x80\x80\x80\x80", 5, false, 0, 0 },
     };
     ExpectWordBoundaries(kCases);
+}
+
+// 不正 UTF-8 でも、前方 decode で UTF-16 化したテキスト上の単語範囲と一致する。
+// UTF-16 側は後方走査がサロゲート 1 個分で自明なので、UTF-8 側の後方走査の oracle になる。
+TEST(FindWordBoundaries, MalformedUtf8MatchesUtf16Conversion)
+{
+    static constexpr std::string_view kPieces[] = { "a", "_", "9", " ", "あ", "ア", "漢", "Ａ", "𠮷", "\xE3\x81", "\xF0\x9F\x98" };
+    for (const uint32_t seed : utf8_fuzz::kFuzzSeeds) {
+        std::mt19937 rng{ seed };
+        for (int iter = 0; iter < 200; ++iter) {
+            const std::string text = utf8_fuzz::RandomPiecesWithMalformed(rng, kPieces, 1, 10);
+            SCOPED_TRACE(std::format("seed={} iter={} text={}", seed, iter, utf8_fuzz::HexEscape(text)));
+            const std::string_view sv{ text };
+
+            const auto bounds = utf8_fuzz::ForwardDecodeBoundaries(sv);
+            std::wstring wide;
+            std::vector<uint32_t> wide_at; // bounds[k] に対応する UTF-16 offset
+            for (size_t k = 0; k + 1 < bounds.size(); ++k) {
+                wide_at.push_back(static_cast<uint32_t>(wide.size()));
+                const uint32_t cp = utf8_codec::DecodeAt(sv, bounds[k]).cp;
+                if (cp >= 0x10000u) {
+                    wide.push_back(static_cast<wchar_t>(0xD800u + ((cp - 0x10000u) >> 10)));
+                    wide.push_back(static_cast<wchar_t>(0xDC00u + ((cp - 0x10000u) & 0x3FFu)));
+                }
+                else {
+                    wide.push_back(static_cast<wchar_t>(cp));
+                }
+            }
+            wide_at.push_back(static_cast<uint32_t>(wide.size()));
+            const auto index_of = [&](uint32_t byte_pos) {
+                return static_cast<size_t>(std::ranges::lower_bound(bounds, byte_pos) - bounds.begin());
+            };
+
+            // size 以上はクランプ経路
+            for (uint32_t pos = 0; pos <= sv.size(); ++pos) {
+                const auto r = FindWordBoundaries(sv, pos);
+                const uint32_t clamped = std::min<uint32_t>(pos, static_cast<uint32_t>(sv.size()) - 1);
+                const size_t k = static_cast<size_t>(std::ranges::upper_bound(bounds, clamped) - bounds.begin()) - 1;
+                const auto rw = FindWordBoundaries(std::wstring_view{ wide }, wide_at[k]);
+                ASSERT_EQ(r.found, rw.found) << "pos=" << pos;
+                if (!r.found) {
+                    continue;
+                }
+                ASSERT_LE(r.start, bounds[k]) << "pos=" << pos;
+                ASSERT_LT(bounds[k], r.end) << "pos=" << pos;
+                ASSERT_LE(r.end, sv.size()) << "pos=" << pos;
+                const size_t si = index_of(r.start);
+                const size_t ei = index_of(r.end);
+                ASSERT_TRUE(si < bounds.size() && bounds[si] == r.start) << "start が文字境界にない pos=" << pos;
+                ASSERT_TRUE(ei < bounds.size() && bounds[ei] == r.end) << "end が文字境界にない pos=" << pos;
+                ASSERT_EQ(wide_at[si], rw.start) << "pos=" << pos;
+                ASSERT_EQ(wide_at[ei], rw.end) << "pos=" << pos;
+            }
+        }
+    }
 }
 
 // pos は UTF-16 コード単位 (BMP 外はサロゲートペアで 2 単位)。

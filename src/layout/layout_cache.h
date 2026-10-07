@@ -2,6 +2,7 @@
 #include "document_types.h"
 #include "pmr_unique_ptr.h"
 #include "utility.h"
+#include <cstdint>
 #include <vector>
 #include <memory>
 #include <memory_resource>
@@ -377,6 +378,19 @@ public:
     // 破棄範囲は [0, first_keep_inclusive) と [last_keep_exclusive, size)。
     void EvictTextLayouts(size_t first_keep_inclusive, size_t last_keep_exclusive) noexcept;
 
+    // 計測で layout を生成しうる index 範囲を記録する。EvictTextLayouts の差分走査は前回 keep 外を
+    // 解放済みとみなすため、evict の合間に keep 外で計測した分 (スクロール先や全件ダーティ処理) をここで拾う。
+    // UI スレッド専用。並列計測は呼び出し側が index 範囲をまとめて記録する。
+    constexpr void NoteMaterialized(size_t first, size_t last_inclusive) noexcept
+    {
+        materialized_begin_ = std::min(materialized_begin_, first);
+        materialized_end_ = std::max(materialized_end_, last_inclusive + 1);
+    }
+    constexpr void NoteMaterialized(size_t i) noexcept
+    {
+        NoteMaterialized(i, i);
+    }
+
     // 全 text_layout を破棄する操作の後に呼ぶ。差分エビクトが「破棄済み」と誤認して
     // 再生成済みの画面外レイアウトを取り逃がさないよう、追跡境界を初期化する。
     void ResetEvictionTracking() noexcept;
@@ -426,6 +440,9 @@ private:
     uint32_t effects_generation_ = 0;
     size_t last_evict_fk_ = 0;
     size_t last_evict_lk_ = 0;
+    // 前回 evict 以降に計測した index の範囲 [begin, end)。空は begin >= end。
+    size_t materialized_begin_ = SIZE_MAX;
+    size_t materialized_end_ = 0;
 };
 
 // 「コンテンツ末尾までの高さ」(末尾 node の text_top + height + 上端マージン)。

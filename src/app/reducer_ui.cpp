@@ -43,6 +43,11 @@ void ReduceClearSelection(AppState& state, SideEffectList& effects)
         state.search.search_bar_ctrl.OnClose();
     }
     else {
+        // ClearSelection はドラッグ状態も落とすため、テキスト選択ドラッグ中だと後続の
+        // LButtonUp が TextSelectionEnded に入らずキャプチャが残る。
+        if (state.view.viewport.IsDragging()) {
+            PushEffect(effects, effect::ReleaseCapture{});
+        }
         state.view.viewport.ClearSelection();
     }
     PushEffect(effects, effect::InvalidateWindow{});

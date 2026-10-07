@@ -6,8 +6,10 @@
 #include "ui_types.h"
 #include "theme.h"
 #include "ui_constants.h"
+#include <algorithm>
 #include <limits>
 #include <memory_resource>
+#include <ranges>
 #include <unordered_map>
 
 // 描画とヒットテスト (NavButtonHitTest) が共有するナビボタン矩形。テストもこの API で座標を得る。
@@ -23,6 +25,68 @@ inline D2D1_RECT_F NavForwardButtonRect(const PaneRect& md_rect) noexcept
     const D2D1_RECT_F back = NavBackButtonRect(md_rect);
     const float x = back.right + NAV_BTN_GAP;
     return D2D1::RectF(x, back.top, x + NAV_BTN_SIZE, back.bottom);
+}
+
+// テーブルの行/列ヒット判定。座標はテーブル原点 (エントリ上端 / base_x) からのローカル系。
+// 罫線の帰属は描画 (GenTable) に合わせる: 行 r は上罫線を含む [cum_y[r], cum_y[r+1])、
+// 列 c は左罫線を含む [cum_x[c] - border, cum_x[c+1] - border)。
+// 累積配列が未確定 (evict 直後など) の線形フォールバックも同じ帰属を返すこと。
+struct TableRowHit {
+    int row = -1;
+    float row_top = 0.0f;
+};
+
+inline TableRowHit FindTableRow(const TableLayoutData& tl, size_t row_count, float fallback_row_h, float local_y) noexcept
+{
+    if (row_count == 0 || local_y < 0.0f) {
+        return {};
+    }
+    if (tl.HasRowGeometry(row_count)) {
+        const int idx = tl.RowIndexAt(local_y);
+        if (idx < 0) {
+            return {};
+        }
+        return { idx, tl.row_cum_y[static_cast<size_t>(idx)] };
+    }
+    float ry = 0.0f;
+    for (size_t r = 0; r < row_count; r++) {
+        const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : fallback_row_h;
+        const float row_bottom = ry + row_h + TABLE_BORDER_WIDTH;
+        if (local_y < row_bottom) {
+            return { static_cast<int>(r), ry };
+        }
+        ry = row_bottom;
+    }
+    return {};
+}
+
+struct TableColHit {
+    int col = 0;
+    float cell_left = TABLE_BORDER_WIDTH;
+};
+
+// テーブル左右の外側は端の列にクランプする。
+inline TableColHit FindTableCol(const TableLayoutData& tl, float local_x) noexcept
+{
+    const size_t col_count = tl.col_widths.size();
+    if (col_count == 0) {
+        return {};
+    }
+    if (tl.col_cum_x.size() == col_count + 1) {
+        const auto it = std::ranges::upper_bound(tl.col_cum_x, local_x + TABLE_BORDER_WIDTH);
+        const auto pos = static_cast<size_t>(std::ranges::distance(tl.col_cum_x.begin(), it));
+        const size_t idx = std::clamp(pos, size_t{ 1 }, col_count) - 1;
+        return { static_cast<int>(idx), tl.col_cum_x[idx] };
+    }
+    float cx = TABLE_BORDER_WIDTH;
+    for (size_t c = 0; c + 1 < col_count; c++) {
+        const float col_right = cx + tl.col_widths[c] + TABLE_CELL_PADDING * 2.0f;
+        if (local_x < col_right) {
+            return { static_cast<int>(c), cx };
+        }
+        cx = col_right + TABLE_BORDER_WIDTH;
+    }
+    return { static_cast<int>(col_count - 1), cx };
 }
 
 struct MdPaneHitContext {

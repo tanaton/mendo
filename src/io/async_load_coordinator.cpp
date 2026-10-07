@@ -72,7 +72,7 @@ void AsyncLoadCoordinator::RunWorker(const std::pmr::wstring& path, uint32_t gen
         return;
     }
 
-    auto file = FileLoader::LoadFile(path);
+    auto file = load_file_(path, stop_token);
     if (!file) {
         publish([&] { error_ = file.error(); });
         return;

@@ -86,9 +86,42 @@ void ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<fl
         }
     }
     else {
-        const float even = effective_available / static_cast<float>(col_count);
-        for (auto [w, nw] : std::views::zip(out, natural_widths) | std::views::take(col_count)) {
-            w = std::max(nw + COLUMN_WIDTH_PADDING, even);
+        // 一律 max(nw + pad, even) だと幅広列の超過分だけ合計が available を超え、
+        // natural_total_width 基準の横スクロールも出ないまま表がペイン外へはみ出す。
+        // 幅広列に nw + pad を確保し、残りを他列で均等に分けて合計を available に揃える。
+        const auto columns = std::views::zip(out, natural_widths) | std::views::take(col_count);
+        const float n = static_cast<float>(col_count);
+        const float demand_total = total_natural + n * COLUMN_WIDTH_PADDING;
+        if (demand_total > effective_available) {
+            // 余白込みでは収まらないが自然幅は収まる。余りを均等に足し、列が自然幅を割らないようにする。
+            const float extra = (effective_available - total_natural) / n;
+            for (auto [w, nw] : columns) {
+                w = nw + extra;
+            }
+            return;
+        }
+        // level を下げるたびに nw + pad > level の列が増えるだけなので、列数回以内で収束する。
+        float level = effective_available / n;
+        size_t flex = col_count;
+        for (;;) {
+            float fixed_total = 0.0f;
+            size_t next_flex = 0;
+            for (const float nw : natural_widths | std::views::take(col_count)) {
+                if (nw + COLUMN_WIDTH_PADDING > level) {
+                    fixed_total += nw + COLUMN_WIDTH_PADDING;
+                }
+                else {
+                    ++next_flex;
+                }
+            }
+            if (next_flex == flex || next_flex == 0) {
+                break;
+            }
+            flex = next_flex;
+            level = (effective_available - fixed_total) / static_cast<float>(flex);
+        }
+        for (auto [w, nw] : columns) {
+            w = std::max(nw + COLUMN_WIDTH_PADDING, level);
         }
     }
 }

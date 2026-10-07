@@ -20,16 +20,19 @@ public:
     float table_row_height = 28.0f;          // テーブル1行あたりの高さ
     float table_border = TABLE_BORDER_WIDTH; // 罫線幅。実装 (dwrite_measurer) と同じ定数で揃える
 
-    bool Init(const Theme&) override
+    bool Init(const Theme& theme) override
     {
+        theme_ = &theme;
         return true;
     }
     bool RecreateFormats() override
     {
         return true;
     }
-    void UpdateTheme(const Theme&) noexcept override
-    {}
+    void UpdateTheme(const Theme& theme) noexcept override
+    {
+        theme_ = &theme;
+    }
 
     void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
                      std::pmr::vector<SyntaxToken>* /*tokens_out*/ = nullptr,
@@ -73,7 +76,14 @@ public:
 
         const auto& text = node.GetText();
         if (text.empty()) {
-            entry.height = line_height * 0.5f;
+            // 実装と同じく空 LI は高さ 0 (bullet と直下 P の文字 Y を揃える issue#237)。
+            // Init 前 (RunSerial 単体テスト等) は theme が無いので行高の半分で代用する。
+            if (IsEmptyListItemContainer(node)) {
+                entry.height = 0.0f;
+            }
+            else {
+                entry.height = theme_ ? theme_->paragraph_spacing : line_height * 0.5f;
+            }
             entry.layout_dirty = false;
             return;
         }
@@ -95,6 +105,8 @@ public:
     }
 
 private:
+    const Theme* theme_ = nullptr;
+
     void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) const
     {
         const auto* tbl = node.table_data();

@@ -1,5 +1,11 @@
 #include <gtest/gtest.h>
 #include "nav.h"
+#include <deque>
+#include <format>
+#include <optional>
+#include <random>
+#include <set>
+#include <string>
 
 class NavHistoryTest : public ::testing::Test {
 protected:
@@ -208,4 +214,149 @@ TEST_F(NavHistoryTest, ClearedForwardStackReleasesPaths)
     // 新規 push → forward_stack の x0..x4 が解放され、back に new.md が入る
     hist_.Push({ L"new.md", 0, 0.0f });
     EXPECT_EQ(hist_.InternedPathCount(), 1u);
+}
+
+// ─── 参照モデルとの比較 (モデルベーステスト) ───
+// パスのインターン化 (参照カウント・スロット再利用・直前値キャッシュ) と容量上限の
+// 組み合わせは例示テストでは踏み切れない (GoForward の容量超過 0a8b2a4 は回帰テスト無しだった)。
+// 素朴な deque 2 本の参照モデルとランダム操作列で突き合わせる。
+
+namespace {
+
+struct ModelEntry {
+    std::wstring path;
+    int node;
+    float offset;
+};
+
+class NavHistoryModel {
+public:
+    explicit NavHistoryModel(size_t max) : max_(max) {}
+
+    void Push(const ModelEntry& e)
+    {
+        PushCapped(back_, e);
+        forward_.clear();
+    }
+
+    std::optional<ModelEntry> Transfer(bool forward, const ModelEntry& current)
+    {
+        auto& from = forward ? forward_ : back_;
+        auto& to = forward ? back_ : forward_;
+        if (from.empty()) {
+            return std::nullopt;
+        }
+        PushCapped(to, current);
+        ModelEntry out = from.back();
+        from.pop_back();
+        return out;
+    }
+
+    void Clear()
+    {
+        back_.clear();
+        forward_.clear();
+    }
+
+    size_t BackSize() const noexcept
+    {
+        return back_.size();
+    }
+    size_t ForwardSize() const noexcept
+    {
+        return forward_.size();
+    }
+
+    size_t UniquePathCount() const
+    {
+        std::set<std::wstring> paths;
+        for (const auto* d : { &back_, &forward_ }) {
+            for (const auto& e : *d) {
+                paths.insert(e.path);
+            }
+        }
+        return paths.size();
+    }
+
+private:
+    void PushCapped(std::deque<ModelEntry>& d, const ModelEntry& e)
+    {
+        d.push_back(e);
+        if (d.size() > max_) {
+            d.pop_front();
+        }
+    }
+
+    size_t max_;
+    std::deque<ModelEntry> back_;
+    std::deque<ModelEntry> forward_;
+};
+
+void RunNavHistoryModel(size_t max, uint32_t seed)
+{
+    // 長さの異なるパスを混ぜ、解放済みスロットへの再割り当てで別の長さの文字列が入る経路を踏む。
+    static const std::wstring kPaths[] = {
+        L"a.md", L"C:\\docs\\long\\nested\\path\\b.md", L"c.md", L"D:\\x.md", L"e.markdown",
+    };
+    NavHistory hist(max);
+    NavHistoryModel model(max);
+    std::mt19937 rng(seed);
+    auto pick = [&](int lo, int hi) {
+        return std::uniform_int_distribution<int>(lo, hi)(rng);
+    };
+
+    for (int step = 0; step < 3000; ++step) {
+        const ModelEntry cur{ kPaths[pick(0, 4)], pick(-1, 50), static_cast<float>(pick(-100, 100)) };
+        const int op = pick(0, 99);
+        std::string label;
+        if (op < 35) {
+            label = "Push";
+            hist.Push(NavEntry(cur.path, cur.node, cur.offset));
+            model.Push(cur);
+        }
+        else if (op < 98) {
+            const bool forward = op >= 65;
+            label = forward ? "GoForward" : "GoBack";
+            NavEntry out;
+            const NavEntry cur_entry(cur.path, cur.node, cur.offset);
+            const bool moved = forward ? hist.GoForward(cur_entry, out) : hist.GoBack(cur_entry, out);
+            const auto expected = model.Transfer(forward, cur);
+            SCOPED_TRACE(std::format("max={} seed={} step={} op={}", max, seed, step, label));
+            ASSERT_EQ(moved, expected.has_value());
+            if (expected) {
+                ASSERT_EQ(std::wstring(out.file_path), expected->path);
+                ASSERT_EQ(out.node, expected->node);
+                ASSERT_EQ(out.offset, expected->offset);
+            }
+        }
+        else {
+            label = "Clear";
+            hist.Clear();
+            model.Clear();
+        }
+
+        SCOPED_TRACE(std::format("max={} seed={} step={} op={}", max, seed, step, label));
+        ASSERT_EQ(hist.BackSize(), model.BackSize());
+        ASSERT_EQ(hist.ForwardSize(), model.ForwardSize());
+        ASSERT_LE(hist.BackSize() + hist.ForwardSize(), max);
+        ASSERT_EQ(hist.CanGoBack(), model.BackSize() > 0);
+        ASSERT_EQ(hist.CanGoForward(), model.ForwardSize() > 0);
+        // 参照カウントがずれると、生存エントリが無いパスが残る (リーク) か、
+        // 生存エントリのパスが消えて次の intern で別スロットに重複登録される。
+        ASSERT_EQ(hist.InternedPathCount(), model.UniquePathCount());
+    }
+}
+
+} // namespace
+
+TEST(NavHistoryModelTest, MatchesReferenceModel)
+{
+    for (size_t max : { size_t{ 1 }, size_t{ 3 }, size_t{ 8 } }) {
+        for (uint32_t seed : { 1u, 17u, 4242u }) {
+            RunNavHistoryModel(max, seed);
+            if (HasFatalFailure()) {
+                return;
+            }
+        }
+    }
 }

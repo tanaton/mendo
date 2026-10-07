@@ -163,7 +163,14 @@ public:
     constexpr reference emplace_back(Args&&... args)
     {
         if (size_ == capacity_) [[unlikely]] {
+            // args が自身の要素を参照していても読めるよう、成長 (旧領域の解放) より先に値を確定させる。
+            // 移すときは grow_to と同じくバイトコピーにし、T にコピーコンストラクタを要求しない。
+            const T tmp(std::forward<Args>(args)...);
             grow_to(next_capacity());
+            T* const p = data_ + size_;
+            constexpr_memcpy(p, &tmp, 1);
+            ++size_;
+            return *p;
         }
         T* const p = data_ + size_;
         ::new (static_cast<void*>(p)) T(std::forward<Args>(args)...);

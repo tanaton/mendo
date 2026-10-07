@@ -1,4 +1,5 @@
 #include "layout_cache.h"
+#include "ui_constants.h"
 #include <algorithm>
 #include <ranges>
 
@@ -58,6 +59,10 @@ std::pair<float, float> NodeLayoutEntry::GetMatchYRange(
         }
         if (table_col >= 0) {
             layout = table_layout->GetCellLayout(row, static_cast<size_t>(table_col));
+        }
+        if (layout != nullptr) {
+            // セル本文は行上端から TABLE_CELL_PADDING 下に描かれる (GenTable の text_y と同じ)。
+            base_y += TABLE_CELL_PADDING;
         }
     }
     else {
@@ -238,23 +243,31 @@ void LayoutCache::EvictTextLayouts(size_t first_keep_inclusive, size_t last_keep
     const size_t fk = std::min(first_keep_inclusive, n);
     const size_t lk = std::min(last_keep_exclusive, n);
 
-    // keep 範囲が縮小した差分のみ evict する。未追跡 (0, 0) は前回 keep を全域 [0, n) とみなす。
-    const size_t prev_fk = last_evict_fk_;
-    const size_t prev_lk = (last_evict_fk_ == 0 && last_evict_lk_ == 0) ? n : last_evict_lk_;
-    for (size_t i = prev_fk; i < fk; ++i) {
-        EvictEntryLayout(entries_[i]);
-    }
-    for (size_t i = lk; i < prev_lk; ++i) {
-        EvictEntryLayout(entries_[i]);
-    }
+    const auto evict_outside_keep = [&](size_t begin, size_t end) noexcept {
+        for (size_t i = begin; i < std::min(end, fk); ++i) {
+            EvictEntryLayout(entries_[i]);
+        }
+        for (size_t i = std::max(begin, lk); i < end; ++i) {
+            EvictEntryLayout(entries_[i]);
+        }
+    };
+    // layout が生存しうるのは前回 keep 範囲と、その後に計測した範囲だけなので、その keep 外だけ走査する。
+    // 未追跡 (0, 0) は前回 keep を全域 [0, n) とみなす。
+    const size_t prev_lk = (last_evict_fk_ == 0 && last_evict_lk_ == 0) ? n : std::min(last_evict_lk_, n);
+    evict_outside_keep(std::min(last_evict_fk_, n), prev_lk);
+    evict_outside_keep(std::min(materialized_begin_, n), std::min(materialized_end_, n));
     last_evict_fk_ = fk;
     last_evict_lk_ = lk;
+    materialized_begin_ = SIZE_MAX;
+    materialized_end_ = 0;
 }
 
 void LayoutCache::ResetEvictionTracking() noexcept
 {
     last_evict_fk_ = 0;
     last_evict_lk_ = 0;
+    materialized_begin_ = SIZE_MAX;
+    materialized_end_ = 0;
 }
 
 void LayoutCache::EvictInvisibleTableRows(

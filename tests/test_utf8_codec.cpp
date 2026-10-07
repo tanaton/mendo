@@ -1,5 +1,11 @@
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <format>
+#include <iterator>
+#include <random>
+#include <string>
 #include "utf8_codec.h"
+#include "utf8_fuzz_helpers.h"
 
 namespace {
 
@@ -97,7 +103,7 @@ TEST(Utf8Codec, DecodePrevWalksBack)
 
 // ---- EncodeCp: 正常系 ----
 
-// EncodeDecodeRoundTrip は encoder と decoder の双方に同種の bit-shift バグがあると
+// RoundTripAllScalarValues は encoder と decoder の双方に同種の bit-shift バグがあると
 // 検出できない。bit pattern を直接検証するスモークとして 1 件だけ残す。
 TEST(Utf8Codec, EncodeFourByteBitPattern)
 {
@@ -142,20 +148,120 @@ TEST(Utf8Codec, EncodeRejectsAndPreservesBuf)
     }
 }
 
-// ---- EncodeCp <-> DecodeAt 往復 ----
+// ---- 不正入力でのプロパティ ----
 
-TEST(Utf8Codec, EncodeDecodeRoundTrip)
+using utf8_fuzz::kFuzzSeeds;
+
+// 後方走査 (SnapToCpStart / DecodePrev) は前方 decode の区切りと一致しなければならない。
+// ずれると単語選択の範囲が文字の途中を指したり、pos - len がラップして範囲外を読む。
+template <class SV>
+void ExpectBackwardWalkMatchesForwardDecode(SV text)
 {
-    // 各 byte 長の代表値で encode → decode が元の cp に戻ることを確認。
-    constexpr uint32_t samples[] = { 0x0000u, 0x0041u, 0x007Fu, 0x0080u, 0x00A9u, 0x07FFu,
-                                     0x0800u, 0x3042u, 0xFFFFu, 0x10000u, 0x1F600u, 0x10FFFFu };
-    for (const uint32_t cp : samples) {
+    const auto bounds = utf8_fuzz::ForwardDecodeBoundaries(text);
+    size_t k = 0;
+    for (uint32_t pos = 0; pos < text.size(); ++pos) {
+        while (bounds[k + 1] <= pos) {
+            ++k;
+        }
+        ASSERT_EQ(SnapToCpStart(text, pos), bounds[k]) << "pos=" << pos;
+    }
+    for (uint32_t pos = 1; pos <= text.size(); ++pos) {
+        const auto prev = DecodePrev(text, pos);
+        ASSERT_GE(prev.len, 1u) << "pos=" << pos;
+        ASSERT_LE(prev.len, pos) << "pos=" << pos;
+        const auto it = std::ranges::lower_bound(bounds, pos);
+        if (*it == pos) {
+            const auto expected = DecodeAt(text, *(it - 1));
+            ASSERT_EQ(prev.cp, expected.cp) << "pos=" << pos;
+            ASSERT_EQ(prev.len, pos - *(it - 1)) << "pos=" << pos;
+        }
+    }
+}
+
+TEST(Utf8Codec, BackwardWalkMatchesForwardDecodeUtf8)
+{
+    // 継続バイトが 4 個以上連なる列・先頭バイトの直後に余分な継続バイトが続く列
+    constexpr std::string_view kFixed[] = {
+        "\xE3\x81\x82\x82\xE3\x81\x82"sv,
+        "\x80\x80\x80\x80\x80"sv,
+        "A\xF0\x9F\x98\x80\x80\x80\x80"sv,
+        "\xE3\x81"sv,
+    };
+    for (const auto text : kFixed) {
+        SCOPED_TRACE(utf8_fuzz::HexEscape(text));
+        ASSERT_NO_FATAL_FAILURE(ExpectBackwardWalkMatchesForwardDecode(text));
+    }
+    for (const uint32_t seed : kFuzzSeeds) {
+        std::mt19937 rng{ seed };
+        for (int iter = 0; iter < 300; ++iter) {
+            const auto text = utf8_fuzz::RandomMalformedUtf8(rng, std::uniform_int_distribution<size_t>(1, 24)(rng));
+            SCOPED_TRACE(std::format("seed={} iter={} text={}", seed, iter, utf8_fuzz::HexEscape(text)));
+            ASSERT_NO_FATAL_FAILURE(ExpectBackwardWalkMatchesForwardDecode(std::string_view{ text }));
+        }
+    }
+}
+
+TEST(Utf8Codec, BackwardWalkMatchesForwardDecodeUtf16)
+{
+    constexpr wchar_t kUnits[] = { L'A', 0x3042, 0xFFFF, 0xD800, 0xDBFF, 0xDC00, 0xDFFF, 0xD83D, 0xDE00 };
+    for (const uint32_t seed : kFuzzSeeds) {
+        std::mt19937 rng{ seed };
+        std::uniform_int_distribution<size_t> pick(0, std::size(kUnits) - 1);
+        for (int iter = 0; iter < 300; ++iter) {
+            std::wstring text(std::uniform_int_distribution<size_t>(1, 16)(rng), L'\0');
+            for (auto& c : text) {
+                c = kUnits[pick(rng)];
+            }
+            SCOPED_TRACE(std::format("seed={} iter={}", seed, iter));
+            ASSERT_NO_FATAL_FAILURE(ExpectBackwardWalkMatchesForwardDecode(std::wstring_view{ text }));
+        }
+    }
+}
+
+// 受理した多バイト列は最短形の正規 UTF-8 そのもの (= EncodeCp で同じ bytes に戻る)。
+// overlong・サロゲート・範囲外の取りこぼしは、UTF-16 化で孤立サロゲートを生む。
+TEST(Utf8Codec, DecodeAcceptsOnlyCanonicalSequences)
+{
+    for (const uint32_t seed : kFuzzSeeds) {
+        std::mt19937 rng{ seed };
+        for (int iter = 0; iter < 300; ++iter) {
+            const auto text = utf8_fuzz::RandomMalformedUtf8(rng, std::uniform_int_distribution<size_t>(1, 24)(rng));
+            const std::string_view sv{ text };
+            SCOPED_TRACE(std::format("seed={} iter={} text={}", seed, iter, utf8_fuzz::HexEscape(text)));
+            for (uint32_t pos = 0; pos < sv.size(); ++pos) {
+                const auto d = DecodeAt(sv, pos);
+                const auto first = static_cast<unsigned char>(sv[pos]);
+                if (d.len == 1) {
+                    ASSERT_EQ(d.cp, first < 0x80 ? first : kReplacement) << "pos=" << pos;
+                    continue;
+                }
+                char buf[4]{};
+                ASSERT_EQ(EncodeCp(d.cp, buf), d.len) << "pos=" << pos;
+                ASSERT_EQ(std::string_view(buf, d.len), sv.substr(pos, d.len)) << "pos=" << pos;
+            }
+        }
+    }
+}
+
+// 全 scalar 値で encode → decode が往復し、末尾 1 byte 欠けは必ず { U+FFFD, 1 } になる。
+// 代表値だけでは範囲判定の off-by-one (例: サロゲート上限を U+E000 まで広げる) を検出できない。
+TEST(Utf8Codec, RoundTripAllScalarValues)
+{
+    for (uint32_t cp = 0; cp <= 0x10FFFFu; ++cp) {
         char buf[4]{};
         const uint32_t len = EncodeCp(cp, buf);
-        ASSERT_GT(len, 0u) << "cp=" << cp;
+        if (cp >= 0xD800u && cp <= 0xDFFFu) {
+            ASSERT_EQ(len, 0u) << "cp=" << cp;
+            continue;
+        }
         const auto r = DecodeAt(std::string_view{ buf, len }, 0);
-        EXPECT_EQ(r.cp, cp) << "cp=" << cp;
-        EXPECT_EQ(r.len, len) << "cp=" << cp;
+        ASSERT_EQ(r.cp, cp) << "cp=" << cp;
+        ASSERT_EQ(r.len, len) << "cp=" << cp;
+        if (len > 1) {
+            const auto t = DecodeAt(std::string_view{ buf, len - 1 }, 0);
+            ASSERT_EQ(t.cp, kReplacement) << "cp=" << cp;
+            ASSERT_EQ(t.len, 1u) << "cp=" << cp;
+        }
     }
 }
 

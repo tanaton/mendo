@@ -118,6 +118,13 @@ void ReduceRestoreScrollAfterLoad(AppState& state, const RestoreScrollAfterLoadA
     }
 }
 
+// 復元情報は失敗したロード先のノード番号なので、残すと次に開く別ファイル
+// (起動時の失敗ならフォールバックのヘルプ) が無関係な位置へスクロールする。
+void ReduceLoadFailed(AppState& state)
+{
+    state.view.scroll_restore.ClearNodeRestore();
+}
+
 void ReduceDropFiles(AppState& state, SideEffectList& effects, const DropFilesAction& a)
 {
     OpenFileWithHistory(state, effects, a.path);

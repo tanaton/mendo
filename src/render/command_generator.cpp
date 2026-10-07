@@ -34,6 +34,16 @@ void PublishCmdGenStats() noexcept
 // 値を小さくすると下線は見出し文字に近づき、下線と次行の間隔が広がる。
 static constexpr float HEADING_UNDERLINE_OFFSET_RATIO = 0.25f;
 
+// 見出し下端から下線までの距離。
+static constexpr float HeadingUnderlineGap(const Theme& theme) noexcept
+{
+    return theme.heading_spacing_below_h1h2 * HEADING_UNDERLINE_OFFSET_RATIO;
+}
+
+// 引用バーはグループの上下へ、アラート背景は四辺へこの分はみ出す。
+static constexpr float BAR_EXTEND = 2.0f;
+static constexpr float ALERT_BG_PAD = 4.0f;
+
 // AlertBrushIdFromIndex (brush_id.h) の table が AlertType 全種を網羅することを担保する。
 // 旧 renderer.cpp の static_assert に代わり、core 側 ALERT_TYPE_COUNT との一致をここで検証する。
 static_assert(ALERT_BRUSH_COUNT == ALERT_TYPE_COUNT, "AlertBrushIdFromIndex table must cover every AlertType");
@@ -186,6 +196,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         .selection = selection,
         .hovered = hovered,
         .h_scroll = block_h_scroll,
+        .overhang = MaxNodeOverhang(),
     };
 
     cull_top_ = fc.viewport_top;
@@ -199,7 +210,9 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     const int node_count = static_cast<int>(nodes.size());
     if (first_visible < 0) {
         // 二分探索キーは未スナップのドキュメント Y (cache[i].text_top と同じ系)。
-        first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), scroll_y);
+        // 下端より下にはみ出す描画 (見出し下線・空 LI の bullet 等) を上端で落とさないよう、
+        // はみ出しの上限だけ手前から始める。
+        first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), scroll_y - fc.overhang.below);
     }
 
     // 同一 blockquote_group のノードをまとめてバー/背景を描画する。
@@ -209,7 +222,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     int visible_count = 0;
     for (int i = first_visible; i < node_count; i++) {
         const float local_text_top = cache.Top(i) - snapped_y;
-        if (local_text_top > fc.viewport_bottom) {
+        if (local_text_top - fc.overhang.above > fc.viewport_bottom) {
             break;
         }
         GenerateNode(cmds, fc, nodes[i], cache[i], cache.GetDiagram(i), i, local_text_top);
@@ -230,24 +243,7 @@ void CommandGenerator::GenerateNode(
     const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram,
     int node_index, float entry_text_top)
 {
-    // h1/h2は見出し下線がentry.heightの外に描画されるため、カリング境界を拡張する。
-    float node_bottom = entry_text_top + entry.height;
-    if (node.type == NodeType::Heading) {
-        const int8_t lv = node.heading_level();
-        if (lv <= 2) {
-            node_bottom += theme_->heading_spacing_below_h1h2 * HEADING_UNDERLINE_OFFSET_RATIO + theme_->GetHeadingUnderlineThickness(lv);
-        }
-    }
-    // 空 LI は height=0 だが bullet/checkbox は entry_text_top より下に描かれるため、
-    // node_bottom を実描画下端まで拡張しないと viewport 上端で一瞬消える。
-    // TaskListItem の checkbox (1.5x) は ListItem の bullet 1 行分 (1.3x) より背が高い。
-    else if (IsEmptyListItemContainer(node)) {
-        const float factor = (node.type == NodeType::TaskListItem)
-                                 ? TASK_CHECKBOX_HEIGHT_FACTOR
-                                 : FALLBACK_LINE_HEIGHT_FACTOR;
-        node_bottom += theme_->font_size_body * factor;
-    }
-    if (node_bottom < fc.viewport_top || entry_text_top > fc.viewport_bottom) {
+    if (entry_text_top + entry.height + fc.overhang.below < fc.viewport_top || entry_text_top - fc.overhang.above > fc.viewport_bottom) {
         return;
     }
 
@@ -331,7 +327,7 @@ void CommandGenerator::GenerateNode(
     case NodeType::Heading: {
         const int8_t lv = node.heading_level();
         if (lv <= 2) {
-            const float line_y = entry_text_top + entry.height + theme_->heading_spacing_below_h1h2 * HEADING_UNDERLINE_OFFSET_RATIO;
+            const float line_y = entry_text_top + entry.height + HeadingUnderlineGap(*theme_);
             cmds.emplace_back(DrawLineCmd{
                 D2D1::Point2F(x, line_y), D2D1::Point2F(x + cw, line_y),
                 theme_->hr_color, theme_->GetHeadingUnderlineThickness(lv), BrushId::Hr });
@@ -347,6 +343,19 @@ void CommandGenerator::GenerateNode(
     }
 
     GenNodeTextDecorations(cmds, fc, node, entry, node_index, text_x, entry_text_top);
+}
+
+CommandGenerator::NodeOverhang CommandGenerator::MaxNodeOverhang() const noexcept
+{
+    const float underline = HeadingUnderlineGap(*theme_) + std::max(theme_->GetHeadingUnderlineThickness(1), theme_->GetHeadingUnderlineThickness(2));
+    // 空 LI は height=0 だが bullet/checkbox は text_top より下に描かれる。
+    const float empty_li = theme_->font_size_body * std::max(TASK_CHECKBOX_HEIGHT_FACTOR, FALLBACK_LINE_HEIGHT_FACTOR);
+    // インラインコード背景・コードブロックの padding 内の装飾・アラート背景・引用バーは上下両方へ出る。
+    const float box = std::max({ INLINE_CODE_PAD_Y, theme_->code_block_padding, ALERT_BG_PAD, BAR_EXTEND });
+    // コピー/保存ボタンはズームに依らない固定サイズで box 上端から下へ伸びるため、縮小表示の
+    // 低いブロックでは box の下へはみ出す。ノード上端からのボタン下端までを下側の上限に含める。
+    const float copy_button = COPY_BTN_MARGIN + COPY_BTN_SIZE;
+    return { box, std::max({ box, underline, empty_li, copy_button }) };
 }
 
 CommandGenerator::NodeBaseStyle CommandGenerator::GetNodeBaseStyle(const Node& node) const noexcept
@@ -540,7 +549,7 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
             continue;
         }
         const float group_top = cache.Top(i) - snap;
-        if (group_top > local_viewport_bottom) {
+        if (group_top - fc.overhang.above > local_viewport_bottom) {
             break;
         }
 
@@ -572,8 +581,6 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
 
 void CommandGenerator::GenBlockQuoteGroup(DrawCommandList& cmds, const FrameContext& fc, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int first, int last, int max_depth, float group_top, float group_bottom)
 {
-    static constexpr float BAR_EXTEND = 2.0f;
-    static constexpr float ALERT_BG_PAD = 4.0f;
     static constexpr float ALERT_BG_CORNER = 4.0f;
 
     const AlertType alert_type = nodes[first].alert_type;

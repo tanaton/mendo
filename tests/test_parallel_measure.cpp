@@ -2,10 +2,14 @@
 #include <atomic>
 #include <chrono>
 #include <memory_resource>
+#include <stdexcept>
+#include <string>
 #include <thread>
 #include "dirty_node_fixture.h"
 #include "dirty_scheduler.h"
+#include "document_test_helpers.h"
 #include "layout.h"
+#include "layout_invariants.h"
 #include "mock_text_measurer.h"
 #include "parser.h"
 #include "parallel_measure.h"
@@ -37,6 +41,21 @@ protected:
     void TearDown() override
     {
         task_scheduler_.Shutdown();
+    }
+};
+
+class ThrowingMeasurer : public MockTextMeasurer {
+public:
+    const Node* throw_on = nullptr;
+
+    void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
+                     std::pmr::vector<SyntaxToken>* tokens_out = nullptr,
+                     MeasureViewportRange viewport = {}) const override
+    {
+        if (&node == throw_on) {
+            throw std::runtime_error("measure failed");
+        }
+        MockTextMeasurer::MeasureNode(node, entry, max_width, tokens_out, viewport);
     }
 };
 
@@ -171,5 +190,49 @@ TEST_F(ParallelMeasureTest, EnsureVisibleLayoutParallelMatchesSerial)
         EXPECT_FLOAT_EQ(s_cache[i].height, p_cache[i].height) << "i=" << i;
         EXPECT_FLOAT_EQ(s_cache.Top(i), p_cache.Top(i)) << "i=" << i;
         EXPECT_EQ(s_cache[i].layout_dirty, p_cache[i].layout_dirty) << "i=" << i;
+    }
+}
+
+// 並列計測の chunk が例外で落ちても、落ちる前に計測できたノードの高さを Y に反映し、
+// 計測できなかった dirty は HasDirtyNodes() で次回の再試行に回す。
+// dirty が 32 件未満だと chunk は 1 つなので、1 ノードの例外で全件が失敗扱いになる。
+TEST_F(ParallelMeasureTest, ProcessDirtyBatchRetriesAfterChunkException)
+{
+    struct Case {
+        size_t dirty_count;
+        size_t throw_at;
+        bool clip;
+    };
+    constexpr size_t kFirstDirty = 5;
+    const std::string md = MakeParagraphs(60);
+    for (const Case c : { Case{ 10, 9, false }, Case{ 10, 9, true }, Case{ 10, 0, true }, Case{ 40, 20, false }, Case{ 40, 20, true } }) {
+        SCOPED_TRACE("dirty=" + std::to_string(c.dirty_count) + " throw_at=" + std::to_string(c.throw_at) + " clip=" + std::to_string(c.clip));
+        ThrowingMeasurer measurer;
+        LayoutEngine engine;
+        ASSERT_TRUE(engine.Init(&measurer, theme_));
+        auto nodes = ParseMarkdown(md).nodes;
+        LayoutCache cache;
+        cache.Resize(nodes.size());
+        engine.ComputeLayout(nodes, cache, 800.0f);
+        ASSERT_FALSE(engine.HasDirtyNodes());
+
+        // 再計測で高さが変わるようにして、計測済みノードの Y 反映漏れを見えるようにする。
+        measurer.line_height *= 1.5f;
+        for (size_t k = 0; k < c.dirty_count; ++k) {
+            cache[kFirstDirty + k].layout_dirty = true;
+        }
+        const size_t thrower = kFirstDirty + c.throw_at;
+        measurer.throw_on = &nodes[thrower];
+
+        engine.SetLayoutScheduler(&task_scheduler_);
+        const bool more = c.clip
+            ? engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200, 0, 0.0f, 600.0f, 100.0f)
+            : engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200);
+        engine.SetLayoutScheduler(nullptr);
+
+        EXPECT_TRUE(cache[thrower].layout_dirty);
+        EXPECT_TRUE(more);
+        EXPECT_TRUE(engine.HasDirtyNodes()) << "計測できなかった dirty の再試行が止まる";
+        EXPECT_TRUE(YChainConsistent(nodes, cache, theme_));
     }
 }

@@ -256,8 +256,9 @@ TEST_F(HitTestServiceTest, HitTestTable_ClickAboveAllRowsReturnsTextEnd)
                                     theme_.margin_left + 10.0f,
                                     entry_text_top - 10.0f);
     EXPECT_EQ(r.node_index, table_idx);
+    // テーブルの GetText() は空なので、末尾は concat_text で測る (0 だと先頭セルと区別できない)。
     EXPECT_EQ(r.text_pos,
-              static_cast<uint32_t>(pr.nodes[table_idx].GetText().size()));
+              static_cast<uint32_t>(pr.nodes[table_idx].table_data()->concat_text.size()));
 }
 
 TEST_F(HitTestServiceTest, HitTestTable_LinearScanHitsFirstRow)

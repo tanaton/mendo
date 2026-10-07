@@ -1,44 +1,16 @@
 #include <gtest/gtest.h>
 #include "document.h"
+#include "example_files.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
-#include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <numeric>
 #include <ranges>
-#include <sstream>
 #include <string>
 #include <vector>
 
 namespace {
-
-// "example/xxx.md" 形式の相対パスを、cwd に依存せずソースツリーの example/ から開く。
-// MENDO_EXAMPLE_DIR (CMake が u8 リテラルで渡す絶対パス) を基準に解決し、日本語を含む
-// UTF-8 パスも std::filesystem::path 経由で正しく扱う。define が無い場合は cwd 相対で開く。
-std::pmr::string ReadFileBytes(const std::string& path)
-{
-    std::filesystem::path full;
-#ifdef MENDO_EXAMPLE_DIR
-    std::string_view rel = path;
-    constexpr std::string_view prefix = "example/";
-    if (rel.starts_with(prefix)) {
-        rel.remove_prefix(prefix.size());
-    }
-    full = std::filesystem::path(MENDO_EXAMPLE_DIR) / std::filesystem::path(rel);
-#else
-    full = std::filesystem::path(path);
-#endif
-    std::ifstream file(full, std::ios::binary);
-    if (!file) {
-        return {};
-    }
-    std::ostringstream ss;
-    ss << file.rdbuf();
-    const std::string s = ss.str();
-    return std::pmr::string{ s.data(), s.size() };
-}
 
 struct Stats {
     size_t view_nodes = 0;
@@ -118,7 +90,7 @@ const char* NodeTypeLabel(NodeType t)
 
 TEST(ViewStats, TestMd)
 {
-    auto bytes = ReadFileBytes("example/test.md");
+    auto bytes = ReadExampleFileBytes("example/test.md");
     if (bytes.empty()) {
         GTEST_SKIP() << "example/test.md not found";
     }
@@ -130,7 +102,7 @@ TEST(ViewStats, TestMd)
 
 TEST(ViewStats, NestedMd)
 {
-    auto bytes = ReadFileBytes("example/nested.md");
+    auto bytes = ReadExampleFileBytes("example/nested.md");
     if (bytes.empty()) {
         GTEST_SKIP() << "example/nested.md not found";
     }
@@ -144,7 +116,7 @@ TEST(ViewStats, NestedMd)
 // 手元で実行: --gtest_also_run_disabled_tests --gtest_filter="ViewStats.DISABLED_*"
 TEST(ViewStats, DISABLED_BreakdownByNodeType)
 {
-    auto bytes = ReadFileBytes("example/test.md");
+    auto bytes = ReadExampleFileBytes("example/test.md");
     if (bytes.empty()) {
         GTEST_SKIP() << "example/test.md not found";
     }
@@ -196,7 +168,7 @@ TEST(ViewStats, SimpleCodeBlockIsViewed)
 //   --gtest_filter="ViewStats.DISABLED_BenchFromMarkdownCrlfVsLf"
 TEST(ViewStats, DISABLED_BenchFromMarkdownCrlfVsLf)
 {
-    auto bytes_lf = ReadFileBytes("example/test.md");
+    auto bytes_lf = ReadExampleFileBytes("example/test.md");
     if (bytes_lf.empty()) {
         GTEST_SKIP() << "example/test.md not found";
     }
@@ -301,7 +273,7 @@ size_t RunRunsSizeHistogram(const Document& doc, std::string_view label, std::st
 // 各ノードの runs.size() ヒストグラムと、SBO=1..8 での hit 率を出力する。
 TEST(ViewStats, RunsSizeHistogramTestMd)
 {
-    auto bytes = ReadFileBytes("example/test.md");
+    auto bytes = ReadExampleFileBytes("example/test.md");
     if (bytes.empty()) {
         GTEST_SKIP() << "example/test.md not found";
     }
@@ -321,7 +293,7 @@ TEST(ViewStats, RunsSizeHistogramTestMd)
 // 分布。Table/Image/HR/CodeBlock は runs が常に空に近いので統計を歪める。
 TEST(ViewStats, RunsSizeHistogramTextNodesOnly)
 {
-    auto bytes = ReadFileBytes("example/test.md");
+    auto bytes = ReadExampleFileBytes("example/test.md");
     if (bytes.empty()) {
         GTEST_SKIP() << "example/test.md not found";
     }
@@ -344,7 +316,7 @@ TEST(ViewStats, RunsSizeHistogramTextNodesOnly)
 // NodeType 別の runs.size() の中央値・平均・最大を出力する診断ダンプ (assert なし)。
 TEST(ViewStats, DISABLED_RunsSizeBreakdownByNodeType)
 {
-    auto bytes = ReadFileBytes("example/test.md");
+    auto bytes = ReadExampleFileBytes("example/test.md");
     if (bytes.empty()) {
         GTEST_SKIP() << "example/test.md not found";
     }
@@ -384,7 +356,7 @@ TEST(ViewStats, DISABLED_RunsSizeBreakdownByNodeType)
 // test.md の owned code block の最初の数個を表示し、なぜ view 化されないかの手がかりを得る診断ダンプ (assert なし)。
 TEST(ViewStats, DISABLED_DumpFirstOwnedCodeBlocks)
 {
-    auto bytes = ReadFileBytes("example/test.md");
+    auto bytes = ReadExampleFileBytes("example/test.md");
     if (bytes.empty()) {
         GTEST_SKIP() << "example/test.md not found";
     }

@@ -30,9 +30,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     const auto node_count = nodes.size();
     cache.Resize(node_count);
 
-    // 小刻みな WM_SIZE で全ノード再レイアウトが頻発するのを防ぐ
-    static constexpr float WIDTH_CHANGE_THRESHOLD = 2.0f;
-    const bool width_changed = std::abs(viewport_width - last_viewport_width_) > WIDTH_CHANGE_THRESHOLD;
+    const bool width_changed = std::abs(viewport_width - last_viewport_width_) > kWidthChangeThreshold;
     const bool partial = (viewport_top >= 0.0f);
 
     if (width_changed) {
@@ -76,6 +74,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
             // 可視判定は古い高さを使った推定。
             if (!IsOffscreen(y, entry.height, vp.top, vp.bottom)) {
                 const float old_height = entry.height;
+                cache.NoteMaterialized(i);
                 MeasureEntry(*measurer_, node, entry, node_width, nullptr, vp, y + sa);
                 any_measured = true;
                 if (entry.height != old_height) {
@@ -157,6 +156,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
         }
         else if (entry.has_table_layout() && entry.table_layout->HasEvictedRows()) {
             const float indent = NodeIndent(nodes[i], *theme_);
+            cache.NoteMaterialized(static_cast<size_t>(i));
             const auto restored = measurer_->RestoreEvictedTableRows(nodes[i], entry, content_width - indent, vp.ToLocal(entry_top));
             any_restored |= restored.restored;
             if (restored.height_changed) {
@@ -201,7 +201,9 @@ bool LayoutEngine::ProcessDirtyBatch(
             ? mendo::layout::RunParallel(nodes, cache, content_width, *theme_, *measurer_, clip, mendo::layout::ParallelBudget{ batch_size }, *layout_scheduler_)
             : mendo::layout::RunSerial(nodes, cache, content_width, *theme_, *measurer_, clip, mendo::layout::SerialBudget{ batch_size, time_budget_us });
 
-    if (result.processed == 0) {
+    // processed では判定しない: 並列計測の chunk が全滅しても例外の手前で計測できたノードは
+    // 高さが変わっているので Y を組み直し、残った dirty は再試行に回す必要がある。
+    if (result.reason == mendo::layout::StopReason::NoneDirty) {
         has_dirty_nodes_ = false;
         return false;
     }
@@ -214,10 +216,8 @@ bool LayoutEngine::ProcessDirtyBatch(
     if (clip.active() && has_dirty_nodes_ && !result.any_nearby_skipped()) {
         has_dirty_nodes_ = false;
     }
-
-    if (!has_dirty_nodes_) {
-        last_viewport_width_ = viewport_width;
-    }
+    // last_viewport_width_ は ComputeLayout が再計測を決めた幅のまま据え置く。ここで進めると
+    // 2px 未満のリサイズとダーティ処理が交互に続いたとき、可視ノードが古い幅のまま取り残される。
     return has_dirty_nodes_;
 }
 

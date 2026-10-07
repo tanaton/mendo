@@ -1,9 +1,14 @@
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <format>
+#include <iterator>
 #include <memory_resource>
+#include <random>
 #include <string>
 #include <string_view>
 #include "syntax.h"
 #include "parser.h"
+#include "utf8_fuzz_helpers.h"
 
 namespace {
 
@@ -628,4 +633,65 @@ TEST(Syntax, CmdComplexCode)
 
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Comment), 1); // REM
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 3); // echo, for, do, echo, pause
+}
+
+// ============================================================
+// ランダム入力でのプロパティ
+// ============================================================
+
+namespace {
+
+// 字句状態が切り替わる断片に寄せる。未終端の文字列・コメント・raw string・triple quote も生成される。
+constexpr std::string_view kSyntaxFuzzPieces[] = {
+    "\"", "'", "`", "/", "*", "#", "<", ">", "R", "\\", "(", ")", ":", ".",
+    "\n", "\r\n", " ", "\t",
+    "//", "/*", "*/", "<#", "#>", "::", "rem ", "REM", "\"\"\"", "'''", "R\"x(", ")x\"",
+    "0x1F", "1.5e+3f", "42", "int", "def", "foo", "if", "あ", "漢字", "𠮷",
+};
+
+// 境界は前方 decode の区切りで判定する。描画側 (Utf16OffsetCursor) は文字途中の境界を
+// 文字先頭に丸めるため、区切り以外に境界があると色付け範囲が 1 文字ずれる。
+testing::AssertionResult TokensPartitionAtCpBoundaries(std::string_view text, const std::pmr::vector<SyntaxToken>& tokens)
+{
+    const auto bounds = utf8_fuzz::ForwardDecodeBoundaries(text);
+    uint64_t expected_start = 0;
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        const auto& t = tokens[i];
+        if (t.start != expected_start) {
+            return testing::AssertionFailure() << "token " << i << " start=" << t.start << " expected=" << expected_start;
+        }
+        if (t.length == 0) {
+            return testing::AssertionFailure() << "token " << i << " has zero length";
+        }
+        if (!std::ranges::binary_search(bounds, t.start)) {
+            return testing::AssertionFailure() << "token " << i << " starts inside a code point: " << t.start;
+        }
+        expected_start = static_cast<uint64_t>(t.start) + t.length;
+    }
+    if (expected_start != text.size()) {
+        return testing::AssertionFailure() << "tokens end at " << expected_start << " but size=" << text.size();
+    }
+    return testing::AssertionSuccess();
+}
+
+} // namespace
+
+TEST(Syntax, FuzzTokensPartitionTextAtCodePointBoundaries)
+{
+    constexpr SyntaxLanguage kLanguages[] = {
+        SyntaxLanguage::Cpp, SyntaxLanguage::Python, SyntaxLanguage::JavaScript, SyntaxLanguage::Go,
+        SyntaxLanguage::Rust, SyntaxLanguage::TypeScript, SyntaxLanguage::Bash, SyntaxLanguage::PowerShell,
+        SyntaxLanguage::Cmd, SyntaxLanguage::Json,
+    };
+    for (const uint32_t seed : utf8_fuzz::kFuzzSeeds) {
+        std::mt19937 rng{ seed };
+        for (int iter = 0; iter < 300; ++iter) {
+            const auto text = utf8_fuzz::RandomPiecesWithMalformed(rng, kSyntaxFuzzPieces, 1, 24);
+            for (const auto lang : kLanguages) {
+                // 失敗時だけ評価されるメッセージに文脈を載せ、成功ケースで文字列を組み立てない。
+                ASSERT_TRUE(TokensPartitionAtCpBoundaries(text, Tokenize(text, lang)))
+                    << std::format("seed={} iter={} lang={} text={}", seed, iter, static_cast<int>(lang), utf8_fuzz::HexEscape(text));
+            }
+        }
+    }
 }

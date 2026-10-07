@@ -4,6 +4,7 @@
 #include "worker_latch.h"
 #include <atomic>
 #include <cstdint>
+#include <expected>
 #include <memory>
 #include <memory_resource>
 #include <mutex>
@@ -20,7 +21,12 @@ class TaskScheduler;
 // worker は gen_ (atomic) のチェックと、mutex 経由の result_/error_ sink への書き込みのみ行う。
 class AsyncLoadCoordinator {
 public:
+    using LoadFileFn = std::expected<LoadedFileDoc, FileLoadError> (*)(const std::pmr::wstring& path, const std::stop_token& stop_token);
+
     AsyncLoadCoordinator() = default;
+    // テストが worker を読み込み中で止め、Cancel / 再 Start との競合を決定的に再現するための差し替え口。
+    explicit AsyncLoadCoordinator(LoadFileFn load_file) noexcept : load_file_(load_file)
+    {}
     // dtor で走行中 worker の完了を待つ。OnDestroy を経ない経路でも UAF を起こさないため。
     ~AsyncLoadCoordinator();
     AsyncLoadCoordinator(const AsyncLoadCoordinator&) = delete;
@@ -58,6 +64,10 @@ private:
     // worker スレッド本体。I/O → リロード差分判定 → Parse → Estimate の各段で gen/stop を確認する。
     void RunWorker(const std::pmr::wstring& path, uint32_t gen, const Theme& theme, const std::stop_token& stop_token,
                    std::shared_ptr<const std::pmr::string> reload_base, HWND hwnd, UINT msg_id);
+    static std::expected<LoadedFileDoc, FileLoadError> LoadFromDisk(const std::pmr::wstring& path, const std::stop_token& /*stop_token*/)
+    {
+        return FileLoader::LoadFile(path);
+    }
     bool IsStale(uint32_t gen) const noexcept
     {
         return gen_.load(std::memory_order_relaxed) != gen;
@@ -67,6 +77,7 @@ private:
     // destruction を mutex 保持時間に乗せないため。
     void ResetSinks() noexcept;
 
+    LoadFileFn load_file_ = &LoadFromDisk;
     bool in_flight_ = false;
     std::atomic<uint32_t> gen_{ 0 };
     std::mutex mutex_;

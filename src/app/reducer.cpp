@@ -237,6 +237,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const TocItemClickedAction& a) { ReduceTocItemClicked(state, effects, a); },
         [&](const NavigateAnchorAction& a) { ReduceNavigateAnchor(state, effects, a); },
         [&](const RestoreScrollAfterLoadAction& a) { ReduceRestoreScrollAfterLoad(state, a); },
+        [&](const LoadFailedAction&) { ReduceLoadFailed(state); },
         [&](const UpdateTooltipAction& a) { ReduceUpdateTooltip(state, effects, a); },
         [&](const ClearTooltipAction&) { ClearTooltip(state, effects); },
 

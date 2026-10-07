@@ -77,7 +77,7 @@ NavEntry NavHistory::ToExternal(const InternalEntry& e) const
 void NavHistory::PushCapped(std::pmr::deque<InternalEntry>& stack, const NavEntry& e)
 {
     stack.emplace_back(ToInternal(e));
-    if (stack.size() > MAX_HISTORY) {
+    if (stack.size() > max_history_) {
         ReleasePath(stack.front().path_index);
         stack.pop_front();
     }

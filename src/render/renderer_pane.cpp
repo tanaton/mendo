@@ -99,24 +99,21 @@ static void DrawSidePaneHeader(ID2D1RenderTarget* rt, const SidePaneDrawContext&
 
     const D2D1_RECT_F close_rect = PaneCloseButtonRect(width, header_h);
     draw_button(close_rect, L"\uE8BB", PaneHeaderButton::Close);
-    float header_text_right = close_rect.left - 4.0f;
     if (sp.show_file_buttons) {
         draw_button(PaneRefreshButtonRect(width, header_h), L"\uE72C", PaneHeaderButton::Refresh);
         const D2D1_RECT_F reveal_rect = PaneRevealButtonRect(width, header_h);
         draw_button(reveal_rect, L"\uE81D", PaneHeaderButton::Reveal, sp.reveal_enabled);
-        header_text_right = reveal_rect.left - 4.0f;
     }
 
-    // 最小幅付近ではボタンだけで埋まり、見出しの矩形が反転する。
-    constexpr float header_text_left = 8.0f;
-    if (!sp.fmt_header || header_text_right <= header_text_left) {
+    const auto text_rect = PaneHeaderTextRect(width, header_h, sp.show_file_buttons);
+    if (!sp.fmt_header || !text_rect) {
         return;
     }
     rt->DrawText(
         sp.header_text.data(),
         static_cast<UINT32>(sp.header_text.size()),
         sp.fmt_header,
-        D2D1::RectF(header_text_left, 0, header_text_right, header_h),
+        *text_rect,
         sp.text_brush,
         D2D1_DRAW_TEXT_OPTIONS_CLIP);
 }

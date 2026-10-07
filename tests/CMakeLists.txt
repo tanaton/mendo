@@ -5,6 +5,7 @@ add_executable(mendo_tests
     test_types.cpp
     test_theme.cpp
     test_file_loader.cpp
+    test_file_watcher_notify.cpp
     test_file_explorer.cpp
     test_toc.cpp
     test_layout.cpp
@@ -29,6 +30,7 @@ add_executable(mendo_tests
     test_theme_service.cpp
     test_file_load_service.cpp
     test_layout_cache.cpp
+    test_layout_incremental.cpp
     test_copy_button.cpp
     test_hit_test_service.cpp
     test_hit_test_service_dwrite.cpp
@@ -41,6 +43,7 @@ add_executable(mendo_tests
     test_image.cpp
     test_help.cpp
     test_search_state.cpp
+    test_search_state_dwrite.cpp
     test_locale.cpp
     test_memory_eviction.cpp
     test_lru_cache.cpp
@@ -49,6 +52,8 @@ add_executable(mendo_tests
     test_search_bar_controller.cpp
     test_session_service.cpp
     test_reducer.cpp
+    test_reducer_invariants.cpp
+    test_reload_flow.cpp
     test_startup_plan.cpp
     test_string_convert.cpp
     test_gesture_overlay.cpp
@@ -60,6 +65,7 @@ add_executable(mendo_tests
     test_command_generator_frame.cpp
     test_command_generator_content.cpp
     test_command_generator_highlight.cpp
+    test_command_generator_culling.cpp
     test_diagram_placeholder.cpp
     test_measurer_parity.cpp
     test_command_executor.cpp
@@ -84,6 +90,8 @@ add_executable(mendo_tests
     test_clipboard_manager.cpp
     test_block_h_scroll.cpp
     app_search_bar_callbacks_stub.cpp
+    test_parser_properties.cpp
+    test_selection_html_properties.cpp
 )
 
 target_link_libraries(mendo_tests PRIVATE

@@ -23,6 +23,15 @@ struct NavEntry {
 
 class NavHistory {
 public:
+    static constexpr size_t MAX_HISTORY = 1024;
+
+    NavHistory() = default;
+    // 上限はテストで容量超過経路を少ない操作数で踏むために差し替え可能にしている。
+    explicit NavHistory(size_t max_history)
+        : max_history_(max_history)
+    {
+    }
+
     void Push(const NavEntry& current);
     bool GoBack(const NavEntry& current, NavEntry& out);
     bool GoForward(const NavEntry& current, NavEntry& out);
@@ -51,8 +60,6 @@ public:
     {
         return path_index_.size();
     }
-
-    static constexpr size_t MAX_HISTORY = 1024;
 
 private:
     struct InternalEntry {
@@ -95,6 +102,7 @@ private:
     // 「未設定」を表すセンチネル値。0 は有効インデックスなので最大値で代用する。
     static constexpr uint32_t kUnsetIndex = std::numeric_limits<uint32_t>::max();
     uint32_t last_interned_index_ = kUnsetIndex;
+    size_t max_history_ = MAX_HISTORY;
 };
 
 struct LinkClickResult {

@@ -1,8 +1,15 @@
 #include "small_vector.h"
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <format>
+#include <initializer_list>
 #include <numeric>
+#include <random>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
 using mendo::small_vector;
 
@@ -408,4 +415,248 @@ TEST(SmallVector, MovedFromIsUsableAgain)
     EXPECT_EQ(a.size(), 1u);
     EXPECT_EQ(a[0], 42);
     EXPECT_EQ(a.capacity(), 2u);
+}
+
+// ---- 自己参照の push_back ----
+
+// std::vector と同じく、自身の要素への参照を渡しても成長時に壊れない。
+// 旧領域を新要素の構築前に解放すると解放済みメモリを読む。
+TEST(SmallVector, PushBackOwnElementWhileGrowingFromHeap)
+{
+    struct Wide {
+        uint64_t v[8];
+    };
+    for (const uint32_t initial : { 2u, 4u, 8u, 64u, 1024u }) {
+        SCOPED_TRACE(initial);
+        small_vector<Wide, 1> sv;
+        for (uint32_t i = 0; i < initial; ++i) {
+            Wide w{};
+            std::ranges::fill(w.v, 0x0101010101010101ull * (i + 1));
+            sv.push_back(w);
+        }
+        ASSERT_EQ(sv.size(), sv.capacity()) << "次の push_back で成長させる前提";
+        const Wide expected = sv[0];
+        sv.push_back(sv[0]);
+        EXPECT_TRUE(std::ranges::equal(sv.back().v, expected.v));
+    }
+}
+
+// コピーコンストラクタが削除されていても、trivial なムーブがあれば trivially copyable。
+// 成長経路で一時値をコピー構築すると、この型の emplace_back / push_back(T&&) がコンパイルできなくなる。
+TEST(SmallVector, GrowsWithTriviallyCopyableTypeWithoutCopyConstructor)
+{
+    struct NoCopyCtor {
+        int v = 0;
+        NoCopyCtor() = default;
+        explicit NoCopyCtor(int x) noexcept : v(x) {}
+        NoCopyCtor(const NoCopyCtor&) = delete;
+        NoCopyCtor(NoCopyCtor&&) = default;
+        NoCopyCtor& operator=(const NoCopyCtor&) = default;
+        NoCopyCtor& operator=(NoCopyCtor&&) = default;
+    };
+    static_assert(std::is_trivially_copyable_v<NoCopyCtor>);
+
+    small_vector<NoCopyCtor, 2> sv;
+    for (int i = 0; i < 9; ++i) {
+        if (i % 2 == 0) {
+            sv.emplace_back(i);
+        }
+        else {
+            sv.push_back(NoCopyCtor{ i });
+        }
+    }
+    ASSERT_EQ(sv.size(), 9u);
+    for (int i = 0; i < 9; ++i) {
+        EXPECT_EQ(sv[static_cast<size_t>(i)].v, i);
+    }
+}
+
+// ---- std::vector とのモデル比較 ----
+
+namespace {
+
+struct WideElem {
+    uint64_t a = 0;
+    uint64_t b = 0;
+    uint64_t c = 0;
+    bool operator==(const WideElem&) const = default;
+};
+
+template <typename T>
+T MakeModelValue(uint32_t x)
+{
+    if constexpr (std::is_same_v<T, WideElem>) {
+        return WideElem{ x, ~uint64_t{ x }, uint64_t{ x } * 3 };
+    }
+    else {
+        return static_cast<T>(x);
+    }
+}
+
+template <typename T, std::size_t N>
+testing::AssertionResult MatchesModel(const small_vector<T, N>& v, const std::vector<T>& m)
+{
+    if (v.size() != m.size() || v.empty() != m.empty() || static_cast<std::size_t>(v.end() - v.begin()) != m.size()) {
+        return testing::AssertionFailure() << "size " << v.size() << " vs model " << m.size();
+    }
+    if (v.capacity() < v.size()) {
+        return testing::AssertionFailure() << "capacity " << v.capacity() << " < size " << v.size();
+    }
+    // 不変式: capacity == N <=> data が inline 領域 (オブジェクト内) を指す
+    const auto* self = reinterpret_cast<const std::byte*>(&v);
+    const auto* data = reinterpret_cast<const std::byte*>(v.data());
+    const bool is_inline = data >= self && data < self + sizeof(v);
+    if (is_inline != (v.capacity() == N)) {
+        return testing::AssertionFailure() << "inline=" << is_inline << " capacity=" << v.capacity();
+    }
+    const auto mismatch = std::ranges::mismatch(v, m);
+    if (mismatch.in1 != v.end()) {
+        return testing::AssertionFailure() << "element mismatch at " << (mismatch.in1 - v.begin());
+    }
+    return testing::AssertionSuccess();
+}
+
+enum class ModelOp {
+    PushBack,
+    PushBackOwnElement,
+    EmplaceBack,
+    AssignFill,
+    AssignInitList,
+    Clear,
+    Reserve,
+    CopyAssign,
+    MoveAssign,
+    CopyConstruct,
+    MoveConstruct,
+    Count,
+};
+
+// 2 本を並走させ、片方から他方 (または自分自身) への copy/move も混ぜる。
+// ムーブ元は空として再利用され続ける。
+template <typename T, std::size_t N>
+void RunModelSequence(uint32_t seed, int steps)
+{
+    std::mt19937 rng{ seed };
+    const auto below = [&](std::size_t n) {
+        return std::uniform_int_distribution<std::size_t>(0, n - 1)(rng);
+    };
+    small_vector<T, N> v[2];
+    std::vector<T> m[2];
+    uint32_t next = 1;
+    for (int step = 0; step < steps; ++step) {
+        const auto op = static_cast<ModelOp>(below(static_cast<std::size_t>(ModelOp::Count)));
+        const std::size_t a = below(2);
+        const std::size_t b = below(2);
+        SCOPED_TRACE(std::format("N={} seed={} step={} op={} a={} b={}", N, seed, step, static_cast<int>(op), a, b));
+        switch (op) {
+        case ModelOp::PushBack: {
+            const T x = MakeModelValue<T>(next++);
+            v[a].push_back(x);
+            m[a].push_back(x);
+            break;
+        }
+        case ModelOp::PushBackOwnElement:
+            if (!m[a].empty()) {
+                const std::size_t i = below(m[a].size());
+                v[a].push_back(v[a][i]);
+                m[a].push_back(m[a][i]);
+            }
+            break;
+        case ModelOp::EmplaceBack:
+            v[a].emplace_back(MakeModelValue<T>(next));
+            m[a].push_back(MakeModelValue<T>(next));
+            ++next;
+            break;
+        case ModelOp::AssignFill: {
+            const std::size_t n = below(3 * N + 2);
+            const T x = MakeModelValue<T>(next++);
+            v[a].assign(n, x);
+            m[a].assign(n, x);
+            break;
+        }
+        case ModelOp::AssignInitList: {
+            const T x = MakeModelValue<T>(next++);
+            const T y = MakeModelValue<T>(next++);
+            switch (below(4)) {
+            case 0:
+                v[a] = std::initializer_list<T>{};
+                m[a] = std::initializer_list<T>{};
+                break;
+            case 1:
+                v[a] = { x };
+                m[a] = { x };
+                break;
+            case 2:
+                v[a] = { x, y, x };
+                m[a] = { x, y, x };
+                break;
+            default:
+                v[a] = { y, x, y, x, y, x, y, x, y };
+                m[a] = { y, x, y, x, y, x, y, x, y };
+                break;
+            }
+            break;
+        }
+        case ModelOp::Clear:
+            v[a].clear();
+            m[a].clear();
+            break;
+        case ModelOp::Reserve: {
+            const auto n = static_cast<uint32_t>(below(4 * N + 4));
+            v[a].reserve(n);
+            m[a].reserve(n);
+            ASSERT_GE(v[a].capacity(), n);
+            break;
+        }
+        case ModelOp::CopyAssign:
+            v[a] = v[b];
+            m[a] = m[b];
+            break;
+        case ModelOp::MoveAssign:
+            if (a == b) {
+                auto& self = v[a];
+                v[a] = std::move(self);
+            }
+            else {
+                v[a] = std::move(v[b]);
+                m[a] = std::move(m[b]);
+                m[b].clear();
+            }
+            break;
+        case ModelOp::CopyConstruct: {
+            small_vector<T, N> c(v[b]);
+            ASSERT_TRUE(MatchesModel(c, m[b]));
+            v[a] = std::move(c);
+            m[a] = m[b];
+            break;
+        }
+        case ModelOp::MoveConstruct: {
+            small_vector<T, N> c(std::move(v[b]));
+            std::vector<T> mc = std::move(m[b]);
+            m[b].clear();
+            ASSERT_TRUE(MatchesModel(c, mc));
+            ASSERT_TRUE(MatchesModel(v[b], m[b]));
+            v[a] = std::move(c);
+            m[a] = std::move(mc);
+            break;
+        }
+        case ModelOp::Count:
+            break;
+        }
+        ASSERT_TRUE(MatchesModel(v[0], m[0]));
+        ASSERT_TRUE(MatchesModel(v[1], m[1]));
+    }
+}
+
+} // namespace
+
+TEST(SmallVector, MatchesStdVectorUnderRandomOps)
+{
+    for (const uint32_t seed : { 1u, 2u, 3u, 0xC0FFEEu, 20261007u }) {
+        ASSERT_NO_FATAL_FAILURE((RunModelSequence<uint32_t, 1>(seed, 2000)));
+        ASSERT_NO_FATAL_FAILURE((RunModelSequence<uint32_t, 2>(seed, 2000)));
+        ASSERT_NO_FATAL_FAILURE((RunModelSequence<uint32_t, 4>(seed, 2000)));
+        ASSERT_NO_FATAL_FAILURE((RunModelSequence<WideElem, 1>(seed, 2000)));
+        ASSERT_NO_FATAL_FAILURE((RunModelSequence<WideElem, 4>(seed, 2000)));
+    }
 }

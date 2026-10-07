@@ -247,6 +247,47 @@ TEST(Parser, UnorderedListLooseProducesParagraphChildren)
     EXPECT_EQ(nodes[3].GetText(), "b");
 }
 
+// md4c は tight list の LI 直下に MD_BLOCK_P を出さないため、子ブロック後の本文は段落ノードで受ける。
+TEST(Parser, TightListTextAfterHeadingIsKept)
+{
+    auto nodes = ParseMarkdown("- # H\n  text").nodes;
+    ASSERT_EQ(nodes.size(), 3u);
+    EXPECT_EQ(nodes[1].type, NodeType::Heading);
+    EXPECT_EQ(nodes[2].type, NodeType::Paragraph);
+    EXPECT_EQ(nodes[2].GetText(), "text");
+    EXPECT_EQ(nodes[2].indent_level, nodes[1].indent_level);
+}
+
+TEST(Parser, TightListTextAfterFenceIsNotMergedIntoCode)
+{
+    auto nodes = ParseMarkdown("- a\n  ```\n  code\n  ```\n  after").nodes;
+    ASSERT_EQ(nodes.size(), 3u);
+    EXPECT_EQ(nodes[1].type, NodeType::CodeBlock);
+    EXPECT_EQ(nodes[1].GetText(), "code");
+    EXPECT_EQ(nodes[2].type, NodeType::Paragraph);
+    EXPECT_EQ(nodes[2].GetText(), "after");
+}
+
+TEST(Parser, TightListLinkAfterHorizontalRuleKeepsUrl)
+{
+    auto nodes = ParseMarkdown("- a\n  ***\n  [l](https://example.com)").nodes;
+    ASSERT_EQ(nodes.size(), 3u);
+    EXPECT_EQ(nodes[2].type, NodeType::Paragraph);
+    EXPECT_EQ(nodes[2].GetText(), "l");
+    ASSERT_EQ(nodes[2].view_link_urls().size(), 1u);
+    ASSERT_EQ(nodes[2].runs.size(), 1u);
+    EXPECT_TRUE(nodes[2].runs[0].has_link());
+}
+
+TEST(Parser, TightListInBlockquoteTextAfterHeadingStaysQuoted)
+{
+    auto nodes = ParseMarkdown("> - # H\n>   text").nodes;
+    ASSERT_EQ(nodes.size(), 3u);
+    EXPECT_EQ(nodes[2].type, NodeType::BlockQuote);
+    EXPECT_EQ(nodes[2].GetText(), "text");
+    EXPECT_EQ(nodes[2].blockquote_group, nodes[1].blockquote_group);
+}
+
 // ---- バグ #10: ネストされた引用ブロック ----
 
 TEST(Parser, NestedBlockquotePreservesOuterStyle)
@@ -848,6 +889,22 @@ TEST(Parser, DuplicateAnchorsWithDifferentText)
     EXPECT_EQ(nodes[2].anchor_id(), "a-1");
 }
 
+// 連番付きスラグと本文由来のスラグの衝突 (github-slugger と同じく未使用になるまで連番を進める)
+TEST(Parser, DuplicateAnchorSkipsSuffixTakenByLiteralHeading)
+{
+    auto nodes = ParseMarkdown("# A\n# A\n# A-1").nodes;
+    ASSERT_EQ(nodes.size(), 3u);
+    EXPECT_EQ(nodes[0].anchor_id(), "a");
+    EXPECT_EQ(nodes[1].anchor_id(), "a-1");
+    EXPECT_EQ(nodes[2].anchor_id(), "a-1-1");
+
+    auto reversed = ParseMarkdown("# A-1\n# A\n# A").nodes;
+    ASSERT_EQ(reversed.size(), 3u);
+    EXPECT_EQ(reversed[0].anchor_id(), "a-1");
+    EXPECT_EQ(reversed[1].anchor_id(), "a");
+    EXPECT_EQ(reversed[2].anchor_id(), "a-2");
+}
+
 // ---- 数値HTMLエンティティ ----
 
 TEST(Parser, NumericEntityDecimal)
@@ -1220,6 +1277,20 @@ TEST(Parser, AlertFollowedByRegularBlockquote)
     }
     EXPECT_TRUE(has_alert);
     EXPECT_TRUE(has_normal);
+}
+
+// GitHub は blockquote の先頭行のマーカーだけを Alert として扱う。
+TEST(Parser, AlertMarkerAfterLeadingContentIsPlainQuote)
+{
+    for (const char* md : { "> intro\n>\n> [!NOTE] x", "> # T\n> [!NOTE] x", "> - item\n>\n> [!TIP]\n> y" }) {
+        SCOPED_TRACE(md);
+        auto nodes = ParseMarkdown(md).nodes;
+        for (const auto& node : nodes) {
+            EXPECT_EQ(node.alert_type, AlertType::None);
+            EXPECT_EQ(node.alert_label_length(), 0u);
+        }
+        EXPECT_TRUE(nodes.back().GetText().starts_with("[!"));
+    }
 }
 
 // ネストを跨いだ Alert 伝播 (PR #156)

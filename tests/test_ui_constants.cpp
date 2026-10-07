@@ -351,3 +351,33 @@ TEST(SearchBarHitTestTest, GapBetweenHighlightAndCloseHitsNone)
     const float cy = (l.close_btn.top + l.close_btn.bottom) / 2.0f;
     EXPECT_EQ(HitTestSearchBar(l, gap_x, cy), SearchBarHitZone::None);
 }
+
+// ═══════════════════════════════════════════════
+// PaneHeaderTextRect
+// ═══════════════════════════════════════════════
+
+// サイド幅はウィンドウ縮小で PANE_MIN_WIDTH 未満にもなる (ComputePaneLayout の比例縮小)。
+// どの幅でも見出し矩形は反転せず、ボタンと重ならない (bb25241 の回帰)。
+TEST(PaneHeaderTextRectTest, NeverInvertedNorOverlapsButtonsAtAnyWidth)
+{
+    for (const float header_h : { 24.0f, 28.0f, 36.0f }) {
+        for (const bool file_buttons : { false, true }) {
+            for (float w = 0.0f; w <= 400.0f; w += 0.25f) {
+                SCOPED_TRACE(std::to_string(w) + (file_buttons ? " file" : " toc") + " h=" + std::to_string(header_h));
+                const auto rect = PaneHeaderTextRect(w, header_h, file_buttons);
+                if (!rect) {
+                    continue;
+                }
+                ASSERT_LT(rect->left, rect->right);
+                ASSERT_GE(rect->left, 0.0f);
+                ASSERT_LE(rect->right, PaneCloseButtonRect(w, header_h).left);
+                if (file_buttons) {
+                    ASSERT_LE(rect->right, PaneRefreshButtonRect(w, header_h).left);
+                    ASSERT_LE(rect->right, PaneRevealButtonRect(w, header_h).left);
+                }
+            }
+            // 通常幅では見出しが出る (常に nullopt で上のループを素通りしないこと)。
+            EXPECT_TRUE(PaneHeaderTextRect(220.0f, header_h, file_buttons).has_value());
+        }
+    }
+}
