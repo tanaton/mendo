@@ -67,7 +67,7 @@ WordKind KindOf(const Node& node)
     }
 }
 
-// "w<数字>" トークンを種別ごとに集める。
+// "w<数字>" トークンを種別ごとに集める。生成側は各語を 1 回だけ置くので、2 回目の出現は失敗にする。
 std::map<std::string, WordKind> CollectWords(const std::pmr::vector<Node>& nodes)
 {
     std::map<std::string, WordKind> words;
@@ -82,7 +82,9 @@ std::map<std::string, WordKind> CollectWords(const std::pmr::vector<Node>& nodes
                 ++j;
             }
             if (j > i + 1) {
-                words.emplace(std::string{ text.substr(i, j - i) }, KindOf(node));
+                const std::string w{ text.substr(i, j - i) };
+                const bool inserted = words.emplace(w, KindOf(node)).second;
+                EXPECT_TRUE(inserted) << "語 " << w << " が複数回現れた";
             }
             i = j - 1;
         }

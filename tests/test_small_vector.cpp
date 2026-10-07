@@ -441,6 +441,36 @@ TEST(SmallVector, PushBackOwnElementWhileGrowingFromHeap)
     }
 }
 
+// コピーコンストラクタが削除されていても、trivial なムーブがあれば trivially copyable。
+// 成長経路で一時値をコピー構築すると、この型の emplace_back / push_back(T&&) がコンパイルできなくなる。
+TEST(SmallVector, GrowsWithTriviallyCopyableTypeWithoutCopyConstructor)
+{
+    struct NoCopyCtor {
+        int v = 0;
+        NoCopyCtor() = default;
+        explicit NoCopyCtor(int x) noexcept : v(x) {}
+        NoCopyCtor(const NoCopyCtor&) = delete;
+        NoCopyCtor(NoCopyCtor&&) = default;
+        NoCopyCtor& operator=(const NoCopyCtor&) = default;
+        NoCopyCtor& operator=(NoCopyCtor&&) = default;
+    };
+    static_assert(std::is_trivially_copyable_v<NoCopyCtor>);
+
+    small_vector<NoCopyCtor, 2> sv;
+    for (int i = 0; i < 9; ++i) {
+        if (i % 2 == 0) {
+            sv.emplace_back(i);
+        }
+        else {
+            sv.push_back(NoCopyCtor{ i });
+        }
+    }
+    ASSERT_EQ(sv.size(), 9u);
+    for (int i = 0; i < 9; ++i) {
+        EXPECT_EQ(sv[static_cast<size_t>(i)].v, i);
+    }
+}
+
 // ---- std::vector とのモデル比較 ----
 
 namespace {

@@ -83,11 +83,14 @@ inline void CheckTable(ViolationSink& sink, size_t i, const Node& node)
         sink.Add("node {}: offset tables {}/{} != R*C+1 = {}", i, tbl->cell_text_starts.size(), tbl->cell_run_starts.size(), cells + 1);
         return;
     }
+    // 末尾オフセットが格納先のサイズとずれていると、以降のセル走査が範囲外を読む。
     if (tbl->cell_text_starts.back() != tbl->concat_text.size()) {
         sink.Add("node {}: cell_text_starts.back() {} != concat size {}", i, tbl->cell_text_starts.back(), tbl->concat_text.size());
+        return;
     }
     if (tbl->cell_run_starts.back() != tbl->all_runs.size()) {
         sink.Add("node {}: cell_run_starts.back() {} != all_runs size {}", i, tbl->cell_run_starts.back(), tbl->all_runs.size());
+        return;
     }
     if (!std::ranges::is_sorted(tbl->cell_text_starts) || !std::ranges::is_sorted(tbl->cell_run_starts)) {
         sink.Add("node {}: cell offset tables are not non-decreasing", i);

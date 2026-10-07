@@ -352,7 +352,10 @@ CommandGenerator::NodeOverhang CommandGenerator::MaxNodeOverhang() const noexcep
     const float empty_li = theme_->font_size_body * std::max(TASK_CHECKBOX_HEIGHT_FACTOR, FALLBACK_LINE_HEIGHT_FACTOR);
     // インラインコード背景・コードブロックの padding 内の装飾・アラート背景・引用バーは上下両方へ出る。
     const float box = std::max({ INLINE_CODE_PAD_Y, theme_->code_block_padding, ALERT_BG_PAD, BAR_EXTEND });
-    return { box, std::max({ box, underline, empty_li }) };
+    // コピー/保存ボタンはズームに依らない固定サイズで box 上端から下へ伸びるため、縮小表示の
+    // 低いブロックでは box の下へはみ出す。ノード上端からのボタン下端までを下側の上限に含める。
+    const float copy_button = COPY_BTN_MARGIN + COPY_BTN_SIZE;
+    return { box, std::max({ box, underline, empty_li, copy_button }) };
 }
 
 CommandGenerator::NodeBaseStyle CommandGenerator::GetNodeBaseStyle(const Node& node) const noexcept

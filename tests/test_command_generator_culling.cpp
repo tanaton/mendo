@@ -192,6 +192,38 @@ protected:
     {
         return gen_.GenerateMdPane(pl.nodes, pl.cache, PaneRect{ 0.0f, 0.0f, PANE_W, pane_h }, scroll_y, TextSelection{}, -1, HoveredButtons{}, 1.0f, h_scroll);
     }
+
+    // 文書全体が余白付きで収まるペインで描いたもの (カリングが一切効かない) を正解とし、
+    // 各ノードの上下端をまたぐスクロール位置で、ビューポートに見える描画が一致することを確かめる。
+    void ExpectCullingParity(const ParsedLayout& pl, const BlockHScrollContext& h_scroll)
+    {
+        const size_t n = pl.nodes.size();
+        constexpr float ORACLE_SCROLL = -64.0f;
+        const float total_h = pl.cache.Bottom(n - 1) + theme_.margin_top;
+        const auto oracle = AllBoxes(Generate(pl, ORACLE_SCROLL, total_h - ORACLE_SCROLL + 64.0f, h_scroll));
+
+        std::vector<float> probes;
+        for (size_t i = 0; i < n; i++) {
+            for (const float d : { -3.0f, -1.0f, 0.0f, 0.5f, 1.0f, 2.0f, 3.0f, 5.0f, 8.0f, 12.0f, 16.0f, 20.0f, 24.0f, 32.0f }) {
+                probes.push_back(pl.cache.Bottom(i) + d);        // ノードが上端をちょうど抜けた直後
+                probes.push_back(pl.cache.Top(i) + d);
+                probes.push_back(pl.cache.Top(i) - PANE_H - d);  // ノードが下端から入る直前
+                probes.push_back(pl.cache.Bottom(i) - PANE_H - d);
+            }
+        }
+
+        for (const float scroll_y : probes) {
+            // 生成側は scroll_y を物理ピクセルにスナップしてから描画 Y を出す (dpi=1 なので整数)。
+            const float dy = std::round(scroll_y) - ORACLE_SCROLL;
+            const auto expected = VisibleBoxes(oracle, dy);
+            const auto actual = VisibleBoxes(AllBoxes(Generate(pl, scroll_y, PANE_H, h_scroll)), 0.0f);
+            const auto diff = DiffBoxes(expected, actual);
+            if (!diff.empty()) {
+                const int first = FindFirstVisibleNodeIndex(pl.cache, n, scroll_y);
+                FAIL() << std::format("scroll_y={} (first_visible={}) でカリング結果が不一致:\n", scroll_y, first) << diff;
+            }
+        }
+    }
 };
 
 } // namespace
@@ -208,34 +240,21 @@ TEST_F(CullingParityTest, ViewportCullingMatchesUnculledRendering)
     const int code_idx = FindFirstNodeIndexByType(pl.nodes, NodeType::CodeBlock);
     ASSERT_GE(code_idx, 0);
     // コードブロックの横スクロールバーはホバー中だけ描かれる。
-    const BlockHScrollContext h_scroll{ .hovered_block = code_idx };
+    ExpectCullingParity(pl, BlockHScrollContext{ .hovered_block = code_idx });
+}
 
-    // 文書全体が余白付きで収まるペインで描いたものを正解とする (カリングが一切効かない)。
-    constexpr float ORACLE_SCROLL = -64.0f;
-    const float total_h = pl.cache.Bottom(n - 1) + theme_.margin_top;
-    const auto oracle = AllBoxes(Generate(pl, ORACLE_SCROLL, total_h - ORACLE_SCROLL + 64.0f, h_scroll));
-
-    std::vector<float> probes;
-    for (size_t i = 0; i < n; i++) {
-        for (const float d : { -3.0f, -1.0f, 0.0f, 0.5f, 1.0f, 2.0f, 3.0f, 5.0f, 8.0f, 12.0f, 16.0f, 20.0f, 24.0f }) {
-            probes.push_back(pl.cache.Bottom(i) + d);        // ノードが上端をちょうど抜けた直後
-            probes.push_back(pl.cache.Top(i) + d);
-            probes.push_back(pl.cache.Top(i) - PANE_H - d);  // ノードが下端から入る直前
-            probes.push_back(pl.cache.Bottom(i) - PANE_H - d);
-        }
-    }
-
-    for (const float scroll_y : probes) {
-        // 生成側は scroll_y を物理ピクセルにスナップしてから描画 Y を出す (dpi=1 なので整数)。
-        const float dy = std::round(scroll_y) - ORACLE_SCROLL;
-        const auto expected = VisibleBoxes(oracle, dy);
-        const auto actual = VisibleBoxes(AllBoxes(Generate(pl, scroll_y, PANE_H, h_scroll)), 0.0f);
-        const auto diff = DiffBoxes(expected, actual);
-        if (!diff.empty()) {
-            const int first = FindFirstVisibleNodeIndex(pl.cache, n, scroll_y);
-            FAIL() << std::format("scroll_y={} (first_visible={}) でカリング結果が不一致:\n", scroll_y, first) << diff;
-        }
-    }
+// コピーボタンはズームに依らない固定サイズなので、縮小表示の空コードブロックではノードの box より
+// 下へ大きくはみ出す。テーマ由来の余裕幅だけだと、まだ見えているボタンを上端で落とす。
+TEST_F(CullingParityTest, ZoomedOutEmptyCodeBlockKeepsCopyButton)
+{
+    theme_.ApplyZoom(0.25f);
+    ASSERT_TRUE(measurer_.Init(theme_));
+    ASSERT_TRUE(engine_.Init(&measurer_, theme_));
+    const auto pl = ParseAndLayout("para one\n\n```\n```\n\npara two\n\npara three\n", PANE_W);
+    const int code_idx = FindFirstNodeIndexByType(pl.nodes, NodeType::CodeBlock);
+    ASSERT_GE(code_idx, 0);
+    ASSERT_LT(pl.cache[code_idx].height + 2.0f * theme_.code_block_padding, COPY_BTN_MARGIN + COPY_BTN_SIZE);
+    ExpectCullingParity(pl, BlockHScrollContext{});
 }
 
 // issue #237 の上端版: loose list の空 LI (高さ 0) は bullet だけがノード下にはみ出して描かれる。
