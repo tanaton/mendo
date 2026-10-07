@@ -37,9 +37,14 @@ int MeasureChunk(
         const float indent = NodeIndent(nodes[i], theme);
         try {
             MeasureEntry(backend, nodes[i], entry, content_width - indent, &tokens, viewport, cache.Top(i));
-            entry.measure_failures = 0;
         } catch (...) {
-            if (++entry.measure_failures >= LayoutCache::kMaxMeasureAttempts) {
+            // 例外の手前で書かれた途中のトークンをノードへ集約させない。
+            tokens.clear();
+            // 諦めた後に再び dirty になって失敗し続けても一周しないよう、上限で頭打ちにする。
+            if (entry.measure_failures < LayoutCache::kMaxMeasureAttempts) {
+                ++entry.measure_failures;
+            }
+            if (entry.measure_failures >= LayoutCache::kMaxMeasureAttempts) {
                 entry.layout_dirty = false;
             }
             else {

@@ -1329,6 +1329,38 @@ TEST(Parser, ImageInQuoteWithoutLeadingAlertMarkerIsNotSplit)
     }
 }
 
+// リンク付き画像は MD_SPAN_A が画像より先に来る。分割後の Image ノードでリンク URL が解決できること。
+TEST(Parser, AlertMarkerFollowedByLinkedImageKeepsLinkOnImage)
+{
+    const char* md = "> [!NOTE]\n> [![badge](b.svg)](https://x.example)";
+    const auto nodes = ParseMarkdown(md).nodes;
+    ASSERT_EQ(nodes.size(), 2u);
+    EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
+    ASSERT_EQ(nodes[1].type, NodeType::Image);
+    EXPECT_EQ(nodes[1].alert_type, AlertType::Note);
+    const auto urls = nodes[1].view_link_urls();
+    bool has_link = false;
+    for (const auto& run : nodes[1].runs) {
+        if (run.has_link()) {
+            has_link = true;
+            ASSERT_LT(static_cast<size_t>(run.link_url_index), urls.size());
+            EXPECT_EQ(urls[static_cast<size_t>(run.link_url_index)], "https://x.example");
+        }
+    }
+    EXPECT_TRUE(has_link);
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+}
+
+// src が空の画像は Image に昇格しないので、分割せず Alert の本文として残す。
+TEST(Parser, AlertMarkerFollowedByImageWithoutSrcStaysOneAlertNode)
+{
+    const auto nodes = ParseMarkdown("> [!NOTE]\n> ![alt]()").nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
+    EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
+    EXPECT_TRUE(nodes[0].GetText().ends_with("alt"));
+}
+
 // ネストを跨いだ Alert 伝播 (PR #156)
 
 TEST(Parser, Alert_PropagatesAcrossNestedBlockquote)

@@ -51,12 +51,17 @@ public:
     // throw_on の計測を最初の throw_times 回だけ失敗させる。worker から呼ばれるので試行回数は atomic。
     int throw_times = std::numeric_limits<int>::max();
     mutable std::atomic<int> attempts{ 0 };
+    // 本番の MeasureNode は CodeBlock のトークン化を先に行うため、失敗時にも途中のトークンが残りうる。
+    bool write_token_before_throw = false;
 
     void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
                      std::pmr::vector<SyntaxToken>* tokens_out = nullptr,
                      MeasureViewportRange viewport = {}) const override
     {
         if (&node == throw_on && attempts.fetch_add(1) < throw_times) {
+            if (write_token_before_throw && tokens_out) {
+                tokens_out->emplace_back();
+            }
             throw std::runtime_error("measure failed");
         }
         MockTextMeasurer::MeasureNode(node, entry, max_width, tokens_out, viewport);
@@ -325,4 +330,55 @@ TEST_F(ParallelMeasureTest, TransientMeasureFailureIsRetriedUntilMeasured)
     DrainDirtyBatches(engine, nodes, cache);
     engine.SetLayoutScheduler(nullptr);
     EXPECT_EQ(measurer.attempts.load() - before, LayoutCache::kMaxMeasureAttempts);
+}
+
+// 失敗回数は MeasureEntry を通るどの経路で成功しても 0 に戻る (並列計測以外の成功で残ると、
+// 以後の一時的な失敗 1 回で諦めてしまう)。
+TEST_F(ParallelMeasureTest, MeasureSuccessOnAnyPathResetsFailureCount)
+{
+    constexpr size_t kThrower = 7;
+    ThrowingMeasurer measurer;
+    LayoutEngine engine;
+    ASSERT_TRUE(engine.Init(&measurer, theme_));
+    LayoutSourceStore store;
+    auto [nodes, cache] = store.ParseAndLayout(engine, MakeParagraphs(30), 800.0f);
+
+    cache[kThrower].layout_dirty = true;
+    measurer.throw_on = &nodes[kThrower];
+    measurer.throw_times = LayoutCache::kMaxMeasureAttempts - 1;
+    engine.SetLayoutScheduler(&task_scheduler_);
+    for (int k = 0; k + 1 < LayoutCache::kMaxMeasureAttempts; ++k) {
+        engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200);
+    }
+    engine.SetLayoutScheduler(nullptr);
+    ASSERT_EQ(cache[kThrower].measure_failures, LayoutCache::kMaxMeasureAttempts - 1);
+    ASSERT_TRUE(cache[kThrower].layout_dirty);
+
+    // 幅変更の全レイアウトは ComputeLayout から直接計測する。
+    engine.ComputeLayout(nodes, cache, 700.0f);
+    EXPECT_FALSE(cache[kThrower].layout_dirty);
+    EXPECT_EQ(cache[kThrower].measure_failures, 0);
+}
+
+// 計測が例外で失敗したノードに、例外の手前で書かれた途中のトークンを残さない。
+TEST_F(ParallelMeasureTest, FailedMeasureDoesNotKeepPartialTokens)
+{
+    ThrowingMeasurer measurer;
+    LayoutEngine engine;
+    ASSERT_TRUE(engine.Init(&measurer, theme_));
+    LayoutSourceStore store;
+    auto [nodes, cache] = store.ParseAndLayout(engine, "```cpp\nint x;\n```\n\npara\n", 800.0f);
+    const int code_idx = FindFirstNodeIndexByType(nodes, NodeType::CodeBlock);
+    ASSERT_GE(code_idx, 0);
+    const auto code = static_cast<size_t>(code_idx);
+    const size_t tokens_before = nodes[code].syntax_tokens().size();
+
+    cache[code].layout_dirty = true;
+    measurer.throw_on = &nodes[code];
+    measurer.write_token_before_throw = true;
+    engine.SetLayoutScheduler(&task_scheduler_);
+    engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200);
+    engine.SetLayoutScheduler(nullptr);
+    EXPECT_TRUE(cache[code].layout_dirty);
+    EXPECT_EQ(nodes[code].syntax_tokens().size(), tokens_before);
 }

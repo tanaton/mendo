@@ -129,18 +129,24 @@ std::string WithoutTableSeparators(std::string_view s)
     return out;
 }
 
-// 選択文字を含むセルがある最初の行から最後の行までの行数 (セル単位の総当たり)。
+// 出力される行数 (セル単位の総当たり)。選択文字を含むセルがある行と、行全体が選択範囲に含まれる行のうち、
+// 最初から最後までの行数。区切り文字だけにかかる行は数えず、全選択では空セルだけの行も数える。
 size_t ExpectedTableRowCount(const Node& node, uint32_t start, uint32_t end)
 {
     const auto* tbl = node.table_data();
+    if (start >= end || tbl->col_count == 0) {
+        return 0;
+    }
     std::optional<size_t> first;
     size_t last = 0;
     for (size_t r = 0; r < tbl->row_count; ++r) {
+        bool selected = start <= tbl->CellTextStart(r, 0) && tbl->CellTextEnd(r, tbl->col_count - 1) <= end;
         for (size_t c = 0; c < tbl->col_count; ++c) {
-            if (std::max(start, tbl->CellTextStart(r, c)) < std::min(end, tbl->CellTextEnd(r, c))) {
-                first = first.value_or(r);
-                last = r;
-            }
+            selected = selected || std::max(start, tbl->CellTextStart(r, c)) < std::min(end, tbl->CellTextEnd(r, c));
+        }
+        if (selected) {
+            first = first.value_or(r);
+            last = r;
         }
     }
     return first ? last - *first + 1 : 0;

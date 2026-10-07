@@ -356,7 +356,6 @@ TEST(ExtractSelectedTextAsHtml, TablePartialSelectionEmitsOnlySelectedRowsAndTex
                      .nodes;
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].LinearizedText(), "A\tB\n1\t2\n3\t4");
-    // "2\n3" を選ぶ
     const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 6, 0, 9));
     EXPECT_EQ(html.find("<thead>"), std::string::npos);
     EXPECT_EQ(html.find(">A</th>"), std::string::npos);
@@ -392,6 +391,36 @@ TEST(ExtractSelectedTextAsHtml, TableSelectionOfSeparatorOnlyEmitsNothing)
                      .nodes;
     ASSERT_EQ(nodes[0].LinearizedText(), "A\tB\n1\t2");
     EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 1, 0, 2)), "");
+}
+
+// 空セルだけの行 (見出し無し表の空ヘッダ行など) も、選択範囲に丸ごと含まれれば出す。
+TEST(ExtractSelectedTextAsHtml, TableFullSelectionKeepsEmptyHeaderRow)
+{
+    auto nodes = ParseMarkdown(
+                     "| | |\n"
+                     "|---|---|\n"
+                     "| a | b |")
+                     .nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_EQ(nodes[0].type, NodeType::Table);
+    const auto html = ExtractSelectedTextAsHtml(nodes, MakeTableFullSelection(nodes[0]));
+    EXPECT_NE(html.find("<thead>"), std::string::npos);
+    EXPECT_EQ(CountOccurrences(html, "<tr>"), 2u);
+}
+
+// 列数 0 の表 (md4c が TABLE detail を渡さない場合) でも範囲外を読まない。
+TEST(ExtractSelectedTextAsHtml, TableWithoutColumnsDoesNotReadOutOfRange)
+{
+    std::pmr::vector<Node> nodes(1);
+    nodes[0].type = NodeType::Table;
+    auto* tbl = nodes[0].ensure_table();
+    tbl->row_count = 1;
+    tbl->col_count = 0;
+    tbl->cell_text_starts.push_back(0);
+    tbl->cell_run_starts.push_back(0);
+    tbl->is_header_row.push_back(false);
+    const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 0, 0, 1));
+    EXPECT_EQ(html.find("<table"), std::string::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, TableDarkModeUsesDarkBorder)

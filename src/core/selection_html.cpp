@@ -437,7 +437,7 @@ constexpr void AppendTableCellStyle(std::pmr::string& out, TableAlign align, boo
 void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, uint32_t end, bool dark_mode)
 {
     const auto* tbl = node.table_data();
-    if (!tbl || tbl->row_count == 0) {
+    if (!tbl || tbl->row_count == 0 || tbl->col_count == 0) {
         const std::string_view text = node.GetText();
         end = ClampEndToText(end, text.size());
         out.append("<pre>");
@@ -448,16 +448,29 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
         return;
     }
 
+    // [start, end) は呼び出し側で LinearizedText (= concat_text) の長さにクランプ済み。
+    if (start >= end) {
+        return;
+    }
     const auto col_count = static_cast<size_t>(tbl->col_count);
     const auto link_urls = node.view_link_urls();
 
-    // 行のセル文字範囲は読み順で単調なので、範囲にかかる行帯を二分探索で求める。
-    // [start, end) は呼び出し側で LinearizedText (= concat_text) の長さにクランプ済み。
+    // 行のセル文字範囲 [行頭セルの開始, 行末セルの終端] は読み順で単調なので、範囲にかかりうる行帯を二分探索で求める。
+    const auto row_begin = [&](size_t r) {
+        return tbl->CellTextStart(r, 0);
+    };
+    const auto row_end = [&](size_t r) {
+        return tbl->CellTextEnd(r, col_count - 1);
+    };
     const auto rows = std::views::iota(size_t{ 0 }, static_cast<size_t>(tbl->row_count));
-    size_t first_row = static_cast<size_t>(std::ranges::partition_point(rows, [&](size_t r) { return tbl->CellTextEnd(r, col_count - 1) <= start; }) - rows.begin());
-    size_t end_row = static_cast<size_t>(std::ranges::partition_point(rows, [&](size_t r) { return tbl->CellTextStart(r, 0) < end; }) - rows.begin());
-    // 行の範囲はセル間の区切り文字も含むため、端の行は選択文字を持つセルがあるかで詰める。
-    const auto row_has_selected_text = [&](size_t r) {
+    size_t first_row = static_cast<size_t>(std::ranges::partition_point(rows, [&](size_t r) { return row_end(r) < start; }) - rows.begin());
+    size_t end_row = static_cast<size_t>(std::ranges::partition_point(rows, [&](size_t r) { return row_begin(r) <= end; }) - rows.begin());
+    // 端の行は、選択文字を持つセルがあるか、行全体が選択範囲に含まれるときだけ出す。
+    // 区切り文字だけにかかる行は出さず、全選択では空セルだけの行 (空のヘッダ行など) も落とさない。
+    const auto row_selected = [&](size_t r) {
+        if (start <= row_begin(r) && row_end(r) <= end) {
+            return true;
+        }
         for (size_t c = 0; c < col_count; c++) {
             if (std::max(start, tbl->CellTextStart(r, c)) < std::min(end, tbl->CellTextEnd(r, c))) {
                 return true;
@@ -465,10 +478,10 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
         }
         return false;
     };
-    while (first_row < end_row && !row_has_selected_text(first_row)) {
+    while (first_row < end_row && !row_selected(first_row)) {
         ++first_row;
     }
-    while (end_row > first_row && !row_has_selected_text(end_row - 1)) {
+    while (end_row > first_row && !row_selected(end_row - 1)) {
         --end_row;
     }
     if (first_row >= end_row) {
