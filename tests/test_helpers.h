@@ -28,6 +28,16 @@ inline const char* SourceOffsetTestBase() noexcept
     return buf.data();
 }
 
+// 重なりを許さず needle の出現回数を数える。
+inline size_t CountOccurrences(std::string_view s, std::string_view needle)
+{
+    size_t n = 0;
+    for (size_t pos = s.find(needle); pos != std::string_view::npos; pos = s.find(needle, pos + needle.size())) {
+        ++n;
+    }
+    return n;
+}
+
 // 同色判定。完全一致のみ（テストで使う色はテーマ定数なので浮動小数点誤差は問題にならない）。
 constexpr bool ColorEq(D2D1_COLOR_F a, D2D1_COLOR_F b) noexcept
 {

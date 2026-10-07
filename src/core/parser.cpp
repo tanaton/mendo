@@ -756,6 +756,19 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
     return 0;
 }
 
+// "> [!NOTE]\n> ![img](p.png)" は md4c では 1 段落になり、画像段落として丸ごと Image に昇格すると
+// Alert 判定の対象 (引用ノード) が消える。マーカーだけのノードをここで閉じ、画像は同じ引用グループの
+// 次の段落で受けて、マーカーと画像が別段落の場合と同じ構造にする (Alert は後続ノードへ伝播する)。
+void SplitAlertMarkerBeforeImage(ParseContext* ctx)
+{
+    if (!ctx->current_node || !IsAlertHeadCandidate(ctx->nodes, ctx->current_node_index) ||
+        !IsAlertMarkerOnly(ctx->current_text)) {
+        return;
+    }
+    ctx->EndNode();
+    ctx->BeginParagraphNode();
+}
+
 int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
@@ -765,6 +778,9 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
 
     ctx->EnsureNodeForListItemText();
     ctx->FlushPendingRun();
+    if (type == MD_SPAN_IMG && ctx->image_span_depth == 0) {
+        SplitAlertMarkerBeforeImage(ctx);
+    }
     // span markup (** _ ` [] 等) は原文にあるが current_text には入らないため、
     // どの span でも view 化は構造的に失敗する。FinalizeCurrentNode の memcmp をスキップさせる。
     ctx->current_node_owned_only = true;

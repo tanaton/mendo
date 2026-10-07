@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "parse_invariants.h"
 #include "parser.h"
 #include <limits>
 #include <stop_token>
@@ -1290,6 +1291,41 @@ TEST(Parser, AlertMarkerAfterLeadingContentIsPlainQuote)
             EXPECT_EQ(node.alert_label_length(), 0u);
         }
         EXPECT_TRUE(nodes.back().GetText().starts_with("[!"));
+    }
+}
+
+// マーカー直後の画像は md4c では同じ段落になる。マーカーと画像が別段落の場合と同じく、
+// マーカーの引用ノード (Alert ラベル) と、Alert を引き継いだ Image ノードに分かれる。
+TEST(Parser, AlertMarkerFollowedByImageStaysAlert)
+{
+    for (const char* md : { "> [!NOTE]\n> ![img](p.png)", "> [!NOTE] ![img](p.png)", "> [!NOTE]\n>\n> ![img](p.png)" }) {
+        SCOPED_TRACE(md);
+        const auto nodes = ParseMarkdown(md).nodes;
+        ASSERT_EQ(nodes.size(), 2u);
+        EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
+        EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
+        const auto label = std::string{ GetAlertIcon(AlertType::Note) } + " " + std::string{ GetAlertLabel(AlertType::Note) };
+        EXPECT_EQ(nodes[0].GetText(), label);
+        ASSERT_EQ(nodes[1].type, NodeType::Image);
+        ASSERT_NE(nodes[1].image_data(), nullptr);
+        EXPECT_EQ(nodes[1].image_data()->src, "p.png");
+        EXPECT_EQ(nodes[1].alert_type, AlertType::Note);
+        EXPECT_EQ(nodes[1].blockquote_group, nodes[0].blockquote_group);
+        EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+    }
+}
+
+// 分割はマーカーだけの先頭段落に限る。Alert でない引用や、先頭段落でないマーカーの画像は従来どおり。
+TEST(Parser, ImageInQuoteWithoutLeadingAlertMarkerIsNotSplit)
+{
+    for (const char* md : { "> ![img](p.png)", "> [!NOTX]\n> ![img](p.png)", "> note ![img](p.png)", "> intro\n>\n> [!NOTE]\n> ![img](p.png)" }) {
+        SCOPED_TRACE(md);
+        const auto nodes = ParseMarkdown(md).nodes;
+        ASSERT_FALSE(nodes.empty());
+        EXPECT_EQ(nodes.back().type, NodeType::Image);
+        for (const auto& node : nodes) {
+            EXPECT_EQ(node.alert_type, AlertType::None);
+        }
     }
 }
 

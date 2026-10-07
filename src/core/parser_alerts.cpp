@@ -155,16 +155,7 @@ void DetectAlertAt(std::pmr::vector<Node>& nodes, size_t i)
         return;
     }
     auto& node = nodes[i];
-    if (node.type != NodeType::BlockQuote || node.alert_type != AlertType::None) {
-        return;
-    }
-    // GitHub 仕様: Alert は最外側 blockquote (quote_depth==1) でのみ認識する。
-    // ネスト内 (`> > [!NOTE]`) は通常の引用として扱う。
-    if (node.quote_depth != 1) {
-        return;
-    }
-    // GitHub 仕様: マーカーは blockquote の先頭でのみ有効。"> intro" の後に続く段落の [!NOTE] は通常の引用。
-    if (i > 0 && nodes[i - 1].blockquote_group == node.blockquote_group) {
+    if (node.alert_type != AlertType::None || !IsAlertHeadCandidate(nodes, i)) {
         return;
     }
     const auto [type, marker_end] = DetectAlertMarker(node.GetText());
@@ -185,6 +176,21 @@ void DetectAlertAt(std::pmr::vector<Node>& nodes, size_t i)
 }
 
 } // namespace
+
+// GitHub 仕様: Alert は最外側 blockquote (quote_depth==1) でのみ認識し、ネスト内 (`> > [!NOTE]`) は通常の引用。
+// マーカーは blockquote の先頭でのみ有効で、"> intro" の後に続く段落の [!NOTE] は通常の引用。
+bool IsAlertHeadCandidate(const std::pmr::vector<Node>& nodes, size_t i) noexcept
+{
+    const auto& node = nodes[i];
+    return node.type == NodeType::BlockQuote && node.quote_depth == 1 &&
+           (i == 0 || nodes[i - 1].blockquote_group != node.blockquote_group);
+}
+
+bool IsAlertMarkerOnly(std::string_view text)
+{
+    const auto [type, end] = DetectAlertMarker(text);
+    return type != AlertType::None && end == text.size();
+}
 
 void DetectAlerts(std::pmr::vector<Node>& nodes, std::span<const size_t> blockquote_indices)
 {

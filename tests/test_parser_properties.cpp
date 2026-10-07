@@ -266,7 +266,8 @@ TEST(ParserProperty, AlertTransformKeepsBodyTextAndStyles)
         for (int i = 0; i < lines; ++i) {
             body += "\n> " + gen.InlineLine();
         }
-        // 画像を含む引用は Image ノードへ昇格し Alert 判定対象外になる (既存仕様) ため除く。
+        // 画像を含む引用は Image ノードへ昇格する (マーカー直後の画像はマーカーと画像のノードに分かれる) ため、
+        // マーカー置換前後をノード単位で比べるこのテストからは除く。
         if (body.contains("![")) {
             continue;
         }

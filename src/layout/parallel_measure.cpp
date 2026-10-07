@@ -18,7 +18,8 @@ namespace {
 constexpr size_t kMinChunkSize = 16;
 constexpr size_t kMaxChunkSize = 512;
 
-void MeasureChunk(
+// 戻り値は例外で計測できず dirty のまま再試行を待つノード数。
+int MeasureChunk(
     std::pmr::vector<Node>& nodes,
     LayoutCache& cache,
     float content_width,
@@ -28,10 +29,25 @@ void MeasureChunk(
     std::span<std::pmr::vector<SyntaxToken>> chunk_slot_tokens,
     MeasureViewportRange viewport)
 {
+    // 例外はノード単位で捕まえる。chunk 単位だと失敗ノードを特定できず、同じ chunk の残りも計測されない。
+    // 失敗回数は worker が担当する自エントリにだけ書くので同期は要らない。
+    int failed = 0;
     for (auto&& [i, tokens] : std::views::zip(chunk_indices, chunk_slot_tokens)) {
+        auto& entry = cache[i];
         const float indent = NodeIndent(nodes[i], theme);
-        MeasureEntry(backend, nodes[i], cache[i], content_width - indent, &tokens, viewport, cache.Top(i));
+        try {
+            MeasureEntry(backend, nodes[i], entry, content_width - indent, &tokens, viewport, cache.Top(i));
+            entry.measure_failures = 0;
+        } catch (...) {
+            if (++entry.measure_failures >= LayoutCache::kMaxMeasureAttempts) {
+                entry.layout_dirty = false;
+            }
+            else {
+                ++failed;
+            }
+        }
     }
+    return failed;
 }
 
 } // namespace
@@ -63,15 +79,16 @@ int MeasureIndicesParallel(
     std::atomic<int> failed_node_count{ 0 };
     ParallelFor(scheduler, indices.size(), chunk_size, [&](size_t begin, size_t end) {
         MENDO_PROFILE("MeasureNode.chunk");
-        try {
-            MeasureChunk(nodes, cache, content_width, theme, backend, indices.subspan(begin, end - begin),
-                         std::span(slot_tokens).subspan(begin, end - begin), measure_vp);
-        } catch (...) {
-            failed_node_count.fetch_add(static_cast<int>(end - begin), std::memory_order_relaxed);
-            OutputDebugStringW(L"[mendo] MeasureIndicesParallel chunk threw exception\n");
+        const int failed_in_chunk = MeasureChunk(nodes, cache, content_width, theme, backend, indices.subspan(begin, end - begin),
+                                                 std::span(slot_tokens).subspan(begin, end - begin), measure_vp);
+        if (failed_in_chunk > 0) {
+            failed_node_count.fetch_add(failed_in_chunk, std::memory_order_relaxed);
         }
     });
     const int failed = failed_node_count.load(std::memory_order_relaxed);
+    if (failed > 0) {
+        OutputDebugStringW(L"[mendo] MeasureIndicesParallel: node measure threw exception\n");
+    }
     MENDO_PLOT("layout.parallel.error_count", static_cast<int64_t>(failed));
 
     {

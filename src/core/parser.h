@@ -33,6 +33,12 @@ ParseResult ParseMarkdown(S&& markdown_text, std::stop_token stop_token = {}) = 
 // blockquote_indices は ParseMarkdown が収集した BlockQuote ノードのインデックス。
 void DetectAlerts(std::pmr::vector<Node>& nodes, std::span<const size_t> blockquote_indices);
 
+// text が Alert マーカー ([!TYPE] と直後の区切り 1 文字) だけからなるか。
+bool IsAlertMarkerOnly(std::string_view text);
+
+// nodes[i] が Alert マーカーを持ちうる位置 (最外側 blockquote の先頭段落) か。
+bool IsAlertHeadCandidate(const std::pmr::vector<Node>& nodes, size_t i) noexcept;
+
 // AlertTypeに対応するラベル文字列を返す（テスト用に公開）
 std::string_view GetAlertLabel(AlertType type) noexcept;
 

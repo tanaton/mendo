@@ -196,6 +196,8 @@ void LayoutCache::InvalidateAllLayouts() noexcept
 {
     for (auto& e : entries_) {
         ResetEntryTextLayout(e);
+        // ズーム・テーマ変更で計測条件が変わるので、諦めたノードも改めて試す。
+        e.measure_failures = 0;
         if (e.table_layout) {
             ResetTableLayoutGeometry(*e.table_layout);
             e.table_layout->cell_inline_code_bgs.clear();
