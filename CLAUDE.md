@@ -12,7 +12,7 @@ Direct2D/DirectWriteを使用して直接描画を行うMarkdownビュアー。
 - **テキスト**: DirectWrite (`IDWriteTextLayout`)
 - **Markdownパーサ**: md4c (SAX型コールバック、`third_party/md4c/`)
 - **テスト**: Google Test v1.17.0
-- **ビルド**: CMake 3.20+
+- **ビルド**: CMake 4.2+ (Visual Studio 2026)
 
 ## ビルド方法
 
