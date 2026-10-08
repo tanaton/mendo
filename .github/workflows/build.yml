@@ -9,12 +9,12 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     steps:
       - uses: actions/checkout@v6
 
       - name: Configure CMake
-        run: cmake -B build -DMENDO_BUILD_TESTS=OFF
+        run: cmake -B build -G "Visual Studio 18 2026" -A x64 -DMENDO_BUILD_TESTS=OFF
 
       - name: Build
         run: cmake --build build --config Release

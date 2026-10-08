@@ -107,8 +107,8 @@ winget install tanaton.mendo
 ### Requirements
 
 - Windows 10 or later
-- Visual Studio 2022 (MSVC, C++23)
-- CMake 3.20+
+- Visual Studio 2026 (MSVC, C++23)
+- CMake 4.2+ (required for the Visual Studio 2026 generator)
 
 ### Build Steps
 
