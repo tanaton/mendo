@@ -103,6 +103,8 @@ target_compile_definitions(mendo_tests PRIVATE MENDO_TESTING)
 # test_view_stats 等が cwd に依存せず example/ を開けるよう、ソースツリーの絶対パスを渡す。
 # u8 リテラルで定義し、std::filesystem::path(const char8_t*) に直接渡せるようにする (UTF-8 保証)。
 target_compile_definitions(mendo_tests PRIVATE "MENDO_EXAMPLE_DIR=u8\"${CMAKE_SOURCE_DIR}/example\"")
+# test_help が埋め込みヘルプ (res/help_*.md) の実物を読むため。
+target_compile_definitions(mendo_tests PRIVATE "MENDO_RES_DIR=u8\"${CMAKE_SOURCE_DIR}/res\"")
 
 # ---- プリコンパイル済みヘッダー ----
 # `<test_pch.h>` 形式は日本語パス + `/utf-8` 衝突回避のため。tests/ を include path に追加する必要がある。

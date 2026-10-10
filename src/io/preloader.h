@@ -10,6 +10,8 @@
 #include <string>
 #include <thread>
 
+struct Theme;
+
 // 起動時にウィンドウ生成と並列で I/O + パースを走らせる専用クラス。
 // hwnd が解禁されるまで worker は cv.wait で待機し、AttachOrApply() の通知で
 // PostMessage を発火して通常の async 完了経路に合流する。
@@ -24,8 +26,8 @@ public:
     Preloader(const Preloader&) = delete;
     Preloader& operator=(const Preloader&) = delete;
 
-    // Theme 不在のため EstimateNodeHeights をスキップ (heights_estimated=false)。
-    void Start(std::pmr::wstring path);
+    // theme は推定 (EstimateNodeHeights) 用の値コピー。UI スレッドの SetTheme と race しない。
+    void Start(std::pmr::wstring path, Theme theme);
 
     enum class AttachResult {
         None,           // preload 未起動 → 呼び出し側は何もしない
@@ -69,9 +71,7 @@ private:
 
     bool HasPublished() const;
     void Join();
-    // Take{Result,Error} 共通の末尾。`taken` が true なら worker は PostMessage 直後に
-    // return しているので即 join できる。ctx_ も解放してまとめて IsActive() を false にする。
-    void FinalizeIfDrained(bool taken);
+    // Take{Result,Error} 共通。取り出せたら worker を回収する。AttachOrApply の前後どちらでも詰まらない。
     template <class Opt>
     Opt TakeFromSink(Opt& sink);
 

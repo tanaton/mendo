@@ -46,7 +46,7 @@ public:
         animation_.Tick();
     }
 
-    std::expected<void, FileLoadError> ExecuteLoad(Document& doc, LayoutCache& cache);
+    std::expected<Document, FileLoadError> ExecuteLoad();
 
     // reload_base の意味は AsyncLoadCoordinator::Start を参照。
     void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, const Theme& theme,
@@ -62,7 +62,7 @@ public:
     }
 
     // App::Init 前から走らせる経路。
-    void StartPreloadAsync(std::pmr::wstring path);
+    void StartPreloadAsync(std::pmr::wstring path, Theme theme);
 
     using PreloadAttachResult = Preloader::AttachResult;
 

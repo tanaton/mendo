@@ -874,6 +874,20 @@ TEST(FindFirstVisibleNodeIndex, LastNodeVisible)
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 449.0f), 8);
 }
 
+// Reset 直後 (全ノードの位置・高さが 0) も該当なし扱い。
+TEST(FindFirstVisibleNodeIndex, FreshCacheReturnsNodeCount)
+{
+    LayoutCache cache;
+    cache.Reset(5);
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 5, 0.0f), 5);
+}
+
+TEST(FindFirstVisibleNodeIndex, ClampsNodeCountToCacheSize)
+{
+    auto cache = MakeUniformCache(3);
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 1000.0f), 3);
+}
+
 // ---- 隣接 2 ノード間のスペーシング ----
 
 TEST(RecomputeYPositionsTest, PairSpacingByNodeType)

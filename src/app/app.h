@@ -254,7 +254,9 @@ private:
 
     // ---- ファイル読み込み (app_file.cpp) ----
     void LoadMarkdownFile(std::wstring_view path);
-    // 表示文書を差し替え、旧文書の破棄を worker に回す。
+    // 表示文書とレイアウトキャッシュを一緒に差し替え、旧文書の破棄を worker に回す。
+    // estimated は worker が MakeEstimatedLayoutCache で作ったもの。省略時は UI スレッドで推定する。
+    void ReplaceDocument(Document next, LayoutCache estimated);
     void ReplaceDocument(Document next);
     void ReloadCurrentFile();
     void DoReloadCurrentFile();
@@ -264,8 +266,7 @@ private:
                         std::shared_ptr<const std::pmr::string> reload_base = nullptr);
     void StopLoadingAnimation();
     // reload_diff_pos: 同一パス再読込時の差分位置 (UTF-8 byte offset)。npos なら差分なし。
-    void FinishLoadMarkdownFile(bool follow_file_pane, bool heights_estimated = false,
-                                size_t reload_diff_pos = std::string_view::npos);
+    void FinishLoadMarkdownFile(bool follow_file_pane, size_t reload_diff_pos = std::string_view::npos);
     void HandleLoadFailureFallback();
     bool ApplyMermaidCacheHeights();
     // Mermaid/画像キャッシュの実測値でノード高さを上書きし、変化があれば Y 位置を再計算する。
@@ -273,8 +274,7 @@ private:
     void ApplyCachedHeightsAndRecompute();
     void UpdateTitleBar();
 
-    // cache_ready: layout_cache が新文書向けに推定済み (worker 推定を move 済み) なら true。
-    void FinishReload(size_t diff_pos, bool cache_ready = false);
+    void FinishReload(size_t diff_pos);
 
     enum class ReloadFlow : uint8_t {
         Handled,            // ResumeFileWatch / DeferReloadRetry が発行済み、呼び出し元は return

@@ -475,3 +475,119 @@ TEST_F(MockLayoutTest, FileSwitchSameNodeCountWithResetRecalculates)
         EXPECT_FALSE(cache[i].layout_dirty);
     }
 }
+
+// ---- 文書差し替え直後 (cache.Reset) の各レイアウト入口 ----
+// アプリの文書切り替えは LayoutNodes を経由せず、同じ幅のまま可視範囲だけ部分レイアウトする。
+
+namespace {
+
+constexpr float kSwitchWidth = 800.0f;
+constexpr float kSwitchViewportBottom = 600.0f;
+
+void LayoutPreviousDocument(LayoutEngine& engine, LayoutCache& cache)
+{
+    auto prev = ParseMarkdown("# Prev\n\nbody").nodes;
+    cache.Reset(prev.size());
+    engine.ComputeLayout(prev, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
+}
+
+} // namespace
+
+// 未推定のキャッシュでも可視ノードが計測されること (ヘルプ表示で本文が空になっていた回帰の安全網)。
+TEST_F(MockLayoutTest, FileSwitchPartialLayoutAtSameWidthMeasuresVisibleNodes)
+{
+    LayoutCache cache;
+    LayoutPreviousDocument(engine_, cache);
+
+    const auto md = MakeParagraphs(5);
+    auto nodes = ParseMarkdown(md).nodes;
+    cache.Reset(nodes.size());
+    engine_.ComputeLayout(nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
+
+    ASSERT_EQ(nodes.size(), 5u);
+    for (size_t i = 0; i < nodes.size(); i++) {
+        EXPECT_FALSE(cache[i].layout_dirty) << "ノード " << i;
+        EXPECT_GT(cache[i].height, 0.0f) << "ノード " << i;
+    }
+}
+
+// 遅延レイアウトはビューポート付近しか計測しないため、推定なしでは遠方のノードが高さ 0 のまま残り
+// スクロール範囲が極端に短くなる。ロード時の推定で最初から全体の高さが概ね正しいこと。
+TEST_F(MockLayoutTest, EstimateOnSwitchGivesNearFullContentHeight)
+{
+    LayoutCache cache;
+    LayoutPreviousDocument(engine_, cache);
+
+    const auto md = MakeParagraphs(2000);
+    auto nodes = ParseMarkdown(md).nodes;
+    cache = mendo::layout::MakeEstimatedLayoutCache(nodes, theme_);
+    engine_.ComputeLayout(nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
+    while (engine_.ProcessDirtyBatch(nodes, cache, kSwitchWidth, 200, 0, 0.0f, kSwitchViewportBottom, 5.0f)) {
+    }
+
+    LayoutCache full;
+    full.Reset(nodes.size());
+    engine_.LayoutNodes(nodes, full, kSwitchWidth);
+    const float expected = ComputeTotalContentHeight(full, nodes.size(), theme_.margin_top);
+    const float actual = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top);
+    EXPECT_GT(actual, expected * 0.8f);
+    EXPECT_LT(actual, expected * 1.25f);
+}
+
+// 遅延レイアウトタイマー (OnDeferredLayout) はビューポート制限付きで ProcessDirtyBatch を呼ぶ。
+TEST_F(MockLayoutTest, ProcessDirtyBatchWithClipAfterResetMeasuresTopNodes)
+{
+    LayoutCache cache;
+    LayoutPreviousDocument(engine_, cache);
+
+    const auto md = MakeParagraphs(10);
+    auto nodes = ParseMarkdown(md).nodes;
+    cache.Reset(nodes.size());
+    engine_.ProcessDirtyBatch(nodes, cache, kSwitchWidth, 100, 0, 0.0f, kSwitchViewportBottom, 1.0f);
+
+    EXPECT_FALSE(cache[0].layout_dirty);
+    EXPECT_GT(cache[0].height, 0.0f);
+    EXPECT_GE(cache.Top(0), theme_.margin_top);
+}
+
+// OnPaint は毎フレーム EnsureVisibleLayout を呼ぶ。ViewportLayout 後なら可視ノードは計測済みで、
+// 後続フレームで高さが変わらない (無駄な再計測をしない) こと。
+TEST_F(MockLayoutTest, EnsureVisibleLayoutAfterSwitchKeepsMeasuredNodes)
+{
+    LayoutCache cache;
+    LayoutPreviousDocument(engine_, cache);
+
+    const auto md = MakeParagraphs(10);
+    auto nodes = ParseMarkdown(md).nodes;
+    cache.Reset(nodes.size());
+    engine_.ComputeLayout(nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
+    const float top0 = cache.Top(0);
+    const float height0 = cache[0].height;
+
+    EXPECT_FALSE(engine_.EnsureVisibleLayout(nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom));
+    EXPECT_FLOAT_EQ(cache.Top(0), top0);
+    EXPECT_FLOAT_EQ(cache[0].height, height0);
+}
+
+// 戻る/進むでのスクロール復元: Reset → 推定高さ → 復元位置を可視範囲として部分レイアウト。
+// 推定で位置が決まっているので、復元先の可視ノードが計測されること。
+TEST_F(MockLayoutTest, RestoreAfterSwitchMeasuresNodesAtRestoredPosition)
+{
+    LayoutCache cache;
+    LayoutPreviousDocument(engine_, cache);
+
+    const auto md = MakeParagraphs(200);
+    auto nodes = ParseMarkdown(md).nodes;
+    cache = mendo::layout::MakeEstimatedLayoutCache(nodes, theme_);
+
+    constexpr size_t kTarget = 150;
+    const float scroll_y = cache.Top(kTarget);
+    engine_.ComputeLayout(nodes, cache, kSwitchWidth, scroll_y, scroll_y + kSwitchViewportBottom);
+
+    const auto [first, last_plus_1] = ComputeVisibleNodeRange(cache, nodes.size(), scroll_y, scroll_y + kSwitchViewportBottom);
+    ASSERT_LT(first, last_plus_1);
+    for (size_t i = first; i < last_plus_1; i++) {
+        EXPECT_FALSE(cache[i].layout_dirty) << "ノード " << i;
+    }
+    EXPECT_TRUE(engine_.HasDirtyNodes()) << "可視範囲外の残りは遅延レイアウトに回る";
+}

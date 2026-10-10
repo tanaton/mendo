@@ -65,21 +65,27 @@ void App::LoadHelpDocument()
 
     std::pmr::string utf8(reinterpret_cast<const char*>(rc.data()), rc.size());
     ReplaceDocument(Document::FromMarkdown(std::move(utf8), HELP_PATH));
-    state_.document.layout_cache.Reset(state_.document.doc.GetNodes().size());
 
     FinishLoadMarkdownFile(/*follow_file_pane=*/false);
 }
 
-void App::ReplaceDocument(Document next)
+void App::ReplaceDocument(Document next, LayoutCache estimated)
 {
     // 100MB 級の旧文書は数十万ノードの解放で UI を数十 ms 止めるため worker で破棄する。
     // Document は COM を持たず、確保元 (既定の pmr リソース) はスレッド安全。
     // LayoutCache は D2D 由来の参照を持つので対象外 (UI スレッドで破棄する)。
     constexpr size_t kBackgroundDisposeMinNodes = 4096;
     Document old = std::exchange(state_.document.doc, std::move(next));
+    state_.document.layout_cache = std::move(estimated);
     if (old.GetNodes().size() >= kBackgroundDisposeMinNodes) {
         scheduler_.Post([doc = std::move(old)] {});
     }
+}
+
+void App::ReplaceDocument(Document next)
+{
+    LayoutCache estimated = mendo::layout::MakeEstimatedLayoutCache(next.GetNodes(), renderer_.GetTheme());
+    ReplaceDocument(std::move(next), std::move(estimated));
 }
 
 void App::BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation, std::shared_ptr<const std::pmr::string> reload_base)
@@ -157,9 +163,11 @@ void App::LoadMarkdownFile(std::wstring_view path)
     DoLoadMarkdownFile();
 }
 
+// Init (RestoreThemeAndZoom) 前に呼ばれるため、推定用のテーマは設定から直接作る。
+// 推定に使う寸法はライト/ダーク共通でズームだけに依存するので、ダークモード未読込でも結果は同じ。
 void App::StartPreloadAsync(std::pmr::wstring path)
 {
-    file_load_service_.StartPreloadAsync(std::move(path));
+    file_load_service_.StartPreloadAsync(std::move(path), theme_service_.CreateTheme(theme_service_.LoadZoomIndex()));
 }
 
 void App::DoLoadMarkdownFile()
@@ -171,12 +179,13 @@ void App::DoLoadMarkdownFile()
     const bool follow_file_pane = FilePaneFollowsLoad(state_.document.doc.GetFilePath(), file_load_service_.GetLoadingPath());
     {
         MENDO_PROFILE("ExecuteLoad(FileIO+Parse)");
-        auto load_result = file_load_service_.ExecuteLoad(state_.document.doc, state_.document.layout_cache);
+        auto load_result = file_load_service_.ExecuteLoad();
         if (!load_result) {
             ShowToast(FileLoadErrorMessage(load_result.error(), i18n::S()));
             HandleLoadFailureFallback();
             return;
         }
+        ReplaceDocument(std::move(*load_result));
     }
 
     FinishLoadMarkdownFile(follow_file_pane);
@@ -238,27 +247,21 @@ void App::OnParseComplete()
         if (ApplyReloadDecisionEarly(*plan.reload) == ReloadFlow::Handled) {
             return;
         }
-        const bool heights_estimated = result->heights_estimated;
         resource_manager_.CancelMermaidBatch();
         image_loader_.ResetFailedPaths();
-        ReplaceDocument(std::move(result->doc));
-        if (heights_estimated) {
-            state_.document.layout_cache = std::move(result->cache);
-        }
-        FinishReload(plan.reload->diff_pos, heights_estimated);
+        ReplaceDocument(std::move(result->doc), std::move(result->cache));
+        FinishReload(plan.reload->diff_pos);
         return;
     }
     case ParseCompleteStep::ReplaceWithResult: {
-        const bool heights_estimated = result->heights_estimated;
-        ReplaceDocument(std::move(result->doc));
-        state_.document.layout_cache = std::move(result->cache);
-        FinishLoadMarkdownFile(plan.follow_file_pane, heights_estimated, plan.reload ? plan.reload->diff_pos : std::string_view::npos);
+        ReplaceDocument(std::move(result->doc), std::move(result->cache));
+        FinishLoadMarkdownFile(plan.follow_file_pane, plan.reload ? plan.reload->diff_pos : std::string_view::npos);
         return;
     }
     }
 }
 
-void App::FinishLoadMarkdownFile(bool follow_file_pane, bool heights_estimated, size_t reload_diff_pos)
+void App::FinishLoadMarkdownFile(bool follow_file_pane, size_t reload_diff_pos)
 {
     MENDO_PROFILE("FinishLoadMarkdownFile");
 
@@ -275,24 +278,17 @@ void App::FinishLoadMarkdownFile(bool follow_file_pane, bool heights_estimated, 
     const bool has_reload_diff = (reload_diff_pos != std::string_view::npos);
 
     if (state_.view.scroll_restore.HasNodeRestore()) {
-        MENDO_TRACEF("FinishLoad: has_reload_diff={} node={} offset={} heights_estimated={}",
+        MENDO_TRACEF("FinishLoad: has_reload_diff={} node={} offset={}",
                      has_reload_diff ? 1 : 0,
                      state_.view.scroll_restore.pending_restore_node,
-                     state_.view.scroll_restore.pending_restore_offset,
-                     heights_estimated ? 1 : 0);
+                     state_.view.scroll_restore.pending_restore_offset);
     }
     else {
-        MENDO_TRACEF("FinishLoad: has_reload_diff={} (no node restore) heights_estimated={}",
-                     has_reload_diff ? 1 : 0,
-                     heights_estimated ? 1 : 0);
+        MENDO_TRACEF("FinishLoad: has_reload_diff={} (no node restore)", has_reload_diff ? 1 : 0);
     }
 
-    // cache.Reset() 直後は全ノードの高さが 0 のため、スクロール復元前に
-    // ノード高さを推定し、Mermaid/画像キャッシュの実測値で補正する。
+    // スクロール復元先の Y がずれないよう、推定高さを Mermaid/画像キャッシュの実測値で補正する。
     if (has_reload_diff || state_.view.scroll_restore.HasNodeRestore()) {
-        if (!heights_estimated) {
-            EstimateNodeHeights(state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme());
-        }
         ApplyCachedHeightsAndRecompute();
     }
 
@@ -386,13 +382,13 @@ void App::DoReloadCurrentFile()
     if (ApplyReloadDecisionEarly(decision) == ReloadFlow::Handled) {
         return;
     }
-    state_.document.doc.ReplaceFromMarkdown(std::move(new_text), byte_size);
+    ReplaceDocument(Document::FromMarkdown(std::move(new_text), byte_size, state_.document.doc.GetFilePath()));
     FinishReload(decision.diff_pos);
 }
 
 // DoReloadCurrentFile / OnParseComplete 共通のリロード後処理。
 // ドキュメントは更新済みの状態で呼ばれる。
-void App::FinishReload(size_t diff_pos, bool cache_ready)
+void App::FinishReload(size_t diff_pos)
 {
     MENDO_PROFILE("FinishReload");
 
@@ -401,11 +397,6 @@ void App::FinishReload(size_t diff_pos, bool cache_ready)
     const bool had_left_drag = IsLeftDragActive(state_);
     state_.view.ResetPerNodeTransientState();
     ReleaseCaptureIfDragDropped(had_left_drag);
-
-    if (!cache_ready) {
-        state_.document.layout_cache.Reset(state_.document.doc.GetNodes().size(), false);
-        EstimateNodeHeights(state_.document.doc.GetNodes(), state_.document.layout_cache, renderer_.GetTheme());
-    }
 
     renderer_.InvalidateSidePaneCache(PaneTarget::Toc);
 

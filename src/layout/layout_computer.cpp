@@ -187,6 +187,14 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
     }
 }
 
+LayoutCache MakeEstimatedLayoutCache(const std::pmr::vector<Node>& nodes, const Theme& theme, std::stop_token stop_token)
+{
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    EstimateNodeHeights(nodes, cache, theme, std::move(stop_token));
+    return cache;
+}
+
 bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const Theme& theme, float node_width) noexcept
 {
     // ダイアグラム系コードブロックの高さは描画完了時にビットマップ実寸で確定する。
