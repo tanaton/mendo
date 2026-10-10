@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "mermaid_util.h"
+#include "parser.h"
 
 using namespace std::literals;
 
@@ -334,4 +335,93 @@ TEST(ParseRequestPrefix, ParsesIdAndPayload)
         EXPECT_EQ(p.has_payload, c.has_payload);
         EXPECT_EQ(p.payload, c.payload);
     }
+}
+
+// ============================================================
+// ParseWebMessage テスト
+// ============================================================
+
+TEST(ParseWebMessage, ClassifiesMessagesAndParsesRequest)
+{
+    using Kind = mermaid_util::WebMessageKind;
+    struct Case {
+        std::wstring_view msg;
+        Kind kind;
+        bool request_valid;
+        unsigned int id;
+        std::wstring_view payload;
+    };
+    constexpr Case kCases[] = {
+        { L"render-result:12:{\"ok\":true}"sv, Kind::RenderResult, true, 12, L"{\"ok\":true}"sv },
+        { L"svg-result:3:<svg/>"sv, Kind::SvgResult, true, 3, L"<svg/>"sv },
+        { L"capture-ready:5"sv, Kind::CaptureReady, true, 5, L""sv },
+        { L"render-error:9"sv, Kind::RenderError, true, 9, L""sv },
+        { L"mermaid-failed"sv, Kind::Failed, false, 0, L""sv },
+        // ID が数字でなければ kind は決まるが request は無効 (呼び出し側で破棄する)
+        { L"render-result:abc"sv, Kind::RenderResult, false, 0, L""sv },
+        // 完全一致でない failed や未知のメッセージは Unknown
+        { L"mermaid-failed:extra"sv, Kind::Unknown, false, 0, L""sv },
+        { L"render-result"sv, Kind::Unknown, false, 0, L""sv },
+        { L""sv, Kind::Unknown, false, 0, L""sv },
+        { L"hello"sv, Kind::Unknown, false, 0, L""sv },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.msg }));
+        const auto m = mermaid_util::ParseWebMessage(c.msg);
+        EXPECT_EQ(m.kind, c.kind);
+        EXPECT_EQ(m.request.valid, c.request_valid);
+        EXPECT_EQ(m.request.id, c.id);
+        EXPECT_EQ(m.request.payload, c.payload);
+    }
+}
+
+TEST(ParseWebMessage, ReadyCarriesDevicePixelRatio)
+{
+    const auto m = mermaid_util::ParseWebMessage(L"mermaid-ready:1.5"sv);
+    EXPECT_EQ(m.kind, mermaid_util::WebMessageKind::Ready);
+    EXPECT_FLOAT_EQ(m.ready_dpr, 1.5f);
+}
+
+// ============================================================
+// NodeDiagramHash テスト
+// ============================================================
+
+namespace {
+
+Node ParseSingleCodeBlock(std::string_view md)
+{
+    auto nodes = ParseMarkdown(md).nodes;
+    EXPECT_EQ(nodes.size(), 1u);
+    return std::move(nodes.front());
+}
+
+} // namespace
+
+TEST(NodeDiagramHash, DependsOnTextWidthBucketAndTheme)
+{
+    const auto a = ParseSingleCodeBlock("```mermaid\ngraph TD; A-->B\n```");
+    const auto b = ParseSingleCodeBlock("```mermaid\ngraph TD; A-->C\n```");
+    const uint64_t base = mermaid_util::NodeDiagramHash(a, 600.0f, false);
+
+    EXPECT_NE(mermaid_util::NodeDiagramHash(b, 600.0f, false), base);
+    EXPECT_NE(mermaid_util::NodeDiagramHash(a, 600.0f, true), base);
+    EXPECT_NE(mermaid_util::NodeDiagramHash(a, 900.0f, false), base);
+}
+
+// 幅は 32 刻みで量子化されるため、同じバケット内のリサイズではキャッシュを再利用する。
+TEST(NodeDiagramHash, SameWidthBucketSharesHash)
+{
+    const auto a = ParseSingleCodeBlock("```mermaid\ngraph TD; A-->B\n```");
+    ASSERT_EQ(mermaid_util::QuantizeWidth(590.0f), mermaid_util::QuantizeWidth(605.0f));
+    EXPECT_EQ(mermaid_util::NodeDiagramHash(a, 590.0f, false), mermaid_util::NodeDiagramHash(a, 605.0f, false));
+}
+
+// 同じ本文でも LaTeX 数式と Mermaid はレンダ結果が異なるのでキャッシュを共有しない。
+TEST(NodeDiagramHash, LatexMathDoesNotCollideWithMermaid)
+{
+    const auto mermaid = ParseSingleCodeBlock("```mermaid\nx^2\n```");
+    auto math = ParseSingleCodeBlock("```mermaid\nx^2\n```");
+    math.ensure_code()->code_language = SyntaxLanguage::LatexMath;
+
+    EXPECT_NE(mermaid_util::NodeDiagramHash(mermaid, 600.0f, false), mermaid_util::NodeDiagramHash(math, 600.0f, false));
 }

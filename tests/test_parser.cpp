@@ -1845,3 +1845,43 @@ TEST(ParserReserveTest, ShrinksOverReservedNodeCapacity)
     ASSERT_FALSE(result.nodes.empty());
     EXPECT_LE(result.nodes.capacity(), result.nodes.size() + result.nodes.size() / 4);
 }
+
+// ---- Alert マーカー判定の補助関数 ----
+
+// マーカーと直後の区切り 1 文字だけなら true。
+TEST(Parser, IsAlertMarkerOnly)
+{
+    struct Case {
+        std::string_view text;
+        bool expected;
+    };
+    constexpr Case kCases[] = {
+        { "[!NOTE]", true },
+        { "[!note]", true },
+        { "[!WARNING] ", true },
+        { "[!TIP]\n", true },
+        { "", false },
+        { "[!NOTE] body", false },
+        { "[!NOTE]  ", false },
+        { "[!FOO]", false },
+        { "[!]", false },
+        { "[NOTE]", false },
+        { " [!NOTE]", false },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(c.text));
+        EXPECT_EQ(IsAlertMarkerOnly(c.text), c.expected);
+    }
+}
+
+// 最外側 blockquote グループの先頭ノードだけが候補。
+TEST(Parser, IsAlertHeadCandidateOnlyForFirstNodeOfOuterQuote)
+{
+    const auto nodes = ParseMarkdown("> first\n>\n> second\n\npara\n\n> other\n\n> > nested").nodes;
+    ASSERT_EQ(nodes.size(), 5u);
+    EXPECT_TRUE(IsAlertHeadCandidate(nodes, 0));
+    EXPECT_FALSE(IsAlertHeadCandidate(nodes, 1)) << "同じ引用の 2 段落目";
+    EXPECT_FALSE(IsAlertHeadCandidate(nodes, 2)) << "引用外の段落";
+    EXPECT_TRUE(IsAlertHeadCandidate(nodes, 3)) << "別の引用グループの先頭";
+    EXPECT_FALSE(IsAlertHeadCandidate(nodes, 4)) << "ネストした引用";
+}

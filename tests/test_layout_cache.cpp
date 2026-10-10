@@ -122,3 +122,99 @@ TEST(LayoutCacheTest, RecomputeYPositionsEarlyExitKeepsTextTop)
     }
 }
 
+// ---- NodeOffsetToScrollY ----
+
+TEST(NodeOffsetToScrollYTest, ClampsNodeAndResult)
+{
+    EXPECT_FLOAT_EQ(NodeOffsetToScrollY(LayoutCache{}, 0, 50.0f), 0.0f);
+
+    const auto cache = MakeUniformCache(3);
+    struct Case {
+        int node;
+        float offset;
+        float expected;
+    };
+    constexpr Case kCases[] = {
+        { -1, 50.0f, 0.0f },
+        { 1, 25.0f, 125.0f },
+        // 文書が短くなった後の復元などで末尾を超えた node は最後のノードに寄せる
+        { 10, 5.0f, 205.0f },
+        { 0, -40.0f, 0.0f },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::Message() << c.node << "," << c.offset);
+        EXPECT_FLOAT_EQ(NodeOffsetToScrollY(cache, c.node, c.offset), c.expected);
+    }
+}
+
+// ---- ComputeVisibleNodeRange ----
+
+TEST(ComputeVisibleNodeRangeTest, ReturnsNodesOverlappingRange)
+{
+    const auto cache = MakeUniformCache(10);
+    const auto [first, last_plus_1] = ComputeVisibleNodeRange(cache, 10, 150.0f, 350.0f);
+    EXPECT_EQ(first, 1u);
+    EXPECT_EQ(last_plus_1, 4u);
+}
+
+TEST(ComputeVisibleNodeRangeTest, RangeBelowContentIsEmpty)
+{
+    const auto cache = MakeUniformCache(3);
+    const auto [first, last_plus_1] = ComputeVisibleNodeRange(cache, 3, 500.0f, 800.0f);
+    EXPECT_EQ(first, last_plus_1);
+}
+
+// ---- TableLayoutData の行範囲 ----
+
+namespace {
+
+// 高さ 10 の行が 3 行 ([0,10) [10,20) [20,30))。
+TableLayoutData MakeThreeRowTable()
+{
+    TableLayoutData tl;
+    tl.row_cum_y = { 0.0f, 10.0f, 20.0f, 30.0f };
+    return tl;
+}
+
+} // namespace
+
+TEST(TableRowRangeTest, VisibleRowRangeWithoutGeometryIsEmpty)
+{
+    const TableLayoutData tl;
+    EXPECT_EQ(tl.VisibleRowRange(0.0f, 100.0f), (std::pair<size_t, size_t>{ 0, 0 }));
+}
+
+TEST(TableRowRangeTest, VisibleRowRangeSelectsOverlappingRows)
+{
+    const auto tl = MakeThreeRowTable();
+    EXPECT_EQ(tl.VisibleRowRange(15.0f, 25.0f), (std::pair<size_t, size_t>{ 1, 3 }));
+    EXPECT_EQ(tl.VisibleRowRange(-50.0f, 5.0f), (std::pair<size_t, size_t>{ 0, 1 }));
+    EXPECT_EQ(tl.VisibleRowRange(-50.0f, 500.0f), (std::pair<size_t, size_t>{ 0, 3 }));
+}
+
+TEST(TableRowRangeTest, VisibleRowRangeBelowTableIsEmpty)
+{
+    const auto tl = MakeThreeRowTable();
+    const auto [begin, end] = tl.VisibleRowRange(100.0f, 200.0f);
+    EXPECT_GE(begin, end);
+}
+
+// 行幾何が行数と揃わない (未計測・evict 直後) ときは全行を対象にする。
+TEST(TableRowRangeTest, RowsInViewportFallsBackToAllRowsWithoutGeometry)
+{
+    const auto tl = MakeThreeRowTable();
+    EXPECT_EQ(tl.RowsInViewport(5, 15.0f, 25.0f), (std::pair<size_t, size_t>{ 0, 5 }));
+    EXPECT_EQ(tl.RowsInViewport(3, 15.0f, 25.0f), (std::pair<size_t, size_t>{ 1, 3 }));
+}
+
+TEST(TableRowRangeTest, RowIndexAtBoundaries)
+{
+    const auto tl = MakeThreeRowTable();
+    EXPECT_EQ(tl.RowIndexAt(-0.1f), -1);
+    EXPECT_EQ(tl.RowIndexAt(0.0f), 0);
+    EXPECT_EQ(tl.RowIndexAt(9.9f), 0);
+    EXPECT_EQ(tl.RowIndexAt(10.0f), 1);
+    EXPECT_EQ(tl.RowIndexAt(29.9f), 2);
+    EXPECT_EQ(tl.RowIndexAt(30.0f), -1);
+    EXPECT_EQ(TableLayoutData{}.RowIndexAt(0.0f), -1);
+}

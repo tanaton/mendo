@@ -1989,3 +1989,84 @@ TEST(ExtractSelectedTextAsHtml, OnlyLf)
     // テキストコンテンツなし: <p> の直後に <br> が来る。
     EXPECT_EQ(html.find("<br>"), p_pos + 3);
 }
+
+// ============================================================
+// ExtensionView / ParentDirectory
+// ============================================================
+
+TEST(ExtensionView, ReturnsDotExtensionOfLastComponent)
+{
+    struct Case {
+        std::wstring_view path;
+        std::wstring_view expected;
+    };
+    constexpr Case kCases[] = {
+        { L"", L"" },
+        { L"readme", L"" },
+        { L"readme.md", L".md" },
+        { L"archive.tar.gz", L".gz" },
+        { L"C:\\docs\\readme.MD", L".MD" },
+        // ディレクトリ名のドットは拡張子ではない
+        { L"C:\\v1.2\\readme", L"" },
+        { L"C:/v1.2/readme", L"" },
+        { L".gitignore", L".gitignore" },
+        { L"name.", L"." },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
+        EXPECT_EQ(ExtensionView(c.path), c.expected);
+    }
+}
+
+TEST(ParentDirectory, ReturnsDirectoryPart)
+{
+    struct Case {
+        std::wstring_view path;
+        std::wstring_view expected;
+    };
+    constexpr Case kCases[] = {
+        { L"", L"" },
+        { L"readme.md", L"" },
+        { L"C:\\docs\\readme.md", L"C:\\docs" },
+        { L"C:/docs/readme.md", L"C:/docs" },
+        { L"C:\\readme.md", L"C:\\" },
+        { L"\\\\server\\share\\readme.md", L"\\\\server\\share" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
+        EXPECT_EQ(ParentDirectory(c.path), c.expected);
+    }
+}
+
+// ============================================================
+// BuildCodeBlockHtmlFragment
+// ============================================================
+
+TEST(BuildCodeBlockHtmlFragment, NonCodeBlockReturnsEmpty)
+{
+    const auto nodes = ParseMarkdown("plain paragraph").nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_TRUE(BuildCodeBlockHtmlFragment(nodes[0], false).empty());
+}
+
+TEST(BuildCodeBlockHtmlFragment, WrapsEscapedCodeInPre)
+{
+    const auto nodes = ParseMarkdown("```\na < b && c > d\n```").nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    const auto html = BuildCodeBlockHtmlFragment(nodes[0], false);
+    EXPECT_TRUE(html.starts_with("<pre "));
+    EXPECT_TRUE(html.ends_with("</code></pre>"));
+    EXPECT_NE(html.find("a &lt; b &amp;&amp; c &gt; d"), std::string::npos);
+    EXPECT_EQ(html.find("a < b"), std::string::npos);
+}
+
+// ダーク時は貼り付け先の既定 (黒文字) で読めなくならないよう文字色を明示する。
+TEST(BuildCodeBlockHtmlFragment, DarkModeSpecifiesTextColor)
+{
+    const auto nodes = ParseMarkdown("```\ncode\n```").nodes;
+    ASSERT_EQ(nodes.size(), 1u);
+    const auto light = BuildCodeBlockHtmlFragment(nodes[0], false);
+    const auto dark = BuildCodeBlockHtmlFragment(nodes[0], true);
+    EXPECT_EQ(light.find(";color:"), std::string::npos);
+    EXPECT_NE(dark.find(";color:"), std::string::npos);
+}

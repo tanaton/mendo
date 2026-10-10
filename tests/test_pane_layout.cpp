@@ -389,3 +389,47 @@ TEST(ScrollFromThumbY, ZeroTrackRange)
     float scroll = ScrollFromThumbY(info, 50.0f);
     EXPECT_FLOAT_EQ(scroll, 0.0f);
 }
+
+// ============================================================
+// HitTestUniformList
+// ============================================================
+
+TEST(HitTestUniformList, ReturnsIndexOfItemUnderY)
+{
+    EXPECT_EQ(HitTestUniformList(0.0f, 20.0f, 3), 0);
+    EXPECT_EQ(HitTestUniformList(19.9f, 20.0f, 3), 0);
+    EXPECT_EQ(HitTestUniformList(20.0f, 20.0f, 3), 1);
+    EXPECT_EQ(HitTestUniformList(59.9f, 20.0f, 3), 2);
+}
+
+TEST(HitTestUniformList, OutOfRangeReturnsMinusOne)
+{
+    EXPECT_EQ(HitTestUniformList(-0.1f, 20.0f, 3), -1);
+    EXPECT_EQ(HitTestUniformList(60.0f, 20.0f, 3), -1);
+    EXPECT_EQ(HitTestUniformList(0.0f, 20.0f, 0), -1);
+}
+
+// 項目高さが未確定 (0) のときに 0 除算しない。
+TEST(HitTestUniformList, NonPositiveItemHeightReturnsMinusOne)
+{
+    EXPECT_EQ(HitTestUniformList(10.0f, 0.0f, 3), -1);
+    EXPECT_EQ(HitTestUniformList(10.0f, -5.0f, 3), -1);
+}
+
+// ============================================================
+// ToPaneTarget / ToPaneZone
+// ============================================================
+
+TEST(PaneZoneConversion, SidePanesRoundTrip)
+{
+    for (const auto target : { PaneTarget::File, PaneTarget::Toc }) {
+        EXPECT_EQ(ToPaneTarget(ToPaneZone(target)), target);
+    }
+}
+
+TEST(PaneZoneConversion, NonSidePaneZonesHaveNoTarget)
+{
+    for (const auto zone : { PaneZone::None, PaneZone::Splitter1, PaneZone::Splitter2, PaneZone::MdPane }) {
+        EXPECT_FALSE(ToPaneTarget(zone).has_value());
+    }
+}
