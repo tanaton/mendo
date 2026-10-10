@@ -50,7 +50,7 @@ void App::FinalizeLayout(float md_pane_height)
 
 void App::InvalidateHitPositions()
 {
-    state_.interaction.hover_throttle.Reset();
+    state_.interaction.last_hover_pos.Reset();
     Dispatch(ClearTooltipAction{});
 }
 
@@ -60,9 +60,8 @@ void App::SyncTocActiveAndAutoScroll(bool auto_scroll)
         return;
     }
     const auto& theme = renderer_.GetTheme();
-    const float toc_margin = GetPaneLayout().md_rect.y + theme.heading_spacing_above;
     const int new_active = state_.document.doc.GetToc().FindActiveIndex(
-        state_.document.layout_cache, state_.view.viewport.GetScrollY(), toc_margin);
+        state_.document.layout_cache, state_.view.viewport.GetScrollY(), theme.heading_spacing_above);
     if (new_active == state_.view.active_toc_index) {
         return;
     }
@@ -128,7 +127,7 @@ void App::OnDeferredLayout()
         MENDO_PROFILE("ProcessDirtyBatch");
         more = layout_service_->ProcessDirtyBatch(
             state_.document.doc, state_.document.layout_cache, md.width, kDeferredLayoutBatchNodes,
-            ResourceManager::BATCH_TIME_BUDGET_US, LayoutService::ViewportLimit{ md.height, ResourceManager::EVICT_BUFFER_SCREENS });
+            LayoutService::ViewportLimit{ md.height, ResourceManager::EVICT_BUFFER_SCREENS });
     }
 
     // 中間バッチでは SyncMaxScroll のクランプを遅延させる。

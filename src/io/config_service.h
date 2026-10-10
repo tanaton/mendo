@@ -17,7 +17,7 @@ public:
     std::filesystem::path GetConfigPath(std::wstring_view filename) const;
 
     void Load();
-    // 書き込みはアプリ終了時 (WM_DESTROY) に集約する。
+    // 書き込みはアプリ終了時 (WM_DESTROY) に集約する。値が変わっていなければ書かない。
     void Flush();
 
     void SaveBool(std::string_view section, std::string_view key, bool value);
@@ -40,6 +40,7 @@ private:
 
     std::filesystem::path config_dir_override_;
     ini::IniData data_;
+    bool dirty_ = false;
 };
 
 // セッション状態（最後に開いたファイル、ペイン構成、スクロール位置）の永続化を担当する。

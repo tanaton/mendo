@@ -66,7 +66,7 @@ TEST_F(DiagramPlaceholderTest, ErrorShowsErrorMessageInCautionColor)
     bool found = false;
     for (size_t i = 0; i < pl.nodes.size(); ++i) {
         if (pl.nodes[i].type == NodeType::CodeBlock && IsDiagramLanguage(pl.nodes[i].code_language())) {
-            pl.cache.GetDiagram(i).error = L"Parse error on line 1";
+            pl.cache.EnsureDiagram(i).error = L"Parse error on line 1";
             found = true;
             break;
         }

@@ -123,7 +123,7 @@ TEST_F(HitTestServiceTest, HitTest_EmptyDocumentReturnsSentinel)
     }
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,
-        0.0f, 0.0f, 1.0f, 100, 100
+        0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 0.0f }, 1.0f, 100, 100
     };
     auto r = hit_test_.HitTest(ctx);
     EXPECT_EQ(r.node_index, -1);
@@ -143,7 +143,7 @@ TEST_F(HitTestServiceTest, HitTest_BelowAllNodesReturnsLastNonEmpty)
     }
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,
-        0.0f, 0.0f, 1.0f,
+        0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 0.0f }, 1.0f,
         50,
         static_cast<int>(last_bottom) + 1000
     };
@@ -172,7 +172,7 @@ TEST_F(HitTestServiceTest, HitTest_AboveFirstNodeClampsToFirstNodeStart)
 
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,
-        0.0f, 0.0f, 1.0f, 50, 0
+        0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 0.0f }, 1.0f, 50, 0
     };
     auto r = hit_test_.HitTest(ctx);
     EXPECT_EQ(r.node_index, 0);
@@ -191,7 +191,7 @@ TEST_F(HitTestServiceTest, HitTest_GapBetweenNodesClampsToPrecedingNodeEnd)
     const float gap_y = (node0_bottom + pr.cache.Top(1)) * 0.5f;
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,
-        gap_y, 0.0f, 1.0f, 50, 0
+        gap_y, PaneRect{ 0.0f, 0.0f, 0.0f, 0.0f }, 1.0f, 50, 0
     };
     auto r = hit_test_.HitTest(ctx);
     EXPECT_EQ(r.node_index, 0);
@@ -212,7 +212,7 @@ TEST_F(HitTestServiceTest, HitTest_TextlessCandidateFallsForwardToFirstNonEmpty)
     const float mid_y = pr.cache.Top(0) + pr.cache[0].height * 0.5f;
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,
-        mid_y, 0.0f, 1.0f, 50, 0
+        mid_y, PaneRect{ 0.0f, 0.0f, 0.0f, 0.0f }, 1.0f, 50, 0
     };
     auto r = hit_test_.HitTest(ctx);
     EXPECT_EQ(r.node_index, 1);
@@ -294,8 +294,8 @@ TEST_F(HitTestServiceTest, SaveButton_NoDiagramReturnsNegative)
     const float content_width = theme_.ContentWidth(800.0f);
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,
-        0.0f, 0.0f, 1.0f, 400, 100,
-        content_width, 600.0f
+        0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f, 400, 100,
+        content_width
     };
     EXPECT_EQ(hit_test_.CodeBlockButtonsHitTest(ctx).save_node, -1);
 }
@@ -306,8 +306,8 @@ TEST_F(HitTestServiceTest, SaveButton_NonDiagramCodeBlockReturnsNegative)
     const float content_width = theme_.ContentWidth(800.0f);
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,
-        0.0f, 0.0f, 1.0f, 400, 100,
-        content_width, 600.0f
+        0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f, 400, 100,
+        content_width
     };
     EXPECT_EQ(hit_test_.CodeBlockButtonsHitTest(ctx).save_node, -1);
 }
@@ -319,16 +319,17 @@ TEST_F(HitTestServiceTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
     const int mermaid_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::CodeBlock);
     ASSERT_GE(mermaid_idx, 0);
     ASSERT_TRUE(IsDiagramLanguage(pr.nodes[mermaid_idx].code_language()));
-    ASSERT_FALSE(pr.cache.GetDiagram(static_cast<size_t>(mermaid_idx)).bitmap);
+    const auto* diagram = pr.cache.FindDiagram(static_cast<size_t>(mermaid_idx));
+    ASSERT_TRUE(diagram == nullptr || !diagram->bitmap);
 
     const float content_width = theme_.ContentWidth(800.0f);
     const float entry_text_top = pr.cache.Top(static_cast<size_t>(mermaid_idx));
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,
-        0.0f, 0.0f, 1.0f,
+        0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f,
         static_cast<int>(theme_.margin_left + content_width - 10),
         static_cast<int>(entry_text_top + 5),
-        content_width, 600.0f
+        content_width
     };
     EXPECT_EQ(hit_test_.CodeBlockButtonsHitTest(ctx).save_node, -1);
 }
@@ -339,8 +340,8 @@ TEST_F(HitTestServiceTest, SaveButton_EmptyDocumentReturnsNegative)
     const float content_width = theme_.ContentWidth(800.0f);
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,
-        0.0f, 0.0f, 1.0f, 400, 100,
-        content_width, 600.0f
+        0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f, 400, 100,
+        content_width
     };
     EXPECT_EQ(hit_test_.CodeBlockButtonsHitTest(ctx).save_node, -1);
 }

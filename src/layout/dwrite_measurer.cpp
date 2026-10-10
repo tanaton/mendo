@@ -179,18 +179,15 @@ bool RemeasureExistingLayout(const Node& node, NodeLayoutEntry& entry, float lay
 }
 
 // 描画パス (ApplyNodeEffects) での遅延トークン化によるフレーム落ちを避けるため、レイアウトパスで行う。
-void TokenizeCodeBlock(Node& node, std::string_view text, std::pmr::vector<SyntaxToken>* tokens_out)
+// Tokenize が完了してから代入するので、例外時に途中のトークンがノードに残らない。
+// 済みの判定はトークン列の有無で行う。色付け対象が無いコードは空なので、空判定だと計測のたびにやり直す。
+void TokenizeCodeBlock(Node& node, std::string_view text)
 {
-    const auto lang = node.code_language();
-    if (lang == SyntaxLanguage::None || !node.syntax_tokens().empty()) {
+    const auto* cd = node.code_data();
+    if (cd == nullptr || node.code_language() == SyntaxLanguage::None || cd->tokens) {
         return;
     }
-    if (tokens_out != nullptr) {
-        *tokens_out = Tokenize(text, lang);
-    }
-    else {
-        node.syntax_tokens_mut() = Tokenize(text, lang);
-    }
+    node.syntax_tokens_mut() = Tokenize(text, node.code_language());
 }
 
 HRESULT CreateFormat(IDWriteFactory* factory, const wchar_t* family, float size, DWRITE_FONT_WEIGHT weight, IDWriteTextFormat** out)
@@ -357,7 +354,6 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
 
 void DWriteTextMeasurer::MeasureNode(
     Node& node, NodeLayoutEntry& entry, float max_width,
-    std::pmr::vector<SyntaxToken>* tokens_out,
     MeasureViewportRange viewport) const
 {
     MENDO_PROFILE("MeasureNode");
@@ -394,7 +390,7 @@ void DWriteTextMeasurer::MeasureNode(
     layout->GetMetrics(&metrics);
 
     if (node.type == NodeType::CodeBlock) {
-        TokenizeCodeBlock(node, text, tokens_out);
+        TokenizeCodeBlock(node, text);
     }
 
     entry.text_layout = std::move(layout);

@@ -136,7 +136,6 @@ private:
 
 // ResourceManager::Callbacks の各呼び出しを観測するための counter。
 struct CallbackTracker {
-    int invalidate = 0;
     int set_timer = 0;
     int kill_timer = 0;
     int recompute_layout = 0;
@@ -154,10 +153,6 @@ struct CallbackTracker {
 struct TestResourceManagerCallbacks {
     CallbackTracker* t = nullptr;
 
-    void invalidate()
-    {
-        t->invalidate++;
-    }
     void set_timer(app_timer::Id id, UINT ms)
     {
         t->set_timer++;
@@ -418,7 +413,7 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersSkipsErroredDiagram)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
     ASSERT_FALSE(doc_.GetDiagramNodeIndices().empty());
-    cache_.GetDiagram(doc_.GetDiagramNodeIndices()[0]).error = L"Parse error on line 1";
+    cache_.EnsureDiagram(doc_.GetDiagramNodeIndices()[0]).error = L"Parse error on line 1";
 
     EXPECT_EQ(rm_.RequestMermaidRenders(), 0);
     EXPECT_EQ(mock_mermaid_.request_render_count, 0);
@@ -428,7 +423,7 @@ TEST_F(ResourceManagerTest, ProcessMermaidBatchSkipsErroredDiagram)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
     ASSERT_FALSE(doc_.GetDiagramNodeIndices().empty());
-    cache_.GetDiagram(doc_.GetDiagramNodeIndices()[0]).error = L"Parse error on line 1";
+    cache_.EnsureDiagram(doc_.GetDiagramNodeIndices()[0]).error = L"Parse error on line 1";
 
     rm_.ProcessMermaidBatch();
     EXPECT_EQ(mock_mermaid_.request_render_count, 0);
@@ -445,11 +440,11 @@ TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeClearsError)
     rm_.RequestMermaidRenders();
     ASSERT_EQ(mock_mermaid_.request_render_count, 1);
 
-    cache_.GetDiagram(diagram_index).error = L"Parse error on line 1";
+    cache_.EnsureDiagram(diagram_index).error = L"Parse error on line 1";
 
     tracker_.content_width = 1000.0f;
     rm_.RequestMermaidRenders();
-    EXPECT_TRUE(cache_.GetDiagram(diagram_index).error.empty());
+    EXPECT_TRUE(cache_.FindDiagram(diagram_index)->error.empty());
     EXPECT_EQ(mock_mermaid_.request_render_count, 2);
 }
 
@@ -588,7 +583,7 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsNoOpsWhenViewportHeightIsZero)
     const auto& indices = doc_.GetDiagramNodeIndices();
     ASSERT_GE(indices.size(), 2u);
     for (const size_t i : indices) {
-        cache_.GetDiagram(i).png = std::make_shared<const std::pmr::vector<uint8_t>>(4, uint8_t{ 1 });
+        cache_.EnsureDiagram(i).png = std::make_shared<const std::pmr::vector<uint8_t>>(4, uint8_t{ 1 });
     }
     tracker_.viewport_height = 0.0f;
     viewport_.SetScrollY(0.0f);
@@ -596,7 +591,7 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsNoOpsWhenViewportHeightIsZero)
     rm_.EvictOffscreenBitmaps();
 
     for (const size_t i : indices) {
-        EXPECT_NE(cache_.GetDiagram(i).png, nullptr) << "node " << i;
+        EXPECT_NE(cache_.FindDiagram(i)->png, nullptr) << "node " << i;
     }
 }
 
@@ -635,7 +630,7 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesDiagramPngButKeepsSize)
     const auto& indices = doc_.GetDiagramNodeIndices();
     ASSERT_GE(indices.size(), 2u);
     for (const size_t i : indices) {
-        auto& d = cache_.GetDiagram(i);
+        auto& d = cache_.EnsureDiagram(i);
         d.png = std::make_shared<const std::pmr::vector<uint8_t>>(4, uint8_t{ 1 });
         d.width = 320.0f;
         d.height = 240.0f;
@@ -644,8 +639,8 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesDiagramPngButKeepsSize)
     viewport_.SetScrollY(0.0f);
     rm_.EvictOffscreenBitmaps();
 
-    const auto& near_diagram = cache_.GetDiagram(indices[0]);
-    const auto& far_diagram = cache_.GetDiagram(indices[1]);
+    const auto& near_diagram = *cache_.FindDiagram(indices[0]);
+    const auto& far_diagram = *cache_.FindDiagram(indices[1]);
     EXPECT_NE(near_diagram.png, nullptr);
     EXPECT_EQ(far_diagram.png, nullptr);
     EXPECT_FLOAT_EQ(far_diagram.width, 320.0f);
@@ -661,12 +656,14 @@ TEST_F(ResourceManagerTest, ScheduleBitmapManageSetsTimer)
     EXPECT_EQ(tracker_.last_set_timer_ms, 150u);
 }
 
-TEST_F(ResourceManagerTest, OnBitmapManageTimerKillsTimerAndInvalidates)
+// スクロール停止のたびに全画面再描画しないよう、何も適用されなければ再レイアウト (と再描画) しない。
+TEST_F(ResourceManagerTest, OnBitmapManageTimerSkipsRecomputeWhenNothingApplied)
 {
     LoadMarkdown("# heading\n");
     rm_.OnBitmapManageTimer();
     EXPECT_GE(tracker_.kill_timer, 1);
-    EXPECT_EQ(tracker_.invalidate, 1);
+    EXPECT_EQ(tracker_.recompute_layout, 0);
+    EXPECT_EQ(tracker_.recompute_layout_anchored, 0);
 }
 
 TEST_F(ResourceManagerTest, FlushPendingResourcesIsNoopWhenNotPending)

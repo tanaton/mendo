@@ -176,8 +176,6 @@ private:
     {
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
-    void InvalidatePane(const PaneRect& rect) noexcept;
-    void InvalidateTitleBar();
 
     // ---- 初期化 (app_init.cpp) ----
     void RestoreThemeAndZoom();
@@ -198,7 +196,7 @@ private:
     using HitResult = HitTestService::HitResult;
     HitResult HitTest(int screen_x, int screen_y);
     HitResult HitTest(const MdPaneHitContext& ctx);
-    std::optional<std::pmr::string> GetLinkAtHit(const HitResult& hit) const;
+    std::optional<std::string_view> GetLinkAtHit(const HitResult& hit) const;
     MdPaneHitContext BuildMdPaneHitContext(int px, int py, const PaneLayout& pane_layout) const noexcept;
 
     const PaneLayout& GetPaneLayout();
@@ -218,7 +216,7 @@ private:
     // コピー/ダイアグラムコピー/保存ボタンを処理したら true。
     bool HandleCodeBlockButtonClick(const MdPaneHitContext& hit_ctx);
     // ホバー中ブロックの水平スクロールバー上ならドラッグを開始して true。
-    bool TryStartBlockHScrollDrag(float dip_x, float dip_y, const PaneLayout& layout);
+    bool TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x);
     void HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout);
     void HandleFileEntryClick(const FileEntry& entry);
 
@@ -227,12 +225,12 @@ private:
     // 戻り値はホバー中の項目 index (なければ -1)。
     int HandleSidePaneHover(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout);
     TooltipTarget BuildSidePaneTooltip(PaneTarget target, PaneHeaderButton hit, int idx) const;
-    TooltipTarget BuildMdContentTooltip(const HitResult& hit, const std::optional<std::pmr::string>& link) const;
+    TooltipTarget BuildMdContentTooltip(const HitResult& hit, std::optional<std::string_view> link) const;
     // サイドペインのホバー状態をリセットし、変化があれば invalidate する。
     // reset_hover_index=true のとき hover index もリセット（タイトルバー移動時など）。
-    void ResetSidePaneHover(PaneTarget t, const PaneLayout& pane_layout, bool reset_hover_index);
+    void ResetSidePaneHover(PaneTarget t, bool reset_hover_index);
     // サイドペインキャッシュ無効化とペイン再描画リクエストをまとめて発行する。
-    void InvalidateSidePaneAndPane(PaneTarget t, const PaneLayout& pane_layout);
+    void InvalidateSidePaneAndPane(PaneTarget t);
 
     // ---- レイアウト (app_layout.cpp) ----
     void EnsureScrollTarget();

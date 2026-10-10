@@ -35,7 +35,6 @@ public:
     }
 
     void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
-                     std::pmr::vector<SyntaxToken>* /*tokens_out*/ = nullptr,
                      MeasureViewportRange /*viewport*/ = {}) const override
     {
         if (node.type == NodeType::HorizontalRule) {
@@ -77,7 +76,7 @@ public:
         const auto& text = node.GetText();
         if (text.empty()) {
             // 実装と同じく空 LI は高さ 0 (bullet と直下 P の文字 Y を揃える issue#237)。
-            // Init 前 (RunSerial 単体テスト等) は theme が無いので行高の半分で代用する。
+            // Init 前 (RunParallel 単体テスト等) は theme が無いので行高の半分で代用する。
             if (IsEmptyListItemContainer(node)) {
                 entry.height = 0.0f;
             }

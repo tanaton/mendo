@@ -80,6 +80,8 @@ void App::ReplaceDocument(Document next, LayoutCache estimated)
     if (old.GetNodes().size() >= kBackgroundDisposeMinNodes) {
         scheduler_.Post([doc = std::move(old)] {});
     }
+    // ツールチップの同一判定は node / TOC の index で行うため、旧文書の対象を持ち越さない。
+    InvalidateHitPositions();
 }
 
 void App::ReplaceDocument(Document next)

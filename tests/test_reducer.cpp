@@ -35,7 +35,7 @@ protected:
     }
 
     // MD スクロールバー系テスト用: reducer が ComputeTotalContentHeight で導出する
-    // 総コンテンツ高が total になるよう doc と layout_cache を構築する (margin_top=0 前提)。
+    // 総コンテンツ高が total になるよう doc と layout_cache を構築する (margin_bottom=0 前提)。
     void SetupMdContentHeight(float total)
     {
         state.document.doc = Document::FromMarkdown(std::pmr::string("Hello"), L"test.md");
@@ -53,7 +53,7 @@ TEST_F(ReducerTest, KeyScrollLineDown)
     auto effects = Reduce(state, KeyScrollAction{ ScrollType::LineDown });
 
     EXPECT_GT(state.view.viewport.GetScrollY(), old_scroll);
-    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
     EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
 }
 
@@ -74,7 +74,7 @@ TEST_F(ReducerTest, KeyScrollPageDown)
 
     // ページスクロールはラインスクロールより大きい
     EXPECT_GT(state.view.viewport.GetScrollY() - old_scroll, 40.0f);
-    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 TEST_F(ReducerTest, KeyScrollHome)
@@ -83,7 +83,7 @@ TEST_F(ReducerTest, KeyScrollHome)
     auto effects = Reduce(state, KeyScrollAction{ ScrollType::Home });
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
-    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 TEST_F(ReducerTest, KeyScrollEnd)
@@ -91,7 +91,7 @@ TEST_F(ReducerTest, KeyScrollEnd)
     auto effects = Reduce(state, KeyScrollAction{ ScrollType::End });
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), state.view.viewport.GetMaxScroll());
-    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 // ---- DirectScrollByAction テスト ----
@@ -101,7 +101,7 @@ TEST_F(ReducerTest, DirectScrollBy_Positive)
     auto effects = Reduce(state, DirectScrollByAction{ 100.0f });
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 100.0f);
-    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
     EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
 }
 
@@ -110,7 +110,7 @@ TEST_F(ReducerTest, DirectScrollBy_ClampedAtMax)
     auto effects = Reduce(state, DirectScrollByAction{ 99999.0f });
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), state.view.viewport.GetMaxScroll());
-    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 // ---- SelectAllAction テスト ----
@@ -140,7 +140,7 @@ TEST_F(ReducerTest, SelectWord_SelectsWordAndSetsAnchor)
     EXPECT_EQ(sel.end_pos, 11u);
     EXPECT_EQ(state.view.viewport.GetAnchorNode(), 0);
     EXPECT_EQ(state.view.viewport.GetAnchorPos(), 6u);
-    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 TEST_F(ReducerTest, SelectWord_InvalidNode_NoOp)
@@ -226,7 +226,7 @@ TEST_F(ReducerTest, Activate_ChangesWindowActive)
     auto effects = Reduce(state, ActivateAction{ false });
 
     EXPECT_FALSE(state.window.window_active);
-    EXPECT_TRUE(HasEffect<effect::InvalidateTitleBar>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
     EXPECT_TRUE(HasEffect<effect::ClearTooltip>(effects));
 }
 
@@ -235,8 +235,8 @@ TEST_F(ReducerTest, Activate_NoChangeWhenSame)
     state.window.window_active = true;
     auto effects = Reduce(state, ActivateAction{ true });
 
-    // 状態変化なし → InvalidateTitleBar なし
-    EXPECT_FALSE(HasEffect<effect::InvalidateTitleBar>(effects));
+    // 状態変化なし → 再描画なし
+    EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 // ---- EnterSizeMoveAction テスト ----
@@ -247,6 +247,33 @@ TEST_F(ReducerTest, EnterSizeMove_SetsFlag)
     Reduce(state, EnterSizeMoveAction{});
 
     EXPECT_TRUE(state.window.is_sizing);
+}
+
+TEST_F(ReducerTest, ExitSizeMove_MoveOnly_SkipsResizeEnd)
+{
+    Reduce(state, EnterSizeMoveAction{});
+    auto effects = Reduce(state, ExitSizeMoveAction{});
+
+    EXPECT_FALSE(state.window.is_sizing);
+    EXPECT_FALSE(HasEffect<effect::PerformResizeEnd>(effects));
+}
+
+TEST_F(ReducerTest, ExitSizeMove_AfterResize_EmitsResizeEnd)
+{
+    Reduce(state, EnterSizeMoveAction{});
+    Reduce(state, ResizeAction{ 800, 600 });
+    auto effects = Reduce(state, ExitSizeMoveAction{});
+
+    EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
+}
+
+TEST_F(ReducerTest, ExitSizeMove_AfterDpiChange_EmitsResizeEnd)
+{
+    Reduce(state, EnterSizeMoveAction{});
+    Reduce(state, DpiChangedAction{ 144, PixelRect{ 0, 0, 800, 600 } });
+    auto effects = Reduce(state, ExitSizeMoveAction{});
+
+    EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
 }
 
 // ---- MouseLeaveAction テスト ----
@@ -261,13 +288,15 @@ TEST_F(ReducerTest, MouseLeave_ClearsTooltip)
 
 TEST_F(ReducerTest, UpdateTooltipAction_EmitsShowTooltipEffectWithSameTarget)
 {
-    TooltipTarget target{ TooltipTarget::Zone::MdLink, L"https://example.com" };
+    TooltipTarget target{ TooltipTarget::Zone::MdLink, 1 };
+    target.text = L"https://example.com";
     auto effects = Reduce(state, UpdateTooltipAction{ target });
 
     ASSERT_EQ(effects.size(), 1u);
     const auto* show = GetEffect<effect::ShowTooltip>(effects[0]);
     ASSERT_NE(show, nullptr);
-    EXPECT_EQ(show->target, target);
+    EXPECT_TRUE(show->target.SameTarget(target));
+    EXPECT_EQ(show->target.text, target.text);
 }
 
 TEST_F(ReducerTest, UpdateTooltipAction_SameTargetAsCurrent_NoEffect)
@@ -281,7 +310,7 @@ TEST_F(ReducerTest, UpdateTooltipAction_ClearsAfterPrevTarget)
 {
     // 既にターゲットが設定済みなら、空ターゲットへの遷移で ShowTooltip が発行される（Executor でタイマー停止）
     state.interaction.tooltip.Update(
-        TooltipTarget{ TooltipTarget::Zone::MdLink, L"x" });
+        TooltipTarget{ TooltipTarget::Zone::MdLink, 1 });
 
     auto effects = Reduce(state, UpdateTooltipAction{ TooltipTarget{} });
     ASSERT_EQ(effects.size(), 1u);
@@ -291,7 +320,7 @@ TEST_F(ReducerTest, UpdateTooltipAction_ClearsAfterPrevTarget)
 TEST_F(ReducerTest, ClearTooltipAction_EmitsClearTooltipAndResetsState)
 {
     state.interaction.tooltip.Update(
-        TooltipTarget{ TooltipTarget::Zone::MdLink, L"x" });
+        TooltipTarget{ TooltipTarget::Zone::MdLink, 1 });
 
     auto effects = Reduce(state, ClearTooltipAction{});
 
@@ -409,7 +438,7 @@ TEST_F(ReducerTest, NavigateBack_SameFile_ScrollsAndInvalidates)
 
     auto effects = Reduce(state, NavigateBackAction{});
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 50.0f);
-    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
     EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
 }
 
@@ -847,7 +876,7 @@ TEST_F(ReducerTest, MdScrollbarDragStarted_ThumbMiss_JumpsAndEmitsInvalidate)
     EXPECT_EQ(state.view.panes.GetDragTarget(), PaneController::DragTarget::MdScrollbar);
     EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
     EXPECT_GT(state.view.viewport.GetScrollY(), 0.0f);
-    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
     EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
 }
 
@@ -861,7 +890,7 @@ TEST_F(ReducerTest, MdScrollbarDragMoved_WhileDragging_UpdatesScroll)
     auto effects = Reduce(state, MdScrollbarDragMovedAction{ 200.0f });
 
     EXPECT_GT(state.view.viewport.GetScrollY(), 0.0f);
-    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 TEST_F(ReducerTest, MdScrollbarDragMoved_NotDragging_NoOp)
@@ -1327,7 +1356,7 @@ TEST_F(ReducerTest, TocItemClicked_ValidAnchor_ScrollsAndInvalidates)
     auto effects = Reduce(state, TocItemClickedAction{ 1 });
 
     EXPECT_TRUE(state.view.nav_history.CanGoBack());
-    EXPECT_TRUE(HasEffect<effect::InvalidateMdPane>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
     EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
 }
 

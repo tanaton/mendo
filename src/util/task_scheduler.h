@@ -11,6 +11,7 @@
 
 // 各ワーカースレッドではCOMが初期化される（COINIT_MULTITHREADED）。
 // Post() はスレッドセーフ。Init() / Shutdown() はUIスレッドから呼び出す。
+// ワーカーは初回 Post まで起動しない。小さい文書だけを開くセッションでスレッドを作らずに済む。
 class TaskScheduler {
 public:
     // Why: 異常系（巨大ドキュメントの大量画像/Mermaid 要求）でキューが青天井に
@@ -30,15 +31,18 @@ public:
 
     void Shutdown();
 
-    // Init 前 / Shutdown 後は 0。
+    // 起動前でも Init で指定した数を返す (ParallelFor の分割数に使うため)。Init 前 / Shutdown 後は 0。
     size_t WorkerCount() const noexcept
     {
-        return workers_.size();
+        return thread_count_;
     }
 
 private:
+    // mutex_ を保持して呼ぶ。
+    void StartWorkersLocked();
     void WorkerLoop();
 
+    size_t thread_count_ = 0;
     std::vector<std::thread> workers_;
     std::queue<std::move_only_function<void()>, std::pmr::deque<std::move_only_function<void()>>> queue_;
     std::mutex mutex_;

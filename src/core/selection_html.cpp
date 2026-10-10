@@ -519,7 +519,7 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
     out.append("</table>");
 }
 
-std::optional<std::pmr::string> FindLinkInRuns(std::span<const TextRun> runs, std::span<const std::pmr::string> link_urls, uint32_t pos)
+std::optional<std::string_view> FindLinkInRuns(std::span<const TextRun> runs, std::span<const std::pmr::string> link_urls, uint32_t pos)
 {
     const auto it = std::ranges::find_if(runs, [pos](const TextRun& run) noexcept {
         return run.has_link() && (pos >= run.start) && (pos < run.start + run.length);
@@ -710,7 +710,7 @@ std::pmr::string BuildCodeBlockHtmlFragment(const Node& node, bool dark_mode)
     return out;
 }
 
-std::optional<std::pmr::string> FindLinkAtPosition(const Node& node, uint32_t text_pos)
+std::optional<std::string_view> FindLinkAtPosition(const Node& node, uint32_t text_pos)
 {
     if (node.type == NodeType::Table) {
         const auto [runs, local_pos] = FindTableCellRuns(node, text_pos);

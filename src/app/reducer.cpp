@@ -57,12 +57,11 @@ void ClearSidePaneHoverState(AppState& state, SideEffectList& effects)
 }
 
 // スクロール位置が変わった時に共通で発火する副作用列。
-// MD ペイン限定無効化により、タイトルバー/サイドペインビットマップキャッシュの再描画を避ける。
 void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects, bool toc_auto_scroll)
 {
-    state.interaction.hover_throttle.Reset();
+    state.interaction.last_hover_pos.Reset();
     ClearTooltip(state, effects);
-    PushEffect(effects, effect::InvalidateMdPane{});
+    PushEffect(effects, effect::InvalidateWindow{});
     PushEffect(effects, effect::BitmapManage{});
     PushEffect(effects, effect::SyncTocActive{ toc_auto_scroll });
 }
@@ -130,7 +129,7 @@ float MdScrollableContentHeight(const AppState& state) noexcept
     return ComputeTotalContentHeight(
         state.document.layout_cache,
         state.document.doc.GetNodes().size(),
-        state.theme->margin_top);
+        state.theme->margin_bottom);
 }
 
 // HitTestService 側のキャッシュは対象ノードの block_scroll_x をキーに含むため、
@@ -187,7 +186,10 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
 
         // ---- ウィンドウ・システムイベント ----
         [&](const ActivateAction& a) { ReduceActivate(state, effects, a); },
-        [&](const EnterSizeMoveAction&) { state.window.is_sizing = true; },
+        [&](const EnterSizeMoveAction&) {
+            state.window.is_sizing = true;
+            state.window.size_changed_in_sizing = false;
+        },
         [&](const ExitSizeMoveAction&) { ReduceExitSizeMove(state, effects); },
         [&](const ResizeAction& a) { ReduceResize(state, effects, a); },
         [&](const DpiChangedAction& a) { ReduceDpiChanged(state, effects, a); },

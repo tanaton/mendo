@@ -228,32 +228,12 @@ void Renderer::RecreatePaneFormats()
     }
 
     // 全レイアウトは IDWriteTextFormat にバインドされているため format 再作成と同時に破棄する。
-    nav_back_layout_.Reset();
-    nav_forward_layout_.Reset();
-    gesture_back_layout_.Reset();
-    gesture_forward_layout_.Reset();
-    cached_toast_layout_.Reset();
-    cached_toast_text_.clear();
+    icon_layouts_.clear();
+    title_layout_ = {};
+    search_count_layout_ = {};
+    toast_layout_ = {};
     search_cache_.Reset();
     ResetSidePaneCaches();
 
     cmd_generator_.SetFormats({ fmt_.list_number.Get(), fmt_.icon_font.Get(), fmt_.copy_btn_icon.Get(), fmt_.placeholder_text.Get() });
-
-    // ナビ/ジェスチャー用レイアウトを eager 作成。描画ホットパス上の null 分岐を排除する。
-    auto* const dw = backend_.GetDWriteFactory();
-    if (!dw) {
-        return;
-    }
-    if (fmt_.nav_button) {
-        static constexpr wchar_t BACK_ICON[] = L"\x25C0";
-        static constexpr wchar_t FORWARD_ICON[] = L"\x25B6";
-        dw->CreateTextLayout(BACK_ICON, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_back_layout_);
-        dw->CreateTextLayout(FORWARD_ICON, 1, fmt_.nav_button.Get(), NAV_BTN_SIZE, NAV_BTN_SIZE, &nav_forward_layout_);
-    }
-    if (fmt_.gesture_overlay) {
-        static constexpr wchar_t GESTURE_BACK[] = L"\x2190 \x623B\x308B";
-        static constexpr wchar_t GESTURE_FORWARD[] = L"\x2192 \x9032\x3080";
-        dw->CreateTextLayout(GESTURE_BACK, 4, fmt_.gesture_overlay.Get(), GESTURE_OVERLAY_WIDTH, GESTURE_OVERLAY_HEIGHT, &gesture_back_layout_);
-        dw->CreateTextLayout(GESTURE_FORWARD, 4, fmt_.gesture_overlay.Get(), GESTURE_OVERLAY_WIDTH, GESTURE_OVERLAY_HEIGHT, &gesture_forward_layout_);
-    }
 }

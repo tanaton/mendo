@@ -15,6 +15,7 @@
 #include <functional>
 #include <limits>
 #include <memory_resource>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -23,7 +24,7 @@ struct SidePaneDrawContext;
 
 class Renderer {
 public:
-    bool Init(HWND hwnd);
+    bool Init(HWND hwnd, const Theme& theme);
     void Resize(UINT width, UINT height) noexcept;
     void Render(const RenderParams& params);
     void SetDpi(float dpi) noexcept;
@@ -65,6 +66,7 @@ public:
     {
         return theme_;
     }
+    // ライト/ダーク切替用。寸法とフォントは共通なのでテキストレイアウトを維持し、色だけ差し替える。
     void SetTheme(const Theme& theme);
     // base theme (zoom=1.0) から再構築して現在 zoom を適用する。
     // 累積適用による誤差蓄積を避けるため、ズーム変更経路はこの関数に統一する。
@@ -138,8 +140,19 @@ private:
     void DrawSearchBarButtons(const SearchBarRenderState& sb, const SearchBarLayout& sbl);
     // ジェスチャー/トーストの背景パネル。テーマに応じた単色ブラシを alpha で塗る。
     void FillOverlayPanel(const D2D1_RECT_F& rect, float corner, float alpha);
+    // DrawText は呼び出しごとに内部でテキストレイアウトを作るため、中央揃え書式のレイアウトを幅/高さ 0 で
+    // 作って矩形中心に描く。矩形サイズに依存しないので、文字列と書式が同じ間は使い回せる。
+    // box 指定時 (固定サイズのオーバーレイ) はその大きさで作って矩形左上に描く。
+    struct CenteredTextLayout {
+        IDWriteTextFormat* format = nullptr;
+        std::wstring text;
+        D2D1_SIZE_F box{};
+        Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+    };
     // fmt または brush が無い場合は何もしない。
-    void DrawTextWithOpacity(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha);
+    void DrawCenteredText(CenteredTextLayout& slot, std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box = {});
+    // 固定文字列用。(書式, 文字列) ごとに icon_layouts_ へ作り置く。
+    void DrawIcon(std::wstring_view icon, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box = {});
     SidePaneDrawContext MakeSidePaneContext(PaneTarget target, const SidePaneInstance& pane, size_t item_count, std::wstring_view header_text);
 
     D2DRenderBackend backend_;
@@ -196,18 +209,16 @@ private:
     };
     TextFormats fmt_;
 
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> nav_back_layout_;
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> nav_forward_layout_;
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> gesture_back_layout_;
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> gesture_forward_layout_;
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> cached_toast_layout_;
-    std::pmr::wstring cached_toast_text_{ GetThreadLocalPoolResource() };
+    std::vector<CenteredTextLayout> icon_layouts_;
+    CenteredTextLayout title_layout_;
+    CenteredTextLayout search_count_layout_;
+    CenteredTextLayout toast_layout_;
     // 目次項目の描画ごとの UTF-16 変換先。項目ごとの確保を避けて再利用する。
     std::pmr::wstring toc_text_scratch_{ GetThreadLocalPoolResource() };
 
     // 検索バーの入力テキストレイアウトキャッシュ。
     // キー: (query, ime_comp, caret_pos, width) 入力 height は定数なのでキーに含めない。
-    // キャレット点滅や同一入力継続フレームで CreateTextLayout と
+    // 同一入力が続くフレームで CreateTextLayout と
     // 表示テキスト合成の双方を回避する。
     struct SearchLayoutCache {
         Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
@@ -217,7 +228,7 @@ private:
         int caret_pos = -1;                                         // IME 合成時の挿入位置（無いとき -1）
         float width = -1.0f;
         bool has_underline = false;
-        // キャレット x 位置のフレーム間キャッシュ。点滅フレームのみ caret_visible が変わる
+        // キャレット x 位置のフレーム間キャッシュ。入力が変わらない
         // ケースで HitTestTextPosition の COM 越境呼び出しを省く。
         // 有効性は (layout, effective_pos) 一致で判定する。
         int effective_pos = -2; // -2 = 未確定

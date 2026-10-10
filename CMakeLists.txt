@@ -135,7 +135,6 @@ add_library(mendo_core STATIC
     src/layout/layout_cache.cpp
     src/layout/layout.cpp
     src/layout/layout_computer.cpp
-    src/layout/dirty_scheduler.cpp
     src/layout/parallel_measure.cpp
     src/layout/dwrite_measurer.cpp
     src/layout/doc_dwrite_bridge.cpp
@@ -195,7 +194,7 @@ target_compile_definitions(mendo_core PUBLIC
     UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
 )
 target_link_libraries(mendo_core PUBLIC
-    md4c d2d1 dwrite windowscodecs cabinet
+    md4c d2d1 dwrite windowscodecs
 )
 if(MENDO_USE_TRACY)
     # MENDO_USE_TRACY: profiler.h のマクロを Tracy 呼び出しに展開するスイッチ。
@@ -214,20 +213,6 @@ endif()
 # `<pch.h>` 形式で指定するのは、CMake が生成する wrapper に絶対パスを書かれると
 # 日本語パス配下では MSVC `/utf-8` と衝突するため。
 target_precompile_headers(mendo_core PRIVATE <pch.h>)
-
-# ---- mermaid.min.jsをMSZIP圧縮してexeサイズを縮小 ----
-set(MERMAID_JS_SRC "${CMAKE_SOURCE_DIR}/third_party/mermaid/mermaid.min.js")
-set(MERMAID_JS_MSZIP "${CMAKE_SOURCE_DIR}/third_party/mermaid/mermaid.min.js.mszip")
-add_custom_command(
-    OUTPUT  "${MERMAID_JS_MSZIP}"
-    COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File
-        "${CMAKE_SOURCE_DIR}/cmake/mszip.ps1"
-        "${MERMAID_JS_SRC}" "${MERMAID_JS_MSZIP}"
-    DEPENDS "${MERMAID_JS_SRC}"
-    COMMENT "Compressing mermaid.min.js with MSZIP"
-    VERBATIM
-)
-add_custom_target(mermaid_mszip DEPENDS "${MERMAID_JS_MSZIP}")
 
 # ---- メイン実行ファイル ----
 add_executable(mendo WIN32
@@ -257,7 +242,6 @@ add_executable(mendo WIN32
     src/mermaid/mermaid.cpp
     res/mendo.rc
 )
-add_dependencies(mendo mermaid_mszip)
 target_include_directories(mendo PRIVATE ${WEBVIEW2_INCLUDE} ${WIL_INCLUDE})
 target_link_libraries(mendo PRIVATE mendo_core comctl32
     "${WEBVIEW2_LIB_DIR}/WebView2LoaderStatic.lib"

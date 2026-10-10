@@ -37,7 +37,7 @@ inline std::string MakeParagraphs(int n, std::string_view suffix = {})
 
 // 全ノードを線形走査して、見出しの anchor_id が `anchor` (大文字小文字無視) と
 // 一致する最初のインデックスを返す。production の Document::FindAnchorIndex は
-// 事前構築した anchor_index_ ハッシュ経由で同じ結果を返すため本関数は使わない。
+// TOC 経由で同じ結果を返すため本関数は使わない。
 // パーサ後の Node 配列を直接使うテストの便宜のために残す。
 inline int FindAnchorNodeIndexLinear(const std::pmr::vector<Node>& nodes, std::string_view anchor)
 {

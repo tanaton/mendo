@@ -47,7 +47,7 @@
       const id = 'mmd-' + renderCount;
       const { svg } = await mermaid.render(id, code);
       container.innerHTML = svg;
-      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      // getBoundingClientRect が同期レイアウトを強制するので描画フレームを待つ必要はない
       const svgEl = container.querySelector('svg');
       if (svgEl) {
         const rect = svgEl.getBoundingClientRect();

@@ -20,14 +20,14 @@ void BeginScrollbarDrag(AppState& state, SideEffectList& effects, PaneController
 
 void ReduceMouseLeave(AppState& state, SideEffectList& effects)
 {
-    state.interaction.hover_throttle.Reset();
+    state.interaction.last_hover_pos.Reset();
     ClearTooltip(state, effects);
     ClearSidePaneHoverState(state, effects);
 }
 
 void ReduceUpdateTooltip(const AppState& state, SideEffectList& effects, const UpdateTooltipAction& a)
 {
-    if (a.target == state.interaction.tooltip.GetCurrent()) {
+    if (a.target.SameTarget(state.interaction.tooltip.GetCurrent())) {
         return;
     }
     PushEffect(effects, effect::ShowTooltip{ a.target });

@@ -14,8 +14,6 @@
 
 void AppSearchBarCallbacks::invalidate()
 {}
-void AppSearchBarCallbacks::invalidate_search_bar()
-{}
 void AppSearchBarCallbacks::set_timer(app_timer::Id, UINT)
 {}
 void AppSearchBarCallbacks::kill_timer(app_timer::Id)

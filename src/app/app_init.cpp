@@ -25,7 +25,10 @@ bool App::Init(HWND hwnd)
 {
     hwnd_ = hwnd;
 
-    if (!renderer_.Init(hwnd_)) {
+    // 書式とブラシを 1 回で作るため、保存済みテーマ/ズームを Renderer 初期化前に読む。
+    theme_service_.LoadDarkMode();
+    state_.view.viewport.SetZoomIndex(theme_service_.LoadZoomIndex());
+    if (!renderer_.Init(hwnd_, theme_service_.CreateTheme(state_.view.viewport.GetZoomIndex()))) {
         return false;
     }
 
@@ -85,7 +88,7 @@ bool App::Init(HWND hwnd)
         // IDWriteTextLayout が SetDrawingEffect 経由で AddRef した旧 RT 由来のブラシと、
         // DiagramEntry::bitmap が新 RT で描画拒否されるのを防ぐ。ApplyCachedImages は
         // bitmap 残存ノードをスキップするため、LoadImages の前に破棄する必要がある。
-        state_.document.layout_cache.InvalidateEffectsAndDiagramBitmaps(state_.document.doc.GetNodes());
+        state_.document.layout_cache.InvalidateEffects();
         state_.document.layout_cache.InvalidateAllDiagramBitmaps();
         resource_manager_.LoadImages();
     });
@@ -116,15 +119,9 @@ bool App::Init(HWND hwnd)
 
 void App::RestoreThemeAndZoom()
 {
-    theme_service_.LoadDarkMode();
-    auto& viewport = state_.view.viewport;
-    viewport.SetZoomIndex(theme_service_.LoadZoomIndex());
-    const bool zoomed = viewport.GetZoomIndex() != ZOOM_DEFAULT_INDEX;
-    if (theme_service_.IsDarkMode() || zoomed) {
-        renderer_.SetTheme(theme_service_.CreateTheme(viewport.GetZoomIndex()));
-        if (zoomed) {
-            state_.view.panes.ApplyZoom(viewport.GetCurrentZoom());
-        }
+    const auto& viewport = state_.view.viewport;
+    if (viewport.GetZoomIndex() != ZOOM_DEFAULT_INDEX) {
+        state_.view.panes.ApplyZoom(viewport.GetCurrentZoom());
     }
     state_.theme = &renderer_.GetTheme();
     if (theme_service_.IsDarkMode()) {

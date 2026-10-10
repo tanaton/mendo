@@ -181,6 +181,36 @@ TEST_F(ConfigServiceTest, LoadSkipsUtf8Bom)
     EXPECT_EQ(config_.LoadInt("Window", "X", 0, 0, 100), 42);
 }
 
+TEST_F(ConfigServiceTest, FlushSkipsWriteWhenUnchanged)
+{
+    // Serialize と異なる改行コードの内容がそのまま残っていれば書き戻されていない
+    const std::string original = "[Window]\r\nX=42\r\n";
+    const auto path = WriteTempFile(L"settings.ini", original);
+    config_.Load();
+    config_.SaveInt("Window", "X", 42);
+    config_.Flush();
+
+    std::ifstream ifs(path, std::ios::binary);
+    const std::string content{ std::istreambuf_iterator<char>(ifs), {} };
+    EXPECT_EQ(content, original);
+}
+
+TEST_F(ConfigServiceTest, FlushWithoutAnySaveCreatesNoFile)
+{
+    config_.Flush();
+    EXPECT_FALSE(std::filesystem::exists(temp_dir_ / L"settings.ini"));
+}
+
+TEST_F(ConfigServiceTest, FlushWritesChangedValue)
+{
+    WriteTempFile(L"settings.ini", "[Window]\r\nX=42\r\n");
+    config_.Load();
+    config_.SaveInt("Window", "X", 43);
+    config_.Flush();
+
+    EXPECT_EQ(MakeFreshLoadedConfig().LoadInt("Window", "X", 0, 0, 100), 43);
+}
+
 // ---- 複数セクションの独立性 ----
 
 TEST_F(ConfigServiceTest, MultipleSectionsIndependent)

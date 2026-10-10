@@ -61,18 +61,32 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesDiagramEntries)
     cache.Resize(2);
 
     // ダイアグラムエントリにサイズを設定（ビットマップは設定できないが、サイズで確認）
-    cache.GetDiagram(0).width = 400.0f;
-    cache.GetDiagram(0).height = 300.0f;
-    cache.GetDiagram(1).width = 500.0f;
-    cache.GetDiagram(1).height = 250.0f;
+    cache.EnsureDiagram(0).width = 400.0f;
+    cache.EnsureDiagram(0).height = 300.0f;
+    cache.EnsureDiagram(1).width = 500.0f;
+    cache.EnsureDiagram(1).height = 250.0f;
 
     cache.InvalidateAllLayouts();
 
     // ダイアグラムの幅・高さは保持されること
-    EXPECT_FLOAT_EQ(cache.GetDiagram(0).width, 400.0f);
-    EXPECT_FLOAT_EQ(cache.GetDiagram(0).height, 300.0f);
-    EXPECT_FLOAT_EQ(cache.GetDiagram(1).width, 500.0f);
-    EXPECT_FLOAT_EQ(cache.GetDiagram(1).height, 250.0f);
+    EXPECT_FLOAT_EQ(cache.FindDiagram(0)->width, 400.0f);
+    EXPECT_FLOAT_EQ(cache.FindDiagram(0)->height, 300.0f);
+    EXPECT_FLOAT_EQ(cache.FindDiagram(1)->width, 500.0f);
+    EXPECT_FLOAT_EQ(cache.FindDiagram(1)->height, 250.0f);
+}
+
+// FindDiagram は確保しない。読み取り・破棄経路で未ロードのノード分を確保させないため。
+TEST(LayoutCacheTest, FindDiagramDoesNotAllocate)
+{
+    LayoutCache cache;
+    cache.Resize(2);
+
+    EXPECT_EQ(cache.FindDiagram(0), nullptr);
+
+    cache.EnsureDiagram(1).width = 10.0f;
+    ASSERT_NE(cache.FindDiagram(1), nullptr);
+    EXPECT_FLOAT_EQ(cache.FindDiagram(1)->width, 10.0f);
+    EXPECT_EQ(cache.FindDiagram(0), nullptr);
 }
 
 // テーマ変更等の全ダイアグラム無効化でエラー状態もクリアされ、
@@ -82,13 +96,13 @@ TEST(LayoutCacheTest, InvalidateAllDiagramBitmapsClearsError)
     LayoutCache cache;
     cache.Resize(2);
 
-    cache.GetDiagram(0).error = L"Parse error on line 1";
-    cache.GetDiagram(1).error = L"Parse error on line 3";
+    cache.EnsureDiagram(0).error = L"Parse error on line 1";
+    cache.EnsureDiagram(1).error = L"Parse error on line 3";
 
     cache.InvalidateAllDiagramBitmaps();
 
-    EXPECT_TRUE(cache.GetDiagram(0).error.empty());
-    EXPECT_TRUE(cache.GetDiagram(1).error.empty());
+    EXPECT_TRUE(cache.FindDiagram(0)->error.empty());
+    EXPECT_TRUE(cache.FindDiagram(1)->error.empty());
 }
 
 // 早期終了経路 (safe_exit_after で abs(text_top - y) < EPSILON ならスキップ) を通った後でも、

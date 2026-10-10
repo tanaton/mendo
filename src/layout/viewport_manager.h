@@ -20,9 +20,9 @@ struct ScrollTarget {
 
 // 見出しノードを md ペイン上端の heading_spacing_above 分だけ下に配置する ScrollTarget を作る。
 // TOCクリック・#anchor ナビゲーションで共通して使う。
-constexpr ScrollTarget MakeHeadingTopTarget(int node, float heading_spacing_above, float md_pane_top) noexcept
+constexpr ScrollTarget MakeHeadingTopTarget(int node, float heading_spacing_above) noexcept
 {
-    return { node, -(heading_spacing_above + md_pane_top) };
+    return { node, -heading_spacing_above };
 }
 
 // スクロール、選択、ズームの純粋な状態管理。

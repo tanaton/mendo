@@ -18,4 +18,5 @@ std::pmr::string ExtractSelectedTextAsHtml(
 // node が CodeBlock 以外の場合は空文字列を返す。
 std::pmr::string BuildCodeBlockHtmlFragment(const Node& node, bool dark_mode);
 
-[[nodiscard]] std::optional<std::pmr::string> FindLinkAtPosition(const Node& node, uint32_t text_pos);
+// 戻り値は node 内の URL を指す。
+[[nodiscard]] std::optional<std::string_view> FindLinkAtPosition(const Node& node, uint32_t text_pos);

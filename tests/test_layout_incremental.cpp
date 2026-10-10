@@ -25,10 +25,9 @@ constexpr float kWidthHysteresis = LayoutEngine::kWidthChangeThreshold;
 class MarkingMeasurer : public MockTextMeasurer {
 public:
     void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
-                     std::pmr::vector<SyntaxToken>* tokens_out = nullptr,
                      MeasureViewportRange viewport = {}) const override
     {
-        MockTextMeasurer::MeasureNode(node, entry, max_width, tokens_out, viewport);
+        MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
         entry.ensure_table_layout();
     }
 };
@@ -135,7 +134,7 @@ protected:
 
     float MaxScroll() const
     {
-        return std::max(0.0f, ComputeTotalContentHeight(cache_, nodes_.size(), theme_.margin_top) - kViewportHeight);
+        return std::max(0.0f, ComputeTotalContentHeight(cache_, nodes_.size(), theme_.margin_bottom) - kViewportHeight);
     }
 
     float NodeWidth(size_t i) const
@@ -192,7 +191,7 @@ protected:
                 switch (rng() % 3) {
                 case 0:
                     // アプリのタイマーと同じバッチ上限。
-                    engine_.ProcessDirtyBatch(nodes_, cache_, width_, 200, 0, scroll_, kViewportHeight, 1.0f);
+                    engine_.ProcessDirtyBatch(nodes_, cache_, width_, 200, { scroll_, kViewportHeight, 1.0f });
                     desc += "+batch";
                     break;
                 case 1:
@@ -215,7 +214,7 @@ protected:
             const int batch = 1 + static_cast<int>(rng() % 5);
             if (rng() % 2 == 0) {
                 const float buffer = static_cast<float>(rng() % 3);
-                engine_.ProcessDirtyBatch(nodes_, cache_, width_, batch, 0, scroll_, kViewportHeight, buffer);
+                engine_.ProcessDirtyBatch(nodes_, cache_, width_, batch, { scroll_, kViewportHeight, buffer });
                 return "ProcessDirtyBatch batch=" + std::to_string(batch) + " clip buffer=" + std::to_string(buffer);
             }
             engine_.ProcessDirtyBatch(nodes_, cache_, width_, batch);

@@ -91,7 +91,7 @@ TEST(MermaidLifecycle, MermaidCodeBlockTriggersInit)
 {
     Node node;
     node.type = NodeType::CodeBlock;
-    node.ensure_code()->code_language = SyntaxLanguage::Mermaid;
+    node.set_code_language(SyntaxLanguage::Mermaid);
     EXPECT_TRUE(IsDiagramCodeBlock(node));
 }
 
@@ -99,7 +99,7 @@ TEST(MermaidLifecycle, LatexMathCodeBlockTriggersInit)
 {
     Node node;
     node.type = NodeType::CodeBlock;
-    node.ensure_code()->code_language = SyntaxLanguage::LatexMath;
+    node.set_code_language(SyntaxLanguage::LatexMath);
     EXPECT_TRUE(IsDiagramCodeBlock(node));
 }
 
@@ -107,7 +107,7 @@ TEST(MermaidLifecycle, CppCodeBlockDoesNotTriggerInit)
 {
     Node node;
     node.type = NodeType::CodeBlock;
-    node.ensure_code()->code_language = SyntaxLanguage::Cpp;
+    node.set_code_language(SyntaxLanguage::Cpp);
     EXPECT_FALSE(IsDiagramCodeBlock(node));
 }
 
@@ -116,7 +116,7 @@ TEST(MermaidLifecycle, NonCodeBlockDoesNotTriggerInit)
     Node node;
     node.type = NodeType::Paragraph;
     // CodeBlock ではない場合、言語によらず false
-    node.ensure_code()->code_language = SyntaxLanguage::Mermaid;
+    node.set_code_language(SyntaxLanguage::Mermaid);
     EXPECT_FALSE(IsDiagramCodeBlock(node));
 }
 
@@ -124,6 +124,6 @@ TEST(MermaidLifecycle, NoneLanguageCodeBlockDoesNotTriggerInit)
 {
     Node node;
     node.type = NodeType::CodeBlock;
-    node.ensure_code()->code_language = SyntaxLanguage::None;
+    node.set_code_language(SyntaxLanguage::None);
     EXPECT_FALSE(IsDiagramCodeBlock(node));
 }

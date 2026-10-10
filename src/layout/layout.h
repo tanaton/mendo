@@ -2,6 +2,7 @@
 #include "document_types.h"
 #include "layout_cache.h"
 #include "layout_computer.h"
+#include "parallel_measure.h"
 #include "text_measurer.h"
 #include "theme.h"
 #include <memory_resource>
@@ -28,7 +29,7 @@ public:
     static constexpr float kWidthChangeThreshold = 2.0f;
 
     bool Init(ITextMeasurer* measurer, const Theme& theme);
-    // nullptr で常に RunSerial。Shutdown 時は scheduler の Shutdown より前に
+    // nullptr なら呼び出しスレッドで直列に計測する。Shutdown 時は scheduler の Shutdown より前に
     // SetLayoutScheduler(nullptr) を呼んで参照を切る契約。
     void SetLayoutScheduler(TaskScheduler* scheduler) noexcept
     {
@@ -44,11 +45,11 @@ public:
         std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
         float viewport_top = -1.0f, float viewport_bottom = -1.0f);
     void LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width);
+    // clip 省略時は可視範囲で絞らず全 dirty を対象にする。
     bool ProcessDirtyBatch(
         std::pmr::vector<Node>& nodes, LayoutCache& cache,
-        float viewport_width, int batch_size, int time_budget_us = 0,
-        float viewport_top = -1.0f, float viewport_height = -1.0f,
-        float buffer_screens = 5.0f);
+        float viewport_width, int batch_size,
+        mendo::layout::ViewportClip clip = {});
     bool EnsureVisibleLayout(
         std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
         float viewport_top, float viewport_bottom);
@@ -80,14 +81,14 @@ public:
     void ViewportLayout(Document& doc, LayoutCache& cache, float width, float height);
 
     // 増分レイアウトのビューポート絞り込み。height > 0 で可視範囲 + 周辺バッファのみ
-    // 処理し、height <= 0 (デフォルト) なら全 dirty を順次処理する。
+    // 処理し、height <= 0 なら全 dirty を順次処理する。
     struct ViewportLimit {
         float height = 0.0f;
-        float buffer_screens = 5.0f;
+        float buffer_screens = 0.0f;
     };
     bool ProcessDirtyBatch(
-        Document& doc, LayoutCache& cache, float width, int batch_size, int time_budget_us = 0,
-        ViewportLimit viewport = {});
+        Document& doc, LayoutCache& cache, float width, int batch_size,
+        ViewportLimit viewport);
     bool EnsureVisibleLayout(Document& doc, LayoutCache& cache, float width, float height);
     void RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme,
                                mendo::layout::HeightChangeRange changed) noexcept;

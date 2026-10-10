@@ -36,7 +36,7 @@ std::pmr::vector<Node> MakeNodes(std::initializer_list<NodeSpec> specs)
             SetNodeTextCounted(n, spec.text);
         }
         if (spec.heading_level > 0) {
-            n.ensure_heading()->heading_level = spec.heading_level;
+            n.set_heading_level(spec.heading_level);
         }
         if (spec.table_rows > 0) {
             n.ensure_table();
@@ -80,13 +80,13 @@ TEST_F(LayoutTest, EmptyNodesProduceZeroHeight)
     std::pmr::vector<Node> nodes;
     LayoutCache cache;
     engine_.ComputeLayout(nodes, cache, 800.0f);
-    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top), 0.0f);
+    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom), 0.0f);
 }
 
 TEST_F(LayoutTest, SingleParagraphHasPositiveHeight)
 {
     auto [nodes, cache] = ParseAndLayout("Hello world");
-    EXPECT_GT(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top), 0.0f);
+    EXPECT_GT(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom), 0.0f);
     EXPECT_GT(cache[0].height, 0.0f);
 }
 
@@ -231,7 +231,7 @@ TEST_F(LayoutTest, TotalHeightWithManyNodes)
 {
     auto [nodes, cache] = ParseAndLayout(MakeParagraphs(100));
 
-    float total = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top);
+    float total = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom);
     EXPECT_GT(total, 1000.0f); // 100段落あればかなり高くなるはず
 
     // 最後のノードの下端が全体の高さ以内であること
@@ -748,7 +748,7 @@ TEST_F(LayoutTest, EnsureVisibleLayoutUpdatesTotalHeight)
 
     // 表示ノードが再レイアウトされると全体の高さが変わる可能性があるが
     // 正の値を維持すること
-    EXPECT_GT(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top), 0.0f);
+    EXPECT_GT(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom), 0.0f);
 }
 
 // 部分モードで不可視ノードの古い height を引きずらないこと（High-1 回帰）。
@@ -757,7 +757,7 @@ TEST_F(LayoutTest, PartialLayoutRefreshesStaleInvisibleHeights)
 {
     // フル幅でフルレイアウト → 全ノード正確な height を持つ
     auto [nodes, cache] = ParseAndLayout(MakeParagraphs(30));
-    const float baseline_total = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top);
+    const float baseline_total = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom);
     ASSERT_GT(baseline_total, 0.0f);
 
     // 不可視（後方）ノードを「旧テーマで非常に大きかった」状態にしてダーティ化する。
@@ -1329,7 +1329,7 @@ TEST(RecomputeYPositionsTest, DISABLED_BenchLargeDocument)
         switch (i % 5) {
         case 0:
             nodes[i].type = NodeType::Heading;
-            nodes[i].ensure_heading()->heading_level = 2;
+            nodes[i].set_heading_level(2);
             break;
         case 1:
             nodes[i].type = NodeType::Paragraph;

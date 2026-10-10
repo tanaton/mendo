@@ -391,6 +391,18 @@ TEST(ScrollFromThumbY, ZeroTrackRange)
 }
 
 // ============================================================
+// SidePaneLocalY
+// ============================================================
+
+TEST(SidePaneLocalY, OffsetsByContentTopAndScroll)
+{
+    // ペイン上端 32 + ヘッダー 32 の直下は、スクロール 0 でローカル 0、スクロール 40 でローカル 40。
+    EXPECT_FLOAT_EQ(SidePaneLocalY(64.0f, 64.0f, 0.0f), 0.0f);
+    EXPECT_FLOAT_EQ(SidePaneLocalY(64.0f, 64.0f, 40.0f), 40.0f);
+    EXPECT_FLOAT_EQ(SidePaneLocalY(100.0f, 64.0f, 10.0f), 46.0f);
+}
+
+// ============================================================
 // HitTestUniformList
 // ============================================================
 

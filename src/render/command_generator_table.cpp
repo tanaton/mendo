@@ -35,7 +35,7 @@ void CommandGenerator::GenTableCellContent(DrawCommandList& cmds, std::string_vi
     }
     const D2D1_COLOR_F cell_color = ctx.is_header ? theme_->heading_color : theme_->text_color;
     const BrushId cell_brush = ctx.is_header ? BrushId::Heading : BrushId::Text;
-    cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(ctx.text_x, ctx.text_y), ctx.layout, cell_color, cell_brush });
+    cmds.emplace_back(MakeTextLayoutCmd(D2D1::Point2F(ctx.text_x, ctx.text_y), ctx.layout, ctx.height, cell_color, cell_brush, cull_top_, cull_bottom_));
 }
 
 void CommandGenerator::GenTable(
@@ -53,8 +53,8 @@ void CommandGenerator::GenTable(
     const float border = TABLE_BORDER_WIDTH;
     const auto& tl = *entry.table_layout;
     const auto& selection = fc.selection;
-    const float viewport_top = fc.viewport_top;
-    const float viewport_bottom = fc.viewport_bottom;
+    const float viewport_top = cull_top_;
+    const float viewport_bottom = cull_bottom_;
     const auto row_count = tbl->row_count;
     const auto col_count = static_cast<size_t>(tbl->col_count);
 
@@ -129,6 +129,7 @@ void CommandGenerator::GenTable(
                     .layout = cell_layout,
                     .text_x = text_x,
                     .text_y = text_y,
+                    .height = row_h,
                     .flat_offset = cell_flat,
                     .sel_start = sel_start,
                     .sel_end = sel_end,

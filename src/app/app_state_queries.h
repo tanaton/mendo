@@ -16,7 +16,7 @@ constexpr PaneController::DragTarget SidePaneDragTarget(PaneTarget pane) noexcep
 }
 SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane);
 
-inline int SidePaneHitTest(const AppState& state, PaneTarget pane, float local_y, float item_h) noexcept
+inline int SidePaneHitTest(const AppState& state, PaneTarget pane, float local_y, float item_h)
 {
     return pane == PaneTarget::File
                ? state.file_explorer.HitTest(local_y, item_h)

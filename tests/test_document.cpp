@@ -366,7 +366,7 @@ TEST(DocumentTest, BuildIndicesNoSpecialNodes)
     EXPECT_TRUE(doc.GetDiagramNodeIndices().empty());
 }
 
-// ---- C-3: anchor_index_ string_view 化 回帰テスト ----
+// ---- FindAnchorIndex 回帰テスト ----
 
 TEST(DocumentTest, FindAnchorIndexUppercaseQueryNormalized)
 {
@@ -386,8 +386,7 @@ TEST(DocumentTest, FindAnchorIndexEmptyQuery)
 
 TEST(DocumentTest, FindAnchorIndexAfterDocumentMove)
 {
-    // anchor_index_ は nodes_ 内 wstring への view を保持するため、
-    // Document の move 構築後も nodes_ 要素アドレスが安定していれば lookup が壊れない。
+    // Document の move 構築後も lookup が壊れないこと。
     auto doc = Document::FromMarkdown("# Alpha\n\n## Beta", L"test.md");
     Document moved = std::move(doc);
     EXPECT_EQ(moved.FindAnchorIndex("alpha"), 0);

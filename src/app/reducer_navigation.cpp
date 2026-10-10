@@ -40,10 +40,7 @@ void ScrollToHeading(AppState& state, SideEffectList& effects, int node_index, b
     if (node_index < 0) {
         return;
     }
-    const auto target = MakeHeadingTopTarget(
-        node_index,
-        state.theme->heading_spacing_above,
-        state.pane_layout_cache.Get().md_rect.y);
+    const auto target = MakeHeadingTopTarget(node_index, state.theme->heading_spacing_above);
     ApplyScrollTargetAndEmit(state, effects, target.node, target.offset, toc_auto_scroll);
 }
 

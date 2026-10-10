@@ -1,7 +1,6 @@
 #pragma once
 #include "log_hr.h"
 #include <wincodec.h>
-#include <d2d1.h>
 #include <wrl/client.h>
 #include <algorithm>
 #include <optional>
@@ -49,6 +48,9 @@ inline Microsoft::WRL::ComPtr<IWICFormatConverter> ConvertBitmapSource(
 // WIC デコード結果。ピクセルサイズと FormatConverter を保持する。
 struct DecodeResult {
     Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
+    // アルファを持たないフレーム (JPEG 等)。変換前に縮小すると JPEG はデコーダ側の縮小デコード
+    // (IWICBitmapSourceTransform) が効く。アルファ付きは straight alpha のまま補間すると縁がにじむため持たない。
+    Microsoft::WRL::ComPtr<IWICBitmapSource> opaque_frame;
     UINT pixel_width = 0;
     UINT pixel_height = 0;
 };
@@ -62,7 +64,7 @@ inline std::optional<DecodeResult> DecodeFromStream(
 {
     Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
     Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
-    if (FAILED(wic->CreateDecoderFromStream(stream, nullptr, WICDecodeMetadataCacheOnLoad, &decoder)) ||
+    if (FAILED(wic->CreateDecoderFromStream(stream, nullptr, WICDecodeMetadataCacheOnDemand, &decoder)) ||
         FAILED(decoder->GetFrame(0, &frame))) {
         return std::nullopt;
     }
@@ -75,6 +77,11 @@ inline std::optional<DecodeResult> DecodeFromStream(
     DecodeResult result{ std::move(converter) };
     if (FAILED(frame->GetSize(&result.pixel_width, &result.pixel_height))) {
         return std::nullopt;
+    }
+    WICPixelFormatGUID frame_format{};
+    if (SUCCEEDED(frame->GetPixelFormat(&frame_format)) &&
+        (frame_format == GUID_WICPixelFormat24bppBGR || frame_format == GUID_WICPixelFormat8bppGray)) {
+        result.opaque_frame = frame;
     }
     return result;
 }
@@ -111,46 +118,30 @@ constexpr PixelSize ComputeDecodeSize(UINT width, UINT height, UINT max_width, U
 
 // PBGRA へのデコードをこのスレッドで確定させた IWICBitmap を作る。IWICFormatConverter のまま
 // 渡すと実デコードは CreateBitmapFromWicBitmap (UI スレッド) の CopyPixels まで遅延される。
-inline Microsoft::WRL::ComPtr<IWICBitmap> DecodeToWicBitmap(IWICImagingFactory* wic, IWICBitmapSource* source, PixelSize original, PixelSize target)
+inline Microsoft::WRL::ComPtr<IWICBitmap> DecodeToWicBitmap(IWICImagingFactory* wic, const DecodeResult& decoded, PixelSize target)
 {
-    Microsoft::WRL::ComPtr<IWICBitmapSource> src = source;
-    if (target != original) {
+    Microsoft::WRL::ComPtr<IWICBitmapSource> src = decoded.converter;
+    if (target != PixelSize{ decoded.pixel_width, decoded.pixel_height }) {
         // 縮小できなければ失敗扱いにする。原寸へ倒すとサイズ上限を素通りしてメモリが跳ねる。
+        IWICBitmapSource* scale_src = decoded.opaque_frame ? decoded.opaque_frame.Get() : decoded.converter.Get();
         Microsoft::WRL::ComPtr<IWICBitmapScaler> scaler;
         if (FAILED(wic->CreateBitmapScaler(&scaler)) ||
-            FAILED(scaler->Initialize(source, target.width, target.height, WICBitmapInterpolationModeFant))) {
+            FAILED(scaler->Initialize(scale_src, target.width, target.height, WICBitmapInterpolationModeFant))) {
             return nullptr;
         }
         src = scaler;
+        if (decoded.opaque_frame) {
+            src = ConvertBitmapSource(wic, scaler.Get());
+            if (!src) {
+                return nullptr;
+            }
+        }
     }
     Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
     if (FAILED(wic->CreateBitmapFromSource(src.Get(), WICBitmapCacheOnLoad, &bitmap))) {
         return nullptr;
     }
     return bitmap;
-}
-
-struct CreatedBitmap {
-    Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-    UINT pixel_width = 0;
-    UINT pixel_height = 0;
-};
-
-// IStream から WIC デコード -> D2D ビットマップ生成までを一括で行う。
-inline std::optional<CreatedBitmap> CreateD2DBitmapFromStream(IWICImagingFactory* wic, ID2D1RenderTarget* rt, IStream* stream)
-{
-    if (!wic || !rt || !stream) {
-        return std::nullopt;
-    }
-    auto decoded = DecodeFromStream(wic, stream);
-    if (!decoded) {
-        return std::nullopt;
-    }
-    Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-    if (FAILED(rt->CreateBitmapFromWicBitmap(decoded->converter.Get(), &bitmap))) {
-        return std::nullopt;
-    }
-    return CreatedBitmap{ std::move(bitmap), decoded->pixel_width, decoded->pixel_height };
 }
 
 } // namespace wic_util

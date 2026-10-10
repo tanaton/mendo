@@ -101,23 +101,14 @@ private:
 
     struct FrameContext {
         float offset_x = 0.0f;
-        // ビューポート Y 範囲は **ペインローカル Y** (= 0 〜 pane_height)。GenerateNode に
-        // 渡す entry_text_top も同じローカル Y 系。100MB ファイルでドキュメント Y が 10^7
-        // オーダーに達すると float32 の桁落ちで描画位置が ±1px ばらつく問題 (#216) の対策。
-        // ドキュメント Y で比較したい箇所 (cache[i].text_top との直接比較) では
-        // snapped_scroll_y を足し戻して使う。
-        float viewport_top = 0.0f;
-        float viewport_bottom = 0.0f;
         // フレーム座標系でのビューポート左右端。各セル x を offset_x と
         // 合成したあとカリング判定に使う。
         float viewport_left = 0.0f;
         float viewport_right = 0.0f;
         float content_width = 0.0f;
         float dpi_scale = 1.0f;
-        // bullet 等で SetTransform を一時 Identity に戻したあと復元するため、
-        // フレーム冒頭で設定した Translation を保持する。
-        float md_pane_x = 0.0f;
         float snapped_scroll_y = 0.0f;
+        // ブロック横スクロールの clip 内で平行移動を合成し、抜けたあと復元するための基底 Translation。
         D2D1::Matrix3x2F pane_transform;
         const TextSelection& selection;
         HoveredButtons hovered;
@@ -128,7 +119,7 @@ private:
     // 選択範囲外に出たノードの SelectionHlCache を前フレームとの差分区間だけ解放する。
     void ReleaseStaleSelectionHlCaches(const LayoutCache& cache, const TextSelection& selection);
 
-    void GenerateNode(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, const DiagramEntry& diagram, int node_index, float entry_text_top);
+    void GenerateNode(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, const DiagramEntry* diagram, int node_index, float entry_text_top);
 
     // ベースカラー、インラインコード背景、検索/選択ハイライト、本文テキストを描画する。
     void GenNodeTextDecorations(
@@ -161,6 +152,7 @@ private:
         IDWriteTextLayout* layout = nullptr;
         float text_x = 0.0f;
         float text_y = 0.0f;
+        float height = 0.0f;
         uint32_t flat_offset = 0;
         uint32_t sel_start = 0;
         uint32_t sel_end = 0;
@@ -232,8 +224,9 @@ private:
     int current_match_index_ = -1;
     uint32_t search_generation_ = 0;
 
-    // ハイライト矩形を積む可視 Y 範囲 (ペインローカル)。巨大ノードの全選択や大量ヒットで
-    // 画面外の矩形まで毎フレーム FillRect を積んでいたのを防ぐ。
+    // 可視 Y 範囲 (ペインローカル = 0 〜 pane_height)。entry_text_top も同じローカル Y 系で、
+    // ドキュメント Y が 10^7 オーダーで float32 が桁落ちする問題 (#216) を避ける。ノード・行・
+    // ハイライト矩形・グリフランのカリングに共通で使う。
     float cull_top_ = 0.0f;
     float cull_bottom_ = 0.0f;
 

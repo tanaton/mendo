@@ -10,6 +10,7 @@ static constexpr float Theme::* kScalableThemeFields[] = {
     &Theme::margin_left,
     &Theme::margin_right,
     &Theme::margin_top,
+    &Theme::margin_bottom,
     &Theme::paragraph_spacing,
     &Theme::list_item_spacing,
     &Theme::heading_spacing_above,
@@ -88,7 +89,8 @@ static void ApplyCommonLayout(Theme& t)
 
     t.margin_left = 40.0f;
     t.margin_right = 40.0f;
-    t.margin_top = 40.0f;
+    t.margin_top = 8.0f;
+    t.margin_bottom = 72.0f;
     t.paragraph_spacing = 12.0f;
     t.list_item_spacing = 6.0f;
     t.heading_spacing_above = 12.0f;

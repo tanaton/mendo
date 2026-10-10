@@ -8,7 +8,9 @@
 #include "titlebar.h"
 #include "ui_constants.h"
 #include <concepts>
+#include <string_view>
 #include <type_traits>
+#include <utility>
 
 namespace mendo::app_mouse {
 
@@ -58,63 +60,80 @@ constexpr PaneHeaderButton HitSidePaneHeaderButton(float dip_x, float dip_y, con
     return PaneHeaderButton::None;
 }
 
-inline TooltipTarget BuildTitleBarTooltip(TitleBarHitZone zone, bool is_maximized) noexcept
+// text が空 (該当ボタンなし) なら空のターゲットを返す。
+inline TooltipTarget MakeButtonTooltip(const TooltipTarget& current, TooltipTarget::Zone zone, uint64_t key, std::wstring_view text)
 {
-    const auto& ls = i18n::S();
-    switch (zone) {
-    case TitleBarHitZone::OpenFile:
-        return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_open_file };
-    case TitleBarHitZone::Help:
-        return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_help };
-    case TitleBarHitZone::ThemeToggle:
-        return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_theme_toggle };
-    case TitleBarHitZone::Search:
-        return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_search };
-    case TitleBarHitZone::FileToggle:
-        return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_file_pane };
-    case TitleBarHitZone::TocToggle:
-        return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_toc_pane };
-    case TitleBarHitZone::Minimize:
-        return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_minimize };
-    case TitleBarHitZone::Maximize:
-        return { TooltipTarget::Zone::TitleBarButton, is_maximized ? ls.tooltip_restore : ls.tooltip_maximize };
-    case TitleBarHitZone::Close:
-        return { TooltipTarget::Zone::TitleBarButton, ls.tooltip_close };
-    default:
-        return {};
-    }
+    return text.empty() ? TooltipTarget{} : MakeTooltip(current, zone, key, text);
 }
 
-inline TooltipTarget BuildSearchBarTooltip(SearchBarHitZone zone) noexcept
+inline TooltipTarget BuildTitleBarTooltip(const TooltipTarget& current, TitleBarHitZone zone, bool is_maximized)
 {
     const auto& ls = i18n::S();
-    switch (zone) {
-    case SearchBarHitZone::Up:
-        return { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_prev };
-    case SearchBarHitZone::Down:
-        return { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_next };
-    case SearchBarHitZone::CaseSensitive:
-        return { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_case };
-    case SearchBarHitZone::Highlight:
-        return { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_highlight };
-    case SearchBarHitZone::Close:
-        return { TooltipTarget::Zone::SearchBarButton, ls.tooltip_search_close };
-    default:
-        return {};
-    }
+    const std::wstring_view text = [&]() -> std::wstring_view {
+        switch (zone) {
+        case TitleBarHitZone::OpenFile:
+            return ls.tooltip_open_file;
+        case TitleBarHitZone::Help:
+            return ls.tooltip_help;
+        case TitleBarHitZone::ThemeToggle:
+            return ls.tooltip_theme_toggle;
+        case TitleBarHitZone::Search:
+            return ls.tooltip_search;
+        case TitleBarHitZone::FileToggle:
+            return ls.tooltip_file_pane;
+        case TitleBarHitZone::TocToggle:
+            return ls.tooltip_toc_pane;
+        case TitleBarHitZone::Minimize:
+            return ls.tooltip_minimize;
+        case TitleBarHitZone::Maximize:
+            return is_maximized ? ls.tooltip_restore : ls.tooltip_maximize;
+        case TitleBarHitZone::Close:
+            return ls.tooltip_close;
+        default:
+            return {};
+        }
+    }();
+    // 最大化ボタンは状態で文言が変わるため key を分ける。
+    const uint64_t key = std::to_underlying(zone) * 2ull + (zone == TitleBarHitZone::Maximize && is_maximized);
+    return MakeButtonTooltip(current, TooltipTarget::Zone::TitleBarButton, key, text);
 }
 
-inline TooltipTarget BuildNavButtonTooltip(NavButtonHover hit) noexcept
+inline TooltipTarget BuildSearchBarTooltip(const TooltipTarget& current, SearchBarHitZone zone)
 {
     const auto& ls = i18n::S();
-    switch (hit) {
-    case NavButtonHover::Back:
-        return { TooltipTarget::Zone::NavButton, ls.tooltip_nav_back };
-    case NavButtonHover::Forward:
-        return { TooltipTarget::Zone::NavButton, ls.tooltip_nav_forward };
-    default:
-        return {};
-    }
+    const std::wstring_view text = [&]() -> std::wstring_view {
+        switch (zone) {
+        case SearchBarHitZone::Up:
+            return ls.tooltip_search_prev;
+        case SearchBarHitZone::Down:
+            return ls.tooltip_search_next;
+        case SearchBarHitZone::CaseSensitive:
+            return ls.tooltip_search_case;
+        case SearchBarHitZone::Highlight:
+            return ls.tooltip_search_highlight;
+        case SearchBarHitZone::Close:
+            return ls.tooltip_search_close;
+        default:
+            return {};
+        }
+    }();
+    return MakeButtonTooltip(current, TooltipTarget::Zone::SearchBarButton, std::to_underlying(zone), text);
+}
+
+inline TooltipTarget BuildNavButtonTooltip(const TooltipTarget& current, NavButtonHover hit)
+{
+    const auto& ls = i18n::S();
+    const std::wstring_view text = [&]() -> std::wstring_view {
+        switch (hit) {
+        case NavButtonHover::Back:
+            return ls.tooltip_nav_back;
+        case NavButtonHover::Forward:
+            return ls.tooltip_nav_forward;
+        default:
+            return {};
+        }
+    }();
+    return MakeButtonTooltip(current, TooltipTarget::Zone::NavButton, std::to_underlying(hit), text);
 }
 
 struct PaneHoverResult {
@@ -140,9 +159,7 @@ PaneHoverResult ProcessSidePaneHover(
     result.any_button_hit = hit != PaneHeaderButton::None;
     result.button_changed = set_hovered(hit);
 
-    const float content_top = rect.y + header_h;
-    const float local_y = dip_y - content_top + scroll_y;
-    result.hovered_index = hit_test_fn(local_y, item_height);
+    result.hovered_index = hit_test_fn(SidePaneLocalY(dip_y, rect.y + header_h, scroll_y), item_height);
 
     result.tooltip = build_tooltip(hit, result.hovered_index);
 

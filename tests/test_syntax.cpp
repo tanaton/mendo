@@ -12,24 +12,32 @@
 
 namespace {
 
-// 連続性の検査は start 昇順・非重複も保証する
-void AssertTokensCoverText(const std::pmr::vector<SyntaxToken>& tokens, size_t text_length)
+// 描画と HTML 化はトークンを start 昇順・非重複として隙間を Plain で埋める。Plain 自体は出力しない。
+testing::AssertionResult TokensWellFormed(const std::pmr::vector<SyntaxToken>& tokens, size_t text_length)
 {
-    if (text_length == 0) {
-        EXPECT_TRUE(tokens.empty());
-        return;
+    uint64_t prev_end = 0;
+    for (size_t i = 0; i < tokens.size(); i++) {
+        const auto& t = tokens[i];
+        if (t.type == SyntaxTokenType::Plain) {
+            return testing::AssertionFailure() << "トークン " << i << " が Plain";
+        }
+        if (t.length == 0) {
+            return testing::AssertionFailure() << "トークン " << i << " の長さが 0";
+        }
+        if (t.start < prev_end) {
+            return testing::AssertionFailure() << "トークン " << i << " start=" << t.start << " が直前 end=" << prev_end << " と重なっている";
+        }
+        prev_end = static_cast<uint64_t>(t.start) + t.length;
     }
-    ASSERT_FALSE(tokens.empty());
-    EXPECT_EQ(tokens[0].start, 0u);
-    for (size_t i = 1; i < tokens.size(); i++) {
-        EXPECT_EQ(tokens[i].start, tokens[i - 1].start + tokens[i - 1].length)
-            << "トークン " << (i - 1) << " と " << i << " の間にギャップあり";
+    if (prev_end > text_length) {
+        return testing::AssertionFailure() << "末尾 end=" << prev_end << " がテキスト長 " << text_length << " を超えている";
     }
-    uint32_t total = 0;
-    for (const auto& t : tokens) {
-        total += t.length;
-    }
-    EXPECT_EQ(total, static_cast<uint32_t>(text_length));
+    return testing::AssertionSuccess();
+}
+
+void AssertTokensWellFormed(const std::pmr::vector<SyntaxToken>& tokens, size_t text_length)
+{
+    EXPECT_TRUE(TokensWellFormed(tokens, text_length));
 }
 
 const SyntaxToken* FindToken(const std::pmr::vector<SyntaxToken>& tokens, SyntaxTokenType type)
@@ -188,7 +196,7 @@ TEST(Syntax, TokenizeReturnsEmpty)
     }
 }
 
-TEST(Syntax, TokensCoverEntireText)
+TEST(Syntax, TokensAreWellFormed)
 {
     using enum SyntaxLanguage;
     static constexpr CodeCase kCases[] = {
@@ -209,7 +217,7 @@ TEST(Syntax, TokensCoverEntireText)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);
-        AssertTokensCoverText(Tokenize(c.code, c.lang), c.code.size());
+        AssertTokensWellFormed(Tokenize(c.code, c.lang), c.code.size());
     }
 }
 
@@ -279,7 +287,7 @@ TEST(Syntax, TokenCount)
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);
         const auto tokens = Tokenize(c.code, c.lang);
-        AssertTokensCoverText(tokens, c.code.size());
+        AssertTokensWellFormed(tokens, c.code.size());
         EXPECT_EQ(CountTokens(tokens, c.type), c.count);
     }
 }
@@ -334,7 +342,7 @@ TEST(Syntax, FirstTokenText)
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);
         const auto tokens = Tokenize(c.code, c.lang);
-        AssertTokensCoverText(tokens, c.code.size());
+        AssertTokensWellFormed(tokens, c.code.size());
         const auto* token = FindToken(tokens, c.type);
         EXPECT_NE(token, nullptr);
         if (token != nullptr) {
@@ -365,7 +373,7 @@ TEST(Syntax, HasToken)
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);
         const auto tokens = Tokenize(c.code, c.lang);
-        AssertTokensCoverText(tokens, c.code.size());
+        AssertTokensWellFormed(tokens, c.code.size());
         EXPECT_NE(FindToken(tokens, c.type), nullptr);
     }
 }
@@ -397,7 +405,7 @@ TEST(Syntax, WholeInputIsSingleToken)
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);
         const auto tokens = Tokenize(c.code, c.lang);
-        AssertTokensCoverText(tokens, c.code.size());
+        AssertTokensWellFormed(tokens, c.code.size());
         EXPECT_EQ(tokens.size(), 1u);
         if (!tokens.empty()) {
             EXPECT_EQ(tokens[0].type, c.type);
@@ -413,7 +421,7 @@ TEST(Syntax, CppKeywords)
 {
     std::string code = "if else while for return";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
-    AssertTokensCoverText(tokens, code.size());
+    AssertTokensWellFormed(tokens, code.size());
     for (const auto& t : tokens) {
         if (t.type != SyntaxTokenType::Plain) {
             EXPECT_EQ(t.type, SyntaxTokenType::Keyword) << "offset=" << t.start;
@@ -422,13 +430,11 @@ TEST(Syntax, CppKeywords)
     EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::Keyword), 5);
 }
 
-TEST(Syntax, OnlyWhitespace)
+TEST(Syntax, PlainOnlyTextHasNoTokens)
 {
-    std::string code = "   \n\t  \n  ";
-    auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
-    AssertTokensCoverText(tokens, code.size());
-    for (const auto& t : tokens) {
-        EXPECT_EQ(t.type, SyntaxTokenType::Plain);
+    for (const std::string_view code : { "   \n\t  \n  ", "foo bar_baz + - * /" }) {
+        SCOPED_TRACE(code);
+        EXPECT_TRUE(Tokenize(code, SyntaxLanguage::Cpp).empty());
     }
 }
 
@@ -437,18 +443,44 @@ TEST(Syntax, CppRawStringNotTriggeredByIdentifierEndingR)
 {
     std::string code = "RENDER\"hello\"";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
-    AssertTokensCoverText(tokens, code.size());
+    AssertTokensWellFormed(tokens, code.size());
 
-    // RENDER は単一の識別子トークン（Plain または Function）で、"hello" と重複しない
-    const auto* render = FindTokenByText(code, tokens, "RENDER");
-    EXPECT_NE(render, nullptr) << "RENDERが独立したトークンとして見つかるべき";
-    if (render != nullptr) {
-        EXPECT_NE(render->type, SyntaxTokenType::String);
-    }
+    // RENDER は Plain の識別子なので String に取り込まれず、"hello" だけが String になる
+    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::String), 1);
     const auto* str = FindTokenByText(code, tokens, "\"hello\"");
     EXPECT_NE(str, nullptr) << "\"hello\"が文字列トークンとして見つかるべき";
     if (str != nullptr) {
         EXPECT_EQ(str->type, SyntaxTokenType::String);
+    }
+}
+
+// 区切りが規格 (16 文字以内、空白・改行なし) を満たさない R" は通常の文字列として読み、
+// 後続行の '(' まで区切りとして飲み込まない。
+TEST(Syntax, CppRawStringDelimiterFollowsStandardLimits)
+{
+    {
+        const std::string_view code = "R\"x\nint y = f(1);";
+        const auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+        AssertTokensWellFormed(tokens, code.size());
+        const auto* str = FindToken(tokens, SyntaxTokenType::String);
+        ASSERT_NE(str, nullptr);
+        EXPECT_EQ(GetTokenText(code, *str), "R\"x");
+        EXPECT_NE(FindToken(tokens, SyntaxTokenType::Type), nullptr);
+        EXPECT_NE(FindToken(tokens, SyntaxTokenType::Function), nullptr);
+    }
+    {
+        const std::string_view code = "R\"0123456789abcdef(a\"b)0123456789abcdef\"";
+        const auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+        ASSERT_EQ(tokens.size(), 1u);
+        EXPECT_EQ(GetTokenText(code, tokens[0]), code) << "16 文字の区切りは生文字列";
+    }
+    {
+        const std::string_view code = "R\"0123456789abcdefg(a\"b)0123456789abcdefg\"";
+        const auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
+        AssertTokensWellFormed(tokens, code.size());
+        const auto* str = FindToken(tokens, SyntaxTokenType::String);
+        ASSERT_NE(str, nullptr);
+        EXPECT_EQ(GetTokenText(code, *str), "R\"0123456789abcdefg(a\"") << "17 文字の区切りは生文字列ではない";
     }
 }
 
@@ -457,13 +489,9 @@ TEST(Syntax, CppRawStringNotTriggeredWhenRIsPartOfLongerIdentifier)
     // 識別子が "R" 単独でない ("xR") ため生文字列扱いされず、"(a)" は通常の文字列として解釈される
     std::string code = "xR\"(a)\"";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
-    AssertTokensCoverText(tokens, code.size());
+    AssertTokensWellFormed(tokens, code.size());
 
-    const auto* xr = FindTokenByText(code, tokens, "xR");
-    EXPECT_NE(xr, nullptr) << "xRが独立したトークンとして見つかるべき";
-    if (xr != nullptr) {
-        EXPECT_NE(xr->type, SyntaxTokenType::String);
-    }
+    EXPECT_EQ(CountTokens(tokens, SyntaxTokenType::String), 1);
     const auto* str = FindTokenByText(code, tokens, "\"(a)\"");
     EXPECT_NE(str, nullptr) << "\"(a)\"が通常の文字列トークンとして見つかるべき";
     if (str != nullptr) {
@@ -476,7 +504,7 @@ TEST(Syntax, PythonDecorator)
     // "@" は特別に処理されないが、"def" と "pass" はキーワードであるべき
     std::string code = "@staticmethod\ndef foo():\n    pass";
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
-    AssertTokensCoverText(tokens, code.size());
+    AssertTokensWellFormed(tokens, code.size());
     for (const std::string_view word : { "def", "pass" }) {
         SCOPED_TRACE(word);
         const auto* token = FindTokenByText(code, tokens, word);
@@ -493,7 +521,7 @@ TEST(Syntax, RustSingleQuoteNotString)
     // ライフタイムの問題を避けるためシングルクォート文字列はスキップする。
     std::string code = "fn foo<'a>(x: &'a str) {}";
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
-    AssertTokensCoverText(tokens, code.size());
+    AssertTokensWellFormed(tokens, code.size());
     // 'aは行の残りを飲み込む文字列トークンを生成してはならない
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 1); // fn
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Type), 1);    // str
@@ -503,7 +531,7 @@ TEST(Syntax, JsonNestedStructure)
 {
     std::string code = "{\"items\": [{\"id\": 1}, {\"id\": 2}], \"count\": 2}";
     auto tokens = Tokenize(code, SyntaxLanguage::Json);
-    AssertTokensCoverText(tokens, code.size());
+    AssertTokensWellFormed(tokens, code.size());
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Number), 3);
 }
 
@@ -515,7 +543,7 @@ TEST(Syntax, CppComplexCode)
 {
     std::string code = "#include <iostream>\n\nint main() {\n    // Hello\n    std::cout << \"Hello\" << 42;\n    return 0;\n}";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
-    AssertTokensCoverText(tokens, code.size());
+    AssertTokensWellFormed(tokens, code.size());
 
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Preprocessor), 1);
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Type), 1);     // int
@@ -536,7 +564,7 @@ TEST(Syntax, MultipleLinesOfCode)
         "    return y;\n"
         "}";
     auto tokens = Tokenize(code, SyntaxLanguage::Cpp);
-    AssertTokensCoverText(tokens, code.size());
+    AssertTokensWellFormed(tokens, code.size());
 
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Type), 2);   // int, float
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Number), 2); // 10, 3.14f
@@ -548,7 +576,7 @@ TEST(Syntax, PythonComplexCode)
 {
     std::string code = "def greet(name: str) -> str:\n    # Greeting\n    return f\"Hello, {name}!\"\n\nprint(greet(\"World\"))";
     auto tokens = Tokenize(code, SyntaxLanguage::Python);
-    AssertTokensCoverText(tokens, code.size());
+    AssertTokensWellFormed(tokens, code.size());
 
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 2);  // def, return
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Type), 2);     // str, str
@@ -561,7 +589,7 @@ TEST(Syntax, JsComplexCode)
 {
     std::string code = "async function fetchData(url) {\n  // Fetch data\n  const resp = await fetch(url);\n  return resp.json();\n}";
     auto tokens = Tokenize(code, SyntaxLanguage::JavaScript);
-    AssertTokensCoverText(tokens, code.size());
+    AssertTokensWellFormed(tokens, code.size());
 
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 4);  // async, function, const, await, return
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Comment), 1);  // // Fetch data
@@ -572,7 +600,7 @@ TEST(Syntax, TsComplexCode)
 {
     std::string code = "interface User {\n  name: string;\n  age: number;\n}\n\nconst greet = (user: User): string => {\n  return `Hello, ${user.name}`;\n};";
     auto tokens = Tokenize(code, SyntaxLanguage::TypeScript);
-    AssertTokensCoverText(tokens, code.size());
+    AssertTokensWellFormed(tokens, code.size());
 
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 3); // interface, const, return
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Type), 3);    // string, number, string
@@ -583,7 +611,7 @@ TEST(Syntax, GoComplexCode)
 {
     std::string code = "package main\n\nimport \"fmt\"\n\nfunc main() {\n    // Hello\n    fmt.Println(\"Hello\")\n}";
     auto tokens = Tokenize(code, SyntaxLanguage::Go);
-    AssertTokensCoverText(tokens, code.size());
+    AssertTokensWellFormed(tokens, code.size());
 
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 3);  // package, import, func
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Comment), 1);  // // Hello
@@ -595,7 +623,7 @@ TEST(Syntax, RustComplexCode)
 {
     std::string code = "use std::io;\n\nfn main() -> Result<(), Box<dyn std::error::Error>> {\n    let x: i32 = 42;\n    // comment\n    println!(\"Hello {}\", x);\n    Ok(())\n}";
     auto tokens = Tokenize(code, SyntaxLanguage::Rust);
-    AssertTokensCoverText(tokens, code.size());
+    AssertTokensWellFormed(tokens, code.size());
 
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 3); // use, fn, let
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Type), 2);    // Result, i32
@@ -608,7 +636,7 @@ TEST(Syntax, BashComplexCode)
 {
     std::string code = "#!/bin/bash\n# Script\nfor f in *.txt; do\n    echo \"$f\"\ndone";
     auto tokens = Tokenize(code, SyntaxLanguage::Bash);
-    AssertTokensCoverText(tokens, code.size());
+    AssertTokensWellFormed(tokens, code.size());
 
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Comment), 1);
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 3); // for, in, do, done
@@ -619,7 +647,7 @@ TEST(Syntax, PwshComplexCode)
 {
     std::string code = "<# Script #>\nfunction Get-Item {\n    param([string]$Path)\n    # Do work\n    return $Path\n}";
     auto tokens = Tokenize(code, SyntaxLanguage::PowerShell);
-    AssertTokensCoverText(tokens, code.size());
+    AssertTokensWellFormed(tokens, code.size());
 
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Comment), 2); // <# #> and # comment
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 2); // function, param, return
@@ -629,7 +657,7 @@ TEST(Syntax, CmdComplexCode)
 {
     std::string code = "@echo off\nREM Build script\nfor %%f in (*.cpp) do (\n    echo Building %%f\n)\npause";
     auto tokens = Tokenize(code, SyntaxLanguage::Cmd);
-    AssertTokensCoverText(tokens, code.size());
+    AssertTokensWellFormed(tokens, code.size());
 
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Comment), 1); // REM
     EXPECT_GE(CountTokens(tokens, SyntaxTokenType::Keyword), 3); // echo, for, do, echo, pause
@@ -651,32 +679,25 @@ constexpr std::string_view kSyntaxFuzzPieces[] = {
 
 // 境界は前方 decode の区切りで判定する。描画側 (Utf16OffsetCursor) は文字途中の境界を
 // 文字先頭に丸めるため、区切り以外に境界があると色付け範囲が 1 文字ずれる。
-testing::AssertionResult TokensPartitionAtCpBoundaries(std::string_view text, const std::pmr::vector<SyntaxToken>& tokens)
+testing::AssertionResult TokensAlignToCpBoundaries(std::string_view text, const std::pmr::vector<SyntaxToken>& tokens)
 {
+    if (auto r = TokensWellFormed(tokens, text.size()); !r) {
+        return r;
+    }
     const auto bounds = utf8_fuzz::ForwardDecodeBoundaries(text);
-    uint64_t expected_start = 0;
     for (size_t i = 0; i < tokens.size(); ++i) {
         const auto& t = tokens[i];
-        if (t.start != expected_start) {
-            return testing::AssertionFailure() << "token " << i << " start=" << t.start << " expected=" << expected_start;
+        const uint64_t end = static_cast<uint64_t>(t.start) + t.length;
+        if (!std::ranges::binary_search(bounds, t.start) || !std::ranges::binary_search(bounds, static_cast<uint32_t>(end))) {
+            return testing::AssertionFailure() << "token " << i << " [" << t.start << ", " << end << ") splits a code point";
         }
-        if (t.length == 0) {
-            return testing::AssertionFailure() << "token " << i << " has zero length";
-        }
-        if (!std::ranges::binary_search(bounds, t.start)) {
-            return testing::AssertionFailure() << "token " << i << " starts inside a code point: " << t.start;
-        }
-        expected_start = static_cast<uint64_t>(t.start) + t.length;
-    }
-    if (expected_start != text.size()) {
-        return testing::AssertionFailure() << "tokens end at " << expected_start << " but size=" << text.size();
     }
     return testing::AssertionSuccess();
 }
 
 } // namespace
 
-TEST(Syntax, FuzzTokensPartitionTextAtCodePointBoundaries)
+TEST(Syntax, FuzzTokensAlignToCodePointBoundaries)
 {
     constexpr SyntaxLanguage kLanguages[] = {
         SyntaxLanguage::Cpp, SyntaxLanguage::Python, SyntaxLanguage::JavaScript, SyntaxLanguage::Go,
@@ -689,7 +710,7 @@ TEST(Syntax, FuzzTokensPartitionTextAtCodePointBoundaries)
             const auto text = utf8_fuzz::RandomPiecesWithMalformed(rng, kSyntaxFuzzPieces, 1, 24);
             for (const auto lang : kLanguages) {
                 // 失敗時だけ評価されるメッセージに文脈を載せ、成功ケースで文字列を組み立てない。
-                ASSERT_TRUE(TokensPartitionAtCpBoundaries(text, Tokenize(text, lang)))
+                ASSERT_TRUE(TokensAlignToCpBoundaries(text, Tokenize(text, lang)))
                     << std::format("seed={} iter={} lang={} text={}", seed, iter, static_cast<int>(lang), utf8_fuzz::HexEscape(text));
             }
         }

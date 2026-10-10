@@ -97,7 +97,7 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     const bool has_content = (marker_end < current_text.size());
 
     const size_t full_label_len = icon.size() + 1 + label.size(); // "icon Label"
-    std::pmr::string new_text;
+    std::string new_text;
     new_text.reserve(full_label_len + 4 + (has_content ? current_text.size() - marker_end : 0));
     new_text.append(icon);
     new_text += ' ';

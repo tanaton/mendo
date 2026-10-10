@@ -39,14 +39,40 @@ TEST_F(HitTestDWriteTest, ParagraphHitReturnsTextPositionFromTextLayout)
     const int screen_y = static_cast<int>(pl.cache.Top(0) + 4.0f);
 
     const MdPaneHitContext ctx{
-        pl.nodes, pl.cache, theme_, 0.0f, 0.0f, 1.0f,
-        screen_x, screen_y, content_width, 600.0f
+        pl.nodes, pl.cache, theme_, 0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f,
+        screen_x, screen_y, content_width
     };
     const auto r = hit_.HitTest(ctx);
 
     EXPECT_EQ(r.node_index, 0);
     EXPECT_GT(r.text_pos, 0u)
         << "DirectWrite 経路では HitTestPoint で text_pos が 0 より大きく解決されるはず";
+}
+
+// ペイン原点 (md_rect.x/y) だけずらした同じ点は、同じノード・同じ文字位置に当たる。
+TEST_F(HitTestDWriteTest, OffsetPaneHitMatchesUnoffsetPane)
+{
+    auto pl = ParseAndLayout("Hello, this is a long paragraph for hit testing.");
+    ASSERT_FALSE(pl.nodes.empty());
+
+    const float content_width = theme_.ContentWidth(800.0f);
+    const int screen_x = static_cast<int>(theme_.margin_left + 50.0f);
+    const int screen_y = static_cast<int>(pl.cache.Top(0) + 4.0f);
+    constexpr int kPaneX = 220;
+    constexpr int kPaneY = 32;
+
+    const MdPaneHitContext base{
+        pl.nodes, pl.cache, theme_, 0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f,
+        screen_x, screen_y, content_width
+    };
+    const MdPaneHitContext offset{
+        pl.nodes, pl.cache, theme_, 0.0f, PaneRect{ static_cast<float>(kPaneX), static_cast<float>(kPaneY), 0.0f, 600.0f }, 1.0f,
+        screen_x + kPaneX, screen_y + kPaneY, content_width
+    };
+    const auto a = hit_.HitTest(base);
+    const auto b = hit_.HitTest(offset);
+    EXPECT_EQ(a.node_index, b.node_index);
+    EXPECT_EQ(a.text_pos, b.text_pos);
 }
 
 // テーブル row_cum_y / col_cum_x 経由の hit test。
@@ -67,8 +93,8 @@ TEST_F(HitTestDWriteTest, TableHitDetectsRowAndColumn)
 
     const float content_width = theme_.ContentWidth(800.0f);
     const MdPaneHitContext ctx{
-        pl.nodes, pl.cache, theme_, 0.0f, 0.0f, 1.0f,
-        sx, sy, content_width, 600.0f
+        pl.nodes, pl.cache, theme_, 0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f,
+        sx, sy, content_width
     };
     const auto r = hit_.HitTest(ctx);
 
@@ -93,30 +119,13 @@ TEST_F(HitTestDWriteTest, CodeBlockButtonsHitTest_CopyHitReturnsNode)
     const int sy = static_cast<int>((btn.top + btn.bottom) * 0.5f);
 
     const MdPaneHitContext ctx{
-        pl.nodes, pl.cache, theme_, 0.0f, 0.0f, 1.0f,
-        sx, sy, content_width, 600.0f
+        pl.nodes, pl.cache, theme_, 0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f,
+        sx, sy, content_width
     };
     const auto hits = hit_.CodeBlockButtonsHitTest(ctx);
     EXPECT_EQ(hits.copy_node, code_idx);
     EXPECT_EQ(hits.save_node, -1);
     EXPECT_EQ(hits.diagram_copy_node, -1);
-}
-
-// CodeBlockButtonsHitTest はキャッシュ機構を持つ: 同じ ctx + 同じ effects_generation
-// の繰り返し呼び出しでは結果が再利用される。書き換えしないことを 2 回呼んで確認する。
-TEST_F(HitTestDWriteTest, CodeBlockButtonsHitTest_RepeatCallReturnsSameResult)
-{
-    auto pl = ParseAndLayout("```\nfoo\n```");
-    const float content_width = theme_.ContentWidth(800.0f);
-    const MdPaneHitContext ctx{
-        pl.nodes, pl.cache, theme_, 0.0f, 0.0f, 1.0f,
-        100, 100, content_width, 600.0f
-    };
-    const auto a = hit_.CodeBlockButtonsHitTest(ctx);
-    const auto b = hit_.CodeBlockButtonsHitTest(ctx);
-    EXPECT_EQ(a.copy_node, b.copy_node);
-    EXPECT_EQ(a.save_node, b.save_node);
-    EXPECT_EQ(a.diagram_copy_node, b.diagram_copy_node);
 }
 
 // ---- FindTableRow / FindTableCol: 累積配列経路と線形フォールバックの一致 ----

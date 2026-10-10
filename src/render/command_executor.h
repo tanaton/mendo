@@ -4,76 +4,21 @@
 #include <d2d1.h>
 #include <wrl/client.h>
 #include <array>
-#include <cstdint>
-#include <list>
-#include <unordered_map>
 #include <utility>
-
-namespace command_executor_internal {
-
-// D2D1_COLOR_F を 8bit RGBA にパックしたキー。CommandExecutor のブラシキャッシュキーに使う。
-// テーマ色は 8bit 精度で作られているため 8bit 量子化で衝突しない。
-// command_executor.cpp の GetBrush から呼ばれる本番実装の一部のため MENDO_TESTING でガードしない。
-constexpr uint32_t PackColor(D2D1_COLOR_F c) noexcept
-{
-    const auto quant = [](float v) noexcept -> uint32_t {
-        if (v <= 0.0f) {
-            return 0;
-        }
-        if (v >= 1.0f) {
-            return 255;
-        }
-        return static_cast<uint32_t>(v * 255.0f + 0.5f);
-    };
-    return (quant(c.r) << 24) | (quant(c.g) << 16) | (quant(c.b) << 8) | quant(c.a);
-}
-
-} // namespace command_executor_internal
 
 using FixedBrushArray = std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>, std::to_underlying(BrushId::Count)>;
 
 class CommandExecutor {
 public:
-    // brushes が null のときは全コマンドが brush_pool 経由になる (テスト互換)。
+    // brushes が null のときは全コマンドをコマンドの color で描く (テスト用)。
     void Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray* brushes = nullptr);
 
-#ifdef MENDO_TESTING
-    size_t PoolSizeForTest() const noexcept
-    {
-        return brush_pool_.size();
-    }
-    constexpr const ID2D1RenderTarget* BoundRtForTest() const noexcept
-    {
-        return bound_rt_;
-    }
-#endif
-
 private:
-    ID2D1SolidColorBrush* GetBrush(ID2D1RenderTarget* rt, D2D1_COLOR_F color);
     ID2D1SolidColorBrush* ResolveBrush(ID2D1RenderTarget* rt, BrushId id, D2D1_COLOR_F color);
-    // ブラシは RT 付随リソースなので、RT 切替・デバイス再作成時にプールを破棄する。
-    void BindRenderTarget(ID2D1RenderTarget* rt);
-    // 全消去によるフレームスパイクを避けるため最古エントリ 1 つだけ追い出す。
-    void EvictOldestBrush();
 
-    static constexpr size_t MAX_POOLED_BRUSHES = 256;
-
-    // front = most recently used, back = oldest. splice で O(1) 昇格・追い出し。
-    using LruList = std::list<uint32_t>;
-
-    struct BrushEntry {
-        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
-        LruList::iterator lru_pos;
-    };
-
-    // UI スレッド専用なので pmr の sync pool を経由せず標準アロケータを使う。
-    std::unordered_map<uint32_t, BrushEntry> brush_pool_;
-    LruList lru_keys_;
-    ID2D1RenderTarget* bound_rt_ = nullptr;
-    // 同色連続発行（罫線、ハイライト等）の hash lookup を省くための直前ブラシキャッシュ。
-    // last_brush_==nullptr が「キャッシュ無効」を示し、PackColor の値域全体を
-    // 非衝突に使えるようにする。
-    uint32_t last_brush_key_ = 0;
-    ID2D1SolidColorBrush* last_brush_ = nullptr;
+    // 動的色はアラート背景とオーバーレイボタン程度なので、色ごとにブラシを持たず 1 本を SetColor で使い回す。
+    // ブラシは RT 付随リソースなので RT が替わったら作り直す。
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> scratch_brush_;
+    ID2D1RenderTarget* scratch_rt_ = nullptr;
     const FixedBrushArray* fixed_brushes_ = nullptr;
 };

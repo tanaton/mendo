@@ -291,6 +291,29 @@ TEST(TaskScheduler, PostWithoutInitThenInitProcessesQueued)
     sch.Shutdown();
 }
 
+// ワーカーは遅延起動だが、ParallelFor の分割数は起動前から確定している必要がある。
+TEST(TaskScheduler, WorkerCountReportsConfiguredCountBeforeFirstPost)
+{
+    TaskScheduler sch;
+    EXPECT_EQ(sch.WorkerCount(), 0u);
+    sch.Init(3);
+    EXPECT_EQ(sch.WorkerCount(), 3u);
+    sch.Shutdown();
+    EXPECT_EQ(sch.WorkerCount(), 0u);
+}
+
+TEST(TaskScheduler, ReinitAfterShutdownRunsTasks)
+{
+    TaskScheduler sch;
+    sch.Init(1);
+    sch.Shutdown();
+    sch.Init(2);
+    std::atomic<bool> ran{ false };
+    EXPECT_TRUE(sch.Post([&] { ran.store(true); }));
+    EXPECT_TRUE(PollUntil([&] { return ran.load(); }));
+    sch.Shutdown();
+}
+
 TEST(TaskScheduler, ZeroThreadsInitThenShutdownIsSafe)
 {
     TaskScheduler sch;

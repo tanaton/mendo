@@ -94,12 +94,13 @@ void ConfigService::Load()
         content.remove_prefix(utf8_codec::kBom.size());
     }
     data_ = ini::Parse(content);
+    dirty_ = false;
 }
 
 void ConfigService::Flush()
 {
     const auto ini_path = GetConfigPath(kSettingsFile);
-    if (ini_path.empty()) {
+    if (!dirty_ || ini_path.empty()) {
         return;
     }
     std::error_code ec;
@@ -109,7 +110,9 @@ void ConfigService::Flush()
     }
 
     const std::string content = ini::Serialize(data_);
-    (void)AtomicWriteAllBytes(ini_path, content.data(), content.size());
+    if (AtomicWriteAllBytes(ini_path, content.data(), content.size())) {
+        dirty_ = false;
+    }
 }
 
 const std::string* ConfigService::FindValue(std::string_view section, std::string_view key) const
@@ -127,7 +130,11 @@ const std::string* ConfigService::FindValue(std::string_view section, std::strin
 
 void ConfigService::StoreValue(std::string_view section, std::string_view key, std::string value)
 {
+    if (const auto* current = FindValue(section, key); current && *current == value) {
+        return;
+    }
     data_[std::string(section)][std::string(key)] = std::move(value);
+    dirty_ = true;
 }
 
 void ConfigService::SaveBool(std::string_view section, std::string_view key, bool value)

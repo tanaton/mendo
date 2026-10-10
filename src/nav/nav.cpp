@@ -1,84 +1,10 @@
 #include "nav.h"
 #include "ascii_util.h"
 
-uint32_t NavHistory::InternPath(std::wstring_view path)
+void NavHistory::PushCapped(std::pmr::deque<NavEntry>& stack, const NavEntry& e)
 {
-    if (last_interned_index_ != kUnsetIndex && last_interned_view_ == path) {
-        return last_interned_index_;
-    }
-    if (const auto it = path_index_.find(path); it != path_index_.end()) {
-        last_interned_view_ = it->first;
-        last_interned_index_ = it->second;
-        return it->second;
-    }
-
-    uint32_t idx;
-    if (!free_slots_.empty()) {
-        // 解放済みスロットを再利用してプールサイズの単調増加を防ぐ。
-        idx = free_slots_.back();
-        free_slots_.pop_back();
-        path_pool_[idx].text.assign(path);
-        path_pool_[idx].refcount = 0;
-    }
-    else {
-        idx = static_cast<uint32_t>(path_pool_.size());
-        path_pool_.emplace_back(PathSlot{ std::pmr::wstring(path), 0u });
-    }
-    auto& slot = path_pool_[idx];
-    const std::wstring_view view = slot.text;
-    path_index_.emplace(view, idx);
-    last_interned_view_ = view;
-    last_interned_index_ = idx;
-    return idx;
-}
-
-void NavHistory::RetainPath(uint32_t idx) noexcept
-{
-    if (idx < path_pool_.size()) {
-        ++path_pool_[idx].refcount;
-    }
-}
-
-void NavHistory::ReleasePath(uint32_t idx) noexcept
-{
-    if (idx >= path_pool_.size()) {
-        return;
-    }
-    auto& slot = path_pool_[idx];
-    if (slot.refcount == 0) {
-        return;
-    }
-    if (--slot.refcount == 0) {
-        // text.clear() で view が無効化されるため、先に index を消す
-        path_index_.erase(std::wstring_view(slot.text));
-        if (last_interned_index_ == idx) {
-            last_interned_view_ = {};
-            last_interned_index_ = kUnsetIndex;
-        }
-        // text の capacity はあえて保持する。次に free_slots_ から
-        // 取り出された際、同程度の長さのパスで assign が再割り当てせずに済む。
-        slot.text.clear();
-        free_slots_.push_back(idx);
-    }
-}
-
-NavHistory::InternalEntry NavHistory::ToInternal(const NavEntry& e)
-{
-    const uint32_t idx = InternPath(e.file_path);
-    RetainPath(idx);
-    return { idx, e.node, e.offset };
-}
-
-NavEntry NavHistory::ToExternal(const InternalEntry& e) const
-{
-    return NavEntry(path_pool_[e.path_index].text, e.node, e.offset);
-}
-
-void NavHistory::PushCapped(std::pmr::deque<InternalEntry>& stack, const NavEntry& e)
-{
-    stack.emplace_back(ToInternal(e));
+    stack.push_back(e);
     if (stack.size() > max_history_) {
-        ReleasePath(stack.front().path_index);
         stack.pop_front();
     }
 }
@@ -86,24 +12,18 @@ void NavHistory::PushCapped(std::pmr::deque<InternalEntry>& stack, const NavEntr
 void NavHistory::Push(const NavEntry& current)
 {
     PushCapped(back_stack_, current);
-    // 新規ナビゲーションでは進むスタックを破棄する。各エントリの参照を解放する
-    for (const auto& fe : forward_stack_) {
-        ReleasePath(fe.path_index);
-    }
     forward_stack_.clear();
 }
 
-bool NavHistory::Transfer(std::pmr::deque<InternalEntry>& from, std::pmr::deque<InternalEntry>& to, const NavEntry& current, NavEntry& out)
+bool NavHistory::Transfer(std::pmr::deque<NavEntry>& from, std::pmr::deque<NavEntry>& to, const NavEntry& current, NavEntry& out)
 {
     if (from.empty()) {
         return false;
     }
 
     PushCapped(to, current);
-    const auto top = from.back();
-    out = ToExternal(top);
+    out = std::move(from.back());
     from.pop_back();
-    ReleasePath(top.path_index);
     return true;
 }
 
@@ -121,11 +41,6 @@ void NavHistory::Clear() noexcept
 {
     back_stack_.clear();
     forward_stack_.clear();
-    path_pool_.clear();
-    path_index_.clear();
-    free_slots_.clear();
-    last_interned_view_ = {};
-    last_interned_index_ = kUnsetIndex;
 }
 
 // ShellExecuteWに渡しても安全なURLスキームかどうかを判定する。

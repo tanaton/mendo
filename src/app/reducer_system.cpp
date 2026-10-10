@@ -42,8 +42,9 @@ void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
 {
     const auto anchor = SnapshotVisibleTarget(state);
     state.pane_layout_cache.Invalidate();
-    // 色のみの変更なのでテキストレイアウトは維持し、effects と Mermaid bitmap のみ破棄する。
-    state.document.layout_cache.InvalidateEffectsAndDiagramBitmaps(state.document.doc.GetNodes());
+    // 色のみの変更なのでテキストレイアウトは維持する。描画エフェクトの固定ブラシは SetColor で
+    // 色だけ差し替わるので再適用不要で、テーマ色を焼き込んだ Mermaid bitmap のみ破棄する。
+    state.document.layout_cache.InvalidateDiagramBitmaps(state.document.doc.GetNodes());
     if (anchor.IsValid()) {
         // Mermaid 再レンダリングで微小な高さ変化が起きるので target で追従する。
         state.view.viewport.SetScrollTarget(anchor.node, anchor.offset);
@@ -55,7 +56,7 @@ void ReduceActivate(AppState& state, SideEffectList& effects, const ActivateActi
 {
     if (state.window.window_active != a.active) {
         state.window.window_active = a.active;
-        PushEffect(effects, effect::InvalidateTitleBar{});
+        PushEffect(effects, effect::InvalidateWindow{});
         state.search.search_bar_ctrl.OnWindowActivate(a.active);
     }
     if (!a.active) {
@@ -68,6 +69,7 @@ void ReduceResize(AppState& state, SideEffectList& effects, const ResizeAction& 
     if (a.width == 0 || a.height == 0) {
         return;
     }
+    state.window.size_changed_in_sizing = true;
     state.pane_layout_cache.Invalidate();
     PushEffect(effects, effect::RendererResize{ a.width, a.height });
     const float window_w_dip = a.width / state.window.cached_dpi_scale;
@@ -83,12 +85,16 @@ void ReduceResize(AppState& state, SideEffectList& effects, const ResizeAction& 
 void ReduceExitSizeMove(AppState& state, SideEffectList& effects)
 {
     state.window.is_sizing = false;
-    PushEffect(effects, effect::PerformResizeEnd{});
+    if (state.window.size_changed_in_sizing) {
+        PushEffect(effects, effect::PerformResizeEnd{});
+    }
 }
 
 void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChangedAction& a)
 {
     state.window.cached_dpi_scale = DpiScaleFrom(static_cast<float>(a.dpi));
+    // ピクセルサイズ不変でも DIP サイズが変わるため、移動ループ終了時のレイアウトを要求する。
+    state.window.size_changed_in_sizing = true;
     state.pane_layout_cache.Invalidate();
     // DPI 変更では IDWriteTextLayout (DIP 単位) は不変。effects_generation のみ進める。
     state.document.layout_cache.NotifyDpiChanged();
@@ -114,9 +120,6 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
         }
         return;
     }
-    case app_timer::Id::SEARCH_CARET:
-        state.search.search_bar_ctrl.OnCaretBlinkTimer();
-        return;
     case app_timer::Id::TOOLTIP:
         PushEffect(effects, effect::KillTimer{ app_timer::Id::TOOLTIP });
         state.interaction.tooltip.Show();

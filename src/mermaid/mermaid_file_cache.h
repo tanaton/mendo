@@ -4,11 +4,11 @@
 #include <memory>
 #include <memory_resource>
 #include <mutex>
+#include <optional>
 #include <unordered_set>
 #include <vector>
 #include <filesystem>
 #include <unordered_map>
-#include <map>
 #include <atomic>
 #include <windows.h>
 
@@ -38,6 +38,7 @@ public:
         size_t size = 0;
     };
 
+    // 索引の読み込みは初回利用まで遅らせ、図を含まない文書の起動を塞がない。
     void Init(float current_dpr, TaskScheduler& scheduler);
     bool Lookup(uint64_t key, CacheEntry& entry, PngBlob& png);
     // インデックスにあれば PNG のパスと寸法を返し LRU を更新する。読み込み (ReadAllBytes) は
@@ -45,7 +46,7 @@ public:
     bool LookupPath(uint64_t key, CacheEntry& entry, std::filesystem::path& png_path);
     // ファイルが確実に存在しない場合のみインデックスから除く (共有違反などの一時エラーは保持)。
     void OnReadFailed(uint64_t key, DWORD read_error);
-    bool LookupDimensions(uint64_t key, CacheEntry& entry) const noexcept;
+    bool LookupDimensions(uint64_t key, CacheEntry& entry);
     // png_data は表示側 (メモリキャッシュ / DiagramEntry) と共有し、書き込み用にコピーしない。
     using PngBytes = std::shared_ptr<const std::pmr::vector<uint8_t>>;
     void StoreAsync(uint64_t key, float css_width, float css_height, PngBytes png_data);
@@ -55,13 +56,13 @@ public:
     void SetCacheDir(const std::filesystem::path& dir);
     void SetLimits(size_t max_entries, uint64_t max_total_size);
 
-    size_t EntryCount() const noexcept
+    size_t EntryCount()
     {
-        return index_.size();
+        return Index().entries.size();
     }
-    uint64_t TotalSize() const noexcept
+    uint64_t TotalSize()
     {
-        return total_size_;
+        return Index().total_size;
     }
 
 #ifdef MENDO_TESTING
@@ -79,30 +80,44 @@ private:
     static constexpr size_t DEFAULT_MAX_ENTRIES = 4096;
     static constexpr uint64_t DEFAULT_MAX_TOTAL_SIZE = 1ULL * 1024 * 1024 * 1024; // 1GB
 
-    using LruOrder = std::pmr::multimap<int64_t, uint64_t>;
-
     struct IndexEntry {
         float css_width = 0.0f;
         float css_height = 0.0f;
         uint32_t png_size = 0;
         int64_t last_used = 0;
-        LruOrder::iterator lru_iter{};
+    };
+
+    // 追い出しは満杯時だけなので、順序構造を持たず last_used の線形走査で最古を探す。
+    struct IndexState {
+        using Map = std::pmr::unordered_map<uint64_t, IndexEntry>;
+        Map entries;
+        uint64_t total_size = 0;
+        // last_used に積む単調増加シーケンス。ms 時刻だと連続 Lookup で衝突して順序が付かない。
+        int64_t lru_seq = 0;
+        // 終了時に変更の無い索引を書き戻さないためのフラグ。
+        bool dirty = false;
+
+        // 変更系はすべて dirty を立てる (読み込み直後だけ LoadIndex が戻す)。
+        void Add(uint64_t key, IndexEntry entry);
+        void Remove(Map::iterator it) noexcept;
+        void Touch(Map::iterator it) noexcept
+        {
+            it->second.last_used = ++lru_seq;
+            dirty = true;
+        }
+        int64_t NextLruSeq() noexcept
+        {
+            return ++lru_seq;
+        }
     };
 
     static std::filesystem::path GetPngPath(const std::filesystem::path& dir, uint64_t key);
     std::filesystem::path GetPngPath(uint64_t key) const;
     std::filesystem::path GetIndexPath() const;
-    void LoadIndex();
-    void AddIndexEntry(uint64_t key, float css_width, float css_height, uint32_t png_size, int64_t last_used);
-    void EvictIfNeeded(uint32_t new_png_size);
-    void RemoveIndexEntry(std::pmr::unordered_map<uint64_t, IndexEntry>::iterator it) noexcept;
-    void DecrementTotalSize(uint32_t png_size) noexcept;
-    // last_used に積む単調増加シーケンス。ms 時刻だと連続 Lookup で衝突して
-    // Lazy LRU の stale 検出が false negative になるため、衝突しない単純カウンタを使う。
-    int64_t NextLruSeq() noexcept
-    {
-        return ++lru_seq_;
-    }
+    // 初回呼び出しで index.bin を読み込む唯一の入口。
+    IndexState& Index();
+    IndexState LoadIndex() const;
+    void EvictIfNeeded(IndexState& index, uint32_t new_png_size);
 
     // current_dpr_ を mix した内部キーを返す。DPR ごとにエントリを分離して
     // DPI 変更/モニタ切替時の全消去を避ける。
@@ -116,10 +131,8 @@ private:
     std::filesystem::path cache_dir_;
     float current_dpr_ = 0.0f;
 
-    std::pmr::unordered_map<uint64_t, IndexEntry> index_;
-    LruOrder lru_order_;
-    uint64_t total_size_ = 0;
-    int64_t lru_seq_ = 0;
+    // 未読み込みは nullopt。
+    std::optional<IndexState> index_;
 
     size_t max_entries_ = DEFAULT_MAX_ENTRIES;
     uint64_t max_total_size_ = DEFAULT_MAX_TOTAL_SIZE;

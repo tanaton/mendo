@@ -40,10 +40,10 @@ private:
         Node n;
         n.type = src.type;
         if (src.has_heading()) {
-            n.ensure_heading()->heading_level = src.heading_level();
+            n.set_heading_level(src.heading_level());
         }
         if (src.has_code()) {
-            n.ensure_code()->code_language = src.code_language();
+            n.set_code_language(src.code_language());
         }
         if (!src.GetText().empty()) {
             n.SetTextWithLineCount(src.GetText(), src.line_count);
@@ -110,7 +110,7 @@ TEST_F(MeasurerParityTest, DiagramCodeBlockUsesPlaceholderHeight)
 {
     Node node;
     node.type = NodeType::CodeBlock;
-    node.ensure_code()->code_language = SyntaxLanguage::Mermaid;
+    node.set_code_language(SyntaxLanguage::Mermaid);
     const auto h = MeasureBoth(node, 600.0f);
     EXPECT_GE(h.mock, 60.0f);
     EXPECT_GE(h.dwrite, 60.0f);
@@ -123,7 +123,7 @@ TEST_F(MeasurerParityTest, HeadingTallerThanParagraphInBoth)
 
     Node heading = MakeTextNode("Sample text");
     heading.type = NodeType::Heading;
-    heading.ensure_heading()->heading_level = 1;
+    heading.set_heading_level(1);
 
     const auto p = MeasureBoth(para, 600.0f);
     const auto h = MeasureBoth(heading, 600.0f);

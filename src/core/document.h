@@ -2,7 +2,6 @@
 #include "document_types.h"
 #include "raw_text.h"
 #include "toc.h"
-#include <cstdint>
 #include <memory_resource>
 #include <stop_token>
 #include <string>
@@ -95,9 +94,6 @@ public:
     }
 
 private:
-    // anchor は小文字 ASCII 正規化済みかつ非空であること。
-    int FindNormalizedAnchorIndex(std::string_view anchor) const;
-
     // 契約: 入力 ParseResult のノード view_ は raw_text_.data() を base にしていること。
     void ReplaceContent(ParseResult&& result);
 
@@ -114,9 +110,6 @@ private:
     RawText raw_text_;
     size_t loaded_byte_size_ = 0;
     TableOfContents toc_;
-    // hash 昇順 → node_index 昇順でソート。重複 anchor_id や稀な hash 衝突は
-    // lookup 側で equal_range + 文字列比較し、最小 node_index を選ぶ。
-    std::pmr::vector<std::pair<std::uint64_t, int>> anchor_index_;
     std::pmr::vector<size_t> image_node_indices_;
     std::pmr::vector<size_t> diagram_node_indices_;
     std::pmr::vector<size_t> table_node_indices_;

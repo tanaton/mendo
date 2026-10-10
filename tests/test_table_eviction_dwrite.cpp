@@ -233,7 +233,7 @@ TEST_F(TableEvictionDWriteTest, RestoreAfterWidthChangeCorrectsRowHeights)
     const float narrow = 200.0f;
     const MeasureViewportRange vp{ 0.0f, 60.0f };
     entry.layout_dirty = true;
-    measurer_.MeasureNode(pl.nodes[idx], entry, narrow, nullptr, vp);
+    measurer_.MeasureNode(pl.nodes[idx], entry, narrow, vp);
     EXPECT_FALSE(entry.layout_dirty);
     ASSERT_TRUE(entry.table_layout->HasEvictedRows());
 

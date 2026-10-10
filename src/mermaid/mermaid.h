@@ -4,7 +4,6 @@
 #include "lru_cache.h"
 #include "mermaid_renderer_interface.h"
 #include "mermaid_util.h"
-#include "wic_util.h"
 #include "worker_latch.h"
 #include <d2d1.h>
 #include <wincodec.h>
@@ -17,7 +16,6 @@
 #include <memory>
 #include <memory_resource>
 #include <mutex>
-#include <optional>
 #include <queue>
 #include <span>
 #include <string>
@@ -48,7 +46,7 @@ public:
     {
         file_cache_ = cache;
     }
-    // ディスクキャッシュの読み込み/PNG デコードと mermaid.js の展開を UI スレッド外で行う先。
+    // ディスクキャッシュの読み込みと PNG デコードを UI スレッド外で行う先。
     // 読み込み完了は disk_loaded_msg で hwnd に通知され、受信側が ProcessDiskLoads を呼ぶ。
     void SetBackgroundScheduler(TaskScheduler* scheduler, UINT disk_loaded_msg) noexcept
     {
@@ -61,7 +59,7 @@ public:
     void CancelPending() override;
     void DropQueued() override;
     void OnInitRetryTimer();
-    // 一定時間描画要求が無ければ先頭以外のワーカーを閉じる (renderer プロセスのメモリ解放)。
+    // 一定時間描画要求が無ければ WebView2 を環境ごと閉じる (browser/renderer/GPU プロセスのメモリ解放)。
     void OnIdleTimer();
 
 private:
@@ -104,12 +102,14 @@ private:
         }
     };
 
+    using PngBytes = std::shared_ptr<const std::pmr::vector<uint8_t>>;
+
     struct CachedBitmap {
         Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
         float width = 0.0f;
         float height = 0.0f;
         // クリップボードコピー用 PNG。bitmap と同じ寿命で DiagramEntry へ伝播する。
-        std::shared_ptr<const std::pmr::vector<uint8_t>> png;
+        PngBytes png;
     };
 
     struct DiskLoad {
@@ -117,14 +117,19 @@ private:
         RenderRequest req;
         // worker でデコード確定済み。失敗時は null で read_error に理由が入る。
         Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
-        std::shared_ptr<const std::pmr::vector<uint8_t>> png;
+        PngBytes png;
+        // WebView2 の CapturePreview 出力。worker で png へ読み出したら解放する。
+        Microsoft::WRL::ComPtr<IStream> captured_stream;
+        // WebView2 で描画した直後の PNG。成功時はディスクキャッシュへ書き出す。
+        bool captured = false;
         DWORD read_error = 0;
     };
 
     static constexpr int MAX_WORKERS = 4;
     static constexpr int MAX_ENV_RETRIES = 3;
     static constexpr int MAX_WORKER_RETRIES = 3;
-    static constexpr UINT IDLE_SHUTDOWN_MS = 30000;
+    // 閉じると次の図で環境生成からやり直すため、読み進める間に閉じない程度に長めにする。
+    static constexpr UINT IDLE_SHUTDOWN_MS = 60000;
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
     // ディスクキャッシュから戻せるので画像より控えめにする。
     static constexpr size_t MAX_CACHE_BYTES = 64u * 1024 * 1024;
@@ -150,6 +155,7 @@ private:
     // 同時起動すると CPU を取り合って最初の図が遅れ、図が少ない文書でも renderer が常駐する。
     void MaybeGrowWorkers();
     void ScheduleIdleShutdown();
+    void ReleaseWebView();
     void SetupWorker(int index);
     void OnControllerCreated(int index, ICoreWebView2Controller* controller);
     void RegisterWebViewHandlers(int index);
@@ -173,22 +179,17 @@ private:
         }
     }
 
-    // scheduler が無ければその場で読み込んで適用する。
-    void StartDiskLoad(RenderRequest req, std::filesystem::path png_path);
+    // scheduler が無ければその場で読み込んで適用する。captured_stream があればファイルは読まずにそれをデコードする。
+    void StartDiskLoad(RenderRequest req, std::filesystem::path png_path, Microsoft::WRL::ComPtr<IStream> captured_stream = nullptr);
     // worker で呼ぶ。
     void LoadDiskJob(DiskLoad& job, const std::filesystem::path& path);
     void ApplyDiskLoad(DiskLoad& r);
-
-    // 展開済み mermaid.js。未展開ならこの場で展開する。
-    std::shared_ptr<const std::pmr::vector<uint8_t>> AcquireMermaidJs();
-    void PrefetchMermaidJs();
 
     void DispatchWebMessage(int index, const mermaid_util::ParsedWebMessage& parsed);
     void OnWorkerReady(Worker& worker, float dpr);
     void OnRenderResult(int worker_idx, std::wstring_view json);
     void DoCapturePreview(int worker_idx);
-    void OnCaptureComplete(int worker_idx, IStream* png_stream);
-    std::optional<wic_util::CreatedBitmap> CreateBitmapFromPngStream(IStream* stream);
+    void OnCaptureComplete(int worker_idx, Microsoft::WRL::ComPtr<IStream> png_stream);
     void InsertCache(uint64_t hash, CachedBitmap cached);
 
     HWND hwnd_ = nullptr; // メインウィンドウ
@@ -203,7 +204,8 @@ private:
     int target_worker_count_ = 0;
     mermaid_lifecycle::Lifecycle lifecycle_;
     unsigned int request_counter_ = 0;
-    std::move_only_function<void()> on_all_ready_; // 最初のワーカー準備完了時に1回だけ呼び出す
+    // 準備完了のたびに呼ぶ (アイドル解放後の再初期化を含む)。準備前の描画要求は捨てているため再要求させる。
+    std::move_only_function<void()> on_ready_;
 
     std::queue<RenderRequest, std::pmr::deque<RenderRequest>> pending_requests_;
     // 待機中/描画中の表示用リクエストの図。未完了の図はスクロールのたびに NeedsRender() が
@@ -220,9 +222,6 @@ private:
     std::atomic<uint32_t> disk_gen_{ 0 };
     std::mutex disk_mutex_;
     std::pmr::vector<DiskLoad> disk_results_;
-
-    std::mutex js_mutex_;
-    std::shared_ptr<const std::pmr::vector<uint8_t>> js_bytes_;
 
     // Shutdown で worker 完了を待つ。scheduler 共有 worker から self を参照する race を排除する。
     WorkerLatch latch_;

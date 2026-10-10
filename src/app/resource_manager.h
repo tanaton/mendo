@@ -52,8 +52,11 @@ constexpr IndexSlice VisibleSlice(const std::pmr::vector<size_t>& sorted_indices
 template <class Cb>
 class ResourceManagerT {
 public:
-    static constexpr float EVICT_BUFFER_SCREENS = 5.0f;
-    static constexpr float PREFETCH_BUFFER_SCREENS = 3.0f;
+    // 遅延レイアウトの計測範囲も兼ねる。範囲外へのスクロールは EnsureVisibleLayout が同期計測で拾う。
+    static constexpr float EVICT_BUFFER_SCREENS = 2.0f;
+    // evict 範囲より広く先読みすると、evict 直後の flush で範囲外の画像/図を毎回読み直す。
+    static constexpr float PREFETCH_BUFFER_SCREENS = 2.0f;
+    static_assert(PREFETCH_BUFFER_SCREENS <= EVICT_BUFFER_SCREENS);
     static constexpr int BATCH_TIME_BUDGET_US = 6000;
 
     constexpr void Init(const ResourceManagerDeps& deps, Cb cb) noexcept
@@ -93,8 +96,7 @@ public:
         for (auto it = slice.begin; it != slice.end; ++it) {
             const size_t i = *it;
             auto& node = nodes[i];
-            auto& diagram = deps_.cache->GetDiagram(i);
-            if (diagram.bitmap) {
+            if (const auto* d = deps_.cache->FindDiagram(i); d && d->bitmap) {
                 continue;
             }
 
@@ -108,7 +110,7 @@ public:
                 continue;
             }
 
-            if (deps_.image_loader->GetCachedImage(*abs_path, diagram)) {
+            if (auto& diagram = deps_.cache->EnsureDiagram(i); deps_.image_loader->GetCachedImage(*abs_path, diagram)) {
                 img->width = diagram.width;
                 img->height = diagram.height;
 
@@ -137,7 +139,6 @@ public:
     {
         if (ApplyCachedImages() > 0) {
             cb_.recompute_layout(TakeHeightChanges());
-            cb_.invalidate();
         }
     }
 
@@ -195,7 +196,7 @@ public:
     // 戻り値: その場で bitmap が確定したか。
     bool RequestDiagramRender(size_t i, float content_width, bool dark_mode)
     {
-        auto& diagram = deps_.cache->GetDiagram(i);
+        auto& diagram = deps_.cache->EnsureDiagram(i);
         // エラー確定した図も NeedsRender()=false で弾き、失敗レンダの無限リトライを防ぐ。
         if (!diagram.NeedsRender()) {
             return false;
@@ -299,7 +300,9 @@ public:
         const auto evict_outside_keep = [&](const std::pmr::vector<size_t>& indices) {
             const auto keep = VisibleSlice(indices, vr.first, vr.last_plus_1);
             const auto reset_bitmap = [&](size_t i) {
-                deps_.cache->GetDiagram(i).EvictBitmap();
+                if (auto* d = deps_.cache->FindDiagram(i)) {
+                    d->EvictBitmap();
+                }
             };
             for (auto it = indices.begin(); it != keep.begin; ++it) {
                 reset_bitmap(*it);
@@ -361,9 +364,8 @@ public:
         EvictOffscreenBitmaps();
         // evict 直後は可視範囲のリソース再読み込みが必要なので強制フラッシュする。
         pending_flush_ = true;
+        // evict 対象は可視範囲外なので、再描画はフラッシュで適用があった時 (recompute_layout) だけでよい。
         FlushPendingResources();
-
-        cb_.invalidate();
     }
 
     void ClearResolvedPaths() noexcept
@@ -440,13 +442,15 @@ private:
             bool any_invalidated = false;
             // 幅変化 invalidation は全 diagram を対象にする必要がある（不可視分も旧幅ビットマップを持ちうるため）。
             for (size_t i : deps_.doc->GetDiagramNodeIndices()) {
-                auto& diagram = deps_.cache->GetDiagram(i);
-                if (diagram.bitmap && diagram.width > 0 &&
-                    diagram.width + 1.0f < min_width) {
+                auto* diagram = deps_.cache->FindDiagram(i);
+                if (diagram && diagram->bitmap && diagram->width > 0 &&
+                    diagram->width + 1.0f < min_width) {
                     continue;
                 }
                 // 幅が変わればエラー結果も変わりうるため、error 込みで破棄して再試行させる。
-                diagram.ResetForRetry();
+                if (diagram) {
+                    diagram->ResetForRetry();
+                }
                 any_invalidated = true;
             }
             if (any_invalidated) {

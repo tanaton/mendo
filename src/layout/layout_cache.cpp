@@ -207,7 +207,7 @@ void LayoutCache::InvalidateAllLayouts() noexcept
     ResetEvictionTracking();
 }
 
-void LayoutCache::InvalidateEffectsAndDiagramBitmaps(const std::pmr::vector<Node>& nodes) noexcept
+void LayoutCache::InvalidateEffects() noexcept
 {
     for (auto& e : entries_) {
         e.effects_applied = false;
@@ -219,13 +219,14 @@ void LayoutCache::InvalidateEffectsAndDiagramBitmaps(const std::pmr::vector<Node
         }
     }
     effects_generation_++;
-    InvalidateDiagramBitmaps(nodes);
 }
 
 void LayoutCache::InvalidateAllDiagramBitmaps() noexcept
 {
     for (auto& d : diagrams_) {
-        d.ResetForRetry();
+        if (d) {
+            d->ResetForRetry();
+        }
     }
 }
 
@@ -233,8 +234,9 @@ void LayoutCache::InvalidateDiagramBitmaps(const std::pmr::vector<Node>& nodes) 
 {
     const auto count = std::min(nodes.size(), diagrams_.size());
     for (const auto& [idx, node] : nodes | std::views::take(count) | std::views::enumerate) {
-        if (IsDiagramCodeBlock(node)) {
-            diagrams_[static_cast<size_t>(idx)].ResetForRetry();
+        auto& d = diagrams_[static_cast<size_t>(idx)];
+        if (d && IsDiagramCodeBlock(node)) {
+            d->ResetForRetry();
         }
     }
 }

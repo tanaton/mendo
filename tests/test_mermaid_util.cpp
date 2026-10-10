@@ -421,7 +421,7 @@ TEST(NodeDiagramHash, LatexMathDoesNotCollideWithMermaid)
 {
     const auto mermaid = ParseSingleCodeBlock("```mermaid\nx^2\n```");
     auto math = ParseSingleCodeBlock("```mermaid\nx^2\n```");
-    math.ensure_code()->code_language = SyntaxLanguage::LatexMath;
+    math.set_code_language(SyntaxLanguage::LatexMath);
 
     EXPECT_NE(mermaid_util::NodeDiagramHash(mermaid, 600.0f, false), mermaid_util::NodeDiagramHash(math, 600.0f, false));
 }

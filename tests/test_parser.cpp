@@ -1832,20 +1832,6 @@ TEST(Parser, ParseMarkdownDefaultStopTokenWorksAsUsual)
     EXPECT_FALSE(result.nodes.empty());
 }
 
-// 入力サイズからの多めの予約はパース後に切り詰め、Document の寿命中に容量を死蔵しない。
-TEST(ParserReserveTest, ShrinksOverReservedNodeCapacity)
-{
-    std::string md;
-    const std::string para(200, 'x');
-    while (md.size() < 3 * 1024 * 1024) {
-        md += para;
-        md += "\n\n";
-    }
-    const auto result = ParseMarkdown(md);
-    ASSERT_FALSE(result.nodes.empty());
-    EXPECT_LE(result.nodes.capacity(), result.nodes.size() + result.nodes.size() / 4);
-}
-
 // ---- Alert マーカー判定の補助関数 ----
 
 // マーカーと直後の区切り 1 文字だけなら true。

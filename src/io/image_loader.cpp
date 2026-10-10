@@ -65,49 +65,15 @@ void ImageLoader::Shutdown()
     latch_.Wait();
 }
 
-void ImageLoader::CopyTo(const CachedImage& cached, DiagramEntry& out)
-{
-    out.bitmap = cached.bitmap;
-    out.width = cached.width;
-    out.height = cached.height;
-}
-
-bool ImageLoader::LoadImage(const std::wstring& abs_path, DiagramEntry& out)
-{
-    if (!wic_factory_ || !render_target_) {
-        return false;
-    }
-
-    if (const auto* cached = cache_.Find(abs_path)) {
-        CopyTo(*cached, out);
-        return true;
-    }
-
-    // メモリストリーム経由でデコードしファイルロックを回避する。
-    const auto stream = ReadFileToStream(abs_path);
-    if (!stream) {
-        return false;
-    }
-
-    auto created = wic_util::CreateD2DBitmapFromStream(wic_factory_.Get(), render_target_, stream.Get());
-    if (!created) {
-        return false;
-    }
-
-    const auto [width, height] = CacheBitmap(abs_path, created->bitmap, created->pixel_width, created->pixel_height);
-    out.bitmap = std::move(created->bitmap);
-    out.width = width;
-    out.height = height;
-    return true;
-}
-
-bool ImageLoader::GetCachedImage(const std::wstring& abs_path, DiagramEntry& out) const
+bool ImageLoader::GetCachedImage(const std::wstring& abs_path, DiagramEntry& out)
 {
     const auto* cached = cache_.Find(abs_path);
     if (!cached) {
         return false;
     }
-    CopyTo(*cached, out);
+    out.bitmap = cached->bitmap;
+    out.width = cached->width;
+    out.height = cached->height;
     return true;
 }
 
@@ -171,11 +137,10 @@ void ImageLoader::DecodeForDisplay(const std::wstring& path, DecodeResult& resul
     if (!decoded) {
         return;
     }
-    const wic_util::PixelSize original{ decoded->pixel_width, decoded->pixel_height };
-    const auto target = wic_util::ComputeDecodeSize(original.width, original.height, MaxMonitorWidthPx(), max_bitmap_dim_.load());
-    result.bitmap = wic_util::DecodeToWicBitmap(wic_factory_.Get(), decoded->converter.Get(), original, target);
-    result.width = static_cast<float>(original.width);
-    result.height = static_cast<float>(original.height);
+    const auto target = wic_util::ComputeDecodeSize(decoded->pixel_width, decoded->pixel_height, MaxMonitorWidthPx(), max_bitmap_dim_.load());
+    result.bitmap = wic_util::DecodeToWicBitmap(wic_factory_.Get(), *decoded, target);
+    result.width = static_cast<float>(decoded->pixel_width);
+    result.height = static_cast<float>(decoded->pixel_height);
 }
 
 void ImageLoader::ProcessCompletedDecodes()
@@ -206,7 +171,7 @@ void ImageLoader::ProcessCompletedDecodes()
             Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
             const HRESULT hr = render_target_->CreateBitmapFromWicBitmap(r.bitmap.Get(), &bitmap);
             if (SUCCEEDED(hr) && bitmap) {
-                CacheBitmap(r.path, std::move(bitmap), static_cast<UINT>(r.width), static_cast<UINT>(r.height));
+                CacheBitmap(r.path, std::move(bitmap), r.width, r.height);
             }
         }
         // 全 on_complete は同一の invalidate シグナルなので最後の 1 つだけ呼ぶ。
@@ -223,21 +188,20 @@ void ImageLoader::InsertCacheEntry(const std::wstring& path, float width, float 
     cache_.Insert(path, CachedImage{ .width = width, .height = height });
 }
 
-std::pair<float, float> ImageLoader::CacheBitmap(
+void ImageLoader::CacheBitmap(
     const std::wstring& path, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap,
-    UINT pixel_width, UINT pixel_height)
+    float pixel_width, float pixel_height)
 {
     float dpi_x = DEFAULT_DPI;
     float dpi_y = DEFAULT_DPI;
     if (render_target_) {
         render_target_->GetDpi(&dpi_x, &dpi_y);
     }
-    const float width = static_cast<float>(pixel_width) / DpiScaleFrom(dpi_x);
-    const float height = static_cast<float>(pixel_height) / DpiScaleFrom(dpi_y);
+    const float width = pixel_width / DpiScaleFrom(dpi_x);
+    const float height = pixel_height / DpiScaleFrom(dpi_y);
 
     cache_.Insert(path, CachedImage{ std::move(bitmap), width, height });
     cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedImage& c) { return mendo::BitmapBytes(c.bitmap.Get()); });
-    return { width, height };
 }
 
 void ImageLoader::CancelPending()

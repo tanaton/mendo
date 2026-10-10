@@ -7,7 +7,6 @@
 #include <string>
 #include <thread>
 #include "dirty_node_fixture.h"
-#include "dirty_scheduler.h"
 #include "document_test_helpers.h"
 #include "layout.h"
 #include "layout_invariants.h"
@@ -19,10 +18,7 @@
 #include "theme.h"
 
 using mendo::layout::DirtyBatchResult;
-using mendo::layout::ParallelBudget;
 using mendo::layout::RunParallel;
-using mendo::layout::RunSerial;
-using mendo::layout::SerialBudget;
 using mendo::layout::StopReason;
 using mendo::layout::ViewportClip;
 
@@ -45,26 +41,32 @@ protected:
     }
 };
 
+// scheduler なし (呼び出しスレッドで直列計測) の RunParallel 用。
+class RunParallelSerialTest : public ::testing::Test {
+protected:
+    MockTextMeasurer mock_;
+    Theme theme_{};
+
+    void SetUp() override
+    {
+        theme_ = GetLightTheme();
+    }
+};
+
 class ThrowingMeasurer : public MockTextMeasurer {
 public:
     const Node* throw_on = nullptr;
     // throw_on の計測を最初の throw_times 回だけ失敗させる。worker から呼ばれるので試行回数は atomic。
     int throw_times = std::numeric_limits<int>::max();
     mutable std::atomic<int> attempts{ 0 };
-    // 本番の MeasureNode は CodeBlock のトークン化を先に行うため、失敗時にも途中のトークンが残りうる。
-    bool write_token_before_throw = false;
 
     void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
-                     std::pmr::vector<SyntaxToken>* tokens_out = nullptr,
                      MeasureViewportRange viewport = {}) const override
     {
         if (&node == throw_on && attempts.fetch_add(1) < throw_times) {
-            if (write_token_before_throw && tokens_out) {
-                tokens_out->emplace_back();
-            }
             throw std::runtime_error("measure failed");
         }
-        MockTextMeasurer::MeasureNode(node, entry, max_width, tokens_out, viewport);
+        MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
     }
 };
 
@@ -88,7 +90,7 @@ TEST_F(ParallelMeasureTest, EmptyDirtyReturnsNoneDirty)
     DirtyNodeFixture f;
     f.Build(10, false);
     const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_,
-                               ViewportClip{}, ParallelBudget{}, task_scheduler_);
+                               ViewportClip{}, 0, &task_scheduler_);
     EXPECT_EQ(r.processed, 0);
     EXPECT_EQ(r.reason, StopReason::NoneDirty);
 }
@@ -103,10 +105,10 @@ TEST_F(ParallelMeasureTest, MatchesSerialOutputOnSmallFixture)
     DirtyNodeFixture f_parallel;
     f_parallel.Build(N, true);
 
-    const auto r_serial = RunSerial(f_serial.nodes, f_serial.cache, 800.0f, theme_, mock_,
-                                    ViewportClip{}, SerialBudget{});
+    const auto r_serial = RunParallel(f_serial.nodes, f_serial.cache, 800.0f, theme_, mock_,
+                                      ViewportClip{}, 0, nullptr);
     const auto r_parallel = RunParallel(f_parallel.nodes, f_parallel.cache, 800.0f, theme_, mock_,
-                                        ViewportClip{}, ParallelBudget{}, task_scheduler_);
+                                        ViewportClip{}, 0, &task_scheduler_);
 
     EXPECT_EQ(r_serial.processed, r_parallel.processed);
     EXPECT_EQ(r_serial.first_processed, r_parallel.first_processed);
@@ -119,23 +121,6 @@ TEST_F(ParallelMeasureTest, MatchesSerialOutputOnSmallFixture)
     }
 }
 
-TEST_F(ParallelMeasureTest, ChunkBoundary)
-{
-    // chunk_size=256 を跨ぐサイズで取り漏れが出ないこと。
-    // 256-1, 256, 256+1, 512+1 の前後で挙動が変わらないか確認。
-    for (size_t N : { static_cast<size_t>(255), static_cast<size_t>(256),
-                      static_cast<size_t>(257), static_cast<size_t>(513) }) {
-        DirtyNodeFixture f;
-        f.Build(N, true);
-        const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_,
-                                   ViewportClip{}, ParallelBudget{}, task_scheduler_);
-        EXPECT_EQ(r.processed, static_cast<int>(N)) << "N=" << N;
-        for (size_t i = 0; i < N; ++i) {
-            EXPECT_FALSE(f.cache[i].layout_dirty) << "i=" << i << " N=" << N;
-        }
-    }
-}
-
 TEST_F(ParallelMeasureTest, ViewportClipSkipsOffscreen)
 {
     // 0..99 のうち、viewport [200, 600] に重なる buffer 圏内の dirty だけ処理される。
@@ -145,7 +130,7 @@ TEST_F(ParallelMeasureTest, ViewportClipSkipsOffscreen)
     f.Build(100, true);
     ViewportClip clip{ 200.0f, 400.0f, 1.0f };
     const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_,
-                               clip, ParallelBudget{}, task_scheduler_);
+                               clip, 0, &task_scheduler_);
     // y_position[i] = i*100, height=80。clip [-200, 1000] に重なるのは i=0..10
     EXPECT_GT(r.processed, 0);
     EXPECT_LE(r.processed, 11);
@@ -158,7 +143,7 @@ TEST_F(ParallelMeasureTest, BatchLimitClampsProcessed)
     DirtyNodeFixture f;
     f.Build(100, true);
     const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_,
-                               ViewportClip{}, ParallelBudget{ 10 }, task_scheduler_);
+                               ViewportClip{}, 10, &task_scheduler_);
     EXPECT_EQ(r.processed, 10);
     EXPECT_EQ(r.reason, StopReason::BatchLimit);
     EXPECT_TRUE(r.any_nearby_skipped());
@@ -171,7 +156,7 @@ TEST_F(ParallelMeasureTest, AllDirtyClearedAfterRun)
     DirtyNodeFixture f;
     f.Build(N, true);
     const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_,
-                               ViewportClip{}, ParallelBudget{}, task_scheduler_);
+                               ViewportClip{}, 0, &task_scheduler_);
     EXPECT_EQ(r.processed, static_cast<int>(N));
     for (size_t i = 0; i < N; ++i) {
         EXPECT_FALSE(f.cache[i].layout_dirty) << "i=" << i;
@@ -217,7 +202,6 @@ TEST_F(ParallelMeasureTest, EnsureVisibleLayoutParallelMatchesSerial)
 
 // 並列計測の chunk が例外で落ちても、落ちる前に計測できたノードの高さを Y に反映し、
 // 計測できなかった dirty は HasDirtyNodes() で次回の再試行に回す。
-// dirty が 32 件未満だと chunk は 1 つなので、1 ノードの例外で全件が失敗扱いになる。
 TEST_F(ParallelMeasureTest, ProcessDirtyBatchRetriesAfterChunkException)
 {
     struct Case {
@@ -248,7 +232,7 @@ TEST_F(ParallelMeasureTest, ProcessDirtyBatchRetriesAfterChunkException)
 
         engine.SetLayoutScheduler(&task_scheduler_);
         const bool more = c.clip
-            ? engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200, 0, 0.0f, 600.0f, 100.0f)
+            ? engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200, { 0.0f, 600.0f, 100.0f })
             : engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200);
         engine.SetLayoutScheduler(nullptr);
 
@@ -360,25 +344,120 @@ TEST_F(ParallelMeasureTest, MeasureSuccessOnAnyPathResetsFailureCount)
     EXPECT_EQ(cache[kThrower].measure_failures, 0);
 }
 
-// 計測が例外で失敗したノードに、例外の手前で書かれた途中のトークンを残さない。
-TEST_F(ParallelMeasureTest, FailedMeasureDoesNotKeepPartialTokens)
+TEST_F(RunParallelSerialTest, NoneDirtyReturnsNoneDirty)
 {
-    ThrowingMeasurer measurer;
-    LayoutEngine engine;
-    ASSERT_TRUE(engine.Init(&measurer, theme_));
-    LayoutSourceStore store;
-    auto [nodes, cache] = store.ParseAndLayout(engine, "```cpp\nint x;\n```\n\npara\n", 800.0f);
-    const int code_idx = FindFirstNodeIndexByType(nodes, NodeType::CodeBlock);
-    ASSERT_GE(code_idx, 0);
-    const auto code = static_cast<size_t>(code_idx);
-    const size_t tokens_before = nodes[code].syntax_tokens().size();
+    DirtyNodeFixture f;
+    f.Build(5, false);
+    const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, 0, nullptr);
+    EXPECT_EQ(r.processed, 0);
+    EXPECT_EQ(r.reason, StopReason::NoneDirty);
+    EXPECT_FALSE(r.any_nearby_skipped());
+}
 
-    cache[code].layout_dirty = true;
-    measurer.throw_on = &nodes[code];
-    measurer.write_token_before_throw = true;
-    engine.SetLayoutScheduler(&task_scheduler_);
-    engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200);
-    engine.SetLayoutScheduler(nullptr);
-    EXPECT_TRUE(cache[code].layout_dirty);
-    EXPECT_EQ(nodes[code].syntax_tokens().size(), tokens_before);
+TEST_F(RunParallelSerialTest, AllDirtyProcessedReturnsDone)
+{
+    DirtyNodeFixture f;
+    f.Build(5, true);
+    const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, 0, nullptr);
+    EXPECT_EQ(r.processed, 5);
+    EXPECT_EQ(r.reason, StopReason::Done);
+    EXPECT_FALSE(r.any_nearby_skipped());
+    EXPECT_EQ(r.first_processed, 0u);
+    EXPECT_EQ(r.last_processed, 4u);
+}
+
+TEST_F(RunParallelSerialTest, BatchLimitStopsAtMaxNodes)
+{
+    DirtyNodeFixture f;
+    f.Build(10, true);
+    const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, 3, nullptr);
+    EXPECT_EQ(r.processed, 3);
+    EXPECT_EQ(r.reason, StopReason::BatchLimit);
+    EXPECT_TRUE(r.any_nearby_skipped());
+    EXPECT_EQ(r.first_processed, 0u);
+    EXPECT_EQ(r.last_processed, 2u);
+}
+
+TEST_F(RunParallelSerialTest, ViewportClipSkipsOffscreenDirty)
+{
+    // 10 ノード (y=0,100,200,...,900)、buffer_screens=0、viewport=[150, 350)
+    // Skip されないのは y_position が [150, 350) または overlap するノード。
+    // ノード i の rect = [i*100, i*100+80]。viewport=[150,350]。
+    // i=1: rect=[100,180], overlap with [150,350] → 含まれる
+    // i=2: rect=[200,280], 含まれる
+    // i=3: rect=[300,380], overlap → 含まれる
+    // i=0,4..9: 含まれない
+    DirtyNodeFixture f;
+    f.Build(10, true);
+    const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_,
+                               ViewportClip{ 150.0f, 200.0f, 0.0f }, 0, nullptr);
+    EXPECT_EQ(r.processed, 3);
+    EXPECT_EQ(r.reason, StopReason::Done);
+    EXPECT_FALSE(r.any_nearby_skipped());
+    EXPECT_EQ(r.first_processed, 1u);
+    EXPECT_EQ(r.last_processed, 3u);
+}
+
+TEST_F(RunParallelSerialTest, ViewportClipWithBufferIncludesNearbyDirty)
+{
+    // viewport=[300, 400), buffer_screens=1.0 (height=100) → 範囲 = [200, 500)
+    // i=2: rect=[200,280] → overlap → 含む
+    // i=3,4: 含む
+    // i=5: rect=[500,580] → IsOffscreen 判定 (y >= range_bottom か y+h <= range_top)。
+    //      range_bottom=500、5の y=500 → !(y < range_bottom) なので IsOffscreen=true → 含まない
+    DirtyNodeFixture f;
+    f.Build(10, true);
+    const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_,
+                               ViewportClip{ 300.0f, 100.0f, 1.0f }, 0, nullptr);
+    EXPECT_GE(r.processed, 3);
+    EXPECT_LE(r.processed, 4);
+    EXPECT_EQ(r.reason, StopReason::Done);
+}
+
+TEST_F(RunParallelSerialTest, FirstLastProcessedTracking)
+{
+    DirtyNodeFixture f;
+    f.Build(7, { 3, 4, 5 });
+    const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, 0, nullptr);
+    EXPECT_EQ(r.processed, 3);
+    EXPECT_EQ(r.first_processed, 3u);
+    EXPECT_EQ(r.last_processed, 5u);
+    EXPECT_EQ(r.reason, StopReason::Done);
+}
+
+TEST_F(RunParallelSerialTest, BudgetZeroIsUnlimited)
+{
+    DirtyNodeFixture f;
+    f.Build(50, true);
+    const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, 0, nullptr);
+    EXPECT_EQ(r.processed, 50);
+    EXPECT_EQ(r.reason, StopReason::Done);
+    EXPECT_FALSE(r.any_nearby_skipped());
+}
+
+TEST_F(RunParallelSerialTest, MeasureNodeIsCalledOnEachProcessed)
+{
+    // Mock の MeasureNode は entry.layout_dirty=false を書く。処理後 dirty=false になることで
+    // 計測 callback がインスタンスごとに 1 回ずつ呼ばれたことを検証する。
+    DirtyNodeFixture f;
+    f.Build(5, true);
+    const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, 0, nullptr);
+    EXPECT_EQ(r.processed, 5);
+    for (int i = 0; i < 5; ++i) {
+        EXPECT_FALSE(f.cache[i].layout_dirty) << "node " << i << " should be cleaned";
+    }
+}
+
+TEST_F(RunParallelSerialTest, NoClipProcessesAllDirtyEvenIfYUnreachable)
+{
+    // viewport_clip top<0 で全 dirty 対象。y_position の値に関わらず処理。
+    DirtyNodeFixture f;
+    f.Build(5, { 0, 4 });
+    f.cache.SetTop(0, -1000.0f); // 大きく外れた値
+    f.cache.SetTop(4, 999999.0f);
+    const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme_, mock_, ViewportClip{}, 0, nullptr);
+    EXPECT_EQ(r.processed, 2);
+    EXPECT_EQ(r.first_processed, 0u);
+    EXPECT_EQ(r.last_processed, 4u);
+    EXPECT_EQ(r.reason, StopReason::Done);
 }

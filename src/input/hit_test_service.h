@@ -7,7 +7,6 @@
 #include "theme.h"
 #include "ui_constants.h"
 #include <algorithm>
-#include <limits>
 #include <memory_resource>
 #include <ranges>
 #include <unordered_map>
@@ -94,13 +93,12 @@ struct MdPaneHitContext {
     const LayoutCache& cache;
     const Theme& theme;
     float scroll_y;
-    float md_pane_left;
+    PaneRect md_rect;
     float dpi_scale;
     int screen_x;
     int screen_y;
     // ボタンヒットテスト用（HitTestでは未使用）
     float content_width = 0.0f;
-    float md_pane_height = 0.0f;
     // ブロック単位の横スクロール状態。null なら全 0 扱い。
     const std::pmr::unordered_map<int, float>* block_scroll_x = nullptr;
 };
@@ -135,44 +133,10 @@ public:
         int diagram_copy_node = -1;
     };
     CodeBlockButtonHit CodeBlockButtonsHitTest(const MdPaneHitContext& ctx) const noexcept;
+    // node_index のブロック横スクロールバー (ヒット余白込み) 上か。
+    bool BlockHScrollbarHitTest(const MdPaneHitContext& ctx, int node_index, float visible_width) const noexcept;
 
 private:
-    // 同一座標の連続ヒットテストを高速化する結果キャッシュ。
-    // effects_generation が変わると自動で無効化される。
-    template <typename T>
-    struct HitCache {
-        int screen_x = std::numeric_limits<int>::min(), screen_y = std::numeric_limits<int>::min();
-        float scroll_y = 0.0f;
-        uint32_t effects_gen = std::numeric_limits<uint32_t>::max();
-        // 結果がブロック横スクロールに依存する場合のスナップショット (-1 = 非依存)。
-        // 該当ノードの scroll_x が変わったらミス扱いにする。effects_generation を
-        // 横スクロールで進める方式だと、Renderer の effects 再適用まで巻き添えになる。
-        int h_scroll_node = -1;
-        float h_scroll_x = 0.0f;
-        T result{};
-
-        constexpr bool Matches(const MdPaneHitContext& ctx, uint32_t gen) const noexcept
-        {
-            if (ctx.screen_x != screen_x || ctx.screen_y != screen_y || ctx.scroll_y != scroll_y || gen != effects_gen) {
-                return false;
-            }
-            return h_scroll_node < 0 || LookupBlockScrollX(ctx, h_scroll_node) == h_scroll_x;
-        }
-        constexpr void Store(const MdPaneHitContext& ctx, uint32_t gen, const T& r, int scroll_node = -1, float scroll_x = 0.0f) noexcept
-        {
-            screen_x = ctx.screen_x;
-            screen_y = ctx.screen_y;
-            scroll_y = ctx.scroll_y;
-            effects_gen = gen;
-            h_scroll_node = scroll_node;
-            h_scroll_x = scroll_x;
-            result = r;
-        }
-    };
-
-    mutable HitCache<HitResult> last_md_hit_{};
-    mutable HitCache<CodeBlockButtonHit> button_cache_{};
-
     // HitTestPoint の UTF-16→UTF-8 逆変換を同一ノード/セル間で再利用する
     // (ドラッグ選択時の連続呼び出しで decode を抑える)。
     // HitTest 冒頭で ResetIfBufferChanged を呼び、ドキュメント切替時の string_view

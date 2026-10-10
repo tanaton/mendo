@@ -2,7 +2,6 @@
 #include "config_service.h"
 #include "file_io.h"
 #include "i18n.h"
-#include "memory_resource.h"
 #include "profiler.h"
 #include "scope_guard.h"
 #include "startup_plan.h"
@@ -93,7 +92,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     // attach するのに十分な経験値で、Release ビルドでは MENDO_IF_TRACY が空展開される。
     [[maybe_unused]] constexpr DWORD kTracyStartupDelayMs = 1000;
     MENDO_IF_TRACY(Sleep(kTracyStartupDelayMs));
-    InitGlobalMemoryResource();
 
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 

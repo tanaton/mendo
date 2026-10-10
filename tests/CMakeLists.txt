@@ -48,7 +48,7 @@ add_executable(mendo_tests
     test_memory_eviction.cpp
     test_lru_cache.cpp
     test_scroll_restoration.cpp
-    test_hover_throttle.cpp
+    test_last_hover_pos.cpp
     test_search_bar_controller.cpp
     test_session_service.cpp
     test_reducer.cpp
@@ -73,15 +73,12 @@ add_executable(mendo_tests
     test_ascii_util.cpp
     test_html_entity.cpp
     test_small_vector.cpp
-    test_pmr_unique_ptr.cpp
-    test_dirty_scheduler.cpp
     test_parallel_measure.cpp
     test_parallel_measure_stress.cpp
     test_view_stats.cpp
     test_doc_dwrite_bridge.cpp
     test_utf8_codec.cpp
     test_fnv1a.cpp
-    test_stream_util.cpp
     test_worker_latch.cpp
     test_async_load_coordinator.cpp
     test_layout_computer_invisible.cpp

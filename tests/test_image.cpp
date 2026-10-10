@@ -407,6 +407,7 @@ protected:
     ComPtr<IWICImagingFactory> wic_factory_;
     ComPtr<ID2D1RenderTarget> render_target_;
     ImageLoader loader_;
+    TaskScheduler scheduler_;
 
     void SetUp() override
     {
@@ -421,11 +422,33 @@ protected:
         ASSERT_TRUE(render_target_) << "レンダーターゲット作成に失敗";
 
         loader_.Init(render_target_.Get());
+        scheduler_.Init(2);
+        // テストでは PostMessage を受け取れないため HWND は nullptr にし、ProcessCompletedDecodes を手動で呼ぶ
+        loader_.InitAsync(nullptr, 0, scheduler_);
     }
 
     void TearDown() override
     {
+        scheduler_.Shutdown();
         loader_.ClearCache();
+    }
+
+    // 非同期経路でデコードさせ、完了後にキャッシュされた結果を取り出す。
+    bool LoadAndGet(ImageLoader& loader, const std::wstring& path, DiagramEntry& out)
+    {
+        bool done = false;
+        loader.RequestLoadAsync(path, [&done] { done = true; });
+        if (!PollUntil([&] {
+                loader.ProcessCompletedDecodes();
+                return done;
+            })) {
+            return false;
+        }
+        return loader.GetCachedImage(path, out);
+    }
+    bool LoadAndGet(const std::wstring& path, DiagramEntry& out)
+    {
+        return LoadAndGet(loader_, path, out);
     }
 
     // WIC ビットマップを描画先にするので HWND 不要。dpi 0 は D2D 既定 (96 DPI)。
@@ -493,7 +516,7 @@ TEST_F(ImageLoaderTest, LoadPng)
 {
     ASSERT_TRUE(CreateTestImage(L"test.png", GUID_ContainerFormatPng, 100, 80));
     DiagramEntry entry;
-    EXPECT_TRUE(loader_.LoadImage(GetTestImagePath(L"test.png"), entry));
+    EXPECT_TRUE(LoadAndGet(GetTestImagePath(L"test.png"), entry));
     EXPECT_TRUE(entry.bitmap);
     EXPECT_FLOAT_EQ(entry.width, 100.0f);
     EXPECT_FLOAT_EQ(entry.height, 80.0f);
@@ -503,7 +526,7 @@ TEST_F(ImageLoaderTest, LoadBmp)
 {
     ASSERT_TRUE(CreateTestImage(L"test.bmp", GUID_ContainerFormatBmp, 50, 50));
     DiagramEntry entry;
-    EXPECT_TRUE(loader_.LoadImage(GetTestImagePath(L"test.bmp"), entry));
+    EXPECT_TRUE(LoadAndGet(GetTestImagePath(L"test.bmp"), entry));
     EXPECT_TRUE(entry.bitmap);
     EXPECT_FLOAT_EQ(entry.width, 50.0f);
     EXPECT_FLOAT_EQ(entry.height, 50.0f);
@@ -513,7 +536,7 @@ TEST_F(ImageLoaderTest, LoadJpeg)
 {
     ASSERT_TRUE(CreateTestImage(L"test.jpg", GUID_ContainerFormatJpeg, 200, 150));
     DiagramEntry entry;
-    EXPECT_TRUE(loader_.LoadImage(GetTestImagePath(L"test.jpg"), entry));
+    EXPECT_TRUE(LoadAndGet(GetTestImagePath(L"test.jpg"), entry));
     EXPECT_TRUE(entry.bitmap);
     EXPECT_FLOAT_EQ(entry.width, 200.0f);
     EXPECT_FLOAT_EQ(entry.height, 150.0f);
@@ -523,7 +546,7 @@ TEST_F(ImageLoaderTest, LoadLargeImage)
 {
     ASSERT_TRUE(CreateTestImage(L"large.png", GUID_ContainerFormatPng, 4096, 2048));
     DiagramEntry entry;
-    EXPECT_TRUE(loader_.LoadImage(GetTestImagePath(L"large.png"), entry));
+    EXPECT_TRUE(LoadAndGet(GetTestImagePath(L"large.png"), entry));
     EXPECT_TRUE(entry.bitmap);
     EXPECT_FLOAT_EQ(entry.width, 4096.0f);
     EXPECT_FLOAT_EQ(entry.height, 2048.0f);
@@ -533,7 +556,7 @@ TEST_F(ImageLoaderTest, LoadOneByOneImage)
 {
     ASSERT_TRUE(CreateTestImage(L"tiny.png", GUID_ContainerFormatPng, 1, 1));
     DiagramEntry entry;
-    EXPECT_TRUE(loader_.LoadImage(GetTestImagePath(L"tiny.png"), entry));
+    EXPECT_TRUE(LoadAndGet(GetTestImagePath(L"tiny.png"), entry));
     EXPECT_TRUE(entry.bitmap);
     EXPECT_FLOAT_EQ(entry.width, 1.0f);
     EXPECT_FLOAT_EQ(entry.height, 1.0f);
@@ -547,10 +570,10 @@ TEST_F(ImageLoaderTest, CacheHitReturnsSameBitmap)
     auto path = GetTestImagePath(L"cached.png");
 
     DiagramEntry entry1;
-    EXPECT_TRUE(loader_.LoadImage(path, entry1));
+    EXPECT_TRUE(LoadAndGet(path, entry1));
 
     DiagramEntry entry2;
-    EXPECT_TRUE(loader_.LoadImage(path, entry2));
+    EXPECT_TRUE(loader_.GetCachedImage(path, entry2));
 
     // 同じビットマップオブジェクトが返されること
     EXPECT_EQ(entry1.bitmap.Get(), entry2.bitmap.Get());
@@ -562,8 +585,8 @@ TEST_F(ImageLoaderTest, DifferentPathsDifferentBitmaps)
     ASSERT_TRUE(CreateTestImage(L"img2.png", GUID_ContainerFormatPng, 64, 64));
 
     DiagramEntry entry1, entry2;
-    EXPECT_TRUE(loader_.LoadImage(GetTestImagePath(L"img1.png"), entry1));
-    EXPECT_TRUE(loader_.LoadImage(GetTestImagePath(L"img2.png"), entry2));
+    EXPECT_TRUE(LoadAndGet(GetTestImagePath(L"img1.png"), entry1));
+    EXPECT_TRUE(LoadAndGet(GetTestImagePath(L"img2.png"), entry2));
 
     EXPECT_NE(entry1.bitmap.Get(), entry2.bitmap.Get());
     EXPECT_FLOAT_EQ(entry1.width, 32.0f);
@@ -576,13 +599,13 @@ TEST_F(ImageLoaderTest, ClearCacheInvalidatesEntries)
     auto path = GetTestImagePath(L"clear.png");
 
     DiagramEntry entry1;
-    EXPECT_TRUE(loader_.LoadImage(path, entry1));
+    EXPECT_TRUE(LoadAndGet(path, entry1));
     auto* first_bitmap = entry1.bitmap.Get();
 
     loader_.ClearCache();
 
     DiagramEntry entry2;
-    EXPECT_TRUE(loader_.LoadImage(path, entry2));
+    EXPECT_TRUE(LoadAndGet(path, entry2));
 
     // キャッシュクリア後は新しいビットマップが作成される
     EXPECT_NE(first_bitmap, entry2.bitmap.Get());
@@ -593,14 +616,14 @@ TEST_F(ImageLoaderTest, ClearCacheInvalidatesEntries)
 TEST_F(ImageLoaderTest, NonExistentFileReturnsFalse)
 {
     DiagramEntry entry;
-    EXPECT_FALSE(loader_.LoadImage(L"C:\\nonexistent\\path\\image.png", entry));
+    EXPECT_FALSE(LoadAndGet(L"C:\\nonexistent\\path\\image.png", entry));
     EXPECT_FALSE(entry.bitmap);
 }
 
 TEST_F(ImageLoaderTest, EmptyPathReturnsFalse)
 {
     DiagramEntry entry;
-    EXPECT_FALSE(loader_.LoadImage(L"", entry));
+    EXPECT_FALSE(LoadAndGet(L"", entry));
     EXPECT_FALSE(entry.bitmap);
 }
 
@@ -612,7 +635,7 @@ TEST_F(ImageLoaderTest, CorruptedPngReturnsFalse)
     const auto path = temp_dir_.Write(L"corrupt.png", std::string_view("\x89PNG\r\n\x1a\n\x00\x00", 10));
 
     DiagramEntry entry;
-    EXPECT_FALSE(loader_.LoadImage(path.wstring(), entry));
+    EXPECT_FALSE(LoadAndGet(path.wstring(), entry));
     EXPECT_FALSE(entry.bitmap);
 }
 
@@ -621,7 +644,7 @@ TEST_F(ImageLoaderTest, EmptyFileReturnsFalse)
     const auto path = temp_dir_.Write(L"empty.png");
 
     DiagramEntry entry;
-    EXPECT_FALSE(loader_.LoadImage(path.wstring(), entry));
+    EXPECT_FALSE(LoadAndGet(path.wstring(), entry));
     EXPECT_FALSE(entry.bitmap);
 }
 
@@ -631,7 +654,7 @@ TEST_F(ImageLoaderTest, RandomBytesReturnsFalse)
     const auto path = temp_dir_.Write(L"random.png", std::string_view(garbage, sizeof(garbage)));
 
     DiagramEntry entry;
-    EXPECT_FALSE(loader_.LoadImage(path.wstring(), entry));
+    EXPECT_FALSE(LoadAndGet(path.wstring(), entry));
     EXPECT_FALSE(entry.bitmap);
 }
 
@@ -641,7 +664,7 @@ TEST_F(ImageLoaderTest, TruncatedJpegReturnsFalse)
     const auto path = temp_dir_.Write(L"truncated.jpg", std::string_view("\xFF\xD8\xFF\xE0\x00\x10", 6));
 
     DiagramEntry entry;
-    EXPECT_FALSE(loader_.LoadImage(path.wstring(), entry));
+    EXPECT_FALSE(LoadAndGet(path.wstring(), entry));
     EXPECT_FALSE(entry.bitmap);
 }
 
@@ -652,7 +675,7 @@ TEST_F(ImageLoaderTest, TextFileReturnsFalse)
     const auto path = temp_dir_.Write(L"readme.txt", "Hello, World!");
 
     DiagramEntry entry;
-    EXPECT_FALSE(loader_.LoadImage(path.wstring(), entry));
+    EXPECT_FALSE(LoadAndGet(path.wstring(), entry));
     EXPECT_FALSE(entry.bitmap);
 }
 
@@ -661,7 +684,7 @@ TEST_F(ImageLoaderTest, HtmlFileReturnsFalse)
     const auto path = temp_dir_.Write(L"page.html", "<html><body>test</body></html>");
 
     DiagramEntry entry;
-    EXPECT_FALSE(loader_.LoadImage(path.wstring(), entry));
+    EXPECT_FALSE(LoadAndGet(path.wstring(), entry));
     EXPECT_FALSE(entry.bitmap);
 }
 
@@ -670,10 +693,11 @@ TEST_F(ImageLoaderTest, HtmlFileReturnsFalse)
 TEST_F(ImageLoaderTest, UninitializedLoaderReturnsFalse)
 {
     ImageLoader uninitialized;
+    uninitialized.InitAsync(nullptr, 0, scheduler_);
     ASSERT_TRUE(CreateTestImage(L"valid.png", GUID_ContainerFormatPng, 10, 10));
 
     DiagramEntry entry;
-    EXPECT_FALSE(uninitialized.LoadImage(GetTestImagePath(L"valid.png"), entry));
+    EXPECT_FALSE(LoadAndGet(uninitialized, GetTestImagePath(L"valid.png"), entry));
     EXPECT_FALSE(entry.bitmap);
 }
 
@@ -681,9 +705,11 @@ TEST_F(ImageLoaderTest, NullRenderTargetReturnsFalse)
 {
     ImageLoader loader_null;
     loader_null.Init(nullptr);
+    loader_null.InitAsync(nullptr, 0, scheduler_);
+    ASSERT_TRUE(CreateTestImage(L"valid.png", GUID_ContainerFormatPng, 10, 10));
 
     DiagramEntry entry;
-    EXPECT_FALSE(loader_null.LoadImage(GetTestImagePath(L"valid.png"), entry));
+    EXPECT_FALSE(LoadAndGet(loader_null, GetTestImagePath(L"valid.png"), entry));
 }
 
 // ---- 異常系: エントリの状態保証 ----
@@ -695,7 +721,7 @@ TEST_F(ImageLoaderTest, FailedLoadDoesNotModifyExistingEntry)
     entry.height = 888.0f;
 
     // 存在しないファイルのロードを試みる
-    EXPECT_FALSE(loader_.LoadImage(L"C:\\no_such_file.png", entry));
+    EXPECT_FALSE(LoadAndGet(L"C:\\no_such_file.png", entry));
 
     // 既存の値が変更されていないこと
     EXPECT_FLOAT_EQ(entry.width, 999.0f);
@@ -711,30 +737,13 @@ TEST_F(ImageLoaderTest, GetCachedImageReturnsFalseWhenNotCached)
     EXPECT_FALSE(loader_.GetCachedImage(L"C:\\not_cached.png", entry));
 }
 
-TEST_F(ImageLoaderTest, GetCachedImageReturnsTrueAfterLoadImage)
-{
-    ASSERT_TRUE(CreateTestImage(L"cached_test.png", GUID_ContainerFormatPng, 120, 90));
-    auto path = GetTestImagePath(L"cached_test.png");
-
-    // LoadImage でキャッシュに格納
-    DiagramEntry entry1;
-    ASSERT_TRUE(loader_.LoadImage(path, entry1));
-
-    // GetCachedImage でキャッシュから取得できること
-    DiagramEntry entry2;
-    EXPECT_TRUE(loader_.GetCachedImage(path, entry2));
-    EXPECT_EQ(entry1.bitmap.Get(), entry2.bitmap.Get());
-    EXPECT_FLOAT_EQ(entry2.width, 120.0f);
-    EXPECT_FLOAT_EQ(entry2.height, 90.0f);
-}
-
 TEST_F(ImageLoaderTest, GetCachedImageReturnsFalseAfterClearCache)
 {
     ASSERT_TRUE(CreateTestImage(L"clear_test.png", GUID_ContainerFormatPng, 30, 30));
     auto path = GetTestImagePath(L"clear_test.png");
 
     DiagramEntry entry;
-    ASSERT_TRUE(loader_.LoadImage(path, entry));
+    ASSERT_TRUE(LoadAndGet(path, entry));
     loader_.ClearCache();
 
     EXPECT_FALSE(loader_.GetCachedImage(path, entry));
@@ -757,31 +766,13 @@ TEST_F(ImageLoaderTest, CancelPendingIsNoOp)
 
 // ---- ファイルロック回避テスト ----
 
-TEST_F(ImageLoaderTest, FileNotLockedAfterSyncLoad)
-{
-    ASSERT_TRUE(CreateTestImage(L"lock_test.png", GUID_ContainerFormatPng, 64, 64));
-    auto path = GetTestImagePath(L"lock_test.png");
-
-    DiagramEntry entry;
-    ASSERT_TRUE(loader_.LoadImage(path, entry));
-
-    // 読み込み後、外部プロセスと同様に書き込みモードでファイルを開けること
-    HANDLE hFile = CreateFileW(path.c_str(), GENERIC_WRITE,
-                               0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    EXPECT_NE(hFile, INVALID_HANDLE_VALUE)
-        << "画像読み込み後にファイルが書き込みロックされている";
-    if (hFile != INVALID_HANDLE_VALUE) {
-        CloseHandle(hFile);
-    }
-}
-
 TEST_F(ImageLoaderTest, FileCanBeDeletedAfterLoad)
 {
     ASSERT_TRUE(CreateTestImage(L"deletable.png", GUID_ContainerFormatPng, 32, 32));
     auto path = GetTestImagePath(L"deletable.png");
 
     DiagramEntry entry;
-    ASSERT_TRUE(loader_.LoadImage(path, entry));
+    ASSERT_TRUE(LoadAndGet(path, entry));
 
     // 読み込み後にファイルを削除できること（ロックされていない証拠）
     std::error_code ec;
@@ -795,7 +786,7 @@ TEST_F(ImageLoaderTest, FileNotLockedAfterFailedLoad)
     const auto path = temp_dir_.Write(L"bad_lock.png", std::string_view("\x89PNG\r\n\x1a\n\x00\x00", 10));
 
     DiagramEntry entry;
-    loader_.LoadImage(path.wstring(), entry);
+    LoadAndGet(path.wstring(), entry);
 
     HANDLE hFile = CreateFileW(path.wstring().c_str(), GENERIC_WRITE,
                                0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -804,6 +795,59 @@ TEST_F(ImageLoaderTest, FileNotLockedAfterFailedLoad)
     if (hFile != INVALID_HANDLE_VALUE) {
         CloseHandle(hFile);
     }
+}
+
+// ---- 縮小デコード ----
+
+class WicDecodeTest : public ImageLoaderTest {
+protected:
+    std::optional<wic_util::DecodeResult> Decode(std::wstring_view filename)
+    {
+        ComPtr<IStream> stream;
+        if (FAILED(SHCreateStreamOnFileW(GetTestImagePath(filename).c_str(), STGM_READ, &stream))) {
+            return std::nullopt;
+        }
+        return wic_util::DecodeFromStream(wic_factory_.Get(), stream.Get());
+    }
+
+    static void ExpectPbgraOfSize(IWICBitmap* bitmap, UINT width, UINT height)
+    {
+        ASSERT_TRUE(bitmap);
+        UINT w = 0;
+        UINT h = 0;
+        ASSERT_TRUE(SUCCEEDED(bitmap->GetSize(&w, &h)));
+        EXPECT_EQ(w, width);
+        EXPECT_EQ(h, height);
+        WICPixelFormatGUID format{};
+        ASSERT_TRUE(SUCCEEDED(bitmap->GetPixelFormat(&format)));
+        EXPECT_TRUE(format == GUID_WICPixelFormat32bppPBGRA);
+    }
+};
+
+TEST_F(WicDecodeTest, JpegScalesFromOpaqueFrame)
+{
+    ASSERT_TRUE(CreateTestImage(L"scale.jpg", GUID_ContainerFormatJpeg, 400, 300));
+    const auto decoded = Decode(L"scale.jpg");
+    ASSERT_TRUE(decoded);
+    EXPECT_TRUE(decoded->opaque_frame);
+    ExpectPbgraOfSize(wic_util::DecodeToWicBitmap(wic_factory_.Get(), *decoded, { 100, 75 }).Get(), 100, 75);
+}
+
+TEST_F(WicDecodeTest, AlphaImageScalesAfterConversion)
+{
+    ASSERT_TRUE(CreateTestImage(L"scale.png", GUID_ContainerFormatPng, 400, 300));
+    const auto decoded = Decode(L"scale.png");
+    ASSERT_TRUE(decoded);
+    EXPECT_FALSE(decoded->opaque_frame);
+    ExpectPbgraOfSize(wic_util::DecodeToWicBitmap(wic_factory_.Get(), *decoded, { 100, 75 }).Get(), 100, 75);
+}
+
+TEST_F(WicDecodeTest, OriginalSizeKeepsPixels)
+{
+    ASSERT_TRUE(CreateTestImage(L"keep.jpg", GUID_ContainerFormatJpeg, 64, 32));
+    const auto decoded = Decode(L"keep.jpg");
+    ASSERT_TRUE(decoded);
+    ExpectPbgraOfSize(wic_util::DecodeToWicBitmap(wic_factory_.Get(), *decoded, { 64, 32 }).Get(), 64, 32);
 }
 
 // ============================================================
@@ -820,10 +864,11 @@ TEST_F(ImageLoaderDpiTest, At96DpiSizeEqualsPixels)
 
     ImageLoader loader;
     loader.Init(rt.Get());
+    loader.InitAsync(nullptr, 0, scheduler_);
 
     ASSERT_TRUE(CreateTestImage(L"test96.png", GUID_ContainerFormatPng, 200, 100));
     DiagramEntry entry;
-    EXPECT_TRUE(loader.LoadImage(GetTestImagePath(L"test96.png"), entry));
+    EXPECT_TRUE(LoadAndGet(loader, GetTestImagePath(L"test96.png"), entry));
     // 96 DPI: 1 pixel = 1 DIP
     EXPECT_FLOAT_EQ(entry.width, 200.0f);
     EXPECT_FLOAT_EQ(entry.height, 100.0f);
@@ -837,10 +882,11 @@ TEST_F(ImageLoaderDpiTest, At144DpiSizeDividedByScale)
 
     ImageLoader loader;
     loader.Init(rt.Get());
+    loader.InitAsync(nullptr, 0, scheduler_);
 
     ASSERT_TRUE(CreateTestImage(L"test144.png", GUID_ContainerFormatPng, 300, 150));
     DiagramEntry entry;
-    EXPECT_TRUE(loader.LoadImage(GetTestImagePath(L"test144.png"), entry));
+    EXPECT_TRUE(LoadAndGet(loader, GetTestImagePath(L"test144.png"), entry));
     // 300px / 1.5 = 200 DIP, 150px / 1.5 = 100 DIP
     EXPECT_NEAR(entry.width, 200.0f, 0.1f);
     EXPECT_NEAR(entry.height, 100.0f, 0.1f);
@@ -854,10 +900,11 @@ TEST_F(ImageLoaderDpiTest, At192DpiSizeDividedByScale)
 
     ImageLoader loader;
     loader.Init(rt.Get());
+    loader.InitAsync(nullptr, 0, scheduler_);
 
     ASSERT_TRUE(CreateTestImage(L"test192.png", GUID_ContainerFormatPng, 400, 200));
     DiagramEntry entry;
-    EXPECT_TRUE(loader.LoadImage(GetTestImagePath(L"test192.png"), entry));
+    EXPECT_TRUE(LoadAndGet(loader, GetTestImagePath(L"test192.png"), entry));
     // 400px / 2.0 = 200 DIP, 200px / 2.0 = 100 DIP
     EXPECT_FLOAT_EQ(entry.width, 200.0f);
     EXPECT_FLOAT_EQ(entry.height, 100.0f);
@@ -871,10 +918,11 @@ TEST_F(ImageLoaderDpiTest, At120DpiSizeDividedByScale)
 
     ImageLoader loader;
     loader.Init(rt.Get());
+    loader.InitAsync(nullptr, 0, scheduler_);
 
     ASSERT_TRUE(CreateTestImage(L"test120.png", GUID_ContainerFormatPng, 250, 100));
     DiagramEntry entry;
-    EXPECT_TRUE(loader.LoadImage(GetTestImagePath(L"test120.png"), entry));
+    EXPECT_TRUE(LoadAndGet(loader, GetTestImagePath(L"test120.png"), entry));
     // 250px / 1.25 = 200 DIP, 100px / 1.25 = 80 DIP
     EXPECT_NEAR(entry.width, 200.0f, 0.1f);
     EXPECT_NEAR(entry.height, 80.0f, 0.1f);
@@ -887,13 +935,14 @@ TEST_F(ImageLoaderDpiTest, CacheReturnsDipSize)
 
     ImageLoader loader;
     loader.Init(rt.Get());
+    loader.InitAsync(nullptr, 0, scheduler_);
 
     ASSERT_TRUE(CreateTestImage(L"cache_dpi.png", GUID_ContainerFormatPng, 300, 150));
     auto path = GetTestImagePath(L"cache_dpi.png");
 
-    // 1回目: LoadImage でキャッシュに格納
+    // 1回目: 読み込んでキャッシュに格納
     DiagramEntry entry1;
-    ASSERT_TRUE(loader.LoadImage(path, entry1));
+    ASSERT_TRUE(LoadAndGet(loader, path, entry1));
 
     // 2回目: キャッシュヒット — 同じ DIP サイズが返されること
     DiagramEntry entry2;
@@ -908,8 +957,6 @@ TEST_F(ImageLoaderDpiTest, CacheReturnsDipSize)
 
 class ImageLoaderAsyncTest : public ImageLoaderTest {
 protected:
-    TaskScheduler scheduler_;
-
     // コールバック発火を検知するためのカウンター
     static std::atomic<int> callback_count_;
 
@@ -922,16 +969,6 @@ protected:
     {
         ImageLoaderTest::SetUp();
         callback_count_.store(0);
-        scheduler_.Init(2);
-        // InitAsync にはウィンドウハンドルが必要だが、テストでは PostMessage を
-        // 受け取れないため HWND は nullptr で起動し、手動で ProcessCompletedDecodes を呼ぶ
-        loader_.InitAsync(nullptr, 0, scheduler_);
-    }
-
-    void TearDown() override
-    {
-        scheduler_.Shutdown();
-        ImageLoaderTest::TearDown();
     }
 
     // ProcessCompletedDecodes は失敗結果でも on_complete を呼ぶので、失敗の完了待ちにも使える。
@@ -973,11 +1010,8 @@ TEST_F(ImageLoaderAsyncTest, AsyncLoadPopulatesCache)
     ASSERT_TRUE(CreateTestImage(L"async.png", GUID_ContainerFormatPng, 120, 90));
     auto path = GetTestImagePath(L"async.png");
 
-    loader_.RequestLoadAsync(path, OnComplete);
-    ASSERT_TRUE(WaitForResults(1)) << "非同期読み込みが完了しなかった";
-
     DiagramEntry entry;
-    EXPECT_TRUE(loader_.GetCachedImage(path, entry));
+    ASSERT_TRUE(LoadAndGet(path, entry)) << "非同期読み込みが完了しなかった";
     EXPECT_TRUE(entry.bitmap);
     EXPECT_FLOAT_EQ(entry.width, 120.0f);
     EXPECT_FLOAT_EQ(entry.height, 90.0f);
@@ -1023,8 +1057,8 @@ TEST_F(ImageLoaderAsyncTest, FileNotLockedAfterAsyncLoad)
     ASSERT_TRUE(CreateTestImage(L"async_lock.png", GUID_ContainerFormatPng, 80, 60));
     auto path = GetTestImagePath(L"async_lock.png");
 
-    loader_.RequestLoadAsync(path, OnComplete);
-    ASSERT_TRUE(WaitForResults(1)) << "非同期読み込みが完了しなかった";
+    DiagramEntry entry;
+    ASSERT_TRUE(LoadAndGet(path, entry)) << "非同期読み込みが完了しなかった";
 
     // 非同期読み込み完了後、書き込みモードでファイルを開けること
     HANDLE hFile = CreateFileW(path.c_str(), GENERIC_WRITE,
@@ -1052,11 +1086,8 @@ TEST_F(ImageLoaderAsyncTest, AsyncLoadReturnsDipSizeAt150Percent)
     ASSERT_TRUE(CreateTestImage(L"async_dpi.png", GUID_ContainerFormatPng, 300, 150));
     auto path = GetTestImagePath(L"async_dpi.png");
 
-    loader_.RequestLoadAsync(path, OnComplete);
-    ASSERT_TRUE(WaitForResults(1)) << "非同期読み込みが完了しなかった";
-
     DiagramEntry entry;
-    EXPECT_TRUE(loader_.GetCachedImage(path, entry));
+    ASSERT_TRUE(LoadAndGet(path, entry)) << "非同期読み込みが完了しなかった";
     EXPECT_TRUE(entry.bitmap);
     // 300px / 1.5 = 200 DIP, 150px / 1.5 = 100 DIP
     EXPECT_NEAR(entry.width, 200.0f, 0.1f);
@@ -1138,7 +1169,6 @@ TEST_F(ImageLoaderAsyncTest, ReinitAfterShutdownWithHeavyLoad)
     loader_.Shutdown();
     loader_.CancelPending();
     loader_.ClearCache();
-    callback_count_.store(0);
 
     // 再初期化
     loader_.InitAsync(nullptr, 0, scheduler_);
@@ -1147,11 +1177,8 @@ TEST_F(ImageLoaderAsyncTest, ReinitAfterShutdownWithHeavyLoad)
     ASSERT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, 77, 55));
     auto path = GetTestImagePath(name);
 
-    loader_.RequestLoadAsync(path, OnComplete);
-    ASSERT_TRUE(WaitForResults(1)) << "再初期化後の非同期読み込みが完了しなかった";
-
     DiagramEntry entry;
-    EXPECT_TRUE(loader_.GetCachedImage(path, entry));
+    ASSERT_TRUE(LoadAndGet(path, entry)) << "再初期化後の非同期読み込みが完了しなかった";
     EXPECT_FLOAT_EQ(entry.width, 77.0f);
     EXPECT_FLOAT_EQ(entry.height, 55.0f);
 }
@@ -1216,16 +1243,12 @@ TEST_F(ImageLoaderAsyncTest, CancelPendingClearsFailedPaths)
 
     // CancelPending でクリア
     loader_.CancelPending();
-    callback_count_.store(0);
 
     // 実在するファイルを同じパスに作成 → リトライが成功すること
     ASSERT_TRUE(CreateTestImage(L"fail_then_clear.png", GUID_ContainerFormatPng, 40, 30));
 
-    loader_.RequestLoadAsync(path, OnComplete);
-    ASSERT_TRUE(WaitForResults(1)) << "CancelPending 後のリトライが完了しなかった";
-
     DiagramEntry entry;
-    EXPECT_TRUE(loader_.GetCachedImage(path, entry));
+    ASSERT_TRUE(LoadAndGet(path, entry)) << "CancelPending 後のリトライが完了しなかった";
     EXPECT_FLOAT_EQ(entry.width, 40.0f);
     EXPECT_FLOAT_EQ(entry.height, 30.0f);
 }
@@ -1239,15 +1262,11 @@ TEST_F(ImageLoaderAsyncTest, ClearCacheAlsoClearsFailedPaths)
 
     // ClearCache でもクリアされること
     loader_.ClearCache();
-    callback_count_.store(0);
 
     ASSERT_TRUE(CreateTestImage(L"fail_then_clearcache.png", GUID_ContainerFormatPng, 55, 45));
 
-    loader_.RequestLoadAsync(path, OnComplete);
-    ASSERT_TRUE(WaitForResults(1)) << "ClearCache 後のリトライが完了しなかった";
-
     DiagramEntry entry;
-    EXPECT_TRUE(loader_.GetCachedImage(path, entry));
+    ASSERT_TRUE(LoadAndGet(path, entry)) << "ClearCache 後のリトライが完了しなかった";
     EXPECT_FLOAT_EQ(entry.width, 55.0f);
     EXPECT_FLOAT_EQ(entry.height, 45.0f);
 }
@@ -1261,14 +1280,10 @@ TEST_F(ImageLoaderAsyncTest, TransientFailureRetries)
 
     // ファイルを作成（一時障害から復帰を模擬）
     ASSERT_TRUE(CreateTestImage(L"transient.png", GUID_ContainerFormatPng, 70, 50));
-    callback_count_.store(0);
 
     // 2回目: リトライが許可され、今度は成功すること
-    loader_.RequestLoadAsync(path, OnComplete);
-    ASSERT_TRUE(WaitForResults(1)) << "一時障害後のリトライが成功しなかった";
-
     DiagramEntry entry;
-    EXPECT_TRUE(loader_.GetCachedImage(path, entry));
+    ASSERT_TRUE(LoadAndGet(path, entry)) << "一時障害後のリトライが成功しなかった";
     EXPECT_FLOAT_EQ(entry.width, 70.0f);
     EXPECT_FLOAT_EQ(entry.height, 50.0f);
 }
@@ -1282,15 +1297,11 @@ TEST_F(ImageLoaderAsyncTest, ResetFailedPathsAllowsRetry)
 
     // ResetFailedPaths でクリア
     loader_.ResetFailedPaths();
-    callback_count_.store(0);
 
     ASSERT_TRUE(CreateTestImage(L"reset_failed.png", GUID_ContainerFormatPng, 33, 22));
 
-    loader_.RequestLoadAsync(path, OnComplete);
-    ASSERT_TRUE(WaitForResults(1)) << "ResetFailedPaths 後のリトライが完了しなかった";
-
     DiagramEntry entry;
-    EXPECT_TRUE(loader_.GetCachedImage(path, entry));
+    ASSERT_TRUE(LoadAndGet(path, entry)) << "ResetFailedPaths 後のリトライが完了しなかった";
     EXPECT_FLOAT_EQ(entry.width, 33.0f);
     EXPECT_FLOAT_EQ(entry.height, 22.0f);
 }
@@ -1329,11 +1340,8 @@ TEST_F(ImageLoaderAsyncTest, AsyncLoadedBitmapIsUploadedFromDecodedPixels)
     ASSERT_TRUE(CreateTestImage(L"decoded.png", GUID_ContainerFormatPng, 64, 32));
     auto path = GetTestImagePath(L"decoded.png");
 
-    loader_.RequestLoadAsync(path, OnComplete);
-    ASSERT_TRUE(WaitForResults(1));
-
     DiagramEntry entry;
-    ASSERT_TRUE(loader_.GetCachedImage(path, entry));
+    ASSERT_TRUE(LoadAndGet(path, entry));
     ASSERT_TRUE(entry.bitmap);
     const auto px = entry.bitmap->GetPixelSize();
     EXPECT_EQ(px.width, 64u);

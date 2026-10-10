@@ -24,7 +24,7 @@ public:
 
     ~ImageLoader();
 
-    // 失敗時 false; 以降の LoadImage / RequestLoadAsync は no-op。
+    // 失敗時 false; 以降の RequestLoadAsync はデコードせず失敗扱いになる。
     bool Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic = nullptr);
     // **UI スレッドからのみ呼び出すこと**。worker は render_target_ を非アトミック参照する
     // (ProcessCompletedDecodes 経由)。デバイスロスト後の rt 差し替えは CancelPending() で
@@ -36,8 +36,7 @@ public:
     }
 
     void InitAsync(HWND hwnd, UINT msg_id, TaskScheduler& scheduler);
-    bool LoadImage(const std::wstring& abs_path, DiagramEntry& out);
-    bool GetCachedImage(const std::wstring& abs_path, DiagramEntry& out) const;
+    bool GetCachedImage(const std::wstring& abs_path, DiagramEntry& out);
     void RequestLoadAsync(const std::wstring& abs_path, Callback on_complete);
     void ProcessCompletedDecodes();
     void CancelPending();
@@ -76,11 +75,10 @@ private:
         Callback on_complete;
     };
 
-    static void CopyTo(const CachedImage& cached, DiagramEntry& out);
     // worker で呼ぶ。失敗時は result.bitmap を null のまま残す。
     void DecodeForDisplay(const std::wstring& path, DecodeResult& result) const;
-    // 物理 px を DIP に換算してキャッシュし、DIP 寸法を返す。
-    std::pair<float, float> CacheBitmap(const std::wstring& path, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap, UINT pixel_width, UINT pixel_height);
+    // 物理 px を DIP に換算してキャッシュする。
+    void CacheBitmap(const std::wstring& path, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap, float pixel_width, float pixel_height);
 
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
     static constexpr size_t MAX_CACHE_BYTES = 128u * 1024 * 1024;
