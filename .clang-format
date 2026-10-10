@@ -53,6 +53,7 @@ PointerAlignment: Left
 
 # その他
 SortIncludes: Never
+LineEnding: LF
 
 # 追加カスタマイズ
 LambdaBodyIndentation: OuterScope
