@@ -36,6 +36,9 @@ endif()
 option(MENDO_USE_TRACY "Build with Tracy profiler client" OFF)
 
 include(FetchContent)
+# URL 取得の展開ファイルを展開時刻にする。アーカイブの時刻のままだと
+# 版更新時に既存のオブジェクトが再ビルドされず新旧が混在する。
+cmake_policy(SET CMP0135 NEW)
 if(MENDO_USE_TRACY)
     # Tracy v0.13.1 のソース取得（add_subdirectory 相当）。
     # TRACY_ENABLE はクライアント側計装の有効化スイッチで、Tracy の CMakeLists
