@@ -135,7 +135,7 @@ build/tests/Release/mendo_tests.exe
 
 ### Build with Tracy Profiler (developers)
 
-Embeds [Tracy](https://github.com/wolfpld/tracy) v0.13.1 for frame timing, zone tracing, and counter time-series plots. Tracy is built in `TRACY_ON_DEMAND` mode, so instrumentation is a no-op until a Tracy GUI client connects.
+Embeds [Tracy](https://github.com/wolfpld/tracy) v0.14.1 for frame timing, zone tracing, and counter time-series plots. Tracy is built in `TRACY_ON_DEMAND` mode, so instrumentation is a no-op until a Tracy GUI client connects.
 
 ```
 cmake -B build_tracy -DMENDO_USE_TRACY=ON

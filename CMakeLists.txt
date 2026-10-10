@@ -36,8 +36,11 @@ endif()
 option(MENDO_USE_TRACY "Build with Tracy profiler client" OFF)
 
 include(FetchContent)
+# URL 取得の展開ファイルを展開時刻にする。アーカイブの時刻のままだと
+# 版更新時に既存のオブジェクトが再ビルドされず新旧が混在する。
+cmake_policy(SET CMP0135 NEW)
 if(MENDO_USE_TRACY)
-    # Tracy v0.13.1 のソース取得（add_subdirectory 相当）。
+    # Tracy v0.14.1 のソース取得（add_subdirectory 相当）。
     # TRACY_ENABLE はクライアント側計装の有効化スイッチで、Tracy の CMakeLists
     # 内で TracyClient のコンパイル定義として伝播する。
     # TRACY_ON_DEMAND は Tracy GUI が接続するまで計測バッファを溜めない設定。
@@ -47,7 +50,7 @@ if(MENDO_USE_TRACY)
     set(TRACY_STATIC    ON CACHE BOOL "" FORCE)
     FetchContent_Declare(
         tracy
-        URL https://github.com/wolfpld/tracy/archive/refs/tags/v0.13.1.tar.gz
+        URL https://github.com/wolfpld/tracy/archive/refs/tags/v0.14.1.tar.gz
     )
     FetchContent_MakeAvailable(tracy)
     # CRT 設定をプロジェクト全体と揃える（/MT[d]）。
