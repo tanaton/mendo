@@ -115,14 +115,14 @@ IN THE SOFTWARE.
 - **Description**: Frame profiler for games and other real-time applications
 - **Website**: https://github.com/wolfpld/tracy
 - **License**: BSD 3-Clause
-- **Obtained via**: CMake FetchContent (v0.13.1)
+- **Obtained via**: CMake FetchContent (v0.14.1)
 - **Usage**: Optional, opt-in via `-DMENDO_USE_TRACY=ON` (not included in default release binary)
 
 ```
 Tracy Profiler (https://github.com/wolfpld/tracy) is licensed under the
 3-clause BSD license.
 
-Copyright (c) 2017-2025, Bartosz Taudul <wolf@nereid.pl>
+Copyright (c) 2017-2026, Bartosz Taudul <wolf@nereid.pl>
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without

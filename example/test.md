@@ -2914,7 +2914,7 @@ cmake --build build --config Release
 **Tracy プロファイラ有効化（既定 OFF）:**
 
 ```bash
-cmake -B build -DMENDO_USE_TRACY=ON   # Tracy v0.13.1 を FetchContent で取得
+cmake -B build -DMENDO_USE_TRACY=ON   # Tracy v0.14.1 を FetchContent で取得
 ```
 
 **テスト実行:**
