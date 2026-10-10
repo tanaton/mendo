@@ -116,3 +116,22 @@ TEST(GetBlockHScrollGeometry, IndentReducesVisibleWidth)
     const auto g = GetBlockHScrollGeometry(node, entry, theme, kPaneWidth);
     EXPECT_FLOAT_EQ(g.visible_width, theme.ContentWidth(kPaneWidth) - 2 * theme.indent_width);
 }
+
+// ─────────────────────────────────────────────
+// BlockHScrollGeometry::ClampScrollX
+// ─────────────────────────────────────────────
+
+TEST(BlockHScrollGeometry, ClampScrollXClampsToScrollableRange)
+{
+    constexpr BlockHScrollGeometry g{ .natural_width = 300.0f, .visible_width = 100.0f };
+    EXPECT_FLOAT_EQ(g.ClampScrollX(-10.0f), 0.0f);
+    EXPECT_FLOAT_EQ(g.ClampScrollX(50.0f), 50.0f);
+    EXPECT_FLOAT_EQ(g.ClampScrollX(500.0f), 200.0f);
+}
+
+// 幅が広がって収まるようになったブロックは、以前のスクロール位置を残さない。
+TEST(BlockHScrollGeometry, ClampScrollXIsZeroWhenNotScrollable)
+{
+    constexpr BlockHScrollGeometry g{ .natural_width = 100.0f, .visible_width = 300.0f };
+    EXPECT_FLOAT_EQ(g.ClampScrollX(80.0f), 0.0f);
+}

@@ -508,3 +508,30 @@ TEST(ViewportManagerTest, ScrollRestoreTargetCompensationAfterHeightChange)
     // scroll_yが100増加して360になるべき（ノード5が350に移動+オフセット10）
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 360.0f);
 }
+
+// ---- ClampAndDetach / 位置未確定キャッシュ ----
+
+TEST(ViewportManagerTest, ClampAndDetachClampsAndClearsTarget)
+{
+    ViewportManager vm;
+    vm.SyncMaxScroll(1000.0f, 500.0f);
+    vm.SetScrollY(800.0f);
+    vm.SetScrollTarget(3, 10.0f);
+
+    vm.ClampAndDetach();
+
+    EXPECT_FLOAT_EQ(vm.GetScrollY(), 500.0f);
+    EXPECT_FALSE(vm.HasScrollTarget());
+}
+
+// Reset 直後のキャッシュから見ている位置を合成すると誤ったノードへ飛ぶので、合成しない。
+TEST(ViewportManagerTest, EnsureScrollTargetSkipsFreshCache)
+{
+    LayoutCache cache;
+    cache.Reset(5);
+    ViewportManager vm;
+
+    EXPECT_EQ(vm.FindFirstVisibleNode(cache, 5), -1);
+    vm.EnsureScrollTarget(cache, 5);
+    EXPECT_FALSE(vm.HasScrollTarget());
+}

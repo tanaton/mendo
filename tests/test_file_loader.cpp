@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "file_loader.h"
 #include "file_watcher.h"
+#include "i18n.h"
 #include "test_helpers.h"
 
 class FileLoaderTest : public TempDirTestBase {
@@ -263,4 +264,21 @@ TEST_F(FileLoaderTest, GetEventHandleNullAfterStopWatching)
     EXPECT_NE(watcher.GetEventHandle(), nullptr);
     watcher.StopWatching();
     EXPECT_EQ(watcher.GetEventHandle(), nullptr);
+}
+
+// ---- FileLoadErrorMessage ----
+
+TEST(FileLoadErrorMessageTest, MapsEachErrorToToastText)
+{
+    const auto& s = i18n::kJa;
+    EXPECT_EQ(FileLoadErrorMessage(FileLoadError::NotFound, s), s.toast_file_not_found);
+    EXPECT_EQ(FileLoadErrorMessage(FileLoadError::TooLarge, s), s.toast_file_too_large);
+    EXPECT_EQ(FileLoadErrorMessage(FileLoadError::ReadFailed, s), s.toast_file_read_failed);
+}
+
+// キャンセルはユーザー操作 (別ファイルへの切り替え等) の結果なのでトーストを出さない。
+TEST(FileLoadErrorMessageTest, CancelledHasNoMessage)
+{
+    EXPECT_TRUE(FileLoadErrorMessage(FileLoadError::Cancelled, i18n::kJa).empty());
+    EXPECT_TRUE(FileLoadErrorMessage(FileLoadError::Cancelled, i18n::kEn).empty());
 }

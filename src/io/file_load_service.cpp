@@ -1,5 +1,6 @@
 #include "file_load_service.h"
 #include "document_service.h"
+#include "theme.h"
 
 void FileLoadService::StartLoading(std::pmr::wstring path)
 {
@@ -12,17 +13,10 @@ void FileLoadService::StopLoading() noexcept
     animation_.End();
 }
 
-std::expected<void, FileLoadError> FileLoadService::ExecuteLoad(Document& doc, LayoutCache& cache)
+std::expected<Document, FileLoadError> FileLoadService::ExecuteLoad()
 {
     StopLoading();
-
-    auto result = DocumentService::LoadFile(loading_path_);
-    if (!result) {
-        return std::unexpected(result.error());
-    }
-    doc = std::move(*result);
-    cache.Reset(doc.GetNodes().size());
-    return {};
+    return DocumentService::LoadFile(loading_path_);
 }
 
 void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, const Theme& theme,
@@ -51,8 +45,8 @@ std::optional<FileLoadError> FileLoadService::TakeAsyncError() noexcept
     return coordinator_.TakeError();
 }
 
-void FileLoadService::StartPreloadAsync(std::pmr::wstring path)
+void FileLoadService::StartPreloadAsync(std::pmr::wstring path, Theme theme)
 {
     loading_path_ = path;
-    preloader_.Start(std::move(path));
+    preloader_.Start(std::move(path), std::move(theme));
 }

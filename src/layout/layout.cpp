@@ -54,7 +54,13 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     size_t start = 0;
     if (!width_changed && partial) {
         start = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, node_count, vp.top));
-        if (start > 0 && start < node_count) {
+        // 未推定のキャッシュ (位置が全て 0) では可視ノードが見つからず、省くと何も計測されない。
+        // 表示経路は MakeEstimatedLayoutCache 済みだが、空白表示を防ぐ安全網として先頭から組み直す。
+        // 位置確定済みで末尾より下を見ているだけなら全件走査を避けるため従来どおり省く。
+        if (start >= node_count && node_count > 0 && cache.Bottom(node_count - 1) <= 0.0f) {
+            start = 0;
+        }
+        else if (start > 0 && start < node_count) {
             y = mendo::layout::NodeStartY(nodes, cache, *theme_, start);
             // 上側の dirty は走査しないので保守的に仮定する。
             any_dirty = true;

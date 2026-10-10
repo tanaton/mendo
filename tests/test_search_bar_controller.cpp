@@ -437,3 +437,18 @@ TEST_F(SearchBarControllerTest, ScrollToMatchNoOpWhenAlreadyVisible)
     ctrl_.OnNext();
     EXPECT_FLOAT_EQ(viewport_.GetScrollY(), before);
 }
+
+// ---- 検索欄の選択範囲を LPARAM に詰める ----
+
+TEST(SearchSelectionLParamTest, RoundTripsAnchorAndCaret)
+{
+    const std::pair<int, int> kCases[] = {
+        { 0, 0 }, { 3, 7 }, { 7, 3 }, { -1, 5 }, { 5, -1 }, { INT_MAX, INT_MIN },
+    };
+    for (const auto& [anchor, caret] : kCases) {
+        SCOPED_TRACE(::testing::Message() << anchor << "," << caret);
+        const auto [a, c] = app_param::UnpackSearchSelectionLParam(app_param::MakeSearchSelectionLParam(anchor, caret));
+        EXPECT_EQ(a, anchor);
+        EXPECT_EQ(c, caret);
+    }
+}

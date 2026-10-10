@@ -74,10 +74,8 @@ TEST_F(FileLoadServiceTest, SetLoadingPath)
 
 TEST_F(FileLoadServiceTest, ExecuteLoadNonexistentFile)
 {
-    Document doc;
-    LayoutCache cache;
     service_.SetLoadingPath(L"nonexistent_file.md");
-    auto result = service_.ExecuteLoad(doc, cache);
+    auto result = service_.ExecuteLoad();
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), FileLoadError::NotFound);
     EXPECT_FALSE(service_.IsLoading());
@@ -88,9 +86,7 @@ TEST_F(FileLoadServiceTest, LoadStopsAnimation)
     service_.StartLoading(L"nonexistent.md");
     EXPECT_TRUE(service_.IsLoading());
 
-    Document doc;
-    LayoutCache cache;
-    (void)service_.ExecuteLoad(doc, cache);
+    (void)service_.ExecuteLoad();
     EXPECT_FALSE(service_.IsLoading());
 }
 
@@ -132,7 +128,7 @@ TEST_F(FileLoadServicePreloadTest, StartAsyncLoadCancelsPreloadResult)
     TempFile preload_file(L"fls_preload", "# preload doc\n");
     TempFile new_file(L"fls_newload", "# new doc\n");
 
-    service_.StartPreloadAsync(preload_file.PmrPath());
+    service_.StartPreloadAsync(preload_file.PmrPath(), GetLightTheme());
     ASSERT_TRUE(PollUntil([&] { return service_.PreloadPublishedForTest(); }));
 
     service_.SetLoadingPath(new_file.PmrPath());

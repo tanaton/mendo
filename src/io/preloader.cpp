@@ -1,5 +1,6 @@
 #include "preloader.h"
 #include "document_service.h"
+#include "layout_computer.h"
 #include "profiler.h"
 #include <utility>
 
@@ -8,7 +9,7 @@ Preloader::~Preloader()
     Join();
 }
 
-void Preloader::Start(std::pmr::wstring path)
+void Preloader::Start(std::pmr::wstring path, Theme theme)
 {
     // 二重呼び出し防御: 前回 worker を回収し ctx_ も差し替える。
     Join();
@@ -16,9 +17,7 @@ void Preloader::Start(std::pmr::wstring path)
     auto ctx = std::make_shared<Context>();
     ctx_ = ctx;
 
-    // EstimateNodeHeights は Theme 依存のためここでは行わず、OnParseComplete 経由で
-    // FinishLoadMarkdownFile が後で実行する。
-    thread_ = std::jthread([this, ctx, path = std::move(path)](std::stop_token st) mutable {
+    thread_ = std::jthread([this, ctx, path = std::move(path), theme = std::move(theme)](std::stop_token st) mutable {
         MENDO_PROFILE("Preload::worker");
 
         // stop_token なしだと Parse 完走まで終了時の join が数百 ms ブロックする。
@@ -28,7 +27,7 @@ void Preloader::Start(std::pmr::wstring path)
         }
         LayoutCache cache;
         if (load_result) {
-            cache.Reset(load_result->GetNodes().size(), /* shrink = */ false);
+            cache = mendo::layout::MakeEstimatedLayoutCache(load_result->GetNodes(), theme, st);
         }
         {
             const std::lock_guard lock(sink_mutex_);
@@ -38,7 +37,7 @@ void Preloader::Start(std::pmr::wstring path)
                 return;
             }
             if (load_result) {
-                result_.emplace(AsyncLoadResult{ std::move(*load_result), std::move(cache), /* heights_estimated = */ false });
+                result_.emplace(AsyncLoadResult{ std::move(*load_result), std::move(cache) });
             }
             else {
                 error_ = load_result.error();
@@ -92,15 +91,6 @@ Preloader::AttachResult Preloader::AttachOrApply(HWND hwnd, UINT msg_id)
     return AttachResult::AttachedAsync;
 }
 
-void Preloader::FinalizeIfDrained(bool taken)
-{
-    if (taken && thread_.joinable()) {
-        // AttachedAsync 経路: worker は PostMessage 直後に return するため即 join できる。
-        thread_.join();
-        ctx_.reset();
-    }
-}
-
 template <class Opt>
 Opt Preloader::TakeFromSink(Opt& sink)
 {
@@ -109,7 +99,11 @@ Opt Preloader::TakeFromSink(Opt& sink)
         const std::lock_guard lock(sink_mutex_);
         out = std::exchange(sink, std::nullopt);
     }
-    FinalizeIfDrained(out.has_value());
+    // Attach 前に取り出されると worker は hwnd 待ちのままなので、stop で起こしてから join する
+    // (結果は取り出し済みなので PostMessage は不要)。ctx_ も解放して IsActive() を false にする。
+    if (out) {
+        Join();
+    }
     return out;
 }
 

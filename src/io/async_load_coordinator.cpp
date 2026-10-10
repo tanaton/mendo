@@ -104,15 +104,13 @@ void AsyncLoadCoordinator::RunWorker(const std::pmr::wstring& path, uint32_t gen
         return;
     }
 
-    LayoutCache cache;
-    cache.Reset(doc.GetNodes().size(), /* shrink = */ false);
-    EstimateNodeHeights(doc.GetNodes(), cache, theme, stop_token);
+    LayoutCache cache = mendo::layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme, stop_token);
     if (stop_token.stop_requested()) {
         return;
     }
 
     publish([&] {
-        result_.emplace(AsyncLoadResult{ std::move(doc), std::move(cache), /* heights_estimated = */ true, std::move(reload) });
+        result_.emplace(AsyncLoadResult{ std::move(doc), std::move(cache), std::move(reload) });
     });
 }
 

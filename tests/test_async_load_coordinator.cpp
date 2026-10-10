@@ -76,7 +76,8 @@ TEST_F(AsyncLoadCoordinatorTest, SuccessfulLoadProducesResult)
     std::optional<AsyncLoadResult> result;
     PollUntil([&] { result = c.TakeResult(); return result.has_value(); });
     ASSERT_TRUE(result.has_value());
-    EXPECT_TRUE(result->heights_estimated);
+    EXPECT_EQ(result->cache.size(), result->doc.GetNodes().size());
+    EXPECT_GT(result->cache.Top(0), 0.0f);
     EXPECT_FALSE(result->doc.IsEmpty());
     EXPECT_FALSE(c.IsActive());
 }
@@ -161,7 +162,8 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadWithChangeParsesAndCarriesDecision)
     EXPECT_EQ(result->reload->decision.op, ReloadOp::FullReload);
     EXPECT_EQ(result->reload->decision.diff_pos, 9u);
     EXPECT_FALSE(result->doc.IsEmpty());
-    EXPECT_TRUE(result->heights_estimated);
+    EXPECT_EQ(result->cache.size(), result->doc.GetNodes().size());
+    EXPECT_GT(result->cache.Top(0), 0.0f);
     EXPECT_EQ(result->reload->loaded_byte_size, result->doc.GetLoadedByteSize());
 }
 

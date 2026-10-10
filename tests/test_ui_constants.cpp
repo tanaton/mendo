@@ -381,3 +381,67 @@ TEST(PaneHeaderTextRectTest, NeverInvertedNorOverlapsButtonsAtAnyWidth)
         }
     }
 }
+
+// ═══════════════════════════════════════════════
+// DPI 変換
+// ═══════════════════════════════════════════════
+
+// DPI 未初期化 (0) で 0 除算や 0 倍にならないよう等倍に倒す。
+TEST(DpiScaleFromTest, NonPositiveDpiFallsBackToOne)
+{
+    EXPECT_FLOAT_EQ(DpiScaleFrom(0.0f), 1.0f);
+    EXPECT_FLOAT_EQ(DpiScaleFrom(-96.0f), 1.0f);
+    EXPECT_FLOAT_EQ(DpiScaleFrom(96.0f), 1.0f);
+    EXPECT_FLOAT_EQ(DpiScaleFrom(144.0f), 1.5f);
+}
+
+TEST(DipToPixelTest, FloorAndCeilVariants)
+{
+    EXPECT_EQ(DipToPixel(10.0f, 1.5f), 15);
+    EXPECT_EQ(DipToPixel(10.1f, 1.5f), 15);
+    EXPECT_EQ(DipToPixelCeil(10.1f, 1.5f), 16);
+    EXPECT_EQ(DipToPixelCeil(10.0f, 1.5f), 15);
+}
+
+TEST(PixelToDipTest, DividesByScale)
+{
+    const auto p = PixelToDip(300, 150, 1.5f);
+    EXPECT_FLOAT_EQ(p.x, 200.0f);
+    EXPECT_FLOAT_EQ(p.y, 100.0f);
+}
+
+// ═══════════════════════════════════════════════
+// ブロック横スクロールバー
+// ═══════════════════════════════════════════════
+
+TEST(BlockHScrollbarThumbWidthTest, ProportionalToVisibleRatio)
+{
+    EXPECT_FLOAT_EQ(BlockHScrollbarThumbWidth(200.0f, 400.0f), 100.0f);
+}
+
+TEST(BlockHScrollbarThumbWidthTest, ClampedToMinimumAndVisibleWidth)
+{
+    EXPECT_FLOAT_EQ(BlockHScrollbarThumbWidth(200.0f, 100000.0f), PANE_SCROLLBAR_THUMB_MIN);
+    EXPECT_FLOAT_EQ(BlockHScrollbarThumbWidth(200.0f, 100.0f), 200.0f);
+}
+
+TEST(BlockHScrollbarThumbWidthTest, NonPositiveNaturalWidthIsZero)
+{
+    EXPECT_FLOAT_EQ(BlockHScrollbarThumbWidth(200.0f, 0.0f), 0.0f);
+    EXPECT_FLOAT_EQ(BlockHScrollbarThumbWidth(200.0f, -1.0f), 0.0f);
+}
+
+// バーはブロック下端の内側に収まり、ヒット矩形はバーを上下に広げたもの。
+TEST(BlockHScrollbarGeometryTest, BarInsideBlockAndHitRectContainsBar)
+{
+    const float bar_y = BlockHScrollbarBarY(100.0f, 50.0f, 0.0f);
+    EXPECT_LT(bar_y, 150.0f);
+    EXPECT_LE(bar_y + PANE_SCROLLBAR_WIDTH, 150.0f);
+    EXPECT_FLOAT_EQ(BlockHScrollbarBarY(100.0f, 50.0f, 8.0f), bar_y + 8.0f);
+
+    const auto hit = BlockHScrollbarHitRect(20.0f, 300.0f, bar_y);
+    EXPECT_FLOAT_EQ(hit.left, 20.0f);
+    EXPECT_FLOAT_EQ(hit.right, 320.0f);
+    EXPECT_LT(hit.top, bar_y);
+    EXPECT_GT(hit.bottom, bar_y + PANE_SCROLLBAR_WIDTH);
+}

@@ -280,3 +280,28 @@ TEST_F(FileIoTest, AtomicWrite_ZeroBytesProducesEmptyFile)
     EXPECT_EQ(fs::file_size(path), 0u);
     EXPECT_FALSE(fs::exists(tmp));
 }
+
+// ---- path_util::TrimTrailingSeparators ----
+
+TEST(TrimTrailingSeparatorsTest, RemovesTrailingSeparatorsButKeepsDriveRoot)
+{
+    struct Case {
+        std::wstring_view path;
+        std::wstring_view expected;
+    };
+    constexpr Case kCases[] = {
+        { L"C:\\docs", L"C:\\docs" },
+        { L"C:\\docs\\", L"C:\\docs" },
+        { L"C:\\docs\\\\", L"C:\\docs" },
+        { L"C:/docs/", L"C:/docs" },
+        { L"C:\\docs/\\", L"C:\\docs" },
+        // ルートの区切りは残す ("C:" はカレントディレクトリ相対の別の意味になる)
+        { L"C:\\", L"C:\\" },
+        { L"C:\\\\", L"C:\\" },
+        { L"", L"" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
+        EXPECT_EQ(path_util::TrimTrailingSeparators(c.path), c.expected);
+    }
+}
