@@ -75,14 +75,14 @@ constexpr float BlockHScrollbarThumbWidth(float visible_width, float natural_wid
     return std::clamp(raw, PANE_SCROLLBAR_THUMB_MIN, visible_width);
 }
 
-// バーのヒット矩形 (スクリーン座標系)。クリック判定 / 描画位置の式を一元化する。
-inline D2D1_RECT_F BlockHScrollbarHitRect(float block_x_screen, float visible_width, float bar_y_screen) noexcept
+// バーのヒット矩形 (block_x / bar_y と同じ座標系)。クリック判定 / 描画位置の式を一元化する。
+inline D2D1_RECT_F BlockHScrollbarHitRect(float block_x, float visible_width, float bar_y) noexcept
 {
     return D2D1::RectF(
-        block_x_screen,
-        bar_y_screen - PANE_SCROLLBAR_HIT_PADDING,
-        block_x_screen + visible_width,
-        bar_y_screen + PANE_SCROLLBAR_WIDTH + PANE_SCROLLBAR_HIT_PADDING);
+        block_x,
+        bar_y - PANE_SCROLLBAR_HIT_PADDING,
+        block_x + visible_width,
+        bar_y + PANE_SCROLLBAR_WIDTH + PANE_SCROLLBAR_HIT_PADDING);
 }
 
 // ナビゲーションオーバーレイボタンの定数（DIP単位）。

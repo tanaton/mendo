@@ -20,15 +20,20 @@ MdPaneHitContext App::BuildMdPaneHitContext(int px, int py, const PaneLayout& pa
 {
     const auto& theme = renderer_.GetTheme();
     return MdPaneHitContext{
-        state_.document.doc.GetNodes(), state_.document.layout_cache, theme,
-        state_.view.viewport.GetScrollY(), pane_layout.md_rect.x,
-        state_.window.cached_dpi_scale, px, py,
-        theme.ContentWidth(pane_layout.md_rect.width), pane_layout.md_rect.height,
-        &state_.view.block_scroll_x
+        .nodes = state_.document.doc.GetNodes(),
+        .cache = state_.document.layout_cache,
+        .theme = theme,
+        .scroll_y = state_.view.viewport.GetScrollY(),
+        .md_rect = pane_layout.md_rect,
+        .dpi_scale = state_.window.cached_dpi_scale,
+        .screen_x = px,
+        .screen_y = py,
+        .content_width = theme.ContentWidth(pane_layout.md_rect.width),
+        .block_scroll_x = &state_.view.block_scroll_x,
     };
 }
 
-std::optional<std::pmr::string> App::GetLinkAtHit(const HitResult& hit) const
+std::optional<std::string_view> App::GetLinkAtHit(const HitResult& hit) const
 {
     const auto& nodes = state_.document.doc.GetNodes();
     if (hit.node_index < 0 || hit.node_index >= static_cast<int>(nodes.size())) {

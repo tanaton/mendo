@@ -34,7 +34,7 @@ void ReduceSelectWord(AppState& state, SideEffectList& effects, const SelectWord
     }
     state.view.viewport.SetAnchor(a.node_index, wb.start);
     state.view.viewport.SetSelection(TextSelection::MakeOrdered(a.node_index, wb.start, a.node_index, wb.end));
-    PushEffect(effects, effect::InvalidateMdPane{});
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ReduceClearSelection(AppState& state, SideEffectList& effects)

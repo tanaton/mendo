@@ -53,6 +53,37 @@ TEST_F(FileExplorerTest, EmptyDirectoryHasParentOnly)
     EXPECT_EQ(std::wstring_view(entries[0].GetDisplayName()), L"..");
 }
 
+// ---- 遅延列挙 ----
+
+TEST_F(FileExplorerTest, SetDirectoryDefersListingUntilGetEntries)
+{
+    const auto current = (temp_dir_ / L"a.md").wstring();
+
+    FileExplorer explorer;
+    explorer.SetCurrentFile(current);
+    explorer.SetDirectory(temp_dir_.wstring());
+    WriteTempFile(L"a.md");
+
+    ASSERT_EQ(explorer.GetEntries().size(), 2u);
+    EXPECT_TRUE(explorer.GetEntries()[1].is_current());
+}
+
+TEST_F(FileExplorerTest, ListedOnceUntilRefresh)
+{
+    FileExplorer explorer;
+    explorer.SetDirectory(temp_dir_.wstring());
+    EXPECT_EQ(explorer.GetEntries().size(), 1u);
+    const uint32_t generation = explorer.GetGeneration();
+
+    WriteTempFile(L"new.md");
+    EXPECT_EQ(explorer.GetEntries().size(), 1u);
+    EXPECT_EQ(explorer.GetGeneration(), generation);
+
+    explorer.Refresh();
+    EXPECT_EQ(explorer.GetEntries().size(), 2u);
+    EXPECT_NE(explorer.GetGeneration(), generation);
+}
+
 // ---- Bug #23: パスの正規化（末尾のバックスラッシュ） ----
 
 TEST_F(FileExplorerTest, TrailingBackslashNormalized)

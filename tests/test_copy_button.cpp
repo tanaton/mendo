@@ -35,7 +35,7 @@ protected:
     int CopyNodeAt(const ParsedLayout& pr, int x, int y, float scroll_y = 0.0f, float pane_h = 2000.0f)
     {
         return hit_test_.CodeBlockButtonsHitTest(
-            { pr.nodes, pr.cache, theme_, scroll_y, 0.0f, 1.0f, x, y, ContentWidth(), pane_h }).copy_node;
+            { pr.nodes, pr.cache, theme_, scroll_y, PaneRect{ 0.0f, 0.0f, 0.0f, pane_h }, 1.0f, x, y, ContentWidth() }).copy_node;
     }
 };
 

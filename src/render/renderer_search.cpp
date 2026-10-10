@@ -25,7 +25,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
 
     rt()->DrawLine(D2D1::Point2F(bar_rect.left, sbl.bar_top), D2D1::Point2F(bar_rect.right, sbl.bar_top), Brush(BrushId::SearchBarBorder), 1.0f);
 
-    DrawTextWithOpacity(L"\uE721", fmt_.search_icon.Get(), sbl.icon_rect, BrushId::SearchInputText, 0.6f);
+    DrawIcon(L"\uE721", fmt_.search_icon.Get(), sbl.icon_rect, BrushId::SearchInputText, 0.6f);
 
     const D2D1_ROUNDED_RECT input_rrect = D2D1::RoundedRect(sbl.input_rect, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER);
     const bool no_match = !sb.query.empty() && sb.total_matches == 0;
@@ -188,7 +188,7 @@ void Renderer::DrawSearchBarButtons(const SearchBarRenderState& sb, const Search
         if (hovered) {
             rt()->FillRoundedRectangle(D2D1::RoundedRect(r, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER), Brush(BrushId::TitleBarButtonHover));
         }
-        DrawTextWithOpacity(icon, fmt_.search_icon.Get(), r, BrushId::SearchInputText, alpha);
+        DrawIcon(icon, fmt_.search_icon.Get(), r, BrushId::SearchInputText, alpha);
     };
 
     const auto draw_toggle_btn = [&](const D2D1_RECT_F& r, std::wstring_view label, IDWriteTextFormat* fmt, bool checked, bool hovered) {
@@ -197,7 +197,7 @@ void Renderer::DrawSearchBarButtons(const SearchBarRenderState& sb, const Search
                 D2D1::RoundedRect(r, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER),
                 Brush(checked ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover));
         }
-        DrawTextWithOpacity(label, fmt, r, BrushId::SearchInputText, checked ? 1.0f : 0.5f);
+        DrawIcon(label, fmt, r, BrushId::SearchInputText, checked ? 1.0f : 0.5f);
     };
 
     const float nav_alpha = sb.total_matches > 0 ? 1.0f : 0.3f;
@@ -213,7 +213,7 @@ void Renderer::DrawSearchBarButtons(const SearchBarRenderState& sb, const Search
                            ? std::format_to_n(count_text, kCountBufLen - 1, L"0")
                            : std::format_to_n(count_text, kCountBufLen - 1, L"{} / {}", sb.current_match + 1, sb.total_matches);
         const auto written = static_cast<size_t>(r.out - count_text);
-        DrawTextWithOpacity({ count_text, written }, fmt_.search_count.Get(), sbl.count_rect, BrushId::SearchInputText, 0.7f);
+        DrawCenteredText(search_count_layout_, { count_text, written }, fmt_.search_count.Get(), sbl.count_rect, BrushId::SearchInputText, 0.7f);
     }
 
     draw_toggle_btn(sbl.case_btn, L"Aa", fmt_.search_count.Get(), sb.case_sensitive, sb.hovered == SearchBarHitZone::CaseSensitive);

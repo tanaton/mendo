@@ -3,7 +3,7 @@
 #include <cstdint>
 
 // 描画系で使う固定色ブラシの ID。CommandExecutor は brushes_[BrushId::*] を
-// O(1) で配列ルックアップする。動的色のみ Custom を指定し brush_pool 経由になる。
+// O(1) で配列ルックアップする。動的色のみ Custom を指定しコマンドの color で描く。
 enum class BrushId : uint8_t {
     Text,
     Heading,
@@ -49,7 +49,7 @@ enum class BrushId : uint8_t {
     SearchHighlightCurrent,
     SearchNoMatchBg,
     Count,
-    // 動的色を意味するセンチネル。brush_pool 経由でブラシを解決する。
+    // 動的色を意味するセンチネル。
     Custom = 0xFF,
 };
 

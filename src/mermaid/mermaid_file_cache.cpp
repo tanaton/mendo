@@ -77,38 +77,31 @@ std::filesystem::path MermaidFileCache::GetIndexPath() const
 void MermaidFileCache::Init(float current_dpr, TaskScheduler& scheduler)
 {
     scheduler_ = &scheduler;
-    current_dpr_ = current_dpr;
-    if (cache_dir_.empty()) {
-        return;
-    }
-
-    std::error_code ec;
-    std::filesystem::create_directories(cache_dir_, ec);
-    if (ec) {
-        return;
-    }
-
-    LoadIndex();
-
     // DPR ごとに InternalKey() が別キーに振り分けるため、DPR 不一致でも消去せず
     // LRU で自然淘汰させる。
+    current_dpr_ = current_dpr;
+    index_.reset();
 }
 
-void MermaidFileCache::LoadIndex()
+MermaidFileCache::IndexState& MermaidFileCache::Index()
 {
-    index_.clear();
-    lru_order_.clear();
-    total_size_ = 0;
-    lru_seq_ = 0;
+    if (!index_) {
+        index_ = LoadIndex();
+    }
+    return *index_;
+}
 
+MermaidFileCache::IndexState MermaidFileCache::LoadIndex() const
+{
+    IndexState index;
     const auto path = GetIndexPath();
     if (path.empty()) {
-        return;
+        return index;
     }
 
     auto [buf, buf_size] = ReadAllBytes(path);
     if (!buf || buf_size < sizeof(IndexHeader)) {
-        return;
+        return index;
     }
 
     const uint8_t* p = buf.get();
@@ -117,14 +110,14 @@ void MermaidFileCache::LoadIndex()
     p += sizeof(header);
 
     if (header.magic != MAGIC || header.version != VERSION) {
-        return;
+        return index;
     }
     // 異常なエントリ数を拒否
     if (header.count > DEFAULT_MAX_ENTRIES * 2) {
-        return;
+        return index;
     }
 
-    index_.reserve(header.count);
+    index.entries.reserve(header.count);
 
     for (uint32_t i = 0; i < header.count; ++i) {
         if (static_cast<size_t>(p - buf.get()) + sizeof(IndexRecord) > buf_size) {
@@ -142,33 +135,39 @@ void MermaidFileCache::LoadIndex()
             continue;
         }
 
-        AddIndexEntry(record.key, record.css_width, record.css_height, record.png_size, record.last_used);
-        lru_seq_ = std::max(lru_seq_, record.last_used);
+        index.Add(record.key, { record.css_width, record.css_height, record.png_size, record.last_used });
     }
+    index.dirty = false;
+    return index;
 }
 
-void MermaidFileCache::AddIndexEntry(uint64_t key, float css_width, float css_height, uint32_t png_size, int64_t last_used)
+void MermaidFileCache::IndexState::Add(uint64_t key, IndexEntry entry)
 {
-    auto& entry = index_[key];
-    entry.css_width = css_width;
-    entry.css_height = css_height;
-    entry.png_size = png_size;
-    entry.last_used = last_used;
-    entry.lru_iter = lru_order_.emplace(last_used, key);
-    total_size_ += png_size;
+    entries.insert_or_assign(key, entry);
+    total_size += entry.png_size;
+    lru_seq = std::max(lru_seq, entry.last_used);
+    dirty = true;
+}
+
+void MermaidFileCache::IndexState::Remove(Map::iterator it) noexcept
+{
+    total_size -= std::min<uint64_t>(total_size, it->second.png_size);
+    entries.erase(it);
+    dirty = true;
 }
 
 void MermaidFileCache::SaveIndex()
 {
+    // 未読み込みなら変更も無いので、空の索引でディスクを上書きしない。
     const auto path = GetIndexPath();
-    if (path.empty()) {
+    if (path.empty() || !index_ || !index_->dirty) {
         return;
     }
 
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
 
-    const uint32_t count = static_cast<uint32_t>(index_.size());
+    const uint32_t count = static_cast<uint32_t>(index_->entries.size());
 
     const size_t buf_size = sizeof(IndexHeader) + count * sizeof(IndexRecord);
     auto buf = std::make_unique_for_overwrite<uint8_t[]>(buf_size);
@@ -178,13 +177,15 @@ void MermaidFileCache::SaveIndex()
     std::memcpy(p, &header, sizeof(header));
     p += sizeof(header);
 
-    for (const auto& [key, entry] : index_) {
+    for (const auto& [key, entry] : index_->entries) {
         IndexRecord record{ key, entry.css_width, entry.css_height, entry.png_size, entry.last_used };
         std::memcpy(p, &record, sizeof(record));
         p += sizeof(record);
     }
 
-    (void)AtomicWriteAllBytes(path, buf.get(), buf_size);
+    if (AtomicWriteAllBytes(path, buf.get(), buf_size)) {
+        index_->dirty = false;
+    }
 }
 
 bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, PngBlob& png)
@@ -206,9 +207,10 @@ bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, PngBlob& png)
 
 bool MermaidFileCache::LookupPath(uint64_t key, CacheEntry& entry, std::filesystem::path& png_path)
 {
+    auto& index = Index();
     key = InternalKey(key);
-    auto it = index_.find(key);
-    if (it == index_.end()) {
+    auto it = index.entries.find(key);
+    if (it == index.entries.end()) {
         return false;
     }
 
@@ -220,10 +222,7 @@ bool MermaidFileCache::LookupPath(uint64_t key, CacheEntry& entry, std::filesyst
     entry.css_width = it->second.css_width;
     entry.css_height = it->second.css_height;
 
-    // Lazy LRU: last_used のみ更新し、lru_order_ への反映は EvictIfNeeded での
-    // 「stale 先頭は再挿入してから判定」で吸収する。Lookup ホットパスでの
-    // multimap O(log N) erase/emplace を回避する（lru_iter は旧時刻の位置を指したまま）。
-    it->second.last_used = NextLruSeq();
+    index.Touch(it);
     return true;
 }
 
@@ -232,9 +231,10 @@ void MermaidFileCache::OnReadFailed(uint64_t key, DWORD read_error)
     if (read_error != ERROR_FILE_NOT_FOUND && read_error != ERROR_PATH_NOT_FOUND) {
         return;
     }
+    auto& index = Index();
     key = InternalKey(key);
-    const auto it = index_.find(key);
-    if (it == index_.end()) {
+    const auto it = index.entries.find(key);
+    if (it == index.entries.end()) {
         return;
     }
     // StoreAsync 直後でバックグラウンド書き込みが in-flight なら「未着地＝stale」と
@@ -245,14 +245,15 @@ void MermaidFileCache::OnReadFailed(uint64_t key, DWORD read_error)
             return;
         }
     }
-    RemoveIndexEntry(it);
+    index.Remove(it);
 }
 
-bool MermaidFileCache::LookupDimensions(uint64_t key, CacheEntry& entry) const noexcept
+bool MermaidFileCache::LookupDimensions(uint64_t key, CacheEntry& entry)
 {
+    const auto& index = Index();
     key = InternalKey(key);
-    const auto it = index_.find(key);
-    if (it == index_.end()) {
+    const auto it = index.entries.find(key);
+    if (it == index.entries.end()) {
         return false;
     }
     entry.css_width = it->second.css_width;
@@ -265,19 +266,20 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
     if (!png_data || png_data->empty()) {
         return;
     }
+    auto& index = Index();
     key = InternalKey(key);
 
     const uint32_t png_size = static_cast<uint32_t>(png_data->size());
 
     // 既存キーの上書きは新規スロットを要さない。先に旧エントリを除去してから EvictIfNeeded を
     // 呼び、満杯時に無関係なエントリを巻き込んで削除しないようにする。
-    if (const auto it = index_.find(key); it != index_.end()) {
-        RemoveIndexEntry(it);
+    if (const auto it = index.entries.find(key); it != index.entries.end()) {
+        index.Remove(it);
     }
 
-    EvictIfNeeded(png_size);
+    EvictIfNeeded(index, png_size);
 
-    AddIndexEntry(key, css_width, css_height, png_size, NextLruSeq());
+    index.Add(key, { css_width, css_height, png_size, index.NextLruSeq() });
 
     if (!scheduler_) {
         return;
@@ -329,51 +331,16 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
     }
 }
 
-void MermaidFileCache::EvictIfNeeded(uint32_t new_png_size)
+void MermaidFileCache::EvictIfNeeded(IndexState& index, uint32_t new_png_size)
 {
-    while ((index_.size() >= max_entries_ || total_size_ + new_png_size > max_total_size_) && !lru_order_.empty()) {
-        const auto oldest_lru = lru_order_.begin();
-        const uint64_t evict_key = oldest_lru->second;
-
-        const auto it = index_.find(evict_key);
-        if (it == index_.end()) {
-            // 既に index_ から消えていた orphan エントリ。
-            lru_order_.erase(oldest_lru);
-            continue;
-        }
-
-        // Lazy LRU の補正: Lookup が last_used を更新しても lru_order_ は触っていない。
-        // 「先頭が本当に最古か」を entry の last_used と比較し、ずれていれば再挿入して再評価する。
-        if (oldest_lru->first != it->second.last_used) {
-            lru_order_.erase(oldest_lru);
-            it->second.lru_iter = lru_order_.emplace(it->second.last_used, evict_key);
-            continue;
-        }
-
-        lru_order_.erase(oldest_lru);
-
+    while (!index.entries.empty() && (index.entries.size() >= max_entries_ || index.total_size + new_png_size > max_total_size_)) {
+        const auto oldest = std::ranges::min_element(index.entries, {}, [](const auto& kv) { return kv.second.last_used; });
         if (!cache_dir_.empty()) {
             std::error_code ec;
-            std::filesystem::remove(GetPngPath(cache_dir_, evict_key), ec);
+            std::filesystem::remove(GetPngPath(cache_dir_, oldest->first), ec);
         }
-
-        DecrementTotalSize(it->second.png_size);
-        index_.erase(it);
+        index.Remove(oldest);
     }
-}
-
-void MermaidFileCache::RemoveIndexEntry(std::pmr::unordered_map<uint64_t, IndexEntry>::iterator it) noexcept
-{
-    if (it->second.png_size > 0) {
-        DecrementTotalSize(it->second.png_size);
-        lru_order_.erase(it->second.lru_iter);
-    }
-    index_.erase(it);
-}
-
-void MermaidFileCache::DecrementTotalSize(uint32_t png_size) noexcept
-{
-    total_size_ -= std::min<uint64_t>(total_size_, png_size);
 }
 
 void MermaidFileCache::ClearAll()
@@ -386,15 +353,13 @@ void MermaidFileCache::ClearAll()
 
     if (!cache_dir_.empty()) {
         std::error_code ec;
-        for (const auto& [key, _] : index_) {
+        for (const auto& [key, _] : Index().entries) {
             std::filesystem::remove(GetPngPath(cache_dir_, key), ec);
         }
         std::filesystem::remove(GetIndexPath(), ec);
     }
 
-    index_.clear();
-    lru_order_.clear();
-    total_size_ = 0;
+    index_.emplace();
 }
 
 void MermaidFileCache::Shutdown()

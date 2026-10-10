@@ -8,13 +8,6 @@ void AppSearchBarCallbacks::invalidate()
     app->Invalidate();
 }
 
-void AppSearchBarCallbacks::invalidate_search_bar()
-{
-    const auto& r = app->GetPaneLayout().md_rect;
-    const auto sbl = app->ComputeSearchBarLayoutForMd(r);
-    app->InvalidatePane(PaneRect{ r.x, sbl.bar_top, r.width, sbl.bar_bottom - sbl.bar_top });
-}
-
 void AppSearchBarCallbacks::set_timer(app_timer::Id id, UINT ms)
 {
     app->win32_host_.SetTimer(id, ms);

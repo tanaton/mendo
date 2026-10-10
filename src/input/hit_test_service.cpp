@@ -12,17 +12,11 @@ using mendo::layout::NodeTextXOffset;
 
 namespace {
 
-struct PaneDip {
-    float x;
-    float y;
-};
-
-constexpr PaneDip ScreenToPaneDip(const MdPaneHitContext& ctx) noexcept
+// ウィンドウのピクセル座標を、ペイン左端基準の X とドキュメント Y に変換する。
+constexpr DipPoint ScreenToPaneDip(const MdPaneHitContext& ctx) noexcept
 {
-    return {
-        ctx.screen_x / ctx.dpi_scale - ctx.md_pane_left,
-        ctx.screen_y / ctx.dpi_scale + ctx.scroll_y,
-    };
+    const auto dip = PixelToDip(ctx.screen_x, ctx.screen_y, ctx.dpi_scale);
+    return { dip.x - ctx.md_rect.x, dip.y - ctx.md_rect.y + ctx.scroll_y };
 }
 
 // ノード高さ範囲外 (ノード間の余白等) のヒットを最寄りの非空ノードにクランプする。
@@ -56,11 +50,6 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
     md_wv_cache_.ResetIfBufferChanged(ctx.nodes.data(), ctx.nodes.size());
     cell_wv_cache_.ResetIfBufferChanged(ctx.nodes.data(), ctx.nodes.size());
 
-    const uint32_t gen = ctx.cache.GetEffectsGeneration();
-    if (last_md_hit_.Matches(ctx, gen)) {
-        return last_md_hit_.result;
-    }
-
     const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
 
     // nodes と cache のサイズは非同期リロード中などに過渡的に不一致になりうる。
@@ -82,9 +71,7 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
         const float h_scroll_x = LookupBlockScrollX(ctx, candidate);
 
         if (node.type == NodeType::Table) {
-            result = HitTestTable(node, entry, candidate_text_top, candidate, ctx.theme, dip_x, dip_y, h_scroll_x);
-            last_md_hit_.Store(ctx, gen, result, candidate, h_scroll_x);
-            return result;
+            return HitTestTable(node, entry, candidate_text_top, candidate, ctx.theme, dip_x, dip_y, h_scroll_x);
         }
 
         if (entry.text_layout) {
@@ -100,14 +87,11 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
             result.node_index = candidate;
             const auto& wv = md_wv_cache_.Get(node.GetText());
             result.text_pos = wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0));
-            last_md_hit_.Store(ctx, gen, result, candidate, h_scroll_x);
             return result;
         }
     }
 
-    result = ClampToNearestTextNode(ctx.nodes, candidate);
-    last_md_hit_.Store(ctx, gen, result);
-    return result;
+    return ClampToNearestTextNode(ctx.nodes, candidate);
 }
 
 HitTestService::HitResult HitTestService::HitTestTable(
@@ -173,17 +157,12 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const
     if (ctx.nodes.empty()) {
         return {};
     }
-    const uint32_t gen = ctx.cache.GetEffectsGeneration();
-    if (button_cache_.Matches(ctx, gen)) {
-        return button_cache_.result;
-    }
-
     const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
     const float btn_left_bound = ctx.theme.margin_left + ctx.content_width - COPY_BTN_MARGIN - COPY_BTN_SIZE;
     const bool x_in_copy_band = dip_x >= btn_left_bound;
 
     const float viewport_top = ctx.scroll_y;
-    const float viewport_bottom = ctx.scroll_y + ctx.md_pane_height;
+    const float viewport_bottom = ctx.scroll_y + ctx.md_rect.height;
     // nodes と cache のサイズは非同期リロード中などに過渡的に不一致になりうるため両者の最小で抑える。
     const size_t safe_count = std::min(ctx.nodes.size(), ctx.cache.size());
     const int first = FindFirstVisibleNodeIndex(ctx.cache, safe_count, viewport_top);
@@ -204,9 +183,9 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const
         const float w = ctx.content_width - indent;
         // 1 つ見つかった時点でループを抜けるため、ここに来る時点で out は全て未ヒット。
         if (IsDiagramLanguage(node.code_language())) {
-            const auto& diagram = ctx.cache.GetDiagram(i);
-            if (diagram.bitmap) {
-                const auto bmp = MermaidBitmapRect(diagram.width, diagram.height, x, w, entry_text_top);
+            const auto* diagram = ctx.cache.FindDiagram(i);
+            if (diagram && diagram->bitmap) {
+                const auto bmp = MermaidBitmapRect(diagram->width, diagram->height, x, w, entry_text_top);
                 const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::Save));
                 if (PointInRectInclusive(dip_x, dip_y, btn)) {
                     out.save_node = i;
@@ -230,7 +209,6 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const
         }
     }
 
-    button_cache_.Store(ctx, gen, out);
     return out;
 }
 
@@ -243,4 +221,17 @@ NavButtonHover HitTestService::NavButtonHitTest(float dip_x, float dip_y, const 
         return NavButtonHover::Forward;
     }
     return NavButtonHover::None;
+}
+
+bool HitTestService::BlockHScrollbarHitTest(const MdPaneHitContext& ctx, int node_index, float visible_width) const noexcept
+{
+    const auto i = static_cast<size_t>(node_index);
+    if (i >= ctx.nodes.size() || i >= ctx.cache.size()) {
+        return false;
+    }
+    const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
+    const auto& node = ctx.nodes[i];
+    const float bar_y = BlockHScrollbarBarY(ctx.cache.Top(i), ctx.cache[i].height, mendo::layout::NodeBoxPadY(node, ctx.theme));
+    const float block_x = ctx.theme.margin_left + NodeIndent(node, ctx.theme);
+    return PointInRect(dip_x, dip_y, BlockHScrollbarHitRect(block_x, visible_width, bar_y));
 }

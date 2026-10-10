@@ -58,15 +58,22 @@ private:
     uint8_t flags_ = 0;
 };
 
+// 列挙は SetDirectory / Refresh 後の最初の GetEntries まで遅らせる。非表示のペインからは
+// 呼ばれないため、起動時やファイルを開くたびの UI スレッド I/O が起きない。
 class FileExplorer {
 public:
     void SetDirectory(std::wstring_view dir_path);
-    void Refresh();
-    constexpr const std::pmr::vector<FileEntry>& GetEntries() const noexcept
+    constexpr void Refresh() noexcept
     {
-        return entries_;
+        stale_ = true;
     }
-    int HitTest(float local_y, float item_height) const noexcept;
+    const std::pmr::vector<FileEntry>& GetEntries() const;
+    // 列挙し直すたびに進む。項目 index と組にすれば一覧中の項目を識別できる。
+    constexpr uint32_t GetGeneration() const noexcept
+    {
+        return generation_;
+    }
+    int HitTest(float local_y, float item_height) const;
     // 以降の SetDirectory / Refresh でも強調表示が維持される。
     void SetCurrentFile(std::wstring_view path);
     constexpr const std::pmr::wstring& GetDirectory() const noexcept
@@ -75,10 +82,13 @@ public:
     }
 
 private:
-    void ListEntries();
-    void ApplyCurrentFile();
+    void ListEntries() const;
+    void ApplyCurrentFile() const;
 
     std::pmr::wstring directory_;
     std::pmr::wstring current_file_;
-    std::pmr::vector<FileEntry> entries_;
+    // GetEntries で遅延列挙するため mutable。
+    mutable std::pmr::vector<FileEntry> entries_;
+    mutable uint32_t generation_ = 0;
+    mutable bool stale_ = false;
 };

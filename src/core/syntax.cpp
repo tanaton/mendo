@@ -23,9 +23,10 @@ constexpr bool IsIdentChar(char c) noexcept
     return IsIdentStart(c) || IsAsciiDigit(c);
 }
 
+// Plain は描画・HTML 化ともトークン間の隙間と同じ扱いなので出力しない (出すとトークンの大半を占める)。
 constexpr void EmitToken(std::pmr::vector<SyntaxToken>& tokens, uint32_t start, uint32_t length, SyntaxTokenType type)
 {
-    if (length > 0) {
+    if (length > 0 && type != SyntaxTokenType::Plain) {
         tokens.emplace_back(start, length, type);
     }
 }
@@ -67,6 +68,24 @@ constexpr size_t ScanString(std::string_view text, size_t pos, char quote, bool 
         }
     }
     return i;
+}
+
+// R" に続く区切り文字列の直後の '(' 位置を返す。区切りは最大 16 文字で空白・括弧・'\\' を含まない (規格)。
+// 満たさなければ生文字列ではない。上限なしに '(' を探すと R" ごとに文書末尾まで走査しうる。
+constexpr size_t FindRawStringParen(std::string_view text, size_t quote_pos) noexcept
+{
+    constexpr size_t kMaxDelimiterLength = 16;
+    const size_t limit = std::min(text.size(), quote_pos + 2 + kMaxDelimiterLength);
+    for (size_t k = quote_pos + 1; k < limit; ++k) {
+        const char c = text[k];
+        if (c == '(') {
+            return k;
+        }
+        if (c == ')' || c == '\\' || static_cast<unsigned char>(c) <= ' ') {
+            break;
+        }
+    }
+    return std::string_view::npos;
 }
 
 // C++ 生文字列 R"DELIM(...)DELIM" をスキャン。quote_pos は開きの '"'、paren は '(' の位置。
@@ -233,11 +252,8 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
     constexpr bool kNeedAtLineStart = Cfg.preprocessor || Cfg.double_colon_comment || Cfg.rem_comment;
 
     std::pmr::vector<SyntaxToken> tokens;
-    tokens.reserve(text.size() / 16);
+    tokens.reserve(text.size() / 32);
     size_t i = 0;
-    // 各トークン分岐は flush_plain() → スキャン → emit_from() の順なので、
-    // 未確定の Plain 区間は常に [直前トークン末尾, i) になる。
-    uint32_t plain_start = 0;
     // 行頭判定の状態フラグ。pos i において、現在行の開始から i までが空白のみなら true。
     // 反復の開始時点で位置 i の at-line-start 状態を表す。i を進めた後に更新する。
     [[maybe_unused]] bool at_line_start = true;
@@ -247,20 +263,14 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
         ci_buf.reserve(64);
     }
 
-    const auto flush_plain = [&]() {
-        EmitToken(tokens, plain_start, static_cast<uint32_t>(i) - plain_start, SyntaxTokenType::Plain);
-    };
-
     // [start, i) を確定する。スキャン済みトークンは非空白で終わる (改行は未消費) ため行頭状態も解除する。
     const auto emit_from = [&](size_t start, SyntaxTokenType type) {
         EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), type);
-        plain_start = static_cast<uint32_t>(i);
         at_line_start = false;
     };
 
     // 現在位置からスキャン済みの終端 token_end までを type のトークンとして確定する。
     const auto emit_until = [&](size_t token_end, SyntaxTokenType type) {
-        flush_plain();
         const size_t start = i;
         i = token_end;
         emit_from(start, type);
@@ -356,7 +366,6 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
 
         // 8. 識別子とキーワード
         if (IsIdentStart(c)) {
-            flush_plain();
             const size_t start = i;
             while (i < text.size() && IsIdentChar(text[i])) {
                 i++;
@@ -368,7 +377,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
                 // R"..." の R はプレフィックスとして String トークンに含める。
                 // word == "R" なら直前が非識別子文字であることも保証される。
                 if (word == "R" && i < text.size() && text[i] == '"') {
-                    const size_t paren = text.find('(', i + 1);
+                    const size_t paren = FindRawStringParen(text, i);
                     if (paren != std::string_view::npos) {
                         i = ScanCppRawString(text, i, paren);
                     }
@@ -404,7 +413,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
             continue;
         }
 
-        // 9. その他: プレーンとして蓄積
+        // 9. その他: Plain なのでトークンにしない
         // 行頭判定を読む言語のみフラグを更新する。それ以外は per-char ストアを丸ごと省略。
         if constexpr (kNeedAtLineStart) {
             if (c == '\n') {
@@ -417,7 +426,6 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
         i++;
     }
 
-    flush_plain();
     return tokens;
 }
 

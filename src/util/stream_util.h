@@ -3,14 +3,10 @@
 #include "win_handle.h"
 #include <wrl/client.h>
 #include <objidl.h>
-#include <compressapi.h>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <memory_resource>
-#include <span>
 #include <utility>
-#include <vector>
 
 namespace stream_util {
 
@@ -18,36 +14,6 @@ inline bool SeekToBegin(IStream* stream) noexcept
 {
     const LARGE_INTEGER zero{};
     return SUCCEEDED(stream->Seek(zero, STREAM_SEEK_SET, nullptr));
-}
-
-inline std::pmr::vector<uint8_t> ReadStreamToEnd(IStream* stream)
-{
-    if (!stream) {
-        return {};
-    }
-
-    STATSTG stat{};
-    if (FAILED(stream->Stat(&stat, STATFLAG_NONAME))) {
-        return {};
-    }
-
-    const auto size64 = stat.cbSize.QuadPart;
-    if (size64 <= 0 || static_cast<uint64_t>(size64) > std::numeric_limits<ULONG>::max()) {
-        return {};
-    }
-    const auto size = static_cast<size_t>(size64);
-
-    if (!SeekToBegin(stream)) {
-        return {};
-    }
-
-    std::pmr::vector<uint8_t> data(size);
-    ULONG read = 0;
-    const HRESULT hr = stream->Read(data.data(), static_cast<ULONG>(size), &read);
-    if (FAILED(hr) || read != size) {
-        return {};
-    }
-    return data;
 }
 
 // size == 0 は空ストリームを要求する正当なユースケース（WebView2 CapturePreview の
@@ -102,44 +68,6 @@ inline Microsoft::WRL::ComPtr<IStream> CreateMemoryStreamFromFile(HANDLE file, s
         return nullptr;
     }
     return CreateHGlobalStream(size, [&](void* dst) { return ReadExact(file, dst, size); });
-}
-
-struct DecompressorTraits {
-    using type = DECOMPRESSOR_HANDLE;
-    static type invalid() noexcept
-    {
-        return nullptr;
-    }
-    static void close(type h) noexcept
-    {
-        CloseDecompressor(h);
-    }
-};
-using UniqueDecompressor = UniqueResource<DecompressorTraits>;
-
-// Compression API のバッファモード (MSZIP) で圧縮されたデータをメモリに展開する。失敗時は空。
-inline std::pmr::vector<uint8_t> DecompressMszip(std::span<const std::byte> compressed)
-{
-    if (compressed.empty()) {
-        return {};
-    }
-    DECOMPRESSOR_HANDLE raw = nullptr;
-    if (!CreateDecompressor(COMPRESS_ALGORITHM_MSZIP, nullptr, &raw)) {
-        return {};
-    }
-    const UniqueDecompressor decompressor{ raw };
-    // 出力バッファ無しで呼ぶとヘッダに記録された展開後サイズが返る
-    SIZE_T size = 0;
-    if (!Decompress(decompressor.get(), compressed.data(), compressed.size(), nullptr, 0, &size)
-        && GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
-        return {};
-    }
-    std::pmr::vector<uint8_t> out(size);
-    SIZE_T written = 0;
-    if (!Decompress(decompressor.get(), compressed.data(), compressed.size(), out.data(), size, &written) || written != size) {
-        return {};
-    }
-    return out;
 }
 
 } // namespace stream_util

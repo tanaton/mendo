@@ -38,26 +38,6 @@ public:
             [this](const effect::InvalidateWindow&) {
                 deps_.host->Invalidate();
             },
-            [this](const effect::InvalidateTitleBar&) {
-                if (!deps_.state || deps_.state->pane_layout_cache.WindowWidth() <= 0.0f) {
-                    deps_.host->Invalidate();
-                    return;
-                }
-                deps_.host->InvalidateTitleBarArea(
-                    deps_.state->pane_layout_cache.WindowWidth(),
-                    deps_.state->window.titlebar.GetHeight(),
-                    deps_.state->window.cached_dpi_scale);
-            },
-            [this](const effect::InvalidateMdPane&) {
-                if (!deps_.state || !deps_.state->pane_layout_cache.IsValid()) {
-                    deps_.host->Invalidate();
-                    return;
-                }
-                const auto& md_rect = deps_.state->pane_layout_cache.Get().md_rect;
-                deps_.host->InvalidateMdPaneArea(
-                    md_rect.x, md_rect.y, md_rect.width, md_rect.height,
-                    deps_.state->window.cached_dpi_scale);
-            },
             [this](const effect::SetCapture&) {
                 deps_.host->SetCapture();
             },

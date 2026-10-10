@@ -5,7 +5,6 @@
 #include <memory_resource>
 #include <string>
 #include <thread>
-#include "dirty_scheduler.h"
 #include "document_types.h"
 #include "layout_cache.h"
 #include "mock_text_measurer.h"
@@ -16,9 +15,6 @@
 #include "theme.h"
 
 using mendo::layout::DirtyBatchResult;
-using mendo::layout::ParallelBudget;
-using mendo::layout::SerialBudget;
-using mendo::layout::RunSerial;
 using mendo::layout::RunParallel;
 using mendo::layout::StopReason;
 using mendo::layout::ViewportClip;
@@ -37,7 +33,7 @@ Node MakeStressNode(size_t i, bool include_code_block)
 
     if (include_code_block && bucket < 2) {
         n.type = NodeType::CodeBlock;
-        n.ensure_code()->code_language = SyntaxLanguage::Cpp;
+        n.set_code_language(SyntaxLanguage::Cpp);
         std::string text = "int v_" + std::to_string(i) + " = 0;";
         n.SetTextWithLineCount(std::string_view{ text }, 0);
         return n;
@@ -55,7 +51,7 @@ Node MakeStressNode(size_t i, bool include_code_block)
     }
     if (bucket < 14) {
         n.type = NodeType::Heading;
-        n.ensure_heading()->heading_level = static_cast<int8_t>(1 + (i % 6));
+        n.set_heading_level(static_cast<int8_t>(1 + (i % 6)));
         std::string text = "Heading " + std::to_string(i);
         n.SetTextWithLineCount(std::string_view{ text }, 0);
         return n;
@@ -101,17 +97,13 @@ struct StressFixture {
     }
 };
 
-// CodeBlock の syntax_tokens を Serial / Parallel どちらの経路でも書く派生 mock。
-// Serial パス (RunSerial) は tokens_out=nullptr で呼ぶため node.syntax_tokens_mut() に直接書き、
-// Parallel パス (RunParallel) は per-slot vector を渡してくるため *tokens_out に書く。
-// どちらも最終的に node.syntax_tokens() に同じ 3 個のトークンが格納される (UI 集約後)。
+// CodeBlock の syntax_tokens を書く派生 mock。並列経路では worker から node へ直接書かれる。
 class MockTextMeasurerWithTokens : public MockTextMeasurer {
 public:
     void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
-                     std::pmr::vector<SyntaxToken>* tokens_out = nullptr,
                      MeasureViewportRange viewport = {}) const override
     {
-        MockTextMeasurer::MeasureNode(node, entry, max_width, tokens_out, viewport);
+        MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
 
         if (node.type != NodeType::CodeBlock || IsDiagramLanguage(node.code_language())) {
             return;
@@ -125,13 +117,7 @@ public:
                 .type = static_cast<SyntaxTokenType>((seed32 + k) % 4u),
             };
         };
-        std::pmr::vector<SyntaxToken> dummy{ MakeTok(0), MakeTok(1), MakeTok(2) };
-        if (tokens_out != nullptr) {
-            *tokens_out = std::move(dummy);
-        }
-        else {
-            node.syntax_tokens_mut() = std::move(dummy);
-        }
+        node.syntax_tokens_mut() = { MakeTok(0), MakeTok(1), MakeTok(2) };
     }
 };
 
@@ -195,16 +181,16 @@ TEST_F(ParallelMeasureStressTest, MatchesSerialOutputOnLargeMixedFixture)
     StressFixture p;
     p.Build(N, /*include_code_block=*/false, /*all_dirty=*/true);
 
-    const auto rs = RunSerial(s.nodes, s.cache, 800.0f, theme_, mock_,
-                              ViewportClip{}, SerialBudget{});
+    const auto rs = RunParallel(s.nodes, s.cache, 800.0f, theme_, mock_,
+                                ViewportClip{}, 0, nullptr);
     const auto rp = RunParallel(p.nodes, p.cache, 800.0f, theme_, mock_,
-                                ViewportClip{}, ParallelBudget{}, task_scheduler_);
+                                ViewportClip{}, 0, &task_scheduler_);
 
     EXPECT_EQ(rp.processed, static_cast<int>(N));
     ExpectBitExactEqual(s, p, rs, rp);
 }
 
-// ===== タスク 2: CodeBlock の syntax_tokens 集約 in-order 検証 =====
+// ===== タスク 2: CodeBlock の syntax_tokens 書き込み検証 =====
 
 TEST_F(ParallelMeasureStressTest, CodeBlockSyntaxTokensAggregatedInOrder)
 {
@@ -214,10 +200,10 @@ TEST_F(ParallelMeasureStressTest, CodeBlockSyntaxTokensAggregatedInOrder)
     StressFixture p;
     p.Build(N, /*include_code_block=*/true, /*all_dirty=*/true);
 
-    const auto rs = RunSerial(s.nodes, s.cache, 800.0f, theme_, mock_,
-                              ViewportClip{}, SerialBudget{});
+    const auto rs = RunParallel(s.nodes, s.cache, 800.0f, theme_, mock_,
+                                ViewportClip{}, 0, nullptr);
     const auto rp = RunParallel(p.nodes, p.cache, 800.0f, theme_, mock_,
-                                ViewportClip{}, ParallelBudget{}, task_scheduler_);
+                                ViewportClip{}, 0, &task_scheduler_);
 
     EXPECT_EQ(rp.processed, static_cast<int>(N));
     ExpectBitExactEqual(s, p, rs, rp);
@@ -265,10 +251,10 @@ TEST_P(ParallelWorkerCountTest, BitExactAcrossWorkerCount)
     StressFixture p;
     p.Build(N, /*include_code_block=*/true, /*all_dirty=*/true);
 
-    const auto rs = RunSerial(s.nodes, s.cache, 800.0f, theme_, mock_,
-                              ViewportClip{}, SerialBudget{});
+    const auto rs = RunParallel(s.nodes, s.cache, 800.0f, theme_, mock_,
+                                ViewportClip{}, 0, nullptr);
     const auto rp = RunParallel(p.nodes, p.cache, 800.0f, theme_, mock_,
-                                ViewportClip{}, ParallelBudget{}, ts);
+                                ViewportClip{}, 0, &ts);
 
     EXPECT_EQ(rp.processed, static_cast<int>(N));
     ExpectBitExactEqual(s, p, rs, rp);
@@ -299,14 +285,14 @@ TEST(ParallelMeasurePostFailure, AllChunksFallbackOnSaturatedQueue)
     EXPECT_EQ(posted, static_cast<int>(TaskScheduler::MAX_PENDING_TASKS));
     EXPECT_FALSE(ts.Post([] {})); // 1025 個目は false
 
-    constexpr size_t N = 128; // kMinDirtyForParallel(=32) 以上で並列分岐に入る
+    constexpr size_t N = 128;
     StressFixture f;
     f.Build(N, /*include_code_block=*/false, /*all_dirty=*/true);
 
     MockTextMeasurerWithTokens mock;
     Theme theme = GetLightTheme();
     const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme, mock,
-                               ViewportClip{}, ParallelBudget{}, ts);
+                               ViewportClip{}, 0, &ts);
 
     EXPECT_EQ(r.processed, static_cast<int>(N));
     EXPECT_EQ(r.reason, StopReason::Done);
@@ -329,7 +315,6 @@ public:
     int spin_us = 100;
 
     void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
-                     std::pmr::vector<SyntaxToken>* tokens_out = nullptr,
                      MeasureViewportRange viewport = {}) const override
     {
         const auto start = std::chrono::steady_clock::now();
@@ -338,7 +323,7 @@ public:
         while (std::chrono::steady_clock::now() < deadline) {
             // no-op
         }
-        MockTextMeasurer::MeasureNode(node, entry, max_width, tokens_out, viewport);
+        MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
     }
 };
 
@@ -371,12 +356,12 @@ TEST(ParallelMeasureBench, DISABLED_ChunkSizeSweep)
         pf.Build(N, /*include_code_block=*/false, /*all_dirty=*/true);
 
         const double us_serial = MeasureUs([&] {
-            RunSerial(sf.nodes, sf.cache, 800.0f, theme, mock,
-                      ViewportClip{}, SerialBudget{});
+            RunParallel(sf.nodes, sf.cache, 800.0f, theme, mock,
+                        ViewportClip{}, 0, nullptr);
         });
         const double us_parallel = MeasureUs([&] {
             RunParallel(pf.nodes, pf.cache, 800.0f, theme, mock,
-                        ViewportClip{}, ParallelBudget{}, ts);
+                        ViewportClip{}, 0, &ts);
         });
         std::cout << N << ",serial," << us_serial << "\n";
         std::cout << N << ",parallel," << us_parallel << "\n";

@@ -15,7 +15,7 @@
 #include "tooltip.h"
 #include "ui_types.h"
 #include "context_menu.h"
-#include "hover_throttle.h"
+#include "last_hover_pos.h"
 #include "pane_layout.h"
 #include "theme.h"
 #include <string>
@@ -70,7 +70,7 @@ struct ViewState {
 struct InteractionState {
     MouseGesture gesture;
     SwipeDetector swipe_detector;
-    HoverThrottle hover_throttle;
+    LastHoverPos last_hover_pos;
     Tooltip tooltip;
     ToastNotifier toast;
     HoveredButtons hovered;
@@ -85,6 +85,8 @@ struct SearchGroup {
 struct WindowState {
     TitleBar titlebar;
     bool is_sizing = false;
+    // 移動だけのサイズ変更ループでは終了時のレイアウト処理を省くため。
+    bool size_changed_in_sizing = false;
     bool window_active = true;
     float cached_dpi_scale = 1.0f;
 };

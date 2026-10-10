@@ -104,6 +104,7 @@ struct PaneCache {
     Microsoft::WRL::ComPtr<ID2D1BitmapRenderTarget> bitmap_rt;
     Microsoft::WRL::ComPtr<ID2D1Bitmap> cached_bitmap; // GetBitmap() の毎フレーム呼び出しを回避
     bool dirty = true;
+    // 描画内容のサイズ。ビットマップ自体はこれ以上に切り上げて確保する。
     float cached_width = 0;
     float cached_height = 0;
     float cached_scroll_y = 0;
@@ -136,7 +137,7 @@ struct SearchBarRenderState {
     int selection_start = -1; // 選択開始位置（caret_posと異なる場合、選択範囲あり）
     bool visible = false;
     bool has_focus = false;
-    bool caret_visible = false; // キャレット（点滅制御）
+    bool caret_visible = false; // 非アクティブ時は隠す
     // チェックボックス状態
     bool case_sensitive = false;
     bool highlight_enabled = true;

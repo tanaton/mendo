@@ -22,7 +22,7 @@ Node MakeCodeBlockNode(SyntaxLanguage lang, int line_count = 1)
     Node n;
     n.type = NodeType::CodeBlock;
     n.SetTextWithLineCount(std::string_view{ "code" }, line_count);
-    n.ensure_code()->code_language = lang;
+    n.set_code_language(lang);
     return n;
 }
 

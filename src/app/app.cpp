@@ -1,7 +1,6 @@
 #include "app.h"
 #include "app_constants.h"
 #include "app_controller.h"
-#include "d2d_util.h"
 #include "document_utils.h"
 #include "gesture_overlay.h"
 #include "i18n.h"
@@ -36,16 +35,6 @@ const PaneLayout& App::GetPaneLayout()
     return state_.pane_layout_cache.Get();
 }
 
-void App::InvalidatePane(const PaneRect& rect) noexcept
-{
-    mendo::InvalidateDipRect(hwnd_, rect.x, rect.y, rect.width, rect.height, state_.window.cached_dpi_scale);
-}
-
-void App::InvalidateTitleBar()
-{
-    EmitEffect(effect::InvalidateTitleBar{});
-}
-
 void App::UpdateTitleBar()
 {
     const int zoom_percent = static_cast<int>(ZOOM_STEPS[state_.view.viewport.GetZoomIndex()] * 100.0f + 0.5f);
@@ -55,7 +44,7 @@ void App::UpdateTitleBar()
     }
     SetWindowTextW(hwnd_, title.c_str());
     state_.cached_title_text = std::move(title);
-    InvalidateTitleBar();
+    Invalidate();
 }
 
 PaneZone App::PaneAtPoint(float dip_x)
@@ -81,6 +70,8 @@ SidePaneState App::BuildSidePaneState(const PaneLayout& layout) const
 {
     const auto& panes = state_.view.panes;
     const bool can_reveal = state_.document.doc.HasBackingFile();
+    // GetEntries は未列挙なら列挙するため、非表示のファイルペインでは呼ばない。
+    static const std::pmr::vector<FileEntry> kNoEntries;
     const auto make_side_pane = [&panes, can_reveal](PaneTarget t, PaneRect rect) {
         return SidePaneInstance{
             .rect = rect,
@@ -96,7 +87,7 @@ SidePaneState App::BuildSidePaneState(const PaneLayout& layout) const
                   make_side_pane(PaneTarget::File, layout.file_rect),
                   make_side_pane(PaneTarget::Toc, layout.toc_rect),
                   },
-        .file_entries = state_.file_explorer.GetEntries(),
+        .file_entries = panes.IsSidePaneVisible(PaneTarget::File) ? state_.file_explorer.GetEntries() : kNoEntries,
         .toc_entries = state_.document.doc.GetToc().GetEntries(),
         .nodes = state_.document.doc.GetNodes(),
         .active_toc_index = state_.view.active_toc_index,

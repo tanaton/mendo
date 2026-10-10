@@ -15,7 +15,6 @@ struct AppSearchBarCallbacks {
     App* app = nullptr;
 
     void invalidate();
-    void invalidate_search_bar();
     void set_timer(app_timer::Id id, UINT ms);
     void kill_timer(app_timer::Id id);
     void focus_select_all();

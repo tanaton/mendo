@@ -301,10 +301,10 @@ TEST(NodeLineCount, SetTextWithLineCountZeroAllowed)
     EXPECT_EQ(node.line_count, 0);
 }
 
-TEST(NodeLineCount, SetTextWithLineCountPmrMoveOverload)
+TEST(NodeLineCount, SetTextWithLineCountMoveOverload)
 {
     Node node;
-    std::pmr::string s = "x\ny\nz";
+    std::string s = "x\ny\nz";
     node.SetTextWithLineCount(std::move(s), 2);
     EXPECT_EQ(node.GetText(), "x\ny\nz");
     EXPECT_EQ(node.line_count, 2);
@@ -383,7 +383,7 @@ TEST(NodeTest, MermaidCodeBlockTextStored)
 {
     Node node;
     node.type = NodeType::CodeBlock;
-    node.ensure_code()->code_language = SyntaxLanguage::Mermaid;
+    node.set_code_language(SyntaxLanguage::Mermaid);
     node.SetTextWithLineCount(std::string_view{ "graph TD;A-->B" }, 0);
     EXPECT_EQ(node.GetText(), "graph TD;A-->B");
 }
@@ -392,7 +392,7 @@ TEST(NodeTest, LatexMathCodeBlockTextStored)
 {
     Node node;
     node.type = NodeType::CodeBlock;
-    node.ensure_code()->code_language = SyntaxLanguage::LatexMath;
+    node.set_code_language(SyntaxLanguage::LatexMath);
     node.SetTextWithLineCount(std::string_view{ "E = mc^2" }, 0);
     EXPECT_EQ(node.GetText(), "E = mc^2");
 }
@@ -401,7 +401,7 @@ TEST(NodeTest, NonDiagramCodeBlockTextStored)
 {
     Node node;
     node.type = NodeType::CodeBlock;
-    node.ensure_code()->code_language = SyntaxLanguage::Cpp;
+    node.set_code_language(SyntaxLanguage::Cpp);
     node.SetTextWithLineCount(std::string_view{ "int main() { return 0; }" }, 0);
     EXPECT_EQ(node.GetText(), "int main() { return 0; }");
 }
@@ -419,10 +419,10 @@ TEST(NodeTest, ParagraphTextStored)
 TEST(NodeTest, EnsureCodeReplacesHeading)
 {
     Node node;
-    node.ensure_heading()->heading_level = 3;
+    node.set_heading_level(3);
     EXPECT_TRUE(node.has_heading());
 
-    node.ensure_code()->code_language = SyntaxLanguage::Cpp;
+    node.set_code_language(SyntaxLanguage::Cpp);
     EXPECT_FALSE(node.has_heading());
     EXPECT_TRUE(node.has_code());
     EXPECT_EQ(node.heading_level(), 0);

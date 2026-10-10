@@ -139,8 +139,8 @@ bool App::HandleCodeBlockButtonClick(const MdPaneHitContext& hit_ctx)
     }
     if (btn_hit.diagram_copy_node >= 0) {
         // 画像は表示中ビットマップと同寿命の DiagramEntry::png から取る (ボタン表示条件と一致)。
-        const auto& diagram = state_.document.layout_cache.GetDiagram(btn_hit.diagram_copy_node);
-        clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, btn_hit.diagram_copy_node, diagram.png, hit_ctx.content_width, dark);
+        const auto* diagram = state_.document.layout_cache.FindDiagram(btn_hit.diagram_copy_node);
+        clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, btn_hit.diagram_copy_node, diagram ? diagram->png : nullptr, hit_ctx.content_width, dark);
         return true;
     }
     if (btn_hit.save_node >= 0) {
@@ -150,21 +150,11 @@ bool App::HandleCodeBlockButtonClick(const MdPaneHitContext& hit_ctx)
     return false;
 }
 
-bool App::TryStartBlockHScrollDrag(float dip_x, float dip_y, const PaneLayout& pane_layout)
+bool App::TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x)
 {
     const int hover = state_.view.hovered_h_block;
     const auto geom = ResolveBlockHScrollGeometry(state_, hover);
-    if (!geom.can_scroll()) {
-        return false;
-    }
-    const auto& node = state_.document.doc.GetNodes()[hover];
-    const auto& cache = state_.document.layout_cache;
-    const auto& theme = renderer_.GetTheme();
-    const float bar_y_local = BlockHScrollbarBarY(cache.Top(static_cast<size_t>(hover)), cache[hover].height, mendo::layout::NodeBoxPadY(node, theme));
-    // 描画 transform は Translation(md_x, -scroll_y) で md_rect.y は加算しない規約。
-    const float bar_y_screen = bar_y_local - state_.view.viewport.GetScrollY();
-    const float block_x_screen = pane_layout.md_rect.x + theme.margin_left + mendo::layout::NodeIndent(node, theme);
-    if (!PointInRect(dip_x, dip_y, BlockHScrollbarHitRect(block_x_screen, geom.visible_width, bar_y_screen))) {
+    if (!geom.can_scroll() || !hit_test_.BlockHScrollbarHitTest(hit_ctx, hover, geom.visible_width)) {
         return false;
     }
     Dispatch(BlockHScrollDragStartedAction{ hover, dip_x });
@@ -188,7 +178,8 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         break;
     }
 
-    if (HandleCodeBlockButtonClick(BuildMdPaneHitContext(px, py, pane_layout))) {
+    const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
+    if (HandleCodeBlockButtonClick(hit_ctx)) {
         return;
     }
     if (IsOverMdScrollbar(dip_x, dip_y, pane_layout)) {
@@ -196,7 +187,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         return;
     }
     // テキスト選択より優先する。
-    if (TryStartBlockHScrollDrag(dip_x, dip_y, pane_layout)) {
+    if (TryStartBlockHScrollDrag(hit_ctx, dip_x)) {
         return;
     }
 
@@ -267,8 +258,7 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const
         Dispatch(PaneScrollbarDragStartedAction{ target, dip_y });
         return;
     }
-    const float local_y = dip_y - ctx.info.content_top + ctx.scroll.scroll_y;
-    const int idx = SidePaneHitTest(state_, target, local_y, theme.pane_item_height);
+    const int idx = SidePaneHitTest(state_, target, SidePaneLocalY(dip_y, ctx.info.content_top, ctx.scroll.scroll_y), theme.pane_item_height);
     if (idx < 0) {
         return;
     }

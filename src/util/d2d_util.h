@@ -70,15 +70,4 @@ private:
     ID2D1SolidColorBrush* brush_;
 };
 
-// オーバースキャンし境界線が抜けないようにする (RECT は exclusive 仕様)。
-inline void InvalidateDipRect(HWND hwnd, float dip_x, float dip_y, float dip_w, float dip_h, float dpi_scale) noexcept
-{
-    RECT rc;
-    rc.left = static_cast<LONG>(dip_x * dpi_scale);
-    rc.top = static_cast<LONG>(dip_y * dpi_scale);
-    rc.right = static_cast<LONG>((dip_x + dip_w) * dpi_scale) + 1;
-    rc.bottom = static_cast<LONG>((dip_y + dip_h) * dpi_scale) + 1;
-    InvalidateRect(hwnd, &rc, FALSE);
-}
-
 } // namespace mendo

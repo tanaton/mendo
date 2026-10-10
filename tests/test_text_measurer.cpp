@@ -15,13 +15,13 @@ TEST_F(MockLayoutTest, EmptyNodesGiveMarginHeight)
     std::pmr::vector<Node> nodes;
     LayoutCache cache;
     engine_.ComputeLayout(nodes, cache, 800.0f);
-    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top), 0.0f);
+    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom), 0.0f);
 }
 
 TEST_F(MockLayoutTest, SingleParagraphPositiveHeight)
 {
     auto [nodes, cache] = ParseAndLayout("Hello world");
-    EXPECT_GT(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top), 0.0f);
+    EXPECT_GT(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom), 0.0f);
     EXPECT_GT(cache[0].height, 0.0f);
 }
 
@@ -118,13 +118,13 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchNoDirtyPreservesHeight)
     auto [nodes, cache] = ParseAndLayout("A\n\nB\n\nC");
     EXPECT_FALSE(engine_.HasDirtyNodes());
 
-    float height_before = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top);
+    float height_before = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom);
     EXPECT_GT(height_before, 0.0f);
 
     // ダーティなものがない場合のProcessDirtyBatchはtotal_heightを破損させないべき
     bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 100);
     EXPECT_FALSE(more);
-    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top), height_before);
+    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom), height_before);
 }
 
 // ---- 幅の変更 ----
@@ -173,7 +173,7 @@ TEST_F(MockLayoutTest, EnsureVisibleLayoutUpdatesViewport)
     const auto dirty_before = CountDirty(cache);
 
     // より後の領域のレイアウトを確保
-    float total = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top);
+    float total = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom);
     EXPECT_TRUE(engine_.EnsureVisibleLayout(nodes, cache, 800.0f, total * 0.5f, total * 0.7f));
     EXPECT_LT(CountDirty(cache), dirty_before) << "可視範囲のダーティノードがクリーンになるべき";
 }
@@ -186,7 +186,7 @@ TEST_F(MockLayoutTest, LayoutNodesFullLayout)
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.LayoutNodes(nodes, cache, 800.0f);
-    EXPECT_GT(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top), 0.0f);
+    EXPECT_GT(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom), 0.0f);
     EXPECT_FALSE(engine_.HasDirtyNodes());
 }
 
@@ -217,8 +217,8 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAcrossLayoutCycles)
     for (size_t i = 0; i < nodes.size(); i++) {
         if (nodes[i].code_language() == SyntaxLanguage::Mermaid) {
             cache[i].height = 300.0f; // ビットマップ描画サイズ
-            cache.GetDiagram(i).width = 400.0f;
-            cache.GetDiagram(i).height = 300.0f;
+            cache.EnsureDiagram(i).width = 400.0f;
+            cache.EnsureDiagram(i).height = 300.0f;
         }
     }
 
@@ -231,8 +231,8 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAcrossLayoutCycles)
             EXPECT_FLOAT_EQ(cache[i].height, 300.0f)
                 << "Mermaidブロックの高さはレイアウト再計算後も保持されるべき";
             // ダイアグラムエントリも保持
-            EXPECT_FLOAT_EQ(cache.GetDiagram(i).width, 400.0f);
-            EXPECT_FLOAT_EQ(cache.GetDiagram(i).height, 300.0f);
+            EXPECT_FLOAT_EQ(cache.FindDiagram(i)->width, 400.0f);
+            EXPECT_FLOAT_EQ(cache.FindDiagram(i)->height, 300.0f);
         }
     }
 }
@@ -361,8 +361,8 @@ TEST_F(MockLayoutTest, PartialModeClearsTableColWidthsWhenHeightGrows)
     // 成長分岐を強制発動させるため、現在の entry.height を意図的に小さくする
     cache[table_idx].height = 1.0f;
 
-    // partial + invisible (テーブルは viewport より下) で再レイアウト
-    engine_.ComputeLayout(nodes, cache, 600.0f, 0.0f, 10.0f);
+    // partial + invisible (テーブルは viewport より下) で再レイアウト。viewport は先頭余白内に収める。
+    engine_.ComputeLayout(nodes, cache, 600.0f, 0.0f, theme_.margin_top * 0.5f);
 
     EXPECT_TRUE(cache[table_idx].table_layout->col_widths.empty())
         << "成長時に col_widths がクリアされず、描画範囲と entry.height が乖離する";
@@ -390,7 +390,7 @@ TEST_F(MockLayoutTest, RecreateFormatsForcesRemeasureAtSameWidth)
 TEST_F(MockLayoutTest, ManyNodesProduceLargeHeight)
 {
     auto [nodes, cache] = ParseAndLayout(MakeParagraphs(100));
-    const float total = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top);
+    const float total = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom);
     EXPECT_GT(total, 500.0f);
     size_t last = nodes.size() - 1;
     EXPECT_LE(cache.Top(last) + cache[last].height, total);
@@ -522,14 +522,14 @@ TEST_F(MockLayoutTest, EstimateOnSwitchGivesNearFullContentHeight)
     auto nodes = ParseMarkdown(md).nodes;
     cache = mendo::layout::MakeEstimatedLayoutCache(nodes, theme_);
     engine_.ComputeLayout(nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
-    while (engine_.ProcessDirtyBatch(nodes, cache, kSwitchWidth, 200, 0, 0.0f, kSwitchViewportBottom, 5.0f)) {
+    while (engine_.ProcessDirtyBatch(nodes, cache, kSwitchWidth, 200, { 0.0f, kSwitchViewportBottom, 5.0f })) {
     }
 
     LayoutCache full;
     full.Reset(nodes.size());
     engine_.LayoutNodes(nodes, full, kSwitchWidth);
-    const float expected = ComputeTotalContentHeight(full, nodes.size(), theme_.margin_top);
-    const float actual = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_top);
+    const float expected = ComputeTotalContentHeight(full, nodes.size(), theme_.margin_bottom);
+    const float actual = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom);
     EXPECT_GT(actual, expected * 0.8f);
     EXPECT_LT(actual, expected * 1.25f);
 }
@@ -543,7 +543,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchWithClipAfterResetMeasuresTopNodes)
     const auto md = MakeParagraphs(10);
     auto nodes = ParseMarkdown(md).nodes;
     cache.Reset(nodes.size());
-    engine_.ProcessDirtyBatch(nodes, cache, kSwitchWidth, 100, 0, 0.0f, kSwitchViewportBottom, 1.0f);
+    engine_.ProcessDirtyBatch(nodes, cache, kSwitchWidth, 100, { 0.0f, kSwitchViewportBottom, 1.0f });
 
     EXPECT_FALSE(cache[0].layout_dirty);
     EXPECT_GT(cache[0].height, 0.0f);

@@ -11,7 +11,6 @@
 #include <type_traits>
 #include <utility>
 #include <variant>
-#include "pmr_unique_ptr.h"
 #include "small_vector.h"
 #include "syntax.h"
 #include "text_types.h"
@@ -20,8 +19,7 @@
 // Node::runs / TableCell::runs の型エイリアス。SBO=2 で size=1 (実測中央値) のノード 65%
 // を完全 inline 保持しつつ、Node 直下の 8B 削減と Paragraph/BlockQuote (中央値 4) の
 // heap fallback を許容する設計。example/test.md 実測ヒット率 75.8% (テキスト系のみ)。
-// SBO を超えた場合のみ operator new_delete に確保する (synchronized_pool を経由しないため、
-// parse 時のロック取得を Node 数だけ削減できる)。
+// SBO を超えた場合のみ operator new で確保する。
 using TextRunList = mendo::small_vector<TextRun, 2>;
 
 enum class NodeType : uint8_t {
@@ -145,16 +143,14 @@ struct NodeTableData {
     }
 };
 
-// Heading 固有データ。anchor_id は外部 heap 持ちにすることで variant alternative を 16B に抑える。
+// Heading 固有データ。anchor_id は外部 heap 持ちにすることで variant alternative を 8B に抑える。
 struct NodeHeadingData {
-    mendo::pmr_unique_ptr<std::pmr::string> anchor_id;
-    int8_t heading_level = 0;
+    std::unique_ptr<std::pmr::string> anchor_id;
 };
 
-// CodeBlock 固有データ。tokens は外部 heap 持ちにすることで variant alternative を 16B に抑える。
+// CodeBlock 固有データ。tokens は外部 heap 持ちにすることで variant alternative を 8B に抑える。
 struct NodeCodeData {
-    mendo::pmr_unique_ptr<std::pmr::vector<SyntaxToken>> tokens;
-    SyntaxLanguage code_language = SyntaxLanguage::None;
+    std::unique_ptr<std::pmr::vector<SyntaxToken>> tokens;
 };
 
 struct NodeListData {
@@ -169,14 +165,14 @@ struct NodeAlertData {
     uint32_t alert_label_length = 0;
 };
 
-using NodeTablePtr = mendo::pmr_unique_ptr<NodeTableData>;
+using NodeTablePtr = std::unique_ptr<NodeTableData>;
 
 struct NodeImageData {
     std::pmr::string src; // 画像ソースパス（Markdown内の記述）
     float width = 0.0f;   // 元画像の幅（ピクセル）
     float height = 0.0f;  // 元画像の高さ（ピクセル）
 };
-using NodeImagePtr = mendo::pmr_unique_ptr<NodeImageData>;
+using NodeImagePtr = std::unique_ptr<NodeImageData>;
 
 // Node::SourceOffsetFrom() が未設定 (view_.data() == nullptr) のときに返す値。
 // HorizontalRule のようなテキストを持たないノードはオフセットを持たない。
@@ -188,10 +184,10 @@ struct Node {
     // リンク URL の集合。リンクを含むノードでのみ確保される。
     // Why: `Node::runs` が link_url_index で参照する URL テーブル。リンクを持つノードは
     // 全体の少数派 (見出し/段落の一部) なので、空時は 8B ポインタ 1 本に抑える。
-    mendo::pmr_unique_ptr<std::pmr::vector<std::pmr::string>> link_urls_;
+    std::unique_ptr<std::pmr::vector<std::pmr::string>> link_urls_;
 
-    // ノード種別ごとの拡張データ。重データ (anchor_id / tokens / table / image) は pmr_unique_ptr で
-    // 外出しすることで variant alternative の最大サイズを 16B に抑える。
+    // ノード種別ごとの拡張データ。重データ (anchor_id / tokens / table / image) は unique_ptr で
+    // 外出しすることで variant alternative の最大サイズを 8B に抑える。
     // Parser invariant: 1 つのノードは 1 つの alternative しか持たない (ensure_* は他を破壊する)。
     using Extra = std::variant<
         std::monostate,  // Paragraph / HorizontalRule など固有データ無し
@@ -207,7 +203,7 @@ struct Node {
     // を必要とするノードのみ確保する。raw_text_ の連続範囲をそのまま表示できるノードは view モードに倒し
     // owned_text_ は空のまま raw_text_ を共有 view する (view_.size() > 0 と排他的不変条件)。
     // SBO (~16 byte) により短い加工結果は 0 ヒープ確保で済む。
-    std::pmr::string owned_text_;
+    std::string owned_text_;
 
     // raw_text_ 内のソース位置 + 表示モードを 1 本に統合した表現。
     //   view_.data() == nullptr                : source_offset 未設定 (HorizontalRule 等)。
@@ -225,6 +221,10 @@ struct Node {
     int8_t quote_depth = 0;                 // 現在の blockquote ネスト深さ（0 = 引用外, 1.. = ネストレベル）
     int8_t quote_outer_indent = 0;          // 最外側 blockquote が居る indent_level（バー位置の起点）
     int8_t indent_level = 0;                // リスト/引用のネスト深さ（int8_t の最大値で飽和）
+    // variant alternative に入れると 8B ポインタと合わせて 16B に膨らむため、末尾 padding に置く。
+    // 対応する alternative を持たないノードでは accessor が既定値を返す。
+    int8_t heading_level_ = 0;
+    SyntaxLanguage code_language_ = SyntaxLanguage::None;
 
     constexpr bool IsViewMode() const noexcept
     {
@@ -297,7 +297,7 @@ struct Node {
         line_count = line_count_value;
     }
 
-    constexpr void SetTextWithLineCount(std::pmr::string&& s, int32_t line_count_value) noexcept
+    constexpr void SetTextWithLineCount(std::string&& s, int32_t line_count_value) noexcept
     {
         owned_text_ = std::move(s);
         DemoteToOwned();
@@ -323,7 +323,7 @@ struct Node {
         return std::get_if<NodeAlertData>(&self.extra);
     }
 
-    // table / image は variant に pmr_unique_ptr を格納する形なので、
+    // table / image は variant に unique_ptr を格納する形なので、
     // alternative の存在 → 内部 unique_ptr の中身、と 2 段で取り出す。
     constexpr auto* table_data(this auto& self) noexcept
     {
@@ -395,13 +395,21 @@ struct Node {
     //       新規アクセサを追加する場合もこの規約に倣い、type で先にゲートできる呼び出し側を維持する。
     constexpr int8_t heading_level() const noexcept
     {
-        const auto* hd = heading_data();
-        return hd ? hd->heading_level : static_cast<int8_t>(0);
+        return has_heading() ? heading_level_ : static_cast<int8_t>(0);
     }
     constexpr SyntaxLanguage code_language() const noexcept
     {
-        const auto* cd = code_data();
-        return cd ? cd->code_language : SyntaxLanguage::None;
+        return has_code() ? code_language_ : SyntaxLanguage::None;
+    }
+    constexpr void set_heading_level(int8_t level)
+    {
+        ensure_heading();
+        heading_level_ = level;
+    }
+    constexpr void set_code_language(SyntaxLanguage lang)
+    {
+        ensure_code();
+        code_language_ = lang;
     }
     constexpr int32_t list_number() const noexcept
     {
@@ -433,13 +441,13 @@ struct Node {
         return std::string_view{};
     }
 
-    // anchor_id は pmr_unique_ptr<pmr::string> で外出しされているため書き込みが 3 段になる。
+    // anchor_id は unique_ptr<pmr::string> で外出しされているため書き込みが 3 段になる。
     // parser と test での重複を避けるため helper に集約する。
     std::pmr::string& ensure_anchor_id_mut()
     {
         auto* hd = ensure_heading();
         if (!hd->anchor_id) {
-            hd->anchor_id = mendo::MakePmrUnique<std::pmr::string>();
+            hd->anchor_id = std::make_unique<std::pmr::string>();
         }
         return *hd->anchor_id;
     }
@@ -447,7 +455,7 @@ struct Node {
     constexpr std::pmr::vector<std::pmr::string>& ensure_link_urls()
     {
         if (!link_urls_) {
-            link_urls_ = mendo::MakePmrUnique<std::pmr::vector<std::pmr::string>>();
+            link_urls_ = std::make_unique<std::pmr::vector<std::pmr::string>>();
         }
         return *link_urls_;
     }
@@ -465,7 +473,7 @@ struct Node {
     {
         auto* cd = ensure_code();
         if (!cd->tokens) {
-            cd->tokens = mendo::MakePmrUnique<std::pmr::vector<SyntaxToken>>();
+            cd->tokens = std::make_unique<std::pmr::vector<SyntaxToken>>();
         }
         return *cd->tokens;
     }
@@ -509,18 +517,18 @@ private:
         if (!p) {
             assert(std::holds_alternative<std::monostate>(extra) &&
                    "ensure_*<Ptr>: Node already holds a different alternative — parser contract violation");
-            p = &extra.emplace<Ptr>(mendo::MakePmrUnique<T>());
+            p = &extra.emplace<Ptr>(std::make_unique<T>());
         }
         return p->get();
     }
 };
 
 // 超過時の対処: (1) `sizeof(Node)` の実際の値を確認 (例: /d1reportSingleClassLayoutNode)、
-// (2) variant alternative のうち最大のものを pmr_unique_ptr 経由で外出し、または
+// (2) variant alternative のうち最大のものを unique_ptr 経由で外出し、または
 // (3) TextRunList の SBO 値を再検討。閾値変更は ViewStats.RunsSizeHistogram* の実測も併せて確認。
 // 注意: variant の discriminator パディングは std lib 実装依存なので、ツールチェーン切替時にも踏む可能性あり。
-static_assert(sizeof(Node) <= 144,
-              "Node size regression: exceeded 144 bytes — see comment above for remediation steps");
+static_assert(sizeof(Node) <= 128,
+              "Node size regression: exceeded 128 bytes — see comment above for remediation steps");
 
 // Mermaid / LaTeX 等、テキストではなくビットマップで描画するコードブロック。
 constexpr bool IsDiagramCodeBlock(const Node& node) noexcept

@@ -1,5 +1,6 @@
 #include "renderer.h"
 #include "d2d_util.h"
+#include <algorithm>
 
 void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
 {
@@ -19,7 +20,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
         if (show_bg) {
             rt()->FillRectangle(rect, Brush(bg_id));
         }
-        DrawTextWithOpacity({ &icon, 1 }, fmt_.titlebar_icon.Get(), rect, text_id, alpha);
+        DrawIcon({ &icon, 1 }, fmt_.titlebar_icon.Get(), rect, text_id, alpha);
     };
 
     const auto draw_plain = [&](const DipRect& rect, wchar_t icon, TitleBarHitZone zone) {
@@ -56,16 +57,39 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     }
 
     if (!tb.title_text.empty()) {
-        DrawTextWithOpacity(tb.title_text, fmt_.titlebar_text.Get(), ToD2DRect(tb.title_text_rect), BrushId::TitleBarText, text_alpha);
+        DrawCenteredText(title_layout_, tb.title_text, fmt_.titlebar_text.Get(), ToD2DRect(tb.title_text_rect), BrushId::TitleBarText, text_alpha);
     }
 }
 
-void Renderer::DrawTextWithOpacity(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha)
+void Renderer::DrawCenteredText(CenteredTextLayout& slot, std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box)
 {
     auto* const brush = Brush(brush_id);
-    if (!fmt || !brush) {
+    auto* const dw = backend_.GetDWriteFactory();
+    if (!fmt || !brush || !dw) {
         return;
     }
+    if (!slot.layout || slot.format != fmt || slot.text != text || slot.box.width != box.width || slot.box.height != box.height) {
+        slot.layout.Reset();
+        slot.format = fmt;
+        slot.text.assign(text);
+        slot.box = box;
+        if (FAILED(dw->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), fmt, box.width, box.height, &slot.layout))) {
+            return;
+        }
+    }
+    const D2D1_POINT_2F origin = (box.width > 0.0f) ? D2D1::Point2F(rect.left, rect.top) : D2D1::Point2F((rect.left + rect.right) * 0.5f, (rect.top + rect.bottom) * 0.5f);
     mendo::OpacityScope guard{ brush, alpha };
-    rt()->DrawText(text.data(), static_cast<UINT32>(text.size()), fmt, rect, brush);
+    rt()->DrawTextLayout(origin, slot.layout.Get(), brush);
+}
+
+void Renderer::DrawIcon(std::wstring_view icon, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box)
+{
+    if (!fmt) {
+        return;
+    }
+    auto it = std::ranges::find_if(icon_layouts_, [&](const CenteredTextLayout& s) { return s.format == fmt && s.text == icon; });
+    if (it == icon_layouts_.end()) {
+        it = icon_layouts_.emplace(icon_layouts_.end());
+    }
+    DrawCenteredText(*it, icon, fmt, rect, brush_id, alpha, box);
 }

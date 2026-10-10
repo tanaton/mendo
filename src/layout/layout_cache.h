@@ -1,6 +1,5 @@
 #pragma once
 #include "document_types.h"
-#include "pmr_unique_ptr.h"
 #include "utility.h"
 #include <cstdint>
 #include <vector>
@@ -153,12 +152,12 @@ struct SelectionHlCache {
 
 namespace mendo::layout::detail {
 
-// pmr_unique_ptr の lazy 初期化ヘルパ。NodeLayoutEntry のキャッシュ群で共有する。
+// unique_ptr の lazy 初期化ヘルパ。NodeLayoutEntry のキャッシュ群で共有する。
 template <typename T>
-constexpr T& EnsurePmrUnique(mendo::pmr_unique_ptr<T>& p)
+constexpr T& EnsureUnique(std::unique_ptr<T>& p)
 {
     if (!p) {
-        p = mendo::MakePmrUnique<T>();
+        p = std::make_unique<T>();
     }
     return *p;
 }
@@ -194,17 +193,17 @@ struct NodeLayoutEntry {
     // 計測が例外で失敗した連続回数 (成功で 0 に戻る)。bool 群の後ろのパディングに収まり、エントリのサイズは増えない。
     uint8_t measure_failures = 0;
     // インラインコード持ちノードでのみ確保される。空の vector ヘッダ (24B/個) を全ノード分背負わない。
-    mendo::pmr_unique_ptr<std::pmr::vector<InlineCodeBg>> inline_code_bgs;
-    mendo::pmr_unique_ptr<TableLayoutData> table_layout; // テーブルのみ確保
+    std::unique_ptr<std::pmr::vector<InlineCodeBg>> inline_code_bgs;
+    std::unique_ptr<TableLayoutData> table_layout; // テーブルのみ確保
 
     // 検索ヒットがあるノードでのみ確保される。描画中に書き換えるため mutable。
-    mutable mendo::pmr_unique_ptr<SearchHlCache> search_hl_cache;
+    mutable std::unique_ptr<SearchHlCache> search_hl_cache;
     // 選択中のノードでのみ確保される。描画中に書き換えるため mutable。
-    mutable mendo::pmr_unique_ptr<SelectionHlCache> selection_hl_cache;
+    mutable std::unique_ptr<SelectionHlCache> selection_hl_cache;
 
     constexpr SearchHlCache& ensure_search_hl_cache() const
     {
-        return mendo::layout::detail::EnsurePmrUnique(search_hl_cache);
+        return mendo::layout::detail::EnsureUnique(search_hl_cache);
     }
 
     constexpr void invalidate_search_hl_cache() const noexcept
@@ -214,7 +213,7 @@ struct NodeLayoutEntry {
 
     constexpr SelectionHlCache& ensure_selection_hl_cache() const
     {
-        return mendo::layout::detail::EnsurePmrUnique(selection_hl_cache);
+        return mendo::layout::detail::EnsureUnique(selection_hl_cache);
     }
 
     constexpr void invalidate_selection_hl_cache() const noexcept
@@ -232,7 +231,7 @@ struct NodeLayoutEntry {
 
     constexpr TableLayoutData& ensure_table_layout()
     {
-        return mendo::layout::detail::EnsurePmrUnique(table_layout);
+        return mendo::layout::detail::EnsureUnique(table_layout);
     }
     constexpr bool has_table_layout() const noexcept
     {
@@ -241,7 +240,7 @@ struct NodeLayoutEntry {
 
     constexpr std::pmr::vector<InlineCodeBg>& ensure_inline_code_bgs()
     {
-        return mendo::layout::detail::EnsurePmrUnique(inline_code_bgs);
+        return mendo::layout::detail::EnsureUnique(inline_code_bgs);
     }
 
     constexpr void clear_inline_code_bgs() noexcept
@@ -343,23 +342,28 @@ public:
         }
     }
 
-    constexpr DiagramEntry& GetDiagram(size_t i) noexcept
+    // 画像/図のノードでしか使わないので全ノード分は持たない。確保は結果を書き込む EnsureDiagram だけが行い、
+    // 読み取り・破棄は未確保 (nullptr) を返す FindDiagram を使う。
+    DiagramEntry& EnsureDiagram(size_t i)
     {
-        return diagrams_[i];
+        return mendo::layout::detail::EnsureUnique(diagrams_[i]);
     }
-    constexpr const DiagramEntry& GetDiagram(size_t i) const noexcept
+    constexpr DiagramEntry* FindDiagram(size_t i) noexcept
     {
-        return diagrams_[i];
+        return diagrams_[i].get();
+    }
+    constexpr const DiagramEntry* FindDiagram(size_t i) const noexcept
+    {
+        return diagrams_[i].get();
     }
 
     // すべてのテキストレイアウトとエフェクトを無効化する（テーマ/ズーム変更時）。
     // ダイアグラム/Mermaid キャッシュの処理は呼び出し側で別途行うこと。
     void InvalidateAllLayouts() noexcept;
 
-    // 色のみが変わるテーマ変更（ライト/ダーク切替）用。
     // 文字幾何 (IDWriteTextLayout / table cell layouts) は維持し、ApplyEffects を再走らせるため
-    // effects_applied フラグだけ落とす。Mermaid bitmap はテーマ色を持つので破棄する。
-    void InvalidateEffectsAndDiagramBitmaps(const std::pmr::vector<Node>& nodes) noexcept;
+    // effects_applied フラグとエフェクト由来のキャッシュだけ落とす。デバイスロスト時用。
+    void InvalidateEffects() noexcept;
 
     // デバイスロスト時用。旧デバイス上のビットマップは新 RT で描画できず、
     // 残すと EndDraw が D2DERR_WRONG_RESOURCE_DOMAIN で失敗し続ける。
@@ -442,7 +446,7 @@ private:
 
     std::pmr::vector<NodeLayoutEntry> entries_;
     std::pmr::vector<float> tops_;
-    std::pmr::vector<DiagramEntry> diagrams_;
+    std::pmr::vector<std::unique_ptr<DiagramEntry>> diagrams_;
     uint32_t effects_generation_ = 0;
     size_t last_evict_fk_ = 0;
     size_t last_evict_lk_ = 0;
@@ -451,17 +455,17 @@ private:
     size_t materialized_end_ = 0;
 };
 
-// 「コンテンツ末尾までの高さ」(末尾 node の text_top + height + 上端マージン)。
+// 「コンテンツ末尾までの高さ」(末尾 node の text_top + height + 下端マージン)。
 // = スクロール上限計算に使う高さ。末尾 node の spacing_below は含まない。
 // node_count > cache.size() の過渡状態 (doc 差し替え直後など) でも安全なよう effective にクランプする
 // (FindFirstVisibleNodeIndex / EnsureScrollTarget と同じ防御)。effective が 0 なら 0 を返し underflow を回避。
-constexpr float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_count, float margin_top) noexcept
+constexpr float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_count, float margin_bottom) noexcept
 {
     const size_t effective = std::min(node_count, cache.size());
     if (effective == 0) {
         return 0.0f;
     }
-    return cache.Bottom(effective - 1) + margin_top;
+    return cache.Bottom(effective - 1) + margin_bottom;
 }
 
 // ノードの Y 範囲 [y, y+h] が [range_top, range_bottom] と重ならない場合 true を返す。

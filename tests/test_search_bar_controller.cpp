@@ -11,7 +11,6 @@ namespace {
 
 struct CallbackTracker {
     int invalidate_count = 0;
-    int invalidate_search_bar_count = 0;
     int set_timer_count = 0;
     int kill_timer_count = 0;
     int focus_select_all_count = 0;
@@ -29,10 +28,6 @@ struct TestSearchBarCallbacks {
     void invalidate()
     {
         t->invalidate_count++;
-    }
-    void invalidate_search_bar()
-    {
-        t->invalidate_search_bar_count++;
     }
     void set_timer(app_timer::Id id, UINT ms)
     {
@@ -202,9 +197,9 @@ TEST_F(SearchBarControllerTest, SetSelectionNoOpWhenUnchanged)
     ctrl_.OnOpen(nodes);
 
     ctrl_.SetSelection(2, 5);
-    const int before = tracker_.invalidate_search_bar_count;
+    const int before = tracker_.invalidate_count;
     ctrl_.SetSelection(2, 5);
-    EXPECT_EQ(tracker_.invalidate_search_bar_count, before);
+    EXPECT_EQ(tracker_.invalidate_count, before);
 }
 
 TEST_F(SearchBarControllerTest, SetImeComposition)
@@ -222,9 +217,9 @@ TEST_F(SearchBarControllerTest, SetImeCompositionNoOpWhenUnchanged)
     ctrl_.OnOpen(nodes);
 
     ctrl_.SetImeComposition(L"あ");
-    const int before = tracker_.invalidate_search_bar_count;
+    const int before = tracker_.invalidate_count;
     ctrl_.SetImeComposition(L"あ");
-    EXPECT_EQ(tracker_.invalidate_search_bar_count, before);
+    EXPECT_EQ(tracker_.invalidate_count, before);
 }
 
 // ═══════════════════════════════════════════════
@@ -244,33 +239,25 @@ TEST_F(SearchBarControllerTest, DragLifecycle)
 }
 
 // ═══════════════════════════════════════════════
-// キャレットブリンク
+// キャレット
 // ═══════════════════════════════════════════════
 
-TEST_F(SearchBarControllerTest, CaretBlinkToggles)
+TEST_F(SearchBarControllerTest, CaretSteadyWithoutTimer)
 {
     std::pmr::vector<Node> nodes;
+    const int sets = tracker_.set_timer_count;
     ctrl_.OnOpen(nodes);
 
-    auto rs1 = ctrl_.BuildRenderState();
-    EXPECT_TRUE(rs1.caret_visible);
-
-    ctrl_.OnCaretBlinkTimer();
-    auto rs2 = ctrl_.BuildRenderState();
-    EXPECT_FALSE(rs2.caret_visible);
-
-    ctrl_.OnCaretBlinkTimer();
-    auto rs3 = ctrl_.BuildRenderState();
-    EXPECT_TRUE(rs3.caret_visible);
+    EXPECT_TRUE(ctrl_.BuildRenderState().caret_visible);
+    EXPECT_EQ(tracker_.set_timer_count, sets);
 }
 
-TEST_F(SearchBarControllerTest, WindowDeactivateStopsCaretBlink)
+TEST_F(SearchBarControllerTest, WindowDeactivateHidesCaret)
 {
     std::pmr::vector<Node> nodes;
     ctrl_.OnOpen(nodes);
 
     ctrl_.OnWindowActivate(false);
-    EXPECT_EQ(tracker_.last_killed_timer, app_timer::Id::SEARCH_CARET);
     EXPECT_FALSE(ctrl_.BuildRenderState().caret_visible);
     EXPECT_TRUE(ctrl_.HasFocus());
 

@@ -43,6 +43,7 @@ struct Theme {
     float margin_left;
     float margin_right;
     float margin_top;
+    float margin_bottom;
     float paragraph_spacing;
     float list_item_spacing;
     float heading_spacing_above;

@@ -524,7 +524,7 @@ TEST(SearchStateTest, MermaidCodeBlockExcludedFromSearch)
     std::pmr::vector<Node> nodes;
     Node mermaid;
     mermaid.type = NodeType::CodeBlock;
-    mermaid.ensure_code()->code_language = SyntaxLanguage::Mermaid;
+    mermaid.set_code_language(SyntaxLanguage::Mermaid);
     mermaid.SetTextWithLineCount(std::string_view{ "graph TD; A-->B" }, 0);
     nodes.push_back(std::move(mermaid));
     nodes.push_back(MakeTextNode("graph description"));
@@ -541,7 +541,7 @@ TEST(SearchStateTest, NonMermaidCodeBlockIncludedInSearch)
     std::pmr::vector<Node> nodes;
     Node code;
     code.type = NodeType::CodeBlock;
-    code.ensure_code()->code_language = SyntaxLanguage::Cpp;
+    code.set_code_language(SyntaxLanguage::Cpp);
     code.SetTextWithLineCount(std::string_view{ "int main()" }, 0);
     nodes.push_back(std::move(code));
     SearchState s;

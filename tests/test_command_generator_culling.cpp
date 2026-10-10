@@ -16,6 +16,7 @@
 #include <optional>
 #include <ranges>
 #include <string>
+#include <unordered_set>
 #include <variant>
 #include <vector>
 
@@ -188,9 +189,16 @@ protected:
         gen_.SetHitTestBuffer(&hit_buf_);
     }
 
-    const DrawCommandList& Generate(const ParsedLayout& pl, float scroll_y, float pane_h, const BlockHScrollContext& h_scroll)
+    const DrawCommandList& Generate(const ParsedLayout& pl, float scroll_y, float pane_h, const BlockHScrollContext& h_scroll, float pane_y = 0.0f)
     {
-        return gen_.GenerateMdPane(pl.nodes, pl.cache, PaneRect{ 0.0f, 0.0f, PANE_W, pane_h }, scroll_y, TextSelection{}, -1, HoveredButtons{}, 1.0f, h_scroll);
+        return gen_.GenerateMdPane(pl.nodes, pl.cache, PaneRect{ 0.0f, pane_y, PANE_W, pane_h }, scroll_y, TextSelection{}, -1, HoveredButtons{}, 1.0f, h_scroll);
+    }
+
+    // ペイン原点 (先頭の SetTransform) の Y。
+    static float PaneOriginY(const DrawCommandList& cmds)
+    {
+        const auto t = FindFirst<SetTransformCmd>(cmds);
+        return t ? t->transform.dy : 0.0f;
     }
 
     // 文書全体が余白付きで収まるペインで描いたもの (カリングが一切効かない) を正解とし、
@@ -199,7 +207,7 @@ protected:
     {
         const size_t n = pl.nodes.size();
         constexpr float ORACLE_SCROLL = -64.0f;
-        const float total_h = pl.cache.Bottom(n - 1) + theme_.margin_top;
+        const float total_h = ComputeTotalContentHeight(pl.cache, n, theme_.margin_bottom);
         const auto oracle = AllBoxes(Generate(pl, ORACLE_SCROLL, total_h - ORACLE_SCROLL + 64.0f, h_scroll));
 
         std::vector<float> probes;
@@ -255,6 +263,64 @@ TEST_F(CullingParityTest, ZoomedOutEmptyCodeBlockKeepsCopyButton)
     ASSERT_GE(code_idx, 0);
     ASSERT_LT(pl.cache[code_idx].height + 2.0f * theme_.code_block_padding, COPY_BTN_MARGIN + COPY_BTN_SIZE);
     ExpectCullingParity(pl, BlockHScrollContext{});
+}
+
+// 可視範囲より高いレイアウトだけ、PushClip と同じ Y 範囲でグリフランを間引かせる。
+TEST_F(CullingParityTest, TallLayoutRequestsRunCullingWithPaneLocalRange)
+{
+    std::string md = "short paragraph\n\n```\n";
+    for (int i = 0; i < 100; i++) {
+        md += "line\n";
+    }
+    md += "```\n";
+    const auto pl = ParseAndLayout(md, PANE_W);
+    const int code_idx = FindFirstNodeIndexByType(pl.nodes, NodeType::CodeBlock);
+    ASSERT_GE(code_idx, 0);
+    ASSERT_GT(pl.cache[code_idx].height, PANE_H);
+
+    constexpr float PANE_Y = 32.0f;
+    const auto& cmds = Generate(pl, 0.0f, PANE_H, {}, PANE_Y);
+    std::vector<const DrawTextLayoutCmd*> layouts;
+    for (const auto& c : cmds) {
+        if (const auto* t = std::get_if<DrawTextLayoutCmd>(&c)) {
+            layouts.push_back(t);
+        }
+    }
+    ASSERT_EQ(layouts.size(), 2u);
+    EXPECT_FALSE(layouts[0]->cull_runs);
+    EXPECT_TRUE(layouts[1]->cull_runs);
+    // ペイン原点は transform に乗るので、間引き範囲はペインローカルの [0, 高さ]。
+    EXPECT_EQ(layouts[1]->cull_top, 0.0f);
+    EXPECT_EQ(layouts[1]->cull_bottom, PANE_H);
+    EXPECT_EQ(PaneOriginY(cmds), PANE_Y);
+}
+
+// タイトルバー分 (md_rect.y) 下にずれたペインでも、クリップ (ウィンドウ座標) に映るノードはすべて描く。
+TEST_F(CullingParityTest, AllNodesInsideOffsetPaneClipAreDrawn)
+{
+    std::string md;
+    for (int i = 0; i < 40; i++) {
+        md += "paragraph\n\n";
+    }
+    const auto pl = ParseAndLayout(md, PANE_W);
+    constexpr float PANE_Y = 32.0f;
+    for (float scroll_y = 0.0f; scroll_y < 200.0f; scroll_y += 7.0f) {
+        const auto& cmds = Generate(pl, scroll_y, PANE_H, {}, PANE_Y);
+        const float dy = PaneOriginY(cmds);
+        std::unordered_set<IDWriteTextLayout*> drawn;
+        for (const auto& c : cmds) {
+            if (const auto* t = std::get_if<DrawTextLayoutCmd>(&c)) {
+                drawn.insert(t->layout);
+            }
+        }
+        for (size_t i = 0; i < pl.nodes.size(); i++) {
+            const float window_top = dy + pl.cache.Top(i) - scroll_y;
+            const float window_bottom = window_top + pl.cache[i].height;
+            if (window_bottom > PANE_Y && window_top < PANE_Y + PANE_H) {
+                EXPECT_TRUE(drawn.contains(pl.cache[i].text_layout.Get())) << "scroll_y=" << scroll_y << " node=" << i;
+            }
+        }
+    }
 }
 
 // issue #237 の上端版: loose list の空 LI (高さ 0) は bullet だけがノード下にはみ出して描かれる。

@@ -304,6 +304,41 @@ TEST_F(MermaidFileCacheTest, SaveAndLoadIndexRoundTrip)
     EXPECT_EQ(out.size, 512u);
 }
 
+TEST_F(MermaidFileCacheTest, InitDoesNotTouchDisk)
+{
+    const auto dir = temp_dir_ / L"lazy";
+    cache_.SetCacheDir(dir);
+    InitCache(1.0f);
+    EXPECT_FALSE(std::filesystem::exists(dir));
+}
+
+TEST_F(MermaidFileCacheTest, SaveIndexBeforeFirstUseKeepsIndex)
+{
+    InitCache(1.0f);
+    cache_.StoreAsync(100, 640.0f, 480.0f, MakeDummyPng(1024));
+    FlushAndReopen(1.0f);
+
+    // 一度も参照しないまま終了しても既存の索引を空で上書きしないこと
+    FlushAndReopen(1.0f);
+    EXPECT_EQ(cache_.EntryCount(), 1u);
+}
+
+TEST_F(MermaidFileCacheTest, SaveIndexSkipsWriteWhenUnchanged)
+{
+    InitCache(1.0f);
+    cache_.StoreAsync(100, 640.0f, 480.0f, MakeDummyPng(1024));
+    FlushAndReopen(1.0f);
+    ASSERT_EQ(cache_.EntryCount(), 1u);
+
+    // 読み込んだだけで変更していなければ書き出さない
+    const auto index_path = temp_dir_ / L"index.bin";
+    ASSERT_TRUE(std::filesystem::remove(index_path));
+    MermaidFileCache::CacheEntry entry;
+    EXPECT_TRUE(cache_.LookupDimensions(100, entry));
+    cache_.SaveIndex();
+    EXPECT_FALSE(std::filesystem::exists(index_path));
+}
+
 TEST_F(MermaidFileCacheTest, LoadIndexWithInvalidMagicIgnoresFile)
 {
     InitCache();

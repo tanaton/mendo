@@ -33,17 +33,21 @@ void FileExplorer::SetDirectory(std::wstring_view dir_path)
     Refresh();
 }
 
-void FileExplorer::Refresh()
+const std::pmr::vector<FileEntry>& FileExplorer::GetEntries() const
 {
-    entries_.clear();
-    if (directory_.empty()) {
-        return;
+    if (stale_) {
+        stale_ = false;
+        ++generation_;
+        entries_.clear();
+        if (!directory_.empty()) {
+            ListEntries();
+            ApplyCurrentFile();
+        }
     }
-    ListEntries();
-    ApplyCurrentFile();
+    return entries_;
 }
 
-void FileExplorer::ListEntries()
+void FileExplorer::ListEntries() const
 {
     const std::filesystem::path dir_base{ directory_ };
     // ルートでは ".." を出さない
@@ -94,9 +98,9 @@ void FileExplorer::ListEntries()
     });
 }
 
-int FileExplorer::HitTest(float local_y, float item_height) const noexcept
+int FileExplorer::HitTest(float local_y, float item_height) const
 {
-    return HitTestUniformList(local_y, item_height, entries_.size());
+    return HitTestUniformList(local_y, item_height, GetEntries().size());
 }
 
 void FileExplorer::SetCurrentFile(std::wstring_view path)
@@ -105,7 +109,7 @@ void FileExplorer::SetCurrentFile(std::wstring_view path)
     ApplyCurrentFile();
 }
 
-void FileExplorer::ApplyCurrentFile()
+void FileExplorer::ApplyCurrentFile() const
 {
     for (auto& entry : entries_) {
         entry.set_current(!entry.is_directory() && path_util::iequal(entry.full_path, current_file_));

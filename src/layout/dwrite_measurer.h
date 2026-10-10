@@ -26,7 +26,6 @@ public:
         Node& node,
         NodeLayoutEntry& entry,
         float max_width,
-        std::pmr::vector<SyntaxToken>* tokens_out = nullptr,
         MeasureViewportRange viewport = {}) const override;
     TableRestoreResult RestoreEvictedTableRows(
         Node& node,

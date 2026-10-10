@@ -53,6 +53,22 @@ TEST_F(ImageLoaderCacheTest, EvictsLeastRecentlyInsertedWhenExceedingMaxEntries)
     EXPECT_TRUE(loader_.GetCachedImage(L"overflow.png", out));
 }
 
+TEST_F(ImageLoaderCacheTest, CacheHitPromotesEntry)
+{
+    const size_t max_entries = 128;
+    for (size_t i = 0; i < max_entries; i++) {
+        loader_.InsertCacheEntry(L"img_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
+    }
+
+    // ヒットで末尾から外れるので、次の overflow では 1 つ前の img_1 が捨てられる
+    DiagramEntry out;
+    ASSERT_TRUE(loader_.GetCachedImage(L"img_0.png", out));
+    loader_.InsertCacheEntry(L"overflow.png", 100.0f, 100.0f);
+
+    EXPECT_TRUE(loader_.GetCachedImage(L"img_0.png", out));
+    EXPECT_FALSE(loader_.GetCachedImage(L"img_1.png", out));
+}
+
 TEST_F(ImageLoaderCacheTest, LatestInsertsWinAcrossOverflows)
 {
     // 連続 overflow が起きると古い Insert から順に末尾から捨てられていく。
@@ -100,8 +116,8 @@ TEST_F(ProcessDirtyBatchViewportTest, SkipsFarOffscreenNodes)
     const float viewport_height = 200.0f;
 
     // ビューポート制限付きで ProcessDirtyBatch を実行
-    engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 10000, 0,
-                              viewport_top, viewport_height);
+    engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 10000,
+                              { viewport_top, viewport_height, 5.0f });
 
     // ビューポート付近のノードはダーティでなくなっているはず
     EXPECT_FALSE(cache[0].layout_dirty) << "ビューポート内のノードは処理されるべき";
@@ -126,8 +142,8 @@ TEST_F(ProcessDirtyBatchViewportTest, WithoutViewportLimitProcessesAll)
         cache[i].text_layout.Reset();
     }
 
-    // ビューポート制限なし（デフォルト: viewport_top=-1, viewport_height=-1）
-    engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 10000, 0);
+    // ビューポート制限なし (clip 省略)
+    engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 10000);
 
     // 全ノードが処理されるべき
     for (size_t i = 0; i < nodes.size(); i++) {
@@ -148,7 +164,7 @@ TEST_F(ProcessDirtyBatchViewportTest, HasDirtyNodesFalseAfterNearbyProcessed)
     bool more = true;
     int iterations = 0;
     while (more && iterations < 100) {
-        more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 10000, 0, 0.0f, 200.0f);
+        more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 10000, { 0.0f, 200.0f, 5.0f });
         iterations++;
     }
 

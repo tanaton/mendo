@@ -14,13 +14,25 @@ constexpr bool OverlapsY(const D2D1_RECT_F& r, float cull_top, float cull_bottom
     return !IsOffscreen(r.top, r.bottom - r.top, cull_top, cull_bottom);
 }
 
+// 可視範囲より高いレイアウトだけ、executor に範囲外のグリフランを飛ばさせる。
+inline DrawTextLayoutCmd MakeTextLayoutCmd(D2D1_POINT_2F origin, IDWriteTextLayout* layout, float height, D2D1_COLOR_F color, BrushId brush_id, float cull_top, float cull_bottom) noexcept
+{
+    DrawTextLayoutCmd cmd{ origin, layout, color, brush_id };
+    if (height > cull_bottom - cull_top) {
+        cmd.cull_runs = true;
+        cmd.cull_top = cull_top;
+        cmd.cull_bottom = cull_bottom;
+    }
+    return cmd;
+}
+
 // bgs はパディング適用済みのレイアウト原点相対矩形。
 inline void GenInlineCodeBgs(DrawCommandList& cmds, std::span<const InlineCodeBg> bgs, float origin_x, float origin_y, D2D1_COLOR_F color, float cull_top, float cull_bottom)
 {
     for (const auto& bg : bgs) {
         const auto r = OffsetRectF(bg, origin_x, origin_y);
         if (OverlapsY(r, cull_top, cull_bottom)) {
-            cmds.emplace_back(FillRoundedRectCmd{ r, INLINE_CODE_CORNER, INLINE_CODE_CORNER, color });
+            cmds.emplace_back(FillRoundedRectCmd{ r, INLINE_CODE_CORNER, INLINE_CODE_CORNER, color, BrushId::CodeBg });
         }
     }
 }
@@ -34,7 +46,7 @@ inline size_t GenCellInlineCodeBgs(DrawCommandList& cmds, std::span<const CellIn
         ++cursor;
     }
     while (cursor < bgs.size() && bgs[cursor].cell_index == cell_index) {
-        cmds.emplace_back(FillRoundedRectCmd{ OffsetRectF(bgs[cursor].rect, origin_x, origin_y), INLINE_CODE_CORNER, INLINE_CODE_CORNER, color });
+        cmds.emplace_back(FillRoundedRectCmd{ OffsetRectF(bgs[cursor].rect, origin_x, origin_y), INLINE_CODE_CORNER, INLINE_CODE_CORNER, color, BrushId::CodeBg });
         ++cursor;
     }
     return cursor;

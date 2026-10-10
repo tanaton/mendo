@@ -1,12 +1,9 @@
 #pragma once
 #include <cstdint>
 #include <deque>
-#include <limits>
-#include <map>
 #include <memory_resource>
 #include <string>
 #include <string_view>
-#include <vector>
 
 // ファイルが編集されて絶対 y 座標が変わっても、同じノードの相対位置に戻れる。
 struct NavEntry {
@@ -56,52 +53,13 @@ public:
 
     void Clear() noexcept;
 
-    size_t InternedPathCount() const noexcept
-    {
-        return path_index_.size();
-    }
-
 private:
-    struct InternalEntry {
-        uint32_t path_index = 0;
-        int node = -1;
-        float offset = 0.0f;
-    };
-
-    // インターン化スロット。refcount=0 になった時点で text を解放し
-    // free_slots_ に戻して再利用する（path_pool_ 自体は deque で参照安定）。
-    struct PathSlot {
-        std::pmr::wstring text;
-        uint32_t refcount = 0;
-    };
-
-    uint32_t InternPath(std::wstring_view path);
-    void RetainPath(uint32_t idx) noexcept;
-    void ReleasePath(uint32_t idx) noexcept;
-
-    InternalEntry ToInternal(const NavEntry& e);
-    NavEntry ToExternal(const InternalEntry& e) const;
-
     // GoBack/GoForward の対称処理を集約する。
-    bool Transfer(std::pmr::deque<InternalEntry>& from, std::pmr::deque<InternalEntry>& to, const NavEntry& current, NavEntry& out);
-    // 容量超過時は最古を解放して捨てる (放置すると path slot の参照が滞留する)。
-    void PushCapped(std::pmr::deque<InternalEntry>& stack, const NavEntry& e);
+    bool Transfer(std::pmr::deque<NavEntry>& from, std::pmr::deque<NavEntry>& to, const NavEntry& current, NavEntry& out);
+    void PushCapped(std::pmr::deque<NavEntry>& stack, const NavEntry& e);
 
-    // path_pool_ は deque にして emplace_back での参照安定性を保証し、
-    // path_index_ のキー (std::wstring_view) が pool 内の文字列を指し続けるようにする。
-    // 典型的なセッションのエントリ数は数十〜数百で、文字列ハッシュの計算コストと
-    // バケット配列のキャッシュミスを避けられる std::pmr::map のほうが優位。
-    std::pmr::deque<PathSlot> path_pool_;
-    std::pmr::map<std::wstring_view, uint32_t> path_index_;
-    std::pmr::vector<uint32_t> free_slots_;
-    std::pmr::deque<InternalEntry> back_stack_;
-    std::pmr::deque<InternalEntry> forward_stack_;
-
-    // Back→Forward→Back の連続操作で path_index_::find を回避する直前値キャッシュ
-    std::wstring_view last_interned_view_;
-    // 「未設定」を表すセンチネル値。0 は有効インデックスなので最大値で代用する。
-    static constexpr uint32_t kUnsetIndex = std::numeric_limits<uint32_t>::max();
-    uint32_t last_interned_index_ = kUnsetIndex;
+    std::pmr::deque<NavEntry> back_stack_;
+    std::pmr::deque<NavEntry> forward_stack_;
     size_t max_history_ = MAX_HISTORY;
 };
 

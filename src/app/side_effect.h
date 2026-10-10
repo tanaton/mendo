@@ -14,9 +14,6 @@
 namespace effect {
 
 struct InvalidateWindow {};
-struct InvalidateTitleBar {};
-// MD 本文ペインのみ無効化 (詳細は reducer.cpp::EmitScrollChangedSideEffects)。
-struct InvalidateMdPane {};
 struct SetCapture {};
 struct ReleaseCapture {};
 struct ClipboardWrite {
@@ -125,8 +122,6 @@ struct MermaidIdle {};
 using SideEffect = std::variant<
     // Ui
     effect::InvalidateWindow,
-    effect::InvalidateTitleBar,
-    effect::InvalidateMdPane,
     effect::SetCapture,
     effect::ReleaseCapture,
     effect::ClipboardWrite,

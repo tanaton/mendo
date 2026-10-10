@@ -37,7 +37,6 @@ protected:
     }
 };
 
-// DrawCommandList のイテレータは prvalue を返すため、要素へのポインタではなく値で返す。
 template <typename T>
 std::optional<T> FindFirst(const DrawCommandList& cmds)
 {

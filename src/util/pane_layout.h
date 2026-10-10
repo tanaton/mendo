@@ -100,6 +100,13 @@ constexpr float SidePaneContentHeight(size_t item_count, float pane_item_height)
     return static_cast<float>(item_count) * pane_item_height;
 }
 
+// ウィンドウ DIP の Y を、項目先頭を 0 とするペイン内ローカル Y (スクロール込み) に変換する。
+// ホバーとクリックの両方がこの式を共有する。
+constexpr float SidePaneLocalY(float dip_y, float content_top, float scroll_y) noexcept
+{
+    return dip_y - content_top + scroll_y;
+}
+
 // 等高リストのペイン内ローカル Y から項目 index を返す。範囲外は -1。
 constexpr int HitTestUniformList(float local_y, float item_height, size_t count) noexcept
 {

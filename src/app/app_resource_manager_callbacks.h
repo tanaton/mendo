@@ -10,12 +10,12 @@ class App;
 struct AppResourceManagerCallbacks {
     App* app = nullptr;
 
-    void invalidate();
     void set_timer(app_timer::Id id, UINT ms);
     void kill_timer(app_timer::Id id);
     float get_content_width();
     float get_viewport_height();
     float get_indent_width();
+    // 再描画の要求までを含む (anchored も同様)。
     void recompute_layout(mendo::layout::HeightChangeRange changed);
     void recompute_layout_anchored(mendo::layout::HeightChangeRange changed);
 };

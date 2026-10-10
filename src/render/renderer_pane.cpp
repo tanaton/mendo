@@ -5,28 +5,34 @@
 #include "string_convert.h"
 #include "ui_constants.h"
 #include <algorithm>
+#include <cmath>
 #include <concepts>
 
 // 戻り値: キャッシュが使用可能なら true。
+// ウィンドウやスプリッタのドラッグ中に毎フレーム作り直さないよう、確保は 64 DIP 単位に切り上げて拡大時だけ行う。
 static bool EnsurePaneCacheSize(PaneCache& cache, ID2D1RenderTarget* parent, float width, float height)
 {
     if (width <= 0 || height <= 0) {
         return false;
     }
-
-    if (!cache.bitmap_rt ||
-        cache.cached_width != width || cache.cached_height != height) {
-        cache.bitmap_rt.Reset();
-        cache.cached_bitmap.Reset();
-        const HRESULT hr = parent->CreateCompatibleRenderTarget(D2D1::SizeF(width, height), &cache.bitmap_rt);
-        if (FAILED(hr)) {
-            return false;
-        }
+    if (cache.cached_width != width || cache.cached_height != height) {
         cache.cached_width = width;
         cache.cached_height = height;
         cache.Invalidate();
     }
-    return true;
+    if (cache.bitmap_rt) {
+        const auto allocated = cache.bitmap_rt->GetSize();
+        if (width <= allocated.width && height <= allocated.height) {
+            return true;
+        }
+    }
+
+    constexpr float kBucket = 64.0f;
+    const auto round_up = [](float v) noexcept { return std::ceil(v / kBucket) * kBucket; };
+    cache.bitmap_rt.Reset();
+    cache.cached_bitmap.Reset();
+    cache.Invalidate();
+    return SUCCEEDED(parent->CreateCompatibleRenderTarget(D2D1::SizeF(round_up(width), round_up(height)), &cache.bitmap_rt));
 }
 
 // right_x はペイン右端。つまみはそこから VScrollbarLeftX で内側に寄せる。
@@ -172,7 +178,8 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
         RedrawSidePaneCache(sp, draw_item);
     }
     if (sp.cache.cached_bitmap) {
-        sp.main_rt->DrawBitmap(sp.cache.cached_bitmap.Get(), ToD2DRect(sp.rect));
+        const D2D1_RECT_F src = D2D1::RectF(0.0f, 0.0f, sp.rect.width, sp.rect.height);
+        sp.main_rt->DrawBitmap(sp.cache.cached_bitmap.Get(), ToD2DRect(sp.rect), 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, &src);
     }
 }
 

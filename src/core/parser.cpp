@@ -2,7 +2,6 @@
 #include "html_entities.h"
 #include "document_utils.h"
 #include "syntax.h"
-#include "memory_resource.h"
 #include "profiler.h"
 #include "md4c.h"
 #include <functional>
@@ -30,10 +29,6 @@ struct StringTransparentHash {
 };
 
 struct ParseContext {
-    explicit ParseContext(size_t initial_arena_bytes)
-        : parse_resource{ initial_arena_bytes }
-    {}
-
     std::stop_token stop_token;
     // md4c コールバックは 100MB 入力で 50 万回以上呼ばれるため、毎回 atomic load せず
     // 1024 callbacks ごとに stop_requested() を確認する間引きカウンタ。
@@ -53,12 +48,6 @@ struct ParseContext {
         return cancel_requested;
     }
 
-    // パース用 monotonic リソース（一括確保→一括解放）。初期サイズは入力に応じて動的に決定する。
-    MonotonicResource parse_resource;
-    // append/clear が走るスクラッチや hash map 用の pool。単一スレッドなので unsynchronized。
-    // upstream を monotonic にして pool 自身の解放は ParseContext 破棄時の一括解放に任せる。
-    std::pmr::unsynchronized_pool_resource pool{ parse_resource.resource() };
-
     std::pmr::vector<Node> nodes;
 
     // パース後の全ノード走査を避けるため、特殊ノードのインデックスはパース中に構築する。
@@ -66,8 +55,7 @@ struct ParseContext {
     std::pmr::vector<size_t> image_indices;
     std::pmr::vector<size_t> diagram_indices;
     std::pmr::vector<size_t> table_indices;
-    // DetectAlerts 後に破棄するため parse_resource に載せられる（他 indices は ParseResult 経由で持ち出すので不可）。
-    std::pmr::vector<size_t> blockquote_indices{ parse_resource.resource() };
+    std::pmr::vector<size_t> blockquote_indices;
     size_t current_node_index = 0;
 
     // span ネスト追跡は md4c 推奨のカウンタ方式。enter で +1, leave で -1。
@@ -86,8 +74,8 @@ struct ParseContext {
     int16_t current_link_url_index = -1;
 
     // 現在ノード用のテキスト蓄積スクラッチ (UTF-8)。FinalizeCurrentNode で view 化されるか
-    // Node::owned_text_ へコピーされる (allocator 不一致を避けるため move ではなくコピー)。
-    std::pmr::string current_text{ &pool };
+    // Node::owned_text_ へコピーされる。
+    std::pmr::string current_text;
 
     // current_text 内の「未確定 TextRun」の開始位置 (UTF-8 byte unit)。
     // 同じ span 状態で連続する AppendDoc は 1 つの TextRun に統合される。
@@ -108,7 +96,7 @@ struct ParseContext {
 
     // リスト追跡: 0 = 順序なしリスト, >0 = 順序ありリストのカウンター
     // スタックアダプタを挟まず vector を直接扱う (back/push_back/pop_back)。
-    std::pmr::vector<int> list_counter{ parse_resource.resource() };
+    std::pmr::vector<int> list_counter;
 
     // 現在構築中のノード
     Node* current_node = nullptr;
@@ -121,25 +109,24 @@ struct ParseContext {
     std::pmr::string* active_text_buffer = nullptr;
 
     // アンカーIDの一意性追跡: スラグ -> 出現回数。
-    // 再ハッシュ時の旧 bucket は pool 内で再利用されるため monotonic は膨らまない。
-    std::pmr::unordered_map<std::pmr::string, int, StringTransparentHash, std::equal_to<>> anchor_counts{ &pool };
+    std::pmr::unordered_map<std::pmr::string, int, StringTransparentHash, std::equal_to<>> anchor_counts;
 
     // 現在ノードの link_urls の URL -> インデックス索引。URL 数が kLinkUrlLinearScanMax を
     // 超えたノードでのみ構築する (テーブルは全セルで 1 ノードのため数万 URL になりうる)。
     // urls 内の SSO 文字列は vector 伸長で移動するため string_view ではなく複製をキーにする。
     static constexpr size_t kLinkUrlLinearScanMax = 8;
-    std::pmr::unordered_map<std::pmr::string, int16_t, StringTransparentHash, std::equal_to<>> link_url_lookup{ &pool };
+    std::pmr::unordered_map<std::pmr::string, int16_t, StringTransparentHash, std::equal_to<>> link_url_lookup;
 
-    // 画像スパンの src 蓄積バッファ。NodeImageData::src へは allocator 不一致を避けるため assign(view) でコピー。
+    // 画像スパンの src 蓄積バッファ。
     // ネスト画像 (![a ![b](inner)](outer)) では最外側の src を採用するため深度を追跡する。
-    std::pmr::string pending_image_src{ &pool };
+    std::pmr::string pending_image_src;
     int image_span_depth = 0;
 
     // display math スパンが 1 個だけで他の内容が無い段落を LatexMath コードブロックに昇格する状態
     bool in_display_math = false;
     int paragraph_display_math_count = 0;
     bool paragraph_has_other_content = false;
-    std::pmr::string display_math_buf{ &pool };
+    std::pmr::string display_math_buf;
     // display_math_buf に append された範囲の改行数。昇格時の line_count 設定に使い、
     // current_text 全体を std::ranges::count で走査するコストを避ける。
     int32_t display_math_newlines = 0;
@@ -412,7 +399,7 @@ constexpr bool TryPromoteParagraphToDisplayMath(ParseContext* ctx)
         return false;
     }
     node->type = NodeType::CodeBlock;
-    node->ensure_code()->code_language = SyntaxLanguage::LatexMath;
+    node->set_code_language(SyntaxLanguage::LatexMath);
     node->runs.clear();
     // current_text 経由で渡すと FinalizeCurrentNode で 2 回目のコピーが走るため、ノードへ直接書く。
     node->SetTextWithLineCount(ctx->display_math_buf, ctx->display_math_newlines);
@@ -547,8 +534,7 @@ void LeaveCodeBlock(ParseContext* ctx)
 // 重複する見出しは "-N" を付けて一意化する。
 void AssignHeadingAnchor(ParseContext* ctx, Node& heading)
 {
-    // base_id を ctx->pool 上に構築することで anchor_counts (同じ pool) の try_emplace を真の move にする。
-    std::pmr::string base_id{ &ctx->pool };
+    std::pmr::string base_id;
     GenerateAnchorIdInto(heading.GetText(), base_id);
     const auto [it, inserted] = ctx->anchor_counts.try_emplace(std::move(base_id), 0);
     auto& aid = heading.ensure_anchor_id_mut();
@@ -558,7 +544,7 @@ void AssignHeadingAnchor(ParseContext* ctx, Node& heading)
     }
     // "A","A","A-1" のように連番付きスラグが別見出しの素のスラグと衝突しうるため、
     // github-slugger と同じく未使用になるまで連番を進め、採用したスラグ自体も登録する。
-    std::pmr::string candidate{ &ctx->pool };
+    std::pmr::string candidate;
     do {
         candidate.assign(it->first);
         std::format_to(std::back_inserter(candidate), "-{}", ++it->second);
@@ -581,7 +567,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
     case MD_BLOCK_H: {
         auto* const h = static_cast<MD_BLOCK_H_DETAIL*>(detail);
         ctx->BeginNode(NodeType::Heading);
-        ctx->current_node->ensure_heading()->heading_level = static_cast<int8_t>(h->level);
+        ctx->current_node->set_heading_level(static_cast<int8_t>(h->level));
         break;
     }
 
@@ -601,7 +587,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         ctx->BeginNode(NodeType::CodeBlock);
         auto* const code_detail = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
         if (code_detail && code_detail->lang.text && code_detail->lang.size > 0) {
-            ctx->current_node->ensure_code()->code_language = DetectLanguage(std::string_view{ code_detail->lang.text, static_cast<size_t>(code_detail->lang.size) });
+            ctx->current_node->set_code_language(DetectLanguage(std::string_view{ code_detail->lang.text, static_cast<size_t>(code_detail->lang.size) }));
         }
         break;
     }
@@ -766,7 +752,7 @@ void SplitAlertMarkerBeforeImage(ParseContext* ctx)
         return;
     }
     // [![badge](b.svg)](url) では MD_SPAN_A が先に来て URL を閉じるノードへ登録済みなので、新ノードへ登録し直す。
-    std::pmr::string link_url{ &ctx->pool };
+    std::pmr::string link_url;
     if (ctx->current_link_url_index >= 0) {
         link_url = ctx->current_node->view_link_urls()[static_cast<size_t>(ctx->current_link_url_index)];
     }
@@ -866,9 +852,7 @@ void LeaveImageSpan(ParseContext* ctx)
     if (auto* const cn = ctx->current_node;
         cn && !ctx->pending_image_src.empty() &&
         (cn->type == NodeType::Paragraph || cn->type == NodeType::BlockQuote || IsListItem(*cn))) {
-        // pending_image_src は pool allocator で、NodeImageData::src は default 。
-        // allocator 不一致で std::move しても内部的にコピーされるので、明示的に assign(view) する。
-        cn->ensure_image()->src.assign(ctx->pending_image_src.data(), ctx->pending_image_src.size());
+        cn->ensure_image()->src = ctx->pending_image_src;
     }
     ctx->pending_image_src.clear();
 }
@@ -1009,24 +993,20 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 
 // 各種予約サイズのヒント定数。実測 (100MB 入力 = 30k ノード相当) を基準に、
 // 初期確保サイズと再確保回数のバランスで決めている。値は「入力 N byte あたり 1 個」を表す:
-//   - kArenaInputBytesPerByte=20  → 入力の 5% を初期 arena に。new_delete 直結回数を削減。
 //   - kScratchInputBytesPerByte=8 → ノード当たりの平均テキスト長 ~8B 想定の scratch。
-//   - kInputBytesPerNode=64       → 1 ノードあたり ~64 入力 byte (realloc 14 回→4 回相当)。
+//   - kInputBytesPerNode=256      → example/test.md 実測 ~258 byte/ノード。超過時は通常の伸長に任せる。
 //   - kInputBytesPerHeading=4096  → 1MB あたり 256 個の見出し相当。実測数十〜数百に収まる。
 //   - kInputBytesPerImage=512     → 画像頻度 ~0.2%。
 //   - kInputBytesPerBlockquote=512 → blockquote 頻度 (image と同程度)。
 //   - kInputBytesPerDiagram=1024  → ダイアグラム頻度 ~0.1%。
 //   - kInputBytesPerTable=1024    → テーブル頻度 (ダイアグラムと同程度を想定)。
-constexpr size_t kArenaInputBytesPerByte = 20;
 constexpr size_t kScratchInputBytesPerByte = 8;
-constexpr size_t kInputBytesPerNode = 64;
+constexpr size_t kInputBytesPerNode = 256;
 constexpr size_t kInputBytesPerHeading = 4096;
 constexpr size_t kInputBytesPerImage = 512;
 constexpr size_t kInputBytesPerBlockquote = 512;
 constexpr size_t kInputBytesPerDiagram = 1024;
 constexpr size_t kInputBytesPerTable = 1024;
-constexpr size_t kArenaMin = 128 * 1024;
-constexpr size_t kArenaMax = 5 * 1024 * 1024;
 constexpr size_t kScratchReserveMin = 1024;
 constexpr size_t kScratchReserveMax = 64 * 1024;
 
@@ -1047,28 +1027,13 @@ void ReserveForInput(ParseContext& ctx, size_t input_size)
     ctx.blockquote_indices.reserve(std::clamp(input_size / kInputBytesPerBlockquote, 4uz, 256uz));
 }
 
-// kInputBytesPerNode は再確保を避けるため多めに見積もっており、平均的な文書では容量が
-// 実数の 2 倍超 (100MB 入力で ~140MB) 残る。Document の寿命中コミットされ続けるので切り詰める。
-void ShrinkNodesIfWasteful(std::pmr::vector<Node>& nodes)
-{
-    static_assert(std::is_nothrow_move_constructible_v<Node>, "shrink_to_fit がコピーにならないこと");
-    constexpr size_t kShrinkMinWasteBytes = 4 * 1024 * 1024;
-    const size_t waste = (nodes.capacity() - nodes.size()) * sizeof(Node);
-    if (waste > kShrinkMinWasteBytes && waste > nodes.size() * sizeof(Node) / 4) {
-        MENDO_PROFILE("nodes.shrink_to_fit");
-        nodes.shrink_to_fit();
-    }
-}
-
 } // namespace
 
 ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token)
 {
     MENDO_PROFILE("ParseMarkdown");
     const size_t input_size = markdown_text.size();
-    const size_t arena_bytes = std::clamp(input_size / kArenaInputBytesPerByte, kArenaMin, kArenaMax);
-    MENDO_STATF("parse_resource arena: input={} arena={}", input_size, arena_bytes);
-    ParseContext ctx{ arena_bytes };
+    ParseContext ctx;
     ctx.stop_token = std::move(stop_token);
     ctx.markdown_base = markdown_text.data();
     ctx.markdown_size = input_size;
@@ -1101,8 +1066,6 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         MENDO_PROFILE("DetectAlerts");
         DetectAlerts(ctx.nodes, std::span<const size_t>{ ctx.blockquote_indices });
     }
-
-    ShrinkNodesIfWasteful(ctx.nodes);
 
     ParseResult result;
     result.nodes = std::move(ctx.nodes);

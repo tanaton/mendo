@@ -81,7 +81,7 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
             if (!IsOffscreen(y, entry.height, vp.top, vp.bottom)) {
                 const float old_height = entry.height;
                 cache.NoteMaterialized(i);
-                MeasureEntry(*measurer_, node, entry, node_width, nullptr, vp, y + sa);
+                MeasureEntry(*measurer_, node, entry, node_width, vp, y + sa);
                 any_measured = true;
                 if (entry.height != old_height) {
                     any_height_changed = true;
@@ -175,8 +175,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
     if (!dirty_indices.empty()) {
         // 未計測領域へのジャンプやスクロールバードラッグでは 1 画面分 (数十〜百ノード) を
         // 毎フレーム計測するため、scheduler があれば並列化する。
-        constexpr size_t kMinVisibleForParallel = 8;
-        mendo::layout::MeasureIndicesParallel(nodes, cache, content_width, *theme_, *measurer_, dirty_indices, vp, layout_scheduler_, kMinVisibleForParallel);
+        mendo::layout::MeasureIndicesParallel(nodes, cache, content_width, *theme_, *measurer_, dirty_indices, vp, layout_scheduler_);
         any_updated = true;
     }
 
@@ -191,21 +190,13 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
 
 bool LayoutEngine::ProcessDirtyBatch(
     std::pmr::vector<Node>& nodes, LayoutCache& cache,
-    float viewport_width, int batch_size, int time_budget_us,
-    float viewport_top, float viewport_height, float buffer_screens)
+    float viewport_width, int batch_size,
+    mendo::layout::ViewportClip clip)
 {
     MENDO_PROFILE("LayoutEngine::ProcessDirtyBatch");
     const float content_width = theme_->ContentWidth(viewport_width);
 
-    const mendo::layout::ViewportClip clip{ viewport_top, viewport_height, buffer_screens };
-
-    // 並列版は ParallelBudget (max_nodes のみ) を取り、time_budget は型レベルで遮断される。
-    // batch_size は Phase 1 で適用するのでスクロール時バッチも上限以下に収まる。
-    // 小規模 dirty は RunParallel 内部で inline 直列に倒れる。
-    const auto result =
-        layout_scheduler_
-            ? mendo::layout::RunParallel(nodes, cache, content_width, *theme_, *measurer_, clip, mendo::layout::ParallelBudget{ batch_size }, *layout_scheduler_)
-            : mendo::layout::RunSerial(nodes, cache, content_width, *theme_, *measurer_, clip, mendo::layout::SerialBudget{ batch_size, time_budget_us });
+    const auto result = mendo::layout::RunParallel(nodes, cache, content_width, *theme_, *measurer_, clip, batch_size, layout_scheduler_);
 
     // processed では判定しない: 例外で計測できなかったノードがあっても、計測できたノードは
     // 高さが変わっているので Y を組み直し、残った dirty は再試行に回す必要がある。
@@ -234,10 +225,10 @@ void LayoutService::ViewportLayout(Document& doc, LayoutCache& cache, float widt
     viewport_.ApplyScrollTarget(cache);
 }
 
-bool LayoutService::ProcessDirtyBatch(Document& doc, LayoutCache& cache, float width, int batch_size, int time_budget_us, ViewportLimit viewport)
+bool LayoutService::ProcessDirtyBatch(Document& doc, LayoutCache& cache, float width, int batch_size, ViewportLimit viewport)
 {
     // height <= 0 なら ViewportClip::active() が false になりクリップは無効。
-    const bool more = engine_.ProcessDirtyBatch(doc.GetNodesMut(), cache, width, batch_size, time_budget_us, viewport_.GetScrollY(), viewport.height, viewport.buffer_screens);
+    const bool more = engine_.ProcessDirtyBatch(doc.GetNodesMut(), cache, width, batch_size, { viewport_.GetScrollY(), viewport.height, viewport.buffer_screens });
     viewport_.ApplyScrollTarget(cache);
     return more;
 }

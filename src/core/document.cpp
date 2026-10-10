@@ -1,7 +1,6 @@
 #include "document.h"
 #include "ascii_util.h"
 #include "document_utils.h"
-#include "fnv1a.h"
 #include "newline_util.h"
 #include "parser.h"
 #include "profiler.h"
@@ -61,23 +60,10 @@ int Document::FindAnchorIndex(std::string_view anchor) const
     if (anchor.empty()) {
         return -1;
     }
-    char stack_buf[256];
-    if (anchor.size() <= sizeof(stack_buf)) {
-        ascii_util::AsciiToLowerOnly(anchor.data(), stack_buf, anchor.size());
-        return FindNormalizedAnchorIndex(std::string_view{ stack_buf, anchor.size() });
-    }
-    const std::pmr::string target = ToLowerAsciiCopy(anchor);
-    return FindNormalizedAnchorIndex(target);
-}
-
-int Document::FindNormalizedAnchorIndex(std::string_view anchor) const
-{
-    const std::uint64_t h = mendo::Fnv1a64(anchor);
-    // FNV-1a 衝突時に異なる anchor_id を取り違えないよう、hash 一致範囲を文字列比較で絞る。
-    const auto [lo, hi] = std::ranges::equal_range(anchor_index_, h, {}, &decltype(anchor_index_)::value_type::first);
-    for (auto it = lo; it != hi; ++it) {
-        if (nodes_[it->second].anchor_id() == anchor) {
-            return it->second;
+    // リンククリック時のみ呼ばれるので索引は持たず線形走査する。anchor_id は小文字確定なので query 側だけ畳む。
+    for (const auto& entry : toc_.GetEntries()) {
+        if (std::ranges::equal(nodes_[entry.node_index].anchor_id(), anchor, {}, {}, ascii_util::ToLowerAscii)) {
+            return entry.node_index;
         }
     }
     return -1;
@@ -88,22 +74,7 @@ void Document::BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indic
     MENDO_PROFILE("BuildHeadingIndices");
     toc_.Clear();
     toc_.Reserve(heading_indices.size());
-    anchor_index_.clear();
-    anchor_index_.reserve(heading_indices.size());
-
     for (size_t i : heading_indices) {
-        const auto& node = nodes_[i];
-        toc_.AddEntry(node, static_cast<int>(i));
-        const auto sv = node.anchor_id();
-        if (!sv.empty()) {
-            anchor_index_.emplace_back(mendo::Fnv1a64(sv), static_cast<int>(i));
-        }
-    }
-    // pair のデフォルト辞書順 (hash 昇順 → node_index 昇順) でソートする。unique は取らず、
-    // 同 anchor_id の重複見出しと、稀な hash 衝突の両方をエントリとして保持する。lookup 側
-    // (FindNormalizedAnchorIndex) で文字列比較して先勝ちを選ぶ。
-    {
-        MENDO_PROFILE("BuildHeadingIndices.Sort");
-        std::ranges::sort(anchor_index_);
+        toc_.AddEntry(nodes_[i], static_cast<int>(i));
     }
 }

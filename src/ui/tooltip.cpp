@@ -70,7 +70,7 @@ void Tooltip::Init(HWND parent_hwnd)
 bool Tooltip::Update(const TooltipTarget& target)
 {
     auto& s = *impl_;
-    if (target == s.current) {
+    if (target.SameTarget(s.current)) {
         return false;
     }
 

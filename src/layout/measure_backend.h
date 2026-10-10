@@ -29,15 +29,10 @@ class IMeasureBackend {
 public:
     virtual ~IMeasureBackend() = default;
 
-    // tokens_out が非 nullptr の場合、CodeBlock の Tokenize 結果を Node ではなく
-    // 当該 vector に書き出す (per-node 並列計測用)。Node の syntax_tokens は
-    // 触らない (UI スレッドで集約後に書き戻す責務は呼び出し側にある)。
-    // tokens_out == nullptr (default) のシリアル経路では従来通り
-    // node.syntax_tokens_mut() に直接書き込む。
+    // 並列計測では worker ごとに別ノードを渡すので、node (CodeBlock の syntax_tokens) へ直接書いてよい。
     // viewport はテーブルで行単位の部分復元判定に用いる。
     virtual void MeasureNode(
         Node& node, NodeLayoutEntry& entry, float max_width,
-        std::pmr::vector<SyntaxToken>* tokens_out = nullptr,
         MeasureViewportRange viewport = {}) const = 0;
     // 幅不変のまま行単位 evict されたテーブルの、viewport 内の evict 行だけセルを再生成する。
     // layout_dirty を経由しないため、可視中に毎フレーム全行を再計測することがない。
@@ -54,9 +49,9 @@ public:
 // viewport は文書座標で受け取り、entry_top 基準のローカル座標に直してバックエンドへ渡す。
 inline void MeasureEntry(
     const IMeasureBackend& backend, Node& node, NodeLayoutEntry& entry, float node_width,
-    std::pmr::vector<SyntaxToken>* tokens_out, MeasureViewportRange viewport, float entry_top)
+    MeasureViewportRange viewport, float entry_top)
 {
-    backend.MeasureNode(node, entry, node_width, tokens_out, viewport.ToLocal(entry_top));
+    backend.MeasureNode(node, entry, node_width, viewport.ToLocal(entry_top));
     entry.cached_width = node_width;
     entry.cached_height = entry.height;
     entry.measure_failures = 0;

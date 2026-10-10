@@ -376,6 +376,7 @@ flowchart TD
     W -->|WM_APP+4 SEARCH_FOCUS| SF[検索バーフォーカス]
     W -->|WM_APP+5 SEARCH_UNFOCUS| SUF[検索バーアンフォーカス]
     W -->|WM_APP+6 PARSE_COMPLETE| PC[App::OnParseComplete]
+    W -->|WM_APP+7 MERMAID_DISK_LOADED| MDL[App::OnMermaidDiskLoaded]
 ```
 
 #### 3.2.5 キーボードショートカット
@@ -482,7 +483,7 @@ struct ViewState {
 struct InteractionState {
     MouseGesture   gesture;
     SwipeDetector  swipe_detector;
-    HoverThrottle  hover_throttle;
+    LastHoverPos  last_hover_pos;
     Tooltip        tooltip;
     ToastNotifier  toast;
     HoveredButtons hovered;            // copy / save / svg_copy ボタンのホバー状態を集約
@@ -497,6 +498,8 @@ struct SearchGroup {
 struct WindowState {
     TitleBar       titlebar;
     bool           is_sizing = false;
+    // 移動だけのサイズ変更ループでは終了時のレイアウト処理 (PerformResizeEnd) を省くため。
+    bool           size_changed_in_sizing = false;
     bool           window_active = true;
     float          cached_dpi_scale = 1.0f;
 };
@@ -566,7 +569,7 @@ classDiagram
     class InteractionState {
         +MouseGesture gesture
         +SwipeDetector swipe_detector
-        +HoverThrottle hover_throttle
+        +LastHoverPos last_hover_pos
         +Tooltip tooltip
         +ToastNotifier toast
         +HoveredButtons hovered
@@ -581,6 +584,7 @@ classDiagram
     class WindowState {
         +TitleBar titlebar
         +bool is_sizing
+        +bool size_changed_in_sizing
         +bool window_active
         +float cached_dpi_scale
     }
@@ -652,12 +656,12 @@ using AppAction = std::variant<
 
 #### 3.4.3 SideEffect — 単一variant
 
-`SideEffect` は全 effect 型を 1 段の variant に束ねる。論理グループ（Ui / Window / Navigation / Layout / Resource / Timer / Lifecycle）はコメント区切りで表現し、実行側も単一 visitor で処理する。Effect 型は `namespace effect` に集約されている。
+`SideEffect` は全 effect 型を 1 段の variant に束ねる。論理グループ（Ui / Window / Navigation / Layout / Resource / Timer）はコメント区切りで表現し、実行側も単一 visitor で処理する。Effect 型は `namespace effect` に集約されている。
 
 ```cpp
 using SideEffect = std::variant<
     // Ui
-    effect::InvalidateWindow, effect::InvalidateTitleBar, effect::InvalidateMdPane,
+    effect::InvalidateWindow,
     effect::SetCapture, effect::ReleaseCapture,
     effect::ClipboardWrite, effect::ClipboardWriteHtml,
     effect::ShowTooltip, effect::ClearTooltip,
@@ -668,11 +672,10 @@ using SideEffect = std::variant<
     effect::PerformResizeEnd, effect::PerformSizingUpdate,
     effect::RendererResize, effect::RendererSetDpi,
     // Navigation
-    effect::ShellOpen, effect::LoadFile,
-    effect::ReloadFile, effect::OpenFileDialog,
+    effect::LoadFile, effect::ReloadFile, effect::OpenFileDialog,
     // Layout
     effect::BitmapManage, effect::InvalidatePaneCache, effect::RefreshPaneLayout,
-    effect::SyncTocActive, effect::ViewportLayout, effect::SyncMaxScroll,
+    effect::SyncTocActive,
     // Resource
     effect::NotifyImageLoaded, effect::ClearFileCache,
     effect::StartFileWatch, effect::StopFileWatch, effect::ResumeFileWatch,
@@ -681,12 +684,12 @@ using SideEffect = std::variant<
     effect::SetTimer, effect::KillTimer,
     effect::ProcessDeferredLayout, effect::TickLoadingAnimation,
     effect::ProcessMermaidBatchTimer, effect::ProcessBitmapManage,
-    effect::MermaidInitRetry,
-    // Lifecycle
-    effect::Destroy, effect::HandleParseComplete>;
+    effect::MermaidInitRetry, effect::MermaidIdle>;
 
 using SideEffectList = std::pmr::vector<SideEffect>;
 ```
+
+再描画要求は `effect::InvalidateWindow`（ウィンドウ全体の `InvalidateRect(hwnd, nullptr, FALSE)`）に一本化されている。タイトルバーや Markdown ペインだけを部分無効化する effect は持たない。`OnPaint` は `rcPaint` を見ずに毎回全面を描き、`FLIP_DISCARD` のスワップチェーンでは部分描画もできないため、無効化矩形を絞っても描画量は減らないからである。
 
 `PushEffect<T>(effects, e)` は effect を `SideEffectList` に追加するヘルパー。`HasEffect<T>(effects)` は `std::holds_alternative`、`GetEffect<T>(side_effect)` は `std::get_if` の薄いラッパである。
 
@@ -700,9 +703,6 @@ public:
     virtual ~IWin32Host() = default;
 
     virtual void Invalidate() = 0;
-    virtual void InvalidateTitleBarArea(float dip_w, float dip_h, float dpi_scale) = 0;
-    virtual void InvalidateMdPaneArea(float dip_x, float dip_y,
-                                      float dip_w, float dip_h, float dpi_scale) = 0;
 
     virtual void SetTimer(app_timer::Id id, UINT ms) = 0;
     virtual void KillTimer(app_timer::Id id) = 0;
@@ -720,7 +720,6 @@ public:
     virtual void SearchFocus(effect::SearchFocus action) = 0;
     virtual void SearchUnfocus(effect::SearchUnfocus action) = 0;
     virtual void SetWindowPosition(int x, int y, int cx, int cy) = 0;
-    virtual POINT ClientToScreen(POINT client_pt) = 0;
 };
 ```
 
@@ -820,7 +819,7 @@ sequenceDiagram
     end
     P-->>DOC: ParseResult { nodes, heading_indices, image_indices, diagram_indices, table_indices }
     DOC->>DOC: DetectAlerts (BlockQuote → Alert に変換)
-    DOC->>DOC: BuildHeadingIndices (anchor_id → Node index)
+    DOC->>DOC: BuildHeadingIndices (見出し → TOC エントリ)
 ```
 
 ```cpp
@@ -836,6 +835,8 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
 ```
 
 md4c は **UTF-8 モード** (`MD_CHAR=char`) で起動するため、入力は UTF-8 byte 列。`FileLoader::LoadFile` が UTF-8 のまま読み込んで `Document::FromMarkdown(utf8, path)` に渡す経路と、埋め込みリソース（ヘルプ）から直接 UTF-8 で渡す経路がある。
+
+パース中のスクラッチ文字列・見出し重複表・リスト番号スタックなどはパーサ専用の arena / pool を持たず、既定リソース（`new_delete_resource`）から確保する。ノード配列などは `ReserveForInput` が入力サイズから容量を予約し、ノード数は `kInputBytesPerNode = 256`（`example/test.md` 実測 ~258 byte/ノード）で見積もる。見積もりを超えた分は通常の伸長に任せ、パース後の `shrink_to_fit` は行わない。
 
 #### 3.6.2 対応する Markdown 要素
 
@@ -900,8 +901,8 @@ std::string_view GetAlertIcon(AlertType type) noexcept;
 // 合成インターフェース。ITextMeasurer 自体は中身を持たない。
 class IMeasureBackend {
 public:
+    // 並列計測では worker ごとに別ノードを渡すので、CodeBlock の syntax_tokens へ直接書いてよい。
     virtual void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
-                             std::pmr::vector<SyntaxToken>* tokens_out = nullptr,
                              MeasureViewportRange viewport = {}) const = 0;
     virtual void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width,
                               MeasureViewportRange viewport = {}) const = 0;
@@ -919,6 +920,8 @@ class ITextMeasurer : public IMeasureBackend, public IMeasureLifecycle {};
 class LayoutEngine {
 public:
     bool Init(ITextMeasurer* measurer, const Theme& theme);
+    // nullptr なら呼び出しスレッドで直列に計測する。
+    void SetLayoutScheduler(TaskScheduler* scheduler) noexcept;
     void UpdateTheme(const Theme& theme) noexcept;
     bool RecreateFormats();
 
@@ -926,9 +929,8 @@ public:
                        float viewport_top = -1.0f, float viewport_bottom = -1.0f);
     void LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width);
     bool ProcessDirtyBatch(std::pmr::vector<Node>& nodes, LayoutCache& cache,
-                           float viewport_width, int batch_size, int time_budget_us = 0,
-                           float viewport_top = -1.0f, float viewport_height = -1.0f,
-                           float buffer_screens = 5.0f);
+                           float viewport_width, int batch_size,
+                           mendo::layout::ViewportClip clip = {});
     bool EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
                              float viewport_top, float viewport_bottom);
 
@@ -941,18 +943,23 @@ public:
 
     struct ViewportLimit {
         float height         = 0.0f;
-        float buffer_screens = 5.0f;
+        float buffer_screens = 0.0f;
     };
 
     void ViewportLayout(Document& doc, LayoutCache& cache, float width, float height);
     bool ProcessDirtyBatch(Document& doc, LayoutCache& cache, float width, int batch_size,
-                           int time_budget_us = 0, ViewportLimit viewport = {});
+                           ViewportLimit viewport);
     bool EnsureVisibleLayout(Document& doc, LayoutCache& cache, float width, float height);
-    void RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme) noexcept;
+    void RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme,
+                               mendo::layout::HeightChangeRange changed) noexcept;
 };
 ```
 
 本番実装は `DWriteMeasurer`（DirectWrite を使用）。テスト時はモックに差し替えられる。`RecomputeYPositions` / `EstimateNodeHeight` / `EstimateNodeHeights` などのフリー関数で Y 座標再計算と高さ推定（DirectWrite 計測前の暫定値）を提供する。
+
+ダーティノードの計測は `mendo::layout::RunParallel`（`parallel_measure.cpp`）に一本化されている。`ProcessDirtyBatch` は `ViewportClip`（可視範囲 ± `buffer_screens` 画面）内の dirty を `max_nodes` 件まで計測し、時間予算は持たない（worker 側に中断点が無いため）。`EnsureVisibleLayout` も可視範囲の dirty を `MeasureIndicesParallel` で並列計測する。どちらも `ParallelFor` に 1 ノード単位で配り、1 画面分（数十ノード）の dirty でも全 worker に行き渡らせる。scheduler が null なら同じ関数が呼び出しスレッドで直列に計測する。CodeBlock のトークン化は worker が担当ノードの `syntax_tokens` へ直接書き込み、UI スレッドでの集約は行わない（`Tokenize` 完了後に代入するので、例外時に途中のトークンが残らない）。`ViewportClip` / `StopReason`（`NoneDirty` / `Done` / `BatchLimit` / `Error`）/ `DirtyBatchResult` の型は `parallel_measure.h` に置く。`ProcessDirtyBatch` の `clip` を省略すると可視範囲で絞らず全 dirty を対象にする。
+
+遅延レイアウト（`App::OnDeferredLayout`）は `ResourceManager::EVICT_BUFFER_SCREENS`（2 画面）を `buffer_screens` に渡すため、画面外の計測は前後 2 画面までに限られる。範囲外へジャンプした場合は `EnsureVisibleLayout` が同期計測で拾う。
 
 #### 3.7.2 レイアウト計算フロー
 
@@ -1018,7 +1025,6 @@ sequenceDiagram
 
 ```cpp
 using DrawCommand = std::variant<
-    ClearCmd,
     FillRectCmd,
     FillRoundedRectCmd,
     DrawLineCmd,
@@ -1032,11 +1038,14 @@ using DrawCommand = std::variant<
     SetTransformCmd
 >;
 
+using DrawCommandList = std::pmr::vector<DrawCommand>;
 ```
 
-`DrawCommand` variant はテスト/デバッグ用途で、本番経路の `DrawCommandList` は独立したクラスである。コマンド種別ごとの型別 vector を持つ SoA（struct-of-arrays）構造 + タグ付きインデックス列（`seq_`）で発行順を保持し、走査は `Visit()` で行う。
+`DrawCommandList` は `DrawCommand` variant の単一 `std::pmr::vector` である。毎フレーム構築して 1 回読むだけのリストなので、型別ベクタや発行順テーブルは持たない。`CommandGenerator` はフレーム用 monotonic arena 上に確保し直し、`CommandExecutor::Execute` は先頭から `std::visit` で順に実行する。
 
-各コマンドは値型で、`IDWriteTextLayout*` や `ID2D1Bitmap*` などのポインタは **非所有**（ライフタイムは `LayoutCache` などが管理）。
+各コマンドは値型で、`IDWriteTextLayout*` や `ID2D1Bitmap*` などのポインタは **非所有**（ライフタイムは `LayoutCache` などが管理）。色は `BrushId` で固定ブラシ（`Renderer` が保持する配列）を指し、`BrushId::Custom` のときだけコマンドの `color` で描く。動的色はアラート背景とオーバーレイボタン程度なので、`CommandExecutor` は色ごとのブラシプールを持たず、1 本のスクラッチブラシを `SetColor` で使い回す（レンダーターゲットが替わったら作り直す）。
+
+`DrawTextLayoutCmd` のレイアウトが可視範囲より高い場合（巨大なコードブロックなど）、`CommandGenerator` がコマンドに `cull_runs` と可視の縦範囲（クリップ範囲と同じ）を載せ、`CommandExecutor` は `ID2D1RenderTarget::DrawTextLayout` ではなく自前の `IDWriteTextRenderer`（`VisibleRunRenderer`）で `IDWriteTextLayout::Draw` を呼び、描画面の縦範囲外のグリフラン・下線・取り消し線を飛ばす。D2D の `DrawTextLayout` は画面外も含め全ランを処理するため、1 万行のコードブロックで 1 フレーム約 20ms かかっていたのを約 0.8ms（色分けありで約 2.5ms）に抑える。フラグの無いレイアウトは従来どおり `DrawTextLayout` に任せるので、実行側で `GetMetrics` を呼んで判定することはない。
 
 #### 3.8.3 IRenderBackend インターフェース
 
@@ -1096,6 +1105,11 @@ public:
 
 ローディングアニメーション（`DrawLoading`）とコンテキストメニューはこのシーケンスとは別経路で描画される。
 
+描画コストを抑えるためのキャッシュ:
+
+- **サイドペインのオフスクリーンキャッシュ**（`PaneCache`）: ビットマップは 64 DIP 単位に切り上げたサイズで確保し、ペインが確保済みサイズを超えて拡大した時だけ作り直す。描画時は必要な部分矩形だけを転送するため、ウィンドウやスプリッタのドラッグ中に毎フレーム `CreateCompatibleRenderTarget` しない。`cached_width` / `cached_height` は描画内容のサイズで、変化すれば内容だけ描き直す。
+- **タイトルバー・検索バーの文字列**: `DrawText` は呼び出しごとに内部でテキストレイアウトを作るため使わない。中央揃え書式のレイアウトを幅/高さ 0 で作って矩形中心に描く `DrawCenteredText`（タイトル文字列 `title_layout_`、検索件数 `search_count_layout_`）と、(書式, 文字列) ごとに作り置く `DrawIcon`（アイコン・トグルラベル用 `icon_layouts_`）で、文字列と書式が同じ間はレイアウトを使い回す。ナビボタン・ジェスチャーの文字も `DrawIcon`、トーストは `toast_layout_` スロットに載せ、固定サイズの箱が必要なものは箱サイズでレイアウトを作って左上に描く。書式を作り直す `RecreatePaneFormats` でまとめて破棄する。
+
 ---
 
 ### 3.9 Theme — テーマシステム
@@ -1146,7 +1160,7 @@ struct Theme {
     float font_size_code;
 
     // スペーシング
-    float margin_left, margin_right, margin_top;
+    float margin_left, margin_right, margin_top, margin_bottom;
     float paragraph_spacing, list_item_spacing;
     float heading_spacing_above;
     float heading_spacing_below;       // h3〜h6 の下マージン
@@ -1190,6 +1204,10 @@ public:
     int  LoadZoomIndex() const;
 };
 ```
+
+起動時は `App::Init` が `Renderer` より先に `LoadDarkMode` / `LoadZoomIndex` を読み、保存済みのテーマとズームで作った `Theme` を `Renderer::Init(hwnd, theme)` に渡す。書式とブラシは 1 回の生成で済み、ライトテーマで作ってから作り直す二重生成を避ける。
+
+ライト/ダークの切替はフォントと寸法が共通なので色だけの変更として扱う。`Renderer::SetTheme` は書式やテキストレイアウトを作り直さず、固定ブラシの色を `SetColor` で差し替えてサイドペインのキャッシュを無効化するだけである（ズーム変更は `ApplyZoomFromBase` の別経路）。Reducer 側（`ReduceToggleDarkMode`）もテキストレイアウトと描画エフェクトを維持し、テーマ色を焼き込んだ Mermaid ビットマップだけを `LayoutCache::InvalidateDiagramBitmaps` で破棄する。
 
 #### 3.9.3 ズームシステム
 
@@ -1239,20 +1257,23 @@ graph LR
         CM[Comment]
         PP[Preprocessor]
         FN[Function]
-        PL[Plain]
     end
 
-    CPP --> KW & TY & ST & NU & CM & PP & FN & PL
-    PY --> KW & TY & ST & NU & CM & PL
-    JS --> KW & TY & ST & NU & CM & FN & PL
-    TS --> KW & TY & ST & NU & CM & FN & PL
-    GO --> KW & TY & ST & NU & CM & FN & PL
-    RS --> KW & TY & ST & NU & CM & FN & PL
-    BASH --> KW & ST & NU & CM & PL
-    PS --> KW & TY & ST & NU & CM & PL
-    CMD --> KW & ST & CM & PL
-    JSON --> KW & ST & NU & PL
+    CPP --> KW & TY & ST & NU & CM & PP & FN
+    PY --> KW & TY & ST & NU & CM
+    JS --> KW & TY & ST & NU & CM & FN
+    TS --> KW & TY & ST & NU & CM & FN
+    GO --> KW & TY & ST & NU & CM & FN
+    RS --> KW & TY & ST & NU & CM & FN
+    BASH --> KW & ST & NU & CM
+    PS --> KW & TY & ST & NU & CM
+    CMD --> KW & ST & CM
+    JSON --> KW & ST & NU
 ```
+
+`SyntaxTokenType` には `Plain` も定義されているが、トークナイザは `Plain` トークンを出力しない。描画（`ApplyNodeEffects`）も HTML 化もトークン間の隙間を既定色のテキストとして扱うため、出力しても同じ結果になるうえトークン数の大半を占めるだけだからである。色付け対象の無いコードはトークン列が空になるので、トークン化済みかどうかは `NodeCodeData::tokens` の確保有無で判定する。
+
+C++ の生文字列 `R"delim(...)delim"` は、`R"` の直後から規格どおり最大 16 文字・空白/括弧/`\` を含まない区切りの範囲だけ `(` を探す。上限なしに探すと `(` の無い `R"` が続く文書で末尾までの走査を繰り返し、O(n²) になるためである。
 
 JSON 系は ` ```json ` / ` ```jsonc ` / ` ```json5 ` の言語タグで認識される。`true` / `false` / `null` をキーワードとしてハイライトする。
 
@@ -1413,24 +1434,27 @@ sequenceDiagram
     participant WIC as WIC
 
     APP->>RM: RequestMermaidRenders()
-    RM->>ML: バッチ管理
-    ML->>FC: Lookup(key)
-    alt キャッシュヒット
-        FC-->>ML: PNG データ
-        ML->>WIC: PNG → IWICBitmapSource
-        WIC-->>ML: ピクセル
-        ML-->>APP: ID2D1Bitmap
+    RM->>MR: RequestRender(node, entry, max_width, dark_mode)
+    alt メモリキャッシュヒット
+        MR-->>APP: ID2D1Bitmap を DiagramEntry へ適用
+    else ディスクキャッシュヒット
+        MR->>FC: LookupPath(key)（初回のみ索引を読み込む）
+        FC-->>MR: PNG パス + CSS 寸法
+        MR->>WIC: worker で PNG 読み込み + デコード (IWICBitmap)
+        WIC-->>APP: WM_APP+7 MERMAID_DISK_LOADED
+        APP->>MR: ProcessDiskLoads → ID2D1Bitmap 化 (UI スレッド)
     else キャッシュミス
-        ML->>MR: RequestRender(code, theme)
-        MR->>WV: PostWebMessageAsJson(renderMermaid)
-        WV->>JS: renderMermaid(code, config)
+        MR->>ML: TryMarkInitialized（未起動なら WebView2 環境を生成）
+        MR->>WV: ExecuteScript(render)
+        WV->>JS: mermaid.render(code)
         JS-->>WV: SVG文字列
-        WV->>WV: SVG → Canvas → PNG (toDataURL)
-        WV-->>MR: PNG Base64
-        MR->>WIC: PNG → IWICBitmapSource
-        WIC-->>MR: ピクセル
-        MR-->>ML: ID2D1Bitmap
-        ML->>FC: StoreAsync(key, css_width, css_height, png_data)
+        WV-->>MR: 寸法 (WebMessage)
+        MR->>WV: CapturePreview(PNG)
+        WV-->>MR: PNG ストリーム
+        MR->>WIC: worker でデコード (ディスク読み込みと同じ DiskLoad 経路)
+        WIC-->>APP: WM_APP+7 MERMAID_DISK_LOADED
+        APP->>MR: ProcessDiskLoads → ID2D1Bitmap 化
+        MR->>FC: StoreAsync(key, css_width, css_height, png_data)
     end
 ```
 
@@ -1455,7 +1479,11 @@ public:
 };
 ```
 
-`mendo_core` には `mermaid_lifecycle::Lifecycle`（純粋ロジック）と `IMermaidRenderer` 抽象のみが入り、WebView2 を呼び出す具象 `MermaidRenderer` は `mendo` 実行ファイル側に分離されている。`MermaidRenderer` は最大 4 ワーカー（独立した WebView2 インスタンス）を並行稼働させ、PNG/SVG を同時にレンダリングできる。
+`mendo_core` には `mermaid_lifecycle::Lifecycle`（純粋ロジック）と `IMermaidRenderer` 抽象のみが入り、WebView2 を呼び出す具象 `MermaidRenderer` は `mendo` 実行ファイル側に分離されている。`MermaidRenderer` は最大 4 ワーカー（独立した WebView2 インスタンス）を並行稼働させ、PNG/SVG を同時にレンダリングできる。ワーカーは最初 1 つだけ起動し、全ワーカーが描画中で待ちが溜まったときに `MaybeGrowWorkers` で増やす。
+
+PNG のデコードは UI スレッドで行わない。ディスクキャッシュから読む場合も、WebView2 の `CapturePreview` で描画した直後の PNG も同じ `DiskLoad` 経路に流し、バックグラウンド `TaskScheduler` でファイル読み込み（キャプチャ時は不要）と WIC デコードを済ませた `IWICBitmap` を作る。完了は `app_msg::MERMAID_DISK_LOADED` で通知され、UI スレッドの `ProcessDiskLoads` が `CreateBitmapFromWicBitmap` で `ID2D1Bitmap` 化する。キャプチャ由来の PNG はこのときディスクキャッシュへ `StoreAsync` される。
+
+描画要求が無いまま `IDLE_SHUTDOWN_MS`（60 秒）経つと、`app_timer::Id::MERMAID_IDLE` → `effect::MermaidIdle` → `OnIdleTimer` で全ワーカーと WebView2 環境（browser / renderer / GPU プロセス）をまとめて閉じ、`Lifecycle` も未初期化に戻す。待ちキューが空になるたび（`ProcessQueue` 末尾）にタイマーを張り直し、待ちや描画中のワーカーが残っていれば閉じるのを見送る。次の描画要求で `EnsureInitialized` から作り直し、準備完了通知（`on_ready_`）は再初期化のたびに呼ばれて未描画の図を再要求させる。
 
 #### 3.12.3 MermaidFileCache — 永続キャッシュ
 
@@ -1471,19 +1499,26 @@ public:
         size_t                     size = 0;
     };
 
+    // 索引の読み込みは初回利用まで遅らせる (ディスクに触れない)。
     void Init(float current_dpr, TaskScheduler& scheduler);
     bool Lookup(uint64_t key, CacheEntry& entry, PngBlob& png);
-    bool LookupDimensions(uint64_t key, CacheEntry& entry) const noexcept;
-    void StoreAsync(uint64_t key, float css_width, float css_height,
-                    std::pmr::vector<uint8_t> png_data);
-    void SaveIndex();
+    // PNG のパスと寸法を返し LRU を更新する。読み込みは呼び出し側 (worker) が行う。
+    bool LookupPath(uint64_t key, CacheEntry& entry, std::filesystem::path& png_path);
+    // ファイルが確実に存在しない場合のみ索引から除く。
+    void OnReadFailed(uint64_t key, DWORD read_error);
+    bool LookupDimensions(uint64_t key, CacheEntry& entry);
+    // png_data は表示側 (メモリキャッシュ / DiagramEntry) と共有し、書き込み用にコピーしない。
+    using PngBytes = std::shared_ptr<const std::pmr::vector<uint8_t>>;
+    void StoreAsync(uint64_t key, float css_width, float css_height, PngBytes png_data);
+    void SaveIndex();   // 索引に変更が無ければ書かない
     void ClearAll();
     void SetCacheDir(const std::filesystem::path& dir);
     void SetLimits(size_t max_entries, uint64_t max_total_size);
     void Shutdown();
 
-    size_t   EntryCount() const noexcept;
-    uint64_t TotalSize() const noexcept;
+    // 索引が未読み込みならここで読み込むため非 const。
+    size_t   EntryCount();
+    uint64_t TotalSize();
 
 private:
     static constexpr uint32_t MAGIC   = 0x4D454D43u;  // "MEMC"
@@ -1495,12 +1530,16 @@ private:
 
 外部キーは内部で DPR 量子化値（1/100 単位、典型値 100/125/150/175/200）に定数 `0x9E3779B97F4A7C15` を乗じた値と XOR して内部キーに変換し、DPR ごとに独立したエントリとして保存する。これにより DPI 変更/モニタ切替時に全消去を発生させない。書き込みは `TaskScheduler` のワーカースレッドで非同期実行される（`pending_writes_` で重複投入をガード）。
 
+索引（`index.bin`）は `Init` では読まず、`LookupPath` / `LookupDimensions` / `StoreAsync` / `ClearAll` などの初回利用時に、唯一の入口 `Index()` で読み込む。図を含まない文書の起動ではディスクに触れない。索引・合計サイズ・LRU シーケンス・変更フラグは `IndexState` にまとめ、`std::optional<IndexState>`（未読み込みは `nullopt`）で持つ。変更系の操作（`Add` / `Remove` / `Touch`）は `IndexState` 自身が `dirty` を立てる。索引本体は `std::pmr::unordered_map<uint64_t, IndexEntry>` 1 本で、各エントリが `last_used`（単調増加シーケンス）を持つ。追い出しは満杯時にしか起きないため、LRU 順の補助構造は持たず `last_used` の線形走査で最古を探す。終了時の `SaveIndex` は未読み込み（`nullopt`）か変更が無ければ書き戻さないので、空の索引でディスクを上書きすることは構造上起きない。
+
 #### 3.12.4 初期化
 
-1. 非表示ポップアップウィンドウを作成
-2. WebView2環境を非同期初期化
-3. MSZIP 圧縮された `mermaid.min.js` をリソースから展開
-4. HTMLテンプレートに埋め込み、`NavigateToString()` で読み込み
+WebView2 は起動時には作らず、最初の描画要求（`RequestRender` / `RequestSvg`）で `EnsureInitialized` が立ち上げる。
+
+1. 画面外に置いたポップアップウィンドウを作成（`CapturePreview` は可視状態を要求するため非表示にはしない）
+2. WebView2 環境とコントローラを非同期に生成
+3. `https://app.local/index.html` へ `Navigate` し、`WebResourceRequested` で HTML テンプレート（`IDR_MERMAID_HTML`）と `mermaid.min.js`（`IDR_MERMAID_JS`）を RCDATA から無圧縮のまま配信する
+4. ワーカーの準備完了で `on_ready_` を呼び、待っていた図の描画を要求させる
 
 ---
 
@@ -1531,13 +1570,16 @@ public:
     size_t BackSize() const noexcept;
     size_t ForwardSize() const noexcept;
     void   Clear() noexcept;
-    size_t InternedPathCount() const noexcept;
 
     static constexpr size_t MAX_HISTORY = 1024;
+
+private:
+    std::pmr::deque<NavEntry> back_stack_;
+    std::pmr::deque<NavEntry> forward_stack_;
 };
 ```
 
-ファイルパスはインターン化（`std::pmr::deque<PathSlot>` + 参照カウント、free_slots 再利用）され、同一ファイルを多数履歴に積んでもメモリ消費が増えない。位置はノード単位で表現するため、ファイルが編集されて絶対 y 座標が変わっても同一ノードに戻れる。Back→Forward→Back の連続操作で `path_index_::find` を回避する直前値キャッシュ（`last_interned_view_` / `last_interned_index_`）も持つ。
+戻る/進むスタックは `NavEntry` をそのまま `std::pmr::deque` に積み、各エントリがファイルパスを持つ（履歴は最大 1024 件程度なので、パスのインターン化は行わない）。容量を超えたら最古のエントリを捨てる。位置はノード単位で表現するため、ファイルが編集されて絶対 y 座標が変わっても同一ノードに戻れる。
 
 #### 3.13.2 リンク解決
 
@@ -1548,7 +1590,7 @@ struct LinkClickResult {
     enum class Type : uint8_t { None, Anchor, ExternalUrl };
     Type             type = Type::None;
     std::pmr::string target;   // Anchor: アンカーID / ExternalUrl: URL (UTF-8)。
-                               // effect::ShellOpen に渡す直前で wstring 化する。
+                               // ShellOpen に渡す直前で wstring 化する。
 };
 
 LinkClickResult HandleLinkClick(std::string_view url);
@@ -1562,8 +1604,8 @@ flowchart TD
     TRIGGER[リンククリック / ジェスチャ / Alt+矢印 / Xボタン]
     TRIGGER --> APP[App::HandleLinkClick or NavigateBack/ForwardAction]
     APP --> KIND{解決結果}
-    KIND -->|Anchor| ANCHOR[Document::FindAnchorIndex<br>→ ScrollTarget 設定]
-    KIND -->|ExternalUrl| SHELL[effect::ShellOpen → ShellExecuteW]
+    KIND -->|Anchor| ANCHOR[Document::FindAnchorIndex<br>TOC を線形走査 → ScrollTarget 設定]
+    KIND -->|ExternalUrl| SHELL[Win32Host::ShellOpen → ShellExecuteW]
     KIND -->|別ファイル(.md)| LOAD[effect::LoadFile → DocumentService::LoadFile]
     KIND -->|None| NOP[何もしない]
     ANCHOR --> PUSH[NavHistory::Push (新規遷移時のみ)]
@@ -1641,8 +1683,7 @@ struct ScrollTarget {
 };
 
 // 見出しノードを md ペイン上端の heading_spacing_above 分だけ下に配置する ScrollTarget。
-constexpr ScrollTarget MakeHeadingTopTarget(int node, float heading_spacing_above,
-                                            float md_pane_top) noexcept;
+constexpr ScrollTarget MakeHeadingTopTarget(int node, float heading_spacing_above) noexcept;
 
 class ViewportManager {
 public:
@@ -1769,6 +1810,8 @@ graph LR
 | Markdownペイン | 残り全幅 | 200px | Markdownコンテンツ |
 | スプリッタ | テーマ依存（`Theme::splitter_width`） | — | ペイン間の境界線 |
 
+ファイルペインの一覧は `FileExplorer`（`AppState::file_explorer`）が持つ。`SetDirectory` / `Refresh` は一覧を古いと印すだけで、列挙は次の `GetEntries` まで遅らせる。`GetEntries` を呼ぶのは表示中のファイルペインの描画・ホバー・クリック・スクロールだけなので、非表示の間は列挙しない（起動時やファイルを開くたびの UI スレッド I/O を省く）。列挙し直すたびに世代 (`GetGeneration`) が進み、ツールチップは項目 index と世代の組で対象を識別する。
+
 ---
 
 ### 3.18 HitTestService — ヒットテスト
@@ -1778,14 +1821,13 @@ struct MdPaneHitContext {
     const std::pmr::vector<Node>& nodes;
     const LayoutCache&            cache;
     const Theme&                  theme;
-    float scroll_y;
-    float md_pane_left;
-    float dpi_scale;
-    int   screen_x;
-    int   screen_y;
+    float    scroll_y;
+    PaneRect md_rect;
+    float    dpi_scale;
+    int      screen_x;
+    int      screen_y;
     // ボタンヒットテスト用
-    float content_width  = 0.0f;
-    float md_pane_height = 0.0f;
+    float content_width = 0.0f;
     // ブロック単位の横スクロール量。null は全ノード 0 として扱う。
     const std::pmr::unordered_map<int, float>* block_scroll_x = nullptr;
 };
@@ -1806,17 +1848,21 @@ public:
     NavButtonHover NavButtonHitTest(float dip_x, float dip_y,
                                     const PaneRect& md_rect) const noexcept;
 
-    // 可視ノード走査・座標変換・キャッシュ照合を共有して Copy/Save/DiagramCopy を一度に判定する。
+    // 可視ノード走査・座標変換を共有して Copy/Save/DiagramCopy を一度に判定する。
     struct CodeBlockButtonHit {
         int copy_node         = -1;
         int save_node         = -1;
         int diagram_copy_node = -1;
     };
     CodeBlockButtonHit CodeBlockButtonsHitTest(const MdPaneHitContext& ctx) const noexcept;
+    bool BlockHScrollbarHitTest(const MdPaneHitContext& ctx, int node_index,
+                                float visible_width) const noexcept;
 };
 ```
 
-`HitTestService` は同一座標の連続ヒットテストを高速化する内部キャッシュ（`HitCache<T>`）を持ち、`LayoutCache::GetEffectsGeneration()` が変わると自動で無効化する。`NavButtonHover` 列挙は `util/ui_types.h` で `{ None, Back, Forward }` の 3 値。
+本文はペイン基準の座標（ペイン原点 `md_rect.x/y` は描画変換に乗る）で描くので、マウス座標は `ScreenToPaneDip` で一度だけ「ペイン左端基準の X とドキュメント Y」に変換し、ノードやボタン、ブロック横スクロールバーの矩形はドキュメント座標のまま比べる。可視範囲はどこでも `[scroll_y, scroll_y + md_rect.height]` で一致する。
+
+`HitTestService` はヒット結果のキャッシュを持たず、呼ばれるたびに判定する（`HitTestPoint` は 1 万行のコードブロックでも数〜十数 µs で済むため）。保持するのは UTF-16→UTF-8 オフセット逆変換の再利用キャッシュ（`md_wv_cache_` / `cell_wv_cache_`）だけで、ドキュメントのノード配列が替わると `ResetIfBufferChanged` で破棄する。`NavButtonHover` 列挙は `util/ui_types.h` で `{ None, Back, Forward }` の 3 値。
 
 ---
 
@@ -1828,7 +1874,7 @@ public:
 %LOCALAPPDATA%\mendo\settings.ini
 ```
 
-`IniParser` で読み書きし、セクション+キーの2階層でアクセスする。書き込みは `*.tmp` → `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` の原子的差し替え。書き出しはアプリ終了時 (WM_DESTROY) に集約する。
+`IniParser` で読み書きし、セクション+キーの2階層でアクセスする。書き込みは `*.tmp` → `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` の原子的差し替え。書き出しはアプリ終了時 (WM_DESTROY) に集約し、読み込み後に値が変わっていなければ書かない。
 
 #### 3.19.2 保存項目
 
@@ -1862,7 +1908,7 @@ public:
 
     // ディスク永続化
     void Load();
-    void Flush();        // メモリ上のデータを書き出し（WM_DESTROY 時に呼ぶ）
+    void Flush();        // 変更があればメモリ上のデータを書き出す（WM_DESTROY 時に呼ぶ）
     void Clear() noexcept;
 
     // 型付きアクセサ
@@ -1878,6 +1924,8 @@ public:
 ```
 
 `SHGetKnownFolderPath` の結果は `cached_default_dir_` にキャッシュし、override 未設定時の問い合わせを 1 回に抑える。
+
+`Save*` は既存値と同じなら何もせず、値が変わったときだけ `dirty_` を立てる。`Flush` は `dirty_` が立っていなければ書き込まず、書き込みに成功したら `dirty_` を下ろす。終了のたびに同期書き込み（`FlushFileBuffers` + `MOVEFILE_WRITE_THROUGH`）が走るのを、設定を変えたセッションだけに限るためである。
 
 #### 3.19.4 SessionService
 
@@ -2031,7 +2079,7 @@ public:
 
 検索バーのUI状態（フォーカス、キャレット、ドラッグ選択、ホバー）を管理する。Win32 操作はコールバック経由で App に委譲する。
 
-Callbacks は `std::move_only_function` の type erasure を避けるため `template<class Cb>` 形式に統一されている。各メンバ呼び出しは direct call となり、`mendo.exe` Release バイナリで約 9.7KB の縮小を達成した。具体的な `Cb` は `app_search_bar_callbacks.{h,cpp}` の `AppSearchBarCallbacks` で、`App*` を保持して各メソッドを App メンバへ転送する。宣言と実装は `search_bar_controller.h` に置き、明示的インスタンス化は `app_search_bar_callbacks.cpp` で行う。タイマーは `app_timer::Id::SEARCH_CARET` / `app_timer::Id::SEARCH_DEBOUNCE` で識別する。
+Callbacks は `std::move_only_function` の type erasure を避けるため `template<class Cb>` 形式に統一されている。各メンバ呼び出しは direct call となり、`mendo.exe` Release バイナリで約 9.7KB の縮小を達成した。具体的な `Cb` は `app_search_bar_callbacks.{h,cpp}` の `AppSearchBarCallbacks` で、`App*` を保持して各メソッドを App メンバへ転送する。宣言と実装は `search_bar_controller.h` に置き、明示的インスタンス化は `app_search_bar_callbacks.cpp` で行う。タイマーは入力デバウンス用の `app_timer::Id::SEARCH_DEBOUNCE` のみ。キャレットは点滅させず、フォーカス中かつウィンドウがアクティブな間は常時表示する（点滅タイマーが約 530ms ごとに全画面再描画を起こしていたため廃止した）。ウィンドウの非アクティブ化で `OnWindowActivate(false)` がキャレットを隠す。
 
 ```cpp
 template <class Cb>
@@ -2045,14 +2093,14 @@ public:
     void OnClose();
     void OnNext();
     void OnPrev();
-    void OnTextChanged(std::wstring_view text, const std::pmr::vector<Node>& nodes);
+    void OnTextChanged(std::wstring_view text, const std::pmr::vector<Node>& nodes, size_t doc_bytes);
     void OnToggleCaseSensitive(const std::pmr::vector<Node>& nodes);
     void OnToggleHighlight();
-    void SetSelection(int sel_start, int sel_end) noexcept;
+    void SetSelection(int sel_start, int sel_end);
     void SetImeComposition(std::wstring_view comp);
+    void OnWindowActivate(bool active);   // 非アクティブ中はキャレットを隠す
 
     // タイマー
-    void OnCaretBlinkTimer();
     void OnDebounceTimer(const std::pmr::vector<Node>& nodes);
 
     // ドラッグ・ホバー
@@ -2080,7 +2128,6 @@ public:
 struct AppSearchBarCallbacks {
     App* app = nullptr;
     void invalidate();
-    void invalidate_search_bar();
     void set_timer(app_timer::Id id, UINT ms);
     void kill_timer(app_timer::Id id);
     void focus_select_all();
@@ -2181,12 +2228,13 @@ public:
 
     ~ImageLoader();
 
-    bool Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic = nullptr);  // 失敗時 false で以降 no-op
+    // 失敗時 false; 以降の RequestLoadAsync はデコードせず失敗扱いになる。
+    bool Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic = nullptr);
     void SetRenderTarget(ID2D1RenderTarget* rt) noexcept;
     void InitAsync(HWND hwnd, UINT msg_id, TaskScheduler& scheduler);
 
-    bool LoadImage(const std::wstring& abs_path, DiagramEntry& out);
-    bool GetCachedImage(const std::wstring& abs_path, DiagramEntry& out) const;
+    // ヒット時に LRU の順位を更新するため非 const。
+    bool GetCachedImage(const std::wstring& abs_path, DiagramEntry& out);
     void RequestLoadAsync(const std::wstring& abs_path, Callback on_complete);
     void ProcessCompletedDecodes();
     void CancelPending();
@@ -2199,7 +2247,9 @@ public:
 };
 ```
 
-LRU キャッシュは絶対パス → `{ID2D1Bitmap, width, height}` で保持（最大 128 エントリ、private 定数 `MAX_CACHE_ENTRIES`）。`RequestLoadAsync` のワーカーは `TaskScheduler` 上で WIC デコードを行い、完了時に `on_complete` コールバックを呼ぶ。デコード結果は `result_mutex_` 保護の `completed_` キューに積まれ、`ProcessCompletedDecodes` で UI スレッドが ID2D1Bitmap に変換してキャッシュに挿入する。
+LRU キャッシュは絶対パス → `{ID2D1Bitmap, width, height}` で保持（最大 128 エントリ、private 定数 `MAX_CACHE_ENTRIES`）。`RequestLoadAsync` のワーカーは `TaskScheduler` 上で WIC デコードを行い、完了時に `on_complete` コールバックを呼ぶ。デコード結果は `result_mutex_` 保護の `completed_` キューに積まれ、`ProcessCompletedDecodes` で UI スレッドが ID2D1Bitmap に変換してキャッシュに挿入する。画像の読み込みはこの非同期経路だけで、UI スレッドで原寸デコードする同期 API は持たない。
+
+ワーカーはモニタ幅とビットマップ最大サイズに収まるよう縮小デコードする（`wic_util::ComputeDecodeSize` / `DecodeToWicBitmap`）。アルファを持たないフレーム（JPEG などの 24bpp BGR / 8bpp Gray）は PBGRA への形式変換より先に縮小し、JPEG デコーダの縮小デコード（`IWICBitmapSourceTransform`）を効かせる。アルファ付き形式は straight alpha のまま補間すると縁がにじむため、従来どおり変換後に縮小する。使わないメタデータを先読みしないよう、デコーダは `WICDecodeMetadataCacheOnDemand` で作る。
 
 | 形式 | 拡張子 |
 |:-----|:------|
@@ -2250,13 +2300,18 @@ struct TooltipTarget {
     };
 
     Zone              zone = Zone::None;
-    std::pmr::wstring text;
+    uint64_t          key  = 0;   // zone 内の対象識別子 (項目 index・ボタン種別など)
+    std::pmr::wstring text;       // 対象が変わった時だけ設定すればよい
 
     constexpr TooltipTarget() = default;
-    constexpr TooltipTarget(Zone z, std::wstring_view t);
-    constexpr bool operator==(const TooltipTarget&) const = default;
+    TooltipTarget(Zone z, uint64_t k) noexcept;
+    constexpr bool SameTarget(const TooltipTarget& o) const noexcept;  // zone と key で比較 (text は見ない)
     constexpr bool IsEmpty() const noexcept;     // zone == Zone::None
 };
+
+// current と同じ対象なら fill / text を使わず、表示文字列を作らない
+TooltipTarget MakeTooltip(const TooltipTarget& current, TooltipTarget::Zone zone, uint64_t key, Fill&& fill);
+TooltipTarget MakeTooltip(const TooltipTarget& current, TooltipTarget::Zone zone, uint64_t key, std::wstring_view text);
 
 class Tooltip {
 public:
@@ -2278,6 +2333,8 @@ public:
 
 `Tooltip` の実体は pImpl（`std::unique_ptr<Impl>`）に隠蔽される。Win32 の `TOOLTIPS_CLASS` を `TTF_TRACK` モードでラップし、最大幅 600px、カーソルから 20px 下にオフセット、DPI スケーリング対応。`HWND` はヘッダで `<windows.h>` を巻き込まないよう前方宣言（`struct HWND__; using HWND = HWND__*;`）で扱う。
 
+`TooltipTarget` の同一判定は `zone` と内容ハッシュ `key` だけで行う。ホバー処理（`App::BuildMdContentTooltip` / `BuildSidePaneTooltip`）は URL・画像の alt/src・ファイルパス・見出し文字列から `key` を計算し、現在の対象と異なるときだけ `text` を組み立てる（確保と UTF-8→UTF-16 変換をマウス移動のたびに行わない）。
+
 ---
 
 ### 3.26 ResourceManager — 画像・Mermaidリソース管理
@@ -2290,8 +2347,11 @@ Callbacks は `SearchBarController` と同様に `template<class Cb>` 形式。�
 template <class Cb>
 class ResourceManagerT {
 public:
-    static constexpr float EVICT_BUFFER_SCREENS    = 5.0f;
-    static constexpr float PREFETCH_BUFFER_SCREENS = 3.0f;
+    // 遅延レイアウトの計測範囲も兼ねる。
+    static constexpr float EVICT_BUFFER_SCREENS    = 2.0f;
+    // evict 範囲より広く先読みすると、evict 直後の flush で範囲外を毎回読み直す。
+    static constexpr float PREFETCH_BUFFER_SCREENS = 2.0f;
+    static_assert(PREFETCH_BUFFER_SCREENS <= EVICT_BUFFER_SCREENS);
     static constexpr int   BATCH_TIME_BUDGET_US    = 6000;
 
     // 依存は ResourceManagerDeps 構造体 (doc / cache / viewport / image_loader /
@@ -2307,7 +2367,7 @@ public:
 
     // Mermaid
     int  RequestMermaidRenders();
-    void OnMermaidRenderComplete();
+    void OnMermaidRenderComplete(size_t node_index);
     void CancelMermaidBatch();
     void ScheduleMermaidBatch();
     void ProcessMermaidBatch();
@@ -2325,21 +2385,21 @@ public:
 // 具象 Cb (mendo target)
 struct AppResourceManagerCallbacks {
     App* app = nullptr;
-    void invalidate();
     void set_timer(app_timer::Id id, UINT ms);
     void kill_timer(app_timer::Id id);
     float get_content_width();
     float get_viewport_height();
     float get_indent_width();
-    void recompute_layout();
-    void recompute_layout_anchored();
+    // どちらも再描画の要求までを含む
+    void recompute_layout(mendo::layout::HeightChangeRange changed);
+    void recompute_layout_anchored(mendo::layout::HeightChangeRange changed);
 };
 
 using ResourceManager = ResourceManagerT<AppResourceManagerCallbacks>;
 extern template class ResourceManagerT<AppResourceManagerCallbacks>;
 ```
 
-Mermaid はバッチ単位でレンダリングし、可視範囲外のビットマップを LRU 的に解放する（`EVICT_BUFFER_SCREENS` 画面分は保持、`PREFETCH_BUFFER_SCREENS` 画面分は先読み）。バッチごとの時間予算は `BATCH_TIME_BUDGET_US`（6ms）で打ち切り、UI 応答性を確保する。タイマー ID は `app_constants.h` の `app_timer::Id` enum で集約管理される。
+Mermaid はバッチ単位でレンダリングし、可視範囲外のビットマップを LRU 的に解放する（前後 `EVICT_BUFFER_SCREENS` = 2 画面分は保持、`PREFETCH_BUFFER_SCREENS` = 2 画面分は先読み）。先読み範囲は evict 範囲を超えない（超えると evict 直後の flush で範囲外の画像/図を毎回読み直す）。`EVICT_BUFFER_SCREENS` は遅延レイアウトの計測範囲も兼ね、範囲外へのスクロールは `EnsureVisibleLayout` が同期計測で拾う。スクロール停止後の `OnBitmapManageTimer` は evict → 強制 flush を行い、flush でリソースを適用してレイアウトが変わったときだけ再描画を要求する（evict 対象は可視範囲外なので見た目は変わらない）。バッチごとの時間予算は `BATCH_TIME_BUDGET_US`（6ms）で打ち切り、UI 応答性を確保する。タイマー ID は `app_constants.h` の `app_timer::Id` enum で集約管理される。
 
 ---
 
@@ -2375,33 +2435,21 @@ public:
 
 `LoadCursorW` の呼び出しを初期化時に一度だけ行う。
 
-#### 3.27.3 HoverThrottle — ホバースロットリング
+#### 3.27.3 LastHoverPos — 同一座標ホバーの抑止
 
 ```cpp
-inline constexpr int   HOVER_THROTTLE_DISTANCE_SQ      = 16;  // ピクセル²
-inline constexpr DWORD HOVER_THROTTLE_MIN_INTERVAL_MS  = 8;
-inline constexpr POINT kUnsetHoverPos{ LONG_MIN, LONG_MIN };  // sentinel
+struct LastHoverPos {
+    static constexpr POINT kUnsetPos{ LONG_MIN, LONG_MIN };  // sentinel
 
-struct HoverThrottle {
-    POINT last_md_hit_pos          = kUnsetHoverPos;
-    bool  last_md_cursor_hand      = false;
-    POINT last_copy_hit_pos        = kUnsetHoverPos;
-    POINT last_hover_dispatch_pos  = kUnsetHoverPos;
-    DWORD last_md_hit_tick         = 0;
-    DWORD last_copy_hit_tick       = 0;
+    POINT pos = kUnsetPos;
 
     constexpr void Reset() noexcept;
-
     // 完全同一座標の連続ディスパッチを抑止
-    constexpr bool ShouldSkipSameDispatch(int px, int py) noexcept;
-    // 距離 + 時間二重ガード
-    [[nodiscard]] bool TryMarkMoved(POINT& last_pos, DWORD& last_tick, int px, int py) noexcept;
-    // 距離のみ
-    [[nodiscard]] constexpr bool TryMarkMoved(POINT& last_pos, int px, int py) noexcept;
+    constexpr bool IsRepeat(int px, int py) noexcept;
 };
 ```
 
-マウス位置が一定距離（`HOVER_THROTTLE_DISTANCE_SQ = 16` ピクセル²）以上動いた場合のみヒットテストを再実行する。さらに `MOUSEMOVE` バーストでヒットテストを連発させないため、`HOVER_THROTTLE_MIN_INTERVAL_MS = 8ms` の時間ガードも併用する。
+OS は同一座標の `WM_MOUSEMOVE` を繰り返し送ることがあるため、直前と完全に同じ座標のホバー処理だけを捨てる前段フィルタである。距離・時間による間引きやヒットテスト結果のキャッシュは行わない（`HitTestPoint` は 1 万行のコードブロックでも数〜十数 µs で、間引きはカーソル形状やリンク状態の更新を遅らせるだけだったため）。スクロールやリフロー（`InvalidateHitPositions`）で `Reset()` され、同じ座標でも次のマウス移動で再評価される。
 
 ---
 
@@ -2462,31 +2510,35 @@ using UniqueGlobalMem   = UniqueResource<GlobalMemTraits>;    // GlobalFree
 ```cpp
 class TaskScheduler {
 public:
+    // スレッド数を記録するだけで、ワーカーはまだ起動しない。二重 Init は最初の指定を維持する。
     void Init(int thread_count);
     // スレッドセーフ。キューが MAX_PENDING_TASKS (1024) を超えると破棄して false。
+    // 初回の Post でワーカーを起動する。
     bool Post(std::move_only_function<void()> task);
-    int  WorkerCount() const noexcept;
+    // 起動前でも Init で指定した数を返す (ParallelFor の分割数に使うため)。
+    size_t WorkerCount() const noexcept;
     void Shutdown();
 };
 ```
 
-各ワーカースレッドは `CoInitializeEx(COINIT_MULTITHREADED)` を自動呼び出しする。`MermaidFileCache` の非同期書き込み、`FileLoadService` のバックグラウンドロードなどに使用される。
+ワーカーは初回 `Post` まで起動しない（起動直後にレイアウト用・バックグラウンド用あわせて 20 前後のスレッドを作らないため）。小さい文書だけを開くセッションではスレッド生成と COM 初期化を丸ごと省ける。各ワーカースレッドは `CoInitializeEx(COINIT_MULTITHREADED)` を自動呼び出しする。`MermaidFileCache` の非同期書き込み、`FileLoadService` のバックグラウンドロードなどに使用される。
 
 #### 3.28.4 MemoryResource — PMRメモリ管理
 
 ```cpp
-std::pmr::synchronized_pool_resource& GetGlobalPoolResource();
-void InitGlobalMemoryResource();
-
+// ヒープ上のバッファを使う monotonic_buffer_resource のラッパー (upstream は new_delete_resource)。
 class MonotonicResource {
 public:
     explicit MonotonicResource(std::size_t initial_size = 16 * 1024);
     std::pmr::memory_resource* resource() noexcept;
-    void Reset();
+    void Reset() noexcept;
 };
+
+// スレッドローカル unsynchronized_pool_resource。allocate と deallocate を同じスレッドで行うこと。
+std::pmr::memory_resource* GetThreadLocalPoolResource();
 ```
 
-`std::pmr::wstring` / `std::pmr::vector` の使用により、頻繁なヒープアロケーションを抑制している。
+既定の pmr リソースは差し替えず、`std::pmr::new_delete_resource()`（OS ヒープ）のまま使う。プロセス共有の `synchronized_pool_resource` は解放済みメモリを OS に返さず、全スレッドが 1 つの mutex を奪い合うためである（50MB 文書を閉じた後の private 残留が 44MB → 1MB）。フレーム単位の一括解放（`CommandGenerator` の描画コマンド列など）には `MonotonicResource` を、同一スレッド内で確保と解放を繰り返すスクラッチ（`Renderer` の文字列キャッシュ、計測ブリッジの UTF-16 変換バッファなど）には `GetThreadLocalPoolResource()` を明示的に渡す。ノードの外出しデータは既定リソースに依存しないよう `std::unique_ptr` で持つ。
 
 #### 3.28.5 IniParser — INIファイルパーサ
 
@@ -2573,13 +2625,13 @@ constexpr bool PointInRect(float x, float y, const Rect& r) noexcept;
 
 ### 4.1 Node
 
-ドメイン中核となるパース出力。レイアウト情報は `LayoutCache` に分離されている。md4c が UTF-8 モードで動作するため、テキストは UTF-8（`std::pmr::string` / `std::string_view`）で保持される。
+ドメイン中核となるパース出力。レイアウト情報は `LayoutCache` に分離されている。md4c が UTF-8 モードで動作するため、テキストは UTF-8（`std::string` / `std::string_view`）で保持される。
 
 ```mermaid
 classDiagram
     class Node {
         +TextRunList runs (small_vector~TextRun,2~)
-        +pmr_unique_ptr~vector~pmr::string~~ link_urls_
+        +unique_ptr~vector~pmr::string~~ link_urls_
         +variant~monostate, NodeHeadingData, NodeCodeData, NodeListData, NodeAlertData, NodeTablePtr, NodeImagePtr~ extra
         +int32_t blockquote_group
         +int32_t line_count
@@ -2588,18 +2640,18 @@ classDiagram
         +int8_t quote_depth
         +int8_t quote_outer_indent
         +int8_t indent_level
-        -pmr::string owned_text_ (UTF-8)
+        -int8_t heading_level_
+        -SyntaxLanguage code_language_
+        -string owned_text_ (UTF-8)
         -string_view view_
     }
 
     class NodeHeadingData {
-        +pmr_unique_ptr~pmr::string~ anchor_id
-        +int8_t heading_level
+        +unique_ptr~pmr::string~ anchor_id
     }
 
     class NodeCodeData {
-        +pmr_unique_ptr~pmr::vector~SyntaxToken~~ tokens
-        +SyntaxLanguage code_language
+        +unique_ptr~pmr::vector~SyntaxToken~~ tokens
     }
 
     class NodeListData {
@@ -2643,11 +2695,13 @@ classDiagram
     Node "1" --> "0..1" NodeImageData : variant (NodeImagePtr)
 ```
 
-ノード種別ごとの拡張データは `std::variant<std::monostate, NodeHeadingData, NodeCodeData, NodeListData, NodeAlertData, NodeTablePtr, NodeImagePtr> extra` に統合されており、同時に持てるのは 1 種類のみ。Table / Image のような大型データは `pmr_unique_ptr`（`NodeTablePtr` / `NodeImagePtr`）で外出しされる。
+ノード種別ごとの拡張データは `std::variant<std::monostate, NodeHeadingData, NodeCodeData, NodeListData, NodeAlertData, NodeTablePtr, NodeImagePtr> extra` に統合されており、同時に持てるのは 1 種類のみ。Table / Image のような大型データや `anchor_id` / `tokens` は `std::unique_ptr`（`NodeTablePtr` / `NodeImagePtr` など）で外出しし、variant の各 alternative を 8B に抑えている。
+
+`heading_level` / `code_language` は variant に入れると 8B ポインタと合わせて alternative が 16B に膨らむため、`Node` 末尾の padding（`heading_level_` / `code_language_`）に置く。設定は `set_heading_level` / `set_code_language`（対応する alternative を `ensure_*` してから書く）で行い、アクセサ `heading_level()` / `code_language()` は対応する alternative を持たないノードでは既定値（0 / `SyntaxLanguage::None`）を返す。既定 pmr リソースが `new_delete_resource` になったので `owned_text_` はアロケータを持たない `std::string`（32B）にしている。これらにより `sizeof(Node)` は 128B 以下に収まり、`static_assert(sizeof(Node) <= 128)` で退行を検出する（50MB 文書・約 20 万ノードで読込後 private 129MB → 125MB）。
 
 > **Why**: 旧設計では複数の `unique_ptr` を常に保持していたため、ほとんどのノード（Paragraph/ListItem 等で 87% を占める）でポインタ群が `nullptr` のまま死蔵していた。variant に統合することで、データを持つノードでは別ヒープへの malloc を省略でき、断片化と allocator オーバーヘッドが減る。
 
-テキストは `owned_text_`（所有 UTF-8）と `view_`（原文 `string_view` 参照）の二重モードで持ち、ソース位置は `SourceOffsetFrom(base)` で求める。`runs` は SBO 2 要素の `small_vector`、リンク URL の集合 `link_urls_` は `pmr_unique_ptr<std::pmr::vector<std::pmr::string>>` で「リンクなしノードでは 8B ポインタ 1 本」に抑えている。`TextRun` の装飾は個別 bool ではなく `uint8_t flags` に packbit され、`bold()` / `italic()` / `code()` / `strikethrough()` アクセサで判定する。
+テキストは `owned_text_`（所有 UTF-8）と `view_`（原文 `string_view` 参照）の二重モードで持ち、ソース位置は `SourceOffsetFrom(base)` で求める。`runs` は SBO 2 要素の `small_vector`、リンク URL の集合 `link_urls_` は `std::unique_ptr<std::pmr::vector<std::pmr::string>>` で「リンクなしノードでは 8B ポインタ 1 本」に抑えている。`TextRun` の装飾は個別 bool ではなく `uint8_t flags` に packbit され、`bold()` / `italic()` / `code()` / `strikethrough()` アクセサで判定する。
 
 アクセサは `extra` への薄いラッパーとして提供される:
 
@@ -2658,6 +2712,10 @@ NodeHeadingData* heading_data() noexcept;
 NodeHeadingData* ensure_heading() noexcept;
 bool has_table() const noexcept;            // holds_alternative の薄ラッパ
 std::string_view anchor_id() const noexcept;   // UTF-8
+int8_t heading_level() const noexcept;          // Heading 以外は 0
+SyntaxLanguage code_language() const noexcept;  // CodeBlock 以外は None
+void set_heading_level(int8_t level);           // ensure_heading() してから書く
+void set_code_language(SyntaxLanguage lang);    // ensure_code() してから書く
 int32_t list_number() const noexcept;          // NodeListData 経由
 bool task_checked() const noexcept;
 ```
@@ -2674,7 +2732,8 @@ classDiagram
         +InvalidateAllLayouts()
         +MarkAllDirty()
         +operator[](i) NodeLayoutEntry
-        +GetDiagram(i) DiagramEntry
+        +FindDiagram(i) DiagramEntry*
+        +EnsureDiagram(i) DiagramEntry&
         +GetEffectsGeneration() uint32_t
     }
 
@@ -2707,11 +2766,11 @@ classDiagram
     }
 
     LayoutCache "1" --> "*" NodeLayoutEntry
-    LayoutCache "1" --> "*" DiagramEntry
+    LayoutCache "1" --> "*" DiagramEntry : unique_ptr (遅延確保)
     NodeLayoutEntry "1" --> "0..1" TableLayoutData
 ```
 
-`TableLayoutData` は `unique_ptr` でテーブルノードのみ確保される。セルレイアウトはフラット配列 `[row * col_count + col]` で持ち、`natural_col_widths` / `cell_heights` / `cell_applied_widths` などをまとめて管理する。`cell_inline_code_bgs` も flat 化されており、bg を持たないセル分の空 vector ヘッダ（24B/個）を排除する。`DiagramEntry` の `png` はクリップボードコピー用の元 PNG データ。検索ヒットがあるノードでのみ `search_hl_cache` が確保される（フレーム間キャッシュ、`SearchState::generation_` と一致する間は HitTestTextRange を再計算しない）。
+`TableLayoutData` は `unique_ptr` でテーブルノードのみ確保される。セルレイアウトはフラット配列 `[row * col_count + col]` で持ち、`natural_col_widths` / `cell_heights` / `cell_applied_widths` などをまとめて管理する。`cell_inline_code_bgs` も flat 化されており、bg を持たないセル分の空 vector ヘッダ（24B/個）を排除する。`DiagramEntry` の `png` はクリップボードコピー用の元 PNG データ。`DiagramEntry` は画像/図のノードでしか使わないため、`diagrams_` は `std::pmr::vector<std::unique_ptr<DiagramEntry>>`（ノードあたり 8B）として持つ。確保は結果を書き込む `EnsureDiagram(i)` だけが行い、読み取り・描画・破棄は未確保なら `nullptr` を返す `FindDiagram(i)` を使うので、表示していない画像/図ノードには確保しない。検索ヒットがあるノードでのみ `search_hl_cache` が確保される（フレーム間キャッシュ、`SearchState::generation_` と一致する間は HitTestTextRange を再計算しない）。
 
 ### 4.3 Document
 
@@ -2737,12 +2796,15 @@ public:
     constexpr void SetFilePath(std::wstring_view path);
     void ReplaceFromMarkdown(std::pmr::string text, size_t byte_size);
 
+    // TOC エントリを線形走査する (ASCII 大文字小文字は無視)。見つからなければ -1。
     int FindAnchorIndex(std::string_view anchor) const;
-    int FindNormalizedAnchorIndex(std::string_view anchor) const;  // 正規化済み入力向け
     constexpr const std::pmr::vector<size_t>& GetImageNodeIndices() const noexcept;
     constexpr const std::pmr::vector<size_t>& GetDiagramNodeIndices() const noexcept;
+    constexpr const std::pmr::vector<size_t>& GetTableNodeIndices() const noexcept;
 };
 ```
+
+`FindAnchorIndex` は文書内リンクのクリック時にしか呼ばれないため、アンカー用のハッシュ索引は持たない。`BuildHeadingIndices` は TOC を構築するだけで、検索時は TOC の各見出しの `anchor_id`（生成時点で小文字確定）とクエリを ASCII 小文字に畳みながら比較し（クエリ側のコピーは作らない）、最初に一致した見出しを返す。ロードのたびの索引構築とソートが不要になる。
 
 `raw_text_` はパース入力の UTF-8 テキストを常時保持する。これは `CalcScrollYForDiff` の比較用で、ノードレベルでは検出できない編集（空行追加・末尾空白等）も UTF-8 byte オフセット精度で差分位置を求めるため。`raw_text_` は `NormalizeNewlines` により常に LF 正規化済みなので、リロード diff の新テキストも比較前に同じ正規化を通す（`DoReloadCurrentFile`）。これによりファイル全体の改行コードを変換して保存するエディタ（issue #273）でも差分位置が編集行を正しく指し、改行コード変換のみの保存は NoChange としてスクロール位置が維持される。
 
@@ -2785,8 +2847,7 @@ struct TextSelection {
 
 ```mermaid
 flowchart TD
-    START[wWinMain] --> MEM[InitGlobalMemoryResource]
-    MEM --> DPI[SetProcessDpiAwarenessContext<br>Per-Monitor DPI V2]
+    START[wWinMain] --> DPI[SetProcessDpiAwarenessContext<br>Per-Monitor DPI V2]
     DPI --> COM[CoInitializeEx<br>COINIT_APARTMENTTHREADED + COINIT_DISABLE_OLE1DDE]
     COM --> ICC[InitCommonControlsEx]
     ICC --> CFGLOAD[ConfigService::Load<br>settings.ini読み込み]
@@ -2796,10 +2857,12 @@ flowchart TD
     CREATE --> REG[RegisterClassExW]
     REG --> WND[CreateWindowExW<br>WS_EX_ACCEPTFILES]
     WND --> INIT[App::Init]
-    INIT --> D2D[Renderer::Init<br>D2DRenderBackend + Brushes + Formats]
-    D2D --> MERM[MermaidRenderer::Init<br>WebView2 非同期]
-    MERM --> CFG[ThemeService::LoadDarkMode/ZoomLevel]
-    CFG --> PANES[SessionService::LoadPaneState]
+    INIT --> CFG[ThemeService::LoadDarkMode<br>+ LoadZoomIndex]
+    CFG --> D2D[Renderer::Init&#40;hwnd, theme&#41;<br>保存済みテーマで D2DRenderBackend + Brushes + Formats]
+    D2D --> SCHED[TaskScheduler::Init<br>スレッド数の記録のみ、初回 Post で起動]
+    SCHED --> FCACHE[MermaidFileCache::Init<br>索引は初回利用まで読まない]
+    FCACHE --> MERM[MermaidRenderer::Init<br>WebView2 は初回描画要求で起動]
+    MERM --> PANES[SessionService::LoadPaneState]
     PANES --> ARG{コマンドライン<br>引数 CommandLineToArgvW}
 
     ARG -->|有効ファイル| LOAD[LoadMarkdownFile argv1]
@@ -2839,7 +2902,7 @@ flowchart TD
     TXTL --> YPOS[RecomputeYPositions]
     YPOS --> SYNCMS[SyncMaxScroll]
     SYNCMS --> RESTORE[ScrollRestoration 適用<br>reload_diff or session or 先頭]
-    RESTORE --> FE[FileExplorer 更新]
+    RESTORE --> FE[FileExplorer 更新<br>ペイン非表示中は列挙しない]
     FE --> INVAL[InvalidateRect]
     INVAL --> PAINT[WM_PAINT → Renderer + 各 RenderState 構築]
 ```
@@ -2892,7 +2955,7 @@ graph TD
     CORE --> D2D1[d2d1.lib]
     CORE --> DWRITE[dwrite.lib]
     CORE --> WIC_LIB[windowscodecs.lib]
-    CORE --> COMCTL[comctl32.lib]
+    EXE --> COMCTL[comctl32.lib]
 ```
 
 ### 6.2 ビルドコマンド
@@ -2934,9 +2997,9 @@ build/tests/Release/mendo_tests.exe --gtest_brief=1
 
 `mendo_core` には **Win32/Direct2D/WebView2 抽象化越し** のサービスが入る — `IWin32Host` / `IRenderBackend` / `IMermaidRenderer` / `ITextMeasurer` を通して、具象実装（`Win32Host` / `D2DRenderBackend` / `MermaidRenderer` / `DWriteMeasurer`）は `mendo` 実行ファイル側、もしくは Direct2D/DirectWrite 依存ヘッダを取り込む形でリンクされる（`DWriteMeasurer` は `mendo_core` に含まれるが、`dwrite.lib` への依存を持つ）。
 
-### 6.4 mermaid.min.js MSZIP 圧縮
+### 6.4 mermaid.min.js の埋め込み
 
-配布 EXE のサイズを削減するため、`mermaid.min.js` はビルド時に Windows Compression API の MSZIP 形式で圧縮される（`cmake/mszip.ps1`）。WebView2 は差し込んだレスポンスの `Content-Encoding` を解釈しないため、要求ごとに C++ 側で展開して配信する。
+`mermaid.min.js` は `res/mendo.rc` で `IDR_MERMAID_JS` の RCDATA として無圧縮のまま EXE に埋め込み、`WebResourceRequested` でリソースのバイト列をそのまま配信する。ビルド時の圧縮ステップや実行時の展開処理は持たず、`cabinet.lib` にも依存しない。配布は zip なので事前圧縮しても配布サイズはほぼ変わらず、展開（ワーカー起動のたびに 12〜18ms）の方が高くつくためである。
 
 ### 6.5 MSVC ビルド最適化
 
@@ -3001,7 +3064,7 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_viewport_manager.cpp` | ViewportManager |
 | `test_scroll_restoration.cpp` | ScrollRestoration |
 | `test_hit_test_service.cpp` | HitTestService |
-| `test_hover_throttle.cpp` | HoverThrottle |
+| `test_last_hover_pos.cpp` | LastHoverPos |
 | `test_mouse_gesture.cpp` | MouseGesture |
 | `test_swipe_detector.cpp` | SwipeDetector |
 | `test_nav_history.cpp` | NavHistory |
@@ -3035,8 +3098,7 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_utility.cpp` | ユーティリティ関数 |
 | `test_async_load_coordinator.cpp` | AsyncLoadCoordinator |
 | `test_preloader.cpp` | Preloader |
-| `test_parallel_measure.cpp` | 並列計測 |
-| `test_dirty_scheduler.cpp` | DirtyScheduler |
+| `test_parallel_measure.cpp` | 並列計測と `RunParallel` のダーティバッチ計測（件数上限・クリップ） |
 | `test_clipboard_manager.cpp` | ClipboardManager |
 | `test_block_h_scroll.cpp` | ブロック横スクロール |
 | `test_utf8_codec.cpp` | UTF-8 コーデック |
@@ -3065,15 +3127,16 @@ pie title テストカバレッジ（ファイル数ベース）
 #### NavHistory テスト
 
 - [x] Push / GoBack / GoForward
-- [x] 履歴上限（MAX_HISTORY = 1024）
-- [x] パスインターン化と参照カウント
+- [x] 履歴上限（MAX_HISTORY = 1024、超過時は最古を破棄）
+- [x] 参照モデルとのランダム操作比較
 - [x] ファイル切替時の履歴保持
 
 #### MermaidFileCache テスト
 
 - [x] キャッシュの保存と読み込み（バイナリ形式 `MEMC` v1）
 - [x] LRU エビクション（4096エントリ / 1GB上限）
-- [x] DPR 不一致時のクリア
+- [x] DPR ごとのエントリ分離（DPR 不一致でも消去しない）
+- [x] 索引の遅延読み込み（`Init` でディスクに触れない）と変更時のみの書き戻し
 
 #### 検索テスト
 
@@ -3137,19 +3200,21 @@ enum class Id : UINT_PTR {
     LOADING_ANIM,          // 2
     SWIPE_OVERLAY,         // 3
     TOAST,                 // 4
-    SEARCH_CARET,          // 5
-    TOOLTIP,               // 6
-    SEARCH_DEBOUNCE,       // 7
-    MERMAID_BATCH,         // 8
-    BITMAP_MANAGE,         // 9
-    MERMAID_INIT_RETRY,    // 10
-    FILE_RELOAD_DEBOUNCE,  // 11
+    TOOLTIP,               // 5
+    SEARCH_DEBOUNCE,       // 6
+    MERMAID_BATCH,         // 7
+    BITMAP_MANAGE,         // 8
+    MERMAID_INIT_RETRY,    // 9
+    FILE_RELOAD_DEBOUNCE,  // 10
+    MERMAID_IDLE,          // 11
     END,  // 番兵。新規タイマーはこの直前に追加する。
 };
 
 inline constexpr UINT FRAME_INTERVAL_MS         = 16;   // ~60fps アニメーション用
 inline constexpr UINT FILE_RELOAD_DEBOUNCE_MS   = 200;  // ファイル変更通知のデバウンス
 inline constexpr UINT FILE_RELOAD_RETRY_MS      = 50;   // truncate→rewrite 検出後の短縮リトライ
+inline constexpr UINT SEARCH_DEBOUNCE_MS        = 150;  // 大きな文書での検索入力のデバウンス
+inline constexpr UINT BITMAP_MANAGE_DELAY_MS    = 150;  // スクロール停止後のビットマップ解放/再構築
 
 // [kFirstTimer, kLastTimer] の範囲判定に使う
 inline constexpr Id kFirstTimer = Id::DEFERRED_LAYOUT;
@@ -3165,7 +3230,8 @@ inline constexpr UINT IMAGE_LOADED   = WM_APP + 2;  // +1, +3 は欠番
 inline constexpr UINT SEARCH_FOCUS   = WM_APP + 4;
 inline constexpr UINT SEARCH_UNFOCUS = WM_APP + 5;
 inline constexpr UINT PARSE_COMPLETE = WM_APP + 6;
-inline constexpr UINT END            = WM_APP + 7;  // 上限（この値未満が有効範囲）
+inline constexpr UINT MERMAID_DISK_LOADED = WM_APP + 7;  // Mermaid PNG の worker デコード完了
+inline constexpr UINT END            = WM_APP + 8;  // 上限（この値未満が有効範囲）
 }
 
 namespace app_param {
@@ -3260,14 +3326,14 @@ src/
 │   ├── renderer_search.cpp        # 検索バー描画
 │   ├── d2d_render_backend.h / .cpp # D2DRenderBackend 実装 (IRenderBackend)
 │   ├── render_params.h            # レンダリングパラメータ
-│   ├── draw_command.h             # DrawCommand variant + DrawCommandList
+│   ├── draw_command.h             # DrawCommand variant + DrawCommandList (pmr::vector)
 │   ├── block_h_scroll_context.h   # コードブロック横スクロール描画コンテキスト
 │   ├── brush_id.h                 # ブラシ ID 定義
 │   ├── command_generator.h / .cpp # 描画コマンド生成
 │   ├── command_generator_table.cpp      # テーブル描画コマンド生成
 │   ├── command_generator_highlights.cpp # ハイライト描画コマンド生成
 │   ├── command_generator_internal.h     # command_generator 分割ファイル共通宣言
-│   └── command_executor.h / .cpp  # 描画コマンド実行
+│   └── command_executor.h / .cpp  # 描画コマンド実行 (スクラッチブラシ・可視グリフラン描画)
 ├── core/                          # コアドメイン
 │   ├── document_types.h           # Node, AlertType, NodeType, TableRow etc.
 │   ├── text_types.h               # TextRun, TextSelection etc.
@@ -3287,9 +3353,8 @@ src/
 │   ├── layout.h / layout.cpp      # LayoutEngine + LayoutService
 │   ├── layout_cache.h / .cpp      # LayoutCache (レイアウトデータ)
 │   ├── layout_computer.h / .cpp   # ノード Y 位置・高さ再計算ユーティリティ
-│   ├── dirty_scheduler.h / .cpp   # ダーティバッチ計測スケジューラ
 │   ├── doc_dwrite_bridge.h / .cpp # Document⇔DirectWrite 計測ブリッジ
-│   ├── parallel_measure.h / .cpp  # ワーカー並列計測サポート
+│   ├── parallel_measure.h / .cpp  # ワーカー並列計測 (RunParallel / MeasureIndicesParallel)
 │   ├── measure_backend.h          # 計測バックエンド抽象 (本番/モック差し替え用)
 │   ├── text_measurer.h            # ITextMeasurer インターフェース
 │   └── dwrite_measurer.h / .cpp   # DirectWrite 実装
@@ -3334,10 +3399,10 @@ src/
 │   ├── pane_layout.cpp            # PaneLayout 計算実装 (宣言は util/pane_layout.h)
 │   ├── pane_controller.h / .cpp   # PaneController
 │   ├── cursor_manager.h           # CursorManager (ヘッダオンリー)
-│   ├── hover_throttle.h           # HoverThrottle (ヘッダオンリー)
+│   ├── last_hover_pos.h           # LastHoverPos (ヘッダオンリー)
 │   └── darkmode_util.h            # Win32 dark mode 切替ヘルパー
 └── util/                          # ユーティリティ層 (Win32 依存最小、テスト容易)
-    ├── memory_resource.h          # PMR グローバルリソース
+    ├── memory_resource.h          # MonotonicResource / スレッドローカル PMR プール
     ├── utility.h                  # 汎用ユーティリティ
     ├── string_convert.h           # UTF-8 ↔ Wide 変換 (ヘッダオンリー)
     ├── utf8_codec.h               # UTF-8 低レベルコーデック
@@ -3351,7 +3416,6 @@ src/
     ├── lru_cache.h                # LruCache (汎用LRU)
     ├── fnv1a.h                    # FNV-1a ハッシュ
     ├── small_vector.h             # 小サイズ最適化 vector
-    ├── pmr_unique_ptr.h           # std::pmr アロケータ向け unique_ptr
     ├── pmr_format.h               # std::pmr 対応 format
     ├── overloaded.h               # std::visit 用 overloaded ヘルパー
     ├── rc_resource.h              # 参照カウント付きリソース
@@ -4075,27 +4139,26 @@ exit /b 0
 {
   // タイマーIDの一覧（src/app/app_constants.h と一致）
   "timers": {
-    "DEFERRED_LAYOUT":      3,
-    "LOADING_ANIM":         4,
-    "SWIPE_OVERLAY":        5,
-    "TOAST":                6,
-    "SEARCH_CARET":         7,
-    "TOOLTIP":              8,
-    "SEARCH_DEBOUNCE":      9,
-    "MERMAID_BATCH":       10,
-    "BITMAP_MANAGE":       11,
-    "MERMAID_INIT_RETRY":  12,
-    "FILE_RELOAD_DEBOUNCE": 13,
+    "DEFERRED_LAYOUT":       1,
+    "LOADING_ANIM":          2,
+    "SWIPE_OVERLAY":         3,
+    "TOAST":                 4,
+    "TOOLTIP":               5,
+    "SEARCH_DEBOUNCE":       6,
+    "MERMAID_BATCH":         7,
+    "BITMAP_MANAGE":         8,
+    "MERMAID_INIT_RETRY":    9,
+    "FILE_RELOAD_DEBOUNCE": 10,
+    "MERMAID_IDLE":         11,
   },
   /* カスタム Win32 メッセージ
-     WM_APP+N の形式で識別子を採番している */
+     WM_APP+N の形式で識別子を採番している (+1, +3 は欠番) */
   "messages": {
-    "LOAD_FILE":      "WM_APP+1",
-    "IMAGE_LOADED":   "WM_APP+2",
-    "RELOAD_FILE":    "WM_APP+3",
-    "SEARCH_FOCUS":   "WM_APP+4",
-    "SEARCH_UNFOCUS": "WM_APP+5",
-    "PARSE_COMPLETE": "WM_APP+6",
+    "IMAGE_LOADED":        "WM_APP+2",
+    "SEARCH_FOCUS":        "WM_APP+4",
+    "SEARCH_UNFOCUS":      "WM_APP+5",
+    "PARSE_COMPLETE":      "WM_APP+6",
+    "MERMAID_DISK_LOADED": "WM_APP+7",
   },
 }
 ```
@@ -4180,7 +4243,7 @@ exit /b 0
 | 46 | TaskScheduler | task_scheduler.h/cpp | mendo_core | あり |
 | 47 | LruCache | lru_cache.h | mendo_core | あり |
 | 48 | UniqueResource + Clipboard utils | win_handle.h + clipboard_util.h | mendo_core | なし |
-| 49 | HoverThrottle | hover_throttle.h | mendo_core | あり |
+| 49 | LastHoverPos | last_hover_pos.h | mendo_core | あり |
 | 50 | ScrollRestoration | ui_constants.h 内 | mendo_core | あり |
 | 51 | CursorManager | cursor_manager.h | mendo_core | なし |
 | 52 | UIConstants | ui_constants.h | mendo_core | あり |

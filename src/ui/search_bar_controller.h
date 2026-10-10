@@ -43,7 +43,6 @@ public:
             RunSearchAndLocate(nodes);
         }
 
-        RestartCaretBlink();
         cb_.focus_select_all();
         cb_.invalidate();
     }
@@ -118,9 +117,7 @@ public:
         caret_pos_ = sel_end;
         selection_start_ = sel_start;
         if (has_focus_) {
-            caret_visible_ = true;
-            RestartCaretBlink();
-            cb_.invalidate_search_bar();
+            cb_.invalidate();
         }
     }
 
@@ -131,33 +128,17 @@ public:
         }
         ime_composition_ = comp;
         if (has_focus_) {
-            cb_.invalidate_search_bar();
+            cb_.invalidate();
         }
     }
 
-    void OnCaretBlinkTimer()
-    {
-        caret_visible_ = !caret_visible_;
-        if (has_focus_) {
-            cb_.invalidate_search_bar();
-        }
-    }
-
-    // 非アクティブ中も点滅タイマーを回すと、キャレット以外変化のない全画面再描画が毎秒走る。
     void OnWindowActivate(bool active)
     {
         if (!state_->IsVisible() || !has_focus_) {
             return;
         }
-        if (active) {
-            caret_visible_ = true;
-            RestartCaretBlink();
-        }
-        else {
-            caret_visible_ = false;
-            cb_.kill_timer(app_timer::Id::SEARCH_CARET);
-        }
-        cb_.invalidate_search_bar();
+        caret_visible_ = active;
+        cb_.invalidate();
     }
 
     void OnDebounceTimer(const std::pmr::vector<Node>& nodes)
@@ -239,7 +220,7 @@ public:
         const auto new_hover = (zone == SearchBarHitZone::Input) ? SearchBarHitZone::None : zone;
         if (new_hover != hover_) {
             hover_ = new_hover;
-            cb_.invalidate_search_bar();
+            cb_.invalidate();
         }
     }
 
@@ -327,17 +308,7 @@ private:
         has_focus_ = false;
         caret_visible_ = false;
         ime_composition_.clear();
-        cb_.kill_timer(app_timer::Id::SEARCH_CARET);
         cb_.kill_timer(app_timer::Id::SEARCH_DEBOUNCE);
-    }
-
-    void RestartCaretBlink()
-    {
-        cb_.kill_timer(app_timer::Id::SEARCH_CARET);
-        const UINT blink_time = GetCaretBlinkTime();
-        if (blink_time > 0 && blink_time != INFINITE) {
-            cb_.set_timer(app_timer::Id::SEARCH_CARET, blink_time);
-        }
     }
 
     SearchState* state_ = nullptr;
@@ -346,6 +317,7 @@ private:
     Cb cb_{};
 
     SearchBarHitZone hover_ = SearchBarHitZone::None;
+    // 点滅させない。点滅のたびに全画面再描画が走るため。
     bool caret_visible_ = false;
     bool has_focus_ = false;
     int caret_pos_ = -1;

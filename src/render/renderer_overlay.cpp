@@ -13,13 +13,14 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool 
 
     // SetColor は SetOpacity より重いため、固定色ブラシを is_dark で選んで
     // 透明度のみ切り替える。
-    ID2D1SolidColorBrush* const overlay_brush = is_dark ? Brush(BrushId::OverlayWhite) : Brush(BrushId::OverlayBlack);
+    const BrushId overlay_id = is_dark ? BrushId::OverlayWhite : BrushId::OverlayBlack;
+    ID2D1SolidColorBrush* const overlay_brush = Brush(overlay_id);
 
     if (!overlay_brush) {
         return;
     }
 
-    const auto draw_button = [&](const D2D1_RECT_F& rect, bool enabled, bool is_hovered, IDWriteTextLayout* arrow_layout) {
+    const auto draw_button = [&](const D2D1_RECT_F& rect, bool enabled, bool is_hovered, std::wstring_view arrow) {
         float bg_alpha;
         if (!enabled) {
             bg_alpha = is_dark ? 0.08f : 0.05f;
@@ -37,25 +38,22 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool 
             rt()->FillRoundedRectangle(rrect, overlay_brush);
         }
 
-        if (arrow_layout) {
-            float text_alpha;
-            if (!enabled) {
-                text_alpha = is_dark ? 0.2f : 0.15f;
-            }
-            else if (is_hovered) {
-                text_alpha = 1.0f;
-            }
-            else {
-                text_alpha = is_dark ? 0.6f : 0.5f;
-            }
-            mendo::OpacityScope guard{ overlay_brush, text_alpha };
-            rt()->DrawTextLayout(D2D1::Point2F(rect.left, rect.top), arrow_layout, overlay_brush);
+        float text_alpha;
+        if (!enabled) {
+            text_alpha = is_dark ? 0.2f : 0.15f;
         }
+        else if (is_hovered) {
+            text_alpha = 1.0f;
+        }
+        else {
+            text_alpha = is_dark ? 0.6f : 0.5f;
+        }
+        DrawIcon(arrow, fmt_.nav_button.Get(), rect, overlay_id, text_alpha, D2D1::SizeF(NAV_BTN_SIZE, NAV_BTN_SIZE));
     };
 
     // クリック判定 (NavButtonHitTest) と同じ矩形 API を使い、描画とヒットのズレを防ぐ
-    draw_button(NavBackButtonRect(md_pane_rect), can_back, hovered == NavButtonHover::Back, nav_back_layout_.Get());
-    draw_button(NavForwardButtonRect(md_pane_rect), can_forward, hovered == NavButtonHover::Forward, nav_forward_layout_.Get());
+    draw_button(NavBackButtonRect(md_pane_rect), can_back, hovered == NavButtonHover::Back, L"\x25C0");
+    draw_button(NavForwardButtonRect(md_pane_rect), can_forward, hovered == NavButtonHover::Forward, L"\x25B6");
 }
 
 void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points)
@@ -112,11 +110,7 @@ void Renderer::DrawGestureOverlay(int direction, const PaneRect& md_pane_rect)
     const D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, cy - rect_h / 2, cx + rect_w / 2, cy + rect_h / 2);
     FillOverlayPanel(rect, GESTURE_OVERLAY_CORNER, theme_.IsDark() ? 0.8f : 0.6f);
 
-    auto* const gesture_layout = (direction < 0) ? gesture_back_layout_.Get() : gesture_forward_layout_.Get();
-    auto* const white = Brush(BrushId::OverlayWhite);
-    if (gesture_layout && white) {
-        rt()->DrawTextLayout(D2D1::Point2F(rect.left, rect.top), gesture_layout, white);
-    }
+    DrawIcon((direction < 0) ? L"\x2190 \x623B\x308B" : L"\x2192 \x9032\x3080", fmt_.gesture_overlay.Get(), rect, BrushId::OverlayWhite, 1.0f, D2D1::SizeF(rect_w, rect_h));
 }
 
 void Renderer::FillOverlayPanel(const D2D1_RECT_F& rect, float corner, float alpha)
@@ -147,25 +141,5 @@ void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& m
 
     FillOverlayPanel(rect, TOAST_OVERLAY_CORNER, alpha * (theme_.IsDark() ? 0.85f : 0.7f));
 
-    if (!fmt_.toast_text) {
-        return;
-    }
-    // メッセージ変更時のみキャッシュ済みレイアウトを再作成
-    if (!cached_toast_layout_ || toast.message != cached_toast_text_) {
-        cached_toast_text_ = toast.message;
-        cached_toast_layout_.Reset();
-        backend_.GetDWriteFactory()->CreateTextLayout(
-            cached_toast_text_.data(),
-            static_cast<UINT32>(cached_toast_text_.size()),
-            fmt_.toast_text.Get(),
-            TOAST_OVERLAY_WIDTH,
-            TOAST_OVERLAY_HEIGHT,
-            &cached_toast_layout_);
-    }
-    auto* const white = Brush(BrushId::OverlayWhite);
-    if (!cached_toast_layout_ || !white) {
-        return;
-    }
-    mendo::OpacityScope guard{ white, alpha };
-    rt()->DrawTextLayout(D2D1::Point2F(rect.left, rect.top), cached_toast_layout_.Get(), white);
+    DrawCenteredText(toast_layout_, toast.message, fmt_.toast_text.Get(), rect, BrushId::OverlayWhite, alpha, D2D1::SizeF(rect_w, rect_h));
 }

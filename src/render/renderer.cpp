@@ -5,6 +5,7 @@
 #include "profiler.h"
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cmath>
 #include <ranges>
 #include <utility>
@@ -34,9 +35,9 @@ void PublishEffectStats() noexcept
 } // namespace
 #endif
 
-bool Renderer::Init(HWND hwnd)
+bool Renderer::Init(HWND hwnd, const Theme& theme)
 {
-    theme_ = GetLightTheme();
+    theme_ = theme;
 
     if (!backend_.Init(hwnd)) {
         return false;
@@ -62,13 +63,12 @@ bool Renderer::Init(HWND hwnd)
 
 void Renderer::SetTheme(const Theme& theme)
 {
+    assert(theme.zoom == theme_.zoom && theme.font_size_body == theme_.font_size_body);
     theme_ = theme;
     ResolveThemeFonts();
-    ApplyThemeMetrics();
-    if (!backend_.GetRenderTarget()) {
-        return;
-    }
+    cmd_generator_.SetTheme(&theme_);
     RecreateBrushes();
+    InvalidateAllSidePaneCaches();
 }
 
 void Renderer::Resize(UINT width, UINT height) noexcept
@@ -143,7 +143,7 @@ void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& c
 ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const noexcept
 {
     static constexpr BrushId SYNTAX_MAP[] = {
-        BrushId::Text, // Plain（未使用、フォールバックとしてテキストブラシを返す）
+        BrushId::Text, // Plain（トークン化されず ApplySyntaxEffects からも渡らない。添字合わせ）
         BrushId::SyntaxKeyword,
         BrushId::SyntaxType,
         BrushId::SyntaxString,
@@ -281,10 +281,6 @@ void Renderer::ApplySyntaxEffects(IDWriteTextLayout* layout, const Node& node)
         pending_type = SyntaxTokenType::Plain;
     };
     for (const auto& token : node.syntax_tokens()) {
-        if (token.type == SyntaxTokenType::Plain) {
-            flush();
-            continue;
-        }
         if (pending_type == token.type && pending_end == token.start) {
             pending_end = token.start + token.length;
             continue;
@@ -535,7 +531,7 @@ bool Renderer::RecreateRenderTarget()
     RecreateBrushes();
     LoadAppIconBitmap();
     ResetSidePaneCaches();
-    // 旧 RT に紐付いたブラシプールと bound RT を捨てる
+    // 旧 RT に紐付いた動的色ブラシを捨てる
     cmd_executor_ = CommandExecutor{};
 
     if (on_device_lost_) {

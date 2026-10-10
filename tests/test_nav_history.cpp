@@ -4,7 +4,6 @@
 #include <format>
 #include <optional>
 #include <random>
-#include <set>
 #include <string>
 
 class NavHistoryTest : public ::testing::Test {
@@ -169,56 +168,16 @@ TEST_F(NavHistoryTest, MaxHistoryCapsForwardStack)
     EXPECT_LE(hist_.ForwardSize(), NavHistory::MAX_HISTORY);
 }
 
-// ─── インターン化されたパスの回収（Medium-7 回帰） ───
-// 履歴件数は MAX_HISTORY で抑えられているが、以前は intern 済みパスが
-// Clear() まで永久に残っていた。長時間セッションで多数のファイルを跨ぐと、
-// 履歴長が一定でも文字列メモリが増え続ける問題があった。
-
-TEST_F(NavHistoryTest, EvictedPathsAreReclaimed)
+TEST_F(NavHistoryTest, MaxHistoryCapsBackStack)
 {
-    // MAX_HISTORY * 2 件の異なるパスを push する。
-    // 最初の MAX_HISTORY 件は back_stack の cap で押し出され、
-    // 参照ゼロになって intern table から消えるはず。
     for (size_t i = 0; i < NavHistory::MAX_HISTORY * 2; ++i) {
         hist_.Push({ L"file_" + std::to_wstring(i) + L".md", static_cast<int>(i), 0.0f });
     }
     EXPECT_EQ(hist_.BackSize(), NavHistory::MAX_HISTORY);
-    // intern table のサイズは最大でも back_stack + forward_stack の合計に収まる
-    EXPECT_LE(hist_.InternedPathCount(), NavHistory::MAX_HISTORY + hist_.ForwardSize());
-}
-
-TEST_F(NavHistoryTest, SamePathDoesNotInflateInternTable)
-{
-    // 同じパスを繰り返し push しても intern table は 1 件のまま
-    for (size_t i = 0; i < 100; ++i) {
-        hist_.Push({ L"same.md", static_cast<int>(i), 0.0f });
-    }
-    EXPECT_EQ(hist_.InternedPathCount(), 1u);
-}
-
-TEST_F(NavHistoryTest, ClearedForwardStackReleasesPaths)
-{
-    // 戻る → 進むスタックに distinct なパスを溜める → 新規 push でクリア
-    for (size_t i = 0; i < 5; ++i) {
-        hist_.Push({ L"f" + std::to_wstring(i) + L".md", 0, 0.0f });
-    }
-    NavEntry out;
-    // GoBack のたびに current として渡す path も毎回ユニークにする
-    for (size_t i = 0; i < 5; ++i) {
-        hist_.GoBack({ L"x" + std::to_wstring(i) + L".md", 0, 0.0f }, out);
-    }
-    EXPECT_EQ(hist_.ForwardSize(), 5u);
-    // この時点では back_stack は空、forward_stack に x0..x4 のみが intern される
-    EXPECT_EQ(hist_.InternedPathCount(), 5u);
-
-    // 新規 push → forward_stack の x0..x4 が解放され、back に new.md が入る
-    hist_.Push({ L"new.md", 0, 0.0f });
-    EXPECT_EQ(hist_.InternedPathCount(), 1u);
 }
 
 // ─── 参照モデルとの比較 (モデルベーステスト) ───
-// パスのインターン化 (参照カウント・スロット再利用・直前値キャッシュ) と容量上限の
-// 組み合わせは例示テストでは踏み切れない (GoForward の容量超過 0a8b2a4 は回帰テスト無しだった)。
+// 容量上限と戻る/進むの組み合わせは例示テストでは踏み切れない (GoForward の容量超過 0a8b2a4 は回帰テスト無しだった)。
 // 素朴な deque 2 本の参照モデルとランダム操作列で突き合わせる。
 
 namespace {
@@ -267,17 +226,6 @@ public:
         return forward_.size();
     }
 
-    size_t UniquePathCount() const
-    {
-        std::set<std::wstring> paths;
-        for (const auto* d : { &back_, &forward_ }) {
-            for (const auto& e : *d) {
-                paths.insert(e.path);
-            }
-        }
-        return paths.size();
-    }
-
 private:
     void PushCapped(std::deque<ModelEntry>& d, const ModelEntry& e)
     {
@@ -294,7 +242,6 @@ private:
 
 void RunNavHistoryModel(size_t max, uint32_t seed)
 {
-    // 長さの異なるパスを混ぜ、解放済みスロットへの再割り当てで別の長さの文字列が入る経路を踏む。
     static const std::wstring kPaths[] = {
         L"a.md", L"C:\\docs\\long\\nested\\path\\b.md", L"c.md", L"D:\\x.md", L"e.markdown",
     };
@@ -341,9 +288,6 @@ void RunNavHistoryModel(size_t max, uint32_t seed)
         ASSERT_LE(hist.BackSize() + hist.ForwardSize(), max);
         ASSERT_EQ(hist.CanGoBack(), model.BackSize() > 0);
         ASSERT_EQ(hist.CanGoForward(), model.ForwardSize() > 0);
-        // 参照カウントがずれると、生存エントリが無いパスが残る (リーク) か、
-        // 生存エントリのパスが消えて次の intern で別スロットに重複登録される。
-        ASSERT_EQ(hist.InternedPathCount(), model.UniquePathCount());
     }
 }
 

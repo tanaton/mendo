@@ -1,31 +1,109 @@
 #include "command_executor.h"
 #include "overloaded.h"
 #include "profiler.h"
+#include <dwrite.h>
+#include <bit>
 
-#ifdef MENDO_USE_TRACY
 namespace {
 
-// UI スレッド専用のため非アトミック。
-struct BrushStats {
-    int64_t fastpath_hit = 0; // last_brush_ 直前キャッシュヒット
-    int64_t pool_hit = 0;     // brush_pool_ 内ヒット (PackColor で同一色)
-    int64_t pool_miss = 0;    // 新規 CreateSolidColorBrush
-    int64_t pool_evict = 0;   // LRU で 1 件追い出し
-    int64_t rt_switch = 0;    // RT 切替によるプール全クリア
-};
-BrushStats g_brush_stats;
+// D2D の DrawTextLayout は描画面外を含む全グリフランを処理するため、巨大なコードブロック等では
+// 1 フレームに数十 ms かかる (1 万行で約 20ms)。可視縦範囲外のランを飛ばして描く。
+class VisibleRunRenderer final : public IDWriteTextRenderer {
+public:
+    VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, float cull_top, float cull_bottom) noexcept
+        : rt_(rt), default_brush_(default_brush), cull_top_(cull_top), cull_bottom_(cull_bottom)
+    {
+        rt->GetTransform(&transform_);
+        float dpi_x = 96.0f;
+        float dpi_y = 96.0f;
+        rt->GetDpi(&dpi_x, &dpi_y);
+        pixels_per_dip_ = dpi_x / 96.0f;
+    }
 
-void PublishBrushStats() noexcept
-{
-    MENDO_PLOT("brush.fastpath_hit", g_brush_stats.fastpath_hit);
-    MENDO_PLOT("brush.pool_hit", g_brush_stats.pool_hit);
-    MENDO_PLOT("brush.pool_miss", g_brush_stats.pool_miss);
-    MENDO_PLOT("brush.pool_evict", g_brush_stats.pool_evict);
-    MENDO_PLOT("brush.rt_switch", g_brush_stats.rt_switch);
-}
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** out) noexcept override
+    {
+        if (riid == __uuidof(IUnknown) || riid == __uuidof(IDWritePixelSnapping) || riid == __uuidof(IDWriteTextRenderer)) {
+            *out = this;
+            return S_OK;
+        }
+        *out = nullptr;
+        return E_NOINTERFACE;
+    }
+    // スタック上でのみ使うので参照カウントは持たない。
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return 1;
+    }
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        return 1;
+    }
+
+    HRESULT STDMETHODCALLTYPE IsPixelSnappingDisabled(void*, BOOL* disabled) noexcept override
+    {
+        *disabled = FALSE;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetCurrentTransform(void*, DWRITE_MATRIX* transform) noexcept override
+    {
+        *transform = std::bit_cast<DWRITE_MATRIX>(transform_);
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetPixelsPerDip(void*, FLOAT* pixels_per_dip) noexcept override
+    {
+        *pixels_per_dip = pixels_per_dip_;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE DrawGlyphRun(
+        void*, FLOAT x, FLOAT y, DWRITE_MEASURING_MODE mode,
+        const DWRITE_GLYPH_RUN* run, const DWRITE_GLYPH_RUN_DESCRIPTION*, IUnknown* effect) noexcept override
+    {
+        // ベースラインから上下 1em あれば行の字形は収まる。
+        if (y + run->fontEmSize < cull_top_ || y - run->fontEmSize > cull_bottom_) {
+            return S_OK;
+        }
+        rt_->DrawGlyphRun(D2D1::Point2F(x, y), run, BrushFor(effect), mode);
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE DrawUnderline(void*, FLOAT x, FLOAT y, const DWRITE_UNDERLINE* u, IUnknown* effect) noexcept override
+    {
+        FillLine(x, y + u->offset, u->width, u->thickness, effect);
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE DrawStrikethrough(void*, FLOAT x, FLOAT y, const DWRITE_STRIKETHROUGH* st, IUnknown* effect) noexcept override
+    {
+        FillLine(x, y + st->offset, st->width, st->thickness, effect);
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE DrawInlineObject(void*, FLOAT, FLOAT, IDWriteInlineObject*, BOOL, BOOL, IUnknown*) noexcept override
+    {
+        return S_OK;
+    }
+
+private:
+    // effect は SetDrawingEffect で積んだ ID2D1Brush のみなので QI せずに使う。
+    ID2D1Brush* BrushFor(IUnknown* effect) const noexcept
+    {
+        return effect ? static_cast<ID2D1Brush*>(effect) : default_brush_;
+    }
+    void FillLine(float x, float top, float width, float thickness, IUnknown* effect) const noexcept
+    {
+        if (top + thickness < cull_top_ || top > cull_bottom_) {
+            return;
+        }
+        rt_->FillRectangle(D2D1::RectF(x, top, x + width, top + thickness), BrushFor(effect));
+    }
+
+    ID2D1RenderTarget* rt_;
+    ID2D1Brush* default_brush_;
+    float cull_top_;
+    float cull_bottom_;
+    D2D1_MATRIX_3X2_F transform_{};
+    float pixels_per_dip_ = 1.0f;
+};
 
 } // namespace
-#endif
 
 ID2D1SolidColorBrush* CommandExecutor::ResolveBrush(ID2D1RenderTarget* rt, BrushId id, D2D1_COLOR_F color)
 {
@@ -34,63 +112,16 @@ ID2D1SolidColorBrush* CommandExecutor::ResolveBrush(ID2D1RenderTarget* rt, Brush
             return fixed;
         }
     }
-    return GetBrush(rt, color);
-}
-
-void CommandExecutor::BindRenderTarget(ID2D1RenderTarget* rt)
-{
-    brush_pool_.clear();
-    lru_keys_.clear();
-    bound_rt_ = rt;
-    last_brush_ = nullptr;
-    MENDO_COUNT_INC(g_brush_stats.rt_switch);
-}
-
-void CommandExecutor::EvictOldestBrush()
-{
-    const auto oldest_it = brush_pool_.find(lru_keys_.back());
-    if (oldest_it != brush_pool_.end()) {
-        if (last_brush_ == oldest_it->second.brush.Get()) {
-            last_brush_ = nullptr;
-        }
-        brush_pool_.erase(oldest_it);
+    if (scratch_brush_ && scratch_rt_ == rt) {
+        scratch_brush_->SetColor(color);
+        return scratch_brush_.Get();
     }
-    lru_keys_.pop_back();
-    MENDO_COUNT_INC(g_brush_stats.pool_evict);
-}
-
-ID2D1SolidColorBrush* CommandExecutor::GetBrush(ID2D1RenderTarget* rt, D2D1_COLOR_F color)
-{
-    if (rt != bound_rt_) {
-        BindRenderTarget(rt);
-    }
-    const uint32_t key = command_executor_internal::PackColor(color);
-    // 直前と同色なら hash lookup を完全にスキップ。同色連続発行（罫線、ハイライト、
-    // 同テーマ色のテキスト等）が多いためヒット率が高い。
-    if (last_brush_ && key == last_brush_key_) {
-        MENDO_COUNT_INC(g_brush_stats.fastpath_hit);
-        return last_brush_;
-    }
-    if (const auto it = brush_pool_.find(key); it != brush_pool_.end()) {
-        lru_keys_.splice(lru_keys_.begin(), lru_keys_, it->second.lru_pos);
-        last_brush_key_ = key;
-        last_brush_ = it->second.brush.Get();
-        MENDO_COUNT_INC(g_brush_stats.pool_hit);
-        return last_brush_;
-    }
-    if (brush_pool_.size() >= MAX_POOLED_BRUSHES) {
-        EvictOldestBrush();
-    }
-    MENDO_COUNT_INC(g_brush_stats.pool_miss);
-    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
-    if (FAILED(rt->CreateSolidColorBrush(color, &brush)) || !brush) {
+    scratch_brush_.Reset();
+    scratch_rt_ = rt;
+    if (FAILED(rt->CreateSolidColorBrush(color, &scratch_brush_))) {
         return nullptr;
     }
-    lru_keys_.push_front(key);
-    const auto [it, _] = brush_pool_.emplace(key, BrushEntry{ std::move(brush), lru_keys_.begin() });
-    last_brush_key_ = key;
-    last_brush_ = it->second.brush.Get();
-    return last_brush_;
+    return scratch_brush_.Get();
 }
 
 void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray* brushes)
@@ -103,7 +134,7 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
 
     fixed_brushes_ = brushes;
 
-    cmds.Visit(mendo::overloaded{
+    const auto draw = mendo::overloaded{
         [&](const FillRectCmd& c) {
             if (auto* b = ResolveBrush(rt, c.brush_id, c.color)) {
                 rt->FillRectangle(c.rect, b);
@@ -124,7 +155,13 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
                 return;
             }
             if (auto* b = ResolveBrush(rt, c.brush_id, c.color)) {
-                rt->DrawTextLayout(c.origin, c.layout, b);
+                if (c.cull_runs) {
+                    VisibleRunRenderer renderer{ rt, b, c.cull_top, c.cull_bottom };
+                    c.layout->Draw(nullptr, &renderer, c.origin.x, c.origin.y);
+                }
+                else {
+                    rt->DrawTextLayout(c.origin, c.layout, b);
+                }
             }
         },
         [&](const DrawTextCmd& c) {
@@ -159,8 +196,8 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
         [&](const SetTransformCmd& c) {
             rt->SetTransform(c.transform);
         },
-    });
-
-    MENDO_IF_TRACY(PublishBrushStats());
-    MENDO_PLOT("brush.pool_size", static_cast<int64_t>(brush_pool_.size()));
+    };
+    for (const auto& c : cmds) {
+        std::visit(draw, c);
+    }
 }
