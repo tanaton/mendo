@@ -101,11 +101,7 @@ HCURSOR App::HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLay
     const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
     const int node_index = hit_test_.HitNode(hit_ctx);
     // 横スクロール対象 (Table / CodeBlock) で自然幅 > 可視幅 のときだけバーを出す。
-    // ドラッグ中は hovered を固定して、スクロールバー直下に出ても見た目が動かないようにする。
-    if (state_.view.h_drag_node >= 0) {
-        hover.h_block = state_.view.hovered_h_block;
-    }
-    else if (ResolveBlockHScrollGeometry(state_, node_index).can_scroll()) {
+    if (state_.view.h_drag_node < 0 && ResolveBlockHScrollGeometry(state_, node_index).can_scroll()) {
         hover.h_block = node_index;
     }
 

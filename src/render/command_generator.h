@@ -9,7 +9,6 @@
 #include "theme.h"
 #include "ui_types.h"
 #include "ui_constants.h"
-#include "memory_resource.h"
 #include "search_state.h"
 #include "text_layout_cache.h"
 #include <memory_resource>
@@ -54,13 +53,17 @@ public:
         IDWriteTextFormat* icon_font = nullptr;
         IDWriteTextFormat* copy_btn_icon = nullptr;
         IDWriteTextFormat* placeholder_text = nullptr;
-        // 上の書式で描く文字列のテキストレイアウトを作るのに使う。null なら文字列を描かない。
-        IDWriteFactory* factory = nullptr;
     };
 
     void SetHitTestBuffer(std::pmr::vector<DWRITE_HIT_TEST_METRICS>* buf) noexcept
     {
         hit_test_buffer_ = buf;
+    }
+    // 上の書式で描く文字列のレイアウトを作り置く先。null なら文字列を描かない。
+    // 前フレームのレイアウトの破棄 (BeginFrame) は持ち主が行う。
+    void SetTextLayoutCache(TextLayoutCache* cache) noexcept
+    {
+        text_layouts_ = cache;
     }
 
     void SetTheme(const Theme* theme) noexcept
@@ -72,12 +75,6 @@ public:
     void SetFormats(const Formats& fmts) noexcept
     {
         formats_ = fmts;
-        text_layouts_.SetFactory(fmts.factory);
-    }
-    // テスト用: DrawTextLayoutCmd の layout を作った文字列。
-    std::wstring_view TextOf(const IDWriteTextLayout* layout) const noexcept
-    {
-        return text_layouts_.TextOf(layout);
     }
     void SetSearchMatches(const std::pmr::vector<SearchMatch>* matches, int current_index, uint32_t generation) noexcept
     {
@@ -211,12 +208,12 @@ private:
         std::span<const SearchMatch> matches, size_t first_global,
         float origin_x, float origin_y, int table_row, int table_col);
 
-    // 書式の揃えに従って rect 内に text を描く。
-    void EmitText(DrawCommandList& cmds, std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, D2D1_COLOR_F color, BrushId brush_id = BrushId::Custom);
+    // 書式の揃えに従って origin から box の範囲に text を描く。
+    void EmitText(DrawCommandList& cmds, std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, D2D1_COLOR_F color, BrushId brush_id = BrushId::Custom);
 
     const Theme* theme_ = nullptr;
     Formats formats_;
-    TextLayoutCache text_layouts_;
+    TextLayoutCache* text_layouts_ = nullptr;
 
     // 戻り値は同一スコープで CommandExecutor::Execute に渡されて消費されるので、毎フレーム clear して容量を使い回す。
     DrawCommandList cmds_;

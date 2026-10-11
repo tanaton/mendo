@@ -15,6 +15,7 @@ namespace {
 class DiagramPlaceholderTest : public DWriteTestBase {
 protected:
     CommandGenerator gen_;
+    TextLayoutCache text_layouts_;
     ComPtr<IDWriteTextFormat> placeholder_fmt_;
     std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 
@@ -28,7 +29,9 @@ protected:
             L"ja-jp", &placeholder_fmt_);
         ASSERT_TRUE(SUCCEEDED(hr));
         gen_.SetTheme(&theme_);
-        gen_.SetFormats({ nullptr, nullptr, nullptr, placeholder_fmt_.Get(), dwrite_factory_.Get() });
+        text_layouts_.SetFactory(dwrite_factory_.Get());
+        gen_.SetFormats({ nullptr, nullptr, nullptr, placeholder_fmt_.Get() });
+        gen_.SetTextLayoutCache(&text_layouts_);
         gen_.SetHitTestBuffer(&hit_test_buffer_);
     }
 
@@ -56,7 +59,7 @@ TEST_F(DiagramPlaceholderTest, NoErrorShowsLoadingText)
 
     const auto* text_cmd = FirstDrawText(cmds);
     ASSERT_NE(text_cmd, nullptr);
-    EXPECT_EQ(gen_.TextOf(text_cmd->layout), i18n::S().loading);
+    EXPECT_EQ(text_layouts_.TextOf(text_cmd->layout), i18n::S().loading);
 }
 
 TEST_F(DiagramPlaceholderTest, ErrorShowsErrorMessageInCautionColor)
@@ -80,6 +83,6 @@ TEST_F(DiagramPlaceholderTest, ErrorShowsErrorMessageInCautionColor)
 
     const auto* error_cmd = FirstDrawText(cmds);
     ASSERT_NE(error_cmd, nullptr);
-    EXPECT_EQ(gen_.TextOf(error_cmd->layout), L"Parse error on line 1");
+    EXPECT_EQ(text_layouts_.TextOf(error_cmd->layout), L"Parse error on line 1");
     EXPECT_EQ(error_cmd->brush_id, BrushId::AlertCaution);
 }

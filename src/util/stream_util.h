@@ -1,12 +1,9 @@
 #pragma once
-#include "file_io.h"
-#include "win_handle.h"
 #include <wrl/client.h>
 #include <objidl.h>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <utility>
 
 namespace stream_util {
 

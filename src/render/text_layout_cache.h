@@ -13,16 +13,16 @@
 // 毎フレーム描く短い文字列 (アイコン・リスト番号・プレースホルダ等) のテキストレイアウトを
 // (書式, 文字列, 箱の大きさ) ごとに作り置く。DrawText は呼ぶたびに内部でレイアウトを作るため、
 // これで得たレイアウトを DrawTextLayout で描く。レイアウトは書式に結び付くので、書式を
-// 作り直したら Clear する。
+// 作り直したら SetFactory で捨てる。
 class TextLayoutCache {
 public:
     void SetFactory(IDWriteFactory* factory) noexcept
     {
         factory_ = factory;
-        Clear();
+        entries_.clear();
     }
 
-    // 作れなければ nullptr。返したレイアウトは次の BeginFrame / Clear まで有効。
+    // 作れなければ nullptr。返したレイアウトは次の BeginFrame / SetFactory まで有効。
     IDWriteTextLayout* Get(IDWriteTextFormat* fmt, std::wstring_view text, D2D1_SIZE_F box)
     {
         if (!factory_ || !fmt || text.empty()) {
@@ -46,11 +46,6 @@ public:
         if (entries_.size() > kMaxEntries) {
             entries_.clear();
         }
-    }
-
-    void Clear() noexcept
-    {
-        entries_.clear();
     }
 
     // テスト用: layout を作った文字列。見つからなければ空。
@@ -94,10 +89,6 @@ private:
             mix(std::bit_cast<uint32_t>(k.width));
             mix(std::bit_cast<uint32_t>(k.height));
             return h;
-        }
-        size_t operator()(const Key& k) const noexcept
-        {
-            return (*this)(static_cast<KeyView>(k));
         }
     };
     struct KeyEqual {

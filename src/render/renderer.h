@@ -209,6 +209,7 @@ private:
     };
     TextFormats fmt_;
 
+    // CommandGenerator と共有する。
     TextLayoutCache text_layouts_;
     CenteredTextLayout title_layout_;
     CenteredTextLayout search_count_layout_;

@@ -97,10 +97,14 @@ static float GetFirstLineHeight(const NodeLayoutEntry& entry, float font_size) n
     return (entry.first_line_height > 0.0f) ? entry.first_line_height : font_size * FALLBACK_LINE_HEIGHT_FACTOR;
 }
 
-void CommandGenerator::EmitText(DrawCommandList& cmds, std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, D2D1_COLOR_F color, BrushId brush_id)
+// box はスクロール位置に依らない値を渡す。矩形の差から求めると丸めでキャッシュが外れる。
+void CommandGenerator::EmitText(DrawCommandList& cmds, std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, D2D1_COLOR_F color, BrushId brush_id)
 {
-    if (auto* layout = text_layouts_.Get(fmt, text, D2D1::SizeF(rect.right - rect.left, rect.bottom - rect.top))) {
-        cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(rect.left, rect.top), layout, color, brush_id });
+    if (!text_layouts_) {
+        return;
+    }
+    if (auto* layout = text_layouts_->Get(fmt, text, box)) {
+        cmds.emplace_back(DrawTextLayoutCmd{ origin, layout, color, brush_id });
     }
 }
 
@@ -141,8 +145,6 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     const BlockHScrollContext& block_h_scroll)
 {
     MENDO_PROFILE("GenerateMdPane");
-    // 前フレームのコマンドが指すレイアウトは実行済みなので、ここで捨ててよい。
-    text_layouts_.BeginFrame();
     auto& cmds = cmds_;
     cmds.clear();
 
@@ -386,9 +388,8 @@ void CommandGenerator::GenTaskListCheckbox(DrawCommandList& cmds, const Node& no
     const std::wstring_view icon = node.task_checked() ? L"\u2611" : L"\u2610"; // ☑ / ☐
     const float icon_size = theme_->font_size_body;
     const float cb_x = x - theme_->list_bullet_offset;
-    EmitText(cmds, icon, formats_.icon_font,
-             D2D1::RectF(cb_x, entry_text_top, cb_x + icon_size, entry_text_top + icon_size * TASK_CHECKBOX_HEIGHT_FACTOR),
-             theme_->text_color, BrushId::Text);
+    EmitText(cmds, icon, formats_.icon_font, D2D1::Point2F(cb_x, entry_text_top),
+             D2D1::SizeF(icon_size, icon_size * TASK_CHECKBOX_HEIGHT_FACTOR), theme_->text_color, BrushId::Text);
 }
 
 void CommandGenerator::GenHorizontalRule(DrawCommandList& cmds, float x, float w, float entry_text_top)
@@ -451,7 +452,8 @@ void CommandGenerator::GenOverlayButton(DrawCommandList& cmds, D2D1_RECT_F btn, 
     cmds.emplace_back(FillRoundedRectCmd{ btn, COPY_BTN_CORNER, COPY_BTN_CORNER, mendo::MonochromeOverlay(cached_is_dark_, bg_alpha) });
 
     const float text_alpha = is_hovered ? (cached_is_dark_ ? 0.9f : 0.8f) : (cached_is_dark_ ? 0.4f : 0.35f);
-    EmitText(cmds, { &icon, 1 }, formats_.copy_btn_icon, btn, mendo::MonochromeOverlay(cached_is_dark_, text_alpha));
+    EmitText(cmds, { &icon, 1 }, formats_.copy_btn_icon, D2D1::Point2F(btn.left, btn.top),
+             D2D1::SizeF(COPY_BTN_SIZE, COPY_BTN_SIZE), mendo::MonochromeOverlay(cached_is_dark_, text_alpha));
 }
 
 void CommandGenerator::GenListBullet(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top)
@@ -461,12 +463,10 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds, const FrameContext& 
         wchar_t num_buf[16];
         const auto fmt_result = std::format_to_n(num_buf, std::size(num_buf), L"{}.", node.list_number());
         const size_t num_len = std::min(static_cast<size_t>(fmt_result.size), std::size(num_buf));
-        const D2D1_RECT_F num_rect = D2D1::RectF(
-            x - theme_->list_bullet_offset - LIST_NUMBER_PAD_RIGHT,
-            entry_text_top,
-            x - LIST_NUMBER_PAD_LEFT,
-            entry_text_top + first_line_h);
-        EmitText(cmds, { num_buf, num_len }, formats_.list_number, num_rect, theme_->text_color, BrushId::Text);
+        EmitText(cmds, { num_buf, num_len }, formats_.list_number,
+                 D2D1::Point2F(x - theme_->list_bullet_offset - LIST_NUMBER_PAD_RIGHT, entry_text_top),
+                 D2D1::SizeF(theme_->list_bullet_offset + LIST_NUMBER_PAD_RIGHT - LIST_NUMBER_PAD_LEFT, first_line_h),
+                 theme_->text_color, BrushId::Text);
         return;
     }
 
@@ -592,12 +592,13 @@ void CommandGenerator::GenBlockQuoteGroup(DrawCommandList& cmds, const FrameCont
 
 void CommandGenerator::GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h, std::wstring_view error)
 {
-    const D2D1_RECT_F bg = D2D1::RectF(x, y, x + w, y + h);
-    GenCodeBlockBg(cmds, bg);
+    GenCodeBlockBg(cmds, D2D1::RectF(x, y, x + w, y + h));
+    const auto origin = D2D1::Point2F(x, y);
+    const auto box = D2D1::SizeF(w, h);
     if (!error.empty()) {
-        EmitText(cmds, error, formats_.placeholder_text, bg, theme_->alert_color[AlertColorIndex(AlertType::Caution)], BrushId::AlertCaution);
+        EmitText(cmds, error, formats_.placeholder_text, origin, box, theme_->alert_color[AlertColorIndex(AlertType::Caution)], BrushId::AlertCaution);
         return;
     }
-    EmitText(cmds, i18n::S().loading, formats_.placeholder_text, bg, theme_->blockquote_text_color, BrushId::BlockquoteText);
+    EmitText(cmds, i18n::S().loading, formats_.placeholder_text, origin, box, theme_->blockquote_text_color, BrushId::BlockquoteText);
 }
 

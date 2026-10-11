@@ -17,13 +17,16 @@ void BeginScrollbarDrag(AppState& state, SideEffectList& effects, PaneController
 }
 
 // ツールチップ以外のホバー状態を反映し、見た目が変わったら再描画させる。
+// 横スクロールのドラッグ中は、ポインタがどこへ出てもバーを出したままにする。
 void ApplyHoverHighlights(AppState& state, SideEffectList& effects, const PointerHover& h)
 {
     bool changed = state.window.titlebar.SetHovered(h.titlebar);
     changed |= state.search.search_bar_ctrl.SetHover(h.search_bar);
     changed |= std::exchange(state.interaction.nav_hover, h.nav) != h.nav;
     changed |= std::exchange(state.interaction.hovered, h.buttons) != h.buttons;
-    changed |= std::exchange(state.view.hovered_h_block, h.h_block) != h.h_block;
+    if (state.view.h_drag_node < 0) {
+        changed |= std::exchange(state.view.hovered_h_block, h.h_block) != h.h_block;
+    }
     for (const auto t : { PaneTarget::File, PaneTarget::Toc }) {
         const auto k = std::to_underlying(t);
         bool pane_changed = state.view.panes.SetHoveredSideIndex(t, h.side_index[k]);
@@ -52,12 +55,7 @@ void ReducePointerHover(AppState& state, SideEffectList& effects, const PointerH
 void ReduceMouseLeave(AppState& state, SideEffectList& effects)
 {
     state.interaction.last_hover_pos.Reset();
-    PointerHover none;
-    // 横スクロールのドラッグ中はバーを出したままにする。
-    if (state.view.h_drag_node >= 0) {
-        none.h_block = state.view.hovered_h_block;
-    }
-    ApplyHoverHighlights(state, effects, none);
+    ApplyHoverHighlights(state, effects, PointerHover{});
     ClearTooltip(state, effects);
 }
 

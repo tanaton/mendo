@@ -386,19 +386,11 @@ TEST_F(PaneControllerTest, SetSideHoveredButtonReturnsFalseOnSame)
     EXPECT_FALSE(panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::Close));
 }
 
-TEST_F(PaneControllerTest, ClearSideButtonHover)
-{
-    panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::Reveal);
-    EXPECT_TRUE(panes_.ClearSideButtonHover(PaneTarget::File));
-    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::File), PaneHeaderButton::None);
-    EXPECT_FALSE(panes_.ClearSideButtonHover(PaneTarget::File));
-}
-
 TEST_F(PaneControllerTest, FileAndTocHoveredButtonIndependent)
 {
     panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::Close);
     panes_.SetSideHoveredButton(PaneTarget::Toc, PaneHeaderButton::Close);
-    panes_.ClearSideButtonHover(PaneTarget::File);
+    panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::None);
     EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::File), PaneHeaderButton::None);
     EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::Toc), PaneHeaderButton::Close);
 }

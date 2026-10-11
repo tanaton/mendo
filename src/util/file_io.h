@@ -5,11 +5,9 @@
 #include <cstdint>
 #include <filesystem>
 #include <limits>
-#include <memory>
 #include <memory_resource>
 #include <optional>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 namespace path_util {

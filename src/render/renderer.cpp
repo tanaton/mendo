@@ -55,6 +55,7 @@ bool Renderer::Init(HWND hwnd, const Theme& theme)
 
     cmd_generator_.SetTheme(&theme_);
     cmd_generator_.SetHitTestBuffer(&hit_test_buffer_);
+    cmd_generator_.SetTextLayoutCache(&text_layouts_);
     // 初回描画での拡大 resize を避けるため、共有バッファを事前に予約しておく。
     hit_test_buffer_.reserve(HIT_TEST_METRICS_INITIAL_CAPACITY);
 
