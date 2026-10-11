@@ -3,6 +3,24 @@
 #include "image_loader.h"
 #include "mock_text_measurer.h"
 
+namespace {
+
+// FindCachedImage の結果を DiagramEntry に写す (旧 GetCachedImage と同じ形で検証するため)。
+bool GetCachedImage(ImageLoader& loader, const std::wstring& path, DiagramEntry& out)
+{
+    const auto* cached = loader.FindCachedImage(path);
+    if (!cached) {
+        return false;
+    }
+    out.bitmap = cached->bitmap;
+    out.width = cached->width;
+    out.height = cached->height;
+    return true;
+}
+
+} // namespace
+
+
 // ============================================================
 // ImageLoader キャッシュテスト
 // ============================================================
@@ -13,7 +31,7 @@ protected:
 
     void SetUp() override
     {
-        // キャッシュ動作テストでは GetCachedImage / InsertCacheEntry のみ使用。
+        // キャッシュ動作テストでは FindCachedImage / InsertCacheEntry のみ使用。
         // レンダーターゲットや WIC は不要。
         loader_.Init(nullptr);
     }
@@ -22,7 +40,7 @@ protected:
 TEST_F(ImageLoaderCacheTest, GetCachedImageReturnsFalseForUnknownPath)
 {
     DiagramEntry out;
-    EXPECT_FALSE(loader_.GetCachedImage(L"nonexistent.png", out));
+    EXPECT_FALSE(GetCachedImage(loader_, L"nonexistent.png", out));
 }
 
 TEST_F(ImageLoaderCacheTest, ClearCacheRemovesAllEntries)
@@ -30,7 +48,7 @@ TEST_F(ImageLoaderCacheTest, ClearCacheRemovesAllEntries)
     // キャッシュをクリアしてもクラッシュしないこと
     loader_.ClearCache();
     DiagramEntry out;
-    EXPECT_FALSE(loader_.GetCachedImage(L"any.png", out));
+    EXPECT_FALSE(GetCachedImage(loader_, L"any.png", out));
 }
 
 TEST_F(ImageLoaderCacheTest, EvictsLeastRecentlyInsertedWhenExceedingMaxEntries)
@@ -48,9 +66,9 @@ TEST_F(ImageLoaderCacheTest, EvictsLeastRecentlyInsertedWhenExceedingMaxEntries)
     EXPECT_EQ(loader_.CacheSize(), max_entries);
 
     DiagramEntry out;
-    EXPECT_FALSE(loader_.GetCachedImage(L"img_0.png", out));
-    EXPECT_TRUE(loader_.GetCachedImage(L"img_127.png", out));
-    EXPECT_TRUE(loader_.GetCachedImage(L"overflow.png", out));
+    EXPECT_FALSE(GetCachedImage(loader_, L"img_0.png", out));
+    EXPECT_TRUE(GetCachedImage(loader_, L"img_127.png", out));
+    EXPECT_TRUE(GetCachedImage(loader_, L"overflow.png", out));
 }
 
 TEST_F(ImageLoaderCacheTest, CacheHitPromotesEntry)
@@ -62,11 +80,11 @@ TEST_F(ImageLoaderCacheTest, CacheHitPromotesEntry)
 
     // ヒットで末尾から外れるので、次の overflow では 1 つ前の img_1 が捨てられる
     DiagramEntry out;
-    ASSERT_TRUE(loader_.GetCachedImage(L"img_0.png", out));
+    ASSERT_TRUE(GetCachedImage(loader_, L"img_0.png", out));
     loader_.InsertCacheEntry(L"overflow.png", 100.0f, 100.0f);
 
-    EXPECT_TRUE(loader_.GetCachedImage(L"img_0.png", out));
-    EXPECT_FALSE(loader_.GetCachedImage(L"img_1.png", out));
+    EXPECT_TRUE(GetCachedImage(loader_, L"img_0.png", out));
+    EXPECT_FALSE(GetCachedImage(loader_, L"img_1.png", out));
 }
 
 TEST_F(ImageLoaderCacheTest, LatestInsertsWinAcrossOverflows)
@@ -85,11 +103,11 @@ TEST_F(ImageLoaderCacheTest, LatestInsertsWinAcrossOverflows)
     EXPECT_EQ(loader_.CacheSize(), max_entries);
 
     DiagramEntry out;
-    EXPECT_FALSE(loader_.GetCachedImage(L"img_0.png", out));
-    EXPECT_FALSE(loader_.GetCachedImage(L"img_9.png", out));
-    EXPECT_TRUE(loader_.GetCachedImage(L"img_10.png", out));
-    EXPECT_TRUE(loader_.GetCachedImage(L"img_127.png", out));
-    EXPECT_TRUE(loader_.GetCachedImage(L"overflow_9.png", out));
+    EXPECT_FALSE(GetCachedImage(loader_, L"img_0.png", out));
+    EXPECT_FALSE(GetCachedImage(loader_, L"img_9.png", out));
+    EXPECT_TRUE(GetCachedImage(loader_, L"img_10.png", out));
+    EXPECT_TRUE(GetCachedImage(loader_, L"img_127.png", out));
+    EXPECT_TRUE(GetCachedImage(loader_, L"overflow_9.png", out));
 }
 
 // ============================================================

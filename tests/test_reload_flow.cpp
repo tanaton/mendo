@@ -104,7 +104,7 @@ Fixture Build(const Case& c)
         f.result.emplace(AsyncLoadResult{
             .reload = ReloadCheck{ ReloadDecision{ c.reload_op, c.reload_diff_pos }, base, std::pmr::wstring(c.reload_path), kReloadByteSize } });
         // worker は NoChange / DeferPrefixShrink 以外ならパース済みの文書を同じパスで返す。
-        if (c.reload_op == ReloadOp::PrefixGrowth || c.reload_op == ReloadOp::FullReload) {
+        if (c.reload_op == ReloadOp::Replace) {
             f.result->doc = Document::FromMarkdown(std::pmr::string(c.result_text), c.reload_path);
         }
         break;
@@ -177,20 +177,17 @@ INSTANTIATE_TEST_SUITE_P(
         Case{ .label = "ReloadDeferPrefixShrink", .kind = ResultKind::Reload, .reload_op = ReloadOp::DeferPrefixShrink, .reload_diff_pos = 7,
               .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::DeferPrefixShrink, .expect_diff_pos = 7,
               .expect_probe = true },
-        Case{ .label = "ReloadPrefixGrowth", .kind = ResultKind::Reload, .reload_op = ReloadOp::PrefixGrowth, .reload_diff_pos = 14,
-              .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::PrefixGrowth, .expect_diff_pos = 14,
+        Case{ .label = "ReloadReplace", .kind = ResultKind::Reload, .reload_op = ReloadOp::Replace, .reload_diff_pos = 9,
+              .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::Replace, .expect_diff_pos = 9,
               .expect_probe = true },
-        Case{ .label = "ReloadFullReloadReplacesWithoutFollowingPane", .kind = ResultKind::Reload, .reload_op = ReloadOp::FullReload,
-              .reload_diff_pos = 9, .step = ParseCompleteStep::ReplaceWithResult, .expect_op = ReloadOp::FullReload,
-              .expect_diff_pos = 9, .expect_probe = true },
         Case{ .label = "ReloadPathCaseDiffersStillSameFile", .kind = ResultKind::Reload, .reload_op = ReloadOp::NoChange,
               .reload_path = kPathOtherCase, .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::NoChange,
               .expect_probe = true },
-        Case{ .label = "ReloadPartialWriteRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::FullReload, .reload_diff_pos = 9,
+        Case{ .label = "ReloadPartialWriteRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::Replace, .reload_diff_pos = 9,
               .partial_write = true, .step = ParseCompleteStep::RetryPartialWrite, .expect_probe = true },
         Case{ .label = "ReloadBaseReplacedRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::NoChange, .base = BaseRef::Other,
               .step = ParseCompleteStep::RetryDocumentChanged },
-        Case{ .label = "ReloadBaseExpiredRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::FullReload, .reload_diff_pos = 3,
+        Case{ .label = "ReloadBaseExpiredRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::Replace, .reload_diff_pos = 3,
               .base = BaseRef::Expired, .step = ParseCompleteStep::RetryDocumentChanged },
         // 同じテキストのまま別ファイルを開いた (base は一致するがパスが違う)。
         Case{ .label = "ReloadForOtherPathRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::NoChange, .reload_path = kOtherPath,
@@ -203,14 +200,14 @@ INSTANTIATE_TEST_SUITE_P(
         Case{ .label = "SamePathUnchanged", .kind = ResultKind::Doc, .step = ParseCompleteStep::ApplyReload,
               .expect_op = ReloadOp::NoChange, .expect_probe = true },
         Case{ .label = "SamePathPrefixGrowth", .kind = ResultKind::Doc, .result_text = "# Title\n\nbody\nmore\n",
-              .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::PrefixGrowth, .expect_diff_pos = kText.size(),
+              .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::Replace, .expect_diff_pos = kText.size(),
               .expect_probe = true },
         Case{ .label = "SamePathPrefixShrinkDefers", .kind = ResultKind::Doc, .result_text = "# Title\n",
               .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::DeferPrefixShrink, .expect_diff_pos = 8,
               .expect_probe = true },
-        Case{ .label = "SamePathOtherCaseFullReload", .kind = ResultKind::Doc, .result_path = kPathOtherCase,
-              .result_text = "# Title\n\nBODY\n", .step = ParseCompleteStep::ReplaceWithResult, .expect_op = ReloadOp::FullReload,
-              .expect_diff_pos = 9, .expect_follow = false, .expect_probe = true },
+        Case{ .label = "SamePathOtherCaseReplace", .kind = ResultKind::Doc, .result_path = kPathOtherCase,
+              .result_text = "# Title\n\nBODY\n", .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::Replace,
+              .expect_diff_pos = 9, .expect_probe = true },
         Case{ .label = "SamePathPartialWriteRetries", .kind = ResultKind::Doc, .result_text = "# Title\n\nchanged\n", .partial_write = true,
               .step = ParseCompleteStep::RetryPartialWrite, .expect_probe = true },
 

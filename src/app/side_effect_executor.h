@@ -146,24 +146,6 @@ public:
             [this](const effect::KillTimer& ev) {
                 deps_.host->KillTimer(ev.id);
             },
-            [this](const effect::ProcessDeferredLayout&) {
-                cb_.process_deferred_layout();
-            },
-            [this](const effect::TickLoadingAnimation&) {
-                cb_.tick_loading_animation();
-            },
-            [this](const effect::ProcessMermaidBatchTimer&) {
-                cb_.process_mermaid_batch_timer();
-            },
-            [this](const effect::ProcessBitmapManage&) {
-                cb_.process_bitmap_manage();
-            },
-            [this](const effect::MermaidInitRetry&) {
-                cb_.mermaid_init_retry();
-            },
-            [this](const effect::MermaidIdle&) {
-                cb_.mermaid_idle();
-            },
         }, e);
         // clang-format on
     }

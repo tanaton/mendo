@@ -8,56 +8,74 @@
 
 namespace mendo {
 
-WideViewForDWrite::WideViewForDWrite(std::string_view text)
-    : scratch_(GetThreadLocalPoolResource()),
-      utf16_offsets_(GetThreadLocalPoolResource())
+namespace {
+
+// offsets が非 null なら対応表も作る。
+// offsets[i] (i = 0..utf8_size) = doc byte i 直前までの累積 wide unit 数。
+// - leading byte 位置: その文字を出力する直前の wide_pos
+// - continuation byte 位置: 同じ wide_pos (sequence 中はマップ値据え置き)
+// - 末尾 (= utf8_size): 全 wide unit 数 (番兵)
+// これにより `[byte_a, byte_b)` の範囲は wide で `[map[a], map[b])` に変換できる。
+// MultiByteToWideChar は不正バイトの扱いが OS 依存なので、Utf16OffsetCursor と同じ規則の自前 decode に揃える。
+void DecodeUtf8(std::string_view text, std::pmr::wstring& out, std::pmr::vector<uint32_t>* offsets)
 {
     if (text.empty() || text.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
         return;
     }
-    // utf16_offsets_[i] (i = 0..utf8_size) = doc byte i 直前までの累積 wide unit 数。
-    // - leading byte 位置: その文字を出力する直前の wide_pos
-    // - continuation byte 位置: 同じ wide_pos (sequence 中はマップ値据え置き)
-    // - 末尾 (= utf8_size): 全 wide unit 数 (番兵)
-    // これにより `[byte_a, byte_b)` の範囲は wide で `[map[a], map[b])` に変換できる。
-    //
-    // MultiByteToWideChar より自前 decode が遅いが、MeasureNode の per-node コストとしては許容範囲。
-    // MultiByteToWideChar で先に wide を作って 2-pass にする選択肢もあるが、整合性 (decode ルールが
-    // OS 依存) を避けて 1-pass で統一。
     const size_t n = text.size();
-    scratch_.reserve(n); // UTF-16 code unit 数 <= UTF-8 byte 数
+    out.reserve(n); // UTF-16 code unit 数 <= UTF-8 byte 数
 
     // 先頭の ASCII 区間は恒等写像なので、全体が ASCII なら対応表を確保しない。
     size_t byte_pos = 0;
     while (byte_pos < n && static_cast<unsigned char>(text[byte_pos]) < 0x80) {
-        scratch_.push_back(static_cast<wchar_t>(text[byte_pos]));
+        out.push_back(static_cast<wchar_t>(text[byte_pos]));
         ++byte_pos;
     }
     if (byte_pos == n) {
         return;
     }
-    utf16_offsets_.resize(n + 1); // 番兵込み
-    std::iota(utf16_offsets_.begin(), utf16_offsets_.begin() + static_cast<std::ptrdiff_t>(byte_pos), 0u);
+    if (offsets) {
+        offsets->resize(n + 1); // 番兵込み
+        std::iota(offsets->begin(), offsets->begin() + static_cast<std::ptrdiff_t>(byte_pos), 0u);
+    }
 
     uint32_t wide_pos = static_cast<uint32_t>(byte_pos);
     while (byte_pos < n) {
         const auto decoded = utf8_codec::DecodeAt(text, static_cast<uint32_t>(byte_pos));
-        for (uint32_t i = 0; i < decoded.len; ++i) {
-            utf16_offsets_[byte_pos + i] = wide_pos;
+        if (offsets) {
+            std::fill_n(offsets->begin() + static_cast<std::ptrdiff_t>(byte_pos), decoded.len, wide_pos);
         }
         if (decoded.cp <= 0xFFFF) {
-            scratch_.push_back(static_cast<wchar_t>(decoded.cp));
+            out.push_back(static_cast<wchar_t>(decoded.cp));
             ++wide_pos;
         }
         else {
             const uint32_t adj = decoded.cp - 0x10000u;
-            scratch_.push_back(static_cast<wchar_t>(0xD800u + (adj >> 10)));
-            scratch_.push_back(static_cast<wchar_t>(0xDC00u + (adj & 0x3FFu)));
+            out.push_back(static_cast<wchar_t>(0xD800u + (adj >> 10)));
+            out.push_back(static_cast<wchar_t>(0xDC00u + (adj & 0x3FFu)));
             wide_pos += 2;
         }
         byte_pos += decoded.len;
     }
-    utf16_offsets_[n] = wide_pos;
+    if (offsets) {
+        (*offsets)[n] = wide_pos;
+    }
+}
+
+} // namespace
+
+WideViewForDWrite::WideViewForDWrite(std::string_view text)
+    : scratch_(GetThreadLocalPoolResource()),
+      utf16_offsets_(GetThreadLocalPoolResource())
+{
+    DecodeUtf8(text, scratch_, &utf16_offsets_);
+}
+
+std::pmr::wstring DecodeForDWrite(std::string_view text)
+{
+    std::pmr::wstring out(GetThreadLocalPoolResource());
+    DecodeUtf8(text, out, nullptr);
+    return out;
 }
 
 uint32_t Utf16OffsetCursor::WideAt(uint32_t byte_target) noexcept
@@ -110,11 +128,10 @@ doc_offset WideViewForDWrite::DocOffsetFromWideOffset(uint32_t wide_off) const n
 }
 
 HRESULT CreateDocTextLayout(
-    IDWriteFactory* factory, const WideViewForDWrite& view,
+    IDWriteFactory* factory, std::wstring_view wide,
     IDWriteTextFormat* fmt, float max_w, float max_h,
     IDWriteTextLayout** out) noexcept
 {
-    const auto wide = view.wide();
     return factory->CreateTextLayout(wide.data(), static_cast<UINT32>(wide.size()), fmt, max_w, max_h, out);
 }
 

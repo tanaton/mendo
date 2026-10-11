@@ -6,9 +6,11 @@
 #include <filesystem>
 #include <limits>
 #include <memory>
+#include <memory_resource>
 #include <optional>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace path_util {
 
@@ -64,8 +66,10 @@ struct OpenedFile {
 // out_error は CreateFileW 失敗時のみ GetLastError() を格納する。
 [[nodiscard]] OpenedFile OpenFileForReadShared(const std::filesystem::path& path, DWORD share_mode, LONGLONG max_size, DWORD* out_error = nullptr) noexcept;
 
-// out_error が非 null の場合、CreateFileW 失敗時の GetLastError() を格納する。
-[[nodiscard]] std::pair<std::unique_ptr<uint8_t[]>, size_t> ReadAllBytes(const std::filesystem::path& path, DWORD* out_error = nullptr);
+// 失敗時と空ファイルは空を返す。out_error が非 null の場合、CreateFileW 失敗時の GetLastError() を格納する。
+[[nodiscard]] std::pmr::vector<uint8_t> ReadAllBytes(const std::filesystem::path& path, DWORD* out_error = nullptr,
+                                                     DWORD share_mode = FILE_SHARE_READ,
+                                                     LONGLONG max_size = static_cast<LONGLONG>(path_util::MAX_READABLE_FILE_SIZE));
 
 // 指定バイト数を ReadFile の DWORD 上限でチャンク分割して読み切る。
 // EOF・パイプ切断 (bytes_read == 0) は失敗として false を返す。

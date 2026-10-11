@@ -425,11 +425,6 @@ void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target)
     cache_.Clear();
 }
 
-void MermaidRenderer::ClearCache()
-{
-    cache_.Clear();
-}
-
 void MermaidRenderer::InsertCache(uint64_t hash, CachedBitmap cached)
 {
     cache_.Insert(hash, std::move(cached));
@@ -657,16 +652,15 @@ void MermaidRenderer::LoadDiskJob(DiskLoad& job, const std::filesystem::path& pa
         }
     }
     else {
-        auto [data, size] = ReadAllBytes(path, &job.read_error);
-        if (!data) {
+        auto data = ReadAllBytes(path, &job.read_error);
+        if (data.empty()) {
             return;
         }
-        job.png = std::make_shared<const std::pmr::vector<uint8_t>>(data.get(), data.get() + size);
+        job.png = std::make_shared<const std::pmr::vector<uint8_t>>(std::move(data));
     }
     // job.png はデコード完了まで生きているので、コピーせずに参照するストリームで読む。
-    Microsoft::WRL::ComPtr<IWICStream> stream;
-    if (FAILED(wic_factory_->CreateStream(&stream)) ||
-        FAILED(stream->InitializeFromMemory(const_cast<BYTE*>(job.png->data()), static_cast<DWORD>(job.png->size())))) {
+    const auto stream = wic_util::CreateStreamOnMemory(wic_factory_.Get(), *job.png);
+    if (!stream) {
         return;
     }
     if (const auto decoded = wic_util::DecodeFromStream(wic_factory_.Get(), stream.Get())) {

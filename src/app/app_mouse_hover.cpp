@@ -25,24 +25,6 @@ uint32_t LinkUrlIndex(const Node& node, std::string_view url) noexcept
 
 } // namespace
 
-void App::InvalidateSidePaneAndPane(PaneTarget t)
-{
-    renderer_.InvalidateSidePaneCache(t);
-    Invalidate();
-}
-
-void App::ResetSidePaneHover(PaneTarget t, bool reset_hover_index)
-{
-    bool changed = false;
-    if (reset_hover_index) {
-        changed |= state_.view.panes.SetHoveredSideIndex(t, -1);
-    }
-    changed |= state_.view.panes.ClearSideButtonHover(t);
-    if (changed) {
-        InvalidateSidePaneAndPane(t);
-    }
-}
-
 bool App::IsOverMdScrollbar(float dip_x, float dip_y, const PaneLayout& layout) const noexcept
 {
     const float total_h = ScrollableContentHeight();
@@ -64,14 +46,14 @@ bool App::IsOverMdScrollbar(float dip_x, float dip_y)
     return IsOverMdScrollbar(dip_x, dip_y, GetPaneLayout());
 }
 
-TooltipTarget App::BuildMdContentTooltip(const HitResult& hit, std::optional<std::string_view> link) const
+TooltipTarget App::BuildMdContentTooltip(int hit_node, std::optional<std::string_view> link) const
 {
-    if (hit.node_index < 0) {
+    if (hit_node < 0) {
         return {};
     }
     const auto& current = state_.interaction.tooltip.GetCurrent();
-    const auto& node = state_.document.doc.GetNodes()[hit.node_index];
-    const auto node_index = static_cast<uint32_t>(hit.node_index);
+    const auto& node = state_.document.doc.GetNodes()[hit_node];
+    const auto node_index = static_cast<uint32_t>(hit_node);
     if (link) {
         const uint64_t key = PackTooltipKey(node_index, LinkUrlIndex(node, *link));
         return MakeTooltip(current, TooltipTarget::Zone::MdLink, key, [&](std::pmr::wstring& text) {
@@ -94,77 +76,63 @@ TooltipTarget App::BuildMdContentTooltip(const HitResult& hit, std::optional<std
     });
 }
 
-void App::HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout)
+HCURSOR App::HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout, PointerHover& hover) const
 {
+    const auto& current_tooltip = state_.interaction.tooltip.GetCurrent();
     if (state_.search.search_state.IsVisible()) {
         const auto sbl = ComputeSearchBarLayoutForMd(pane_layout.md_rect);
         if (dip_y >= sbl.bar_top) {
-            const auto zone = HitTestSearchBar(sbl, dip_x, dip_y);
-            state_.search.search_bar_ctrl.UpdateHoverFromZone(zone);
-            SetCursor(zone == SearchBarHitZone::Input ? cursors_.IBeam() : cursors_.Arrow());
-            Dispatch(UpdateTooltipAction{ mendo::app_mouse::BuildSearchBarTooltip(state_.interaction.tooltip.GetCurrent(), zone) });
-            return;
-        }
-        if (state_.search.search_bar_ctrl.GetHover() != SearchBarHitZone::None) {
-            state_.search.search_bar_ctrl.ResetHover();
-            Invalidate();
+            hover.search_bar = HitTestSearchBar(sbl, dip_x, dip_y);
+            hover.tooltip = mendo::app_mouse::BuildSearchBarTooltip(current_tooltip, hover.search_bar);
+            return hover.search_bar == SearchBarHitZone::Input ? cursors_.IBeam() : cursors_.Arrow();
         }
     }
 
     if (IsOverMdScrollbar(dip_x, dip_y, pane_layout)) {
-        SetCursor(cursors_.Arrow());
-        Dispatch(UpdateTooltipAction{ TooltipTarget{} });
-        return;
+        return cursors_.Arrow();
     }
 
-    const auto nav_hit = hit_test_.NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect);
-    Dispatch(MdPaneNavHoverAction{ nav_hit });
-    if (nav_hit != NavButtonHover::None) {
-        SetCursor(cursors_.Hand());
-        Dispatch(UpdateTooltipAction{ mendo::app_mouse::BuildNavButtonTooltip(state_.interaction.tooltip.GetCurrent(), nav_hit) });
-        return;
+    hover.nav = hit_test_.NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect);
+    if (hover.nav != NavButtonHover::None) {
+        hover.tooltip = mendo::app_mouse::BuildNavButtonTooltip(current_tooltip, hover.nav);
+        return cursors_.Hand();
+    }
+
+    const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
+    const int node_index = hit_test_.HitNode(hit_ctx);
+    // 横スクロール対象 (Table / CodeBlock) で自然幅 > 可視幅 のときだけバーを出す。
+    // ドラッグ中は hovered を固定して、スクロールバー直下に出ても見た目が動かないようにする。
+    if (state_.view.h_drag_node >= 0) {
+        hover.h_block = state_.view.hovered_h_block;
+    }
+    else if (ResolveBlockHScrollGeometry(state_, node_index).can_scroll()) {
+        hover.h_block = node_index;
     }
 
     // 1 回の可視ノード走査でコピー/保存/ダイアグラムコピーボタンのホバーを同時に判定する。
-    const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
     const auto btn_hit = hit_test_.CodeBlockButtonsHitTest(hit_ctx);
-    const HoveredButtons new_hover{ btn_hit.copy_node, btn_hit.save_node, btn_hit.diagram_copy_node };
-    if (new_hover != state_.interaction.hovered) {
-        Dispatch(MdPaneButtonHoverChangedAction{ new_hover });
-    }
-
-    const auto emit_button_hover = [&](TooltipTarget::Zone zone, std::wstring_view text) {
-        SetCursor(cursors_.Hand());
-        Dispatch(UpdateTooltipAction{ MakeTooltip(state_.interaction.tooltip.GetCurrent(), zone, 0, text) });
+    hover.buttons = HoveredButtons{ btn_hit.copy_node, btn_hit.save_node, btn_hit.diagram_copy_node };
+    const auto button_tooltip = [&](TooltipTarget::Zone zone, std::wstring_view text) {
+        hover.tooltip = MakeTooltip(current_tooltip, zone, 0, text);
+        return cursors_.Hand();
     };
-    if (new_hover.copy >= 0) {
-        emit_button_hover(TooltipTarget::Zone::CopyButton, i18n::S().tooltip_copy);
-        return;
+    if (hover.buttons.copy >= 0) {
+        return button_tooltip(TooltipTarget::Zone::CopyButton, i18n::S().tooltip_copy);
     }
-    if (new_hover.diagram_copy >= 0) {
-        emit_button_hover(TooltipTarget::Zone::DiagramCopyButton, i18n::S().tooltip_copy_diagram);
-        return;
+    if (hover.buttons.diagram_copy >= 0) {
+        return button_tooltip(TooltipTarget::Zone::DiagramCopyButton, i18n::S().tooltip_copy_diagram);
     }
-    if (new_hover.save >= 0) {
-        emit_button_hover(TooltipTarget::Zone::SaveButton, i18n::S().tooltip_save_image);
-        return;
+    if (hover.buttons.save >= 0) {
+        return button_tooltip(TooltipTarget::Zone::SaveButton, i18n::S().tooltip_save_image);
     }
 
-    const auto hit = HitTest(hit_ctx);
-    const auto link = GetLinkAtHit(hit);
-
-    // 横スクロール対象 (Table / CodeBlock) で自然幅 > 可視幅 のときだけバーを出す。
-    // ドラッグ中は hovered を固定して、スクロールバー直下に出ても見た目が動かないようにする。
-    if (state_.view.h_drag_node < 0) {
-        const int new_h_block =
-            ResolveBlockHScrollGeometry(state_, hit.node_index).can_scroll() ? hit.node_index : -1;
-        if (new_h_block != state_.view.hovered_h_block) {
-            Dispatch(BlockHHoverChangedAction{ new_h_block });
-        }
+    // 文字位置はリンク判定にしか使わないので、リンクを含むノードの上でだけ求める。
+    std::optional<std::string_view> link;
+    if (node_index >= 0 && !state_.document.doc.GetNodes()[node_index].view_link_urls().empty()) {
+        link = GetLinkAtHit(hit_test_.HitTest(hit_ctx));
     }
-
-    Dispatch(UpdateTooltipAction{ BuildMdContentTooltip(hit, link) });
-    SetCursor(link ? cursors_.Hand() : cursors_.IBeam());
+    hover.tooltip = BuildMdContentTooltip(node_index, link);
+    return link ? cursors_.Hand() : cursors_.IBeam();
 }
 
 TooltipTarget App::BuildSidePaneTooltip(PaneTarget target, PaneHeaderButton hit, int idx) const
@@ -203,35 +171,18 @@ TooltipTarget App::BuildSidePaneTooltip(PaneTarget target, PaneHeaderButton hit,
     });
 }
 
-int App::HandleSidePaneHover(PaneTarget target, float dip_x, float dip_y, const PaneLayout& pane_layout)
+HCURSOR App::HoverSidePane(PaneTarget target, float dip_x, float dip_y, const PaneLayout& pane_layout, PointerHover& hover) const
 {
     const auto& theme = renderer_.GetTheme();
-    // clang-format off
-    auto hr = mendo::app_mouse::ProcessSidePaneHover(
-        dip_x,
-        dip_y,
-        pane_layout.Get(target),
-        theme.pane_header_height,
-        theme.pane_item_height,
-        mendo::app_mouse::SidePaneHeaderButtonsFor(state_, target),
-        state_.view.panes.SidePaneScroll(target).scroll_y,
-        [this, target](PaneHeaderButton hit) noexcept {
-            return state_.view.panes.SetSideHoveredButton(target, hit);
-        },
-        [this, target](float y, float h) {
-            return SidePaneHitTest(state_, target, y, h);
-        },
-        [this, target](PaneHeaderButton hit, int idx) {
-            return BuildSidePaneTooltip(target, hit, idx);
-        }
-    );
-    // clang-format on
-    SetCursor(hr.any_button_hit ? cursors_.Hand() : cursors_.Arrow());
-    if (hr.button_changed) {
-        InvalidateSidePaneAndPane(target);
-    }
-    Dispatch(UpdateTooltipAction{ std::move(hr.tooltip) });
-    return hr.hovered_index;
+    const PaneRect& rect = pane_layout.Get(target);
+    const auto k = std::to_underlying(target);
+    const auto button = mendo::app_mouse::HitSidePaneHeaderButton(
+        dip_x, dip_y, rect, theme.pane_header_height, mendo::app_mouse::SidePaneHeaderButtonsFor(state_, target));
+    hover.side_button[k] = button;
+    hover.side_index[k] = SidePaneHitTest(
+        state_, target, SidePaneLocalY(dip_y, rect.y + theme.pane_header_height, state_.view.panes.SidePaneScroll(target).scroll_y), theme.pane_item_height);
+    hover.tooltip = BuildSidePaneTooltip(target, button, hover.side_index[k]);
+    return button != PaneHeaderButton::None ? cursors_.Hand() : cursors_.Arrow();
 }
 
 void App::OnMouseHover(int px, int py)
@@ -246,61 +197,32 @@ void App::OnMouseHover(int px, int py)
         return;
     }
 
+    // 各ゾーンは自分のホバーだけを書き、それ以外は既定値 (ホバー無し) のまま reducer に渡して解除させる。
     const auto dip = PixelToDip(px, py);
-    constexpr PaneTarget kSidePanes[] = { PaneTarget::File, PaneTarget::Toc };
-
+    PointerHover hover;
+    HCURSOR cursor = cursors_.Arrow();
     if (dip.y < state_.window.titlebar.GetHeight()) {
-        const auto tb_zone = state_.window.titlebar.HitTest(dip.x, dip.y);
-        SetCursor(cursors_.Arrow());
-        if (state_.window.titlebar.SetHovered(tb_zone)) {
-            Invalidate();
-        }
-        // サイドペインから直接タイトルバーへ移動すると後段のホバー解除に到達しない
-        for (const auto t : kSidePanes) {
-            ResetSidePaneHover(t, true);
-        }
-        Dispatch(UpdateTooltipAction{ mendo::app_mouse::BuildTitleBarTooltip(state_.interaction.tooltip.GetCurrent(), tb_zone, IsZoomed(hwnd_)) });
-        return;
+        hover.titlebar = state_.window.titlebar.HitTest(dip.x, dip.y);
+        hover.tooltip = mendo::app_mouse::BuildTitleBarTooltip(state_.interaction.tooltip.GetCurrent(), hover.titlebar, IsZoomed(hwnd_));
     }
-    if (state_.window.titlebar.SetHovered(TitleBarHitZone::None)) {
-        Invalidate();
-    }
-
-    const auto pane_layout = GetPaneLayout();
-    const auto zone = ZoneAt(dip.x, pane_layout);
-    const auto hovered_target = ToPaneTarget(zone);
-
-    // ペインゾーン外に出たらヘッダーボタンのホバーをリセット（無効化忘れ防止）。
-    for (const auto t : kSidePanes) {
-        if (hovered_target != t) {
-            ResetSidePaneHover(t, false);
+    else {
+        const auto& pane_layout = GetPaneLayout();
+        switch (const auto zone = ZoneAt(dip.x, pane_layout)) {
+        case PaneZone::Splitter1:
+        case PaneZone::Splitter2:
+            cursor = cursors_.SizeWE();
+            break;
+        case PaneZone::FilePane:
+        case PaneZone::TocPane:
+            cursor = HoverSidePane(*ToPaneTarget(zone), dip.x, dip.y, pane_layout, hover);
+            break;
+        case PaneZone::MdPane:
+            cursor = HoverMdPane(dip.x, dip.y, px, py, pane_layout, hover);
+            break;
+        case PaneZone::None:
+            break;
         }
     }
-
-    int new_hover[2] = { -1, -1 };
-
-    switch (zone) {
-    case PaneZone::Splitter1:
-    case PaneZone::Splitter2:
-        SetCursor(cursors_.SizeWE());
-        Dispatch(UpdateTooltipAction{ TooltipTarget{} });
-        break;
-    case PaneZone::FilePane:
-    case PaneZone::TocPane:
-        new_hover[std::to_underlying(*hovered_target)] = HandleSidePaneHover(*hovered_target, dip.x, dip.y, pane_layout);
-        break;
-    case PaneZone::MdPane:
-        HandleMdPaneHover(dip.x, dip.y, px, py, pane_layout);
-        break;
-    default:
-        SetCursor(cursors_.Arrow());
-        Dispatch(UpdateTooltipAction{ TooltipTarget{} });
-        break;
-    }
-
-    for (const auto t : kSidePanes) {
-        if (state_.view.panes.SetHoveredSideIndex(t, new_hover[std::to_underlying(t)])) {
-            InvalidateSidePaneAndPane(t);
-        }
-    }
+    SetCursor(cursor);
+    Dispatch(PointerHoverAction{ std::move(hover) });
 }

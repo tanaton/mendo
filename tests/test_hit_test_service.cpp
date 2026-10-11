@@ -219,6 +219,21 @@ TEST_F(HitTestServiceTest, HitTest_TextlessCandidateFallsForwardToFirstNonEmpty)
     EXPECT_EQ(r.text_pos, 0u);
 }
 
+// ホバーは HitNode でノードだけ求めるので、HitTest と同じノードを返すこと。
+TEST_F(HitTestServiceTest, HitNodeMatchesHitTestNodeIndex)
+{
+    auto pr = ParseAndLayout("![](x.png)\n\nHello\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```cpp\nint x;\n```\n\n---\n\nWorld");
+    ASSERT_FALSE(pr.nodes.empty());
+    const float bottom = pr.cache.Bottom(pr.nodes.size() - 1) + 50.0f;
+    for (float y = -10.0f; y < bottom; y += 3.0f) {
+        MdPaneHitContext ctx{
+            pr.nodes, pr.cache, theme_,
+            y, PaneRect{ 0.0f, 0.0f, 0.0f, 0.0f }, 1.0f, 50, 0
+        };
+        EXPECT_EQ(hit_test_.HitNode(ctx), hit_test_.HitTest(ctx).node_index) << "y=" << y;
+    }
+}
+
 // ---- HitTestTable ----
 
 TEST_F(HitTestServiceTest, HitTestTable_NoLayoutDataReturnsTextEnd)

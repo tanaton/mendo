@@ -93,10 +93,6 @@ Win32Window::Win32Window(ConfigService& config)
 }
 Win32Window::~Win32Window() = default;
 
-void Win32Window::LoadHelpDocument()
-{
-    app_->LoadHelpDocument();
-}
 void Win32Window::SetInitialDirectory(std::wstring_view dir_path)
 {
     app_->SetInitialDirectory(dir_path);
@@ -156,6 +152,7 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
     if (!RestoreWindowPlacement(nCmdShow)) {
         ShowWindow(hwnd_, nCmdShow);
     }
+    app_->LoadInitialDocument();
     UpdateWindow(hwnd_);
 
     return true;

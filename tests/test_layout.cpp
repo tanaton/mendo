@@ -1293,19 +1293,19 @@ TEST_F(LayoutTest, LooseTaskListCheckboxIsEmitted)
 
     CommandGenerator gen;
     gen.SetTheme(&theme_);
-    gen.SetFormats({ nullptr, icon_fmt.Get(), nullptr });
+    gen.SetFormats({ nullptr, icon_fmt.Get(), nullptr, nullptr, dwrite_factory_.Get() });
     PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
     auto cmds = gen.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
 
     int unchecked = 0;
     int checked = 0;
     for (const auto& cmd : cmds) {
-        if (auto* t = std::get_if<DrawTextCmd>(&cmd); t && t->text_len == 1) {
-            const wchar_t ch = t->text()[0];
-            if (ch == L'☐') {
+        if (auto* t = std::get_if<DrawTextLayoutCmd>(&cmd)) {
+            const auto text = gen.TextOf(t->layout);
+            if (text == L"☐") {
                 ++unchecked;
             }
-            else if (ch == L'☑') {
+            else if (text == L"☑") {
                 ++checked;
             }
         }

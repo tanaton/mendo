@@ -30,5 +30,4 @@ public:
     // 旧位置の図が先に描かれて可視の図が待たされるのを防ぐ。捨てた図は再要求される。
     virtual void DropQueued()
     {}
-    virtual void ClearCache() = 0;
 };

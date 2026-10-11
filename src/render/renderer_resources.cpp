@@ -228,12 +228,12 @@ void Renderer::RecreatePaneFormats()
     }
 
     // 全レイアウトは IDWriteTextFormat にバインドされているため format 再作成と同時に破棄する。
-    icon_layouts_.clear();
+    text_layouts_.SetFactory(backend_.GetDWriteFactory());
     title_layout_ = {};
     search_count_layout_ = {};
     toast_layout_ = {};
     search_cache_.Reset();
     ResetSidePaneCaches();
 
-    cmd_generator_.SetFormats({ fmt_.list_number.Get(), fmt_.icon_font.Get(), fmt_.copy_btn_icon.Get(), fmt_.placeholder_text.Get() });
+    cmd_generator_.SetFormats({ fmt_.list_number.Get(), fmt_.icon_font.Get(), fmt_.copy_btn_icon.Get(), fmt_.placeholder_text.Get(), backend_.GetDWriteFactory() });
 }

@@ -38,60 +38,84 @@ HitTestService::HitResult ClampToNearestTextNode(const std::pmr::vector<Node>& n
     return {};
 }
 
-} // namespace
+// dip_y を含むノード。テキスト位置を求められる (表かテキストレイアウトを持つ) ときだけ返し、
+// 余白や画像の上などでは -1 を返して ClampToNearestTextNode に委ねる。
+struct DirectHit {
+    int node_index = -1;
+    // ClampToNearestTextNode に渡す候補 (dip_y 以下に上端がある最後のノード)。
+    int candidate = -1;
+    float text_top = 0.0f;
+};
 
-HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) const noexcept
+DirectHit FindDirectHit(const MdPaneHitContext& ctx, float dip_y) noexcept
 {
-    HitResult result;
-    if (ctx.nodes.empty()) {
-        return result;
-    }
-
-    md_wv_cache_.ResetIfBufferChanged(ctx.nodes.data(), ctx.nodes.size());
-    cell_wv_cache_.ResetIfBufferChanged(ctx.nodes.data(), ctx.nodes.size());
-
-    const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
-
     // nodes と cache のサイズは非同期リロード中などに過渡的に不一致になりうる。
     const auto indices = std::views::iota(size_t{ 0 }, std::min(ctx.nodes.size(), ctx.cache.size()));
     const auto it = std::ranges::partition_point(indices, [&ctx, dip_y](size_t i) noexcept {
         return ctx.cache.Top(i) <= dip_y;
     });
     const size_t first_above = (it == indices.end()) ? indices.size() : *it;
-    const int candidate = static_cast<int>(first_above) - 1;
-
+    DirectHit hit;
+    hit.candidate = static_cast<int>(first_above) - 1;
+    if (hit.candidate < 0) {
+        return hit;
+    }
     // partition_point と同じ text_top を局所座標 (local_y) の基準にする。
-    const float candidate_text_top = (candidate >= 0) ? ctx.cache.Top(static_cast<size_t>(candidate)) : 0.0f;
+    const auto c = static_cast<size_t>(hit.candidate);
+    hit.text_top = ctx.cache.Top(c);
     // 背景の下側はみ出し部分 (横スクロールバーを置きたい領域) もそのノードのヒットとして扱い、
     // ホバーが切れないようにする。
-    if (candidate >= 0 && dip_y <= candidate_text_top + ctx.cache[candidate].height + NodeBoxPadY(ctx.nodes[candidate], ctx.theme)) {
-        const auto& node = ctx.nodes[candidate];
-        const auto& entry = ctx.cache[candidate];
+    const bool inside = dip_y <= hit.text_top + ctx.cache[c].height + NodeBoxPadY(ctx.nodes[c], ctx.theme);
+    if (inside && (ctx.nodes[c].type == NodeType::Table || ctx.cache[c].text_layout)) {
+        hit.node_index = hit.candidate;
+    }
+    return hit;
+}
 
-        const float h_scroll_x = LookupBlockScrollX(ctx, candidate);
+} // namespace
 
-        if (node.type == NodeType::Table) {
-            return HitTestTable(node, entry, candidate_text_top, candidate, ctx.theme, dip_x, dip_y, h_scroll_x);
-        }
-
-        if (entry.text_layout) {
-            const float indent = NodeIndent(node, ctx.theme);
-            const float local_x = dip_x - ctx.theme.margin_left - indent - NodeTextXOffset(node, ctx.theme) + h_scroll_x;
-            const float local_y = dip_y - candidate_text_top;
-
-            BOOL is_trailing = FALSE;
-            BOOL is_inside = FALSE;
-            DWRITE_HIT_TEST_METRICS metrics{};
-            entry.text_layout->HitTestPoint(local_x, local_y, &is_trailing, &is_inside, &metrics);
-
-            result.node_index = candidate;
-            const auto& wv = md_wv_cache_.Get(node.GetText());
-            result.text_pos = wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0));
-            return result;
-        }
+HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) const noexcept
+{
+    if (ctx.nodes.empty()) {
+        return {};
     }
 
-    return ClampToNearestTextNode(ctx.nodes, candidate);
+    md_wv_cache_.ResetIfBufferChanged(ctx.nodes.data(), ctx.nodes.size());
+    cell_wv_cache_.ResetIfBufferChanged(ctx.nodes.data(), ctx.nodes.size());
+
+    const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
+    const auto direct = FindDirectHit(ctx, dip_y);
+    if (direct.node_index < 0) {
+        return ClampToNearestTextNode(ctx.nodes, direct.candidate);
+    }
+
+    const auto& node = ctx.nodes[direct.node_index];
+    const auto& entry = ctx.cache[direct.node_index];
+    const float h_scroll_x = LookupBlockScrollX(ctx, direct.node_index);
+    if (node.type == NodeType::Table) {
+        return HitTestTable(node, entry, direct.text_top, direct.node_index, ctx.theme, dip_x, dip_y, h_scroll_x);
+    }
+
+    const float indent = NodeIndent(node, ctx.theme);
+    const float local_x = dip_x - ctx.theme.margin_left - indent - NodeTextXOffset(node, ctx.theme) + h_scroll_x;
+    const float local_y = dip_y - direct.text_top;
+
+    BOOL is_trailing = FALSE;
+    BOOL is_inside = FALSE;
+    DWRITE_HIT_TEST_METRICS metrics{};
+    entry.text_layout->HitTestPoint(local_x, local_y, &is_trailing, &is_inside, &metrics);
+
+    const auto& wv = md_wv_cache_.Get(node.GetText());
+    return { direct.node_index, wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0)) };
+}
+
+int HitTestService::HitNode(const MdPaneHitContext& ctx) const noexcept
+{
+    if (ctx.nodes.empty()) {
+        return -1;
+    }
+    const auto direct = FindDirectHit(ctx, ScreenToPaneDip(ctx).y);
+    return direct.node_index >= 0 ? direct.node_index : ClampToNearestTextNode(ctx.nodes, direct.candidate).node_index;
 }
 
 HitTestService::HitResult HitTestService::HitTestTable(

@@ -29,8 +29,8 @@ void App::HandleApplyThemeChange(const effect::ApplyThemeChange& e)
     const bool dark = theme_service_.IsDarkMode();
     ApplyDarkModeToWindow(hwnd_, dark);
     state_.interaction.tooltip.ApplyDarkMode(dark);
+    // メモリキャッシュはキーにダークモードを含むので消さず、往復時に再利用する。
     mermaid_renderer_.CancelPending();
-    mermaid_renderer_.ClearCache();
     FinishThemeOrZoomChange();
     theme_service_.SaveDarkMode();
 }

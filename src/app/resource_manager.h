@@ -75,6 +75,10 @@ public:
         if (doc_dir.empty()) {
             return 0;
         }
+        // 全件モードは読み込みを起動しないので、キャッシュが空なら何も適用できない (起動直後の復元など)。
+        if (!respect_viewport && deps_.image_loader->CacheSize() == 0) {
+            return 0;
+        }
 
         const float content_width = cb_.get_content_width();
         if (content_width <= 0.0f) {
@@ -110,13 +114,18 @@ public:
                 continue;
             }
 
-            if (auto& diagram = deps_.cache->EnsureDiagram(i); deps_.image_loader->GetCachedImage(*abs_path, diagram)) {
-                img->width = diagram.width;
-                img->height = diagram.height;
+            // DiagramEntry はキャッシュに当たった画像だけ確保する。
+            if (const auto* cached = deps_.image_loader->FindCachedImage(*abs_path)) {
+                auto& diagram = deps_.cache->EnsureDiagram(i);
+                diagram.bitmap = cached->bitmap;
+                diagram.width = cached->width;
+                diagram.height = cached->height;
+                img->width = cached->width;
+                img->height = cached->height;
 
                 const float indent = node.indent_level * indent_width;
                 auto& entry = (*deps_.cache)[i];
-                entry.height = mendo::layout::ImageDisplayHeight(diagram.width, diagram.height, content_width - indent);
+                entry.height = mendo::layout::ImageDisplayHeight(cached->width, cached->height, content_width - indent);
                 entry.layout_dirty = false;
                 height_changed_.Add(i);
                 ++applied;
@@ -292,7 +301,9 @@ public:
         deps_.cache->EvictTextLayouts(vr.first, vr.last_plus_1);
 
         // 可視範囲をまたぐ巨大テーブルでは、ノード単位 evict では拾えない不可視行のセルを別途解放する。
-        deps_.cache->EvictInvisibleTableRows(deps_.doc->GetTableNodeIndices(), viewport_top, viewport_top + viewport_height, buffer);
+        // keep 範囲外のテーブルは上の EvictTextLayouts で全行解放済みなので、範囲内だけ見る。
+        const auto tables = VisibleSlice(deps_.doc->GetTableNodeIndices(), vr.first, vr.last_plus_1);
+        deps_.cache->EvictInvisibleTableRows(std::span<const size_t>(tables.begin, tables.end), viewport_top, viewport_top + viewport_height, buffer);
 
         // image/diagram bitmap の evict も可視範囲外（[0, vr.first) と
         // [vr.last_plus_1, node_count)）だけを走査する。IndexSlice で配列の該当部分を
@@ -439,8 +450,8 @@ private:
         if (last_mermaid_content_width_ > 0.0f &&
             mermaid_util::QuantizeWidth(content_width) != mermaid_util::QuantizeWidth(last_mermaid_content_width_)) {
             const float min_width = std::min(content_width, last_mermaid_content_width_);
-            bool any_invalidated = false;
             // 幅変化 invalidation は全 diagram を対象にする必要がある（不可視分も旧幅ビットマップを持ちうるため）。
+            // メモリキャッシュはキーに量子化幅を含むので消さず、幅を戻したときに再利用する。
             for (size_t i : deps_.doc->GetDiagramNodeIndices()) {
                 auto* diagram = deps_.cache->FindDiagram(i);
                 if (diagram && diagram->bitmap && diagram->width > 0 &&
@@ -451,10 +462,6 @@ private:
                 if (diagram) {
                     diagram->ResetForRetry();
                 }
-                any_invalidated = true;
-            }
-            if (any_invalidated) {
-                deps_.mermaid->ClearCache();
             }
             // 旧幅で処理中の in-flight リクエストを無効化し、完了時に旧 bitmap で上書きされるのを防ぐ。
             deps_.mermaid->CancelPending();

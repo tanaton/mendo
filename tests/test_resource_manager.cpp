@@ -77,7 +77,6 @@ class MockMermaidRenderer : public IMermaidRenderer {
 public:
     int request_render_count = 0;
     int cancel_pending_count = 0;
-    int clear_cache_count = 0;
     Node* last_node = nullptr;
     float last_max_width = 0.0f;
     bool last_dark_mode = false;
@@ -119,10 +118,6 @@ public:
     void DropQueued() override
     {
         drop_queued_count++;
-    }
-    void ClearCache() override
-    {
-        clear_cache_count++;
     }
     int drop_queued_count = 0;
 
@@ -507,17 +502,13 @@ TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeFiresOnQuantizedWidth
     rm_.RequestMermaidRenders();
 
     const int initial_cancel = mock_mermaid_.cancel_pending_count;
-    const int initial_clear = mock_mermaid_.clear_cache_count;
 
     // 2 回目: QuantizeWidth(800) != QuantizeWidth(1000) → 幅変化検出
     tracker_.content_width = 1000.0f;
     rm_.RequestMermaidRenders();
 
-    // 量子化幅が変化すると CancelPending と ClearCache の両方が発火する。
-    // 走査ループでは bitmap 不在の diagram も diagram.bitmap.Reset() / width=0 にリセットされ、
-    // any_invalidated が true になるため ClearCache も呼ばれる。
+    // 量子化幅が変化すると旧幅の in-flight 要求を捨てる。メモリキャッシュは幅込みのキーなので残す。
     EXPECT_GT(mock_mermaid_.cancel_pending_count, initial_cancel);
-    EXPECT_GT(mock_mermaid_.clear_cache_count, initial_clear);
 }
 
 // 保持範囲を越えて移動したら、旧位置で積んだ描画待ちを捨ててから要求し直す。

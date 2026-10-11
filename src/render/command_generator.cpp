@@ -97,27 +97,11 @@ static float GetFirstLineHeight(const NodeLayoutEntry& entry, float font_size) n
     return (entry.first_line_height > 0.0f) ? entry.first_line_height : font_size * FALLBACK_LINE_HEIGHT_FACTOR;
 }
 
-DrawTextCmd CommandGenerator::MakeTextCmd(const wchar_t* src, size_t len, D2D1_RECT_F r, IDWriteTextFormat* fmt, D2D1_COLOR_F col, BrushId brush_id)
+void CommandGenerator::EmitText(DrawCommandList& cmds, std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, D2D1_COLOR_F color, BrushId brush_id)
 {
-    assert(len <= 255 && "DrawTextCmd text exceeds uint8_t range");
-    DrawTextCmd c{};
-    c.text_len = static_cast<uint8_t>((std::min)(len, size_t(255)));
-    c.rect = r;
-    c.format = fmt;
-    c.color = col;
-    c.brush_id = brush_id;
-    if (c.text_len == 0) {
-        return c;
+    if (auto* layout = text_layouts_.Get(fmt, text, D2D1::SizeF(rect.right - rect.left, rect.bottom - rect.top))) {
+        cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(rect.left, rect.top), layout, color, brush_id });
     }
-    if (c.text_len <= DrawTextCmd::INLINE_TEXT_CAPACITY) {
-        std::char_traits<wchar_t>::copy(c.inline_buf, src, c.text_len);
-    }
-    else {
-        auto* buf = static_cast<wchar_t*>(frame_resource_.resource()->allocate(c.text_len * sizeof(wchar_t), alignof(wchar_t)));
-        std::char_traits<wchar_t>::copy(buf, src, c.text_len);
-        c.text_ptr = buf;
-    }
-    return c;
 }
 
 // SelectionHlCache は lazy 確保のみで自動破棄経路が無く、選択範囲外に出たノード分が
@@ -157,17 +141,10 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     const BlockHScrollContext& block_h_scroll)
 {
     MENDO_PROFILE("GenerateMdPane");
-    // ムーブ代入で内部 pmr::vector の data ptr を捨ててから arena をリセットする。
-    // clear() だけだと dangling な data ptr が残り、次フレームの push_back が
-    // arena 上で別系統 allocate と衝突して UAF を起こす。
-    cmds_ = DrawCommandList(frame_resource_.resource());
-    frame_resource_.Reset();
+    // 前フレームのコマンドが指すレイアウトは実行済みなので、ここで捨ててよい。
+    text_layouts_.BeginFrame();
     auto& cmds = cmds_;
-    // 倍々成長による monotonic 死蔵を抑える。+16 は last_cmds_size_<8 で 12.5% が 0 に丸まる
-    // 小規模フレーム向けの下駄。
-    if (last_cmds_size_ > 0) {
-        cmds.reserve(last_cmds_size_ + last_cmds_size_ / 8 + 16);
-    }
+    cmds.clear();
 
     cmds.emplace_back(PushClipCmd{ ToD2DRect(md_pane_rect) });
     // スクロール位置を物理ピクセル境界にスナップし、ClearTypeヒンティングの
@@ -232,7 +209,6 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
 
     cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Identity() });
     cmds.emplace_back(PopClipCmd{});
-    last_cmds_size_ = cmds_.size();
     MENDO_COUNT_SET(g_cmd_gen_stats.last_visible_node_count, visible_count);
     MENDO_IF_TRACY(PublishCmdGenStats());
     return cmds_;
@@ -407,18 +383,12 @@ void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const Frame
 
 void CommandGenerator::GenTaskListCheckbox(DrawCommandList& cmds, const Node& node, float x, float entry_text_top)
 {
-    if (!formats_.icon_font) {
-        return;
-    }
-    const wchar_t icon = node.task_checked() ? L'\u2611' : L'\u2610'; // ☑ / ☐
+    const std::wstring_view icon = node.task_checked() ? L"\u2611" : L"\u2610"; // ☑ / ☐
     const float icon_size = theme_->font_size_body;
     const float cb_x = x - theme_->list_bullet_offset;
-    cmds.emplace_back(MakeTextCmd(
-        &icon, 1,
-        D2D1::RectF(cb_x, entry_text_top, cb_x + icon_size, entry_text_top + icon_size * TASK_CHECKBOX_HEIGHT_FACTOR),
-        formats_.icon_font,
-        theme_->text_color,
-        BrushId::Text));
+    EmitText(cmds, icon, formats_.icon_font,
+             D2D1::RectF(cb_x, entry_text_top, cb_x + icon_size, entry_text_top + icon_size * TASK_CHECKBOX_HEIGHT_FACTOR),
+             theme_->text_color, BrushId::Text);
 }
 
 void CommandGenerator::GenHorizontalRule(DrawCommandList& cmds, float x, float w, float entry_text_top)
@@ -481,16 +451,13 @@ void CommandGenerator::GenOverlayButton(DrawCommandList& cmds, D2D1_RECT_F btn, 
     cmds.emplace_back(FillRoundedRectCmd{ btn, COPY_BTN_CORNER, COPY_BTN_CORNER, mendo::MonochromeOverlay(cached_is_dark_, bg_alpha) });
 
     const float text_alpha = is_hovered ? (cached_is_dark_ ? 0.9f : 0.8f) : (cached_is_dark_ ? 0.4f : 0.35f);
-    cmds.emplace_back(MakeTextCmd(&icon, 1, btn, formats_.copy_btn_icon, mendo::MonochromeOverlay(cached_is_dark_, text_alpha)));
+    EmitText(cmds, { &icon, 1 }, formats_.copy_btn_icon, btn, mendo::MonochromeOverlay(cached_is_dark_, text_alpha));
 }
 
 void CommandGenerator::GenListBullet(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top)
 {
     const float first_line_h = GetFirstLineHeight(entry, theme_->font_size_body);
     if (node.list_ordered()) {
-        if (!formats_.list_number) {
-            return;
-        }
         wchar_t num_buf[16];
         const auto fmt_result = std::format_to_n(num_buf, std::size(num_buf), L"{}.", node.list_number());
         const size_t num_len = std::min(static_cast<size_t>(fmt_result.size), std::size(num_buf));
@@ -499,7 +466,7 @@ void CommandGenerator::GenListBullet(DrawCommandList& cmds, const FrameContext& 
             entry_text_top,
             x - LIST_NUMBER_PAD_LEFT,
             entry_text_top + first_line_h);
-        cmds.emplace_back(MakeTextCmd(num_buf, num_len, num_rect, formats_.list_number, theme_->text_color, BrushId::Text));
+        EmitText(cmds, { num_buf, num_len }, formats_.list_number, num_rect, theme_->text_color, BrushId::Text);
         return;
     }
 
@@ -518,13 +485,12 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
 {
     const float snap = fc.snapped_scroll_y;
 
-    // first_visible がグループ途中の場合、グループ先頭まで遡る
+    // バーと背景はクリップされるので、グループの可視範囲外の部分は走査しない (巨大な引用でも
+    // 可視ノード数ぶんで済む)。first_visible がグループ途中なら、可視範囲より上にある直前の
+    // 1 ノードから始めれば、上から続くバーと背景が可視範囲の上端より外から描かれる。
     int i = first_visible;
-    if (i < node_count && nodes[i].blockquote_group >= 0) {
-        const int group = nodes[i].blockquote_group;
-        while (i > 0 && nodes[i - 1].blockquote_group == group) {
-            i--;
-        }
+    if (i > 0 && i < node_count && nodes[i].blockquote_group >= 0 && nodes[i - 1].blockquote_group == nodes[i].blockquote_group) {
+        --i;
     }
 
     while (i < node_count) {
@@ -546,24 +512,23 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(DrawCommandList& cmds, cons
         float group_bottom = group_top + cache[i].height;
         int max_depth = nodes[i].quote_depth;
 
+        // 可視範囲の下端を越えたノードまで含めれば、下へ続くバーと背景は可視範囲の外まで伸びる。
         int j = i + 1;
         while (j < node_count && nodes[j].blockquote_group == group) {
             group_bottom = std::max(group_bottom, cache.Bottom(j) - snap);
             max_depth = std::max<int>(max_depth, nodes[j].quote_depth);
             j++;
-            // ビューポート外に大きく超えたグループ末尾は j を進めるだけにする。
-            // バー/背景はクリップで切られるため、可視外で max_depth を更新しても
-            // 描画コマンド数は変わらず CPU を浪費するだけ。
             if (group_bottom > cull_bottom_) {
-                while (j < node_count && nodes[j].blockquote_group == group) {
-                    j++;
-                }
                 break;
             }
         }
 
         if (max_depth > 0 && nodes[i].quote_outer_indent > 0) {
             GenBlockQuoteGroup(cmds, fc, nodes, cache, i, j, max_depth, group_top, group_bottom);
+        }
+        // 下端で打ち切ったグループの残りを別グループとして描かない。
+        if (j < node_count && nodes[j].blockquote_group == group) {
+            break;
         }
         i = j;
     }
@@ -629,14 +594,10 @@ void CommandGenerator::GenDiagramPlaceholder(DrawCommandList& cmds, float x, flo
 {
     const D2D1_RECT_F bg = D2D1::RectF(x, y, x + w, y + h);
     GenCodeBlockBg(cmds, bg);
-    if (!formats_.placeholder_text) {
-        return;
-    }
     if (!error.empty()) {
-        cmds.emplace_back(MakeTextCmd(error.data(), error.size(), bg, formats_.placeholder_text, theme_->alert_color[AlertColorIndex(AlertType::Caution)], BrushId::AlertCaution));
+        EmitText(cmds, error, formats_.placeholder_text, bg, theme_->alert_color[AlertColorIndex(AlertType::Caution)], BrushId::AlertCaution);
         return;
     }
-    const auto loading_text = i18n::S().loading;
-    cmds.emplace_back(MakeTextCmd(loading_text.data(), loading_text.size(), bg, formats_.placeholder_text, theme_->blockquote_text_color, BrushId::BlockquoteText));
+    EmitText(cmds, i18n::S().loading, formats_.placeholder_text, bg, theme_->blockquote_text_color, BrushId::BlockquoteText);
 }
 

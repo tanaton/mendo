@@ -7,7 +7,6 @@
 #include "mermaid_file_cache.h"
 #include "mermaid_util.h"
 #include "selection_html.h"
-#include "stream_util.h"
 #include "string_convert.h"
 #include "wic_util.h"
 
@@ -70,7 +69,7 @@ void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, flo
 
     MermaidFileCache::CacheEntry entry;
     MermaidFileCache::PngBlob png;
-    if (!file_cache_->Lookup(key, entry, png) || png.size == 0) {
+    if (!file_cache_->Lookup(key, entry, png)) {
         return;
     }
 
@@ -81,7 +80,7 @@ void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, flo
 
     // 既存ファイルを上書き選択した場合でも、失敗時に原本を破壊しないよう
     // tmp+rename のアトミック書き込みを使う。
-    const bool ok = AtomicWriteAllBytes(filename.c_str(), png.data.get(), png.size);
+    const bool ok = AtomicWriteAllBytes(filename.c_str(), png.data(), png.size());
     show_toast_(ok ? i18n::S().toast_image_saved : i18n::S().toast_image_save_failed);
 }
 
@@ -90,7 +89,7 @@ UniqueGlobalMem ClipboardManager::BuildDib(const PngBytes& png) const
     if (!png || png->empty() || !wic_) {
         return {};
     }
-    auto stream = stream_util::CreateMemoryStream(png->data(), png->size());
+    const auto stream = wic_util::CreateStreamOnMemory(wic_, *png);
     if (!stream) {
         return {};
     }

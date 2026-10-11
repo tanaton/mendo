@@ -41,10 +41,12 @@ public:
         measurer_->UpdateTheme(theme);
     }
     bool RecreateFormats();
+    // 幅が変わったら全ノードを dirty にして推定値で Y を組み直し (DirectWrite は呼ばない)、
+    // [viewport_top, viewport_bottom] に入る dirty を EnsureVisibleLayout で計測する。
+    // 範囲を省略すると全ノードを計測する。
     void ComputeLayout(
         std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
-        float viewport_top = -1.0f, float viewport_bottom = -1.0f);
-    void LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width);
+        float viewport_top = -MeasureViewportRange::kInf, float viewport_bottom = MeasureViewportRange::kInf);
     // clip 省略時は可視範囲で絞らず全 dirty を対象にする。
     bool ProcessDirtyBatch(
         std::pmr::vector<Node>& nodes, LayoutCache& cache,
@@ -59,6 +61,9 @@ public:
     }
 
 private:
+    // dirty なノード (mark_all_dirty なら全ノード) の高さを推定値で更新し、全ノードの Y を組み直す。
+    void EstimateDirtyHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float content_width, bool mark_all_dirty);
+
     // lifecycle 系 (Init/RecreateFormats/UpdateTheme) は UI スレッドからのみ呼び、
     // MeasureNode は const 経由で layout_scheduler_ 上の worker から並列呼び出しされる。
     ITextMeasurer* measurer_ = nullptr;

@@ -10,7 +10,6 @@
 // ---- 複数ドメイン横断の共有ヘルパー (定義は reducer.cpp) ----
 
 void ClearTooltip(AppState& state, SideEffectList& effects);
-void ClearSidePaneHoverState(AppState& state, SideEffectList& effects);
 
 // toc_auto_scroll は発火元がスクロール先を決める: 目次ペイン操作由来のみ false (issue#259)。
 // デフォルト引数にすると新経路が暗黙で true を拾うため、呼び出し側で必ず明示する。
@@ -36,7 +35,6 @@ void ReduceKeyScroll(AppState& state, SideEffectList& effects, const KeyScrollAc
 void ReduceDirectScrollBy(AppState& state, SideEffectList& effects, const DirectScrollByAction& a);
 void ReduceScrollPane(AppState& state, SideEffectList& effects, const ScrollPaneAction& a);
 void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& a);
-void ReduceBlockHHoverChanged(AppState& state, SideEffectList& effects, const BlockHHoverChangedAction& a);
 void ReduceBlockHScrollDragStarted(AppState& state, SideEffectList& effects, const BlockHScrollDragStartedAction& a);
 void ReduceBlockHScrollDragMoved(AppState& state, SideEffectList& effects, const BlockHScrollDragMovedAction& a);
 void ReduceBlockHScrollDragEnded(AppState& state, SideEffectList& effects);
@@ -49,11 +47,9 @@ void ReduceSearchDebounce(AppState& state, SideEffectList& effects);
 
 // ---- 入力・マウス (reducer_input.cpp) ----
 
+void ReducePointerHover(AppState& state, SideEffectList& effects, const PointerHover& hover);
 void ReduceMouseLeave(AppState& state, SideEffectList& effects);
-void ReduceUpdateTooltip(const AppState& state, SideEffectList& effects, const UpdateTooltipAction& a);
 void ReduceCaptureChanged(AppState& state, SideEffectList& effects);
-void ReduceMdPaneNavHover(AppState& state, SideEffectList& effects, const MdPaneNavHoverAction& a);
-void ReduceMdPaneButtonHoverChanged(AppState& state, SideEffectList& effects, const MdPaneButtonHoverChangedAction& a);
 void ReduceSplitterDragStarted(AppState& state, SideEffectList& effects, const SplitterDragStartedAction& a);
 void ReduceSplitterDragMoved(AppState& state, SideEffectList& effects, const SplitterDragMovedAction& a);
 void ReduceSplitterDragEnded(AppState& state, SideEffectList& effects);
@@ -82,7 +78,7 @@ void ReduceFilePaneFileClicked(AppState& state, SideEffectList& effects, const F
 void ReduceFilePaneRevealCurrentFile(AppState& state, SideEffectList& effects);
 void ReduceTocItemClicked(AppState& state, SideEffectList& effects, const TocItemClickedAction& a);
 void ReduceNavigateAnchor(AppState& state, SideEffectList& effects, const NavigateAnchorAction& a);
-void ReduceRestoreScrollAfterLoad(AppState& state, const RestoreScrollAfterLoadAction& a);
+void ReduceRestoreScrollAfterLoad(AppState& state);
 void ReduceLoadFailed(AppState& state);
 void ReduceDropFiles(AppState& state, SideEffectList& effects, const DropFilesAction& a);
 void ReduceShowHelp(AppState& state, SideEffectList& effects);

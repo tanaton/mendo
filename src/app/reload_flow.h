@@ -28,9 +28,9 @@ enum class ParseCompleteStep : uint8_t {
     RetryDocumentChanged,
     // エディタの書き込み途中を読んだ (読み込み後にファイルが伸びている)。
     RetryPartialWrite,
-    // 同一ファイルの再読込で、FullReload 以外 (NoChange / DeferPrefixShrink / PrefixGrowth)。op は reload に入る。
+    // 同一ファイルの再読込。op は reload に入る。
     ApplyReload,
-    // 結果の文書へ差し替える (別ファイルのロード、または同一ファイルの FullReload)。
+    // 別ファイルとして結果の文書を開く。
     ReplaceWithResult,
 };
 
@@ -38,7 +38,7 @@ struct ParseCompletePlan {
     ParseCompleteStep step = ParseCompleteStep::IgnoreStale;
     // Fail のときのトースト表示用。キャンセル由来なら空。
     std::optional<FileLoadError> error;
-    // 同一ファイルの再読込と判定したときの差分判定。ApplyReload と ReplaceWithResult (FullReload) で設定される。
+    // ApplyReload のときの差分判定。
     std::optional<ReloadDecision> reload;
     // ReplaceWithResult のときのみ意味を持つ。
     bool follow_file_pane = false;
@@ -80,10 +80,9 @@ template <class IsPartialWrite>
         decision = AnalyzeReloadDiff(std::string_view(current.GetRawText()), std::string_view(result->doc.GetRawText()));
     }
 
-    if (decision && decision->op != ReloadOp::FullReload) {
+    if (decision) {
         return { .step = ParseCompleteStep::ApplyReload, .reload = decision };
     }
     return { .step = ParseCompleteStep::ReplaceWithResult,
-             .reload = decision,
              .follow_file_pane = FilePaneFollowsLoad(current.GetFilePath(), result->doc.GetFilePath()) };
 }

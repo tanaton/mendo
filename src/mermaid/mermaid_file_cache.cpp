@@ -99,12 +99,13 @@ MermaidFileCache::IndexState MermaidFileCache::LoadIndex() const
         return index;
     }
 
-    auto [buf, buf_size] = ReadAllBytes(path);
-    if (!buf || buf_size < sizeof(IndexHeader)) {
+    const auto buf = ReadAllBytes(path);
+    const size_t buf_size = buf.size();
+    if (buf_size < sizeof(IndexHeader)) {
         return index;
     }
 
-    const uint8_t* p = buf.get();
+    const uint8_t* p = buf.data();
     IndexHeader header;
     std::memcpy(&header, p, sizeof(header));
     p += sizeof(header);
@@ -120,7 +121,7 @@ MermaidFileCache::IndexState MermaidFileCache::LoadIndex() const
     index.entries.reserve(header.count);
 
     for (uint32_t i = 0; i < header.count; ++i) {
-        if (static_cast<size_t>(p - buf.get()) + sizeof(IndexRecord) > buf_size) {
+        if (static_cast<size_t>(p - buf.data()) + sizeof(IndexRecord) > buf_size) {
             break;
         }
 
@@ -195,13 +196,11 @@ bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, PngBlob& png)
         return false;
     }
     DWORD read_error = 0;
-    auto [data, data_size] = ReadAllBytes(path, &read_error);
-    if (!data) {
+    png = ReadAllBytes(path, &read_error);
+    if (png.empty()) {
         OnReadFailed(key, read_error);
         return false;
     }
-    png.data = std::move(data);
-    png.size = data_size;
     return true;
 }
 

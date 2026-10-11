@@ -439,15 +439,13 @@ void BeginTable(ParseContext* ctx, const MD_BLOCK_TABLE_DETAIL* detail)
     if (!detail) {
         return;
     }
-    // md4c から正確なテーブルサイズが渡されるので、各 vector を一度に reserve して
-    // 巨大テーブル時の段階的 realloc (~quadratic コスト) を避ける。
+    // md4c から正確なテーブルサイズが渡されるので、要素数が決まる配列は一度に reserve して
+    // 余りを持たせない。セル本文の長さは分からないので concat_text は伸長に任せる。
     const size_t total_rows = static_cast<size_t>(detail->head_row_count) + detail->body_row_count;
     tbl->col_count = static_cast<uint16_t>(std::min<unsigned>(detail->col_count, std::numeric_limits<uint16_t>::max()));
     const size_t total_cells = total_rows * tbl->col_count;
     tbl->cell_text_starts.reserve(total_cells + 1);
     tbl->cell_run_starts.reserve(total_cells + 1);
-    // 1 セル平均 16 byte + 区切り 1 byte の見積もり。
-    tbl->concat_text.reserve(total_cells * 17);
     tbl->aligns.reserve(tbl->col_count);
     tbl->is_header_row.reserve(total_rows);
 }

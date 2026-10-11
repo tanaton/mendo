@@ -261,12 +261,10 @@ TEST_F(TableEvictionDWriteTest, EnsureVisibleLayoutRestoresEvictedVisibleRows)
     EvictWholeTable(pl.cache, idx);
     ASSERT_EQ(CountNonNullCells(tl), 0u);
 
-    const uint32_t gen_before = pl.cache.GetEffectsGeneration();
     const bool updated = engine_.EnsureVisibleLayout(pl.nodes, pl.cache, 800.0f, pl.cache.Top(idx), pl.cache.Top(idx) + 80.0f);
 
     EXPECT_TRUE(updated);
     EXPECT_GT(CountNonNullCells(tl), 0u);
-    EXPECT_NE(pl.cache.GetEffectsGeneration(), gen_before) << "復元セルへ effects を適用させるため世代を進める";
     EXPECT_FALSE(entry.layout_dirty);
 }
 

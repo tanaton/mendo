@@ -109,12 +109,6 @@ struct SetTimer {
 struct KillTimer {
     app_timer::Id id;
 };
-struct ProcessDeferredLayout {};
-struct TickLoadingAnimation {};
-struct ProcessMermaidBatchTimer {};
-struct ProcessBitmapManage {};
-struct MermaidInitRetry {};
-struct MermaidIdle {};
 
 } // namespace effect
 
@@ -157,18 +151,16 @@ using SideEffect = std::variant<
     effect::CheckFileChanges,
     // Timer
     effect::SetTimer,
-    effect::KillTimer,
-    effect::ProcessDeferredLayout,
-    effect::TickLoadingAnimation,
-    effect::ProcessMermaidBatchTimer,
-    effect::ProcessBitmapManage,
-    effect::MermaidInitRetry,
-    effect::MermaidIdle>;
+    effect::KillTimer>;
 
 using SideEffectList = std::pmr::vector<SideEffect>;
 
 template <typename T>
 void PushEffect(SideEffectList& effects, T&& e)
 {
+    // スクロール等は 1 回で数件積むので、最初の 1 件で多めに確保して伸長ごとの再確保を避ける。
+    if (effects.capacity() == 0) {
+        effects.reserve(4);
+    }
     effects.emplace_back(std::forward<T>(e));
 }

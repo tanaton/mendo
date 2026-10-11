@@ -136,36 +136,6 @@ inline TooltipTarget BuildNavButtonTooltip(const TooltipTarget& current, NavButt
     return MakeButtonTooltip(current, TooltipTarget::Zone::NavButton, std::to_underlying(hit), text);
 }
 
-struct PaneHoverResult {
-    int hovered_index = -1;
-    TooltipTarget tooltip;
-    bool button_changed = false;
-    bool any_button_hit = false;
-};
-
-template <typename SetHoveredFn, typename HitTestFn, typename BuildTooltipFn>
-    requires std::predicate<SetHoveredFn&, PaneHeaderButton> && std::invocable<HitTestFn&, float, float> && std::convertible_to<std::invoke_result_t<HitTestFn&, float, float>, int> && std::invocable<BuildTooltipFn&, PaneHeaderButton, int> && std::convertible_to<std::invoke_result_t<BuildTooltipFn&, PaneHeaderButton, int>, TooltipTarget>
-PaneHoverResult ProcessSidePaneHover(
-    float dip_x, float dip_y,
-    const PaneRect& rect, float header_h, float item_height,
-    SidePaneHeaderButtons buttons, float scroll_y,
-    SetHoveredFn&& set_hovered,
-    HitTestFn&& hit_test_fn,
-    BuildTooltipFn&& build_tooltip)
-{
-    PaneHoverResult result;
-
-    const PaneHeaderButton hit = HitSidePaneHeaderButton(dip_x, dip_y, rect, header_h, buttons);
-    result.any_button_hit = hit != PaneHeaderButton::None;
-    result.button_changed = set_hovered(hit);
-
-    result.hovered_index = hit_test_fn(SidePaneLocalY(dip_y, rect.y + header_h, scroll_y), item_height);
-
-    result.tooltip = build_tooltip(hit, result.hovered_index);
-
-    return result;
-}
-
 // ヘッダー領域内のクリックは (ボタン外含め) 全て消費して true を返す。
 template <typename OnButtonFn>
     requires std::invocable<OnButtonFn&, PaneHeaderButton>

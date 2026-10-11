@@ -41,33 +41,4 @@ inline Microsoft::WRL::ComPtr<IStream> CreateMemoryStream(const void* data, size
     return stream;
 }
 
-// 一時バッファへのコピーを避けるため、fill(void* dst) に HGLOBAL をロックしたまま直接書き込ませる。
-template <class Fill>
-Microsoft::WRL::ComPtr<IStream> CreateHGlobalStream(size_t size, Fill&& fill)
-{
-    if (size == 0 || size > std::numeric_limits<ULONG>::max()) {
-        return nullptr;
-    }
-
-    UniqueGlobalMem hMem = AllocGlobalFilled(size, std::forward<Fill>(fill));
-    if (!hMem) {
-        return nullptr;
-    }
-
-    Microsoft::WRL::ComPtr<IStream> stream;
-    if (FAILED(CreateStreamOnHGlobal(hMem.get(), TRUE, &stream)) || !stream) {
-        return nullptr;
-    }
-    hMem.release();
-    return stream;
-}
-
-inline Microsoft::WRL::ComPtr<IStream> CreateMemoryStreamFromFile(HANDLE file, size_t size)
-{
-    if (!file || file == INVALID_HANDLE_VALUE) {
-        return nullptr;
-    }
-    return CreateHGlobalStream(size, [&](void* dst) { return ReadExact(file, dst, size); });
-}
-
 } // namespace stream_util

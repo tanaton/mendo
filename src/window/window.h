@@ -16,7 +16,6 @@ public:
     bool Create(HINSTANCE hInstance, int nCmdShow);
     int RunMessageLoop();
 
-    void LoadHelpDocument();
     void SetInitialDirectory(std::wstring_view dir_path);
     void StartPreloadAsync(std::pmr::wstring path);
 

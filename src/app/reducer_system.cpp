@@ -69,6 +69,12 @@ void ReduceResize(AppState& state, SideEffectList& effects, const ResizeAction& 
     if (a.width == 0 || a.height == 0) {
         return;
     }
+    // 最小化からの復元などで同じ大きさの WM_SIZE が来ても、描画面もレイアウトも変わらない。
+    if (a.width == state.window.client_width && a.height == state.window.client_height) {
+        return;
+    }
+    state.window.client_width = a.width;
+    state.window.client_height = a.height;
     state.window.size_changed_in_sizing = true;
     state.pane_layout_cache.Invalidate();
     PushEffect(effects, effect::RendererResize{ a.width, a.height });
@@ -94,7 +100,10 @@ void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChanged
 {
     state.window.cached_dpi_scale = DpiScaleFrom(static_cast<float>(a.dpi));
     // ピクセルサイズ不変でも DIP サイズが変わるため、移動ループ終了時のレイアウトを要求する。
+    // 続く WM_SIZE が同じピクセルサイズでも処理させる。
     state.window.size_changed_in_sizing = true;
+    state.window.client_width = 0;
+    state.window.client_height = 0;
     state.pane_layout_cache.Invalidate();
     // DPI 変更では IDWriteTextLayout (DIP 単位) は不変。effects_generation のみ進める。
     state.document.layout_cache.NotifyDpiChanged();
@@ -144,29 +153,8 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
         }
         std::unreachable();
     }
-    case app_timer::Id::DEFERRED_LAYOUT:
-        PushEffect(effects, effect::ProcessDeferredLayout{});
-        return;
-    case app_timer::Id::LOADING_ANIM:
-        PushEffect(effects, effect::TickLoadingAnimation{});
-        PushEffect(effects, effect::InvalidateWindow{});
-        return;
-    case app_timer::Id::MERMAID_BATCH:
-        PushEffect(effects, effect::ProcessMermaidBatchTimer{});
-        return;
-    case app_timer::Id::BITMAP_MANAGE:
-        PushEffect(effects, effect::ProcessBitmapManage{});
-        return;
-    case app_timer::Id::MERMAID_INIT_RETRY:
-        PushEffect(effects, effect::MermaidInitRetry{});
-        return;
-    case app_timer::Id::MERMAID_IDLE:
-        PushEffect(effects, effect::MermaidIdle{});
-        return;
-    case app_timer::Id::FILE_RELOAD_DEBOUNCE:
-        PushEffect(effects, effect::KillTimer{ app_timer::Id::FILE_RELOAD_DEBOUNCE });
-        PushEffect(effects, effect::ReloadFile{});
+    default:
+        // 状態を持たないサービスのタイマーは App::HandleTimer が直接処理する。
         return;
     }
-    std::unreachable();
 }

@@ -33,10 +33,7 @@ public:
         float css_height = 0.0f;
     };
 
-    struct PngBlob {
-        std::unique_ptr<uint8_t[]> data;
-        size_t size = 0;
-    };
+    using PngBlob = std::pmr::vector<uint8_t>;
 
     // 索引の読み込みは初回利用まで遅らせ、図を含まない文書の起動を塞がない。
     void Init(float current_dpr, TaskScheduler& scheduler);

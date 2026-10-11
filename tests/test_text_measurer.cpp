@@ -6,7 +6,14 @@
 
 // MockTextMeasurerを通じてLayoutEngineのロジックをテストする（COM / DirectWrite不要）。
 
-class MockLayoutTest : public MockLayoutTestBase {};
+class MockLayoutTest : public MockLayoutTestBase {
+protected:
+    // content 幅で全ノードを計測する。
+    void LayoutAll(std::pmr::vector<Node>& nodes, LayoutCache& cache, float content_width)
+    {
+        engine_.ComputeLayout(nodes, cache, content_width + theme_.margin_left + theme_.margin_right);
+    }
+};
 
 // ---- 基本レイアウト ----
 
@@ -178,14 +185,14 @@ TEST_F(MockLayoutTest, EnsureVisibleLayoutUpdatesViewport)
     EXPECT_LT(CountDirty(cache), dirty_before) << "可視範囲のダーティノードがクリーンになるべき";
 }
 
-// ---- LayoutNodes 便利関数 ----
+// ---- 範囲省略時の全件レイアウト ----
 
-TEST_F(MockLayoutTest, LayoutNodesFullLayout)
+TEST_F(MockLayoutTest, FullLayoutMeasuresAllNodes)
 {
     auto nodes = ParseMarkdown("A\n\nB").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
-    engine_.LayoutNodes(nodes, cache, 800.0f);
+    LayoutAll(nodes, cache, 800.0f);
     EXPECT_GT(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom), 0.0f);
     EXPECT_FALSE(engine_.HasDirtyNodes());
 }
@@ -211,7 +218,7 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAcrossLayoutCycles)
     auto nodes = ParseMarkdown("Text\n\n```mermaid\ngraph TD;\n  A-->B;\n```\n\nMore text").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
-    engine_.LayoutNodes(nodes, cache, 800.0f);
+    LayoutAll(nodes, cache, 800.0f);
 
     // ビットマップレンダリング完了後の高さを模擬（300 DIP）
     for (size_t i = 0; i < nodes.size(); i++) {
@@ -222,9 +229,9 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAcrossLayoutCycles)
         }
     }
 
-    // ズーム変更を模擬: InvalidateAllLayouts → LayoutNodes
+    // ズーム変更を模擬: InvalidateAllLayouts → 全件レイアウト
     cache.InvalidateAllLayouts();
-    engine_.LayoutNodes(nodes, cache, 600.0f);
+    LayoutAll(nodes, cache, 600.0f);
 
     for (size_t i = 0; i < nodes.size(); i++) {
         if (nodes[i].code_language() == SyntaxLanguage::Mermaid) {
@@ -244,7 +251,7 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAtZeroWidth)
     auto nodes = ParseMarkdown("```mermaid\ngraph TD;\n  A-->B;\n```").nodes;
     LayoutCache cache;
     cache.Resize(nodes.size());
-    engine_.LayoutNodes(nodes, cache, 800.0f);
+    LayoutAll(nodes, cache, 800.0f);
 
     // ビットマップ描画後の高さを設定
     for (size_t i = 0; i < nodes.size(); i++) {
@@ -255,7 +262,7 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAtZeroWidth)
 
     // 極端なズームを模擬: 幅0でレイアウト
     cache.InvalidateAllLayouts();
-    engine_.LayoutNodes(nodes, cache, 0.0f);
+    LayoutAll(nodes, cache, 0.0f);
 
     for (size_t i = 0; i < nodes.size(); i++) {
         if (nodes[i].code_language() == SyntaxLanguage::Mermaid) {
@@ -266,7 +273,7 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAtZeroWidth)
 
     // 元の幅に復帰
     cache.InvalidateAllLayouts();
-    engine_.LayoutNodes(nodes, cache, 800.0f);
+    LayoutAll(nodes, cache, 800.0f);
 
     for (size_t i = 0; i < nodes.size(); i++) {
         if (nodes[i].code_language() == SyntaxLanguage::Mermaid) {
@@ -297,7 +304,7 @@ TEST_F(MockLayoutTest, LongTableHeightNotShrunkByEstimateInPartialMode)
     cache.Resize(nodes.size());
 
     // 1) フルレイアウトでテーブルの実測高さを取得
-    engine_.LayoutNodes(nodes, cache, 800.0f);
+    LayoutAll(nodes, cache, 800.0f);
     const int table_idx = FindFirstNodeIndexByType(nodes, NodeType::Table);
     ASSERT_GE(table_idx, 0);
     const float measured_table_h = cache[table_idx].height;
@@ -352,7 +359,7 @@ TEST_F(MockLayoutTest, PartialModeClearsTableColWidthsWhenHeightGrows)
     LayoutCache cache;
     cache.Resize(nodes.size());
 
-    engine_.LayoutNodes(nodes, cache, 800.0f);
+    LayoutAll(nodes, cache, 800.0f);
     const int table_idx = FindFirstNodeIndexByType(nodes, NodeType::Table);
     ASSERT_GE(table_idx, 0);
     ASSERT_TRUE(cache[table_idx].has_table_layout());
@@ -424,7 +431,7 @@ TEST_F(MockLayoutTest, FileSwitchWithResetProducesCorrectLayout)
     auto nodes_a = ParseMarkdown("# Big Heading\n\nSome paragraph").nodes;
     LayoutCache cache;
     cache.Reset(nodes_a.size());
-    engine_.LayoutNodes(nodes_a, cache, 800.0f);
+    LayoutAll(nodes_a, cache, 800.0f);
 
     ASSERT_EQ(nodes_a.size(), 2u);
     float heading_height_a = cache[0].height;
@@ -435,7 +442,7 @@ TEST_F(MockLayoutTest, FileSwitchWithResetProducesCorrectLayout)
     // ファイルBへ切り替えシミュレーション: "Just a paragraph\n\nAnother one\n\nThird"
     auto nodes_b = ParseMarkdown("Just a paragraph\n\nAnother one\n\nThird").nodes;
     cache.Reset(nodes_b.size());
-    engine_.LayoutNodes(nodes_b, cache, 800.0f);
+    LayoutAll(nodes_b, cache, 800.0f);
 
     ASSERT_EQ(nodes_b.size(), 3u);
     // ファイルBのすべてのノードは新しく正しい高さの段落であるべき
@@ -455,14 +462,14 @@ TEST_F(MockLayoutTest, FileSwitchSameNodeCountWithResetRecalculates)
     auto nodes_a = ParseMarkdown("# H1\n\n## H2").nodes;
     LayoutCache cache;
     cache.Reset(nodes_a.size());
-    engine_.LayoutNodes(nodes_a, cache, 800.0f);
+    LayoutAll(nodes_a, cache, 800.0f);
     float h1_height = cache[0].height;
     float h2_height = cache[1].height;
 
     // ファイルB: 段落2つ（ファイルAと同じノード数）
     auto nodes_b = ParseMarkdown("alpha\n\nbeta").nodes;
     cache.Reset(nodes_b.size());
-    engine_.LayoutNodes(nodes_b, cache, 800.0f);
+    LayoutAll(nodes_b, cache, 800.0f);
 
     // 段落は見出しより短いべき
     EXPECT_LT(cache[0].height, h1_height)
@@ -477,7 +484,7 @@ TEST_F(MockLayoutTest, FileSwitchSameNodeCountWithResetRecalculates)
 }
 
 // ---- 文書差し替え直後 (cache.Reset) の各レイアウト入口 ----
-// アプリの文書切り替えは LayoutNodes を経由せず、同じ幅のまま可視範囲だけ部分レイアウトする。
+// アプリの文書切り替えは同じ幅のまま可視範囲だけ部分レイアウトする。
 
 namespace {
 
@@ -527,7 +534,7 @@ TEST_F(MockLayoutTest, EstimateOnSwitchGivesNearFullContentHeight)
 
     LayoutCache full;
     full.Reset(nodes.size());
-    engine_.LayoutNodes(nodes, full, kSwitchWidth);
+    LayoutAll(nodes, full, kSwitchWidth);
     const float expected = ComputeTotalContentHeight(full, nodes.size(), theme_.margin_bottom);
     const float actual = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom);
     EXPECT_GT(actual, expected * 0.8f);

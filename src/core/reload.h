@@ -30,8 +30,7 @@ inline constexpr bool IsPrefixOnlyDiff(size_t diff_pos, size_t old_size, size_t 
 enum class ReloadOp : uint8_t {
     NoChange,          // 差分なし。リロード不要。
     DeferPrefixShrink, // prefix-only shrink。truncate→rewrite の前半として defer。
-    PrefixGrowth,      // prefix-only growth。レイアウトキャッシュの prefix を保存して伸張。
-    FullReload,        // 全体差分リロード。
+    Replace,           // 再パースした文書に差し替え、差分位置へスクロールする。
 };
 
 struct ReloadDecision {

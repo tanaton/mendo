@@ -2,21 +2,11 @@
 #include "d2d_util.h"
 #include "file_io.h"
 #include "file_loader.h"
-#include "stream_util.h"
 #include "task_scheduler.h"
 #include "ui_constants.h"
 #include "wic_util.h"
 
 namespace {
-
-Microsoft::WRL::ComPtr<IStream> ReadFileToStream(const std::wstring& path)
-{
-    auto r = OpenFileForReadShared(std::filesystem::path(path), path_util::kFileShareRWDelete, MAX_FILE_SIZE);
-    if (r.error != OpenFileError::None || r.size == 0) {
-        return nullptr;
-    }
-    return stream_util::CreateMemoryStreamFromFile(r.handle.get(), r.size);
-}
 
 // 画像は原寸 (1 px = 1 物理 px) より大きく描かず、ペイン幅はモニタ幅を超えないため、
 // 最も広いモニタの幅が表示に要る最大解像度になる。
@@ -65,16 +55,9 @@ void ImageLoader::Shutdown()
     latch_.Wait();
 }
 
-bool ImageLoader::GetCachedImage(const std::wstring& abs_path, DiagramEntry& out)
+const ImageLoader::CachedImage* ImageLoader::FindCachedImage(const std::wstring& abs_path)
 {
-    const auto* cached = cache_.Find(abs_path);
-    if (!cached) {
-        return false;
-    }
-    out.bitmap = cached->bitmap;
-    out.width = cached->width;
-    out.height = cached->height;
-    return true;
+    return cache_.Find(abs_path);
 }
 
 void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_complete)
@@ -129,7 +112,9 @@ void ImageLoader::DecodeForDisplay(const std::wstring& path, DecodeResult& resul
     if (!wic_factory_) {
         return;
     }
-    const auto stream = ReadFileToStream(path);
+    // bytes はデコードしたビットマップを作り終えるまで生かす (ストリームはコピーせずに参照する)。
+    const auto bytes = ReadAllBytes(std::filesystem::path(path), nullptr, path_util::kFileShareRWDelete, MAX_FILE_SIZE);
+    const auto stream = wic_util::CreateStreamOnMemory(wic_factory_.Get(), bytes);
     if (!stream) {
         return;
     }

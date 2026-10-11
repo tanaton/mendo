@@ -109,26 +109,13 @@ void Renderer::ApplyThemeMetrics()
 
 // ApplyNodeEffects は IDWriteTextLayout の mutable state (SetDrawingEffect/SetUnderline) を
 // 書き換える性質上、値型 DrawCommand には乗せられず、描画前パスとして実行する。
-// effects_applied フラグで初回のみ走り、以降のフレームでは no-op。
+// 適用済みのノードとテーブル行はフラグで即座に飛ばすので、毎フレーム可視範囲をなめてよい。
 void Renderer::PrepareVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y, float md_pane_height)
 {
+    MENDO_PROFILE("PrepareVisibleEffects");
     const float viewport_top = scroll_y;
     const float viewport_bottom = scroll_y + md_pane_height;
     const int first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
-
-    const uint32_t effects_gen = cache.GetEffectsGeneration();
-    // テーブル行の effects は viewport 範囲に依存するため、スクロール追従が必要。
-    // 4px 単位に量子化してサブピクセルスクロールでの過剰再実行を抑制する。
-    const EffectsKey key{ effects_gen, first_visible, static_cast<int>(viewport_bottom) >> 2 };
-    if (key != last_effects_) {
-        MENDO_PROFILE("PrepareVisibleEffects");
-        ApplyVisibleEffects(nodes, cache, first_visible, viewport_top, viewport_bottom);
-        last_effects_ = key;
-    }
-}
-
-void Renderer::ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache, int first_visible, float viewport_top, float viewport_bottom)
-{
     const int node_count = static_cast<int>(nodes.size());
     for (int i = first_visible; i < node_count; i++) {
         const float entry_top = cache.Top(static_cast<size_t>(i));
@@ -387,6 +374,7 @@ bool Renderer::BeginFrame(const TitleBarRenderState& titlebar, const SidePaneSta
     // GPU パイプライン詰まり時の CPU バックプレッシャを Present(Vsync) ではなく
     // フレーム頭の Waitable で吸収する。スクロール連打時の遅延を 1 フレーム短縮できる。
     backend_.WaitForFrameLatency();
+    text_layouts_.BeginFrame();
 
     rt()->BeginDraw();
     rt()->Clear(theme_.bg_color);

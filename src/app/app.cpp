@@ -256,11 +256,48 @@ void App::OnFileWatchEvent()
     Dispatch(FileWatchAction{});
 }
 
+// AppState を更新するタイマーだけ reducer に渡し、サービスを進めるだけのものはここで直接呼ぶ。
 void App::HandleTimer(UINT_PTR timer_id)
 {
-    if (timer_id >= std::to_underlying(app_timer::kFirstTimer) && timer_id <= std::to_underlying(app_timer::kLastTimer)) {
-        Dispatch(TimerAction{ static_cast<app_timer::Id>(timer_id) });
+    if (timer_id < std::to_underlying(app_timer::kFirstTimer) || timer_id > std::to_underlying(app_timer::kLastTimer)) {
+        return;
     }
+    using enum app_timer::Id;
+    const auto id = static_cast<app_timer::Id>(timer_id);
+    switch (id) {
+    case SWIPE_OVERLAY:
+    case TOAST:
+    case TOOLTIP:
+    case SEARCH_DEBOUNCE:
+        Dispatch(TimerAction{ id });
+        return;
+    case DEFERRED_LAYOUT:
+        OnDeferredLayout();
+        return;
+    case LOADING_ANIM:
+        file_load_service_.TickLoadingAnimation();
+        Invalidate();
+        return;
+    case MERMAID_BATCH:
+        resource_manager_.ProcessMermaidBatch();
+        return;
+    case BITMAP_MANAGE:
+        resource_manager_.OnBitmapManageTimer();
+        return;
+    case MERMAID_INIT_RETRY:
+        mermaid_renderer_.OnInitRetryTimer();
+        return;
+    case MERMAID_IDLE:
+        mermaid_renderer_.OnIdleTimer();
+        return;
+    case FILE_RELOAD_DEBOUNCE:
+        EmitEffect(effect::KillTimer{ id });
+        ReloadCurrentFile();
+        return;
+    case END:
+        break;
+    }
+    std::unreachable();
 }
 
 void App::OnCaptureChanged()

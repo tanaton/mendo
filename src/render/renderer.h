@@ -8,12 +8,11 @@
 #include "command_executor.h"
 #include "syntax.h"
 #include "d2d_render_backend.h"
-#include "memory_resource.h"
+#include "text_layout_cache.h"
 #include <d2d1.h>
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <functional>
-#include <limits>
 #include <memory_resource>
 #include <string>
 #include <string_view>
@@ -120,7 +119,6 @@ private:
     bool BeginFrame(const TitleBarRenderState& titlebar, const SidePaneState& side_panes);
     void DrawLoadingSpinner(float angle, const PaneRect& md_pane_rect);
 
-    void ApplyVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache, int first_visible, float viewport_top, float viewport_bottom);
 
     void DrawSidePanes(const SidePaneState& sp);
     void DrawTitleBar(const TitleBarRenderState& tb);
@@ -143,6 +141,7 @@ private:
     // DrawText は呼び出しごとに内部でテキストレイアウトを作るため、中央揃え書式のレイアウトを幅/高さ 0 で
     // 作って矩形中心に描く。矩形サイズに依存しないので、文字列と書式が同じ間は使い回せる。
     // box 指定時 (固定サイズのオーバーレイ) はその大きさで作って矩形左上に描く。
+    // 変わり続ける文字列 (タイトル・件数・トースト) は直近の 1 件だけを slot に持つ。
     struct CenteredTextLayout {
         IDWriteTextFormat* format = nullptr;
         std::wstring text;
@@ -151,8 +150,9 @@ private:
     };
     // fmt または brush が無い場合は何もしない。
     void DrawCenteredText(CenteredTextLayout& slot, std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box = {});
-    // 固定文字列用。(書式, 文字列) ごとに icon_layouts_ へ作り置く。
+    // 固定文字列用。text_layouts_ に作り置く。
     void DrawIcon(std::wstring_view icon, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box = {});
+    void DrawLayoutCentered(IDWriteTextLayout* layout, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box);
     SidePaneDrawContext MakeSidePaneContext(PaneTarget target, const SidePaneInstance& pane, size_t item_count, std::wstring_view header_text);
 
     D2DRenderBackend backend_;
@@ -188,7 +188,7 @@ private:
     // 再描画要求を出した場合 true。
     bool HandleDeviceLost();
 
-    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_{ GetThreadLocalPoolResource() };
+    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 
     struct TextFormats {
         Microsoft::WRL::ComPtr<IDWriteTextFormat> icon_font;
@@ -209,12 +209,12 @@ private:
     };
     TextFormats fmt_;
 
-    std::vector<CenteredTextLayout> icon_layouts_;
+    TextLayoutCache text_layouts_;
     CenteredTextLayout title_layout_;
     CenteredTextLayout search_count_layout_;
     CenteredTextLayout toast_layout_;
     // 目次項目の描画ごとの UTF-16 変換先。項目ごとの確保を避けて再利用する。
-    std::pmr::wstring toc_text_scratch_{ GetThreadLocalPoolResource() };
+    std::pmr::wstring toc_text_scratch_;
 
     // 検索バーの入力テキストレイアウトキャッシュ。
     // キー: (query, ime_comp, caret_pos, width) 入力 height は定数なのでキーに含めない。
@@ -222,10 +222,10 @@ private:
     // 表示テキスト合成の双方を回避する。
     struct SearchLayoutCache {
         Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
-        std::pmr::wstring text{ GetThreadLocalPoolResource() };     // 合成後の表示テキスト (IME 未使用時は query と同一)
-        std::pmr::wstring query{ GetThreadLocalPoolResource() };    // 直近フレームの sb.query
-        std::pmr::wstring ime_comp{ GetThreadLocalPoolResource() }; // 直近フレームの sb.ime_composition
-        int caret_pos = -1;                                         // IME 合成時の挿入位置（無いとき -1）
+        std::pmr::wstring text;     // 合成後の表示テキスト (IME 未使用時は query と同一)
+        std::pmr::wstring query;    // 直近フレームの sb.query
+        std::pmr::wstring ime_comp; // 直近フレームの sb.ime_composition
+        int caret_pos = -1;         // IME 合成時の挿入位置（無いとき -1）
         float width = -1.0f;
         bool has_underline = false;
         // キャレット x 位置のフレーム間キャッシュ。入力が変わらない
@@ -253,15 +253,6 @@ private:
     Microsoft::WRL::ComPtr<ID2D1StrokeStyle> gesture_stroke_style_;
 
     PaneCache pane_caches_[2];
-
-    // 直近フレームで ApplyVisibleEffects を実行したキー。(世代, 可視域) が一致すれば再適用を省く。
-    struct EffectsKey {
-        uint32_t gen = std::numeric_limits<uint32_t>::max();
-        int first_visible = -1;
-        int viewport_bottom_q = -1;
-        bool operator==(const EffectsKey&) const = default;
-    };
-    EffectsKey last_effects_;
 
     Theme theme_;
     DWriteTextMeasurer measurer_;

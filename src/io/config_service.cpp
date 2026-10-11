@@ -84,11 +84,11 @@ void ConfigService::Load()
     if (ini_path.empty()) {
         return;
     }
-    auto [buf, size] = ReadAllBytes(ini_path);
-    if (!buf) {
+    const auto buf = ReadAllBytes(ini_path);
+    if (buf.empty()) {
         return;
     }
-    std::string_view content(reinterpret_cast<const char*>(buf.get()), size);
+    std::string_view content(reinterpret_cast<const char*>(buf.data()), buf.size());
     // 手編集ツールが付ける UTF-8 BOM を除去しないと先頭セクションが認識されない
     if (content.starts_with(utf8_codec::kBom)) {
         content.remove_prefix(utf8_codec::kBom.size());

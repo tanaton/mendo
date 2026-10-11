@@ -245,25 +245,21 @@ void App::OnParseComplete()
     case ParseCompleteStep::RetryPartialWrite:
         DeferReloadRetry();
         return;
-    case ParseCompleteStep::ApplyReload: {
+    case ParseCompleteStep::ApplyReload:
         if (ApplyReloadDecisionEarly(*plan.reload) == ReloadFlow::Handled) {
             return;
         }
-        resource_manager_.CancelMermaidBatch();
-        image_loader_.ResetFailedPaths();
         ReplaceDocument(std::move(result->doc), std::move(result->cache));
         FinishReload(plan.reload->diff_pos);
         return;
-    }
-    case ParseCompleteStep::ReplaceWithResult: {
+    case ParseCompleteStep::ReplaceWithResult:
         ReplaceDocument(std::move(result->doc), std::move(result->cache));
-        FinishLoadMarkdownFile(plan.follow_file_pane, plan.reload ? plan.reload->diff_pos : std::string_view::npos);
+        FinishLoadMarkdownFile(plan.follow_file_pane);
         return;
-    }
     }
 }
 
-void App::FinishLoadMarkdownFile(bool follow_file_pane, size_t reload_diff_pos)
+void App::FinishLoadMarkdownFile(bool follow_file_pane)
 {
     MENDO_PROFILE("FinishLoadMarkdownFile");
 
@@ -277,33 +273,14 @@ void App::FinishLoadMarkdownFile(bool follow_file_pane, size_t reload_diff_pos)
 
     const PaneRect md = GetPaneLayout().md_rect;
 
-    const bool has_reload_diff = (reload_diff_pos != std::string_view::npos);
-
+    // スクロール復元先の Y がずれないよう、推定高さを Mermaid/画像キャッシュの実測値で補正する。
     if (state_.view.scroll_restore.HasNodeRestore()) {
-        MENDO_TRACEF("FinishLoad: has_reload_diff={} node={} offset={}",
-                     has_reload_diff ? 1 : 0,
+        MENDO_TRACEF("FinishLoad: node={} offset={}",
                      state_.view.scroll_restore.pending_restore_node,
                      state_.view.scroll_restore.pending_restore_offset);
-    }
-    else {
-        MENDO_TRACEF("FinishLoad: has_reload_diff={} (no node restore)", has_reload_diff ? 1 : 0);
-    }
-
-    // スクロール復元先の Y がずれないよう、推定高さを Mermaid/画像キャッシュの実測値で補正する。
-    if (has_reload_diff || state_.view.scroll_restore.HasNodeRestore()) {
         ApplyCachedHeightsAndRecompute();
     }
-
-    // CalcScrollYForDiff は MD ペイン高 (layout 値) に依存するため reducer に渡せず、
-    // App 側で先に解決してから Dispatch する。
-    std::optional<float> reload_diff_scroll_y;
-    if (has_reload_diff) {
-        reload_diff_scroll_y = CalcScrollYForDiff(
-            state_.document.doc.GetNodes(), state_.document.layout_cache,
-            std::string_view{ state_.document.doc.GetRawText() },
-            reload_diff_pos, md.height, state_.view.viewport.GetScrollY());
-    }
-    Dispatch(RestoreScrollAfterLoadAction{ reload_diff_scroll_y });
+    Dispatch(RestoreScrollAfterLoadAction{});
 
     {
         MENDO_PROFILE("ViewportLayout(Initial)");
@@ -312,10 +289,9 @@ void App::FinishLoadMarkdownFile(bool follow_file_pane, size_t reload_diff_pos)
 
     FinalizeLayout(md.height);
 
-    MENDO_TRACEF("FinishLoad: scroll_y={:.1f} max_scroll={:.1f} reload_diff_scroll_y={:.1f}",
+    MENDO_TRACEF("FinishLoad: scroll_y={:.1f} max_scroll={:.1f}",
                  state_.view.viewport.GetScrollY(),
-                 state_.view.viewport.GetMaxScroll(),
-                 reload_diff_scroll_y.value_or(0.0f));
+                 state_.view.viewport.GetMaxScroll());
 
     UpdateTitleBar();
     EmitEffect(effect::SyncTocActive{});
@@ -359,8 +335,6 @@ void App::DoReloadCurrentFile()
 {
     MENDO_PROFILE("DoReloadCurrentFile");
 
-    CancelPendingResources();
-
     auto load_result = FileLoader::LoadFile(state_.document.doc.GetFilePath());
     if (!load_result) {
         EmitEffect(effect::ResumeFileWatch{});
@@ -393,6 +367,10 @@ void App::DoReloadCurrentFile()
 void App::FinishReload(size_t diff_pos)
 {
     MENDO_PROFILE("FinishReload");
+
+    // 旧ノード番号で発行した要求を捨てる。編集で画像が置かれた可能性があるので失敗記録も消す。
+    CancelPendingResources();
+    image_loader_.ResetFailedPaths();
 
     // ノード index がずれると per-node-index の一時状態が別ノードを指すためクリアする
     // (別文書への切替は ViewState::ResetForNewDocument が担う)。

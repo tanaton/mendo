@@ -1,4 +1,5 @@
 #include "file_io.h"
+#include <new>
 
 OpenedFile OpenFileForReadShared(const std::filesystem::path& path, DWORD share_mode, LONGLONG max_size, DWORD* out_error) noexcept
 {
@@ -28,17 +29,23 @@ OpenedFile OpenFileForReadShared(const std::filesystem::path& path, DWORD share_
     return r;
 }
 
-std::pair<std::unique_ptr<uint8_t[]>, size_t> ReadAllBytes(const std::filesystem::path& path, DWORD* out_error)
+std::pmr::vector<uint8_t> ReadAllBytes(const std::filesystem::path& path, DWORD* out_error, DWORD share_mode, LONGLONG max_size)
 {
-    auto r = OpenFileForReadShared(path, FILE_SHARE_READ, path_util::MAX_READABLE_FILE_SIZE, out_error);
+    auto r = OpenFileForReadShared(path, share_mode, max_size, out_error);
     if (r.error != OpenFileError::None || r.size == 0) {
         return {};
     }
-    auto buf = std::make_unique_for_overwrite<uint8_t[]>(r.size);
-    if (!ReadExact(r.handle.get(), buf.get(), r.size)) {
+    // worker からも呼ぶので、巨大ファイルで確保に失敗しても例外を外へ出さず失敗扱いにする。
+    std::pmr::vector<uint8_t> buf;
+    try {
+        buf.resize(r.size);
+    } catch (const std::bad_alloc&) {
         return {};
     }
-    return { std::move(buf), r.size };
+    if (!ReadExact(r.handle.get(), buf.data(), r.size)) {
+        return {};
+    }
+    return buf;
 }
 
 std::optional<uint64_t> QueryFileSize(const wchar_t* path) noexcept

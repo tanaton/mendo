@@ -123,9 +123,12 @@ private:
     size_t owner_size_ = 0;
 };
 
-// ApplyRunFormatting と view を共有し二重 decode を回避。
+// WideViewForDWrite と同じ規則で UTF-16 にする。対応表を作らないので、位置の変換が
+// 前方への走査で済む計測経路 (Utf16OffsetCursor と組み合わせる) で使う。
+std::pmr::wstring DecodeForDWrite(std::string_view text);
+
 HRESULT CreateDocTextLayout(
-    IDWriteFactory* factory, const WideViewForDWrite& view,
+    IDWriteFactory* factory, std::wstring_view wide,
     IDWriteTextFormat* fmt, float max_w, float max_h,
     IDWriteTextLayout** out) noexcept;
 

@@ -284,13 +284,22 @@ TEST_F(ReducerTest, MouseLeave_ClearsTooltip)
     EXPECT_TRUE(HasEffect<effect::ClearTooltip>(effects));
 }
 
-// ---- UpdateTooltipAction / ClearTooltipAction テスト ----
+TEST_F(ReducerTest, MouseLeave_ClearsHoverHighlights)
+{
+    Reduce(state, PointerHoverAction{ PointerHover{ .titlebar = TitleBarHitZone::Help, .h_block = 4 } });
+    auto effects = Reduce(state, MouseLeaveAction{});
+    EXPECT_EQ(state.window.titlebar.GetHovered(), TitleBarHitZone::None);
+    EXPECT_EQ(state.view.hovered_h_block, -1);
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+}
 
-TEST_F(ReducerTest, UpdateTooltipAction_EmitsShowTooltipEffectWithSameTarget)
+// ---- PointerHoverAction / ClearTooltipAction テスト ----
+
+TEST_F(ReducerTest, PointerHover_NewTooltipEmitsShowTooltipEffectWithSameTarget)
 {
     TooltipTarget target{ TooltipTarget::Zone::MdLink, 1 };
     target.text = L"https://example.com";
-    auto effects = Reduce(state, UpdateTooltipAction{ target });
+    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ .tooltip = target } });
 
     ASSERT_EQ(effects.size(), 1u);
     const auto* show = GetEffect<effect::ShowTooltip>(effects[0]);
@@ -299,22 +308,44 @@ TEST_F(ReducerTest, UpdateTooltipAction_EmitsShowTooltipEffectWithSameTarget)
     EXPECT_EQ(show->target.text, target.text);
 }
 
-TEST_F(ReducerTest, UpdateTooltipAction_SameTargetAsCurrent_NoEffect)
+TEST_F(ReducerTest, PointerHover_NothingChanged_NoEffect)
 {
-    // 現在のターゲットと同一なら変更検出でスキップ（初期状態は空 → 空アクションは no-op）
-    auto effects = Reduce(state, UpdateTooltipAction{ TooltipTarget{} });
+    // 初期状態はどこにもホバーしていないので、空のホバーは no-op
+    auto effects = Reduce(state, PointerHoverAction{});
     EXPECT_TRUE(effects.empty());
 }
 
-TEST_F(ReducerTest, UpdateTooltipAction_ClearsAfterPrevTarget)
+TEST_F(ReducerTest, PointerHover_EmptyTooltipAfterPrevTarget_EmitsShowTooltip)
 {
     // 既にターゲットが設定済みなら、空ターゲットへの遷移で ShowTooltip が発行される（Executor でタイマー停止）
     state.interaction.tooltip.Update(
         TooltipTarget{ TooltipTarget::Zone::MdLink, 1 });
 
-    auto effects = Reduce(state, UpdateTooltipAction{ TooltipTarget{} });
+    auto effects = Reduce(state, PointerHoverAction{});
     ASSERT_EQ(effects.size(), 1u);
     EXPECT_TRUE(HasEffect<effect::ShowTooltip>(effects));
+}
+
+// ホバーはマウス位置の全体を表すので、別ゾーンへ移ると前のゾーンのハイライトは消える。
+TEST_F(ReducerTest, PointerHover_MovingToAnotherZoneClearsPreviousHighlights)
+{
+    Reduce(state, PointerHoverAction{ PointerHover{ .titlebar = TitleBarHitZone::Close } });
+    Reduce(state, PointerHoverAction{ PointerHover{ .side_index = { 2, -1 } } });
+    EXPECT_EQ(state.window.titlebar.GetHovered(), TitleBarHitZone::None);
+    EXPECT_EQ(state.view.panes.GetHoveredSideIndex(PaneTarget::File), 2);
+
+    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ .nav = NavButtonHover::Back } });
+    EXPECT_EQ(state.view.panes.GetHoveredSideIndex(PaneTarget::File), -1);
+    EXPECT_EQ(state.interaction.nav_hover, NavButtonHover::Back);
+    EXPECT_TRUE(HasEffect<effect::InvalidatePaneCache>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+}
+
+TEST_F(ReducerTest, PointerHover_SearchBarInputHasNoHighlight)
+{
+    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ .search_bar = SearchBarHitZone::Input } });
+    EXPECT_EQ(state.search.search_bar_ctrl.GetHover(), SearchBarHitZone::None);
+    EXPECT_TRUE(effects.empty());
 }
 
 TEST_F(ReducerTest, ClearTooltipAction_EmitsClearTooltipAndResetsState)
@@ -361,7 +392,7 @@ TEST_F(ReducerTest, ImageLoadedAction_EmitsNotifyImageLoaded)
 
 TEST_F(ReducerTest, BlockHHoverChanged_UpdatesAndInvalidates)
 {
-    auto effects = Reduce(state, BlockHHoverChangedAction{ 5 });
+    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ .h_block = 5 } });
     EXPECT_EQ(state.view.hovered_h_block, 5);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
@@ -369,7 +400,7 @@ TEST_F(ReducerTest, BlockHHoverChanged_UpdatesAndInvalidates)
 TEST_F(ReducerTest, BlockHHoverChanged_SameValue_NoEffect)
 {
     state.view.hovered_h_block = 5;
-    auto effects = Reduce(state, BlockHHoverChangedAction{ 5 });
+    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ .h_block = 5 } });
     EXPECT_TRUE(effects.empty());
 }
 
@@ -505,6 +536,23 @@ TEST_F(ReducerTest, Resize_Sizing_EmitsSizingUpdate)
     EXPECT_FALSE(HasEffect<effect::PerformResizeEnd>(effects));
 }
 
+// 最小化からの復元などで同じ大きさの WM_SIZE が来ても、描画面とレイアウトは作り直さない。
+TEST_F(ReducerTest, Resize_SameSize_NoEffects)
+{
+    Reduce(state, ResizeAction{ 800, 600 });
+    auto effects = Reduce(state, ResizeAction{ 800, 600 });
+    EXPECT_TRUE(effects.empty());
+}
+
+// DPI が変わった直後は、ピクセルサイズが同じでも DIP サイズが変わるので処理する。
+TEST_F(ReducerTest, Resize_SameSizeAfterDpiChange_EmitsResize)
+{
+    Reduce(state, ResizeAction{ 800, 600 });
+    Reduce(state, DpiChangedAction{ 192, PixelRect{ 0, 0, 800, 600 } });
+    auto effects = Reduce(state, ResizeAction{ 800, 600 });
+    EXPECT_TRUE(HasEffect<effect::RendererResize>(effects));
+}
+
 TEST_F(ReducerTest, DpiChanged_UpdatesScale)
 {
     auto effects = Reduce(state, DpiChangedAction{
@@ -609,40 +657,24 @@ TEST_F(ReducerTest, Timer_Toast_FadePhaseEmitsInvalidateAndKillsAtEnd)
     EXPECT_FALSE(state.interaction.toast.IsVisible());
 }
 
-TEST_F(ReducerTest, Timer_DeferredLayout_EmitsProcessDeferredLayout)
+TEST_F(ReducerTest, Timer_ServiceTimerIsIgnoredByReducer)
 {
     auto effects = Reduce(state, TimerAction{ app_timer::Id::DEFERRED_LAYOUT });
-    EXPECT_TRUE(HasEffect<effect::ProcessDeferredLayout>(effects));
+    EXPECT_TRUE(effects.empty());
 }
 
 
-// ---- MdPaneNavHoverAction テスト ----
+// ---- ナビ / コピーボタンのホバー ----
 
 TEST_F(ReducerTest, NavHover_NoneToBack_UpdatesStateAndInvalidates)
 {
     using Hover = NavButtonHover;
-    state.interaction.nav_hover = Hover::None;
     state.interaction.hovered = { 3, 5, -1 };
 
-    auto effects = Reduce(state, MdPaneNavHoverAction{ Hover::Back });
+    // ナビボタン上ではコピー/保存ボタンはホバーしていない
+    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ .nav = Hover::Back } });
 
     EXPECT_EQ(state.interaction.nav_hover, Hover::Back);
-    // ナビボタンホバー開始でコピー/保存ボタンのホバーはリセット
-    EXPECT_EQ(state.interaction.hovered.copy, -1);
-    EXPECT_EQ(state.interaction.hovered.save, -1);
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
-}
-
-TEST_F(ReducerTest, NavHover_BackToNone_UpdatesStateAndInvalidates)
-{
-    using Hover = NavButtonHover;
-    state.interaction.nav_hover = Hover::Back;
-    state.interaction.hovered = {};
-
-    auto effects = Reduce(state, MdPaneNavHoverAction{ Hover::None });
-
-    EXPECT_EQ(state.interaction.nav_hover, Hover::None);
-    // ナビ離脱時はコピー/保存の状態は触らない
     EXPECT_EQ(state.interaction.hovered.copy, -1);
     EXPECT_EQ(state.interaction.hovered.save, -1);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
@@ -652,41 +684,19 @@ TEST_F(ReducerTest, NavHover_Unchanged_NoEffect)
 {
     using Hover = NavButtonHover;
     state.interaction.nav_hover = Hover::Forward;
-    state.interaction.hovered.copy = 7;
 
-    auto effects = Reduce(state, MdPaneNavHoverAction{ Hover::Forward });
+    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ .nav = Hover::Forward } });
 
     EXPECT_EQ(state.interaction.nav_hover, Hover::Forward);
-    // 同値ならコピー/保存ホバーもそのまま
-    EXPECT_EQ(state.interaction.hovered.copy, 7);
     EXPECT_TRUE(effects.empty());
 }
 
-// ---- MdPaneButtonHoverChangedAction テスト ----
-
 TEST_F(ReducerTest, ButtonHoverChanged_CopyUpdated_Invalidates)
 {
-    state.interaction.hovered = {};
-
-    auto effects = Reduce(state, MdPaneButtonHoverChangedAction{
-                                     HoveredButtons{ 3, -1, -1 }
-    });
+    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ .buttons = HoveredButtons{ 3, -1, -1 } } });
 
     EXPECT_EQ(state.interaction.hovered.copy, 3);
     EXPECT_EQ(state.interaction.hovered.save, -1);
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
-}
-
-TEST_F(ReducerTest, ButtonHoverChanged_SaveUpdated_Invalidates)
-{
-    state.interaction.hovered = {};
-
-    auto effects = Reduce(state, MdPaneButtonHoverChangedAction{
-                                     HoveredButtons{ -1, 5, -1 }
-    });
-
-    EXPECT_EQ(state.interaction.hovered.copy, -1);
-    EXPECT_EQ(state.interaction.hovered.save, 5);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -694,9 +704,7 @@ TEST_F(ReducerTest, ButtonHoverChanged_Unchanged_NoEffect)
 {
     state.interaction.hovered = { 2, 4, -1 };
 
-    auto effects = Reduce(state, MdPaneButtonHoverChangedAction{
-                                     HoveredButtons{ 2, 4, -1 }
-    });
+    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ .buttons = HoveredButtons{ 2, 4, -1 } } });
 
     EXPECT_EQ(state.interaction.hovered.copy, 2);
     EXPECT_EQ(state.interaction.hovered.save, 4);
@@ -1122,7 +1130,18 @@ TEST_F(ReducerTest, TextSelectionEnded_NoHit_ClearsDraggingOnly)
 
     EXPECT_FALSE(state.view.viewport.IsDragging());
     EXPECT_FALSE(state.view.viewport.GetSelection().active);
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+    EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
+    // 見た目が変わらないので再描画しない
+    EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
+}
+
+// 選択の無い状態でのクリックは、押下でも再描画しない。
+TEST_F(ReducerTest, TextSelectionStarted_WithoutSelection_DoesNotInvalidate)
+{
+    auto effects = Reduce(state, TextSelectionStartedAction{ 0, 2u, 10, 20 });
+    EXPECT_TRUE(state.view.viewport.IsDragging());
+    EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
+    EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 // ---- RightClickGesture* テスト ----
@@ -1436,22 +1455,10 @@ TEST_F(ReducerTest, Resize_EmitsRendererResizeBeforeSizingUpdate)
     EXPECT_TRUE((HasEffectInOrder<effect::RendererResize, effect::PerformSizingUpdate>(effects)));
 }
 
-// ---- RestoreScrollAfterLoadAction: 3 分岐 ----
+// ---- RestoreScrollAfterLoadAction: 2 分岐 ----
 // 仕様 (reducer_navigation.cpp::ReduceRestoreScrollAfterLoad):
-//   1. reload_diff_scroll_y あり -> SetScrollY(reload_diff_scroll_y)
-//   2. (else) HasNodeRestore -> SetScrollTarget(node, offset)
-//   3. (else) -> SetScrollY(0)
-// 1 が 2 に優先することも合わせて検証する。
-
-TEST_F(ReducerTest, RestoreScrollAfterLoad_HasReloadDiff_SetsScrollY)
-{
-    state.view.viewport.ScrollTo(50.0f);
-
-    Reduce(state, RestoreScrollAfterLoadAction{ 250.0f });
-
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 250.0f);
-    EXPECT_FALSE(state.view.viewport.HasScrollTarget());
-}
+//   1. HasNodeRestore -> SetScrollTarget(node, offset)
+//   2. (else) -> SetScrollY(0)
 
 TEST_F(ReducerTest, RestoreScrollAfterLoad_HasNodeRestore_SetsScrollTarget)
 {
@@ -1475,18 +1482,6 @@ TEST_F(ReducerTest, RestoreScrollAfterLoad_NoRestoreInfo_ScrollsToTop)
     Reduce(state, RestoreScrollAfterLoadAction{});
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
-}
-
-TEST_F(ReducerTest, RestoreScrollAfterLoad_HasReloadDiff_TakesPrecedenceOverNodeRestore)
-{
-    // reload_diff と node_restore が同時に立っている場合は reload_diff が勝つ仕様。
-    state.view.scroll_restore.SetNodeRestore(2, 0);
-
-    Reduce(state, RestoreScrollAfterLoadAction{ 75.0f });
-
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 75.0f);
-    // node_restore は reload_diff 分岐では触られないため残る
-    EXPECT_TRUE(state.view.scroll_restore.HasNodeRestore());
 }
 
 // 戻る先のファイルが削除済み等でロードに失敗した場合、その復元情報が次に開く別ファイルへ

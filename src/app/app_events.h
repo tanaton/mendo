@@ -3,7 +3,10 @@
 #include "pane_layout.h"
 #include "ui_types.h"
 #include "pane_controller.h"
+#include "titlebar.h"
 #include "tooltip.h"
+#include "ui_constants.h"
+#include <array>
 #include <optional>
 #include <variant>
 #include <string>
@@ -88,13 +91,26 @@ struct SearchNextAction {};
 struct SearchPrevAction {};
 struct NoOpAction {};
 
+// マウス位置でのホバー状態の全体。App がヒットテストで求め、reducer がまとめて状態へ反映する。
+// 既定値はどこにもホバーしていない状態。
+struct PointerHover {
+    TitleBarHitZone titlebar = TitleBarHitZone::None;
+    // Input はホバー強調が無いので None と同じに扱う。
+    SearchBarHitZone search_bar = SearchBarHitZone::None;
+    NavButtonHover nav = NavButtonHover::None;
+    HoveredButtons buttons{};
+    // 横スクロールバーを出すブロック。-1 なら無し。
+    int h_block = -1;
+    // PaneTarget 順 (File, Toc)。
+    std::array<int, 2> side_index{ -1, -1 };
+    std::array<PaneHeaderButton, 2> side_button{ PaneHeaderButton::None, PaneHeaderButton::None };
+    TooltipTarget tooltip;
+};
+struct PointerHoverAction {
+    PointerHover hover;
+};
+// ウィンドウ外へ出た。ホバー状態を全て解除しツールチップを閉じる。
 struct MouseLeaveAction {};
-struct MdPaneNavHoverAction {
-    NavButtonHover nav_hover;
-};
-struct MdPaneButtonHoverChangedAction {
-    HoveredButtons hovered;
-};
 struct SplitterDragStartedAction {
     PaneController::DragTarget target;
 };
@@ -167,10 +183,8 @@ struct NavigateAnchorAction {
     std::pmr::string anchor_id;
 };
 
-// 優先順: reload_diff → pending_restore_node → 先頭。
-struct RestoreScrollAfterLoadAction {
-    std::optional<float> reload_diff_scroll_y;
-};
+// pending_restore_node があればそこへ、なければ先頭へスクロールする。
+struct RestoreScrollAfterLoadAction {};
 // ファイルロードが失敗した (RestoreScrollAfterLoadAction が来ない) ことの通知。
 struct LoadFailedAction {};
 struct HWheelAction {
@@ -178,9 +192,6 @@ struct HWheelAction {
     uint64_t tick;
 };
 
-struct BlockHHoverChangedAction {
-    int node_index; // -1 でホバー解除
-};
 struct BlockHScrollDragStartedAction {
     int node_index;
     float dip_x;
@@ -191,11 +202,6 @@ struct BlockHScrollDragMovedAction {
 struct BlockHScrollDragEndedAction {};
 struct DropFilesAction {
     std::pmr::wstring path;
-};
-
-// target.IsEmpty() なら非表示要求。表示位置は Tooltip::Show 時点のカーソル位置。
-struct UpdateTooltipAction {
-    TooltipTarget target;
 };
 
 struct ClearTooltipAction {};
@@ -256,9 +262,8 @@ using AppAction = std::variant<
     CloseSearchBarAction,
     SearchNextAction,
     SearchPrevAction,
+    PointerHoverAction,
     MouseLeaveAction,
-    MdPaneNavHoverAction,
-    MdPaneButtonHoverChangedAction,
     SplitterDragStartedAction,
     SplitterDragMovedAction,
     SplitterDragEndedAction,
@@ -285,12 +290,10 @@ using AppAction = std::variant<
     RestoreScrollAfterLoadAction,
     LoadFailedAction,
     HWheelAction,
-    BlockHHoverChangedAction,
     BlockHScrollDragStartedAction,
     BlockHScrollDragMovedAction,
     BlockHScrollDragEndedAction,
     DropFilesAction,
-    UpdateTooltipAction,
     ClearTooltipAction,
     ResizeAction,
     DpiChangedAction,

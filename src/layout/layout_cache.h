@@ -408,23 +408,12 @@ public:
     // 可視範囲をまたぐテーブルの可視外行で cell_layouts を Reset する。
     // 再表示時は MeasureTable の lazy 復元経路で CreateTextLayout を再発行する。
     // viewport は文書グローバル座標で渡す (entry ローカル座標ではない)。
-    // table_indices は Document::GetTableNodeIndices()。全エントリ走査だと 100MB 級
+    // table_indices は Document::GetTableNodeIndices() のうち keep 範囲と交差するもの。全エントリ走査だと 100MB 級
     // 文書でスクロール休止のたびに ~100万エントリを読むため、index リストで絞る。
     void EvictInvisibleTableRows(std::span<const size_t> table_indices, float viewport_top, float viewport_bottom, float buffer_screens_height) noexcept;
 
-    // DPI 変更時の最小リセット。IDWriteTextLayout は DIP 単位なので不変、effects_generation のみ進める。
+    // DPI 変更時の最小リセット。IDWriteTextLayout は DIP 単位なので不変、ピクセルに依存するハイライト矩形だけ捨てる。
     void NotifyDpiChanged() noexcept;
-
-    // ノード数の変化または全件 invalidate でのみ進める (per-node の dirty では進めない)。
-    // Renderer が ApplyVisibleEffects のスキップ判定に使う。
-    constexpr uint32_t GetEffectsGeneration() const noexcept
-    {
-        return effects_generation_;
-    }
-    constexpr void IncrementEffectsGeneration() noexcept
-    {
-        effects_generation_++;
-    }
 
 private:
     // 列幅 / 行高さ / セルメトリクス系の派生キャッシュを既定値に戻す。
@@ -447,7 +436,6 @@ private:
     std::pmr::vector<NodeLayoutEntry> entries_;
     std::pmr::vector<float> tops_;
     std::pmr::vector<std::unique_ptr<DiagramEntry>> diagrams_;
-    uint32_t effects_generation_ = 0;
     size_t last_evict_fk_ = 0;
     size_t last_evict_lk_ = 0;
     // 前回 evict 以降に計測した index の範囲 [begin, end)。空は begin >= end。

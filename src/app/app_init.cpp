@@ -112,8 +112,6 @@ bool App::Init(HWND hwnd)
     }
 
     state_.search.search_bar_ctrl.Init(state_.search.search_state, state_.view.viewport, state_.document.layout_cache, AppSearchBarCallbacks{ this });
-
-    AttachPreload();
     return true;
 }
 
@@ -139,11 +137,10 @@ void App::RestorePaneState()
     panes.SetSidePaneWidth(PaneTarget::Toc, s.toc_width);
 }
 
-void App::AttachPreload()
+void App::LoadInitialDocument()
 {
-    // small file は preload が App::Init より先に完了している場合が多い。直後の
-    // ShowWindow/UpdateWindow が同期 WM_PAINT を発行するため、ここで結果を取り込んで
-    // おかないと初回フレームが空ウィンドウになってしまう。
+    // small file は preload がここまでに完了している場合が多い。直後の UpdateWindow が
+    // 同期 WM_PAINT を発行するため、ここで取り込んでおかないと初回フレームが空になる。
     using PreloadAttachResult = FileLoadService::PreloadAttachResult;
     switch (file_load_service_.AttachOrApplyPreload(hwnd_, app_msg::PARSE_COMPLETE)) {
     case PreloadAttachResult::AppliedSync:
@@ -157,6 +154,7 @@ void App::AttachPreload()
         }
         break;
     case PreloadAttachResult::None:
+        LoadHelpDocument();
         break;
     }
 }

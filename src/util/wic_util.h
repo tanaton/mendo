@@ -3,7 +3,10 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 #include <algorithm>
+#include <cstdint>
+#include <limits>
 #include <optional>
+#include <span>
 #include <utility>
 
 namespace wic_util {
@@ -23,6 +26,21 @@ inline Microsoft::WRL::ComPtr<IWICImagingFactory> CreateWicFactory(const wchar_t
         return nullptr;
     }
     return factory;
+}
+
+// bytes をコピーせずに参照するストリーム。bytes はストリームから作ったデコード結果を使い終えるまで生かすこと。
+// 空や DWORD を超える大きさなら nullptr。
+inline Microsoft::WRL::ComPtr<IWICStream> CreateStreamOnMemory(IWICImagingFactory* wic, std::span<const uint8_t> bytes)
+{
+    if (!wic || bytes.empty() || bytes.size() > std::numeric_limits<DWORD>::max()) {
+        return nullptr;
+    }
+    Microsoft::WRL::ComPtr<IWICStream> stream;
+    if (FAILED(wic->CreateStream(&stream)) ||
+        FAILED(stream->InitializeFromMemory(const_cast<BYTE*>(bytes.data()), static_cast<DWORD>(bytes.size())))) {
+        return nullptr;
+    }
+    return stream;
 }
 
 // IWICBitmapSource を GUID_WICPixelFormat32bppPBGRA に変換する。

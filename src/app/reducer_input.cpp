@@ -16,21 +16,49 @@ void BeginScrollbarDrag(AppState& state, SideEffectList& effects, PaneController
     PushEffect(effects, effect::SetCapture{});
 }
 
+// ツールチップ以外のホバー状態を反映し、見た目が変わったら再描画させる。
+void ApplyHoverHighlights(AppState& state, SideEffectList& effects, const PointerHover& h)
+{
+    bool changed = state.window.titlebar.SetHovered(h.titlebar);
+    changed |= state.search.search_bar_ctrl.SetHover(h.search_bar);
+    changed |= std::exchange(state.interaction.nav_hover, h.nav) != h.nav;
+    changed |= std::exchange(state.interaction.hovered, h.buttons) != h.buttons;
+    changed |= std::exchange(state.view.hovered_h_block, h.h_block) != h.h_block;
+    for (const auto t : { PaneTarget::File, PaneTarget::Toc }) {
+        const auto k = std::to_underlying(t);
+        bool pane_changed = state.view.panes.SetHoveredSideIndex(t, h.side_index[k]);
+        pane_changed |= state.view.panes.SetSideHoveredButton(t, h.side_button[k]);
+        if (pane_changed) {
+            PushEffect(effects, effect::InvalidatePaneCache{ ToPaneZone(t) });
+            changed = true;
+        }
+    }
+    if (changed) {
+        PushEffect(effects, effect::InvalidateWindow{});
+    }
+}
+
 } // namespace
 
+void ReducePointerHover(AppState& state, SideEffectList& effects, const PointerHover& hover)
+{
+    ApplyHoverHighlights(state, effects, hover);
+    if (!hover.tooltip.SameTarget(state.interaction.tooltip.GetCurrent())) {
+        PushEffect(effects, effect::ShowTooltip{ hover.tooltip });
+    }
+}
+
+// ペインを経由せずに離れた経路 (ウィンドウ外・キャプション上) で呼ばないとホバーハイライトが残留する。
 void ReduceMouseLeave(AppState& state, SideEffectList& effects)
 {
     state.interaction.last_hover_pos.Reset();
-    ClearTooltip(state, effects);
-    ClearSidePaneHoverState(state, effects);
-}
-
-void ReduceUpdateTooltip(const AppState& state, SideEffectList& effects, const UpdateTooltipAction& a)
-{
-    if (a.target.SameTarget(state.interaction.tooltip.GetCurrent())) {
-        return;
+    PointerHover none;
+    // 横スクロールのドラッグ中はバーを出したままにする。
+    if (state.view.h_drag_node >= 0) {
+        none.h_block = state.view.hovered_h_block;
     }
-    PushEffect(effects, effect::ShowTooltip{ a.target });
+    ApplyHoverHighlights(state, effects, none);
+    ClearTooltip(state, effects);
 }
 
 void ReduceCaptureChanged(AppState& state, SideEffectList& effects)
@@ -58,29 +86,6 @@ void ReduceCaptureChanged(AppState& state, SideEffectList& effects)
     if (invalidate) {
         PushEffect(effects, effect::InvalidateWindow{});
     }
-}
-
-void ReduceMdPaneNavHover(AppState& state, SideEffectList& effects, const MdPaneNavHoverAction& a)
-{
-    if (state.interaction.nav_hover == a.nav_hover) {
-        return;
-    }
-    state.interaction.nav_hover = a.nav_hover;
-    // ナビボタンホバー時はコピー/保存/SVG コピーのホバーをクリアし、ホバーが二重に
-    // 表示されないようにする。
-    if (a.nav_hover != NavButtonHover::None) {
-        state.interaction.hovered = HoveredButtons{};
-    }
-    PushEffect(effects, effect::InvalidateWindow{});
-}
-
-void ReduceMdPaneButtonHoverChanged(AppState& state, SideEffectList& effects, const MdPaneButtonHoverChangedAction& a)
-{
-    if (state.interaction.hovered == a.hovered) {
-        return;
-    }
-    state.interaction.hovered = a.hovered;
-    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ReduceSplitterDragStarted(AppState& state, SideEffectList& effects, const SplitterDragStartedAction& a)
@@ -235,9 +240,13 @@ void ReduceTextSelectionStarted(AppState& state, SideEffectList& effects, const 
     }
     state.view.viewport.SetAnchor(a.node_index, a.text_pos);
     state.view.viewport.SetDragging(true);
-    state.view.viewport.GetSelection().Clear();
+    auto& selection = state.view.viewport.GetSelection();
+    const bool had_selection = selection.active;
+    selection.Clear();
     PushEffect(effects, effect::SetCapture{});
-    PushEffect(effects, effect::InvalidateWindow{});
+    if (had_selection) {
+        PushEffect(effects, effect::InvalidateWindow{});
+    }
 }
 
 void ReduceTextSelectionMoved(AppState& state, SideEffectList& effects, const TextSelectionMovedAction& a)
@@ -263,16 +272,22 @@ void ReduceTextSelectionEnded(AppState& state, SideEffectList& effects, const Te
     if (!state.view.viewport.IsDragging()) {
         return;
     }
+    bool changed = false;
     if (a.end_node_index >= 0) {
-        state.view.viewport.SetSelection(TextSelection::MakeOrdered(
+        const auto next = TextSelection::MakeOrdered(
             state.view.viewport.GetAnchorNode(),
             state.view.viewport.GetAnchorPos(),
             a.end_node_index,
-            a.end_text_pos));
+            a.end_text_pos);
+        changed = next != state.view.viewport.GetSelection();
+        state.view.viewport.SetSelection(next);
     }
     state.view.viewport.SetDragging(false);
     PushEffect(effects, effect::ReleaseCapture{});
-    PushEffect(effects, effect::InvalidateWindow{});
+    // 選択の無いクリックなど、見た目が変わらないなら再描画しない。
+    if (changed) {
+        PushEffect(effects, effect::InvalidateWindow{});
+    }
 }
 
 void ReduceRightClickGestureStarted(AppState& state, SideEffectList& effects, const RightClickGestureStartedAction& a)
@@ -283,8 +298,7 @@ void ReduceRightClickGestureStarted(AppState& state, SideEffectList& effects, co
 
 void ReduceRightClickGestureMoved(AppState& state, SideEffectList& effects, const RightClickGestureMovedAction& a)
 {
-    state.interaction.gesture.OnMouseMove(a.dip_x, a.dip_y);
-    if (state.interaction.gesture.IsGestureActive()) {
+    if (state.interaction.gesture.OnMouseMove(a.dip_x, a.dip_y)) {
         PushEffect(effects, effect::InvalidateWindow{});
     }
 }

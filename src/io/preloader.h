@@ -35,7 +35,7 @@ public:
         AttachedAsync,  // worker に hwnd 通知済み → 呼び出し側は必要なら anim を起動
     };
 
-    // App::Init 末尾で呼ぶ。preload の状態に応じて以下のいずれかを行う:
+    // App::LoadInitialDocument で呼ぶ。preload の状態に応じて以下のいずれかを行う:
     //   完了済み: Join (= AppliedSync)。呼び出し側で OnParseComplete を発火。
     //   未完了:   worker に hwnd を渡して PostMessage を解禁 (= AttachedAsync)。
     AttachResult AttachOrApply(HWND hwnd, UINT msg_id);

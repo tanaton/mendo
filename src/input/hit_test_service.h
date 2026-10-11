@@ -116,6 +116,8 @@ public:
     };
 
     HitResult HitTest(const MdPaneHitContext& ctx) const noexcept;
+    // HitTest と同じノードを返す。文字位置 (DirectWrite のヒットテストと UTF-16 変換) は求めない。
+    int HitNode(const MdPaneHitContext& ctx) const noexcept;
 
     HitResult HitTestTable(
         const Node& node, const NodeLayoutEntry& entry,
