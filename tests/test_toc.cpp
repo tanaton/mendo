@@ -29,7 +29,6 @@ TEST(Toc, SingleHeading)
     ASSERT_EQ(toc.GetEntries().size(), 1u);
     EXPECT_EQ(nodes[toc.GetEntries()[0].node_index].GetText(), "Title");
     EXPECT_EQ(toc.GetEntries()[0].heading_level, 1);
-    EXPECT_EQ(nodes[toc.GetEntries()[0].node_index].anchor_id(), "title");
 }
 
 TEST(Toc, MultipleHeadings)
@@ -53,15 +52,6 @@ TEST(Toc, HeadingTextPreserved)
     BuildTocFromNodes(toc, nodes);
     ASSERT_EQ(toc.GetEntries().size(), 1u);
     EXPECT_EQ(nodes[toc.GetEntries()[0].node_index].GetText(), "Hello World");
-}
-
-TEST(Toc, AnchorIdPreserved)
-{
-    auto nodes = ParseMarkdown("## コードブロック").nodes;
-    TableOfContents toc;
-    BuildTocFromNodes(toc, nodes);
-    ASSERT_EQ(toc.GetEntries().size(), 1u);
-    EXPECT_EQ(nodes[toc.GetEntries()[0].node_index].anchor_id(), "コードブロック");
 }
 
 TEST(Toc, RebuildClearsPrevious)
@@ -127,9 +117,6 @@ TEST(Toc, DuplicateHeadingText)
     for (const auto& entry : toc.GetEntries()) {
         EXPECT_EQ(nodes[entry.node_index].GetText(), "Title");
     }
-    // ただしanchor_idは一意であるべき（パーサーリファクタリング後）
-    EXPECT_NE(nodes[toc.GetEntries()[0].node_index].anchor_id(),
-              nodes[toc.GetEntries()[1].node_index].anchor_id());
 }
 
 TEST(Toc, ManyHeadings)

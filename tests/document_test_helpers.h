@@ -3,11 +3,13 @@
 // Document::BuildHeadingIndices) を使うため、これらの関数は tests/ 内でのみ意味を持つ。
 #include "document_types.h"
 #include "document_utils.h"
+#include "heading_anchor_index.h"
 #include "toc.h"
 #include <memory_resource>
 #include <ranges>
 #include <string>
 #include <string_view>
+#include <vector>
 
 // 指定 NodeType の最初のインデックスを返す。テストで「パース結果から特定種別の
 // ノードを 1 つ取り出す」用途。production には対応する索引 (image_node_indices_ 等)
@@ -35,22 +37,17 @@ inline std::string MakeParagraphs(int n, std::string_view suffix = {})
     return md;
 }
 
-// 全ノードを線形走査して、見出しの anchor_id が `anchor` (大文字小文字無視) と
-// 一致する最初のインデックスを返す。production の Document::FindAnchorIndex は
-// TOC 経由で同じ結果を返すため本関数は使わない。
-// パーサ後の Node 配列を直接使うテストの便宜のために残す。
-inline int FindAnchorNodeIndexLinear(const std::pmr::vector<Node>& nodes, std::string_view anchor)
+// 各ノードに Document::FindAnchorIndex と同じ規則で付くアンカー。見出し以外は空。
+inline std::vector<std::string> HeadingAnchors(const std::pmr::vector<Node>& nodes)
 {
-    if (anchor.empty()) {
-        return -1;
-    }
-    const std::pmr::string target = ToLowerAsciiCopy(anchor);
+    HeadingAnchorIndex index;
+    std::vector<std::string> anchors(nodes.size());
     for (const auto& [i, node] : nodes | std::views::enumerate) {
-        if (node.type == NodeType::Heading && node.anchor_id() == target) {
-            return static_cast<int>(i);
+        if (node.type == NodeType::Heading) {
+            anchors[i] = index.Add(node.GetText(), static_cast<int>(i));
         }
     }
-    return -1;
+    return anchors;
 }
 
 // 全ノードを走査して TableOfContents を構築する。production の

@@ -1,14 +1,11 @@
 #include "parser.h"
 #include "html_entities.h"
-#include "document_utils.h"
 #include "syntax.h"
 #include "profiler.h"
+#include "string_hash.h"
 #include "md4c.h"
-#include <charconv>
 #include <functional>
 #include <unordered_map>
-#include <format>
-#include <iterator>
 #include <algorithm>
 #include <limits>
 #include <ranges>
@@ -19,15 +16,6 @@
 #include <utility>
 
 namespace {
-
-// pmr::string キーの unordered_map を string_view で引いてもキーを確保しないための透過ハッシュ。
-struct StringTransparentHash {
-    using is_transparent = void;
-    size_t operator()(std::string_view sv) const noexcept
-    {
-        return std::hash<std::string_view>{}(sv);
-    }
-};
 
 struct ParseContext {
     std::stop_token stop_token;
@@ -108,9 +96,6 @@ struct ParseContext {
     // &current_text 以外を指すのはテーブルセル内 (NodeTableData::concat_text) のときだけ。
     // nullptr のときは AppendDoc / FlushPendingRun は no-op。
     std::pmr::string* active_text_buffer = nullptr;
-
-    // アンカーIDの一意性追跡: 見出し本文由来のスラグ -> 付けた連番の最大値。
-    std::pmr::unordered_map<std::pmr::string, int, StringTransparentHash, std::equal_to<>> anchor_counts;
 
     // 現在ノードの link_urls の URL -> インデックス索引。URL 数が kLinkUrlLinearScanMax を
     // 超えたノードでのみ構築する (テーブルは全セルで 1 ノードのため数万 URL になりうる)。
@@ -530,45 +515,6 @@ void LeaveCodeBlock(ParseContext* ctx)
     }
 }
 
-// slug が他の見出しに付けた連番付きスラグ "X-k" か。連番付きスラグは登録せず、X に付けた連番が k に
-// 達しているかで判定する。採用したものも登録する github-slugger と結果は同じで、重複見出しが多くてもマップが膨らまない。
-bool IsNumberedAnchorTaken(const ParseContext& ctx, std::string_view slug)
-{
-    // 連番は 1 以上の 10 進数で先頭に 0 が付かない。'-' を含まないので最後の '-' で一意に分けられる。
-    const size_t dash = slug.rfind('-');
-    if (dash == std::string_view::npos || slug.substr(dash + 1).starts_with('0')) {
-        return false;
-    }
-    int k = 0;
-    const char* const last = slug.data() + slug.size();
-    if (const auto [p, ec] = std::from_chars(slug.data() + dash + 1, last, k); ec != std::errc{} || p != last) {
-        return false;
-    }
-    const auto it = ctx.anchor_counts.find(slug.substr(0, dash));
-    return it != ctx.anchor_counts.end() && it->second >= k;
-}
-
-// 重複する見出しは "-N" を付けて一意化する。
-void AssignHeadingAnchor(ParseContext* ctx, Node& heading)
-{
-    std::pmr::string base_id;
-    GenerateAnchorIdInto(heading.GetText(), base_id);
-    const auto [it, inserted] = ctx->anchor_counts.try_emplace(std::move(base_id), 0);
-    auto& aid = heading.ensure_anchor_id_mut();
-    if (inserted && !IsNumberedAnchorTaken(*ctx, it->first)) {
-        aid.assign(it->first.data(), it->first.size());
-        return;
-    }
-    // "A","A","A-1" のように連番付きスラグが別見出しの素のスラグと衝突しうるため、未使用になるまで連番を進める。
-    // "X-k" を作れるのは X だけなので、ここでは素のスラグとの衝突だけ見ればよい。
-    std::pmr::string candidate;
-    do {
-        candidate.assign(it->first);
-        std::format_to(std::back_inserter(candidate), "-{}", ++it->second);
-    } while (ctx->anchor_counts.contains(candidate));
-    aid.assign(candidate.data(), candidate.size());
-}
-
 int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
@@ -726,13 +672,9 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 
     case MD_BLOCK_H:
         if (auto* const cn = ctx->current_node; cn && cn->type == NodeType::Heading) {
-            // アンカー生成に確定済みテキストが必要なので先に Finalize する。
-            ctx->FinalizeCurrentNode();
-
-            AssignHeadingAnchor(ctx, *cn);
             ctx->heading_indices.emplace_back(ctx->current_node_index);
         }
-        ctx->ClearCurrentNode();
+        ctx->EndNode();
         break;
 
     case MD_BLOCK_P:
@@ -1035,10 +977,7 @@ void ReserveForInput(ParseContext& ctx, size_t input_size)
     ctx.nodes.reserve(nodes_reserve);
     ctx.list_counter.reserve(8);
     MENDO_STATF("nodes.reserve: input={} reserve={}", input_size, nodes_reserve);
-    // anchor_counts のエントリ数は見出し数以下なので heading_indices と同じヒントを使う。
-    const size_t heading_hint = std::clamp(input_size / kInputBytesPerHeading, 8uz, 256uz);
-    ctx.heading_indices.reserve(heading_hint);
-    ctx.anchor_counts.reserve(heading_hint);
+    ctx.heading_indices.reserve(std::clamp(input_size / kInputBytesPerHeading, 8uz, 256uz));
     ctx.image_indices.reserve(std::clamp(input_size / kInputBytesPerImage, 4uz, 256uz));
     ctx.diagram_indices.reserve(std::clamp(input_size / kInputBytesPerDiagram, 4uz, 128uz));
     ctx.table_indices.reserve(std::clamp(input_size / kInputBytesPerTable, 4uz, 128uz));

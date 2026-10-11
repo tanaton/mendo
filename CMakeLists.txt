@@ -124,6 +124,7 @@ add_library(mendo_core STATIC
     src/core/document.cpp
     src/core/document_service.cpp
     src/core/document_utils.cpp
+    src/core/heading_anchor_index.cpp
     src/core/parser.cpp
     src/core/parser_alerts.cpp
     src/core/html_entities.cpp

@@ -652,67 +652,6 @@ TEST(FindLinkAtPosition, EmptyNode)
 }
 
 // ============================================================
-// FindAnchorNodeIndex
-// ============================================================
-
-TEST(FindAnchorNodeIndex, EmptyNodes)
-{
-    std::pmr::vector<Node> nodes;
-    EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, "test"), -1);
-}
-
-TEST(FindAnchorNodeIndex, EmptyAnchor)
-{
-    auto nodes = ParseMarkdown("# Title").nodes;
-    EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, ""), -1);
-}
-
-TEST(FindAnchorNodeIndex, FindExistingAnchor)
-{
-    auto nodes = ParseMarkdown("# Title\n\nParagraph\n\n## Section").nodes;
-    ASSERT_GE(nodes.size(), 3u);
-    int idx = FindAnchorNodeIndexLinear(nodes, "title");
-    EXPECT_EQ(idx, 0);
-}
-
-TEST(FindAnchorNodeIndex, FindSecondHeading)
-{
-    auto nodes = ParseMarkdown("# First\n\nParagraph\n\n## Second").nodes;
-    int idx = FindAnchorNodeIndexLinear(nodes, "second");
-    EXPECT_GE(idx, 0);
-    EXPECT_EQ(nodes[idx].GetText(), "Second");
-}
-
-TEST(FindAnchorNodeIndex, CaseInsensitiveSearch)
-{
-    auto nodes = ParseMarkdown("# Hello World").nodes;
-    // アンカーは"hello-world"、大文字で検索
-    int idx = FindAnchorNodeIndexLinear(nodes, "Hello-World");
-    EXPECT_EQ(idx, 0);
-}
-
-TEST(FindAnchorNodeIndex, NotFound)
-{
-    auto nodes = ParseMarkdown("# Title").nodes;
-    EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, "nonexistent"), -1);
-}
-
-TEST(FindAnchorNodeIndex, CjkAnchor)
-{
-    auto nodes = ParseMarkdown("## コードブロック").nodes;
-    int idx = FindAnchorNodeIndexLinear(nodes, "コードブロック");
-    EXPECT_EQ(idx, 0);
-}
-
-TEST(FindAnchorNodeIndex, SkipsNonHeadings)
-{
-    auto nodes = ParseMarkdown("Paragraph\n\n# Heading").nodes;
-    int idx = FindAnchorNodeIndexLinear(nodes, "heading");
-    EXPECT_GE(idx, 0);
-    EXPECT_EQ(nodes[idx].type, NodeType::Heading);
-}
-
-// ============================================================
 // FindWordBoundaries
 // ============================================================
 
@@ -1224,27 +1163,6 @@ TEST(NodeTableData, GetCellTextShortLastRow)
     EXPECT_EQ(tbl->GetCellText(2, 0), "g");
     EXPECT_EQ(tbl->GetCellText(2, 1).size(), 0u);
     EXPECT_EQ(tbl->GetCellText(2, 2).size(), 0u);
-}
-
-// ---- FindAnchorNodeIndex 追加テスト ----
-
-TEST(FindAnchorNodeIndex, DuplicateAnchors)
-{
-    std::pmr::vector<Node> nodes;
-
-    Node h1;
-    h1.type = NodeType::Heading;
-    h1.ensure_anchor_id_mut() = "title";
-    nodes.emplace_back(std::move(h1));
-
-    Node h2;
-    h2.type = NodeType::Heading;
-    h2.ensure_anchor_id_mut() = "title-1";
-    nodes.emplace_back(std::move(h2));
-
-    // 最初のマッチが優先される
-    EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, "title"), 0);
-    EXPECT_EQ(FindAnchorNodeIndexLinear(nodes, "title-1"), 1);
 }
 
 // ============================================================

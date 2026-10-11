@@ -68,20 +68,6 @@ TEST(Parser, HeadingH3ToH6)
     }
 }
 
-TEST(Parser, HeadingAnchorId)
-{
-    auto nodes = ParseMarkdown("# Hello World").nodes;
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].anchor_id(), "hello-world");
-}
-
-TEST(Parser, HeadingAnchorIdCjk)
-{
-    auto nodes = ParseMarkdown("## コードブロック").nodes;
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].anchor_id(), "コードブロック");
-}
-
 // ---- インライン書式 ----
 
 TEST(Parser, BoldText)
@@ -842,19 +828,6 @@ TEST(Parser, HtmlEntityNbsp)
     EXPECT_NE(nodes[0].GetText().find("\u00A0"), std::string::npos);
 }
 
-// ---- 複数見出しのアンカー一意性 ----
-
-TEST(Parser, MultipleHeadingsHaveAnchors)
-{
-    auto nodes = ParseMarkdown("# A\n\n## B\n\n### C").nodes;
-    for (const auto& node : nodes) {
-        if (node.type == NodeType::Heading) {
-            EXPECT_FALSE(node.anchor_id().empty())
-                << "見出しにアンカーがない";
-        }
-    }
-}
-
 // ---- インライン書式付きリンク ----
 
 TEST(Parser, BoldLink)
@@ -868,42 +841,6 @@ TEST(Parser, BoldLink)
         }
     }
     EXPECT_TRUE(has_bold_link);
-}
-
-// ---- 重複アンカーIDに一意のサフィックスが付与される ----
-
-TEST(Parser, DuplicateHeadingAnchorsAreUnique)
-{
-    auto nodes = ParseMarkdown("# Title\n\n## Title\n\n### Title").nodes;
-    ASSERT_EQ(nodes.size(), 3u);
-    EXPECT_EQ(nodes[0].anchor_id(), "title");
-    EXPECT_EQ(nodes[1].anchor_id(), "title-1");
-    EXPECT_EQ(nodes[2].anchor_id(), "title-2");
-}
-
-TEST(Parser, DuplicateAnchorsWithDifferentText)
-{
-    auto nodes = ParseMarkdown("# A\n\n## B\n\n### A").nodes;
-    ASSERT_EQ(nodes.size(), 3u);
-    EXPECT_EQ(nodes[0].anchor_id(), "a");
-    EXPECT_EQ(nodes[1].anchor_id(), "b");
-    EXPECT_EQ(nodes[2].anchor_id(), "a-1");
-}
-
-// 連番付きスラグと本文由来のスラグの衝突 (github-slugger と同じく未使用になるまで連番を進める)
-TEST(Parser, DuplicateAnchorSkipsSuffixTakenByLiteralHeading)
-{
-    auto nodes = ParseMarkdown("# A\n# A\n# A-1").nodes;
-    ASSERT_EQ(nodes.size(), 3u);
-    EXPECT_EQ(nodes[0].anchor_id(), "a");
-    EXPECT_EQ(nodes[1].anchor_id(), "a-1");
-    EXPECT_EQ(nodes[2].anchor_id(), "a-1-1");
-
-    auto reversed = ParseMarkdown("# A-1\n# A\n# A").nodes;
-    ASSERT_EQ(reversed.size(), 3u);
-    EXPECT_EQ(reversed[0].anchor_id(), "a-1");
-    EXPECT_EQ(reversed[1].anchor_id(), "a");
-    EXPECT_EQ(reversed[2].anchor_id(), "a-2");
 }
 
 // ---- 数値HTMLエンティティ ----

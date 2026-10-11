@@ -23,9 +23,9 @@ struct LabeledAction {
 std::vector<std::pmr::string> CollectHeadingAnchors(const ReducerHarness& h)
 {
     std::vector<std::pmr::string> anchors;
-    for (const auto& n : h.state.document.doc.GetNodes()) {
-        if (n.type == NodeType::Heading && !n.anchor_id().empty()) {
-            anchors.emplace_back(n.anchor_id());
+    for (const auto& anchor : HeadingAnchors(h.state.document.doc.GetNodes())) {
+        if (!anchor.empty()) {
+            anchors.emplace_back(anchor);
         }
     }
     return anchors;
