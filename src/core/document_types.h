@@ -143,10 +143,8 @@ struct NodeTableData {
     }
 };
 
-// Heading 固有データ。anchor_id は外部 heap 持ちにすることで variant alternative を 8B に抑える。
-struct NodeHeadingData {
-    std::unique_ptr<std::pmr::string> anchor_id;
-};
+// Heading の印。見出しレベルは Node::heading_level_ に置き、アンカーは Document::FindAnchorIndex が必要時に作る。
+struct NodeHeadingData {};
 
 // CodeBlock 固有データ。tokens は外部 heap 持ちにすることで variant alternative を 8B に抑える。
 struct NodeCodeData {
@@ -186,7 +184,7 @@ struct Node {
     // 全体の少数派 (見出し/段落の一部) なので、空時は 8B ポインタ 1 本に抑える。
     std::unique_ptr<std::pmr::vector<std::pmr::string>> link_urls_;
 
-    // ノード種別ごとの拡張データ。重データ (anchor_id / tokens / table / image) は unique_ptr で
+    // ノード種別ごとの拡張データ。重データ (tokens / table / image) は unique_ptr で
     // 外出しすることで variant alternative の最大サイズを 8B に抑える。
     // Parser invariant: 1 つのノードは 1 つの alternative しか持たない (ensure_* は他を破壊する)。
     using Extra = std::variant<
@@ -306,10 +304,6 @@ struct Node {
 
     // get_if 風に *_data() でポインタを返す。所持していなければ nullptr。
     // C++23 deducing this で const/非 const を 1 つに集約。
-    constexpr auto* heading_data(this auto& self) noexcept
-    {
-        return std::get_if<NodeHeadingData>(&self.extra);
-    }
     constexpr auto* code_data(this auto& self) noexcept
     {
         return std::get_if<NodeCodeData>(&self.extra);
@@ -430,26 +424,6 @@ struct Node {
     {
         const auto* ad = alert_data();
         return ad ? ad->alert_label_length : 0u;
-    }
-
-    constexpr std::string_view anchor_id() const noexcept
-    {
-        const auto* hd = heading_data();
-        if (hd && hd->anchor_id) {
-            return std::string_view{ *hd->anchor_id };
-        }
-        return std::string_view{};
-    }
-
-    // anchor_id は unique_ptr<pmr::string> で外出しされているため書き込みが 3 段になる。
-    // parser と test での重複を避けるため helper に集約する。
-    std::pmr::string& ensure_anchor_id_mut()
-    {
-        auto* hd = ensure_heading();
-        if (!hd->anchor_id) {
-            hd->anchor_id = std::make_unique<std::pmr::string>();
-        }
-        return *hd->anchor_id;
     }
 
     constexpr std::pmr::vector<std::pmr::string>& ensure_link_urls()

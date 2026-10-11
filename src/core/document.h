@@ -1,7 +1,9 @@
 #pragma once
 #include "document_types.h"
+#include "heading_anchor_index.h"
 #include "raw_text.h"
 #include "toc.h"
+#include <memory>
 #include <memory_resource>
 #include <stop_token>
 #include <string>
@@ -79,7 +81,8 @@ public:
     }
     // text は LF 正規化済みであること。
     void ReplaceFromMarkdown(std::pmr::string text, size_t byte_size, std::stop_token stop_token = {});
-    int FindAnchorIndex(std::string_view anchor) const;
+    // anchor (大文字小文字は ASCII のみ無視) を付けた見出しのノード番号。無ければ -1。
+    int FindAnchorIndex(std::string_view anchor);
     constexpr const std::pmr::vector<size_t>& GetImageNodeIndices() const noexcept
     {
         return image_node_indices_;
@@ -114,4 +117,7 @@ private:
     std::pmr::vector<size_t> diagram_node_indices_;
     std::pmr::vector<size_t> table_node_indices_;
     std::pmr::wstring cached_directory_;
+    // アンカーはリンクを辿るときにしか使わないので、パースでは作らず FindAnchorIndex で目次の先頭から
+    // 見つかるまでだけ索引を延ばす。リンクを辿らない文書では確保しない。
+    std::unique_ptr<HeadingAnchorIndex> anchor_index_;
 };

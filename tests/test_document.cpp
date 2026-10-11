@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "document.h"
+#include "document_test_helpers.h"
 #include "newline_util.h"
 #include <string>
 #include <string_view>
@@ -339,10 +340,9 @@ TEST(DocumentTest, BuildIndicesTocAndAnchorConsistent)
     const auto& toc = doc.GetToc().GetEntries();
     ASSERT_EQ(toc.size(), 3u);
     // TOCエントリのnode_indexがアンカーインデックスと一致
+    const auto anchors = HeadingAnchors(doc.GetNodes());
     for (const auto& entry : toc) {
-        const auto& anchor = doc.GetNodes()[entry.node_index].anchor_id();
-        const int anchor_idx = doc.FindAnchorIndex(anchor);
-        EXPECT_EQ(anchor_idx, entry.node_index);
+        EXPECT_EQ(doc.FindAnchorIndex(anchors[entry.node_index]), entry.node_index);
     }
 }
 
@@ -370,12 +370,31 @@ TEST(DocumentTest, BuildIndicesNoSpecialNodes)
 
 TEST(DocumentTest, FindAnchorIndexUppercaseQueryNormalized)
 {
-    // parser 側スラグは小文字確定だが、クエリ引数に大文字混在があっても
-    // ToLowerAsciiCopy 経由で hit すること。
+    // アンカーは ASCII 小文字で作るが、クエリに大文字が混ざっていても引けること。
     auto doc = Document::FromMarkdown("# Hello World", L"test.md");
     EXPECT_EQ(doc.FindAnchorIndex("hello-world"), 0);
     EXPECT_EQ(doc.FindAnchorIndex("Hello-World"), 0);
     EXPECT_EQ(doc.FindAnchorIndex("HELLO-WORLD"), 0);
+}
+
+// 索引は引いた見出しまでしか作らないので、先に後ろの見出しや存在しないアンカーを引いても
+// 前の見出しが索引から引けること。
+TEST(DocumentTest, FindAnchorIndexExtendsIndexFromPreviousLookup)
+{
+    auto doc = Document::FromMarkdown("# A\n\n# B\n\n# A\n\n# C", L"test.md");
+    EXPECT_EQ(doc.FindAnchorIndex("b"), 1);
+    EXPECT_EQ(doc.FindAnchorIndex("a"), 0);
+    EXPECT_EQ(doc.FindAnchorIndex("a-1"), 2);
+    EXPECT_EQ(doc.FindAnchorIndex("missing"), -1);
+    EXPECT_EQ(doc.FindAnchorIndex("c"), 3);
+    EXPECT_EQ(doc.FindAnchorIndex("b"), 1);
+}
+
+TEST(DocumentTest, FindAnchorIndexCjkHeadingAndSkipsParagraph)
+{
+    auto doc = Document::FromMarkdown("Paragraph\n\n## コードブロック", L"test.md");
+    EXPECT_EQ(doc.FindAnchorIndex("コードブロック"), 1);
+    EXPECT_EQ(doc.FindAnchorIndex("paragraph"), -1);
 }
 
 TEST(DocumentTest, FindAnchorIndexEmptyQuery)
@@ -406,9 +425,9 @@ TEST(DocumentTest, FindAnchorIndexLargeHeadingSet)
     auto doc = Document::FromMarkdown(std::move(md), L"big.md");
     const auto& toc = doc.GetToc().GetEntries();
     ASSERT_EQ(toc.size(), 1000u);
+    const auto anchors = HeadingAnchors(doc.GetNodes());
     for (const auto& entry : toc) {
-        const auto anchor = doc.GetNodes()[entry.node_index].anchor_id();
-        EXPECT_EQ(doc.FindAnchorIndex(anchor), entry.node_index);
+        EXPECT_EQ(doc.FindAnchorIndex(anchors[entry.node_index]), entry.node_index);
     }
     EXPECT_EQ(doc.FindAnchorIndex("heading-not-present"), -1);
 }

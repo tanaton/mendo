@@ -5,10 +5,12 @@
 #include "markdown_fragment_gen.h"
 #include "parse_invariants.h"
 #include "parser.h"
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <format>
 #include <map>
+#include <numeric>
 #include <random>
 #include <string>
 #include <string_view>
@@ -189,7 +191,7 @@ TEST(ParserProperty, TightAndLooseListsKeepEveryWordInItsBlockKind)
 
 // ---- 見出しアンカー ----
 
-// TOC / 内部リンクは anchor_id → ノードの逆引きなので、衝突すると後続見出しへ飛べなくなる。
+// 内部リンクはアンカー → 見出しの逆引きなので、衝突すると後続見出しへ飛べなくなる。
 // 期待値は連番付きスラグも登録する github-slugger の素直な実装で求める。
 TEST(ParserProperty, HeadingAnchorsMatchGithubSluggerAndResolveToTheirHeading)
 {
@@ -216,14 +218,15 @@ TEST(ParserProperty, HeadingAnchorsMatchGithubSluggerAndResolveToTheirHeading)
             expected.push_back(std::move(slug));
         }
         SCOPED_TRACE(std::format("seed={} md=\n{}", seed, md));
-        const auto doc = Document::FromMarkdown(std::pmr::string{ md }, L"");
-        const auto& nodes = doc.GetNodes();
-        ASSERT_EQ(nodes.size(), static_cast<size_t>(n));
-        for (size_t i = 0; i < nodes.size(); ++i) {
-            const auto anchor = nodes[i].anchor_id();
-            EXPECT_EQ(anchor, expected[i]) << "node " << i;
-            if (!anchor.empty()) {
-                EXPECT_EQ(doc.FindAnchorIndex(anchor), static_cast<int>(i)) << "anchor '" << anchor << "'";
+        auto doc = Document::FromMarkdown(std::pmr::string{ md }, L"");
+        ASSERT_EQ(doc.GetNodes().size(), static_cast<size_t>(n));
+        // 索引は引いた見出しまでしか延ばさないので、引く順を混ぜて続きからの延長も検査する。
+        std::vector<size_t> order(expected.size());
+        std::iota(order.begin(), order.end(), size_t{ 0 });
+        std::ranges::shuffle(order, rng);
+        for (const size_t i : order) {
+            if (!expected[i].empty()) {
+                EXPECT_EQ(doc.FindAnchorIndex(expected[i]), static_cast<int>(i)) << "anchor '" << expected[i] << "'";
             }
         }
     }

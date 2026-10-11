@@ -1435,10 +1435,7 @@ TEST_F(ReducerTest, NavigateAnchor_KeepsTocAutoScroll)
     cache.Resize(nodes.size());
     cache.SetTop(1, 100.0f);
 
-    const auto anchor = nodes[1].anchor_id();
-    ASSERT_FALSE(anchor.empty());
-
-    auto effects = Reduce(state, NavigateAnchorAction{ std::pmr::string(anchor) });
+    auto effects = Reduce(state, NavigateAnchorAction{ std::pmr::string("second") });
 
     const auto* sync = FindEffect<effect::SyncTocActive>(effects);
     ASSERT_NE(sync, nullptr);

@@ -127,7 +127,6 @@ TEST(NodeTest, DefaultState)
     EXPECT_FALSE(node.task_checked());
     EXPECT_TRUE(node.GetText().empty());
     EXPECT_TRUE(node.runs.empty());
-    EXPECT_TRUE(node.anchor_id().empty());
     EXPECT_EQ(node.code_language(), SyntaxLanguage::None);
     EXPECT_FALSE(node.has_table());
 }
@@ -349,19 +348,6 @@ TEST(NodeTest, EnsureCode)
     EXPECT_FALSE(node.has_code());
     node.ensure_code();
     EXPECT_TRUE(node.has_code());
-}
-
-TEST(NodeTest, AnchorIdWithoutHeadingData)
-{
-    Node node;
-    EXPECT_TRUE(node.anchor_id().empty());
-}
-
-TEST(NodeTest, AnchorIdWithHeadingData)
-{
-    Node node;
-    node.ensure_anchor_id_mut() = "test-anchor";
-    EXPECT_EQ(node.anchor_id(), "test-anchor");
 }
 
 TEST(NodeTest, SyntaxTokensWithoutCodeData)

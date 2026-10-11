@@ -1604,7 +1604,7 @@ flowchart TD
     TRIGGER[リンククリック / ジェスチャ / Alt+矢印 / Xボタン]
     TRIGGER --> APP[App::HandleLinkClick or NavigateBack/ForwardAction]
     APP --> KIND{解決結果}
-    KIND -->|Anchor| ANCHOR[Document::FindAnchorIndex<br>TOC を線形走査 → ScrollTarget 設定]
+    KIND -->|Anchor| ANCHOR[Document::FindAnchorIndex<br>アンカー索引を引く → ScrollTarget 設定]
     KIND -->|ExternalUrl| SHELL[Win32Host::ShellOpen → ShellExecuteW]
     KIND -->|別ファイル(.md)| LOAD[effect::LoadFile → DocumentService::LoadFile]
     KIND -->|None| NOP[何もしない]
@@ -2646,9 +2646,7 @@ classDiagram
         -string_view view_
     }
 
-    class NodeHeadingData {
-        +unique_ptr~pmr::string~ anchor_id
-    }
+    class NodeHeadingData
 
     class NodeCodeData {
         +unique_ptr~pmr::vector~SyntaxToken~~ tokens
@@ -2695,7 +2693,7 @@ classDiagram
     Node "1" --> "0..1" NodeImageData : variant (NodeImagePtr)
 ```
 
-ノード種別ごとの拡張データは `std::variant<std::monostate, NodeHeadingData, NodeCodeData, NodeListData, NodeAlertData, NodeTablePtr, NodeImagePtr> extra` に統合されており、同時に持てるのは 1 種類のみ。Table / Image のような大型データや `anchor_id` / `tokens` は `std::unique_ptr`（`NodeTablePtr` / `NodeImagePtr` など）で外出しし、variant の各 alternative を 8B に抑えている。
+ノード種別ごとの拡張データは `std::variant<std::monostate, NodeHeadingData, NodeCodeData, NodeListData, NodeAlertData, NodeTablePtr, NodeImagePtr> extra` に統合されており、同時に持てるのは 1 種類のみ。`NodeHeadingData` は Heading の印でデータを持たない。Table / Image のような大型データや `tokens` は `std::unique_ptr`（`NodeTablePtr` / `NodeImagePtr` など）で外出しし、variant の各 alternative を 8B に抑えている。
 
 `heading_level` / `code_language` は variant に入れると 8B ポインタと合わせて alternative が 16B に膨らむため、`Node` 末尾の padding（`heading_level_` / `code_language_`）に置く。設定は `set_heading_level` / `set_code_language`（対応する alternative を `ensure_*` してから書く）で行い、アクセサ `heading_level()` / `code_language()` は対応する alternative を持たないノードでは既定値（0 / `SyntaxLanguage::None`）を返す。既定 pmr リソースが `new_delete_resource` になったので `owned_text_` はアロケータを持たない `std::string`（32B）にしている。これらにより `sizeof(Node)` は 128B 以下に収まり、`static_assert(sizeof(Node) <= 128)` で退行を検出する（50MB 文書・約 20 万ノードで読込後 private 129MB → 125MB）。
 
@@ -2707,11 +2705,9 @@ classDiagram
 
 ```cpp
 NodeTableData* table_data() noexcept;       // 持っていなければ nullptr
-NodeHeadingData* heading_data() noexcept;
 // ensure_*: なければ emplace、あれば既存を返す
 NodeHeadingData* ensure_heading() noexcept;
 bool has_table() const noexcept;            // holds_alternative の薄ラッパ
-std::string_view anchor_id() const noexcept;   // UTF-8
 int8_t heading_level() const noexcept;          // Heading 以外は 0
 SyntaxLanguage code_language() const noexcept;  // CodeBlock 以外は None
 void set_heading_level(int8_t level);           // ensure_heading() してから書く
@@ -2796,15 +2792,15 @@ public:
     constexpr void SetFilePath(std::wstring_view path);
     void ReplaceFromMarkdown(std::pmr::string text, size_t byte_size);
 
-    // TOC エントリを線形走査する (ASCII 大文字小文字は無視)。見つからなければ -1。
-    int FindAnchorIndex(std::string_view anchor) const;
+    // アンカー (ASCII 大文字小文字は無視) を付けた見出しのノード番号。見つからなければ -1。
+    int FindAnchorIndex(std::string_view anchor);
     constexpr const std::pmr::vector<size_t>& GetImageNodeIndices() const noexcept;
     constexpr const std::pmr::vector<size_t>& GetDiagramNodeIndices() const noexcept;
     constexpr const std::pmr::vector<size_t>& GetTableNodeIndices() const noexcept;
 };
 ```
 
-`FindAnchorIndex` は文書内リンクのクリック時にしか呼ばれないため、アンカー用のハッシュ索引は持たない。`BuildHeadingIndices` は TOC を構築するだけで、検索時は TOC の各見出しの `anchor_id`（生成時点で小文字確定）とクエリを ASCII 小文字に畳みながら比較し（クエリ側のコピーは作らない）、最初に一致した見出しを返す。ロードのたびの索引構築とソートが不要になる。
+アンカーは文書内リンクのクリック時にしか使わないため、パースでは作らない。`FindAnchorIndex` はクエリを ASCII 小文字に畳み、`HeadingAnchorIndex`（アンカー → ノード番号のハッシュ索引）を引く。無ければ TOC の続きから見出しのスラグを作って github-slugger と同じ規則で連番を付け、見つかるまでだけ索引を延ばす。索引はリンクを辿った文書にだけ作られ、内容を差し替えると捨てる。115MB・見出し 14 万件の文書では、パースが約 65ms 短くなる代わりに、存在しないアンカーを初めて引いたときだけ約 50ms・+19MB かかる。
 
 `raw_text_` はパース入力の UTF-8 テキストを常時保持する。これは `CalcScrollYForDiff` の比較用で、ノードレベルでは検出できない編集（空行追加・末尾空白等）も UTF-8 byte オフセット精度で差分位置を求めるため。`raw_text_` は `NormalizeNewlines` により常に LF 正規化済みなので、リロード diff の新テキストも比較前に同じ正規化を通す（`DoReloadCurrentFile`）。これによりファイル全体の改行コードを変換して保存するエディタ（issue #273）でも差分位置が編集行を正しく指し、改行コード変換のみの保存は NoChange としてスクロール位置が維持される。
 

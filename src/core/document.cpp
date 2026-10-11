@@ -1,10 +1,8 @@
 #include "document.h"
-#include "ascii_util.h"
 #include "document_utils.h"
 #include "newline_util.h"
 #include "parser.h"
 #include "profiler.h"
-#include <algorithm>
 #include <cassert>
 #include <cstring>
 
@@ -39,6 +37,7 @@ void Document::ReplaceContent(ParseResult&& result)
     diagram_node_indices_ = std::move(result.diagram_indices);
     table_node_indices_ = std::move(result.table_indices);
     BuildHeadingIndices(result.heading_indices);
+    anchor_index_.reset();
 }
 
 void Document::ReplaceFromMarkdown(std::pmr::string text, size_t byte_size, std::stop_token stop_token)
@@ -55,15 +54,27 @@ bool Document::HasBackingFile() const noexcept
     return !file_path_.empty() && !IsHelpPath(file_path_);
 }
 
-int Document::FindAnchorIndex(std::string_view anchor) const
+int Document::FindAnchorIndex(std::string_view anchor)
 {
     if (anchor.empty()) {
         return -1;
     }
-    // リンククリック時のみ呼ばれるので索引は持たず線形走査する。anchor_id は小文字確定なので query 側だけ畳む。
-    for (const auto& entry : toc_.GetEntries()) {
-        if (std::ranges::equal(nodes_[entry.node_index].anchor_id(), anchor, {}, {}, ascii_util::ToLowerAscii)) {
-            return entry.node_index;
+    // 割り当てるアンカーは ASCII 小文字なので query 側だけ畳む。
+    const auto key = ToLowerAsciiCopy(anchor);
+    if (!anchor_index_) {
+        anchor_index_ = std::make_unique<HeadingAnchorIndex>();
+    }
+    auto& index = *anchor_index_;
+    if (const int found = index.Find(key); found >= 0) {
+        return found;
+    }
+    // 割り当て済みのアンカーは後の見出しで変わらないので、前回の続きから延ばせばよい。
+    const auto& entries = toc_.GetEntries();
+    index.Reserve(entries.size());
+    for (size_t i = index.heading_count(); i < entries.size(); ++i) {
+        const int node_index = entries[i].node_index;
+        if (index.Add(nodes_[node_index].GetText(), node_index) == key) {
+            return node_index;
         }
     }
     return -1;

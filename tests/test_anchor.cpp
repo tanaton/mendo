@@ -1,7 +1,10 @@
 #include <gtest/gtest.h>
 #include "document_utils.h"
+#include "heading_anchor_index.h"
+#include <initializer_list>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -57,4 +60,45 @@ TEST(AnchorId, LongText)
 {
     const auto id = GenerateAnchorId(std::string(1000, 'A'));
     EXPECT_EQ(std::string_view(id), std::string(1000, 'a'));
+}
+
+// ---- HeadingAnchorIndex (見出しへのアンカー割り当て) ----
+
+namespace {
+
+std::vector<std::string> AssignAnchors(std::initializer_list<std::string_view> headings)
+{
+    HeadingAnchorIndex index;
+    std::vector<std::string> anchors;
+    int node = 0;
+    for (const auto text : headings) {
+        anchors.emplace_back(index.Add(text, node++));
+    }
+    return anchors;
+}
+
+} // namespace
+
+TEST(HeadingAnchorIndex, DuplicateHeadingsGetSequentialSuffix)
+{
+    EXPECT_EQ(AssignAnchors({ "Title", "Title", "Title" }), (std::vector<std::string>{ "title", "title-1", "title-2" }));
+    EXPECT_EQ(AssignAnchors({ "A", "B", "A" }), (std::vector<std::string>{ "a", "b", "a-1" }));
+}
+
+// 連番付きスラグと本文由来のスラグの衝突 (github-slugger と同じく未使用になるまで連番を進める)
+TEST(HeadingAnchorIndex, SuffixSkipsSlugTakenByLiteralHeading)
+{
+    EXPECT_EQ(AssignAnchors({ "A", "A", "A-1" }), (std::vector<std::string>{ "a", "a-1", "a-1-1" }));
+    EXPECT_EQ(AssignAnchors({ "A-1", "A", "A" }), (std::vector<std::string>{ "a-1", "a", "a-2" }));
+}
+
+TEST(HeadingAnchorIndex, FindReturnsNodeOfRegisteredHeading)
+{
+    HeadingAnchorIndex index;
+    index.Add("コードブロック", 3);
+    index.Add("コードブロック", 7);
+    EXPECT_EQ(index.Find("コードブロック"), 3);
+    EXPECT_EQ(index.Find("コードブロック-1"), 7);
+    EXPECT_EQ(index.Find("missing"), -1);
+    EXPECT_EQ(index.heading_count(), 2u);
 }
