@@ -265,18 +265,18 @@ TEST_F(CmdGenTest, H2UnderlineThicknessMatchesTheme)
 
 // ---- コピーボタン ----
 
-// formats_.copy_btn_icon が null の場合、コピーボタン用の DrawTextCmd は生成されない
+// formats_.copy_btn_icon が null の場合、コピーボタンのアイコンは生成されない
 TEST_F(CmdGenTest, CodeBlockNoCopyButtonWithoutIconFont)
 {
     auto cmds = Generate("```\ncode\n```");
-    EXPECT_EQ(CountCmd<DrawTextCmd>(cmds), 0) << "formats_.copy_btn_icon が null のときコピーボタンの DrawTextCmd は生成されないべき";
+    EXPECT_EQ(CountCmd<DrawTextLayoutCmd>(cmds), 0) << "formats_.copy_btn_icon が null のときコピーボタンのアイコンは生成されないべき";
 }
 
 // 非コードブロックノードはコピーボタンのコマンドを生成しない
 TEST_F(CmdGenTest, NonCodeBlockNoCopyButton)
 {
     auto cmds = Generate("Hello world");
-    EXPECT_EQ(CountCmd<DrawTextCmd>(cmds), 0);
+    EXPECT_EQ(CountCmd<FillRoundedRectCmd>(cmds), 0);
 }
 
 // ---- リスト箇条書き記号の垂直位置 ----

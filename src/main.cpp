@@ -124,14 +124,14 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     Win32Window window(config);
 
     // ウィンドウクラス登録 + CreateWindowExW + App::Init (D3D/D2D/DWrite) と並列に
-    // I/O + Markdown パースを進める。worker は App::Init 末尾で hwnd を受け取り
+    // I/O + Markdown パースを進める。worker は Create 末尾で hwnd を受け取り
     // ::PostMessageW(PARSE_COMPLETE) を発行、メッセージループ内で OnParseComplete に合流する。
-    const bool has_preload = !plan.document_path.empty();
-    if (has_preload) {
+    // preload が無ければ Create 末尾でヘルプを開く。
+    if (!plan.document_path.empty()) {
         window.StartPreloadAsync(std::move(plan.document_path));
     }
 
-    // preload が Create 内 (App::Init) で同期完了するパスに備え、復元情報を先にセット。
+    // preload が Create 内で同期完了するパスに備え、復元情報を先にセット。
     if (plan.restore_scroll) {
         window.RestoreScrollPosition();
     }
@@ -145,10 +145,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
         if (!window.Create(hInstance, nCmdShow)) {
             return 1;
         }
-    }
-
-    if (!has_preload) {
-        window.LoadHelpDocument();
     }
 
     return window.RunMessageLoop();

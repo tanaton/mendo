@@ -159,7 +159,7 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadWithChangeParsesAndCarriesDecision)
     auto result = RunReload(scheduler_, tmp, "# Title\n\nbody\n");
     ASSERT_TRUE(result.has_value());
     ASSERT_TRUE(result->reload.has_value());
-    EXPECT_EQ(result->reload->decision.op, ReloadOp::FullReload);
+    EXPECT_EQ(result->reload->decision.op, ReloadOp::Replace);
     EXPECT_EQ(result->reload->decision.diff_pos, 9u);
     EXPECT_FALSE(result->doc.IsEmpty());
     EXPECT_EQ(result->cache.size(), result->doc.GetNodes().size());

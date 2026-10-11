@@ -38,24 +38,6 @@ void ClearTooltip(AppState& state, SideEffectList& effects)
     PushEffect(effects, effect::ClearTooltip{});
 }
 
-// マウスがペイン上を経由せずに離れた経路 (ウィンドウ外退出等) で呼ばないと
-// ホバーハイライトが残留する。
-void ClearSidePaneHoverState(AppState& state, SideEffectList& effects)
-{
-    bool changed = false;
-    for (auto t : { PaneTarget::File, PaneTarget::Toc }) {
-        bool pane_changed = state.view.panes.SetHoveredSideIndex(t, -1);
-        pane_changed |= state.view.panes.ClearSideButtonHover(t);
-        if (pane_changed) {
-            PushEffect(effects, effect::InvalidatePaneCache{ ToPaneZone(t) });
-            changed = true;
-        }
-    }
-    if (changed) {
-        PushEffect(effects, effect::InvalidateWindow{});
-    }
-}
-
 // スクロール位置が変わった時に共通で発火する副作用列。
 void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects, bool toc_auto_scroll)
 {
@@ -194,7 +176,6 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const ResizeAction& a) { ReduceResize(state, effects, a); },
         [&](const DpiChangedAction& a) { ReduceDpiChanged(state, effects, a); },
         [&](const HWheelAction& a) { ReduceHWheel(state, effects, a); },
-        [&](const BlockHHoverChangedAction& a) { ReduceBlockHHoverChanged(state, effects, a); },
         [&](const BlockHScrollDragStartedAction& a) { ReduceBlockHScrollDragStarted(state, effects, a); },
         [&](const BlockHScrollDragMovedAction& a) { ReduceBlockHScrollDragMoved(state, effects, a); },
         [&](const BlockHScrollDragEndedAction&) { ReduceBlockHScrollDragEnded(state, effects); },
@@ -213,8 +194,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         // ---- マウス関連 ----
         [&](const MouseLeaveAction&) { ReduceMouseLeave(state, effects); },
         [&](const CaptureChangedAction&) { ReduceCaptureChanged(state, effects); },
-        [&](const MdPaneNavHoverAction& a) { ReduceMdPaneNavHover(state, effects, a); },
-        [&](const MdPaneButtonHoverChangedAction& a) { ReduceMdPaneButtonHoverChanged(state, effects, a); },
+        [&](const PointerHoverAction& a) { ReducePointerHover(state, effects, a.hover); },
         [&](const SplitterDragStartedAction& a) { ReduceSplitterDragStarted(state, effects, a); },
         [&](const SplitterDragMovedAction& a) { ReduceSplitterDragMoved(state, effects, a); },
         [&](const SplitterDragEndedAction&) { ReduceSplitterDragEnded(state, effects); },
@@ -238,9 +218,8 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const FilePaneRevealCurrentFileAction&) { ReduceFilePaneRevealCurrentFile(state, effects); },
         [&](const TocItemClickedAction& a) { ReduceTocItemClicked(state, effects, a); },
         [&](const NavigateAnchorAction& a) { ReduceNavigateAnchor(state, effects, a); },
-        [&](const RestoreScrollAfterLoadAction& a) { ReduceRestoreScrollAfterLoad(state, a); },
+        [&](const RestoreScrollAfterLoadAction&) { ReduceRestoreScrollAfterLoad(state); },
         [&](const LoadFailedAction&) { ReduceLoadFailed(state); },
-        [&](const UpdateTooltipAction& a) { ReduceUpdateTooltip(state, effects, a); },
         [&](const ClearTooltipAction&) { ClearTooltip(state, effects); },
 
         // ---- ナビゲーション ----

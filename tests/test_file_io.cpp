@@ -22,10 +22,11 @@ TEST_F(FileIoTest, RoundTripAscii)
 
     ASSERT_TRUE(WriteAllBytes(path, payload.data(), payload.size()));
 
-    auto [buf, size] = ReadAllBytes(path);
-    ASSERT_NE(buf.get(), nullptr);
+    const auto buf = ReadAllBytes(path);
+    const size_t size = buf.size();
+    ASSERT_FALSE(buf.empty());
     ASSERT_EQ(size, payload.size());
-    EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.get()), size), payload);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.data()), size), payload);
 }
 
 TEST_F(FileIoTest, RoundTripBinary)
@@ -38,9 +39,10 @@ TEST_F(FileIoTest, RoundTripBinary)
 
     ASSERT_TRUE(WriteAllBytes(path, payload.data(), payload.size()));
 
-    auto [buf, size] = ReadAllBytes(path);
+    const auto buf = ReadAllBytes(path);
+    const size_t size = buf.size();
     ASSERT_EQ(size, payload.size());
-    EXPECT_EQ(std::memcmp(buf.get(), payload.data(), size), 0);
+    EXPECT_EQ(std::memcmp(buf.data(), payload.data(), size), 0);
 }
 
 TEST_F(FileIoTest, WriteOverwritesExistingFile)
@@ -52,9 +54,10 @@ TEST_F(FileIoTest, WriteOverwritesExistingFile)
     ASSERT_TRUE(WriteAllBytes(path, first.data(), first.size()));
     ASSERT_TRUE(WriteAllBytes(path, second.data(), second.size()));
 
-    auto [buf, size] = ReadAllBytes(path);
+    const auto buf = ReadAllBytes(path);
+    const size_t size = buf.size();
     ASSERT_EQ(size, second.size());
-    EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.get()), size), second);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.data()), size), second);
 }
 
 // ═══════════════════════════════════════════════
@@ -65,8 +68,9 @@ TEST_F(FileIoTest, ReadMissingFileReturnsEmpty)
 {
     const auto path = temp_dir_ / L"does_not_exist.bin";
     DWORD err = 0xDEADBEEF;
-    auto [buf, size] = ReadAllBytes(path, &err);
-    EXPECT_EQ(buf.get(), nullptr);
+    const auto buf = ReadAllBytes(path, &err);
+    const size_t size = buf.size();
+    EXPECT_TRUE(buf.empty());
     EXPECT_EQ(size, 0u);
     EXPECT_EQ(err, static_cast<DWORD>(ERROR_FILE_NOT_FOUND));
 }
@@ -74,8 +78,9 @@ TEST_F(FileIoTest, ReadMissingFileReturnsEmpty)
 TEST_F(FileIoTest, ReadMissingFileWithoutErrorPointer)
 {
     const auto path = temp_dir_ / L"does_not_exist.bin";
-    auto [buf, size] = ReadAllBytes(path);
-    EXPECT_EQ(buf.get(), nullptr);
+    const auto buf = ReadAllBytes(path);
+    const size_t size = buf.size();
+    EXPECT_TRUE(buf.empty());
     EXPECT_EQ(size, 0u);
 }
 
@@ -85,8 +90,9 @@ TEST_F(FileIoTest, ReadEmptyFileReturnsEmpty)
     std::ofstream(path, std::ios::binary).close();
 
     DWORD err = 0xDEADBEEF;
-    auto [buf, size] = ReadAllBytes(path, &err);
-    EXPECT_EQ(buf.get(), nullptr);
+    const auto buf = ReadAllBytes(path, &err);
+    const size_t size = buf.size();
+    EXPECT_TRUE(buf.empty());
     EXPECT_EQ(size, 0u);
     // 成功時 (CreateFileW OK) の err はクリアされる契約
     EXPECT_EQ(err, 0u);
@@ -107,7 +113,8 @@ TEST_F(FileIoTest, ErrorPointerResetOnSuccess)
     ASSERT_TRUE(WriteAllBytes(path, payload.data(), payload.size()));
 
     DWORD err = 0xDEADBEEF;
-    auto [buf, size] = ReadAllBytes(path, &err);
+    const auto buf = ReadAllBytes(path, &err);
+    const size_t size = buf.size();
     EXPECT_EQ(err, 0u);
     EXPECT_EQ(size, 1u);
 }
@@ -117,7 +124,8 @@ TEST_F(FileIoTest, WriteZeroBytesProducesEmptyFile)
     const auto path = temp_dir_ / L"zero.bin";
     ASSERT_TRUE(WriteAllBytes(path, "", 0));
 
-    auto [buf, size] = ReadAllBytes(path);
+    const auto buf = ReadAllBytes(path);
+    const size_t size = buf.size();
     EXPECT_EQ(size, 0u);
     EXPECT_TRUE(fs::exists(path));
     EXPECT_EQ(fs::file_size(path), 0u);
@@ -208,9 +216,10 @@ TEST_F(FileIoTest, AtomicWrite_NewFile_WritesContentAndCleansUpTmp)
 
     ASSERT_TRUE(AtomicWriteAllBytes(path, payload.data(), payload.size()));
 
-    auto [buf, size] = ReadAllBytes(path);
+    const auto buf = ReadAllBytes(path);
+    const size_t size = buf.size();
     ASSERT_EQ(size, payload.size());
-    EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.get()), size), payload);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.data()), size), payload);
     // tmp は MoveFileExW で消費される (残らない)
     EXPECT_FALSE(fs::exists(tmp));
 }
@@ -226,9 +235,10 @@ TEST_F(FileIoTest, AtomicWrite_OverwritesExistingFile)
     ASSERT_TRUE(AtomicWriteAllBytes(path, first.data(), first.size()));
     ASSERT_TRUE(AtomicWriteAllBytes(path, second.data(), second.size()));
 
-    auto [buf, size] = ReadAllBytes(path);
+    const auto buf = ReadAllBytes(path);
+    const size_t size = buf.size();
     ASSERT_EQ(size, second.size());
-    EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.get()), size), second);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.data()), size), second);
     EXPECT_FALSE(fs::exists(tmp));
 }
 
@@ -262,9 +272,10 @@ TEST_F(FileIoTest, AtomicWrite_DoesNotLeavePreviousTmpBehind)
 
     ASSERT_TRUE(AtomicWriteAllBytes(path, payload.data(), payload.size()));
 
-    auto [buf, size] = ReadAllBytes(path);
+    const auto buf = ReadAllBytes(path);
+    const size_t size = buf.size();
     ASSERT_EQ(size, payload.size());
-    EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.get()), size), payload);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.data()), size), payload);
     EXPECT_FALSE(fs::exists(tmp));
 }
 

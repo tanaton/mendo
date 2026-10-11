@@ -225,3 +225,13 @@ TEST_F(MouseGestureTest, MouseMoveInIdleIsIgnored)
     EXPECT_EQ(gesture_.GetPhase(), GesturePhase::Idle);
     EXPECT_TRUE(gesture_.GetTrailPoints().empty());
 }
+
+// 描画に表れる変化 (点の追加・方向の変化) があったときだけ true を返す。
+TEST_F(MouseGestureTest, MouseMoveReportsOnlyVisibleChanges)
+{
+    gesture_.OnRButtonDown(100.0f, 100.0f);
+    EXPECT_FALSE(gesture_.OnMouseMove(105.0f, 100.0f)) << "閾値未満では軌跡を描かない";
+    EXPECT_TRUE(gesture_.OnMouseMove(150.0f, 100.0f)) << "追跡開始で点が増える";
+    EXPECT_FALSE(gesture_.OnMouseMove(151.0f, 100.0f)) << "点の間隔未満で方向も同じ";
+    EXPECT_TRUE(gesture_.OnMouseMove(160.0f, 100.0f));
+}

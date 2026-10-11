@@ -39,15 +39,19 @@ public:
     bool Init(HWND hwnd);
 
     void LoadHelpDocument();
+    // ウィンドウを保存済みの配置で表示した後、初回描画の前に呼ぶ。
+    // 先に取り込むと既定サイズでレイアウトし、配置の復元でやり直しになる。
+    // preload が無ければヘルプを開く。
+    void LoadInitialDocument();
     // Init 前に呼ぶ。初回描画に含まれるため無効化はしない。
     void SetInitialDirectory(std::wstring_view dir_path);
 
-    // 起動時にウィンドウ生成と並列で I/O + パースを開始する。Init 末尾の
-    // OnInitComplete で hwnd が解禁されると、worker は ::PostMessageW(PARSE_COMPLETE)
-    // を発行し、通常の async load 経路に合流する。
+    // 起動時にウィンドウ生成と並列で I/O + パースを開始する。LoadInitialDocument で
+    // hwnd が解禁されると、worker は ::PostMessageW(PARSE_COMPLETE) を発行し、
+    // 通常の async load 経路に合流する。
     void StartPreloadAsync(std::pmr::wstring path);
 
-    // Init() より前に呼ぶこと。preload 即時完了パスは Init 内で復元情報を参照する。
+    // LoadInitialDocument より前に呼ぶこと。preload 即時完了パスはそこで復元情報を参照する。
     constexpr void SetPendingRestoreNode(int node, int offset) noexcept
     {
         state_.view.scroll_restore.SetNodeRestore(node, offset);
@@ -180,7 +184,6 @@ private:
     // ---- 初期化 (app_init.cpp) ----
     void RestoreThemeAndZoom();
     void RestorePaneState();
-    void AttachPreload();
 
     // ---- 描画 (app.cpp) ----
     SidePaneState BuildSidePaneState(const PaneLayout& layout) const;
@@ -195,7 +198,6 @@ private:
 
     using HitResult = HitTestService::HitResult;
     HitResult HitTest(int screen_x, int screen_y);
-    HitResult HitTest(const MdPaneHitContext& ctx);
     std::optional<std::string_view> GetLinkAtHit(const HitResult& hit) const;
     MdPaneHitContext BuildMdPaneHitContext(int px, int py, const PaneLayout& pane_layout) const noexcept;
 
@@ -221,16 +223,11 @@ private:
     void HandleFileEntryClick(const FileEntry& entry);
 
     // ---- ホバー (app_mouse_hover.cpp) ----
-    void HandleMdPaneHover(float dip_x, float dip_y, int px, int py, const PaneLayout& layout);
-    // 戻り値はホバー中の項目 index (なければ -1)。
-    int HandleSidePaneHover(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout);
+    // ゾーン内のホバーを hover に書き、表示するカーソルを返す。状態の反映は reducer が行う。
+    HCURSOR HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLayout& layout, PointerHover& hover) const;
+    HCURSOR HoverSidePane(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout, PointerHover& hover) const;
     TooltipTarget BuildSidePaneTooltip(PaneTarget target, PaneHeaderButton hit, int idx) const;
-    TooltipTarget BuildMdContentTooltip(const HitResult& hit, std::optional<std::string_view> link) const;
-    // サイドペインのホバー状態をリセットし、変化があれば invalidate する。
-    // reset_hover_index=true のとき hover index もリセット（タイトルバー移動時など）。
-    void ResetSidePaneHover(PaneTarget t, bool reset_hover_index);
-    // サイドペインキャッシュ無効化とペイン再描画リクエストをまとめて発行する。
-    void InvalidateSidePaneAndPane(PaneTarget t);
+    TooltipTarget BuildMdContentTooltip(int hit_node, std::optional<std::string_view> link) const;
 
     // ---- レイアウト (app_layout.cpp) ----
     void EnsureScrollTarget();
@@ -263,8 +260,7 @@ private:
     void BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation = false,
                         std::shared_ptr<const std::pmr::string> reload_base = nullptr);
     void StopLoadingAnimation();
-    // reload_diff_pos: 同一パス再読込時の差分位置 (UTF-8 byte offset)。npos なら差分なし。
-    void FinishLoadMarkdownFile(bool follow_file_pane, size_t reload_diff_pos = std::string_view::npos);
+    void FinishLoadMarkdownFile(bool follow_file_pane);
     void HandleLoadFailureFallback();
     bool ApplyMermaidCacheHeights();
     // Mermaid/画像キャッシュの実測値でノード高さを上書きし、変化があれば Y 位置を再計算する。
@@ -276,7 +272,7 @@ private:
 
     enum class ReloadFlow : uint8_t {
         Handled,            // ResumeFileWatch / DeferReloadRetry が発行済み、呼び出し元は return
-        ContinueWithReload, // PrefixGrowth / FullReload を呼び出し元で実行する
+        ContinueWithReload, // Replace を呼び出し元で実行する
     };
     // NoChange / DeferPrefixShrink をここで処理し、残りは呼び出し元に任せる。
     ReloadFlow ApplyReloadDecisionEarly(const ReloadDecision& decision);

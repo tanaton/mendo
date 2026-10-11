@@ -14,6 +14,24 @@
 #include <wrl/client.h>
 #include <shlwapi.h>
 
+namespace {
+
+// FindCachedImage の結果を DiagramEntry に写す (旧 GetCachedImage と同じ形で検証するため)。
+bool GetCachedImage(ImageLoader& loader, const std::wstring& path, DiagramEntry& out)
+{
+    const auto* cached = loader.FindCachedImage(path);
+    if (!cached) {
+        return false;
+    }
+    out.bitmap = cached->bitmap;
+    out.width = cached->width;
+    out.height = cached->height;
+    return true;
+}
+
+} // namespace
+
+
 using Microsoft::WRL::ComPtr;
 
 // ============================================================
@@ -444,7 +462,7 @@ protected:
             })) {
             return false;
         }
-        return loader.GetCachedImage(path, out);
+        return GetCachedImage(loader, path, out);
     }
     bool LoadAndGet(const std::wstring& path, DiagramEntry& out)
     {
@@ -573,7 +591,7 @@ TEST_F(ImageLoaderTest, CacheHitReturnsSameBitmap)
     EXPECT_TRUE(LoadAndGet(path, entry1));
 
     DiagramEntry entry2;
-    EXPECT_TRUE(loader_.GetCachedImage(path, entry2));
+    EXPECT_TRUE(GetCachedImage(loader_, path, entry2));
 
     // 同じビットマップオブジェクトが返されること
     EXPECT_EQ(entry1.bitmap.Get(), entry2.bitmap.Get());
@@ -734,7 +752,7 @@ TEST_F(ImageLoaderTest, FailedLoadDoesNotModifyExistingEntry)
 TEST_F(ImageLoaderTest, GetCachedImageReturnsFalseWhenNotCached)
 {
     DiagramEntry entry;
-    EXPECT_FALSE(loader_.GetCachedImage(L"C:\\not_cached.png", entry));
+    EXPECT_FALSE(GetCachedImage(loader_, L"C:\\not_cached.png", entry));
 }
 
 TEST_F(ImageLoaderTest, GetCachedImageReturnsFalseAfterClearCache)
@@ -746,7 +764,7 @@ TEST_F(ImageLoaderTest, GetCachedImageReturnsFalseAfterClearCache)
     ASSERT_TRUE(LoadAndGet(path, entry));
     loader_.ClearCache();
 
-    EXPECT_FALSE(loader_.GetCachedImage(path, entry));
+    EXPECT_FALSE(GetCachedImage(loader_, path, entry));
 }
 
 // ---- Shutdown テスト ----
@@ -946,7 +964,7 @@ TEST_F(ImageLoaderDpiTest, CacheReturnsDipSize)
 
     // 2回目: キャッシュヒット — 同じ DIP サイズが返されること
     DiagramEntry entry2;
-    ASSERT_TRUE(loader.GetCachedImage(path, entry2));
+    ASSERT_TRUE(GetCachedImage(loader, path, entry2));
     EXPECT_NEAR(entry2.width, 200.0f, 0.1f);
     EXPECT_NEAR(entry2.height, 100.0f, 0.1f);
 }
@@ -1046,8 +1064,8 @@ TEST_F(ImageLoaderAsyncTest, MultiplePathsAllCached)
     EXPECT_GE(callback_count_.load(), 1);
 
     DiagramEntry entry_a, entry_b;
-    EXPECT_TRUE(loader_.GetCachedImage(path_a, entry_a));
-    EXPECT_TRUE(loader_.GetCachedImage(path_b, entry_b));
+    EXPECT_TRUE(GetCachedImage(loader_, path_a, entry_a));
+    EXPECT_TRUE(GetCachedImage(loader_, path_b, entry_b));
     EXPECT_FLOAT_EQ(entry_a.width, 10.0f);
     EXPECT_FLOAT_EQ(entry_b.width, 20.0f);
 }
@@ -1135,7 +1153,7 @@ TEST_F(ImageLoaderAsyncTest, ManyImagesAllCachedCorrectly)
 
     for (int i = 0; i < kImageCount; ++i) {
         DiagramEntry entry;
-        EXPECT_TRUE(loader_.GetCachedImage(paths[i], entry))
+        EXPECT_TRUE(GetCachedImage(loader_, paths[i], entry))
             << "画像 " << i << " がキャッシュされていない";
         EXPECT_FLOAT_EQ(entry.width, static_cast<float>(10 + i * 5));
         EXPECT_FLOAT_EQ(entry.height, static_cast<float>(20 + i * 3));
@@ -1207,7 +1225,7 @@ TEST_F(ImageLoaderAsyncTest, CancelDuringHeavyLoadThenReload)
     DiagramEntry entry;
     ASSERT_TRUE(PollUntil([&] {
         loader_.ProcessCompletedDecodes();
-        return loader_.GetCachedImage(path, entry);
+        return GetCachedImage(loader_, path, entry);
     })) << "キャンセル後のリクエストが完了しなかった";
     EXPECT_FLOAT_EQ(entry.width, 88.0f);
     EXPECT_FLOAT_EQ(entry.height, 66.0f);
@@ -1231,7 +1249,7 @@ TEST_F(ImageLoaderAsyncTest, NonexistentPathBlockedAfterMaxRetries)
     EXPECT_EQ(callback_count_.load(), 0);
 
     DiagramEntry entry;
-    EXPECT_FALSE(loader_.GetCachedImage(path, entry));
+    EXPECT_FALSE(GetCachedImage(loader_, path, entry));
 }
 
 TEST_F(ImageLoaderAsyncTest, CancelPendingClearsFailedPaths)

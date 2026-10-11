@@ -36,7 +36,14 @@ public:
     }
 
     void InitAsync(HWND hwnd, UINT msg_id, TaskScheduler& scheduler);
-    bool GetCachedImage(const std::wstring& abs_path, DiagramEntry& out);
+
+    struct CachedImage {
+        Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
+        float width = 0.0f;
+        float height = 0.0f;
+    };
+    // ヒットしたら LRU を更新する。次の挿入・Clear まで有効。
+    const CachedImage* FindCachedImage(const std::wstring& abs_path);
     void RequestLoadAsync(const std::wstring& abs_path, Callback on_complete);
     void ProcessCompletedDecodes();
     void CancelPending();
@@ -60,12 +67,6 @@ public:
     void Shutdown();
 
 private:
-    struct CachedImage {
-        Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-        float width = 0.0f;
-        float height = 0.0f;
-    };
-
     struct DecodeResult {
         std::wstring path;
         // worker でデコード確定・縮小済み (失敗時は null)。width/height は縮小前の原寸 (レイアウトは原寸基準)。

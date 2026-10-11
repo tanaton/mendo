@@ -66,7 +66,7 @@ public:
 
     using PreloadAttachResult = Preloader::AttachResult;
 
-    // App::Init 末尾で呼ぶ。挙動は Preloader::AttachOrApply を参照。
+    // App::LoadInitialDocument で呼ぶ。挙動は Preloader::AttachOrApply を参照。
     PreloadAttachResult AttachOrApplyPreload(HWND hwnd, UINT msg_id)
     {
         return preloader_.AttachOrApply(hwnd, msg_id);

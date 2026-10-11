@@ -171,7 +171,6 @@ void LayoutCache::Resize(size_t node_count)
         entries_.resize(node_count);
         tops_.resize(node_count);
         diagrams_.resize(node_count);
-        effects_generation_++;
         ResetEvictionTracking();
     }
 }
@@ -188,7 +187,6 @@ void LayoutCache::Reset(size_t node_count, bool shrink)
     reset(entries_);
     reset(tops_);
     reset(diagrams_);
-    effects_generation_++;
     ResetEvictionTracking();
 }
 
@@ -196,14 +194,15 @@ void LayoutCache::InvalidateAllLayouts() noexcept
 {
     for (auto& e : entries_) {
         ResetEntryTextLayout(e);
-        // ズーム変更で計測条件が変わるので、諦めたノードも改めて試す。
+        // ズーム変更で計測条件が変わるので、諦めたノードも改めて試す。旧倍率の実測値も推定に使わせない。
         e.measure_failures = 0;
+        e.cached_width = NodeLayoutEntry::kUnmeasuredWidth;
+        e.cached_height = 0.0f;
         if (e.table_layout) {
             ResetTableLayoutGeometry(*e.table_layout);
             e.table_layout->cell_inline_code_bgs.clear();
         }
     }
-    effects_generation_++;
     ResetEvictionTracking();
 }
 
@@ -218,7 +217,6 @@ void LayoutCache::InvalidateEffects() noexcept
             e.table_layout->row_links_applied.clear();
         }
     }
-    effects_generation_++;
 }
 
 void LayoutCache::InvalidateAllDiagramBitmaps() noexcept
@@ -314,5 +312,4 @@ void LayoutCache::NotifyDpiChanged() noexcept
     for (auto& e : entries_) {
         e.invalidate_per_frame_hl_caches();
     }
-    effects_generation_++;
 }

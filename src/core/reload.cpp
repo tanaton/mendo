@@ -1,35 +1,15 @@
 #include "reload.h"
 #include "layout_cache.h"
 #include <algorithm>
-#include <cstring>
 
 size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept
 {
-    const size_t min_len = std::min(old_text.size(), new_text.size());
-    // 大半が一致する前提で、粗いチャンクで当たりを付けてから細かいチャンクへ絞る
-    // (64B 単位だけだと 100MB で memcmp 呼び出しが 160 万回になる)。
-    constexpr size_t kCoarseChunk = 64 * 1024;
-    constexpr size_t kChunk = 64;
-    size_t i = 0;
-    for (; i + kCoarseChunk <= min_len; i += kCoarseChunk) {
-        if (std::memcmp(old_text.data() + i, new_text.data() + i, kCoarseChunk) != 0) {
-            break;
-        }
+    // MSVC STL の mismatch は 1 バイト要素をベクトル化する。
+    const size_t pos = static_cast<size_t>(std::ranges::mismatch(old_text, new_text).in1 - old_text.begin());
+    if (pos == old_text.size() && pos == new_text.size()) {
+        return std::string_view::npos;
     }
-    for (; i + kChunk <= min_len; i += kChunk) {
-        if (std::memcmp(old_text.data() + i, new_text.data() + i, kChunk) != 0) {
-            break;
-        }
-    }
-    for (; i < min_len; ++i) {
-        if (old_text[i] != new_text[i]) {
-            return i;
-        }
-    }
-    if (old_text.size() != new_text.size()) {
-        return min_len;
-    }
-    return std::string_view::npos;
+    return pos;
 }
 
 ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text) noexcept
@@ -38,13 +18,10 @@ ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new
     if (diff_pos == std::string_view::npos) {
         return { ReloadOp::NoChange, std::string_view::npos };
     }
-    if (IsPrefixOnlyDiff(diff_pos, old_text.size(), new_text.size())) {
-        if (new_text.size() < old_text.size()) {
-            return { ReloadOp::DeferPrefixShrink, diff_pos };
-        }
-        return { ReloadOp::PrefixGrowth, diff_pos };
+    if (new_text.size() < old_text.size() && IsPrefixOnlyDiff(diff_pos, old_text.size(), new_text.size())) {
+        return { ReloadOp::DeferPrefixShrink, diff_pos };
     }
-    return { ReloadOp::FullReload, diff_pos };
+    return { ReloadOp::Replace, diff_pos };
 }
 
 int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, const char* raw_base, size_t diff_offset) noexcept

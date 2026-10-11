@@ -84,9 +84,6 @@ std::optional<Box> Extent(const DrawCommand& cmd)
     if (const auto* c = std::get_if<FillRoundedRectCmd>(&cmd)) {
         return rect_box(c->rect);
     }
-    if (const auto* c = std::get_if<DrawTextCmd>(&cmd)) {
-        return rect_box(c->rect);
-    }
     if (const auto* c = std::get_if<DrawBitmapCmd>(&cmd)) {
         return rect_box(c->dest);
     }

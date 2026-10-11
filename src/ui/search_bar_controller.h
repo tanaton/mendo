@@ -71,7 +71,9 @@ public:
 
     void OnTextChanged(std::wstring_view text, const std::pmr::vector<Node>& nodes, size_t doc_bytes)
     {
-        // 検索バー入力は IME 経由で wstring。SearchState は Document テキスト (UTF-8) と比較するため変換。
+        // 検索バー入力は IME 経由で wstring。表示とヒットテストにはこのまま使い、
+        // SearchState は Document テキスト (UTF-8) と比較するため変換して渡す。
+        query_wide_.assign(text);
         std::pmr::string text_utf8;
         string_convert::WideToUtf8(text, text_utf8);
         state_->SetQuery(text_utf8);
@@ -188,6 +190,7 @@ public:
     void Reset()
     {
         state_->Reset();
+        query_wide_.clear();
         ResetInteractionState();
         ResetCaretAndSelection();
         dragging_ = false;
@@ -214,24 +217,16 @@ public:
         return drag_anchor_;
     }
 
-    void UpdateHoverFromZone(SearchBarHitZone zone)
+    // 変化した場合 true。Input ゾーンはテキスト編集領域でホバー強調は不要なので None に丸める。
+    bool SetHover(SearchBarHitZone zone) noexcept
     {
-        // Input ゾーンはテキスト編集領域でホバー強調は不要なので None に丸める。
         const auto new_hover = (zone == SearchBarHitZone::Input) ? SearchBarHitZone::None : zone;
-        if (new_hover != hover_) {
-            hover_ = new_hover;
-            cb_.invalidate();
-        }
+        return std::exchange(hover_, new_hover) != new_hover;
     }
 
     SearchBarHitZone GetHover() const noexcept
     {
         return hover_;
-    }
-
-    void ResetHover() noexcept
-    {
-        hover_ = SearchBarHitZone::None;
     }
 
     SearchBarRenderState BuildRenderState() const
@@ -272,18 +267,10 @@ public:
         return ime_composition_;
     }
 
-    // 検索クエリ (UTF-8) を wstring 化したものを返す。
-    // BuildRenderState / ドラッグ中の HitTest / クリック時の HitTest が同じキャッシュを共有する。
-    // 同一 UTF-8 のときは Utf8ToWide を skip する。
-    const std::pmr::wstring& GetQueryWide() const
+    // 入力欄に表示している検索クエリ。SearchState::GetQuery() の UTF-16 版。
+    const std::pmr::wstring& GetQueryWide() const noexcept
     {
-        const auto& utf8 = state_->GetQuery();
-        if (query_wide_cache_key_ != utf8) {
-            query_wide_cache_.clear();
-            string_convert::Utf8ToWide(utf8, query_wide_cache_);
-            query_wide_cache_key_.assign(utf8);
-        }
-        return query_wide_cache_;
+        return query_wide_;
     }
 
 private:
@@ -325,6 +312,5 @@ private:
     bool dragging_ = false;
     int drag_anchor_ = 0;
     std::pmr::wstring ime_composition_;
-    mutable std::pmr::wstring query_wide_cache_;
-    mutable std::pmr::string query_wide_cache_key_;
+    std::pmr::wstring query_wide_;
 };

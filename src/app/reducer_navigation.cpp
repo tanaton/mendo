@@ -98,14 +98,11 @@ void ReduceNavigateAnchor(AppState& state, SideEffectList& effects, const Naviga
     ScrollToHeading(state, effects, state.document.doc.FindAnchorIndex(a.anchor_id), /*toc_auto_scroll=*/true);
 }
 
-void ReduceRestoreScrollAfterLoad(AppState& state, const RestoreScrollAfterLoadAction& a)
+void ReduceRestoreScrollAfterLoad(AppState& state)
 {
     auto& viewport = state.view.viewport;
     auto& restore = state.view.scroll_restore;
-    if (a.reload_diff_scroll_y) {
-        viewport.SetScrollY(*a.reload_diff_scroll_y);
-    }
-    else if (restore.HasNodeRestore()) {
+    if (restore.HasNodeRestore()) {
         viewport.SetScrollTarget(restore.pending_restore_node, static_cast<float>(restore.pending_restore_offset));
         viewport.ApplyScrollTarget(state.document.layout_cache);
         restore.ClearNodeRestore();

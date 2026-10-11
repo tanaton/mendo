@@ -24,12 +24,6 @@ struct AppSideEffectCallbacks {
     void perform_resize_end();
     void perform_sizing_update();
     void apply_theme_change(const effect::ApplyThemeChange& e);
-    void process_deferred_layout();
-    void tick_loading_animation();
-    void process_mermaid_batch_timer();
-    void process_bitmap_manage();
-    void mermaid_init_retry();
-    void mermaid_idle();
     void show_context_menu(int x, int y);
     void sync_toc_active(bool auto_scroll);
 

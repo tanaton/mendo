@@ -228,7 +228,7 @@ void Renderer::RecreatePaneFormats()
     }
 
     // 全レイアウトは IDWriteTextFormat にバインドされているため format 再作成と同時に破棄する。
-    icon_layouts_.clear();
+    text_layouts_.SetFactory(backend_.GetDWriteFactory());
     title_layout_ = {};
     search_count_layout_ = {};
     toast_layout_ = {};

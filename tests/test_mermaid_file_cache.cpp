@@ -78,8 +78,8 @@ TEST_F(MermaidFileCacheTest, StoreAndLookupRoundTrip)
     EXPECT_TRUE(cache_.Lookup(key, entry, out));
     EXPECT_EQ(entry.css_width, 400.0f);
     EXPECT_EQ(entry.css_height, 300.0f);
-    ASSERT_EQ(out.size, png->size());
-    EXPECT_EQ(std::memcmp(out.data.get(), png->data(), out.size), 0);
+    ASSERT_EQ(out.size(), png->size());
+    EXPECT_EQ(std::memcmp(out.data(), png->data(), out.size()), 0);
 }
 
 TEST_F(MermaidFileCacheTest, LookupMissReturnsFalse)
@@ -296,12 +296,12 @@ TEST_F(MermaidFileCacheTest, SaveAndLoadIndexRoundTrip)
     EXPECT_TRUE(fresh->Lookup(100, entry, out));
     EXPECT_EQ(entry.css_width, 640.0f);
     EXPECT_EQ(entry.css_height, 480.0f);
-    EXPECT_EQ(out.size, 1024u);
+    EXPECT_EQ(out.size(), 1024u);
 
     EXPECT_TRUE(fresh->Lookup(200, entry, out));
     EXPECT_EQ(entry.css_width, 320.0f);
     EXPECT_EQ(entry.css_height, 240.0f);
-    EXPECT_EQ(out.size, 512u);
+    EXPECT_EQ(out.size(), 512u);
 }
 
 TEST_F(MermaidFileCacheTest, InitDoesNotTouchDisk)

@@ -9,8 +9,8 @@
 #include "theme.h"
 #include "ui_types.h"
 #include "ui_constants.h"
-#include "memory_resource.h"
 #include "search_state.h"
+#include "text_layout_cache.h"
 #include <memory_resource>
 #include <span>
 #include <string_view>
@@ -59,6 +59,12 @@ public:
     {
         hit_test_buffer_ = buf;
     }
+    // 上の書式で描く文字列のレイアウトを作り置く先。null なら文字列を描かない。
+    // 前フレームのレイアウトの破棄 (BeginFrame) は持ち主が行う。
+    void SetTextLayoutCache(TextLayoutCache* cache) noexcept
+    {
+        text_layouts_ = cache;
+    }
 
     void SetTheme(const Theme* theme) noexcept
     {
@@ -66,7 +72,7 @@ public:
         cached_is_dark_ = theme->IsDark();
         cached_stripe_color_ = mendo::TableStripeColor(cached_is_dark_);
     }
-    constexpr void SetFormats(const Formats& fmts) noexcept
+    void SetFormats(const Formats& fmts) noexcept
     {
         formats_ = fmts;
     }
@@ -202,23 +208,15 @@ private:
         std::span<const SearchMatch> matches, size_t first_global,
         float origin_x, float origin_y, int table_row, int table_col);
 
-    // INLINE_TEXT_CAPACITY を超える文字列は frame_resource_ にコピーする (寿命は次フレームまで)。
-    DrawTextCmd MakeTextCmd(const wchar_t* src, size_t len, D2D1_RECT_F r, IDWriteTextFormat* fmt, D2D1_COLOR_F col, BrushId brush_id = BrushId::Custom);
+    // 書式の揃えに従って origin から box の範囲に text を描く。
+    void EmitText(DrawCommandList& cmds, std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, D2D1_COLOR_F color, BrushId brush_id = BrushId::Custom);
 
     const Theme* theme_ = nullptr;
     Formats formats_;
+    TextLayoutCache* text_layouts_ = nullptr;
 
-    // フレーム単位の monotonic リソース。
-    // GenerateMdPane の戻り値は同一スコープ内で即 CommandExecutor::Execute に
-    // 渡されて消費される（renderer.cpp の呼び出しを参照）ため、
-    // 前フレームの内容を生かしておく必要はなくシングルバッファで十分。
-    // 大きめドキュメント (1 万コマンド規模) を初期バッファだけで賄えるサイズに設定し、
-    // 上流 pool への再 allocate を平常時はゼロにする。
-    MonotonicResource frame_resource_{ 1024 * 1024 };
-    DrawCommandList cmds_{ frame_resource_.resource() };
-    // 直前フレームのコマンド数。次フレーム冒頭で reserve に使い、
-    // 倍々再確保で発生する死蔵バッファを抑える。
-    size_t last_cmds_size_ = 0;
+    // 戻り値は同一スコープで CommandExecutor::Execute に渡されて消費されるので、毎フレーム clear して容量を使い回す。
+    DrawCommandList cmds_;
 
     const std::pmr::vector<SearchMatch>* search_matches_ = nullptr;
     int current_match_index_ = -1;

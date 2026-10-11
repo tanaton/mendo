@@ -20,8 +20,6 @@ public:
     {}
     void CancelPending() override
     {}
-    void ClearCache() override
-    {}
 
     void RequestSvg(std::wstring_view code, float max_width, bool dark_mode, SvgCallback cb) override
     {

@@ -78,10 +78,6 @@ public:
     }
     // 変化した場合 true。
     bool SetSideHoveredButton(PaneTarget t, PaneHeaderButton button) noexcept;
-    bool ClearSideButtonHover(PaneTarget t) noexcept
-    {
-        return SetSideHoveredButton(t, PaneHeaderButton::None);
-    }
 
     constexpr DragTarget GetDragTarget() const noexcept
     {

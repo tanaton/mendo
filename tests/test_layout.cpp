@@ -1291,21 +1291,24 @@ TEST_F(LayoutTest, LooseTaskListCheckboxIsEmitted)
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
         theme_.font_size_body, L"", &icon_fmt)));
 
+    TextLayoutCache text_layouts;
+    text_layouts.SetFactory(dwrite_factory_.Get());
     CommandGenerator gen;
     gen.SetTheme(&theme_);
-    gen.SetFormats({ nullptr, icon_fmt.Get(), nullptr });
+    gen.SetFormats({ nullptr, icon_fmt.Get(), nullptr, nullptr });
+    gen.SetTextLayoutCache(&text_layouts);
     PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
     auto cmds = gen.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
 
     int unchecked = 0;
     int checked = 0;
     for (const auto& cmd : cmds) {
-        if (auto* t = std::get_if<DrawTextCmd>(&cmd); t && t->text_len == 1) {
-            const wchar_t ch = t->text()[0];
-            if (ch == L'☐') {
+        if (auto* t = std::get_if<DrawTextLayoutCmd>(&cmd)) {
+            const auto text = text_layouts.TextOf(t->layout);
+            if (text == L"☐") {
                 ++unchecked;
             }
-            else if (ch == L'☑') {
+            else if (text == L"☑") {
                 ++checked;
             }
         }

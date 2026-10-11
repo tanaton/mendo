@@ -273,3 +273,17 @@ TEST(Utf16OffsetCursor, SkipsForwardWithoutVisitingEveryOffset)
     EXPECT_EQ(cursor.WideAt(103), wv.WideOffsetFromDocOffset(103));
     EXPECT_EQ(cursor.WideAt(static_cast<uint32_t>(text.size())), wv.WideOffsetFromDocOffset(static_cast<uint32_t>(text.size())));
 }
+
+// 計測経路の変換は対応表付きの変換と同じ文字列になる (不正バイト含む)。
+TEST(DecodeForDWrite, MatchesWideViewForDWrite)
+{
+    const std::string_view texts[] = {
+        "",
+        "ascii only",
+        "ascii \xE3\x81\x82\xE3\x81\x84 \xF0\x9F\x98\x80 bad\xE3\x81 \xFF\x80 end",
+        "\xE6\x97\xA5\xE6\x9C\xAC",
+    };
+    for (const auto text : texts) {
+        EXPECT_EQ(mendo::DecodeForDWrite(text), WideViewForDWrite{ text }.wide()) << text;
+    }
+}

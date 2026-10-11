@@ -1306,16 +1306,16 @@ TEST(AnalyzeReloadDiff, ClassifiesEdit)
     constexpr Case kCases[] = {
         { "hello world", "hello world", ReloadOp::NoChange, std::string_view::npos },
         { "", "", ReloadOp::NoChange, std::string_view::npos },
-        // 末尾追記はスクロールを維持する prefix-only growth
-        { "abc", "abcdef", ReloadOp::PrefixGrowth, 3 },
-        { "", "new content", ReloadOp::PrefixGrowth, 0 },
-        { "あいう", "あいうえお", ReloadOp::PrefixGrowth, 9 },
+        // 末尾追記も差し替えて差分位置へスクロールする
+        { "abc", "abcdef", ReloadOp::Replace, 3 },
+        { "", "new content", ReloadOp::Replace, 0 },
+        { "あいう", "あいうえお", ReloadOp::Replace, 9 },
         // truncate→rewrite の前半の可能性があるため defer
         { "abcdef", "abc", ReloadOp::DeferPrefixShrink, 3 },
         { "old content", "", ReloadOp::DeferPrefixShrink, 0 },
-        { "abcdef", "abcXef", ReloadOp::FullReload, 3 },
-        { "abc", "Xbc", ReloadOp::FullReload, 0 },
-        { "abcdef", "abcYYYz", ReloadOp::FullReload, 3 },
+        { "abcdef", "abcXef", ReloadOp::Replace, 3 },
+        { "abc", "Xbc", ReloadOp::Replace, 0 },
+        { "abcdef", "abcYYYz", ReloadOp::Replace, 3 },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(c.old_text) + " -> " + ::testing::PrintToString(c.new_text));
@@ -1814,7 +1814,7 @@ TEST(CalcScrollYForDiff, ParsedMarkdownIntegration)
 }
 
 // issue#146 回帰テスト:
-// 末尾追記 (PrefixGrowth) で旧コードが old_scroll を保持していたため、
+// 末尾追記 (旧 PrefixGrowth) で旧コードが old_scroll を保持していたため、
 // ユーザの編集場所にスクロールしなかった。AnalyzeReloadDiff と
 // CalcScrollYForDiff の組合せで「fallback ではなく diff_pos に対応する
 // 位置を返す」ことを担保する。
@@ -1825,9 +1825,9 @@ TEST(CalcScrollYForDiff, PrefixGrowthScrollsTowardAppendedTail)
     // 新 doc: 末尾に 1 段落追記
     const std::string new_md = old_md + "\n\npara_four_added";
 
-    // AnalyzeReloadDiff で PrefixGrowth と判定されること
+    // AnalyzeReloadDiff で Replace と判定されること
     const auto decision = AnalyzeReloadDiff(old_md, new_md);
-    ASSERT_EQ(decision.op, ReloadOp::PrefixGrowth);
+    ASSERT_EQ(decision.op, ReloadOp::Replace);
     ASSERT_EQ(decision.diff_pos, old_md.size());
 
     // 新 doc を pipeline で扱うイメージで cache を構築

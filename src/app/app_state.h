@@ -89,6 +89,9 @@ struct WindowState {
     bool size_changed_in_sizing = false;
     bool window_active = true;
     float cached_dpi_scale = 1.0f;
+    // 直近の WM_SIZE のクライアント領域 (物理 px)。同じ大きさの WM_SIZE を無視するために使う。
+    uint32_t client_width = 0;
+    uint32_t client_height = 0;
 };
 
 // アプリケーションの全状態を集約する構造体。

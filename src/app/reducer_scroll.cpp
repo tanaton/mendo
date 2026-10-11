@@ -81,15 +81,6 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
     }
 }
 
-void ReduceBlockHHoverChanged(AppState& state, SideEffectList& effects, const BlockHHoverChangedAction& a)
-{
-    if (state.view.hovered_h_block == a.node_index) {
-        return;
-    }
-    state.view.hovered_h_block = a.node_index;
-    PushEffect(effects, effect::InvalidateWindow{});
-}
-
 void ReduceBlockHScrollDragStarted(AppState& state, SideEffectList& effects, const BlockHScrollDragStartedAction& a)
 {
     if (!ResolveBlockHScrollGeometry(state, a.node_index).can_scroll()) {

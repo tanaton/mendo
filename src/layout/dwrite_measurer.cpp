@@ -162,11 +162,7 @@ bool MeasureWithoutTextLayout(const Node& node, NodeLayoutEntry& entry, float ma
 bool RemeasureExistingLayout(const Node& node, NodeLayoutEntry& entry, float layout_width) noexcept
 {
     MENDO_PROFILE("MeasureNode.fastpath");
-    HRESULT hr = entry.text_layout->SetMaxWidth(layout_width);
-    if (SUCCEEDED(hr)) {
-        hr = entry.text_layout->SetMaxHeight(LAYOUT_INFINITY);
-    }
-    if (SUCCEEDED(hr)) {
+    if (SUCCEEDED(entry.text_layout->SetMaxWidth(layout_width))) {
         DWRITE_TEXT_METRICS metrics{};
         entry.text_layout->GetMetrics(&metrics);
         FinishTextMeasure(node, entry, metrics, true);
@@ -199,44 +195,40 @@ HRESULT CreateFormat(IDWriteFactory* factory, const wchar_t* family, float size,
 }
 
 // 1 属性ぶんのレンジビルダ。隣接ランで属性が連続する間はマージし、切れたら emit する。
-// start/length は UTF-8 byte 単位で、emit 時に UTF-16 textPosition に変換する。
+// 範囲は UTF-16 textPosition 単位。
 template <typename Emit>
 class AttrRangeBuilder {
 public:
-    AttrRangeBuilder(const mendo::WideViewForDWrite& wv, Emit emit) noexcept
-        : wv_(wv), emit_(emit)
+    explicit AttrRangeBuilder(Emit emit) noexcept : emit_(emit)
     {
     }
 
-    void Update(bool active_now, const TextRun& run) noexcept
+    void Update(bool active_now, DWRITE_TEXT_RANGE r) noexcept
     {
         if (!active_now) {
             Flush();
             return;
         }
-        if (active_ && run.start == start_ + length_) {
-            length_ += run.length;
+        if (active_ && r.startPosition == range_.startPosition + range_.length) {
+            range_.length += r.length;
             return;
         }
         Flush();
-        start_ = run.start;
-        length_ = run.length;
+        range_ = r;
         active_ = true;
     }
 
     void Flush() noexcept
     {
         if (active_) {
-            emit_(wv_.WideRange(start_, length_));
+            emit_(range_);
             active_ = false;
         }
     }
 
 private:
-    const mendo::WideViewForDWrite& wv_;
     Emit emit_;
-    uint32_t start_ = 0;
-    uint32_t length_ = 0;
+    DWRITE_TEXT_RANGE range_{};
     bool active_ = false;
 };
 
@@ -308,40 +300,43 @@ IDWriteTextFormat* DWriteTextMeasurer::GetTableRowFormat(const NodeTableData& tb
     return tbl.IsHeaderRow(r) ? fmt_h_[3].Get() : fmt_body_.Get();
 }
 
-void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, const mendo::WideViewForDWrite& wv, RunFormatScope scope) const
+void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, RunFormatScope scope) const
 {
     if (runs.empty()) {
         return;
     }
 
-    AttrRangeBuilder bold{ wv, [layout](DWRITE_TEXT_RANGE r) noexcept {
+    AttrRangeBuilder bold{ [layout](DWRITE_TEXT_RANGE r) noexcept {
         layout->SetFontWeight(DWRITE_FONT_WEIGHT_EXTRA_BOLD, r);
     } };
-    AttrRangeBuilder italic{ wv, [layout](DWRITE_TEXT_RANGE r) noexcept {
+    AttrRangeBuilder italic{ [layout](DWRITE_TEXT_RANGE r) noexcept {
         layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, r);
     } };
-    AttrRangeBuilder code{ wv, [this, layout, apply_code_size = scope.apply_code_size](DWRITE_TEXT_RANGE r) noexcept {
+    AttrRangeBuilder code{ [this, layout, apply_code_size = scope.apply_code_size](DWRITE_TEXT_RANGE r) noexcept {
         layout->SetFontFamilyName(theme_->monospace_font.c_str(), r);
         if (apply_code_size) {
             layout->SetFontSize(theme_->font_size_code, r);
         }
     } };
-    AttrRangeBuilder strike{ wv, [layout](DWRITE_TEXT_RANGE r) noexcept {
+    AttrRangeBuilder strike{ [layout](DWRITE_TEXT_RANGE r) noexcept {
         layout->SetStrikethrough(TRUE, r);
     } };
-    AttrRangeBuilder link{ wv, [layout](DWRITE_TEXT_RANGE r) noexcept {
+    AttrRangeBuilder link{ [layout](DWRITE_TEXT_RANGE r) noexcept {
         layout->SetUnderline(TRUE, r);
     } };
 
+    // runs は start 昇順・非重複なので、境界の UTF-16 位置は前方への 1 回の走査で求まる。
+    mendo::Utf16OffsetCursor cursor{ text };
     for (const auto& r : runs) {
-        bold.Update(r.bold(), r);
-        italic.Update(r.italic(), r);
+        const DWRITE_TEXT_RANGE wr = cursor.WideRange(r.start, r.length);
+        bold.Update(r.bold(), wr);
+        italic.Update(r.italic(), wr);
         if (scope.apply_code) {
-            code.Update(r.code(), r);
+            code.Update(r.code(), wr);
         }
-        strike.Update(r.strikethrough(), r);
+        strike.Update(r.strikethrough(), wr);
         if (scope.apply_link) {
-            link.Update(r.has_link(), r);
+            link.Update(r.has_link(), wr);
         }
     }
 
@@ -368,23 +363,24 @@ void DWriteTextMeasurer::MeasureNode(
         return;
     }
 
-    // CodeBlock は fmt_code_ が NO_WRAP なので layout_width は折り返しに使われない。
+    // CodeBlock は fmt_code_ が NO_WRAP なので、高さも行もハイライト矩形も幅に依存しない。
+    if (node.type == NodeType::CodeBlock && entry.text_layout && entry.cached_height > 0.0f) {
+        entry.height = entry.cached_height;
+        entry.layout_dirty = false;
+        return;
+    }
     const float layout_width = (node.type == NodeType::CodeBlock) ? LAYOUT_INFINITY : max_width;
     if (entry.text_layout && RemeasureExistingLayout(node, entry, layout_width)) {
         return;
     }
 
-    // 1 ノードにつき WideViewForDWrite を 1 回だけ構築し、CreateTextLayout と ApplyRunFormatting で共有する
-    // (per-node の二重 UTF-8→UTF-16 decode を回避)。
     const auto& text = node.GetText();
-    const mendo::WideViewForDWrite wv{ text };
-
     ComPtr<IDWriteTextLayout> layout;
-    if (FAILED(mendo::CreateDocTextLayout(dwrite_, wv, GetTextFormat(node), layout_width, LAYOUT_INFINITY, &layout))) {
+    if (FAILED(mendo::CreateDocTextLayout(dwrite_, mendo::DecodeForDWrite(text), GetTextFormat(node), layout_width, LAYOUT_INFINITY, &layout))) {
         return;
     }
 
-    ApplyRunFormatting(layout.Get(), node.runs, wv, RunFormatScope::ForNode(node.type));
+    ApplyRunFormatting(layout.Get(), node.runs, text, RunFormatScope::ForNode(node.type));
 
     DWRITE_TEXT_METRICS metrics{};
     layout->GetMetrics(&metrics);
@@ -404,10 +400,9 @@ void DWriteTextMeasurer::BuildCellLayout(const NodeTableData& tbl, size_t r, siz
         return;
     }
     auto& cell_layout = tl.cell_layouts[tl.CellIndex(r, c)];
-    const mendo::WideViewForDWrite wv{ text };
-    mendo::CreateDocTextLayout(dwrite_, wv, row_fmt, LAYOUT_INFINITY, LAYOUT_INFINITY, &cell_layout);
+    mendo::CreateDocTextLayout(dwrite_, mendo::DecodeForDWrite(text), row_fmt, LAYOUT_INFINITY, LAYOUT_INFINITY, &cell_layout);
     if (cell_layout) {
-        ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), wv, RunFormatScope::ForCell());
+        ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, RunFormatScope::ForCell());
     }
 }
 

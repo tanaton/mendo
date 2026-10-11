@@ -1,5 +1,5 @@
 // ダイアグラムプレースホルダのエラー表示 (issue #271)。
-// DrawTextCmd の内容検証に実 IDWriteTextFormat が必要なため DWriteTestBase を使う。
+// 文字列のテキストレイアウトを作るのに実 DirectWrite が必要なため DWriteTestBase を使う。
 #include <gtest/gtest.h>
 #include "dwrite_test_base.h"
 #include "command_generator.h"
@@ -15,6 +15,7 @@ namespace {
 class DiagramPlaceholderTest : public DWriteTestBase {
 protected:
     CommandGenerator gen_;
+    TextLayoutCache text_layouts_;
     ComPtr<IDWriteTextFormat> placeholder_fmt_;
     std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 
@@ -28,19 +29,21 @@ protected:
             L"ja-jp", &placeholder_fmt_);
         ASSERT_TRUE(SUCCEEDED(hr));
         gen_.SetTheme(&theme_);
+        text_layouts_.SetFactory(dwrite_factory_.Get());
         gen_.SetFormats({ nullptr, nullptr, nullptr, placeholder_fmt_.Get() });
+        gen_.SetTextLayoutCache(&text_layouts_);
         gen_.SetHitTestBuffer(&hit_test_buffer_);
     }
 
-    // 生成コマンドから最初の DrawTextCmd のテキストを返す (無ければ空)。
-    static std::wstring_view FirstDrawText(const DrawCommandList& cmds)
+    // 生成コマンドから最初の文字列描画を返す (無ければ null)。
+    static const DrawTextLayoutCmd* FirstDrawText(const DrawCommandList& cmds)
     {
         for (const auto& c : cmds) {
-            if (auto* t = std::get_if<DrawTextCmd>(&c)) {
-                return { t->text(), t->text_len };
+            if (auto* t = std::get_if<DrawTextLayoutCmd>(&c)) {
+                return t;
             }
         }
-        return {};
+        return nullptr;
     }
 };
 
@@ -54,7 +57,9 @@ TEST_F(DiagramPlaceholderTest, NoErrorShowsLoadingText)
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{});
 
-    EXPECT_EQ(FirstDrawText(cmds), i18n::S().loading);
+    const auto* text_cmd = FirstDrawText(cmds);
+    ASSERT_NE(text_cmd, nullptr);
+    EXPECT_EQ(text_layouts_.TextOf(text_cmd->layout), i18n::S().loading);
 }
 
 TEST_F(DiagramPlaceholderTest, ErrorShowsErrorMessageInCautionColor)
@@ -76,14 +81,8 @@ TEST_F(DiagramPlaceholderTest, ErrorShowsErrorMessageInCautionColor)
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{});
 
-    const DrawTextCmd* error_cmd = nullptr;
-    for (const auto& c : cmds) {
-        if (auto* t = std::get_if<DrawTextCmd>(&c)) {
-            error_cmd = t;
-            break;
-        }
-    }
+    const auto* error_cmd = FirstDrawText(cmds);
     ASSERT_NE(error_cmd, nullptr);
-    EXPECT_EQ(std::wstring_view(error_cmd->text(), error_cmd->text_len), L"Parse error on line 1");
+    EXPECT_EQ(text_layouts_.TextOf(error_cmd->layout), L"Parse error on line 1");
     EXPECT_EQ(error_cmd->brush_id, BrushId::AlertCaution);
 }

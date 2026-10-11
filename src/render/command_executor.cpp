@@ -164,14 +164,6 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
                 }
             }
         },
-        [&](const DrawTextCmd& c) {
-            if (!c.format || c.text_len == 0) {
-                return;
-            }
-            if (auto* b = ResolveBrush(rt, c.brush_id, c.color)) {
-                rt->DrawText(c.text(), static_cast<UINT32>(c.text_len), c.format, c.rect, b);
-            }
-        },
         [&](const DrawBitmapCmd& c) {
             if (c.bitmap) {
                 rt->DrawBitmap(c.bitmap, c.dest);

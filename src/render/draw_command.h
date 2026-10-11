@@ -29,37 +29,13 @@ struct DrawLineCmd {
 
 struct DrawTextLayoutCmd {
     D2D1_POINT_2F origin;
-    IDWriteTextLayout* layout; // 非所有; ライフタイムはLayoutCacheが管理。
+    IDWriteTextLayout* layout; // 非所有; ライフタイムは LayoutCache か TextLayoutCache が管理。
     D2D1_COLOR_F color;
     BrushId brush_id = BrushId::Custom;
     // 可視範囲より高いレイアウトは [cull_top, cull_bottom] (origin と同じ座標系) 外のランを飛ばす。
     bool cull_runs = false;
     float cull_top = 0.0f;
     float cull_bottom = 0.0f;
-};
-
-struct DrawTextCmd {
-    // 1〜INLINE_TEXT_CAPACITY 文字は inline_buf に直接格納し、
-    // monotonic resource からの小さな allocate を回避する（icon 1 文字や "1." 等の頻出ケース）。
-    // pointer と同サイズに収めることで variant 最大サイズに影響しない。
-    static constexpr uint8_t INLINE_TEXT_CAPACITY = 4;
-    union {
-        const wchar_t* text_ptr; // 非所有; ライフタイムはMonotonicResourceが管理。
-        wchar_t inline_buf[INLINE_TEXT_CAPACITY];
-    };
-    IDWriteTextFormat* format = nullptr; // 非所有; ライフタイムはRendererが管理。
-    D2D1_RECT_F rect{};
-    D2D1_COLOR_F color{};
-    uint8_t text_len = 0;
-    BrushId brush_id = BrushId::Custom;
-
-    DrawTextCmd() noexcept : text_ptr(nullptr)
-    {}
-
-    const wchar_t* text() const noexcept
-    {
-        return (text_len <= INLINE_TEXT_CAPACITY) ? inline_buf : text_ptr;
-    }
 };
 
 struct DrawBitmapCmd {
@@ -97,7 +73,6 @@ using DrawCommand = std::variant<
     FillRoundedRectCmd,
     DrawLineCmd,
     DrawTextLayoutCmd,
-    DrawTextCmd,
     DrawBitmapCmd,
     FillEllipseCmd,
     DrawEllipseCmd,

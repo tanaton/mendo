@@ -83,12 +83,6 @@ struct CallbackTracker {
     int perform_sizing_update_count = 0;
     effect::ApplyThemeChange last_theme_change{};
     int apply_theme_change_count = 0;
-    int process_deferred_layout_count = 0;
-    int tick_loading_animation_count = 0;
-    int process_mermaid_batch_timer_count = 0;
-    int process_bitmap_manage_count = 0;
-    int mermaid_init_retry_count = 0;
-    int mermaid_idle_count = 0;
     std::pair<int, int> last_context_menu_pos{ 0, 0 };
     int show_context_menu_count = 0;
     std::vector<bool> sync_toc_auto_scroll_calls;
@@ -143,30 +137,6 @@ struct TestSideEffectCallbacks {
     {
         t->last_theme_change = e;
         t->apply_theme_change_count++;
-    }
-    void process_deferred_layout()
-    {
-        t->process_deferred_layout_count++;
-    }
-    void tick_loading_animation()
-    {
-        t->tick_loading_animation_count++;
-    }
-    void process_mermaid_batch_timer()
-    {
-        t->process_mermaid_batch_timer_count++;
-    }
-    void process_bitmap_manage()
-    {
-        t->process_bitmap_manage_count++;
-    }
-    void mermaid_init_retry()
-    {
-        t->mermaid_init_retry_count++;
-    }
-    void mermaid_idle()
-    {
-        t->mermaid_idle_count++;
     }
     void show_context_menu(int x, int y)
     {
@@ -293,42 +263,6 @@ TEST_F(SideEffectExecutorTest, ApplyThemeChangeForwardsStruct)
     EXPECT_EQ(tracker_.last_theme_change.type, effect::ApplyThemeChange::Type::Zoom);
 }
 
-TEST_F(SideEffectExecutorTest, ProcessDeferredLayoutDispatchesToCallback)
-{
-    exec_.ExecuteOne(effect::ProcessDeferredLayout{});
-    EXPECT_EQ(tracker_.process_deferred_layout_count, 1);
-}
-
-TEST_F(SideEffectExecutorTest, TickLoadingAnimationDispatchesToCallback)
-{
-    exec_.ExecuteOne(effect::TickLoadingAnimation{});
-    EXPECT_EQ(tracker_.tick_loading_animation_count, 1);
-}
-
-TEST_F(SideEffectExecutorTest, ProcessMermaidBatchTimerDispatchesToCallback)
-{
-    exec_.ExecuteOne(effect::ProcessMermaidBatchTimer{});
-    EXPECT_EQ(tracker_.process_mermaid_batch_timer_count, 1);
-}
-
-TEST_F(SideEffectExecutorTest, ProcessBitmapManageDispatchesToCallback)
-{
-    exec_.ExecuteOne(effect::ProcessBitmapManage{});
-    EXPECT_EQ(tracker_.process_bitmap_manage_count, 1);
-}
-
-TEST_F(SideEffectExecutorTest, MermaidInitRetryDispatchesToCallback)
-{
-    exec_.ExecuteOne(effect::MermaidInitRetry{});
-    EXPECT_EQ(tracker_.mermaid_init_retry_count, 1);
-}
-
-TEST_F(SideEffectExecutorTest, MermaidIdleForwardsToCallback)
-{
-    exec_.ExecuteOne(effect::MermaidIdle{});
-    EXPECT_EQ(tracker_.mermaid_idle_count, 1);
-}
-
 TEST_F(SideEffectExecutorTest, ShowContextMenuForwardsScreenPosition)
 {
     exec_.ExecuteOne(effect::ShowContextMenu{ 150, 200 });
@@ -364,12 +298,12 @@ TEST_F(SideEffectExecutorTest, ExecuteRunsAllEffectsInOrder)
     list.emplace_back(effect::ReloadFile{});
     list.emplace_back(effect::LoadFile{ std::pmr::wstring(L"A") });
     list.emplace_back(effect::LoadFile{ std::pmr::wstring(L"B") });
-    list.emplace_back(effect::MermaidInitRetry{});
+    list.emplace_back(effect::OpenFileDialog{});
 
     exec_.Execute(list);
 
     EXPECT_EQ(tracker_.reload_file_count, 1);
-    EXPECT_EQ(tracker_.mermaid_init_retry_count, 1);
+    EXPECT_EQ(tracker_.open_file_dialog_count, 1);
     ASSERT_EQ(tracker_.load_file_paths.size(), 2u);
     EXPECT_EQ(tracker_.load_file_paths[0], L"A");
     EXPECT_EQ(tracker_.load_file_paths[1], L"B");
@@ -380,7 +314,7 @@ TEST_F(SideEffectExecutorTest, ExecuteEmptyListIsNoop)
     std::pmr::vector<SideEffect> list;
     exec_.Execute(list);
     EXPECT_EQ(tracker_.reload_file_count, 0);
-    EXPECT_EQ(tracker_.mermaid_init_retry_count, 0);
+    EXPECT_EQ(tracker_.open_file_dialog_count, 0);
 }
 
 // ═══════════════════════════════════════════════

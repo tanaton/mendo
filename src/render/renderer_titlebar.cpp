@@ -63,9 +63,8 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
 
 void Renderer::DrawCenteredText(CenteredTextLayout& slot, std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box)
 {
-    auto* const brush = Brush(brush_id);
     auto* const dw = backend_.GetDWriteFactory();
-    if (!fmt || !brush || !dw) {
+    if (!fmt || !dw) {
         return;
     }
     if (!slot.layout || slot.format != fmt || slot.text != text || slot.box.width != box.width || slot.box.height != box.height) {
@@ -77,19 +76,21 @@ void Renderer::DrawCenteredText(CenteredTextLayout& slot, std::wstring_view text
             return;
         }
     }
-    const D2D1_POINT_2F origin = (box.width > 0.0f) ? D2D1::Point2F(rect.left, rect.top) : D2D1::Point2F((rect.left + rect.right) * 0.5f, (rect.top + rect.bottom) * 0.5f);
-    mendo::OpacityScope guard{ brush, alpha };
-    rt()->DrawTextLayout(origin, slot.layout.Get(), brush);
+    DrawLayoutCentered(slot.layout.Get(), rect, brush_id, alpha, box);
 }
 
 void Renderer::DrawIcon(std::wstring_view icon, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box)
 {
-    if (!fmt) {
+    DrawLayoutCentered(text_layouts_.Get(fmt, icon, box), rect, brush_id, alpha, box);
+}
+
+void Renderer::DrawLayoutCentered(IDWriteTextLayout* layout, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box)
+{
+    auto* const brush = Brush(brush_id);
+    if (!layout || !brush) {
         return;
     }
-    auto it = std::ranges::find_if(icon_layouts_, [&](const CenteredTextLayout& s) { return s.format == fmt && s.text == icon; });
-    if (it == icon_layouts_.end()) {
-        it = icon_layouts_.emplace(icon_layouts_.end());
-    }
-    DrawCenteredText(*it, icon, fmt, rect, brush_id, alpha, box);
+    const D2D1_POINT_2F origin = (box.width > 0.0f) ? D2D1::Point2F(rect.left, rect.top) : D2D1::Point2F((rect.left + rect.right) * 0.5f, (rect.top + rect.bottom) * 0.5f);
+    mendo::OpacityScope guard{ brush, alpha };
+    rt()->DrawTextLayout(origin, layout, brush);
 }

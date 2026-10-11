@@ -63,7 +63,8 @@ void FileExplorer::ListEntries() const
 
     const auto pattern = dir_base / L"*";
     WIN32_FIND_DATAW fd;
-    UniqueFindHandle hFind{ FindFirstFileW(pattern.c_str(), &fd) };
+    // 短縮名は使わないので取得を省き、大きなバッファで列挙してディレクトリの往復を減らす。
+    UniqueFindHandle hFind{ FindFirstFileExW(pattern.c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr, FIND_FIRST_EX_LARGE_FETCH) };
     if (!hFind) {
         return;
     }

@@ -26,6 +26,20 @@ TEST(LayoutCacheTest, InvalidateAllLayouts)
     }
 }
 
+// ズームで旧倍率の実測値が推定に使われると、画面外のコードブロック等の高さが古いまま残る。
+TEST(LayoutCacheTest, InvalidateAllLayoutsForgetsMeasuredSize)
+{
+    LayoutCache cache;
+    cache.Resize(1);
+    cache[0].cached_width = 600.0f;
+    cache[0].cached_height = 120.0f;
+
+    cache.InvalidateAllLayouts();
+
+    EXPECT_FALSE(cache[0].is_measured());
+    EXPECT_FLOAT_EQ(cache[0].cached_height, 0.0f);
+}
+
 TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesPositions)
 {
     LayoutCache cache;

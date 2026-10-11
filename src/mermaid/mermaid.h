@@ -54,7 +54,6 @@ public:
         disk_loaded_msg_ = disk_loaded_msg;
     }
     void ProcessDiskLoads();
-    void ClearCache() override;
     void Shutdown();
     void CancelPending() override;
     void DropQueued() override;

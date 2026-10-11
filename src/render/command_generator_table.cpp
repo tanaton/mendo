@@ -88,6 +88,19 @@ void CommandGenerator::GenTable(
     float y = has_row_geometry ? entry_text_top + tl.row_cum_y[r_begin] : entry_text_top;
     size_t bg_cursor = seek_bg(static_cast<uint32_t>(r_begin * tl.col_count));
 
+    // x は列順に単調なので、可視列は連続した区間 [c_begin, c_end) になる。
+    const auto col_step = [&](size_t c) noexcept { return tl.col_widths[c] + cell_padding * 2.0f + border; };
+    size_t c_begin = 0;
+    float x_begin = offset_x + border;
+    while (c_begin < drawn_cols && x_begin + tl.col_widths[c_begin] + cell_padding * 2.0f < cull_left) {
+        x_begin += col_step(c_begin);
+        ++c_begin;
+    }
+    size_t c_end = c_begin;
+    for (float x = x_begin; c_end < drawn_cols && x - border <= cull_right; ++c_end) {
+        x += col_step(c_end);
+    }
+
     for (size_t r = r_begin; r < r_end; r++) {
         const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme_->font_size_body * TABLE_ROW_HEIGHT_FACTOR);
 
@@ -105,46 +118,44 @@ void CommandGenerator::GenTable(
         cmds.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y), theme_->hr_color, border, BrushId::Hr });
 
         // 可視列のみコマンド生成、画面外は cell_text_starts で flat_offset を直接取得。
-        float cx = offset_x + border;
-        for (size_t c = 0; c < drawn_cols; c++) {
-            const float cw = tl.col_widths[c];
-            const float col_right = cx + cw + cell_padding * 2.0f;
-            const bool col_visible = (col_right >= cull_left) && (cx - border <= cull_right);
+        float cx = x_begin;
+        for (size_t c = c_begin; c < c_end; c++) {
+            const float text_x = cx + cell_padding;
+            const float text_y = y + cell_padding;
 
-            if (col_visible) {
-                cmds.emplace_back(DrawLineCmd{ D2D1::Point2F(cx - border, y), D2D1::Point2F(cx - border, y + row_h + border), theme_->hr_color, border, BrushId::Hr });
+            // bg_cursor は cell_index 昇順で進む。
+            bg_cursor = GenCellInlineCodeBgs(cmds, tl.cell_inline_code_bgs, bg_cursor, static_cast<uint32_t>(tl.CellIndex(r, c)), text_x, text_y, theme_->code_bg_color);
 
-                const float text_x = cx + cell_padding;
-                const float text_y = y + cell_padding;
-                IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c);
+            GenSearchHighlights(cmds, entry, node_index, text_x, text_y, static_cast<int>(r), static_cast<int>(c));
 
-                // bg_cursor は cell_index 昇順で進む。
-                bg_cursor = GenCellInlineCodeBgs(cmds, tl.cell_inline_code_bgs, bg_cursor, static_cast<uint32_t>(tl.CellIndex(r, c)), text_x, text_y, theme_->code_bg_color);
-
-                GenSearchHighlights(cmds, entry, node_index, text_x, text_y, static_cast<int>(r), static_cast<int>(c));
-
-                const auto cell_text = tbl->GetCellText(r, c);
-                const uint32_t cell_flat = tbl->CellTextStart(r, c);
-                GenTableCellContent(cmds, cell_text, CellDrawContext{
-                    .layout = cell_layout,
-                    .text_x = text_x,
-                    .text_y = text_y,
-                    .height = row_h,
-                    .flat_offset = cell_flat,
-                    .sel_start = sel_start,
-                    .sel_end = sel_end,
-                    .has_selection = has_selection,
-                    .is_header = is_header_row,
-                });
-            }
-
-            cx += cw + cell_padding * 2.0f + border;
+            GenTableCellContent(cmds, tbl->GetCellText(r, c), CellDrawContext{
+                .layout = tl.GetCellLayout(r, c),
+                .text_x = text_x,
+                .text_y = text_y,
+                .height = row_h,
+                .flat_offset = tbl->CellTextStart(r, c),
+                .sel_start = sel_start,
+                .sel_end = sel_end,
+                .has_selection = has_selection,
+                .is_header = is_header_row,
+            });
+            cx += col_step(c);
         }
-        cmds.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x + table_width, y), D2D1::Point2F(offset_x + table_width, y + row_h + border), theme_->hr_color, border, BrushId::Hr });
         y += row_h + border;
     }
 
     // r_end で打ち切った場合も下端線はテーブル全体の底に置く (可視外ならクリップされる)
     const float table_bottom = has_row_geometry ? entry_text_top + tl.row_cum_y[row_count] : y;
     cmds.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, table_bottom), D2D1::Point2F(offset_x + table_width, table_bottom), theme_->hr_color, border, BrushId::Hr });
+
+    // 縦罫線は可視列ごとに表の上端から下端まで 1 本で引く (行ごとに引くと 行×列 本になる)。可視外はクリップされる。
+    const auto vline = [&](float x) {
+        cmds.emplace_back(DrawLineCmd{ D2D1::Point2F(x, entry_text_top), D2D1::Point2F(x, table_bottom), theme_->hr_color, border, BrushId::Hr });
+    };
+    float cx = x_begin;
+    for (size_t c = c_begin; c < c_end; c++) {
+        vline(cx - border);
+        cx += col_step(c);
+    }
+    vline(offset_x + table_width);
 }

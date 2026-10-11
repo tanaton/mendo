@@ -31,108 +31,51 @@ void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cac
     cache.Resize(node_count);
 
     const bool width_changed = std::abs(viewport_width - last_viewport_width_) > kWidthChangeThreshold;
-    const bool partial = (viewport_top >= 0.0f);
-
     if (width_changed) {
         last_viewport_width_ = viewport_width;
     }
-
-    // partial=false 時は ±∞ (既定値) で full レイアウトを再現する
-    // (visible が常に true、不可視推定経路と early break が発火しない)。
-    // 部分レイアウトでは計測にも可視範囲を渡してテーブル内行を絞り込む。
-    const MeasureViewportRange vp = partial ? MeasureViewportRange{ viewport_top, viewport_bottom } : MeasureViewportRange{};
-    const float content_width = theme_->ContentWidth(viewport_width);
-
-    float y = theme_->margin_top;
-    bool any_dirty = false;
-    bool any_height_changed = false;
-    bool any_measured = false;
-    bool broke_early = false;
-
-    // 幅が不変なら可視範囲より上のノードは計測も推定も変わらないため、先頭からではなく
-    // 可視先頭から始める (ウィンドウ移動やスクロールバードラッグ終了でも全件走査していた)。
-    size_t start = 0;
-    if (!width_changed && partial) {
-        start = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, node_count, vp.top));
-        // 未推定のキャッシュ (位置が全て 0) では可視ノードが見つからず、省くと何も計測されない。
-        // 表示経路は MakeEstimatedLayoutCache 済みだが、空白表示を防ぐ安全網として先頭から組み直す。
-        // 位置確定済みで末尾より下を見ているだけなら全件走査を避けるため従来どおり省く。
-        if (start >= node_count && node_count > 0 && cache.Bottom(node_count - 1) <= 0.0f) {
-            start = 0;
-        }
-        else if (start > 0 && start < node_count) {
-            y = mendo::layout::NodeStartY(nodes, cache, *theme_, start);
-            // 上側の dirty は走査しないので保守的に仮定する。
-            any_dirty = true;
-        }
+    // 未推定のキャッシュ (位置が全て 0) では可視範囲が決まらないので、幅変更と同じく組み直す。
+    const bool unpositioned = node_count > 0 && cache.Bottom(node_count - 1) <= 0.0f;
+    if (width_changed || unpositioned) {
+        EstimateDirtyHeights(nodes, cache, theme_->ContentWidth(viewport_width), width_changed);
     }
 
-    for (size_t i = start; i < node_count; i++) {
-        auto& node = nodes[i];
-        auto& entry = cache[i];
-        const float indent = NodeIndent(node, *theme_);
-        const float node_width = content_width - indent;
-
-        const float sa = GetSpacingAbove(node, *theme_);
-        const float sb = GetSpacingBelow(node, *theme_);
-
-        if (width_changed || entry.layout_dirty) {
-            // 可視判定は古い高さを使った推定。
-            if (!IsOffscreen(y, entry.height, vp.top, vp.bottom)) {
-                const float old_height = entry.height;
-                cache.NoteMaterialized(i);
-                MeasureEntry(*measurer_, node, entry, node_width, vp, y + sa);
-                any_measured = true;
-                if (entry.height != old_height) {
-                    any_height_changed = true;
-                }
-            }
-            else {
-                // 不可視ノードは保守的な推定値だけ更新し、厳密値は後続の
-                // ProcessDirtyBatch / EnsureVisibleLayout に委ねる。
-                if (EstimateInvisibleNodeHeight(node, entry, *theme_, node_width)) {
-                    any_height_changed = true;
-                }
-                entry.layout_dirty = true;
-            }
-        }
-
-        if (entry.layout_dirty) {
-            any_dirty = true;
-        }
-
-        cache.SetTop(i, AdvanceNodeY(y, sa, entry.height, sb));
-
-        // 幅の変更がなければビューポートより下の高さは変わらないので早期終了する。
-        // 可視範囲で高さが変わった場合も、残りは一定量のシフトで済む。
-        if (!width_changed && y > vp.bottom) {
-            if (any_height_changed) {
-                RecomputeYPositions(nodes, cache, *theme_, i + 1, i);
-            }
-            // 中断地点より先にダーティノードが存在する可能性を保守的に仮定する。
-            // 実際に存在しなければ ProcessDirtyBatch が速やかに確認・クリアする。
-            any_dirty = true;
-            broke_early = true;
+    // 計測で高さが変わると可視範囲に入るノードも変わるため、可視の dirty が無くなるまで繰り返す。
+    // 計測に失敗し続けるノードがあっても止まるよう回数に上限を設ける。
+    constexpr int kMaxMeasurePasses = 8;
+    for (int pass = 0; pass < kMaxMeasurePasses; ++pass) {
+        if (!EnsureVisibleLayout(nodes, cache, viewport_width, viewport_top, viewport_bottom)) {
             break;
         }
     }
 
-    has_dirty_nodes_ = any_dirty;
-    if (any_measured) {
-        cache.IncrementEffectsGeneration();
+    // 範囲外は走査しないので dirty が残っていると保守的に仮定する。
+    const auto vr = ComputeVisibleNodeRange(cache, node_count, viewport_top, viewport_bottom);
+    bool any_dirty = vr.first > 0 || vr.last_plus_1 < node_count;
+    for (size_t i = vr.first; i < vr.last_plus_1 && !any_dirty; ++i) {
+        any_dirty = cache[i].layout_dirty;
     }
+    has_dirty_nodes_ = any_dirty;
 
-    MENDO_PLOT("layout.compute.partial", static_cast<int64_t>(partial));
     MENDO_PLOT("layout.compute.width_changed", static_cast<int64_t>(width_changed));
     MENDO_PLOT("layout.compute.node_count", static_cast<int64_t>(node_count));
-    MENDO_PLOT("layout.compute.broke_early", static_cast<int64_t>(broke_early));
 }
 
-void LayoutEngine::LayoutNodes(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
+void LayoutEngine::EstimateDirtyHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float content_width, bool mark_all_dirty)
 {
-    last_viewport_width_ = 0.0f; // 幅の変更検出を強制する
-    // 逆変換: content→viewport
-    ComputeLayout(nodes, cache, viewport_width + theme_->margin_left + theme_->margin_right);
+    MENDO_PROFILE("LayoutEngine::EstimateDirtyHeights");
+    float y = theme_->margin_top;
+    for (size_t i = 0; i < nodes.size(); i++) {
+        const auto& node = nodes[i];
+        auto& entry = cache[i];
+        if (mark_all_dirty) {
+            entry.layout_dirty = true;
+        }
+        if (entry.layout_dirty) {
+            EstimateInvisibleNodeHeight(node, entry, *theme_, content_width - NodeIndent(node, *theme_));
+        }
+        cache.SetTop(i, AdvanceNodeY(y, GetSpacingAbove(node, *theme_), entry.height, GetSpacingBelow(node, *theme_)));
+    }
 }
 
 bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width, float viewport_top, float viewport_bottom)
@@ -179,9 +122,6 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
         any_updated = true;
     }
 
-    if (any_updated || any_restored) {
-        cache.IncrementEffectsGeneration();
-    }
     if (any_updated) {
         has_dirty_nodes_ |= RecomputeYPositions(nodes, cache, *theme_, lo, last_measured);
     }
@@ -205,7 +145,6 @@ bool LayoutEngine::ProcessDirtyBatch(
         return false;
     }
 
-    cache.IncrementEffectsGeneration();
     has_dirty_nodes_ = RecomputeYPositions(nodes, cache, *theme_, result.first_processed, result.last_processed);
 
     // ビューポート制限時: 付近のダーティノードが全て処理済みなら完了とみなす。

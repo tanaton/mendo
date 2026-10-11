@@ -43,10 +43,11 @@ public:
         trail_points_.emplace_back(x, y);
     }
 
-    void OnMouseMove(float x, float y)
+    // 描画に表れる変化 (軌跡への点の追加・方向の変化) があれば true。
+    bool OnMouseMove(float x, float y)
     {
         if (phase_ == GesturePhase::Idle) {
-            return;
+            return false;
         }
 
         const float dx = x - start_x_;
@@ -56,19 +57,24 @@ public:
         if (phase_ == GesturePhase::Pressed && dist_sq >= GESTURE_THRESHOLD_SQ) {
             phase_ = GesturePhase::Tracking;
         }
-
-        if (phase_ == GesturePhase::Tracking) {
-            const auto& last = trail_points_.back();
-            const float pdx = x - last.x;
-            const float pdy = y - last.y;
-            if (pdx * pdx + pdy * pdy >= MIN_POINT_DISTANCE_SQ) {
-                if (trail_points_.size() >= static_cast<size_t>(TRAIL_MAX_POINTS)) {
-                    trail_points_.pop_front();
-                }
-                trail_points_.emplace_back(x, y);
-            }
-            UpdateDirection(dx, dy, dist_sq);
+        if (phase_ != GesturePhase::Tracking) {
+            return false;
         }
+
+        bool changed = false;
+        const auto& last = trail_points_.back();
+        const float pdx = x - last.x;
+        const float pdy = y - last.y;
+        if (pdx * pdx + pdy * pdy >= MIN_POINT_DISTANCE_SQ) {
+            if (trail_points_.size() >= static_cast<size_t>(TRAIL_MAX_POINTS)) {
+                trail_points_.pop_front();
+            }
+            trail_points_.emplace_back(x, y);
+            changed = true;
+        }
+        const auto prev_direction = direction_;
+        UpdateDirection(dx, dy, dist_sq);
+        return changed || direction_ != prev_direction;
     }
 
     GestureResult OnRButtonUp() noexcept

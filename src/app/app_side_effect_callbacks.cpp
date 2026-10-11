@@ -67,36 +67,6 @@ void AppSideEffectCallbacks::apply_theme_change(const effect::ApplyThemeChange& 
     app->HandleApplyThemeChange(e);
 }
 
-void AppSideEffectCallbacks::process_deferred_layout()
-{
-    app->OnDeferredLayout();
-}
-
-void AppSideEffectCallbacks::tick_loading_animation()
-{
-    app->file_load_service_.TickLoadingAnimation();
-}
-
-void AppSideEffectCallbacks::process_mermaid_batch_timer()
-{
-    app->resource_manager_.ProcessMermaidBatch();
-}
-
-void AppSideEffectCallbacks::process_bitmap_manage()
-{
-    app->resource_manager_.OnBitmapManageTimer();
-}
-
-void AppSideEffectCallbacks::mermaid_init_retry()
-{
-    app->mermaid_renderer_.OnInitRetryTimer();
-}
-
-void AppSideEffectCallbacks::mermaid_idle()
-{
-    app->mermaid_renderer_.OnIdleTimer();
-}
-
 void AppSideEffectCallbacks::show_context_menu(int x, int y)
 {
     app->OnContextMenu(x, y);
