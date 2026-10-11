@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "document.h"
+#include "document_utils.h"
 #include "example_files.h"
 #include "markdown_fragment_gen.h"
 #include "parse_invariants.h"
@@ -9,7 +10,6 @@
 #include <format>
 #include <map>
 #include <random>
-#include <set>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -190,30 +190,41 @@ TEST(ParserProperty, TightAndLooseListsKeepEveryWordInItsBlockKind)
 // ---- 見出しアンカー ----
 
 // TOC / 内部リンクは anchor_id → ノードの逆引きなので、衝突すると後続見出しへ飛べなくなる。
-TEST(ParserProperty, HeadingAnchorsAreUniqueAndResolveToTheirHeading)
+// 期待値は連番付きスラグも登録する github-slugger の素直な実装で求める。
+TEST(ParserProperty, HeadingAnchorsMatchGithubSluggerAndResolveToTheirHeading)
 {
-    static constexpr std::array<std::string_view, 9> kVocab{ "A", "A-1", "A 1", "a", "A-1-1", "a-2", "!!!", "日本", "日本-1" };
-    for (uint32_t seed = 1; seed <= 300; ++seed) {
+    static constexpr std::array<std::string_view, 16> kVocab{
+        "A", "A-1", "A-2", "A-1-1", "A-0", "A-01", "A--1", "A-", "A 1", "a", "a-2", "a-99999999999", "B-3", "!!!", "日本", "日本-1"
+    };
+    for (uint32_t seed = 1; seed <= 500; ++seed) {
         std::mt19937 rng{ seed };
-        const int n = std::uniform_int_distribution<int>(1, 8)(rng);
+        const int n = std::uniform_int_distribution<int>(1, 12)(rng);
         std::string md;
+        std::map<std::string, int, std::less<>> occurrences;
+        std::vector<std::string> expected;
         for (int i = 0; i < n; ++i) {
-            md += "## ";
-            md += kVocab[std::uniform_int_distribution<size_t>(0, kVocab.size() - 1)(rng)];
-            md += "\n\n";
+            const auto text = kVocab[std::uniform_int_distribution<size_t>(0, kVocab.size() - 1)(rng)];
+            md += std::format("## {}\n\n", text);
+            const std::string base{ GenerateAnchorId(text) };
+            auto slug = base;
+            if (const auto it = occurrences.find(base); it != occurrences.end()) {
+                do {
+                    slug = std::format("{}-{}", base, ++it->second);
+                } while (occurrences.contains(slug));
+            }
+            occurrences.try_emplace(slug, 0);
+            expected.push_back(std::move(slug));
         }
         SCOPED_TRACE(std::format("seed={} md=\n{}", seed, md));
         const auto doc = Document::FromMarkdown(std::pmr::string{ md }, L"");
         const auto& nodes = doc.GetNodes();
         ASSERT_EQ(nodes.size(), static_cast<size_t>(n));
-        std::set<std::string_view> seen;
         for (size_t i = 0; i < nodes.size(); ++i) {
             const auto anchor = nodes[i].anchor_id();
-            if (anchor.empty()) {
-                continue;
+            EXPECT_EQ(anchor, expected[i]) << "node " << i;
+            if (!anchor.empty()) {
+                EXPECT_EQ(doc.FindAnchorIndex(anchor), static_cast<int>(i)) << "anchor '" << anchor << "'";
             }
-            EXPECT_TRUE(seen.insert(anchor).second) << "duplicate anchor '" << anchor << "' at node " << i;
-            EXPECT_EQ(doc.FindAnchorIndex(anchor), static_cast<int>(i)) << "anchor '" << anchor << "'";
         }
     }
 }

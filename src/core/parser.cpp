@@ -4,6 +4,7 @@
 #include "syntax.h"
 #include "profiler.h"
 #include "md4c.h"
+#include <charconv>
 #include <functional>
 #include <unordered_map>
 #include <format>
@@ -108,7 +109,7 @@ struct ParseContext {
     // nullptr のときは AppendDoc / FlushPendingRun は no-op。
     std::pmr::string* active_text_buffer = nullptr;
 
-    // アンカーIDの一意性追跡: スラグ -> 出現回数。
+    // アンカーIDの一意性追跡: 見出し本文由来のスラグ -> 付けた連番の最大値。
     std::pmr::unordered_map<std::pmr::string, int, StringTransparentHash, std::equal_to<>> anchor_counts;
 
     // 現在ノードの link_urls の URL -> インデックス索引。URL 数が kLinkUrlLinearScanMax を
@@ -529,6 +530,24 @@ void LeaveCodeBlock(ParseContext* ctx)
     }
 }
 
+// slug が他の見出しに付けた連番付きスラグ "X-k" か。連番付きスラグは登録せず、X に付けた連番が k に
+// 達しているかで判定する。採用したものも登録する github-slugger と結果は同じで、重複見出しが多くてもマップが膨らまない。
+bool IsNumberedAnchorTaken(const ParseContext& ctx, std::string_view slug)
+{
+    // 連番は 1 以上の 10 進数で先頭に 0 が付かない。'-' を含まないので最後の '-' で一意に分けられる。
+    const size_t dash = slug.rfind('-');
+    if (dash == std::string_view::npos || slug.substr(dash + 1).starts_with('0')) {
+        return false;
+    }
+    int k = 0;
+    const char* const last = slug.data() + slug.size();
+    if (const auto [p, ec] = std::from_chars(slug.data() + dash + 1, last, k); ec != std::errc{} || p != last) {
+        return false;
+    }
+    const auto it = ctx.anchor_counts.find(slug.substr(0, dash));
+    return it != ctx.anchor_counts.end() && it->second >= k;
+}
+
 // 重複する見出しは "-N" を付けて一意化する。
 void AssignHeadingAnchor(ParseContext* ctx, Node& heading)
 {
@@ -536,19 +555,18 @@ void AssignHeadingAnchor(ParseContext* ctx, Node& heading)
     GenerateAnchorIdInto(heading.GetText(), base_id);
     const auto [it, inserted] = ctx->anchor_counts.try_emplace(std::move(base_id), 0);
     auto& aid = heading.ensure_anchor_id_mut();
-    if (inserted) {
+    if (inserted && !IsNumberedAnchorTaken(*ctx, it->first)) {
         aid.assign(it->first.data(), it->first.size());
         return;
     }
-    // "A","A","A-1" のように連番付きスラグが別見出しの素のスラグと衝突しうるため、
-    // github-slugger と同じく未使用になるまで連番を進め、採用したスラグ自体も登録する。
+    // "A","A","A-1" のように連番付きスラグが別見出しの素のスラグと衝突しうるため、未使用になるまで連番を進める。
+    // "X-k" を作れるのは X だけなので、ここでは素のスラグとの衝突だけ見ればよい。
     std::pmr::string candidate;
     do {
         candidate.assign(it->first);
         std::format_to(std::back_inserter(candidate), "-{}", ++it->second);
     } while (ctx->anchor_counts.contains(candidate));
     aid.assign(candidate.data(), candidate.size());
-    ctx->anchor_counts.try_emplace(std::move(candidate), 0);
 }
 
 int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
@@ -992,14 +1010,16 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 // 各種予約サイズのヒント定数。実測 (100MB 入力 = 30k ノード相当) を基準に、
 // 初期確保サイズと再確保回数のバランスで決めている。値は「入力 N byte あたり 1 個」を表す:
 //   - kScratchInputBytesPerByte=8 → ノード当たりの平均テキスト長 ~8B 想定の scratch。
-//   - kInputBytesPerNode=256      → example/test.md 実測 ~258 byte/ノード。超過時は通常の伸長に任せる。
+//   - kInputBytesPerNode=128      → 1 ノード 128 byte まで細かい文書でもパース途中の再確保 (全ノードの移動) を
+//                                   避ける (example/test.md 実測 ~258 byte/ノード)。予約は入力と同程度のバイト数で、
+//                                   触れない分もコミットは残るが物理メモリには載らない。超過時は通常の伸長に任せる。
 //   - kInputBytesPerHeading=4096  → 1MB あたり 256 個の見出し相当。実測数十〜数百に収まる。
 //   - kInputBytesPerImage=512     → 画像頻度 ~0.2%。
 //   - kInputBytesPerBlockquote=512 → blockquote 頻度 (image と同程度)。
 //   - kInputBytesPerDiagram=1024  → ダイアグラム頻度 ~0.1%。
 //   - kInputBytesPerTable=1024    → テーブル頻度 (ダイアグラムと同程度を想定)。
 constexpr size_t kScratchInputBytesPerByte = 8;
-constexpr size_t kInputBytesPerNode = 256;
+constexpr size_t kInputBytesPerNode = 128;
 constexpr size_t kInputBytesPerHeading = 4096;
 constexpr size_t kInputBytesPerImage = 512;
 constexpr size_t kInputBytesPerBlockquote = 512;
@@ -1015,7 +1035,7 @@ void ReserveForInput(ParseContext& ctx, size_t input_size)
     ctx.nodes.reserve(nodes_reserve);
     ctx.list_counter.reserve(8);
     MENDO_STATF("nodes.reserve: input={} reserve={}", input_size, nodes_reserve);
-    // heading_indices と anchor_counts は 1 見出し 1 エントリで対になるので同じヒントを使う。
+    // anchor_counts のエントリ数は見出し数以下なので heading_indices と同じヒントを使う。
     const size_t heading_hint = std::clamp(input_size / kInputBytesPerHeading, 8uz, 256uz);
     ctx.heading_indices.reserve(heading_hint);
     ctx.anchor_counts.reserve(heading_hint);
