@@ -19,6 +19,20 @@ constexpr DipPoint ScreenToPaneDip(const MdPaneHitContext& ctx) noexcept
     return { dip.x - ctx.md_rect.x, dip.y - ctx.md_rect.y + ctx.scroll_y };
 }
 
+// layout 上の点 (x, y) をヒットテストし、base (ノードまたはセルの先頭) 起点の text_pos / char_pos を書く。
+void ResolveTextHit(HitTestService::HitResult& result, IDWriteTextLayout* layout, float x, float y,
+                    const mendo::WideViewForDWrite& wv, uint32_t base) noexcept
+{
+    BOOL is_trailing = FALSE;
+    BOOL is_inside = FALSE;
+    DWRITE_HIT_TEST_METRICS metrics{};
+    layout->HitTestPoint(x, y, &is_trailing, &is_inside, &metrics);
+    result.text_pos = base + wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0));
+    if (is_inside) {
+        result.char_pos = base + wv.DocOffsetFromWideOffset(metrics.textPosition);
+    }
+}
+
 // ノード高さ範囲外 (ノード間の余白等) のヒットを最寄りの非空ノードにクランプする。
 // 文書全体の末尾へ飛ばすと、余白クリックからのドラッグで巨大選択になる。
 HitTestService::HitResult ClampToNearestTextNode(const std::pmr::vector<Node>& nodes, int candidate) noexcept
@@ -100,13 +114,9 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
     const float local_x = dip_x - ctx.theme.margin_left - indent - NodeTextXOffset(node, ctx.theme) + h_scroll_x;
     const float local_y = dip_y - direct.text_top;
 
-    BOOL is_trailing = FALSE;
-    BOOL is_inside = FALSE;
-    DWRITE_HIT_TEST_METRICS metrics{};
-    entry.text_layout()->HitTestPoint(local_x, local_y, &is_trailing, &is_inside, &metrics);
-
-    const auto& wv = md_wv_cache_.Get(node.GetText());
-    return { direct.node_index, wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0)) };
+    HitResult result{ direct.node_index };
+    ResolveTextHit(result, entry.text_layout(), local_x, local_y, md_wv_cache_.Get(node.GetText()), 0);
+    return result;
 }
 
 int HitTestService::HitNode(const MdPaneHitContext& ctx) const noexcept
@@ -157,19 +167,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
     if (IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c)) {
         const float text_x = cell_left_x + TABLE_CELL_PADDING;
         const float text_y = row_top_y + TABLE_CELL_PADDING;
-
-        BOOL is_trailing = FALSE, is_inside = FALSE;
-        DWRITE_HIT_TEST_METRICS metrics{};
-        cell_layout->HitTestPoint(
-            dip_x - text_x,
-            dip_y - text_y,
-            &is_trailing,
-            &is_inside,
-            &metrics);
-
-        const auto& wv = cell_wv_cache_.Get(tbl->GetCellText(r, c));
-        const auto cell_doc_off = wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0));
-        result.text_pos = flat_offset + cell_doc_off;
+        ResolveTextHit(result, cell_layout, dip_x - text_x, dip_y - text_y, cell_wv_cache_.Get(tbl->GetCellText(r, c)), flat_offset);
     }
     else {
         result.text_pos = flat_offset;

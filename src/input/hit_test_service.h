@@ -7,6 +7,8 @@
 #include "theme.h"
 #include "ui_constants.h"
 #include <algorithm>
+#include <cstdint>
+#include <limits>
 #include <memory_resource>
 #include <ranges>
 #include <unordered_map>
@@ -111,8 +113,13 @@ inline float LookupBlockScrollX(const MdPaneHitContext& ctx, int node) noexcept
 class HitTestService {
 public:
     struct HitResult {
+        static constexpr uint32_t kNoChar = std::numeric_limits<uint32_t>::max();
+
         int node_index = -1;
+        // キャレット位置 (選択の端)。文字の右半分を指すとその文字の後ろになる。
         uint32_t text_pos = 0;
+        // 点の下にある文字の位置 (リンクの判定)。文字の上でなければ kNoChar。
+        uint32_t char_pos = kNoChar;
     };
 
     HitResult HitTest(const MdPaneHitContext& ctx) const noexcept;

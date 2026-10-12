@@ -34,7 +34,7 @@ std::optional<std::string_view> App::GetLinkAtHit(const HitResult& hit) const
     if (hit.node_index < 0 || hit.node_index >= static_cast<int>(nodes.size())) {
         return std::nullopt;
     }
-    return FindLinkAtPosition(nodes[hit.node_index], hit.text_pos);
+    return FindLinkAtPosition(nodes[hit.node_index], hit.char_pos);
 }
 
 void App::OnLButtonDown(int px, int py)
@@ -135,7 +135,8 @@ void App::OnLButtonDblClk(int px, int py)
         return;
     }
     const auto hit = HitTest(px, py);
-    Dispatch(SelectWordAction{ hit.node_index, hit.text_pos });
+    // 単語はカーソル下の文字で決める。文字の上でない (行末より右等) ときは従来どおりキャレット位置で決める。
+    Dispatch(SelectWordAction{ hit.node_index, hit.char_pos != HitTestService::HitResult::kNoChar ? hit.char_pos : hit.text_pos });
 }
 
 void App::OnMouseMove(int px, int py)
