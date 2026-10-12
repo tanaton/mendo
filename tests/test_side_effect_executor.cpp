@@ -78,7 +78,6 @@ struct CallbackTracker {
     int renderer_resize_count = 0;
     float last_renderer_dpi = 0.0f;
     int renderer_set_dpi_count = 0;
-    int clear_file_cache_count = 0;
     int perform_resize_end_count = 0;
     int perform_sizing_update_count = 0;
     effect::ApplyThemeChange last_theme_change{};
@@ -120,10 +119,6 @@ struct TestSideEffectCallbacks {
     {
         t->last_renderer_dpi = dpi;
         t->renderer_set_dpi_count++;
-    }
-    void clear_file_cache()
-    {
-        t->clear_file_cache_count++;
     }
     void perform_resize_end()
     {
@@ -236,12 +231,6 @@ TEST_F(SideEffectExecutorTest, RendererSetDpiForwardsDpiValue)
     exec_.ExecuteOne(effect::RendererSetDpi{ 144.0f });
     EXPECT_EQ(tracker_.renderer_set_dpi_count, 1);
     EXPECT_FLOAT_EQ(tracker_.last_renderer_dpi, 144.0f);
-}
-
-TEST_F(SideEffectExecutorTest, ClearFileCacheDispatchesToCallback)
-{
-    exec_.ExecuteOne(effect::ClearFileCache{});
-    EXPECT_EQ(tracker_.clear_file_cache_count, 1);
 }
 
 TEST_F(SideEffectExecutorTest, PerformResizeEndDispatchesToCallback)

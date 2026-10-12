@@ -121,9 +121,6 @@ public:
             [this](const effect::NotifyImageLoaded&) {
                 cb_.on_app_image_loaded();
             },
-            [this](const effect::ClearFileCache&) {
-                cb_.clear_file_cache();
-            },
             [this](const effect::StartFileWatch& ev) {
                 deps_.file_watcher->StartWatching(ev.path, [host = deps_.host]() {
                     host->KillTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE);

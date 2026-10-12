@@ -108,7 +108,6 @@ void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChanged
     // DPI 変更では IDWriteTextLayout (DIP 単位) は不変。
     state.document.layout_cache.NotifyDpiChanged();
     PushEffect(effects, effect::RendererSetDpi{ static_cast<float>(a.dpi) });
-    PushEffect(effects, effect::ClearFileCache{});
     const auto& rc = a.suggested;
     PushEffect(effects, effect::SetWindowPosition{ rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top });
 }

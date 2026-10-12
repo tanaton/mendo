@@ -561,7 +561,6 @@ TEST_F(ReducerTest, DpiChanged_UpdatesScale)
 
     EXPECT_FLOAT_EQ(state.window.cached_dpi_scale, 2.0f);
     EXPECT_TRUE(HasEffect<effect::RendererSetDpi>(effects));
-    EXPECT_TRUE(HasEffect<effect::ClearFileCache>(effects));
     EXPECT_TRUE(HasEffect<effect::SetWindowPosition>(effects));
 }
 

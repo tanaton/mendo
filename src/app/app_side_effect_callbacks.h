@@ -20,7 +20,6 @@ struct AppSideEffectCallbacks {
     void refresh_pane_layout();
     void renderer_resize(UINT w, UINT h);
     void renderer_set_dpi(float dpi);
-    void clear_file_cache();
     void perform_resize_end();
     void perform_sizing_update();
     void apply_theme_change(const effect::ApplyThemeChange& e);
