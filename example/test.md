@@ -1312,7 +1312,7 @@ JSON 系は ` ```json ` / ` ```jsonc ` / ` ```json5 ` の言語タグで認識�
 flowchart LR
     OPEN[CreateFileW<br>GENERIC_READ<br>FILE_SHARE_*] --> READ[ReadFile<br>pmr::string バッファへ直接読込]
     READ --> BOM[UTF-8 BOM 検出・除去]
-    BOM --> OUT[LoadedFileDoc { text UTF-8, byte_size }]
+    BOM --> OUT["LoadedFileDoc { text UTF-8, byte_size }"]
 ```
 
 ```cpp
@@ -1633,9 +1633,9 @@ flowchart TD
     APP --> KIND{解決結果}
     KIND -->|Anchor| ANCHOR[Document::FindAnchorIndex<br>脚注 → 見出しの順に引く → ScrollTarget 設定]
     KIND -->|ExternalUrl| SHELL[Win32Host::ShellOpen → ShellExecuteW]
-    KIND -->|別ファイル(.md)| LOAD[effect::LoadFile → DocumentService::LoadFile]
+    KIND -->|"別ファイル(.md)"| LOAD[effect::LoadFile → DocumentService::LoadFile]
     KIND -->|None| NOP[何もしない]
-    ANCHOR --> PUSH[NavHistory::Push (新規遷移時のみ)]
+    ANCHOR --> PUSH["NavHistory::Push (新規遷移時のみ)"]
     LOAD --> PUSH
 ```
 
