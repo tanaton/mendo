@@ -170,7 +170,7 @@ mendo.exe [ファイルパス | フォルダパス]
 | テキスト描画 | DirectWrite (`IDWriteTextLayout`) |
 | ダイアグラム | WebView2 + [Mermaid.js](https://mermaid.js.org/) |
 | Markdownパーサ | [md4c](https://github.com/mity/md4c) (SAX型コールバック) |
-| テスト | Google Test v1.17.0 |
+| テスト | Google Test v1.18.0 |
 | ビルド | CMake 3.20+ |
 
 ## ライセンス

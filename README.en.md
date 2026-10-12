@@ -171,7 +171,7 @@ If there is no last opened file, open a file with `Ctrl+O` or drag & drop.
 | Text rendering | DirectWrite (`IDWriteTextLayout`) |
 | Diagrams | WebView2 + [Mermaid.js](https://mermaid.js.org/) |
 | Markdown parser | [md4c](https://github.com/mity/md4c) (SAX-style callbacks) |
-| Tests | Google Test v1.17.0 |
+| Tests | Google Test v1.18.0 |
 | Build | CMake 3.20+ |
 
 ## License

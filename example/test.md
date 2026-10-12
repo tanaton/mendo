@@ -2986,7 +2986,7 @@ graph TD
     EXE --> WIL[WIL<br>v1.0.240803.1]
     EXE --> RC[mendo.rc<br>リソース]
     TEST --> CORE
-    TEST --> GTEST[Google Test v1.17.0<br>FetchContent]
+    TEST --> GTEST[Google Test v1.18.0<br>FetchContent]
     TEST --> SHLWAPI[shlwapi.lib]
 
     CORE --> D2D1[d2d1.lib]
@@ -3056,7 +3056,7 @@ build/tests/Release/mendo_tests.exe --gtest_brief=1
 
 ### 7.1 テストフレームワーク
 
-- **Google Test** v1.17.0（FetchContentで自動取得）
+- **Google Test** v1.18.0（FetchContentで自動取得）
 - 単一テストバイナリ `mendo_tests` に全テストをリンク（CTest への個別ケース登録は行っていない）
 
 ### 7.2 テスト対象範囲
@@ -3480,7 +3480,7 @@ src/
 | md4c | 0.6.0 | Markdown パース | MIT |
 | WebView2 SDK | 1.0.3967.48 | Mermaid描画用ブラウザコントロール | BSD |
 | WIL | 1.0.240803.1 | Windows実装ヘルパー | MIT |
-| Google Test | 1.17.0 | ユニットテスト | BSD-3-Clause |
+| Google Test | 1.18.0 | ユニットテスト | BSD-3-Clause |
 | mermaid.js | latest | ダイアグラム描画 | MIT |
 
 ### 付録C: Markdown表示サンプル
@@ -4155,7 +4155,7 @@ exit /b 0
     { "name": "md4c",        "version": "latest",       "license": "MIT" },
     { "name": "WebView2",    "version": "1.0.2903.40",  "license": "BSD" },
     { "name": "WIL",         "version": "1.0.240803.1", "license": "MIT" },
-    { "name": "Google Test", "version": "1.17.0",       "license": "BSD-3-Clause" }
+    { "name": "Google Test", "version": "1.18.0",       "license": "BSD-3-Clause" }
   ],
   "performance": {
     "smallFileMs": 50,
