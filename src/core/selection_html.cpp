@@ -162,6 +162,16 @@ enum class UrlSafety : uint8_t {
     Unsafe,
 };
 
+// URL 数は典型的に少数のためスタック上にインライン格納する。
+using UrlSafetyTable = mendo::small_vector<UrlSafety, 4>;
+
+UrlSafetyTable MakeUrlSafetyTable(size_t url_count)
+{
+    UrlSafetyTable t;
+    t.assign(url_count, UrlSafety::Unchecked);
+    return t;
+}
+
 // 危険なスキームのリンクは外す。IsSafeUrlScheme の結果は URL ごとに url_safety へキャッシュする。
 InlineState InlineStateOf(const TextRun& r, std::span<const std::pmr::string> link_urls, std::span<UrlSafety> url_safety)
 {
@@ -180,12 +190,14 @@ InlineState InlineStateOf(const TextRun& r, std::span<const std::pmr::string> li
 }
 
 // runs は start 昇順・非重複で並ぶ前提。run 境界単位で処理することで
-// 同一 state 区間の比較と IsSafeUrlScheme を run あたり 1 回に抑える。
+// 同一 state 区間の比較を run あたり 1 回に抑える。
+// url_safety は link_urls と同じ長さで、テーブルではセル間で共有して IsSafeUrlScheme を URL あたり 1 回にする。
 constexpr void AppendInlineHtml(
     std::pmr::string& out,
     std::string_view text,
     std::span<const TextRun> runs,
     std::span<const std::pmr::string> link_urls,
+    std::span<UrlSafety> url_safety,
     uint32_t start, uint32_t end)
 {
     end = ClampEndToText(end, text.size());
@@ -197,10 +209,6 @@ constexpr void AppendInlineHtml(
     InlineState current;
     size_t run_idx = 0;
     uint32_t pos = start;
-
-    // URL 数は典型的に少数のためスタック上にインライン格納する。
-    mendo::small_vector<UrlSafety, 4> url_safety;
-    url_safety.assign(link_urls.size(), UrlSafety::Unchecked);
 
     while (pos < end) {
         while (run_idx < runs.size() && runs[run_idx].start + runs[run_idx].length <= pos) {
@@ -253,7 +261,9 @@ constexpr void AppendInlineHtml(
 
 void AppendNodeInlineHtml(std::pmr::string& out, const Node& node, uint32_t start, uint32_t end)
 {
-    AppendInlineHtml(out, node.GetText(), node.runs, node.view_link_urls(), start, end);
+    const auto link_urls = node.view_link_urls();
+    auto url_safety = MakeUrlSafetyTable(link_urls.size());
+    AppendInlineHtml(out, node.GetText(), node.runs, link_urls, url_safety, start, end);
 }
 
 constexpr void AppendHexColor(std::pmr::string& out, uint32_t rgb)
@@ -488,6 +498,7 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
         return;
     }
 
+    auto url_safety = MakeUrlSafetyTable(link_urls.size());
     out.append("<table style=\"border-collapse:collapse;\">");
     {
         TableSectionScope section(out);
@@ -509,7 +520,7 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
                 out.append(">");
                 const uint32_t cell_start = tbl->CellTextStart(r, c);
                 const uint32_t cell_end = tbl->CellTextEnd(r, c);
-                AppendInlineHtml(out, tbl->GetCellText(r, c), tbl->GetCellRuns(r, c), link_urls,
+                AppendInlineHtml(out, tbl->GetCellText(r, c), tbl->GetCellRuns(r, c), link_urls, url_safety,
                                  std::clamp(start, cell_start, cell_end) - cell_start, std::clamp(end, cell_start, cell_end) - cell_start);
                 out.append(close_tag);
             }
