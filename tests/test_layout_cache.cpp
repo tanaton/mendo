@@ -10,19 +10,19 @@ TEST(LayoutCacheTest, InvalidateAllLayouts)
     cache.Resize(3);
 
     // レイアウトが設定された状態をシミュレート
-    cache[0].effects_applied = true;
-    cache[1].effects_applied = true;
-    cache[2].effects_applied = true;
+    cache[0].set_effects_applied(true);
+    cache[1].set_effects_applied(true);
+    cache[2].set_effects_applied(true);
     cache[0].ensure_inline_code_bgs().emplace_back(0.0f, 0.0f, 10.0f, 10.0f);
     cache[1].ensure_inline_code_bgs().emplace_back(0.0f, 0.0f, 20.0f, 20.0f);
 
     cache.InvalidateAllLayouts();
 
     for (size_t i = 0; i < 3; ++i) {
-        EXPECT_FALSE(cache[i].effects_applied) << "index " << i;
+        EXPECT_FALSE(cache[i].effects_applied()) << "index " << i;
         EXPECT_TRUE(cache[i].view_inline_code_bgs().empty()) << "index " << i;
         // text_layoutはComPtrで、Reset()するとnullになる
-        EXPECT_EQ(cache[i].text_layout.Get(), nullptr) << "index " << i;
+        EXPECT_EQ(cache[i].text_layout(), nullptr) << "index " << i;
     }
 }
 

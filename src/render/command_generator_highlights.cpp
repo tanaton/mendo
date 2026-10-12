@@ -41,7 +41,7 @@ void CommandGenerator::CollectHitTestRects(IDWriteTextLayout* layout, uint32_t s
 
 void CommandGenerator::GenSelectionHighlightCached(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y)
 {
-    auto* layout = entry.text_layout.Get();
+    auto* layout = entry.text_layout();
     if (!layout || doc_length == 0) {
         return;
     }
@@ -107,10 +107,10 @@ void CommandGenerator::RebuildSearchHlCache(
         const auto& m = matches[mi];
         IDWriteTextLayout* l = nullptr;
         if (m.table_row >= 0 && entry.has_table_layout()) {
-            l = entry.table_layout->GetCellLayout(static_cast<size_t>(m.table_row), static_cast<size_t>(m.table_col));
+            l = entry.table_layout()->GetCellLayout(static_cast<size_t>(m.table_row), static_cast<size_t>(m.table_col));
         }
         else if (m.table_row < 0) {
-            l = entry.text_layout.Get();
+            l = entry.text_layout();
         }
         // m.table_row >= 0 && !has_table_layout() のケースは layout 失効中の
         // 暫定状態で、l は nullptr のまま空 rect として記録する（次回再構築時に修復）。

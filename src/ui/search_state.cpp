@@ -173,8 +173,8 @@ void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) 
         if (m.table_row >= 0) {
             const auto& entry = cache[m.node_index];
             const auto row = static_cast<size_t>(m.table_row);
-            if (entry.has_table_layout() && row + 1 < entry.table_layout->row_cum_y.size()) {
-                return cache.Top(static_cast<size_t>(m.node_index)) + entry.table_layout->row_cum_y[row + 1] <= scroll_y;
+            if (entry.has_table_layout() && row + 1 < entry.table_layout()->row_cum_y.size()) {
+                return cache.Top(static_cast<size_t>(m.node_index)) + entry.table_layout()->row_cum_y[row + 1] <= scroll_y;
             }
         }
         return match_y(m) < scroll_y;

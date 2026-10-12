@@ -103,7 +103,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
             dirty_indices.push_back(i);
             last_measured = i;
         }
-        else if (entry.has_table_layout() && entry.table_layout->HasEvictedRows()) {
+        else if (entry.has_table_layout() && entry.table_layout()->HasEvictedRows()) {
             const float indent = NodeIndent(nodes[i], *theme_);
             cache.NoteMaterialized(static_cast<size_t>(i));
             const auto restored = measurer_->RestoreEvictedTableRows(nodes[i], entry, content_width - indent, vp.ToLocal(entry_top));

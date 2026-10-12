@@ -45,13 +45,13 @@ void CommandGenerator::GenTable(
     int node_index, float offset_x, float entry_text_top, float h_scroll_x)
 {
     const auto* tbl = node.table_data();
-    if (!tbl || tbl->row_count == 0 || !entry.has_table_layout() || entry.table_layout->col_widths.empty()) {
+    if (!tbl || tbl->row_count == 0 || !entry.has_table_layout() || entry.table_layout()->col_widths.empty()) {
         return;
     }
 
     const float cell_padding = TABLE_CELL_PADDING;
     const float border = TABLE_BORDER_WIDTH;
-    const auto& tl = *entry.table_layout;
+    const auto& tl = *entry.table_layout();
     const auto& selection = fc.selection;
     const float viewport_top = cull_top_;
     const float viewport_bottom = cull_bottom_;

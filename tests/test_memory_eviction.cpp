@@ -125,7 +125,7 @@ TEST_F(ProcessDirtyBatchViewportTest, SkipsFarOffscreenNodes)
     // 全ノードの layout_dirty を true に設定（eviction をシミュレート）
     for (size_t i = 0; i < nodes.size(); i++) {
         cache[i].layout_dirty = true;
-        cache[i].text_layout.Reset();
+        cache[i].reset_text_layout();
     }
 
     // ビューポートを先頭に設定（top=0, height=200）
@@ -157,7 +157,7 @@ TEST_F(ProcessDirtyBatchViewportTest, WithoutViewportLimitProcessesAll)
 
     for (size_t i = 0; i < nodes.size(); i++) {
         cache[i].layout_dirty = true;
-        cache[i].text_layout.Reset();
+        cache[i].reset_text_layout();
     }
 
     // ビューポート制限なし (clip 省略)
@@ -175,7 +175,7 @@ TEST_F(ProcessDirtyBatchViewportTest, HasDirtyNodesFalseAfterNearbyProcessed)
 
     for (size_t i = 0; i < nodes.size(); i++) {
         cache[i].layout_dirty = true;
-        cache[i].text_layout.Reset();
+        cache[i].reset_text_layout();
     }
 
     // ビューポート制限付きで全バッチ処理

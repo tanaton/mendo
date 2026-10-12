@@ -244,7 +244,7 @@ TEST_F(HitTestServiceTest, HitTestTable_NoLayoutDataReturnsTextEnd)
 
     // has_table_layout() を false にするため unique_ptr をリセット
     auto& entry = pr.cache[table_idx];
-    entry.table_layout.reset();
+    entry.reset_table_layout();
     ASSERT_FALSE(entry.has_table_layout());
 
     const float entry_text_top = pr.cache.Top(static_cast<size_t>(table_idx));
@@ -287,7 +287,7 @@ TEST_F(HitTestServiceTest, HitTestTable_LinearScanHitsFirstRow)
 
     const auto& entry = pr.cache[table_idx];
     ASSERT_TRUE(entry.has_table_layout());
-    const auto& tl = *entry.table_layout;
+    const auto& tl = *entry.table_layout();
     ASSERT_GE(tl.row_heights.size(), 1u);
     ASSERT_GE(tl.col_widths.size(), 1u);
 

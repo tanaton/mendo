@@ -165,7 +165,7 @@ protected:
         const int idx = FindFirstNodeIndexByType(pl_.nodes, NodeType::Table);
         ASSERT_GE(idx, 0);
         ASSERT_TRUE(pl_.cache[idx].has_table_layout());
-        const auto& tl = *pl_.cache[idx].table_layout;
+        const auto& tl = *pl_.cache[idx].table_layout();
         t_ = { &tl, pl_.nodes[idx].table_data()->row_count, pl_.cache[idx].height, pl_.cache.Top(static_cast<size_t>(idx)) };
         ASSERT_TRUE(tl.HasRowGeometry(t_.row_count));
         ASSERT_EQ(tl.col_cum_x.size(), tl.col_widths.size() + 1);
