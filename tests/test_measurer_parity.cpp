@@ -43,10 +43,8 @@ private:
         if (src.has_code()) {
             n.set_code_language(src.code_language());
         }
-        if (!src.GetText().empty()) {
-            n.SetTextWithLineCount(src.GetText(), src.line_count);
-        }
-        n.runs = src.runs;
+        n.SetText(src.GetText(), src.line_count);
+        n.SetRuns(src.runs());
         if (src.has_image()) {
             n.ensure_image();
             *n.image_data() = *src.image_data();

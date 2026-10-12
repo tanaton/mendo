@@ -15,11 +15,11 @@ constexpr uint64_t PackTooltipKey(uint32_t outer, uint32_t inner) noexcept
     return (uint64_t{ outer } << 32) | inner;
 }
 
-// FindLinkAtPosition は view_link_urls() の要素を指す view を返すので、アドレスで添字を引ける。
+// FindLinkAtPosition は view_link_urls() の要素をそのまま返すので、アドレスで添字を引ける。
 uint32_t LinkUrlIndex(const Node& node, std::string_view url) noexcept
 {
     const auto urls = node.view_link_urls();
-    const auto it = std::ranges::find(urls, url.data(), [](const std::pmr::string& u) noexcept { return u.data(); });
+    const auto it = std::ranges::find(urls, url.data(), [](std::string_view u) noexcept { return u.data(); });
     return static_cast<uint32_t>(it - urls.begin());
 }
 

@@ -13,6 +13,7 @@
 #include "task_scheduler.h"
 #include "test_helpers.h"
 #include "theme.h"
+#include "test_nodes.h"
 
 using mendo::layout::DirtyBatchResult;
 using mendo::layout::RunParallel;
@@ -28,14 +29,14 @@ Node MakeStressNode(size_t i, bool include_code_block)
 {
     Node n;
     // 派生 mock のトークン seed として使うため、必ず source_offset を埋める。
-    n.SetSourceOffset(SourceOffsetTestBase(), i);
+    n.SetSourceOffset(i);
     const size_t bucket = i % 20;
 
     if (include_code_block && bucket < 2) {
         n.type = NodeType::CodeBlock;
         n.set_code_language(SyntaxLanguage::Cpp);
         std::string text = "int v_" + std::to_string(i) + " = 0;";
-        n.SetTextWithLineCount(std::string_view{ text }, 0);
+        SetTestText(n, text, 0);
         return n;
     }
     if (bucket < 12) {
@@ -46,14 +47,14 @@ Node MakeStressNode(size_t i, bool include_code_block)
         for (size_t k = 0; k < len; ++k) {
             text.push_back(static_cast<wchar_t>('a' + ((i + k) % 26)));
         }
-        n.SetTextWithLineCount(std::string_view{ text }, 0);
+        SetTestText(n, text, 0);
         return n;
     }
     if (bucket < 14) {
         n.type = NodeType::Heading;
         n.set_heading_level(static_cast<int8_t>(1 + (i % 6)));
         std::string text = "Heading " + std::to_string(i);
-        n.SetTextWithLineCount(std::string_view{ text }, 0);
+        SetTestText(n, text, 0);
         return n;
     }
     if (bucket == 14) {
@@ -62,7 +63,7 @@ Node MakeStressNode(size_t i, bool include_code_block)
     }
     if (bucket < 17) {
         Node table = MakeTableNode("a", "b");
-        table.SetSourceOffset(SourceOffsetTestBase(), i);
+        table.SetSourceOffset(i);
         return table;
     }
     if (bucket < 19) {
@@ -74,7 +75,7 @@ Node MakeStressNode(size_t i, bool include_code_block)
         return n;
     }
     n.type = NodeType::Paragraph;
-    n.SetTextWithLineCount(std::string_view{ "" }, 0);
+    n.SetText("", 0);
     return n;
 }
 
@@ -108,7 +109,7 @@ public:
         if (node.type != NodeType::CodeBlock || IsDiagramLanguage(node.code_language())) {
             return;
         }
-        const size_t seed = node.SourceOffsetFrom(SourceOffsetTestBase());
+        const size_t seed = node.SourceOffset();
         const auto seed32 = static_cast<uint32_t>(seed);
         const auto MakeTok = [seed32](uint32_t k) {
             return SyntaxToken{

@@ -71,7 +71,8 @@ void App::LoadHelpDocument()
 
 void App::ReplaceDocument(Document next, LayoutCache estimated)
 {
-    // 100MB 級の旧文書は数十万ノードの解放で UI を数十 ms 止めるため worker で破棄する。
+    // 100MB 級の旧文書はテキスト・runs・リンク URL を arena ごと捨てても、数十万ノードの走査と
+    // 表・トークン等の解放で UI を十数 ms 止めるため worker で破棄する。
     // Document は COM を持たず、確保元 (既定の pmr リソース) はスレッド安全。
     // LayoutCache は D2D 由来の参照を持つので対象外 (UI スレッドで破棄する)。
     constexpr size_t kBackgroundDisposeMinNodes = 4096;

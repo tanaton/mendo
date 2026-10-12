@@ -9,6 +9,7 @@
 #include "syntax.h"
 #include "parser.h"
 #include "utf8_fuzz_helpers.h"
+#include "test_nodes.h"
 
 namespace {
 
@@ -167,7 +168,7 @@ TEST(Syntax, ParserExtractsLanguage)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.input);
-        auto nodes = ParseMarkdown(c.input).nodes;
+        auto nodes = ParseNodes(c.input);
         EXPECT_EQ(nodes.size(), 1u);
         if (nodes.empty()) {
             continue;

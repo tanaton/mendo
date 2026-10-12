@@ -18,8 +18,8 @@ inline char* FindCr(char* p, size_t len) noexcept
 
 // CRLF / 旧式 CR を LF に正規化する (in-place)。
 // 改行を LF に揃えておくと、パーサ中の current_text と raw_text_ の memcmp 一致判定が成立し、
-// 大半の code block で view モード化 (owned_text_ 確保ゼロ) が選べる。
-// 複数行の paragraph は SOFTBR を空白に置き換えるため常に owned になる。
+// 大半の code block が raw_text_ をそのまま指せる (arena へのコピーが要らない)。
+// 複数行の paragraph は SOFTBR を空白に置き換えるため常に arena へコピーする。
 // CR まで一気にスキップし、その間は memmove でブロックコピーする (MSVC UCRT で SIMD)。
 // LF-only ファイルでは memchr 1 回で素通し。
 inline void NormalizeNewlines(std::pmr::string& s)

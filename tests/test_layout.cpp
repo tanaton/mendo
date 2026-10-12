@@ -13,6 +13,7 @@
 #include "dwrite_test_base.h"
 #include "parser.h"
 #include "test_helpers.h"
+#include "test_nodes.h"
 
 class LayoutTest : public DWriteTestBase {};
 
@@ -130,7 +131,7 @@ TEST_F(LayoutTest, NarrowViewportWrapsText)
 
 TEST_F(LayoutTest, LayoutDirtyFlagCleared)
 {
-    auto nodes = ParseMarkdown("Test").nodes;
+    auto nodes = ParseNodes("Test");
     LayoutCache cache;
     cache.Resize(nodes.size());
     EXPECT_TRUE(cache[0].layout_dirty);
@@ -243,7 +244,7 @@ TEST_F(LayoutTest, TotalHeightWithManyNodes)
 
 TEST_F(LayoutTest, ProcessDirtyBatchCleansNodes)
 {
-    auto nodes = ParseMarkdown("# A\n\nB\n\nC\n\nD\n\nE").nodes;
+    auto nodes = ParseNodes("# A\n\nB\n\nC\n\nD\n\nE");
     LayoutCache cache;
     cache.Resize(nodes.size());
     // まず部分的なレイアウトを実行
@@ -266,7 +267,7 @@ TEST_F(LayoutTest, ProcessDirtyBatchSmallBatch)
 {
     // 多数の段落を作成
     const auto md = MakeParagraphs(50);
-    auto nodes = ParseMarkdown(md).nodes;
+    auto nodes = ParseNodes(md);
     LayoutCache cache;
     cache.Resize(nodes.size());
 
@@ -702,7 +703,7 @@ TEST_F(LayoutTest, EnsureVisibleLayoutReturnsFalseWhenClean)
 TEST_F(LayoutTest, EnsureVisibleLayoutSkipsOffscreenDirtyNodes)
 {
     const auto md = MakeParagraphs(30);
-    auto nodes = ParseMarkdown(md).nodes;
+    auto nodes = ParseNodes(md);
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
@@ -739,7 +740,7 @@ TEST_F(LayoutTest, EnsureVisibleLayoutRecomputesYPositions)
 TEST_F(LayoutTest, EnsureVisibleLayoutUpdatesTotalHeight)
 {
     const auto md = MakeParagraphs(10);
-    auto nodes = ParseMarkdown(md).nodes;
+    auto nodes = ParseNodes(md);
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
@@ -967,7 +968,7 @@ TEST_F(LayoutTest, InlineCodeInHeadingAllLevels)
         ASSERT_NE(cache[0].text_layout(), nullptr);
 
         bool found_code_run = false;
-        for (const auto& run : nodes[0].runs) {
+        for (const auto& run : nodes[0].runs()) {
             if (run.code()) {
                 found_code_run = true;
                 float code_font_size = 0.0f;
@@ -991,7 +992,7 @@ TEST_F(LayoutTest, InlineCodeInParagraphUsesCodeFontSize)
     ASSERT_EQ(nodes[0].type, NodeType::Paragraph);
     ASSERT_NE(cache[0].text_layout(), nullptr);
 
-    for (const auto& run : nodes[0].runs) {
+    for (const auto& run : nodes[0].runs()) {
         if (run.code()) {
             float code_font_size = 0.0f;
             DWRITE_TEXT_RANGE range{};
@@ -1010,7 +1011,7 @@ TEST_F(LayoutTest, InlineCodeInHeadingUsesMonospaceFont)
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_NE(cache[0].text_layout(), nullptr);
 
-    for (const auto& run : nodes[0].runs) {
+    for (const auto& run : nodes[0].runs()) {
         if (run.code()) {
             WCHAR font_name[256] = {};
             DWRITE_TEXT_RANGE range{};
@@ -1048,7 +1049,7 @@ TEST(EstimateNodeHeightsTest, SingleParagraph)
 
 TEST(EstimateNodeHeightsTest, YPositionsIncreaseMonotonically)
 {
-    const auto nodes = ParseMarkdown("# A\n\nB\n\nC\n\nD").nodes;
+    const auto nodes = ParseNodes("# A\n\nB\n\nC\n\nD");
     const auto cache = EstimateHeights(nodes, GetLightTheme());
 
     for (size_t i = 1; i < nodes.size(); i++) {
@@ -1059,7 +1060,7 @@ TEST(EstimateNodeHeightsTest, YPositionsIncreaseMonotonically)
 
 TEST(EstimateNodeHeightsTest, NodesDoNotOverlap)
 {
-    const auto nodes = ParseMarkdown("# Heading\n\nParagraph\n\n---\n\n- List").nodes;
+    const auto nodes = ParseNodes("# Heading\n\nParagraph\n\n---\n\n- List");
     const auto cache = EstimateHeights(nodes, GetLightTheme());
 
     for (size_t i = 1; i < nodes.size(); i++) {
@@ -1177,7 +1178,7 @@ TEST(EstimateNodeHeightsTest, AllNodeTypesProducePositiveHeight)
 TEST_F(LayoutTest, EstimateVsActualHeightReasonableRange)
 {
     // 推定値がDirectWrite実測値と比べて極端に乖離しないことを確認する
-    auto nodes = ParseMarkdown("# Heading\n\nParagraph text\n\n```\ncode\n```\n\n---").nodes;
+    auto nodes = ParseNodes("# Heading\n\nParagraph text\n\n```\ncode\n```\n\n---");
     LayoutCache est_cache;
     est_cache.Resize(nodes.size());
 

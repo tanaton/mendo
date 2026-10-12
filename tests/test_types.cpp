@@ -126,7 +126,7 @@ TEST(NodeTest, DefaultState)
     EXPECT_EQ(node.list_number(), 0);
     EXPECT_FALSE(node.task_checked());
     EXPECT_TRUE(node.GetText().empty());
-    EXPECT_TRUE(node.runs.empty());
+    EXPECT_TRUE(node.runs().empty());
     EXPECT_EQ(node.code_language(), SyntaxLanguage::None);
     EXPECT_FALSE(node.has_table());
 }
@@ -276,37 +276,55 @@ TEST(NodeLineCount, DefaultIsZero)
     EXPECT_EQ(node.line_count, 0);
 }
 
-TEST(NodeLineCount, SetTextWithLineCountStoresValueAsIs)
+TEST(NodeLineCount, SetTextStoresValueAsIs)
 {
     Node node;
-    node.SetTextWithLineCount(std::string_view{ "a\nb\nc" }, 2);
+    node.SetText("a\nb\nc", 2);
     EXPECT_EQ(node.GetText(), "a\nb\nc");
     EXPECT_EQ(node.line_count, 2);
 }
 
-TEST(NodeLineCount, SetTextWithLineCountDoesNotCount)
+TEST(NodeLineCount, SetTextDoesNotCount)
 {
-    // 呼び出し側責任で line_count を渡すバリアント。SetText と違い再カウントしない。
+    // 呼び出し側責任で line_count を渡す。再カウントしない。
     // パーサーが marker 除去後に差分計算で渡すケースを想定。
     Node node;
-    node.SetTextWithLineCount(std::string_view{ "a\nb\nc\nd\ne" }, 7);
+    node.SetText("a\nb\nc\nd\ne", 7);
     EXPECT_EQ(node.line_count, 7);
 }
 
-TEST(NodeLineCount, SetTextWithLineCountZeroAllowed)
+TEST(NodeLineCount, SetTextZeroAllowed)
 {
     Node node;
-    node.SetTextWithLineCount(std::string_view{ "a\nb" }, 0);
+    node.SetText("a\nb", 0);
     EXPECT_EQ(node.line_count, 0);
 }
 
-TEST(NodeLineCount, SetTextWithLineCountMoveOverload)
+// テキストと runs はコピーせず、渡した領域をそのまま指す (置き場所の寿命は呼び出し側が持つ)。
+TEST(NodeTest, SetTextAndRunsDoNotCopy)
+{
+    static constexpr std::string_view text = "bold text";
+    TextRun run;
+    run.length = 4;
+    run.set_bold(true);
+    const TextRun runs[]{ run };
+
+    Node node;
+    node.SetText(text, 0);
+    node.SetRuns(runs);
+    EXPECT_EQ(node.GetText().data(), text.data());
+    ASSERT_EQ(node.runs().size(), 1u);
+    EXPECT_EQ(node.runs().data(), runs);
+}
+
+TEST(NodeTest, SourceOffsetUnsetByDefault)
 {
     Node node;
-    std::string s = "x\ny\nz";
-    node.SetTextWithLineCount(std::move(s), 2);
-    EXPECT_EQ(node.GetText(), "x\ny\nz");
-    EXPECT_EQ(node.line_count, 2);
+    EXPECT_FALSE(node.HasSourceOffset());
+    EXPECT_EQ(node.SourceOffset(), kUnsetSourceOffset);
+    node.SetSourceOffset(0);
+    EXPECT_TRUE(node.HasSourceOffset());
+    EXPECT_EQ(node.SourceOffset(), 0u);
 }
 
 TEST(NodeTest, HasTextEmptyByDefault)
@@ -371,7 +389,7 @@ TEST(NodeTest, MermaidCodeBlockTextStored)
     Node node;
     node.type = NodeType::CodeBlock;
     node.set_code_language(SyntaxLanguage::Mermaid);
-    node.SetTextWithLineCount(std::string_view{ "graph TD;A-->B" }, 0);
+    node.SetText("graph TD;A-->B", 0);
     EXPECT_EQ(node.GetText(), "graph TD;A-->B");
 }
 
@@ -380,7 +398,7 @@ TEST(NodeTest, LatexMathCodeBlockTextStored)
     Node node;
     node.type = NodeType::CodeBlock;
     node.set_code_language(SyntaxLanguage::LatexMath);
-    node.SetTextWithLineCount(std::string_view{ "E = mc^2" }, 0);
+    node.SetText("E = mc^2", 0);
     EXPECT_EQ(node.GetText(), "E = mc^2");
 }
 
@@ -389,7 +407,7 @@ TEST(NodeTest, NonDiagramCodeBlockTextStored)
     Node node;
     node.type = NodeType::CodeBlock;
     node.set_code_language(SyntaxLanguage::Cpp);
-    node.SetTextWithLineCount(std::string_view{ "int main() { return 0; }" }, 0);
+    node.SetText("int main() { return 0; }", 0);
     EXPECT_EQ(node.GetText(), "int main() { return 0; }");
 }
 
@@ -397,7 +415,7 @@ TEST(NodeTest, ParagraphTextStored)
 {
     Node node;
     node.type = NodeType::Paragraph;
-    node.SetTextWithLineCount(std::string_view{ "paragraph content" }, 0);
+    node.SetText("paragraph content", 0);
     EXPECT_EQ(node.GetText(), "paragraph content");
 }
 

@@ -16,6 +16,7 @@
 #include "task_scheduler.h"
 #include "test_helpers.h"
 #include "theme.h"
+#include "test_nodes.h"
 
 using mendo::layout::DirtyBatchResult;
 using mendo::layout::RunParallel;
@@ -172,7 +173,7 @@ TEST_F(ParallelMeasureTest, EnsureVisibleLayoutParallelMatchesSerial)
         md += "Paragraph " + std::to_string(i) + " " + std::string(static_cast<size_t>(i % 50), 'w') + "\n\n";
     }
     const auto build = [&](LayoutEngine& engine, std::pmr::vector<Node>& nodes, LayoutCache& cache) {
-        nodes = ParseMarkdown(md).nodes;
+        nodes = ParseNodes(md);
         cache.Resize(nodes.size());
         EstimateNodeHeights(nodes, cache, theme_);
         engine.EnsureVisibleLayout(nodes, cache, 800.0f, 0.0f, 100000.0f);
@@ -216,7 +217,7 @@ TEST_F(ParallelMeasureTest, ProcessDirtyBatchRetriesAfterChunkException)
         ThrowingMeasurer measurer;
         LayoutEngine engine;
         ASSERT_TRUE(engine.Init(&measurer, theme_));
-        auto nodes = ParseMarkdown(md).nodes;
+        auto nodes = ParseNodes(md);
         LayoutCache cache;
         cache.Resize(nodes.size());
         engine.ComputeLayout(nodes, cache, 800.0f);

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "mermaid_util.h"
 #include "parser.h"
+#include "test_nodes.h"
 
 using namespace std::literals;
 
@@ -390,7 +391,7 @@ namespace {
 
 Node ParseSingleCodeBlock(std::string_view md)
 {
-    auto nodes = ParseMarkdown(md).nodes;
+    auto nodes = ParseNodes(md);
     EXPECT_EQ(nodes.size(), 1u);
     return std::move(nodes.front());
 }

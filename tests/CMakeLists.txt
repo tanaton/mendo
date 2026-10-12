@@ -73,7 +73,6 @@ add_executable(mendo_tests
     test_resource_manager.cpp
     test_ascii_util.cpp
     test_html_entity.cpp
-    test_small_vector.cpp
     test_parallel_measure.cpp
     test_parallel_measure_stress.cpp
     test_view_stats.cpp

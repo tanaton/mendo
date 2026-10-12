@@ -1,12 +1,15 @@
 #include <gtest/gtest.h>
+#include <windows.h>
+#include <psapi.h>
 #include "document.h"
 #include "example_files.h"
+#include "test_nodes.h"
 #include <algorithm>
-#include <array>
 #include <chrono>
+#include <format>
+#include <iterator>
+#include <memory>
 #include <iostream>
-#include <numeric>
-#include <ranges>
 #include <string>
 #include <vector>
 
@@ -18,32 +21,25 @@ struct Stats {
     size_t empty_nodes = 0;
     size_t view_chars = 0;
     size_t owned_chars = 0;
-    size_t small_owned_nodes = 0; // <= 8 chars (SBO 圏)
-    size_t big_owned_nodes = 0;   // > 8 chars (heap 確保あり)
+    size_t runs = 0;
 };
 
 Stats CountStats(const Document& doc)
 {
     Stats s{};
     for (const auto& n : doc.GetNodes()) {
+        s.runs += n.runs().size();
         if (!n.HasText()) {
             s.empty_nodes++;
             continue;
         }
-        if (n.IsViewMode()) {
+        if (TextPointsIntoRaw(n, doc.GetRawText())) {
             s.view_nodes++;
             s.view_chars += n.GetText().size();
         }
         else {
             s.owned_nodes++;
-            const auto sz = n.GetText().size();
-            s.owned_chars += sz;
-            if (sz <= 8) {
-                s.small_owned_nodes++;
-            }
-            else {
-                s.big_owned_nodes++;
-            }
+            s.owned_chars += n.GetText().size();
         }
     }
     return s;
@@ -56,9 +52,9 @@ void PrintStats(const std::string& label, const Stats& s)
     std::cout << "=== " << label << " ===\n";
     std::cout << "  total nodes: " << total << "\n";
     std::cout << "  view nodes:  " << s.view_nodes << " (" << view_pct << "%) " << s.view_chars << " chars\n";
-    std::cout << "  owned nodes: " << s.owned_nodes << " (" << s.small_owned_nodes << " small, "
-              << s.big_owned_nodes << " big >8 chars) " << s.owned_chars << " chars\n";
+    std::cout << "  owned nodes: " << s.owned_nodes << " " << s.owned_chars << " chars (copied to arena)\n";
     std::cout << "  empty nodes: " << s.empty_nodes << "\n";
+    std::cout << "  runs:        " << s.runs << " (" << s.runs * sizeof(TextRun) << " bytes in arena)\n";
 }
 
 const char* NodeTypeLabel(NodeType t)
@@ -131,7 +127,7 @@ TEST(ViewStats, DISABLED_BreakdownByNodeType)
             if (n.type != type || !n.HasText()) {
                 continue;
             }
-            if (n.IsViewMode()) {
+            if (TextPointsIntoRaw(n, doc.GetRawText())) {
                 view_count++;
                 view_chars += n.GetText().size();
             }
@@ -153,7 +149,7 @@ TEST(ViewStats, SimpleCodeBlockIsViewed)
     for (const auto& n : doc.GetNodes()) {
         if (n.type == NodeType::CodeBlock) {
             found_code = true;
-            EXPECT_TRUE(n.IsViewMode());
+            EXPECT_TRUE(TextPointsIntoRaw(n, doc.GetRawText()));
         }
     }
     ASSERT_TRUE(found_code);
@@ -203,6 +199,88 @@ TEST(ViewStats, DISABLED_BenchFromMarkdownCrlfVsLf)
     bench("LF only input", lf_only);
 }
 
+namespace {
+
+PROCESS_MEMORY_COUNTERS_EX MemoryCounters()
+{
+    PROCESS_MEMORY_COUNTERS_EX pmc{};
+    pmc.cb = sizeof(pmc);
+    ::GetProcessMemoryInfo(::GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&pmc), sizeof(pmc));
+    return pmc;
+}
+
+constexpr size_t kBenchTargetBytes = 100 * 1024 * 1024;
+
+// パース・破棄の時間とパース後のメモリ増分を測る。
+void BenchLargeDocument(std::string_view label, const std::pmr::string& src)
+{
+    constexpr int kIterations = 3;
+    double parse_ms = 0.0;
+    double destroy_ms = 0.0;
+    size_t nodes = 0;
+    // 初回のみ (2 回目以降は解放済み領域の再利用で小さく出る)。
+    size_t private_delta = 0;
+    size_t working_set_delta = 0;
+    for (int i = 0; i < kIterations; ++i) {
+        std::pmr::string copy = src;
+        const auto before = MemoryCounters();
+        const auto t0 = std::chrono::steady_clock::now();
+        auto doc = std::make_unique<Document>(Document::FromMarkdown(std::move(copy), L"bench.md"));
+        const auto t1 = std::chrono::steady_clock::now();
+        if (i == 0) {
+            const auto after = MemoryCounters();
+            private_delta = after.PrivateUsage - before.PrivateUsage;
+            working_set_delta = after.WorkingSetSize - before.WorkingSetSize;
+        }
+        nodes = doc->GetNodes().size();
+        doc.reset();
+        const auto t2 = std::chrono::steady_clock::now();
+        parse_ms += std::chrono::duration<double, std::milli>(t1 - t0).count();
+        destroy_ms += std::chrono::duration<double, std::milli>(t2 - t1).count();
+    }
+    std::cout << "=== " << label << " (" << src.size() << " bytes, " << nodes << " nodes, sizeof(Node)="
+              << sizeof(Node) << ") ===\n"
+              << "  parse:   " << parse_ms / kIterations << " ms\n"
+              << "  destroy: " << destroy_ms / kIterations << " ms\n"
+              << "  committed by parse:   " << private_delta / (1024.0 * 1024.0) << " MB\n"
+              << "  working set by parse: " << working_set_delta / (1024.0 * 1024.0) << " MB\n";
+}
+
+} // namespace
+
+// 手元で実行: build/tests/Release/mendo_tests.exe --gtest_also_run_disabled_tests \
+//   --gtest_filter="ViewStats.DISABLED_BenchLarge*"
+TEST(ViewStats, DISABLED_BenchLargeDocument)
+{
+    const auto unit = ReadExampleFileBytes("example/test.md");
+    if (unit.empty()) {
+        GTEST_SKIP() << "example/test.md not found";
+    }
+    std::pmr::string src;
+    src.reserve(kBenchTargetBytes + unit.size());
+    while (src.size() < kBenchTargetBytes) {
+        src += unit;
+        src += "\n\n";
+    }
+    BenchLargeDocument("large document (test.md)", src);
+}
+
+// リンク集のように全行がリンクを持つ文書。
+TEST(ViewStats, DISABLED_BenchLargeLinkDocument)
+{
+    std::pmr::string src;
+    src.reserve(kBenchTargetBytes + 256);
+    for (size_t i = 0; src.size() < kBenchTargetBytes; ++i) {
+        std::format_to(std::back_inserter(src),
+                       "- [Item {0}](https://example.com/docs/page-{0}.html) と [詳細](#section-{1}) を参照\n",
+                       i, i % 100);
+        if (i % 20 == 19) {
+            src += '\n';
+        }
+    }
+    BenchLargeDocument("large document (links)", src);
+}
+
 // シンプルな段落 (span マークアップなし) が view 化されることを確認
 TEST(ViewStats, SimpleParagraphIsViewed)
 {
@@ -211,149 +289,12 @@ TEST(ViewStats, SimpleParagraphIsViewed)
     for (const auto& n : doc.GetNodes()) {
         if (n.type == NodeType::Paragraph) {
             found_paragraph = true;
-            EXPECT_TRUE(n.IsViewMode());
+            EXPECT_TRUE(TextPointsIntoRaw(n, doc.GetRawText()));
         }
     }
     ASSERT_TRUE(found_paragraph);
 }
 
-namespace {
-
-// runs.size() のヒストグラムを集計し、SBO=1..8 ヒット率を標準出力に書き出す。
-// predicate で集計対象を絞り込む (例: 特定 NodeType のみ)。
-template <class Pred>
-size_t RunRunsSizeHistogram(const Document& doc, std::string_view label, std::string_view total_label,
-                            std::string_view sbo_label, Pred pred)
-{
-    std::array<size_t, 12> buckets{};
-    size_t total = 0;
-    size_t total_runs = 0;
-    size_t max_runs = 0;
-    for (const auto& n : doc.GetNodes()) {
-        if (!pred(n)) {
-            continue;
-        }
-        const auto sz = n.runs.size();
-        total++;
-        total_runs += sz;
-        max_runs = std::max(max_runs, static_cast<size_t>(sz));
-        const size_t idx = std::min<size_t>(sz, 11);
-        buckets[idx]++;
-    }
-
-    auto pct = [&](size_t n) {
-        return total > 0 ? (100.0 * n / total) : 0.0;
-    };
-
-    std::cout << "=== " << label << " ===\n";
-    std::cout << "  " << total_label << ": " << total << ", total runs: " << total_runs
-              << ", avg: " << (total > 0 ? static_cast<double>(total_runs) / total : 0.0)
-              << ", max: " << max_runs << "\n";
-    for (size_t i = 0; i <= 10; ++i) {
-        std::cout << "  size=" << i << ": " << buckets[i] << " nodes (" << pct(buckets[i]) << "%)\n";
-    }
-    std::cout << "  size>=11: " << buckets[11] << " nodes (" << pct(buckets[11]) << "%)\n";
-
-    std::cout << "=== " << sbo_label << " ===\n";
-    for (size_t sbo : { 1u, 2u, 3u, 4u, 6u, 8u }) {
-        size_t hit = 0;
-        for (size_t i = 0; i <= std::min<size_t>(sbo, 11); ++i) {
-            hit += buckets[i];
-        }
-        std::cout << "  SBO=" << sbo << ": hit " << hit << " / " << total
-                  << " (" << pct(hit) << "%), miss " << (total - hit)
-                  << " (" << pct(total - hit) << "%)\n";
-    }
-    return total;
-}
-
-} // namespace
-
-// Node::runs (small_vector<TextRun, N>) の SBO 値が妥当かを test.md で計測する。
-// 各ノードの runs.size() ヒストグラムと、SBO=1..8 での hit 率を出力する。
-TEST(ViewStats, RunsSizeHistogramTestMd)
-{
-    auto bytes = ReadExampleFileBytes("example/test.md");
-    if (bytes.empty()) {
-        GTEST_SKIP() << "example/test.md not found";
-    }
-    auto doc = Document::FromMarkdown(std::move(bytes), L"test.md");
-
-    const size_t total = RunRunsSizeHistogram(
-        doc,
-        "runs.size() histogram (test.md, all NodeTypes)",
-        "total nodes",
-        "SBO hit rate (size <= N)",
-        [](const Node&) { return true; });
-
-    EXPECT_GT(total, 0u);
-}
-
-// runs を実際に使うノード型 (Heading/Paragraph/ListItem/BlockQuote/TaskListItem) に絞った
-// 分布。Table/Image/HR/CodeBlock は runs が常に空に近いので統計を歪める。
-TEST(ViewStats, RunsSizeHistogramTextNodesOnly)
-{
-    auto bytes = ReadExampleFileBytes("example/test.md");
-    if (bytes.empty()) {
-        GTEST_SKIP() << "example/test.md not found";
-    }
-    auto doc = Document::FromMarkdown(std::move(bytes), L"test.md");
-
-    const size_t total = RunRunsSizeHistogram(
-        doc,
-        "runs.size() histogram (test.md, text nodes only)",
-        "total text nodes",
-        "SBO hit rate (text nodes, size <= N)",
-        [](const Node& n) {
-        return n.type == NodeType::Heading || n.type == NodeType::Paragraph ||
-               n.type == NodeType::ListItem || n.type == NodeType::BlockQuote ||
-               n.type == NodeType::TaskListItem;
-    });
-
-    EXPECT_GT(total, 0u);
-}
-
-// NodeType 別の runs.size() の中央値・平均・最大を出力する診断ダンプ (assert なし)。
-TEST(ViewStats, DISABLED_RunsSizeBreakdownByNodeType)
-{
-    auto bytes = ReadExampleFileBytes("example/test.md");
-    if (bytes.empty()) {
-        GTEST_SKIP() << "example/test.md not found";
-    }
-    auto doc = Document::FromMarkdown(std::move(bytes), L"test.md");
-
-    std::cout << "=== runs.size() per NodeType (test.md) ===\n";
-    std::cout << "  type            | count | sum  | avg  | median | max | sbo4_hit\n";
-    for (NodeType type : { NodeType::Heading, NodeType::Paragraph, NodeType::CodeBlock,
-                           NodeType::ListItem, NodeType::BlockQuote, NodeType::Table,
-                           NodeType::TaskListItem, NodeType::Image, NodeType::HorizontalRule }) {
-        std::vector<size_t> sizes;
-        for (const auto& n : doc.GetNodes()) {
-            if (n.type == type) {
-                sizes.push_back(n.runs.size());
-            }
-        }
-        if (sizes.empty()) {
-            continue;
-        }
-        std::sort(sizes.begin(), sizes.end());
-        const size_t sum = std::accumulate(sizes.begin(), sizes.end(), size_t{ 0 });
-        const size_t median = sizes[sizes.size() / 2];
-        const size_t max_v = sizes.back();
-        const size_t sbo4_hit = std::ranges::count_if(sizes, [](size_t s) { return s <= 4; });
-        const double avg = static_cast<double>(sum) / sizes.size();
-        const double sbo4_pct = 100.0 * sbo4_hit / sizes.size();
-        std::cout << "  " << NodeTypeLabel(type)
-                  << " | count=" << sizes.size()
-                  << " sum=" << sum
-                  << " avg=" << avg
-                  << " median=" << median
-                  << " max=" << max_v
-                  << " sbo4_hit=" << sbo4_hit << " (" << sbo4_pct << "%)\n";
-    }
-}
-
-// test.md の owned code block の最初の数個を表示し、なぜ view 化されないかの手がかりを得る診断ダンプ (assert なし)。
 TEST(ViewStats, DISABLED_DumpFirstOwnedCodeBlocks)
 {
     auto bytes = ReadExampleFileBytes("example/test.md");
@@ -362,15 +303,14 @@ TEST(ViewStats, DISABLED_DumpFirstOwnedCodeBlocks)
     }
     auto doc = Document::FromMarkdown(std::move(bytes), L"test.md");
     const auto& raw = doc.GetRawText();
-    const char* const raw_base = raw.data();
     int dumped = 0;
     for (const auto& n : doc.GetNodes()) {
         if (n.type != NodeType::CodeBlock || !n.HasText()) {
             continue;
         }
-        const bool is_view = n.IsViewMode();
+        const bool is_view = TextPointsIntoRaw(n, raw);
         const std::string_view text = n.GetText();
-        const size_t off = n.SourceOffsetFrom(raw_base);
+        const size_t off = n.SourceOffset();
         std::cout << "[" << (is_view ? "view " : "owned") << "] source_offset=" << off
                   << " text.size()=" << text.size() << " line_count=" << n.line_count;
         if (off != kUnsetSourceOffset && off < raw.size()) {

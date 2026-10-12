@@ -9,6 +9,7 @@
 #include "wic_util.h"
 #include "task_scheduler.h"
 #include "test_helpers.h"
+#include "test_nodes.h"
 #include <d2d1.h>
 #include <wincodec.h>
 #include <wrl/client.h>
@@ -40,7 +41,7 @@ using Microsoft::WRL::ComPtr;
 
 TEST(ParserImage, ImageOnlyParagraphBecomesImageNode)
 {
-    auto nodes = ParseMarkdown("![alt text](image.png)").nodes;
+    auto nodes = ParseNodes("![alt text](image.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     EXPECT_EQ(nodes[0].image_data()->src, "image.png");
@@ -49,7 +50,7 @@ TEST(ParserImage, ImageOnlyParagraphBecomesImageNode)
 
 TEST(ParserImage, ImageWithRelativePath)
 {
-    auto nodes = ParseMarkdown("![photo](./images/photo.jpg)").nodes;
+    auto nodes = ParseNodes("![photo](./images/photo.jpg)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     EXPECT_EQ(nodes[0].image_data()->src, "./images/photo.jpg");
@@ -57,7 +58,7 @@ TEST(ParserImage, ImageWithRelativePath)
 
 TEST(ParserImage, ImageWithAbsolutePath)
 {
-    auto nodes = ParseMarkdown("![img](C:/Users/test/pic.png)").nodes;
+    auto nodes = ParseNodes("![img](C:/Users/test/pic.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     EXPECT_EQ(nodes[0].image_data()->src, "C:/Users/test/pic.png");
@@ -65,7 +66,7 @@ TEST(ParserImage, ImageWithAbsolutePath)
 
 TEST(ParserImage, ImageWithHttpUrl)
 {
-    auto nodes = ParseMarkdown("![logo](https://example.com/logo.png)").nodes;
+    auto nodes = ParseNodes("![logo](https://example.com/logo.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     EXPECT_EQ(nodes[0].image_data()->src, "https://example.com/logo.png");
@@ -73,7 +74,7 @@ TEST(ParserImage, ImageWithHttpUrl)
 
 TEST(ParserImage, ImageWithEmptyAlt)
 {
-    auto nodes = ParseMarkdown("![](image.png)").nodes;
+    auto nodes = ParseNodes("![](image.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     EXPECT_EQ(nodes[0].image_data()->src, "image.png");
@@ -82,7 +83,7 @@ TEST(ParserImage, ImageWithEmptyAlt)
 
 TEST(ParserImage, ImageWithTitle)
 {
-    auto nodes = ParseMarkdown("![alt](image.png \"My Title\")").nodes;
+    auto nodes = ParseNodes("![alt](image.png \"My Title\")");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     EXPECT_EQ(nodes[0].image_data()->src, "image.png");
@@ -90,14 +91,14 @@ TEST(ParserImage, ImageWithTitle)
 
 TEST(ParserImage, ImageAltTextPreserved)
 {
-    auto nodes = ParseMarkdown("![Hello World](pic.png)").nodes;
+    auto nodes = ParseNodes("![Hello World](pic.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].GetText(), "Hello World");
 }
 
 TEST(ParserImage, ImageDefaultDimensionsZero)
 {
-    auto nodes = ParseMarkdown("![alt](img.png)").nodes;
+    auto nodes = ParseNodes("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_FLOAT_EQ(nodes[0].image_data()->width, 0.0f);
     EXPECT_FLOAT_EQ(nodes[0].image_data()->height, 0.0f);
@@ -108,7 +109,7 @@ TEST(ParserImage, ImageDefaultDimensionsZero)
 TEST(ParserImage, ImageWithSurroundingTextStillConverts)
 {
     // 現在の実装では、画像を含む段落は全体がImageノードに変換される
-    auto nodes = ParseMarkdown("before ![alt](img.png) after").nodes;
+    auto nodes = ParseNodes("before ![alt](img.png) after");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     EXPECT_EQ(nodes[0].image_data()->src, "img.png");
@@ -116,7 +117,7 @@ TEST(ParserImage, ImageWithSurroundingTextStillConverts)
 
 TEST(ParserImage, MultipleImagesLastOneWins)
 {
-    auto nodes = ParseMarkdown("![a](first.png) ![b](second.png)").nodes;
+    auto nodes = ParseNodes("![a](first.png) ![b](second.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     // OnLeaveSpanで最後のimage_srcがノードに設定される
@@ -127,7 +128,7 @@ TEST(ParserImage, MultipleImagesLastOneWins)
 
 TEST(ParserImage, ImageInBlockquoteBecomesImageNode)
 {
-    auto nodes = ParseMarkdown("> ![alt](img.png)").nodes;
+    auto nodes = ParseNodes("> ![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     EXPECT_EQ(nodes[0].image_data()->src, "img.png");
@@ -137,7 +138,7 @@ TEST(ParserImage, ImageInTableCellDoesNotCorruptTable)
 {
     // テーブルセル内の画像が variant の NodeTableData を破壊しないこと。
     // 破壊されると active_text_buffer がダングリングになり UAF / クラッシュする。
-    auto nodes = ParseMarkdown("| ![badge](a.png) text | b |\n|---|---|\n| c | d |").nodes;
+    auto nodes = ParseNodes("| ![badge](a.png) text | b |\n|---|---|\n| c | d |");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Table);
     ASSERT_NE(nodes[0].table_data(), nullptr);
@@ -148,7 +149,7 @@ TEST(ParserImage, ImageInTableCellDoesNotCorruptTable)
 TEST(ParserImage, ImageInHeadingKeepsHeadingLevel)
 {
     // 見出し内の画像バッジが見出しレベルを壊さないこと
-    auto nodes = ParseMarkdown("# ![logo](l.png) Title").nodes;
+    auto nodes = ParseNodes("# ![logo](l.png) Title");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Heading);
     EXPECT_EQ(nodes[0].heading_level(), 1);
@@ -158,7 +159,7 @@ TEST(ParserImage, ImageInHeadingKeepsHeadingLevel)
 TEST(ParserImage, NestedImageUsesOutermostSrc)
 {
     // CommonMark では画像説明内に画像記法を書ける。ノードの src は最外側を採用する
-    auto nodes = ParseMarkdown("![outer ![inner](inner.png)](outer.png)").nodes;
+    auto nodes = ParseNodes("![outer ![inner](inner.png)](outer.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     EXPECT_EQ(nodes[0].image_data()->src, "outer.png");
@@ -167,7 +168,7 @@ TEST(ParserImage, NestedImageUsesOutermostSrc)
 TEST(ParserImage, ImageInTightListStaysListItem)
 {
     // タイトリスト内の画像はP生成されないため、ListItem のまま
-    auto nodes = ParseMarkdown("- ![alt](img.png)").nodes;
+    auto nodes = ParseNodes("- ![alt](img.png)");
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::ListItem);
     EXPECT_FALSE(nodes[0].has_image());
@@ -176,7 +177,7 @@ TEST(ParserImage, ImageInTightListStaysListItem)
 // issue#298: リスト項目の NodeListData が画像 src で上書きされないこと
 TEST(ParserImage, ImageInTightOrderedListKeepsNumber)
 {
-    auto nodes = ParseMarkdown("3. ![alt](img.png)").nodes;
+    auto nodes = ParseNodes("3. ![alt](img.png)");
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::ListItem);
     EXPECT_TRUE(nodes[0].list_ordered());
@@ -187,7 +188,7 @@ TEST(ParserImage, ImageInFootnoteDefKeepsNumber)
 {
     const auto result = ParseMarkdown("text[^1]\n\n[^1]: ![alt](img.png)");
     ASSERT_EQ(result.footnote_def_indices.size(), 1u);
-    const auto& def = result.nodes[result.footnote_def_indices[0]];
+    const auto& def = result.nodes()[result.footnote_def_indices[0]];
     EXPECT_EQ(def.type, NodeType::ListItem);
     EXPECT_TRUE(def.list_ordered());
     EXPECT_EQ(def.list_number(), 1);
@@ -196,7 +197,7 @@ TEST(ParserImage, ImageInFootnoteDefKeepsNumber)
 TEST(ParserImage, ImageInTightListDoesNotLeakToNextParagraph)
 {
     // 画像を含むリスト項目の後の段落が Image に変換されないこと
-    auto nodes = ParseMarkdown("- ![alt](img.png)\n\nNormal paragraph").nodes;
+    auto nodes = ParseNodes("- ![alt](img.png)\n\nNormal paragraph");
     bool found_para = false;
     for (const auto& node : nodes) {
         if (node.type == NodeType::Paragraph) {
@@ -210,7 +211,7 @@ TEST(ParserImage, ImageInTightListDoesNotLeakToNextParagraph)
 
 TEST(ParserImage, ImageInTaskListStaysTaskListItem)
 {
-    auto nodes = ParseMarkdown("- [x] ![alt](img.png)").nodes;
+    auto nodes = ParseNodes("- [x] ![alt](img.png)");
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::TaskListItem);
     EXPECT_TRUE(nodes[0].task_checked());
@@ -220,7 +221,7 @@ TEST(ParserImage, ImageInTaskListStaysTaskListItem)
 
 TEST(ParserImage, ParagraphWithoutImageStaysParagraph)
 {
-    auto nodes = ParseMarkdown("Just text").nodes;
+    auto nodes = ParseNodes("Just text");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
     EXPECT_FALSE(nodes[0].has_image());
@@ -228,7 +229,7 @@ TEST(ParserImage, ParagraphWithoutImageStaysParagraph)
 
 TEST(ParserImage, LinkDoesNotTriggerImage)
 {
-    auto nodes = ParseMarkdown("[link text](https://example.com)").nodes;
+    auto nodes = ParseNodes("[link text](https://example.com)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
     EXPECT_FALSE(nodes[0].has_image());
@@ -238,7 +239,7 @@ TEST(ParserImage, LinkDoesNotTriggerImage)
 
 TEST(ParserImage, ImageBetweenParagraphs)
 {
-    auto nodes = ParseMarkdown("Before\n\n![alt](img.png)\n\nAfter").nodes;
+    auto nodes = ParseNodes("Before\n\n![alt](img.png)\n\nAfter");
     ASSERT_EQ(nodes.size(), 3u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
     EXPECT_EQ(nodes[1].type, NodeType::Image);
@@ -247,7 +248,7 @@ TEST(ParserImage, ImageBetweenParagraphs)
 
 TEST(ParserImage, MultipleImageParagraphs)
 {
-    auto nodes = ParseMarkdown("![a](a.png)\n\n![b](b.png)\n\n![c](c.png)").nodes;
+    auto nodes = ParseNodes("![a](a.png)\n\n![b](b.png)\n\n![c](c.png)");
     ASSERT_EQ(nodes.size(), 3u);
     for (size_t i = 0; i < 3; i++) {
         EXPECT_EQ(nodes[i].type, NodeType::Image) << "ノード " << i;
@@ -261,7 +262,7 @@ TEST(ParserImage, MultipleImageParagraphs)
 
 TEST(ParserImage, ImageWithSpecialCharsInPath)
 {
-    auto nodes = ParseMarkdown("![alt](path%20with%20spaces/img.png)").nodes;
+    auto nodes = ParseNodes("![alt](path%20with%20spaces/img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     EXPECT_EQ(nodes[0].image_data()->src, "path%20with%20spaces/img.png");
@@ -269,7 +270,7 @@ TEST(ParserImage, ImageWithSpecialCharsInPath)
 
 TEST(ParserImage, ImageWithJapaneseAltText)
 {
-    auto nodes = ParseMarkdown("![日本語のaltテキスト](img.png)").nodes;
+    auto nodes = ParseNodes("![日本語のaltテキスト](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Image);
     EXPECT_EQ(nodes[0].GetText(), "日本語のaltテキスト");
@@ -277,7 +278,7 @@ TEST(ParserImage, ImageWithJapaneseAltText)
 
 TEST(ParserImage, ImageWithJapanesePath)
 {
-    auto nodes = ParseMarkdown("![alt](画像/テスト.png)").nodes;
+    auto nodes = ParseNodes("![alt](画像/テスト.png)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].image_data()->src, "画像/テスト.png");
 }
@@ -300,7 +301,7 @@ protected:
 
 TEST_F(ImageLayoutTest, ImagePlaceholderHeight)
 {
-    auto nodes = ParseMarkdown("![alt](img.png)").nodes;
+    auto nodes = ParseNodes("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Image);
 
@@ -312,7 +313,7 @@ TEST_F(ImageLayoutTest, ImagePlaceholderHeight)
 
 TEST_F(ImageLayoutTest, ImageWithDimensionsUsesScaledHeight)
 {
-    auto nodes = ParseMarkdown("![alt](img.png)").nodes;
+    auto nodes = ParseNodes("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     // 画像読み込み後のサイズをシミュレート
     nodes[0].image_data()->width = 400.0f;
@@ -326,7 +327,7 @@ TEST_F(ImageLayoutTest, ImageWithDimensionsUsesScaledHeight)
 
 TEST_F(ImageLayoutTest, WideImageScaledDown)
 {
-    auto nodes = ParseMarkdown("![alt](img.png)").nodes;
+    auto nodes = ParseNodes("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     // コンテンツ幅より大きい画像
     nodes[0].image_data()->width = 1600.0f;
@@ -341,7 +342,7 @@ TEST_F(ImageLayoutTest, WideImageScaledDown)
 
 TEST_F(ImageLayoutTest, SmallImageNotScaledUp)
 {
-    auto nodes = ParseMarkdown("![alt](img.png)").nodes;
+    auto nodes = ParseNodes("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     nodes[0].image_data()->width = 100.0f;
     nodes[0].image_data()->height = 80.0f;
@@ -354,7 +355,7 @@ TEST_F(ImageLayoutTest, SmallImageNotScaledUp)
 
 TEST_F(ImageLayoutTest, ImageHeightRecalculatedOnWidthChange)
 {
-    auto nodes = ParseMarkdown("![alt](img.png)").nodes;
+    auto nodes = ParseNodes("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     nodes[0].image_data()->width = 1600.0f;
     nodes[0].image_data()->height = 900.0f;
@@ -375,7 +376,7 @@ TEST_F(ImageLayoutTest, ImageHeightRecalculatedOnWidthChange)
 
 TEST_F(ImageLayoutTest, ImageNodesDoNotOverlap)
 {
-    auto nodes = ParseMarkdown("![a](a.png)\n\n![b](b.png)\n\n![c](c.png)").nodes;
+    auto nodes = ParseNodes("![a](a.png)\n\n![b](b.png)\n\n![c](c.png)");
     for (auto& n : nodes) {
         n.image_data()->width = 200.0f;
         n.image_data()->height = 150.0f;
@@ -391,7 +392,7 @@ TEST_F(ImageLayoutTest, ImageNodesDoNotOverlap)
 
 TEST_F(ImageLayoutTest, ImageBetweenTextNodesDoNotOverlap)
 {
-    auto nodes = ParseMarkdown("Text before\n\n![alt](img.png)\n\nText after").nodes;
+    auto nodes = ParseNodes("Text before\n\n![alt](img.png)\n\nText after");
     ASSERT_EQ(nodes.size(), 3u);
     nodes[1].image_data()->width = 400.0f;
     nodes[1].image_data()->height = 300.0f;
@@ -406,7 +407,7 @@ TEST_F(ImageLayoutTest, ImageBetweenTextNodesDoNotOverlap)
 
 TEST_F(ImageLayoutTest, ImageWithZeroDimensionsGetsPlaceholder)
 {
-    auto nodes = ParseMarkdown("![alt](img.png)").nodes;
+    auto nodes = ParseNodes("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     // image_width/heightはデフォルトの0.0f
     ASSERT_FLOAT_EQ(nodes[0].image_data()->width, 0.0f);
@@ -418,7 +419,7 @@ TEST_F(ImageLayoutTest, ImageWithZeroDimensionsGetsPlaceholder)
 
 TEST_F(ImageLayoutTest, ImageAspectRatioPreserved)
 {
-    auto nodes = ParseMarkdown("![alt](img.png)").nodes;
+    auto nodes = ParseNodes("![alt](img.png)");
     nodes[0].image_data()->width = 1000.0f;
     nodes[0].image_data()->height = 500.0f;
 

@@ -89,7 +89,7 @@ AlertMarker DetectAlertMarker(std::string_view text)
 
 // マーカーを除去しアイコン+ラベルを挿入する。TextRunも調整する。
 // テキスト構造: "[icon] Label" (コンテンツなし) または "[icon] Label\n[content]" (コンテンツあり)
-void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
+void TransformAlertNode(Node& node, TextArena& arena, AlertType type, size_t marker_end)
 {
     const std::string_view label = GetAlertLabel(type);
     const std::string_view icon = GetAlertIcon(type);
@@ -110,7 +110,8 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
         new_text.append(current_text.substr(marker_end));
     }
 
-    TextRunList new_runs;
+    std::pmr::vector<TextRun> new_runs;
+    new_runs.reserve(node.runs().size() + 1);
     // アイコン絵文字は太字にしない (スペース + ラベルテキストのみ太字)。
     TextRun label_run;
     label_run.start = static_cast<uint32_t>(icon.size());
@@ -121,7 +122,7 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     // マーカー部分を除外し、残りを新しい本文開始位置へ平行移動する。
     const auto marker = static_cast<uint32_t>(marker_end);
     const auto content_start = static_cast<uint32_t>(new_content_start);
-    for (TextRun adjusted : node.runs) {
+    for (TextRun adjusted : node.runs()) {
         const uint32_t run_end = adjusted.start + adjusted.length;
         if (run_end <= marker) {
             continue;
@@ -139,8 +140,8 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
     // 文字が \n の場合のみ改行 1 個。marker_end 直前の 1 文字だけを見ればよい。
     const int32_t marker_newlines = (marker_end > 0 && current_text[marker_end - 1] == '\n');
     const int32_t new_line_count = node.line_count - marker_newlines + has_content;
-    node.SetTextWithLineCount(std::move(new_text), new_line_count);
-    node.runs = std::move(new_runs);
+    node.SetText(arena.CopyText(new_text), new_line_count);
+    node.SetRuns(arena.Copy(new_runs));
     node.alert_type = type;
     node.ensure_alert()->alert_label_length = static_cast<uint32_t>(full_label_len);
 }
@@ -148,7 +149,7 @@ void TransformAlertNode(Node& node, AlertType type, size_t marker_end)
 // 単一の BlockQuote ノードに対して Alert マーカーを検出・適用し、
 // 同一 blockquote_group の後続ノードに alert_type を伝播する。
 // 既に alert_type が設定されているノードはスキップする（伝播で当たった先頭等）。
-void DetectAlertAt(std::pmr::vector<Node>& nodes, size_t i)
+void DetectAlertAt(std::pmr::vector<Node>& nodes, TextArena& arena, size_t i)
 {
     const auto node_count = nodes.size();
     if (i >= node_count) {
@@ -163,7 +164,7 @@ void DetectAlertAt(std::pmr::vector<Node>& nodes, size_t i)
         return;
     }
     const int group = node.blockquote_group;
-    TransformAlertNode(node, type, marker_end);
+    TransformAlertNode(node, arena, type, marker_end);
 
     // 同一 blockquote_group の後続ノードにも同じ alert_type を伝播。
     // ノード種別に依存せず、グループIDで判定する（リスト等も含む）。
@@ -192,9 +193,9 @@ bool IsAlertMarkerOnly(std::string_view text)
     return type != AlertType::None && end == text.size();
 }
 
-void DetectAlerts(std::pmr::vector<Node>& nodes, std::span<const size_t> blockquote_indices)
+void DetectAlerts(std::pmr::vector<Node>& nodes, TextArena& arena, std::span<const size_t> blockquote_indices)
 {
     for (const size_t i : blockquote_indices) {
-        DetectAlertAt(nodes, i);
+        DetectAlertAt(nodes, arena, i);
     }
 }

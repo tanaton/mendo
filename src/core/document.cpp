@@ -31,8 +31,10 @@ void Document::RebuildCachedDirectory()
 
 void Document::ReplaceContent(ParseResult&& result)
 {
-    // ParseMarkdown(raw_text_) の結果なので view_.data() は raw_text_ を指しており rebase 不要。
-    nodes_ = std::move(result.nodes);
+    // ParseMarkdown(raw_text_) の結果なのでノードのテキストは raw_text_ か arena を指しており rebase 不要。
+    auto [nodes, arena] = result.TakeNodes();
+    nodes_ = std::move(nodes);
+    text_arena_ = std::move(arena);
     image_node_indices_ = std::move(result.image_indices);
     diagram_node_indices_ = std::move(result.diagram_indices);
     table_node_indices_ = std::move(result.table_indices);

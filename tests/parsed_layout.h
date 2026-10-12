@@ -2,6 +2,7 @@
 #include "layout.h"
 #include "layout_cache.h"
 #include "parser.h"
+#include "test_nodes.h"
 #include <deque>
 #include <memory_resource>
 #include <string>
@@ -19,7 +20,7 @@ public:
     ParsedLayout ParseAndLayout(LayoutEngine& engine, std::string_view md, float viewport_w)
     {
         ParsedLayout r;
-        r.nodes = ParseMarkdown(sources_.emplace_back(md)).nodes;
+        r.nodes = ParseNodes(sources_.emplace_back(md));
         r.cache.Resize(r.nodes.size());
         engine.ComputeLayout(r.nodes, r.cache, viewport_w);
         return r;

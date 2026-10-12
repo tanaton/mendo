@@ -3,6 +3,7 @@
 #include "footnote_anchor.h"
 #include "heading_anchor_index.h"
 #include "raw_text.h"
+#include "text_arena.h"
 #include "toc.h"
 #include <memory>
 #include <memory_resource>
@@ -18,8 +19,8 @@ class Document {
 public:
     constexpr Document() noexcept = default;
 
-    // move-only: nodes_ は view モード時に raw_text_ のバッファを直接指す。RawText は共有文字列を
-    // 持つため move でバッファは relocate せず、view の付け替えは不要。
+    // move-only: nodes_ のテキストは raw_text_ のバッファか text_arena_ を直接指す。RawText は共有文字列を、
+    // text_arena_ は unique_ptr で持つため、move してもバッファは relocate せず付け替えは不要。
     Document(const Document&) = delete;
     Document& operator=(const Document&) = delete;
     Document(Document&& other) noexcept = default;
@@ -98,7 +99,7 @@ public:
     }
 
 private:
-    // 契約: 入力 ParseResult のノード view_ は raw_text_.data() を base にしていること。
+    // 契約: 入力 ParseResult は raw_text_ をパースした結果であること。
     void ReplaceContent(ParseResult&& result);
 
     void BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indices);
@@ -106,9 +107,11 @@ private:
     void RebuildCachedDirectory();
 
     std::pmr::vector<Node> nodes_;
+    // 原文をそのまま表示できないノードのテキストと、全ノードの runs・リンク URL の置き場所。
+    std::unique_ptr<TextArena> text_arena_;
     std::pmr::wstring file_path_;
-    // RawText は append/resize 等の relocate API を提供しないため、view モードノードの
-    // view_.data() が指し続けるバッファの安全性が型レベルで担保される。差し替えは
+    // RawText は append/resize 等の relocate API を提供しないため、ノードのテキストが
+    // 指し続けるバッファの安全性が型レベルで担保される。差し替えは
     // ReplaceFromMarkdown / FromMarkdown 経由の Replace() のみ許される。
     // 常に LF-only (FileLoader または 2 引数 FromMarkdown が正規化する)。
     RawText raw_text_;

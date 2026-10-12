@@ -18,6 +18,7 @@
 #include "syntax.h"
 #include "theme.h"
 #include "utf8_fuzz_helpers.h"
+#include "test_nodes.h"
 
 // ============================================================
 // ExtractSelectedText
@@ -40,7 +41,7 @@ TEST(ExtractSelectedText, ReservesExactLength)
 
 TEST(ExtractSelectedText, InactiveSelectionReturnsEmpty)
 {
-    auto nodes = ParseMarkdown("Hello world").nodes;
+    auto nodes = ParseNodes("Hello world");
     TextSelection sel;
     sel.active = false;
     EXPECT_TRUE(ExtractSelectedText(nodes, sel).empty());
@@ -48,28 +49,28 @@ TEST(ExtractSelectedText, InactiveSelectionReturnsEmpty)
 
 TEST(ExtractSelectedText, SingleNodeFullSelection)
 {
-    auto nodes = ParseMarkdown("Hello world").nodes;
+    auto nodes = ParseNodes("Hello world");
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     EXPECT_EQ(ExtractSelectedText(nodes, sel), "Hello world");
 }
 
 TEST(ExtractSelectedText, SingleNodePartialSelection)
 {
-    auto nodes = ParseMarkdown("Hello world").nodes;
+    auto nodes = ParseNodes("Hello world");
     auto sel = TextSelection::MakeOrdered(0, 0, 0, 5);
     EXPECT_EQ(ExtractSelectedText(nodes, sel), "Hello");
 }
 
 TEST(ExtractSelectedText, SingleNodeMiddleSelection)
 {
-    auto nodes = ParseMarkdown("Hello world").nodes;
+    auto nodes = ParseNodes("Hello world");
     auto sel = TextSelection::MakeOrdered(0, 6, 0, 11);
     EXPECT_EQ(ExtractSelectedText(nodes, sel), "world");
 }
 
 TEST(ExtractSelectedText, MultipleNodesFullSelection)
 {
-    auto nodes = ParseMarkdown("First\n\nSecond\n\nThird").nodes;
+    auto nodes = ParseNodes("First\n\nSecond\n\nThird");
     ASSERT_EQ(nodes.size(), 3u);
     auto sel = TextSelection::MakeOrdered(
         0, 0, 2, static_cast<uint32_t>(nodes[2].GetText().size()));
@@ -81,7 +82,7 @@ TEST(ExtractSelectedText, MultipleNodesFullSelection)
 
 TEST(ExtractSelectedText, MultipleNodesPartialSelection)
 {
-    auto nodes = ParseMarkdown("First\n\nSecond\n\nThird").nodes;
+    auto nodes = ParseNodes("First\n\nSecond\n\nThird");
     ASSERT_EQ(nodes.size(), 3u);
     // "First"の途中から"Third"の途中まで選択
     auto sel = TextSelection::MakeOrdered(0, 2, 2, 3);
@@ -93,7 +94,7 @@ TEST(ExtractSelectedText, MultipleNodesPartialSelection)
 
 TEST(ExtractSelectedText, NewlineBetweenNodes)
 {
-    auto nodes = ParseMarkdown("A\n\nB").nodes;
+    auto nodes = ParseNodes("A\n\nB");
     ASSERT_EQ(nodes.size(), 2u);
     auto sel = TextSelection::MakeOrdered(
         0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
@@ -112,7 +113,7 @@ TEST(ExtractSelectedText, EmptyNodes)
 
 TEST(ExtractSelectedText, EndBeyondTextSize)
 {
-    auto nodes = ParseMarkdown("Short").nodes;
+    auto nodes = ParseNodes("Short");
     auto sel = TextSelection::MakeOrdered(0, 0, 0, 1000);
     // end_posがテキストサイズを超える場合はクランプされるべき
     EXPECT_EQ(ExtractSelectedText(nodes, sel), "Short");
@@ -120,7 +121,7 @@ TEST(ExtractSelectedText, EndBeyondTextSize)
 
 TEST(ExtractSelectedText, JapaneseText)
 {
-    auto nodes = ParseMarkdown("日本語テスト").nodes;
+    auto nodes = ParseNodes("日本語テスト");
     auto sel = TextSelection::MakeOrdered(
         0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     EXPECT_EQ(ExtractSelectedText(nodes, sel), "日本語テスト");
@@ -132,7 +133,7 @@ TEST(ExtractSelectedText, JapaneseText)
 
 TEST(ExtractSelectedTextAsHtml, InactiveSelectionReturnsEmpty)
 {
-    auto nodes = ParseMarkdown("Hello").nodes;
+    auto nodes = ParseNodes("Hello");
     TextSelection sel;
     sel.active = false;
     EXPECT_TRUE(ExtractSelectedTextAsHtml(nodes, sel).empty());
@@ -140,21 +141,21 @@ TEST(ExtractSelectedTextAsHtml, InactiveSelectionReturnsEmpty)
 
 TEST(ExtractSelectedTextAsHtml, ParagraphWrapsInPTag)
 {
-    auto nodes = ParseMarkdown("Hello world").nodes;
+    auto nodes = ParseNodes("Hello world");
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), "<p>Hello world</p>");
 }
 
 TEST(ExtractSelectedTextAsHtml, HeadingLevels)
 {
-    auto nodes = ParseMarkdown("## Section").nodes;
+    auto nodes = ParseNodes("## Section");
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), "<h2>Section</h2>");
 }
 
 TEST(ExtractSelectedTextAsHtml, BoldAndItalic)
 {
-    auto nodes = ParseMarkdown("**bold** and *italic*").nodes;
+    auto nodes = ParseNodes("**bold** and *italic*");
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
     EXPECT_NE(html.find("<strong>bold</strong>"), std::string::npos);
@@ -163,7 +164,7 @@ TEST(ExtractSelectedTextAsHtml, BoldAndItalic)
 
 TEST(ExtractSelectedTextAsHtml, InlineCode)
 {
-    auto nodes = ParseMarkdown("text `code` more").nodes;
+    auto nodes = ParseNodes("text `code` more");
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
     EXPECT_NE(html.find("<code>code</code>"), std::string::npos);
@@ -171,7 +172,7 @@ TEST(ExtractSelectedTextAsHtml, InlineCode)
 
 TEST(ExtractSelectedTextAsHtml, LinkProducesAnchor)
 {
-    auto nodes = ParseMarkdown("[click](https://example.com)").nodes;
+    auto nodes = ParseNodes("[click](https://example.com)");
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
     EXPECT_NE(html.find("<a href=\"https://example.com\">click</a>"), std::string::npos);
@@ -188,7 +189,7 @@ TEST(ExtractSelectedTextAsHtml, EscapesSpecialChars)
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockIsEscapedInPreCode)
 {
-    auto nodes = ParseMarkdown("```\nint x = 1 < 2;\n```").nodes;
+    auto nodes = ParseNodes("```\nint x = 1 < 2;\n```");
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
@@ -204,7 +205,7 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockIsEscapedInPreCode)
 TEST(ExtractSelectedTextAsHtml, CodeBlockWithoutTokensHasNoSyntaxSpans)
 {
     // 言語指定なし -> syntax_tokens が空 -> span タグは付かない
-    auto nodes = ParseMarkdown("```\nplain text\n```").nodes;
+    auto nodes = ParseNodes("```\nplain text\n```");
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
@@ -215,7 +216,7 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockWithoutTokensHasNoSyntaxSpans)
 TEST(ExtractSelectedTextAsHtml, CodeBlockWithSyntaxTokensWrapsInSpans)
 {
     // syntax_tokens を手動でセットし、span による色付けが行われることを確認
-    auto nodes = ParseMarkdown("```cpp\nint x = 42;\n```").nodes;
+    auto nodes = ParseNodes("```cpp\nint x = 42;\n```");
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
     auto& n = nodes[0];
     const std::string_view text = n.GetText();
@@ -241,7 +242,7 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockWithSyntaxTokensWrapsInSpans)
 // 一度も計測 (表示) していないコードブロックでも色付けされること。
 TEST(ExtractSelectedTextAsHtml, UnmeasuredCodeBlockIsHighlighted)
 {
-    auto nodes = ParseMarkdown("```cpp\nint x = 42;\n```").nodes;
+    auto nodes = ParseNodes("```cpp\nint x = 42;\n```");
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
     ASSERT_TRUE(nodes[0].syntax_tokens().empty());
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
@@ -252,7 +253,7 @@ TEST(ExtractSelectedTextAsHtml, UnmeasuredCodeBlockIsHighlighted)
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockSpanEscapesSpecialChars)
 {
-    auto nodes = ParseMarkdown("```cpp\na<b\n```").nodes;
+    auto nodes = ParseNodes("```cpp\na<b\n```");
     auto& n = nodes[0];
     const std::string_view text = n.GetText();
     auto& tokens = n.syntax_tokens_mut();
@@ -270,7 +271,7 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockSpanEscapesSpecialChars)
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockDarkModeUsesDarkColors)
 {
-    auto nodes = ParseMarkdown("```cpp\nint x = 42;\n```").nodes;
+    auto nodes = ParseNodes("```cpp\nint x = 42;\n```");
     auto& n = nodes[0];
     const std::string_view text = n.GetText();
     auto& tokens = n.syntax_tokens_mut();
@@ -301,11 +302,10 @@ static TextSelection MakeTableFullSelection(const Node& table)
 
 TEST(ExtractSelectedTextAsHtml, TableRendersAsTableStructure)
 {
-    auto nodes = ParseMarkdown(
+    auto nodes = ParseNodes(
                      "| A | B |\n"
                      "|---|---|\n"
-                     "| 1 | 2 |")
-                     .nodes;
+                     "| 1 | 2 |");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
     auto sel = MakeTableFullSelection(nodes[0]);
@@ -328,11 +328,10 @@ TEST(ExtractSelectedTextAsHtml, TableRendersAsTableStructure)
 
 TEST(ExtractSelectedTextAsHtml, TableAlignmentAppliedAsTextAlign)
 {
-    auto nodes = ParseMarkdown(
+    auto nodes = ParseNodes(
                      "| L | C | R |\n"
                      "|:--|:--:|--:|\n"
-                     "| a | b | c |")
-                     .nodes;
+                     "| a | b | c |");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
     auto sel = MakeTableFullSelection(nodes[0]);
@@ -343,11 +342,10 @@ TEST(ExtractSelectedTextAsHtml, TableAlignmentAppliedAsTextAlign)
 
 TEST(ExtractSelectedTextAsHtml, TablePreservesInlineFormatting)
 {
-    auto nodes = ParseMarkdown(
+    auto nodes = ParseNodes(
                      "| A | B |\n"
                      "|---|---|\n"
-                     "| **bold** | [link](https://example.com) |")
-                     .nodes;
+                     "| **bold** | [link](https://example.com) |");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
     auto sel = MakeTableFullSelection(nodes[0]);
@@ -360,12 +358,11 @@ TEST(ExtractSelectedTextAsHtml, TablePreservesInlineFormatting)
 // 範囲外のセルは表の形を保つため空セルになる。
 TEST(ExtractSelectedTextAsHtml, TablePartialSelectionEmitsOnlySelectedRowsAndText)
 {
-    auto nodes = ParseMarkdown(
+    auto nodes = ParseNodes(
                      "| A | B |\n"
                      "|---|---|\n"
                      "| 1 | 2 |\n"
-                     "| 3 | 4 |")
-                     .nodes;
+                     "| 3 | 4 |");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].LinearizedText(), "A\tB\n1\t2\n3\t4");
     const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 6, 0, 9));
@@ -381,11 +378,10 @@ TEST(ExtractSelectedTextAsHtml, TablePartialSelectionEmitsOnlySelectedRowsAndTex
 
 TEST(ExtractSelectedTextAsHtml, TableSelectionInsideOneCellEmitsThatSubstring)
 {
-    auto nodes = ParseMarkdown(
+    auto nodes = ParseNodes(
                      "| hello | world |\n"
                      "|---|---|\n"
-                     "| a | b |")
-                     .nodes;
+                     "| a | b |");
     ASSERT_EQ(nodes[0].LinearizedText(), "hello\tworld\na\tb");
     const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 1, 0, 4));
     EXPECT_NE(html.find(">ell</th>"), std::string::npos);
@@ -396,11 +392,10 @@ TEST(ExtractSelectedTextAsHtml, TableSelectionInsideOneCellEmitsThatSubstring)
 // 区切り文字 (セル間のタブ) だけを選んだ場合は、文字を含むセルが無いので表を出さない。
 TEST(ExtractSelectedTextAsHtml, TableSelectionOfSeparatorOnlyEmitsNothing)
 {
-    auto nodes = ParseMarkdown(
+    auto nodes = ParseNodes(
                      "| A | B |\n"
                      "|---|---|\n"
-                     "| 1 | 2 |")
-                     .nodes;
+                     "| 1 | 2 |");
     ASSERT_EQ(nodes[0].LinearizedText(), "A\tB\n1\t2");
     EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 1, 0, 2)), "");
 }
@@ -408,11 +403,10 @@ TEST(ExtractSelectedTextAsHtml, TableSelectionOfSeparatorOnlyEmitsNothing)
 // 空セルだけの行 (見出し無し表の空ヘッダ行など) も、選択範囲に丸ごと含まれれば出す。
 TEST(ExtractSelectedTextAsHtml, TableFullSelectionKeepsEmptyHeaderRow)
 {
-    auto nodes = ParseMarkdown(
+    auto nodes = ParseNodes(
                      "| | |\n"
                      "|---|---|\n"
-                     "| a | b |")
-                     .nodes;
+                     "| a | b |");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
     const auto html = ExtractSelectedTextAsHtml(nodes, MakeTableFullSelection(nodes[0]));
@@ -437,11 +431,10 @@ TEST(ExtractSelectedTextAsHtml, TableWithoutColumnsDoesNotReadOutOfRange)
 
 TEST(ExtractSelectedTextAsHtml, TableDarkModeUsesDarkBorder)
 {
-    auto nodes = ParseMarkdown(
+    auto nodes = ParseNodes(
                      "| A | B |\n"
                      "|---|---|\n"
-                     "| 1 | 2 |")
-                     .nodes;
+                     "| 1 | 2 |");
     ASSERT_EQ(nodes[0].type, NodeType::Table);
     auto sel = MakeTableFullSelection(nodes[0]);
     auto html = ExtractSelectedTextAsHtml(nodes, sel, /*dark_mode=*/true);
@@ -454,7 +447,7 @@ TEST(ExtractSelectedTextAsHtml, TableWithoutDataFallsBackToPre)
     // table_data が空のノードに対しては <pre> フォールバックで出力される。
     Node n;
     n.type = NodeType::Table;
-    n.SetTextWithLineCount(std::string_view{ "fallback" }, 0);
+    n.SetText("fallback", 0);
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(n));
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
@@ -465,7 +458,7 @@ TEST(ExtractSelectedTextAsHtml, TableWithoutDataFallsBackToPre)
 
 TEST(ExtractSelectedTextAsHtml, ImageRendersAsImgTag)
 {
-    auto nodes = ParseMarkdown("![alt text](https://example.com/img.png)").nodes;
+    auto nodes = ParseNodes("![alt text](https://example.com/img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Image);
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
@@ -478,7 +471,7 @@ TEST(ExtractSelectedTextAsHtml, ImageRendersAsImgTag)
 TEST(ExtractSelectedTextAsHtml, ImageEscapesAttributesSafely)
 {
     // alt と src の両方で & " がエスケープされること。
-    auto nodes = ParseMarkdown("![Q&A \"x\"](path?a=1&b=2)").nodes;
+    auto nodes = ParseNodes("![Q&A \"x\"](path?a=1&b=2)");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Image);
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
@@ -490,7 +483,7 @@ TEST(ExtractSelectedTextAsHtml, ImageEscapesAttributesSafely)
 
 TEST(ExtractSelectedTextAsHtml, UnorderedListWrapsInUl)
 {
-    auto nodes = ParseMarkdown("- one\n- two").nodes;
+    auto nodes = ParseNodes("- one\n- two");
     ASSERT_GE(nodes.size(), 2u);
     auto sel = TextSelection::MakeOrdered(0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
@@ -502,7 +495,7 @@ TEST(ExtractSelectedTextAsHtml, UnorderedListWrapsInUl)
 
 TEST(ExtractSelectedTextAsHtml, OrderedListWrapsInOl)
 {
-    auto nodes = ParseMarkdown("1. first\n2. second").nodes;
+    auto nodes = ParseNodes("1. first\n2. second");
     ASSERT_GE(nodes.size(), 2u);
     auto sel = TextSelection::MakeOrdered(0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
@@ -514,7 +507,7 @@ TEST(ExtractSelectedTextAsHtml, OrderedListWrapsInOl)
 
 TEST(ExtractSelectedTextAsHtml, BlockQuote)
 {
-    auto nodes = ParseMarkdown("> quoted text").nodes;
+    auto nodes = ParseNodes("> quoted text");
     ASSERT_EQ(nodes[0].type, NodeType::BlockQuote);
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
@@ -525,7 +518,7 @@ TEST(ExtractSelectedTextAsHtml, BlockQuote)
 
 TEST(ExtractSelectedTextAsHtml, HorizontalRule)
 {
-    auto nodes = ParseMarkdown("before\n\n---\n\nafter").nodes;
+    auto nodes = ParseNodes("before\n\n---\n\nafter");
     ASSERT_GE(nodes.size(), 3u);
     ASSERT_EQ(nodes[1].type, NodeType::HorizontalRule);
     auto sel = TextSelection::MakeOrdered(0, 0, 2, static_cast<uint32_t>(nodes[2].GetText().size()));
@@ -535,7 +528,7 @@ TEST(ExtractSelectedTextAsHtml, HorizontalRule)
 
 TEST(ExtractSelectedTextAsHtml, MultiParagraph)
 {
-    auto nodes = ParseMarkdown("First\n\nSecond").nodes;
+    auto nodes = ParseNodes("First\n\nSecond");
     ASSERT_EQ(nodes.size(), 2u);
     auto sel = TextSelection::MakeOrdered(0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
     EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel),
@@ -544,14 +537,14 @@ TEST(ExtractSelectedTextAsHtml, MultiParagraph)
 
 TEST(ExtractSelectedTextAsHtml, PartialSelectionInParagraph)
 {
-    auto nodes = ParseMarkdown("Hello world").nodes;
+    auto nodes = ParseNodes("Hello world");
     auto sel = TextSelection::MakeOrdered(0, 6, 0, 11);
     EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), "<p>world</p>");
 }
 
 TEST(ExtractSelectedTextAsHtml, OrderedTaskListWrapsInOl)
 {
-    auto nodes = ParseMarkdown("1. [ ] first\n2. [x] second").nodes;
+    auto nodes = ParseNodes("1. [ ] first\n2. [x] second");
     ASSERT_GE(nodes.size(), 2u);
     ASSERT_EQ(nodes[0].type, NodeType::TaskListItem);
     ASSERT_EQ(nodes[1].type, NodeType::TaskListItem);
@@ -564,7 +557,7 @@ TEST(ExtractSelectedTextAsHtml, OrderedTaskListWrapsInOl)
 
 TEST(ExtractSelectedTextAsHtml, UnsafeSchemeLinkIsStripped)
 {
-    auto nodes = ParseMarkdown("[click](javascript:alert(1))").nodes;
+    auto nodes = ParseNodes("[click](javascript:alert(1))");
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
     EXPECT_EQ(html.find("<a href="), std::string::npos);
@@ -574,7 +567,7 @@ TEST(ExtractSelectedTextAsHtml, UnsafeSchemeLinkIsStripped)
 
 TEST(ExtractSelectedTextAsHtml, FileSchemeLinkIsStripped)
 {
-    auto nodes = ParseMarkdown("[open](file:///C:/secret.txt)").nodes;
+    auto nodes = ParseNodes("[open](file:///C:/secret.txt)");
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
     EXPECT_EQ(html.find("<a href="), std::string::npos);
@@ -583,7 +576,7 @@ TEST(ExtractSelectedTextAsHtml, FileSchemeLinkIsStripped)
 
 TEST(ExtractSelectedTextAsHtml, MailtoLinkIsKept)
 {
-    auto nodes = ParseMarkdown("[mail](mailto:user@example.com)").nodes;
+    auto nodes = ParseNodes("[mail](mailto:user@example.com)");
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
     EXPECT_NE(html.find("<a href=\"mailto:user@example.com\">mail</a>"), std::string::npos);
@@ -591,7 +584,7 @@ TEST(ExtractSelectedTextAsHtml, MailtoLinkIsKept)
 
 TEST(ExtractSelectedTextAsHtml, InternalAnchorLinkIsStripped)
 {
-    auto nodes = ParseMarkdown("[sec](#section)").nodes;
+    auto nodes = ParseNodes("[sec](#section)");
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
     EXPECT_EQ(html.find("<a href="), std::string::npos);
@@ -604,7 +597,7 @@ TEST(ExtractSelectedTextAsHtml, InternalAnchorLinkIsStripped)
 
 TEST(FindLinkAtPosition, NoLinks)
 {
-    auto nodes = ParseMarkdown("plain text").nodes;
+    auto nodes = ParseNodes("plain text");
     ASSERT_EQ(nodes.size(), 1u);
     auto result = FindLinkAtPosition(nodes[0], 0);
     EXPECT_FALSE(result.has_value());
@@ -612,7 +605,7 @@ TEST(FindLinkAtPosition, NoLinks)
 
 TEST(FindLinkAtPosition, LinkFound)
 {
-    auto nodes = ParseMarkdown("[click](https://example.com)").nodes;
+    auto nodes = ParseNodes("[click](https://example.com)");
     ASSERT_EQ(nodes.size(), 1u);
     // リンクテキスト内の位置
     auto result = FindLinkAtPosition(nodes[0], 0);
@@ -622,7 +615,7 @@ TEST(FindLinkAtPosition, LinkFound)
 
 TEST(FindLinkAtPosition, PositionOutsideLink)
 {
-    auto nodes = ParseMarkdown("before [link](https://example.com) after").nodes;
+    auto nodes = ParseNodes("before [link](https://example.com) after");
     ASSERT_EQ(nodes.size(), 1u);
     // "before"テキスト内の位置（リンクではないはず）
     auto result = FindLinkAtPosition(nodes[0], 0);
@@ -631,7 +624,7 @@ TEST(FindLinkAtPosition, PositionOutsideLink)
 
 TEST(FindLinkAtPosition, InternalLink)
 {
-    auto nodes = ParseMarkdown("[section](#my-section)").nodes;
+    auto nodes = ParseNodes("[section](#my-section)");
     ASSERT_EQ(nodes.size(), 1u);
     auto result = FindLinkAtPosition(nodes[0], 0);
     ASSERT_TRUE(result.has_value());
@@ -640,7 +633,7 @@ TEST(FindLinkAtPosition, InternalLink)
 
 TEST(FindLinkAtPosition, PositionAtLinkBoundary)
 {
-    auto nodes = ParseMarkdown("[link](https://example.com)").nodes;
+    auto nodes = ParseNodes("[link](https://example.com)");
     ASSERT_EQ(nodes.size(), 1u);
     // リンクの最後の文字の位置
     uint32_t last_pos = static_cast<uint32_t>(nodes[0].GetText().size()) - 1;
@@ -650,7 +643,7 @@ TEST(FindLinkAtPosition, PositionAtLinkBoundary)
 
 TEST(FindLinkAtPosition, PositionBeyondText)
 {
-    auto nodes = ParseMarkdown("[link](https://example.com)").nodes;
+    auto nodes = ParseNodes("[link](https://example.com)");
     ASSERT_EQ(nodes.size(), 1u);
     auto result = FindLinkAtPosition(nodes[0], 9999);
     EXPECT_FALSE(result.has_value());
@@ -868,7 +861,7 @@ TEST(ExtractSelectedText, SelectionSpanningTableNode)
     // テーブル型ノード（線形化テキストを持つ）でのテスト
     Node table_node;
     table_node.type = NodeType::Table;
-    table_node.SetTextWithLineCount(std::string_view{ "A\tB\n1\t2" }, 1);
+    table_node.SetText("A\tB\n1\t2", 1);
 
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(table_node));
@@ -883,16 +876,15 @@ TEST(ExtractSelectedText, SelectionSpanningTableNode)
     EXPECT_EQ(result, "A\tB");
 }
 
-// issue #200: parser 経由で生成されたテーブル（owned_text_ が空で table_data->concat_text に
+// issue #200: parser 経由で生成されたテーブル（GetText() が空で table_data->concat_text に
 // 線形化テキストが入る）に対し、selection が concat_text 内 offset を指しているとき、
 // ExtractSelectedText がセル内テキストを返すこと。
 TEST(ExtractSelectedText, ParsedTableCellWordSelection)
 {
-    auto nodes = ParseMarkdown(
+    auto nodes = ParseNodes(
                      "| Name | Value |\n"
                      "|------|-------|\n"
-                     "| foo  | bar   |")
-                     .nodes;
+                     "| foo  | bar   |");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
     const auto* tbl = nodes[0].table_data();
@@ -909,11 +901,10 @@ TEST(ExtractSelectedText, ParsedTableCellWordSelection)
 
 TEST(ExtractSelectedText, ParsedTableFullSelectionPreservesSeparators)
 {
-    auto nodes = ParseMarkdown(
+    auto nodes = ParseNodes(
                      "| A | B |\n"
                      "|---|---|\n"
-                     "| 1 | 2 |")
-                     .nodes;
+                     "| 1 | 2 |");
     ASSERT_EQ(nodes[0].type, NodeType::Table);
     const auto* tbl = nodes[0].table_data();
     ASSERT_NE(tbl, nullptr);
@@ -934,7 +925,7 @@ TEST(ExtractSelectedText, StartNodeOutOfRange)
 {
     std::pmr::vector<Node> nodes;
     Node n;
-    n.SetTextWithLineCount(std::string_view{ "hello" }, 0);
+    n.SetText("hello", 0);
     nodes.emplace_back(std::move(n));
 
     TextSelection sel;
@@ -953,7 +944,7 @@ TEST(ExtractSelectedText, EndNodeOutOfRange)
 {
     std::pmr::vector<Node> nodes;
     Node n;
-    n.SetTextWithLineCount(std::string_view{ "hello" }, 0);
+    n.SetText("hello", 0);
     nodes.emplace_back(std::move(n));
 
     TextSelection sel;
@@ -973,10 +964,10 @@ TEST(ExtractSelectedText, EndNodeOutOfRange)
 TEST(FindLinkAtPosition, MultipleLinkRuns)
 {
     Node node;
-    node.SetTextWithLineCount(std::string_view{ "link1 link2" }, 0);
+    node.SetText("link1 link2", 0);
 
-    node.ensure_link_urls().emplace_back("https://a.com");
-    node.ensure_link_urls().emplace_back("https://b.com");
+    AddTestLinkUrl(node, "https://a.com");
+    AddTestLinkUrl(node, "https://b.com");
 
     TextRun r1;
     r1.start = 0;
@@ -988,7 +979,8 @@ TEST(FindLinkAtPosition, MultipleLinkRuns)
     r2.length = 5;
     r2.link_url_index = 1;
 
-    node.runs = { r1, r2 };
+    const TextRun runs[]{ r1, r2 };
+    node.SetRuns(runs);
 
     auto result1 = FindLinkAtPosition(node, 2);
     ASSERT_TRUE(result1.has_value());
@@ -1029,7 +1021,7 @@ TEST(FindLinkAtPosition, TableCellLinkFound)
     d1r.start = 0;
     d1r.length = 3;
     d1r.link_url_index = static_cast<int16_t>(node.view_link_urls().size());
-    node.ensure_link_urls().emplace_back("https://example.com");
+    AddTestLinkUrl(node, "https://example.com");
 
     // concat 化: "Name\tURL\nfoo\tbar", cell_text_starts: [0, 5, 9, 13, 16]
     tbl->row_count = 2;
@@ -1060,11 +1052,10 @@ TEST(FindLinkAtPosition, TableCellLinkFound)
 
 TEST(FindLinkAtPosition, TableCellLinkFromParsedMarkdown)
 {
-    auto nodes = ParseMarkdown(
+    auto nodes = ParseNodes(
                      "| Text | Link |\n"
                      "|------|------|\n"
-                     "| hello | [click](https://example.com) |")
-                     .nodes;
+                     "| hello | [click](https://example.com) |");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Table);
 
@@ -1093,7 +1084,7 @@ TEST(FindLinkAtPosition, TableCellInternalLink)
     r.start = 0;
     r.length = 7;
     r.link_url_index = static_cast<int16_t>(node.view_link_urls().size());
-    node.ensure_link_urls().emplace_back("#my-section");
+    AddTestLinkUrl(node, "#my-section");
 
     // concat 化: 1 行 1 列の "section"
     tbl->row_count = 1;
@@ -1125,7 +1116,7 @@ TEST(FindLinkAtPosition, TablePositionOnSeparator)
     r1.start = 0;
     r1.length = 1;
     r1.link_url_index = static_cast<int16_t>(node.view_link_urls().size());
-    node.ensure_link_urls().emplace_back("https://b.com");
+    AddTestLinkUrl(node, "https://b.com");
 
     // concat 化: 1 行 2 列の "A\tB"
     tbl->row_count = 1;
@@ -1262,105 +1253,105 @@ TEST(AnalyzeReloadDiff, ClassifiesEdit)
 TEST(FindNodeBySourceOffset, EmptyNodes)
 {
     std::pmr::vector<Node> nodes;
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 0), -1);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 0), -1);
 }
 
 TEST(FindNodeBySourceOffset, SingleNode)
 {
     std::pmr::vector<Node> nodes(1);
-    nodes[0].SetSourceOffset(SourceOffsetTestBase(), 0);
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 0), 0);
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 100), 0);
+    nodes[0].SetSourceOffset(0);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 0), 0);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 100), 0);
 }
 
 TEST(FindNodeBySourceOffset, OffsetBeforeAllNodes)
 {
     std::pmr::vector<Node> nodes(2);
-    nodes[0].SetSourceOffset(SourceOffsetTestBase(), 10);
-    nodes[1].SetSourceOffset(SourceOffsetTestBase(), 20);
+    nodes[0].SetSourceOffset(10);
+    nodes[1].SetSourceOffset(20);
     // diff_offset=5 は最初のノード(offset=10)よりも前 → 該当なし
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 5), -1);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 5), -1);
 }
 
 TEST(FindNodeBySourceOffset, ExactMatch)
 {
     std::pmr::vector<Node> nodes(3);
-    nodes[0].SetSourceOffset(SourceOffsetTestBase(), 0);
-    nodes[1].SetSourceOffset(SourceOffsetTestBase(), 10);
-    nodes[2].SetSourceOffset(SourceOffsetTestBase(), 25);
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 10), 1);
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 25), 2);
+    nodes[0].SetSourceOffset(0);
+    nodes[1].SetSourceOffset(10);
+    nodes[2].SetSourceOffset(25);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 10), 1);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 25), 2);
 }
 
 TEST(FindNodeBySourceOffset, BetweenNodes)
 {
     std::pmr::vector<Node> nodes(3);
-    nodes[0].SetSourceOffset(SourceOffsetTestBase(), 0);
-    nodes[1].SetSourceOffset(SourceOffsetTestBase(), 10);
-    nodes[2].SetSourceOffset(SourceOffsetTestBase(), 25);
+    nodes[0].SetSourceOffset(0);
+    nodes[1].SetSourceOffset(10);
+    nodes[2].SetSourceOffset(25);
     // offset=15 はノード1(10)とノード2(25)の間 → ノード1を返す
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 15), 1);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 15), 1);
 }
 
 TEST(FindNodeBySourceOffset, SkipsUnsetOffsets)
 {
     std::pmr::vector<Node> nodes(3);
-    nodes[0].SetSourceOffset(SourceOffsetTestBase(), 0);
-    // nodes[1] は SetSourceOffset を呼ばないため view_.data() == nullptr (= 未設定)
-    nodes[2].SetSourceOffset(SourceOffsetTestBase(), 20);
+    nodes[0].SetSourceOffset(0);
+    // nodes[1] は SetSourceOffset を呼ばないため未設定
+    nodes[2].SetSourceOffset(20);
     // 未設定値は常に diff_offset 以上にならない（kUnsetSourceOffset <= diff_offset は通常 false）
     // → ノード0を返す
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 10), 0);
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 20), 2);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 10), 0);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 20), 2);
 }
 
 TEST(FindNodeBySourceOffset, ParsedMarkdown)
 {
     std::string_view md = "# Title\n\nParagraph\n\n## Section";
-    auto nodes = ParseMarkdown(md).nodes;
+    auto nodes = ParseNodes(md);
     ASSERT_GE(nodes.size(), 3u);
     // 各ノードが有効な source_offset を持つ
     for (const auto& n : nodes) {
-        EXPECT_NE(n.SourceOffsetFrom(md.data()), kUnsetSourceOffset);
+        EXPECT_NE(n.SourceOffset(), kUnsetSourceOffset);
     }
     // 最初のノードの offset は "# " の後 = 2
-    EXPECT_EQ(nodes[0].SourceOffsetFrom(md.data()), 2u);
+    EXPECT_EQ(nodes[0].SourceOffset(), 2u);
     // "Paragraph" は "# Title\n\n" = 9バイト目から
-    EXPECT_EQ(nodes[1].SourceOffsetFrom(md.data()), 9u);
+    EXPECT_EQ(nodes[1].SourceOffset(), 9u);
 }
 
 TEST(FindNodeBySourceOffset, LastNodeForLargeOffset)
 {
     std::pmr::vector<Node> nodes(3);
-    nodes[0].SetSourceOffset(SourceOffsetTestBase(), 0);
-    nodes[1].SetSourceOffset(SourceOffsetTestBase(), 100);
-    nodes[2].SetSourceOffset(SourceOffsetTestBase(), 200);
+    nodes[0].SetSourceOffset(0);
+    nodes[1].SetSourceOffset(100);
+    nodes[2].SetSourceOffset(200);
     // ソース末尾を超えるオフセット → 最後のノードを返す
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 999), 2);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 999), 2);
 }
 
 TEST(FindNodeBySourceOffset, AllUnsetOffsets)
 {
     // 全ノードが未設定（テキストなし）→ 該当なし
     std::pmr::vector<Node> nodes(3);
-    // 何も設定しないため view_.data() == nullptr (= 未設定)
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, SourceOffsetTestBase(), 50), -1);
+    // 何も設定しないため未設定
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 50), -1);
 }
 
 TEST(FindNodeBySourceOffset, MixedWithHorizontalRules)
 {
     // パース結果で HorizontalRule が混在するケース
     std::string_view md = "AAA\n\n---\n\nBBB";
-    auto nodes = ParseMarkdown(md).nodes;
+    auto nodes = ParseNodes(md);
     ASSERT_GE(nodes.size(), 3u);
     // "AAA" offset=0, "---" は未設定, "BBB" offset=10
-    EXPECT_EQ(nodes[0].SourceOffsetFrom(md.data()), 0u);
-    EXPECT_EQ(nodes[1].SourceOffsetFrom(md.data()), kUnsetSourceOffset);
+    EXPECT_EQ(nodes[0].SourceOffset(), 0u);
+    EXPECT_EQ(nodes[1].SourceOffset(), kUnsetSourceOffset);
 
     // offset=5（"---"のソース位置付近）→ AAA(offset=0)を返す（HRはスキップ）
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, md.data(), 5), 0);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 5), 0);
     // offset=10（BBBのソース位置）→ BBBを返す
-    int bbb_idx = FindNodeBySourceOffset(nodes, md.data(), 10);
+    int bbb_idx = FindNodeBySourceOffset(nodes, 10);
     EXPECT_EQ(bbb_idx, 2);
 }
 
@@ -1369,19 +1360,17 @@ TEST(FindNodeBySourceOffset, MixedWithHorizontalRules)
 // ============================================================
 
 // ヘルパー: old→new の編集をシミュレートし、変更箇所のノードを特定する。
-// ParseMarkdown は引数 string_view の data() を view_ ベースとして埋め込むため、
-// FindNodeBySourceOffset にも同じ new_md.data() を base として渡す。
 static int SimulateEditAndFindNode(std::string_view old_md, std::string_view new_md)
 {
     size_t diff_pos = FindFirstDifference(old_md, new_md);
     if (diff_pos == std::string_view::npos) {
         return -1;
     }
-    auto nodes = ParseMarkdown(new_md).nodes;
+    auto nodes = ParseNodes(new_md);
     if (nodes.empty()) {
         return -1;
     }
-    return FindNodeBySourceOffset(nodes, new_md.data(), diff_pos);
+    return FindNodeBySourceOffset(nodes, diff_pos);
 }
 
 TEST(DiffToNode, EditMiddleParagraph)
@@ -1390,7 +1379,7 @@ TEST(DiffToNode, EditMiddleParagraph)
     std::string old_md = "First\n\nSecond\n\nThird";
     std::string new_md = "First\n\nModified\n\nThird";
     int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseMarkdown(new_md).nodes;
+    auto nodes = ParseNodes(new_md);
     EXPECT_EQ(node, 1); // 2番目の段落
     EXPECT_EQ(nodes[node].GetText(), "Modified");
 }
@@ -1417,7 +1406,7 @@ TEST(DiffToNode, InsertNewParagraph)
     std::string old_md = "Before\n\nAfter";
     std::string new_md = "Before\n\nInserted\n\nAfter";
     int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseMarkdown(new_md).nodes;
+    auto nodes = ParseNodes(new_md);
     ASSERT_GE(node, 0);
     // 挿入位置のノード（"Inserted" または "Before"の次）
     EXPECT_EQ(nodes[node].GetText(), "Inserted");
@@ -1431,7 +1420,7 @@ TEST(DiffToNode, DeleteParagraph)
     int node = SimulateEditAndFindNode(old_md, new_md);
     ASSERT_GE(node, 0);
     // diff_pos=7（"RemoveMe" vs "Last"の開始位置）→ "Last"(offset=7)か"First"
-    auto nodes = ParseMarkdown(new_md).nodes;
+    auto nodes = ParseNodes(new_md);
     EXPECT_LE(node, 1); // "First" or "Last"
 }
 
@@ -1440,7 +1429,7 @@ TEST(DiffToNode, AppendToEnd)
     std::string old_md = "Existing";
     std::string new_md = "Existing\n\nAppended";
     int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseMarkdown(new_md).nodes;
+    auto nodes = ParseNodes(new_md);
     ASSERT_GE(node, 0);
     // diff_pos=8（old の末尾）→ "Existing"(offset=0)を返す
     // "Appended" の offset=10 > 8 なので "Existing" がマッチ
@@ -1453,7 +1442,7 @@ TEST(DiffToNode, EditInCodeBlock)
     std::string old_md = "text\n\n```\nold code\n```\n\nend";
     std::string new_md = "text\n\n```\nnew code\n```\n\nend";
     int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseMarkdown(new_md).nodes;
+    auto nodes = ParseNodes(new_md);
     ASSERT_GE(node, 0);
     EXPECT_EQ(nodes[node].type, NodeType::CodeBlock);
 }
@@ -1464,7 +1453,7 @@ TEST(DiffToNode, EditInListItem)
     std::string old_md = "- first\n- second\n- third";
     std::string new_md = "- first\n- changed\n- third";
     int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseMarkdown(new_md).nodes;
+    auto nodes = ParseNodes(new_md);
     ASSERT_GE(node, 0);
     EXPECT_EQ(nodes[node].GetText(), "changed");
 }
@@ -1489,7 +1478,7 @@ TEST(DiffToNode, EditInBlockQuote)
     std::string old_md = "normal\n\n> old quote\n\nafter";
     std::string new_md = "normal\n\n> new quote\n\nafter";
     int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseMarkdown(new_md).nodes;
+    auto nodes = ParseNodes(new_md);
     ASSERT_GE(node, 0);
     EXPECT_EQ(nodes[node].type, NodeType::BlockQuote);
 }
@@ -1500,7 +1489,7 @@ TEST(DiffToNode, EditWithJapanese)
     std::string old_md = "# はじめに\n\n旧テキスト\n\nおわり";
     std::string new_md = "# はじめに\n\n新テキスト\n\nおわり";
     int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseMarkdown(new_md).nodes;
+    auto nodes = ParseNodes(new_md);
     ASSERT_GE(node, 0);
     // "# はじめに\n\n" = 2 + 15 + 2 = 19バイト
     // diff_pos は "新" vs "旧" の位置
@@ -1518,7 +1507,7 @@ TEST(DiffToNode, EditInTable)
         "|---|---|\n"
         "| X | 2 |";
     int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseMarkdown(new_md).nodes;
+    auto nodes = ParseNodes(new_md);
     ASSERT_GE(node, 0);
     EXPECT_EQ(nodes[node].type, NodeType::Table);
 }
@@ -1537,7 +1526,7 @@ TEST(DiffToNode, LargeDocumentMiddleEdit)
         }
     }
     int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseMarkdown(new_md).nodes;
+    auto nodes = ParseNodes(new_md);
     ASSERT_GE(node, 0);
     EXPECT_EQ(nodes[node].GetText(), "CHANGED paragraph 50");
 }
@@ -1591,13 +1580,11 @@ TEST(IsPrefixOnlyDiff, IntegrationWithFindFirstDifference)
 // ============================================================
 
 // ヘルパー: source_offset を等間隔に設定したノード列を構築する。
-// CalcScrollYForDiff は content.data() を base に source_offset を取り出すため、
-// テスト側でも同じバッファ (base) を MakeNodes に渡す必要がある。
-static std::pmr::vector<Node> MakeNodes(const char* base, int count, size_t offset_step = 100)
+static std::pmr::vector<Node> MakeNodes(int count, size_t offset_step = 100)
 {
     std::pmr::vector<Node> nodes(count);
     for (int i = 0; i < count; ++i) {
-        nodes[i].SetSourceOffset(base, i * offset_step);
+        nodes[i].SetSourceOffset(i * offset_step);
     }
     return nodes;
 }
@@ -1613,7 +1600,7 @@ TEST(CalcScrollYForDiff, FallbackWhenDiffPosIsNpos)
 {
     // npos = 差分位置なし (改行コード変換のみのリロード等)。現在位置を維持する。
     std::string content(300, 'x');
-    auto nodes = MakeNodes(content.data(), 3, 100);
+    auto nodes = MakeNodes(3, 100);
     auto cache = MakeUniformCache(3, 100.0f);
     EXPECT_FLOAT_EQ(
         CalcScrollYForDiff(nodes, cache, content, std::string_view::npos, 500.0f, 123.0f), 123.0f);
@@ -1625,8 +1612,8 @@ TEST(CalcScrollYForDiff, FallbackWhenNodeNotFound)
     // content は MakeNodes が埋める最大 offset (200) + SetSourceOffset の上書き (50) を
     // string_view{base + offset, 0} で構築できるサイズを確保する必要がある。
     std::string content(300, 'x');
-    auto nodes = MakeNodes(content.data(), 3, 100);
-    nodes[0].SetSourceOffset(content.data(), 50);
+    auto nodes = MakeNodes(3, 100);
+    nodes[0].SetSourceOffset(50);
     auto cache = MakeUniformCache(3);
     // diff_pos=10 < 全ノードの最小 offset(50) → -1 → fallback
     EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 10, 500.0f, 99.0f), 99.0f);
@@ -1636,7 +1623,7 @@ TEST(CalcScrollYForDiff, ScrollsToNodeStartWithMargin)
 {
     // 3ノード: offset=0,100,200 / y=0,100,200 / height=100
     std::string content(300, 'x');
-    auto nodes = MakeNodes(content.data(), 3, 100);
+    auto nodes = MakeNodes(3, 100);
     auto cache = MakeUniformCache(3, 100.0f);
 
     // diff_pos=0 → node 0, y=0, margin=500*0.2=100 → max(0, 0-100)=0
@@ -1653,7 +1640,7 @@ TEST(CalcScrollYForDiff, IntraNodeFractionInterpolation)
 {
     // 2ノード: offset=0,100 / y=0,1000 / height=1000
     std::string content(200, 'x');
-    auto nodes = MakeNodes(content.data(), 2, 100);
+    auto nodes = MakeNodes(2, 100);
     auto cache = MakeUniformCache(2, 1000.0f);
 
     // diff_pos=50 → node 0 (offset=0), next_start=100
@@ -1668,7 +1655,7 @@ TEST(CalcScrollYForDiff, FractionClampsToOne)
 {
     // diff_pos がノード範囲を超える場合でも fraction は 1.0 でクランプ
     std::string content(200, 'x');
-    auto nodes = MakeNodes(content.data(), 2, 100);
+    auto nodes = MakeNodes(2, 100);
     auto cache = MakeUniformCache(2, 1000.0f);
 
     // diff_pos=99 → node 0, fraction=99/100=0.99
@@ -1683,9 +1670,9 @@ TEST(CalcScrollYForDiff, SkipsUnsetSourceOffsets)
     // ノード1の source_offset が未設定の場合、ノード2を next_start として使う
     std::string content(300, 'x');
     std::pmr::vector<Node> nodes(3);
-    nodes[0].SetSourceOffset(content.data(), 0);
+    nodes[0].SetSourceOffset(0);
     // nodes[1] は未設定（HorizontalRule等）
-    nodes[2].SetSourceOffset(content.data(), 200);
+    nodes[2].SetSourceOffset(200);
     auto cache = MakeUniformCache(3, 100.0f);
 
     // diff_pos=100 → node 0 (offset=0), next valid = node 2 (offset=200)
@@ -1700,8 +1687,8 @@ TEST(CalcScrollYForDiff, LastNodeUsesContentSizeAsNextStart)
 {
     // 最後のノードでは content.size() が next_start として使われる
     std::string content(100, 'x');
-    auto nodes = MakeNodes(content.data(), 1, 0);
-    nodes[0].SetSourceOffset(content.data(), 0);
+    auto nodes = MakeNodes(1, 0);
+    nodes[0].SetSourceOffset(0);
     auto cache = MakeUniformCache(1, 1000.0f);
 
     // diff_pos=50, next_start=content.size()=100
@@ -1716,7 +1703,7 @@ TEST(CalcScrollYForDiff, CacheSizeMismatchFallback)
 {
     // ノード数とキャッシュサイズが不一致の場合のフォールバック
     const std::string content(500, 'x');
-    auto nodes = MakeNodes(content.data(), 5, 100);
+    auto nodes = MakeNodes(5, 100);
     auto cache = MakeUniformCache(3, 100.0f); // キャッシュは3つだけ
 
     // diff_pos=400 → node 4 だがキャッシュは3つ → fallback
@@ -1727,7 +1714,7 @@ TEST(CalcScrollYForDiff, ParsedMarkdownIntegration)
 {
     // 実際のMarkdownをパースして差分スクロール位置を計算する統合テスト
     std::string md = "# Title\n\nFirst paragraph\n\nSecond paragraph\n\nThird paragraph";
-    auto nodes = ParseMarkdown(std::string_view{ md }).nodes;
+    auto nodes = ParseNodes(std::string_view{ md });
     ASSERT_GE(nodes.size(), 4u);
 
     // 等間隔 cache (text_top=0,50,100,...) を構築。spacing/Heading 個別寸法は無視し、
@@ -1761,7 +1748,7 @@ TEST(CalcScrollYForDiff, PrefixGrowthScrollsTowardAppendedTail)
     ASSERT_EQ(decision.diff_pos, old_md.size());
 
     // 新 doc を pipeline で扱うイメージで cache を構築
-    auto nodes = ParseMarkdown(std::string_view{ new_md }).nodes;
+    auto nodes = ParseNodes(std::string_view{ new_md });
     ASSERT_GE(nodes.size(), 4u);
 
     auto cache = MakeUniformCache(static_cast<int>(nodes.size()), 100.0f);
@@ -1857,7 +1844,7 @@ static std::pmr::string HtmlFromNodeText(std::string_view text_with_lf)
     n.type = NodeType::Paragraph;
     const auto lf_count = static_cast<int32_t>(
         std::ranges::count(text_with_lf, '\n'));
-    n.SetTextWithLineCount(text_with_lf, lf_count);
+    SetTestText(n, text_with_lf, lf_count);
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(n));
     auto sel = TextSelection::MakeOrdered(
@@ -1974,14 +1961,14 @@ TEST(ParentDirectory, ReturnsDirectoryPart)
 
 TEST(BuildCodeBlockHtmlFragment, NonCodeBlockReturnsEmpty)
 {
-    const auto nodes = ParseMarkdown("plain paragraph").nodes;
+    const auto nodes = ParseNodes("plain paragraph");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_TRUE(BuildCodeBlockHtmlFragment(nodes[0], false).empty());
 }
 
 TEST(BuildCodeBlockHtmlFragment, WrapsEscapedCodeInPre)
 {
-    const auto nodes = ParseMarkdown("```\na < b && c > d\n```").nodes;
+    const auto nodes = ParseNodes("```\na < b && c > d\n```");
     ASSERT_EQ(nodes.size(), 1u);
     const auto html = BuildCodeBlockHtmlFragment(nodes[0], false);
     EXPECT_TRUE(html.starts_with("<pre "));
@@ -1993,7 +1980,7 @@ TEST(BuildCodeBlockHtmlFragment, WrapsEscapedCodeInPre)
 // ダーク時は貼り付け先の既定 (黒文字) で読めなくならないよう文字色を明示する。
 TEST(BuildCodeBlockHtmlFragment, DarkModeSpecifiesTextColor)
 {
-    const auto nodes = ParseMarkdown("```\ncode\n```").nodes;
+    const auto nodes = ParseNodes("```\ncode\n```");
     ASSERT_EQ(nodes.size(), 1u);
     const auto light = BuildCodeBlockHtmlFragment(nodes[0], false);
     const auto dark = BuildCodeBlockHtmlFragment(nodes[0], true);
