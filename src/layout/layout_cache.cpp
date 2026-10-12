@@ -185,14 +185,21 @@ void LayoutCache::Reset(size_t node_count, bool shrink)
     ResetEvictionTracking();
 }
 
-void LayoutCache::InvalidateAllLayouts() noexcept
+void LayoutCache::InvalidateAllLayouts(const std::pmr::vector<Node>& nodes) noexcept
 {
-    for (auto& e : entries_) {
+    for (size_t i = 0; i < entries_.size(); i++) {
+        auto& e = entries_[i];
         e.reset_layout_state();
         // ズーム変更で計測条件が変わるので、諦めたノードも改めて試す。旧倍率の実測値も推定に使わせない。
         e.measure_failures = 0;
         e.cached_width = NodeLayoutEntry::kUnmeasuredWidth;
         e.cached_height = 0.0f;
+        // 推定は高さを縮めないので、旧倍率の高さを残すとズームアウト後に総高さが過大なままになる。
+        // 全レイアウトを捨てた直後は計測済みノードとの重なりが起きないので、推定からやり直させる。
+        // ビットマップを描くノードの高さはビットマップ側で決まるので残す。
+        if (i < nodes.size() && !IsBitmapDrawNode(nodes[i])) {
+            e.height = 0.0f;
+        }
         if (auto* tl = e.table_layout()) {
             ResetTableLayoutGeometry(*tl);
             tl->cell_inline_code_bgs.clear();

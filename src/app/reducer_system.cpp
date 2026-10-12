@@ -30,7 +30,7 @@ void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
     const float new_zoom = state.view.viewport.GetCurrentZoom();
     const float zoom_ratio = new_zoom / state.theme->zoom;
     state.view.panes.ApplyZoom(zoom_ratio);
-    state.document.layout_cache.InvalidateAllLayouts();
+    state.document.layout_cache.InvalidateAllLayouts(state.document.doc.GetNodes());
     if (anchor.IsValid()) {
         // offset もズーム比でスケールしないと、ノード内の同じ位置が可視先頭に残らない。
         state.view.viewport.SetScrollTarget(anchor.node, anchor.offset * zoom_ratio);

@@ -277,7 +277,7 @@ TEST_F(ParallelMeasureTest, AlwaysThrowingNodeStopsRetryingAfterMaxAttempts)
     EXPECT_FALSE(cache[kThrower].layout_dirty);
     EXPECT_TRUE(YChainConsistent(nodes, cache, theme_));
 
-    cache.InvalidateAllLayouts();
+    cache.InvalidateAllLayouts(nodes);
     cache[kThrower].layout_dirty = true;
     DrainDirtyBatches(engine, nodes, cache);
     engine.SetLayoutScheduler(nullptr);
