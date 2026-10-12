@@ -205,7 +205,9 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         if (local_text_top - fc.overhang.above > cull_bottom_) {
             break;
         }
-        GenerateNode(cmds, fc, nodes[i], cache[i], cache.FindDiagram(i), i, local_text_top);
+        const Node& node = nodes[i];
+        const DiagramEntry* diagram = (node.type == NodeType::Image || IsDiagramCodeBlock(node)) ? cache.FindDiagram(i) : nullptr;
+        GenerateNode(cmds, fc, node, cache[i], diagram, i, local_text_top);
         ++visible_count;
     }
 

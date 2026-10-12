@@ -170,7 +170,7 @@ void LayoutCache::Resize(size_t node_count)
     if (entries_.size() != node_count) {
         entries_.resize(node_count);
         tops_.resize(node_count);
-        diagrams_.resize(node_count);
+        std::erase_if(diagrams_, [node_count](const auto& kv) { return kv.first >= node_count; });
         ResetEvictionTracking();
     }
 }
@@ -186,7 +186,7 @@ void LayoutCache::Reset(size_t node_count, bool shrink)
     };
     reset(entries_);
     reset(tops_);
-    reset(diagrams_);
+    diagrams_.clear();
     ResetEvictionTracking();
 }
 
@@ -221,20 +221,16 @@ void LayoutCache::InvalidateEffects() noexcept
 
 void LayoutCache::InvalidateAllDiagramBitmaps() noexcept
 {
-    for (auto& d : diagrams_) {
-        if (d) {
-            d->ResetForRetry();
-        }
+    for (auto& d : diagrams_ | std::views::values) {
+        d.ResetForRetry();
     }
 }
 
 void LayoutCache::InvalidateDiagramBitmaps(const std::pmr::vector<Node>& nodes) noexcept
 {
-    const auto count = std::min(nodes.size(), diagrams_.size());
-    for (const auto& [idx, node] : nodes | std::views::take(count) | std::views::enumerate) {
-        auto& d = diagrams_[static_cast<size_t>(idx)];
-        if (d && IsDiagramCodeBlock(node)) {
-            d->ResetForRetry();
+    for (auto& [idx, d] : diagrams_) {
+        if (idx < nodes.size() && IsDiagramCodeBlock(nodes[idx])) {
+            d.ResetForRetry();
         }
     }
 }

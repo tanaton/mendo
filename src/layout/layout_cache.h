@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <ranges>
 #include <span>
+#include <unordered_map>
 #include <utility>
 
 // インラインコードの背景矩形（レイアウト原点からの相対座標、パディング適用済み）
@@ -344,17 +345,20 @@ public:
 
     // 画像/図のノードでしか使わないので全ノード分は持たない。確保は結果を書き込む EnsureDiagram だけが行い、
     // 読み取り・破棄は未確保 (nullptr) を返す FindDiagram を使う。
+    // 要素は node-based のマップに置くので、Mermaid の処理待ちが持つポインタは他ノードの追加で動かない。
     DiagramEntry& EnsureDiagram(size_t i)
     {
-        return mendo::layout::detail::EnsureUnique(diagrams_[i]);
+        return diagrams_[i];
     }
-    constexpr DiagramEntry* FindDiagram(size_t i) noexcept
+    DiagramEntry* FindDiagram(size_t i) noexcept
     {
-        return diagrams_[i].get();
+        const auto it = diagrams_.find(i);
+        return it != diagrams_.end() ? &it->second : nullptr;
     }
-    constexpr const DiagramEntry* FindDiagram(size_t i) const noexcept
+    const DiagramEntry* FindDiagram(size_t i) const noexcept
     {
-        return diagrams_[i].get();
+        const auto it = diagrams_.find(i);
+        return it != diagrams_.end() ? &it->second : nullptr;
     }
 
     // すべてのテキストレイアウトとエフェクトを無効化する（テーマ/ズーム変更時）。
@@ -435,7 +439,7 @@ private:
 
     std::pmr::vector<NodeLayoutEntry> entries_;
     std::pmr::vector<float> tops_;
-    std::pmr::vector<std::unique_ptr<DiagramEntry>> diagrams_;
+    std::pmr::unordered_map<size_t, DiagramEntry> diagrams_;
     size_t last_evict_fk_ = 0;
     size_t last_evict_lk_ = 0;
     // 前回 evict 以降に計測した index の範囲 [begin, end)。空は begin >= end。

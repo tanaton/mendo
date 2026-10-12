@@ -103,6 +103,21 @@ TEST(LayoutCacheTest, FindDiagramDoesNotAllocate)
     EXPECT_EQ(cache.FindDiagram(0), nullptr);
 }
 
+// ノード数が減ったら範囲外のダイアグラムを捨てる。残すと別文書の同じ番号のノードに旧ビットマップが付く。
+TEST(LayoutCacheTest, ResizeDropsDiagramsBeyondNodeCount)
+{
+    LayoutCache cache;
+    cache.Resize(4);
+    cache.EnsureDiagram(1).width = 10.0f;
+    cache.EnsureDiagram(3).width = 30.0f;
+
+    cache.Resize(2);
+
+    ASSERT_NE(cache.FindDiagram(1), nullptr);
+    EXPECT_FLOAT_EQ(cache.FindDiagram(1)->width, 10.0f);
+    EXPECT_EQ(cache.FindDiagram(3), nullptr);
+}
+
 // テーマ変更等の全ダイアグラム無効化でエラー状態もクリアされ、
 // 再試行の契機になることを検証する (issue #271)。
 TEST(LayoutCacheTest, InvalidateAllDiagramBitmapsClearsError)
