@@ -169,10 +169,28 @@ TEST(ParserImage, ImageInTightListStaysListItem)
     // タイトリスト内の画像はP生成されないため、ListItem のまま
     auto nodes = ParseMarkdown("- ![alt](img.png)").nodes;
     ASSERT_GE(nodes.size(), 1u);
-    // ListItemノードの型が保持されること
     EXPECT_EQ(nodes[0].type, NodeType::ListItem);
-    // image_srcはノードに設定されるが、型はListItemのまま
-    EXPECT_EQ(nodes[0].image_data()->src, "img.png");
+    EXPECT_FALSE(nodes[0].has_image());
+}
+
+// issue#298: リスト項目の NodeListData が画像 src で上書きされないこと
+TEST(ParserImage, ImageInTightOrderedListKeepsNumber)
+{
+    auto nodes = ParseMarkdown("3. ![alt](img.png)").nodes;
+    ASSERT_GE(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::ListItem);
+    EXPECT_TRUE(nodes[0].list_ordered());
+    EXPECT_EQ(nodes[0].list_number(), 3);
+}
+
+TEST(ParserImage, ImageInFootnoteDefKeepsNumber)
+{
+    const auto result = ParseMarkdown("text[^1]\n\n[^1]: ![alt](img.png)");
+    ASSERT_EQ(result.footnote_def_indices.size(), 1u);
+    const auto& def = result.nodes[result.footnote_def_indices[0]];
+    EXPECT_EQ(def.type, NodeType::ListItem);
+    EXPECT_TRUE(def.list_ordered());
+    EXPECT_EQ(def.list_number(), 1);
 }
 
 TEST(ParserImage, ImageInTightListDoesNotLeakToNextParagraph)
@@ -195,6 +213,7 @@ TEST(ParserImage, ImageInTaskListStaysTaskListItem)
     auto nodes = ParseMarkdown("- [x] ![alt](img.png)").nodes;
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::TaskListItem);
+    EXPECT_TRUE(nodes[0].task_checked());
 }
 
 // ---- 画像がない場合 ----
