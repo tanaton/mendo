@@ -13,6 +13,7 @@
 #include "parser.h"
 #include "task_scheduler.h"
 #include "test_helpers.h"
+#include "test_nodes.h"
 
 namespace {
 
@@ -124,7 +125,7 @@ protected:
     // アプリのファイル読込と同じく推定高さで並べてから可視範囲だけ計測する。
     void Load(std::mt19937& rng, int blocks)
     {
-        nodes_ = ParseMarkdown(sources_.emplace_back(MakeRandomMarkdown(rng, blocks))).nodes;
+        nodes_ = ParseNodes(sources_.emplace_back(MakeRandomMarkdown(rng, blocks)));
         cache_.Reset(nodes_.size());
         EstimateNodeHeights(nodes_, cache_, theme_);
         width_ = 800.0f;

@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 #include "document_types.h"
 #include "reload.h"
+#include "test_nodes.h"
 #include <algorithm>
 #include <cstddef>
 #include <format>
@@ -75,8 +76,8 @@ inline void CheckTable(ViolationSink& sink, size_t i, const Node& node)
         sink.Add("node {}: Table without table_data", i);
         return;
     }
-    if (!node.runs.empty()) {
-        sink.Add("node {}: Table has node-level runs ({})", i, node.runs.size());
+    if (!node.runs().empty()) {
+        sink.Add("node {}: Table has node-level runs ({})", i, node.runs().size());
     }
     const size_t cells = static_cast<size_t>(tbl->row_count) * tbl->col_count;
     if (tbl->cell_text_starts.size() != cells + 1 || tbl->cell_run_starts.size() != cells + 1) {
@@ -111,24 +112,26 @@ inline void CheckTable(ViolationSink& sink, size_t i, const Node& node)
 
 } // namespace parse_invariants_detail
 
-// raw はパース入力 (= view_ が指すバッファ)。違反が無ければ success。
+// raw はパース入力 (= ノードのテキストが直接指しうるバッファ)。違反が無ければ success。
 inline ::testing::AssertionResult ParseInvariantsHold(std::string_view raw, const std::pmr::vector<Node>& nodes)
 {
     using namespace parse_invariants_detail;
     ViolationSink sink;
-    const char* const base = raw.data();
     size_t prev_offset = 0;
     for (size_t i = 0; i < nodes.size(); ++i) {
         const auto& node = nodes[i];
-        if (node.HasSourceOffset()) {
-            const size_t offset = node.SourceOffsetFrom(base);
-            if (node.view_.data() < base || offset >= raw.size()) {
-                sink.Add("node {}: source offset outside raw (size {})", i, raw.size());
-                continue;
+        // 原文をそのまま表示するノードは範囲全体が raw 内に収まる必要がある。
+        if (TextPointsIntoRaw(node, raw)) {
+            const auto start = static_cast<size_t>(node.GetText().data() - raw.data());
+            if (node.GetText().size() > raw.size() - start) {
+                sink.Add("node {}: text [{}, +{}) exceeds raw size {}", i, start, node.GetText().size(), raw.size());
             }
-            // view モードは raw_text_ をそのまま表示するので範囲全体が raw 内に収まる必要がある。
-            if (node.IsViewMode() && node.view_.size() > raw.size() - offset) {
-                sink.Add("node {}: view [{}, +{}) exceeds raw size {}", i, offset, node.view_.size(), raw.size());
+        }
+        if (node.HasSourceOffset()) {
+            const size_t offset = node.SourceOffset();
+            if (offset >= raw.size()) {
+                sink.Add("node {}: source offset {} outside raw (size {})", i, offset, raw.size());
+                continue;
             }
             if (offset < prev_offset) {
                 sink.Add("node {}: source offset {} < previous {}", i, offset, prev_offset);
@@ -141,7 +144,7 @@ inline ::testing::AssertionResult ParseInvariantsHold(std::string_view raw, cons
             continue;
         }
         const auto text = node.GetText();
-        CheckRuns(sink, i, "text", node.runs, text.size(), node.view_link_urls().size());
+        CheckRuns(sink, i, "text", node.runs(), text.size(), node.view_link_urls().size());
         const auto newlines = std::ranges::count(text, '\n');
         if (node.line_count != newlines) {
             sink.Add("node {} (type {}): line_count {} != newlines {}", i, static_cast<int>(node.type), node.line_count, newlines);
@@ -157,13 +160,13 @@ inline ::testing::AssertionResult ParseInvariantsHold(std::string_view raw, cons
     size_t next = 0;
     for (size_t d = 0; d <= raw.size(); ++d) {
         while (next < nodes.size() &&
-               (!nodes[next].HasSourceOffset() || nodes[next].SourceOffsetFrom(base) <= d)) {
+               (!nodes[next].HasSourceOffset() || nodes[next].SourceOffset() <= d)) {
             if (nodes[next].HasSourceOffset()) {
                 expected = static_cast<int>(next);
             }
             ++next;
         }
-        const int actual = FindNodeBySourceOffset(nodes, base, d);
+        const int actual = FindNodeBySourceOffset(nodes, d);
         if (actual != expected) {
             sink.Add("FindNodeBySourceOffset({}) = {}, linear = {}", d, actual, expected);
         }

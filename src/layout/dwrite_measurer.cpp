@@ -385,7 +385,7 @@ void DWriteTextMeasurer::MeasureNode(
         return;
     }
 
-    ApplyRunFormatting(layout.Get(), node.runs, text, RunFormatScope::ForNode(node.type));
+    ApplyRunFormatting(layout.Get(), node.runs(), text, RunFormatScope::ForNode(node.type));
 
     DWRITE_TEXT_METRICS metrics{};
     layout->GetMetrics(&metrics);

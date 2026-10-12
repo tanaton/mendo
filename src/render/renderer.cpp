@@ -334,7 +334,7 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_
 
     const bool has_inline_code_bgs = node.type != NodeType::CodeBlock;
     mendo::Utf16OffsetCursor cursor{ text };
-    for (const auto& run : node.runs) {
+    for (const auto& run : node.runs()) {
         const bool apply_link = apply_brushes && run.has_link();
         const bool add_bg = has_inline_code_bgs && run.code() && run.length > 0;
         if (!apply_link && !add_bg) {

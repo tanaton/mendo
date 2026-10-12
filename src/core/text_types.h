@@ -11,7 +11,7 @@ struct TextRun {
 
     uint32_t start = 0;
     uint32_t length = 0;
-    int16_t link_url_index = -1; // -1 = リンクなし, >= 0 = Node::link_urls へのインデックス
+    int16_t link_url_index = -1; // -1 = リンクなし, >= 0 = Node::view_link_urls() へのインデックス
 
     constexpr bool bold() const noexcept
     {

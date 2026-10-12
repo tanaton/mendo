@@ -42,8 +42,7 @@ struct ReloadDecision {
 ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text) noexcept;
 
 // source_offset が diff_offset 以下の最後のノードを返す。該当なしの場合は -1。
-// raw_base は Node::view_ の指す raw_text バッファ先頭 (= Document::GetRawText().data())。
-[[nodiscard]] int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, const char* raw_base, size_t diff_offset) noexcept;
+[[nodiscard]] int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, size_t diff_offset) noexcept;
 
 // diff 位置のノードに基づくスクロールY座標を計算する。
 // diff_pos が npos (差分位置なし = スクロール維持) またはノードが見つからない場合は

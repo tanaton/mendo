@@ -26,7 +26,7 @@ TEST(ParserProperty, RandomDocumentsSatisfyStructuralInvariants)
         const std::string md = gen.Document(gen.Range(1, 6));
         SCOPED_TRACE(std::format("seed={} md=\n{}", seed, md));
         const auto result = ParseMarkdown(std::string_view{ md });
-        ASSERT_TRUE(ParseInvariantsHold(md, result.nodes));
+        ASSERT_TRUE(ParseInvariantsHold(md, result.nodes()));
     }
 }
 
@@ -182,9 +182,9 @@ TEST(ParserProperty, TightAndLooseListsKeepEveryWordInItsBlockKind)
         for (const auto& md : { build("\n", "\n"), build("\n\n", "\n\n") }) {
             SCOPED_TRACE(std::format("seed={} md=\n{}", seed, md));
             const auto result = ParseMarkdown(std::string_view{ md });
-            const auto actual = CollectWords(result.nodes);
+            const auto actual = CollectWords(result.nodes());
             ASSERT_EQ(actual, expected) << "actual:   " << Describe(actual) << "\nexpected: " << Describe(expected);
-            ASSERT_TRUE(ParseInvariantsHold(md, result.nodes));
+            ASSERT_TRUE(ParseInvariantsHold(md, result.nodes()));
         }
     }
 }
@@ -248,7 +248,7 @@ std::vector<ByteStyle> StylesFrom(const Node& node, size_t from)
     const auto text = node.GetText();
     std::vector<ByteStyle> styles(text.size() - from);
     const auto urls = node.view_link_urls();
-    for (const auto& r : node.runs) {
+    for (const auto& r : node.runs()) {
         for (size_t p = std::max<size_t>(r.start, from); p < static_cast<size_t>(r.start) + r.length && p < text.size(); ++p) {
             auto& s = styles[p - from];
             s.flags = static_cast<uint8_t>((r.bold() ? TextRun::kBold : 0) | (r.italic() ? TextRun::kItalic : 0) |
@@ -292,11 +292,11 @@ TEST(ParserProperty, AlertTransformKeepsBodyTextAndStyles)
 
         const auto alert = ParseMarkdown(std::string_view{ alert_md });
         const auto plain = ParseMarkdown(std::string_view{ plain_md });
-        ASSERT_TRUE(ParseInvariantsHold(alert_md, alert.nodes));
-        ASSERT_FALSE(alert.nodes.empty());
-        ASSERT_EQ(alert.nodes.size(), plain.nodes.size());
-        const auto& a = alert.nodes[0];
-        const auto& p = plain.nodes[0];
+        ASSERT_TRUE(ParseInvariantsHold(alert_md, alert.nodes()));
+        ASSERT_FALSE(alert.nodes().empty());
+        ASSERT_EQ(alert.nodes().size(), plain.nodes().size());
+        const auto& a = alert.nodes()[0];
+        const auto& p = plain.nodes()[0];
         ASSERT_EQ(a.alert_type, kAlertTypes[t]);
         ASSERT_EQ(p.alert_type, AlertType::None);
 

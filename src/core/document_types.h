@@ -11,16 +11,9 @@
 #include <type_traits>
 #include <utility>
 #include <variant>
-#include "small_vector.h"
 #include "syntax.h"
 #include "text_types.h"
 #include "utility.h"
-
-// Node::runs / TableCell::runs の型エイリアス。SBO=2 で size=1 (実測中央値) のノード 65%
-// を完全 inline 保持しつつ、Node 直下の 8B 削減と Paragraph/BlockQuote (中央値 4) の
-// heap fallback を許容する設計。example/test.md 実測ヒット率 75.8% (テキスト系のみ)。
-// SBO を超えた場合のみ operator new で確保する。
-using TextRunList = mendo::small_vector<TextRun, 2>;
 
 enum class NodeType : uint8_t {
     Heading,
@@ -169,17 +162,19 @@ struct NodeImageData {
 };
 using NodeImagePtr = std::unique_ptr<NodeImageData>;
 
-// Node::SourceOffsetFrom() が未設定 (view_.data() == nullptr) のときに返す値。
+// Node::SourceOffset() が未設定のときに返す値。
 // HorizontalRule のようなテキストを持たないノードはオフセットを持たない。
-inline constexpr size_t kUnsetSourceOffset = std::numeric_limits<size_t>::max();
+// 入力は md4c の制約で 2GB 未満なので、Node が 32bit で持つ値と同じにしておく。
+inline constexpr size_t kUnsetSourceOffset = std::numeric_limits<uint32_t>::max();
 
 struct Node {
-    TextRunList runs;
-
-    // リンク URL の集合。リンクを含むノードでのみ確保される。
-    // Why: `Node::runs` が link_url_index で参照する URL テーブル。リンクを持つノードは
-    // 全体の少数派 (見出し/段落の一部) なので、空時は 8B ポインタ 1 本に抑える。
-    std::unique_ptr<std::pmr::vector<std::pmr::string>> link_urls_;
+    // テキスト・runs・リンク URL はノード自身では持たず、Document の raw_text_ (原文をそのまま使えるもの)
+    // か TextArena (加工したテキスト・runs・URL の配列) を指す。どちらも Document と寿命が同じ。
+    // 長さと件数は 4 バイト領域にまとめて Node を 72B に収める。
+    const char* text_ = nullptr;
+    const TextRun* runs_ = nullptr;
+    // `runs()` の link_url_index で引く URL の配列。
+    const std::string_view* link_urls_ = nullptr;
 
     // ノード種別ごとの拡張データ。重データ (tokens / table / image) は unique_ptr で
     // 外出しすることで variant alternative の最大サイズを 8B に抑える。
@@ -193,21 +188,17 @@ struct Node {
         NodeImagePtr>;   // Image
     Extra extra;
 
-    // 表示テキストの owned バッファ。テキスト加工 (Alert / HTML entity / SOFTBR/BR / display math 昇格 / 表セル等)
-    // を必要とするノードのみ確保する。raw_text_ の連続範囲をそのまま表示できるノードは view モードに倒し
-    // owned_text_ は空のまま raw_text_ を共有 view する (view_.size() > 0 と排他的不変条件)。
-    // SBO (~16 byte) により短い加工結果は 0 ヒープ確保で済む。
-    std::string owned_text_;
-
-    // raw_text_ 内のソース位置 + 表示モードを 1 本に統合した表現。
-    //   view_.data() == nullptr                : source_offset 未設定 (HorizontalRule 等)。
-    //   view_.data() != nullptr, view_.size() == 0 : owned モード。表示は owned_text_、data() は raw 内位置。
-    //   view_.data() != nullptr, view_.size()  > 0 : view モード。view_ をそのまま表示テキストとして使う。
-    std::string_view view_;
-
     // --- 4 バイトアライメント ---
+    // テキストは入力 (md4c の制約で 2GB 未満) に Alert ラベルと上限付きの脚注 backref を足した程度なので 32bit に収まる。
+    uint32_t text_size_ = 0;
+    uint32_t run_count_ = 0;
+    uint32_t source_offset_ = kUnsetSourceOffset;
     int32_t blockquote_group = -1; // 最外側 blockquote 単位のグループID（ネストしてもgroupは共有）
     int32_t line_count = 0;        // テキスト内の改行数（パース時にカウント済み）
+
+    // --- 2 バイトアライメント ---
+    // link_url_index (int16_t) で引ける数までしか持たない。
+    uint16_t link_url_count_ = 0;
 
     // --- 1 バイトアライメント ---
     NodeType type = NodeType::Paragraph;
@@ -220,46 +211,62 @@ struct Node {
     int8_t heading_level_ = 0;
     SyntaxLanguage code_language_ = SyntaxLanguage::None;
 
-    constexpr bool IsViewMode() const noexcept
-    {
-        return !view_.empty();
-    }
-
     constexpr bool HasSourceOffset() const noexcept
     {
-        return view_.data() != nullptr;
+        return source_offset_ != kUnsetSourceOffset;
     }
 
-    // base (= Document::raw_text_.data()) 起算の UTF-8 byte オフセット。未設定時は kUnsetSourceOffset。
-    constexpr size_t SourceOffsetFrom(const char* base) const noexcept
+    // Document::raw_text_ 起算の UTF-8 byte オフセット。未設定時は kUnsetSourceOffset。
+    constexpr size_t SourceOffset() const noexcept
     {
-        return HasSourceOffset() ? static_cast<size_t>(view_.data() - base) : kUnsetSourceOffset;
+        return source_offset_;
     }
 
-    // ソース位置 (および任意の view 長) を埋める。length=0 は owned モードでの位置追跡用。
-    constexpr void SetSourceOffset(const char* base, size_t offset, size_t length = 0) noexcept
+    constexpr void SetSourceOffset(size_t offset) noexcept
     {
-        view_ = std::string_view{ base + offset, length };
+        assert(offset < kUnsetSourceOffset);
+        source_offset_ = static_cast<uint32_t>(offset);
     }
 
     constexpr bool HasText() const noexcept
     {
-        // view モードが多数派 (parse 結果で view ノードが過半) なので先に分岐させる。
-        if (IsViewMode()) {
-            return true;
-        }
-        return !owned_text_.empty();
+        return text_size_ != 0;
     }
 
     constexpr std::string_view GetText() const noexcept
     {
-        if (IsViewMode()) {
-            return view_;
-        }
-        return owned_text_;
+        return { text_, text_size_ };
     }
 
-    // テーブルは owned_text_ が空で線形化テキストを table->concat_text に保持する。
+    // text はノードより長く生きる領域 (raw_text_ / TextArena / テストでは静的文字列) を指すこと。
+    // line_count は変えない (パーサがテキスト確定前に積算している)。
+    constexpr void SetText(std::string_view text) noexcept
+    {
+        assert(text.size() <= std::numeric_limits<uint32_t>::max());
+        text_ = text.data();
+        text_size_ = static_cast<uint32_t>(text.size());
+    }
+
+    // line_count は呼び出し側が数えた text 内の改行数。
+    constexpr void SetText(std::string_view text, int32_t line_count_value) noexcept
+    {
+        SetText(text);
+        line_count = line_count_value;
+    }
+
+    constexpr std::span<const TextRun> runs() const noexcept
+    {
+        return { runs_, run_count_ };
+    }
+
+    // runs も SetText と同じく、ノードより長く生きる領域を指すこと。
+    constexpr void SetRuns(std::span<const TextRun> runs_value) noexcept
+    {
+        runs_ = runs_value.data();
+        run_count_ = static_cast<uint32_t>(runs_value.size());
+    }
+
+    // テーブルは text_ が空で線形化テキストを table->concat_text に保持する。
     // HitTestTable / OnLButtonDblClk が返す text_pos も concat_text 内のグローバル offset
     // 体系で揃っているため、選択範囲を前提とする抽出側はこちらを使う。
     constexpr std::string_view LinearizedText() const noexcept
@@ -270,32 +277,6 @@ struct Node {
             }
         }
         return GetText();
-    }
-
-    // 連続 NORMAL/CODE/LATEXMATH のみで構成されるノード向けの view 設定 API。
-    // raw_text_ の (source_offset_value, length) 範囲をそのまま表示テキストとして使う。
-    // 引数順は SetSourceOffset(base, offset, length) と揃えてある。
-    constexpr void SetTextView(const char* view_base, size_t source_offset_value, size_t length, int32_t line_count_value) noexcept
-    {
-        owned_text_.clear();
-        SetSourceOffset(view_base, source_offset_value, length);
-        line_count = line_count_value;
-    }
-
-    // text と line_count を一括更新する（呼び出し側が積算済みの line_count を渡す）。
-    // 改行を逐次カウントしておけるパーサ向けの最適化バリアント。
-    constexpr void SetTextWithLineCount(std::string_view s, int32_t line_count_value)
-    {
-        owned_text_.assign(s);
-        DemoteToOwned();
-        line_count = line_count_value;
-    }
-
-    constexpr void SetTextWithLineCount(std::string&& s, int32_t line_count_value) noexcept
-    {
-        owned_text_ = std::move(s);
-        DemoteToOwned();
-        line_count = line_count_value;
     }
 
     // get_if 風に *_data() でポインタを返す。所持していなければ nullptr。
@@ -414,16 +395,17 @@ struct Node {
         return ad ? ad->alert_label_length : 0u;
     }
 
-    constexpr std::pmr::vector<std::pmr::string>& ensure_link_urls()
+    constexpr std::span<const std::string_view> view_link_urls() const noexcept
     {
-        if (!link_urls_) {
-            link_urls_ = std::make_unique<std::pmr::vector<std::pmr::string>>();
-        }
-        return *link_urls_;
+        return { link_urls_, link_url_count_ };
     }
-    constexpr std::span<const std::pmr::string> view_link_urls() const noexcept
+
+    // urls も各 URL 文字列も、SetText と同じくノードより長く生きる領域を指すこと。
+    constexpr void SetLinkUrls(std::span<const std::string_view> urls) noexcept
     {
-        return SpanOrEmpty(link_urls_);
+        assert(urls.size() <= static_cast<size_t>(std::numeric_limits<int16_t>::max()));
+        link_urls_ = urls.data();
+        link_url_count_ = static_cast<uint16_t>(urls.size());
     }
 
     constexpr std::span<const SyntaxToken> syntax_tokens() const noexcept
@@ -441,13 +423,6 @@ struct Node {
     }
 
 private:
-    // owned モードへデモートする。設定済みなら view_.data() (= source_offset) を保持し size のみ 0 にする。
-    // 未設定 (data == nullptr) の場合は再代入しても string_view{nullptr, 0} のままで no-op。
-    constexpr void DemoteToOwned() noexcept
-    {
-        view_ = std::string_view{ view_.data(), 0 };
-    }
-
     // parser 契約: BeginNode 直後の Node は monostate で、対応する 1 種類だけが ensure される。
     // 異種 alternative を保持した状態で別種を ensure すると元データはサイレントに破棄されるため、
     // Debug ビルドでは契約違反を assert で捕捉する (Release では noop)。
@@ -486,11 +461,10 @@ private:
 };
 
 // 超過時の対処: (1) `sizeof(Node)` の実際の値を確認 (例: /d1reportSingleClassLayoutNode)、
-// (2) variant alternative のうち最大のものを unique_ptr 経由で外出し、または
-// (3) TextRunList の SBO 値を再検討。閾値変更は ViewStats.RunsSizeHistogram* の実測も併せて確認。
+// (2) variant alternative のうち最大のものを unique_ptr 経由で外出しする。
 // 注意: variant の discriminator パディングは std lib 実装依存なので、ツールチェーン切替時にも踏む可能性あり。
-static_assert(sizeof(Node) <= 128,
-              "Node size regression: exceeded 128 bytes — see comment above for remediation steps");
+static_assert(sizeof(Node) <= 72,
+              "Node size regression: exceeded 72 bytes — see comment above for remediation steps");
 
 // Mermaid / LaTeX 等、テキストではなくビットマップで描画するコードブロック。
 constexpr bool IsDiagramCodeBlock(const Node& node) noexcept

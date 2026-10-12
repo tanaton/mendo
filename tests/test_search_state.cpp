@@ -508,7 +508,7 @@ TEST(SearchStateTest, ImageNodeExcludedFromSearch)
     std::pmr::vector<Node> nodes;
     Node img;
     img.type = NodeType::Image;
-    img.SetTextWithLineCount(std::string_view{ "alt text with keyword" }, 0);
+    img.SetText("alt text with keyword", 0);
     nodes.push_back(std::move(img));
     nodes.push_back(MakeTextNode("keyword in paragraph"));
     SearchState s;
@@ -525,7 +525,7 @@ TEST(SearchStateTest, MermaidCodeBlockExcludedFromSearch)
     Node mermaid;
     mermaid.type = NodeType::CodeBlock;
     mermaid.set_code_language(SyntaxLanguage::Mermaid);
-    mermaid.SetTextWithLineCount(std::string_view{ "graph TD; A-->B" }, 0);
+    mermaid.SetText("graph TD; A-->B", 0);
     nodes.push_back(std::move(mermaid));
     nodes.push_back(MakeTextNode("graph description"));
     SearchState s;
@@ -542,7 +542,7 @@ TEST(SearchStateTest, NonMermaidCodeBlockIncludedInSearch)
     Node code;
     code.type = NodeType::CodeBlock;
     code.set_code_language(SyntaxLanguage::Cpp);
-    code.SetTextWithLineCount(std::string_view{ "int main()" }, 0);
+    code.SetText("int main()", 0);
     nodes.push_back(std::move(code));
     SearchState s;
     s.SetQuery("main");

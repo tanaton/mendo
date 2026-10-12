@@ -3,6 +3,7 @@
 #include "document_test_helpers.h"
 #include "mock_text_measurer.h"
 #include "test_helpers.h"
+#include "test_nodes.h"
 
 // MockTextMeasurerを通じてLayoutEngineのロジックをテストする（COM / DirectWrite不要）。
 
@@ -78,7 +79,7 @@ TEST_F(MockLayoutTest, NoDirtyAfterFullLayout)
 
 TEST_F(MockLayoutTest, PartialLayoutLeavesDirtyNodes)
 {
-    auto nodes = ParseMarkdown("A\n\nB\n\nC\n\nD\n\nE").nodes;
+    auto nodes = ParseNodes("A\n\nB\n\nC\n\nD\n\nE");
     LayoutCache cache;
     cache.Resize(nodes.size());
     // 部分レイアウト: ビューポート[0, 1)のみ — 非常に小さい
@@ -89,7 +90,7 @@ TEST_F(MockLayoutTest, PartialLayoutLeavesDirtyNodes)
 
 TEST_F(MockLayoutTest, ProcessDirtyBatchResolvesDirty)
 {
-    auto nodes = ParseMarkdown("A\n\nB\n\nC\n\nD\n\nE").nodes;
+    auto nodes = ParseNodes("A\n\nB\n\nC\n\nD\n\nE");
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 1.0f);
@@ -107,7 +108,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchResolvesDirty)
 TEST_F(MockLayoutTest, ProcessDirtyBatchSmallBatch)
 {
     const auto md = MakeParagraphs(50);
-    auto nodes = ParseMarkdown(md).nodes;
+    auto nodes = ParseNodes(md);
     LayoutCache cache;
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 10.0f);
@@ -170,7 +171,7 @@ TEST_F(MockLayoutTest, HorizontalRuleHasHeight)
 TEST_F(MockLayoutTest, EnsureVisibleLayoutUpdatesViewport)
 {
     const auto md = MakeParagraphs(20);
-    auto nodes = ParseMarkdown(md).nodes;
+    auto nodes = ParseNodes(md);
     LayoutCache cache;
     cache.Resize(nodes.size());
     // ビューポート[0,50)の部分レイアウト
@@ -189,7 +190,7 @@ TEST_F(MockLayoutTest, EnsureVisibleLayoutUpdatesViewport)
 
 TEST_F(MockLayoutTest, FullLayoutMeasuresAllNodes)
 {
-    auto nodes = ParseMarkdown("A\n\nB").nodes;
+    auto nodes = ParseNodes("A\n\nB");
     LayoutCache cache;
     cache.Resize(nodes.size());
     LayoutAll(nodes, cache, 800.0f);
@@ -215,7 +216,7 @@ TEST_F(MockLayoutTest, MermaidBlockGetsPlaceholderHeight)
 // ビットマップレンダリング後の高さがレイアウト再計算で保持されること（ズーム操作を模擬）
 TEST_F(MockLayoutTest, MermaidHeightPreservedAcrossLayoutCycles)
 {
-    auto nodes = ParseMarkdown("Text\n\n```mermaid\ngraph TD;\n  A-->B;\n```\n\nMore text").nodes;
+    auto nodes = ParseNodes("Text\n\n```mermaid\ngraph TD;\n  A-->B;\n```\n\nMore text");
     LayoutCache cache;
     cache.Resize(nodes.size());
     LayoutAll(nodes, cache, 800.0f);
@@ -248,7 +249,7 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAcrossLayoutCycles)
 // （500%ズームでMDペインが極小になる場合を模擬）
 TEST_F(MockLayoutTest, MermaidHeightPreservedAtZeroWidth)
 {
-    auto nodes = ParseMarkdown("```mermaid\ngraph TD;\n  A-->B;\n```").nodes;
+    auto nodes = ParseNodes("```mermaid\ngraph TD;\n  A-->B;\n```");
     LayoutCache cache;
     cache.Resize(nodes.size());
     LayoutAll(nodes, cache, 800.0f);
@@ -298,7 +299,7 @@ TEST_F(MockLayoutTest, LongTableHeightNotShrunkByEstimateInPartialMode)
     }
     md += "\nFollow-up paragraph";
 
-    auto nodes = ParseMarkdown(md).nodes;
+    auto nodes = ParseNodes(md);
     ASSERT_GE(nodes.size(), 2u);
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -333,7 +334,7 @@ TEST_F(MockLayoutTest, LongTableHeightNotShrunkByEstimateInPartialMode)
 // 推定値より小さい既存高さは、推定値まで成長させてよい（max_scroll の精度のため）
 TEST_F(MockLayoutTest, PartialModeGrowsHeightWhenEstimateLarger)
 {
-    auto nodes = ParseMarkdown("First\n\nSecond\n\nThird").nodes;
+    auto nodes = ParseNodes("First\n\nSecond\n\nThird");
     LayoutCache cache;
     cache.Resize(nodes.size());
 
@@ -355,7 +356,7 @@ TEST_F(MockLayoutTest, PartialModeClearsTableColWidthsWhenHeightGrows)
     for (int i = 0; i < 50; i++) {
         md += "| r" + std::to_string(i) + " | v" + std::to_string(i) + " |\n";
     }
-    auto nodes = ParseMarkdown(md).nodes;
+    auto nodes = ParseNodes(md);
     LayoutCache cache;
     cache.Resize(nodes.size());
 
@@ -428,7 +429,7 @@ TEST_F(MockLayoutTest, ResetClearsAllEntries)
 TEST_F(MockLayoutTest, FileSwitchWithResetProducesCorrectLayout)
 {
     // ファイルAを開くシミュレーション: "# Big Heading\n\nSome paragraph"
-    auto nodes_a = ParseMarkdown("# Big Heading\n\nSome paragraph").nodes;
+    auto nodes_a = ParseNodes("# Big Heading\n\nSome paragraph");
     LayoutCache cache;
     cache.Reset(nodes_a.size());
     LayoutAll(nodes_a, cache, 800.0f);
@@ -440,7 +441,7 @@ TEST_F(MockLayoutTest, FileSwitchWithResetProducesCorrectLayout)
     EXPECT_GT(para_height_a, 0.0f);
 
     // ファイルBへ切り替えシミュレーション: "Just a paragraph\n\nAnother one\n\nThird"
-    auto nodes_b = ParseMarkdown("Just a paragraph\n\nAnother one\n\nThird").nodes;
+    auto nodes_b = ParseNodes("Just a paragraph\n\nAnother one\n\nThird");
     cache.Reset(nodes_b.size());
     LayoutAll(nodes_b, cache, 800.0f);
 
@@ -459,7 +460,7 @@ TEST_F(MockLayoutTest, FileSwitchWithResetProducesCorrectLayout)
 TEST_F(MockLayoutTest, FileSwitchSameNodeCountWithResetRecalculates)
 {
     // ファイルA: 見出し2つ
-    auto nodes_a = ParseMarkdown("# H1\n\n## H2").nodes;
+    auto nodes_a = ParseNodes("# H1\n\n## H2");
     LayoutCache cache;
     cache.Reset(nodes_a.size());
     LayoutAll(nodes_a, cache, 800.0f);
@@ -467,7 +468,7 @@ TEST_F(MockLayoutTest, FileSwitchSameNodeCountWithResetRecalculates)
     float h2_height = cache[1].height;
 
     // ファイルB: 段落2つ（ファイルAと同じノード数）
-    auto nodes_b = ParseMarkdown("alpha\n\nbeta").nodes;
+    auto nodes_b = ParseNodes("alpha\n\nbeta");
     cache.Reset(nodes_b.size());
     LayoutAll(nodes_b, cache, 800.0f);
 
@@ -493,7 +494,7 @@ constexpr float kSwitchViewportBottom = 600.0f;
 
 void LayoutPreviousDocument(LayoutEngine& engine, LayoutCache& cache)
 {
-    auto prev = ParseMarkdown("# Prev\n\nbody").nodes;
+    auto prev = ParseNodes("# Prev\n\nbody");
     cache.Reset(prev.size());
     engine.ComputeLayout(prev, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
 }
@@ -507,7 +508,7 @@ TEST_F(MockLayoutTest, FileSwitchPartialLayoutAtSameWidthMeasuresVisibleNodes)
     LayoutPreviousDocument(engine_, cache);
 
     const auto md = MakeParagraphs(5);
-    auto nodes = ParseMarkdown(md).nodes;
+    auto nodes = ParseNodes(md);
     cache.Reset(nodes.size());
     engine_.ComputeLayout(nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
 
@@ -526,7 +527,7 @@ TEST_F(MockLayoutTest, EstimateOnSwitchGivesNearFullContentHeight)
     LayoutPreviousDocument(engine_, cache);
 
     const auto md = MakeParagraphs(2000);
-    auto nodes = ParseMarkdown(md).nodes;
+    auto nodes = ParseNodes(md);
     cache = mendo::layout::MakeEstimatedLayoutCache(nodes, theme_);
     engine_.ComputeLayout(nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
     while (engine_.ProcessDirtyBatch(nodes, cache, kSwitchWidth, 200, { 0.0f, kSwitchViewportBottom, 5.0f })) {
@@ -548,7 +549,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchWithClipAfterResetMeasuresTopNodes)
     LayoutPreviousDocument(engine_, cache);
 
     const auto md = MakeParagraphs(10);
-    auto nodes = ParseMarkdown(md).nodes;
+    auto nodes = ParseNodes(md);
     cache.Reset(nodes.size());
     engine_.ProcessDirtyBatch(nodes, cache, kSwitchWidth, 100, { 0.0f, kSwitchViewportBottom, 1.0f });
 
@@ -565,7 +566,7 @@ TEST_F(MockLayoutTest, EnsureVisibleLayoutAfterSwitchKeepsMeasuredNodes)
     LayoutPreviousDocument(engine_, cache);
 
     const auto md = MakeParagraphs(10);
-    auto nodes = ParseMarkdown(md).nodes;
+    auto nodes = ParseNodes(md);
     cache.Reset(nodes.size());
     engine_.ComputeLayout(nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
     const float top0 = cache.Top(0);
@@ -584,7 +585,7 @@ TEST_F(MockLayoutTest, RestoreAfterSwitchMeasuresNodesAtRestoredPosition)
     LayoutPreviousDocument(engine_, cache);
 
     const auto md = MakeParagraphs(200);
-    auto nodes = ParseMarkdown(md).nodes;
+    auto nodes = ParseNodes(md);
     cache = mendo::layout::MakeEstimatedLayoutCache(nodes, theme_);
 
     constexpr size_t kTarget = 150;

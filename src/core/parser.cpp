@@ -2,10 +2,8 @@
 #include "html_entities.h"
 #include "syntax.h"
 #include "profiler.h"
-#include "string_hash.h"
 #include "md4c.h"
 #include <cassert>
-#include <functional>
 #include <unordered_map>
 #include <algorithm>
 #include <format>
@@ -40,6 +38,8 @@ struct ParseContext {
     }
 
     std::pmr::vector<Node> nodes;
+    // 原文をそのまま使えないテキストと、runs・リンク URL の置き場所。ParseResult 経由で Document に渡す。
+    std::unique_ptr<TextArena> arena;
 
     // パース後の全ノード走査を避けるため、特殊ノードのインデックスはパース中に構築する。
     std::pmr::vector<size_t> heading_indices;
@@ -66,13 +66,14 @@ struct ParseContext {
     // ビット操作するのではなく、span enter/leave のときだけ 1 回ビット OR/AND を更新する。
     // 不変式: bit X が立っている <=> 対応する *_count > 0。
     uint8_t current_run_flags = 0;
-    // 現在の <a> span に対応する link_urls インデックス。-1 = リンク外。
+    // 現在の <a> span に対応する current_link_urls のインデックス。-1 = リンク外。
     // CommonMark で <a> はネスト禁止のため leave までこの値が安定する。
     int16_t current_link_url_index = -1;
 
-    // 現在ノード用のテキスト蓄積スクラッチ (UTF-8)。FinalizeCurrentNode で view 化されるか
-    // Node::owned_text_ へコピーされる。
+    // 現在ノード用のテキストと runs の蓄積スクラッチ (UTF-8)。FinalizeCurrentNode で raw_text_ を
+    // 指すか arena へコピーされる。runs は伸長のたびに確保し直さないよう、ここに貯めて 1 回だけコピーする。
     std::pmr::string current_text;
+    std::pmr::vector<TextRun> current_runs;
 
     // current_text 内の「未確定 TextRun」の開始位置 (UTF-8 byte unit)。
     // 同じ span 状態で連続する AppendDoc は 1 つの TextRun に統合される。
@@ -105,11 +106,12 @@ struct ParseContext {
     // nullptr のときは AppendDoc / FlushPendingRun は no-op。
     std::pmr::string* active_text_buffer = nullptr;
 
-    // 現在ノードの link_urls の URL -> インデックス索引。URL 数が kLinkUrlLinearScanMax を
+    // 現在ノードのリンク URL。各 URL は raw_text_ か arena 上にあり、FinalizeCurrentNode で配列だけ arena へコピーする。
+    std::pmr::vector<std::string_view> current_link_urls;
+    // current_link_urls の URL -> インデックス索引。URL 数が kLinkUrlLinearScanMax を
     // 超えたノードでのみ構築する (テーブルは全セルで 1 ノードのため数万 URL になりうる)。
-    // urls 内の SSO 文字列は vector 伸長で移動するため string_view ではなく複製をキーにする。
     static constexpr size_t kLinkUrlLinearScanMax = 8;
-    std::pmr::unordered_map<std::pmr::string, int16_t, StringTransparentHash, std::equal_to<>> link_url_lookup;
+    std::pmr::unordered_map<std::string_view, int16_t> link_url_lookup;
 
     // 画像スパンの src 蓄積バッファ。
     // ネスト画像 (![a ![b](inner)](outer)) では最外側の src を採用するため深度を追跡する。
@@ -125,55 +127,60 @@ struct ParseContext {
     // current_text 全体を std::ranges::count で走査するコストを避ける。
     int32_t display_math_newlines = 0;
 
-    // md_parse() に渡した入力バッファ。source_offset 計算と OnText の text ポインタ範囲判定に使う。
-    const char* markdown_base = nullptr;
-    size_t markdown_size = 0;
+    // md_parse() に渡した入力バッファ。source_offset 計算と、md4c が渡すポインタが原文を指すかの判定に使う。
+    std::string_view markdown;
 
-    // 現在ノードが owned 経路確定か。span markup (** _ ` 等) の存在や、
+    // 現在ノードのテキストを arena へコピーすることが確定しているか。span markup (** _ ` 等) の存在や、
     // entity 解決 / BR / SOFTBR で text を置換するケースは current_text と raw_slice が
     // 構造的に一致しなくなるため、FinalizeCurrentNode の memcmp を完全にスキップできる。
-    bool current_node_owned_only = false;
+    bool current_node_needs_copy = false;
 
     // current_text が source の (offset, current_text.size()) 範囲とバイト一致するか。
-    // 一致するノードは Node::owned_text_ を確保せず raw_text_ への view に倒せる。
-    // span マークアップ (** _ ` 等) や BR/SOFTBR/ENTITY 混在のノードは不一致で owned 経路に落ちる。
-    // offset は呼び出し側で SourceOffsetFrom した結果を渡す (FinalizeCurrentNode で再利用するため)。
+    // 一致するノードは arena にコピーせず raw_text_ を指せる。
+    // span マークアップ (** _ ` 等) や BR/SOFTBR/ENTITY 混在のノードは不一致で arena へのコピーに落ちる。
+    // offset は呼び出し側で SourceOffset() から取り出した値を渡す (FinalizeCurrentNode で再利用するため)。
     bool CurrentTextMatchesRawSliceAt(size_t offset) const noexcept
     {
         // 高頻度呼び出し (100MB で 40万回超) のため MENDO_PROFILE は外す。
         // zone overhead が ~120ms 単位で計測自体を歪めるため。
         const size_t len = current_text.size();
-        if (offset + len > markdown_size) {
+        if (offset + len > markdown.size()) {
             return false;
         }
-        // current_node_owned_only で span/entity 混在は事前に弾けるため、ここまで来たノードは大半が
+        // current_node_needs_copy で span/entity 混在は事前に弾けるため、ここまで来たノードは大半が
         // 全長一致 (success) になる。probe 短絡は worst-case で len 分の比較が走り意味がないため、
         // 1 回の memcmp に統一する。
-        return std::char_traits<char>::compare(markdown_base + offset, current_text.data(), len) == 0;
+        return std::char_traits<char>::compare(markdown.data() + offset, current_text.data(), len) == 0;
     }
 
-    // 現在ノードのテキストスクラッチを Node に確定し、スクラッチをクリアする。
+    // 現在ノードのテキストと runs のスクラッチを Node に確定し、スクラッチをクリアする。
     // BeginNode 直前と各 OnLeaveBlock の current_node 解除直前に呼ぶ。
-    // current_text の capacity は保持して次ノードで再利用する (確保回数削減のため)。
+    // スクラッチの capacity は保持して次ノードで再利用する (確保回数削減のため)。
     void FinalizeCurrentNode()
     {
         FlushPendingRun();
-        // 昇格処理 (TryPromoteParagraphToDisplayMath 等) がテキストを直接設定済みのノードは、
-        // current_text で上書きすると line_count ごと巻き戻るのでスキップする。
-        if (current_node && !current_text.empty() && !current_node->HasText()) {
-            const auto offset = current_node->SourceOffsetFrom(markdown_base);
-            if (!current_node_owned_only && offset != kUnsetSourceOffset && CurrentTextMatchesRawSliceAt(offset)) {
-                current_node->SetTextView(
-                    markdown_base,
-                    offset,
-                    current_text.size(),
-                    current_node->line_count);
+        if (current_node) {
+            // 昇格処理 (TryPromoteParagraphToDisplayMath 等) がテキストを直接設定済みのノードは、
+            // current_text で上書きすると line_count ごと巻き戻るのでスキップする。
+            if (!current_text.empty() && !current_node->HasText()) {
+                const auto offset = current_node->SourceOffset();
+                const bool matches_raw = !current_node_needs_copy && offset != kUnsetSourceOffset && CurrentTextMatchesRawSliceAt(offset);
+                const std::string_view text = matches_raw
+                    ? markdown.substr(offset, current_text.size())
+                    : arena->CopyText(current_text);
+                current_node->SetText(text);
             }
-            else {
-                current_node->SetTextWithLineCount(current_text, current_node->line_count);
+            if (!current_runs.empty()) {
+                current_node->SetRuns(arena->Copy(current_runs));
+            }
+            if (!current_link_urls.empty()) {
+                current_node->SetLinkUrls(arena->Copy(current_link_urls));
             }
         }
         current_text.clear();
+        current_runs.clear();
+        current_link_urls.clear();
+        link_url_lookup.clear();
     }
 
     // current_node と active_text_buffer は対で管理する不変式があるため一括で nullptr に倒す。
@@ -212,31 +219,24 @@ struct ParseContext {
             current_node->quote_depth = static_cast<int8_t>(std::min(blockquote_depth, kInt8Max));
             current_node->quote_outer_indent = static_cast<int8_t>(std::min(outermost_quote_indent, kInt8Max));
         }
-        // runs は SBO 内で初期確保ゼロを狙う。reserve すると SBO の利点が消えるので呼ばない。
-        current_node_owned_only = false;
-        link_url_lookup.clear();
+        current_node_needs_copy = false;
     }
 
     // md4c は MD_TEXT_NULLCHAR / MD_TEXT_BR / MD_TEXT_SOFTBR や、CODE/LATEXMATH/HTML の改行・空白置換で
     // _T(""), _T("\n"), _T(" ") といった内部静的リテラルを text として渡すことがある。
-    // 異なる array 同士のポインタ減算は UB なので、範囲判定もオフセット計算も uintptr_t の
-    // 整数演算で行う (std::less<T*> の total order はアドレスの数値順と一致する保証がない)。
     // 範囲外 (静的リテラル) のときは記録せず、後続の実体テキストで設定できるようにする。
     // 脚注定義のように原文の途中から文書末尾へ移るノードは、ソース位置の単調増加
     // (FindNodeBySourceOffset の二分探索の前提) を崩すので記録しない。
-    void RecordSourceOffset(const char* text) noexcept
+    void RecordSourceOffset(std::string_view chunk) noexcept
     {
-        const auto text_addr = reinterpret_cast<uintptr_t>(text);
-        const auto base_addr = reinterpret_cast<uintptr_t>(markdown_base);
-        const auto end_addr = base_addr + markdown_size;
-        if (text_addr < base_addr || text_addr >= end_addr) {
+        if (!IsSubrangeOf(chunk, markdown)) {
             return;
         }
-        const auto offset = static_cast<size_t>(text_addr - base_addr);
+        const auto offset = static_cast<size_t>(chunk.data() - markdown.data());
         if (offset < last_source_offset) {
             return;
         }
-        current_node->SetSourceOffset(markdown_base, offset);
+        current_node->SetSourceOffset(offset);
         last_source_offset = offset;
     }
 
@@ -275,8 +275,8 @@ struct ParseContext {
         return run;
     }
 
-    // url を Node::link_urls に登録し、インデックスを current_link_url_index にキャッシュする。
-    // 1 ノードあたりの URL 数は典型的に < 8 で、その領域ではキー複製・ハッシュ計算を伴う
+    // url を current_link_urls に登録し、インデックスを current_link_url_index にキャッシュする。
+    // 1 ノードあたりの URL 数は典型的に < 8 で、その領域ではハッシュ計算を伴う
     // ハッシュマップより線形 memcmp の方が速い。数が増えたノードだけ link_url_lookup に切り替え、
     // テーブル等で O(n^2) になるのを防ぐ。
     void ResolveLinkUrlIndex(std::string_view url)
@@ -286,11 +286,10 @@ struct ParseContext {
 
     int16_t FindOrAddLinkUrl(std::string_view url)
     {
-        const auto existing = current_node->view_link_urls();
-        const size_t n = existing.size();
+        const size_t n = current_link_urls.size();
         if (n <= kLinkUrlLinearScanMax) {
             for (size_t i = 0; i < n; ++i) {
-                if (existing[i] == url) {
+                if (current_link_urls[i] == url) {
                     return static_cast<int16_t>(i);
                 }
             }
@@ -298,7 +297,7 @@ struct ParseContext {
         else {
             if (link_url_lookup.empty()) {
                 for (size_t i = 0; i < n; ++i) {
-                    link_url_lookup.emplace(existing[i], static_cast<int16_t>(i));
+                    link_url_lookup.emplace(current_link_urls[i], static_cast<int16_t>(i));
                 }
             }
             if (const auto it = link_url_lookup.find(url); it != link_url_lookup.end()) {
@@ -309,13 +308,19 @@ struct ParseContext {
         if (n >= static_cast<size_t>(std::numeric_limits<int16_t>::max())) {
             return -1;
         }
-        auto& urls = current_node->ensure_link_urls();
-        const auto new_index = static_cast<int16_t>(urls.size());
-        urls.emplace_back(url);
+        const auto new_index = static_cast<int16_t>(n);
+        current_link_urls.push_back(InternLinkUrl(url));
         if (!link_url_lookup.empty()) {
-            link_url_lookup.emplace(url, new_index);
+            link_url_lookup.emplace(current_link_urls.back(), new_index);
         }
         return new_index;
+    }
+
+    // md4c の href は原文を指すことが多いのでそのまま使う。参照定義の展開や脚注 URL のように
+    // 原文の外にあるものだけ arena へコピーする。
+    std::string_view InternLinkUrl(std::string_view url)
+    {
+        return IsSubrangeOf(url, markdown) ? url : arena->CopyText(url);
     }
 
     // テキストを現在のノードまたはセルに追加する (UTF-8)。
@@ -360,7 +365,7 @@ struct ParseContext {
                 if (buf == &current_text) {
                     current_node->line_count += pending_run_newlines;
                     if (!plain) {
-                        current_node->runs.emplace_back(MakeRun(pending_run_start, length));
+                        current_runs.push_back(MakeRun(pending_run_start, length));
                     }
                 }
                 else if (!plain) {
@@ -410,9 +415,9 @@ constexpr bool TryPromoteParagraphToDisplayMath(ParseContext* ctx)
     }
     node->type = NodeType::CodeBlock;
     node->set_code_language(SyntaxLanguage::LatexMath);
-    node->runs.clear();
-    // current_text 経由で渡すと FinalizeCurrentNode で 2 回目のコピーが走るため、ノードへ直接書く。
-    node->SetTextWithLineCount(ctx->display_math_buf, ctx->display_math_newlines);
+    ctx->current_runs.clear();
+    // current_text 経由で渡すと 2 回目のコピーが走るため、arena へ直接書く。
+    node->SetText(ctx->arena->CopyText(ctx->display_math_buf), ctx->display_math_newlines);
     ctx->diagram_indices.emplace_back(ctx->current_node_index);
     return true;
 }
@@ -547,19 +552,23 @@ void BeginFootnoteDef(ParseContext* ctx, const MD_BLOCK_FOOTNOTE_DEF_DETAIL* def
 
 // GitHub と同じく、定義の末尾に参照へ戻るリンク "↩" (2 回目以降は "↩2" ...) を参照の数だけ付ける。
 // 後の定義の中の参照は前の定義を閉じた後に届くので、パースを終えてからまとめて付ける。
-void AppendFootnoteBackrefs(std::pmr::vector<Node>& nodes, std::span<const int32_t> def_indices, std::span<const uint32_t> ref_counts)
+void AppendFootnoteBackrefs(std::pmr::vector<Node>& nodes, TextArena& arena, std::span<const int32_t> def_indices, std::span<const uint32_t> ref_counts)
 {
     constexpr size_t kMaxLinkUrls = std::numeric_limits<int16_t>::max();
+    std::pmr::string text;
+    std::pmr::vector<TextRun> runs;
+    std::pmr::vector<std::string_view> urls;
     for (size_t i = 0; i < def_indices.size() && i < ref_counts.size(); ++i) {
         const auto id = static_cast<uint32_t>(i + 1);
         auto& node = nodes[static_cast<size_t>(def_indices[i])];
-        auto& urls = node.ensure_link_urls();
-        std::string text{ node.GetText() };
+        text = node.GetText();
+        runs.assign(node.runs().begin(), node.runs().end());
+        urls.assign(node.view_link_urls().begin(), node.view_link_urls().end());
         for (uint32_t ref_id = 1; ref_id <= ref_counts[i] && urls.size() < kMaxLinkUrls; ++ref_id) {
             if (!text.empty()) {
                 text += ' ';
             }
-            urls.emplace_back(FootnoteRefUrl(id, ref_id));
+            urls.push_back(arena.CopyText(FootnoteRefUrl(id, ref_id)));
             TextRun link;
             link.start = static_cast<uint32_t>(text.size());
             link.link_url_index = static_cast<int16_t>(urls.size() - 1);
@@ -568,9 +577,11 @@ void AppendFootnoteBackrefs(std::pmr::vector<Node>& nodes, std::span<const int32
                 std::format_to(std::back_inserter(text), "{}", ref_id);
             }
             link.length = static_cast<uint32_t>(text.size()) - link.start;
-            node.runs.emplace_back(link);
+            runs.push_back(link);
         }
-        node.SetTextWithLineCount(std::move(text), node.line_count);
+        node.SetText(arena.CopyText(text));
+        node.SetRuns(arena.Copy(runs));
+        node.SetLinkUrls(arena.Copy(urls));
     }
 }
 
@@ -583,7 +594,7 @@ void LeaveCodeBlock(ParseContext* ctx)
     }
     // md4c はコード各行を改行付きで渡すため、最終行の改行を表示テキストから落とす。
     // コード内には装飾もリンクも付かないので run は無く、調整は要らない。
-    assert(cn->runs.empty());
+    assert(ctx->current_runs.empty());
     if (!ctx->current_text.empty() && ctx->current_text.back() == '\n') {
         ctx->current_text.pop_back();
         cn->line_count--;
@@ -805,9 +816,9 @@ void SplitAlertMarkerBeforeImage(ParseContext* ctx)
         return;
     }
     // [![badge](b.svg)](url) では MD_SPAN_A が先に来て URL を閉じるノードへ登録済みなので、新ノードへ登録し直す。
-    std::pmr::string link_url;
+    std::string_view link_url;
     if (ctx->current_link_url_index >= 0) {
-        link_url = ctx->current_node->view_link_urls()[static_cast<size_t>(ctx->current_link_url_index)];
+        link_url = ctx->current_link_urls[static_cast<size_t>(ctx->current_link_url_index)];
     }
     ctx->EndNode();
     ctx->BeginParagraphNode();
@@ -830,8 +841,8 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         SplitAlertMarkerBeforeImage(ctx);
     }
     // span markup (** _ ` [] 等) は原文にあるが current_text には入らないため、
-    // どの span でも view 化は構造的に失敗する。FinalizeCurrentNode の memcmp をスキップさせる。
-    ctx->current_node_owned_only = true;
+    // どの span でも原文と一致しなくなる。FinalizeCurrentNode の memcmp をスキップさせる。
+    ctx->current_node_needs_copy = true;
 
     // LATEXMATH_DISPLAY のみ「最初の display math は昇格対象 (other_content を立てない)」
     // という特殊扱いがあるため、ここで一律に立てるのは他の span 全種類。
@@ -975,12 +986,12 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         }
     }
 
+    const std::string_view chunk{ text, static_cast<size_t>(size) };
+
     // 各ノードの最初のテキストコールバックでソースオフセットを記録する。
     if (!ctx->current_node->HasSourceOffset()) [[unlikely]] {
-        ctx->RecordSourceOffset(text);
+        ctx->RecordSourceOffset(chunk);
     }
-
-    const std::string_view chunk{ text, static_cast<size_t>(size) };
 
     switch (type) {
     case MD_TEXT_NORMAL:
@@ -1008,8 +1019,8 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     case MD_TEXT_ENTITY: {
         ctx->NoteNonMathContent();
         // entity (`&amp;` 等) は現状文字に解決される。原文 (`&amp;`) と current_text (`&`) が
-        // 不一致になり view 化失敗確定。memcmp スキップフラグを立てる。
-        ctx->current_node_owned_only = true;
+        // 不一致になり arena へのコピーが確定。memcmp スキップフラグを立てる。
+        ctx->current_node_needs_copy = true;
         char entity_buf[4];
         if (const auto resolved = ResolveHtmlEntity(chunk, entity_buf)) {
             ctx->AppendDoc(*resolved);
@@ -1023,13 +1034,13 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     case MD_TEXT_BR:
         ctx->NoteNonMathContent();
         // BR / SOFTBR は原文の `<br>` や 2 個の半角空白+改行を `\n`/` ` に置換するため raw_slice 不一致。
-        ctx->current_node_owned_only = true;
+        ctx->current_node_needs_copy = true;
         ctx->AppendDoc("\n");
         break;
 
     case MD_TEXT_SOFTBR:
         ctx->NoteNonMathContent();
-        ctx->current_node_owned_only = true;
+        ctx->current_node_needs_copy = true;
         ctx->AppendDoc(" ");
         break;
 
@@ -1050,14 +1061,21 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 //   - kInputBytesPerNode=128      → 1 ノード 128 byte まで細かい文書でもパース途中の再確保 (全ノードの移動) を
 //                                   避ける (example/test.md 実測 ~258 byte/ノード)。予約は入力と同程度のバイト数で、
 //                                   触れない分もコミットは残るが物理メモリには載らない。超過時は通常の伸長に任せる。
+//   - kInputBytesPerArenaByte=3   → arena の初回確保。example/test.md の実測では arena に置くテキスト・runs・URL が
+//                                   入力の約 3 割で、典型的な文書は 1 回の確保で収まる。足りない分は
+//                                   monotonic_buffer_resource が 1.5 倍ずつ大きくしながら確保する (MSVC)。
+//                                   原文をそのまま使うノードが多い文書では余るが、触れない分は物理メモリに載らない。
 // 見出し・画像などのインデックス配列は件数が少なく、通常の伸長で足りるので予約しない。
 constexpr size_t kScratchInputBytesPerByte = 8;
 constexpr size_t kInputBytesPerNode = 128;
+constexpr size_t kInputBytesPerArenaByte = 3;
 constexpr size_t kScratchReserveMin = 1024;
+constexpr size_t kArenaReserveMin = 1024;
 constexpr size_t kScratchReserveMax = 64 * 1024;
 
 void ReserveForInput(ParseContext& ctx, size_t input_size)
 {
+    ctx.arena = std::make_unique<TextArena>(std::max(input_size / kInputBytesPerArenaByte, kArenaReserveMin));
     ctx.current_text.reserve(std::clamp(input_size / kScratchInputBytesPerByte, kScratchReserveMin, kScratchReserveMax));
     const size_t nodes_reserve = std::max(input_size / kInputBytesPerNode, 64uz);
     ctx.nodes.reserve(nodes_reserve);
@@ -1073,8 +1091,7 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     const size_t input_size = markdown_text.size();
     ParseContext ctx;
     ctx.stop_token = std::move(stop_token);
-    ctx.markdown_base = markdown_text.data();
-    ctx.markdown_size = input_size;
+    ctx.markdown = markdown_text;
     ReserveForInput(ctx, input_size);
 
     MD_PARSER parser{};
@@ -1101,15 +1118,14 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         return {};
     }
 
-    AppendFootnoteBackrefs(ctx.nodes, ctx.footnote_def_indices, ctx.footnote_ref_counts);
+    AppendFootnoteBackrefs(ctx.nodes, *ctx.arena, ctx.footnote_def_indices, ctx.footnote_ref_counts);
 
     {
         MENDO_PROFILE("DetectAlerts");
-        DetectAlerts(ctx.nodes, std::span<const size_t>{ ctx.blockquote_indices });
+        DetectAlerts(ctx.nodes, *ctx.arena, std::span<const size_t>{ ctx.blockquote_indices });
     }
 
-    ParseResult result;
-    result.nodes = std::move(ctx.nodes);
+    ParseResult result{ NodeStorage{ std::move(ctx.nodes), std::move(ctx.arena) } };
     result.heading_indices = std::move(ctx.heading_indices);
     result.image_indices = std::move(ctx.image_indices);
     result.diagram_indices = std::move(ctx.diagram_indices);

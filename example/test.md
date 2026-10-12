@@ -2657,11 +2657,16 @@ constexpr bool PointInRect(float x, float y, const Rect& r) noexcept;
 ```mermaid
 classDiagram
     class Node {
-        +TextRunList runs (small_vector~TextRun,2~)
-        +unique_ptr~vector~pmr::string~~ link_urls_
+        -const char* text_ (UTF-8)
+        -const TextRun* runs_
+        -const string_view* link_urls_
         +variant~monostate, NodeHeadingData, NodeCodeData, NodeListData, NodeAlertData, NodeTablePtr, NodeImagePtr~ extra
+        -uint32_t text_size_
+        -uint32_t run_count_
+        -uint32_t source_offset_
         +int32_t blockquote_group
         +int32_t line_count
+        -uint16_t link_url_count_
         +NodeType type
         +AlertType alert_type
         +int8_t quote_depth
@@ -2669,8 +2674,6 @@ classDiagram
         +int8_t indent_level
         -int8_t heading_level_
         -SyntaxLanguage code_language_
-        -string owned_text_ (UTF-8)
-        -string_view view_
     }
 
     class NodeHeadingData
@@ -2722,11 +2725,11 @@ classDiagram
 
 ノード種別ごとの拡張データは `std::variant<std::monostate, NodeHeadingData, NodeCodeData, NodeListData, NodeAlertData, NodeTablePtr, NodeImagePtr> extra` に統合されており、同時に持てるのは 1 種類のみ。`NodeHeadingData` は Heading の印でデータを持たない。Table / Image のような大型データや `tokens` は `std::unique_ptr`（`NodeTablePtr` / `NodeImagePtr` など）で外出しし、variant の各 alternative を 8B に抑えている。
 
-`heading_level` / `code_language` は variant に入れると 8B ポインタと合わせて alternative が 16B に膨らむため、`Node` 末尾の padding（`heading_level_` / `code_language_`）に置く。設定は `set_heading_level` / `set_code_language`（対応する alternative を `ensure_*` してから書く）で行い、アクセサ `heading_level()` / `code_language()` は対応する alternative を持たないノードでは既定値（0 / `SyntaxLanguage::None`）を返す。既定 pmr リソースが `new_delete_resource` になったので `owned_text_` はアロケータを持たない `std::string`（32B）にしている。これらにより `sizeof(Node)` は 128B 以下に収まり、`static_assert(sizeof(Node) <= 128)` で退行を検出する（50MB 文書・約 20 万ノードで読込後 private 129MB → 125MB）。
+`heading_level` / `code_language` は variant に入れると 8B ポインタと合わせて alternative が 16B に膨らむため、`Node` 末尾の padding（`heading_level_` / `code_language_`）に置く。設定は `set_heading_level` / `set_code_language`（対応する alternative を `ensure_*` してから書く）で行い、アクセサ `heading_level()` / `code_language()` は対応する alternative を持たないノードでは既定値（0 / `SyntaxLanguage::None`）を返す。これらとテキスト・runs の外出し（後述）により `sizeof(Node)` は 72B に収まり、`static_assert(sizeof(Node) <= 72)` で退行を検出する。
 
 > **Why**: 旧設計では複数の `unique_ptr` を常に保持していたため、ほとんどのノード（Paragraph/ListItem 等で 87% を占める）でポインタ群が `nullptr` のまま死蔵していた。variant に統合することで、データを持つノードでは別ヒープへの malloc を省略でき、断片化と allocator オーバーヘッドが減る。
 
-テキストは `owned_text_`（所有 UTF-8）と `view_`（原文 `string_view` 参照）の二重モードで持ち、ソース位置は `SourceOffsetFrom(base)` で求める。`runs` は SBO 2 要素の `small_vector`、リンク URL の集合 `link_urls_` は `std::unique_ptr<std::pmr::vector<std::pmr::string>>` で「リンクなしノードでは 8B ポインタ 1 本」に抑えている。`TextRun` の装飾は個別 bool ではなく `uint8_t flags` に packbit され、`bold()` / `italic()` / `code()` / `strikethrough()` アクセサで判定する。
+テキスト・`runs`・リンク URL はノード自身では持たず、「先頭ポインタ + 長さ / 件数」で外部の領域を指す（長さと件数は 4B / 2B 領域にまとめて 72B に収める）。原文をそのまま表示できるノードは `Document` の `raw_text_` を、加工が要るノード（SOFTBR の空白化、HTML entity、Alert など）のテキストと全ノードの `runs`・URL 配列は `Document` が持つ `TextArena`（`std::pmr::monotonic_buffer_resource` のラッパー）を指す。URL 配列の要素は `string_view` で、md4c の href が原文を指していればそのまま、参照定義の展開や脚注 URL のように原文の外にあるものだけ arena へコピーする。パース中はテキスト・`runs`・URL を `ParseContext` のスクラッチに貯め、ノード確定時に arena へ 1 回だけコピーするので、ノードごとの確保・解放がほぼ無く、旧文書の破棄も arena の塊を返すだけで済む。ソース位置は `uint32_t source_offset_` に明示的に持ち、`SourceOffset()` で取り出す。`TextRun` の装飾は個別 bool ではなく `uint8_t flags` に packbit され、`bold()` / `italic()` / `code()` / `strikethrough()` アクセサで判定する。
 
 アクセサは `extra` への薄いラッパーとして提供される:
 
@@ -3376,6 +3379,7 @@ src/
 │   ├── document_types.h           # Node, AlertType, NodeType, TableRow etc.
 │   ├── text_types.h               # TextRun, TextSelection etc.
 │   ├── raw_text.h                 # パース入力 UTF-8 の保持
+│   ├── text_arena.h               # TextArena (ノードのテキストと TextRun の置き場所)
 │   ├── parser.h / parser.cpp      # Markdown パース (md4c UTF-8)
 │   ├── parser_alerts.cpp          # GitHub Alerts 検出
 │   ├── footnote_anchor.h / .cpp   # 脚注アンカーの生成・解決
@@ -3454,7 +3458,6 @@ src/
     ├── scope_guard.h              # スコープ終了時実行ガード
     ├── lru_cache.h                # LruCache (汎用LRU)
     ├── fnv1a.h                    # FNV-1a ハッシュ
-    ├── small_vector.h             # 小サイズ最適化 vector
     ├── pmr_format.h               # std::pmr 対応 format
     ├── overloaded.h               # std::visit 用 overloaded ヘルパー
     ├── rc_resource.h              # 参照カウント付きリソース

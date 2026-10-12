@@ -7,6 +7,7 @@
 #include "syntax.h"
 #include "test_helpers.h"
 #include "utf8_codec.h"
+#include "test_nodes.h"
 #include <algorithm>
 #include <format>
 #include <limits>
@@ -235,7 +236,7 @@ TEST(SelectionHtmlProperty, RandomDocumentsHtmlTextMatchesPlainText)
         MarkdownFragmentGen gen{ seed };
         const std::string md = gen.Document(gen.Range(1, 6));
         SCOPED_TRACE(std::format("seed={} md=\n{}", seed, md));
-        auto nodes = ParseMarkdown(std::string_view{ md }).nodes;
+        auto nodes = ParseNodes(std::string_view{ md });
         CheckRandomSelections(nodes, seed, 8);
         if (HasFatalFailure()) {
             return;

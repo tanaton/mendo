@@ -24,7 +24,7 @@ ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new
     return { ReloadOp::Replace, diff_pos };
 }
 
-int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, const char* raw_base, size_t diff_offset) noexcept
+int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, size_t diff_offset) noexcept
 {
     // source_offset はパース順で基本的に単調増加するため二分探索を使用。
     // 未設定ノードに当たった場合は左に有効ノードを探してから判定する。
@@ -41,7 +41,7 @@ int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, const char* raw_
             lo = mid + 1;
             continue;
         }
-        if (nodes[probe].SourceOffsetFrom(raw_base) <= diff_offset) {
+        if (nodes[probe].SourceOffset() <= diff_offset) {
             result = probe;
             lo = mid + 1;
         }
@@ -58,12 +58,12 @@ namespace {
 // 途中に offset 無しノード (HR や空のルーズリスト等) が連続しても取り逃さないよう探索するが、
 // 末尾まで線形走査すると大規模ファイルのリロードが重くなるため上限を設ける
 // (通常は最初の有効 offset で見つかるため上限には届かない)。
-size_t NextSourceOffset(const std::pmr::vector<Node>& nodes, const char* raw_base, int node_index, size_t node_start, size_t fallback) noexcept
+size_t NextSourceOffset(const std::pmr::vector<Node>& nodes, int node_index, size_t node_start, size_t fallback) noexcept
 {
     constexpr int kMaxOffsetProbe = 4096;
     const int probe_limit = std::min(static_cast<int>(nodes.size()), node_index + 1 + kMaxOffsetProbe);
     for (int i = node_index + 1; i < probe_limit; ++i) {
-        const auto off = nodes[i].SourceOffsetFrom(raw_base);
+        const auto off = nodes[i].SourceOffset();
         if (off != kUnsetSourceOffset && off > node_start) {
             return off;
         }
@@ -84,8 +84,7 @@ float CalcScrollYForDiff(
     if (diff_pos == std::string_view::npos) {
         return fallback_scroll;
     }
-    const char* const raw_base = content.data();
-    const auto changed_node = FindNodeBySourceOffset(nodes, raw_base, diff_pos);
+    const auto changed_node = FindNodeBySourceOffset(nodes, diff_pos);
     if (changed_node < 0 || changed_node >= static_cast<int>(cache.size())) {
         return fallback_scroll;
     }
@@ -93,9 +92,9 @@ float CalcScrollYForDiff(
     float node_y = cache.Top(static_cast<size_t>(changed_node));
     const float node_h = cache[changed_node].height;
 
-    const auto node_start = nodes[changed_node].SourceOffsetFrom(raw_base);
+    const auto node_start = nodes[changed_node].SourceOffset();
     if (node_start != kUnsetSourceOffset) {
-        const size_t next_start = NextSourceOffset(nodes, raw_base, changed_node, node_start, content.size());
+        const size_t next_start = NextSourceOffset(nodes, changed_node, node_start, content.size());
         if (next_start > node_start) {
             const float fraction = static_cast<float>(diff_pos - node_start) / static_cast<float>(next_start - node_start);
             node_y += node_h * std::min(fraction, 1.0f);

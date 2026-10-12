@@ -1,15 +1,16 @@
 #include "selection_html.h"
 #include "nav.h"
 #include "profiler.h"
-#include "small_vector.h"
 #include "syntax.h"
 #include "theme_palette.h"
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cassert>
 #include <cstdint>
 #include <cstring>
 #include <format>
+#include <memory_resource>
 #include <iterator>
 #include <optional>
 #include <ranges>
@@ -104,7 +105,7 @@ public:
 
     // 開く順: <a> → <strong> → <em> → <s> → <code>（code は最内側）。
     // 開いたタグと対の閉じタグをスタックにペアで積むため、フィールドと閉じ文字列のズレが起きない。
-    constexpr void Open(const InlineState& s, std::span<const std::pmr::string> link_urls)
+    constexpr void Open(const InlineState& s, std::span<const std::string_view> link_urls)
     {
         if (s.link_url_index >= 0 && static_cast<size_t>(s.link_url_index) < link_urls.size()) {
             out_.append("<a href=\"");
@@ -162,18 +163,24 @@ enum class UrlSafety : uint8_t {
     Unsafe,
 };
 
-// URL 数は典型的に少数のためスタック上にインライン格納する。
-using UrlSafetyTable = mendo::small_vector<UrlSafety, 4>;
+// URL 数は典型的に少数なので、その範囲ではスタック上の領域を使い heap 確保しない。
+class UrlSafetyTable {
+public:
+    explicit UrlSafetyTable(size_t url_count) : table_(url_count, UrlSafety::Unchecked, &resource_) {}
 
-UrlSafetyTable MakeUrlSafetyTable(size_t url_count)
-{
-    UrlSafetyTable t;
-    t.assign(url_count, UrlSafety::Unchecked);
-    return t;
-}
+    std::span<UrlSafety> Span() noexcept
+    {
+        return table_;
+    }
+
+private:
+    std::array<std::byte, 32> buffer_;
+    std::pmr::monotonic_buffer_resource resource_{ buffer_.data(), buffer_.size() };
+    std::pmr::vector<UrlSafety> table_;
+};
 
 // 危険なスキームのリンクは外す。IsSafeUrlScheme の結果は URL ごとに url_safety へキャッシュする。
-InlineState InlineStateOf(const TextRun& r, std::span<const std::pmr::string> link_urls, std::span<UrlSafety> url_safety)
+InlineState InlineStateOf(const TextRun& r, std::span<const std::string_view> link_urls, std::span<UrlSafety> url_safety)
 {
     InlineState s{ r.bold(), r.italic(), r.code(), r.strikethrough(), r.link_url_index };
     if (s.link_url_index < 0 || static_cast<size_t>(s.link_url_index) >= link_urls.size()) {
@@ -196,7 +203,7 @@ constexpr void AppendInlineHtml(
     std::pmr::string& out,
     std::string_view text,
     std::span<const TextRun> runs,
-    std::span<const std::pmr::string> link_urls,
+    std::span<const std::string_view> link_urls,
     std::span<UrlSafety> url_safety,
     uint32_t start, uint32_t end)
 {
@@ -262,8 +269,8 @@ constexpr void AppendInlineHtml(
 void AppendNodeInlineHtml(std::pmr::string& out, const Node& node, uint32_t start, uint32_t end)
 {
     const auto link_urls = node.view_link_urls();
-    auto url_safety = MakeUrlSafetyTable(link_urls.size());
-    AppendInlineHtml(out, node.GetText(), node.runs, link_urls, url_safety, start, end);
+    UrlSafetyTable url_safety{ link_urls.size() };
+    AppendInlineHtml(out, node.GetText(), node.runs(), link_urls, url_safety.Span(), start, end);
 }
 
 constexpr void AppendHexColor(std::pmr::string& out, uint32_t rgb)
@@ -505,7 +512,7 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
         return;
     }
 
-    auto url_safety = MakeUrlSafetyTable(link_urls.size());
+    UrlSafetyTable url_safety{ link_urls.size() };
     out.append("<table style=\"border-collapse:collapse;\">");
     {
         TableSectionScope section(out);
@@ -527,7 +534,7 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
                 out.append(">");
                 const uint32_t cell_start = tbl->CellTextStart(r, c);
                 const uint32_t cell_end = tbl->CellTextEnd(r, c);
-                AppendInlineHtml(out, tbl->GetCellText(r, c), tbl->GetCellRuns(r, c), link_urls, url_safety,
+                AppendInlineHtml(out, tbl->GetCellText(r, c), tbl->GetCellRuns(r, c), link_urls, url_safety.Span(),
                                  std::clamp(start, cell_start, cell_end) - cell_start, std::clamp(end, cell_start, cell_end) - cell_start);
                 out.append(close_tag);
             }
@@ -537,7 +544,7 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
     out.append("</table>");
 }
 
-std::optional<std::string_view> FindLinkInRuns(std::span<const TextRun> runs, std::span<const std::pmr::string> link_urls, uint32_t pos)
+std::optional<std::string_view> FindLinkInRuns(std::span<const TextRun> runs, std::span<const std::string_view> link_urls, uint32_t pos)
 {
     const auto it = std::ranges::find_if(runs, [pos](const TextRun& run) noexcept {
         return run.has_link() && (pos >= run.start) && (pos < run.start + run.length);
@@ -734,5 +741,5 @@ std::optional<std::string_view> FindLinkAtPosition(const Node& node, uint32_t te
         const auto [runs, local_pos] = FindTableCellRuns(node, text_pos);
         return runs.empty() ? std::nullopt : FindLinkInRuns(runs, node.view_link_urls(), local_pos);
     }
-    return FindLinkInRuns(node.runs, node.view_link_urls(), text_pos);
+    return FindLinkInRuns(node.runs(), node.view_link_urls(), text_pos);
 }
