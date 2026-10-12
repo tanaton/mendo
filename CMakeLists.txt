@@ -258,7 +258,7 @@ option(MENDO_BUILD_TESTS "Build tests" ON)
 if(MENDO_BUILD_TESTS)
     FetchContent_Declare(
         googletest
-        URL https://github.com/google/googletest/archive/refs/tags/v1.17.0.zip
+        URL https://github.com/google/googletest/archive/refs/tags/v1.18.0.zip
     )
     # GoogleTestがCRT設定を上書きするのを防止
     set(gtest_force_shared_crt OFF CACHE BOOL "" FORCE)
