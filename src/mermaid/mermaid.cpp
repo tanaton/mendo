@@ -125,9 +125,6 @@ void MermaidRenderer::EnsureInitialized()
         return;
     }
 
-    SYSTEM_INFO si{};
-    GetSystemInfo(&si);
-    target_worker_count_ = mermaid_util::ComputeWorkerCount(si.dwNumberOfProcessors);
     // 最初は 1 つだけ起動し、待ちが溜まったら MaybeGrowWorkers で増やす。
     worker_count_ = CreateWorkerWindow(0) ? 1 : 0;
 
@@ -160,7 +157,8 @@ bool MermaidRenderer::CreateWorkerWindow(int index)
     auto& w = workers_[index];
     w = Worker{};
     w.hwnd = CreateWindowExW(
-        WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        // 自前では何も描かないので、DWM のリダイレクト面 (HOST_SIZE^2 x 4B) を確保させない。
+        WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP,
         MERMAID_HOST_CLASS.data(),
         L"",
         WS_POPUP,
@@ -184,7 +182,7 @@ MermaidRenderer::Worker* MermaidRenderer::FindIdleWorker() noexcept
 
 void MermaidRenderer::MaybeGrowWorkers()
 {
-    if (!webview_env_ || worker_count_ >= target_worker_count_ || pending_requests_.empty()) {
+    if (!webview_env_ || worker_count_ >= MAX_WORKERS || pending_requests_.empty()) {
         return;
     }
     if (!std::ranges::all_of(ActiveWorkers(), [](const Worker& w) { return w.ready && w.rendering; })) {

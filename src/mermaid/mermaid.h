@@ -124,7 +124,9 @@ private:
         DWORD read_error = 0;
     };
 
-    static constexpr int MAX_WORKERS = 4;
+    // 1 つ増やすごとにレンダラープロセスの起動と mermaid.js のロードが要り、数十 MB 常駐する。
+    // 2 回目以降はディスクキャッシュで済むので、並列度は控えめにする。
+    static constexpr int MAX_WORKERS = 2;
     static constexpr int MAX_ENV_RETRIES = 3;
     static constexpr int MAX_WORKER_RETRIES = 3;
     // 閉じると次の図で環境生成からやり直すため、読み進める間に閉じない程度に長めにする。
@@ -200,7 +202,6 @@ private:
 
     Worker workers_[MAX_WORKERS];
     int worker_count_ = 0;
-    int target_worker_count_ = 0;
     mermaid_lifecycle::Lifecycle lifecycle_;
     unsigned int request_counter_ = 0;
     // 準備完了のたびに呼ぶ (アイドル解放後の再初期化を含む)。準備前の描画要求は捨てているため再要求させる。
