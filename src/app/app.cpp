@@ -348,6 +348,9 @@ void App::OnDestroy()
     // LayoutEngine の参照解除 → Shutdown (join) → ターゲット deinit の順を守る。
     renderer_.SetLayoutScheduler(nullptr);
     layout_scheduler_.Shutdown();
+    // Shutdown はキューを最後まで処理するので、結果を使わないタスクは先に空振りさせる。
+    image_loader_.CancelPending();
+    file_load_service_.CancelAsyncLoad();
     scheduler_.Shutdown();
     file_cache_.Shutdown();
     file_cache_.SaveIndex();
