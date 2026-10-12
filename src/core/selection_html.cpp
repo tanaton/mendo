@@ -365,7 +365,14 @@ void AppendCodeBlockHtml(std::pmr::string& out, const Node& node, uint32_t start
     const std::string_view text = node.GetText();
     end = ClampEndToText(end, text.size());
     if (start < end) {
-        AppendHighlightedCode(out, text, node.syntax_tokens(), start, end, palette);
+        // トークンは計測時に作るので、一度も表示していないコードブロックではここで作る。
+        std::span<const SyntaxToken> tokens = node.syntax_tokens();
+        std::pmr::vector<SyntaxToken> local_tokens;
+        if (tokens.empty() && node.code_language() != SyntaxLanguage::None) {
+            local_tokens = Tokenize(text, node.code_language());
+            tokens = local_tokens;
+        }
+        AppendHighlightedCode(out, text, tokens, start, end, palette);
     }
     out.append(kClose);
 }
