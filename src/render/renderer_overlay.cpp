@@ -127,19 +127,13 @@ void Renderer::FillOverlayPanel(const D2D1_RECT_F& rect, float corner, float alp
 
 void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& md_pane_rect)
 {
-    if (toast.message.empty()) {
-        return;
-    }
-
-    const float alpha = std::min(toast.alpha, 1.0f);
-
     const float rect_w = TOAST_OVERLAY_WIDTH;
     const float rect_h = TOAST_OVERLAY_HEIGHT;
     const float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
     const float bottom_y = md_pane_rect.y + md_pane_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE - TOAST_OVERLAY_BOTTOM_OFFSET;
     const D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, bottom_y - rect_h, cx + rect_w / 2, bottom_y);
 
-    FillOverlayPanel(rect, TOAST_OVERLAY_CORNER, alpha * (theme_.IsDark() ? 0.85f : 0.7f));
+    FillOverlayPanel(rect, TOAST_OVERLAY_CORNER, theme_.IsDark() ? 0.85f : 0.7f);
 
-    DrawCenteredText(toast_layout_, toast.message, fmt_.toast_text.Get(), rect, BrushId::OverlayWhite, alpha, D2D1::SizeF(rect_w, rect_h));
+    DrawCenteredText(toast_layout_, toast.message, fmt_.toast_text.Get(), rect, BrushId::OverlayWhite, 1.0f, D2D1::SizeF(rect_w, rect_h));
 }

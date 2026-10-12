@@ -24,9 +24,8 @@ struct GestureRenderState {
     bool overlay_visible = false;
 };
 
+// message が空なら非表示。
 struct ToastRenderState {
-    bool visible = false;
-    float alpha = 0.0f;
     std::wstring_view message;
 };
 

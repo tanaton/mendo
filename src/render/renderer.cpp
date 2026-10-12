@@ -451,7 +451,7 @@ void Renderer::DrawLoading(
         DrawGestureOverlay(gesture.direction, md_pane_rect);
     }
 
-    if (toast.visible) {
+    if (!toast.message.empty()) {
         DrawToastOverlay(toast, md_pane_rect);
     }
 
@@ -485,7 +485,7 @@ void Renderer::Render(const RenderParams& p)
         DrawGestureOverlay(p.gesture.direction, p.md_pane_rect);
     }
 
-    if (p.toast.visible) {
+    if (!p.toast.message.empty()) {
         DrawToastOverlay(p.toast, p.md_pane_rect);
     }
 

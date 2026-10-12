@@ -115,19 +115,11 @@ void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChanged
 void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
 {
     switch (a.timer_id) {
-    case app_timer::Id::TOAST: {
-        auto& toast = state.interaction.toast;
-        // ホールド期間は描画 alpha が 1 に張り付くため、見た目が変わる tick だけ再描画する。
-        const float before = toast.GetRenderAlpha();
-        if (!toast.Tick()) {
-            PushEffect(effects, effect::KillTimer{ app_timer::Id::TOAST });
-            PushEffect(effects, effect::InvalidateWindow{});
-        }
-        else if (toast.GetRenderAlpha() != before) {
-            PushEffect(effects, effect::InvalidateWindow{});
-        }
+    case app_timer::Id::TOAST:
+        state.interaction.toast.Hide();
+        PushEffect(effects, effect::KillTimer{ app_timer::Id::TOAST });
+        PushEffect(effects, effect::InvalidateWindow{});
         return;
-    }
     case app_timer::Id::TOOLTIP:
         PushEffect(effects, effect::KillTimer{ app_timer::Id::TOOLTIP });
         state.interaction.tooltip.Show();

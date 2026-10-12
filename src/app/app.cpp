@@ -157,11 +157,7 @@ void App::OnPaint()
     const auto gs = ResolveGestureOverlay(state_.interaction.gesture, state_.interaction.swipe_detector);
     const SidePaneState sp = BuildSidePaneState(layout);
     const TitleBarRenderState tb = BuildTitleBarRenderState();
-    const ToastRenderState ts{
-        .visible = state_.interaction.toast.IsVisible(),
-        .alpha = state_.interaction.toast.GetRenderAlpha(),
-        .message = state_.interaction.toast.GetMessage(),
-    };
+    const ToastRenderState ts{ .message = state_.interaction.toast.GetMessage() };
 
     if (show_loading) {
         renderer_.DrawLoading(file_load_service_.GetLoadingAngle(), layout.md_rect, sp, tb, gs, ts);

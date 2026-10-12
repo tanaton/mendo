@@ -63,7 +63,7 @@ public:
             },
             [this](const effect::ShowToast& ev) {
                 deps_.state->interaction.toast.Show(ev.message);
-                deps_.host->SetTimer(app_timer::Id::TOAST, app_timer::FRAME_INTERVAL_MS);
+                deps_.host->SetTimer(app_timer::Id::TOAST, app_timer::TOAST_DURATION_MS);
                 deps_.host->Invalidate();
             },
             [this](const effect::ShowContextMenu& ev) {

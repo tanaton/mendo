@@ -375,5 +375,6 @@ TEST_F(SideEffectExecutorTest, ShowToastSchedulesTimerAndInvalidates)
     exec_.ExecuteOne(effect::ShowToast{ L"Copied" });
     ASSERT_EQ(host_.set_timer_calls.size(), 1u);
     EXPECT_EQ(host_.set_timer_calls[0].first, app_timer::Id::TOAST);
+    EXPECT_EQ(host_.set_timer_calls[0].second, app_timer::TOAST_DURATION_MS);
     EXPECT_EQ(host_.invalidate_count, 1);
 }
