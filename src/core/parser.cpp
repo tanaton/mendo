@@ -901,12 +901,11 @@ void LeaveImageSpan(ParseContext* ctx)
     if (--ctx->image_span_depth != 0) {
         return;
     }
-    // Table / Heading で ensure_image を呼ぶと variant の既存データが破壊され、
-    // テーブルでは active_text_buffer がダングリングになるため、Image 昇格候補と
-    // リスト項目 (型を保ったまま src を持つ既存仕様) に限定する。
+    // 他の ensure_* を持つノードで ensure_image を呼ぶと variant の既存データが破壊されるため、
+    // Image 昇格候補に限定する (リスト項目の番号やチェック状態、テーブルの active_text_buffer が壊れる)。
     if (auto* const cn = ctx->current_node;
         cn && !ctx->pending_image_src.empty() &&
-        (cn->type == NodeType::Paragraph || cn->type == NodeType::BlockQuote || IsListItem(*cn))) {
+        (cn->type == NodeType::Paragraph || cn->type == NodeType::BlockQuote)) {
         cn->ensure_image()->src = ctx->pending_image_src;
     }
     ctx->pending_image_src.clear();
