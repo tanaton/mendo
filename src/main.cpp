@@ -93,8 +93,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     [[maybe_unused]] constexpr DWORD kTracyStartupDelayMs = 1000;
     MENDO_IF_TRACY(Sleep(kTracyStartupDelayMs));
 
-    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-
+    // DPI 認識 (PerMonitorV2) はマニフェストで宣言している。
     const HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     if (FAILED(hr)) {
         return 1;
