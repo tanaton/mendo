@@ -1053,18 +1053,9 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 //   - kInputBytesPerNode=128      → 1 ノード 128 byte まで細かい文書でもパース途中の再確保 (全ノードの移動) を
 //                                   避ける (example/test.md 実測 ~258 byte/ノード)。予約は入力と同程度のバイト数で、
 //                                   触れない分もコミットは残るが物理メモリには載らない。超過時は通常の伸長に任せる。
-//   - kInputBytesPerHeading=4096  → 1MB あたり 256 個の見出し相当。実測数十〜数百に収まる。
-//   - kInputBytesPerImage=512     → 画像頻度 ~0.2%。
-//   - kInputBytesPerBlockquote=512 → blockquote 頻度 (image と同程度)。
-//   - kInputBytesPerDiagram=1024  → ダイアグラム頻度 ~0.1%。
-//   - kInputBytesPerTable=1024    → テーブル頻度 (ダイアグラムと同程度を想定)。
+// 見出し・画像などのインデックス配列は件数が少なく、通常の伸長で足りるので予約しない。
 constexpr size_t kScratchInputBytesPerByte = 8;
 constexpr size_t kInputBytesPerNode = 128;
-constexpr size_t kInputBytesPerHeading = 4096;
-constexpr size_t kInputBytesPerImage = 512;
-constexpr size_t kInputBytesPerBlockquote = 512;
-constexpr size_t kInputBytesPerDiagram = 1024;
-constexpr size_t kInputBytesPerTable = 1024;
 constexpr size_t kScratchReserveMin = 1024;
 constexpr size_t kScratchReserveMax = 64 * 1024;
 
@@ -1075,11 +1066,6 @@ void ReserveForInput(ParseContext& ctx, size_t input_size)
     ctx.nodes.reserve(nodes_reserve);
     ctx.list_counter.reserve(8);
     MENDO_STATF("nodes.reserve: input={} reserve={}", input_size, nodes_reserve);
-    ctx.heading_indices.reserve(std::clamp(input_size / kInputBytesPerHeading, 8uz, 256uz));
-    ctx.image_indices.reserve(std::clamp(input_size / kInputBytesPerImage, 4uz, 256uz));
-    ctx.diagram_indices.reserve(std::clamp(input_size / kInputBytesPerDiagram, 4uz, 128uz));
-    ctx.table_indices.reserve(std::clamp(input_size / kInputBytesPerTable, 4uz, 128uz));
-    ctx.blockquote_indices.reserve(std::clamp(input_size / kInputBytesPerBlockquote, 4uz, 256uz));
 }
 
 } // namespace
