@@ -998,7 +998,8 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
 
     MD_PARSER parser{};
     parser.abi_version = 0;
-    parser.flags = MD_DIALECT_GITHUB | MD_FLAG_LATEXMATHSPANS;
+    // Alert は引用ノードから自前で検出し、脚注は未対応のため、md4c v0.6.0 で GitHub 方言に加わった両拡張は外す。
+    parser.flags = (MD_DIALECT_GITHUB & ~(MD_FLAG_ADMONITIONS | MD_FLAG_FOOTNOTES)) | MD_FLAG_LATEXMATHSPANS;
     parser.enter_block = OnEnterBlock;
     parser.leave_block = OnLeaveBlock;
     parser.enter_span = OnEnterSpan;

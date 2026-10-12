@@ -1808,3 +1808,14 @@ TEST(Parser, IsAlertHeadCandidateOnlyForFirstNodeOfOuterQuote)
     EXPECT_TRUE(IsAlertHeadCandidate(nodes, 3)) << "別の引用グループの先頭";
     EXPECT_FALSE(IsAlertHeadCandidate(nodes, 4)) << "ネストした引用";
 }
+
+// md4c v0.6.0 で GitHub 方言に加わった脚注拡張は無効化しているので、原文どおりの段落として残る。
+TEST(Parser, FootnoteSyntaxStaysPlainText)
+{
+    auto nodes = ParseMarkdown("Text[^1].\n\n[^1]: My reference.").nodes;
+    ASSERT_EQ(nodes.size(), 2u);
+    EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
+    EXPECT_EQ(nodes[0].GetText(), "Text[^1].");
+    EXPECT_EQ(nodes[1].type, NodeType::Paragraph);
+    EXPECT_EQ(nodes[1].GetText(), "[^1]: My reference.");
+}
