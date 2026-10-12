@@ -7,6 +7,7 @@
 #include <functional>
 #include <unordered_map>
 #include <algorithm>
+#include <format>
 #include <limits>
 #include <ranges>
 #include <stop_token>
@@ -45,6 +46,12 @@ struct ParseContext {
     std::pmr::vector<size_t> diagram_indices;
     std::pmr::vector<size_t> table_indices;
     std::pmr::vector<size_t> blockquote_indices;
+    std::pmr::vector<int32_t> footnote_def_indices;
+    std::pmr::vector<FootnoteRef> footnote_refs;
+    // [id - 1] が脚注 id への参照数。md4c の ref_id はテーブル行の判定でも数えられて飛ぶので自前で数える。
+    std::pmr::vector<uint32_t> footnote_ref_counts;
+    // 最後に記録したソース位置。RecordSourceOffset がこれより前の位置を記録しないために持つ。
+    size_t last_source_offset = 0;
     size_t current_node_index = 0;
 
     // span ネスト追跡は md4c 推奨のカウンタ方式。enter で +1, leave で -1。
@@ -214,14 +221,22 @@ struct ParseContext {
     // 異なる array 同士のポインタ減算は UB なので、範囲判定もオフセット計算も uintptr_t の
     // 整数演算で行う (std::less<T*> の total order はアドレスの数値順と一致する保証がない)。
     // 範囲外 (静的リテラル) のときは記録せず、後続の実体テキストで設定できるようにする。
+    // 脚注定義のように原文の途中から文書末尾へ移るノードは、ソース位置の単調増加
+    // (FindNodeBySourceOffset の二分探索の前提) を崩すので記録しない。
     void RecordSourceOffset(const char* text) noexcept
     {
         const auto text_addr = reinterpret_cast<uintptr_t>(text);
         const auto base_addr = reinterpret_cast<uintptr_t>(markdown_base);
         const auto end_addr = base_addr + markdown_size;
-        if (text_addr >= base_addr && text_addr < end_addr) {
-            current_node->SetSourceOffset(markdown_base, static_cast<size_t>(text_addr - base_addr));
+        if (text_addr < base_addr || text_addr >= end_addr) {
+            return;
         }
+        const auto offset = static_cast<size_t>(text_addr - base_addr);
+        if (offset < last_source_offset) {
+            return;
+        }
+        current_node->SetSourceOffset(markdown_base, offset);
+        last_source_offset = offset;
     }
 
     // 引用内の段落は BlockQuote ノードとして作り、Alert 検出対象に登録する。
@@ -492,6 +507,68 @@ void FinalizeTableOffsets(NodeTableData& tbl)
     }
 }
 
+// md4c は参照の中身をテキストで渡さないので、GitHub と同じく脚注番号を定義へのリンクとして補う。
+void AppendFootnoteRef(ParseContext* ctx, const MD_SPAN_FOOTNOTE_REF_DETAIL* ref)
+{
+    if (!ctx->current_node) {
+        return;
+    }
+    if (ref->id > ctx->footnote_ref_counts.size()) {
+        ctx->footnote_ref_counts.resize(ref->id, 0);
+    }
+    const uint32_t ref_id = ++ctx->footnote_ref_counts[ref->id - 1];
+    ctx->footnote_refs.push_back({ ref->id, ref_id, static_cast<int32_t>(ctx->current_node_index) });
+    // リンク文字列内の参照でも外側のリンクが続くよう戻す。
+    const int16_t outer_link = ctx->current_link_url_index;
+    ctx->ResolveLinkUrlIndex(FootnoteDefUrl(ref->id));
+    ctx->AppendDoc(std::format("[{}]", ref->id));
+    ctx->FlushPendingRun();
+    ctx->current_link_url_index = outer_link;
+}
+
+// 脚注定義は文書末尾で番号付きリストの項目にする。md4c は中身を MD_BLOCK_P 無しで、脚注番号順に渡す。
+void BeginFootnoteDef(ParseContext* ctx, const MD_BLOCK_FOOTNOTE_DEF_DETAIL* def)
+{
+    ctx->BeginNode(NodeType::ListItem);
+    auto* const ld = ctx->current_node->ensure_list();
+    ld->ordered = true;
+    ld->list_number = static_cast<int32_t>(def->id);
+    ctx->footnote_def_indices.push_back(static_cast<int32_t>(ctx->current_node_index));
+}
+
+// GitHub と同じく、定義の末尾に参照へ戻るリンク "↩" (2 回目以降は "↩2" ...) を参照の数だけ付ける。
+// 後の定義の中の参照は前の定義を閉じた後に届くので、パースを終えてからまとめて付ける。
+void AppendFootnoteBackrefs(std::pmr::vector<Node>& nodes, std::span<const int32_t> def_indices, std::span<const uint32_t> ref_counts)
+{
+    constexpr size_t kMaxLinkUrls = std::numeric_limits<int16_t>::max();
+    for (size_t i = 0; i < def_indices.size() && i < ref_counts.size(); ++i) {
+        const auto id = static_cast<uint32_t>(i + 1);
+        auto& node = nodes[static_cast<size_t>(def_indices[i])];
+        auto& urls = node.ensure_link_urls();
+        std::string text{ node.GetText() };
+        for (uint32_t ref_id = 1; ref_id <= ref_counts[i] && urls.size() < kMaxLinkUrls; ++ref_id) {
+            if (!text.empty()) {
+                TextRun space;
+                space.start = static_cast<uint32_t>(text.size());
+                space.length = 1;
+                node.runs.emplace_back(space);
+                text += ' ';
+            }
+            urls.emplace_back(FootnoteRefUrl(id, ref_id));
+            TextRun link;
+            link.start = static_cast<uint32_t>(text.size());
+            link.link_url_index = static_cast<int16_t>(urls.size() - 1);
+            text += "↩";
+            if (ref_id > 1) {
+                std::format_to(std::back_inserter(text), "{}", ref_id);
+            }
+            link.length = static_cast<uint32_t>(text.size()) - link.start;
+            node.runs.emplace_back(link);
+        }
+        node.SetTextWithLineCount(std::move(text), node.line_count);
+    }
+}
+
 void LeaveCodeBlock(ParseContext* ctx)
 {
     ctx->in_code_block = false;
@@ -602,6 +679,16 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         BeginTableCell(ctx, type == MD_BLOCK_TH, static_cast<const MD_BLOCK_TD_DETAIL*>(detail));
         break;
 
+    case MD_BLOCK_FOOTNOTE_DEF_SECTION:
+        ctx->BeginNode(NodeType::HorizontalRule);
+        ctx->EndNode();
+        ctx->indent_level++;
+        break;
+
+    case MD_BLOCK_FOOTNOTE_DEF:
+        BeginFootnoteDef(ctx, static_cast<const MD_BLOCK_FOOTNOTE_DEF_DETAIL*>(detail));
+        break;
+
     case MD_BLOCK_HTML:
         break;
     default:
@@ -686,7 +773,14 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 
     case MD_BLOCK_LI:
     case MD_BLOCK_HR:
+    case MD_BLOCK_FOOTNOTE_DEF:
         ctx->EndNode();
+        break;
+
+    case MD_BLOCK_FOOTNOTE_DEF_SECTION:
+        if (ctx->indent_level > 0) {
+            ctx->indent_level--;
+        }
         break;
 
     case MD_BLOCK_DOC:
@@ -788,6 +882,9 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         // インライン $...$ は昇格対象外。元の "$" を復元してテキストとして残す
         ctx->AppendDoc("$");
         break;
+    case MD_SPAN_FOOTNOTE_REF:
+        AppendFootnoteRef(ctx, static_cast<const MD_SPAN_FOOTNOTE_REF_DETAIL*>(detail));
+        break;
     case MD_SPAN_WIKILINK:
     case MD_SPAN_U:
         break;
@@ -857,6 +954,7 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
     case MD_SPAN_LATEXMATH:
         ctx->AppendDoc("$");
         break;
+    case MD_SPAN_FOOTNOTE_REF:
     case MD_SPAN_WIKILINK:
     case MD_SPAN_U:
         break;
@@ -998,8 +1096,8 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
 
     MD_PARSER parser{};
     parser.abi_version = 0;
-    // Alert は引用ノードから自前で検出し、脚注は未対応のため、md4c v0.6.0 で GitHub 方言に加わった両拡張は外す。
-    parser.flags = (MD_DIALECT_GITHUB & ~(MD_FLAG_ADMONITIONS | MD_FLAG_FOOTNOTES)) | MD_FLAG_LATEXMATHSPANS;
+    // Alert は引用ノードから自前で検出する。md4c の admonitions はネストした引用でも認識する等、GitHub と挙動が違うので外す。
+    parser.flags = (MD_DIALECT_GITHUB & ~MD_FLAG_ADMONITIONS) | MD_FLAG_LATEXMATHSPANS;
     parser.enter_block = OnEnterBlock;
     parser.leave_block = OnLeaveBlock;
     parser.enter_span = OnEnterSpan;
@@ -1020,6 +1118,8 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         return {};
     }
 
+    AppendFootnoteBackrefs(ctx.nodes, ctx.footnote_def_indices, ctx.footnote_ref_counts);
+
     {
         MENDO_PROFILE("DetectAlerts");
         DetectAlerts(ctx.nodes, std::span<const size_t>{ ctx.blockquote_indices });
@@ -1031,5 +1131,7 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     result.image_indices = std::move(ctx.image_indices);
     result.diagram_indices = std::move(ctx.diagram_indices);
     result.table_indices = std::move(ctx.table_indices);
+    result.footnote_def_indices = std::move(ctx.footnote_def_indices);
+    result.footnote_refs = std::move(ctx.footnote_refs);
     return result;
 }

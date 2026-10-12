@@ -43,6 +43,7 @@ winget install tanaton.mendo
 | Mermaid diagrams | Supported (WebView2 rendering) |
 | LaTeX math (`$$...$$`) | Supported for block equations only. Rendered when the paragraph consists solely of a `$$...$$` block; mixed paragraphs fall back to plain text. |
 | GitHub Alerts | Supported (Note / Tip / Important / Warning / Caution) |
+| Footnotes (`[^1]`) | Supported (listed at the end of the document, with links between references and definitions) |
 | Links (external / page anchors) | Supported |
 | Ordered / Unordered lists | Supported (nested) |
 | Task lists | Supported |

@@ -10,6 +10,7 @@ add_executable(mendo_tests
     test_toc.cpp
     test_layout.cpp
     test_anchor.cpp
+    test_footnote_anchor.cpp
     test_syntax.cpp
     test_document_utils.cpp
     test_pane_layout.cpp
