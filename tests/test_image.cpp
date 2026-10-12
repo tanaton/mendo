@@ -1343,6 +1343,47 @@ TEST_F(ImageLoaderAsyncTest, ResetFailedPathsAllowsRetry)
     EXPECT_FLOAT_EQ(entry.height, 22.0f);
 }
 
+TEST_F(ImageLoaderAsyncTest, DecodesUpToQuantizedDisplayWidth)
+{
+    ASSERT_TRUE(CreateTestImage(L"wide.png", GUID_ContainerFormatPng, 1000, 500));
+    const auto path = GetTestImagePath(L"wide.png");
+
+    // 300 DIP (96 DPI で 300px) は 256px 単位に切り上げて 512px でデコードする。
+    loader_.RequestLoadAsync(path, OnComplete, 300.0f);
+    ASSERT_TRUE(WaitForResults(1));
+    const auto* cached = loader_.FindCachedImage(path);
+    ASSERT_NE(cached, nullptr);
+    ASSERT_TRUE(cached->bitmap);
+    EXPECT_EQ(cached->bitmap->GetPixelSize().width, 512u);
+    // レイアウトは原寸基準のまま。
+    EXPECT_FLOAT_EQ(cached->width, 1000.0f);
+    EXPECT_FLOAT_EQ(cached->height, 500.0f);
+    EXPECT_EQ(cached->sharp_width_px, 512u);
+    EXPECT_FALSE(loader_.NeedsSharperDecode(*cached, 500.0f));
+    EXPECT_TRUE(loader_.NeedsSharperDecode(*cached, 600.0f));
+
+    // 表示幅が広がったら、高い解像度で読み直してキャッシュを差し替える。
+    loader_.RequestLoadAsync(path, OnComplete, 600.0f);
+    ASSERT_TRUE(WaitForResults(2));
+    cached = loader_.FindCachedImage(path);
+    ASSERT_NE(cached, nullptr);
+    EXPECT_EQ(cached->bitmap->GetPixelSize().width, 768u);
+    EXPECT_EQ(cached->sharp_width_px, 768u);
+}
+
+TEST_F(ImageLoaderAsyncTest, ImageNarrowerThanDisplayIsNotRedecoded)
+{
+    ASSERT_TRUE(CreateTestImage(L"narrow.png", GUID_ContainerFormatPng, 100, 50));
+    const auto path = GetTestImagePath(L"narrow.png");
+
+    loader_.RequestLoadAsync(path, OnComplete, 300.0f);
+    ASSERT_TRUE(WaitForResults(1));
+    const auto* cached = loader_.FindCachedImage(path);
+    ASSERT_NE(cached, nullptr);
+    EXPECT_EQ(cached->bitmap->GetPixelSize().width, 100u);
+    EXPECT_FALSE(loader_.NeedsSharperDecode(*cached, 5000.0f));
+}
+
 // ============================================================
 // デコードサイズ計算
 // ============================================================

@@ -103,6 +103,8 @@ void App::OnResizeEnd()
     ScheduleDeferredLayoutIfNeeded();
 
     resource_manager_.ScheduleMermaidBatch();
+    // 本文幅が広がった画像は解像度が足りなくなるので読み直させる。
+    EmitEffect(effect::BitmapManage{});
 
     EmitEffect(effect::SyncTocActive{});
 }
