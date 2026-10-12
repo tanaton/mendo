@@ -1,5 +1,4 @@
 #include "doc_dwrite_bridge.h"
-#include "memory_resource.h"
 #include "utf8_codec.h"
 #include <algorithm>
 #include <emmintrin.h>
@@ -65,15 +64,13 @@ void DecodeUtf8(std::string_view text, std::pmr::wstring& out, std::pmr::vector<
 } // namespace
 
 WideViewForDWrite::WideViewForDWrite(std::string_view text)
-    : scratch_(GetThreadLocalPoolResource()),
-      utf16_offsets_(GetThreadLocalPoolResource())
 {
     DecodeUtf8(text, scratch_, &utf16_offsets_);
 }
 
 std::pmr::wstring DecodeForDWrite(std::string_view text)
 {
-    std::pmr::wstring out(GetThreadLocalPoolResource());
+    std::pmr::wstring out;
     DecodeUtf8(text, out, nullptr);
     return out;
 }
