@@ -345,6 +345,8 @@ public:
         constexpr auto kFlushThrottle = std::chrono::milliseconds(50);
         pending_flush_ = true;
         if (std::chrono::steady_clock::now() - last_flush_time_ >= kFlushThrottle) {
+            // 連続スクロール中も通過した範囲のレイアウトを溜め込まないよう、停止を待たずに捨てる。
+            EvictOffscreenBitmaps();
             FlushPendingResources();
         }
         cb_.set_timer(app_timer::Id::BITMAP_MANAGE, app_timer::BITMAP_MANAGE_DELAY_MS);

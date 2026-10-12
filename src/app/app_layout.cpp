@@ -46,6 +46,8 @@ void App::FinalizeLayout(float md_pane_height)
     SyncMaxScroll(md_pane_height);
     Invalidate();
     ScheduleDeferredLayoutIfNeeded();
+    // 初回の MeasureTable は全セルを作るので、スクロールを待たずに画面外を捨てる。
+    EmitEffect(effect::BitmapManage{});
 }
 
 void App::InvalidateHitPositions()
@@ -146,6 +148,7 @@ void App::OnDeferredLayout()
     // 同期ディスク I/O + PNG デコードで UI スレッドを長時間ブロックしないよう、
     // Mermaid ファイルキャッシュの読み込みは時間予算付きバッチに回す。
     resource_manager_.ScheduleMermaidBatch();
+    EmitEffect(effect::BitmapManage{});
 
     SyncMaxScroll(md.height);
     Invalidate();

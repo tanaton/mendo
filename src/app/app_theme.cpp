@@ -11,6 +11,8 @@ void App::FinishThemeOrZoomChange()
     ScheduleDeferredLayoutIfNeeded();
     Invalidate();
 
+    // ズームは全レイアウトを作り直すので、スクロールを待たずに画面外を捨てる。
+    EmitEffect(effect::BitmapManage{});
     EmitEffect(effect::SyncTocActive{});
 }
 
