@@ -96,6 +96,13 @@ public:
     bool PrevMatch() noexcept; // ラップしたらtrueを返す
     void SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) noexcept;
 
+private:
+    // query は case-insensitive (fold) 時は ASCII 小文字化済み。
+    void FindTextMatches(std::string_view text, std::string_view query, bool fold, int node_index);
+    // concat_text を 1 回だけ走査し、セル境界をまたぐヒットを除いてセル単位のマッチに振り分ける。
+    // セルごとに Find を呼ぶと 1 セル十数バイトでは SIMD ループに入らず呼び出しコストが支配的になる。
+    void FindTableMatches(const NodeTableData& tbl, std::string_view query, bool fold, int node_index);
+
     // マッチ一覧と世代カウンタを同時にリセットする。
     // 0 は search_hl_gen の未初期化センチネルなので、32bit ラップアラウンドで 0 に
     // 戻るケースだけはスキップして必ず非ゼロを維持する。
@@ -107,13 +114,6 @@ public:
             generation_ = 1;
         }
     }
-
-private:
-    // query は case-insensitive (fold) 時は ASCII 小文字化済み。
-    void FindTextMatches(std::string_view text, std::string_view query, bool fold, int node_index);
-    // concat_text を 1 回だけ走査し、セル境界をまたぐヒットを除いてセル単位のマッチに振り分ける。
-    // セルごとに Find を呼ぶと 1 セル十数バイトでは SIMD ループに入らず呼び出しコストが支配的になる。
-    void FindTableMatches(const NodeTableData& tbl, std::string_view query, bool fold, int node_index);
 
     static constexpr size_t MAX_MATCHES = 10000;
 

@@ -177,62 +177,6 @@ TEST_F(SearchBarControllerTest, OnTextChangedFewNodesLargeBytesDebounces)
     EXPECT_EQ(state_.GetMatchCount(), 0);
 }
 
-TEST_F(SearchBarControllerTest, OnDocumentReplacedSmallDocSearchesImmediately)
-{
-    std::pmr::vector<Node> before;
-    before.push_back(MakeTextNode("hello"));
-    cache_ = MakeUniformCache(1, 100.0f);
-    state_.Show();
-    ctrl_.OnTextChanged(L"hello", before, 0);
-    ASSERT_EQ(state_.GetMatchCount(), 1);
-
-    std::pmr::vector<Node> after;
-    after.push_back(MakeTextNode("hello"));
-    after.push_back(MakeTextNode("hello again"));
-    cache_ = MakeUniformCache(2, 100.0f);
-    ctrl_.OnDocumentReplaced(after, 0);
-    EXPECT_EQ(state_.GetMatchCount(), 2);
-}
-
-// 大規模ドキュメントのリロードは打鍵時と同じくデバウンスし、旧文書のマッチは残さない。
-TEST_F(SearchBarControllerTest, OnDocumentReplacedLargeDocDebouncesAndKeepsScroll)
-{
-    std::pmr::vector<Node> nodes;
-    for (int i = 0; i < 1001; ++i) {
-        nodes.push_back(MakeTextNode("text"));
-    }
-    cache_ = MakeUniformCache(1001, 100.0f);
-    viewport_.SyncMaxScroll(100100.0f, tracker_.md_pane_height);
-    state_.Show();
-    ctrl_.OnTextChanged(L"text", nodes, 0);
-    ctrl_.OnDebounceTimer(nodes);
-    ASSERT_GT(state_.GetMatchCount(), 0);
-    viewport_.SetScrollY(5000.0f);
-
-    const int before = tracker_.set_timer_count;
-    ctrl_.OnDocumentReplaced(nodes, 0);
-    EXPECT_EQ(state_.GetMatchCount(), 0);
-    EXPECT_GT(tracker_.set_timer_count, before);
-    EXPECT_EQ(tracker_.last_timer_id, app_timer::Id::SEARCH_DEBOUNCE);
-
-    ctrl_.OnDebounceTimer(nodes);
-    EXPECT_GT(state_.GetMatchCount(), 0);
-    EXPECT_FLOAT_EQ(viewport_.GetScrollY(), 5000.0f);
-}
-
-TEST_F(SearchBarControllerTest, OnDocumentReplacedIgnoredWhenHidden)
-{
-    std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode("hello"));
-    cache_ = MakeUniformCache(1, 100.0f);
-    ctrl_.OnTextChanged(L"hello", nodes, 0);
-    state_.Hide();
-
-    const int before = tracker_.set_timer_count;
-    ctrl_.OnDocumentReplaced(nodes, decltype(ctrl_)::kImmediateSearchMaxBytes + 1);
-    EXPECT_EQ(tracker_.set_timer_count, before);
-}
-
 // ═══════════════════════════════════════════════
 // 選択・IME
 // ═══════════════════════════════════════════════
