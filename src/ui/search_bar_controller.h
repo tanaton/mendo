@@ -69,6 +69,11 @@ public:
     static constexpr size_t kImmediateSearchMaxNodes = 1000;
     static constexpr size_t kImmediateSearchMaxBytes = 256 * 1024;
 
+    static constexpr bool IsImmediateSearchSize(const std::pmr::vector<Node>& nodes, size_t doc_bytes) noexcept
+    {
+        return nodes.size() <= kImmediateSearchMaxNodes && doc_bytes <= kImmediateSearchMaxBytes;
+    }
+
     void OnTextChanged(std::wstring_view text, const std::pmr::vector<Node>& nodes, size_t doc_bytes)
     {
         // 検索バー入力は IME 経由で wstring。表示とヒットテストにはこのまま使い、
@@ -85,7 +90,7 @@ public:
             return;
         }
 
-        if (nodes.size() <= kImmediateSearchMaxNodes && doc_bytes <= kImmediateSearchMaxBytes) {
+        if (IsImmediateSearchSize(nodes, doc_bytes)) {
             RunSearchAndLocate(nodes, true);
             cb_.invalidate();
             return;
@@ -93,6 +98,24 @@ public:
 
         // 大規模ドキュメント: デバウンスで連続入力中の再検索を抑制
         cb_.invalidate();
+        scroll_on_debounce_ = true;
+        cb_.set_timer(app_timer::Id::SEARCH_DEBOUNCE, app_timer::SEARCH_DEBOUNCE_MS);
+    }
+
+    // 文書の差し替え後に同じクエリで検索し直す。スクロール位置は動かさない。
+    // 大規模ドキュメントは入力時と同じくデバウンスし、それまで旧文書のマッチは捨てておく。
+    void OnDocumentReplaced(const std::pmr::vector<Node>& nodes, size_t doc_bytes)
+    {
+        if (!state_->IsVisible() || state_->GetQuery().empty()) {
+            return;
+        }
+        cb_.kill_timer(app_timer::Id::SEARCH_DEBOUNCE);
+        if (IsImmediateSearchSize(nodes, doc_bytes)) {
+            RunSearchAndLocate(nodes);
+            return;
+        }
+        state_->ClearMatches();
+        scroll_on_debounce_ = false;
         cb_.set_timer(app_timer::Id::SEARCH_DEBOUNCE, app_timer::SEARCH_DEBOUNCE_MS);
     }
 
@@ -146,7 +169,7 @@ public:
     void OnDebounceTimer(const std::pmr::vector<Node>& nodes)
     {
         cb_.kill_timer(app_timer::Id::SEARCH_DEBOUNCE);
-        RunSearchAndLocate(nodes, true);
+        RunSearchAndLocate(nodes, scroll_on_debounce_);
         cb_.invalidate();
     }
 
@@ -313,4 +336,6 @@ private:
     int drag_anchor_ = 0;
     std::pmr::wstring ime_composition_;
     std::pmr::wstring query_wide_;
+    // 入力由来のデバウンスは最初のマッチへスクロールし、リロード由来は位置を保つ。
+    bool scroll_on_debounce_ = true;
 };
