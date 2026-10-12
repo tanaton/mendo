@@ -128,10 +128,11 @@ HitTestService::HitResult HitTestService::HitTestTable(
     HitResult result;
     result.node_index = node_index;
 
-    if (!entry.has_table_layout()) {
+    const auto* tl_ptr = entry.table_layout();
+    if (!tl_ptr) {
         return result;
     }
-    const auto& tl = *entry.table_layout();
+    const auto& tl = *tl_ptr;
 
     const float indent = NodeIndent(node, theme);
     // テーブルが scroll_x 分左にスライドして見えるため、列の自然座標と一致させるには

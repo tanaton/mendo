@@ -510,6 +510,12 @@ constexpr bool IsDiagramCodeBlock(const Node& node) noexcept
     return node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language());
 }
 
+// テキストではなくビットマップを描くノード (画像 / Diagram コードブロック)。
+constexpr bool IsBitmapDrawNode(const Node& node) noexcept
+{
+    return node.type == NodeType::Image || IsDiagramCodeBlock(node);
+}
+
 // CodeBlock かつ非 Diagram 言語。ブロック横スクロール対象判定で頻出する組合せ。
 constexpr bool IsScrollableCodeBlock(const Node& node) noexcept
 {

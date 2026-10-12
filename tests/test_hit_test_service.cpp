@@ -242,7 +242,7 @@ TEST_F(HitTestServiceTest, HitTestTable_NoLayoutDataReturnsTextEnd)
     const int table_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::Table);
     ASSERT_GE(table_idx, 0);
 
-    // has_table_layout() を false にするため unique_ptr をリセット
+    // has_table_layout() を false にするためテーブル幾何を捨てる
     auto& entry = pr.cache[table_idx];
     entry.reset_table_layout();
     ASSERT_FALSE(entry.has_table_layout());

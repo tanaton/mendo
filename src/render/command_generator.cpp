@@ -206,7 +206,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
             break;
         }
         const Node& node = nodes[i];
-        const DiagramEntry* diagram = (node.type == NodeType::Image || IsDiagramCodeBlock(node)) ? cache.FindDiagram(i) : nullptr;
+        const DiagramEntry* diagram = IsBitmapDrawNode(node) ? cache.FindDiagram(i) : nullptr;
         GenerateNode(cmds, fc, node, cache[i], diagram, i, local_text_top);
         ++visible_count;
     }

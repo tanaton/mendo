@@ -169,8 +169,6 @@ bool RemeasureExistingLayout(const Node& node, NodeLayoutEntry& entry, float lay
         return true;
     }
     entry.reset_text_layout();
-    entry.set_first_line_height(0.0f);
-    entry.set_natural_code_width(0.0f);
     return false;
 }
 

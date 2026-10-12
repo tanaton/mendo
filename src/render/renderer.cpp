@@ -162,8 +162,9 @@ static InlineCodeBg MakeInlineCodeBg(const DWRITE_HIT_TEST_METRICS& m) noexcept
 void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom)
 {
     MENDO_COUNT_INC(g_effect_stats.apply_table);
-    // 未計測のテーブルに Aux を確保しないよう、table_layout が無ければ印を付けずに戻る。
-    if (!entry.has_table_layout()) {
+    // 未計測のテーブルには適用先のセル layout が無いので、済みの印を付けずに戻る。
+    auto* const tl_ptr = entry.table_layout();
+    if (!tl_ptr) {
         return;
     }
     const auto* tbl = node.table_data();
@@ -174,7 +175,7 @@ void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry
 
     const auto row_count = static_cast<size_t>(tbl->row_count);
     const auto col_count = static_cast<size_t>(tbl->col_count);
-    auto& tl = *entry.table_layout();
+    auto& tl = *tl_ptr;
     if (!entry.effects_applied()) {
         entry.set_effects_applied(true);
         tl.cell_inline_code_bgs.clear();
@@ -293,7 +294,7 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_
         return;
     }
 
-    // 適用先の無いノードに Aux を確保しないよう、済みの印を付ける前に戻る。
+    // 適用先の text_layout が無いノードには済みの印を付けない。
     IDWriteTextLayout* const layout = entry.text_layout();
     if (node.type == NodeType::Image || !layout) {
         return;

@@ -195,53 +195,47 @@ struct NodeLayoutEntry {
             ensure_aux().text_layout = std::move(layout);
         }
     }
-    void reset_text_layout() noexcept
+    // 1 行目の高さと自然幅は text_layout から求めた値なので一緒に捨てる。
+    constexpr void reset_text_layout() noexcept
     {
-        set_text_layout(nullptr);
+        if (aux_) {
+            aux_->text_layout.Reset();
+            aux_->first_line_height = 0.0f;
+            aux_->natural_code_width = 0.0f;
+        }
     }
 
     constexpr float first_line_height() const noexcept
     {
-        return aux_ ? aux_->first_line_height : 0.0f;
+        return GetAux(&Aux::first_line_height);
     }
     constexpr void set_first_line_height(float h)
     {
-        if (aux_ || h != 0.0f) {
-            ensure_aux().first_line_height = h;
-        }
+        SetAux(&Aux::first_line_height, h);
     }
-
     constexpr float natural_code_width() const noexcept
     {
-        return aux_ ? aux_->natural_code_width : 0.0f;
+        return GetAux(&Aux::natural_code_width);
     }
     constexpr void set_natural_code_width(float w)
     {
-        if (aux_ || w != 0.0f) {
-            ensure_aux().natural_code_width = w;
-        }
+        SetAux(&Aux::natural_code_width, w);
     }
-
     constexpr bool effects_applied() const noexcept
     {
-        return aux_ && aux_->effects_applied;
+        return GetAux(&Aux::effects_applied);
     }
     constexpr void set_effects_applied(bool applied)
     {
-        if (aux_ || applied) {
-            ensure_aux().effects_applied = applied;
-        }
+        SetAux(&Aux::effects_applied, applied);
     }
-
     constexpr bool inline_code_bgs_stale() const noexcept
     {
-        return aux_ && aux_->inline_code_bgs_stale;
+        return GetAux(&Aux::inline_code_bgs_stale);
     }
     constexpr void set_inline_code_bgs_stale(bool stale)
     {
-        if (aux_ || stale) {
-            ensure_aux().inline_code_bgs_stale = stale;
-        }
+        SetAux(&Aux::inline_code_bgs_stale, stale);
     }
 
     constexpr SearchHlCache& ensure_search_hl_cache() const
@@ -277,9 +271,9 @@ struct NodeLayoutEntry {
     }
 
     // テーブルのみ確保。未確保なら nullptr。
-    constexpr auto* table_layout(this auto& self) noexcept
+    constexpr TableLayoutData* table_layout() const noexcept
     {
-        return self.aux_ ? self.aux_->table_layout.get() : nullptr;
+        return aux_ ? aux_->table_layout.get() : nullptr;
     }
     constexpr TableLayoutData& ensure_table_layout()
     {
@@ -296,31 +290,41 @@ struct NodeLayoutEntry {
         }
     }
 
-    // インラインコード持ちノードでのみ確保される。
     constexpr std::pmr::vector<InlineCodeBg>& ensure_inline_code_bgs()
     {
-        return mendo::layout::detail::EnsureUnique(ensure_aux().inline_code_bgs);
+        return ensure_aux().inline_code_bgs;
     }
 
     constexpr void clear_inline_code_bgs() noexcept
     {
         if (aux_) {
-            aux_->inline_code_bgs.reset();
+            aux_->inline_code_bgs.clear();
         }
     }
 
     constexpr std::span<const InlineCodeBg> view_inline_code_bgs() const noexcept
     {
-        return aux_ ? SpanOrEmpty(aux_->inline_code_bgs) : std::span<const InlineCodeBg>{};
+        return aux_ ? std::span<const InlineCodeBg>{ aux_->inline_code_bgs } : std::span<const InlineCodeBg>{};
     }
 
-    // 確保物が残っていない aux_ を解放する。参照を返すアクセサと競合しないよう、
-    // スカラーも既定値に戻す LayoutCache の evict / reset からだけ呼ぶ。
-    constexpr void release_aux_if_unused() noexcept
+    // テーブル幾何だけ残して、計測・描画で作った状態を捨てる。テーブル幾何も無ければ aux_ ごと解放する。
+    void reset_layout_state() noexcept
     {
-        if (aux_ && !aux_->text_layout && !aux_->inline_code_bgs && !aux_->table_layout && !aux_->search_hl_cache && !aux_->selection_hl_cache) {
+        if (!aux_) {
+            return;
+        }
+        if (auto table = std::move(aux_->table_layout)) {
+            *aux_ = Aux{};
+            aux_->table_layout = std::move(table);
+        }
+        else {
             aux_.reset();
         }
+    }
+    // 計測・描画で作った状態をテーブル幾何も含めて捨てる。
+    constexpr void release_layout_state() noexcept
+    {
+        aux_.reset();
     }
 
     // マッチの絶対 Y とその行の高さを返す。text_layout（テーブルはセル layout）が
@@ -344,7 +348,9 @@ private:
         // SetMaxWidth だけの再計測は描画エフェクト/下線を保持するため、折り返しに依存する
         // インラインコード背景だけ作り直させる。effects_applied が true のときのみ意味を持つ。
         bool inline_code_bgs_stale = false;
-        std::unique_ptr<std::pmr::vector<InlineCodeBg>> inline_code_bgs;
+        // 再計測のたびに作り直すので、確保し直さないよう Aux に直接持つ。
+        std::pmr::vector<InlineCodeBg> inline_code_bgs;
+        // evict しても列幅・行高さを残すため、Aux を作り直しても引き継げるよう別に確保する。
         std::unique_ptr<TableLayoutData> table_layout;
         std::unique_ptr<SearchHlCache> search_hl_cache;
         std::unique_ptr<SelectionHlCache> selection_hl_cache;
@@ -353,6 +359,19 @@ private:
     constexpr Aux& ensure_aux() const
     {
         return mendo::layout::detail::EnsureUnique(aux_);
+    }
+
+    template <class T>
+    constexpr T GetAux(T Aux::*field) const noexcept
+    {
+        return aux_ ? (*aux_).*field : T{};
+    }
+    template <class T>
+    constexpr void SetAux(T Aux::*field, T value)
+    {
+        if (aux_ || value != T{}) {
+            ensure_aux().*field = value;
+        }
     }
 
     // 描画中に const 経由でハイライトキャッシュを確保するため mutable。
@@ -449,15 +468,10 @@ public:
     {
         return diagrams_[i];
     }
-    DiagramEntry* FindDiagram(size_t i) noexcept
+    auto* FindDiagram(this auto& self, size_t i) noexcept
     {
-        const auto it = diagrams_.find(i);
-        return it != diagrams_.end() ? &it->second : nullptr;
-    }
-    const DiagramEntry* FindDiagram(size_t i) const noexcept
-    {
-        const auto it = diagrams_.find(i);
-        return it != diagrams_.end() ? &it->second : nullptr;
+        const auto it = self.diagrams_.find(i);
+        return it != self.diagrams_.end() ? &it->second : nullptr;
     }
 
     // すべてのテキストレイアウトとエフェクトを無効化する（テーマ/ズーム変更時）。
@@ -475,6 +489,9 @@ public:
     // ダイアグラム系ノードのビットマップを無効化する。
     // ダークモード切替時に text_layout とエフェクトを保持したまま図だけ再描画したい場合に使う。
     void InvalidateDiagramBitmaps(const std::pmr::vector<Node>& nodes) noexcept;
+
+    // [first_keep_inclusive, last_keep_exclusive) の外にある画像/図のビットマップを捨てる。寸法とエラーは残す。
+    void EvictDiagramBitmapsOutside(size_t first_keep_inclusive, size_t last_keep_exclusive) noexcept;
 
     // 可視範囲外（[0, first_keep) と [last_keep, size())）のノードについて
     // text_layout / table_layout / inline_code_bgs / search_hl_cache を破棄する。
@@ -523,9 +540,6 @@ private:
     // cell_inline_code_bgs は呼び出し側で必要に応じて別途クリアする
     // (DPI 変更パスは bg を作り直すまで維持する設計)。
     static void ResetTableLayoutGeometry(TableLayoutData& tl) noexcept;
-
-    // table_layout / layout_dirty の扱いは呼び出し側ごとに異なるため触らない。
-    static void ResetEntryTextLayout(NodeLayoutEntry& e) noexcept;
 
     static void EvictEntryLayout(NodeLayoutEntry& e) noexcept;
 

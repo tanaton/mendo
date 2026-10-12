@@ -29,8 +29,8 @@ inline BlockHScrollGeometry GetBlockHScrollGeometry(
 {
     BlockHScrollGeometry g;
     g.visible_width = visible_width;
-    if (node.type == NodeType::Table && entry.has_table_layout()) {
-        g.natural_width = entry.table_layout()->natural_total_width;
+    if (const auto* tl = entry.table_layout(); node.type == NodeType::Table && tl) {
+        g.natural_width = tl->natural_total_width;
     }
     else if (IsScrollableCodeBlock(node)) {
         g.natural_width = entry.natural_code_width();

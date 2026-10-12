@@ -219,9 +219,9 @@ bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
     entry.height = fallback;
     // 推定で成長させた場合、テーブル幾何 (row_heights/col_widths) は旧値のままなので
     // clear して MeasureNode の lazy 復元経路を通させる。
-    if (node.type == NodeType::Table && entry.has_table_layout() && !cache_hit) {
-        entry.table_layout()->col_widths.clear();
-        entry.table_layout()->cached_table_width = 0.0f;
+    if (auto* tl = entry.table_layout(); node.type == NodeType::Table && tl && !cache_hit) {
+        tl->col_widths.clear();
+        tl->cached_table_width = 0.0f;
     }
     return true;
 }

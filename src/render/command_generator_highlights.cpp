@@ -106,8 +106,8 @@ void CommandGenerator::RebuildSearchHlCache(
     for (size_t mi = first_global; mi < first_global + node_match_count; ++mi) {
         const auto& m = matches[mi];
         IDWriteTextLayout* l = nullptr;
-        if (m.table_row >= 0 && entry.has_table_layout()) {
-            l = entry.table_layout()->GetCellLayout(static_cast<size_t>(m.table_row), static_cast<size_t>(m.table_col));
+        if (const auto* tl = entry.table_layout(); m.table_row >= 0 && tl) {
+            l = tl->GetCellLayout(static_cast<size_t>(m.table_row), static_cast<size_t>(m.table_col));
         }
         else if (m.table_row < 0) {
             l = entry.text_layout();

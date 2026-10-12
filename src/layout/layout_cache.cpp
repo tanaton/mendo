@@ -97,17 +97,6 @@ void LayoutCache::ResetTableLayoutGeometry(TableLayoutData& tl) noexcept
     tl.natural_total_width = 0.0f;
 }
 
-void LayoutCache::ResetEntryTextLayout(NodeLayoutEntry& e) noexcept
-{
-    e.reset_text_layout();
-    e.set_effects_applied(false);
-    e.set_first_line_height(0.0f);
-    e.set_natural_code_width(0.0f);
-    e.clear_inline_code_bgs();
-    e.invalidate_per_frame_hl_caches();
-    e.release_aux_if_unused();
-}
-
 void LayoutCache::EvictEntryLayout(NodeLayoutEntry& e) noexcept
 {
     // テーブルは列幅・行高さを残してセル layout だけ捨てる。幾何ごと捨てると再表示時に
@@ -122,12 +111,12 @@ void LayoutCache::EvictEntryLayout(NodeLayoutEntry& e) noexcept
         tl.live_row_end = 0;
         return;
     }
-    if (!e.text_layout() && !e.table_layout()) {
-        return;
+    // レイアウトを持たないノード (HR / 画像 / 空テキスト) は計測済みのまま残す。
+    const bool had_layout = e.text_layout() || e.table_layout();
+    e.release_layout_state();
+    if (had_layout) {
+        e.layout_dirty = true;
     }
-    e.reset_table_layout();
-    ResetEntryTextLayout(e);
-    e.layout_dirty = true;
 }
 
 bool LayoutCache::HasRowTracking(const TableLayoutData& tl) noexcept
@@ -187,14 +176,19 @@ void LayoutCache::Reset(size_t node_count, bool shrink)
     };
     reset(entries_);
     reset(tops_);
-    diagrams_.clear();
+    if (shrink) {
+        diagrams_ = {};
+    }
+    else {
+        diagrams_.clear();
+    }
     ResetEvictionTracking();
 }
 
 void LayoutCache::InvalidateAllLayouts() noexcept
 {
     for (auto& e : entries_) {
-        ResetEntryTextLayout(e);
+        e.reset_layout_state();
         // ズーム変更で計測条件が変わるので、諦めたノードも改めて試す。旧倍率の実測値も推定に使わせない。
         e.measure_failures = 0;
         e.cached_width = NodeLayoutEntry::kUnmeasuredWidth;
@@ -232,6 +226,15 @@ void LayoutCache::InvalidateDiagramBitmaps(const std::pmr::vector<Node>& nodes) 
     for (auto& [idx, d] : diagrams_) {
         if (idx < nodes.size() && IsDiagramCodeBlock(nodes[idx])) {
             d.ResetForRetry();
+        }
+    }
+}
+
+void LayoutCache::EvictDiagramBitmapsOutside(size_t first_keep_inclusive, size_t last_keep_exclusive) noexcept
+{
+    for (auto& [idx, d] : diagrams_) {
+        if (idx < first_keep_inclusive || idx >= last_keep_exclusive) {
+            d.EvictBitmap();
         }
     }
 }
