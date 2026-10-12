@@ -36,6 +36,8 @@ void Document::ReplaceContent(ParseResult&& result)
     image_node_indices_ = std::move(result.image_indices);
     diagram_node_indices_ = std::move(result.diagram_indices);
     table_node_indices_ = std::move(result.table_indices);
+    footnote_def_indices_ = std::move(result.footnote_def_indices);
+    footnote_refs_ = std::move(result.footnote_refs);
     BuildHeadingIndices(result.heading_indices);
     anchor_index_.reset();
 }
@@ -61,6 +63,9 @@ int Document::FindAnchorIndex(std::string_view anchor)
     }
     // 割り当てるアンカーは ASCII 小文字なので query 側だけ畳む。
     const auto key = ToLowerAsciiCopy(anchor);
+    if (const int footnote = FindFootnoteAnchor(key, footnote_def_indices_, footnote_refs_); footnote >= 0) {
+        return footnote;
+    }
     if (!anchor_index_) {
         anchor_index_ = std::make_unique<HeadingAnchorIndex>();
     }

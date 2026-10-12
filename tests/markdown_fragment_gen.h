@@ -1,6 +1,6 @@
 #pragma once
 // プロパティテスト用のランダム Markdown 生成器。パーサが特殊扱いする断片
-// (ネストしたリスト / 引用、tight / loose リスト内のブロック、Alert、セル数不揃いの表、
+// (ネストしたリスト / 引用、tight / loose リスト内のブロック、Alert、セル数不揃いの表、脚注、
 // entity、$$、画像、CJK、不正 UTF-8 バイト) を再帰的に組み合わせる。
 // 同じ seed なら同じ文書を返すので、失敗時は SCOPED_TRACE の seed で再現できる。
 #include <algorithm>
@@ -31,12 +31,13 @@ public:
     // 改行を含まない 1 行分のインライン列。
     std::string InlineLine(int max_atoms = 4)
     {
-        static constexpr std::array<std::string_view, 33> kAtoms{
+        static constexpr std::array<std::string_view, 36> kAtoms{
             "alpha", "beta", "gamma", "**bold**", "*em*", "_em2_", "***both***", "`code`", "~~del~~",
             "[link](https://example.com/x)", "[**bl**](#anchor)", "[js](javascript:alert(1))",
             "<https://auto.example>", "&amp;", "&lt;x&gt;", "&#10;", "&#x1F600;", "&nbsp;", "&bogus;",
             "$x^2$", "$$y$$", "![img](pic.png)", "日本語", "漢字かな", "\xFF\xFE", "\xE3\x81", "\xC0\x80",
             "a\\*b", "<br>", "<b>x</b>", "1 < 2 & 3 > 0", "\"q\" 'q'", "**[x](https://b.example) y**",
+            "[^1]", "x[^n]", "[^missing]",
         };
         const int n = Range(1, max_atoms);
         std::string out;
@@ -51,7 +52,7 @@ public:
 
     std::string Block(int depth)
     {
-        const int kind = Range(0, depth >= kMaxDepth ? 7 : 11);
+        const int kind = Range(0, depth >= kMaxDepth ? 8 : 12);
         switch (kind) {
         case 0:
             return Paragraph();
@@ -70,7 +71,9 @@ public:
         case 7:
             return Alert();
         case 8:
+            return Chance(2) ? "[^1]: " + InlineLine() : "[^n]: " + InlineLine() + "\n" + InlineLine();
         case 9:
+        case 10:
             return Quote(depth);
         default:
             return List(depth);

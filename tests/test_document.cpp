@@ -317,6 +317,22 @@ TEST(DocumentTest, BuildIndicesAnchorIndex)
     EXPECT_EQ(doc.FindAnchorIndex("nonexistent"), -1);
 }
 
+// 脚注のリンク URL ("#..." ) を辿ると、参照から定義へ、定義の "↩" から参照へ移れる。
+TEST(DocumentTest, FootnoteLinksResolveToDefinitionAndBack)
+{
+    auto doc = Document::FromMarkdown("# Head\n\nText[^1]\n\n[^1]: note", L"test.md");
+    const auto& nodes = doc.GetNodes();
+    ASSERT_EQ(nodes.size(), 4u);
+    const auto anchor_of = [&](size_t node, size_t url) {
+        return std::string(nodes[node].view_link_urls()[url].substr(1));
+    };
+    EXPECT_EQ(doc.FindAnchorIndex(anchor_of(1, 0)), 3);
+    EXPECT_EQ(doc.FindAnchorIndex(anchor_of(3, 0)), 1);
+    EXPECT_EQ(doc.FindAnchorIndex("USER-CONTENT-FN-1"), 3);
+    EXPECT_EQ(doc.FindAnchorIndex("user-content-fn-2"), -1);
+    EXPECT_EQ(doc.FindAnchorIndex("head"), 0);
+}
+
 TEST(DocumentTest, BuildIndicesImageNodes)
 {
     auto doc = Document::FromMarkdown("text\n\n![alt](img.png)\n\nmore text", L"test.md");

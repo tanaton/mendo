@@ -4,6 +4,7 @@
 #include <limits>
 #include <stop_token>
 #include <string>
+#include <string_view>
 
 // ---- 基本的なパース ----
 
@@ -1809,13 +1810,120 @@ TEST(Parser, IsAlertHeadCandidateOnlyForFirstNodeOfOuterQuote)
     EXPECT_FALSE(IsAlertHeadCandidate(nodes, 4)) << "ネストした引用";
 }
 
-// md4c v0.6.0 で GitHub 方言に加わった脚注拡張は無効化しているので、原文どおりの段落として残る。
-TEST(Parser, FootnoteSyntaxStaysPlainText)
+// ---- 脚注 ----
+
+namespace {
+
+// text 内の needle を覆う run のリンク URL。リンクでなければ空。
+std::string LinkUrlAt(const Node& node, std::string_view needle)
 {
-    auto nodes = ParseMarkdown("Text[^1].\n\n[^1]: My reference.").nodes;
-    ASSERT_EQ(nodes.size(), 2u);
-    EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
-    EXPECT_EQ(nodes[0].GetText(), "Text[^1].");
-    EXPECT_EQ(nodes[1].type, NodeType::Paragraph);
-    EXPECT_EQ(nodes[1].GetText(), "[^1]: My reference.");
+    const auto pos = node.GetText().find(needle);
+    if (pos == std::string_view::npos) {
+        return "<not found>";
+    }
+    for (const auto& run : node.runs) {
+        if (run.start == pos && run.length == needle.size()) {
+            return run.has_link() ? std::string(node.view_link_urls()[static_cast<size_t>(run.link_url_index)]) : std::string{};
+        }
+    }
+    return "<no run>";
+}
+
+} // namespace
+
+TEST(Parser, FootnoteRefBecomesNumberedLinkAndDefinitionMovesToEnd)
+{
+    const std::string md = "Text[^1].\n\n[^1]: Note **here**.\n\nAfter.";
+    const auto result = ParseMarkdown(md);
+    const auto& nodes = result.nodes;
+    ASSERT_EQ(nodes.size(), 4u);
+    EXPECT_EQ(nodes[0].GetText(), "Text[1].");
+    EXPECT_EQ(LinkUrlAt(nodes[0], "[1]"), "#user-content-fn-1");
+    EXPECT_EQ(nodes[1].GetText(), "After.");
+    EXPECT_EQ(nodes[2].type, NodeType::HorizontalRule);
+    EXPECT_EQ(nodes[3].type, NodeType::ListItem);
+    EXPECT_TRUE(nodes[3].list_ordered());
+    EXPECT_EQ(nodes[3].list_number(), 1);
+    EXPECT_EQ(nodes[3].indent_level, 1);
+    EXPECT_EQ(nodes[3].GetText(), "Note here. ↩");
+    EXPECT_EQ(LinkUrlAt(nodes[3], "↩"), "#user-content-fnref-1");
+    EXPECT_EQ(LinkUrlAt(nodes[3], "here"), "");
+    EXPECT_FALSE(nodes[3].HasSourceOffset()) << "末尾に並ぶ定義はソース位置の単調増加を崩さないよう持たない";
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+    ASSERT_EQ(result.footnote_def_indices.size(), 1u);
+    EXPECT_EQ(result.footnote_def_indices[0], 3);
+}
+
+TEST(Parser, FootnotesAreNumberedInReferenceOrder)
+{
+    const auto result = ParseMarkdown("A[^b] B[^a]\n\n[^a]: first\n[^b]: second");
+    const auto& nodes = result.nodes;
+    ASSERT_EQ(nodes.size(), 4u);
+    EXPECT_EQ(nodes[0].GetText(), "A[1] B[2]");
+    EXPECT_EQ(nodes[2].GetText(), "second ↩");
+    EXPECT_EQ(nodes[2].list_number(), 1);
+    EXPECT_EQ(nodes[3].GetText(), "first ↩");
+    EXPECT_EQ(nodes[3].list_number(), 2);
+}
+
+TEST(Parser, FootnoteWithMultipleRefsGetsNumberedBackrefs)
+{
+    const auto result = ParseMarkdown("x[^1] y[^1]\n\n[^1]: n");
+    const auto& nodes = result.nodes;
+    ASSERT_EQ(nodes.size(), 3u);
+    EXPECT_EQ(nodes[2].GetText(), "n ↩ ↩2");
+    EXPECT_EQ(LinkUrlAt(nodes[2], "↩2"), "#user-content-fnref-1-2");
+    ASSERT_EQ(result.footnote_refs.size(), 2u);
+    EXPECT_EQ(result.footnote_refs[1].ref_id, 2u);
+}
+
+// md4c はテーブル行の判定でもインラインを解析して参照数を数えるため、ref_id / ref_count が実際の参照数とずれる。
+TEST(Parser, FootnoteRefInTableIsCountedOnce)
+{
+    const std::string md = "| h |\n|---|\n| c[^1] |\n\nz[^1]\n\n[^1]: n";
+    const auto result = ParseMarkdown(md);
+    const auto& nodes = result.nodes;
+    ASSERT_EQ(nodes.size(), 4u);
+    EXPECT_EQ(nodes[0].table_data()->GetCellText(1, 0), "c[1]");
+    EXPECT_EQ(nodes[3].GetText(), "n ↩ ↩2");
+    ASSERT_EQ(result.footnote_refs.size(), 2u);
+    EXPECT_EQ(result.footnote_refs[0].node_index, 0);
+    EXPECT_EQ(result.footnote_refs[1].ref_id, 2u);
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+}
+
+TEST(Parser, FootnoteRefInsideLaterDefinitionGetsBackref)
+{
+    const auto result = ParseMarkdown("a[^1] b[^2]\n\n[^1]: one\n[^2]: two[^1]");
+    const auto& nodes = result.nodes;
+    ASSERT_EQ(nodes.size(), 4u);
+    EXPECT_EQ(nodes[2].GetText(), "one ↩ ↩2");
+    EXPECT_EQ(nodes[3].GetText(), "two[1] ↩");
+    ASSERT_EQ(result.footnote_refs.size(), 3u);
+    EXPECT_EQ(result.footnote_refs[2].node_index, 3);
+}
+
+TEST(Parser, UndefinedFootnoteRefStaysPlainText)
+{
+    const auto result = ParseMarkdown("[^x] text");
+    ASSERT_EQ(result.nodes.size(), 1u);
+    EXPECT_EQ(result.nodes[0].GetText(), "[^x] text");
+    EXPECT_TRUE(result.footnote_refs.empty());
+}
+
+// GitHub と同じく、参照されない定義は表示しない。
+TEST(Parser, UnreferencedFootnoteDefinitionIsHidden)
+{
+    const auto result = ParseMarkdown("Text\n\n[^1]: unused");
+    ASSERT_EQ(result.nodes.size(), 1u);
+    EXPECT_EQ(result.nodes[0].GetText(), "Text");
+    EXPECT_TRUE(result.footnote_def_indices.empty());
+}
+
+TEST(Parser, FootnoteRefInsideQuoteKeepsAlert)
+{
+    const auto nodes = ParseMarkdown("> [!NOTE]\n> See[^1]\n\n[^1]: n").nodes;
+    ASSERT_EQ(nodes.size(), 3u);
+    EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
+    EXPECT_NE(nodes[0].GetText().find("See[1]"), std::string_view::npos);
 }

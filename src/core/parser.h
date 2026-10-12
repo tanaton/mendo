@@ -1,5 +1,6 @@
 #pragma once
 #include "document_types.h"
+#include "footnote_anchor.h"
 #include <concepts>
 #include <span>
 #include <stop_token>
@@ -16,6 +17,9 @@ struct ParseResult {
     std::pmr::vector<size_t> image_indices;
     std::pmr::vector<size_t> diagram_indices;
     std::pmr::vector<size_t> table_indices;
+    // 脚注番号順の定義ノード。脚注は文書末尾に参照順で並ぶ。
+    std::pmr::vector<int32_t> footnote_def_indices;
+    std::pmr::vector<FootnoteRef> footnote_refs;
 };
 
 // 本物の Markdown パーサ。md4c を UTF-8 モード (MD_CHAR=char) で起動するため入力は char 列。
