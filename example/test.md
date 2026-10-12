@@ -817,7 +817,8 @@ sequenceDiagram
         MD->>P: leave_block(type, detail)
         P->>P: ノード確定 → nodes へ push
     end
-    P-->>DOC: ParseResult { nodes, heading_indices, image_indices, diagram_indices, table_indices }
+    P->>P: AppendFootnoteBackrefs (脚注定義に ↩ リンクを付与)
+    P-->>DOC: ParseResult { nodes, heading_indices, image_indices, diagram_indices, table_indices, footnote_def_indices, footnote_refs }
     DOC->>DOC: DetectAlerts (BlockQuote → Alert に変換)
     DOC->>DOC: BuildHeadingIndices (見出し → TOC エントリ)
 ```
@@ -829,6 +830,8 @@ struct ParseResult {
     std::pmr::vector<size_t> image_indices;
     std::pmr::vector<size_t> diagram_indices;
     std::pmr::vector<size_t> table_indices;
+    std::pmr::vector<int32_t>     footnote_def_indices; // [id - 1] が脚注 id の定義ノード
+    std::pmr::vector<FootnoteRef> footnote_refs;        // 脚注参照の位置 (文書順)
 };
 
 ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token = {});
@@ -851,6 +854,7 @@ md4c は **UTF-8 モード** (`MD_CHAR=char`) で起動するため、入力は 
 - **順序なしリスト** (`-`, `*`, `+`)
 - **タスクリスト** (`- [ ]`, `- [x]`)
 - **テーブル** — GFM拡張、列アライメント対応
+- **脚注定義** (`[^label]: 本文`) — 文書末尾に参照順の番号付きリストとして表示
 
 ##### インライン要素
 
@@ -861,6 +865,7 @@ md4c は **UTF-8 モード** (`MD_CHAR=char`) で起動するため、入力は 
 - **リンク** (`[text](url)`)
 - **画像** (`![alt](path)`) — 非同期読み込み
 - **太字+斜体** (`***both***`)
+- **脚注参照** (`[^label]`) — `[1]` 形式で脚注定義へのリンク
 
 #### 3.6.3 アンカーID生成（GitHub互換）
 
@@ -887,6 +892,24 @@ void DetectAlerts(std::pmr::vector<Node>& nodes, std::span<const size_t> blockqu
 std::string_view GetAlertLabel(AlertType type) noexcept;
 std::string_view GetAlertIcon(AlertType type) noexcept;
 ```
+
+#### 3.6.5 脚注
+
+md4c の `MD_FLAG_FOOTNOTES`（v0.6.0 で `MD_DIALECT_GITHUB` に追加）を有効にし、GitHub と同じ見た目に組み立てる[^spec-admonitions]。
+
+| md4c のコールバック | mendo での扱い |
+|:--|:--|
+| `MD_SPAN_FOOTNOTE_REF` | 脚注番号を `[1]` のテキストとして補い、`#user-content-fn-1` へのリンクにする |
+| `MD_BLOCK_FOOTNOTE_DEF_SECTION` | 水平線ノードを置き、続く定義をリストの深さ 1 に入れる |
+| `MD_BLOCK_FOOTNOTE_DEF` | 番号付きの `ListItem` ノードにする（番号 = 脚注番号） |
+
+- 参照ごとの番号 (`ref_id`) は md4c の値を使わず自前で数える[^spec-refcount]。
+- 定義の末尾には参照へ戻る `↩` リンク（2 回目以降の参照は `↩2` …）を付ける。後の定義の中の参照は前の定義を閉じた後に届くため、`AppendFootnoteBackrefs` がパース後にまとめて付ける。
+- 定義ノードは文書末尾に並ぶが原文では途中にあるので、ソース位置を記録しない。ソース位置の単調増加は `FindNodeBySourceOffset` の二分探索の前提。
+- 参照されない定義は表示せず、定義の無い `[^x]` はテキストのまま残す。
+
+[^spec-admonitions]: 同じく追加された `MD_FLAG_ADMONITIONS` は使わない。ネストした引用でも Alert として扱うなど、`DetectAlerts`（GitHub 準拠）と挙動が違うため。
+[^spec-refcount]: md4c はテーブル行の判定でもインラインを解析するため、表の中の参照が二重に数えられ、`ref_id` / `ref_count` が実際の参照数とずれる。
 
 ---
 
@@ -1597,6 +1620,10 @@ LinkClickResult HandleLinkClick(std::string_view url);
 bool            IsSafeUrlScheme(std::string_view url) noexcept;
 ```
 
+脚注のリンク (`#user-content-fn-N` / `#user-content-fnref-N[-M]`) も Anchor として扱う。`Document::FindAnchorIndex` が見出しの索引より先に `FindFootnoteAnchor` で照合する[^spec-anchor-format]。
+
+[^spec-anchor-format]: アンカーは GitHub が出力する HTML の id と同じ形式。N は脚注番号、M は同じ脚注への何回目の参照か（1 回目は省略）。
+
 #### 3.13.3 ナビゲーションフロー
 
 ```mermaid
@@ -1604,7 +1631,7 @@ flowchart TD
     TRIGGER[リンククリック / ジェスチャ / Alt+矢印 / Xボタン]
     TRIGGER --> APP[App::HandleLinkClick or NavigateBack/ForwardAction]
     APP --> KIND{解決結果}
-    KIND -->|Anchor| ANCHOR[Document::FindAnchorIndex<br>アンカー索引を引く → ScrollTarget 設定]
+    KIND -->|Anchor| ANCHOR[Document::FindAnchorIndex<br>脚注 → 見出しの順に引く → ScrollTarget 設定]
     KIND -->|ExternalUrl| SHELL[Win32Host::ShellOpen → ShellExecuteW]
     KIND -->|別ファイル(.md)| LOAD[effect::LoadFile → DocumentService::LoadFile]
     KIND -->|None| NOP[何もしない]
@@ -2804,7 +2831,7 @@ public:
     constexpr void SetFilePath(std::wstring_view path);
     void ReplaceFromMarkdown(std::pmr::string text, size_t byte_size);
 
-    // アンカー (ASCII 大文字小文字は無視) を付けた見出しのノード番号。見つからなければ -1。
+    // アンカー (ASCII 大文字小文字は無視) を付けた見出し、または脚注の定義 / 参照のノード番号。見つからなければ -1。
     int FindAnchorIndex(std::string_view anchor);
     constexpr const std::pmr::vector<size_t>& GetImageNodeIndices() const noexcept;
     constexpr const std::pmr::vector<size_t>& GetDiagramNodeIndices() const noexcept;
@@ -2813,6 +2840,8 @@ public:
 ```
 
 アンカーは文書内リンクのクリック時にしか使わないため、パースでは作らない。`FindAnchorIndex` はクエリを ASCII 小文字に畳み、`HeadingAnchorIndex`（アンカー → ノード番号のハッシュ索引）を引く。無ければ TOC の続きから見出しのスラグを作って github-slugger と同じ規則で連番を付け、見つかるまでだけ索引を延ばす。索引はリンクを辿った文書にだけ作られ、内容を差し替えると捨てる。115MB・見出し 14 万件の文書では、パースが約 65ms 短くなる代わりに、存在しないアンカーを初めて引いたときだけ約 50ms・+19MB かかる。
+
+脚注のアンカー (`user-content-fn-N` / `user-content-fnref-N[-M]`) は、パース時に作った `footnote_def_indices_`（脚注番号 → 定義ノード）と `footnote_refs_`（参照の位置）を引く。見出しの索引より先に照合するので、脚注のアンカーと同じスラグの見出しがあっても脚注が優先される。
 
 `raw_text_` はパース入力の UTF-8 テキストを常時保持する。これは `CalcScrollYForDiff` の比較用で、ノードレベルでは検出できない編集（空行追加・末尾空白等）も UTF-8 byte オフセット精度で差分位置を求めるため。`raw_text_` は `NormalizeNewlines` により常に LF 正規化済みなので、リロード diff の新テキストも比較前に同じ正規化を通す（`DoReloadCurrentFile`）。これによりファイル全体の改行コードを変換して保存するエディタ（issue #273）でも差分位置が編集行を正しく指し、改行コード変換のみの保存は NoChange としてスクロール位置が維持される。
 
@@ -3056,6 +3085,7 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_document_service.cpp` | DocumentService |
 | `test_document_utils.cpp` | テキスト操作 |
 | `test_anchor.cpp` | アンカーID生成 |
+| `test_footnote_anchor.cpp` | 脚注アンカー |
 | `test_toc.cpp` | 目次生成 |
 | `test_types.cpp` | 型・データ構造 |
 | `test_file_loader.cpp` | FileLoader |
@@ -3348,6 +3378,7 @@ src/
 │   ├── raw_text.h                 # パース入力 UTF-8 の保持
 │   ├── parser.h / parser.cpp      # Markdown パース (md4c UTF-8)
 │   ├── parser_alerts.cpp          # GitHub Alerts 検出
+│   ├── footnote_anchor.h / .cpp   # 脚注アンカーの生成・解決
 │   ├── html_entities.h / .cpp     # HTML エンティティ解決
 │   ├── document.h / document.cpp  # Document
 │   ├── document_service.h / .cpp  # 読み込みオーケストレーション
@@ -3446,7 +3477,7 @@ src/
 
 | ライブラリ | バージョン | 用途 | ライセンス |
 |:-----------|:----------|:-----|:----------|
-| md4c | latest | Markdown パース | MIT |
+| md4c | 0.6.0 | Markdown パース | MIT |
 | WebView2 SDK | 1.0.3967.48 | Mermaid描画用ブラウザコントロール | BSD |
 | WIL | 1.0.240803.1 | Windows実装ヘルパー | MIT |
 | Google Test | 1.17.0 | ユニットテスト | BSD-3-Clause |
@@ -4215,7 +4246,7 @@ exit /b 0
 | 10 | Renderer | renderer*.cpp | mendo | なし |
 | 11 | CommandGenerator | command_generator.h/cpp | mendo_core | あり |
 | 12 | CommandExecutor | command_executor.h/cpp | mendo_core | あり |
-| 13 | Parser | parser.cpp + parser_alerts.cpp | mendo_core | あり |
+| 13 | Parser | parser.cpp + parser_alerts.cpp + footnote_anchor.cpp | mendo_core | あり |
 | 14 | LayoutEngine + LayoutService | layout.h/cpp | mendo_core | あり |
 | 15 | DWriteMeasurer | dwrite_measurer.h/cpp | mendo_core | parity |
 | 16 | Document | document.h/cpp | mendo_core | あり |
@@ -4526,3 +4557,40 @@ GitHub Alerts記法を用いたコールアウトの表示テスト。各Alert�
 > 通常の引用ブロックとAlertは同じ文書内で共存できます。
 
 ---
+
+## 脚注
+
+GitHub 互換の脚注記法の表示テスト。参照は `[1]` 形式のリンクになり、定義は文書末尾に参照順の番号付きリストとして表示される[^sample-basic]。参照をクリックすると定義へ、定義の `↩` をクリックすると参照へ移動する。
+
+### 名前付きラベルと複数回の参照
+
+ラベルには数字以外も使える[^sample-named]。同じ脚注を何度参照しても番号は同じで[^sample-basic]、定義側には参照の数だけ `↩` `↩2` … が付く。
+
+### さまざまな場所からの参照
+
+- リスト項目の中からの参照[^sample-list]
+- **太字の中からの参照[^sample-named]**
+
+> [!TIP]
+> Alert の中からも参照できる[^sample-alert]。
+
+| 場所 | 例 |
+|:--|:--|
+| テーブルセル | セル内の参照[^sample-table] |
+
+### 定義の書式
+
+定義の本文には **太字**・`コード`・リンクを書け、インデントした継続行も同じ脚注に含まれる[^sample-multiline]。
+
+### 脚注として扱われない記法
+
+定義の無い参照 [^sample-undefined] はテキストのまま表示される。どこからも参照されない定義は表示されない。
+
+[^sample-basic]: 基本的な脚注。定義はどこに書いても文書末尾に集められる。
+[^sample-named]: 名前付きラベルの脚注。番号はラベルではなく、最初に参照された順で振られる。
+[^sample-list]: リスト項目から参照された脚注。
+[^sample-alert]: Alert から参照された脚注。脚注の中から別の脚注も参照できる[^sample-basic]。
+[^sample-table]: テーブルセルから参照された脚注。md4c の数え方に関わらず `↩` は 1 つだけ付く。
+[^sample-multiline]: 1 行目の本文。**太字**、`code`、[md4c](https://github.com/mity/md4c) を含む。
+    インデントした継続行も同じ脚注の本文になる。
+[^sample-unused]: どこからも参照されないので表示されない。
