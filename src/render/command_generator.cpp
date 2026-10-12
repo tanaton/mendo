@@ -139,7 +139,6 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     const std::pmr::vector<Node>& nodes, const LayoutCache& cache,
     const PaneRect& md_pane_rect, float scroll_y,
     const TextSelection& selection,
-    int first_visible,
     HoveredButtons hovered,
     float dpi_scale,
     const BlockHScrollContext& block_h_scroll)
@@ -183,17 +182,12 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     cull_bottom_ = md_pane_rect.height;
 
     ReleaseStaleSelectionHlCaches(cache, selection);
-    // ドキュメント切替で string_view が dangling 化するため reset する。PMR pool が
-    // 同じアドレスを再利用しうるので (data, size) の両方で同一性を判定する。
-    node_wv_.ResetIfBufferChanged(nodes.data(), nodes.size());
 
     const int node_count = static_cast<int>(nodes.size());
-    if (first_visible < 0) {
-        // 二分探索キーは未スナップのドキュメント Y (cache[i].text_top と同じ系)。
-        // 下端より下にはみ出す描画 (見出し下線・空 LI の bullet 等) を上端で落とさないよう、
-        // はみ出しの上限だけ手前から始める。
-        first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), scroll_y - fc.overhang.below);
-    }
+    // 二分探索キーは未スナップのドキュメント Y (cache[i].text_top と同じ系)。
+    // 下端より下にはみ出す描画 (見出し下線・空 LI の bullet 等) を上端で落とさないよう、
+    // はみ出しの上限だけ手前から始める。
+    const int first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), scroll_y - fc.overhang.below);
 
     // 同一 blockquote_group のノードをまとめてバー/背景を描画する。
     // ノード単体ごとではなく一括で描画することで、複数行の引用ブロックが連続した見た目になる。

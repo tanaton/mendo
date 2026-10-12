@@ -29,6 +29,9 @@ public:
     // EndDraw 後に呼び出す。デバイスロスト系の失敗は IsDeviceLost() で通知する。
     void Present() noexcept;
 
+    // 最小化中に D2D の内部キャッシュとドライバ側の一時確保を手放す。
+    void Trim() noexcept;
+
     // Resize / Present が DXGI_ERROR_DEVICE_REMOVED/RESET を検知した、もしくは
     // CreateSwapChainBitmap が失敗した時に true を返す。Renderer が次フレーム頭で
     // RecreateRenderTarget を呼んでフラグをクリアする想定。

@@ -4,6 +4,7 @@
 #include "profiler.h"
 #include "string_hash.h"
 #include "md4c.h"
+#include <cassert>
 #include <functional>
 #include <unordered_map>
 #include <algorithm>
@@ -348,17 +349,21 @@ struct ParseContext {
     // span 状態が変わる直前 (OnEnter/Leave Span)、セル切替、OnLeaveBlock の冒頭で呼ぶ。
     // line_count はノード単位なので、セル内では更新しない。
     // active_text_buffer が非 null なら current_node も非 null (両者は対で更新される)。
+    // 装飾もリンクも無い run は出さない。runs の隙間は既定スタイルとして扱われる。
     constexpr void FlushPendingRun()
     {
         if (has_pending_run) {
             std::pmr::string* const buf = active_text_buffer;
             if (buf && buf->size() > pending_run_start) {
                 const uint32_t length = static_cast<uint32_t>(buf->size() - pending_run_start);
+                const bool plain = current_run_flags == 0 && current_link_url_index < 0;
                 if (buf == &current_text) {
                     current_node->line_count += pending_run_newlines;
-                    current_node->runs.emplace_back(MakeRun(pending_run_start, length));
+                    if (!plain) {
+                        current_node->runs.emplace_back(MakeRun(pending_run_start, length));
+                    }
                 }
-                else {
+                else if (!plain) {
                     // セル内: cell_text_starts.back() は TD/TH 進入時に積んだ現在セルの開始 offset。
                     auto* const tbl = current_node->table_data();
                     tbl->all_runs.push_back(MakeRun(pending_run_start - tbl->cell_text_starts.back(), length));
@@ -552,10 +557,6 @@ void AppendFootnoteBackrefs(std::pmr::vector<Node>& nodes, std::span<const int32
         std::string text{ node.GetText() };
         for (uint32_t ref_id = 1; ref_id <= ref_counts[i] && urls.size() < kMaxLinkUrls; ++ref_id) {
             if (!text.empty()) {
-                TextRun space;
-                space.start = static_cast<uint32_t>(text.size());
-                space.length = 1;
-                node.runs.emplace_back(space);
                 text += ' ';
             }
             urls.emplace_back(FootnoteRefUrl(id, ref_id));
@@ -581,15 +582,11 @@ void LeaveCodeBlock(ParseContext* ctx)
         return;
     }
     // md4c はコード各行を改行付きで渡すため、最終行の改行を表示テキストから落とす。
+    // コード内には装飾もリンクも付かないので run は無く、調整は要らない。
+    assert(cn->runs.empty());
     if (!ctx->current_text.empty() && ctx->current_text.back() == '\n') {
         ctx->current_text.pop_back();
         cn->line_count--;
-        if (!cn->runs.empty()) {
-            auto& last = cn->runs.back();
-            if (last.length > 0) {
-                last.length--;
-            }
-        }
     }
     if (cn->code_language() == SyntaxLanguage::Mermaid) {
         ctx->diagram_indices.emplace_back(ctx->current_node_index);
@@ -1053,18 +1050,9 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 //   - kInputBytesPerNode=128      → 1 ノード 128 byte まで細かい文書でもパース途中の再確保 (全ノードの移動) を
 //                                   避ける (example/test.md 実測 ~258 byte/ノード)。予約は入力と同程度のバイト数で、
 //                                   触れない分もコミットは残るが物理メモリには載らない。超過時は通常の伸長に任せる。
-//   - kInputBytesPerHeading=4096  → 1MB あたり 256 個の見出し相当。実測数十〜数百に収まる。
-//   - kInputBytesPerImage=512     → 画像頻度 ~0.2%。
-//   - kInputBytesPerBlockquote=512 → blockquote 頻度 (image と同程度)。
-//   - kInputBytesPerDiagram=1024  → ダイアグラム頻度 ~0.1%。
-//   - kInputBytesPerTable=1024    → テーブル頻度 (ダイアグラムと同程度を想定)。
+// 見出し・画像などのインデックス配列は件数が少なく、通常の伸長で足りるので予約しない。
 constexpr size_t kScratchInputBytesPerByte = 8;
 constexpr size_t kInputBytesPerNode = 128;
-constexpr size_t kInputBytesPerHeading = 4096;
-constexpr size_t kInputBytesPerImage = 512;
-constexpr size_t kInputBytesPerBlockquote = 512;
-constexpr size_t kInputBytesPerDiagram = 1024;
-constexpr size_t kInputBytesPerTable = 1024;
 constexpr size_t kScratchReserveMin = 1024;
 constexpr size_t kScratchReserveMax = 64 * 1024;
 
@@ -1075,11 +1063,6 @@ void ReserveForInput(ParseContext& ctx, size_t input_size)
     ctx.nodes.reserve(nodes_reserve);
     ctx.list_counter.reserve(8);
     MENDO_STATF("nodes.reserve: input={} reserve={}", input_size, nodes_reserve);
-    ctx.heading_indices.reserve(std::clamp(input_size / kInputBytesPerHeading, 8uz, 256uz));
-    ctx.image_indices.reserve(std::clamp(input_size / kInputBytesPerImage, 4uz, 256uz));
-    ctx.diagram_indices.reserve(std::clamp(input_size / kInputBytesPerDiagram, 4uz, 128uz));
-    ctx.table_indices.reserve(std::clamp(input_size / kInputBytesPerTable, 4uz, 128uz));
-    ctx.blockquote_indices.reserve(std::clamp(input_size / kInputBytesPerBlockquote, 4uz, 256uz));
 }
 
 } // namespace

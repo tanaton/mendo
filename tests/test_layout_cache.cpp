@@ -8,6 +8,7 @@ TEST(LayoutCacheTest, InvalidateAllLayouts)
 {
     LayoutCache cache;
     cache.Resize(3);
+    const std::pmr::vector<Node> nodes(3);
 
     // レイアウトが設定された状態をシミュレート
     cache[0].set_effects_applied(true);
@@ -16,7 +17,7 @@ TEST(LayoutCacheTest, InvalidateAllLayouts)
     cache[0].ensure_inline_code_bgs().emplace_back(0.0f, 0.0f, 10.0f, 10.0f);
     cache[1].ensure_inline_code_bgs().emplace_back(0.0f, 0.0f, 20.0f, 20.0f);
 
-    cache.InvalidateAllLayouts();
+    cache.InvalidateAllLayouts(nodes);
 
     for (size_t i = 0; i < 3; ++i) {
         EXPECT_FALSE(cache[i].effects_applied()) << "index " << i;
@@ -34,7 +35,7 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsForgetsMeasuredSize)
     cache[0].cached_width = 600.0f;
     cache[0].cached_height = 120.0f;
 
-    cache.InvalidateAllLayouts();
+    cache.InvalidateAllLayouts(std::pmr::vector<Node>(1));
 
     EXPECT_FALSE(cache[0].is_measured());
     EXPECT_FLOAT_EQ(cache[0].cached_height, 0.0f);
@@ -45,17 +46,48 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesPositions)
     LayoutCache cache;
     cache.Resize(2);
     cache.SetTop(0, 100.0f);
-    cache[0].height = 50.0f;
     cache.SetTop(1, 150.0f);
-    cache[1].height = 30.0f;
 
-    cache.InvalidateAllLayouts();
+    cache.InvalidateAllLayouts(std::pmr::vector<Node>(2));
 
-    // 位置は保持されること
+    // 位置は次のレイアウトで組み直すまで保持されること
     EXPECT_FLOAT_EQ(cache.Top(0), 100.0f);
-    EXPECT_FLOAT_EQ(cache[0].height, 50.0f);
     EXPECT_FLOAT_EQ(cache.Top(1), 150.0f);
-    EXPECT_FLOAT_EQ(cache[1].height, 30.0f);
+}
+
+// ズームアウト後に旧倍率の高さが残ると、推定は縮めないので総高さが過大なままになる。
+TEST(LayoutCacheTest, InvalidateAllLayoutsResetsTextHeightsButKeepsBitmapNodes)
+{
+    LayoutCache cache;
+    cache.Resize(3);
+    std::pmr::vector<Node> nodes(3);
+    nodes[1].type = NodeType::Image;
+    nodes[2].type = NodeType::CodeBlock;
+    nodes[2].set_code_language(SyntaxLanguage::Mermaid);
+    for (size_t i = 0; i < 3; i++) {
+        cache[i].height = 500.0f;
+    }
+
+    cache.InvalidateAllLayouts(nodes);
+
+    EXPECT_FLOAT_EQ(cache[0].height, 0.0f);
+    EXPECT_FLOAT_EQ(cache[1].height, 500.0f);
+    EXPECT_FLOAT_EQ(cache[2].height, 500.0f);
+}
+
+TEST(LayoutComputerTest, EstimateAfterInvalidateAllLayoutsCanShrink)
+{
+    const Theme theme = MakeLayoutTestTheme();
+    LayoutCache cache;
+    cache.Resize(1);
+    std::pmr::vector<Node> nodes;
+    nodes.push_back(MakeTextNode("short"));
+    cache[0].height = 5000.0f;
+
+    cache.InvalidateAllLayouts(nodes);
+    mendo::layout::EstimateInvisibleNodeHeight(nodes[0], cache[0], theme, 600.0f);
+
+    EXPECT_FLOAT_EQ(cache[0].height, mendo::layout::EstimateNodeHeight(nodes[0], theme));
 }
 
 TEST(LayoutCacheTest, InvalidateEmptyCache)
@@ -64,7 +96,7 @@ TEST(LayoutCacheTest, InvalidateEmptyCache)
     cache.Resize(0);
 
     // クラッシュしないこと
-    cache.InvalidateAllLayouts();
+    cache.InvalidateAllLayouts({});
 }
 
 // ズーム時に使用されるInvalidateAllLayoutsがダイアグラムのビットマップ/サイズを
@@ -80,7 +112,7 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesDiagramEntries)
     cache.EnsureDiagram(1).width = 500.0f;
     cache.EnsureDiagram(1).height = 250.0f;
 
-    cache.InvalidateAllLayouts();
+    cache.InvalidateAllLayouts(std::pmr::vector<Node>(2));
 
     // ダイアグラムの幅・高さは保持されること
     EXPECT_FLOAT_EQ(cache.FindDiagram(0)->width, 400.0f);

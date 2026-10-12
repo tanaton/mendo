@@ -1,5 +1,4 @@
 #include "mermaid_file_cache.h"
-#include "profiler.h"
 #include "task_scheduler.h"
 #include "file_io.h"
 #include "scope_guard.h"
@@ -311,13 +310,6 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
         std::error_code ec;
         std::filesystem::create_directories(path.parent_path(), ec);
 
-        // WriteAllBytes 直前でも generation を再確認する。
-        // ClearAll() / Shutdown() 後にディスクへ PNG を "復活" させて
-        // しまう窓を最小化するための最後のガード。
-        if (write_gen_.load() != gen) {
-            return;
-        }
-
         // 書き込み失敗時はキャッシュ未保存のままになるが、再生成可能なので致命的ではない
         (void)WriteAllBytes(path, data->data(), data->size());
     });
@@ -340,25 +332,6 @@ void MermaidFileCache::EvictIfNeeded(IndexState& index, uint32_t new_png_size)
         }
         index.Remove(oldest);
     }
-}
-
-void MermaidFileCache::ClearAll()
-{
-    // write_gen_ 進捗だけでは「ガード通過済みで WriteAllBytes 直前」の worker を止められず、
-    // 削除後に PNG が "復活" して orphan としてディスクに残る。
-    write_gen_.fetch_add(1);
-    MENDO_PROFILE("MermaidFileCache::ClearAll::Wait");
-    latch_.Wait();
-
-    if (!cache_dir_.empty()) {
-        std::error_code ec;
-        for (const auto& [key, _] : Index().entries) {
-            std::filesystem::remove(GetPngPath(cache_dir_, key), ec);
-        }
-        std::filesystem::remove(GetIndexPath(), ec);
-    }
-
-    index_.emplace();
 }
 
 void MermaidFileCache::Shutdown()

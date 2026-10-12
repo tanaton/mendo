@@ -100,10 +100,6 @@ public:
         for (auto it = slice.begin; it != slice.end; ++it) {
             const size_t i = *it;
             auto& node = nodes[i];
-            if (const auto* d = deps_.cache->FindDiagram(i); d && d->bitmap) {
-                continue;
-            }
-
             auto* const img = node.image_data();
             if (!img || img->src.contains("://")) {
                 continue;
@@ -114,8 +110,25 @@ public:
                 continue;
             }
 
+            // 通常運用時のみ非同期ロードを起動する。リロード時は後続の LoadImages effect で起動する。
+            const float max_width = content_width - node.indent_level * indent_width;
+            const auto request = [&] {
+                if (respect_viewport) {
+                    deps_.image_loader->RequestLoadAsync(*abs_path, [this] { OnImageLoadComplete(); }, max_width);
+                }
+            };
+            const auto* d = deps_.cache->FindDiagram(i);
+            const auto* cached = deps_.image_loader->FindCachedImage(*abs_path);
+            if (!cached) {
+                // LRU から落ちても表示中のビットマップはそのまま使う。
+                if (!d || !d->bitmap) {
+                    request();
+                }
+                continue;
+            }
+
             // DiagramEntry はキャッシュに当たった画像だけ確保する。
-            if (const auto* cached = deps_.image_loader->FindCachedImage(*abs_path)) {
+            if (!d || !d->bitmap || d->bitmap != cached->bitmap) {
                 auto& diagram = deps_.cache->EnsureDiagram(i);
                 diagram.bitmap = cached->bitmap;
                 diagram.width = cached->width;
@@ -123,17 +136,15 @@ public:
                 img->width = cached->width;
                 img->height = cached->height;
 
-                const float indent = node.indent_level * indent_width;
                 auto& entry = (*deps_.cache)[i];
-                entry.height = mendo::layout::ImageDisplayHeight(cached->width, cached->height, content_width - indent);
+                entry.height = mendo::layout::ImageDisplayHeight(cached->width, cached->height, max_width);
                 entry.layout_dirty = false;
                 height_changed_.Add(i);
                 ++applied;
             }
-            else if (respect_viewport) {
-                // 通常運用時のみ未キャッシュ画像を非同期ロード起動。
-                // リロード時は後続の LoadImages effect で起動するためスキップ。
-                deps_.image_loader->RequestLoadAsync(*abs_path, [this] { OnImageLoadComplete(); });
+            // 表示幅が広がったら、今の解像度で描きながら高い解像度で読み直す。
+            if (deps_.image_loader->NeedsSharperDecode(*cached, max_width)) {
+                request();
             }
         }
         return applied;
@@ -345,6 +356,8 @@ public:
         constexpr auto kFlushThrottle = std::chrono::milliseconds(50);
         pending_flush_ = true;
         if (std::chrono::steady_clock::now() - last_flush_time_ >= kFlushThrottle) {
+            // 連続スクロール中も通過した範囲のレイアウトを溜め込まないよう、停止を待たずに捨てる。
+            EvictOffscreenBitmaps();
             FlushPendingResources();
         }
         cb_.set_timer(app_timer::Id::BITMAP_MANAGE, app_timer::BITMAP_MANAGE_DELAY_MS);

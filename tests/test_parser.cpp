@@ -155,19 +155,16 @@ TEST(Parser, LinkUrlCountCappedAtInt16Max)
     ASSERT_EQ(nodes.size(), 1u);
     const auto urls = nodes[0].view_link_urls();
     EXPECT_EQ(urls.size(), static_cast<size_t>(std::numeric_limits<int16_t>::max()));
-    // 上限超過後の run はリンクなし。全 run の index が urls 範囲内に収まること
+    // 上限超過後のセルはリンクなし (装飾なしなので run も出ない)。全 run の index が urls 範囲内に収まること
     const auto* tbl = nodes[0].table_data();
     ASSERT_NE(tbl, nullptr);
-    bool found_unlinked = false;
+    size_t linked = 0;
     for (const auto& run : tbl->all_runs) {
-        if (run.has_link()) {
-            EXPECT_LT(static_cast<size_t>(run.link_url_index), urls.size());
-        }
-        else {
-            found_unlinked = true;
-        }
+        ASSERT_TRUE(run.has_link());
+        EXPECT_LT(static_cast<size_t>(run.link_url_index), urls.size());
+        ++linked;
     }
-    EXPECT_TRUE(found_unlinked);
+    EXPECT_EQ(linked, urls.size());
 }
 
 // ---- コードブロック ----
@@ -643,27 +640,24 @@ TEST(Parser, RunPositionsAreValid)
     }
 }
 
-TEST(Parser, RunsCoverEntireText)
+TEST(Parser, RunsOmitPlainText)
 {
     auto nodes = ParseMarkdown("aaa **bbb** ccc").nodes;
     ASSERT_EQ(nodes.size(), 1u);
-    const auto& node = nodes[0];
-    uint32_t total_length = 0;
-    for (const auto& run : node.runs) {
-        total_length += run.length;
-    }
-    EXPECT_EQ(total_length, static_cast<uint32_t>(node.GetText().size()));
+    const auto& runs = nodes[0].runs;
+    ASSERT_EQ(runs.size(), 1u);
+    EXPECT_EQ(runs[0].start, 4u);
+    EXPECT_EQ(runs[0].length, 3u);
+    EXPECT_TRUE(runs[0].bold());
 }
 
-TEST(Parser, RunsAreContiguous)
+TEST(Parser, PlainParagraphAndCodeBlockHaveNoRuns)
 {
-    auto nodes = ParseMarkdown("a **b** c").nodes;
-    ASSERT_EQ(nodes.size(), 1u);
-    const auto& runs = nodes[0].runs;
-    for (size_t i = 1; i < runs.size(); i++) {
-        EXPECT_EQ(runs[i].start, runs[i - 1].start + runs[i - 1].length)
-            << "ラン " << (i - 1) << " と " << i << " の間にギャップあり";
-    }
+    auto nodes = ParseMarkdown("plain text\n\n```cpp\nint x;\n```").nodes;
+    ASSERT_EQ(nodes.size(), 2u);
+    EXPECT_TRUE(nodes[0].runs.empty());
+    EXPECT_TRUE(nodes[1].runs.empty());
+    EXPECT_EQ(nodes[1].GetText(), "int x;");
 }
 
 // ---- ネストされたリスト ----
@@ -800,17 +794,13 @@ TEST(Parser, TableCellMixedTextAndLink)
     const auto* tbl = nodes[0].table_data();
     ASSERT_GE(tbl->row_count, 2u);
 
-    // リンク付きとリンクなしのランを持つべき
-    bool has_link_run = false;
-    bool has_plain_run = false;
-    for (const auto& run : tbl->GetCellRuns(1, 0)) {
-        if (run.has_link())
-            has_link_run = true;
-        else
-            has_plain_run = true;
-    }
-    EXPECT_TRUE(has_link_run);
-    EXPECT_TRUE(has_plain_run);
+    // リンク部分だけが run になり、前後の装飾なしテキストは run を持たない
+    EXPECT_EQ(tbl->GetCellText(1, 0), "before link after");
+    const auto runs = tbl->GetCellRuns(1, 0);
+    ASSERT_EQ(runs.size(), 1u);
+    EXPECT_TRUE(runs[0].has_link());
+    EXPECT_EQ(runs[0].start, 7u);
+    EXPECT_EQ(runs[0].length, 4u);
 }
 
 // ---- HTMLエンティティのエッジケース ----
@@ -1673,10 +1663,10 @@ TEST(Parser, Utf8BatchWithSpanBoundary)
     auto nodes = ParseMarkdown("before **bold** after").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].GetText(), "before bold after");
-    ASSERT_GE(nodes[0].runs.size(), 3u);
-    EXPECT_FALSE(nodes[0].runs[0].bold());
-    EXPECT_TRUE(nodes[0].runs[1].bold());
-    EXPECT_FALSE(nodes[0].runs[2].bold());
+    ASSERT_EQ(nodes[0].runs.size(), 1u);
+    EXPECT_TRUE(nodes[0].runs[0].bold());
+    EXPECT_EQ(nodes[0].runs[0].start, 7u);
+    EXPECT_EQ(nodes[0].runs[0].length, 4u);
 }
 
 TEST(Parser, Utf8BatchWithEntity)
@@ -1706,8 +1696,10 @@ TEST(Parser, Utf8BatchMixedAsciiAndMultibyte)
     auto nodes = ParseMarkdown("Hello **世界** test").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].GetText(), "Hello 世界 test");
-    ASSERT_GE(nodes[0].runs.size(), 3u);
-    EXPECT_TRUE(nodes[0].runs[1].bold());
+    ASSERT_EQ(nodes[0].runs.size(), 1u);
+    EXPECT_TRUE(nodes[0].runs[0].bold());
+    EXPECT_EQ(nodes[0].runs[0].start, 6u);
+    EXPECT_EQ(nodes[0].runs[0].length, 6u);
 }
 
 TEST(Parser, Utf8BatchCodeBlockContent)

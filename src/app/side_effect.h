@@ -94,7 +94,6 @@ struct SyncTocActive {
 };
 
 struct NotifyImageLoaded {};
-struct ClearFileCache {};
 struct StartFileWatch {
     std::pmr::wstring path;
 };
@@ -144,7 +143,6 @@ using SideEffect = std::variant<
     effect::SyncTocActive,
     // Resource
     effect::NotifyImageLoaded,
-    effect::ClearFileCache,
     effect::StartFileWatch,
     effect::StopFileWatch,
     effect::ResumeFileWatch,

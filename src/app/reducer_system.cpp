@@ -30,7 +30,7 @@ void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
     const float new_zoom = state.view.viewport.GetCurrentZoom();
     const float zoom_ratio = new_zoom / state.theme->zoom;
     state.view.panes.ApplyZoom(zoom_ratio);
-    state.document.layout_cache.InvalidateAllLayouts();
+    state.document.layout_cache.InvalidateAllLayouts(state.document.doc.GetNodes());
     if (anchor.IsValid()) {
         // offset もズーム比でスケールしないと、ノード内の同じ位置が可視先頭に残らない。
         state.view.viewport.SetScrollTarget(anchor.node, anchor.offset * zoom_ratio);
@@ -108,7 +108,6 @@ void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChanged
     // DPI 変更では IDWriteTextLayout (DIP 単位) は不変。
     state.document.layout_cache.NotifyDpiChanged();
     PushEffect(effects, effect::RendererSetDpi{ static_cast<float>(a.dpi) });
-    PushEffect(effects, effect::ClearFileCache{});
     const auto& rc = a.suggested;
     PushEffect(effects, effect::SetWindowPosition{ rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top });
 }
@@ -116,19 +115,11 @@ void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChanged
 void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
 {
     switch (a.timer_id) {
-    case app_timer::Id::TOAST: {
-        auto& toast = state.interaction.toast;
-        // ホールド期間は描画 alpha が 1 に張り付くため、見た目が変わる tick だけ再描画する。
-        const float before = toast.GetRenderAlpha();
-        if (!toast.Tick()) {
-            PushEffect(effects, effect::KillTimer{ app_timer::Id::TOAST });
-            PushEffect(effects, effect::InvalidateWindow{});
-        }
-        else if (toast.GetRenderAlpha() != before) {
-            PushEffect(effects, effect::InvalidateWindow{});
-        }
+    case app_timer::Id::TOAST:
+        state.interaction.toast.Hide();
+        PushEffect(effects, effect::KillTimer{ app_timer::Id::TOAST });
+        PushEffect(effects, effect::InvalidateWindow{});
         return;
-    }
     case app_timer::Id::TOOLTIP:
         PushEffect(effects, effect::KillTimer{ app_timer::Id::TOOLTIP });
         state.interaction.tooltip.Show();

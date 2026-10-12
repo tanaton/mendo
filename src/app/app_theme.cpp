@@ -8,7 +8,7 @@ void App::FinishThemeOrZoomChange()
     ViewportLayout(md.width, md.height);
     SyncMaxScroll(md.height);
     resource_manager_.RequestMermaidRenders();
-    ScheduleDeferredLayoutIfNeeded();
+    SettleLayout();
     Invalidate();
 
     EmitEffect(effect::SyncTocActive{});

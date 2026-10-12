@@ -65,6 +65,13 @@ RowHeightResult MeasureRowHeight(TableLayoutData& tl, const NodeTableData& tbl, 
     return result;
 }
 
+// 巨大テーブルを行チャンクで並列処理するときの 1 チャンクの行数。
+constexpr size_t TableRowsPerChunk(size_t col_count) noexcept
+{
+    constexpr size_t kCellsPerChunk = 256;
+    return std::max<size_t>(1, kCellsPerChunk / std::max<size_t>(col_count, 1));
+}
+
 void RebuildRowCumY(TableLayoutData& tl, size_t row_count, float border_width)
 {
     tl.row_cum_y.resize(row_count + 1);
@@ -413,10 +420,8 @@ void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayout
 
     // 巨大テーブルは全セルの CreateTextLayout が秒単位になるため行チャンクで並列化する。
     // セルは chunk ごとに別 index へ書くので排他不要で、自然幅だけ chunk 末尾でマージする。
-    constexpr size_t kCellsPerChunk = 256;
-    const size_t rows_per_chunk = std::max<size_t>(1, kCellsPerChunk / std::max<size_t>(col_count, 1));
     std::mutex merge_mutex;
-    ParallelFor(scheduler_, tbl.row_count, rows_per_chunk, [&](size_t row_begin, size_t row_end) {
+    ParallelFor(scheduler_, tbl.row_count, TableRowsPerChunk(col_count), [&](size_t row_begin, size_t row_end) {
         std::pmr::vector<float> local_widths(col_count, 0.0f);
         for (size_t r = row_begin; r < row_end; r++) {
             IDWriteTextFormat* const row_fmt = GetTableRowFormat(tbl, r);
@@ -483,24 +488,24 @@ void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayou
         tl.cell_applied_widths.assign(cell_total, -1.0f);
     }
 
-    float total_height = border_width;
+    // 幅の適用 (SetMaxWidth + GetMetrics) は全セル分かかる。行ごとの書き込み先
+    // (row_heights[r] と行内セルの幅・高さキャッシュ) は重ならないので行チャンクで並列化する。
     const float base_row_height = theme_->font_size_body * TABLE_ROW_HEIGHT_FACTOR;
-    for (size_t r = 0; r < tbl.row_count; r++) {
-        const auto [row_height, has_unbuilt_cell] = MeasureRowHeight(tl, tbl, r, base_row_height);
-        // 部分復元時は null セルがある行 = 範囲外 evict 行。再計算で行高さを既定値に戻すと
-        // 累積位置がずれるため、既存の row_heights[r] を保持する (復元時に実測で補正される)。
-        if (has_unbuilt_cell && r < tl.row_heights.size() && tl.row_heights[r] > 0.0f) {
-            total_height += tl.row_heights[r] + border_width;
+    ParallelFor(scheduler_, tbl.row_count, TableRowsPerChunk(col_count), [&](size_t row_begin, size_t row_end) {
+        for (size_t r = row_begin; r < row_end; r++) {
+            const auto [row_height, has_unbuilt_cell] = MeasureRowHeight(tl, tbl, r, base_row_height);
+            // 部分復元時は null セルがある行 = 範囲外 evict 行。再計算で行高さを既定値に戻すと
+            // 累積位置がずれるため、既存の row_heights[r] を保持する (復元時に実測で補正される)。
+            if (!has_unbuilt_cell || tl.row_heights[r] <= 0.0f) {
+                tl.row_heights[r] = row_height;
+            }
         }
-        else {
-            tl.row_heights[r] = row_height;
-            total_height += row_height + border_width;
-        }
-    }
+    });
 
     // ヒットテスト高速化用に行Y累積と列X累積を事前計算
     RebuildRowCumY(tl, tbl.row_count, border_width);
     RebuildColCumX(tl, col_count, border_width);
+    const float total_height = tl.row_cum_y[tbl.row_count] + border_width;
 
     // col_cum_x の末尾は border_width + Σ(col_w + 2*pad + border) と一致するため再計算しない。
     tl.cached_table_width = tl.col_cum_x.back();

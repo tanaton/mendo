@@ -5,26 +5,7 @@
 #include "task_scheduler.h"
 #include "ui_constants.h"
 #include "wic_util.h"
-
-namespace {
-
-// 画像は原寸 (1 px = 1 物理 px) より大きく描かず、ペイン幅はモニタ幅を超えないため、
-// 最も広いモニタの幅が表示に要る最大解像度になる。
-UINT MaxMonitorWidthPx() noexcept
-{
-    UINT max_width = 0;
-    EnumDisplayMonitors(nullptr, nullptr, [](HMONITOR mon, HDC, LPRECT, LPARAM lp) -> BOOL {
-        MONITORINFO mi{ .cbSize = sizeof(MONITORINFO) };
-        if (GetMonitorInfoW(mon, &mi)) {
-            auto& w = *reinterpret_cast<UINT*>(lp);
-            w = std::max(w, static_cast<UINT>(mi.rcMonitor.right - mi.rcMonitor.left));
-        }
-        return TRUE;
-    }, reinterpret_cast<LPARAM>(&max_width));
-    return max_width;
-}
-
-} // namespace
+#include <cmath>
 
 ImageLoader::~ImageLoader()
 {
@@ -60,7 +41,27 @@ const ImageLoader::CachedImage* ImageLoader::FindCachedImage(const std::wstring&
     return cache_.Find(abs_path);
 }
 
-void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_complete)
+float ImageLoader::DpiScale() const noexcept
+{
+    float dpi_x = DEFAULT_DPI;
+    float dpi_y = DEFAULT_DPI;
+    if (render_target_) {
+        render_target_->GetDpi(&dpi_x, &dpi_y);
+    }
+    return DpiScaleFrom(dpi_x);
+}
+
+UINT ImageLoader::DecodeWidthPx(float width_dip) const noexcept
+{
+    if (!(width_dip > 0.0f)) {
+        return 0;
+    }
+    constexpr UINT kQuantumPx = 256;
+    const auto px = static_cast<UINT>(std::ceil(width_dip * DpiScale()));
+    return (px + kQuantumPx - 1) / kQuantumPx * kQuantumPx;
+}
+
+void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_complete, float max_width_dip)
 {
     if (!scheduler_) {
         return;
@@ -77,13 +78,14 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
     }
 
     const uint32_t gen = cancel_gen_.load();
-    const bool posted = scheduler_->Post([this, path = abs_path, on_complete = std::move(on_complete), gen, guard = latch_.Acquire()]() mutable {
+    const UINT max_width_px = DecodeWidthPx(max_width_dip);
+    const bool posted = scheduler_->Post([this, path = abs_path, on_complete = std::move(on_complete), gen, max_width_px, guard = latch_.Acquire()]() mutable {
         if (cancel_gen_.load() != gen) {
             return;
         }
 
         DecodeResult result{ .on_complete = std::move(on_complete) };
-        DecodeForDisplay(path, result);
+        DecodeForDisplay(path, max_width_px, result);
         result.path = std::move(path);
 
         if (cancel_gen_.load() != gen) {
@@ -107,7 +109,7 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
     }
 }
 
-void ImageLoader::DecodeForDisplay(const std::wstring& path, DecodeResult& result) const
+void ImageLoader::DecodeForDisplay(const std::wstring& path, UINT max_width_px, DecodeResult& result) const
 {
     if (!wic_factory_) {
         return;
@@ -122,10 +124,13 @@ void ImageLoader::DecodeForDisplay(const std::wstring& path, DecodeResult& resul
     if (!decoded) {
         return;
     }
-    const auto target = wic_util::ComputeDecodeSize(decoded->pixel_width, decoded->pixel_height, MaxMonitorWidthPx(), max_bitmap_dim_.load());
+    const auto target = wic_util::ComputeDecodeSize(decoded->pixel_width, decoded->pixel_height, max_width_px, max_bitmap_dim_.load());
     result.bitmap = wic_util::DecodeToWicBitmap(wic_factory_.Get(), *decoded, target);
     result.width = static_cast<float>(decoded->pixel_width);
     result.height = static_cast<float>(decoded->pixel_height);
+    // GPU の最大辺で縮んだ場合は幅を広げて読み直しても変わらないので上限なし扱いにする。
+    const bool width_limited = target.width < decoded->pixel_width && target.width == max_width_px;
+    result.sharp_width_px = width_limited ? target.width : UINT_MAX;
 }
 
 void ImageLoader::ProcessCompletedDecodes()
@@ -152,11 +157,12 @@ void ImageLoader::ProcessCompletedDecodes()
 
     Callback last_cb;
     for (auto& r : results) {
-        if (r.bitmap && render_target_ && !cache_.Contains(r.path)) {
+        const auto* existing = cache_.Find(r.path);
+        if (r.bitmap && render_target_ && (!existing || existing->sharp_width_px < r.sharp_width_px)) {
             Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
             const HRESULT hr = render_target_->CreateBitmapFromWicBitmap(r.bitmap.Get(), &bitmap);
             if (SUCCEEDED(hr) && bitmap) {
-                CacheBitmap(r.path, std::move(bitmap), r.width, r.height);
+                CacheBitmap(r.path, std::move(bitmap), r.width, r.height, r.sharp_width_px);
             }
         }
         // 全 on_complete は同一の invalidate シグナルなので最後の 1 つだけ呼ぶ。
@@ -175,17 +181,13 @@ void ImageLoader::InsertCacheEntry(const std::wstring& path, float width, float 
 
 void ImageLoader::CacheBitmap(
     const std::wstring& path, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap,
-    float pixel_width, float pixel_height)
+    float pixel_width, float pixel_height, UINT sharp_width_px)
 {
-    float dpi_x = DEFAULT_DPI;
-    float dpi_y = DEFAULT_DPI;
-    if (render_target_) {
-        render_target_->GetDpi(&dpi_x, &dpi_y);
-    }
-    const float width = pixel_width / DpiScaleFrom(dpi_x);
-    const float height = pixel_height / DpiScaleFrom(dpi_y);
+    const float scale = DpiScale();
+    const float width = pixel_width / scale;
+    const float height = pixel_height / scale;
 
-    cache_.Insert(path, CachedImage{ std::move(bitmap), width, height });
+    cache_.Insert(path, CachedImage{ std::move(bitmap), width, height, sharp_width_px });
     cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedImage& c) { return mendo::BitmapBytes(c.bitmap.Get()); });
 }
 

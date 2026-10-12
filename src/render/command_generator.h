@@ -2,7 +2,6 @@
 #include "block_h_scroll.h"
 #include "block_h_scroll_context.h"
 #include "d2d_util.h"
-#include "doc_dwrite_bridge.h"
 #include "draw_command.h"
 #include "document_types.h"
 #include "layout_cache.h"
@@ -89,7 +88,6 @@ public:
         const std::pmr::vector<Node>& nodes, const LayoutCache& cache,
         const PaneRect& md_pane_rect, float scroll_y,
         const TextSelection& selection,
-        int first_visible = -1,
         HoveredButtons hovered = {},
         float dpi_scale = 1.0f,
         const BlockHScrollContext& block_h_scroll = {});
@@ -238,9 +236,4 @@ private:
     // 解放するために使う。-1/-1 は「前フレームは非アクティブ」を示す。
     int prev_sel_start_node_ = -1;
     int prev_sel_end_node_ = -1;
-
-    // 本文ノードの選択ハイライトの UTF-8→UTF-16 decode を連続フレーム間で再利用する。
-    // GenerateMdPane 冒頭で ResetIfBufferChanged を呼び、ドキュメント切り替え時に
-    // string_view の dangling を防ぐ。
-    mendo::WideViewCache node_wv_;
 };

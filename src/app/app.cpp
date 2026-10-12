@@ -157,11 +157,7 @@ void App::OnPaint()
     const auto gs = ResolveGestureOverlay(state_.interaction.gesture, state_.interaction.swipe_detector);
     const SidePaneState sp = BuildSidePaneState(layout);
     const TitleBarRenderState tb = BuildTitleBarRenderState();
-    const ToastRenderState ts{
-        .visible = state_.interaction.toast.IsVisible(),
-        .alpha = state_.interaction.toast.GetRenderAlpha(),
-        .message = state_.interaction.toast.GetMessage(),
-    };
+    const ToastRenderState ts{ .message = state_.interaction.toast.GetMessage() };
 
     if (show_loading) {
         renderer_.DrawLoading(file_load_service_.GetLoadingAngle(), layout.md_rect, sp, tb, gs, ts);
@@ -196,6 +192,11 @@ void App::OnPaint()
 void App::OnResize(UINT width, UINT height)
 {
     Dispatch(ResizeAction{ width, height });
+}
+
+void App::OnMinimize()
+{
+    renderer_.TrimForMinimize();
 }
 
 void App::OnDpiChanged(UINT dpi, const RECT* suggested)
@@ -348,6 +349,9 @@ void App::OnDestroy()
     // LayoutEngine の参照解除 → Shutdown (join) → ターゲット deinit の順を守る。
     renderer_.SetLayoutScheduler(nullptr);
     layout_scheduler_.Shutdown();
+    // Shutdown はキューを最後まで処理するので、結果を使わないタスクは先に空振りさせる。
+    image_loader_.CancelPending();
+    file_load_service_.CancelAsyncLoad();
     scheduler_.Shutdown();
     file_cache_.Shutdown();
     file_cache_.SaveIndex();

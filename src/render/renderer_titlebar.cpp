@@ -20,7 +20,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
         if (show_bg) {
             rt()->FillRectangle(rect, Brush(bg_id));
         }
-        DrawIcon({ &icon, 1 }, fmt_.titlebar_icon.Get(), rect, text_id, alpha);
+        DrawCenteredText({ &icon, 1 }, fmt_.titlebar_icon.Get(), rect, text_id, alpha);
     };
 
     const auto draw_plain = [&](const DipRect& rect, wchar_t icon, TitleBarHitZone zone) {
@@ -57,31 +57,13 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
     }
 
     if (!tb.title_text.empty()) {
-        DrawCenteredText(title_layout_, tb.title_text, fmt_.titlebar_text.Get(), ToD2DRect(tb.title_text_rect), BrushId::TitleBarText, text_alpha);
+        DrawCenteredText(tb.title_text, fmt_.titlebar_text.Get(), ToD2DRect(tb.title_text_rect), BrushId::TitleBarText, text_alpha);
     }
 }
 
-void Renderer::DrawCenteredText(CenteredTextLayout& slot, std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box)
+void Renderer::DrawCenteredText(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box)
 {
-    auto* const dw = backend_.GetDWriteFactory();
-    if (!fmt || !dw) {
-        return;
-    }
-    if (!slot.layout || slot.format != fmt || slot.text != text || slot.box.width != box.width || slot.box.height != box.height) {
-        slot.layout.Reset();
-        slot.format = fmt;
-        slot.text.assign(text);
-        slot.box = box;
-        if (FAILED(dw->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), fmt, box.width, box.height, &slot.layout))) {
-            return;
-        }
-    }
-    DrawLayoutCentered(slot.layout.Get(), rect, brush_id, alpha, box);
-}
-
-void Renderer::DrawIcon(std::wstring_view icon, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box)
-{
-    DrawLayoutCentered(text_layouts_.Get(fmt, icon, box), rect, brush_id, alpha, box);
+    DrawLayoutCentered(text_layouts_.Get(fmt, text, box), rect, brush_id, alpha, box);
 }
 
 void Renderer::DrawLayoutCentered(IDWriteTextLayout* layout, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box)

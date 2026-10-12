@@ -63,7 +63,7 @@ public:
             },
             [this](const effect::ShowToast& ev) {
                 deps_.state->interaction.toast.Show(ev.message);
-                deps_.host->SetTimer(app_timer::Id::TOAST, app_timer::FRAME_INTERVAL_MS);
+                deps_.host->SetTimer(app_timer::Id::TOAST, app_timer::TOAST_DURATION_MS);
                 deps_.host->Invalidate();
             },
             [this](const effect::ShowContextMenu& ev) {
@@ -120,9 +120,6 @@ public:
             // ---- Resource ----
             [this](const effect::NotifyImageLoaded&) {
                 cb_.on_app_image_loaded();
-            },
-            [this](const effect::ClearFileCache&) {
-                cb_.clear_file_cache();
             },
             [this](const effect::StartFileWatch& ev) {
                 deps_.file_watcher->StartWatching(ev.path, [host = deps_.host]() {

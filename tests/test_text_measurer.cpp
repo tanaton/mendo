@@ -230,7 +230,7 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAcrossLayoutCycles)
     }
 
     // ズーム変更を模擬: InvalidateAllLayouts → 全件レイアウト
-    cache.InvalidateAllLayouts();
+    cache.InvalidateAllLayouts(nodes);
     LayoutAll(nodes, cache, 600.0f);
 
     for (size_t i = 0; i < nodes.size(); i++) {
@@ -261,7 +261,7 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAtZeroWidth)
     }
 
     // 極端なズームを模擬: 幅0でレイアウト
-    cache.InvalidateAllLayouts();
+    cache.InvalidateAllLayouts(nodes);
     LayoutAll(nodes, cache, 0.0f);
 
     for (size_t i = 0; i < nodes.size(); i++) {
@@ -272,7 +272,7 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAtZeroWidth)
     }
 
     // 元の幅に復帰
-    cache.InvalidateAllLayouts();
+    cache.InvalidateAllLayouts(nodes);
     LayoutAll(nodes, cache, 800.0f);
 
     for (size_t i = 0; i < nodes.size(); i++) {

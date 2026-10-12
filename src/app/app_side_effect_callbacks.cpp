@@ -45,11 +45,6 @@ void AppSideEffectCallbacks::renderer_set_dpi(float dpi)
     app->renderer_.SetDpi(dpi);
 }
 
-void AppSideEffectCallbacks::clear_file_cache()
-{
-    app->file_cache_.ClearAll();
-}
-
 void AppSideEffectCallbacks::perform_resize_end()
 {
     app->OnResizeEnd();

@@ -48,7 +48,6 @@ public:
     using PngBytes = std::shared_ptr<const std::pmr::vector<uint8_t>>;
     void StoreAsync(uint64_t key, float css_width, float css_height, PngBytes png_data);
     void SaveIndex();
-    void ClearAll();
     void Shutdown();
     void SetCacheDir(const std::filesystem::path& dir);
     void SetLimits(size_t max_entries, uint64_t max_total_size);

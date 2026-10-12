@@ -482,32 +482,6 @@ TEST_F(MermaidFileCacheTest, LoadIndexWithZeroBytesFile)
 }
 
 // ═══════════════════════════════════════════════
-// ClearAll
-// ═══════════════════════════════════════════════
-
-TEST_F(MermaidFileCacheTest, ClearAllRemovesEverything)
-{
-    InitCache();
-
-    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(256));
-    cache_.StoreAsync(2, 200.0f, 100.0f, MakeDummyPng(256));
-
-    // ファイル書き出し完了 → SaveIndex → 再Init
-    FlushAndReopen();
-    EXPECT_EQ(cache_.EntryCount(), 2u);
-
-    cache_.ClearAll();
-    EXPECT_EQ(cache_.EntryCount(), 0u);
-    EXPECT_EQ(cache_.TotalSize(), 0u);
-
-    // ファイルも削除されていること
-    MermaidFileCache::CacheEntry entry;
-    MermaidFileCache::PngBlob out;
-    EXPECT_FALSE(cache_.Lookup(1, entry, out));
-    EXPECT_FALSE(cache_.Lookup(2, entry, out));
-}
-
-// ═══════════════════════════════════════════════
 // 非同期書き出し
 // ═══════════════════════════════════════════════
 
@@ -545,7 +519,6 @@ TEST_F(MermaidFileCacheTest, OperationsWithoutInitAreNoOp)
     EXPECT_FALSE(uninit.Lookup(1, entry, out));
 
     uninit.SaveIndex();
-    uninit.ClearAll();
     uninit.Shutdown();
 }
 
@@ -680,37 +653,4 @@ TEST_F(MermaidFileCacheTest, LookupDuringPendingWriteKeepsIndex)
     // タスクが先行して完了した場合は LookupDimensions も成功する。
     EXPECT_TRUE(cache_.LookupDimensions(key, entry))
         << "pending write 中に index が消されている（orphan PNG の温床）";
-}
-
-// ClearAll 後、in-flight だった書き込みタスクが PNG ファイルを
-// 「復活」させないこと（generation 再確認のリグレッションガード）。
-TEST_F(MermaidFileCacheTest, ClearAllPreventsResurrectionOfInFlightWrites)
-{
-    InitCache();
-
-    // 多数の StoreAsync を投入して in-flight を作りやすくする
-    constexpr int N = 20;
-    for (int i = 0; i < N; ++i) {
-        cache_.StoreAsync(static_cast<uint64_t>(0xA000 + i), 100.0f, 80.0f, MakeDummyPng(256));
-    }
-    cache_.ClearAll();
-
-    // すべてのバックグラウンドタスクを完了させる
-    scheduler_.Shutdown();
-
-    // 物理ファイルが残っていないこと（generation チェックで write がスキップされた）
-    int leftover = 0;
-    if (std::filesystem::exists(temp_dir_)) {
-        for (const auto& dirent : std::filesystem::directory_iterator(temp_dir_)) {
-            const auto ext = dirent.path().extension();
-            if (ext == L".png") {
-                ++leftover;
-            }
-        }
-    }
-    EXPECT_EQ(leftover, 0)
-        << "ClearAll 後に in-flight の write が PNG を復活させている";
-
-    // TearDown のためにスケジューラを再起動
-    scheduler_.Init(2);
 }

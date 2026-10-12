@@ -32,10 +32,22 @@ float App::MdContentWidth()
     return renderer_.GetTheme().ContentWidth(GetPaneLayout().md_rect.width);
 }
 
-void App::ScheduleDeferredLayoutIfNeeded()
+bool App::ScheduleDeferredLayoutIfNeeded()
 {
-    if (layout_service_->HasDirtyNodes()) {
-        EmitEffect(effect::SetTimer{ app_timer::Id::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS });
+    if (!layout_service_->HasDirtyNodes()) {
+        return false;
+    }
+    EmitEffect(effect::SetTimer{ app_timer::Id::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS });
+    return true;
+}
+
+// ロード・ズーム・リサイズでは画面外にもレイアウトが作られ (初回の MeasureTable は全セル)、
+// 本文幅が広がると画像の解像度が足りなくなる。スクロールを待たずに BitmapManage で整理させる。
+// 遅延レイアウトが残っていれば、その完了時 (OnDeferredLayout) に出す。
+void App::SettleLayout()
+{
+    if (!ScheduleDeferredLayoutIfNeeded()) {
+        EmitEffect(effect::BitmapManage{});
     }
 }
 
@@ -45,7 +57,7 @@ void App::FinalizeLayout(float md_pane_height)
     resource_manager_.RequestMermaidRenders();
     SyncMaxScroll(md_pane_height);
     Invalidate();
-    ScheduleDeferredLayoutIfNeeded();
+    SettleLayout();
 }
 
 void App::InvalidateHitPositions()
@@ -98,7 +110,7 @@ void App::OnResizeEnd()
     SyncMaxScroll(md.height);
     Invalidate();
 
-    ScheduleDeferredLayoutIfNeeded();
+    SettleLayout();
 
     resource_manager_.ScheduleMermaidBatch();
 
@@ -146,6 +158,7 @@ void App::OnDeferredLayout()
     // 同期ディスク I/O + PNG デコードで UI スレッドを長時間ブロックしないよう、
     // Mermaid ファイルキャッシュの読み込みは時間予算付きバッチに回す。
     resource_manager_.ScheduleMermaidBatch();
+    EmitEffect(effect::BitmapManage{});
 
     SyncMaxScroll(md.height);
     Invalidate();

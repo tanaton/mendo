@@ -73,8 +73,8 @@ private:
 
 // 直近に渡された文字列に対する WideViewForDWrite を再利用する identity ベースキャッシュ。
 // std::string_view の (data ポインタ + size) で同一性を判定し、異なる文字列が来た時のみ
-// 再構築する。連続フレームで同じノード/セルの選択や検索ハイライトを描画する典型ケースで
-// UTF-8→UTF-16 decode を 1 回に抑える。
+// 再構築する。マウス移動のたびに同じノード/セルをヒットテストするとき、UTF-16 位置から
+// UTF-8 位置への逆変換を O(1) にする。
 //
 // ドキュメント差し替え等で内部 string_view の data ポインタが dangling 化しうる場合は
 // Reset() か ResetIfBufferChanged() で明示的に無効化すること (PMR pool が解放後アドレスを

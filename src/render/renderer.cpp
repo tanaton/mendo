@@ -83,6 +83,12 @@ void Renderer::SetDpi(float dpi) noexcept
     ResetSidePaneCaches();
 }
 
+void Renderer::TrimForMinimize() noexcept
+{
+    ResetSidePaneCaches();
+    backend_.Trim();
+}
+
 void Renderer::ResetSidePaneCaches() noexcept
 {
     for (auto& c : pane_caches_) {
@@ -354,6 +360,7 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_
     }
 }
 
+// 非表示のペインはキャッシュビットマップを持ち続けない。
 void Renderer::DrawSidePanes(const SidePaneState& sp)
 {
     const auto& fp = sp.Get(PaneTarget::File);
@@ -361,10 +368,16 @@ void Renderer::DrawSidePanes(const SidePaneState& sp)
         DrawFileExplorer(sp.file_entries, fp);
         DrawSplitter(fp.rect.x + fp.rect.width, fp.rect.y, fp.rect.y + fp.rect.height);
     }
+    else {
+        SidePaneCache(PaneTarget::File).Reset();
+    }
     const auto& tp = sp.Get(PaneTarget::Toc);
     if (tp.show) {
         DrawToc(sp.toc_entries, sp.nodes, tp, sp.active_toc_index);
         DrawSplitter(tp.rect.x + tp.rect.width, tp.rect.y, tp.rect.y + tp.rect.height);
+    }
+    else {
+        SidePaneCache(PaneTarget::Toc).Reset();
     }
 }
 
@@ -438,7 +451,7 @@ void Renderer::DrawLoading(
         DrawGestureOverlay(gesture.direction, md_pane_rect);
     }
 
-    if (toast.visible) {
+    if (!toast.message.empty()) {
         DrawToastOverlay(toast, md_pane_rect);
     }
 
@@ -454,9 +467,8 @@ void Renderer::Render(const RenderParams& p)
     }
 
     {
-        // 開始ノードは GenerateMdPane が描画のはみ出し幅込みで求める (first_visible = -1)。
         const float dpi_scale = DpiScaleFrom(backend_.GetDpi());
-        const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, -1, p.hovered, dpi_scale, p.block_h_scroll);
+        const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, p.hovered, dpi_scale, p.block_h_scroll);
         cmd_executor_.Execute(cmds, rt(), &brushes_);
     }
 
@@ -472,7 +484,7 @@ void Renderer::Render(const RenderParams& p)
         DrawGestureOverlay(p.gesture.direction, p.md_pane_rect);
     }
 
-    if (p.toast.visible) {
+    if (!p.toast.message.empty()) {
         DrawToastOverlay(p.toast, p.md_pane_rect);
     }
 

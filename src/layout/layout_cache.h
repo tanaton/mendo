@@ -474,9 +474,9 @@ public:
         return it != self.diagrams_.end() ? &it->second : nullptr;
     }
 
-    // すべてのテキストレイアウトとエフェクトを無効化する（テーマ/ズーム変更時）。
+    // すべてのテキストレイアウトとエフェクトを無効化する（ズーム変更時）。
     // ダイアグラム/Mermaid キャッシュの処理は呼び出し側で別途行うこと。
-    void InvalidateAllLayouts() noexcept;
+    void InvalidateAllLayouts(const std::pmr::vector<Node>& nodes) noexcept;
 
     // 文字幾何 (IDWriteTextLayout / table cell layouts) は維持し、ApplyEffects を再走らせるため
     // effects_applied フラグとエフェクト由来のキャッシュだけ落とす。デバイスロスト時用。

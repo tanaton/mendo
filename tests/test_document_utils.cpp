@@ -238,6 +238,18 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockWithSyntaxTokensWrapsInSpans)
     EXPECT_NE(html.find(" x = "), std::string::npos);
 }
 
+// 一度も計測 (表示) していないコードブロックでも色付けされること。
+TEST(ExtractSelectedTextAsHtml, UnmeasuredCodeBlockIsHighlighted)
+{
+    auto nodes = ParseMarkdown("```cpp\nint x = 42;\n```").nodes;
+    ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
+    ASSERT_TRUE(nodes[0].syntax_tokens().empty());
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_NE(html.find("<span style=\"color:#267f99\">int</span>"), std::string::npos);
+    EXPECT_NE(html.find("<span style=\"color:#098658\">42</span>"), std::string::npos);
+}
+
 TEST(ExtractSelectedTextAsHtml, CodeBlockSpanEscapesSpecialChars)
 {
     auto nodes = ParseMarkdown("```cpp\na<b\n```").nodes;

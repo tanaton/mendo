@@ -7,6 +7,7 @@
 #include <wrl/client.h>
 #include <windows.h>
 #include <atomic>
+#include <climits>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -41,10 +42,18 @@ public:
         Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
         float width = 0.0f;
         float height = 0.0f;
+        // この幅 (物理 px) までは縮小によるぼけ無しで描ける。原寸でデコードしていれば上限なし。
+        UINT sharp_width_px = UINT_MAX;
     };
     // ヒットしたら LRU を更新する。次の挿入・Clear まで有効。
     const CachedImage* FindCachedImage(const std::wstring& abs_path);
-    void RequestLoadAsync(const std::wstring& abs_path, Callback on_complete);
+    // max_width_dip: 表示幅。これを量子化した物理 px まで縮小してデコードする。0 は原寸。
+    void RequestLoadAsync(const std::wstring& abs_path, Callback on_complete, float max_width_dip = 0.0f);
+    // 表示幅が広がり、キャッシュの解像度では足りなくなったか。
+    bool NeedsSharperDecode(const CachedImage& image, float max_width_dip) const noexcept
+    {
+        return DecodeWidthPx(max_width_dip) > image.sharp_width_px;
+    }
     void ProcessCompletedDecodes();
     void CancelPending();
 
@@ -73,13 +82,17 @@ private:
         Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
         float width = 0.0f;
         float height = 0.0f;
+        UINT sharp_width_px = UINT_MAX;
         Callback on_complete;
     };
 
+    float DpiScale() const noexcept;
+    // 0 は無制限。幅の細かな変化で再デコードしないよう量子化する。
+    UINT DecodeWidthPx(float width_dip) const noexcept;
     // worker で呼ぶ。失敗時は result.bitmap を null のまま残す。
-    void DecodeForDisplay(const std::wstring& path, DecodeResult& result) const;
+    void DecodeForDisplay(const std::wstring& path, UINT max_width_px, DecodeResult& result) const;
     // 物理 px を DIP に換算してキャッシュする。
-    void CacheBitmap(const std::wstring& path, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap, float pixel_width, float pixel_height);
+    void CacheBitmap(const std::wstring& path, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap, float pixel_width, float pixel_height, UINT sharp_width_px);
 
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
     static constexpr size_t MAX_CACHE_BYTES = 128u * 1024 * 1024;

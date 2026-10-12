@@ -1,6 +1,7 @@
 #pragma once
 // command_generator の分割ファイル間でのみ使用する内部共有宣言。
 #include "command_generator.h"
+#include "doc_dwrite_bridge.h"
 #include <span>
 
 inline D2D1_RECT_F OffsetRectF(const D2D1_RECT_F& r, float origin_x, float origin_y) noexcept
