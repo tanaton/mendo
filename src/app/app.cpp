@@ -198,6 +198,11 @@ void App::OnResize(UINT width, UINT height)
     Dispatch(ResizeAction{ width, height });
 }
 
+void App::OnMinimize()
+{
+    renderer_.TrimForMinimize();
+}
+
 void App::OnDpiChanged(UINT dpi, const RECT* suggested)
 {
     // reducer をプラットフォーム非依存に保つため、Win32 の RECT を PixelRect に詰め替える。

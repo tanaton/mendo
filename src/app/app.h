@@ -59,6 +59,7 @@ public:
 
     void OnPaint();
     void OnResize(UINT width, UINT height);
+    void OnMinimize();
     void OnMouseWheel(int px, int py, short delta, bool ctrl = false);
     void OnMouseHWheel(short delta);
     void OnKeyDown(WPARAM key);

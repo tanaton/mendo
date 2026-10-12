@@ -220,6 +220,22 @@ void D2DRenderBackend::SetDpi(float dpi) noexcept
     }
 }
 
+void D2DRenderBackend::Trim() noexcept
+{
+    if (!d2d_device_) {
+        return;
+    }
+    d2d_device_->ClearResources();
+    // IDXGIDevice3::Trim の前に ClearState で参照を外しておく必要がある。
+    ComPtr<ID3D11DeviceContext> d3d_ctx;
+    d3d_device_->GetImmediateContext(&d3d_ctx);
+    d3d_ctx->ClearState();
+    ComPtr<IDXGIDevice3> dxgi_device;
+    if (SUCCEEDED(d3d_device_.As(&dxgi_device))) {
+        dxgi_device->Trim();
+    }
+}
+
 void D2DRenderBackend::WaitForFrameLatency() noexcept
 {
     if (!frame_latency_waitable_) {

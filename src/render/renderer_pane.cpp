@@ -9,7 +9,8 @@
 #include <concepts>
 
 // 戻り値: キャッシュが使用可能なら true。
-// ウィンドウやスプリッタのドラッグ中に毎フレーム作り直さないよう、確保は 64 DIP 単位に切り上げて拡大時だけ行う。
+// ウィンドウやスプリッタのドラッグ中に毎フレーム作り直さないよう、確保は 64 DIP 単位に切り上げる。
+// 縮小は 2 単位以上余ったときだけ作り直し、最大化から戻した後に大きいまま残さない。
 static bool EnsurePaneCacheSize(PaneCache& cache, ID2D1RenderTarget* parent, float width, float height)
 {
     if (width <= 0 || height <= 0) {
@@ -20,14 +21,15 @@ static bool EnsurePaneCacheSize(PaneCache& cache, ID2D1RenderTarget* parent, flo
         cache.cached_height = height;
         cache.Invalidate();
     }
+    constexpr float kBucket = 64.0f;
     if (cache.bitmap_rt) {
         const auto allocated = cache.bitmap_rt->GetSize();
-        if (width <= allocated.width && height <= allocated.height) {
+        const auto fits = [](float need, float have) noexcept { return need <= have && have - need < 2 * kBucket; };
+        if (fits(width, allocated.width) && fits(height, allocated.height)) {
             return true;
         }
     }
 
-    constexpr float kBucket = 64.0f;
     const auto round_up = [](float v) noexcept { return std::ceil(v / kBucket) * kBucket; };
     cache.bitmap_rt.Reset();
     cache.cached_bitmap.Reset();

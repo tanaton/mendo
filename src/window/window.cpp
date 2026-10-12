@@ -635,6 +635,7 @@ void Win32Window::OnSize(WPARAM wParam, LPARAM lParam)
     // その小サイズになり、DWM合成時にアプリサイズへ引き伸ばされてフラッシュになる。
     if (wParam == SIZE_MINIMIZED) {
         was_minimized_ = true;
+        app_->OnMinimize();
         return;
     }
     app_->OnResize(LOWORD(lParam), HIWORD(lParam));

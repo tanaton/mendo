@@ -83,6 +83,12 @@ void Renderer::SetDpi(float dpi) noexcept
     ResetSidePaneCaches();
 }
 
+void Renderer::TrimForMinimize() noexcept
+{
+    ResetSidePaneCaches();
+    backend_.Trim();
+}
+
 void Renderer::ResetSidePaneCaches() noexcept
 {
     for (auto& c : pane_caches_) {
@@ -354,6 +360,7 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_
     }
 }
 
+// 非表示のペインはキャッシュビットマップを持ち続けない。
 void Renderer::DrawSidePanes(const SidePaneState& sp)
 {
     const auto& fp = sp.Get(PaneTarget::File);
@@ -361,10 +368,16 @@ void Renderer::DrawSidePanes(const SidePaneState& sp)
         DrawFileExplorer(sp.file_entries, fp);
         DrawSplitter(fp.rect.x + fp.rect.width, fp.rect.y, fp.rect.y + fp.rect.height);
     }
+    else {
+        SidePaneCache(PaneTarget::File).Reset();
+    }
     const auto& tp = sp.Get(PaneTarget::Toc);
     if (tp.show) {
         DrawToc(sp.toc_entries, sp.nodes, tp, sp.active_toc_index);
         DrawSplitter(tp.rect.x + tp.rect.width, tp.rect.y, tp.rect.y + tp.rect.height);
+    }
+    else {
+        SidePaneCache(PaneTarget::Toc).Reset();
     }
 }
 

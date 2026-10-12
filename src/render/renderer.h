@@ -27,6 +27,7 @@ public:
     void Resize(UINT width, UINT height) noexcept;
     void Render(const RenderParams& params);
     void SetDpi(float dpi) noexcept;
+    void TrimForMinimize() noexcept;
     void DrawLoading(
         float angle,
         const PaneRect& md_pane_rect,
