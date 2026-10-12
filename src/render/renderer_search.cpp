@@ -25,7 +25,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
 
     rt()->DrawLine(D2D1::Point2F(bar_rect.left, sbl.bar_top), D2D1::Point2F(bar_rect.right, sbl.bar_top), Brush(BrushId::SearchBarBorder), 1.0f);
 
-    DrawIcon(L"\uE721", fmt_.search_icon.Get(), sbl.icon_rect, BrushId::SearchInputText, 0.6f);
+    DrawCenteredText(L"\uE721", fmt_.search_icon.Get(), sbl.icon_rect, BrushId::SearchInputText, 0.6f);
 
     const D2D1_ROUNDED_RECT input_rrect = D2D1::RoundedRect(sbl.input_rect, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER);
     const bool no_match = !sb.query.empty() && sb.total_matches == 0;
@@ -57,46 +57,31 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
     DrawSearchBarButtons(sb, sbl);
 }
 
-IDWriteTextLayout* Renderer::AcquireSearchInputLayout(const SearchBarRenderState& sb, int comp_start, float width, float height, bool& cache_hit)
+IDWriteTextLayout* Renderer::AcquireSearchInputLayout(const SearchBarRenderState& sb, int comp_start, float width, float height)
 {
-    auto& c = search_cache_;
-    const bool has_comp = !sb.ime_composition.empty();
-    const int key_caret_pos = has_comp ? comp_start : -1;
+    // IMEコンポジション中は確定済みテキストのキャレット位置に変換中テキストを挿入して表示する。
+    // 下線はレイアウト生成時にだけ付けるので、合成範囲もキーに含める。
+    auto& text = search_text_scratch_;
+    text.assign(sb.query);
+    text.insert(static_cast<size_t>(comp_start), sb.ime_composition);
+    const DWRITE_TEXT_RANGE underline{ static_cast<UINT32>(comp_start), static_cast<UINT32>(sb.ime_composition.size()) };
 
-    // 比較は scalar → 空になりやすい ime_comp → query の順で短絡させる
-    cache_hit = c.layout && c.width == width && c.caret_pos == key_caret_pos && c.ime_comp == sb.ime_composition && c.query == sb.query;
-    if (cache_hit) {
-        // 前フレームの下線範囲と異なる可能性があるため、キャッシュ上に下線が残っていれば
-        // 常に全体をクリアする。IME 非アクティブ継続時はクリアも発行されない。
-        if (c.has_underline) {
-            c.layout->SetUnderline(FALSE, DWRITE_TEXT_RANGE{ 0, static_cast<UINT32>(c.text.size()) });
-            c.has_underline = false;
-        }
+    auto& c = search_input_;
+    if (c.layout && c.width == width && c.underline.startPosition == underline.startPosition &&
+        c.underline.length == underline.length && c.text == text) {
         return c.layout.Get();
     }
-
-    // IMEコンポジション中は確定済みテキストのキャレット位置に変換中テキストを挿入して表示する。
-    c.text.assign(sb.query);
-    if (has_comp) {
-        c.text.insert(static_cast<size_t>(comp_start), sb.ime_composition);
-    }
     c.layout.Reset();
-    backend_.GetDWriteFactory()->CreateTextLayout(
-        c.text.data(),
-        static_cast<UINT32>(c.text.size()),
-        fmt_.search_input.Get(),
-        width,
-        height,
-        &c.layout);
-    if (!c.layout) {
-        c.Reset();
+    if (FAILED(backend_.GetDWriteFactory()->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), fmt_.search_input.Get(), width, height, &c.layout))) {
+        c = {};
         return nullptr;
     }
-    c.query.assign(sb.query);
-    c.ime_comp.assign(sb.ime_composition);
-    c.caret_pos = key_caret_pos;
+    if (underline.length > 0) {
+        c.layout->SetUnderline(TRUE, underline);
+    }
+    c.text.assign(text);
     c.width = width;
-    c.has_underline = false;
+    c.underline = underline;
     return c.layout.Get();
 }
 
@@ -119,20 +104,14 @@ float Renderer::DrawSearchInputText(const SearchBarRenderState& sb, const Search
     }
 
     // レイアウトを1回だけ作成し、描画とキャレット計測で共用する。
-    bool cache_hit = false;
     IDWriteTextLayout* const text_layout = AcquireSearchInputLayout(
-        sb, comp_start, sbl.text_width(), sbl.input_rect.bottom - sbl.input_rect.top, cache_hit);
+        sb, comp_start, sbl.text_width(), sbl.input_rect.bottom - sbl.input_rect.top);
     if (!text_layout) {
         return text_left;
     }
 
-    if (has_comp) {
-        text_layout->SetUnderline(TRUE, DWRITE_TEXT_RANGE{ static_cast<UINT32>(comp_start), static_cast<UINT32>(comp_len) });
-        search_cache_.has_underline = true;
-    }
-
     // 選択範囲はテキストの背面に描画
-    const int text_len = static_cast<int>(search_cache_.text.size());
+    const int text_len = static_cast<int>(search_input_.text.size());
     const bool has_selection = !has_comp && sb.selection_start >= 0 && sb.caret_pos >= 0 && sb.selection_start != sb.caret_pos;
     if (has_selection) {
         const int sel_min = std::clamp(std::min(sb.selection_start, sb.caret_pos), 0, text_len);
@@ -167,19 +146,10 @@ float Renderer::DrawSearchInputText(const SearchBarRenderState& sb, const Search
     if (!has_comp && (effective_pos < 0 || effective_pos > text_len)) {
         effective_pos = text_len;
     }
-    // layout が同じで effective_pos が一致するフレーム（典型的にはキャレット点滅で
-    // 直前と同じ入力）は HitTestTextPosition を省く。キャッシュミス時は layout を
-    // 作り直しているため、caret_x キャッシュも cache_hit 時のみ信用する。
-    if (cache_hit && search_cache_.effective_pos == effective_pos) {
-        return search_cache_.caret_x;
-    }
     FLOAT px, py;
     DWRITE_HIT_TEST_METRICS htm{};
     text_layout->HitTestTextPosition(static_cast<UINT32>(effective_pos), false, &px, &py, &htm);
-    const float caret_x = text_left + px;
-    search_cache_.effective_pos = effective_pos;
-    search_cache_.caret_x = caret_x;
-    return caret_x;
+    return text_left + px;
 }
 
 void Renderer::DrawSearchBarButtons(const SearchBarRenderState& sb, const SearchBarLayout& sbl)
@@ -188,7 +158,7 @@ void Renderer::DrawSearchBarButtons(const SearchBarRenderState& sb, const Search
         if (hovered) {
             rt()->FillRoundedRectangle(D2D1::RoundedRect(r, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER), Brush(BrushId::TitleBarButtonHover));
         }
-        DrawIcon(icon, fmt_.search_icon.Get(), r, BrushId::SearchInputText, alpha);
+        DrawCenteredText(icon, fmt_.search_icon.Get(), r, BrushId::SearchInputText, alpha);
     };
 
     const auto draw_toggle_btn = [&](const D2D1_RECT_F& r, std::wstring_view label, IDWriteTextFormat* fmt, bool checked, bool hovered) {
@@ -197,7 +167,7 @@ void Renderer::DrawSearchBarButtons(const SearchBarRenderState& sb, const Search
                 D2D1::RoundedRect(r, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER),
                 Brush(checked ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover));
         }
-        DrawIcon(label, fmt, r, BrushId::SearchInputText, checked ? 1.0f : 0.5f);
+        DrawCenteredText(label, fmt, r, BrushId::SearchInputText, checked ? 1.0f : 0.5f);
     };
 
     const float nav_alpha = sb.total_matches > 0 ? 1.0f : 0.3f;
@@ -213,7 +183,7 @@ void Renderer::DrawSearchBarButtons(const SearchBarRenderState& sb, const Search
                            ? std::format_to_n(count_text, kCountBufLen - 1, L"0")
                            : std::format_to_n(count_text, kCountBufLen - 1, L"{} / {}", sb.current_match + 1, sb.total_matches);
         const auto written = static_cast<size_t>(r.out - count_text);
-        DrawCenteredText(search_count_layout_, { count_text, written }, fmt_.search_count.Get(), sbl.count_rect, BrushId::SearchInputText, 0.7f);
+        DrawCenteredText({ count_text, written }, fmt_.search_count.Get(), sbl.count_rect, BrushId::SearchInputText, 0.7f);
     }
 
     draw_toggle_btn(sbl.case_btn, L"Aa", fmt_.search_count.Get(), sb.case_sensitive, sb.hovered == SearchBarHitZone::CaseSensitive);
@@ -226,25 +196,15 @@ int Renderer::HitTestSearchInput(std::wstring_view query, float local_x, float m
     if (query.empty() || !fmt_.search_input || !backend_.GetDWriteFactory()) {
         return 0;
     }
+    // クリック時だけなので、表示用のレイアウト (IME 合成中は表示テキストが query と異なる) は使わずに作る。
     Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
-    // DrawSearchBar が直前に作成した search_cache_.layout を再利用できるケース
-    // （IME コンポジションが無く、query と表示テキストが一致）を高速パスに。
-    // IME 合成中は表示テキスト = query + comp string となり layout のヒット判定対象が
-    // ずれるため、search_cache_.caret_pos != -1 (= 合成中) の場合は安全側でキャッシュを捨てて
-    // 再生成する。クリック応答性は損なわない (IME 合成中はキャレット移動を主に DefSubclassProc が処理)。
-    const bool cache_hit = search_cache_.layout && search_cache_.width == max_width && search_cache_.caret_pos == -1 && search_cache_.query == query;
-    if (cache_hit) {
-        layout = search_cache_.layout;
-    }
-    else {
-        backend_.GetDWriteFactory()->CreateTextLayout(
-            query.data(),
-            static_cast<UINT32>(query.size()),
-            fmt_.search_input.Get(),
-            max_width,
-            SEARCH_INPUT_HEIGHT,
-            &layout);
-    }
+    backend_.GetDWriteFactory()->CreateTextLayout(
+        query.data(),
+        static_cast<UINT32>(query.size()),
+        fmt_.search_input.Get(),
+        max_width,
+        SEARCH_INPUT_HEIGHT,
+        &layout);
     if (!layout) {
         return 0;
     }

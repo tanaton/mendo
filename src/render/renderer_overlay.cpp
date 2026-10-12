@@ -48,7 +48,7 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool 
         else {
             text_alpha = is_dark ? 0.6f : 0.5f;
         }
-        DrawIcon(arrow, fmt_.nav_button.Get(), rect, overlay_id, text_alpha, D2D1::SizeF(NAV_BTN_SIZE, NAV_BTN_SIZE));
+        DrawCenteredText(arrow, fmt_.nav_button.Get(), rect, overlay_id, text_alpha, D2D1::SizeF(NAV_BTN_SIZE, NAV_BTN_SIZE));
     };
 
     // クリック判定 (NavButtonHitTest) と同じ矩形 API を使い、描画とヒットのズレを防ぐ
@@ -110,7 +110,7 @@ void Renderer::DrawGestureOverlay(int direction, const PaneRect& md_pane_rect)
     const D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, cy - rect_h / 2, cx + rect_w / 2, cy + rect_h / 2);
     FillOverlayPanel(rect, GESTURE_OVERLAY_CORNER, theme_.IsDark() ? 0.8f : 0.6f);
 
-    DrawIcon((direction < 0) ? L"\x2190 \x623B\x308B" : L"\x2192 \x9032\x3080", fmt_.gesture_overlay.Get(), rect, BrushId::OverlayWhite, 1.0f, D2D1::SizeF(rect_w, rect_h));
+    DrawCenteredText((direction < 0) ? L"\x2190 \x623B\x308B" : L"\x2192 \x9032\x3080", fmt_.gesture_overlay.Get(), rect, BrushId::OverlayWhite, 1.0f, D2D1::SizeF(rect_w, rect_h));
 }
 
 void Renderer::FillOverlayPanel(const D2D1_RECT_F& rect, float corner, float alpha)
@@ -135,5 +135,5 @@ void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& m
 
     FillOverlayPanel(rect, TOAST_OVERLAY_CORNER, theme_.IsDark() ? 0.85f : 0.7f);
 
-    DrawCenteredText(toast_layout_, toast.message, fmt_.toast_text.Get(), rect, BrushId::OverlayWhite, 1.0f, D2D1::SizeF(rect_w, rect_h));
+    DrawCenteredText(toast.message, fmt_.toast_text.Get(), rect, BrushId::OverlayWhite, 1.0f, D2D1::SizeF(rect_w, rect_h));
 }
