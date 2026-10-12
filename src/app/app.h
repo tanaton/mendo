@@ -236,7 +236,9 @@ private:
     void ViewportLayout(float md_width, float md_height);
     // 合計コンテンツ高を max_scroll に反映し scroll_y をクランプする。
     void SyncMaxScroll(float md_height);
-    void ScheduleDeferredLayoutIfNeeded();
+    // 遅延レイアウトを仕掛けたら true。
+    bool ScheduleDeferredLayoutIfNeeded();
+    void SettleLayout();
     void InvalidateHitPositions();
     void OnResizeEnd();
     void RefreshPaneLayout();

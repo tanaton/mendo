@@ -79,7 +79,7 @@ IDWriteTextLayout* Renderer::AcquireSearchInputLayout(const SearchBarRenderState
     if (underline.length > 0) {
         c.layout->SetUnderline(TRUE, underline);
     }
-    c.text.assign(text);
+    c.text.swap(text);
     c.width = width;
     c.underline = underline;
     return c.layout.Get();

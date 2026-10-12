@@ -86,6 +86,7 @@ private:
         Callback on_complete;
     };
 
+    float DpiScale() const noexcept;
     // 0 は無制限。幅の細かな変化で再デコードしないよう量子化する。
     UINT DecodeWidthPx(float width_dip) const noexcept;
     // worker で呼ぶ。失敗時は result.bitmap を null のまま残す。

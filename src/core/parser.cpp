@@ -4,6 +4,7 @@
 #include "profiler.h"
 #include "string_hash.h"
 #include "md4c.h"
+#include <cassert>
 #include <functional>
 #include <unordered_map>
 #include <algorithm>
@@ -581,15 +582,11 @@ void LeaveCodeBlock(ParseContext* ctx)
         return;
     }
     // md4c はコード各行を改行付きで渡すため、最終行の改行を表示テキストから落とす。
+    // コード内には装飾もリンクも付かないので run は無く、調整は要らない。
+    assert(cn->runs.empty());
     if (!ctx->current_text.empty() && ctx->current_text.back() == '\n') {
         ctx->current_text.pop_back();
         cn->line_count--;
-        if (!cn->runs.empty()) {
-            auto& last = cn->runs.back();
-            if (last.length > 0 && last.start + last.length > ctx->current_text.size()) {
-                last.length--;
-            }
-        }
     }
     if (cn->code_language() == SyntaxLanguage::Mermaid) {
         ctx->diagram_indices.emplace_back(ctx->current_node_index);

@@ -2,7 +2,6 @@
 #include "block_h_scroll.h"
 #include "block_h_scroll_context.h"
 #include "d2d_util.h"
-#include "doc_dwrite_bridge.h"
 #include "draw_command.h"
 #include "document_types.h"
 #include "layout_cache.h"

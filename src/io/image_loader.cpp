@@ -41,18 +41,23 @@ const ImageLoader::CachedImage* ImageLoader::FindCachedImage(const std::wstring&
     return cache_.Find(abs_path);
 }
 
-UINT ImageLoader::DecodeWidthPx(float width_dip) const noexcept
+float ImageLoader::DpiScale() const noexcept
 {
-    if (!(width_dip > 0.0f)) {
-        return 0;
-    }
     float dpi_x = DEFAULT_DPI;
     float dpi_y = DEFAULT_DPI;
     if (render_target_) {
         render_target_->GetDpi(&dpi_x, &dpi_y);
     }
+    return DpiScaleFrom(dpi_x);
+}
+
+UINT ImageLoader::DecodeWidthPx(float width_dip) const noexcept
+{
+    if (!(width_dip > 0.0f)) {
+        return 0;
+    }
     constexpr UINT kQuantumPx = 256;
-    const auto px = static_cast<UINT>(std::ceil(width_dip * DpiScaleFrom(dpi_x)));
+    const auto px = static_cast<UINT>(std::ceil(width_dip * DpiScale()));
     return (px + kQuantumPx - 1) / kQuantumPx * kQuantumPx;
 }
 
@@ -178,13 +183,9 @@ void ImageLoader::CacheBitmap(
     const std::wstring& path, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap,
     float pixel_width, float pixel_height, UINT sharp_width_px)
 {
-    float dpi_x = DEFAULT_DPI;
-    float dpi_y = DEFAULT_DPI;
-    if (render_target_) {
-        render_target_->GetDpi(&dpi_x, &dpi_y);
-    }
-    const float width = pixel_width / DpiScaleFrom(dpi_x);
-    const float height = pixel_height / DpiScaleFrom(dpi_y);
+    const float scale = DpiScale();
+    const float width = pixel_width / scale;
+    const float height = pixel_height / scale;
 
     cache_.Insert(path, CachedImage{ std::move(bitmap), width, height, sharp_width_px });
     cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedImage& c) { return mendo::BitmapBytes(c.bitmap.Get()); });

@@ -8,11 +8,9 @@ void App::FinishThemeOrZoomChange()
     ViewportLayout(md.width, md.height);
     SyncMaxScroll(md.height);
     resource_manager_.RequestMermaidRenders();
-    ScheduleDeferredLayoutIfNeeded();
+    SettleLayout();
     Invalidate();
 
-    // ズームは全レイアウトを作り直すので、スクロールを待たずに画面外を捨てる。
-    EmitEffect(effect::BitmapManage{});
     EmitEffect(effect::SyncTocActive{});
 }
 
