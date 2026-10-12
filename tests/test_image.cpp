@@ -169,7 +169,6 @@ TEST(ParserImage, ImageInTightListStaysListItem)
     // タイトリスト内の画像はP生成されないため、ListItem のまま
     auto nodes = ParseMarkdown("- ![alt](img.png)").nodes;
     ASSERT_GE(nodes.size(), 1u);
-    // ListItemノードの型が保持されること
     EXPECT_EQ(nodes[0].type, NodeType::ListItem);
     EXPECT_FALSE(nodes[0].has_image());
 }
@@ -186,9 +185,9 @@ TEST(ParserImage, ImageInTightOrderedListKeepsNumber)
 
 TEST(ParserImage, ImageInFootnoteDefKeepsNumber)
 {
-    const auto nodes = ParseMarkdown("text[^1]\n\n[^1]: ![alt](img.png)").nodes;
-    ASSERT_GE(nodes.size(), 2u);
-    const auto& def = nodes.back();
+    const auto result = ParseMarkdown("text[^1]\n\n[^1]: ![alt](img.png)");
+    ASSERT_EQ(result.footnote_def_indices.size(), 1u);
+    const auto& def = result.nodes[result.footnote_def_indices[0]];
     EXPECT_EQ(def.type, NodeType::ListItem);
     EXPECT_TRUE(def.list_ordered());
     EXPECT_EQ(def.list_number(), 1);

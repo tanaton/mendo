@@ -370,15 +370,19 @@ struct ParseContext {
     }
 };
 
+// 画像 src を受け取り Image ノードへ昇格できる種別。
+// 他の種別は extra に別の alternative を持つため ensure_image で壊れる (issue#298)。
+constexpr bool IsImagePromotionCandidate(const Node& node) noexcept
+{
+    return node.type == NodeType::Paragraph || node.type == NodeType::BlockQuote;
+}
+
 // MD_BLOCK_P 終了時、画像 span を含む段落 / 引用ブロックを Image ノードへ昇格させる。
 // 戻り値 true なら他の昇格処理はスキップしてよい。
 constexpr bool TryPromoteParagraphToImage(ParseContext* ctx)
 {
     auto* const cn = ctx->current_node;
-    if (!cn || !cn->has_image() || cn->image_data()->src.empty()) {
-        return false;
-    }
-    if (cn->type != NodeType::Paragraph && cn->type != NodeType::BlockQuote) {
+    if (!cn || !IsImagePromotionCandidate(*cn) || !cn->has_image() || cn->image_data()->src.empty()) {
         return false;
     }
     cn->type = NodeType::Image;
@@ -901,11 +905,8 @@ void LeaveImageSpan(ParseContext* ctx)
     if (--ctx->image_span_depth != 0) {
         return;
     }
-    // 他の ensure_* を持つノードで ensure_image を呼ぶと variant の既存データが破壊されるため、
-    // Image 昇格候補に限定する (リスト項目の番号やチェック状態、テーブルの active_text_buffer が壊れる)。
     if (auto* const cn = ctx->current_node;
-        cn && !ctx->pending_image_src.empty() &&
-        (cn->type == NodeType::Paragraph || cn->type == NodeType::BlockQuote)) {
+        cn && !ctx->pending_image_src.empty() && IsImagePromotionCandidate(*cn)) {
         cn->ensure_image()->src = ctx->pending_image_src;
     }
     ctx->pending_image_src.clear();
