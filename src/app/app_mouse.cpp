@@ -34,7 +34,7 @@ std::optional<std::string_view> App::GetLinkAtHit(const HitResult& hit) const
     if (hit.node_index < 0 || hit.node_index >= static_cast<int>(nodes.size())) {
         return std::nullopt;
     }
-    return FindLinkAtPosition(nodes[hit.node_index], hit.text_pos);
+    return FindLinkAtPosition(nodes[hit.node_index], hit.char_pos);
 }
 
 void App::OnLButtonDown(int px, int py)

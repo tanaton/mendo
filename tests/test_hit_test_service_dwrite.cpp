@@ -8,6 +8,8 @@
 #include "dwrite_test_base.h"
 #include "command_generator.h"
 #include "hit_test_service.h"
+#include "layout_computer.h"
+#include "selection_html.h"
 #include "ui_constants.h"
 #include <algorithm>
 #include <string_view>
@@ -47,6 +49,75 @@ TEST_F(HitTestDWriteTest, ParagraphHitReturnsTextPositionFromTextLayout)
     EXPECT_EQ(r.node_index, 0);
     EXPECT_GT(r.text_pos, 0u)
         << "DirectWrite 経路では HitTestPoint で text_pos が 0 より大きく解決されるはず";
+}
+
+namespace {
+
+// 1 文字だけのリンク "L" の右半分。キャレット位置は文字の後ろ (リンクの外) になるが、リンクとして当たること。
+constexpr std::string_view kOneCharLinkMd = "aaa [L](https://l.example) tail";
+constexpr uint32_t kOneCharLinkPos = 4;
+
+MdPaneHitContext MakeHitContext(const ParsedLayout& pl, const Theme& theme, float x, float y)
+{
+    return { pl.nodes, pl.cache, theme, 0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f,
+             static_cast<int>(x), static_cast<int>(y), theme.ContentWidth(800.0f) };
+}
+
+} // namespace
+
+TEST_F(HitTestDWriteTest, RightHalfOfLastLinkCharHitsLink)
+{
+    auto pl = ParseAndLayout(kOneCharLinkMd);
+    ASSERT_FALSE(pl.nodes.empty());
+    const auto& node = pl.nodes[0];
+    FLOAT x = 0.0f, y = 0.0f;
+    DWRITE_HIT_TEST_METRICS m{};
+    ASSERT_HRESULT_SUCCEEDED(pl.cache[0].text_layout()->HitTestTextPosition(kOneCharLinkPos, FALSE, &x, &y, &m));
+    const float left = theme_.margin_left + NodeIndent(node, theme_) + NodeTextXOffset(node, theme_);
+
+    const auto r = hit_.HitTest(MakeHitContext(pl, theme_, left + m.left + m.width * 0.75f, pl.cache.Top(0) + m.top + m.height * 0.5f));
+
+    ASSERT_EQ(r.node_index, 0);
+    EXPECT_EQ(r.text_pos, kOneCharLinkPos + 1);
+    EXPECT_EQ(r.char_pos, kOneCharLinkPos);
+    EXPECT_EQ(FindLinkAtPosition(node, r.char_pos), "https://l.example");
+}
+
+// 行末より右の余白は文字の上ではないので、行末のリンクにも当たらない。
+TEST_F(HitTestDWriteTest, RightOfLineEndHasNoChar)
+{
+    auto pl = ParseAndLayout("aaa [L](https://l.example)");
+    ASSERT_FALSE(pl.nodes.empty());
+    const auto r = hit_.HitTest(MakeHitContext(pl, theme_, theme_.margin_left + 400.0f, pl.cache.Top(0) + 4.0f));
+    ASSERT_EQ(r.node_index, 0);
+    EXPECT_EQ(r.text_pos, pl.nodes[0].GetText().size());
+    EXPECT_EQ(r.char_pos, HitTestService::HitResult::kNoChar);
+}
+
+TEST_F(HitTestDWriteTest, RightHalfOfLastLinkCharInTableCellHitsLink)
+{
+    auto pl = ParseAndLayout("| h |\n|---|\n| [L](https://l.example) |");
+    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
+    ASSERT_GE(idx, 0);
+    const auto& node = pl.nodes[static_cast<size_t>(idx)];
+    const auto* tl = pl.cache[idx].table_layout();
+    ASSERT_NE(tl, nullptr);
+    ASSERT_TRUE(tl->HasRowGeometry(node.table_data()->row_count));
+    IDWriteTextLayout* cell = tl->GetCellLayout(1, 0);
+    ASSERT_NE(cell, nullptr);
+    FLOAT x = 0.0f, y = 0.0f;
+    DWRITE_HIT_TEST_METRICS m{};
+    ASSERT_HRESULT_SUCCEEDED(cell->HitTestTextPosition(0, FALSE, &x, &y, &m));
+    const float text_x = theme_.margin_left + NodeIndent(node, theme_) + tl->col_cum_x[0] + TABLE_CELL_PADDING;
+    const float text_y = pl.cache.Top(static_cast<size_t>(idx)) + tl->row_cum_y[1] + TABLE_CELL_PADDING;
+
+    const auto r = hit_.HitTest(MakeHitContext(pl, theme_, text_x + m.left + m.width * 0.75f, text_y + m.top + m.height * 0.5f));
+
+    ASSERT_EQ(r.node_index, idx);
+    const uint32_t cell_start = node.table_data()->CellTextStart(1, 0);
+    EXPECT_EQ(r.text_pos, cell_start + 1);
+    EXPECT_EQ(r.char_pos, cell_start);
+    EXPECT_EQ(FindLinkAtPosition(node, r.char_pos), "https://l.example");
 }
 
 // ペイン原点 (md_rect.x/y) だけずらした同じ点は、同じノード・同じ文字位置に当たる。

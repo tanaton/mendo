@@ -106,7 +106,11 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
     entry.text_layout()->HitTestPoint(local_x, local_y, &is_trailing, &is_inside, &metrics);
 
     const auto& wv = md_wv_cache_.Get(node.GetText());
-    return { direct.node_index, wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0)) };
+    HitResult result{ direct.node_index, wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0)) };
+    if (is_inside) {
+        result.char_pos = wv.DocOffsetFromWideOffset(metrics.textPosition);
+    }
+    return result;
 }
 
 int HitTestService::HitNode(const MdPaneHitContext& ctx) const noexcept
@@ -168,8 +172,10 @@ HitTestService::HitResult HitTestService::HitTestTable(
             &metrics);
 
         const auto& wv = cell_wv_cache_.Get(tbl->GetCellText(r, c));
-        const auto cell_doc_off = wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0));
-        result.text_pos = flat_offset + cell_doc_off;
+        result.text_pos = flat_offset + wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0));
+        if (is_inside) {
+            result.char_pos = flat_offset + wv.DocOffsetFromWideOffset(metrics.textPosition);
+        }
     }
     else {
         result.text_pos = flat_offset;
