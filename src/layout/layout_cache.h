@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <ranges>
 #include <span>
+#include <unordered_map>
 #include <utility>
 
 // インラインコードの背景矩形（レイアウト原点からの相対座標、パディング適用済み）
@@ -167,9 +168,6 @@ constexpr T& EnsureUnique(std::unique_ptr<T>& p)
 struct NodeLayoutEntry {
     // ノード Y 位置 (text_top) は LayoutCache::Top(i) に分離して持つ (SoA)。
     float height = 0.0f;
-    // GetLineMetrics(&lm, 1, &lc) の結果をキャッシュ。0 なら未確定 (フォールバック計算する)。
-    // MeasureNode で text_layout 確定時に同時に求める。
-    float first_line_height = 0.0f;
     // 直近 MeasureNode の幅と実測 height。同じ幅へ戻った際に EstimateNodeHeight の上書きを避ける。
     // 「未計測」のセンチネルは kUnmeasuredWidth (= 負値)。MeasureNode 入力 (node_width) は
     // 常に正なので負値は初期化/invalidate 経路でしか出現しない。per-node で密に並ぶ hot field の
@@ -177,48 +175,91 @@ struct NodeLayoutEntry {
     static constexpr float kUnmeasuredWidth = -1.0f;
     float cached_width = kUnmeasuredWidth;
     float cached_height = 0.0f;
-    // CodeBlock の最長行幅 (NO_WRAP で計測した自然幅)。横スクロールバーのスケール計算と
-    // クランプに使う。CodeBlock 以外では 0 のまま。
-    float natural_code_width = 0.0f;
     constexpr bool is_measured() const noexcept
     {
         return cached_width > 0.0f;
     }
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
     bool layout_dirty = true;
-    bool effects_applied = false;
-    // SetMaxWidth だけの再計測は描画エフェクト/下線を保持するため、折り返しに依存する
-    // インラインコード背景だけ作り直させる。effects_applied が true のときのみ意味を持つ。
-    bool inline_code_bgs_stale = false;
-    // 計測が例外で失敗した連続回数 (成功で 0 に戻る)。bool 群の後ろのパディングに収まり、エントリのサイズは増えない。
+    // 計測が例外で失敗した連続回数 (成功で 0 に戻る)。
     uint8_t measure_failures = 0;
-    // インラインコード持ちノードでのみ確保される。空の vector ヘッダ (24B/個) を全ノード分背負わない。
-    std::unique_ptr<std::pmr::vector<InlineCodeBg>> inline_code_bgs;
-    std::unique_ptr<TableLayoutData> table_layout; // テーブルのみ確保
 
-    // 検索ヒットがあるノードでのみ確保される。描画中に書き換えるため mutable。
-    mutable std::unique_ptr<SearchHlCache> search_hl_cache;
-    // 選択中のノードでのみ確保される。描画中に書き換えるため mutable。
-    mutable std::unique_ptr<SelectionHlCache> selection_hl_cache;
+    // 以降は計測・描画したノードでしか使わないので aux_ に置き、全ノード分は持たない。
+    // 既定値を書く setter は aux_ を確保しない。
+    constexpr IDWriteTextLayout* text_layout() const noexcept
+    {
+        return aux_ ? aux_->text_layout.Get() : nullptr;
+    }
+    void set_text_layout(Microsoft::WRL::ComPtr<IDWriteTextLayout> layout)
+    {
+        if (aux_ || layout) {
+            ensure_aux().text_layout = std::move(layout);
+        }
+    }
+    // 1 行目の高さと自然幅は text_layout から求めた値なので一緒に捨てる。
+    constexpr void reset_text_layout() noexcept
+    {
+        if (aux_) {
+            aux_->text_layout.Reset();
+            aux_->first_line_height = 0.0f;
+            aux_->natural_code_width = 0.0f;
+        }
+    }
+
+    constexpr float first_line_height() const noexcept
+    {
+        return GetAux(&Aux::first_line_height);
+    }
+    constexpr void set_first_line_height(float h)
+    {
+        SetAux(&Aux::first_line_height, h);
+    }
+    constexpr float natural_code_width() const noexcept
+    {
+        return GetAux(&Aux::natural_code_width);
+    }
+    constexpr void set_natural_code_width(float w)
+    {
+        SetAux(&Aux::natural_code_width, w);
+    }
+    constexpr bool effects_applied() const noexcept
+    {
+        return GetAux(&Aux::effects_applied);
+    }
+    constexpr void set_effects_applied(bool applied)
+    {
+        SetAux(&Aux::effects_applied, applied);
+    }
+    constexpr bool inline_code_bgs_stale() const noexcept
+    {
+        return GetAux(&Aux::inline_code_bgs_stale);
+    }
+    constexpr void set_inline_code_bgs_stale(bool stale)
+    {
+        SetAux(&Aux::inline_code_bgs_stale, stale);
+    }
 
     constexpr SearchHlCache& ensure_search_hl_cache() const
     {
-        return mendo::layout::detail::EnsureUnique(search_hl_cache);
+        return mendo::layout::detail::EnsureUnique(ensure_aux().search_hl_cache);
     }
 
     constexpr void invalidate_search_hl_cache() const noexcept
     {
-        search_hl_cache.reset();
+        if (aux_) {
+            aux_->search_hl_cache.reset();
+        }
     }
 
     constexpr SelectionHlCache& ensure_selection_hl_cache() const
     {
-        return mendo::layout::detail::EnsureUnique(selection_hl_cache);
+        return mendo::layout::detail::EnsureUnique(ensure_aux().selection_hl_cache);
     }
 
     constexpr void invalidate_selection_hl_cache() const noexcept
     {
-        selection_hl_cache.reset();
+        if (aux_) {
+            aux_->selection_hl_cache.reset();
+        }
     }
 
     // text_layout の wrap や format 属性が変わった際に、行折り返し由来のキャッシュ
@@ -229,28 +270,61 @@ struct NodeLayoutEntry {
         invalidate_selection_hl_cache();
     }
 
+    // テーブルのみ確保。未確保なら nullptr。
+    constexpr TableLayoutData* table_layout() const noexcept
+    {
+        return aux_ ? aux_->table_layout.get() : nullptr;
+    }
     constexpr TableLayoutData& ensure_table_layout()
     {
-        return mendo::layout::detail::EnsureUnique(table_layout);
+        return mendo::layout::detail::EnsureUnique(ensure_aux().table_layout);
     }
     constexpr bool has_table_layout() const noexcept
     {
-        return table_layout != nullptr;
+        return table_layout() != nullptr;
+    }
+    constexpr void reset_table_layout() noexcept
+    {
+        if (aux_) {
+            aux_->table_layout.reset();
+        }
     }
 
     constexpr std::pmr::vector<InlineCodeBg>& ensure_inline_code_bgs()
     {
-        return mendo::layout::detail::EnsureUnique(inline_code_bgs);
+        return ensure_aux().inline_code_bgs;
     }
 
     constexpr void clear_inline_code_bgs() noexcept
     {
-        inline_code_bgs.reset();
+        if (aux_) {
+            aux_->inline_code_bgs.clear();
+        }
     }
 
     constexpr std::span<const InlineCodeBg> view_inline_code_bgs() const noexcept
     {
-        return SpanOrEmpty(inline_code_bgs);
+        return aux_ ? std::span<const InlineCodeBg>{ aux_->inline_code_bgs } : std::span<const InlineCodeBg>{};
+    }
+
+    // テーブル幾何だけ残して、計測・描画で作った状態を捨てる。テーブル幾何も無ければ aux_ ごと解放する。
+    void reset_layout_state() noexcept
+    {
+        if (!aux_) {
+            return;
+        }
+        if (auto table = std::move(aux_->table_layout)) {
+            *aux_ = Aux{};
+            aux_->table_layout = std::move(table);
+        }
+        else {
+            aux_.reset();
+        }
+    }
+    // 計測・描画で作った状態をテーブル幾何も含めて捨てる。
+    constexpr void release_layout_state() noexcept
+    {
+        aux_.reset();
     }
 
     // マッチの絶対 Y とその行の高さを返す。text_layout（テーブルはセル layout）が
@@ -260,7 +334,52 @@ struct NodeLayoutEntry {
     // text_offset_w は IDWriteTextLayout::HitTestTextPosition の引数なので UTF-16 単位を渡すこと
     // (UTF-8 byte を渡すと非 ASCII を含む段落で行 Y がずれる)。
     std::pair<float, float> GetMatchYRange(int table_row, int table_col, uint32_t text_offset_w, float entry_text_top) const noexcept;
+
+private:
+    struct Aux {
+        Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
+        // GetLineMetrics(&lm, 1, &lc) の結果をキャッシュ。0 なら未確定 (フォールバック計算する)。
+        // MeasureNode で text_layout 確定時に同時に求める。
+        float first_line_height = 0.0f;
+        // CodeBlock の最長行幅 (NO_WRAP で計測した自然幅)。横スクロールバーのスケール計算と
+        // クランプに使う。CodeBlock 以外では 0 のまま。
+        float natural_code_width = 0.0f;
+        bool effects_applied = false;
+        // SetMaxWidth だけの再計測は描画エフェクト/下線を保持するため、折り返しに依存する
+        // インラインコード背景だけ作り直させる。effects_applied が true のときのみ意味を持つ。
+        bool inline_code_bgs_stale = false;
+        // 再計測のたびに作り直すので、確保し直さないよう Aux に直接持つ。
+        std::pmr::vector<InlineCodeBg> inline_code_bgs;
+        // evict しても列幅・行高さを残すため、Aux を作り直しても引き継げるよう別に確保する。
+        std::unique_ptr<TableLayoutData> table_layout;
+        std::unique_ptr<SearchHlCache> search_hl_cache;
+        std::unique_ptr<SelectionHlCache> selection_hl_cache;
+    };
+
+    constexpr Aux& ensure_aux() const
+    {
+        return mendo::layout::detail::EnsureUnique(aux_);
+    }
+
+    template <class T>
+    constexpr T GetAux(T Aux::*field) const noexcept
+    {
+        return aux_ ? (*aux_).*field : T{};
+    }
+    template <class T>
+    constexpr void SetAux(T Aux::*field, T value)
+    {
+        if (aux_ || value != T{}) {
+            ensure_aux().*field = value;
+        }
+    }
+
+    // 描画中に const 経由でハイライトキャッシュを確保するため mutable。
+    mutable std::unique_ptr<Aux> aux_;
 };
+
+// 全ノード分並ぶので、計測・描画したノードでしか使わないフィールドは Aux に置いて増やさない。
+static_assert(sizeof(NodeLayoutEntry) <= 24, "NodeLayoutEntry size regression: move per-materialized fields into Aux");
 
 struct DiagramEntry {
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
@@ -321,7 +440,7 @@ public:
 
     // ノード Y 位置の唯一の真実。WRITE 経路は RecomputeYPositions / ComputeLayout /
     // EstimateNodeHeights のみ。MeasureNode は触らない (= 中間状態は古い値のまま)。
-    // 高さ変化時の後続ノード一括シフトが 72B ストライドの AoS を全件なめないよう、
+    // 高さ変化時の後続ノード一括シフトが AoS のエントリを全件なめないよう、
     // 連続 float 配列として entries_ とは別に持つ。
     constexpr float Top(size_t i) const noexcept
     {
@@ -344,17 +463,15 @@ public:
 
     // 画像/図のノードでしか使わないので全ノード分は持たない。確保は結果を書き込む EnsureDiagram だけが行い、
     // 読み取り・破棄は未確保 (nullptr) を返す FindDiagram を使う。
+    // 要素は node-based のマップに置くので、Mermaid の処理待ちが持つポインタは他ノードの追加で動かない。
     DiagramEntry& EnsureDiagram(size_t i)
     {
-        return mendo::layout::detail::EnsureUnique(diagrams_[i]);
+        return diagrams_[i];
     }
-    constexpr DiagramEntry* FindDiagram(size_t i) noexcept
+    auto* FindDiagram(this auto& self, size_t i) noexcept
     {
-        return diagrams_[i].get();
-    }
-    constexpr const DiagramEntry* FindDiagram(size_t i) const noexcept
-    {
-        return diagrams_[i].get();
+        const auto it = self.diagrams_.find(i);
+        return it != self.diagrams_.end() ? &it->second : nullptr;
     }
 
     // すべてのテキストレイアウトとエフェクトを無効化する（テーマ/ズーム変更時）。
@@ -372,6 +489,9 @@ public:
     // ダイアグラム系ノードのビットマップを無効化する。
     // ダークモード切替時に text_layout とエフェクトを保持したまま図だけ再描画したい場合に使う。
     void InvalidateDiagramBitmaps(const std::pmr::vector<Node>& nodes) noexcept;
+
+    // [first_keep_inclusive, last_keep_exclusive) の外にある画像/図のビットマップを捨てる。寸法とエラーは残す。
+    void EvictDiagramBitmapsOutside(size_t first_keep_inclusive, size_t last_keep_exclusive) noexcept;
 
     // 可視範囲外（[0, first_keep) と [last_keep, size())）のノードについて
     // text_layout / table_layout / inline_code_bgs / search_hl_cache を破棄する。
@@ -421,9 +541,6 @@ private:
     // (DPI 変更パスは bg を作り直すまで維持する設計)。
     static void ResetTableLayoutGeometry(TableLayoutData& tl) noexcept;
 
-    // table_layout / layout_dirty の扱いは呼び出し側ごとに異なるため触らない。
-    static void ResetEntryTextLayout(NodeLayoutEntry& e) noexcept;
-
     static void EvictEntryLayout(NodeLayoutEntry& e) noexcept;
 
     // 行単位 evict できる状態 (幾何と管理配列が揃っている) か。管理配列は MeasureTable が確保する。
@@ -435,7 +552,7 @@ private:
 
     std::pmr::vector<NodeLayoutEntry> entries_;
     std::pmr::vector<float> tops_;
-    std::pmr::vector<std::unique_ptr<DiagramEntry>> diagrams_;
+    std::pmr::unordered_map<size_t, DiagramEntry> diagrams_;
     size_t last_evict_fk_ = 0;
     size_t last_evict_lk_ = 0;
     // 前回 evict 以降に計測した index の範囲 [begin, end)。空は begin >= end。

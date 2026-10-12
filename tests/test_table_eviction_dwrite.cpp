@@ -58,7 +58,7 @@ TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsCreatesNullCellsWithoutDirty)
     ASSERT_GE(idx, 0);
     auto& entry = pl.cache[idx];
     ASSERT_TRUE(entry.has_table_layout());
-    auto& tl = *entry.table_layout;
+    auto& tl = *entry.table_layout();
 
     const size_t total_cells = tl.cell_layouts.size();
     ASSERT_GT(total_cells, 0u);
@@ -81,7 +81,7 @@ TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsNoOpWhenAllVisible)
     ASSERT_GE(idx, 0);
     auto& entry = pl.cache[idx];
     ASSERT_TRUE(entry.has_table_layout());
-    auto& tl = *entry.table_layout;
+    auto& tl = *entry.table_layout();
 
     const size_t total_cells = tl.cell_layouts.size();
     pl.cache.EvictInvisibleTableRows(std::array{ static_cast<size_t>(idx) }, pl.cache.Top(idx) - 100.0f, pl.cache.Bottom(idx) + 100.0f, 50.0f);
@@ -98,7 +98,7 @@ TEST_F(TableEvictionDWriteTest, SameWidthMeasureTakesFastPathAfterEviction)
     const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
     ASSERT_GE(idx, 0);
     auto& entry = pl.cache[idx];
-    auto& tl = *entry.table_layout;
+    auto& tl = *entry.table_layout();
     const float height_before = entry.height;
 
     EvictWholeTable(pl.cache, idx);
@@ -120,7 +120,7 @@ TEST_F(TableEvictionDWriteTest, RestoreRestoresOnlyVisibleRows)
     const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
     ASSERT_GE(idx, 0);
     auto& entry = pl.cache[idx];
-    auto& tl = *entry.table_layout;
+    auto& tl = *entry.table_layout();
     const size_t total_cells = tl.cell_layouts.size();
     const float height_before = entry.height;
 
@@ -148,7 +148,7 @@ TEST_F(TableEvictionDWriteTest, ProgressivelyRestoresAcrossScrolls)
     const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
     ASSERT_GE(idx, 0);
     auto& entry = pl.cache[idx];
-    auto& tl = *entry.table_layout;
+    auto& tl = *entry.table_layout();
     const size_t total_cells = tl.cell_layouts.size();
 
     EvictWholeTable(pl.cache, idx);
@@ -172,7 +172,7 @@ TEST_F(TableEvictionDWriteTest, EvictIsDifferentialAgainstLiveRange)
     const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
     ASSERT_GE(idx, 0);
     auto& entry = pl.cache[idx];
-    auto& tl = *entry.table_layout;
+    auto& tl = *entry.table_layout();
 
     EvictWholeTable(pl.cache, idx);
     EXPECT_EQ(tl.live_row_begin, tl.live_row_end) << "全行 evict 後は生存範囲が空";
@@ -196,13 +196,13 @@ TEST_F(TableEvictionDWriteTest, NodeEvictionKeepsTableGeometry)
     auto& entry = pl.cache[idx];
     ASSERT_TRUE(entry.has_table_layout());
     const float height_before = entry.height;
-    const auto col_widths_before = entry.table_layout->col_widths;
+    const auto col_widths_before = entry.table_layout()->col_widths;
 
     // keep 範囲を先頭ノードだけにしてテーブルを evict 対象にする。
     pl.cache.EvictTextLayouts(0, 1);
 
     ASSERT_TRUE(entry.has_table_layout()) << "幾何ごと破棄すると再表示時に全セル再構築になる";
-    auto& tl = *entry.table_layout;
+    auto& tl = *entry.table_layout();
     EXPECT_EQ(CountNonNullCells(tl), 0u);
     EXPECT_TRUE(tl.HasEvictedRows());
     EXPECT_EQ(tl.col_widths, col_widths_before);
@@ -235,12 +235,12 @@ TEST_F(TableEvictionDWriteTest, RestoreAfterWidthChangeCorrectsRowHeights)
     entry.layout_dirty = true;
     measurer_.MeasureNode(pl.nodes[idx], entry, narrow, vp);
     EXPECT_FALSE(entry.layout_dirty);
-    ASSERT_TRUE(entry.table_layout->HasEvictedRows());
+    ASSERT_TRUE(entry.table_layout()->HasEvictedRows());
 
     const auto result = measurer_.RestoreEvictedTableRows(pl.nodes[idx], entry, narrow, MeasureViewportRange{});
     EXPECT_TRUE(result.restored);
     EXPECT_TRUE(result.height_changed);
-    EXPECT_FALSE(entry.table_layout->HasEvictedRows());
+    EXPECT_FALSE(entry.table_layout()->HasEvictedRows());
 
     auto fresh = ParseAndLayout(md);
     auto& fresh_entry = fresh.cache[idx];
@@ -256,7 +256,7 @@ TEST_F(TableEvictionDWriteTest, EnsureVisibleLayoutRestoresEvictedVisibleRows)
     const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
     ASSERT_GE(idx, 0);
     auto& entry = pl.cache[idx];
-    auto& tl = *entry.table_layout;
+    auto& tl = *entry.table_layout();
 
     EvictWholeTable(pl.cache, idx);
     ASSERT_EQ(CountNonNullCells(tl), 0u);
@@ -283,8 +283,8 @@ TEST_F(TableEvictionDWriteTest, ParallelCellBuildMatchesSerial)
 
     const int idx = FindFirstNodeIndexByType(serial.nodes, NodeType::Table);
     ASSERT_GE(idx, 0);
-    const auto& s = *serial.cache[idx].table_layout;
-    const auto& p = *parallel.cache[idx].table_layout;
+    const auto& s = *serial.cache[idx].table_layout();
+    const auto& p = *parallel.cache[idx].table_layout();
     EXPECT_EQ(CountNonNullCells(p), p.cell_layouts.size());
     EXPECT_EQ(s.natural_col_widths, p.natural_col_widths);
     EXPECT_EQ(s.col_widths, p.col_widths);

@@ -51,14 +51,14 @@ std::pair<float, float> NodeLayoutEntry::GetMatchYRange(
     float base_y = entry_text_top;
     float fallback_h = height;
 
-    if (table_row >= 0 && has_table_layout()) {
+    if (const auto* tl = table_layout(); table_row >= 0 && tl) {
         const auto row = static_cast<size_t>(table_row);
-        if (row < table_layout->row_heights.size() && row < table_layout->row_cum_y.size()) {
-            base_y = entry_text_top + table_layout->row_cum_y[row];
-            fallback_h = table_layout->row_heights[row];
+        if (row < tl->row_heights.size() && row < tl->row_cum_y.size()) {
+            base_y = entry_text_top + tl->row_cum_y[row];
+            fallback_h = tl->row_heights[row];
         }
         if (table_col >= 0) {
-            layout = table_layout->GetCellLayout(row, static_cast<size_t>(table_col));
+            layout = tl->GetCellLayout(row, static_cast<size_t>(table_col));
         }
         if (layout != nullptr) {
             // セル本文は行上端から TABLE_CELL_PADDING 下に描かれる (GenTable の text_y と同じ)。
@@ -66,7 +66,7 @@ std::pair<float, float> NodeLayoutEntry::GetMatchYRange(
         }
     }
     else {
-        layout = text_layout.Get();
+        layout = text_layout();
     }
 
     if (layout != nullptr) {
@@ -97,23 +97,13 @@ void LayoutCache::ResetTableLayoutGeometry(TableLayoutData& tl) noexcept
     tl.natural_total_width = 0.0f;
 }
 
-void LayoutCache::ResetEntryTextLayout(NodeLayoutEntry& e) noexcept
-{
-    e.text_layout.Reset();
-    e.effects_applied = false;
-    e.first_line_height = 0.0f;
-    e.natural_code_width = 0.0f;
-    e.clear_inline_code_bgs();
-    e.invalidate_per_frame_hl_caches();
-}
-
 void LayoutCache::EvictEntryLayout(NodeLayoutEntry& e) noexcept
 {
     // テーブルは列幅・行高さを残してセル layout だけ捨てる。幾何ごと捨てると再表示時に
     // 全セルの CreateTextLayout (巨大テーブルで秒単位) をやり直すことになる。
-    if (e.table_layout && HasRowTracking(*e.table_layout)) {
+    if (auto* tl_ptr = e.table_layout(); tl_ptr && HasRowTracking(*tl_ptr)) {
         e.invalidate_per_frame_hl_caches();
-        auto& tl = *e.table_layout;
+        auto& tl = *tl_ptr;
         for (size_t r = tl.live_row_begin; r < tl.live_row_end; ++r) {
             EvictTableRow(tl, r);
         }
@@ -121,12 +111,12 @@ void LayoutCache::EvictEntryLayout(NodeLayoutEntry& e) noexcept
         tl.live_row_end = 0;
         return;
     }
-    if (!e.text_layout && !e.table_layout) {
-        return;
+    // レイアウトを持たないノード (HR / 画像 / 空テキスト) は計測済みのまま残す。
+    const bool had_layout = e.text_layout() || e.table_layout();
+    e.release_layout_state();
+    if (had_layout) {
+        e.layout_dirty = true;
     }
-    ResetEntryTextLayout(e);
-    e.table_layout.reset();
-    e.layout_dirty = true;
 }
 
 bool LayoutCache::HasRowTracking(const TableLayoutData& tl) noexcept
@@ -170,7 +160,7 @@ void LayoutCache::Resize(size_t node_count)
     if (entries_.size() != node_count) {
         entries_.resize(node_count);
         tops_.resize(node_count);
-        diagrams_.resize(node_count);
+        std::erase_if(diagrams_, [node_count](const auto& kv) { return kv.first >= node_count; });
         ResetEvictionTracking();
     }
 }
@@ -186,21 +176,26 @@ void LayoutCache::Reset(size_t node_count, bool shrink)
     };
     reset(entries_);
     reset(tops_);
-    reset(diagrams_);
+    if (shrink) {
+        diagrams_ = {};
+    }
+    else {
+        diagrams_.clear();
+    }
     ResetEvictionTracking();
 }
 
 void LayoutCache::InvalidateAllLayouts() noexcept
 {
     for (auto& e : entries_) {
-        ResetEntryTextLayout(e);
+        e.reset_layout_state();
         // ズーム変更で計測条件が変わるので、諦めたノードも改めて試す。旧倍率の実測値も推定に使わせない。
         e.measure_failures = 0;
         e.cached_width = NodeLayoutEntry::kUnmeasuredWidth;
         e.cached_height = 0.0f;
-        if (e.table_layout) {
-            ResetTableLayoutGeometry(*e.table_layout);
-            e.table_layout->cell_inline_code_bgs.clear();
+        if (auto* tl = e.table_layout()) {
+            ResetTableLayoutGeometry(*tl);
+            tl->cell_inline_code_bgs.clear();
         }
     }
     ResetEvictionTracking();
@@ -209,32 +204,37 @@ void LayoutCache::InvalidateAllLayouts() noexcept
 void LayoutCache::InvalidateEffects() noexcept
 {
     for (auto& e : entries_) {
-        e.effects_applied = false;
+        e.set_effects_applied(false);
         e.clear_inline_code_bgs();
-        if (e.table_layout) {
-            e.table_layout->cell_inline_code_bgs.clear();
-            e.table_layout->row_bgs_computed.clear();
-            e.table_layout->row_links_applied.clear();
+        if (auto* tl = e.table_layout()) {
+            tl->cell_inline_code_bgs.clear();
+            tl->row_bgs_computed.clear();
+            tl->row_links_applied.clear();
         }
     }
 }
 
 void LayoutCache::InvalidateAllDiagramBitmaps() noexcept
 {
-    for (auto& d : diagrams_) {
-        if (d) {
-            d->ResetForRetry();
-        }
+    for (auto& d : diagrams_ | std::views::values) {
+        d.ResetForRetry();
     }
 }
 
 void LayoutCache::InvalidateDiagramBitmaps(const std::pmr::vector<Node>& nodes) noexcept
 {
-    const auto count = std::min(nodes.size(), diagrams_.size());
-    for (const auto& [idx, node] : nodes | std::views::take(count) | std::views::enumerate) {
-        auto& d = diagrams_[static_cast<size_t>(idx)];
-        if (d && IsDiagramCodeBlock(node)) {
-            d->ResetForRetry();
+    for (auto& [idx, d] : diagrams_) {
+        if (idx < nodes.size() && IsDiagramCodeBlock(nodes[idx])) {
+            d.ResetForRetry();
+        }
+    }
+}
+
+void LayoutCache::EvictDiagramBitmapsOutside(size_t first_keep_inclusive, size_t last_keep_exclusive) noexcept
+{
+    for (auto& [idx, d] : diagrams_) {
+        if (idx < first_keep_inclusive || idx >= last_keep_exclusive) {
+            d.EvictBitmap();
         }
     }
 }
@@ -282,11 +282,11 @@ void LayoutCache::EvictInvisibleTableRows(
         if (idx >= entries_.size()) {
             continue;
         }
-        auto& e = entries_[idx];
-        if (!e.table_layout || !HasRowTracking(*e.table_layout)) {
+        auto* tl_ptr = entries_[idx].table_layout();
+        if (!tl_ptr || !HasRowTracking(*tl_ptr)) {
             continue;
         }
-        auto& tl = *e.table_layout;
+        auto& tl = *tl_ptr;
         // 既に evict 済みの行はなめ直さず、生存範囲のうち keep 外の差分だけ捨てる。
         // 再可視化は dirty を経由せず LayoutEngine::EnsureVisibleLayout の行復元で行う。
         const auto [keep_begin, keep_end] = tl.VisibleRowRange(keep_top - tops_[idx], keep_bottom - tops_[idx]);

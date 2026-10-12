@@ -363,7 +363,7 @@ TEST_F(MockLayoutTest, PartialModeClearsTableColWidthsWhenHeightGrows)
     const int table_idx = FindFirstNodeIndexByType(nodes, NodeType::Table);
     ASSERT_GE(table_idx, 0);
     ASSERT_TRUE(cache[table_idx].has_table_layout());
-    ASSERT_FALSE(cache[table_idx].table_layout->col_widths.empty());
+    ASSERT_FALSE(cache[table_idx].table_layout()->col_widths.empty());
 
     // 成長分岐を強制発動させるため、現在の entry.height を意図的に小さくする
     cache[table_idx].height = 1.0f;
@@ -371,7 +371,7 @@ TEST_F(MockLayoutTest, PartialModeClearsTableColWidthsWhenHeightGrows)
     // partial + invisible (テーブルは viewport より下) で再レイアウト。viewport は先頭余白内に収める。
     engine_.ComputeLayout(nodes, cache, 600.0f, 0.0f, theme_.margin_top * 0.5f);
 
-    EXPECT_TRUE(cache[table_idx].table_layout->col_widths.empty())
+    EXPECT_TRUE(cache[table_idx].table_layout()->col_widths.empty())
         << "成長時に col_widths がクリアされず、描画範囲と entry.height が乖離する";
 }
 
@@ -421,7 +421,7 @@ TEST_F(MockLayoutTest, ResetClearsAllEntries)
     for (size_t i = 0; i < cache.size(); i++) {
         EXPECT_TRUE(cache[i].layout_dirty) << "エントリ " << i << " はReset後にダーティであるべき";
         EXPECT_FLOAT_EQ(cache[i].height, 0.0f) << "エントリ " << i << " の高さはReset後に0であるべき";
-        EXPECT_EQ(cache[i].text_layout.Get(), nullptr);
+        EXPECT_EQ(cache[i].text_layout(), nullptr);
     }
 }
 

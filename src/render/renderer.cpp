@@ -162,17 +162,22 @@ static InlineCodeBg MakeInlineCodeBg(const DWRITE_HIT_TEST_METRICS& m) noexcept
 void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom)
 {
     MENDO_COUNT_INC(g_effect_stats.apply_table);
+    // 未計測のテーブルには適用先のセル layout が無いので、済みの印を付けずに戻る。
+    auto* const tl_ptr = entry.table_layout();
+    if (!tl_ptr) {
+        return;
+    }
     const auto* tbl = node.table_data();
-    if (!tbl || tbl->row_count == 0 || !entry.has_table_layout()) {
-        entry.effects_applied = true;
+    if (!tbl || tbl->row_count == 0) {
+        entry.set_effects_applied(true);
         return;
     }
 
     const auto row_count = static_cast<size_t>(tbl->row_count);
     const auto col_count = static_cast<size_t>(tbl->col_count);
-    auto& tl = *entry.table_layout;
-    if (!entry.effects_applied) {
-        entry.effects_applied = true;
+    auto& tl = *tl_ptr;
+    if (!entry.effects_applied()) {
+        entry.set_effects_applied(true);
         tl.cell_inline_code_bgs.clear();
         tl.row_bgs_computed.assign(row_count, 0);
         tl.row_links_applied.assign(row_count, 0);
@@ -289,19 +294,19 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_
         return;
     }
 
-    if (entry.effects_applied && !entry.inline_code_bgs_stale) {
+    // 適用先の text_layout が無いノードには済みの印を付けない。
+    IDWriteTextLayout* const layout = entry.text_layout();
+    if (node.type == NodeType::Image || !layout) {
+        return;
+    }
+    if (entry.effects_applied() && !entry.inline_code_bgs_stale()) {
         return;
     }
     // SetMaxWidth だけの再計測後は描画エフェクト/下線が残っているので、インラインコード背景だけ作り直す。
-    const bool apply_brushes = !entry.effects_applied;
-    entry.effects_applied = true;
-    entry.inline_code_bgs_stale = false;
+    const bool apply_brushes = !entry.effects_applied();
+    entry.set_effects_applied(true);
+    entry.set_inline_code_bgs_stale(false);
     MENDO_COUNT_INC(g_effect_stats.apply_node);
-
-    if (node.type == NodeType::Image || !entry.text_layout) {
-        return;
-    }
-    IDWriteTextLayout* const layout = entry.text_layout.Get();
 
     // token / alert_label / run の offset/length は UTF-8 byte 単位なので、IDWriteTextLayout が要求する
     // UTF-16 textPosition に変換する。各パス内で byte 位置は単調なので、全文の UTF-16 化はせず

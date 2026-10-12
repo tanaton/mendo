@@ -10,19 +10,19 @@ TEST(LayoutCacheTest, InvalidateAllLayouts)
     cache.Resize(3);
 
     // レイアウトが設定された状態をシミュレート
-    cache[0].effects_applied = true;
-    cache[1].effects_applied = true;
-    cache[2].effects_applied = true;
+    cache[0].set_effects_applied(true);
+    cache[1].set_effects_applied(true);
+    cache[2].set_effects_applied(true);
     cache[0].ensure_inline_code_bgs().emplace_back(0.0f, 0.0f, 10.0f, 10.0f);
     cache[1].ensure_inline_code_bgs().emplace_back(0.0f, 0.0f, 20.0f, 20.0f);
 
     cache.InvalidateAllLayouts();
 
     for (size_t i = 0; i < 3; ++i) {
-        EXPECT_FALSE(cache[i].effects_applied) << "index " << i;
+        EXPECT_FALSE(cache[i].effects_applied()) << "index " << i;
         EXPECT_TRUE(cache[i].view_inline_code_bgs().empty()) << "index " << i;
         // text_layoutはComPtrで、Reset()するとnullになる
-        EXPECT_EQ(cache[i].text_layout.Get(), nullptr) << "index " << i;
+        EXPECT_EQ(cache[i].text_layout(), nullptr) << "index " << i;
     }
 }
 
@@ -101,6 +101,21 @@ TEST(LayoutCacheTest, FindDiagramDoesNotAllocate)
     ASSERT_NE(cache.FindDiagram(1), nullptr);
     EXPECT_FLOAT_EQ(cache.FindDiagram(1)->width, 10.0f);
     EXPECT_EQ(cache.FindDiagram(0), nullptr);
+}
+
+// ノード数が減ったら範囲外のダイアグラムを捨てる。残すと別文書の同じ番号のノードに旧ビットマップが付く。
+TEST(LayoutCacheTest, ResizeDropsDiagramsBeyondNodeCount)
+{
+    LayoutCache cache;
+    cache.Resize(4);
+    cache.EnsureDiagram(1).width = 10.0f;
+    cache.EnsureDiagram(3).width = 30.0f;
+
+    cache.Resize(2);
+
+    ASSERT_NE(cache.FindDiagram(1), nullptr);
+    EXPECT_FLOAT_EQ(cache.FindDiagram(1)->width, 10.0f);
+    EXPECT_EQ(cache.FindDiagram(3), nullptr);
 }
 
 // テーマ変更等の全ダイアグラム無効化でエラー状態もクリアされ、

@@ -66,7 +66,7 @@ DirectHit FindDirectHit(const MdPaneHitContext& ctx, float dip_y) noexcept
     // 背景の下側はみ出し部分 (横スクロールバーを置きたい領域) もそのノードのヒットとして扱い、
     // ホバーが切れないようにする。
     const bool inside = dip_y <= hit.text_top + ctx.cache[c].height + NodeBoxPadY(ctx.nodes[c], ctx.theme);
-    if (inside && (ctx.nodes[c].type == NodeType::Table || ctx.cache[c].text_layout)) {
+    if (inside && (ctx.nodes[c].type == NodeType::Table || ctx.cache[c].text_layout())) {
         hit.node_index = hit.candidate;
     }
     return hit;
@@ -103,7 +103,7 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
     BOOL is_trailing = FALSE;
     BOOL is_inside = FALSE;
     DWRITE_HIT_TEST_METRICS metrics{};
-    entry.text_layout->HitTestPoint(local_x, local_y, &is_trailing, &is_inside, &metrics);
+    entry.text_layout()->HitTestPoint(local_x, local_y, &is_trailing, &is_inside, &metrics);
 
     const auto& wv = md_wv_cache_.Get(node.GetText());
     return { direct.node_index, wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0)) };
@@ -128,10 +128,11 @@ HitTestService::HitResult HitTestService::HitTestTable(
     HitResult result;
     result.node_index = node_index;
 
-    if (!entry.has_table_layout()) {
+    const auto* tl_ptr = entry.table_layout();
+    if (!tl_ptr) {
         return result;
     }
-    const auto& tl = *entry.table_layout;
+    const auto& tl = *tl_ptr;
 
     const float indent = NodeIndent(node, theme);
     // テーブルが scroll_x 分左にスライドして見えるため、列の自然座標と一致させるには

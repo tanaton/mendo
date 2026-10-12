@@ -94,7 +94,7 @@ void CacheFirstLineHeight(IDWriteTextLayout* layout, NodeLayoutEntry& entry) noe
     UINT32 lc = 0;
     // 複数行レイアウトでは E_NOT_SUFFICIENT_BUFFER が返るが、先頭 1 行分は lm に書き込まれる。
     const HRESULT hr = layout->GetLineMetrics(&lm, 1, &lc);
-    entry.first_line_height = ((SUCCEEDED(hr) || hr == E_NOT_SUFFICIENT_BUFFER) && lc > 0) ? lm.height : 0.0f;
+    entry.set_first_line_height(((SUCCEEDED(hr) || hr == E_NOT_SUFFICIENT_BUFFER) && lc > 0) ? lm.height : 0.0f);
 }
 
 // entry.text_layout の計測結果を確定する。折り返し行が変わるためハイライト矩形は無効化する。
@@ -104,10 +104,10 @@ void FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TE
 {
     entry.height = metrics.height;
     entry.layout_dirty = false;
-    CacheFirstLineHeight(entry.text_layout.Get(), entry);
+    CacheFirstLineHeight(entry.text_layout(), entry);
     entry.invalidate_per_frame_hl_caches();
     if (node.type == NodeType::CodeBlock) {
-        entry.natural_code_width = metrics.widthIncludingTrailingWhitespace;
+        entry.set_natural_code_width(metrics.widthIncludingTrailingWhitespace);
         // NO_WRAP なので再利用時は行も変わらず、インラインコード背景も持たない。
         if (reused_layout) {
             return;
@@ -115,10 +115,10 @@ void FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TE
     }
     entry.clear_inline_code_bgs();
     if (reused_layout) {
-        entry.inline_code_bgs_stale = true;
+        entry.set_inline_code_bgs_stale(true);
     }
     else {
-        entry.effects_applied = false;
+        entry.set_effects_applied(false);
     }
 }
 
@@ -162,15 +162,13 @@ bool MeasureWithoutTextLayout(const Node& node, NodeLayoutEntry& entry, float ma
 bool RemeasureExistingLayout(const Node& node, NodeLayoutEntry& entry, float layout_width) noexcept
 {
     MENDO_PROFILE("MeasureNode.fastpath");
-    if (SUCCEEDED(entry.text_layout->SetMaxWidth(layout_width))) {
+    if (SUCCEEDED(entry.text_layout()->SetMaxWidth(layout_width))) {
         DWRITE_TEXT_METRICS metrics{};
-        entry.text_layout->GetMetrics(&metrics);
+        entry.text_layout()->GetMetrics(&metrics);
         FinishTextMeasure(node, entry, metrics, true);
         return true;
     }
-    entry.text_layout.Reset();
-    entry.first_line_height = 0.0f;
-    entry.natural_code_width = 0.0f;
+    entry.reset_text_layout();
     return false;
 }
 
@@ -364,13 +362,13 @@ void DWriteTextMeasurer::MeasureNode(
     }
 
     // CodeBlock は fmt_code_ が NO_WRAP なので、高さも行もハイライト矩形も幅に依存しない。
-    if (node.type == NodeType::CodeBlock && entry.text_layout && entry.cached_height > 0.0f) {
+    if (node.type == NodeType::CodeBlock && entry.text_layout() && entry.cached_height > 0.0f) {
         entry.height = entry.cached_height;
         entry.layout_dirty = false;
         return;
     }
     const float layout_width = (node.type == NodeType::CodeBlock) ? LAYOUT_INFINITY : max_width;
-    if (entry.text_layout && RemeasureExistingLayout(node, entry, layout_width)) {
+    if (entry.text_layout() && RemeasureExistingLayout(node, entry, layout_width)) {
         return;
     }
 
@@ -389,7 +387,7 @@ void DWriteTextMeasurer::MeasureNode(
         TokenizeCodeBlock(node, text);
     }
 
-    entry.text_layout = std::move(layout);
+    entry.set_text_layout(std::move(layout));
     FinishTextMeasure(node, entry, metrics, false);
 }
 
@@ -468,7 +466,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayou
     MENDO_PROFILE("FinalizeTableLayout");
     const float cell_padding = TABLE_CELL_PADDING;
     const float border_width = TABLE_BORDER_WIDTH;
-    auto& tl = *entry.table_layout;
+    auto& tl = *entry.table_layout();
     const size_t col_count = tl.col_count;
     const auto& natural_widths = tl.natural_col_widths;
     const float borders_width = (static_cast<float>(col_count) + 1.0f) * border_width;
@@ -526,7 +524,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(Node& node, NodeL
 {
     MENDO_PROFILE("RestoreEvictedTableRows");
     TableRestoreResult result;
-    auto* tl_ptr = entry.table_layout.get();
+    auto* tl_ptr = entry.table_layout();
     const auto* tbl = node.table_data();
     if (!dwrite_ || !theme_ || !tl_ptr || !tbl || !tl_ptr->HasEvictedRows()) {
         return result;
@@ -590,7 +588,7 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
 
     // 既存レイアウトの互換性判定。row*col の積だけだと (旧6×4) と (新8×3) のように積が一致するだけで
     // ストライド (col_count) が違うケースを取りこぼすため、col_count も明示的に比較する。
-    const auto* tl_existing = entry.table_layout.get();
+    const auto* tl_existing = entry.table_layout();
     const bool has_compatible_layouts = tl_existing && tl_existing->col_count == col_count && !tl_existing->cell_layouts.empty() && tl_existing->cell_layouts.size() == row_count * col_count;
 
     // 超高速パス: 前回と max_width がほぼ一致しキャッシュ済みレイアウトが揃っていれば、
@@ -613,7 +611,7 @@ void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float 
     // 残っている可能性に備えて落としておく。
     entry.invalidate_per_frame_hl_caches();
 
-    entry.effects_applied = false;
+    entry.set_effects_applied(false);
     auto& tl = entry.ensure_table_layout();
     tl.cell_inline_code_bgs.clear();
     // 計算済みフラグを残すと、幅変更時に画面外だった行の inline code 背景が

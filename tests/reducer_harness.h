@@ -59,7 +59,7 @@ public:
             cache.SetTop(i, y);
             cache[i].height = kNodeHeight;
             if (IsScrollableCodeBlock(nodes[i])) {
-                cache[i].natural_code_width = opt.code_natural_width;
+                cache[i].set_natural_code_width(opt.code_natural_width);
             }
             y += kNodeHeight;
         }

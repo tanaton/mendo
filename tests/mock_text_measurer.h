@@ -97,10 +97,10 @@ public:
             h *= heading_scale;
         }
 
-        entry.text_layout = nullptr; // モックでは実際のレイアウトなし
+        entry.reset_text_layout(); // モックでは実際のレイアウトなし
         entry.height = h;
         entry.layout_dirty = false;
-        entry.effects_applied = false;
+        entry.set_effects_applied(false);
     }
 
 private:

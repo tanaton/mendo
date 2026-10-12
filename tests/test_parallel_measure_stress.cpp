@@ -139,7 +139,7 @@ void ExpectBitExactEqual(const StressFixture& s, const StressFixture& p,
     for (size_t i = 0; i < n; ++i) {
         EXPECT_FLOAT_EQ(s.cache[i].height, p.cache[i].height) << "i=" << i;
         EXPECT_EQ(s.cache[i].layout_dirty, p.cache[i].layout_dirty) << "i=" << i;
-        EXPECT_EQ(s.cache[i].effects_applied, p.cache[i].effects_applied) << "i=" << i;
+        EXPECT_EQ(s.cache[i].effects_applied(), p.cache[i].effects_applied()) << "i=" << i;
 
         const auto& ts = s.nodes[i].syntax_tokens();
         const auto& tp = p.nodes[i].syntax_tokens();

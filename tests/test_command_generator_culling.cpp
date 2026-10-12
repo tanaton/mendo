@@ -314,7 +314,7 @@ TEST_F(CullingParityTest, AllNodesInsideOffsetPaneClipAreDrawn)
             const float window_top = dy + pl.cache.Top(i) - scroll_y;
             const float window_bottom = window_top + pl.cache[i].height;
             if (window_bottom > PANE_Y && window_top < PANE_Y + PANE_H) {
-                EXPECT_TRUE(drawn.contains(pl.cache[i].text_layout.Get())) << "scroll_y=" << scroll_y << " node=" << i;
+                EXPECT_TRUE(drawn.contains(pl.cache[i].text_layout())) << "scroll_y=" << scroll_y << " node=" << i;
             }
         }
     }

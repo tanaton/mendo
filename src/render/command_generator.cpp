@@ -94,7 +94,7 @@ private:
 // 描画ホットパスから COM 越境呼び出しを排除する。
 static float GetFirstLineHeight(const NodeLayoutEntry& entry, float font_size) noexcept
 {
-    return (entry.first_line_height > 0.0f) ? entry.first_line_height : font_size * FALLBACK_LINE_HEIGHT_FACTOR;
+    return (entry.first_line_height() > 0.0f) ? entry.first_line_height() : font_size * FALLBACK_LINE_HEIGHT_FACTOR;
 }
 
 // box はスクロール位置に依らない値を渡す。矩形の差から求めると丸めでキャッシュが外れる。
@@ -205,7 +205,9 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         if (local_text_top - fc.overhang.above > cull_bottom_) {
             break;
         }
-        GenerateNode(cmds, fc, nodes[i], cache[i], cache.FindDiagram(i), i, local_text_top);
+        const Node& node = nodes[i];
+        const DiagramEntry* diagram = IsBitmapDrawNode(node) ? cache.FindDiagram(i) : nullptr;
+        GenerateNode(cmds, fc, node, cache[i], diagram, i, local_text_top);
         ++visible_count;
     }
 
@@ -361,7 +363,7 @@ CommandGenerator::NodeBaseStyle CommandGenerator::GetNodeBaseStyle(const Node& n
 
 void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, int node_index, float text_x, float entry_text_top)
 {
-    if (!entry.text_layout) {
+    if (!entry.text_layout()) {
         return;
     }
 
@@ -380,7 +382,7 @@ void CommandGenerator::GenNodeTextDecorations(DrawCommandList& cmds, const Frame
         }
     }
 
-    cmds.emplace_back(MakeTextLayoutCmd(D2D1::Point2F(text_x, entry_text_top), entry.text_layout.Get(), entry.height, base_color, base_brush, cull_top_, cull_bottom_));
+    cmds.emplace_back(MakeTextLayoutCmd(D2D1::Point2F(text_x, entry_text_top), entry.text_layout(), entry.height, base_color, base_brush, cull_top_, cull_bottom_));
 }
 
 void CommandGenerator::GenTaskListCheckbox(DrawCommandList& cmds, const Node& node, float x, float entry_text_top)

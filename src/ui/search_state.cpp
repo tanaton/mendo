@@ -7,12 +7,6 @@
 #include <optional>
 
 namespace {
-// ビットマップ描画ノード (画像 / ダイアグラムコードブロック) はテキストハイライト不可のため検索対象外。
-bool IsNonSearchableDrawNode(const Node& node) noexcept
-{
-    return node.type == NodeType::Image || IsDiagramCodeBlock(node);
-}
-
 size_t FindNext(std::string_view text, std::string_view query, bool fold, size_t pos) noexcept
 {
     return fold ? ascii_util::FindAsciiCaseInsensitive(text, query, pos) : ascii_util::Find(text, query, pos);
@@ -47,7 +41,7 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
         if (node.type == NodeType::Table && node.has_table()) {
             FindTableMatches(*node.table_data(), query, fold, i);
         }
-        else if (const auto& text = node.GetText(); !text.empty() && !IsNonSearchableDrawNode(node)) {
+        else if (const auto& text = node.GetText(); !text.empty() && !IsBitmapDrawNode(node)) {
             FindTextMatches(text, query, fold, i);
         }
     }
@@ -171,10 +165,10 @@ void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) 
             return false;
         }
         if (m.table_row >= 0) {
-            const auto& entry = cache[m.node_index];
+            const auto* tl = cache[m.node_index].table_layout();
             const auto row = static_cast<size_t>(m.table_row);
-            if (entry.has_table_layout() && row + 1 < entry.table_layout->row_cum_y.size()) {
-                return cache.Top(static_cast<size_t>(m.node_index)) + entry.table_layout->row_cum_y[row + 1] <= scroll_y;
+            if (tl && row + 1 < tl->row_cum_y.size()) {
+                return cache.Top(static_cast<size_t>(m.node_index)) + tl->row_cum_y[row + 1] <= scroll_y;
             }
         }
         return match_y(m) < scroll_y;

@@ -305,28 +305,10 @@ public:
         const auto tables = VisibleSlice(deps_.doc->GetTableNodeIndices(), vr.first, vr.last_plus_1);
         deps_.cache->EvictInvisibleTableRows(std::span<const size_t>(tables.begin, tables.end), viewport_top, viewport_top + viewport_height, buffer);
 
-        // image/diagram bitmap の evict も可視範囲外（[0, vr.first) と
-        // [vr.last_plus_1, node_count)）だけを走査する。IndexSlice で配列の該当部分を
-        // 切り出して、各々 bitmap をリセット。
-        const auto evict_outside_keep = [&](const std::pmr::vector<size_t>& indices) {
-            const auto keep = VisibleSlice(indices, vr.first, vr.last_plus_1);
-            const auto reset_bitmap = [&](size_t i) {
-                if (auto* d = deps_.cache->FindDiagram(i)) {
-                    d->EvictBitmap();
-                }
-            };
-            for (auto it = indices.begin(); it != keep.begin; ++it) {
-                reset_bitmap(*it);
-            }
-            for (auto it = keep.end; it != indices.end(); ++it) {
-                reset_bitmap(*it);
-            }
-        };
-        evict_outside_keep(deps_.doc->GetImageNodeIndices());
-        // diagram はオフスクリーンの bitmap (layout 側) だけ解放する。レンダ済みビットマップの
+        // image/diagram bitmap も可視範囲外の分を捨てる。レンダ済みビットマップの
         // 二次キャッシュ (mermaid 内 LRU, 128 件) は自前で上限管理されるため全消去しない。
         // 全消去すると可視中の図まで捨てて WebView2 再レンダの cliff を生むため。
-        evict_outside_keep(deps_.doc->GetDiagramNodeIndices());
+        deps_.cache->EvictDiagramBitmapsOutside(vr.first, vr.last_plus_1);
     }
 
     void FlushPendingResources()

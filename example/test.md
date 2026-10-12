@@ -2734,14 +2734,23 @@ classDiagram
     }
 
     class NodeLayoutEntry {
-        +float text_top
         +float height
-        +ComPtr~IDWriteTextLayout~ text_layout
+        +float cached_width / cached_height
         +bool layout_dirty
-        +bool effects_applied
+        +uint8_t measure_failures
+        -unique_ptr~Aux~ aux_ (mutable)
+        +text_layout() IDWriteTextLayout*
+        +table_layout() TableLayoutData*
+    }
+
+    class Aux {
+        +ComPtr~IDWriteTextLayout~ text_layout
+        +float first_line_height / natural_code_width
+        +bool effects_applied / inline_code_bgs_stale
         +unique_ptr~vector~InlineCodeBg~~ inline_code_bgs
         +unique_ptr~TableLayoutData~ table_layout
-        +unique_ptr~SearchHlCache~ search_hl_cache (mutable)
+        +unique_ptr~SearchHlCache~ search_hl_cache
+        +unique_ptr~SelectionHlCache~ selection_hl_cache
     }
 
     class TableLayoutData {
@@ -2762,11 +2771,14 @@ classDiagram
     }
 
     LayoutCache "1" --> "*" NodeLayoutEntry
-    LayoutCache "1" --> "*" DiagramEntry : unique_ptr (遅延確保)
-    NodeLayoutEntry "1" --> "0..1" TableLayoutData
+    LayoutCache "1" --> "*" DiagramEntry : unordered_map (遅延確保)
+    NodeLayoutEntry "1" --> "0..1" Aux : unique_ptr (計測・描画時に確保)
+    Aux "1" --> "0..1" TableLayoutData
 ```
 
-`TableLayoutData` は `unique_ptr` でテーブルノードのみ確保される。セルレイアウトはフラット配列 `[row * col_count + col]` で持ち、`natural_col_widths` / `cell_heights` / `cell_applied_widths` などをまとめて管理する。`cell_inline_code_bgs` も flat 化されており、bg を持たないセル分の空 vector ヘッダ（24B/個）を排除する。`DiagramEntry` の `png` はクリップボードコピー用の元 PNG データ。`DiagramEntry` は画像/図のノードでしか使わないため、`diagrams_` は `std::pmr::vector<std::unique_ptr<DiagramEntry>>`（ノードあたり 8B）として持つ。確保は結果を書き込む `EnsureDiagram(i)` だけが行い、読み取り・描画・破棄は未確保なら `nullptr` を返す `FindDiagram(i)` を使うので、表示していない画像/図ノードには確保しない。検索ヒットがあるノードでのみ `search_hl_cache` が確保される（フレーム間キャッシュ、`SearchState::generation_` と一致する間は HitTestTextRange を再計算しない）。
+`NodeLayoutEntry` は全ノード分並ぶので、全ノードで要る高さ・実測キャッシュ・dirty フラグだけを直に持ち (24B)、テキストレイアウトやエフェクト状態など計測・描画したノードでしか使わないものは `Aux` に置いて必要になったときに確保する。既定値を書く setter (`set_effects_applied(false)` など) は `Aux` を確保しない。evict では `Aux` ごと解放し (行単位 evict するテーブルは列幅・行高さを残す)、ズーム等の全無効化ではテーブル幾何だけ残して作り直す。
+
+`TableLayoutData` は `unique_ptr` でテーブルノードのみ確保される。セルレイアウトはフラット配列 `[row * col_count + col]` で持ち、`natural_col_widths` / `cell_heights` / `cell_applied_widths` などをまとめて管理する。`cell_inline_code_bgs` も flat 化されており、bg を持たないセル分の空 vector ヘッダ（24B/個）を排除する。`DiagramEntry` の `png` はクリップボードコピー用の元 PNG データ。`DiagramEntry` は画像/図のノードでしか使わないため、`diagrams_` は全ノード分の枠を持たず、ノード番号をキーにした `std::pmr::unordered_map<size_t, DiagramEntry>` として持つ。要素の位置はほかの要素の追加で動かないので、Mermaid の処理待ちが持つポインタも有効なまま。確保は結果を書き込む `EnsureDiagram(i)` だけが行い、読み取り・描画・破棄は未確保なら `nullptr` を返す `FindDiagram(i)` を使うので、表示していない画像/図ノードには確保しない。検索ヒットがあるノードでのみ `search_hl_cache` が確保される（フレーム間キャッシュ、`SearchState::generation_` と一致する間は HitTestTextRange を再計算しない）。
 
 ### 4.3 Document
 

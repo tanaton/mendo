@@ -54,7 +54,7 @@ TEST(GetBlockHScrollGeometry, ScrollableCodeBlockUsesNaturalCodeWidth)
     Node node;
     node.type = NodeType::CodeBlock; // code_language()==None → IsScrollableCodeBlock
     NodeLayoutEntry entry;
-    entry.natural_code_width = 1234.0f;
+    entry.set_natural_code_width(1234.0f);
 
     constexpr float kPaneWidth = 800.0f;
     const auto g = GetBlockHScrollGeometry(node, entry, theme, kPaneWidth);
@@ -95,7 +95,7 @@ TEST(GetBlockHScrollGeometry, ParagraphIsNotScrollable)
     Node node;
     node.type = NodeType::Paragraph;
     NodeLayoutEntry entry;
-    entry.natural_code_width = 9999.0f;
+    entry.set_natural_code_width(9999.0f);
 
     const auto g = GetBlockHScrollGeometry(node, entry, theme, 800.0f);
     EXPECT_FLOAT_EQ(g.natural_width, 0.0f);
@@ -110,7 +110,7 @@ TEST(GetBlockHScrollGeometry, IndentReducesVisibleWidth)
     node.type = NodeType::CodeBlock;
     node.indent_level = 2;
     NodeLayoutEntry entry;
-    entry.natural_code_width = 1000.0f;
+    entry.set_natural_code_width(1000.0f);
 
     constexpr float kPaneWidth = 800.0f;
     const auto g = GetBlockHScrollGeometry(node, entry, theme, kPaneWidth);

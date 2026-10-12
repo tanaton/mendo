@@ -141,20 +141,20 @@ TEST_F(LayoutTest, LayoutDirtyFlagCleared)
 TEST_F(LayoutTest, TextLayoutCreated)
 {
     auto [nodes, cache] = ParseAndLayout("Test paragraph");
-    EXPECT_NE(cache[0].text_layout.Get(), nullptr);
+    EXPECT_NE(cache[0].text_layout(), nullptr);
 }
 
 TEST_F(LayoutTest, HorizontalRuleHasNoTextLayout)
 {
     auto [nodes, cache] = ParseAndLayout("---");
-    EXPECT_EQ(cache[0].text_layout.Get(), nullptr);
+    EXPECT_EQ(cache[0].text_layout(), nullptr);
     EXPECT_GT(cache[0].height, 0.0f);
 }
 
 TEST_F(LayoutTest, CodeBlockTextLayout)
 {
     auto [nodes, cache] = ParseAndLayout("```\ncode\n```");
-    EXPECT_NE(cache[0].text_layout.Get(), nullptr);
+    EXPECT_NE(cache[0].text_layout(), nullptr);
 }
 
 TEST_F(LayoutTest, TableLayout)
@@ -167,7 +167,7 @@ TEST_F(LayoutTest, TableLayout)
     EXPECT_EQ(nodes[0].type, NodeType::Table);
     EXPECT_GT(cache[0].height, 0.0f);
     ASSERT_TRUE(cache[0].has_table_layout());
-    EXPECT_FALSE(cache[0].table_layout->col_widths.empty());
+    EXPECT_FALSE(cache[0].table_layout()->col_widths.empty());
 }
 
 TEST_F(LayoutTest, TableCellLayoutsCreated)
@@ -177,7 +177,7 @@ TEST_F(LayoutTest, TableCellLayoutsCreated)
         "|---|---|\n"
         "| 1 | 2 |");
     ASSERT_TRUE(cache[0].has_table_layout());
-    const auto& tl = *cache[0].table_layout;
+    const auto& tl = *cache[0].table_layout();
     const auto* tbl = nodes[0].table_data();
     for (size_t r = 0; r < tbl->row_count; r++) {
         for (size_t c = 0; c < tbl->col_count; c++) {
@@ -200,7 +200,7 @@ TEST_F(LayoutTest, TableCellLinkHasUnderline)
 
     // データ行の2番目のセルにはリンクランがあり、下線が適用されていること
     ASSERT_TRUE(cache[0].has_table_layout());
-    IDWriteTextLayout* cell_layout = cache[0].table_layout->GetCellLayout(1, 1);
+    IDWriteTextLayout* cell_layout = cache[0].table_layout()->GetCellLayout(1, 1);
     ASSERT_NE(cell_layout, nullptr);
 
     // セル内にリンクランが存在することを確認
@@ -517,7 +517,7 @@ TEST_F(LayoutTest, TableWidthFitsNodeOrScrollableNaturalWidth)
         auto [nodes, cache] = ParseAndLayout(md, viewport_w);
         ASSERT_EQ(nodes.size(), 1u);
         ASSERT_TRUE(cache[0].has_table_layout());
-        const auto& tl = *cache[0].table_layout;
+        const auto& tl = *cache[0].table_layout();
         const float node_width = theme_.ContentWidth(viewport_w) - NodeIndent(nodes[0], theme_);
         EXPECT_LE(tl.cached_table_width, std::max(node_width, tl.natural_total_width) + 0.05f)
             << "natural_total_width=" << tl.natural_total_width << " node_width=" << node_width;
@@ -964,7 +964,7 @@ TEST_F(LayoutTest, InlineCodeInHeadingAllLevels)
 
         ASSERT_EQ(nodes.size(), 1u);
         ASSERT_EQ(nodes[0].type, NodeType::Heading);
-        ASSERT_NE(cache[0].text_layout.Get(), nullptr);
+        ASSERT_NE(cache[0].text_layout(), nullptr);
 
         bool found_code_run = false;
         for (const auto& run : nodes[0].runs) {
@@ -972,7 +972,7 @@ TEST_F(LayoutTest, InlineCodeInHeadingAllLevels)
                 found_code_run = true;
                 float code_font_size = 0.0f;
                 DWRITE_TEXT_RANGE range{};
-                cache[0].text_layout->GetFontSize(run.start, &code_font_size, &range);
+                cache[0].text_layout()->GetFontSize(run.start, &code_font_size, &range);
                 EXPECT_FLOAT_EQ(code_font_size, theme_.font_size_h[level - 1])
                     << "H" << level << " 内のインラインコードのフォントサイズが不一致";
             }
@@ -989,13 +989,13 @@ TEST_F(LayoutTest, InlineCodeInParagraphUsesCodeFontSize)
 
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Paragraph);
-    ASSERT_NE(cache[0].text_layout.Get(), nullptr);
+    ASSERT_NE(cache[0].text_layout(), nullptr);
 
     for (const auto& run : nodes[0].runs) {
         if (run.code()) {
             float code_font_size = 0.0f;
             DWRITE_TEXT_RANGE range{};
-            cache[0].text_layout->GetFontSize(run.start, &code_font_size, &range);
+            cache[0].text_layout()->GetFontSize(run.start, &code_font_size, &range);
             EXPECT_FLOAT_EQ(code_font_size, theme_.font_size_code)
                 << "段落内のインラインコードは font_size_code を使うべき";
         }
@@ -1008,13 +1008,13 @@ TEST_F(LayoutTest, InlineCodeInHeadingUsesMonospaceFont)
     auto [nodes, cache] = ParseAndLayout("# Hello `code`");
 
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_NE(cache[0].text_layout.Get(), nullptr);
+    ASSERT_NE(cache[0].text_layout(), nullptr);
 
     for (const auto& run : nodes[0].runs) {
         if (run.code()) {
             WCHAR font_name[256] = {};
             DWRITE_TEXT_RANGE range{};
-            HRESULT hr = cache[0].text_layout->GetFontFamilyName(
+            HRESULT hr = cache[0].text_layout()->GetFontFamilyName(
                 run.start, font_name, 256, &range);
             ASSERT_TRUE(SUCCEEDED(hr));
             EXPECT_EQ(std::wstring(font_name), theme_.monospace_font)
@@ -1201,10 +1201,10 @@ TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout)
 {
     auto [nodes, cache] = ParseAndLayout("- Item text here");
 
-    ASSERT_NE(cache[0].text_layout.Get(), nullptr);
+    ASSERT_NE(cache[0].text_layout(), nullptr);
     DWRITE_LINE_METRICS lm;
     UINT32 lc;
-    ASSERT_TRUE(SUCCEEDED(cache[0].text_layout->GetLineMetrics(&lm, 1, &lc)));
+    ASSERT_TRUE(SUCCEEDED(cache[0].text_layout()->GetLineMetrics(&lm, 1, &lc)));
     ASSERT_GT(lc, 0u);
 
     // bullet 中心は物理ピクセル境界へスナップされるため、期待値も同じ規則でスナップする。
@@ -1248,10 +1248,10 @@ TEST_F(LayoutTest, LooseListBulletCenteredOnFollowingParagraphLine)
     auto [nodes, cache] = ParseAndLayout("- a\n\n- b");
 
     ASSERT_EQ(nodes.size(), 4u);
-    ASSERT_NE(cache[1].text_layout.Get(), nullptr);
+    ASSERT_NE(cache[1].text_layout(), nullptr);
     DWRITE_LINE_METRICS lm;
     UINT32 lc;
-    ASSERT_TRUE(SUCCEEDED(cache[1].text_layout->GetLineMetrics(&lm, 1, &lc)));
+    ASSERT_TRUE(SUCCEEDED(cache[1].text_layout()->GetLineMetrics(&lm, 1, &lc)));
     ASSERT_GT(lc, 0u);
 
     CommandGenerator gen;
