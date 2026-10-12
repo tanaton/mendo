@@ -334,12 +334,13 @@ TEST(NodeTest, EnsureImage)
     EXPECT_TRUE(node.has_image());
 }
 
-TEST(NodeTest, EnsureHeading)
+TEST(NodeTest, HeadingLevelRequiresHeadingType)
 {
     Node node;
-    EXPECT_FALSE(node.has_heading());
-    node.ensure_heading();
-    EXPECT_TRUE(node.has_heading());
+    node.set_heading_level(3);
+    EXPECT_EQ(node.heading_level(), 0);
+    node.type = NodeType::Heading;
+    EXPECT_EQ(node.heading_level(), 3);
 }
 
 TEST(NodeTest, EnsureCode)
@@ -402,19 +403,6 @@ TEST(NodeTest, ParagraphTextStored)
 
 // variant alternative の排他性: 別種を ensure すると元のデータは破棄される。
 // parser は BeginNode 直後に 1 種類だけ ensure する契約だが、契約違反を回帰検出するためのテスト。
-TEST(NodeTest, EnsureCodeReplacesHeading)
-{
-    Node node;
-    node.set_heading_level(3);
-    EXPECT_TRUE(node.has_heading());
-
-    node.set_code_language(SyntaxLanguage::Cpp);
-    EXPECT_FALSE(node.has_heading());
-    EXPECT_TRUE(node.has_code());
-    EXPECT_EQ(node.heading_level(), 0);
-    EXPECT_EQ(node.code_language(), SyntaxLanguage::Cpp);
-}
-
 // ensure_table() は冪等で、連続呼出しで同じ NodeTableData ポインタを返す。
 TEST(NodeTest, EnsureTableIsIdempotent)
 {

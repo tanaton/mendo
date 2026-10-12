@@ -39,9 +39,7 @@ private:
     {
         Node n;
         n.type = src.type;
-        if (src.has_heading()) {
-            n.set_heading_level(src.heading_level());
-        }
+        n.set_heading_level(src.heading_level());
         if (src.has_code()) {
             n.set_code_language(src.code_language());
         }

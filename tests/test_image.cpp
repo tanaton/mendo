@@ -147,7 +147,7 @@ TEST(ParserImage, ImageInTableCellDoesNotCorruptTable)
 
 TEST(ParserImage, ImageInHeadingKeepsHeadingLevel)
 {
-    // 見出し内の画像バッジが NodeHeadingData を破壊しないこと
+    // 見出し内の画像バッジが見出しレベルを壊さないこと
     auto nodes = ParseMarkdown("# ![logo](l.png) Title").nodes;
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Heading);

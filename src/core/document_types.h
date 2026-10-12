@@ -143,9 +143,6 @@ struct NodeTableData {
     }
 };
 
-// Heading の印。見出しレベルは Node::heading_level_ に置き、アンカーは Document::FindAnchorIndex が必要時に作る。
-struct NodeHeadingData {};
-
 // CodeBlock 固有データ。tokens は外部 heap 持ちにすることで variant alternative を 8B に抑える。
 struct NodeCodeData {
     std::unique_ptr<std::pmr::vector<SyntaxToken>> tokens;
@@ -188,8 +185,7 @@ struct Node {
     // 外出しすることで variant alternative の最大サイズを 8B に抑える。
     // Parser invariant: 1 つのノードは 1 つの alternative しか持たない (ensure_* は他を破壊する)。
     using Extra = std::variant<
-        std::monostate,  // Paragraph / HorizontalRule など固有データ無し
-        NodeHeadingData, // Heading
+        std::monostate,  // Paragraph / Heading / HorizontalRule など固有データ無し
         NodeCodeData,    // CodeBlock
         NodeListData,    // ListItem / TaskListItem
         NodeAlertData,   // BlockQuote 本体の alert ラベル
@@ -328,10 +324,6 @@ struct Node {
         return GetPtrAlt<NodeImagePtr>(self);
     }
 
-    constexpr bool has_heading() const noexcept
-    {
-        return std::holds_alternative<NodeHeadingData>(extra);
-    }
     constexpr bool has_code() const noexcept
     {
         return std::holds_alternative<NodeCodeData>(extra);
@@ -356,10 +348,6 @@ struct Node {
     // ensure_*: 既に存在すれば内部参照、無ければ新規確保して返す。
     // 既存 alternative がある状態で別種の ensure_* を呼ぶと、それは破棄される (variant の emplace 動作)。
     // parser は BeginNode 直後に 1 種類だけ ensure する規約。
-    constexpr NodeHeadingData* ensure_heading()
-    {
-        return EnsureAlt<NodeHeadingData>();
-    }
     constexpr NodeCodeData* ensure_code()
     {
         return EnsureAlt<NodeCodeData>();
@@ -387,17 +375,17 @@ struct Node {
     //       variant タグ比較を skip すること。例: `node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language())`、
     //       `node.alert_type != AlertType::None && node.alert_label_length() > 0`。
     //       新規アクセサを追加する場合もこの規約に倣い、type で先にゲートできる呼び出し側を維持する。
+    // アンカーは Document::FindAnchorIndex が必要時に作る。
     constexpr int8_t heading_level() const noexcept
     {
-        return has_heading() ? heading_level_ : static_cast<int8_t>(0);
+        return type == NodeType::Heading ? heading_level_ : static_cast<int8_t>(0);
     }
     constexpr SyntaxLanguage code_language() const noexcept
     {
         return has_code() ? code_language_ : SyntaxLanguage::None;
     }
-    constexpr void set_heading_level(int8_t level)
+    constexpr void set_heading_level(int8_t level) noexcept
     {
-        ensure_heading();
         heading_level_ = level;
     }
     constexpr void set_code_language(SyntaxLanguage lang)
