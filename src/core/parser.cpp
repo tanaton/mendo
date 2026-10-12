@@ -348,17 +348,21 @@ struct ParseContext {
     // span 状態が変わる直前 (OnEnter/Leave Span)、セル切替、OnLeaveBlock の冒頭で呼ぶ。
     // line_count はノード単位なので、セル内では更新しない。
     // active_text_buffer が非 null なら current_node も非 null (両者は対で更新される)。
+    // 装飾もリンクも無い run は出さない。runs の隙間は既定スタイルとして扱われる。
     constexpr void FlushPendingRun()
     {
         if (has_pending_run) {
             std::pmr::string* const buf = active_text_buffer;
             if (buf && buf->size() > pending_run_start) {
                 const uint32_t length = static_cast<uint32_t>(buf->size() - pending_run_start);
+                const bool plain = current_run_flags == 0 && current_link_url_index < 0;
                 if (buf == &current_text) {
                     current_node->line_count += pending_run_newlines;
-                    current_node->runs.emplace_back(MakeRun(pending_run_start, length));
+                    if (!plain) {
+                        current_node->runs.emplace_back(MakeRun(pending_run_start, length));
+                    }
                 }
-                else {
+                else if (!plain) {
                     // セル内: cell_text_starts.back() は TD/TH 進入時に積んだ現在セルの開始 offset。
                     auto* const tbl = current_node->table_data();
                     tbl->all_runs.push_back(MakeRun(pending_run_start - tbl->cell_text_starts.back(), length));
@@ -552,10 +556,6 @@ void AppendFootnoteBackrefs(std::pmr::vector<Node>& nodes, std::span<const int32
         std::string text{ node.GetText() };
         for (uint32_t ref_id = 1; ref_id <= ref_counts[i] && urls.size() < kMaxLinkUrls; ++ref_id) {
             if (!text.empty()) {
-                TextRun space;
-                space.start = static_cast<uint32_t>(text.size());
-                space.length = 1;
-                node.runs.emplace_back(space);
                 text += ' ';
             }
             urls.emplace_back(FootnoteRefUrl(id, ref_id));
@@ -586,7 +586,7 @@ void LeaveCodeBlock(ParseContext* ctx)
         cn->line_count--;
         if (!cn->runs.empty()) {
             auto& last = cn->runs.back();
-            if (last.length > 0) {
+            if (last.length > 0 && last.start + last.length > ctx->current_text.size()) {
                 last.length--;
             }
         }
