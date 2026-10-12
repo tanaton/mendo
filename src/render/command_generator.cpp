@@ -183,9 +183,6 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     cull_bottom_ = md_pane_rect.height;
 
     ReleaseStaleSelectionHlCaches(cache, selection);
-    // ドキュメント切替で string_view が dangling 化するため reset する。PMR pool が
-    // 同じアドレスを再利用しうるので (data, size) の両方で同一性を判定する。
-    node_wv_.ResetIfBufferChanged(nodes.data(), nodes.size());
 
     const int node_count = static_cast<int>(nodes.size());
     if (first_visible < 0) {

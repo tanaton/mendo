@@ -47,11 +47,12 @@ void CommandGenerator::GenSelectionHighlightCached(DrawCommandList& cmds, const 
     }
     auto& cache = entry.ensure_selection_hl_cache();
     // キャッシュキーは UTF-8 byte 単位 (selection 状態と直接対応)。
-    // miss 時は WideViewCache 経由で同一ノードの連続 miss でも decode を 1 回に抑える。
+    // miss 時の位置変換は全文の UTF-16 化と対応表を残さない前方走査で済ませる。
     if (cache.layout_ptr != layout || cache.start != doc_start || cache.length != doc_length) {
         MENDO_COUNT_INC(g_cmd_gen_stats.sel_hl_cache_miss);
         cache.rects.clear();
-        const auto wr = node_wv_.WideRange(node.GetText(), doc_start, doc_length);
+        mendo::Utf16OffsetCursor cursor{ node.GetText() };
+        const auto wr = cursor.WideRange(doc_start, doc_length);
         if (wr.length > 0) {
             CollectHitTestRects(layout, wr.startPosition, wr.length, cache.rects);
         }
