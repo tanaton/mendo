@@ -89,7 +89,6 @@ public:
         const std::pmr::vector<Node>& nodes, const LayoutCache& cache,
         const PaneRect& md_pane_rect, float scroll_y,
         const TextSelection& selection,
-        int first_visible = -1,
         HoveredButtons hovered = {},
         float dpi_scale = 1.0f,
         const BlockHScrollContext& block_h_scroll = {});

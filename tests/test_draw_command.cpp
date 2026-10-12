@@ -322,7 +322,7 @@ TEST_F(CmdGenTest, CodeBlockWithHoveredCopyNodeAccepted)
     Parse("```\ncode\n```");
     const PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
     // hovered.copy=0 を渡してもクラッシュしない
-    const auto& cmds = gen_.GenerateMdPane(nodes_, cache_, md_pane, 0.0f, TextSelection{}, -1, HoveredButtons{ 0, -1, -1 });
+    const auto& cmds = gen_.GenerateMdPane(nodes_, cache_, md_pane, 0.0f, TextSelection{}, HoveredButtons{ 0, -1, -1 });
     EXPECT_TRUE(std::holds_alternative<PushClipCmd>(cmds.front()));
     EXPECT_TRUE(std::holds_alternative<PopClipCmd>(cmds.back()));
 }

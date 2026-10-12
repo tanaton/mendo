@@ -58,7 +58,7 @@ TEST_F(CmdGenFrameTest, ScrollSnapsToPixelWithDpi)
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
     const float scroll_y = 0.3f;
     const float dpi = 2.0f;
-    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, scroll_y, TextSelection{}, -1, HoveredButtons{}, dpi);
+    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, scroll_y, TextSelection{}, HoveredButtons{}, dpi);
 
     const auto xform = FindFirst<SetTransformCmd>(cmds);
     ASSERT_TRUE(xform.has_value());
@@ -100,31 +100,6 @@ TEST_F(CmdGenFrameTest, EmptyNodesListEmitsOnlyFrameScaffolding)
     EXPECT_TRUE(std::holds_alternative<SetTransformCmd>(cmds[1]));
     EXPECT_TRUE(std::holds_alternative<SetTransformCmd>(cmds[2]));
     EXPECT_TRUE(std::holds_alternative<PopClipCmd>(cmds[3]));
-}
-
-// ═══════════════════════════════════════════════
-// first_visible の明示指定と自動探索
-// ═══════════════════════════════════════════════
-
-TEST_F(CmdGenFrameTest, ExplicitFirstVisibleMatchesAutoDiscovery)
-{
-    Parse("---\n\n---\n\n---\n\n---\n\n---");
-    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 500.0f };
-
-    // first_visible=-1 (自動) と first_visible=0 (明示) は 0 からスクロール時に同じ結果
-    auto cmds_auto_saved = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{}, -1).size();
-    auto cmds_explicit_saved = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{}, 0).size();
-    EXPECT_EQ(cmds_auto_saved, cmds_explicit_saved);
-}
-
-TEST_F(CmdGenFrameTest, FirstVisibleBeyondEndProducesNoContent)
-{
-    Parse("---\n\n---\n\n---");
-    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 500.0f };
-
-    // first_visible がノード数以上 → 本体ループに入らない
-    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{}, 999);
-    EXPECT_EQ(CountCmd<DrawLineCmd>(cmds), 0);
 }
 
 // ═══════════════════════════════════════════════
