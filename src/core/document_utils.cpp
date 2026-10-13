@@ -175,7 +175,6 @@ constexpr auto kAsciiSlugTable = [] {
     return t;
 }();
 
-// CJK ・ 全角文字範囲の句読点・記号はアンカーに含めない。
 // アンカー (GitHub 互換スラグ) に採用しない記号・句読点か。非 ASCII コードポイント単位で判定。
 // Unicode 全カテゴリテーブルは持たないため、主要な記号ブロックの近似で判定する
 // (文字 (Letter) を誤って落とすより、稀な記号を通す方向に倒す)。
@@ -251,14 +250,8 @@ std::pmr::string GenerateAnchorId(std::string_view text)
 
 std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent)
 {
-    std::pmr::wstring title;
-    if (path.empty()) {
-        title = L"mendo";
-    }
-    else {
-        const auto filename = ExtractFilename(path);
-        title = filename.empty() ? L"mendo" : filename + L" - mendo";
-    }
+    const auto filename = ExtractFilename(path);
+    std::pmr::wstring title = filename.empty() ? std::pmr::wstring{ L"mendo" } : filename + L" - mendo";
     if (zoom_percent > 0 && zoom_percent != 100) {
         std::format_to(std::back_inserter(title), L" ({}%)", zoom_percent);
     }

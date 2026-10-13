@@ -63,12 +63,10 @@ bool ContextMenu::Impl::CreatePopupWindow(int screen_x, int screen_y)
         return false;
     }
     DestroyPopupWindow();
-    rt.Reset();
 
     const int pixel_w = DipToPixelCeil(menu_width, dpi_scale);
     const int pixel_h = DipToPixelCeil(menu_height, dpi_scale);
 
-    // 画面外にはみ出さないよう調整
     const HMONITOR monitor = MonitorFromPoint({ screen_x, screen_y }, MONITOR_DEFAULTTONEAREST);
     MONITORINFO mi = { sizeof(mi) };
     GetMonitorInfoW(monitor, &mi);
@@ -93,7 +91,6 @@ bool ContextMenu::Impl::CreatePopupWindow(int screen_x, int screen_y)
         return false;
     }
 
-    // 角丸クリッピング用リージョン
     // SetWindowRgn は成功時のみ rgn の所有権を OS に移譲する。失敗時は呼び出し側で DeleteObject。
     const int corner_px = DipToPixel(MENU_CORNER, dpi_scale);
     const HRGN rgn = CreateRoundRectRgn(0, 0, pixel_w + 1, pixel_h + 1, corner_px, corner_px);
@@ -157,7 +154,6 @@ int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
         ReleaseCapture();
     }
     s.DestroyPopupWindow();
-    s.rt.Reset();
 
     return s.selected_id;
 }
@@ -311,7 +307,7 @@ void ContextMenu::Impl::Paint()
 void ContextMenu::Impl::DrawNavRow()
 {
     auto draw_btn = [&](const DipRect& dr, const wchar_t* glyph, bool enabled, bool hovered) {
-        const D2D1_RECT_F rc{ dr.left, dr.top, dr.right, dr.bottom };
+        const D2D1_RECT_F rc = ToD2DRect(dr);
         if (hovered) {
             const D2D1_ROUNDED_RECT rr = { rc, CTX_NAV_BTN_CORNER, CTX_NAV_BTN_CORNER };
             rt->FillRoundedRectangle(rr, brush_hover.Get());

@@ -1,7 +1,26 @@
 #include "reducer_internal.h"
-#include "layout_computer.h"
 
 namespace {
+
+constexpr PaneController::DragTarget SidePaneDragTarget(PaneTarget pane) noexcept
+{
+    using enum PaneController::DragTarget;
+    return (pane == PaneTarget::File) ? FileScrollbar : TocScrollbar;
+}
+
+// つまみ上クリック → 位置維持 (オフセットのみ記録)、つまみ外 → 中心へジャンプ。
+struct ScrollbarDragGrip {
+    float drag_offset;
+    bool inside_thumb;
+};
+
+ScrollbarDragGrip ComputeScrollbarDragGrip(float thumb_y, float thumb_height, float click_y) noexcept
+{
+    if (click_y >= thumb_y && click_y <= thumb_y + thumb_height) {
+        return { click_y - thumb_y, true };
+    }
+    return { thumb_height * 0.5f, false };
+}
 
 PaneScrollInfo MdScrollInfo(const AppState& state) noexcept
 {

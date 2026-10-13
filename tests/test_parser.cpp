@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "parse_invariants.h"
 #include "parser.h"
+#include "parser_alerts.h"
 #include "test_nodes.h"
 #include <limits>
 #include <stop_token>

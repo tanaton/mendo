@@ -123,15 +123,14 @@ private:
     // 選択範囲外に出たノードの SelectionHlCache を前フレームとの差分区間だけ解放する。
     void ReleaseStaleSelectionHlCaches(const LayoutCache& cache, const TextSelection& selection);
 
-    void GenerateNode(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, const DiagramEntry* diagram, int node_index, float entry_text_top);
+    void GenerateNode(const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, const DiagramEntry* diagram, int node_index, float entry_text_top);
 
     // ベースカラー、インラインコード背景、検索/選択ハイライト、本文テキストを描画する。
-    void GenNodeTextDecorations(
-        DrawCommandList& cmds, const FrameContext& fc, const Node& node,
+    void GenNodeTextDecorations(const FrameContext& fc, const Node& node,
         const NodeLayoutEntry& entry, int node_index, float text_x, float entry_text_top);
     // text_layout 非依存。loose task list (空 TaskListItem) でも GenNodeTextDecorations の
     // early return を経由せず描画したいため独立メソッド化。
-    void GenTaskListCheckbox(DrawCommandList& cmds, const Node& node, float x, float entry_text_top);
+    void GenTaskListCheckbox(const Node& node, float x, float entry_text_top);
 
     struct NodeBaseStyle {
         D2D1_COLOR_F color;
@@ -139,8 +138,8 @@ private:
     };
     NodeBaseStyle GetNodeBaseStyle(const Node& node) const noexcept;
 
-    void GenHorizontalRule(DrawCommandList& cmds, float x, float w, float entry_text_top);
-    void GenTable(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, int node_index, float offset_x, float entry_text_top, float h_scroll_x = 0.0f);
+    void GenHorizontalRule(float x, float w, float entry_text_top);
+    void GenTable(const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, int node_index, float offset_x, float entry_text_top, float h_scroll_x = 0.0f);
     // テーブル 1 行分の幾何。GenTableRowBg と内部ループで使い回す。
     struct TableRowGeom {
         float x;
@@ -149,7 +148,7 @@ private:
         float row_h;
         float border;
     };
-    void GenTableRowBg(DrawCommandList& cmds, const TableRowGeom& geom, bool is_header, bool is_even_row);
+    void GenTableRowBg(const TableRowGeom& geom, bool is_header, bool is_even_row);
     // テーブルセル 1 個分の描画コンテキスト。GenTable から GenTableCellContent へ橋渡しする。
     // selection 関連は (has_selection, sel_start, sel_end, flat_offset) を 1 まとまりで扱う。
     struct CellDrawContext {
@@ -163,35 +162,33 @@ private:
         bool has_selection = false;
         bool is_header = false;
     };
-    void GenTableCellContent(DrawCommandList& cmds, std::string_view cell_text, const CellDrawContext& ctx);
+    void GenTableCellContent(std::string_view cell_text, const CellDrawContext& ctx);
     // box は padding 込みのコードブロック矩形 (ペインローカル)。
-    void GenCodeBlockBg(DrawCommandList& cmds, const D2D1_RECT_F& box);
-    void GenOverlayButton(DrawCommandList& cmds, D2D1_RECT_F btn, wchar_t icon, bool is_hovered);
-    void GenCopyButton(DrawCommandList& cmds, float box_right, float box_top, bool is_hovered);
-    void GenDiagramButton(DrawCommandList& cmds, float bitmap_right, float bitmap_top, DiagramButtonSlot slot, wchar_t icon, bool is_hovered);
+    void GenCodeBlockBg(const D2D1_RECT_F& box);
+    void GenOverlayButton(D2D1_RECT_F btn, wchar_t icon, bool is_hovered);
     // ブロックローカルの水平スクロールバー。ホバー中 / ドラッグ中の対象ブロックでのみ emit する。
     // block_x はブロック左端、bar_y はバー上端 (ペイン内ローカル座標)。
     // geom.visible_width / natural_width は BlockHScrollGeometry と同じ意味。
-    void EmitBlockHScrollbarIfActive(DrawCommandList& cmds, const FrameContext& fc, int node_index, float block_x, float bar_y, const BlockHScrollGeometry& geom, float scroll_x);
-    void GenListBullet(DrawCommandList& cmds, const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top);
-    void GenBlockQuoteGroupDecorations(DrawCommandList& cmds, const FrameContext& fc, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible);
+    void EmitBlockHScrollbarIfActive(const FrameContext& fc, int node_index, float block_x, float bar_y, const BlockHScrollGeometry& geom, float scroll_x);
+    void GenListBullet(const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top);
+    void GenBlockQuoteGroupDecorations(const FrameContext& fc, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible);
     // nodes[first, last) が 1 つの引用グループ。group_top / group_bottom はペインローカル Y。
-    void GenBlockQuoteGroup(DrawCommandList& cmds, const FrameContext& fc, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int first, int last, int max_depth, float group_top, float group_bottom);
+    void GenBlockQuoteGroup(const FrameContext& fc, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int first, int last, int max_depth, float group_top, float group_bottom);
     // error 非空時は「読み込み中...」の代わりにエラーメッセージを表示する (issue #271)。
-    void GenDiagramPlaceholder(DrawCommandList& cmds, float x, float y, float w, float h, std::wstring_view error = {});
+    void GenDiagramPlaceholder(float x, float y, float w, float h, std::wstring_view error = {});
     // 共有バッファへ HitTestTextRange を発行し、取得したメトリクスを返す。次回呼び出しまで有効。
     std::span<const DWRITE_HIT_TEST_METRICS> HitTestRange(IDWriteTextLayout* layout, uint32_t start, uint32_t length);
     // 可視 Y 範囲 [cull_top_, cull_bottom_] と重なる矩形だけ FillRectCmd を積む。
-    void EmitFillRectIfVisible(DrawCommandList& cmds, const D2D1_RECT_F& r, D2D1_COLOR_F color, BrushId brush);
+    void EmitFillRectIfVisible(const D2D1_RECT_F& r, D2D1_COLOR_F color, BrushId brush);
     // HitTestTextRange の結果をレイアウト原点相対の D2D1_RECT_F に変換し out へ append する。
     // SearchHlCache / SelectionHlCache の rebuild に共用する。
     void CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::pmr::vector<D2D1_RECT_F>& out);
-    void GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y);
+    void GenSelectionHighlight(IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y);
     // 本文ノード（テーブル外）専用の選択ハイライト発行。
     // (layout, doc_start, doc_length) 一致でフレーム間キャッシュをヒットさせ
     // HitTestTextRange と UTF-8→UTF-16 decode の両方を省く。doc_start / doc_length は UTF-8 byte 単位。
-    void GenSelectionHighlightCached(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y);
-    void GenSearchHighlights(DrawCommandList& cmds, const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y, int table_row = -1, int table_col = -1);
+    void GenSelectionHighlightCached(const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y);
+    void GenSearchHighlights(const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y, int table_row = -1, int table_col = -1);
 
     // 検索ハイライトのキャッシュが古い場合に再構築する。
     // matches[first_global, first_global + node_match_count) が当該ノードのマッチ。
@@ -201,13 +198,12 @@ private:
 
     // 構築済みキャッシュから FillRectCmd を発行する。
     // table_row / table_col に該当するマッチのみ origin に加算して描画。
-    void EmitSearchHlCommands(
-        DrawCommandList& cmds, const SearchHlCache& cache,
+    void EmitSearchHlCommands(const SearchHlCache& cache,
         std::span<const SearchMatch> matches, size_t first_global,
         float origin_x, float origin_y, int table_row, int table_col);
 
     // 書式の揃えに従って origin から box の範囲に text を描く。
-    void EmitText(DrawCommandList& cmds, std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, D2D1_COLOR_F color, BrushId brush_id = BrushId::Custom);
+    void EmitText(std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, D2D1_COLOR_F color, BrushId brush_id = BrushId::Custom);
 
     const Theme* theme_ = nullptr;
     Formats formats_;

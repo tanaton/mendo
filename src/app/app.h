@@ -165,7 +165,7 @@ private:
 
     // reducer を介さない経路から effect を単発発火するヘルパー。
     // SideEffectList を作らずに executor の単発 API へ直送し、毎呼び出しの
-    // pmr vector アロケーションを避ける (ホット経路: OnDeferredLayout, OnPaint, OnSizing 等)。
+    // pmr vector アロケーションを避ける (ホット経路: OnDeferredLayout, OnPaint 等)。
     template <typename T>
     void EmitEffect(T&& e)
     {
@@ -187,6 +187,7 @@ private:
     void RestorePaneState();
 
     // ---- 描画 (app.cpp) ----
+    void UpdateTitleBar();
     SidePaneState BuildSidePaneState(const PaneLayout& layout) const;
     TitleBarRenderState BuildTitleBarRenderState() const;
     void SyncRendererSearchMatches();
@@ -198,7 +199,7 @@ private:
     DipPoint PixelToDip(int px, int py) const noexcept;
 
     using HitResult = HitTestService::HitResult;
-    HitResult HitTest(int screen_x, int screen_y);
+    HitResult HitTest(int px, int py);
     std::optional<std::string_view> GetLinkAtHit(const HitResult& hit) const;
     MdPaneHitContext BuildMdPaneHitContext(int px, int py, const PaneLayout& pane_layout) const noexcept;
 
@@ -206,7 +207,6 @@ private:
     PaneZone PaneAtPoint(float dip_x);
     PaneZone ZoneAt(float dip_x, const PaneLayout& layout) const noexcept;
     bool IsOverMdScrollbar(float dip_x, float dip_y, const PaneLayout& layout) const noexcept;
-    static bool IsOverPaneScrollbar(float dip_x, const PaneRect& rect, const PaneScrollInfo& scroll_info) noexcept;
 
     SearchBarLayout ComputeSearchBarLayoutForMd(const PaneRect& md_rect) const;
     int HitTestSearchInputPos(const SearchBarLayout& sbl, std::wstring_view query_wide, float dip_x) const;
@@ -222,6 +222,7 @@ private:
     bool TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x);
     void HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout);
     void HandleFileEntryClick(const FileEntry& entry);
+    void RefreshFilePane();
 
     // ---- ホバー (app_mouse_hover.cpp) ----
     // ゾーン内のホバーを hover に書き、表示するカーソルを返す。状態の反映は reducer が行う。
@@ -242,7 +243,6 @@ private:
     void InvalidateHitPositions();
     void OnResizeEnd();
     void RefreshPaneLayout();
-    void RefreshFilePane();
     void OnDeferredLayout();
     void FinalizeLayout(float md_pane_height);
     void SyncTocActiveAndAutoScroll(bool auto_scroll);
@@ -269,7 +269,6 @@ private:
     // Mermaid/画像キャッシュの実測値でノード高さを上書きし、変化があれば Y 位置を再計算する。
     // 呼び出し前にノード高さの初期化 (EstimateNodeHeights) は完了していること。
     void ApplyCachedHeightsAndRecompute();
-    void UpdateTitleBar();
 
     void FinishReload(size_t diff_pos);
 
@@ -283,9 +282,6 @@ private:
     // 短縮リトライで再リロードを予約する。エディタの truncate→rewrite 中や
     // partial-read を検出した時に共通で使う。
     void DeferReloadRetry();
-
-    // partial-read を検出したら defer して true を返す。
-    bool DeferIfPartialWrite(const std::pmr::wstring& path, size_t read_size);
 
     void CancelPendingResources();
     void ResetViewForNewDocument();

@@ -134,15 +134,6 @@ void App::DeferReloadRetry()
     EmitEffect(effect::SetTimer{ app_timer::Id::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_RETRY_MS });
 }
 
-bool App::DeferIfPartialWrite(const std::pmr::wstring& path, size_t read_size)
-{
-    if (!IsFileLargerThan(path.c_str(), read_size)) {
-        return false;
-    }
-    DeferReloadRetry();
-    return true;
-}
-
 // reducer を経由せず App 層で直接実行する。ファイル I/O + 同期/非同期ロード分岐 +
 // パース + レイアウト初期化を含む大きな命令的ワークフローで、reducer 化すると
 // effect variant と executor が肥大化するため意図的に service 経路として分離している。
@@ -342,7 +333,9 @@ void App::DoReloadCurrentFile()
         return;
     }
 
-    if (DeferIfPartialWrite(state_.document.doc.GetFilePath(), load_result->byte_size)) {
+    // 読んでいる間にも書き込みが続いていれば、書き終わるまで待ってから読み直す。
+    if (IsFileLargerThan(state_.document.doc.GetFilePath().c_str(), load_result->byte_size)) {
+        DeferReloadRetry();
         return;
     }
 

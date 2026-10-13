@@ -6,7 +6,7 @@
 #include <string_view>
 
 // SideEffectExecutor が Win32 API 境界を跨ぐための adapter interface。
-// 本番では Win32Host（HWND と CursorManager を保持）を、
+// 本番では Win32Host（HWND を保持）を、
 // テストでは mock 実装を注入して副作用を検証する。
 class IWin32Host {
 public:

@@ -32,7 +32,7 @@ void Preloader::Start(std::pmr::wstring path, Theme theme)
         {
             const std::lock_guard lock(sink_mutex_);
             // Cancel の sink クリアと同一 mutex 上で直列化し、クリア後の再 publish を防ぐ
-            // (coordinator の try_publish と同じパターン)。
+            // (AsyncLoadCoordinator::RunWorker の publish と同じパターン)。
             if (st.stop_requested()) {
                 return;
             }

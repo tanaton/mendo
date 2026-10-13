@@ -79,15 +79,3 @@ inline std::pair<int, int> UnpackSearchSelectionLParam(LPARAM lp) noexcept
 }
 
 } // namespace app_param
-
-namespace app_threshold {
-
-// 同期ロードの上限。これを超えるサイズはバックグラウンドスレッドにオフロードする。
-// I/O + パースの典型コストが UI スレッドで <16ms に収まる経験値。
-inline constexpr DWORD ASYNC_LOAD_BYTES = 64 * 1024;
-
-// ローディングアニメーション (スピナー) を表示する下限。
-// これより小さいファイルはアニメーション表示前に読み終わり、ちらつきの原因になる。
-inline constexpr DWORD LOADING_ANIM_BYTES = 16 * 1024 * 1024;
-
-} // namespace app_threshold

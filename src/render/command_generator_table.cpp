@@ -1,21 +1,22 @@
 #include "command_generator_internal.h"
+#include "layout_computer.h"
 #include <algorithm>
 
-void CommandGenerator::GenTableRowBg(DrawCommandList& cmds, const TableRowGeom& g, bool is_header, bool is_even_row)
+void CommandGenerator::GenTableRowBg(const TableRowGeom& g, bool is_header, bool is_even_row)
 {
     if (!is_header && !is_even_row) {
         return;
     }
     const D2D1_RECT_F rect = D2D1::RectF(g.x, g.y, g.x + g.table_width, g.y + g.row_h + g.border);
     if (is_header) {
-        cmds.emplace_back(FillRectCmd{ rect, theme_->code_bg_color, BrushId::CodeBg });
+        cmds_.emplace_back(FillRectCmd{ rect, theme_->code_bg_color, BrushId::CodeBg });
     }
     else {
-        cmds.emplace_back(FillRectCmd{ rect, cached_stripe_color_, BrushId::TableStripe });
+        cmds_.emplace_back(FillRectCmd{ rect, cached_stripe_color_, BrushId::TableStripe });
     }
 }
 
-void CommandGenerator::GenTableCellContent(DrawCommandList& cmds, std::string_view cell_text, const CellDrawContext& ctx)
+void CommandGenerator::GenTableCellContent(std::string_view cell_text, const CellDrawContext& ctx)
 {
     if (!ctx.layout) {
         return;
@@ -29,18 +30,16 @@ void CommandGenerator::GenTableCellContent(DrawCommandList& cmds, std::string_vi
             mendo::Utf16OffsetCursor cursor{ cell_text };
             const auto range = cursor.WideRange(ov_start - ctx.flat_offset, ov_end - ov_start);
             if (range.length > 0) {
-                GenSelectionHighlight(cmds, ctx.layout, range.startPosition, range.length, ctx.text_x, ctx.text_y);
+                GenSelectionHighlight(ctx.layout, range.startPosition, range.length, ctx.text_x, ctx.text_y);
             }
         }
     }
     const D2D1_COLOR_F cell_color = ctx.is_header ? theme_->heading_color : theme_->text_color;
     const BrushId cell_brush = ctx.is_header ? BrushId::Heading : BrushId::Text;
-    cmds.emplace_back(MakeTextLayoutCmd(D2D1::Point2F(ctx.text_x, ctx.text_y), ctx.layout, ctx.height, cell_color, cell_brush, cull_top_, cull_bottom_));
+    cmds_.emplace_back(MakeTextLayoutCmd(D2D1::Point2F(ctx.text_x, ctx.text_y), ctx.layout, ctx.height, cell_color, cell_brush, cull_top_, cull_bottom_));
 }
 
-void CommandGenerator::GenTable(
-    DrawCommandList& cmds,
-    const FrameContext& fc,
+void CommandGenerator::GenTable(const FrameContext& fc,
     const Node& node, const NodeLayoutEntry& entry,
     int node_index, float offset_x, float entry_text_top, float h_scroll_x)
 {
@@ -103,7 +102,7 @@ void CommandGenerator::GenTable(
     }
 
     for (size_t r = r_begin; r < r_end; r++) {
-        const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : (theme_->font_size_body * TABLE_ROW_HEIGHT_FACTOR);
+        const float row_h = tl.RowHeight(r, mendo::layout::TableBaseRowHeight(*theme_));
 
         const float row_bottom = y + row_h + border;
         if (row_bottom < viewport_top || y > viewport_bottom) {
@@ -113,23 +112,22 @@ void CommandGenerator::GenTable(
         }
 
         const bool is_header_row = tbl->IsHeaderRow(r);
-        GenTableRowBg(cmds, TableRowGeom{ offset_x, y, table_width, row_h, border }, is_header_row, r % 2 == 0);
+        GenTableRowBg(TableRowGeom{ offset_x, y, table_width, row_h, border }, is_header_row, r % 2 == 0);
 
-        // 行上部の水平線
-        cmds.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y), theme_->hr_color, border, BrushId::Hr });
+        cmds_.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y), theme_->hr_color, border, BrushId::Hr });
 
-        // 可視列のみコマンド生成、画面外は cell_text_starts で flat_offset を直接取得。
+        // 可視列 [c_begin, c_end) だけコマンドを生成する。
         float cx = x_begin;
         for (size_t c = c_begin; c < c_end; c++) {
             const float text_x = cx + cell_padding;
             const float text_y = y + cell_padding;
 
             // bg_cursor は cell_index 昇順で進む。
-            bg_cursor = GenCellInlineCodeBgs(cmds, tl.cell_inline_code_bgs, bg_cursor, static_cast<uint32_t>(tl.CellIndex(r, c)), text_x, text_y, theme_->code_bg_color);
+            bg_cursor = GenCellInlineCodeBgs(cmds_, tl.cell_inline_code_bgs, bg_cursor, static_cast<uint32_t>(tl.CellIndex(r, c)), text_x, text_y, theme_->code_bg_color);
 
-            GenSearchHighlights(cmds, entry, node_index, text_x, text_y, static_cast<int>(r), static_cast<int>(c));
+            GenSearchHighlights(entry, node_index, text_x, text_y, static_cast<int>(r), static_cast<int>(c));
 
-            GenTableCellContent(cmds, tbl->GetCellText(r, c), CellDrawContext{
+            GenTableCellContent(tbl->GetCellText(r, c), CellDrawContext{
                 .layout = tl.GetCellLayout(r, c),
                 .text_x = text_x,
                 .text_y = text_y,
@@ -147,11 +145,11 @@ void CommandGenerator::GenTable(
 
     // r_end で打ち切った場合も下端線はテーブル全体の底に置く (可視外ならクリップされる)
     const float table_bottom = has_row_geometry ? entry_text_top + tl.row_cum_y[row_count] : y;
-    cmds.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, table_bottom), D2D1::Point2F(offset_x + table_width, table_bottom), theme_->hr_color, border, BrushId::Hr });
+    cmds_.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, table_bottom), D2D1::Point2F(offset_x + table_width, table_bottom), theme_->hr_color, border, BrushId::Hr });
 
     // 縦罫線は可視列ごとに表の上端から下端まで 1 本で引く (行ごとに引くと 行×列 本になる)。可視外はクリップされる。
     const auto vline = [&](float x) {
-        cmds.emplace_back(DrawLineCmd{ D2D1::Point2F(x, entry_text_top), D2D1::Point2F(x, table_bottom), theme_->hr_color, border, BrushId::Hr });
+        cmds_.emplace_back(DrawLineCmd{ D2D1::Point2F(x, entry_text_top), D2D1::Point2F(x, table_bottom), theme_->hr_color, border, BrushId::Hr });
     };
     float cx = x_begin;
     for (size_t c = c_begin; c < c_end; c++) {

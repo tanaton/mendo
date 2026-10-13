@@ -258,7 +258,7 @@ protected:
         linear_ = tl;
         linear_.row_cum_y.clear();
         linear_.col_cum_x.clear();
-        fallback_row_h_ = theme_.font_size_body * TABLE_ROW_HEIGHT_FACTOR;
+        fallback_row_h_ = mendo::layout::TableBaseRowHeight(theme_);
     }
 };
 

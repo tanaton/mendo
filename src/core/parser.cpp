@@ -1,4 +1,5 @@
 #include "parser.h"
+#include "parser_alerts.h"
 #include "html_entities.h"
 #include "syntax.h"
 #include "profiler.h"
@@ -12,7 +13,6 @@
 #include <stop_token>
 #include <string>
 #include <string_view>
-#include <type_traits>
 #include <utility>
 
 namespace {
@@ -86,13 +86,12 @@ struct ParseContext {
 
     // ブロックコンテキスト追跡
     int indent_level = 0;
-    bool in_code_block = false;
     int blockquote_depth = 0;
     int blockquote_group_counter = 0;  // グループID生成用
     int current_blockquote_group = -1; // 最外側 blockquote の group ID（ネスト中は共有）
     int outermost_quote_indent = 0;    // 最外側 blockquote 進入時の indent_level（描画時のバー起点）
 
-    // リスト追跡: 0 = 順序なしリスト, >0 = 順序ありリストのカウンター
+    // リスト追跡: 順序なしリストは -1、順序ありリストは次の番号 (0 以上)。
     // スタックアダプタを挟まず vector を直接扱う (back/push_back/pop_back)。
     std::pmr::vector<int> list_counter;
 
@@ -177,16 +176,11 @@ struct ParseContext {
     }
 
     // current_node と active_text_buffer は対で管理する不変式があるため一括で nullptr に倒す。
-    constexpr void ClearCurrentNode() noexcept
-    {
-        current_node = nullptr;
-        active_text_buffer = nullptr;
-    }
-
     void EndNode()
     {
         FinalizeCurrentNode();
-        ClearCurrentNode();
+        current_node = nullptr;
+        active_text_buffer = nullptr;
     }
 
     void BeginNode(NodeType type)
@@ -261,14 +255,14 @@ struct ParseContext {
     }
 
     // url を current_link_urls に登録し、インデックスを current_link_url_index にキャッシュする。
-    // 1 ノードあたりの URL 数は典型的に < 8 で、その領域ではハッシュ計算を伴う
-    // ハッシュマップより線形 memcmp の方が速い。数が増えたノードだけ link_url_lookup に切り替え、
-    // テーブル等で O(n^2) になるのを防ぐ。
     void ResolveLinkUrlIndex(std::string_view url)
     {
         current_link_url_index = (current_node && !url.empty()) ? FindOrAddLinkUrl(url) : int16_t{ -1 };
     }
 
+    // 1 ノードあたりの URL 数は典型的に < 8 で、その領域ではハッシュ計算を伴う
+    // ハッシュマップより線形 memcmp の方が速い。数が増えたノードだけ link_url_lookup に切り替え、
+    // テーブル等で O(n^2) になるのを防ぐ。
     int16_t FindOrAddLinkUrl(std::string_view url)
     {
         const size_t n = current_link_urls.size();
@@ -289,8 +283,7 @@ struct ParseContext {
                 return it->second;
             }
         }
-        // link_url_index (int16_t) を超える URL はリンクなしとして扱う
-        if (n >= static_cast<size_t>(std::numeric_limits<int16_t>::max())) {
+        if (n >= kMaxLinkUrls) {
             return -1;
         }
         const auto new_index = static_cast<int16_t>(n);
@@ -374,7 +367,7 @@ constexpr bool IsImagePromotionCandidate(const Node& node) noexcept
 
 // MD_BLOCK_P 終了時、画像 span を含む段落 / 引用ブロックを Image ノードへ昇格させる。
 // 戻り値 true なら他の昇格処理はスキップしてよい。
-constexpr bool TryPromoteParagraphToImage(ParseContext* ctx)
+bool TryPromoteParagraphToImage(ParseContext* ctx)
 {
     auto* const cn = ctx->current_node;
     if (!cn || !IsImagePromotionCandidate(*cn) || !cn->has_image() || cn->image_data()->src.empty()) {
@@ -387,18 +380,18 @@ constexpr bool TryPromoteParagraphToImage(ParseContext* ctx)
 
 // MD_BLOCK_P 終了時、$$..$$ ブロック数式が単独の段落を LaTeX CodeBlock へ昇格させる。
 // blockquote 内は引用文脈を保ちたいため Paragraph のみ昇格対象。
-constexpr bool TryPromoteParagraphToDisplayMath(ParseContext* ctx)
+void TryPromoteParagraphToDisplayMath(ParseContext* ctx)
 {
     auto* const node = ctx->current_node;
     if (!node || node->type != NodeType::Paragraph) {
-        return false;
+        return;
     }
     // 昇格できる段落のテキストは "$$" + 数式 + "$$" だけ。md4c は数式内の改行を空白にして渡すので改行は無い。
     const std::string_view text = ctx->current_text;
     if (ctx->paragraph_display_math_count != 1 ||
         ctx->paragraph_has_other_content ||
         text.size() <= 4) {
-        return false;
+        return;
     }
     assert(text.starts_with("$$") && text.ends_with("$$"));
     node->type = NodeType::CodeBlock;
@@ -406,7 +399,6 @@ constexpr bool TryPromoteParagraphToDisplayMath(ParseContext* ctx)
     ctx->current_runs.clear();
     node->SetText(ctx->arena->CopyText(text.substr(2, text.size() - 4)), 0);
     ctx->diagram_indices.emplace_back(ctx->current_node_index);
-    return true;
 }
 
 void BeginListItem(ParseContext* ctx, const MD_BLOCK_LI_DETAIL* li)
@@ -541,7 +533,6 @@ void BeginFootnoteDef(ParseContext* ctx, const MD_BLOCK_FOOTNOTE_DEF_DETAIL* def
 // 後の定義の中の参照は前の定義を閉じた後に届くので、パースを終えてからまとめて付ける。
 void AppendFootnoteBackrefs(std::pmr::vector<Node>& nodes, TextArena& arena, std::span<const int32_t> def_indices, std::span<const uint32_t> ref_counts)
 {
-    constexpr size_t kMaxLinkUrls = std::numeric_limits<int16_t>::max();
     std::pmr::string text;
     std::pmr::vector<TextRun> runs;
     std::pmr::vector<std::string_view> urls;
@@ -574,7 +565,6 @@ void AppendFootnoteBackrefs(std::pmr::vector<Node>& nodes, TextArena& arena, std
 
 void LeaveCodeBlock(ParseContext* ctx)
 {
-    ctx->in_code_block = false;
     auto* const cn = ctx->current_node;
     if (!cn) {
         return;
@@ -610,15 +600,12 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
     }
 
     case MD_BLOCK_P:
-        if (!ctx->in_code_block) {
-            ctx->BeginParagraphNode();
-        }
+        ctx->BeginParagraphNode();
         ctx->paragraph_display_math_count = 0;
         ctx->paragraph_has_other_content = false;
         break;
 
     case MD_BLOCK_CODE: {
-        ctx->in_code_block = true;
         ctx->BeginNode(NodeType::CodeBlock);
         auto* const code_detail = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
         if (code_detail && code_detail->lang.text && code_detail->lang.size > 0) {

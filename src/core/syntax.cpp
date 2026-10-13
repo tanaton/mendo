@@ -9,13 +9,14 @@ namespace kw = syntax_keywords;
 
 namespace {
 
+using ascii_util::IsAsciiAlpha;
 using ascii_util::IsAsciiDigit;
 
 // 識別子先頭文字: ASCII 英字 + '_' に加え、CJK 等の非 ASCII (UTF-8 の 0x80 以上の byte) も許可する。
 // char は signed のため unsigned 比較を明示しないと非 ASCII が負値で弾かれる。
 constexpr bool IsIdentStart(char c) noexcept
 {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || static_cast<std::make_unsigned_t<char>>(c) >= 0x80;
+    return IsAsciiAlpha(c) || c == '_' || static_cast<std::make_unsigned_t<char>>(c) >= 0x80;
 }
 
 constexpr bool IsIdentChar(char c) noexcept

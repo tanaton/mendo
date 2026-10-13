@@ -9,7 +9,7 @@
 #include <memory>
 
 // ダミーPNGデータを生成する（ファイルキャッシュの単体テスト用、有効なPNGである必要はない）。
-static MermaidFileCache::PngBytes MakeDummyPng(size_t size = 1024)
+static PngBytes MakeDummyPng(size_t size = 1024)
 {
     std::pmr::vector<uint8_t> data(size);
     for (size_t i = 0; i < size; ++i) {

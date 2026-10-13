@@ -12,6 +12,7 @@
 #include <commctrl.h>
 #include <imm.h>
 #include <algorithm>
+#include <optional>
 
 #pragma comment(lib, "shcore.lib")
 #pragma comment(lib, "dwmapi.lib")
@@ -165,7 +166,7 @@ void Win32Window::UpdateDpiMetricsCache()
         return;
     }
     const UINT dpi = GetDpiForWindow(hwnd_);
-    cached_nchit_border_ = MulDiv(4, dpi, 96);
+    cached_nchit_border_ = MulDiv(4, dpi, USER_DEFAULT_SCREEN_DPI);
     cached_nchit_frame_y_ = GetSystemMetricsForDpi(SM_CYFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
     cached_nchit_right_border_ = GetSystemMetricsForDpi(SM_CXFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
 }
@@ -322,7 +323,7 @@ LRESULT Win32Window::HitTestTitleBar(POINT pt) const noexcept
     }
 }
 
-LRESULT Win32Window::HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam)
+std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
     // WM_MOUSEWHEEL / WM_CONTEXTMENU ではスクリーン座標、それ以外はクライアント座標。
     const int x = GET_X_LPARAM(lParam);
@@ -330,22 +331,13 @@ LRESULT Win32Window::HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 
     switch (msg) {
     case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP: {
         if (in_sys_menu_) {
             return 0;
         }
-        if (!app_->OnRButtonDown(x, y)) {
-            return DefWindowProcW(hwnd_, msg, wParam, lParam);
-        }
-        return 0;
-
-    case WM_RBUTTONUP:
-        if (in_sys_menu_) {
-            return 0;
-        }
-        if (!app_->OnRButtonUp(x, y)) {
-            return DefWindowProcW(hwnd_, msg, wParam, lParam);
-        }
-        return 0;
+        const bool handled = (msg == WM_RBUTTONDOWN) ? app_->OnRButtonDown(x, y) : app_->OnRButtonUp(x, y);
+        return handled ? 0 : DefWindowProcW(hwnd_, msg, wParam, lParam);
+    }
 
     case WM_LBUTTONDOWN:
         app_->OnLButtonDown(x, y);
@@ -428,9 +420,8 @@ LRESULT Win32Window::HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     }
 
     default:
-        break;
+        return std::nullopt;
     }
-    return DefWindowProcW(hwnd_, msg, wParam, lParam);
 }
 
 void Win32Window::OnContextMenu(int screen_x, int screen_y)
@@ -506,22 +497,8 @@ LRESULT Win32Window::HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lPara
 
 LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
-    switch (msg) {
-    case WM_RBUTTONDOWN:
-    case WM_RBUTTONUP:
-    case WM_LBUTTONDOWN:
-    case WM_LBUTTONUP:
-    case WM_MOUSEMOVE:
-    case WM_MOUSELEAVE:
-    case WM_SETCURSOR:
-    case WM_LBUTTONDBLCLK:
-    case WM_MOUSEWHEEL:
-    case WM_MOUSEHWHEEL:
-    case WM_CONTEXTMENU:
-    case WM_XBUTTONDOWN:
-        return HandleMouseMessage(msg, wParam, lParam);
-    default:
-        break;
+    if (const auto result = TryHandleMouseMessage(msg, wParam, lParam)) {
+        return *result;
     }
 
     if (msg >= WM_APP && msg < app_msg::END) {

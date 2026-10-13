@@ -6,9 +6,9 @@
 #include "selection_html.h"
 #include "ui_constants.h"
 
-App::HitResult App::HitTest(int screen_x, int screen_y)
+App::HitResult App::HitTest(int px, int py)
 {
-    return hit_test_.HitTest(BuildMdPaneHitContext(screen_x, screen_y, GetPaneLayout()));
+    return hit_test_.HitTest(BuildMdPaneHitContext(px, py, GetPaneLayout()));
 }
 
 MdPaneHitContext App::BuildMdPaneHitContext(int px, int py, const PaneLayout& pane_layout) const noexcept

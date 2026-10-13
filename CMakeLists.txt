@@ -136,14 +136,13 @@ add_library(mendo_core STATIC
     src/render/command_generator_table.cpp
     src/render/command_generator_highlights.cpp
     src/render/command_executor.cpp
-    # app - クリップボード操作 (CopyCodeBlock / SaveDiagramAsPng / CopyDiagramAsSvg)
+    # app - クリップボード操作 (CopyCodeBlock / SaveDiagramAsPng / CopyDiagramToClipboard)
     src/app/clipboard_manager.cpp
     # ui - UIコンポーネント
     # context_menu.cpp は Win32/D2D 描画層（本体）と logic 層（mendo_core 入り）に
     # 分割されており、logic 側のみを mendo_core に含める。
     src/ui/context_menu_logic.cpp
     src/ui/darkmode_util.cpp
-    src/ui/pane_layout.cpp
     src/ui/pane_controller.cpp
     src/ui/search_state.cpp
     src/ui/titlebar.cpp
@@ -180,6 +179,7 @@ add_library(mendo_core STATIC
     src/app/startup_plan.cpp
     # util - ユーティリティ
     src/util/file_io.cpp
+    src/util/pane_layout.cpp
     src/util/task_scheduler.cpp
 )
 target_include_directories(mendo_core PUBLIC ${MENDO_SRC_DIRS})

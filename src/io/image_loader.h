@@ -27,9 +27,8 @@ public:
 
     // 失敗時 false; 以降の RequestLoadAsync はデコードせず失敗扱いになる。
     bool Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic = nullptr);
-    // **UI スレッドからのみ呼び出すこと**。worker は render_target_ を非アトミック参照する
-    // (ProcessCompletedDecodes 経由)。デバイスロスト後の rt 差し替えは CancelPending() で
-    // worker を止めてから呼ぶ規約 (App::Init の DeviceLost コールバック参照)。
+    // **UI スレッドからのみ呼び出すこと** (worker が読むのは max_bitmap_dim_ だけ)。デバイスロスト後の
+    // rt 差し替えは CancelPending() で旧 rt 向けのデコードを捨ててから呼ぶ規約 (App::Init の DeviceLost コールバック参照)。
     void SetRenderTarget(ID2D1RenderTarget* rt) noexcept
     {
         render_target_ = rt;

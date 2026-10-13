@@ -91,9 +91,7 @@ public:
     {}
     InlineTagScope(const InlineTagScope&) = delete;
     InlineTagScope& operator=(const InlineTagScope&) = delete;
-    // CloseAll() は out_.append() 経由で bad_alloc を投げ得るが、デストラクタからは例外を出さない。
-    // bad_alloc が起きた場合、生成中の HTML は途中で打ち切られるが、selection-copy 経路自体が
-    // クリップボードに渡す前に切り詰める耐性を持つ (selection_html_test 参照)。
+    // CloseAll() は bad_alloc を投げ得るが、例外の巻き戻し中に投げると terminate するので握りつぶす。
     ~InlineTagScope() noexcept
     {
         try {
@@ -384,9 +382,7 @@ class TableSectionScope {
 public:
     constexpr explicit TableSectionScope(std::pmr::string& out) noexcept : out_(out)
     {}
-    // Close() は out_.append() 経由で bad_alloc を投げ得るが、デストラクタからは例外を出さない。
-    // bad_alloc が起きた場合、生成中の HTML は途中で打ち切られるが、selection-copy 経路自体が
-    // クリップボードに渡す前に切り詰める耐性を持つ。
+    // Close() は bad_alloc を投げ得るが、例外の巻き戻し中に投げると terminate するので握りつぶす。
     ~TableSectionScope() noexcept
     {
         try {
@@ -660,6 +656,11 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
             close_list();
         }
 
+        const auto wrap_inline = [&](std::string_view open, std::string_view close) {
+            out.append(open);
+            AppendNodeInlineHtml(out, node, start, end);
+            out.append(close);
+        };
         switch (node.type) {
         case NodeType::Heading: {
             const int level = std::clamp(static_cast<int>(node.heading_level()), 1, 6);
@@ -669,27 +670,19 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
             break;
         }
         case NodeType::Paragraph:
-            out.append("<p>");
-            AppendNodeInlineHtml(out, node, start, end);
-            out.append("</p>");
+            wrap_inline("<p>", "</p>");
             break;
         case NodeType::CodeBlock:
             AppendCodeBlockHtml(out, node, start, end, dark_mode);
             break;
         case NodeType::BlockQuote:
-            out.append("<blockquote>");
-            AppendNodeInlineHtml(out, node, start, end);
-            out.append("</blockquote>");
+            wrap_inline("<blockquote>", "</blockquote>");
             break;
         case NodeType::ListItem:
-            out.append("<li>");
-            AppendNodeInlineHtml(out, node, start, end);
-            out.append("</li>");
+            wrap_inline("<li>", "</li>");
             break;
         case NodeType::TaskListItem:
-            out.append(node.task_checked() ? "<li><input type=\"checkbox\" checked disabled> " : "<li><input type=\"checkbox\" disabled> ");
-            AppendNodeInlineHtml(out, node, start, end);
-            out.append("</li>");
+            wrap_inline(node.task_checked() ? "<li><input type=\"checkbox\" checked disabled> " : "<li><input type=\"checkbox\" disabled> ", "</li>");
             break;
         case NodeType::HorizontalRule:
             out.append("<hr>");

@@ -1,7 +1,7 @@
 #pragma once
+#include "png_bytes.h"
 #include "worker_latch.h"
 #include <cstdint>
-#include <memory>
 #include <memory_resource>
 #include <mutex>
 #include <optional>
@@ -45,7 +45,6 @@ public:
     void OnReadFailed(uint64_t key, DWORD read_error);
     bool LookupDimensions(uint64_t key, CacheEntry& entry);
     // png_data は表示側 (メモリキャッシュ / DiagramEntry) と共有し、書き込み用にコピーしない。
-    using PngBytes = std::shared_ptr<const std::pmr::vector<uint8_t>>;
     void StoreAsync(uint64_t key, float css_width, float css_height, PngBytes png_data);
     void SaveIndex();
     void Shutdown();
@@ -107,7 +106,6 @@ private:
         }
     };
 
-    static std::filesystem::path GetPngPath(const std::filesystem::path& dir, uint64_t key);
     std::filesystem::path GetPngPath(uint64_t key) const;
     std::filesystem::path GetIndexPath() const;
     // 初回呼び出しで index.bin を読み込む唯一の入口。

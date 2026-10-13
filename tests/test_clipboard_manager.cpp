@@ -68,7 +68,7 @@ ClipboardManager MakeManager(MockMermaidRenderer* renderer, ToastRecorder& toast
 constexpr float kDefaultMdWidth = 800.0f;
 
 // テストは png 無しでガード経路のみ踏むため、共通の空 PNG ハンドルを使う。
-const std::shared_ptr<const std::pmr::vector<uint8_t>> kNoPng;
+const PngBytes kNoPng;
 
 } // namespace
 

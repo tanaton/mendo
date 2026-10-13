@@ -161,6 +161,9 @@ using NodeImagePtr = std::unique_ptr<NodeImageData>;
 // 入力は md4c の制約で 2GB 未満なので、Node が 32bit で持つ値と同じにしておく。
 inline constexpr size_t kUnsetSourceOffset = std::numeric_limits<uint32_t>::max();
 
+// 1 ノードのリンク URL の上限。TextRun::link_url_index (int16_t) で引ける数まで。
+inline constexpr size_t kMaxLinkUrls = std::numeric_limits<int16_t>::max();
+
 struct Node {
     // テキスト・runs・リンク URL はノード自身では持たず、Document の raw_text_ (原文をそのまま使えるもの)
     // か TextArena (加工したテキスト・runs・URL の配列) を指す。どちらも Document と寿命が同じ。
@@ -337,7 +340,6 @@ struct Node {
     //       variant タグ比較を skip すること。例: `node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language())`、
     //       `node.alert_type != AlertType::None && node.alert_label_length() > 0`。
     //       新規アクセサを追加する場合もこの規約に倣い、type で先にゲートできる呼び出し側を維持する。
-    // アンカーは Document::FindAnchorIndex が必要時に作る。
     constexpr int8_t heading_level() const noexcept
     {
         return type == NodeType::Heading ? heading_level_ : static_cast<int8_t>(0);
@@ -383,7 +385,7 @@ struct Node {
     // urls も各 URL 文字列も、SetText と同じくノードより長く生きる領域を指すこと。
     constexpr void SetLinkUrls(std::span<const std::string_view> urls) noexcept
     {
-        assert(urls.size() <= static_cast<size_t>(std::numeric_limits<int16_t>::max()));
+        assert(urls.size() <= kMaxLinkUrls);
         link_urls_ = urls.data();
         link_url_count_ = static_cast<uint16_t>(urls.size());
     }

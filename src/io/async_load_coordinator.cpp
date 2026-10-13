@@ -1,7 +1,5 @@
 #include "async_load_coordinator.h"
-#include "document.h"
-#include "layout.h"
-#include "layout_cache.h"
+#include "layout_computer.h"
 #include "profiler.h"
 #include "task_scheduler.h"
 #include <utility>
@@ -114,24 +112,25 @@ void AsyncLoadCoordinator::RunWorker(const std::pmr::wstring& path, uint32_t gen
     });
 }
 
-std::optional<AsyncLoadResult> AsyncLoadCoordinator::TakeResult()
+template <class Opt>
+Opt AsyncLoadCoordinator::TakeFromSink(Opt& sink) noexcept
 {
     const std::lock_guard lock(mutex_);
-    if (!result_) {
+    if (!sink) {
         return std::nullopt;
     }
     // 取り出し成功 = 非同期ロードの完結。同期 ExecuteLoad など別経路から in_flight を触ると
     // race になるため、coordinator の責務に閉じる。
     in_flight_ = false;
-    return std::exchange(result_, std::nullopt);
+    return std::exchange(sink, std::nullopt);
+}
+
+std::optional<AsyncLoadResult> AsyncLoadCoordinator::TakeResult()
+{
+    return TakeFromSink(result_);
 }
 
 std::optional<FileLoadError> AsyncLoadCoordinator::TakeError() noexcept
 {
-    const std::lock_guard lock(mutex_);
-    if (!error_) {
-        return std::nullopt;
-    }
-    in_flight_ = false;
-    return std::exchange(error_, std::nullopt);
+    return TakeFromSink(error_);
 }

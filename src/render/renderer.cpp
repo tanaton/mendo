@@ -476,7 +476,7 @@ void Renderer::Render(const RenderParams& p)
         DrawNavOverlay(p.md_pane_rect, p.can_go_back, p.can_go_forward, p.nav_hovered);
     }
 
-    if (p.gesture.trail_active && p.gesture.trail_points && p.gesture.trail_points->size() >= 2) {
+    if (p.gesture.trail_active && p.gesture.trail_points) {
         DrawGestureTrail(*p.gesture.trail_points);
     }
 

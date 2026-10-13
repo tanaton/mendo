@@ -4,6 +4,7 @@
 #include "lru_cache.h"
 #include "mermaid_renderer_interface.h"
 #include "mermaid_util.h"
+#include "png_bytes.h"
 #include "worker_latch.h"
 #include <d2d1.h>
 #include <wincodec.h>
@@ -99,8 +100,6 @@ private:
         }
     };
 
-    using PngBytes = std::shared_ptr<const std::pmr::vector<uint8_t>>;
-
     struct CachedBitmap {
         Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
         float width = 0.0f;
@@ -178,7 +177,7 @@ private:
         }
     }
 
-    // scheduler が無ければその場で読み込んで適用する。captured_stream があればファイルは読まずにそれをデコードする。
+    // captured_stream があればファイルは読まずにそれをデコードする。
     void StartDiskLoad(RenderRequest req, std::filesystem::path png_path, Microsoft::WRL::ComPtr<IStream> captured_stream = nullptr);
     // worker で呼ぶ。
     void LoadDiskJob(DiskLoad& job, const std::filesystem::path& path);
@@ -191,7 +190,7 @@ private:
     void OnCaptureComplete(int worker_idx, Microsoft::WRL::ComPtr<IStream> png_stream);
     void InsertCache(uint64_t hash, CachedBitmap cached);
 
-    HWND hwnd_ = nullptr; // メインウィンドウ
+    HWND hwnd_ = nullptr;
     ID2D1RenderTarget* render_target_ = nullptr;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     Microsoft::WRL::ComPtr<ICoreWebView2Environment> webview_env_;
@@ -210,7 +209,7 @@ private:
     // true のまま再要求されるため、ここで重複を弾く (二重描画・キュー肥大の防止)。
     std::pmr::unordered_set<const DiagramEntry*> inflight_entries_;
 
-    // code_hash -> {bitmap, width, height} (LruCache の挙動は src/util/lru_cache.h 参照)。
+    // code_hash -> CachedBitmap (LruCache の挙動は src/util/lru_cache.h 参照)。
     LruCache<uint64_t, CachedBitmap, MAX_CACHE_ENTRIES> cache_;
     MermaidFileCache* file_cache_ = nullptr;
 

@@ -374,6 +374,11 @@ inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top, int b
     return D2D1::RectF(bx, by, bx + COPY_BTN_SIZE, by + COPY_BTN_SIZE);
 }
 
+inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top, DiagramButtonSlot slot) noexcept
+{
+    return OverlayButtonRect(anchor_right, anchor_top, static_cast<int>(slot));
+}
+
 // Mermaidダイアグラムのビットマップ描画矩形を計算する（スケーリング＋中央寄せ）。
 // CommandGenerator（描画）とHitTestService（クリック検出）の間で共有される。
 inline D2D1_RECT_F MermaidBitmapRect(float diagram_w, float diagram_h, float x, float cw, float y) noexcept

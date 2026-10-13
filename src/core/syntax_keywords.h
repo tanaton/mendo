@@ -8,17 +8,14 @@
 #include <array>
 #include <span>
 #include <string_view>
-#include <tuple>
 #include <cstdint>
 
 namespace syntax_keywords {
 
-using namespace std::literals;
-
 // バケット最大長。全テーブルで現状最長 23 (`ConstructorParameters`) なので余裕を持たせて 32。
 inline constexpr size_t KEYWORD_MAX_LEN = 32;
 
-// type-erased view。言語ごとに異なる N を 1 つの配列に格納するため、
+// type-erased view。言語ごとに異なる N のテーブルを同じ型で受け渡すため、
 // 各 BucketedTable<N> から暗黙変換できる軽量ビューを使う。
 struct KeywordTable {
     std::span<const std::string_view> entries;

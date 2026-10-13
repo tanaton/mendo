@@ -1,7 +1,7 @@
 #pragma once
 #include "app_events.h"
 
-// イベント→アクション変換。Shell が実行する。状態は呼び出し側が持って渡す。
+// イベント→アクション変換。App が実行する。状態は呼び出し側が持って渡す。
 namespace app_controller {
 
 AppAction HandleKeyDown(const KeyDownEvent& event);

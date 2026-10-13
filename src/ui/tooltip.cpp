@@ -96,7 +96,7 @@ void Tooltip::Show()
     POINT pt{};
     GetCursorPos(&pt);
     const UINT dpi = GetDpiForWindow(s.parent);
-    const int offset_y = MulDiv(20, dpi, 96);
+    const int offset_y = MulDiv(20, dpi, USER_DEFAULT_SCREEN_DPI);
     SendMessageW(s.hwnd, TTM_TRACKPOSITION, 0, MAKELPARAM(pt.x, pt.y + offset_y));
 
     SendMessageW(s.hwnd, TTM_TRACKACTIVATE, TRUE, reinterpret_cast<LPARAM>(&ti));

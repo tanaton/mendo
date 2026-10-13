@@ -15,6 +15,7 @@
 #include <cmath>
 #include <concepts>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -90,8 +91,7 @@ public:
         const auto& image_indices = deps_.doc->GetImageNodeIndices();
 
         // 通常描画は可視範囲に intersect する image index のみを走査。
-        // リロード時 (respect_viewport=false) は CalcScrollForDiff の Y 計算用に全件処理する。
-        // viewport_height <= 0.0f の時は初期化中等なのでレイアウト範囲無視（全件）で従来挙動を保つ。
+        // リロード時 (respect_viewport=false) は CalcScrollYForDiff の Y 計算用に全件処理する。
         const IndexSlice slice = respect_viewport
             ? BufferedSlice(image_indices, PREFETCH_BUFFER_SCREENS)
             : IndexSlice{ image_indices.begin(), image_indices.end() };
@@ -167,14 +167,6 @@ public:
         deps_.image_loader->ProcessCompletedDecodes();
     }
 
-    void OnImageLoadComplete()
-    {
-        pending_flush_ = true;
-        if (ApplyCachedImages() > 0) {
-            cb_.recompute_layout_anchored(TakeHeightChanges());
-        }
-    }
-
     int RequestMermaidRenders()
     {
         const float content_width = cb_.get_content_width();
@@ -210,29 +202,6 @@ public:
             pending_flush_ = true;
             cb_.recompute_layout_anchored(TakeHeightChanges());
         }
-    }
-
-    // 同期キャッシュヒットは RequestRender 内で OnMermaidRenderComplete まで完了する。
-    // 戻り値: その場で bitmap が確定したか。
-    bool RequestDiagramRender(size_t i, float content_width, bool dark_mode)
-    {
-        auto& diagram = deps_.cache->EnsureDiagram(i);
-        // エラー確定した図も NeedsRender()=false で弾き、失敗レンダの無限リトライを防ぐ。
-        if (!diagram.NeedsRender()) {
-            return false;
-        }
-        deps_.mermaid->RequestRender(deps_.doc->GetNodesMut()[i], (*deps_.cache)[i], diagram, content_width, dark_mode, [this, i] { OnMermaidRenderComplete(i); });
-        return diagram.bitmap != nullptr;
-    }
-
-    void OnMermaidRenderComplete(size_t node_index)
-    {
-        height_changed_.Add(node_index);
-        if (mermaid_batch_loading_) {
-            return;
-        }
-        pending_flush_ = true;
-        cb_.recompute_layout_anchored(TakeHeightChanges());
     }
 
     void CancelMermaidBatch()
@@ -295,26 +264,18 @@ public:
     {
         using resource_manager_detail::VisibleSlice;
 
-        const float viewport_top = deps_.viewport->GetScrollY();
-        const float viewport_height = cb_.get_viewport_height();
-        if (viewport_height <= 0.0f) {
+        const auto keep = ComputeBufferedRange(EVICT_BUFFER_SCREENS);
+        if (!keep) {
             return;
         }
-
-        const float buffer = viewport_height * EVICT_BUFFER_SCREENS;
-        const float evict_top = viewport_top - buffer;
-        const float evict_bottom = viewport_top + viewport_height + buffer;
-
-        const size_t node_count = deps_.doc->GetNodes().size();
-
-        const auto vr = ComputeVisibleNodeRange(*deps_.cache, node_count, evict_top, evict_bottom);
+        const auto& vr = keep->range;
 
         deps_.cache->EvictTextLayouts(vr.first, vr.last_plus_1);
 
         // 可視範囲をまたぐ巨大テーブルでは、ノード単位 evict では拾えない不可視行のセルを別途解放する。
         // keep 範囲外のテーブルは上の EvictTextLayouts で全行解放済みなので、範囲内だけ見る。
         const auto tables = VisibleSlice(deps_.doc->GetTableNodeIndices(), vr.first, vr.last_plus_1);
-        deps_.cache->EvictInvisibleTableRows(std::span<const size_t>(tables.begin, tables.end), viewport_top, viewport_top + viewport_height, buffer);
+        deps_.cache->EvictInvisibleTableRows(std::span<const size_t>(tables.begin, tables.end), keep->viewport_top, keep->viewport_bottom, keep->buffer);
 
         // image/diagram bitmap も可視範囲外の分を捨てる。レンダ済みビットマップの
         // 二次キャッシュ (mermaid 内 LRU, 128 件) は自前で上限管理されるため全消去しない。
@@ -380,6 +341,37 @@ public:
     }
 
 private:
+    void OnImageLoadComplete()
+    {
+        pending_flush_ = true;
+        if (ApplyCachedImages() > 0) {
+            cb_.recompute_layout_anchored(TakeHeightChanges());
+        }
+    }
+
+    // 同期キャッシュヒットは RequestRender 内で OnMermaidRenderComplete まで完了する。
+    // 戻り値: その場で bitmap が確定したか。
+    bool RequestDiagramRender(size_t i, float content_width, bool dark_mode)
+    {
+        auto& diagram = deps_.cache->EnsureDiagram(i);
+        // エラー確定した図も NeedsRender()=false で弾き、失敗レンダの無限リトライを防ぐ。
+        if (!diagram.NeedsRender()) {
+            return false;
+        }
+        deps_.mermaid->RequestRender(deps_.doc->GetNodesMut()[i], (*deps_.cache)[i], diagram, content_width, dark_mode, [this, i] { OnMermaidRenderComplete(i); });
+        return diagram.bitmap != nullptr;
+    }
+
+    void OnMermaidRenderComplete(size_t node_index)
+    {
+        height_changed_.Add(node_index);
+        if (mermaid_batch_loading_) {
+            return;
+        }
+        pending_flush_ = true;
+        cb_.recompute_layout_anchored(TakeHeightChanges());
+    }
+
     // 解決済みパスはノード単位でキャッシュする。解決できなければ nullptr。
     const std::wstring* ResolveImagePath(size_t node_index, std::string_view src, const std::pmr::wstring& doc_dir)
     {
@@ -422,18 +414,34 @@ private:
         return std::exchange(height_changed_, {});
     }
 
-    // indices のうち、可視範囲 ± viewport_height * screens に交差する部分。
-    // viewport_height <= 0 (初期化中等) は範囲が決まらないため全件を返す。
-    resource_manager_detail::IndexSlice BufferedSlice(const std::pmr::vector<size_t>& indices, float screens)
+    struct BufferedRange {
+        float viewport_top;
+        float viewport_bottom;
+        float buffer;
+        VisibleRange range;
+    };
+    // 可視範囲 ± viewport_height * screens に交差するノード範囲。viewport_height <= 0 (初期化中等) は範囲が決まらない。
+    std::optional<BufferedRange> ComputeBufferedRange(float screens)
     {
         const float viewport_height = cb_.get_viewport_height();
         if (viewport_height <= 0.0f) {
-            return { indices.begin(), indices.end() };
+            return std::nullopt;
         }
         const float viewport_top = deps_.viewport->GetScrollY();
+        const float viewport_bottom = viewport_top + viewport_height;
         const float buffer = viewport_height * screens;
-        const auto vr = ComputeVisibleNodeRange(*deps_.cache, deps_.doc->GetNodes().size(), viewport_top - buffer, viewport_top + viewport_height + buffer);
-        return resource_manager_detail::VisibleSlice(indices, vr.first, vr.last_plus_1);
+        const auto vr = ComputeVisibleNodeRange(*deps_.cache, deps_.doc->GetNodes().size(), viewport_top - buffer, viewport_bottom + buffer);
+        return BufferedRange{ viewport_top, viewport_bottom, buffer, vr };
+    }
+
+    // indices のうち ComputeBufferedRange に交差する部分。範囲が決まらないときは全件を返す。
+    resource_manager_detail::IndexSlice BufferedSlice(const std::pmr::vector<size_t>& indices, float screens)
+    {
+        const auto r = ComputeBufferedRange(screens);
+        if (!r) {
+            return { indices.begin(), indices.end() };
+        }
+        return resource_manager_detail::VisibleSlice(indices, r->range.first, r->range.last_plus_1);
     }
 
     void InvalidateMermaidForWidthChange(float content_width)

@@ -20,15 +20,6 @@ void EmitScrollEffects(AppState& state, SideEffectList& effects, float old_scrol
 void EmitSidePaneScrollChanged(SideEffectList& effects, PaneTarget pane);
 void ApplyScrollTargetAndEmit(AppState& state, SideEffectList& effects, int node, float offset, bool toc_auto_scroll);
 
-// つまみ上クリック → 位置維持 (オフセットのみ記録)、つまみ外 → 中心へジャンプ。
-struct ScrollbarDragGrip {
-    float drag_offset;
-    bool inside_thumb;
-};
-ScrollbarDragGrip ComputeScrollbarDragGrip(float thumb_y, float thumb_height, float click_y) noexcept;
-
-bool ApplyBlockHScrollDelta(AppState& state, int node_index, float new_value, float scroll_max);
-
 // ---- スクロール (reducer_scroll.cpp) ----
 
 void ReduceKeyScroll(AppState& state, SideEffectList& effects, const KeyScrollAction& a);

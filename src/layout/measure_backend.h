@@ -41,9 +41,9 @@ public:
     }
 };
 
-// 全計測経路の入口。実測値を cached_width/height に残し、同じ幅へ戻った際に
+// 実測値を cached_width/height に残し、同じ幅へ戻った際に
 // EstimateInvisibleNodeHeight が推定値で上書きしないようにする。
-// 計測に成功したらどの経路でも失敗回数を 0 に戻し、以後の一時的な失敗を初回として扱う。
+// 計測に成功したら失敗回数を 0 に戻し、以後の一時的な失敗を初回として扱う。
 // viewport は文書座標で受け取り、entry_top 基準のローカル座標に直してバックエンドへ渡す。
 inline void MeasureEntry(
     const IMeasureBackend& backend, const Node& node, NodeLayoutEntry& entry, float node_width,

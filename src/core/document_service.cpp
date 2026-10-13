@@ -1,7 +1,18 @@
 #include "document_service.h"
-#include "app_constants.h"
 #include "file_io.h"
 #include "profiler.h"
+
+namespace {
+
+// 同期ロードの上限。これを超えるサイズはバックグラウンドスレッドにオフロードする。
+// I/O + パースの典型コストが UI スレッドで <16ms に収まる経験値。
+constexpr DWORD kAsyncLoadBytes = 64 * 1024;
+
+// ローディングアニメーション (スピナー) を表示する下限。
+// これより小さいファイルはアニメーション表示前に読み終わり、ちらつきの原因になる。
+constexpr DWORD kLoadingAnimBytes = 16 * 1024 * 1024;
+
+} // namespace
 
 std::expected<Document, FileLoadError> DocumentService::LoadFile(const std::pmr::wstring& path, std::stop_token stop_token)
 {
@@ -33,10 +44,10 @@ bool DocumentService::IsLargerThan(const std::pmr::wstring& path, DWORD threshol
 
 bool DocumentService::IsAsyncLoadCandidate(const std::pmr::wstring& path) noexcept
 {
-    return IsLargerThan(path, app_threshold::ASYNC_LOAD_BYTES);
+    return IsLargerThan(path, kAsyncLoadBytes);
 }
 
 bool DocumentService::ShouldShowLoadingAnimation(const std::pmr::wstring& path) noexcept
 {
-    return IsLargerThan(path, app_threshold::LOADING_ANIM_BYTES);
+    return IsLargerThan(path, kLoadingAnimBytes);
 }
