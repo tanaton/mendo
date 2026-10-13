@@ -89,12 +89,8 @@ UniqueGlobalMem ClipboardManager::BuildDib(const PngBytes& png) const
     if (!png || png->empty() || !wic_) {
         return {};
     }
-    const auto stream = wic_util::CreateStreamOnMemory(wic_, *png);
-    if (!stream) {
-        return {};
-    }
     // BI_RGB の DIB なので非プリマルチプライの 32bpp BGRA でデコードする。
-    auto decoded = wic_util::DecodeFromStream(wic_, stream.Get(), GUID_WICPixelFormat32bppBGRA);
+    auto decoded = wic_util::DecodeFromMemory(wic_, *png, GUID_WICPixelFormat32bppBGRA);
     if (!decoded || decoded->pixel_width == 0 || decoded->pixel_height == 0) {
         return {};
     }

@@ -5,7 +5,6 @@
 #include "toc.h"
 #include <concepts>
 #include <memory>
-#include <span>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -63,20 +62,3 @@ template <class S>
     requires(!std::is_lvalue_reference_v<S> &&
              (std::same_as<std::remove_cv_t<S>, std::string> || std::same_as<std::remove_cv_t<S>, std::pmr::string>))
 ParseResult ParseMarkdown(S&& markdown_text, std::stop_token stop_token = {}) = delete;
-
-// BlockQuoteノードからGitHub Alertsを検出し、マーカー除去・ラベル挿入・グルーピングを行う（テスト用に公開）。
-// blockquote_indices は ParseMarkdown が収集した BlockQuote ノードのインデックス。書き換えたテキストと runs は arena に置く。
-void DetectAlerts(std::pmr::vector<Node>& nodes, TextArena& arena, std::span<const size_t> blockquote_indices);
-
-// text が Alert マーカー ([!TYPE] と直後の区切り 1 文字) だけからなるか。
-bool IsAlertMarkerOnly(std::string_view text);
-
-// nodes[i] が Alert マーカーを持ちうる位置 (最外側 blockquote の先頭段落) か。
-bool IsAlertHeadCandidate(const std::pmr::vector<Node>& nodes, size_t i) noexcept;
-
-// AlertTypeに対応するラベル文字列を返す（テスト用に公開）
-std::string_view GetAlertLabel(AlertType type) noexcept;
-
-// AlertTypeに対応するアイコン文字列を返す（テスト用に公開）
-std::string_view GetAlertIcon(AlertType type) noexcept;
-

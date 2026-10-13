@@ -104,6 +104,18 @@ inline std::optional<DecodeResult> DecodeFromStream(
     return result;
 }
 
+// bytes をコピーせずに参照してデコードする。bytes は戻り値を使い終えるまで生かすこと。
+inline std::optional<DecodeResult> DecodeFromMemory(
+    IWICImagingFactory* wic, std::span<const uint8_t> bytes,
+    const WICPixelFormatGUID& pixel_format = GUID_WICPixelFormat32bppPBGRA)
+{
+    const auto stream = CreateStreamOnMemory(wic, bytes);
+    if (!stream) {
+        return std::nullopt;
+    }
+    return DecodeFromStream(wic, stream.Get(), pixel_format);
+}
+
 struct PixelSize {
     UINT width = 0;
     UINT height = 0;

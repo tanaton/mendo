@@ -1,8 +1,31 @@
 #include "reducer_internal.h"
 #include "app_constants.h"
 #include "block_h_scroll.h"
-#include "layout_computer.h"
 #include <algorithm>
+#include <cmath>
+
+namespace {
+
+// HitTestService 側のキャッシュは対象ノードの block_scroll_x をキーに含むため、
+// ここで effects_generation を進める必要はない (進めると Renderer の effects
+// 再適用まで横スクロール 1 ノッチごとに巻き添えになる)。
+bool ApplyBlockHScrollDelta(AppState& state, int node_index, float new_value, const BlockHScrollGeometry& geom)
+{
+    const float clamped = geom.ClampScrollX(new_value);
+    const float prev = state.view.GetBlockScrollX(node_index);
+    if (std::abs(prev - clamped) < 1e-3f) {
+        return false;
+    }
+    if (clamped <= 0.0f) {
+        state.view.block_scroll_x.erase(node_index);
+    }
+    else {
+        state.view.block_scroll_x[node_index] = clamped;
+    }
+    return true;
+}
+
+} // namespace
 
 void ReduceKeyScroll(AppState& state, SideEffectList& effects, const KeyScrollAction& a)
 {
@@ -65,7 +88,7 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
             return;
         }
         const float dx = static_cast<float>(a.delta) / WHEEL_DELTA * HSCROLL_DIP_PER_NOTCH;
-        if (ApplyBlockHScrollDelta(state, target, state.view.GetBlockScrollX(target) + dx, geom.scroll_max())) {
+        if (ApplyBlockHScrollDelta(state, target, state.view.GetBlockScrollX(target) + dx, geom)) {
             PushEffect(effects, effect::InvalidateWindow{});
         }
         return;
@@ -112,7 +135,7 @@ void ReduceBlockHScrollDragMoved(AppState& state, SideEffectList& effects, const
     const float thumb_w = BlockHScrollbarThumbWidth(geom.visible_width, geom.natural_width);
     const float drag_range = std::max(1.0f, geom.visible_width - thumb_w);
     const float scroll_max = geom.scroll_max();
-    if (ApplyBlockHScrollDelta(state, sv.h_drag_node, sv.h_drag_start_scroll + dip_delta * scroll_max / drag_range, scroll_max)) {
+    if (ApplyBlockHScrollDelta(state, sv.h_drag_node, sv.h_drag_start_scroll + dip_delta * scroll_max / drag_range, geom)) {
         PushEffect(effects, effect::InvalidateWindow{});
     }
 }

@@ -480,7 +480,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayou
 
     // 幅の適用 (SetMaxWidth + GetMetrics) は全セル分かかる。行ごとの書き込み先
     // (row_heights[r] と行内セルの幅・高さキャッシュ) は重ならないので行チャンクで並列化する。
-    const float base_row_height = theme_->font_size_body * TABLE_ROW_HEIGHT_FACTOR;
+    const float base_row_height = mendo::layout::TableBaseRowHeight(*theme_);
     ParallelFor(scheduler_, tbl.row_count, TableRowsPerChunk(col_count), [&](size_t row_begin, size_t row_end) {
         for (size_t r = row_begin; r < row_end; r++) {
             const auto [row_height, has_unbuilt_cell] = MeasureRowHeight(tl, tbl, r, base_row_height);
@@ -538,7 +538,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
     }
 
     const auto [r_begin, r_end] = tl.RowsInViewport(row_count, viewport.top, viewport.bottom);
-    const float base_row_height = theme_->font_size_body * TABLE_ROW_HEIGHT_FACTOR;
+    const float base_row_height = mendo::layout::TableBaseRowHeight(*theme_);
     for (size_t r = r_begin; r < r_end; r++) {
         if (!tl.row_evicted[r]) {
             continue;
@@ -620,7 +620,7 @@ void DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayoutEntry& entry, 
 
     // セルレイアウトが既に存在し、かつストライドが現在の列数と一致する場合のみ
     // 第1パス（テキストレイアウト作成）をスキップして列幅再計算だけ行う。
-    // natural_col_widths は cell_layouts と同時にしか破棄されない (ResetTableLayoutGeometry) ため、
+    // natural_col_widths は cell_layouts と同時にしか破棄されない (ResetTableCellCaches) ため、
     // 互換レイアウトがあればキャッシュ済み自然幅をそのまま使える。
     if (has_compatible_layouts) {
         if (tl.row_evicted.size() != row_count) {

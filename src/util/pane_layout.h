@@ -100,6 +100,12 @@ constexpr float SidePaneContentHeight(size_t item_count, float pane_item_height)
     return static_cast<float>(item_count) * pane_item_height;
 }
 
+// ヘッダーを除いた内容領域の上端 (ウィンドウ DIP)。
+constexpr float PaneContentTop(const PaneRect& rect, float header_height) noexcept
+{
+    return rect.y + header_height;
+}
+
 // ウィンドウ DIP の Y を、項目先頭を 0 とするペイン内ローカル Y (スクロール込み) に変換する。
 // ホバーとクリックの両方がこの式を共有する。
 constexpr float SidePaneLocalY(float dip_y, float content_top, float scroll_y) noexcept
@@ -131,8 +137,8 @@ PaneLayout ComputePaneLayout(
     float total_width, float total_height,
     float file_pane_width, float toc_pane_width,
     float splitter_width, bool show_file, bool show_toc,
-    float md_min_width = MD_PANE_MIN_WIDTH, float top_offset = 0.0f) noexcept;
+    float top_offset = 0.0f) noexcept;
 PaneZone DetectPaneZone(float dip_x, const PaneLayout& layout, float splitter_width, bool show_file, bool show_toc) noexcept;
-PaneScrollInfo ComputeScrollInfo(const PaneRect& rect, float header_height, float total_content, float thumb_min = PANE_SCROLLBAR_THUMB_MIN) noexcept;
+PaneScrollInfo ComputeScrollInfo(const PaneRect& rect, float header_height, float total_content) noexcept;
 float ComputeThumbY(const PaneScrollInfo& info, float scroll_y) noexcept;
 float ScrollFromThumbY(const PaneScrollInfo& info, float thumb_y) noexcept;

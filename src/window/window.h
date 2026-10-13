@@ -4,6 +4,7 @@
 #include <string_view>
 #include <memory>
 #include <memory_resource>
+#include <optional>
 
 class App;
 class ConfigService;
@@ -19,7 +20,7 @@ public:
     void SetInitialDirectory(std::wstring_view dir_path);
     void StartPreloadAsync(std::pmr::wstring path);
 
-    // App::Init が AttachOrApplyPreload で同期復元するパスに備えて、Create より前に呼ぶ。
+    // App::LoadInitialDocument が AttachOrApplyPreload で同期復元するパスに備えて、Create より前に呼ぶ。
     void RestoreScrollPosition();
 
 private:
@@ -30,7 +31,8 @@ private:
     // 最大化時は HTNOWHERE を返す。
     LRESULT HitTestResizeFrame(POINT pt) const noexcept;
     LRESULT HitTestTitleBar(POINT pt) const noexcept;
-    LRESULT HandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam);
+    // マウス系のメッセージでなければ nullopt。
+    std::optional<LRESULT> TryHandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lParam);
     void OnContextMenu(int screen_x, int screen_y);
     POINT KeyboardContextMenuPoint() const;

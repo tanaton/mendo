@@ -9,15 +9,13 @@ struct SidePaneContext {
     PaneScrollInfo info;
     ScrollState& scroll;
 };
-constexpr PaneController::DragTarget SidePaneDragTarget(PaneTarget pane) noexcept
-{
-    using enum PaneController::DragTarget;
-    return (pane == PaneTarget::File) ? FileScrollbar : TocScrollbar;
-}
 SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane);
 
-inline int SidePaneHitTest(const AppState& state, PaneTarget pane, float local_y, float item_h)
+// サイドペイン (rect) で dip_y にある項目の番号。無ければ -1。
+inline int SidePaneItemAt(const AppState& state, PaneTarget pane, const PaneRect& rect, float dip_y)
 {
+    const float item_h = state.theme->pane_item_height;
+    const float local_y = SidePaneLocalY(dip_y, PaneContentTop(rect, state.theme->pane_header_height), state.view.panes.SidePaneScroll(pane).scroll_y);
     return pane == PaneTarget::File
                ? state.file_explorer.HitTest(local_y, item_h)
                : state.document.doc.GetToc().HitTest(local_y, item_h);

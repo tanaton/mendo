@@ -35,7 +35,6 @@ void ConfigService::SetConfigDirOverride(const std::filesystem::path& dir)
 
 const std::filesystem::path& ConfigService::DefaultConfigDir()
 {
-    // magic static: SHGetKnownFolderPath はプロセス全体で 1 回のみ呼び出される。
     // 失敗時は空 path のままキャッシュされ、GetConfigPath で空チェックされる。
     static const std::filesystem::path kDir = []() noexcept {
         wchar_t* appdata = nullptr;

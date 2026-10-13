@@ -315,7 +315,7 @@ TEST(ViewStats, DISABLED_DumpFirstOwnedCodeBlocks)
                   << " text.size()=" << text.size() << " line_count=" << n.line_count;
         if (off != kUnsetSourceOffset && off < raw.size()) {
             const size_t avail = std::min<size_t>(text.size(), raw.size() - off);
-            const std::string_view raw_slice{ raw.data() + off, avail };
+            const std::string_view raw_slice = std::string_view{ raw }.substr(off, avail);
             // 先頭 N 文字の差分位置を探す
             size_t first_diff = avail;
             for (size_t i = 0; i < avail; ++i) {

@@ -207,7 +207,7 @@ TEST(DocumentTest, SourceOffsetPointsToNodeTextStart)
     // 各ノードの source_offset 位置の文字 == そのノードのテキスト先頭文字 が成立することを確認する。
     auto doc = Document::FromMarkdown("# Title\n\nBody\n\n```\ncode\n```\n", L"test.md");
     const auto& nodes = doc.GetNodes();
-    const auto& raw = doc.GetRawText();
+    const std::string_view raw = doc.GetRawText();
 
     bool checked_any = false;
     for (const auto& n : nodes) {

@@ -30,13 +30,8 @@ public:
 
     constexpr SwipeResult Commit() noexcept
     {
-        SwipeResult result = SwipeResult::None;
-        if (accumulated_delta_ >= TRIGGER_THRESHOLD) {
-            result = SwipeResult::Back;
-        }
-        else if (accumulated_delta_ <= -TRIGGER_THRESHOLD) {
-            result = SwipeResult::Forward;
-        }
+        const int dir = GetOverlayDirection();
+        const SwipeResult result = dir < 0 ? SwipeResult::Back : dir > 0 ? SwipeResult::Forward : SwipeResult::None;
         accumulated_delta_ = 0;
         last_hscroll_time_ = 0;
         return result;

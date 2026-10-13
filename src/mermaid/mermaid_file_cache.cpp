@@ -50,19 +50,14 @@ void MermaidFileCache::SetLimits(size_t max_entries, uint64_t max_total_size)
     max_total_size_ = max_total_size;
 }
 
-std::filesystem::path MermaidFileCache::GetPngPath(const std::filesystem::path& dir, uint64_t key)
-{
-    wchar_t name[24];
-    const auto r = std::format_to_n(name, std::ranges::size(name) - 1, L"{:016x}.png", key);
-    return dir / std::wstring_view{ name, static_cast<size_t>(r.out - name) };
-}
-
 std::filesystem::path MermaidFileCache::GetPngPath(uint64_t key) const
 {
     if (cache_dir_.empty()) {
         return {};
     }
-    return GetPngPath(cache_dir_, key);
+    wchar_t name[24];
+    const auto r = std::format_to_n(name, std::ranges::size(name) - 1, L"{:016x}.png", key);
+    return cache_dir_ / std::wstring_view{ name, static_cast<size_t>(r.out - name) };
 }
 
 std::filesystem::path MermaidFileCache::GetIndexPath() const
@@ -112,7 +107,6 @@ MermaidFileCache::IndexState MermaidFileCache::LoadIndex() const
     if (header.magic != MAGIC || header.version != VERSION) {
         return index;
     }
-    // 異常なエントリ数を拒否
     if (header.count > DEFAULT_MAX_ENTRIES * 2) {
         return index;
     }
@@ -128,7 +122,6 @@ MermaidFileCache::IndexState MermaidFileCache::LoadIndex() const
         std::memcpy(&record, p, sizeof(record));
         p += sizeof(record);
 
-        // 壊れたエントリを無視する
         if (record.css_width <= 0.0f || record.css_height <= 0.0f ||
             !std::isfinite(record.css_width) || !std::isfinite(record.css_height) ||
             record.png_size == 0) {
@@ -284,7 +277,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
     }
 
     // 書き込み開始前に in-flight セットへ登録しておく。
-    // Lookup がファイル未着地を stale 扱いで index から消すのを防ぐ。
+    // 読み込みがファイル未着地で失敗しても OnReadFailed が index から消さないようにする。
     {
         const std::lock_guard lock(pending_mutex_);
         pending_writes_.insert(key);
@@ -326,9 +319,9 @@ void MermaidFileCache::EvictIfNeeded(IndexState& index, uint32_t new_png_size)
 {
     while (!index.entries.empty() && (index.entries.size() >= max_entries_ || index.total_size + new_png_size > max_total_size_)) {
         const auto oldest = std::ranges::min_element(index.entries, {}, [](const auto& kv) { return kv.second.last_used; });
-        if (!cache_dir_.empty()) {
+        if (const auto png_path = GetPngPath(oldest->first); !png_path.empty()) {
             std::error_code ec;
-            std::filesystem::remove(GetPngPath(cache_dir_, oldest->first), ec);
+            std::filesystem::remove(png_path, ec);
         }
         index.Remove(oldest);
     }

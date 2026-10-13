@@ -56,13 +56,11 @@ LinkClickResult HandleLinkClick(std::string_view url)
     if (url.empty()) {
         return result;
     }
-    // 内部アンカーリンク: #something
     if (url[0] == '#') {
         result.type = LinkClickResult::Type::Anchor;
         result.target.assign(url.substr(1));
         return result;
     }
-    // 安全なスキームの外部リンクのみ許可
     if (!IsSafeUrlScheme(url)) {
         return result;
     }

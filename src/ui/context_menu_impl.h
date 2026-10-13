@@ -42,13 +42,14 @@ struct ContextMenu::Impl {
 
     // CreatePopupWindow が false を返したら Show() は早期 return。
     bool CreatePopupWindow(int screen_x, int screen_y);
-    // ~Impl (mendo_core 側) からも呼ぶため inline で定義する。
+    // ~Impl (mendo_core 側) からも呼ぶため inline で定義する。rt はウィンドウを壊してから捨てる。
     void DestroyPopupWindow() noexcept
     {
         if (hwnd) {
             DestroyWindow(hwnd);
             hwnd = nullptr;
         }
+        rt.Reset();
     }
     void RunModalLoop();
 

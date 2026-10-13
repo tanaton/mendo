@@ -104,7 +104,7 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
 
     const auto& node = ctx.nodes[direct.node_index];
     const auto& entry = ctx.cache[direct.node_index];
-    const float h_scroll_x = LookupBlockScrollX(ctx, direct.node_index);
+    const float h_scroll_x = LookupBlockScrollX(ctx.block_scroll_x, direct.node_index);
     if (node.type == NodeType::Table) {
         return HitTestTable(node, entry, direct.text_top, direct.node_index, ctx.theme, dip_x, dip_y, h_scroll_x);
     }
@@ -150,7 +150,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
 
     const auto* tbl = node.table_data();
     const size_t row_count = tbl ? tbl->row_count : 0;
-    const auto [hit_row, row_top] = FindTableRow(tl, row_count, theme.font_size_body * TABLE_ROW_HEIGHT_FACTOR, dip_y - entry_text_top);
+    const auto [hit_row, row_top] = FindTableRow(tl, row_count, mendo::layout::TableBaseRowHeight(theme), dip_y - entry_text_top);
     if (hit_row < 0) {
         result.text_pos = tbl ? static_cast<uint32_t>(tbl->concat_text.size()) : 0u;
         return result;
@@ -208,11 +208,11 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const
             const auto* diagram = ctx.cache.FindDiagram(i);
             if (diagram && diagram->bitmap) {
                 const auto bmp = MermaidBitmapRect(diagram->width, diagram->height, x, w, entry_text_top);
-                const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::Save));
+                const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top, DiagramButtonSlot::Save);
                 if (PointInRectInclusive(dip_x, dip_y, btn)) {
                     out.save_node = i;
                 }
-                const D2D1_RECT_F btn2 = OverlayButtonRect(bmp.right, bmp.top, std::to_underlying(DiagramButtonSlot::Copy));
+                const D2D1_RECT_F btn2 = OverlayButtonRect(bmp.right, bmp.top, DiagramButtonSlot::Copy);
                 if (PointInRectInclusive(dip_x, dip_y, btn2)) {
                     out.diagram_copy_node = i;
                 }
@@ -253,7 +253,7 @@ bool HitTestService::BlockHScrollbarHitTest(const MdPaneHitContext& ctx, int nod
     }
     const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
     const auto& node = ctx.nodes[i];
-    const float bar_y = BlockHScrollbarBarY(ctx.cache.Top(i), ctx.cache[i].height, mendo::layout::NodeBoxPadY(node, ctx.theme));
+    const float bar_y = BlockHScrollbarBarY(ctx.cache.Top(i), ctx.cache[i].height, NodeBoxPadY(node, ctx.theme));
     const float block_x = ctx.theme.margin_left + NodeIndent(node, ctx.theme);
     return PointInRect(dip_x, dip_y, BlockHScrollbarHitRect(block_x, visible_width, bar_y));
 }

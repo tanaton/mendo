@@ -116,11 +116,7 @@ void ImageLoader::DecodeForDisplay(const std::wstring& path, UINT max_width_px, 
     }
     // bytes はデコードしたビットマップを作り終えるまで生かす (ストリームはコピーせずに参照する)。
     const auto bytes = ReadAllBytes(std::filesystem::path(path), nullptr, path_util::kFileShareRWDelete, MAX_FILE_SIZE);
-    const auto stream = wic_util::CreateStreamOnMemory(wic_factory_.Get(), bytes);
-    if (!stream) {
-        return;
-    }
-    const auto decoded = wic_util::DecodeFromStream(wic_factory_.Get(), stream.Get());
+    const auto decoded = wic_util::DecodeFromMemory(wic_factory_.Get(), bytes);
     if (!decoded) {
         return;
     }

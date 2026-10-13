@@ -13,20 +13,20 @@ std::span<const DWRITE_HIT_TEST_METRICS> CommandGenerator::HitTestRange(IDWriteT
     return { hit_test_buffer_->data(), count };
 }
 
-void CommandGenerator::EmitFillRectIfVisible(DrawCommandList& cmds, const D2D1_RECT_F& r, D2D1_COLOR_F color, BrushId brush)
+void CommandGenerator::EmitFillRectIfVisible(const D2D1_RECT_F& r, D2D1_COLOR_F color, BrushId brush)
 {
     if (OverlapsY(r, cull_top_, cull_bottom_)) {
-        cmds.emplace_back(FillRectCmd{ r, color, brush });
+        cmds_.emplace_back(FillRectCmd{ r, color, brush });
     }
 }
 
-void CommandGenerator::GenSelectionHighlight(DrawCommandList& cmds, IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y)
+void CommandGenerator::GenSelectionHighlight(IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y)
 {
     if (!layout || length == 0) {
         return;
     }
     for (const auto& m : HitTestRange(layout, start, length)) {
-        EmitFillRectIfVisible(cmds, RectFromHitTest(m, origin_x, origin_y), SELECTION_COLOR, BrushId::Selection);
+        EmitFillRectIfVisible(RectFromHitTest(m, origin_x, origin_y), SELECTION_COLOR, BrushId::Selection);
     }
 }
 
@@ -39,7 +39,7 @@ void CommandGenerator::CollectHitTestRects(IDWriteTextLayout* layout, uint32_t s
     }
 }
 
-void CommandGenerator::GenSelectionHighlightCached(DrawCommandList& cmds, const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y)
+void CommandGenerator::GenSelectionHighlightCached(const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y)
 {
     auto* layout = entry.text_layout();
     if (!layout || doc_length == 0) {
@@ -64,11 +64,11 @@ void CommandGenerator::GenSelectionHighlightCached(DrawCommandList& cmds, const 
         MENDO_COUNT_INC(g_cmd_gen_stats.sel_hl_cache_hit);
     }
     for (const auto& local : cache.rects) {
-        EmitFillRectIfVisible(cmds, OffsetRectF(local, origin_x, origin_y), SELECTION_COLOR, BrushId::Selection);
+        EmitFillRectIfVisible(OffsetRectF(local, origin_x, origin_y), SELECTION_COLOR, BrushId::Selection);
     }
 }
 
-void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y, int table_row, int table_col)
+void CommandGenerator::GenSearchHighlights(const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y, int table_row, int table_col)
 {
     if (!search_matches_ || search_matches_->empty()) {
         return;
@@ -84,7 +84,7 @@ void CommandGenerator::GenSearchHighlights(DrawCommandList& cmds, const NodeLayo
 
     auto& cache = entry.ensure_search_hl_cache();
     RebuildSearchHlCache(cache, entry, matches, first_global, node_match_count);
-    EmitSearchHlCommands(cmds, cache, matches, first_global, origin_x, origin_y, table_row, table_col);
+    EmitSearchHlCommands(cache, matches, first_global, origin_x, origin_y, table_row, table_col);
 }
 
 void CommandGenerator::RebuildSearchHlCache(
@@ -126,9 +126,7 @@ void CommandGenerator::RebuildSearchHlCache(
     cache.gen = search_generation_;
 }
 
-void CommandGenerator::EmitSearchHlCommands(
-    DrawCommandList& cmds,
-    const SearchHlCache& cache,
+void CommandGenerator::EmitSearchHlCommands(const SearchHlCache& cache,
     std::span<const SearchMatch> matches,
     size_t first_global,
     float origin_x,
@@ -163,7 +161,7 @@ void CommandGenerator::EmitSearchHlCommands(
         const D2D1_COLOR_F color = is_current ? theme_->search_highlight_current_color : theme_->search_highlight_color;
         const BrushId hl_brush = is_current ? BrushId::SearchHighlightCurrent : BrushId::SearchHighlight;
         for (uint32_t k = rb; k < re; ++k) {
-            EmitFillRectIfVisible(cmds, OffsetRectF(cache.rects[k], origin_x, origin_y), color, hl_brush);
+            EmitFillRectIfVisible(OffsetRectF(cache.rects[k], origin_x, origin_y), color, hl_brush);
         }
     }
 }

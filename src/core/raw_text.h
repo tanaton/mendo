@@ -24,10 +24,6 @@ public:
     RawText(RawText&&) noexcept = default;
     RawText& operator=(RawText&&) noexcept = default;
 
-    const char* data() const noexcept
-    {
-        return view().data();
-    }
     size_t size() const noexcept
     {
         return text_ ? text_->size() : 0;
@@ -35,10 +31,6 @@ public:
     bool empty() const noexcept
     {
         return size() == 0;
-    }
-    char operator[](size_t i) const noexcept
-    {
-        return (*text_)[i];
     }
     operator std::string_view() const noexcept
     {

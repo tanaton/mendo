@@ -58,10 +58,10 @@ TEST(PaneLayout, OnlyTocPaneVisible)
 
 TEST(PaneLayout, MdPaneMinWidth)
 {
-    // 全幅が小さすぎる: MDペインは少なくともmd_min_widthであるべき
-    auto layout = ComputePaneLayout(400.0f, 700.0f, 220.0f, 220.0f, 4.0f, true, true, 200.0f);
+    // 全幅が小さすぎる: MDペインは少なくとも MD_PANE_MIN_WIDTH であるべき
+    auto layout = ComputePaneLayout(400.0f, 700.0f, 220.0f, 220.0f, 4.0f, true, true);
 
-    EXPECT_GE(layout.md_rect.width, 200.0f);
+    EXPECT_GE(layout.md_rect.width, MD_PANE_MIN_WIDTH);
 }
 
 TEST(PaneLayout, HeightPassedThrough)
@@ -157,9 +157,9 @@ TEST(ComputeScrollInfo, ThumbMinimumHeight)
 {
     PaneRect rect{ 0, 0, 220, 500 };
     // 非常に大きなコンテンツ - つまみは最小サイズになるべき
-    auto info = ComputeScrollInfo(rect, 32.0f, 100000.0f, 24.0f);
+    auto info = ComputeScrollInfo(rect, 32.0f, 100000.0f);
 
-    EXPECT_GE(info.thumb_height, 24.0f);
+    EXPECT_GE(info.thumb_height, PANE_SCROLLBAR_THUMB_MIN);
 }
 
 TEST(ComputeScrollInfo, ZeroContent)
@@ -316,8 +316,8 @@ TEST(ComputePaneLayout, OversizedSavedWidthsKeepMdOnScreen)
     // 広いモニタで保存した side 幅 (合計がウィンドウ超過) で狭い画面に起動しても、
     // MD ペインとスプリッタは画面内に収まり、操作不能ロックアウトにならない。
     const float total = 700.0f;
-    const float md_min = 200.0f;
-    auto layout = ComputePaneLayout(total, 600.0f, 2000.0f, 2000.0f, 4.0f, true, true, md_min);
+    const float md_min = MD_PANE_MIN_WIDTH;
+    auto layout = ComputePaneLayout(total, 600.0f, 2000.0f, 2000.0f, 4.0f, true, true);
 
     EXPECT_GE(layout.md_rect.width, md_min);
     // MD ペイン左端が画面内に収まる (md_min 幅を確保できる位置)
@@ -333,8 +333,8 @@ TEST(ComputePaneLayout, SingleOversizedPaneKeepsSplitterOnScreen)
 {
     // 片ペインの保存幅だけでウィンドウを超える場合でも、そのスプリッタは画面内に残る。
     const float total = 600.0f;
-    const float md_min = 200.0f;
-    auto layout = ComputePaneLayout(total, 600.0f, 5000.0f, 0.0f, 4.0f, true, false, md_min);
+    const float md_min = MD_PANE_MIN_WIDTH;
+    auto layout = ComputePaneLayout(total, 600.0f, 5000.0f, 0.0f, 4.0f, true, false);
 
     EXPECT_GE(layout.md_rect.width, md_min);
     const float splitter1_x = layout.file_rect.x + layout.file_rect.width;

@@ -5,7 +5,6 @@
 #include "task_scheduler.h"
 #include <algorithm>
 #include <atomic>
-#include <cstdint>
 #include <windows.h>
 
 namespace mendo::layout {

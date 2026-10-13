@@ -4,11 +4,21 @@
 #include "block_h_scroll.h"
 #include "document_utils.h"
 #include "i18n.h"
-#include "layout_computer.h"
 #include "nav.h"
 #include "pane_layout.h"
 #include "string_convert.h"
 #include "ui_constants.h"
+
+namespace {
+
+bool IsOverPaneScrollbar(float dip_x, const PaneRect& rect, const PaneScrollInfo& scroll_info) noexcept
+{
+    const float local_x = dip_x - rect.x;
+    const float hit_left = VScrollbarLeftX(rect.width) - PANE_SCROLLBAR_HIT_PADDING;
+    return local_x >= hit_left && scroll_info.total_content > scroll_info.content_height;
+}
+
+} // namespace
 
 void App::HandleLinkClick(std::string_view url)
 {
@@ -195,13 +205,6 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
     Dispatch(TextSelectionStartedAction{ hit.node_index, hit.text_pos, px, py });
 }
 
-bool App::IsOverPaneScrollbar(float dip_x, const PaneRect& rect, const PaneScrollInfo& scroll_info) noexcept
-{
-    const float local_x = dip_x - rect.x;
-    const float hit_left = VScrollbarLeftX(rect.width) - PANE_SCROLLBAR_HIT_PADDING;
-    return local_x >= hit_left && scroll_info.total_content > scroll_info.content_height;
-}
-
 void App::RefreshFilePane()
 {
     state_.file_explorer.Refresh();
@@ -228,14 +231,13 @@ void App::HandleFileEntryClick(const FileEntry& entry)
 
 void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout)
 {
-    using mendo::app_mouse::ProcessSidePaneHeaderClick;
-    using mendo::app_mouse::SidePaneHeaderButtonsFor;
-
     const auto& theme = renderer_.GetTheme();
     const PaneRect& rect = layout.Get(target);
 
-    const auto on_header_button = [this, target](PaneHeaderButton hit) {
-        switch (hit) {
+    // ヘッダー領域内のクリックはボタン外でも消費する。
+    if (dip_y - rect.y < theme.pane_header_height) {
+        const auto buttons = mendo::app_mouse::SidePaneHeaderButtonsFor(state_, target);
+        switch (mendo::app_mouse::HitSidePaneHeaderButton(dip_x, dip_y, rect, theme.pane_header_height, buttons)) {
         case PaneHeaderButton::Close:
             Dispatch(TogglePaneAction{ target });
             break;
@@ -248,8 +250,6 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const
         case PaneHeaderButton::None:
             break;
         }
-    };
-    if (ProcessSidePaneHeaderClick(dip_x, dip_y, rect, theme.pane_header_height, SidePaneHeaderButtonsFor(state_, target), on_header_button)) {
         return;
     }
 
@@ -258,7 +258,7 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const
         Dispatch(PaneScrollbarDragStartedAction{ target, dip_y });
         return;
     }
-    const int idx = SidePaneHitTest(state_, target, SidePaneLocalY(dip_y, ctx.info.content_top, ctx.scroll.scroll_y), theme.pane_item_height);
+    const int idx = SidePaneItemAt(state_, target, rect, dip_y);
     if (idx < 0) {
         return;
     }

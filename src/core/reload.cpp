@@ -63,9 +63,8 @@ size_t NextSourceOffset(const std::pmr::vector<Node>& nodes, int node_index, siz
     constexpr int kMaxOffsetProbe = 4096;
     const int probe_limit = std::min(static_cast<int>(nodes.size()), node_index + 1 + kMaxOffsetProbe);
     for (int i = node_index + 1; i < probe_limit; ++i) {
-        const auto off = nodes[i].SourceOffset();
-        if (off != kUnsetSourceOffset && off > node_start) {
-            return off;
+        if (nodes[i].HasSourceOffset() && nodes[i].SourceOffset() > node_start) {
+            return nodes[i].SourceOffset();
         }
     }
     return fallback;
@@ -92,13 +91,12 @@ float CalcScrollYForDiff(
     float node_y = cache.Top(static_cast<size_t>(changed_node));
     const float node_h = cache[changed_node].height;
 
+    // FindNodeBySourceOffset はソース位置を持つノードだけを返す。
     const auto node_start = nodes[changed_node].SourceOffset();
-    if (node_start != kUnsetSourceOffset) {
-        const size_t next_start = NextSourceOffset(nodes, changed_node, node_start, content.size());
-        if (next_start > node_start) {
-            const float fraction = static_cast<float>(diff_pos - node_start) / static_cast<float>(next_start - node_start);
-            node_y += node_h * std::min(fraction, 1.0f);
-        }
+    const size_t next_start = NextSourceOffset(nodes, changed_node, node_start, content.size());
+    if (next_start > node_start) {
+        const float fraction = static_cast<float>(diff_pos - node_start) / static_cast<float>(next_start - node_start);
+        node_y += node_h * std::min(fraction, 1.0f);
     }
 
     const float margin = viewport_height * 0.2f;

@@ -76,6 +76,8 @@ private:
     // sink を swap-out して lock 解放後に破棄する。100MB 級の Document/LayoutCache の
     // destruction を mutex 保持時間に乗せないため。
     void ResetSinks() noexcept;
+    template <class Opt>
+    Opt TakeFromSink(Opt& sink) noexcept;
 
     LoadFileFn load_file_ = &LoadFromDisk;
     bool in_flight_ = false;

@@ -69,6 +69,6 @@ PaneLayout PaneController::ComputeLayout(float total_w, float total_h, float spl
 {
     const auto& file = Inst(PaneTarget::File);
     const auto& toc = Inst(PaneTarget::Toc);
-    return ComputePaneLayout(total_w, total_h, file.width, toc.width, splitter_w, file.show, toc.show, MD_PANE_MIN_WIDTH, top_offset);
+    return ComputePaneLayout(total_w, total_h, file.width, toc.width, splitter_w, file.show, toc.show, top_offset);
 }
 

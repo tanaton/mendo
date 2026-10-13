@@ -50,7 +50,7 @@ inline TableRowHit FindTableRow(const TableLayoutData& tl, size_t row_count, flo
     }
     float ry = 0.0f;
     for (size_t r = 0; r < row_count; r++) {
-        const float row_h = (r < tl.row_heights.size()) ? tl.row_heights[r] : fallback_row_h;
+        const float row_h = tl.RowHeight(r, fallback_row_h);
         const float row_bottom = ry + row_h + TABLE_BORDER_WIDTH;
         if (local_y < row_bottom) {
             return { static_cast<int>(r), ry };
@@ -103,11 +103,6 @@ struct MdPaneHitContext {
     // ブロック単位の横スクロール状態。null なら全 0 扱い。
     const std::pmr::unordered_map<int, float>* block_scroll_x = nullptr;
 };
-
-inline float LookupBlockScrollX(const MdPaneHitContext& ctx, int node) noexcept
-{
-    return LookupBlockScrollX(ctx.block_scroll_x, node);
-}
 
 class HitTestService {
 public:

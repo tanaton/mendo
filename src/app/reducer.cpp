@@ -1,10 +1,7 @@
 #include "reducer.h"
 #include "reducer_internal.h"
 #include "block_h_scroll.h"
-#include "layout_computer.h"
 #include "overloaded.h"
-#include <algorithm>
-#include <cmath>
 
 ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
 {
@@ -112,33 +109,6 @@ float MdScrollableContentHeight(const AppState& state) noexcept
         state.document.layout_cache,
         state.document.doc.GetNodes().size(),
         state.theme->margin_bottom);
-}
-
-// HitTestService 側のキャッシュは対象ノードの block_scroll_x をキーに含むため、
-// ここで effects_generation を進める必要はない (進めると Renderer の effects
-// 再適用まで横スクロール 1 ノッチごとに巻き添えになる)。
-bool ApplyBlockHScrollDelta(AppState& state, int node_index, float new_value, float scroll_max)
-{
-    const float clamped = std::clamp(new_value, 0.0f, scroll_max);
-    const float prev = state.view.GetBlockScrollX(node_index);
-    if (std::abs(prev - clamped) < 1e-3f) {
-        return false;
-    }
-    if (clamped <= 0.0f) {
-        state.view.block_scroll_x.erase(node_index);
-    }
-    else {
-        state.view.block_scroll_x[node_index] = clamped;
-    }
-    return true;
-}
-
-ScrollbarDragGrip ComputeScrollbarDragGrip(float thumb_y, float thumb_height, float click_y) noexcept
-{
-    if (click_y >= thumb_y && click_y <= thumb_y + thumb_height) {
-        return { click_y - thumb_y, true };
-    }
-    return { thumb_height * 0.5f, false };
 }
 
 SideEffectList Reduce(AppState& state, const AppAction& action)

@@ -11,8 +11,6 @@
 #include "mouse_gesture.h"
 #include <d2d1.h>
 #include <wrl/client.h>
-#include <bit>
-#include <cstddef>
 #include <memory_resource>
 #include <string_view>
 #include <utility>
@@ -53,26 +51,6 @@ struct TitleBarRenderState {
     bool is_maximized = false;
     bool window_active = true;
 };
-
-// DipRect は D2D1_RECT_F とメンバ順・サイズ・アライメントが同一であることを
-// 静的に保証し、std::bit_cast で安全にビット等価変換する。
-static_assert(sizeof(DipRect) == sizeof(D2D1_RECT_F));
-static_assert(alignof(DipRect) == alignof(D2D1_RECT_F));
-static_assert(offsetof(DipRect, left) == offsetof(D2D1_RECT_F, left));
-static_assert(offsetof(DipRect, top) == offsetof(D2D1_RECT_F, top));
-static_assert(offsetof(DipRect, right) == offsetof(D2D1_RECT_F, right));
-static_assert(offsetof(DipRect, bottom) == offsetof(D2D1_RECT_F, bottom));
-
-inline D2D1_RECT_F ToD2DRect(const DipRect& r) noexcept
-{
-    return std::bit_cast<D2D1_RECT_F>(r);
-}
-
-// PaneRect は {x,y,width,height} で D2D1_RECT_F とビット等価ではないため計算で変換する。
-inline D2D1_RECT_F ToD2DRect(const PaneRect& r) noexcept
-{
-    return D2D1::RectF(r.x, r.y, r.x + r.width, r.y + r.height);
-}
 
 // File / TOC ペインの対称な状態をまとめた値型。SidePaneState::panes[2] の要素。
 struct SidePaneInstance {

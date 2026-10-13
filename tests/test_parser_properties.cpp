@@ -4,6 +4,7 @@
 #include "example_files.h"
 #include "markdown_fragment_gen.h"
 #include "parse_invariants.h"
+#include "parser_alerts.h"
 #include "parser.h"
 #include <algorithm>
 #include <array>

@@ -80,46 +80,12 @@ std::pair<float, float> NodeLayoutEntry::GetMatchYRange(
     return { base_y, fallback_h };
 }
 
-// ---------- LayoutCache private helpers ----------
+// ---------- LayoutCache helpers ----------
 
-void LayoutCache::ResetTableLayoutGeometry(TableLayoutData& tl) noexcept
-{
-    tl.cell_layouts.clear();
-    tl.row_bgs_computed.clear();
-    tl.row_links_applied.clear();
-    tl.ResetRowEviction(0);
-    tl.natural_col_widths.clear();
-    tl.cell_heights.clear();
-    tl.cell_applied_widths.clear();
-    tl.col_count = 0;
-    tl.last_applied_max_width = -1.0f;
-    tl.cached_table_width = 0.0f;
-    tl.natural_total_width = 0.0f;
-}
+namespace {
 
-void LayoutCache::EvictEntryLayout(NodeLayoutEntry& e) noexcept
-{
-    // テーブルは列幅・行高さを残してセル layout だけ捨てる。幾何ごと捨てると再表示時に
-    // 全セルの CreateTextLayout (巨大テーブルで秒単位) をやり直すことになる。
-    if (auto* tl_ptr = e.table_layout(); tl_ptr && HasRowTracking(*tl_ptr)) {
-        e.invalidate_per_frame_hl_caches();
-        auto& tl = *tl_ptr;
-        for (size_t r = tl.live_row_begin; r < tl.live_row_end; ++r) {
-            EvictTableRow(tl, r);
-        }
-        tl.live_row_begin = 0;
-        tl.live_row_end = 0;
-        return;
-    }
-    // レイアウトを持たないノード (HR / 画像 / 空テキスト) は計測済みのまま残す。
-    const bool had_layout = e.text_layout() || e.table_layout();
-    e.release_layout_state();
-    if (had_layout) {
-        e.layout_dirty = true;
-    }
-}
-
-bool LayoutCache::HasRowTracking(const TableLayoutData& tl) noexcept
+// 行単位 evict できる状態 (幾何と管理配列が揃っている) か。管理配列は MeasureTable が確保する。
+bool HasRowTracking(const TableLayoutData& tl) noexcept
 {
     if (tl.cell_layouts.empty() || tl.col_count == 0 || tl.row_cum_y.empty()) {
         return false;
@@ -128,7 +94,9 @@ bool LayoutCache::HasRowTracking(const TableLayoutData& tl) noexcept
     return row_count * tl.col_count == tl.cell_layouts.size() && tl.row_evicted.size() == row_count;
 }
 
-void LayoutCache::EvictTableRow(TableLayoutData& tl, size_t row_index) noexcept
+// 1 行分の cell_layouts を Reset し、cell_heights / cell_applied_widths を再計測待ちに戻す。
+// 行/列の幾何 (row_cum_y, col_cum_x, row_heights, col_widths) は維持する。
+void EvictTableRow(TableLayoutData& tl, size_t row_index) noexcept
 {
     const size_t col_count = tl.col_count;
     if (col_count == 0) {
@@ -153,6 +121,47 @@ void LayoutCache::EvictTableRow(TableLayoutData& tl, size_t row_index) noexcept
     }
 }
 
+void EvictEntryLayout(NodeLayoutEntry& e) noexcept
+{
+    // テーブルは列幅・行高さを残してセル layout だけ捨てる。幾何ごと捨てると再表示時に
+    // 全セルの CreateTextLayout (巨大テーブルで秒単位) をやり直すことになる。
+    if (auto* tl_ptr = e.table_layout(); tl_ptr && HasRowTracking(*tl_ptr)) {
+        e.invalidate_per_frame_hl_caches();
+        auto& tl = *tl_ptr;
+        for (size_t r = tl.live_row_begin; r < tl.live_row_end; ++r) {
+            EvictTableRow(tl, r);
+        }
+        tl.live_row_begin = 0;
+        tl.live_row_end = 0;
+        return;
+    }
+    // レイアウトを持たないノード (HR / 画像 / 空テキスト) は計測済みのまま残す。
+    const bool had_layout = e.text_layout() || e.table_layout();
+    e.release_layout_state();
+    if (had_layout) {
+        e.layout_dirty = true;
+    }
+}
+
+// セルのレイアウトと計測値、列幅の適用状態を捨てる。行/列の幾何は次の計測で作り直される。
+void ResetTableCellCaches(TableLayoutData& tl) noexcept
+{
+    tl.cell_inline_code_bgs.clear();
+    tl.cell_layouts.clear();
+    tl.row_bgs_computed.clear();
+    tl.row_links_applied.clear();
+    tl.ResetRowEviction(0);
+    tl.natural_col_widths.clear();
+    tl.cell_heights.clear();
+    tl.cell_applied_widths.clear();
+    tl.col_count = 0;
+    tl.last_applied_max_width = -1.0f;
+    tl.cached_table_width = 0.0f;
+    tl.natural_total_width = 0.0f;
+}
+
+} // namespace
+
 // ---------- LayoutCache public ----------
 
 void LayoutCache::Resize(size_t node_count)
@@ -165,23 +174,16 @@ void LayoutCache::Resize(size_t node_count)
     }
 }
 
-void LayoutCache::Reset(size_t node_count, bool shrink)
+void LayoutCache::Reset(size_t node_count)
 {
-    const auto reset = [node_count, shrink](auto& v) {
+    const auto reset = [node_count](auto& v) {
         v.clear();
-        if (shrink) {
-            v.shrink_to_fit();
-        }
+        v.shrink_to_fit();
         v.resize(node_count);
     };
     reset(entries_);
     reset(tops_);
-    if (shrink) {
-        diagrams_ = {};
-    }
-    else {
-        diagrams_.clear();
-    }
+    diagrams_ = {};
     ResetEvictionTracking();
 }
 
@@ -201,8 +203,7 @@ void LayoutCache::InvalidateAllLayouts(const std::pmr::vector<Node>& nodes) noex
             e.height = 0.0f;
         }
         if (auto* tl = e.table_layout()) {
-            ResetTableLayoutGeometry(*tl);
-            tl->cell_inline_code_bgs.clear();
+            ResetTableCellCaches(*tl);
         }
     }
     ResetEvictionTracking();

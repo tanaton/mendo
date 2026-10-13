@@ -50,7 +50,7 @@ void DisableWebViewChrome(ICoreWebView2* webview)
 
 // CreateStreamOnHGlobal のストリームはアパートメントに縛られないので worker から読める。
 // HGLOBAL から直接写し、ゼロ埋めした中間バッファを挟まない。
-std::shared_ptr<const std::pmr::vector<uint8_t>> ReadHGlobalStream(IStream* stream)
+PngBytes ReadHGlobalStream(IStream* stream)
 {
     STATSTG stat{};
     HGLOBAL mem = nullptr;
@@ -647,12 +647,8 @@ void MermaidRenderer::LoadDiskJob(DiskLoad& job, const std::filesystem::path& pa
         }
         job.png = std::make_shared<const std::pmr::vector<uint8_t>>(std::move(data));
     }
-    // job.png はデコード完了まで生きているので、コピーせずに参照するストリームで読む。
-    const auto stream = wic_util::CreateStreamOnMemory(wic_factory_.Get(), *job.png);
-    if (!stream) {
-        return;
-    }
-    if (const auto decoded = wic_util::DecodeFromStream(wic_factory_.Get(), stream.Get())) {
+    // job.png はデコード完了まで生きているので、コピーせずに参照して読む。
+    if (const auto decoded = wic_util::DecodeFromMemory(wic_factory_.Get(), *job.png)) {
         job.bitmap = wic_util::DecodeToWicBitmap(wic_factory_.Get(), *decoded, { decoded->pixel_width, decoded->pixel_height });
     }
 }
@@ -758,7 +754,7 @@ void MermaidRenderer::ProcessQueue()
 
         Worker* idle = FindIdleWorker();
         if (!idle) {
-            break; // 全ワーカーがビジー、完了を待つ
+            break;
         }
 
         idle->current_request = std::move(front);

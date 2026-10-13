@@ -11,7 +11,6 @@
 // 実効上限。事前ガード (OpenFileForReadShared) もこの値で揃え、二段ガードを排除する。
 inline constexpr LONGLONG MAX_FILE_SIZE = static_cast<LONGLONG>(std::numeric_limits<int>::max());
 
-// FileLoader::LoadFile のエラー型
 enum class FileLoadError : uint8_t {
     NotFound,   // ファイルが見つからない、またはアクセス拒否
     TooLarge,   // ファイルサイズが MAX_FILE_SIZE を超過

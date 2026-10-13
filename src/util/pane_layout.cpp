@@ -5,7 +5,7 @@ PaneLayout ComputePaneLayout(
     float total_width, float total_height,
     float file_pane_width, float toc_pane_width,
     float splitter_width, bool show_file, bool show_toc,
-    float md_min_width, float top_offset) noexcept
+    float top_offset) noexcept
 {
     PaneLayout layout{};
     float x = 0.0f;
@@ -18,7 +18,7 @@ PaneLayout ComputePaneLayout(
     float fw = show_file ? file_pane_width : 0.0f;
     float tw = show_toc ? toc_pane_width : 0.0f;
     const float splitters = (show_file ? splitter_width : 0.0f) + (show_toc ? splitter_width : 0.0f);
-    const float avail_sides = total_width - md_min_width - splitters;
+    const float avail_sides = total_width - MD_PANE_MIN_WIDTH - splitters;
     if (fw + tw > avail_sides) {
         if (avail_sides <= 0.0f) {
             fw = 0.0f;
@@ -41,7 +41,7 @@ PaneLayout ComputePaneLayout(
         x += tw + splitter_width;
     }
 
-    const float md_width = std::max(md_min_width, total_width - x);
+    const float md_width = std::max(MD_PANE_MIN_WIDTH, total_width - x);
     layout.md_rect = { x, top_offset, md_width, pane_height };
 
     return layout;
@@ -74,16 +74,16 @@ PaneZone DetectPaneZone(float dip_x, const PaneLayout& layout, float splitter_wi
     return dip_x >= layout.md_rect.x ? PaneZone::MdPane : PaneZone::None;
 }
 
-PaneScrollInfo ComputeScrollInfo(const PaneRect& rect, float header_height, float total_content, float thumb_min) noexcept
+PaneScrollInfo ComputeScrollInfo(const PaneRect& rect, float header_height, float total_content) noexcept
 {
     PaneScrollInfo info{};
-    info.content_top = rect.y + header_height;
+    info.content_top = PaneContentTop(rect, header_height);
     // 負を許すと max_scroll が過大化し thumb_height も負側へ倒れて scrollbar 計算が連鎖破綻する。
     info.content_height = std::max(0.0f, rect.height - header_height);
     info.total_content = total_content;
     info.max_scroll = std::max(0.0f, total_content - info.content_height);
     const float thumb_ratio = (total_content > 0) ? info.content_height / total_content : 1.0f;
-    info.thumb_height = std::min(info.content_height, std::max(thumb_min, info.content_height * thumb_ratio));
+    info.thumb_height = std::min(info.content_height, std::max(PANE_SCROLLBAR_THUMB_MIN, info.content_height * thumb_ratio));
     return info;
 }
 

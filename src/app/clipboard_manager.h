@@ -1,15 +1,14 @@
 #pragma once
 #include "lru_cache.h"
 #include "mermaid_renderer_interface.h"
+#include "png_bytes.h"
 #include "win_handle.h"
 #include <windows.h>
 #include <wincodec.h>
 #include <cstdint>
 #include <functional>
-#include <memory>
 #include <memory_resource>
 #include <string_view>
-#include <vector>
 
 class Document;
 class MermaidFileCache;
@@ -36,12 +35,9 @@ public:
     void SaveDiagramAsPng(const Document& doc, int node_index, float md_width, bool dark);
     // png は表示中ビットマップと同寿命の元 PNG (DiagramEntry::png)。コピーボタンの表示条件と
     // 一致するため、非同期/退避され得る file_cache に依存せず確実に画像を載せられる。
-    void CopyDiagramToClipboard(const Document& doc, int node_index,
-                                std::shared_ptr<const std::pmr::vector<uint8_t>> png,
-                                float md_width, bool dark);
+    void CopyDiagramToClipboard(const Document& doc, int node_index, PngBytes png, float md_width, bool dark);
 
 private:
-    using PngBytes = std::shared_ptr<const std::pmr::vector<uint8_t>>;
     // PNG をデコードして CF_DIB 用 GlobalMem を作る。デコードはコピー時のみ実行。失敗/空は空を返す。
     UniqueGlobalMem BuildDib(const PngBytes& png) const;
     // コピー成否に応じたトーストを出す (CopyDiagramToClipboard の各経路共通)。

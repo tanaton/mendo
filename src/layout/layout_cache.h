@@ -1,5 +1,6 @@
 #pragma once
 #include "document_types.h"
+#include "png_bytes.h"
 #include <cstdint>
 #include <vector>
 #include <memory>
@@ -93,13 +94,11 @@ struct TableLayoutData {
             live_row_end = std::max(live_row_end, r + 1);
         }
     }
-    // フラットインデックスへの変換
     constexpr size_t CellIndex(size_t row, size_t col) const noexcept
     {
         return row * col_count + col;
     }
 
-    // セルレイアウトの安全アクセス
     IDWriteTextLayout* GetCellLayout(size_t row, size_t col) const noexcept
     {
         const size_t idx = CellIndex(row, col);
@@ -114,6 +113,12 @@ struct TableLayoutData {
     bool HasRowGeometry(size_t row_count) const noexcept
     {
         return row_cum_y.size() == row_count + 1;
+    }
+
+    // 行 r の高さ。未計測なら fallback (TableBaseRowHeight)。描画とヒットテストで同じ規則を使う。
+    float RowHeight(size_t r, float fallback) const noexcept
+    {
+        return r < row_heights.size() ? row_heights[r] : fallback;
     }
 
     // 行幾何が row_count と揃っていれば VisibleRowRange、未確定なら全行 [0, row_count)。
@@ -400,7 +405,7 @@ struct DiagramEntry {
     float height = 0.0f;
     // クリップボードコピー用の元 PNG。bitmap と同時に設定/破棄されるため (EvictBitmap 含む)、
     // コピーボタンの表示条件 (bitmap 有無) とデータの有無が常に一致する。
-    std::shared_ptr<const std::pmr::vector<uint8_t>> png;
+    PngBytes png;
     // レンダリング失敗時のエラーメッセージ (表示用整形済み)。非空 = 失敗確定で、
     // プレースホルダにこの文言を表示し再リクエストを止める。リロード・幅変更・
     // テーマ変更でクリアされ再試行の契機になる。オフスクリーン evict では保持する。
@@ -435,7 +440,7 @@ class LayoutCache {
 public:
     void Resize(size_t node_count);
 
-    void Reset(size_t node_count, bool shrink = true);
+    void Reset(size_t node_count);
 
     constexpr size_t size() const noexcept
     {
@@ -506,15 +511,14 @@ public:
     // [first_keep_inclusive, last_keep_exclusive) の外にある画像/図のビットマップを捨てる。寸法とエラーは残す。
     void EvictDiagramBitmapsOutside(size_t first_keep_inclusive, size_t last_keep_exclusive) noexcept;
 
-    // 可視範囲外（[0, first_keep) と [last_keep, size())）のノードについて
-    // text_layout / table_layout / inline_code_bgs / search_hl_cache を破棄する。
-    // text_top と height は維持され、layout_dirty=true で再生成可能な状態にする。
+    // [0, first_keep_inclusive) と [last_keep_exclusive, size) のノードの text_layout / inline_code_bgs /
+    // search_hl_cache を破棄し、layout_dirty=true で再生成させる。text_top と height は維持する。
+    // 行追跡のあるテーブルは幾何を残してセルのレイアウトだけ捨て、dirty にはしない。レイアウトを持たないノードも dirty にはしない。
     // Why: IDWriteTextLayout は内部で glyph buffer / bidi 解析を保持し
     // 1K 文字あたり 2-5KB。可視外も保持し続けると巨大ドキュメントで数十 MB
     // のメモリを COM 側に常駐させてしまう。EVICT_BUFFER_SCREENS 分の安全マージン
     // を取った上で範囲外を解放する。呼び出し側（ResourceManager）は再描画時の
     // 再生成コストを踏まえてタイマー駆動で間引く。
-    // 破棄範囲は [0, first_keep_inclusive) と [last_keep_exclusive, size)。
     void EvictTextLayouts(size_t first_keep_inclusive, size_t last_keep_exclusive) noexcept;
 
     // 計測で layout を生成しうる index 範囲を記録する。EvictTextLayouts の差分走査は前回 keep 外を
@@ -539,7 +543,7 @@ public:
     void ResetEvictionTracking() noexcept;
 
     // 可視範囲をまたぐテーブルの可視外行で cell_layouts を Reset する。
-    // 再表示時は MeasureTable の lazy 復元経路で CreateTextLayout を再発行する。
+    // 再表示時は LayoutEngine::EnsureVisibleLayout の行復元で CreateTextLayout を再発行する。
     // viewport は文書グローバル座標で渡す (entry ローカル座標ではない)。
     // table_indices は Document::GetTableNodeIndices() のうち keep 範囲と交差するもの。全エントリ走査だと 100MB 級
     // 文書でスクロール休止のたびに ~100万エントリを読むため、index リストで絞る。
@@ -549,20 +553,6 @@ public:
     void NotifyDpiChanged() noexcept;
 
 private:
-    // 列幅 / 行高さ / セルメトリクス系の派生キャッシュを既定値に戻す。
-    // cell_inline_code_bgs は呼び出し側で必要に応じて別途クリアする
-    // (DPI 変更パスは bg を作り直すまで維持する設計)。
-    static void ResetTableLayoutGeometry(TableLayoutData& tl) noexcept;
-
-    static void EvictEntryLayout(NodeLayoutEntry& e) noexcept;
-
-    // 行単位 evict できる状態 (幾何と管理配列が揃っている) か。管理配列は MeasureTable が確保する。
-    static bool HasRowTracking(const TableLayoutData& tl) noexcept;
-
-    // 1 行分の cell_layouts を Reset し、cell_heights / cell_applied_widths を再計測待ちに戻す。
-    // 行/列の幾何 (row_cum_y, col_cum_x, row_heights, col_widths) は維持する。
-    static void EvictTableRow(TableLayoutData& tl, size_t row_index) noexcept;
-
     std::pmr::vector<NodeLayoutEntry> entries_;
     std::pmr::vector<float> tops_;
     std::pmr::unordered_map<size_t, DiagramEntry> diagrams_;
@@ -588,8 +578,7 @@ constexpr float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_
 
 // ノードの Y 範囲 [y, y+h] が [range_top, range_bottom] と重ならない場合 true を返す。
 // 端が接している場合（y+h == range_top 等）は重なり扱い（false = 描画対象）。
-// Why: ピクセル境界 (DIP→物理 px のスナップ後) で接する行は実際には 1 px 分視認可能で、
-// `<` ではなく `<=` 不採用は浮動小数誤差で「微小に上回る」ケースを描画から落とすのを避けるため。
+// Why: ピクセル境界 (DIP→物理 px のスナップ後) で接する行は実際には 1 px 分視認可能なため。
 constexpr bool IsOffscreen(float y, float h, float range_top, float range_bottom) noexcept
 {
     return y + h < range_top || y > range_bottom;

@@ -7,10 +7,6 @@
 
 void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_pane_rect)
 {
-    if (!sb.visible) {
-        return;
-    }
-
     const auto sbl = ComputeSearchBarLayout(
         md_pane_rect.x, md_pane_rect.width,
         md_pane_rect.y + md_pane_rect.height,

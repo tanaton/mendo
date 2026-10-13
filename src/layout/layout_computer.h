@@ -32,6 +32,12 @@ inline float PlaceholderHeight(const Theme& theme) noexcept
     return std::max(MIN_DIAGRAM_PLACEHOLDER_HEIGHT, theme.font_size_body * 3.0f);
 }
 
+// 行高さが未計測の表の行に使う高さ。
+inline float TableBaseRowHeight(const Theme& theme) noexcept
+{
+    return theme.font_size_body * TABLE_ROW_HEIGHT_FACTOR;
+}
+
 // 画像は max_width を超える場合のみアスペクト比を保って縮小する (拡大はしない)。
 constexpr float ImageDisplayHeight(float width, float height, float max_width) noexcept
 {

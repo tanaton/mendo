@@ -30,7 +30,7 @@ public:
     void Start(std::pmr::wstring path, Theme theme);
 
     enum class AttachResult {
-        None,           // preload 未起動 → 呼び出し側は何もしない
+        None,           // preload 未起動 → 呼び出し側は既定の文書を表示する
         AppliedSync,    // 同期取り込み完了 → 呼び出し側は OnParseComplete 相当を実行
         AttachedAsync,  // worker に hwnd 通知済み → 呼び出し側は必要なら anim を起動
     };

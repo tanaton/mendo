@@ -47,11 +47,17 @@ constexpr bool IsAsciiDigit(Char c) noexcept
     return c >= static_cast<Char>('0') && c <= static_cast<Char>('9');
 }
 
+template <typename Char>
+constexpr bool IsAsciiAlpha(Char c) noexcept
+{
+    return detail::IsAsciiLower(c) || detail::IsAsciiUpper(c);
+}
+
 // CJK は対象外。
 template <typename Char>
 constexpr bool IsAsciiWordChar(Char c) noexcept
 {
-    return IsAsciiDigit(c) || detail::IsAsciiLower(c) || detail::IsAsciiUpper(c) || c == static_cast<Char>('_');
+    return IsAsciiDigit(c) || IsAsciiAlpha(c) || c == static_cast<Char>('_');
 }
 
 namespace detail {
@@ -232,9 +238,7 @@ inline size_t FindAsciiCaseInsensitive(std::string_view text, std::string_view l
 // ASCII 英字を含むか。含まなければ ASCII 大文字小文字無視の検索は通常検索と同一の結果になる。
 inline bool HasAsciiLetter(std::string_view s) noexcept
 {
-    return std::ranges::any_of(s, [](char c) noexcept {
-        return detail::IsAsciiLower(c) || detail::IsAsciiUpper(c);
-    });
+    return std::ranges::any_of(s, IsAsciiAlpha<char>);
 }
 
 namespace detail {
