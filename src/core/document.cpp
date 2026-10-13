@@ -40,7 +40,7 @@ void Document::ReplaceContent(ParseResult&& result)
     table_node_indices_ = std::move(result.table_indices);
     footnote_def_indices_ = std::move(result.footnote_def_indices);
     footnote_refs_ = std::move(result.footnote_refs);
-    BuildHeadingIndices(result.heading_indices);
+    toc_ = TableOfContents{ std::move(result.toc_entries) };
     anchor_index_.reset();
 }
 
@@ -85,14 +85,4 @@ int Document::FindAnchorIndex(std::string_view anchor)
         }
     }
     return -1;
-}
-
-void Document::BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indices)
-{
-    MENDO_PROFILE("BuildHeadingIndices");
-    toc_.Clear();
-    toc_.Reserve(heading_indices.size());
-    for (size_t i : heading_indices) {
-        toc_.AddEntry(nodes_[i], static_cast<int>(i));
-    }
 }

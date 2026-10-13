@@ -61,7 +61,7 @@ struct DirtyBatchResult {
 // indices のノードを scheduler の worker で並列計測する。scheduler が null なら呼び出しスレッドで直列に計測する。
 // 戻り値は例外で計測できなかったノード数。
 int MeasureIndicesParallel(
-    std::pmr::vector<Node>& nodes,
+    const std::pmr::vector<Node>& nodes,
     LayoutCache& cache,
     float content_width,
     const Theme& theme,
@@ -73,7 +73,7 @@ int MeasureIndicesParallel(
 // clip 内の dirty を最大 max_nodes 件 (0 = 無制限) 計測する。scheduler が null なら呼び出しスレッドで直列に計測する。
 // worker 側に checkpoint が無いので時間予算は持たない。
 DirtyBatchResult RunParallel(
-    std::pmr::vector<Node>& nodes,
+    const std::pmr::vector<Node>& nodes,
     LayoutCache& cache,
     float content_width,
     const Theme& theme,

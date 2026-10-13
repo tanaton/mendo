@@ -34,7 +34,7 @@ public:
         theme_ = &theme;
     }
 
-    void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
+    void MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
                      MeasureViewportRange /*viewport*/ = {}) const override
     {
         if (node.type == NodeType::HorizontalRule) {
@@ -106,7 +106,7 @@ public:
 private:
     const Theme* theme_ = nullptr;
 
-    void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width) const
+    void MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width) const
     {
         const auto* tbl = node.table_data();
         if (!tbl || tbl->row_count == 0) {

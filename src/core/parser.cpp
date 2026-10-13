@@ -2,13 +2,13 @@
 #include "html_entities.h"
 #include "syntax.h"
 #include "profiler.h"
+#include "utility.h"
 #include "md4c.h"
 #include <cassert>
 #include <unordered_map>
 #include <algorithm>
 #include <format>
 #include <limits>
-#include <ranges>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -42,7 +42,7 @@ struct ParseContext {
     std::unique_ptr<TextArena> arena;
 
     // パース後の全ノード走査を避けるため、特殊ノードのインデックスはパース中に構築する。
-    std::pmr::vector<size_t> heading_indices;
+    std::pmr::vector<TocEntry> toc_entries;
     std::pmr::vector<size_t> image_indices;
     std::pmr::vector<size_t> diagram_indices;
     std::pmr::vector<size_t> table_indices;
@@ -113,19 +113,12 @@ struct ParseContext {
     static constexpr size_t kLinkUrlLinearScanMax = 8;
     std::pmr::unordered_map<std::string_view, int16_t> link_url_lookup;
 
-    // 画像スパンの src 蓄積バッファ。
     // ネスト画像 (![a ![b](inner)](outer)) では最外側の src を採用するため深度を追跡する。
-    std::pmr::string pending_image_src;
     int image_span_depth = 0;
 
     // display math スパンが 1 個だけで他の内容が無い段落を LatexMath コードブロックに昇格する状態
-    bool in_display_math = false;
     int paragraph_display_math_count = 0;
     bool paragraph_has_other_content = false;
-    std::pmr::string display_math_buf;
-    // display_math_buf に append された範囲の改行数。昇格時の line_count 設定に使い、
-    // current_text 全体を std::ranges::count で走査するコストを避ける。
-    int32_t display_math_newlines = 0;
 
     // md_parse() に渡した入力バッファ。source_offset 計算と、md4c が渡すポインタが原文を指すかの判定に使う。
     std::string_view markdown;
@@ -194,14 +187,6 @@ struct ParseContext {
     {
         FinalizeCurrentNode();
         ClearCurrentNode();
-    }
-
-    // display math 以外の内容が段落に現れたことを記録する (昇格判定用)。
-    constexpr void NoteNonMathContent() noexcept
-    {
-        if (!in_display_math) {
-            paragraph_has_other_content = true;
-        }
     }
 
     void BeginNode(NodeType type)
@@ -309,16 +294,16 @@ struct ParseContext {
             return -1;
         }
         const auto new_index = static_cast<int16_t>(n);
-        current_link_urls.push_back(InternLinkUrl(url));
+        current_link_urls.push_back(InternUrl(url));
         if (!link_url_lookup.empty()) {
             link_url_lookup.emplace(current_link_urls.back(), new_index);
         }
         return new_index;
     }
 
-    // md4c の href は原文を指すことが多いのでそのまま使う。参照定義の展開や脚注 URL のように
+    // md4c の href / 画像 src は原文を指すことが多いのでそのまま使う。参照定義の展開や脚注 URL のように
     // 原文の外にあるものだけ arena へコピーする。
-    std::string_view InternLinkUrl(std::string_view url)
+    std::string_view InternUrl(std::string_view url)
     {
         return IsSubrangeOf(url, markdown) ? url : arena->CopyText(url);
     }
@@ -408,16 +393,18 @@ constexpr bool TryPromoteParagraphToDisplayMath(ParseContext* ctx)
     if (!node || node->type != NodeType::Paragraph) {
         return false;
     }
+    // 昇格できる段落のテキストは "$$" + 数式 + "$$" だけ。md4c は数式内の改行を空白にして渡すので改行は無い。
+    const std::string_view text = ctx->current_text;
     if (ctx->paragraph_display_math_count != 1 ||
         ctx->paragraph_has_other_content ||
-        ctx->display_math_buf.empty()) {
+        text.size() <= 4) {
         return false;
     }
+    assert(text.starts_with("$$") && text.ends_with("$$"));
     node->type = NodeType::CodeBlock;
     node->set_code_language(SyntaxLanguage::LatexMath);
     ctx->current_runs.clear();
-    // current_text 経由で渡すと 2 回目のコピーが走るため、arena へ直接書く。
-    node->SetText(ctx->arena->CopyText(ctx->display_math_buf), ctx->display_math_newlines);
+    node->SetText(ctx->arena->CopyText(text.substr(2, text.size() - 4)), 0);
     ctx->diagram_indices.emplace_back(ctx->current_node_index);
     return true;
 }
@@ -628,9 +615,6 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         }
         ctx->paragraph_display_math_count = 0;
         ctx->paragraph_has_other_content = false;
-        ctx->display_math_buf.clear();
-        ctx->display_math_newlines = 0;
-        ctx->in_display_math = false;
         break;
 
     case MD_BLOCK_CODE: {
@@ -771,7 +755,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 
     case MD_BLOCK_H:
         if (auto* const cn = ctx->current_node; cn && cn->type == NodeType::Heading) {
-            ctx->heading_indices.emplace_back(ctx->current_node_index);
+            ctx->toc_entries.emplace_back(static_cast<int>(ctx->current_node_index), cn->heading_level());
         }
         ctx->EndNode();
         break;
@@ -844,8 +828,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     // どの span でも原文と一致しなくなる。FinalizeCurrentNode の memcmp をスキップさせる。
     ctx->current_node_needs_copy = true;
 
-    // LATEXMATH_DISPLAY のみ「最初の display math は昇格対象 (other_content を立てない)」
-    // という特殊扱いがあるため、ここで一律に立てるのは他の span 全種類。
+    // display math は個数 (paragraph_display_math_count) で昇格を判定するので、ここで立てるのは他の span 全種類。
     if (type != MD_SPAN_LATEXMATH_DISPLAY) {
         ctx->paragraph_has_other_content = true;
     }
@@ -872,23 +855,12 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         ctx->ResolveLinkUrlIndex(std::string_view{ a->href.text, static_cast<size_t>(a->href.size) });
         break;
     }
-    case MD_SPAN_IMG: {
-        auto* const img = static_cast<MD_SPAN_IMG_DETAIL*>(detail);
-        if (++ctx->image_span_depth == 1 && img->src.text && img->src.size > 0) {
-            ctx->pending_image_src.assign(img->src.text, static_cast<size_t>(img->src.size));
-        }
+    case MD_SPAN_IMG:
+        ++ctx->image_span_depth;
         break;
-    }
     case MD_SPAN_LATEXMATH_DISPLAY:
-        // "$$" はフォールバックテキスト用。昇格対象でなくなった時点で has_other_content を立てる
-        ctx->in_display_math = true;
+        // "$$" は昇格しなかったときのフォールバックテキスト用。
         ctx->AppendDoc("$$");
-        if (ctx->paragraph_display_math_count == 0 && !ctx->paragraph_has_other_content) {
-            ctx->display_math_buf.clear();
-        }
-        else {
-            ctx->paragraph_has_other_content = true;
-        }
         break;
     case MD_SPAN_LATEXMATH:
         // インライン $...$ は昇格対象外。元の "$" を復元してテキストとして残す
@@ -907,20 +879,18 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     return 0;
 }
 
-void LeaveImageSpan(ParseContext* ctx)
+// md4c は leave でも enter と同じ src を渡すので、最外側の leave で受け取る。
+void LeaveImageSpan(ParseContext* ctx, const MD_SPAN_IMG_DETAIL* img)
 {
-    // ネスト画像では最外側の src だけを採用する。
-    if (--ctx->image_span_depth != 0) {
+    if (--ctx->image_span_depth != 0 || img->src.size == 0) {
         return;
     }
-    if (auto* const cn = ctx->current_node;
-        cn && !ctx->pending_image_src.empty() && IsImagePromotionCandidate(*cn)) {
-        cn->ensure_image()->src = ctx->pending_image_src;
+    if (auto* const cn = ctx->current_node; cn && IsImagePromotionCandidate(*cn)) {
+        cn->ensure_image()->src = ctx->InternUrl(std::string_view{ img->src.text, static_cast<size_t>(img->src.size) });
     }
-    ctx->pending_image_src.clear();
 }
 
-int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
+int OnLeaveSpan(MD_SPANTYPE type, void* detail, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
     if (ctx->ShouldCancel()) {
@@ -952,10 +922,9 @@ int OnLeaveSpan(MD_SPANTYPE type, void* /*detail*/, void* userdata)
         ctx->current_link_url_index = -1;
         break;
     case MD_SPAN_IMG:
-        LeaveImageSpan(ctx);
+        LeaveImageSpan(ctx, static_cast<const MD_SPAN_IMG_DETAIL*>(detail));
         break;
     case MD_SPAN_LATEXMATH_DISPLAY:
-        ctx->in_display_math = false;
         ctx->AppendDoc("$$");
         ctx->paragraph_display_math_count++;
         break;
@@ -996,28 +965,16 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     switch (type) {
     case MD_TEXT_NORMAL:
     case MD_TEXT_CODE:
-        ctx->NoteNonMathContent();
+        ctx->paragraph_has_other_content = true;
         ctx->AppendDoc(chunk);
         break;
 
     case MD_TEXT_LATEXMATH:
         ctx->AppendDoc(chunk);
-        if (ctx->in_display_math && ctx->paragraph_display_math_count == 0 &&
-            !ctx->paragraph_has_other_content) {
-            // size==1 のとき md4c が \n をそのまま渡してくるケースが多いのでスカラ比較で済ませ、
-            // size>1 のときだけ std::ranges::count にフォールバックする両対応。
-            if (chunk.size() == 1) {
-                ctx->display_math_newlines += (chunk[0] == '\n');
-            }
-            else {
-                ctx->display_math_newlines += static_cast<int32_t>(std::ranges::count(chunk, '\n'));
-            }
-            ctx->display_math_buf.append(chunk);
-        }
         break;
 
     case MD_TEXT_ENTITY: {
-        ctx->NoteNonMathContent();
+        ctx->paragraph_has_other_content = true;
         // entity (`&amp;` 等) は現状文字に解決される。原文 (`&amp;`) と current_text (`&`) が
         // 不一致になり arena へのコピーが確定。memcmp スキップフラグを立てる。
         ctx->current_node_needs_copy = true;
@@ -1032,14 +989,14 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     }
 
     case MD_TEXT_BR:
-        ctx->NoteNonMathContent();
+        ctx->paragraph_has_other_content = true;
         // BR / SOFTBR は原文の `<br>` や 2 個の半角空白+改行を `\n`/` ` に置換するため raw_slice 不一致。
         ctx->current_node_needs_copy = true;
         ctx->AppendDoc("\n");
         break;
 
     case MD_TEXT_SOFTBR:
-        ctx->NoteNonMathContent();
+        ctx->paragraph_has_other_content = true;
         ctx->current_node_needs_copy = true;
         ctx->AppendDoc(" ");
         break;
@@ -1126,7 +1083,7 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     }
 
     ParseResult result{ NodeStorage{ std::move(ctx.nodes), std::move(ctx.arena) } };
-    result.heading_indices = std::move(ctx.heading_indices);
+    result.toc_entries = std::move(ctx.toc_entries);
     result.image_indices = std::move(ctx.image_indices);
     result.diagram_indices = std::move(ctx.diagram_indices);
     result.table_indices = std::move(ctx.table_indices);

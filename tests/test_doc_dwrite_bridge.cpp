@@ -1,107 +1,108 @@
 #include <gtest/gtest.h>
 #include "doc_dwrite_bridge.h"
 
-using mendo::WideViewCache;
-using mendo::WideViewForDWrite;
+using mendo::Utf16OffsetCursor;
 
-// ─────────────────────────────────────────────
-// WideOffsetFromDocOffset / DocOffsetFromWideOffset
-// ─────────────────────────────────────────────
+namespace {
 
-TEST(WideViewForDWrite, EmptyText)
+uint32_t WideAt(std::string_view text, uint32_t byte)
 {
-    WideViewForDWrite wv{ "" };
-    EXPECT_TRUE(wv.wide().empty());
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(0), 0u);
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(0), 0u);
+    return Utf16OffsetCursor{ text }.WideAt(byte);
 }
 
-TEST(WideViewForDWrite, AsciiOnly)
+uint32_t ByteAt(std::string_view text, uint32_t wide)
 {
-    WideViewForDWrite wv{ "Hello" };
-    EXPECT_EQ(wv.wide(), L"Hello");
+    return Utf16OffsetCursor{ text }.ByteAt(wide);
+}
+
+} // namespace
+
+// ─────────────────────────────────────────────
+// Utf16OffsetCursor: WideAt (byte → wide) / ByteAt (wide → byte)
+// ─────────────────────────────────────────────
+
+TEST(Utf16OffsetCursor, EmptyText)
+{
+    EXPECT_EQ(WideAt("", 0), 0u);
+    EXPECT_EQ(ByteAt("", 0), 0u);
+}
+
+TEST(Utf16OffsetCursor, AsciiOnly)
+{
     for (uint32_t i = 0; i <= 5; ++i) {
-        EXPECT_EQ(wv.WideOffsetFromDocOffset(i), i);
-        EXPECT_EQ(wv.DocOffsetFromWideOffset(i), i);
+        EXPECT_EQ(WideAt("Hello", i), i);
+        EXPECT_EQ(ByteAt("Hello", i), i);
     }
 }
 
-TEST(WideViewForDWrite, AsciiOnlyOutOfRangeClampsToSize)
+TEST(Utf16OffsetCursor, AsciiOnlyOutOfRangeClampsToSize)
 {
-    WideViewForDWrite wv{ "Hello" };
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(100), 5u);
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(100), 5u);
+    EXPECT_EQ(WideAt("Hello", 100), 5u);
+    EXPECT_EQ(ByteAt("Hello", 100), 5u);
 }
 
-TEST(WideViewForDWrite, AsciiPrefixBeforeNonAscii)
+TEST(Utf16OffsetCursor, AsciiPrefixBeforeNonAscii)
 {
-    // "ab" は恒等区間、"日" (3 bytes / 1 wide) 以降は対応表で引く
-    WideViewForDWrite wv{ "ab日c" };
-    EXPECT_EQ(wv.wide(), L"ab日c");
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(1), 1u);
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(2), 2u);
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(5), 3u);
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(6), 4u);
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(3), 5u);
+    // "日" は 3 bytes / 1 wide
+    const std::string_view text = "ab日c";
+    EXPECT_EQ(WideAt(text, 1), 1u);
+    EXPECT_EQ(WideAt(text, 2), 2u);
+    EXPECT_EQ(WideAt(text, 5), 3u);
+    EXPECT_EQ(WideAt(text, 6), 4u);
+    EXPECT_EQ(ByteAt(text, 3), 5u);
 }
 
-TEST(WideViewForDWrite, Cjk3ByteRoundTrip)
+TEST(Utf16OffsetCursor, Cjk3ByteRoundTrip)
 {
     // テスト = 3 文字, UTF-8 9 bytes, UTF-16 3 wide units
-    WideViewForDWrite wv{ "テスト" };
-    EXPECT_EQ(wv.wide(), L"テスト");
+    const std::string_view text = "テスト";
 
-    // doc → wide: leading byte の累積 wide 数
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(0), 0u);
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(3), 1u);
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(6), 2u);
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(9), 3u);
+    EXPECT_EQ(WideAt(text, 0), 0u);
+    EXPECT_EQ(WideAt(text, 3), 1u);
+    EXPECT_EQ(WideAt(text, 6), 2u);
+    EXPECT_EQ(WideAt(text, 9), 3u);
 
-    // wide → doc: 対応する文字の leading byte 位置 (= continuation byte は返さない)
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(0), 0u);
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(1), 3u);
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(2), 6u);
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(3), 9u);
+    // wide → byte: 対応する文字の leading byte 位置 (= continuation byte は返さない)
+    EXPECT_EQ(ByteAt(text, 0), 0u);
+    EXPECT_EQ(ByteAt(text, 1), 3u);
+    EXPECT_EQ(ByteAt(text, 2), 6u);
+    EXPECT_EQ(ByteAt(text, 3), 9u);
 }
 
-TEST(WideViewForDWrite, Latin2ByteRoundTrip)
+TEST(Utf16OffsetCursor, Latin2ByteRoundTrip)
 {
-    // é = U+00E9 (UTF-8 2 bytes, UTF-16 1 wide unit), あいだに ASCII を挟む
-    WideViewForDWrite wv{ "aébc" };
-    EXPECT_EQ(wv.wide(), L"aébc");
-
+    // é = U+00E9 (UTF-8 2 bytes, UTF-16 1 wide unit)
     // 'a'=0..1, 'é'=1..3, 'b'=3..4, 'c'=4..5 (utf8 byte / utf16 wide)
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(0), 0u);
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(1), 1u);
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(3), 2u);
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(4), 3u);
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(5), 4u);
+    const std::string_view text = "aébc";
+    EXPECT_EQ(WideAt(text, 0), 0u);
+    EXPECT_EQ(WideAt(text, 1), 1u);
+    EXPECT_EQ(WideAt(text, 3), 2u);
+    EXPECT_EQ(WideAt(text, 4), 3u);
+    EXPECT_EQ(WideAt(text, 5), 4u);
 
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(0), 0u);
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(1), 1u);
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(2), 3u);
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(3), 4u);
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(4), 5u);
+    EXPECT_EQ(ByteAt(text, 0), 0u);
+    EXPECT_EQ(ByteAt(text, 1), 1u);
+    EXPECT_EQ(ByteAt(text, 2), 3u);
+    EXPECT_EQ(ByteAt(text, 3), 4u);
+    EXPECT_EQ(ByteAt(text, 4), 5u);
 }
 
-TEST(WideViewForDWrite, SurrogatePairRoundTrip)
+TEST(Utf16OffsetCursor, SurrogatePairRoundTrip)
 {
     // 😀 = U+1F600 (UTF-8 4 bytes, UTF-16 2 wide units = surrogate pair)
-    WideViewForDWrite wv{ "A\xF0\x9F\x98\x80""B" };
-    EXPECT_EQ(wv.wide().size(), 4u); // 'A' + high + low + 'B'
+    const std::string_view text = "A\xF0\x9F\x98\x80""B";
 
-    // doc → wide
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(0), 0u);
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(1), 1u); // 絵文字 leading byte
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(5), 3u); // 'B' leading byte
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(6), 4u);
+    EXPECT_EQ(WideAt(text, 0), 0u);
+    EXPECT_EQ(WideAt(text, 1), 1u); // 絵文字 leading byte
+    EXPECT_EQ(WideAt(text, 5), 3u); // 'B' leading byte
+    EXPECT_EQ(WideAt(text, 6), 4u);
 
     // wide=2 (サロゲートペア中央) は絵文字 leading (1) ではなく次文字の leading (5)。
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(0), 0u);
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(1), 1u);
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(2), 5u);
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(3), 5u);
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(4), 6u);
+    EXPECT_EQ(ByteAt(text, 0), 0u);
+    EXPECT_EQ(ByteAt(text, 1), 1u);
+    EXPECT_EQ(ByteAt(text, 2), 5u);
+    EXPECT_EQ(ByteAt(text, 3), 5u);
+    EXPECT_EQ(ByteAt(text, 4), 6u);
 }
 
 // 回帰テスト: #183
@@ -109,181 +110,87 @@ TEST(WideViewForDWrite, SurrogatePairRoundTrip)
 // wide_off = (文字数) - 1 + 1 = wide_size に達する直前の値が渡される。
 // 旧実装は continuation byte の index を返してしまい、ExtractSelectedText で
 // UTF-8 として不正な末尾バイト列が抽出され、貼り付け先で文字化けしていた。
-TEST(WideViewForDWrite, EndOfNonAsciiCharNeverReturnsContinuationByte)
+TEST(Utf16OffsetCursor, EndOfNonAsciiCharNeverReturnsContinuationByte)
 {
-    WideViewForDWrite wv{ "テスト" };
-    // 末尾「ト」の手前 (= 「ス」の右端) を指す wide_off=2 は
-    // 「ト」の leading byte (= 6) を返さなければならない。
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(2), 6u);
-
+    // 末尾「ト」の手前 (= 「ス」の右端) を指す wide=2 は「ト」の leading byte (= 6)。
+    EXPECT_EQ(ByteAt("テスト", 2), 6u);
     // 「テ」の右端 (= 「ス」の左端) は byte 3 (= 「ス」の leading byte)
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(1), 3u);
+    EXPECT_EQ(ByteAt("テスト", 1), 3u);
 }
 
-TEST(WideViewForDWrite, OutOfRangeWideOffsetClampsToBack)
+TEST(Utf16OffsetCursor, OutOfRangeClampsToBack)
 {
-    WideViewForDWrite wv{ "テスト" };
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(3), 9u);    // 番兵
-    EXPECT_EQ(wv.DocOffsetFromWideOffset(100), 9u);  // 範囲外も clamping
+    EXPECT_EQ(ByteAt("テスト", 3), 9u);
+    EXPECT_EQ(ByteAt("テスト", 100), 9u);
+    EXPECT_EQ(WideAt("テスト", 9), 3u);
+    EXPECT_EQ(WideAt("テスト", 100), 3u);
 }
 
-TEST(WideViewForDWrite, OutOfRangeDocOffsetClampsToBack)
+TEST(Utf16OffsetCursor, WideRangeForCjk)
 {
-    WideViewForDWrite wv{ "テスト" };
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(9), 3u);    // 番兵
-    EXPECT_EQ(wv.WideOffsetFromDocOffset(100), 3u);  // 範囲外も clamping
-}
-
-TEST(WideViewForDWrite, WideRangeForCjk)
-{
-    WideViewForDWrite wv{ "テスト" };
     // [3, 6) byte = 「ス」 = wide [1, 2)
-    const auto r = wv.WideRange(3, 3);
+    Utf16OffsetCursor cursor{ "テスト" };
+    const auto r = cursor.WideRange(3, 3);
     EXPECT_EQ(r.startPosition, 1u);
     EXPECT_EQ(r.length, 1u);
 }
 
-// ─────────────────────────────────────────────
-// WideViewCache: (data ポインタ + size) identity ベースの decode キャッシュ
-// ─────────────────────────────────────────────
-
-TEST(WideViewCache, ReturnsCorrectWideForText)
-{
-    WideViewCache cache;
-    EXPECT_EQ(cache.Get("Hello").wide(), L"Hello");
-    EXPECT_EQ(cache.Get("テスト").wide(), L"テスト");
-}
-
-TEST(WideViewCache, EmptyText)
-{
-    WideViewCache cache;
-    EXPECT_TRUE(cache.Get("").wide().empty());
-}
-
-// identity (data ポインタ + size) が一致する限り再 decode しない。バッファ内容を
-// 破壊的に書き換えても旧結果が返ることでキャッシュヒットを観測する。
-TEST(WideViewCache, ReusesResultForSameBuffer)
-{
-    WideViewCache cache;
-    char buf[] = "Hello";
-    const std::string_view sv{ buf, 5 };
-    EXPECT_EQ(cache.Get(sv).wide(), L"Hello");
-
-    buf[0] = 'J'; // "Jello" だが data/size 不変なのでキャッシュヒット
-    EXPECT_EQ(cache.Get(sv).wide(), L"Hello");
-}
-
-TEST(WideViewCache, RebuildsForDifferentBuffer)
-{
-    WideViewCache cache;
-    char a[] = "Hello";
-    char b[] = "World";
-    EXPECT_EQ(cache.Get(std::string_view{ a, 5 }).wide(), L"Hello");
-    EXPECT_EQ(cache.Get(std::string_view{ b, 5 }).wide(), L"World");
-}
-
-// data ポインタが同一でも size が違えば別文字列として再構築する。
-TEST(WideViewCache, RebuildsForSamePointerDifferentSize)
-{
-    WideViewCache cache;
-    char buf[] = "Hello";
-    EXPECT_EQ(cache.Get(std::string_view{ buf, 5 }).wide(), L"Hello");
-    EXPECT_EQ(cache.Get(std::string_view{ buf, 3 }).wide(), L"Hel");
-}
-
-TEST(WideViewCache, ResetForcesRebuild)
-{
-    WideViewCache cache;
-    char buf[] = "Hello";
-    const std::string_view sv{ buf, 5 };
-    EXPECT_EQ(cache.Get(sv).wide(), L"Hello");
-
-    buf[0] = 'J'; // "Jello"
-    cache.Reset();
-    EXPECT_EQ(cache.Get(sv).wide(), L"Jello");
-}
-
-TEST(WideViewCache, WideRangeDelegatesToGet)
-{
-    WideViewCache cache;
-    // [3, 6) byte = 「ス」 = wide [1, 2)
-    const auto r = cache.WideRange("テスト", 3, 3);
-    EXPECT_EQ(r.startPosition, 1u);
-    EXPECT_EQ(r.length, 1u);
-}
-
-// owner identity が不変ならキャッシュを保持する。
-TEST(WideViewCache, ResetIfBufferChangedKeepsCacheForSameOwner)
-{
-    WideViewCache cache;
-    char buf[] = "Hello";
-    const std::string_view sv{ buf, 5 };
-    int owner = 0;
-
-    cache.ResetIfBufferChanged(&owner, 1);
-    EXPECT_EQ(cache.Get(sv).wide(), L"Hello");
-
-    buf[0] = 'J';
-    cache.ResetIfBufferChanged(&owner, 1); // 同一 owner → Reset しない
-    EXPECT_EQ(cache.Get(sv).wide(), L"Hello");
-}
-
-// owner identity が変われば Reset し、次の Get で再構築する。
-TEST(WideViewCache, ResetIfBufferChangedClearsCacheForNewOwner)
-{
-    WideViewCache cache;
-    char buf[] = "Hello";
-    const std::string_view sv{ buf, 5 };
-    int owner_a = 0;
-    int owner_b = 0;
-
-    cache.ResetIfBufferChanged(&owner_a, 1);
-    EXPECT_EQ(cache.Get(sv).wide(), L"Hello");
-
-    buf[0] = 'J';
-    cache.ResetIfBufferChanged(&owner_b, 1); // 別 owner → Reset
-    EXPECT_EQ(cache.Get(sv).wide(), L"Jello");
-}
-
-// ─────────────────────────────────────────────
-// Utf16OffsetCursor
-// ─────────────────────────────────────────────
-
-// 前方カーソルの結果は WideViewForDWrite の対応表と全 byte 位置で一致する (不正バイト含む)。
-TEST(Utf16OffsetCursor, MatchesWideViewForEveryOffset)
+// 前方へ進めたカーソルの結果は毎回作り直したカーソルと一致し (ASCII 16 byte の読み飛ばしを含む)、
+// 全 byte 位置で DecodeForDWrite の変換と整合する (不正バイト含む)。
+TEST(Utf16OffsetCursor, ConsistentWithDecodeForEveryOffset)
 {
     std::string text = "ascii \xE3\x81\x82\xE3\x81\x84 \xF0\x9F\x98\x80 bad\xE3\x81 \xFF\x80 end";
     for (int i = 0; i < 3; ++i) {
         text += "0123456789abcdef0123456789";
     }
     text += "\xE6\x97\xA5";
-    const WideViewForDWrite wv{ text };
-    mendo::Utf16OffsetCursor cursor{ text };
+    const auto wide = mendo::DecodeForDWrite(text);
+
+    Utf16OffsetCursor forward{ text };
     for (uint32_t b = 0; b <= text.size(); ++b) {
-        EXPECT_EQ(cursor.WideAt(b), wv.WideOffsetFromDocOffset(b)) << "byte=" << b;
+        const uint32_t w = forward.WideAt(b);
+        EXPECT_EQ(w, WideAt(text, b)) << "byte=" << b;
+        // ByteAt は b を含む文字の先頭 byte を返し、そこから WideAt で同じ位置に戻る。
+        const uint32_t lead = ByteAt(text, w);
+        EXPECT_LE(lead, b) << "byte=" << b;
+        EXPECT_EQ(WideAt(text, lead), w) << "byte=" << b;
+    }
+    EXPECT_EQ(WideAt(text, static_cast<uint32_t>(text.size())), wide.size());
+
+    Utf16OffsetCursor forward_wide{ text };
+    for (uint32_t w = 0; w <= wide.size(); ++w) {
+        EXPECT_EQ(forward_wide.ByteAt(w), ByteAt(text, w)) << "wide=" << w;
     }
 }
 
 TEST(Utf16OffsetCursor, SkipsForwardWithoutVisitingEveryOffset)
 {
     const std::string text = std::string(100, 'a') + "\xE3\x81\x82" + std::string(40, 'b');
-    const WideViewForDWrite wv{ text };
-    mendo::Utf16OffsetCursor cursor{ text };
+    Utf16OffsetCursor cursor{ text };
     EXPECT_EQ(cursor.WideAt(50), 50u);
-    EXPECT_EQ(cursor.WideAt(103), wv.WideOffsetFromDocOffset(103));
-    EXPECT_EQ(cursor.WideAt(static_cast<uint32_t>(text.size())), wv.WideOffsetFromDocOffset(static_cast<uint32_t>(text.size())));
+    EXPECT_EQ(cursor.WideAt(103), 101u);
+    EXPECT_EQ(cursor.WideAt(static_cast<uint32_t>(text.size())), 141u);
+
+    Utf16OffsetCursor back{ text };
+    EXPECT_EQ(back.ByteAt(50), 50u);
+    EXPECT_EQ(back.ByteAt(101), 103u);
+    EXPECT_EQ(back.ByteAt(141), static_cast<uint32_t>(text.size()));
 }
 
-// 計測経路の変換は対応表付きの変換と同じ文字列になる (不正バイト含む)。
-TEST(DecodeForDWrite, MatchesWideViewForDWrite)
+// ─────────────────────────────────────────────
+// DecodeForDWrite
+// ─────────────────────────────────────────────
+
+TEST(DecodeForDWrite, DecodesText)
 {
-    const std::string_view texts[] = {
-        "",
-        "ascii only",
-        "ascii \xE3\x81\x82\xE3\x81\x84 \xF0\x9F\x98\x80 bad\xE3\x81 \xFF\x80 end",
-        "\xE6\x97\xA5\xE6\x9C\xAC",
-    };
-    for (const auto text : texts) {
-        EXPECT_EQ(mendo::DecodeForDWrite(text), WideViewForDWrite{ text }.wide()) << text;
-    }
+    EXPECT_TRUE(mendo::DecodeForDWrite("").empty());
+    EXPECT_EQ(mendo::DecodeForDWrite("Hello"), L"Hello");
+    EXPECT_EQ(mendo::DecodeForDWrite("ab日c"), L"ab日c");
+    EXPECT_EQ(mendo::DecodeForDWrite("A\xF0\x9F\x98\x80""B"), L"A\xD83D\xDE00""B");
+}
+
+// 不正バイトは U+FFFD 1 単位。
+TEST(DecodeForDWrite, InvalidBytesBecomeReplacementChar)
+{
+    EXPECT_EQ(mendo::DecodeForDWrite("a\xFF""b"), L"a\xFFFD""b");
 }

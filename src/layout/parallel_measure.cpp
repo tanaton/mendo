@@ -14,7 +14,7 @@ namespace {
 
 // 戻り値は例外で計測できず dirty のまま再試行を待つノード数。
 int MeasureChunk(
-    std::pmr::vector<Node>& nodes,
+    const std::pmr::vector<Node>& nodes,
     LayoutCache& cache,
     float content_width,
     const Theme& theme,
@@ -49,7 +49,7 @@ int MeasureChunk(
 } // namespace
 
 int MeasureIndicesParallel(
-    std::pmr::vector<Node>& nodes,
+    const std::pmr::vector<Node>& nodes,
     LayoutCache& cache,
     float content_width,
     const Theme& theme,
@@ -81,7 +81,7 @@ int MeasureIndicesParallel(
 }
 
 DirtyBatchResult RunParallel(
-    std::pmr::vector<Node>& nodes,
+    const std::pmr::vector<Node>& nodes,
     LayoutCache& cache,
     float content_width,
     const Theme& theme,

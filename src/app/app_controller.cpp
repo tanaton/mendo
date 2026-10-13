@@ -1,5 +1,6 @@
 #include "app_controller.h"
 #include "ui_constants.h"
+#include <cstdlib>
 #include <windows.h>
 
 namespace app_controller {
@@ -80,9 +81,18 @@ AppAction HandleKeyDown(const KeyDownEvent& event)
     return NoOpAction{};
 }
 
-AppAction HandleMouseWheel(const MouseWheelEvent& event)
+AppAction HandleMouseWheel(const MouseWheelEvent& event, int& zoom_accum)
 {
     if (event.ctrl) {
+        // 向きが反転したら逆向きの端数は持ち越さない。
+        if ((zoom_accum < 0) != (event.delta < 0)) {
+            zoom_accum = 0;
+        }
+        zoom_accum += event.delta;
+        if (std::abs(zoom_accum) < WHEEL_DELTA) {
+            return NoOpAction{};
+        }
+        zoom_accum = 0;
         return ZoomAction{ event.delta > 0 ? ZoomDirection::In : ZoomDirection::Out };
     }
 

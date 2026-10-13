@@ -105,6 +105,32 @@ TEST(AppControllerTest, HandleMouseWheel)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);
-        ExpectSameAction(app_controller::HandleMouseWheel(c.ev), c.expected);
+        int zoom_accum = 0;
+        ExpectSameAction(app_controller::HandleMouseWheel(c.ev, zoom_accum), c.expected);
     }
+}
+
+// ピンチや高分解能ホイールの細かい delta は 1 ノッチ分たまるごとに 1 段だけズームする。
+TEST(AppControllerTest, CtrlWheelZoomsOncePerNotch)
+{
+    const auto wheel = [](int delta, int& accum) {
+        return app_controller::HandleMouseWheel(MouseWheelEvent{ .delta = delta, .ctrl = true }, accum);
+    };
+    int accum = 0;
+    ExpectSameAction(wheel(40, accum), NoOpAction{});
+    ExpectSameAction(wheel(40, accum), NoOpAction{});
+    ExpectSameAction(wheel(40, accum), ZoomAction{ ZoomDirection::In });
+    EXPECT_EQ(accum, 0);
+    ExpectSameAction(wheel(-120, accum), ZoomAction{ ZoomDirection::Out });
+    ExpectSameAction(wheel(240, accum), ZoomAction{ ZoomDirection::In });
+}
+
+// 向きが反転したら逆向きの端数は持ち越さない。
+TEST(AppControllerTest, CtrlWheelDropsRemainderOnReverse)
+{
+    int accum = 0;
+    ExpectSameAction(app_controller::HandleMouseWheel(MouseWheelEvent{ .delta = 100, .ctrl = true }, accum), NoOpAction{});
+    ExpectSameAction(app_controller::HandleMouseWheel(MouseWheelEvent{ .delta = -100, .ctrl = true }, accum), NoOpAction{});
+    EXPECT_EQ(accum, -100);
+    ExpectSameAction(app_controller::HandleMouseWheel(MouseWheelEvent{ .delta = -20, .ctrl = true }, accum), ZoomAction{ ZoomDirection::Out });
 }

@@ -58,7 +58,7 @@ inline std::string RandomPiecesWithMalformed(std::mt19937& rng, std::span<const 
 }
 
 // 先頭から DecodeAt を繰り返したときの code point 区切り (0 と size を含む昇順)。
-// 描画側 (WideViewForDWrite / Utf16OffsetCursor) の UTF-16 写像もこの区切りに従う。
+// 描画側 (DecodeForDWrite / Utf16OffsetCursor) の UTF-16 写像もこの区切りに従う。
 template <typename SV>
 std::vector<uint32_t> ForwardDecodeBoundaries(SV text)
 {

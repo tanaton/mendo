@@ -24,7 +24,7 @@ bool LayoutEngine::RecreateFormats()
     return measurer_->RecreateFormats();
 }
 
-void LayoutEngine::ComputeLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width, float viewport_top, float viewport_bottom)
+void LayoutEngine::ComputeLayout(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width, float viewport_top, float viewport_bottom)
 {
     MENDO_PROFILE("LayoutEngine::ComputeLayout");
     const auto node_count = nodes.size();
@@ -78,7 +78,7 @@ void LayoutEngine::EstimateDirtyHeights(const std::pmr::vector<Node>& nodes, Lay
     }
 }
 
-bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width, float viewport_top, float viewport_bottom)
+bool LayoutEngine::EnsureVisibleLayout(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width, float viewport_top, float viewport_bottom)
 {
     MENDO_PROFILE("LayoutEngine::EnsureVisibleLayout");
     const float content_width = theme_->ContentWidth(viewport_width);
@@ -129,7 +129,7 @@ bool LayoutEngine::EnsureVisibleLayout(std::pmr::vector<Node>& nodes, LayoutCach
 }
 
 bool LayoutEngine::ProcessDirtyBatch(
-    std::pmr::vector<Node>& nodes, LayoutCache& cache,
+    const std::pmr::vector<Node>& nodes, LayoutCache& cache,
     float viewport_width, int batch_size,
     mendo::layout::ViewportClip clip)
 {
@@ -160,14 +160,14 @@ bool LayoutEngine::ProcessDirtyBatch(
 void LayoutService::ViewportLayout(Document& doc, LayoutCache& cache, float width, float height)
 {
     const float scroll_y = viewport_.GetScrollY();
-    engine_.ComputeLayout(doc.GetNodesMut(), cache, width, scroll_y, scroll_y + height);
+    engine_.ComputeLayout(doc.GetNodes(), cache, width, scroll_y, scroll_y + height);
     viewport_.ApplyScrollTarget(cache);
 }
 
 bool LayoutService::ProcessDirtyBatch(Document& doc, LayoutCache& cache, float width, int batch_size, ViewportLimit viewport)
 {
     // height <= 0 なら ViewportClip::active() が false になりクリップは無効。
-    const bool more = engine_.ProcessDirtyBatch(doc.GetNodesMut(), cache, width, batch_size, { viewport_.GetScrollY(), viewport.height, viewport.buffer_screens });
+    const bool more = engine_.ProcessDirtyBatch(doc.GetNodes(), cache, width, batch_size, { viewport_.GetScrollY(), viewport.height, viewport.buffer_screens });
     viewport_.ApplyScrollTarget(cache);
     return more;
 }
@@ -175,7 +175,7 @@ bool LayoutService::ProcessDirtyBatch(Document& doc, LayoutCache& cache, float w
 bool LayoutService::EnsureVisibleLayout(Document& doc, LayoutCache& cache, float width, float height)
 {
     const float scroll_y = viewport_.GetScrollY();
-    const bool updated = engine_.EnsureVisibleLayout(doc.GetNodesMut(), cache, width, scroll_y, scroll_y + height);
+    const bool updated = engine_.EnsureVisibleLayout(doc.GetNodes(), cache, width, scroll_y, scroll_y + height);
     viewport_.ApplyScrollTarget(cache);
     return updated;
 }

@@ -40,9 +40,7 @@ private:
         Node n;
         n.type = src.type;
         n.set_heading_level(src.heading_level());
-        if (src.has_code()) {
-            n.set_code_language(src.code_language());
-        }
+        n.set_code_language(src.code_language());
         n.SetText(src.GetText(), src.line_count);
         n.SetRuns(src.runs());
         if (src.has_image()) {

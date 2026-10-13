@@ -293,3 +293,18 @@ TEST(TableRowRangeTest, RowIndexAtBoundaries)
     EXPECT_EQ(tl.RowIndexAt(30.0f), -1);
     EXPECT_EQ(TableLayoutData{}.RowIndexAt(0.0f), -1);
 }
+
+// トークンは text_layout と一緒に作るので、layout を捨てたら一緒に解放される。
+TEST(LayoutCacheTest, SyntaxTokensReleasedWithTextLayout)
+{
+    NodeLayoutEntry entry;
+    entry.set_syntax_tokens({ SyntaxToken{ 0, 3, SyntaxTokenType::Keyword } });
+    ASSERT_EQ(entry.syntax_tokens().size(), 1u);
+
+    entry.reset_text_layout();
+    EXPECT_TRUE(entry.syntax_tokens().empty());
+
+    entry.set_syntax_tokens({ SyntaxToken{ 0, 3, SyntaxTokenType::Keyword } });
+    entry.release_layout_state();
+    EXPECT_TRUE(entry.syntax_tokens().empty());
+}

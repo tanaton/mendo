@@ -101,22 +101,18 @@ void MermaidRenderer::ReleaseWebView()
 
 void MermaidRenderer::Init(
     HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic,
+    TaskScheduler& bg_scheduler, UINT disk_loaded_msg,
     const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_ready)
 {
     hwnd_ = hwnd;
     render_target_ = render_target;
+    wic_factory_ = wic;
+    bg_scheduler_ = &bg_scheduler;
+    disk_loaded_msg_ = disk_loaded_msg;
     if (!user_data_folder.empty()) {
         user_data_folder_.assign(user_data_folder.native());
     }
     on_ready_ = std::move(on_ready);
-
-    // PNG デコード用。D2DRenderBackend から共有されなければ自前で作る。
-    if (wic) {
-        wic_factory_ = wic;
-    }
-    else {
-        wic_factory_ = wic_util::CreateWicFactory(L"MermaidRenderer CoCreateInstance(WIC)");
-    }
 }
 
 void MermaidRenderer::EnsureInitialized()
@@ -609,11 +605,6 @@ void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path png
     const bool captured = captured_stream != nullptr;
     DiskLoad job{ .gen = disk_gen_.load(), .req = std::move(req), .captured_stream = std::move(captured_stream), .captured = captured };
     // ファイル読み込みと PNG デコードは worker で行う (UI では時間予算なしに積み上がる)。
-    if (!bg_scheduler_ || !hwnd_ || disk_loaded_msg_ == 0) {
-        LoadDiskJob(job, png_path);
-        ApplyDiskLoad(job);
-        return;
-    }
     const DiagramEntry* entry = job.req.diagram_entry;
     const bool posted = bg_scheduler_->Post([this, job = std::move(job), path = std::move(png_path), guard = latch_.Acquire()]() mutable {
         if (disk_gen_.load() != job.gen) {

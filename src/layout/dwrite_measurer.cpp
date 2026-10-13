@@ -179,18 +179,6 @@ bool RemeasureExistingLayout(const Node& node, NodeLayoutEntry& entry, float lay
     return false;
 }
 
-// 描画パス (ApplyNodeEffects) での遅延トークン化によるフレーム落ちを避けるため、レイアウトパスで行う。
-// Tokenize が完了してから代入するので、例外時に途中のトークンがノードに残らない。
-// 済みの判定はトークン列の有無で行う。色付け対象が無いコードは空なので、空判定だと計測のたびにやり直す。
-void TokenizeCodeBlock(Node& node, std::string_view text)
-{
-    const auto* cd = node.code_data();
-    if (cd == nullptr || node.code_language() == SyntaxLanguage::None || cd->tokens) {
-        return;
-    }
-    node.syntax_tokens_mut() = Tokenize(text, node.code_language());
-}
-
 HRESULT CreateFormat(IDWriteFactory* factory, const wchar_t* family, float size, DWRITE_FONT_WEIGHT weight, IDWriteTextFormat** out)
 {
     return factory->CreateTextFormat(
@@ -353,7 +341,7 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
 }
 
 void DWriteTextMeasurer::MeasureNode(
-    Node& node, NodeLayoutEntry& entry, float max_width,
+    const Node& node, NodeLayoutEntry& entry, float max_width,
     MeasureViewportRange viewport) const
 {
     MENDO_PROFILE("MeasureNode");
@@ -390,8 +378,10 @@ void DWriteTextMeasurer::MeasureNode(
     DWRITE_TEXT_METRICS metrics{};
     layout->GetMetrics(&metrics);
 
-    if (node.type == NodeType::CodeBlock) {
-        TokenizeCodeBlock(node, text);
+    // 描画パス (ApplyNodeEffects) でのトークン化によるフレーム落ちを避けるため、ここで作る。
+    // layout と一緒に捨てるので、画面外のコードブロックのトークンは残らない。
+    if (node.type == NodeType::CodeBlock && node.code_language() != SyntaxLanguage::None) {
+        entry.set_syntax_tokens(Tokenize(text, node.code_language()));
     }
 
     entry.set_text_layout(std::move(layout));
@@ -525,7 +515,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayou
     entry.layout_dirty = false;
 }
 
-TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(Node& node, NodeLayoutEntry& entry, float max_width, MeasureViewportRange viewport) const
+TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node, NodeLayoutEntry& entry, float max_width, MeasureViewportRange viewport) const
 {
     MENDO_PROFILE("RestoreEvictedTableRows");
     TableRestoreResult result;
@@ -563,6 +553,10 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(Node& node, NodeL
         }
     }
 
+    // evict 中の行のマッチは空矩形でキャッシュされているため、復元したら作り直させる。
+    if (result.restored) {
+        entry.invalidate_search_hl_cache();
+    }
     if (result.height_changed) {
         const float border_width = TABLE_BORDER_WIDTH;
         RebuildRowCumY(tl, row_count, border_width);
@@ -572,7 +566,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(Node& node, NodeL
     return result;
 }
 
-void DWriteTextMeasurer::MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width,
+void DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width,
                                       MeasureViewportRange viewport) const
 {
     MENDO_PROFILE("MeasureTable");

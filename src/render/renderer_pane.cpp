@@ -32,7 +32,6 @@ static bool EnsurePaneCacheSize(PaneCache& cache, ID2D1RenderTarget* parent, flo
 
     const auto round_up = [](float v) noexcept { return std::ceil(v / kBucket) * kBucket; };
     cache.bitmap_rt.Reset();
-    cache.cached_bitmap.Reset();
     cache.Invalidate();
     return SUCCEEDED(parent->CreateCompatibleRenderTarget(D2D1::SizeF(round_up(width), round_up(height)), &cache.bitmap_rt));
 }
@@ -67,9 +66,18 @@ static void DrawPaneScrollbar(
     FillVScrollThumb(rt, thumb_brush, pane_width, ComputeThumbY(info, scroll_y), info.thumb_height);
 }
 
+// 書式が NO_WRAP で省略記号も付かないため、はみ出す分は rect で切る。
+static void DrawCachedText(ID2D1RenderTarget* rt, TextLayoutCache& layouts, IDWriteTextFormat* fmt,
+                           std::wstring_view text, const D2D1_RECT_F& rect, ID2D1Brush* brush)
+{
+    const auto box = D2D1::SizeF(rect.right - rect.left, rect.bottom - rect.top);
+    layouts.Draw(rt, fmt, text, rect, brush, box, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+}
+
 // draw_item は template 経由のため別引数。
 struct SidePaneDrawContext {
     PaneCache& cache;
+    TextLayoutCache& text_layouts;
     ID2D1RenderTarget* main_rt;
     const PaneRect& rect;
     const ScrollState& scroll;
@@ -95,14 +103,12 @@ static void DrawSidePaneHeader(ID2D1RenderTarget* rt, const SidePaneDrawContext&
     rt->FillRectangle(D2D1::RectF(0, 0, width, header_h), sp.splitter_brush);
 
     // 無効なボタンはホバー状態が残っていても強調しない (ヘルプへ切替直後など)。
-    const auto draw_button = [&](const D2D1_RECT_F& rect, const wchar_t* icon, PaneHeaderButton button, bool enabled = true) {
+    const auto draw_button = [&](const D2D1_RECT_F& rect, std::wstring_view icon, PaneHeaderButton button, bool enabled = true) {
         if (enabled && sp.hovered_button == button) {
             rt->FillRectangle(rect, sp.close_hover_brush);
         }
-        if (sp.fmt_close_icon) {
-            mendo::OpacityScope dim{ enabled ? nullptr : sp.text_brush, DISABLED_UI_ALPHA };
-            rt->DrawText(icon, 1, sp.fmt_close_icon, rect, sp.text_brush, D2D1_DRAW_TEXT_OPTIONS_CLIP);
-        }
+        mendo::OpacityScope dim{ enabled ? nullptr : sp.text_brush, DISABLED_UI_ALPHA };
+        DrawCachedText(rt, sp.text_layouts, sp.fmt_close_icon, icon, rect, sp.text_brush);
     };
 
     const D2D1_RECT_F close_rect = PaneCloseButtonRect(width, header_h);
@@ -113,20 +119,12 @@ static void DrawSidePaneHeader(ID2D1RenderTarget* rt, const SidePaneDrawContext&
         draw_button(reveal_rect, L"\uE81D", PaneHeaderButton::Reveal, sp.reveal_enabled);
     }
 
-    const auto text_rect = PaneHeaderTextRect(width, header_h, sp.show_file_buttons);
-    if (!sp.fmt_header || !text_rect) {
-        return;
+    if (const auto text_rect = PaneHeaderTextRect(width, header_h, sp.show_file_buttons)) {
+        DrawCachedText(rt, sp.text_layouts, sp.fmt_header, sp.header_text, *text_rect, sp.text_brush);
     }
-    rt->DrawText(
-        sp.header_text.data(),
-        static_cast<UINT32>(sp.header_text.size()),
-        sp.fmt_header,
-        *text_rect,
-        sp.text_brush,
-        D2D1_DRAW_TEXT_OPTIONS_CLIP);
 }
 
-// オフスクリーン RT へペイン全体を描き直す。失敗時はキャッシュを破棄する (cached_bitmap も null になる)。
+// オフスクリーン RT へペイン全体を描き直す。失敗時はキャッシュを破棄する。
 template <typename DrawItemFn>
     requires std::invocable<DrawItemFn&, ID2D1RenderTarget*, int, float, float>
 static void RedrawSidePaneCache(const SidePaneDrawContext& sp, DrawItemFn& draw_item)
@@ -160,11 +158,6 @@ static void RedrawSidePaneCache(const SidePaneDrawContext& sp, DrawItemFn& draw_
         sp.cache.Reset();
         return;
     }
-    sp.cache.cached_bitmap.Reset();
-    if (FAILED(sp.cache.bitmap_rt->GetBitmap(&sp.cache.cached_bitmap))) {
-        sp.cache.Reset();
-        return;
-    }
     sp.cache.dirty = false;
     sp.cache.cached_scroll_y = sp.scroll.scroll_y;
 }
@@ -179,9 +172,11 @@ static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item
     if (sp.cache.NeedsRedraw(sp.scroll.scroll_y)) {
         RedrawSidePaneCache(sp, draw_item);
     }
-    if (sp.cache.cached_bitmap) {
+    // 描き直しに失敗したときは Reset で bitmap_rt が無くなる。
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
+    if (sp.cache.bitmap_rt && SUCCEEDED(sp.cache.bitmap_rt->GetBitmap(&bitmap))) {
         const D2D1_RECT_F src = D2D1::RectF(0.0f, 0.0f, sp.rect.width, sp.rect.height);
-        sp.main_rt->DrawBitmap(sp.cache.cached_bitmap.Get(), ToD2DRect(sp.rect), 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, &src);
+        sp.main_rt->DrawBitmap(bitmap.Get(), ToD2DRect(sp.rect), 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, &src);
     }
 }
 
@@ -201,6 +196,7 @@ SidePaneDrawContext Renderer::MakeSidePaneContext(PaneTarget target, const SideP
     const bool is_file_pane = (target == PaneTarget::File);
     return SidePaneDrawContext{
         .cache = SidePaneCache(target),
+        .text_layouts = text_layouts_,
         .main_rt = rt(),
         .rect = pane.rect,
         .scroll = pane.scroll,
@@ -233,22 +229,11 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
             rt->FillRectangle(item_rect, Brush(BrushId::PaneItemHover));
         }
 
-        if (fmt_.pane_icon) {
-            const D2D1_RECT_F icon_rect = D2D1::RectF(4.0f, item_y, 4.0f + icon_col_width, item_y + theme_.pane_item_height);
-            rt->DrawText(FileEntryIcon(entry), 1, fmt_.pane_icon.Get(), icon_rect, Brush(BrushId::Text), D2D1_DRAW_TEXT_OPTIONS_CLIP);
-        }
+        const D2D1_RECT_F icon_rect = D2D1::RectF(4.0f, item_y, 4.0f + icon_col_width, item_y + theme_.pane_item_height);
+        DrawCachedText(rt, text_layouts_, fmt_.pane_icon.Get(), FileEntryIcon(entry), icon_rect, Brush(BrushId::Text));
 
-        if (fmt_.pane_item) {
-            const D2D1_RECT_F text_rect = D2D1::RectF(4.0f + icon_col_width, item_y, width - 4.0f, item_y + theme_.pane_item_height);
-            const std::wstring_view name = entry.GetDisplayName();
-            rt->DrawText(
-                name.data(),
-                static_cast<UINT32>(name.size()),
-                fmt_.pane_item.Get(),
-                text_rect,
-                Brush(BrushId::Text),
-                D2D1_DRAW_TEXT_OPTIONS_CLIP);
-        }
+        const D2D1_RECT_F text_rect = D2D1::RectF(4.0f + icon_col_width, item_y, width - 4.0f, item_y + theme_.pane_item_height);
+        DrawCachedText(rt, text_layouts_, fmt_.pane_item.Get(), entry.GetDisplayName(), text_rect, Brush(BrushId::Text));
     };
     DrawSidePaneImpl(MakeSidePaneContext(PaneTarget::File, pane, entries.size(), i18n::S().pane_header_files), draw_item);
 }
@@ -266,11 +251,9 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const std::pmr
         }
 
         const float text_left = 8.0f + (entry.heading_level - 1) * TOC_INDENT_PER_LEVEL;
-        if (fmt_.pane_item) {
-            const D2D1_RECT_F text_rect = D2D1::RectF(text_left, item_y, width - 4.0f, item_y + theme_.pane_item_height);
-            string_convert::Utf8ToWide(nodes[entry.node_index].GetText(), toc_text_scratch_);
-            rt->DrawText(toc_text_scratch_.data(), static_cast<UINT32>(toc_text_scratch_.size()), fmt_.pane_item.Get(), text_rect, Brush(BrushId::Text), D2D1_DRAW_TEXT_OPTIONS_CLIP);
-        }
+        const D2D1_RECT_F text_rect = D2D1::RectF(text_left, item_y, width - 4.0f, item_y + theme_.pane_item_height);
+        string_convert::Utf8ToWide(nodes[entry.node_index].GetText(), toc_text_scratch_);
+        DrawCachedText(rt, text_layouts_, fmt_.pane_item.Get(), toc_text_scratch_, text_rect, Brush(BrushId::Text));
 
         if (i == active_index) {
             const float line_y = item_y + theme_.pane_item_height - 1.0f;

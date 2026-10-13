@@ -117,7 +117,7 @@ void Renderer::ApplyThemeMetrics()
 // ApplyNodeEffects は IDWriteTextLayout の mutable state (SetDrawingEffect/SetUnderline) を
 // 書き換える性質上、値型 DrawCommand には乗せられず、描画前パスとして実行する。
 // 適用済みのノードとテーブル行はフラグで即座に飛ばすので、毎フレーム可視範囲をなめてよい。
-void Renderer::PrepareVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y, float md_pane_height)
+void Renderer::PrepareVisibleEffects(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y, float md_pane_height)
 {
     MENDO_PROFILE("PrepareVisibleEffects");
     const float viewport_top = scroll_y;
@@ -165,7 +165,7 @@ static InlineCodeBg MakeInlineCodeBg(const DWRITE_HIT_TEST_METRICS& m) noexcept
     return D2D1::RectF(r.left - INLINE_CODE_PAD_X, r.top - INLINE_CODE_PAD_Y, r.right + INLINE_CODE_PAD_X, r.bottom + INLINE_CODE_PAD_Y);
 }
 
-void Renderer::ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom)
+void Renderer::ApplyTableEffects(const Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom)
 {
     MENDO_COUNT_INC(g_effect_stats.apply_table);
     // 未計測のテーブルには適用先のセル layout が無いので、済みの印を付けずに戻る。
@@ -264,9 +264,9 @@ void Renderer::AppendCellInlineCodeBgs(TableLayoutData& tl, uint32_t cell_index,
 
 // 同じ type の隣接トークンをマージして SetDrawingEffect の呼び出し回数を減らす
 // (内部で range tree を再構築するため)。
-void Renderer::ApplySyntaxEffects(IDWriteTextLayout* layout, const Node& node)
+void Renderer::ApplySyntaxEffects(IDWriteTextLayout* layout, std::string_view text, std::span<const SyntaxToken> tokens)
 {
-    mendo::Utf16OffsetCursor cursor{ node.GetText() };
+    mendo::Utf16OffsetCursor cursor{ text };
     SyntaxTokenType pending_type = SyntaxTokenType::Plain;
     uint32_t pending_start = 0;
     uint32_t pending_end = 0;
@@ -279,7 +279,7 @@ void Renderer::ApplySyntaxEffects(IDWriteTextLayout* layout, const Node& node)
         }
         pending_type = SyntaxTokenType::Plain;
     };
-    for (const auto& token : node.syntax_tokens()) {
+    for (const auto& token : tokens) {
         if (pending_type == token.type && pending_end == token.start) {
             pending_end = token.start + token.length;
             continue;
@@ -292,7 +292,7 @@ void Renderer::ApplySyntaxEffects(IDWriteTextLayout* layout, const Node& node)
     flush();
 }
 
-void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom)
+void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom)
 {
     // テーブルノード: ビューポートカリング付きの行単位増分処理を行う。
     if (node.type == NodeType::Table) {
@@ -320,7 +320,7 @@ void Renderer::ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_
     const std::string_view text = node.GetText();
 
     if (apply_brushes && node.type == NodeType::CodeBlock) {
-        ApplySyntaxEffects(layout, node);
+        ApplySyntaxEffects(layout, text, entry.syntax_tokens());
     }
 
     if (apply_brushes && node.type == NodeType::BlockQuote && node.alert_type != AlertType::None && node.alert_label_length() > 0) {

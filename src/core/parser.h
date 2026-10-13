@@ -2,6 +2,7 @@
 #include "document_types.h"
 #include "footnote_anchor.h"
 #include "text_arena.h"
+#include "toc.h"
 #include <concepts>
 #include <memory>
 #include <span>
@@ -40,7 +41,7 @@ struct ParseResult {
         return std::move(storage_);
     }
 
-    std::pmr::vector<size_t> heading_indices;
+    std::pmr::vector<TocEntry> toc_entries;
     std::pmr::vector<size_t> image_indices;
     std::pmr::vector<size_t> diagram_indices;
     std::pmr::vector<size_t> table_indices;

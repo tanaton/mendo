@@ -1,6 +1,5 @@
 #pragma once
 #include "block_h_scroll_context.h"
-#include "doc_dwrite_bridge.h"
 #include "document_types.h"
 #include "layout_cache.h"
 #include "ui_types.h"
@@ -144,12 +143,4 @@ public:
     CodeBlockButtonHit CodeBlockButtonsHitTest(const MdPaneHitContext& ctx) const noexcept;
     // node_index のブロック横スクロールバー (ヒット余白込み) 上か。
     bool BlockHScrollbarHitTest(const MdPaneHitContext& ctx, int node_index, float visible_width) const noexcept;
-
-private:
-    // HitTestPoint の UTF-16→UTF-8 逆変換を同一ノード/セル間で再利用する
-    // (ドラッグ選択時の連続呼び出しで decode を抑える)。
-    // HitTest 冒頭で ResetIfBufferChanged を呼び、ドキュメント切替時の string_view
-    // dangling を防ぐ。
-    mutable mendo::WideViewCache md_wv_cache_;
-    mutable mendo::WideViewCache cell_wv_cache_;
 };

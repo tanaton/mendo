@@ -47,7 +47,6 @@ bool App::Init(HWND hwnd)
     file_cache_.SetCacheDir(config_.GetConfigPath(L"MermaidCache"));
     file_cache_.Init(state_.window.cached_dpi_scale, scheduler_);
     mermaid_renderer_.SetFileCache(&file_cache_);
-    mermaid_renderer_.SetBackgroundScheduler(&scheduler_, app_msg::MERMAID_DISK_LOADED);
 
     clipboard_manager_.Init(hwnd_, &file_cache_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });
 
@@ -70,7 +69,8 @@ bool App::Init(HWND hwnd)
         },
         AppSideEffectCallbacks{ this });
 
-    mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), renderer_.GetWICFactory(), config_.GetConfigPath(L"WebView2Data"), [this]() {
+    mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), renderer_.GetWICFactory(), scheduler_, app_msg::MERMAID_DISK_LOADED,
+                           config_.GetConfigPath(L"WebView2Data"), [this]() {
         resource_manager_.ScheduleMermaidBatch();
     });
 

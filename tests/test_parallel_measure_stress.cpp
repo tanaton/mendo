@@ -69,7 +69,7 @@ Node MakeStressNode(size_t i, bool include_code_block)
     if (bucket < 19) {
         n.type = NodeType::Image;
         auto* img = n.ensure_image();
-        img->src.assign("img.png");
+        img->src = "img.png";
         img->width = 100.0f + static_cast<float>(i % 50);
         img->height = 50.0f + static_cast<float>(i % 30);
         return n;
@@ -98,10 +98,10 @@ struct StressFixture {
     }
 };
 
-// CodeBlock の syntax_tokens を書く派生 mock。並列経路では worker から node へ直接書かれる。
+// CodeBlock の syntax_tokens を書く派生 mock。並列経路では worker から entry へ直接書かれる。
 class MockTextMeasurerWithTokens : public MockTextMeasurer {
 public:
-    void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
+    void MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
                      MeasureViewportRange viewport = {}) const override
     {
         MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
@@ -118,7 +118,7 @@ public:
                 .type = static_cast<SyntaxTokenType>((seed32 + k) % 4u),
             };
         };
-        node.syntax_tokens_mut() = { MakeTok(0), MakeTok(1), MakeTok(2) };
+        entry.set_syntax_tokens({ MakeTok(0), MakeTok(1), MakeTok(2) });
     }
 };
 
@@ -142,8 +142,8 @@ void ExpectBitExactEqual(const StressFixture& s, const StressFixture& p,
         EXPECT_EQ(s.cache[i].layout_dirty, p.cache[i].layout_dirty) << "i=" << i;
         EXPECT_EQ(s.cache[i].effects_applied(), p.cache[i].effects_applied()) << "i=" << i;
 
-        const auto& ts = s.nodes[i].syntax_tokens();
-        const auto& tp = p.nodes[i].syntax_tokens();
+        const auto ts = s.cache[i].syntax_tokens();
+        const auto tp = p.cache[i].syntax_tokens();
         ASSERT_EQ(ts.size(), tp.size()) << "syntax_tokens size mismatch i=" << i;
         for (size_t k = 0; k < ts.size(); ++k) {
             EXPECT_EQ(ts[k].start, tp[k].start) << "i=" << i << " k=" << k;
@@ -216,7 +216,7 @@ TEST_F(ParallelMeasureStressTest, CodeBlockSyntaxTokensAggregatedInOrder)
             continue;
         }
         ++code_block_count;
-        const auto& tokens = p.nodes[i].syntax_tokens();
+        const auto tokens = p.cache[i].syntax_tokens();
         ASSERT_EQ(tokens.size(), 3u) << "i=" << i;
         const uint32_t seed = static_cast<uint32_t>(i);
         for (uint32_t k = 0; k < 3; ++k) {
@@ -315,7 +315,7 @@ class SlowMockMeasurer : public MockTextMeasurer {
 public:
     int spin_us = 100;
 
-    void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
+    void MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
                      MeasureViewportRange viewport = {}) const override
     {
         const auto start = std::chrono::steady_clock::now();

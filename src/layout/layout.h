@@ -45,15 +45,15 @@ public:
     // [viewport_top, viewport_bottom] に入る dirty を EnsureVisibleLayout で計測する。
     // 範囲を省略すると全ノードを計測する。
     void ComputeLayout(
-        std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
+        const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
         float viewport_top = -MeasureViewportRange::kInf, float viewport_bottom = MeasureViewportRange::kInf);
     // clip 省略時は可視範囲で絞らず全 dirty を対象にする。
     bool ProcessDirtyBatch(
-        std::pmr::vector<Node>& nodes, LayoutCache& cache,
+        const std::pmr::vector<Node>& nodes, LayoutCache& cache,
         float viewport_width, int batch_size,
         mendo::layout::ViewportClip clip = {});
     bool EnsureVisibleLayout(
-        std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
+        const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
         float viewport_top, float viewport_bottom);
     constexpr bool HasDirtyNodes() const noexcept
     {

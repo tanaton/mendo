@@ -1,6 +1,5 @@
 #pragma once
 #include "document_types.h"
-#include "utility.h"
 #include <cstdint>
 #include <vector>
 #include <memory>
@@ -195,13 +194,26 @@ struct NodeLayoutEntry {
             ensure_aux().text_layout = std::move(layout);
         }
     }
-    // 1 行目の高さと自然幅は text_layout から求めた値なので一緒に捨てる。
-    constexpr void reset_text_layout() noexcept
+    // 1 行目の高さ・自然幅・トークンは text_layout と一緒に作るので一緒に捨てる。
+    void reset_text_layout() noexcept
     {
         if (aux_) {
             aux_->text_layout.Reset();
             aux_->first_line_height = 0.0f;
             aux_->natural_code_width = 0.0f;
+            aux_->syntax_tokens = {};
+        }
+    }
+
+    // CodeBlock の色付け用。計測ワーカーが text_layout と一緒に作り、ApplyNodeEffects が読む。
+    std::span<const SyntaxToken> syntax_tokens() const noexcept
+    {
+        return aux_ ? std::span<const SyntaxToken>{ aux_->syntax_tokens } : std::span<const SyntaxToken>{};
+    }
+    void set_syntax_tokens(std::pmr::vector<SyntaxToken> tokens)
+    {
+        if (aux_ || !tokens.empty()) {
+            ensure_aux().syntax_tokens = std::move(tokens);
         }
     }
 
@@ -350,6 +362,7 @@ private:
         bool inline_code_bgs_stale = false;
         // 再計測のたびに作り直すので、確保し直さないよう Aux に直接持つ。
         std::pmr::vector<InlineCodeBg> inline_code_bgs;
+        std::pmr::vector<SyntaxToken> syntax_tokens;
         // evict しても列幅・行高さを残すため、Aux を作り直しても引き継げるよう別に確保する。
         std::unique_ptr<TableLayoutData> table_layout;
         std::unique_ptr<SearchHlCache> search_hl_cache;

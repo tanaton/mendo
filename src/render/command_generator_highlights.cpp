@@ -47,7 +47,7 @@ void CommandGenerator::GenSelectionHighlightCached(DrawCommandList& cmds, const 
     }
     auto& cache = entry.ensure_selection_hl_cache();
     // キャッシュキーは UTF-8 byte 単位 (selection 状態と直接対応)。
-    // miss 時の位置変換は全文の UTF-16 化と対応表を残さない前方走査で済ませる。
+    // miss 時の位置変換は前方走査で済ませる。
     if (cache.layout_ptr != layout || cache.start != doc_start || cache.length != doc_length) {
         MENDO_COUNT_INC(g_cmd_gen_stats.sel_hl_cache_miss);
         cache.rects.clear();

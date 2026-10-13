@@ -268,6 +268,24 @@ TEST(ParserImage, ImageWithSpecialCharsInPath)
     EXPECT_EQ(nodes[0].image_data()->src, "path%20with%20spaces/img.png");
 }
 
+// エスケープを含む src は md4c が一時バッファで組み立てて渡すので、原文ではなく arena へ写す。
+TEST(ParserImage, ImageWithEscapedPathIsCopied)
+{
+    auto nodes = ParseNodes("![alt](img\\_x.png)");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::Image);
+    EXPECT_EQ(nodes[0].image_data()->src, "img_x.png");
+}
+
+// 参照形式の画像の src は原文の参照定義から取る。
+TEST(ParserImage, ReferenceStyleImage)
+{
+    auto nodes = ParseNodes("![alt][logo]\n\n[logo]: ref.png");
+    ASSERT_GE(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::Image);
+    EXPECT_EQ(nodes[0].image_data()->src, "ref.png");
+}
+
 TEST(ParserImage, ImageWithJapaneseAltText)
 {
     auto nodes = ParseNodes("![日本語のaltテキスト](img.png)");

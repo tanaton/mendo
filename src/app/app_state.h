@@ -75,6 +75,7 @@ struct InteractionState {
     ToastNotifier toast;
     HoveredButtons hovered;
     NavButtonHover nav_hover = NavButtonHover::None;
+    int zoom_wheel_accum = 0;
 };
 
 struct SearchGroup {
