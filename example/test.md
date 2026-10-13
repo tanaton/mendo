@@ -818,15 +818,14 @@ sequenceDiagram
         P->>P: ノード確定 → nodes へ push
     end
     P->>P: AppendFootnoteBackrefs (脚注定義に ↩ リンクを付与)
-    P-->>DOC: ParseResult { nodes, heading_indices, image_indices, diagram_indices, table_indices, footnote_def_indices, footnote_refs }
+    P-->>DOC: ParseResult { nodes, toc_entries, image_indices, diagram_indices, table_indices, footnote_def_indices, footnote_refs }
     DOC->>DOC: DetectAlerts (BlockQuote → Alert に変換)
-    DOC->>DOC: BuildHeadingIndices (見出し → TOC エントリ)
 ```
 
 ```cpp
 struct ParseResult {
     std::pmr::vector<Node>   nodes;
-    std::pmr::vector<size_t> heading_indices;
+    std::pmr::vector<TocEntry> toc_entries;    // 見出し (文書順)。そのまま目次になる
     std::pmr::vector<size_t> image_indices;
     std::pmr::vector<size_t> diagram_indices;
     std::pmr::vector<size_t> table_indices;
@@ -924,7 +923,7 @@ md4c の `MD_FLAG_FOOTNOTES`（v0.6.0 で `MD_DIALECT_GITHUB` に追加）を有
 // 合成インターフェース。ITextMeasurer 自体は中身を持たない。
 class IMeasureBackend {
 public:
-    // 並列計測では worker ごとに別ノードを渡すので、CodeBlock の syntax_tokens へ直接書いてよい。
+    // 並列計測では worker ごとに別ノード・別 entry を渡す。
     virtual void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
                              MeasureViewportRange viewport = {}) const = 0;
     virtual void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width,
@@ -980,7 +979,7 @@ public:
 
 本番実装は `DWriteMeasurer`（DirectWrite を使用）。テスト時はモックに差し替えられる。`RecomputeYPositions` / `EstimateNodeHeight` / `EstimateNodeHeights` などのフリー関数で Y 座標再計算と高さ推定（DirectWrite 計測前の暫定値）を提供する。
 
-ダーティノードの計測は `mendo::layout::RunParallel`（`parallel_measure.cpp`）に一本化されている。`ProcessDirtyBatch` は `ViewportClip`（可視範囲 ± `buffer_screens` 画面）内の dirty を `max_nodes` 件まで計測し、時間予算は持たない（worker 側に中断点が無いため）。`EnsureVisibleLayout` も可視範囲の dirty を `MeasureIndicesParallel` で並列計測する。どちらも `ParallelFor` に 1 ノード単位で配り、1 画面分（数十ノード）の dirty でも全 worker に行き渡らせる。scheduler が null なら同じ関数が呼び出しスレッドで直列に計測する。CodeBlock のトークン化は worker が担当ノードの `syntax_tokens` へ直接書き込み、UI スレッドでの集約は行わない（`Tokenize` 完了後に代入するので、例外時に途中のトークンが残らない）。`ViewportClip` / `StopReason`（`NoneDirty` / `Done` / `BatchLimit` / `Error`）/ `DirtyBatchResult` の型は `parallel_measure.h` に置く。`ProcessDirtyBatch` の `clip` を省略すると可視範囲で絞らず全 dirty を対象にする。
+ダーティノードの計測は `mendo::layout::RunParallel`（`parallel_measure.cpp`）に一本化されている。`ProcessDirtyBatch` は `ViewportClip`（可視範囲 ± `buffer_screens` 画面）内の dirty を `max_nodes` 件まで計測し、時間予算は持たない（worker 側に中断点が無いため）。`EnsureVisibleLayout` も可視範囲の dirty を `MeasureIndicesParallel` で並列計測する。どちらも `ParallelFor` に 1 ノード単位で配り、1 画面分（数十ノード）の dirty でも全 worker に行き渡らせる。scheduler が null なら同じ関数が呼び出しスレッドで直列に計測する。CodeBlock のトークン化は worker が担当ノードの `NodeLayoutEntry` へ直接書き込み、UI スレッドでの集約は行わない（`Tokenize` 完了後に代入するので、例外時に途中のトークンが残らない）。`ViewportClip` / `StopReason`（`NoneDirty` / `Done` / `BatchLimit` / `Error`）/ `DirtyBatchResult` の型は `parallel_measure.h` に置く。`ProcessDirtyBatch` の `clip` を省略すると可視範囲で絞らず全 dirty を対象にする。
 
 遅延レイアウト（`App::OnDeferredLayout`）は `ResourceManager::EVICT_BUFFER_SCREENS`（2 画面）を `buffer_screens` に渡すため、画面外の計測は前後 2 画面までに限られる。範囲外へジャンプした場合は `EnsureVisibleLayout` が同期計測で拾う。
 
@@ -1294,7 +1293,7 @@ graph LR
     JSON --> KW & ST & NU
 ```
 
-`SyntaxTokenType` には `Plain` も定義されているが、トークナイザは `Plain` トークンを出力しない。描画（`ApplyNodeEffects`）も HTML 化もトークン間の隙間を既定色のテキストとして扱うため、出力しても同じ結果になるうえトークン数の大半を占めるだけだからである。色付け対象の無いコードはトークン列が空になるので、トークン化済みかどうかは `NodeCodeData::tokens` の確保有無で判定する。
+`SyntaxTokenType` には `Plain` も定義されているが、トークナイザは `Plain` トークンを出力しない。描画（`ApplyNodeEffects`）も HTML 化もトークン間の隙間を既定色のテキストとして扱うため、出力しても同じ結果になるうえトークン数の大半を占めるだけだからである。トークンは計測で text_layout を作るときに一緒に作って `NodeLayoutEntry` に置き、画面外で layout を捨てるときに一緒に捨てる。書式付きコピーは表示の有無に関係なくその場でトークン化する。
 
 C++ の生文字列 `R"delim(...)delim"` は、`R"` の直後から規格どおり最大 16 文字・空白/括弧/`\` を含まない区切りの範囲だけ `(` を探す。上限なしに探すと `(` の無い `R"` が続く文書で末尾までの走査を繰り返し、O(n²) になるためである。
 
@@ -2660,7 +2659,7 @@ classDiagram
         -const char* text_ (UTF-8)
         -const TextRun* runs_
         -const string_view* link_urls_
-        +variant~monostate, NodeHeadingData, NodeCodeData, NodeListData, NodeAlertData, NodeTablePtr, NodeImagePtr~ extra
+        +variant~monostate, NodeListData, NodeAlertData, NodeTablePtr, NodeImagePtr~ extra
         -uint32_t text_size_
         -uint32_t run_count_
         -uint32_t source_offset_
@@ -2674,12 +2673,6 @@ classDiagram
         +int8_t indent_level
         -int8_t heading_level_
         -SyntaxLanguage code_language_
-    }
-
-    class NodeHeadingData
-
-    class NodeCodeData {
-        +unique_ptr~pmr::vector~SyntaxToken~~ tokens
     }
 
     class NodeListData {
@@ -2702,7 +2695,7 @@ classDiagram
     }
 
     class NodeImageData {
-        +pmr::string src (UTF-8)
+        +string_view src (UTF-8)
         +float width
         +float height
     }
@@ -2715,33 +2708,31 @@ classDiagram
     }
 
     Node "1" --> "*" TextRun
-    Node "1" --> "0..1" NodeHeadingData : variant
-    Node "1" --> "0..1" NodeCodeData : variant
     Node "1" --> "0..1" NodeListData : variant
     Node "1" --> "0..1" NodeAlertData : variant
     Node "1" --> "0..1" NodeTableData : variant (NodeTablePtr)
     Node "1" --> "0..1" NodeImageData : variant (NodeImagePtr)
 ```
 
-ノード種別ごとの拡張データは `std::variant<std::monostate, NodeHeadingData, NodeCodeData, NodeListData, NodeAlertData, NodeTablePtr, NodeImagePtr> extra` に統合されており、同時に持てるのは 1 種類のみ。`NodeHeadingData` は Heading の印でデータを持たない。Table / Image のような大型データや `tokens` は `std::unique_ptr`（`NodeTablePtr` / `NodeImagePtr` など）で外出しし、variant の各 alternative を 8B に抑えている。
+ノード種別ごとの拡張データは `std::variant<std::monostate, NodeListData, NodeAlertData, NodeTablePtr, NodeImagePtr> extra` に統合されており、同時に持てるのは 1 種類のみ。Table / Image のような大型データは `std::unique_ptr`（`NodeTablePtr` / `NodeImagePtr`）で外出しし、variant の各 alternative を 8B に抑えている。
 
-`heading_level` / `code_language` は variant に入れると 8B ポインタと合わせて alternative が 16B に膨らむため、`Node` 末尾の padding（`heading_level_` / `code_language_`）に置く。設定は `set_heading_level` / `set_code_language`（対応する alternative を `ensure_*` してから書く）で行い、アクセサ `heading_level()` / `code_language()` は対応する alternative を持たないノードでは既定値（0 / `SyntaxLanguage::None`）を返す。これらとテキスト・runs の外出し（後述）により `sizeof(Node)` は 72B に収まり、`static_assert(sizeof(Node) <= 72)` で退行を検出する。
+`heading_level` / `code_language` は variant に入れると 8B ポインタと合わせて alternative が 16B に膨らむため、`Node` 末尾の padding（`heading_level_` / `code_language_`）に置く。設定は `set_heading_level` / `set_code_language` で行い、`heading_level()` は Heading 以外では 0 を、`code_language()` は CodeBlock 以外では既定値の `SyntaxLanguage::None` を返す。これらとテキスト・runs の外出し（後述）により `sizeof(Node)` は 72B に収まり、`static_assert(sizeof(Node) <= 72)` で退行を検出する。
 
 > **Why**: 旧設計では複数の `unique_ptr` を常に保持していたため、ほとんどのノード（Paragraph/ListItem 等で 87% を占める）でポインタ群が `nullptr` のまま死蔵していた。variant に統合することで、データを持つノードでは別ヒープへの malloc を省略でき、断片化と allocator オーバーヘッドが減る。
 
-テキスト・`runs`・リンク URL はノード自身では持たず、「先頭ポインタ + 長さ / 件数」で外部の領域を指す（長さと件数は 4B / 2B 領域にまとめて 72B に収める）。原文をそのまま表示できるノードは `Document` の `raw_text_` を、加工が要るノード（SOFTBR の空白化、HTML entity、Alert など）のテキストと全ノードの `runs`・URL 配列は `Document` が持つ `TextArena`（`std::pmr::monotonic_buffer_resource` のラッパー）を指す。URL 配列の要素は `string_view` で、md4c の href が原文を指していればそのまま、参照定義の展開や脚注 URL のように原文の外にあるものだけ arena へコピーする。パース中はテキスト・`runs`・URL を `ParseContext` のスクラッチに貯め、ノード確定時に arena へ 1 回だけコピーするので、ノードごとの確保・解放がほぼ無く、旧文書の破棄も arena の塊を返すだけで済む。ソース位置は `uint32_t source_offset_` に明示的に持ち、`SourceOffset()` で取り出す。`TextRun` の装飾は個別 bool ではなく `uint8_t flags` に packbit され、`bold()` / `italic()` / `code()` / `strikethrough()` アクセサで判定する。
+テキスト・`runs`・リンク URL はノード自身では持たず、「先頭ポインタ + 長さ / 件数」で外部の領域を指す（長さと件数は 4B / 2B 領域にまとめて 72B に収める）。原文をそのまま表示できるノードは `Document` の `raw_text_` を、加工が要るノード（SOFTBR の空白化、HTML entity、Alert など）のテキストと全ノードの `runs`・URL 配列は `Document` が持つ `TextArena`（`std::pmr::monotonic_buffer_resource` のラッパー）を指す。URL 配列の要素と画像の `src` は `string_view` で、md4c の href / src が原文を指していればそのまま、参照定義の展開や脚注 URL のように原文の外にあるものだけ arena へコピーする。パース中はテキスト・`runs`・URL を `ParseContext` のスクラッチに貯め、ノード確定時に arena へ 1 回だけコピーするので、ノードごとの確保・解放がほぼ無く、旧文書の破棄も arena の塊を返すだけで済む。ソース位置は `uint32_t source_offset_` に明示的に持ち、`SourceOffset()` で取り出す。`TextRun` の装飾は個別 bool ではなく `uint8_t flags` に packbit され、`bold()` / `italic()` / `code()` / `strikethrough()` アクセサで判定する。
 
 アクセサは `extra` への薄いラッパーとして提供される:
 
 ```cpp
 NodeTableData* table_data() noexcept;       // 持っていなければ nullptr
 // ensure_*: なければ emplace、あれば既存を返す
-NodeHeadingData* ensure_heading() noexcept;
+NodeTableData* ensure_table();
 bool has_table() const noexcept;            // holds_alternative の薄ラッパ
 int8_t heading_level() const noexcept;          // Heading 以外は 0
 SyntaxLanguage code_language() const noexcept;  // CodeBlock 以外は None
-void set_heading_level(int8_t level);           // ensure_heading() してから書く
-void set_code_language(SyntaxLanguage lang);    // ensure_code() してから書く
+void set_heading_level(int8_t level);           // Node 末尾の padding に書く
+void set_code_language(SyntaxLanguage lang);
 int32_t list_number() const noexcept;          // NodeListData 経由
 bool task_checked() const noexcept;
 ```

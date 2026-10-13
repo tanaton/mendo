@@ -1,9 +1,7 @@
 #pragma once
 #include "document_types.h"
 #include "layout_cache.h"
-#include "syntax.h"
 #include <limits>
-#include <memory_resource>
 
 // 計測バックエンドに渡すときはエントリ上端からのローカル座標 (ToLocal 済み)。
 struct MeasureViewportRange {
@@ -29,14 +27,14 @@ class IMeasureBackend {
 public:
     virtual ~IMeasureBackend() = default;
 
-    // 並列計測では worker ごとに別ノードを渡すので、node (CodeBlock の syntax_tokens) へ直接書いてよい。
+    // 並列計測では worker ごとに別ノード・別 entry を渡す。
     // viewport はテーブルで行単位の部分復元判定に用いる。
     virtual void MeasureNode(
-        Node& node, NodeLayoutEntry& entry, float max_width,
+        const Node& node, NodeLayoutEntry& entry, float max_width,
         MeasureViewportRange viewport = {}) const = 0;
     // 幅不変のまま行単位 evict されたテーブルの、viewport 内の evict 行だけセルを再生成する。
     // layout_dirty を経由しないため、可視中に毎フレーム全行を再計測することがない。
-    virtual TableRestoreResult RestoreEvictedTableRows(Node& /*node*/, NodeLayoutEntry& /*entry*/, float /*max_width*/,
+    virtual TableRestoreResult RestoreEvictedTableRows(const Node& /*node*/, NodeLayoutEntry& /*entry*/, float /*max_width*/,
                                                        MeasureViewportRange /*viewport*/) const
     {
         return {};
@@ -48,7 +46,7 @@ public:
 // 計測に成功したらどの経路でも失敗回数を 0 に戻し、以後の一時的な失敗を初回として扱う。
 // viewport は文書座標で受け取り、entry_top 基準のローカル座標に直してバックエンドへ渡す。
 inline void MeasureEntry(
-    const IMeasureBackend& backend, Node& node, NodeLayoutEntry& entry, float node_width,
+    const IMeasureBackend& backend, const Node& node, NodeLayoutEntry& entry, float node_width,
     MeasureViewportRange viewport, float entry_top)
 {
     backend.MeasureNode(node, entry, node_width, viewport.ToLocal(entry_top));

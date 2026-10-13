@@ -194,8 +194,9 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
         return;
     }
 
+    auto& zoom_accum = state_.interaction.zoom_wheel_accum;
     if (ctrl) {
-        Dispatch(app_controller::HandleMouseWheel(MouseWheelEvent{ delta, true, PaneZone::MdPane }));
+        Dispatch(app_controller::HandleMouseWheel(MouseWheelEvent{ delta, true, PaneZone::MdPane }, zoom_accum));
         return;
     }
 
@@ -209,7 +210,7 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
     }
 
     const auto dip = PixelToDip(px, py);
-    Dispatch(app_controller::HandleMouseWheel(MouseWheelEvent{ delta, false, ZoneAt(dip.x, GetPaneLayout()) }));
+    Dispatch(app_controller::HandleMouseWheel(MouseWheelEvent{ delta, false, ZoneAt(dip.x, GetPaneLayout()) }, zoom_accum));
 }
 
 void App::OnMouseHWheel(short delta)

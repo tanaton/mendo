@@ -21,15 +21,17 @@ constexpr DipPoint ScreenToPaneDip(const MdPaneHitContext& ctx) noexcept
 
 // layout 上の点 (x, y) をヒットテストし、base (ノードまたはセルの先頭) 起点の text_pos / char_pos を書く。
 void ResolveTextHit(HitTestService::HitResult& result, IDWriteTextLayout* layout, float x, float y,
-                    const mendo::WideViewForDWrite& wv, uint32_t base) noexcept
+                    std::string_view text, uint32_t base) noexcept
 {
     BOOL is_trailing = FALSE;
     BOOL is_inside = FALSE;
     DWRITE_HIT_TEST_METRICS metrics{};
     layout->HitTestPoint(x, y, &is_trailing, &is_inside, &metrics);
-    result.text_pos = base + wv.DocOffsetFromWideOffset(metrics.textPosition + (is_trailing ? 1 : 0));
+    mendo::Utf16OffsetCursor cursor{ text };
+    const uint32_t char_pos = cursor.ByteAt(metrics.textPosition);
+    result.text_pos = base + (is_trailing ? cursor.ByteAt(metrics.textPosition + 1) : char_pos);
     if (is_inside) {
-        result.char_pos = base + wv.DocOffsetFromWideOffset(metrics.textPosition);
+        result.char_pos = base + char_pos;
     }
 }
 
@@ -94,9 +96,6 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
         return {};
     }
 
-    md_wv_cache_.ResetIfBufferChanged(ctx.nodes.data(), ctx.nodes.size());
-    cell_wv_cache_.ResetIfBufferChanged(ctx.nodes.data(), ctx.nodes.size());
-
     const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
     const auto direct = FindDirectHit(ctx, dip_y);
     if (direct.node_index < 0) {
@@ -115,7 +114,7 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
     const float local_y = dip_y - direct.text_top;
 
     HitResult result{ direct.node_index };
-    ResolveTextHit(result, entry.text_layout(), local_x, local_y, md_wv_cache_.Get(node.GetText()), 0);
+    ResolveTextHit(result, entry.text_layout(), local_x, local_y, node.GetText(), 0);
     return result;
 }
 
@@ -167,7 +166,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
     if (IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c)) {
         const float text_x = cell_left_x + TABLE_CELL_PADDING;
         const float text_y = row_top_y + TABLE_CELL_PADDING;
-        ResolveTextHit(result, cell_layout, dip_x - text_x, dip_y - text_y, cell_wv_cache_.Get(tbl->GetCellText(r, c)), flat_offset);
+        ResolveTextHit(result, cell_layout, dip_x - text_x, dip_y - text_y, tbl->GetCellText(r, c), flat_offset);
     }
     else {
         result.text_pos = flat_offset;

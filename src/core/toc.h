@@ -1,6 +1,6 @@
 #pragma once
-#include "document_types.h"
 #include <memory_resource>
+#include <utility>
 #include <vector>
 
 class LayoutCache;
@@ -12,23 +12,17 @@ struct TocEntry {
 
 class TableOfContents {
 public:
+    TableOfContents() = default;
+    // entries は文書順の見出し (パーサが見出しの終わりで積む)。
+    explicit TableOfContents(std::pmr::vector<TocEntry> entries) noexcept : entries_(std::move(entries)) {}
+
     int HitTest(float local_y, float item_height) const noexcept;
 
     int FindActiveIndex(const LayoutCache& cache, float scroll_y, float margin = 0.0f) const noexcept;
 
-    void AddEntry(const Node& node, int node_index);
-
     constexpr const std::pmr::vector<TocEntry>& GetEntries() const noexcept
     {
         return entries_;
-    }
-    constexpr void Clear() noexcept
-    {
-        entries_.clear();
-    }
-    constexpr void Reserve(size_t n)
-    {
-        entries_.reserve(n);
     }
 
 private:

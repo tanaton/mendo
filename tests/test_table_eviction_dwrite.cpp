@@ -141,6 +141,23 @@ TEST_F(TableEvictionDWriteTest, RestoreRestoresOnlyVisibleRows)
     EXPECT_FLOAT_EQ(entry.height, height_before);
 }
 
+// evict 中に作った検索ハイライトは evict 行のマッチが空矩形なので、復元したら作り直させる。
+TEST_F(TableEvictionDWriteTest, RestoreInvalidatesSearchHighlightCache)
+{
+    auto pl = ParseAndLayout(MakeBigTableMd(60));
+    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
+    ASSERT_GE(idx, 0);
+    auto& entry = pl.cache[idx];
+
+    EvictWholeTable(pl.cache, idx);
+    entry.ensure_search_hl_cache().gen = 7;
+
+    const auto result = measurer_.RestoreEvictedTableRows(pl.nodes[idx], entry, ContentWidth(), MeasureViewportRange{ 0.0f, 80.0f });
+
+    ASSERT_TRUE(result.restored);
+    EXPECT_EQ(entry.ensure_search_hl_cache().gen, 0u);
+}
+
 // 部分復元 → 別 viewport で追加復元 → 最終的に全セルが揃い evict 行がなくなる。
 TEST_F(TableEvictionDWriteTest, ProgressivelyRestoresAcrossScrolls)
 {

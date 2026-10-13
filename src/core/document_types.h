@@ -13,7 +13,6 @@
 #include <variant>
 #include "syntax.h"
 #include "text_types.h"
-#include "utility.h"
 
 enum class NodeType : uint8_t {
     Heading,
@@ -136,11 +135,6 @@ struct NodeTableData {
     }
 };
 
-// CodeBlock 固有データ。tokens は外部 heap 持ちにすることで variant alternative を 8B に抑える。
-struct NodeCodeData {
-    std::unique_ptr<std::pmr::vector<SyntaxToken>> tokens;
-};
-
 struct NodeListData {
     int32_t list_number = 0;   // 順序付きリストの番号 (ordered=true のとき有効。0 始まりも可)
     bool ordered = false;
@@ -156,7 +150,7 @@ struct NodeAlertData {
 using NodeTablePtr = std::unique_ptr<NodeTableData>;
 
 struct NodeImageData {
-    std::pmr::string src; // 画像ソースパス（Markdown内の記述）
+    std::string_view src; // 画像ソースパス（Markdown内の記述）。raw_text_ か TextArena を指す
     float width = 0.0f;   // 元画像の幅（ピクセル）
     float height = 0.0f;  // 元画像の高さ（ピクセル）
 };
@@ -176,12 +170,11 @@ struct Node {
     // `runs()` の link_url_index で引く URL の配列。
     const std::string_view* link_urls_ = nullptr;
 
-    // ノード種別ごとの拡張データ。重データ (tokens / table / image) は unique_ptr で
+    // ノード種別ごとの拡張データ。重データ (table / image) は unique_ptr で
     // 外出しすることで variant alternative の最大サイズを 8B に抑える。
     // Parser invariant: 1 つのノードは 1 つの alternative しか持たない (ensure_* は他を破壊する)。
     using Extra = std::variant<
-        std::monostate,  // Paragraph / Heading / HorizontalRule など固有データ無し
-        NodeCodeData,    // CodeBlock
+        std::monostate,  // Paragraph / Heading / CodeBlock / HorizontalRule など固有データ無し
         NodeListData,    // ListItem / TaskListItem
         NodeAlertData,   // BlockQuote 本体の alert ラベル
         NodeTablePtr,    // Table
@@ -207,7 +200,7 @@ struct Node {
     int8_t quote_outer_indent = 0;          // 最外側 blockquote が居る indent_level（バー位置の起点）
     int8_t indent_level = 0;                // リスト/引用のネスト深さ（int8_t の最大値で飽和）
     // variant alternative に入れると 8B ポインタと合わせて 16B に膨らむため、末尾 padding に置く。
-    // 対応する alternative を持たないノードでは accessor が既定値を返す。
+    // 該当しないノードでは既定値のまま。
     int8_t heading_level_ = 0;
     SyntaxLanguage code_language_ = SyntaxLanguage::None;
 
@@ -281,10 +274,6 @@ struct Node {
 
     // get_if 風に *_data() でポインタを返す。所持していなければ nullptr。
     // C++23 deducing this で const/非 const を 1 つに集約。
-    constexpr auto* code_data(this auto& self) noexcept
-    {
-        return std::get_if<NodeCodeData>(&self.extra);
-    }
     constexpr auto* list_data(this auto& self) noexcept
     {
         return std::get_if<NodeListData>(&self.extra);
@@ -305,10 +294,6 @@ struct Node {
         return GetPtrAlt<NodeImagePtr>(self);
     }
 
-    constexpr bool has_code() const noexcept
-    {
-        return std::holds_alternative<NodeCodeData>(extra);
-    }
     constexpr bool has_list() const noexcept
     {
         return std::holds_alternative<NodeListData>(extra);
@@ -329,10 +314,6 @@ struct Node {
     // ensure_*: 既に存在すれば内部参照、無ければ新規確保して返す。
     // 既存 alternative がある状態で別種の ensure_* を呼ぶと、それは破棄される (variant の emplace 動作)。
     // parser は BeginNode 直後に 1 種類だけ ensure する規約。
-    constexpr NodeCodeData* ensure_code()
-    {
-        return EnsureAlt<NodeCodeData>();
-    }
     constexpr NodeListData* ensure_list()
     {
         return EnsureAlt<NodeListData>();
@@ -363,15 +344,14 @@ struct Node {
     }
     constexpr SyntaxLanguage code_language() const noexcept
     {
-        return has_code() ? code_language_ : SyntaxLanguage::None;
+        return code_language_;
     }
     constexpr void set_heading_level(int8_t level) noexcept
     {
         heading_level_ = level;
     }
-    constexpr void set_code_language(SyntaxLanguage lang)
+    constexpr void set_code_language(SyntaxLanguage lang) noexcept
     {
-        ensure_code();
         code_language_ = lang;
     }
     constexpr int32_t list_number() const noexcept
@@ -406,20 +386,6 @@ struct Node {
         assert(urls.size() <= static_cast<size_t>(std::numeric_limits<int16_t>::max()));
         link_urls_ = urls.data();
         link_url_count_ = static_cast<uint16_t>(urls.size());
-    }
-
-    constexpr std::span<const SyntaxToken> syntax_tokens() const noexcept
-    {
-        const auto* cd = code_data();
-        return cd ? SpanOrEmpty(cd->tokens) : std::span<const SyntaxToken>{};
-    }
-    std::pmr::vector<SyntaxToken>& syntax_tokens_mut() noexcept
-    {
-        auto* cd = ensure_code();
-        if (!cd->tokens) {
-            cd->tokens = std::make_unique<std::pmr::vector<SyntaxToken>>();
-        }
-        return *cd->tokens;
     }
 
 private:

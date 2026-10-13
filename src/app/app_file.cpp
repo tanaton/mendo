@@ -72,7 +72,7 @@ void App::LoadHelpDocument()
 void App::ReplaceDocument(Document next, LayoutCache estimated)
 {
     // 100MB 級の旧文書はテキスト・runs・リンク URL を arena ごと捨てても、数十万ノードの走査と
-    // 表・トークン等の解放で UI を十数 ms 止めるため worker で破棄する。
+    // 表等の解放で UI を十数 ms 止めるため worker で破棄する。
     // Document は COM を持たず、確保元 (既定の pmr リソース) はスレッド安全。
     // LayoutCache は D2D 由来の参照を持つので対象外 (UI スレッドで破棄する)。
     constexpr size_t kBackgroundDisposeMinNodes = 4096;
@@ -443,7 +443,7 @@ void App::ApplyCachedHeightsAndRecompute()
     const bool image_applied = resource_manager_.ApplyCachedImagesForReload() > 0;
     if (mermaid_applied || image_applied) {
         RecomputeYPositions(
-            state_.document.doc.GetNodesMut(),
+            state_.document.doc.GetNodes(),
             state_.document.layout_cache,
             renderer_.GetTheme());
     }

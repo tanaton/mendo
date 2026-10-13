@@ -36,8 +36,13 @@ public:
     MermaidRenderer(const MermaidRenderer&) = delete;
     MermaidRenderer& operator=(const MermaidRenderer&) = delete;
 
+    // wic は D2DRenderBackend と共有する PNG デコード用。
+    // bg_scheduler はディスクキャッシュの読み込みと PNG デコードを UI スレッド外で行う先で、
+    // 読み込み完了は disk_loaded_msg で hwnd に通知され、受信側が ProcessDiskLoads を呼ぶ。
     // user_data_folder は WebView2 のセッションデータの保存先（空なら WebView2 既定の場所）。
-    void Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic, const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_ready);
+    void Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic,
+              TaskScheduler& bg_scheduler, UINT disk_loaded_msg,
+              const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_ready);
 
     void RequestRender(Node& node, NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry, float max_width, bool dark_mode, Callback on_complete) override;
     void RequestSvg(std::wstring_view code, float max_width, bool dark_mode, SvgCallback callback) override;
@@ -45,13 +50,6 @@ public:
     void SetFileCache(MermaidFileCache* cache) noexcept
     {
         file_cache_ = cache;
-    }
-    // ディスクキャッシュの読み込みと PNG デコードを UI スレッド外で行う先。
-    // 読み込み完了は disk_loaded_msg で hwnd に通知され、受信側が ProcessDiskLoads を呼ぶ。
-    void SetBackgroundScheduler(TaskScheduler* scheduler, UINT disk_loaded_msg) noexcept
-    {
-        bg_scheduler_ = scheduler;
-        disk_loaded_msg_ = disk_loaded_msg;
     }
     void ProcessDiskLoads();
     void Shutdown();

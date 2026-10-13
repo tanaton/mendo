@@ -241,7 +241,8 @@ bool ContextMenu::Impl::CreateDeviceResources()
         return false;
     }
     const D2D1_SIZE_U size{ static_cast<UINT32>(rc.right), static_cast<UINT32>(rc.bottom) };
-    D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties();
+    // 開くたびに作り直すので、D3D デバイスの生成を伴うハードウェアは使わない。数百 px ならソフトウェアで足りる。
+    D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE);
     rtProps.dpiX = dpi_scale * DEFAULT_DPI;
     rtProps.dpiY = dpi_scale * DEFAULT_DPI;
     const auto hwndProps = D2D1::HwndRenderTargetProperties(hwnd, size);

@@ -1630,26 +1630,6 @@ TEST(Parser, LineCountLargeCodeBlock)
     EXPECT_EQ(nodes[0].line_count, 99);
 }
 
-// ---- 遅延トークン化 ----
-
-TEST(Parser, SyntaxTokensEmptyAfterParse)
-{
-    auto nodes = ParseNodes("```cpp\nint x = 42;\n```");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
-    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::Cpp);
-    // パース時にはトークン化されないことを確認（レンダラーで遅延実行）
-    EXPECT_TRUE(nodes[0].syntax_tokens().empty());
-}
-
-TEST(Parser, SyntaxTokensEmptyForMermaid)
-{
-    auto nodes = ParseNodes("```mermaid\ngraph TD\n```");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::Mermaid);
-    EXPECT_TRUE(nodes[0].syntax_tokens().empty());
-}
-
 // ---- UTF-8バッチ変換 ----
 
 TEST(Parser, Utf8BatchWithSpanBoundary)

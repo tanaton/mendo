@@ -167,7 +167,7 @@ void App::OnPaint()
 
         // 描画コマンドが各ノードのエフェクト状態を参照するため Render より前に行う。
         renderer_.PrepareVisibleEffects(
-            state_.document.doc.GetNodesMut(), state_.document.layout_cache,
+            state_.document.doc.GetNodes(), state_.document.layout_cache,
             state_.view.viewport.GetScrollY(), layout.md_rect.height);
 
         const auto sb = state_.search.search_bar_ctrl.BuildRenderState();

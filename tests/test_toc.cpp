@@ -1,32 +1,44 @@
 #include <gtest/gtest.h>
 #include <memory_resource>
-#include "document_test_helpers.h"
 #include "toc.h"
 #include "layout_cache.h"
 #include "parser.h"
 #include "test_nodes.h"
 
-TEST(Toc, EmptyDocument)
-{
+namespace {
+
+struct ParsedToc {
     std::pmr::vector<Node> nodes;
     TableOfContents toc;
-    BuildTocFromNodes(toc, nodes);
+};
+
+// パーサが見出しの終わりで積んだ目次をそのまま使う。
+ParsedToc ParseToc(std::string_view markdown)
+{
+    auto result = ParseMarkdown(markdown);
+    TableOfContents toc{ std::move(result.toc_entries) };
+    auto [nodes, arena] = result.TakeNodes();
+    test_nodes_detail::KeepAlive(std::move(arena));
+    return { std::move(nodes), std::move(toc) };
+}
+
+} // namespace
+
+TEST(Toc, EmptyDocument)
+{
+    auto [nodes, toc] = ParseToc("");
     EXPECT_TRUE(toc.GetEntries().empty());
 }
 
 TEST(Toc, NoHeadings)
 {
-    auto nodes = ParseNodes("Just a paragraph.\n\n- List item\n\n> Quote");
-    TableOfContents toc;
-    BuildTocFromNodes(toc, nodes);
+    auto [nodes, toc] = ParseToc("Just a paragraph.\n\n- List item\n\n> Quote");
     EXPECT_TRUE(toc.GetEntries().empty());
 }
 
 TEST(Toc, SingleHeading)
 {
-    auto nodes = ParseNodes("# Title");
-    TableOfContents toc;
-    BuildTocFromNodes(toc, nodes);
+    auto [nodes, toc] = ParseToc("# Title");
     ASSERT_EQ(toc.GetEntries().size(), 1u);
     EXPECT_EQ(nodes[toc.GetEntries()[0].node_index].GetText(), "Title");
     EXPECT_EQ(toc.GetEntries()[0].heading_level, 1);
@@ -34,10 +46,8 @@ TEST(Toc, SingleHeading)
 
 TEST(Toc, MultipleHeadings)
 {
-    auto nodes = ParseNodes(
+    auto [nodes, toc] = ParseToc(
                      "# First\n\n## Second\n\n### Third\n\nParagraph\n\n## Another");
-    TableOfContents toc;
-    BuildTocFromNodes(toc, nodes);
     ASSERT_EQ(toc.GetEntries().size(), 4u);
     EXPECT_EQ(toc.GetEntries()[0].heading_level, 1);
     EXPECT_EQ(toc.GetEntries()[1].heading_level, 2);
@@ -47,34 +57,16 @@ TEST(Toc, MultipleHeadings)
 
 TEST(Toc, HeadingTextPreserved)
 {
-    auto nodes = ParseNodes("## Hello World");
-    TableOfContents toc;
-    BuildTocFromNodes(toc, nodes);
+    auto [nodes, toc] = ParseToc("## Hello World");
     ASSERT_EQ(toc.GetEntries().size(), 1u);
     EXPECT_EQ(nodes[toc.GetEntries()[0].node_index].GetText(), "Hello World");
-}
-
-TEST(Toc, RebuildClearsPrevious)
-{
-    auto nodes1 = ParseNodes("# A\n\n## B");
-    auto nodes2 = ParseNodes("# X");
-
-    TableOfContents toc;
-    BuildTocFromNodes(toc, nodes1);
-    EXPECT_EQ(toc.GetEntries().size(), 2u);
-
-    BuildTocFromNodes(toc, nodes2);
-    EXPECT_EQ(toc.GetEntries().size(), 1u);
-    EXPECT_EQ(nodes2[toc.GetEntries()[0].node_index].GetText(), "X");
 }
 
 // ---- HitTest ----
 
 TEST(Toc, HitTestValidIndex)
 {
-    auto nodes = ParseNodes("# A\n\n## B\n\n### C");
-    TableOfContents toc;
-    BuildTocFromNodes(toc, nodes);
+    auto [nodes, toc] = ParseToc("# A\n\n## B\n\n### C");
 
     EXPECT_EQ(toc.HitTest(0.0f, 28.0f), 0);
     EXPECT_EQ(toc.HitTest(28.0f, 28.0f), 1);
@@ -83,9 +75,7 @@ TEST(Toc, HitTestValidIndex)
 
 TEST(Toc, HitTestOutOfRange)
 {
-    auto nodes = ParseNodes("# A");
-    TableOfContents toc;
-    BuildTocFromNodes(toc, nodes);
+    auto [nodes, toc] = ParseToc("# A");
 
     EXPECT_EQ(toc.HitTest(-1.0f, 28.0f), -1);
     EXPECT_EQ(toc.HitTest(100.0f, 28.0f), -1);
@@ -93,9 +83,7 @@ TEST(Toc, HitTestOutOfRange)
 
 TEST(Toc, HitTestZeroItemHeight)
 {
-    auto nodes = ParseNodes("# A");
-    TableOfContents toc;
-    BuildTocFromNodes(toc, nodes);
+    auto [nodes, toc] = ParseToc("# A");
     EXPECT_EQ(toc.HitTest(10.0f, 0.0f), -1);
 }
 
@@ -109,9 +97,7 @@ TEST(Toc, HitTestEmpty)
 
 TEST(Toc, DuplicateHeadingText)
 {
-    auto nodes = ParseNodes("# Title\n\nSome text\n\n# Title\n\nMore text\n\n## Title");
-    TableOfContents toc;
-    BuildTocFromNodes(toc, nodes);
+    auto [nodes, toc] = ParseToc("# Title\n\nSome text\n\n# Title\n\nMore text\n\n## Title");
     ASSERT_EQ(toc.GetEntries().size(), 3u);
     // すべて同じテキストを持つべき
     for (const auto& entry : toc.GetEntries()) {
@@ -125,18 +111,14 @@ TEST(Toc, ManyHeadings)
     for (int i = 0; i < 100; i++) {
         md += "## Heading " + std::to_string(i) + "\n\ntext\n\n";
     }
-    auto nodes = ParseNodes(md);
-    TableOfContents toc;
-    BuildTocFromNodes(toc, nodes);
+    auto [nodes, toc] = ParseToc(md);
     EXPECT_EQ(toc.GetEntries().size(), 100u);
 }
 
 TEST(Toc, HeadingLevelsPreserved)
 {
-    auto nodes = ParseNodes(
+    auto [nodes, toc] = ParseToc(
                      "# L1\n\n## L2\n\n### L3\n\n#### L4\n\n##### L5\n\n###### L6");
-    TableOfContents toc;
-    BuildTocFromNodes(toc, nodes);
     ASSERT_EQ(toc.GetEntries().size(), 6u);
     for (int i = 0; i < 6; i++) {
         EXPECT_EQ(toc.GetEntries()[i].heading_level, i + 1);
@@ -145,9 +127,7 @@ TEST(Toc, HeadingLevelsPreserved)
 
 TEST(Toc, HitTestBoundary)
 {
-    auto nodes = ParseNodes("# A\n\n## B");
-    TableOfContents toc;
-    BuildTocFromNodes(toc, nodes);
+    auto [nodes, toc] = ParseToc("# A\n\n## B");
     // アイテム間の境界上ちょうどの位置
     EXPECT_EQ(toc.HitTest(27.9f, 28.0f), 0);
     EXPECT_EQ(toc.HitTest(28.0f, 28.0f), 1);
@@ -155,9 +135,7 @@ TEST(Toc, HitTestBoundary)
 
 TEST(Toc, HitTestNegativeItemHeight)
 {
-    auto nodes = ParseNodes("# A");
-    TableOfContents toc;
-    BuildTocFromNodes(toc, nodes);
+    auto [nodes, toc] = ParseToc("# A");
     EXPECT_EQ(toc.HitTest(10.0f, -1.0f), -1);
 }
 
@@ -165,9 +143,7 @@ TEST(Toc, HitTestNegativeItemHeight)
 
 TEST(Toc, NodeIndexRecorded)
 {
-    auto nodes = ParseNodes("Para\n\n# First\n\nMore text\n\n## Second");
-    TableOfContents toc;
-    BuildTocFromNodes(toc, nodes);
+    auto [nodes, toc] = ParseToc("Para\n\n# First\n\nMore text\n\n## Second");
     ASSERT_EQ(toc.GetEntries().size(), 2u);
     // 最初のノード(Para)はインデックス0、# FirstはParagraphの次のノード
     EXPECT_GE(toc.GetEntries()[0].node_index, 0);
@@ -178,9 +154,7 @@ TEST(Toc, NodeIndexRecorded)
 
 TEST(Toc, NodeIndexOrderPreserved)
 {
-    auto nodes = ParseNodes("# A\n\n## B\n\n### C");
-    TableOfContents toc;
-    BuildTocFromNodes(toc, nodes);
+    auto [nodes, toc] = ParseToc("# A\n\n## B\n\n### C");
     ASSERT_EQ(toc.GetEntries().size(), 3u);
     for (size_t i = 1; i < toc.GetEntries().size(); ++i) {
         EXPECT_GT(toc.GetEntries()[i].node_index, toc.GetEntries()[i - 1].node_index);
@@ -198,9 +172,7 @@ TEST(Toc, FindActiveIndexEmpty)
 
 TEST(Toc, FindActiveIndexBeforeFirstHeading)
 {
-    auto nodes = ParseNodes("Para\n\n# Title");
-    TableOfContents toc;
-    BuildTocFromNodes(toc, nodes);
+    auto [nodes, toc] = ParseToc("Para\n\n# Title");
 
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -215,9 +187,7 @@ TEST(Toc, FindActiveIndexBeforeFirstHeading)
 
 TEST(Toc, FindActiveIndexAtHeading)
 {
-    auto nodes = ParseNodes("# First\n\nText\n\n## Second");
-    TableOfContents toc;
-    BuildTocFromNodes(toc, nodes);
+    auto [nodes, toc] = ParseToc("# First\n\nText\n\n## Second");
 
     LayoutCache cache;
     cache.Resize(nodes.size());
@@ -244,9 +214,7 @@ TEST(Toc, FindActiveIndexManyHeadings)
     for (int i = 0; i < 10; ++i) {
         md += "## H" + std::to_string(i) + "\n\nText\n\n";
     }
-    auto nodes = ParseNodes(md);
-    TableOfContents toc;
-    BuildTocFromNodes(toc, nodes);
+    auto [nodes, toc] = ParseToc(md);
     ASSERT_EQ(toc.GetEntries().size(), 10u);
 
     LayoutCache cache;
@@ -266,9 +234,7 @@ TEST(Toc, FindActiveIndexManyHeadings)
 // margin付きのFindActiveIndex: TOCリンククリック時に正しい見出しがアクティブになることを確認
 TEST(Toc, FindActiveIndexWithMargin)
 {
-    auto nodes = ParseNodes("# First\n\nText\n\n## Second");
-    TableOfContents toc;
-    BuildTocFromNodes(toc, nodes);
+    auto [nodes, toc] = ParseToc("# First\n\nText\n\n## Second");
 
     LayoutCache cache;
     cache.Resize(nodes.size());

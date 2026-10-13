@@ -95,15 +95,6 @@ else()
 endif()
 unset(_mendo_arch)
 
-# WIL（Windows Implementation Library）WebView2コールバック用
-FetchContent_Declare(
-    wil
-    URL https://www.nuget.org/api/v2/package/Microsoft.Windows.ImplementationLibrary/1.0.240803.1
-    DOWNLOAD_NO_EXTRACT FALSE
-)
-FetchContent_MakeAvailable(wil)
-set(WIL_INCLUDE "${wil_SOURCE_DIR}/include")
-
 # ---- md4c（サードパーティ） ----
 # Document テキスト表現は UTF-8 (char) 固定。md4c は MD_CHAR=char で動作する。
 add_library(md4c STATIC third_party/md4c/md4c.c)
@@ -244,10 +235,12 @@ add_executable(mendo WIN32
     src/mermaid/mermaid.cpp
     res/mendo.rc
 )
-target_include_directories(mendo PRIVATE ${WEBVIEW2_INCLUDE} ${WIL_INCLUDE})
-target_link_libraries(mendo PRIVATE mendo_core comctl32
+target_include_directories(mendo PRIVATE ${WEBVIEW2_INCLUDE})
+target_link_libraries(mendo PRIVATE mendo_core comctl32 delayimp
     "${WEBVIEW2_LIB_DIR}/WebView2LoaderStatic.lib"
 )
+# ファイルダイアログでしか使わないので、起動時にロードしない (約 1ms)。
+target_link_options(mendo PRIVATE /DELAYLOAD:comdlg32.dll)
 # 自動生成マニフェストを無効化（RC経由で独自のマニフェストを提供するため）
 set_target_properties(mendo PROPERTIES LINK_FLAGS "/MANIFEST:NO")
 

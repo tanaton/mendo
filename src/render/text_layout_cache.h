@@ -10,7 +10,7 @@
 #include <string_view>
 #include <unordered_map>
 
-// 毎フレーム描く短い文字列 (アイコン・リスト番号・プレースホルダ等) のテキストレイアウトを
+// 繰り返し描く短い文字列 (アイコン・リスト番号・プレースホルダ・サイドペインの項目等) のテキストレイアウトを
 // (書式, 文字列, 箱の大きさ) ごとに作り置く。DrawText は呼ぶたびに内部でレイアウトを作るため、
 // これで得たレイアウトを DrawTextLayout で描く。レイアウトは書式に結び付くので、書式を
 // 作り直したら SetFactory で捨てる。
@@ -38,6 +38,19 @@ public:
         auto* const raw = layout.Get();
         entries_.emplace(Key{ fmt, std::wstring(text), box.width, box.height }, std::move(layout));
         return raw;
+    }
+
+    // box 指定時はその大きさのレイアウトを rect 左上に、未指定時は大きさ 0 のレイアウトを rect 中心に描く。
+    void Draw(ID2D1RenderTarget* rt, IDWriteTextFormat* fmt, std::wstring_view text, const D2D1_RECT_F& rect,
+              ID2D1Brush* brush, D2D1_SIZE_F box, D2D1_DRAW_TEXT_OPTIONS options = D2D1_DRAW_TEXT_OPTIONS_NONE)
+    {
+        auto* const layout = Get(fmt, text, box);
+        if (!layout || !brush) {
+            return;
+        }
+        const D2D1_POINT_2F origin = (box.width > 0.0f) ? D2D1::Point2F(rect.left, rect.top)
+                                                        : D2D1::Point2F((rect.left + rect.right) * 0.5f, (rect.top + rect.bottom) * 0.5f);
+        rt->DrawTextLayout(origin, layout, brush, options);
     }
 
     // 箱の大きさや番号ごとに増え続けないよう、描画の合間 (前フレームのレイアウトを参照し終えた後) に上限で捨てる。

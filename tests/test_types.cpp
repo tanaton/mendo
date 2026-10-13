@@ -361,29 +361,6 @@ TEST(NodeTest, HeadingLevelRequiresHeadingType)
     EXPECT_EQ(node.heading_level(), 3);
 }
 
-TEST(NodeTest, EnsureCode)
-{
-    Node node;
-    EXPECT_FALSE(node.has_code());
-    node.ensure_code();
-    EXPECT_TRUE(node.has_code());
-}
-
-TEST(NodeTest, SyntaxTokensWithoutCodeData)
-{
-    Node node;
-    EXPECT_TRUE(node.syntax_tokens().empty());
-}
-
-TEST(NodeTest, SyntaxTokensMutCreatesCodeData)
-{
-    Node node;
-    EXPECT_FALSE(node.has_code());
-    auto& tokens = node.syntax_tokens_mut();
-    EXPECT_TRUE(node.has_code());
-    EXPECT_TRUE(tokens.empty());
-}
-
 TEST(NodeTest, MermaidCodeBlockTextStored)
 {
     Node node;

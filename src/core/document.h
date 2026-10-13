@@ -102,8 +102,6 @@ private:
     // 契約: 入力 ParseResult は raw_text_ をパースした結果であること。
     void ReplaceContent(ParseResult&& result);
 
-    void BuildHeadingIndices(const std::pmr::vector<size_t>& heading_indices);
-
     void RebuildCachedDirectory();
 
     std::pmr::vector<Node> nodes_;

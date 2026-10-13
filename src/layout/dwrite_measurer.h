@@ -23,12 +23,12 @@ public:
     }
 
     void MeasureNode(
-        Node& node,
+        const Node& node,
         NodeLayoutEntry& entry,
         float max_width,
         MeasureViewportRange viewport = {}) const override;
     TableRestoreResult RestoreEvictedTableRows(
-        Node& node,
+        const Node& node,
         NodeLayoutEntry& entry,
         float max_width,
         MeasureViewportRange viewport) const override;
@@ -75,7 +75,7 @@ private:
     bool CreateAllFormats();
     IDWriteTextFormat* GetTextFormat(const Node& node) const noexcept;
     IDWriteTextFormat* GetTableRowFormat(const NodeTableData& tbl, size_t r) const noexcept;
-    void MeasureTable(Node& node, NodeLayoutEntry& entry, float max_width, MeasureViewportRange viewport) const;
+    void MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width, MeasureViewportRange viewport) const;
     void ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, RunFormatScope scope) const;
     // MeasureTableCells / RestoreRowCells 共通のセル生成処理。空セルは layout を
     // null のまま残し、呼び出し側のスキップ判定に委ねる。

@@ -1,10 +1,8 @@
 #pragma once
-// テスト専用のドキュメント関連 helper。production では別経路 (Document::FindAnchorIndex,
-// Document::BuildHeadingIndices) を使うため、これらの関数は tests/ 内でのみ意味を持つ。
+// テスト専用のドキュメント関連 helper。production では別経路 (Document::FindAnchorIndex) を使うため、これらの関数は tests/ 内でのみ意味を持つ。
 #include "document_types.h"
 #include "document_utils.h"
 #include "heading_anchor_index.h"
-#include "toc.h"
 #include <memory_resource>
 #include <ranges>
 #include <string>
@@ -48,17 +46,4 @@ inline std::vector<std::string> HeadingAnchors(const std::pmr::vector<Node>& nod
         }
     }
     return anchors;
-}
-
-// 全ノードを走査して TableOfContents を構築する。production の
-// Document::BuildHeadingIndices は事前に集めた heading_indices 配列を使うため
-// 本関数は使わない。Node から直接 toc を組むテストのために残す。
-inline void BuildTocFromNodes(TableOfContents& toc, const std::pmr::vector<Node>& nodes)
-{
-    toc.Clear();
-    for (const auto& [i, node] : nodes | std::views::enumerate) {
-        if (node.type == NodeType::Heading) {
-            toc.AddEntry(node, static_cast<int>(i));
-        }
-    }
 }

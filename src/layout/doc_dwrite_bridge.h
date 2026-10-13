@@ -3,61 +3,37 @@
 #include <cstdint>
 #include <dwrite.h>
 #include <memory_resource>
-#include <optional>
 #include <string>
 #include <string_view>
-#include <vector>
 
 // Document テキスト (UTF-8 string_view) を IDWriteTextLayout / IDWriteTextFormat に
-// 渡すための境界ラッパー。MultiByteToWideChar 相当の自前 decode で per-call wide スクラッチを
-// 構築し、HitTest/Search 用に UTF-8 byte ↔ UTF-16 code unit 対応表 (utf16_offsets_) を保持する。
+// 渡すための境界ラッパー。MultiByteToWideChar 相当の自前 decode で UTF-16 にし、
+// UTF-8 byte と UTF-16 code unit の位置は Utf16OffsetCursor で前方に数えて対応させる。
 //
 // 描画用 wchar_t (フォント名 / locale / i18n リテラル等) はこの境界の対象外。
-// それらは std::wstring 経路を維持し、CreateDocTextLayout / WideViewForDWrite を経由しない。
+// それらは std::wstring 経路を維持し、CreateDocTextLayout を経由しない。
+
+namespace utf8_codec {
+struct DecodedCp;
+}
 
 namespace mendo {
 
-// UTF-8 byte 単位。
-using doc_offset = uint32_t;
-
-class WideViewForDWrite {
-public:
-    explicit WideViewForDWrite(std::string_view text);
-
-    std::wstring_view wide() const noexcept
-    {
-        return scratch_;
-    }
-
-    // 範囲外時は clamping。
-    uint32_t WideOffsetFromDocOffset(doc_offset doc_off) const noexcept;
-
-    // 範囲外時は clamping。
-    doc_offset DocOffsetFromWideOffset(uint32_t wide_off) const noexcept;
-
-    DWRITE_TEXT_RANGE WideRange(uint32_t doc_start, uint32_t doc_length) const noexcept
-    {
-        const uint32_t w_start = WideOffsetFromDocOffset(doc_start);
-        const uint32_t w_end = WideOffsetFromDocOffset(doc_start + doc_length);
-        return DWRITE_TEXT_RANGE{ w_start, w_end - w_start };
-    }
-
-private:
-    std::pmr::wstring scratch_;
-    // 番兵: [utf8_size] = wide_size。空なら ASCII のみ (byte と code unit が恒等対応)。
-    std::pmr::vector<uint32_t> utf16_offsets_;
-};
-
-// UTF-8 byte 位置に対応する UTF-16 位置を前方へ数えるカーソル。WideViewForDWrite と同じ
+// UTF-8 byte 位置と UTF-16 位置を前方へ数えて対応させるカーソル。DecodeForDWrite と同じ
 // decode 規則 (不正バイトは U+FFFD 1 単位、sequence 途中の byte はその文字の直前位置) に従う。
-// 全文の UTF-16 化と 4B/byte の対応表を作らずに済むため、巨大ノード内の少数のヒット位置を
-// 求める検索に使う。WideAt に渡す byte 位置は単調非減少であること。
+// 全文を UTF-16 化しないので、巨大ノードでもメモリを確保しない。
+// WideAt / ByteAt に渡す位置は、どちらの単位で見ても単調非減少であること。
 class Utf16OffsetCursor {
 public:
     explicit Utf16OffsetCursor(std::string_view text) noexcept : text_(text)
     {}
 
+    // 範囲外は末尾に clamping。
     uint32_t WideAt(uint32_t byte_target) noexcept;
+
+    // wide_target から始まる文字の先頭 byte (continuation byte は返さない)。サロゲートペアの
+    // 途中を指すなら次の文字の先頭。範囲外は末尾に clamping。
+    uint32_t ByteAt(uint32_t wide_target) noexcept;
 
     DWRITE_TEXT_RANGE WideRange(uint32_t byte_start, uint32_t byte_length) noexcept
     {
@@ -66,65 +42,15 @@ public:
     }
 
 private:
+    // byte_ から 16 byte が ASCII なら 1:1 対応として読み飛ばす。
+    bool SkipAscii16() noexcept;
+    void Advance(const utf8_codec::DecodedCp& decoded) noexcept;
+
     std::string_view text_;
     uint32_t byte_ = 0;
     uint32_t wide_ = 0;
 };
 
-// 直近に渡された文字列に対する WideViewForDWrite を再利用する identity ベースキャッシュ。
-// std::string_view の (data ポインタ + size) で同一性を判定し、異なる文字列が来た時のみ
-// 再構築する。マウス移動のたびに同じノード/セルをヒットテストするとき、UTF-16 位置から
-// UTF-8 位置への逆変換を O(1) にする。
-//
-// ドキュメント差し替え等で内部 string_view の data ポインタが dangling 化しうる場合は
-// Reset() か ResetIfBufferChanged() で明示的に無効化すること (PMR pool が解放後アドレスを
-// 再利用するため、ノード配列等の (data ポインタ + size) を別途追跡する用途で
-// ResetIfBufferChanged() を提供している)。
-class WideViewCache {
-public:
-    const WideViewForDWrite& Get(std::string_view text)
-    {
-        if (text.data() != text_.data() || text.size() != text_.size()) {
-            wv_.emplace(text);
-            text_ = text;
-        }
-        return *wv_;
-    }
-
-    DWRITE_TEXT_RANGE WideRange(std::string_view text, uint32_t doc_start, uint32_t doc_length)
-    {
-        return Get(text).WideRange(doc_start, doc_length);
-    }
-
-    void Reset() noexcept
-    {
-        wv_.reset();
-        text_ = {};
-    }
-
-    // 任意の連続バッファ (典型的にはノード配列) の identity が前回呼び出しから
-    // 変わっていれば Reset() し、識別子を更新する。同一なら何もしない。
-    template <typename T>
-    void ResetIfBufferChanged(const T* data, size_t size) noexcept
-    {
-        const auto* p = static_cast<const void*>(data);
-        if (p == owner_data_ && size == owner_size_) {
-            return;
-        }
-        Reset();
-        owner_data_ = p;
-        owner_size_ = size;
-    }
-
-private:
-    std::string_view text_;
-    std::optional<WideViewForDWrite> wv_;
-    const void* owner_data_ = nullptr;
-    size_t owner_size_ = 0;
-};
-
-// WideViewForDWrite と同じ規則で UTF-16 にする。対応表を作らないので、位置の変換が
-// 前方への走査で済む計測経路 (Utf16OffsetCursor と組み合わせる) で使う。
 std::pmr::wstring DecodeForDWrite(std::string_view text);
 
 HRESULT CreateDocTextLayout(

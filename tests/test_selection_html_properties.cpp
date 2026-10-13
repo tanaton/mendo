@@ -187,21 +187,11 @@ void CheckSelectionRoundTrip(const std::pmr::vector<Node>& nodes, const TextSele
     EXPECT_EQ(full.text, expected_full);
 }
 
-void TokenizeCodeBlocks(std::pmr::vector<Node>& nodes)
-{
-    for (auto& node : nodes) {
-        if (node.type == NodeType::CodeBlock && node.code_language() != SyntaxLanguage::None) {
-            node.syntax_tokens_mut() = Tokenize(node.GetText(), node.code_language());
-        }
-    }
-}
-
-void CheckRandomSelections(std::pmr::vector<Node>& nodes, uint32_t seed, int count)
+void CheckRandomSelections(const std::pmr::vector<Node>& nodes, uint32_t seed, int count)
 {
     if (nodes.empty()) {
         return;
     }
-    TokenizeCodeBlocks(nodes);
     std::mt19937 rng{ seed };
     const auto pick = [&rng](int lo, int hi) { return std::uniform_int_distribution<int>(lo, hi)(rng); };
     const int last = static_cast<int>(nodes.size()) - 1;
@@ -253,7 +243,7 @@ TEST(SelectionHtmlProperty, ExampleFilesHtmlTextMatchesPlainText)
             GTEST_SKIP() << path << " not found";
         }
         auto doc = Document::FromMarkdown(std::move(bytes), L"example.md");
-        CheckRandomSelections(doc.GetNodesMut(), 7, 300);
+        CheckRandomSelections(doc.GetNodes(), 7, 300);
         if (HasFatalFailure()) {
             return;
         }

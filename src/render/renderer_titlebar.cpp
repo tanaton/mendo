@@ -63,16 +63,7 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
 
 void Renderer::DrawCenteredText(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box)
 {
-    DrawLayoutCentered(text_layouts_.Get(fmt, text, box), rect, brush_id, alpha, box);
-}
-
-void Renderer::DrawLayoutCentered(IDWriteTextLayout* layout, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box)
-{
     auto* const brush = Brush(brush_id);
-    if (!layout || !brush) {
-        return;
-    }
-    const D2D1_POINT_2F origin = (box.width > 0.0f) ? D2D1::Point2F(rect.left, rect.top) : D2D1::Point2F((rect.left + rect.right) * 0.5f, (rect.top + rect.bottom) * 0.5f);
     mendo::OpacityScope guard{ brush, alpha };
-    rt()->DrawTextLayout(origin, layout, brush);
+    text_layouts_.Draw(rt(), fmt, text, rect, brush, box);
 }

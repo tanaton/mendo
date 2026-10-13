@@ -101,7 +101,6 @@ struct SidePaneState {
 // 内容が変更された場合のみ再描画される。
 struct PaneCache {
     Microsoft::WRL::ComPtr<ID2D1BitmapRenderTarget> bitmap_rt;
-    Microsoft::WRL::ComPtr<ID2D1Bitmap> cached_bitmap; // GetBitmap() の毎フレーム呼び出しを回避
     bool dirty = true;
     // 描画内容のサイズ。ビットマップ自体はこれ以上に切り上げて確保する。
     float cached_width = 0;
@@ -119,7 +118,6 @@ struct PaneCache {
     void Reset() noexcept
     {
         bitmap_rt.Reset();
-        cached_bitmap.Reset();
         dirty = true;
         cached_width = 0;
         cached_height = 0;

@@ -204,7 +204,7 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockIsEscapedInPreCode)
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockWithoutTokensHasNoSyntaxSpans)
 {
-    // 言語指定なし -> syntax_tokens が空 -> span タグは付かない
+    // 言語指定なし -> トークンが無い -> span タグは付かない
     auto nodes = ParseNodes("```\nplain text\n```");
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
@@ -213,58 +213,27 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockWithoutTokensHasNoSyntaxSpans)
     EXPECT_NE(html.find("plain text"), std::string::npos);
 }
 
-TEST(ExtractSelectedTextAsHtml, CodeBlockWithSyntaxTokensWrapsInSpans)
+TEST(ExtractSelectedTextAsHtml, CodeBlockIsHighlighted)
 {
-    // syntax_tokens を手動でセットし、span による色付けが行われることを確認
     auto nodes = ParseNodes("```cpp\nint x = 42;\n```");
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
-    auto& n = nodes[0];
-    const std::string_view text = n.GetText();
-    ASSERT_FALSE(text.empty());
-    // "int" を Keyword, "42" を Number としてマーク
-    auto& tokens = n.syntax_tokens_mut();
-    tokens.clear();
-    const auto int_pos = static_cast<uint32_t>(text.find("int"));
-    const auto num_pos = static_cast<uint32_t>(text.find("42"));
-    ASSERT_NE(int_pos, static_cast<uint32_t>(std::string::npos));
-    ASSERT_NE(num_pos, static_cast<uint32_t>(std::string::npos));
-    tokens.push_back(SyntaxToken{ int_pos, 3u, SyntaxTokenType::Keyword });
-    tokens.push_back(SyntaxToken{ num_pos, 2u, SyntaxTokenType::Number });
-
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(text.size()));
+    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find("<span style=\"color:#af00db\">int</span>"), std::string::npos);
+    EXPECT_NE(html.find("<span style=\"color:#267f99\">int</span>"), std::string::npos);
     EXPECT_NE(html.find("<span style=\"color:#098658\">42</span>"), std::string::npos);
     // その他の Plain 区間は素のテキスト
     EXPECT_NE(html.find(" x = "), std::string::npos);
 }
 
-// 一度も計測 (表示) していないコードブロックでも色付けされること。
-TEST(ExtractSelectedTextAsHtml, UnmeasuredCodeBlockIsHighlighted)
-{
-    auto nodes = ParseNodes("```cpp\nint x = 42;\n```");
-    ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
-    ASSERT_TRUE(nodes[0].syntax_tokens().empty());
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find("<span style=\"color:#267f99\">int</span>"), std::string::npos);
-    EXPECT_NE(html.find("<span style=\"color:#098658\">42</span>"), std::string::npos);
-}
-
 TEST(ExtractSelectedTextAsHtml, CodeBlockSpanEscapesSpecialChars)
 {
-    auto nodes = ParseNodes("```cpp\na<b\n```");
-    auto& n = nodes[0];
-    const std::string_view text = n.GetText();
-    auto& tokens = n.syntax_tokens_mut();
-    tokens.clear();
-    // 全体を文字列トークンとしてマーク
-    tokens.push_back(SyntaxToken{ 0u, static_cast<uint32_t>(text.size()),
-                                  SyntaxTokenType::String });
+    auto nodes = ParseNodes("```cpp\n\"a<b\"\n```");
+    const std::string_view text = nodes[0].GetText();
 
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(text.size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel);
     // span 内のテキストも HTML エスケープされる
+    EXPECT_NE(html.find("<span style=\"color:#a31515\">"), std::string::npos);
     EXPECT_NE(html.find("&lt;"), std::string::npos);
     EXPECT_EQ(html.find("a<b"), std::string::npos);
 }
@@ -272,22 +241,15 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockSpanEscapesSpecialChars)
 TEST(ExtractSelectedTextAsHtml, CodeBlockDarkModeUsesDarkColors)
 {
     auto nodes = ParseNodes("```cpp\nint x = 42;\n```");
-    auto& n = nodes[0];
-    const std::string_view text = n.GetText();
-    auto& tokens = n.syntax_tokens_mut();
-    tokens.clear();
-    const auto int_pos = static_cast<uint32_t>(text.find("int"));
-    const auto num_pos = static_cast<uint32_t>(text.find("42"));
-    tokens.push_back(SyntaxToken{ int_pos, 3u, SyntaxTokenType::Keyword });
-    tokens.push_back(SyntaxToken{ num_pos, 2u, SyntaxTokenType::Number });
+    const std::string_view text = nodes[0].GetText();
 
     auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(text.size()));
     auto html = ExtractSelectedTextAsHtml(nodes, sel, /*dark_mode=*/true);
     // ダーク用の色（VS Code Dark+ 相当）が使われる
-    EXPECT_NE(html.find("<span style=\"color:#c586c0\">int</span>"), std::string::npos);
+    EXPECT_NE(html.find("<span style=\"color:#4ec9b0\">int</span>"), std::string::npos);
     EXPECT_NE(html.find("<span style=\"color:#b5cea8\">42</span>"), std::string::npos);
     // ライト用の色は混ざらない
-    EXPECT_EQ(html.find("#af00db"), std::string::npos);
+    EXPECT_EQ(html.find("#267f99"), std::string::npos);
     EXPECT_EQ(html.find("#098658"), std::string::npos);
     // コードブロック背景がダーク色
     EXPECT_NE(html.find("background-color:#2d2d2d"), std::string::npos);

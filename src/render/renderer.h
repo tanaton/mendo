@@ -103,7 +103,7 @@ public:
     }
 
     // Render() の前に呼ぶこと。RenderParams を const にするための分離。
-    void PrepareVisibleEffects(std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y, float md_pane_height);
+    void PrepareVisibleEffects(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y, float md_pane_height);
 
 private:
     constexpr PaneCache& SidePaneCache(PaneTarget t) noexcept
@@ -144,7 +144,6 @@ private:
     // box 指定時 (固定サイズのオーバーレイ) はその大きさで作って矩形左上に描く。
     // fmt または brush が無い場合は何もしない。
     void DrawCenteredText(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box = {});
-    void DrawLayoutCentered(IDWriteTextLayout* layout, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box);
     SidePaneDrawContext MakeSidePaneContext(PaneTarget target, const SidePaneInstance& pane, size_t item_count, std::wstring_view header_text);
 
     D2DRenderBackend backend_;
@@ -165,11 +164,11 @@ private:
     }
 
     ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const noexcept;
-    void ApplyTableEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom);
+    void ApplyTableEffects(const Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom);
     // hit_test_buffer_ の先頭 count 件をセルのインラインコード背景として cell_index 昇順を保って追加する。
     void AppendCellInlineCodeBgs(TableLayoutData& tl, uint32_t cell_index, UINT32 count);
-    void ApplyNodeEffects(Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom);
-    void ApplySyntaxEffects(IDWriteTextLayout* layout, const Node& node);
+    void ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom);
+    void ApplySyntaxEffects(IDWriteTextLayout* layout, std::string_view text, std::span<const SyntaxToken> tokens);
     void RecreateBrushes();
     void InvalidateBrushes() noexcept;
     void ResolveThemeFonts();

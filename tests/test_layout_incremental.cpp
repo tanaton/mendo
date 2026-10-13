@@ -25,7 +25,7 @@ constexpr float kWidthHysteresis = LayoutEngine::kWidthChangeThreshold;
 // 破棄するので、keep 範囲外に目印が残っていれば解放漏れと分かる。
 class MarkingMeasurer : public MockTextMeasurer {
 public:
-    void MeasureNode(Node& node, NodeLayoutEntry& entry, float max_width,
+    void MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
                      MeasureViewportRange viewport = {}) const override
     {
         MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
