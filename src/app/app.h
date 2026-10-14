@@ -226,6 +226,8 @@ private:
     MdPaneHit ResolveMdPaneHit(float dip_x, float dip_y, const MdPaneHitContext& hit_ctx, const PaneLayout& layout) const;
 
     SearchBarLayout ComputeSearchBarLayoutForMd(const PaneRect& md_rect) const;
+    // 検索バーが表示中で dip_y がバーの上にあるときだけ、そのレイアウトを返す。
+    std::optional<SearchBarLayout> SearchBarLayoutAt(float dip_y, const PaneRect& md_rect) const;
     int HitTestSearchInputPos(const SearchBarLayout& sbl, std::wstring_view query_wide, float dip_x) const;
 
     // ---- クリック (app_mouse_click.cpp) ----

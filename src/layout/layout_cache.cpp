@@ -25,6 +25,29 @@ std::pair<size_t, size_t> TableLayoutData::VisibleRowRange(float local_top, floa
     return { r_begin, r_end };
 }
 
+void TableLayoutData::RebuildRowCumY(size_t row_count)
+{
+    row_cum_y.resize(row_count + 1);
+    float ry = 0.0f;
+    for (size_t r = 0; r < row_count; r++) {
+        row_cum_y[r] = ry;
+        ry += row_heights[r] + TABLE_BORDER_WIDTH;
+    }
+    row_cum_y[row_count] = ry;
+}
+
+void TableLayoutData::RebuildColCumX()
+{
+    const size_t n = col_widths.size();
+    col_cum_x.resize(n + 1);
+    float cx = TABLE_BORDER_WIDTH;
+    for (size_t c = 0; c < n; c++) {
+        col_cum_x[c] = cx;
+        cx += ColumnStep(c);
+    }
+    col_cum_x[n] = cx;
+}
+
 int TableLayoutData::RowIndexAt(float local_y) const noexcept
 {
     if (row_cum_y.empty()) {

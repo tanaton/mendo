@@ -252,13 +252,13 @@ struct SearchBarLayout {
     }
 };
 
-inline SearchBarLayout ComputeSearchBarLayout(float md_left, float md_width, float md_bottom, bool has_query) noexcept
+inline SearchBarLayout ComputeSearchBarLayout(const PaneRect& md_rect, bool has_query) noexcept
 {
     SearchBarLayout l;
-    const float bar_left = md_left;
-    const float bar_right = md_left + md_width;
-    l.bar_top = md_bottom - SEARCH_BAR_HEIGHT;
-    l.bar_bottom = md_bottom;
+    const float bar_left = md_rect.x;
+    const float bar_right = md_rect.x + md_rect.width;
+    l.bar_bottom = md_rect.y + md_rect.height;
+    l.bar_top = l.bar_bottom - SEARCH_BAR_HEIGHT;
 
     const float center_y = l.bar_top + (SEARCH_BAR_HEIGHT - SEARCH_INPUT_HEIGHT) / 2.0f;
     const float center_bottom = center_y + SEARCH_INPUT_HEIGHT;
@@ -286,11 +286,6 @@ inline SearchBarLayout ComputeSearchBarLayout(float md_left, float md_width, flo
     l.close_btn = D2D1::RectF(close_x, center_y, close_x + SEARCH_BTN_SIZE, center_bottom);
 
     return l;
-}
-
-inline SearchBarLayout ComputeSearchBarLayout(const PaneRect& md_rect, bool has_query) noexcept
-{
-    return ComputeSearchBarLayout(md_rect.x, md_rect.width, md_rect.y + md_rect.height, has_query);
 }
 
 // 検索バーのヒット判定結果。クリック／ホバー／Controller で共有する。

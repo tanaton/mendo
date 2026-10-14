@@ -46,7 +46,7 @@ struct TitleBarRenderState {
 
     constexpr const DipRect& Button(TitleBarHitZone zone) const noexcept
     {
-        return buttons[TitleBarButtonIndex(zone)];
+        return TitleBarButtonRect(buttons, zone);
     }
 };
 

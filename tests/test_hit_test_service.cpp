@@ -10,15 +10,13 @@
 // MockTextMeasurer 前提のため、DirectWrite 依存経路 (text_layout
 // 非 null、row_cum_y/col_cum_x による二分探索、cell_layout) は対象外。
 
-class HitTestServiceTest : public MockLayoutTestBase {
-protected:
-};
+using HitTestTest = MockLayoutTestBase;
 
 // ---- NavButtonHitTest: 純粋な座標計算のみ ----
 // 矩形は src 側の NavBackButtonRect / NavForwardButtonRect を使う。
 // 「式を二重実装するとリファクタ時にテストもズレる」問題を避けるため。
 
-TEST_F(HitTestServiceTest, NavButton_HitBackCenter)
+TEST_F(HitTestTest, NavButton_HitBackCenter)
 {
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
     const D2D1_RECT_F back = NavBackButtonRect(md);
@@ -27,7 +25,7 @@ TEST_F(HitTestServiceTest, NavButton_HitBackCenter)
               NavButtonHover::Back);
 }
 
-TEST_F(HitTestServiceTest, NavButton_HitForwardCenter)
+TEST_F(HitTestTest, NavButton_HitForwardCenter)
 {
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
     const D2D1_RECT_F fwd = NavForwardButtonRect(md);
@@ -36,7 +34,7 @@ TEST_F(HitTestServiceTest, NavButton_HitForwardCenter)
               NavButtonHover::Forward);
 }
 
-TEST_F(HitTestServiceTest, NavButton_GapBetweenButtonsIsNone)
+TEST_F(HitTestTest, NavButton_GapBetweenButtonsIsNone)
 {
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
     const D2D1_RECT_F back = NavBackButtonRect(md);
@@ -46,7 +44,7 @@ TEST_F(HitTestServiceTest, NavButton_GapBetweenButtonsIsNone)
               NavButtonHover::None);
 }
 
-TEST_F(HitTestServiceTest, NavButton_AboveRangeIsNone)
+TEST_F(HitTestTest, NavButton_AboveRangeIsNone)
 {
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
     const D2D1_RECT_F back = NavBackButtonRect(md);
@@ -54,7 +52,7 @@ TEST_F(HitTestServiceTest, NavButton_AboveRangeIsNone)
               NavButtonHover::None);
 }
 
-TEST_F(HitTestServiceTest, NavButton_BelowRangeIsNone)
+TEST_F(HitTestTest, NavButton_BelowRangeIsNone)
 {
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
     const D2D1_RECT_F back = NavBackButtonRect(md);
@@ -63,7 +61,7 @@ TEST_F(HitTestServiceTest, NavButton_BelowRangeIsNone)
               NavButtonHover::None);
 }
 
-TEST_F(HitTestServiceTest, NavButton_LeftOfBackIsNone)
+TEST_F(HitTestTest, NavButton_LeftOfBackIsNone)
 {
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
     const D2D1_RECT_F back = NavBackButtonRect(md);
@@ -71,7 +69,7 @@ TEST_F(HitTestServiceTest, NavButton_LeftOfBackIsNone)
               NavButtonHover::None);
 }
 
-TEST_F(HitTestServiceTest, NavButton_RightOfForwardIsNone)
+TEST_F(HitTestTest, NavButton_RightOfForwardIsNone)
 {
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
     const D2D1_RECT_F fwd = NavForwardButtonRect(md);
@@ -80,7 +78,7 @@ TEST_F(HitTestServiceTest, NavButton_RightOfForwardIsNone)
               NavButtonHover::None);
 }
 
-TEST_F(HitTestServiceTest, NavButton_BackLeftEdgeIsInclusive)
+TEST_F(HitTestTest, NavButton_BackLeftEdgeIsInclusive)
 {
     // ヒット判定は PointInRectInclusive なので左端ちょうども Back
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
@@ -89,7 +87,7 @@ TEST_F(HitTestServiceTest, NavButton_BackLeftEdgeIsInclusive)
               NavButtonHover::Back);
 }
 
-TEST_F(HitTestServiceTest, NavButton_BackRightEdgeIsInclusive)
+TEST_F(HitTestTest, NavButton_BackRightEdgeIsInclusive)
 {
     // 右端ちょうども inclusive なので Back
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
@@ -99,7 +97,7 @@ TEST_F(HitTestServiceTest, NavButton_BackRightEdgeIsInclusive)
               NavButtonHover::Back);
 }
 
-TEST_F(HitTestServiceTest, NavButton_PositionsWithNonZeroPaneOrigin)
+TEST_F(HitTestTest, NavButton_PositionsWithNonZeroPaneOrigin)
 {
     // MD ペインが原点以外にある場合でも正しく算出されること
     PaneRect md{ 200.0f, 40.0f, 600.0f, 500.0f };
@@ -111,7 +109,7 @@ TEST_F(HitTestServiceTest, NavButton_PositionsWithNonZeroPaneOrigin)
 
 // ---- HitTest: MD ペイン汎用ヒット ----
 
-TEST_F(HitTestServiceTest, HitTest_EmptyDocumentReturnsSentinel)
+TEST_F(HitTestTest, HitTest_EmptyDocumentReturnsSentinel)
 {
     auto pr = ParseAndLayout("");
     if (!pr.nodes.empty()) {
@@ -129,7 +127,7 @@ TEST_F(HitTestServiceTest, HitTest_EmptyDocumentReturnsSentinel)
     EXPECT_EQ(r.text_pos, 0u);
 }
 
-TEST_F(HitTestServiceTest, HitTest_BelowAllNodesReturnsLastNonEmpty)
+TEST_F(HitTestTest, HitTest_BelowAllNodesReturnsLastNonEmpty)
 {
     auto pr = ParseAndLayout("First paragraph\n\nSecond paragraph");
     ASSERT_FALSE(pr.nodes.empty());
@@ -162,7 +160,7 @@ TEST_F(HitTestServiceTest, HitTest_BelowAllNodesReturnsLastNonEmpty)
               static_cast<uint32_t>(pr.nodes[expected_idx].GetText().size()));
 }
 
-TEST_F(HitTestServiceTest, HitTest_AboveFirstNodeClampsToFirstNodeStart)
+TEST_F(HitTestTest, HitTest_AboveFirstNodeClampsToFirstNodeStart)
 {
     // MockTextMeasurer は text_layout=nullptr を設定する。
     // 先頭ノードより上 (margin_top 内) のクリックは先頭の非空ノードの先頭に返る。
@@ -178,7 +176,7 @@ TEST_F(HitTestServiceTest, HitTest_AboveFirstNodeClampsToFirstNodeStart)
     EXPECT_EQ(r.text_pos, 0u);
 }
 
-TEST_F(HitTestServiceTest, HitTest_GapBetweenNodesClampsToPrecedingNodeEnd)
+TEST_F(HitTestTest, HitTest_GapBetweenNodesClampsToPrecedingNodeEnd)
 {
     // ノード間の余白クリックは直前の非空ノード末尾に返る。
     // 文書全体の末尾へ飛ばすと、余白からのドラッグで巨大選択が作られてしまう。
@@ -197,7 +195,7 @@ TEST_F(HitTestServiceTest, HitTest_GapBetweenNodesClampsToPrecedingNodeEnd)
     EXPECT_EQ(r.text_pos, pr.nodes[0].GetText().size());
 }
 
-TEST_F(HitTestServiceTest, HitTest_TextlessCandidateFallsForwardToFirstNonEmpty)
+TEST_F(HitTestTest, HitTest_TextlessCandidateFallsForwardToFirstNonEmpty)
 {
     // candidate がテキストを持たないノード (alt 空の画像) の場合、
     // 後方探索が外れても -1 ではなく先頭の非空ノードに倒れること
@@ -219,7 +217,7 @@ TEST_F(HitTestServiceTest, HitTest_TextlessCandidateFallsForwardToFirstNonEmpty)
 }
 
 // ホバーは HitNode でノードだけ求めるので、HitTest と同じノードを返すこと。
-TEST_F(HitTestServiceTest, HitNodeMatchesHitTestNodeIndex)
+TEST_F(HitTestTest, HitNodeMatchesHitTestNodeIndex)
 {
     auto pr = ParseAndLayout("![](x.png)\n\nHello\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```cpp\nint x;\n```\n\n---\n\nWorld");
     ASSERT_FALSE(pr.nodes.empty());
@@ -235,7 +233,7 @@ TEST_F(HitTestServiceTest, HitNodeMatchesHitTestNodeIndex)
 
 // ---- HitTestTable ----
 
-TEST_F(HitTestServiceTest, HitTestTable_NoLayoutDataReturnsTextEnd)
+TEST_F(HitTestTest, HitTestTable_NoLayoutDataReturnsTextEnd)
 {
     auto pr = ParseAndLayout("| A | B |\n|---|---|\n| 1 | 2 |");
     const int table_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::Table);
@@ -254,7 +252,7 @@ TEST_F(HitTestServiceTest, HitTestTable_NoLayoutDataReturnsTextEnd)
               static_cast<uint32_t>(pr.nodes[table_idx].GetText().size()));
 }
 
-TEST_F(HitTestServiceTest, HitTestTable_ClickAboveAllRowsReturnsTextEnd)
+TEST_F(HitTestTest, HitTestTable_ClickAboveAllRowsReturnsTextEnd)
 {
     auto pr = ParseAndLayout("| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |");
     const int table_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::Table);
@@ -275,7 +273,7 @@ TEST_F(HitTestServiceTest, HitTestTable_ClickAboveAllRowsReturnsTextEnd)
               static_cast<uint32_t>(pr.nodes[table_idx].table_data()->concat_text.size()));
 }
 
-TEST_F(HitTestServiceTest, HitTestTable_HitsFirstCellWithoutCellLayout)
+TEST_F(HitTestTest, HitTestTable_HitsFirstCellWithoutCellLayout)
 {
     // MockTextMeasurer はセル layout を生成しない (null のまま) ので text_pos は flat_offset。
     // 先頭行・先頭列の flat_offset は 0。
@@ -301,7 +299,7 @@ TEST_F(HitTestServiceTest, HitTestTable_HitsFirstCellWithoutCellLayout)
 
 // ---- SaveButtonHitTest ----
 
-TEST_F(HitTestServiceTest, SaveButton_NoDiagramReturnsNegative)
+TEST_F(HitTestTest, SaveButton_NoDiagramReturnsNegative)
 {
     auto pr = ParseAndLayout("Just text.");
     const float content_width = theme_.ContentWidth(800.0f);
@@ -313,7 +311,7 @@ TEST_F(HitTestServiceTest, SaveButton_NoDiagramReturnsNegative)
     EXPECT_EQ(hit_test::CodeBlockButtonsHitTest(ctx).save_node, -1);
 }
 
-TEST_F(HitTestServiceTest, SaveButton_NonDiagramCodeBlockReturnsNegative)
+TEST_F(HitTestTest, SaveButton_NonDiagramCodeBlockReturnsNegative)
 {
     auto pr = ParseAndLayout("```\nplain code\n```");
     const float content_width = theme_.ContentWidth(800.0f);
@@ -325,7 +323,7 @@ TEST_F(HitTestServiceTest, SaveButton_NonDiagramCodeBlockReturnsNegative)
     EXPECT_EQ(hit_test::CodeBlockButtonsHitTest(ctx).save_node, -1);
 }
 
-TEST_F(HitTestServiceTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
+TEST_F(HitTestTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
 {
     // Mermaid ブロックはあるが diagram.bitmap が空（未ロード）→ -1
     auto pr = ParseAndLayout("```mermaid\ngraph TD\n```");
@@ -347,7 +345,7 @@ TEST_F(HitTestServiceTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
     EXPECT_EQ(hit_test::CodeBlockButtonsHitTest(ctx).save_node, -1);
 }
 
-TEST_F(HitTestServiceTest, SaveButton_EmptyDocumentReturnsNegative)
+TEST_F(HitTestTest, SaveButton_EmptyDocumentReturnsNegative)
 {
     auto pr = ParseAndLayout("");
     const float content_width = theme_.ContentWidth(800.0f);

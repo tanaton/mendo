@@ -37,6 +37,11 @@ constexpr size_t TitleBarButtonIndex(TitleBarHitZone zone) noexcept
 // TitleBarButtonIndex で引くボタン矩形。
 using TitleBarButtons = std::array<DipRect, kTitleBarButtonCount>;
 
+constexpr auto& TitleBarButtonRect(auto& buttons, TitleBarHitZone zone) noexcept
+{
+    return buttons[TitleBarButtonIndex(zone)];
+}
+
 class TitleBar {
 public:
     static constexpr float BASE_HEIGHT = 32.0f;
@@ -65,7 +70,7 @@ public:
     }
     constexpr const DipRect& GetButton(TitleBarHitZone zone) const noexcept
     {
-        return buttons_[TitleBarButtonIndex(zone)];
+        return TitleBarButtonRect(buttons_, zone);
     }
     constexpr const TitleBarButtons& GetButtons() const noexcept
     {
@@ -83,7 +88,7 @@ public:
 private:
     constexpr DipRect& Button(TitleBarHitZone zone) noexcept
     {
-        return buttons_[TitleBarButtonIndex(zone)];
+        return TitleBarButtonRect(buttons_, zone);
     }
 
     TitleBarButtons buttons_{};

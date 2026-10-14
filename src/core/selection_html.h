@@ -23,5 +23,3 @@ struct LinkHit {
     uint32_t index = 0;   // node.view_link_urls() の添字
 };
 [[nodiscard]] std::optional<LinkHit> FindLinkHitAtPosition(const Node& node, uint32_t text_pos);
-// 戻り値は node 内の URL を指す。
-[[nodiscard]] std::optional<std::string_view> FindLinkAtPosition(const Node& node, uint32_t text_pos);

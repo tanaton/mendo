@@ -222,7 +222,7 @@ hit_test::CodeBlockButtonHit hit_test::CodeBlockButtonsHitTest(const MdPaneHitCo
         }
         // マウス座標は1点なので、コピー/保存/ダイアグラムコピーボタンが同時にヒットすることはない。
         // 1つでも見つかった時点で残りの可視ノード走査をスキップする。
-        if (out.copy_node >= 0 || out.save_node >= 0 || out.diagram_copy_node >= 0) {
+        if (out.Any()) {
             break;
         }
     }

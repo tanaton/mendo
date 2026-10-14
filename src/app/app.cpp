@@ -359,6 +359,18 @@ SearchBarLayout App::ComputeSearchBarLayoutForMd(const PaneRect& md_rect) const
     return ComputeSearchBarLayout(md_rect, !state_.search.search_state.GetQuery().empty());
 }
 
+std::optional<SearchBarLayout> App::SearchBarLayoutAt(float dip_y, const PaneRect& md_rect) const
+{
+    if (!state_.search.search_state.IsVisible()) {
+        return std::nullopt;
+    }
+    const auto sbl = ComputeSearchBarLayoutForMd(md_rect);
+    if (dip_y < sbl.bar_top) {
+        return std::nullopt;
+    }
+    return sbl;
+}
+
 int App::HitTestSearchInputPos(const SearchBarLayout& sbl, std::wstring_view query_wide, float dip_x) const
 {
     return renderer_.HitTestSearchInput(query_wide, dip_x - sbl.text_left(), sbl.text_width());

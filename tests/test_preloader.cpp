@@ -83,7 +83,7 @@ TEST(Preloader, TakeBeforeAttachDoesNotBlock)
     EXPECT_EQ(p.AttachOrApply(w.Get(), 0), Preloader::AttachResult::None);
 }
 
-TEST(Preloader, TakeErrorBeforeAttachDoesNotBlock)
+TEST(Preloader, TakeFailureBeforeAttachDoesNotBlock)
 {
     Preloader p;
     p.Start(std::pmr::wstring(L"C:\\__mendo_no_such_preload__.md"), GetLightTheme());

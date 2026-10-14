@@ -112,6 +112,11 @@ struct CodeBlockButtonHit {
     int copy_node = -1;
     int save_node = -1;
     int diagram_copy_node = -1;
+
+    constexpr bool Any() const noexcept
+    {
+        return copy_node >= 0 || save_node >= 0 || diagram_copy_node >= 0;
+    }
 };
 CodeBlockButtonHit CodeBlockButtonsHitTest(const MdPaneHitContext& ctx) noexcept;
 // node_index のブロック横スクロールバー (ヒット余白込み) 上か。

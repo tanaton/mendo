@@ -85,13 +85,11 @@ bool App::HandleTitleBarClick(float dip_x, float dip_y)
 
 bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_layout, bool is_double_click)
 {
-    if (!state_.search.search_state.IsVisible()) {
+    const auto bar = SearchBarLayoutAt(dip_y, pane_layout.md_rect);
+    if (!bar) {
         return false;
     }
-    const auto sbl = ComputeSearchBarLayoutForMd(pane_layout.md_rect);
-    if (dip_y < sbl.bar_top) {
-        return false;
-    }
+    const SearchBarLayout& sbl = *bar;
     switch (HitTestSearchBar(sbl, dip_x, dip_y)) {
     case SearchBarHitZone::None:
         if (!is_double_click) {

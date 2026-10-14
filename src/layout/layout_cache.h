@@ -165,6 +165,10 @@ struct TableLayoutData {
         return col_widths[c] + TABLE_CELL_PADDING * 2.0f + TABLE_BORDER_WIDTH;
     }
 
+    // row_heights (先頭 row_count 行) / col_widths から罫線込みの累積位置を積み直す。
+    void RebuildRowCumY(size_t row_count);
+    void RebuildColCumX();
+
     // 行幾何が row_count と揃っていれば VisibleRowRange、未確定なら全行 [0, row_count)。
     std::pair<size_t, size_t> RowsInViewport(size_t row_count, float local_top, float local_bottom) const noexcept
     {

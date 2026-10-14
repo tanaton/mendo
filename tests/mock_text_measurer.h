@@ -18,7 +18,6 @@ public:
     float chars_per_line = 40.0f;            // 折り返し推定用の1行あたり文字数
     float heading_scale = 1.5f;              // 見出し高さの倍率
     float table_row_height = 28.0f;          // テーブル1行あたりの高さ
-    float table_border = TABLE_BORDER_WIDTH; // 罫線幅。実装 (dwrite_measurer) と同じ定数で揃える
 
     bool RecreateFormats() override
     {
@@ -109,27 +108,13 @@ private:
         tl.row_heights.assign(row_count, table_row_height);
         tl.col_count = col_count;
         tl.cell_layouts.resize(row_count * col_count);
-        tl.cached_table_width = table_border + static_cast<float>(col_count) * (col_w + TABLE_CELL_PADDING * 2.0f + table_border);
 
-        // 描画・ヒットテストは累積位置を参照するので、実装と同じ規則で積む。
-        tl.row_cum_y.resize(row_count + 1);
-        float ry = 0.0f;
-        float total = table_border;
-        for (size_t r = 0; r < row_count; r++) {
-            tl.row_cum_y[r] = ry;
-            ry += table_row_height + table_border;
-            total += table_row_height + table_border;
-        }
-        tl.row_cum_y[row_count] = ry;
-        tl.col_cum_x.resize(col_count + 1);
-        float cx = table_border;
-        for (size_t c = 0; c < col_count; c++) {
-            tl.col_cum_x[c] = cx;
-            cx += col_w + TABLE_CELL_PADDING * 2.0f + table_border;
-        }
-        tl.col_cum_x[col_count] = cx;
+        // 描画・ヒットテストは累積位置を参照するので、実装と同じ関数で積む。
+        tl.RebuildRowCumY(row_count);
+        tl.RebuildColCumX();
+        tl.cached_table_width = tl.col_cum_x.back();
 
-        entry.height = total;
+        entry.height = TABLE_BORDER_WIDTH + tl.row_cum_y[row_count];
         entry.layout_dirty = false;
     }
 };

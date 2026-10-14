@@ -48,7 +48,6 @@ void CommandGenerator::GenTable(const FrameContext& fc,
         return;
     }
 
-    const float cell_padding = TABLE_CELL_PADDING;
     const float border = TABLE_BORDER_WIDTH;
     const auto& tl = *tl_ptr;
     const auto& selection = fc.selection;
@@ -88,7 +87,7 @@ void CommandGenerator::GenTable(const FrameContext& fc,
     // x は列順に単調なので、可視列は連続した区間 [c_begin, c_end) になる。
     size_t c_begin = 0;
     float x_begin = offset_x + border;
-    while (c_begin < col_count && x_begin + tl.col_widths[c_begin] + cell_padding * 2.0f < cull_left) {
+    while (c_begin < col_count && x_begin + tl.ColumnStep(c_begin) - border < cull_left) {
         x_begin += tl.ColumnStep(c_begin);
         ++c_begin;
     }

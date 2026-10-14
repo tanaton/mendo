@@ -72,28 +72,6 @@ constexpr size_t TableRowsPerChunk(size_t col_count) noexcept
     return std::max<size_t>(1, kCellsPerChunk / std::max<size_t>(col_count, 1));
 }
 
-void RebuildRowCumY(TableLayoutData& tl, size_t row_count, float border_width)
-{
-    tl.row_cum_y.resize(row_count + 1);
-    float ry = 0.0f;
-    for (size_t r = 0; r < row_count; r++) {
-        tl.row_cum_y[r] = ry;
-        ry += tl.row_heights[r] + border_width;
-    }
-    tl.row_cum_y[row_count] = ry;
-}
-
-void RebuildColCumX(TableLayoutData& tl, size_t col_count, float border_width)
-{
-    tl.col_cum_x.resize(col_count + 1);
-    float cx = border_width;
-    for (size_t c = 0; c < col_count; c++) {
-        tl.col_cum_x[c] = cx;
-        cx += tl.ColumnStep(c);
-    }
-    tl.col_cum_x[col_count] = cx;
-}
-
 // 1 行目の高さを取得し entry にキャッシュする。layout 自体は変えない。
 void CacheFirstLineHeight(IDWriteTextLayout* layout, NodeLayoutEntry& entry) noexcept
 {
@@ -466,8 +444,8 @@ void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayou
     });
 
     // ヒットテスト高速化用に行Y累積と列X累積を事前計算
-    RebuildRowCumY(tl, tbl.row_count, border_width);
-    RebuildColCumX(tl, col_count, border_width);
+    tl.RebuildRowCumY(tbl.row_count);
+    tl.RebuildColCumX();
     const float total_height = tl.row_cum_y[tbl.row_count] + border_width;
 
     // col_cum_x の末尾は border_width + Σ(col_w + 2*pad + border) と一致するため再計算しない。
@@ -527,7 +505,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
     }
     if (result.height_changed) {
         const float border_width = TABLE_BORDER_WIDTH;
-        RebuildRowCumY(tl, row_count, border_width);
+        tl.RebuildRowCumY(row_count);
         entry.height = border_width + tl.row_cum_y[row_count];
         entry.cached_height = entry.height;
     }

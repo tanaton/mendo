@@ -151,19 +151,15 @@ TooltipTarget App::BuildMdContentTooltip(int hit_node, std::optional<LinkHit> li
 App::MdPaneHit App::ResolveMdPaneHit(float dip_x, float dip_y, const MdPaneHitContext& hit_ctx, const PaneLayout& pane_layout) const
 {
     using Kind = MdPaneHit::Kind;
-    if (state_.search.search_state.IsVisible()) {
-        const auto sbl = ComputeSearchBarLayoutForMd(pane_layout.md_rect);
-        if (dip_y >= sbl.bar_top) {
-            return { .kind = Kind::SearchBar, .search_bar = HitTestSearchBar(sbl, dip_x, dip_y) };
-        }
+    if (const auto sbl = SearchBarLayoutAt(dip_y, pane_layout.md_rect)) {
+        return { .kind = Kind::SearchBar, .search_bar = HitTestSearchBar(*sbl, dip_x, dip_y) };
     }
     if (const auto nav = hit_test::NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect); nav != NavButtonHover::None) {
         return { .kind = Kind::NavButton, .nav = nav };
     }
     // 1 回の可視ノード走査でコピー/保存/ダイアグラムコピーボタンを同時に判定する。
     // 縮小表示で余白が狭いとボタンがスクロールバーのヒット余白に掛かるので、ボタンを優先する。
-    if (const auto buttons = hit_test::CodeBlockButtonsHitTest(hit_ctx);
-        buttons.copy_node >= 0 || buttons.save_node >= 0 || buttons.diagram_copy_node >= 0) {
+    if (const auto buttons = hit_test::CodeBlockButtonsHitTest(hit_ctx); buttons.Any()) {
         return { .kind = Kind::OverlayButton, .buttons = buttons };
     }
     if (IsOverMdScrollbar(dip_x, dip_y, pane_layout)) {

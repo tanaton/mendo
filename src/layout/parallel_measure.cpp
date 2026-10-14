@@ -24,12 +24,11 @@ int MeasureChunk(
     // 例外はノード単位で捕まえる。chunk 単位だと失敗ノードを特定できず、同じ chunk の残りも計測されない。
     // 失敗回数は worker が担当する自エントリにだけ書くので同期は要らない。
     // DiagramEntry は計測中に追加・削除されないので、worker から読むだけなら同期は要らない。
-    const LayoutCache& diagrams = cache;
     int failed = 0;
     for (const size_t i : chunk_indices) {
         auto& entry = cache[i];
         const float indent = NodeIndent(nodes[i], theme);
-        const DiagramEntry* image = nodes[i].type == NodeType::Image ? diagrams.FindDiagram(i) : nullptr;
+        const DiagramEntry* image = nodes[i].type == NodeType::Image ? cache.FindDiagram(i) : nullptr;
         try {
             MeasureEntry(backend, nodes[i], entry, content_width - indent, viewport, cache.Top(i), image);
         } catch (...) {

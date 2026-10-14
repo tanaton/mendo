@@ -7,8 +7,7 @@
 
 void App::EnsureScrollTarget()
 {
-    state_.view.viewport.EnsureScrollTarget(
-        state_.document.layout_cache);
+    state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
 }
 
 void App::ViewportLayout(float md_width, float md_height)

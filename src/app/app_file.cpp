@@ -202,10 +202,8 @@ void App::OnParseComplete()
     MENDO_PROFILE("OnParseComplete");
 
     auto outcome = file_load_service_.TakeAsync();
-    AsyncLoadResult* const result = (outcome && *outcome) ? &**outcome : nullptr;
-    const std::optional<FileLoadError> err = (outcome && !*outcome) ? std::optional{ outcome->error() } : std::nullopt;
     const auto plan = PlanParseComplete(
-        result, err, file_load_service_.IsAsyncLoading(), state_.document.doc,
+        outcome, file_load_service_.IsAsyncLoading(), state_.document.doc,
         [](const std::pmr::wstring& path, size_t read_size) { return IsFileLargerThan(path.c_str(), read_size); });
 
     if (plan.step == ParseCompleteStep::IgnoreStale) {
@@ -215,6 +213,8 @@ void App::OnParseComplete()
 
     StopLoadingAnimation();
 
+    // ApplyReload / ReplaceWithResult のときだけ結果がある。
+    AsyncLoadResult* const result = (outcome && *outcome) ? &**outcome : nullptr;
     if (plan.reload) {
         MENDO_TRACEF("OnParseComplete: reload worker_diff={} node_count={} diff_pos={} new_size={} op={}",
                      result->reload.has_value(), result->doc.GetNodes().size(), plan.reload->diff_pos,

@@ -710,8 +710,3 @@ std::optional<LinkHit> FindLinkHitAtPosition(const Node& node, uint32_t text_pos
     }
     return FindLinkInRuns(node.runs(), node.view_link_urls(), text_pos);
 }
-
-std::optional<std::string_view> FindLinkAtPosition(const Node& node, uint32_t text_pos)
-{
-    return FindLinkHitAtPosition(node, text_pos).transform([](const LinkHit& h) noexcept { return h.url; });
-}
