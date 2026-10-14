@@ -188,19 +188,22 @@ private:
     // (layout, doc_start, doc_length) 一致でフレーム間キャッシュをヒットさせ
     // HitTestTextRange と UTF-8→UTF-16 decode の両方を省く。doc_start / doc_length は UTF-8 byte 単位。
     void GenSelectionHighlightCached(const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y);
-    void GenSearchHighlights(const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y, int table_row = -1, int table_col = -1);
+    // 本文ノードのマッチのうち可視範囲の前後の行にかかるものを描く。
+    void GenSearchHighlights(const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y);
+    void GenCellSearchHighlights(const NodeLayoutEntry& entry, int node_index, size_t row, size_t col, float origin_x, float origin_y);
 
-    // 検索ハイライトのキャッシュが古い場合に再構築する。
-    // matches[first_global, first_global + node_match_count) が当該ノードのマッチ。
-    void RebuildSearchHlCache(
-        SearchHlCache& cache, const NodeLayoutEntry& entry,
-        std::span<const SearchMatch> matches, size_t first_global, size_t node_match_count);
+    // ノードのマッチと、現在の検索世代に揃えたキャッシュ。マッチが無ければ matches は空。
+    struct NodeSearchMatches {
+        std::span<const SearchMatch> matches;
+        size_t first_global = 0;
+        SearchHlCache* cache = nullptr;
+    };
+    NodeSearchMatches PrepareNodeSearchMatches(const NodeLayoutEntry& entry, int node_index);
+    // matches[begin, end) のうち未計算のものを layout で計算し、FillRectCmd を積む。layout が null なら計算を見送る。
+    void EmitSearchMatches(const NodeSearchMatches& nm, IDWriteTextLayout* layout, size_t begin, size_t end, float origin_x, float origin_y);
 
-    // 構築済みキャッシュから FillRectCmd を発行する。
-    // table_row / table_col に該当するマッチのみ origin に加算して描画。
-    void EmitSearchHlCommands(const SearchHlCache& cache,
-        std::span<const SearchMatch> matches, size_t first_global,
-        float origin_x, float origin_y, int table_row, int table_col);
+    // origin_y に置いた本文 layout の、可視範囲の上下に 1 画面ずつ足した行のテキスト範囲。
+    const LineWindow& LineWindowAround(const NodeLayoutEntry& entry, float origin_y) const;
 
     // 書式の揃えに従って origin から box の範囲に text を描く。
     void EmitText(std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, D2D1_COLOR_F color, BrushId brush_id = BrushId::Custom);

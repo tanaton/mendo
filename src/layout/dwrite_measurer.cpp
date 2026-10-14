@@ -499,10 +499,6 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
         }
     }
 
-    // evict 中の行のマッチは空矩形でキャッシュされているため、復元したら作り直させる。
-    if (result.restored) {
-        entry.invalidate_search_hl_cache();
-    }
     if (result.height_changed) {
         const float border_width = TABLE_BORDER_WIDTH;
         tl.RebuildRowCumY(row_count);

@@ -37,6 +37,19 @@ inline int FindFirstNodeIndexByType(const std::pmr::vector<Node>& nodes, NodeTyp
     return -1;
 }
 
+// "line 0\nline 1\n..." の n 行を持つコードブロックの Markdown を返す。
+inline std::string MakeCodeBlockMd(int n)
+{
+    std::string md = "```\n";
+    for (int i = 0; i < n; ++i) {
+        md += "line ";
+        md += std::to_string(i);
+        md += "\n";
+    }
+    md += "```\n";
+    return md;
+}
+
 // "Paragraph 0<suffix>\n\nParagraph 1<suffix>\n\n..." の n 段落 Markdown を返す。
 inline std::string MakeParagraphs(int n, std::string_view suffix = {})
 {

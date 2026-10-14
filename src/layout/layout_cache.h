@@ -3,6 +3,7 @@
 #include "png_bytes.h"
 #include "ui_constants.h"
 #include <cstdint>
+#include <limits>
 #include <vector>
 #include <memory>
 #include <memory_resource>
@@ -190,24 +191,53 @@ constexpr D2D1_POINT_2F TableCellTextOrigin(float cell_left, float row_top) noex
     return { cell_left + TABLE_CELL_PADDING, row_top + TABLE_CELL_PADDING };
 }
 
-// 検索ハイライト矩形のフレーム間キャッシュ。
-// match i (ノード内順) の矩形は rects[rect_ends[i-1] ... rect_ends[i]) (i=0 なら 0 始まり)。
-// gen が SearchState の generation と一致する間は HitTestTextRange 再計算をスキップする。
+// レイアウトローカル Y の範囲 [top, bottom]。既定値はどの範囲も含まない空範囲。
+struct LocalYRange {
+    float top = std::numeric_limits<float>::infinity();
+    float bottom = -std::numeric_limits<float>::infinity();
+
+    constexpr bool Contains(const LocalYRange& r) const noexcept
+    {
+        return top <= r.top && r.bottom <= bottom;
+    }
+};
+
+// 本文 text_layout のうち、ローカル Y 範囲 y にかかる行のテキスト範囲 [text_begin, text_end) (UTF-16)。
+// 検索・選択ハイライトが共有し、可視範囲が y に収まる間は引き直さない。
+struct LineWindow {
+    LocalYRange y;
+    uint32_t text_begin = 0;
+    uint32_t text_end = 0;
+};
+
+// 検索ハイライト矩形のフレーム間キャッシュ。マッチは可視範囲に入ったものだけ計算する。
+// ノード内マッチ i の矩形は rects[spans[i].begin, spans[i].begin + spans[i].count)。
+// gen が SearchState の generation と一致する間は計算済みの矩形を使い回す。
 struct SearchHlCache {
+    struct Span {
+        static constexpr uint32_t NOT_COMPUTED = UINT32_MAX;
+        uint32_t begin = 0;
+        uint32_t count = NOT_COMPUTED;
+    };
     std::pmr::vector<D2D1_RECT_F> rects;
-    std::pmr::vector<uint32_t> rect_ends;
+    std::pmr::vector<Span> spans;
     uint32_t gen = 0;
 };
 
 // 選択ハイライト矩形のフレーム間キャッシュ。本文ノード（テーブル外）でのみ使用。
-// (layout, start, length) が一致する間は HitTestTextRange 再計算をスキップする。
-// 新規構築時の layout_ptr=nullptr は確実にミス判定になるため、validity フラグは持たない。
+// rects は選択範囲を LineWindow で切り詰めた [rects_begin_w, rects_end_w) の分だけを持ち、
+// 切り詰めた範囲が変わらない間は HitTestTextRange 再計算をスキップする。
+// (layout, start, length) は UTF-8 → UTF-16 変換の結果 [start_w, end_w) を使い回すためのキー。
 // text_layout 失効時は invalidate_selection_hl_cache() で unique_ptr ごと破棄する契約。
 struct SelectionHlCache {
     std::pmr::vector<D2D1_RECT_F> rects;
     IDWriteTextLayout* layout_ptr = nullptr;
     uint32_t start = 0;
     uint32_t length = 0;
+    uint32_t start_w = 0;
+    uint32_t end_w = 0;
+    uint32_t rects_begin_w = 0;
+    uint32_t rects_end_w = 0;
 };
 
 namespace mendo::layout::detail {
@@ -334,12 +364,20 @@ struct NodeLayoutEntry {
         }
     }
 
+    constexpr LineWindow& ensure_line_window() const
+    {
+        return mendo::layout::detail::EnsureUnique(ensure_aux().line_window);
+    }
+
     // text_layout の wrap や format 属性が変わった際に、行折り返し由来のキャッシュ
-    // (検索ハイライト矩形 / 選択ハイライト矩形) を一括で落とす。
+    // (検索ハイライト矩形 / 選択ハイライト矩形 / 可視行のテキスト範囲) を一括で落とす。
     constexpr void invalidate_per_frame_hl_caches() const noexcept
     {
         invalidate_search_hl_cache();
         invalidate_selection_hl_cache();
+        if (aux_) {
+            aux_->line_window.reset();
+        }
     }
 
     // テーブルのみ確保。未確保なら nullptr。
@@ -427,6 +465,7 @@ private:
         std::unique_ptr<TableLayoutData> table_layout;
         std::unique_ptr<SearchHlCache> search_hl_cache;
         std::unique_ptr<SelectionHlCache> selection_hl_cache;
+        std::unique_ptr<LineWindow> line_window;
     };
 
     constexpr Aux& ensure_aux() const

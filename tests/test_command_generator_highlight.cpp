@@ -3,13 +3,18 @@
 // ハイライトの矩形発行と「検索→選択→本文」の順序は検証できない。本ファイルは
 // 実 IDWriteFactory を使う DWriteTestBase の上で、その経路を踏む。
 #include <gtest/gtest.h>
+#include "cmd_gen_mock_test_base.h"
 #include "command_generator.h"
+#include "document_test_helpers.h"
 #include "draw_command.h"
 #include "dwrite_test_base.h"
 #include "search_state.h"
 #include "text_types.h"
+#include <algorithm>
 #include <initializer_list>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -27,19 +32,24 @@ std::vector<size_t> ExtractCmdKinds(const DrawCommandList& cmds)
     return kinds;
 }
 
-std::optional<D2D1_RECT_F> FindFirstFillRectByColor(const DrawCommandList& cmds,
-                                                    std::initializer_list<D2D1_COLOR_F> colors)
+std::vector<D2D1_RECT_F> CollectRectsByColor(const DrawCommandList& cmds, std::initializer_list<D2D1_COLOR_F> colors)
 {
+    std::vector<D2D1_RECT_F> rects;
     for (const auto& c : cmds) {
         if (auto* fr = std::get_if<FillRectCmd>(&c)) {
-            for (const auto& col : colors) {
-                if (ColorEq(fr->color, col)) {
-                    return fr->rect;
-                }
+            if (std::ranges::any_of(colors, [&](const D2D1_COLOR_F& col) { return ColorEq(fr->color, col); })) {
+                rects.push_back(fr->rect);
             }
         }
     }
-    return std::nullopt;
+    return rects;
+}
+
+std::optional<D2D1_RECT_F> FindFirstFillRectByColor(const DrawCommandList& cmds,
+                                                    std::initializer_list<D2D1_COLOR_F> colors)
+{
+    const auto rects = CollectRectsByColor(cmds, colors);
+    return rects.empty() ? std::nullopt : std::optional{ rects.front() };
 }
 
 class HighlightOrderTest : public DWriteTestBase {
@@ -142,20 +152,8 @@ TEST_F(HighlightOrderTest, CurrentMatchUsesCurrentColor)
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{});
 
-    int n_default = 0;
-    int n_current = 0;
-    for (const auto& c : cmds) {
-        if (auto* fr = std::get_if<FillRectCmd>(&c)) {
-            if (ColorEq(fr->color, theme_.search_highlight_color)) {
-                n_default++;
-            }
-            else if (ColorEq(fr->color, theme_.search_highlight_current_color)) {
-                n_current++;
-            }
-        }
-    }
-    EXPECT_GE(n_default, 1) << "非カレントの検索マッチが少なくとも 1 つあるはず";
-    EXPECT_GE(n_current, 1) << "カレントマッチが 1 つあるはず";
+    EXPECT_GE(CollectRectsByColor(cmds, { theme_.search_highlight_color }).size(), 1u) << "非カレントの検索マッチが少なくとも 1 つあるはず";
+    EXPECT_GE(CollectRectsByColor(cmds, { theme_.search_highlight_current_color }).size(), 1u) << "カレントマッチが 1 つあるはず";
 }
 
 // start == end の選択範囲は描画ハイライトを発行しない。
@@ -242,30 +240,145 @@ TEST_F(HighlightOrderTest, SelectionHighlightHandlesUtf8MultibyteOffset)
     EXPECT_NEAR(rect2->right - rect2->left, rect1->right - rect1->left, 2.0f);
 }
 
-// 巨大ノードの全選択でも、可視 Y 範囲外の選択矩形は FillRect を積まない。
-TEST_F(HighlightOrderTest, SelectionRectsCulledToViewport)
+namespace {
+
+size_t ComputedMatchCount(const NodeLayoutEntry& entry)
 {
-    std::string md = "```\n";
-    for (int i = 0; i < 1000; ++i) {
-        md += "line " + std::to_string(i) + "\n";
+    return static_cast<size_t>(std::ranges::count_if(entry.ensure_search_hl_cache().spans, [](const SearchHlCache::Span& s) {
+        return s.count != SearchHlCache::Span::NOT_COMPUTED;
+    }));
+}
+
+class VisibleHighlightTest : public HighlightOrderTest {
+protected:
+    static constexpr PaneRect PANE{ 0.0f, 0.0f, 800.0f, 200.0f };
+    SearchState search_;
+
+    void Search(const ParsedLayout& pl, std::string_view query)
+    {
+        search_.SetQuery(query);
+        search_.ExecuteSearch(pl.nodes);
+        gen_.SetSearchMatches(&search_.GetMatches(), -1, search_.GetGeneration());
     }
-    md += "```\n";
-    auto pl = ParseAndLayout(md);
-    ASSERT_EQ(pl.nodes.size(), 1u);
-    const auto text_size = static_cast<uint32_t>(pl.nodes[0].GetText().size());
 
-    TextSelection sel = TextSelection::MakeOrdered(0, 0, 0, text_size);
-    sel.active = true;
-    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 200.0f };
-    const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, sel);
+    // ノード 0 の全マッチを HitTestTextRange して可視判定した結果と、描かれた検索ハイライトを突き合わせる。
+    void ExpectSearchRectsMatchAllMatches(const ParsedLayout& pl, float scroll_y)
+    {
+        auto* layout = pl.cache[0].text_layout();
+        ASSERT_NE(layout, nullptr);
+        const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, scroll_y, TextSelection{});
+        const auto text_cmd = FindFirst<DrawTextLayoutCmd>(cmds, [&](const DrawTextLayoutCmd& t) { return t.layout == layout; });
+        ASSERT_TRUE(text_cmd.has_value());
 
-    size_t selection_rects = 0;
-    for (const auto& c : cmds) {
-        if (auto* fr = std::get_if<FillRectCmd>(&c); fr && ColorEq(fr->color, SELECTION_COLOR)) {
-            ++selection_rects;
-            EXPECT_LE(fr->rect.top, pane.height);
+        std::vector<D2D1_RECT_F> expected;
+        std::pmr::vector<DWRITE_HIT_TEST_METRICS> buf;
+        for (const auto& m : search_.GetMatches()) {
+            const UINT32 n = FetchHitTestMetrics(layout, m.start_w, m.length_w, buf);
+            for (UINT32 k = 0; k < n; ++k) {
+                const auto r = RectFromHitTest(buf[k], text_cmd->origin.x, text_cmd->origin.y);
+                if (!IsOffscreen(r.top, r.bottom - r.top, 0.0f, PANE.height)) {
+                    expected.push_back(r);
+                }
+            }
+        }
+        const auto actual = CollectRectsByColor(cmds, { theme_.search_highlight_color, theme_.search_highlight_current_color });
+        ASSERT_FALSE(expected.empty());
+        ASSERT_EQ(actual.size(), expected.size()) << "scroll_y=" << scroll_y;
+        for (size_t i = 0; i < actual.size(); ++i) {
+            EXPECT_NEAR(actual[i].left, expected[i].left, 0.01f);
+            EXPECT_NEAR(actual[i].top, expected[i].top, 0.01f);
+            EXPECT_NEAR(actual[i].right, expected[i].right, 0.01f);
+            EXPECT_NEAR(actual[i].bottom, expected[i].bottom, 0.01f);
         }
     }
-    EXPECT_GT(selection_rects, 0u);
-    EXPECT_LT(selection_rects, 50u) << "1000 行ぶんの矩形を積んでいる";
+};
+
+} // namespace
+
+// 巨大コードブロックで頻出語を検索しても、矩形を計算するのは可視範囲の前後のマッチだけ。
+TEST_F(VisibleHighlightTest, CodeBlockSearchComputesOnlyMatchesNearViewport)
+{
+    auto pl = ParseAndLayout(MakeCodeBlockMd(1000));
+    ASSERT_EQ(pl.nodes.size(), 1u);
+    Search(pl, "line");
+    ASSERT_EQ(search_.GetMatchCount(), 1000);
+
+    ASSERT_NO_FATAL_FAILURE(ExpectSearchRectsMatchAllMatches(pl, 0.0f));
+    const size_t computed_top = ComputedMatchCount(pl.cache[0]);
+    EXPECT_GT(computed_top, 0u);
+    EXPECT_LT(computed_top, 100u);
+
+    // 下へスクロールしても、離れた位置へ飛んでも、全マッチを引いた場合と同じ矩形を描く。
+    const float h = pl.cache[0].height;
+    for (const float y : { 150.0f, 300.0f, h * 0.5f, h * 0.5f - 120.0f, h - PANE.height }) {
+        ASSERT_NO_FATAL_FAILURE(ExpectSearchRectsMatchAllMatches(pl, y));
+    }
+    EXPECT_LT(ComputedMatchCount(pl.cache[0]), 400u);
+}
+
+// 折り返しのある長い段落でも、可視範囲の上下の行にかかるマッチを取りこぼさない。
+TEST_F(VisibleHighlightTest, WrappedParagraphSearchMatchesAllMatchesRects)
+{
+    std::string md;
+    for (int i = 0; i < 3000; ++i) {
+        md += "alpha beta ";
+    }
+    auto pl = ParseAndLayout(md);
+    ASSERT_EQ(pl.nodes.size(), 1u);
+    // マッチは空白を含むので、空白で折り返すと 2 行にまたがる。
+    Search(pl, "a beta a");
+    ASSERT_GT(search_.GetMatchCount(), 1000);
+
+    const float h = pl.cache[0].height;
+    ASSERT_GT(h, PANE.height * 4.0f);
+    for (const float y : { 0.0f, 37.0f, h * 0.5f, h * 0.5f + 13.0f, h - PANE.height }) {
+        ASSERT_NO_FATAL_FAILURE(ExpectSearchRectsMatchAllMatches(pl, y));
+    }
+    EXPECT_LT(ComputedMatchCount(pl.cache[0]), static_cast<size_t>(search_.GetMatchCount()));
+}
+
+// 巨大テーブルでも、矩形を計算するのは描いたセルのマッチだけ。
+TEST_F(VisibleHighlightTest, TableSearchComputesOnlyVisibleCells)
+{
+    std::string md = "| A | B | C |\n|---|---|---|\n";
+    for (int r = 0; r < 300; ++r) {
+        md += "| cell | cell | cell |\n";
+    }
+    auto pl = ParseAndLayout(md);
+    ASSERT_EQ(pl.nodes.size(), 1u);
+    Search(pl, "cell");
+    ASSERT_EQ(search_.GetMatchCount(), 900);
+
+    const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, 0.0f, TextSelection{});
+    EXPECT_FALSE(CollectRectsByColor(cmds, { theme_.search_highlight_color }).empty());
+    const size_t computed = ComputedMatchCount(pl.cache[0]);
+    EXPECT_GT(computed, 0u);
+    EXPECT_LT(computed, 100u);
+
+    const auto& cmds2 = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, pl.cache[0].height * 0.5f, TextSelection{});
+    EXPECT_FALSE(CollectRectsByColor(cmds2, { theme_.search_highlight_color }).empty());
+    EXPECT_LT(ComputedMatchCount(pl.cache[0]), 200u);
+}
+
+// 全行選択でも、矩形を引くのは可視範囲の前後の行だけ。スクロール先でも選択を描く。
+TEST_F(VisibleHighlightTest, SelectionComputesOnlyLinesNearViewport)
+{
+    auto pl = ParseAndLayout(MakeCodeBlockMd(1000));
+    ASSERT_EQ(pl.nodes.size(), 1u);
+    const auto text_size = static_cast<uint32_t>(pl.nodes[0].GetText().size());
+    TextSelection sel = TextSelection::MakeOrdered(0, 0, 0, text_size);
+    sel.active = true;
+
+    for (const float y : { 0.0f, 100.0f, pl.cache[0].height * 0.5f }) {
+        const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, y, sel);
+        const auto rects = CollectRectsByColor(cmds, { SELECTION_COLOR });
+        ASSERT_GT(rects.size(), 5u) << "scroll_y=" << y;
+        EXPECT_LT(rects.size(), 50u) << "scroll_y=" << y << " で 1000 行ぶんの矩形を積んでいる";
+        // 可視範囲の上端 (本文の始まりより下へスクロールしたとき) と下端まで塗られている。
+        if (y > 0.0f) {
+            EXPECT_LE(std::ranges::min(rects, {}, &D2D1_RECT_F::top).top, 0.0f) << "scroll_y=" << y;
+        }
+        EXPECT_GE(std::ranges::max(rects, {}, &D2D1_RECT_F::bottom).bottom, PANE.height) << "scroll_y=" << y;
+        EXPECT_LT(pl.cache[0].ensure_selection_hl_cache().rects.size(), 100u) << "scroll_y=" << y;
+    }
 }
