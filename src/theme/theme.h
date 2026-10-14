@@ -18,7 +18,7 @@ struct Theme {
 
     // GitHub Alerts: AlertColorIndex() でインデックス
     D2D1_COLOR_F alert_color[ALERT_TYPE_COUNT];    // バー・ラベル色
-    D2D1_COLOR_F alert_bg_color[ALERT_TYPE_COUNT]; // 背景色
+    D2D1_COLOR_F alert_bg_color[ALERT_TYPE_COUNT];
 
     // シンタックスハイライトの色
     D2D1_COLOR_F syntax_keyword;

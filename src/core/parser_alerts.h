@@ -11,7 +11,7 @@
 // blockquote_indices は ParseMarkdown が収集した BlockQuote ノードのインデックス。書き換えたテキストと runs は arena に置く。
 void DetectAlerts(std::pmr::vector<Node>& nodes, TextArena& arena, std::span<const size_t> blockquote_indices);
 
-// text が Alert マーカー ([!TYPE] と直後の区切り 1 文字) だけからなるか。
+// text が Alert マーカー ([!TYPE] と直後の改行) だけからなるか。
 bool IsAlertMarkerOnly(std::string_view text);
 
 // nodes[i] が Alert マーカーを持ちうる位置 (最外側 blockquote の先頭段落) か。

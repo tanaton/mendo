@@ -24,7 +24,6 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
     const bool no_match = !sb.query.empty() && sb.total_matches == 0;
     rt()->FillRoundedRectangle(input_rrect, Brush(no_match ? BrushId::SearchNoMatchBg : BrushId::SearchInputBg));
 
-    // フォーカス時はリンク色で強調
     if (sb.has_focus) {
         if (auto* focus_brush = Brush(BrushId::Link)) {
             rt()->DrawRoundedRectangle(input_rrect, focus_brush, 1.5f);
@@ -103,7 +102,7 @@ float Renderer::DrawSearchInputText(const SearchBarRenderState& sb, const Search
         return text_left;
     }
 
-    // 選択範囲はテキストの背面に描画
+    // 文字を隠さないよう、選択範囲はテキストより先に塗る。
     const int text_len = static_cast<int>(search_input_.text.size());
     const bool has_selection = !has_comp && sb.selection_start >= 0 && sb.caret_pos >= 0 && sb.selection_start != sb.caret_pos;
     if (has_selection) {

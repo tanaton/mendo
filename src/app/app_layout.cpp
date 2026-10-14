@@ -128,7 +128,6 @@ void App::OnDeferredLayout()
 {
     MENDO_PROFILE("OnDeferredLayout");
 
-    // 1 回の遅延レイアウトで計測するノード数の上限。
     constexpr int kDeferredLayoutBatchNodes = 200;
 
     const PaneRect md = GetPaneLayout().md_rect;

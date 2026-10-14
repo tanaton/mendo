@@ -117,4 +117,5 @@ struct AppState {
 
 ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept;
 NavEntry CurrentNavEntry(const AppState& state);
-void PushCurrentNavEntry(AppState& state);
+// load_path: これから開くファイル。現在と別のファイルなら、ロード失敗 (LoadFailedAction) で取り消す仮の履歴にする。
+void PushCurrentNavEntry(AppState& state, std::wstring_view load_path = {});

@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <cstring>
+#include <future>
 #include <memory>
 
 // ダミーPNGデータを生成する（ファイルキャッシュの単体テスト用、有効なPNGである必要はない）。
@@ -44,6 +45,14 @@ protected:
         cache_.SetCacheDir(temp_dir_);
         scheduler_.Init(2);
         cache_.Init(dpr, scheduler_);
+    }
+
+    // 内部キーから PNG ファイル名を組み立てる (MermaidFileCache::GetPngPath と同じ書式)。
+    std::filesystem::path PngPathOf(uint64_t key) const
+    {
+        wchar_t name[24];
+        swprintf_s(name, L"%016llx.png", cache_.InternalKeyForTest(key));
+        return temp_dir_ / name;
     }
 
     // 再ロード用の新しいキャッシュを作成
@@ -142,9 +151,7 @@ TEST_F(MermaidFileCacheTest, LookupCleansUpStaleIndexEntry)
     FlushAndReopen();
 
     // PNGファイルを手動削除してからLookup（内部キーでファイル名を計算）
-    wchar_t name[24];
-    swprintf_s(name, L"%016llx.png", cache_.InternalKeyForTest(42ULL));
-    std::filesystem::remove(temp_dir_ / name);
+    std::filesystem::remove(PngPathOf(42ULL));
 
     MermaidFileCache::CacheEntry entry;
     MermaidFileCache::PngBlob out;
@@ -496,9 +503,7 @@ TEST_F(MermaidFileCacheTest, AsyncWriteCreatesFile)
     scheduler_.Shutdown();
 
     // PNGファイルが存在すること（内部キーでファイル名を計算）
-    wchar_t name[24];
-    swprintf_s(name, L"%016llx.png", cache_.InternalKeyForTest(777ULL));
-    EXPECT_TRUE(std::filesystem::exists(temp_dir_ / name));
+    EXPECT_TRUE(std::filesystem::exists(PngPathOf(777ULL)));
 
     // TearDownのためにスケジューラを再起動
     scheduler_.Init(2);
@@ -653,4 +658,32 @@ TEST_F(MermaidFileCacheTest, LookupDuringPendingWriteKeepsIndex)
     // タスクが先行して完了した場合は LookupDimensions も成功する。
     EXPECT_TRUE(cache_.LookupDimensions(key, entry))
         << "pending write 中に index が消されている（orphan PNG の温床）";
+}
+
+// 書き込み中に追い出されたキーの PNG は、着地後に消えて孤立ファイルとして残らない。
+TEST_F(MermaidFileCacheTest, EvictionDuringPendingWriteLeavesNoOrphanPng)
+{
+    scheduler_.Shutdown();
+    cache_.SetLimits(2, 1ULL * 1024 * 1024 * 1024);
+    InitCache();
+    scheduler_.Init(1);
+
+    // 唯一の worker を塞ぎ、以降の書き込みを確実に in-flight のまま止める。
+    std::promise<void> release;
+    std::shared_future<void> released = release.get_future().share();
+    ASSERT_TRUE(scheduler_.Post([released] { released.wait(); }));
+
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyPng(100)); // key=1 を追い出す
+    EXPECT_EQ(cache_.EntryCount(), 2u);
+
+    release.set_value();
+    scheduler_.Shutdown();
+
+    EXPECT_FALSE(std::filesystem::exists(PngPathOf(1)));
+    EXPECT_TRUE(std::filesystem::exists(PngPathOf(2)));
+    EXPECT_TRUE(std::filesystem::exists(PngPathOf(3)));
+
+    scheduler_.Init(2);
 }

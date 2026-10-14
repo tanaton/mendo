@@ -280,16 +280,25 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
     // 読み込みがファイル未着地で失敗しても OnReadFailed が index から消さないようにする。
     {
         const std::lock_guard lock(pending_mutex_);
-        pending_writes_.insert(key);
+        pending_writes_.insert_or_assign(key, false);
     }
 
     const uint32_t gen = write_gen_.load();
     auto path = GetPngPath(key);
     const bool posted = scheduler_->Post([this, key, path = std::move(path), data = std::move(png_data), gen, latch_guard = latch_.Acquire()] {
         // タスク完遂・キャンセルどちらの場合も pending を必ず解除する
-        auto guard = ScopeGuard([this, key] {
-            const std::lock_guard lock(pending_mutex_);
-            pending_writes_.erase(key);
+        auto guard = ScopeGuard([this, key, &path] {
+            bool evicted = false;
+            {
+                const std::lock_guard lock(pending_mutex_);
+                const auto node = pending_writes_.extract(key);
+                evicted = node && node.mapped();
+            }
+            // 書き込み中に追い出されたので、索引に無い孤立ファイルとして残さない。
+            if (evicted && !path.empty()) {
+                std::error_code ec;
+                std::filesystem::remove(path, ec);
+            }
         });
 
         if (write_gen_.load() != gen) {
@@ -319,9 +328,20 @@ void MermaidFileCache::EvictIfNeeded(IndexState& index, uint32_t new_png_size)
 {
     while (!index.entries.empty() && (index.entries.size() >= max_entries_ || index.total_size + new_png_size > max_total_size_)) {
         const auto oldest = std::ranges::min_element(index.entries, {}, [](const auto& kv) { return kv.second.last_used; });
-        if (const auto png_path = GetPngPath(oldest->first); !png_path.empty()) {
-            std::error_code ec;
-            std::filesystem::remove(png_path, ec);
+        // 書き込み中なら着地後に worker が消す。ここで消しても後から書かれて孤立ファイルになる。
+        bool pending = false;
+        {
+            const std::lock_guard lock(pending_mutex_);
+            if (const auto it = pending_writes_.find(oldest->first); it != pending_writes_.end()) {
+                it->second = true;
+                pending = true;
+            }
+        }
+        if (!pending) {
+            if (const auto png_path = GetPngPath(oldest->first); !png_path.empty()) {
+                std::error_code ec;
+                std::filesystem::remove(png_path, ec);
+            }
         }
         index.Remove(oldest);
     }

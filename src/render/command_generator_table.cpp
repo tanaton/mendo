@@ -111,7 +111,6 @@ void CommandGenerator::GenTable(const FrameContext& fc,
 
         cmds_.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y), theme_->hr_color, border, BrushId::Hr });
 
-        // 可視列 [c_begin, c_end) だけコマンドを生成する。
         float cx = x_begin;
         for (size_t c = c_begin; c < c_end; c++) {
             const auto [text_x, text_y] = TableCellTextOrigin(cx, y);

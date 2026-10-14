@@ -13,6 +13,8 @@ void ApplyNavResult(AppState& state, SideEffectList& effects, NavEntry&& entry)
         PushEffect(effects, effect::LoadFile{ std::move(entry.file_path) });
     }
     else {
+        // ロードを伴わないので、ここで確定しないと後の無関係なロード失敗で取り消される。
+        state.view.nav_history.CommitPending();
         ApplyScrollTargetAndEmit(state, effects, entry.node, entry.offset, /*toc_auto_scroll=*/true);
     }
 }
@@ -31,7 +33,7 @@ void NavigateHistory(AppState& state, SideEffectList& effects, bool forward)
 // 現在位置を履歴に積んでから別ファイルを開く。
 void OpenFileWithHistory(AppState& state, SideEffectList& effects, const std::pmr::wstring& path)
 {
-    PushCurrentNavEntry(state);
+    PushCurrentNavEntry(state, path);
     PushEffect(effects, effect::LoadFile{ path });
 }
 
@@ -94,12 +96,18 @@ void ReduceTocItemClicked(AppState& state, SideEffectList& effects, const TocIte
 
 void ReduceNavigateAnchor(AppState& state, SideEffectList& effects, const NavigateAnchorAction& a)
 {
+    // リンク切れのアンカーで履歴を積むと、進む履歴が消えて戻っても同じ位置になる。
+    const int node_index = state.document.doc.FindAnchorIndex(a.anchor_id);
+    if (node_index < 0) {
+        return;
+    }
     PushCurrentNavEntry(state);
-    ScrollToHeading(state, effects, state.document.doc.FindAnchorIndex(a.anchor_id), /*toc_auto_scroll=*/true);
+    ScrollToHeading(state, effects, node_index, /*toc_auto_scroll=*/true);
 }
 
 void ReduceRestoreScrollAfterLoad(AppState& state)
 {
+    state.view.nav_history.CommitPending();
     auto& viewport = state.view.viewport;
     auto& restore = state.view.scroll_restore;
     if (restore.HasNodeRestore()) {
@@ -116,6 +124,7 @@ void ReduceRestoreScrollAfterLoad(AppState& state)
 // (起動時の失敗ならフォールバックのヘルプ) が無関係な位置へスクロールする。
 void ReduceLoadFailed(AppState& state)
 {
+    state.view.nav_history.RollbackPending();
     state.view.scroll_restore.ClearNodeRestore();
 }
 
@@ -127,7 +136,7 @@ void ReduceDropFiles(AppState& state, SideEffectList& effects, const DropFilesAc
 void ReduceShowHelp(AppState& state, SideEffectList& effects)
 {
     if (!IsHelpPath(state.document.doc.GetFilePath())) {
-        PushCurrentNavEntry(state);
+        PushCurrentNavEntry(state, HELP_PATH);
     }
     PushEffect(effects, effect::LoadFile{ std::pmr::wstring(HELP_PATH) });
 }

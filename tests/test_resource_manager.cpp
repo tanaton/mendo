@@ -316,6 +316,18 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesResolvesNonAsciiFileName)
     EXPECT_FLOAT_EQ(cache_[img_idx].height, 300.0f);
 }
 
+// md4c は src をパーセントエンコードのまま渡すので、ファイルパスにする前にデコードする。
+TEST_F(ResourceManagerTest, ApplyCachedImagesDecodesPercentEncodedPath)
+{
+    LoadMarkdown("![alt](my%20images/%E7%94%BB%E5%83%8F.png)\n");
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\my images\\\u753B\u50CF.png", 400.0f, 300.0f);
+
+    EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 1);
+
+    const size_t img_idx = doc_.GetImageNodeIndices()[0];
+    EXPECT_FLOAT_EQ(cache_[img_idx].height, 300.0f);
+}
+
 TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadReturnsZeroWhenCacheMisses)
 {
     LoadMarkdown("![alt](missing.png)\n");

@@ -84,10 +84,9 @@ struct ParseContext {
     // md4c の \n を size==1 の単独 chunk としてしか OnText に渡さない契約 (BR/SOFTBR/HTML 改行/code 行末) に依存している。
     int32_t pending_run_newlines = 0;
 
-    // ブロックコンテキスト追跡
     int indent_level = 0;
     int blockquote_depth = 0;
-    int blockquote_group_counter = 0;  // グループID生成用
+    int blockquote_group_counter = 0;
     int current_blockquote_group = -1; // 最外側 blockquote の group ID（ネスト中は共有）
     int outermost_quote_indent = 0;    // 最外側 blockquote 進入時の indent_level（描画時のバー起点）
 
@@ -95,7 +94,6 @@ struct ParseContext {
     // スタックアダプタを挟まず vector を直接扱う (back/push_back/pop_back)。
     std::pmr::vector<int> list_counter;
 
-    // 現在構築中のノード
     Node* current_node = nullptr;
 
     // AppendDoc / FlushPendingRun のターゲットバッファのキャッシュ。
@@ -774,13 +772,17 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
     return 0;
 }
 
+bool IsAlertMarkerOnlyHead(const ParseContext* ctx)
+{
+    return ctx->current_node && IsAlertHeadCandidate(ctx->nodes, ctx->current_node_index) && IsAlertMarkerOnly(ctx->current_text);
+}
+
 // "> [!NOTE]\n> ![img](p.png)" は md4c では 1 段落になり、画像段落として丸ごと Image に昇格すると
 // Alert 判定の対象 (引用ノード) が消える。マーカーだけのノードをここで閉じ、画像は同じ引用グループの
 // 次の段落で受けて、マーカーと画像が別段落の場合と同じ構造にする (Alert は後続ノードへ伝播する)。
 void SplitAlertMarkerBeforeImage(ParseContext* ctx)
 {
-    if (!ctx->current_node || !IsAlertHeadCandidate(ctx->nodes, ctx->current_node_index) ||
-        !IsAlertMarkerOnly(ctx->current_text)) {
+    if (!IsAlertMarkerOnlyHead(ctx)) {
         return;
     }
     // [![badge](b.svg)](url) では MD_SPAN_A が先に来て URL を閉じるノードへ登録済みなので、新ノードへ登録し直す。
@@ -982,7 +984,9 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     case MD_TEXT_SOFTBR:
         ctx->paragraph_has_other_content = true;
         ctx->current_node_needs_copy = true;
-        ctx->AppendDoc(" ");
+        // Alert マーカーだけの先頭行の後ろは改行のまま残す。空白にすると、GitHub が Alert にしない
+        // 同じ行の "[!NOTE] 本文" と区別できない。
+        ctx->AppendDoc(IsAlertMarkerOnlyHead(ctx) ? "\n" : " ");
         break;
 
     case MD_TEXT_NULLCHAR:

@@ -197,15 +197,15 @@ TEST_F(HitTestTest, HitTest_GapBetweenNodesClampsToPrecedingNodeEnd)
 
 TEST_F(HitTestTest, HitTest_TextlessCandidateFallsForwardToFirstNonEmpty)
 {
-    // candidate がテキストを持たないノード (alt 空の画像) の場合、
+    // candidate がテキストを持たないノード (水平線) の場合、
     // 後方探索が外れても -1 ではなく先頭の非空ノードに倒れること
-    auto pr = ParseAndLayout("![](x.png)\n\nHello");
+    auto pr = ParseAndLayout("---\n\nHello");
     ASSERT_GE(pr.nodes.size(), 2u);
+    ASSERT_EQ(pr.nodes[0].type, NodeType::HorizontalRule);
     ASSERT_TRUE(pr.nodes[0].GetText().empty());
     ASSERT_FALSE(pr.nodes[1].GetText().empty());
     ASSERT_GT(pr.cache[0].height, 0.0f);
 
-    // 画像ノードの範囲内クリック (text_layout が無いためフォールバック経路に入る)
     const float mid_y = pr.cache.Top(0) + pr.cache[0].height * 0.5f;
     MdPaneHitContext ctx{
         pr.nodes, pr.cache, theme_,
@@ -214,6 +214,26 @@ TEST_F(HitTestTest, HitTest_TextlessCandidateFallsForwardToFirstNonEmpty)
     auto r = hit_test::HitTest(ctx);
     EXPECT_EQ(r.node_index, 1);
     EXPECT_EQ(r.text_pos, 0u);
+}
+
+// alt が空の画像の上でも、前のノードへ移らず画像自身に当たる (src のツールチップを出すため)。
+TEST_F(HitTestTest, HitTest_InsideEmptyAltImageHitsImage)
+{
+    auto pr = ParseAndLayout("Before\n\n![](x.png)\n\nAfter");
+    ASSERT_EQ(pr.nodes.size(), 3u);
+    ASSERT_EQ(pr.nodes[1].type, NodeType::Image);
+    ASSERT_TRUE(pr.nodes[1].GetText().empty());
+    ASSERT_GT(pr.cache[1].height, 0.0f);
+
+    const float mid_y = pr.cache.Top(1) + pr.cache[1].height * 0.5f;
+    MdPaneHitContext ctx{
+        pr.nodes, pr.cache, theme_,
+        mid_y, PaneRect{ 0.0f, 0.0f, 0.0f, 0.0f }, 1.0f, 50, 0
+    };
+    const auto r = hit_test::HitTest(ctx);
+    EXPECT_EQ(r.node_index, 1);
+    EXPECT_EQ(r.text_pos, 0u);
+    EXPECT_EQ(hit_test::HitNode(ctx), 1);
 }
 
 // ホバーは HitNode でノードだけ求めるので、HitTest と同じノードを返すこと。

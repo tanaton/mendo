@@ -5,6 +5,8 @@
 #include <optional>
 #include <random>
 #include <string>
+#include <tuple>
+#include <utility>
 
 class NavHistoryTest : public ::testing::Test {
 protected:
@@ -194,8 +196,29 @@ public:
 
     void Push(const ModelEntry& e)
     {
+        saved_.reset();
         PushCapped(back_, e);
         forward_.clear();
+    }
+
+    // 仮の操作は直前の両スタックを丸ごと保存し、取り消しでそのまま戻す。
+    void PushPending(const ModelEntry& e)
+    {
+        saved_.emplace(back_, forward_);
+        PushCapped(back_, e);
+        forward_.clear();
+    }
+
+    void CommitPending()
+    {
+        saved_.reset();
+    }
+
+    void RollbackPending()
+    {
+        if (saved_) {
+            std::tie(back_, forward_) = *std::exchange(saved_, std::nullopt);
+        }
     }
 
     std::optional<ModelEntry> Transfer(bool forward, const ModelEntry& current)
@@ -205,6 +228,7 @@ public:
         if (from.empty()) {
             return std::nullopt;
         }
+        saved_.emplace(back_, forward_);
         PushCapped(to, current);
         ModelEntry out = from.back();
         from.pop_back();
@@ -213,6 +237,7 @@ public:
 
     void Clear()
     {
+        saved_.reset();
         back_.clear();
         forward_.clear();
     }
@@ -238,6 +263,7 @@ private:
     size_t max_;
     std::deque<ModelEntry> back_;
     std::deque<ModelEntry> forward_;
+    std::optional<std::pair<std::deque<ModelEntry>, std::deque<ModelEntry>>> saved_;
 };
 
 void RunNavHistoryModel(size_t max, uint32_t seed)
@@ -256,13 +282,28 @@ void RunNavHistoryModel(size_t max, uint32_t seed)
         const ModelEntry cur{ kPaths[pick(0, 4)], pick(-1, 50), static_cast<float>(pick(-100, 100)) };
         const int op = pick(0, 99);
         std::string label;
-        if (op < 35) {
+        if (op < 25) {
             label = "Push";
             hist.Push(NavEntry(cur.path, cur.node, cur.offset));
             model.Push(cur);
         }
+        else if (op < 35) {
+            label = "PushPending";
+            hist.PushPending(NavEntry(cur.path, cur.node, cur.offset));
+            model.PushPending(cur);
+        }
+        else if (op < 41) {
+            label = "CommitPending";
+            hist.CommitPending();
+            model.CommitPending();
+        }
+        else if (op < 49) {
+            label = "RollbackPending";
+            hist.RollbackPending();
+            model.RollbackPending();
+        }
         else if (op < 98) {
-            const bool forward = op >= 65;
+            const bool forward = op >= 73;
             label = forward ? "GoForward" : "GoBack";
             NavEntry out;
             const NavEntry cur_entry(cur.path, cur.node, cur.offset);

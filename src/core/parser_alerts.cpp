@@ -27,6 +27,9 @@ static_assert(std::ranges::all_of(std::views::iota(size_t{ 0 }, ALERT_TYPE_COUNT
     return AlertColorIndex(kAlerts[i].type) == i;
 }));
 
+// "[!" + 最長の名前 + "]"。マーカー判定はソフト改行ごとに走るので、']' を段落全体から探さない。
+constexpr size_t kMaxMarkerLength = 3 + std::ranges::max(kAlerts | std::views::transform([](const AlertInfo& e) { return e.name.value.size(); }));
+
 } // namespace
 
 std::string_view GetAlertLabel(AlertType type) noexcept
@@ -45,7 +48,7 @@ namespace {
 
 struct AlertMarker {
     AlertType type = AlertType::None;
-    size_t end = 0; // マーカー直後の区切り 1 文字を含む終端位置
+    size_t end = 0; // マーカー直後の改行を含む終端位置
 };
 
 // テキスト先頭の [!TYPE] パターンを検出する。
@@ -55,7 +58,7 @@ AlertMarker DetectAlertMarker(std::string_view text)
     if (text.size() < 3 || text[0] != '[' || text[1] != '!') {
         return {};
     }
-    const auto close = text.find(']');
+    const auto close = text.substr(0, kMaxMarkerLength).find(']');
     if (close == std::string_view::npos || close <= 2) {
         return {};
     }
@@ -68,11 +71,16 @@ AlertMarker DetectAlertMarker(std::string_view text)
         return {};
     }
 
-    size_t end = close + 1;
-    if (end < text.size() && (text[end] == ' ' || text[end] == '\n')) {
-        end++;
+    // GitHub はマーカーと本文が同じ行にある "[!NOTE] 本文" を Alert にしない。
+    // 行末の空白は md4c が落とすので、マーカー直後は改行か終端だけを見ればよい。
+    const size_t end = close + 1;
+    if (end == text.size()) {
+        return { it->type, end };
     }
-    return { it->type, end };
+    if (text[end] == '\n') {
+        return { it->type, end + 1 };
+    }
+    return {};
 }
 
 // マーカーを除去しアイコン+ラベルを挿入する。TextRunも調整する。
@@ -124,8 +132,8 @@ void TransformAlertNode(Node& node, TextArena& arena, AlertType type, size_t mar
     }
 
     // 全文走査で改行を数え直すと O(text) かかるため、ここで差分計算する。
-    // マーカー [!TYPE] 本体には改行が入らず、DetectAlertMarker で 1 文字だけスキップする
-    // 文字が \n の場合のみ改行 1 個。marker_end 直前の 1 文字だけを見ればよい。
+    // マーカー [!TYPE] 本体には改行が入らず、DetectAlertMarker が直後の改行を含めたときだけ
+    // 改行 1 個。marker_end 直前の 1 文字だけを見ればよい。
     const int32_t marker_newlines = (marker_end > 0 && current_text[marker_end - 1] == '\n');
     const int32_t new_line_count = node.line_count - marker_newlines + has_content;
     node.SetText(arena.CopyText(new_text), new_line_count);

@@ -413,7 +413,7 @@ std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wPara
 
 void Win32Window::OnContextMenu(int screen_x, int screen_y)
 {
-    // システムメニュー表示中はカスタムメニューを抑制
+    // システムメニューのモーダルループ中に WM_CONTEXTMENU が届いても、独自メニューを重ねて開かない。
     if (in_sys_menu_) {
         return;
     }
@@ -423,7 +423,6 @@ void Win32Window::OnContextMenu(int screen_x, int screen_y)
         app_->OnContextMenu(pt.x, pt.y);
         return;
     }
-    // マウス由来の場合、タイトルバー上の右クリックは抑制する
     POINT pt = { screen_x, screen_y };
     ScreenToClient(hwnd_, &pt);
     if (PixelToDip(static_cast<float>(pt.y), app_->GetDpiScale()) < app_->GetTitleBarHeightDip()) {
@@ -631,7 +630,6 @@ void Win32Window::ResetWindowPlacement()
         ShowWindow(hwnd_, SW_RESTORE);
     }
 
-    // プライマリモニターの作業領域に中央配置
     RECT work{};
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
     const int work_w = work.right - work.left;
@@ -788,7 +786,7 @@ LRESULT Win32Window::OnSearchEditKeyDown(HWND edit, WPARAM wParam, LPARAM lParam
         break;
     }
 
-    // 方向キー等: DefSubclassProcに処理させた後、キャレット位置を同期
+    // キャレットは D2D 側で描くので、EDIT が動かしたキャレット位置を描画用の状態へ写す。
     const LRESULT result = DefSubclassProc(edit, WM_KEYDOWN, wParam, lParam);
     SyncSearchCaretFromEdit();
     return result;
