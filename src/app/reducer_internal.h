@@ -3,6 +3,8 @@
 #include "app_events.h"
 #include "app_state_queries.h"
 #include "side_effect.h"
+#include <concepts>
+#include <utility>
 
 // reducer.cpp の std::visit ディスパッチから各ドメインの Reduce* 関数を呼ぶための内部宣言。
 // app 内専用で、公開 API (reducer.h) には含めない。
@@ -15,6 +17,15 @@ void ClearTooltip(AppState& state, SideEffectList& effects);
 // デフォルト引数にすると新経路が暗黙で true を拾うため、呼び出し側で必ず明示する。
 void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects, bool toc_auto_scroll);
 void EmitScrollEffects(AppState& state, SideEffectList& effects, float old_scroll);
+
+// f が viewport を直接動かした場合に、前後の scroll_y を比べて通常スクロールと同じ副作用を積む。
+template <std::invocable F>
+void WithScrollEffects(AppState& state, SideEffectList& effects, F&& f)
+{
+    const float old_scroll = state.view.viewport.GetScrollY();
+    std::forward<F>(f)();
+    EmitScrollEffects(state, effects, old_scroll);
+}
 
 // サイドペイン (ファイル/目次) のスクロール位置が変わった際の無効化副作用。
 void EmitSidePaneScrollChanged(SideEffectList& effects, PaneTarget pane);

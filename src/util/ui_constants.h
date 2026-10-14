@@ -94,7 +94,7 @@ inline constexpr float NAV_BTN_CORNER = 6.0f;
 inline constexpr float NAV_BTN_SCROLLBAR_OFFSET = 16.0f;
 
 // コードブロック コピーボタンの定数（DIP単位）。
-// CommandGenerator（描画）とHitTestService（クリック検出）の間で共有される。
+// CommandGenerator（描画）と hit_test（クリック検出）の間で共有される。
 inline constexpr float COPY_BTN_SIZE = 28.0f;
 inline constexpr float COPY_BTN_MARGIN = 6.0f;
 inline constexpr float COPY_BTN_CORNER = 4.0f;
@@ -252,13 +252,13 @@ struct SearchBarLayout {
     }
 };
 
-inline SearchBarLayout ComputeSearchBarLayout(float md_left, float md_width, float md_bottom, bool has_query) noexcept
+inline SearchBarLayout ComputeSearchBarLayout(const PaneRect& md_rect, bool has_query) noexcept
 {
     SearchBarLayout l;
-    const float bar_left = md_left;
-    const float bar_right = md_left + md_width;
-    l.bar_top = md_bottom - SEARCH_BAR_HEIGHT;
-    l.bar_bottom = md_bottom;
+    const float bar_left = md_rect.x;
+    const float bar_right = md_rect.x + md_rect.width;
+    l.bar_bottom = md_rect.y + md_rect.height;
+    l.bar_top = l.bar_bottom - SEARCH_BAR_HEIGHT;
 
     const float center_y = l.bar_top + (SEARCH_BAR_HEIGHT - SEARCH_INPUT_HEIGHT) / 2.0f;
     const float center_bottom = center_y + SEARCH_INPUT_HEIGHT;
@@ -380,7 +380,7 @@ inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top, Diagr
 }
 
 // Mermaidダイアグラムのビットマップ描画矩形を計算する（スケーリング＋中央寄せ）。
-// CommandGenerator（描画）とHitTestService（クリック検出）の間で共有される。
+// CommandGenerator（描画）と hit_test（クリック検出）の間で共有される。
 inline D2D1_RECT_F MermaidBitmapRect(float diagram_w, float diagram_h, float x, float cw, float y) noexcept
 {
     float draw_w = diagram_w;

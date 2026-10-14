@@ -1,6 +1,6 @@
 #pragma once
 #include "layout_cache.h"
-#include "measure_backend.h"
+#include "text_measurer.h"
 #include <cstdint>
 #include <limits>
 #include <span>
@@ -65,7 +65,7 @@ int MeasureIndicesParallel(
     LayoutCache& cache,
     float content_width,
     const Theme& theme,
-    const IMeasureBackend& backend,
+    const ITextMeasurer& backend,
     std::span<const size_t> indices,
     MeasureViewportRange viewport,
     TaskScheduler* scheduler);
@@ -77,7 +77,7 @@ DirtyBatchResult RunParallel(
     LayoutCache& cache,
     float content_width,
     const Theme& theme,
-    const IMeasureBackend& backend,
+    const ITextMeasurer& backend,
     ViewportClip clip,
     int max_nodes,
     TaskScheduler* scheduler);

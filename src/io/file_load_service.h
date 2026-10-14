@@ -16,7 +16,7 @@ class TaskScheduler;
 // ファイル読み込みのオーケストレーション。
 // 内部に LoadingAnimation / Preloader / AsyncLoadCoordinator を持ち、
 // UI から見える API はそれらを束ねた薄い facade。preload と StartAsyncLoad の
-// 結果ストレージは互いに独立で、TakeAsyncResult/TakeAsyncError が両者を順に確認する。
+// 結果ストレージは互いに独立で、TakeAsync が両者を順に確認する。
 class FileLoadService {
 public:
     constexpr bool IsLoading() const noexcept
@@ -52,9 +52,7 @@ public:
     void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, const Theme& theme,
                         std::shared_ptr<const std::pmr::string> reload_base = nullptr);
     // preload 優先。
-    std::optional<AsyncLoadResult> TakeAsyncResult();
-    // OnParseComplete の null パスで取り出してトースト表示に使う。
-    std::optional<FileLoadError> TakeAsyncError() noexcept;
+    std::optional<AsyncLoadOutcome> TakeAsync();
     void CancelAsyncLoad() noexcept
     {
         coordinator_.Cancel();

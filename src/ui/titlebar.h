@@ -1,6 +1,10 @@
 #pragma once
 #include "ui_types.h"
+#include <array>
+#include <cassert>
+#include <utility>
 
+// OpenFile..Close はボタン。連続した値であることを TitleBarButtonIndex が前提にする。
 enum class TitleBarHitZone : uint8_t {
     None,
     Caption,
@@ -15,6 +19,28 @@ enum class TitleBarHitZone : uint8_t {
     Maximize,
     Close,
 };
+
+constexpr bool IsTitleBarButton(TitleBarHitZone zone) noexcept
+{
+    return zone >= TitleBarHitZone::OpenFile && zone <= TitleBarHitZone::Close;
+}
+
+inline constexpr size_t kTitleBarButtonCount =
+    std::to_underlying(TitleBarHitZone::Close) - std::to_underlying(TitleBarHitZone::OpenFile) + 1;
+
+constexpr size_t TitleBarButtonIndex(TitleBarHitZone zone) noexcept
+{
+    assert(IsTitleBarButton(zone));
+    return std::to_underlying(zone) - std::to_underlying(TitleBarHitZone::OpenFile);
+}
+
+// TitleBarButtonIndex で引くボタン矩形。
+using TitleBarButtons = std::array<DipRect, kTitleBarButtonCount>;
+
+constexpr auto& TitleBarButtonRect(auto& buttons, TitleBarHitZone zone) noexcept
+{
+    return buttons[TitleBarButtonIndex(zone)];
+}
 
 class TitleBar {
 public:
@@ -42,41 +68,13 @@ public:
     {
         return hovered_;
     }
-    constexpr const DipRect& GetOpenFileButton() const noexcept
+    constexpr const DipRect& GetButton(TitleBarHitZone zone) const noexcept
     {
-        return open_file_;
+        return TitleBarButtonRect(buttons_, zone);
     }
-    constexpr const DipRect& GetHelpButton() const noexcept
+    constexpr const TitleBarButtons& GetButtons() const noexcept
     {
-        return help_;
-    }
-    constexpr const DipRect& GetThemeToggleButton() const noexcept
-    {
-        return theme_toggle_;
-    }
-    constexpr const DipRect& GetSearchButton() const noexcept
-    {
-        return search_;
-    }
-    constexpr const DipRect& GetFileToggleButton() const noexcept
-    {
-        return file_toggle_;
-    }
-    constexpr const DipRect& GetTocToggleButton() const noexcept
-    {
-        return toc_toggle_;
-    }
-    constexpr const DipRect& GetMinimizeButton() const noexcept
-    {
-        return minimize_;
-    }
-    constexpr const DipRect& GetMaximizeButton() const noexcept
-    {
-        return maximize_;
-    }
-    constexpr const DipRect& GetCloseButton() const noexcept
-    {
-        return close_;
+        return buttons_;
     }
     constexpr const DipRect& GetIconRect() const noexcept
     {
@@ -88,15 +86,12 @@ public:
     }
 
 private:
-    DipRect open_file_{};
-    DipRect help_{};
-    DipRect theme_toggle_{};
-    DipRect search_{};
-    DipRect file_toggle_{};
-    DipRect toc_toggle_{};
-    DipRect minimize_{};
-    DipRect maximize_{};
-    DipRect close_{};
+    constexpr DipRect& Button(TitleBarHitZone zone) noexcept
+    {
+        return TitleBarButtonRect(buttons_, zone);
+    }
+
+    TitleBarButtons buttons_{};
     DipRect icon_rect_{};
     DipRect title_text_rect_{};
     TitleBarHitZone hovered_ = TitleBarHitZone::None;

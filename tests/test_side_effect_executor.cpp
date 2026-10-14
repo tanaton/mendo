@@ -145,8 +145,6 @@ struct TestSideEffectCallbacks {
 
     void schedule_bitmap_manage()
     {}
-    void on_app_image_loaded()
-    {}
 };
 
 } // namespace

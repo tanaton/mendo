@@ -4,6 +4,7 @@
 #include "document_utils.h"
 #include "gesture_overlay.h"
 #include "i18n.h"
+#include "key_state.h"
 #include "pane_layout.h"
 #include "profiler.h"
 #include "reducer.h"
@@ -37,7 +38,7 @@ const PaneLayout& App::GetPaneLayout()
 
 void App::UpdateTitleBar()
 {
-    const int zoom_percent = static_cast<int>(ZOOM_STEPS[state_.view.viewport.GetZoomIndex()] * 100.0f + 0.5f);
+    const int zoom_percent = static_cast<int>(state_.view.viewport.GetCurrentZoom() * 100.0f + 0.5f);
     auto title = BuildTitleString(state_.document.doc.GetFilePath(), zoom_percent);
     if (title == state_.cached_title_text) {
         return;
@@ -100,15 +101,7 @@ TitleBarRenderState App::BuildTitleBarRenderState() const
     const auto& panes = state_.view.panes;
     return TitleBarRenderState{
         .title_text = state_.cached_title_text,
-        .open_file = tbar.GetOpenFileButton(),
-        .help = tbar.GetHelpButton(),
-        .theme_toggle = tbar.GetThemeToggleButton(),
-        .search = tbar.GetSearchButton(),
-        .file_toggle = tbar.GetFileToggleButton(),
-        .toc_toggle = tbar.GetTocToggleButton(),
-        .minimize = tbar.GetMinimizeButton(),
-        .maximize = tbar.GetMaximizeButton(),
-        .close = tbar.GetCloseButton(),
+        .buttons = tbar.GetButtons(),
         .icon_rect = tbar.GetIconRect(),
         .title_text_rect = tbar.GetTitleTextRect(),
         .height = tbar.GetHeight(),
@@ -144,8 +137,6 @@ void App::OnPaint()
     const auto& layout = GetPaneLayout();
     const bool show_loading = file_load_service_.IsLoading();
     if (!show_loading) {
-        EnsureScrollTarget();
-
         const bool updated = layout_service_->EnsureVisibleLayout(state_.document.doc, state_.document.layout_cache, layout.md_rect.width, layout.md_rect.height);
         if (updated) {
             SyncMaxScroll(layout.md_rect.height);
@@ -213,7 +204,7 @@ void App::OnDpiChanged(UINT dpi, const RECT* suggested)
 
 void App::OnAppImageLoaded()
 {
-    Dispatch(ImageLoadedAction{});
+    resource_manager_.OnAppImageLoaded();
 }
 
 void App::OnMermaidDiskLoaded()
@@ -225,9 +216,9 @@ void App::OnKeyDown(WPARAM key)
 {
     const KeyDownEvent event{
         static_cast<int>(key),
-        (GetKeyState(VK_CONTROL) & 0x8000) != 0,
-        (GetKeyState(VK_SHIFT) & 0x8000) != 0,
-        (GetKeyState(VK_MENU) & 0x8000) != 0
+        IsKeyDown(VK_CONTROL),
+        IsKeyDown(VK_SHIFT),
+        IsKeyDown(VK_MENU)
     };
     Dispatch(app_controller::HandleKeyDown(event));
 }
@@ -254,7 +245,7 @@ void App::OnDropFiles(HDROP hDrop)
 
 void App::OnFileWatchEvent()
 {
-    Dispatch(FileWatchAction{});
+    file_watcher_.CheckForChanges();
 }
 
 // AppState を更新するタイマーだけ reducer に渡し、サービスを進めるだけのものはここで直接呼ぶ。
@@ -322,7 +313,7 @@ void App::SaveSession()
     if (doc.HasBackingFile()) {
         session_.SaveLastFilePath(doc.GetFilePath());
         const auto& cache = state_.document.layout_cache;
-        if (const int node = state_.view.viewport.FindFirstVisibleNode(cache, doc.GetNodes().size()); node >= 0) {
+        if (const int node = state_.view.viewport.FindFirstVisibleNode(cache); node >= 0) {
             // 復元側 (NodeOffsetToScrollY) と同じ cache[node].text_top を読む。
             session_.SaveScrollPosition(node, state_.view.viewport.GetScrollY(), cache.Top(static_cast<size_t>(node)));
         }
@@ -336,7 +327,7 @@ void App::SaveSession()
         .toc_width = panes.GetSidePaneWidth(PaneTarget::Toc),
     });
 
-    config_.SaveWString("General", "Language", i18n::GetLangKey());
+    config_.SaveWString(kConfigSectionGeneral, kConfigKeyLanguage, i18n::GetLangKey());
     // 個別 Save 呼び出しでは write が遅延されるため、終了前に明示 flush で
     // すべての設定値を 1 度のディスク書き込みにまとめる。
     config_.Flush();
@@ -365,11 +356,19 @@ void App::OnDestroy()
 
 SearchBarLayout App::ComputeSearchBarLayoutForMd(const PaneRect& md_rect) const
 {
-    return ComputeSearchBarLayout(
-        md_rect.x,
-        md_rect.width,
-        md_rect.y + md_rect.height,
-        !state_.search.search_state.GetQuery().empty());
+    return ComputeSearchBarLayout(md_rect, !state_.search.search_state.GetQuery().empty());
+}
+
+std::optional<SearchBarLayout> App::SearchBarLayoutAt(float dip_y, const PaneRect& md_rect) const
+{
+    if (!state_.search.search_state.IsVisible()) {
+        return std::nullopt;
+    }
+    const auto sbl = ComputeSearchBarLayoutForMd(md_rect);
+    if (dip_y < sbl.bar_top) {
+        return std::nullopt;
+    }
+    return sbl;
 }
 
 int App::HitTestSearchInputPos(const SearchBarLayout& sbl, std::wstring_view query_wide, float dip_x) const

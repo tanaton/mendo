@@ -16,9 +16,9 @@
 struct Theme;
 class TaskScheduler;
 
-// gen による cancellation、mutex 保護の result/error sink、in_flight フラグを 1 クラスに閉じる。
+// gen による cancellation、mutex 保護の結果 sink、in_flight フラグを 1 クラスに閉じる。
 // 全 public API は UI スレッドからのみ呼ぶ前提 (in_flight_ は非 atomic)。
-// worker は gen_ (atomic) のチェックと、mutex 経由の result_/error_ sink への書き込みのみ行う。
+// worker は gen_ (atomic) のチェックと、mutex 経由の outcome_ sink への書き込みのみ行う。
 class AsyncLoadCoordinator {
 public:
     using LoadFileFn = std::expected<LoadedFileDoc, FileLoadError> (*)(const std::pmr::wstring& path, const std::stop_token& stop_token);
@@ -44,11 +44,10 @@ public:
     void Start(TaskScheduler& scheduler, std::pmr::wstring path, HWND hwnd, UINT msg_id, const Theme& theme,
                std::shared_ptr<const std::pmr::string> reload_base = nullptr);
 
-    // ロード結果の取り出し。fired から TakeResult までの間に Cancel が走った場合 sink は破棄済み。
-    std::optional<AsyncLoadResult> TakeResult();
-    std::optional<FileLoadError> TakeError() noexcept;
+    // ロード結果の取り出し。fired から Take までの間に Cancel が走った場合 sink は破棄済み。
+    std::optional<AsyncLoadOutcome> Take() noexcept;
 
-    // gen を進めて worker の以後の publish を弾き、result_/error_ も即時クリア。
+    // gen を進めて worker の以後の publish を弾き、outcome_ も即時クリア。
     // worker 側 emplace と Cancel reset は同一 mutex 上で直列化される (worker は
     // sink 書き込み前に lock 内で gen を再確認)。
     // request_stop は走行中の parse/Estimate を協調的に打ち切る。
@@ -76,15 +75,12 @@ private:
     // sink を swap-out して lock 解放後に破棄する。100MB 級の Document/LayoutCache の
     // destruction を mutex 保持時間に乗せないため。
     void ResetSinks() noexcept;
-    template <class Opt>
-    Opt TakeFromSink(Opt& sink) noexcept;
 
     LoadFileFn load_file_ = &LoadFromDisk;
     bool in_flight_ = false;
     std::atomic<uint32_t> gen_{ 0 };
     std::mutex mutex_;
-    std::optional<AsyncLoadResult> result_;
-    std::optional<FileLoadError> error_;
+    std::optional<AsyncLoadOutcome> outcome_;
 
     // request_stop 後は再使用不可なので Start 毎にフレッシュな source へ差し替える。
     std::stop_source stop_source_;

@@ -77,9 +77,4 @@ void AppSideEffectCallbacks::schedule_bitmap_manage()
     app->resource_manager_.ScheduleBitmapManage();
 }
 
-void AppSideEffectCallbacks::on_app_image_loaded()
-{
-    app->resource_manager_.OnAppImageLoaded();
-}
-
 template class SideEffectExecutorT<AppSideEffectCallbacks>;

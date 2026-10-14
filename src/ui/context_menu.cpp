@@ -186,7 +186,7 @@ LRESULT ContextMenu::Impl::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_LBUTTONDOWN:
     case WM_RBUTTONDOWN: {
         const auto [x, y] = DipPointFromLParam(lParam, dpi_scale);
-        if (x < 0 || y < 0 || x >= menu_width || y >= menu_height) {
+        if (!PointInRect(x, y, DipRect{ 0.0f, 0.0f, menu_width, menu_height })) {
             done = true;
             return 0;
         }

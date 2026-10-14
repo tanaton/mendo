@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "document.h"
+#include "document_test_helpers.h"
 #include "document_utils.h"
 #include "example_files.h"
 #include "markdown_fragment_gen.h"

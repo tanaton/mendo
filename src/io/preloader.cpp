@@ -37,10 +37,10 @@ void Preloader::Start(std::pmr::wstring path, Theme theme)
                 return;
             }
             if (load_result) {
-                result_.emplace(AsyncLoadResult{ std::move(*load_result), std::move(cache) });
+                outcome_.emplace(AsyncLoadResult{ std::move(*load_result), std::move(cache) });
             }
             else {
-                error_ = load_result.error();
+                outcome_.emplace(std::unexpected(load_result.error()));
             }
         }
 
@@ -59,7 +59,7 @@ void Preloader::Start(std::pmr::wstring path, Theme theme)
 bool Preloader::HasPublished() const
 {
     const std::lock_guard lock(sink_mutex_);
-    return result_.has_value() || error_.has_value();
+    return outcome_.has_value();
 }
 
 void Preloader::Join()
@@ -91,13 +91,12 @@ Preloader::AttachResult Preloader::AttachOrApply(HWND hwnd, UINT msg_id)
     return AttachResult::AttachedAsync;
 }
 
-template <class Opt>
-Opt Preloader::TakeFromSink(Opt& sink)
+std::optional<AsyncLoadOutcome> Preloader::Take()
 {
-    Opt out;
+    std::optional<AsyncLoadOutcome> out;
     {
         const std::lock_guard lock(sink_mutex_);
-        out = std::exchange(sink, std::nullopt);
+        out = std::exchange(outcome_, std::nullopt);
     }
     // Attach 前に取り出されると worker は hwnd 待ちのままなので、stop で起こしてから join する
     // (結果は取り出し済みなので PostMessage は不要)。ctx_ も解放して IsActive() を false にする。
@@ -105,16 +104,6 @@ Opt Preloader::TakeFromSink(Opt& sink)
         Join();
     }
     return out;
-}
-
-std::optional<AsyncLoadResult> Preloader::TakeResult()
-{
-    return TakeFromSink(result_);
-}
-
-std::optional<FileLoadError> Preloader::TakeError()
-{
-    return TakeFromSink(error_);
 }
 
 void Preloader::Cancel() noexcept
@@ -127,6 +116,5 @@ void Preloader::Cancel() noexcept
         ctx_.reset();
     }
     const std::lock_guard lock(sink_mutex_);
-    result_.reset();
-    error_.reset();
+    outcome_.reset();
 }

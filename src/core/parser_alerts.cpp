@@ -2,44 +2,43 @@
 #include "ascii_util.h"
 #include <algorithm>
 #include <iterator>
+#include <ranges>
 #include <utility>
+
+namespace {
+
+struct AlertInfo {
+    ascii_util::DocLowercaseLiteral name; // [!TYPE] マーカー名 (GitHub 仕様で ASCII 固定)
+    AlertType type;
+    std::string_view label;
+    std::string_view icon;
+};
+
+// AlertColorIndex 順。
+constexpr AlertInfo kAlerts[]{
+    { "note", AlertType::Note, "Note", "ℹ" },
+    { "tip", AlertType::Tip, "Tip", "\xF0\x9F\x92\xA1" }, // U+1F4A1 (BMP 外)
+    { "important", AlertType::Important, "Important", "❗" },
+    { "warning", AlertType::Warning, "Warning", "⚠" },
+    { "caution", AlertType::Caution, "Caution", "⛔" },
+};
+static_assert(std::size(kAlerts) == ALERT_TYPE_COUNT);
+static_assert(std::ranges::all_of(std::views::iota(size_t{ 0 }, ALERT_TYPE_COUNT), [](size_t i) {
+    return AlertColorIndex(kAlerts[i].type) == i;
+}));
+
+} // namespace
 
 std::string_view GetAlertLabel(AlertType type) noexcept
 {
-    switch (type) {
-    case AlertType::None:
-        return "";
-    case AlertType::Note:
-        return "Note";
-    case AlertType::Tip:
-        return "Tip";
-    case AlertType::Important:
-        return "Important";
-    case AlertType::Warning:
-        return "Warning";
-    case AlertType::Caution:
-        return "Caution";
-    }
-    std::unreachable();
+    const auto idx = AlertColorIndex(type);
+    return idx < ALERT_TYPE_COUNT ? kAlerts[idx].label : "";
 }
 
 std::string_view GetAlertIcon(AlertType type) noexcept
 {
-    switch (type) {
-    case AlertType::None:
-        return " ";
-    case AlertType::Note:
-        return "ℹ"; // ℹ Information Source (BMP)
-    case AlertType::Tip:
-        return "\xF0\x9F\x92\xA1"; // 💡 (U+1F4A1)
-    case AlertType::Important:
-        return "❗"; // ❗ Heavy Exclamation Mark
-    case AlertType::Warning:
-        return "⚠"; // ⚠ Warning Sign
-    case AlertType::Caution:
-        return "⛔"; // ⛔ No Entry
-    }
-    std::unreachable();
+    const auto idx = AlertColorIndex(type);
+    return idx < ALERT_TYPE_COUNT ? kAlerts[idx].icon : " ";
 }
 
 namespace {
@@ -61,19 +60,8 @@ AlertMarker DetectAlertMarker(std::string_view text)
         return {};
     }
 
-    struct AlertEntry {
-        ascii_util::DocLowercaseLiteral name;
-        AlertType type;
-    };
-    static constexpr AlertEntry kAlerts[]{
-        { "note",      AlertType::Note      },
-        { "tip",       AlertType::Tip       },
-        { "important", AlertType::Important },
-        { "warning",   AlertType::Warning   },
-        { "caution",   AlertType::Caution   },
-    };
     const auto type_str = text.substr(2, close - 2);
-    const auto it = std::ranges::find_if(kAlerts, [type_str](const AlertEntry& e) noexcept {
+    const auto it = std::ranges::find_if(kAlerts, [type_str](const AlertInfo& e) noexcept {
         return ascii_util::iequal(type_str, e.name);
     });
     if (it == std::end(kAlerts)) {

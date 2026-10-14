@@ -113,7 +113,6 @@ set(MENDO_SRC_DIRS
 add_library(mendo_core STATIC
     # core - ドキュメントモデル・パース
     src/core/document.cpp
-    src/core/document_service.cpp
     src/core/document_utils.cpp
     src/core/footnote_anchor.cpp
     src/core/heading_anchor_index.cpp
@@ -131,6 +130,7 @@ add_library(mendo_core STATIC
     src/layout/parallel_measure.cpp
     src/layout/dwrite_measurer.cpp
     src/layout/doc_dwrite_bridge.cpp
+    src/layout/layout_queries.cpp
     # render - 描画パイプライン
     src/render/command_generator.cpp
     src/render/command_generator_table.cpp
@@ -150,6 +150,7 @@ add_library(mendo_core STATIC
     # input - 入力処理
     src/input/hit_test_service.cpp
     # io - ファイルI/O・永続化
+    src/io/document_service.cpp
     src/io/file_loader.cpp
     src/io/file_dialog_service.cpp
     src/io/file_explorer.cpp

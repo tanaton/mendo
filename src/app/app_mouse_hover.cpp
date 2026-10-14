@@ -95,14 +95,6 @@ constexpr uint64_t PackTooltipKey(uint32_t outer, uint32_t inner) noexcept
     return (uint64_t{ outer } << 32) | inner;
 }
 
-// FindLinkAtPosition は view_link_urls() の要素をそのまま返すので、アドレスで添字を引ける。
-uint32_t LinkUrlIndex(const Node& node, std::string_view url) noexcept
-{
-    const auto urls = node.view_link_urls();
-    const auto it = std::ranges::find(urls, url.data(), [](std::string_view u) noexcept { return u.data(); });
-    return static_cast<uint32_t>(it - urls.begin());
-}
-
 } // namespace
 
 bool App::IsOverMdScrollbar(float dip_x, float dip_y, const PaneLayout& layout) const noexcept
@@ -126,7 +118,7 @@ bool App::IsOverMdScrollbar(float dip_x, float dip_y)
     return IsOverMdScrollbar(dip_x, dip_y, GetPaneLayout());
 }
 
-TooltipTarget App::BuildMdContentTooltip(int hit_node, std::optional<std::string_view> link) const
+TooltipTarget App::BuildMdContentTooltip(int hit_node, std::optional<LinkHit> link) const
 {
     if (hit_node < 0) {
         return {};
@@ -135,9 +127,9 @@ TooltipTarget App::BuildMdContentTooltip(int hit_node, std::optional<std::string
     const auto& node = state_.document.doc.GetNodes()[hit_node];
     const auto node_index = static_cast<uint32_t>(hit_node);
     if (link) {
-        const uint64_t key = PackTooltipKey(node_index, LinkUrlIndex(node, *link));
+        const uint64_t key = PackTooltipKey(node_index, link->index);
         return MakeTooltip(current, TooltipTarget::Zone::MdLink, key, [&](std::pmr::wstring& text) {
-            string_convert::Utf8ToWide(*link, text);
+            string_convert::Utf8ToWide(link->url, text);
         });
     }
     auto* const img = node.image_data();
@@ -156,37 +148,54 @@ TooltipTarget App::BuildMdContentTooltip(int hit_node, std::optional<std::string
     });
 }
 
+App::MdPaneHit App::ResolveMdPaneHit(float dip_x, float dip_y, const MdPaneHitContext& hit_ctx, const PaneLayout& pane_layout) const
+{
+    using Kind = MdPaneHit::Kind;
+    if (const auto sbl = SearchBarLayoutAt(dip_y, pane_layout.md_rect)) {
+        return { .kind = Kind::SearchBar, .search_bar = HitTestSearchBar(*sbl, dip_x, dip_y) };
+    }
+    if (const auto nav = hit_test::NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect); nav != NavButtonHover::None) {
+        return { .kind = Kind::NavButton, .nav = nav };
+    }
+    // 1 回の可視ノード走査でコピー/保存/ダイアグラムコピーボタンを同時に判定する。
+    // 縮小表示で余白が狭いとボタンがスクロールバーのヒット余白に掛かるので、ボタンを優先する。
+    if (const auto buttons = hit_test::CodeBlockButtonsHitTest(hit_ctx); buttons.Any()) {
+        return { .kind = Kind::OverlayButton, .buttons = buttons };
+    }
+    if (IsOverMdScrollbar(dip_x, dip_y, pane_layout)) {
+        return { .kind = Kind::Scrollbar };
+    }
+    return {};
+}
+
 HCURSOR App::HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout, PointerHover& hover) const
 {
     const auto& current_tooltip = state_.interaction.tooltip.GetCurrent();
-    if (state_.search.search_state.IsVisible()) {
-        const auto sbl = ComputeSearchBarLayoutForMd(pane_layout.md_rect);
-        if (dip_y >= sbl.bar_top) {
-            hover.search_bar = HitTestSearchBar(sbl, dip_x, dip_y);
-            hover.tooltip = BuildSearchBarTooltip(current_tooltip, hover.search_bar);
-            return hover.search_bar == SearchBarHitZone::Input ? cursors_.IBeam() : cursors_.Arrow();
-        }
-    }
-
-    if (IsOverMdScrollbar(dip_x, dip_y, pane_layout)) {
-        return cursors_.Arrow();
-    }
-
-    hover.nav = hit_test_.NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect);
-    if (hover.nav != NavButtonHover::None) {
+    const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
+    const auto target = ResolveMdPaneHit(dip_x, dip_y, hit_ctx, pane_layout);
+    switch (target.kind) {
+    case MdPaneHit::Kind::SearchBar:
+        hover.search_bar = target.search_bar;
+        hover.tooltip = BuildSearchBarTooltip(current_tooltip, hover.search_bar);
+        return hover.search_bar == SearchBarHitZone::Input ? cursors_.IBeam() : cursors_.Arrow();
+    case MdPaneHit::Kind::NavButton:
+        hover.nav = target.nav;
         hover.tooltip = BuildNavButtonTooltip(current_tooltip, hover.nav);
         return cursors_.Hand();
+    case MdPaneHit::Kind::Scrollbar:
+        return cursors_.Arrow();
+    case MdPaneHit::Kind::OverlayButton:
+    case MdPaneHit::Kind::Content:
+        break;
     }
 
-    const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
-    const int node_index = hit_test_.HitNode(hit_ctx);
+    const int node_index = hit_test::HitNode(hit_ctx);
     // 横スクロール対象 (Table / CodeBlock) で自然幅 > 可視幅 のときだけバーを出す。
     if (state_.view.h_drag_node < 0 && ResolveBlockHScrollGeometry(state_, node_index).can_scroll()) {
         hover.h_block = node_index;
     }
 
-    // 1 回の可視ノード走査でコピー/保存/ダイアグラムコピーボタンのホバーを同時に判定する。
-    const auto btn_hit = hit_test_.CodeBlockButtonsHitTest(hit_ctx);
+    const auto& btn_hit = target.buttons;
     hover.buttons = HoveredButtons{ btn_hit.copy_node, btn_hit.save_node, btn_hit.diagram_copy_node };
     const auto button_tooltip = [&](TooltipTarget::Zone zone, std::wstring_view text) {
         hover.tooltip = MakeTooltip(current_tooltip, zone, 0, text);
@@ -203,9 +212,9 @@ HCURSOR App::HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLay
     }
 
     // 文字位置はリンク判定にしか使わないので、リンクを含むノードの上でだけ求める。
-    std::optional<std::string_view> link;
+    std::optional<LinkHit> link;
     if (node_index >= 0 && !state_.document.doc.GetNodes()[node_index].view_link_urls().empty()) {
-        link = GetLinkAtHit(hit_test_.HitTest(hit_ctx));
+        link = GetLinkAtHit(hit_test::HitTest(hit_ctx));
     }
     hover.tooltip = BuildMdContentTooltip(node_index, link);
     return link ? cursors_.Hand() : cursors_.IBeam();

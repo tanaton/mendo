@@ -116,13 +116,14 @@ void ReduceSplitterDragStarted(AppState& state, SideEffectList& effects, const S
 
 void ReduceSplitterDragMoved(AppState& state, SideEffectList& effects, const SplitterDragMovedAction& a)
 {
-    if (!PaneController::IsSplitterDragTarget(a.target)) {
+    const auto target = state.view.panes.GetDragTarget();
+    if (!PaneController::IsSplitterDragTarget(target)) {
         return;
     }
     const float splitter_w = state.theme->splitter_width;
     const float before_file = state.view.panes.GetSidePaneWidth(PaneTarget::File);
     const float before_toc = state.view.panes.GetSidePaneWidth(PaneTarget::Toc);
-    state.view.panes.DragSplitterTo(a.target, a.dip_x, a.window_width, splitter_w);
+    state.view.panes.DragSplitterTo(target, a.dip_x, state.pane_layout_cache.WindowWidth(), splitter_w);
     if (state.view.panes.GetSidePaneWidth(PaneTarget::File) == before_file && state.view.panes.GetSidePaneWidth(PaneTarget::Toc) == before_toc) {
         return;
     }
@@ -183,9 +184,7 @@ void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, cons
     BeginScrollbarDrag(state, effects, PaneController::DragTarget::MdScrollbar, grip.drag_offset);
     // thumb 内クリックなら 1st jump は不要 (thumb-grip オフセット記録だけ)。
     if (!grip.inside_thumb) {
-        const float old_scroll = viewport.GetScrollY();
-        viewport.ScrollTo(ScrollFromThumbY(info, a.dip_y - grip.drag_offset));
-        EmitScrollEffects(state, effects, old_scroll);
+        WithScrollEffects(state, effects, [&] { viewport.ScrollTo(ScrollFromThumbY(info, a.dip_y - grip.drag_offset)); });
     }
 }
 
@@ -195,9 +194,7 @@ void ReduceMdScrollbarDragMoved(AppState& state, SideEffectList& effects, const 
         return;
     }
     const float new_thumb_y = a.dip_y - state.view.panes.GetDragScrollOffset();
-    const float old_scroll = state.view.viewport.GetScrollY();
-    state.view.viewport.ScrollTo(ScrollFromThumbY(MdScrollInfo(state), new_thumb_y));
-    EmitScrollEffects(state, effects, old_scroll);
+    WithScrollEffects(state, effects, [&] { state.view.viewport.ScrollTo(ScrollFromThumbY(MdScrollInfo(state), new_thumb_y)); });
 }
 
 void ReduceMdScrollbarDragEnded(AppState& state, SideEffectList& effects)

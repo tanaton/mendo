@@ -141,7 +141,7 @@ TEST_F(FileIoTest, IsFileLargerThan_FileMatchesReadSize_ReturnsFalse)
     const std::string payload(1000, 'a');
     ASSERT_TRUE(WriteAllBytes(path, payload.data(), payload.size()));
 
-    EXPECT_FALSE(IsFileLargerThan(path, 1000));
+    EXPECT_FALSE(IsFileLargerThan(path.c_str(), 1000));
 }
 
 TEST_F(FileIoTest, IsFileLargerThan_FileLargerByMoreThanTolerance_ReturnsTrue)
@@ -151,7 +151,7 @@ TEST_F(FileIoTest, IsFileLargerThan_FileLargerByMoreThanTolerance_ReturnsTrue)
     const std::string payload(2000, 'b');
     ASSERT_TRUE(WriteAllBytes(path, payload.data(), payload.size()));
 
-    EXPECT_TRUE(IsFileLargerThan(path, 1000));
+    EXPECT_TRUE(IsFileLargerThan(path.c_str(), 1000));
 }
 
 TEST_F(FileIoTest, IsFileLargerThan_BomTolerance_ReturnsFalse)
@@ -161,7 +161,7 @@ TEST_F(FileIoTest, IsFileLargerThan_BomTolerance_ReturnsFalse)
     const std::string payload(1003, 'c');
     ASSERT_TRUE(WriteAllBytes(path, payload.data(), payload.size()));
 
-    EXPECT_FALSE(IsFileLargerThan(path, 1000));
+    EXPECT_FALSE(IsFileLargerThan(path.c_str(), 1000));
 }
 
 TEST_F(FileIoTest, IsFileLargerThan_JustBeyondTolerance_ReturnsTrue)
@@ -171,7 +171,7 @@ TEST_F(FileIoTest, IsFileLargerThan_JustBeyondTolerance_ReturnsTrue)
     const std::string payload(1017, 'd');
     ASSERT_TRUE(WriteAllBytes(path, payload.data(), payload.size()));
 
-    EXPECT_TRUE(IsFileLargerThan(path, 1000));
+    EXPECT_TRUE(IsFileLargerThan(path.c_str(), 1000));
 }
 
 TEST_F(FileIoTest, IsFileLargerThan_FileSmallerThanRead_ReturnsFalse)
@@ -182,13 +182,13 @@ TEST_F(FileIoTest, IsFileLargerThan_FileSmallerThanRead_ReturnsFalse)
     const std::string payload(500, 'e');
     ASSERT_TRUE(WriteAllBytes(path, payload.data(), payload.size()));
 
-    EXPECT_FALSE(IsFileLargerThan(path, 1000));
+    EXPECT_FALSE(IsFileLargerThan(path.c_str(), 1000));
 }
 
 TEST_F(FileIoTest, IsFileLargerThan_MissingFile_ReturnsFalse)
 {
     const auto path = temp_dir_ / L"does_not_exist.bin";
-    EXPECT_FALSE(IsFileLargerThan(path, 1000));
+    EXPECT_FALSE(IsFileLargerThan(path.c_str(), 1000));
 }
 
 TEST_F(FileIoTest, IsFileLargerThan_CustomTolerance)
@@ -198,9 +198,9 @@ TEST_F(FileIoTest, IsFileLargerThan_CustomTolerance)
     ASSERT_TRUE(WriteAllBytes(path, payload.data(), payload.size()));
 
     // tolerance=50: 100 バイト差は超過 → true
-    EXPECT_TRUE(IsFileLargerThan(path, 1000, 50));
+    EXPECT_TRUE(IsFileLargerThan(path.c_str(), 1000, 50));
     // tolerance=200: 100 バイト差は範囲内 → false
-    EXPECT_FALSE(IsFileLargerThan(path, 1000, 200));
+    EXPECT_FALSE(IsFileLargerThan(path.c_str(), 1000, 200));
 }
 
 // ═══════════════════════════════════════════════

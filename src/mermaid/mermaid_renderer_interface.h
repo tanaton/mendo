@@ -18,7 +18,7 @@ public:
     using SvgCallback = std::move_only_function<void(std::pmr::wstring svg, bool cancelled)>;
     virtual ~IMermaidRenderer() = default;
 
-    virtual void RequestRender(Node& node, NodeLayoutEntry& layout_entry,
+    virtual void RequestRender(const Node& node, NodeLayoutEntry& layout_entry,
                                DiagramEntry& diagram_entry, float max_width, bool dark_mode,
                                Callback on_complete) = 0;
     // PNG レンダリングと同じワーカー枠を共有する。

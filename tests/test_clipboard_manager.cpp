@@ -16,7 +16,7 @@ namespace {
 // MermaidFileCache 系は HWND/TaskScheduler 依存のため触らない経路だけ踏む。
 class MockMermaidRenderer : public IMermaidRenderer {
 public:
-    void RequestRender(Node&, NodeLayoutEntry&, DiagramEntry&, float, bool, Callback) override
+    void RequestRender(const Node&, NodeLayoutEntry&, DiagramEntry&, float, bool, Callback) override
     {}
     void CancelPending() override
     {}

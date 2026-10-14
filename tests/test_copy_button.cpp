@@ -7,12 +7,14 @@
 #include <utility>
 #include <vector>
 
-// OverlayButtonRect ユーティリティ関数と HitTestService::CopyButtonHitTest のテスト。
+using mendo::layout::NodeBoxPadY;
+using mendo::layout::NodeIndent;
+
+// OverlayButtonRect ユーティリティ関数と hit_test::CodeBlockButtonsHitTest のテスト。
 // MockTextMeasurer を使用するため DirectWrite / COM は不要。
 
 class CopyButtonTest : public MockLayoutTestBase {
 protected:
-    HitTestService hit_test_;
 
     float ContentWidth() const
     {
@@ -34,7 +36,7 @@ protected:
 
     int CopyNodeAt(const ParsedLayout& pr, int x, int y, float scroll_y = 0.0f, float pane_h = 2000.0f)
     {
-        return hit_test_.CodeBlockButtonsHitTest(
+        return hit_test::CodeBlockButtonsHitTest(
             { pr.nodes, pr.cache, theme_, scroll_y, PaneRect{ 0.0f, 0.0f, 0.0f, pane_h }, 1.0f, x, y, ContentWidth() }).copy_node;
     }
 };

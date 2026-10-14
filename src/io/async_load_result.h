@@ -1,7 +1,9 @@
 #pragma once
 #include "document.h"
+#include "file_loader.h"
 #include "layout_cache.h"
 #include "reload.h"
+#include <expected>
 #include <memory>
 #include <optional>
 #include <string>
@@ -23,3 +25,6 @@ struct AsyncLoadResult {
     LayoutCache cache;
     std::optional<ReloadCheck> reload;
 };
+
+// 非同期ロード 1 回分の結果。成功時は AsyncLoadResult、失敗時はその理由。
+using AsyncLoadOutcome = std::expected<AsyncLoadResult, FileLoadError>;

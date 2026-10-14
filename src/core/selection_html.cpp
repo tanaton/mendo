@@ -375,35 +375,24 @@ void AppendCodeBlockHtml(std::pmr::string& out, const Node& node, uint32_t start
     out.append(kClose);
 }
 
-// <thead> と <tbody> の排他的切替を管理する RAII スコープ。
-// 行が header / data に切り替わるとき前セクションを自動で閉じ、スコープ終了時に
-// 最後のセクションも閉じるため、in_thead/in_tbody フラグを持ち回す必要がない。
-class TableSectionScope {
+// <thead>/<tbody> や <ol>/<ul> のように、同時に 1 つだけ開いている要素の切替を管理する RAII スコープ。
+// 別の要素に切り替わるとき前の要素を自動で閉じ、スコープ終了時に最後の要素も閉じる。
+class ExclusiveTagScope {
 public:
-    constexpr explicit TableSectionScope(std::pmr::string& out) noexcept : out_(out)
+    constexpr explicit ExclusiveTagScope(std::pmr::string& out) noexcept : out_(out)
     {}
     // Close() は bad_alloc を投げ得るが、例外の巻き戻し中に投げると terminate するので握りつぶす。
-    ~TableSectionScope() noexcept
+    ~ExclusiveTagScope() noexcept
     {
         try {
             Close();
         } catch (...) {
-            MENDO_TRACE("TableSectionScope::~ - Close bad_alloc");
+            MENDO_TRACE("ExclusiveTagScope::~ - Close bad_alloc");
         }
     }
-    TableSectionScope(const TableSectionScope&) = delete;
-    TableSectionScope& operator=(const TableSectionScope&) = delete;
+    ExclusiveTagScope(const ExclusiveTagScope&) = delete;
+    ExclusiveTagScope& operator=(const ExclusiveTagScope&) = delete;
 
-    constexpr void EnterThead()
-    {
-        Enter("<thead>", "</thead>");
-    }
-    constexpr void EnterTbody()
-    {
-        Enter("<tbody>", "</tbody>");
-    }
-
-private:
     constexpr void Enter(std::string_view open_tag, std::string_view close_tag)
     {
         if (close_tag_ == close_tag) {
@@ -422,6 +411,7 @@ private:
         }
     }
 
+private:
     std::pmr::string& out_;
     std::string_view close_tag_{};
 };
@@ -504,14 +494,14 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
     UrlSafetyTable url_safety{ link_urls.size() };
     out.append("<table style=\"border-collapse:collapse;\">");
     {
-        TableSectionScope section(out);
+        ExclusiveTagScope section(out);
         for (size_t r = first_row; r < end_row; r++) {
             const bool header_row = tbl->IsHeaderRow(r);
             if (header_row) {
-                section.EnterThead();
+                section.Enter("<thead>", "</thead>");
             }
             else {
-                section.EnterTbody();
+                section.Enter("<tbody>", "</tbody>");
             }
 
             const std::string_view open_tag = header_row ? "<th" : "<td";
@@ -533,7 +523,7 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
     out.append("</table>");
 }
 
-std::optional<std::string_view> FindLinkInRuns(std::span<const TextRun> runs, std::span<const std::string_view> link_urls, uint32_t pos)
+std::optional<LinkHit> FindLinkInRuns(std::span<const TextRun> runs, std::span<const std::string_view> link_urls, uint32_t pos)
 {
     const auto it = std::ranges::find_if(runs, [pos](const TextRun& run) noexcept {
         return run.has_link() && (pos >= run.start) && (pos < run.start + run.length);
@@ -541,7 +531,8 @@ std::optional<std::string_view> FindLinkInRuns(std::span<const TextRun> runs, st
     if (it == runs.end() || static_cast<size_t>(it->link_url_index) >= link_urls.size()) {
         return std::nullopt;
     }
-    return link_urls[static_cast<size_t>(it->link_url_index)];
+    const auto index = static_cast<uint32_t>(it->link_url_index);
+    return LinkHit{ link_urls[index], index };
 }
 
 struct CellRunsHit {
@@ -631,13 +622,7 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
     // 3 倍の予約は 100MB 選択で 300MB を確保するため 2 倍に留め、超過分は成長に任せる。
     out.reserve(estimated * 2 + 128);
 
-    std::string_view list_close_tag;
-    const auto close_list = [&]() {
-        if (!list_close_tag.empty()) {
-            out.append(list_close_tag);
-            list_close_tag = {};
-        }
-    };
+    ExclusiveTagScope list(out);
 
     ForEachSelectedNode(nodes, selection, [&](int i, const Node& node) {
         const auto text = node.LinearizedText();
@@ -645,15 +630,10 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
 
         if (IsListItem(node)) {
             const bool ordered = node.list_ordered();
-            const std::string_view want_close = ordered ? "</ol>" : "</ul>";
-            if (list_close_tag != want_close) {
-                close_list();
-                out.append(ordered ? "<ol>" : "<ul>");
-                list_close_tag = want_close;
-            }
+            list.Enter(ordered ? "<ol>" : "<ul>", ordered ? "</ol>" : "</ul>");
         }
         else {
-            close_list();
+            list.Close();
         }
 
         const auto wrap_inline = [&](std::string_view open, std::string_view close) {
@@ -705,7 +685,8 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
             break;
         }
     });
-    close_list();
+    // out を返す前に閉じる (デストラクタでは戻り値のコピー後になりうる)。
+    list.Close();
     return out;
 }
 
@@ -721,7 +702,7 @@ std::pmr::string BuildCodeBlockHtmlFragment(const Node& node, bool dark_mode)
     return out;
 }
 
-std::optional<std::string_view> FindLinkAtPosition(const Node& node, uint32_t text_pos)
+std::optional<LinkHit> FindLinkHitAtPosition(const Node& node, uint32_t text_pos)
 {
     if (node.type == NodeType::Table) {
         const auto [runs, local_pos] = FindTableCellRuns(node, text_pos);

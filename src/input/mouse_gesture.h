@@ -1,4 +1,5 @@
 #pragma once
+#include "nav_direction.h"
 #include <cmath>
 #include <cstdint>
 #include <deque>
@@ -8,11 +9,6 @@ enum class GesturePhase : uint8_t {
     Idle,
     Pressed,
     Tracking
-};
-enum class GestureDirection : uint8_t {
-    None,
-    Left,
-    Right
 };
 enum class GestureResult : uint8_t {
     None,
@@ -88,13 +84,13 @@ public:
             return GestureResult::ShowContextMenu;
         }
 
-        const GestureDirection dir = direction_;
+        const NavDirection dir = direction_;
         Reset();
 
         switch (dir) {
-        case GestureDirection::Left:
+        case NavDirection::Back:
             return GestureResult::Back;
-        case GestureDirection::Right:
+        case NavDirection::Forward:
             return GestureResult::Forward;
         default:
             // 方向が確定しなかった右ドラッグは通常の右クリック扱いとし、
@@ -106,7 +102,7 @@ public:
     void Reset() noexcept
     {
         phase_ = GesturePhase::Idle;
-        direction_ = GestureDirection::None;
+        direction_ = NavDirection::None;
         start_x_ = 0.0f;
         start_y_ = 0.0f;
         trail_points_.clear();
@@ -118,13 +114,13 @@ public:
     }
     constexpr bool IsOverlayVisible() const noexcept
     {
-        return phase_ == GesturePhase::Tracking && direction_ != GestureDirection::None;
+        return phase_ == GesturePhase::Tracking && direction_ != NavDirection::None;
     }
     constexpr const std::pmr::deque<GesturePoint>& GetTrailPoints() const noexcept
     {
         return trail_points_;
     }
-    constexpr GestureDirection GetDirection() const noexcept
+    constexpr NavDirection GetDirection() const noexcept
     {
         return direction_;
     }
@@ -137,14 +133,14 @@ private:
     void UpdateDirection(float dx, float dy, float dist_sq) noexcept
     {
         if (dist_sq < GESTURE_THRESHOLD_SQ || std::abs(dx) <= std::abs(dy)) {
-            direction_ = GestureDirection::None;
+            direction_ = NavDirection::None;
             return;
         }
-        direction_ = (dx < 0) ? GestureDirection::Left : GestureDirection::Right;
+        direction_ = (dx < 0) ? NavDirection::Back : NavDirection::Forward;
     }
 
     GesturePhase phase_ = GesturePhase::Idle;
-    GestureDirection direction_ = GestureDirection::None;
+    NavDirection direction_ = NavDirection::None;
     float start_x_ = 0.0f;
     float start_y_ = 0.0f;
     std::pmr::deque<GesturePoint> trail_points_;

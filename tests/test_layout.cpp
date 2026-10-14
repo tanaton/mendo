@@ -15,6 +15,11 @@
 #include "test_helpers.h"
 #include "test_nodes.h"
 
+using mendo::layout::ComputeColumnWidths;
+using mendo::layout::EstimateNodeHeights;
+using mendo::layout::NodeIndent;
+using mendo::layout::RecomputeYPositions;
+
 class LayoutTest : public DWriteTestBase {};
 
 namespace {
@@ -81,13 +86,13 @@ TEST_F(LayoutTest, EmptyNodesProduceZeroHeight)
     std::pmr::vector<Node> nodes;
     LayoutCache cache;
     engine_.ComputeLayout(nodes, cache, 800.0f);
-    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom), 0.0f);
+    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, theme_.margin_bottom), 0.0f);
 }
 
 TEST_F(LayoutTest, SingleParagraphHasPositiveHeight)
 {
     auto [nodes, cache] = ParseAndLayout("Hello world");
-    EXPECT_GT(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom), 0.0f);
+    EXPECT_GT(ComputeTotalContentHeight(cache, theme_.margin_bottom), 0.0f);
     EXPECT_GT(cache[0].height, 0.0f);
 }
 
@@ -232,7 +237,7 @@ TEST_F(LayoutTest, TotalHeightWithManyNodes)
 {
     auto [nodes, cache] = ParseAndLayout(MakeParagraphs(100));
 
-    float total = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom);
+    float total = ComputeTotalContentHeight(cache, theme_.margin_bottom);
     EXPECT_GT(total, 1000.0f); // 100段落あればかなり高くなるはず
 
     // 最後のノードの下端が全体の高さ以内であること
@@ -542,7 +547,7 @@ TEST(ComputeTotalContentHeightTest, EmptyNodesReturnsZero)
 {
     LayoutCache cache;
     // node_count == 0 で size_t のアンダーフローが起きないこと。0を返すべき。
-    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 0, 10.0f), 0.0f);
+    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 10.0f), 0.0f);
 }
 
 TEST(ComputeTotalContentHeightTest, SingleNode)
@@ -551,7 +556,7 @@ TEST(ComputeTotalContentHeightTest, SingleNode)
     cache.Resize(1);
     cache.SetTop(0, 15.0f);
     cache[0].height = 50.0f;
-    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 1, 15.0f), 80.0f);
+    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 15.0f), 80.0f);
 }
 
 TEST(ComputeTotalContentHeightTest, MultipleNodes)
@@ -565,7 +570,7 @@ TEST(ComputeTotalContentHeightTest, MultipleNodes)
     cache.SetTop(2, 80.0f);
     cache[2].height = 25.0f;
     // 最後のノードのみが関係: 80 + 25 + 10 = 115
-    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 3, 10.0f), 115.0f);
+    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 10.0f), 115.0f);
 }
 
 TEST(RecomputeYPositionsTest, SingleParagraph)
@@ -749,7 +754,7 @@ TEST_F(LayoutTest, EnsureVisibleLayoutUpdatesTotalHeight)
 
     // 表示ノードが再レイアウトされると全体の高さが変わる可能性があるが
     // 正の値を維持すること
-    EXPECT_GT(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom), 0.0f);
+    EXPECT_GT(ComputeTotalContentHeight(cache, theme_.margin_bottom), 0.0f);
 }
 
 // 部分モードで不可視ノードの古い height を引きずらないこと（High-1 回帰）。
@@ -758,7 +763,7 @@ TEST_F(LayoutTest, PartialLayoutRefreshesStaleInvisibleHeights)
 {
     // フル幅でフルレイアウト → 全ノード正確な height を持つ
     auto [nodes, cache] = ParseAndLayout(MakeParagraphs(30));
-    const float baseline_total = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom);
+    const float baseline_total = ComputeTotalContentHeight(cache, theme_.margin_bottom);
     ASSERT_GT(baseline_total, 0.0f);
 
     // 不可視（後方）ノードを「旧テーマで非常に大きかった」状態にしてダーティ化する。
@@ -829,14 +834,14 @@ TEST(RecomputeYPositionsTest, AllNodeTypesProduceValidPositions)
 TEST(FindFirstVisibleNodeIndex, AtStart)
 {
     auto cache = MakeUniformCache(10, 50.0f);
-    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 0.0f), 0);
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 0.0f), 0);
 }
 
 TEST(FindFirstVisibleNodeIndex, MidDocument)
 {
     auto cache = MakeUniformCache(10, 50.0f);
     // viewport_top = 120 → ノード2 (y=100, bottom=150) が最初の可視ノード
-    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 120.0f), 2);
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 120.0f), 2);
 }
 
 TEST(FindFirstVisibleNodeIndex, ExactBoundary)
@@ -844,35 +849,35 @@ TEST(FindFirstVisibleNodeIndex, ExactBoundary)
     auto cache = MakeUniformCache(10, 50.0f);
     // viewport_top = 50 → ノード0はy=50で終了、ノード1はy=50で開始
     // ノード0の下端(50) == viewport_top(50)なので除外される
-    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 50.0f), 1);
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 50.0f), 1);
 }
 
 TEST(FindFirstVisibleNodeIndex, PastEnd)
 {
     auto cache = MakeUniformCache(5, 50.0f);
     // viewport_top = 300、すべてのノードはy=250で終了
-    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 5, 300.0f), 5);
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 300.0f), 5);
 }
 
 TEST(FindFirstVisibleNodeIndex, EmptyCache)
 {
     LayoutCache cache;
-    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 0, 0.0f), 0);
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 0.0f), 0);
 }
 
 TEST(FindFirstVisibleNodeIndex, SingleNode)
 {
     auto cache = MakeUniformCache(1, 100.0f);
-    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 1, 0.0f), 0);
-    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 1, 50.0f), 0);
-    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 1, 100.0f), 1); // ノードを過ぎた位置
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 0.0f), 0);
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 50.0f), 0);
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 100.0f), 1); // ノードを過ぎた位置
 }
 
 TEST(FindFirstVisibleNodeIndex, LastNodeVisible)
 {
     auto cache = MakeUniformCache(10, 50.0f);
     // viewport_top = 449 → ノード8は450で終了、まだ可視
-    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 449.0f), 8);
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 449.0f), 8);
 }
 
 // Reset 直後 (全ノードの位置・高さが 0) も該当なし扱い。
@@ -880,13 +885,7 @@ TEST(FindFirstVisibleNodeIndex, FreshCacheReturnsNodeCount)
 {
     LayoutCache cache;
     cache.Reset(5);
-    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 5, 0.0f), 5);
-}
-
-TEST(FindFirstVisibleNodeIndex, ClampsNodeCountToCacheSize)
-{
-    auto cache = MakeUniformCache(3);
-    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 10, 1000.0f), 3);
+    EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 0.0f), 5);
 }
 
 // ---- 隣接 2 ノード間のスペーシング ----

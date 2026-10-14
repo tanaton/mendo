@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <vector>
 #include <queue>
 #include <deque>
@@ -8,6 +9,23 @@
 #include <condition_variable>
 #include <atomic>
 #include <functional>
+
+// Mermaid / 画像デコード等で共有する scheduler のワーカー数。コア数の半分を 2〜4 に収める。
+constexpr int SharedWorkerCount(unsigned int cores) noexcept
+{
+    return std::clamp(static_cast<int>(cores) / 2, 2, 4);
+}
+
+// レイアウト計測用 scheduler のワーカー数。
+// 上限 16 は超大規模 dirty バッチでも latch 待ちオーバーヘッドが利得を相殺する境界。
+// 下限 2 は hardware_concurrency()==0 や 1 コア環境でも並列計測の枠組みを保つため。
+constexpr int LayoutWorkerCount(unsigned int cores) noexcept
+{
+    constexpr unsigned kMinLayoutWorkers = 2u;
+    constexpr unsigned kMaxLayoutWorkers = 16u;
+    return static_cast<int>(std::clamp<unsigned>(
+        cores > 0 ? cores - 1 : kMinLayoutWorkers, kMinLayoutWorkers, kMaxLayoutWorkers));
+}
 
 // 各ワーカースレッドではCOMが初期化される（COINIT_MULTITHREADED）。
 // Post() はスレッドセーフ。Init() / Shutdown() はUIスレッドから呼び出す。

@@ -129,7 +129,7 @@ private:
     void DrawSplitter(float x, float top, float bottom);
     void DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool can_forward, NavButtonHover hovered);
     void DrawGestureTrail(const std::pmr::deque<GesturePoint>& points);
-    void DrawGestureOverlay(int direction, const PaneRect& md_pane_rect);
+    void DrawGestureOverlay(NavDirection direction, const PaneRect& md_pane_rect);
     void DrawToastOverlay(const ToastRenderState& toast, const PaneRect& md_pane_rect);
     void DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_pane_rect);
     // 入力欄のテキスト・選択範囲を描画し、キャレットの x 座標を返す。

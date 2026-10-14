@@ -11,17 +11,6 @@ class Document;
 class TaskScheduler;
 class ViewportManager;
 
-// レガシー呼び出しサイト互換のための using エイリアス。実体は mendo::layout namespace にある。
-using mendo::layout::AdvanceNodeY;
-using mendo::layout::ComputeColumnWidths;
-using mendo::layout::EstimateInvisibleNodeHeight;
-using mendo::layout::EstimateNodeHeights;
-using mendo::layout::GetSpacingAbove;
-using mendo::layout::GetSpacingBelow;
-using mendo::layout::NodeBoxPadY;
-using mendo::layout::NodeIndent;
-using mendo::layout::NodeTextXOffset;
-using mendo::layout::RecomputeYPositions;
 
 class LayoutEngine {
 public:
@@ -64,7 +53,7 @@ private:
     // dirty なノード (mark_all_dirty なら全ノード) の高さを推定値で更新し、全ノードの Y を組み直す。
     void EstimateDirtyHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float content_width, bool mark_all_dirty);
 
-    // lifecycle 系 (Init/RecreateFormats/UpdateTheme) は UI スレッドからのみ呼び、
+    // lifecycle 系 (RecreateFormats/UpdateTheme) は UI スレッドからのみ呼び、
     // MeasureNode は const 経由で layout_scheduler_ 上の worker から並列呼び出しされる。
     ITextMeasurer* measurer_ = nullptr;
     const Theme* theme_ = nullptr;
@@ -91,6 +80,7 @@ public:
         float height = 0.0f;
         float buffer_screens = 0.0f;
     };
+    // ProcessDirtyBatch / EnsureVisibleLayout は見ている位置を保つ (前後で scroll target を確定・適用する)。
     bool ProcessDirtyBatch(
         Document& doc, LayoutCache& cache, float width, int batch_size,
         ViewportLimit viewport);

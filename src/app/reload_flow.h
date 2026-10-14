@@ -44,20 +44,20 @@ struct ParseCompletePlan {
     bool follow_file_pane = false;
 };
 
-// result / error は FileLoadService から取り出した直後の値 (result があれば error は見ない)。
-// another_load_active は取り出し後の IsAsyncLoading()。
+// outcome は FileLoadService::TakeAsync の戻り値。another_load_active は取り出し後の IsAsyncLoading()。
 // is_partial_write(path, read_size) は同一パスの再読込のときだけ呼ばれる (ファイルサイズを問い合わせる I/O)。
 template <class IsPartialWrite>
-[[nodiscard]] ParseCompletePlan PlanParseComplete(const AsyncLoadResult* result, std::optional<FileLoadError> error,
+[[nodiscard]] ParseCompletePlan PlanParseComplete(const std::optional<AsyncLoadOutcome>& outcome,
                                                   bool another_load_active, const Document& current,
                                                   IsPartialWrite&& is_partial_write)
 {
-    if (!result) {
-        if (!error && another_load_active) {
-            return { .step = ParseCompleteStep::IgnoreStale };
-        }
-        return { .step = ParseCompleteStep::Fail, .error = error };
+    if (!outcome) {
+        return { .step = another_load_active ? ParseCompleteStep::IgnoreStale : ParseCompleteStep::Fail };
     }
+    if (!*outcome) {
+        return { .step = ParseCompleteStep::Fail, .error = outcome->error() };
+    }
+    const AsyncLoadResult* const result = &**outcome;
 
     // 差分ベースのスキップ／スクロール復元は同一パスのリロード時のみ有効。
     // 非同期のファイルオープンでも同じ経路を通るため、別ファイルなら decision は空のまま。

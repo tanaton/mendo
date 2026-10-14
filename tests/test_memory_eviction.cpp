@@ -31,7 +31,7 @@ protected:
 
     void SetUp() override
     {
-        // キャッシュ動作テストでは FindCachedImage / InsertCacheEntry のみ使用。
+        // キャッシュ動作テストでは FindCachedImage / InsertCacheEntryForTest のみ使用。
         // レンダーターゲットや WIC は不要。
         loader_.Init(nullptr);
     }
@@ -57,12 +57,12 @@ TEST_F(ImageLoaderCacheTest, EvictsLeastRecentlyInsertedWhenExceedingMaxEntries)
     const size_t max_entries = 128; // MAX_CACHE_ENTRIES
 
     for (size_t i = 0; i < max_entries; i++) {
-        loader_.InsertCacheEntry(L"img_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
+        loader_.InsertCacheEntryForTest(L"img_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
     }
     EXPECT_EQ(loader_.CacheSize(), max_entries);
 
     // 1 つ追加すると最も古く Insert された img_0 が捨てられる
-    loader_.InsertCacheEntry(L"overflow.png", 100.0f, 100.0f);
+    loader_.InsertCacheEntryForTest(L"overflow.png", 100.0f, 100.0f);
     EXPECT_EQ(loader_.CacheSize(), max_entries);
 
     DiagramEntry out;
@@ -75,13 +75,13 @@ TEST_F(ImageLoaderCacheTest, CacheHitPromotesEntry)
 {
     const size_t max_entries = 128;
     for (size_t i = 0; i < max_entries; i++) {
-        loader_.InsertCacheEntry(L"img_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
+        loader_.InsertCacheEntryForTest(L"img_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
     }
 
     // ヒットで末尾から外れるので、次の overflow では 1 つ前の img_1 が捨てられる
     DiagramEntry out;
     ASSERT_TRUE(GetCachedImage(loader_, L"img_0.png", out));
-    loader_.InsertCacheEntry(L"overflow.png", 100.0f, 100.0f);
+    loader_.InsertCacheEntryForTest(L"overflow.png", 100.0f, 100.0f);
 
     EXPECT_TRUE(GetCachedImage(loader_, L"img_0.png", out));
     EXPECT_FALSE(GetCachedImage(loader_, L"img_1.png", out));
@@ -93,12 +93,12 @@ TEST_F(ImageLoaderCacheTest, LatestInsertsWinAcrossOverflows)
     const size_t max_entries = 128;
 
     for (size_t i = 0; i < max_entries; i++) {
-        loader_.InsertCacheEntry(L"img_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
+        loader_.InsertCacheEntryForTest(L"img_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
     }
 
     // 10 回 overflow を起こす → img_0..img_9 が末尾から順に捨てられる
     for (int i = 0; i < 10; i++) {
-        loader_.InsertCacheEntry(L"overflow_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
+        loader_.InsertCacheEntryForTest(L"overflow_" + std::to_wstring(i) + L".png", 100.0f, 100.0f);
     }
     EXPECT_EQ(loader_.CacheSize(), max_entries);
 

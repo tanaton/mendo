@@ -95,14 +95,14 @@ private:
         // 変更系はすべて dirty を立てる (読み込み直後だけ LoadIndex が戻す)。
         void Add(uint64_t key, IndexEntry entry);
         void Remove(Map::iterator it) noexcept;
-        void Touch(Map::iterator it) noexcept
-        {
-            it->second.last_used = ++lru_seq;
-            dirty = true;
-        }
         int64_t NextLruSeq() noexcept
         {
             return ++lru_seq;
+        }
+        void Touch(Map::iterator it) noexcept
+        {
+            it->second.last_used = NextLruSeq();
+            dirty = true;
         }
     };
 

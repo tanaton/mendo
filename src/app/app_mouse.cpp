@@ -8,7 +8,7 @@
 
 App::HitResult App::HitTest(int px, int py)
 {
-    return hit_test_.HitTest(BuildMdPaneHitContext(px, py, GetPaneLayout()));
+    return hit_test::HitTest(BuildMdPaneHitContext(px, py, GetPaneLayout()));
 }
 
 MdPaneHitContext App::BuildMdPaneHitContext(int px, int py, const PaneLayout& pane_layout) const noexcept
@@ -28,13 +28,13 @@ MdPaneHitContext App::BuildMdPaneHitContext(int px, int py, const PaneLayout& pa
     };
 }
 
-std::optional<std::string_view> App::GetLinkAtHit(const HitResult& hit) const
+std::optional<LinkHit> App::GetLinkAtHit(const HitResult& hit) const
 {
     const auto& nodes = state_.document.doc.GetNodes();
     if (hit.node_index < 0 || hit.node_index >= static_cast<int>(nodes.size())) {
         return std::nullopt;
     }
-    return FindLinkAtPosition(nodes[hit.node_index], hit.char_pos);
+    return FindLinkHitAtPosition(nodes[hit.node_index], hit.char_pos);
 }
 
 void App::OnLButtonDown(int px, int py)
@@ -112,7 +112,7 @@ void App::OnLButtonUp(int px, int py)
         return;
     }
     if (const auto link = GetLinkAtHit(hit)) {
-        HandleLinkClick(*link);
+        HandleLinkClick(link->url);
     }
 }
 
@@ -136,7 +136,7 @@ void App::OnLButtonDblClk(int px, int py)
     }
     const auto hit = HitTest(px, py);
     // 単語はカーソル下の文字で決める。文字の上でない (行末より右等) ときは従来どおりキャレット位置で決める。
-    Dispatch(SelectWordAction{ hit.node_index, hit.char_pos != HitTestService::HitResult::kNoChar ? hit.char_pos : hit.text_pos });
+    Dispatch(SelectWordAction{ hit.node_index, hit.char_pos != hit_test::HitResult::kNoChar ? hit.char_pos : hit.text_pos });
 }
 
 void App::OnMouseMove(int px, int py)
@@ -158,7 +158,7 @@ void App::OnMouseMove(int px, int py)
     switch (const auto drag = state_.view.panes.GetDragTarget()) {
     case PaneController::DragTarget::Splitter1:
     case PaneController::DragTarget::Splitter2:
-        Dispatch(SplitterDragMovedAction{ drag, dip.x, rt->GetSize().width });
+        Dispatch(SplitterDragMovedAction{ dip.x });
         return;
     case PaneController::DragTarget::FileScrollbar:
         Dispatch(PaneScrollbarDragMovedAction{ PaneTarget::File, dip.y });

@@ -25,6 +25,29 @@ std::pair<size_t, size_t> TableLayoutData::VisibleRowRange(float local_top, floa
     return { r_begin, r_end };
 }
 
+void TableLayoutData::RebuildRowCumY(size_t row_count)
+{
+    row_cum_y.resize(row_count + 1);
+    float ry = 0.0f;
+    for (size_t r = 0; r < row_count; r++) {
+        row_cum_y[r] = ry;
+        ry += row_heights[r] + TABLE_BORDER_WIDTH;
+    }
+    row_cum_y[row_count] = ry;
+}
+
+void TableLayoutData::RebuildColCumX()
+{
+    const size_t n = col_widths.size();
+    col_cum_x.resize(n + 1);
+    float cx = TABLE_BORDER_WIDTH;
+    for (size_t c = 0; c < n; c++) {
+        col_cum_x[c] = cx;
+        cx += ColumnStep(c);
+    }
+    col_cum_x[n] = cx;
+}
+
 int TableLayoutData::RowIndexAt(float local_y) const noexcept
 {
     if (row_cum_y.empty()) {
@@ -96,28 +119,17 @@ bool HasRowTracking(const TableLayoutData& tl) noexcept
 
 // 1 行分の cell_layouts を Reset し、cell_heights / cell_applied_widths を再計測待ちに戻す。
 // 行/列の幾何 (row_cum_y, col_cum_x, row_heights, col_widths) は維持する。
+// HasRowTracking を満たすテーブルの row_index < 行数 でのみ呼ぶ (セル単位の配列は AllocateCells が揃えている)。
 void EvictTableRow(TableLayoutData& tl, size_t row_index) noexcept
 {
-    const size_t col_count = tl.col_count;
-    if (col_count == 0) {
-        return;
-    }
-    const size_t base = row_index * col_count;
-    if (base + col_count > tl.cell_layouts.size()) {
-        return;
-    }
-    for (size_t c = 0; c < col_count; ++c) {
-        const size_t ci = base + c;
+    const size_t base = tl.CellIndex(row_index, 0);
+    for (size_t ci = base; ci < base + tl.col_count; ++ci) {
         if (tl.cell_layouts[ci]) {
             tl.cell_layouts[ci].Reset();
             tl.MarkRowEvicted(row_index);
         }
-        if (ci < tl.cell_heights.size()) {
-            tl.cell_heights[ci] = 0.0f;
-        }
-        if (ci < tl.cell_applied_widths.size()) {
-            tl.cell_applied_widths[ci] = -1.0f;
-        }
+        tl.cell_heights[ci] = 0.0f;
+        tl.cell_applied_widths[ci] = -1.0f;
     }
 }
 
@@ -146,10 +158,8 @@ void EvictEntryLayout(NodeLayoutEntry& e) noexcept
 // セルのレイアウトと計測値、列幅の適用状態を捨てる。行/列の幾何は次の計測で作り直される。
 void ResetTableCellCaches(TableLayoutData& tl) noexcept
 {
-    tl.cell_inline_code_bgs.clear();
+    tl.ClearEffects();
     tl.cell_layouts.clear();
-    tl.row_bgs_computed.clear();
-    tl.row_links_applied.clear();
     tl.ResetRowEviction(0);
     tl.natural_col_widths.clear();
     tl.cell_heights.clear();
@@ -215,17 +225,21 @@ void LayoutCache::InvalidateEffects() noexcept
         e.set_effects_applied(false);
         e.clear_inline_code_bgs();
         if (auto* tl = e.table_layout()) {
-            tl->cell_inline_code_bgs.clear();
-            tl->row_bgs_computed.clear();
-            tl->row_links_applied.clear();
+            tl->ClearEffects();
         }
     }
 }
 
-void LayoutCache::InvalidateAllDiagramBitmaps() noexcept
+void LayoutCache::InvalidateAllDiagramBitmaps(const std::pmr::vector<Node>& nodes) noexcept
 {
-    for (auto& d : diagrams_ | std::views::values) {
-        d.ResetForRetry();
+    for (auto& [idx, d] : diagrams_) {
+        // 画像はエラーを持たないので、ビットマップだけ捨てれば再読み込みの対象になる。
+        if (idx < nodes.size() && nodes[idx].type == NodeType::Image) {
+            d.EvictBitmap();
+        }
+        else {
+            d.ResetForRetry();
+        }
     }
 }
 

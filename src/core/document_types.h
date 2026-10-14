@@ -149,10 +149,9 @@ struct NodeAlertData {
 
 using NodeTablePtr = std::unique_ptr<NodeTableData>;
 
+// 読み込んだ画像の寸法はパース結果ではないので持たない (LayoutCache の DiagramEntry が持つ)。
 struct NodeImageData {
     std::string_view src; // 画像ソースパス（Markdown内の記述）。raw_text_ か TextArena を指す
-    float width = 0.0f;   // 元画像の幅（ピクセル）
-    float height = 0.0f;  // 元画像の高さ（ピクセル）
 };
 using NodeImagePtr = std::unique_ptr<NodeImageData>;
 

@@ -3,8 +3,6 @@
 #include <utility>
 #include <vector>
 
-class LayoutCache;
-
 struct TocEntry {
     int node_index = -1;
     int heading_level = 1;
@@ -17,8 +15,6 @@ public:
     explicit TableOfContents(std::pmr::vector<TocEntry> entries) noexcept : entries_(std::move(entries)) {}
 
     int HitTest(float local_y, float item_height) const noexcept;
-
-    int FindActiveIndex(const LayoutCache& cache, float scroll_y, float margin = 0.0f) const noexcept;
 
     constexpr const std::pmr::vector<TocEntry>& GetEntries() const noexcept
     {

@@ -183,6 +183,13 @@ struct ParseContext {
         active_text_buffer = nullptr;
     }
 
+    void LeaveIndent() noexcept
+    {
+        if (indent_level > 0) {
+            indent_level--;
+        }
+    }
+
     void BeginNode(NodeType type)
     {
         FinalizeCurrentNode();
@@ -702,13 +709,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         if (ctx->blockquote_depth > 0) {
             ctx->blockquote_depth--;
         }
-        if (ctx->indent_level > 0) {
-            ctx->indent_level--;
-        }
-        if (ctx->blockquote_depth == 0) {
-            ctx->current_blockquote_group = -1;
-            ctx->outermost_quote_indent = 0;
-        }
+        ctx->LeaveIndent();
         break;
 
     case MD_BLOCK_UL:
@@ -716,9 +717,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         if (!ctx->list_counter.empty()) {
             ctx->list_counter.pop_back();
         }
-        if (ctx->indent_level > 0) {
-            ctx->indent_level--;
-        }
+        ctx->LeaveIndent();
         break;
 
     case MD_BLOCK_TABLE:
@@ -761,9 +760,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         break;
 
     case MD_BLOCK_FOOTNOTE_DEF_SECTION:
-        if (ctx->indent_level > 0) {
-            ctx->indent_level--;
-        }
+        ctx->LeaveIndent();
         break;
 
     case MD_BLOCK_DOC:

@@ -9,6 +9,10 @@
 #include <format>
 #include <utility>
 
+using mendo::layout::NodeBoxPadY;
+using mendo::layout::NodeIndent;
+using mendo::layout::NodeTextXOffset;
+
 #ifdef MENDO_USE_TRACY
 // 分割ファイル間で共有する統計カウンタの実体定義。
 CmdGenStats g_cmd_gen_stats;
@@ -183,7 +187,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     // 二分探索キーは未スナップのドキュメント Y (cache[i].text_top と同じ系)。
     // 下端より下にはみ出す描画 (見出し下線・空 LI の bullet 等) を上端で落とさないよう、
     // はみ出しの上限だけ手前から始める。
-    const int first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), scroll_y - fc.overhang.below);
+    const int first_visible = FindFirstVisibleNodeIndex(cache, scroll_y - fc.overhang.below);
 
     // 同一 blockquote_group のノードをまとめてバー/背景を描画する。
     // ノード単体ごとではなく一括で描画することで、複数行の引用ブロックが連続した見た目になる。
@@ -517,14 +521,11 @@ void CommandGenerator::GenBlockQuoteGroup(const FrameContext& fc, const std::pmr
     const AlertType alert_type = nodes[first].alert_type;
     const int outer_indent = nodes[first].quote_outer_indent;
     const float outer_x_indent = static_cast<float>(outer_indent) * theme_->indent_width;
-    if (alert_type != AlertType::None) {
-        const auto idx = AlertColorIndex(alert_type);
-        if (idx < ALERT_TYPE_COUNT) {
-            const float outer_x = fc.offset_x + outer_x_indent;
-            const float cw = fc.content_width - outer_x_indent;
-            const D2D1_RECT_F bg_rect = D2D1::RectF(outer_x - ALERT_BG_PAD, group_top - ALERT_BG_PAD, outer_x + cw, group_bottom + ALERT_BG_PAD);
-            cmds_.emplace_back(FillRoundedRectCmd{ bg_rect, ALERT_BG_CORNER, ALERT_BG_CORNER, theme_->alert_bg_color[idx] });
-        }
+    if (const auto idx = AlertColorIndex(alert_type); idx < ALERT_TYPE_COUNT) {
+        const float outer_x = fc.offset_x + outer_x_indent;
+        const float cw = fc.content_width - outer_x_indent;
+        const D2D1_RECT_F bg_rect = D2D1::RectF(outer_x - ALERT_BG_PAD, group_top - ALERT_BG_PAD, outer_x + cw, group_bottom + ALERT_BG_PAD);
+        cmds_.emplace_back(FillRoundedRectCmd{ bg_rect, ALERT_BG_CORNER, ALERT_BG_CORNER, theme_->alert_bg_color[idx] });
     }
 
     // GitHub と同様に、外側のバーはネストした範囲を貫通して連続描画する。

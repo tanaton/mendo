@@ -122,7 +122,7 @@ void Renderer::PrepareVisibleEffects(const std::pmr::vector<Node>& nodes, Layout
     MENDO_PROFILE("PrepareVisibleEffects");
     const float viewport_top = scroll_y;
     const float viewport_bottom = scroll_y + md_pane_height;
-    const int first_visible = FindFirstVisibleNodeIndex(cache, nodes.size(), viewport_top);
+    const int first_visible = FindFirstVisibleNodeIndex(cache, viewport_top);
     const int node_count = static_cast<int>(nodes.size());
     for (int i = first_visible; i < node_count; i++) {
         const float entry_top = cache.Top(static_cast<size_t>(i));
@@ -182,15 +182,13 @@ void Renderer::ApplyTableEffects(const Node& node, NodeLayoutEntry& entry, float
     const auto row_count = static_cast<size_t>(tbl->row_count);
     const auto col_count = static_cast<size_t>(tbl->col_count);
     auto& tl = *tl_ptr;
+    // 行フラグを捨てる経路 (ClearEffects / MeasureTable) は必ず effects_applied も倒すので、
+    // 済みの間は行フラグが row_count 分ある。確保が例外で途切れても済みにならないよう印は最後に付ける。
     if (!entry.effects_applied()) {
-        entry.set_effects_applied(true);
         tl.cell_inline_code_bgs.clear();
         tl.row_bgs_computed.assign(row_count, 0);
         tl.row_links_applied.assign(row_count, 0);
-    }
-    else if (tl.row_bgs_computed.size() != row_count || tl.row_links_applied.size() != row_count) {
-        tl.row_bgs_computed.resize(row_count, 0);
-        tl.row_links_applied.resize(row_count, 0);
+        entry.set_effects_applied(true);
     }
 
     // リンク色・インラインコード背景とも可視行だけに適用し、行単位フラグで再適用を省く。
@@ -302,7 +300,7 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry, float 
 
     // 適用先の text_layout が無いノードには済みの印を付けない。
     IDWriteTextLayout* const layout = entry.text_layout();
-    if (node.type == NodeType::Image || !layout) {
+    if (!layout) {
         return;
     }
     if (entry.effects_applied() && !entry.inline_code_bgs_stale()) {
@@ -323,9 +321,8 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry, float 
         ApplySyntaxEffects(layout, text, entry.syntax_tokens());
     }
 
-    if (apply_brushes && node.type == NodeType::BlockQuote && node.alert_type != AlertType::None && node.alert_label_length() > 0) {
-        const auto idx = AlertColorIndex(node.alert_type);
-        if (idx < ALERT_TYPE_COUNT) {
+    if (apply_brushes && node.type == NodeType::BlockQuote && node.alert_label_length() > 0) {
+        if (const auto idx = AlertColorIndex(node.alert_type); idx < ALERT_TYPE_COUNT) {
             mendo::Utf16OffsetCursor cursor{ text };
             layout->SetDrawingEffect(Brush(AlertBrushIdFromIndex(idx)), cursor.WideRange(0, node.alert_label_length()));
             MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);

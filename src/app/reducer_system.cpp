@@ -78,7 +78,7 @@ void ReduceResize(AppState& state, SideEffectList& effects, const ResizeAction& 
     state.window.size_changed_in_sizing = true;
     state.pane_layout_cache.Invalidate();
     PushEffect(effects, effect::RendererResize{ a.width, a.height });
-    const float window_w_dip = a.width / state.window.cached_dpi_scale;
+    const float window_w_dip = PixelToDip(static_cast<float>(a.width), state.window.cached_dpi_scale);
     state.window.titlebar.UpdateLayout(window_w_dip);
     if (state.window.is_sizing) {
         PushEffect(effects, effect::PerformSizingUpdate{});
@@ -131,13 +131,13 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
         const auto result = state.interaction.swipe_detector.Commit();
         PushEffect(effects, effect::KillTimer{ app_timer::Id::SWIPE_OVERLAY });
         switch (result) {
-        case SwipeResult::None:
+        case NavDirection::None:
             return;
-        case SwipeResult::Back:
+        case NavDirection::Back:
             ReduceNavigateBack(state, effects);
             PushEffect(effects, effect::InvalidateWindow{});
             return;
-        case SwipeResult::Forward:
+        case NavDirection::Forward:
             ReduceNavigateForward(state, effects);
             PushEffect(effects, effect::InvalidateWindow{});
             return;

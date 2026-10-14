@@ -72,7 +72,7 @@ constexpr size_t kReloadByteSize = 4242;
 struct Fixture {
     Document current;
     std::shared_ptr<const std::pmr::string> other_base;
-    std::optional<AsyncLoadResult> result;
+    std::optional<AsyncLoadOutcome> outcome;
 };
 
 Fixture Build(const Case& c)
@@ -83,9 +83,12 @@ Fixture Build(const Case& c)
     }
     switch (c.kind) {
     case ResultKind::None:
+        if (c.error) {
+            f.outcome.emplace(std::unexpected(*c.error));
+        }
         break;
     case ResultKind::Doc:
-        f.result.emplace(AsyncLoadResult{ Document::FromMarkdown(std::pmr::string(c.result_text), c.result_path) });
+        f.outcome.emplace(AsyncLoadResult{ Document::FromMarkdown(std::pmr::string(c.result_text), c.result_path) });
         break;
     case ResultKind::Reload: {
         std::weak_ptr<const std::pmr::string> base;
@@ -101,11 +104,11 @@ Fixture Build(const Case& c)
             base = std::make_shared<const std::pmr::string>(c.current_text);
             break;
         }
-        f.result.emplace(AsyncLoadResult{
+        f.outcome.emplace(AsyncLoadResult{
             .reload = ReloadCheck{ ReloadDecision{ c.reload_op, c.reload_diff_pos }, base, std::pmr::wstring(c.reload_path), kReloadByteSize } });
         // worker は NoChange / DeferPrefixShrink 以外ならパース済みの文書を同じパスで返す。
         if (c.reload_op == ReloadOp::Replace) {
-            f.result->doc = Document::FromMarkdown(std::pmr::string(c.result_text), c.reload_path);
+            (*f.outcome)->doc = Document::FromMarkdown(std::pmr::string(c.result_text), c.reload_path);
         }
         break;
     }
@@ -124,7 +127,7 @@ TEST_P(PlanParseCompleteTest, ChoosesStep)
     ASSERT_EQ(f.current.GetRawText().Share() != nullptr, !c.current_text.empty());
 
     std::vector<std::pair<std::wstring, size_t>> probes;
-    const auto plan = PlanParseComplete(f.result ? &*f.result : nullptr, c.error, c.another_load_active, f.current,
+    const auto plan = PlanParseComplete(f.outcome, c.another_load_active, f.current,
                                         [&](const std::pmr::wstring& path, size_t read_size) {
                                             probes.emplace_back(std::wstring(std::wstring_view(path)), read_size);
                                             return c.partial_write;
@@ -156,7 +159,7 @@ TEST_P(PlanParseCompleteTest, ChoosesStep)
         }
         else {
             EXPECT_EQ(probes[0].first, c.result_path);
-            EXPECT_EQ(probes[0].second, f.result->doc.GetLoadedByteSize());
+            EXPECT_EQ(probes[0].second, (*f.outcome)->doc.GetLoadedByteSize());
         }
     }
 }

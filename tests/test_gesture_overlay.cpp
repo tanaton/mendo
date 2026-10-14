@@ -8,7 +8,7 @@ TEST(GestureOverlay, Idle)
     auto gs = ResolveGestureOverlay(gesture, swipe);
     EXPECT_FALSE(gs.trail_active);
     EXPECT_FALSE(gs.overlay_visible);
-    EXPECT_EQ(gs.direction, 0);
+    EXPECT_EQ(gs.direction, NavDirection::None);
     ASSERT_NE(gs.trail_points, nullptr);
     EXPECT_TRUE(gs.trail_points->empty());
 }
@@ -23,7 +23,7 @@ TEST(GestureOverlay, TrackingLeft)
     auto gs = ResolveGestureOverlay(gesture, swipe);
     EXPECT_TRUE(gs.trail_active);
     EXPECT_TRUE(gs.overlay_visible);
-    EXPECT_EQ(gs.direction, -1);
+    EXPECT_EQ(gs.direction, NavDirection::Back);
 }
 
 TEST(GestureOverlay, TrackingRight)
@@ -34,7 +34,7 @@ TEST(GestureOverlay, TrackingRight)
     gesture.OnMouseMove(200.0f, 100.0f);
 
     auto gs = ResolveGestureOverlay(gesture, swipe);
-    EXPECT_EQ(gs.direction, 1);
+    EXPECT_EQ(gs.direction, NavDirection::Forward);
 }
 
 TEST(GestureOverlay, SwipeFallback_WhenGestureIdle)
@@ -46,7 +46,7 @@ TEST(GestureOverlay, SwipeFallback_WhenGestureIdle)
     auto gs = ResolveGestureOverlay(gesture, swipe);
     EXPECT_FALSE(gs.trail_active);
     EXPECT_TRUE(gs.overlay_visible);
-    EXPECT_EQ(gs.direction, -1);
+    EXPECT_EQ(gs.direction, NavDirection::Back);
 }
 
 TEST(GestureOverlay, GestureTakesPrecedenceOverSwipe)
@@ -59,5 +59,5 @@ TEST(GestureOverlay, GestureTakesPrecedenceOverSwipe)
 
     auto gs = ResolveGestureOverlay(gesture, swipe);
     EXPECT_TRUE(gs.overlay_visible);
-    EXPECT_EQ(gs.direction, 1);
+    EXPECT_EQ(gs.direction, NavDirection::Forward);
 }

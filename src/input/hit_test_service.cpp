@@ -20,7 +20,7 @@ constexpr DipPoint ScreenToPaneDip(const MdPaneHitContext& ctx) noexcept
 }
 
 // layout 上の点 (x, y) をヒットテストし、base (ノードまたはセルの先頭) 起点の text_pos / char_pos を書く。
-void ResolveTextHit(HitTestService::HitResult& result, IDWriteTextLayout* layout, float x, float y,
+void ResolveTextHit(hit_test::HitResult& result, IDWriteTextLayout* layout, float x, float y,
                     std::string_view text, uint32_t base) noexcept
 {
     BOOL is_trailing = FALSE;
@@ -37,7 +37,7 @@ void ResolveTextHit(HitTestService::HitResult& result, IDWriteTextLayout* layout
 
 // ノード高さ範囲外 (ノード間の余白等) のヒットを最寄りの非空ノードにクランプする。
 // 文書全体の末尾へ飛ばすと、余白クリックからのドラッグで巨大選択になる。
-HitTestService::HitResult ClampToNearestTextNode(const std::pmr::vector<Node>& nodes, int candidate) noexcept
+hit_test::HitResult ClampToNearestTextNode(const std::pmr::vector<Node>& nodes, int candidate) noexcept
 {
     for (int i = candidate; i >= 0; --i) {
         if (const auto& text = nodes[static_cast<size_t>(i)].GetText(); !text.empty()) {
@@ -65,8 +65,7 @@ struct DirectHit {
 
 DirectHit FindDirectHit(const MdPaneHitContext& ctx, float dip_y) noexcept
 {
-    // nodes と cache のサイズは非同期リロード中などに過渡的に不一致になりうる。
-    const auto indices = std::views::iota(size_t{ 0 }, std::min(ctx.nodes.size(), ctx.cache.size()));
+    const auto indices = std::views::iota(size_t{ 0 }, ctx.cache.size());
     const auto it = std::ranges::partition_point(indices, [&ctx, dip_y](size_t i) noexcept {
         return ctx.cache.Top(i) <= dip_y;
     });
@@ -90,7 +89,7 @@ DirectHit FindDirectHit(const MdPaneHitContext& ctx, float dip_y) noexcept
 
 } // namespace
 
-HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) const noexcept
+hit_test::HitResult hit_test::HitTest(const MdPaneHitContext& ctx) noexcept
 {
     if (ctx.nodes.empty()) {
         return {};
@@ -118,7 +117,7 @@ HitTestService::HitResult HitTestService::HitTest(const MdPaneHitContext& ctx) c
     return result;
 }
 
-int HitTestService::HitNode(const MdPaneHitContext& ctx) const noexcept
+int hit_test::HitNode(const MdPaneHitContext& ctx) noexcept
 {
     if (ctx.nodes.empty()) {
         return -1;
@@ -127,12 +126,12 @@ int HitTestService::HitNode(const MdPaneHitContext& ctx) const noexcept
     return direct.node_index >= 0 ? direct.node_index : ClampToNearestTextNode(ctx.nodes, direct.candidate).node_index;
 }
 
-HitTestService::HitResult HitTestService::HitTestTable(
+hit_test::HitResult hit_test::HitTestTable(
     const Node& node, const NodeLayoutEntry& entry,
     float entry_text_top,
     int node_index,
     const Theme& theme,
-    float dip_x, float dip_y, float h_scroll_x) const noexcept
+    float dip_x, float dip_y, float h_scroll_x) noexcept
 {
     HitResult result;
     result.node_index = node_index;
@@ -150,7 +149,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
 
     const auto* tbl = node.table_data();
     const size_t row_count = tbl ? tbl->row_count : 0;
-    const auto [hit_row, row_top] = FindTableRow(tl, row_count, mendo::layout::TableBaseRowHeight(theme), dip_y - entry_text_top);
+    const auto [hit_row, row_top] = FindTableRow(tl, row_count, dip_y - entry_text_top);
     if (hit_row < 0) {
         result.text_pos = tbl ? static_cast<uint32_t>(tbl->concat_text.size()) : 0u;
         return result;
@@ -164,8 +163,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
     const auto c = static_cast<size_t>(hit_col);
     const uint32_t flat_offset = tbl->CellTextStart(r, c);
     if (IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c)) {
-        const float text_x = cell_left_x + TABLE_CELL_PADDING;
-        const float text_y = row_top_y + TABLE_CELL_PADDING;
+        const auto [text_x, text_y] = TableCellTextOrigin(cell_left_x, row_top_y);
         ResolveTextHit(result, cell_layout, dip_x - text_x, dip_y - text_y, tbl->GetCellText(r, c), flat_offset);
     }
     else {
@@ -174,7 +172,7 @@ HitTestService::HitResult HitTestService::HitTestTable(
     return result;
 }
 
-HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const MdPaneHitContext& ctx) const noexcept
+hit_test::CodeBlockButtonHit hit_test::CodeBlockButtonsHitTest(const MdPaneHitContext& ctx) noexcept
 {
     if (ctx.nodes.empty()) {
         return {};
@@ -185,10 +183,8 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const
 
     const float viewport_top = ctx.scroll_y;
     const float viewport_bottom = ctx.scroll_y + ctx.md_rect.height;
-    // nodes と cache のサイズは非同期リロード中などに過渡的に不一致になりうるため両者の最小で抑える。
-    const size_t safe_count = std::min(ctx.nodes.size(), ctx.cache.size());
-    const int first = FindFirstVisibleNodeIndex(ctx.cache, safe_count, viewport_top);
-    const int count = static_cast<int>(safe_count);
+    const int first = FindFirstVisibleNodeIndex(ctx.cache, viewport_top);
+    const int count = static_cast<int>(ctx.cache.size());
 
     CodeBlockButtonHit out;
     for (int i = first; i < count; i++) {
@@ -226,7 +222,7 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const
         }
         // マウス座標は1点なので、コピー/保存/ダイアグラムコピーボタンが同時にヒットすることはない。
         // 1つでも見つかった時点で残りの可視ノード走査をスキップする。
-        if (out.copy_node >= 0 || out.save_node >= 0 || out.diagram_copy_node >= 0) {
+        if (out.Any()) {
             break;
         }
     }
@@ -234,7 +230,7 @@ HitTestService::CodeBlockButtonHit HitTestService::CodeBlockButtonsHitTest(const
     return out;
 }
 
-NavButtonHover HitTestService::NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) const noexcept
+NavButtonHover hit_test::NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) noexcept
 {
     if (PointInRectInclusive(dip_x, dip_y, NavBackButtonRect(md_rect))) {
         return NavButtonHover::Back;
@@ -245,10 +241,10 @@ NavButtonHover HitTestService::NavButtonHitTest(float dip_x, float dip_y, const 
     return NavButtonHover::None;
 }
 
-bool HitTestService::BlockHScrollbarHitTest(const MdPaneHitContext& ctx, int node_index, float visible_width) const noexcept
+bool hit_test::BlockHScrollbarHitTest(const MdPaneHitContext& ctx, int node_index, float visible_width) noexcept
 {
     const auto i = static_cast<size_t>(node_index);
-    if (i >= ctx.nodes.size() || i >= ctx.cache.size()) {
+    if (i >= ctx.cache.size()) {
         return false;
     }
     const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);

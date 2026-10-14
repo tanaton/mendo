@@ -2,6 +2,7 @@
 #include "d2d_util.h"
 #include "log_hr.h"
 #include "resource.h"
+#include "scope_guard.h"
 #include "ui_constants.h"
 #include "wic_util.h"
 #include <utility>
@@ -18,16 +19,15 @@ void Renderer::LoadAppIconBitmap()
         OutputDebugStringW(L"[mendo] LoadAppIconBitmap: LoadImageW(IDI_APP_ICON) failed\n");
         return;
     }
+    const auto icon_guard = ScopeGuard([hIcon] { DestroyIcon(hIcon); });
 
     auto* wic = backend_.GetWICFactory();
     if (!wic) {
-        DestroyIcon(hIcon);
         return;
     }
 
     ComPtr<IWICBitmap> wic_bitmap;
     HRESULT hr = wic->CreateBitmapFromHICON(hIcon, &wic_bitmap);
-    DestroyIcon(hIcon);
     if (FAILED(hr)) {
         mendo::LogHrFailure(L"LoadAppIconBitmap: CreateBitmapFromHICON", hr);
         return;

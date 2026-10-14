@@ -6,7 +6,7 @@
 ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
 {
     const auto& cache = state.document.layout_cache;
-    const int node = state.view.viewport.FindFirstVisibleNode(cache, cache.size());
+    const int node = state.view.viewport.FindFirstVisibleNode(cache);
     const float y_before = (node >= 0) ? cache.Top(static_cast<size_t>(node)) : 0.0f;
     return { node, state.view.viewport.GetScrollY() - y_before };
 }
@@ -90,7 +90,7 @@ BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node
     }
     const auto& nodes = state.document.doc.GetNodes();
     const auto& cache = state.document.layout_cache;
-    if (node_index >= static_cast<int>(nodes.size()) || node_index >= static_cast<int>(cache.size())) {
+    if (node_index >= static_cast<int>(cache.size())) {
         return {};
     }
     return GetBlockHScrollGeometry(
@@ -107,7 +107,6 @@ float MdScrollableContentHeight(const AppState& state) noexcept
 {
     return ComputeTotalContentHeight(
         state.document.layout_cache,
-        state.document.doc.GetNodes().size(),
         state.theme->margin_bottom);
 }
 
@@ -204,8 +203,6 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
 
         // ---- 非同期・タイマー ----
         [&](const TimerAction& a) { ReduceTimer(state, effects, a); },
-        [&](const FileWatchAction&) { PushEffect(effects, effect::CheckFileChanges{}); },
-        [&](const ImageLoadedAction&) { PushEffect(effects, effect::NotifyImageLoaded{}); },
     }, action);
     // clang-format on
     return effects;

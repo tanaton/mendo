@@ -6,14 +6,6 @@
 #include <string_view>
 #include <utility>
 
-namespace {
-void ReplaceMarkdown(Document& doc, std::string_view text)
-{
-    std::pmr::string s{ text };
-    const size_t sz = s.size();
-    doc.ReplaceFromMarkdown(std::move(s), sz);
-}
-} // namespace
 
 // リロード diff (AnalyzeReloadDiff) は raw_text_ と FileLoader 出力が同じ LF 正規化済みである
 // 前提 (issue #273)。その正規化自体を担保する。
@@ -103,41 +95,6 @@ TEST(DocumentTest, GetDirectoryNoSlash)
     EXPECT_TRUE(doc.GetDirectory().empty());
 }
 
-TEST(DocumentTest, SetFilePath)
-{
-    Document doc;
-    doc.SetFilePath(L"C:\\new\\path.md");
-    EXPECT_EQ(doc.GetFilePath(), L"C:\\new\\path.md");
-}
-
-TEST(DocumentTest, ReplaceContent)
-{
-    auto doc = Document::FromMarkdown("# First", L"C:\\test.md");
-    EXPECT_FALSE(doc.GetToc().GetEntries().empty());
-    EXPECT_EQ(doc.GetNodes()[doc.GetToc().GetEntries()[0].node_index].GetText(), "First");
-
-    // 新しいコンテンツで置き換え (raw_text_ ごと差し替えるため ReplaceFromMarkdown を使う)
-    constexpr std::string_view kReplaced = "# Second\n## Sub";
-    doc.ReplaceFromMarkdown(std::pmr::string{ kReplaced }, kReplaced.size());
-
-    // TOCが再構築されるべき
-    EXPECT_GE(doc.GetToc().GetEntries().size(), 2u);
-    EXPECT_EQ(doc.GetNodes()[doc.GetToc().GetEntries()[0].node_index].GetText(), "Second");
-    // ファイルパスは変更されないべき
-    EXPECT_EQ(doc.GetFilePath(), L"C:\\test.md");
-}
-
-TEST(DocumentTest, GetNodesMut)
-{
-    auto doc = Document::FromMarkdown("hello", L"test.md");
-    ASSERT_FALSE(doc.IsEmpty());
-
-    // 可変参照を通じてノードを変更
-    auto& nodes = doc.GetNodesMut();
-    nodes[0].SetText("modified", 0);
-    EXPECT_EQ(doc.GetNodes()[0].GetText(), "modified");
-}
-
 // ---- GetRawText / GetLoadedByteSize ----
 
 TEST(DocumentTest, GetRawTextFromMarkdown)
@@ -161,15 +118,6 @@ TEST(DocumentTest, GetRawTextDefault)
     EXPECT_EQ(doc.GetLoadedByteSize(), 0u);
 }
 
-TEST(DocumentTest, GetRawTextAfterReplace)
-{
-    auto doc = Document::FromMarkdown("old content", L"test.md");
-    EXPECT_EQ(doc.GetRawText(), "old content");
-
-    ReplaceMarkdown(doc, "new content");
-    EXPECT_EQ(doc.GetRawText(), "new content");
-}
-
 TEST(DocumentTest, GetRawTextUtf8Content)
 {
     std::pmr::string utf8 = "# 日本語テスト\n\nこんにちは";
@@ -178,27 +126,6 @@ TEST(DocumentTest, GetRawTextUtf8Content)
     EXPECT_EQ(doc.GetRawText(), "# 日本語テスト\n\nこんにちは");
     // バイトサイズは UTF-8 のサイズ（CJK は 3 byte/char）
     EXPECT_EQ(doc.GetLoadedByteSize(), utf8.size());
-}
-
-TEST(DocumentTest, GetRawTextPreservedAcrossMultipleReplaces)
-{
-    auto doc = Document::FromMarkdown("v1", L"test.md");
-    EXPECT_EQ(doc.GetRawText(), "v1");
-
-    ReplaceMarkdown(doc, "v2");
-    EXPECT_EQ(doc.GetRawText(), "v2");
-
-    ReplaceMarkdown(doc, "v3");
-    EXPECT_EQ(doc.GetRawText(), "v3");
-}
-
-TEST(DocumentTest, GetRawTextIndependentOfNodes)
-{
-    // ノードの変更が raw_text_ に影響しないことを確認
-    auto doc = Document::FromMarkdown("hello", L"test.md");
-    doc.GetNodesMut()[0].SetText("modified", 0);
-    // raw_text_ はパース入力のまま
-    EXPECT_EQ(doc.GetRawText(), "hello");
 }
 
 TEST(DocumentTest, SourceOffsetPointsToNodeTextStart)
@@ -252,7 +179,7 @@ TEST(DocumentTest, SourceOffsetSurvivesEmbeddedNullInCodeBlock)
     EXPECT_TRUE(checked_any);
 }
 
-// ---- 1.2 view 化 sanity (Document move / ReplaceFromMarkdown) ----
+// ---- 1.2 view 化 sanity (Document move) ----
 
 TEST(DocumentTest, ViewModeNodesSurviveMoveCtor)
 {
@@ -277,16 +204,6 @@ TEST(DocumentTest, ViewModeNodesSurviveMoveAssign)
     EXPECT_EQ(dst.GetNodes()[1].GetText(), "beta");
 }
 
-TEST(DocumentTest, ViewModeNodesSurviveReplaceFromMarkdown)
-{
-    auto doc = Document::FromMarkdown("Initial text", L"test.md");
-    EXPECT_EQ(doc.GetNodes()[0].GetText(), "Initial text");
-
-    ReplaceMarkdown(doc, "Updated content here");
-    ASSERT_FALSE(doc.GetNodes().empty());
-    EXPECT_EQ(doc.GetNodes()[0].GetText(), "Updated content here");
-}
-
 TEST(DocumentTest, OwnedAndViewModesCoexist)
 {
     // HTML entity (&amp;) を含むノードは加工が入るため owned 経路、
@@ -295,14 +212,6 @@ TEST(DocumentTest, OwnedAndViewModesCoexist)
     ASSERT_GE(doc.GetNodes().size(), 2u);
     EXPECT_EQ(doc.GetNodes()[0].GetText(), "Hello & world");
     EXPECT_EQ(doc.GetNodes()[1].GetText(), "NoEntityHere");
-}
-
-TEST(DocumentTest, ViewModeNodesSurviveReplaceFromMarkdownThenMove)
-{
-    auto doc1 = Document::FromMarkdown("first content", L"test.md");
-    ReplaceMarkdown(doc1, "second content after replace");
-    Document doc2 = std::move(doc1);
-    EXPECT_EQ(doc2.GetNodes()[0].GetText(), "second content after replace");
 }
 
 // ---- BuildIndices統合テスト ----
@@ -358,19 +267,6 @@ TEST(DocumentTest, BuildIndicesTocAndAnchorConsistent)
     for (const auto& entry : toc) {
         EXPECT_EQ(doc.FindAnchorIndex(anchors[entry.node_index]), entry.node_index);
     }
-}
-
-TEST(DocumentTest, BuildIndicesAfterReplaceContent)
-{
-    auto doc = Document::FromMarkdown("# Old", L"test.md");
-    EXPECT_EQ(doc.GetToc().GetEntries().size(), 1u);
-    EXPECT_EQ(doc.FindAnchorIndex("old"), 0);
-
-    constexpr std::string_view kReplaced = "# New\n\n## Sub";
-    doc.ReplaceFromMarkdown(std::pmr::string{ kReplaced }, kReplaced.size());
-    EXPECT_EQ(doc.GetToc().GetEntries().size(), 2u);
-    EXPECT_EQ(doc.FindAnchorIndex("old"), -1);
-    EXPECT_EQ(doc.FindAnchorIndex("new"), 0);
 }
 
 TEST(DocumentTest, BuildIndicesNoSpecialNodes)

@@ -553,7 +553,7 @@ void MermaidRenderer::ApplyCachedBitmap(NodeLayoutEntry& layout_entry, DiagramEn
 }
 
 void MermaidRenderer::RequestRender(
-    Node& node, NodeLayoutEntry& layout_entry,
+    const Node& node, NodeLayoutEntry& layout_entry,
     DiagramEntry& diagram_entry,
     float max_width, bool dark_mode,
     Callback on_complete)

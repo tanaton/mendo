@@ -1,6 +1,7 @@
 #pragma once
 #include "document_types.h"
 #include "png_bytes.h"
+#include "ui_constants.h"
 #include <cstdint>
 #include <vector>
 #include <memory>
@@ -62,6 +63,13 @@ struct TableLayoutData {
     {
         return evicted_row_count > 0;
     }
+    // セルに適用した描画エフェクト (インラインコード背景・リンク色) の済み印を捨てる。
+    void ClearEffects() noexcept
+    {
+        cell_inline_code_bgs.clear();
+        row_bgs_computed.clear();
+        row_links_applied.clear();
+    }
     void ResetRowEviction(size_t row_count)
     {
         row_evicted.assign(row_count, 0);
@@ -69,9 +77,23 @@ struct TableLayoutData {
         live_row_begin = 0;
         live_row_end = row_count;
     }
+    // セル単位の配列と row_evicted を row_count x col_count に揃えて確保し直す (セル layout は空)。
+    // cell_layouts を最後に確保するので、途中で例外になっても「cell_layouts が非空なら
+    // セル単位の配列と row_evicted のサイズが揃っている」ことは崩れない。
+    void AllocateCells(size_t row_count, size_t new_col_count)
+    {
+        const size_t cell_count = row_count * new_col_count;
+        cell_heights.assign(cell_count, 0.0f);
+        cell_applied_widths.assign(cell_count, -1.0f);
+        ResetRowEviction(row_count);
+        col_count = new_col_count;
+        cell_layouts.assign(cell_count, {});
+    }
+    // r が row_evicted の範囲内であることは呼び出し側が保証する。
+    // row_links_applied はエフェクト未適用なら空なので範囲を確かめる。
     constexpr void MarkRowEvicted(size_t r) noexcept
     {
-        if (r < row_evicted.size() && !row_evicted[r]) {
+        if (!row_evicted[r]) {
             row_evicted[r] = 1;
             ++evicted_row_count;
         }
@@ -81,7 +103,7 @@ struct TableLayoutData {
     }
     constexpr void MarkRowRestored(size_t r) noexcept
     {
-        if (r < row_evicted.size() && row_evicted[r]) {
+        if (row_evicted[r]) {
             row_evicted[r] = 0;
             --evicted_row_count;
         }
@@ -109,17 +131,43 @@ struct TableLayoutData {
     // 座標はいずれもエントリ上端からのローカル系。row_cum_y が空なら [0, 0)。
     std::pair<size_t, size_t> VisibleRowRange(float local_top, float local_bottom) const noexcept;
 
-    // row_cum_y が row_count 行分確定しているか (未計測・evict 直後は false)。
+    // row_cum_y が row_count 行分確定しているか (未計測なら false)。
     bool HasRowGeometry(size_t row_count) const noexcept
     {
         return row_cum_y.size() == row_count + 1;
     }
 
-    // 行 r の高さ。未計測なら fallback (TableBaseRowHeight)。描画とヒットテストで同じ規則を使う。
-    float RowHeight(size_t r, float fallback) const noexcept
+    // 列幅と col_cum_x が揃っているか。InvalidateGeometry の後は false。
+    bool HasColGeometry() const noexcept
     {
-        return r < row_heights.size() ? row_heights[r] : fallback;
+        return !col_widths.empty() && col_cum_x.size() == col_widths.size() + 1;
     }
+
+    // 描画に要る行・列の幾何がすべて揃っているか。FinalizeTableLayout で揃い、
+    // 以後サイズは変わらないので、false になるのは InvalidateGeometry の後か計測が一度も完了していないときだけ。
+    bool HasGeometry(size_t row_count, size_t expected_col_count) const noexcept
+    {
+        return expected_col_count > 0 && col_widths.size() == expected_col_count && HasColGeometry() &&
+               row_heights.size() == row_count && HasRowGeometry(row_count);
+    }
+
+    // entry.height だけ推定値で伸ばしたときなど、列幅・行高さが entry と食い違う状態にする。
+    // 次の計測で FinalizeTableLayout が作り直す。row_cum_y は行単位 evict の範囲計算に使うので残す。
+    void InvalidateGeometry() noexcept
+    {
+        col_widths.clear();
+        cached_table_width = 0.0f;
+    }
+
+    // 列 c の左端から次の列の左端までの幅 (列幅 + 左右パディング + 罫線)。col_cum_x の刻み幅。
+    float ColumnStep(size_t c) const noexcept
+    {
+        return col_widths[c] + TABLE_CELL_PADDING * 2.0f + TABLE_BORDER_WIDTH;
+    }
+
+    // row_heights (先頭 row_count 行) / col_widths から罫線込みの累積位置を積み直す。
+    void RebuildRowCumY(size_t row_count);
+    void RebuildColCumX();
 
     // 行幾何が row_count と揃っていれば VisibleRowRange、未確定なら全行 [0, row_count)。
     std::pair<size_t, size_t> RowsInViewport(size_t row_count, float local_top, float local_bottom) const noexcept
@@ -134,6 +182,13 @@ struct TableLayoutData {
     // 座標はエントリ上端からのローカル系。row_cum_y が空でもヒットなし扱い。
     int RowIndexAt(float local_y) const noexcept;
 };
+
+// セル枠の左端 (左罫線の右) と行上端 (上罫線の位置) から、セル本文の描画原点を求める。
+// 描画 (GenTable) とヒットテストで同じ位置を使う。
+constexpr D2D1_POINT_2F TableCellTextOrigin(float cell_left, float row_top) noexcept
+{
+    return { cell_left + TABLE_CELL_PADDING, row_top + TABLE_CELL_PADDING };
+}
 
 // 検索ハイライト矩形のフレーム間キャッシュ。
 // match i (ノード内順) の矩形は rects[rect_ends[i-1] ... rect_ends[i]) (i=0 なら 0 始まり)。
@@ -502,7 +557,8 @@ public:
 
     // デバイスロスト時用。旧デバイス上のビットマップは新 RT で描画できず、
     // 残すと EndDraw が D2DERR_WRONG_RESOURCE_DOMAIN で失敗し続ける。
-    void InvalidateAllDiagramBitmaps() noexcept;
+    // 画像の寸法は再計測が表示高さに使うので残す。
+    void InvalidateAllDiagramBitmaps(const std::pmr::vector<Node>& nodes) noexcept;
 
     // ダイアグラム系ノードのビットマップを無効化する。
     // ダークモード切替時に text_layout とエフェクトを保持したまま図だけ再描画したい場合に使う。
@@ -564,16 +620,13 @@ private:
 };
 
 // 「コンテンツ末尾までの高さ」(末尾 node の text_top + height + 下端マージン)。
-// = スクロール上限計算に使う高さ。末尾 node の spacing_below は含まない。
-// node_count > cache.size() の過渡状態 (doc 差し替え直後など) でも安全なよう effective にクランプする
-// (FindFirstVisibleNodeIndex / EnsureScrollTarget と同じ防御)。effective が 0 なら 0 を返し underflow を回避。
-constexpr float ComputeTotalContentHeight(const LayoutCache& cache, size_t node_count, float margin_bottom) noexcept
+// = スクロール上限計算に使う高さ。末尾 node の spacing_below は含まない。空なら 0。
+constexpr float ComputeTotalContentHeight(const LayoutCache& cache, float margin_bottom) noexcept
 {
-    const size_t effective = std::min(node_count, cache.size());
-    if (effective == 0) {
+    if (cache.size() == 0) {
         return 0.0f;
     }
-    return cache.Bottom(effective - 1) + margin_bottom;
+    return cache.Bottom(cache.size() - 1) + margin_bottom;
 }
 
 // ノードの Y 範囲 [y, y+h] が [range_top, range_bottom] と重ならない場合 true を返す。
@@ -584,17 +637,14 @@ constexpr bool IsOffscreen(float y, float h, float range_top, float range_bottom
     return y + h < range_top || y > range_bottom;
 }
 
-// 下端が viewport_top 以上の最初のノードを二分探索で見つける。
-// 最初の可視候補ノードのインデックスを返す。該当なしの場合は effective node count を返す。
-// 過渡状態で node_count > cache.size() でも UB にならないよう内部でクランプする。
-constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, size_t node_count, float viewport_top) noexcept
+// 下端が viewport_top 以上の最初のノードを二分探索で見つける。該当なしの場合は cache.size() を返す。
+constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, float viewport_top) noexcept
 {
-    const size_t effective = std::min(node_count, cache.size());
-    const auto indices = std::views::iota(size_t{ 0 }, effective);
+    const auto indices = std::views::iota(size_t{ 0 }, cache.size());
     const auto it = std::ranges::partition_point(indices, [&cache, viewport_top](size_t i) noexcept {
         return cache.Bottom(i) <= viewport_top;
     });
-    return static_cast<int>(it == indices.end() ? effective : *it);
+    return static_cast<int>(it == indices.end() ? cache.size() : *it);
 }
 
 struct VisibleRange {
@@ -605,13 +655,11 @@ struct VisibleRange {
 // [first, last_plus_1) で range_top..range_bottom と重なる可能性があるノード範囲を返す。
 // first: 下端が range_top 以上の最初のノード（FindFirstVisibleNodeIndex 相当）。
 // last+1: 上端が range_bottom を超える最初のノード。
-inline VisibleRange ComputeVisibleNodeRange(const LayoutCache& cache, size_t node_count,
-                                            float range_top, float range_bottom) noexcept
+inline VisibleRange ComputeVisibleNodeRange(const LayoutCache& cache, float range_top, float range_bottom) noexcept
 {
-    const size_t effective = std::min(node_count, cache.size());
-    const size_t first = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, effective, range_top));
+    const size_t first = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, range_top));
     size_t last_plus_1 = first;
-    for (size_t i = first; i < effective; ++i) {
+    for (size_t i = first; i < cache.size(); ++i) {
         if (cache.Top(i) > range_bottom) {
             break;
         }

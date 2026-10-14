@@ -57,9 +57,9 @@ std::optional<uint64_t> QueryFileSize(const wchar_t* path) noexcept
     return (static_cast<uint64_t>(attr.nFileSizeHigh) << 32) | static_cast<uint64_t>(attr.nFileSizeLow);
 }
 
-bool IsFileLargerThan(const std::filesystem::path& path, size_t reference_size, size_t tolerance) noexcept
+bool IsFileLargerThan(const wchar_t* path, size_t reference_size, size_t tolerance) noexcept
 {
-    const auto size = QueryFileSize(path.c_str());
+    const auto size = QueryFileSize(path);
     return size && *size > static_cast<uint64_t>(reference_size) + tolerance;
 }
 

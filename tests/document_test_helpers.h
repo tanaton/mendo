@@ -3,11 +3,26 @@
 #include "document_types.h"
 #include "document_utils.h"
 #include "heading_anchor_index.h"
+#include "selection_html.h"
+#include <optional>
 #include <memory_resource>
 #include <ranges>
 #include <string>
 #include <string_view>
 #include <vector>
+
+inline std::pmr::string GenerateAnchorId(std::string_view text)
+{
+    std::pmr::string slug;
+    GenerateAnchorIdInto(text, slug);
+    return slug;
+}
+
+// text_pos にあるリンクの URL。
+inline std::optional<std::string_view> FindLinkAtPosition(const Node& node, uint32_t text_pos)
+{
+    return FindLinkHitAtPosition(node, text_pos).transform([](const LinkHit& h) noexcept { return h.url; });
+}
 
 // 指定 NodeType の最初のインデックスを返す。テストで「パース結果から特定種別の
 // ノードを 1 つ取り出す」用途。production には対応する索引 (image_node_indices_ 等)

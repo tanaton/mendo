@@ -72,28 +72,6 @@ constexpr size_t TableRowsPerChunk(size_t col_count) noexcept
     return std::max<size_t>(1, kCellsPerChunk / std::max<size_t>(col_count, 1));
 }
 
-void RebuildRowCumY(TableLayoutData& tl, size_t row_count, float border_width)
-{
-    tl.row_cum_y.resize(row_count + 1);
-    float ry = 0.0f;
-    for (size_t r = 0; r < row_count; r++) {
-        tl.row_cum_y[r] = ry;
-        ry += tl.row_heights[r] + border_width;
-    }
-    tl.row_cum_y[row_count] = ry;
-}
-
-void RebuildColCumX(TableLayoutData& tl, size_t col_count, float border_width)
-{
-    tl.col_cum_x.resize(col_count + 1);
-    float cx = border_width;
-    for (size_t c = 0; c < col_count; c++) {
-        tl.col_cum_x[c] = cx;
-        cx += tl.col_widths[c] + TABLE_CELL_PADDING * 2.0f + border_width;
-    }
-    tl.col_cum_x[col_count] = cx;
-}
-
 // 1 行目の高さを取得し entry にキャッシュする。layout 自体は変えない。
 void CacheFirstLineHeight(IDWriteTextLayout* layout, NodeLayoutEntry& entry) noexcept
 {
@@ -131,22 +109,15 @@ void FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TE
 
 // テキストレイアウトを持たないノード (HR / ダイアグラム / 画像 / 空テキスト) の高さを確定する。
 // 戻り値: 処理した場合 true。
-bool MeasureWithoutTextLayout(const Node& node, NodeLayoutEntry& entry, float max_width, const Theme& theme) noexcept
+bool MeasureWithoutTextLayout(const Node& node, NodeLayoutEntry& entry, const Theme& theme) noexcept
 {
     if (node.type == NodeType::HorizontalRule) {
         entry.height = theme.paragraph_spacing + theme.hr_thickness;
     }
-    // ダイアグラム: ビットマップがレンダリングされるまではプレースホルダー高さ
-    else if (IsDiagramCodeBlock(node)) {
+    // ダイアグラム / 画像: 高さはビットマップ側で決まる (画像は MeasureEntry が寸法から求める)。
+    // それまではプレースホルダー高さ。
+    else if (IsBitmapDrawNode(node)) {
         if (entry.height <= 0) {
-            entry.height = mendo::layout::PlaceholderHeight(theme);
-        }
-    }
-    else if (node.type == NodeType::Image) {
-        if (const auto* img = node.image_data(); img && img->width > 0 && img->height > 0) {
-            entry.height = mendo::layout::ImageDisplayHeight(img->width, img->height, max_width);
-        }
-        else if (entry.height <= 0) {
             entry.height = mendo::layout::PlaceholderHeight(theme);
         }
     }
@@ -227,7 +198,7 @@ private:
 
 } // namespace
 
-bool DWriteTextMeasurer::CreateAllFormats()
+bool DWriteTextMeasurer::RecreateFormats()
 {
     if (!dwrite_ || !theme_) {
         return false;
@@ -261,17 +232,6 @@ bool DWriteTextMeasurer::CreateAllFormats()
     fmt_code_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
 
     return true;
-}
-
-bool DWriteTextMeasurer::Init(const Theme& theme)
-{
-    theme_ = &theme;
-    return CreateAllFormats();
-}
-
-bool DWriteTextMeasurer::RecreateFormats()
-{
-    return CreateAllFormats();
 }
 
 IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const Node& node) const noexcept
@@ -352,7 +312,7 @@ void DWriteTextMeasurer::MeasureNode(
         MeasureTable(node, entry, max_width, viewport);
         return;
     }
-    if (MeasureWithoutTextLayout(node, entry, max_width, *theme_)) {
+    if (MeasureWithoutTextLayout(node, entry, *theme_)) {
         return;
     }
 
@@ -469,15 +429,6 @@ void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayou
 
     mendo::layout::ComputeColumnWidths(tl.col_widths, natural_widths, max_width - borders_width - paddings_width, col_count);
 
-    // 適用幅/高さキャッシュ。幅不変なら GetMetrics を省ける。
-    const size_t cell_total = tl.cell_layouts.size();
-    if (tl.cell_heights.size() != cell_total) {
-        tl.cell_heights.assign(cell_total, 0.0f);
-    }
-    if (tl.cell_applied_widths.size() != cell_total) {
-        tl.cell_applied_widths.assign(cell_total, -1.0f);
-    }
-
     // 幅の適用 (SetMaxWidth + GetMetrics) は全セル分かかる。行ごとの書き込み先
     // (row_heights[r] と行内セルの幅・高さキャッシュ) は重ならないので行チャンクで並列化する。
     const float base_row_height = mendo::layout::TableBaseRowHeight(*theme_);
@@ -493,8 +444,8 @@ void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayou
     });
 
     // ヒットテスト高速化用に行Y累積と列X累積を事前計算
-    RebuildRowCumY(tl, tbl.row_count, border_width);
-    RebuildColCumX(tl, col_count, border_width);
+    tl.RebuildRowCumY(tbl.row_count);
+    tl.RebuildColCumX();
     const float total_height = tl.row_cum_y[tbl.row_count] + border_width;
 
     // col_cum_x の末尾は border_width + Σ(col_w + 2*pad + border) と一致するため再計算しない。
@@ -526,14 +477,9 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
     }
     auto& tl = *tl_ptr;
     const size_t row_count = tbl->row_count;
-    const size_t col_count = tl.col_count;
-    const bool geometry_ok = tl.row_evicted.size() == row_count && tl.row_cum_y.size() == row_count + 1 &&
-                             tl.row_heights.size() == row_count && tl.col_widths.size() == col_count &&
-                             tl.cell_layouts.size() == row_count * col_count &&
-                             tl.cell_heights.size() == tl.cell_layouts.size() &&
-                             tl.cell_applied_widths.size() == tl.cell_layouts.size();
-    // 幅が変わっていれば dirty 経由の MeasureTable (Finalize) が担当する。
-    if (!geometry_ok || std::abs(tl.last_applied_max_width - max_width) >= CELL_WIDTH_EPSILON) {
+    // evict 済みの行があるならセル単位の配列と row_evicted は揃っている (行追跡済みのときだけ evict する)。
+    // 幾何が無効 (InvalidateGeometry 後) か幅が変わっていれば dirty 経由の MeasureTable (Finalize) が担当する。
+    if (!tl.HasGeometry(row_count, tl.col_count) || std::abs(tl.last_applied_max_width - max_width) >= CELL_WIDTH_EPSILON) {
         return result;
     }
 
@@ -559,7 +505,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
     }
     if (result.height_changed) {
         const float border_width = TABLE_BORDER_WIDTH;
-        RebuildRowCumY(tl, row_count, border_width);
+        tl.RebuildRowCumY(row_count);
         entry.height = border_width + tl.row_cum_y[row_count];
         entry.cached_height = entry.height;
     }
@@ -594,12 +540,12 @@ void DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayoutEntry& entry, 
     // セル幅・行高さ・累積位置・行オフセットすべて変化しないため、layout_dirty を倒すだけで終える。
     // 検索ハイライト矩形・effects・inline_code_bgs もテキスト位置に依存するので保持できる。
     // evict 済み行のセルは RestoreEvictedTableRows が可視になった時点で再生成する。
-    // col_widths が空 (EstimateInvisibleNodeHeight が幾何を破棄済み) のまま通すと
+    // 幾何が無効 (EstimateInvisibleNodeHeight が InvalidateGeometry 済み) のまま通すと
     // GenTable が空テーブルを描画し続ける。
     if (has_compatible_layouts) {
         const bool same_width = tl_existing->last_applied_max_width >= 0.0f &&
                                 std::abs(tl_existing->last_applied_max_width - max_width) < CELL_WIDTH_EPSILON;
-        if (same_width && tl_existing->row_evicted.size() == row_count && !tl_existing->col_widths.empty()) {
+        if (same_width && tl_existing->HasGeometry(row_count, col_count)) {
             entry.layout_dirty = false;
             return;
         }
@@ -623,17 +569,12 @@ void DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayoutEntry& entry, 
     // natural_col_widths は cell_layouts と同時にしか破棄されない (ResetTableCellCaches) ため、
     // 互換レイアウトがあればキャッシュ済み自然幅をそのまま使える。
     if (has_compatible_layouts) {
-        if (tl.row_evicted.size() != row_count) {
-            tl.ResetRowEviction(row_count);
-        }
         RestoreNullCellLayouts(*tbl, tl, viewport);
     }
     else {
-        tl.col_count = col_count;
-        tl.cell_layouts.assign(row_count * col_count, {});
+        tl.AllocateCells(row_count, col_count);
         // 初回構築は常に全行を作る (列幅判定に全行の自然幅が必要なため)。
         MeasureTableCells(*tbl, tl);
-        tl.ResetRowEviction(row_count);
     }
     FinalizeTableLayout(*tbl, entry, max_width);
 }

@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "document_test_helpers.h"
 #include "document_utils.h"
 #include "heading_anchor_index.h"
 #include <initializer_list>

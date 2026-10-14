@@ -11,10 +11,7 @@ inline GestureRenderState ResolveGestureOverlay(
     gs.trail_active = gesture.IsGestureActive();
     gs.trail_points = &gesture.GetTrailPoints();
     gs.overlay_visible = gesture.IsOverlayVisible();
-    gs.direction =
-        (gesture.GetDirection() == GestureDirection::Left)    ? -1
-        : (gesture.GetDirection() == GestureDirection::Right) ? 1
-                                                              : 0;
+    gs.direction = gesture.GetDirection();
 
     if (!gs.overlay_visible && swipe.IsOverlayVisible()) {
         gs.overlay_visible = true;

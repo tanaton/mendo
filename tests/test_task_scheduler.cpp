@@ -321,3 +321,40 @@ TEST(TaskScheduler, ZeroThreadsInitThenShutdownIsSafe)
     sch.Shutdown();
     SUCCEED();
 }
+
+// ============================================================
+// SharedWorkerCount / LayoutWorkerCount
+// ============================================================
+
+TEST(SharedWorkerCount, HalfOfProcessorsClampedToTwoThroughFour)
+{
+    struct Case {
+        unsigned int processors;
+        int expected;
+    };
+    constexpr Case kCases[] = {
+        { 0, 2 },
+        { 1, 2 },
+        { 2, 2 },
+        { 3, 2 },
+        { 4, 2 },
+        { 6, 3 },
+        { 8, 4 },
+        { 12, 4 },
+        { 16, 4 },
+        { 128, 4 },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.processors);
+        EXPECT_EQ(SharedWorkerCount(c.processors), c.expected);
+    }
+}
+
+TEST(LayoutWorkerCount, CoresMinusOneClampedToTwoThroughSixteen)
+{
+    EXPECT_EQ(LayoutWorkerCount(0), 2);
+    EXPECT_EQ(LayoutWorkerCount(1), 2);
+    EXPECT_EQ(LayoutWorkerCount(4), 3);
+    EXPECT_EQ(LayoutWorkerCount(17), 16);
+    EXPECT_EQ(LayoutWorkerCount(64), 16);
+}

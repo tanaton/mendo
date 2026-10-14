@@ -1,4 +1,5 @@
 #include "titlebar.h"
+#include <iterator>
 #include <utility>
 
 void TitleBar::UpdateLayout(float window_width_dip) noexcept
@@ -19,18 +20,18 @@ void TitleBar::UpdateLayout(float window_width_dip) noexcept
         return r;
     };
 
-    open_file_ = take_left(BUTTON_WIDTH);
-    search_ = take_left(BUTTON_WIDTH);
-    theme_toggle_ = take_left(BUTTON_WIDTH);
-    help_ = take_left(BUTTON_WIDTH);
+    Button(TitleBarHitZone::OpenFile) = take_left(BUTTON_WIDTH);
+    Button(TitleBarHitZone::Search) = take_left(BUTTON_WIDTH);
+    Button(TitleBarHitZone::ThemeToggle) = take_left(BUTTON_WIDTH);
+    Button(TitleBarHitZone::Help) = take_left(BUTTON_WIDTH);
 
-    close_ = take_right(CAPTION_BTN_WIDTH);
-    maximize_ = take_right(CAPTION_BTN_WIDTH);
-    minimize_ = take_right(CAPTION_BTN_WIDTH);
-    toc_toggle_ = take_right(BUTTON_WIDTH);
-    file_toggle_ = take_right(BUTTON_WIDTH);
+    Button(TitleBarHitZone::Close) = take_right(CAPTION_BTN_WIDTH);
+    Button(TitleBarHitZone::Maximize) = take_right(CAPTION_BTN_WIDTH);
+    Button(TitleBarHitZone::Minimize) = take_right(CAPTION_BTN_WIDTH);
+    Button(TitleBarHitZone::TocToggle) = take_right(BUTTON_WIDTH);
+    Button(TitleBarHitZone::FileToggle) = take_right(BUTTON_WIDTH);
 
-    const float title_right = file_toggle_.left;
+    const float title_right = GetButton(TitleBarHitZone::FileToggle).left;
     title_text_rect_ = DipRect{ left, 0.0f, (title_right > left) ? title_right : left, BASE_HEIGHT };
 }
 
@@ -40,23 +41,21 @@ TitleBarHitZone TitleBar::HitTest(float dip_x, float dip_y) const noexcept
         return TitleBarHitZone::None;
     }
     // 狭幅でボタン同士が重なった場合はキャプションボタンを優先する。
-    const struct {
-        const DipRect& rect;
-        TitleBarHitZone zone;
-    } buttons[] = {
-        { close_, TitleBarHitZone::Close },
-        { maximize_, TitleBarHitZone::Maximize },
-        { minimize_, TitleBarHitZone::Minimize },
-        { open_file_, TitleBarHitZone::OpenFile },
-        { search_, TitleBarHitZone::Search },
-        { theme_toggle_, TitleBarHitZone::ThemeToggle },
-        { help_, TitleBarHitZone::Help },
-        { file_toggle_, TitleBarHitZone::FileToggle },
-        { toc_toggle_, TitleBarHitZone::TocToggle },
+    static constexpr TitleBarHitZone kHitOrder[] = {
+        TitleBarHitZone::Close,
+        TitleBarHitZone::Maximize,
+        TitleBarHitZone::Minimize,
+        TitleBarHitZone::OpenFile,
+        TitleBarHitZone::Search,
+        TitleBarHitZone::ThemeToggle,
+        TitleBarHitZone::Help,
+        TitleBarHitZone::FileToggle,
+        TitleBarHitZone::TocToggle,
     };
-    for (const auto& b : buttons) {
-        if (PointInRect(dip_x, dip_y, b.rect)) {
-            return b.zone;
+    static_assert(std::size(kHitOrder) == kTitleBarButtonCount);
+    for (const auto zone : kHitOrder) {
+        if (PointInRect(dip_x, dip_y, GetButton(zone))) {
+            return zone;
         }
     }
     // アイコン領域（クリックしやすいようアイコン右のギャップまで含む）

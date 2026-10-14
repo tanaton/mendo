@@ -71,8 +71,15 @@ public:
         return cache_.Size();
     }
 
-    void InsertCacheEntry(const std::wstring& path, float width, float height);
     void Shutdown();
+
+#ifdef MENDO_TESTING
+    // bitmap を持たない寸法だけの項目を入れる。キャッシュ動作のテスト専用。
+    void InsertCacheEntryForTest(const std::wstring& path, float width, float height)
+    {
+        cache_.Insert(path, CachedImage{ .width = width, .height = height });
+    }
+#endif
 
 private:
     struct DecodeResult {

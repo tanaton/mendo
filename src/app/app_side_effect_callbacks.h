@@ -27,7 +27,6 @@ struct AppSideEffectCallbacks {
     void sync_toc_active(bool auto_scroll);
 
     void schedule_bitmap_manage();
-    void on_app_image_loaded();
 };
 
 using SideEffectExecutor = SideEffectExecutorT<AppSideEffectCallbacks>;

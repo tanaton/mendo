@@ -241,7 +241,7 @@ TEST(SearchBarLayoutTest, CloseButtonRightAlignedWhenWide)
     const float md_left = 0.0f;
     const float md_width = 1600.0f;
     const float md_bottom = 900.0f;
-    auto l = ComputeSearchBarLayout(md_left, md_width, md_bottom, true);
+    auto l = ComputeSearchBarLayout(PaneRect{ .x = md_left, .width = md_width, .height = md_bottom }, true);
 
     const float bar_right = md_left + md_width;
     EXPECT_FLOAT_EQ(l.close_btn.right, bar_right - SEARCH_BAR_PADDING);
@@ -251,7 +251,7 @@ TEST(SearchBarLayoutTest, CloseButtonRightAlignedWhenWide)
 // close ボタンは幅=BTN_SIZE・高さ=INPUT_HEIGHT を維持する
 TEST(SearchBarLayoutTest, CloseButtonKeepsButtonSize)
 {
-    auto l = ComputeSearchBarLayout(0.0f, 1600.0f, 900.0f, true);
+    auto l = ComputeSearchBarLayout(PaneRect{ .x = 0.0f, .width = 1600.0f, .height = 900.0f }, true);
     EXPECT_FLOAT_EQ(l.close_btn.right - l.close_btn.left, SEARCH_BTN_SIZE);
     EXPECT_FLOAT_EQ(l.close_btn.bottom - l.close_btn.top, SEARCH_INPUT_HEIGHT);
 }
@@ -259,7 +259,7 @@ TEST(SearchBarLayoutTest, CloseButtonKeepsButtonSize)
 // close ボタンは他ボタンと同じ垂直位置に揃う
 TEST(SearchBarLayoutTest, CloseButtonVerticallyAlignedWithOthers)
 {
-    auto l = ComputeSearchBarLayout(0.0f, 1600.0f, 900.0f, true);
+    auto l = ComputeSearchBarLayout(PaneRect{ .x = 0.0f, .width = 1600.0f, .height = 900.0f }, true);
     EXPECT_FLOAT_EQ(l.close_btn.top, l.highlight_btn.top);
     EXPECT_FLOAT_EQ(l.close_btn.bottom, l.highlight_btn.bottom);
 }
@@ -267,7 +267,7 @@ TEST(SearchBarLayoutTest, CloseButtonVerticallyAlignedWithOthers)
 // 右寄せにより highlight と close の間に隙間が空く
 TEST(SearchBarLayoutTest, GapBetweenHighlightAndCloseWhenWide)
 {
-    auto l = ComputeSearchBarLayout(0.0f, 1600.0f, 900.0f, true);
+    auto l = ComputeSearchBarLayout(PaneRect{ .x = 0.0f, .width = 1600.0f, .height = 900.0f }, true);
     // 単に隣接 (gap 分) ではなく、明確に離れている
     EXPECT_GT(l.close_btn.left, l.highlight_btn.right + SEARCH_BAR_GAP);
 }
@@ -275,7 +275,7 @@ TEST(SearchBarLayoutTest, GapBetweenHighlightAndCloseWhenWide)
 // 右寄せしても left 側のボタン位置は従来の左詰めのまま
 TEST(SearchBarLayoutTest, LeftButtonsUnaffectedByRightAlign)
 {
-    auto l = ComputeSearchBarLayout(0.0f, 1600.0f, 900.0f, true);
+    auto l = ComputeSearchBarLayout(PaneRect{ .x = 0.0f, .width = 1600.0f, .height = 900.0f }, true);
     // up/down/case/highlight は icon 起点で gap 刻みに左詰めされ、互いに重ならない
     EXPECT_LT(l.up_btn.right, l.down_btn.left);
     EXPECT_LT(l.down_btn.right, l.case_btn.left);
@@ -287,7 +287,7 @@ TEST(SearchBarLayoutTest, LeftButtonsUnaffectedByRightAlign)
 TEST(SearchBarLayoutTest, CloseButtonFallsBackToLeftPackedWhenNarrow)
 {
     const float md_width = 300.0f;
-    auto l = ComputeSearchBarLayout(0.0f, md_width, 900.0f, true);
+    auto l = ComputeSearchBarLayout(PaneRect{ .x = 0.0f, .width = md_width, .height = 900.0f }, true);
 
     // フォールバック時は highlight の直後 (gap 分だけ離れて) に並ぶ
     EXPECT_FLOAT_EQ(l.close_btn.left, l.highlight_btn.right + SEARCH_BAR_GAP);
@@ -304,7 +304,7 @@ TEST(SearchBarLayoutTest, RightAlignTogglesAroundThresholdWidth)
 {
     // 右寄せなら close は highlight から離れ、フォールバックなら highlight 直後に密着する
     auto right_aligned = [](float w) {
-        auto l = ComputeSearchBarLayout(0.0f, w, 900.0f, true);
+        auto l = ComputeSearchBarLayout(PaneRect{ .x = 0.0f, .width = w, .height = 900.0f }, true);
         return l.close_btn.left > l.highlight_btn.right + SEARCH_BAR_GAP + 0.5f;
     };
     // 十分狭ければフォールバック、十分広ければ右寄せ (遷移が存在する両端)
@@ -326,7 +326,7 @@ TEST(SearchBarLayoutTest, RightAlignTogglesAroundThresholdWidth)
 // 狭幅では依然フォールバックする (フォールバック境界は has_query で変わる)
 TEST(SearchBarLayoutTest, CloseButtonFallsBackWhenNarrowWithoutQuery)
 {
-    auto l = ComputeSearchBarLayout(0.0f, 300.0f, 900.0f, false);
+    auto l = ComputeSearchBarLayout(PaneRect{ .x = 0.0f, .width = 300.0f, .height = 900.0f }, false);
     EXPECT_FLOAT_EQ(l.close_btn.left, l.highlight_btn.right + SEARCH_BAR_GAP);
 }
 
@@ -337,7 +337,7 @@ TEST(SearchBarLayoutTest, CloseButtonFallsBackWhenNarrowWithoutQuery)
 // 右寄せされた close ボタンの中心はちゃんと Close と判定される
 TEST(SearchBarHitTestTest, CenterOfRightAlignedCloseHitsClose)
 {
-    auto l = ComputeSearchBarLayout(0.0f, 1600.0f, 900.0f, true);
+    auto l = ComputeSearchBarLayout(PaneRect{ .x = 0.0f, .width = 1600.0f, .height = 900.0f }, true);
     const float cx = (l.close_btn.left + l.close_btn.right) / 2.0f;
     const float cy = (l.close_btn.top + l.close_btn.bottom) / 2.0f;
     EXPECT_EQ(HitTestSearchBar(l, cx, cy), SearchBarHitZone::Close);
@@ -346,7 +346,7 @@ TEST(SearchBarHitTestTest, CenterOfRightAlignedCloseHitsClose)
 // highlight と close の間の空白はどのゾーンにも当たらない
 TEST(SearchBarHitTestTest, GapBetweenHighlightAndCloseHitsNone)
 {
-    auto l = ComputeSearchBarLayout(0.0f, 1600.0f, 900.0f, true);
+    auto l = ComputeSearchBarLayout(PaneRect{ .x = 0.0f, .width = 1600.0f, .height = 900.0f }, true);
     const float gap_x = (l.highlight_btn.right + l.close_btn.left) / 2.0f;
     const float cy = (l.close_btn.top + l.close_btn.bottom) / 2.0f;
     EXPECT_EQ(HitTestSearchBar(l, gap_x, cy), SearchBarHitZone::None);
