@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <deque>
 #include <memory_resource>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -30,6 +31,12 @@ public:
     }
 
     void Push(const NavEntry& current);
+    // PushPending と GoBack/GoForward は、ロード結果で確定 (Commit) か取り消し (Rollback) をする。
+    // 開けなかったファイルの分だけ履歴が重複したり、戻る/進むの位置がずれたりするのを防ぐ。
+    // 取り消せるのは直前の 1 操作だけで、Push や Clear が挟まった後の Rollback は何もしない。
+    void PushPending(const NavEntry& current);
+    void CommitPending() noexcept;
+    void RollbackPending();
     bool GoBack(const NavEntry& current, NavEntry& out);
     bool GoForward(const NavEntry& current, NavEntry& out);
 
@@ -56,10 +63,19 @@ public:
 private:
     // GoBack/GoForward の対称処理を集約する。
     bool Transfer(std::pmr::deque<NavEntry>& from, std::pmr::deque<NavEntry>& to, const NavEntry& current, NavEntry& out);
-    void PushCapped(std::pmr::deque<NavEntry>& stack, const NavEntry& e);
+    // 上限で押し出した最古のエントリを返す。
+    std::optional<NavEntry> PushCapped(std::pmr::deque<NavEntry>& stack, const NavEntry& e);
+
+    // taken: PushPending では進む履歴全体、Transfer では移動先の 1 件。dropped: PushPending が上限で押し出した分。
+    struct PendingOp {
+        bool to_back = false;
+        std::pmr::deque<NavEntry> taken;
+        std::optional<NavEntry> dropped;
+    };
 
     std::pmr::deque<NavEntry> back_stack_;
     std::pmr::deque<NavEntry> forward_stack_;
+    std::optional<PendingOp> pending_;
     size_t max_history_ = MAX_HISTORY;
 };
 
@@ -70,10 +86,14 @@ struct LinkClickResult {
         ExternalUrl
     };
     Type type = Type::None;
-    // Anchor: アンカー名 (UTF-8、先頭 '#' を除いた部分)。NavigateAnchorAction にそのまま渡せる。
+    // Anchor: アンカー名 (UTF-8、先頭 '#' を除きパーセントデコード済み)。NavigateAnchorAction にそのまま渡せる。
+    // ブラウザのアドレスバーなどからコピーしたリンクはエンコードされている。
     // ExternalUrl: URL (UTF-8)。ShellOpen に渡す直前で wstring 化する。
     std::pmr::string target;
 };
 
 LinkClickResult HandleLinkClick(std::string_view url);
 bool IsSafeUrlScheme(std::string_view url) noexcept;
+// md4c は URL をエンコードされたまま渡すので、ファイルパスやアンカーとして引く前に通す。
+// 16 進 2 桁が続かない % はそのまま残す。
+std::pmr::string PercentDecode(std::string_view s);

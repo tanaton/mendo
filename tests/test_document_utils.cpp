@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <format>
 #include <iterator>
+#include <limits>
 #include <memory_resource>
 #include <random>
 #include <span>
@@ -37,6 +38,20 @@ TEST(ExtractSelectedText, ReservesExactLength)
     const auto text = ExtractSelectedText(nodes, sel);
     EXPECT_EQ(text, "paragraph\r\nsecond\r\nthird");
     // reserve は確保粒度 (16 byte) までの切り上げのみ許容する。
+    EXPECT_LT(text.capacity(), text.size() + 16);
+}
+
+// CF_UNICODETEXT は CRLF が慣例なので、ノード内の改行 (コード行・表の行・BR) も CRLF にそろえる。
+TEST(ExtractSelectedText, ConvertsNewlinesInsideNodesToCrlf)
+{
+    auto nodes = ParseNodes("```\na\nb\n```\n\n| h |\n|---|\n| c |\n\nx  \ny");
+    ASSERT_EQ(nodes.size(), 3u);
+    auto sel = TextSelection::MakeOrdered(0, 0, 2, std::numeric_limits<uint32_t>::max());
+    sel.active = true;
+    const auto text = ExtractSelectedText(nodes, sel);
+    EXPECT_TRUE(text.starts_with("a\r\nb\r\n")) << text;
+    EXPECT_NE(text.find("h\r\nc"), std::string::npos) << text;
+    EXPECT_TRUE(text.ends_with("\r\nx\r\ny")) << text;
     EXPECT_LT(text.capacity(), text.size() + 16);
 }
 
@@ -442,6 +457,43 @@ TEST(ExtractSelectedTextAsHtml, ImageEscapesAttributesSafely)
     EXPECT_NE(html.find("src=\"path?a=1&amp;b=2\""), std::string::npos);
     EXPECT_NE(html.find("Q&amp;A"), std::string::npos);
     EXPECT_NE(html.find("&quot;x&quot;"), std::string::npos);
+}
+
+// 貼り付け先で読み込まれる <img src> は、リンクと同じく外部アクセスの経路になるスキームを外す。
+TEST(ExtractSelectedTextAsHtml, ImageSrcDropsUnsafeSchemes)
+{
+    struct Case {
+        std::string_view md;
+        bool keeps_src;
+    };
+    constexpr Case kCases[] = {
+        { "![x](https://example.com/a.png)", true },
+        { "![x](HTTP://example.com/a.png)", true },
+        { "![x](img/a.png)", true },
+        { "![x](./a:b.png)", true },
+        { "![x](/root/a.png)", true },
+        { "![x](a.png?v=1)", true },
+        { "![x](javascript:alert(1))", false },
+        { "![x](JavaScript:alert(1))", false },
+        { "![x](file:///C:/a.png)", false },
+        { "![x](data:image/png;base64,AAAA)", false },
+        { "![x](C:\\img\\a.png)", false },
+        { "![x](//attacker/a.png)", false },
+        // Markdown のエスケープで "\\\\" が "\\" になる。
+        { "![x](\\\\\\\\attacker\\share\\a.png)", false },
+        { "![x](/\\attacker/a.png)", false },
+        { "![x](<java\tscript:alert(1)>)", false },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.md);
+        auto nodes = ParseNodes(c.md);
+        ASSERT_EQ(nodes.size(), 1u);
+        ASSERT_EQ(nodes[0].type, NodeType::Image);
+        auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
+        const auto html = ExtractSelectedTextAsHtml(nodes, sel);
+        EXPECT_EQ(html.contains(" src=\""), c.keeps_src) << html;
+        EXPECT_TRUE(html.contains("alt=\"x\"")) << html;
+    }
 }
 
 TEST(ExtractSelectedTextAsHtml, UnorderedListWrapsInUl)

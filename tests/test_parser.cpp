@@ -1087,6 +1087,42 @@ TEST(Parser, AlertCaseMixed)
     EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
 }
 
+// GitHub はマーカーと本文が同じ行にあると Alert にせず、通常の引用としてマーカーも表示する。
+TEST(Parser, AlertMarkerWithTextOnSameLineIsPlainQuote)
+{
+    for (const char* md : { "> [!NOTE] same line", "> [!NOTE] same line\n> next" }) {
+        SCOPED_TRACE(md);
+        const auto nodes = ParseNodes(md);
+        ASSERT_EQ(nodes.size(), 1u);
+        EXPECT_EQ(nodes[0].alert_type, AlertType::None);
+        EXPECT_TRUE(nodes[0].GetText().starts_with("[!NOTE] same line"));
+    }
+}
+
+// マーカー行の後ろが空白や強制改行でも、本文が次の行なら Alert になる。
+TEST(Parser, AlertMarkerFollowedByTrailingSpacesIsAlert)
+{
+    for (const char* md : { "> [!NOTE] \n> body", "> [!NOTE]  \n> body", "> [!NOTE]\\\n> body" }) {
+        SCOPED_TRACE(md);
+        const auto nodes = ParseNodes(md);
+        ASSERT_EQ(nodes.size(), 1u);
+        EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
+        const auto label = std::string{ GetAlertIcon(AlertType::Note) } + " " + std::string{ GetAlertLabel(AlertType::Note) };
+        EXPECT_EQ(nodes[0].GetText(), label + "\nbody");
+        EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+    }
+}
+
+// Alert でない引用のソフト改行は従来どおり空白になる。
+TEST(Parser, SoftBreakAfterNonAlertMarkerStaysSpace)
+{
+    for (const char* md : { "> [!NOTX]\n> body", "> intro\n>\n> [!NOTE]\n> body" }) {
+        SCOPED_TRACE(md);
+        const auto nodes = ParseNodes(md);
+        EXPECT_TRUE(nodes.back().GetText().ends_with("] body"));
+    }
+}
+
 TEST(Parser, AlertMarkerStrippedAndLabelInserted)
 {
     auto nodes = ParseNodes("> [!NOTE]\n> Content here");
@@ -1217,7 +1253,7 @@ TEST(Parser, AlertMarkerAfterLeadingContentIsPlainQuote)
 // マーカーの引用ノード (Alert ラベル) と、Alert を引き継いだ Image ノードに分かれる。
 TEST(Parser, AlertMarkerFollowedByImageStaysAlert)
 {
-    for (const char* md : { "> [!NOTE]\n> ![img](p.png)", "> [!NOTE] ![img](p.png)", "> [!NOTE]\n>\n> ![img](p.png)" }) {
+    for (const char* md : { "> [!NOTE]\n> ![img](p.png)", "> [!NOTE]\n>\n> ![img](p.png)" }) {
         SCOPED_TRACE(md);
         const auto nodes = ParseNodes(md);
         ASSERT_EQ(nodes.size(), 2u);
@@ -1237,7 +1273,7 @@ TEST(Parser, AlertMarkerFollowedByImageStaysAlert)
 // 分割はマーカーだけの先頭段落に限る。Alert でない引用や、先頭段落でないマーカーの画像は従来どおり。
 TEST(Parser, ImageInQuoteWithoutLeadingAlertMarkerIsNotSplit)
 {
-    for (const char* md : { "> ![img](p.png)", "> [!NOTX]\n> ![img](p.png)", "> note ![img](p.png)", "> intro\n>\n> [!NOTE]\n> ![img](p.png)" }) {
+    for (const char* md : { "> ![img](p.png)", "> [!NOTX]\n> ![img](p.png)", "> note ![img](p.png)", "> intro\n>\n> [!NOTE]\n> ![img](p.png)", "> [!NOTE] ![img](p.png)" }) {
         SCOPED_TRACE(md);
         const auto nodes = ParseNodes(md);
         ASSERT_FALSE(nodes.empty());
@@ -1749,7 +1785,7 @@ TEST(Parser, IsAlertMarkerOnly)
     constexpr Case kCases[] = {
         { "[!NOTE]", true },
         { "[!note]", true },
-        { "[!WARNING] ", true },
+        { "[!WARNING] ", false },
         { "[!TIP]\n", true },
         { "", false },
         { "[!NOTE] body", false },

@@ -54,8 +54,9 @@ hit_test::HitResult ClampToNearestTextNode(const std::pmr::vector<Node>& nodes, 
     return {};
 }
 
-// dip_y を含むノード。テキスト位置を求められる (表かテキストレイアウトを持つ) ときだけ返し、
-// 余白や画像の上などでは -1 を返して ClampToNearestTextNode に委ねる。
+// dip_y を含むノード。表・画像・テキストレイアウトを持つノードだけ返し、
+// 余白や水平線の上などでは -1 を返して ClampToNearestTextNode に委ねる。
+// 画像は alt が空でも src のツールチップを出すため、前のノードへ寄せずに返す。
 struct DirectHit {
     int node_index = -1;
     // ClampToNearestTextNode に渡す候補 (dip_y 以下に上端がある最後のノード)。
@@ -81,7 +82,8 @@ DirectHit FindDirectHit(const MdPaneHitContext& ctx, float dip_y) noexcept
     // 背景の下側はみ出し部分 (横スクロールバーを置きたい領域) もそのノードのヒットとして扱い、
     // ホバーが切れないようにする。
     const bool inside = dip_y <= hit.text_top + ctx.cache[c].height + NodeBoxPadY(ctx.nodes[c], ctx.theme);
-    if (inside && (ctx.nodes[c].type == NodeType::Table || ctx.cache[c].text_layout())) {
+    const NodeType type = ctx.nodes[c].type;
+    if (inside && (type == NodeType::Table || type == NodeType::Image || ctx.cache[c].text_layout())) {
         hit.node_index = hit.candidate;
     }
     return hit;
@@ -106,6 +108,9 @@ hit_test::HitResult hit_test::HitTest(const MdPaneHitContext& ctx) noexcept
     const float h_scroll_x = LookupBlockScrollX(ctx.block_scroll_x, direct.node_index);
     if (node.type == NodeType::Table) {
         return HitTestTable(node, entry, direct.text_top, direct.node_index, ctx.theme, dip_x, dip_y, h_scroll_x);
+    }
+    if (!entry.text_layout()) {
+        return { direct.node_index, static_cast<uint32_t>(node.GetText().size()) };
     }
 
     const float indent = NodeIndent(node, ctx.theme);

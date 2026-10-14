@@ -1,6 +1,7 @@
 #include "reducer.h"
 #include "reducer_internal.h"
 #include "block_h_scroll.h"
+#include "file_io.h"
 #include "overloaded.h"
 
 ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
@@ -17,13 +18,21 @@ NavEntry CurrentNavEntry(const AppState& state)
     return NavEntry{ state.document.doc.GetFilePath(), t.node, t.offset };
 }
 
-void PushCurrentNavEntry(AppState& state)
+void PushCurrentNavEntry(AppState& state, std::wstring_view load_path)
 {
+    const auto& current_path = state.document.doc.GetFilePath();
     // doc 未ロード (パス空) の状態は戻り先にならないため積まない
-    if (state.document.doc.GetFilePath().empty()) {
+    if (current_path.empty()) {
         return;
     }
-    state.view.nav_history.Push(CurrentNavEntry(state));
+    const NavEntry entry = CurrentNavEntry(state);
+    // 同じファイルの開き直しはリロードとして終わり、確定 (RestoreScrollAfterLoadAction) が来ない。
+    if (!load_path.empty() && !path_util::iequal(load_path, current_path)) {
+        state.view.nav_history.PushPending(entry);
+    }
+    else {
+        state.view.nav_history.Push(entry);
+    }
 }
 
 // ---- 複数ドメイン横断の共有ヘルパー (宣言は reducer_internal.h) ----

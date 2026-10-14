@@ -1,4 +1,5 @@
 #include "selection_html.h"
+#include "ascii_util.h"
 #include "nav.h"
 #include "profiler.h"
 #include "syntax.h"
@@ -15,6 +16,7 @@
 #include <optional>
 #include <ranges>
 #include <span>
+#include <string>
 
 namespace {
 
@@ -176,6 +178,26 @@ private:
     std::pmr::monotonic_buffer_resource resource_{ buffer_.data(), buffer_.size() };
     std::pmr::vector<UrlSafety> table_;
 };
+
+// 貼り付け先で読み込まれても外部アクセスの経路にならない src か。http(s) とスキームの無い相対パスだけ通す。
+// javascript: / file: / C:\ などのスキームと、認証付きで取りに行かれる //host・\\host (UNC) は外す。
+// ブラウザは解析前に先頭の制御文字・空白と途中のタブ・改行を捨てるので、それに合わせて判定する。
+bool IsSafeImageSrc(std::string_view src)
+{
+    src.remove_prefix(std::ranges::find_if(src, [](char c) { return static_cast<unsigned char>(c) > 0x20; }) - src.begin());
+    std::string s;
+    std::ranges::copy_if(src, std::back_inserter(s), [](char c) { return c != '\t' && c != '\n' && c != '\r'; });
+    if (ascii_util::istarts_with(s, "http://") || ascii_util::istarts_with(s, "https://")) {
+        return true;
+    }
+    const auto is_slash = [](char c) { return c == '/' || c == '\\'; };
+    if (s.empty() || (s.size() >= 2 && is_slash(s[0]) && is_slash(s[1]))) {
+        return false;
+    }
+    // スキームの ':' はパス・クエリ・フラグメントより前にしか現れない。
+    const size_t p = s.find_first_of(":/\\?#");
+    return p == std::string::npos || s[p] != ':';
+}
 
 // 危険なスキームのリンクは外す。IsSafeUrlScheme の結果は URL ごとに url_safety へキャッシュする。
 InlineState InlineStateOf(const TextRun& r, std::span<const std::string_view> link_urls, std::span<UrlSafety> url_safety)
@@ -418,7 +440,6 @@ private:
 
 constexpr void AppendTableCellStyle(std::pmr::string& out, TableAlign align, bool dark_mode)
 {
-    // 共通の border+padding を先に出し、align 指定があれば追加して閉じる。
     out.append(" style=\"border:1px solid ");
     AppendHexColor(out, PaletteFor(dark_mode).table_border);
     out.append(";padding:6px 13px");
@@ -579,26 +600,41 @@ std::pmr::string ExtractSelectedText(const std::pmr::vector<Node>& nodes, const 
 
     // 全選択 (100MB 級) で倍々成長の再確保と旧新バッファの同時保持が起きないよう、
     // 先に正確な長さを数えて 1 回で確保する。
-    const auto for_each_piece = [&](auto&& sink) {
+    // CF_UNICODETEXT は CRLF が慣例で、LF だけでは改行しないアプリがあるため、
+    // ノード内の改行 (コード行・BR・表の行区切り) も CRLF にする。本文は読み込み時に LF へ正規化済み。
+    static constexpr std::string_view kCrlf = "\r\n";
+    const auto for_each_selected = [&](auto&& fn) {
         ForEachSelectedNode(nodes, selection, [&](int i, const Node& node) {
             const std::string_view text = node.LinearizedText();
             const auto [start, end] = selection.ClampedRange(i, text.size());
-            if (start < end) {
-                sink(text.substr(start, end - start));
-            }
-            if (i < selection.end_node) {
-                sink(std::string_view{ "\r\n" });
-            }
+            fn(start < end ? text.substr(start, end - start) : std::string_view{}, i < selection.end_node);
         });
     };
+    // 数えるだけなら行に分けず、LF 1 個につき CR 1 個増えるとして足す (count はベクトル化される)。
     size_t total = 0;
-    for_each_piece([&total](std::string_view s) {
-        total += s.size();
+    for_each_selected([&total](std::string_view s, bool separated) {
+        total += s.size() + static_cast<size_t>(std::ranges::count(s, '\n')) + (separated ? kCrlf.size() : 0);
     });
     std::pmr::string result;
-    result.reserve(total);
-    for_each_piece([&result](std::string_view s) {
-        result.append(s);
+    // 短い行が数百万続くと append ごとの容量確認が効くので、確保済みの領域へ直接書く。
+    result.resize_and_overwrite(total, [&](char* const out, size_t) {
+        char* p = out;
+        const auto put = [&p](std::string_view s) {
+            p = std::ranges::copy(s, p).out;
+        };
+        for_each_selected([&](std::string_view s, bool separated) {
+            for (size_t lf = s.find('\n'); lf != std::string_view::npos; lf = s.find('\n')) {
+                put(s.substr(0, lf));
+                put(kCrlf);
+                s.remove_prefix(lf + 1);
+            }
+            put(s);
+            if (separated) {
+                put(kCrlf);
+            }
+        });
+        assert(static_cast<size_t>(p - out) == total);
+        return static_cast<size_t>(p - out);
     });
     return result;
 }
@@ -673,11 +709,13 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
         case NodeType::Image:
             // src は Markdown 記述値をそのまま使う (相対パスは貼付先で解決不能だが仕様上の限界)。
             // alt は選択範囲内のノード線形化テキスト。
-            out.append("<img src=\"");
-            if (const auto* img = node.image_data()) {
+            out.append("<img");
+            if (const auto* img = node.image_data(); img && IsSafeImageSrc(img->src)) {
+                out.append(" src=\"");
                 AppendHtmlEscaped(out, img->src);
+                out.append("\"");
             }
-            out.append("\" alt=\"");
+            out.append(" alt=\"");
             if (start < end) {
                 AppendHtmlEscaped(out, text.substr(start, end - start));
             }

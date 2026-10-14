@@ -8,6 +8,7 @@
 #include "mermaid_file_cache.h"
 #include "mermaid_renderer_interface.h"
 #include "mermaid_util.h"
+#include "nav.h"
 #include "theme_service.h"
 #include "profiler.h"
 #include "string_convert.h"
@@ -406,7 +407,8 @@ private:
         // UI 同期パスから外すため absolute() + lexically_normal() を使う。
         // 画像参照が symlink を跨ぐのはレアケースとして許容する。
         // src は UTF-8。char から直接構築すると ACP 解釈になり非 ASCII パスが壊れる。
-        std::filesystem::path img_path(string_convert::Utf8ToWide(src));
+        // "my%20images/a.png" のようなエンコード済みの記述も多いので、デコードしてから引く。
+        std::filesystem::path img_path(string_convert::Utf8ToWide(PercentDecode(src)));
         if (img_path.is_relative()) {
             img_path = std::filesystem::path(doc_dir) / img_path;
         }

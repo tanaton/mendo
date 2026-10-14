@@ -103,7 +103,7 @@ struct PaneCache {
 
 struct SearchBarRenderState {
     std::wstring_view query;
-    std::wstring_view ime_composition; // IME変換中のコンポジション文字列
+    std::wstring_view ime_composition;
     int current_match = -1; // 0-based、-1 = マッチなし
     int total_matches = 0;
     int caret_pos = -1;       // キャレット位置（-1 = テキスト末尾）
@@ -114,7 +114,6 @@ struct SearchBarRenderState {
     // チェックボックス状態
     bool case_sensitive = false;
     bool highlight_enabled = true;
-    // 検索バー内でホバー中のボタン
     SearchBarHitZone hovered = SearchBarHitZone::None;
 };
 

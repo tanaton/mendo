@@ -6,7 +6,6 @@
 #include <numbers>
 #include <optional>
 
-// 選択範囲のハイライトカラー
 inline constexpr D2D1_COLOR_F SELECTION_COLOR = { 0.26f, 0.56f, 0.84f, 0.3f };
 
 inline constexpr float TWO_PI = std::numbers::pi_v<float> * 2.0f;
@@ -29,10 +28,8 @@ constexpr float DpiScaleFrom(float dpi) noexcept
     return (dpi > 0.0f) ? (dpi / DEFAULT_DPI) : 1.0f;
 }
 
-// マウスホイールスクロールの倍率
 inline constexpr float MOUSE_WHEEL_SCROLL_MULTIPLIER = 0.8f;
 
-// 目次ペインの見出しレベル毎のインデント幅
 inline constexpr float TOC_INDENT_PER_LEVEL = 12.0f;
 
 // テーブル描画で共有するレイアウト定数
@@ -115,13 +112,11 @@ inline constexpr float TABLE_ROW_HEIGHT_FACTOR = 1.4f;
 // DirectWriteメトリクス取得失敗時の代替値
 inline constexpr float FALLBACK_LINE_HEIGHT_FACTOR = 1.3f;
 
-// ツールチップ表示遅延 (ms)
 inline constexpr UINT TOOLTIP_DELAY_MS = 500;
 
 // クリック判定距離の二乗（ドラッグ選択とクリックを区別するための閾値）
 inline constexpr int CLICK_DISTANCE_THRESHOLD_SQ = 25;
 
-// ペインヘッダー閉じるボタンの余白
 inline constexpr float PANE_CLOSE_BTN_MARGIN = 2.0f;
 
 // 無効状態の UI (ペインヘッダーボタン・メニュー項目) の不透明度

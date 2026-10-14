@@ -2,6 +2,7 @@
 #include "document.h"
 #include "example_files.h"
 #include "markdown_fragment_gen.h"
+#include "newline_util.h"
 #include "parser.h"
 #include "selection_html.h"
 #include "syntax.h"
@@ -171,7 +172,9 @@ void CheckSelectionRoundTrip(const std::pmr::vector<Node>& nodes, const TextSele
         const auto html = StripHtml(raw_html);
         ASSERT_EQ(html.error, "") << "node " << i;
         expected_full += html.text;
-        const auto plain = ExtractSelectedText(nodes, one);
+        // プレーンテキストの改行は CRLF、HTML (タグ除去後) は LF なので LF にそろえて比べる。
+        auto plain = ExtractSelectedText(nodes, one);
+        NormalizeNewlines(plain);
         if (nodes[i].type == NodeType::Table && nodes[i].table_data() && nodes[i].table_data()->row_count > 0) {
             // HTML はセルを要素で区切るので、プレーンテキストのタブ・改行区切りを除いて本文を比べる。
             const auto [start, end] = one.ClampedRange(i, nodes[i].LinearizedText().size());
@@ -185,6 +188,12 @@ void CheckSelectionRoundTrip(const std::pmr::vector<Node>& nodes, const TextSele
             << "node " << i << " type " << static_cast<int>(nodes[i].type) << " range [" << one.start_pos << ", " << one.end_pos << ")";
     }
     EXPECT_EQ(full.text, expected_full);
+
+    // CF_UNICODETEXT 向けに、ノード内の改行も含めて LF 単独を混ぜない。
+    const auto plain_full = ExtractSelectedText(nodes, sel);
+    for (size_t lf = plain_full.find('\n'); lf != std::string_view::npos; lf = plain_full.find('\n', lf + 1)) {
+        ASSERT_TRUE(lf > 0 && plain_full[lf - 1] == '\r') << "bare LF at " << lf;
+    }
 }
 
 void CheckRandomSelections(const std::pmr::vector<Node>& nodes, uint32_t seed, int count)

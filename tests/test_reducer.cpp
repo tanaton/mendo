@@ -1449,6 +1449,7 @@ TEST_F(ReducerTest, RestoreScrollAfterLoad_NoRestoreInfo_ScrollsToTop)
 
 // 戻る先のファイルが削除済み等でロードに失敗した場合、その復元情報が次に開く別ファイルへ
 // 持ち越されると、無関係なノード位置へスクロールする。
+// 履歴も戻る前に戻す (残すと、進むで今いるファイルへ「移動」するだけになる)。
 TEST_F(ReducerTest, LoadFailed_DropsPendingRestoreForNextDocument)
 {
     state.document.doc = Document::FromMarkdown(std::pmr::string("# A\n\n# B\n\n# C"), L"C:\\current.md");
@@ -1458,6 +1459,8 @@ TEST_F(ReducerTest, LoadFailed_DropsPendingRestoreForNextDocument)
     ASSERT_TRUE(state.view.scroll_restore.HasNodeRestore());
 
     Reduce(state, LoadFailedAction{});
+    EXPECT_EQ(state.view.nav_history.BackSize(), 1u);
+    EXPECT_FALSE(state.view.nav_history.CanGoForward());
 
     // 続けてユーザーが別ファイルを開き、ロードに成功する。
     Reduce(state, FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\other.md") });
@@ -1466,6 +1469,75 @@ TEST_F(ReducerTest, LoadFailed_DropsPendingRestoreForNextDocument)
     Reduce(state, RestoreScrollAfterLoadAction{});
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+}
+
+// 開けなかったファイルの分の履歴は取り消す。残すと戻る履歴に現在位置が重複し、進む履歴も消える。
+TEST_F(ReducerTest, LoadFailed_RollsBackHistoryPushedForOpen)
+{
+    state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\current.md");
+    state.view.nav_history.Push(NavEntry{ L"C:\\next.md", 0, 0.0f });
+    NavEntry tmp;
+    ASSERT_TRUE(state.view.nav_history.GoBack(NavEntry{ L"C:\\later.md", 0, 0.0f }, tmp));
+    const size_t back = state.view.nav_history.BackSize();
+    ASSERT_TRUE(state.view.nav_history.CanGoForward());
+
+    for (const AppAction& open : { AppAction{ FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\too_big.md") } },
+                                   AppAction{ DropFilesAction{ std::pmr::wstring(L"C:\\too_big.md") } } }) {
+        Reduce(state, open);
+        Reduce(state, LoadFailedAction{});
+        EXPECT_EQ(state.view.nav_history.BackSize(), back);
+        EXPECT_TRUE(state.view.nav_history.CanGoForward());
+    }
+}
+
+// 今のファイルの開き直しはリロードとして終わり確定が来ないので、仮の履歴にしない。
+// 仮のままだと、後の無関係なリロード失敗で取り消される。
+TEST_F(ReducerTest, LoadFailed_KeepsHistoryPushedForReopeningCurrentFile)
+{
+    state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\Current.md");
+    Reduce(state, FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\current.md") });
+    Reduce(state, LoadFailedAction{});
+    EXPECT_TRUE(state.view.nav_history.CanGoBack());
+}
+
+// 同じファイル内の戻るはロードを伴わないので即確定し、後の無関係なロード失敗で取り消さない。
+TEST_F(ReducerTest, LoadFailed_KeepsSameFileNavigateBack)
+{
+    state.document.doc = Document::FromMarkdown(std::pmr::string("# A\n\n# B"), L"C:\\current.md");
+    state.view.nav_history.Push(NavEntry{ L"C:\\current.md", 0, 0.0f });
+
+    auto effects = Reduce(state, NavigateBackAction{});
+    ASSERT_FALSE(HasEffect<effect::LoadFile>(effects));
+    Reduce(state, LoadFailedAction{});
+
+    EXPECT_FALSE(state.view.nav_history.CanGoBack());
+    EXPECT_TRUE(state.view.nav_history.CanGoForward());
+}
+
+// ロード成功後に別のロード (リロード等) が失敗しても、確定した履歴は取り消さない。
+TEST_F(ReducerTest, LoadFailed_KeepsHistoryAfterSuccessfulLoad)
+{
+    state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\current.md");
+    Reduce(state, FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\next.md") });
+    state.document.doc = Document::FromMarkdown(std::pmr::string("next"), L"C:\\next.md");
+    Reduce(state, RestoreScrollAfterLoadAction{});
+    Reduce(state, LoadFailedAction{});
+    EXPECT_TRUE(state.view.nav_history.CanGoBack());
+}
+
+// リンク切れのアンカーでは履歴を積まない (進む履歴が消えない)。
+TEST_F(ReducerTest, NavigateAnchor_MissingAnchorKeepsHistory)
+{
+    state.document.doc = Document::FromMarkdown(std::pmr::string("# First\n\n# Second"), L"C:\\file.md");
+    state.view.nav_history.Push(NavEntry{ L"C:\\file.md", 0, 0.0f });
+    NavEntry tmp;
+    ASSERT_TRUE(state.view.nav_history.GoBack(NavEntry{ L"C:\\file.md", 1, 0.0f }, tmp));
+
+    auto effects = Reduce(state, NavigateAnchorAction{ std::pmr::string("typo") });
+
+    EXPECT_TRUE(effects.empty());
+    EXPECT_FALSE(state.view.nav_history.CanGoBack());
+    EXPECT_TRUE(state.view.nav_history.CanGoForward());
 }
 
 // ---- Zoom / ToggleDarkMode: 可視位置の anchor 保持 ----

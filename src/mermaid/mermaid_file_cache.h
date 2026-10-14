@@ -5,7 +5,6 @@
 #include <memory_resource>
 #include <mutex>
 #include <optional>
-#include <unordered_set>
 #include <vector>
 #include <filesystem>
 #include <unordered_map>
@@ -135,7 +134,8 @@ private:
     std::atomic<uint32_t> write_gen_{ 0 };
 
     mutable std::mutex pending_mutex_;
-    std::pmr::unordered_set<uint64_t> pending_writes_;
+    // 書き込み中のキー → 書き込み中に追い出されたか (true なら worker が書き込み後に PNG を消す)。
+    std::pmr::unordered_map<uint64_t, bool> pending_writes_;
 
     // Shutdown / dtor で worker 完了を待つ。scheduler_ 共有 worker から self を参照する race を排除する。
     WorkerLatch latch_;

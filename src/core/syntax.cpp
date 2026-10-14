@@ -150,7 +150,6 @@ constexpr size_t ScanNumber(std::string_view text, size_t pos) noexcept
 
     size_t i = pos;
 
-    // 0x, 0b, 0o プレフィックスの処理
     if (i + 1 < text.size() && text[i] == '0') {
         const char next = text[i + 1];
         if (next == 'x' || next == 'X') {
@@ -165,15 +164,12 @@ constexpr size_t ScanNumber(std::string_view text, size_t pos) noexcept
         }
     }
 
-    // 整数 / 浮動小数点
     i = SkipChars(text, i, kDecDigitsSep);
 
-    // 小数点
     if (i < text.size() && text[i] == '.') {
         i = SkipChars(text, i + 1, kDecDigitsSep);
     }
 
-    // 指数部
     if (i < text.size() && (text[i] == 'e' || text[i] == 'E')) {
         i++;
         if (i < text.size() && (text[i] == '+' || text[i] == '-')) {
@@ -182,7 +178,6 @@ constexpr size_t ScanNumber(std::string_view text, size_t pos) noexcept
         i = SkipChars(text, i, kDecDigits);
     }
 
-    // サフィックス (f, F, l, L, u, U, n)
     return SkipChars(text, i, kNumSuffix);
 }
 

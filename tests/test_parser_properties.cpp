@@ -273,11 +273,8 @@ TEST(ParserProperty, AlertTransformKeepsBodyTextAndStyles)
         MarkdownFragmentGen gen{ seed };
         const size_t t = static_cast<size_t>(gen.Range(0, 4));
         std::string type{ kTypes[t] };
+        // マーカーと同じ行の本文は Alert にならない (AlertMarkerWithTextOnSameLineIsPlainQuote) ので次の行から。
         std::string body;
-        const int same_line = gen.Range(0, 2);
-        if (same_line == 1) {
-            body += " " + gen.InlineLine();
-        }
         const int lines = gen.Range(0, 2);
         for (int i = 0; i < lines; ++i) {
             body += "\n> " + gen.InlineLine();

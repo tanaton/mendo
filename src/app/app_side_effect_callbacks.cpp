@@ -18,7 +18,7 @@ void AppSideEffectCallbacks::open_file_dialog()
 {
     const auto path = file_dialog_service::OpenMarkdownFileDialog(app->hwnd_);
     if (!path.empty()) {
-        PushCurrentNavEntry(app->state_);
+        PushCurrentNavEntry(app->state_, path);
         app->LoadMarkdownFile(path);
     }
 }

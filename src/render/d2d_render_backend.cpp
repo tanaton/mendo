@@ -86,7 +86,7 @@ bool D2DRenderBackend::CreateDeviceResources()
     };
     HRESULT hr = create_device(D3D_DRIVER_TYPE_HARDWARE);
     if (FAILED(hr)) {
-        // ハードウェアが利用できない場合はWARPフォールバック
+        // GPU を使えない環境 (RDP / VM / ドライバ障害など) でも描画できるよう、ソフトウェアの WARP に落とす。
         hr = create_device(D3D_DRIVER_TYPE_WARP);
         if (FAILED(hr)) {
             mendo::LogHrFailure(L"D3D11CreateDevice (WARP)", hr);
@@ -151,7 +151,7 @@ bool D2DRenderBackend::CreateDeviceResources()
     };
     hr = create_swap_chain(DXGI_SWAP_EFFECT_FLIP_DISCARD);
     if (FAILED(hr)) {
-        // FLIP_DISCARD非対応の場合はFLIP_SEQUENTIALで再試行
+        // FLIP_DISCARD は Windows 10 以降にしかないので、それより前の環境では FLIP_SEQUENTIAL に落とす。
         hr = create_swap_chain(DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL);
         if (FAILED(hr)) {
             mendo::LogHrFailure(L"CreateSwapChainForHwnd (FLIP_SEQUENTIAL)", hr);
