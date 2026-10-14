@@ -62,7 +62,8 @@ struct CmdGenStats {
     int64_t hittest_range = 0;
     int64_t sel_hl_cache_hit = 0;
     int64_t sel_hl_cache_miss = 0;
-    int64_t search_hl_rebuild = 0;
+    int64_t search_hl_reset = 0;
+    int64_t search_hl_computed = 0;
     int64_t search_hl_provisional = 0;
     int64_t last_visible_node_count = 0;
 };

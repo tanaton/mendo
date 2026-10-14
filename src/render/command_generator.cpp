@@ -24,7 +24,8 @@ void PublishCmdGenStats() noexcept
     MENDO_PLOT("cmdgen.hittest_range", g_cmd_gen_stats.hittest_range);
     MENDO_PLOT("cmdgen.sel_hl_cache_hit", g_cmd_gen_stats.sel_hl_cache_hit);
     MENDO_PLOT("cmdgen.sel_hl_cache_miss", g_cmd_gen_stats.sel_hl_cache_miss);
-    MENDO_PLOT("cmdgen.search_hl_rebuild", g_cmd_gen_stats.search_hl_rebuild);
+    MENDO_PLOT("cmdgen.search_hl_reset", g_cmd_gen_stats.search_hl_reset);
+    MENDO_PLOT("cmdgen.search_hl_computed", g_cmd_gen_stats.search_hl_computed);
     MENDO_PLOT("cmdgen.search_hl_provisional", g_cmd_gen_stats.search_hl_provisional);
     MENDO_PLOT("cmdgen.visible_node_count", g_cmd_gen_stats.last_visible_node_count);
 }

@@ -119,7 +119,7 @@ void CommandGenerator::GenTable(const FrameContext& fc,
             // bg_cursor は cell_index 昇順で進む。
             bg_cursor = GenCellInlineCodeBgs(cmds_, tl.cell_inline_code_bgs, bg_cursor, static_cast<uint32_t>(tl.CellIndex(r, c)), text_x, text_y, theme_->code_bg_color);
 
-            GenSearchHighlights(entry, node_index, text_x, text_y, static_cast<int>(r), static_cast<int>(c));
+            GenCellSearchHighlights(entry, node_index, r, c, text_x, text_y);
 
             GenTableCellContent(tbl->GetCellText(r, c), CellDrawContext{
                 .layout = tl.GetCellLayout(r, c),
