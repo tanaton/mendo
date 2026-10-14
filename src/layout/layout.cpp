@@ -8,11 +8,19 @@
 #include <cmath>
 #include <memory_resource>
 
+using mendo::layout::AdvanceNodeY;
+using mendo::layout::EstimateInvisibleNodeHeight;
+using mendo::layout::GetSpacingAbove;
+using mendo::layout::GetSpacingBelow;
+using mendo::layout::NodeIndent;
+using mendo::layout::RecomputeYPositions;
+
 bool LayoutEngine::Init(ITextMeasurer* measurer, const Theme& theme)
 {
     measurer_ = measurer;
     theme_ = &theme;
-    return measurer_->Init(theme);
+    measurer_->UpdateTheme(theme);
+    return measurer_->RecreateFormats();
 }
 
 bool LayoutEngine::RecreateFormats()
@@ -50,7 +58,7 @@ void LayoutEngine::ComputeLayout(const std::pmr::vector<Node>& nodes, LayoutCach
     }
 
     // 範囲外は走査しないので dirty が残っていると保守的に仮定する。
-    const auto vr = ComputeVisibleNodeRange(cache, node_count, viewport_top, viewport_bottom);
+    const auto vr = ComputeVisibleNodeRange(cache, viewport_top, viewport_bottom);
     bool any_dirty = vr.first > 0 || vr.last_plus_1 < node_count;
     for (size_t i = vr.first; i < vr.last_plus_1 && !any_dirty; ++i) {
         any_dirty = cache[i].layout_dirty;
@@ -85,9 +93,9 @@ bool LayoutEngine::EnsureVisibleLayout(const std::pmr::vector<Node>& nodes, Layo
     bool any_updated = false;
     bool any_restored = false;
 
-    // doc 差し替え直後などの過渡状態では nodes.size() > cache.size() になりうる
-    const auto node_count = std::min(nodes.size(), cache.size());
-    const auto lo = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, node_count, viewport_top));
+    assert(cache.size() == nodes.size());
+    const auto node_count = nodes.size();
+    const auto lo = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, viewport_top));
     // any_updated のときだけ意味を持つ。
     size_t last_measured = lo;
 
@@ -166,6 +174,7 @@ void LayoutService::ViewportLayout(Document& doc, LayoutCache& cache, float widt
 
 bool LayoutService::ProcessDirtyBatch(Document& doc, LayoutCache& cache, float width, int batch_size, ViewportLimit viewport)
 {
+    viewport_.EnsureScrollTarget(cache);
     // height <= 0 なら ViewportClip::active() が false になりクリップは無効。
     const bool more = engine_.ProcessDirtyBatch(doc.GetNodes(), cache, width, batch_size, { viewport_.GetScrollY(), viewport.height, viewport.buffer_screens });
     viewport_.ApplyScrollTarget(cache);
@@ -174,6 +183,7 @@ bool LayoutService::ProcessDirtyBatch(Document& doc, LayoutCache& cache, float w
 
 bool LayoutService::EnsureVisibleLayout(Document& doc, LayoutCache& cache, float width, float height)
 {
+    viewport_.EnsureScrollTarget(cache);
     const float scroll_y = viewport_.GetScrollY();
     const bool updated = engine_.EnsureVisibleLayout(doc.GetNodes(), cache, width, scroll_y, scroll_y + height);
     viewport_.ApplyScrollTarget(cache);

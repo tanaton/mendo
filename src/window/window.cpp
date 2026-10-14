@@ -3,6 +3,7 @@
 #include "app_constants.h"
 #include "config_service.h"
 #include "i18n.h"
+#include "key_state.h"
 #include "resource.h"
 #include "ui_constants.h"
 #include "profiler.h"
@@ -35,11 +36,6 @@ constexpr auto kKeyWindowY = "Y"sv;
 constexpr auto kKeyWindowWidth = "Width"sv;
 constexpr auto kKeyWindowHeight = "Height"sv;
 constexpr auto kKeyWindowMaximized = "Maximized"sv;
-
-bool IsKeyDown(int vk) noexcept
-{
-    return (GetKeyState(vk) & 0x8000) != 0;
-}
 
 // IME 変換候補ウィンドウを入力フィールドの下、キャレット位置に合わせる。
 void PlaceImeWindowsBelowCaret(HWND edit)
@@ -304,23 +300,14 @@ LRESULT Win32Window::HitTestTitleBar(POINT pt) const noexcept
         return HTCLIENT;
     }
 
-    switch (app_->TitleBarHitTest(dip_x, dip_y)) {
-    case TitleBarHitZone::Icon:
+    const auto zone = app_->TitleBarHitTest(dip_x, dip_y);
+    if (zone == TitleBarHitZone::Icon) {
         return HTSYSMENU; // システムメニュー表示（ダブルクリックで閉じる）
-    case TitleBarHitZone::OpenFile:
-    case TitleBarHitZone::Help:
-    case TitleBarHitZone::ThemeToggle:
-    case TitleBarHitZone::Search:
-    case TitleBarHitZone::FileToggle:
-    case TitleBarHitZone::TocToggle:
-    case TitleBarHitZone::Minimize:
-    case TitleBarHitZone::Maximize:
-    case TitleBarHitZone::Close:
-        return HTCLIENT; // カスタムボタンはWM_LBUTTONDOWNで処理
-    case TitleBarHitZone::Caption:
-    default:
-        return HTCAPTION;
     }
+    if (IsTitleBarButton(zone)) {
+        return HTCLIENT; // カスタムボタンはWM_LBUTTONDOWNで処理
+    }
+    return HTCAPTION;
 }
 
 std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam)

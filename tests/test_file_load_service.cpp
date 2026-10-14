@@ -103,24 +103,24 @@ TEST_F(FileLoadServiceTest, StartLoadingResetsAngle)
     EXPECT_FLOAT_EQ(service_.GetLoadingAngle(), 0.0f);
 }
 
-TEST_F(FileLoadServiceTest, TakeAsyncResultReturnsNulloptWhenEmpty)
+TEST_F(FileLoadServiceTest, TakeAsyncReturnsNulloptWhenEmpty)
 {
-    auto result = service_.TakeAsyncResult();
-    EXPECT_FALSE(result.has_value());
+    auto outcome = service_.TakeAsync();
+    EXPECT_FALSE(outcome.has_value());
 }
 
-TEST_F(FileLoadServiceTest, TakeAsyncResultReturnsNulloptAfterConsume)
+TEST_F(FileLoadServiceTest, TakeAsyncReturnsNulloptAfterConsume)
 {
     // 結果がない状態で2回呼んでも安全
-    EXPECT_FALSE(service_.TakeAsyncResult().has_value());
-    EXPECT_FALSE(service_.TakeAsyncResult().has_value());
+    EXPECT_FALSE(service_.TakeAsync().has_value());
+    EXPECT_FALSE(service_.TakeAsync().has_value());
 }
 
 TEST_F(FileLoadServiceTest, CancelAsyncLoadDoesNotCrash)
 {
     // 非同期ロードが進行中でなくてもキャンセルは安全
     service_.CancelAsyncLoad();
-    EXPECT_FALSE(service_.TakeAsyncResult().has_value());
+    EXPECT_FALSE(service_.TakeAsync().has_value());
 }
 
 TEST_F(FileLoadServicePreloadTest, StartAsyncLoadCancelsPreloadResult)
@@ -134,9 +134,10 @@ TEST_F(FileLoadServicePreloadTest, StartAsyncLoadCancelsPreloadResult)
     service_.SetLoadingPath(new_file.PmrPath());
     service_.StartAsyncLoad(scheduler_, nullptr, 0, GetLightTheme());
 
-    std::optional<AsyncLoadResult> result;
-    PollUntil([&] { result = service_.TakeAsyncResult(); return result.has_value(); });
-    ASSERT_TRUE(result.has_value());
+    std::optional<AsyncLoadOutcome> outcome;
+    PollUntil([&] { outcome = service_.TakeAsync(); return outcome.has_value(); });
+    ASSERT_TRUE(outcome.has_value());
+    ASSERT_TRUE(outcome->has_value());
     // preload 結果 (fls_preload) ではなく StartAsyncLoad の結果 (fls_newload) を返すこと。
-    EXPECT_EQ(result->doc.GetFilePath(), new_file.PmrPath());
+    EXPECT_EQ((*outcome)->doc.GetFilePath(), new_file.PmrPath());
 }

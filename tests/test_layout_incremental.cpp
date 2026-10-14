@@ -15,6 +15,9 @@
 #include "test_helpers.h"
 #include "test_nodes.h"
 
+using mendo::layout::EstimateNodeHeights;
+using mendo::layout::NodeIndent;
+
 namespace {
 
 constexpr float kYEps = 0.05f;
@@ -135,7 +138,7 @@ protected:
 
     float MaxScroll() const
     {
-        return std::max(0.0f, ComputeTotalContentHeight(cache_, nodes_.size(), theme_.margin_bottom) - kViewportHeight);
+        return std::max(0.0f, ComputeTotalContentHeight(cache_, theme_.margin_bottom) - kViewportHeight);
     }
 
     float NodeWidth(size_t i) const
@@ -228,7 +231,7 @@ protected:
         }
         case Op::Evict: {
             const float buffer = kViewportHeight * static_cast<float>(rng() % 3);
-            keep_out = ComputeVisibleNodeRange(cache_, nodes_.size(), scroll_ - buffer, scroll_ + kViewportHeight + buffer);
+            keep_out = ComputeVisibleNodeRange(cache_, scroll_ - buffer, scroll_ + kViewportHeight + buffer);
             cache_.EvictTextLayouts(keep_out.first, keep_out.last_plus_1);
             return "Evict keep=[" + std::to_string(keep_out.first) + "," + std::to_string(keep_out.last_plus_1) + ")";
         }

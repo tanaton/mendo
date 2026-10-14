@@ -30,34 +30,22 @@ inline D2D1_RECT_F NavForwardButtonRect(const PaneRect& md_rect) noexcept
 // テーブルの行/列ヒット判定。座標はテーブル原点 (エントリ上端 / base_x) からのローカル系。
 // 罫線の帰属は描画 (GenTable) に合わせる: 行 r は上罫線を含む [cum_y[r], cum_y[r+1])、
 // 列 c は左罫線を含む [cum_x[c] - border, cum_x[c+1] - border)。
-// 累積配列が未確定 (evict 直後など) の線形フォールバックも同じ帰属を返すこと。
 struct TableRowHit {
     int row = -1;
     float row_top = 0.0f;
 };
 
-inline TableRowHit FindTableRow(const TableLayoutData& tl, size_t row_count, float fallback_row_h, float local_y) noexcept
+// 行幾何が未確定ならヒットなし。
+inline TableRowHit FindTableRow(const TableLayoutData& tl, size_t row_count, float local_y) noexcept
 {
-    if (row_count == 0 || local_y < 0.0f) {
+    if (row_count == 0 || local_y < 0.0f || !tl.HasRowGeometry(row_count)) {
         return {};
     }
-    if (tl.HasRowGeometry(row_count)) {
-        const int idx = tl.RowIndexAt(local_y);
-        if (idx < 0) {
-            return {};
-        }
-        return { idx, tl.row_cum_y[static_cast<size_t>(idx)] };
+    const int idx = tl.RowIndexAt(local_y);
+    if (idx < 0) {
+        return {};
     }
-    float ry = 0.0f;
-    for (size_t r = 0; r < row_count; r++) {
-        const float row_h = tl.RowHeight(r, fallback_row_h);
-        const float row_bottom = ry + row_h + TABLE_BORDER_WIDTH;
-        if (local_y < row_bottom) {
-            return { static_cast<int>(r), ry };
-        }
-        ry = row_bottom;
-    }
-    return {};
+    return { idx, tl.row_cum_y[static_cast<size_t>(idx)] };
 }
 
 struct TableColHit {
@@ -65,28 +53,17 @@ struct TableColHit {
     float cell_left = TABLE_BORDER_WIDTH;
 };
 
-// テーブル左右の外側は端の列にクランプする。
+// テーブル左右の外側は端の列にクランプする。列幾何が無効 (InvalidateGeometry 後) なら先頭列。
 inline TableColHit FindTableCol(const TableLayoutData& tl, float local_x) noexcept
 {
-    const size_t col_count = tl.col_widths.size();
-    if (col_count == 0) {
+    if (!tl.HasColGeometry()) {
         return {};
     }
-    if (tl.col_cum_x.size() == col_count + 1) {
-        const auto it = std::ranges::upper_bound(tl.col_cum_x, local_x + TABLE_BORDER_WIDTH);
-        const auto pos = static_cast<size_t>(std::ranges::distance(tl.col_cum_x.begin(), it));
-        const size_t idx = std::clamp(pos, size_t{ 1 }, col_count) - 1;
-        return { static_cast<int>(idx), tl.col_cum_x[idx] };
-    }
-    float cx = TABLE_BORDER_WIDTH;
-    for (size_t c = 0; c + 1 < col_count; c++) {
-        const float col_right = cx + tl.col_widths[c] + TABLE_CELL_PADDING * 2.0f;
-        if (local_x < col_right) {
-            return { static_cast<int>(c), cx };
-        }
-        cx = col_right + TABLE_BORDER_WIDTH;
-    }
-    return { static_cast<int>(col_count - 1), cx };
+    const size_t col_count = tl.col_widths.size();
+    const auto it = std::ranges::upper_bound(tl.col_cum_x, local_x + TABLE_BORDER_WIDTH);
+    const auto pos = static_cast<size_t>(std::ranges::distance(tl.col_cum_x.begin(), it));
+    const size_t idx = std::clamp(pos, size_t{ 1 }, col_count) - 1;
+    return { static_cast<int>(idx), tl.col_cum_x[idx] };
 }
 
 struct MdPaneHitContext {
@@ -104,38 +81,40 @@ struct MdPaneHitContext {
     const std::pmr::unordered_map<int, float>* block_scroll_x = nullptr;
 };
 
-class HitTestService {
-public:
-    struct HitResult {
-        static constexpr uint32_t kNoChar = std::numeric_limits<uint32_t>::max();
+// MD ペインのヒットテスト。状態を持たない純粋関数群。
+namespace hit_test {
 
-        int node_index = -1;
-        // キャレット位置 (選択の端)。文字の右半分を指すとその文字の後ろになる。
-        uint32_t text_pos = 0;
-        // 点の下にある文字の位置 (リンクの判定)。文字の上でなければ kNoChar。
-        uint32_t char_pos = kNoChar;
-    };
+struct HitResult {
+    static constexpr uint32_t kNoChar = std::numeric_limits<uint32_t>::max();
 
-    HitResult HitTest(const MdPaneHitContext& ctx) const noexcept;
-    // HitTest と同じノードを返す。文字位置 (DirectWrite のヒットテストと UTF-16 変換) は求めない。
-    int HitNode(const MdPaneHitContext& ctx) const noexcept;
-
-    HitResult HitTestTable(
-        const Node& node, const NodeLayoutEntry& entry,
-        float entry_text_top,
-        int node_index,
-        const Theme& theme,
-        float dip_x, float dip_y, float h_scroll_x = 0.0f) const noexcept;
-
-    NavButtonHover NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) const noexcept;
-
-    // 可視ノード走査・座標変換・キャッシュ照合を共有して Copy / Save / DiagramCopy を一度に判定する。
-    struct CodeBlockButtonHit {
-        int copy_node = -1;
-        int save_node = -1;
-        int diagram_copy_node = -1;
-    };
-    CodeBlockButtonHit CodeBlockButtonsHitTest(const MdPaneHitContext& ctx) const noexcept;
-    // node_index のブロック横スクロールバー (ヒット余白込み) 上か。
-    bool BlockHScrollbarHitTest(const MdPaneHitContext& ctx, int node_index, float visible_width) const noexcept;
+    int node_index = -1;
+    // キャレット位置 (選択の端)。文字の右半分を指すとその文字の後ろになる。
+    uint32_t text_pos = 0;
+    // 点の下にある文字の位置 (リンクの判定)。文字の上でなければ kNoChar。
+    uint32_t char_pos = kNoChar;
 };
+
+HitResult HitTest(const MdPaneHitContext& ctx) noexcept;
+// HitTest と同じノードを返す。文字位置 (DirectWrite のヒットテストと UTF-16 変換) は求めない。
+int HitNode(const MdPaneHitContext& ctx) noexcept;
+
+HitResult HitTestTable(
+    const Node& node, const NodeLayoutEntry& entry,
+    float entry_text_top,
+    int node_index,
+    const Theme& theme,
+    float dip_x, float dip_y, float h_scroll_x = 0.0f) noexcept;
+
+NavButtonHover NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) noexcept;
+
+// 可視ノード走査・座標変換・キャッシュ照合を共有して Copy / Save / DiagramCopy を一度に判定する。
+struct CodeBlockButtonHit {
+    int copy_node = -1;
+    int save_node = -1;
+    int diagram_copy_node = -1;
+};
+CodeBlockButtonHit CodeBlockButtonsHitTest(const MdPaneHitContext& ctx) noexcept;
+// node_index のブロック横スクロールバー (ヒット余白込み) 上か。
+bool BlockHScrollbarHitTest(const MdPaneHitContext& ctx, int node_index, float visible_width) noexcept;
+
+} // namespace hit_test

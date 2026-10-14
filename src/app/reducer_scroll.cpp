@@ -6,10 +6,8 @@
 
 namespace {
 
-// HitTestService 側のキャッシュは対象ノードの block_scroll_x をキーに含むため、
-// ここで effects_generation を進める必要はない (進めると Renderer の effects
-// 再適用まで横スクロール 1 ノッチごとに巻き添えになる)。
-bool ApplyBlockHScrollDelta(AppState& state, int node_index, float new_value, const BlockHScrollGeometry& geom)
+// new_value は差分ではなく絶対値。
+bool SetBlockScrollX(AppState& state, int node_index, float new_value, const BlockHScrollGeometry& geom)
 {
     const float clamped = geom.ClampScrollX(new_value);
     const float prev = state.view.GetBlockScrollX(node_index);
@@ -30,39 +28,37 @@ bool ApplyBlockHScrollDelta(AppState& state, int node_index, float new_value, co
 void ReduceKeyScroll(AppState& state, SideEffectList& effects, const KeyScrollAction& a)
 {
     auto& viewport = state.view.viewport;
-    const float old_scroll = viewport.GetScrollY();
     const float page_size = state.pane_layout_cache.Get().md_rect.height;
-    switch (a.type) {
-    case ScrollType::LineUp:
-        viewport.DirectScrollBy(-SCROLL_LINE_AMOUNT);
-        break;
-    case ScrollType::LineDown:
-        viewport.DirectScrollBy(SCROLL_LINE_AMOUNT);
-        break;
-    case ScrollType::PageUp:
-        viewport.DirectScrollBy(-page_size * SCROLL_PAGE_FACTOR);
-        break;
-    case ScrollType::PageDown:
-        viewport.DirectScrollBy(page_size * SCROLL_PAGE_FACTOR);
-        break;
-    case ScrollType::Home:
-        // ノード 0 の target だと scroll_y = Top(0) になり上余白が隠れる (ロード直後の 0 と不一致)。
-        // 短い文書では max_scroll も超えるため、ピクセルで 0 を指定する。
-        viewport.ScrollTo(0.0f);
-        break;
-    case ScrollType::End:
-        // 末尾は max_scroll に依存するためピクセル指定。scroll target は無効化される。
-        viewport.ScrollTo(viewport.GetMaxScroll());
-        break;
-    }
-    EmitScrollEffects(state, effects, old_scroll);
+    WithScrollEffects(state, effects, [&] {
+        switch (a.type) {
+        case ScrollType::LineUp:
+            viewport.DirectScrollBy(-SCROLL_LINE_AMOUNT);
+            break;
+        case ScrollType::LineDown:
+            viewport.DirectScrollBy(SCROLL_LINE_AMOUNT);
+            break;
+        case ScrollType::PageUp:
+            viewport.DirectScrollBy(-page_size * SCROLL_PAGE_FACTOR);
+            break;
+        case ScrollType::PageDown:
+            viewport.DirectScrollBy(page_size * SCROLL_PAGE_FACTOR);
+            break;
+        case ScrollType::Home:
+            // ノード 0 の target だと scroll_y = Top(0) になり上余白が隠れる (ロード直後の 0 と不一致)。
+            // 短い文書では max_scroll も超えるため、ピクセルで 0 を指定する。
+            viewport.ScrollTo(0.0f);
+            break;
+        case ScrollType::End:
+            // 末尾は max_scroll に依存するためピクセル指定。scroll target は無効化される。
+            viewport.ScrollTo(viewport.GetMaxScroll());
+            break;
+        }
+    });
 }
 
 void ReduceDirectScrollBy(AppState& state, SideEffectList& effects, const DirectScrollByAction& a)
 {
-    const float old_scroll = state.view.viewport.GetScrollY();
-    state.view.viewport.DirectScrollBy(a.delta);
-    EmitScrollEffects(state, effects, old_scroll);
+    WithScrollEffects(state, effects, [&] { state.view.viewport.DirectScrollBy(a.delta); });
 }
 
 void ReduceScrollPane(AppState& state, SideEffectList& effects, const ScrollPaneAction& a)
@@ -88,7 +84,7 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
             return;
         }
         const float dx = static_cast<float>(a.delta) / WHEEL_DELTA * HSCROLL_DIP_PER_NOTCH;
-        if (ApplyBlockHScrollDelta(state, target, state.view.GetBlockScrollX(target) + dx, geom)) {
+        if (SetBlockScrollX(state, target, state.view.GetBlockScrollX(target) + dx, geom)) {
             PushEffect(effects, effect::InvalidateWindow{});
         }
         return;
@@ -96,7 +92,7 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
 
     auto& swipe = state.interaction.swipe_detector;
     const bool had_overlay = swipe.IsOverlayVisible();
-    const int old_direction = swipe.GetOverlayDirection();
+    const auto old_direction = swipe.GetOverlayDirection();
     swipe.OnHWheel(a.delta, a.tick);
     PushEffect(effects, effect::SetTimer{ app_timer::Id::SWIPE_OVERLAY, static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS) });
     if (had_overlay != swipe.IsOverlayVisible() || old_direction != swipe.GetOverlayDirection()) {
@@ -135,7 +131,7 @@ void ReduceBlockHScrollDragMoved(AppState& state, SideEffectList& effects, const
     const float thumb_w = BlockHScrollbarThumbWidth(geom.visible_width, geom.natural_width);
     const float drag_range = std::max(1.0f, geom.visible_width - thumb_w);
     const float scroll_max = geom.scroll_max();
-    if (ApplyBlockHScrollDelta(state, sv.h_drag_node, sv.h_drag_start_scroll + dip_delta * scroll_max / drag_range, geom)) {
+    if (SetBlockScrollX(state, sv.h_drag_node, sv.h_drag_start_scroll + dip_delta * scroll_max / drag_range, geom)) {
         PushEffect(effects, effect::InvalidateWindow{});
     }
 }

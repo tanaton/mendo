@@ -2,24 +2,8 @@
 #include "app_constants.h"
 #include "darkmode_util.h"
 #include "document_service.h"
-#include "mermaid_util.h"
 #include "ui_constants.h"
-#include <algorithm>
 #include <thread>
-
-namespace {
-
-// 上限 16 は超大規模 dirty バッチでも latch 待ちオーバーヘッドが利得を相殺する境界。
-// 下限 2 は hardware_concurrency()==0 や 1 コア環境でも並列計測の枠組みを保つため。
-int LayoutWorkerCount(unsigned cores) noexcept
-{
-    constexpr unsigned kMinLayoutWorkers = 2u;
-    constexpr unsigned kMaxLayoutWorkers = 16u;
-    return static_cast<int>(std::clamp<unsigned>(
-        cores > 0 ? cores - 1 : kMinLayoutWorkers, kMinLayoutWorkers, kMaxLayoutWorkers));
-}
-
-} // namespace
 
 bool App::Init(HWND hwnd)
 {
@@ -42,7 +26,7 @@ bool App::Init(HWND hwnd)
     // PixelToDip 用に DPI スケールをキャッシュ（OnDpiChanged でも更新する）。
     state_.window.cached_dpi_scale = DpiScaleFrom(static_cast<float>(GetDpiForWindow(hwnd_)));
 
-    scheduler_.Init(mermaid_util::ComputeWorkerCount(cores));
+    scheduler_.Init(SharedWorkerCount(cores));
 
     file_cache_.SetCacheDir(config_.GetConfigPath(L"MermaidCache"));
     file_cache_.Init(state_.window.cached_dpi_scale, scheduler_);
@@ -57,6 +41,7 @@ bool App::Init(HWND hwnd)
             .viewport = &state_.view.viewport,
             .image_loader = &image_loader_,
             .mermaid = &mermaid_renderer_,
+            .mermaid_file_cache = &file_cache_,
             .theme_service = &theme_service_,
         },
         AppResourceManagerCallbacks{ this });
@@ -89,7 +74,7 @@ bool App::Init(HWND hwnd)
         // DiagramEntry::bitmap が新 RT で描画拒否されるのを防ぐ。ApplyCachedImages は
         // bitmap 残存ノードをスキップするため、LoadImages の前に破棄する必要がある。
         state_.document.layout_cache.InvalidateEffects();
-        state_.document.layout_cache.InvalidateAllDiagramBitmaps();
+        state_.document.layout_cache.InvalidateAllDiagramBitmaps(state_.document.doc.GetNodes());
         resource_manager_.LoadImages();
     });
 

@@ -97,9 +97,9 @@ void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points)
     rt()->DrawGeometry(path.Get(), trail_brush, GESTURE_TRAIL_STROKE_WIDTH, gesture_stroke_style_.Get());
 }
 
-void Renderer::DrawGestureOverlay(int direction, const PaneRect& md_pane_rect)
+void Renderer::DrawGestureOverlay(NavDirection direction, const PaneRect& md_pane_rect)
 {
-    if (direction == 0) {
+    if (direction == NavDirection::None) {
         return;
     }
 
@@ -110,7 +110,7 @@ void Renderer::DrawGestureOverlay(int direction, const PaneRect& md_pane_rect)
     const D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, cy - rect_h / 2, cx + rect_w / 2, cy + rect_h / 2);
     FillOverlayPanel(rect, GESTURE_OVERLAY_CORNER, theme_.IsDark() ? 0.8f : 0.6f);
 
-    DrawCenteredText((direction < 0) ? L"\x2190 \x623B\x308B" : L"\x2192 \x9032\x3080", fmt_.gesture_overlay.Get(), rect, BrushId::OverlayWhite, 1.0f, D2D1::SizeF(rect_w, rect_h));
+    DrawCenteredText((direction == NavDirection::Back) ? L"\x2190 \x623B\x308B" : L"\x2192 \x9032\x3080", fmt_.gesture_overlay.Get(), rect, BrushId::OverlayWhite, 1.0f, D2D1::SizeF(rect_w, rect_h));
 }
 
 void Renderer::FillOverlayPanel(const D2D1_RECT_F& rect, float corner, float alpha)

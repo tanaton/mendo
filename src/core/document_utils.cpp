@@ -241,12 +241,6 @@ void GenerateAnchorIdInto(std::string_view text, std::pmr::string& slug)
     });
 }
 
-std::pmr::string GenerateAnchorId(std::string_view text)
-{
-    std::pmr::string slug;
-    GenerateAnchorIdInto(text, slug);
-    return slug;
-}
 
 std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent)
 {

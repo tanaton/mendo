@@ -17,18 +17,21 @@ int MeasureChunk(
     LayoutCache& cache,
     float content_width,
     const Theme& theme,
-    const IMeasureBackend& backend,
+    const ITextMeasurer& backend,
     std::span<const size_t> chunk_indices,
     MeasureViewportRange viewport)
 {
     // 例外はノード単位で捕まえる。chunk 単位だと失敗ノードを特定できず、同じ chunk の残りも計測されない。
     // 失敗回数は worker が担当する自エントリにだけ書くので同期は要らない。
+    // DiagramEntry は計測中に追加・削除されないので、worker から読むだけなら同期は要らない。
+    const LayoutCache& diagrams = cache;
     int failed = 0;
     for (const size_t i : chunk_indices) {
         auto& entry = cache[i];
         const float indent = NodeIndent(nodes[i], theme);
+        const DiagramEntry* image = nodes[i].type == NodeType::Image ? diagrams.FindDiagram(i) : nullptr;
         try {
-            MeasureEntry(backend, nodes[i], entry, content_width - indent, viewport, cache.Top(i));
+            MeasureEntry(backend, nodes[i], entry, content_width - indent, viewport, cache.Top(i), image);
         } catch (...) {
             // 諦めた後に再び dirty になって失敗し続けても一周しないよう、上限で頭打ちにする。
             if (entry.measure_failures < LayoutCache::kMaxMeasureAttempts) {
@@ -52,7 +55,7 @@ int MeasureIndicesParallel(
     LayoutCache& cache,
     float content_width,
     const Theme& theme,
-    const IMeasureBackend& backend,
+    const ITextMeasurer& backend,
     std::span<const size_t> indices,
     MeasureViewportRange measure_vp,
     TaskScheduler* scheduler)
@@ -84,7 +87,7 @@ DirtyBatchResult RunParallel(
     LayoutCache& cache,
     float content_width,
     const Theme& theme,
-    const IMeasureBackend& backend,
+    const ITextMeasurer& backend,
     ViewportClip clip,
     int max_nodes,
     TaskScheduler* scheduler)
@@ -103,7 +106,7 @@ DirtyBatchResult RunParallel(
         // text_top は単調なので、帯の開始は二分探索で求め、下端超過で break する。
         // 全走査 + reserve(node_count) は 100MB 級文書で 16ms タイマーごとに
         // 数 MB の確保と全エントリ読みを繰り返してしまう。
-        const auto plan_begin = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, node_count, range.top));
+        const auto plan_begin = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, range.top));
         for (size_t i = plan_begin; i < node_count; i++) {
             const float entry_top = cache.Top(i);
             if (entry_top > range.bottom) {

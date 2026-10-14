@@ -19,10 +19,7 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept;
 
 std::pmr::string ToLowerAsciiCopy(std::string_view text);
 
-// GitHub スタイル: ASCII 小文字化、空白→'-'、CJK 保持、句読点スキップ。
-std::pmr::string GenerateAnchorId(std::string_view text);
-
-// 呼び出し側で allocator を揃えたい場合に使う。
+// GitHub スタイル: ASCII 小文字化、空白→'-'、CJK 保持、句読点スキップ。結果を slug に書く。
 void GenerateAnchorIdInto(std::string_view text, std::pmr::string& slug);
 
 // 最後のパス区切り以降の "." を含む拡張子。無ければ空。

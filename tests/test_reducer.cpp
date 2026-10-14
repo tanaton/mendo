@@ -374,20 +374,6 @@ TEST_F(ReducerTest, OpenFileAction_EmitsOpenFileDialog)
     EXPECT_TRUE(HasEffect<effect::OpenFileDialog>(effects));
 }
 
-TEST_F(ReducerTest, FileWatchAction_EmitsCheckFileChanges)
-{
-    auto effects = Reduce(state, FileWatchAction{});
-    EXPECT_EQ(effects.size(), 1u);
-    EXPECT_TRUE(HasEffect<effect::CheckFileChanges>(effects));
-}
-
-TEST_F(ReducerTest, ImageLoadedAction_EmitsNotifyImageLoaded)
-{
-    auto effects = Reduce(state, ImageLoadedAction{});
-    EXPECT_EQ(effects.size(), 1u);
-    EXPECT_TRUE(HasEffect<effect::NotifyImageLoaded>(effects));
-}
-
 // ---- ブロック単位の横スクロール ----
 
 TEST_F(ReducerTest, BlockHHoverChanged_UpdatesAndInvalidates)
@@ -718,11 +704,11 @@ TEST_F(ReducerTest, SplitterDragStarted_InvalidTarget_NoOp)
 TEST_F(ReducerTest, SplitterDragMoved_Splitter1_UpdatesWidthAndInvalidates)
 {
     theme.splitter_width = 4.0f;
-    state.pane_layout_cache.Set(0.0f, PaneLayout{});
+    state.pane_layout_cache.Set(1000.0f, PaneLayout{});
+    state.view.panes.StartDrag(PaneController::DragTarget::Splitter1);
     const float old_width = state.view.panes.GetSidePaneWidth(PaneTarget::File);
 
-    auto effects = Reduce(state, SplitterDragMovedAction{
-                                     PaneController::DragTarget::Splitter1, 300.0f, 1000.0f });
+    auto effects = Reduce(state, SplitterDragMovedAction{ 300.0f });
 
     EXPECT_NE(state.view.panes.GetSidePaneWidth(PaneTarget::File), old_width);
     EXPECT_FALSE(state.pane_layout_cache.IsValid());
@@ -732,11 +718,11 @@ TEST_F(ReducerTest, SplitterDragMoved_Splitter1_UpdatesWidthAndInvalidates)
 TEST_F(ReducerTest, SplitterDragMoved_Splitter2_UpdatesTocWidthAndInvalidates)
 {
     theme.splitter_width = 4.0f;
-    state.pane_layout_cache.Set(0.0f, PaneLayout{});
+    state.pane_layout_cache.Set(1000.0f, PaneLayout{});
+    state.view.panes.StartDrag(PaneController::DragTarget::Splitter2);
 
     // Splitter2 は toc_left 基準で toc_width を変更する
-    auto effects = Reduce(state, SplitterDragMovedAction{
-                                     PaneController::DragTarget::Splitter2, 600.0f, 1000.0f });
+    auto effects = Reduce(state, SplitterDragMovedAction{ 600.0f });
 
     EXPECT_FALSE(state.pane_layout_cache.IsValid());
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
@@ -744,9 +730,9 @@ TEST_F(ReducerTest, SplitterDragMoved_Splitter2_UpdatesTocWidthAndInvalidates)
 
 TEST_F(ReducerTest, SplitterDragMoved_InvalidTarget_NoOp)
 {
-    state.pane_layout_cache.Set(0.0f, PaneLayout{});
-    auto effects = Reduce(state, SplitterDragMovedAction{
-                                     PaneController::DragTarget::FileScrollbar, 300.0f, 1000.0f });
+    state.pane_layout_cache.Set(1000.0f, PaneLayout{});
+    state.view.panes.StartDrag(PaneController::DragTarget::FileScrollbar);
+    auto effects = Reduce(state, SplitterDragMovedAction{ 300.0f });
 
     EXPECT_TRUE(state.pane_layout_cache.IsValid());
     EXPECT_TRUE(effects.empty());

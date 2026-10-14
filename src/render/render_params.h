@@ -9,6 +9,7 @@
 #include "pane_layout.h"
 #include "ui_types.h"
 #include "mouse_gesture.h"
+#include "nav_direction.h"
 #include <d2d1.h>
 #include <wrl/client.h>
 #include <memory_resource>
@@ -17,7 +18,7 @@
 
 struct GestureRenderState {
     const std::pmr::deque<GesturePoint>* trail_points = nullptr;
-    int direction = 0; // -1=Left(戻る), 1=Right(進む)
+    NavDirection direction = NavDirection::None;
     bool trail_active = false;
     bool overlay_visible = false;
 };
@@ -29,15 +30,7 @@ struct ToastRenderState {
 
 struct TitleBarRenderState {
     std::wstring_view title_text;
-    DipRect open_file;
-    DipRect help;
-    DipRect theme_toggle;
-    DipRect search;
-    DipRect file_toggle;
-    DipRect toc_toggle;
-    DipRect minimize;
-    DipRect maximize;
-    DipRect close;
+    TitleBarButtons buttons{};
     DipRect icon_rect{};
     DipRect title_text_rect{};
     float height = 0.0f;
@@ -50,6 +43,11 @@ struct TitleBarRenderState {
     bool toc_pane_visible = false;
     bool is_maximized = false;
     bool window_active = true;
+
+    constexpr const DipRect& Button(TitleBarHitZone zone) const noexcept
+    {
+        return buttons[TitleBarButtonIndex(zone)];
+    }
 };
 
 // File / TOC ペインの対称な状態をまとめた値型。SidePaneState::panes[2] の要素。

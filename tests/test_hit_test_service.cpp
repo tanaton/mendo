@@ -12,7 +12,6 @@
 
 class HitTestServiceTest : public MockLayoutTestBase {
 protected:
-    HitTestService hit_test_;
 };
 
 // ---- NavButtonHitTest: 純粋な座標計算のみ ----
@@ -23,7 +22,7 @@ TEST_F(HitTestServiceTest, NavButton_HitBackCenter)
 {
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
     const D2D1_RECT_F back = NavBackButtonRect(md);
-    EXPECT_EQ(hit_test_.NavButtonHitTest((back.left + back.right) * 0.5f,
+    EXPECT_EQ(hit_test::NavButtonHitTest((back.left + back.right) * 0.5f,
                                          (back.top + back.bottom) * 0.5f, md),
               NavButtonHover::Back);
 }
@@ -32,7 +31,7 @@ TEST_F(HitTestServiceTest, NavButton_HitForwardCenter)
 {
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
     const D2D1_RECT_F fwd = NavForwardButtonRect(md);
-    EXPECT_EQ(hit_test_.NavButtonHitTest((fwd.left + fwd.right) * 0.5f,
+    EXPECT_EQ(hit_test::NavButtonHitTest((fwd.left + fwd.right) * 0.5f,
                                          (fwd.top + fwd.bottom) * 0.5f, md),
               NavButtonHover::Forward);
 }
@@ -43,7 +42,7 @@ TEST_F(HitTestServiceTest, NavButton_GapBetweenButtonsIsNone)
     const D2D1_RECT_F back = NavBackButtonRect(md);
     // Back の右端より NAV_BTN_GAP/2 右（Forward 左端より NAV_BTN_GAP/2 左）
     const float gx = back.right + NAV_BTN_GAP * 0.5f;
-    EXPECT_EQ(hit_test_.NavButtonHitTest(gx, (back.top + back.bottom) * 0.5f, md),
+    EXPECT_EQ(hit_test::NavButtonHitTest(gx, (back.top + back.bottom) * 0.5f, md),
               NavButtonHover::None);
 }
 
@@ -51,7 +50,7 @@ TEST_F(HitTestServiceTest, NavButton_AboveRangeIsNone)
 {
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
     const D2D1_RECT_F back = NavBackButtonRect(md);
-    EXPECT_EQ(hit_test_.NavButtonHitTest((back.left + back.right) * 0.5f, back.top - 1.0f, md),
+    EXPECT_EQ(hit_test::NavButtonHitTest((back.left + back.right) * 0.5f, back.top - 1.0f, md),
               NavButtonHover::None);
 }
 
@@ -59,7 +58,7 @@ TEST_F(HitTestServiceTest, NavButton_BelowRangeIsNone)
 {
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
     const D2D1_RECT_F back = NavBackButtonRect(md);
-    EXPECT_EQ(hit_test_.NavButtonHitTest((back.left + back.right) * 0.5f,
+    EXPECT_EQ(hit_test::NavButtonHitTest((back.left + back.right) * 0.5f,
                                          back.bottom + 1.0f, md),
               NavButtonHover::None);
 }
@@ -68,7 +67,7 @@ TEST_F(HitTestServiceTest, NavButton_LeftOfBackIsNone)
 {
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
     const D2D1_RECT_F back = NavBackButtonRect(md);
-    EXPECT_EQ(hit_test_.NavButtonHitTest(back.left - 1.0f, (back.top + back.bottom) * 0.5f, md),
+    EXPECT_EQ(hit_test::NavButtonHitTest(back.left - 1.0f, (back.top + back.bottom) * 0.5f, md),
               NavButtonHover::None);
 }
 
@@ -76,7 +75,7 @@ TEST_F(HitTestServiceTest, NavButton_RightOfForwardIsNone)
 {
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
     const D2D1_RECT_F fwd = NavForwardButtonRect(md);
-    EXPECT_EQ(hit_test_.NavButtonHitTest(fwd.right + 1.0f,
+    EXPECT_EQ(hit_test::NavButtonHitTest(fwd.right + 1.0f,
                                          (fwd.top + fwd.bottom) * 0.5f, md),
               NavButtonHover::None);
 }
@@ -86,7 +85,7 @@ TEST_F(HitTestServiceTest, NavButton_BackLeftEdgeIsInclusive)
     // ヒット判定は PointInRectInclusive なので左端ちょうども Back
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
     const D2D1_RECT_F back = NavBackButtonRect(md);
-    EXPECT_EQ(hit_test_.NavButtonHitTest(back.left, (back.top + back.bottom) * 0.5f, md),
+    EXPECT_EQ(hit_test::NavButtonHitTest(back.left, (back.top + back.bottom) * 0.5f, md),
               NavButtonHover::Back);
 }
 
@@ -95,7 +94,7 @@ TEST_F(HitTestServiceTest, NavButton_BackRightEdgeIsInclusive)
     // 右端ちょうども inclusive なので Back
     PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
     const D2D1_RECT_F back = NavBackButtonRect(md);
-    EXPECT_EQ(hit_test_.NavButtonHitTest(back.right,
+    EXPECT_EQ(hit_test::NavButtonHitTest(back.right,
                                          (back.top + back.bottom) * 0.5f, md),
               NavButtonHover::Back);
 }
@@ -105,7 +104,7 @@ TEST_F(HitTestServiceTest, NavButton_PositionsWithNonZeroPaneOrigin)
     // MD ペインが原点以外にある場合でも正しく算出されること
     PaneRect md{ 200.0f, 40.0f, 600.0f, 500.0f };
     const D2D1_RECT_F back = NavBackButtonRect(md);
-    EXPECT_EQ(hit_test_.NavButtonHitTest((back.left + back.right) * 0.5f,
+    EXPECT_EQ(hit_test::NavButtonHitTest((back.left + back.right) * 0.5f,
                                          (back.top + back.bottom) * 0.5f, md),
               NavButtonHover::Back);
 }
@@ -125,7 +124,7 @@ TEST_F(HitTestServiceTest, HitTest_EmptyDocumentReturnsSentinel)
         pr.nodes, pr.cache, theme_,
         0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 0.0f }, 1.0f, 100, 100
     };
-    auto r = hit_test_.HitTest(ctx);
+    auto r = hit_test::HitTest(ctx);
     EXPECT_EQ(r.node_index, -1);
     EXPECT_EQ(r.text_pos, 0u);
 }
@@ -147,7 +146,7 @@ TEST_F(HitTestServiceTest, HitTest_BelowAllNodesReturnsLastNonEmpty)
         50,
         static_cast<int>(last_bottom) + 1000
     };
-    auto r = hit_test_.HitTest(ctx);
+    auto r = hit_test::HitTest(ctx);
 
     // reverse 走査で最初に見つかる非空ノード
     int expected_idx = -1;
@@ -174,7 +173,7 @@ TEST_F(HitTestServiceTest, HitTest_AboveFirstNodeClampsToFirstNodeStart)
         pr.nodes, pr.cache, theme_,
         0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 0.0f }, 1.0f, 50, 0
     };
-    auto r = hit_test_.HitTest(ctx);
+    auto r = hit_test::HitTest(ctx);
     EXPECT_EQ(r.node_index, 0);
     EXPECT_EQ(r.text_pos, 0u);
 }
@@ -193,7 +192,7 @@ TEST_F(HitTestServiceTest, HitTest_GapBetweenNodesClampsToPrecedingNodeEnd)
         pr.nodes, pr.cache, theme_,
         gap_y, PaneRect{ 0.0f, 0.0f, 0.0f, 0.0f }, 1.0f, 50, 0
     };
-    auto r = hit_test_.HitTest(ctx);
+    auto r = hit_test::HitTest(ctx);
     EXPECT_EQ(r.node_index, 0);
     EXPECT_EQ(r.text_pos, pr.nodes[0].GetText().size());
 }
@@ -214,7 +213,7 @@ TEST_F(HitTestServiceTest, HitTest_TextlessCandidateFallsForwardToFirstNonEmpty)
         pr.nodes, pr.cache, theme_,
         mid_y, PaneRect{ 0.0f, 0.0f, 0.0f, 0.0f }, 1.0f, 50, 0
     };
-    auto r = hit_test_.HitTest(ctx);
+    auto r = hit_test::HitTest(ctx);
     EXPECT_EQ(r.node_index, 1);
     EXPECT_EQ(r.text_pos, 0u);
 }
@@ -230,7 +229,7 @@ TEST_F(HitTestServiceTest, HitNodeMatchesHitTestNodeIndex)
             pr.nodes, pr.cache, theme_,
             y, PaneRect{ 0.0f, 0.0f, 0.0f, 0.0f }, 1.0f, 50, 0
         };
-        EXPECT_EQ(hit_test_.HitNode(ctx), hit_test_.HitTest(ctx).node_index) << "y=" << y;
+        EXPECT_EQ(hit_test::HitNode(ctx), hit_test::HitTest(ctx).node_index) << "y=" << y;
     }
 }
 
@@ -248,7 +247,7 @@ TEST_F(HitTestServiceTest, HitTestTable_NoLayoutDataReturnsTextEnd)
     ASSERT_FALSE(entry.has_table_layout());
 
     const float entry_text_top = pr.cache.Top(static_cast<size_t>(table_idx));
-    auto r = hit_test_.HitTestTable(pr.nodes[table_idx], entry, entry_text_top, table_idx,
+    auto r = hit_test::HitTestTable(pr.nodes[table_idx], entry, entry_text_top, table_idx,
                                     theme_, 100.0f, entry_text_top + 5.0f);
     EXPECT_EQ(r.node_index, table_idx);
     EXPECT_EQ(r.text_pos,
@@ -266,7 +265,7 @@ TEST_F(HitTestServiceTest, HitTestTable_ClickAboveAllRowsReturnsTextEnd)
 
     // テーブル上端より 10 dip 上 → FindTableRow は -1 を返す
     const float entry_text_top = pr.cache.Top(static_cast<size_t>(table_idx));
-    auto r = hit_test_.HitTestTable(pr.nodes[table_idx], entry, entry_text_top, table_idx,
+    auto r = hit_test::HitTestTable(pr.nodes[table_idx], entry, entry_text_top, table_idx,
                                     theme_,
                                     theme_.margin_left + 10.0f,
                                     entry_text_top - 10.0f);
@@ -276,10 +275,9 @@ TEST_F(HitTestServiceTest, HitTestTable_ClickAboveAllRowsReturnsTextEnd)
               static_cast<uint32_t>(pr.nodes[table_idx].table_data()->concat_text.size()));
 }
 
-TEST_F(HitTestServiceTest, HitTestTable_LinearScanHitsFirstRow)
+TEST_F(HitTestServiceTest, HitTestTable_HitsFirstCellWithoutCellLayout)
 {
-    // MockTextMeasurer は row_cum_y / col_cum_x / cell_layouts を設定しないので
-    // 線形フォールバックに落ちる。cell_layout=null のため text_pos は flat_offset。
+    // MockTextMeasurer はセル layout を生成しない (null のまま) ので text_pos は flat_offset。
     // 先頭行・先頭列の flat_offset は 0。
     auto pr = ParseAndLayout("| A | B |\n|---|---|\n| 1 | 2 |");
     const int table_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::Table);
@@ -295,7 +293,7 @@ TEST_F(HitTestServiceTest, HitTestTable_LinearScanHitsFirstRow)
     const float row0_mid_y = entry_text_top + tl.row_heights[0] * 0.5f;
     const float col0_mid_x = theme_.margin_left + tl.col_widths[0] * 0.5f;
 
-    auto r = hit_test_.HitTestTable(pr.nodes[table_idx], entry, entry_text_top, table_idx,
+    auto r = hit_test::HitTestTable(pr.nodes[table_idx], entry, entry_text_top, table_idx,
                                     theme_, col0_mid_x, row0_mid_y);
     EXPECT_EQ(r.node_index, table_idx);
     EXPECT_EQ(r.text_pos, 0u);
@@ -312,7 +310,7 @@ TEST_F(HitTestServiceTest, SaveButton_NoDiagramReturnsNegative)
         0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f, 400, 100,
         content_width
     };
-    EXPECT_EQ(hit_test_.CodeBlockButtonsHitTest(ctx).save_node, -1);
+    EXPECT_EQ(hit_test::CodeBlockButtonsHitTest(ctx).save_node, -1);
 }
 
 TEST_F(HitTestServiceTest, SaveButton_NonDiagramCodeBlockReturnsNegative)
@@ -324,7 +322,7 @@ TEST_F(HitTestServiceTest, SaveButton_NonDiagramCodeBlockReturnsNegative)
         0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f, 400, 100,
         content_width
     };
-    EXPECT_EQ(hit_test_.CodeBlockButtonsHitTest(ctx).save_node, -1);
+    EXPECT_EQ(hit_test::CodeBlockButtonsHitTest(ctx).save_node, -1);
 }
 
 TEST_F(HitTestServiceTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
@@ -346,7 +344,7 @@ TEST_F(HitTestServiceTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
         static_cast<int>(entry_text_top + 5),
         content_width
     };
-    EXPECT_EQ(hit_test_.CodeBlockButtonsHitTest(ctx).save_node, -1);
+    EXPECT_EQ(hit_test::CodeBlockButtonsHitTest(ctx).save_node, -1);
 }
 
 TEST_F(HitTestServiceTest, SaveButton_EmptyDocumentReturnsNegative)
@@ -358,5 +356,5 @@ TEST_F(HitTestServiceTest, SaveButton_EmptyDocumentReturnsNegative)
         0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f, 400, 100,
         content_width
     };
-    EXPECT_EQ(hit_test_.CodeBlockButtonsHitTest(ctx).save_node, -1);
+    EXPECT_EQ(hit_test::CodeBlockButtonsHitTest(ctx).save_node, -1);
 }

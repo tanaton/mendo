@@ -17,6 +17,7 @@
 #include "reload.h"
 #include "render_params.h"
 #include "renderer.h"
+#include "selection_html.h"
 #include "task_scheduler.h"
 #include "theme_service.h"
 #include "win32_host_impl.h"
@@ -198,15 +199,31 @@ private:
     // ---- 座標・ヒットテスト ----
     DipPoint PixelToDip(int px, int py) const noexcept;
 
-    using HitResult = HitTestService::HitResult;
+    using HitResult = hit_test::HitResult;
     HitResult HitTest(int px, int py);
-    std::optional<std::string_view> GetLinkAtHit(const HitResult& hit) const;
+    std::optional<LinkHit> GetLinkAtHit(const HitResult& hit) const;
     MdPaneHitContext BuildMdPaneHitContext(int px, int py, const PaneLayout& pane_layout) const noexcept;
 
     const PaneLayout& GetPaneLayout();
     PaneZone PaneAtPoint(float dip_x);
     PaneZone ZoneAt(float dip_x, const PaneLayout& layout) const noexcept;
     bool IsOverMdScrollbar(float dip_x, float dip_y, const PaneLayout& layout) const noexcept;
+
+    // MD ペインで点が指す領域。ホバーとクリックが同じ優先順位で判定するために共有する。
+    struct MdPaneHit {
+        enum class Kind : uint8_t {
+            SearchBar,
+            NavButton,
+            OverlayButton, // コピー / ダイアグラムコピー / 保存
+            Scrollbar,
+            Content,
+        };
+        Kind kind = Kind::Content;
+        SearchBarHitZone search_bar = SearchBarHitZone::None;
+        NavButtonHover nav = NavButtonHover::None;
+        hit_test::CodeBlockButtonHit buttons{};
+    };
+    MdPaneHit ResolveMdPaneHit(float dip_x, float dip_y, const MdPaneHitContext& hit_ctx, const PaneLayout& layout) const;
 
     SearchBarLayout ComputeSearchBarLayoutForMd(const PaneRect& md_rect) const;
     int HitTestSearchInputPos(const SearchBarLayout& sbl, std::wstring_view query_wide, float dip_x) const;
@@ -216,8 +233,7 @@ private:
     bool HandleTitleBarClick(float dip_x, float dip_y);
     bool HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& layout, bool is_double_click);
     void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& layout);
-    // コピー/ダイアグラムコピー/保存ボタンを処理したら true。
-    bool HandleCodeBlockButtonClick(const MdPaneHitContext& hit_ctx);
+    void HandleOverlayButtonClick(const hit_test::CodeBlockButtonHit& btn_hit, float content_width);
     // ホバー中ブロックの水平スクロールバー上ならドラッグを開始して true。
     bool TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x);
     void HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout);
@@ -229,7 +245,7 @@ private:
     HCURSOR HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLayout& layout, PointerHover& hover) const;
     HCURSOR HoverSidePane(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout, PointerHover& hover) const;
     TooltipTarget BuildSidePaneTooltip(PaneTarget target, PaneHeaderButton hit, int idx) const;
-    TooltipTarget BuildMdContentTooltip(int hit_node, std::optional<std::string_view> link) const;
+    TooltipTarget BuildMdContentTooltip(int hit_node, std::optional<LinkHit> link) const;
 
     // ---- レイアウト (app_layout.cpp) ----
     void EnsureScrollTarget();
@@ -260,12 +276,11 @@ private:
     void DoReloadCurrentFile();
     void DoLoadMarkdownFile();
     // reload_base は同一ファイルのリロード時の現在テキスト (worker でパース前に差分判定させる)。
-    void BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation = false,
+    void BeginAsyncLoad(std::pmr::wstring path, bool show_animation,
                         std::shared_ptr<const std::pmr::string> reload_base = nullptr);
     void StopLoadingAnimation();
     void FinishLoadMarkdownFile(bool follow_file_pane);
     void HandleLoadFailureFallback();
-    bool ApplyMermaidCacheHeights();
     // Mermaid/画像キャッシュの実測値でノード高さを上書きし、変化があれば Y 位置を再計算する。
     // 呼び出し前にノード高さの初期化 (EstimateNodeHeights) は完了していること。
     void ApplyCachedHeightsAndRecompute();
@@ -311,7 +326,6 @@ private:
 
     AppState state_;
 
-    HitTestService hit_test_;
     std::optional<LayoutService> layout_service_;
     ResourceManager resource_manager_;
     Win32Host win32_host_;

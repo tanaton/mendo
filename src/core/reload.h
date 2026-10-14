@@ -1,7 +1,7 @@
 #pragma once
 // 同一ファイルのリロード判定ロジック。
 // 旧/新コンテンツの UTF-8 テキストを比較し、リロード方針を決定する純粋関数群と、
-// 差分位置 (UTF-8 byte オフセット) を対応するノード / スクロール Y 座標へ写像する
+// 差分位置 (UTF-8 byte オフセット) を対応するノードへ写像する
 // ルックアップを提供する。OnParseComplete / DoReloadCurrentFile の同一ファイル
 // 再読み込み時の分岐を統一するために 1 か所に集約している。
 #include "document_types.h"
@@ -11,8 +11,6 @@
 #include <memory_resource>
 #include <string_view>
 #include <vector>
-
-class LayoutCache;
 
 // 新旧コンテンツの最初の差分 UTF-8 byte 位置を返す。同一の場合は npos。
 // 前提: 両テキストとも LF 正規化済みであること。old は raw_text_、new は FileLoader 由来で
@@ -43,14 +41,3 @@ ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new
 
 // source_offset が diff_offset 以下の最後のノードを返す。該当なしの場合は -1。
 [[nodiscard]] int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, size_t diff_offset) noexcept;
-
-// diff 位置のノードに基づくスクロールY座標を計算する。
-// diff_pos が npos (差分位置なし = スクロール維持) またはノードが見つからない場合は
-// fallback_scroll を返す。
-float CalcScrollYForDiff(
-    const std::pmr::vector<Node>& nodes,
-    const LayoutCache& cache,
-    std::string_view content,
-    size_t diff_pos,
-    float viewport_height,
-    float fallback_scroll) noexcept;

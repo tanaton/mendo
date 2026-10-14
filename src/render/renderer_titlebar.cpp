@@ -23,13 +23,13 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
         DrawCenteredText({ &icon, 1 }, fmt_.titlebar_icon.Get(), rect, text_id, alpha);
     };
 
-    const auto draw_plain = [&](const DipRect& rect, wchar_t icon, TitleBarHitZone zone) {
-        draw_button(rect, icon, is_hovered(zone), BrushId::TitleBarButtonHover, BrushId::TitleBarText, text_alpha);
+    const auto draw_plain = [&](TitleBarHitZone zone, wchar_t icon) {
+        draw_button(tb.Button(zone), icon, is_hovered(zone), BrushId::TitleBarButtonHover, BrushId::TitleBarText, text_alpha);
     };
     // active > hover の優先度
-    const auto draw_toggle = [&](const DipRect& rect, wchar_t icon, bool active, TitleBarHitZone zone) {
+    const auto draw_toggle = [&](TitleBarHitZone zone, wchar_t icon, bool active) {
         draw_button(
-            rect,
+            tb.Button(zone),
             icon,
             active || is_hovered(zone),
             active ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
@@ -37,19 +37,19 @@ void Renderer::DrawTitleBar(const TitleBarRenderState& tb)
             text_alpha);
     };
 
-    draw_plain(tb.open_file, L'\uE838', TitleBarHitZone::OpenFile);
-    draw_plain(tb.help, L'\uE897', TitleBarHitZone::Help);
-    draw_plain(tb.theme_toggle, tb.is_dark_mode ? L'\uE706' : L'\uE708', TitleBarHitZone::ThemeToggle);
-    draw_toggle(tb.search, L'\uE721', tb.search_active, TitleBarHitZone::Search);
-    draw_toggle(tb.file_toggle, L'\uE8B7', tb.file_pane_visible, TitleBarHitZone::FileToggle);
-    draw_toggle(tb.toc_toggle, L'\uE8FD', tb.toc_pane_visible, TitleBarHitZone::TocToggle);
-    draw_plain(tb.minimize, L'\uE921', TitleBarHitZone::Minimize);
-    draw_plain(tb.maximize, tb.is_maximized ? L'\uE923' : L'\uE922', TitleBarHitZone::Maximize);
+    draw_plain(TitleBarHitZone::OpenFile, L'\uE838');
+    draw_plain(TitleBarHitZone::Help, L'\uE897');
+    draw_plain(TitleBarHitZone::ThemeToggle, tb.is_dark_mode ? L'\uE706' : L'\uE708');
+    draw_toggle(TitleBarHitZone::Search, L'\uE721', tb.search_active);
+    draw_toggle(TitleBarHitZone::FileToggle, L'\uE8B7', tb.file_pane_visible);
+    draw_toggle(TitleBarHitZone::TocToggle, L'\uE8FD', tb.toc_pane_visible);
+    draw_plain(TitleBarHitZone::Minimize, L'\uE921');
+    draw_plain(TitleBarHitZone::Maximize, tb.is_maximized ? L'\uE923' : L'\uE922');
     if (is_hovered(TitleBarHitZone::Close)) {
-        draw_button(tb.close, L'\uE8BB', true, BrushId::TitleBarCloseRed, BrushId::TitleBarCloseWhite, 1.0f);
+        draw_button(tb.Button(TitleBarHitZone::Close), L'\uE8BB', true, BrushId::TitleBarCloseRed, BrushId::TitleBarCloseWhite, 1.0f);
     }
     else {
-        draw_plain(tb.close, L'\uE8BB', TitleBarHitZone::Close);
+        draw_plain(TitleBarHitZone::Close, L'\uE8BB');
     }
 
     if (app_icon_bitmap_) {

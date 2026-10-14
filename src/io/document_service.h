@@ -1,7 +1,9 @@
 #pragma once
 #include "document.h"
 #include "file_loader.h"
+#include <cstdint>
 #include <expected>
+#include <optional>
 #include <stop_token>
 
 class DocumentService {
@@ -14,7 +16,7 @@ public:
     static bool IsAsyncLoadCandidate(const std::pmr::wstring& path) noexcept;
     // ローディングスピナーを表示すべきサイズか。
     static bool ShouldShowLoadingAnimation(const std::pmr::wstring& path) noexcept;
-
-private:
-    static bool IsLargerThan(const std::pmr::wstring& path, DWORD threshold) noexcept;
+    // size は QueryFileSize の結果。取得失敗 (nullopt) は上限超え扱い。
+    static bool IsAsyncLoadCandidate(std::optional<uint64_t> size) noexcept;
+    static bool ShouldShowLoadingAnimation(std::optional<uint64_t> size) noexcept;
 };

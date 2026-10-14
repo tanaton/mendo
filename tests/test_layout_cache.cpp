@@ -160,10 +160,35 @@ TEST(LayoutCacheTest, InvalidateAllDiagramBitmapsClearsError)
     cache.EnsureDiagram(0).error = L"Parse error on line 1";
     cache.EnsureDiagram(1).error = L"Parse error on line 3";
 
-    cache.InvalidateAllDiagramBitmaps();
+    cache.InvalidateAllDiagramBitmaps(std::pmr::vector<Node>(2));
 
     EXPECT_TRUE(cache.FindDiagram(0)->error.empty());
     EXPECT_TRUE(cache.FindDiagram(1)->error.empty());
+}
+
+// デバイスロストでビットマップを捨てても、画像の寸法は再計測が表示高さに使うので残す。
+// 図の寸法は従来どおり再描画待ちとして捨てる。
+TEST(LayoutCacheTest, InvalidateAllDiagramBitmapsKeepsImageSize)
+{
+    std::pmr::vector<Node> nodes(2);
+    nodes[0].type = NodeType::Image;
+    nodes[1].type = NodeType::CodeBlock;
+    nodes[1].set_code_language(SyntaxLanguage::Mermaid);
+
+    LayoutCache cache;
+    cache.Resize(2);
+    for (size_t i = 0; i < 2; i++) {
+        auto& d = cache.EnsureDiagram(i);
+        d.width = 400.0f;
+        d.height = 300.0f;
+    }
+
+    cache.InvalidateAllDiagramBitmaps(nodes);
+
+    EXPECT_FLOAT_EQ(cache.FindDiagram(0)->width, 400.0f);
+    EXPECT_FLOAT_EQ(cache.FindDiagram(0)->height, 300.0f);
+    EXPECT_FLOAT_EQ(cache.FindDiagram(1)->width, 0.0f);
+    EXPECT_FLOAT_EQ(cache.FindDiagram(1)->height, 0.0f);
 }
 
 // 早期終了経路 (safe_exit_after で abs(text_top - y) < EPSILON ならスキップ) を通った後でも、
@@ -227,7 +252,7 @@ TEST(NodeOffsetToScrollYTest, ClampsNodeAndResult)
 TEST(ComputeVisibleNodeRangeTest, ReturnsNodesOverlappingRange)
 {
     const auto cache = MakeUniformCache(10);
-    const auto [first, last_plus_1] = ComputeVisibleNodeRange(cache, 10, 150.0f, 350.0f);
+    const auto [first, last_plus_1] = ComputeVisibleNodeRange(cache, 150.0f, 350.0f);
     EXPECT_EQ(first, 1u);
     EXPECT_EQ(last_plus_1, 4u);
 }
@@ -235,7 +260,7 @@ TEST(ComputeVisibleNodeRangeTest, ReturnsNodesOverlappingRange)
 TEST(ComputeVisibleNodeRangeTest, RangeBelowContentIsEmpty)
 {
     const auto cache = MakeUniformCache(3);
-    const auto [first, last_plus_1] = ComputeVisibleNodeRange(cache, 3, 500.0f, 800.0f);
+    const auto [first, last_plus_1] = ComputeVisibleNodeRange(cache, 500.0f, 800.0f);
     EXPECT_EQ(first, last_plus_1);
 }
 

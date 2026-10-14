@@ -138,33 +138,27 @@ bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_
     return true;
 }
 
-bool App::HandleCodeBlockButtonClick(const MdPaneHitContext& hit_ctx)
+void App::HandleOverlayButtonClick(const hit_test::CodeBlockButtonHit& btn_hit, float content_width)
 {
-    // コピー/ダイアグラムコピー/保存ボタンを 1 回の可視ノード走査でまとめて判定する。
-    const auto btn_hit = hit_test_.CodeBlockButtonsHitTest(hit_ctx);
     const bool dark = renderer_.GetTheme().IsDark();
     if (btn_hit.copy_node >= 0) {
         clipboard_manager_.CopyCodeBlock(state_.document.doc, btn_hit.copy_node, dark);
-        return true;
     }
-    if (btn_hit.diagram_copy_node >= 0) {
+    else if (btn_hit.diagram_copy_node >= 0) {
         // 画像は表示中ビットマップと同寿命の DiagramEntry::png から取る (ボタン表示条件と一致)。
         const auto* diagram = state_.document.layout_cache.FindDiagram(btn_hit.diagram_copy_node);
-        clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, btn_hit.diagram_copy_node, diagram ? diagram->png : nullptr, hit_ctx.content_width, dark);
-        return true;
+        clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, btn_hit.diagram_copy_node, diagram ? diagram->png : nullptr, content_width, dark);
     }
-    if (btn_hit.save_node >= 0) {
-        clipboard_manager_.SaveDiagramAsPng(state_.document.doc, btn_hit.save_node, hit_ctx.content_width, dark);
-        return true;
+    else if (btn_hit.save_node >= 0) {
+        clipboard_manager_.SaveDiagramAsPng(state_.document.doc, btn_hit.save_node, content_width, dark);
     }
-    return false;
 }
 
 bool App::TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x)
 {
     const int hover = state_.view.hovered_h_block;
     const auto geom = ResolveBlockHScrollGeometry(state_, hover);
-    if (!geom.can_scroll() || !hit_test_.BlockHScrollbarHitTest(hit_ctx, hover, geom.visible_width)) {
+    if (!geom.can_scroll() || !hit_test::BlockHScrollbarHitTest(hit_ctx, hover, geom.visible_width)) {
         return false;
     }
     Dispatch(BlockHScrollDragStartedAction{ hover, dip_x });
@@ -173,28 +167,28 @@ bool App::TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x)
 
 void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout)
 {
-    if (HandleSearchBarClick(dip_x, dip_y, pane_layout, false)) {
-        return;
-    }
-
-    switch (hit_test_.NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect)) {
-    case NavButtonHover::Back:
-        Dispatch(NavigateBackAction{});
-        return;
-    case NavButtonHover::Forward:
-        Dispatch(NavigateForwardAction{});
-        return;
-    default:
-        break;
-    }
-
     const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
-    if (HandleCodeBlockButtonClick(hit_ctx)) {
+    const auto target = ResolveMdPaneHit(dip_x, dip_y, hit_ctx, pane_layout);
+    switch (target.kind) {
+    case MdPaneHit::Kind::SearchBar:
+        HandleSearchBarClick(dip_x, dip_y, pane_layout, false);
         return;
-    }
-    if (IsOverMdScrollbar(dip_x, dip_y, pane_layout)) {
+    case MdPaneHit::Kind::NavButton:
+        if (target.nav == NavButtonHover::Back) {
+            Dispatch(NavigateBackAction{});
+        }
+        else {
+            Dispatch(NavigateForwardAction{});
+        }
+        return;
+    case MdPaneHit::Kind::OverlayButton:
+        HandleOverlayButtonClick(target.buttons, hit_ctx.content_width);
+        return;
+    case MdPaneHit::Kind::Scrollbar:
         Dispatch(MdScrollbarDragStartedAction{ dip_y });
         return;
+    case MdPaneHit::Kind::Content:
+        break;
     }
     // テキスト選択より優先する。
     if (TryStartBlockHScrollDrag(hit_ctx, dip_x)) {

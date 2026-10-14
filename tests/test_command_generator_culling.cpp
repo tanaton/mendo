@@ -204,7 +204,7 @@ protected:
     {
         const size_t n = pl.nodes.size();
         constexpr float ORACLE_SCROLL = -64.0f;
-        const float total_h = ComputeTotalContentHeight(pl.cache, n, theme_.margin_bottom);
+        const float total_h = ComputeTotalContentHeight(pl.cache, theme_.margin_bottom);
         const auto oracle = AllBoxes(Generate(pl, ORACLE_SCROLL, total_h - ORACLE_SCROLL + 64.0f, h_scroll));
 
         std::vector<float> probes;
@@ -224,7 +224,7 @@ protected:
             const auto actual = VisibleBoxes(AllBoxes(Generate(pl, scroll_y, PANE_H, h_scroll)), 0.0f);
             const auto diff = DiffBoxes(expected, actual);
             if (!diff.empty()) {
-                const int first = FindFirstVisibleNodeIndex(pl.cache, n, scroll_y);
+                const int first = FindFirstVisibleNodeIndex(pl.cache, scroll_y);
                 FAIL() << std::format("scroll_y={} (first_visible={}) でカリング結果が不一致:\n", scroll_y, first) << diff;
             }
         }
@@ -253,7 +253,6 @@ TEST_F(CullingParityTest, ViewportCullingMatchesUnculledRendering)
 TEST_F(CullingParityTest, ZoomedOutEmptyCodeBlockKeepsCopyButton)
 {
     theme_.ApplyZoom(0.25f);
-    ASSERT_TRUE(measurer_.Init(theme_));
     ASSERT_TRUE(engine_.Init(&measurer_, theme_));
     const auto pl = ParseAndLayout("para one\n\n```\n```\n\npara two\n\npara three\n", PANE_W);
     const int code_idx = FindFirstNodeIndexByType(pl.nodes, NodeType::CodeBlock);

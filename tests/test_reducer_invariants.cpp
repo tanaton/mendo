@@ -396,7 +396,7 @@ private:
         switch (const auto drag = s.view.panes.GetDragTarget()) {
         case PaneController::DragTarget::Splitter1:
         case PaneController::DragTarget::Splitter2:
-            model_.Dispatch(SplitterDragMovedAction{ drag, PickF(50, 900), 1000.0f });
+            model_.Dispatch(SplitterDragMovedAction{ PickF(50, 900) });
             return "LMove:Splitter";
         case PaneController::DragTarget::FileScrollbar:
             model_.Dispatch(PaneScrollbarDragMovedAction{ PaneTarget::File, PickF(0, 400) });

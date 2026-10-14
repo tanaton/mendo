@@ -456,11 +456,6 @@ inline constexpr LexerConfig RUST_LEXER_CONFIG{
     .block_comment = true,
     .skip_single_quote = true,
 };
-inline constexpr LexerConfig TS_LEXER_CONFIG{
-    .line_comment_slash = true,
-    .block_comment = true,
-    .backtick_string = true,
-};
 inline constexpr LexerConfig BASH_LEXER_CONFIG{
     .hash_comment = true,
     .backtick_string = true,
@@ -556,7 +551,7 @@ std::pmr::vector<SyntaxToken> Tokenize(std::string_view text, SyntaxLanguage lan
     case SyntaxLanguage::Rust:
         return TokenizeImpl<RUST_LEXER_CONFIG>(text, kw::RUST_KEYWORDS, kw::RUST_TYPES);
     case SyntaxLanguage::TypeScript:
-        return TokenizeImpl<TS_LEXER_CONFIG>(text, kw::TS_KEYWORDS, kw::TS_TYPES);
+        return TokenizeImpl<JS_LEXER_CONFIG>(text, kw::TS_KEYWORDS, kw::TS_TYPES);
     case SyntaxLanguage::Bash:
         return TokenizeImpl<BASH_LEXER_CONFIG>(text, kw::BASH_KEYWORDS, kw::BASH_TYPES);
     case SyntaxLanguage::PowerShell:

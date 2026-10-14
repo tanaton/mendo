@@ -93,13 +93,11 @@ struct SyncTocActive {
     bool auto_scroll = true;
 };
 
-struct NotifyImageLoaded {};
 struct StartFileWatch {
     std::pmr::wstring path;
 };
 struct StopFileWatch {};
 struct ResumeFileWatch {};
-struct CheckFileChanges {};
 
 struct SetTimer {
     app_timer::Id id;
@@ -142,11 +140,9 @@ using SideEffect = std::variant<
     effect::RefreshPaneLayout,
     effect::SyncTocActive,
     // Resource
-    effect::NotifyImageLoaded,
     effect::StartFileWatch,
     effect::StopFileWatch,
     effect::ResumeFileWatch,
-    effect::CheckFileChanges,
     // Timer
     effect::SetTimer,
     effect::KillTimer>;

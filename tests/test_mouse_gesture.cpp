@@ -11,7 +11,7 @@ protected:
 TEST_F(MouseGestureTest, InitiallyIdle)
 {
     EXPECT_EQ(gesture_.GetPhase(), GesturePhase::Idle);
-    EXPECT_EQ(gesture_.GetDirection(), GestureDirection::None);
+    EXPECT_EQ(gesture_.GetDirection(), NavDirection::None);
     EXPECT_FALSE(gesture_.IsGestureActive());
     EXPECT_FALSE(gesture_.IsOverlayVisible());
     EXPECT_TRUE(gesture_.GetTrailPoints().empty());
@@ -50,7 +50,7 @@ TEST_F(MouseGestureTest, RightGestureReturnsForward)
     gesture_.OnRButtonDown(100.0f, 100.0f);
     gesture_.OnMouseMove(200.0f, 100.0f);  // 右に100px
     EXPECT_TRUE(gesture_.IsGestureActive());
-    EXPECT_EQ(gesture_.GetDirection(), GestureDirection::Right);
+    EXPECT_EQ(gesture_.GetDirection(), NavDirection::Forward);
 
     auto result = gesture_.OnRButtonUp();
     EXPECT_EQ(result, GestureResult::Forward);
@@ -66,7 +66,7 @@ TEST_F(MouseGestureTest, LeftGestureReturnsBack)
     gesture_.OnRButtonDown(200.0f, 100.0f);
     gesture_.OnMouseMove(50.0f, 100.0f);  // 左に150px
     EXPECT_TRUE(gesture_.IsGestureActive());
-    EXPECT_EQ(gesture_.GetDirection(), GestureDirection::Left);
+    EXPECT_EQ(gesture_.GetDirection(), NavDirection::Back);
 
     auto result = gesture_.OnRButtonUp();
     EXPECT_EQ(result, GestureResult::Back);
@@ -82,7 +82,7 @@ TEST_F(MouseGestureTest, VerticalGestureReturnsShowContextMenu)
     gesture_.OnMouseMove(100.0f, 200.0f);  // 下に100px
     // トラッキングに入るが、方向はNone（|dx| <= |dy|）
     EXPECT_TRUE(gesture_.IsGestureActive());
-    EXPECT_EQ(gesture_.GetDirection(), GestureDirection::None);
+    EXPECT_EQ(gesture_.GetDirection(), NavDirection::None);
     EXPECT_FALSE(gesture_.IsOverlayVisible());
 
     // 方向が確定しなかった右ドラッグはイベントを握り潰さず、コンテキストメニューを表示する。
@@ -123,7 +123,7 @@ TEST_F(MouseGestureTest, OverlayTogglesAsDirectionChanges)
     // 左に移動 → オーバーレイ再表示
     gesture_.OnMouseMove(0.0f, 100.0f);
     EXPECT_TRUE(gesture_.IsOverlayVisible());
-    EXPECT_EQ(gesture_.GetDirection(), GestureDirection::Left);
+    EXPECT_EQ(gesture_.GetDirection(), NavDirection::Back);
 }
 
 TEST_F(MouseGestureTest, OverlayGoneAfterRButtonUp)
@@ -145,7 +145,7 @@ TEST_F(MouseGestureTest, DiagonalWithMoreHorizontalIsDirectional)
     // 右に50px、下に20px → |dx| > |dy|、距離 > 閾値
     gesture_.OnMouseMove(150.0f, 120.0f);
     EXPECT_TRUE(gesture_.IsGestureActive());
-    EXPECT_EQ(gesture_.GetDirection(), GestureDirection::Right);
+    EXPECT_EQ(gesture_.GetDirection(), NavDirection::Forward);
     EXPECT_TRUE(gesture_.IsOverlayVisible());
 }
 
@@ -155,7 +155,7 @@ TEST_F(MouseGestureTest, DiagonalWithMoreVerticalIsNone)
     // 右に20px、下に50px → |dx| <= |dy|
     gesture_.OnMouseMove(120.0f, 150.0f);
     EXPECT_TRUE(gesture_.IsGestureActive());
-    EXPECT_EQ(gesture_.GetDirection(), GestureDirection::None);
+    EXPECT_EQ(gesture_.GetDirection(), NavDirection::None);
     EXPECT_FALSE(gesture_.IsOverlayVisible());
 }
 
@@ -203,7 +203,7 @@ TEST_F(MouseGestureTest, ResetClearsEverything)
     gesture_.Reset();
 
     EXPECT_EQ(gesture_.GetPhase(), GesturePhase::Idle);
-    EXPECT_EQ(gesture_.GetDirection(), GestureDirection::None);
+    EXPECT_EQ(gesture_.GetDirection(), NavDirection::None);
     EXPECT_FALSE(gesture_.IsGestureActive());
     EXPECT_FALSE(gesture_.IsOverlayVisible());
     EXPECT_TRUE(gesture_.GetTrailPoints().empty());

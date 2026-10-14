@@ -20,11 +20,6 @@ public:
     float table_row_height = 28.0f;          // テーブル1行あたりの高さ
     float table_border = TABLE_BORDER_WIDTH; // 罫線幅。実装 (dwrite_measurer) と同じ定数で揃える
 
-    bool Init(const Theme& theme) override
-    {
-        theme_ = &theme;
-        return true;
-    }
     bool RecreateFormats() override
     {
         return true;
@@ -47,26 +42,9 @@ public:
             return;
         }
 
-        // ダイアグラム系コードブロック: 実装と同じく既存の高さを保持する
-        if (node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language())) {
+        // ダイアグラム / 画像: 実装と同じく既存の高さを保持する (画像の寸法からの高さは MeasureEntry が求める)
+        if (IsBitmapDrawNode(node)) {
             if (entry.height <= 0) {
-                entry.height = 60.0f; // プレースホルダー高さ
-            }
-            entry.layout_dirty = false;
-            return;
-        }
-
-        // 画像ノード: 実装と同じくサイズが設定済みならスケール、未設定ならプレースホルダー
-        if (node.type == NodeType::Image) {
-            if (const auto* img = node.image_data(); img && img->width > 0 && img->height > 0) {
-                float w = img->width;
-                float h = img->height;
-                if (w > max_width) {
-                    h *= max_width / w;
-                }
-                entry.height = h;
-            }
-            else if (entry.height <= 0) {
                 entry.height = 60.0f; // プレースホルダー高さ
             }
             entry.layout_dirty = false;
@@ -133,10 +111,24 @@ private:
         tl.cell_layouts.resize(row_count * col_count);
         tl.cached_table_width = table_border + static_cast<float>(col_count) * (col_w + TABLE_CELL_PADDING * 2.0f + table_border);
 
+        // 描画・ヒットテストは累積位置を参照するので、実装と同じ規則で積む。
+        tl.row_cum_y.resize(row_count + 1);
+        float ry = 0.0f;
         float total = table_border;
         for (size_t r = 0; r < row_count; r++) {
+            tl.row_cum_y[r] = ry;
+            ry += table_row_height + table_border;
             total += table_row_height + table_border;
         }
+        tl.row_cum_y[row_count] = ry;
+        tl.col_cum_x.resize(col_count + 1);
+        float cx = table_border;
+        for (size_t c = 0; c < col_count; c++) {
+            tl.col_cum_x[c] = cx;
+            cx += col_w + TABLE_CELL_PADDING * 2.0f + table_border;
+        }
+        tl.col_cum_x[col_count] = cx;
+
         entry.height = total;
         entry.layout_dirty = false;
     }

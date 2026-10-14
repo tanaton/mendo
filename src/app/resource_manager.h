@@ -5,6 +5,7 @@
 #include "layout_computer.h"
 #include "viewport_manager.h"
 #include "image_loader.h"
+#include "mermaid_file_cache.h"
 #include "mermaid_renderer_interface.h"
 #include "mermaid_util.h"
 #include "theme_service.h"
@@ -29,6 +30,8 @@ struct ResourceManagerDeps {
     ViewportManager* viewport = nullptr;
     ImageLoader* image_loader = nullptr;
     IMermaidRenderer* mermaid = nullptr;
+    // リロード時の高さ適用にだけ使う。nullptr なら適用しない。
+    MermaidFileCache* mermaid_file_cache = nullptr;
     ThemeService* theme_service = nullptr;
 };
 
@@ -86,8 +89,8 @@ public:
             return 0;
         }
 
-        const float indent_width = cb_.get_indent_width();
-        auto& nodes = deps_.doc->GetNodesMut();
+        const Theme& theme = cb_.get_theme();
+        const auto& nodes = deps_.doc->GetNodes();
         const auto& image_indices = deps_.doc->GetImageNodeIndices();
 
         // 通常描画は可視範囲に intersect する image index のみを走査。
@@ -99,8 +102,8 @@ public:
         int applied = 0;
         for (auto it = slice.begin; it != slice.end; ++it) {
             const size_t i = *it;
-            auto& node = nodes[i];
-            auto* const img = node.image_data();
+            const auto& node = nodes[i];
+            const auto* const img = node.image_data();
             if (!img || img->src.contains("://")) {
                 continue;
             }
@@ -111,7 +114,7 @@ public:
             }
 
             // 通常運用時のみ非同期ロードを起動する。リロード時は後続の LoadImages effect で起動する。
-            const float max_width = content_width - node.indent_level * indent_width;
+            const float max_width = content_width - mendo::layout::NodeIndent(node, theme);
             const auto request = [&] {
                 if (respect_viewport) {
                     deps_.image_loader->RequestLoadAsync(*abs_path, [this] { OnImageLoadComplete(); }, max_width);
@@ -127,14 +130,12 @@ public:
                 continue;
             }
 
-            // DiagramEntry はキャッシュに当たった画像だけ確保する。
+            // DiagramEntry はキャッシュに当たった画像だけ確保する。寸法は再計測 (幅変更・ズーム) でも使う。
             if (!d || !d->bitmap || d->bitmap != cached->bitmap) {
                 auto& diagram = deps_.cache->EnsureDiagram(i);
                 diagram.bitmap = cached->bitmap;
                 diagram.width = cached->width;
                 diagram.height = cached->height;
-                img->width = cached->width;
-                img->height = cached->height;
 
                 auto& entry = (*deps_.cache)[i];
                 entry.height = mendo::layout::ImageDisplayHeight(cached->width, cached->height, max_width);
@@ -153,6 +154,28 @@ public:
     int ApplyCachedImagesForReload()
     {
         return ApplyCachedImages(false);
+    }
+
+    // リロード直後のスクロール位置計算用に、ディスクキャッシュにある図の寸法を推定高さへ上書きする。
+    // ビットマップは読まないので、描画は後続の RequestMermaidRenders に任せる。
+    bool ApplyMermaidCacheHeightsForReload()
+    {
+        if (!deps_.mermaid_file_cache) {
+            return false;
+        }
+        const float content_width = cb_.get_content_width();
+        const bool dark_mode = deps_.theme_service->IsDarkMode();
+        const auto& nodes = deps_.doc->GetNodes();
+        bool any_applied = false;
+        for (size_t i : deps_.doc->GetDiagramNodeIndices()) {
+            const auto hash = mermaid_util::NodeDiagramHash(nodes[i], content_width, dark_mode);
+            MermaidFileCache::CacheEntry fentry;
+            if (deps_.mermaid_file_cache->LookupDimensions(hash, fentry)) {
+                (*deps_.cache)[i].height = fentry.css_height;
+                any_applied = true;
+            }
+        }
+        return any_applied;
     }
 
     void LoadImages()
@@ -358,7 +381,7 @@ private:
         if (!diagram.NeedsRender()) {
             return false;
         }
-        deps_.mermaid->RequestRender(deps_.doc->GetNodesMut()[i], (*deps_.cache)[i], diagram, content_width, dark_mode, [this, i] { OnMermaidRenderComplete(i); });
+        deps_.mermaid->RequestRender(deps_.doc->GetNodes()[i], (*deps_.cache)[i], diagram, content_width, dark_mode, [this, i] { OnMermaidRenderComplete(i); });
         return diagram.bitmap != nullptr;
     }
 
@@ -430,7 +453,7 @@ private:
         const float viewport_top = deps_.viewport->GetScrollY();
         const float viewport_bottom = viewport_top + viewport_height;
         const float buffer = viewport_height * screens;
-        const auto vr = ComputeVisibleNodeRange(*deps_.cache, deps_.doc->GetNodes().size(), viewport_top - buffer, viewport_bottom + buffer);
+        const auto vr = ComputeVisibleNodeRange(*deps_.cache, viewport_top - buffer, viewport_bottom + buffer);
         return BufferedRange{ viewport_top, viewport_bottom, buffer, vr };
     }
 

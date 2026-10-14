@@ -114,10 +114,9 @@ struct MouseLeaveAction {};
 struct SplitterDragStartedAction {
     PaneController::DragTarget target;
 };
+// ドラッグ中のスプリッタは PaneController、ウィンドウ幅は pane_layout_cache から読む。
 struct SplitterDragMovedAction {
-    PaneController::DragTarget target;
     float dip_x;
-    float window_width;
 };
 struct SplitterDragEndedAction {};
 struct SearchInputDragStartedAction {
@@ -224,8 +223,6 @@ struct CaptureChangedAction {};
 struct TimerAction {
     app_timer::Id timer_id;
 };
-struct FileWatchAction {};
-struct ImageLoadedAction {};
 
 struct SearchTextChangedAction {
     std::pmr::wstring text;
@@ -302,8 +299,6 @@ using AppAction = std::variant<
     ExitSizeMoveAction,
     CaptureChangedAction,
     TimerAction,
-    FileWatchAction,
-    ImageLoadedAction,
     SearchTextChangedAction,
     ToggleCaseSensitiveAction,
     ToggleHighlightAction,

@@ -38,10 +38,6 @@ public:
     {
         return nodes_;
     }
-    constexpr std::pmr::vector<Node>& GetNodesMut() noexcept
-    {
-        return nodes_;
-    }
     constexpr const std::pmr::wstring& GetFilePath() const noexcept
     {
         return file_path_;
@@ -75,13 +71,6 @@ public:
         return cached_directory_;
     }
 
-    void SetFilePath(std::wstring_view path)
-    {
-        file_path_ = path;
-        RebuildCachedDirectory();
-    }
-    // text は LF 正規化済みであること。
-    void ReplaceFromMarkdown(std::pmr::string text, size_t byte_size, std::stop_token stop_token = {});
     // anchor (大文字小文字は ASCII のみ無視) を付けた見出し、または脚注の定義 / 参照のノード番号。無ければ -1。
     int FindAnchorIndex(std::string_view anchor);
     constexpr const std::pmr::vector<size_t>& GetImageNodeIndices() const noexcept
@@ -98,6 +87,15 @@ public:
     }
 
 private:
+    // FromMarkdown だけが使う。生成後の Document の中身を差し替える経路は持たない。
+    void SetFilePath(std::wstring_view path)
+    {
+        file_path_ = path;
+        RebuildCachedDirectory();
+    }
+    // text は LF 正規化済みであること。
+    void ReplaceFromMarkdown(std::pmr::string text, size_t byte_size, std::stop_token stop_token);
+
     // 契約: 入力 ParseResult は raw_text_ をパースした結果であること。
     void ReplaceContent(ParseResult&& result);
 
@@ -108,8 +106,8 @@ private:
     std::unique_ptr<TextArena> text_arena_;
     std::pmr::wstring file_path_;
     // RawText は append/resize 等の relocate API を提供しないため、ノードのテキストが
-    // 指し続けるバッファの安全性が型レベルで担保される。差し替えは
-    // ReplaceFromMarkdown / FromMarkdown 経由の Replace() のみ許される。
+    // 指し続けるバッファの安全性が型レベルで担保される。設定するのは
+    // FromMarkdown (ReplaceFromMarkdown) だけ。
     // 常に LF-only (FileLoader または 2 引数 FromMarkdown が正規化する)。
     RawText raw_text_;
     size_t loaded_byte_size_ = 0;

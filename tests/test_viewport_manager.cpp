@@ -91,7 +91,7 @@ TEST(ViewportManagerTest, FindFirstVisibleNodeStart)
     auto cache = MakeUniformCache(10, 50.0f);
     vm.SyncMaxScroll(500.0f, 200.0f);
     vm.ScrollTo(0.0f);
-    EXPECT_EQ(vm.FindFirstVisibleNode(cache, 10), 0);
+    EXPECT_EQ(vm.FindFirstVisibleNode(cache), 0);
 }
 
 TEST(ViewportManagerTest, FindFirstVisibleNodeMiddle)
@@ -100,7 +100,7 @@ TEST(ViewportManagerTest, FindFirstVisibleNodeMiddle)
     auto cache = MakeUniformCache(10, 50.0f);
     vm.SyncMaxScroll(500.0f, 200.0f);
     vm.ScrollTo(120.0f); // y=100のノード(インデックス2)が見えるはず
-    EXPECT_EQ(vm.FindFirstVisibleNode(cache, 10), 2);
+    EXPECT_EQ(vm.FindFirstVisibleNode(cache), 2);
 }
 
 TEST(ViewportManagerTest, FindFirstVisibleNodeEnd)
@@ -109,7 +109,7 @@ TEST(ViewportManagerTest, FindFirstVisibleNodeEnd)
     auto cache = MakeUniformCache(10, 50.0f);
     vm.SyncMaxScroll(500.0f, 200.0f);
     vm.ScrollTo(300.0f); // max_scroll=300, node 6 starts at y=300
-    int idx = vm.FindFirstVisibleNode(cache, 10);
+    int idx = vm.FindFirstVisibleNode(cache);
     EXPECT_GE(idx, 6);
 }
 
@@ -117,7 +117,7 @@ TEST(ViewportManagerTest, FindFirstVisibleNodeEmpty)
 {
     ViewportManager vm;
     LayoutCache cache;
-    EXPECT_EQ(vm.FindFirstVisibleNode(cache, 0), -1);
+    EXPECT_EQ(vm.FindFirstVisibleNode(cache), -1);
 }
 
 // ---- ScrollTarget テスト ----
@@ -181,7 +181,7 @@ TEST(ViewportManagerTest, EnsureScrollTargetSynthesizesFromVisibleAnchor)
     vm.SyncMaxScroll(500.0f, 200.0f);
     vm.ScrollTo(150.0f); // ノード1の途中（scroll_y=150, cache[1].y=100）
 
-    vm.EnsureScrollTarget(cache, 5);
+    vm.EnsureScrollTarget(cache);
     ASSERT_TRUE(vm.HasScrollTarget());
     EXPECT_EQ(vm.GetScrollTarget().node, 1);
     EXPECT_FLOAT_EQ(vm.GetScrollTarget().offset, 50.0f);
@@ -195,7 +195,7 @@ TEST(ViewportManagerTest, EnsureScrollTargetPreservesExistingTarget)
     vm.SetScrollY(150.0f);
     vm.SetScrollTarget(3, 25.0f);
 
-    vm.EnsureScrollTarget(cache, 5);
+    vm.EnsureScrollTarget(cache);
     // 既存ターゲットは上書きされない
     EXPECT_EQ(vm.GetScrollTarget().node, 3);
     EXPECT_FLOAT_EQ(vm.GetScrollTarget().offset, 25.0f);
@@ -385,7 +385,7 @@ TEST(ViewportManagerTest, ScrollRestoreRoundTrip)
     vm.SyncMaxScroll(500.0f, 200.0f);         // max_scroll=300
     vm.ScrollTo(125.0f);                      // ノード2の途中
 
-    int saved_node = vm.FindFirstVisibleNode(cache, 10);
+    int saved_node = vm.FindFirstVisibleNode(cache);
     float saved_offset = vm.GetScrollY() - cache.Top(saved_node);
 
     // 復元
@@ -401,7 +401,7 @@ TEST(ViewportManagerTest, ScrollRestoreResilientToHeightChange)
     vm.SyncMaxScroll(500.0f, 200.0f);
     vm.ScrollTo(200.0f); // ノード4の先頭
 
-    int saved_node = vm.FindFirstVisibleNode(cache, 10);
+    int saved_node = vm.FindFirstVisibleNode(cache);
     float saved_offset = vm.GetScrollY() - cache.Top(saved_node);
     EXPECT_EQ(saved_node, 4);
     EXPECT_FLOAT_EQ(saved_offset, 0.0f);
@@ -431,7 +431,7 @@ TEST(ViewportManagerTest, ScrollRestoreWithPartialNodeVisibility)
     vm.SyncMaxScroll(1000.0f, 300.0f);
     vm.ScrollTo(350.0f); // ノード3(y=300)の途中
 
-    int saved_node = vm.FindFirstVisibleNode(cache, 10);
+    int saved_node = vm.FindFirstVisibleNode(cache);
     float saved_offset = vm.GetScrollY() - cache.Top(saved_node);
     EXPECT_EQ(saved_node, 3);
     EXPECT_FLOAT_EQ(saved_offset, 50.0f);
@@ -459,7 +459,7 @@ TEST(ViewportManagerTest, ScrollRestoreAtDocumentStart)
     vm.SyncMaxScroll(500.0f, 200.0f);
     vm.ScrollTo(0.0f);
 
-    int saved_node = vm.FindFirstVisibleNode(cache, 10);
+    int saved_node = vm.FindFirstVisibleNode(cache);
     float saved_offset = vm.GetScrollY() - cache.Top(saved_node);
 
     EXPECT_EQ(saved_node, 0);
@@ -476,7 +476,7 @@ TEST(ViewportManagerTest, ScrollRestoreAtDocumentEnd)
     vm.SyncMaxScroll(500.0f, 200.0f);         // max_scroll=300
     vm.ScrollTo(300.0f);                      // 最下端
 
-    int saved_node = vm.FindFirstVisibleNode(cache, 10);
+    int saved_node = vm.FindFirstVisibleNode(cache);
     float saved_offset = vm.GetScrollY() - cache.Top(saved_node);
 
     float restored = cache.Top(saved_node) + saved_offset;
@@ -531,7 +531,7 @@ TEST(ViewportManagerTest, EnsureScrollTargetSkipsFreshCache)
     cache.Reset(5);
     ViewportManager vm;
 
-    EXPECT_EQ(vm.FindFirstVisibleNode(cache, 5), -1);
-    vm.EnsureScrollTarget(cache, 5);
+    EXPECT_EQ(vm.FindFirstVisibleNode(cache), -1);
+    vm.EnsureScrollTarget(cache);
     EXPECT_FALSE(vm.HasScrollTarget());
 }

@@ -18,8 +18,7 @@ TEST(Preloader, IsActiveFalseBeforeStart)
 {
     Preloader p;
     EXPECT_FALSE(p.IsActive());
-    EXPECT_FALSE(p.TakeResult().has_value());
-    EXPECT_FALSE(p.TakeError().has_value());
+    EXPECT_FALSE(p.Take().has_value());
 }
 
 TEST(Preloader, AttachOrApplyReturnsNoneWhenNotStarted)
@@ -40,12 +39,14 @@ TEST(Preloader, AppliedSyncWhenWorkerCompletedBeforeAttach)
     const auto r = p.AttachOrApply(w.Get(), 0);
     EXPECT_EQ(r, Preloader::AttachResult::AppliedSync);
     EXPECT_FALSE(p.IsActive());
-    auto result = p.TakeResult();
-    ASSERT_TRUE(result.has_value());
+    auto outcome = p.Take();
+    ASSERT_TRUE(outcome.has_value());
+    ASSERT_TRUE(outcome->has_value());
+    const AsyncLoadResult& result = **outcome;
     // 非同期ロードと同じく、cache は worker で推定済みの状態で渡る。
-    ASSERT_EQ(result->cache.size(), result->doc.GetNodes().size());
-    EXPECT_GT(result->cache[0].height, 0.0f);
-    EXPECT_GE(result->cache.Top(0), GetLightTheme().margin_top);
+    ASSERT_EQ(result.cache.size(), result.doc.GetNodes().size());
+    EXPECT_GT(result.cache[0].height, 0.0f);
+    EXPECT_GE(result.cache.Top(0), GetLightTheme().margin_top);
 }
 
 // 推定は渡したテーマ (ズーム適用済み) の寸法で行う。
@@ -58,9 +59,10 @@ TEST(Preloader, EstimatesWithGivenThemeZoom)
         Preloader p;
         p.Start(tmp.PmrPath(), theme);
         WaitForPublish(p);
-        auto result = p.TakeResult();
-        EXPECT_TRUE(result.has_value());
-        return result ? result->cache.Top(1) : 0.0f;
+        auto outcome = p.Take();
+        const bool ok = outcome && outcome->has_value();
+        EXPECT_TRUE(ok);
+        return ok ? (*outcome)->cache.Top(1) : 0.0f;
     };
     EXPECT_FLOAT_EQ(estimated_top(2.0f), estimated_top(1.0f) * 2.0f);
 }
@@ -73,7 +75,9 @@ TEST(Preloader, TakeBeforeAttachDoesNotBlock)
     p.Start(tmp.PmrPath(), GetLightTheme());
     WaitForPublish(p);
 
-    EXPECT_TRUE(p.TakeResult().has_value());
+    auto outcome = p.Take();
+    ASSERT_TRUE(outcome.has_value());
+    EXPECT_TRUE(outcome->has_value());
     EXPECT_FALSE(p.IsActive());
     MessageOnlyWindow w;
     EXPECT_EQ(p.AttachOrApply(w.Get(), 0), Preloader::AttachResult::None);
@@ -85,7 +89,10 @@ TEST(Preloader, TakeErrorBeforeAttachDoesNotBlock)
     p.Start(std::pmr::wstring(L"C:\\__mendo_no_such_preload__.md"), GetLightTheme());
     WaitForPublish(p);
 
-    EXPECT_EQ(p.TakeError(), FileLoadError::NotFound);
+    auto outcome = p.Take();
+    ASSERT_TRUE(outcome.has_value());
+    ASSERT_FALSE(outcome->has_value());
+    EXPECT_EQ(outcome->error(), FileLoadError::NotFound);
     EXPECT_FALSE(p.IsActive());
 }
 
@@ -100,7 +107,7 @@ TEST(Preloader, AttachedAsyncDeliversResultThroughHwnd)
                 r == Preloader::AttachResult::AttachedAsync);
 
     PollUntil([&] {
-        return !p.IsActive() || p.TakeResult().has_value();
+        return !p.IsActive() || p.Take().has_value();
     });
 }
 
@@ -112,10 +119,11 @@ TEST(Preloader, NotFoundFileSetsError)
     WaitForPublish(p);
     const auto r = p.AttachOrApply(w.Get(), 0);
     EXPECT_EQ(r, Preloader::AttachResult::AppliedSync);
-    auto err = p.TakeError();
-    ASSERT_TRUE(err.has_value());
-    EXPECT_EQ(*err, FileLoadError::NotFound);
-    EXPECT_FALSE(p.TakeError().has_value());
+    auto outcome = p.Take();
+    ASSERT_TRUE(outcome.has_value());
+    ASSERT_FALSE(outcome->has_value());
+    EXPECT_EQ(outcome->error(), FileLoadError::NotFound);
+    EXPECT_FALSE(p.Take().has_value());
     EXPECT_FALSE(p.IsActive());
 }
 
@@ -132,8 +140,9 @@ TEST(Preloader, RestartCancelsPreviousWorker)
     WaitForPublish(p);
     const auto r = p.AttachOrApply(w.Get(), 0);
     EXPECT_EQ(r, Preloader::AttachResult::AppliedSync);
-    auto result = p.TakeResult();
-    ASSERT_TRUE(result.has_value());
+    auto outcome = p.Take();
+    ASSERT_TRUE(outcome.has_value());
+    EXPECT_TRUE(outcome->has_value());
 }
 
 TEST(Preloader, DestructorAbortsBlockedWorker)
@@ -156,10 +165,10 @@ TEST(Preloader, TakeAfterFinalizeReturnsNullopt)
     WaitForPublish(p);
     const auto r = p.AttachOrApply(w.Get(), 0);
     ASSERT_EQ(r, Preloader::AttachResult::AppliedSync);
-    auto first = p.TakeResult();
+    auto first = p.Take();
     ASSERT_TRUE(first.has_value());
-    EXPECT_FALSE(p.TakeResult().has_value());
-    EXPECT_FALSE(p.TakeError().has_value());
+    EXPECT_TRUE(first->has_value());
+    EXPECT_FALSE(p.Take().has_value());
 }
 
 TEST(Preloader, CancelDiscardsCompletedResult)
@@ -172,8 +181,7 @@ TEST(Preloader, CancelDiscardsCompletedResult)
     p.Cancel();
 
     EXPECT_FALSE(p.IsActive());
-    EXPECT_FALSE(p.TakeResult().has_value());
-    EXPECT_FALSE(p.TakeError().has_value());
+    EXPECT_FALSE(p.Take().has_value());
 }
 
 TEST(Preloader, CancelAbortsInFlightWorker)
@@ -186,6 +194,5 @@ TEST(Preloader, CancelAbortsInFlightWorker)
     p.Cancel();
 
     EXPECT_FALSE(p.IsActive());
-    EXPECT_FALSE(p.TakeResult().has_value());
-    EXPECT_FALSE(p.TakeError().has_value());
+    EXPECT_FALSE(p.Take().has_value());
 }

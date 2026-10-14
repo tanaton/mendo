@@ -170,11 +170,6 @@ void ImageLoader::ProcessCompletedDecodes()
     }
 }
 
-void ImageLoader::InsertCacheEntry(const std::wstring& path, float width, float height)
-{
-    cache_.Insert(path, CachedImage{ .width = width, .height = height });
-}
-
 void ImageLoader::CacheBitmap(
     const std::wstring& path, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap,
     float pixel_width, float pixel_height, UINT sharp_width_px)

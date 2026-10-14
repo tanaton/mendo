@@ -70,8 +70,6 @@ Node MakeStressNode(size_t i, bool include_code_block)
         n.type = NodeType::Image;
         auto* img = n.ensure_image();
         img->src = "img.png";
-        img->width = 100.0f + static_cast<float>(i % 50);
-        img->height = 50.0f + static_cast<float>(i % 30);
         return n;
     }
     n.type = NodeType::Paragraph;
@@ -90,6 +88,13 @@ struct StressFixture {
             nodes.push_back(MakeStressNode(i, include_code_block));
         }
         cache = MakeUniformCache(static_cast<int>(n), 80.0f);
+        for (size_t i = 0; i < n; ++i) {
+            if (nodes[i].type == NodeType::Image) {
+                auto& d = cache.EnsureDiagram(i);
+                d.width = 100.0f + static_cast<float>(i % 50);
+                d.height = 50.0f + static_cast<float>(i % 30);
+            }
+        }
         if (!all_dirty) {
             for (size_t i = 0; i < n; ++i) {
                 cache[i].layout_dirty = false;
@@ -124,7 +129,7 @@ public:
 
 // Serial / Parallel の出力を比較。height (FLOAT_EQ) と layout_dirty / effects_applied / syntax_tokens を観測する。
 // IDWriteTextLayout (entry.text_layout) は mock では nullptr 固定 / 実装では identity 不一致で
-// equality が無意味なため除外。total_height_ や effects_generation_ は LayoutEngine 経由でないと
+// equality が無意味なため除外。total_height_ は LayoutEngine 経由でないと
 // 計算されないためスコープ外。
 void ExpectBitExactEqual(const StressFixture& s, const StressFixture& p,
                          const DirtyBatchResult& rs, const DirtyBatchResult& rp)

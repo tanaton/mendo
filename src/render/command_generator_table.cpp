@@ -1,5 +1,4 @@
 #include "command_generator_internal.h"
-#include "layout_computer.h"
 #include <algorithm>
 
 void CommandGenerator::GenTableRowBg(const TableRowGeom& g, bool is_header, bool is_even_row)
@@ -45,7 +44,7 @@ void CommandGenerator::GenTable(const FrameContext& fc,
 {
     const auto* tbl = node.table_data();
     const auto* tl_ptr = entry.table_layout();
-    if (!tbl || tbl->row_count == 0 || !tl_ptr || tl_ptr->col_widths.empty()) {
+    if (!tbl || tbl->row_count == 0 || !tl_ptr || !tl_ptr->HasGeometry(tbl->row_count, tbl->col_count)) {
         return;
     }
 
@@ -62,7 +61,6 @@ void CommandGenerator::GenTable(const FrameContext& fc,
     // 横スクロール時は画面に映る範囲が h_scroll_x だけ右にずれる。
     const float cull_left = offset_x + fc.viewport_left + h_scroll_x;
     const float cull_right = offset_x + fc.viewport_right + h_scroll_x;
-    const size_t drawn_cols = std::min(col_count, tl.col_widths.size());
 
     bool has_selection = selection.active && (node_index >= selection.start_node) && (node_index <= selection.end_node);
     uint32_t sel_start = 0, sel_end = 0;
@@ -83,26 +81,24 @@ void CommandGenerator::GenTable(const FrameContext& fc,
     // 可視行帯を row_cum_y の二分探索で求め、その範囲だけループする
     // (ApplyTableEffects / FindTableRow と同じパターン)。巨大テーブルで
     // 毎フレーム row_count 回の continue ループが走るのを防ぐ。
-    const bool has_row_geometry = tl.HasRowGeometry(row_count);
-    const auto [r_begin, r_end] = tl.RowsInViewport(row_count, viewport_top - entry_text_top, viewport_bottom - entry_text_top);
-    float y = has_row_geometry ? entry_text_top + tl.row_cum_y[r_begin] : entry_text_top;
+    const auto [r_begin, r_end] = tl.VisibleRowRange(viewport_top - entry_text_top, viewport_bottom - entry_text_top);
+    float y = entry_text_top + tl.row_cum_y[r_begin];
     size_t bg_cursor = seek_bg(static_cast<uint32_t>(r_begin * tl.col_count));
 
     // x は列順に単調なので、可視列は連続した区間 [c_begin, c_end) になる。
-    const auto col_step = [&](size_t c) noexcept { return tl.col_widths[c] + cell_padding * 2.0f + border; };
     size_t c_begin = 0;
     float x_begin = offset_x + border;
-    while (c_begin < drawn_cols && x_begin + tl.col_widths[c_begin] + cell_padding * 2.0f < cull_left) {
-        x_begin += col_step(c_begin);
+    while (c_begin < col_count && x_begin + tl.col_widths[c_begin] + cell_padding * 2.0f < cull_left) {
+        x_begin += tl.ColumnStep(c_begin);
         ++c_begin;
     }
     size_t c_end = c_begin;
-    for (float x = x_begin; c_end < drawn_cols && x - border <= cull_right; ++c_end) {
-        x += col_step(c_end);
+    for (float x = x_begin; c_end < col_count && x - border <= cull_right; ++c_end) {
+        x += tl.ColumnStep(c_end);
     }
 
     for (size_t r = r_begin; r < r_end; r++) {
-        const float row_h = tl.RowHeight(r, mendo::layout::TableBaseRowHeight(*theme_));
+        const float row_h = tl.row_heights[r];
 
         const float row_bottom = y + row_h + border;
         if (row_bottom < viewport_top || y > viewport_bottom) {
@@ -119,8 +115,7 @@ void CommandGenerator::GenTable(const FrameContext& fc,
         // 可視列 [c_begin, c_end) だけコマンドを生成する。
         float cx = x_begin;
         for (size_t c = c_begin; c < c_end; c++) {
-            const float text_x = cx + cell_padding;
-            const float text_y = y + cell_padding;
+            const auto [text_x, text_y] = TableCellTextOrigin(cx, y);
 
             // bg_cursor は cell_index 昇順で進む。
             bg_cursor = GenCellInlineCodeBgs(cmds_, tl.cell_inline_code_bgs, bg_cursor, static_cast<uint32_t>(tl.CellIndex(r, c)), text_x, text_y, theme_->code_bg_color);
@@ -138,13 +133,13 @@ void CommandGenerator::GenTable(const FrameContext& fc,
                 .has_selection = has_selection,
                 .is_header = is_header_row,
             });
-            cx += col_step(c);
+            cx += tl.ColumnStep(c);
         }
         y += row_h + border;
     }
 
     // r_end で打ち切った場合も下端線はテーブル全体の底に置く (可視外ならクリップされる)
-    const float table_bottom = has_row_geometry ? entry_text_top + tl.row_cum_y[row_count] : y;
+    const float table_bottom = entry_text_top + tl.row_cum_y[row_count];
     cmds_.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, table_bottom), D2D1::Point2F(offset_x + table_width, table_bottom), theme_->hr_color, border, BrushId::Hr });
 
     // 縦罫線は可視列ごとに表の上端から下端まで 1 本で引く (行ごとに引くと 行×列 本になる)。可視外はクリップされる。
@@ -154,7 +149,7 @@ void CommandGenerator::GenTable(const FrameContext& fc,
     float cx = x_begin;
     for (size_t c = c_begin; c < c_end; c++) {
         vline(cx - border);
-        cx += col_step(c);
+        cx += tl.ColumnStep(c);
     }
     vline(offset_x + table_width);
 }

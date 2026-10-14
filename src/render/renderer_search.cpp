@@ -7,10 +7,7 @@
 
 void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_pane_rect)
 {
-    const auto sbl = ComputeSearchBarLayout(
-        md_pane_rect.x, md_pane_rect.width,
-        md_pane_rect.y + md_pane_rect.height,
-        !sb.query.empty());
+    const auto sbl = ComputeSearchBarLayout(md_pane_rect, !sb.query.empty());
 
     const D2D1_RECT_F bar_rect = D2D1::RectF(
         md_pane_rect.x,
@@ -192,15 +189,22 @@ int Renderer::HitTestSearchInput(std::wstring_view query, float local_x, float m
     if (query.empty() || !fmt_.search_input || !backend_.GetDWriteFactory()) {
         return 0;
     }
-    // クリック時だけなので、表示用のレイアウト (IME 合成中は表示テキストが query と異なる) は使わずに作る。
+    // ドラッグ選択中は毎 WM_MOUSEMOVE で呼ばれるため、表示用レイアウトが同じテキスト・幅なら使い回す。
+    // IME 合成中は表示テキストが query と異なるので作り直す。
     Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
-    backend_.GetDWriteFactory()->CreateTextLayout(
-        query.data(),
-        static_cast<UINT32>(query.size()),
-        fmt_.search_input.Get(),
-        max_width,
-        SEARCH_INPUT_HEIGHT,
-        &layout);
+    const auto& c = search_input_;
+    if (c.layout && c.underline.length == 0 && c.width == max_width && c.text == query) {
+        layout = c.layout;
+    }
+    else {
+        backend_.GetDWriteFactory()->CreateTextLayout(
+            query.data(),
+            static_cast<UINT32>(query.size()),
+            fmt_.search_input.Get(),
+            max_width,
+            SEARCH_INPUT_HEIGHT,
+            &layout);
+    }
     if (!layout) {
         return 0;
     }

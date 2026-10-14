@@ -1,4 +1,4 @@
-// HitTestService の DirectWrite 経路テスト。
+// hit_test の DirectWrite 経路テスト。
 // MockTextMeasurer では `entry.text_layout` が nullptr になるため、
 // HitTest 内の `if (entry.text_layout)` 経路や HitTestTable の cell_layout
 // 経由の text_pos 計算は到達できない。本ファイルでは実 IDWriteFactory を
@@ -18,11 +18,13 @@
 #include <variant>
 #include <vector>
 
+using mendo::layout::NodeIndent;
+using mendo::layout::NodeTextXOffset;
+
 namespace {
 
 class HitTestDWriteTest : public DWriteTestBase {
 protected:
-    HitTestService hit_;
 
     // dpi=1, ペイン原点 0, scroll_y=0 なので画面座標 == DIP。
     MdPaneHitContext Ctx(const ParsedLayout& pl, DipPoint p) const
@@ -63,7 +65,7 @@ TEST_F(HitTestDWriteTest, ParagraphHitReturnsTextPositionFromTextLayout)
         pl.nodes, pl.cache, theme_, 0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f,
         screen_x, screen_y, content_width
     };
-    const auto r = hit_.HitTest(ctx);
+    const auto r = hit_test::HitTest(ctx);
 
     EXPECT_EQ(r.node_index, 0);
     EXPECT_GT(r.text_pos, 0u)
@@ -76,7 +78,7 @@ TEST_F(HitTestDWriteTest, RightHalfOfLastLinkCharHitsLink)
     auto pl = ParseAndLayout("aaa [L](https://l.example) tail");
     ASSERT_FALSE(pl.nodes.empty());
     const auto& node = pl.nodes[0];
-    const auto r = hit_.HitTest(Ctx(pl, RightHalfOfChar(pl, 0, 4)));
+    const auto r = hit_test::HitTest(Ctx(pl, RightHalfOfChar(pl, 0, 4)));
 
     ASSERT_EQ(r.node_index, 0);
     EXPECT_EQ(r.text_pos, 5u);
@@ -89,7 +91,7 @@ TEST_F(HitTestDWriteTest, RightHalfOfLastWordCharSelectsWord)
 {
     auto pl = ParseAndLayout("hello world");
     ASSERT_FALSE(pl.nodes.empty());
-    const auto r = hit_.HitTest(Ctx(pl, RightHalfOfChar(pl, 0, 4)));
+    const auto r = hit_test::HitTest(Ctx(pl, RightHalfOfChar(pl, 0, 4)));
 
     ASSERT_EQ(r.char_pos, 4u);
     const auto wb = FindWordBoundaries(pl.nodes[0].GetText(), r.char_pos);
@@ -103,10 +105,10 @@ TEST_F(HitTestDWriteTest, RightOfLineEndHasNoChar)
 {
     auto pl = ParseAndLayout("aaa [L](https://l.example)");
     ASSERT_FALSE(pl.nodes.empty());
-    const auto r = hit_.HitTest(Ctx(pl, { theme_.margin_left + 400.0f, pl.cache.Top(0) + 4.0f }));
+    const auto r = hit_test::HitTest(Ctx(pl, { theme_.margin_left + 400.0f, pl.cache.Top(0) + 4.0f }));
     ASSERT_EQ(r.node_index, 0);
     EXPECT_EQ(r.text_pos, pl.nodes[0].GetText().size());
-    EXPECT_EQ(r.char_pos, HitTestService::HitResult::kNoChar);
+    EXPECT_EQ(r.char_pos, hit_test::HitResult::kNoChar);
 }
 
 TEST_F(HitTestDWriteTest, RightHalfOfLastLinkCharInTableCellHitsLink)
@@ -126,7 +128,7 @@ TEST_F(HitTestDWriteTest, RightHalfOfLastLinkCharInTableCellHitsLink)
     const float text_x = theme_.margin_left + NodeIndent(node, theme_) + tl->col_cum_x[0] + TABLE_CELL_PADDING;
     const float text_y = pl.cache.Top(static_cast<size_t>(idx)) + tl->row_cum_y[1] + TABLE_CELL_PADDING;
 
-    const auto r = hit_.HitTest(Ctx(pl, { text_x + m.left + m.width * 0.75f, text_y + m.top + m.height * 0.5f }));
+    const auto r = hit_test::HitTest(Ctx(pl, { text_x + m.left + m.width * 0.75f, text_y + m.top + m.height * 0.5f }));
 
     ASSERT_EQ(r.node_index, idx);
     const uint32_t cell_start = node.table_data()->CellTextStart(1, 0);
@@ -155,8 +157,8 @@ TEST_F(HitTestDWriteTest, OffsetPaneHitMatchesUnoffsetPane)
         pl.nodes, pl.cache, theme_, 0.0f, PaneRect{ static_cast<float>(kPaneX), static_cast<float>(kPaneY), 0.0f, 600.0f }, 1.0f,
         screen_x + kPaneX, screen_y + kPaneY, content_width
     };
-    const auto a = hit_.HitTest(base);
-    const auto b = hit_.HitTest(offset);
+    const auto a = hit_test::HitTest(base);
+    const auto b = hit_test::HitTest(offset);
     EXPECT_EQ(a.node_index, b.node_index);
     EXPECT_EQ(a.text_pos, b.text_pos);
 }
@@ -182,7 +184,7 @@ TEST_F(HitTestDWriteTest, TableHitDetectsRowAndColumn)
         pl.nodes, pl.cache, theme_, 0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f,
         sx, sy, content_width
     };
-    const auto r = hit_.HitTest(ctx);
+    const auto r = hit_test::HitTest(ctx);
 
     EXPECT_EQ(r.node_index, table_idx)
         << "テーブル領域内の click は table ノードを返すはず";
@@ -208,13 +210,13 @@ TEST_F(HitTestDWriteTest, CodeBlockButtonsHitTest_CopyHitReturnsNode)
         pl.nodes, pl.cache, theme_, 0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f,
         sx, sy, content_width
     };
-    const auto hits = hit_.CodeBlockButtonsHitTest(ctx);
+    const auto hits = hit_test::CodeBlockButtonsHitTest(ctx);
     EXPECT_EQ(hits.copy_node, code_idx);
     EXPECT_EQ(hits.save_node, -1);
     EXPECT_EQ(hits.diagram_copy_node, -1);
 }
 
-// ---- FindTableRow / FindTableCol: 累積配列経路と線形フォールバックの一致 ----
+// ---- FindTableRow / FindTableCol ----
 
 namespace {
 
@@ -240,9 +242,6 @@ class FindTableCellTest : public HitTestDWriteTest {
 protected:
     ParsedLayout pl_;
     VariedTable t_{};
-    // 累積配列 (row_cum_y / col_cum_x) を落として線形フォールバックに落とした複製。
-    TableLayoutData linear_;
-    float fallback_row_h_ = 0.0f;
 
     void SetUp() override
     {
@@ -253,32 +252,9 @@ protected:
         ASSERT_TRUE(pl_.cache[idx].has_table_layout());
         const auto& tl = *pl_.cache[idx].table_layout();
         t_ = { &tl, pl_.nodes[idx].table_data()->row_count, pl_.cache[idx].height, pl_.cache.Top(static_cast<size_t>(idx)) };
-        ASSERT_TRUE(tl.HasRowGeometry(t_.row_count));
-        ASSERT_EQ(tl.col_cum_x.size(), tl.col_widths.size() + 1);
-        linear_ = tl;
-        linear_.row_cum_y.clear();
-        linear_.col_cum_x.clear();
-        fallback_row_h_ = mendo::layout::TableBaseRowHeight(theme_);
+        ASSERT_TRUE(tl.HasGeometry(t_.row_count, tl.col_count));
     }
 };
-
-TEST_F(FindTableCellTest, CumulativeAndLinearPathsAgree)
-{
-    for (float y = -2.0f; y <= t_.height + 2.0f; y += 0.25f) {
-        const auto a = FindTableRow(*t_.tl, t_.row_count, fallback_row_h_, y);
-        const auto b = FindTableRow(linear_, t_.row_count, fallback_row_h_, y);
-        ASSERT_EQ(a.row, b.row) << "local_y=" << y;
-        if (a.row >= 0) {
-            ASSERT_FLOAT_EQ(a.row_top, b.row_top) << "local_y=" << y;
-        }
-    }
-    for (float x = -4.0f; x <= t_.tl->cached_table_width + 4.0f; x += 0.25f) {
-        const auto a = FindTableCol(*t_.tl, x);
-        const auto b = FindTableCol(linear_, x);
-        ASSERT_EQ(a.col, b.col) << "local_x=" << x;
-        ASSERT_FLOAT_EQ(a.cell_left, b.cell_left) << "local_x=" << x;
-    }
-}
 
 // 罫線上の点は、描画でその罫線を発行しているセル (列は左罫線、行は上罫線の持ち主) に帰属する。
 TEST_F(FindTableCellTest, BordersAttributedLikeDrawing)
@@ -313,17 +289,15 @@ TEST_F(FindTableCellTest, BordersAttributedLikeDrawing)
     ASSERT_EQ(col_lines.size(), col_count + 1);
     ASSERT_EQ(row_lines.size(), t_.row_count + 1);
 
-    for (const auto* data : { t_.tl, static_cast<const TableLayoutData*>(&linear_) }) {
-        SCOPED_TRACE(data == t_.tl ? "cumulative" : "linear");
-        for (size_t c = 0; c < col_count; c++) {
-            EXPECT_EQ(FindTableCol(*data, col_lines[c]).col, static_cast<int>(c)) << "col line " << c;
-            if (c > 0) {
-                EXPECT_EQ(FindTableCol(*data, col_lines[c] - 0.25f).col, static_cast<int>(c) - 1) << "col line " << c;
-            }
+    const auto& tl = *t_.tl;
+    for (size_t c = 0; c < col_count; c++) {
+        EXPECT_EQ(FindTableCol(tl, col_lines[c]).col, static_cast<int>(c)) << "col line " << c;
+        if (c > 0) {
+            EXPECT_EQ(FindTableCol(tl, col_lines[c] - 0.25f).col, static_cast<int>(c) - 1) << "col line " << c;
         }
-        for (size_t r = 0; r < t_.row_count; r++) {
-            EXPECT_EQ(FindTableRow(*data, t_.row_count, fallback_row_h_, row_lines[r]).row, static_cast<int>(r)) << "row line " << r;
-            EXPECT_EQ(FindTableRow(*data, t_.row_count, fallback_row_h_, row_lines[r] - 0.25f).row, static_cast<int>(r) - 1) << "row line " << r;
-        }
+    }
+    for (size_t r = 0; r < t_.row_count; r++) {
+        EXPECT_EQ(FindTableRow(tl, t_.row_count, row_lines[r]).row, static_cast<int>(r)) << "row line " << r;
+        EXPECT_EQ(FindTableRow(tl, t_.row_count, row_lines[r] - 0.25f).row, static_cast<int>(r) - 1) << "row line " << r;
     }
 }

@@ -96,14 +96,6 @@ TEST(ParserImage, ImageAltTextPreserved)
     EXPECT_EQ(nodes[0].GetText(), "Hello World");
 }
 
-TEST(ParserImage, ImageDefaultDimensionsZero)
-{
-    auto nodes = ParseNodes("![alt](img.png)");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_FLOAT_EQ(nodes[0].image_data()->width, 0.0f);
-    EXPECT_FLOAT_EQ(nodes[0].image_data()->height, 0.0f);
-}
-
 // ---- 画像が段落に混在するケース ----
 
 TEST(ParserImage, ImageWithSurroundingTextStillConverts)
@@ -305,15 +297,30 @@ TEST(ParserImage, ImageWithJapanesePath)
 // レイアウトテスト: 画像ノードの高さ計算
 // ============================================================
 
-// 画像寸法をパース後に書き換えてからレイアウトするため、ParseAndLayout ではなく Layout を使う。
+// 画像の読み込み (DiagramEntry への寸法設定) を模してからレイアウトするため、ParseAndLayout ではなく Layout を使う。
 class ImageLayoutTest : public MockLayoutTestBase {
 protected:
-    LayoutCache Layout(std::pmr::vector<Node>& nodes, float viewport_w = 800.0f)
+    static LayoutCache MakeCache(const std::pmr::vector<Node>& nodes)
     {
         LayoutCache cache;
         cache.Resize(nodes.size());
+        return cache;
+    }
+    static void SetImageSize(LayoutCache& cache, size_t i, float width, float height)
+    {
+        auto& d = cache.EnsureDiagram(i);
+        d.width = width;
+        d.height = height;
+    }
+    LayoutCache Layout(std::pmr::vector<Node>& nodes, float viewport_w = 800.0f)
+    {
+        LayoutCache cache = MakeCache(nodes);
         engine_.ComputeLayout(nodes, cache, viewport_w);
         return cache;
+    }
+    void Layout(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_w = 800.0f)
+    {
+        engine_.ComputeLayout(nodes, cache, viewport_w);
     }
 };
 
@@ -334,10 +341,9 @@ TEST_F(ImageLayoutTest, ImageWithDimensionsUsesScaledHeight)
     auto nodes = ParseNodes("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     // 画像読み込み後のサイズをシミュレート
-    nodes[0].image_data()->width = 400.0f;
-    nodes[0].image_data()->height = 300.0f;
-
-    auto cache = Layout(nodes);
+    auto cache = MakeCache(nodes);
+    SetImageSize(cache, 0, 400.0f, 300.0f);
+    Layout(nodes, cache);
 
     // 幅400 < コンテンツ幅のため、元の高さ300が使われる
     EXPECT_FLOAT_EQ(cache[0].height, 300.0f);
@@ -348,10 +354,9 @@ TEST_F(ImageLayoutTest, WideImageScaledDown)
     auto nodes = ParseNodes("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     // コンテンツ幅より大きい画像
-    nodes[0].image_data()->width = 1600.0f;
-    nodes[0].image_data()->height = 900.0f;
-
-    auto cache = Layout(nodes);
+    auto cache = MakeCache(nodes);
+    SetImageSize(cache, 0, 1600.0f, 900.0f);
+    Layout(nodes, cache);
 
     // スケールダウンされて元の高さより小さくなること
     EXPECT_LT(cache[0].height, 900.0f);
@@ -362,10 +367,9 @@ TEST_F(ImageLayoutTest, SmallImageNotScaledUp)
 {
     auto nodes = ParseNodes("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
-    nodes[0].image_data()->width = 100.0f;
-    nodes[0].image_data()->height = 80.0f;
-
-    auto cache = Layout(nodes);
+    auto cache = MakeCache(nodes);
+    SetImageSize(cache, 0, 100.0f, 80.0f);
+    Layout(nodes, cache);
 
     // 小さい画像は拡大されない
     EXPECT_FLOAT_EQ(cache[0].height, 80.0f);
@@ -375,11 +379,8 @@ TEST_F(ImageLayoutTest, ImageHeightRecalculatedOnWidthChange)
 {
     auto nodes = ParseNodes("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
-    nodes[0].image_data()->width = 1600.0f;
-    nodes[0].image_data()->height = 900.0f;
-
-    LayoutCache cache;
-    cache.Resize(nodes.size());
+    auto cache = MakeCache(nodes);
+    SetImageSize(cache, 0, 1600.0f, 900.0f);
 
     // 広い幅
     engine_.ComputeLayout(nodes, cache, 1800.0f);
@@ -395,12 +396,11 @@ TEST_F(ImageLayoutTest, ImageHeightRecalculatedOnWidthChange)
 TEST_F(ImageLayoutTest, ImageNodesDoNotOverlap)
 {
     auto nodes = ParseNodes("![a](a.png)\n\n![b](b.png)\n\n![c](c.png)");
-    for (auto& n : nodes) {
-        n.image_data()->width = 200.0f;
-        n.image_data()->height = 150.0f;
+    auto cache = MakeCache(nodes);
+    for (size_t i = 0; i < nodes.size(); i++) {
+        SetImageSize(cache, i, 200.0f, 150.0f);
     }
-
-    auto cache = Layout(nodes);
+    Layout(nodes, cache);
 
     for (size_t i = 1; i < nodes.size(); i++) {
         float prev_bottom = cache.Top(i - 1) + cache[i - 1].height;
@@ -412,10 +412,9 @@ TEST_F(ImageLayoutTest, ImageBetweenTextNodesDoNotOverlap)
 {
     auto nodes = ParseNodes("Text before\n\n![alt](img.png)\n\nText after");
     ASSERT_EQ(nodes.size(), 3u);
-    nodes[1].image_data()->width = 400.0f;
-    nodes[1].image_data()->height = 300.0f;
-
-    auto cache = Layout(nodes);
+    auto cache = MakeCache(nodes);
+    SetImageSize(cache, 1, 400.0f, 300.0f);
+    Layout(nodes, cache);
 
     for (size_t i = 1; i < nodes.size(); i++) {
         float prev_bottom = cache.Top(i - 1) + cache[i - 1].height;
@@ -427,10 +426,9 @@ TEST_F(ImageLayoutTest, ImageWithZeroDimensionsGetsPlaceholder)
 {
     auto nodes = ParseNodes("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
-    // image_width/heightはデフォルトの0.0f
-    ASSERT_FLOAT_EQ(nodes[0].image_data()->width, 0.0f);
-
+    // 寸法 (DiagramEntry) が未設定 = 未読み込み
     auto cache = Layout(nodes);
+    ASSERT_EQ(cache.FindDiagram(0), nullptr);
 
     EXPECT_GT(cache[0].height, 0.0f) << "プレースホルダー高さが設定されるべき";
 }
@@ -438,11 +436,11 @@ TEST_F(ImageLayoutTest, ImageWithZeroDimensionsGetsPlaceholder)
 TEST_F(ImageLayoutTest, ImageAspectRatioPreserved)
 {
     auto nodes = ParseNodes("![alt](img.png)");
-    nodes[0].image_data()->width = 1000.0f;
-    nodes[0].image_data()->height = 500.0f;
+    auto cache = MakeCache(nodes);
+    SetImageSize(cache, 0, 1000.0f, 500.0f);
 
     const float viewport_width = 600.0f;
-    auto cache = Layout(nodes, viewport_width);
+    Layout(nodes, cache, viewport_width);
 
     const float content_width = theme_.ContentWidth(viewport_width);
     // コンテンツ幅 < 画像幅なのでスケールされる

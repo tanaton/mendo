@@ -23,9 +23,9 @@ float AppResourceManagerCallbacks::get_viewport_height()
     return app->GetPaneLayout().md_rect.height;
 }
 
-float AppResourceManagerCallbacks::get_indent_width()
+const Theme& AppResourceManagerCallbacks::get_theme()
 {
-    return app->renderer_.GetTheme().indent_width;
+    return app->renderer_.GetTheme();
 }
 
 void AppResourceManagerCallbacks::recompute_layout(mendo::layout::HeightChangeRange changed)

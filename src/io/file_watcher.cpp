@@ -1,4 +1,5 @@
 #include "file_watcher.h"
+#include "document_utils.h"
 #include "file_io.h"
 #include <cstring>
 #include <filesystem>
@@ -47,20 +48,19 @@ void FileWatcher::StartWatching(const std::pmr::wstring& file_path, ChangeCallba
     StopWatching();
     on_change_ = std::move(callback);
 
-    const std::filesystem::path p(file_path);
-    watch_filename_ = std::pmr::wstring{ p.filename().native() };
+    watch_filename_ = ExtractFilename(file_path);
 
     watch_filename_short_.clear();
     wchar_t short_buf[MAX_PATH];
     const DWORD short_len = GetShortPathNameW(file_path.c_str(), short_buf, MAX_PATH);
     if (short_len > 0 && short_len < MAX_PATH) {
-        std::pmr::wstring short_name{ std::filesystem::path(short_buf).filename().native() };
+        std::pmr::wstring short_name = ExtractFilename({ short_buf, short_len });
         if (!path_util::iequal(short_name, watch_filename_)) {
             watch_filename_short_ = std::move(short_name);
         }
     }
 
-    const auto dir = p.parent_path();
+    const auto dir = std::filesystem::path(file_path).parent_path();
     if (dir.empty()) {
         return;
     }

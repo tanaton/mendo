@@ -1,13 +1,14 @@
 #include "app.h"
 #include "app_constants.h"
 #include "app_state_queries.h"
+#include "layout_queries.h"
 #include "pane_layout.h"
 #include "profiler.h"
 
 void App::EnsureScrollTarget()
 {
     state_.view.viewport.EnsureScrollTarget(
-        state_.document.layout_cache, state_.document.doc.GetNodes().size());
+        state_.document.layout_cache);
 }
 
 void App::ViewportLayout(float md_width, float md_height)
@@ -72,8 +73,8 @@ void App::SyncTocActiveAndAutoScroll(bool auto_scroll)
         return;
     }
     const auto& theme = renderer_.GetTheme();
-    const int new_active = state_.document.doc.GetToc().FindActiveIndex(
-        state_.document.layout_cache, state_.view.viewport.GetScrollY(), theme.heading_spacing_above);
+    const int new_active = FindActiveTocIndex(
+        state_.document.doc.GetToc(), state_.document.layout_cache, state_.view.viewport.GetScrollY(), theme.heading_spacing_above);
     if (new_active == state_.view.active_toc_index) {
         return;
     }
@@ -130,8 +131,6 @@ void App::OnDeferredLayout()
 
     // 1 回の遅延レイアウトで計測するノード数の上限。
     constexpr int kDeferredLayoutBatchNodes = 200;
-
-    EnsureScrollTarget();
 
     const PaneRect md = GetPaneLayout().md_rect;
     bool more;

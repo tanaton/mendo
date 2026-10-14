@@ -211,7 +211,7 @@ SidePaneDrawContext Renderer::MakeSidePaneContext(PaneTarget target, const SideP
         .close_hover_brush = Brush(BrushId::PaneItemHover),
         .hovered_button = pane.hovered_button,
         .show_file_buttons = is_file_pane,
-        .reveal_enabled = is_file_pane && pane.reveal_enabled,
+        .reveal_enabled = pane.reveal_enabled,
     };
 }
 

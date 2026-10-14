@@ -1,11 +1,6 @@
 #pragma once
+#include "nav_direction.h"
 #include <cstdint>
-
-enum class SwipeResult : uint8_t {
-    None,
-    Back,
-    Forward
-};
 
 // タッチパッド水平スクロール（WM_MOUSEHWHEEL）を蓄積し、
 // 閾値を超えたら戻る/進むナビゲーションを発火するジェスチャー検出器。
@@ -28,10 +23,9 @@ public:
         accumulated_delta_ += delta;
     }
 
-    constexpr SwipeResult Commit() noexcept
+    constexpr NavDirection Commit() noexcept
     {
-        const int dir = GetOverlayDirection();
-        const SwipeResult result = dir < 0 ? SwipeResult::Back : dir > 0 ? SwipeResult::Forward : SwipeResult::None;
+        const NavDirection result = GetOverlayDirection();
         accumulated_delta_ = 0;
         last_hscroll_time_ = 0;
         return result;
@@ -52,18 +46,19 @@ public:
 
     constexpr bool IsOverlayVisible() const noexcept
     {
-        return GetOverlayDirection() != 0;
+        return GetOverlayDirection() != NavDirection::None;
     }
 
-    constexpr int GetOverlayDirection() const noexcept
+    // 右スワイプで戻る、左スワイプで進む。
+    constexpr NavDirection GetOverlayDirection() const noexcept
     {
         if (accumulated_delta_ >= TRIGGER_THRESHOLD) {
-            return -1; // 右スワイプ → 戻る
+            return NavDirection::Back;
         }
         if (accumulated_delta_ <= -TRIGGER_THRESHOLD) {
-            return 1; // 左スワイプ → 進む
+            return NavDirection::Forward;
         }
-        return 0;
+        return NavDirection::None;
     }
 
     static constexpr int TRIGGER_THRESHOLD = 400;      // ナビゲーション発動閾値（WHEEL_DELTA単位の蓄積値）

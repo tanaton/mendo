@@ -12,12 +12,10 @@ AsyncLoadCoordinator::~AsyncLoadCoordinator()
 
 void AsyncLoadCoordinator::ResetSinks() noexcept
 {
-    std::optional<AsyncLoadResult> stale_result;
-    std::optional<FileLoadError> stale_error;
+    std::optional<AsyncLoadOutcome> stale;
     {
         const std::lock_guard lock(mutex_);
-        stale_result.swap(result_);
-        stale_error.swap(error_);
+        stale.swap(outcome_);
     }
 }
 
@@ -38,11 +36,11 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
 
     if (!posted) {
         // queue 飽和 or Shutdown 後。lambda が走らないので latch::Guard は capture 内で
-        // destruct され自動的に Release される。in_flight_/error_ を整えて UI に通知することで
+        // destruct され自動的に Release される。in_flight_/outcome_ を整えて UI に通知することで
         // 以降のリロードを再開可能にする。
         {
             const std::lock_guard lock(mutex_);
-            error_ = FileLoadError::ReadFailed;
+            outcome_.emplace(std::unexpected(FileLoadError::ReadFailed));
             in_flight_ = false;
         }
         ::PostMessageW(hwnd, msg_id, 0, 0);
@@ -55,13 +53,13 @@ void AsyncLoadCoordinator::RunWorker(const std::pmr::wstring& path, uint32_t gen
     MENDO_PROFILE("AsyncLoadCoordinator::Start Posted Task");
     // sink 書き込みは Cancel との直列化のため lock 内で gen を再確認してから行う。
     // 各段の前の gen/stop check は重い処理を skip するための short-circuit。
-    const auto publish = [this, hwnd, msg_id, gen](auto&& assign_sink) {
+    const auto publish = [this, hwnd, msg_id, gen](AsyncLoadOutcome outcome) {
         {
             const std::lock_guard lock(mutex_);
             if (IsStale(gen)) {
                 return;
             }
-            assign_sink();
+            outcome_.emplace(std::move(outcome));
         }
         ::PostMessageW(hwnd, msg_id, 0, 0);
     };
@@ -72,7 +70,7 @@ void AsyncLoadCoordinator::RunWorker(const std::pmr::wstring& path, uint32_t gen
 
     auto file = load_file_(path, stop_token);
     if (!file) {
-        publish([&] { error_ = file.error(); });
+        publish(std::unexpected(file.error()));
         return;
     }
     if (stop_token.stop_requested()) {
@@ -88,7 +86,7 @@ void AsyncLoadCoordinator::RunWorker(const std::pmr::wstring& path, uint32_t gen
         reload_base.reset();
         const auto op = reload->decision.op;
         if (op == ReloadOp::NoChange || op == ReloadOp::DeferPrefixShrink) {
-            publish([&] { result_.emplace(AsyncLoadResult{ .reload = std::move(reload) }); });
+            publish(AsyncLoadResult{ .reload = std::move(reload) });
             return;
         }
     }
@@ -107,30 +105,17 @@ void AsyncLoadCoordinator::RunWorker(const std::pmr::wstring& path, uint32_t gen
         return;
     }
 
-    publish([&] {
-        result_.emplace(AsyncLoadResult{ std::move(doc), std::move(cache), std::move(reload) });
-    });
+    publish(AsyncLoadResult{ std::move(doc), std::move(cache), std::move(reload) });
 }
 
-template <class Opt>
-Opt AsyncLoadCoordinator::TakeFromSink(Opt& sink) noexcept
+std::optional<AsyncLoadOutcome> AsyncLoadCoordinator::Take() noexcept
 {
     const std::lock_guard lock(mutex_);
-    if (!sink) {
+    if (!outcome_) {
         return std::nullopt;
     }
     // 取り出し成功 = 非同期ロードの完結。同期 ExecuteLoad など別経路から in_flight を触ると
     // race になるため、coordinator の責務に閉じる。
     in_flight_ = false;
-    return std::exchange(sink, std::nullopt);
-}
-
-std::optional<AsyncLoadResult> AsyncLoadCoordinator::TakeResult()
-{
-    return TakeFromSink(result_);
-}
-
-std::optional<FileLoadError> AsyncLoadCoordinator::TakeError() noexcept
-{
-    return TakeFromSink(error_);
+    return std::exchange(outcome_, std::nullopt);
 }

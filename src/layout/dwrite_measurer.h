@@ -15,7 +15,6 @@ class TaskScheduler;
 // Format の再生成は RecreateFormats 経由のみ許可し、並列計測中の同時更新を契約で禁止する。
 class DWriteTextMeasurer : public ITextMeasurer {
 public:
-    bool Init(const Theme& theme) override;
     bool RecreateFormats() override;
     void UpdateTheme(const Theme& theme) noexcept override
     {
@@ -33,7 +32,7 @@ public:
         float max_width,
         MeasureViewportRange viewport) const override;
 
-    // 外部のIDWriteFactoryで初期化する（Initの前に呼び出す必要がある）。
+    // 外部のIDWriteFactoryで初期化する（RecreateFormats の前に呼び出す必要がある）。
     void SetFactory(IDWriteFactory* factory) noexcept
     {
         dwrite_ = factory;
@@ -72,7 +71,6 @@ private:
         }
     };
 
-    bool CreateAllFormats();
     IDWriteTextFormat* GetTextFormat(const Node& node) const noexcept;
     IDWriteTextFormat* GetTableRowFormat(const NodeTableData& tbl, size_t r) const noexcept;
     void MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width, MeasureViewportRange viewport) const;

@@ -68,13 +68,10 @@ public:
 
     // 下端がscroll_y_より下にある最初のノードを見つける。
     // 表示可能なノードが存在しない場合は-1を返す。
-    constexpr int FindFirstVisibleNode(const LayoutCache& cache, size_t node_count) const noexcept
+    constexpr int FindFirstVisibleNode(const LayoutCache& cache) const noexcept
     {
-        // node_count > cache.size() の過渡状態に備えて effective に揃えてから渡す。
-        // 「該当なし」のときは FindFirstVisibleNodeIndex が effective を返す契約。
-        const size_t effective = std::min(node_count, cache.size());
-        const int idx = FindFirstVisibleNodeIndex(cache, effective, scroll_y_);
-        return idx < static_cast<int>(effective) ? idx : -1;
+        const int idx = FindFirstVisibleNodeIndex(cache, scroll_y_);
+        return idx < static_cast<int>(cache.size()) ? idx : -1;
     }
 
     // scroll_target を明示設定する。内部の scroll_y は更新しないので、
@@ -108,12 +105,12 @@ public:
     // scroll_target が未設定なら、現在の可視先頭ノードから合成する。
     // レイアウト変化を挟む処理（OnPaint/OnResizeEnd/OnDeferredLayout 等）の直前に呼んで、
     // 「見ている位置を保つ」挙動を target ベースで表現する。
-    constexpr void EnsureScrollTarget(const LayoutCache& cache, size_t node_count) noexcept
+    constexpr void EnsureScrollTarget(const LayoutCache& cache) noexcept
     {
         if (scroll_target_.IsValid()) {
             return;
         }
-        if (const int idx = FindFirstVisibleNode(cache, node_count); idx >= 0) {
+        if (const int idx = FindFirstVisibleNode(cache); idx >= 0) {
             scroll_target_ = { idx, scroll_y_ - cache.Top(static_cast<size_t>(idx)) };
         }
     }

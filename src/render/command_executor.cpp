@@ -1,6 +1,7 @@
 #include "command_executor.h"
 #include "overloaded.h"
 #include "profiler.h"
+#include "ui_constants.h"
 #include <dwrite.h>
 #include <bit>
 
@@ -14,10 +15,10 @@ public:
         : rt_(rt), default_brush_(default_brush), cull_top_(cull_top), cull_bottom_(cull_bottom)
     {
         rt->GetTransform(&transform_);
-        float dpi_x = 96.0f;
-        float dpi_y = 96.0f;
+        float dpi_x = DEFAULT_DPI;
+        float dpi_y = DEFAULT_DPI;
         rt->GetDpi(&dpi_x, &dpi_y);
-        pixels_per_dip_ = dpi_x / 96.0f;
+        pixels_per_dip_ = DpiScaleFrom(dpi_x);
     }
 
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** out) noexcept override
@@ -105,10 +106,10 @@ private:
 
 } // namespace
 
-ID2D1SolidColorBrush* CommandExecutor::ResolveBrush(ID2D1RenderTarget* rt, BrushId id, D2D1_COLOR_F color)
+ID2D1SolidColorBrush* CommandExecutor::ResolveBrush(ID2D1RenderTarget* rt, const FixedBrushArray* brushes, BrushId id, D2D1_COLOR_F color)
 {
-    if (id != BrushId::Custom && fixed_brushes_) {
-        if (auto* fixed = (*fixed_brushes_)[std::to_underlying(id)].Get()) {
+    if (id != BrushId::Custom && brushes) {
+        if (auto* fixed = (*brushes)[std::to_underlying(id)].Get()) {
             return fixed;
         }
     }
@@ -132,21 +133,19 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
         return;
     }
 
-    fixed_brushes_ = brushes;
-
     const auto draw = mendo::overloaded{
         [&](const FillRectCmd& c) {
-            if (auto* b = ResolveBrush(rt, c.brush_id, c.color)) {
+            if (auto* b = ResolveBrush(rt, brushes, c.brush_id, c.color)) {
                 rt->FillRectangle(c.rect, b);
             }
         },
         [&](const FillRoundedRectCmd& c) {
-            if (auto* b = ResolveBrush(rt, c.brush_id, c.color)) {
+            if (auto* b = ResolveBrush(rt, brushes, c.brush_id, c.color)) {
                 rt->FillRoundedRectangle(D2D1_ROUNDED_RECT{ c.rect, c.rx, c.ry }, b);
             }
         },
         [&](const DrawLineCmd& c) {
-            if (auto* b = ResolveBrush(rt, c.brush_id, c.color)) {
+            if (auto* b = ResolveBrush(rt, brushes, c.brush_id, c.color)) {
                 rt->DrawLine(c.p0, c.p1, b, c.stroke_width);
             }
         },
@@ -154,7 +153,7 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
             if (!c.layout) {
                 return;
             }
-            if (auto* b = ResolveBrush(rt, c.brush_id, c.color)) {
+            if (auto* b = ResolveBrush(rt, brushes, c.brush_id, c.color)) {
                 if (c.cull_runs) {
                     VisibleRunRenderer renderer{ rt, b, c.cull_top, c.cull_bottom };
                     c.layout->Draw(nullptr, &renderer, c.origin.x, c.origin.y);
@@ -170,12 +169,12 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
             }
         },
         [&](const FillEllipseCmd& c) {
-            if (auto* b = ResolveBrush(rt, c.brush_id, c.color)) {
+            if (auto* b = ResolveBrush(rt, brushes, c.brush_id, c.color)) {
                 rt->FillEllipse(D2D1::Ellipse(c.center, c.rx, c.ry), b);
             }
         },
         [&](const DrawEllipseCmd& c) {
-            if (auto* b = ResolveBrush(rt, c.brush_id, c.color)) {
+            if (auto* b = ResolveBrush(rt, brushes, c.brush_id, c.color)) {
                 rt->DrawEllipse(D2D1::Ellipse(c.center, c.rx, c.ry), b, c.stroke_width);
             }
         },

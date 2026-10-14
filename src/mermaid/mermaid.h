@@ -45,7 +45,7 @@ public:
               TaskScheduler& bg_scheduler, UINT disk_loaded_msg,
               const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_ready);
 
-    void RequestRender(Node& node, NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry, float max_width, bool dark_mode, Callback on_complete) override;
+    void RequestRender(const Node& node, NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry, float max_width, bool dark_mode, Callback on_complete) override;
     void RequestSvg(std::wstring_view code, float max_width, bool dark_mode, SvgCallback callback) override;
     void SetRenderTarget(ID2D1RenderTarget* render_target);
     void SetFileCache(MermaidFileCache* cache) noexcept
@@ -62,7 +62,7 @@ public:
 
 private:
     struct RenderRequest {
-        Node* node = nullptr;
+        const Node* node = nullptr;
         NodeLayoutEntry* layout_entry = nullptr;
         DiagramEntry* diagram_entry = nullptr;
         float max_width = 0.0f;

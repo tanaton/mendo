@@ -35,8 +35,7 @@ TEST_F(AsyncLoadCoordinatorTest, DefaultConstructionIsInactive)
 {
     AsyncLoadCoordinator c;
     EXPECT_FALSE(c.IsActive());
-    EXPECT_FALSE(c.TakeResult().has_value());
-    EXPECT_FALSE(c.TakeError().has_value());
+    EXPECT_FALSE(c.Take().has_value());
 }
 
 TEST_F(AsyncLoadCoordinatorTest, CancelOnIdleIsSafe)
@@ -44,8 +43,7 @@ TEST_F(AsyncLoadCoordinatorTest, CancelOnIdleIsSafe)
     AsyncLoadCoordinator c;
     c.Cancel();
     EXPECT_FALSE(c.IsActive());
-    EXPECT_FALSE(c.TakeResult().has_value());
-    EXPECT_FALSE(c.TakeError().has_value());
+    EXPECT_FALSE(c.Take().has_value());
 }
 
 TEST_F(AsyncLoadCoordinatorTest, ShutdownSchedulerCausesReadFailedError)
@@ -60,10 +58,11 @@ TEST_F(AsyncLoadCoordinatorTest, ShutdownSchedulerCausesReadFailedError)
     c.Start(local, std::pmr::wstring(L"unused.md"), nullptr, 0, GetLightTheme());
 
     EXPECT_FALSE(c.IsActive());
-    auto err = c.TakeError();
-    ASSERT_TRUE(err.has_value());
-    EXPECT_EQ(*err, FileLoadError::ReadFailed);
-    EXPECT_FALSE(c.TakeError().has_value());
+    auto outcome = c.Take();
+    ASSERT_TRUE(outcome.has_value());
+    ASSERT_FALSE(outcome->has_value());
+    EXPECT_EQ(outcome->error(), FileLoadError::ReadFailed);
+    EXPECT_FALSE(c.Take().has_value());
 }
 
 TEST_F(AsyncLoadCoordinatorTest, SuccessfulLoadProducesResult)
@@ -73,12 +72,14 @@ TEST_F(AsyncLoadCoordinatorTest, SuccessfulLoadProducesResult)
     AsyncLoadCoordinator c;
     c.Start(scheduler_, tmp.PmrPath(), nullptr, 0, GetLightTheme());
 
-    std::optional<AsyncLoadResult> result;
-    PollUntil([&] { result = c.TakeResult(); return result.has_value(); });
-    ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(result->cache.size(), result->doc.GetNodes().size());
-    EXPECT_GT(result->cache.Top(0), 0.0f);
-    EXPECT_FALSE(result->doc.IsEmpty());
+    std::optional<AsyncLoadOutcome> outcome;
+    PollUntil([&] { outcome = c.Take(); return outcome.has_value(); });
+    ASSERT_TRUE(outcome.has_value());
+    ASSERT_TRUE(outcome->has_value());
+    const AsyncLoadResult& result = **outcome;
+    EXPECT_EQ(result.cache.size(), result.doc.GetNodes().size());
+    EXPECT_GT(result.cache.Top(0), 0.0f);
+    EXPECT_FALSE(result.doc.IsEmpty());
     EXPECT_FALSE(c.IsActive());
 }
 
@@ -87,10 +88,11 @@ TEST_F(AsyncLoadCoordinatorTest, NotFoundFileProducesError)
     AsyncLoadCoordinator c;
     c.Start(scheduler_, std::pmr::wstring(L"C:\\__mendo_no_such_file__.md"), nullptr, 0, GetLightTheme());
 
-    std::optional<FileLoadError> err;
-    PollUntil([&] { err = c.TakeError(); return err.has_value(); });
-    ASSERT_TRUE(err.has_value());
-    EXPECT_EQ(*err, FileLoadError::NotFound);
+    std::optional<AsyncLoadOutcome> outcome;
+    PollUntil([&] { outcome = c.Take(); return outcome.has_value(); });
+    ASSERT_TRUE(outcome.has_value());
+    ASSERT_FALSE(outcome->has_value());
+    EXPECT_EQ(outcome->error(), FileLoadError::NotFound);
 }
 
 TEST_F(AsyncLoadCoordinatorTest, DestructorWaitsForRunningWorker)
@@ -113,8 +115,12 @@ std::optional<AsyncLoadResult> RunReload(TaskScheduler& scheduler, const TempFil
     auto base = std::make_shared<const std::pmr::string>(old_text);
     AsyncLoadCoordinator c;
     c.Start(scheduler, tmp.PmrPath(), nullptr, 0, GetLightTheme(), base);
+    std::optional<AsyncLoadOutcome> outcome;
+    PollUntil([&] { outcome = c.Take(); return outcome.has_value(); });
     std::optional<AsyncLoadResult> result;
-    PollUntil([&] { result = c.TakeResult(); return result.has_value(); });
+    if (outcome && outcome->has_value()) {
+        result = std::move(**outcome);
+    }
     if (result && result->reload) {
         EXPECT_EQ(result->reload->base.lock(), base);
     }
@@ -302,9 +308,9 @@ public:
     }
 };
 
-std::wstring_view ResultPath(const std::optional<AsyncLoadResult>& r)
+std::wstring_view ResultPath(const std::optional<AsyncLoadOutcome>& r)
 {
-    return r ? std::wstring_view{ r->doc.GetFilePath() } : std::wstring_view{};
+    return r && r->has_value() ? std::wstring_view{ (*r)->doc.GetFilePath() } : std::wstring_view{};
 }
 
 } // namespace
@@ -325,11 +331,11 @@ TEST_F(AsyncLoadCoordinatorTest, RestartWhileQueuedPublishesOnlySecondLoad)
 
     // 旧世代の worker が publish すると通知が 2 通になり、App は OnParseComplete を 2 回走らせる。
     EXPECT_EQ(w.DrainMessages(kParseCompleteMsg), 1);
-    auto result = c.TakeResult();
-    ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(ResultPath(result), tmp2.PmrPath());
-    EXPECT_FALSE(c.TakeResult().has_value());
-    EXPECT_FALSE(c.TakeError().has_value());
+    auto outcome = c.Take();
+    ASSERT_TRUE(outcome.has_value());
+    ASSERT_TRUE(outcome->has_value());
+    EXPECT_EQ(ResultPath(outcome), tmp2.PmrPath());
+    EXPECT_FALSE(c.Take().has_value());
     EXPECT_FALSE(c.IsActive());
 }
 
@@ -347,8 +353,7 @@ TEST_F(AsyncLoadCoordinatorTest, CancelWhileQueuedPublishesNothing)
     ASSERT_TRUE(DrainScheduler(scheduler_));
 
     EXPECT_EQ(w.DrainMessages(kParseCompleteMsg), 0);
-    EXPECT_FALSE(c.TakeResult().has_value());
-    EXPECT_FALSE(c.TakeError().has_value());
+    EXPECT_FALSE(c.Take().has_value());
 }
 
 // worker が入口の世代チェックを通過した後 (読み込み中) に Cancel された場合、エラーの publish は
@@ -368,8 +373,7 @@ TEST_F(AsyncLoadCoordinatorTest, CancelDuringLoadDiscardsLateError)
     ASSERT_TRUE(DrainScheduler(scheduler_));
 
     EXPECT_EQ(w.DrainMessages(kParseCompleteMsg), 0);
-    EXPECT_FALSE(c.TakeError().has_value());
-    EXPECT_FALSE(c.TakeResult().has_value());
+    EXPECT_FALSE(c.Take().has_value());
     EXPECT_FALSE(c.IsActive());
 }
 
@@ -391,10 +395,10 @@ TEST_F(AsyncLoadCoordinatorTest, RestartDuringLoadStopsPreviousWorkerAndDiscards
     ASSERT_EQ(gate.Calls(), 2u);
     EXPECT_FALSE(gate.Token(1).stop_requested()) << "新しい worker の token は作り直した source 由来";
     EXPECT_EQ(w.DrainMessages(kParseCompleteMsg), 1);
-    EXPECT_FALSE(c.TakeError().has_value()) << "旧世代のエラーが漏れると App は失敗トーストを出す";
-    auto result = c.TakeResult();
-    ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(ResultPath(result), tmp2.PmrPath());
+    auto outcome = c.Take();
+    ASSERT_TRUE(outcome.has_value());
+    ASSERT_TRUE(outcome->has_value()) << "旧世代のエラーが漏れると App は失敗トーストを出す";
+    EXPECT_EQ(ResultPath(outcome), tmp2.PmrPath());
 }
 
 // Start / Cancel のランダム列を worker 未着手のまま積み、最後の操作だけが観測されることを確かめる。
@@ -447,38 +451,35 @@ TEST_F(AsyncLoadCoordinatorTest, RandomStartCancelSequencesExposeOnlyLastLoad)
                     EXPECT_EQ(c.IsActive(), expect != Expect::None) << ops;
                 }
                 // worker 未着手なので、どの世代の結果もまだ見えてはいけない。
-                EXPECT_FALSE(c.TakeResult().has_value()) << ops;
-                EXPECT_FALSE(c.TakeError().has_value()) << ops;
+                EXPECT_FALSE(c.Take().has_value()) << ops;
             }
             SCOPED_TRACE(::testing::Message() << "seed=" << seed << " burst=" << burst << " ops=" << ops);
             ASSERT_TRUE(DrainScheduler(scheduler_));
 
             EXPECT_EQ(w.DrainMessages(kParseCompleteMsg), expect == Expect::None ? 0 : 1);
-            auto result = c.TakeResult();
-            auto error = c.TakeError();
+            auto outcome = c.Take();
             switch (expect) {
             case Expect::None:
-                EXPECT_FALSE(result.has_value());
-                EXPECT_FALSE(error.has_value());
+                EXPECT_FALSE(outcome.has_value());
                 break;
             case Expect::Ok1:
             case Expect::Ok2:
-                ASSERT_TRUE(result.has_value());
-                EXPECT_FALSE(error.has_value());
-                EXPECT_FALSE(result->reload.has_value());
-                EXPECT_EQ(ResultPath(result), (expect == Expect::Ok1 ? ok1 : ok2).PmrPath());
+                ASSERT_TRUE(outcome.has_value());
+                ASSERT_TRUE(outcome->has_value());
+                EXPECT_FALSE((*outcome)->reload.has_value());
+                EXPECT_EQ(ResultPath(outcome), (expect == Expect::Ok1 ? ok1 : ok2).PmrPath());
                 break;
             case Expect::Missing:
-                EXPECT_FALSE(result.has_value());
-                ASSERT_TRUE(error.has_value());
-                EXPECT_EQ(*error, FileLoadError::NotFound);
+                ASSERT_TRUE(outcome.has_value());
+                ASSERT_FALSE(outcome->has_value());
+                EXPECT_EQ(outcome->error(), FileLoadError::NotFound);
                 break;
             case Expect::Ok1NoChange:
-                ASSERT_TRUE(result.has_value());
-                EXPECT_FALSE(error.has_value());
-                ASSERT_TRUE(result->reload.has_value());
-                EXPECT_EQ(result->reload->decision.op, ReloadOp::NoChange);
-                EXPECT_EQ(result->reload->path, ok1.PmrPath());
+                ASSERT_TRUE(outcome.has_value());
+                ASSERT_TRUE(outcome->has_value());
+                ASSERT_TRUE((*outcome)->reload.has_value());
+                EXPECT_EQ((*outcome)->reload->decision.op, ReloadOp::NoChange);
+                EXPECT_EQ((*outcome)->reload->path, ok1.PmrPath());
                 break;
             }
             EXPECT_FALSE(c.IsActive());

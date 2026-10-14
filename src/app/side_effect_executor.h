@@ -118,9 +118,6 @@ public:
                 cb_.sync_toc_active(ev.auto_scroll);
             },
             // ---- Resource ----
-            [this](const effect::NotifyImageLoaded&) {
-                cb_.on_app_image_loaded();
-            },
             [this](const effect::StartFileWatch& ev) {
                 deps_.file_watcher->StartWatching(ev.path, [host = deps_.host]() {
                     host->KillTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE);
@@ -132,9 +129,6 @@ public:
             },
             [this](const effect::ResumeFileWatch&) {
                 deps_.file_watcher->ResumeWatching();
-            },
-            [this](const effect::CheckFileChanges&) {
-                deps_.file_watcher->CheckForChanges();
             },
             // ---- Timer ----
             [this](const effect::SetTimer& ev) {

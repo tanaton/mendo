@@ -9,6 +9,13 @@
 #include <string_view>
 #include <vector>
 
+inline std::pmr::string GenerateAnchorId(std::string_view text)
+{
+    std::pmr::string slug;
+    GenerateAnchorIdInto(text, slug);
+    return slug;
+}
+
 // 指定 NodeType の最初のインデックスを返す。テストで「パース結果から特定種別の
 // ノードを 1 つ取り出す」用途。production には対応する索引 (image_node_indices_ 等)
 // があるため本関数は使わない。

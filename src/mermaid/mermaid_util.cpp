@@ -66,11 +66,6 @@ uint64_t mermaid_util::CombinedHash(std::string_view code, int max_width_int, bo
     return h;
 }
 
-int mermaid_util::ComputeWorkerCount(unsigned int processor_count) noexcept
-{
-    return std::clamp(static_cast<int>(processor_count) / 2, 2, 4);
-}
-
 int mermaid_util::QuantizeWidth(float max_width) noexcept
 {
     // 細かなペイン幅変動でキャッシュミスを連発させない粒度。

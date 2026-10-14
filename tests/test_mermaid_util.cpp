@@ -95,34 +95,6 @@ TEST(CombinedHash, EmptyCode)
     EXPECT_NE(h1, h2);
 }
 
-// ============================================================
-// ComputeWorkerCount テスト
-// ============================================================
-
-TEST(ComputeWorkerCount, HalfOfProcessorsClampedToTwoThroughFour)
-{
-    struct Case {
-        unsigned int processors;
-        int expected;
-    };
-    constexpr Case kCases[] = {
-        { 0, 2 },
-        { 1, 2 },
-        { 2, 2 },
-        { 3, 2 },
-        { 4, 2 },
-        { 6, 3 },
-        { 8, 4 },
-        { 12, 4 },
-        { 16, 4 },
-        { 128, 4 },
-    };
-    for (const auto& c : kCases) {
-        SCOPED_TRACE(c.processors);
-        EXPECT_EQ(mermaid_util::ComputeWorkerCount(c.processors), c.expected);
-    }
-}
-
 // ═══════════════════════════════════════════════
 // QuantizeWidth
 // ═══════════════════════════════════════════════

@@ -13,7 +13,7 @@ protected:
     void SetUp() override
     {
         DWriteTestBase::SetUp();
-        ASSERT_TRUE(mock_.Init(theme_));
+        mock_.UpdateTheme(theme_);
     }
 
     struct Heights {
@@ -21,14 +21,15 @@ protected:
         float dwrite;
     };
 
-    Heights MeasureBoth(Node& node, float max_width)
+    // image は画像ノードの読み込み済み寸法。本番と同じく MeasureEntry 経由で計測する。
+    Heights MeasureBoth(Node& node, float max_width, const DiagramEntry* image = nullptr)
     {
         Node mock_node = CloneNode(node);
         Node dw_node = CloneNode(node);
         NodeLayoutEntry mock_entry{};
         NodeLayoutEntry dwrite_entry{};
-        mock_.MeasureNode(mock_node, mock_entry, max_width);
-        measurer_.MeasureNode(dw_node, dwrite_entry, max_width);
+        MeasureEntry(mock_, mock_node, mock_entry, max_width, {}, 0.0f, image);
+        MeasureEntry(measurer_, dw_node, dwrite_entry, max_width, {}, 0.0f, image);
         return { mock_entry.height, dwrite_entry.height };
     }
 
@@ -77,10 +78,11 @@ TEST_F(MeasurerParityTest, ImageScalesToMaxWidthIdentically)
     Node node;
     node.type = NodeType::Image;
     node.ensure_image();
-    node.image_data()->width = 1200.0f;
-    node.image_data()->height = 800.0f;
+    DiagramEntry image;
+    image.width = 1200.0f;
+    image.height = 800.0f;
 
-    const auto h = MeasureBoth(node, 600.0f);
+    const auto h = MeasureBoth(node, 600.0f, &image);
     EXPECT_FLOAT_EQ(h.mock, 400.0f);
     EXPECT_FLOAT_EQ(h.dwrite, 400.0f);
 }
@@ -91,10 +93,11 @@ TEST_F(MeasurerParityTest, ImagePreservesOriginalHeightWhenFits)
     Node node;
     node.type = NodeType::Image;
     node.ensure_image();
-    node.image_data()->width = 300.0f;
-    node.image_data()->height = 200.0f;
+    DiagramEntry image;
+    image.width = 300.0f;
+    image.height = 200.0f;
 
-    const auto h = MeasureBoth(node, 600.0f);
+    const auto h = MeasureBoth(node, 600.0f, &image);
     EXPECT_FLOAT_EQ(h.mock, 200.0f);
     EXPECT_FLOAT_EQ(h.dwrite, 200.0f);
 }

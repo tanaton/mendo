@@ -17,7 +17,6 @@ std::pmr::wstring JsEscape(std::wstring_view input);
 
 uint64_t CombinedHash(std::string_view code, int max_width_int, bool dark_mode) noexcept;
 
-int ComputeWorkerCount(unsigned int processor_count) noexcept;
 int QuantizeWidth(float max_width) noexcept;
 float ParseJsonNumber(std::wstring_view json, std::wstring_view key) noexcept;
 bool ParseJsonTrueFlag(std::wstring_view json, std::wstring_view key) noexcept;

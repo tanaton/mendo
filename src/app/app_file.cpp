@@ -6,12 +6,14 @@
 #include "file_io.h"
 #include "i18n.h"
 #include "document_utils.h"
-#include "mermaid_util.h"
 #include "layout.h"
+#include "layout_queries.h"
 #include "profiler.h"
 #include "rc_resource.h"
 #include "reload_flow.h"
 #include <utility>
+
+using mendo::layout::RecomputeYPositions;
 
 // 一時状態のリセットで左ドラッグ状態だけが消えると、LButtonUp がどの終了経路にも入らず
 // SetCapture が残る (タイトルバーのドラッグや MouseLeave 検出が効かなくなる)。
@@ -76,6 +78,8 @@ void App::ReplaceDocument(Document next, LayoutCache estimated)
     // Document は COM を持たず、確保元 (既定の pmr リソース) はスレッド安全。
     // LayoutCache は D2D 由来の参照を持つので対象外 (UI スレッドで破棄する)。
     constexpr size_t kBackgroundDisposeMinNodes = 4096;
+    // 以降、doc のノードと layout_cache のエントリは常に同数 (描画・ヒットテスト等はこれを前提にする)。
+    assert(estimated.size() == next.GetNodes().size());
     Document old = std::exchange(state_.document.doc, std::move(next));
     state_.document.layout_cache = std::move(estimated);
     if (old.GetNodes().size() >= kBackgroundDisposeMinNodes) {
@@ -91,13 +95,9 @@ void App::ReplaceDocument(Document next)
     ReplaceDocument(std::move(next), std::move(estimated));
 }
 
-void App::BeginAsyncLoad(std::pmr::wstring path, bool suppress_animation, std::shared_ptr<const std::pmr::string> reload_base)
+void App::BeginAsyncLoad(std::pmr::wstring path, bool show_animation, std::shared_ptr<const std::pmr::string> reload_base)
 {
-    // ライブリロード時はアニメーションを表示しない。
-    // 大きいファイルを編集中の差分リロードでスピナーが点滅すると視認性が下がるため、
-    // 旧コンテンツを表示したまま静かにバックグラウンドでパースし差し替える。
-    const bool show_anim = !suppress_animation && DocumentService::ShouldShowLoadingAnimation(path);
-    if (show_anim) {
+    if (show_animation) {
         MENDO_PROFILE("App::BeginAsyncLoad with animation");
         file_load_service_.StartLoading(std::move(path));
         EmitEffect(effect::SetTimer{ app_timer::Id::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS });
@@ -148,8 +148,9 @@ void App::LoadMarkdownFile(std::wstring_view path)
         return;
     }
     std::pmr::wstring path_str{ path };
-    if (DocumentService::IsAsyncLoadCandidate(path_str)) {
-        BeginAsyncLoad(std::move(path_str));
+    const auto size = QueryFileSize(path_str.c_str());
+    if (DocumentService::IsAsyncLoadCandidate(size)) {
+        BeginAsyncLoad(std::move(path_str), DocumentService::ShouldShowLoadingAnimation(size));
         return;
     }
     file_load_service_.CancelAsyncLoad();
@@ -200,13 +201,11 @@ void App::OnParseComplete()
 {
     MENDO_PROFILE("OnParseComplete");
 
-    auto result = file_load_service_.TakeAsyncResult();
-    std::optional<FileLoadError> err;
-    if (!result) {
-        err = file_load_service_.TakeAsyncError();
-    }
+    auto outcome = file_load_service_.TakeAsync();
+    AsyncLoadResult* const result = (outcome && *outcome) ? &**outcome : nullptr;
+    const std::optional<FileLoadError> err = (outcome && !*outcome) ? std::optional{ outcome->error() } : std::nullopt;
     const auto plan = PlanParseComplete(
-        result ? &*result : nullptr, err, file_load_service_.IsAsyncLoading(), state_.document.doc,
+        result, err, file_load_service_.IsAsyncLoading(), state_.document.doc,
         [](const std::pmr::wstring& path, size_t read_size) { return IsFileLargerThan(path.c_str(), read_size); });
 
     if (plan.step == ParseCompleteStep::IgnoreStale) {
@@ -307,7 +306,7 @@ void App::ReloadCurrentFile()
         return;
     }
     // FileWatcher のバーストで重複スケジュールされないよう、進行中のロードが
-    // あれば即 return する。suppress_animation 経路では IsLoading() が立たない
+    // あれば即 return する。show_animation=false 経路では IsLoading() が立たない
     // ため IsAsyncLoading() も併せて見る。
     if (file_load_service_.IsLoading() || file_load_service_.IsAsyncLoading()) {
         return;
@@ -316,7 +315,8 @@ void App::ReloadCurrentFile()
     const auto& path = state_.document.doc.GetFilePath();
     if (DocumentService::IsAsyncLoadCandidate(path)) {
         MENDO_TRACE("ReloadCurrentFile: async path");
-        BeginAsyncLoad(path, /*suppress_animation=*/true, state_.document.doc.GetRawText().Share());
+        // 編集中の差分リロードでスピナーが点滅すると見づらいため、旧コンテンツを表示したまま差し替える。
+        BeginAsyncLoad(path, /*show_animation=*/false, state_.document.doc.GetRawText().Share());
         return;
     }
     MENDO_TRACE("ReloadCurrentFile: sync path (DoReloadCurrentFile)");
@@ -413,26 +413,9 @@ void App::FinishReload(size_t diff_pos)
     EmitEffect(effect::ResumeFileWatch{});
 }
 
-bool App::ApplyMermaidCacheHeights()
-{
-    const float content_width = MdContentWidth();
-    const bool dark_mode = theme_service_.IsDarkMode();
-    const auto& nodes = state_.document.doc.GetNodes();
-    bool any_applied = false;
-    for (size_t i : state_.document.doc.GetDiagramNodeIndices()) {
-        const auto hash = mermaid_util::NodeDiagramHash(nodes[i], content_width, dark_mode);
-        MermaidFileCache::CacheEntry fentry;
-        if (file_cache_.LookupDimensions(hash, fentry)) {
-            state_.document.layout_cache[i].height = fentry.css_height;
-            any_applied = true;
-        }
-    }
-    return any_applied;
-}
-
 void App::ApplyCachedHeightsAndRecompute()
 {
-    const bool mermaid_applied = ApplyMermaidCacheHeights();
+    const bool mermaid_applied = resource_manager_.ApplyMermaidCacheHeightsForReload();
     const bool image_applied = resource_manager_.ApplyCachedImagesForReload() > 0;
     if (mermaid_applied || image_applied) {
         RecomputeYPositions(

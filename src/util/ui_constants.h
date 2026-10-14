@@ -94,7 +94,7 @@ inline constexpr float NAV_BTN_CORNER = 6.0f;
 inline constexpr float NAV_BTN_SCROLLBAR_OFFSET = 16.0f;
 
 // コードブロック コピーボタンの定数（DIP単位）。
-// CommandGenerator（描画）とHitTestService（クリック検出）の間で共有される。
+// CommandGenerator（描画）と hit_test（クリック検出）の間で共有される。
 inline constexpr float COPY_BTN_SIZE = 28.0f;
 inline constexpr float COPY_BTN_MARGIN = 6.0f;
 inline constexpr float COPY_BTN_CORNER = 4.0f;
@@ -288,6 +288,11 @@ inline SearchBarLayout ComputeSearchBarLayout(float md_left, float md_width, flo
     return l;
 }
 
+inline SearchBarLayout ComputeSearchBarLayout(const PaneRect& md_rect, bool has_query) noexcept
+{
+    return ComputeSearchBarLayout(md_rect.x, md_rect.width, md_rect.y + md_rect.height, has_query);
+}
+
 // 検索バーのヒット判定結果。クリック／ホバー／Controller で共有する。
 enum class SearchBarHitZone : uint8_t {
     None,
@@ -380,7 +385,7 @@ inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top, Diagr
 }
 
 // Mermaidダイアグラムのビットマップ描画矩形を計算する（スケーリング＋中央寄せ）。
-// CommandGenerator（描画）とHitTestService（クリック検出）の間で共有される。
+// CommandGenerator（描画）と hit_test（クリック検出）の間で共有される。
 inline D2D1_RECT_F MermaidBitmapRect(float diagram_w, float diagram_h, float x, float cw, float y) noexcept
 {
     float draw_w = diagram_w;

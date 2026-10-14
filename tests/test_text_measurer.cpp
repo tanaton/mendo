@@ -23,13 +23,13 @@ TEST_F(MockLayoutTest, EmptyNodesGiveMarginHeight)
     std::pmr::vector<Node> nodes;
     LayoutCache cache;
     engine_.ComputeLayout(nodes, cache, 800.0f);
-    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom), 0.0f);
+    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, theme_.margin_bottom), 0.0f);
 }
 
 TEST_F(MockLayoutTest, SingleParagraphPositiveHeight)
 {
     auto [nodes, cache] = ParseAndLayout("Hello world");
-    EXPECT_GT(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom), 0.0f);
+    EXPECT_GT(ComputeTotalContentHeight(cache, theme_.margin_bottom), 0.0f);
     EXPECT_GT(cache[0].height, 0.0f);
 }
 
@@ -126,13 +126,13 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchNoDirtyPreservesHeight)
     auto [nodes, cache] = ParseAndLayout("A\n\nB\n\nC");
     EXPECT_FALSE(engine_.HasDirtyNodes());
 
-    float height_before = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom);
+    float height_before = ComputeTotalContentHeight(cache, theme_.margin_bottom);
     EXPECT_GT(height_before, 0.0f);
 
     // ダーティなものがない場合のProcessDirtyBatchはtotal_heightを破損させないべき
     bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 100);
     EXPECT_FALSE(more);
-    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom), height_before);
+    EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, theme_.margin_bottom), height_before);
 }
 
 // ---- 幅の変更 ----
@@ -181,7 +181,7 @@ TEST_F(MockLayoutTest, EnsureVisibleLayoutUpdatesViewport)
     const auto dirty_before = CountDirty(cache);
 
     // より後の領域のレイアウトを確保
-    float total = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom);
+    float total = ComputeTotalContentHeight(cache, theme_.margin_bottom);
     EXPECT_TRUE(engine_.EnsureVisibleLayout(nodes, cache, 800.0f, total * 0.5f, total * 0.7f));
     EXPECT_LT(CountDirty(cache), dirty_before) << "可視範囲のダーティノードがクリーンになるべき";
 }
@@ -194,7 +194,7 @@ TEST_F(MockLayoutTest, FullLayoutMeasuresAllNodes)
     LayoutCache cache;
     cache.Resize(nodes.size());
     LayoutAll(nodes, cache, 800.0f);
-    EXPECT_GT(ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom), 0.0f);
+    EXPECT_GT(ComputeTotalContentHeight(cache, theme_.margin_bottom), 0.0f);
     EXPECT_FALSE(engine_.HasDirtyNodes());
 }
 
@@ -398,7 +398,7 @@ TEST_F(MockLayoutTest, RecreateFormatsForcesRemeasureAtSameWidth)
 TEST_F(MockLayoutTest, ManyNodesProduceLargeHeight)
 {
     auto [nodes, cache] = ParseAndLayout(MakeParagraphs(100));
-    const float total = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom);
+    const float total = ComputeTotalContentHeight(cache, theme_.margin_bottom);
     EXPECT_GT(total, 500.0f);
     size_t last = nodes.size() - 1;
     EXPECT_LE(cache.Top(last) + cache[last].height, total);
@@ -536,8 +536,8 @@ TEST_F(MockLayoutTest, EstimateOnSwitchGivesNearFullContentHeight)
     LayoutCache full;
     full.Reset(nodes.size());
     LayoutAll(nodes, full, kSwitchWidth);
-    const float expected = ComputeTotalContentHeight(full, nodes.size(), theme_.margin_bottom);
-    const float actual = ComputeTotalContentHeight(cache, nodes.size(), theme_.margin_bottom);
+    const float expected = ComputeTotalContentHeight(full, theme_.margin_bottom);
+    const float actual = ComputeTotalContentHeight(cache, theme_.margin_bottom);
     EXPECT_GT(actual, expected * 0.8f);
     EXPECT_LT(actual, expected * 1.25f);
 }
@@ -592,7 +592,7 @@ TEST_F(MockLayoutTest, RestoreAfterSwitchMeasuresNodesAtRestoredPosition)
     const float scroll_y = cache.Top(kTarget);
     engine_.ComputeLayout(nodes, cache, kSwitchWidth, scroll_y, scroll_y + kSwitchViewportBottom);
 
-    const auto [first, last_plus_1] = ComputeVisibleNodeRange(cache, nodes.size(), scroll_y, scroll_y + kSwitchViewportBottom);
+    const auto [first, last_plus_1] = ComputeVisibleNodeRange(cache, scroll_y, scroll_y + kSwitchViewportBottom);
     ASSERT_LT(first, last_plus_1);
     for (size_t i = first; i < last_plus_1; i++) {
         EXPECT_FALSE(cache[i].layout_dirty) << "ノード " << i;

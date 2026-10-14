@@ -2,6 +2,7 @@
 #include <memory_resource>
 #include "toc.h"
 #include "layout_cache.h"
+#include "layout_queries.h"
 #include "parser.h"
 #include "test_nodes.h"
 
@@ -167,7 +168,7 @@ TEST(Toc, FindActiveIndexEmpty)
 {
     TableOfContents toc;
     LayoutCache cache;
-    EXPECT_EQ(toc.FindActiveIndex(cache, 0.0f), -1);
+    EXPECT_EQ(FindActiveTocIndex(toc, cache, 0.0f), -1);
 }
 
 TEST(Toc, FindActiveIndexBeforeFirstHeading)
@@ -182,7 +183,7 @@ TEST(Toc, FindActiveIndexBeforeFirstHeading)
     cache[heading_idx].height = 30.0f;
 
     // scroll_y=0 は見出しより前 → -1
-    EXPECT_EQ(toc.FindActiveIndex(cache, 0.0f), -1);
+    EXPECT_EQ(FindActiveTocIndex(toc, cache, 0.0f), -1);
 }
 
 TEST(Toc, FindActiveIndexAtHeading)
@@ -199,13 +200,13 @@ TEST(Toc, FindActiveIndexAtHeading)
     cache[second_idx].height = 25.0f;
 
     // scroll_y=10 は最初の見出しのy_position丁度 → 0
-    EXPECT_EQ(toc.FindActiveIndex(cache, 10.0f), 0);
+    EXPECT_EQ(FindActiveTocIndex(toc, cache, 10.0f), 0);
     // scroll_y=100 は最初の見出しの後、2番目の前 → 0
-    EXPECT_EQ(toc.FindActiveIndex(cache, 100.0f), 0);
+    EXPECT_EQ(FindActiveTocIndex(toc, cache, 100.0f), 0);
     // scroll_y=200 は2番目の見出しのy_position丁度 → 1
-    EXPECT_EQ(toc.FindActiveIndex(cache, 200.0f), 1);
+    EXPECT_EQ(FindActiveTocIndex(toc, cache, 200.0f), 1);
     // scroll_y=300 は2番目の見出しの後 → 1
-    EXPECT_EQ(toc.FindActiveIndex(cache, 300.0f), 1);
+    EXPECT_EQ(FindActiveTocIndex(toc, cache, 300.0f), 1);
 }
 
 TEST(Toc, FindActiveIndexManyHeadings)
@@ -226,9 +227,9 @@ TEST(Toc, FindActiveIndexManyHeadings)
         cache[ni].height = 30.0f;
     }
 
-    EXPECT_EQ(toc.FindActiveIndex(cache, 0.0f), 0);
-    EXPECT_EQ(toc.FindActiveIndex(cache, 450.0f), 4);
-    EXPECT_EQ(toc.FindActiveIndex(cache, 999.0f), 9);
+    EXPECT_EQ(FindActiveTocIndex(toc, cache, 0.0f), 0);
+    EXPECT_EQ(FindActiveTocIndex(toc, cache, 450.0f), 4);
+    EXPECT_EQ(FindActiveTocIndex(toc, cache, 999.0f), 9);
 }
 
 // margin付きのFindActiveIndex: TOCリンククリック時に正しい見出しがアクティブになることを確認
@@ -250,7 +251,7 @@ TEST(Toc, FindActiveIndexWithMargin)
     float margin = 50.0f;
     float scroll_after_click = 300.0f - margin; // = 250
     // margin無しでは scroll_y=250 < y_position=300 なので1番目が選ばれてしまう
-    EXPECT_EQ(toc.FindActiveIndex(cache, scroll_after_click), 0);
+    EXPECT_EQ(FindActiveTocIndex(toc, cache, scroll_after_click), 0);
     // margin有りでは threshold=300 >= y_position=300 なので2番目が正しく選ばれる
-    EXPECT_EQ(toc.FindActiveIndex(cache, scroll_after_click, margin), 1);
+    EXPECT_EQ(FindActiveTocIndex(toc, cache, scroll_after_click, margin), 1);
 }

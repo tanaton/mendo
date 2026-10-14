@@ -32,7 +32,6 @@ protected:
 
         theme_ = GetLightTheme();
         measurer_.SetFactory(dwrite_factory_.Get());
-        ASSERT_TRUE(measurer_.Init(theme_));
         ASSERT_TRUE(engine_.Init(&measurer_, theme_));
     }
 

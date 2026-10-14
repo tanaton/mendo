@@ -5,6 +5,10 @@
 #include <filesystem>
 #include <memory_resource>
 
+// 読み込み (main) と保存 (App) で共有する ini キー。既存設定との互換性のため値の変更は禁止。
+inline constexpr std::string_view kConfigSectionGeneral = "General";
+inline constexpr std::string_view kConfigKeyLanguage = "Language";
+
 // 設定 (settings.ini) のメモリ上マップとディスク永続化を保持する。
 // インスタンスごとに独立した状態を持つので、テストでは新しいインスタンスを使えば良い。
 class ConfigService {

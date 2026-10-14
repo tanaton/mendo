@@ -18,6 +18,8 @@
 #include "theme.h"
 #include "test_nodes.h"
 
+using mendo::layout::EstimateNodeHeights;
+
 using mendo::layout::DirtyBatchResult;
 using mendo::layout::RunParallel;
 using mendo::layout::StopReason;

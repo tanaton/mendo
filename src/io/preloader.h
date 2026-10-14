@@ -17,7 +17,7 @@ struct Theme;
 // PostMessage を発火して通常の async 完了経路に合流する。
 //
 // FileLoadService の StartAsyncLoad とはストレージを共有しない。preload 完了結果は
-// 内部の sink に保持し、TakeResult/TakeError で取り出す。
+// 内部の sink に保持し、Take で取り出す。
 class Preloader {
 public:
     Preloader() = default;
@@ -45,8 +45,8 @@ public:
         return ctx_ != nullptr;
     }
 
-    std::optional<AsyncLoadResult> TakeResult();
-    std::optional<FileLoadError> TakeError();
+    // 取り出せたら worker を回収する。AttachOrApply の前後どちらでも詰まらない。
+    std::optional<AsyncLoadOutcome> Take();
 
     // 進行中の preload を非ブロッキングで中断し、取り込まれていない結果も破棄する。
     void Cancel() noexcept;
@@ -71,15 +71,11 @@ private:
 
     bool HasPublished() const;
     void Join();
-    // Take{Result,Error} 共通。取り出せたら worker を回収する。AttachOrApply の前後どちらでも詰まらない。
-    template <class Opt>
-    Opt TakeFromSink(Opt& sink);
 
     // デストラクタで明示的に Join() を呼ぶため、sink メンバ破壊前に worker は終了済み。
     std::jthread thread_;
     std::shared_ptr<Context> ctx_;
 
     mutable std::mutex sink_mutex_;
-    std::optional<AsyncLoadResult> result_;
-    std::optional<FileLoadError> error_;
+    std::optional<AsyncLoadOutcome> outcome_;
 };

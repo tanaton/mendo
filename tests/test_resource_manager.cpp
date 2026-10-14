@@ -77,14 +77,14 @@ class MockMermaidRenderer : public IMermaidRenderer {
 public:
     int request_render_count = 0;
     int cancel_pending_count = 0;
-    Node* last_node = nullptr;
+    const Node* last_node = nullptr;
     float last_max_width = 0.0f;
     bool last_dark_mode = false;
     // true のとき RequestRender でディスクキャッシュヒットを模し、同期で bitmap を設定して on_complete を呼ぶ。
     bool sync_apply_bitmap = false;
 
     void RequestRender(
-        Node& node, NodeLayoutEntry& layout_entry,
+        const Node& node, NodeLayoutEntry& layout_entry,
         DiagramEntry& diagram_entry, float max_width, bool dark_mode,
         Callback on_complete) override
     {
@@ -142,7 +142,11 @@ struct CallbackTracker {
 
     float content_width = 800.0f;
     float viewport_height = 600.0f;
-    float indent_width = 20.0f;
+    Theme theme = [] {
+        Theme t;
+        t.indent_width = 20.0f;
+        return t;
+    }();
 };
 
 struct TestResourceManagerCallbacks {
@@ -167,9 +171,9 @@ struct TestResourceManagerCallbacks {
     {
         return t->viewport_height;
     }
-    float get_indent_width()
+    const Theme& get_theme()
     {
-        return t->indent_width;
+        return t->theme;
     }
     void recompute_layout(mendo::layout::HeightChangeRange changed)
     {
@@ -258,7 +262,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesReturnsZeroForRemoteImages)
 TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesHeightFromCache)
 {
     LoadMarkdown("# heading\n\n![alt](foo.png)\n");
-    image_loader_.InsertCacheEntry(L"C:\\dir\\foo.png", 1000.0f, 800.0f);
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\foo.png", 1000.0f, 800.0f);
 
     // 適用前: SeedLayoutCache が block_height=100 で初期化している。
     const auto& image_indices = doc_.GetImageNodeIndices();
@@ -278,7 +282,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesHeightFromCache)
 TEST_F(ResourceManagerTest, LoadImagesPassesChangedNodeRangeToRecompute)
 {
     LoadMarkdown("# heading\n\ntext\n\n![alt](foo.png)\n");
-    image_loader_.InsertCacheEntry(L"C:\\dir\\foo.png", 400.0f, 300.0f);
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\foo.png", 400.0f, 300.0f);
     const size_t img_idx = doc_.GetImageNodeIndices()[0];
 
     rm_.LoadImages();
@@ -292,7 +296,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadKeepsHeightWhenWithinConte
 {
     LoadMarkdown("![alt](small.png)\n");
     // content_width=800 より小さい画像はスケール無し。
-    image_loader_.InsertCacheEntry(L"C:\\dir\\small.png", 400.0f, 300.0f);
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\small.png", 400.0f, 300.0f);
 
     EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 1);
 
@@ -304,7 +308,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadKeepsHeightWhenWithinConte
 TEST_F(ResourceManagerTest, ApplyCachedImagesResolvesNonAsciiFileName)
 {
     LoadMarkdown("![alt](\xE7\x94\xBB\xE5\x83\x8F.png)\n"); // 画像.png
-    image_loader_.InsertCacheEntry(L"C:\\dir\\\u753B\u50CF.png", 400.0f, 300.0f);
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\\u753B\u50CF.png", 400.0f, 300.0f);
 
     EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 1);
 
@@ -331,8 +335,8 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesBeyondVisibleRange)
     const auto& image_indices = doc_.GetImageNodeIndices();
     ASSERT_EQ(image_indices.size(), 2u);
 
-    image_loader_.InsertCacheEntry(L"C:\\dir\\one.png", 400.0f, 300.0f);
-    image_loader_.InsertCacheEntry(L"C:\\dir\\two.png", 400.0f, 250.0f);
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\two.png", 400.0f, 250.0f);
 
     // viewport_height=600, PREFETCH_BUFFER=3 → 範囲は ~[-1800, 2400]。
     // 2個目は y=3000+ にあり可視範囲外。ApplyCachedImages は 1 件のみ適用。
@@ -360,7 +364,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadIgnoresRemoteImages)
 TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadReturnsZeroWhenContentWidthIsZero)
 {
     LoadMarkdown("![alt](foo.png)\n");
-    image_loader_.InsertCacheEntry(L"C:\\dir\\foo.png", 1000.0f, 800.0f);
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\foo.png", 1000.0f, 800.0f);
     tracker_.content_width = 0.0f;
     EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 0);
 }
@@ -675,7 +679,7 @@ TEST_F(ResourceManagerTest, ClearResolvedPathsDropsStalePathOnFileSwitch)
     EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 0);
 
     LoadMarkdown("![alt](new.png)\n");
-    image_loader_.InsertCacheEntry(L"C:\\dir\\new.png", 400.0f, 300.0f);
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\new.png", 400.0f, 300.0f);
     rm_.ClearResolvedPaths();
 
     EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 1);

@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "layout_queries.h"
 #include <algorithm>
 #include <format>
 #include <iterator>
@@ -957,6 +958,31 @@ TEST(FindLinkAtPosition, MultipleLinkRuns)
     EXPECT_FALSE(gap.has_value());
 }
 
+TEST(FindLinkHitAtPosition, ReturnsUrlIndex)
+{
+    Node node;
+    node.SetText("link1 link2", 0);
+    AddTestLinkUrl(node, "https://a.com");
+    AddTestLinkUrl(node, "https://b.com");
+
+    TextRun r1;
+    r1.start = 0;
+    r1.length = 5;
+    r1.link_url_index = 0;
+    TextRun r2;
+    r2.start = 6;
+    r2.length = 5;
+    r2.link_url_index = 1;
+    const TextRun runs[]{ r1, r2 };
+    node.SetRuns(runs);
+
+    const auto hit = FindLinkHitAtPosition(node, 8);
+    ASSERT_TRUE(hit.has_value());
+    EXPECT_EQ(hit->url, "https://b.com");
+    EXPECT_EQ(hit->index, 1u);
+    EXPECT_FALSE(FindLinkHitAtPosition(node, 5).has_value());
+}
+
 // ---- FindLinkAtPosition: テーブルセル内のリンク ----
 
 TEST(FindLinkAtPosition, TableCellLinkFound)
@@ -1659,17 +1685,6 @@ TEST(CalcScrollYForDiff, LastNodeUsesContentSizeAsNextStart)
     // margin = 200*0.2 = 40
     // result = max(0, 500-40) = 460
     EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 50, 200.0f, 0.0f), 460.0f);
-}
-
-TEST(CalcScrollYForDiff, CacheSizeMismatchFallback)
-{
-    // ノード数とキャッシュサイズが不一致の場合のフォールバック
-    const std::string content(500, 'x');
-    auto nodes = MakeNodes(5, 100);
-    auto cache = MakeUniformCache(3, 100.0f); // キャッシュは3つだけ
-
-    // diff_pos=400 → node 4 だがキャッシュは3つ → fallback
-    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 400, 500.0f, 77.0f), 77.0f);
 }
 
 TEST(CalcScrollYForDiff, ParsedMarkdownIntegration)

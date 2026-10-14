@@ -36,18 +36,22 @@ std::expected<Document, FileLoadError> DocumentService::LoadFile(const std::pmr:
 }
 
 // 仮想パスや存在しないパスは「大きい」扱いにする (非同期ロード経路で失敗を検出させるため)。
-bool DocumentService::IsLargerThan(const std::pmr::wstring& path, DWORD threshold) noexcept
+bool DocumentService::IsAsyncLoadCandidate(std::optional<uint64_t> size) noexcept
 {
-    const auto size = QueryFileSize(path.c_str());
-    return !size || *size > threshold;
+    return !size || *size > kAsyncLoadBytes;
+}
+
+bool DocumentService::ShouldShowLoadingAnimation(std::optional<uint64_t> size) noexcept
+{
+    return !size || *size > kLoadingAnimBytes;
 }
 
 bool DocumentService::IsAsyncLoadCandidate(const std::pmr::wstring& path) noexcept
 {
-    return IsLargerThan(path, kAsyncLoadBytes);
+    return IsAsyncLoadCandidate(QueryFileSize(path.c_str()));
 }
 
 bool DocumentService::ShouldShowLoadingAnimation(const std::pmr::wstring& path) noexcept
 {
-    return IsLargerThan(path, kLoadingAnimBytes);
+    return ShouldShowLoadingAnimation(QueryFileSize(path.c_str()));
 }

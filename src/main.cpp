@@ -108,7 +108,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
 
     ConfigService config;
     config.Load();
-    i18n::Init(config.LoadWString("General", "Language"));
+    i18n::Init(config.LoadWString(kConfigSectionGeneral, kConfigKeyLanguage));
 
     int argc = 0;
     LPWSTR* const argv = CommandLineToArgvW(GetCommandLineW(), &argc);
