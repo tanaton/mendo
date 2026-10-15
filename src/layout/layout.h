@@ -6,6 +6,7 @@
 #include "text_measurer.h"
 #include "theme.h"
 #include <memory_resource>
+#include <optional>
 
 class Document;
 class TaskScheduler;
@@ -59,7 +60,10 @@ private:
     const Theme* theme_ = nullptr;
     TaskScheduler* layout_scheduler_ = nullptr;
 
-    float last_viewport_width_ = 0.0f;
+    // nullopt = まだ一度も組んでいない (計測済みのノードが無いので初回は組み直さない)。
+    std::optional<float> last_viewport_width_;
+    // 旧 format で計測したノードを、幅が同じでも組み直させる。
+    bool formats_changed_ = false;
     bool has_dirty_nodes_ = false;
 };
 

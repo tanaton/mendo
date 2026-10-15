@@ -176,7 +176,8 @@ void MermaidFileCache::SaveIndex()
         p += sizeof(record);
     }
 
-    if (AtomicWriteAllBytes(path, buf.get(), buf_size)) {
+    // 壊れた索引は LoadIndex が検証して捨てるので、durable な書き込みは要らない。
+    if (AtomicWriteAllBytes(path, buf.get(), buf_size, /* durable = */ false)) {
         index_->dirty = false;
     }
 }

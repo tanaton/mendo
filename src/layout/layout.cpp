@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory_resource>
+#include <utility>
 
 using mendo::layout::AdvanceNodeY;
 using mendo::layout::EstimateInvisibleNodeHeight;
@@ -28,7 +29,7 @@ bool LayoutEngine::RecreateFormats()
     if (!measurer_) {
         return false;
     }
-    last_viewport_width_ = 0.0f;
+    formats_changed_ = last_viewport_width_.has_value();
     return measurer_->RecreateFormats();
 }
 
@@ -38,8 +39,11 @@ void LayoutEngine::ComputeLayout(const std::pmr::vector<Node>& nodes, LayoutCach
     const auto node_count = nodes.size();
     cache.Resize(node_count);
 
-    const bool width_changed = std::abs(viewport_width - last_viewport_width_) > kWidthChangeThreshold;
-    if (width_changed) {
+    // 初回は幅を覚えるだけ。worker が作った推定済みキャッシュは幅に依存しないので、
+    // 全ノードを推定し直しても高さは変わらない。
+    const bool width_changed = std::exchange(formats_changed_, false) ||
+                               (last_viewport_width_ && std::abs(viewport_width - *last_viewport_width_) > kWidthChangeThreshold);
+    if (width_changed || !last_viewport_width_) {
         last_viewport_width_ = viewport_width;
     }
     // 未推定のキャッシュ (位置が全て 0) では可視範囲が決まらないので、幅変更と同じく組み直す。

@@ -200,7 +200,6 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
 void App::RefreshFilePane()
 {
     state_.file_explorer.Refresh();
-    renderer_.InvalidateSidePaneCache(PaneTarget::File);
     Invalidate();
 }
 

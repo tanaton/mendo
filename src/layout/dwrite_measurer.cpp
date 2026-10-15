@@ -300,6 +300,27 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     link.Flush();
 }
 
+// 描画時に UTF-16 位置へ数え直さないよう、ワーカー上で UTF-16 単位にし、隣り合う同種のトークンをまとめる
+// (SetDrawingEffect は内部で range tree を組み直すので呼び出しを減らす)。
+static std::pmr::vector<SyntaxToken> ToWideMergedTokens(std::string_view text, std::pmr::vector<SyntaxToken> tokens)
+{
+    mendo::Utf16OffsetCursor cursor{ text };
+    size_t out = 0;
+    for (size_t i = 0; i < tokens.size(); i++) {
+        const SyntaxToken t = tokens[i];
+        const auto w = cursor.WideRange(t.start, t.length);
+        if (out > 0 && tokens[out - 1].type == t.type && tokens[out - 1].start + tokens[out - 1].length == w.startPosition) {
+            tokens[out - 1].length += w.length;
+        }
+        else {
+            tokens[out++] = SyntaxToken{ w.startPosition, w.length, t.type };
+        }
+    }
+    tokens.resize(out);
+    tokens.shrink_to_fit();
+    return tokens;
+}
+
 void DWriteTextMeasurer::MeasureNode(
     const Node& node, NodeLayoutEntry& entry, float max_width,
     MeasureViewportRange viewport) const
@@ -341,7 +362,7 @@ void DWriteTextMeasurer::MeasureNode(
     // 描画パス (ApplyNodeEffects) でのトークン化によるフレーム落ちを避けるため、ここで作る。
     // layout と一緒に捨てるので、画面外のコードブロックのトークンは残らない。
     if (node.type == NodeType::CodeBlock && node.code_language() != SyntaxLanguage::None) {
-        entry.set_syntax_tokens(Tokenize(text, node.code_language()));
+        entry.set_syntax_tokens(ToWideMergedTokens(text, Tokenize(text, node.code_language())));
     }
 
     entry.set_text_layout(std::move(layout));
@@ -485,6 +506,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
 
     const auto [r_begin, r_end] = tl.RowsInViewport(row_count, viewport.top, viewport.bottom);
     const float base_row_height = mendo::layout::TableBaseRowHeight(*theme_);
+    size_t first_changed_row = row_count;
     for (size_t r = r_begin; r < r_end; r++) {
         if (!tl.row_evicted[r]) {
             continue;
@@ -495,13 +517,14 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
         // 幅変更時に evict 中だった行は旧幅の行高さのまま残っているため、ここで実測に揃える。
         if (row_height != tl.row_heights[r]) {
             tl.row_heights[r] = row_height;
-            result.height_changed = true;
+            first_changed_row = std::min(first_changed_row, r);
         }
     }
 
+    result.height_changed = first_changed_row < row_count;
     if (result.height_changed) {
         const float border_width = TABLE_BORDER_WIDTH;
-        tl.RebuildRowCumY(row_count);
+        tl.RebuildRowCumY(row_count, first_changed_row);
         entry.height = border_width + tl.row_cum_y[row_count];
         entry.cached_height = entry.height;
     }

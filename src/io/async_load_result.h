@@ -9,7 +9,7 @@
 #include <string>
 
 // 同一ファイルのリロードで、worker がパース前に差分判定まで済ませた結果。
-// NoChange / DeferPrefixShrink はパースせずに返す (doc は空)。
+// NoChange / Defer* はパースせずに返す (doc は空)。
 struct ReloadCheck {
     ReloadDecision decision{ ReloadOp::NoChange, std::string_view::npos };
     // 判定に使った旧テキスト。UI 側の文書がこれと同一のときだけ decision を信用できる。

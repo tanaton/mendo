@@ -27,6 +27,11 @@ public:
     void CheckForChanges();
 
     void ResumeWatching();
+    // paused 中に溜めた通知を捨てる。読み直しを始める直前に呼び、その読み込みに含まれる変更で再発火させない。
+    constexpr void DiscardPendingChange() noexcept
+    {
+        pending_change_ = false;
+    }
     constexpr HANDLE GetEventHandle() const noexcept
     {
         return read_pending_ ? overlapped_.hEvent : nullptr;

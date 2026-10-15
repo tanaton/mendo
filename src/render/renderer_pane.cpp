@@ -5,36 +5,7 @@
 #include "string_convert.h"
 #include "ui_constants.h"
 #include <algorithm>
-#include <cmath>
 #include <concepts>
-
-// 戻り値: キャッシュが使用可能なら true。
-// ウィンドウやスプリッタのドラッグ中に毎フレーム作り直さないよう、確保は 64 DIP 単位に切り上げる。
-// 縮小は 2 単位以上余ったときだけ作り直し、最大化から戻した後に大きいまま残さない。
-static bool EnsurePaneCacheSize(PaneCache& cache, ID2D1RenderTarget* parent, float width, float height)
-{
-    if (width <= 0 || height <= 0) {
-        return false;
-    }
-    if (cache.cached_width != width || cache.cached_height != height) {
-        cache.cached_width = width;
-        cache.cached_height = height;
-        cache.Invalidate();
-    }
-    constexpr float kBucket = 64.0f;
-    if (cache.bitmap_rt) {
-        const auto allocated = cache.bitmap_rt->GetSize();
-        const auto fits = [](float need, float have) noexcept { return need <= have && have - need < 2 * kBucket; };
-        if (fits(width, allocated.width) && fits(height, allocated.height)) {
-            return true;
-        }
-    }
-
-    const auto round_up = [](float v) noexcept { return std::ceil(v / kBucket) * kBucket; };
-    cache.bitmap_rt.Reset();
-    cache.Invalidate();
-    return SUCCEEDED(parent->CreateCompatibleRenderTarget(D2D1::SizeF(round_up(width), round_up(height)), &cache.bitmap_rt));
-}
 
 // right_x はペイン右端。つまみはそこから VScrollbarLeftX で内側に寄せる。
 static void FillVScrollThumb(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* brush, float right_x, float thumb_y, float thumb_height)
@@ -57,7 +28,7 @@ static void DrawPaneScrollbar(
     }
 
     // ドラッグ処理 (ScrollFromThumbY) と同じ計算を共有し、見た目と挙動のズレを防ぐ。
-    // bitmap RT ローカル座標 (origin 0,0) なので y=0 の矩形で組む。
+    // ペイン原点へ平行移動した座標系で描くので y=0 の矩形で組む。
     const PaneRect local_rect{ .x = 0.0f, .y = 0.0f, .width = pane_width, .height = content_top + content_height };
     const PaneScrollInfo info = ComputeScrollInfo(local_rect, content_top, total_content_height);
     if (info.thumb_height >= info.content_height) {
@@ -66,7 +37,7 @@ static void DrawPaneScrollbar(
     FillVScrollThumb(rt, thumb_brush, pane_width, ComputeThumbY(info, scroll_y), info.thumb_height);
 }
 
-// 書式が NO_WRAP で省略記号も付かないため、はみ出す分は rect で切る。
+// 中央寄せのアイコン用。箱の大きさは固定なのでレイアウトは使い回される。
 static void DrawCachedText(ID2D1RenderTarget* rt, TextLayoutCache& layouts, IDWriteTextFormat* fmt,
                            std::wstring_view text, const D2D1_RECT_F& rect, ID2D1Brush* brush)
 {
@@ -74,9 +45,19 @@ static void DrawCachedText(ID2D1RenderTarget* rt, TextLayoutCache& layouts, IDWr
     layouts.Draw(rt, fmt, text, rect, brush, box, D2D1_DRAW_TEXT_OPTIONS_CLIP);
 }
 
+// NO_WRAP で左寄せのテキストは箱の幅で見た目が変わらないので、幅を固定してスプリッタのドラッグ中も
+// レイアウトを使い回す。省略記号は付かないため、はみ出す分は rect で切る。
+static void DrawClippedText(ID2D1RenderTarget* rt, TextLayoutCache& layouts, IDWriteTextFormat* fmt,
+                            std::wstring_view text, const D2D1_RECT_F& rect, ID2D1Brush* brush)
+{
+    constexpr float kLayoutWidth = 4096.0f;
+    rt->PushAxisAlignedClip(rect, D2D1_ANTIALIAS_MODE_ALIASED);
+    layouts.Draw(rt, fmt, text, rect, brush, D2D1::SizeF(kLayoutWidth, rect.bottom - rect.top));
+    rt->PopAxisAlignedClip();
+}
+
 // draw_item は template 経由のため別引数。
 struct SidePaneDrawContext {
-    PaneCache& cache;
     TextLayoutCache& text_layouts;
     ID2D1RenderTarget* main_rt;
     const PaneRect& rect;
@@ -84,6 +65,7 @@ struct SidePaneDrawContext {
     int item_count;
     std::wstring_view header_text;
     const Theme& theme;
+    ID2D1SolidColorBrush* bg_brush;
     ID2D1SolidColorBrush* splitter_brush;
     ID2D1SolidColorBrush* text_brush;
     ID2D1SolidColorBrush* scrollbar_thumb_brush;
@@ -120,64 +102,46 @@ static void DrawSidePaneHeader(ID2D1RenderTarget* rt, const SidePaneDrawContext&
     }
 
     if (const auto text_rect = PaneHeaderTextRect(width, header_h, sp.show_file_buttons)) {
-        DrawCachedText(rt, sp.text_layouts, sp.fmt_header, sp.header_text, *text_rect, sp.text_brush);
+        DrawClippedText(rt, sp.text_layouts, sp.fmt_header, sp.header_text, *text_rect, sp.text_brush);
     }
 }
 
-// オフスクリーン RT へペイン全体を描き直す。失敗時はキャッシュを破棄する。
+// 可視項目は数十個でレイアウトも使い回すため、オフスクリーンに溜めず毎フレーム直接描く。
 template <typename DrawItemFn>
     requires std::invocable<DrawItemFn&, ID2D1RenderTarget*, int, float, float>
-static void RedrawSidePaneCache(const SidePaneDrawContext& sp, DrawItemFn& draw_item)
+static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item)
 {
-    auto* rt = sp.cache.bitmap_rt.Get();
-    rt->BeginDraw();
-    rt->Clear(sp.theme.pane_bg_color);
+    const float width = sp.rect.width;
+    if (width <= 0 || sp.rect.height <= 0) {
+        return;
+    }
+    auto* const rt = sp.main_rt;
+    D2D1::Matrix3x2F saved;
+    rt->GetTransform(&saved);
+    const D2D1::Matrix3x2F origin = D2D1::Matrix3x2F::Translation(sp.rect.x, sp.rect.y) * saved;
+    rt->SetTransform(origin);
+    rt->FillRectangle(D2D1::RectF(0, 0, width, sp.rect.height), sp.bg_brush);
 
     DrawSidePaneHeader(rt, sp);
 
     const float item_h = sp.theme.pane_item_height;
     const float content_top = sp.theme.pane_header_height;
     const float content_height = sp.rect.height - content_top;
-    const D2D1_RECT_F clip = D2D1::RectF(0, content_top, sp.rect.width, sp.rect.height);
-    rt->PushAxisAlignedClip(clip, D2D1_ANTIALIAS_MODE_ALIASED);
-    rt->SetTransform(D2D1::Matrix3x2F::Translation(0, -sp.scroll.scroll_y));
+    rt->PushAxisAlignedClip(D2D1::RectF(0, content_top, width, sp.rect.height), D2D1_ANTIALIAS_MODE_ALIASED);
+    rt->SetTransform(D2D1::Matrix3x2F::Translation(0, -sp.scroll.scroll_y) * origin);
 
     const int first = std::max(0, static_cast<int>(sp.scroll.scroll_y / item_h));
     const int last = std::min(sp.item_count - 1, static_cast<int>((sp.scroll.scroll_y + content_height) / item_h) + 1);
     for (int i = first; i <= last; i++) {
-        draw_item(rt, i, content_top + i * item_h, sp.rect.width);
+        draw_item(rt, i, content_top + i * item_h, width);
     }
 
-    rt->SetTransform(D2D1::Matrix3x2F::Identity());
+    rt->SetTransform(origin);
     rt->PopAxisAlignedClip();
 
     const float total_content = SidePaneContentHeight(static_cast<size_t>(sp.item_count), item_h);
-    DrawPaneScrollbar(rt, sp.scrollbar_thumb_brush, sp.rect.width, content_top, content_height, sp.scroll.scroll_y, total_content);
-
-    if (FAILED(rt->EndDraw())) {
-        sp.cache.Reset();
-        return;
-    }
-    sp.cache.dirty = false;
-    sp.cache.cached_scroll_y = sp.scroll.scroll_y;
-}
-
-template <typename DrawItemFn>
-    requires std::invocable<DrawItemFn&, ID2D1RenderTarget*, int, float, float>
-static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item)
-{
-    if (!EnsurePaneCacheSize(sp.cache, sp.main_rt, sp.rect.width, sp.rect.height)) {
-        return;
-    }
-    if (sp.cache.NeedsRedraw(sp.scroll.scroll_y)) {
-        RedrawSidePaneCache(sp, draw_item);
-    }
-    // 描き直しに失敗したときは Reset で bitmap_rt が無くなる。
-    Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-    if (sp.cache.bitmap_rt && SUCCEEDED(sp.cache.bitmap_rt->GetBitmap(&bitmap))) {
-        const D2D1_RECT_F src = D2D1::RectF(0.0f, 0.0f, sp.rect.width, sp.rect.height);
-        sp.main_rt->DrawBitmap(bitmap.Get(), ToD2DRect(sp.rect), 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, &src);
-    }
+    DrawPaneScrollbar(rt, sp.scrollbar_thumb_brush, width, content_top, content_height, sp.scroll.scroll_y, total_content);
+    rt->SetTransform(saved);
 }
 
 static const wchar_t* FileEntryIcon(const FileEntry& entry) noexcept
@@ -195,7 +159,6 @@ SidePaneDrawContext Renderer::MakeSidePaneContext(PaneTarget target, const SideP
 {
     const bool is_file_pane = (target == PaneTarget::File);
     return SidePaneDrawContext{
-        .cache = SidePaneCache(target),
         .text_layouts = text_layouts_,
         .main_rt = rt(),
         .rect = pane.rect,
@@ -203,6 +166,7 @@ SidePaneDrawContext Renderer::MakeSidePaneContext(PaneTarget target, const SideP
         .item_count = static_cast<int>(item_count),
         .header_text = header_text,
         .theme = theme_,
+        .bg_brush = Brush(BrushId::PaneBg),
         .splitter_brush = Brush(BrushId::Splitter),
         .text_brush = Brush(BrushId::Text),
         .scrollbar_thumb_brush = Brush(BrushId::ScrollbarThumb),
@@ -233,7 +197,7 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
         DrawCachedText(rt, text_layouts_, fmt_.pane_icon.Get(), FileEntryIcon(entry), icon_rect, Brush(BrushId::Text));
 
         const D2D1_RECT_F text_rect = D2D1::RectF(4.0f + icon_col_width, item_y, width - 4.0f, item_y + theme_.pane_item_height);
-        DrawCachedText(rt, text_layouts_, fmt_.pane_item.Get(), entry.GetDisplayName(), text_rect, Brush(BrushId::Text));
+        DrawClippedText(rt, text_layouts_, fmt_.pane_item.Get(), entry.GetDisplayName(), text_rect, Brush(BrushId::Text));
     };
     DrawSidePaneImpl(MakeSidePaneContext(PaneTarget::File, pane, entries.size(), i18n::S().pane_header_files), draw_item);
 }
@@ -253,7 +217,7 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const std::pmr
         const float text_left = 8.0f + (entry.heading_level - 1) * TOC_INDENT_PER_LEVEL;
         const D2D1_RECT_F text_rect = D2D1::RectF(text_left, item_y, width - 4.0f, item_y + theme_.pane_item_height);
         string_convert::Utf8ToWide(nodes[entry.node_index].GetText(), toc_text_scratch_);
-        DrawCachedText(rt, text_layouts_, fmt_.pane_item.Get(), toc_text_scratch_, text_rect, Brush(BrushId::Text));
+        DrawClippedText(rt, text_layouts_, fmt_.pane_item.Get(), toc_text_scratch_, text_rect, Brush(BrushId::Text));
 
         if (i == active_index) {
             const float line_y = item_y + theme_.pane_item_height - 1.0f;

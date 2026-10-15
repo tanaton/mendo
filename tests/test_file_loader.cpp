@@ -218,6 +218,28 @@ TEST_F(FileLoaderTest, WatchPausedAfterChangeDetected)
     EXPECT_EQ(change_count, 2);
 }
 
+// 読み直しの直前に捨てた通知は、Resume で再発火しない (同じ保存を二度読まない)。
+TEST_F(FileLoaderTest, DiscardPendingChangeSkipsRefireOnResume)
+{
+    auto path = WriteTempFile(L"discard.md", "original");
+
+    FileWatcher watcher;
+    int change_count = 0;
+    watcher.StartWatching(path.native().c_str(), [&]() { change_count++; });
+
+    Sleep(100);
+    WriteTempFile(L"discard.md", "modified1");
+    WaitForEvent(watcher);
+    ASSERT_EQ(change_count, 1);
+
+    Sleep(100);
+    WriteTempFile(L"discard.md", "modified2");
+    WaitForEvent(watcher, 500);
+    watcher.DiscardPendingChange();
+    watcher.ResumeWatching();
+    EXPECT_EQ(change_count, 1);
+}
+
 TEST_F(FileLoaderTest, ResumeWatchingReenablesDetection)
 {
     auto path = WriteTempFile(L"resume.md", "original");

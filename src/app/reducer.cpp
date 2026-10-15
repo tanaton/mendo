@@ -54,12 +54,6 @@ void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects, bool
     PushEffect(effects, effect::SyncTocActive{ toc_auto_scroll });
 }
 
-void EmitSidePaneScrollChanged(SideEffectList& effects, PaneTarget pane)
-{
-    PushEffect(effects, effect::InvalidatePaneCache{ ToPaneZone(pane) });
-    PushEffect(effects, effect::InvalidateWindow{});
-}
-
 void EmitScrollEffects(AppState& state, SideEffectList& effects, float old_scroll)
 {
     if (state.view.viewport.GetScrollY() != old_scroll) {

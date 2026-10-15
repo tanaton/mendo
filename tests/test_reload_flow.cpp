@@ -188,6 +188,9 @@ INSTANTIATE_TEST_SUITE_P(
               .expect_probe = true },
         Case{ .label = "ReloadPartialWriteRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::Replace, .reload_diff_pos = 9,
               .partial_write = true, .step = ParseCompleteStep::RetryPartialWrite, .expect_probe = true },
+        // worker が書き込み途中を検出した判定も、そのまま App の Defer 処理へ渡す。
+        Case{ .label = "ReloadDeferPartialWrite", .kind = ResultKind::Reload, .reload_op = ReloadOp::DeferPartialWrite,
+              .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::DeferPartialWrite, .expect_probe = true },
         Case{ .label = "ReloadBaseReplacedRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::NoChange, .base = BaseRef::Other,
               .step = ParseCompleteStep::RetryDocumentChanged },
         Case{ .label = "ReloadBaseExpiredRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::Replace, .reload_diff_pos = 3,

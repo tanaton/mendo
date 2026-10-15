@@ -83,17 +83,6 @@ public:
         cmd_generator_.SetSearchMatches(matches, current_index, generation);
     }
 
-    constexpr void InvalidateSidePaneCache(PaneTarget t) noexcept
-    {
-        SidePaneCache(t).Invalidate();
-    }
-    constexpr void InvalidateAllSidePaneCaches() noexcept
-    {
-        for (auto& c : pane_caches_) {
-            c.Invalidate();
-        }
-    }
-
     // ファイル切替時にヒットテストバッファ等を縮小する。
     // 初期容量は次ファイルの描画 hot path で再拡大されないよう事前確保する。
     void ShrinkBuffers()
@@ -106,12 +95,6 @@ public:
     void PrepareVisibleEffects(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y, float md_pane_height);
 
 private:
-    constexpr PaneCache& SidePaneCache(PaneTarget t) noexcept
-    {
-        return pane_caches_[std::to_underlying(t)];
-    }
-    void ResetSidePaneCaches() noexcept;
-
     // テーマのフォント/寸法変更をレイアウト・テキストフォーマット・コマンド生成へ反映する。
     void ApplyThemeMetrics();
 
@@ -168,7 +151,7 @@ private:
     // hit_test_buffer_ の先頭 count 件をセルのインラインコード背景として cell_index 昇順を保って追加する。
     void AppendCellInlineCodeBgs(TableLayoutData& tl, uint32_t cell_index, UINT32 count);
     void ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom);
-    void ApplySyntaxEffects(IDWriteTextLayout* layout, std::string_view text, std::span<const SyntaxToken> tokens);
+    void ApplyCodeBlockEffects(NodeLayoutEntry& entry, float local_top, float local_bottom);
     void RecreateBrushes();
     void InvalidateBrushes() noexcept;
     void ResolveThemeFonts();
@@ -217,8 +200,6 @@ private:
     Microsoft::WRL::ComPtr<ID2D1Bitmap> app_icon_bitmap_;
     void LoadAppIconBitmap();
     Microsoft::WRL::ComPtr<ID2D1StrokeStyle> gesture_stroke_style_;
-
-    PaneCache pane_caches_[2];
 
     Theme theme_;
     DWriteTextMeasurer measurer_;

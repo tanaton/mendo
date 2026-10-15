@@ -48,12 +48,8 @@ void ApplyHoverHighlights(AppState& state, SideEffectList& effects, const Pointe
     }
     for (const auto t : { PaneTarget::File, PaneTarget::Toc }) {
         const auto k = std::to_underlying(t);
-        bool pane_changed = state.view.panes.SetHoveredSideIndex(t, h.side_index[k]);
-        pane_changed |= state.view.panes.SetSideHoveredButton(t, h.side_button[k]);
-        if (pane_changed) {
-            PushEffect(effects, effect::InvalidatePaneCache{ ToPaneZone(t) });
-            changed = true;
-        }
+        changed |= state.view.panes.SetHoveredSideIndex(t, h.side_index[k]);
+        changed |= state.view.panes.SetSideHoveredButton(t, h.side_button[k]);
     }
     if (changed) {
         PushEffect(effects, effect::InvalidateWindow{});
@@ -218,7 +214,7 @@ void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, co
     BeginScrollbarDrag(state, effects, SidePaneDragTarget(a.pane), grip.drag_offset);
     if (!grip.inside_thumb) {
         ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, a.dip_y - grip.drag_offset);
-        EmitSidePaneScrollChanged(effects, a.pane);
+        PushEffect(effects, effect::InvalidateWindow{});
     }
 }
 
@@ -232,7 +228,7 @@ void ReducePaneScrollbarDragMoved(AppState& state, SideEffectList& effects, cons
     const auto ctx = GetSidePaneContext(state, a.pane);
     const float new_thumb_y = a.dip_y - state.view.panes.GetDragScrollOffset();
     ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, new_thumb_y);
-    EmitSidePaneScrollChanged(effects, a.pane);
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ReducePaneScrollbarDragEnded(AppState& state, SideEffectList& effects)

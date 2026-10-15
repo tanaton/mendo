@@ -10,8 +10,6 @@
 #include "ui_types.h"
 #include "mouse_gesture.h"
 #include "nav_direction.h"
-#include <d2d1.h>
-#include <wrl/client.h>
 #include <memory_resource>
 #include <string_view>
 #include <utility>
@@ -70,34 +68,6 @@ struct SidePaneState {
     constexpr const SidePaneInstance& Get(PaneTarget t) const noexcept
     {
         return panes[std::to_underlying(t)];
-    }
-};
-
-// ペインビットマップキャッシュ — サイドペインはオフスクリーンビットマップに描画され、
-// 内容が変更された場合のみ再描画される。
-struct PaneCache {
-    Microsoft::WRL::ComPtr<ID2D1BitmapRenderTarget> bitmap_rt;
-    bool dirty = true;
-    // 描画内容のサイズ。ビットマップ自体はこれ以上に切り上げて確保する。
-    float cached_width = 0;
-    float cached_height = 0;
-    float cached_scroll_y = 0;
-
-    constexpr void Invalidate() noexcept
-    {
-        dirty = true;
-    }
-    constexpr bool NeedsRedraw(float current_scroll_y) const noexcept
-    {
-        return dirty || cached_scroll_y != current_scroll_y;
-    }
-    void Reset() noexcept
-    {
-        bitmap_rt.Reset();
-        dirty = true;
-        cached_width = 0;
-        cached_height = 0;
-        cached_scroll_y = 0;
     }
 };
 

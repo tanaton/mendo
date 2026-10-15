@@ -293,7 +293,7 @@ private:
         Handled,            // ResumeFileWatch / DeferReloadRetry が発行済み、呼び出し元は return
         ContinueWithReload, // Replace を呼び出し元で実行する
     };
-    // NoChange / DeferPrefixShrink をここで処理し、残りは呼び出し元に任せる。
+    // NoChange / Defer* をここで処理し、Replace は呼び出し元に任せる。
     ReloadFlow ApplyReloadDecisionEarly(const ReloadDecision& decision);
 
     // 短縮リトライで再リロードを予約する。エディタの truncate→rewrite 中や

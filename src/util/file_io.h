@@ -104,4 +104,6 @@ bool IsFileLargerThan(const wchar_t* path, size_t reference_size, size_t toleran
 // tmp パスは `<path>.tmp` 固定 — 同じ path への並行呼び出しは tmp が衝突するため、
 // 呼び出し側で排他制御すること (現 callsite は UI スレッド単一発火で安全)。
 // 戻り値はアトミックな置換に成功したか。false の場合は原本が変更されていないことを保証する。
-bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, size_t size);
+// durable=false は flush と write-through を省く。電源断で中身が壊れても読む側で検証して捨てられる
+// キャッシュ向け (同期書き込みで終了が遅れないようにする)。
+bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, size_t size, bool durable = true);

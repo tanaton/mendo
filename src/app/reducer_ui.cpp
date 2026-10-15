@@ -41,16 +41,21 @@ void ReduceClearSelection(AppState& state, SideEffectList& effects)
 {
     if (state.search.search_state.IsVisible()) {
         state.search.search_bar_ctrl.OnClose();
+        PushEffect(effects, effect::InvalidateWindow{});
+        return;
     }
-    else {
-        // ClearSelection はドラッグ状態も落とすため、テキスト選択ドラッグ中だと後続の
-        // LButtonUp が TextSelectionEnded に入らずキャプチャが残る。
-        if (state.view.viewport.IsDragging()) {
-            PushEffect(effects, effect::ReleaseCapture{});
-        }
-        state.view.viewport.ClearSelection();
+    auto& viewport = state.view.viewport;
+    const bool dragging = viewport.IsDragging();
+    const bool visible = viewport.GetSelection().active || dragging;
+    // ClearSelection はドラッグ状態も落とすため、テキスト選択ドラッグ中だと後続の
+    // LButtonUp が TextSelectionEnded に入らずキャプチャが残る。
+    if (dragging) {
+        PushEffect(effects, effect::ReleaseCapture{});
     }
-    PushEffect(effects, effect::InvalidateWindow{});
+    viewport.ClearSelection();
+    if (visible) {
+        PushEffect(effects, effect::InvalidateWindow{});
+    }
 }
 
 void ReduceCopyClipboard(const AppState& state, SideEffectList& effects)

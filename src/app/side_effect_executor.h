@@ -108,9 +108,6 @@ public:
             [this](const effect::BitmapManage&) {
                 cb_.schedule_bitmap_manage();
             },
-            [this](const effect::InvalidatePaneCache& ev) {
-                cb_.invalidate_pane_cache(ev.pane);
-            },
             [this](const effect::RefreshPaneLayout&) {
                 cb_.refresh_pane_layout();
             },

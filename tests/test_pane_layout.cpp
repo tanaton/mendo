@@ -429,14 +429,13 @@ TEST(HitTestUniformList, NonPositiveItemHeightReturnsMinusOne)
 }
 
 // ============================================================
-// ToPaneTarget / ToPaneZone
+// ToPaneTarget
 // ============================================================
 
-TEST(PaneZoneConversion, SidePanesRoundTrip)
+TEST(PaneZoneConversion, SidePanesMapToTargets)
 {
-    for (const auto target : { PaneTarget::File, PaneTarget::Toc }) {
-        EXPECT_EQ(ToPaneTarget(ToPaneZone(target)), target);
-    }
+    EXPECT_EQ(ToPaneTarget(PaneZone::FilePane), PaneTarget::File);
+    EXPECT_EQ(ToPaneTarget(PaneZone::TocPane), PaneTarget::Toc);
 }
 
 TEST(PaneZoneConversion, NonSidePaneZonesHaveNoTarget)

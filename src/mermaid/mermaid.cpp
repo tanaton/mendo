@@ -32,8 +32,10 @@ constexpr std::wstring_view APP_LOCAL_MERMAID_JS_URL = L"https://app.local/merma
 
 // WebView2 は CapturePreview に IsVisible=TRUE を要求するため、非表示にせず画面外の遠い位置に置く。
 constexpr int HOST_OFFSCREEN_POS = -32000;
-// どのダイアグラムにも十分な大きさ。
-constexpr int HOST_SIZE = 4096;
+// キャプチャ直前にダイアグラムの実寸へ合わせ直すので、それまでは小さく保つ。WebView2 は
+// この大きさの描画面を確保してラスタライズする (4096^2 だと 1 面で 64MB)。
+// ダイアグラムの寸法は CSS 幅だけで決まり、ビューポートの高さには依存しない。
+constexpr int HOST_SIZE = 256;
 
 void DisableWebViewChrome(ICoreWebView2* webview)
 {
@@ -46,6 +48,10 @@ void DisableWebViewChrome(ICoreWebView2* webview)
     LogHrFailure(L"put_IsStatusBarEnabled", settings->put_IsStatusBarEnabled(FALSE));
     LogHrFailure(L"put_AreDefaultContextMenusEnabled", settings->put_AreDefaultContextMenusEnabled(FALSE));
     LogHrFailure(L"put_AreDefaultScriptDialogsEnabled", settings->put_AreDefaultScriptDialogsEnabled(FALSE));
+    // メモリから配信する固定ページだけを開くので、SmartScreen の評判チェック (URL の外部送信) は要らない。
+    if (Microsoft::WRL::ComPtr<ICoreWebView2Settings8> settings8; SUCCEEDED(settings.As(&settings8))) {
+        LogHrFailure(L"put_IsReputationCheckingRequired", settings8->put_IsReputationCheckingRequired(FALSE));
+    }
 }
 
 // CreateStreamOnHGlobal のストリームはアパートメントに縛られないので worker から読める。
@@ -153,7 +159,7 @@ bool MermaidRenderer::CreateWorkerWindow(int index)
     auto& w = workers_[index];
     w = Worker{};
     w.hwnd = CreateWindowExW(
-        // 自前では何も描かないので、DWM のリダイレクト面 (HOST_SIZE^2 x 4B) を確保させない。
+        // 自前では何も描かないので、DWM のリダイレクト面 (ウィンドウ面積 x 4B) を確保させない。
         WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP,
         MERMAID_HOST_CLASS.data(),
         L"",
@@ -794,7 +800,7 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
     // (WebView2 は内部で devicePixelRatio で除算する)。SVG 出力 (折返し等) も CSS 幅に
     // 依存するため、PNG/SVG 両経路で同じ bounds を使う。
     const int vp_phys = std::max(1, static_cast<int>(std::ceil(req.max_width * worker.dpr)));
-    ResizeWorkerView(worker, vp_phys, static_cast<int>(HOST_SIZE * worker.dpr));
+    ResizeWorkerView(worker, vp_phys, HOST_SIZE);
 
     // リクエスト ID を postMessage に含め、C++ 側でコールバックとリクエストを照合する。
     if (req.svg_only) {

@@ -27,8 +27,6 @@ void WithScrollEffects(AppState& state, SideEffectList& effects, F&& f)
     EmitScrollEffects(state, effects, old_scroll);
 }
 
-// サイドペイン (ファイル/目次) のスクロール位置が変わった際の無効化副作用。
-void EmitSidePaneScrollChanged(SideEffectList& effects, PaneTarget pane);
 void ApplyScrollTargetAndEmit(AppState& state, SideEffectList& effects, int node, float offset, bool toc_auto_scroll);
 
 // ---- スクロール (reducer_scroll.cpp) ----

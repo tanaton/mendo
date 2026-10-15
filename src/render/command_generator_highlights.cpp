@@ -2,56 +2,8 @@
 #include "profiler.h"
 #include <algorithm>
 #include <cassert>
-#include <cmath>
-#include <limits>
-#include <optional>
 #include <ranges>
-#include <tuple>
 #include <utility>
-
-namespace {
-
-struct LineHit {
-    uint32_t pos;
-    float line_top;
-    float line_bottom;
-};
-
-std::optional<LineHit> HitLineAt(IDWriteTextLayout* layout, float y) noexcept
-{
-    BOOL is_trailing = FALSE;
-    BOOL is_inside = FALSE;
-    DWRITE_HIT_TEST_METRICS m{};
-    if (FAILED(layout->HitTestPoint(0.0f, y, &is_trailing, &is_inside, &m))) {
-        return std::nullopt;
-    }
-    return LineHit{ m.textPosition, m.top, m.top + m.height };
-}
-
-// ローカル Y 範囲にかかる行のテキスト位置を、隣の行の位置で挟んだ [first, second) で返す。
-// 行のテキスト範囲は論理順に並ぶので、隣の行ならどの x で引いても境界になる (RTL の行でも成り立つ)。
-std::pair<uint32_t, uint32_t> TextRangeOfLines(IDWriteTextLayout* layout, const LocalYRange& y) noexcept
-{
-    uint32_t begin = 0;
-    uint32_t end = UINT32_MAX;
-    if (std::isfinite(y.top)) {
-        if (const auto first = HitLineAt(layout, y.top); first && first->line_top > 0.0f) {
-            if (const auto prev = HitLineAt(layout, first->line_top - 0.5f); prev && prev->line_top < first->line_top) {
-                begin = prev->pos;
-            }
-        }
-    }
-    if (std::isfinite(y.bottom)) {
-        if (const auto last = HitLineAt(layout, y.bottom)) {
-            if (const auto next = HitLineAt(layout, last->line_bottom + 0.5f); next && next->line_top > last->line_top) {
-                end = next->pos;
-            }
-        }
-    }
-    return { begin, end };
-}
-
-} // namespace
 
 std::span<const DWRITE_HIT_TEST_METRICS> CommandGenerator::HitTestRange(IDWriteTextLayout* layout, uint32_t start, uint32_t length)
 {
@@ -88,22 +40,7 @@ void CommandGenerator::CollectHitTestRects(IDWriteTextLayout* layout, uint32_t s
 
 const LineWindow& CommandGenerator::LineWindowAround(const NodeLayoutEntry& entry, float origin_y) const
 {
-    auto& window = entry.ensure_line_window();
-    const LocalYRange view{ cull_top_ - origin_y, cull_bottom_ - origin_y };
-    if (!window.y.Contains(view)) {
-        // layout の端を越えた側は先に行が無いので、無限に伸ばしてその側の引き直しをなくす。
-        constexpr float INF = std::numeric_limits<float>::infinity();
-        const float margin = view.bottom - view.top;
-        window.y = { view.top - margin, view.bottom + margin };
-        if (window.y.top <= 0.0f) {
-            window.y.top = -INF;
-        }
-        if (window.y.bottom >= entry.height) {
-            window.y.bottom = INF;
-        }
-        std::tie(window.text_begin, window.text_end) = TextRangeOfLines(entry.text_layout(), window.y);
-    }
-    return window;
+    return EnsureLineWindow(entry, { cull_top_ - origin_y, cull_bottom_ - origin_y });
 }
 
 void CommandGenerator::GenSelectionHighlightCached(const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y)
