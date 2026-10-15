@@ -38,11 +38,6 @@ constexpr std::optional<PaneTarget> ToPaneTarget(PaneZone zone) noexcept
     }
 }
 
-constexpr PaneZone ToPaneZone(PaneTarget target) noexcept
-{
-    return target == PaneTarget::File ? PaneZone::FilePane : PaneZone::TocPane;
-}
-
 struct PaneLayout {
     PaneRect file_rect{};
     PaneRect toc_rect{};

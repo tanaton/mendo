@@ -83,7 +83,7 @@ bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t s
     return true;
 }
 
-bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, size_t size)
+bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, size_t size, bool durable)
 {
     std::filesystem::path tmp_path = path;
     tmp_path += L".tmp";
@@ -91,14 +91,15 @@ bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, si
     // tmp のデータブロックを flush してから write-through rename する。
     // rename のメタデータだけが先にディスクへコミットされると、電源断時に
     // 対象ファイルが 0 バイト化し旧内容が復元不能になるため。
-    if (!WriteAllBytes(tmp_path, data, size, /* flush_buffers = */ true)) {
+    if (!WriteAllBytes(tmp_path, data, size, /* flush_buffers = */ durable)) {
         // 書き込み途中失敗でも CREATE_ALWAYS で tmp は生成済み。部分書き込みの
         // 孤児 tmp を残さないよう掃除する。
         DeleteFileW(tmp_path.c_str());
         return false;
     }
 
-    if (MoveFileExW(tmp_path.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+    const DWORD move_flags = MOVEFILE_REPLACE_EXISTING | (durable ? MOVEFILE_WRITE_THROUGH : 0);
+    if (MoveFileExW(tmp_path.c_str(), path.c_str(), move_flags)) {
         return true;
     }
 

@@ -78,7 +78,6 @@ void App::SyncTocActiveAndAutoScroll(bool auto_scroll)
         return;
     }
     state_.view.active_toc_index = new_active;
-    renderer_.InvalidateSidePaneCache(PaneTarget::Toc);
 
     // auto_scroll=false (目次クリック由来) ではハイライト更新のみ。
     // ユーザーが操作中の目次ペインのスクロール位置を勝手に動かさない (issue#259)。
@@ -120,7 +119,6 @@ void App::OnResizeEnd()
 void App::RefreshPaneLayout()
 {
     state_.pane_layout_cache.Invalidate();
-    renderer_.InvalidateAllSidePaneCaches();
     EmitEffect(effect::PerformResizeEnd{});
 }
 

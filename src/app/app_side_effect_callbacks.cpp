@@ -23,13 +23,6 @@ void AppSideEffectCallbacks::open_file_dialog()
     }
 }
 
-void AppSideEffectCallbacks::invalidate_pane_cache(PaneZone pane)
-{
-    if (const auto target = ToPaneTarget(pane)) {
-        app->renderer_.InvalidateSidePaneCache(*target);
-    }
-}
-
 void AppSideEffectCallbacks::refresh_pane_layout()
 {
     app->RefreshPaneLayout();

@@ -72,7 +72,6 @@ struct CallbackTracker {
     std::vector<std::wstring> load_file_paths;
     int reload_file_count = 0;
     int open_file_dialog_count = 0;
-    std::vector<PaneZone> invalidate_pane_cache_calls;
     int refresh_pane_layout_count = 0;
     std::pair<UINT, UINT> last_renderer_resize{ 0, 0 };
     int renderer_resize_count = 0;
@@ -101,10 +100,6 @@ struct TestSideEffectCallbacks {
     void open_file_dialog()
     {
         t->open_file_dialog_count++;
-    }
-    void invalidate_pane_cache(PaneZone p)
-    {
-        t->invalidate_pane_cache_calls.push_back(p);
     }
     void refresh_pane_layout()
     {
@@ -191,15 +186,6 @@ TEST_F(SideEffectExecutorTest, OpenFileDialogDispatchesToCallback)
 {
     exec_.ExecuteOne(effect::OpenFileDialog{});
     EXPECT_EQ(tracker_.open_file_dialog_count, 1);
-}
-
-TEST_F(SideEffectExecutorTest, InvalidatePaneCacheForwardsPaneZone)
-{
-    exec_.ExecuteOne(effect::InvalidatePaneCache{ PaneZone::MdPane });
-    exec_.ExecuteOne(effect::InvalidatePaneCache{ PaneZone::FilePane });
-    ASSERT_EQ(tracker_.invalidate_pane_cache_calls.size(), 2u);
-    EXPECT_EQ(tracker_.invalidate_pane_cache_calls[0], PaneZone::MdPane);
-    EXPECT_EQ(tracker_.invalidate_pane_cache_calls[1], PaneZone::FilePane);
 }
 
 TEST_F(SideEffectExecutorTest, RefreshPaneLayoutDispatchesToCallback)

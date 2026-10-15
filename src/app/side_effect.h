@@ -1,6 +1,5 @@
 #pragma once
 #include "app_constants.h"
-#include "pane_layout.h"
 #include "tooltip.h"
 #include <memory_resource>
 #include <string>
@@ -80,9 +79,6 @@ struct ReloadFile {};
 struct OpenFileDialog {};
 
 struct BitmapManage {};
-struct InvalidatePaneCache {
-    PaneZone pane;
-};
 struct RefreshPaneLayout {};
 struct SyncTocActive {
     // false: ハイライト更新のみで目次ペインの自動スクロールを行わない。
@@ -136,7 +132,6 @@ using SideEffect = std::variant<
     effect::OpenFileDialog,
     // Layout
     effect::BitmapManage,
-    effect::InvalidatePaneCache,
     effect::RefreshPaneLayout,
     effect::SyncTocActive,
     // Resource

@@ -28,6 +28,7 @@ inline constexpr bool IsPrefixOnlyDiff(size_t diff_pos, size_t old_size, size_t 
 enum class ReloadOp : uint8_t {
     NoChange,          // 差分なし。リロード不要。
     DeferPrefixShrink, // prefix-only shrink。truncate→rewrite の前半として defer。
+    DeferPartialWrite, // 読み終えた後もファイルが伸びている (書き込み途中)。差分判定もパースもせず defer。
     Replace,           // 再パースした文書に差し替え、差分位置へスクロールする。
 };
 

@@ -503,6 +503,17 @@ void FinalizeTableOffsets(NodeTableData& tbl)
     if (tbl.aligns.size() < tbl.col_count) {
         tbl.aligns.resize(tbl.col_count, TableAlign::Default);
     }
+    // 伸長の余り (最大で容量の 1/3) を文書の寿命の間持ち続けないよう、確定時に詰める。
+    // 小さな表が大量にある文書で数バイトのために再確保を繰り返さないよう、余りが大きいときだけにする。
+    const auto shrink = [](auto& v) {
+        if ((v.capacity() - v.size()) * sizeof(v[0]) >= 4096) {
+            v.shrink_to_fit();
+        }
+    };
+    shrink(tbl.concat_text);
+    shrink(tbl.all_runs);
+    shrink(tbl.cell_text_starts);
+    shrink(tbl.cell_run_starts);
 }
 
 // md4c は参照の中身をテキストで渡さないので、GitHub と同じく脚注番号を定義へのリンクとして補う。

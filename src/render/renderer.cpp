@@ -69,7 +69,6 @@ void Renderer::SetTheme(const Theme& theme)
     ResolveThemeFonts();
     cmd_generator_.SetTheme(&theme_);
     RecreateBrushes();
-    InvalidateAllSidePaneCaches();
 }
 
 void Renderer::Resize(UINT width, UINT height) noexcept
@@ -80,20 +79,11 @@ void Renderer::Resize(UINT width, UINT height) noexcept
 void Renderer::SetDpi(float dpi) noexcept
 {
     backend_.SetDpi(dpi);
-    ResetSidePaneCaches();
 }
 
 void Renderer::TrimForMinimize() noexcept
 {
-    ResetSidePaneCaches();
     backend_.Trim();
-}
-
-void Renderer::ResetSidePaneCaches() noexcept
-{
-    for (auto& c : pane_caches_) {
-        c.Reset();
-    }
 }
 
 void Renderer::ApplyZoomFromBase(const Theme& base_theme, float new_zoom)
@@ -260,34 +250,39 @@ void Renderer::AppendCellInlineCodeBgs(TableLayoutData& tl, uint32_t cell_index,
     }
 }
 
-// 同じ type の隣接トークンをマージして SetDrawingEffect の呼び出し回数を減らす
-// (内部で range tree を再構築するため)。
-void Renderer::ApplySyntaxEffects(IDWriteTextLayout* layout, std::string_view text, std::span<const SyntaxToken> tokens)
+// 巨大なコードブロックの全トークンを最初に見えたフレームでまとめて適用すると WM_PAINT が詰まるので、
+// 可視範囲の前後 1 画面にかかるトークンだけを足していく。適用済みは添字の 1 区間で覚え、
+// 離れた位置へ飛んだら区間を作り直す (戻ったときの再適用は同じ色の上書きなので害はない)。
+void Renderer::ApplyCodeBlockEffects(NodeLayoutEntry& entry, float local_top, float local_bottom)
 {
-    mendo::Utf16OffsetCursor cursor{ text };
-    SyntaxTokenType pending_type = SyntaxTokenType::Plain;
-    uint32_t pending_start = 0;
-    uint32_t pending_end = 0;
-    const auto flush = [&]() {
-        if (pending_type != SyntaxTokenType::Plain && pending_end > pending_start) {
-            if (auto* brush = GetSyntaxBrush(pending_type)) {
-                layout->SetDrawingEffect(brush, cursor.WideRange(pending_start, pending_end - pending_start));
+    IDWriteTextLayout* const layout = entry.text_layout();
+    if (!layout) {
+        return;
+    }
+    entry.set_effects_applied(true);
+    const auto tokens = entry.syntax_tokens();
+    auto [lo, hi] = entry.syntax_applied();
+    if (lo == 0 && hi == tokens.size()) {
+        return;
+    }
+    const auto& window = EnsureLineWindow(entry, { local_top, local_bottom });
+    // トークンは重ならず start 昇順なので、終端も昇順に並ぶ。
+    const auto a = static_cast<uint32_t>(std::ranges::partition_point(tokens, [&](const SyntaxToken& t) { return t.start + t.length <= window.text_begin; }) - tokens.begin());
+    const auto b = static_cast<uint32_t>(std::ranges::partition_point(tokens, [&](const SyntaxToken& t) { return t.start < window.text_end; }) - tokens.begin());
+    const auto apply = [&](uint32_t first, uint32_t last) {
+        for (uint32_t i = first; i < last; i++) {
+            if (auto* brush = GetSyntaxBrush(tokens[i].type)) {
+                layout->SetDrawingEffect(brush, DWRITE_TEXT_RANGE{ tokens[i].start, tokens[i].length });
                 MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);
             }
         }
-        pending_type = SyntaxTokenType::Plain;
     };
-    for (const auto& token : tokens) {
-        if (pending_type == token.type && pending_end == token.start) {
-            pending_end = token.start + token.length;
-            continue;
-        }
-        flush();
-        pending_type = token.type;
-        pending_start = token.start;
-        pending_end = token.start + token.length;
+    if (lo >= hi || b < lo || hi < a) {
+        lo = hi = a;
     }
-    flush();
+    apply(a, std::min(b, lo));
+    apply(std::max(a, hi), b);
+    entry.set_syntax_applied(std::min(lo, a), std::max(hi, b));
 }
 
 void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom)
@@ -295,6 +290,11 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry, float 
     // テーブルノード: ビューポートカリング付きの行単位増分処理を行う。
     if (node.type == NodeType::Table) {
         ApplyTableEffects(node, entry, entry_text_top, viewport_top, viewport_bottom);
+        return;
+    }
+    // コードブロックは run もインラインコード背景も持たないので、構文色だけを可視範囲から足す。
+    if (node.type == NodeType::CodeBlock) {
+        ApplyCodeBlockEffects(entry, viewport_top - entry_text_top, viewport_bottom - entry_text_top);
         return;
     }
 
@@ -312,14 +312,10 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry, float 
     entry.set_inline_code_bgs_stale(false);
     MENDO_COUNT_INC(g_effect_stats.apply_node);
 
-    // token / alert_label / run の offset/length は UTF-8 byte 単位なので、IDWriteTextLayout が要求する
+    // alert_label / run の offset/length は UTF-8 byte 単位なので、IDWriteTextLayout が要求する
     // UTF-16 textPosition に変換する。各パス内で byte 位置は単調なので、全文の UTF-16 化はせず
     // パスごとのカーソルで前進させる。
     const std::string_view text = node.GetText();
-
-    if (apply_brushes && node.type == NodeType::CodeBlock) {
-        ApplySyntaxEffects(layout, text, entry.syntax_tokens());
-    }
 
     if (apply_brushes && node.type == NodeType::BlockQuote && node.alert_label_length() > 0) {
         if (const auto idx = AlertColorIndex(node.alert_type); idx < ALERT_TYPE_COUNT) {
@@ -357,7 +353,6 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry, float 
     }
 }
 
-// 非表示のペインはキャッシュビットマップを持ち続けない。
 void Renderer::DrawSidePanes(const SidePaneState& sp)
 {
     const auto& fp = sp.Get(PaneTarget::File);
@@ -365,16 +360,10 @@ void Renderer::DrawSidePanes(const SidePaneState& sp)
         DrawFileExplorer(sp.file_entries, fp);
         DrawSplitter(fp.rect.x + fp.rect.width, fp.rect.y, fp.rect.y + fp.rect.height);
     }
-    else {
-        SidePaneCache(PaneTarget::File).Reset();
-    }
     const auto& tp = sp.Get(PaneTarget::Toc);
     if (tp.show) {
         DrawToc(sp.toc_entries, sp.nodes, tp, sp.active_toc_index);
         DrawSplitter(tp.rect.x + tp.rect.width, tp.rect.y, tp.rect.y + tp.rect.height);
-    }
-    else {
-        SidePaneCache(PaneTarget::Toc).Reset();
     }
 }
 
@@ -533,7 +522,6 @@ bool Renderer::RecreateRenderTarget()
     InvalidateBrushes();
     RecreateBrushes();
     LoadAppIconBitmap();
-    ResetSidePaneCaches();
     // 旧 RT に紐付いた動的色ブラシを捨てる
     cmd_executor_ = CommandExecutor{};
 

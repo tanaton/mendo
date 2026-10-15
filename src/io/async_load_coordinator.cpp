@@ -1,4 +1,5 @@
 #include "async_load_coordinator.h"
+#include "file_io.h"
 #include "layout_computer.h"
 #include "profiler.h"
 #include "task_scheduler.h"
@@ -79,13 +80,16 @@ void AsyncLoadCoordinator::RunWorker(const std::pmr::wstring& path, uint32_t gen
 
     std::optional<ReloadCheck> reload;
     if (reload_base) {
-        // 無変更の保存や truncate→rewrite の前半でも全文パース (100MB で ~0.6s) と
-        // 新旧 Document の二重保持が起きないよう、パース前に差分判定する。
-        reload.emplace(ReloadCheck{ AnalyzeReloadDiff(*reload_base, file->text), reload_base, path, file->byte_size });
+        // 無変更の保存や書き込み途中でも全文パース (100MB で ~0.6s) と
+        // 新旧 Document の二重保持が起きないよう、パース前に判定する。
+        const ReloadDecision decision = IsFileLargerThan(path.c_str(), file->byte_size)
+                                            ? ReloadDecision{ ReloadOp::DeferPartialWrite, std::string_view::npos }
+                                            : AnalyzeReloadDiff(*reload_base, file->text);
+        reload.emplace(ReloadCheck{ decision, reload_base, path, file->byte_size });
         // 以降のパース中に UI が文書を差し替えても旧テキストを延命しない。
         reload_base.reset();
         const auto op = reload->decision.op;
-        if (op == ReloadOp::NoChange || op == ReloadOp::DeferPrefixShrink) {
+        if (op != ReloadOp::Replace) {
             publish(AsyncLoadResult{ .reload = std::move(reload) });
             return;
         }

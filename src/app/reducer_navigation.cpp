@@ -62,7 +62,7 @@ void ReduceFilePaneDirectoryClicked(AppState& state, SideEffectList& effects, co
 {
     state.file_explorer.SetDirectory(a.full_path);
     state.view.panes.SidePaneScroll(PaneTarget::File) = {};
-    EmitSidePaneScrollChanged(effects, PaneTarget::File);
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ReduceFilePaneFileClicked(AppState& state, SideEffectList& effects, const FilePaneFileClickedAction& a)
@@ -84,7 +84,7 @@ void ReduceFilePaneRevealCurrentFile(AppState& state, SideEffectList& effects)
     ctx.scroll.scroll_y = it != entries.end()
                               ? CenterPaneScrollOnItem(static_cast<size_t>(std::distance(entries.begin(), it)), state.theme->pane_item_height, ctx.info)
                               : 0.0f;
-    EmitSidePaneScrollChanged(effects, PaneTarget::File);
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ReduceTocItemClicked(AppState& state, SideEffectList& effects, const TocItemClickedAction& a)

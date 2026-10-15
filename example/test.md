@@ -672,7 +672,7 @@ using SideEffect = std::variant<
     // Navigation
     effect::LoadFile, effect::ReloadFile, effect::OpenFileDialog,
     // Layout
-    effect::BitmapManage, effect::InvalidatePaneCache, effect::RefreshPaneLayout,
+    effect::BitmapManage, effect::RefreshPaneLayout,
     effect::SyncTocActive,
     // Resource
     effect::StartFileWatch, effect::StopFileWatch, effect::ResumeFileWatch,
@@ -718,7 +718,7 @@ public:
 
 `Win32Host` が本番実装で、`HWND` を保持する。トースト表示・コンテキストメニュー描画・レイアウト再計算といった「アプリ内ロジック」は `IWin32Host` を経由せず、`SideEffectExecutor` が `App` 内のサービス（`App`/`LayoutService`）を直接呼ぶ設計になっている — `IWin32Host` はあくまで Win32 API 境界を跨ぐための adapter に絞られる。
 
-`SideEffectExecutor` 自体は `SideEffectExecutorT<Cb>` template として `side_effect_executor.h` に宣言・inline 定義される。依存は `SideEffectExecutorDeps` 構造体（host / file_watcher / state / layout_service のポインタ集約）で受け取る。具象 Cb は `AppSideEffectCallbacks`（`app_side_effect_callbacks.{h,cpp}`）で、`load_file` / `invalidate_pane_cache` / `apply_theme_change` / `schedule_bitmap_manage` などの「アプリ内ロジック」呼び出しを App メンバへ転送する（resource 系コールバックは別 struct `AppResourceManagerCallbacks` の責務）。`Callbacks` 自身も `template<class Cb>` 化されているため direct call にコンパイルされる。
+`SideEffectExecutor` 自体は `SideEffectExecutorT<Cb>` template として `side_effect_executor.h` に宣言・inline 定義される。依存は `SideEffectExecutorDeps` 構造体（host / file_watcher / state / layout_service のポインタ集約）で受け取る。具象 Cb は `AppSideEffectCallbacks`（`app_side_effect_callbacks.{h,cpp}`）で、`load_file` / `refresh_pane_layout` / `apply_theme_change` / `schedule_bitmap_manage` などの「アプリ内ロジック」呼び出しを App メンバへ転送する（resource 系コールバックは別 struct `AppResourceManagerCallbacks` の責務）。`Callbacks` 自身も `template<class Cb>` 化されているため direct call にコンパイルされる。
 
 ```cpp
 template <class Cb>
@@ -734,7 +734,6 @@ struct AppSideEffectCallbacks {
     void load_file(std::wstring_view path);
     void reload_file();
     void open_file_dialog();
-    void invalidate_pane_cache(PaneZone pane);
     void refresh_pane_layout();
     void renderer_resize(UINT w, UINT h);
     void renderer_set_dpi(float dpi);
@@ -1103,7 +1102,7 @@ public:
 
 1. 背景クリア
 2. カスタムタイトルバー（`DrawTitleBar`）
-3. ファイルペイン / TOCペイン（`DrawSidePanes`、オフスクリーンキャッシュ経由）
+3. ファイルペイン / TOCペイン（`DrawSidePanes`、毎フレーム直接描画）
 4. Markdownコンテンツ（`GenerateMdPane` → `CommandExecutor::Execute`）
    - コードブロック背景 → テキスト → シンタックスハイライト
    - 引用ブロック左バー
@@ -1123,7 +1122,7 @@ public:
 
 描画コストを抑えるためのキャッシュ:
 
-- **サイドペインのオフスクリーンキャッシュ**（`PaneCache`）: ビットマップは 64 DIP 単位に切り上げたサイズで確保し、ペインが確保済みサイズを超えて拡大した時だけ作り直す。描画時は必要な部分矩形だけを転送するため、ウィンドウやスプリッタのドラッグ中に毎フレーム `CreateCompatibleRenderTarget` しない。`cached_width` / `cached_height` は描画内容のサイズで、変化すれば内容だけ描き直す。
+- **サイドペインの項目テキスト**: 可視項目は数十個なのでオフスクリーンに溜めず毎フレーム描く。左寄せ NO_WRAP の項目名・見出しはレイアウト幅を固定して `TextLayoutCache` に載せ、はみ出しはクリップで切るため、スプリッタのドラッグ中もレイアウトを作り直さない。
 - **タイトルバー・検索バーの文字列**: `DrawText` は呼び出しごとに内部でテキストレイアウトを作るため使わない。中央揃え書式のレイアウトを幅/高さ 0 で作って矩形中心に描く `DrawCenteredText`（タイトル文字列 `title_layout_`、検索件数 `search_count_layout_`）と、(書式, 文字列) ごとに作り置く `DrawIcon`（アイコン・トグルラベル用 `icon_layouts_`）で、文字列と書式が同じ間はレイアウトを使い回す。ナビボタン・ジェスチャーの文字も `DrawIcon`、トーストは `toast_layout_` スロットに載せ、固定サイズの箱が必要なものは箱サイズでレイアウトを作って左上に描く。書式を作り直す `RecreatePaneFormats` でまとめて破棄する。
 
 ---
@@ -1223,7 +1222,7 @@ public:
 
 起動時は `App::Init` が `Renderer` より先に `LoadDarkMode` / `LoadZoomIndex` を読み、保存済みのテーマとズームで作った `Theme` を `Renderer::Init(hwnd, theme)` に渡す。書式とブラシは 1 回の生成で済み、ライトテーマで作ってから作り直す二重生成を避ける。
 
-ライト/ダークの切替はフォントと寸法が共通なので色だけの変更として扱う。`Renderer::SetTheme` は書式やテキストレイアウトを作り直さず、固定ブラシの色を `SetColor` で差し替えてサイドペインのキャッシュを無効化するだけである（ズーム変更は `ApplyZoomFromBase` の別経路）。Reducer 側（`ReduceToggleDarkMode`）もテキストレイアウトと描画エフェクトを維持し、テーマ色を焼き込んだ Mermaid ビットマップだけを `LayoutCache::InvalidateDiagramBitmaps` で破棄する。
+ライト/ダークの切替はフォントと寸法が共通なので色だけの変更として扱う。`Renderer::SetTheme` は書式やテキストレイアウトを作り直さず、固定ブラシの色を `SetColor` で差し替えるだけである（ズーム変更は `ApplyZoomFromBase` の別経路）。Reducer 側（`ReduceToggleDarkMode`）もテキストレイアウトと描画エフェクトを維持し、テーマ色を焼き込んだ Mermaid ビットマップだけを `LayoutCache::InvalidateDiagramBitmaps` で破棄する。
 
 #### 3.9.3 ズームシステム
 
@@ -1287,7 +1286,7 @@ graph LR
     JSON --> KW & ST & NU
 ```
 
-`SyntaxTokenType` には `Plain` も定義されているが、トークナイザは `Plain` トークンを出力しない。描画（`ApplyNodeEffects`）も HTML 化もトークン間の隙間を既定色のテキストとして扱うため、出力しても同じ結果になるうえトークン数の大半を占めるだけだからである。トークンは計測で text_layout を作るときに一緒に作って `NodeLayoutEntry` に置き、画面外で layout を捨てるときに一緒に捨てる。書式付きコピーは表示の有無に関係なくその場でトークン化する。
+`SyntaxTokenType` には `Plain` も定義されているが、トークナイザは `Plain` トークンを出力しない。描画も HTML 化もトークン間の隙間を既定色のテキストとして扱うため、出力しても同じ結果になるうえトークン数の大半を占めるだけだからである。トークンは計測で text_layout を作るときに一緒に作り、UTF-16 位置に直して隣り合う同種をまとめてから `NodeLayoutEntry` に置き、画面外で layout を捨てるときに一緒に捨てる。描画（`ApplyCodeBlockEffects`）は可視範囲の前後 1 画面にかかるトークンだけを適用し、適用済みの添字区間を広げていくので、巨大なコードブロックが初めて見えたフレームでも全トークン分の `SetDrawingEffect` は走らない。書式付きコピーは表示の有無に関係なくその場でトークン化する。
 
 C++ の生文字列 `R"delim(...)delim"` は、`R"` の直後から規格どおり最大 16 文字・空白/括弧/`\` を含まない区切りの範囲だけ `(` を探す。上限なしに探すと `(` の無い `R"` が続く文書で末尾までの走査を繰り返し、O(n²) になるためである。
 

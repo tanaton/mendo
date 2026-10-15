@@ -41,11 +41,14 @@ void App::ResetViewForNewDocument()
     EmitEffect(effect::SearchUnfocus{ /*clear_text=*/true });
     CancelPendingResources();
     renderer_.ShrinkBuffers();
-    renderer_.InvalidateAllSidePaneCaches();
 }
 
 void App::StopLoadingAnimation()
 {
+    // スピナーを消すための再描画。後続が描き直さない経路 (同じファイルを開き直して NoChange) もある。
+    if (file_load_service_.IsLoading()) {
+        Invalidate();
+    }
     EmitEffect(effect::KillTimer{ app_timer::Id::LOADING_ANIM });
     file_load_service_.StopLoading();
 }
@@ -71,20 +74,28 @@ void App::LoadHelpDocument()
     FinishLoadMarkdownFile(/*follow_file_pane=*/false);
 }
 
+namespace {
+// 100MB 級の文書はテキスト・runs・リンク URL を arena ごと捨てても、数十万ノードの走査と
+// 表等の解放で UI を十数 ms 止めるため worker で破棄する。
+// 渡すものは COM / D2D の参照を持たないこと (確保元の既定 pmr リソースはスレッド安全)。
+template <class T>
+void DisposeOnWorkerIfLarge(TaskScheduler& scheduler, size_t node_count, T&& obj)
+{
+    constexpr size_t kBackgroundDisposeMinNodes = 4096;
+    if (node_count >= kBackgroundDisposeMinNodes) {
+        scheduler.Post([o = std::forward<T>(obj)] {});
+    }
+}
+} // namespace
+
 void App::ReplaceDocument(Document next, LayoutCache estimated)
 {
-    // 100MB 級の旧文書はテキスト・runs・リンク URL を arena ごと捨てても、数十万ノードの走査と
-    // 表等の解放で UI を十数 ms 止めるため worker で破棄する。
-    // Document は COM を持たず、確保元 (既定の pmr リソース) はスレッド安全。
-    // LayoutCache は D2D 由来の参照を持つので対象外 (UI スレッドで破棄する)。
-    constexpr size_t kBackgroundDisposeMinNodes = 4096;
     // 以降、doc のノードと layout_cache のエントリは常に同数 (描画・ヒットテスト等はこれを前提にする)。
     assert(estimated.size() == next.GetNodes().size());
     Document old = std::exchange(state_.document.doc, std::move(next));
+    // 旧 LayoutCache は D2D 由来の参照を持つので worker に渡さず UI スレッドで破棄する。
     state_.document.layout_cache = std::move(estimated);
-    if (old.GetNodes().size() >= kBackgroundDisposeMinNodes) {
-        scheduler_.Post([doc = std::move(old)] {});
-    }
+    DisposeOnWorkerIfLarge(scheduler_, old.GetNodes().size(), std::move(old));
     // ツールチップの同一判定は node / TOC の index で行うため、旧文書の対象を持ち越さない。
     InvalidateHitPositions();
 }
@@ -111,16 +122,15 @@ void App::BeginAsyncLoad(std::pmr::wstring path, bool show_animation, std::share
     file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE, renderer_.GetTheme(), std::move(reload_base));
 }
 
-// DeferPrefixShrink はエディタの truncate→rewrite 2段階保存の前半。
+// Defer* はエディタの保存途中 (truncate→rewrite の前半や書き込み中) を読んだ状態。
 // state_.document.doc を更新せず保持して、次のリロードで正確な差分を取り直す。
 App::ReloadFlow App::ApplyReloadDecisionEarly(const ReloadDecision& decision)
 {
     if (decision.op == ReloadOp::NoChange) {
         EmitEffect(effect::ResumeFileWatch{});
-        Invalidate();
         return ReloadFlow::Handled;
     }
-    if (decision.op == ReloadOp::DeferPrefixShrink) {
+    if (decision.op != ReloadOp::Replace) {
         DeferReloadRetry();
         return ReloadFlow::Handled;
     }
@@ -234,6 +244,10 @@ void App::OnParseComplete()
         return;
     case ParseCompleteStep::RetryDocumentChanged:
     case ParseCompleteStep::RetryPartialWrite:
+        // worker が作った推定済み LayoutCache は D2D 由来の参照を持たないので、文書ごと worker で捨てられる。
+        if (result) {
+            DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), std::move(outcome));
+        }
         DeferReloadRetry();
         return;
     case ParseCompleteStep::ApplyReload:
@@ -311,6 +325,8 @@ void App::ReloadCurrentFile()
     if (file_load_service_.IsLoading() || file_load_service_.IsAsyncLoading()) {
         return;
     }
+    // ここまでに届いた通知の変更はこれから読む内容に含まれる。残すと Resume で同じ保存をもう一度読み直す。
+    file_watcher_.DiscardPendingChange();
 
     const auto& path = state_.document.doc.GetFilePath();
     if (DocumentService::IsAsyncLoadCandidate(path)) {
@@ -371,8 +387,6 @@ void App::FinishReload(size_t diff_pos)
     const bool had_left_drag = IsLeftDragActive(state_);
     state_.view.ResetPerNodeTransientState();
     ReleaseCaptureIfDragDropped(had_left_drag);
-
-    renderer_.InvalidateSidePaneCache(PaneTarget::Toc);
 
     const PaneRect md = GetPaneLayout().md_rect;
 

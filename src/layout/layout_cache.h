@@ -167,7 +167,8 @@ struct TableLayoutData {
     }
 
     // row_heights (先頭 row_count 行) / col_widths から罫線込みの累積位置を積み直す。
-    void RebuildRowCumY(size_t row_count);
+    // first_row より前の row_cum_y は有効なものとして使い回す (大きさが合わなければ全行)。
+    void RebuildRowCumY(size_t row_count, size_t first_row = 0);
     void RebuildColCumX();
 
     // 行幾何が row_count と揃っていれば VisibleRowRange、未確定なら全行 [0, row_count)。
@@ -296,6 +297,7 @@ struct NodeLayoutEntry {
     }
 
     // CodeBlock の色付け用。計測ワーカーが text_layout と一緒に作り、ApplyNodeEffects が読む。
+    // 位置は UTF-16 単位で、隣り合う同種のトークンはまとめてある。
     std::span<const SyntaxToken> syntax_tokens() const noexcept
     {
         return aux_ ? std::span<const SyntaxToken>{ aux_->syntax_tokens } : std::span<const SyntaxToken>{};
@@ -327,9 +329,23 @@ struct NodeLayoutEntry {
     {
         return GetAux(&Aux::effects_applied);
     }
+    // 適用をやり直すときは、コードブロックの適用済み範囲も一緒に捨てる。
     constexpr void set_effects_applied(bool applied)
     {
         SetAux(&Aux::effects_applied, applied);
+        if (!applied) {
+            set_syntax_applied(0, 0);
+        }
+    }
+    // syntax_tokens のうち SetDrawingEffect 済みの添字範囲 [first, second)。
+    constexpr std::pair<uint32_t, uint32_t> syntax_applied() const noexcept
+    {
+        return { GetAux(&Aux::syntax_applied_begin), GetAux(&Aux::syntax_applied_end) };
+    }
+    constexpr void set_syntax_applied(uint32_t begin, uint32_t end)
+    {
+        SetAux(&Aux::syntax_applied_begin, begin);
+        SetAux(&Aux::syntax_applied_end, end);
     }
     constexpr bool inline_code_bgs_stale() const noexcept
     {
@@ -458,6 +474,8 @@ private:
         // SetMaxWidth だけの再計測は描画エフェクト/下線を保持するため、折り返しに依存する
         // インラインコード背景だけ作り直させる。effects_applied が true のときのみ意味を持つ。
         bool inline_code_bgs_stale = false;
+        uint32_t syntax_applied_begin = 0;
+        uint32_t syntax_applied_end = 0;
         // 再計測のたびに作り直すので、確保し直さないよう Aux に直接持つ。
         std::pmr::vector<InlineCodeBg> inline_code_bgs;
         std::pmr::vector<SyntaxToken> syntax_tokens;
@@ -492,6 +510,10 @@ private:
 
 // 全ノード分並ぶので、計測・描画したノードでしか使わないフィールドは Aux に置いて増やさない。
 static_assert(sizeof(NodeLayoutEntry) <= 24, "NodeLayoutEntry size regression: move per-materialized fields into Aux");
+
+// 本文 text_layout の、view (layout ローカル Y) の上下に 1 画面ずつ足した行のテキスト範囲。
+// 同じフレームの描画エフェクトとハイライトが共有し、view が窓に収まる間は引き直さない。
+const LineWindow& EnsureLineWindow(const NodeLayoutEntry& entry, LocalYRange view);
 
 struct DiagramEntry {
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;

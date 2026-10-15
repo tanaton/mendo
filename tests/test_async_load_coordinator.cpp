@@ -173,6 +173,27 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadWithChangeParsesAndCarriesDecision)
     EXPECT_EQ(result->reload->loaded_byte_size, result->doc.GetLoadedByteSize());
 }
 
+// 読み終えた後もファイルが伸びている (書き込み途中) なら、差分判定もパースもせずに返す。
+TEST_F(AsyncLoadCoordinatorTest, ReloadWhileFileStillGrowingSkipsParse)
+{
+    TempFile tmp(L"aload_reload_growing", std::string(256, 'x'));
+    auto base = std::make_shared<const std::pmr::string>("# Title\n\nbody\n");
+    // 実ファイルより短い先頭だけを読んだ状態を再現する。
+    AsyncLoadCoordinator c([](const std::pmr::wstring&, const std::stop_token&) -> std::expected<LoadedFileDoc, FileLoadError> {
+        return LoadedFileDoc{ std::pmr::string("# Title\n\nchanged\n"), 17 };
+    });
+    c.Start(scheduler_, tmp.PmrPath(), nullptr, 0, GetLightTheme(), base);
+    std::optional<AsyncLoadOutcome> outcome;
+    ASSERT_TRUE(PollUntil([&] { outcome = c.Take(); return outcome.has_value(); }));
+    ASSERT_TRUE(outcome->has_value());
+    const auto& result = **outcome;
+    ASSERT_TRUE(result.reload.has_value());
+    EXPECT_EQ(result.reload->decision.op, ReloadOp::DeferPartialWrite);
+    EXPECT_EQ(result.reload->loaded_byte_size, 17u);
+    EXPECT_EQ(result.reload->base.lock(), base);
+    EXPECT_TRUE(result.doc.IsEmpty());
+}
+
 // ---- 世代 / キャンセルの決定的検証 ----
 // 単一 worker の scheduler を塞いで Start / Cancel を「worker 未着手」のまま積む、または
 // 差し替えローダで worker を読み込み途中に止めることで、競合の順序をテスト側で固定する。

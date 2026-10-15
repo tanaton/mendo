@@ -158,10 +158,18 @@ TEST_F(ReducerTest, SelectWord_InvalidNode_NoOp)
 TEST_F(ReducerTest, ClearSelection_WhenNotVisible)
 {
     // 検索バーが非表示の場合、選択をクリアする
+    state.view.viewport.SetSelection(TextSelection::MakeOrdered(0, 0, 0, 3));
     auto effects = Reduce(state, ClearSelectionAction{});
 
     EXPECT_FALSE(state.view.viewport.GetSelection().active);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+}
+
+TEST_F(ReducerTest, ClearSelection_NothingToClearSkipsRedraw)
+{
+    auto effects = Reduce(state, ClearSelectionAction{});
+
+    EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 TEST_F(ReducerTest, ClearSelection_ClosesSearchBar)
@@ -337,7 +345,6 @@ TEST_F(ReducerTest, PointerHover_MovingToAnotherZoneClearsPreviousHighlights)
     auto effects = Reduce(state, PointerHoverAction{ PointerHover{ .nav = NavButtonHover::Back } });
     EXPECT_EQ(state.view.panes.GetHoveredSideIndex(PaneTarget::File), -1);
     EXPECT_EQ(state.interaction.nav_hover, NavButtonHover::Back);
-    EXPECT_TRUE(HasEffect<effect::InvalidatePaneCache>(effects));
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -940,7 +947,7 @@ TEST_F(ReducerTest, PaneScrollbarDragStarted_TocScrollable_ThumbHit_StoresOffset
     EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
     // thumb 上クリックではスクロール位置は不変
     EXPECT_FLOAT_EQ(state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y, 0.0f);
-    EXPECT_FALSE(HasEffect<effect::InvalidatePaneCache>(effects));
+    EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 TEST_F(ReducerTest, PaneScrollbarDragStarted_TocScrollable_ThumbMiss_Jumps)
@@ -954,7 +961,6 @@ TEST_F(ReducerTest, PaneScrollbarDragStarted_TocScrollable_ThumbMiss_Jumps)
     EXPECT_EQ(state.view.panes.GetDragTarget(), PaneController::DragTarget::TocScrollbar);
     EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
     EXPECT_GT(state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y, 0.0f);
-    EXPECT_TRUE(HasEffect<effect::InvalidatePaneCache>(effects));
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -968,7 +974,6 @@ TEST_F(ReducerTest, PaneScrollbarDragMoved_WhileDragging_UpdatesScroll)
     auto effects = Reduce(state, PaneScrollbarDragMovedAction{ PaneTarget::Toc, 200.0f });
 
     EXPECT_GT(state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y, 0.0f);
-    EXPECT_TRUE(HasEffect<effect::InvalidatePaneCache>(effects));
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -1210,7 +1215,6 @@ TEST_F(ReducerTest, FilePaneDirectoryClicked_UpdatesDirAndInvalidates)
     auto effects = Reduce(state, FilePaneDirectoryClickedAction{ std::pmr::wstring(L"C:\\nonexistent_dir_for_test") });
 
     EXPECT_EQ(state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y, 0.0f);
-    EXPECT_TRUE(HasEffect<effect::InvalidatePaneCache>(effects));
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -1271,7 +1275,6 @@ TEST_F(FilePaneRevealTest, MovesToDocumentDirectoryAndCentersCurrentFile)
     EXPECT_TRUE(entries[16].is_current());
     // index 16 の上端 448 から (280 - 28) / 2 を引いて中央に置く
     EXPECT_FLOAT_EQ(FileScroll(), 322.0f);
-    EXPECT_TRUE(HasEffect<effect::InvalidatePaneCache>(effects));
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 

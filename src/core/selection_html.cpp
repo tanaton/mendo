@@ -546,13 +546,16 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
 
 std::optional<LinkHit> FindLinkInRuns(std::span<const TextRun> runs, std::span<const std::string_view> link_urls, uint32_t pos)
 {
-    const auto it = std::ranges::find_if(runs, [pos](const TextRun& run) noexcept {
-        return run.has_link() && (pos >= run.start) && (pos < run.start + run.length);
-    });
-    if (it == runs.end() || static_cast<size_t>(it->link_url_index) >= link_urls.size()) {
+    // runs は start 昇順で重ならないので、pos を含みうるのは start <= pos の最後の run だけ。
+    const auto it = std::ranges::upper_bound(runs, pos, {}, &TextRun::start);
+    if (it == runs.begin()) {
         return std::nullopt;
     }
-    const auto index = static_cast<uint32_t>(it->link_url_index);
+    const TextRun& run = *std::prev(it);
+    if (!run.has_link() || pos >= run.start + run.length || static_cast<size_t>(run.link_url_index) >= link_urls.size()) {
+        return std::nullopt;
+    }
+    const auto index = static_cast<uint32_t>(run.link_url_index);
     return LinkHit{ link_urls[index], index };
 }
 
