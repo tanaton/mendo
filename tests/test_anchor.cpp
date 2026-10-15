@@ -25,10 +25,17 @@ constexpr AnchorCase kAnchorCases[] = {
     { "TabsToHyphens", "a\tb", "a-b" },
     { "SpecialCharsStripped", "Hello, World!", "hello-world" },
     { "CjkCharactersPreserved", "見出しレベル2", "見出しレベル2" },
-    // U+0080–U+2FFF の文字 (アクセント付きラテン等) が脱落しないこと。
-    // ASCII 以外は小文字化されない (FindAnchorIndex 側も ASCII のみ小文字化)。
+    // U+0080–U+2FFF の文字 (アクセント付きラテン等) が脱落せず、GitHub と同じく小文字になること。
     { "LatinAccentPreserved", "Café", "café" },
-    { "CyrillicPreserved", "Привет", "Привет" },
+    { "LatinAccentLowered", "Über Ŷ", "über-ŷ" },
+    { "CyrillicLowered", "Привет Ёж", "привет-ёж" },
+    { "GreekLowered", "Ωμέγα Άλφα", "ωμέγα-άλφα" },
+    { "FullWidthLatinLowered", "ＡＢＣ", "ａｂｃ" },
+    { "ArmenianLowered", "Բարեւ", "բարեւ" },
+    { "CherokeeLowered", "Ꭰ", "ꭰ" },
+    { "SupplementaryPlaneLowered", "𐐀", "𐐨" },
+    // U+0130 は単純小文字の i にする (toLowerCase の i + U+0307 は UTF-8 長が伸びるので扱わない)
+    { "DottedCapitalISimpleLowercase", "İ", "i" },
     // 一般句読点 (U+2000–U+206F) は記号として除外される
     { "GeneralPunctuationStripped", "em—dash…", "emdash" },
     { "MixedAsciiAndCjk", "Step 1: テスト", "step-1-テスト" },

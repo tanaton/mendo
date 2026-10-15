@@ -71,6 +71,7 @@ public:
 struct CallbackTracker {
     std::vector<std::wstring> load_file_paths;
     int reload_file_count = 0;
+    int cancel_other_file_load_count = 0;
     int open_file_dialog_count = 0;
     int refresh_pane_layout_count = 0;
     std::pair<UINT, UINT> last_renderer_resize{ 0, 0 };
@@ -96,6 +97,10 @@ struct TestSideEffectCallbacks {
     void reload_file()
     {
         t->reload_file_count++;
+    }
+    void cancel_other_file_load()
+    {
+        t->cancel_other_file_load_count++;
     }
     void open_file_dialog()
     {
@@ -180,6 +185,12 @@ TEST_F(SideEffectExecutorTest, ReloadFileDispatchesToCallback)
 {
     exec_.ExecuteOne(effect::ReloadFile{});
     EXPECT_EQ(tracker_.reload_file_count, 1);
+}
+
+TEST_F(SideEffectExecutorTest, CancelOtherFileLoadDispatchesToCallback)
+{
+    exec_.ExecuteOne(effect::CancelOtherFileLoad{});
+    EXPECT_EQ(tracker_.cancel_other_file_load_count, 1);
 }
 
 TEST_F(SideEffectExecutorTest, OpenFileDialogDispatchesToCallback)

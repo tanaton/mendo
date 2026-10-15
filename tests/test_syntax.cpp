@@ -271,6 +271,9 @@ TEST(Syntax, TokenCount)
         // 行の途中の REM や行頭でない :: はコメントではない
         { "CmdRemNotAtLineStart", "echo REM", Cmd, Comment, 0 },
         { "CmdDoubleColonNotAtLineStart", "x::y", Cmd, Comment, 0 },
+        // 単語の途中の # はコメントではない
+        { "BashHashInsideWord", "echo ${#arr[@]} $# http://x/#frag", Bash, Comment, 0 },
+        { "BashHashAfterSemicolon", "a=1;# c\n(#c2\n#c3", Bash, Comment, 3 },
         { "JsonLiteralsAsKeywords", "[true, false, null]", Json, Keyword, 3 },
         { "JsonString", "\"hello world\"", Json, String, 1 },
         { "JsonStringWithEscapes", "\"line1\\nline2\\t\\\"quoted\\\"\"", Json, String, 1 },

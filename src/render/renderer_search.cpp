@@ -215,5 +215,6 @@ int Renderer::HitTestSearchInput(std::wstring_view query, float local_x, float m
     if (FAILED(hr)) {
         return 0;
     }
-    return static_cast<int>(htm.textPosition) + (is_trailing ? 1 : 0);
+    // 結合文字やサロゲートペアの途中に置かないよう、クラスタの長さ分進める。
+    return static_cast<int>(htm.textPosition + (is_trailing ? htm.length : 0));
 }

@@ -63,8 +63,8 @@ int Document::FindAnchorIndex(std::string_view anchor)
     if (anchor.empty()) {
         return -1;
     }
-    // 割り当てるアンカーは ASCII 小文字なので query 側だけ畳む。
-    const auto key = ToLowerAsciiCopy(anchor);
+    // 割り当てるアンカーは小文字なので query 側だけ畳む。
+    const auto key = ToLowerAnchorCopy(anchor);
     if (const int footnote = FindFootnoteAnchor(key, footnote_def_indices_, footnote_refs_); footnote >= 0) {
         return footnote;
     }

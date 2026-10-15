@@ -95,7 +95,6 @@ struct WindowState {
     uint32_t client_height = 0;
 };
 
-// アプリケーションの全状態を集約する構造体。
 struct AppState {
     DocumentState document;
     ViewState view;

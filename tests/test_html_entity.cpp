@@ -25,6 +25,28 @@ TEST(HtmlEntity, NamedLiterals)
     EXPECT_EQ(Resolve("&nbsp;"), " ");
 }
 
+TEST(HtmlEntity, NamedHtml5)
+{
+    EXPECT_EQ(Resolve("&copy;"), "©");
+    EXPECT_EQ(Resolve("&mdash;"), "—");
+    EXPECT_EQ(Resolve("&hellip;"), "…");
+    EXPECT_EQ(Resolve("&rarr;"), "→");
+    EXPECT_EQ(Resolve("&times;"), "×");
+    EXPECT_EQ(Resolve("&AElig;"), "Æ");
+    EXPECT_EQ(Resolve("&zwnj;"), "‌");
+    // 2 コードポイントに展開される参照
+    EXPECT_EQ(Resolve("&NotEqualTilde;"), "≂̸");
+}
+
+TEST(HtmlEntity, RejectsUnknownNamed)
+{
+    EXPECT_EQ(Resolve("&unknownentity;"), std::nullopt);
+    EXPECT_EQ(Resolve("&COPY2;"), std::nullopt);
+    // 名前は大文字小文字を区別する
+    EXPECT_EQ(Resolve("&Mdash;"), std::nullopt);
+    EXPECT_EQ(Resolve("&copy"), std::nullopt);
+}
+
 TEST(HtmlEntity, NumericDecimal)
 {
     EXPECT_EQ(Resolve("&#65;"), "A");

@@ -123,6 +123,57 @@ TEST_F(NavHistoryTest, MultipleBackForward)
     EXPECT_FALSE(hist_.CanGoForward());
 }
 
+// ─── ロード中に次の操作 ───
+
+// B のロード中に C を開いても、表示中の A は 1 回だけ積まれ、C が開けなければ B を開く前に戻る。
+TEST_F(NavHistoryTest, PushPendingWhilePendingReplacesPreviousOp)
+{
+    hist_.Push({ L"z.md", 0, 0.0f });
+    hist_.PushPending({ L"a.md", 1, 0.0f });
+    hist_.PushPending({ L"a.md", 1, 0.0f });
+    EXPECT_EQ(hist_.BackSize(), 2u);
+
+    hist_.RollbackPending();
+    EXPECT_EQ(hist_.BackSize(), 1u);
+    EXPECT_FALSE(hist_.CanGoForward());
+}
+
+// 戻るを素早く 2 回押すと、ロード中の移動先から続けて戻る。
+TEST_F(NavHistoryTest, ChainedGoBackWhilePending)
+{
+    hist_.Push({ L"x.md", 1, 0.0f });
+    hist_.Push({ L"y.md", 2, 0.0f });
+
+    NavEntry out;
+    ASSERT_TRUE(hist_.GoBack({ L"a.md", 3, 0.0f }, out));
+    EXPECT_EQ(out.file_path, L"y.md");
+    // 文書はまだ A のまま。
+    ASSERT_TRUE(hist_.GoBack({ L"a.md", 3, 0.0f }, out));
+    EXPECT_EQ(out.file_path, L"x.md");
+    hist_.CommitPending();
+
+    EXPECT_FALSE(hist_.CanGoBack());
+    ASSERT_EQ(hist_.ForwardSize(), 2u);
+    ASSERT_TRUE(hist_.GoForward({ L"x.md", 1, 0.0f }, out));
+    EXPECT_EQ(out.file_path, L"y.md");
+    ASSERT_TRUE(hist_.GoForward({ L"y.md", 2, 0.0f }, out));
+    EXPECT_EQ(out.file_path, L"a.md");
+}
+
+TEST_F(NavHistoryTest, ChainedGoBackRollsBackTogether)
+{
+    hist_.Push({ L"x.md", 1, 0.0f });
+    hist_.Push({ L"y.md", 2, 0.0f });
+
+    NavEntry out;
+    ASSERT_TRUE(hist_.GoBack({ L"a.md", 3, 0.0f }, out));
+    ASSERT_TRUE(hist_.GoBack({ L"a.md", 3, 0.0f }, out));
+    hist_.RollbackPending();
+
+    EXPECT_EQ(hist_.BackSize(), 2u);
+    EXPECT_FALSE(hist_.CanGoForward());
+}
+
 // ─── 同一ファイル内アンカーナビゲーション ───
 
 TEST_F(NavHistoryTest, SameFileAnchorNavigation)
@@ -196,14 +247,15 @@ public:
 
     void Push(const ModelEntry& e)
     {
-        saved_.reset();
+        CommitPending();
         PushCapped(back_, e);
         forward_.clear();
     }
 
-    // 仮の操作は直前の両スタックを丸ごと保存し、取り消しでそのまま戻す。
+    // 仮の操作は最初の操作の直前の両スタックを丸ごと保存し、取り消しでそのまま戻す。
     void PushPending(const ModelEntry& e)
     {
+        RollbackPending();
         saved_.emplace(back_, forward_);
         PushCapped(back_, e);
         forward_.clear();
@@ -212,6 +264,7 @@ public:
     void CommitPending()
     {
         saved_.reset();
+        chained_from_.reset();
     }
 
     void RollbackPending()
@@ -219,25 +272,38 @@ public:
         if (saved_) {
             std::tie(back_, forward_) = *std::exchange(saved_, std::nullopt);
         }
+        chained_from_.reset();
     }
 
     std::optional<ModelEntry> Transfer(bool forward, const ModelEntry& current)
     {
         auto& from = forward ? forward_ : back_;
         auto& to = forward ? back_ : forward_;
+        // 確定前の移動に続く移動はその移動先から、開きかけのファイルがあれば取り消して表示中の文書から移動する。
+        if (saved_ && !chained_from_) {
+            const ModelEntry pushed = back_.back();
+            RollbackPending();
+            if (from.empty()) {
+                PushPending(pushed);
+                return std::nullopt;
+            }
+        }
         if (from.empty()) {
             return std::nullopt;
         }
-        saved_.emplace(back_, forward_);
-        PushCapped(to, current);
+        if (!saved_) {
+            saved_.emplace(back_, forward_);
+        }
+        PushCapped(to, chained_from_.value_or(current));
         ModelEntry out = from.back();
         from.pop_back();
+        chained_from_ = out;
         return out;
     }
 
     void Clear()
     {
-        saved_.reset();
+        CommitPending();
         back_.clear();
         forward_.clear();
     }
@@ -264,6 +330,8 @@ private:
     std::deque<ModelEntry> back_;
     std::deque<ModelEntry> forward_;
     std::optional<std::pair<std::deque<ModelEntry>, std::deque<ModelEntry>>> saved_;
+    // 確定前の戻る/進むの移動先。続く戻る/進むの起点になる。
+    std::optional<ModelEntry> chained_from_;
 };
 
 void RunNavHistoryModel(size_t max, uint32_t seed)

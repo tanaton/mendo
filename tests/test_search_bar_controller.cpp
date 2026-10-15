@@ -52,6 +52,8 @@ struct TestSearchBarCallbacks {
     {
         return t->md_pane_height;
     }
+    void ensure_node_layout(int /*node_index*/)
+    {}
     void on_wrap_around()
     {
         t->on_wrap_around_count++;

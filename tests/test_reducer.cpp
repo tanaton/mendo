@@ -466,6 +466,25 @@ TEST_F(ReducerTest, NavigateBack_SameFile_ScrollsAndInvalidates)
     EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
 }
 
+// 戻る (別ファイルをロード中) → 進むで表示中の文書へ戻ったら、ロード中のファイルを取り消させる。
+TEST_F(ReducerTest, NavigateBackThenForwardWhileLoading_CancelsOtherFileLoad)
+{
+    state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\current.md");
+    state.document.layout_cache.Resize(state.document.doc.GetNodes().size());
+    state.view.nav_history.Push(NavEntry{ L"C:\\prev.md", 0, 0.0f });
+
+    auto back = Reduce(state, NavigateBackAction{});
+    ASSERT_TRUE(HasEffect<effect::LoadFile>(back));
+    EXPECT_FALSE(HasEffect<effect::CancelOtherFileLoad>(back));
+
+    auto forward = Reduce(state, NavigateForwardAction{});
+    EXPECT_FALSE(HasEffect<effect::LoadFile>(forward));
+    EXPECT_TRUE(HasEffect<effect::CancelOtherFileLoad>(forward));
+    EXPECT_FALSE(state.view.scroll_restore.HasNodeRestore());
+    EXPECT_TRUE(state.view.nav_history.CanGoBack());
+    EXPECT_FALSE(state.view.nav_history.CanGoForward());
+}
+
 TEST_F(ReducerTest, NavigateForward_NoHistory_NoEffects)
 {
     auto effects = Reduce(state, NavigateForwardAction{});
@@ -1481,6 +1500,7 @@ TEST_F(ReducerTest, LoadFailed_RollsBackHistoryPushedForOpen)
     state.view.nav_history.Push(NavEntry{ L"C:\\next.md", 0, 0.0f });
     NavEntry tmp;
     ASSERT_TRUE(state.view.nav_history.GoBack(NavEntry{ L"C:\\later.md", 0, 0.0f }, tmp));
+    state.view.nav_history.CommitPending();
     const size_t back = state.view.nav_history.BackSize();
     ASSERT_TRUE(state.view.nav_history.CanGoForward());
 

@@ -38,7 +38,6 @@ inline void GenInlineCodeBgs(DrawCommandList& cmds, std::span<const InlineCodeBg
     }
 }
 
-// テーブルセルのインラインコード背景を描画する。
 // bgs は cell_index 昇順を維持しているため、cursor を進めるだけで O(N) 全体で済む。
 // 戻り値は次回呼び出し向けに進めた cursor。
 inline size_t GenCellInlineCodeBgs(DrawCommandList& cmds, std::span<const CellInlineCodeBg> bgs, size_t cursor, uint32_t cell_index, float origin_x, float origin_y, D2D1_COLOR_F color)

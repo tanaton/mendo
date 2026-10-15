@@ -1,40 +1,36 @@
 #include "html_entities.h"
+#include "html_entity_table.h"
 #include "ascii_util.h"
 #include "utf8_codec.h"
+#include <algorithm>
+
+namespace {
+
+constexpr std::string_view EntityName(const HtmlNamedEntity& e) noexcept
+{
+    return { kHtmlEntityData + e.offset, e.name_len };
+}
+
+static_assert(std::ranges::is_sorted(kHtmlNamedEntities, {}, EntityName));
+
+} // namespace
 
 std::optional<std::string_view> ResolveHtmlEntity(std::string_view entity, char (&buffer)[4])
 {
-    // 名前付き実体参照はサイズで先に分岐し、比較対象を 1～3 候補に絞る。
-    switch (entity.size()) {
-    case 4:
-        if (entity == "&lt;") {
-            return std::string_view{ "<" };
-        }
-        if (entity == "&gt;") {
-            return std::string_view{ ">" };
-        }
-        break;
-    case 5:
-        if (entity == "&amp;") {
-            return std::string_view{ "&" };
-        }
-        break;
-    case 6:
-        if (entity == "&quot;") {
-            return std::string_view{ "\"" };
-        }
-        if (entity == "&apos;") {
-            return std::string_view{ "'" };
-        }
-        if (entity == "&nbsp;") {
-            return std::string_view{ "\xC2\xA0" }; // U+00A0 NO-BREAK SPACE (UTF-8: C2 A0)
-        }
-        break;
-    default:
-        break;
+    if (entity.size() < 3 || entity[0] != '&' || entity.back() != ';') {
+        return std::nullopt;
     }
 
-    if (entity.size() < 4 || entity[0] != '&' || entity[1] != '#' || entity.back() != ';') {
+    if (entity[1] != '#') {
+        const std::string_view name = entity.substr(1, entity.size() - 2);
+        const auto it = std::ranges::lower_bound(kHtmlNamedEntities, name, {}, EntityName);
+        if (it == std::ranges::end(kHtmlNamedEntities) || EntityName(*it) != name) {
+            return std::nullopt;
+        }
+        return std::string_view{ kHtmlEntityData + it->offset + it->name_len, it->utf8_len };
+    }
+
+    if (entity.size() < 4) {
         return std::nullopt;
     }
 

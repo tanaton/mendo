@@ -29,7 +29,8 @@ void ResolveTextHit(hit_test::HitResult& result, IDWriteTextLayout* layout, floa
     layout->HitTestPoint(x, y, &is_trailing, &is_inside, &metrics);
     mendo::Utf16OffsetCursor cursor{ text };
     const uint32_t char_pos = cursor.ByteAt(metrics.textPosition);
-    result.text_pos = base + (is_trailing ? cursor.ByteAt(metrics.textPosition + 1) : char_pos);
+    // 結合文字やサロゲートペアの途中に置かないよう、クラスタの長さ分進める。
+    result.text_pos = base + (is_trailing ? cursor.ByteAt(metrics.textPosition + metrics.length) : char_pos);
     if (is_inside) {
         result.char_pos = base + char_pos;
     }
@@ -37,17 +38,18 @@ void ResolveTextHit(hit_test::HitResult& result, IDWriteTextLayout* layout, floa
 
 // ノード高さ範囲外 (ノード間の余白等) のヒットを最寄りの非空ノードにクランプする。
 // 文書全体の末尾へ飛ばすと、余白クリックからのドラッグで巨大選択になる。
+// 表は GetText が空なので LinearizedText で見る。飛ばすと表の直下から始めたドラッグに表全体が入る。
 hit_test::HitResult ClampToNearestTextNode(const std::pmr::vector<Node>& nodes, int candidate) noexcept
 {
     for (int i = candidate; i >= 0; --i) {
-        if (const auto& text = nodes[static_cast<size_t>(i)].GetText(); !text.empty()) {
+        if (const auto text = nodes[static_cast<size_t>(i)].LinearizedText(); !text.empty()) {
             return { i, static_cast<uint32_t>(text.size()) };
         }
     }
     // candidate より前に非空ノードが無い場合 (文頭が HR/Image 等) も含め、
     // 先頭の非空ノードの先頭へ倒して常に有効なヒットを返す。
     for (const auto& [i, node] : nodes | std::views::enumerate) {
-        if (!node.GetText().empty()) {
+        if (!node.LinearizedText().empty()) {
             return { static_cast<int>(i), 0 };
         }
     }

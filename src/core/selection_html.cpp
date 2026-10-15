@@ -424,6 +424,10 @@ public:
         out_.append(open_tag);
         close_tag_ = close_tag;
     }
+    constexpr bool IsOpen() const noexcept
+    {
+        return !close_tag_.empty();
+    }
     // out_.append() は bad_alloc を投げうるため noexcept にはしない。
     constexpr void Close()
     {
@@ -662,16 +666,45 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
     out.reserve(estimated * 2 + 128);
 
     ExclusiveTagScope list(out);
+    // loose list の本文や項目内のコードブロックは LI の後ろに別ノードで並ぶので、
+    // </li> は次の項目かリストを出るまで遅らせ、LI 以上の深さのノードを同じ <li> に入れる
+    // (リストが開いている間は常に <li> も開いている)。
+    // リストを出た直後の引用も indent_level が上がるため、引用の深さが変わるノードは
+    // その引用が項目の中で始まったとき (最外側の引用が項目より深い) だけ項目に含める。
+    int list_indent = 0;
+    int list_quote_depth = 0;
+    const auto in_open_li = [&](const Node& node) {
+        return list.IsOpen() && node.indent_level >= list_indent &&
+               (node.quote_depth == list_quote_depth || node.quote_outer_indent > list_indent);
+    };
+    const auto close_li = [&] {
+        if (list.IsOpen()) {
+            out.append("</li>");
+        }
+    };
 
     ForEachSelectedNode(nodes, selection, [&](int i, const Node& node) {
         const auto text = node.LinearizedText();
         const auto [start, end] = selection.ClampedRange(i, text.size());
 
         if (IsListItem(node)) {
-            const bool ordered = node.list_ordered();
-            list.Enter(ordered ? "<ol>" : "<ul>", ordered ? "</ol>" : "</ul>");
+            close_li();
+            if (!node.list_ordered()) {
+                list.Enter("<ul>", "</ul>");
+            }
+            else if (node.list_number() == 1) {
+                list.Enter("<ol>", "</ol>");
+            }
+            else {
+                char open_tag[32];
+                const auto open_end = std::format_to(open_tag, "<ol start=\"{}\">", node.list_number());
+                list.Enter({ open_tag, open_end }, "</ol>");
+            }
+            list_indent = node.indent_level;
+            list_quote_depth = node.quote_depth;
         }
-        else {
+        else if (!in_open_li(node)) {
+            close_li();
             list.Close();
         }
 
@@ -698,10 +731,10 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
             wrap_inline("<blockquote>", "</blockquote>");
             break;
         case NodeType::ListItem:
-            wrap_inline("<li>", "</li>");
+            wrap_inline("<li>", "");
             break;
         case NodeType::TaskListItem:
-            wrap_inline(node.task_checked() ? "<li><input type=\"checkbox\" checked disabled> " : "<li><input type=\"checkbox\" disabled> ", "</li>");
+            wrap_inline(node.task_checked() ? "<li><input type=\"checkbox\" checked disabled> " : "<li><input type=\"checkbox\" disabled> ", "");
             break;
         case NodeType::HorizontalRule:
             out.append("<hr>");
@@ -727,6 +760,7 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
         }
     });
     // out を返す前に閉じる (デストラクタでは戻り値のコピー後になりうる)。
+    close_li();
     list.Close();
     return out;
 }

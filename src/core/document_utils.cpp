@@ -1,5 +1,6 @@
 #include "document_utils.h"
 #include "ascii_util.h"
+#include "unicode_lower_table.h"
 #include "utf8_codec.h"
 #include <array>
 #include <algorithm>
@@ -146,6 +147,30 @@ std::pmr::wstring ParentDirectory(std::wstring_view path)
 
 namespace {
 
+// GitHub のスラグが使う toLowerCase に合わせる (UTF-8 長が伸びる変換は表から除いてある)。
+constexpr uint32_t ToLowerNonAscii(uint32_t cp) noexcept
+{
+    // 見出しに多い CJK などは大文字を持たないので、表を引かずに返す (生成時に確認済み)。
+    if (cp >= 0x3000 && cp < 0xA640) {
+        return cp;
+    }
+    const auto it = std::ranges::lower_bound(kUnicodeLowerMappings, cp, {}, &UnicodeLowerMapping::upper);
+    return it != std::ranges::end(kUnicodeLowerMappings) && it->upper == cp ? it->lower : cp;
+}
+
+static_assert(std::ranges::is_sorted(kUnicodeLowerMappings, {}, &UnicodeLowerMapping::upper));
+
+// 非 ASCII の 1 コードポイントを小文字にして dst に書き、書いたバイト数を返す (decoded.len 以下)。
+size_t WriteLowerNonAscii(utf8_codec::DecodedCp decoded, const char* src, char* dst) noexcept
+{
+    const uint32_t lower = ToLowerNonAscii(decoded.cp);
+    if (lower == decoded.cp) {
+        std::copy_n(src, decoded.len, dst);
+        return decoded.len;
+    }
+    return utf8_codec::EncodeCp(lower, dst);
+}
+
 // GenerateAnchorId の ASCII (0x00–0x7F) 処理を 1 回の lookup で判定するテーブル。
 // 値: 0=skip, 1=keep, 2=hyphen, 3=lower (A-Z のみ。実際の変換は c | 0x20 で小文字化)。
 enum AsciiSlugAction : uint8_t {
@@ -231,9 +256,7 @@ void GenerateAnchorIdInto(std::string_view text, std::pmr::string& slug)
             const auto decoded = utf8_codec::DecodeAt(text, static_cast<uint32_t>(pos));
             // U+FFFD は不正/truncated バイト由来。アンカーには採用しない。
             if (decoded.cp != utf8_codec::kReplacement && !IsAnchorSkippableSymbol(decoded.cp)) {
-                for (uint32_t i = 0; i < decoded.len; ++i) {
-                    *dst++ = text[pos + i];
-                }
+                dst += WriteLowerNonAscii(decoded, text.data() + pos, dst);
             }
             pos += decoded.len;
         }
@@ -241,6 +264,34 @@ void GenerateAnchorIdInto(std::string_view text, std::pmr::string& slug)
     });
 }
 
+
+std::pmr::string ToLowerAnchorCopy(std::string_view text)
+{
+    std::pmr::string result;
+    result.resize_and_overwrite(text.size(), [text](char* buf, size_t /*count*/) noexcept -> size_t {
+        char* dst = buf;
+        size_t pos = 0;
+        while (pos < text.size()) {
+            const char c = text[pos];
+            if (static_cast<unsigned char>(c) < 0x80) {
+                *dst++ = ascii_util::ToLowerAscii(c);
+                ++pos;
+                continue;
+            }
+            const auto decoded = utf8_codec::DecodeAt(text, static_cast<uint32_t>(pos));
+            // 不正バイトは U+FFFD に置き換えず元のバイトを残す (どの見出しとも一致しないままにする)。
+            if (decoded.cp == utf8_codec::kReplacement) {
+                *dst++ = c;
+                ++pos;
+                continue;
+            }
+            dst += WriteLowerNonAscii(decoded, text.data() + pos, dst);
+            pos += decoded.len;
+        }
+        return static_cast<size_t>(dst - buf);
+    });
+    return result;
+}
 
 std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent)
 {

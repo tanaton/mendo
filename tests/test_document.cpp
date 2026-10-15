@@ -307,6 +307,16 @@ TEST(DocumentTest, FindAnchorIndexCjkHeadingAndSkipsParagraph)
     EXPECT_EQ(doc.FindAnchorIndex("paragraph"), -1);
 }
 
+// GitHub は非 ASCII も小文字にしたスラグを付けるので、そのスラグや大文字のままのリンクでも見出しに飛べること。
+TEST(DocumentTest, FindAnchorIndexNonAsciiCaseInsensitive)
+{
+    auto doc = Document::FromMarkdown("## Введение\n\n## Über", L"test.md");
+    EXPECT_EQ(doc.FindAnchorIndex("введение"), 0);
+    EXPECT_EQ(doc.FindAnchorIndex("Введение"), 0);
+    EXPECT_EQ(doc.FindAnchorIndex("über"), 1);
+    EXPECT_EQ(doc.FindAnchorIndex("ÜBER"), 1);
+}
+
 TEST(DocumentTest, FindAnchorIndexEmptyQuery)
 {
     auto doc = Document::FromMarkdown("# Heading", L"test.md");

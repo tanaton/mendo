@@ -26,6 +26,8 @@ float AppSearchBarCallbacks::get_md_pane_height()
 {
     return 0.0f;
 }
+void AppSearchBarCallbacks::ensure_node_layout(int)
+{}
 void AppSearchBarCallbacks::on_wrap_around()
 {}
 

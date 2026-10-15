@@ -13,6 +13,10 @@ void ApplyNavResult(AppState& state, SideEffectList& effects, NavEntry&& entry)
         PushEffect(effects, effect::LoadFile{ std::move(entry.file_path) });
     }
     else {
+        // 戻る/進むを続けて表示中の文書へ戻ったとき、途中で開き始めたファイルが後から表示されないようにする。
+        PushEffect(effects, effect::CancelOtherFileLoad{});
+        // 取り消すファイル用の復元位置なので、次に開くファイルへ持ち越さない。
+        state.view.scroll_restore.ClearNodeRestore();
         // ロードを伴わないので、ここで確定しないと後の無関係なロード失敗で取り消される。
         state.view.nav_history.CommitPending();
         ApplyScrollTargetAndEmit(state, effects, entry.node, entry.offset, /*toc_auto_scroll=*/true);

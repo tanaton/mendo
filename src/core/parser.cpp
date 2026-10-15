@@ -954,7 +954,6 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 
     const std::string_view chunk{ text, static_cast<size_t>(size) };
 
-    // 各ノードの最初のテキストコールバックでソースオフセットを記録する。
     if (!ctx->current_node->HasSourceOffset()) [[unlikely]] {
         ctx->RecordSourceOffset(chunk);
     }

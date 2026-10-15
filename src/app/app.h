@@ -270,6 +270,7 @@ private:
 
     // ---- ファイル読み込み (app_file.cpp) ----
     void LoadMarkdownFile(std::wstring_view path);
+    void CancelOtherFileLoad();
     // 表示文書とレイアウトキャッシュを一緒に差し替え、旧文書の破棄を worker に回す。
     // estimated は worker が MakeEstimatedLayoutCache で作ったもの。省略時は UI スレッドで推定する。
     void ReplaceDocument(Document next, LayoutCache estimated);
@@ -294,7 +295,8 @@ private:
         ContinueWithReload, // Replace を呼び出し元で実行する
     };
     // NoChange / Defer* をここで処理し、Replace は呼び出し元に任せる。
-    ReloadFlow ApplyReloadDecisionEarly(const ReloadDecision& decision);
+    // has_parsed_doc は新しい内容のパース済み文書が手元にあるか (prefix shrink を受け入れられるか)。
+    ReloadFlow ApplyReloadDecisionEarly(const ReloadDecision& decision, bool has_parsed_doc);
 
     // 短縮リトライで再リロードを予約する。エディタの truncate→rewrite 中や
     // partial-read を検出した時に共通で使う。
@@ -325,6 +327,7 @@ private:
     ThemeService theme_service_{ config_ };
     SessionService session_{ config_ };
     FileLoadService file_load_service_;
+    PrefixShrinkRetry prefix_shrink_retry_;
 
     AppState state_;
 

@@ -520,6 +520,43 @@ TEST(ExtractSelectedTextAsHtml, OrderedListWrapsInOl)
     EXPECT_NE(html.find("</ol>"), std::string::npos);
 }
 
+namespace {
+
+TextSelection SelectAll(const std::pmr::vector<Node>& nodes)
+{
+    const int last = static_cast<int>(nodes.size()) - 1;
+    return TextSelection::MakeOrdered(0, 0, last, static_cast<uint32_t>(nodes[last].LinearizedText().size()));
+}
+
+} // namespace
+
+// loose list は LI が空の枠で本文が後ろの段落ノードになるが、段落を同じ <li> に入れてリストを保つ。
+TEST(ExtractSelectedTextAsHtml, LooseListKeepsParagraphsInsideItems)
+{
+    auto nodes = ParseNodes("1. a\n\n2. b");
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, SelectAll(nodes)), "<ol><li><p>a</p></li><li><p>b</p></li></ol>");
+}
+
+TEST(ExtractSelectedTextAsHtml, ListItemKeepsFollowingCodeBlock)
+{
+    auto nodes = ParseNodes("- a\n\n  ```\n  x\n  ```\n- b\n\nafter");
+    const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
+    EXPECT_TRUE(html.starts_with("<ul><li><p>a</p><pre")) << html;
+    EXPECT_TRUE(html.ends_with("</li><li><p>b</p></li></ul><p>after</p>")) << html;
+}
+
+TEST(ExtractSelectedTextAsHtml, OrderedListKeepsStartNumber)
+{
+    auto nodes = ParseNodes("3. c\n4. d");
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, SelectAll(nodes)), "<ol start=\"3\"><li>c</li><li>d</li></ol>");
+}
+
+TEST(ExtractSelectedTextAsHtml, QuoteAfterListIsOutsideList)
+{
+    auto nodes = ParseNodes("- a\n\n> q");
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, SelectAll(nodes)), "<ul><li>a</li></ul><blockquote>q</blockquote>");
+}
+
 TEST(ExtractSelectedTextAsHtml, BlockQuote)
 {
     auto nodes = ParseNodes("> quoted text");
@@ -1249,6 +1286,22 @@ TEST(FindFirstDifference, LargeInputAcrossChunkBoundaries)
     }
     EXPECT_EQ(FindFirstDifference(base, base), std::string_view::npos);
     EXPECT_EQ(FindFirstDifference(base, base + "x"), base.size());
+}
+
+// 末尾を削っただけの保存は何度読み直しても prefix shrink なので、上限で defer をやめる。
+TEST(PrefixShrinkRetry, StopsDeferringAfterLimit)
+{
+    PrefixShrinkRetry retry;
+    for (int i = 0; i < PrefixShrinkRetry::kMaxDefers; ++i) {
+        EXPECT_FALSE(retry.Exhausted());
+        EXPECT_TRUE(retry.TryDefer());
+    }
+    EXPECT_TRUE(retry.Exhausted());
+    EXPECT_FALSE(retry.TryDefer());
+
+    retry.Reset();
+    EXPECT_FALSE(retry.Exhausted());
+    EXPECT_TRUE(retry.TryDefer());
 }
 
 // ============================================================

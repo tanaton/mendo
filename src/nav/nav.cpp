@@ -17,50 +17,67 @@ std::optional<NavEntry> NavHistory::PushCapped(std::pmr::deque<NavEntry>& stack,
 
 void NavHistory::Push(const NavEntry& current)
 {
-    pending_.reset();
+    pending_.clear();
     PushCapped(back_stack_, current);
     forward_stack_.clear();
 }
 
 void NavHistory::PushPending(const NavEntry& current)
 {
-    pending_ = PendingOp{ .to_back = true, .taken = std::exchange(forward_stack_, {}) };
-    pending_->dropped = PushCapped(back_stack_, current);
+    RollbackPending();
+    PendingOp& op = pending_.emplace_back(PendingOp{ .to_back = true, .taken = std::exchange(forward_stack_, {}) });
+    op.dropped = PushCapped(back_stack_, current);
 }
 
 void NavHistory::CommitPending() noexcept
 {
-    pending_.reset();
+    pending_.clear();
 }
 
 void NavHistory::RollbackPending()
 {
-    if (!pending_) {
-        return;
+    for (; !pending_.empty(); pending_.pop_back()) {
+        PendingOp& op = pending_.back();
+        auto& to = op.to_back ? back_stack_ : forward_stack_;
+        auto& from = op.to_back ? forward_stack_ : back_stack_;
+        to.pop_back();
+        if (op.dropped) {
+            to.push_front(std::move(*op.dropped));
+        }
+        from.insert(from.end(), std::make_move_iterator(op.taken.begin()), std::make_move_iterator(op.taken.end()));
     }
-    auto& to = pending_->to_back ? back_stack_ : forward_stack_;
-    auto& from = pending_->to_back ? forward_stack_ : back_stack_;
-    to.pop_back();
-    if (pending_->dropped) {
-        to.push_front(std::move(*pending_->dropped));
-    }
-    from.insert(from.end(), std::make_move_iterator(pending_->taken.begin()), std::make_move_iterator(pending_->taken.end()));
-    pending_.reset();
 }
 
 bool NavHistory::Transfer(std::pmr::deque<NavEntry>& from, std::pmr::deque<NavEntry>& to, const NavEntry& current, NavEntry& out)
 {
+    // 表示中の文書は確定前の移動先へまだ切り替わっていないので、続けて移動するときは移動先を起点にする。
+    // current のまま積むと表示中の位置が履歴に重複する。
+    std::optional<NavEntry> chained_from;
+    if (!pending_.empty()) {
+        if (pending_.back().transfer) {
+            chained_from = pending_.back().taken.back();
+        }
+        else {
+            // 開きかけのファイルは取り消し、表示中の文書から移動し直す。移動できなければ元に戻す。
+            const NavEntry pushed = back_stack_.back();
+            RollbackPending();
+            if (from.empty()) {
+                PushPending(pushed);
+                return false;
+            }
+        }
+    }
     if (from.empty()) {
         return false;
     }
 
     // Push は進む履歴を空にして積むので back + forward は上限を超えず、移動で押し出しは起きない。
     assert(back_stack_.size() + forward_stack_.size() <= max_history_);
-    pending_ = PendingOp{ .to_back = &to == &back_stack_ };
-    to.push_back(current);
+    PendingOp& op = pending_.emplace_back(PendingOp{ .to_back = &to == &back_stack_, .transfer = true });
+    to.push_back(chained_from ? std::move(*chained_from) : current);
     out = std::move(from.back());
     from.pop_back();
-    pending_->taken.push_back(out);
+    op.taken.push_back(out);
     return true;
 }
 
@@ -78,7 +95,7 @@ void NavHistory::Clear() noexcept
 {
     back_stack_.clear();
     forward_stack_.clear();
-    pending_.reset();
+    pending_.clear();
 }
 
 // ShellExecuteWに渡しても安全なURLスキームかどうかを判定する。

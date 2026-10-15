@@ -131,7 +131,6 @@ inline D2D1_RECT_F PaneCloseButtonRect(float pane_width, float header_height) no
     return D2D1::RectF(btn_x, btn_y, btn_x + btn_size, btn_y + btn_size);
 }
 
-// 指定ボタンの左隣に同サイズで並ぶボタン矩形を返す。
 inline D2D1_RECT_F PaneButtonLeftOf(const D2D1_RECT_F& right) noexcept
 {
     const float btn_size = right.right - right.left;

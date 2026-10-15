@@ -19,8 +19,11 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept;
 
 std::pmr::string ToLowerAsciiCopy(std::string_view text);
 
-// GitHub スタイル: ASCII 小文字化、空白→'-'、CJK 保持、句読点スキップ。結果を slug に書く。
+// GitHub スタイル: 小文字化、空白→'-'、CJK 保持、句読点スキップ。結果を slug に書く。
 void GenerateAnchorIdInto(std::string_view text, std::pmr::string& slug);
+
+// リンク先のアンカーを GenerateAnchorIdInto と同じ規則で小文字にする。
+std::pmr::string ToLowerAnchorCopy(std::string_view text);
 
 // 最後のパス区切り以降の "." を含む拡張子。無ければ空。
 std::wstring_view ExtensionView(std::wstring_view path) noexcept;
