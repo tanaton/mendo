@@ -10,7 +10,7 @@ namespace {
 bool SetBlockScrollX(AppState& state, int node_index, float new_value, const BlockHScrollGeometry& geom)
 {
     const float clamped = geom.ClampScrollX(new_value);
-    const float prev = state.view.GetBlockScrollX(node_index);
+    const float prev = state.view.GetBlockScrollX(node_index, geom);
     if (std::abs(prev - clamped) < 1e-3f) {
         return false;
     }
@@ -84,7 +84,7 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
             return;
         }
         const float dx = static_cast<float>(a.delta) / WHEEL_DELTA * HSCROLL_DIP_PER_NOTCH;
-        if (SetBlockScrollX(state, target, state.view.GetBlockScrollX(target) + dx, geom)) {
+        if (SetBlockScrollX(state, target, state.view.GetBlockScrollX(target, geom) + dx, geom)) {
             PushEffect(effects, effect::InvalidateWindow{});
         }
         return;
@@ -102,14 +102,15 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
 
 void ReduceBlockHScrollDragStarted(AppState& state, SideEffectList& effects, const BlockHScrollDragStartedAction& a)
 {
-    if (!ResolveBlockHScrollGeometry(state, a.node_index).can_scroll()) {
+    const auto geom = ResolveBlockHScrollGeometry(state, a.node_index);
+    if (!geom.can_scroll()) {
         return;
     }
     // ドラッグ state の初期化は SetCapture より前に行う
     auto& sv = state.view;
     sv.h_drag_node = a.node_index;
     sv.h_drag_start_x = a.dip_x;
-    sv.h_drag_start_scroll = sv.GetBlockScrollX(a.node_index);
+    sv.h_drag_start_scroll = sv.GetBlockScrollX(a.node_index, geom);
     PushEffect(effects, effect::SetCapture{});
     PushEffect(effects, effect::InvalidateWindow{});
 }

@@ -172,7 +172,7 @@ void Renderer::ApplyTableEffects(const Node& node, NodeLayoutEntry& entry, float
     const auto row_count = static_cast<size_t>(tbl->row_count);
     const auto col_count = static_cast<size_t>(tbl->col_count);
     auto& tl = *tl_ptr;
-    // 行フラグを捨てる経路 (ClearEffects / MeasureTable) は必ず effects_applied も倒すので、
+    // セルを作り直す経路 (ClearEffects / MeasureTable) は effects_applied を倒し、ここで行フラグを作り直すので、
     // 済みの間は行フラグが row_count 分ある。確保が例外で途切れても済みにならないよう印は最後に付ける。
     if (!entry.effects_applied()) {
         tl.cell_inline_code_bgs.clear();
@@ -325,11 +325,10 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry, float 
         }
     }
 
-    const bool has_inline_code_bgs = node.type != NodeType::CodeBlock;
     mendo::Utf16OffsetCursor cursor{ text };
     for (const auto& run : node.runs()) {
         const bool apply_link = apply_brushes && run.has_link();
-        const bool add_bg = has_inline_code_bgs && run.code() && run.length > 0;
+        const bool add_bg = run.code() && run.length > 0;
         if (!apply_link && !add_bg) {
             continue;
         }

@@ -51,11 +51,12 @@ private:
     uint32_t wide_ = 0;
 };
 
-std::pmr::wstring DecodeForDWrite(std::string_view text);
+// out の内容は置き換え、容量は再利用する。
+void DecodeForDWrite(std::string_view text, std::pmr::wstring& out);
 
 HRESULT CreateDocTextLayout(
-    IDWriteFactory* factory, std::wstring_view wide,
+    IDWriteFactory* factory, std::string_view text,
     IDWriteTextFormat* fmt, float max_w, float max_h,
-    IDWriteTextLayout** out) noexcept;
+    IDWriteTextLayout** out);
 
 } // namespace mendo

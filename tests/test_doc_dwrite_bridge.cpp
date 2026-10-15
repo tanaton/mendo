@@ -15,6 +15,13 @@ uint32_t ByteAt(std::string_view text, uint32_t wide)
     return Utf16OffsetCursor{ text }.ByteAt(wide);
 }
 
+std::pmr::wstring Decode(std::string_view text)
+{
+    std::pmr::wstring out;
+    mendo::DecodeForDWrite(text, out);
+    return out;
+}
+
 } // namespace
 
 // ─────────────────────────────────────────────
@@ -144,7 +151,7 @@ TEST(Utf16OffsetCursor, ConsistentWithDecodeForEveryOffset)
         text += "0123456789abcdef0123456789";
     }
     text += "\xE6\x97\xA5";
-    const auto wide = mendo::DecodeForDWrite(text);
+    const auto wide = Decode(text);
 
     Utf16OffsetCursor forward{ text };
     for (uint32_t b = 0; b <= text.size(); ++b) {
@@ -183,14 +190,25 @@ TEST(Utf16OffsetCursor, SkipsForwardWithoutVisitingEveryOffset)
 
 TEST(DecodeForDWrite, DecodesText)
 {
-    EXPECT_TRUE(mendo::DecodeForDWrite("").empty());
-    EXPECT_EQ(mendo::DecodeForDWrite("Hello"), L"Hello");
-    EXPECT_EQ(mendo::DecodeForDWrite("ab日c"), L"ab日c");
-    EXPECT_EQ(mendo::DecodeForDWrite("A\xF0\x9F\x98\x80""B"), L"A\xD83D\xDE00""B");
+    EXPECT_TRUE(Decode("").empty());
+    EXPECT_EQ(Decode("Hello"), L"Hello");
+    EXPECT_EQ(Decode("ab日c"), L"ab日c");
+    EXPECT_EQ(Decode("A\xF0\x9F\x98\x80""B"), L"A\xD83D\xDE00""B");
 }
 
 // 不正バイトは U+FFFD 1 単位。
 TEST(DecodeForDWrite, InvalidBytesBecomeReplacementChar)
 {
-    EXPECT_EQ(mendo::DecodeForDWrite("a\xFF""b"), L"a\xFFFD""b");
+    EXPECT_EQ(Decode("a\xFF""b"), L"a\xFFFD""b");
+}
+
+// 使い回すバッファに前回の内容は残らない。
+TEST(DecodeForDWrite, ReplacesPreviousContent)
+{
+    std::pmr::wstring out;
+    mendo::DecodeForDWrite("longer text", out);
+    mendo::DecodeForDWrite("ab", out);
+    EXPECT_EQ(out, L"ab");
+    mendo::DecodeForDWrite("", out);
+    EXPECT_TRUE(out.empty());
 }

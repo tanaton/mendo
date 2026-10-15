@@ -2,6 +2,7 @@
 #include "string_convert.h"
 #include "file_io.h"
 #include "utf8_codec.h"
+#include "win_handle.h"
 #include <algorithm>
 #include <charconv>
 #include <cmath>
@@ -37,11 +38,11 @@ const std::filesystem::path& ConfigService::DefaultConfigDir()
 {
     // 失敗時は空 path のままキャッシュされ、GetConfigPath で空チェックされる。
     static const std::filesystem::path kDir = []() noexcept {
-        wchar_t* appdata = nullptr;
+        // 失敗時も解放が必要なので RAII で受ける。
+        UniqueCoTaskMemStr appdata;
         std::filesystem::path result;
-        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appdata))) {
-            result = std::filesystem::path(appdata) / L"mendo";
-            CoTaskMemFree(appdata);
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, appdata.put()))) {
+            result = std::filesystem::path(appdata.get()) / L"mendo";
         }
         return result;
     }();

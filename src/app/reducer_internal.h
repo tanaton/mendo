@@ -12,6 +12,7 @@
 // ---- 複数ドメイン横断の共有ヘルパー (定義は reducer.cpp) ----
 
 void ClearTooltip(AppState& state, SideEffectList& effects);
+void InvalidateHover(AppState& state, SideEffectList& effects);
 
 // toc_auto_scroll は発火元がスクロール先を決める: 目次ペイン操作由来のみ false (issue#259)。
 // デフォルト引数にすると新経路が暗黙で true を拾うため、呼び出し側で必ず明示する。

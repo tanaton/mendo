@@ -15,13 +15,8 @@ protected:
         DWriteTestBase::SetUp();
 
         // Renderer::RecreatePaneFormatsと同じパラメータでフォーマットを作成
-        HRESULT hr = dwrite_factory_->CreateTextFormat(
-            theme_.font_family.c_str(), nullptr,
-            DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, theme_.pane_font_size,
-            L"ja-jp", &fmt_);
-        ASSERT_TRUE(SUCCEEDED(hr));
-        ASSERT_NE(fmt_.Get(), nullptr);
+        fmt_ = CreateThemeFormat(theme_.pane_font_size);
+        ASSERT_NE(fmt_, nullptr);
 
         // DrawNavOverlayと同じ配置設定を適用
         fmt_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);

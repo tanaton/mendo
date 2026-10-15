@@ -18,6 +18,7 @@
 #include <concepts>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -38,12 +39,7 @@ struct ResourceManagerDeps {
 
 namespace resource_manager_detail {
 
-struct IndexSlice {
-    std::pmr::vector<size_t>::const_iterator begin;
-    std::pmr::vector<size_t>::const_iterator end;
-};
-
-constexpr IndexSlice VisibleSlice(const std::pmr::vector<size_t>& sorted_indices, size_t first_visible_node, size_t last_visible_node_plus_1) noexcept
+constexpr std::span<const size_t> VisibleSlice(std::span<const size_t> sorted_indices, size_t first_visible_node, size_t last_visible_node_plus_1) noexcept
 {
     const auto b = std::lower_bound(sorted_indices.begin(), sorted_indices.end(), first_visible_node);
     const auto e = std::lower_bound(b, sorted_indices.end(), last_visible_node_plus_1);
@@ -74,8 +70,6 @@ public:
     // respect_viewport=false: 全画像を走査、未キャッシュは無視（リロード時のスクロール計算前用）。
     int ApplyCachedImages(bool respect_viewport = true)
     {
-        using resource_manager_detail::IndexSlice;
-
         const std::pmr::wstring& doc_dir = deps_.doc->GetDirectory();
         if (doc_dir.empty()) {
             return 0;
@@ -96,13 +90,12 @@ public:
 
         // 通常描画は可視範囲に intersect する image index のみを走査。
         // リロード時 (respect_viewport=false) は CalcScrollYForDiff の Y 計算用に全件処理する。
-        const IndexSlice slice = respect_viewport
+        const auto slice = respect_viewport
             ? BufferedSlice(image_indices, PREFETCH_BUFFER_SCREENS)
-            : IndexSlice{ image_indices.begin(), image_indices.end() };
+            : std::span<const size_t>(image_indices);
 
         int applied = 0;
-        for (auto it = slice.begin; it != slice.end; ++it) {
-            const size_t i = *it;
+        for (const size_t i : slice) {
             const auto& node = nodes[i];
             const auto* const img = node.image_data();
             if (!img || img->src.contains("://")) {
@@ -186,11 +179,6 @@ public:
         }
     }
 
-    void OnAppImageLoaded()
-    {
-        deps_.image_loader->ProcessCompletedDecodes();
-    }
-
     int RequestMermaidRenders()
     {
         const float content_width = cb_.get_content_width();
@@ -207,8 +195,8 @@ public:
         // 同期キャッシュヒットの度に再レイアウトせず、ループ後にまとめて 1 回だけ行う。
         int applied = 0;
         BatchMermaidCompletions([&] {
-            for (auto it = slice.begin; it != slice.end; ++it) {
-                applied += RequestDiagramRender(*it, content_width, dark_mode) ? 1 : 0;
+            for (const size_t i : slice) {
+                applied += RequestDiagramRender(i, content_width, dark_mode) ? 1 : 0;
             }
         });
         return applied;
@@ -263,8 +251,8 @@ public:
         // mermaid_batch_next_ は indices 内の position（indices[n] が node index）。
         // 進捗の意味を保ったまま、可視レンジ内のみを走査。
         const auto s = BufferedSlice(indices, EVICT_BUFFER_SCREENS);
-        const size_t slice_start = static_cast<size_t>(s.begin - indices.begin());
-        const size_t slice_end = static_cast<size_t>(s.end - indices.begin());
+        const auto slice_start = static_cast<size_t>(s.data() - indices.data());
+        const size_t slice_end = slice_start + s.size();
         mermaid_batch_next_ = std::max(mermaid_batch_next_, slice_start);
 
         BatchMermaidCompletions([&] {
@@ -299,7 +287,7 @@ public:
         // 可視範囲をまたぐ巨大テーブルでは、ノード単位 evict では拾えない不可視行のセルを別途解放する。
         // keep 範囲外のテーブルは上の EvictTextLayouts で全行解放済みなので、範囲内だけ見る。
         const auto tables = VisibleSlice(deps_.doc->GetTableNodeIndices(), vr.first, vr.last_plus_1);
-        deps_.cache->EvictInvisibleTableRows(std::span<const size_t>(tables.begin, tables.end), keep->viewport_top, keep->viewport_bottom, keep->buffer);
+        deps_.cache->EvictInvisibleTableRows(tables, keep->viewport_top, keep->viewport_bottom, keep->buffer);
 
         // image/diagram bitmap も可視範囲外の分を捨てる。レンダ済みビットマップの
         // 二次キャッシュ (mermaid 内 LRU, 128 件) は自前で上限管理されるため全消去しない。
@@ -460,11 +448,11 @@ private:
     }
 
     // indices のうち ComputeBufferedRange に交差する部分。範囲が決まらないときは全件を返す。
-    resource_manager_detail::IndexSlice BufferedSlice(const std::pmr::vector<size_t>& indices, float screens)
+    std::span<const size_t> BufferedSlice(std::span<const size_t> indices, float screens)
     {
         const auto r = ComputeBufferedRange(screens);
         if (!r) {
-            return { indices.begin(), indices.end() };
+            return indices;
         }
         return resource_manager_detail::VisibleSlice(indices, r->range.first, r->range.last_plus_1);
     }

@@ -203,7 +203,7 @@ struct DropFilesAction {
     std::pmr::wstring path;
 };
 
-struct ClearTooltipAction {};
+struct InvalidateHoverAction {};
 
 struct ResizeAction {
     uint32_t width;
@@ -291,7 +291,7 @@ using AppAction = std::variant<
     BlockHScrollDragMovedAction,
     BlockHScrollDragEndedAction,
     DropFilesAction,
-    ClearTooltipAction,
+    InvalidateHoverAction,
     ResizeAction,
     DpiChangedAction,
     ActivateAction,

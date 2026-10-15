@@ -13,6 +13,7 @@
 #include "task_scheduler.h"
 #include "ui_constants.h"
 #include "wic_util.h"
+#include "win_handle.h"
 #include <shellscalingapi.h>
 #include <wrl/event.h>
 #include <algorithm>
@@ -70,15 +71,13 @@ PngBytes ReadHGlobalStream(IStream* stream)
     if (size > GlobalSize(mem)) {
         return nullptr;
     }
-    std::pmr::vector<uint8_t> png;
-    png.reserve(size);
     const auto* src = static_cast<const uint8_t*>(GlobalLock(mem));
     if (!src) {
         return nullptr;
     }
-    png.assign(src, src + size);
+    auto png = std::make_shared<const std::pmr::vector<uint8_t>>(src, src + size);
     GlobalUnlock(mem);
-    return std::make_shared<const std::pmr::vector<uint8_t>>(std::move(png));
+    return png;
 }
 
 } // namespace
@@ -331,10 +330,9 @@ void MermaidRenderer::RegisterWebViewHandlers(int index)
     LogHrFailure(L"add_WebMessageReceived", webview->add_WebMessageReceived(
         Microsoft::WRL::Callback<ICoreWebView2WebMessageReceivedEventHandler>(
             [this, index](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
-                LPWSTR msg = nullptr;
-                if (SUCCEEDED(args->TryGetWebMessageAsString(&msg)) && msg) {
-                    DispatchWebMessage(index, mermaid_util::ParseWebMessage(msg));
-                    CoTaskMemFree(msg);
+                UniqueCoTaskMemStr msg;
+                if (SUCCEEDED(args->TryGetWebMessageAsString(msg.put())) && msg) {
+                    DispatchWebMessage(index, mermaid_util::ParseWebMessage(msg.get()));
                 }
                 return S_OK;
             }).Get(),
@@ -353,13 +351,12 @@ void MermaidRenderer::RegisterWebViewHandlers(int index)
     LogHrFailure(L"add_NavigationStarting", webview->add_NavigationStarting(
         Microsoft::WRL::Callback<ICoreWebView2NavigationStartingEventHandler>(
             [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) static -> HRESULT {
-                LPWSTR uri = nullptr;
-                if (SUCCEEDED(args->get_Uri(&uri)) && uri) {
-                    const std::wstring_view u(uri);
+                UniqueCoTaskMemStr uri;
+                if (SUCCEEDED(args->get_Uri(uri.put())) && uri) {
+                    const std::wstring_view u(uri.get());
                     if (!u.starts_with(APP_LOCAL_ORIGIN_PREFIX) && u != L"about:blank") {
                         args->put_Cancel(TRUE);
                     }
-                    CoTaskMemFree(uri);
                 }
                 return S_OK;
             }).Get(),
@@ -388,10 +385,10 @@ void MermaidRenderer::OnWebResourceRequested(ICoreWebView2WebResourceRequestedEv
 {
     Microsoft::WRL::ComPtr<ICoreWebView2WebResourceRequest> request;
     args->get_Request(&request);
-    LPWSTR uri = nullptr;
-    request->get_Uri(&uri);
-    const std::pmr::wstring url(uri ? uri : L"");
-    CoTaskMemFree(uri);
+    std::pmr::wstring url;
+    if (UniqueCoTaskMemStr uri; SUCCEEDED(request->get_Uri(uri.put())) && uri) {
+        url = uri.get();
+    }
 
     const auto respond = [&](IStream* body, int status, const wchar_t* reason, const wchar_t* response_headers) {
         Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;

@@ -22,12 +22,8 @@ protected:
     void SetUp() override
     {
         DWriteTestBase::SetUp();
-        const HRESULT hr = dwrite_factory_->CreateTextFormat(
-            theme_.font_family.c_str(), nullptr,
-            DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, theme_.font_size_body,
-            L"ja-jp", &placeholder_fmt_);
-        ASSERT_TRUE(SUCCEEDED(hr));
+        placeholder_fmt_ = CreateThemeFormat(theme_.font_size_body);
+        ASSERT_NE(placeholder_fmt_, nullptr);
         gen_.SetTheme(&theme_);
         text_layouts_.SetFactory(dwrite_factory_.Get());
         gen_.SetFormats({ nullptr, nullptr, nullptr, placeholder_fmt_.Get() });

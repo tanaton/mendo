@@ -29,14 +29,15 @@ public:
             return nullptr;
         }
         if (const auto it = entries_.find(KeyView{ fmt, text, box.width, box.height }); it != entries_.end()) {
-            return it->second.Get();
+            it->second.last_used = frame_;
+            return it->second.layout.Get();
         }
         Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
         if (FAILED(factory_->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), fmt, box.width, box.height, &layout))) {
             return nullptr;
         }
         auto* const raw = layout.Get();
-        entries_.emplace(Key{ fmt, std::wstring(text), box.width, box.height }, std::move(layout));
+        entries_.emplace(Key{ fmt, std::wstring(text), box.width, box.height }, Entry{ std::move(layout), frame_ });
         return raw;
     }
 
@@ -54,27 +55,29 @@ public:
     }
 
     // 箱の大きさや番号ごとに増え続けないよう、描画の合間 (前フレームのレイアウトを参照し終えた後) に上限で捨てる。
+    // 全消去すると目次やファイル一覧が上限を超えるたびに表示中の項目まで作り直すので、直前のフレームで使ったものは残す。
     void BeginFrame() noexcept
     {
         if (entries_.size() > kMaxEntries) {
-            entries_.clear();
+            std::erase_if(entries_, [prev = frame_](const auto& kv) noexcept { return kv.second.last_used != prev; });
         }
+        ++frame_;
     }
 
     // テスト用: layout を作った文字列。見つからなければ空。
     std::wstring_view TextOf(const IDWriteTextLayout* layout) const noexcept
     {
         for (const auto& [key, value] : entries_) {
-            if (value.Get() == layout) {
+            if (value.layout.Get() == layout) {
                 return key.text;
             }
         }
         return {};
     }
 
-private:
     static constexpr size_t kMaxEntries = 512;
 
+private:
     struct KeyView {
         IDWriteTextFormat* fmt;
         std::wstring_view text;
@@ -112,6 +115,12 @@ private:
         }
     };
 
+    struct Entry {
+        Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+        uint32_t last_used;
+    };
+
     IDWriteFactory* factory_ = nullptr;
-    std::unordered_map<Key, Microsoft::WRL::ComPtr<IDWriteTextLayout>, KeyHash, KeyEqual> entries_;
+    uint32_t frame_ = 0;
+    std::unordered_map<Key, Entry, KeyHash, KeyEqual> entries_;
 };
