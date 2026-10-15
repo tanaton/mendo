@@ -29,7 +29,7 @@ bool App::Init(HWND hwnd)
     scheduler_.Init(SharedWorkerCount(cores));
 
     file_cache_.SetCacheDir(config_.GetConfigPath(L"MermaidCache"));
-    file_cache_.Init(state_.window.cached_dpi_scale, scheduler_);
+    file_cache_.Init(MermaidRenderer::EstimateWorkerDpr(), scheduler_);
     mermaid_renderer_.SetFileCache(&file_cache_);
 
     clipboard_manager_.Init(hwnd_, &file_cache_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });

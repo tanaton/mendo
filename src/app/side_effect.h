@@ -77,6 +77,8 @@ struct LoadFile {
 };
 struct ReloadFile {};
 struct OpenFileDialog {};
+// 表示中の文書とは別のファイルのロードを取り消す。同じファイルの再読み込みは止めない。
+struct CancelOtherFileLoad {};
 
 struct BitmapManage {};
 struct RefreshPaneLayout {};
@@ -130,6 +132,7 @@ using SideEffect = std::variant<
     effect::LoadFile,
     effect::ReloadFile,
     effect::OpenFileDialog,
+    effect::CancelOtherFileLoad,
     // Layout
     effect::BitmapManage,
     effect::RefreshPaneLayout,

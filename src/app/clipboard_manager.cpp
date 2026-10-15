@@ -12,7 +12,6 @@
 
 namespace {
 
-// 範囲内かつ CodeBlock であれば node を返す。
 const Node* ValidateCodeBlockNode(const Document& doc, int node_index) noexcept
 {
     const auto& nodes = doc.GetNodes();
@@ -26,7 +25,6 @@ const Node* ValidateCodeBlockNode(const Document& doc, int node_index) noexcept
     return &node;
 }
 
-// ダイアグラム言語の CodeBlock であれば node を返す。
 const Node* ValidateDiagramNode(const Document& doc, int node_index) noexcept
 {
     const Node* node = ValidateCodeBlockNode(doc, node_index);
@@ -55,7 +53,10 @@ void ClipboardManager::CopyCodeBlock(const Document& doc, int node_index, bool d
     }
 
     const std::pmr::string html_utf8 = BuildCodeBlockHtmlFragment(*node, dark);
-    WriteClipboardHtml(hwnd_, html_utf8, node->GetText());
+    // 選択コピーと同じく、プレーンテキストの改行は CRLF にする。
+    const auto len = static_cast<uint32_t>(node->GetText().size());
+    const std::pmr::string plain = ExtractSelectedText(doc.GetNodes(), TextSelection::MakeOrdered(node_index, 0, node_index, len));
+    WriteClipboardHtml(hwnd_, html_utf8, plain);
 }
 
 void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, float md_width, bool dark)

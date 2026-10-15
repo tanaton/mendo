@@ -23,6 +23,11 @@ void AppSideEffectCallbacks::open_file_dialog()
     }
 }
 
+void AppSideEffectCallbacks::cancel_other_file_load()
+{
+    app->CancelOtherFileLoad();
+}
+
 void AppSideEffectCallbacks::refresh_pane_layout()
 {
     app->RefreshPaneLayout();

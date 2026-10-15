@@ -52,6 +52,9 @@ public:
     {
         file_cache_ = cache;
     }
+    // ワーカーは画面外に置くため、PNG は本体ウィンドウではなくその位置のモニタの DPR で描かれる。
+    // ワーカーを起動する前にディスクキャッシュを引くときの DPR に使う。
+    static float EstimateWorkerDpr() noexcept;
     void ProcessDiskLoads();
     void Shutdown();
     void CancelPending() override;

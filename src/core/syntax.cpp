@@ -224,6 +224,7 @@ struct LexerConfig {
     bool line_comment_slash = false;   // //
     bool block_comment = false;        // /* */
     bool hash_comment = false;         // #
+    bool hash_comment_word_start = false; // # が単語の先頭にあるときだけコメント (Bash の $# や ${#a} を除く)
     bool preprocessor = false;         // 行頭の#
     bool triple_quote = false;         // """ '''
     bool raw_string = false;           // C++ R"(...)"
@@ -235,6 +236,12 @@ struct LexerConfig {
     bool skip_single_quote = false;    // 'を文字列デリミタとして扱わない
     bool raw_backtick = false;         // エスケープなしのバッククォート文字列（Go）
 };
+
+// シェルの単語を区切る文字 (空白とメタ文字) か。
+constexpr bool IsShellWordBoundary(char c) noexcept
+{
+    return std::string_view{ " \t\n;&|()<>" }.contains(c);
+}
 
 // LexerConfig を NTTP として渡すことで `if constexpr (Cfg.X)` で死分岐をコンパイル時に消し、
 // 各言語の lexer は不要なチェックを含まない最小コードにインスタンス化される。
@@ -292,7 +299,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
         }
 
         if constexpr (Cfg.hash_comment && !Cfg.preprocessor) {
-            if (c == '#') {
+            if (c == '#' && (!Cfg.hash_comment_word_start || i == 0 || IsShellWordBoundary(text[i - 1]))) {
                 emit_until(SkipToEol(text, i), SyntaxTokenType::Comment);
                 continue;
             }
@@ -453,6 +460,7 @@ inline constexpr LexerConfig RUST_LEXER_CONFIG{
 };
 inline constexpr LexerConfig BASH_LEXER_CONFIG{
     .hash_comment = true,
+    .hash_comment_word_start = true,
     .backtick_string = true,
 };
 inline constexpr LexerConfig PWSH_LEXER_CONFIG{

@@ -104,6 +104,9 @@ public:
             [this](const effect::OpenFileDialog&) {
                 cb_.open_file_dialog();
             },
+            [this](const effect::CancelOtherFileLoad&) {
+                cb_.cancel_other_file_load();
+            },
             // ---- Layout ----
             [this](const effect::BitmapManage&) {
                 cb_.schedule_bitmap_manage();

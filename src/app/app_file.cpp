@@ -124,16 +124,27 @@ void App::BeginAsyncLoad(std::pmr::wstring path, bool show_animation, std::share
 
 // Defer* はエディタの保存途中 (truncate→rewrite の前半や書き込み中) を読んだ状態。
 // state_.document.doc を更新せず保持して、次のリロードで正確な差分を取り直す。
-App::ReloadFlow App::ApplyReloadDecisionEarly(const ReloadDecision& decision)
+App::ReloadFlow App::ApplyReloadDecisionEarly(const ReloadDecision& decision, bool has_parsed_doc)
 {
-    if (decision.op == ReloadOp::NoChange) {
+    switch (decision.op) {
+    case ReloadOp::NoChange:
+        prefix_shrink_retry_.Reset();
         EmitEffect(effect::ResumeFileWatch{});
         return ReloadFlow::Handled;
-    }
-    if (decision.op != ReloadOp::Replace) {
+    case ReloadOp::DeferPrefixShrink:
+        // 上限後は ReloadCurrentFile がパース込みで読み直すので、文書が無い結果は defer のまま流す。
+        if (prefix_shrink_retry_.TryDefer() || !has_parsed_doc) {
+            DeferReloadRetry();
+            return ReloadFlow::Handled;
+        }
+        break;
+    case ReloadOp::DeferPartialWrite:
         DeferReloadRetry();
         return ReloadFlow::Handled;
+    case ReloadOp::Replace:
+        break;
     }
+    prefix_shrink_retry_.Reset();
     return ReloadFlow::ContinueWithReload;
 }
 
@@ -151,6 +162,7 @@ void App::LoadMarkdownFile(std::wstring_view path)
 {
     MENDO_PROFILE("App::LoadMarkdownFile");
     EmitEffect(effect::KillTimer{ app_timer::Id::FILE_RELOAD_DEBOUNCE });
+    prefix_shrink_retry_.Reset();
     // 仮想パスは IsAsyncLoadCandidate が true を返し非同期ロードが失敗するため、
     // 先に検出して同期ロードに回す。
     if (IsHelpPath(path)) {
@@ -166,6 +178,17 @@ void App::LoadMarkdownFile(std::wstring_view path)
     file_load_service_.CancelAsyncLoad();
     file_load_service_.SetLoadingPath(std::move(path_str));
     DoLoadMarkdownFile();
+}
+
+// 同じファイルの再読み込みは FileWatcher を paused にしたまま進んでいるので止めない。
+void App::CancelOtherFileLoad()
+{
+    if (!file_load_service_.IsAsyncLoading() ||
+        path_util::iequal(file_load_service_.GetLoadingPath(), state_.document.doc.GetFilePath())) {
+        return;
+    }
+    StopLoadingAnimation();
+    file_load_service_.CancelAsyncLoad();
 }
 
 // Init (RestoreThemeAndZoom) 前に呼ばれるため、推定用のテーマは設定から直接作る。
@@ -251,7 +274,7 @@ void App::OnParseComplete()
         DeferReloadRetry();
         return;
     case ParseCompleteStep::ApplyReload:
-        if (ApplyReloadDecisionEarly(*plan.reload) == ReloadFlow::Handled) {
+        if (ApplyReloadDecisionEarly(*plan.reload, !result->reload.has_value()) == ReloadFlow::Handled) {
             return;
         }
         ReplaceDocument(std::move(result->doc), std::move(result->cache));
@@ -332,7 +355,9 @@ void App::ReloadCurrentFile()
     if (DocumentService::IsAsyncLoadCandidate(path)) {
         MENDO_TRACE("ReloadCurrentFile: async path");
         // 編集中の差分リロードでスピナーが点滅すると見づらいため、旧コンテンツを表示したまま差し替える。
-        BeginAsyncLoad(path, /*show_animation=*/false, state_.document.doc.GetRawText().Share());
+        // prefix shrink の defer が上限に達したら、縮んだ内容を受け入れるため worker の事前判定を省いてパースさせる。
+        BeginAsyncLoad(path, /*show_animation=*/false,
+                       prefix_shrink_retry_.Exhausted() ? nullptr : state_.document.doc.GetRawText().Share());
         return;
     }
     MENDO_TRACE("ReloadCurrentFile: sync path (DoReloadCurrentFile)");
@@ -365,7 +390,7 @@ void App::DoReloadCurrentFile()
                  decision.diff_pos, old_view.size(), new_text.size(),
                  std::to_underlying(decision.op));
 
-    if (ApplyReloadDecisionEarly(decision) == ReloadFlow::Handled) {
+    if (ApplyReloadDecisionEarly(decision, /*has_parsed_doc=*/true) == ReloadFlow::Handled) {
         return;
     }
     ReplaceDocument(Document::FromMarkdown(std::move(new_text), byte_size, state_.document.doc.GetFilePath()));

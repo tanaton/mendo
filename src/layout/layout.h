@@ -89,6 +89,8 @@ public:
         Document& doc, LayoutCache& cache, float width, int batch_size,
         ViewportLimit viewport);
     bool EnsureVisibleLayout(Document& doc, LayoutCache& cache, float width, float height);
+    // 画面外の node も計測する。見ている位置は保つ。
+    bool EnsureNodeLayout(Document& doc, LayoutCache& cache, float width, int node);
     void RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme,
                                mendo::layout::HeightChangeRange changed) noexcept;
 
@@ -98,6 +100,9 @@ public:
     }
 
 private:
+    // [top, bottom] を計測する。前後で scroll target を確定・適用して見ている位置を保つ。
+    bool EnsureRangeLayout(Document& doc, LayoutCache& cache, float width, float top, float bottom);
+
     LayoutEngine& engine_;
     ViewportManager& viewport_;
 };

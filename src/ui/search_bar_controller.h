@@ -173,6 +173,8 @@ public:
             return;
         }
 
+        // 未計測や evict 済みのノードは text_layout が無く、行の Y を引けずにノード先頭へ寄ってしまう。
+        cb_.ensure_node_layout(match.node_index);
         const auto& entry = (*cache_)[match.node_index];
         // Why: ブロック先頭/行先頭に丸めると、長い段落内の複数マッチ間で同じ Y に集約され
         //      「次へ」を押してもスクロールしない。start_w で行単位の Y を出す。

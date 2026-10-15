@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 // ファイルが編集されて絶対 y 座標が変わっても、同じノードの相対位置に戻れる。
 struct NavEntry {
@@ -33,7 +34,10 @@ public:
     void Push(const NavEntry& current);
     // PushPending と GoBack/GoForward は、ロード結果で確定 (Commit) か取り消し (Rollback) をする。
     // 開けなかったファイルの分だけ履歴が重複したり、戻る/進むの位置がずれたりするのを防ぐ。
-    // 取り消せるのは直前の 1 操作だけで、Push や Clear が挟まった後の Rollback は何もしない。
+    // Push や Clear が挟まった後の Rollback は何もしない。
+    // ロード中に次の操作が来たら、ロード中の文書はまだ表示されていないので、
+    // PushPending は前の仮の操作を取り消してから積み直し、戻る/進むの連続はロード中の移動先を起点に続ける。
+    // 続けた操作は Rollback でまとめて取り消す。
     void PushPending(const NavEntry& current);
     void CommitPending() noexcept;
     void RollbackPending();
@@ -69,13 +73,15 @@ private:
     // taken: PushPending では進む履歴全体、Transfer では移動先の 1 件。dropped: PushPending が上限で押し出した分。
     struct PendingOp {
         bool to_back = false;
+        bool transfer = false;
         std::pmr::deque<NavEntry> taken;
         std::optional<NavEntry> dropped;
     };
 
     std::pmr::deque<NavEntry> back_stack_;
     std::pmr::deque<NavEntry> forward_stack_;
-    std::optional<PendingOp> pending_;
+    // 確定待ちの操作を古い順に持つ。
+    std::pmr::vector<PendingOp> pending_;
     size_t max_history_ = MAX_HISTORY;
 };
 

@@ -185,13 +185,27 @@ bool LayoutService::ProcessDirtyBatch(Document& doc, LayoutCache& cache, float w
     return more;
 }
 
-bool LayoutService::EnsureVisibleLayout(Document& doc, LayoutCache& cache, float width, float height)
+bool LayoutService::EnsureRangeLayout(Document& doc, LayoutCache& cache, float width, float top, float bottom)
 {
     viewport_.EnsureScrollTarget(cache);
-    const float scroll_y = viewport_.GetScrollY();
-    const bool updated = engine_.EnsureVisibleLayout(doc.GetNodes(), cache, width, scroll_y, scroll_y + height);
+    const bool updated = engine_.EnsureVisibleLayout(doc.GetNodes(), cache, width, top, bottom);
     viewport_.ApplyScrollTarget(cache);
     return updated;
+}
+
+bool LayoutService::EnsureVisibleLayout(Document& doc, LayoutCache& cache, float width, float height)
+{
+    const float scroll_y = viewport_.GetScrollY();
+    return EnsureRangeLayout(doc, cache, width, scroll_y, scroll_y + height);
+}
+
+bool LayoutService::EnsureNodeLayout(Document& doc, LayoutCache& cache, float width, int node)
+{
+    if (node < 0 || static_cast<size_t>(node) >= cache.size() || !cache[node].layout_dirty) {
+        return false;
+    }
+    const float top = cache.Top(static_cast<size_t>(node));
+    return EnsureRangeLayout(doc, cache, width, top, top);
 }
 
 void LayoutService::RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme,

@@ -20,6 +20,8 @@ struct AppSearchBarCallbacks {
     void focus_select_all();
     void unfocus();
     float get_md_pane_height();
+    // node_index のノードを計測済みにする (検索マッチの行位置を引けるようにする)。
+    void ensure_node_layout(int node_index);
     void on_wrap_around();
 };
 

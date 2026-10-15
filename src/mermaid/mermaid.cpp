@@ -11,12 +11,15 @@
 #include "stream_util.h"
 #include "string_convert.h"
 #include "task_scheduler.h"
+#include "ui_constants.h"
 #include "wic_util.h"
+#include <shellscalingapi.h>
 #include <wrl/event.h>
 #include <algorithm>
 #include <cmath>
 #include <utility>
 
+#pragma comment(lib, "shcore.lib")
 #pragma comment(lib, "windowscodecs.lib")
 
 using mendo::LogHrFailure;
@@ -834,10 +837,25 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
     LogHrFailure(L"ExecuteScript(render)", worker.webview->ExecuteScript(js.c_str(), nullptr));
 }
 
+float MermaidRenderer::EstimateWorkerDpr() noexcept
+{
+    const HMONITOR monitor = MonitorFromPoint(POINT{ HOST_OFFSCREEN_POS, HOST_OFFSCREEN_POS }, MONITOR_DEFAULTTONEAREST);
+    UINT dpi_x = 0;
+    UINT dpi_y = 0;
+    if (FAILED(GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &dpi_x, &dpi_y))) {
+        dpi_x = 0;
+    }
+    return DpiScaleFrom(static_cast<float>(dpi_x));
+}
+
 void MermaidRenderer::OnWorkerReady(Worker& worker, float dpr)
 {
     if (dpr > 0) {
         worker.dpr = dpr;
+        // 拡大率の変更などで推定とずれていたら、以降のキャッシュは実際に描く DPR で引く。
+        if (file_cache_) {
+            file_cache_->SetDpr(dpr);
+        }
     }
     worker.ready = true;
     worker.init_retries = 0;
