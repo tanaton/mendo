@@ -1,6 +1,7 @@
 #include "app.h"
 #include "app_constants.h"
 #include "app_controller.h"
+#include "app_state_queries.h"
 #include "document_utils.h"
 #include "gesture_overlay.h"
 #include "i18n.h"
@@ -70,17 +71,16 @@ PaneZone App::ZoneAt(float dip_x, const PaneLayout& layout) const noexcept
 SidePaneState App::BuildSidePaneState(const PaneLayout& layout) const
 {
     const auto& panes = state_.view.panes;
-    const bool can_reveal = state_.document.doc.HasBackingFile();
     // GetEntries は未列挙なら列挙するため、非表示のファイルペインでは呼ばない。
     static const std::pmr::vector<FileEntry> kNoEntries;
-    const auto make_side_pane = [&panes, can_reveal](PaneTarget t, PaneRect rect) {
+    const auto make_side_pane = [this, &panes](PaneTarget t, PaneRect rect) {
         return SidePaneInstance{
             .rect = rect,
             .scroll = panes.SidePaneScroll(t),
             .hovered_index = panes.GetHoveredSideIndex(t),
             .show = panes.IsSidePaneVisible(t),
             .hovered_button = panes.GetSideHoveredButton(t),
-            .reveal_enabled = t == PaneTarget::File && can_reveal,
+            .reveal_enabled = SidePaneHeaderButtonsFor(state_, t).reveal_enabled,
         };
     };
     return SidePaneState{
@@ -204,7 +204,7 @@ void App::OnDpiChanged(UINT dpi, const RECT* suggested)
 
 void App::OnAppImageLoaded()
 {
-    resource_manager_.OnAppImageLoaded();
+    image_loader_.ProcessCompletedDecodes();
 }
 
 void App::OnMermaidDiskLoaded()

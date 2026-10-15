@@ -21,6 +21,19 @@ inline int SidePaneItemAt(const AppState& state, PaneTarget pane, const PaneRect
                : state.document.doc.GetToc().HitTest(local_y, item_h);
 }
 
+// サイドペインヘッダーのボタン構成。Refresh/Reveal はファイルペインのみ。
+struct SidePaneHeaderButtons {
+    bool has_file_buttons = false;
+    // 無効時は描画のみ行い、ヒットしない。
+    bool reveal_enabled = false;
+};
+
+inline SidePaneHeaderButtons SidePaneHeaderButtonsFor(const AppState& state, PaneTarget target) noexcept
+{
+    const bool is_file = target == PaneTarget::File;
+    return { .has_file_buttons = is_file, .reveal_enabled = is_file && state.document.doc.HasBackingFile() };
+}
+
 // 左ボタンのドラッグ (テキスト選択・スプリッタ・各スクロールバー・ブロック横スクロール・検索入力) が進行中か。
 inline bool IsLeftDragActive(const AppState& state) noexcept
 {

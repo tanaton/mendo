@@ -7,11 +7,11 @@
 namespace mendo {
 
 // MultiByteToWideChar は不正バイトの扱いが OS 依存なので、Utf16OffsetCursor と同じ規則の自前 decode に揃える。
-std::pmr::wstring DecodeForDWrite(std::string_view text)
+void DecodeForDWrite(std::string_view text, std::pmr::wstring& out)
 {
-    std::pmr::wstring out;
+    out.clear();
     if (text.empty() || text.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
-        return out;
+        return;
     }
     const size_t n = text.size();
     out.reserve(n); // UTF-16 code unit 数 <= UTF-8 byte 数
@@ -34,7 +34,6 @@ std::pmr::wstring DecodeForDWrite(std::string_view text)
         }
         byte_pos += decoded.len;
     }
-    return out;
 }
 
 bool Utf16OffsetCursor::SkipAscii16() noexcept
@@ -82,12 +81,21 @@ uint32_t Utf16OffsetCursor::ByteAt(uint32_t wide_target) noexcept
     return byte_;
 }
 
+// CreateTextLayout は文字列をコピーするので、変換先はスレッドごとに使い回してセル・ノード単位の確保を避ける。
+// 長文で膨らんだ容量は手放す (計測ワーカーごとに常駐させない)。
 HRESULT CreateDocTextLayout(
-    IDWriteFactory* factory, std::wstring_view wide,
+    IDWriteFactory* factory, std::string_view text,
     IDWriteTextFormat* fmt, float max_w, float max_h,
-    IDWriteTextLayout** out) noexcept
+    IDWriteTextLayout** out)
 {
-    return factory->CreateTextLayout(wide.data(), static_cast<UINT32>(wide.size()), fmt, max_w, max_h, out);
+    constexpr size_t kMaxRetainedChars = 8 * 1024;
+    thread_local std::pmr::wstring wide;
+    DecodeForDWrite(text, wide);
+    const HRESULT hr = factory->CreateTextLayout(wide.data(), static_cast<UINT32>(wide.size()), fmt, max_w, max_h, out);
+    if (wide.capacity() > kMaxRetainedChars) {
+        std::pmr::wstring().swap(wide);
+    }
+    return hr;
 }
 
 } // namespace mendo

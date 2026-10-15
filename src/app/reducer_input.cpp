@@ -69,9 +69,8 @@ void ReducePointerHover(AppState& state, SideEffectList& effects, const PointerH
 // ペインを経由せずに離れた経路 (ウィンドウ外・キャプション上) で呼ばないとホバーハイライトが残留する。
 void ReduceMouseLeave(AppState& state, SideEffectList& effects)
 {
-    state.interaction.last_hover_pos.Reset();
     ApplyHoverHighlights(state, effects, PointerHover{});
-    ClearTooltip(state, effects);
+    InvalidateHover(state, effects);
 }
 
 void ReduceCaptureChanged(AppState& state, SideEffectList& effects)

@@ -40,6 +40,18 @@ protected:
         return sources_.ParseAndLayout(engine_, md, viewport_w);
     }
 
+    // 本文フォントの標準スタイルの書式。作れなければ null。
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> CreateThemeFormat(float size) const
+    {
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt;
+        dwrite_factory_->CreateTextFormat(
+            theme_.font_family.c_str(), nullptr,
+            DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL, size,
+            L"ja-jp", &fmt);
+        return fmt;
+    }
+
 private:
     LayoutSourceStore sources_;
 };

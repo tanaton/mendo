@@ -44,11 +44,17 @@ void ClearTooltip(AppState& state, SideEffectList& effects)
     PushEffect(effects, effect::ClearTooltip{});
 }
 
-// スクロール位置が変わった時に共通で発火する副作用列。
-void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects, bool toc_auto_scroll)
+// 同座標スキップも解除し、次の WM_MOUSEMOVE でホバーを引き直させる。
+void InvalidateHover(AppState& state, SideEffectList& effects)
 {
     state.interaction.last_hover_pos.Reset();
     ClearTooltip(state, effects);
+}
+
+// スクロール位置が変わった時に共通で発火する副作用列。
+void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects, bool toc_auto_scroll)
+{
+    InvalidateHover(state, effects);
     PushEffect(effects, effect::InvalidateWindow{});
     PushEffect(effects, effect::BitmapManage{});
     PushEffect(effects, effect::SyncTocActive{ toc_auto_scroll });
@@ -192,7 +198,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const NavigateAnchorAction& a) { ReduceNavigateAnchor(state, effects, a); },
         [&](const RestoreScrollAfterLoadAction&) { ReduceRestoreScrollAfterLoad(state); },
         [&](const LoadFailedAction&) { ReduceLoadFailed(state); },
-        [&](const ClearTooltipAction&) { ClearTooltip(state, effects); },
+        [&](const InvalidateHoverAction&) { InvalidateHover(state, effects); },
 
         // ---- ナビゲーション ----
         [&](const NavigateBackAction&) { ReduceNavigateBack(state, effects); },

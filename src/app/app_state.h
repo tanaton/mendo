@@ -43,9 +43,9 @@ struct ViewState {
     float h_drag_start_scroll = 0.0f;
     int active_toc_index = -1;
 
-    float GetBlockScrollX(int node_index) const noexcept
+    float GetBlockScrollX(int node_index, const BlockHScrollGeometry& geom) const noexcept
     {
-        return LookupBlockScrollX(&block_scroll_x, node_index);
+        return LookupBlockScrollX(&block_scroll_x, node_index, geom);
     }
 
     // 再パースでノード/見出し index がずれると別の要素を指すため、リロード時にクリアする一時状態。

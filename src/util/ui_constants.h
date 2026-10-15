@@ -54,6 +54,12 @@ constexpr float VScrollbarLeftX(float right_edge) noexcept
     return right_edge - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
 }
 
+// 縦スクロールバーのヒット判定の左端 X。細いバーを掴みやすいよう左に広げる。
+constexpr float VScrollbarHitLeftX(float right_edge) noexcept
+{
+    return VScrollbarLeftX(right_edge) - PANE_SCROLLBAR_HIT_PADDING;
+}
+
 // ブロック横スクロールバーの bar 上端 Y 座標 (ペインローカル document Y)。
 // extra_padding は CodeBlock の背景下端 padding 内に置く場合に渡す (Table は 0)。
 constexpr float BlockHScrollbarBarY(float entry_text_top, float entry_height, float extra_padding) noexcept

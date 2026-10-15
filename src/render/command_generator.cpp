@@ -230,7 +230,7 @@ void CommandGenerator::GenerateNode(const FrameContext& fc,
     // 直後にスクロールバーを積む。幾何はヒットテスト/reducer と共有の GetBlockHScrollGeometry に寄せる。
     const auto gen_h_scroll_block = [&](const D2D1_RECT_F& clip, float pad_y, auto&& gen_content) {
         const auto geom = GetBlockHScrollGeometry(node, entry, cw);
-        const float scroll_x = geom.ClampScrollX(fc.h_scroll.GetScrollX(node_index));
+        const float scroll_x = fc.h_scroll.GetScrollX(node_index, geom);
         {
             BlockHScrollScope guard(cmds_, clip, fc.pane_transform, scroll_x, geom.can_scroll());
             gen_content(scroll_x);

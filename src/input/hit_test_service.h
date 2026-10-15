@@ -75,7 +75,7 @@ struct MdPaneHitContext {
     float dpi_scale;
     int screen_x;
     int screen_y;
-    // ボタンヒットテスト用（HitTestでは未使用）
+    // ボタン位置とブロック横スクロールの clamp に使う。
     float content_width = 0.0f;
     // ブロック単位の横スクロール状態。null なら全 0 扱い。
     const std::pmr::unordered_map<int, float>* block_scroll_x = nullptr;

@@ -108,9 +108,7 @@ bool App::IsOverMdScrollbar(float dip_x, float dip_y, const PaneLayout& layout) 
         return false;
     }
     const float md_right = layout.md_rect.x + layout.md_rect.width;
-    const float sb_left = VScrollbarLeftX(md_right);
-    const float sb_right = md_right - PANE_SCROLLBAR_MARGIN;
-    return dip_x >= sb_left - PANE_SCROLLBAR_HIT_PADDING && dip_x <= sb_right;
+    return dip_x >= VScrollbarHitLeftX(md_right) && dip_x <= md_right - PANE_SCROLLBAR_MARGIN;
 }
 
 bool App::IsOverMdScrollbar(float dip_x, float dip_y)
@@ -262,7 +260,7 @@ HCURSOR App::HoverSidePane(PaneTarget target, float dip_x, float dip_y, const Pa
     const PaneRect& rect = pane_layout.Get(target);
     const auto k = std::to_underlying(target);
     const auto button = mendo::app_mouse::HitSidePaneHeaderButton(
-        dip_x, dip_y, rect, theme.pane_header_height, mendo::app_mouse::SidePaneHeaderButtonsFor(state_, target));
+        dip_x, dip_y, rect, theme.pane_header_height, SidePaneHeaderButtonsFor(state_, target));
     hover.side_button[k] = button;
     hover.side_index[k] = SidePaneItemAt(state_, target, rect, dip_y);
     hover.tooltip = BuildSidePaneTooltip(target, button, hover.side_index[k]);

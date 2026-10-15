@@ -43,6 +43,13 @@ public:
         return h;
     }
 
+    // 出力引数で受け取る API 用。
+    handle_t* put() noexcept
+    {
+        reset();
+        return &handle_;
+    }
+
     void reset(handle_t h = Traits::invalid()) noexcept
     {
         if (handle_ != Traits::invalid()) {
@@ -93,6 +100,19 @@ struct FindHandleTraits {
     }
 };
 using UniqueFindHandle = UniqueResource<FindHandleTraits>;
+
+struct CoTaskMemStrTraits {
+    using type = wchar_t*;
+    static type invalid() noexcept
+    {
+        return nullptr;
+    }
+    static void close(type p) noexcept
+    {
+        CoTaskMemFree(p);
+    }
+};
+using UniqueCoTaskMemStr = UniqueResource<CoTaskMemStrTraits>;
 
 // SetClipboardData / CreateStreamOnHGlobal への所有権移譲時は release() を使う。
 struct GlobalMemTraits {

@@ -599,6 +599,11 @@ int ResolveNode(const ReducerHarness& h, int which)
     }
 }
 
+float BlockScrollX(const ReducerHarness& h, int node_index)
+{
+    return h.state.view.GetBlockScrollX(node_index, ResolveBlockHScrollGeometry(h.state, node_index));
+}
+
 } // namespace
 
 class ReducerHWheelSwipeTest : public ::testing::TestWithParam<HWheelCase> {};
@@ -612,7 +617,7 @@ TEST_P(ReducerHWheelSwipeTest, BlockAbsorbsHorizontalWheel)
     s.view.hovered_h_block = ResolveNode(h, c.hover);
     s.view.h_drag_node = ResolveNode(h, c.drag);
     const int target = s.view.h_drag_node >= 0 ? s.view.h_drag_node : s.view.hovered_h_block;
-    const float block_x_before = s.view.GetBlockScrollX(target);
+    const float block_x_before = BlockScrollX(h, target);
 
     // App::Dispatch は必ずペインレイアウトを確定させるため、無効ケースは Reduce を直接呼ぶ。
     auto dispatch = [&](const AppAction& a) {
@@ -639,7 +644,7 @@ TEST_P(ReducerHWheelSwipeTest, BlockAbsorbsHorizontalWheel)
     EXPECT_EQ(overlay_shown, c.expect_swipe);
     EXPECT_EQ(navigated, c.expect_swipe);
     EXPECT_EQ(s.view.nav_history.CanGoBack(), !c.expect_swipe);
-    EXPECT_EQ(s.view.GetBlockScrollX(target) > block_x_before, c.expect_block_scroll);
+    EXPECT_EQ(BlockScrollX(h, target) > block_x_before, c.expect_block_scroll);
 }
 
 INSTANTIATE_TEST_SUITE_P(

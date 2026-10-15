@@ -1,4 +1,5 @@
 #include "hit_test_service.h"
+#include "block_h_scroll.h"
 #include "doc_dwrite_bridge.h"
 #include "layout_computer.h"
 #include "ui_constants.h"
@@ -107,7 +108,9 @@ hit_test::HitResult hit_test::HitTest(const MdPaneHitContext& ctx) noexcept
 
     const auto& node = ctx.nodes[direct.node_index];
     const auto& entry = ctx.cache[direct.node_index];
-    const float h_scroll_x = LookupBlockScrollX(ctx.block_scroll_x, direct.node_index);
+    const float indent = NodeIndent(node, ctx.theme);
+    const float h_scroll_x = LookupBlockScrollX(
+        ctx.block_scroll_x, direct.node_index, GetBlockHScrollGeometry(node, entry, ctx.content_width - indent));
     if (node.type == NodeType::Table) {
         return HitTestTable(node, entry, direct.text_top, direct.node_index, ctx.theme, dip_x, dip_y, h_scroll_x);
     }
@@ -115,7 +118,6 @@ hit_test::HitResult hit_test::HitTest(const MdPaneHitContext& ctx) noexcept
         return { direct.node_index, static_cast<uint32_t>(node.GetText().size()) };
     }
 
-    const float indent = NodeIndent(node, ctx.theme);
     const float local_x = dip_x - ctx.theme.margin_left - indent - NodeTextXOffset(node, ctx.theme) + h_scroll_x;
     const float local_y = dip_y - direct.text_top;
 
@@ -185,8 +187,7 @@ hit_test::CodeBlockButtonHit hit_test::CodeBlockButtonsHitTest(const MdPaneHitCo
         return {};
     }
     const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
-    const float btn_left_bound = ctx.theme.margin_left + ctx.content_width - COPY_BTN_MARGIN - COPY_BTN_SIZE;
-    const bool x_in_copy_band = dip_x >= btn_left_bound;
+    const bool x_in_copy_band = dip_x >= OverlayButtonRect(ctx.theme.margin_left + ctx.content_width, 0.0f).left;
 
     const float viewport_top = ctx.scroll_y;
     const float viewport_bottom = ctx.scroll_y + ctx.md_rect.height;

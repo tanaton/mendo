@@ -62,8 +62,7 @@ void App::FinalizeLayout(float md_pane_height)
 
 void App::InvalidateHitPositions()
 {
-    state_.interaction.last_hover_pos.Reset();
-    Dispatch(ClearTooltipAction{});
+    Dispatch(InvalidateHoverAction{});
 }
 
 void App::SyncTocActiveAndAutoScroll(bool auto_scroll)

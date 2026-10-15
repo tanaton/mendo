@@ -350,7 +350,7 @@ void DWriteTextMeasurer::MeasureNode(
 
     const auto& text = node.GetText();
     ComPtr<IDWriteTextLayout> layout;
-    if (FAILED(mendo::CreateDocTextLayout(dwrite_, mendo::DecodeForDWrite(text), GetTextFormat(node), layout_width, LAYOUT_INFINITY, &layout))) {
+    if (FAILED(mendo::CreateDocTextLayout(dwrite_, text, GetTextFormat(node), layout_width, LAYOUT_INFINITY, &layout))) {
         return;
     }
 
@@ -376,7 +376,7 @@ void DWriteTextMeasurer::BuildCellLayout(const NodeTableData& tbl, size_t r, siz
         return;
     }
     auto& cell_layout = tl.cell_layouts[tl.CellIndex(r, c)];
-    mendo::CreateDocTextLayout(dwrite_, mendo::DecodeForDWrite(text), row_fmt, LAYOUT_INFINITY, LAYOUT_INFINITY, &cell_layout);
+    mendo::CreateDocTextLayout(dwrite_, text, row_fmt, LAYOUT_INFINITY, LAYOUT_INFINITY, &cell_layout);
     if (cell_layout) {
         ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, RunFormatScope::ForCell());
     }
@@ -575,12 +575,9 @@ void DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayoutEntry& entry, 
     // 残っている可能性に備えて落としておく。
     entry.invalidate_per_frame_hl_caches();
 
+    // 倒すと ApplyTableEffects が inline code 背景と行フラグを作り直す。
     entry.set_effects_applied(false);
     auto& tl = entry.ensure_table_layout();
-    tl.cell_inline_code_bgs.clear();
-    // 計算済みフラグを残すと、幅変更時に画面外だった行の inline code 背景が
-    // 再計算されずに欠落する (ApplyTableEffects の resize は既存要素を保持するため)。
-    tl.row_bgs_computed.clear();
     tl.row_heights.resize(row_count);
 
     // セルレイアウトが既に存在し、かつストライドが現在の列数と一致する場合のみ

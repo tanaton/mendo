@@ -13,9 +13,7 @@ namespace {
 
 bool IsOverPaneScrollbar(float dip_x, const PaneRect& rect, const PaneScrollInfo& scroll_info) noexcept
 {
-    const float local_x = dip_x - rect.x;
-    const float hit_left = VScrollbarLeftX(rect.width) - PANE_SCROLLBAR_HIT_PADDING;
-    return local_x >= hit_left && scroll_info.total_content > scroll_info.content_height;
+    return dip_x - rect.x >= VScrollbarHitLeftX(rect.width) && scroll_info.total_content > scroll_info.content_height;
 }
 
 } // namespace
@@ -227,7 +225,7 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const
 
     // ヘッダー領域内のクリックはボタン外でも消費する。
     if (dip_y - rect.y < theme.pane_header_height) {
-        const auto buttons = mendo::app_mouse::SidePaneHeaderButtonsFor(state_, target);
+        const auto buttons = SidePaneHeaderButtonsFor(state_, target);
         switch (mendo::app_mouse::HitSidePaneHeaderButton(dip_x, dip_y, rect, theme.pane_header_height, buttons)) {
         case PaneHeaderButton::Close:
             Dispatch(TogglePaneAction{ target });

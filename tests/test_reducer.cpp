@@ -301,7 +301,7 @@ TEST_F(ReducerTest, MouseLeave_ClearsHoverHighlights)
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
-// ---- PointerHoverAction / ClearTooltipAction テスト ----
+// ---- PointerHoverAction / InvalidateHoverAction テスト ----
 
 TEST_F(ReducerTest, PointerHover_NewTooltipEmitsShowTooltipEffectWithSameTarget)
 {
@@ -355,12 +355,12 @@ TEST_F(ReducerTest, PointerHover_SearchBarInputHasNoHighlight)
     EXPECT_TRUE(effects.empty());
 }
 
-TEST_F(ReducerTest, ClearTooltipAction_EmitsClearTooltipAndResetsState)
+TEST_F(ReducerTest, InvalidateHoverAction_EmitsClearTooltipAndResetsState)
 {
     state.interaction.tooltip.Update(
         TooltipTarget{ TooltipTarget::Zone::MdLink, 1 });
 
-    auto effects = Reduce(state, ClearTooltipAction{});
+    auto effects = Reduce(state, InvalidateHoverAction{});
 
     EXPECT_TRUE(HasEffect<effect::ClearTooltip>(effects));
 }
