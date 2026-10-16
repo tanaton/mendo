@@ -15,10 +15,10 @@
 #include "test_helpers.h"
 #include "test_nodes.h"
 
-using mendo::layout::ComputeColumnWidths;
-using mendo::layout::EstimateNodeHeights;
-using mendo::layout::NodeIndent;
-using mendo::layout::RecomputeYPositions;
+using layout::ComputeColumnWidths;
+using layout::EstimateNodeHeights;
+using layout::NodeIndent;
+using layout::RecomputeYPositions;
 
 class LayoutTest : public DWriteTestBase {};
 
@@ -1322,7 +1322,7 @@ TEST_F(LayoutTest, LooseTaskListCheckboxIsEmitted)
 //   build/tests/Release/mendo_tests.exe --gtest_filter='RecomputeYPositionsTest.DISABLED_BenchLargeDocument' --gtest_also_run_disabled_tests
 TEST(RecomputeYPositionsTest, DISABLED_BenchLargeDocument)
 {
-    using namespace mendo::layout;
+    using namespace layout;
     constexpr int N = 22000;
     constexpr int ITER = 200;
 

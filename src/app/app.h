@@ -1,12 +1,10 @@
 #pragma once
+#include "app_callbacks.h"
 #include "app_events.h"
 #include "app_state.h"
-#include "app_resource_manager_callbacks.h"
-#include "app_side_effect_callbacks.h"
 #include "async_load_result.h"
 #include "clipboard_manager.h"
 #include "config_service.h"
-#include "cursor_manager.h"
 #include "file_load_service.h"
 #include "file_watcher.h"
 #include "hit_test_service.h"
@@ -20,7 +18,7 @@
 #include "selection_html.h"
 #include "task_scheduler.h"
 #include "theme_service.h"
-#include "win32_host_impl.h"
+#include "win32_host.h"
 #include <windows.h>
 #include <shellapi.h>
 #include <memory>
@@ -29,7 +27,42 @@
 #include <string>
 #include <string_view>
 
+class CursorManager {
+public:
+    void Init() noexcept
+    {
+        arrow_ = LoadCursorW(nullptr, IDC_ARROW);
+        hand_ = LoadCursorW(nullptr, IDC_HAND);
+        ibeam_ = LoadCursorW(nullptr, IDC_IBEAM);
+        sizewe_ = LoadCursorW(nullptr, IDC_SIZEWE);
+    }
+
+    constexpr HCURSOR Arrow() const noexcept
+    {
+        return arrow_;
+    }
+    constexpr HCURSOR Hand() const noexcept
+    {
+        return hand_;
+    }
+    constexpr HCURSOR IBeam() const noexcept
+    {
+        return ibeam_;
+    }
+    constexpr HCURSOR SizeWE() const noexcept
+    {
+        return sizewe_;
+    }
+
+private:
+    HCURSOR arrow_ = nullptr;
+    HCURSOR hand_ = nullptr;
+    HCURSOR ibeam_ = nullptr;
+    HCURSOR sizewe_ = nullptr;
+};
+
 class App {
+    friend struct AppCallbacksBase;
     friend struct AppSideEffectCallbacks;
     friend struct AppResourceManagerCallbacks;
     friend struct AppSearchBarCallbacks;
@@ -183,17 +216,17 @@ private:
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
 
-    // ---- 初期化 (app_init.cpp) ----
+    // ---- 初期化 ----
     void RestoreThemeAndZoom();
     void RestorePaneState();
 
-    // ---- 描画 (app.cpp) ----
+    // ---- 描画 ----
     void UpdateTitleBar();
     SidePaneState BuildSidePaneState(const PaneLayout& layout) const;
     TitleBarRenderState BuildTitleBarRenderState() const;
     void SyncRendererSearchMatches();
 
-    // ---- 終了 (app.cpp) ----
+    // ---- 終了 ----
     void SaveSession();
 
     // ---- 座標・ヒットテスト ----
@@ -230,7 +263,7 @@ private:
     std::optional<SearchBarLayout> SearchBarLayoutAt(float dip_y, const PaneRect& md_rect) const;
     int HitTestSearchInputPos(const SearchBarLayout& sbl, std::wstring_view query_wide, float dip_x) const;
 
-    // ---- クリック (app_mouse_click.cpp) ----
+    // ---- クリック (app_mouse.cpp) ----
     void HandleLinkClick(std::string_view url);
     bool HandleTitleBarClick(float dip_x, float dip_y);
     bool HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& layout, bool is_double_click);
@@ -242,14 +275,14 @@ private:
     void HandleFileEntryClick(const FileEntry& entry);
     void RefreshFilePane();
 
-    // ---- ホバー (app_mouse_hover.cpp) ----
+    // ---- ホバー (app_mouse.cpp) ----
     // ゾーン内のホバーを hover に書き、表示するカーソルを返す。状態の反映は reducer が行う。
     HCURSOR HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLayout& layout, PointerHover& hover) const;
     HCURSOR HoverSidePane(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout, PointerHover& hover) const;
     TooltipTarget BuildSidePaneTooltip(PaneTarget target, PaneHeaderButton hit, int idx) const;
     TooltipTarget BuildMdContentTooltip(int hit_node, std::optional<LinkHit> link) const;
 
-    // ---- レイアウト (app_layout.cpp) ----
+    // ---- レイアウト ----
     void EnsureScrollTarget();
     // 可視範囲を即時計測し、scroll_target があれば scroll_y を再評価する。
     void ViewportLayout(float md_width, float md_height);
@@ -306,7 +339,7 @@ private:
     void ResetViewForNewDocument();
     void ReleaseCaptureIfDragDropped(bool had_left_drag);
 
-    // ---- テーマ (app_theme.cpp) ----
+    // ---- テーマ ----
     void HandleApplyThemeChange(const effect::ApplyThemeChange& e);
     void FinishThemeOrZoomChange();
 

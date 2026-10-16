@@ -108,7 +108,7 @@ public:
             }
 
             // 通常運用時のみ非同期ロードを起動する。リロード時は後続の LoadImages effect で起動する。
-            const float max_width = content_width - mendo::layout::NodeIndent(node, theme);
+            const float max_width = content_width - layout::NodeIndent(node, theme);
             const auto request = [&] {
                 if (respect_viewport) {
                     deps_.image_loader->RequestLoadAsync(*abs_path, [this] { OnImageLoadComplete(); }, max_width);
@@ -132,7 +132,7 @@ public:
                 diagram.height = cached->height;
 
                 auto& entry = (*deps_.cache)[i];
-                entry.height = mendo::layout::ImageDisplayHeight(cached->width, cached->height, max_width);
+                entry.height = layout::ImageDisplayHeight(cached->width, cached->height, max_width);
                 entry.layout_dirty = false;
                 height_changed_.Add(i);
                 ++applied;
@@ -415,14 +415,14 @@ private:
     void DropMermaidQueueIfJumped()
     {
         const float scroll_y = deps_.viewport->GetScrollY();
-        const float viewport_height = cb_.get_viewport_height();
+        const float viewport_height = cb_.get_md_pane_height();
         if (viewport_height > 0.0f && std::abs(scroll_y - last_mermaid_request_scroll_) > viewport_height * EVICT_BUFFER_SCREENS) {
             deps_.mermaid->DropQueued();
         }
         last_mermaid_request_scroll_ = scroll_y;
     }
 
-    mendo::layout::HeightChangeRange TakeHeightChanges() noexcept
+    layout::HeightChangeRange TakeHeightChanges() noexcept
     {
         return std::exchange(height_changed_, {});
     }
@@ -436,7 +436,7 @@ private:
     // 可視範囲 ± viewport_height * screens に交差するノード範囲。viewport_height <= 0 (初期化中等) は範囲が決まらない。
     std::optional<BufferedRange> ComputeBufferedRange(float screens)
     {
-        const float viewport_height = cb_.get_viewport_height();
+        const float viewport_height = cb_.get_md_pane_height();
         if (viewport_height <= 0.0f) {
             return std::nullopt;
         }
@@ -496,5 +496,5 @@ private:
     bool pending_flush_ = false;
     std::chrono::steady_clock::time_point last_flush_time_{};
     // 画像/図の適用で高さを更新したノード範囲。Y 再計算をこの範囲に限定する。
-    mendo::layout::HeightChangeRange height_changed_ = {};
+    layout::HeightChangeRange height_changed_ = {};
 };

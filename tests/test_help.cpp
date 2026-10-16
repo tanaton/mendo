@@ -90,7 +90,7 @@ TEST_F(HelpLayoutTest, OpeningHelpAfterAnotherDocumentMeasuresVisibleContent)
         engine_.ComputeLayout(prev.GetNodes(), cache, kWidth, 0.0f, kViewportBottom);
 
         auto help = Document::FromMarkdown(std::move(text), HELP_PATH);
-        cache = mendo::layout::MakeEstimatedLayoutCache(help.GetNodes(), theme_);
+        cache = layout::MakeEstimatedLayoutCache(help.GetNodes(), theme_);
         engine_.ComputeLayout(help.GetNodes(), cache, kWidth, 0.0f, kViewportBottom);
 
         const auto& nodes = help.GetNodes();

@@ -59,7 +59,7 @@ inline void MeasureEntry(
 {
     measurer.MeasureNode(node, entry, node_width, viewport.ToLocal(entry_top));
     if (image && image->width > 0 && image->height > 0) {
-        entry.height = mendo::layout::ImageDisplayHeight(image->width, image->height, node_width);
+        entry.height = layout::ImageDisplayHeight(image->width, image->height, node_width);
     }
     entry.cached_width = node_width;
     entry.cached_height = entry.height;

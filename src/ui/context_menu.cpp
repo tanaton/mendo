@@ -3,7 +3,7 @@
 #include "theme.h"
 #include "resource.h"
 #include "ui_constants.h"
-#include "scope_guard.h"
+#include "utility.h"
 #include <algorithm>
 #include <mutex>
 #include <windowsx.h>
@@ -248,7 +248,7 @@ bool ContextMenu::Impl::CreateDeviceResources()
 
     auto make = [&](D2D1_COLOR_F c) {
         ComPtr<ID2D1SolidColorBrush> b;
-        mendo::CreateSolidColorBrushOrFallback(rt.Get(), c, b);
+        CreateSolidColorBrushOrFallback(rt.Get(), c, b);
         return b;
     };
 

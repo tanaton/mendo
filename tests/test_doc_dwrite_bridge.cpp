@@ -1,8 +1,6 @@
 #include <gtest/gtest.h>
 #include "doc_dwrite_bridge.h"
 
-using mendo::Utf16OffsetCursor;
-
 namespace {
 
 uint32_t WideAt(std::string_view text, uint32_t byte)
@@ -18,7 +16,7 @@ uint32_t ByteAt(std::string_view text, uint32_t wide)
 std::pmr::wstring Decode(std::string_view text)
 {
     std::pmr::wstring out;
-    mendo::DecodeForDWrite(text, out);
+    DecodeForDWrite(text, out);
     return out;
 }
 
@@ -206,9 +204,9 @@ TEST(DecodeForDWrite, InvalidBytesBecomeReplacementChar)
 TEST(DecodeForDWrite, ReplacesPreviousContent)
 {
     std::pmr::wstring out;
-    mendo::DecodeForDWrite("longer text", out);
-    mendo::DecodeForDWrite("ab", out);
+    DecodeForDWrite("longer text", out);
+    DecodeForDWrite("ab", out);
     EXPECT_EQ(out, L"ab");
-    mendo::DecodeForDWrite("", out);
+    DecodeForDWrite("", out);
     EXPECT_TRUE(out.empty());
 }

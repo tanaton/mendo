@@ -17,8 +17,6 @@ namespace utf8_codec {
 struct DecodedCp;
 }
 
-namespace mendo {
-
 // UTF-8 byte 位置と UTF-16 位置を前方へ数えて対応させるカーソル。DecodeForDWrite と同じ
 // decode 規則 (不正バイトは U+FFFD 1 単位、sequence 途中の byte はその文字の直前位置) に従う。
 // 全文を UTF-16 化しないので、巨大ノードでもメモリを確保しない。
@@ -58,5 +56,3 @@ HRESULT CreateDocTextLayout(
     IDWriteFactory* factory, std::string_view text,
     IDWriteTextFormat* fmt, float max_w, float max_h,
     IDWriteTextLayout** out);
-
-} // namespace mendo

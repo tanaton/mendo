@@ -1,5 +1,5 @@
 #pragma once
-#include "png_bytes.h"
+#include "utility.h"
 #include "worker_latch.h"
 #include <cstdint>
 #include <memory_resource>

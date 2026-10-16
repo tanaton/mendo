@@ -30,7 +30,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         }
     }
     else if (auto* border_brush = Brush(BrushId::SearchBarBorder)) {
-        mendo::OpacityScope guard{ border_brush, 0.5f };
+        OpacityScope guard{ border_brush, 0.5f };
         rt()->DrawRoundedRectangle(input_rrect, border_brush, 1.0f);
     }
 

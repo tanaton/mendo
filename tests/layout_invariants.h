@@ -12,8 +12,8 @@
 inline ::testing::AssertionResult YChainConsistent(
     const std::pmr::vector<Node>& nodes, const LayoutCache& cache, const Theme& theme, float eps = 0.05f)
 {
-    using mendo::layout::GetSpacingAbove;
-    using mendo::layout::GetSpacingBelow;
+    using layout::GetSpacingAbove;
+    using layout::GetSpacingBelow;
     if (nodes.empty()) {
         return ::testing::AssertionSuccess();
     }

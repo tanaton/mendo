@@ -1,6 +1,6 @@
 #include "mermaid_util.h"
 #include "document_types.h"
-#include "fnv1a.h"
+#include "utility.h"
 #include "syntax.h"
 #include "ascii_util.h"
 #include <algorithm>
@@ -60,8 +60,8 @@ std::pmr::wstring mermaid_util::JsEscape(std::wstring_view input)
 // 既存キャッシュキー (MermaidCache 内ファイル名) と互換性を保つため hash 値は不変。
 uint64_t mermaid_util::CombinedHash(std::string_view code, int max_width_int, bool dark_mode) noexcept
 {
-    uint64_t h = mendo::Fnv1a64(code);
-    h ^= static_cast<uint64_t>(max_width_int) * mendo::kFnv1a64Prime;
+    uint64_t h = Fnv1a64(code);
+    h ^= static_cast<uint64_t>(max_width_int) * kFnv1a64Prime;
     h ^= static_cast<uint64_t>(dark_mode) * 2654435761ULL; // Knuth multiplicative
     return h;
 }

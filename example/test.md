@@ -320,24 +320,17 @@ private:
 
 | ファイル | 担当 |
 |:---------|:-----|
-| `app.cpp` | コアロジック（`Dispatch`, レイアウト, テーマ適用, OnPaint） |
-| `app_init.cpp` | `Init()` と各サービスの初期化 |
+| `app.cpp` | コアロジック（`Init`, `Dispatch`, OnPaint）、レイアウト・スクロール関連ヘルパー（`EnsureScrollTarget`, `ScheduleDeferredLayoutIfNeeded`, `OnDeferredLayout`, `SyncTocActiveAndAutoScroll` 等）、テーマ・ズーム変更の適用（`HandleApplyThemeChange`）、カスタムコンテキストメニュー処理 |
 | `app_file.cpp` | `LoadMarkdownFile`, `BeginAsyncLoad`, `OnParseComplete` |
-| `app_layout.cpp` | レイアウト・スクロール関連ヘルパー（`EnsureScrollTarget`, `ScheduleDeferredLayoutIfNeeded`, `OnDeferredLayout`, `SyncTocActiveAndAutoScroll` 等） |
-| `app_theme.cpp` | テーマ・ズーム変更の適用（`HandleApplyThemeChange`） |
-| `app_mouse.cpp` | マウス入力ハンドラ（`OnMouseMove`, ドラッグ系統括） |
-| `app_mouse_click.cpp` | マウスクリック処理（`OnLButtonDown/Up`, `HandleMdPaneClick`, `HandleLinkClick` 等） |
-| `app_mouse_hover.cpp` | ホバー処理（`OnMouseHover`, `HoverMdPane`, `ResolveMdPaneHit`） |
-| `app_context_menu.cpp` | カスタムコンテキストメニュー処理 |
+| `app_mouse.cpp` | マウス入力ハンドラ（`OnMouseMove`, ドラッグ系統括）、クリック処理（`OnLButtonDown/Up`, `HandleMdPaneClick`, `HandleLinkClick` 等）、ホバー処理（`OnMouseHover`, `HoverMdPane`, `ResolveMdPaneHit`） |
 | `clipboard_manager.h / .cpp` | `ClipboardManager`（コピー/PNG 保存/SVG コピーを集約。 SVG LRU キャッシュを内包） |
 | `app_controller.cpp` | `app_controller::HandleKeyDown` / `HandleMouseWheel` |
-| `reducer.cpp` ほか | `Reduce(state, action)`（in-place 更新、副作用リストを返す）。ドメイン別に `reducer_input.cpp` / `reducer_navigation.cpp` / `reducer_scroll.cpp` / `reducer_search.cpp` / `reducer_system.cpp` / `reducer_ui.cpp`（共通宣言は `reducer_internal.h`）に分割 |
+| `reducer.cpp` | `Reduce(state, action)`（in-place 更新、副作用リストを返す）と、ドメイン別の `Reduce*` 関数（スクロール・入力・ナビゲーション・検索・UI・システム）。`Reduce*` は無名名前空間に置く |
 | `side_effect_executor.h` | `SideEffectExecutorT::Execute` / `ExecuteOne`（テンプレートのためヘッダ内 inline 定義） |
-| `app_side_effect_callbacks.h / .cpp` | `AppSideEffectCallbacks`（effect 実行を App メンバへ転送） |
-| `app_resource_manager_callbacks.h / .cpp` | `AppResourceManagerCallbacks`（ResourceManager のコールバック具象） |
-| `app_search_bar_callbacks.h / .cpp` | `AppSearchBarCallbacks`（検索バー UI コールバック具象） |
+| `app_callbacks.h / .cpp` | `AppSideEffectCallbacks`（effect 実行を App メンバへ転送）と `AppResourceManagerCallbacks`（ResourceManager のコールバック具象）。`.cpp` には `AppSearchBarCallbacks` の実装も置く |
+| `app_search_bar_callbacks.h` | `AppSearchBarCallbacks`（検索バー UI コールバック具象）。AppState から参照されるため単独のヘッダに置く |
 | `resource_manager.h` | 画像・Mermaid バッチ・ビットマップ管理（テンプレートのためヘッダ内定義） |
-| `win32_host_impl.cpp` | `Win32Host`（IWin32Host の本番実装） |
+| `win32_host.cpp` | `Win32Host`（IWin32Host の本番実装） |
 | `app_constants.h` | タイマー ID・カスタムメッセージ・閾値定数 |
 
 #### 3.2.4 メッセージハンドリング
@@ -718,7 +711,7 @@ public:
 
 `Win32Host` が本番実装で、`HWND` を保持する。トースト表示・コンテキストメニュー描画・レイアウト再計算といった「アプリ内ロジック」は `IWin32Host` を経由せず、`SideEffectExecutor` が `App` 内のサービス（`App`/`LayoutService`）を直接呼ぶ設計になっている — `IWin32Host` はあくまで Win32 API 境界を跨ぐための adapter に絞られる。
 
-`SideEffectExecutor` 自体は `SideEffectExecutorT<Cb>` template として `side_effect_executor.h` に宣言・inline 定義される。依存は `SideEffectExecutorDeps` 構造体（host / file_watcher / state / layout_service のポインタ集約）で受け取る。具象 Cb は `AppSideEffectCallbacks`（`app_side_effect_callbacks.{h,cpp}`）で、`load_file` / `refresh_pane_layout` / `apply_theme_change` / `schedule_bitmap_manage` などの「アプリ内ロジック」呼び出しを App メンバへ転送する（resource 系コールバックは別 struct `AppResourceManagerCallbacks` の責務）。`Callbacks` 自身も `template<class Cb>` 化されているため direct call にコンパイルされる。
+`SideEffectExecutor` 自体は `SideEffectExecutorT<Cb>` template として `side_effect_executor.h` に宣言・inline 定義される。依存は `SideEffectExecutorDeps` 構造体（host / file_watcher / state / layout_service のポインタ集約）で受け取る。具象 Cb は `AppSideEffectCallbacks`（`app_callbacks.{h,cpp}`）で、`load_file` / `refresh_pane_layout` / `apply_theme_change` / `schedule_bitmap_manage` などの「アプリ内ロジック」呼び出しを App メンバへ転送する（resource 系コールバックは別 struct `AppResourceManagerCallbacks` の責務）。`Callbacks` 自身も `template<class Cb>` 化されているため direct call にコンパイルされる。
 
 ```cpp
 template <class Cb>
@@ -943,7 +936,7 @@ public:
                        float viewport_bottom = MeasureViewportRange::kInf);
     bool ProcessDirtyBatch(const std::pmr::vector<Node>& nodes, LayoutCache& cache,
                            float viewport_width, int batch_size,
-                           mendo::layout::ViewportClip clip = {});
+                           layout::ViewportClip clip = {});
     bool EnsureVisibleLayout(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
                              float viewport_top, float viewport_bottom);
 
@@ -964,15 +957,15 @@ public:
                            ViewportLimit viewport);
     bool EnsureVisibleLayout(Document& doc, LayoutCache& cache, float width, float height);
     void RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme,
-                               mendo::layout::HeightChangeRange changed) noexcept;
+                               layout::HeightChangeRange changed) noexcept;
 };
 ```
 
-本番実装は `DWriteTextMeasurer`（DirectWrite を使用）。書式は `SetFactory` の後に `RecreateFormats` で作る。テスト時はモックに差し替えられる。`RecomputeYPositions` / `EstimateNodeHeight` / `EstimateNodeHeights` などのフリー関数（`layout_computer.h` の `mendo::layout` 名前空間）で Y 座標再計算と高さ推定（DirectWrite 計測前の暫定値）を提供する。グローバル名前空間への `using` エイリアスは置かず、使う側の .cpp が必要な名前だけを `using mendo::layout::X;` で取り込む。
+本番実装は `DWriteTextMeasurer`（DirectWrite を使用）。書式は `SetFactory` の後に `RecreateFormats` で作る。テスト時はモックに差し替えられる。`RecomputeYPositions` / `EstimateNodeHeight` / `EstimateNodeHeights` などのフリー関数（`layout_computer.h` の `layout` 名前空間）で Y 座標再計算と高さ推定（DirectWrite 計測前の暫定値）を提供する。グローバル名前空間への `using` エイリアスは置かず、使う側の .cpp が必要な名前だけを `using layout::X;` で取り込む。
 
 計測後の確定処理は `MeasureEntry` 1 か所にまとめている。実測値を `cached_width` / `cached_height` に残し、画像ノードは `DiagramEntry` に読み込んだ寸法があれば `ImageDisplayHeight` で表示高さを決める（`ITextMeasurer` が扱うのはプレースホルダーの高さまで）。
 
-ダーティノードの計測は `mendo::layout::RunParallel`（`parallel_measure.cpp`）に一本化されている。`ProcessDirtyBatch` は `ViewportClip`（可視範囲 ± `buffer_screens` 画面）内の dirty を `max_nodes` 件まで計測し、時間予算は持たない（worker 側に中断点が無いため）。`EnsureVisibleLayout` も可視範囲の dirty を `MeasureIndicesParallel` で並列計測する。どちらも `ParallelFor` に 1 ノード単位で配り、1 画面分（数十ノード）の dirty でも全 worker に行き渡らせる。scheduler が null なら同じ関数が呼び出しスレッドで直列に計測する。CodeBlock のトークン化は worker が担当ノードの `NodeLayoutEntry` へ直接書き込み、UI スレッドでの集約は行わない（`Tokenize` 完了後に代入するので、例外時に途中のトークンが残らない）。`ViewportClip` / `StopReason`（`NoneDirty` / `Done` / `BatchLimit` / `Error`）/ `DirtyBatchResult` の型は `parallel_measure.h` に置く。`ProcessDirtyBatch` の `clip` を省略すると可視範囲で絞らず全 dirty を対象にする。
+ダーティノードの計測は `layout::RunParallel`（`parallel_measure.cpp`）に一本化されている。`ProcessDirtyBatch` は `ViewportClip`（可視範囲 ± `buffer_screens` 画面）内の dirty を `max_nodes` 件まで計測し、時間予算は持たない（worker 側に中断点が無いため）。`EnsureVisibleLayout` も可視範囲の dirty を `MeasureIndicesParallel` で並列計測する。どちらも `ParallelFor` に 1 ノード単位で配り、1 画面分（数十ノード）の dirty でも全 worker に行き渡らせる。scheduler が null なら同じ関数が呼び出しスレッドで直列に計測する。CodeBlock のトークン化は worker が担当ノードの `NodeLayoutEntry` へ直接書き込み、UI スレッドでの集約は行わない（`Tokenize` 完了後に代入するので、例外時に途中のトークンが残らない）。`ViewportClip` / `StopReason`（`NoneDirty` / `Done` / `BatchLimit` / `Error`）/ `DirtyBatchResult` の型は `parallel_measure.h` に置く。`ProcessDirtyBatch` の `clip` を省略すると可視範囲で絞らず全 dirty を対象にする。
 
 遅延レイアウト（`App::OnDeferredLayout`）は `ResourceManager::EVICT_BUFFER_SCREENS`（2 画面）を `buffer_screens` に渡すため、画面外の計測は前後 2 画面までに限られる。範囲外へジャンプした場合は `EnsureVisibleLayout` が同期計測で拾う。
 
@@ -1091,11 +1084,9 @@ public:
 
 | ファイル | 担当 |
 |:---------|:-----|
-| `renderer.cpp` | Markdown ペイン描画統括 |
+| `renderer.cpp` | Markdown ペイン描画統括、タイトルバー描画、オーバーレイ（ジェスチャトレイル等） |
 | `renderer_resources.cpp` | ブラシ・フォーマット管理 |
 | `renderer_pane.cpp` | ファイル/TOC ペイン描画 |
-| `renderer_titlebar.cpp` | タイトルバー描画 |
-| `renderer_overlay.cpp` | オーバーレイ（ジェスチャトレイル等） |
 | `renderer_search.cpp` | 検索バー描画 |
 
 #### 3.8.5 描画順（`Renderer::Render`）
@@ -1670,7 +1661,7 @@ stateDiagram-v2
 `WM_MOUSEHWHEEL` の累積デルタに基づくスワイプ検出。
 
 ```cpp
-// util/nav_direction.h。MouseGesture::GetDirection と GestureRenderState::direction も同じ型を使う。
+// util/ui_types.h。MouseGesture::GetDirection と GestureRenderState::direction も同じ型を使う。
 enum class NavDirection : uint8_t { None, Back, Forward };
 
 class SwipeDetector {
@@ -1900,7 +1891,7 @@ bool BlockHScrollbarHitTest(const MdPaneHitContext& ctx, int node_index, float v
 
 本文はペイン基準の座標（ペイン原点 `md_rect.x/y` は描画変換に乗る）で描くので、マウス座標は `ScreenToPaneDip` で一度だけ「ペイン左端基準の X とドキュメント Y」に変換し、ノードやボタン、ブロック横スクロールバーの矩形はドキュメント座標のまま比べる。可視範囲はどこでも `[scroll_y, scroll_y + md_rect.height]` で一致する。
 
-`hit_test` は状態を持たず、ヒット結果のキャッシュもしない。呼ばれるたびに判定する（`HitTestPoint` は 1 万行のコードブロックでも数〜十数 µs で済むため）。`NavButtonHover` 列挙は `util/ui_types.h` で `{ None, Back, Forward }` の 3 値（ホバー中のナビボタン）。ジェスチャやスワイプが示す履歴移動の向きは別の `NavDirection`（`util/nav_direction.h`）で表す。
+`hit_test` は状態を持たず、ヒット結果のキャッシュもしない。呼ばれるたびに判定する（`HitTestPoint` は 1 万行のコードブロックでも数〜十数 µs で済むため）。`NavButtonHover` 列挙は `util/ui_types.h` で `{ None, Back, Forward }` の 3 値（ホバー中のナビボタン）。ジェスチャやスワイプが示す履歴移動の向きは別の `NavDirection`（`util/ui_types.h`）で表す。
 
 ホバーとクリックは同じ `App::ResolveMdPaneHit` で「点が MD ペインのどの領域を指すか」を決める。優先順位は 検索バー → ナビボタン → オーバーレイボタン（コピー / ダイアグラムコピー / 保存）→ スクロールバー → 本文 で、縮小表示でボタンがスクロールバーのヒット余白に掛かってもボタンが勝つ。ホバー表示（カーソルとツールチップ）とクリックの結果は常に一致する。
 
@@ -2119,7 +2110,7 @@ public:
 
 検索バーのUI状態（フォーカス、キャレット、ドラッグ選択、ホバー）を管理する。Win32 操作はコールバック経由で App に委譲する。
 
-Callbacks は `std::move_only_function` の type erasure を避けるため `template<class Cb>` 形式に統一されている。各メンバ呼び出しは direct call となり、`mendo.exe` Release バイナリで約 9.7KB の縮小を達成した。具体的な `Cb` は `app_search_bar_callbacks.{h,cpp}` の `AppSearchBarCallbacks` で、`App*` を保持して各メソッドを App メンバへ転送する。宣言と実装は `search_bar_controller.h` に置き、明示的インスタンス化は `app_search_bar_callbacks.cpp` で行う。タイマーは入力デバウンス用の `app_timer::Id::SEARCH_DEBOUNCE` のみ。キャレットは点滅させず、フォーカス中かつウィンドウがアクティブな間は常時表示する（点滅タイマーが約 530ms ごとに全画面再描画を起こしていたため廃止した）。ウィンドウの非アクティブ化で `OnWindowActivate(false)` がキャレットを隠す。
+Callbacks は `std::move_only_function` の type erasure を避けるため `template<class Cb>` 形式に統一されている。各メンバ呼び出しは direct call となり、`mendo.exe` Release バイナリで約 9.7KB の縮小を達成した。具体的な `Cb` は `app_search_bar_callbacks.h` の `AppSearchBarCallbacks` で、`App*` を保持して各メソッドを App メンバへ転送する。宣言と実装は `search_bar_controller.h` に置き、明示的インスタンス化は `app_callbacks.cpp` で行う。タイマーは入力デバウンス用の `app_timer::Id::SEARCH_DEBOUNCE` のみ。キャレットは点滅させず、フォーカス中かつウィンドウがアクティブな間は常時表示する（点滅タイマーが約 530ms ごとに全画面再描画を起こしていたため廃止した）。ウィンドウの非アクティブ化で `OnWindowActivate(false)` がキャレットを隠す。
 
 ```cpp
 template <class Cb>
@@ -2164,16 +2155,20 @@ public:
     void Reset();
 };
 
-// 具象 Cb (mendo target)
-struct AppSearchBarCallbacks {
+// ResourceManagerT / SearchBarControllerT の Cb が共通に持つ、App への転送
+struct AppCallbacksBase {
     App* app = nullptr;
-    void invalidate();
     void set_timer(app_timer::Id id, UINT ms);
     void kill_timer(app_timer::Id id);
+    float get_md_pane_height();
+};
+
+// 具象 Cb (mendo target)
+struct AppSearchBarCallbacks : AppCallbacksBase {
+    void invalidate();
     void focus_select_all();
     void unfocus();
-    float get_md_pane_height();
-    void on_scroll_changed(float md_pane_height);
+    void ensure_node_layout(int node_index);
     void on_wrap_around();
 };
 
@@ -2394,7 +2389,7 @@ public:
 
 App から画像読み込み、Mermaidバッチ処理、ビットマップ解放の責務を分離する。
 
-Callbacks は `SearchBarController` と同様に `template<class Cb>` 形式。具象 Cb は `AppResourceManagerCallbacks`（`app_resource_manager_callbacks.{h,cpp}`）で、テンプレート本体は `resource_manager.h` に宣言・定義される。
+Callbacks は `SearchBarController` と同様に `template<class Cb>` 形式。具象 Cb は `AppResourceManagerCallbacks`（`app_callbacks.{h,cpp}`）で、テンプレート本体は `resource_manager.h` に宣言・定義される。
 
 ```cpp
 template <class Cb>
@@ -2436,17 +2431,13 @@ public:
     void ClearResolvedPaths() noexcept;
 };
 
-// 具象 Cb (mendo target)
-struct AppResourceManagerCallbacks {
-    App* app = nullptr;
-    void set_timer(app_timer::Id id, UINT ms);
-    void kill_timer(app_timer::Id id);
+// 具象 Cb (mendo target)。set_timer / kill_timer / get_md_pane_height は AppSearchBarCallbacks と共通の AppCallbacksBase に置く
+struct AppResourceManagerCallbacks : AppCallbacksBase {
     float get_content_width();
-    float get_viewport_height();
     const Theme& get_theme();
     // どちらも再描画の要求までを含む
-    void recompute_layout(mendo::layout::HeightChangeRange changed);
-    void recompute_layout_anchored(mendo::layout::HeightChangeRange changed);
+    void recompute_layout(layout::HeightChangeRange changed);
+    void recompute_layout_anchored(layout::HeightChangeRange changed);
 };
 
 using ResourceManager = ResourceManagerT<AppResourceManagerCallbacks>;
@@ -3107,7 +3098,7 @@ pie title テストカバレッジ（ファイル数ベース）
     "UIコード（テスト対象外）" : 10
 ```
 
-> **テスト対象外**: `main.cpp`, `window/window.cpp`, `app/app*.cpp`（Win32/D2D ハンドラ実装）, `render/renderer*.cpp`, `render/d2d_render_backend.cpp`, `mermaid/mermaid.cpp`, `app/win32_host_impl.cpp`, `ui/context_menu.cpp`（D2D 描画部分） は Win32 / Direct2D / WebView2 依存のためユニットテスト対象外。これらの責務はインターフェース（`IWin32Host` / `IRenderBackend` / `IMermaidRenderer` / `ITextMeasurer`）越しに mendo_core 側でテストされる。
+> **テスト対象外**: `main.cpp`, `window/window.cpp`, `app/app*.cpp`（Win32/D2D ハンドラ実装）, `render/renderer*.cpp`, `render/d2d_render_backend.cpp`, `mermaid/mermaid.cpp`, `app/win32_host.cpp`, `ui/context_menu.cpp`（D2D 描画部分） は Win32 / Direct2D / WebView2 依存のためユニットテスト対象外。これらの責務はインターフェース（`IWin32Host` / `IRenderBackend` / `IMermaidRenderer` / `ITextMeasurer`）越しに mendo_core 側でテストされる。
 
 ### 7.3 テストソース一覧（抜粋）
 
@@ -3124,8 +3115,7 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_document.cpp` | Document |
 | `test_document_service.cpp` | DocumentService |
 | `test_document_utils.cpp` | テキスト操作 |
-| `test_anchor.cpp` | アンカーID生成（`GenerateAnchorId` はテスト用ヘルパー `document_test_helpers.h` に置く） |
-| `test_footnote_anchor.cpp` | 脚注アンカー |
+| `test_anchor.cpp` | アンカーID生成（`GenerateAnchorId` はテスト用ヘルパー `document_test_helpers.h` に置く）・見出しアンカー索引・脚注アンカー |
 | `test_toc.cpp` | 目次生成・`FindActiveTocIndex` |
 | `test_types.cpp` | 型・データ構造 |
 | `test_file_loader.cpp` | FileLoader |
@@ -3174,7 +3164,7 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_lru_cache.cpp` | LruCache |
 | `test_memory_eviction.cpp` | メモリエビクション |
 | `test_task_scheduler.cpp` | TaskScheduler・ワーカー数（`SharedWorkerCount` / `LayoutWorkerCount`） |
-| `test_utility.cpp` | ユーティリティ関数 |
+| `test_utility.cpp` | ユーティリティ関数（`utility.h`、FNV-1a ハッシュを含む） |
 | `test_async_load_coordinator.cpp` | AsyncLoadCoordinator |
 | `test_preloader.cpp` | Preloader |
 | `test_parallel_measure.cpp` | 並列計測と `RunParallel` のダーティバッチ計測（件数上限・クリップ） |
@@ -3362,72 +3352,47 @@ src/
 ├── main.cpp                       # エントリポイント (wWinMain)
 ├── pch.h                          # プリコンパイル済みヘッダ
 ├── app/                           # アプリケーション層
-│   ├── app.h / app.cpp            # App 統括（Dispatch / OnPaint / レイアウト）
-│   ├── app_init.cpp               # Init() と各サービスの初期化
+│   ├── app.h / app.cpp            # App 統括（Init / Dispatch / OnPaint / レイアウト / テーマ適用 / コンテキストメニュー）
 │   ├── app_file.cpp               # LoadMarkdownFile / BeginAsyncLoad / OnParseComplete
-│   ├── app_layout.cpp             # レイアウト・スクロール関連ヘルパー
-│   ├── app_theme.cpp              # テーマ・ズーム変更の適用
-│   ├── app_mouse.cpp              # マウス入力ハンドラ統括
-│   ├── app_mouse_click.cpp        # クリック処理
-│   ├── app_mouse_helpers.h        # マウスヘルパー
-│   ├── app_mouse_hover.cpp        # ホバー処理
-│   ├── app_context_menu.cpp       # コンテキストメニュー
+│   ├── app_mouse.cpp              # マウス入力ハンドラ (クリック / ホバー / ドラッグ)
 │   ├── clipboard_manager.h / .cpp # ClipboardManager (コピー/PNG 保存/SVG コピー)
-│   ├── app_state.h                # AppState (全状態集約)
-│   ├── app_state_queries.h        # reducer と App が AppState から導出するペイン/ブロック情報
+│   ├── app_state.h                # AppState (全状態集約) + reducer と App が導出するペイン/ブロック情報
 │   ├── reload_flow.h              # 非同期ロード完了時の分岐判定 (純粋関数)
 │   ├── startup_plan.h / .cpp      # 起動時の初期表示の決定
 │   ├── app_events.h               # AppAction variant
 │   ├── app_constants.h            # タイマーID / WM_APP+N / WPARAM 定義
 │   ├── app_controller.h / .cpp    # app_controller (Event→Action)
-│   ├── reducer.h / reducer.cpp    # Reducer (Action+State→Effects, in-place)
-│   ├── reducer_input.cpp          # 入力系 reducer
-│   ├── reducer_navigation.cpp     # ナビゲーション系 reducer
-│   ├── reducer_scroll.cpp         # スクロール系 reducer
-│   ├── reducer_search.cpp         # 検索系 reducer
-│   ├── reducer_system.cpp         # システム系 reducer
-│   ├── reducer_ui.cpp             # UI系 reducer
-│   ├── reducer_internal.h         # reducer 分割ファイル共通宣言
+│   ├── reducer.h / reducer.cpp    # Reducer (Action+State→Effects, in-place) + ドメイン別 Reduce*
 │   ├── side_effect.h              # SideEffect 単一variant + PushEffect/HasEffect
 │   ├── side_effect_executor.h     # SideEffectExecutorT<Cb> 宣言 + inline 実装
-│   ├── app_side_effect_callbacks.h / .cpp # AppSideEffectCallbacks 具象 Cb
+│   ├── app_callbacks.h / .cpp     # AppSideEffectCallbacks / AppResourceManagerCallbacks 具象 Cb (+ AppSearchBarCallbacks 実装)
 │   ├── resource_manager.h         # ResourceManagerT<Cb> 宣言 + 実装
-│   ├── app_resource_manager_callbacks.h / .cpp # AppResourceManagerCallbacks 具象 Cb
-│   ├── app_search_bar_callbacks.h / .cpp # AppSearchBarCallbacks 具象 Cb
-│   ├── win32_host.h               # IWin32Host インターフェース
-│   └── win32_host_impl.h / .cpp   # Win32Host 具象実装
+│   ├── app_search_bar_callbacks.h # AppSearchBarCallbacks 具象 Cb の宣言
+│   └── win32_host.h / .cpp        # IWin32Host インターフェース + Win32Host 具象実装
 ├── window/                        # ウィンドウ層
 │   └── window.h / window.cpp      # Win32Window
 ├── render/                        # 描画層
-│   ├── renderer.h / renderer.cpp  # Direct2D 描画統括
+│   ├── renderer.h / renderer.cpp  # Direct2D 描画統括 + タイトルバー / オーバーレイ描画
 │   ├── renderer_resources.cpp     # ブラシ・フォーマット
 │   ├── renderer_pane.cpp          # ペイン描画
-│   ├── renderer_titlebar.cpp      # タイトルバー描画
-│   ├── renderer_overlay.cpp       # オーバーレイ
 │   ├── renderer_search.cpp        # 検索バー描画
 │   ├── d2d_render_backend.h / .cpp # D2DRenderBackend 実装 (IRenderBackend)
 │   ├── render_params.h            # レンダリングパラメータ
 │   ├── draw_command.h             # DrawCommand variant + DrawCommandList (pmr::vector)
-│   ├── block_h_scroll_context.h   # コードブロック横スクロール描画コンテキスト
 │   ├── brush_id.h                 # ブラシ ID 定義
 │   ├── text_layout_cache.h        # 繰り返し描く短い文字列のテキストレイアウト作り置き
-│   ├── command_generator.h / .cpp # 描画コマンド生成
-│   ├── command_generator_table.cpp      # テーブル描画コマンド生成
-│   ├── command_generator_highlights.cpp # ハイライト描画コマンド生成
-│   ├── command_generator_internal.h     # command_generator 分割ファイル共通宣言
+│   ├── command_generator.h / .cpp # 描画コマンド生成 (テーブル / ハイライトを含む)
 │   └── command_executor.h / .cpp  # 描画コマンド実行 (スクラッチブラシ・可視グリフラン描画)
 ├── core/                          # コアドメイン
 │   ├── document_types.h           # Node, AlertType, NodeType, TableRow etc.
 │   ├── text_types.h               # TextRun, TextSelection etc.
-│   ├── raw_text.h                 # パース入力 UTF-8 の保持
 │   ├── text_arena.h               # TextArena (ノードのテキストと TextRun の置き場所)
 │   ├── parser.h / parser.cpp      # Markdown パース (md4c UTF-8)
 │   ├── parser_alerts.h / .cpp     # GitHub Alerts 検出
-│   ├── footnote_anchor.h / .cpp   # 脚注アンカーの生成・解決
+│   ├── anchor.h / anchor.cpp      # 見出しアンカー索引 + 脚注アンカーの生成・解決
 │   ├── html_entities.h / .cpp     # HTML エンティティ解決
-│   ├── document.h / document.cpp  # Document
+│   ├── document.h / document.cpp  # Document + RawText (パース入力 UTF-8 の保持)
 │   ├── document_utils.h / .cpp    # テキスト操作
-│   ├── heading_anchor_index.h / .cpp # 見出しアンカー → ノード番号の索引
 │   ├── reload.h / reload.cpp      # AnalyzeReloadDiff / FindNodeBySourceOffset
 │   ├── selection_html.h / .cpp    # 選択範囲の HTML 生成
 │   ├── toc.h / toc.cpp            # 目次生成
@@ -3436,10 +3401,10 @@ src/
 ├── layout/                        # レイアウト層
 │   ├── layout.h / layout.cpp      # LayoutEngine + LayoutService
 │   ├── layout_cache.h / .cpp      # LayoutCache (レイアウトデータ)
-│   ├── layout_computer.h / .cpp   # ノード Y 位置・高さ再計算ユーティリティ (mendo::layout)
+│   ├── layout_computer.h / .cpp   # ノード Y 位置・高さ再計算ユーティリティ (layout)
 │   ├── layout_queries.h / .cpp    # 文書位置と Y 座標の突き合わせ (FindActiveTocIndex / CalcScrollYForDiff)
 │   ├── viewport_manager.h         # ViewportManager + ScrollTarget
-│   ├── block_h_scroll.h           # ブロック横スクロール幾何計算
+│   ├── block_h_scroll.h           # ブロック横スクロール幾何計算 + 描画コンテキスト
 │   ├── doc_dwrite_bridge.h / .cpp # Document⇔DirectWrite 計測ブリッジ
 │   ├── parallel_measure.h / .cpp  # ワーカー並列計測 (RunParallel / MeasureIndicesParallel)
 │   ├── text_measurer.h            # ITextMeasurer インターフェース (本番/モック差し替え用) + MeasureEntry
@@ -3460,13 +3425,12 @@ src/
 │   ├── document_service.h / .cpp  # 読み込みオーケストレーション (FileLoader → Document)
 │   ├── file_dialog_service.h / .cpp # OpenFileDialog 等
 │   ├── file_watcher.h / .cpp      # ReadDirectoryChangesW 監視
-│   ├── file_load_service.h / .cpp # ロード制御 + アニメーション
+│   ├── file_load_service.h / .cpp # ロード制御 + LoadingAnimation
 │   ├── file_explorer.h / .cpp     # ディレクトリブラウザ
 │   ├── image_loader.h / .cpp      # 非同期画像読み込み
 │   ├── preloader.h / .cpp         # 起動時の I/O + パース先行起動
 │   ├── async_load_coordinator.h / .cpp # 非同期ロード調停 (世代カウンタ管理)
 │   ├── async_load_result.h        # AsyncLoadResult (Document + LayoutCache) / AsyncLoadOutcome
-│   ├── loading_animation.h        # ローディングアニメーション状態
 │   ├── ini_parser.h               # IniParser (ヘッダオンリー)
 │   └── config_service.h / .cpp    # ConfigService + SessionService
 ├── mermaid/                       # Mermaid層
@@ -3484,38 +3448,27 @@ src/
 │   ├── search_state.h / .cpp      # SearchState
 │   ├── search_bar_controller.h    # SearchBarControllerT<Cb> 宣言 + 実装
 │   ├── pane_controller.h / .cpp   # PaneController
-│   ├── cursor_manager.h           # CursorManager (ヘッダオンリー)
 │   ├── last_hover_pos.h           # LastHoverPos (ヘッダオンリー)
 │   └── darkmode_util.h / .cpp     # Win32 dark mode 切替ヘルパー
 └── util/                          # ユーティリティ層 (Win32 依存最小、テスト容易)
-    ├── utility.h                  # 汎用ユーティリティ
+    ├── utility.h                  # 汎用ユーティリティ (ScopeGuard / FNV-1a / PngBytes / PmrFormat / overloaded)
+    ├── win32_util.h               # Win32 小物 (IsKeyDown / LoadRcData / LogHrFailure)
     ├── string_convert.h           # UTF-8 ↔ Wide 変換 (ヘッダオンリー)
     ├── utf8_codec.h               # UTF-8 低レベルコーデック
     ├── newline_util.h             # CRLF / CR → LF 正規化
     ├── file_io.h / .cpp           # ファイルI/Oヘルパー
-    ├── stream_util.h              # ストリーム処理
     ├── wic_util.h                 # WIC ヘルパー
     ├── d2d_util.h                 # Direct2D ヘルパー
     ├── ascii_util.h               # ASCII 操作
-    ├── scope_guard.h              # スコープ終了時実行ガード
     ├── lru_cache.h                # LruCache (汎用LRU)
-    ├── fnv1a.h                    # FNV-1a ハッシュ
-    ├── string_hash.h              # string_view で引ける透過ハッシュ
-    ├── png_bytes.h                # エンコード済み PNG
-    ├── pmr_format.h               # std::pmr 対応 format
-    ├── overloaded.h               # std::visit 用 overloaded ヘルパー
-    ├── rc_resource.h              # 参照カウント付きリソース
     ├── worker_latch.h             # ワーカー完了同期ラッチ
     ├── parallel_for.h             # scheduler 上の chunk 分割並列実行
     ├── clipboard_util.h           # クリップボード補助
-    ├── log_hr.h                   # HRESULT ログ出力
     ├── win_handle.h               # UniqueResource (RAII) + 定義済み traits
     ├── i18n.h                     # 国際化
     ├── resource.h                 # リソースID
     ├── ui_constants.h             # UI 定数 + ScrollRestoration + DipRect 関連
-    ├── ui_types.h                 # PaneZone / NavButtonHover / HoveredButtons / 等
-    ├── nav_direction.h            # NavDirection (ジェスチャ / スワイプの履歴移動の向き)
-    ├── key_state.h                # IsKeyDown (修飾キーの押下判定)
+    ├── ui_types.h                 # PaneZone / NavButtonHover / NavDirection / HoveredButtons / 等
     ├── pane_layout.h / .cpp       # PaneLayout / PaneRect / ScrollState / PaneLayoutCache
     ├── task_scheduler.h / .cpp    # TaskScheduler + ワーカー数 (SharedWorkerCount / LayoutWorkerCount)
     └── profiler.h                 # パフォーマンス計測
@@ -4287,14 +4240,14 @@ exit /b 0
 | 2 | App | app.h + app_*.cpp | mendo | 部分 |
 | 3 | AppState | app_state.h | mendo_core | あり (各サブgrp) |
 | 4 | app_controller | app_controller.h/cpp | mendo_core | あり |
-| 5 | Reducer | reducer.h/cpp + reducer_*.cpp | mendo_core | あり |
-| 6 | SideEffectExecutor | side_effect_executor.h + app_side_effect_callbacks.h/cpp | mendo_core (T) / mendo (Cb) | あり |
+| 5 | Reducer | reducer.h/cpp | mendo_core | あり |
+| 6 | SideEffectExecutor | side_effect_executor.h + app_callbacks.h/cpp | mendo_core (T) / mendo (Cb) | あり |
 | 8 | IWin32Host | win32_host.h | mendo_core (IF) | モック |
-| 9 | Win32Host | win32_host_impl.h/cpp | mendo | 直接なし |
+| 9 | Win32Host | win32_host.h/cpp | mendo | 直接なし |
 | 10 | Renderer | renderer*.cpp | mendo | なし |
 | 11 | CommandGenerator | command_generator.h/cpp | mendo_core | あり |
 | 12 | CommandExecutor | command_executor.h/cpp | mendo_core | あり |
-| 13 | Parser | parser.cpp + parser_alerts.cpp + footnote_anchor.cpp | mendo_core | あり |
+| 13 | Parser | parser.cpp + parser_alerts.cpp + anchor.cpp | mendo_core | あり |
 | 14 | LayoutEngine + LayoutService | layout.h/cpp | mendo_core | あり |
 | 15 | DWriteTextMeasurer | dwrite_measurer.h/cpp | mendo_core | parity |
 | 16 | Document | document.h/cpp | mendo_core | あり |
@@ -4322,9 +4275,9 @@ exit /b 0
 | 38 | ToastNotifier | toast_notifier.h | mendo_core | あり |
 | 39 | Tooltip + TooltipTarget | tooltip.h/cpp | mendo_core | TooltipTarget のみ |
 | 40 | SearchState | search_state.h/cpp | mendo_core | あり |
-| 41 | SearchBarController | search_bar_controller.h + app_search_bar_callbacks.h/cpp | mendo_core (T) / mendo (Cb) | あり |
+| 41 | SearchBarController | search_bar_controller.h + app_search_bar_callbacks.h + app_callbacks.cpp | mendo_core (T) / mendo (Cb) | あり |
 | 42 | ImageLoader | image_loader.h/cpp | mendo_core | あり |
-| 43 | ResourceManager | resource_manager.h + app_resource_manager_callbacks.h/cpp | mendo_core (T) / mendo (Cb) | あり |
+| 43 | ResourceManager | resource_manager.h + app_callbacks.h/cpp | mendo_core (T) / mendo (Cb) | あり |
 | 44 | i18n | i18n.h | mendo_core | あり |
 | 45 | IniParser | ini_parser.h | mendo_core | あり |
 | 46 | TaskScheduler | task_scheduler.h/cpp | mendo_core | あり |
@@ -4332,7 +4285,7 @@ exit /b 0
 | 48 | UniqueResource + Clipboard utils | win_handle.h + clipboard_util.h | mendo_core | なし |
 | 49 | LastHoverPos | last_hover_pos.h | mendo_core | あり |
 | 50 | ScrollRestoration | ui_constants.h 内 | mendo_core | あり |
-| 51 | CursorManager | cursor_manager.h | mendo_core | なし |
+| 51 | CursorManager | app.h 内 | mendo_core | なし |
 | 52 | UIConstants | ui_constants.h | mendo_core | あり |
 | 53 | StringConvert | string_convert.h | mendo_core | あり |
 | 54 | MemoryResource | memory_resource.h | mendo_core | なし |

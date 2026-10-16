@@ -118,7 +118,7 @@ bool MeasureWithoutTextLayout(const Node& node, NodeLayoutEntry& entry, const Th
     // それまではプレースホルダー高さ。
     else if (IsBitmapDrawNode(node)) {
         if (entry.height <= 0) {
-            entry.height = mendo::layout::PlaceholderHeight(theme);
+            entry.height = layout::PlaceholderHeight(theme);
         }
     }
     else if (node.GetText().empty()) {
@@ -279,7 +279,7 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     } };
 
     // runs は start 昇順・非重複なので、境界の UTF-16 位置は前方への 1 回の走査で求まる。
-    mendo::Utf16OffsetCursor cursor{ text };
+    Utf16OffsetCursor cursor{ text };
     for (const auto& r : runs) {
         const DWRITE_TEXT_RANGE wr = cursor.WideRange(r.start, r.length);
         bold.Update(r.bold(), wr);
@@ -304,7 +304,7 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
 // (SetDrawingEffect は内部で range tree を組み直すので呼び出しを減らす)。
 static std::pmr::vector<SyntaxToken> ToWideMergedTokens(std::string_view text, std::pmr::vector<SyntaxToken> tokens)
 {
-    mendo::Utf16OffsetCursor cursor{ text };
+    Utf16OffsetCursor cursor{ text };
     size_t out = 0;
     for (size_t i = 0; i < tokens.size(); i++) {
         const SyntaxToken t = tokens[i];
@@ -350,7 +350,7 @@ void DWriteTextMeasurer::MeasureNode(
 
     const auto& text = node.GetText();
     ComPtr<IDWriteTextLayout> layout;
-    if (FAILED(mendo::CreateDocTextLayout(dwrite_, text, GetTextFormat(node), layout_width, LAYOUT_INFINITY, &layout))) {
+    if (FAILED(CreateDocTextLayout(dwrite_, text, GetTextFormat(node), layout_width, LAYOUT_INFINITY, &layout))) {
         return;
     }
 
@@ -376,7 +376,7 @@ void DWriteTextMeasurer::BuildCellLayout(const NodeTableData& tbl, size_t r, siz
         return;
     }
     auto& cell_layout = tl.cell_layouts[tl.CellIndex(r, c)];
-    mendo::CreateDocTextLayout(dwrite_, text, row_fmt, LAYOUT_INFINITY, LAYOUT_INFINITY, &cell_layout);
+    CreateDocTextLayout(dwrite_, text, row_fmt, LAYOUT_INFINITY, LAYOUT_INFINITY, &cell_layout);
     if (cell_layout) {
         ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, RunFormatScope::ForCell());
     }
@@ -448,11 +448,11 @@ void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayou
     const float borders_width = (static_cast<float>(col_count) + 1.0f) * border_width;
     const float paddings_width = static_cast<float>(col_count) * cell_padding * 2.0f;
 
-    mendo::layout::ComputeColumnWidths(tl.col_widths, natural_widths, max_width - borders_width - paddings_width, col_count);
+    layout::ComputeColumnWidths(tl.col_widths, natural_widths, max_width - borders_width - paddings_width, col_count);
 
     // 幅の適用 (SetMaxWidth + GetMetrics) は全セル分かかる。行ごとの書き込み先
     // (row_heights[r] と行内セルの幅・高さキャッシュ) は重ならないので行チャンクで並列化する。
-    const float base_row_height = mendo::layout::TableBaseRowHeight(*theme_);
+    const float base_row_height = layout::TableBaseRowHeight(*theme_);
     ParallelFor(scheduler_, tbl.row_count, TableRowsPerChunk(col_count), [&](size_t row_begin, size_t row_end) {
         for (size_t r = row_begin; r < row_end; r++) {
             const auto [row_height, has_unbuilt_cell] = MeasureRowHeight(tl, tbl, r, base_row_height);
@@ -505,7 +505,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
     }
 
     const auto [r_begin, r_end] = tl.RowsInViewport(row_count, viewport.top, viewport.bottom);
-    const float base_row_height = mendo::layout::TableBaseRowHeight(*theme_);
+    const float base_row_height = layout::TableBaseRowHeight(*theme_);
     size_t first_changed_row = row_count;
     for (size_t r = r_begin; r < r_end; r++) {
         if (!tl.row_evicted[r]) {

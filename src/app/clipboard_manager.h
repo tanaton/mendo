@@ -1,7 +1,7 @@
 #pragma once
 #include "lru_cache.h"
 #include "mermaid_renderer_interface.h"
-#include "png_bytes.h"
+#include "utility.h"
 #include "win_handle.h"
 #include <windows.h>
 #include <wincodec.h>

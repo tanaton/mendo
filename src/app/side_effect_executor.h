@@ -4,7 +4,7 @@
 #include "file_watcher.h"
 #include "app_state.h"
 #include "app_constants.h"
-#include "overloaded.h"
+#include "utility.h"
 #include "ui_constants.h"
 #include <utility>
 
@@ -33,7 +33,7 @@ public:
     void ExecuteOne(const SideEffect& e)
     {
         // clang-format off
-        std::visit(mendo::overloaded{
+        std::visit(overloaded{
             // ---- Ui ----
             [this](const effect::InvalidateWindow&) {
                 deps_.host->Invalidate();

@@ -1,19 +1,172 @@
 #include "app.h"
 #include "app_constants.h"
 #include "app_controller.h"
-#include "app_state_queries.h"
+#include "ascii_util.h"
+#include "darkmode_util.h"
+#include "document_service.h"
 #include "document_utils.h"
 #include "gesture_overlay.h"
 #include "i18n.h"
-#include "key_state.h"
+#include "layout_queries.h"
 #include "pane_layout.h"
 #include "profiler.h"
 #include "reducer.h"
+#include "resource.h"
 #include "search_bar_controller.h"
 #include "ui_constants.h"
+#include "win32_util.h"
+#include <thread>
 #include <utility>
 
 #pragma comment(lib, "shell32.lib")
+
+namespace {
+
+bool IsEditableTextFile(std::wstring_view path)
+{
+    return IsMarkdownFile(path) || ascii_util::iequal(ExtensionView(path), L".txt");
+}
+
+} // namespace
+
+bool App::Init(HWND hwnd)
+{
+    hwnd_ = hwnd;
+
+    // 書式とブラシを 1 回で作るため、保存済みテーマ/ズームを Renderer 初期化前に読む。
+    theme_service_.LoadDarkMode();
+    state_.view.viewport.SetZoomIndex(theme_service_.LoadZoomIndex());
+    if (!renderer_.Init(hwnd_, theme_service_.CreateTheme(state_.view.viewport.GetZoomIndex()))) {
+        return false;
+    }
+
+    layout_service_.emplace(renderer_.GetLayout(), state_.view.viewport);
+
+    // Mermaid 共有 scheduler_ と詰まり合わないよう独立して立ち上げる。
+    const auto cores = std::thread::hardware_concurrency();
+    layout_scheduler_.Init(LayoutWorkerCount(cores));
+    renderer_.SetLayoutScheduler(&layout_scheduler_);
+
+    // PixelToDip 用に DPI スケールをキャッシュ（OnDpiChanged でも更新する）。
+    state_.window.cached_dpi_scale = DpiScaleFrom(static_cast<float>(GetDpiForWindow(hwnd_)));
+
+    scheduler_.Init(SharedWorkerCount(cores));
+
+    file_cache_.SetCacheDir(config_.GetConfigPath(L"MermaidCache"));
+    file_cache_.Init(MermaidRenderer::EstimateWorkerDpr(), scheduler_);
+    mermaid_renderer_.SetFileCache(&file_cache_);
+
+    clipboard_manager_.Init(hwnd_, &file_cache_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });
+
+    resource_manager_.Init(
+        ResourceManagerDeps{
+            .doc = &state_.document.doc,
+            .cache = &state_.document.layout_cache,
+            .viewport = &state_.view.viewport,
+            .image_loader = &image_loader_,
+            .mermaid = &mermaid_renderer_,
+            .mermaid_file_cache = &file_cache_,
+            .theme_service = &theme_service_,
+        },
+        AppResourceManagerCallbacks{ this });
+    win32_host_.Init(hwnd_);
+    effect_executor_.Init(
+        SideEffectExecutorDeps{
+            .host = &win32_host_,
+            .file_watcher = &file_watcher_,
+            .state = &state_,
+        },
+        AppSideEffectCallbacks{ this });
+
+    mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), renderer_.GetWICFactory(), scheduler_, app_msg::MERMAID_DISK_LOADED,
+                           config_.GetConfigPath(L"WebView2Data"), [this]() {
+        resource_manager_.ScheduleMermaidBatch();
+    });
+
+    if (!image_loader_.Init(renderer_.GetRenderTarget(), renderer_.GetWICFactory())) {
+        OutputDebugStringW(L"[mendo] ImageLoader::Init failed (WIC factory unavailable). Image rendering disabled.\n");
+    }
+    image_loader_.InitAsync(hwnd_, app_msg::IMAGE_LOADED, scheduler_);
+
+    // D2D デバイスロストでレンダーターゲットが再作成されたら、各ローダーへ伝搬する。
+    renderer_.SetDeviceLostCallback([this](ID2D1RenderTarget* new_rt) {
+        mermaid_renderer_.SetRenderTarget(new_rt);
+        image_loader_.CancelPending();
+        image_loader_.SetRenderTarget(new_rt);
+        image_loader_.ClearCache();
+        // IDWriteTextLayout が SetDrawingEffect 経由で AddRef した旧 RT 由来のブラシと、
+        // DiagramEntry::bitmap が新 RT で描画拒否されるのを防ぐ。ApplyCachedImages は
+        // bitmap 残存ノードをスキップするため、LoadImages の前に破棄する必要がある。
+        state_.document.layout_cache.InvalidateEffects();
+        state_.document.layout_cache.InvalidateAllDiagramBitmaps(state_.document.doc.GetNodes());
+        resource_manager_.LoadImages();
+    });
+
+    RestoreThemeAndZoom();
+
+    cursors_.Init();
+
+    {
+        const auto* rt = renderer_.GetRenderTarget();
+        state_.window.titlebar.UpdateLayout(rt ? rt->GetSize().width : FALLBACK_WINDOW_WIDTH);
+    }
+
+    RestorePaneState();
+
+    state_.ctx_menu.Init(renderer_.GetD2DFactory(), renderer_.GetDWriteFactory());
+
+    state_.interaction.tooltip.Init(hwnd_);
+    if (theme_service_.IsDarkMode()) {
+        state_.interaction.tooltip.ApplyDarkMode(true);
+    }
+
+    state_.search.search_bar_ctrl.Init(state_.search.search_state, state_.view.viewport, state_.document.layout_cache, AppSearchBarCallbacks{ this });
+    return true;
+}
+
+void App::RestoreThemeAndZoom()
+{
+    const auto& viewport = state_.view.viewport;
+    if (viewport.GetZoomIndex() != ZOOM_DEFAULT_INDEX) {
+        state_.view.panes.ApplyZoom(viewport.GetCurrentZoom());
+    }
+    state_.theme = &renderer_.GetTheme();
+    if (theme_service_.IsDarkMode()) {
+        ApplyDarkModeToWindow(hwnd_, true);
+    }
+}
+
+void App::RestorePaneState()
+{
+    const auto s = session_.LoadPaneState(PaneController::PANE_MIN_WIDTH, PaneController::PANE_DEFAULT_WIDTH);
+    auto& panes = state_.view.panes;
+    panes.SetSidePaneVisible(PaneTarget::File, s.show_file);
+    panes.SetSidePaneVisible(PaneTarget::Toc, s.show_toc);
+    panes.SetSidePaneWidth(PaneTarget::File, s.file_width);
+    panes.SetSidePaneWidth(PaneTarget::Toc, s.toc_width);
+}
+
+void App::LoadInitialDocument()
+{
+    // small file は preload がここまでに完了している場合が多い。直後の UpdateWindow が
+    // 同期 WM_PAINT を発行するため、ここで取り込んでおかないと初回フレームが空になる。
+    using PreloadAttachResult = FileLoadService::PreloadAttachResult;
+    switch (file_load_service_.AttachOrApplyPreload(hwnd_, app_msg::PARSE_COMPLETE)) {
+    case PreloadAttachResult::AppliedSync:
+        OnParseComplete();
+        break;
+    case PreloadAttachResult::AttachedAsync:
+        if (DocumentService::ShouldShowLoadingAnimation(file_load_service_.GetLoadingPath())) {
+            file_load_service_.BeginLoadingAnimation();
+            EmitEffect(effect::SetTimer{ app_timer::Id::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS });
+            Invalidate();
+        }
+        break;
+    case PreloadAttachResult::None:
+        LoadHelpDocument();
+        break;
+    }
+}
 
 DipPoint App::PixelToDip(int px, int py) const noexcept
 {
@@ -394,4 +547,252 @@ RECT App::GetSearchEditRect()
 void App::SetInitialDirectory(std::wstring_view dir_path)
 {
     state_.file_explorer.SetDirectory(dir_path);
+}
+
+void App::FinishThemeOrZoomChange()
+{
+    const PaneRect md = GetPaneLayout().md_rect;
+
+    ViewportLayout(md.width, md.height);
+    SyncMaxScroll(md.height);
+    resource_manager_.RequestMermaidRenders();
+    SettleLayout();
+    Invalidate();
+
+    EmitEffect(effect::SyncTocActive{});
+}
+
+void App::HandleApplyThemeChange(const effect::ApplyThemeChange& e)
+{
+    if (e.type == effect::ApplyThemeChange::Type::Zoom) {
+        renderer_.ApplyZoomFromBase(theme_service_.CreateTheme(), state_.view.viewport.GetCurrentZoom());
+        FinishThemeOrZoomChange();
+        UpdateTitleBar();
+        theme_service_.SaveZoomLevel(state_.view.viewport.GetZoomIndex());
+        return;
+    }
+
+    theme_service_.ToggleDarkMode();
+    renderer_.SetTheme(theme_service_.CreateTheme(state_.view.viewport.GetZoomIndex()));
+    const bool dark = theme_service_.IsDarkMode();
+    ApplyDarkModeToWindow(hwnd_, dark);
+    state_.interaction.tooltip.ApplyDarkMode(dark);
+    // メモリキャッシュはキーにダークモードを含むので消さず、往復時に再利用する。
+    mermaid_renderer_.CancelPending();
+    FinishThemeOrZoomChange();
+    theme_service_.SaveDarkMode();
+}
+
+void App::OnContextMenu(int screen_x, int screen_y)
+{
+    POINT client_pt{ screen_x, screen_y };
+    ScreenToClient(hwnd_, &client_pt);
+    const auto dip = PixelToDip(client_pt.x, client_pt.y);
+
+    const auto& selection = state_.view.viewport.GetSelection();
+    const auto& panes = state_.view.panes;
+    const ContextMenuParams params{
+        .screen_x = screen_x,
+        .screen_y = screen_y,
+        .dpi_scale = state_.window.cached_dpi_scale,
+        .can_go_back = state_.view.nav_history.CanGoBack(),
+        .can_go_forward = state_.view.nav_history.CanGoForward(),
+        // ヘルプは埋め込みリソースで、エディタで開くファイルが無い。
+        .has_file = state_.document.doc.HasBackingFile(),
+        .has_selection = selection.active && selection.start_node >= 0,
+        .dark_mode_checked = theme_service_.IsDarkMode(),
+        .file_pane_checked = panes.IsSidePaneVisible(PaneTarget::File),
+        .toc_pane_checked = panes.IsSidePaneVisible(PaneTarget::Toc),
+        .show_file_items = PaneAtPoint(dip.x) == PaneZone::MdPane,
+        .theme = &renderer_.GetTheme(),
+    };
+
+    switch (state_.ctx_menu.Show(hwnd_, params)) {
+    case IDM_NAV_BACK:
+        Dispatch(NavigateBackAction{});
+        break;
+    case IDM_NAV_FORWARD:
+        Dispatch(NavigateForwardAction{});
+        break;
+    case IDM_EDIT_FILE: {
+        const auto& file_path = state_.document.doc.GetFilePath();
+        if (IsEditableTextFile(file_path)) {
+            win32_host_.ShellOpen(file_path);
+        }
+        break;
+    }
+    case IDM_COPY:
+        Dispatch(CopyClipboardAction{});
+        break;
+    case IDM_COPY_FORMATTED:
+        Dispatch(CopyFormattedClipboardAction{});
+        break;
+    case IDM_TOGGLE_DARK_MODE:
+        Dispatch(ToggleDarkModeAction{});
+        break;
+    case IDM_TOGGLE_FILE_PANE:
+        Dispatch(TogglePaneAction{ PaneTarget::File });
+        break;
+    case IDM_TOGGLE_TOC_PANE:
+        Dispatch(TogglePaneAction{ PaneTarget::Toc });
+        break;
+    default:
+        break;
+    }
+}
+
+void App::EnsureScrollTarget()
+{
+    state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
+}
+
+void App::ViewportLayout(float md_width, float md_height)
+{
+    layout_service_->ViewportLayout(state_.document.doc, state_.document.layout_cache, md_width, md_height);
+}
+
+void App::SyncMaxScroll(float md_height)
+{
+    state_.view.viewport.SyncMaxScroll(ScrollableContentHeight(), md_height);
+}
+
+float App::ScrollableContentHeight() const noexcept
+{
+    // WM_NCHITTEST は Init 前にも届く。
+    return state_.theme ? MdScrollableContentHeight(state_) : 0.0f;
+}
+
+// Mermaid のキャッシュキーに入るため、全経路でこの値を使う (ずれるとキャッシュを外す)。
+float App::MdContentWidth()
+{
+    return renderer_.GetTheme().ContentWidth(GetPaneLayout().md_rect.width);
+}
+
+bool App::ScheduleDeferredLayoutIfNeeded()
+{
+    if (!layout_service_->HasDirtyNodes()) {
+        return false;
+    }
+    EmitEffect(effect::SetTimer{ app_timer::Id::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS });
+    return true;
+}
+
+// ロード・ズーム・リサイズでは画面外にもレイアウトが作られ (初回の MeasureTable は全セル)、
+// 本文幅が広がると画像の解像度が足りなくなる。スクロールを待たずに BitmapManage で整理させる。
+// 遅延レイアウトが残っていれば、その完了時 (OnDeferredLayout) に出す。
+void App::SettleLayout()
+{
+    if (!ScheduleDeferredLayoutIfNeeded()) {
+        EmitEffect(effect::BitmapManage{});
+    }
+}
+
+void App::FinalizeLayout(float md_pane_height)
+{
+    resource_manager_.LoadImages();
+    resource_manager_.RequestMermaidRenders();
+    SyncMaxScroll(md_pane_height);
+    Invalidate();
+    SettleLayout();
+}
+
+void App::InvalidateHitPositions()
+{
+    Dispatch(InvalidateHoverAction{});
+}
+
+void App::SyncTocActiveAndAutoScroll(bool auto_scroll)
+{
+    if (!state_.view.panes.IsSidePaneVisible(PaneTarget::Toc)) {
+        return;
+    }
+    const auto& theme = renderer_.GetTheme();
+    const int new_active = FindActiveTocIndex(
+        state_.document.doc.GetToc(), state_.document.layout_cache, state_.view.viewport.GetScrollY(), theme.heading_spacing_above);
+    if (new_active == state_.view.active_toc_index) {
+        return;
+    }
+    state_.view.active_toc_index = new_active;
+
+    // auto_scroll=false (目次クリック由来) ではハイライト更新のみ。
+    // ユーザーが操作中の目次ペインのスクロール位置を勝手に動かさない (issue#259)。
+    if (!auto_scroll || new_active < 0) {
+        return;
+    }
+
+    // アクティブ見出しを目次ペインの中央に保つように追従スクロールする。
+    const auto ctx = GetSidePaneContext(state_, PaneTarget::Toc);
+    if (ctx.info.content_height > 0.0f) {
+        ctx.scroll.scroll_y = CenterPaneScrollOnItem(static_cast<size_t>(new_active), theme.pane_item_height, ctx.info);
+    }
+}
+
+void App::OnResizeEnd()
+{
+    MENDO_PROFILE("OnResizeEnd");
+
+    EmitEffect(effect::KillTimer{ app_timer::Id::DEFERRED_LAYOUT });
+
+    const PaneRect md = GetPaneLayout().md_rect;
+
+    EnsureScrollTarget();
+
+    {
+        MENDO_PROFILE("ViewportLayout(Resize)");
+        ViewportLayout(md.width, md.height);
+    }
+    SyncMaxScroll(md.height);
+    Invalidate();
+
+    SettleLayout();
+
+    resource_manager_.ScheduleMermaidBatch();
+
+    EmitEffect(effect::SyncTocActive{});
+}
+
+void App::RefreshPaneLayout()
+{
+    state_.pane_layout_cache.Invalidate();
+    EmitEffect(effect::PerformResizeEnd{});
+}
+
+void App::OnDeferredLayout()
+{
+    MENDO_PROFILE("OnDeferredLayout");
+
+    constexpr int kDeferredLayoutBatchNodes = 200;
+
+    const PaneRect md = GetPaneLayout().md_rect;
+    bool more;
+    {
+        MENDO_PROFILE("ProcessDirtyBatch");
+        more = layout_service_->ProcessDirtyBatch(
+            state_.document.doc, state_.document.layout_cache, md.width, kDeferredLayoutBatchNodes,
+            LayoutService::ViewportLimit{ md.height, ResourceManager::EVICT_BUFFER_SCREENS });
+    }
+
+    // 中間バッチでは SyncMaxScroll のクランプを遅延させる。
+    // ビューポート後のノードが計測されると total_height が縮小し、中間的な
+    // max_scroll に基づくクランプで scroll_y が不当に引き下げられるのを防ぐ。
+    // スクロールバートラッキング中はユーザー操作を優先してクランプを反映する。
+    if (state_.view.panes.GetDragTarget() == PaneController::DragTarget::MdScrollbar) {
+        SyncMaxScroll(md.height);
+    }
+
+    if (more) {
+        return;
+    }
+    EmitEffect(effect::KillTimer{ app_timer::Id::DEFERRED_LAYOUT });
+
+    // 同期ディスク I/O + PNG デコードで UI スレッドを長時間ブロックしないよう、
+    // Mermaid ファイルキャッシュの読み込みは時間予算付きバッチに回す。
+    resource_manager_.ScheduleMermaidBatch();
+    EmitEffect(effect::BitmapManage{});
+
+    SyncMaxScroll(md.height);
+    Invalidate();
+
+    // layout_cache の text_top が確定したので目次アクティブ見出しを再同期する。
+    EmitEffect(effect::SyncTocActive{});
 }

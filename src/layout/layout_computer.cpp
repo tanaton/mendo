@@ -6,7 +6,7 @@
 #include <numeric>
 #include <ranges>
 
-namespace mendo::layout {
+namespace layout {
 
 namespace {
 // 列幅計算の下限。半角 2-3 文字相当（Theme の body フォントサイズ ~14pt 基準）。
@@ -264,4 +264,4 @@ bool RecomputeYPositions(
     return has_dirty_nodes;
 }
 
-} // namespace mendo::layout
+} // namespace layout

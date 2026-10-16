@@ -12,7 +12,6 @@ class Document;
 class TaskScheduler;
 class ViewportManager;
 
-
 class LayoutEngine {
 public:
     // 小刻みな WM_SIZE で全ノード再レイアウトが頻発するのを防ぐ幅変化の閾値。
@@ -41,7 +40,7 @@ public:
     bool ProcessDirtyBatch(
         const std::pmr::vector<Node>& nodes, LayoutCache& cache,
         float viewport_width, int batch_size,
-        mendo::layout::ViewportClip clip = {});
+        layout::ViewportClip clip = {});
     bool EnsureVisibleLayout(
         const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
         float viewport_top, float viewport_bottom);
@@ -92,7 +91,7 @@ public:
     // 画面外の node も計測する。見ている位置は保つ。
     bool EnsureNodeLayout(Document& doc, LayoutCache& cache, float width, int node);
     void RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme,
-                               mendo::layout::HeightChangeRange changed) noexcept;
+                               layout::HeightChangeRange changed) noexcept;
 
     constexpr bool HasDirtyNodes() const noexcept
     {

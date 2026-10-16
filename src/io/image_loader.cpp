@@ -179,7 +179,7 @@ void ImageLoader::CacheBitmap(
     const float height = pixel_height / scale;
 
     cache_.Insert(path, CachedImage{ std::move(bitmap), width, height, sharp_width_px });
-    cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedImage& c) { return mendo::BitmapBytes(c.bitmap.Get()); });
+    cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedImage& c) { return BitmapBytes(c.bitmap.Get()); });
 }
 
 void ImageLoader::CancelPending()

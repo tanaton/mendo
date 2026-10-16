@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
+#include "anchor.h"
 #include "document_test_helpers.h"
 #include "document_utils.h"
-#include "heading_anchor_index.h"
+#include <array>
 #include <initializer_list>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -109,4 +111,51 @@ TEST(HeadingAnchorIndex, FindReturnsNodeOfRegisteredHeading)
     EXPECT_EQ(index.Find("コードブロック-1"), 7);
     EXPECT_EQ(index.Find("missing"), -1);
     EXPECT_EQ(index.heading_count(), 2u);
+}
+
+namespace {
+
+constexpr std::array<int32_t, 2> kDefs{ 10, 11 };
+constexpr std::array<FootnoteRef, 3> kRefs{ {
+    { 1, 1, 2 },
+    { 2, 1, 4 },
+    { 1, 2, 7 },
+} };
+
+int FindFootnote(std::string_view anchor)
+{
+    return FindFootnoteAnchor(anchor, kDefs, kRefs);
+}
+
+} // namespace
+
+TEST(FootnoteAnchor, FormatsGitHubCompatibleUrls)
+{
+    EXPECT_EQ(FootnoteDefUrl(12), "#user-content-fn-12");
+    EXPECT_EQ(FootnoteRefUrl(3, 1), "#user-content-fnref-3");
+    EXPECT_EQ(FootnoteRefUrl(3, 2), "#user-content-fnref-3-2");
+}
+
+TEST(FootnoteAnchor, FindsDefinition)
+{
+    EXPECT_EQ(FindFootnote("user-content-fn-1"), 10);
+    EXPECT_EQ(FindFootnote("user-content-fn-2"), 11);
+    EXPECT_EQ(FindFootnote("user-content-fn-3"), -1);
+    EXPECT_EQ(FindFootnote("user-content-fn-0"), -1);
+}
+
+TEST(FootnoteAnchor, FindsReference)
+{
+    EXPECT_EQ(FindFootnote("user-content-fnref-1"), 2);
+    EXPECT_EQ(FindFootnote("user-content-fnref-2"), 4);
+    EXPECT_EQ(FindFootnote("user-content-fnref-1-2"), 7);
+    EXPECT_EQ(FindFootnote("user-content-fnref-1-3"), -1);
+}
+
+TEST(FootnoteAnchor, RejectsMalformedAnchors)
+{
+    for (const char* anchor : { "", "fn-1", "user-content-fn-", "user-content-fn-1x", "user-content-fn--1", "user-content-fnref-",
+                                "user-content-fnref-1-", "user-content-fnref-a", "user-content-fn-99999999999" }) {
+        EXPECT_EQ(FindFootnote(anchor), -1) << anchor;
+    }
 }

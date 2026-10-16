@@ -7,8 +7,8 @@
 #include <utility>
 #include <vector>
 
-using mendo::layout::NodeBoxPadY;
-using mendo::layout::NodeIndent;
+using layout::NodeBoxPadY;
+using layout::NodeIndent;
 
 // OverlayButtonRect ユーティリティ関数と hit_test::CodeBlockButtonsHitTest のテスト。
 // MockTextMeasurer を使用するため DirectWrite / COM は不要。

@@ -7,9 +7,9 @@
 #include <ranges>
 #include <utility>
 
-using mendo::layout::NodeBoxPadY;
-using mendo::layout::NodeIndent;
-using mendo::layout::NodeTextXOffset;
+using layout::NodeBoxPadY;
+using layout::NodeIndent;
+using layout::NodeTextXOffset;
 
 namespace {
 
@@ -28,7 +28,7 @@ void ResolveTextHit(hit_test::HitResult& result, IDWriteTextLayout* layout, floa
     BOOL is_inside = FALSE;
     DWRITE_HIT_TEST_METRICS metrics{};
     layout->HitTestPoint(x, y, &is_trailing, &is_inside, &metrics);
-    mendo::Utf16OffsetCursor cursor{ text };
+    Utf16OffsetCursor cursor{ text };
     const uint32_t char_pos = cursor.ByteAt(metrics.textPosition);
     // 結合文字やサロゲートペアの途中に置かないよう、クラスタの長さ分進める。
     result.text_pos = base + (is_trailing ? cursor.ByteAt(metrics.textPosition + metrics.length) : char_pos);

@@ -1,8 +1,8 @@
 #pragma once
 // テスト専用のドキュメント関連 helper。production では別経路 (Document::FindAnchorIndex) を使うため、これらの関数は tests/ 内でのみ意味を持つ。
+#include "anchor.h"
 #include "document_types.h"
 #include "document_utils.h"
-#include "heading_anchor_index.h"
 #include "selection_html.h"
 #include <optional>
 #include <memory_resource>

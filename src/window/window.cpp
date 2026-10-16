@@ -3,7 +3,7 @@
 #include "app_constants.h"
 #include "config_service.h"
 #include "i18n.h"
-#include "key_state.h"
+#include "win32_util.h"
 #include "resource.h"
 #include "ui_constants.h"
 #include "profiler.h"

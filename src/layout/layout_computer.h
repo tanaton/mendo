@@ -8,7 +8,7 @@
 #include <memory_resource>
 #include <stop_token>
 
-namespace mendo::layout {
+namespace layout {
 
 inline float NodeIndent(const Node& node, const Theme& theme) noexcept
 {
@@ -114,4 +114,4 @@ bool RecomputeYPositions(
     const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
     size_t from_index = 0, size_t safe_exit_after = std::numeric_limits<size_t>::max()) noexcept;
 
-} // namespace mendo::layout
+} // namespace layout

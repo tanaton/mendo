@@ -1,10 +1,10 @@
 #include "renderer.h"
 #include "d2d_util.h"
-#include "log_hr.h"
 #include "resource.h"
-#include "scope_guard.h"
 #include "ui_constants.h"
+#include "utility.h"
 #include "wic_util.h"
+#include "win32_util.h"
 #include <utility>
 
 using Microsoft::WRL::ComPtr;
@@ -29,7 +29,7 @@ void Renderer::LoadAppIconBitmap()
     ComPtr<IWICBitmap> wic_bitmap;
     HRESULT hr = wic->CreateBitmapFromHICON(hIcon, &wic_bitmap);
     if (FAILED(hr)) {
-        mendo::LogHrFailure(L"LoadAppIconBitmap: CreateBitmapFromHICON", hr);
+        LogHrFailure(L"LoadAppIconBitmap: CreateBitmapFromHICON", hr);
         return;
     }
 
@@ -41,7 +41,7 @@ void Renderer::LoadAppIconBitmap()
 
     hr = rt()->CreateBitmapFromWicBitmap(converter.Get(), nullptr, &app_icon_bitmap_);
     if (FAILED(hr)) {
-        mendo::LogHrFailure(L"LoadAppIconBitmap: CreateBitmapFromWicBitmap", hr);
+        LogHrFailure(L"LoadAppIconBitmap: CreateBitmapFromWicBitmap", hr);
     }
 }
 
@@ -69,7 +69,7 @@ void Renderer::RecreateBrushes()
         { BrushId::BlockquoteBar, theme_.blockquote_bar_color },
         { BrushId::BlockquoteText, theme_.blockquote_text_color },
         { BrushId::Selection, SELECTION_COLOR },
-        { BrushId::TableStripe, mendo::TableStripeColor(is_dark) },
+        { BrushId::TableStripe, TableStripeColor(is_dark) },
         { BrushId::SyntaxKeyword, theme_.syntax_keyword },
         { BrushId::SyntaxType, theme_.syntax_type },
         { BrushId::SyntaxString, theme_.syntax_string },
@@ -92,7 +92,7 @@ void Renderer::RecreateBrushes()
         { BrushId::PaneBg, theme_.pane_bg_color },
         { BrushId::PaneItemHover, theme_.pane_item_hover_color },
         { BrushId::PaneItemActive, theme_.pane_item_active_color },
-        { BrushId::ScrollbarThumb, mendo::MonochromeOverlay(is_dark, thumb_alpha) },
+        { BrushId::ScrollbarThumb, MonochromeOverlay(is_dark, thumb_alpha) },
         { BrushId::OverlayWhite, D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f) },
         { BrushId::OverlayBlack, D2D1::ColorF(0.0f, 0.0f, 0.0f, 1.0f) },
         { BrushId::OverlayGestureBg, D2D1::ColorF(0.2f, 0.2f, 0.2f, 1.0f) },
@@ -114,7 +114,7 @@ void Renderer::RecreateBrushes()
             brush->SetColor(s.color);
             continue;
         }
-        mendo::CreateSolidColorBrushOrFallback(target, s.color, brush);
+        CreateSolidColorBrushOrFallback(target, s.color, brush);
     }
 }
 
@@ -161,11 +161,11 @@ ComPtr<IDWriteTextFormat> Renderer::CreatePaneFormat(const wchar_t* family, DWRI
     }
     // 無効なフォントファミリ名はフォールバック (Segoe UI) で再試行。
     // ユーザに「フォントが効かない」状態を出さないための最終防壁。
-    mendo::LogHrFailure(L"CreateTextFormat (falling back to Segoe UI)", hr);
+    LogHrFailure(L"CreateTextFormat (falling back to Segoe UI)", hr);
     fmt.Reset();
     hr = dw->CreateTextFormat(L"Segoe UI", nullptr, weight, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, locale, &fmt);
     if (FAILED(hr)) {
-        mendo::LogHrFailure(L"CreateTextFormat (Segoe UI fallback)", hr);
+        LogHrFailure(L"CreateTextFormat (Segoe UI fallback)", hr);
     }
     return fmt;
 }

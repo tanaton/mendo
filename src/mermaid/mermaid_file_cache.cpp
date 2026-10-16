@@ -1,7 +1,7 @@
 #include "mermaid_file_cache.h"
 #include "task_scheduler.h"
 #include "file_io.h"
-#include "scope_guard.h"
+#include "utility.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>

@@ -1,7 +1,7 @@
 // mendo_tests は mendo_core のみリンクするが、reducer.cpp が
 // SearchBarControllerT<AppSearchBarCallbacks> のメソッドを参照しており、
 // 各メソッドが cb_.X() 経由で AppSearchBarCallbacks::X を要求する。
-// 実本体は src/app/app_search_bar_callbacks.cpp（mendo 実行ファイル target）に
+// 実本体は src/app/app_callbacks.cpp（mendo 実行ファイル target）に
 // あるためテストでは見えない。本 TU で no-op スタブを提供し、
 // テストでの未解決外部シンボルを防ぐ。
 //
@@ -14,15 +14,15 @@
 
 void AppSearchBarCallbacks::invalidate()
 {}
-void AppSearchBarCallbacks::set_timer(app_timer::Id, UINT)
+void AppCallbacksBase::set_timer(app_timer::Id, UINT)
 {}
-void AppSearchBarCallbacks::kill_timer(app_timer::Id)
+void AppCallbacksBase::kill_timer(app_timer::Id)
 {}
 void AppSearchBarCallbacks::focus_select_all()
 {}
 void AppSearchBarCallbacks::unfocus()
 {}
-float AppSearchBarCallbacks::get_md_pane_height()
+float AppCallbacksBase::get_md_pane_height()
 {
     return 0.0f;
 }
