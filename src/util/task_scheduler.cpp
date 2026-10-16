@@ -45,7 +45,6 @@ bool TaskScheduler::Post(std::move_only_function<void()> task)
             return false;
         }
         if (queue_.size() >= MAX_PENDING_TASKS) {
-            OutputDebugStringW(L"[TaskScheduler] queue saturated, dropping task\n");
             MENDO_TRACE("TaskScheduler: queue saturated, task dropped");
             return false;
         }

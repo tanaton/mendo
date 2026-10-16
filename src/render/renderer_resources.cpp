@@ -5,6 +5,7 @@
 #include "utility.h"
 #include "wic_util.h"
 #include "win32_util.h"
+#include "profiler.h"
 #include <utility>
 
 using Microsoft::WRL::ComPtr;
@@ -16,7 +17,7 @@ void Renderer::LoadAppIconBitmap()
     const HMODULE hModule = GetModuleHandleW(nullptr);
     const HICON hIcon = static_cast<HICON>(LoadImageW(hModule, MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR));
     if (!hIcon) {
-        OutputDebugStringW(L"[mendo] LoadAppIconBitmap: LoadImageW(IDI_APP_ICON) failed\n");
+        MENDO_TRACE("LoadAppIconBitmap: LoadImageW(IDI_APP_ICON) failed");
         return;
     }
     const auto icon_guard = ScopeGuard([hIcon] { DestroyIcon(hIcon); });
@@ -29,19 +30,19 @@ void Renderer::LoadAppIconBitmap()
     ComPtr<IWICBitmap> wic_bitmap;
     HRESULT hr = wic->CreateBitmapFromHICON(hIcon, &wic_bitmap);
     if (FAILED(hr)) {
-        LogHrFailure(L"LoadAppIconBitmap: CreateBitmapFromHICON", hr);
+        LogHrFailure("LoadAppIconBitmap: CreateBitmapFromHICON", hr);
         return;
     }
 
     auto converter = wic_util::ConvertBitmapSource(wic, wic_bitmap.Get());
     if (!converter) {
-        OutputDebugStringW(L"[mendo] LoadAppIconBitmap: ConvertBitmapSource failed\n");
+        MENDO_TRACE("LoadAppIconBitmap: ConvertBitmapSource failed");
         return;
     }
 
     hr = rt()->CreateBitmapFromWicBitmap(converter.Get(), nullptr, &app_icon_bitmap_);
     if (FAILED(hr)) {
-        LogHrFailure(L"LoadAppIconBitmap: CreateBitmapFromWicBitmap", hr);
+        LogHrFailure("LoadAppIconBitmap: CreateBitmapFromWicBitmap", hr);
     }
 }
 
@@ -161,11 +162,11 @@ ComPtr<IDWriteTextFormat> Renderer::CreatePaneFormat(const wchar_t* family, DWRI
     }
     // 無効なフォントファミリ名はフォールバック (Segoe UI) で再試行。
     // ユーザに「フォントが効かない」状態を出さないための最終防壁。
-    LogHrFailure(L"CreateTextFormat (falling back to Segoe UI)", hr);
+    LogHrFailure("CreateTextFormat (falling back to Segoe UI)", hr);
     fmt.Reset();
     hr = dw->CreateTextFormat(L"Segoe UI", nullptr, weight, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, locale, &fmt);
     if (FAILED(hr)) {
-        LogHrFailure(L"CreateTextFormat (Segoe UI fallback)", hr);
+        LogHrFailure("CreateTextFormat (Segoe UI fallback)", hr);
     }
     return fmt;
 }

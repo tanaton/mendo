@@ -84,7 +84,7 @@ bool App::Init(HWND hwnd)
     });
 
     if (!image_loader_.Init(renderer_.GetRenderTarget(), renderer_.GetWICFactory())) {
-        OutputDebugStringW(L"[mendo] ImageLoader::Init failed (WIC factory unavailable). Image rendering disabled.\n");
+        MENDO_TRACE("ImageLoader::Init failed (WIC factory unavailable). Image rendering disabled.");
     }
     image_loader_.InitAsync(hwnd_, app_msg::IMAGE_LOADED, scheduler_);
 

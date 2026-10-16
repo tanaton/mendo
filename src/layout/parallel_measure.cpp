@@ -75,7 +75,7 @@ int MeasureIndicesParallel(
     });
     const int failed = failed_node_count.load(std::memory_order_relaxed);
     if (failed > 0) {
-        OutputDebugStringW(L"[mendo] MeasureIndicesParallel: node measure threw exception\n");
+        MENDO_TRACE("MeasureIndicesParallel: node measure threw exception");
     }
     MENDO_PLOT("layout.parallel.error_count", static_cast<int64_t>(failed));
     return failed;

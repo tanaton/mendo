@@ -166,7 +166,8 @@ enum class UrlSafety : uint8_t {
 // URL 数は典型的に少数なので、その範囲ではスタック上の領域を使い heap 確保しない。
 class UrlSafetyTable {
 public:
-    explicit UrlSafetyTable(size_t url_count) : table_(url_count, UrlSafety::Unchecked, &resource_) {}
+    explicit UrlSafetyTable(size_t url_count) : table_(url_count, UrlSafety::Unchecked, &resource_)
+    {}
 
     std::span<UrlSafety> Span() noexcept
     {

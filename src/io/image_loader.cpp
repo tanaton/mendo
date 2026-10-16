@@ -19,7 +19,7 @@ bool ImageLoader::Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic)
         wic_factory_ = wic;
         return true;
     }
-    wic_factory_ = wic_util::CreateWicFactory(L"ImageLoader CoCreateInstance(WIC)");
+    wic_factory_ = wic_util::CreateWicFactory("ImageLoader CoCreateInstance(WIC)");
     return wic_factory_ != nullptr;
 }
 

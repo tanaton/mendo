@@ -13,10 +13,10 @@
 //   MENDO_COUNT_ADD(counter, n)      : 累積カウンタへの加算。Tracy OFF で no-op。
 //   MENDO_COUNT_SET(counter, value)  : 累積でない直近値の代入。Tracy OFF で no-op。
 //   MENDO_IF_TRACY(...)              : Tracy ON のときだけ展開する任意コード。
-//   MENDO_TRACE(msg)                 : リテラルメッセージ（reload 系トレース）。
-//   MENDO_TRACEF(fmt, ...)           : std::format 形式トレース ("{}", "{:.1f}" 等)。
+//   MENDO_TRACE(msg)                 : リテラルメッセージのデバッグログ ("[mendo] " 付き)。
+//   MENDO_TRACEF(fmt, ...)           : std::format 形式のデバッグログ ("{}", "{:.1f}" 等)。
 //   MENDO_STATF(fmt, ...)            : std::format 形式の統計値ログ。
-//   MENDO_LOGF(prefix, fmt, ...)     : prefix + fmt の隣接リテラル連結でログ出力。
+//   MENDO_LOGF(fmt, ...)             : 上記 2 つの共通実装。prefix は呼び出し側で fmt に連結する。
 //                                      fmt は std::format のコンパイル時チェック対象のため
 //                                      文字列リテラル必須 (std::format_to_n に渡される)。
 
@@ -50,21 +50,21 @@
 // 256 バイト固定はトレース用途として十分 (callsite が短いメッセージのみ生成)。
 // 切り詰め時は format_to_n の out iterator がバッファ末尾で停止し、`out - buf` が
 // 実書き込みバイト数 (= min(必要量, sizeof(buf))) を表す。
-#define MENDO_LOGF(prefix, fmt_str, ...)                                                  \
-    do {                                                                                  \
-        char _mendo_buf[256];                                                             \
-        const auto _mendo_r = std::format_to_n(                                           \
-            _mendo_buf, sizeof(_mendo_buf), prefix fmt_str __VA_OPT__(, ) __VA_ARGS__);   \
-        const size_t _mendo_len = static_cast<size_t>(_mendo_r.out - _mendo_buf);         \
-        if (_mendo_len > 0) {                                                             \
-            TracyMessage(_mendo_buf, _mendo_len);                                         \
-        }                                                                                 \
+#define MENDO_LOGF(fmt_str, ...)                                                  \
+    do {                                                                          \
+        char _mendo_buf[256];                                                     \
+        const auto _mendo_r = std::format_to_n(                                   \
+            _mendo_buf, sizeof(_mendo_buf), fmt_str __VA_OPT__(, ) __VA_ARGS__);  \
+        const size_t _mendo_len = static_cast<size_t>(_mendo_r.out - _mendo_buf); \
+        if (_mendo_len > 0) {                                                     \
+            TracyMessage(_mendo_buf, _mendo_len);                                 \
+        }                                                                         \
     } while (0)
 
 // TracyMessageL はリテラル前提（NULL 終端の文字列をそのまま参照保持する）。
-#define MENDO_TRACE(msg) TracyMessageL("[mendo-reload] " msg)
-#define MENDO_TRACEF(fmt_str, ...) MENDO_LOGF("[mendo-reload] ", fmt_str __VA_OPT__(, ) __VA_ARGS__)
-#define MENDO_STATF(fmt_str, ...) MENDO_LOGF("[mendo-stat] ", fmt_str __VA_OPT__(, ) __VA_ARGS__)
+#define MENDO_TRACE(msg) TracyMessageL("[mendo] " msg)
+#define MENDO_TRACEF(fmt_str, ...) MENDO_LOGF("[mendo] " fmt_str __VA_OPT__(, ) __VA_ARGS__)
+#define MENDO_STATF(fmt_str, ...) MENDO_LOGF("[mendo-stat] " fmt_str __VA_OPT__(, ) __VA_ARGS__)
 
 #else
 
@@ -75,7 +75,7 @@
 #define MENDO_COUNT_ADD(counter, n) ((void)0)
 #define MENDO_COUNT_SET(counter, value) ((void)0)
 #define MENDO_IF_TRACY(...)
-#define MENDO_LOGF(prefix, fmt, ...) ((void)0)
+#define MENDO_LOGF(fmt, ...) ((void)0)
 #define MENDO_TRACE(msg) ((void)0)
 #define MENDO_TRACEF(fmt, ...) ((void)0)
 #define MENDO_STATF(fmt, ...) ((void)0)

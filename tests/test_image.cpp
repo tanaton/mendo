@@ -465,11 +465,10 @@ protected:
 
     void SetUp() override
     {
-        const HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
-                                             d2d_factory_.GetAddressOf());
+        const HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2d_factory_.GetAddressOf());
         ASSERT_TRUE(SUCCEEDED(hr)) << "D2Dファクトリ作成に失敗";
 
-        wic_factory_ = wic_util::CreateWicFactory(L"ImageLoaderTest");
+        wic_factory_ = wic_util::CreateWicFactory("ImageLoaderTest");
         ASSERT_TRUE(wic_factory_) << "WICファクトリ作成に失敗";
 
         render_target_ = CreateRenderTarget();
@@ -493,9 +492,9 @@ protected:
         bool done = false;
         loader.RequestLoadAsync(path, [&done] { done = true; });
         if (!PollUntil([&] {
-                loader.ProcessCompletedDecodes();
-                return done;
-            })) {
+            loader.ProcessCompletedDecodes();
+            return done;
+        })) {
             return false;
         }
         return GetCachedImage(loader, path, out);

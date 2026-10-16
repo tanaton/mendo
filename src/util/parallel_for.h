@@ -1,5 +1,6 @@
 #pragma once
 #include "task_scheduler.h"
+#include "profiler.h"
 #include <algorithm>
 #include <atomic>
 #include <cstddef>
@@ -38,14 +39,14 @@ void ParallelFor(TaskScheduler* scheduler, size_t count, size_t grain, Fn&& fn)
     state->grain = grain;
     state->fn = &fn;
 
-    const auto drain = [](State& s) {
+    const auto drain = [](State& s) static noexcept {
         for (size_t k = s.next.fetch_add(1); k < s.chunk_count; k = s.next.fetch_add(1)) {
             const size_t begin = k * s.grain;
             const size_t end = std::min(begin + s.grain, s.count);
             try {
                 (*s.fn)(begin, end);
             } catch (...) {
-                OutputDebugStringW(L"[mendo] ParallelFor chunk threw exception\n");
+                MENDO_TRACE("ParallelFor chunk threw exception");
             }
             if (s.done.fetch_add(1) + 1 == s.chunk_count) {
                 s.done.notify_all();
@@ -57,9 +58,9 @@ void ParallelFor(TaskScheduler* scheduler, size_t count, size_t grain, Fn&& fn)
         // Post 失敗時は呼び出し元が残りを消化するので無視してよい。例外もここで止めないと、
         // 投入済みの helper が巻き戻し後の fn (スタック上) を参照してしまう。
         try {
-            scheduler->Post([state, drain] { drain(*state); });
+            scheduler->Post([state, drain] noexcept { drain(*state); });
         } catch (...) {
-            OutputDebugStringW(L"[mendo] ParallelFor Post threw exception\n");
+            MENDO_TRACE("ParallelFor Post threw exception");
         }
     }
     drain(*state);

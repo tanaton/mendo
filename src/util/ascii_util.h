@@ -10,7 +10,7 @@
 
 namespace ascii_util {
 
-inline constexpr size_t npos = static_cast<size_t>(-1);
+inline constexpr size_t npos = std::wstring_view::npos;
 
 namespace detail {
 
