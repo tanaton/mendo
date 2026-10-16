@@ -85,9 +85,9 @@ TEST(LayoutComputerTest, EstimateAfterInvalidateAllLayoutsCanShrink)
     cache[0].height = 5000.0f;
 
     cache.InvalidateAllLayouts(nodes);
-    mendo::layout::EstimateInvisibleNodeHeight(nodes[0], cache[0], theme, 600.0f);
+    layout::EstimateInvisibleNodeHeight(nodes[0], cache[0], theme, 600.0f);
 
-    EXPECT_FLOAT_EQ(cache[0].height, mendo::layout::EstimateNodeHeight(nodes[0], theme));
+    EXPECT_FLOAT_EQ(cache[0].height, layout::EstimateNodeHeight(nodes[0], theme));
 }
 
 TEST(LayoutCacheTest, InvalidateEmptyCache)
@@ -206,7 +206,7 @@ TEST(LayoutCacheTest, RecomputeYPositionsEarlyExitKeepsTextTop)
         n.type = NodeType::Paragraph;
     }
 
-    mendo::layout::EstimateNodeHeights(nodes, cache, theme);
+    layout::EstimateNodeHeights(nodes, cache, theme);
     std::vector<float> expected;
     for (size_t i = 0; i < cache.size(); ++i) {
         cache[i].layout_dirty = false;
@@ -215,7 +215,7 @@ TEST(LayoutCacheTest, RecomputeYPositionsEarlyExitKeepsTextTop)
 
     // safe_exit_after=2 で、index >= 3 のノードについて text_top と y が一致なら早期終了。
     // EstimateNodeHeights 直後なので一致するはず → 早期終了経路を通る。
-    mendo::layout::RecomputeYPositions(nodes, cache, theme, 0, 2);
+    layout::RecomputeYPositions(nodes, cache, theme, 0, 2);
 
     for (size_t i = 0; i < cache.size(); ++i) {
         EXPECT_FLOAT_EQ(cache.Top(i), expected[i]) << "after early-exit, index " << i;

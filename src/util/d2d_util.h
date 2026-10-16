@@ -27,8 +27,6 @@ inline D2D1_RECT_F ToD2DRect(const PaneRect& r) noexcept
     return D2D1::RectF(r.x, r.y, r.x + r.width, r.y + r.height);
 }
 
-namespace mendo {
-
 // CreateSolidColorBrush のフェイルセーフラッパ。失敗時は Magenta で再試行し、
 // nullptr ブラシが DrawXXX に渡るのを防ぐ。重い失敗 (D2DERR_RECREATE_TARGET 等) は
 // EndDraw 経路で検知されて次フレームの HandleDeviceLost で復旧される想定。
@@ -92,5 +90,3 @@ public:
 private:
     ID2D1SolidColorBrush* brush_;
 };
-
-} // namespace mendo

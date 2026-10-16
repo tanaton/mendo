@@ -1,7 +1,7 @@
 #include "command_executor.h"
-#include "overloaded.h"
 #include "profiler.h"
 #include "ui_constants.h"
+#include "utility.h"
 #include <dwrite.h>
 #include <bit>
 
@@ -133,7 +133,7 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
         return;
     }
 
-    const auto draw = mendo::overloaded{
+    const auto draw = overloaded{
         [&](const FillRectCmd& c) {
             if (auto* b = ResolveBrush(rt, brushes, c.brush_id, c.color)) {
                 rt->FillRectangle(c.rect, b);

@@ -1,6 +1,5 @@
 #pragma once
 #include "block_h_scroll.h"
-#include "block_h_scroll_context.h"
 #include "d2d_util.h"
 #include "draw_command.h"
 #include "document_types.h"
@@ -69,7 +68,7 @@ public:
     {
         theme_ = theme;
         cached_is_dark_ = theme->IsDark();
-        cached_stripe_color_ = mendo::TableStripeColor(cached_is_dark_);
+        cached_stripe_color_ = TableStripeColor(cached_is_dark_);
     }
     void SetFormats(const Formats& fmts) noexcept
     {

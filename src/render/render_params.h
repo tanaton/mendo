@@ -1,6 +1,6 @@
 #pragma once
 // Renderer::Render の引数として渡す各種描画パラメータ構造体。
-#include "block_h_scroll_context.h"
+#include "block_h_scroll.h"
 #include "document_types.h"
 #include "layout_cache.h"
 #include "file_explorer.h"
@@ -9,7 +9,6 @@
 #include "pane_layout.h"
 #include "ui_types.h"
 #include "mouse_gesture.h"
-#include "nav_direction.h"
 #include <memory_resource>
 #include <string_view>
 #include <utility>

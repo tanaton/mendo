@@ -114,8 +114,7 @@ add_library(mendo_core STATIC
     # core - ドキュメントモデル・パース
     src/core/document.cpp
     src/core/document_utils.cpp
-    src/core/footnote_anchor.cpp
-    src/core/heading_anchor_index.cpp
+    src/core/anchor.cpp
     src/core/parser.cpp
     src/core/parser_alerts.cpp
     src/core/html_entities.cpp
@@ -133,8 +132,6 @@ add_library(mendo_core STATIC
     src/layout/layout_queries.cpp
     # render - 描画パイプライン
     src/render/command_generator.cpp
-    src/render/command_generator_table.cpp
-    src/render/command_generator_highlights.cpp
     src/render/command_executor.cpp
     # app - クリップボード操作 (CopyCodeBlock / SaveDiagramAsPng / CopyDiagramToClipboard)
     src/app/clipboard_manager.cpp
@@ -171,12 +168,6 @@ add_library(mendo_core STATIC
     # app - アプリケーション制御
     src/app/app_controller.cpp
     src/app/reducer.cpp
-    src/app/reducer_scroll.cpp
-    src/app/reducer_search.cpp
-    src/app/reducer_input.cpp
-    src/app/reducer_navigation.cpp
-    src/app/reducer_ui.cpp
-    src/app/reducer_system.cpp
     src/app/startup_plan.cpp
     # util - ユーティリティ
     src/util/file_io.cpp
@@ -213,24 +204,14 @@ add_executable(mendo WIN32
     src/main.cpp
     src/window/window.cpp
     src/app/app.cpp
-    src/app/app_init.cpp
     src/app/app_file.cpp
-    src/app/app_layout.cpp
     src/app/app_mouse.cpp
-    src/app/app_mouse_click.cpp
-    src/app/app_mouse_hover.cpp
-    src/app/app_theme.cpp
-    src/app/app_context_menu.cpp
-    src/app/app_side_effect_callbacks.cpp
-    src/app/app_resource_manager_callbacks.cpp
-    src/app/app_search_bar_callbacks.cpp
-    src/app/win32_host_impl.cpp
+    src/app/app_callbacks.cpp
+    src/app/win32_host.cpp
     src/ui/context_menu.cpp
     src/render/renderer.cpp
     src/render/renderer_resources.cpp
     src/render/renderer_pane.cpp
-    src/render/renderer_titlebar.cpp
-    src/render/renderer_overlay.cpp
     src/render/renderer_search.cpp
     src/render/d2d_render_backend.cpp
     src/mermaid/mermaid.cpp

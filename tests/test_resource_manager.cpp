@@ -135,7 +135,7 @@ struct CallbackTracker {
     int kill_timer = 0;
     int recompute_layout = 0;
     int recompute_layout_anchored = 0;
-    mendo::layout::HeightChangeRange last_change = {};
+    layout::HeightChangeRange last_change = {};
     app_timer::Id last_set_timer_id{};
     UINT last_set_timer_ms = 0;
     app_timer::Id last_killed_timer_id{};
@@ -167,7 +167,7 @@ struct TestResourceManagerCallbacks {
     {
         return t->content_width;
     }
-    float get_viewport_height()
+    float get_md_pane_height()
     {
         return t->viewport_height;
     }
@@ -175,12 +175,12 @@ struct TestResourceManagerCallbacks {
     {
         return t->theme;
     }
-    void recompute_layout(mendo::layout::HeightChangeRange changed)
+    void recompute_layout(layout::HeightChangeRange changed)
     {
         t->recompute_layout++;
         t->last_change = changed;
     }
-    void recompute_layout_anchored(mendo::layout::HeightChangeRange changed)
+    void recompute_layout_anchored(layout::HeightChangeRange changed)
     {
         t->recompute_layout_anchored++;
         t->last_change = changed;

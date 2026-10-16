@@ -8,7 +8,7 @@
 class TaskScheduler;
 struct Theme;
 
-namespace mendo::layout {
+namespace layout {
 
 // top<0 ならクリップなし。
 struct ViewportClip {
@@ -82,4 +82,4 @@ DirtyBatchResult RunParallel(
     int max_nodes,
     TaskScheduler* scheduler);
 
-} // namespace mendo::layout
+} // namespace layout

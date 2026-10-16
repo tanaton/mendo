@@ -1,6 +1,5 @@
 #include "app.h"
 #include "app_constants.h"
-#include "app_state_queries.h"
 #include "document_service.h"
 #include "file_loader.h"
 #include "file_io.h"
@@ -9,11 +8,11 @@
 #include "layout.h"
 #include "layout_queries.h"
 #include "profiler.h"
-#include "rc_resource.h"
+#include "win32_util.h"
 #include "reload_flow.h"
 #include <utility>
 
-using mendo::layout::RecomputeYPositions;
+using layout::RecomputeYPositions;
 
 // 一時状態のリセットで左ドラッグ状態だけが消えると、LButtonUp がどの終了経路にも入らず
 // SetCapture が残る (タイトルバーのドラッグや MouseLeave 検出が効かなくなる)。
@@ -102,7 +101,7 @@ void App::ReplaceDocument(Document next, LayoutCache estimated)
 
 void App::ReplaceDocument(Document next)
 {
-    LayoutCache estimated = mendo::layout::MakeEstimatedLayoutCache(next.GetNodes(), renderer_.GetTheme());
+    LayoutCache estimated = layout::MakeEstimatedLayoutCache(next.GetNodes(), renderer_.GetTheme());
     ReplaceDocument(std::move(next), std::move(estimated));
 }
 

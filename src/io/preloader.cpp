@@ -27,7 +27,7 @@ void Preloader::Start(std::pmr::wstring path, Theme theme)
         }
         LayoutCache cache;
         if (load_result) {
-            cache = mendo::layout::MakeEstimatedLayoutCache(load_result->GetNodes(), theme, st);
+            cache = layout::MakeEstimatedLayoutCache(load_result->GetNodes(), theme, st);
         }
         {
             const std::lock_guard lock(sink_mutex_);

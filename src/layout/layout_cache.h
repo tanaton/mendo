@@ -1,7 +1,7 @@
 #pragma once
 #include "document_types.h"
-#include "png_bytes.h"
 #include "ui_constants.h"
+#include "utility.h"
 #include <cstdint>
 #include <limits>
 #include <vector>
@@ -241,7 +241,7 @@ struct SelectionHlCache {
     uint32_t rects_end_w = 0;
 };
 
-namespace mendo::layout::detail {
+namespace layout::detail {
 
 // unique_ptr の lazy 初期化ヘルパ。NodeLayoutEntry のキャッシュ群で共有する。
 template <typename T>
@@ -253,7 +253,7 @@ constexpr T& EnsureUnique(std::unique_ptr<T>& p)
     return *p;
 }
 
-} // namespace mendo::layout::detail
+} // namespace layout::detail
 
 struct NodeLayoutEntry {
     // ノード Y 位置 (text_top) は LayoutCache::Top(i) に分離して持つ (SoA)。
@@ -358,7 +358,7 @@ struct NodeLayoutEntry {
 
     constexpr SearchHlCache& ensure_search_hl_cache() const
     {
-        return mendo::layout::detail::EnsureUnique(ensure_aux().search_hl_cache);
+        return layout::detail::EnsureUnique(ensure_aux().search_hl_cache);
     }
 
     constexpr void invalidate_search_hl_cache() const noexcept
@@ -370,7 +370,7 @@ struct NodeLayoutEntry {
 
     constexpr SelectionHlCache& ensure_selection_hl_cache() const
     {
-        return mendo::layout::detail::EnsureUnique(ensure_aux().selection_hl_cache);
+        return layout::detail::EnsureUnique(ensure_aux().selection_hl_cache);
     }
 
     constexpr void invalidate_selection_hl_cache() const noexcept
@@ -382,7 +382,7 @@ struct NodeLayoutEntry {
 
     constexpr LineWindow& ensure_line_window() const
     {
-        return mendo::layout::detail::EnsureUnique(ensure_aux().line_window);
+        return layout::detail::EnsureUnique(ensure_aux().line_window);
     }
 
     // text_layout の wrap や format 属性が変わった際に、行折り返し由来のキャッシュ
@@ -403,7 +403,7 @@ struct NodeLayoutEntry {
     }
     constexpr TableLayoutData& ensure_table_layout()
     {
-        return mendo::layout::detail::EnsureUnique(ensure_aux().table_layout);
+        return layout::detail::EnsureUnique(ensure_aux().table_layout);
     }
     constexpr bool has_table_layout() const noexcept
     {
@@ -488,7 +488,7 @@ private:
 
     constexpr Aux& ensure_aux() const
     {
-        return mendo::layout::detail::EnsureUnique(aux_);
+        return layout::detail::EnsureUnique(aux_);
     }
 
     template <class T>

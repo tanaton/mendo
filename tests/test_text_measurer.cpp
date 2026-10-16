@@ -528,7 +528,7 @@ TEST_F(MockLayoutTest, EstimateOnSwitchGivesNearFullContentHeight)
 
     const auto md = MakeParagraphs(2000);
     auto nodes = ParseNodes(md);
-    cache = mendo::layout::MakeEstimatedLayoutCache(nodes, theme_);
+    cache = layout::MakeEstimatedLayoutCache(nodes, theme_);
     engine_.ComputeLayout(nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
     while (engine_.ProcessDirtyBatch(nodes, cache, kSwitchWidth, 200, { 0.0f, kSwitchViewportBottom, 5.0f })) {
     }
@@ -586,7 +586,7 @@ TEST_F(MockLayoutTest, RestoreAfterSwitchMeasuresNodesAtRestoredPosition)
 
     const auto md = MakeParagraphs(200);
     auto nodes = ParseNodes(md);
-    cache = mendo::layout::MakeEstimatedLayoutCache(nodes, theme_);
+    cache = layout::MakeEstimatedLayoutCache(nodes, theme_);
 
     constexpr size_t kTarget = 150;
     const float scroll_y = cache.Top(kTarget);

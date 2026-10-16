@@ -1,7 +1,6 @@
 #pragma once
 #include "app_search_bar_callbacks.h"
 #include "app_state.h"
-#include "app_state_queries.h"
 #include "document.h"
 #include "reducer.h"
 #include "side_effect.h"

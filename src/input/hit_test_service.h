@@ -1,5 +1,5 @@
 #pragma once
-#include "block_h_scroll_context.h"
+#include "block_h_scroll.h"
 #include "document_types.h"
 #include "layout_cache.h"
 #include "ui_types.h"

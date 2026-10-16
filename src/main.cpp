@@ -3,8 +3,8 @@
 #include "file_io.h"
 #include "i18n.h"
 #include "profiler.h"
-#include "scope_guard.h"
 #include "startup_plan.h"
+#include "utility.h"
 #include <windows.h>
 #include <shellapi.h>
 #include <commctrl.h>

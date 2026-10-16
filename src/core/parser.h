@@ -1,6 +1,6 @@
 #pragma once
+#include "anchor.h"
 #include "document_types.h"
-#include "footnote_anchor.h"
 #include "text_arena.h"
 #include "toc.h"
 #include <concepts>

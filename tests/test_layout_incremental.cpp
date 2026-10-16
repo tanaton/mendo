@@ -15,8 +15,8 @@
 #include "test_helpers.h"
 #include "test_nodes.h"
 
-using mendo::layout::EstimateNodeHeights;
-using mendo::layout::NodeIndent;
+using layout::EstimateNodeHeights;
+using layout::NodeIndent;
 
 namespace {
 

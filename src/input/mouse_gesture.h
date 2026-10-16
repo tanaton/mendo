@@ -1,5 +1,5 @@
 #pragma once
-#include "nav_direction.h"
+#include "ui_types.h"
 #include <cmath>
 #include <cstdint>
 #include <deque>

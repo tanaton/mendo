@@ -89,7 +89,7 @@ static void DrawSidePaneHeader(ID2D1RenderTarget* rt, const SidePaneDrawContext&
         if (enabled && sp.hovered_button == button) {
             rt->FillRectangle(rect, sp.close_hover_brush);
         }
-        mendo::OpacityScope dim{ enabled ? nullptr : sp.text_brush, DISABLED_UI_ALPHA };
+        OpacityScope dim{ enabled ? nullptr : sp.text_brush, DISABLED_UI_ALPHA };
         DrawCachedText(rt, sp.text_layouts, sp.fmt_close_icon, icon, rect, sp.text_brush);
     };
 

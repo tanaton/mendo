@@ -4,7 +4,7 @@
 #include "lru_cache.h"
 #include "mermaid_renderer_interface.h"
 #include "mermaid_util.h"
-#include "png_bytes.h"
+#include "utility.h"
 #include "worker_latch.h"
 #include <d2d1.h>
 #include <wincodec.h>

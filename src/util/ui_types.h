@@ -78,6 +78,13 @@ struct HoveredButtons {
     bool operator==(const HoveredButtons&) const = default;
 };
 
+// マウスジェスチャー / 水平スワイプが示す履歴移動の向き。
+enum class NavDirection : uint8_t {
+    None,
+    Back,
+    Forward
+};
+
 enum class NavButtonHover : uint8_t {
     None,
     Back,

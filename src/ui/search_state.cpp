@@ -51,7 +51,7 @@ void SearchState::FindTextMatches(std::string_view text, std::string_view query,
 {
     const uint32_t query_len = static_cast<uint32_t>(query.size());
     // UTF-16 位置は最初のヒットから前方へ数えるだけにし、ノード全文の UTF-16 化を避ける。
-    mendo::Utf16OffsetCursor cursor{ text };
+    Utf16OffsetCursor cursor{ text };
     size_t pos = 0;
     while (matches_.size() < MAX_MATCHES && (pos = FindNext(text, query, fold, pos)) != ascii_util::npos) {
         const auto byte_start = static_cast<uint32_t>(pos);
@@ -82,7 +82,7 @@ void SearchState::FindTableMatches(const NodeTableData& tbl, std::string_view qu
     const auto concat_size = static_cast<uint32_t>(concat.size());
 
     size_t cursor_cell = std::numeric_limits<size_t>::max();
-    std::optional<mendo::Utf16OffsetCursor> cursor;
+    std::optional<Utf16OffsetCursor> cursor;
     size_t pos = 0;
     while (matches_.size() < MAX_MATCHES && (pos = FindNext(concat, query, fold, pos)) != ascii_util::npos) {
         const auto it = std::upper_bound(starts.begin(), starts.begin() + static_cast<std::ptrdiff_t>(cell_limit + 1), static_cast<uint32_t>(pos));

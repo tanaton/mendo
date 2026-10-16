@@ -1,5 +1,5 @@
 #pragma once
-#include "log_hr.h"
+#include "win32_util.h"
 #include <wincodec.h>
 #include <wrl/client.h>
 #include <algorithm>
@@ -22,7 +22,7 @@ inline Microsoft::WRL::ComPtr<IWICImagingFactory> CreateWicFactory(const wchar_t
         CLSCTX_INPROC_SERVER,
         IID_PPV_ARGS(&factory));
     if (FAILED(hr)) {
-        mendo::LogHrFailure(context, hr);
+        LogHrFailure(context, hr);
         return nullptr;
     }
     return factory;

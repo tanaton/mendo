@@ -104,7 +104,7 @@ void AsyncLoadCoordinator::RunWorker(const std::pmr::wstring& path, uint32_t gen
         return;
     }
 
-    LayoutCache cache = mendo::layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme, stop_token);
+    LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme, stop_token);
     if (stop_token.stop_requested()) {
         return;
     }

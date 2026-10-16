@@ -7,7 +7,7 @@
 #include <atomic>
 #include <windows.h>
 
-namespace mendo::layout {
+namespace layout {
 
 namespace {
 
@@ -147,4 +147,4 @@ DirtyBatchResult RunParallel(
     return result;
 }
 
-} // namespace mendo::layout
+} // namespace layout

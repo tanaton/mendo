@@ -18,8 +18,8 @@
 #include <variant>
 #include <vector>
 
-using mendo::layout::NodeIndent;
-using mendo::layout::NodeTextXOffset;
+using layout::NodeIndent;
+using layout::NodeTextXOffset;
 
 namespace {
 

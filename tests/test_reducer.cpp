@@ -4,7 +4,6 @@
 #include "reducer.h"
 #include "document.h"
 #include "app_state.h"
-#include "app_state_queries.h"
 #include "theme.h"
 #include "reducer_harness.h"
 #include "test_helpers.h"
@@ -1441,7 +1440,7 @@ TEST_F(ReducerTest, Resize_EmitsRendererResizeBeforeSizingUpdate)
 }
 
 // ---- RestoreScrollAfterLoadAction: 2 分岐 ----
-// 仕様 (reducer_navigation.cpp::ReduceRestoreScrollAfterLoad):
+// 仕様 (reducer.cpp の ReduceRestoreScrollAfterLoad):
 //   1. HasNodeRestore -> SetScrollTarget(node, offset)
 //   2. (else) -> SetScrollY(0)
 

@@ -1,5 +1,5 @@
 #pragma once
-#include "nav_direction.h"
+#include "ui_types.h"
 #include <cstdint>
 
 // タッチパッド水平スクロール（WM_MOUSEHWHEEL）を蓄積し、

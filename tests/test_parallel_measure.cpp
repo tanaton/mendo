@@ -18,12 +18,12 @@
 #include "theme.h"
 #include "test_nodes.h"
 
-using mendo::layout::EstimateNodeHeights;
+using layout::EstimateNodeHeights;
 
-using mendo::layout::DirtyBatchResult;
-using mendo::layout::RunParallel;
-using mendo::layout::StopReason;
-using mendo::layout::ViewportClip;
+using layout::DirtyBatchResult;
+using layout::RunParallel;
+using layout::StopReason;
+using layout::ViewportClip;
 
 namespace {
 

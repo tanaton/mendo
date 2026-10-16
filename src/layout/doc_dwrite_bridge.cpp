@@ -4,8 +4,6 @@
 #include <emmintrin.h>
 #include <limits>
 
-namespace mendo {
-
 // MultiByteToWideChar は不正バイトの扱いが OS 依存なので、Utf16OffsetCursor と同じ規則の自前 decode に揃える。
 void DecodeForDWrite(std::string_view text, std::pmr::wstring& out)
 {
@@ -97,5 +95,3 @@ HRESULT CreateDocTextLayout(
     }
     return hr;
 }
-
-} // namespace mendo

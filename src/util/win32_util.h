@@ -1,7 +1,13 @@
 #pragma once
-#include <cstddef>
-#include <span>
 #include <windows.h>
+#include <cstddef>
+#include <cstdio>
+#include <span>
+
+inline bool IsKeyDown(int vk) noexcept
+{
+    return (GetKeyState(vk) & 0x8000) != 0;
+}
 
 // リソースはプロセスのアドレス空間にマップされておりコピー不要。
 inline std::span<const std::byte> LoadRcData(UINT resource_id) noexcept
@@ -20,4 +26,14 @@ inline std::span<const std::byte> LoadRcData(UINT resource_id) noexcept
         return {};
     }
     return { data, size };
+}
+
+inline void LogHrFailure(const wchar_t* what, HRESULT hr) noexcept
+{
+    if (SUCCEEDED(hr)) {
+        return;
+    }
+    wchar_t msg[160];
+    swprintf_s(msg, L"[mendo] %ls failed (hr=0x%08lX)\n", what, static_cast<unsigned long>(hr));
+    OutputDebugStringW(msg);
 }

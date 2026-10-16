@@ -3,29 +3,61 @@
 #include "d2d_util.h"
 #include "file_io.h"
 #include "i18n.h"
-#include "log_hr.h"
 #include "mermaid_file_cache.h"
-#include "pmr_format.h"
-#include "rc_resource.h"
 #include "resource.h"
-#include "stream_util.h"
 #include "string_convert.h"
 #include "task_scheduler.h"
 #include "ui_constants.h"
+#include "utility.h"
 #include "wic_util.h"
+#include "win32_util.h"
 #include "win_handle.h"
+#include <objidl.h>
 #include <shellscalingapi.h>
+#include <wrl/client.h>
 #include <wrl/event.h>
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <utility>
 
 #pragma comment(lib, "shcore.lib")
 #pragma comment(lib, "windowscodecs.lib")
 
-using mendo::LogHrFailure;
-
 namespace {
+
+bool SeekToBegin(IStream* stream) noexcept
+{
+    const LARGE_INTEGER zero{};
+    return SUCCEEDED(stream->Seek(zero, STREAM_SEEK_SET, nullptr));
+}
+
+// size == 0 は空ストリームを要求する正当なユースケース（WebView2 CapturePreview の
+// 書き込み先バッファ用途）として許容するが、size > 0 && data == nullptr は呼び出し
+// 側バグなので nullptr を返して失敗させる。
+Microsoft::WRL::ComPtr<IStream> CreateMemoryStream(const void* data, size_t size)
+{
+    if (size > 0 && !data) {
+        return nullptr;
+    }
+    if (size > std::numeric_limits<ULONG>::max()) {
+        return nullptr;
+    }
+
+    Microsoft::WRL::ComPtr<IStream> stream;
+    if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream)) || !stream) {
+        return nullptr;
+    }
+    if (size > 0) {
+        ULONG written = 0;
+        if (FAILED(stream->Write(data, static_cast<ULONG>(size), &written)) || written != size || !SeekToBegin(stream.Get())) {
+            return nullptr;
+        }
+    }
+    return stream;
+}
 
 constexpr std::wstring_view MERMAID_HOST_CLASS = L"mendo_MermaidHost";
 
@@ -408,7 +440,7 @@ void MermaidRenderer::OnWebResourceRequested(ICoreWebView2WebResourceRequestedEv
     const auto body = LoadRcData(is_js ? IDR_MERMAID_JS : IDR_MERMAID_HTML);
     Microsoft::WRL::ComPtr<IStream> stream;
     if (!body.empty()) {
-        stream = stream_util::CreateMemoryStream(body.data(), body.size());
+        stream = CreateMemoryStream(body.data(), body.size());
     }
 
     // リソース欠落時は空ボディを200で返さず500を返して失敗を明示する
@@ -429,7 +461,7 @@ void MermaidRenderer::InsertCache(uint64_t hash, CachedBitmap cached)
 {
     cache_.Insert(hash, std::move(cached));
     cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedBitmap& c) {
-        return (c.png ? c.png->size() : 0) + mendo::BitmapBytes(c.bitmap.Get());
+        return (c.png ? c.png->size() : 0) + BitmapBytes(c.bitmap.Get());
     });
 }
 
@@ -958,7 +990,7 @@ void MermaidRenderer::DoCapturePreview(int worker_idx)
         return;
     }
 
-    auto png_stream = stream_util::CreateMemoryStream(nullptr, 0);
+    auto png_stream = CreateMemoryStream(nullptr, 0);
     if (!png_stream) {
         FinishWorkerRequest(w);
         return;

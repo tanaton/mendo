@@ -4,8 +4,8 @@
 #include "layout_computer.h"
 #include "theme.h"
 
-using mendo::layout::EstimateInvisibleNodeHeight;
-using mendo::layout::EstimateNodeHeight;
+using layout::EstimateInvisibleNodeHeight;
+using layout::EstimateNodeHeight;
 
 namespace {
 

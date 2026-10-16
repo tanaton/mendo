@@ -9,12 +9,12 @@
 #include <memory_resource>
 #include <utility>
 
-using mendo::layout::AdvanceNodeY;
-using mendo::layout::EstimateInvisibleNodeHeight;
-using mendo::layout::GetSpacingAbove;
-using mendo::layout::GetSpacingBelow;
-using mendo::layout::NodeIndent;
-using mendo::layout::RecomputeYPositions;
+using layout::AdvanceNodeY;
+using layout::EstimateInvisibleNodeHeight;
+using layout::GetSpacingAbove;
+using layout::GetSpacingBelow;
+using layout::NodeIndent;
+using layout::RecomputeYPositions;
 
 bool LayoutEngine::Init(ITextMeasurer* measurer, const Theme& theme)
 {
@@ -130,7 +130,7 @@ bool LayoutEngine::EnsureVisibleLayout(const std::pmr::vector<Node>& nodes, Layo
     if (!dirty_indices.empty()) {
         // 未計測領域へのジャンプやスクロールバードラッグでは 1 画面分 (数十〜百ノード) を
         // 毎フレーム計測するため、scheduler があれば並列化する。
-        mendo::layout::MeasureIndicesParallel(nodes, cache, content_width, *theme_, *measurer_, dirty_indices, vp, layout_scheduler_);
+        layout::MeasureIndicesParallel(nodes, cache, content_width, *theme_, *measurer_, dirty_indices, vp, layout_scheduler_);
         any_updated = true;
     }
 
@@ -143,16 +143,16 @@ bool LayoutEngine::EnsureVisibleLayout(const std::pmr::vector<Node>& nodes, Layo
 bool LayoutEngine::ProcessDirtyBatch(
     const std::pmr::vector<Node>& nodes, LayoutCache& cache,
     float viewport_width, int batch_size,
-    mendo::layout::ViewportClip clip)
+    layout::ViewportClip clip)
 {
     MENDO_PROFILE("LayoutEngine::ProcessDirtyBatch");
     const float content_width = theme_->ContentWidth(viewport_width);
 
-    const auto result = mendo::layout::RunParallel(nodes, cache, content_width, *theme_, *measurer_, clip, batch_size, layout_scheduler_);
+    const auto result = layout::RunParallel(nodes, cache, content_width, *theme_, *measurer_, clip, batch_size, layout_scheduler_);
 
     // processed では判定しない: 例外で計測できなかったノードがあっても、計測できたノードは
     // 高さが変わっているので Y を組み直し、残った dirty は再試行に回す必要がある。
-    if (result.reason == mendo::layout::StopReason::NoneDirty) {
+    if (result.reason == layout::StopReason::NoneDirty) {
         has_dirty_nodes_ = false;
         return false;
     }
@@ -209,7 +209,7 @@ bool LayoutService::EnsureNodeLayout(Document& doc, LayoutCache& cache, float wi
 }
 
 void LayoutService::RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme,
-                                          mendo::layout::HeightChangeRange changed) noexcept
+                                          layout::HeightChangeRange changed) noexcept
 {
     if (!changed.empty()) {
         RecomputeYPositions(doc.GetNodes(), cache, theme, changed.first, changed.last);
