@@ -1,7 +1,7 @@
 #pragma once
+#include "profiler.h"
 #include <windows.h>
 #include <cstddef>
-#include <cstdio>
 #include <span>
 
 inline bool IsKeyDown(int vk) noexcept
@@ -28,12 +28,9 @@ inline std::span<const std::byte> LoadRcData(UINT resource_id) noexcept
     return { data, size };
 }
 
-inline void LogHrFailure(const wchar_t* what, HRESULT hr) noexcept
+inline void LogHrFailure([[maybe_unused]] const char* what, HRESULT hr) noexcept
 {
-    if (SUCCEEDED(hr)) {
-        return;
+    if (FAILED(hr)) {
+        MENDO_TRACEF("{} failed (hr=0x{:08X})", what, static_cast<unsigned long>(hr));
     }
-    wchar_t msg[160];
-    swprintf_s(msg, L"[mendo] %ls failed (hr=0x%08lX)\n", what, static_cast<unsigned long>(hr));
-    OutputDebugStringW(msg);
 }

@@ -13,14 +13,10 @@ namespace wic_util {
 
 // CLSID_WICImagingFactory の CoCreateInstance を共通化する。
 // 失敗時は context 文字列付きで LogHrFailure を流し nullptr を返す。
-inline Microsoft::WRL::ComPtr<IWICImagingFactory> CreateWicFactory(const wchar_t* context) noexcept
+inline Microsoft::WRL::ComPtr<IWICImagingFactory> CreateWicFactory(const char* context) noexcept
 {
     Microsoft::WRL::ComPtr<IWICImagingFactory> factory;
-    const HRESULT hr = CoCreateInstance(
-        CLSID_WICImagingFactory,
-        nullptr,
-        CLSCTX_INPROC_SERVER,
-        IID_PPV_ARGS(&factory));
+    const HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory));
     if (FAILED(hr)) {
         LogHrFailure(context, hr);
         return nullptr;

@@ -293,6 +293,8 @@ void ContextMenu::Impl::Paint()
         case ItemType::Text:
             DrawTextItem(item);
             break;
+        default:
+            std::unreachable();
         }
     }
 

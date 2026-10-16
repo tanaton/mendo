@@ -76,18 +76,25 @@ constexpr int HOST_SIZE = 256;
 void DisableWebViewChrome(ICoreWebView2* webview)
 {
     Microsoft::WRL::ComPtr<ICoreWebView2Settings> settings;
-    LogHrFailure(L"get_Settings", webview->get_Settings(&settings));
+    LogHrFailure("get_Settings", webview->get_Settings(&settings));
     if (!settings) {
         return;
     }
-    LogHrFailure(L"put_AreDevToolsEnabled", settings->put_AreDevToolsEnabled(FALSE));
-    LogHrFailure(L"put_IsStatusBarEnabled", settings->put_IsStatusBarEnabled(FALSE));
-    LogHrFailure(L"put_AreDefaultContextMenusEnabled", settings->put_AreDefaultContextMenusEnabled(FALSE));
-    LogHrFailure(L"put_AreDefaultScriptDialogsEnabled", settings->put_AreDefaultScriptDialogsEnabled(FALSE));
+    LogHrFailure("put_AreDevToolsEnabled", settings->put_AreDevToolsEnabled(FALSE));
+    LogHrFailure("put_IsStatusBarEnabled", settings->put_IsStatusBarEnabled(FALSE));
+    LogHrFailure("put_AreDefaultContextMenusEnabled", settings->put_AreDefaultContextMenusEnabled(FALSE));
+    LogHrFailure("put_AreDefaultScriptDialogsEnabled", settings->put_AreDefaultScriptDialogsEnabled(FALSE));
     // メモリから配信する固定ページだけを開くので、SmartScreen の評判チェック (URL の外部送信) は要らない。
     if (Microsoft::WRL::ComPtr<ICoreWebView2Settings8> settings8; SUCCEEDED(settings.As(&settings8))) {
-        LogHrFailure(L"put_IsReputationCheckingRequired", settings8->put_IsReputationCheckingRequired(FALSE));
+        LogHrFailure("put_IsReputationCheckingRequired", settings8->put_IsReputationCheckingRequired(FALSE));
     }
+}
+
+// ハンドラ型は add_XXX の引数型から推論する。登録トークンは解除しないので受け取らない。
+template <class Handler, class Fn>
+void AddWebViewHandler(ICoreWebView2* webview, const char* what, HRESULT (STDMETHODCALLTYPE ICoreWebView2::*add)(Handler*, EventRegistrationToken*), Fn&& fn)
+{
+    LogHrFailure(what, (webview->*add)(Microsoft::WRL::Callback<Handler>(std::forward<Fn>(fn)).Get(), nullptr));
 }
 
 // CreateStreamOnHGlobal のストリームはアパートメントに縛られないので worker から読める。
@@ -280,13 +287,19 @@ void MermaidRenderer::CreateWebView2Environment()
         user_data = user_data_folder_.c_str();
     }
 
+    // clang-format off
     CreateCoreWebView2EnvironmentWithOptions(
-        nullptr, user_data, nullptr,
+        nullptr,
+        user_data,
+        nullptr,
         Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
             [this](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
                 OnEnvironmentCreated(result, env);
                 return S_OK;
-            }).Get());
+            }
+        ).Get()
+    );
+    // clang-format on
 }
 
 void MermaidRenderer::OnEnvironmentCreated(HRESULT result, ICoreWebView2Environment* env)
@@ -327,6 +340,7 @@ void MermaidRenderer::OnInitRetryTimer()
 
 void MermaidRenderer::SetupWorker(int index)
 {
+    // clang-format off
     webview_env_->CreateCoreWebView2Controller(
         workers_[index].hwnd,
         Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
@@ -335,7 +349,10 @@ void MermaidRenderer::SetupWorker(int index)
                     OnControllerCreated(index, controller);
                 }
                 return S_OK;
-            }).Get());
+            }
+        ).Get()
+    );
+    // clang-format on
 }
 
 void MermaidRenderer::OnControllerCreated(int index, ICoreWebView2Controller* controller)
@@ -352,65 +369,85 @@ void MermaidRenderer::OnControllerCreated(int index, ICoreWebView2Controller* co
     RegisterWebViewHandlers(index);
 
     // HTML + JS は WebResourceRequested ハンドラがメモリから配信する。
-    LogHrFailure(L"Navigate(initial)", w.webview->Navigate(APP_LOCAL_INDEX_URL));
+    LogHrFailure("Navigate(initial)", w.webview->Navigate(APP_LOCAL_INDEX_URL));
 }
 
 void MermaidRenderer::RegisterWebViewHandlers(int index)
 {
     ICoreWebView2* webview = workers_[index].webview.Get();
 
-    LogHrFailure(L"add_WebMessageReceived", webview->add_WebMessageReceived(
-        Microsoft::WRL::Callback<ICoreWebView2WebMessageReceivedEventHandler>(
-            [this, index](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
-                UniqueCoTaskMemStr msg;
-                if (SUCCEEDED(args->TryGetWebMessageAsString(msg.put())) && msg) {
-                    DispatchWebMessage(index, mermaid_util::ParseWebMessage(msg.get()));
-                }
-                return S_OK;
-            }).Get(),
-        nullptr));
+    // clang-format off
+    AddWebViewHandler(
+        webview,
+        "add_WebMessageReceived",
+        &ICoreWebView2::add_WebMessageReceived,
+        [this, index](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
+            UniqueCoTaskMemStr msg;
+            if (SUCCEEDED(args->TryGetWebMessageAsString(msg.put())) && msg) {
+                DispatchWebMessage(index, mermaid_util::ParseWebMessage(msg.get()));
+            }
+            return S_OK;
+        }
+    );
+    // clang-format on
 
     // レンダラ/ブラウザプロセスのクラッシュを放置するとワーカーが rendering=true の
     // まま恒久的にビジー扱いになり、全ワーカー喪失で以後の図が Loading 固着する。
-    LogHrFailure(L"add_ProcessFailed", webview->add_ProcessFailed(
-        Microsoft::WRL::Callback<ICoreWebView2ProcessFailedEventHandler>(
-            [this, index](ICoreWebView2*, ICoreWebView2ProcessFailedEventArgs*) -> HRESULT {
-                RecoverWorker(index);
-                return S_OK;
-            }).Get(),
-        nullptr));
+    // clang-format off
+    AddWebViewHandler(
+        webview,
+        "add_ProcessFailed",
+        &ICoreWebView2::add_ProcessFailed,
+        [this, index](ICoreWebView2*, ICoreWebView2ProcessFailedEventArgs*) -> HRESULT {
+            RecoverWorker(index);
+            return S_OK;
+        }
+    );
+    // clang-format on
 
-    LogHrFailure(L"add_NavigationStarting", webview->add_NavigationStarting(
-        Microsoft::WRL::Callback<ICoreWebView2NavigationStartingEventHandler>(
-            [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) static -> HRESULT {
-                UniqueCoTaskMemStr uri;
-                if (SUCCEEDED(args->get_Uri(uri.put())) && uri) {
-                    const std::wstring_view u(uri.get());
-                    if (!u.starts_with(APP_LOCAL_ORIGIN_PREFIX) && u != L"about:blank") {
-                        args->put_Cancel(TRUE);
-                    }
+    // clang-format off
+    AddWebViewHandler(
+        webview,
+        "add_NavigationStarting",
+        &ICoreWebView2::add_NavigationStarting,
+        [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) static -> HRESULT {
+            UniqueCoTaskMemStr uri;
+            if (SUCCEEDED(args->get_Uri(uri.put())) && uri) {
+                const std::wstring_view u(uri.get());
+                if (!u.starts_with(APP_LOCAL_ORIGIN_PREFIX) && u != L"about:blank") {
+                    args->put_Cancel(TRUE);
                 }
-                return S_OK;
-            }).Get(),
-        nullptr));
+            }
+            return S_OK;
+        }
+    );
+    // clang-format on
 
-    LogHrFailure(L"add_NewWindowRequested", webview->add_NewWindowRequested(
-        Microsoft::WRL::Callback<ICoreWebView2NewWindowRequestedEventHandler>(
-            [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) static -> HRESULT {
-                args->put_Handled(TRUE);
-                return S_OK;
-            }).Get(),
-        nullptr));
+    // clang-format off
+    AddWebViewHandler(
+        webview,
+        "add_NewWindowRequested",
+        &ICoreWebView2::add_NewWindowRequested,
+        [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) static -> HRESULT {
+            args->put_Handled(TRUE);
+            return S_OK;
+        }
+    );
+    // clang-format on
 
     // 全URLをフィルタし、app.local 以外へのリクエストもここで遮断する。
-    LogHrFailure(L"AddWebResourceRequestedFilter", webview->AddWebResourceRequestedFilter(L"*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL));
-    LogHrFailure(L"add_WebResourceRequested", webview->add_WebResourceRequested(
-        Microsoft::WRL::Callback<ICoreWebView2WebResourceRequestedEventHandler>(
-            [this](ICoreWebView2*, ICoreWebView2WebResourceRequestedEventArgs* args) -> HRESULT {
-                OnWebResourceRequested(args);
-                return S_OK;
-            }).Get(),
-        nullptr));
+    // clang-format off
+    LogHrFailure("AddWebResourceRequestedFilter", webview->AddWebResourceRequestedFilter(L"*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL));
+    AddWebViewHandler(
+        webview,
+        "add_WebResourceRequested",
+        &ICoreWebView2::add_WebResourceRequested,
+        [this](ICoreWebView2*, ICoreWebView2WebResourceRequestedEventArgs* args) -> HRESULT {
+            OnWebResourceRequested(args);
+            return S_OK;
+        }
+    );
+    // clang-format on
 }
 
 void MermaidRenderer::OnWebResourceRequested(ICoreWebView2WebResourceRequestedEventArgs* args)
@@ -843,7 +880,7 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
             mermaid_util::JsEscape(req.code_storage),
             req.dark_mode ? L"true" : L"false",
             req.request_id, req.request_id);
-        LogHrFailure(L"ExecuteScript(svg)", worker.webview->ExecuteScript(js.c_str(), nullptr));
+        LogHrFailure("ExecuteScript(svg)", worker.webview->ExecuteScript(js.c_str(), nullptr));
         return;
     }
 
@@ -863,7 +900,7 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
         mermaid_util::JsEscape(code),
         req.dark_mode ? L"true" : L"false",
         req.request_id, req.request_id);
-    LogHrFailure(L"ExecuteScript(render)", worker.webview->ExecuteScript(js.c_str(), nullptr));
+    LogHrFailure("ExecuteScript(render)", worker.webview->ExecuteScript(js.c_str(), nullptr));
 }
 
 float MermaidRenderer::EstimateWorkerDpr() noexcept
@@ -938,7 +975,7 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
         // mermaid.jsの読み込みに失敗した場合、ページを再読み込みして再試行する
         if (w.init_retries < MAX_WORKER_RETRIES && w.webview) {
             ++w.init_retries;
-            LogHrFailure(L"Navigate(retry)", w.webview->Navigate(APP_LOCAL_INDEX_URL));
+            LogHrFailure("Navigate(retry)", w.webview->Navigate(APP_LOCAL_INDEX_URL));
         }
         return;
     case WebMessageKind::Unknown:
@@ -979,7 +1016,7 @@ void MermaidRenderer::OnRenderResult(int worker_idx, std::wstring_view json)
         L"requestAnimationFrame(function(){{requestAnimationFrame(function(){{"
         L"window.chrome.webview.postMessage('capture-ready:{}');}});}});",
         w.current_request.request_id);
-    LogHrFailure(L"ExecuteScript(capture)", w.webview->ExecuteScript(cap_js.c_str(), nullptr));
+    LogHrFailure("ExecuteScript(capture)", w.webview->ExecuteScript(cap_js.c_str(), nullptr));
 }
 
 void MermaidRenderer::DoCapturePreview(int worker_idx)
@@ -1003,18 +1040,18 @@ void MermaidRenderer::DoCapturePreview(int worker_idx)
         png_stream.Get(),
         Microsoft::WRL::Callback<ICoreWebView2CapturePreviewCompletedHandler>(
             [this, worker_idx, png_stream, req_id](HRESULT capture_hr) -> HRESULT {
-                auto& worker = workers_[worker_idx];
-                if (worker.current_request.request_id != req_id) {
-                    return S_OK;
-                }
-                if (SUCCEEDED(capture_hr)) {
-                    OnCaptureComplete(worker_idx, png_stream);
-                }
-                else {
-                    FinishWorkerRequest(worker);
-                }
-                return S_OK;
-            }).Get());
+        auto& worker = workers_[worker_idx];
+        if (worker.current_request.request_id != req_id) {
+            return S_OK;
+        }
+        if (SUCCEEDED(capture_hr)) {
+            OnCaptureComplete(worker_idx, png_stream);
+        }
+        else {
+            FinishWorkerRequest(worker);
+        }
+        return S_OK;
+    }).Get());
 
     if (FAILED(hr)) {
         FinishWorkerRequest(w);

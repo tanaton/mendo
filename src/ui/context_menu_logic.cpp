@@ -164,6 +164,8 @@ void ContextMenu::Impl::ComputeLayout()
             item.rect = { 0, y, menu_width, y + ITEM_HEIGHT };
             y += ITEM_HEIGHT;
             break;
+        default:
+            std::unreachable();
         }
     }
 

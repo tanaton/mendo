@@ -423,8 +423,7 @@ void App::FinishReload(size_t diff_pos)
         std::string_view{ state_.document.doc.GetRawText() },
         diff_pos, md.height, state_.view.viewport.GetScrollY());
 
-    MENDO_TRACEF("FinishReload: desired_scroll={:.1f} diff_pos={}",
-                 desired_scroll, diff_pos);
+    MENDO_TRACEF("FinishReload: desired_scroll={:.1f} diff_pos={}", desired_scroll, diff_pos);
 
     // スクロール位置を先に設定してから ViewportLayout を呼ぶことで、変更箇所周辺の
     // 可視ノードが優先的に計測される。リロード時は直前の navigation target を破棄し、
@@ -438,9 +437,7 @@ void App::FinishReload(size_t diff_pos)
 
     FinalizeLayout(md.height);
 
-    MENDO_TRACEF("FinishReload: after-finalize scroll_y={:.1f} max_scroll={:.1f}",
-                 state_.view.viewport.GetScrollY(),
-                 state_.view.viewport.GetMaxScroll());
+    MENDO_TRACEF("FinishReload: after-finalize scroll_y={:.1f} max_scroll={:.1f}", state_.view.viewport.GetScrollY(), state_.view.viewport.GetMaxScroll());
 
     if (state_.search.search_state.IsVisible() && !state_.search.search_state.GetQuery().empty()) {
         state_.search.search_bar_ctrl.RunSearchAndLocate(state_.document.doc.GetNodes());

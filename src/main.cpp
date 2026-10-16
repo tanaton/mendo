@@ -113,7 +113,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     int argc = 0;
     LPWSTR* const argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     auto argv_guard = ScopeGuard([argv] { LocalFree(argv); });
-    const std::wstring_view arg = (argv && argc > 1) ? std::wstring_view{ argv[1] } : std::wstring_view{};
+    const std::wstring_view arg{ (argv && argc > 1) ? argv[1] : L"" };
 
     // SessionService::LoadLastFilePath は UNC/デバイスパスや実在しないパスを除外する。
     SessionService session{ config };

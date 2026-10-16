@@ -47,7 +47,7 @@ bool D2DRenderBackend::Init(HWND hwnd)
         &opts,
         reinterpret_cast<void**>(d2d_factory_.GetAddressOf()));
     if (FAILED(hr)) {
-        LogHrFailure(L"D2D1CreateFactory", hr);
+        LogHrFailure("D2D1CreateFactory", hr);
         return false;
     }
 
@@ -56,13 +56,13 @@ bool D2DRenderBackend::Init(HWND hwnd)
         __uuidof(IDWriteFactory),
         reinterpret_cast<IUnknown**>(dwrite_factory_.GetAddressOf()));
     if (FAILED(hr)) {
-        LogHrFailure(L"DWriteCreateFactory", hr);
+        LogHrFailure("DWriteCreateFactory", hr);
         return false;
     }
 
     // Renderer・ImageLoader で共有。アイコン／画像／ダイアグラムは WIC が無いと
     // 機能しないため fail-fast。
-    wic_factory_ = wic_util::CreateWicFactory(L"WIC ImagingFactory creation");
+    wic_factory_ = wic_util::CreateWicFactory("WIC ImagingFactory creation");
     if (!wic_factory_) {
         return false;
     }
@@ -89,7 +89,7 @@ bool D2DRenderBackend::CreateDeviceResources()
         // GPU を使えない環境 (RDP / VM / ドライバ障害など) でも描画できるよう、ソフトウェアの WARP に落とす。
         hr = create_device(D3D_DRIVER_TYPE_WARP);
         if (FAILED(hr)) {
-            LogHrFailure(L"D3D11CreateDevice (WARP)", hr);
+            LogHrFailure("D3D11CreateDevice (WARP)", hr);
             return false;
         }
     }
@@ -97,19 +97,19 @@ bool D2DRenderBackend::CreateDeviceResources()
     ComPtr<IDXGIDevice> dxgi_device;
     hr = d3d_device_.As(&dxgi_device);
     if (FAILED(hr)) {
-        LogHrFailure(L"ID3D11Device::As<IDXGIDevice>", hr);
+        LogHrFailure("ID3D11Device::As<IDXGIDevice>", hr);
         return false;
     }
 
     hr = d2d_factory_->CreateDevice(dxgi_device.Get(), &d2d_device_);
     if (FAILED(hr)) {
-        LogHrFailure(L"ID2D1Factory1::CreateDevice", hr);
+        LogHrFailure("ID2D1Factory1::CreateDevice", hr);
         return false;
     }
 
     hr = d2d_device_->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &device_context_);
     if (FAILED(hr)) {
-        LogHrFailure(L"ID2D1Device::CreateDeviceContext", hr);
+        LogHrFailure("ID2D1Device::CreateDeviceContext", hr);
         return false;
     }
 
@@ -118,14 +118,14 @@ bool D2DRenderBackend::CreateDeviceResources()
     ComPtr<IDXGIAdapter> adapter;
     hr = dxgi_device->GetAdapter(&adapter);
     if (FAILED(hr)) {
-        LogHrFailure(L"IDXGIDevice::GetAdapter", hr);
+        LogHrFailure("IDXGIDevice::GetAdapter", hr);
         return false;
     }
 
     ComPtr<IDXGIFactory2> dxgi_factory;
     hr = adapter->GetParent(IID_PPV_ARGS(&dxgi_factory));
     if (FAILED(hr)) {
-        LogHrFailure(L"IDXGIAdapter::GetParent<IDXGIFactory2>", hr);
+        LogHrFailure("IDXGIAdapter::GetParent<IDXGIFactory2>", hr);
         return false;
     }
 
@@ -154,7 +154,7 @@ bool D2DRenderBackend::CreateDeviceResources()
         // FLIP_DISCARD は Windows 10 以降にしかないので、それより前の環境では FLIP_SEQUENTIAL に落とす。
         hr = create_swap_chain(DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL);
         if (FAILED(hr)) {
-            LogHrFailure(L"CreateSwapChainForHwnd (FLIP_SEQUENTIAL)", hr);
+            LogHrFailure("CreateSwapChainForHwnd (FLIP_SEQUENTIAL)", hr);
             return false;
         }
     }
@@ -168,7 +168,7 @@ bool D2DRenderBackend::CreateSwapChainBitmap()
     ComPtr<IDXGISurface> surface;
     HRESULT hr = swap_chain_->GetBuffer(0, IID_PPV_ARGS(&surface));
     if (FAILED(hr)) {
-        LogHrFailure(L"IDXGISwapChain1::GetBuffer", hr);
+        LogHrFailure("IDXGISwapChain1::GetBuffer", hr);
         return false;
     }
 
@@ -180,7 +180,7 @@ bool D2DRenderBackend::CreateSwapChainBitmap()
     ComPtr<ID2D1Bitmap1> target_bitmap;
     hr = device_context_->CreateBitmapFromDxgiSurface(surface.Get(), &bp, &target_bitmap);
     if (FAILED(hr)) {
-        LogHrFailure(L"CreateBitmapFromDxgiSurface", hr);
+        LogHrFailure("CreateBitmapFromDxgiSurface", hr);
         return false;
     }
 
@@ -202,7 +202,7 @@ void D2DRenderBackend::Resize(UINT width, UINT height) noexcept
         0, width, height, DXGI_FORMAT_UNKNOWN,
         DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
     if (FAILED(hr)) {
-        LogHrFailure(L"IDXGISwapChain1::ResizeBuffers", hr);
+        LogHrFailure("IDXGISwapChain1::ResizeBuffers", hr);
         device_lost_ = true;
         return;
     }

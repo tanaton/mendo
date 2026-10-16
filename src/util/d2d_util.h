@@ -1,6 +1,7 @@
 #pragma once
 #include "ui_constants.h"
 #include "ui_types.h"
+#include "profiler.h"
 #include <d2d1.h>
 #include <wrl/client.h>
 #include <windows.h>
@@ -41,7 +42,7 @@ inline void CreateSolidColorBrushOrFallback(
         return;
     }
     if (FAILED(rt->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Magenta), out_brush.ReleaseAndGetAddressOf()))) {
-        OutputDebugStringW(L"[mendo] CreateSolidColorBrush failed even on magenta fallback\n");
+        MENDO_TRACE("CreateSolidColorBrush failed even on magenta fallback");
     }
 }
 

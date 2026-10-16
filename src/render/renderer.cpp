@@ -242,9 +242,7 @@ void Renderer::AppendCellInlineCodeBgs(TableLayoutData& tl, uint32_t cell_index,
     auto& bgs = tl.cell_inline_code_bgs;
     const size_t old_size = bgs.size();
     const bool can_append = bgs.empty() || bgs.back().cell_index <= cell_index;
-    const size_t insert_at = can_append
-                                 ? old_size
-                                 : static_cast<size_t>(std::ranges::upper_bound(bgs, cell_index, {}, &CellInlineCodeBg::cell_index) - bgs.begin());
+    const size_t insert_at = can_append ? old_size : static_cast<size_t>(std::ranges::upper_bound(bgs, cell_index, {}, &CellInlineCodeBg::cell_index) - bgs.begin());
     bgs.reserve(old_size + count);
     for (UINT32 i = 0; i < count; i++) {
         bgs.emplace_back(CellInlineCodeBg{ cell_index, MakeInlineCodeBg(hit_test_buffer_[i]) });
@@ -399,7 +397,7 @@ void Renderer::DrawLoadingSpinner(float angle, const PaneRect& md_pane_rect)
         return;
     }
     // alpha はドットインデックスのみに依存するためコンパイル時に決定する。
-    static constexpr auto kSpinnerAlphas = []() noexcept {
+    static constexpr auto kSpinnerAlphas = []() static noexcept {
         std::array<float, spinner::DOT_COUNT> a{};
         for (int i = 0; i < spinner::DOT_COUNT; ++i) {
             a[i] = 1.0f - i * (spinner::DOT_FADE_FACTOR / spinner::DOT_COUNT);
@@ -682,9 +680,7 @@ void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points)
 
     if (!gesture_stroke_style_) {
         // 滑らかなジェスチャー軌跡のための丸型キャップと結合（初回のみ生成）
-        const D2D1_STROKE_STYLE_PROPERTIES ssp = D2D1::StrokeStyleProperties(
-            D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND,
-            D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND);
+        const D2D1_STROKE_STYLE_PROPERTIES ssp = D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND);
         d2d()->CreateStrokeStyle(ssp, nullptr, 0, &gesture_stroke_style_);
     }
     OpacityScope guard{ trail_brush, 0.5f };
@@ -711,7 +707,7 @@ void Renderer::FillOverlayPanel(const D2D1_RECT_F& rect, float corner, float alp
 {
     // dark テーマは灰色 (0.2,0.2,0.2)、light テーマは純黒 (0,0,0) で背景。
     // 専用色ブラシ + OpacityScope で毎フレーム SetColor を回避する。
-    auto* const bg_brush = theme_.IsDark() ? Brush(BrushId::OverlayGestureBg) : Brush(BrushId::OverlayBlack);
+    auto* const bg_brush{ Brush(theme_.IsDark() ? BrushId::OverlayGestureBg : BrushId::OverlayBlack) };
     if (!bg_brush) {
         return;
     }
