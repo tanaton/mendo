@@ -28,9 +28,9 @@ struct StartupContext {
 struct StartupPlan {
     // 空ならヘルプを表示する。
     std::pmr::wstring document_path;
-    bool restore_scroll = false;
     // 空ならファイルペインを設定しない。
     std::pmr::wstring pane_directory;
+    bool restore_scroll = false;
 };
 
 StartupPlan DecideStartupPlan(const StartupContext& ctx);

@@ -195,11 +195,11 @@ mermaid_util::ParsedWebMessage mermaid_util::ParseWebMessage(std::wstring_view m
         std::wstring_view prefix;
         WebMessageKind kind;
     };
-    constexpr PrefixEntry kEntries[] = {
+    constexpr PrefixEntry kEntries[]{
         { L"render-result:"sv, WebMessageKind::RenderResult },
         { L"capture-ready:"sv, WebMessageKind::CaptureReady },
-        { L"svg-result:"sv,    WebMessageKind::SvgResult },
-        { L"render-error:"sv,  WebMessageKind::RenderError },
+        { L"svg-result:"sv,    WebMessageKind::SvgResult    },
+        { L"render-error:"sv,  WebMessageKind::RenderError  },
     };
     for (const auto& e : kEntries) {
         if (msg.starts_with(e.prefix)) {
@@ -256,11 +256,21 @@ std::pmr::wstring mermaid_util::ParseJsonString(std::wstring_view json, std::wst
         }
         const wchar_t esc = json[pos++];
         switch (esc) {
-        case L'n': buf += L'\n'; break;
-        case L'r': buf += L'\r'; break;
-        case L't': buf += L'\t'; break;
-        case L'b': buf += L'\b'; break;
-        case L'f': buf += L'\f'; break;
+        case L'n':
+            buf += L'\n';
+            break;
+        case L'r':
+            buf += L'\r';
+            break;
+        case L't':
+            buf += L'\t';
+            break;
+        case L'b':
+            buf += L'\b';
+            break;
+        case L'f':
+            buf += L'\f';
+            break;
         case L'u': {
             unsigned int cp = 0;
             if (json.size() - pos < 4 || ascii_util::from_chars(json.data() + pos, 4, cp, 16u) != json.data() + pos + 4) {

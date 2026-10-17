@@ -61,6 +61,10 @@ TooltipTarget BuildTitleBarTooltip(const TooltipTarget& current, TitleBarHitZone
     const auto& ls = i18n::S();
     const std::wstring_view text = [&]() -> std::wstring_view {
         switch (zone) {
+        case TitleBarHitZone::None:
+        case TitleBarHitZone::Caption:
+        case TitleBarHitZone::Icon:
+            return {};
         case TitleBarHitZone::OpenFile:
             return ls.tooltip_open_file;
         case TitleBarHitZone::Help:
@@ -79,9 +83,8 @@ TooltipTarget BuildTitleBarTooltip(const TooltipTarget& current, TitleBarHitZone
             return is_maximized ? ls.tooltip_restore : ls.tooltip_maximize;
         case TitleBarHitZone::Close:
             return ls.tooltip_close;
-        default:
-            return {};
         }
+        std::unreachable();
     }();
     // 最大化ボタンは状態で文言が変わるため key を分ける。
     const uint64_t key = std::to_underlying(zone) * 2ull + (zone == TitleBarHitZone::Maximize && is_maximized);
@@ -103,9 +106,11 @@ TooltipTarget BuildSearchBarTooltip(const TooltipTarget& current, SearchBarHitZo
             return ls.tooltip_search_highlight;
         case SearchBarHitZone::Close:
             return ls.tooltip_search_close;
-        default:
+        case SearchBarHitZone::None:
+        case SearchBarHitZone::Input:
             return {};
         }
+        std::unreachable();
     }();
     return MakeButtonTooltip(current, TooltipTarget::Zone::SearchBarButton, std::to_underlying(zone), text);
 }
@@ -115,13 +120,14 @@ TooltipTarget BuildNavButtonTooltip(const TooltipTarget& current, NavButtonHover
     const auto& ls = i18n::S();
     const std::wstring_view text = [&]() -> std::wstring_view {
         switch (hit) {
+        case NavButtonHover::None:
+            return {};
         case NavButtonHover::Back:
             return ls.tooltip_nav_back;
         case NavButtonHover::Forward:
             return ls.tooltip_nav_forward;
-        default:
-            return {};
         }
+        std::unreachable();
     }();
     return MakeButtonTooltip(current, TooltipTarget::Zone::NavButton, std::to_underlying(hit), text);
 }

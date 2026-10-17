@@ -142,7 +142,7 @@ struct CallbackTracker {
 
     float content_width = 800.0f;
     float viewport_height = 600.0f;
-    Theme theme = [] {
+    Theme theme = [] static noexcept {
         Theme t;
         t.indent_width = 20.0f;
         return t;

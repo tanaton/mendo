@@ -259,7 +259,7 @@ LRESULT Win32Window::OnNcCalcSize(WPARAM wParam, LPARAM lParam)
 
 LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
 {
-    POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+    POINT pt{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
     ScreenToClient(hwnd_, &pt);
 
     if (const LRESULT frame_hit = HitTestResizeFrame(pt); frame_hit != HTNOWHERE) {

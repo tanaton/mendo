@@ -62,13 +62,13 @@ bool IsSameFile(std::wstring_view a, std::wstring_view b)
 
 StartupPlan PlanStartup(std::wstring_view arg, std::wstring_view last_file)
 {
-    const std::wstring cwd = QueryDirectory([](wchar_t* b, UINT n) { return GetCurrentDirectoryW(n, b); });
-    const std::array<std::wstring, 3> ignored_cwds = {
+    const std::wstring cwd = QueryDirectory([](wchar_t* b, UINT n) static { return GetCurrentDirectoryW(n, b); });
+    const std::wstring ignored_cwds[]{
         QueryDirectory(GetSystemDirectoryW),
         QueryDirectory(GetWindowsDirectoryW),
         ExeDirectory(),
     };
-    const std::array<std::wstring_view, 3> ignored_cwd_views = { ignored_cwds[0], ignored_cwds[1], ignored_cwds[2] };
+    const std::wstring_view ignored_cwd_views[]{ ignored_cwds[0], ignored_cwds[1], ignored_cwds[2] };
     StartupContext ctx{
         .last_file = last_file,
         .cwd = cwd,
@@ -89,6 +89,12 @@ StartupPlan PlanStartup(std::wstring_view arg, std::wstring_view last_file)
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nCmdShow)
 {
+    // Tracy プロファイラ接続を待つ初期遅延 (ms)。1 秒は Tracy GUI が profile-side に
+    // attach するのに十分な時間で、Release ビルドでは MENDO_IF_TRACY が空展開される。
+    [[maybe_unused]] constexpr DWORD kTracyStartupDelayMs = 1000;
+    MENDO_IF_TRACY(Sleep(kTracyStartupDelayMs));
+    MENDO_FRAME_MARK();
+
     // 遅延ロード DLL と LoadLibrary を exe のフォルダやカレントディレクトリ (文書のフォルダ) から探させない。
     SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
     // メディアの無いドライブを指す画像パスで「ディスクがありません」ダイアログを出させない。
@@ -98,21 +104,16 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     LoadLibraryExW(L"d2d1.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     LoadLibraryExW(L"dwrite.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
 
-    // Tracy プロファイラ接続を待つ初期遅延 (ms)。1 秒は Tracy GUI が profile-side に
-    // attach するのに十分な経験値で、Release ビルドでは MENDO_IF_TRACY が空展開される。
-    [[maybe_unused]] constexpr DWORD kTracyStartupDelayMs = 1000;
-    MENDO_IF_TRACY(Sleep(kTracyStartupDelayMs));
-
     PrefetchD3DDevice();
 
     // DPI 認識 (PerMonitorV2) はマニフェストで宣言している。
-    const HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    const HRESULT hr{ CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) };
     if (FAILED(hr)) {
         return 1;
     }
     // CoUninitialize は Win32Window 破棄（COM オブジェクト解放）より後に走らせる必要がある。
     // window より先にこのガードを宣言することで、全 return 経路でこの順序を保証する。
-    auto com_guard = ScopeGuard([] { CoUninitialize(); });
+    ScopeGuard com_guard([] static { CoUninitialize(); });
     INITCOMMONCONTROLSEX icc{};
     icc.dwSize = sizeof(icc);
     icc.dwICC = ICC_STANDARD_CLASSES;
@@ -124,13 +125,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
 
     int argc = 0;
     LPWSTR* const argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    auto argv_guard = ScopeGuard([argv] { LocalFree(argv); });
+    ScopeGuard argv_guard([argv] { LocalFree(argv); });
     const std::wstring_view arg{ (argv && argc > 1) ? argv[1] : L"" };
 
     // SessionService::LoadLastFilePath は UNC/デバイスパスや実在しないパスを除外する。
     SessionService session{ config };
-    const auto last_file = session.LoadLastFilePath();
-    StartupPlan plan = PlanStartup(arg, last_file);
+    StartupPlan plan = PlanStartup(arg, session.LoadLastFilePath());
 
     Win32Window window(config);
 
@@ -151,11 +151,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
         window.SetInitialDirectory(plan.pane_directory);
     }
 
-    {
-        MENDO_PROFILE("wWinMain - Create Window");
-        if (!window.Create(hInstance, nCmdShow)) {
-            return 1;
-        }
+    if (!window.Create(hInstance, nCmdShow)) {
+        return 1;
     }
 
     return window.RunMessageLoop();

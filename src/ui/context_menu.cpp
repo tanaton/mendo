@@ -26,7 +26,7 @@ bool ContextMenu::Impl::RegisterWindowClass()
 {
     static std::once_flag flag;
     static bool registered_ok = false;
-    std::call_once(flag, [] {
+    std::call_once(flag, [] static {
         WNDCLASSEXW wc{};
         wc.cbSize = sizeof(wc);
         wc.style = CS_HREDRAW | CS_VREDRAW;

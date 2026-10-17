@@ -248,9 +248,10 @@ void App::OnParseComplete()
     // ApplyReload / ReplaceWithResult のときだけ結果がある。
     AsyncLoadResult* const result = (outcome && *outcome) ? &**outcome : nullptr;
     if (plan.reload) {
-        MENDO_TRACEF("OnParseComplete: reload worker_diff={} node_count={} diff_pos={} new_size={} op={}",
-                     result->reload.has_value(), result->doc.GetNodes().size(), plan.reload->diff_pos,
-                     result->doc.GetRawText().size(), std::to_underlying(plan.reload->op));
+        MENDO_TRACEF(
+            "OnParseComplete: reload worker_diff={} node_count={} diff_pos={} new_size={} op={}",
+            result->reload.has_value(), result->doc.GetNodes().size(), plan.reload->diff_pos,
+            result->doc.GetRawText().size(), std::to_underlying(plan.reload->op));
     }
 
     switch (plan.step) {
@@ -302,9 +303,10 @@ void App::FinishLoadMarkdownFile(bool follow_file_pane)
 
     // スクロール復元先の Y がずれないよう、推定高さを Mermaid/画像キャッシュの実測値で補正する。
     if (state_.view.scroll_restore.HasNodeRestore()) {
-        MENDO_TRACEF("FinishLoad: node={} offset={}",
-                     state_.view.scroll_restore.pending_restore_node,
-                     state_.view.scroll_restore.pending_restore_offset);
+        MENDO_TRACEF(
+            "FinishLoad: node={} offset={}",
+            state_.view.scroll_restore.pending_restore_node,
+            state_.view.scroll_restore.pending_restore_offset);
         ApplyCachedHeightsAndRecompute();
     }
     Dispatch(RestoreScrollAfterLoadAction{});
@@ -316,9 +318,10 @@ void App::FinishLoadMarkdownFile(bool follow_file_pane)
 
     FinalizeLayout(md.height);
 
-    MENDO_TRACEF("FinishLoad: scroll_y={:.1f} max_scroll={:.1f}",
-                 state_.view.viewport.GetScrollY(),
-                 state_.view.viewport.GetMaxScroll());
+    MENDO_TRACEF(
+        "FinishLoad: scroll_y={:.1f} max_scroll={:.1f}",
+        state_.view.viewport.GetScrollY(),
+        state_.view.viewport.GetMaxScroll());
 
     UpdateTitleBar();
     EmitEffect(effect::SyncTocActive{});
@@ -355,8 +358,9 @@ void App::ReloadCurrentFile()
         MENDO_TRACE("ReloadCurrentFile: async path");
         // 編集中の差分リロードでスピナーが点滅すると見づらいため、旧コンテンツを表示したまま差し替える。
         // prefix shrink の defer が上限に達したら、縮んだ内容を受け入れるため worker の事前判定を省いてパースさせる。
-        BeginAsyncLoad(path, /*show_animation=*/false,
-                       prefix_shrink_retry_.Exhausted() ? nullptr : state_.document.doc.GetRawText().Share());
+        BeginAsyncLoad(
+            path, /*show_animation=*/false,
+            prefix_shrink_retry_.Exhausted() ? nullptr : state_.document.doc.GetRawText().Share());
         return;
     }
     MENDO_TRACE("ReloadCurrentFile: sync path (DoReloadCurrentFile)");
@@ -385,9 +389,10 @@ void App::DoReloadCurrentFile()
     const std::string_view old_view(state_.document.doc.GetRawText());
     const auto decision = AnalyzeReloadDiff(old_view, new_text);
 
-    MENDO_TRACEF("DoReload: diff_pos={} old_size={} new_size={} op={}",
-                 decision.diff_pos, old_view.size(), new_text.size(),
-                 std::to_underlying(decision.op));
+    MENDO_TRACEF(
+        "DoReload: diff_pos={} old_size={} new_size={} op={}",
+        decision.diff_pos, old_view.size(), new_text.size(),
+        std::to_underlying(decision.op));
 
     if (ApplyReloadDecisionEarly(decision, /*has_parsed_doc=*/true) == ReloadFlow::Handled) {
         return;

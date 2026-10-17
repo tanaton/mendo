@@ -133,9 +133,7 @@ inline int SidePaneItemAt(const AppState& state, PaneTarget pane, const PaneRect
 {
     const float item_h = state.theme->pane_item_height;
     const float local_y = SidePaneLocalY(dip_y, PaneContentTop(rect, state.theme->pane_header_height), state.view.panes.SidePaneScroll(pane).scroll_y);
-    return pane == PaneTarget::File
-               ? state.file_explorer.HitTest(local_y, item_h)
-               : state.document.doc.GetToc().HitTest(local_y, item_h);
+    return pane == PaneTarget::File ? state.file_explorer.HitTest(local_y, item_h) : state.document.doc.GetToc().HitTest(local_y, item_h);
 }
 
 // サイドペインヘッダーのボタン構成。Refresh/Reveal はファイルペインのみ。
