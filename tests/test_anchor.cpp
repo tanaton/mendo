@@ -2,6 +2,8 @@
 #include "anchor.h"
 #include "document_test_helpers.h"
 #include "document_utils.h"
+#include "unicode_lower_table.h"
+#include "utf8_codec.h"
 #include <array>
 #include <initializer_list>
 #include <span>
@@ -64,6 +66,29 @@ TEST(AnchorId, GeneratesExpectedId)
         SCOPED_TRACE(c.name);
         EXPECT_EQ(GenerateAnchorId(c.input), c.expected);
     }
+}
+
+// 出力は入力と同じ長さで確保して書くので、表に UTF-8 長が伸びる変換が入ると確保を越えて書く。
+// CJK 帯 [U+3000, U+A640) は表を引かずに返すので、その帯に大文字が入ると小文字化を取りこぼす。
+TEST(AnchorId, LowerTableKeepsUtf8LengthAndSkipsCjkBand)
+{
+    for (const auto& m : kUnicodeLowerMappings) {
+        char upper[4];
+        char lower[4];
+        EXPECT_LE(utf8_codec::EncodeCp(m.lower, lower), utf8_codec::EncodeCp(m.upper, upper)) << std::hex << m.upper;
+        EXPECT_FALSE(m.upper >= 0x3000 && m.upper < 0xA640) << std::hex << m.upper;
+    }
+    // 帯の上端 U+A640 は表を引く側 (Ꙁ → ꙁ)
+    EXPECT_EQ(GenerateAnchorId("\xEA\x99\x80"), "\xEA\x99\x81");
+    EXPECT_EQ(ToLowerAnchorCopy("\xEA\x99\x80"), "\xEA\x99\x81");
+}
+
+// 不正・途中で切れた UTF-8 はバイトのまま残し、末尾を越えて読まない (どの見出しとも一致させない)。
+TEST(AnchorId, ToLowerAnchorCopyKeepsMalformedBytes)
+{
+    EXPECT_EQ(ToLowerAnchorCopy("A\xC3"), "a\xC3");
+    EXPECT_EQ(ToLowerAnchorCopy("\xFF\xC3\x9C"), "\xFF\xC3\xBC");
+    EXPECT_EQ(ToLowerAnchorCopy("\xE3\x81Z"), "\xE3\x81z");
 }
 
 TEST(AnchorId, LongText)

@@ -63,6 +63,37 @@ protected:
         return fresh;
     }
 
+    // 書き込み中に追い出されたキーの PNG は、着地後に消えて孤立ファイルとして残らない。
+    // 同じ図が文書に複数あると、同じキーの保存が書き込み中に重なる (key1_stores > 1)。
+    void ExpectEvictionDuringPendingWriteLeavesNoOrphanPng(int key1_stores)
+    {
+        scheduler_.Shutdown();
+        cache_.SetLimits(2, 1ULL * 1024 * 1024 * 1024);
+        InitCache();
+        scheduler_.Init(1);
+
+        // 唯一の worker を塞ぎ、以降の書き込みを確実に in-flight のまま止める。
+        std::promise<void> release;
+        std::shared_future<void> released = release.get_future().share();
+        ASSERT_TRUE(scheduler_.Post([released] { released.wait(); }));
+
+        for (int k = 0; k < key1_stores; ++k) {
+            cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
+        }
+        cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
+        cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyPng(100)); // key=1 を追い出す
+        EXPECT_EQ(cache_.EntryCount(), 2u);
+
+        release.set_value();
+        scheduler_.Shutdown();
+
+        EXPECT_FALSE(std::filesystem::exists(PngPathOf(1)));
+        EXPECT_TRUE(std::filesystem::exists(PngPathOf(2)));
+        EXPECT_TRUE(std::filesystem::exists(PngPathOf(3)));
+
+        scheduler_.Init(2);
+    }
+
     TaskScheduler scheduler_;
     MermaidFileCache cache_;
 };
@@ -660,30 +691,31 @@ TEST_F(MermaidFileCacheTest, LookupDuringPendingWriteKeepsIndex)
         << "pending write 中に index が消されている（orphan PNG の温床）";
 }
 
-// 書き込み中に追い出されたキーの PNG は、着地後に消えて孤立ファイルとして残らない。
 TEST_F(MermaidFileCacheTest, EvictionDuringPendingWriteLeavesNoOrphanPng)
 {
-    scheduler_.Shutdown();
-    cache_.SetLimits(2, 1ULL * 1024 * 1024 * 1024);
-    InitCache();
-    scheduler_.Init(1);
+    ExpectEvictionDuringPendingWriteLeavesNoOrphanPng(1);
+}
 
-    // 唯一の worker を塞ぎ、以降の書き込みを確実に in-flight のまま止める。
-    std::promise<void> release;
-    std::shared_future<void> released = release.get_future().share();
-    ASSERT_TRUE(scheduler_.Post([released] { released.wait(); }));
+TEST_F(MermaidFileCacheTest, EvictionDuringDuplicatePendingWritesLeavesNoOrphanPng)
+{
+    ExpectEvictionDuringPendingWriteLeavesNoOrphanPng(2);
+}
 
-    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
-    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
-    cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyPng(100)); // key=1 を追い出す
-    EXPECT_EQ(cache_.EntryCount(), 2u);
+// 図の解像度は描画するワーカーの DPR で決まるので、キーもその DPR に追従する。
+// Init 時の DPR に固定すると、別の DPR で描いた PNG を引いて図がぼやける・ずれる。
+TEST_F(MermaidFileCacheTest, SetDprSwitchesKeySpace)
+{
+    InitCache(1.0f);
+    cache_.StoreAsync(42, 400.0f, 300.0f, MakeDummyPng(64));
+    const uint64_t key_at_1x = cache_.InternalKeyForTest(42);
+    MermaidFileCache::CacheEntry entry;
+    ASSERT_TRUE(cache_.LookupDimensions(42, entry));
 
-    release.set_value();
-    scheduler_.Shutdown();
+    cache_.SetDpr(2.0f);
+    EXPECT_NE(cache_.InternalKeyForTest(42), key_at_1x);
+    EXPECT_FALSE(cache_.LookupDimensions(42, entry));
 
-    EXPECT_FALSE(std::filesystem::exists(PngPathOf(1)));
-    EXPECT_TRUE(std::filesystem::exists(PngPathOf(2)));
-    EXPECT_TRUE(std::filesystem::exists(PngPathOf(3)));
-
-    scheduler_.Init(2);
+    cache_.SetDpr(1.0f);
+    EXPECT_EQ(cache_.InternalKeyForTest(42), key_at_1x);
+    EXPECT_TRUE(cache_.LookupDimensions(42, entry));
 }

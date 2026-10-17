@@ -5,6 +5,7 @@
 #include "layout.h"
 #include "layout_cache.h"
 #include "mock_text_measurer.h"
+#include "file_io.h"
 #include "image_loader.h"
 #include "wic_util.h"
 #include "task_scheduler.h"
@@ -563,6 +564,37 @@ protected:
         return (temp_dir_.path() / filename).wstring();
     }
 };
+
+// 拡張子ではなく先頭バイトで形式を決め、ブラウザで表示できる形式以外のデコーダは動かさない。
+// 内容から自動判定する CreateDecoderFromStream に戻すと、インストール済みの任意のコーデックが
+// 文書を開いただけでプロセス内で動く。
+TEST_F(ImageLoaderTest, DoesNotDecodeFormatsOutsideAllowList)
+{
+    ASSERT_TRUE(CreateTestImage(L"tiff_as.png", GUID_ContainerFormatTiff, 40, 30));
+    const auto path = GetTestImagePath(L"tiff_as.png");
+    ComPtr<IWICBitmapDecoder> system_decoder;
+    ASSERT_TRUE(SUCCEEDED(wic_factory_->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ,
+                                                                  WICDecodeMetadataCacheOnDemand, &system_decoder)))
+        << "WIC 自体は TIFF を読めること";
+
+    DiagramEntry entry;
+    EXPECT_FALSE(LoadAndGet(path, entry));
+    EXPECT_EQ(loader_.FindCachedImage(path), nullptr);
+}
+
+// 呼び出し側が指定した形式のデコーダだけを使い、別形式のバイト列は読まない (Mermaid の PNG 等)。
+TEST_F(ImageLoaderTest, DecodeFromMemoryUsesOnlyRequestedContainer)
+{
+    ASSERT_TRUE(CreateTestImage(L"mem.bmp", GUID_ContainerFormatBmp, 50, 40));
+    const auto bytes = ReadAllBytes(GetTestImagePath(L"mem.bmp"));
+    ASSERT_FALSE(bytes.empty());
+
+    EXPECT_FALSE(wic_util::DecodeFromMemory(wic_factory_.Get(), bytes, GUID_ContainerFormatPng).has_value());
+    const auto bmp = wic_util::DecodeFromMemory(wic_factory_.Get(), bytes, GUID_ContainerFormatBmp);
+    ASSERT_TRUE(bmp.has_value());
+    EXPECT_EQ(bmp->pixel_width, 50u);
+    EXPECT_EQ(bmp->pixel_height, 40u);
+}
 
 // ---- 正常系: 画像フォーマット ----
 

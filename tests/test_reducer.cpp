@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <optional>
 
 class ReducerTest : public ::testing::Test {
 protected:
@@ -1562,6 +1563,191 @@ TEST_F(ReducerTest, NavigateAnchor_MissingAnchorKeepsHistory)
     EXPECT_TRUE(effects.empty());
     EXPECT_FALSE(state.view.nav_history.CanGoBack());
     EXPECT_TRUE(state.view.nav_history.CanGoForward());
+}
+
+// ---- ロード中に次の移動が重なる連続操作 ----
+
+namespace {
+
+// 見出し 4 つ (高さ 100 ずつ) の文書に差し替える。
+void ReplaceDocument(AppState& state, std::wstring_view path)
+{
+    state.document.doc = Document::FromMarkdown(std::pmr::string("# A\n\n# B\n\n# C\n\n# D"), std::pmr::wstring(path));
+    state.document.layout_cache = MakeUniformCache(static_cast<int>(state.document.doc.GetNodes().size()), 100.0f);
+}
+
+void ResetToDocument(AppState& state, std::wstring_view path)
+{
+    state.view.nav_history = NavHistory{};
+    ReplaceDocument(state, path);
+}
+
+// App のロード成功相当: 文書を差し替えて RestoreScrollAfterLoadAction で確定する。
+void CompleteLoad(AppState& state, std::wstring_view path)
+{
+    ReplaceDocument(state, path);
+    Reduce(state, RestoreScrollAfterLoadAction{});
+}
+
+// 副作用の LoadFile のパス。LoadFile が無ければ nullopt。
+std::optional<std::wstring> LoadedPath(const SideEffectList& effects)
+{
+    const auto* load = FindEffect<effect::LoadFile>(effects);
+    return load ? std::optional<std::wstring>(load->path) : std::nullopt;
+}
+
+} // namespace
+
+// 別ファイルへの「戻る」のロード中に別のファイルを開くと、戻る先は取り消される。
+// その復元位置を残すと、開いたファイルが戻る先のノード位置へスクロールする。
+TEST_F(ReducerTest, OpenWhileNavigateBackLoading_DoesNotCarryRestoreOver)
+{
+    const AppAction opens[] = {
+        FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\other.md") },
+        DropFilesAction{ std::pmr::wstring(L"C:\\other.md") },
+    };
+    for (const auto& open : opens) {
+        SCOPED_TRACE(open.index());
+        ResetToDocument(state, L"C:\\current.md");
+        state.view.nav_history.Push(NavEntry{ L"C:\\b.md", 2, 30.0f });
+        ASSERT_TRUE(HasEffect<effect::LoadFile>(Reduce(state, NavigateBackAction{})));
+        ASSERT_TRUE(state.view.scroll_restore.HasNodeRestore());
+
+        Reduce(state, open);
+        CompleteLoad(state, L"C:\\other.md");
+
+        EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+        EXPECT_FALSE(state.view.scroll_restore.HasNodeRestore());
+        EXPECT_EQ(state.view.nav_history.BackSize(), 2u);
+        EXPECT_EQ(state.view.nav_history.ForwardSize(), 0u);
+    }
+}
+
+// ヘルプ表示中の F1 はヘルプに留まり、ロード中の別ファイルを取り消すだけなので確定も失敗も来ない。
+// その「戻る」の仮の履歴と復元位置を残すと、戻るボタンが無効なまま進むボタンだけ有効になる。
+TEST_F(ReducerTest, ShowHelpWhileOnHelp_RollsBackPendingNavigation)
+{
+    ResetToDocument(state, HELP_PATH);
+    state.view.nav_history.Push(NavEntry{ L"C:\\b.md", 3, 0.0f });
+    ASSERT_TRUE(HasEffect<effect::LoadFile>(Reduce(state, NavigateBackAction{})));
+
+    const auto effects = Reduce(state, ShowHelpAction{});
+
+    EXPECT_FALSE(HasEffect<effect::LoadFile>(effects));
+    EXPECT_TRUE(HasEffect<effect::CancelOtherFileLoad>(effects));
+    EXPECT_EQ(state.view.nav_history.BackSize(), 1u);
+    EXPECT_EQ(state.view.nav_history.ForwardSize(), 0u);
+    EXPECT_FALSE(state.view.scroll_restore.HasNodeRestore());
+}
+
+// 別ファイルのロード中に今のファイルを開き直すと、ロード中の分は取り消される。
+// 仮の履歴を確定させてから積むと、戻る履歴に今の位置が 2 件並ぶ。
+TEST_F(ReducerTest, ReopenCurrentWhileOpenLoading_DoesNotDuplicateHistory)
+{
+    ResetToDocument(state, L"C:\\docs\\a.md");
+    Reduce(state, FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\docs\\big.md") });
+    Reduce(state, FilePaneFileClickedAction{ std::pmr::wstring(L"c:\\docs\\A.md") });
+    EXPECT_EQ(state.view.nav_history.BackSize(), 1u);
+}
+
+// 開く (ロード中) → 同じファイル内の項目へ戻る: 開く分を取り消してから移動し、ロードも取り消す。
+// その後に古いロードの失敗が届いても、確定した戻るは取り消さない。
+TEST_F(ReducerTest, NavigateBackWithinFileWhileOpenLoading_CommitsAndCancelsLoad)
+{
+    ResetToDocument(state, L"C:\\current.md");
+    state.view.nav_history.Push(NavEntry{ L"C:\\current.md", 0, 0.0f });
+    state.view.viewport.ScrollTo(250.0f);
+    Reduce(state, FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\big.md") });
+
+    const auto effects = Reduce(state, NavigateBackAction{});
+    EXPECT_FALSE(HasEffect<effect::LoadFile>(effects));
+    EXPECT_TRUE(HasEffect<effect::CancelOtherFileLoad>(effects));
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+
+    Reduce(state, LoadFailedAction{});
+    EXPECT_EQ(state.view.nav_history.BackSize(), 0u);
+    EXPECT_EQ(state.view.nav_history.ForwardSize(), 1u);
+    Reduce(state, NavigateForwardAction{});
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 250.0f);
+}
+
+// 開く (ロード中) → 別ファイルへ戻る: 開く分を取り消して戻る先をロードする。
+// 失敗なら戻る前の履歴に戻り、成功なら戻る先の位置へ復元して進む履歴に元の位置が残る。
+TEST_F(ReducerTest, NavigateBackToOtherFileWhileOpenLoading)
+{
+    for (const bool succeed : { false, true }) {
+        SCOPED_TRACE(succeed);
+        ResetToDocument(state, L"C:\\current.md");
+        state.view.nav_history.Push(NavEntry{ L"C:\\b.md", 2, 10.0f });
+        state.view.viewport.ScrollTo(250.0f);
+        Reduce(state, FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\big.md") });
+
+        const auto effects = Reduce(state, NavigateBackAction{});
+        EXPECT_EQ(LoadedPath(effects), L"C:\\b.md");
+        EXPECT_FALSE(HasEffect<effect::CancelOtherFileLoad>(effects));
+
+        if (!succeed) {
+            Reduce(state, LoadFailedAction{});
+            EXPECT_EQ(state.view.nav_history.BackSize(), 1u);
+            EXPECT_EQ(state.view.nav_history.ForwardSize(), 0u);
+            EXPECT_FALSE(state.view.scroll_restore.HasNodeRestore());
+            continue;
+        }
+        CompleteLoad(state, L"C:\\b.md");
+        EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 210.0f);
+        EXPECT_EQ(state.view.nav_history.BackSize(), 0u);
+        EXPECT_EQ(state.view.nav_history.ForwardSize(), 1u);
+        EXPECT_EQ(LoadedPath(Reduce(state, NavigateForwardAction{})), L"C:\\current.md");
+    }
+}
+
+// 戻り先の無い状態で開く (ロード中) → 戻る: 開く分を取り消すと戻り先が無いので何もしない。
+// 戻る履歴は開く分のまま残り、ロードに成功すれば元のファイルへ戻れる。
+TEST_F(ReducerTest, NavigateBackWithoutHistoryWhileOpenLoading_KeepsOpenEntry)
+{
+    for (const bool succeed : { false, true }) {
+        SCOPED_TRACE(succeed);
+        ResetToDocument(state, L"C:\\current.md");
+        Reduce(state, FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\big.md") });
+
+        EXPECT_TRUE(Reduce(state, NavigateBackAction{}).empty());
+        EXPECT_TRUE(state.view.nav_history.CanGoBack());
+
+        if (!succeed) {
+            Reduce(state, LoadFailedAction{});
+            EXPECT_FALSE(state.view.nav_history.CanGoBack());
+            continue;
+        }
+        CompleteLoad(state, L"C:\\big.md");
+        EXPECT_EQ(LoadedPath(Reduce(state, NavigateBackAction{})), L"C:\\current.md");
+    }
+}
+
+// ファイルをまたいで戻るを続けると、ロード中の移動先を起点にもう 1 段戻る。
+// 失敗すると連続した戻るはまとめて取り消す。
+TEST_F(ReducerTest, ConsecutiveNavigateBackAcrossFiles)
+{
+    for (const bool succeed : { false, true }) {
+        SCOPED_TRACE(succeed);
+        ResetToDocument(state, L"C:\\a.md");
+        state.view.nav_history.Push(NavEntry{ L"C:\\c.md", 2, 0.0f });
+        state.view.nav_history.Push(NavEntry{ L"C:\\b.md", 3, 10.0f });
+
+        ASSERT_TRUE(HasEffect<effect::LoadFile>(Reduce(state, NavigateBackAction{})));
+        EXPECT_EQ(LoadedPath(Reduce(state, NavigateBackAction{})), L"C:\\c.md");
+        EXPECT_EQ(LoadedPath(Reduce(state, NavigateForwardAction{})), L"C:\\b.md");
+
+        if (!succeed) {
+            Reduce(state, LoadFailedAction{});
+            EXPECT_EQ(state.view.nav_history.BackSize(), 2u);
+            EXPECT_EQ(state.view.nav_history.ForwardSize(), 0u);
+            continue;
+        }
+        CompleteLoad(state, L"C:\\b.md");
+        EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 310.0f);
+        EXPECT_EQ(state.view.nav_history.BackSize(), 1u);
+        EXPECT_EQ(state.view.nav_history.ForwardSize(), 1u);
+    }
 }
 
 // ---- Zoom / ToggleDarkMode: 可視位置の anchor 保持 ----

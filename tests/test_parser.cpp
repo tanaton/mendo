@@ -3,6 +3,7 @@
 #include "parser.h"
 #include "parser_alerts.h"
 #include "test_nodes.h"
+#include "utility.h"
 #include <limits>
 #include <stop_token>
 #include <string>
@@ -254,6 +255,44 @@ TEST(Parser, StyledRunsAreCappedPerText)
     ASSERT_EQ(table.size(), 1u);
     ASSERT_TRUE(table[0].has_table());
     EXPECT_EQ(table[0].table_data()->GetCellRuns(1, 0).size(), 4096u);
+}
+
+// 上限ちょうどは全部残し、超えた分は末尾から捨てる。打ち切り後も改行は行数に数える。
+TEST(Parser, StyledRunCapKeepsLeadingRunsAndLineCount)
+{
+    for (const size_t n : { size_t{ 4096 }, size_t{ 4097 } }) {
+        SCOPED_TRACE(n);
+        std::string md;
+        for (size_t i = 0; i < n; i++) {
+            md += i == 0 ? "`a`" : "\\\n`a`";
+        }
+        const auto nodes = ParseNodes(md);
+        ASSERT_EQ(nodes.size(), 1u);
+        EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+        EXPECT_EQ(nodes[0].GetText().size(), 2 * n - 1);
+        EXPECT_EQ(nodes[0].line_count, static_cast<int32_t>(n - 1));
+        const auto runs = nodes[0].runs();
+        ASSERT_EQ(runs.size(), 4096u);
+        EXPECT_EQ(runs.back().start, 2u * 4095);
+        EXPECT_TRUE(runs.back().code());
+    }
+}
+
+// 上限はセルごと。表全体で数えると 2 セル目以降の装飾が消える。
+TEST(Parser, StyledRunCapIsPerTableCell)
+{
+    std::string cell;
+    for (int i = 0; i < 4097; i++) {
+        cell += "`a` ";
+    }
+    const std::string md = "|a|b|\n|-|-|\n|" + cell + "|" + cell + "|\n";
+    const auto nodes = ParseNodes(md);
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_TRUE(nodes[0].has_table());
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+    const auto* tbl = nodes[0].table_data();
+    EXPECT_EQ(tbl->GetCellRuns(1, 0).size(), 4096u);
+    EXPECT_EQ(tbl->GetCellRuns(1, 1).size(), 4096u);
 }
 
 // 中身を子ブロックに持つ LI だけが高さ 0 の枠になる。本当に空の LI は枠扱いしない。
@@ -1227,6 +1266,37 @@ TEST(Parser, AlertRunPositionsAreValid)
     }
 }
 
+// マーカー直後の改行は除去範囲に入るので、本文の run はラベル行の次へちょうど平行移動する。
+TEST(Parser, AlertRunsShiftExactlyPastLabelLine)
+{
+    constexpr std::string_view md = "> [!NOTE]\n> **b** [l](u)";
+    const auto nodes = ParseNodes(md);
+    ASSERT_EQ(nodes.size(), 1u);
+    const auto& node = nodes[0];
+    ASSERT_EQ(node.alert_type, AlertType::Note);
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+
+    const auto icon = GetAlertIcon(AlertType::Note);
+    const auto label = GetAlertLabel(AlertType::Note);
+    const auto head = std::string(icon) + " " + std::string(label);
+    EXPECT_EQ(node.GetText(), head + "\nb l");
+    EXPECT_EQ(node.line_count, 1);
+    EXPECT_EQ(node.alert_label_length(), head.size());
+
+    const auto runs = node.runs();
+    ASSERT_EQ(runs.size(), 3u);
+    EXPECT_EQ(runs[0].start, icon.size());
+    EXPECT_EQ(runs[0].length, 1 + label.size());
+    EXPECT_TRUE(runs[0].bold());
+    EXPECT_EQ(runs[1].start, head.size() + 1);
+    EXPECT_EQ(runs[1].length, 1u);
+    EXPECT_TRUE(runs[1].bold());
+    EXPECT_EQ(runs[2].start, head.size() + 3);
+    EXPECT_EQ(runs[2].length, 1u);
+    ASSERT_TRUE(runs[2].has_link());
+    EXPECT_EQ(node.view_link_urls()[runs[2].link_url_index], "u");
+}
+
 TEST(Parser, AlertMultiParagraphGrouping)
 {
     auto nodes = ParseNodes("> [!NOTE]\n> First para\n>\n> Second para");
@@ -1983,4 +2053,58 @@ TEST(Parser, FootnoteRefInsideQuoteKeepsAlert)
     ASSERT_EQ(nodes.size(), 3u);
     EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
     EXPECT_NE(nodes[0].GetText().find("See[1]"), std::string_view::npos);
+}
+
+// md4c が URL を原文の外 (エスケープや文字参照を解いた一時バッファ) で渡したときだけ arena にコピーする。
+// コピー漏れは callback 後に解放される領域を指し、全部コピーすると原文を指せる URL まで複製する。
+TEST(Parser, LinkUrlPointsIntoRawUnlessDecoded)
+{
+    struct Case {
+        std::string_view md;
+        std::string_view url;
+        bool in_raw;
+    };
+    static constexpr Case kCases[] = {
+        { "[t](https://e.com/a)", "https://e.com/a", true },
+        { "[t](https://e.com/a\\_b)", "https://e.com/a_b", false },
+        // 文字参照は md4c が解かずに渡すので、パーサが解いて arena に置く
+        { "[t](https://e.com/?a=1&amp;b=2)", "https://e.com/?a=1&b=2", false },
+        { "[t](https://e.com/&#x41;&unknown;)", "https://e.com/A&unknown;", false },
+        { "[t][r]\n\n[r]: https://e.com/a\\_b", "https://e.com/a_b", false },
+        { "[t][r]\n\n[r]: https://e.com/?a&amp;b", "https://e.com/?a&b", false },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.md);
+        const auto nodes = ParseNodes(c.md);
+        ASSERT_GE(nodes.size(), 1u);
+        EXPECT_TRUE(ParseInvariantsHold(c.md, nodes));
+        const auto urls = nodes[0].view_link_urls();
+        ASSERT_EQ(urls.size(), 1u);
+        EXPECT_EQ(urls[0], c.url);
+        EXPECT_EQ(IsSubrangeOf(urls[0], c.md), c.in_raw);
+    }
+}
+
+// 同じノードの 2 つ目のリンクで一時領域を書き換えても、1 つ目の URL は arena に残っていること。
+TEST(Parser, DecodedLinkUrlsDoNotShareScratch)
+{
+    constexpr std::string_view md = "[a](?x&amp;1) [b](?y&amp;2) [c](?x&amp;1)";
+    const auto nodes = ParseNodes(md);
+    ASSERT_EQ(nodes.size(), 1u);
+    const auto urls = nodes[0].view_link_urls();
+    ASSERT_EQ(urls.size(), 2u);
+    EXPECT_EQ(urls[0], "?x&1");
+    EXPECT_EQ(urls[1], "?y&2");
+    const auto runs = nodes[0].runs();
+    ASSERT_EQ(runs.size(), 3u);
+    EXPECT_EQ(runs[2].link_url_index, runs[0].link_url_index);
+}
+
+// 画像の src も文字参照を解いてからパスとして使う。
+TEST(Parser, ImageSrcResolvesCharacterReferences)
+{
+    const auto nodes = ParseNodes("![a](img/a&amp;b.png)");
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_NE(nodes[0].image_data(), nullptr);
+    EXPECT_EQ(nodes[0].image_data()->src, "img/a&b.png");
 }

@@ -670,47 +670,57 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
     // 3 倍の予約は 100MB 選択で 300MB を確保するため 2 倍に留め、超過分は成長に任せる。
     out.reserve(estimated * 2 + 128);
 
-    ExclusiveTagScope list(out);
-    // loose list の本文や項目内のコードブロックは LI の後ろに別ノードで並ぶので、
-    // </li> は次の項目かリストを出るまで遅らせ、LI 以上の深さのノードを同じ <li> に入れる
-    // (リストが開いている間は常に <li> も開いている)。
-    // リストを出た直後の引用も indent_level が上がるため、引用の深さが変わるノードは
-    // その引用が項目の中で始まったとき (最外側の引用が項目より深い) だけ項目に含める。
-    int list_indent = 0;
-    int list_quote_depth = 0;
-    const auto in_open_li = [&](const Node& node) {
-        return list.IsOpen() && node.indent_level >= list_indent &&
-               (node.quote_depth == list_quote_depth || node.quote_outer_indent > list_indent);
+    // 開いているリストを外側から積む。各段の <li> は次の項目かその段を出るまで開いたままにし、
+    // loose list の本文や項目内のコードブロック・入れ子のリスト (LI の後ろに別ノードで並ぶ) を同じ <li> に入れる。
+    struct OpenList {
+        int indent;
+        int quote_depth;
+        bool ordered;
+        int32_t next_number;
     };
-    const auto close_li = [&] {
-        if (list.IsOpen()) {
-            out.append("</li>");
-        }
+    std::pmr::vector<OpenList> lists;
+    // 同じ引用の深さなら段以上のインデントが項目の中。引用の深さが変わるノードは、その引用が項目の中で
+    // 始まったとき (段より深いインデント) だけ含める。リストを出た直後の引用もインデントが上がるため。
+    const auto in_open_li = [](const OpenList& l, const Node& node) {
+        return node.quote_depth == l.quote_depth ? node.indent_level >= l.indent
+                                                 : node.quote_depth > l.quote_depth && node.indent_level > l.indent;
+    };
+    const auto close_list = [&] {
+        out.append(lists.back().ordered ? "</li></ol>" : "</li></ul>");
+        lists.pop_back();
     };
 
     ForEachSelectedNode(nodes, selection, [&](int i, const Node& node) {
         const auto text = node.GetText();
         const auto [start, end] = selection.ClampedRange(i, text.size());
 
+        while (!lists.empty() && !in_open_li(lists.back(), node)) {
+            close_list();
+        }
         if (IsListItem(node)) {
-            close_li();
-            if (!node.list_ordered()) {
-                list.Enter("<ul>", "</ul>");
-            }
-            else if (node.list_number() == 1) {
-                list.Enter("<ol>", "</ol>");
+            const bool ordered = node.list_ordered();
+            const int32_t number = node.list_number();
+            const bool same_level = !lists.empty() && lists.back().indent == node.indent_level && lists.back().quote_depth == node.quote_depth;
+            // 番号が続かない番号付きは別のリスト ("1. a" の後の "1) b" 等)。
+            if (same_level && lists.back().ordered == ordered && (!ordered || lists.back().next_number == number)) {
+                out.append("</li>");
+                lists.back().next_number = number + 1;
             }
             else {
-                char open_tag[32];
-                const auto open_end = std::format_to(open_tag, "<ol start=\"{}\">", node.list_number());
-                list.Enter({ open_tag, open_end }, "</ol>");
+                if (same_level) {
+                    close_list();
+                }
+                if (!ordered) {
+                    out.append("<ul>");
+                }
+                else if (number == 1) {
+                    out.append("<ol>");
+                }
+                else {
+                    std::format_to(std::back_inserter(out), "<ol start=\"{}\">", number);
+                }
+                lists.push_back({ node.indent_level, node.quote_depth, ordered, number + 1 });
             }
-            list_indent = node.indent_level;
-            list_quote_depth = node.quote_depth;
-        }
-        else if (!in_open_li(node)) {
-            close_li();
-            list.Close();
         }
 
         const auto wrap_inline = [&](std::string_view open, std::string_view close) {
@@ -765,9 +775,9 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
             break;
         }
     });
-    // out を返す前に閉じる (デストラクタでは戻り値のコピー後になりうる)。
-    close_li();
-    list.Close();
+    while (!lists.empty()) {
+        close_list();
+    }
     return out;
 }
 

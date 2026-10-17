@@ -49,6 +49,8 @@ private:
 };
 
 // runs は start 昇順・非重複で text_size 以内 (AppendInlineHtml / レイアウトの二分探索の前提)。
+// 利用側は runs の隙間を既定スタイルとして扱うので、装飾もリンクも無い run と空の run は作らない
+// (4096 個の上限を無駄に消費し、レイアウト時に run ごとの UTF-16 位置の数え直しが走る)。
 inline void CheckRuns(ViolationSink& sink, size_t node_index, std::string_view where,
                       std::span<const TextRun> runs, size_t text_size, size_t link_url_count)
 {
@@ -56,6 +58,12 @@ inline void CheckRuns(ViolationSink& sink, size_t node_index, std::string_view w
     for (size_t k = 0; k < runs.size(); ++k) {
         const auto& r = runs[k];
         const size_t end = static_cast<size_t>(r.start) + r.length;
+        if (r.length == 0) {
+            sink.Add("node {} {} run {}: zero length at {}", node_index, where, k, r.start);
+        }
+        if (!(r.bold() || r.italic() || r.code() || r.strikethrough() || r.has_link())) {
+            sink.Add("node {} {} run {}: plain run [{}, {})", node_index, where, k, r.start, end);
+        }
         if (r.start < prev_end) {
             sink.Add("node {} {} run {}: start {} < previous end {}", node_index, where, k, r.start, prev_end);
         }

@@ -234,10 +234,38 @@ TEST_F(FileLoaderTest, DiscardPendingChangeSkipsRefireOnResume)
 
     Sleep(100);
     WriteTempFile(L"discard.md", "modified2");
-    WaitForEvent(watcher, 500);
+    // 通知が届いていないと、捨てる処理が無くても再発火しないので検証にならない。
+    ASSERT_TRUE(WaitForEvent(watcher, 2000));
     watcher.DiscardPendingChange();
     watcher.ResumeWatching();
     EXPECT_EQ(change_count, 1);
+}
+
+// 別ファイルのロード中に届いた表示中ファイルの変更は、読まずに取りやめても Resume で通知し直す。
+// 取りこぼすと、別ファイルのロード失敗後に表示中ファイルの保存が反映されないまま監視が止まる。
+TEST_F(FileLoaderTest, RequeueIfPausedRefiresOnResume)
+{
+    auto path = WriteTempFile(L"requeue.md", "original");
+
+    FileWatcher watcher;
+    int change_count = 0;
+    watcher.StartWatching(path.native().c_str(), [&]() { change_count++; });
+
+    Sleep(100);
+    WriteTempFile(L"requeue.md", "modified1");
+    WaitForEvent(watcher);
+    ASSERT_EQ(change_count, 1);
+
+    watcher.RequeueIfPaused();
+    watcher.ResumeWatching();
+    EXPECT_EQ(change_count, 2);
+
+    // 一時停止していなければ積み直さない (Resume のたびに空の通知を出さない)。
+    watcher.ResumeWatching();
+    ASSERT_EQ(change_count, 2);
+    watcher.RequeueIfPaused();
+    watcher.ResumeWatching();
+    EXPECT_EQ(change_count, 2);
 }
 
 TEST_F(FileLoaderTest, ResumeWatchingReenablesDetection)

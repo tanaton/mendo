@@ -1,5 +1,8 @@
 #include <gtest/gtest.h>
 #include "html_entities.h"
+#include "html_entity_table.h"
+#include "utf8_codec.h"
+#include <iterator>
 
 namespace {
 
@@ -45,6 +48,39 @@ TEST(HtmlEntity, RejectsUnknownNamed)
     // 名前は大文字小文字を区別する
     EXPECT_EQ(Resolve("&Mdash;"), std::nullopt);
     EXPECT_EQ(Resolve("&copy"), std::nullopt);
+}
+
+// 表は生成物で、utf8_len や 16 進エスケープのずれは整列の static_assert では捕まらない。
+// 1 件ずれると以降の名前と展開値がすべて食い違うので、全件を隣接オフセットと往復で確かめる。
+TEST(HtmlEntity, GeneratedTableIsContiguousAndRoundTrips)
+{
+    constexpr size_t kCount = std::size(kHtmlNamedEntities);
+    EXPECT_EQ(kCount, 2125u);
+    for (size_t i = 0; i < kCount; ++i) {
+        const auto& e = kHtmlNamedEntities[i];
+        const size_t next = i + 1 < kCount ? kHtmlNamedEntities[i + 1].offset : sizeof(kHtmlEntityData) - 1;
+        ASSERT_EQ(e.offset + e.name_len + e.utf8_len, next) << "entry " << i;
+
+        const std::string_view name{ kHtmlEntityData + e.offset, e.name_len };
+        const std::string_view value{ kHtmlEntityData + e.offset + e.name_len, e.utf8_len };
+        SCOPED_TRACE(name);
+        for (uint32_t pos = 0; pos < value.size();) {
+            const auto d = utf8_codec::DecodeAt(value, pos);
+            ASSERT_NE(d.cp, utf8_codec::kReplacement);
+            pos += d.len;
+        }
+        EXPECT_EQ(Resolve("&" + std::string(name) + ";"), std::string(value));
+    }
+}
+
+// 二分探索の境界: 前方一致・後方延長・表の両端の外側
+TEST(HtmlEntity, RejectsNearMissNames)
+{
+    EXPECT_EQ(Resolve("&AEli;"), std::nullopt);
+    EXPECT_EQ(Resolve("&zwnjx;"), std::nullopt);
+    EXPECT_EQ(Resolve("&am;"), std::nullopt);
+    EXPECT_EQ(Resolve("&AAA;"), std::nullopt);
+    EXPECT_EQ(Resolve("&zzzz;"), std::nullopt);
 }
 
 TEST(HtmlEntity, NumericDecimal)

@@ -39,6 +39,30 @@ TEST(IsLocalPathTest, RejectsNetworkAndDevicePaths)
     }
 }
 
+// ドライブと UNC のデバイスパスは Win32 形式に直す。直せないデバイスパスは相対パスの基準にしない。
+TEST(ToWin32PathTest, ConvertsDriveAndUncDevicePaths)
+{
+    struct Case {
+        std::wstring_view path;
+        std::optional<std::wstring_view> expected;
+    };
+    constexpr Case kCases[] = {
+        { L"C:\\dir", L"C:\\dir" },
+        { L"\\\\host\\share", L"\\\\host\\share" },
+        { L"\\\\?\\C:\\dir", L"C:\\dir" },
+        { L"\\\\.\\d:", L"d:" },
+        { L"\\??\\C:\\dir", L"C:\\dir" },
+        { L"\\\\?\\unc\\host\\share\\dir", L"\\\\host\\share\\dir" },
+        { L"\\\\.\\pipe\\x", std::nullopt },
+        { L"\\\\?\\Volume{0}\\dir", std::nullopt },
+        { L"\\\\?\\CC:\\dir", std::nullopt },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(testing::PrintToString(std::wstring(c.path)));
+        EXPECT_EQ(path_util::ToWin32Path(c.path), c.expected);
+    }
+}
+
 // ═══════════════════════════════════════════════
 // WriteAllBytes + ReadAllBytes ラウンドトリップ
 // ═══════════════════════════════════════════════

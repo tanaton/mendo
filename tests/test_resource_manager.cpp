@@ -205,10 +205,10 @@ protected:
 
     // Markdown を Document に流し込み、対応する LayoutCache をシードしたうえで
     // ResourceManager を初期化する。テストごとに 1 度だけ呼ぶ。
-    void LoadMarkdown(std::string_view md, float block_height = 100.0f)
+    void LoadMarkdown(std::string_view md, float block_height = 100.0f, const wchar_t* doc_path = kTestDocPath)
     {
         std::pmr::string utf8(md);
-        doc_ = Document::FromMarkdown(std::move(utf8), kTestDocPath);
+        doc_ = Document::FromMarkdown(std::move(utf8), doc_path);
         cache_ = SeedLayoutCache(doc_.GetNodes().size(), block_height);
         rm_.Init(
             ResourceManagerDeps{
@@ -336,6 +336,57 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesIgnoresUncPaths)
     ASSERT_EQ(doc_.GetImageNodeIndices().size(), 2u);
 
     EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 0);
+}
+
+// 先頭 2 文字がスラッシュなら向きを問わず UNC。デコード後に "//" になる記述も同じ。
+// キーは判定を外したときに解決される UNC パスで入れ、引かないことを確かめる。
+TEST_F(ResourceManagerTest, ApplyCachedImagesIgnoresSlashUncForms)
+{
+    LoadMarkdown("![b](//attacker/share/b.png)\n\n![c](%2F%2Fattacker%2Fshare%2Fc.png)\n\n![d](/%5Cattacker/share/d.png)\n");
+    ASSERT_EQ(doc_.GetImageNodeIndices().size(), 3u);
+    for (const wchar_t* key : { L"\\\\attacker\\share\\b.png", L"\\\\attacker\\share\\c.png", L"\\\\attacker\\share\\d.png" }) {
+        image_loader_.InsertCacheEntryForTest(key, 400.0f, 300.0f);
+    }
+    EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 0);
+}
+
+// デコードは 1 回だけ。二重エンコードの %255C は文書フォルダ内の "%5C" という名前のファイルになる。
+TEST_F(ResourceManagerTest, ApplyCachedImagesDecodesPercentOnlyOnce)
+{
+    LoadMarkdown("![e](%255C%255Cattacker%255Cshare%255Ce.png)\n");
+    image_loader_.InsertCacheEntryForTest(L"\\\\attacker\\share\\e.png", 400.0f, 100.0f);
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\%5C%5Cattacker%5Cshare%5Ce.png", 400.0f, 300.0f);
+
+    EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 1);
+    EXPECT_FLOAT_EQ(cache_[doc_.GetImageNodeIndices()[0]].height, 300.0f);
+}
+
+// "://" を含む src はリモートとして解決しない。文書フォルダとの結合結果がキャッシュにあっても引かない。
+TEST_F(ResourceManagerTest, ApplyCachedImagesIgnoresSchemeEvenIfJoinedPathIsCached)
+{
+    LoadMarkdown("![alt](https://example.com/foo.png)\n");
+    const auto joined = (std::filesystem::path(L"C:\\dir") / L"https://example.com/foo.png").lexically_normal();
+    image_loader_.InsertCacheEntryForTest(joined.wstring(), 400.0f, 300.0f);
+    EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 0);
+}
+
+// 文書を \\?\ 付きのパスで開いていても、相対パスの .. で \\?\UNC\host へ抜けさせない。
+TEST_F(ResourceManagerTest, ApplyCachedImagesRelativePathCannotEscapeToUncFromDevicePrefixedDoc)
+{
+    LoadMarkdown("![a](../../UNC/attacker/share/a.png)\n", 100.0f, L"\\\\?\\C:\\dir\\test.md");
+    const auto escaped = (std::filesystem::path(L"\\\\?\\C:\\dir") / L"../../UNC/attacker/share/a.png").lexically_normal();
+    ASSERT_FALSE(path_util::IsLocalPath(escaped.native())) << escaped.native();
+    image_loader_.InsertCacheEntryForTest(escaped.wstring(), 400.0f, 300.0f);
+    EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 0);
+}
+
+// \\?\ 付きの文書でも、文書フォルダの下の相対パスの画像は従来どおり表示する。
+TEST_F(ResourceManagerTest, ApplyCachedImagesResolvesRelativePathInDevicePrefixedDoc)
+{
+    LoadMarkdown("![a](img/../a.png)\n", 100.0f, L"\\\\?\\C:\\dir\\test.md");
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\a.png", 400.0f, 300.0f);
+    EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 1);
+    EXPECT_FLOAT_EQ(cache_[doc_.GetImageNodeIndices()[0]].height, 300.0f);
 }
 
 TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadReturnsZeroWhenCacheMisses)

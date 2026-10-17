@@ -6,6 +6,8 @@
 #include <random>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 #include "syntax.h"
 #include "parser.h"
 #include "utf8_fuzz_helpers.h"
@@ -1073,4 +1075,141 @@ TEST(Syntax, FuzzTokensAlignToCodePointBoundaries)
             }
         }
     }
+}
+
+// ============================================================
+// トークン列の完全一致 (字句状態が後続の行へ漏れないこと)
+// ============================================================
+
+namespace {
+
+using ExpectedToken = std::pair<std::string_view, SyntaxTokenType>;
+
+// 個数や最初の 1 個だけでは、閉じ損ねた文字列やコメントが後続を飲み込む退行を見逃すため列全体を比べる。
+void ExpectTokenSequence(std::string_view code, SyntaxLanguage lang, std::initializer_list<ExpectedToken> expected)
+{
+    const auto tokens = Tokenize(code, lang);
+    AssertTokensWellFormed(tokens, code.size());
+    std::vector<ExpectedToken> actual;
+    for (const auto& t : tokens) {
+        actual.emplace_back(GetTokenText(code, t), t.type);
+    }
+    EXPECT_EQ(actual, std::vector<ExpectedToken>(expected));
+}
+
+} // namespace
+
+TEST(SyntaxSequence, YamlBlockScalarEndsAtParentIndent)
+{
+    using enum SyntaxTokenType;
+    // 指示子の後のコメント、本文中の空行を経て、親と同じ桁のキーで本文が終わる
+    ExpectTokenSequence("a: | # note\n  x\n\n  y\nb: 1", SyntaxLanguage::Yaml,
+                        { { "a", Type }, { "# note", Comment }, { "x", String }, { "y", String }, { "b", Type }, { "1", Number } });
+}
+
+TEST(SyntaxSequence, YamlBlockScalarInSequenceItem)
+{
+    using enum SyntaxTokenType;
+    // "- key: |" の本文はキーの桁で終わり、"- |" は "-" の桁で終わる (GitHub Actions の steps の形)
+    ExpectTokenSequence("steps:\n  - run: |\n      npm ci\n    shell: bash\n  - |\n    text\n  - 1", SyntaxLanguage::Yaml,
+                        { { "steps", Type }, { "run", Type }, { "npm ci", String }, { "shell", Type }, { "text", String }, { "1", Number } });
+}
+
+TEST(SyntaxSequence, TomlLiteralStringHasNoEscape)
+{
+    using enum SyntaxTokenType;
+    // ''' はリテラル文字列なので末尾の \ で閉じ引用符を飲み込まない
+    ExpectTokenSequence("path = '''C:\\temp\\'''\nname = \"x\"", SyntaxLanguage::Toml,
+                        { { "path", Type }, { R"('''C:\temp\''')", String }, { "name", Type }, { "\"x\"", String } });
+    // """ は basic 文字列なので \" はエスケープのまま
+    ExpectTokenSequence("a = \"\"\"x\\\"\"\"\"\nb = 1", SyntaxLanguage::Toml,
+                        { { "a", Type }, { "\"\"\"x\\\"\"\"\"", String }, { "b", Type }, { "1", Number } });
+}
+
+TEST(SyntaxSequence, RawTripleQuoteHasNoEscape)
+{
+    using enum SyntaxTokenType;
+    // Kotlin の raw string と C# 11 の raw string literal にはエスケープが無い
+    ExpectTokenSequence("val p = \"\"\"C:\\\"\"\"\nval q = 1", SyntaxLanguage::Kotlin,
+                        { { "val", Keyword }, { "\"\"\"C:\\\"\"\"", String }, { "val", Keyword }, { "1", Number } });
+    ExpectTokenSequence("string p = \"\"\"C:\\\"\"\";\nint x = 1;", SyntaxLanguage::CSharp,
+                        { { "string", Type }, { "\"\"\"C:\\\"\"\"", String }, { "int", Type }, { "1", Number } });
+    // C# の raw string は開きと同じ数の " で閉じるので、4 個で囲めば本文に """ を書ける
+    ExpectTokenSequence(R"(var s = """"a"""b"""";
+int x = 1;)", SyntaxLanguage::CSharp,
+                        { { "var", Keyword }, { R"(""""a"""b"""")", String }, { "int", Type }, { "1", Number } });
+    // Java のテキストブロックは \" をエスケープとして扱う
+    ExpectTokenSequence("String s = \"\"\"\na\\\"\"\"\n\"\"\";", SyntaxLanguage::Java,
+                        { { "String", Type }, { "\"\"\"\na\\\"\"\"\n\"\"\"", String } });
+}
+
+// PHP の変数名はキーワードと同じ綴りでも変数 ($class・$list・$new は普通に使われる)
+TEST(SyntaxSequence, PhpVariableNamedLikeKeywordIsNotKeyword)
+{
+    using enum SyntaxTokenType;
+    ExpectTokenSequence("$class = new Foo($list, $default);", SyntaxLanguage::Php, { { "new", Keyword }, { "Foo", Function } });
+}
+
+TEST(SyntaxSequence, LispCharacterLiteralsDoNotOpenStringsOrLists)
+{
+    using enum SyntaxTokenType;
+    // 文字リテラルの " や ( を区切りとして読むと、以降の文字列と呼び出し位置の判定がすべてずれる
+    ExpectTokenSequence(R"((list #\" #\; #\( #\)) (foo "x"))", SyntaxLanguage::CommonLisp,
+                        { { "list", Function }, { R"(#\")", String }, { R"(#\;)", String }, { R"(#\()", String }, { R"(#\))", String },
+                          { "foo", Function }, { R"("x")", String } });
+    ExpectTokenSequence(R"((insert ?" ?\" ?\( ?\;) (foo))", SyntaxLanguage::EmacsLisp,
+                        { { "insert", Function }, { R"(?")", String }, { R"(?\")", String }, { R"(?\()", String }, { R"(?\;)", String },
+                          { "foo", Function } });
+    ExpectTokenSequence(R"((str \" \( \;) (foo))", SyntaxLanguage::Clojure,
+                        { { "str", Function }, { R"(\")", String }, { R"(\()", String }, { R"(\;)", String }, { "foo", Function } });
+}
+
+TEST(SyntaxSequence, DiffHunkLineStartingWithTripleDash)
+{
+    using enum SyntaxTokenType;
+    // ハンク内で "-- " を削除した行は "--- " で始まるがファイルヘッダではない
+    ExpectTokenSequence("--- a/q.sql\n+++ b/q.sql\n@@ -1,2 +1,2 @@\n--- old\n+++ new\n SELECT 1;", SyntaxLanguage::Diff,
+                        { { "--- a/q.sql", Keyword }, { "+++ b/q.sql", Keyword }, { "@@ -1,2 +1,2 @@", Type },
+                          { "--- old", Deleted }, { "+++ new", Inserted } });
+}
+
+TEST(SyntaxSequence, VimHeredocNeedsMarkerRightAfterCommand)
+{
+    using enum SyntaxTokenType;
+    // 行の途中のシフト演算子 << をヒアドキュメントと読むと、文書の残りが埋め込み言語になる
+    ExpectTokenSequence("lua print(1 << 2)\nset nu", SyntaxLanguage::Vim,
+                        { { "lua", Keyword }, { "print", Type }, { "1", Number }, { "2", Number }, { "set", Keyword } });
+    ExpectTokenSequence("let s = \"a =<< b\"\nset nu", SyntaxLanguage::Vim,
+                        { { "let", Keyword }, { "\"a =<< b\"", String }, { "set", Keyword } });
+}
+
+TEST(SyntaxSequence, VimStringAndTrailingCommentOnSameLine)
+{
+    using enum SyntaxTokenType;
+    // 旧来の Vim script は同じ行に閉じの " があれば文字列、無ければコメント
+    ExpectTokenSequence("echo \"a\\\"b\" \" c\nlet s = \"\" \" empty", SyntaxLanguage::Vim,
+                        { { "echo", Keyword }, { "\"a\\\"b\"", String }, { "\" c", Comment }, { "let", Keyword }, { "\"\"", String },
+                          { "\" empty", Comment } });
+}
+
+TEST(SyntaxSequence, HaskellDoubleQuoteCharLiteral)
+{
+    using enum SyntaxTokenType;
+    ExpectTokenSequence("c = '\"' : rest\nmain = putStrLn \"ok\"", SyntaxLanguage::Haskell,
+                        { { "c", Function }, { "'\"'", String }, { "main", Function }, { "\"ok\"", String } });
+}
+
+TEST(SyntaxSequence, MakefileRecipeSurvivesBlankAndCommentLines)
+{
+    using enum SyntaxTokenType;
+    ExpectTokenSequence("t:\n\techo a\n\n# note\n\techo b\nX = 1", SyntaxLanguage::Makefile,
+                        { { "t", Function }, { "echo", Type }, { "# note", Comment }, { "echo", Type }, { "X", Type } });
+}
+
+TEST(SyntaxSequence, BashHashAfterQuoteOrEscapeIsNotComment)
+{
+    using enum SyntaxTokenType;
+    // クォートや \ の直後の # は単語の途中、タブの直後は単語の先頭
+    ExpectTokenSequence("echo \"a\"#b \\#c x=1\t#tab", SyntaxLanguage::Bash,
+                        { { "echo", Type }, { "\"a\"", String }, { "1", Number }, { "#tab", Comment } });
 }

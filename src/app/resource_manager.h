@@ -427,7 +427,12 @@ private:
             return {};
         }
         if (img_path.is_relative()) {
-            img_path = std::filesystem::path(doc_dir) / img_path;
+            // \\?\ 付きの文書フォルダのまま結合すると、.. で \\?\UNC\host へ抜けられる。
+            auto base = path_util::ToWin32Path(doc_dir);
+            if (!base) {
+                return {};
+            }
+            img_path = std::filesystem::path(std::move(*base)) / img_path;
         }
         std::error_code ec;
         const auto abs_path = std::filesystem::absolute(img_path, ec);

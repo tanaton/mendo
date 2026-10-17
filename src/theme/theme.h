@@ -3,6 +3,7 @@
 #include <iterator>
 #include <string>
 #include "document_types.h"
+#include "ui_constants.h"
 
 struct Theme {
     // 色
@@ -88,9 +89,10 @@ struct Theme {
     // ズーム（1.0 = 100%）
     float zoom = 1.0f;
 
+    // 余白はズームで広がるが本文ペインの最小幅は広がらないので、引くだけだと負になる。
     constexpr float ContentWidth(float viewport_width) const noexcept
     {
-        return viewport_width - margin_left - margin_right;
+        return ShrinkKeepingMinContent(viewport_width, margin_left + margin_right);
     }
     float GetHeadingSize(int level) const noexcept;
     constexpr float GetHeadingUnderlineThickness(int level) const noexcept

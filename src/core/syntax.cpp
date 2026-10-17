@@ -121,12 +121,13 @@ constexpr size_t ScanCppRawString(std::string_view text, size_t quote_pos, size_
     return text.size();
 }
 
-// Pythonのトリプルクォート文字列をスキャン（pos はトリプルクォートの最初の引用符を指す）。
-constexpr size_t ScanTripleQuote(std::string_view text, size_t pos, char quote) noexcept
+// トリプルクォート文字列をスキャン（pos はトリプルクォートの最初の引用符を指す）。
+// escapes=false は Kotlin の raw string や TOML の ''' のように \ をエスケープにしない形。
+constexpr size_t ScanTripleQuote(std::string_view text, size_t pos, char quote, bool escapes = true) noexcept
 {
     size_t i = pos + 3;
-    const char delims_buf[]{ '\\', quote };
-    const std::string_view delims(delims_buf, 2);
+    const char delims_buf[]{ quote, '\\' };
+    const std::string_view delims(delims_buf, escapes ? 2 : 1);
     while (i + 2 < text.size()) {
         const auto p = text.find_first_of(delims, i);
         if (p == std::string_view::npos || p + 2 >= text.size()) {
@@ -141,6 +142,22 @@ constexpr size_t ScanTripleQuote(std::string_view text, size_t pos, char quote) 
         else {
             i = p + 1;
         }
+    }
+    return text.size(); // 未終端
+}
+
+// C# 11 の raw string literal。開きの " の数 (3 以上) と同じ数以上の連続で閉じる。
+// 本文には開きより短い " の連続を書けるので、""""a"""b"""" の内側の """ では閉じない。
+constexpr size_t ScanCountedRawQuote(std::string_view text, size_t pos) noexcept
+{
+    const size_t open_end = SkipChars(text, pos, "\"");
+    const size_t n = open_end - pos;
+    for (size_t p = text.find('"', open_end); p != std::string_view::npos; p = text.find('"', p)) {
+        const size_t e = SkipChars(text, p, "\"");
+        if (e - p >= n) {
+            return e;
+        }
+        p = e;
     }
     return text.size(); // 未終端
 }
@@ -287,13 +304,20 @@ constexpr size_t ScanBlockComment(std::string_view text, size_t pos, char close1
     }
 }
 
+enum class TripleQuote : uint8_t {
+    None,
+    Escaped,    // \ をエスケープにする（Python・Java・Swift）
+    Raw,        // \ をエスケープにしない（Kotlin の raw string）
+    CountedRaw, // 開きと同じ数以上の " で閉じ、\ もエスケープにしない（C# 11 の """" ... """"）
+};
+
 struct LexerConfig {
     bool line_comment_slash = false;   // //
     bool block_comment = false;        // /* */
     bool hash_comment = false;         // #
     bool hash_comment_word_start = false; // # が単語の先頭にあるときだけコメント (Bash の $# や ${#a} を除く)
     bool preprocessor = false;         // 行頭の#
-    bool triple_quote = false;         // """ '''
+    TripleQuote triple_quote = TripleQuote::None; // """ '''
     bool raw_string = false;           // C++ R"(...)"
     bool backtick_string = false;      // `
     bool angle_block_comment = false;  // <# #>
@@ -305,6 +329,7 @@ struct LexerConfig {
     bool dash_dash_comment = false;    // --
     bool verbatim_at_string = false;   // C# の @"..." と @$"..."（\ はエスケープでなく "" が引用符）
     bool hash_attribute_bracket = false; // #[ はコメントでなく属性（PHP 8）
+    bool dollar_variable = false;      // $class や $list は変数名なのでキーワードにしない（PHP）
     bool ruby_block_comment = false;   // 行頭の =begin ... =end
     bool backslash_line_string = false; // \\ から行末までの複数行文字列の 1 行（Zig）
     bool at_builtin = false;           // @import 等の組み込み関数（Zig）
@@ -467,10 +492,13 @@ void TokenizeRange(
             }
         }
 
-        // 4. トリプルクォート文字列（Python）
-        if constexpr (Cfg.triple_quote) {
+        // 4. トリプルクォート文字列
+        if constexpr (Cfg.triple_quote != TripleQuote::None) {
             if ((c == '"' || c == '\'') && i + 2 < text.size() && text[i + 1] == c && text[i + 2] == c) {
-                emit_until(ScanTripleQuote(text, i, c), SyntaxTokenType::String);
+                const size_t e = Cfg.triple_quote == TripleQuote::CountedRaw && c == '"'
+                                     ? ScanCountedRawQuote(text, i)
+                                     : ScanTripleQuote(text, i, c, Cfg.triple_quote == TripleQuote::Escaped);
+                emit_until(e, SyntaxTokenType::String);
                 continue;
             }
         }
@@ -504,6 +532,12 @@ void TokenizeRange(
             }
 
             const std::string_view word(text.data() + start, i - start);
+
+            if constexpr (Cfg.dollar_variable) {
+                if (start > 0 && text[start - 1] == '$') {
+                    continue;
+                }
+            }
 
             if constexpr (Cfg.raw_string) {
                 // R"..." の R はプレフィックスとして String トークンに含める。
@@ -575,7 +609,7 @@ inline constexpr LexerConfig CPP_LEXER_CONFIG{
 };
 inline constexpr LexerConfig PYTHON_LEXER_CONFIG{
     .hash_comment = true,
-    .triple_quote = true,
+    .triple_quote = TripleQuote::Escaped,
 };
 inline constexpr LexerConfig JS_LEXER_CONFIG{
     .line_comment_slash = true,
@@ -617,20 +651,25 @@ inline constexpr LexerConfig JSON_LEXER_CONFIG{
 inline constexpr LexerConfig JAVA_LEXER_CONFIG{
     .line_comment_slash = true,
     .block_comment = true,
-    .triple_quote = true,
+    .triple_quote = TripleQuote::Escaped,
+};
+inline constexpr LexerConfig KOTLIN_LEXER_CONFIG{
+    .line_comment_slash = true,
+    .block_comment = true,
+    .triple_quote = TripleQuote::Raw,
 };
 inline constexpr LexerConfig CSHARP_LEXER_CONFIG{
     .line_comment_slash = true,
     .block_comment = true,
     .preprocessor = true,
-    .triple_quote = true,
+    .triple_quote = TripleQuote::CountedRaw,
     .verbatim_at_string = true,
 };
 inline constexpr LexerConfig SWIFT_LEXER_CONFIG{
     .line_comment_slash = true,
     .block_comment = true,
     .preprocessor = true,
-    .triple_quote = true,
+    .triple_quote = TripleQuote::Escaped,
     .skip_single_quote = true,
 };
 inline constexpr LexerConfig PHP_LEXER_CONFIG{
@@ -639,6 +678,7 @@ inline constexpr LexerConfig PHP_LEXER_CONFIG{
     .hash_comment = true,
     .case_insensitive = true,
     .hash_attribute_bracket = true,
+    .dollar_variable = true,
 };
 inline constexpr LexerConfig RUBY_LEXER_CONFIG{
     .hash_comment = true,
@@ -785,9 +825,28 @@ SyntaxTokenType DiffLineType(std::string_view line) noexcept
 std::pmr::vector<SyntaxToken> TokenizeDiff(std::string_view text)
 {
     auto tokens = MakeTokenBuffer(text);
+    const auto starts_with_at = [text](size_t pos, std::string_view prefix) {
+        return pos < text.size() && text.substr(pos).starts_with(prefix);
+    };
+    // ハンク内では "-- " を消した行も "--- " で始まるので、次のファイルのヘッダは
+    // "--- " "+++ " "@@" の 3 行が並ぶときだけとみなす。
+    bool in_hunk = false;
+    bool after_old_header = false;
     for (size_t pos = 0; pos < text.size();) {
         const size_t eol = SkipToEol(text, pos);
-        EmitRange(tokens, pos, eol, DiffLineType(text.substr(pos, eol - pos)));
+        const auto line = text.substr(pos, eol - pos);
+        auto type = DiffLineType(line);
+        const bool old_header_candidate = line.starts_with("--- ");
+        if (in_hunk && old_header_candidate) {
+            const bool header = starts_with_at(eol + 1, "+++ ") && starts_with_at(SkipToEol(text, eol + 1) + 1, "@@");
+            type = header ? SyntaxTokenType::Keyword : SyntaxTokenType::Deleted;
+        }
+        else if (in_hunk && line.starts_with("+++ ") && !after_old_header) {
+            type = SyntaxTokenType::Inserted;
+        }
+        after_old_header = old_header_candidate && type == SyntaxTokenType::Keyword;
+        in_hunk = in_hunk || type == SyntaxTokenType::Type;
+        EmitRange(tokens, pos, eol, type);
         pos = eol + 1;
     }
     return tokens;
@@ -934,6 +993,8 @@ std::pmr::vector<SyntaxToken> TokenizeYaml(std::string_view text)
         // 引用符の中の行末 '\' で次の行へ読み進めないよう、行末で切ったテキストを走査する。
         const auto until_eol = text.substr(0, eol);
         const size_t indent_end = SkipBlanks(text, pos, eol);
+        // ブロックスカラーの本文はこの桁より深い行。行内で最後に現れた "-" かキーの桁が親になる。
+        size_t indent = indent_end - pos;
         size_t i = indent_end;
         if ((line.starts_with("---") || line.starts_with("...")) && (line.size() == 3 || IsLineSpace(line[3]))) {
             EmitRange(tokens, pos, pos + 3, SyntaxTokenType::Keyword);
@@ -945,12 +1006,16 @@ std::pmr::vector<SyntaxToken> TokenizeYaml(std::string_view text)
         }
         else {
             while (i < eol && text[i] == '-' && (i + 1 == eol || IsLineSpace(text[i + 1]))) {
+                indent = i - pos;
                 i = SkipBlanks(text, i + 1, eol);
             }
+            const size_t key_start = i;
             i = ScanYamlKey(until_eol, i, eol, tokens);
+            if (i != key_start) {
+                indent = key_start - pos;
+            }
         }
         const bool block_scalar = ScanYamlValue(until_eol, i, eol, tokens);
-        const size_t indent = indent_end - pos;
         pos = eol + 1;
         if (block_scalar) {
             pos = ScanYamlBlockScalar(text, pos, indent, tokens);
@@ -1070,7 +1135,7 @@ std::pmr::vector<SyntaxToken> TokenizeToml(std::string_view text)
         line_start = false;
         if (c == '"' || c == '\'') {
             const bool triple = i + 2 < text.size() && text[i + 1] == c && text[i + 2] == c;
-            i = EmitRange(tokens, i, triple ? ScanTripleQuote(text, i, c) : ScanString(text, i, c, false, c == '"'), SyntaxTokenType::String);
+            i = EmitRange(tokens, i, triple ? ScanTripleQuote(text, i, c, c == '"') : ScanString(text, i, c, false, c == '"'), SyntaxTokenType::String);
             continue;
         }
         if (c == '[' || c == '{') {
@@ -2226,10 +2291,12 @@ constexpr size_t SkipVimAutocmdHead(std::string_view text, size_t pos) noexcept
 }
 
 // <<[ trim][ eval] MARKER の解析。<< が無ければ Kind::None。
+// pos はコマンドの直後 (let は =<< の <)。行の途中のシフト演算子や文字列中の "<<" で始めると
+// 文書の残りが本文になるので、空白の後にすぐ << が来るときだけ受け付ける。
 constexpr VimHeredoc ParseVimHeredoc(std::string_view text, size_t pos, VimHeredoc::Kind kind) noexcept
 {
-    const size_t lt = text.find("<<", pos);
-    if (lt == npos) {
+    const size_t lt = SkipBlanks(text, pos, text.size());
+    if (!text.substr(lt).starts_with("<<")) {
         return {};
     }
     VimHeredoc heredoc{ .kind = kind };
@@ -2312,8 +2379,10 @@ VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bo
                     return ParseVimHeredoc(text, i, VimHeredoc::Kind::Plain);
                 }
                 static constexpr std::string_view kLetCommands[]{ "let", "var", "const", "cons", "final" };
-                if (const size_t op = text.find("=<<", i); op != npos && std::ranges::contains(kLetCommands, word)) {
-                    const auto heredoc = ParseVimHeredoc(text, i, VimHeredoc::Kind::Text);
+                // 代入演算子は 1 つなので、前に = がある =<< は右辺の中 (文字列など) で本文の始まりではない。
+                const size_t op = std::ranges::contains(kLetCommands, word) ? text.find("=<<", i) : npos;
+                if (op != npos && !text.substr(i, op - i).contains('=')) {
+                    const auto heredoc = ParseVimHeredoc(text, op + 1, VimHeredoc::Kind::Text);
                     TokenizeVimLine(text.substr(0, op), i, false, vim9, tokens);
                     return heredoc;
                 }
@@ -2639,7 +2708,7 @@ std::pmr::vector<SyntaxToken> Tokenize(std::string_view text, SyntaxLanguage lan
     case SyntaxLanguage::CSharp:
         return TokenizeImpl<CSHARP_LEXER_CONFIG>(text, kw::CSHARP_KEYWORDS, kw::CSHARP_TYPES);
     case SyntaxLanguage::Kotlin:
-        return TokenizeImpl<JAVA_LEXER_CONFIG>(text, kw::KOTLIN_KEYWORDS, kw::KOTLIN_TYPES);
+        return TokenizeImpl<KOTLIN_LEXER_CONFIG>(text, kw::KOTLIN_KEYWORDS, kw::KOTLIN_TYPES);
     case SyntaxLanguage::Swift:
         return TokenizeImpl<SWIFT_LEXER_CONFIG>(text, kw::SWIFT_KEYWORDS, kw::SWIFT_TYPES);
     case SyntaxLanguage::Php:

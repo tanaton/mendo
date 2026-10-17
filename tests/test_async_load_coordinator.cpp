@@ -522,3 +522,25 @@ TEST_F(AsyncLoadCoordinatorTest, RandomStartCancelSequencesExposeOnlyLastLoad)
         }
     }
 }
+
+// 取り消し済みのロードが worker で bad_alloc になっても、結果を出さない。
+// 世代の確認を通らずに書くと、取り消したファイルが「大きすぎます」として表示される。
+TEST_F(AsyncLoadCoordinatorTest, BadAllocAfterCancelProducesNoOutcome)
+{
+    // ローダーは関数ポインタなので、解放の合図は static で渡す。
+    static std::shared_future<void> released;
+    std::promise<void> release;
+    released = release.get_future().share();
+    AsyncLoadCoordinator c{ [](const std::pmr::wstring&, const std::stop_token&) -> std::expected<LoadedFileDoc, FileLoadError> {
+        released.wait();
+        throw std::bad_alloc{};
+    } };
+    c.Start(scheduler_, std::pmr::wstring(L"unused.md"), nullptr, 0, GetLightTheme());
+    c.Cancel();
+    release.set_value();
+
+    ASSERT_TRUE(DrainScheduler(scheduler_));
+
+    EXPECT_FALSE(c.Take().has_value());
+    EXPECT_FALSE(c.IsActive());
+}
