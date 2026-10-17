@@ -275,6 +275,24 @@ TEST_F(ReducerTest, ExitSizeMove_AfterResize_EmitsResizeEnd)
     EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
 }
 
+// ライブリサイズ中は描画面を大きめに使い回し、終わったら実際の大きさに合わせ直させる。
+TEST_F(ReducerTest, ExitSizeMove_AfterResize_FitsRendererToClient)
+{
+    Reduce(state, EnterSizeMoveAction{});
+    const auto during = Reduce(state, ResizeAction{ 800, 600 });
+    const auto* live = FindEffect<effect::RendererResize>(during);
+    ASSERT_NE(live, nullptr);
+    EXPECT_TRUE(live->live);
+
+    const auto effects = Reduce(state, ExitSizeMoveAction{});
+    const auto* fit = FindEffect<effect::RendererResize>(effects);
+    ASSERT_NE(fit, nullptr);
+    EXPECT_FALSE(fit->live);
+    EXPECT_EQ(fit->width, 800u);
+    EXPECT_EQ(fit->height, 600u);
+    EXPECT_TRUE((HasEffectInOrder<effect::RendererResize, effect::PerformResizeEnd>(effects)));
+}
+
 TEST_F(ReducerTest, ExitSizeMove_AfterDpiChange_EmitsResizeEnd)
 {
     Reduce(state, EnterSizeMoveAction{});
@@ -301,10 +319,10 @@ TEST_F(ReducerTest, MouseLeave_ClearsTooltip)
 
 TEST_F(ReducerTest, MouseLeave_ClearsHoverHighlights)
 {
-    Reduce(state, PointerHoverAction{ PointerHover{ .titlebar = TitleBarHitZone::Help, .h_block = 4 } });
+    Reduce(state, PointerHoverAction{ PointerHover{ { .titlebar = TitleBarHitZone::Help, .h_block = 4 } } });
     auto effects = Reduce(state, MouseLeaveAction{});
-    EXPECT_EQ(state.window.titlebar.GetHovered(), TitleBarHitZone::None);
-    EXPECT_EQ(state.view.hovered_h_block, -1);
+    EXPECT_EQ(state.view.hover.titlebar, TitleBarHitZone::None);
+    EXPECT_EQ(state.view.hover.h_block, -1);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -314,7 +332,7 @@ TEST_F(ReducerTest, PointerHover_NewTooltipEmitsShowTooltipEffectWithSameTarget)
 {
     TooltipTarget target{ TooltipTarget::Zone::MdLink, 1 };
     target.text = L"https://example.com";
-    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ .tooltip = target } });
+    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ {}, target } });
 
     ASSERT_EQ(effects.size(), 1u);
     const auto* show = GetEffect<effect::ShowTooltip>(effects[0]);
@@ -332,7 +350,7 @@ TEST_F(ReducerTest, PointerHover_NothingChanged_NoEffect)
 
 TEST_F(ReducerTest, PointerHover_EmptyTooltipAfterPrevTarget_EmitsShowTooltip)
 {
-    // 既にターゲットが設定済みなら、空ターゲットへの遷移で ShowTooltip が発行される（Executor でタイマー停止）
+    // 既にターゲットが設定済みなら、空ターゲットへの遷移で ShowTooltip が発行される（App::Execute でタイマー停止）
     state.interaction.tooltip.Update(
         TooltipTarget{ TooltipTarget::Zone::MdLink, 1 });
 
@@ -344,21 +362,21 @@ TEST_F(ReducerTest, PointerHover_EmptyTooltipAfterPrevTarget_EmitsShowTooltip)
 // ホバーはマウス位置の全体を表すので、別ゾーンへ移ると前のゾーンのハイライトは消える。
 TEST_F(ReducerTest, PointerHover_MovingToAnotherZoneClearsPreviousHighlights)
 {
-    Reduce(state, PointerHoverAction{ PointerHover{ .titlebar = TitleBarHitZone::Close } });
-    Reduce(state, PointerHoverAction{ PointerHover{ .side_index = { 2, -1 } } });
-    EXPECT_EQ(state.window.titlebar.GetHovered(), TitleBarHitZone::None);
-    EXPECT_EQ(state.view.panes.GetHoveredSideIndex(PaneTarget::File), 2);
+    Reduce(state, PointerHoverAction{ PointerHover{ { .titlebar = TitleBarHitZone::Close } } });
+    Reduce(state, PointerHoverAction{ PointerHover{ { .side_index = { 2, -1 } } } });
+    EXPECT_EQ(state.view.hover.titlebar, TitleBarHitZone::None);
+    EXPECT_EQ(state.view.hover.side_index[0], 2);
 
-    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ .nav = NavButtonHover::Back } });
-    EXPECT_EQ(state.view.panes.GetHoveredSideIndex(PaneTarget::File), -1);
-    EXPECT_EQ(state.interaction.nav_hover, NavButtonHover::Back);
+    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ { .nav = NavButtonHover::Back } } });
+    EXPECT_EQ(state.view.hover.side_index[0], -1);
+    EXPECT_EQ(state.view.hover.nav, NavButtonHover::Back);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 TEST_F(ReducerTest, PointerHover_SearchBarInputHasNoHighlight)
 {
-    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ .search_bar = SearchBarHitZone::Input } });
-    EXPECT_EQ(state.search.search_bar_ctrl.GetHover(), SearchBarHitZone::None);
+    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ { .search_bar = SearchBarHitZone::Input } } });
+    EXPECT_EQ(state.view.hover.search_bar, SearchBarHitZone::None);
     EXPECT_TRUE(effects.empty());
 }
 
@@ -392,16 +410,27 @@ TEST_F(ReducerTest, OpenFileAction_EmitsOpenFileDialog)
 
 TEST_F(ReducerTest, BlockHHoverChanged_UpdatesAndInvalidates)
 {
-    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ .h_block = 5 } });
-    EXPECT_EQ(state.view.hovered_h_block, 5);
+    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ { .h_block = 5 } } });
+    EXPECT_EQ(state.view.hover.h_block, 5);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 TEST_F(ReducerTest, BlockHHoverChanged_SameValue_NoEffect)
 {
-    state.view.hovered_h_block = 5;
-    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ .h_block = 5 } });
+    state.view.hover.h_block = 5;
+    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ { .h_block = 5 } } });
     EXPECT_TRUE(effects.empty());
+}
+
+// 隠したペインを再び表示したとき、隠す前のホバー強調が残らない。
+TEST_F(ReducerTest, TogglePane_ClearsThatPaneHover)
+{
+    Reduce(state, PointerHoverAction{ PointerHover{ { .side_index = { 3, 5 }, .side_button = { PaneHeaderButton::Refresh, PaneHeaderButton::Close } } } });
+    Reduce(state, TogglePaneAction{ PaneTarget::File });
+    EXPECT_EQ(state.view.hover.side_index[0], -1);
+    EXPECT_EQ(state.view.hover.side_button[0], PaneHeaderButton::None);
+    EXPECT_EQ(state.view.hover.side_index[1], 5);
+    EXPECT_EQ(state.view.hover.side_button[1], PaneHeaderButton::Close);
 }
 
 // ヘルプ表示もファイルオープンと同じくこのリセットを通る。旧文書の横スクロール量が
@@ -410,7 +439,7 @@ TEST_F(ReducerTest, ViewStateResetForNewDocument_ClearsPerNodeAndPaneState)
 {
     state.view.block_scroll_x[3] = 100.0f;
     state.view.block_scroll_x[7] = 250.0f;
-    state.view.hovered_h_block = 3;
+    state.view.hover.h_block = 3;
     state.view.active_toc_index = 2;
     state.view.viewport.SetSelection(TextSelection{ .start_node = 1, .end_node = 2, .end_pos = 3, .active = true });
     state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y = 40.0f;
@@ -419,7 +448,7 @@ TEST_F(ReducerTest, ViewStateResetForNewDocument_ClearsPerNodeAndPaneState)
     state.view.ResetForNewDocument();
 
     EXPECT_TRUE(state.view.block_scroll_x.empty());
-    EXPECT_EQ(state.view.hovered_h_block, -1);
+    EXPECT_EQ(state.view.hover.h_block, -1);
     EXPECT_EQ(state.view.active_toc_index, -1);
     EXPECT_FALSE(state.view.viewport.GetSelection().active);
     EXPECT_FLOAT_EQ(state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y, 0.0f);
@@ -666,42 +695,42 @@ TEST_F(ReducerTest, Timer_ServiceTimerIsIgnoredByReducer)
 TEST_F(ReducerTest, NavHover_NoneToBack_UpdatesStateAndInvalidates)
 {
     using Hover = NavButtonHover;
-    state.interaction.hovered = { 3, OverlayButton::CodeCopy };
+    state.view.hover.overlay_button = { 3, OverlayButton::CodeCopy };
 
     // ナビボタン上ではコピー/保存ボタンはホバーしていない
-    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ .nav = Hover::Back } });
+    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ { .nav = Hover::Back } } });
 
-    EXPECT_EQ(state.interaction.nav_hover, Hover::Back);
-    EXPECT_FALSE(state.interaction.hovered.Any());
+    EXPECT_EQ(state.view.hover.nav, Hover::Back);
+    EXPECT_FALSE(state.view.hover.overlay_button.Any());
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 TEST_F(ReducerTest, NavHover_Unchanged_NoEffect)
 {
     using Hover = NavButtonHover;
-    state.interaction.nav_hover = Hover::Forward;
+    state.view.hover.nav = Hover::Forward;
 
-    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ .nav = Hover::Forward } });
+    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ { .nav = Hover::Forward } } });
 
-    EXPECT_EQ(state.interaction.nav_hover, Hover::Forward);
+    EXPECT_EQ(state.view.hover.nav, Hover::Forward);
     EXPECT_TRUE(effects.empty());
 }
 
 TEST_F(ReducerTest, ButtonHoverChanged_CopyUpdated_Invalidates)
 {
-    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ .overlay_button = OverlayButtonHit{ 3, OverlayButton::CodeCopy } } });
+    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ { .overlay_button = OverlayButtonHit{ 3, OverlayButton::CodeCopy } } } });
 
-    EXPECT_EQ(state.interaction.hovered, (OverlayButtonHit{ 3, OverlayButton::CodeCopy }));
+    EXPECT_EQ(state.view.hover.overlay_button, (OverlayButtonHit{ 3, OverlayButton::CodeCopy }));
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 TEST_F(ReducerTest, ButtonHoverChanged_Unchanged_NoEffect)
 {
-    state.interaction.hovered = { 4, OverlayButton::DiagramSave };
+    state.view.hover.overlay_button = { 4, OverlayButton::DiagramSave };
 
-    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ .overlay_button = OverlayButtonHit{ 4, OverlayButton::DiagramSave } } });
+    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ { .overlay_button = OverlayButtonHit{ 4, OverlayButton::DiagramSave } } } });
 
-    EXPECT_EQ(state.interaction.hovered, (OverlayButtonHit{ 4, OverlayButton::DiagramSave }));
+    EXPECT_EQ(state.view.hover.overlay_button, (OverlayButtonHit{ 4, OverlayButton::DiagramSave }));
     EXPECT_TRUE(effects.empty());
 }
 

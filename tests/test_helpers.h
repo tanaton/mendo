@@ -52,8 +52,7 @@ inline Node MakeTableNode(const char* cell0, const char* cell1)
 {
     Node n;
     n.type = NodeType::Table;
-    n.ensure_table();
-    auto* tbl = n.table_data();
+    auto* tbl = AttachTestTable(n);
     tbl->row_count = 1;
     tbl->col_count = 2;
     tbl->concat_text.append(cell0);

@@ -2,9 +2,11 @@
 #include "app_constants.h"
 #include "app_controller.h"
 #include "ascii_util.h"
+#include "clipboard_util.h"
 #include "darkmode_util.h"
 #include "document_service.h"
 #include "document_utils.h"
+#include "file_dialog_service.h"
 #include "gesture_overlay.h"
 #include "i18n.h"
 #include "layout_queries.h"
@@ -69,18 +71,10 @@ bool App::Init(HWND hwnd)
             .theme_service = &theme_service_,
         },
         AppResourceManagerCallbacks{ this });
-    win32_host_.Init(hwnd_);
-    effect_executor_.Init(
-        SideEffectExecutorDeps{
-            .host = &win32_host_,
-            .file_watcher = &file_watcher_,
-            .state = &state_,
-        },
-        AppSideEffectCallbacks{ this });
 
     mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), scheduler_, app_msg::MERMAID_DISK_LOADED,
                            config_.GetConfigPath(L"WebView2Data"), [this]() {
-        resource_manager_.ScheduleMermaidBatch();
+        resource_manager_.OnMermaidUpdated();
     });
 
     if (!image_loader_.Init(renderer_.GetWICFactory())) {
@@ -94,10 +88,8 @@ bool App::Init(HWND hwnd)
         image_loader_.CancelPending();
         image_loader_.SetRenderTarget(new_rt);
         image_loader_.ClearCache();
-        // IDWriteTextLayout が SetDrawingEffect 経由で AddRef した旧 RT 由来のブラシと、
         // DiagramEntry::bitmap が新 RT で描画拒否されるのを防ぐ。ApplyCachedImages は
         // bitmap 残存ノードをスキップするため、LoadImages の前に破棄する必要がある。
-        state_.document.layout_cache.InvalidateEffects();
         state_.document.layout_cache.InvalidateAllDiagramBitmaps();
         resource_manager_.LoadImages();
     });
@@ -160,14 +152,14 @@ void App::LoadInitialDocument()
     // small file は preload がここまでに完了している場合が多い。直後の UpdateWindow が
     // 同期 WM_PAINT を発行するため、ここで取り込んでおかないと初回フレームが空になる。
     using PreloadAttachResult = FileLoadService::PreloadAttachResult;
-    switch (file_load_service_.AttachOrApplyPreload(hwnd_, app_msg::PARSE_COMPLETE)) {
+    switch (file_load_service_.AttachPreload(hwnd_, app_msg::PARSE_COMPLETE)) {
     case PreloadAttachResult::AppliedSync:
         OnParseComplete();
         return;
     case PreloadAttachResult::AttachedAsync:
         if (DocumentService::ShouldShowLoadingAnimation(file_load_service_.GetLoadingPath())) {
             file_load_service_.BeginLoadingAnimation();
-            EmitEffect(effect::SetTimer{ app_timer::Id::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS });
+            SetTimer(app_timer::Id::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS);
             Invalidate();
         }
         return;
@@ -239,9 +231,9 @@ SidePaneState App::BuildSidePaneState(const PaneLayout& layout) const
         return SidePaneInstance{
             .rect = rect,
             .scroll = panes.SidePaneScroll(t),
-            .hovered_index = panes.GetHoveredSideIndex(t),
+            .hovered_index = state_.view.hover.side_index[std::to_underlying(t)],
             .show = panes.IsSidePaneVisible(t),
-            .hovered_button = panes.GetSideHoveredButton(t),
+            .hovered_button = state_.view.hover.side_button[std::to_underlying(t)],
             .reveal_enabled = SidePaneHeaderButtonsFor(state_, t).reveal_enabled,
         };
     };
@@ -268,7 +260,7 @@ TitleBarRenderState App::BuildTitleBarRenderState() const
         .title_text_rect = tbar.GetTitleTextRect(),
         .height = tbar.GetHeight(),
         .window_width = state_.pane_layout_cache.WindowWidth(),
-        .hovered_zone = tbar.GetHovered(),
+        .hovered_zone = state_.view.hover.titlebar,
         .is_dark_mode = theme_service_.IsDarkMode(),
         .search_active = state_.search.search_state.IsVisible(),
         .file_pane_visible = panes.IsSidePaneVisible(PaneTarget::File),
@@ -289,12 +281,25 @@ void App::SyncRendererSearchMatches()
     }
 }
 
-void App::OnPaint()
+void App::OnPaint(bool can_defer)
 {
     MENDO_PROFILE("OnPaint");
 
     PAINTSTRUCT ps;
     BeginPaint(hwnd_, &ps);
+    // 最小化中は見えないので描かない。描くと TrimForMinimize で手放したキャッシュを作り直してしまう。
+    // 復元時は Win32Window::OnSize が描き直させる。
+    if (IsIconic(hwnd_)) {
+        EndPaint(hwnd_, &ps);
+        return;
+    }
+    // 前のフレームが表示待ちなら UI スレッドを止めずに戻り、メッセージループで待つ。
+    // 待つ間に届いた入力を反映してから描けるので、入力から表示までが 1 フレーム縮む。
+    frame_deferred_ = can_defer && !renderer_.AcquireFrame(0);
+    if (frame_deferred_) {
+        EndPaint(hwnd_, &ps);
+        return;
+    }
 
     const auto& layout = GetPaneLayout();
     const bool show_loading = file_load_service_.IsLoading();
@@ -318,22 +323,18 @@ void App::OnPaint()
     else {
         SyncRendererSearchMatches();
 
-        // 描画コマンドが各ノードのエフェクト状態を参照するため Render より前に行う。
-        renderer_.PrepareVisibleEffects(
-            state_.document.doc.GetNodes(), state_.document.layout_cache,
-            state_.view.viewport.GetScrollY(), layout.md_rect.height);
-
-        const auto sb = state_.search.search_bar_ctrl.BuildRenderState();
+        auto sb = state_.search.search_bar_ctrl.BuildRenderState();
+        sb.hovered = state_.view.hover.search_bar;
         const BlockHScrollContext h_scroll{
             .scroll_x = &state_.view.block_scroll_x,
-            .hovered_block = state_.view.hovered_h_block,
+            .hovered_block = state_.view.hover.h_block,
             .drag_block = state_.view.HDragNode(),
         };
         renderer_.Render(
             { state_.document.doc.GetNodes(), state_.document.layout_cache,
               state_.view.viewport.GetSelection(), layout.md_rect, sp, tb, gs, ts, sb,
               state_.view.viewport.GetScrollY(), ScrollableContentHeight(),
-              state_.interaction.nav_hover, state_.interaction.hovered,
+              state_.view.hover.nav, state_.view.hover.overlay_button,
               state_.view.nav_history.CanGoBack(), state_.view.nav_history.CanGoForward(),
               layout_service_->HasDirtyNodes(), h_scroll });
     }
@@ -341,7 +342,7 @@ void App::OnPaint()
     EndPaint(hwnd_, &ps);
     // デバイスを作り直せなかった。すぐ再描画すると失敗を繰り返して UI スレッドを占有するので間を置く。
     if (renderer_.IsDeviceLost()) {
-        EmitEffect(effect::SetTimer{ app_timer::Id::DEVICE_RECREATE_RETRY, app_timer::DEVICE_RECREATE_RETRY_MS });
+        SetTimer(app_timer::Id::DEVICE_RECREATE_RETRY, app_timer::DEVICE_RECREATE_RETRY_MS);
     }
     MENDO_FRAME_MARK();
 }
@@ -375,7 +376,7 @@ void App::OnAppImageLoaded()
 
 void App::OnMermaidDiskLoaded()
 {
-    resource_manager_.BatchMermaidCompletions([this] { mermaid_renderer_.ProcessDiskLoads(); });
+    mermaid_renderer_.ProcessDiskLoads();
 }
 
 void App::OnKeyDown(WPARAM key)
@@ -394,7 +395,7 @@ void App::Dispatch(const AppAction& action)
     // reducer は pane_layout_cache を参照するだけなので、ここで確実に確定させておく。
     GetPaneLayout();
     auto effects = Reduce(state_, action);
-    effect_executor_.Execute(effects);
+    Execute(effects);
 }
 
 void App::OnDropFiles(HDROP hDrop)
@@ -449,11 +450,11 @@ void App::HandleTimer(UINT_PTR timer_id)
         mermaid_renderer_.OnIdleTimer();
         return;
     case DEVICE_RECREATE_RETRY:
-        EmitEffect(effect::KillTimer{ id });
+        KillTimer(id);
         Invalidate();
         return;
     case FILE_RELOAD_DEBOUNCE:
-        EmitEffect(effect::KillTimer{ id });
+        KillTimer(id);
         ReloadCurrentFile();
         return;
     case END:
@@ -472,7 +473,130 @@ void App::ShowToast(std::wstring_view message)
     if (message.empty()) {
         return;
     }
-    EmitEffect(effect::ShowToast{ std::pmr::wstring{ message } });
+    state_.interaction.toast.Show(message);
+    SetTimer(app_timer::Id::TOAST, app_timer::TOAST_DURATION_MS);
+    Invalidate();
+}
+
+void App::StartFileWatch(const std::pmr::wstring& path)
+{
+    file_watcher_.StartWatching(path, [this] {
+        KillTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE);
+        SetTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_DEBOUNCE_MS);
+    });
+}
+
+void App::OpenFileDialog()
+{
+    const auto path = file_dialog_service::OpenMarkdownFileDialog(hwnd_);
+    if (!path.empty()) {
+        PushCurrentNavEntry(state_, path);
+        LoadMarkdownFile(path);
+    }
+}
+
+void App::Execute(const SideEffect& effect)
+{
+    // clang-format off
+    std::visit(overloaded{
+        // ---- Ui ----
+        [this](const effect::InvalidateWindow&) {
+            Invalidate();
+        },
+        [this](const effect::SetCapture&) {
+            ::SetCapture(hwnd_);
+        },
+        [](const effect::ReleaseCapture&) {
+            ::ReleaseCapture();
+        },
+        [this](const effect::ClipboardWrite& ev) {
+            WriteClipboardText(hwnd_, ev.text);
+        },
+        [this](const effect::ClipboardWriteHtml& ev) {
+            WriteClipboardHtml(hwnd_, ev.html, ev.plain);
+        },
+        [this](const effect::ShowTooltip& ev) {
+            if (state_.interaction.tooltip.Update(ev.target)) {
+                SetTimer(app_timer::Id::TOOLTIP, TOOLTIP_DELAY_MS);
+            }
+            else if (ev.target.IsEmpty()) {
+                KillTimer(app_timer::Id::TOOLTIP);
+            }
+        },
+        [this](const effect::ClearTooltip&) {
+            KillTimer(app_timer::Id::TOOLTIP);
+        },
+        [this](const effect::ShowContextMenu& ev) {
+            OnContextMenu(ev.screen_x, ev.screen_y);
+        },
+        // ---- Window ----
+        [this](const effect::SearchFocus& ev) {
+            using Mode = effect::SearchFocus::Mode;
+            switch (ev.mode) {
+            case Mode::SelectAll:
+                PostMessageW(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SELECT_ALL, 0);
+                return;
+            case Mode::SetCaret:
+                PostMessageW(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(ev.caret));
+                return;
+            case Mode::SetSelection:
+                PostMessageW(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_SELECTION, app_param::MakeSearchSelectionLParam(ev.anchor, ev.caret));
+                return;
+            }
+            std::unreachable();
+        },
+        [this](const effect::SearchUnfocus& ev) {
+            const WPARAM wp = ev.clear_text ? app_param::SEARCH_UNFOCUS_FILE_SWITCH : app_param::SEARCH_UNFOCUS_CLOSE;
+            PostMessageW(hwnd_, app_msg::SEARCH_UNFOCUS, wp, 0);
+        },
+        [this](const effect::SetWindowPosition& ev) {
+            SetWindowPos(hwnd_, nullptr, ev.x, ev.y, ev.cx, ev.cy, SWP_NOZORDER | SWP_NOACTIVATE);
+        },
+        [this](const effect::ApplyThemeChange& ev) {
+            HandleApplyThemeChange(ev);
+        },
+        [this](const effect::PerformResizeEnd&) {
+            OnResizeEnd();
+        },
+        [this](const effect::PerformSizingUpdate&) {
+            SyncMaxScroll(GetPaneLayout().md_rect.height);
+            Invalidate();
+        },
+        [this](const effect::RendererResize& ev) {
+            renderer_.Resize(ev.width, ev.height, ev.live);
+        },
+        [this](const effect::RendererSetDpi& ev) {
+            renderer_.SetDpi(ev.dpi);
+        },
+        // ---- Navigation ----
+        [this](const effect::LoadFile& ev) {
+            LoadMarkdownFile(ev.path);
+        },
+        [this](const effect::ReloadFile&) {
+            ReloadCurrentFile();
+        },
+        [this](const effect::OpenFileDialog&) {
+            OpenFileDialog();
+        },
+        [this](const effect::CancelOtherFileLoad&) {
+            CancelOtherFileLoad();
+        },
+        // ---- Layout ----
+        [this](const effect::BitmapManage&) {
+            resource_manager_.ScheduleBitmapManage();
+        },
+        [this](const effect::SyncTocActive& ev) {
+            SyncTocActiveAndAutoScroll(ev.auto_scroll);
+        },
+        // ---- Timer ----
+        [this](const effect::SetTimer& ev) {
+            SetTimer(ev.id, ev.ms);
+        },
+        [this](const effect::KillTimer& ev) {
+            KillTimer(ev.id);
+        },
+    }, effect);
+    // clang-format on
 }
 
 void App::SaveSession()
@@ -521,7 +645,7 @@ void App::OnDestroy()
     file_cache_.SaveIndex();
 
     for (UINT_PTR id = std::to_underlying(app_timer::kFirstTimer); id <= std::to_underlying(app_timer::kLastTimer); ++id) {
-        KillTimer(hwnd_, id);
+        ::KillTimer(hwnd_, id);
     }
 }
 
@@ -574,7 +698,7 @@ void App::FinishThemeOrZoomChange()
     SettleLayout();
     Invalidate();
 
-    EmitEffect(effect::SyncTocActive{});
+    SyncTocActiveAndAutoScroll(true);
 }
 
 void App::HandleApplyThemeChange(const effect::ApplyThemeChange& e)
@@ -592,8 +716,8 @@ void App::HandleApplyThemeChange(const effect::ApplyThemeChange& e)
     const bool dark = theme_service_.IsDarkMode();
     ApplyDarkModeToWindow(hwnd_, dark);
     state_.interaction.tooltip.ApplyDarkMode(dark);
-    // メモリキャッシュはキーにダークモードを含むので消さず、往復時に再利用する。
-    mermaid_renderer_.CancelPending();
+    // メモリキャッシュはキーにダークモードを含むので消さず、往復時に再利用する。描画待ちは旧テーマの分なので捨てる。
+    mermaid_renderer_.DropQueued();
     FinishThemeOrZoomChange();
     theme_service_.SaveDarkMode();
 }
@@ -632,7 +756,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
     case IDM_EDIT_FILE: {
         const auto& file_path = state_.document.doc.GetFilePath();
         if (IsEditableTextFile(file_path)) {
-            win32_host_.ShellOpen(file_path);
+            ShellExecuteW(nullptr, L"open", file_path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         }
         break;
     }
@@ -688,7 +812,7 @@ bool App::ScheduleDeferredLayoutIfNeeded()
     if (!layout_service_->HasDirtyNodes()) {
         return false;
     }
-    EmitEffect(effect::SetTimer{ app_timer::Id::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS });
+    SetTimer(app_timer::Id::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS);
     return true;
 }
 
@@ -698,7 +822,7 @@ bool App::ScheduleDeferredLayoutIfNeeded()
 void App::SettleLayout()
 {
     if (!ScheduleDeferredLayoutIfNeeded()) {
-        EmitEffect(effect::BitmapManage{});
+        resource_manager_.ScheduleBitmapManage();
     }
 }
 
@@ -746,7 +870,7 @@ void App::OnResizeEnd()
 {
     MENDO_PROFILE("OnResizeEnd");
 
-    EmitEffect(effect::KillTimer{ app_timer::Id::DEFERRED_LAYOUT });
+    KillTimer(app_timer::Id::DEFERRED_LAYOUT);
 
     const PaneRect md = GetPaneLayout().md_rect;
 
@@ -763,7 +887,7 @@ void App::OnResizeEnd()
 
     resource_manager_.ScheduleMermaidBatch();
 
-    EmitEffect(effect::SyncTocActive{});
+    SyncTocActiveAndAutoScroll(true);
 }
 
 void App::OnDeferredLayout()
@@ -792,16 +916,16 @@ void App::OnDeferredLayout()
     if (more) {
         return;
     }
-    EmitEffect(effect::KillTimer{ app_timer::Id::DEFERRED_LAYOUT });
+    KillTimer(app_timer::Id::DEFERRED_LAYOUT);
 
     // 同期ディスク I/O + PNG デコードで UI スレッドを長時間ブロックしないよう、
     // Mermaid ファイルキャッシュの読み込みは時間予算付きバッチに回す。
     resource_manager_.ScheduleMermaidBatch();
-    EmitEffect(effect::BitmapManage{});
+    resource_manager_.ScheduleBitmapManage();
 
     SyncMaxScroll(md.height);
     Invalidate();
 
     // layout_cache の text_top が確定したので目次アクティブ見出しを再同期する。
-    EmitEffect(effect::SyncTocActive{});
+    SyncTocActiveAndAutoScroll(true);
 }

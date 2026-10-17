@@ -9,6 +9,9 @@
 #include "theme_service.h"
 #include "config_service.h"
 #include "test_helpers.h"
+#include <algorithm>
+#include <ranges>
+#include <string>
 #include <vector>
 
 namespace {
@@ -76,30 +79,29 @@ public:
 class MockMermaidRenderer : public IMermaidRenderer {
 public:
     int request_render_count = 0;
-    int cancel_pending_count = 0;
+    std::vector<const Node*> requested;
     const Node* last_node = nullptr;
     float last_max_width = 0.0f;
     bool last_dark_mode = false;
-    // true のとき RequestRender でディスクキャッシュヒットを模し、同期で bitmap を設定して on_complete を呼ぶ。
+    // true のとき RequestRender でキャッシュヒットを模し、同期で bitmap を設定して true を返す。
     bool sync_apply_bitmap = false;
 
-    void RequestRender(
+    bool RequestRender(
         const Node& node,
-        DiagramEntry& diagram_entry, float max_width, bool dark_mode,
-        Callback on_complete) override
+        DiagramEntry& diagram_entry, float max_width, bool dark_mode) override
     {
         request_render_count++;
+        requested.push_back(&node);
         last_node = &node;
         last_max_width = max_width;
         last_dark_mode = dark_mode;
-        if (sync_apply_bitmap) {
-            diagram_entry.bitmap = &SharedStubBitmap();
-            diagram_entry.width = 100.0f;
-            diagram_entry.height = 50.0f;
-            if (on_complete) {
-                on_complete();
-            }
+        if (!sync_apply_bitmap) {
+            return false;
         }
+        diagram_entry.bitmap = &SharedStubBitmap();
+        diagram_entry.width = 100.0f;
+        diagram_entry.height = 50.0f;
+        return true;
     }
 
     void RequestSvg(std::wstring_view /*code*/, float /*max_width*/, bool /*dark_mode*/, SvgCallback callback) override
@@ -109,10 +111,6 @@ public:
         }
     }
 
-    void CancelPending() override
-    {
-        cancel_pending_count++;
-    }
     void DropQueued() override
     {
         drop_queued_count++;
@@ -578,14 +576,14 @@ TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeFiresOnQuantizedWidth
     tracker_.content_width = 800.0f;
     rm_.RequestMermaidRenders();
 
-    const int initial_cancel = mock_mermaid_.cancel_pending_count;
+    const int initial_drop = mock_mermaid_.drop_queued_count;
 
     // 2 回目: QuantizeWidth(800) != QuantizeWidth(1000) → 幅変化検出
     tracker_.content_width = 1000.0f;
     rm_.RequestMermaidRenders();
 
-    // 量子化幅が変化すると旧幅の in-flight 要求を捨てる。メモリキャッシュは幅込みのキーなので残す。
-    EXPECT_GT(mock_mermaid_.cancel_pending_count, initial_cancel);
+    // 量子化幅が変化すると旧幅の描画待ちを捨てる。メモリキャッシュは幅込みのキーなので残す。
+    EXPECT_GT(mock_mermaid_.drop_queued_count, initial_drop);
 }
 
 // 保持範囲を越えて移動したら、旧位置で積んだ描画待ちを捨ててから要求し直す。
@@ -604,11 +602,39 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersDropsQueueAfterLargeJump)
     EXPECT_EQ(mock_mermaid_.drop_queued_count, 1);
 }
 
-TEST_F(ResourceManagerTest, CancelMermaidBatchInvokesRendererCancelAndKillsTimer)
+// 要求キューは FIFO なので、見えている図 → 下 → 上の順に要求する。
+TEST_F(ResourceManagerTest, RequestMermaidRendersRequestsVisibleFirst)
+{
+    std::string md;
+    for (int i = 0; i < 40; ++i) {
+        md += "```mermaid\ngraph TD;A-->B\n```\n\n";
+    }
+    LoadMarkdown(md);
+    viewport_.SyncMaxScroll(4000.0f, tracker_.viewport_height);
+    viewport_.SetScrollY(1500.0f);
+    rm_.RequestMermaidRenders();
+
+    const auto& nodes = doc_.GetNodes();
+    std::vector<size_t> order;
+    for (const Node* n : mock_mermaid_.requested) {
+        order.push_back(static_cast<size_t>(n - nodes.data()));
+    }
+    // 高さ 100 で並ぶので、可視範囲 [1500, 2100] は 15..21、±2 画面の範囲は 3..33。
+    ASSERT_FALSE(order.empty());
+    EXPECT_EQ(order.front(), 15u);
+    const auto first_above = std::ranges::find_if(order, [](size_t i) { return i < 15; });
+    const auto last_below = std::ranges::find_if(order | std::views::reverse, [](size_t i) { return i > 21; });
+    ASSERT_NE(first_above, order.end());
+    ASSERT_NE(last_below, order.rend());
+    EXPECT_LE(std::distance(order.begin(), last_below.base()), std::distance(order.begin(), first_above)) << "上側より先に下側を要求する";
+}
+
+// 図の要求と結果はコードのハッシュがキーなので、リロードで描画待ちを捨てない。
+TEST_F(ResourceManagerTest, CancelMermaidBatchKillsTimerAndKeepsQueue)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
     rm_.CancelMermaidBatch();
-    EXPECT_EQ(mock_mermaid_.cancel_pending_count, 1);
+    EXPECT_EQ(mock_mermaid_.drop_queued_count, 0);
     EXPECT_EQ(tracker_.kill_timer, 1);
     EXPECT_EQ(tracker_.last_killed_timer_id, app_timer::Id::MERMAID_BATCH);
 }
@@ -620,6 +646,21 @@ TEST_F(ResourceManagerTest, ScheduleMermaidBatchSetsTimer)
     EXPECT_EQ(tracker_.set_timer, 1);
     EXPECT_EQ(tracker_.last_set_timer_id, app_timer::Id::MERMAID_BATCH);
     EXPECT_EQ(tracker_.last_set_timer_ms, 16u);
+}
+
+// 結果が出た通知で、待っていた図を要求し直して反映する。
+TEST_F(ResourceManagerTest, OnMermaidUpdatedAppliesResolvedDiagrams)
+{
+    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
+    rm_.RequestMermaidRenders();
+    ASSERT_EQ(tracker_.recompute_layout_anchored, 0);
+
+    mock_mermaid_.sync_apply_bitmap = true;
+    rm_.OnMermaidUpdated();
+    const size_t i = doc_.GetDiagramNodeIndices()[0];
+    ASSERT_NE(cache_.FindDiagram(i), nullptr);
+    EXPECT_NE(cache_.FindDiagram(i)->bitmap, nullptr);
+    EXPECT_EQ(tracker_.recompute_layout_anchored, 1);
 }
 
 TEST_F(ResourceManagerTest, ProcessMermaidBatchKillsTimerWhenWidthIsZero)
@@ -635,7 +676,6 @@ TEST_F(ResourceManagerTest, ProcessMermaidBatchKillsTimerWhenAllProcessed)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
     rm_.ProcessMermaidBatch();
-    // 1件しかないので走査が完了し、タイマーが kill される
     EXPECT_GE(mock_mermaid_.request_render_count, 1);
     EXPECT_GE(tracker_.kill_timer, 1);
     EXPECT_EQ(tracker_.last_killed_timer_id, app_timer::Id::MERMAID_BATCH);
@@ -744,16 +784,20 @@ TEST_F(ResourceManagerTest, FlushPendingResourcesIsNoopWhenNotPending)
 
 // ---- ファイル切替時クリーンアップ ----
 
-// 解決済みパスはノード index をキーに持つため、ファイル切替後に同じ index が別画像を指すと
-// クリアしない限り旧パスでキャッシュを引いてしまう。
-TEST_F(ResourceManagerTest, ClearResolvedPathsDropsStalePathOnFileSwitch)
+// 解決済みパスは src をキーに持ち、文書フォルダが変わったら捨てる。同じ index が別画像を指しても、
+// 別フォルダの同じ src を指しても旧パスでキャッシュを引かない。
+TEST_F(ResourceManagerTest, ResolvedPathFollowsSrcAndDirectory)
 {
     LoadMarkdown("![alt](old.png)\n");
     EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 0);
 
     LoadMarkdown("![alt](new.png)\n");
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\new.png", 400.0f, 300.0f);
-    rm_.ClearResolvedPaths();
+    EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 1);
 
+    image_loader_.InsertCacheEntryForTest(L"C:\\other\\same.png", 400.0f, 300.0f);
+    LoadMarkdown("![alt](same.png)\n", 100.0f, L"C:\\dir\\doc.md");
+    EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 0);
+    LoadMarkdown("![alt](same.png)\n", 100.0f, L"C:\\other\\doc.md");
     EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 1);
 }

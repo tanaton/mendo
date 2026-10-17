@@ -18,7 +18,6 @@
 #include "selection_html.h"
 #include "task_scheduler.h"
 #include "theme_service.h"
-#include "win32_host.h"
 #include <windows.h>
 #include <shellapi.h>
 #include <memory>
@@ -63,7 +62,6 @@ private:
 
 class App {
     friend struct AppCallbacksBase;
-    friend struct AppSideEffectCallbacks;
     friend struct AppResourceManagerCallbacks;
     friend struct AppSearchBarCallbacks;
 
@@ -94,7 +92,9 @@ public:
         state_.view.scroll_restore.SetNodeRestore(node, offset);
     }
 
-    void OnPaint();
+    // can_defer: 前のフレームがまだ表示待ちなら描かずに戻ってよいか。メッセージループから直接届いた
+    // WM_PAINT だけ true にする (モーダルループや UpdateWindow の中では待ちが再開されない)。
+    void OnPaint(bool can_defer);
     void OnResize(UINT width, UINT height);
     void OnMinimize();
     void OnMouseWheel(int px, int py, short delta, bool ctrl = false);
@@ -132,6 +132,19 @@ public:
         return file_watcher_.GetEventHandle();
     }
     void OnFileWatchEvent();
+    // 描画を見送っている間だけ、メッセージループが待つハンドルを返す。
+    HANDLE GetFrameWaitHandle() const noexcept
+    {
+        return frame_deferred_ ? renderer_.FrameWaitHandle() : nullptr;
+    }
+    // GetFrameWaitHandle の待ちが成立した、または待ちきれなかった。後者では GPU が止まっていても
+    // 描いて Present させ、デバイスロストを検出させる (シグナルを待ち続けると画面が固まったままになる)。
+    void OnFrameReady()
+    {
+        frame_deferred_ = false;
+        renderer_.MarkFrameAcquired();
+        Invalidate();
+    }
 
     void HandleTimer(UINT_PTR timer_id);
     void OnAppImageLoaded();
@@ -200,15 +213,26 @@ public:
 private:
     void Dispatch(const AppAction& action);
 
-    // reducer を介さない経路から effect を単発発火するヘルパー。
-    // SideEffectList を作らずに executor の単発 API へ直送し、毎呼び出しの
-    // pmr vector アロケーションを避ける (ホット経路: OnDeferredLayout, OnPaint 等)。
-    template <typename T>
-    void EmitEffect(T&& e)
+    // reducer が返した副作用を実行する。
+    void Execute(const SideEffectList& effects)
     {
-        effect_executor_.ExecuteOne(SideEffect{ std::forward<T>(e) });
+        for (const auto& e : effects) {
+            Execute(e);
+        }
+    }
+    void Execute(const SideEffect& effect);
+    void SetTimer(app_timer::Id id, UINT ms) noexcept
+    {
+        ::SetTimer(hwnd_, std::to_underlying(id), ms, nullptr);
+    }
+    void KillTimer(app_timer::Id id) noexcept
+    {
+        ::KillTimer(hwnd_, std::to_underlying(id));
     }
     void ShowToast(std::wstring_view message);
+    // 変更通知はデバウンスしてから読み直す。
+    void StartFileWatch(const std::pmr::wstring& path);
+    void OpenFileDialog();
 
     bool IsRenderReady() const noexcept
     {
@@ -338,6 +362,8 @@ private:
     void DeferReloadRetry();
 
     void CancelPendingResources();
+    // リロード用。中身が変わらないノードの計測結果を引き継いでから差し替える。
+    void ReloadDocument(Document next, LayoutCache estimated);
     void ResetViewForNewDocument();
     void EndDocumentBoundDrag();
 
@@ -347,6 +373,8 @@ private:
 
 private:
     HWND hwnd_ = nullptr;
+    // 前のフレームの表示待ちで描画を見送った。メッセージループが FrameWaitHandle を待つ。
+    bool frame_deferred_ = false;
 
     CursorManager cursors_;
 
@@ -368,6 +396,4 @@ private:
 
     std::optional<LayoutService> layout_service_;
     ResourceManager resource_manager_;
-    Win32Host win32_host_;
-    SideEffectExecutor effect_executor_;
 };

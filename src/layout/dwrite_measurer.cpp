@@ -1,9 +1,11 @@
 #include "dwrite_measurer.h"
+#include "brush_id.h"
 #include "doc_dwrite_bridge.h"
 #include "layout_computer.h"
 #include "parallel_for.h"
 #include "profiler.h"
 #include "syntax.h"
+#include "task_scheduler.h"
 #include "ui_constants.h"
 #include <algorithm>
 #include <cmath>
@@ -43,6 +45,25 @@ float ApplyCellWidth(TableLayoutData& tl, size_t ci, float cw, TableAlign align)
     return tl.cell_heights[ci];
 }
 
+// インラインコードの run の矩形 (パディング込み、レイアウト原点基準) を add に渡す。折り返した run は行ごとに 1 つ。
+// 折り返しに依存するので、幅を変えて計測し直すたびに作り直す。
+template <class Add>
+void ForEachInlineCodeBg(IDWriteTextLayout* layout, std::string_view text, std::span<const TextRun> runs, Add&& add)
+{
+    thread_local std::pmr::vector<DWRITE_HIT_TEST_METRICS> buffer;
+    Utf16OffsetCursor cursor{ text };
+    for (const auto& run : runs) {
+        if (!run.code() || run.length == 0) {
+            continue;
+        }
+        const auto range = cursor.WideRange(run.start, run.length);
+        const UINT32 count = FetchHitTestMetrics(layout, range.startPosition, range.length, buffer);
+        for (const auto& m : std::span(buffer).first(count)) {
+            add(D2D1::RectF(m.left - INLINE_CODE_PAD_X, m.top - INLINE_CODE_PAD_Y, m.left + m.width + INLINE_CODE_PAD_X, m.top + m.height + INLINE_CODE_PAD_Y));
+        }
+    }
+}
+
 struct RowHeightResult {
     float height;
     // 本文があるのに layout が無いセル (= 範囲外で evict されたまま) を含む
@@ -50,13 +71,23 @@ struct RowHeightResult {
 };
 
 // 構築済みセルに列幅を適用し、行高さ (上下パディング込み、base_row_height 以上) を求める。
-RowHeightResult MeasureRowHeight(TableLayoutData& tl, const NodeTableData& tbl, size_t r, float base_row_height) noexcept
+// インラインコードを含むテーブルなら、行の背景も作り直す。
+RowHeightResult MeasureRowHeight(TableLayoutData& tl, const NodeTableData& tbl, size_t r, float base_row_height)
 {
     RowHeightResult result{ base_row_height, false };
+    auto* const bgs = tl.row_code_bgs.empty() ? nullptr : &tl.row_code_bgs[r];
+    if (bgs) {
+        bgs->clear();
+    }
     for (size_t c = 0; c < tl.col_count; c++) {
         const size_t ci = tl.CellIndex(r, c);
-        if (tl.cell_layouts[ci]) {
+        if (auto* const layout = tl.cell_layouts[ci].Get()) {
             result.height = std::max(result.height, ApplyCellWidth(tl, ci, tl.col_widths[c], tbl.ColAlign(c)) + TABLE_CELL_PADDING * 2.0f);
+            if (bgs) {
+                ForEachInlineCodeBg(layout, tbl.GetCellText(r, c), tbl.GetCellRuns(r, c), [&](const InlineCodeBg& rect) {
+                    bgs->push_back({ static_cast<uint32_t>(c), rect });
+                });
+            }
         }
         else if (!tbl.GetCellText(r, c).empty()) {
             result.has_unbuilt_cell = true;
@@ -82,10 +113,9 @@ void CacheFirstLineHeight(IDWriteTextLayout* layout, NodeLayoutEntry& entry) noe
     entry.set_first_line_height(((SUCCEEDED(hr) || hr == E_NOT_SUFFICIENT_BUFFER) && lc > 0) ? lm.height : 0.0f);
 }
 
-// entry.text_layout の計測結果を確定する。折り返し行が変わるためハイライト矩形は無効化する。
-// reused_layout (SetMaxWidth のみ) では SetDrawingEffect/SetUnderline の範囲が残るので、
-// 折り返しに依存するインラインコード背景だけを作り直させる。
-void FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TEXT_METRICS& metrics, bool reused_layout) noexcept
+// entry.text_layout の計測結果を確定する。折り返し行が変わるためハイライト矩形は無効化し、
+// インラインコード背景を作り直す (描画色と下線は SetMaxWidth だけの再計測でも残る)。
+void FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TEXT_METRICS& metrics, bool reused_layout)
 {
     entry.height = metrics.height;
     entry.layout_dirty = false;
@@ -99,12 +129,9 @@ void FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TE
         }
     }
     entry.clear_inline_code_bgs();
-    if (!reused_layout) {
-        entry.set_effects_state(EffectsState::None);
-    }
-    else if (entry.effects_state() == EffectsState::Applied) {
-        entry.set_effects_state(EffectsState::BgsStale);
-    }
+    ForEachInlineCodeBg(entry.text_layout(), node.GetText(), node.runs(), [&entry](const InlineCodeBg& rect) {
+        entry.ensure_inline_code_bgs().push_back(rect);
+    });
 }
 
 // テキストレイアウトを持たないノード (HR / 空テキスト) の高さを確定する。
@@ -129,7 +156,7 @@ bool MeasureWithoutTextLayout(const Node& node, NodeLayoutEntry& entry, const Th
 // 現存していればテキスト/runs/フォント幾何は一致している。CreateTextLayout は BiDi 解析と
 // shaping を走らせるためリサイズ時の最大コスト要因で、SetMaxWidth はラインブレーク再計算のみで済む。
 // 戻り値: 成功したら true。失敗時は layout を捨ててスローパスに委ねる。
-bool RemeasureExistingLayout(const Node& node, NodeLayoutEntry& entry, float layout_width) noexcept
+bool RemeasureExistingLayout(const Node& node, NodeLayoutEntry& entry, float layout_width)
 {
     MENDO_PROFILE("MeasureNode.fastpath");
     if (SUCCEEDED(entry.text_layout()->SetMaxWidth(layout_width))) {
@@ -189,6 +216,33 @@ private:
 };
 
 } // namespace
+
+void DWriteTextMeasurer::WarmUp(TaskScheduler& scheduler) const
+{
+    if (!dwrite_) {
+        return;
+    }
+    // 書式は参照を持って渡し、UI スレッドが作り直しても worker の途中で解放されないようにする。
+    const auto post = [&](ComPtr<IDWriteTextFormat> fmt) {
+        if (!fmt) {
+            return;
+        }
+        scheduler.Post([factory = ComPtr<IDWriteFactory>(dwrite_), fmt = std::move(fmt)] {
+            MENDO_PROFILE("DWriteTextMeasurer::WarmUp");
+            constexpr std::wstring_view kSample = L"Aa1 日本語のテキスト";
+            ComPtr<IDWriteTextLayout> layout;
+            if (SUCCEEDED(factory->CreateTextLayout(kSample.data(), static_cast<UINT32>(kSample.size()), fmt.Get(), LAYOUT_INFINITY, LAYOUT_INFINITY, &layout))) {
+                DWRITE_TEXT_METRICS metrics{};
+                layout->GetMetrics(&metrics);
+            }
+        });
+    };
+    post(fmt_body_);
+    post(fmt_code_);
+    for (const auto& fmt : fmt_h_) {
+        post(fmt);
+    }
+}
 
 bool DWriteTextMeasurer::RecreateFormats()
 {
@@ -268,6 +322,7 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     } };
     AttrRangeBuilder link{ [layout](DWRITE_TEXT_RANGE r) noexcept {
         layout->SetUnderline(TRUE, r);
+        layout->SetDrawingEffect(BrushEffect::For(BrushId::Link), r);
     } };
 
     // runs は start 昇順・非重複なので、境界の UTF-16 位置は前方への 1 回の走査で求まる。
@@ -278,9 +333,7 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
         italic.Update(r.italic(), wr);
         code.Update(r.code(), wr);
         strike.Update(r.strikethrough(), wr);
-        if (scope.apply_link) {
-            link.Update(r.has_link(), wr);
-        }
+        link.Update(r.has_link(), wr);
     }
 
     bold.Flush();
@@ -351,6 +404,12 @@ void DWriteTextMeasurer::MeasureNode(
     }
 
     ApplyRunFormatting(layout.Get(), node.runs(), text, RunFormatScope::ForNode(node.type));
+    if (node.type == NodeType::BlockQuote && node.alert_label_length() > 0) {
+        if (const auto idx = AlertColorIndex(node.alert_type); idx < ALERT_TYPE_COUNT) {
+            Utf16OffsetCursor cursor{ text };
+            layout->SetDrawingEffect(BrushEffect::For(AlertBrushIdFromIndex(idx)), cursor.WideRange(0, node.alert_label_length()));
+        }
+    }
 
     DWRITE_TEXT_METRICS metrics{};
     layout->GetMetrics(&metrics);
@@ -571,10 +630,15 @@ void DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayoutEntry& entry, 
     // 残っている可能性に備えて落としておく。
     entry.invalidate_per_frame_hl_caches();
 
-    // 倒すと ApplyTableEffects が inline code 背景と行フラグを作り直す。
-    entry.set_effects_state(EffectsState::None);
     auto& tl = entry.ensure_table_layout();
     tl.row_heights.resize(row_count);
+    // インラインコードの背景は行の計測 (MeasureRowHeight) で作る。持たないテーブルには確保しない。
+    if (std::ranges::any_of(tbl->all_runs, [](const TextRun& r) { return r.code() && r.length > 0; })) {
+        tl.row_code_bgs.resize(row_count);
+    }
+    else {
+        tl.row_code_bgs.clear();
+    }
 
     // セルレイアウトが既に存在し、かつストライドが現在の列数と一致する場合のみ
     // 第1パス（テキストレイアウト作成）をスキップして列幅再計算だけ行う。

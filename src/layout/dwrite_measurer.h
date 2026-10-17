@@ -32,6 +32,10 @@ public:
         float max_width,
         MeasureViewportRange viewport) const override;
 
+    // scheduler のワーカーを起こし、各書式で日本語を含む小さなレイアウトを作って捨てる。
+    // 最初の計測がフォントの読み込みとフォールバックの解決を待たないよう、起動中の他の処理と重ねる。
+    void WarmUp(TaskScheduler& scheduler) const;
+
     // 外部のIDWriteFactoryで初期化する（RecreateFormats の前に呼び出す必要がある）。
     void SetFactory(IDWriteFactory* factory) noexcept
     {
@@ -45,18 +49,14 @@ public:
     }
 
 private:
-    // ApplyRunFormatting で適用する属性集合。既定値はテーブルセル用で link underline も適用する。
+    // ApplyRunFormatting で適用する属性集合。既定値はテーブルセル用。
     // Node 用は見出しでインラインコードの縮小を外す。CodeBlock は run を持たない。
     struct RunFormatScope {
         bool apply_code_size = true;
-        bool apply_link = true;
 
         static constexpr RunFormatScope ForNode(NodeType t) noexcept
         {
-            return {
-                .apply_code_size = (t != NodeType::Heading),
-                .apply_link = false,
-            };
+            return { .apply_code_size = (t != NodeType::Heading) };
         }
     };
 

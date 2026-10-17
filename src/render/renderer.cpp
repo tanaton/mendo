@@ -14,31 +14,6 @@
 
 using Microsoft::WRL::ComPtr;
 
-#ifdef MENDO_USE_TRACY
-namespace {
-
-// 累積カウンタ（UI スレッド単一前提のため非アトミック）。
-struct EffectStats {
-    int64_t set_drawing_effect = 0;   // ApplyNodeEffects/ApplyTableEffects 内の SetDrawingEffect
-    int64_t hittest_range = 0;        // インラインコード背景計算の HitTestTextRange
-    int64_t apply_node = 0;           // ApplyNodeEffects 呼び出し
-    int64_t apply_table = 0;          // ApplyTableEffects 呼び出し
-    int64_t inline_code_bg_added = 0; // ノード/セルに追加されたインラインコード背景数
-};
-EffectStats g_effect_stats;
-
-void PublishEffectStats() noexcept
-{
-    MENDO_PLOT("effect.set_drawing_effect", g_effect_stats.set_drawing_effect);
-    MENDO_PLOT("effect.hittest_range", g_effect_stats.hittest_range);
-    MENDO_PLOT("effect.apply_node", g_effect_stats.apply_node);
-    MENDO_PLOT("effect.apply_table", g_effect_stats.apply_table);
-    MENDO_PLOT("effect.inline_code_bg_added", g_effect_stats.inline_code_bg_added);
-}
-
-} // namespace
-#endif
-
 bool Renderer::Init(HWND hwnd, const Theme& theme)
 {
     theme_ = theme;
@@ -74,9 +49,9 @@ void Renderer::SetTheme(const Theme& theme)
     RecreateBrushes();
 }
 
-void Renderer::Resize(UINT width, UINT height) noexcept
+void Renderer::Resize(UINT width, UINT height, bool live) noexcept
 {
-    backend_.Resize(width, height);
+    backend_.Resize(width, height, live);
 }
 
 void Renderer::SetDpi(float dpi) noexcept
@@ -105,196 +80,6 @@ void Renderer::ApplyThemeMetrics()
     layout_.RecreateFormats();
     RecreatePaneFormats();
     cmd_generator_.SetTheme(&theme_);
-}
-
-// ApplyNodeEffects は IDWriteTextLayout の mutable state (SetDrawingEffect/SetUnderline) を
-// 書き換える性質上、値型 DrawCommand には乗せられず、描画前パスとして実行する。
-// 適用済みのノードとテーブル行はフラグで即座に飛ばすので、毎フレーム可視範囲をなめてよい。
-void Renderer::PrepareVisibleEffects(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y, float md_pane_height)
-{
-    MENDO_PROFILE("PrepareVisibleEffects");
-    // ブラシが無い間に適用済みにすると、色の抜けた状態が残る。
-    if (!rt()) {
-        return;
-    }
-    const float viewport_top = scroll_y;
-    const float viewport_bottom = scroll_y + md_pane_height;
-    const int first_visible = FindFirstVisibleNodeIndex(cache, viewport_top);
-    const int node_count = static_cast<int>(nodes.size());
-    for (int i = first_visible; i < node_count; i++) {
-        const float entry_top = cache.Top(static_cast<size_t>(i));
-        if (entry_top > viewport_bottom) {
-            break;
-        }
-        ApplyNodeEffects(nodes[i], cache[i], entry_top, viewport_top, viewport_bottom);
-    }
-    MENDO_IF_TRACY(PublishEffectStats());
-}
-
-// DWRITE_HIT_TEST_METRICS からパディング適用済みの InlineCodeBg を生成する。
-static InlineCodeBg MakeInlineCodeBg(const DWRITE_HIT_TEST_METRICS& m) noexcept
-{
-    const D2D1_RECT_F r = RectFromHitTest(m);
-    return D2D1::RectF(r.left - INLINE_CODE_PAD_X, r.top - INLINE_CODE_PAD_Y, r.right + INLINE_CODE_PAD_X, r.bottom + INLINE_CODE_PAD_Y);
-}
-
-void Renderer::ApplyTableEffects(const Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom)
-{
-    MENDO_COUNT_INC(g_effect_stats.apply_table);
-    // 未計測のテーブルには適用先のセル layout が無いので、済みの印を付けずに戻る。
-    auto* const tl_ptr = entry.table_layout();
-    if (!tl_ptr) {
-        return;
-    }
-    const auto* tbl = node.table_data();
-    if (!tbl || tbl->row_count == 0) {
-        entry.set_effects_state(EffectsState::Applied);
-        return;
-    }
-
-    const auto row_count = static_cast<size_t>(tbl->row_count);
-    const auto col_count = static_cast<size_t>(tbl->col_count);
-    auto& tl = *tl_ptr;
-    // セルを作り直す経路 (ClearEffects / MeasureTable) は effects_state を None に戻し、ここで行フラグを作り直すので、
-    // 済みの間は行フラグが row_count 分ある。確保が例外で途切れても済みにならないよう印は最後に付ける。
-    if (entry.effects_state() == EffectsState::None) {
-        tl.cell_inline_code_bgs.clear();
-        tl.row_bgs_computed.assign(row_count, 0);
-        tl.row_links_applied.assign(row_count, 0);
-        entry.set_effects_state(EffectsState::Applied);
-    }
-
-    // リンク色・インラインコード背景とも可視行だけに適用し、行単位フラグで再適用を省く。
-    // 全行を毎回なめると巨大テーブルで effects 世代が変わるたびに O(行×列) になる。
-    const auto [r_begin, r_end] = tl.RowsInViewport(row_count, viewport_top - entry_text_top, viewport_bottom - entry_text_top);
-
-    for (size_t r = r_begin; r < r_end; r++) {
-        if (tl.row_links_applied[r] && tl.row_bgs_computed[r]) {
-            continue;
-        }
-        // evict 済みで未復元のセルが残る行は、復元後に改めて適用させるため完了扱いにしない
-        // (背景矩形は二重登録を避けるため完了時にだけ積む。リンク色は冪等なので先行適用してよい)。
-        const bool row_complete = std::ranges::none_of(std::views::iota(size_t{ 0 }, col_count), [&](size_t c) {
-            return !tl.GetCellLayout(r, c) && !tbl->GetCellText(r, c).empty();
-        });
-        const bool need_links = !tl.row_links_applied[r];
-        const bool need_bgs = !tl.row_bgs_computed[r] && row_complete;
-
-        for (size_t c = 0; c < col_count; c++) {
-            IDWriteTextLayout* cell_layout = tl.GetCellLayout(r, c);
-            if (!cell_layout) {
-                continue;
-            }
-            // セル全文の UTF-16 化を避け、run 順に前進するカーソルで位置を変換する。
-            Utf16OffsetCursor cursor{ tbl->GetCellText(r, c) };
-            for (const auto& run : tbl->GetCellRuns(r, c)) {
-                const bool apply_link = need_links && run.has_link();
-                const bool add_bg = need_bgs && run.code() && run.length > 0;
-                if (!apply_link && !add_bg) {
-                    continue;
-                }
-                const auto range = cursor.WideRange(run.start, run.length);
-                if (apply_link) {
-                    cell_layout->SetDrawingEffect(Brush(BrushId::Link), range);
-                    MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);
-                }
-                if (add_bg) {
-                    MENDO_COUNT_INC(g_effect_stats.hittest_range);
-                    const UINT32 count = FetchHitTestMetrics(cell_layout, range.startPosition, range.length, hit_test_buffer_);
-                    MENDO_COUNT_ADD(g_effect_stats.inline_code_bg_added, count);
-                    AppendCellInlineCodeBgs(tl, static_cast<uint32_t>(tl.CellIndex(r, c)), count);
-                }
-            }
-        }
-        if (row_complete) {
-            tl.row_links_applied[r] = 1;
-            tl.row_bgs_computed[r] = 1;
-        }
-    }
-}
-
-// cell_index 昇順を維持するため、新規行が末尾以降ならば append、それ以外 (上方向スクロールで
-// 前段の行が後から追加される稀ケース) は末尾に一括 push してから rotate で upper_bound 位置へ移す
-// (tail shift が 1 回で済む)。可視ノードが下方向に増える典型ケースは完全 append (O(1)/elem) で済む。
-void Renderer::AppendCellInlineCodeBgs(TableLayoutData& tl, uint32_t cell_index, UINT32 count)
-{
-    auto& bgs = tl.cell_inline_code_bgs;
-    const size_t old_size = bgs.size();
-    const bool can_append = bgs.empty() || bgs.back().cell_index <= cell_index;
-    const size_t insert_at = can_append ? old_size : static_cast<size_t>(std::ranges::upper_bound(bgs, cell_index, {}, &CellInlineCodeBg::cell_index) - bgs.begin());
-    bgs.reserve(old_size + count);
-    for (UINT32 i = 0; i < count; i++) {
-        bgs.emplace_back(CellInlineCodeBg{ cell_index, MakeInlineCodeBg(hit_test_buffer_[i]) });
-    }
-    if (insert_at != old_size) {
-        std::rotate(bgs.begin() + insert_at, bgs.begin() + old_size, bgs.end());
-    }
-}
-
-void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom)
-{
-    // テーブルノード: ビューポートカリング付きの行単位増分処理を行う。
-    if (node.type == NodeType::Table) {
-        ApplyTableEffects(node, entry, entry_text_top, viewport_top, viewport_bottom);
-        return;
-    }
-    // コードブロックは run もインラインコード背景も持たず、構文色は描画時に付ける。
-    if (node.type == NodeType::CodeBlock) {
-        return;
-    }
-
-    // 適用先の text_layout が無いノードには済みの印を付けない。
-    IDWriteTextLayout* const layout = entry.text_layout();
-    if (!layout) {
-        return;
-    }
-    const EffectsState state = entry.effects_state();
-    if (state == EffectsState::Applied) {
-        return;
-    }
-    // BgsStale は描画エフェクト/下線が残っているので、インラインコード背景だけ作り直す。
-    const bool apply_brushes = state == EffectsState::None;
-    entry.set_effects_state(EffectsState::Applied);
-    MENDO_COUNT_INC(g_effect_stats.apply_node);
-
-    // alert_label / run の offset/length は UTF-8 byte 単位なので、IDWriteTextLayout が要求する
-    // UTF-16 textPosition に変換する。各パス内で byte 位置は単調なので、全文の UTF-16 化はせず
-    // パスごとのカーソルで前進させる。
-    const std::string_view text = node.GetText();
-
-    if (apply_brushes && node.type == NodeType::BlockQuote && node.alert_label_length() > 0) {
-        if (const auto idx = AlertColorIndex(node.alert_type); idx < ALERT_TYPE_COUNT) {
-            Utf16OffsetCursor cursor{ text };
-            layout->SetDrawingEffect(Brush(AlertBrushIdFromIndex(idx)), cursor.WideRange(0, node.alert_label_length()));
-            MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);
-        }
-    }
-
-    Utf16OffsetCursor cursor{ text };
-    for (const auto& run : node.runs()) {
-        const bool apply_link = apply_brushes && run.has_link();
-        const bool add_bg = run.code() && run.length > 0;
-        if (!apply_link && !add_bg) {
-            continue;
-        }
-        const auto range = cursor.WideRange(run.start, run.length);
-        if (apply_link) {
-            layout->SetUnderline(TRUE, range);
-            layout->SetDrawingEffect(Brush(BrushId::Link), range);
-            MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);
-        }
-        if (add_bg) {
-            MENDO_COUNT_INC(g_effect_stats.hittest_range);
-            const UINT32 count = FetchHitTestMetrics(layout, range.startPosition, range.length, hit_test_buffer_);
-            if (count > 0) {
-                auto& bgs = entry.ensure_inline_code_bgs();
-                MENDO_COUNT_ADD(g_effect_stats.inline_code_bg_added, count);
-                for (UINT32 i = 0; i < count; i++) {
-                    bgs.emplace_back(MakeInlineCodeBg(hit_test_buffer_[i]));
-                }
-            }
-        }
-    }
 }
 
 void Renderer::PrepareChrome(const TitleBarRenderState& titlebar, const SidePaneState& sp)
@@ -329,9 +114,10 @@ bool Renderer::BeginFrame(const TitleBarRenderState& titlebar, const SidePaneSta
 
     text_layouts_.BeginFrame();
     PrepareChrome(titlebar, side_panes);
-    // GPU パイプライン詰まり時の CPU バックプレッシャを Present(Vsync) ではなく
-    // フレーム頭の Waitable で吸収する。スクロール連打時の遅延を 1 フレーム短縮できる。
-    backend_.WaitForFrameLatency();
+    // 呼び出し側が AcquireFrame で取っていなければここで待つ。GPU が止まっても UI スレッドを
+    // 永久ブロックしないよう 1 秒で諦めて描く。
+    constexpr DWORD kFrameWaitTimeoutMs = 1000;
+    backend_.AcquireFrame(kFrameWaitTimeoutMs);
 
     rt()->BeginDraw();
     rt()->Clear(theme_.bg_color);

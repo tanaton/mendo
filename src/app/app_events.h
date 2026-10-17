@@ -91,9 +91,9 @@ struct SearchNextAction {};
 struct SearchPrevAction {};
 struct NoOpAction {};
 
-// マウス位置でのホバー状態の全体。App がヒットテストで求め、reducer がまとめて状態へ反映する。
+// マウス位置でのホバー強調の全体。ViewState::hover が持ち、描画はここから読む。
 // 既定値はどこにもホバーしていない状態。
-struct PointerHover {
+struct HoverHighlights {
     TitleBarHitZone titlebar = TitleBarHitZone::None;
     // Input はホバー強調が無いので None と同じに扱う。
     SearchBarHitZone search_bar = SearchBarHitZone::None;
@@ -104,6 +104,12 @@ struct PointerHover {
     // PaneTarget 順 (File, Toc)。
     std::array<int, 2> side_index{ -1, -1 };
     std::array<PaneHeaderButton, 2> side_button{ PaneHeaderButton::None, PaneHeaderButton::None };
+
+    bool operator==(const HoverHighlights&) const = default;
+};
+
+// App がヒットテストで求めたホバー状態。reducer がまとめて状態へ反映する。
+struct PointerHover : HoverHighlights {
     TooltipTarget tooltip;
 };
 struct PointerHoverAction {

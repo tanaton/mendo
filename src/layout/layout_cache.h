@@ -19,26 +19,23 @@
 // インラインコードの背景矩形（レイアウト原点からの相対座標、パディング適用済み）
 using InlineCodeBg = D2D1_RECT_F;
 
-// テーブル内インラインコード背景の 1 エントリ。
-// flat 化することで、bg を持たないセル分の空 vector ヘッダ (24B/個) を排除する。
-// 書き込みは row 昇順 → col 昇順、描画も同順なので cell_index は概ね昇順で並ぶ。
+// テーブル内インラインコード背景の 1 エントリ。行ごとに列の昇順で並ぶ。
 struct CellInlineCodeBg {
-    uint32_t cell_index; // row * col_count + col
-    InlineCodeBg rect;
+    uint32_t col;
+    InlineCodeBg rect; // セルのテキスト原点基準
 };
 
 // テーブル専用のレイアウトデータ（テーブルノードのみ確保してメモリを節約）
 struct TableLayoutData {
     std::pmr::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>> cell_layouts; // フラット配列 [行 * col_count + 列]
-    std::pmr::vector<CellInlineCodeBg> cell_inline_code_bgs;                  // セル別 bg を線形に格納（cell_index 昇順）
+    // 行ごとのインラインコード背景。インラインコードを含むテーブルだけ row_count 分確保し、行の計測で作り直す。
+    std::pmr::vector<std::pmr::vector<CellInlineCodeBg>> row_code_bgs;
     size_t col_count = 0;                                                     // cell_layoutsのストライド
     std::pmr::vector<float> col_widths;
     std::pmr::vector<float> row_heights;
     std::pmr::vector<float> natural_col_widths;  // リサイズ高速パス用キャッシュ
     std::pmr::vector<float> cell_heights;        // 各セルに最後に適用した幅での計測高さ
     std::pmr::vector<float> cell_applied_widths; // 各セルに最後に適用した max_width（変更判定用）
-    std::pmr::vector<uint8_t> row_bgs_computed;  // 各行のインラインコード背景計算済みフラグ
-    std::pmr::vector<uint8_t> row_links_applied; // 各行のリンク色適用済みフラグ (セル再生成で落ちる)
     std::pmr::vector<uint8_t> row_evicted;       // 行単位 evict でセル layout を捨てた行
     // ヒットテスト高速化用の累積オフセット。
     // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ。サイズは row_count+1。
@@ -64,13 +61,6 @@ struct TableLayoutData {
     {
         return evicted_row_count > 0;
     }
-    // セルに適用した描画エフェクト (インラインコード背景・リンク色) の済み印を捨てる。
-    void ClearEffects() noexcept
-    {
-        cell_inline_code_bgs.clear();
-        row_bgs_computed.clear();
-        row_links_applied.clear();
-    }
     void ResetRowEviction(size_t row_count)
     {
         row_evicted.assign(row_count, 0);
@@ -91,15 +81,12 @@ struct TableLayoutData {
         cell_layouts.assign(cell_count, {});
     }
     // r が row_evicted の範囲内であることは呼び出し側が保証する。
-    // row_links_applied はエフェクト未適用なら空なので範囲を確かめる。
+    // 背景は幅が変わらない限り有効なので残す (復元時の行の計測で作り直す)。
     constexpr void MarkRowEvicted(size_t r) noexcept
     {
         if (!row_evicted[r]) {
             row_evicted[r] = 1;
             ++evicted_row_count;
-        }
-        if (r < row_links_applied.size()) {
-            row_links_applied[r] = 0;
         }
     }
     constexpr void MarkRowRestored(size_t r) noexcept
@@ -255,14 +242,6 @@ constexpr T& EnsureUnique(std::unique_ptr<T>& p)
 
 } // namespace layout::detail
 
-enum class EffectsState : uint8_t {
-    None,
-    // SetMaxWidth だけの再計測は描画エフェクト/下線を保持するため、折り返しに依存する
-    // インラインコード背景だけ作り直させる。
-    BgsStale,
-    Applied,
-};
-
 struct NodeLayoutEntry {
     // ノード Y 位置 (text_top) は LayoutCache::Top(i) に分離して持つ (SoA)。
     float height = 0.0f;
@@ -332,14 +311,6 @@ struct NodeLayoutEntry {
     constexpr void set_natural_code_width(float w)
     {
         SetAux(&Aux::natural_code_width, w);
-    }
-    constexpr EffectsState effects_state() const noexcept
-    {
-        return GetAux(&Aux::effects_state);
-    }
-    constexpr void set_effects_state(EffectsState state)
-    {
-        SetAux(&Aux::effects_state, state);
     }
 
     constexpr SearchHlCache& ensure_search_hl_cache() const
@@ -456,8 +427,7 @@ private:
         // CodeBlock の最長行幅 (NO_WRAP で計測した自然幅)。横スクロールバーのスケール計算と
         // クランプに使う。CodeBlock 以外では 0 のまま。
         float natural_code_width = 0.0f;
-        EffectsState effects_state = EffectsState::None;
-        // 再計測のたびに作り直すので、確保し直さないよう Aux に直接持つ。
+        // 計測のたびに作り直すので、確保し直さないよう Aux に直接持つ。
         std::pmr::vector<InlineCodeBg> inline_code_bgs;
         std::pmr::vector<SyntaxToken> syntax_tokens;
         // evict しても列幅・行高さを残すため、Aux を作り直しても引き継げるよう別に確保する。
@@ -601,10 +571,6 @@ public:
     // ダイアグラム/Mermaid キャッシュの処理は呼び出し側で別途行うこと。
     void InvalidateAllLayouts(const std::pmr::vector<Node>& nodes) noexcept;
 
-    // 文字幾何 (IDWriteTextLayout / table cell layouts) は維持し、ApplyEffects を再走らせるため
-    // effects_state とエフェクト由来のキャッシュだけ落とす。デバイスロスト時用。
-    void InvalidateEffects() noexcept;
-
     // デバイスロスト時用。旧デバイス上のビットマップは新 RT で描画できず、
     // 残すと EndDraw が D2DERR_WRONG_RESOURCE_DOMAIN で失敗し続ける。
     // 寸法は再計測が表示高さに使うので残し、旧デバイスで確定したエラーは再試行させる。
@@ -657,6 +623,10 @@ public:
 
     // DPI 変更時の最小リセット。IDWriteTextLayout は DIP 単位なので不変、ピクセルに依存するハイライト矩形だけ捨てる。
     void NotifyDpiChanged() noexcept;
+
+    // src のノード from の計測結果 (高さ・テキストレイアウト・図) を、中身が同じノード to へ移す。
+    // ハイライト系のキャッシュは選択や検索の位置に依るので捨てる。Y 位置は呼び出し側が組み直す。
+    void TakeEntry(LayoutCache& src, size_t from, size_t to);
 
 private:
     std::pmr::vector<NodeLayoutEntry> entries_;

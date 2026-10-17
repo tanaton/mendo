@@ -1,5 +1,10 @@
 #include <gtest/gtest.h>
+#include <cstdint>
+#include <string>
+#include <utility>
+#include <vector>
 #include "document_types.h"
+#include "text_arena.h"
 
 // ---- TextSelection::MakeOrdered ----
 
@@ -333,23 +338,30 @@ TEST(NodeTest, HasTextEmptyByDefault)
     EXPECT_FALSE(node.HasText());
 }
 
-TEST(NodeTest, EnsureTable)
+// payload は種別ごとに使い回すので、種別が合わないノードからは見えない。
+TEST(NodeTest, TableDataRequiresTableType)
 {
+    NodeTableData table;
     Node node;
+    node.set_table_data(&table);
     EXPECT_FALSE(node.has_table());
-    node.ensure_table();
+    EXPECT_EQ(node.table_data(), nullptr);
+    node.type = NodeType::Table;
     EXPECT_TRUE(node.has_table());
-    // 再度呼んでもクラッシュしない
-    node.ensure_table();
-    EXPECT_TRUE(node.has_table());
+    EXPECT_EQ(node.table_data(), &table);
+    EXPECT_EQ(std::as_const(node).table_data(), &table);
 }
 
-TEST(NodeTest, EnsureImage)
+TEST(NodeTest, ImageDataRequiresImageType)
 {
+    static constexpr NodeImageData kImage{ "a.png" };
     Node node;
+    node.set_image_data(&kImage);
     EXPECT_FALSE(node.has_image());
-    node.ensure_image();
+    EXPECT_EQ(node.image_data(), nullptr);
+    node.type = NodeType::Image;
     EXPECT_TRUE(node.has_image());
+    EXPECT_EQ(node.image_data()->src, "a.png");
 }
 
 TEST(NodeTest, HeadingLevelRequiresHeadingType)
@@ -396,60 +408,83 @@ TEST(NodeTest, ParagraphTextStored)
     EXPECT_EQ(node.GetText(), "paragraph content");
 }
 
-// variant alternative の排他性: 別種を ensure すると元のデータは破棄される。
-// parser は BeginNode 直後に 1 種類だけ ensure する契約だが、契約違反を回帰検出するためのテスト。
-// ensure_table() は冪等で、連続呼出しで同じ NodeTableData ポインタを返す。
-TEST(NodeTest, EnsureTableIsIdempotent)
-{
-    Node node;
-    auto* tbl1 = node.ensure_table();
-    auto* tbl2 = node.ensure_table();
-    EXPECT_EQ(tbl1, tbl2);
-    EXPECT_TRUE(node.has_table());
-}
-
-// ensure_image() の冪等性。
-TEST(NodeTest, EnsureImageIsIdempotent)
-{
-    Node node;
-    auto* img1 = node.ensure_image();
-    auto* img2 = node.ensure_image();
-    EXPECT_EQ(img1, img2);
-    EXPECT_TRUE(node.has_image());
-}
-
-// alert_type は伝播ロジック (parser.cpp:DetectAlertAt) のため Node 直下に残し、
-// alert_label_length のみ alert_data に閉じ込めた。BlockQuote 本体は両方を持ち、
-// 伝播先ノードは alert_type のみで alert_data は不在のはず。
-TEST(NodeTest, AlertTypeAndDataAreIndependent)
+// alert_type は伝播ロジック (parser_alerts.cpp:DetectAlertAt) のため payload と別に持つ。
+// BlockQuote 本体は両方を持ち、伝播先ノードは alert_type のみでラベル長は 0 のはず。
+TEST(NodeTest, AlertTypeAndLabelLengthAreIndependent)
 {
     Node body;
     body.type = NodeType::BlockQuote;
     body.alert_type = AlertType::Warning;
-    body.ensure_alert()->alert_label_length = 8u;
+    body.set_alert_label_length(8u);
     EXPECT_EQ(body.alert_type, AlertType::Warning);
-    EXPECT_TRUE(body.has_alert());
     EXPECT_EQ(body.alert_label_length(), 8u);
 
     Node propagated;
     propagated.type = NodeType::Paragraph;
     propagated.alert_type = AlertType::Warning;
     EXPECT_EQ(propagated.alert_type, AlertType::Warning);
-    EXPECT_FALSE(propagated.has_alert());
     EXPECT_EQ(propagated.alert_label_length(), 0u);
 }
 
-// list_data の互換 getter: 持たないノードは task_checked=false, list_number=0。
+// 番号を持たないノードは list_ordered=false, list_number=0。
 TEST(NodeTest, ListGettersDefaultsWhenNoData)
 {
     Node node;
-    EXPECT_FALSE(node.has_list());
+    EXPECT_FALSE(node.list_ordered());
     EXPECT_EQ(node.list_number(), 0);
     EXPECT_FALSE(node.task_checked());
 
-    node.ensure_list()->list_number = 5;
-    node.ensure_list()->task_checked = true;
-    EXPECT_TRUE(node.has_list());
+    node.set_list_number(5);
+    node.set_task_checked();
+    EXPECT_TRUE(node.list_ordered());
     EXPECT_EQ(node.list_number(), 5);
     EXPECT_TRUE(node.task_checked());
+}
+
+// 0 始まりの順序付きリストも番号を持つ。
+TEST(NodeTest, ListNumberZeroIsOrdered)
+{
+    Node node;
+    node.set_list_number(0);
+    EXPECT_TRUE(node.list_ordered());
+    EXPECT_EQ(node.list_number(), 0);
+}
+
+// チャンクをまたいでも、専用に確保する大きな要求を挟んでも、先に置いたものは動かず壊れない。
+TEST(TextArenaTest, CopiesSurviveChunkGrowthAndLargeRequests)
+{
+    TextArena arena;
+    std::vector<std::string> sources;
+    std::vector<std::string_view> copies;
+    for (size_t i = 0; i < 4000; ++i) {
+        const size_t len = (i % 1000 == 999) ? 300 * 1024 : 1 + (i * 37) % 2000;
+        sources.emplace_back(len, static_cast<char>('a' + i % 26));
+        copies.push_back(arena.CopyText(sources.back()));
+    }
+    for (size_t i = 0; i < sources.size(); ++i) {
+        ASSERT_EQ(copies[i], sources[i]) << "i=" << i;
+        ASSERT_NE(copies[i].data(), sources[i].data());
+    }
+}
+
+TEST(TextArenaTest, CopyKeepsAlignmentAfterOddSizedText)
+{
+    TextArena arena;
+    (void)arena.CopyText("abc");
+    TextRun run;
+    run.start = 7;
+    run.length = 3;
+    const std::vector<TextRun> runs{ run, run };
+    const auto copied = arena.Copy(runs);
+    ASSERT_EQ(copied.size(), 2u);
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(copied.data()) % alignof(TextRun), 0u);
+    EXPECT_EQ(copied[1].start, 7u);
+    EXPECT_EQ(copied[1].length, 3u);
+}
+
+TEST(TextArenaTest, EmptyInputsReturnEmpty)
+{
+    TextArena arena;
+    EXPECT_TRUE(arena.CopyText("").empty());
+    EXPECT_TRUE(arena.Copy(std::vector<TextRun>{}).empty());
 }

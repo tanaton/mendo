@@ -139,7 +139,7 @@ void TransformAlertNode(Node& node, TextArena& arena, AlertType type, size_t mar
     node.SetText(arena.CopyText(new_text), new_line_count);
     node.SetRuns(arena.Copy(new_runs));
     node.alert_type = type;
-    node.ensure_alert()->alert_label_length = static_cast<uint32_t>(full_label_len);
+    node.set_alert_label_length(static_cast<uint32_t>(full_label_len));
 }
 
 // 単一の BlockQuote ノードに対して Alert マーカーを検出・適用し、

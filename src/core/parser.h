@@ -12,10 +12,11 @@
 #include <vector>
 #include <memory_resource>
 
-// ノードと、そのテキスト・runs・リンク URL を置いた arena の組。
+// ノードと、ノードが指すもの (テキスト・runs・リンク URL を置いた arena とテーブル) の組。
 struct NodeStorage {
     std::pmr::vector<Node> nodes;
     std::unique_ptr<TextArena> arena;
+    std::pmr::vector<std::unique_ptr<NodeTableData>> tables;
 };
 
 // パーサーの出力: ノード本体と、パース中に構築された特殊ノードインデックス

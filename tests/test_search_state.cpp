@@ -387,8 +387,7 @@ TEST(SearchStateTest, SetCurrentMatchNearUsesTableRowY)
     // 3 行 1 列のテーブル。各行に "hit" が 1 件ずつ含まれる。
     Node table;
     table.type = NodeType::Table;
-    table.ensure_table();
-    auto* tbl = table.table_data();
+    auto* tbl = AttachTestTable(table);
     tbl->row_count = 3;
     tbl->col_count = 1;
     tbl->concat_text = "hit\nhit\nhit";

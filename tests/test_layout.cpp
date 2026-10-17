@@ -46,8 +46,7 @@ std::pmr::vector<Node> MakeNodes(std::initializer_list<NodeSpec> specs)
             n.set_heading_level(spec.heading_level);
         }
         if (spec.table_rows > 0) {
-            n.ensure_table();
-            n.table_data()->row_count = spec.table_rows;
+            AttachTestTable(n)->row_count = spec.table_rows;
         }
     }
     return nodes;
@@ -308,7 +307,7 @@ TEST_F(LayoutTest, EmptyTableMinimalHeight)
 {
     Node node;
     node.type = NodeType::Table;
-    node.ensure_table();
+    AttachTestTable(node);
     // 0 行 0 列の空テーブル (新方式は row_count/col_count 既定で 0)
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(node));
@@ -538,8 +537,8 @@ TEST(RecomputeYPositionsTest, EmptyNodes)
     std::pmr::vector<Node> nodes;
     LayoutCache cache;
     Theme theme = GetLightTheme();
-    const bool has_dirty = RecomputeYPositions(nodes, cache, theme);
-    EXPECT_FALSE(has_dirty);
+    RecomputeYPositions(nodes, cache, theme);
+    EXPECT_EQ(cache.size(), 0u);
 }
 
 // ---- ComputeTotalContentHeight テスト ----
@@ -580,9 +579,8 @@ TEST(RecomputeYPositionsTest, SingleParagraph)
     auto cache = MakeMeasuredCache({ 20.0f });
     const Theme theme = GetLightTheme();
 
-    const bool has_dirty = RecomputeYPositions(nodes, cache, theme);
+    RecomputeYPositions(nodes, cache, theme);
     EXPECT_FLOAT_EQ(cache.Top(0), theme.margin_top);
-    EXPECT_FALSE(has_dirty);
 }
 
 TEST(RecomputeYPositionsTest, HeadingSpacing)
@@ -629,17 +627,6 @@ TEST(RecomputeYPositionsTest, H1H2UseLargerSpacingBelow)
 
     // 両者は実際に異なる値であること（テスト対象の分岐が意味を持つ前提）
     EXPECT_GT(theme.heading_spacing_below_h1h2, theme.heading_spacing_below);
-}
-
-TEST(RecomputeYPositionsTest, DetectsDirtyNodes)
-{
-    auto nodes = MakeNodes({ { .type = NodeType::Paragraph }, { .type = NodeType::Paragraph } });
-    auto cache = MakeMeasuredCache({ 20.0f, 20.0f });
-    cache[1].layout_dirty = true;
-    const Theme theme = GetLightTheme();
-
-    const bool has_dirty = RecomputeYPositions(nodes, cache, theme);
-    EXPECT_TRUE(has_dirty);
 }
 
 TEST(RecomputeYPositionsTest, MonotonicallyIncreasingY)

@@ -93,7 +93,6 @@ TEST_F(SearchBarControllerTest, InitialState)
     EXPECT_FALSE(ctrl_.HasFocus());
     EXPECT_EQ(ctrl_.GetCaretPos(), -1);
     EXPECT_EQ(ctrl_.GetSelectionStart(), -1);
-    EXPECT_EQ(ctrl_.GetHover(), SearchBarHitZone::None);
     EXPECT_TRUE(ctrl_.GetImeComposition().empty());
 }
 
@@ -131,7 +130,6 @@ TEST_F(SearchBarControllerTest, OnCloseResetsState)
 
     EXPECT_FALSE(state_.IsVisible());
     EXPECT_FALSE(ctrl_.HasFocus());
-    EXPECT_EQ(ctrl_.GetHover(), SearchBarHitZone::None);
     EXPECT_GE(tracker_.unfocus_count, 1);
 }
 
@@ -159,21 +157,8 @@ TEST_F(SearchBarControllerTest, OnTextChangedSmallDocImmediate)
     EXPECT_EQ(state_.GetMatchCount(), 1);
 }
 
-TEST_F(SearchBarControllerTest, OnTextChangedLargeDocDebounces)
-{
-    std::pmr::vector<Node> nodes;
-    for (int i = 0; i < 1001; ++i) {
-        nodes.push_back(MakeTextNode("text"));
-    }
-
-    const int before = tracker_.set_timer_count;
-    ctrl_.OnTextChanged(L"text", nodes, 0);
-    EXPECT_GT(tracker_.set_timer_count, before);
-    EXPECT_EQ(tracker_.last_timer_id, app_timer::Id::SEARCH_DEBOUNCE);
-}
-
-// 巨大テーブル/コードブロックは 1 ノードでも打鍵ごとの全走査が重いのでバイト数でもデバウンスする
-TEST_F(SearchBarControllerTest, OnTextChangedFewNodesLargeBytesDebounces)
+// まだ検索していない大きな文書は、打鍵ごとの全走査が重い可能性があるのでデバウンスする。
+TEST_F(SearchBarControllerTest, OnTextChangedLargeUnmeasuredDocDebounces)
 {
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode("text"));
@@ -183,6 +168,37 @@ TEST_F(SearchBarControllerTest, OnTextChangedFewNodesLargeBytesDebounces)
     EXPECT_GT(tracker_.set_timer_count, before);
     EXPECT_EQ(tracker_.last_timer_id, app_timer::Id::SEARCH_DEBOUNCE);
     EXPECT_EQ(state_.GetMatchCount(), 0);
+}
+
+// 一度速く検索できた文書は、大きくても待たずに検索する。文書を替えたら測り直す。
+TEST_F(SearchBarControllerTest, OnTextChangedFastMeasuredSearchIsImmediate)
+{
+    std::pmr::vector<Node> nodes;
+    nodes.push_back(MakeTextNode("text"));
+    cache_ = MakeUniformCache(1, 100.0f);
+    constexpr size_t kLargeBytes = decltype(ctrl_)::kImmediateSearchMaxBytes + 1;
+
+    ctrl_.OnOpen(nodes);
+    ctrl_.OnTextChanged(L"te", nodes, 0);
+    const int before = tracker_.set_timer_count;
+    ctrl_.OnTextChanged(L"text", nodes, kLargeBytes);
+    EXPECT_EQ(tracker_.set_timer_count, before);
+    EXPECT_EQ(state_.GetMatchCount(), 1);
+
+    ctrl_.Reset();
+    ctrl_.OnTextChanged(L"text", nodes, kLargeBytes);
+    EXPECT_GT(tracker_.set_timer_count, before) << "文書を替えたら測るまでデバウンスする";
+}
+
+// 文書の切り替えで入力欄を空にしたときのように、中身が変わらない通知では検索も再描画もしない。
+TEST_F(SearchBarControllerTest, OnTextChangedSameTextIsNoop)
+{
+    std::pmr::vector<Node> nodes;
+    nodes.push_back(MakeTextNode("text"));
+
+    const int before = tracker_.invalidate_count;
+    ctrl_.OnTextChanged(L"", nodes, 0);
+    EXPECT_EQ(tracker_.invalidate_count, before);
 }
 
 // ═══════════════════════════════════════════════
@@ -308,7 +324,6 @@ TEST_F(SearchBarControllerTest, ResetClearsAll)
     EXPECT_EQ(ctrl_.GetCaretPos(), -1);
     EXPECT_EQ(ctrl_.GetSelectionStart(), -1);
     EXPECT_TRUE(ctrl_.GetImeComposition().empty());
-    EXPECT_EQ(ctrl_.GetHover(), SearchBarHitZone::None);
 }
 
 // ═══════════════════════════════════════════════
@@ -361,8 +376,7 @@ TEST_F(SearchBarControllerTest, NextMatchAcrossTableRowsAdvancesScroll)
 {
     Node table;
     table.type = NodeType::Table;
-    table.ensure_table();
-    auto* tbl = table.table_data();
+    auto* tbl = AttachTestTable(table);
     tbl->row_count = 5;
     tbl->col_count = 1;
     tbl->concat_text = "hit\nhit\nhit\nhit\nhit";

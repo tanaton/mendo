@@ -7,6 +7,8 @@
 #include <memory_resource>
 #include <random>
 #include <string>
+#include "document.h"
+#include "document_test_helpers.h"
 #include "layout.h"
 #include "layout_invariants.h"
 #include "mock_text_measurer.h"
@@ -14,6 +16,7 @@
 #include "task_scheduler.h"
 #include "test_helpers.h"
 #include "test_nodes.h"
+#include "viewport_manager.h"
 
 using layout::EstimateNodeHeights;
 using layout::NodeIndent;
@@ -346,4 +349,105 @@ TEST_F(IncrementalLayoutTest, MatchesFullLayoutAfterRandomOperations)
             ASSERT_NEAR(cache_.Top(i), ref.Top(i), kYEps) << "i=" << i;
         }
     }
+}
+
+namespace {
+
+// 計測したノードの番号を記録する。
+class RecordingMeasurer : public MockTextMeasurer {
+public:
+    const Node* base = nullptr;
+    mutable std::vector<size_t> measured;
+
+    void MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
+                     MeasureViewportRange viewport = {}) const override
+    {
+        measured.push_back(static_cast<size_t>(&node - base));
+        MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
+    }
+};
+
+} // namespace
+
+// ズームで推定し直すと Y がずれる。古い scroll_y の位置ではなく、見ていたノードの周りを計測する。
+TEST(LayoutServiceTest, ViewportLayoutMeasuresAroundScrollTargetAfterReestimate)
+{
+    constexpr float kWidth = 800.0f;
+    constexpr float kHeight = 600.0f;
+    constexpr int kTarget = 300;
+    const Theme theme = GetLightTheme();
+    RecordingMeasurer measurer;
+    // 実測を推定より大きくして、推定し直すと Y が大きく縮むようにする。
+    measurer.line_height = 80.0f;
+    LayoutEngine engine;
+    ASSERT_TRUE(engine.Init(&measurer, theme));
+    ViewportManager viewport;
+    LayoutService service(engine, viewport);
+
+    auto doc = Document::FromMarkdown(std::pmr::string{ MakeParagraphs(400) }, L"t.md");
+    measurer.base = doc.GetNodes().data();
+    LayoutCache cache;
+    engine.ComputeLayout(doc.GetNodes(), cache, kWidth);
+    viewport.SetScrollTarget(kTarget, 0.0f);
+    viewport.ApplyScrollTarget(cache);
+    const float measured_scroll_y = viewport.GetScrollY();
+
+    ASSERT_TRUE(engine.RecreateFormats());
+    cache.InvalidateAllLayouts(doc.GetNodes());
+    measurer.measured.clear();
+    service.ViewportLayout(doc, cache, kWidth, kHeight);
+
+    EXPECT_LT(viewport.GetScrollY(), measured_scroll_y) << "推定し直した Y で位置を求め直す";
+    EXPECT_FLOAT_EQ(viewport.GetScrollY(), cache.Top(kTarget));
+    const auto vr = ComputeVisibleNodeRange(cache, viewport.GetScrollY(), viewport.GetScrollY() + kHeight);
+    for (size_t i = vr.first; i < vr.last_plus_1; ++i) {
+        EXPECT_FALSE(cache[i].layout_dirty) << "可視ノードが未計測 i=" << i;
+    }
+    // 1 パス目は推定の Y で 1 画面分 (この文書では 20 ノード弱) を計測するので、実測の可視ノードより多くなる。
+    constexpr size_t kEstimatedScreenNodes = 30;
+    for (const size_t i : measurer.measured) {
+        EXPECT_GE(i, vr.first) << "見ていた位置より上を計測した";
+        EXPECT_LT(i, kTarget + kEstimatedScreenNodes) << "見ていた位置から離れた所を計測した";
+    }
+}
+
+// リロードで中身が変わらないノードの計測結果を引き継ぎ、変わったノードだけ計測し直させる。
+TEST(CarryOverUnchangedTest, KeepsMeasuredEntriesOfUnchangedNodes)
+{
+    const Theme theme = GetLightTheme();
+    MockTextMeasurer measurer;
+    LayoutEngine engine;
+    ASSERT_TRUE(engine.Init(&measurer, theme));
+    LayoutSourceStore store;
+    auto [old_nodes, old_cache] = store.ParseAndLayout(engine, "# Title\n\nfirst\n\nsecond\n\nthird\n", 800.0f);
+    auto [new_nodes, new_cache] = store.ParseAndLayout(engine, "# Title\n\nfirst\n\nsecond edited\n\nthird\n", 800.0f);
+    ASSERT_EQ(old_nodes.size(), 4u);
+    ASSERT_EQ(new_nodes.size(), 4u);
+    const float title_height = old_cache[0].height;
+    new_cache = layout::MakeEstimatedLayoutCache(new_nodes, theme);
+
+    EXPECT_EQ(layout::CarryOverUnchanged(old_nodes, old_cache, new_nodes, new_cache), 3u);
+    EXPECT_FALSE(new_cache[0].layout_dirty);
+    EXPECT_FLOAT_EQ(new_cache[0].height, title_height);
+    EXPECT_FALSE(new_cache[1].layout_dirty);
+    EXPECT_TRUE(new_cache[2].layout_dirty) << "変わったノードは計測し直す";
+    EXPECT_FALSE(new_cache[3].layout_dirty);
+}
+
+// 末尾の参照定義が変わると、前のノードはテキストが同じでもリンク先が変わるので引き継がない。
+TEST(CarryOverUnchangedTest, LinkTargetChangeIsNotCarried)
+{
+    const Theme theme = GetLightTheme();
+    MockTextMeasurer measurer;
+    LayoutEngine engine;
+    ASSERT_TRUE(engine.Init(&measurer, theme));
+    LayoutSourceStore store;
+    auto [old_nodes, old_cache] = store.ParseAndLayout(engine, "see [doc][r]\n\ntail\n\n[r]: https://a.example/\n", 800.0f);
+    auto [new_nodes, new_cache] = store.ParseAndLayout(engine, "see [doc][r]\n\ntail\n\n[r]: https://b.example/\n", 800.0f);
+    ASSERT_EQ(old_nodes.size(), new_nodes.size());
+    new_cache = layout::MakeEstimatedLayoutCache(new_nodes, theme);
+
+    layout::CarryOverUnchanged(old_nodes, old_cache, new_nodes, new_cache);
+    EXPECT_TRUE(new_cache[0].layout_dirty);
+    EXPECT_FALSE(new_cache[1].layout_dirty);
 }

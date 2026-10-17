@@ -30,6 +30,7 @@ ID2D1SolidColorBrush* FixedBrush(const FixedBrushArray* brushes, BrushId id) noe
     return brushes && id != BrushId::None ? (*brushes)[std::to_underlying(id)].Get() : nullptr;
 }
 
+// 文書のテキストレイアウトを描く。描画効果は計測時に付けた BrushEffect で、固定ブラシへ置き換える。
 // D2D の DrawTextLayout は描画面外を含む全グリフランを処理するため、巨大なコードブロック等では
 // 1 フレームに数十 ms かかる (1 万行で約 20ms)。可視縦範囲外のランを飛ばして描く。
 // 構文トークンがあれば、グリフランをトークン境界で分けて種別の色で描く。SetDrawingEffect は
@@ -113,10 +114,10 @@ public:
     }
 
 private:
-    // effect は SetDrawingEffect で積んだ ID2D1Brush のみなので QI せずに使う。
     ID2D1Brush* BrushFor(IUnknown* effect) const noexcept
     {
-        return effect ? static_cast<ID2D1Brush*>(effect) : default_brush_;
+        auto* brush = FixedBrush(brushes_, BrushEffect::IdOf(effect));
+        return brush ? brush : default_brush_;
     }
     ID2D1Brush* TokenBrush(SyntaxTokenType type) const noexcept
     {
@@ -212,13 +213,9 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
             }
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
                 const OpacityScope opacity{ c.opacity != 1.0f ? b : nullptr, c.opacity };
-                if (c.cull_runs || !c.syntax_tokens.empty()) {
-                    VisibleRunRenderer renderer{ rt, b, c.cull_top, c.cull_bottom, c.syntax_tokens, brushes };
-                    c.layout->Draw(nullptr, &renderer, c.origin.x, c.origin.y);
-                }
-                else {
-                    rt->DrawTextLayout(c.origin, c.layout, b);
-                }
+                // 描画効果を BrushEffect から置き換えるため、D2D の DrawTextLayout ではなく自前のレンダラで描く。
+                VisibleRunRenderer renderer{ rt, b, c.cull_top, c.cull_bottom, c.syntax_tokens, brushes };
+                c.layout->Draw(nullptr, &renderer, c.origin.x, c.origin.y);
             }
         },
         [&](const DrawBitmapCmd& c) {

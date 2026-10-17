@@ -103,34 +103,6 @@ TEST_F(PaneControllerTest, ResetScrollStates)
 }
 
 // ═══════════════════════════════════════════════
-// ホバー
-// ═══════════════════════════════════════════════
-
-TEST_F(PaneControllerTest, HoverDefaultNegativeOne)
-{
-    EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::File), -1);
-    EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::Toc), -1);
-}
-
-TEST_F(PaneControllerTest, SetHoverReturnsTrueOnChange)
-{
-    EXPECT_TRUE(panes_.SetHoveredSideIndex(PaneTarget::File, 3));
-    EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::File), 3);
-}
-
-TEST_F(PaneControllerTest, SetHoverReturnsFalseOnSame)
-{
-    panes_.SetHoveredSideIndex(PaneTarget::File, 3);
-    EXPECT_FALSE(panes_.SetHoveredSideIndex(PaneTarget::File, 3));
-}
-
-TEST_F(PaneControllerTest, SetHoverTocReturnsTrueOnChange)
-{
-    EXPECT_TRUE(panes_.SetHoveredSideIndex(PaneTarget::Toc, 5));
-    EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::Toc), 5);
-}
-
-// ═══════════════════════════════════════════════
 // スプリッタードラッグ制約
 // ═══════════════════════════════════════════════
 
@@ -316,89 +288,6 @@ TEST_F(PaneControllerTest, SetTocPaneVisible)
     EXPECT_FALSE(panes_.IsSidePaneVisible(PaneTarget::Toc));
     panes_.SetSidePaneVisible(PaneTarget::Toc, true);
     EXPECT_TRUE(panes_.IsSidePaneVisible(PaneTarget::Toc));
-}
-
-// ═══════════════════════════════════════════════
-// ヘッダーボタンのホバー状態
-// ═══════════════════════════════════════════════
-
-TEST_F(PaneControllerTest, HoveredButtonDefaultNone)
-{
-    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::File), PaneHeaderButton::None);
-    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::Toc), PaneHeaderButton::None);
-}
-
-TEST_F(PaneControllerTest, SetSideHoveredButtonReturnsTrueOnChange)
-{
-    EXPECT_TRUE(panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::Refresh));
-    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::File), PaneHeaderButton::Refresh);
-
-    EXPECT_TRUE(panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::Reveal));
-    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::File), PaneHeaderButton::Reveal);
-}
-
-TEST_F(PaneControllerTest, SetSideHoveredButtonReturnsFalseOnSame)
-{
-    panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::Close);
-    EXPECT_FALSE(panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::Close));
-}
-
-TEST_F(PaneControllerTest, FileAndTocHoveredButtonIndependent)
-{
-    panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::Close);
-    panes_.SetSideHoveredButton(PaneTarget::Toc, PaneHeaderButton::Close);
-    panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::None);
-    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::File), PaneHeaderButton::None);
-    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::Toc), PaneHeaderButton::Close);
-}
-
-// ═══════════════════════════════════════════════
-// 表示切替時のホバー状態リセット
-// ═══════════════════════════════════════════════
-
-TEST_F(PaneControllerTest, ToggleFilePaneResetsHover)
-{
-    panes_.SetHoveredSideIndex(PaneTarget::File, 3);
-    panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::Refresh);
-    panes_.ToggleSidePane(PaneTarget::File); // 非表示にする
-    EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::File), -1);
-    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::File), PaneHeaderButton::None);
-}
-
-TEST_F(PaneControllerTest, ToggleTocPaneResetsHover)
-{
-    panes_.SetHoveredSideIndex(PaneTarget::Toc, 5);
-    panes_.SetSideHoveredButton(PaneTarget::Toc, PaneHeaderButton::Close);
-    panes_.ToggleSidePane(PaneTarget::Toc);
-    EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::Toc), -1);
-    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::Toc), PaneHeaderButton::None);
-}
-
-TEST_F(PaneControllerTest, SetFilePaneVisibleResetsHoverOnChange)
-{
-    panes_.SetHoveredSideIndex(PaneTarget::File, 2);
-    panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::Reveal);
-    panes_.SetSidePaneVisible(PaneTarget::File, false);
-    EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::File), -1);
-    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::File), PaneHeaderButton::None);
-}
-
-TEST_F(PaneControllerTest, SetFilePaneVisibleNoResetOnSameValue)
-{
-    panes_.SetHoveredSideIndex(PaneTarget::File, 2);
-    panes_.SetSideHoveredButton(PaneTarget::File, PaneHeaderButton::Refresh);
-    panes_.SetSidePaneVisible(PaneTarget::File, true); // 変化なし
-    EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::File), 2);
-    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::File), PaneHeaderButton::Refresh);
-}
-
-TEST_F(PaneControllerTest, SetTocPaneVisibleResetsHoverOnChange)
-{
-    panes_.SetHoveredSideIndex(PaneTarget::Toc, 4);
-    panes_.SetSideHoveredButton(PaneTarget::Toc, PaneHeaderButton::Close);
-    panes_.SetSidePaneVisible(PaneTarget::Toc, false);
-    EXPECT_EQ(panes_.GetHoveredSideIndex(PaneTarget::Toc), -1);
-    EXPECT_EQ(panes_.GetSideHoveredButton(PaneTarget::Toc), PaneHeaderButton::None);
 }
 
 // ═══════════════════════════════════════════════

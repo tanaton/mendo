@@ -2,6 +2,7 @@
 #include "document.h"
 #include "layout_cache.h"
 #include "layout_computer.h"
+#include "test_nodes.h"
 #include "theme.h"
 
 using layout::EstimateInvisibleNodeHeight;
@@ -30,7 +31,7 @@ Node MakeTableNode()
 {
     Node n;
     n.type = NodeType::Table;
-    auto* tbl = n.ensure_table();
+    auto* tbl = AttachTestTable(n);
     tbl->row_count = 2;
     tbl->col_count = 2;
     return n;

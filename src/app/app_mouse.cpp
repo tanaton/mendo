@@ -325,7 +325,7 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
     const bool had_overlay = state_.interaction.swipe_detector.IsOverlayVisible();
     state_.interaction.swipe_detector.NotifyVScroll(GetTickCount64());
     if (had_overlay) {
-        EmitEffect(effect::KillTimer{ app_timer::Id::SWIPE_OVERLAY });
+        KillTimer(app_timer::Id::SWIPE_OVERLAY);
         Invalidate();
     }
 
@@ -392,7 +392,7 @@ void App::HandleLinkClick(std::string_view url)
     case LinkClickResult::Type::ExternalUrl: {
         std::pmr::wstring url_wide;
         string_convert::Utf8ToWide(result.target, url_wide);
-        win32_host_.ShellOpen(url_wide);
+        ShellExecuteW(nullptr, L"open", url_wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         return;
     }
     }
@@ -450,7 +450,7 @@ bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_
     switch (HitTestSearchBar(sbl, dip_x, dip_y)) {
     case SearchBarHitZone::None:
         if (!is_double_click) {
-            EmitEffect(effect::SearchFocus{});
+            Execute(effect::SearchFocus{});
         }
         return true;
     case SearchBarHitZone::Up:
@@ -479,7 +479,7 @@ bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_
         // 自前で単語境界を計算して EM_SETSEL を発行する。
         const auto wb = FindWordBoundaries(std::wstring_view{ query_wide }, static_cast<uint32_t>(pos));
         if (wb.found) {
-            EmitEffect(effect::SearchFocus{
+            Execute(effect::SearchFocus{
                 effect::SearchFocus::Mode::SetSelection,
                 static_cast<int>(wb.start),
                 static_cast<int>(wb.end),
@@ -519,7 +519,7 @@ void App::HandleOverlayButtonClick(const OverlayButtonHit& hit, float content_wi
 
 bool App::TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x)
 {
-    const int hover = state_.view.hovered_h_block;
+    const int hover = state_.view.hover.h_block;
     const auto geom = ResolveBlockHScrollGeometry(state_, hover);
     if (!geom.can_scroll() || !hit_test::BlockHScrollbarHitTest(hit_ctx, hover, geom.visible_width)) {
         return false;

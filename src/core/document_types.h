@@ -6,11 +6,9 @@
 #include <vector>
 #include <cstdint>
 #include <limits>
-#include <memory>
 #include <memory_resource>
 #include <type_traits>
 #include <utility>
-#include <variant>
 #include "syntax.h"
 #include "text_types.h"
 
@@ -137,25 +135,10 @@ struct NodeTableData {
     }
 };
 
-struct NodeListData {
-    int32_t list_number = 0;   // 順序付きリストの番号 (ordered=true のとき有効。0 始まりも可)
-    bool ordered = false;
-    bool task_checked = false; // TaskListItem のときのみ意味を持つ
-};
-
-// alert_type は同一 blockquote_group の後続ノードにも伝播するため Node 直下に置く
-// (parser_alerts.cpp:DetectAlertAt 参照)。alert_label_length は BlockQuote 本体専用なので variant 内。
-struct NodeAlertData {
-    uint32_t alert_label_length = 0;
-};
-
-using NodeTablePtr = std::unique_ptr<NodeTableData>;
-
 // 読み込んだ画像の寸法はパース結果ではないので持たない (LayoutCache の DiagramEntry が持つ)。
 struct NodeImageData {
     std::string_view src; // 画像ソースパス（Markdown内の記述）。raw_text_ か TextArena を指す
 };
-using NodeImagePtr = std::unique_ptr<NodeImageData>;
 
 // Node::SourceOffset() が未設定のときに返す値。
 // HorizontalRule のようなテキストを持たないノードはオフセットを持たない。
@@ -165,25 +148,23 @@ inline constexpr size_t kUnsetSourceOffset = std::numeric_limits<uint32_t>::max(
 // 1 ノードのリンク URL の上限。TextRun::link_url_index (int16_t) で引ける数まで。
 inline constexpr size_t kMaxLinkUrls = std::numeric_limits<int16_t>::max();
 
+// 自分では何も所有しない、trivially copyable なビュー。ノード配列の伸長や詰め直しを memcpy で済ませる。
 struct Node {
-    // テキスト・runs・リンク URL はノード自身では持たず、Document の raw_text_ (原文をそのまま使えるもの)
-    // か TextArena (加工したテキスト・runs・URL の配列) を指す。どちらも Document と寿命が同じ。
-    // 長さと件数は 4 バイト領域にまとめて Node を 72B に収める。
+    // テキスト・runs・リンク URL・画像 src はノード自身では持たず、Document の raw_text_ (原文をそのまま使えるもの)
+    // か TextArena (加工したテキスト・runs・URL の配列) を指す。テーブルは Document が所有する NodeTableData を指す。
+    // どれも Document と寿命が同じ。長さと件数は 4 バイト領域にまとめて Node を 64B に収める。
     const char* text_ = nullptr;
     const TextRun* runs_ = nullptr;
     // `runs()` の link_url_index で引く URL の配列。
     const std::string_view* link_urls_ = nullptr;
 
-    // ノード種別ごとの拡張データ。重データ (table / image) は unique_ptr で
-    // 外出しすることで variant alternative の最大サイズを 8B に抑える。
-    // Parser invariant: 1 つのノードは 1 つの alternative しか持たない (ensure_* は他を破壊する)。
-    using Extra = std::variant<
-        std::monostate,  // Paragraph / Heading / CodeBlock / HorizontalRule など固有データ無し
-        NodeListData,    // ListItem / TaskListItem
-        NodeAlertData,   // BlockQuote 本体の alert ラベル
-        NodeTablePtr,    // Table
-        NodeImagePtr>;   // Image
-    Extra extra;
+    // ノード種別ごとのデータ。どれを使うかは type (list_number は list_ordered) で決まる。
+    union Payload {
+        NodeTableData* table = nullptr; // Table
+        const NodeImageData* image;     // Image
+        int32_t list_number;            // 順序付きの ListItem / TaskListItem (0 始まりも可)
+        uint32_t alert_label_length;    // Alert の BlockQuote 本体
+    } payload_;
 
     // --- 4 バイトアライメント ---
     // テキストは入力 (md4c の制約で 2GB 未満) に Alert ラベルと上限付きの脚注 backref を足した程度なので 32bit に収まる。
@@ -199,15 +180,18 @@ struct Node {
 
     // --- 1 バイトアライメント ---
     NodeType type = NodeType::Paragraph;
-    AlertType alert_type = AlertType::None; // 同一 blockquote_group 内で伝播するため直下に残す
+    AlertType alert_type = AlertType::None; // 同一 blockquote_group 内で伝播するため payload と別に持つ
     int8_t quote_depth = 0;                 // 現在の blockquote ネスト深さ（0 = 引用外, 1.. = ネストレベル）
     int8_t quote_outer_indent = 0;          // 最外側 blockquote が居る indent_level（バー位置の起点）
     int8_t indent_level = 0;                // リスト/引用のネスト深さ（int8_t の最大値で飽和）
-    // variant alternative に入れると 8B ポインタと合わせて 16B に膨らむため、末尾 padding に置く。
     // 該当しないノードでは既定値のまま。
     int8_t heading_level_ = 0;
     SyntaxLanguage code_language_ = SyntaxLanguage::None;
-    bool has_child_blocks_ = false; // LI のみ。中身を子ブロック (loose list の段落・入れ子リスト等) に持つ
+    uint8_t flags_ = 0;
+
+    static constexpr uint8_t kListOrdered = 1u << 0;
+    static constexpr uint8_t kTaskChecked = 1u << 1;   // TaskListItem のときのみ意味を持つ
+    static constexpr uint8_t kHasChildBlocks = 1u << 2; // LI のみ。中身を子ブロック (loose list の段落・入れ子リスト等) に持つ
 
     constexpr bool HasSourceOffset() const noexcept
     {
@@ -264,71 +248,37 @@ struct Node {
         run_count_ = static_cast<uint32_t>(runs_value.size());
     }
 
-    // get_if 風に *_data() でポインタを返す。所持していなければ nullptr。
-    // C++23 deducing this で const/非 const を 1 つに集約。
-    constexpr auto* list_data(this auto& self) noexcept
+    // 種別が違う、または持っていなければ nullptr。
+    template <class Self>
+    constexpr auto* table_data(this Self& self) noexcept
     {
-        return std::get_if<NodeListData>(&self.extra);
+        using T = std::conditional_t<std::is_const_v<Self>, const NodeTableData, NodeTableData>;
+        return self.has_table() ? static_cast<T*>(self.payload_.table) : nullptr;
     }
-    constexpr auto* alert_data(this auto& self) noexcept
+    constexpr const NodeImageData* image_data() const noexcept
     {
-        return std::get_if<NodeAlertData>(&self.extra);
-    }
-
-    // table / image は variant に unique_ptr を格納する形なので、
-    // alternative の存在 → 内部 unique_ptr の中身、と 2 段で取り出す。
-    constexpr auto* table_data(this auto& self) noexcept
-    {
-        return GetPtrAlt<NodeTablePtr>(self);
-    }
-    constexpr auto* image_data(this auto& self) noexcept
-    {
-        return GetPtrAlt<NodeImagePtr>(self);
-    }
-
-    constexpr bool has_list() const noexcept
-    {
-        return std::holds_alternative<NodeListData>(extra);
-    }
-    constexpr bool has_alert() const noexcept
-    {
-        return std::holds_alternative<NodeAlertData>(extra);
+        return has_image() ? payload_.image : nullptr;
     }
     constexpr bool has_table() const noexcept
     {
-        return std::holds_alternative<NodeTablePtr>(extra);
+        return type == NodeType::Table && payload_.table != nullptr;
     }
     constexpr bool has_image() const noexcept
     {
-        return std::holds_alternative<NodeImagePtr>(extra);
+        return type == NodeType::Image && payload_.image != nullptr;
     }
 
-    // ensure_*: 既に存在すれば内部参照、無ければ新規確保して返す。
-    // 既存 alternative がある状態で別種の ensure_* を呼ぶと、それは破棄される (variant の emplace 動作)。
-    // parser は BeginNode 直後に 1 種類だけ ensure する規約。
-    constexpr NodeListData* ensure_list()
+    // table / image はノードより長く生きる領域を指すこと。
+    constexpr void set_table_data(NodeTableData* table) noexcept
     {
-        return EnsureAlt<NodeListData>();
+        payload_.table = table;
     }
-    constexpr NodeAlertData* ensure_alert()
+    constexpr void set_image_data(const NodeImageData* image) noexcept
     {
-        return EnsureAlt<NodeAlertData>();
-    }
-    NodeTableData* ensure_table()
-    {
-        return EnsurePtrAlt<NodeTablePtr>();
-    }
-    NodeImageData* ensure_image()
-    {
-        return EnsurePtrAlt<NodeImagePtr>();
+        payload_.image = image;
     }
 
-    // 該当 alternative を持たないノードでは黙ってデフォルト値 (0 / None / false) を返す。
-    //
-    // 規約: ホットパス (全 Node ループ等) では `node.type == NodeType::X && node.foo()` の順で短絡評価し、
-    //       variant タグ比較を skip すること。例: `node.type == NodeType::Heading && node.heading_level() <= 2`、
-    //       `node.alert_type != AlertType::None && node.alert_label_length() > 0`。
-    //       新規アクセサを追加する場合もこの規約に倣い、type で先にゲートできる呼び出し側を維持する。
+    // 該当しないノードでは黙ってデフォルト値 (0 / false) を返す。
     constexpr int8_t heading_level() const noexcept
     {
         return type == NodeType::Heading ? heading_level_ : static_cast<int8_t>(0);
@@ -347,31 +297,42 @@ struct Node {
     }
     constexpr bool has_child_blocks() const noexcept
     {
-        return has_child_blocks_;
+        return (flags_ & kHasChildBlocks) != 0;
     }
     constexpr void set_has_child_blocks() noexcept
     {
-        has_child_blocks_ = true;
+        flags_ |= kHasChildBlocks;
     }
     constexpr int32_t list_number() const noexcept
     {
-        const auto* ld = list_data();
-        return ld ? ld->list_number : 0;
+        return list_ordered() ? payload_.list_number : 0;
     }
     constexpr bool list_ordered() const noexcept
     {
-        const auto* ld = list_data();
-        return ld && ld->ordered;
+        return (flags_ & kListOrdered) != 0;
+    }
+    // 順序付きリストの項目にする。
+    constexpr void set_list_number(int32_t number) noexcept
+    {
+        payload_.list_number = number;
+        flags_ |= kListOrdered;
     }
     constexpr bool task_checked() const noexcept
     {
-        const auto* ld = list_data();
-        return ld && ld->task_checked;
+        return (flags_ & kTaskChecked) != 0;
     }
+    constexpr void set_task_checked() noexcept
+    {
+        flags_ |= kTaskChecked;
+    }
+    // Alert の伝播先 (後続ノード) は alert_type だけを持ち、ラベル長は 0。
     constexpr uint32_t alert_label_length() const noexcept
     {
-        const auto* ad = alert_data();
-        return ad ? ad->alert_label_length : 0u;
+        return type == NodeType::BlockQuote ? payload_.alert_label_length : 0u;
+    }
+    constexpr void set_alert_label_length(uint32_t length) noexcept
+    {
+        payload_.alert_label_length = length;
     }
 
     constexpr std::span<const std::string_view> view_link_urls() const noexcept
@@ -386,50 +347,11 @@ struct Node {
         link_urls_ = urls.data();
         link_url_count_ = static_cast<uint16_t>(urls.size());
     }
-
-private:
-    // parser 契約: BeginNode 直後の Node は monostate で、対応する 1 種類だけが ensure される。
-    // 異種 alternative を保持した状態で別種を ensure すると元データはサイレントに破棄されるため、
-    // Debug ビルドでは契約違反を assert で捕捉する (Release では noop)。
-    template <class T>
-    constexpr T* EnsureAlt()
-    {
-        if (auto* p = std::get_if<T>(&extra)) {
-            return p;
-        }
-        assert(std::holds_alternative<std::monostate>(extra) &&
-               "ensure_*<T>: Node already holds a different alternative — parser contract violation");
-        return &extra.emplace<T>();
-    }
-
-    // unique_ptr::get() は const でも非 const ポインタを返すため、self の const 性を明示的に伝播する。
-    template <class Ptr, class Self>
-    static constexpr auto* GetPtrAlt(Self& self) noexcept
-    {
-        using T = std::conditional_t<std::is_const_v<Self>, const typename Ptr::element_type, typename Ptr::element_type>;
-        const auto* p = std::get_if<Ptr>(&self.extra);
-        return p ? static_cast<T*>(p->get()) : nullptr;
-    }
-
-    template <class Ptr>
-    auto* EnsurePtrAlt()
-    {
-        using T = typename Ptr::element_type;
-        auto* p = std::get_if<Ptr>(&extra);
-        if (!p) {
-            assert(std::holds_alternative<std::monostate>(extra) &&
-                   "ensure_*<Ptr>: Node already holds a different alternative — parser contract violation");
-            p = &extra.emplace<Ptr>(std::make_unique<T>());
-        }
-        return p->get();
-    }
 };
 
-// 超過時の対処: (1) `sizeof(Node)` の実際の値を確認 (例: /d1reportSingleClassLayoutNode)、
-// (2) variant alternative のうち最大のものを unique_ptr 経由で外出しする。
-// 注意: variant の discriminator パディングは std lib 実装依存なので、ツールチェーン切替時にも踏む可能性あり。
-static_assert(sizeof(Node) <= 72,
-              "Node size regression: exceeded 72 bytes — see comment above for remediation steps");
+// 超過したら /d1reportSingleClassLayoutNode で並びを確認し、payload か末尾の 1 バイト領域に寄せる。
+static_assert(sizeof(Node) == 64, "Node size regression: expected 64 bytes");
+static_assert(std::is_trivially_copyable_v<Node>, "Node must stay a trivially copyable view");
 
 // テキストではなくビットマップを描くノード。
 constexpr bool IsBitmapDrawNode(const Node& node) noexcept

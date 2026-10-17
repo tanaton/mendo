@@ -29,22 +29,24 @@ inline TextArena& Arena()
     return arena;
 }
 
-inline void KeepAlive(std::unique_ptr<TextArena> arena)
+// storage.nodes は取り出し済みであること。
+inline void KeepAlive(NodeStorage storage)
 {
-    static std::vector<std::unique_ptr<TextArena>> kept;
+    static std::vector<NodeStorage> kept;
     const std::scoped_lock lock{ Mutex() };
-    kept.push_back(std::move(arena));
+    kept.push_back(std::move(storage));
 }
 
 } // namespace test_nodes_detail
 
-// ParseMarkdown の nodes だけを使うテスト向け。ParseResult の arena は手放しても解放されない。
+// ParseMarkdown の nodes だけを使うテスト向け。ParseResult の arena とテーブルは手放しても解放されない。
 // 原文を指すノードがあるので、markdown_text はノードより長く生きること (ParseMarkdown と同じ)。
 inline std::pmr::vector<Node> ParseNodes(std::string_view markdown_text)
 {
-    auto [nodes, arena] = ParseMarkdown(markdown_text).TakeNodes();
-    test_nodes_detail::KeepAlive(std::move(arena));
-    return std::move(nodes);
+    auto storage = ParseMarkdown(markdown_text).TakeNodes();
+    auto nodes = std::move(storage.nodes);
+    test_nodes_detail::KeepAlive(std::move(storage));
+    return nodes;
 }
 
 template <class S>
@@ -70,6 +72,16 @@ inline void SetTestRuns(Node& n, std::span<const TextRun> runs)
 {
     const std::scoped_lock lock{ test_nodes_detail::Mutex() };
     n.SetRuns(test_nodes_detail::Arena().Copy(runs));
+}
+
+// 空のテーブルを n に持たせて返す。テーブルはテストプロセスの終了まで残る。type は呼び出し側で Table にすること。
+inline NodeTableData* AttachTestTable(Node& n)
+{
+    static std::vector<std::unique_ptr<NodeTableData>> tables;
+    const std::scoped_lock lock{ test_nodes_detail::Mutex() };
+    auto* const table = tables.emplace_back(std::make_unique<NodeTableData>()).get();
+    n.set_table_data(table);
+    return table;
 }
 
 // n のリンク URL の末尾に url を足し、その link_url_index を返す。

@@ -65,7 +65,3 @@ TitleBarHitZone TitleBar::HitTest(float dip_x, float dip_y) const noexcept
     return TitleBarHitZone::Caption;
 }
 
-bool TitleBar::SetHovered(TitleBarHitZone zone) noexcept
-{
-    return std::exchange(hovered_, zone) != zone;
-}

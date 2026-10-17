@@ -25,6 +25,10 @@ void GenerateAnchorIdInto(std::string_view text, std::pmr::string& slug);
 // リンク先のアンカーを GenerateAnchorIdInto と同じ規則で小文字にする。
 std::pmr::string ToLowerAnchorCopy(std::string_view text);
 
+// 表示に効く中身 (種別・テキスト・runs・リンク先・入れ子の深さ・表や画像など) が同じか。
+// ソース位置と引用グループ番号は比べない。リロードで計測結果を使い回せるかの判定に使う。
+bool NodeContentEquals(const Node& a, const Node& b) noexcept;
+
 // 最後のパス区切り以降の "." を含む拡張子。無ければ空。
 std::wstring_view ExtensionView(std::wstring_view path) noexcept;
 

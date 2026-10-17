@@ -1,4 +1,5 @@
 #include "layout_computer.h"
+#include "document_utils.h"
 #include "profiler.h"
 #include <algorithm>
 #include <cassert>
@@ -193,6 +194,28 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
     }
 }
 
+size_t CarryOverUnchanged(
+    const std::pmr::vector<Node>& old_nodes, LayoutCache& old_cache,
+    const std::pmr::vector<Node>& new_nodes, LayoutCache& new_cache)
+{
+    MENDO_PROFILE("layout::CarryOverUnchanged");
+    assert(old_cache.size() == old_nodes.size() && new_cache.size() == new_nodes.size());
+    const size_t old_count = old_nodes.size();
+    const size_t new_count = new_nodes.size();
+    const size_t common = std::min(old_count, new_count);
+    size_t head = 0;
+    while (head < common && NodeContentEquals(old_nodes[head], new_nodes[head])) {
+        new_cache.TakeEntry(old_cache, head, head);
+        ++head;
+    }
+    size_t tail = 0;
+    while (head + tail < common && NodeContentEquals(old_nodes[old_count - 1 - tail], new_nodes[new_count - 1 - tail])) {
+        new_cache.TakeEntry(old_cache, old_count - 1 - tail, new_count - 1 - tail);
+        ++tail;
+    }
+    return head + tail;
+}
+
 LayoutCache MakeEstimatedLayoutCache(const std::pmr::vector<Node>& nodes, const Theme& theme, std::stop_token stop_token)
 {
     LayoutCache cache;
@@ -230,12 +253,11 @@ bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
     return true;
 }
 
-bool RecomputeYPositions(
+void RecomputeYPositions(
     const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
     size_t from_index, size_t safe_exit_after) noexcept
 {
     MENDO_PROFILE("RecomputeYPositions");
-    bool has_dirty_nodes = false;
     const auto node_count = nodes.size();
     float y = (from_index < node_count) ? NodeStartY(nodes, cache, theme, from_index) : theme.margin_top;
 
@@ -244,14 +266,9 @@ bool RecomputeYPositions(
     const size_t tail_start = (safe_exit_after < node_count) ? safe_exit_after + 1 : node_count;
 
     for (size_t i = from_index; i < tail_start; i++) {
-        const auto& entry = cache[i];
-        if (entry.layout_dirty) {
-            has_dirty_nodes = true;
-        }
-
         const float sa = GetSpacingAbove(nodes[i], theme);
         const float sb = GetSpacingBelow(nodes[i], theme);
-        cache.SetTop(i, AdvanceNodeY(y, sa, entry.height, sb));
+        cache.SetTop(i, AdvanceNodeY(y, sa, cache[i].height, sb));
     }
 
     if (tail_start < node_count) {
@@ -261,12 +278,7 @@ bool RecomputeYPositions(
         if (std::abs(delta) >= Y_POSITION_EPSILON) {
             cache.ShiftTops(tail_start, delta);
         }
-        // 後続の dirty 有無を調べるには AoS の全エントリを読む必要があり、シフトを SoA にした
-        // 意味がなくなるため保守的に true とする。ProcessDirtyBatch は可視帯に dirty が
-        // 無ければ即 false に戻すので、誤って true でも余分なのはタイマー 1 tick だけ。
-        has_dirty_nodes = true;
     }
-    return has_dirty_nodes;
 }
 
 } // namespace layout

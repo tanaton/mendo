@@ -398,7 +398,7 @@ TEST(ExtractSelectedTextAsHtml, TableWithoutColumnsDoesNotReadOutOfRange)
 {
     std::pmr::vector<Node> nodes(1);
     nodes[0].type = NodeType::Table;
-    auto* tbl = nodes[0].ensure_table();
+    auto* tbl = AttachTestTable(nodes[0]);
     tbl->row_count = 1;
     tbl->col_count = 0;
     tbl->cell_text_starts.push_back(0);
@@ -1243,8 +1243,7 @@ TEST(FindLinkAtPosition, TableCellLinkFound)
     // 線形化テキスト: "Name\tURL\nfoo\tbar"
     Node node;
     node.type = NodeType::Table;
-    node.ensure_table();
-    auto* tbl = node.table_data();
+    auto* tbl = AttachTestTable(node);
 
     TextRun h0r;
     h0r.start = 0;
@@ -1315,8 +1314,7 @@ TEST(FindLinkAtPosition, TableCellInternalLink)
 {
     Node node;
     node.type = NodeType::Table;
-    node.ensure_table();
-    auto* tbl = node.table_data();
+    auto* tbl = AttachTestTable(node);
 
     TextRun r;
     r.start = 0;
@@ -1344,8 +1342,7 @@ TEST(FindLinkAtPosition, TablePositionOnSeparator)
     // タブ/改行区切り上の位置ではリンクを返さないべき
     Node node;
     node.type = NodeType::Table;
-    node.ensure_table();
-    auto* tbl = node.table_data();
+    auto* tbl = AttachTestTable(node);
 
     TextRun r0;
     r0.start = 0;
@@ -1387,8 +1384,7 @@ TEST(NodeTableData, GetCellTextShortLastRow)
     // 返してしまっていた。データ駆動 (end == concat_text.size()) で 0 を返すこと。
     Node node;
     node.type = NodeType::Table;
-    node.ensure_table();
-    auto* tbl = node.table_data();
+    auto* tbl = AttachTestTable(node);
     tbl->row_count = 3;
     tbl->col_count = 3;
     tbl->concat_text = "a\tb\tc\nd\te\tf\ng";

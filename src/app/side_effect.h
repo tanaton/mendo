@@ -8,7 +8,7 @@
 #include <vector>
 #include <windows.h>
 
-// Reducer が返す副作用の型定義。実行は side_effect_executor.h。
+// Reducer が返す副作用の型定義。実行は App::Execute。
 
 namespace effect {
 
@@ -17,7 +17,7 @@ struct SetCapture {};
 struct ReleaseCapture {};
 struct ClipboardWrite {
     // text は Document テキスト由来の UTF-8 string。
-    // executor 側で CF_UNICODETEXT 用に wstring 変換する。
+    // 書き込み側で CF_UNICODETEXT 用に wstring 変換する。
     std::pmr::string text;
 };
 struct ClipboardWriteHtml {
@@ -28,9 +28,6 @@ struct ShowTooltip {
     TooltipTarget target;
 };
 struct ClearTooltip {};
-struct ShowToast {
-    std::pmr::wstring message;
-};
 struct ShowContextMenu {
     int screen_x;
     int screen_y;
@@ -68,6 +65,8 @@ struct PerformSizingUpdate {};
 struct RendererResize {
     UINT width;
     UINT height;
+    // ライブリサイズ中。描画面を作り直さずに済むよう大きめのバッファを使い回す。
+    bool live = false;
 };
 struct RendererSetDpi {
     float dpi;
@@ -91,12 +90,6 @@ struct SyncTocActive {
     bool auto_scroll = true;
 };
 
-struct StartFileWatch {
-    std::pmr::wstring path;
-};
-struct StopFileWatch {};
-struct ResumeFileWatch {};
-
 struct SetTimer {
     app_timer::Id id;
     UINT ms;
@@ -107,7 +100,7 @@ struct KillTimer {
 
 } // namespace effect
 
-// 論理グループ (Ui/Window/Navigation/Layout/Resource/Timer) は executor の visitor と同じ並び。
+// 論理グループ (Ui/Window/Navigation/Layout/Timer) は App::Execute の visitor と同じ並び。
 using SideEffect = std::variant<
     // Ui
     effect::InvalidateWindow,
@@ -117,7 +110,6 @@ using SideEffect = std::variant<
     effect::ClipboardWriteHtml,
     effect::ShowTooltip,
     effect::ClearTooltip,
-    effect::ShowToast,
     effect::ShowContextMenu,
     // Window
     effect::SearchFocus,
@@ -136,10 +128,6 @@ using SideEffect = std::variant<
     // Layout
     effect::BitmapManage,
     effect::SyncTocActive,
-    // Resource
-    effect::StartFileWatch,
-    effect::StopFileWatch,
-    effect::ResumeFileWatch,
     // Timer
     effect::SetTimer,
     effect::KillTimer>;

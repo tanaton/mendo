@@ -15,10 +15,10 @@ namespace {
 // SVG リクエスト引数とコールバックを記録するモック。
 class MockMermaidRenderer : public IMermaidRenderer {
 public:
-    void RequestRender(const Node&, DiagramEntry&, float, bool, Callback) override
-    {}
-    void CancelPending() override
-    {}
+    bool RequestRender(const Node&, DiagramEntry&, float, bool) override
+    {
+        return false;
+    }
 
     void RequestSvg(std::wstring_view code, float max_width, bool dark_mode, SvgCallback cb) override
     {

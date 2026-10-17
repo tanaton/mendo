@@ -86,16 +86,14 @@ void GenInlineCodeBgs(DrawCommandList& cmds, std::span<const InlineCodeBg> bgs, 
 
 // bgs は cell_index 昇順を維持しているため、cursor を進めるだけで O(N) 全体で済む。
 // 戻り値は次回呼び出し向けに進めた cursor。
-size_t GenCellInlineCodeBgs(DrawCommandList& cmds, std::span<const CellInlineCodeBg> bgs, size_t cursor, uint32_t cell_index, float origin_x, float origin_y)
+// row_bgs は列の昇順。col のセルの背景だけを描く。
+void GenCellInlineCodeBgs(DrawCommandList& cmds, std::span<const CellInlineCodeBg> row_bgs, size_t col, float origin_x, float origin_y)
 {
-    while (cursor < bgs.size() && bgs[cursor].cell_index < cell_index) {
-        ++cursor;
+    for (const auto& bg : row_bgs) {
+        if (bg.col == col) {
+            cmds.emplace_back(MakeInlineCodeBgCmd(OffsetRectF(bg.rect, origin_x, origin_y)));
+        }
     }
-    while (cursor < bgs.size() && bgs[cursor].cell_index == cell_index) {
-        cmds.emplace_back(MakeInlineCodeBgCmd(OffsetRectF(bgs[cursor].rect, origin_x, origin_y)));
-        ++cursor;
-    }
-    return cursor;
 }
 
 // h1/h2 見出し下線を描画するY座標を heading_spacing_below_h1h2 のこの比率で決める。
@@ -719,9 +717,6 @@ void CommandGenerator::GenTable(const FrameContext& fc,
     // 毎フレーム row_count 回の continue ループが走るのを防ぐ。
     const auto [r_begin, r_end] = tl.VisibleRowRange(cull_top_ - entry_text_top, cull_bottom_ - entry_text_top);
     float y = entry_text_top + tl.row_cum_y[r_begin];
-    // cell_inline_code_bgs は cell_index 昇順 (renderer.cpp の追記/rotate が維持) なので二分探索で頭出しする。
-    const auto& bgs = tl.cell_inline_code_bgs;
-    size_t bg_cursor = static_cast<size_t>(std::ranges::lower_bound(bgs, static_cast<uint32_t>(r_begin * tl.col_count), {}, &CellInlineCodeBg::cell_index) - bgs.begin());
 
     // x は列順に単調なので、可視列は連続した区間 [c_begin, c_end) になる。
     size_t c_begin = 0;
@@ -748,8 +743,9 @@ void CommandGenerator::GenTable(const FrameContext& fc,
         for (size_t c = c_begin; c < c_end; c++) {
             const auto [text_x, text_y] = TableCellTextOrigin(cx, y);
 
-            // bg_cursor は cell_index 昇順で進む。
-            bg_cursor = GenCellInlineCodeBgs(cmds_, tl.cell_inline_code_bgs, bg_cursor, static_cast<uint32_t>(tl.CellIndex(r, c)), text_x, text_y);
+            if (r < tl.row_code_bgs.size()) {
+                GenCellInlineCodeBgs(cmds_, tl.row_code_bgs[r], c, text_x, text_y);
+            }
 
             IDWriteTextLayout* const cell_layout = tl.GetCellLayout(r, c);
             GenCellSearchHighlights(search_nm, cell_layout, r, c, text_x, text_y);

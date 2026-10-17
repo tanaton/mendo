@@ -4,6 +4,7 @@
 #include "win32_util.h"
 // IDXGISwapChain2 / SetMaximumFrameLatency / GetFrameLatencyWaitableObject 用。
 #include <dxgi1_3.h>
+#include <algorithm>
 #include <thread>
 
 using Microsoft::WRL::ComPtr;
@@ -161,6 +162,8 @@ bool D2DRenderBackend::CreateDeviceResources()
     DXGI_SWAP_CHAIN_DESC1 scd{};
     scd.Width = width_px_;
     scd.Height = height_px_;
+    buffer_width_ = width_px_;
+    buffer_height_ = height_px_;
     scd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
     scd.SampleDesc.Count = 1;
     scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
@@ -212,7 +215,13 @@ bool D2DRenderBackend::CreateSwapChainBitmap()
     return true;
 }
 
-void D2DRenderBackend::Resize(UINT width, UINT height) noexcept
+bool D2DRenderBackend::SetSourceSize(UINT width, UINT height) noexcept
+{
+    ComPtr<IDXGISwapChain2> sc2;
+    return SUCCEEDED(swap_chain_.As(&sc2)) && SUCCEEDED(sc2->SetSourceSize(width, height));
+}
+
+void D2DRenderBackend::Resize(UINT width, UINT height, bool live) noexcept
 {
     if (width == 0 || height == 0) {
         return;
@@ -222,21 +231,44 @@ void D2DRenderBackend::Resize(UINT width, UINT height) noexcept
     if (!swap_chain_ || !device_context_) {
         return;
     }
+    const bool fits = live ? (width <= buffer_width_ && height <= buffer_height_)
+                           : (width == buffer_width_ && height == buffer_height_);
+    if (fits && SetSourceSize(width, height)) {
+        return;
+    }
+
+    UINT buffer_width = width;
+    UINT buffer_height = height;
+    if (live) {
+        // 1 回のドラッグで何度も作り直さないよう、モニタ全体まで広げられる大きさで取る。
+        MONITORINFO mi{ .cbSize = sizeof(mi) };
+        if (GetMonitorInfoW(MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST), &mi)) {
+            buffer_width = std::max(buffer_width, static_cast<UINT>(mi.rcMonitor.right - mi.rcMonitor.left));
+            buffer_height = std::max(buffer_height, static_cast<UINT>(mi.rcMonitor.bottom - mi.rcMonitor.top));
+        }
+    }
 
     // ResizeBuffers の前にターゲット参照を切る必要がある
     device_context_->SetTarget(nullptr);
 
     // SwapChain 生成時と同じ Flags を渡す必要がある（Waitable は ResizeBuffers でも維持）。
-    const HRESULT hr = swap_chain_->ResizeBuffers(
-        0, width, height, DXGI_FORMAT_UNKNOWN,
-        DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
-    if (FAILED(hr)) {
-        LogHrFailure("IDXGISwapChain1::ResizeBuffers", hr);
-        device_lost_ = true;
-        return;
+    const auto resize_buffers = [&](UINT w, UINT h) {
+        const HRESULT hr = swap_chain_->ResizeBuffers(0, w, h, DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
+        if (FAILED(hr)) {
+            LogHrFailure("IDXGISwapChain1::ResizeBuffers", hr);
+            return false;
+        }
+        buffer_width_ = w;
+        buffer_height_ = h;
+        return true;
+    };
+    bool ok = resize_buffers(buffer_width, buffer_height);
+    // 表示範囲を絞れないと大きいバッファが窓に引き伸ばされるので、ちょうどの大きさで取り直す。
+    if (ok && (buffer_width != width || buffer_height != height) && !SetSourceSize(width, height)) {
+        ok = resize_buffers(width, height);
     }
-    if (!CreateSwapChainBitmap()) {
-        // SetTarget(nullptr) のまま戻ると次回 BeginDraw で D2DERR_WRONG_STATE。
+    // SetTarget(nullptr) のまま戻ると次回 BeginDraw で D2DERR_WRONG_STATE。
+    if (!ok || !CreateSwapChainBitmap()) {
         device_lost_ = true;
     }
 }
@@ -265,14 +297,15 @@ void D2DRenderBackend::Trim() noexcept
     }
 }
 
-void D2DRenderBackend::WaitForFrameLatency() noexcept
+bool D2DRenderBackend::AcquireFrame(DWORD timeout_ms) noexcept
 {
-    if (!frame_latency_waitable_) {
-        return;
+    // ロスト中は描画側が作り直すので待たせない。
+    if (frame_acquired_ || device_lost_ || !frame_latency_waitable_) {
+        return true;
     }
-    // 1 秒タイムアウト。GPU が完全停止した状況でも UI スレッドを永久ブロックしない。
     // alertable=FALSE: UI スレッドは APC を使わないので、意図しない早期復帰を防ぐ。
-    (void)WaitForSingleObjectEx(frame_latency_waitable_.get(), 1000, FALSE);
+    frame_acquired_ = WaitForSingleObjectEx(frame_latency_waitable_.get(), timeout_ms, FALSE) == WAIT_OBJECT_0;
+    return frame_acquired_;
 }
 
 void D2DRenderBackend::Present() noexcept
@@ -281,6 +314,10 @@ void D2DRenderBackend::Present() noexcept
         return;
     }
     const HRESULT hr = swap_chain_->Present(1, 0);
+    // 表示されなかったフレーム (隠れていた・失敗した) はシグナルを消費しないので、取れた扱いのまま次に回す。
+    if (SUCCEEDED(hr) && hr != DXGI_STATUS_OCCLUDED) {
+        frame_acquired_ = false;
+    }
     // TDR / ドライバ内部障害もデバイス再生成で復旧するため REMOVED/RESET と同様に扱う。
     // OCCLUDED(成功) / WAS_STILL_DRAWING / INVALID_CALL は誤爆になるため拾わない。
     if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET ||
@@ -293,6 +330,7 @@ bool D2DRenderBackend::CreateDevice()
 {
     // 作り直しに失敗したら次の描画で再試行させるため、成功するまでロスト扱いにする。
     device_lost_ = true;
+    frame_acquired_ = false;
     frame_latency_waitable_.reset();
     device_context_.Reset();
     d2d_device_.Reset();

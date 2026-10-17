@@ -21,16 +21,6 @@ bool PaneController::ScrollSidePaneBy(PaneTarget t, float delta, float max_scrol
     return scroll_y != old;
 }
 
-bool PaneController::SetHoveredSideIndex(PaneTarget t, int idx) noexcept
-{
-    return std::exchange(Inst(t).hovered_index, idx) != idx;
-}
-
-bool PaneController::SetSideHoveredButton(PaneTarget t, PaneHeaderButton button) noexcept
-{
-    return std::exchange(Inst(t).hovered_button, button) != button;
-}
-
 void PaneController::DragSplitterTo(PaneTarget edge, float dip_x, float total_width, float splitter_w) noexcept
 {
     auto& file = Inst(PaneTarget::File);

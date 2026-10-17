@@ -56,6 +56,8 @@ struct TextRun {
         flags = f;
     }
 
+    bool operator==(const TextRun&) const = default;
+
 private:
     constexpr void set_flag(uint8_t mask, bool v) noexcept
     {

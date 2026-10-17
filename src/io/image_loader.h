@@ -55,6 +55,9 @@ public:
         return DecodeWidthPx(max_width_dip) > image.sharp_width_px;
     }
     void ProcessCompletedDecodes();
+    // 始まっていないデコードを捨てる。始まったものの結果はキャッシュに入れる (パスがキーなので文書をまたいでも使える)。
+    void DropQueued();
+    // 始まったものも含めて結果を捨てる。
     void CancelPending();
 
     void ClearCache()
@@ -118,6 +121,7 @@ private:
     UINT msg_id_ = 0;
     TaskScheduler* scheduler_ = nullptr;
     std::atomic<uint32_t> cancel_gen_{ 0 };
+    std::atomic<uint32_t> drop_gen_{ 0 };
     std::mutex pending_mutex_;
     std::set<std::wstring> pending_paths_;
     std::map<std::wstring, uint32_t> failed_paths_;

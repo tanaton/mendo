@@ -1,5 +1,6 @@
 #pragma once
 #include "block_h_scroll.h"
+#include "doc_dwrite_bridge.h"
 #include "draw_command.h"
 #include "document_types.h"
 #include "layout_cache.h"
@@ -11,25 +12,6 @@
 #include <memory_resource>
 #include <span>
 #include <string_view>
-
-// HitTestTextRange 初期バッファ容量。1 行中の inline code run が
-// 折り返される想定最大数に合わせる。描画 hot path 中の resize を避けるのが目的。
-inline constexpr size_t HIT_TEST_METRICS_INITIAL_CAPACITY = 64;
-
-// HitTestTextRange をバッファ再利用付きで呼び出し、取得件数を返す。
-inline UINT32 FetchHitTestMetrics(IDWriteTextLayout* layout, UINT32 start, UINT32 length, std::pmr::vector<DWRITE_HIT_TEST_METRICS>& buffer)
-{
-    if (buffer.size() < HIT_TEST_METRICS_INITIAL_CAPACITY) {
-        buffer.resize(HIT_TEST_METRICS_INITIAL_CAPACITY);
-    }
-    UINT32 count = static_cast<UINT32>(buffer.size());
-    HRESULT hr = layout->HitTestTextRange(start, length, 0, 0, buffer.data(), count, &count);
-    if (hr == E_NOT_SUFFICIENT_BUFFER) {
-        buffer.resize(count);
-        layout->HitTestTextRange(start, length, 0, 0, buffer.data(), count, &count);
-    }
-    return count;
-}
 
 // DWRITE_HIT_TEST_METRICS を origin 加算付きの D2D1_RECT_F に変換する。
 inline D2D1_RECT_F RectFromHitTest(const DWRITE_HIT_TEST_METRICS& m, float origin_x = 0.0f, float origin_y = 0.0f) noexcept

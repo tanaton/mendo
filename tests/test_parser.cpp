@@ -4,6 +4,7 @@
 #include "parser_alerts.h"
 #include "test_nodes.h"
 #include "utility.h"
+#include <format>
 #include <limits>
 #include <stop_token>
 #include <string>
@@ -1501,6 +1502,24 @@ template <class R>
 concept HasNodes = requires(R&& r) { std::forward<R>(r).nodes(); };
 static_assert(HasNodes<ParseResult&>);
 static_assert(!HasNodes<ParseResult>);
+
+// ノードが細かい文書でも粗い文書でも、パース後のノード配列に大きな余りを残さない。
+TEST(Parser, NodeCapacityStaysNearSize)
+{
+    std::string dense;
+    for (int i = 0; i < 20000; ++i) {
+        dense += std::format("- [a](u{})\n", i);
+    }
+    std::string sparse = "```\n";
+    sparse.append(1 << 20, 'x');
+    sparse += "\n```\n";
+    for (const std::string& md : { dense, sparse }) {
+        auto result = ParseMarkdown(md);
+        const auto& nodes = result.nodes();
+        ASSERT_FALSE(nodes.empty());
+        EXPECT_LE(nodes.capacity(), nodes.size() + nodes.size() / 4) << "size=" << nodes.size();
+    }
+}
 
 TEST(Parser, DetectAlertsOnEmptyVector)
 {

@@ -167,7 +167,7 @@ TEST(ParserImage, ImageInTightListStaysListItem)
     EXPECT_FALSE(nodes[0].has_image());
 }
 
-// issue#298: リスト項目の NodeListData が画像 src で上書きされないこと
+// issue#298: リスト項目の番号が画像 src で上書きされないこと
 TEST(ParserImage, ImageInTightOrderedListKeepsNumber)
 {
     auto nodes = ParseNodes("3. ![alt](img.png)");

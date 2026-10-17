@@ -67,7 +67,6 @@ public:
         entry.reset_text_layout(); // モックでは実際のレイアウトなし
         entry.height = h;
         entry.layout_dirty = false;
-        entry.set_effects_state(EffectsState::None);
     }
 
 private:

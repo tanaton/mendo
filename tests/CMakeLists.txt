@@ -61,7 +61,6 @@ add_executable(mendo_tests
     test_utility.cpp
     test_tooltip_target.cpp
     test_task_scheduler.cpp
-    test_side_effect_executor.cpp
     test_command_generator_frame.cpp
     test_command_generator_content.cpp
     test_command_generator_highlight.cpp
@@ -82,7 +81,6 @@ add_executable(mendo_tests
     test_worker_latch.cpp
     test_async_load_coordinator.cpp
     test_layout_computer_invisible.cpp
-    test_preloader.cpp
     test_clipboard_util.cpp
     test_clipboard_manager.cpp
     test_block_h_scroll.cpp
