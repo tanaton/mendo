@@ -1047,6 +1047,18 @@ TEST(Parser, LatexDisplayMathSurroundingParagraphs)
     EXPECT_EQ(result.diagram_indices[0], 1u);
 }
 
+TEST(Parser, MathFencedCodeBlockIsLatexDiagram)
+{
+    // GitHub / GitLab 互換の ```math も $$...$$ と同じく図として描画する
+    auto result = ParseMarkdown("before\n\n```math\n\\frac{a}{b}\n\\sqrt{x}\n```");
+    ASSERT_EQ(result.nodes().size(), 2u);
+    EXPECT_EQ(result.nodes()[1].type, NodeType::CodeBlock);
+    EXPECT_EQ(result.nodes()[1].code_language(), SyntaxLanguage::LatexMath);
+    EXPECT_EQ(result.nodes()[1].GetText(), "\\frac{a}{b}\n\\sqrt{x}");
+    ASSERT_EQ(result.diagram_indices.size(), 1u);
+    EXPECT_EQ(result.diagram_indices[0], 1u);
+}
+
 // ---- 特殊文字を含むURL ----
 
 TEST(Parser, LinkWithSpecialCharsInUrl)

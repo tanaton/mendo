@@ -22,6 +22,8 @@ enum class BrushId : uint8_t {
     SyntaxComment,
     SyntaxPreprocessor,
     SyntaxFunction,
+    SyntaxInserted,
+    SyntaxDeleted,
     AlertNote,
     AlertTip,
     AlertImportant,

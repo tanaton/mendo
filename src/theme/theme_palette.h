@@ -18,6 +18,8 @@ struct SharedColors {
     uint32_t syntax_comment;
     uint32_t syntax_preprocessor;
     uint32_t syntax_function;
+    uint32_t syntax_inserted;
+    uint32_t syntax_deleted;
 };
 
 inline constexpr SharedColors kLight = {
@@ -31,6 +33,8 @@ inline constexpr SharedColors kLight = {
     .syntax_comment = 0x008000,
     .syntax_preprocessor = 0x795e26,
     .syntax_function = 0x795e26,
+    .syntax_inserted = 0x22863a,
+    .syntax_deleted = 0xb31d28,
 };
 
 inline constexpr SharedColors kDark = {
@@ -44,6 +48,8 @@ inline constexpr SharedColors kDark = {
     .syntax_comment = 0x6a9955,
     .syntax_preprocessor = 0xdcdcaa,
     .syntax_function = 0xdcdcaa,
+    .syntax_inserted = 0x7ee787,
+    .syntax_deleted = 0xff7b72,
 };
 
 } // namespace theme_palette

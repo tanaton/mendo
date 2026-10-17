@@ -18,7 +18,33 @@ enum class SyntaxLanguage : uint8_t {
     PowerShell,
     Cmd,
     Json,
-    LatexMath
+    LatexMath,
+    Java,
+    CSharp,
+    Kotlin,
+    Swift,
+    Php,
+    Ruby,
+    Sql,
+    Yaml,
+    Toml,
+    Ini,
+    Html,
+    Xml,
+    Css,
+    Scss,
+    Diff,
+    Dockerfile,
+    Makefile,
+    Zig,
+    Haskell,
+    Clojure,
+    EmacsLisp,
+    CommonLisp,
+    Scheme, // Racket を含む
+    Lua,
+    Vim,
+    Vim9 // コメントが # の Vim9 script
 };
 
 constexpr bool IsDiagramLanguage(SyntaxLanguage lang) noexcept
@@ -41,7 +67,9 @@ enum class SyntaxTokenType : uint8_t {
     Number,
     Comment,
     Preprocessor,
-    Function
+    Function,
+    Inserted, // diff の追加行
+    Deleted   // diff の削除行
 };
 
 struct SyntaxToken {

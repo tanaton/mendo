@@ -603,7 +603,7 @@ void LeaveCodeBlock(ParseContext* ctx)
         ctx->current_text.pop_back();
         cn->line_count--;
     }
-    if (cn->code_language() == SyntaxLanguage::Mermaid) {
+    if (IsDiagramLanguage(cn->code_language())) {
         ctx->diagram_indices.emplace_back(ctx->current_node_index);
     }
 }

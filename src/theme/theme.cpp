@@ -69,6 +69,8 @@ static void ApplySharedColors(Theme& t, const theme_palette::SharedColors& p)
     t.syntax_comment = D2D1::ColorF(p.syntax_comment);
     t.syntax_preprocessor = D2D1::ColorF(p.syntax_preprocessor);
     t.syntax_function = D2D1::ColorF(p.syntax_function);
+    t.syntax_inserted = D2D1::ColorF(p.syntax_inserted);
+    t.syntax_deleted = D2D1::ColorF(p.syntax_deleted);
 }
 
 // ライトテーマとダークテーマで共有するフォントとレイアウト定数。
