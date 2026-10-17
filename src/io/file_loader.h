@@ -29,9 +29,8 @@ inline std::wstring_view FileLoadErrorMessage(FileLoadError e, const auto& strin
         return strings.toast_file_read_failed;
     case FileLoadError::Cancelled:
         return {};
-    default:
-        return strings.toast_file_not_found;
     }
+    std::unreachable();
 }
 
 // LoadFile が返す UTF-8 ドキュメントテキスト (BOM 除去・LF 正規化済) + 元の UTF-8 バイト数 (BOM 込み)。

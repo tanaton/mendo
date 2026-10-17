@@ -170,26 +170,27 @@ void ReduceKeyScroll(AppState& state, SideEffectList& effects, const KeyScrollAc
         switch (a.type) {
         case ScrollType::LineUp:
             viewport.DirectScrollBy(-SCROLL_LINE_AMOUNT);
-            break;
+            return;
         case ScrollType::LineDown:
             viewport.DirectScrollBy(SCROLL_LINE_AMOUNT);
-            break;
+            return;
         case ScrollType::PageUp:
             viewport.DirectScrollBy(-page_size * SCROLL_PAGE_FACTOR);
-            break;
+            return;
         case ScrollType::PageDown:
             viewport.DirectScrollBy(page_size * SCROLL_PAGE_FACTOR);
-            break;
+            return;
         case ScrollType::Home:
             // ノード 0 の target だと scroll_y = Top(0) になり上余白が隠れる (ロード直後の 0 と不一致)。
             // 短い文書では max_scroll も超えるため、ピクセルで 0 を指定する。
             viewport.ScrollTo(0.0f);
-            break;
+            return;
         case ScrollType::End:
             // 末尾は max_scroll に依存するためピクセル指定。scroll target は無効化される。
             viewport.ScrollTo(viewport.GetMaxScroll());
-            break;
+            return;
         }
+        std::unreachable();
     });
 }
 
@@ -926,10 +927,19 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
         }
         return;
     }
-    default:
+    case app_timer::Id::DEFERRED_LAYOUT:
+    case app_timer::Id::LOADING_ANIM:
+    case app_timer::Id::MERMAID_BATCH:
+    case app_timer::Id::BITMAP_MANAGE:
+    case app_timer::Id::MERMAID_INIT_RETRY:
+    case app_timer::Id::FILE_RELOAD_DEBOUNCE:
+    case app_timer::Id::MERMAID_IDLE:
         // 状態を持たないサービスのタイマーは App::HandleTimer が直接処理する。
         return;
+    case app_timer::Id::END: // 番兵。タイマーとしては使わない。新規タイマーはこの直前に追加する。
+        break;
     }
+    std::unreachable();
 }
 
 } // namespace

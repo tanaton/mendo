@@ -165,18 +165,19 @@ void App::LoadInitialDocument()
     switch (file_load_service_.AttachOrApplyPreload(hwnd_, app_msg::PARSE_COMPLETE)) {
     case PreloadAttachResult::AppliedSync:
         OnParseComplete();
-        break;
+        return;
     case PreloadAttachResult::AttachedAsync:
         if (DocumentService::ShouldShowLoadingAnimation(file_load_service_.GetLoadingPath())) {
             file_load_service_.BeginLoadingAnimation();
             EmitEffect(effect::SetTimer{ app_timer::Id::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS });
             Invalidate();
         }
-        break;
+        return;
     case PreloadAttachResult::None:
         LoadHelpDocument();
-        break;
+        return;
     }
+    std::unreachable();
 }
 
 DipPoint App::PixelToDip(int px, int py) const noexcept

@@ -976,6 +976,8 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
     // payload は has_payload のときだけ設定され、それ以外は空 view。
     const std::wstring_view payload = req.payload;
     switch (parsed.kind) {
+    case WebMessageKind::Unknown:
+        return;
     case WebMessageKind::Ready:
         OnWorkerReady(w, parsed.ready_dpr);
         return;
@@ -1009,9 +1011,8 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
             LogHrFailure("Navigate(retry)", w.webview->Navigate(APP_LOCAL_INDEX_URL));
         }
         return;
-    case WebMessageKind::Unknown:
-        return;
     }
+    std::unreachable();
 }
 
 void MermaidRenderer::OnRenderResult(int worker_idx, std::wstring_view json)

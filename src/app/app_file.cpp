@@ -287,6 +287,7 @@ void App::OnParseComplete()
         FinishLoadMarkdownFile(plan.follow_file_pane);
         return;
     }
+    std::unreachable();
 }
 
 void App::FinishLoadMarkdownFile(bool follow_file_pane)

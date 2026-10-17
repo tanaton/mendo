@@ -26,9 +26,9 @@ std::wstring_view OverlayButtonTooltipText(OverlayButton kind) noexcept
         return i18n::S().tooltip_save_image;
     case OverlayButton::CodeCopy:
     case OverlayButton::None:
-        break;
+        return i18n::S().tooltip_copy;
     }
-    return i18n::S().tooltip_copy;
+    std::unreachable();
 }
 
 // button はペイン左上を原点とする矩形。
@@ -452,28 +452,28 @@ bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_
         if (!is_double_click) {
             EmitEffect(effect::SearchFocus{});
         }
-        break;
+        return true;
     case SearchBarHitZone::Up:
         Dispatch(SearchPrevAction{});
-        break;
+        return true;
     case SearchBarHitZone::Down:
         Dispatch(SearchNextAction{});
-        break;
+        return true;
     case SearchBarHitZone::CaseSensitive:
         Dispatch(ToggleCaseSensitiveAction{});
-        break;
+        return true;
     case SearchBarHitZone::Highlight:
         Dispatch(ToggleHighlightAction{});
-        break;
+        return true;
     case SearchBarHitZone::Close:
         Dispatch(CloseSearchBarAction{});
-        break;
+        return true;
     case SearchBarHitZone::Input: {
         const auto& query_wide = state_.search.search_bar_ctrl.GetQueryWide();
         const int pos = HitTestSearchInputPos(sbl, query_wide, dip_x);
         if (!is_double_click) {
             Dispatch(SearchInputDragStartedAction{ pos });
-            break;
+            return true;
         }
         // 検索 EDIT は非表示で WM_LBUTTONDBLCLK を直接受けないため、
         // 自前で単語境界を計算して EM_SETSEL を発行する。
@@ -485,12 +485,10 @@ bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_
                 static_cast<int>(wb.end),
             });
         }
-        break;
+        return true;
     }
-    default:
-        std::unreachable();
     }
-    return true;
+    std::unreachable();
 }
 
 void App::HandleOverlayButtonClick(const OverlayButtonHit& hit, float content_width)
@@ -499,19 +497,20 @@ void App::HandleOverlayButtonClick(const OverlayButtonHit& hit, float content_wi
     switch (hit.kind) {
     case OverlayButton::CodeCopy:
         clipboard_manager_.CopyCodeBlock(state_.document.doc, hit.node, dark);
-        break;
+        return;
     case OverlayButton::DiagramCopy: {
         // 画像は表示中ビットマップと同寿命の DiagramEntry::png から取る (ボタン表示条件と一致)。
         const auto* diagram = state_.document.layout_cache.FindDiagram(hit.node);
         clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, hit.node, diagram ? diagram->png : nullptr, content_width, dark);
-        break;
+        return;
     }
     case OverlayButton::DiagramSave:
         clipboard_manager_.SaveDiagramAsPng(state_.document.doc, hit.node, content_width, dark);
-        break;
+        return;
     case OverlayButton::None:
-        break;
+        return;
     }
+    std::unreachable();
 }
 
 bool App::TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x)
@@ -547,16 +546,17 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
     case MdPaneHit::Kind::Scrollbar:
         Dispatch(MdScrollbarDragStartedAction{ dip_y });
         return;
-    case MdPaneHit::Kind::Content:
-        break;
-    }
-    // テキスト選択より優先する。
-    if (TryStartBlockHScrollDrag(hit_ctx, dip_x)) {
+    case MdPaneHit::Kind::Content: {
+        // テキスト選択より優先する。
+        if (TryStartBlockHScrollDrag(hit_ctx, dip_x)) {
+            return;
+        }
+        const auto hit = HitTest(px, py);
+        Dispatch(TextSelectionStartedAction{ hit.node_index, hit.text_pos, px, py });
         return;
     }
-
-    const auto hit = HitTest(px, py);
-    Dispatch(TextSelectionStartedAction{ hit.node_index, hit.text_pos, px, py });
+    }
+    std::unreachable();
 }
 
 void App::RefreshFilePane()
@@ -591,19 +591,19 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const
     if (dip_y - rect.y < theme.pane_header_height) {
         const auto buttons = SidePaneHeaderButtonsFor(state_, target);
         switch (HitSidePaneHeaderButton(dip_x, dip_y, rect, theme.pane_header_height, buttons)) {
+        case PaneHeaderButton::None:
+            return;
         case PaneHeaderButton::Close:
             Dispatch(TogglePaneAction{ target });
-            break;
+            return;
         case PaneHeaderButton::Refresh:
             RefreshFilePane();
-            break;
+            return;
         case PaneHeaderButton::Reveal:
             Dispatch(FilePaneRevealCurrentFileAction{});
-            break;
-        case PaneHeaderButton::None:
-            break;
+            return;
         }
-        return;
+        std::unreachable();
     }
 
     const auto ctx = GetSidePaneContext(state_, target);

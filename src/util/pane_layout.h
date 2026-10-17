@@ -33,9 +33,13 @@ constexpr std::optional<PaneTarget> ToPaneTarget(PaneZone zone) noexcept
         return PaneTarget::File;
     case PaneZone::TocPane:
         return PaneTarget::Toc;
-    default:
+    case PaneZone::None:
+    case PaneZone::Splitter1:
+    case PaneZone::Splitter2:
+    case PaneZone::MdPane:
         return std::nullopt;
     }
+    std::unreachable();
 }
 
 struct PaneLayout {
