@@ -224,6 +224,13 @@ target_link_libraries(mendo PRIVATE mendo_core comctl32 delayimp
 )
 # ファイルダイアログでしか使わないので、起動時にロードしない (約 1ms)。
 target_link_options(mendo PRIVATE /DELAYLOAD:comdlg32.dll)
+# KnownDLLs に無い DLL を静的インポートすると、ローダーが exe と同じフォルダを先に探すので
+# Downloads 等に置かれた偽 DLL を読んでしまう。遅延ロードにして、wWinMain 先頭の
+# SetDefaultDllDirectories (System32 限定) の後で解決させる。
+target_link_options(mendo PRIVATE
+    /DELAYLOAD:d2d1.dll /DELAYLOAD:dwrite.dll /DELAYLOAD:d3d11.dll /DELAYLOAD:dwmapi.dll /DELAYLOAD:uxtheme.dll
+    /DEPENDENTLOADFLAG:0x800
+)
 # 自動生成マニフェストを無効化（RC経由で独自のマニフェストを提供するため）
 set_target_properties(mendo PROPERTIES LINK_FLAGS "/MANIFEST:NO")
 

@@ -74,6 +74,7 @@ struct Strings {
 
     // ダイアグラム描画エラー (詳細メッセージが取れなかった場合のフォールバック)
     std::wstring_view diagram_error;
+    std::wstring_view diagram_too_large;
 
     // ヘルプリソースID
     UINT help_resource_id;
@@ -122,6 +123,7 @@ inline constexpr Strings kJa = {
     .toast_diagram_copy_failed = L"コピーに失敗しました",
     .loading = L"読み込み中...",
     .diagram_error = L"図の描画に失敗しました",
+    .diagram_too_large = L"図が大きすぎるため表示できません",
     .help_resource_id = IDR_HELP_MD,
 };
 
@@ -168,6 +170,7 @@ inline constexpr Strings kEn = {
     .toast_diagram_copy_failed = L"Copy failed",
     .loading = L"Loading...",
     .diagram_error = L"Failed to render diagram",
+    .diagram_too_large = L"Diagram is too large to display",
     .help_resource_id = IDR_HELP_EN_MD,
 };
 

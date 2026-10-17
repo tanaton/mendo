@@ -109,7 +109,7 @@ public:
             }
 
             // 通常運用時のみ非同期ロードを起動する。リロード時は後続の LoadImages effect で起動する。
-            const float max_width = content_width - layout::NodeIndent(node, theme);
+            const float max_width = layout::NodeContentWidth(node, theme, content_width);
             const auto request = [&] {
                 if (respect_viewport) {
                     deps_.image_loader->RequestLoadAsync(*abs_path, [this] { OnImageLoadComplete(); }, max_width);

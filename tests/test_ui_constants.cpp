@@ -425,6 +425,13 @@ TEST(BlockHScrollbarThumbWidthTest, ClampedToMinimumAndVisibleWidth)
     EXPECT_FLOAT_EQ(BlockHScrollbarThumbWidth(200.0f, 100.0f), 200.0f);
 }
 
+// 可視幅が最小幅より狭いときは可視幅に収める。
+TEST(BlockHScrollbarThumbWidthTest, VisibleWidthBelowMinimumFitsTrack)
+{
+    const float visible = PANE_SCROLLBAR_THUMB_MIN * 0.5f;
+    EXPECT_FLOAT_EQ(BlockHScrollbarThumbWidth(visible, 100000.0f), visible);
+}
+
 TEST(BlockHScrollbarThumbWidthTest, NonPositiveNaturalWidthIsZero)
 {
     EXPECT_FLOAT_EQ(BlockHScrollbarThumbWidth(200.0f, 0.0f), 0.0f);

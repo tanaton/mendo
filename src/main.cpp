@@ -89,6 +89,15 @@ StartupPlan PlanStartup(std::wstring_view arg, std::wstring_view last_file)
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nCmdShow)
 {
+    // 遅延ロード DLL と LoadLibrary を exe のフォルダやカレントディレクトリ (文書のフォルダ) から探させない。
+    SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
+    // メディアの無いドライブを指す画像パスで「ディスクがありません」ダイアログを出させない。
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
+    // 遅延ロードの D2D / DWrite を、D3D 先行作成スレッドの GPU ドライバ読み込み (ローダーロック) と
+    // 重ねてメインスレッドが待たないよう、そのスレッドを始める前に読んでおく。
+    LoadLibraryExW(L"d2d1.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    LoadLibraryExW(L"dwrite.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+
     // Tracy プロファイラ接続を待つ初期遅延 (ms)。1 秒は Tracy GUI が profile-side に
     // attach するのに十分な経験値で、Release ビルドでは MENDO_IF_TRACY が空展開される。
     [[maybe_unused]] constexpr DWORD kTracyStartupDelayMs = 1000;

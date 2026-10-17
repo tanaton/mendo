@@ -123,7 +123,9 @@ bool MeasureWithoutTextLayout(const Node& node, NodeLayoutEntry& entry, const Th
     }
     else if (node.GetText().empty()) {
         // loose LI で paragraph_spacing を入れると bullet と直下 P の文字 Y が分離する (issue#237)。
-        entry.height = IsEmptyListItemContainer(node) ? 0.0f : theme.paragraph_spacing;
+        entry.height = IsEmptyListItemContainer(node) ? 0.0f
+            : IsListItem(node)                     ? layout::EmptyListItemHeight(theme)
+                                                   : theme.paragraph_spacing;
     }
     else {
         return false;

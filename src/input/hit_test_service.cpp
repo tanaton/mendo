@@ -8,6 +8,7 @@
 #include <utility>
 
 using layout::NodeBoxPadY;
+using layout::NodeContentWidth;
 using layout::NodeIndent;
 using layout::NodeTextXOffset;
 
@@ -110,7 +111,7 @@ hit_test::HitResult hit_test::HitTest(const MdPaneHitContext& ctx) noexcept
     const auto& entry = ctx.cache[direct.node_index];
     const float indent = NodeIndent(node, ctx.theme);
     const float h_scroll_x = LookupBlockScrollX(
-        ctx.block_scroll_x, direct.node_index, GetBlockHScrollGeometry(node, entry, ctx.content_width - indent));
+        ctx.block_scroll_x, direct.node_index, GetBlockHScrollGeometry(node, entry, NodeContentWidth(node, ctx.theme, ctx.content_width)));
     if (node.type == NodeType::Table) {
         return HitTestTable(node, entry, direct.text_top, direct.node_index, ctx.theme, dip_x, dip_y, h_scroll_x);
     }
@@ -206,7 +207,7 @@ hit_test::CodeBlockButtonHit hit_test::CodeBlockButtonsHitTest(const MdPaneHitCo
         }
         const float indent = NodeIndent(node, ctx.theme);
         const float x = ctx.theme.margin_left + indent;
-        const float w = ctx.content_width - indent;
+        const float w = NodeContentWidth(node, ctx.theme, ctx.content_width);
         // 1 つ見つかった時点でループを抜けるため、ここに来る時点で out は全て未ヒット。
         if (IsDiagramLanguage(node.code_language())) {
             const auto* diagram = ctx.cache.FindDiagram(i);

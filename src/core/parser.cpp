@@ -190,6 +190,10 @@ struct ParseContext {
 
     void BeginNode(NodeType type)
     {
+        // UL/OL/QUOTE の進入はノードを閉じないので、LI の中の最初の子ブロックが始まる時点ではまだ LI が開いている。
+        if (current_node && IsListItem(*current_node)) {
+            current_node->set_has_child_blocks();
+        }
         FinalizeCurrentNode();
         nodes.emplace_back();
         current_node = &nodes.back();
@@ -333,6 +337,11 @@ struct ParseContext {
         }
     }
 
+    // DirectWrite は書式を付けるたびに範囲の並びを作り直すので、1 レイアウトに数万の装飾があると
+    // 計測と描画が二乗で遅くなる (1 段落に `a` を 8 万個で 20 秒超)。普通の文書が届かない数で打ち切り、
+    // 残りは装飾なしのテキストにする。
+    static constexpr size_t kMaxRunsPerText = 4096;
+
     // 未確定 TextRun を確定して runs に push する。
     // span 状態が変わる直前 (OnEnter/Leave Span)、セル切替、OnLeaveBlock の冒頭で呼ぶ。
     // line_count はノード単位なので、セル内では更新しない。
@@ -347,14 +356,16 @@ struct ParseContext {
                 const bool plain = current_run_flags == 0 && current_link_url_index < 0;
                 if (buf == &current_text) {
                     current_node->line_count += pending_run_newlines;
-                    if (!plain) {
+                    if (!plain && current_runs.size() < kMaxRunsPerText) {
                         current_runs.push_back(MakeRun(pending_run_start, length));
                     }
                 }
                 else if (!plain) {
-                    // セル内: cell_text_starts.back() は TD/TH 進入時に積んだ現在セルの開始 offset。
+                    // セル内: cell_text_starts / cell_run_starts の back() は TD/TH 進入時に積んだ現在セルの開始位置。
                     auto* const tbl = current_node->table_data();
-                    tbl->all_runs.push_back(MakeRun(pending_run_start - tbl->cell_text_starts.back(), length));
+                    if (tbl->all_runs.size() - tbl->cell_run_starts.back() < kMaxRunsPerText) {
+                        tbl->all_runs.push_back(MakeRun(pending_run_start - tbl->cell_text_starts.back(), length));
+                    }
                 }
             }
         }

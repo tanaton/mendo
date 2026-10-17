@@ -43,7 +43,7 @@ inline BlockHScrollGeometry GetBlockHScrollGeometry(
 inline BlockHScrollGeometry GetBlockHScrollGeometry(
     const Node& node, const NodeLayoutEntry& entry, const Theme& theme, float md_pane_width) noexcept
 {
-    return GetBlockHScrollGeometry(node, entry, theme.ContentWidth(md_pane_width) - layout::NodeIndent(node, theme));
+    return GetBlockHScrollGeometry(node, entry, layout::NodeContentWidth(node, theme, theme.ContentWidth(md_pane_width)));
 }
 
 // node のブロック横スクロール量。マップ未設定・未登録は 0。

@@ -18,12 +18,23 @@ std::pmr::wstring JsEscape(std::wstring_view input);
 uint64_t CombinedHash(std::string_view code, int max_width_int, bool dark_mode) noexcept;
 
 int QuantizeWidth(float max_width) noexcept;
+// 有限でない値 (nan / inf) は 0。
 float ParseJsonNumber(std::wstring_view json, std::wstring_view key) noexcept;
 bool ParseJsonTrueFlag(std::wstring_view json, std::wstring_view key) noexcept;
 
 // JSON 文字列値を取り出し、エスケープ (\" \\ \/ \n \r \t \b \f \uXXXX) を復元する。
 // キーが無い・値が文字列でない・閉じ引用符が無い場合は空を返す。
 std::pmr::wstring ParseJsonString(std::wstring_view json, std::wstring_view key);
+
+// ページから届く値は、mermaid.js に XSS があれば任意に偽れる。描画とキャッシュに使う前に確かめる。
+constexpr bool IsPlausibleDpr(float dpr) noexcept
+{
+    return dpr >= 0.25f && dpr <= 8.0f;
+}
+
+// キャプチャする物理ピクセルが max_side_px (ビットマップの最大辺) と 1 枚あたりの確保量の上限に収まるか。
+// 収まらない図はビットマップを作れず、描き直しを繰り返すことになる。
+bool FitsCaptureLimit(float css_width, float css_height, float dpr, unsigned max_side_px) noexcept;
 
 // エラーメッセージの表示用整形: 空白・改行・制御文字の連続を空白1個に潰し、max_len で
 // 切り詰める (DrawTextCmd の 255 文字上限内に収める)。切り詰め時は末尾に U+2026 を付ける。

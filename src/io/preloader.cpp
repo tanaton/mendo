@@ -2,6 +2,7 @@
 #include "document_service.h"
 #include "layout_computer.h"
 #include "profiler.h"
+#include <new>
 #include <utility>
 
 Preloader::~Preloader()
@@ -20,14 +21,20 @@ void Preloader::Start(std::pmr::wstring path, Theme theme)
     thread_ = std::jthread([this, ctx, path = std::move(path), theme = std::move(theme)](std::stop_token st) mutable {
         MENDO_PROFILE("Preload::worker");
 
-        // stop_token なしだと Parse 完走まで終了時の join が数百 ms ブロックする。
-        auto load_result = DocumentService::LoadFile(path, st);
+        std::expected<Document, FileLoadError> load_result = std::unexpected(FileLoadError::TooLarge);
+        LayoutCache cache;
+        // bad_alloc の扱いは AsyncLoadCoordinator の worker と同じ。
+        try {
+            // stop_token なしだと Parse 完走まで終了時の join が数百 ms ブロックする。
+            load_result = DocumentService::LoadFile(path, st);
+            if (load_result && !st.stop_requested()) {
+                cache = layout::MakeEstimatedLayoutCache(load_result->GetNodes(), theme, st);
+            }
+        } catch (const std::bad_alloc&) {
+            load_result = std::unexpected(FileLoadError::TooLarge);
+        }
         if (st.stop_requested()) {
             return;
-        }
-        LayoutCache cache;
-        if (load_result) {
-            cache = layout::MakeEstimatedLayoutCache(load_result->GetNodes(), theme, st);
         }
         {
             const std::lock_guard lock(sink_mutex_);

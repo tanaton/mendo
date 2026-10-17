@@ -125,7 +125,8 @@ float ParseFloatPrefix(std::wstring_view s) noexcept
     const auto num_len = (std::min)(s.size(), std::size(buf) - 1);
     std::char_traits<wchar_t>::copy(buf, s.data(), num_len);
     buf[num_len] = L'\0';
-    return std::wcstof(buf, nullptr);
+    const float v = std::wcstof(buf, nullptr);
+    return std::isfinite(v) ? v : 0.0f;
 }
 
 } // namespace
@@ -137,6 +138,14 @@ float mermaid_util::ParseJsonNumber(std::wstring_view json, std::wstring_view ke
         return 0.0f;
     }
     return ParseFloatPrefix(json.substr(pos));
+}
+
+bool mermaid_util::FitsCaptureLimit(float css_width, float css_height, float dpr, unsigned max_side_px) noexcept
+{
+    constexpr double kMaxPixels = 64.0 * 1024 * 1024;
+    const double w = std::ceil(static_cast<double>(css_width) * dpr);
+    const double h = std::ceil(static_cast<double>(css_height) * dpr);
+    return w <= max_side_px && h <= max_side_px && w * h <= kMaxPixels;
 }
 
 mermaid_util::RequestPrefix mermaid_util::ParseRequestPrefix(std::wstring_view body) noexcept

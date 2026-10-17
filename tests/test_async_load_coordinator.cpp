@@ -65,6 +65,21 @@ TEST_F(AsyncLoadCoordinatorTest, ShutdownSchedulerCausesReadFailedError)
     EXPECT_FALSE(c.Take().has_value());
 }
 
+// worker でメモリ確保に失敗しても terminate せず、大きすぎて読めなかった扱いで返す。
+TEST_F(AsyncLoadCoordinatorTest, BadAllocInWorkerProducesTooLargeError)
+{
+    AsyncLoadCoordinator c{ [](const std::pmr::wstring&, const std::stop_token&) -> std::expected<LoadedFileDoc, FileLoadError> {
+        throw std::bad_alloc{};
+    } };
+    c.Start(scheduler_, std::pmr::wstring(L"unused.md"), nullptr, 0, GetLightTheme());
+
+    std::optional<AsyncLoadOutcome> outcome;
+    PollUntil([&] { outcome = c.Take(); return outcome.has_value(); });
+    ASSERT_TRUE(outcome.has_value());
+    ASSERT_FALSE(outcome->has_value());
+    EXPECT_EQ(outcome->error(), FileLoadError::TooLarge);
+}
+
 TEST_F(AsyncLoadCoordinatorTest, SuccessfulLoadProducesResult)
 {
     TempFile tmp(L"aload_ok", "# Title\n\nbody text\n");

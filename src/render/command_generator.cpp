@@ -16,6 +16,7 @@
 #include <utility>
 
 using layout::NodeBoxPadY;
+using layout::NodeContentWidth;
 using layout::NodeIndent;
 using layout::NodeTextXOffset;
 
@@ -285,7 +286,7 @@ void CommandGenerator::GenerateNode(const FrameContext& fc,
 
     const float indent = NodeIndent(node, *theme_);
     const float x = fc.offset_x + indent;
-    const float cw = fc.content_width - indent;
+    const float cw = NodeContentWidth(node, *theme_, fc.content_width);
     const float text_x = x + NodeTextXOffset(node, *theme_);
 
     // ブロック横スクロール対象 (テーブル/コードブロック) の内容を clip + 平行移動で囲み、
@@ -385,7 +386,7 @@ CommandGenerator::NodeOverhang CommandGenerator::MaxNodeOverhang() const noexcep
 {
     const float underline = HeadingUnderlineGap(*theme_) + std::max(theme_->GetHeadingUnderlineThickness(1), theme_->GetHeadingUnderlineThickness(2));
     // 空 LI は height=0 だが bullet/checkbox は text_top より下に描かれる。
-    const float empty_li = theme_->font_size_body * std::max(TASK_CHECKBOX_HEIGHT_FACTOR, FALLBACK_LINE_HEIGHT_FACTOR);
+    const float empty_li = layout::EmptyListItemHeight(*theme_);
     // インラインコード背景・コードブロックの padding 内の装飾・アラート背景・引用バーは上下両方へ出る。
     const float box = std::max({ INLINE_CODE_PAD_Y, theme_->code_block_padding, ALERT_BG_PAD, BAR_EXTEND });
     // コピー/保存ボタンはズームに依らない固定サイズで box 上端から下へ伸びるため、縮小表示の

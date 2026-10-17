@@ -1,4 +1,5 @@
 #pragma once
+#include "d2d_util.h"
 #include "layout_cache.h"
 #include "lru_cache.h"
 #include "worker_latch.h"
@@ -32,7 +33,7 @@ public:
     void SetRenderTarget(ID2D1RenderTarget* rt) noexcept
     {
         render_target_ = rt;
-        max_bitmap_dim_.store(rt ? rt->GetMaximumBitmapSize() : kMaxBitmapDimWithoutTarget);
+        max_bitmap_dim_.store(MaxBitmapDim(rt));
     }
 
     void InitAsync(HWND hwnd, UINT msg_id, TaskScheduler& scheduler);
@@ -103,13 +104,14 @@ private:
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
     static constexpr size_t MAX_CACHE_BYTES = 128u * 1024 * 1024;
     static constexpr uint32_t kMaxImageRetries = 3;
+    // 圧縮済み画像のファイルサイズ上限。デコードはワーカー数ぶん並行するので、Markdown と同じ 2GB だと
+    // 同時に数 GB を読み込ませられる。
+    static constexpr LONGLONG MAX_IMAGE_FILE_SIZE = 256LL * 1024 * 1024;
 
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     ID2D1RenderTarget* render_target_ = nullptr;
-    // デバイス作成前のデコードに使う上限。D3D11 (FL11) のテクスチャ最大辺。
-    static constexpr UINT kMaxBitmapDimWithoutTarget = 16384;
     // worker が縮小サイズ計算に使う。render_target_ は worker から触れないので値で持つ。
-    std::atomic<UINT> max_bitmap_dim_{ kMaxBitmapDimWithoutTarget };
+    std::atomic<UINT> max_bitmap_dim_{ MaxBitmapDim(nullptr) };
     LruCache<std::wstring, CachedImage, MAX_CACHE_ENTRIES> cache_;
 
     HWND hwnd_ = nullptr;
