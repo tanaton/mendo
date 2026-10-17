@@ -4,7 +4,6 @@
 #include "file_dialog_service.h"
 #include "file_io.h"
 #include "i18n.h"
-#include "mermaid_file_cache.h"
 #include "mermaid_util.h"
 #include "selection_html.h"
 #include "string_convert.h"
@@ -23,10 +22,9 @@ const Node* ValidateNode(const Document& doc, int node_index, NodeType type) noe
 
 } // namespace
 
-void ClipboardManager::Init(HWND hwnd, MermaidFileCache* file_cache, IMermaidRenderer* mermaid_renderer, IWICImagingFactory* wic, ToastCallback show_toast) noexcept
+void ClipboardManager::Init(HWND hwnd, IMermaidRenderer* mermaid_renderer, IWICImagingFactory* wic, ToastCallback show_toast) noexcept
 {
     hwnd_ = hwnd;
-    file_cache_ = file_cache;
     mermaid_renderer_ = mermaid_renderer;
     wic_ = wic;
     show_toast_ = std::move(show_toast);
@@ -46,18 +44,9 @@ void ClipboardManager::CopyCodeBlock(const Document& doc, int node_index, bool d
     WriteClipboardHtml(hwnd_, html_utf8, plain);
 }
 
-void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, float md_width, bool dark)
+void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, const PngBytes& png) const
 {
-    const Node* node = ValidateNode(doc, node_index, NodeType::Diagram);
-    if (!node || !file_cache_) {
-        return;
-    }
-
-    const uint64_t key = mermaid_util::NodeDiagramHash(*node, md_width, dark);
-
-    MermaidFileCache::CacheEntry entry;
-    MermaidFileCache::PngBlob png;
-    if (!file_cache_->Lookup(key, entry, png)) {
+    if (!ValidateNode(doc, node_index, NodeType::Diagram) || !png || png->empty()) {
         return;
     }
 
@@ -68,7 +57,7 @@ void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, flo
 
     // 既存ファイルを上書き選択した場合でも、失敗時に原本を破壊しないよう
     // tmp+rename のアトミック書き込みを使う。
-    const bool ok = AtomicWriteAllBytes(filename.c_str(), png.data(), png.size());
+    const bool ok = AtomicWriteAllBytes(filename.c_str(), png->data(), png->size());
     show_toast_(ok ? i18n::S().toast_image_saved : i18n::S().toast_image_save_failed);
 }
 
@@ -148,7 +137,12 @@ void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_inde
         dark,
         [this, key, gen, dib = std::move(dib)](std::pmr::wstring svg, bool cancelled) mutable {
             copy_in_flight_ = false;
-            if (cancelled || gen != copy_generation_) {
+            if (gen != copy_generation_) {
+                return;
+            }
+            // ズーム・リロード等で取り消された。「コピー中」のまま終わらせない。
+            if (cancelled) {
+                EmitCopyResult(false);
                 return;
             }
             const bool ok = WriteClipboardDiagram(hwnd_, std::move(dib), svg);

@@ -127,6 +127,7 @@ private:
     // 2 回目以降はディスクキャッシュで済むので、並列度は控えめにする。
     static constexpr int MAX_WORKERS = 2;
     static constexpr int MAX_ENV_RETRIES = 3;
+    static constexpr UINT ENV_RETRY_INTERVAL_MS = 500;
     static constexpr int MAX_WORKER_RETRIES = 3;
     // 閉じると次の図で環境生成からやり直すため、読み進める間に閉じない程度に長めにする。
     static constexpr UINT IDLE_SHUTDOWN_MS = 60000;

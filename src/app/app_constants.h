@@ -22,6 +22,7 @@ enum class Id : UINT_PTR {
     MERMAID_INIT_RETRY,
     FILE_RELOAD_DEBOUNCE,
     MERMAID_IDLE,
+    DEVICE_RECREATE_RETRY,
     END, // 番兵。タイマーとしては使わない。新規タイマーはこの直前に追加する。
 };
 
@@ -31,6 +32,7 @@ inline constexpr UINT FILE_RELOAD_RETRY_MS = 50;     // truncate→rewrite 検�
 inline constexpr UINT SEARCH_DEBOUNCE_MS = 150;      // 大きな文書での検索入力のデバウンス
 inline constexpr UINT BITMAP_MANAGE_DELAY_MS = 150;  // スクロール停止後のビットマップ解放/再構築
 inline constexpr UINT TOAST_DURATION_MS = 1300;
+inline constexpr UINT DEVICE_RECREATE_RETRY_MS = 500; // 描画デバイスの作り直しに失敗した後の再試行間隔
 
 inline constexpr Id kFirstTimer = Id::DEFERRED_LAYOUT;
 inline constexpr Id kLastTimer = static_cast<Id>(std::to_underlying(Id::END) - 1);

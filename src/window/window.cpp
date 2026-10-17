@@ -546,6 +546,14 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         app_->OnKeyDown(wParam);
         return 0;
 
+    case WM_SYSKEYDOWN:
+        // Alt+←/→ は WM_KEYDOWN ではなくこちらで届く。他は Alt+F4 等のシステム処理に回す。
+        if (wParam == VK_LEFT || wParam == VK_RIGHT) {
+            app_->OnKeyDown(wParam);
+            return 0;
+        }
+        return DefWindowProcW(hwnd_, msg, wParam, lParam);
+
     case WM_COMMAND:
         if (HIWORD(wParam) == EN_CHANGE && reinterpret_cast<HWND>(lParam) == search_edit_) {
             OnSearchEditChanged();
@@ -585,6 +593,13 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         // 起動時と揃えて DWM の閉じるアニメーションを出さない。DestroyWindow 内の非表示化より前に隠す必要がある。
         SetCloaked(hwnd_, TRUE);
         return DefWindowProcW(hwnd_, msg, wParam, lParam);
+
+    case WM_ENDSESSION:
+        // ログオフ・シャットダウンでは WM_DESTROY が来ないままプロセスが終わるため、ここで終了処理 (設定保存) を通す。
+        if (wParam) {
+            DestroyWindow(hwnd_);
+        }
+        return 0;
 
     case WM_DESTROY:
         SaveWindowPlacement();

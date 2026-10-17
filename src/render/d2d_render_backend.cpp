@@ -291,6 +291,8 @@ void D2DRenderBackend::Present() noexcept
 
 bool D2DRenderBackend::CreateDevice()
 {
+    // 作り直しに失敗したら次の描画で再試行させるため、成功するまでロスト扱いにする。
+    device_lost_ = true;
     frame_latency_waitable_.reset();
     device_context_.Reset();
     d2d_device_.Reset();

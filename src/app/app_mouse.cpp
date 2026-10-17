@@ -498,15 +498,19 @@ void App::HandleOverlayButtonClick(const OverlayButtonHit& hit, float content_wi
     case OverlayButton::CodeCopy:
         clipboard_manager_.CopyCodeBlock(state_.document.doc, hit.node, dark);
         return;
-    case OverlayButton::DiagramCopy: {
+    case OverlayButton::DiagramCopy:
+    case OverlayButton::DiagramSave: {
         // 画像は表示中ビットマップと同寿命の DiagramEntry::png から取る (ボタン表示条件と一致)。
         const auto* diagram = state_.document.layout_cache.FindDiagram(hit.node);
-        clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, hit.node, diagram ? diagram->png : nullptr, content_width, dark);
+        const PngBytes png = diagram ? diagram->png : nullptr;
+        if (hit.kind == OverlayButton::DiagramCopy) {
+            clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, hit.node, png, content_width, dark);
+        }
+        else {
+            clipboard_manager_.SaveDiagramAsPng(state_.document.doc, hit.node, png);
+        }
         return;
     }
-    case OverlayButton::DiagramSave:
-        clipboard_manager_.SaveDiagramAsPng(state_.document.doc, hit.node, content_width, dark);
-        return;
     case OverlayButton::None:
         return;
     }

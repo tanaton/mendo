@@ -934,6 +934,7 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
     case app_timer::Id::MERMAID_INIT_RETRY:
     case app_timer::Id::FILE_RELOAD_DEBOUNCE:
     case app_timer::Id::MERMAID_IDLE:
+    case app_timer::Id::DEVICE_RECREATE_RETRY:
         // 状態を持たないサービスのタイマーは App::HandleTimer が直接処理する。
         return;
     case app_timer::Id::END: // 番兵。タイマーとしては使わない。新規タイマーはこの直前に追加する。

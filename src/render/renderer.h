@@ -79,6 +79,10 @@ public:
     {
         on_device_lost_ = std::move(cb);
     }
+    bool IsDeviceLost() const noexcept
+    {
+        return backend_.IsDeviceLost();
+    }
 
     int HitTestSearchInput(std::wstring_view query, float local_x, float max_width) const;
     void SetSearchMatches(const std::pmr::vector<SearchMatch>* matches, int current_index, uint32_t generation) noexcept

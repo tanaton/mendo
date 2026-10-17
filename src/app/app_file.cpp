@@ -57,6 +57,8 @@ void App::StopLoadingAnimation()
 void App::LoadHelpDocument()
 {
     if (IsHelpPath(state_.document.doc.GetFilePath())) {
+        // ヘルプに留まる操作なので、ロード中の別ファイルへ後から切り替わらないようにする。
+        CancelOtherFileLoad();
         return;
     }
 
@@ -163,6 +165,8 @@ void App::LoadMarkdownFile(std::wstring_view path)
 {
     MENDO_PROFILE("App::LoadMarkdownFile");
     EmitEffect(effect::KillTimer{ app_timer::Id::FILE_RELOAD_DEBOUNCE });
+    // 止めたリロードや取り消される進行中のリロードは、このロードが取り消し・失敗で終わったときに読み直す。
+    file_watcher_.RequeueIfPaused();
     prefix_shrink_retry_.Reset();
     // 仮想パスは IsAsyncLoadCandidate が true を返し非同期ロードが失敗するため、
     // 先に検出して同期ロードに回す。
@@ -190,9 +194,10 @@ void App::CancelOtherFileLoad()
     }
     StopLoadingAnimation();
     file_load_service_.CancelAsyncLoad();
+    EmitEffect(effect::ResumeFileWatch{});
 }
 
-// Init (RestoreThemeAndZoom) 前に呼ばれるため、推定用のテーマは設定から直接作る。
+// Init (RestoreTheme) 前に呼ばれるため、推定用のテーマは設定から直接作る。
 // 推定に使う寸法はライト/ダーク共通でズームだけに依存するので、ダークモード未読込でも結果は同じ。
 void App::StartPreloadAsync(std::pmr::wstring path)
 {
@@ -222,6 +227,7 @@ void App::DoLoadMarkdownFile()
 
 void App::HandleLoadFailureFallback()
 {
+    EmitEffect(effect::ResumeFileWatch{});
     Dispatch(LoadFailedAction{});
     if (state_.document.doc.IsEmpty()) {
         LoadHelpDocument();
@@ -261,7 +267,6 @@ void App::OnParseComplete()
         return;
     case ParseCompleteStep::Fail:
         MENDO_TRACE("OnParseComplete: no result (cancelled or load failed)");
-        EmitEffect(effect::ResumeFileWatch{});
         if (plan.error) {
             ShowToast(FileLoadErrorMessage(*plan.error, i18n::S()));
         }
@@ -350,6 +355,8 @@ void App::ReloadCurrentFile()
     // あれば即 return する。show_animation=false 経路では IsLoading() が立たない
     // ため IsAsyncLoading() も併せて見る。
     if (file_load_service_.IsLoading() || file_load_service_.IsAsyncLoading()) {
+        // 別ファイルのロード中なら、それが取り消し・失敗で終わったときの Resume で読み直す。
+        file_watcher_.RequeueIfPaused();
         return;
     }
     // ここまでに届いた通知の変更はこれから読む内容に含まれる。残すと Resume で同じ保存をもう一度読み直す。

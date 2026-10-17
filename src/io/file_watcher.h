@@ -32,6 +32,13 @@ public:
     {
         pending_change_ = false;
     }
+    // 通知済みの変更を読まずに取りやめたときに呼び、次の ResumeWatching で通知し直させる。
+    constexpr void RequeueIfPaused() noexcept
+    {
+        if (paused_) {
+            pending_change_ = true;
+        }
+    }
     constexpr HANDLE GetEventHandle() const noexcept
     {
         return read_pending_ ? overlapped_.hEvent : nullptr;

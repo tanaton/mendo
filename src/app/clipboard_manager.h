@@ -11,7 +11,6 @@
 #include <string_view>
 
 class Document;
-class MermaidFileCache;
 
 // MD ペインのオーバーレイボタンから発火する 3 つのクリップボード操作を集約する。
 //   - コードブロックのテキストコピー
@@ -28,13 +27,11 @@ public:
 
     // show_toast は呼び出し側で必ず設定する想定。Init を呼び忘れた場合は
     // ガード不要にするためデフォルトは no-op。wic はアプリ共有のファクトリ (非所有)。
-    void Init(HWND hwnd, MermaidFileCache* file_cache, IMermaidRenderer* mermaid_renderer,
-              IWICImagingFactory* wic, ToastCallback show_toast) noexcept;
+    void Init(HWND hwnd, IMermaidRenderer* mermaid_renderer, IWICImagingFactory* wic, ToastCallback show_toast) noexcept;
 
     void CopyCodeBlock(const Document& doc, int node_index, bool dark) const;
-    void SaveDiagramAsPng(const Document& doc, int node_index, float md_width, bool dark);
-    // png は表示中ビットマップと同寿命の元 PNG (DiagramEntry::png)。コピーボタンの表示条件と
-    // 一致するため、非同期/退避され得る file_cache に依存せず確実に画像を載せられる。
+    // png は表示中ビットマップと同寿命の元 PNG (DiagramEntry::png) で、ボタンの表示条件と一致する。
+    void SaveDiagramAsPng(const Document& doc, int node_index, const PngBytes& png) const;
     void CopyDiagramToClipboard(const Document& doc, int node_index, PngBytes png, float md_width, bool dark);
 
 private:
@@ -44,7 +41,6 @@ private:
     void EmitCopyResult(bool ok) const;
 
     HWND hwnd_ = nullptr;
-    MermaidFileCache* file_cache_ = nullptr;
     IMermaidRenderer* mermaid_renderer_ = nullptr;
     IWICImagingFactory* wic_ = nullptr; // アプリ共有ファクトリ (非所有)
     ToastCallback show_toast_ = [](std::wstring_view) {};

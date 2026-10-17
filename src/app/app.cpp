@@ -56,7 +56,7 @@ bool App::Init(HWND hwnd)
     file_cache_.Init(MermaidRenderer::EstimateWorkerDpr(), scheduler_);
     mermaid_renderer_.SetFileCache(&file_cache_);
 
-    clipboard_manager_.Init(hwnd_, &file_cache_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });
+    clipboard_manager_.Init(hwnd_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });
 
     resource_manager_.Init(
         ResourceManagerDeps{
@@ -102,7 +102,7 @@ bool App::Init(HWND hwnd)
         resource_manager_.LoadImages();
     });
 
-    RestoreThemeAndZoom();
+    RestoreTheme();
 
     cursors_.Init();
 
@@ -135,12 +135,8 @@ bool App::CreateRenderDevice()
     return true;
 }
 
-void App::RestoreThemeAndZoom()
+void App::RestoreTheme()
 {
-    const auto& viewport = state_.view.viewport;
-    if (viewport.GetZoomIndex() != ZOOM_DEFAULT_INDEX) {
-        state_.view.panes.ApplyZoom(viewport.GetCurrentZoom());
-    }
     state_.theme = &renderer_.GetTheme();
     if (theme_service_.IsDarkMode()) {
         ApplyDarkModeToWindow(hwnd_, true);
@@ -149,7 +145,9 @@ void App::RestoreThemeAndZoom()
 
 void App::RestorePaneState()
 {
-    const auto s = session_.LoadPaneState(PaneController::PANE_MIN_WIDTH, PaneController::PANE_DEFAULT_WIDTH);
+    // 保存値はズーム適用後の幅なのでそのまま使う。既定幅は既定のままズームしたときと同じになるよう倍率を掛ける。
+    const float default_width = PaneController::PANE_DEFAULT_WIDTH * state_.view.viewport.GetCurrentZoom();
+    const auto s = session_.LoadPaneState(PaneController::PANE_MIN_WIDTH, default_width);
     auto& panes = state_.view.panes;
     panes.SetSidePaneVisible(PaneTarget::File, s.show_file);
     panes.SetSidePaneVisible(PaneTarget::Toc, s.show_toc);
@@ -341,6 +339,10 @@ void App::OnPaint()
     }
 
     EndPaint(hwnd_, &ps);
+    // デバイスを作り直せなかった。すぐ再描画すると失敗を繰り返して UI スレッドを占有するので間を置く。
+    if (renderer_.IsDeviceLost()) {
+        EmitEffect(effect::SetTimer{ app_timer::Id::DEVICE_RECREATE_RETRY, app_timer::DEVICE_RECREATE_RETRY_MS });
+    }
     MENDO_FRAME_MARK();
 }
 
@@ -446,6 +448,10 @@ void App::HandleTimer(UINT_PTR timer_id)
     case MERMAID_IDLE:
         mermaid_renderer_.OnIdleTimer();
         return;
+    case DEVICE_RECREATE_RETRY:
+        EmitEffect(effect::KillTimer{ id });
+        Invalidate();
+        return;
     case FILE_RELOAD_DEBOUNCE:
         EmitEffect(effect::KillTimer{ id });
         ReloadCurrentFile();
@@ -499,6 +505,9 @@ void App::SaveSession()
 
 void App::OnDestroy()
 {
+    // ログオフ時は OS に打ち切られる前に済ませたいので、スレッドの join より先に保存する。
+    SaveSession();
+
     mermaid_renderer_.Shutdown();
     // 走行中タスクが latch.wait 中の参照を保ったまま解放されないよう、
     // LayoutEngine の参照解除 → Shutdown (join) → ターゲット deinit の順を守る。
@@ -510,8 +519,6 @@ void App::OnDestroy()
     scheduler_.Shutdown();
     file_cache_.Shutdown();
     file_cache_.SaveIndex();
-
-    SaveSession();
 
     for (UINT_PTR id = std::to_underlying(app_timer::kFirstTimer); id <= std::to_underlying(app_timer::kLastTimer); ++id) {
         KillTimer(hwnd_, id);
