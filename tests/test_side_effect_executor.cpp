@@ -73,7 +73,6 @@ struct CallbackTracker {
     int reload_file_count = 0;
     int cancel_other_file_load_count = 0;
     int open_file_dialog_count = 0;
-    int refresh_pane_layout_count = 0;
     std::pair<UINT, UINT> last_renderer_resize{ 0, 0 };
     int renderer_resize_count = 0;
     float last_renderer_dpi = 0.0f;
@@ -105,10 +104,6 @@ struct TestSideEffectCallbacks {
     void open_file_dialog()
     {
         t->open_file_dialog_count++;
-    }
-    void refresh_pane_layout()
-    {
-        t->refresh_pane_layout_count++;
     }
     void renderer_resize(UINT w, UINT h)
     {
@@ -197,12 +192,6 @@ TEST_F(SideEffectExecutorTest, OpenFileDialogDispatchesToCallback)
 {
     exec_.ExecuteOne(effect::OpenFileDialog{});
     EXPECT_EQ(tracker_.open_file_dialog_count, 1);
-}
-
-TEST_F(SideEffectExecutorTest, RefreshPaneLayoutDispatchesToCallback)
-{
-    exec_.ExecuteOne(effect::RefreshPaneLayout{});
-    EXPECT_EQ(tracker_.refresh_pane_layout_count, 1);
 }
 
 TEST_F(SideEffectExecutorTest, SyncTocActiveForwardsAutoScrollFlag)

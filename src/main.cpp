@@ -1,5 +1,6 @@
 #include "window.h"
 #include "config_service.h"
+#include "d2d_render_backend.h"
 #include "file_io.h"
 #include "i18n.h"
 #include "profiler.h"
@@ -92,6 +93,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     // attach するのに十分な経験値で、Release ビルドでは MENDO_IF_TRACY が空展開される。
     [[maybe_unused]] constexpr DWORD kTracyStartupDelayMs = 1000;
     MENDO_IF_TRACY(Sleep(kTracyStartupDelayMs));
+
+    PrefetchD3DDevice();
 
     // DPI 認識 (PerMonitorV2) はマニフェストで宣言している。
     const HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);

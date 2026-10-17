@@ -589,7 +589,6 @@ void ReduceMdScrollbarDragEnded(AppState& state, SideEffectList& effects)
     state.view.panes.EndDrag();
     PushEffect(effects, effect::ReleaseCapture{});
     PushEffect(effects, effect::PerformResizeEnd{});
-    PushEffect(effects, effect::BitmapManage{});
 }
 
 void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, const PaneScrollbarDragStartedAction& a)
@@ -762,10 +761,7 @@ void ReduceTogglePane(AppState& state, SideEffectList& effects, const TogglePane
 {
     state.view.panes.ToggleSidePane(a.target);
     state.pane_layout_cache.Invalidate();
-    PushEffect(effects, effect::RefreshPaneLayout{});
-    if (a.target == PaneTarget::Toc) {
-        PushEffect(effects, effect::SyncTocActive{});
-    }
+    PushEffect(effects, effect::PerformResizeEnd{});
 }
 
 void ReduceSelectAll(AppState& state, SideEffectList& effects)

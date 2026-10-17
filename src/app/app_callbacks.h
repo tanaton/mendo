@@ -12,7 +12,6 @@ struct AppSideEffectCallbacks : AppCallbacksBase {
     void reload_file();
     void open_file_dialog();
     void cancel_other_file_load();
-    void refresh_pane_layout();
     void renderer_resize(UINT w, UINT h);
     void renderer_set_dpi(float dpi);
     void perform_resize_end();

@@ -62,6 +62,7 @@ struct ApplyThemeChange {
     };
     Type type;
 };
+// OnResizeEnd が BitmapManage (または遅延レイアウト) と SyncTocActive も出すので、併せて積まない。
 struct PerformResizeEnd {};
 struct PerformSizingUpdate {};
 struct RendererResize {
@@ -81,7 +82,6 @@ struct OpenFileDialog {};
 struct CancelOtherFileLoad {};
 
 struct BitmapManage {};
-struct RefreshPaneLayout {};
 struct SyncTocActive {
     // false: ハイライト更新のみで目次ペインの自動スクロールを行わない。
     // 目次ペイン操作由来のジャンプでクリック先が動く混乱を防ぐ (issue#259)。
@@ -135,7 +135,6 @@ using SideEffect = std::variant<
     effect::CancelOtherFileLoad,
     // Layout
     effect::BitmapManage,
-    effect::RefreshPaneLayout,
     effect::SyncTocActive,
     // Resource
     effect::StartFileWatch,

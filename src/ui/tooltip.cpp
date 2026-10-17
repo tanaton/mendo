@@ -22,6 +22,9 @@ struct Tooltip::Impl {
     HWND parent = nullptr;
     TooltipTarget current;
     bool visible = false;
+    bool dark = false;
+
+    bool EnsureWindow();
 
     ~Impl()
     {
@@ -40,31 +43,42 @@ Tooltip& Tooltip::operator=(Tooltip&&) noexcept = default;
 
 void Tooltip::Init(HWND parent_hwnd)
 {
-    auto& s = *impl_;
-    s.parent = parent_hwnd;
-    s.hwnd = CreateWindowExW(
+    impl_->parent = parent_hwnd;
+}
+
+// 起動時の初回描画を遅らせないよう、ウィンドウは最初の表示まで作らない。
+bool Tooltip::Impl::EnsureWindow()
+{
+    if (hwnd || !parent) {
+        return hwnd != nullptr;
+    }
+    hwnd = CreateWindowExW(
         WS_EX_TOPMOST,
         TOOLTIPS_CLASSW,
         nullptr,
         WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP,
         CW_USEDEFAULT, CW_USEDEFAULT,
         CW_USEDEFAULT, CW_USEDEFAULT,
-        s.parent,
+        parent,
         nullptr,
         GetModuleHandleW(nullptr),
         nullptr);
-    if (!s.hwnd) {
-        return;
+    if (!hwnd) {
+        return false;
     }
 
     // 位置と表示を手動で制御するため TTF_TRACK で登録する。
-    TOOLINFOW ti = MakeToolInfo(s.parent);
+    TOOLINFOW ti = MakeToolInfo(parent);
     ti.uFlags = TTF_TRACK | TTF_ABSOLUTE;
     ti.lpszText = const_cast<LPWSTR>(L"");
-    SendMessageW(s.hwnd, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
+    SendMessageW(hwnd, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
 
     // 長い URL の折り返し用
-    SendMessageW(s.hwnd, TTM_SETMAXTIPWIDTH, 0, 600);
+    SendMessageW(hwnd, TTM_SETMAXTIPWIDTH, 0, 600);
+    if (dark) {
+        ApplyDarkModeToWindow(hwnd, true);
+    }
+    return true;
 }
 
 bool Tooltip::Update(const TooltipTarget& target)
@@ -82,7 +96,7 @@ bool Tooltip::Update(const TooltipTarget& target)
 void Tooltip::Show()
 {
     auto& s = *impl_;
-    if (!s.hwnd || s.current.IsEmpty()) {
+    if (s.current.IsEmpty() || !s.EnsureWindow()) {
         return;
     }
 
@@ -116,6 +130,7 @@ void Tooltip::Hide()
 
 void Tooltip::ApplyDarkMode(bool dark)
 {
+    impl_->dark = dark;
     if (impl_->hwnd) {
         ApplyDarkModeToWindow(impl_->hwnd, dark);
     }

@@ -9,6 +9,9 @@
 #include <windows.h>
 #include <wrl/client.h>
 
+// D3D デバイスの作成 (数十 ms) を起動処理と重ねるため、wWinMain の冒頭で呼ぶ。
+void PrefetchD3DDevice();
+
 // D2D ファクトリ・レンダーターゲット・DPI を保持するレンダーバックエンド。
 // ブラシとテキストフォーマットは Renderer 側で管理する。
 class D2DRenderBackend final {

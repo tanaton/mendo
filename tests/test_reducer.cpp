@@ -283,6 +283,13 @@ TEST_F(ReducerTest, ExitSizeMove_AfterDpiChange_EmitsResizeEnd)
     EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
 }
 
+TEST_F(ReducerTest, TogglePane_EmitsResizeEnd)
+{
+    auto effects = Reduce(state, TogglePaneAction{ PaneTarget::Toc });
+
+    EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
+}
+
 // ---- MouseLeaveAction テスト ----
 
 TEST_F(ReducerTest, MouseLeave_ClearsTooltip)
@@ -908,7 +915,6 @@ TEST_F(ReducerTest, MdScrollbarDragEnded_ReleasesAndSchedulesResize)
     EXPECT_EQ(state.view.panes.GetDragTarget(), PaneController::DragTarget::None);
     EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
     EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
-    EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
 }
 
 TEST_F(ReducerTest, MdScrollbarDragEnded_NotDragging_NoOp)

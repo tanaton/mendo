@@ -189,7 +189,6 @@ private:
     void GenSelectionHighlightCached(const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y);
     // 本文ノードのマッチのうち可視範囲の前後の行にかかるものを描く。
     void GenSearchHighlights(const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y);
-    void GenCellSearchHighlights(const NodeLayoutEntry& entry, int node_index, size_t row, size_t col, float origin_x, float origin_y);
 
     // ノードのマッチと、現在の検索世代に揃えたキャッシュ。マッチが無ければ matches は空。
     struct NodeSearchMatches {
@@ -198,6 +197,7 @@ private:
         SearchHlCache* cache = nullptr;
     };
     NodeSearchMatches PrepareNodeSearchMatches(const NodeLayoutEntry& entry, int node_index);
+    void GenCellSearchHighlights(const NodeSearchMatches& nm, IDWriteTextLayout* layout, size_t row, size_t col, float origin_x, float origin_y);
     // matches[begin, end) のうち未計算のものを layout で計算し、FillRectCmd を積む。layout が null なら計算を見送る。
     void EmitSearchMatches(const NodeSearchMatches& nm, IDWriteTextLayout* layout, size_t begin, size_t end, float origin_x, float origin_y);
 

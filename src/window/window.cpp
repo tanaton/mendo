@@ -117,8 +117,9 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
         return false;
     }
 
+    // 描画はフリップモデルのスワップチェーンが全面を覆うので、DWM のリダイレクト面 (クライアント領域分) は要らない。
     hwnd_ = CreateWindowExW(
-        WS_EX_ACCEPTFILES,
+        WS_EX_ACCEPTFILES | WS_EX_NOREDIRECTIONBITMAP,
         WINDOW_CLASS,
         L"mendo",
         WS_OVERLAPPEDWINDOW,

@@ -42,18 +42,16 @@ static void DrawCachedText(ID2D1RenderTarget* rt, TextLayoutCache& layouts, IDWr
                            std::wstring_view text, const D2D1_RECT_F& rect, ID2D1Brush* brush)
 {
     const auto box = D2D1::SizeF(rect.right - rect.left, rect.bottom - rect.top);
-    layouts.Draw(rt, fmt, text, rect, brush, box, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    layouts.Draw(rt, fmt, text, rect, brush, box);
 }
 
 // NO_WRAP で左寄せのテキストは箱の幅で見た目が変わらないので、幅を固定してスプリッタのドラッグ中も
-// レイアウトを使い回す。省略記号は付かないため、はみ出す分は rect で切る。
-static void DrawClippedText(ID2D1RenderTarget* rt, TextLayoutCache& layouts, IDWriteTextFormat* fmt,
-                            std::wstring_view text, const D2D1_RECT_F& rect, ID2D1Brush* brush)
+// レイアウトを使い回す。省略記号は付かないので、はみ出しは呼び出し側のクリップで切る。
+static void DrawLeftText(ID2D1RenderTarget* rt, TextLayoutCache& layouts, IDWriteTextFormat* fmt,
+                         std::wstring_view text, float x, float y, float height, ID2D1Brush* brush)
 {
     constexpr float kLayoutWidth = 4096.0f;
-    rt->PushAxisAlignedClip(rect, D2D1_ANTIALIAS_MODE_ALIASED);
-    layouts.Draw(rt, fmt, text, rect, brush, D2D1::SizeF(kLayoutWidth, rect.bottom - rect.top));
-    rt->PopAxisAlignedClip();
+    layouts.Draw(rt, fmt, text, D2D1::RectF(x, y, x + kLayoutWidth, y + height), brush, D2D1::SizeF(kLayoutWidth, height));
 }
 
 // draw_item は template 経由のため別引数。
@@ -101,12 +99,16 @@ static void DrawSidePaneHeader(ID2D1RenderTarget* rt, const SidePaneDrawContext&
         draw_button(reveal_rect, L"\uE81D", PaneHeaderButton::Reveal, sp.reveal_enabled);
     }
 
+    // ボタンに重ならないよう切る。
     if (const auto text_rect = PaneHeaderTextRect(width, header_h, sp.show_file_buttons)) {
-        DrawClippedText(rt, sp.text_layouts, sp.fmt_header, sp.header_text, *text_rect, sp.text_brush);
+        rt->PushAxisAlignedClip(*text_rect, D2D1_ANTIALIAS_MODE_ALIASED);
+        DrawLeftText(rt, sp.text_layouts, sp.fmt_header, sp.header_text, text_rect->left, text_rect->top, text_rect->bottom - text_rect->top, sp.text_brush);
+        rt->PopAxisAlignedClip();
     }
 }
 
 // 可視項目は数十個でレイアウトも使い回すため、オフスクリーンに溜めず毎フレーム直接描く。
+// 項目のはみ出しは内容領域のクリップ 1 回で切り、項目ごとの Push/Pop を避ける。
 template <typename DrawItemFn>
     requires std::invocable<DrawItemFn&, ID2D1RenderTarget*, int, float, float>
 static void DrawSidePaneImpl(const SidePaneDrawContext& sp, DrawItemFn draw_item)
@@ -196,8 +198,7 @@ void Renderer::DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, cons
         const D2D1_RECT_F icon_rect = D2D1::RectF(4.0f, item_y, 4.0f + icon_col_width, item_y + theme_.pane_item_height);
         DrawCachedText(rt, text_layouts_, fmt_.pane_icon.Get(), FileEntryIcon(entry), icon_rect, Brush(BrushId::Text));
 
-        const D2D1_RECT_F text_rect = D2D1::RectF(4.0f + icon_col_width, item_y, width - 4.0f, item_y + theme_.pane_item_height);
-        DrawClippedText(rt, text_layouts_, fmt_.pane_item.Get(), entry.GetDisplayName(), text_rect, Brush(BrushId::Text));
+        DrawLeftText(rt, text_layouts_, fmt_.pane_item.Get(), entry.GetDisplayName(), 4.0f + icon_col_width, item_y, theme_.pane_item_height, Brush(BrushId::Text));
     };
     DrawSidePaneImpl(MakeSidePaneContext(PaneTarget::File, pane, entries.size(), i18n::S().pane_header_files), draw_item);
 }
@@ -215,9 +216,8 @@ void Renderer::DrawToc(const std::pmr::vector<TocEntry>& entries, const std::pmr
         }
 
         const float text_left = 8.0f + (entry.heading_level - 1) * TOC_INDENT_PER_LEVEL;
-        const D2D1_RECT_F text_rect = D2D1::RectF(text_left, item_y, width - 4.0f, item_y + theme_.pane_item_height);
         string_convert::Utf8ToWide(nodes[entry.node_index].GetText(), toc_text_scratch_);
-        DrawClippedText(rt, text_layouts_, fmt_.pane_item.Get(), toc_text_scratch_, text_rect, Brush(BrushId::Text));
+        DrawLeftText(rt, text_layouts_, fmt_.pane_item.Get(), toc_text_scratch_, text_left, item_y, theme_.pane_item_height, Brush(BrushId::Text));
 
         if (i == active_index) {
             const float line_y = item_y + theme_.pane_item_height - 1.0f;
