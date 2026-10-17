@@ -193,7 +193,7 @@ void MermaidRenderer::EnsureInitialized()
 bool MermaidRenderer::CreateWorkerWindow(int index)
 {
     static std::once_flag class_register_flag;
-    std::call_once(class_register_flag, [] {
+    std::call_once(class_register_flag, [] static {
         WNDCLASSEXW wc{};
         wc.cbSize = sizeof(wc);
         wc.lpfnWndProc = DefWindowProcW;

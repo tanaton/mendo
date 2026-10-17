@@ -4,7 +4,7 @@
 // Theme 内の「ズームでスケールする float メンバ」を一元管理する。
 // 新規のスケーラブルフィールドを追加する際はここに追記すれば
 // ApplyZoom へのスケール漏れを防げる。font_size_h は配列なので別ループで扱う。
-static constexpr float Theme::* kScalableThemeFields[] = {
+inline constexpr float Theme::* kScalableThemeFields[]{
     &Theme::font_size_body,
     &Theme::font_size_code,
     &Theme::margin_left,

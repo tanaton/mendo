@@ -17,6 +17,7 @@ namespace {
 
 ComPtr<ID3D11Device> CreateD3DDevice() noexcept
 {
+    MENDO_PROFILE("CreateD3DDevice");
     const D3D_FEATURE_LEVEL feature_levels[] = {
         D3D_FEATURE_LEVEL_11_1,
         D3D_FEATURE_LEVEL_11_0,
@@ -48,7 +49,7 @@ std::jthread g_prefetch_thread;
 
 void PrefetchD3DDevice()
 {
-    g_prefetch_thread = std::jthread([] { g_prefetched_device = CreateD3DDevice(); });
+    g_prefetch_thread = std::jthread([] static noexcept { g_prefetched_device = CreateD3DDevice(); });
 }
 
 void D2DRenderBackend::ConfigureFrameLatency() noexcept

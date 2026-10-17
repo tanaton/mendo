@@ -268,8 +268,7 @@ TEST_P(ParallelWorkerCountTest, BitExactAcrossWorkerCount)
     ts.Shutdown();
 }
 
-INSTANTIATE_TEST_SUITE_P(WorkerCounts, ParallelWorkerCountTest,
-                         ::testing::Values(1, 2, 8, 16));
+INSTANTIATE_TEST_SUITE_P(WorkerCounts, ParallelWorkerCountTest, ::testing::Values(1, 2, 8, 16));
 
 // ===== タスク 4: Post 失敗 fallback テスト =====
 
@@ -284,12 +283,12 @@ TEST(ParallelMeasurePostFailure, AllChunksFallbackOnSaturatedQueue)
 
     int posted = 0;
     for (size_t k = 0; k < TaskScheduler::MAX_PENDING_TASKS; ++k) {
-        if (ts.Post([] {})) {
+        if (ts.Post([] static noexcept {})) {
             ++posted;
         }
     }
     EXPECT_EQ(posted, static_cast<int>(TaskScheduler::MAX_PENDING_TASKS));
-    EXPECT_FALSE(ts.Post([] {})); // 1025 個目は false
+    EXPECT_FALSE(ts.Post([] static noexcept {})); // 1025 個目は false
 
     constexpr size_t N = 128;
     StressFixture f;

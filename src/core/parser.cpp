@@ -156,8 +156,8 @@ struct ParseContext {
                 const auto offset = current_node->SourceOffset();
                 const bool matches_raw = !current_node_needs_copy && offset != kUnsetSourceOffset && CurrentTextMatchesRawSliceAt(offset);
                 const std::string_view text = matches_raw
-                    ? markdown.substr(offset, current_text.size())
-                    : arena->CopyText(current_text);
+                                                  ? markdown.substr(offset, current_text.size())
+                                                  : arena->CopyText(current_text);
                 current_node->SetText(text);
             }
             if (!current_runs.empty()) {
@@ -701,6 +701,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 
     case MD_BLOCK_HTML:
         break;
+
     default:
         std::unreachable();
     }
@@ -1091,7 +1092,9 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         DetectAlerts(ctx.nodes, *ctx.arena, std::span<const size_t>{ ctx.blockquote_indices });
     }
 
-    ParseResult result{ NodeStorage{ std::move(ctx.nodes), std::move(ctx.arena) } };
+    ParseResult result{
+        NodeStorage{ std::move(ctx.nodes), std::move(ctx.arena) }
+    };
     result.toc_entries = std::move(ctx.toc_entries);
     result.image_indices = std::move(ctx.image_indices);
     result.diagram_indices = std::move(ctx.diagram_indices);

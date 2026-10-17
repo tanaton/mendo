@@ -105,8 +105,7 @@ UniqueGlobalMem ClipboardManager::BuildDib(const PngBytes& png) const
         auto* base = static_cast<uint8_t*>(p);
         WriteDibHeader(base, w, h);
         const UINT stride = w * 4;
-        return SUCCEEDED(decoded->converter->CopyPixels(
-            nullptr, stride, stride * h, base + sizeof(BITMAPINFOHEADER)));
+        return SUCCEEDED(decoded->converter->CopyPixels(nullptr, stride, stride * h, base + sizeof(BITMAPINFOHEADER)));
     });
 }
 
@@ -155,7 +154,11 @@ void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_inde
     // RequestSvg は WebView2 経路のため wstring。UTF-8 → wide に変換して渡す。
     std::pmr::wstring code_wide;
     string_convert::Utf8ToWide(node.GetText(), code_wide);
-    mermaid_renderer_->RequestSvg(code_wide, md_width, dark,
+    // clang-format off
+    mermaid_renderer_->RequestSvg(
+        code_wide,
+        md_width,
+        dark,
         [this, key, gen, dib = std::move(dib)](std::pmr::wstring svg, bool cancelled) mutable {
             copy_in_flight_ = false;
             if (cancelled || gen != copy_generation_) {
@@ -166,5 +169,7 @@ void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_inde
                 svg_cache_.Insert(key, std::move(svg));
             }
             EmitCopyResult(ok);
-        });
+        }
+    );
+    // clang-format on
 }

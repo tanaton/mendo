@@ -180,7 +180,7 @@ enum AsciiSlugAction : uint8_t {
     SlugLower = 3,
 };
 
-constexpr auto kAsciiSlugTable = [] {
+constexpr auto kAsciiSlugTable = [] static noexcept {
     std::array<AsciiSlugAction, 128> t{};
     for (size_t i = 0; i < t.size(); ++i) {
         const char c = static_cast<char>(i);

@@ -15,12 +15,12 @@ struct AlertInfo {
 };
 
 // AlertColorIndex 順。
-constexpr AlertInfo kAlerts[]{
-    { "note", AlertType::Note, "Note", "ℹ" },
-    { "tip", AlertType::Tip, "Tip", "\xF0\x9F\x92\xA1" }, // U+1F4A1 (BMP 外)
-    { "important", AlertType::Important, "Important", "❗" },
-    { "warning", AlertType::Warning, "Warning", "⚠" },
-    { "caution", AlertType::Caution, "Caution", "⛔" },
+inline constexpr AlertInfo kAlerts[]{
+    { "note",      AlertType::Note,      "Note",      "ℹ"                },
+    { "tip",       AlertType::Tip,       "Tip",       "\xF0\x9F\x92\xA1" }, // U+1F4A1 (BMP 外)
+    { "important", AlertType::Important, "Important", "❗"               },
+    { "warning",   AlertType::Warning,   "Warning",   "⚠"                },
+    { "caution",   AlertType::Caution,   "Caution",   "⛔"               },
 };
 static_assert(std::size(kAlerts) == ALERT_TYPE_COUNT);
 static_assert(std::ranges::all_of(std::views::iota(size_t{ 0 }, ALERT_TYPE_COUNT), [](size_t i) {
