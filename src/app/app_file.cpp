@@ -37,14 +37,11 @@ void App::CancelPendingResources()
 void App::ResetViewForNewDocument()
 {
     state_.view.ResetForNewDocument();
-    // 入力欄を空にすると EN_CHANGE から検索と再描画が走るので、検索バーを使っていたときだけ閉じる。
-    const bool search_in_use = state_.search.search_state.IsVisible() || !state_.search.search_bar_ctrl.GetQueryWide().empty();
-    // 旧文書のマッチ位置が新 nodes に対して誤用されるのを防ぐ。
+    // 旧文書のマッチ位置が新 nodes に対して誤用されるのを防ぐ。先に空にしておくので、
+    // 入力欄を空にしたときの EN_CHANGE は OnTextChanged で何もせず終わる。
     state_.search.search_bar_ctrl.Reset();
     EndDocumentBoundDrag();
-    if (search_in_use) {
-        Execute(effect::SearchUnfocus{ /*clear_text=*/true });
-    }
+    Execute(effect::SearchUnfocus{ /*clear_text=*/true });
     CancelPendingResources();
     renderer_.ShrinkBuffers();
 }
@@ -103,9 +100,6 @@ void App::ReplaceDocument(Document next, LayoutCache estimated)
     Document old = std::exchange(state_.document.doc, std::move(next));
     // 旧 LayoutCache は D2D 由来の参照を持つので worker に渡さず UI スレッドで破棄する。
     state_.document.layout_cache = std::move(estimated);
-    if (layout_service_) {
-        layout_service_->MarkDirtyNodes();
-    }
     DisposeOnWorkerIfLarge(scheduler_, old.GetNodes().size(), std::move(old));
     // ツールチップの同一判定は node / TOC の index で行うため、旧文書の対象を持ち越さない。
     InvalidateHitPositions();

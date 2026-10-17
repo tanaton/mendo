@@ -84,15 +84,15 @@ void GenInlineCodeBgs(DrawCommandList& cmds, std::span<const InlineCodeBg> bgs, 
     }
 }
 
-// bgs は cell_index 昇順を維持しているため、cursor を進めるだけで O(N) 全体で済む。
-// 戻り値は次回呼び出し向けに進めた cursor。
-// row_bgs は列の昇順。col のセルの背景だけを描く。
-void GenCellInlineCodeBgs(DrawCommandList& cmds, std::span<const CellInlineCodeBg> row_bgs, size_t col, float origin_x, float origin_y)
+// row_bgs は列の昇順なので、col 以下の分を先頭から消費し col のセルの背景だけを描く。
+// 列を昇順に渡す限り、行全体で O(背景数) で済む。
+void GenCellInlineCodeBgs(DrawCommandList& cmds, std::span<const CellInlineCodeBg>& row_bgs, size_t col, float origin_x, float origin_y)
 {
-    for (const auto& bg : row_bgs) {
-        if (bg.col == col) {
-            cmds.emplace_back(MakeInlineCodeBgCmd(OffsetRectF(bg.rect, origin_x, origin_y)));
+    while (!row_bgs.empty() && row_bgs.front().col <= col) {
+        if (row_bgs.front().col == col) {
+            cmds.emplace_back(MakeInlineCodeBgCmd(OffsetRectF(row_bgs.front().rect, origin_x, origin_y)));
         }
+        row_bgs = row_bgs.subspan(1);
     }
 }
 
@@ -740,12 +740,14 @@ void CommandGenerator::GenTable(const FrameContext& fc,
         cmds_.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y), border, BrushId::Hr });
 
         float cx = x_begin;
+        std::span<const CellInlineCodeBg> row_bgs;
+        if (r < tl.row_code_bgs.size()) {
+            row_bgs = tl.row_code_bgs[r];
+        }
         for (size_t c = c_begin; c < c_end; c++) {
             const auto [text_x, text_y] = TableCellTextOrigin(cx, y);
 
-            if (r < tl.row_code_bgs.size()) {
-                GenCellInlineCodeBgs(cmds_, tl.row_code_bgs[r], c, text_x, text_y);
-            }
+            GenCellInlineCodeBgs(cmds_, row_bgs, c, text_x, text_y);
 
             IDWriteTextLayout* const cell_layout = tl.GetCellLayout(r, c);
             GenCellSearchHighlights(search_nm, cell_layout, r, c, text_x, text_y);

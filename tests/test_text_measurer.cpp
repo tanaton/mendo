@@ -73,8 +73,8 @@ TEST_F(MockLayoutTest, HeadingTallerThanParagraph)
 
 TEST_F(MockLayoutTest, NoDirtyAfterFullLayout)
 {
-    ParseAndLayout("A\n\nB\n\nC");
-    EXPECT_FALSE(engine_.HasDirtyNodes());
+    auto [nodes, cache] = ParseAndLayout("A\n\nB\n\nC");
+    EXPECT_FALSE(cache.HasDirtyNodes());
 }
 
 TEST_F(MockLayoutTest, PartialLayoutLeavesDirtyNodes)
@@ -85,7 +85,7 @@ TEST_F(MockLayoutTest, PartialLayoutLeavesDirtyNodes)
     // 部分レイアウト: ビューポート[0, 1)のみ — 非常に小さい
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 1.0f);
     // ビューポート外のノードはダーティであるべき
-    EXPECT_TRUE(engine_.HasDirtyNodes());
+    EXPECT_TRUE(cache.HasDirtyNodes());
 }
 
 TEST_F(MockLayoutTest, ProcessDirtyBatchResolvesDirty)
@@ -95,7 +95,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchResolvesDirty)
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 1.0f);
 
-    if (engine_.HasDirtyNodes()) {
+    if (cache.HasDirtyNodes()) {
         bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 100);
         EXPECT_FALSE(more);
     }
@@ -113,7 +113,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchSmallBatch)
     cache.Resize(nodes.size());
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 10.0f);
 
-    if (engine_.HasDirtyNodes()) {
+    if (cache.HasDirtyNodes()) {
         bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 5);
         EXPECT_TRUE(more); // 50 nodes, batch=5
     }
@@ -124,7 +124,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchSmallBatch)
 TEST_F(MockLayoutTest, ProcessDirtyBatchNoDirtyPreservesHeight)
 {
     auto [nodes, cache] = ParseAndLayout("A\n\nB\n\nC");
-    EXPECT_FALSE(engine_.HasDirtyNodes());
+    EXPECT_FALSE(cache.HasDirtyNodes());
 
     float height_before = ComputeTotalContentHeight(cache, theme_.margin_bottom);
     EXPECT_GT(height_before, 0.0f);
@@ -176,7 +176,7 @@ TEST_F(MockLayoutTest, EnsureVisibleLayoutUpdatesViewport)
     cache.Resize(nodes.size());
     // ビューポート[0,50)の部分レイアウト
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
-    EXPECT_TRUE(engine_.HasDirtyNodes());
+    EXPECT_TRUE(cache.HasDirtyNodes());
 
     const auto dirty_before = CountDirty(cache);
 
@@ -195,7 +195,7 @@ TEST_F(MockLayoutTest, FullLayoutMeasuresAllNodes)
     cache.Resize(nodes.size());
     LayoutAll(nodes, cache, 800.0f);
     EXPECT_GT(ComputeTotalContentHeight(cache, theme_.margin_bottom), 0.0f);
-    EXPECT_FALSE(engine_.HasDirtyNodes());
+    EXPECT_FALSE(cache.HasDirtyNodes());
 }
 
 // ---- Mermaidブロックのズーム耐性 ----
@@ -597,5 +597,5 @@ TEST_F(MockLayoutTest, RestoreAfterSwitchMeasuresNodesAtRestoredPosition)
     for (size_t i = first; i < last_plus_1; i++) {
         EXPECT_FALSE(cache[i].layout_dirty) << "ノード " << i;
     }
-    EXPECT_TRUE(engine_.HasDirtyNodes()) << "可視範囲外の残りは遅延レイアウトに回る";
+    EXPECT_TRUE(cache.HasDirtyNodes()) << "可視範囲外の残りは遅延レイアウトに回る";
 }

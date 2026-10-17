@@ -256,7 +256,7 @@ TEST_F(LayoutTest, ProcessDirtyBatchCleansNodes)
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
 
     // ダーティなノードがあれば処理する
-    if (engine_.HasDirtyNodes()) {
+    if (cache.HasDirtyNodes()) {
         bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 100);
         // 十分に処理した後、ダーティなノードがなくなること
         EXPECT_FALSE(more);
@@ -279,7 +279,7 @@ TEST_F(LayoutTest, ProcessDirtyBatchSmallBatch)
     // 非常に小さなビューポートで部分的なレイアウトを実行
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 10.0f);
 
-    if (engine_.HasDirtyNodes()) {
+    if (cache.HasDirtyNodes()) {
         // 一度に5ノードだけ処理
         bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 5);
         // 50ノードでバッチ=5なら、まだダーティなノードが残るはず
@@ -1476,7 +1476,7 @@ TEST_F(LayoutTest, PartialLayoutFromVisibleStartMatchesFullLayout)
     for (size_t i = 0; i < nodes.size(); i++) {
         EXPECT_FLOAT_EQ(cache.Top(i), ref_tops[i]) << "i=" << i;
     }
-    EXPECT_TRUE(engine_.HasDirtyNodes()) << "走査しない範囲の dirty は保守的に仮定する";
+    EXPECT_TRUE(cache.HasDirtyNodes()) << "走査しない範囲の dirty は保守的に仮定する";
 }
 
 // 範囲指定の RecomputeYPositions は、範囲外の後続ノードを一定量シフトするだけで全件計算と一致する。

@@ -69,22 +69,30 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
         return;
     }
 
+    uint32_t drop_gen = 0;
     {
         const std::lock_guard lock(pending_mutex_);
         if (auto it = failed_paths_.find(abs_path); it != failed_paths_.end() && it->second >= kMaxImageRetries) {
             return;
         }
-        if (!pending_paths_.insert(abs_path).second) {
+        if (!pending_paths_.try_emplace(abs_path, false).second) {
             return;
         }
+        drop_gen = drop_gen_;
     }
 
     const uint32_t gen = cancel_gen_.load();
-    const uint32_t drop_gen = drop_gen_.load();
     const UINT max_width_px = DecodeWidthPx(max_width_dip);
     const bool posted = scheduler_->Post([this, path = abs_path, on_complete = std::move(on_complete), gen, drop_gen, max_width_px, guard = latch_.Acquire()]() mutable {
-        if (cancel_gen_.load() != gen || drop_gen_.load() != drop_gen) {
-            return;
+        {
+            const std::lock_guard lock(pending_mutex_);
+            // 捨てられた要求の項目は消えている。同じパスで要求し直した別の項目があっても触らない。
+            if (cancel_gen_.load() != gen || drop_gen_ != drop_gen) {
+                return;
+            }
+            if (const auto it = pending_paths_.find(path); it != pending_paths_.end()) {
+                it->second = true;
+            }
         }
 
         DecodeResult result{ .on_complete = std::move(on_complete) };
@@ -159,15 +167,20 @@ void ImageLoader::ProcessCompletedDecodes()
                 failed = true;
             }
         }
-        {
-            const std::lock_guard lock(pending_mutex_);
-            pending_paths_.erase(r.path);
-            if (failed) {
-                ++failed_paths_[r.path];
-            }
+        if (failed) {
+            r.bitmap.Reset();
         }
         // 全 on_complete は同一の invalidate シグナルなので最後の 1 つだけ呼ぶ。
         last_cb = std::move(r.on_complete);
+    }
+    {
+        const std::lock_guard lock(pending_mutex_);
+        for (const auto& r : results) {
+            pending_paths_.erase(r.path);
+            if (!r.bitmap) {
+                ++failed_paths_[r.path];
+            }
+        }
     }
 
     if (last_cb) {
@@ -189,9 +202,9 @@ void ImageLoader::CacheBitmap(
 
 void ImageLoader::DropQueued()
 {
-    drop_gen_.fetch_add(1);
     const std::lock_guard lock(pending_mutex_);
-    pending_paths_.clear();
+    ++drop_gen_;
+    std::erase_if(pending_paths_, [](const auto& kv) { return !kv.second; });
 }
 
 void ImageLoader::CancelPending()

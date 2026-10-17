@@ -1,6 +1,5 @@
 #include "titlebar.h"
 #include <iterator>
-#include <utility>
 
 void TitleBar::UpdateLayout(float window_width_dip) noexcept
 {

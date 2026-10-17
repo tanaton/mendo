@@ -10,7 +10,6 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 #include <WebView2.h>
-#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -20,7 +19,6 @@
 #include <queue>
 #include <span>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -48,7 +46,7 @@ public:
               const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_update);
 
     bool RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode) override;
-    void RequestSvg(std::wstring_view code, float max_width, bool dark_mode, SvgCallback callback) override;
+    void RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback) override;
     void SetRenderTarget(ID2D1RenderTarget* render_target);
     void SetFileCache(MermaidFileCache* cache) noexcept
     {
@@ -66,8 +64,11 @@ public:
 
 private:
     struct RenderRequest {
-        // WebView2 に渡すコード (LaTeX は flowchart で包んだもの)。呼び出し側の文字列の寿命から切り離して持つ。
-        std::pmr::wstring code;
+        // UTF-8 の原文。呼び出し側の文字列の寿命から切り離して持つ。WebView2 向けの変換は描く直前に行い、
+        // 待ちの間 (準備前・ディスク読み込み中・キュー待ち) は原文の大きさのままにする。
+        std::pmr::string code;
+        // LaTeX 数式。flowchart で包んで描く。
+        bool latex = false;
         float max_width = 0.0f;
         bool dark_mode = false;
         uint64_t code_hash = 0;
@@ -100,12 +101,15 @@ private:
         }
     };
 
-    struct CachedBitmap {
+    // 描画結果。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。
+    struct CachedResult {
         Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
         float width = 0.0f;
         float height = 0.0f;
         // クリップボードコピー用 PNG。bitmap と同じ寿命で DiagramEntry へ伝播する。
         PngBytes png;
+        // 表示用に整形したエラー。非空なら失敗で、bitmap は持たない。
+        std::pmr::wstring error;
     };
 
     struct DiskLoad {
@@ -128,17 +132,17 @@ private:
     static constexpr int MAX_WORKER_RETRIES = 3;
     // 閉じると次の図で環境生成からやり直すため、読み進める間に閉じない程度に長めにする。
     static constexpr UINT IDLE_SHUTDOWN_MS = 60000;
+    // エラーも含む。書きかけの図を保存するたびにエラーが増えても、古いものから捨てる。
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
     // ディスクキャッシュから戻せるので画像より控えめにする。
     static constexpr size_t MAX_CACHE_BYTES = 64u * 1024 * 1024;
-    static constexpr size_t MAX_ERROR_ENTRIES = 256;
 
     // SVG 専用リクエストならコールバックを呼んで svg_callback をクリアする (cancel / render-error / svg-result 共通)。
     static void InvokeSvgCallbackIfAny(RenderRequest& req, std::pmr::wstring svg, bool cancelled);
     // 表示用リクエストのエラーを確定させる。msg が空なら i18n の汎用文言を入れ、
     // 「非空 = 失敗」の不変条件を保つ (issue #271)。
     void SetDiagramError(const RenderRequest& req, std::wstring_view msg);
-    static void ApplyCachedBitmap(DiagramEntry& diagram_entry, const CachedBitmap& cached) noexcept;
+    static void ApplyResult(DiagramEntry& diagram_entry, const CachedResult& result);
     // 進行中の要求をすべて捨てる。SVG 要求は cancelled=true で完了させる。
     void CancelPending();
 
@@ -172,8 +176,8 @@ private:
     void RenderInWorker(Worker& worker);
     // WebView2 ワーカーでの描画待ちキューに積む (初期化前なら初期化だけ起動して戻る)。
     void EnqueueWebRender(RenderRequest req);
-    // resolved: 結果 (ビットマップかエラー) が出た。通知して要求し直させる。
-    void FinishWorkerRequest(Worker& worker, bool resolved);
+    // 要求の結果 (ビットマップかエラー) がキャッシュに入っていれば、通知して要求し直させる。
+    void FinishWorkerRequest(Worker& worker);
     void ReleaseInflight(const RenderRequest& req) noexcept
     {
         if (!req.svg_only) {
@@ -199,7 +203,7 @@ private:
     void OnRenderResult(int worker_idx, std::wstring_view json);
     void DoCapturePreview(int worker_idx);
     void OnCaptureComplete(int worker_idx, Microsoft::WRL::ComPtr<IStream> png_stream);
-    void InsertCache(uint64_t hash, CachedBitmap cached);
+    void InsertCache(uint64_t hash, CachedResult result);
 
     HWND hwnd_ = nullptr;
     ID2D1RenderTarget* render_target_ = nullptr;
@@ -220,10 +224,8 @@ private:
     // 再要求されるため、ここで重複を弾く (二重描画・キュー肥大の防止)。
     std::pmr::unordered_set<uint64_t> inflight_;
 
-    // code_hash -> CachedBitmap (LruCache の挙動は src/util/lru_cache.h 参照)。
-    LruCache<uint64_t, CachedBitmap, MAX_CACHE_ENTRIES> cache_;
-    // code_hash -> 表示用に整形したエラー。同じコードは同じ結果になるので再描画しない。
-    std::pmr::unordered_map<uint64_t, std::pmr::wstring> errors_;
+    // code_hash -> CachedResult (LruCache の挙動は src/util/lru_cache.h 参照)。
+    LruCache<uint64_t, CachedResult, MAX_CACHE_ENTRIES> cache_;
     MermaidFileCache* file_cache_ = nullptr;
 
     TaskScheduler* bg_scheduler_ = nullptr;

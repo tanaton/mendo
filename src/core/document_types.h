@@ -133,6 +133,8 @@ struct NodeTableData {
     {
         return aligns[c];
     }
+
+    bool operator==(const NodeTableData&) const = default;
 };
 
 // 読み込んだ画像の寸法はパース結果ではないので持たない (LayoutCache の DiagramEntry が持つ)。

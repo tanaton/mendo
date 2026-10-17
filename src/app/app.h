@@ -92,9 +92,7 @@ public:
         state_.view.scroll_restore.SetNodeRestore(node, offset);
     }
 
-    // can_defer: 前のフレームがまだ表示待ちなら描かずに戻ってよいか。メッセージループから直接届いた
-    // WM_PAINT だけ true にする (モーダルループや UpdateWindow の中では待ちが再開されない)。
-    void OnPaint(bool can_defer);
+    void OnPaint();
     void OnResize(UINT width, UINT height);
     void OnMinimize();
     void OnMouseWheel(int px, int py, short delta, bool ctrl = false);
@@ -132,18 +130,17 @@ public:
         return file_watcher_.GetEventHandle();
     }
     void OnFileWatchEvent();
-    // 描画を見送っている間だけ、メッセージループが待つハンドルを返す。
+    // 次のフレームを描いてよくなるまで (前のフレームの表示待ちの間) だけ返す。メッセージループはこれを待つ間
+    // WM_PAINT を配らず、届いた入力を先に反映する。入力から表示までが 1 フレーム縮む。
     HANDLE GetFrameWaitHandle() const noexcept
     {
-        return frame_deferred_ ? renderer_.FrameWaitHandle() : nullptr;
+        return renderer_.FrameWaitHandle();
     }
     // GetFrameWaitHandle の待ちが成立した、または待ちきれなかった。後者では GPU が止まっていても
     // 描いて Present させ、デバイスロストを検出させる (シグナルを待ち続けると画面が固まったままになる)。
-    void OnFrameReady()
+    void OnFrameReady() noexcept
     {
-        frame_deferred_ = false;
         renderer_.MarkFrameAcquired();
-        Invalidate();
     }
 
     void HandleTimer(UINT_PTR timer_id);
@@ -373,8 +370,6 @@ private:
 
 private:
     HWND hwnd_ = nullptr;
-    // 前のフレームの表示待ちで描画を見送った。メッセージループが FrameWaitHandle を待つ。
-    bool frame_deferred_ = false;
 
     CursorManager cursors_;
 

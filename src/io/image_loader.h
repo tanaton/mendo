@@ -13,7 +13,6 @@
 #include <functional>
 #include <map>
 #include <mutex>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -56,6 +55,7 @@ public:
     }
     void ProcessCompletedDecodes();
     // 始まっていないデコードを捨てる。始まったものの結果はキャッシュに入れる (パスがキーなので文書をまたいでも使える)。
+    // 始まったものは要求中のまま残し、結果が届く前に同じパスを要求し直しても二重に読まない。
     void DropQueued();
     // 始まったものも含めて結果を捨てる。
     void CancelPending();
@@ -121,9 +121,11 @@ private:
     UINT msg_id_ = 0;
     TaskScheduler* scheduler_ = nullptr;
     std::atomic<uint32_t> cancel_gen_{ 0 };
-    std::atomic<uint32_t> drop_gen_{ 0 };
     std::mutex pending_mutex_;
-    std::set<std::wstring> pending_paths_;
+    // pending_mutex_ で守る。DropQueued と worker のデコード開始を排他にし、開始済みのものを捨てない。
+    uint32_t drop_gen_ = 0;
+    // 要求中のパス -> デコードを始めたか。
+    std::map<std::wstring, bool> pending_paths_;
     std::map<std::wstring, uint32_t> failed_paths_;
 
     std::mutex result_mutex_;

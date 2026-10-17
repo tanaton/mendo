@@ -181,6 +181,6 @@ TEST_F(ProcessDirtyBatchViewportTest, HasDirtyNodesFalseAfterNearbyProcessed)
     }
 
     // 付近のダーティノードが処理され、has_dirty_nodes が false になるべき
-    EXPECT_FALSE(engine_.HasDirtyNodes())
+    EXPECT_FALSE(cache.HasDirtyNodes())
         << "ビューポート付近の全ダーティノードが処理されたら false であるべき";
 }

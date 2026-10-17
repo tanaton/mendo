@@ -251,6 +251,7 @@ void LayoutCache::Resize(size_t node_count)
         tops_.resize(node_count);
         std::erase_if(diagrams_, [node_count](const auto& kv) { return kv.first >= node_count; });
         ResetEvictionTracking();
+        has_dirty_nodes_ = true;
     }
 }
 
@@ -265,6 +266,7 @@ void LayoutCache::Reset(size_t node_count)
     reset(tops_);
     diagrams_ = {};
     ResetEvictionTracking();
+    has_dirty_nodes_ = true;
 }
 
 void LayoutCache::InvalidateAllLayouts(const std::pmr::vector<Node>& nodes) noexcept

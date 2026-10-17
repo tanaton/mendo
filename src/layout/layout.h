@@ -38,7 +38,7 @@ public:
     // 戻り値は高さ・位置・テーブル行のいずれかが変わったか。
     bool EnsureVisibleLayout(
         const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
-        float viewport_top = -MeasureViewportRange::kInf, float viewport_bottom = MeasureViewportRange::kInf);
+        float viewport_top, float viewport_bottom);
     // Reestimate してから範囲を計測する。範囲を省略すると全ノードを計測する。
     void ComputeLayout(
         const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
@@ -49,15 +49,6 @@ public:
         const std::pmr::vector<Node>& nodes, LayoutCache& cache,
         float viewport_width, int batch_size,
         layout::ViewportClip clip = {});
-    constexpr bool HasDirtyNodes() const noexcept
-    {
-        return has_dirty_nodes_;
-    }
-    // キャッシュを差し替えた。可視範囲が計測済み (リロードで引き継いだ) でも、範囲外の dirty を遅延レイアウトに拾わせる。
-    constexpr void MarkDirtyNodes() noexcept
-    {
-        has_dirty_nodes_ = true;
-    }
 
 private:
     struct PassResult {
@@ -83,7 +74,6 @@ private:
     std::optional<float> last_viewport_width_;
     // 旧 format で計測したノードを、幅が同じでも組み直させる。
     bool formats_changed_ = false;
-    bool has_dirty_nodes_ = false;
 };
 
 // LayoutEngine + ViewportManager の組み合わせを薄くラップし、
@@ -113,15 +103,6 @@ public:
     bool EnsureNodeLayout(Document& doc, LayoutCache& cache, float width, int node);
     void RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme,
                                layout::HeightChangeRange changed) noexcept;
-
-    constexpr bool HasDirtyNodes() const noexcept
-    {
-        return engine_.HasDirtyNodes();
-    }
-    constexpr void MarkDirtyNodes() noexcept
-    {
-        engine_.MarkDirtyNodes();
-    }
 
 private:
     // [top, bottom] を計測する。前後で scroll target を確定・適用して見ている位置を保つ。

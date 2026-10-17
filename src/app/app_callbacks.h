@@ -3,7 +3,6 @@
 #include "resource_manager.h"
 #include "side_effect.h"
 #include "ui_types.h"
-#include <string_view>
 
 struct AppResourceManagerCallbacks : AppCallbacksBase {
     float get_content_width();

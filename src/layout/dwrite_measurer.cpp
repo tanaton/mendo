@@ -239,9 +239,8 @@ void DWriteTextMeasurer::WarmUp(TaskScheduler& scheduler) const
     };
     post(fmt_body_);
     post(fmt_code_);
-    for (const auto& fmt : fmt_h_) {
-        post(fmt);
-    }
+    // 見出しはサイズしか違わず、フォントの読み込みとフォールバックの解決は 1 つで済む。
+    post(fmt_h_[0]);
 }
 
 bool DWriteTextMeasurer::RecreateFormats()
@@ -299,7 +298,7 @@ IDWriteTextFormat* DWriteTextMeasurer::GetTableRowFormat(const NodeTableData& tb
     return tbl.IsHeaderRow(r) ? fmt_h_[3].Get() : fmt_body_.Get();
 }
 
-void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, RunFormatScope scope) const
+void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, bool apply_code_size) const
 {
     if (runs.empty()) {
         return;
@@ -311,7 +310,7 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     AttrRangeBuilder italic{ [layout](DWRITE_TEXT_RANGE r) noexcept {
         layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, r);
     } };
-    AttrRangeBuilder code{ [this, layout, apply_code_size = scope.apply_code_size](DWRITE_TEXT_RANGE r) noexcept {
+    AttrRangeBuilder code{ [this, layout, apply_code_size](DWRITE_TEXT_RANGE r) noexcept {
         layout->SetFontFamilyName(theme_->monospace_font.c_str(), r);
         if (apply_code_size) {
             layout->SetFontSize(theme_->font_size_code, r);
@@ -403,7 +402,7 @@ void DWriteTextMeasurer::MeasureNode(
         return;
     }
 
-    ApplyRunFormatting(layout.Get(), node.runs(), text, RunFormatScope::ForNode(node.type));
+    ApplyRunFormatting(layout.Get(), node.runs(), text, /*apply_code_size=*/node.type != NodeType::Heading);
     if (node.type == NodeType::BlockQuote && node.alert_label_length() > 0) {
         if (const auto idx = AlertColorIndex(node.alert_type); idx < ALERT_TYPE_COUNT) {
             Utf16OffsetCursor cursor{ text };
@@ -433,7 +432,7 @@ void DWriteTextMeasurer::BuildCellLayout(const NodeTableData& tbl, size_t r, siz
     auto& cell_layout = tl.cell_layouts[tl.CellIndex(r, c)];
     CreateDocTextLayout(dwrite_, text, row_fmt, LAYOUT_INFINITY, LAYOUT_INFINITY, &cell_layout);
     if (cell_layout) {
-        ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, RunFormatScope{});
+        ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, /*apply_code_size=*/true);
     }
 }
 

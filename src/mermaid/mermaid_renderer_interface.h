@@ -13,7 +13,7 @@ public:
     // SVG 取得結果コールバック。
     //   svg が非空      : 成功
     //   svg が空, cancelled=false : mermaid のレンダリング失敗
-    //   svg が空, cancelled=true  : CancelPending 経由（テーマ変更等のキャンセル）
+    //   svg が空, cancelled=true  : 終了時に破棄された
     using SvgCallback = std::move_only_function<void(std::pmr::wstring svg, bool cancelled)>;
     virtual ~IMermaidRenderer() = default;
 
@@ -23,9 +23,9 @@ public:
     // ノードの高さは呼び出し側が寸法から決める。
     virtual bool RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode) = 0;
     // PNG レンダリングと同じワーカー枠を共有する。
-    // code は内部でコピーされるため呼び出し後に解放してよい。
+    // code (UTF-8) は内部でコピーされるため呼び出し後に解放してよい。
     // max_width は CSS ビューポート幅（DIP）。表示中の図と同じ折返し結果を得るため、PNG と同じ値を渡す。
-    virtual void RequestSvg(std::wstring_view code, float max_width, bool dark_mode, SvgCallback callback) = 0;
+    virtual void RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback) = 0;
     // 描画待ちの表示用要求だけを捨てる (描画中と SVG 要求は維持)。大きく移動した後や幅・テーマの変更後に、
     // 不要になった図が先に描かれて可視の図が待たされるのを防ぐ。捨てた図は再要求される。
     virtual void DropQueued()

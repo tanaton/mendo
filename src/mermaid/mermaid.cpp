@@ -524,15 +524,14 @@ void MermaidRenderer::OnWebResourceRequested(ICoreWebView2WebResourceRequestedEv
 void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target)
 {
     render_target_ = render_target;
+    // ビットマップを作れなかった・大きすぎたなど、旧デバイスで確定したエラーも捨てて再試行させる。
     cache_.Clear();
-    // ビットマップを作れなかった・大きすぎたなど、旧デバイスで確定したエラーを再試行させる。
-    errors_.clear();
 }
 
-void MermaidRenderer::InsertCache(uint64_t hash, CachedBitmap cached)
+void MermaidRenderer::InsertCache(uint64_t hash, CachedResult result)
 {
-    cache_.Insert(hash, std::move(cached));
-    cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedBitmap& c) {
+    cache_.Insert(hash, std::move(result));
+    cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedResult& c) {
         return (c.png ? c.png->size() : 0) + BitmapBytes(c.bitmap.Get());
     });
 }
@@ -548,11 +547,7 @@ void MermaidRenderer::SetDiagramError(const RenderRequest& req, std::wstring_vie
     if (sanitized.empty()) {
         sanitized = i18n::S().diagram_error;
     }
-    // 書きかけの図を保存するたびに増えるので、溜まったら捨てる (要求し直せば同じ結果になる)。
-    if (errors_.size() >= MAX_ERROR_ENTRIES) {
-        errors_.clear();
-    }
-    errors_.insert_or_assign(req.code_hash, std::move(sanitized));
+    InsertCache(req.code_hash, CachedResult{ .error = std::move(sanitized) });
 }
 
 void MermaidRenderer::InvokeSvgCallbackIfAny(RenderRequest& req, std::pmr::wstring svg, bool cancelled)
@@ -654,12 +649,16 @@ void MermaidRenderer::RecoverWorker(int index)
     }
 }
 
-void MermaidRenderer::ApplyCachedBitmap(DiagramEntry& diagram_entry, const CachedBitmap& cached) noexcept
+void MermaidRenderer::ApplyResult(DiagramEntry& diagram_entry, const CachedResult& result)
 {
-    diagram_entry.bitmap = cached.bitmap;
-    diagram_entry.width = cached.width;
-    diagram_entry.height = cached.height;
-    diagram_entry.png = cached.png;
+    if (!result.error.empty()) {
+        diagram_entry.error = result.error;
+        return;
+    }
+    diagram_entry.bitmap = result.bitmap;
+    diagram_entry.width = result.width;
+    diagram_entry.height = result.height;
+    diagram_entry.png = result.png;
 }
 
 bool MermaidRenderer::RequestRender(
@@ -671,30 +670,27 @@ bool MermaidRenderer::RequestRender(
         return false;
     }
 
-    const auto hash = mermaid_util::NodeDiagramHash(node, max_width, dark_mode);
+    if (diagram_entry.code_hash == 0) {
+        diagram_entry.code_hash = mermaid_util::DiagramCodeHash(node);
+    }
+    const auto hash = mermaid_util::DiagramRequestHash(diagram_entry.code_hash, max_width, dark_mode);
 
     if (const auto* cached = cache_.Find(hash)) {
-        ApplyCachedBitmap(diagram_entry, *cached);
-        return true;
-    }
-    if (const auto it = errors_.find(hash); it != errors_.end()) {
-        diagram_entry.error = it->second;
+        ApplyResult(diagram_entry, *cached);
         return true;
     }
     if (!inflight_.insert(hash).second) {
         return false;
     }
 
-    // WebView2 / JsEscape は wstring 経路のため UTF-8 から変換する。LatexMath は flowchart ラッパに包む。
+    // ディスクから読めなかったときは描画し直すので、ディスクに当たってもコードを持たせる。
     RenderRequest req{
+        .code = std::pmr::string{ node.GetText() },
+        .latex = node.code_language() == SyntaxLanguage::LatexMath,
         .max_width = max_width,
         .dark_mode = dark_mode,
         .code_hash = hash,
     };
-    string_convert::Utf8ToWide(node.GetText(), req.code);
-    if (node.code_language() == SyntaxLanguage::LatexMath) {
-        req.code = mermaid_util::BuildLatexFlowchartCode(req.code);
-    }
     if (file_cache_) {
         MermaidFileCache::CacheEntry fentry;
         std::filesystem::path png_path;
@@ -764,7 +760,7 @@ bool MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
         if (r.captured && file_cache_) {
             file_cache_->StoreAsync(r.req.code_hash, r.req.css_width, r.req.css_height, r.png);
         }
-        InsertCache(r.req.code_hash, CachedBitmap{ std::move(bitmap), r.req.css_width, r.req.css_height, std::move(r.png) });
+        InsertCache(r.req.code_hash, CachedResult{ std::move(bitmap), r.req.css_width, r.req.css_height, std::move(r.png) });
         ReleaseInflight(r.req);
         return true;
     }
@@ -812,14 +808,14 @@ void MermaidRenderer::EnqueueWebRender(RenderRequest req)
     ProcessQueue();
 }
 
-void MermaidRenderer::RequestSvg(std::wstring_view code, float max_width, bool dark_mode, SvgCallback callback)
+void MermaidRenderer::RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback)
 {
     RenderRequest req;
     req.svg_only = true;
     req.max_width = max_width;
     req.dark_mode = dark_mode;
     req.svg_callback = std::move(callback);
-    req.code.assign(code.begin(), code.end());
+    req.code.assign(code);
     pending_requests_.push(std::move(req));
 
     if (!lifecycle_.IsReady()) {
@@ -841,7 +837,7 @@ void MermaidRenderer::ProcessQueue()
     while (!pending_requests_.empty()) {
         auto& front = pending_requests_.front();
         // 結果を出した要求が通知済みなので、ここでは取り除くだけでよい。
-        if (!front.svg_only && cache_.Find(front.code_hash)) {
+        if (!front.svg_only && cache_.Contains(front.code_hash)) {
             ReleaseInflight(front);
             pending_requests_.pop();
             continue;
@@ -865,8 +861,9 @@ void MermaidRenderer::ProcessQueue()
     }
 }
 
-void MermaidRenderer::FinishWorkerRequest(Worker& worker, bool resolved)
+void MermaidRenderer::FinishWorkerRequest(Worker& worker)
 {
+    const bool resolved = !worker.current_request.svg_only && cache_.Contains(worker.current_request.code_hash);
     worker.rendering = false;
     ReleaseInflight(worker.current_request);
     worker.current_request = {};
@@ -879,10 +876,17 @@ void MermaidRenderer::FinishWorkerRequest(Worker& worker, bool resolved)
 void MermaidRenderer::RenderInWorker(Worker& worker)
 {
     if (!worker.webview) {
-        FinishWorkerRequest(worker, false);
+        FinishWorkerRequest(worker);
         return;
     }
     const auto& req = worker.current_request;
+
+    // WebView2 / JsEscape は wstring 経路のため、ここで UTF-8 から変換する。
+    std::pmr::wstring code;
+    string_convert::Utf8ToWide(req.code, code);
+    if (req.latex) {
+        code = mermaid_util::BuildLatexFlowchartCode(code);
+    }
 
     // CSS ビューポートが max_width (DIP) と等しくなるよう境界を物理ピクセルで設定する
     // (WebView2 は内部で devicePixelRatio で除算する)。SVG 出力 (折返し等) も CSS 幅に
@@ -896,7 +900,7 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
             L"renderMermaidSvg('{}', {})"
             L".then(function(s){{window.chrome.webview.postMessage('svg-result:{}:'+(s||''));}})"
             L".catch(function(e){{window.chrome.webview.postMessage('render-error:{}:'+String(e));}})",
-            mermaid_util::JsEscape(req.code),
+            mermaid_util::JsEscape(code),
             req.dark_mode ? L"true" : L"false",
             req.request_id, req.request_id);
         LogHrFailure("ExecuteScript(svg)", worker.webview->ExecuteScript(js.c_str(), nullptr));
@@ -908,7 +912,7 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
         L"renderMermaid('{}', {}, 0)"
         L".then(function(r){{window.chrome.webview.postMessage('render-result:{}:'+r);}})"
         L".catch(function(e){{window.chrome.webview.postMessage('render-error:{}:'+String(e));}})",
-        mermaid_util::JsEscape(req.code),
+        mermaid_util::JsEscape(code),
         req.dark_mode ? L"true" : L"false",
         req.request_id, req.request_id);
     LogHrFailure("ExecuteScript(render)", worker.webview->ExecuteScript(js.c_str(), nullptr));
@@ -972,14 +976,14 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
     case WebMessageKind::SvgResult:
         if (req_id_match && w.current_request.svg_only) {
             InvokeSvgCallbackIfAny(w.current_request, std::pmr::wstring{ payload }, false);
-            FinishWorkerRequest(w, false);
+            FinishWorkerRequest(w);
         }
         return;
     case WebMessageKind::RenderError:
         if (req_id_match) {
             SetDiagramError(w.current_request, payload);
             InvokeSvgCallbackIfAny(w.current_request, {}, false);
-            FinishWorkerRequest(w, !w.current_request.svg_only);
+            FinishWorkerRequest(w);
         }
         return;
     case WebMessageKind::Failed:
@@ -1010,14 +1014,14 @@ void MermaidRenderer::OnRenderResult(int worker_idx, std::wstring_view json)
         // JS 側 renderMermaid が返す {ok:false, error:...} の内容をプレースホルダに
         // 表示させる。放置すると「読み込み中」のまま固着する (issue #271)。
         SetDiagramError(w.current_request, mermaid_util::ParseJsonString(json, L"\"error\""));
-        FinishWorkerRequest(w, true);
+        FinishWorkerRequest(w);
         return;
     }
 
     // 描けない大きさのままキャプチャすると、毎回ビットマップ作成に失敗して描き直しを繰り返す。
     if (!mermaid_util::FitsCaptureLimit(dw, dh, dpr, MaxBitmapDim(render_target_))) {
         SetDiagramError(w.current_request, i18n::S().diagram_too_large);
-        FinishWorkerRequest(w, true);
+        FinishWorkerRequest(w);
         return;
     }
 
@@ -1040,13 +1044,13 @@ void MermaidRenderer::DoCapturePreview(int worker_idx)
 {
     auto& w = workers_[worker_idx];
     if (!w.webview) {
-        FinishWorkerRequest(w, false);
+        FinishWorkerRequest(w);
         return;
     }
 
     auto png_stream = CreateMemoryStream(nullptr, 0);
     if (!png_stream) {
-        FinishWorkerRequest(w, false);
+        FinishWorkerRequest(w);
         return;
     }
 
@@ -1065,13 +1069,13 @@ void MermaidRenderer::DoCapturePreview(int worker_idx)
             OnCaptureComplete(worker_idx, png_stream);
         }
         else {
-            FinishWorkerRequest(worker, false);
+            FinishWorkerRequest(worker);
         }
         return S_OK;
     }).Get());
 
     if (FAILED(hr)) {
-        FinishWorkerRequest(w, false);
+        FinishWorkerRequest(w);
     }
 }
 
@@ -1084,6 +1088,6 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, Microsoft::WRL::ComPtr<I
     // キャッシュ・DiagramEntry・ディスク書き込みに共有する。
     // 読み出しが終わるまで要求は inflight_ に残る (current_request を空にしてから終えるので外れない)。
     auto req = std::exchange(w.current_request, {});
-    FinishWorkerRequest(w, false);
+    FinishWorkerRequest(w);
     StartDiskLoad(std::move(req), {}, std::move(png_stream));
 }

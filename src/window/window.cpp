@@ -208,13 +208,14 @@ int Win32Window::RunMessageLoop()
         if (watch_evt) {
             handles[count++] = watch_evt;
         }
+        // 前のフレームの表示待ちの間は WM_PAINT で起きず、フレームが取れるのを待つ。
+        // 描画側と同じ期限を付け、GPU が止まっても抜けられるようにする。
         const HANDLE frame_evt = app_->GetFrameWaitHandle();
         if (frame_evt) {
             handles[count++] = frame_evt;
         }
-        // フレームの待ちは描画の 1 秒の待ちと同じく、GPU が止まっても抜けられるよう期限を付ける。
-        constexpr DWORD kFrameWaitTimeoutMs = 1000;
-        const DWORD wait = MsgWaitForMultipleObjects(count, handles, FALSE, frame_evt ? kFrameWaitTimeoutMs : INFINITE, QS_ALLINPUT);
+        const DWORD wake_mask = frame_evt ? (QS_ALLINPUT & ~QS_PAINT) : QS_ALLINPUT;
+        const DWORD wait = MsgWaitForMultipleObjects(count, handles, FALSE, frame_evt ? D2DRenderBackend::kFrameWaitTimeoutMs : INFINITE, wake_mask);
 
         if (wait == WAIT_TIMEOUT) {
             app_->OnFrameReady();
@@ -233,16 +234,17 @@ int Win32Window::RunMessageLoop()
             }
         }
 
-        while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+        // フレームが取れるまで WM_PAINT は取り出さずに残し、入力などを先に配る。
+        // 配っている間に Present されると表示待ちに戻るので、取り出すたびに確かめる。
+        const auto peek_flags = [this] {
+            return app_->GetFrameWaitHandle() ? (PM_REMOVE | PM_QS_INPUT | PM_QS_POSTMESSAGE | PM_QS_SENDMESSAGE) : PM_REMOVE;
+        };
+        while (PeekMessageW(&msg, nullptr, 0, 0, peek_flags())) {
             if (msg.message == WM_QUIT) {
                 return static_cast<int>(msg.wParam);
             }
             TranslateMessage(&msg);
-            // このループから直接配る WM_PAINT だけ描画を見送れる。モーダルループや UpdateWindow の中で
-            // 見送ると、このループに戻るまで待ちが再開されない。
-            paint_from_loop_ = msg.message == WM_PAINT && msg.hwnd == hwnd_;
             DispatchMessageW(&msg);
-            paint_from_loop_ = false;
         }
     }
 }
@@ -541,7 +543,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return OnNcHitTest(lParam);
 
     case WM_PAINT:
-        app_->OnPaint(/*can_defer=*/std::exchange(paint_from_loop_, false));
+        app_->OnPaint();
         return 0;
 
     case WM_SIZE:

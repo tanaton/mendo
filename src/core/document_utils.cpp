@@ -304,18 +304,6 @@ std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent)
     return title;
 }
 
-namespace {
-
-bool TableContentEquals(const NodeTableData& a, const NodeTableData& b) noexcept
-{
-    return a.row_count == b.row_count && a.col_count == b.col_count && a.concat_text == b.concat_text &&
-           std::ranges::equal(a.all_runs, b.all_runs) && std::ranges::equal(a.cell_text_starts, b.cell_text_starts) &&
-           std::ranges::equal(a.cell_run_starts, b.cell_run_starts) && std::ranges::equal(a.aligns, b.aligns) &&
-           std::ranges::equal(a.is_header_row, b.is_header_row);
-}
-
-} // namespace
-
 bool NodeContentEquals(const Node& a, const Node& b) noexcept
 {
     if (a.type != b.type || a.alert_type != b.alert_type || a.quote_depth != b.quote_depth ||
@@ -336,5 +324,5 @@ bool NodeContentEquals(const Node& a, const Node& b) noexcept
     }
     const auto* at = a.table_data();
     const auto* bt = b.table_data();
-    return (at == nullptr) == (bt == nullptr) && (!at || TableContentEquals(*at, *bt));
+    return (at == nullptr) == (bt == nullptr) && (!at || *at == *bt);
 }

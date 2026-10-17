@@ -477,6 +477,9 @@ struct DiagramEntry {
     // プレースホルダにこの文言を表示し再リクエストを止める。リロード・幅変更・
     // テーマ変更・デバイスロストでクリアされ再試行の契機になる。オフスクリーン evict では保持する。
     std::pmr::wstring error;
+    // 図のコード部分のハッシュ (mermaid_util::DiagramCodeHash)。0 は未計算。ノードのテキストだけで決まるので、
+    // 結果を捨てても (幅・テーマの変更を含む) 残し、結果を待つ図を要求し直すたびにテキストを読み直さない。
+    uint64_t code_hash = 0;
 
     // 未確定 (成功も失敗もしていない) でレンダ要求すべき状態か。
     bool NeedsRender() const noexcept
@@ -628,10 +631,23 @@ public:
     // ハイライト系のキャッシュは選択や検索の位置に依るので捨てる。Y 位置は呼び出し側が組み直す。
     void TakeEntry(LayoutCache& src, size_t from, size_t to);
 
+    // 遅延レイアウトで計測する dirty が残っているかもしれない。LayoutEngine が計測のたびに決め直す。
+    // キャッシュと一緒に動くので、文書と一緒に差し替えても (推定直後は true) 遅延レイアウトが拾う。
+    // 画面外の evict で dirty に戻したノードは含めない (スクロールで見えたときに計測する)。
+    constexpr bool HasDirtyNodes() const noexcept
+    {
+        return has_dirty_nodes_;
+    }
+    constexpr void SetHasDirtyNodes(bool v) noexcept
+    {
+        has_dirty_nodes_ = v;
+    }
+
 private:
     std::pmr::vector<NodeLayoutEntry> entries_;
     std::pmr::vector<float> tops_;
     std::pmr::unordered_map<size_t, DiagramEntry> diagrams_;
+    bool has_dirty_nodes_ = true;
     size_t last_evict_fk_ = 0;
     size_t last_evict_lk_ = 0;
     // 前回 evict 以降に計測した index の範囲 [begin, end)。空は begin >= end。

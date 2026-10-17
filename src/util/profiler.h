@@ -10,7 +10,6 @@
 //   MENDO_FRAME_MARK()               : フレーム境界マーカー。OnPaint 末尾で 1 回呼ぶ。
 //   MENDO_PLOT(label, value)         : 数値の時系列プロット。double / int 受け入れ可。
 //   MENDO_COUNT_INC(counter)         : 累積カウンタの ++。Tracy OFF で no-op (DCE 担保)。
-//   MENDO_COUNT_ADD(counter, n)      : 累積カウンタへの加算。Tracy OFF で no-op。
 //   MENDO_COUNT_SET(counter, value)  : 累積でない直近値の代入。Tracy OFF で no-op。
 //   MENDO_IF_TRACY(...)              : Tracy ON のときだけ展開する任意コード。
 //   MENDO_TRACE(msg)                 : リテラルメッセージのデバッグログ ("[mendo] " 付き)。
@@ -43,7 +42,6 @@
 // 累積カウンタ系。Tracy OFF では完全に no-op になるため、対象カウンタが
 // 他から参照されない限り、変数定義ごと dead code として消える。
 #define MENDO_COUNT_INC(counter) (++(counter))
-#define MENDO_COUNT_ADD(counter, n) ((counter) += (n))
 #define MENDO_COUNT_SET(counter, value) ((counter) = (value))
 #define MENDO_IF_TRACY(...) __VA_ARGS__
 
@@ -72,7 +70,6 @@
 #define MENDO_FRAME_MARK() ((void)0)
 #define MENDO_PLOT(label, value) ((void)0)
 #define MENDO_COUNT_INC(counter) ((void)0)
-#define MENDO_COUNT_ADD(counter, n) ((void)0)
 #define MENDO_COUNT_SET(counter, value) ((void)0)
 #define MENDO_IF_TRACY(...)
 #define MENDO_LOGF(fmt, ...) ((void)0)

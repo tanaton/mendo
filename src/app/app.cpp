@@ -281,7 +281,7 @@ void App::SyncRendererSearchMatches()
     }
 }
 
-void App::OnPaint(bool can_defer)
+void App::OnPaint()
 {
     MENDO_PROFILE("OnPaint");
 
@@ -290,13 +290,6 @@ void App::OnPaint(bool can_defer)
     // 最小化中は見えないので描かない。描くと TrimForMinimize で手放したキャッシュを作り直してしまう。
     // 復元時は Win32Window::OnSize が描き直させる。
     if (IsIconic(hwnd_)) {
-        EndPaint(hwnd_, &ps);
-        return;
-    }
-    // 前のフレームが表示待ちなら UI スレッドを止めずに戻り、メッセージループで待つ。
-    // 待つ間に届いた入力を反映してから描けるので、入力から表示までが 1 フレーム縮む。
-    frame_deferred_ = can_defer && !renderer_.AcquireFrame(0);
-    if (frame_deferred_) {
         EndPaint(hwnd_, &ps);
         return;
     }
@@ -336,7 +329,7 @@ void App::OnPaint(bool can_defer)
               state_.view.viewport.GetScrollY(), ScrollableContentHeight(),
               state_.view.hover.nav, state_.view.hover.overlay_button,
               state_.view.nav_history.CanGoBack(), state_.view.nav_history.CanGoForward(),
-              layout_service_->HasDirtyNodes(), h_scroll });
+              state_.document.layout_cache.HasDirtyNodes(), h_scroll });
     }
 
     EndPaint(hwnd_, &ps);
@@ -809,7 +802,7 @@ float App::MdContentWidth()
 
 bool App::ScheduleDeferredLayoutIfNeeded()
 {
-    if (!layout_service_->HasDirtyNodes()) {
+    if (!state_.document.layout_cache.HasDirtyNodes()) {
         return false;
     }
     SetTimer(app_timer::Id::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS);

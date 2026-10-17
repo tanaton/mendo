@@ -58,7 +58,6 @@ private:
     bool in_sys_menu_ = false;
     bool tracking_mouse_ = false; // TME_LEAVE は WM_MOUSELEAVE を 1 回送ると解除されるので、再登録の要否を覚える
     bool was_minimized_ = false;  // 直前が最小化状態だったかのフラグ（復元時の同期描画ガード用）
-    bool paint_from_loop_ = false; // RunMessageLoop が WM_PAINT を配っている最中
 
     std::pmr::wstring search_text_buf_;
 

@@ -15,6 +15,8 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 #include <shlwapi.h>
+#include <atomic>
+#include <latch>
 
 namespace {
 
@@ -695,6 +697,32 @@ TEST_F(ImageLoaderTest, ClearCacheInvalidatesEntries)
 
     // キャッシュクリア後は新しいビットマップが作成される
     EXPECT_NE(first_bitmap, entry2.bitmap.Get());
+}
+
+// 始まっていないデコードを捨てたら、同じパスを要求し直せる。捨てた要求が後から走っても新しい要求を消さない。
+TEST_F(ImageLoaderTest, DropQueuedAllowsRerequest)
+{
+    ASSERT_TRUE(CreateTestImage(L"drop.png", GUID_ContainerFormatPng, 40, 40));
+    const auto path = GetTestImagePath(L"drop.png");
+
+    // worker (2 つ) を塞ぎ、要求をキュー待ちのまま捨てる。
+    std::latch release{ 1 };
+    std::atomic<int> blocked{ 0 };
+    for (int i = 0; i < 2; ++i) {
+        scheduler_.Post([&] {
+            ++blocked;
+            release.wait();
+        });
+    }
+    ASSERT_TRUE(PollUntil([&] { return blocked.load() == 2; }));
+    bool dropped_done = false;
+    loader_.RequestLoadAsync(path, [&dropped_done] { dropped_done = true; });
+    loader_.DropQueued();
+    release.count_down();
+
+    DiagramEntry entry;
+    EXPECT_TRUE(LoadAndGet(path, entry));
+    EXPECT_FALSE(dropped_done);
 }
 
 // ---- 異常系: ファイルが存在しない ----

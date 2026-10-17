@@ -89,10 +89,6 @@ public:
         return backend_.IsDeviceLost();
     }
     // D2DRenderBackend の同名関数を参照。
-    bool AcquireFrame(DWORD timeout_ms) noexcept
-    {
-        return backend_.AcquireFrame(timeout_ms);
-    }
     HANDLE FrameWaitHandle() const noexcept
     {
         return backend_.FrameWaitHandle();

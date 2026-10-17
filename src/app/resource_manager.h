@@ -451,7 +451,8 @@ private:
         return BufferedRange{ viewport_top, viewport_bottom, buffer, vr };
     }
 
-    // BufferedSlice を可視部分 → 下側 → 上側の順の 3 区間に分ける。要求キューは FIFO なので、
+    // indices のうち ComputeBufferedRange に交差する部分を、可視部分 → 下側 → 上側の順の 3 区間に分ける。
+    // 範囲が決まらないときは全件を可視部分として返す。要求キューは FIFO なので、
     // スクロール位置の復元やジャンプの直後に、画面より上の分が見えている分より先に処理されないようにする。
     std::array<std::span<const size_t>, 3> PrioritizedSlices(std::span<const size_t> indices, float screens)
     {
@@ -464,16 +465,6 @@ private:
         const auto visible = resource_manager_detail::VisibleSlice(all, vr.first, vr.last_plus_1);
         const auto above = static_cast<size_t>(visible.data() - all.data());
         return { visible, all.subspan(above + visible.size()), all.first(above) };
-    }
-
-    // indices のうち ComputeBufferedRange に交差する部分。範囲が決まらないときは全件を返す。
-    std::span<const size_t> BufferedSlice(std::span<const size_t> indices, float screens)
-    {
-        const auto r = ComputeBufferedRange(screens);
-        if (!r) {
-            return indices;
-        }
-        return resource_manager_detail::VisibleSlice(indices, r->range.first, r->range.last_plus_1);
     }
 
     void InvalidateMermaidForWidthChange(float content_width)

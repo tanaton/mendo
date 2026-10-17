@@ -163,7 +163,7 @@ TEST_F(ParallelMeasureTest, BatchLimitClampsProcessed)
     const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, 10, &task_scheduler_);
     EXPECT_EQ(r.processed, 10);
     EXPECT_TRUE(r.more);
-    }
+}
 
 TEST_F(ParallelMeasureTest, AllDirtyClearedAfterRun)
 {
@@ -235,7 +235,7 @@ TEST_F(ParallelMeasureTest, ProcessDirtyBatchRetriesAfterChunkException)
         LayoutCache cache;
         cache.Resize(nodes.size());
         engine.ComputeLayout(nodes, cache, 800.0f);
-        ASSERT_FALSE(engine.HasDirtyNodes());
+        ASSERT_FALSE(cache.HasDirtyNodes());
 
         // 再計測で高さが変わるようにして、計測済みノードの Y 反映漏れを見えるようにする。
         measurer.line_height *= 1.5f;
@@ -253,7 +253,7 @@ TEST_F(ParallelMeasureTest, ProcessDirtyBatchRetriesAfterChunkException)
 
         EXPECT_TRUE(cache[thrower].layout_dirty);
         EXPECT_TRUE(more);
-        EXPECT_TRUE(engine.HasDirtyNodes()) << "計測できなかった dirty の再試行が止まる";
+        EXPECT_TRUE(cache.HasDirtyNodes()) << "計測できなかった dirty の再試行が止まる";
         EXPECT_TRUE(YChainConsistent(nodes, cache, theme_));
     }
 }
@@ -288,7 +288,7 @@ TEST_F(ParallelMeasureTest, AlwaysThrowingNodeStopsRetryingAfterMaxAttempts)
     // RecomputeYPositions は末尾シフト時に dirty 残りを保守的に true と返すため、諦めた後に 1 バッチ余分に回りうる。
     EXPECT_LE(1 + DrainDirtyBatches(engine, nodes, cache), static_cast<int>(LayoutCache::kMaxMeasureAttempts) + 1);
     EXPECT_EQ(measurer.attempts.load(), LayoutCache::kMaxMeasureAttempts);
-    EXPECT_FALSE(engine.HasDirtyNodes()) << "諦めた後もダーティ処理が続いている";
+    EXPECT_FALSE(cache.HasDirtyNodes()) << "諦めた後もダーティ処理が続いている";
     EXPECT_FALSE(cache[kThrower].layout_dirty);
     EXPECT_TRUE(YChainConsistent(nodes, cache, theme_));
 
@@ -366,7 +366,7 @@ TEST_F(DirtyBatchSerialTest, NoneDirtyReturnsNoneDirty)
     const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, 0, nullptr);
     EXPECT_EQ(r.processed, 0);
     EXPECT_FALSE(r.more);
-    }
+}
 
 TEST_F(DirtyBatchSerialTest, AllDirtyProcessedReturnsDone)
 {
@@ -375,7 +375,7 @@ TEST_F(DirtyBatchSerialTest, AllDirtyProcessedReturnsDone)
     const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, 0, nullptr);
     EXPECT_EQ(r.processed, 5);
     EXPECT_FALSE(r.more);
-        EXPECT_FALSE(f.cache[0].layout_dirty);
+    EXPECT_FALSE(f.cache[0].layout_dirty);
     EXPECT_FALSE(f.cache[4].layout_dirty);
 }
 
@@ -386,7 +386,7 @@ TEST_F(DirtyBatchSerialTest, BatchLimitStopsAtMaxNodes)
     const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, 3, nullptr);
     EXPECT_EQ(r.processed, 3);
     EXPECT_TRUE(r.more);
-        EXPECT_FALSE(f.cache[0].layout_dirty);
+    EXPECT_FALSE(f.cache[0].layout_dirty);
     EXPECT_FALSE(f.cache[2].layout_dirty);
 }
 
@@ -404,7 +404,7 @@ TEST_F(DirtyBatchSerialTest, ViewportClipSkipsOffscreenDirty)
     const auto r = RunBatch(f, theme_, mock_, ViewportClip{ 150.0f, 200.0f, 0.0f }, 0, nullptr);
     EXPECT_EQ(r.processed, 3);
     EXPECT_FALSE(r.more);
-        EXPECT_FALSE(f.cache[1].layout_dirty);
+    EXPECT_FALSE(f.cache[1].layout_dirty);
     EXPECT_FALSE(f.cache[3].layout_dirty);
 }
 
@@ -441,7 +441,7 @@ TEST_F(DirtyBatchSerialTest, BudgetZeroIsUnlimited)
     const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, 0, nullptr);
     EXPECT_EQ(r.processed, 50);
     EXPECT_FALSE(r.more);
-    }
+}
 
 TEST_F(DirtyBatchSerialTest, MeasureNodeIsCalledOnEachProcessed)
 {

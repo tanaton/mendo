@@ -323,3 +323,16 @@ TEST(LayoutCacheTest, SyntaxTokensReleasedWithTextLayout)
     entry.release_layout_state();
     EXPECT_TRUE(entry.syntax_tokens().empty());
 }
+
+// dirty の有無はキャッシュと一緒に動く。差し替え用の新しいキャッシュは計測前なので dirty ありとして始まる。
+TEST(LayoutCacheTest, HasDirtyNodesTravelsWithCache)
+{
+    LayoutCache cache;
+    cache.Resize(3);
+    EXPECT_TRUE(cache.HasDirtyNodes());
+    cache.SetHasDirtyNodes(false);
+    LayoutCache moved = std::move(cache);
+    EXPECT_FALSE(moved.HasDirtyNodes());
+    moved.Resize(5);
+    EXPECT_TRUE(moved.HasDirtyNodes()) << "増えたノードは計測前";
+}

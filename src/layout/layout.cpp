@@ -50,7 +50,7 @@ void LayoutEngine::Reestimate(const std::pmr::vector<Node>& nodes, LayoutCache& 
     const bool unpositioned = node_count > 0 && cache.Bottom(node_count - 1) <= 0.0f;
     if (width_changed || unpositioned) {
         EstimateDirtyHeights(nodes, cache, theme_->ContentWidth(viewport_width), width_changed);
-        has_dirty_nodes_ = true;
+        cache.SetHasDirtyNodes(true);
     }
     MENDO_PLOT("layout.compute.width_changed", static_cast<int64_t>(width_changed));
     MENDO_PLOT("layout.compute.node_count", static_cast<int64_t>(node_count));
@@ -161,7 +161,7 @@ bool LayoutEngine::EnsureVisibleLayout(const std::pmr::vector<Node>& nodes, Layo
     for (size_t i = vr.first; i < vr.last_plus_1 && !any_dirty; ++i) {
         any_dirty = cache[i].layout_dirty;
     }
-    has_dirty_nodes_ = any_dirty;
+    cache.SetHasDirtyNodes(any_dirty);
     return true;
 }
 
@@ -174,8 +174,9 @@ bool LayoutEngine::ProcessDirtyBatch(
     // 遠方の dirty はスクロール時に EnsureVisibleLayout で計測する。
     // last_viewport_width_ は Reestimate が再計測を決めた幅のまま据え置く。ここで進めると
     // 2px 未満のリサイズとダーティ処理が交互に続いたとき、可視ノードが古い幅のまま取り残される。
-    has_dirty_nodes_ = MeasurePass(nodes, cache, viewport_width, clip.Range(), static_cast<size_t>(std::max(batch_size, 0))).remaining;
-    return has_dirty_nodes_;
+    const bool remaining = MeasurePass(nodes, cache, viewport_width, clip.Range(), static_cast<size_t>(std::max(batch_size, 0))).remaining;
+    cache.SetHasDirtyNodes(remaining);
+    return remaining;
 }
 
 void LayoutService::ViewportLayout(Document& doc, LayoutCache& cache, float width, float height)

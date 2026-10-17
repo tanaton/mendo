@@ -4,11 +4,9 @@
 #include "hit_test_service.h"
 #include "ui_constants.h"
 #include "profiler.h"
-#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cmath>
-#include <ranges>
 #include <utility>
 #include <wrl/client.h>
 
@@ -114,10 +112,8 @@ bool Renderer::BeginFrame(const TitleBarRenderState& titlebar, const SidePaneSta
 
     text_layouts_.BeginFrame();
     PrepareChrome(titlebar, side_panes);
-    // 呼び出し側が AcquireFrame で取っていなければここで待つ。GPU が止まっても UI スレッドを
-    // 永久ブロックしないよう 1 秒で諦めて描く。
-    constexpr DWORD kFrameWaitTimeoutMs = 1000;
-    backend_.AcquireFrame(kFrameWaitTimeoutMs);
+    // メッセージループが取っていなければ (モーダルループや UpdateWindow からの描画) ここで待つ。
+    backend_.AcquireFrame(D2DRenderBackend::kFrameWaitTimeoutMs);
 
     rt()->BeginDraw();
     rt()->Clear(theme_.bg_color);

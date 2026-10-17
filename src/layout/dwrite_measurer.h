@@ -49,21 +49,11 @@ public:
     }
 
 private:
-    // ApplyRunFormatting で適用する属性集合。既定値はテーブルセル用。
-    // Node 用は見出しでインラインコードの縮小を外す。CodeBlock は run を持たない。
-    struct RunFormatScope {
-        bool apply_code_size = true;
-
-        static constexpr RunFormatScope ForNode(NodeType t) noexcept
-        {
-            return { .apply_code_size = (t != NodeType::Heading) };
-        }
-    };
-
     IDWriteTextFormat* GetTextFormat(const Node& node) const noexcept;
     IDWriteTextFormat* GetTableRowFormat(const NodeTableData& tbl, size_t r) const noexcept;
     void MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width, MeasureViewportRange viewport) const;
-    void ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, RunFormatScope scope) const;
+    // apply_code_size=false はインラインコードを縮小しない (見出し用)。CodeBlock は run を持たない。
+    void ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, bool apply_code_size) const;
     // MeasureTableCells / RestoreRowCells 共通のセル生成処理。空セルは layout を
     // null のまま残し、呼び出し側のスキップ判定に委ねる。
     void BuildCellLayout(const NodeTableData& tbl, size_t r, size_t c, IDWriteTextFormat* row_fmt, TableLayoutData& tl) const;

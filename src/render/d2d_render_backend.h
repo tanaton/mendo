@@ -39,7 +39,9 @@ public:
     // GPU パイプラインの 1 フレーム遅れに同期し、CPU 側を Present の Vsync ブロックまで詰めずに済ませる。
     // 取れたら Present するまで取れた扱いのままにして、描かずに終わったフレームの後で待ち直さない。
     bool AcquireFrame(DWORD timeout_ms) noexcept;
-    // 描画を見送ったフレームの再開を待つためのハンドル。取れている間とロスト中は nullptr。
+    // フレーム待ちの上限。GPU が止まっても UI スレッドを永久にブロックしないよう、これを過ぎたら諦めて描く。
+    static constexpr DWORD kFrameWaitTimeoutMs = 1000;
+    // 次のフレームを描いてよくなるのを待つためのハンドル。取れている間とロスト中は nullptr。
     HANDLE FrameWaitHandle() const noexcept
     {
         return (frame_acquired_ || device_lost_) ? nullptr : frame_latency_waitable_.get();

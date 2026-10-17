@@ -1,5 +1,5 @@
 #include "pane_controller.h"
-#include <utility>
+#include <algorithm>
 
 namespace {
 

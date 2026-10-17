@@ -20,7 +20,7 @@ public:
         return false;
     }
 
-    void RequestSvg(std::wstring_view code, float max_width, bool dark_mode, SvgCallback cb) override
+    void RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback cb) override
     {
         ++request_count;
         last_code.assign(code);
@@ -40,7 +40,7 @@ public:
     }
 
     int request_count = 0;
-    std::pmr::wstring last_code;
+    std::pmr::string last_code;
     float last_width = 0.0f;
     bool last_dark = false;
     SvgCallback last_callback;
@@ -271,7 +271,7 @@ TEST(ClipboardManager, CopyDiagramToClipboardPassesCodeAndDarkModeToRenderer)
     EXPECT_EQ(renderer.request_count, 1);
     EXPECT_FLOAT_EQ(renderer.last_width, 1024.0f);
     EXPECT_TRUE(renderer.last_dark);
-    EXPECT_NE(renderer.last_code.find(L"graph LR"), std::wstring_view::npos);
+    EXPECT_NE(renderer.last_code.find("graph LR"), std::string_view::npos);
 
     renderer.FireCallback({}, true);
 }
