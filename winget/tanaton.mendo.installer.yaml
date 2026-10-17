@@ -1,4 +1,4 @@
-# Created using winget CLI
+# Created using wingetcreate 1.12.13.0
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
 
 PackageIdentifier: tanaton.mendo
@@ -6,11 +6,12 @@ PackageVersion: 0.3.0.0
 InstallerType: zip
 NestedInstallerType: portable
 NestedInstallerFiles:
-  - RelativeFilePath: mendo.exe
-    PortableCommandAlias: mendo
+- RelativeFilePath: mendo.exe
+  PortableCommandAlias: mendo
 Installers:
-  - Architecture: x64
-    InstallerUrl: https://github.com/tanaton/mendo/releases/download/v0.3.0.0/mendo.zip
-    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+- Architecture: x64
+  InstallerUrl: https://github.com/tanaton/mendo/releases/download/v0.3.0.0/mendo.zip
+  InstallerSha256: D4D40FEC914A029393BB64BD0A39D4580C351C754CDA53B655F5A1803C264197
 ManifestType: installer
 ManifestVersion: 1.12.0
+ReleaseDate: 2026-10-17
