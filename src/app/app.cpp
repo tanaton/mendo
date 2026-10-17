@@ -116,9 +116,7 @@ bool App::Init(HWND hwnd)
     state_.ctx_menu.Init(renderer_.GetD2DFactory(), renderer_.GetDWriteFactory());
 
     state_.interaction.tooltip.Init(hwnd_);
-    if (theme_service_.IsDarkMode()) {
-        state_.interaction.tooltip.ApplyDarkMode(true);
-    }
+    state_.interaction.tooltip.ApplyDarkMode(theme_service_.IsDarkMode());
 
     state_.search.search_bar_ctrl.Init(state_.search.search_state, state_.view.viewport, state_.document.layout_cache, AppSearchBarCallbacks{ this });
     return true;
@@ -749,12 +747,6 @@ void App::OnResizeEnd()
     resource_manager_.ScheduleMermaidBatch();
 
     EmitEffect(effect::SyncTocActive{});
-}
-
-void App::RefreshPaneLayout()
-{
-    state_.pane_layout_cache.Invalidate();
-    EmitEffect(effect::PerformResizeEnd{});
 }
 
 void App::OnDeferredLayout()

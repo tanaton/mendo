@@ -293,7 +293,6 @@ private:
     void SettleLayout();
     void InvalidateHitPositions();
     void OnResizeEnd();
-    void RefreshPaneLayout();
     void OnDeferredLayout();
     void FinalizeLayout(float md_pane_height);
     void SyncTocActiveAndAutoScroll(bool auto_scroll);

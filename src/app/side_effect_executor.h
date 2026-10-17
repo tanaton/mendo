@@ -111,9 +111,6 @@ public:
             [this](const effect::BitmapManage&) {
                 cb_.schedule_bitmap_manage();
             },
-            [this](const effect::RefreshPaneLayout&) {
-                cb_.refresh_pane_layout();
-            },
             [this](const effect::SyncTocActive& ev) {
                 cb_.sync_toc_active(ev.auto_scroll);
             },

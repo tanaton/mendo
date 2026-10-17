@@ -741,6 +741,8 @@ void CommandGenerator::GenTable(const FrameContext& fc,
         x += tl.ColumnStep(c_end);
     }
 
+    const auto search_nm = PrepareNodeSearchMatches(entry, node_index);
+
     for (size_t r = r_begin; r < r_end; r++) {
         const float row_h = tl.row_heights[r];
 
@@ -763,10 +765,11 @@ void CommandGenerator::GenTable(const FrameContext& fc,
             // bg_cursor は cell_index 昇順で進む。
             bg_cursor = GenCellInlineCodeBgs(cmds_, tl.cell_inline_code_bgs, bg_cursor, static_cast<uint32_t>(tl.CellIndex(r, c)), text_x, text_y, theme_->code_bg_color);
 
-            GenCellSearchHighlights(entry, node_index, r, c, text_x, text_y);
+            IDWriteTextLayout* const cell_layout = tl.GetCellLayout(r, c);
+            GenCellSearchHighlights(search_nm, cell_layout, r, c, text_x, text_y);
 
             GenTableCellContent(tbl->GetCellText(r, c), CellDrawContext{
-                .layout = tl.GetCellLayout(r, c),
+                .layout = cell_layout,
                 .text_x = text_x,
                 .text_y = text_y,
                 .height = row_h,
@@ -953,9 +956,8 @@ void CommandGenerator::GenSearchHighlights(const NodeLayoutEntry& entry, int nod
         static_cast<size_t>(first - nm.matches.begin()), static_cast<size_t>(last - nm.matches.begin()), origin_x, origin_y);
 }
 
-void CommandGenerator::GenCellSearchHighlights(const NodeLayoutEntry& entry, int node_index, size_t row, size_t col, float origin_x, float origin_y)
+void CommandGenerator::GenCellSearchHighlights(const NodeSearchMatches& nm, IDWriteTextLayout* layout, size_t row, size_t col, float origin_x, float origin_y)
 {
-    const auto nm = PrepareNodeSearchMatches(entry, node_index);
     if (nm.matches.empty()) {
         return;
     }
@@ -963,6 +965,6 @@ void CommandGenerator::GenCellSearchHighlights(const NodeLayoutEntry& entry, int
     const auto cell = std::ranges::equal_range(
         nm.matches, std::pair{ static_cast<int>(row), static_cast<int>(col) }, {},
         [](const SearchMatch& m) noexcept { return std::pair{ m.table_row, m.table_col }; });
-    EmitSearchMatches(nm, entry.table_layout()->GetCellLayout(row, col),
+    EmitSearchMatches(nm, layout,
         static_cast<size_t>(cell.begin() - nm.matches.begin()), static_cast<size_t>(cell.end() - nm.matches.begin()), origin_x, origin_y);
 }

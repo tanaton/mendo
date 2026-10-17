@@ -42,11 +42,6 @@ void AppSideEffectCallbacks::cancel_other_file_load()
     app->CancelOtherFileLoad();
 }
 
-void AppSideEffectCallbacks::refresh_pane_layout()
-{
-    app->RefreshPaneLayout();
-}
-
 void AppSideEffectCallbacks::renderer_resize(UINT w, UINT h)
 {
     app->renderer_.Resize(w, h);

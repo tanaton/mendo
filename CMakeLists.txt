@@ -14,7 +14,8 @@ if(MSVC)
 
     # /GL: プログラム全体の最適化（コンパイル時にLTCGを有効化）
     # /Gy: 関数レベルリンク（リンカが未使用関数を除去可能にする）
-    add_compile_options($<$<CONFIG:Release>:/GL> $<$<CONFIG:Release>:/Gy>)
+    # /Gw: グローバルデータも COMDAT 化し、/OPT:REF で未使用分を除去させる
+    add_compile_options($<$<CONFIG:Release>:/GL> $<$<CONFIG:Release>:/Gy> $<$<CONFIG:Release>:/Gw>)
 
     # /LTCG: リンク時コード生成
     # /OPT:REF: 未参照の関数/データを除去

@@ -4,6 +4,7 @@
 #include "win32_util.h"
 // IDXGISwapChain2 / SetMaximumFrameLatency / GetFrameLatencyWaitableObject 用。
 #include <dxgi1_3.h>
+#include <thread>
 
 using Microsoft::WRL::ComPtr;
 
@@ -11,6 +12,44 @@ using Microsoft::WRL::ComPtr;
 #pragma comment(lib, "dwrite.lib")
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
+
+namespace {
+
+ComPtr<ID3D11Device> CreateD3DDevice() noexcept
+{
+    const D3D_FEATURE_LEVEL feature_levels[] = {
+        D3D_FEATURE_LEVEL_11_1,
+        D3D_FEATURE_LEVEL_11_0,
+        D3D_FEATURE_LEVEL_10_1,
+        D3D_FEATURE_LEVEL_10_0,
+    };
+    ComPtr<ID3D11Device> device;
+    const auto create_device = [&](D3D_DRIVER_TYPE driver_type) {
+        return D3D11CreateDevice(
+            nullptr, driver_type, nullptr,
+            D3D11_CREATE_DEVICE_BGRA_SUPPORT, feature_levels, ARRAYSIZE(feature_levels),
+            D3D11_SDK_VERSION, &device, nullptr, nullptr);
+    };
+    if (FAILED(create_device(D3D_DRIVER_TYPE_HARDWARE))) {
+        // GPU を使えない環境 (RDP / VM / ドライバ障害など) でも描画できるよう、ソフトウェアの WARP に落とす。
+        if (const HRESULT hr = create_device(D3D_DRIVER_TYPE_WARP); FAILED(hr)) {
+            LogHrFailure("D3D11CreateDevice (WARP)", hr);
+            return nullptr;
+        }
+    }
+    return device;
+}
+
+// 初回の CreateDeviceResources が join して受け取る。デバイスロスト後の再作成は同期で作る。
+ComPtr<ID3D11Device> g_prefetched_device;
+std::jthread g_prefetch_thread;
+
+} // namespace
+
+void PrefetchD3DDevice()
+{
+    g_prefetch_thread = std::jthread([] { g_prefetched_device = CreateD3DDevice(); });
+}
 
 void D2DRenderBackend::ConfigureFrameLatency() noexcept
 {
@@ -72,30 +111,19 @@ bool D2DRenderBackend::Init(HWND hwnd)
 
 bool D2DRenderBackend::CreateDeviceResources()
 {
-    const D3D_FEATURE_LEVEL feature_levels[] = {
-        D3D_FEATURE_LEVEL_11_1,
-        D3D_FEATURE_LEVEL_11_0,
-        D3D_FEATURE_LEVEL_10_1,
-        D3D_FEATURE_LEVEL_10_0,
-    };
-    const auto create_device = [&](D3D_DRIVER_TYPE driver_type) {
-        return D3D11CreateDevice(
-            nullptr, driver_type, nullptr,
-            D3D11_CREATE_DEVICE_BGRA_SUPPORT, feature_levels, ARRAYSIZE(feature_levels),
-            D3D11_SDK_VERSION, &d3d_device_, nullptr, nullptr);
-    };
-    HRESULT hr = create_device(D3D_DRIVER_TYPE_HARDWARE);
-    if (FAILED(hr)) {
-        // GPU を使えない環境 (RDP / VM / ドライバ障害など) でも描画できるよう、ソフトウェアの WARP に落とす。
-        hr = create_device(D3D_DRIVER_TYPE_WARP);
-        if (FAILED(hr)) {
-            LogHrFailure("D3D11CreateDevice (WARP)", hr);
-            return false;
-        }
+    if (g_prefetch_thread.joinable()) {
+        g_prefetch_thread.join();
+        d3d_device_ = std::move(g_prefetched_device);
+    }
+    else {
+        d3d_device_ = CreateD3DDevice();
+    }
+    if (!d3d_device_) {
+        return false;
     }
 
     ComPtr<IDXGIDevice> dxgi_device;
-    hr = d3d_device_.As(&dxgi_device);
+    HRESULT hr = d3d_device_.As(&dxgi_device);
     if (FAILED(hr)) {
         LogHrFailure("ID3D11Device::As<IDXGIDevice>", hr);
         return false;

@@ -43,7 +43,7 @@ public:
 
     // box 指定時はその大きさのレイアウトを rect 左上に、未指定時は大きさ 0 のレイアウトを rect 中心に描く。
     void Draw(ID2D1RenderTarget* rt, IDWriteTextFormat* fmt, std::wstring_view text, const D2D1_RECT_F& rect,
-              ID2D1Brush* brush, D2D1_SIZE_F box, D2D1_DRAW_TEXT_OPTIONS options = D2D1_DRAW_TEXT_OPTIONS_NONE)
+              ID2D1Brush* brush, D2D1_SIZE_F box)
     {
         auto* const layout = Get(fmt, text, box);
         if (!layout || !brush) {
@@ -51,7 +51,7 @@ public:
         }
         const D2D1_POINT_2F origin = (box.width > 0.0f) ? D2D1::Point2F(rect.left, rect.top)
                                                         : D2D1::Point2F((rect.left + rect.right) * 0.5f, (rect.top + rect.bottom) * 0.5f);
-        rt->DrawTextLayout(origin, layout, brush, options);
+        rt->DrawTextLayout(origin, layout, brush);
     }
 
     // 箱の大きさや番号ごとに増え続けないよう、描画の合間 (前フレームのレイアウトを参照し終えた後) に上限で捨てる。
