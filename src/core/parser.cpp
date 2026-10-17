@@ -1070,11 +1070,13 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 
 // 各種予約サイズのヒント定数。値は「入力 N byte あたり 1 個」を表す:
 //   - kScratchInputBytesPerByte=8 → ノード当たりの平均テキスト長 ~8B 想定の scratch。
-//   - kInputBytesPerNode=256      → example/test.md (実測 ~283 byte/ノード) 程度の文書は予約内に収まる。
+//   - kInputBytesPerNode=128      → 実測 246〜283 byte/ノードの文書が予約内に収まる。256 だと 246 byte/ノードの
+//                                   100MB 文書で終盤に伸長 (全ノードのコピー) が起き、md_parse が約 3% 遅れた。
+//                                   余りはパース後に詰めるので、増えるのはパース中のコミットだけ。
 //                                   リンク集 (~47 byte/ノード) のように細かい文書は GrowNodes が 1 回で広げる。
 // arena はチャンクを積み足すので予約しない。見出し・画像などのインデックス配列は件数が少なく、通常の伸長で足りる。
 constexpr size_t kScratchInputBytesPerByte = 8;
-constexpr size_t kInputBytesPerNode = 256;
+constexpr size_t kInputBytesPerNode = 128;
 constexpr size_t kScratchReserveMin = 1024;
 constexpr size_t kScratchReserveMax = 64 * 1024;
 
