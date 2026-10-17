@@ -1,4 +1,5 @@
 #include "command_generator.h"
+#include "d2d_util.h"
 #include "doc_dwrite_bridge.h"
 #include "i18n.h"
 #include "layout.h"
@@ -47,11 +48,6 @@ void PublishCmdGenStats() noexcept
 #endif
 
 namespace {
-
-D2D1_RECT_F OffsetRectF(const D2D1_RECT_F& r, float origin_x, float origin_y) noexcept
-{
-    return D2D1::RectF(origin_x + r.left, origin_y + r.top, origin_x + r.right, origin_y + r.bottom);
-}
 
 // 可視 Y 範囲 [cull_top, cull_bottom] (ペインローカル) と重なるか。
 constexpr bool OverlapsY(const D2D1_RECT_F& r, float cull_top, float cull_bottom) noexcept

@@ -474,7 +474,8 @@ protected:
         render_target_ = CreateRenderTarget();
         ASSERT_TRUE(render_target_) << "レンダーターゲット作成に失敗";
 
-        loader_.Init(render_target_.Get());
+        loader_.Init();
+        loader_.SetRenderTarget(render_target_.Get());
         scheduler_.Init(2);
         // テストでは PostMessage を受け取れないため HWND は nullptr にし、ProcessCompletedDecodes を手動で呼ぶ
         loader_.InitAsync(nullptr, 0, scheduler_);
@@ -757,7 +758,7 @@ TEST_F(ImageLoaderTest, UninitializedLoaderReturnsFalse)
 TEST_F(ImageLoaderTest, NullRenderTargetReturnsFalse)
 {
     ImageLoader loader_null;
-    loader_null.Init(nullptr);
+    loader_null.Init();
     loader_null.InitAsync(nullptr, 0, scheduler_);
     ASSERT_TRUE(CreateTestImage(L"valid.png", GUID_ContainerFormatPng, 10, 10));
 
@@ -807,7 +808,8 @@ TEST_F(ImageLoaderTest, GetCachedImageReturnsFalseAfterClearCache)
 TEST_F(ImageLoaderTest, ShutdownWithoutInitAsyncIsNoOp)
 {
     ImageLoader loader;
-    loader.Init(render_target_.Get());
+    loader.Init();
+    loader.SetRenderTarget(render_target_.Get());
     loader.Shutdown(); // InitAsync 未呼び出しでもクラッシュしないこと
 }
 
@@ -916,7 +918,8 @@ TEST_F(ImageLoaderDpiTest, At96DpiSizeEqualsPixels)
     ASSERT_TRUE(rt);
 
     ImageLoader loader;
-    loader.Init(rt.Get());
+    loader.Init();
+    loader.SetRenderTarget(rt.Get());
     loader.InitAsync(nullptr, 0, scheduler_);
 
     ASSERT_TRUE(CreateTestImage(L"test96.png", GUID_ContainerFormatPng, 200, 100));
@@ -934,7 +937,8 @@ TEST_F(ImageLoaderDpiTest, At144DpiSizeDividedByScale)
     ASSERT_TRUE(rt);
 
     ImageLoader loader;
-    loader.Init(rt.Get());
+    loader.Init();
+    loader.SetRenderTarget(rt.Get());
     loader.InitAsync(nullptr, 0, scheduler_);
 
     ASSERT_TRUE(CreateTestImage(L"test144.png", GUID_ContainerFormatPng, 300, 150));
@@ -952,7 +956,8 @@ TEST_F(ImageLoaderDpiTest, At192DpiSizeDividedByScale)
     ASSERT_TRUE(rt);
 
     ImageLoader loader;
-    loader.Init(rt.Get());
+    loader.Init();
+    loader.SetRenderTarget(rt.Get());
     loader.InitAsync(nullptr, 0, scheduler_);
 
     ASSERT_TRUE(CreateTestImage(L"test192.png", GUID_ContainerFormatPng, 400, 200));
@@ -970,7 +975,8 @@ TEST_F(ImageLoaderDpiTest, At120DpiSizeDividedByScale)
     ASSERT_TRUE(rt);
 
     ImageLoader loader;
-    loader.Init(rt.Get());
+    loader.Init();
+    loader.SetRenderTarget(rt.Get());
     loader.InitAsync(nullptr, 0, scheduler_);
 
     ASSERT_TRUE(CreateTestImage(L"test120.png", GUID_ContainerFormatPng, 250, 100));
@@ -987,7 +993,8 @@ TEST_F(ImageLoaderDpiTest, CacheReturnsDipSize)
     ASSERT_TRUE(rt);
 
     ImageLoader loader;
-    loader.Init(rt.Get());
+    loader.Init();
+    loader.SetRenderTarget(rt.Get());
     loader.InitAsync(nullptr, 0, scheduler_);
 
     ASSERT_TRUE(CreateTestImage(L"cache_dpi.png", GUID_ContainerFormatPng, 300, 150));
@@ -1133,7 +1140,7 @@ TEST_F(ImageLoaderAsyncTest, AsyncLoadReturnsDipSizeAt150Percent)
     const auto rt_144 = CreateRenderTarget(144.0f);
     ASSERT_TRUE(rt_144);
 
-    loader_.Init(rt_144.Get());
+    loader_.SetRenderTarget(rt_144.Get());
     loader_.InitAsync(nullptr, 0, scheduler_);
 
     ASSERT_TRUE(CreateTestImage(L"async_dpi.png", GUID_ContainerFormatPng, 300, 150));

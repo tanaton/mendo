@@ -19,8 +19,6 @@
 #include <utility>
 #include <vector>
 
-struct SidePaneDrawContext;
-
 class Renderer {
 public:
     bool Init(HWND hwnd, const Theme& theme);
@@ -36,9 +34,15 @@ public:
         const GestureRenderState& gesture = {},
         const ToastRenderState& toast = {});
 
+    // 最初の描画の前に呼ぶ (App::CreateRenderDevice 参照)。
+    bool CreateDevice();
     ID2D1RenderTarget* GetRenderTarget() const noexcept
     {
         return backend_.GetRenderTarget();
+    }
+    D2D1_SIZE_F GetSize() const noexcept
+    {
+        return backend_.GetSize();
     }
     ID2D1Factory* GetD2DFactory() const noexcept
     {
@@ -94,6 +98,10 @@ public:
     // Render() の前に呼ぶこと。RenderParams を const にするための分離。
     void PrepareVisibleEffects(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y, float md_pane_height);
 
+    // タイトルバーとサイドペインの描画コマンドを組み立てる。デバイスに依存しないので、
+    // デバイスの作成前に呼ぶと最初のフレームの文字レイアウトを先に作れる。
+    void PrepareChrome(const TitleBarRenderState& titlebar, const SidePaneState& side_panes);
+
 private:
     // テーマのフォント/寸法変更をレイアウト・テキストフォーマット・コマンド生成へ反映する。
     void ApplyThemeMetrics();
@@ -104,12 +112,17 @@ private:
     void DrawLoadingSpinner(float angle, const PaneRect& md_pane_rect);
 
 
-    void DrawSidePanes(const SidePaneState& sp);
-    void DrawTitleBar(const TitleBarRenderState& tb);
+    void GenTitleBar(const TitleBarRenderState& tb);
+    void GenFileExplorer(const std::pmr::vector<FileEntry>& entries, const SidePaneInstance& pane);
+    void GenToc(const std::pmr::vector<TocEntry>& entries, const std::pmr::vector<Node>& nodes, const SidePaneInstance& pane, int active_index);
+    template <typename GenItemFn>
+    void GenSidePane(const SidePaneInstance& pane, bool is_file_pane, size_t item_count, std::wstring_view header_text, GenItemFn gen_item);
+    void GenSidePaneHeader(const SidePaneInstance& pane, bool is_file_pane, std::wstring_view header_text);
+    // 置き方は TextLayoutCache::Origin。
+    void EmitChromeText(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float opacity = 1.0f, D2D1_SIZE_F box = {});
+    // NO_WRAP の左寄せテキスト。はみ出しは呼び出し側のクリップで切る。
+    void EmitLeftText(IDWriteTextFormat* fmt, std::wstring_view text, float x, float y, float height);
     void DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height, bool has_dirty_nodes);
-    void DrawFileExplorer(const std::pmr::vector<FileEntry>& entries, const SidePaneInstance& pane);
-    void DrawToc(const std::pmr::vector<TocEntry>& entries, const std::pmr::vector<Node>& nodes, const SidePaneInstance& pane, int active_index);
-    void DrawSplitter(float x, float top, float bottom);
     void DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool can_forward, NavButtonHover hovered);
     void DrawGestureTrail(const std::pmr::deque<GesturePoint>& points);
     void DrawGestureOverlay(NavDirection direction, const PaneRect& md_pane_rect);
@@ -127,7 +140,6 @@ private:
     // box 指定時 (固定サイズのオーバーレイ) はその大きさで作って矩形左上に描く。
     // fmt または brush が無い場合は何もしない。
     void DrawCenteredText(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box = {});
-    SidePaneDrawContext MakeSidePaneContext(PaneTarget target, const SidePaneInstance& pane, size_t item_count, std::wstring_view header_text);
 
     D2DRenderBackend backend_;
     ID2D1DeviceContext* rt() const noexcept
@@ -158,7 +170,7 @@ private:
     void RecreatePaneFormats();
     Microsoft::WRL::ComPtr<IDWriteTextFormat> CreatePaneFormat(const wchar_t* family, DWRITE_FONT_WEIGHT weight, float size, const wchar_t* locale);
     void CheckEndDraw();
-    bool RecreateRenderTarget();
+    bool RecreateDevice();
     // 再描画要求を出した場合 true。
     bool HandleDeviceLost();
 
@@ -185,7 +197,11 @@ private:
 
     // CommandGenerator と共有する。
     TextLayoutCache text_layouts_;
-    // 目次項目の描画ごとの UTF-16 変換先。項目ごとの確保を避けて再利用する。
+    // タイトルバーとサイドペインの描画コマンド。本文 (cmd_generator_) より先に実行する。
+    // 最初のフレームで文字を出す部分だけをコマンドにし、デバイス作成前に組み立てられるようにしている。
+    // 起動直後には出ないオーバーレイ (トースト・検索バー等) は即時描画のまま。
+    DrawCommandList chrome_cmds_;
+    // 目次項目を組み立てるたびの UTF-16 変換先。項目ごとの確保を避けて再利用する。
     std::pmr::wstring toc_text_scratch_;
 
     // 検索バーの入力欄のレイアウト。height は定数なのでキーに含めない。
@@ -197,7 +213,10 @@ private:
     };
     SearchInputLayout search_input_;
     std::pmr::wstring search_text_scratch_;
+    // デバイスに依存しない PBGRA 変換済みのアイコン。デバイスロスト後もここから作り直す。
+    Microsoft::WRL::ComPtr<IWICBitmap> app_icon_wic_;
     Microsoft::WRL::ComPtr<ID2D1Bitmap> app_icon_bitmap_;
+    void DecodeAppIcon();
     void LoadAppIconBitmap();
     Microsoft::WRL::ComPtr<ID2D1StrokeStyle> gesture_stroke_style_;
 

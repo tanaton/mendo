@@ -70,6 +70,11 @@ void PlaceImeWindowsBelowCaret(HWND edit)
     ImmReleaseContext(edit, himc);
 }
 
+void SetCloaked(HWND hwnd, BOOL cloaked)
+{
+    DwmSetWindowAttribute(hwnd, DWMWA_CLOAK, &cloaked, sizeof(cloaked));
+}
+
 // 確定前のコンポジション文字列 (D2D 描画用)。取得できなければ空。
 std::pmr::wstring GetImeCompositionString(HIMC himc)
 {
@@ -147,11 +152,19 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
     UpdateDwmFrame();
     UpdateDpiMetricsCache();
 
+    // 描画デバイスが無い間はクライアント領域が透けるので、最初のフレームを出すまで DWM に隠させる。
+    SetCloaked(hwnd_, TRUE);
     if (!RestoreWindowPlacement(nCmdShow)) {
         ShowWindow(hwnd_, nCmdShow);
     }
     app_->LoadInitialDocument();
+    if (!app_->CreateRenderDevice()) {
+        DestroyWindow(hwnd_);
+        hwnd_ = nullptr;
+        return false;
+    }
     UpdateWindow(hwnd_);
+    SetCloaked(hwnd_, FALSE);
 
     return true;
 }

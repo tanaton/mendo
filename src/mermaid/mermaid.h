@@ -41,7 +41,7 @@ public:
     // bg_scheduler はディスクキャッシュの読み込みと PNG デコードを UI スレッド外で行う先で、
     // 読み込み完了は disk_loaded_msg で hwnd に通知され、受信側が ProcessDiskLoads を呼ぶ。
     // user_data_folder は WebView2 のセッションデータの保存先（空なら WebView2 既定の場所）。
-    void Init(HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic,
+    void Init(HWND hwnd, IWICImagingFactory* wic,
               TaskScheduler& bg_scheduler, UINT disk_loaded_msg,
               const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_ready);
 

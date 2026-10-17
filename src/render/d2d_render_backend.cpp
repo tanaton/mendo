@@ -78,6 +78,10 @@ bool D2DRenderBackend::Init(HWND hwnd)
     if (dpi_ == 0.0f) {
         dpi_ = DEFAULT_DPI;
     }
+    if (RECT rc{}; GetClientRect(hwnd, &rc)) {
+        width_px_ = static_cast<UINT>(rc.right - rc.left);
+        height_px_ = static_cast<UINT>(rc.bottom - rc.top);
+    }
 
     const D2D1_FACTORY_OPTIONS opts{};
     HRESULT hr = D2D1CreateFactory(
@@ -102,11 +106,7 @@ bool D2DRenderBackend::Init(HWND hwnd)
     // Renderer・ImageLoader で共有。アイコン／画像／ダイアグラムは WIC が無いと
     // 機能しないため fail-fast。
     wic_factory_ = wic_util::CreateWicFactory("WIC ImagingFactory creation");
-    if (!wic_factory_) {
-        return false;
-    }
-
-    return CreateDeviceResources();
+    return wic_factory_ != nullptr;
 }
 
 bool D2DRenderBackend::CreateDeviceResources()
@@ -157,14 +157,9 @@ bool D2DRenderBackend::CreateDeviceResources()
         return false;
     }
 
-    RECT rc{};
-    if (!GetClientRect(hwnd_, &rc)) {
-        return false;
-    }
-
     DXGI_SWAP_CHAIN_DESC1 scd{};
-    scd.Width = rc.right - rc.left;
-    scd.Height = rc.bottom - rc.top;
+    scd.Width = width_px_;
+    scd.Height = height_px_;
     scd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
     scd.SampleDesc.Count = 1;
     scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
@@ -218,7 +213,12 @@ bool D2DRenderBackend::CreateSwapChainBitmap()
 
 void D2DRenderBackend::Resize(UINT width, UINT height) noexcept
 {
-    if (!swap_chain_ || !device_context_ || width == 0 || height == 0) {
+    if (width == 0 || height == 0) {
+        return;
+    }
+    width_px_ = width;
+    height_px_ = height;
+    if (!swap_chain_ || !device_context_) {
         return;
     }
 
@@ -288,7 +288,7 @@ void D2DRenderBackend::Present() noexcept
     }
 }
 
-bool D2DRenderBackend::RecreateRenderTarget()
+bool D2DRenderBackend::CreateDevice()
 {
     frame_latency_waitable_.reset();
     device_context_.Reset();

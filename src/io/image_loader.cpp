@@ -12,9 +12,8 @@ ImageLoader::~ImageLoader()
     Shutdown();
 }
 
-bool ImageLoader::Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic)
+bool ImageLoader::Init(IWICImagingFactory* wic)
 {
-    SetRenderTarget(rt);
     if (wic) {
         wic_factory_ = wic;
         return true;
@@ -45,8 +44,12 @@ float ImageLoader::DpiScale() const noexcept
 {
     float dpi_x = DEFAULT_DPI;
     float dpi_y = DEFAULT_DPI;
+    // 描画デバイスの作成前に来た要求も、表示する解像度でデコードするためウィンドウから取る。
     if (render_target_) {
         render_target_->GetDpi(&dpi_x, &dpi_y);
+    }
+    else if (const UINT dpi = hwnd_ ? GetDpiForWindow(hwnd_) : 0) {
+        dpi_x = static_cast<float>(dpi);
     }
     return DpiScaleFrom(dpi_x);
 }

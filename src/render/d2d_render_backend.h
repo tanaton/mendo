@@ -16,6 +16,7 @@ void PrefetchD3DDevice();
 // ブラシとテキストフォーマットは Renderer 側で管理する。
 class D2DRenderBackend final {
 public:
+    // デバイスとスワップチェーンは作らない (CreateDevice で作る)。
     bool Init(HWND hwnd);
     void Resize(UINT width, UINT height) noexcept;
     void SetDpi(float dpi) noexcept;
@@ -23,7 +24,14 @@ public:
     {
         return dpi_;
     }
-    bool RecreateRenderTarget();
+    // 描画面の DIP サイズ。デバイスが無い間も Resize に追従する。
+    D2D1_SIZE_F GetSize() const noexcept
+    {
+        const float scale = DpiScaleFrom(dpi_);
+        return { PixelToDip(static_cast<float>(width_px_), scale), PixelToDip(static_cast<float>(height_px_), scale) };
+    }
+    // 既存のデバイスがあれば捨てて作り直す。
+    bool CreateDevice();
 
     // BeginDraw 前に呼び出す。Frame Latency Waitable Object で GPU パイプラインの
     // 1 フレーム遅れに同期し、CPU 側を Present 直前まで詰めずに済ませる。
@@ -37,7 +45,7 @@ public:
 
     // Resize / Present が DXGI_ERROR_DEVICE_REMOVED/RESET を検知した、もしくは
     // CreateSwapChainBitmap が失敗した時に true を返す。Renderer が次フレーム頭で
-    // RecreateRenderTarget を呼んでフラグをクリアする想定。
+    // RecreateDevice を呼んでフラグをクリアする想定。
     bool IsDeviceLost() const noexcept
     {
         return device_lost_;
@@ -71,6 +79,8 @@ private:
 
     HWND hwnd_ = nullptr;
     float dpi_ = DEFAULT_DPI;
+    UINT width_px_ = 0;
+    UINT height_px_ = 0;
     bool device_lost_ = false;
     Microsoft::WRL::ComPtr<ID2D1Factory1> d2d_factory_;
     Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
