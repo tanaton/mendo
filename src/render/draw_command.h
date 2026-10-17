@@ -10,31 +10,29 @@
 #include <span>
 #include <cstdint>
 
+// 色はすべて固定ブラシ (BrushId) で指定する。半透明は opacity で掛ける。
 struct FillRectCmd {
     D2D1_RECT_F rect;
-    D2D1_COLOR_F color;
-    BrushId brush_id = BrushId::Custom;
+    BrushId brush_id;
 };
 
 struct FillRoundedRectCmd {
     D2D1_RECT_F rect;
     float rx, ry;
-    D2D1_COLOR_F color;
-    BrushId brush_id = BrushId::Custom;
+    BrushId brush_id;
+    float opacity = 1.0f;
 };
 
 struct DrawLineCmd {
     D2D1_POINT_2F p0, p1;
-    D2D1_COLOR_F color;
     float stroke_width;
-    BrushId brush_id = BrushId::Custom;
+    BrushId brush_id;
 };
 
 struct DrawTextLayoutCmd {
     D2D1_POINT_2F origin;
     IDWriteTextLayout* layout; // 非所有; ライフタイムは LayoutCache か TextLayoutCache が管理。
-    D2D1_COLOR_F color;
-    BrushId brush_id = BrushId::Custom;
+    BrushId brush_id;
     // 可視範囲より高いレイアウトは [cull_top, cull_bottom] (origin と同じ座標系) 外のランを飛ばす。
     // cull_runs でなければ範囲は既定の無限のままにする。
     bool cull_runs = false;
@@ -54,16 +52,14 @@ struct DrawBitmapCmd {
 struct FillEllipseCmd {
     D2D1_POINT_2F center;
     float rx, ry;
-    D2D1_COLOR_F color;
-    BrushId brush_id = BrushId::Custom;
+    BrushId brush_id;
 };
 
 struct DrawEllipseCmd {
     D2D1_POINT_2F center;
     float rx, ry;
-    D2D1_COLOR_F color;
     float stroke_width;
-    BrushId brush_id = BrushId::Custom;
+    BrushId brush_id;
 };
 
 struct PushClipCmd {

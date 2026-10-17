@@ -1,8 +1,8 @@
 #include "renderer.h"
 #include "d2d_util.h"
+#include "doc_dwrite_bridge.h"
 #include "i18n.h"
 #include "pane_layout.h"
-#include "string_convert.h"
 #include "ui_constants.h"
 #include "utf8_codec.h"
 #include <algorithm>
@@ -146,7 +146,7 @@ void Renderer::GenToc(const std::pmr::vector<TocEntry>& entries, const std::pmr:
         }
 
         const float text_left = row.left + 8.0f + (entry.heading_level - 1) * TOC_INDENT_PER_LEVEL;
-        string_convert::Utf8ToWide(TocItemText(nodes[entry.node_index].GetText()), toc_text_scratch_);
+        DecodeForDWrite(TocItemText(nodes[entry.node_index].GetText()), toc_text_scratch_);
         EmitLeftText(fmt_.pane_item.Get(), toc_text_scratch_, text_left, row.top, item_h);
 
         if (i == active_index) {

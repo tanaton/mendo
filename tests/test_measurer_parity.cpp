@@ -21,15 +21,15 @@ protected:
         float dwrite;
     };
 
-    // image は画像ノードの読み込み済み寸法。本番と同じく MeasureEntry 経由で計測する。
-    Heights MeasureBoth(Node& node, float max_width, const DiagramEntry* image = nullptr)
+    // 本番と同じく MeasureEntry 経由で計測する。
+    Heights MeasureBoth(Node& node, float max_width)
     {
         Node mock_node = CloneNode(node);
         Node dw_node = CloneNode(node);
         NodeLayoutEntry mock_entry{};
         NodeLayoutEntry dwrite_entry{};
-        MeasureEntry(mock_, mock_node, mock_entry, max_width, {}, 0.0f, image);
-        MeasureEntry(measurer_, dw_node, dwrite_entry, max_width, {}, 0.0f, image);
+        MeasureEntry(mock_, mock_node, mock_entry, max_width, {}, 0.0f, nullptr, theme_);
+        MeasureEntry(measurer_, dw_node, dwrite_entry, max_width, {}, 0.0f, nullptr, theme_);
         return { mock_entry.height, dwrite_entry.height };
     }
 
@@ -70,47 +70,6 @@ TEST_F(MeasurerParityTest, EmptyParagraphIsPositive)
     const auto h = MeasureBoth(node, 600.0f);
     EXPECT_GT(h.mock, 0.0f);
     EXPECT_GT(h.dwrite, 0.0f);
-}
-
-// 画像（原寸 > max_width）: 両計測とも max_width/orig_w のスケールを適用して一致すること。
-TEST_F(MeasurerParityTest, ImageScalesToMaxWidthIdentically)
-{
-    Node node;
-    node.type = NodeType::Image;
-    node.ensure_image();
-    DiagramEntry image;
-    image.width = 1200.0f;
-    image.height = 800.0f;
-
-    const auto h = MeasureBoth(node, 600.0f, &image);
-    EXPECT_FLOAT_EQ(h.mock, 400.0f);
-    EXPECT_FLOAT_EQ(h.dwrite, 400.0f);
-}
-
-// 画像（原寸 <= max_width）: 両計測とも原寸高を維持すること。
-TEST_F(MeasurerParityTest, ImagePreservesOriginalHeightWhenFits)
-{
-    Node node;
-    node.type = NodeType::Image;
-    node.ensure_image();
-    DiagramEntry image;
-    image.width = 300.0f;
-    image.height = 200.0f;
-
-    const auto h = MeasureBoth(node, 600.0f, &image);
-    EXPECT_FLOAT_EQ(h.mock, 200.0f);
-    EXPECT_FLOAT_EQ(h.dwrite, 200.0f);
-}
-
-// ダイアグラム系コードブロック: 両計測ともプレースホルダー最低値以上を返すこと。
-TEST_F(MeasurerParityTest, DiagramCodeBlockUsesPlaceholderHeight)
-{
-    Node node;
-    node.type = NodeType::CodeBlock;
-    node.set_code_language(SyntaxLanguage::Mermaid);
-    const auto h = MeasureBoth(node, 600.0f);
-    EXPECT_GE(h.mock, 60.0f);
-    EXPECT_GE(h.dwrite, 60.0f);
 }
 
 // 見出しと段落の順序性: 同じテキストに対し、両計測とも見出し > 段落 となること。

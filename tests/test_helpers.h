@@ -30,12 +30,6 @@ inline size_t CountOccurrences(std::string_view s, std::string_view needle)
     return n;
 }
 
-// 同色判定。完全一致のみ（テストで使う色はテーマ定数なので浮動小数点誤差は問題にならない）。
-constexpr bool ColorEq(D2D1_COLOR_F a, D2D1_COLOR_F b) noexcept
-{
-    return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
-}
-
 // 本番 API SetText は line_count を呼び出し側に渡させる契約だが、
 // 任意の文字列を受け取るテストヘルパーでは内容から自動算出したい。
 inline void SetNodeTextCounted(Node& n, std::string_view sv)
@@ -74,6 +68,7 @@ inline Node MakeTableNode(const char* cell0, const char* cell1)
     tbl->aligns.push_back(TableAlign::Default);
     tbl->aligns.push_back(TableAlign::Default);
     tbl->is_header_row.push_back(false);
+    n.SetText(tbl->concat_text);
     return n;
 }
 

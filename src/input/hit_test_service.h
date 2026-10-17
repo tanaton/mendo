@@ -107,18 +107,8 @@ HitResult HitTestTable(
 
 NavButtonHover NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) noexcept;
 
-// 可視ノード走査・座標変換・キャッシュ照合を共有して Copy / Save / DiagramCopy を一度に判定する。
-struct CodeBlockButtonHit {
-    int copy_node = -1;
-    int save_node = -1;
-    int diagram_copy_node = -1;
-
-    constexpr bool Any() const noexcept
-    {
-        return copy_node >= 0 || save_node >= 0 || diagram_copy_node >= 0;
-    }
-};
-CodeBlockButtonHit CodeBlockButtonsHitTest(const MdPaneHitContext& ctx) noexcept;
+// 可視ノードのオーバーレイボタン (コードのコピー / 図の保存・コピー) のうちマウス位置にあるもの。
+OverlayButtonHit OverlayButtonHitTest(const MdPaneHitContext& ctx) noexcept;
 // node_index のブロック横スクロールバー (ヒット余白込み) 上か。
 bool BlockHScrollbarHitTest(const MdPaneHitContext& ctx, int node_index, float visible_width) noexcept;
 

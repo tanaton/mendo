@@ -292,7 +292,7 @@ void LayoutCache::InvalidateAllLayouts(const std::pmr::vector<Node>& nodes) noex
 void LayoutCache::InvalidateEffects() noexcept
 {
     for (auto& e : entries_) {
-        e.set_effects_applied(false);
+        e.set_effects_state(EffectsState::None);
         e.clear_inline_code_bgs();
         if (auto* tl = e.table_layout()) {
             tl->ClearEffects();
@@ -300,24 +300,18 @@ void LayoutCache::InvalidateEffects() noexcept
     }
 }
 
-void LayoutCache::InvalidateAllDiagramBitmaps(const std::pmr::vector<Node>& nodes) noexcept
+void LayoutCache::InvalidateAllDiagramBitmaps() noexcept
 {
-    for (auto& [idx, d] : diagrams_) {
-        // 画像はエラーを持たないので、ビットマップだけ捨てれば再読み込みの対象になる。
-        if (idx < nodes.size() && nodes[idx].type == NodeType::Image) {
-            d.EvictBitmap();
-        }
-        else {
-            d.ResetForRetry();
-        }
+    for (auto& d : diagrams_ | std::views::values) {
+        d.EvictForRetry();
     }
 }
 
-void LayoutCache::InvalidateDiagramBitmaps(const std::pmr::vector<Node>& nodes) noexcept
+void LayoutCache::InvalidateDiagramBitmaps(std::span<const size_t> diagram_indices) noexcept
 {
-    for (auto& [idx, d] : diagrams_) {
-        if (idx < nodes.size() && IsDiagramCodeBlock(nodes[idx])) {
-            d.ResetForRetry();
+    for (const size_t idx : diagram_indices) {
+        if (auto* d = FindDiagram(idx)) {
+            d->ResetForRetry();
         }
     }
 }

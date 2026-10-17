@@ -111,7 +111,7 @@ public:
     {
         MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
 
-        if (node.type != NodeType::CodeBlock || IsDiagramLanguage(node.code_language())) {
+        if (node.type != NodeType::CodeBlock) {
             return;
         }
         const size_t seed = node.SourceOffset();
@@ -127,7 +127,7 @@ public:
     }
 };
 
-// Serial / Parallel の出力を比較。height (FLOAT_EQ) と layout_dirty / effects_applied / syntax_tokens を観測する。
+// Serial / Parallel の出力を比較。height (FLOAT_EQ) と layout_dirty / effects_state / syntax_tokens を観測する。
 // IDWriteTextLayout (entry.text_layout) は mock では nullptr 固定 / 実装では identity 不一致で
 // equality が無意味なため除外。total_height_ は LayoutEngine 経由でないと
 // 計算されないためスコープ外。
@@ -145,7 +145,7 @@ void ExpectBitExactEqual(const StressFixture& s, const StressFixture& p,
     for (size_t i = 0; i < n; ++i) {
         EXPECT_FLOAT_EQ(s.cache[i].height, p.cache[i].height) << "i=" << i;
         EXPECT_EQ(s.cache[i].layout_dirty, p.cache[i].layout_dirty) << "i=" << i;
-        EXPECT_EQ(s.cache[i].effects_applied(), p.cache[i].effects_applied()) << "i=" << i;
+        EXPECT_EQ(s.cache[i].effects_state(), p.cache[i].effects_state()) << "i=" << i;
 
         const auto ts = s.cache[i].syntax_tokens();
         const auto tp = p.cache[i].syntax_tokens();

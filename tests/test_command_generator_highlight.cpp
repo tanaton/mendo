@@ -32,12 +32,12 @@ std::vector<size_t> ExtractCmdKinds(const DrawCommandList& cmds)
     return kinds;
 }
 
-std::vector<D2D1_RECT_F> CollectRectsByColor(const DrawCommandList& cmds, std::initializer_list<D2D1_COLOR_F> colors)
+std::vector<D2D1_RECT_F> CollectRectsByBrush(const DrawCommandList& cmds, std::initializer_list<BrushId> brushes)
 {
     std::vector<D2D1_RECT_F> rects;
     for (const auto& c : cmds) {
         if (auto* fr = std::get_if<FillRectCmd>(&c)) {
-            if (std::ranges::any_of(colors, [&](const D2D1_COLOR_F& col) { return ColorEq(fr->color, col); })) {
+            if (std::ranges::contains(brushes, fr->brush_id)) {
                 rects.push_back(fr->rect);
             }
         }
@@ -45,10 +45,10 @@ std::vector<D2D1_RECT_F> CollectRectsByColor(const DrawCommandList& cmds, std::i
     return rects;
 }
 
-std::optional<D2D1_RECT_F> FindFirstFillRectByColor(const DrawCommandList& cmds,
-                                                    std::initializer_list<D2D1_COLOR_F> colors)
+std::optional<D2D1_RECT_F> FindFirstFillRectByBrush(const DrawCommandList& cmds,
+                                                    std::initializer_list<BrushId> brushes)
 {
-    const auto rects = CollectRectsByColor(cmds, colors);
+    const auto rects = CollectRectsByBrush(cmds, brushes);
     return rects.empty() ? std::nullopt : std::optional{ rects.front() };
 }
 
@@ -96,10 +96,10 @@ TEST_F(HighlightOrderTest, SearchThenSelectionThenText)
     for (size_t i = 0; i < cmds.size(); ++i) {
         const DrawCommand cmd = cmds[i];
         if (auto* fr = std::get_if<FillRectCmd>(&cmd)) {
-            if (!first_search && (ColorEq(fr->color, theme_.search_highlight_color) || ColorEq(fr->color, theme_.search_highlight_current_color))) {
+            if (!first_search && (fr->brush_id == BrushId::SearchHighlight || fr->brush_id == BrushId::SearchHighlightCurrent)) {
                 first_search = i;
             }
-            else if (!first_selection && ColorEq(fr->color, SELECTION_COLOR)) {
+            else if (!first_selection && fr->brush_id == BrushId::Selection) {
                 first_selection = i;
             }
         }
@@ -131,9 +131,9 @@ TEST_F(HighlightOrderTest, NoHighlightsWhenNeitherActive)
 
     for (const auto& c : cmds) {
         if (auto* fr = std::get_if<FillRectCmd>(&c)) {
-            EXPECT_FALSE(ColorEq(fr->color, theme_.search_highlight_color));
-            EXPECT_FALSE(ColorEq(fr->color, theme_.search_highlight_current_color));
-            EXPECT_FALSE(ColorEq(fr->color, SELECTION_COLOR));
+            EXPECT_FALSE(fr->brush_id == BrushId::SearchHighlight);
+            EXPECT_FALSE(fr->brush_id == BrushId::SearchHighlightCurrent);
+            EXPECT_FALSE(fr->brush_id == BrushId::Selection);
         }
     }
 }
@@ -152,8 +152,8 @@ TEST_F(HighlightOrderTest, CurrentMatchUsesCurrentColor)
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{});
 
-    EXPECT_GE(CollectRectsByColor(cmds, { theme_.search_highlight_color }).size(), 1u) << "非カレントの検索マッチが少なくとも 1 つあるはず";
-    EXPECT_GE(CollectRectsByColor(cmds, { theme_.search_highlight_current_color }).size(), 1u) << "カレントマッチが 1 つあるはず";
+    EXPECT_GE(CollectRectsByBrush(cmds, { BrushId::SearchHighlight }).size(), 1u) << "非カレントの検索マッチが少なくとも 1 つあるはず";
+    EXPECT_GE(CollectRectsByBrush(cmds, { BrushId::SearchHighlightCurrent }).size(), 1u) << "カレントマッチが 1 つあるはず";
 }
 
 // start == end の選択範囲は描画ハイライトを発行しない。
@@ -170,8 +170,8 @@ TEST_F(HighlightOrderTest, EmptySelectionProducesNoSelectionRect)
 
     for (const auto& c : cmds) {
         if (auto* fr = std::get_if<FillRectCmd>(&c)) {
-            EXPECT_FALSE(ColorEq(fr->color, SELECTION_COLOR))
-                << "空選択で SELECTION_COLOR の FillRectCmd は出ない";
+            EXPECT_FALSE(fr->brush_id == BrushId::Selection)
+                << "空選択で BrushId::Selection の FillRectCmd は出ない";
         }
     }
 }
@@ -201,8 +201,8 @@ TEST_F(HighlightOrderTest, SearchHighlightHandlesUtf8MultibyteOffset)
     matches1.push_back({ 0, 0, 3, -1, -1, 0, 3 });
     gen_.SetSearchMatches(&matches1, 0, 1);
     const auto& cmds1 = gen_.GenerateMdPane(pl1.nodes, pl1.cache, pane, 0.0f, TextSelection{});
-    const auto rect1 = FindFirstFillRectByColor(cmds1,
-        { theme_.search_highlight_color, theme_.search_highlight_current_color });
+    const auto rect1 = FindFirstFillRectByBrush(cmds1,
+        { BrushId::SearchHighlight, BrushId::SearchHighlightCurrent });
     ASSERT_TRUE(rect1.has_value());
 
     // "あいう" は UTF-8 で 9 byte / UTF-16 で 3 code unit。
@@ -211,8 +211,8 @@ TEST_F(HighlightOrderTest, SearchHighlightHandlesUtf8MultibyteOffset)
     matches2.push_back({ 0, 9, 3, -1, -1, 3, 3 });
     gen_.SetSearchMatches(&matches2, 0, 1);
     const auto& cmds2 = gen_.GenerateMdPane(pl2.nodes, pl2.cache, pane, 0.0f, TextSelection{});
-    const auto rect2 = FindFirstFillRectByColor(cmds2,
-        { theme_.search_highlight_color, theme_.search_highlight_current_color });
+    const auto rect2 = FindFirstFillRectByBrush(cmds2,
+        { BrushId::SearchHighlight, BrushId::SearchHighlightCurrent });
     ASSERT_TRUE(rect2.has_value()) << "非 ASCII オフセット後の ASCII マッチが描画されるべき";
     EXPECT_NEAR(rect2->right - rect2->left, rect1->right - rect1->left, 2.0f)
         << "ハイライト幅は ASCII 単独時と一致すべき";
@@ -228,14 +228,14 @@ TEST_F(HighlightOrderTest, SelectionHighlightHandlesUtf8MultibyteOffset)
     TextSelection sel1 = TextSelection::MakeOrdered(0, 0, 0, 3);
     sel1.active = true;
     const auto& cmds1 = gen_.GenerateMdPane(pl1.nodes, pl1.cache, pane, 0.0f, sel1);
-    const auto rect1 = FindFirstFillRectByColor(cmds1, { SELECTION_COLOR });
+    const auto rect1 = FindFirstFillRectByBrush(cmds1, { BrushId::Selection });
     ASSERT_TRUE(rect1.has_value());
 
     auto pl2 = ParseAndLayout("\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86" "abc");
     TextSelection sel2 = TextSelection::MakeOrdered(0, 9, 0, 12);
     sel2.active = true;
     const auto& cmds2 = gen_.GenerateMdPane(pl2.nodes, pl2.cache, pane, 0.0f, sel2);
-    const auto rect2 = FindFirstFillRectByColor(cmds2, { SELECTION_COLOR });
+    const auto rect2 = FindFirstFillRectByBrush(cmds2, { BrushId::Selection });
     ASSERT_TRUE(rect2.has_value());
     EXPECT_NEAR(rect2->right - rect2->left, rect1->right - rect1->left, 2.0f);
 }
@@ -281,7 +281,7 @@ protected:
                 }
             }
         }
-        const auto actual = CollectRectsByColor(cmds, { theme_.search_highlight_color, theme_.search_highlight_current_color });
+        const auto actual = CollectRectsByBrush(cmds, { BrushId::SearchHighlight, BrushId::SearchHighlightCurrent });
         ASSERT_FALSE(expected.empty());
         ASSERT_EQ(actual.size(), expected.size()) << "scroll_y=" << scroll_y;
         for (size_t i = 0; i < actual.size(); ++i) {
@@ -350,13 +350,13 @@ TEST_F(VisibleHighlightTest, TableSearchComputesOnlyVisibleCells)
     ASSERT_EQ(search_.GetMatchCount(), 900);
 
     const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, 0.0f, TextSelection{});
-    EXPECT_FALSE(CollectRectsByColor(cmds, { theme_.search_highlight_color }).empty());
+    EXPECT_FALSE(CollectRectsByBrush(cmds, { BrushId::SearchHighlight }).empty());
     const size_t computed = ComputedMatchCount(pl.cache[0]);
     EXPECT_GT(computed, 0u);
     EXPECT_LT(computed, 100u);
 
     const auto& cmds2 = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, pl.cache[0].height * 0.5f, TextSelection{});
-    EXPECT_FALSE(CollectRectsByColor(cmds2, { theme_.search_highlight_color }).empty());
+    EXPECT_FALSE(CollectRectsByBrush(cmds2, { BrushId::SearchHighlight }).empty());
     EXPECT_LT(ComputedMatchCount(pl.cache[0]), 200u);
 }
 
@@ -371,7 +371,7 @@ TEST_F(VisibleHighlightTest, SelectionComputesOnlyLinesNearViewport)
 
     for (const float y : { 0.0f, 100.0f, pl.cache[0].height * 0.5f }) {
         const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, y, sel);
-        const auto rects = CollectRectsByColor(cmds, { SELECTION_COLOR });
+        const auto rects = CollectRectsByBrush(cmds, { BrushId::Selection });
         ASSERT_GT(rects.size(), 5u) << "scroll_y=" << y;
         EXPECT_LT(rects.size(), 50u) << "scroll_y=" << y << " で 1000 行ぶんの矩形を積んでいる";
         // 可視範囲の上端 (本文の始まりより下へスクロールしたとき) と下端まで塗られている。

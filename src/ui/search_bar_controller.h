@@ -35,7 +35,6 @@ public:
             return;
         }
         state_->Show();
-        has_focus_ = true;
         caret_visible_ = true;
         ResetCaretAndSelection();
 
@@ -118,7 +117,7 @@ public:
         }
         caret_pos_ = sel_end;
         selection_start_ = sel_start;
-        if (has_focus_) {
+        if (HasFocus()) {
             cb_.invalidate();
         }
     }
@@ -129,14 +128,14 @@ public:
             return;
         }
         ime_composition_ = comp;
-        if (has_focus_) {
+        if (HasFocus()) {
             cb_.invalidate();
         }
     }
 
     void OnWindowActivate(bool active)
     {
-        if (!state_->IsVisible() || !has_focus_) {
+        if (!HasFocus()) {
             return;
         }
         caret_visible_ = active;
@@ -184,8 +183,7 @@ public:
         const float effective_bottom = scroll_y + visible_height;
 
         if (match_y < scroll_y || match_y + match_h > effective_bottom) {
-            const float target = std::max(0.0f, match_y - visible_height / 3.0f);
-            viewport_->ScrollTo(target);
+            viewport_->ScrollTo(match_y - visible_height / 3.0f);
         }
     }
 
@@ -195,29 +193,8 @@ public:
         query_wide_.clear();
         ResetInteractionState();
         ResetCaretAndSelection();
-        dragging_ = false;
     }
 
-    bool IsDragging() const noexcept
-    {
-        return dragging_;
-    }
-
-    void StartDrag(int anchor_pos) noexcept
-    {
-        dragging_ = true;
-        drag_anchor_ = anchor_pos;
-    }
-
-    void EndDrag() noexcept
-    {
-        dragging_ = false;
-    }
-
-    int GetDragAnchor() const noexcept
-    {
-        return drag_anchor_;
-    }
 
     // 変化した場合 true。Input ゾーンはテキスト編集領域でホバー強調は不要なので None に丸める。
     bool SetHover(SearchBarHitZone zone) noexcept
@@ -238,8 +215,7 @@ public:
         sb.query = GetQueryWide();
         sb.current_match = state_->GetCurrentMatchIndex();
         sb.total_matches = state_->GetMatchCount();
-        sb.has_focus = has_focus_;
-        sb.caret_visible = has_focus_ && caret_visible_;
+        sb.caret_visible = caret_visible_;
         sb.caret_pos = caret_pos_;
         sb.selection_start = selection_start_;
         sb.ime_composition = ime_composition_;
@@ -249,9 +225,10 @@ public:
         return sb;
     }
 
+    // 表示中は常に入力欄がフォーカスを持つ。
     bool HasFocus() const noexcept
     {
-        return has_focus_;
+        return state_->IsVisible();
     }
 
     int GetCaretPos() const noexcept
@@ -294,7 +271,6 @@ private:
     void ResetInteractionState()
     {
         hover_ = SearchBarHitZone::None;
-        has_focus_ = false;
         caret_visible_ = false;
         ime_composition_.clear();
         cb_.kill_timer(app_timer::Id::SEARCH_DEBOUNCE);
@@ -308,11 +284,8 @@ private:
     SearchBarHitZone hover_ = SearchBarHitZone::None;
     // 点滅させない。点滅のたびに全画面再描画が走るため。
     bool caret_visible_ = false;
-    bool has_focus_ = false;
     int caret_pos_ = -1;
     int selection_start_ = -1;
-    bool dragging_ = false;
-    int drag_anchor_ = 0;
     std::pmr::wstring ime_composition_;
     std::pmr::wstring query_wide_;
 };

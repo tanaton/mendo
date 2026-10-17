@@ -12,26 +12,13 @@
 
 namespace {
 
-const Node* ValidateCodeBlockNode(const Document& doc, int node_index) noexcept
+const Node* ValidateNode(const Document& doc, int node_index, NodeType type) noexcept
 {
     const auto& nodes = doc.GetNodes();
-    if (node_index < 0 || node_index >= static_cast<int>(nodes.size())) {
+    if (node_index < 0 || node_index >= static_cast<int>(nodes.size()) || nodes[node_index].type != type) {
         return nullptr;
     }
-    const Node& node = nodes[node_index];
-    if (node.type != NodeType::CodeBlock) {
-        return nullptr;
-    }
-    return &node;
-}
-
-const Node* ValidateDiagramNode(const Document& doc, int node_index) noexcept
-{
-    const Node* node = ValidateCodeBlockNode(doc, node_index);
-    if (!node || !IsDiagramLanguage(node->code_language())) {
-        return nullptr;
-    }
-    return node;
+    return &nodes[node_index];
 }
 
 } // namespace
@@ -47,7 +34,7 @@ void ClipboardManager::Init(HWND hwnd, MermaidFileCache* file_cache, IMermaidRen
 
 void ClipboardManager::CopyCodeBlock(const Document& doc, int node_index, bool dark) const
 {
-    const Node* node = ValidateCodeBlockNode(doc, node_index);
+    const Node* node = ValidateNode(doc, node_index, NodeType::CodeBlock);
     if (!node) {
         return;
     }
@@ -61,7 +48,7 @@ void ClipboardManager::CopyCodeBlock(const Document& doc, int node_index, bool d
 
 void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, float md_width, bool dark)
 {
-    const Node* node = ValidateDiagramNode(doc, node_index);
+    const Node* node = ValidateNode(doc, node_index, NodeType::Diagram);
     if (!node || !file_cache_) {
         return;
     }
@@ -116,7 +103,7 @@ void ClipboardManager::EmitCopyResult(bool ok) const
 
 void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_index, PngBytes png, float md_width, bool dark)
 {
-    const Node* node_ptr = ValidateDiagramNode(doc, node_index);
+    const Node* node_ptr = ValidateNode(doc, node_index, NodeType::Diagram);
     if (!node_ptr) {
         return;
     }

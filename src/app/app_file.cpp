@@ -8,19 +8,22 @@
 #include "layout.h"
 #include "layout_queries.h"
 #include "profiler.h"
+#include "reducer.h"
 #include "win32_util.h"
 #include "reload_flow.h"
 #include <utility>
 
 using layout::RecomputeYPositions;
 
-// 一時状態のリセットで左ドラッグ状態だけが消えると、LButtonUp がどの終了経路にも入らず
-// SetCapture が残る (タイトルバーのドラッグや MouseLeave 検出が効かなくなる)。
-void App::ReleaseCaptureIfDragDropped(bool had_left_drag)
+// 文書の差し替えで対象を失うドラッグを、キャプチャごと終える。
+void App::EndDocumentBoundDrag()
 {
-    if (had_left_drag && !IsLeftDragActive(state_) && state_.interaction.gesture.GetPhase() == GesturePhase::Idle) {
-        EmitEffect(effect::ReleaseCapture{});
+    if (!IsDocumentBoundDrag(state_.view.drag.kind)) {
+        return;
     }
+    SideEffectList effects;
+    EndLeftDrag(state_, effects);
+    effect_executor_.Execute(effects);
 }
 
 void App::CancelPendingResources()
@@ -32,11 +35,10 @@ void App::CancelPendingResources()
 
 void App::ResetViewForNewDocument()
 {
-    const bool had_left_drag = IsLeftDragActive(state_);
     state_.view.ResetForNewDocument();
     // 旧文書のマッチ位置が新 nodes に対して誤用されるのを防ぐ。
     state_.search.search_bar_ctrl.Reset();
-    ReleaseCaptureIfDragDropped(had_left_drag);
+    EndDocumentBoundDrag();
     EmitEffect(effect::SearchUnfocus{ /*clear_text=*/true });
     CancelPendingResources();
     renderer_.ShrinkBuffers();
@@ -285,6 +287,7 @@ void App::OnParseComplete()
         FinishLoadMarkdownFile(plan.follow_file_pane);
         return;
     }
+    std::unreachable();
 }
 
 void App::FinishLoadMarkdownFile(bool follow_file_pane)
@@ -337,10 +340,9 @@ void App::ReloadCurrentFile()
     if (!state_.document.doc.HasBackingFile()) {
         return;
     }
-    // テキスト選択ドラッグ中にリロードすると ClearSelection が is_dragging_ も落として
-    // ドラッグ確定 (TextSelectionEndedAction) が発火しなくなる。ドラッグ終了後に
+    // テキスト選択ドラッグ中にリロードすると選択の途中でドラッグが終わってしまう。ドラッグ終了後に
     // リトライさせる (DeferReloadRetry がタイマを再セットし FileWatcher は paused 維持)。
-    if (state_.view.viewport.IsDragging()) {
+    if (state_.view.drag.kind == LeftDrag::TextSelect) {
         DeferReloadRetry();
         return;
     }
@@ -413,9 +415,8 @@ void App::FinishReload(size_t diff_pos)
 
     // ノード index がずれると per-node-index の一時状態が別ノードを指すためクリアする
     // (別文書への切替は ViewState::ResetForNewDocument が担う)。
-    const bool had_left_drag = IsLeftDragActive(state_);
     state_.view.ResetPerNodeTransientState();
-    ReleaseCaptureIfDragDropped(had_left_drag);
+    EndDocumentBoundDrag();
 
     const PaneRect md = GetPaneLayout().md_rect;
 

@@ -84,7 +84,7 @@ public:
     bool sync_apply_bitmap = false;
 
     void RequestRender(
-        const Node& node, NodeLayoutEntry& layout_entry,
+        const Node& node,
         DiagramEntry& diagram_entry, float max_width, bool dark_mode,
         Callback on_complete) override
     {
@@ -96,8 +96,6 @@ public:
             diagram_entry.bitmap = &SharedStubBitmap();
             diagram_entry.width = 100.0f;
             diagram_entry.height = 50.0f;
-            layout_entry.height = 50.0f;
-            layout_entry.layout_dirty = false;
             if (on_complete) {
                 on_complete();
             }

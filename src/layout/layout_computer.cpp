@@ -27,6 +27,7 @@ float GetSpacingAbove(const Node& node, const Theme& theme) noexcept
     case NodeType::Heading:
         return theme.heading_spacing_above;
     case NodeType::CodeBlock:
+    case NodeType::Diagram:
     case NodeType::BlockQuote:
         return theme.code_block_spacing_above;
     case NodeType::Paragraph:
@@ -47,6 +48,7 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
         // h1/h2 は下線を描くため、下線と次行の余白を確保すべく大きめの値を返す。
         return (node.heading_level() <= 2) ? theme.heading_spacing_below_h1h2 : theme.heading_spacing_below;
     case NodeType::CodeBlock:
+    case NodeType::Diagram:
     case NodeType::Image:
         return theme.paragraph_spacing + theme.code_block_spacing_above;
     case NodeType::ListItem:
@@ -132,7 +134,8 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
     switch (node.type) {
     case NodeType::Heading:
         return theme.GetHeadingSize(node.heading_level()) * 1.5f;
-    case NodeType::CodeBlock: {
+    case NodeType::CodeBlock:
+    case NodeType::Diagram: {
         const int lines = 1 + node.line_count;
         const float h = theme.font_size_code * 1.3f * static_cast<float>(lines);
         return std::max(h, line_height);
@@ -200,10 +203,9 @@ LayoutCache MakeEstimatedLayoutCache(const std::pmr::vector<Node>& nodes, const 
 
 bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const Theme& theme, float node_width) noexcept
 {
-    // ダイアグラム系コードブロックの高さは描画完了時にビットマップ実寸で確定する。
-    // テキスト基準の EstimateNodeHeight で上書きすると描画時に bitmap が後続ノードへ
-    // はみ出すため既存値を維持する。
-    if (IsDiagramCodeBlock(node)) {
+    // 画像・図の高さは寸法が届いた時点で BitmapNodeHeight が決める。推定で上書きすると
+    // 描画時にビットマップが後続ノードへはみ出すため既存値を維持する。
+    if (IsBitmapDrawNode(node)) {
         return false;
     }
     // 同じ幅での実測キャッシュがあればそれを使い、無ければ推定値で成長させる。
@@ -214,7 +216,7 @@ bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
         (node.type == NodeType::CodeBlock || std::abs(entry.cached_width - node_width) < kCachedWidthEpsilon) &&
         entry.cached_height > 0.0f;
     const float fallback = cache_hit ? entry.cached_height : EstimateNodeHeight(node, theme);
-    // テーブル/画像/折り返しが多い段落では推定値が実測値を大きく下回るため、
+    // テーブルや折り返しが多い段落では推定値が実測値を大きく下回るため、
     // シュリンク方向の更新は後続ノードと重なる原因になる。よって既存値より小さくはしない。
     if (entry.height >= fallback) {
         return false;

@@ -16,7 +16,7 @@ namespace {
 // MermaidFileCache 系は HWND/TaskScheduler 依存のため触らない経路だけ踏む。
 class MockMermaidRenderer : public IMermaidRenderer {
 public:
-    void RequestRender(const Node&, NodeLayoutEntry&, DiagramEntry&, float, bool, Callback) override
+    void RequestRender(const Node&, DiagramEntry&, float, bool, Callback) override
     {}
     void CancelPending() override
     {}
@@ -121,7 +121,7 @@ TEST(ClipboardManager, SaveDiagramAsPngNoOpWhenFileCacheNullptr)
     auto doc = Document::FromMarkdown("```mermaid\ngraph TD; A-->B\n```\n", L"t.md");
     ToastRecorder toast;
     auto m = MakeManager(nullptr, toast);
-    const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::CodeBlock);
+    const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::Diagram);
     ASSERT_GE(cb_idx, 0);
     m.SaveDiagramAsPng(doc, cb_idx, kDefaultMdWidth, false);
     EXPECT_TRUE(toast.messages.empty());
@@ -150,7 +150,7 @@ TEST(ClipboardManager, CopyDiagramToClipboardLatexMathCopiesImageWithoutRenderer
     MockMermaidRenderer renderer;
     ToastRecorder toast;
     auto m = MakeManager(&renderer, toast);
-    const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::CodeBlock);
+    const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::Diagram);
     ASSERT_GE(cb_idx, 0);
     ASSERT_EQ(doc.GetNodes()[cb_idx].code_language(), SyntaxLanguage::LatexMath);
     m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, kDefaultMdWidth, false);
@@ -163,7 +163,7 @@ TEST(ClipboardManager, CopyDiagramToClipboardNoOpWhenRendererNullptr)
     auto doc = Document::FromMarkdown("```mermaid\ngraph TD; A-->B\n```\n", L"t.md");
     ToastRecorder toast;
     auto m = MakeManager(nullptr, toast);
-    const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::CodeBlock);
+    const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::Diagram);
     ASSERT_GE(cb_idx, 0);
     m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, kDefaultMdWidth, false);
     EXPECT_TRUE(toast.messages.empty());
@@ -177,7 +177,7 @@ TEST(ClipboardManager, CopyDiagramToClipboardRequestsRendererForMermaid)
     MockMermaidRenderer renderer;
     ToastRecorder toast;
     auto m = MakeManager(&renderer, toast);
-    const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::CodeBlock);
+    const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::Diagram);
     ASSERT_GE(cb_idx, 0);
 
     m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, kDefaultMdWidth, false);
@@ -193,7 +193,7 @@ TEST(ClipboardManager, CopyDiagramToClipboardInFlightGuardBlocksReentry)
     MockMermaidRenderer renderer;
     ToastRecorder toast;
     auto m = MakeManager(&renderer, toast);
-    const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::CodeBlock);
+    const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::Diagram);
     ASSERT_GE(cb_idx, 0);
 
     m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, kDefaultMdWidth, false);
@@ -215,7 +215,7 @@ TEST(ClipboardManager, CopyDiagramToClipboardInFlightReentryDoesNotStaleInProgre
     MockMermaidRenderer renderer;
     ToastRecorder toast;
     auto m = MakeManager(&renderer, toast);
-    const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::CodeBlock);
+    const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::Diagram);
     ASSERT_GE(cb_idx, 0);
 
     m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, kDefaultMdWidth, false); // request 1 (gen 捕捉)
@@ -233,7 +233,7 @@ TEST(ClipboardManager, CopyDiagramToClipboardCancelledCallbackEmitsNoToast)
     MockMermaidRenderer renderer;
     ToastRecorder toast;
     auto m = MakeManager(&renderer, toast);
-    const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::CodeBlock);
+    const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::Diagram);
     ASSERT_GE(cb_idx, 0);
 
     m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, kDefaultMdWidth, false);
@@ -250,7 +250,7 @@ TEST(ClipboardManager, CopyDiagramToClipboardEmptyResultEmitsFailToast)
     MockMermaidRenderer renderer;
     ToastRecorder toast;
     auto m = MakeManager(&renderer, toast);
-    const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::CodeBlock);
+    const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::Diagram);
     ASSERT_GE(cb_idx, 0);
 
     m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, kDefaultMdWidth, false);
@@ -265,7 +265,7 @@ TEST(ClipboardManager, CopyDiagramToClipboardPassesCodeAndDarkModeToRenderer)
     MockMermaidRenderer renderer;
     ToastRecorder toast;
     auto m = MakeManager(&renderer, toast);
-    const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::CodeBlock);
+    const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::Diagram);
     ASSERT_GE(cb_idx, 0);
 
     m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, 1024.0f, true);

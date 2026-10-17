@@ -78,7 +78,6 @@ struct SearchBarRenderState {
     int caret_pos = -1;       // キャレット位置（-1 = テキスト末尾）
     int selection_start = -1; // 選択開始位置（caret_posと異なる場合、選択範囲あり）
     bool visible = false;
-    bool has_focus = false;
     bool caret_visible = false; // 非アクティブ時は隠す
     // チェックボックス状態
     bool case_sensitive = false;
@@ -99,7 +98,7 @@ struct RenderParams {
     float scroll_y = 0.0f;
     float total_content_height = 0.0f;
     NavButtonHover nav_hovered = NavButtonHover::None;
-    HoveredButtons hovered;
+    OverlayButtonHit hovered;
     bool can_go_back = false;
     bool can_go_forward = false;
     bool has_dirty_nodes = false;

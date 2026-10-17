@@ -132,10 +132,7 @@ public:
                 diagram.width = cached->width;
                 diagram.height = cached->height;
 
-                auto& entry = (*deps_.cache)[i];
-                entry.height = layout::ImageDisplayHeight(cached->width, cached->height, max_width);
-                entry.layout_dirty = false;
-                height_changed_.Add(i);
+                ApplyBitmapHeight(i, diagram, max_width);
                 ++applied;
             }
             // 表示幅が広がったら、今の解像度で描きながら高い解像度で読み直す。
@@ -160,13 +157,15 @@ public:
         }
         const float content_width = cb_.get_content_width();
         const bool dark_mode = deps_.theme_service->IsDarkMode();
+        const Theme& theme = cb_.get_theme();
         const auto& nodes = deps_.doc->GetNodes();
         bool any_applied = false;
         for (size_t i : deps_.doc->GetDiagramNodeIndices()) {
             const auto hash = mermaid_util::NodeDiagramHash(nodes[i], content_width, dark_mode);
             MermaidFileCache::CacheEntry fentry;
             if (deps_.mermaid_file_cache->LookupDimensions(hash, fentry)) {
-                (*deps_.cache)[i].height = fentry.css_height;
+                const float node_width = layout::NodeContentWidth(nodes[i], theme, content_width);
+                (*deps_.cache)[i].height = layout::BitmapDisplayHeight(fentry.css_width, fentry.css_height, node_width);
                 any_applied = true;
             }
         }
@@ -371,13 +370,29 @@ private:
         if (!diagram.NeedsRender()) {
             return false;
         }
-        deps_.mermaid->RequestRender(deps_.doc->GetNodes()[i], (*deps_.cache)[i], diagram, content_width, dark_mode, [this, i] { OnMermaidRenderComplete(i); });
+        deps_.mermaid->RequestRender(deps_.doc->GetNodes()[i], diagram, content_width, dark_mode, [this, i] { OnMermaidRenderComplete(i); });
         return diagram.bitmap != nullptr;
+    }
+
+    // 画像・図の寸法が確定したノードの高さを決める。
+    void ApplyBitmapHeight(size_t i, const DiagramEntry& bitmap, float node_width)
+    {
+        auto& entry = (*deps_.cache)[i];
+        entry.height = layout::BitmapDisplayHeight(bitmap.width, bitmap.height, node_width);
+        entry.layout_dirty = false;
+        height_changed_.Add(i);
     }
 
     void OnMermaidRenderComplete(size_t node_index)
     {
-        height_changed_.Add(node_index);
+        // 失敗 (エラー確定) でもプレースホルダーの文言が変わるので描き直す。
+        if (const auto* diagram = deps_.cache->FindDiagram(node_index); diagram && diagram->bitmap) {
+            const float node_width = layout::NodeContentWidth(deps_.doc->GetNodes()[node_index], cb_.get_theme(), cb_.get_content_width());
+            ApplyBitmapHeight(node_index, *diagram, node_width);
+        }
+        else {
+            height_changed_.Add(node_index);
+        }
         if (mermaid_batch_loading_) {
             return;
         }

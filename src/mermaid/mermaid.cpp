@@ -650,30 +650,28 @@ void MermaidRenderer::RecoverWorker(int index)
     }
 }
 
-void MermaidRenderer::ApplyCachedBitmap(NodeLayoutEntry& layout_entry, DiagramEntry& diagram_entry, const CachedBitmap& cached) noexcept
+void MermaidRenderer::ApplyCachedBitmap(DiagramEntry& diagram_entry, const CachedBitmap& cached) noexcept
 {
     diagram_entry.bitmap = cached.bitmap;
     diagram_entry.width = cached.width;
     diagram_entry.height = cached.height;
     diagram_entry.png = cached.png;
-    layout_entry.height = cached.height;
-    layout_entry.layout_dirty = false;
 }
 
 void MermaidRenderer::RequestRender(
-    const Node& node, NodeLayoutEntry& layout_entry,
+    const Node& node,
     DiagramEntry& diagram_entry,
     float max_width, bool dark_mode,
     Callback on_complete)
 {
-    if (!IsDiagramLanguage(node.code_language())) {
+    if (node.type != NodeType::Diagram) {
         return;
     }
 
     const auto hash = mermaid_util::NodeDiagramHash(node, max_width, dark_mode);
 
     if (const auto* cached = cache_.Find(hash)) {
-        ApplyCachedBitmap(layout_entry, diagram_entry, *cached);
+        ApplyCachedBitmap(diagram_entry, *cached);
         if (on_complete) {
             on_complete();
         }
@@ -686,7 +684,6 @@ void MermaidRenderer::RequestRender(
 
     RenderRequest req{
         .node = &node,
-        .layout_entry = &layout_entry,
         .diagram_entry = &diagram_entry,
         .max_width = max_width,
         .dark_mode = dark_mode,
@@ -770,7 +767,7 @@ void MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
             file_cache_->StoreAsync(r.req.code_hash, r.req.css_width, r.req.css_height, r.png);
         }
         CachedBitmap cached{ std::move(bitmap), r.req.css_width, r.req.css_height, std::move(r.png) };
-        ApplyCachedBitmap(*r.req.layout_entry, *r.req.diagram_entry, cached);
+        ApplyCachedBitmap(*r.req.diagram_entry, cached);
         InsertCache(r.req.code_hash, std::move(cached));
         if (r.req.on_complete) {
             r.req.on_complete();
@@ -851,7 +848,7 @@ void MermaidRenderer::ProcessQueue()
     while (!pending_requests_.empty()) {
         auto& front = pending_requests_.front();
         if (const CachedBitmap* png_hit = front.svg_only ? nullptr : cache_.Find(front.code_hash)) {
-            ApplyCachedBitmap(*front.layout_entry, *front.diagram_entry, *png_hit);
+            ApplyCachedBitmap(*front.diagram_entry, *png_hit);
             ReleaseInflight(front);
             auto cb = std::move(front.on_complete);
             pending_requests_.pop();
@@ -979,6 +976,8 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
     // payload は has_payload のときだけ設定され、それ以外は空 view。
     const std::wstring_view payload = req.payload;
     switch (parsed.kind) {
+    case WebMessageKind::Unknown:
+        return;
     case WebMessageKind::Ready:
         OnWorkerReady(w, parsed.ready_dpr);
         return;
@@ -1012,9 +1011,8 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
             LogHrFailure("Navigate(retry)", w.webview->Navigate(APP_LOCAL_INDEX_URL));
         }
         return;
-    case WebMessageKind::Unknown:
-        return;
     }
+    std::unreachable();
 }
 
 void MermaidRenderer::OnRenderResult(int worker_idx, std::wstring_view json)

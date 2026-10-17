@@ -177,7 +177,7 @@ void CheckSelectionRoundTrip(const std::pmr::vector<Node>& nodes, const TextSele
         NormalizeNewlines(plain);
         if (nodes[i].type == NodeType::Table && nodes[i].table_data() && nodes[i].table_data()->row_count > 0) {
             // HTML はセルを要素で区切るので、プレーンテキストのタブ・改行区切りを除いて本文を比べる。
-            const auto [start, end] = one.ClampedRange(i, nodes[i].LinearizedText().size());
+            const auto [start, end] = one.ClampedRange(i, nodes[i].GetText().size());
             ASSERT_EQ(WithoutTableSeparators(html.text), WithoutTableSeparators(plain))
                 << "table node " << i << " range [" << start << ", " << end << ")";
             ASSERT_EQ(CountOccurrences(raw_html, "<tr>"), ExpectedTableRowCount(nodes[i], start, end))
@@ -210,7 +210,7 @@ void CheckRandomSelections(const std::pmr::vector<Node>& nodes, uint32_t seed, i
         sel.start_node = pick(0, last);
         sel.end_node = std::min(last, sel.start_node + pick(0, 4));
         const auto pos_in = [&](int node) {
-            const auto text = nodes[node].LinearizedText();
+            const auto text = nodes[node].GetText();
             const auto pos = static_cast<uint32_t>(pick(0, static_cast<int>(text.size())));
             return pos < text.size() ? utf8_codec::SnapToCpStart(text, pos) : pos;
         };

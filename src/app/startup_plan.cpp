@@ -33,23 +33,21 @@ StartupPlan DecideStartupPlan(const StartupContext& ctx)
         plan.document_path = ctx.arg_path;
         plan.pane_directory = ParentDirectory(ctx.arg_path);
         plan.restore_scroll = ctx.arg_is_last_file;
-        break;
+        return plan;
     case StartupArgKind::Directory:
         plan.document_path = ctx.last_file;
         plan.pane_directory = ctx.arg_path;
         plan.restore_scroll = !ctx.last_file.empty();
-        break;
+        return plan;
     case StartupArgKind::None:
         plan.document_path = ctx.last_file;
         plan.pane_directory = PaneDirectoryFromCwd(ctx);
         plan.restore_scroll = !ctx.last_file.empty();
-        break;
+        return plan;
     case StartupArgKind::Invalid:
         // 前回ファイルは復元せず直接ヘルプを出す。
         plan.pane_directory = PaneDirectoryFromCwd(ctx);
-        break;
-    default:
-        std::unreachable();
+        return plan;
     }
-    return plan;
+    std::unreachable();
 }

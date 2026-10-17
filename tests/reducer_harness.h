@@ -57,7 +57,7 @@ public:
         for (size_t i = 0; i < nodes.size(); ++i) {
             cache.SetTop(i, y);
             cache[i].height = kNodeHeight;
-            if (IsScrollableCodeBlock(nodes[i])) {
+            if (nodes[i].type == NodeType::CodeBlock) {
                 cache[i].set_natural_code_width(opt.code_natural_width);
             }
             y += kNodeHeight;

@@ -24,14 +24,9 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
     const bool no_match = !sb.query.empty() && sb.total_matches == 0;
     rt()->FillRoundedRectangle(input_rrect, Brush(no_match ? BrushId::SearchNoMatchBg : BrushId::SearchInputBg));
 
-    if (sb.has_focus) {
-        if (auto* focus_brush = Brush(BrushId::Link)) {
-            rt()->DrawRoundedRectangle(input_rrect, focus_brush, 1.5f);
-        }
-    }
-    else if (auto* border_brush = Brush(BrushId::SearchBarBorder)) {
-        OpacityScope guard{ border_brush, 0.5f };
-        rt()->DrawRoundedRectangle(input_rrect, border_brush, 1.0f);
+    // 表示中は入力欄が常にフォーカスを持つので、フォーカス枠で描く。
+    if (auto* focus_brush = Brush(BrushId::Link)) {
+        rt()->DrawRoundedRectangle(input_rrect, focus_brush, 1.5f);
     }
 
     const float caret_x = DrawSearchInputText(sb, sbl);

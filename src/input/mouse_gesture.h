@@ -88,15 +88,16 @@ public:
         Reset();
 
         switch (dir) {
+        case NavDirection::None:
+            // 方向が確定しなかった右ドラッグは通常の右クリック扱いとし、
+            // コンテキストメニューを表示する (イベントを握り潰してメニューを失わない)。
+            return GestureResult::ShowContextMenu;
         case NavDirection::Back:
             return GestureResult::Back;
         case NavDirection::Forward:
             return GestureResult::Forward;
-        default:
-            // 方向が確定しなかった右ドラッグは通常の右クリック扱いとし、
-            // コンテキストメニューを表示する (イベントを握り潰してメニューを失わない)。
-            return GestureResult::ShowContextMenu;
         }
+        std::unreachable();
     }
 
     void Reset() noexcept

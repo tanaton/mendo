@@ -221,6 +221,5 @@ private:
     DWriteTextMeasurer measurer_;
     LayoutEngine layout_;
     CommandGenerator cmd_generator_;
-    CommandExecutor cmd_executor_;
     std::move_only_function<void(ID2D1RenderTarget*)> on_device_lost_;
 };

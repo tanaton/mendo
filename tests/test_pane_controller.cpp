@@ -131,35 +131,12 @@ TEST_F(PaneControllerTest, SetHoverTocReturnsTrueOnChange)
 }
 
 // ═══════════════════════════════════════════════
-// ドラッグ
-// ═══════════════════════════════════════════════
-
-TEST_F(PaneControllerTest, DragDefaultNone)
-{
-    EXPECT_EQ(panes_.GetDragTarget(), PaneController::DragTarget::None);
-}
-
-TEST_F(PaneControllerTest, StartEndDrag)
-{
-    panes_.StartDrag(PaneController::DragTarget::Splitter1);
-    EXPECT_EQ(panes_.GetDragTarget(), PaneController::DragTarget::Splitter1);
-    panes_.EndDrag();
-    EXPECT_EQ(panes_.GetDragTarget(), PaneController::DragTarget::None);
-}
-
-TEST_F(PaneControllerTest, DragScrollOffset)
-{
-    panes_.SetDragScrollOffset(12.5f);
-    EXPECT_FLOAT_EQ(panes_.GetDragScrollOffset(), 12.5f);
-}
-
-// ═══════════════════════════════════════════════
 // スプリッタードラッグ制約
 // ═══════════════════════════════════════════════
 
 TEST_F(PaneControllerTest, DragSplitter1RespectsMinWidth)
 {
-    panes_.DragSplitterTo(PaneController::DragTarget::Splitter1, 10.0f, 1200.0f, 4.0f);
+    panes_.DragSplitterTo(PaneTarget::File, 10.0f, 1200.0f, 4.0f);
     EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::File), PaneController::PANE_MIN_WIDTH);
 }
 
@@ -167,7 +144,7 @@ TEST_F(PaneControllerTest, DragSplitter1RespectsMinMdWidth)
 {
     // 両ペイン表示時: file(960) + splitter(4) + toc(220) + splitter(4) = 1188
     // MDペインに残るのは12のみ(< 200)なので、制約されるべき
-    panes_.DragSplitterTo(PaneController::DragTarget::Splitter1, 960.0f, 1200.0f, 4.0f);
+    panes_.DragSplitterTo(PaneTarget::File, 960.0f, 1200.0f, 4.0f);
     float remaining = 1200.0f - panes_.GetSidePaneWidth(PaneTarget::File) - 4.0f - 220.0f - 4.0f;
     EXPECT_GE(remaining, ::MD_PANE_MIN_WIDTH);
 }
@@ -175,14 +152,14 @@ TEST_F(PaneControllerTest, DragSplitter1RespectsMinMdWidth)
 TEST_F(PaneControllerTest, DragSplitter2RespectsMinWidth)
 {
     // 目次の左端位置はレイアウトに依存する; 非常に小さくドラッグ
-    panes_.DragSplitterTo(PaneController::DragTarget::Splitter2, panes_.GetSidePaneWidth(PaneTarget::File) + 4.0f + 10.0f, 1200.0f, 4.0f);
+    panes_.DragSplitterTo(PaneTarget::Toc, panes_.GetSidePaneWidth(PaneTarget::File) + 4.0f + 10.0f, 1200.0f, 4.0f);
     EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::Toc), PaneController::PANE_MIN_WIDTH);
 }
 
 TEST_F(PaneControllerTest, DragSplitter2RespectsMinMdWidth)
 {
     // 目次ペインの幅を非常に大きくドラッグ
-    panes_.DragSplitterTo(PaneController::DragTarget::Splitter2, 1190.0f, 1200.0f, 4.0f);
+    panes_.DragSplitterTo(PaneTarget::Toc, 1190.0f, 1200.0f, 4.0f);
     float layout_width = panes_.GetSidePaneWidth(PaneTarget::File) + 4.0f + panes_.GetSidePaneWidth(PaneTarget::Toc) + 4.0f;
     float md_width = 1200.0f - layout_width;
     EXPECT_GE(md_width, ::MD_PANE_MIN_WIDTH);
@@ -216,14 +193,14 @@ TEST_F(PaneControllerTest, DragSplitter1WithFilePaneHidden)
 {
     panes_.ToggleSidePane(PaneTarget::File); // ファイルペインを非表示
     // 非表示のファイルペインでsplitter1をドラッグしても正しくクランプされるべき
-    panes_.DragSplitterTo(PaneController::DragTarget::Splitter1, 300.0f, 1200.0f, 4.0f);
+    panes_.DragSplitterTo(PaneTarget::File, 300.0f, 1200.0f, 4.0f);
     EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::File), PaneController::PANE_MIN_WIDTH);
 }
 
 TEST_F(PaneControllerTest, DragSplitter2WithTocPaneHidden)
 {
     panes_.ToggleSidePane(PaneTarget::Toc); // 目次ペインを非表示
-    panes_.DragSplitterTo(PaneController::DragTarget::Splitter2, 1000.0f, 1200.0f, 4.0f);
+    panes_.DragSplitterTo(PaneTarget::Toc, 1000.0f, 1200.0f, 4.0f);
     EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::Toc), PaneController::PANE_MIN_WIDTH);
 }
 
@@ -319,26 +296,6 @@ TEST_F(PaneControllerTest, ZoomRestoreMdContentWidthPositive)
 
     EXPECT_GT(content_width, 0.0f)
         << "ズーム復帰後のcontent_widthは正であるべき";
-}
-
-// ═══════════════════════════════════════════════
-// ドラッグターゲットの種類
-// ═══════════════════════════════════════════════
-
-TEST_F(PaneControllerTest, DragTargetAllTypes)
-{
-    panes_.StartDrag(PaneController::DragTarget::FileScrollbar);
-    EXPECT_EQ(panes_.GetDragTarget(), PaneController::DragTarget::FileScrollbar);
-    panes_.EndDrag();
-
-    panes_.StartDrag(PaneController::DragTarget::TocScrollbar);
-    EXPECT_EQ(panes_.GetDragTarget(), PaneController::DragTarget::TocScrollbar);
-    panes_.EndDrag();
-
-    panes_.StartDrag(PaneController::DragTarget::Splitter2);
-    EXPECT_EQ(panes_.GetDragTarget(), PaneController::DragTarget::Splitter2);
-    panes_.EndDrag();
-    EXPECT_EQ(panes_.GetDragTarget(), PaneController::DragTarget::None);
 }
 
 // ═══════════════════════════════════════════════
@@ -462,7 +419,8 @@ namespace {
 
 constexpr float SPLITTER_W = 4.0f;
 constexpr float WINDOW_H = 600.0f;
-constexpr PaneController::DragTarget SPLITTERS[] = { PaneController::DragTarget::Splitter1, PaneController::DragTarget::Splitter2 };
+// 右端にスプリッタを持つペイン (File = Splitter1, Toc = Splitter2)。
+constexpr PaneTarget SPLITTERS[] = { PaneTarget::File, PaneTarget::Toc };
 
 struct DragCase {
     float window_w;
@@ -500,9 +458,9 @@ std::optional<PaneController> MakePanes(const DragCase& c)
     return panes;
 }
 
-const char* SplitterName(PaneController::DragTarget t)
+const char* SplitterName(PaneTarget t)
 {
-    return t == PaneController::DragTarget::Splitter1 ? "Splitter1" : "Splitter2";
+    return t == PaneTarget::File ? "Splitter1" : "Splitter2";
 }
 
 } // namespace
@@ -522,7 +480,7 @@ TEST(PaneControllerDragProperty, DragToCurrentSplitterPositionKeepsLayout)
                 }
                 const auto before = panes->ComputeLayout(c.window_w, WINDOW_H, SPLITTER_W);
                 shrunk_cases += (before.file_rect.width < c.file_w) ? 1 : 0;
-                const auto& dragged = (target == PaneController::DragTarget::Splitter1) ? before.file_rect : before.toc_rect;
+                const auto& dragged = (target == PaneTarget::File) ? before.file_rect : before.toc_rect;
                 SCOPED_TRACE(c.Describe(seed, step) + " " + SplitterName(target));
 
                 panes->DragSplitterTo(target, dragged.x + dragged.width, c.window_w, SPLITTER_W);
@@ -556,7 +514,7 @@ TEST(PaneControllerDragProperty, DraggingOneSplitterKeepsOtherPaneWidth)
                     continue;
                 }
                 const auto before = panes->ComputeLayout(c.window_w, WINDOW_H, SPLITTER_W);
-                const auto other = (target == PaneController::DragTarget::Splitter1) ? PaneTarget::Toc : PaneTarget::File;
+                const auto other = (target == PaneTarget::File) ? PaneTarget::Toc : PaneTarget::File;
                 SCOPED_TRACE(c.Describe(seed, step) + std::format(" {} dip_x={}", SplitterName(target), dip_x));
 
                 panes->DragSplitterTo(target, dip_x, c.window_w, SPLITTER_W);

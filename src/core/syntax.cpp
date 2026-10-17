@@ -32,6 +32,14 @@ constexpr void EmitToken(std::pmr::vector<SyntaxToken>& tokens, uint32_t start, 
     }
 }
 
+// lexer 共通の出力先。
+std::pmr::vector<SyntaxToken> MakeTokenBuffer(std::string_view text)
+{
+    std::pmr::vector<SyntaxToken> tokens;
+    tokens.reserve(text.size() / 32);
+    return tokens;
+}
+
 // pos から最初の '\n' まで（または末尾まで）一気に進める。返り値は '\n' の位置（未消費）または text.size()。
 constexpr size_t SkipToEol(std::string_view text, size_t pos) noexcept
 {
@@ -554,8 +562,7 @@ std::pmr::vector<SyntaxToken> TokenizeImpl(
     kw::KeywordTable keywords,
     kw::KeywordTable types)
 {
-    std::pmr::vector<SyntaxToken> tokens;
-    tokens.reserve(text.size() / 32);
+    auto tokens = MakeTokenBuffer(text);
     TokenizeRange<Cfg>(text, 0, keywords, types, tokens);
     return tokens;
 }
@@ -683,14 +690,6 @@ constexpr size_t EmitRange(std::pmr::vector<SyntaxToken>& tokens, size_t start, 
         EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(end - start), type);
     }
     return end;
-}
-
-// 専用 lexer の出力先。汎用 lexer と同じ見積もりで確保する。
-std::pmr::vector<SyntaxToken> MakeTokenBuffer(std::string_view text)
-{
-    std::pmr::vector<SyntaxToken> tokens;
-    tokens.reserve(text.size() / 32);
-    return tokens;
 }
 
 void TokenizeShellRange(std::string_view text, size_t begin, size_t end, std::pmr::vector<SyntaxToken>& tokens)

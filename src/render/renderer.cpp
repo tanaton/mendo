@@ -148,20 +148,20 @@ void Renderer::ApplyTableEffects(const Node& node, NodeLayoutEntry& entry, float
     }
     const auto* tbl = node.table_data();
     if (!tbl || tbl->row_count == 0) {
-        entry.set_effects_applied(true);
+        entry.set_effects_state(EffectsState::Applied);
         return;
     }
 
     const auto row_count = static_cast<size_t>(tbl->row_count);
     const auto col_count = static_cast<size_t>(tbl->col_count);
     auto& tl = *tl_ptr;
-    // セルを作り直す経路 (ClearEffects / MeasureTable) は effects_applied を倒し、ここで行フラグを作り直すので、
+    // セルを作り直す経路 (ClearEffects / MeasureTable) は effects_state を None に戻し、ここで行フラグを作り直すので、
     // 済みの間は行フラグが row_count 分ある。確保が例外で途切れても済みにならないよう印は最後に付ける。
-    if (!entry.effects_applied()) {
+    if (entry.effects_state() == EffectsState::None) {
         tl.cell_inline_code_bgs.clear();
         tl.row_bgs_computed.assign(row_count, 0);
         tl.row_links_applied.assign(row_count, 0);
-        entry.set_effects_applied(true);
+        entry.set_effects_state(EffectsState::Applied);
     }
 
     // リンク色・インラインコード背景とも可視行だけに適用し、行単位フラグで再適用を省く。
@@ -248,13 +248,13 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry, float 
     if (!layout) {
         return;
     }
-    if (entry.effects_applied() && !entry.inline_code_bgs_stale()) {
+    const EffectsState state = entry.effects_state();
+    if (state == EffectsState::Applied) {
         return;
     }
-    // SetMaxWidth だけの再計測後は描画エフェクト/下線が残っているので、インラインコード背景だけ作り直す。
-    const bool apply_brushes = !entry.effects_applied();
-    entry.set_effects_applied(true);
-    entry.set_inline_code_bgs_stale(false);
+    // BgsStale は描画エフェクト/下線が残っているので、インラインコード背景だけ作り直す。
+    const bool apply_brushes = state == EffectsState::None;
+    entry.set_effects_state(EffectsState::Applied);
     MENDO_COUNT_INC(g_effect_stats.apply_node);
 
     // alert_label / run の offset/length は UTF-8 byte 単位なので、IDWriteTextLayout が要求する
@@ -335,7 +335,7 @@ bool Renderer::BeginFrame(const TitleBarRenderState& titlebar, const SidePaneSta
 
     rt()->BeginDraw();
     rt()->Clear(theme_.bg_color);
-    cmd_executor_.Execute(chrome_cmds_, rt(), &brushes_);
+    ExecuteDrawCommands(chrome_cmds_, rt(), &brushes_);
     return true;
 }
 
@@ -406,7 +406,7 @@ void Renderer::Render(const RenderParams& p)
         const float dpi_scale = DpiScaleFrom(backend_.GetDpi());
         const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, p.hovered, dpi_scale, p.block_h_scroll);
         MENDO_PLOT("draw.command_count", static_cast<int64_t>(cmds.size()));
-        cmd_executor_.Execute(cmds, rt(), &brushes_);
+        ExecuteDrawCommands(cmds, rt(), &brushes_);
     }
 
     if (p.can_go_back || p.can_go_forward) {
@@ -475,9 +475,8 @@ bool Renderer::CreateDevice()
 
 bool Renderer::RecreateDevice()
 {
-    // 旧レンダーターゲットに紐付いたブラシと動的色ブラシを捨てる
+    // 旧レンダーターゲットに紐付いたブラシを捨てる
     InvalidateBrushes();
-    cmd_executor_ = CommandExecutor{};
     if (!CreateDevice()) {
         return false;
     }
@@ -569,7 +568,7 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool 
 
     // SetColor は SetOpacity より重いため、固定色ブラシを is_dark で選んで
     // 透明度のみ切り替える。
-    const BrushId overlay_id = is_dark ? BrushId::OverlayWhite : BrushId::OverlayBlack;
+    const BrushId overlay_id = OverlayBrushId(is_dark);
     ID2D1SolidColorBrush* const overlay_brush = Brush(overlay_id);
 
     if (!overlay_brush) {

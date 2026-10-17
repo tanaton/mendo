@@ -98,7 +98,7 @@ struct PointerHover {
     // Input はホバー強調が無いので None と同じに扱う。
     SearchBarHitZone search_bar = SearchBarHitZone::None;
     NavButtonHover nav = NavButtonHover::None;
-    HoveredButtons buttons{};
+    OverlayButtonHit overlay_button{};
     // 横スクロールバーを出すブロック。-1 なら無し。
     int h_block = -1;
     // PaneTarget 順 (File, Toc)。
@@ -111,28 +111,28 @@ struct PointerHoverAction {
 };
 // ウィンドウ外へ出た。ホバー状態を全て解除しツールチップを閉じる。
 struct MouseLeaveAction {};
+// edge: 右端のスプリッタを掴んだペイン。
 struct SplitterDragStartedAction {
-    PaneController::DragTarget target;
+    PaneTarget edge;
 };
-// ドラッグ中のスプリッタは PaneController、ウィンドウ幅は pane_layout_cache から読む。
+// ドラッグ中のスプリッタは ViewState::drag、ウィンドウ幅は pane_layout_cache から読む。
 struct SplitterDragMovedAction {
     float dip_x;
 };
-struct SplitterDragEndedAction {};
+// テキスト選択以外の左ドラッグの終了。テキスト選択は終点で選択を確定する TextSelectionEndedAction。
+struct LeftDragEndedAction {};
 struct SearchInputDragStartedAction {
     int caret_pos;
 };
 struct SearchInputDragMovedAction {
     int caret_pos;
 };
-struct SearchInputDragEndedAction {};
 struct MdScrollbarDragStartedAction {
     float dip_y;
 };
 struct MdScrollbarDragMovedAction {
     float dip_y;
 };
-struct MdScrollbarDragEndedAction {};
 struct PaneScrollbarDragStartedAction {
     PaneTarget pane;
     float dip_y;
@@ -141,7 +141,6 @@ struct PaneScrollbarDragMovedAction {
     PaneTarget pane;
     float dip_y;
 };
-struct PaneScrollbarDragEndedAction {};
 struct TextSelectionStartedAction {
     int node_index;
     uint32_t text_pos;
@@ -198,7 +197,6 @@ struct BlockHScrollDragStartedAction {
 struct BlockHScrollDragMovedAction {
     float dip_x;
 };
-struct BlockHScrollDragEndedAction {};
 struct DropFilesAction {
     std::pmr::wstring path;
 };
@@ -263,16 +261,13 @@ using AppAction = std::variant<
     MouseLeaveAction,
     SplitterDragStartedAction,
     SplitterDragMovedAction,
-    SplitterDragEndedAction,
+    LeftDragEndedAction,
     SearchInputDragStartedAction,
     SearchInputDragMovedAction,
-    SearchInputDragEndedAction,
     MdScrollbarDragStartedAction,
     MdScrollbarDragMovedAction,
-    MdScrollbarDragEndedAction,
     PaneScrollbarDragStartedAction,
     PaneScrollbarDragMovedAction,
-    PaneScrollbarDragEndedAction,
     TextSelectionStartedAction,
     TextSelectionMovedAction,
     TextSelectionEndedAction,
@@ -289,7 +284,6 @@ using AppAction = std::variant<
     HWheelAction,
     BlockHScrollDragStartedAction,
     BlockHScrollDragMovedAction,
-    BlockHScrollDragEndedAction,
     DropFilesAction,
     InvalidateHoverAction,
     ResizeAction,

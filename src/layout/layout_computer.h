@@ -51,10 +51,35 @@ inline float TableBaseRowHeight(const Theme& theme) noexcept
     return theme.font_size_body * TABLE_ROW_HEIGHT_FACTOR;
 }
 
-// 画像は max_width を超える場合のみアスペクト比を保って縮小する (拡大はしない)。
-constexpr float ImageDisplayHeight(float width, float height, float max_width) noexcept
+// 画像・図は max_width を超える場合のみアスペクト比を保って縮小する (拡大はしない)。描画側の MermaidBitmapRect と同じ規則。
+constexpr float BitmapDisplayHeight(float width, float height, float max_width) noexcept
 {
     return (width > max_width && width > 0.0f) ? height * (max_width / width) : height;
+}
+
+// ノードの右上に並ぶオーバーレイボタンを fn(rect, kind) で列挙する。描画とヒットテストで矩形を共有する。
+// x / w はノードの左端と内容幅、top はテキスト上端。diagram は図のビットマップ (無ければボタンも無い)。
+template <class Fn>
+void ForEachOverlayButton(const Node& node, const DiagramEntry* diagram, float x, float w, float top, const Theme& theme, Fn&& fn)
+{
+    if (node.type == NodeType::CodeBlock) {
+        fn(OverlayButtonRect(x + w, top - NodeBoxPadY(node, theme), OverlayButton::CodeCopy), OverlayButton::CodeCopy);
+    }
+    else if (node.type == NodeType::Diagram && diagram && diagram->bitmap) {
+        const auto bmp = MermaidBitmapRect(diagram->width, diagram->height, x, w, top);
+        for (const auto kind : { OverlayButton::DiagramSave, OverlayButton::DiagramCopy }) {
+            fn(OverlayButtonRect(bmp.right, bmp.top, kind), kind);
+        }
+    }
+}
+
+// ビットマップを描くノードの高さ。寸法が届くまでは現在値 (推定・前回値) を保ち、それも無ければプレースホルダー。
+inline float BitmapNodeHeight(const DiagramEntry* bitmap, float node_width, float current_height, const Theme& theme) noexcept
+{
+    if (bitmap && bitmap->width > 0 && bitmap->height > 0) {
+        return BitmapDisplayHeight(bitmap->width, bitmap->height, node_width);
+    }
+    return current_height > 0 ? current_height : PlaceholderHeight(theme);
 }
 
 float GetSpacingAbove(const Node& node, const Theme& theme) noexcept;

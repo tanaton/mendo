@@ -35,6 +35,7 @@ public:
 
     // 並列計測では worker ごとに別ノード・別 entry を渡す。
     // viewport はテーブルで行単位の部分復元判定に用いる。
+    // ビットマップを描くノード (IsBitmapDrawNode) は渡さない。高さは MeasureEntry が BitmapNodeHeight で決める。
     virtual void MeasureNode(
         const Node& node, NodeLayoutEntry& entry, float max_width,
         MeasureViewportRange viewport = {}) const = 0;
@@ -51,15 +52,17 @@ public:
 // EstimateInvisibleNodeHeight が推定値で上書きしないようにする。
 // 計測に成功したら失敗回数を 0 に戻し、以後の一時的な失敗を初回として扱う。
 // viewport は文書座標で受け取り、entry_top 基準のローカル座標に直してバックエンドへ渡す。
-// image は画像ノードの DiagramEntry (無ければ nullptr)。画像の高さは読み込んだ寸法で決まり、
-// バックエンドはプレースホルダーまでしか扱わないので、寸法が分かっていればここで置き換える。
+// bitmap は画像/図ノードの DiagramEntry (無ければ nullptr)。
 inline void MeasureEntry(
     const ITextMeasurer& measurer, const Node& node, NodeLayoutEntry& entry, float node_width,
-    MeasureViewportRange viewport, float entry_top, const DiagramEntry* image)
+    MeasureViewportRange viewport, float entry_top, const DiagramEntry* bitmap, const Theme& theme)
 {
-    measurer.MeasureNode(node, entry, node_width, viewport.ToLocal(entry_top));
-    if (image && image->width > 0 && image->height > 0) {
-        entry.height = layout::ImageDisplayHeight(image->width, image->height, node_width);
+    if (IsBitmapDrawNode(node)) {
+        entry.height = layout::BitmapNodeHeight(bitmap, node_width, entry.height, theme);
+        entry.layout_dirty = false;
+    }
+    else {
+        measurer.MeasureNode(node, entry, node_width, viewport.ToLocal(entry_top));
     }
     entry.cached_width = node_width;
     entry.cached_height = entry.height;

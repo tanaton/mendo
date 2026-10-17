@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "cmd_gen_mock_test_base.h"
+#include "d2d_util.h"
 #include "search_state.h"
 #include <algorithm>
 #include <optional>
@@ -58,7 +59,7 @@ TEST_F(CmdGenFrameTest, ScrollSnapsToPixelWithDpi)
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
     const float scroll_y = 0.3f;
     const float dpi = 2.0f;
-    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, scroll_y, TextSelection{}, HoveredButtons{}, dpi);
+    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, scroll_y, TextSelection{}, OverlayButtonHit{}, dpi);
 
     const auto xform = FindFirst<SetTransformCmd>(cmds);
     ASSERT_TRUE(xform.has_value());
@@ -131,35 +132,26 @@ TEST_F(CmdGenFrameTest, SetSearchMatchesWithEmptyProducesNoHighlight)
 // テーマ変更の反映
 // ═══════════════════════════════════════════════
 
-TEST_F(CmdGenFrameTest, DarkThemeSelectionUsesDifferentStripeCache)
+TEST_F(CmdGenFrameTest, TableStripeUsesStripeBrush)
 {
-    auto light = GetLightTheme();
-    auto dark = GetDarkTheme();
     Parse("| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
+    const auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
+    EXPECT_TRUE(std::ranges::any_of(cmds, [](const DrawCommand& c) {
+        const auto* fr = std::get_if<FillRectCmd>(&c);
+        return fr && fr->brush_id == BrushId::TableStripe;
+    }));
+}
 
-    auto find_stripe = [](const DrawCommandList& cmds) -> std::optional<D2D1_COLOR_F> {
-        for (const auto& c : cmds) {
-            if (auto* fr = std::get_if<FillRectCmd>(&c)) {
-                if (fr->color.a > 0.0f && fr->color.a < 1.0f) {
-                    return fr->color;
-                }
-            }
-        }
-        return std::nullopt;
-    };
-
-    gen_.SetTheme(&light);
-    auto light_stripe = find_stripe(gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{}));
-    ASSERT_TRUE(light_stripe.has_value());
-    EXPECT_FLOAT_EQ(light_stripe->r, 0.0f);
-    EXPECT_FLOAT_EQ(light_stripe->g, 0.0f);
-    EXPECT_FLOAT_EQ(light_stripe->b, 0.0f);
-
-    gen_.SetTheme(&dark);
-    auto dark_stripe = find_stripe(gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{}));
-    ASSERT_TRUE(dark_stripe.has_value());
-    EXPECT_FLOAT_EQ(dark_stripe->r, 1.0f);
-    EXPECT_FLOAT_EQ(dark_stripe->g, 1.0f);
-    EXPECT_FLOAT_EQ(dark_stripe->b, 1.0f);
+// ストライプはライトで黒、ダークで白の半透明。
+TEST(TableStripeColorTest, LightBlackDarkWhiteTranslucent)
+{
+    const auto light = TableStripeColor(false);
+    const auto dark = TableStripeColor(true);
+    EXPECT_FLOAT_EQ(light.r, 0.0f);
+    EXPECT_FLOAT_EQ(dark.r, 1.0f);
+    for (const auto& c : { light, dark }) {
+        EXPECT_GT(c.a, 0.0f);
+        EXPECT_LT(c.a, 1.0f);
+    }
 }

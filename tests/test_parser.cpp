@@ -929,17 +929,17 @@ TEST(Parser, MermaidCodeBlock)
 {
     auto nodes = ParseNodes("```mermaid\ngraph TD;\n  A-->B;\n```");
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
+    EXPECT_EQ(nodes[0].type, NodeType::Diagram);
     EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::Mermaid);
 }
 
 // ---- LaTeX display math ($$...$$) ----
 
-TEST(Parser, LatexDisplayMathSingleLinePromotedToCodeBlock)
+TEST(Parser, LatexDisplayMathSingleLinePromotedToDiagram)
 {
     auto result = ParseMarkdown("$$E = mc^2$$");
     ASSERT_EQ(result.nodes().size(), 1u);
-    EXPECT_EQ(result.nodes()[0].type, NodeType::CodeBlock);
+    EXPECT_EQ(result.nodes()[0].type, NodeType::Diagram);
     EXPECT_EQ(result.nodes()[0].code_language(), SyntaxLanguage::LatexMath);
     EXPECT_EQ(result.nodes()[0].GetText(), "E = mc^2");
     // diagram_indices に登録される（描画パイプラインに流すため）
@@ -1005,7 +1005,7 @@ TEST(Parser, LatexDisplayMathMultiline)
     // 複数行にわたる $$...$$ でも昇格される（中身はパーサがそのまま保持）
     auto result = ParseMarkdown("$$\nE = mc^2\n$$");
     ASSERT_EQ(result.nodes().size(), 1u);
-    EXPECT_EQ(result.nodes()[0].type, NodeType::CodeBlock);
+    EXPECT_EQ(result.nodes()[0].type, NodeType::Diagram);
     EXPECT_EQ(result.nodes()[0].code_language(), SyntaxLanguage::LatexMath);
     // 中身に 'E = mc^2' が含まれること（md4c の改行扱いに依存するが、式本体は保持される）
     const auto& body = result.nodes()[0].GetText();
@@ -1025,7 +1025,7 @@ TEST(Parser, LatexDisplayMathLineCountMatchesNewlines)
         SCOPED_TRACE(std::string{ src });
         auto result = ParseMarkdown(src);
         ASSERT_EQ(result.nodes().size(), 1u);
-        ASSERT_EQ(result.nodes()[0].type, NodeType::CodeBlock);
+        ASSERT_EQ(result.nodes()[0].type, NodeType::Diagram);
         ASSERT_EQ(result.nodes()[0].code_language(), SyntaxLanguage::LatexMath);
         const auto text = result.nodes()[0].GetText();
         const auto expected = static_cast<int>(std::ranges::count(text, '\n'));
@@ -1039,7 +1039,7 @@ TEST(Parser, LatexDisplayMathSurroundingParagraphs)
     auto result = ParseMarkdown("before\n\n$$E=mc^2$$\n\nafter");
     ASSERT_EQ(result.nodes().size(), 3u);
     EXPECT_EQ(result.nodes()[0].type, NodeType::Paragraph);
-    EXPECT_EQ(result.nodes()[1].type, NodeType::CodeBlock);
+    EXPECT_EQ(result.nodes()[1].type, NodeType::Diagram);
     EXPECT_EQ(result.nodes()[1].code_language(), SyntaxLanguage::LatexMath);
     EXPECT_EQ(result.nodes()[1].GetText(), "E=mc^2");
     EXPECT_EQ(result.nodes()[2].type, NodeType::Paragraph);
@@ -1052,7 +1052,7 @@ TEST(Parser, MathFencedCodeBlockIsLatexDiagram)
     // GitHub / GitLab 互換の ```math も $$...$$ と同じく図として描画する
     auto result = ParseMarkdown("before\n\n```math\n\\frac{a}{b}\n\\sqrt{x}\n```");
     ASSERT_EQ(result.nodes().size(), 2u);
-    EXPECT_EQ(result.nodes()[1].type, NodeType::CodeBlock);
+    EXPECT_EQ(result.nodes()[1].type, NodeType::Diagram);
     EXPECT_EQ(result.nodes()[1].code_language(), SyntaxLanguage::LatexMath);
     EXPECT_EQ(result.nodes()[1].GetText(), "\\frac{a}{b}\n\\sqrt{x}");
     ASSERT_EQ(result.diagram_indices.size(), 1u);

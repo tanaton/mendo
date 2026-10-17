@@ -481,7 +481,7 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
         return;
     }
 
-    // [start, end) は呼び出し側で LinearizedText (= concat_text) の長さにクランプ済み。
+    // [start, end) は呼び出し側で concat_text (= GetText) の長さにクランプ済み。
     if (start >= end) {
         return;
     }
@@ -617,7 +617,7 @@ std::pmr::string ExtractSelectedText(const std::pmr::vector<Node>& nodes, const 
     static constexpr std::string_view kCrlf = "\r\n";
     const auto for_each_selected = [&](auto&& fn) {
         ForEachSelectedNode(nodes, selection, [&](int i, const Node& node) {
-            const std::string_view text = node.LinearizedText();
+            const std::string_view text = node.GetText();
             const auto [start, end] = selection.ClampedRange(i, text.size());
             fn(start < end ? text.substr(start, end - start) : std::string_view{}, i < selection.end_node);
         });
@@ -661,7 +661,7 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
     size_t estimated = 0;
     // ノード全体ではなく選択範囲で見積もる (巨大な表の数セルだけのコピーでノード全体分を確保しない)。
     ForEachSelectedNode(nodes, selection, [&](int i, const Node& node) {
-        const auto [start, end] = selection.ClampedRange(i, node.LinearizedText().size());
+        const auto [start, end] = selection.ClampedRange(i, node.GetText().size());
         if (start < end) {
             estimated += end - start;
         }
@@ -689,7 +689,7 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
     };
 
     ForEachSelectedNode(nodes, selection, [&](int i, const Node& node) {
-        const auto text = node.LinearizedText();
+        const auto text = node.GetText();
         const auto [start, end] = selection.ClampedRange(i, text.size());
 
         if (IsListItem(node)) {
@@ -730,6 +730,7 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
             wrap_inline("<p>", "</p>");
             break;
         case NodeType::CodeBlock:
+        case NodeType::Diagram:
             AppendCodeBlockHtml(out, node, start, end, dark_mode);
             break;
         case NodeType::BlockQuote:

@@ -410,7 +410,7 @@ void TryPromoteParagraphToDisplayMath(ParseContext* ctx)
         return;
     }
     assert(text.starts_with("$$") && text.ends_with("$$"));
-    node->type = NodeType::CodeBlock;
+    node->type = NodeType::Diagram;
     node->set_code_language(SyntaxLanguage::LatexMath);
     ctx->current_runs.clear();
     node->SetText(ctx->arena->CopyText(text.substr(2, text.size() - 4)), 0);
@@ -604,6 +604,7 @@ void LeaveCodeBlock(ParseContext* ctx)
         cn->line_count--;
     }
     if (IsDiagramLanguage(cn->code_language())) {
+        cn->type = NodeType::Diagram;
         ctx->diagram_indices.emplace_back(ctx->current_node_index);
     }
 }
@@ -744,6 +745,8 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
     case MD_BLOCK_TABLE:
         if (auto* const cn = ctx->current_node; cn && cn->has_table()) {
             FinalizeTableOffsets(*cn->table_data());
+            // 以後 concat_text は伸縮しないので、本文として直接指す。
+            cn->SetText(cn->table_data()->concat_text);
         }
         ctx->EndNode();
         break;
