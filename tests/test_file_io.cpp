@@ -11,6 +11,34 @@ namespace fs = std::filesystem;
 
 class FileIoTest : public TempDirTestBase {};
 
+TEST(IsLocalPathTest, RejectsNetworkAndDevicePaths)
+{
+    struct Case {
+        std::wstring_view path;
+        bool local;
+    };
+    constexpr Case kCases[] = {
+        { L"", true },
+        { L"a.png", true },
+        { L"C:\\img\\a.png", true },
+        { L"/img/a.png", true },
+        { L"?\\a.png", true },
+        { L"\\?a.png", true },
+
+        { L"\\\\host\\share\\a.png", false },
+        { L"//host/share/a.png", false },
+        { L"\\/host/share/a.png", false },
+        { L"\\\\?\\UNC\\host\\share\\a.png", false },
+        { L"\\\\.\\pipe\\x", false },
+        { L"\\??\\UNC\\host\\share\\a.png", false },
+        { L"/??/UNC/host/share/a.png", false },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(testing::PrintToString(std::wstring(c.path)));
+        EXPECT_EQ(path_util::IsLocalPath(c.path), c.local);
+    }
+}
+
 // ═══════════════════════════════════════════════
 // WriteAllBytes + ReadAllBytes ラウンドトリップ
 // ═══════════════════════════════════════════════
