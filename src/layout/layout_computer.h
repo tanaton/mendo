@@ -15,11 +15,10 @@ inline float NodeIndent(const Node& node, const Theme& theme) noexcept
     return node.indent_level * theme.indent_width;
 }
 
-// インデントは 127 段まで積めるので、本文幅から引くだけだと負になり、
-// テキストレイアウトの作成失敗・画像の原寸デコード・負の画像高さを招く。
+// インデントは 127 段まで積めるので、本文幅から引くだけだと負になる。
 inline float NodeContentWidth(const Node& node, const Theme& theme, float content_width) noexcept
 {
-    return std::max(content_width - NodeIndent(node, theme), std::min(content_width, MIN_NODE_CONTENT_WIDTH));
+    return ShrinkKeepingMinContent(content_width, NodeIndent(node, theme));
 }
 
 inline float NodeTextXOffset(const Node& node, const Theme& theme) noexcept
@@ -43,6 +42,13 @@ inline float PlaceholderHeight(const Theme& theme) noexcept
 inline float EmptyListItemHeight(const Theme& theme) noexcept
 {
     return theme.font_size_body * std::max(TASK_CHECKBOX_HEIGHT_FACTOR, FALLBACK_LINE_HEIGHT_FACTOR);
+}
+
+// テキストが空のノードの高さ。中身を子ブロックに持つ LI は 0 にする
+// (paragraph_spacing を入れると bullet と直下 P の文字 Y が分離する issue#237)。
+inline float EmptyTextNodeHeight(const Node& node, const Theme& theme) noexcept
+{
+    return IsEmptyListItemContainer(node) ? 0.0f : IsListItem(node) ? EmptyListItemHeight(theme) : theme.paragraph_spacing;
 }
 
 // 行高さが未計測の表の行に使う高さ。

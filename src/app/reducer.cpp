@@ -25,6 +25,14 @@ NavEntry CurrentNavEntry(const AppState& state)
     return NavEntry{ state.document.doc.GetFilePath(), t.node, t.offset };
 }
 
+// ロード中の別ファイルが取り消されたか失敗したときに、その仮の移動と移動先用の復元位置を捨てる。
+// 復元位置を残すと、次に開く別ファイルが無関係なノード位置へスクロールする。
+static void DiscardPendingLoad(AppState& state)
+{
+    state.view.nav_history.RollbackPending();
+    state.view.scroll_restore.ClearNodeRestore();
+}
+
 void PushCurrentNavEntry(AppState& state, std::wstring_view load_path)
 {
     const auto& current_path = state.document.doc.GetFilePath();
@@ -33,12 +41,18 @@ void PushCurrentNavEntry(AppState& state, std::wstring_view load_path)
         return;
     }
     const NavEntry entry = CurrentNavEntry(state);
+    if (load_path.empty()) {
+        state.view.nav_history.Push(entry);
+        return;
+    }
+    // 新しいロードはロード中の別ファイルを取り消す。
+    DiscardPendingLoad(state);
     // 同じファイルの開き直しはリロードとして終わり、確定 (RestoreScrollAfterLoadAction) が来ない。
-    if (!load_path.empty() && !path_util::iequal(load_path, current_path)) {
-        state.view.nav_history.PushPending(entry);
+    if (path_util::iequal(load_path, current_path)) {
+        state.view.nav_history.Push(entry);
     }
     else {
-        state.view.nav_history.Push(entry);
+        state.view.nav_history.PushPending(entry);
     }
 }
 
@@ -376,19 +390,15 @@ void ReduceRestoreScrollAfterLoad(AppState& state)
     }
 }
 
-// 復元情報は失敗したロード先のノード番号なので、残すと次に開く別ファイル
-// (起動時の失敗ならフォールバックのヘルプ) が無関係な位置へスクロールする。
-void ReduceLoadFailed(AppState& state)
-{
-    state.view.nav_history.RollbackPending();
-    state.view.scroll_restore.ClearNodeRestore();
-}
-
 void ReduceShowHelp(AppState& state, SideEffectList& effects)
 {
-    if (!IsHelpPath(state.document.doc.GetFilePath())) {
-        PushCurrentNavEntry(state, HELP_PATH);
+    // ヘルプ表示中はヘルプに留まり、ロード中の別ファイルだけを取り消す。
+    if (IsHelpPath(state.document.doc.GetFilePath())) {
+        DiscardPendingLoad(state);
+        PushEffect(effects, effect::CancelOtherFileLoad{});
+        return;
     }
+    PushCurrentNavEntry(state, HELP_PATH);
     PushEffect(effects, effect::LoadFile{ std::pmr::wstring(HELP_PATH) });
 }
 
@@ -1019,7 +1029,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const TocItemClickedAction& a) { ReduceTocItemClicked(state, effects, a); },
         [&](const NavigateAnchorAction& a) { ReduceNavigateAnchor(state, effects, a); },
         [&](const RestoreScrollAfterLoadAction&) { ReduceRestoreScrollAfterLoad(state); },
-        [&](const LoadFailedAction&) { ReduceLoadFailed(state); },
+        [&](const LoadFailedAction&) { DiscardPendingLoad(state); },
         [&](const InvalidateHoverAction&) { InvalidateHover(state, effects); },
 
         // ---- ナビゲーション ----

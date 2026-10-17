@@ -19,6 +19,7 @@
 #include "selection_html.h"
 #include "syntax.h"
 #include "theme.h"
+#include "theme_palette.h"
 #include "utf8_fuzz_helpers.h"
 #include "test_nodes.h"
 
@@ -528,6 +529,12 @@ TextSelection SelectAll(const std::pmr::vector<Node>& nodes)
     return TextSelection::MakeOrdered(0, 0, last, static_cast<uint32_t>(nodes[last].GetText().size()));
 }
 
+std::pmr::string CopyAllAsHtml(std::string_view md, bool dark_mode = false)
+{
+    const auto nodes = ParseNodes(md);
+    return ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), dark_mode);
+}
+
 } // namespace
 
 // loose list は LI が空の枠で本文が後ろの段落ノードになるが、段落を同じ <li> に入れてリストを保つ。
@@ -549,6 +556,127 @@ TEST(ExtractSelectedTextAsHtml, OrderedListKeepsStartNumber)
 {
     auto nodes = ParseNodes("3. c\n4. d");
     EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, SelectAll(nodes)), "<ol start=\"3\"><li>c</li><li>d</li></ol>");
+}
+
+// start は選択の先頭項目の番号。1 のときだけ省き、0 は省かない。種類が変わればリストを分ける。
+TEST(ExtractSelectedTextAsHtml, OrderedListStartBoundaries)
+{
+    EXPECT_EQ(CopyAllAsHtml("0. a\n1. b"), "<ol start=\"0\"><li>a</li><li>b</li></ol>");
+    EXPECT_EQ(CopyAllAsHtml("1. a\n- x"), "<ol><li>a</li></ol><ul><li>x</li></ul>");
+    EXPECT_EQ(CopyAllAsHtml("3. [ ] t\n4. [x] u"),
+              "<ol start=\"3\"><li><input type=\"checkbox\" disabled> t</li><li><input type=\"checkbox\" checked disabled> u</li></ol>");
+
+    auto mid = ParseNodes("1. a\n2. b\n3. c");
+    ASSERT_EQ(mid.size(), 3u);
+    const auto from_second = TextSelection::MakeOrdered(1, 0, 2, 1);
+    EXPECT_EQ(ExtractSelectedTextAsHtml(mid, from_second), "<ol start=\"2\"><li>b</li><li>c</li></ol>");
+}
+
+// loose list の段落の途中から選んでも、後続の項目の番号は start に出る。
+TEST(ExtractSelectedTextAsHtml, LooseOrderedListFromParagraphKeepsNextStart)
+{
+    auto nodes = ParseNodes("1. a\n\n2. b");
+    ASSERT_EQ(nodes.size(), 4u);
+    const auto sel = TextSelection::MakeOrdered(1, 0, 3, 1);
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), "<p>a</p><ol start=\"2\"><li><p>b</p></li></ol>");
+}
+
+// 一度も描画していないコードブロックはコピー時にトークン化する。diff の追加/削除色も対応表から引けること
+// (switch に default が無いので、対応が抜けると unreachable に落ちる)。
+TEST(ExtractSelectedTextAsHtml, DiffCodeBlockUsesInsertedAndDeletedColors)
+{
+    const auto color = [](uint32_t rgb) { return std::format("<span style=\"color:#{:06x}\">", rgb); };
+    for (const bool dark : { false, true }) {
+        SCOPED_TRACE(dark);
+        const auto& palette = dark ? theme_palette::kDark : theme_palette::kLight;
+        const auto html = CopyAllAsHtml("```diff\n+added\n-removed\n```", dark);
+        EXPECT_TRUE(html.contains(color(palette.syntax_inserted) + "+added</span>")) << html;
+        EXPECT_TRUE(html.contains(color(palette.syntax_deleted) + "-removed</span>")) << html;
+    }
+}
+
+// トークンの途中で切れる選択は、選択内の部分だけをそのトークンの色で包む。
+TEST(ExtractSelectedTextAsHtml, PartialCodeBlockSelectionSplitsToken)
+{
+    auto nodes = ParseNodes("```cpp\nint x = 42;\n```");
+    const auto sel = TextSelection::MakeOrdered(0, 1, 0, 6);
+    const auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    EXPECT_TRUE(html.contains("<code><span style=\"color:#267f99\">nt</span> x </code>")) << html;
+    EXPECT_FALSE(html.contains(">int<")) << html;
+    EXPECT_FALSE(html.contains("42")) << html;
+}
+
+// 図 (Mermaid / LaTeX) は書式付きコピーでは元のコードを <pre> で出す。項目内の図はその <li> に入る。
+TEST(ExtractSelectedTextAsHtml, DiagramCopiesSourceAsPre)
+{
+    for (const std::string_view md : { std::string_view{ "$$x^2$$" }, std::string_view{ "```mermaid\ngraph TD\n```" } }) {
+        SCOPED_TRACE(md);
+        auto nodes = ParseNodes(md);
+        ASSERT_EQ(nodes.size(), 1u);
+        ASSERT_EQ(nodes[0].type, NodeType::Diagram);
+        const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
+        EXPECT_TRUE(html.starts_with("<pre")) << html;
+        EXPECT_TRUE(html.contains(std::string(nodes[0].GetText()) + "</code></pre>")) << html;
+    }
+    const auto html = CopyAllAsHtml("- a\n\n  ```mermaid\n  g\n  ```\n- b");
+    EXPECT_TRUE(html.starts_with("<ul><li><p>a</p><pre")) << html;
+    EXPECT_TRUE(html.contains("g</code></pre></li><li>")) << html;
+}
+
+// 表のリンクの安全判定はセル間で共有する表を引く。添字がずれると危険な URL が残るか安全な URL が消える。
+TEST(ExtractSelectedTextAsHtml, TableLinkSafetyIsPerUrl)
+{
+    auto nodes = ParseNodes("| [a](https://a.example) | [b](javascript:alert(1)) |\n|---|---|\n"
+                            "| [c](javascript:alert(2)) | [d](https://d.example) |");
+    ASSERT_EQ(nodes.size(), 1u);
+    const auto html = ExtractSelectedTextAsHtml(nodes, MakeTableFullSelection(nodes[0]));
+    EXPECT_TRUE(html.contains("<a href=\"https://a.example\">a</a>")) << html;
+    EXPECT_TRUE(html.contains("<a href=\"https://d.example\">d</a>")) << html;
+    EXPECT_FALSE(html.contains("javascript")) << html;
+    EXPECT_TRUE(html.contains(">b</th>")) << html;
+    EXPECT_TRUE(html.contains(">c</td>")) << html;
+}
+
+// 判定結果の一時領域 (スタック 32 バイト) を超える数のリンクでも URL ごとの判定がずれない。
+TEST(ExtractSelectedTextAsHtml, ManyLinksKeepPerUrlSafety)
+{
+    std::string md;
+    for (int i = 0; i < 40; i++) {
+        md += i % 2 == 0 ? std::format("[s{}](https://e.example/{}) ", i, i) : std::format("[u{}](javascript:x{}) ", i, i);
+    }
+    auto nodes = ParseNodes(md);
+    ASSERT_EQ(nodes.size(), 1u);
+    const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
+    for (int i = 0; i < 40; i++) {
+        SCOPED_TRACE(i);
+        EXPECT_EQ(html.contains(std::format("<a href=\"https://e.example/{}\">s{}</a>", i, i)), i % 2 == 0);
+    }
+    EXPECT_FALSE(html.contains("javascript")) << html;
+}
+
+// 入れ子のリストは親の <li> の中に入れ、内側を出た後の親の本文や次の項目は親のリストに戻る。
+TEST(ExtractSelectedTextAsHtml, NestedListsStayInsideParentItem)
+{
+    EXPECT_EQ(CopyAllAsHtml("- a\n  - b\n- c"), "<ul><li>a<ul><li>b</li></ul></li><li>c</li></ul>");
+    EXPECT_EQ(CopyAllAsHtml("- a\n\n  - b\n\n  c\n- d"), "<ul><li><p>a</p><ul><li>b</li></ul><p>c</p></li><li><p>d</p></li></ul>");
+    EXPECT_EQ(CopyAllAsHtml("- a\n  - b\n    - c\n- d"), "<ul><li>a<ul><li>b<ul><li>c</li></ul></li></ul></li><li>d</li></ul>");
+    // 内側の番号付きリストは別の <ol> なので、外側の番号が内側の項目数だけずれない。
+    EXPECT_EQ(CopyAllAsHtml("5. a\n   1. x\n6. b"), "<ol start=\"5\"><li>a<ol><li>x</li></ol></li><li>b</li></ol>");
+}
+
+// 区切り記号が違う番号付きリストは別のリスト。1 つにまとめると貼り付け先で番号が振り直される。
+TEST(ExtractSelectedTextAsHtml, OrderedListsWithDifferentDelimitersStaySeparate)
+{
+    EXPECT_EQ(CopyAllAsHtml("1. a\n1) b"), "<ol><li>a</li></ol><ol><li>b</li></ol>");
+}
+
+// 引用の中の項目のさらに中の引用は、その項目に入る。項目の外の入れ子の引用はリストの外。
+TEST(ExtractSelectedTextAsHtml, QuoteInsideItemInsideQuoteStaysInItem)
+{
+    const auto inside = CopyAllAsHtml("> - a\n>\n>   > q");
+    EXPECT_TRUE(inside.ends_with("<blockquote>q</blockquote></li></ul>")) << inside;
+    const auto outside = CopyAllAsHtml("> - a\n>\n> > q");
+    EXPECT_TRUE(outside.ends_with("</li></ul><blockquote>q</blockquote>")) << outside;
 }
 
 TEST(ExtractSelectedTextAsHtml, QuoteAfterListIsOutsideList)
@@ -1069,6 +1197,40 @@ TEST(FindLinkHitAtPosition, ReturnsUrlIndex)
     EXPECT_EQ(hit->url, "https://b.com");
     EXPECT_EQ(hit->index, 1u);
     EXPECT_FALSE(FindLinkHitAtPosition(node, 5).has_value());
+}
+
+// run の二分探索の境界: run の終端は含まず、直後の run が始まる位置はその run に当たる。
+// リンク以外の装飾 run を挟んでも、隣接するリンク run を取り違えない。
+TEST(FindLinkHitAtPosition, BinarySearchBoundaries)
+{
+    Node node;
+    SetTestText(node, "abcdefg", 0);
+    const int16_t l0 = AddTestLinkUrl(node, "https://a.com");
+    const int16_t l1 = AddTestLinkUrl(node, "https://b.com");
+    const int16_t l2 = AddTestLinkUrl(node, "https://c.com");
+    const auto run = [](uint32_t start, uint32_t length, int16_t link) {
+        TextRun r;
+        r.start = start;
+        r.length = length;
+        r.link_url_index = link;
+        r.set_bold(link < 0);
+        return r;
+    };
+    const TextRun runs[]{ run(0, 2, l0), run(2, 1, -1), run(3, 2, l1), run(5, 1, l2) };
+    SetTestRuns(node, runs);
+
+    const auto index_at = [&](uint32_t pos) -> std::optional<uint32_t> {
+        const auto hit = FindLinkHitAtPosition(node, pos);
+        return hit ? std::optional{ hit->index } : std::nullopt;
+    };
+    EXPECT_EQ(index_at(0), 0u);
+    EXPECT_EQ(index_at(1), 0u);
+    EXPECT_EQ(index_at(2), std::nullopt);
+    EXPECT_EQ(index_at(3), 1u);
+    EXPECT_EQ(index_at(4), 1u);
+    EXPECT_EQ(index_at(5), 2u);
+    EXPECT_EQ(index_at(6), std::nullopt);
+    EXPECT_EQ(index_at(100), std::nullopt);
 }
 
 // ---- FindLinkAtPosition: テーブルセル内のリンク ----

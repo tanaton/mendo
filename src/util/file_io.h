@@ -1,4 +1,5 @@
 #pragma once
+#include "ascii_util.h"
 #include "win_handle.h"
 #include <windows.h>
 #include <algorithm>
@@ -7,6 +8,7 @@
 #include <limits>
 #include <memory_resource>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -42,17 +44,44 @@ constexpr std::wstring_view TrimTrailingSeparators(std::wstring_view path) noexc
     return path;
 }
 
+constexpr bool IsPathSlash(wchar_t c) noexcept
+{
+    return c == L'/' || c == L'\\';
+}
+
+// \??\ は Win32 の正規化を通らず NT パスとして解釈されるので \??\UNC\host も届いてしまう。
+constexpr bool HasNtPrefix(std::wstring_view path) noexcept
+{
+    return path.size() >= 4 && IsPathSlash(path[0]) && path[1] == L'?' && path[2] == L'?' && IsPathSlash(path[3]);
+}
+
 // 開いてもネットワークに出ないパスか。UNC (\\host・//host) やデバイスパス (\\?\・\\.\・\??\) は
 // 開くだけで SMB/WebDAV 接続と NTLM 認証が走る。
 constexpr bool IsLocalPath(std::wstring_view path) noexcept
 {
-    const auto is_slash = [](wchar_t c) { return c == L'/' || c == L'\\'; };
-    if (path.size() < 2 || !is_slash(path[0])) {
+    if (path.size() < 2 || !IsPathSlash(path[0])) {
         return true;
     }
-    // \??\ は Win32 の正規化を通らず NT パスとして解釈されるので \??\UNC\host も届いてしまう。
-    const bool nt_prefix = path.size() >= 4 && path[1] == L'?' && path[2] == L'?' && is_slash(path[3]);
-    return !is_slash(path[1]) && !nt_prefix;
+    return !IsPathSlash(path[1]) && !HasNtPrefix(path);
+}
+
+// \\?\C:\a・\\.\C:\a を C:\a に、\\?\UNC\host\share を \\host\share に直す。
+// デバイス名前空間では .. がドライブや共有を越えて \\?\UNC\host へ届くが、Win32 形式ならルートで止まる。
+// ドライブでも UNC でもないデバイスパス (\\.\pipe\x 等) は nullopt。それ以外のパスはそのまま返す。
+inline std::optional<std::wstring> ToWin32Path(std::wstring_view path)
+{
+    const bool device = path.size() >= 4 && IsPathSlash(path[0]) && IsPathSlash(path[1]) && (path[2] == L'?' || path[2] == L'.') && IsPathSlash(path[3]);
+    if (!device && !HasNtPrefix(path)) {
+        return std::wstring(path);
+    }
+    const auto rest = path.substr(4);
+    if (rest.size() >= 2 && ascii_util::IsAsciiAlpha(rest[0]) && rest[1] == L':' && (rest.size() == 2 || IsPathSlash(rest[2]))) {
+        return std::wstring(rest);
+    }
+    if (rest.size() >= 4 && iequal(rest.substr(0, 3), L"UNC") && IsPathSlash(rest[3])) {
+        return L"\\\\" + std::wstring(rest.substr(4));
+    }
+    return std::nullopt;
 }
 
 } // namespace path_util

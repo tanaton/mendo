@@ -279,9 +279,14 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
 
     // 書き込み開始前に in-flight セットへ登録しておく。
     // 読み込みがファイル未着地で失敗しても OnReadFailed が index から消さないようにする。
+    // 同じキーは同じ PNG なので、書き込み中なら 2 本目は出さない (同じ図が文書に複数ある場合)。
+    // 2 本目を出すと、先に着地した方が追い出し済みとして消した後に書かれ、索引に無いファイルが残る。
     {
         const std::lock_guard lock(pending_mutex_);
-        pending_writes_.insert_or_assign(key, false);
+        const auto [it, inserted] = pending_writes_.insert_or_assign(key, false);
+        if (!inserted) {
+            return;
+        }
     }
 
     const uint32_t gen = write_gen_.load();

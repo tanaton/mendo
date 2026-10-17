@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 #include "document_test_helpers.h"
 #include "dwrite_test_base.h"
+#include "block_h_scroll.h"
 #include "command_generator.h"
 #include "document_utils.h"
 #include "hit_test_service.h"
@@ -33,15 +34,20 @@ protected:
                  static_cast<int>(p.x), static_cast<int>(p.y), theme_.ContentWidth(800.0f) };
     }
 
-    // 段落ノード node の UTF-16 位置 pos の文字の右寄り (幅の 3/4)。
-    DipPoint RightHalfOfChar(const ParsedLayout& pl, size_t node, uint32_t pos) const
+    // 段落ノード node の UTF-16 位置 pos の文字 (クラスタ) の、左端から幅の fraction の位置。
+    DipPoint PointInChar(const ParsedLayout& pl, size_t node, uint32_t pos, float fraction) const
     {
         FLOAT x = 0.0f, y = 0.0f;
         DWRITE_HIT_TEST_METRICS m{};
         pl.cache[node].text_layout()->HitTestTextPosition(pos, FALSE, &x, &y, &m);
         const auto& n = pl.nodes[node];
         const float left = theme_.margin_left + NodeIndent(n, theme_) + NodeTextXOffset(n, theme_);
-        return { left + m.left + m.width * 0.75f, pl.cache.Top(node) + m.top + m.height * 0.5f };
+        return { left + m.left + m.width * fraction, pl.cache.Top(node) + m.top + m.height * 0.5f };
+    }
+
+    DipPoint RightHalfOfChar(const ParsedLayout& pl, size_t node, uint32_t pos) const
+    {
+        return PointInChar(pl, node, pos, 0.75f);
     }
 };
 
@@ -84,6 +90,55 @@ TEST_F(HitTestDWriteTest, RightHalfOfLastLinkCharHitsLink)
     EXPECT_EQ(r.text_pos, 5u);
     EXPECT_EQ(r.char_pos, 4u);
     EXPECT_EQ(FindLinkAtPosition(node, r.char_pos), "https://l.example");
+}
+
+// 結合文字を含むクラスタの右半分は、クラスタ全体の後ろに置く (+1 だと e と U+0301 の間に入る)。
+TEST_F(HitTestDWriteTest, RightHalfOfCombiningClusterSkipsWholeCluster)
+{
+    auto pl = ParseAndLayout("e\xCC\x81x tail");
+    ASSERT_FALSE(pl.nodes.empty());
+    const auto right = hit_test::HitTest(Ctx(pl, RightHalfOfChar(pl, 0, 0)));
+    ASSERT_EQ(right.node_index, 0);
+    EXPECT_EQ(right.text_pos, 3u);
+    EXPECT_EQ(right.char_pos, 0u);
+
+    FLOAT x = 0.0f, y = 0.0f;
+    DWRITE_HIT_TEST_METRICS m{};
+    pl.cache[0].text_layout()->HitTestTextPosition(0, FALSE, &x, &y, &m);
+    ASSERT_EQ(m.length, 2u) << "e + U+0301 が 1 クラスタであること";
+    EXPECT_EQ(hit_test::HitTest(Ctx(pl, PointInChar(pl, 0, 0, 0.25f))).text_pos, 0u);
+}
+
+// 保存済みの横スクロール量は幅が変わっても残るので、ヒットテストは描画と同じく clamp した値を使う。
+// clamp しないと、収まるようになったブロックや末尾を越えた値でクリック位置がずれる。
+TEST_F(HitTestDWriteTest, BlockScrollXIsClampedBeforeHitTest)
+{
+    const auto hit_with = [&](const ParsedLayout& pl, const std::pmr::unordered_map<int, float>* scroll) {
+        auto ctx = Ctx(pl, { theme_.margin_left + 40.0f, pl.cache.Top(0) + pl.cache[0].height * 0.5f });
+        ctx.block_scroll_x = scroll;
+        return hit_test::HitTest(ctx);
+    };
+
+    auto narrow = ParseAndLayout("```\nabcdef\n```");
+    ASSERT_EQ(narrow.nodes[0].type, NodeType::CodeBlock);
+    ASSERT_FALSE(GetBlockHScrollGeometry(narrow.nodes[0], narrow.cache[0], theme_, 800.0f).can_scroll());
+    const std::pmr::unordered_map<int, float> stale{ { 0, 500.0f } };
+    const auto unscrolled = hit_with(narrow, nullptr);
+    const auto with_stale = hit_with(narrow, &stale);
+    EXPECT_EQ(with_stale.text_pos, unscrolled.text_pos);
+    EXPECT_EQ(with_stale.char_pos, unscrolled.char_pos);
+
+    const std::string wide_md = "```\n" + std::string(300, 'a') + "\n```";
+    auto wide = ParseAndLayout(wide_md);
+    const auto geom = GetBlockHScrollGeometry(wide.nodes[0], wide.cache[0], theme_, 800.0f);
+    ASSERT_TRUE(geom.can_scroll());
+    const std::pmr::unordered_map<int, float> at_max{ { 0, geom.scroll_max() } };
+    const std::pmr::unordered_map<int, float> beyond{ { 0, 1.0e6f } };
+    const auto r_max = hit_with(wide, &at_max);
+    const auto r_beyond = hit_with(wide, &beyond);
+    EXPECT_GT(r_max.text_pos, hit_with(wide, nullptr).text_pos);
+    EXPECT_EQ(r_beyond.text_pos, r_max.text_pos);
+    EXPECT_EQ(r_beyond.char_pos, r_max.char_pos);
 }
 
 // 単語末尾の文字の右半分でも、キャレット位置 (直後の空白) ではなくその単語を選ぶ。

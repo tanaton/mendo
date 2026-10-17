@@ -6,6 +6,8 @@
 #include "layout_cache.h"
 #include "renderer.h"
 #include "test_helpers.h"
+#include <functional>
+#include <vector>
 
 namespace {
 
@@ -20,6 +22,7 @@ struct CallbackTracker {
     app_timer::Id last_killed_timer{};
     float md_pane_height = 800.0f;
     int on_wrap_around_count = 0;
+    std::function<void(int)> on_ensure;
 };
 
 struct TestSearchBarCallbacks {
@@ -52,8 +55,12 @@ struct TestSearchBarCallbacks {
     {
         return t->md_pane_height;
     }
-    void ensure_node_layout(int /*node_index*/)
-    {}
+    void ensure_node_layout(int node_index)
+    {
+        if (t->on_ensure) {
+            t->on_ensure(node_index);
+        }
+    }
     void on_wrap_around()
     {
         t->on_wrap_around_count++;
@@ -390,6 +397,33 @@ TEST_F(SearchBarControllerTest, NextMatchAcrossTableRowsAdvancesScroll)
     }
     EXPECT_GE(advanced, 1)
         << "行ごとに異なる Y に到達でき、最低1回はスクロールが進むこと";
+}
+
+// 未計測や evict 済みのノードは、計測してから行の Y を求める。計測前の位置で
+// スクロール先を決めると、計測で位置が変わったマッチが画面外に残る。
+TEST_F(SearchBarControllerTest, ScrollToMatchMeasuresNodeBeforeResolvingY)
+{
+    std::pmr::vector<Node> nodes;
+    nodes.push_back(MakeTextNode("a"));
+    nodes.push_back(MakeTextNode("b"));
+    nodes.push_back(MakeTextNode("x hello"));
+    cache_ = MakeUniformCache(3, 500.0f);
+    std::vector<int> ensured;
+    tracker_.on_ensure = [this, &ensured](int node_index) {
+        ensured.push_back(node_index);
+        if (node_index == 2) {
+            cache_.SetTop(2, 5000.0f);
+        }
+    };
+    viewport_.SyncMaxScroll(10000.0f, tracker_.md_pane_height);
+
+    state_.Show();
+    ctrl_.OnTextChanged(L"hello", nodes, 0);
+
+    ASSERT_FALSE(ensured.empty());
+    EXPECT_TRUE(std::ranges::all_of(ensured, [](int i) { return i == 2; }));
+    const float visible = tracker_.md_pane_height - SEARCH_BAR_HEIGHT;
+    EXPECT_FLOAT_EQ(viewport_.GetScrollY(), 5000.0f - visible / 3.0f);
 }
 
 // 現在位置が既に可視範囲内ならスクロールしない（余計な再描画を避ける）。

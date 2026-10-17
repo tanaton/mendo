@@ -74,6 +74,8 @@ struct ParseContext {
     // 指すか arena へコピーされる。runs は伸長のたびに確保し直さないよう、ここに貯めて 1 回だけコピーする。
     std::pmr::string current_text;
     std::pmr::vector<TextRun> current_runs;
+    // 文字参照を解いた href / src (AttributeText)。
+    std::pmr::string attr_scratch;
 
     // current_text 内の「未確定 TextRun」の開始位置 (UTF-8 byte unit)。
     // 同じ span 状態で連続する AppendDoc は 1 つの TextRun に統合される。
@@ -308,6 +310,33 @@ struct ParseContext {
     std::string_view InternUrl(std::string_view url)
     {
         return IsSubrangeOf(url, markdown) ? url : arena->CopyText(url);
+    }
+
+    // md4c は属性 (href / src / コードブロックの言語) の中の文字参照を解かずに MD_TEXT_ENTITY の部分として渡すので、ここで解く
+    // (解かないと [a](?x=1&amp;y=2) が "&amp;" のまま開かれる)。文字参照の無い属性はそのまま返す。
+    // 戻り値は次の呼び出しまで有効なので、残すなら InternUrl を通す。
+    std::string_view AttributeText(const MD_ATTRIBUTE& attr)
+    {
+        const std::string_view whole{ attr.text, attr.size };
+        if (whole.empty() || (attr.substr_types[0] == MD_TEXT_NORMAL && attr.substr_offsets[1] == attr.size)) {
+            return whole;
+        }
+        attr_scratch.clear();
+        for (size_t k = 0; attr.substr_offsets[k] < attr.size; ++k) {
+            const auto sub = whole.substr(attr.substr_offsets[k], attr.substr_offsets[k + 1] - attr.substr_offsets[k]);
+            char entity_buf[4];
+            switch (attr.substr_types[k]) {
+            case MD_TEXT_ENTITY:
+                attr_scratch.append(ResolveHtmlEntity(sub, entity_buf).value_or(sub));
+                break;
+            case MD_TEXT_NULLCHAR:
+                break;
+            default:
+                attr_scratch.append(sub);
+                break;
+            }
+        }
+        return attr_scratch;
     }
 
     // テキストを現在のノードまたはセルに追加する (UTF-8)。
@@ -637,7 +666,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         ctx->BeginNode(NodeType::CodeBlock);
         auto* const code_detail = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
         if (code_detail && code_detail->lang.text && code_detail->lang.size > 0) {
-            ctx->current_node->set_code_language(DetectLanguage(std::string_view{ code_detail->lang.text, static_cast<size_t>(code_detail->lang.size) }));
+            ctx->current_node->set_code_language(DetectLanguage(ctx->AttributeText(code_detail->lang)));
         }
         break;
     }
@@ -864,7 +893,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         break;
     case MD_SPAN_A: {
         auto* const a = static_cast<MD_SPAN_A_DETAIL*>(detail);
-        ctx->ResolveLinkUrlIndex(std::string_view{ a->href.text, static_cast<size_t>(a->href.size) });
+        ctx->ResolveLinkUrlIndex(ctx->AttributeText(a->href));
         break;
     }
     case MD_SPAN_IMG:
@@ -898,7 +927,7 @@ void LeaveImageSpan(ParseContext* ctx, const MD_SPAN_IMG_DETAIL* img)
         return;
     }
     if (auto* const cn = ctx->current_node; cn && IsImagePromotionCandidate(*cn)) {
-        cn->ensure_image()->src = ctx->InternUrl(std::string_view{ img->src.text, static_cast<size_t>(img->src.size) });
+        cn->ensure_image()->src = ctx->InternUrl(ctx->AttributeText(img->src));
     }
 }
 

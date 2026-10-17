@@ -11,6 +11,7 @@
 #include "search_state.h"
 #include "text_types.h"
 #include <algorithm>
+#include <array>
 #include <initializer_list>
 #include <optional>
 #include <string>
@@ -358,6 +359,33 @@ TEST_F(VisibleHighlightTest, TableSearchComputesOnlyVisibleCells)
     const auto& cmds2 = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, pl.cache[0].height * 0.5f, TextSelection{});
     EXPECT_FALSE(CollectRectsByBrush(cmds2, { BrushId::SearchHighlight }).empty());
     EXPECT_LT(ComputedMatchCount(pl.cache[0]), 200u);
+}
+
+// evict 中のセルのマッチは未計算のまま残す。空として確定すると、行を復元してもハイライトが出ない。
+TEST_F(VisibleHighlightTest, TableSearchHighlightAppearsAfterEvictedRowsRestore)
+{
+    std::string md = "| A | B | C |\n|---|---|---|\n";
+    for (int r = 0; r < 60; ++r) {
+        md += "| cell | cell | cell |\n";
+    }
+    auto pl = ParseAndLayout(md);
+    ASSERT_EQ(pl.nodes.size(), 1u);
+    Search(pl, "cell");
+
+    const float far_top = pl.cache.Top(0) - 10000.0f;
+    pl.cache.EvictInvisibleTableRows(std::array{ size_t{ 0 } }, far_top, far_top + 1000.0f, 0.0f);
+    ASSERT_TRUE(pl.cache[0].table_layout()->HasEvictedRows());
+
+    const auto& evicted = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, 0.0f, TextSelection{});
+    EXPECT_TRUE(CollectRectsByBrush(evicted, { BrushId::SearchHighlight }).empty());
+    EXPECT_EQ(ComputedMatchCount(pl.cache[0]), 0u);
+
+    const auto restored = measurer_.RestoreEvictedTableRows(pl.nodes[0], pl.cache[0], theme_.ContentWidth(PANE.width),
+                                                            MeasureViewportRange{ 0.0f, PANE.height });
+    ASSERT_TRUE(restored.restored);
+    const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, 0.0f, TextSelection{});
+    EXPECT_FALSE(CollectRectsByBrush(cmds, { BrushId::SearchHighlight }).empty());
+    EXPECT_GT(ComputedMatchCount(pl.cache[0]), 0u);
 }
 
 // 全行選択でも、矩形を引くのは可視範囲の前後の行だけ。スクロール先でも選択を描く。

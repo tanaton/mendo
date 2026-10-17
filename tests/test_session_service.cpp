@@ -93,6 +93,18 @@ TEST_F(SessionServiceTest, LoadLastFilePathRejectsUncPaths)
     EXPECT_TRUE(path.empty());
 }
 
+// 実在するファイルを指すデバイスパスも弾く。存在しないパスでは存在確認で空になり、判定を外しても通ってしまう。
+TEST_F(SessionServiceTest, LoadLastFilePathRejectsDeviceFormsOfExistingFile)
+{
+    const auto file = WriteTempFile(L"last.md", "# last").wstring();
+    for (const std::wstring& prefixed : { L"\\\\?\\" + file, L"\\\\.\\" + file, L"//./" + file, L"\\??\\" + file }) {
+        SCOPED_TRACE(::testing::PrintToString(prefixed));
+        ASSERT_NE(::GetFileAttributesW(prefixed.c_str()), INVALID_FILE_ATTRIBUTES) << "前提: このパスでファイルを開けること";
+        config_.SaveWString("Session", "LastFile", prefixed);
+        EXPECT_TRUE(session_.LoadLastFilePath().empty());
+    }
+}
+
 // ---- LoadLastFilePath の境界: デバイスパス / 拡張パス / 存在しないファイル ----
 
 TEST_F(SessionServiceTest, LoadLastFilePathRejectsExtendedPathPrefix)

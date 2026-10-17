@@ -43,13 +43,12 @@ public:
 
         const auto& text = node.GetText();
         if (text.empty()) {
-            // 実装と同じく空 LI は高さ 0 (bullet と直下 P の文字 Y を揃える issue#237)。
-            // Init 前 (RunParallel 単体テスト等) は theme が無いので行高の半分で代用する。
-            if (IsEmptyListItemContainer(node)) {
-                entry.height = 0.0f;
+            // 実装と同じ高さを使う。Init 前 (RunParallel 単体テスト等) は theme が無いので行高の半分で代用する。
+            if (theme_) {
+                entry.height = layout::EmptyTextNodeHeight(node, *theme_);
             }
             else {
-                entry.height = theme_ ? theme_->paragraph_spacing : line_height * 0.5f;
+                entry.height = IsEmptyListItemContainer(node) ? 0.0f : line_height * 0.5f;
             }
             entry.layout_dirty = false;
             return;

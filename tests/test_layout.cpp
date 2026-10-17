@@ -1271,6 +1271,20 @@ TEST(NodeContentWidthTest, FloorsAtMinimumButNotAboveContentWidth)
     EXPECT_FLOAT_EQ(NodeContentWidth(node, theme, 800.0f), 800.0f - theme.indent_width);
 }
 
+// 余白はズームで広がるが本文ペインの最小幅は広がらない。最大ズームで最小幅まで狭めても本文幅は負にならない。
+TEST(NodeContentWidthTest, ContentWidthStaysPositiveAtMaxZoomAndMinPaneWidth)
+{
+    Theme theme = GetLightTheme();
+    theme.ApplyZoom(ZOOM_STEPS[ZOOM_STEP_COUNT - 1]);
+    ASSERT_GT(theme.margin_left + theme.margin_right, MD_PANE_MIN_WIDTH) << "前提: 余白だけでペインの最小幅を超える";
+    EXPECT_FLOAT_EQ(theme.ContentWidth(MD_PANE_MIN_WIDTH), MIN_NODE_CONTENT_WIDTH);
+    Node node;
+    node.indent_level = 3;
+    EXPECT_FLOAT_EQ(NodeContentWidth(node, theme, theme.ContentWidth(MD_PANE_MIN_WIDTH)), MIN_NODE_CONTENT_WIDTH);
+    // 最小化などで幅が無いときは 0 のまま (画像の適用などが「未確定」として飛ばす)
+    EXPECT_FLOAT_EQ(theme.ContentWidth(0.0f), 0.0f);
+}
+
 // 子ブロックの無い空 LI は 1 行ぶんの高さを持ち、重ならない (高さ 0 だと全部が同じ Y に積まれる)。
 TEST_F(LayoutTest, EmptyListItemsWithoutChildrenDoNotOverlap)
 {
@@ -1282,6 +1296,21 @@ TEST_F(LayoutTest, EmptyListItemsWithoutChildrenDoNotOverlap)
     }
     EXPECT_LT(cache.Top(0), cache.Top(1));
     EXPECT_LT(cache.Top(1), cache.Top(2));
+}
+
+// 推定と実測は別の場所で同じ式を書いているので、片方だけ変わると計測のたびにスクロール位置が飛ぶ。
+TEST_F(LayoutTest, EmptyListItemEstimateMatchesMeasuredHeight)
+{
+    auto [nodes, cache] = ParseAndLayout("1.\n2.\n- [ ]\n");
+    ASSERT_EQ(nodes.size(), 3u);
+    const auto estimated = EstimateHeights(nodes, theme_);
+    const float expected = layout::EmptyListItemHeight(theme_);
+    for (size_t i = 0; i < nodes.size(); i++) {
+        SCOPED_TRACE(i);
+        EXPECT_FLOAT_EQ(cache[i].height, expected);
+        EXPECT_FLOAT_EQ(estimated[i].height, expected);
+    }
+    EXPECT_FLOAT_EQ(cache.Top(1) - cache.Top(0), estimated.Top(1) - estimated.Top(0));
 }
 
 // 空 LI の first_line_height はフォールバック (font_size*FALLBACK_LINE_HEIGHT_FACTOR) なので

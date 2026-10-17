@@ -221,6 +221,18 @@ TEST(FitsCaptureLimit, RejectsSidesOverBitmapMaxAndHugeAreas)
     EXPECT_FALSE(mermaid_util::FitsCaptureLimit(9000.0f, 100.0f, 1.0f, 8192));
 }
 
+// 面積の上限 (64Mi px) と最大辺は両端を含む。物理 px は切り上げて数える
+// (切り捨てると 1px 大きいビットマップを作ろうとして失敗し、描き直しを繰り返す)。
+TEST(FitsCaptureLimit, BoundariesAreInclusiveAndRoundUp)
+{
+    EXPECT_TRUE(mermaid_util::FitsCaptureLimit(8192.0f, 8192.0f, 1.0f, 16384));
+    EXPECT_FALSE(mermaid_util::FitsCaptureLimit(8192.0f, 8193.0f, 1.0f, 16384));
+    EXPECT_TRUE(mermaid_util::FitsCaptureLimit(10922.0f, 1.0f, 1.5f, 16384));  // 16383
+    EXPECT_FALSE(mermaid_util::FitsCaptureLimit(10923.0f, 1.0f, 1.5f, 16384)); // 16384.5 -> 16385
+    EXPECT_FALSE(mermaid_util::FitsCaptureLimit(std::numeric_limits<float>::quiet_NaN(), 100.0f, 1.0f, 16384));
+    EXPECT_FALSE(mermaid_util::FitsCaptureLimit(std::numeric_limits<float>::infinity(), 100.0f, 1.0f, 16384));
+}
+
 TEST(ParseJsonTrueFlag, TrueOnlyForExplicitTrue)
 {
     struct Case {

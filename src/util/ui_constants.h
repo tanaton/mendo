@@ -41,6 +41,13 @@ inline constexpr float MIN_DIAGRAM_PLACEHOLDER_HEIGHT = 60.0f;
 // 深いネストでもノードに残す本文幅 (DIP)。
 inline constexpr float MIN_NODE_CONTENT_WIDTH = 64.0f;
 
+// width から inset (余白・インデント) を引いた本文幅。引きすぎても MIN_NODE_CONTENT_WIDTH は残す
+// (width 自体がそれより狭ければ width)。負の幅ではテキストレイアウトを作れず、画像は原寸デコードになる。
+constexpr float ShrinkKeepingMinContent(float width, float inset) noexcept
+{
+    return std::max(width - inset, std::min(width, MIN_NODE_CONTENT_WIDTH));
+}
+
 // テーブルストライプ（偶数行背景）のアルファ値
 inline constexpr float TABLE_STRIPE_ALPHA_DARK = 0.05f;
 inline constexpr float TABLE_STRIPE_ALPHA_LIGHT = 0.02f;

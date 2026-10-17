@@ -204,6 +204,30 @@ TEST(DocumentTest, ViewModeNodesSurviveMoveAssign)
     EXPECT_EQ(dst.GetNodes()[1].GetText(), "beta");
 }
 
+// runs・リンク URL・画像 src は Document の arena か原文を指すので、move 後も同じ値を読めること。
+TEST(DocumentTest, ArenaBackedFieldsSurviveMove)
+{
+    auto check = [](const Document& doc) {
+        const auto& nodes = doc.GetNodes();
+        ASSERT_EQ(nodes.size(), 2u);
+        EXPECT_EQ(nodes[0].GetText(), "b l m");
+        const auto runs = nodes[0].runs();
+        ASSERT_EQ(runs.size(), 2u);
+        EXPECT_TRUE(runs[0].bold());
+        ASSERT_TRUE(runs[1].has_link());
+        EXPECT_EQ(nodes[0].view_link_urls()[runs[1].link_url_index], "u_x");
+        ASSERT_NE(nodes[1].image_data(), nullptr);
+        EXPECT_EQ(nodes[1].image_data()->src, "i_x.png");
+    };
+    auto src = Document::FromMarkdown("**b** [l](u\\_x)\nm\n\n![a](i\\_x.png)", L"t.md");
+    check(src);
+    Document moved = std::move(src);
+    check(moved);
+    Document assigned = Document::FromMarkdown("other", L"o.md");
+    assigned = std::move(moved);
+    check(assigned);
+}
+
 TEST(DocumentTest, OwnedAndViewModesCoexist)
 {
     // HTML entity (&amp;) を含むノードは加工が入るため owned 経路、
