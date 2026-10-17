@@ -9,8 +9,8 @@ PackageName: mendo
 PackageUrl: https://github.com/tanaton/mendo
 License: MIT
 LicenseUrl: https://github.com/tanaton/mendo/blob/main/LICENSE
-ShortDescription: Fast and lightweight Markdown viewer for Windows
-Description: A native Windows Markdown viewer that renders directly using Direct2D/DirectWrite, achieving fast performance and low memory usage.
+ShortDescription: Fast and lightweight Markdown viewer
+Description: A Markdown viewer that renders directly with Direct2D/DirectWrite. It is fast and uses little memory.
 Tags:
   - markdown
   - viewer
