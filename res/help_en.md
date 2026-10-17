@@ -44,17 +44,25 @@ A lightweight, high-speed Markdown viewer.
 | `Ctrl+2` | Toggle TOC pane |
 | `Ctrl++` / `Ctrl+-` | Zoom in / Zoom out |
 | `Ctrl+0` | Reset zoom |
+| `Ctrl+Mouse wheel` | Zoom in / Zoom out |
 | `Ctrl+F` | Open search bar |
 | `F3` / `Shift+F3` | Next / previous match |
+| `Alt+Left` / `Alt+Right` | Back / Forward |
 | `F1` | Show this help |
 | `F5` | Reload file |
 | `Escape` | Clear selection / close search bar |
 
 ## Tips
 
-- **TOC Pane**: Click a heading in the right-side TOC to jump to it
+- **TOC Pane**: Click a heading in the TOC to jump to it
+- **File Pane**: Use the buttons at the top to go to the current file's folder or refresh the list
+- **Show / Hide Panes**: Toggle the file pane and TOC pane from the title bar buttons or the right-click menu
+- **Live Reload**: When the open file changes, it is reloaded automatically and scrolled to the changed position
+- **Links**: Click to open external links in your browser / jump to headings in the page
 - **Code Block Copy**: Click the copy button at the top-right of a code block
 - **Copy as HTML**: Press `Ctrl+Shift+C` or select "Copy as HTML" from the right-click menu to put HTML rich text on the clipboard while preserving headings, emphasis, links, and more. Pasting into Word or Outlook keeps the formatting.
-- **Diagram Save**: Click the save button at the top-right of a Mermaid diagram to save as PNG
-- **Dark Mode**: Toggle from the right-click menu
+- **Diagram Save / Copy**: Use the buttons at the top-right of a Mermaid diagram or math block to save it as PNG or copy it to the clipboard
+- **Open in Editor**: Select "Open in Editor" from the right-click menu to open the current file in your default editor
+- **Dark Mode**: Toggle from the title bar button or the right-click menu
 - **Pane Resizing**: Drag the pane border to resize
+- **Reset Window Position**: Right-click the taskbar button and choose "Reset Window Position"

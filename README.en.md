@@ -1,6 +1,6 @@
 # mendo - Fast and simple Markdown viewer
 
-A native Windows Markdown viewer that renders directly using Direct2D/DirectWrite, achieving fast performance and low memory usage.
+A Markdown viewer that renders directly with Direct2D/DirectWrite. It is fast and uses little memory.
 
 **[Japanese / 日本語](README.md)**
 
@@ -14,21 +14,24 @@ Install via [winget](https://learn.microsoft.com/windows/package-manager/winget/
 winget install tanaton.mendo
 ```
 
+### Recommended way to launch
+Type `mendo` into the File Explorer address bar and press Enter.
+
 ## Features
 
-- **Zero-HTML rendering** — Markdown is drawn directly with Direct2D + DirectWrite, never converted to HTML
-- **Mermaid diagrams** — Render `mermaid` code blocks as diagrams (via offscreen WebView2)
-- **LaTeX math** — Render `$$...$$` block equations with KaTeX. Only paragraphs consisting solely of a `$$...$$` block are rendered; paragraphs mixing math with other text are shown as plain text.
-- **Fully offline** — Mermaid.js and other resources are embedded in the executable; no network connection required
-- **File watching** — Auto-reload on external file changes
-- **Syntax highlighting** — C++, Python, JavaScript, Go, Rust, PowerShell, Bash, cmd
-- **Navigation history** — `Alt+Left/Right`, mouse side buttons, mouse gestures, touchpad swipe with scroll position restoration
-- **Image display** — PNG, JPEG, BMP and more
-- **Zoom** — `Ctrl++` / `Ctrl+-` / `Ctrl+Mouse wheel` (0.25x to 5.00x, 17 levels)
-- **Drag & Drop** — Drop `.md` files onto the window to open
-- **3-pane layout** — File explorer / Table of contents / Markdown content
-- **Dark mode** — Toggle between light and dark themes
-- **Persistent settings** — Dark mode, zoom level, last opened file saved to `%LOCALAPPDATA%\mendo\`
+- **Fast startup** — Window creation and file processing run in parallel for a quick launch.
+- **Low memory usage** — Markdown is drawn directly with Direct2D + DirectWrite, without a browser engine.
+- **Live reload** — Detects changes to the open file, updates the view automatically, and scrolls to the changed position.
+- **Mermaid** — Renders `mermaid` code blocks as diagrams (offscreen rendering via WebView2 + Mermaid.js).
+- **Offline** — Works without a network connection.
+- **Syntax highlighting** — Colors code blocks in C/C++, Python, JavaScript, TypeScript, Go, Rust, JSON, Bash, PowerShell, and cmd (batch).
+- **Images** — Displays local PNG, JPEG, BMP, and other images.
+- **LaTeX** — Renders `$$...$$` block equations with KaTeX. (Only paragraphs consisting solely of `$$...$$` are rendered; paragraphs mixing math with other text are shown as plain text.)
+- **Navigation history** — Browser-style back/forward via mouse side buttons, mouse gestures, touchpad swipe, and more, with scroll position restored.
+- **Drag & Drop** — Drop a Markdown file onto the window to open it.
+- **In-file search** — Search within the file from the title bar search button or `Ctrl+F`.
+- **Customizable view** — Show/hide each pane, switch between light and dark themes, zoom in 17 steps from 0.25x to 5.00x, and more.
+- **Persistent settings** — Dark mode, zoom level, last opened file, and more are saved to `%LOCALAPPDATA%\mendo\`.
 
 ## Supported Markdown Elements
 
@@ -59,9 +62,11 @@ winget install tanaton.mendo
 | `Ctrl+C` | Copy selected text |
 | `Ctrl+Shift+C` | Copy selected text as formatted (HTML) |
 | `Ctrl+A` | Select all |
-| `Ctrl+F` | Find |
 | `Ctrl+1` | Toggle file explorer |
 | `Ctrl+2` | Toggle table of contents |
+| `Ctrl+F` | Open search bar (closes it when pressed inside the search bar) |
+| `F3` / `Ctrl+G` | Next match (`Enter` also works inside the search bar) |
+| `Shift+F3` / `Ctrl+Shift+G` | Previous match (`Shift+Enter` also works inside the search bar) |
 | `Ctrl++` / `Ctrl+-` | Zoom in / Zoom out |
 | `Ctrl+0` | Reset zoom (100%) |
 | `Ctrl+Mouse wheel` | Zoom in / Zoom out |
@@ -72,7 +77,7 @@ winget install tanaton.mendo
 | `Up` `Down` | Scroll |
 | `Page Up` `Page Down` | Page scroll |
 | `Home` `End` | Jump to top / bottom |
-| `Esc` | Deselect |
+| `Esc` | Close search bar / Deselect |
 
 ## Mouse Operations
 
@@ -85,17 +90,20 @@ winget install tanaton.mendo
 | Side buttons | Back / Forward |
 | Splitter drag | Resize pane width |
 | Click link | Open external link in browser / Jump to anchor |
-| Code block copy button | Copy code block to clipboard |
+| Code block copy button | Copy code block as formatted text |
+| Diagram (Mermaid / math) buttons | Save as PNG image / Copy to clipboard |
 
 ## Context Menu
 
 | Item | Action |
 |---|---|
 | Left / Right buttons | Back / Forward |
-| Open in editor | Open current file in default editor |
+| Open in Editor | Open current file in default editor |
 | Copy | Copy selected text (when text is selected) |
 | Copy as HTML | Copy selected text as HTML rich text. Preserves formatting when pasted into Word, Outlook, etc. (when text is selected) |
-| Dark mode | Toggle light/dark theme |
+| Dark Mode | Toggle light/dark theme |
+| File Pane | Toggle file explorer |
+| TOC Pane | Toggle table of contents |
 
 ## Screenshots
 
@@ -167,12 +175,13 @@ If there is no last opened file, open a file with `Ctrl+O` or drag & drop.
 |---|---|
 | Language | C++23 (MSVC) |
 | GUI | Win32 API |
-| 2D rendering | Direct2D (`ID2D1HwndRenderTarget`) |
+| 2D rendering | Direct2D (`ID2D1DeviceContext`) |
 | Text rendering | DirectWrite (`IDWriteTextLayout`) |
 | Diagrams | WebView2 + [Mermaid.js](https://mermaid.js.org/) |
+| Math | [KaTeX](https://katex.org/) (via Mermaid) |
 | Markdown parser | [md4c](https://github.com/mity/md4c) (SAX-style callbacks) |
 | Tests | Google Test v1.18.0 |
-| Build | CMake 3.20+ |
+| Build | CMake 4.2+ |
 
 ## License
 
