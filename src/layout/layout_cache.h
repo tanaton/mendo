@@ -296,8 +296,8 @@ struct NodeLayoutEntry {
         }
     }
 
-    // CodeBlock の色付け用。計測ワーカーが text_layout と一緒に作り、ApplyNodeEffects が読む。
-    // 位置は UTF-16 単位で、隣り合う同種のトークンはまとめてある。
+    // CodeBlock の色付け用。計測ワーカーが text_layout と一緒に作り、描画時にグリフランの色分けに使う。
+    // 位置は UTF-16 単位。トークン間の空白だけの隙間は直前のトークンに含め、同種のトークンはまとめてある。
     std::span<const SyntaxToken> syntax_tokens() const noexcept
     {
         return aux_ ? std::span<const SyntaxToken>{ aux_->syntax_tokens } : std::span<const SyntaxToken>{};
@@ -329,23 +329,9 @@ struct NodeLayoutEntry {
     {
         return GetAux(&Aux::effects_applied);
     }
-    // 適用をやり直すときは、コードブロックの適用済み範囲も一緒に捨てる。
     constexpr void set_effects_applied(bool applied)
     {
         SetAux(&Aux::effects_applied, applied);
-        if (!applied) {
-            set_syntax_applied(0, 0);
-        }
-    }
-    // syntax_tokens のうち SetDrawingEffect 済みの添字範囲 [first, second)。
-    constexpr std::pair<uint32_t, uint32_t> syntax_applied() const noexcept
-    {
-        return { GetAux(&Aux::syntax_applied_begin), GetAux(&Aux::syntax_applied_end) };
-    }
-    constexpr void set_syntax_applied(uint32_t begin, uint32_t end)
-    {
-        SetAux(&Aux::syntax_applied_begin, begin);
-        SetAux(&Aux::syntax_applied_end, end);
     }
     constexpr bool inline_code_bgs_stale() const noexcept
     {
@@ -474,8 +460,6 @@ private:
         // SetMaxWidth だけの再計測は描画エフェクト/下線を保持するため、折り返しに依存する
         // インラインコード背景だけ作り直させる。effects_applied が true のときのみ意味を持つ。
         bool inline_code_bgs_stale = false;
-        uint32_t syntax_applied_begin = 0;
-        uint32_t syntax_applied_end = 0;
         // 再計測のたびに作り直すので、確保し直さないよう Aux に直接持つ。
         std::pmr::vector<InlineCodeBg> inline_code_bgs;
         std::pmr::vector<SyntaxToken> syntax_tokens;
@@ -512,7 +496,7 @@ private:
 static_assert(sizeof(NodeLayoutEntry) <= 24, "NodeLayoutEntry size regression: move per-materialized fields into Aux");
 
 // 本文 text_layout の、view (layout ローカル Y) の上下に 1 画面ずつ足した行のテキスト範囲。
-// 同じフレームの描画エフェクトとハイライトが共有し、view が窓に収まる間は引き直さない。
+// 同じフレームの検索・選択ハイライトが共有し、view が窓に収まる間は引き直さない。
 const LineWindow& EnsureLineWindow(const NodeLayoutEntry& entry, LocalYRange view);
 
 struct DiagramEntry {

@@ -5,6 +5,8 @@
 #include <dwrite.h>
 #include <wincodec.h>
 #include <wrl/client.h>
+#include <algorithm>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -28,10 +30,11 @@ protected:
         ASSERT_HRESULT_SUCCEEDED(CreateRenderTarget(rt_));
     }
 
-    HRESULT CreateRenderTarget(ComPtr<ID2D1RenderTarget>& out)
+    HRESULT CreateRenderTarget(ComPtr<ID2D1RenderTarget>& out, UINT size = 32)
     {
+        size_ = size;
         ComPtr<IWICBitmap> bitmap;
-        if (FAILED(wic_factory_->CreateBitmap(32, 32,
+        if (FAILED(wic_factory_->CreateBitmap(size, size,
             GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &bitmap))) {
             return E_FAIL;
         }
@@ -58,11 +61,75 @@ protected:
 
     std::vector<uint32_t> ReadAllPixels() const
     {
-        std::vector<uint32_t> pixels(32 * 32);
-        EXPECT_HRESULT_SUCCEEDED(wic_bitmap_->CopyPixels(nullptr, 32 * 4, static_cast<UINT>(pixels.size() * 4), reinterpret_cast<BYTE*>(pixels.data())));
+        std::vector<uint32_t> pixels(size_ * size_);
+        EXPECT_HRESULT_SUCCEEDED(wic_bitmap_->CopyPixels(nullptr, size_ * 4, static_cast<UINT>(pixels.size() * 4), reinterpret_cast<BYTE*>(pixels.data())));
         return pixels;
     }
 
+    ComPtr<IDWriteTextLayout> CreateTextLayout(std::wstring_view text, const wchar_t* family, const wchar_t* locale, float max_w, float max_h)
+    {
+        if (!dw_factory_) {
+            EXPECT_HRESULT_SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), &dw_factory_));
+        }
+        ComPtr<IDWriteTextFormat> fmt;
+        EXPECT_HRESULT_SUCCEEDED(dw_factory_->CreateTextFormat(family, nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 12.0f, locale, &fmt));
+        ComPtr<IDWriteTextLayout> layout;
+        EXPECT_HRESULT_SUCCEEDED(dw_factory_->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), fmt.Get(), max_w, max_h, &layout));
+        return layout;
+    }
+
+    // tokens で色付けした text を、executor 経由か SetDrawingEffect + DrawTextLayout で描いた画素。
+    std::vector<uint32_t> RenderSyntaxColored(std::wstring_view text, std::span<const SyntaxToken> tokens, bool via_executor)
+    {
+        struct Style {
+            SyntaxTokenType type;
+            BrushId id;
+            D2D1_COLOR_F color;
+        };
+        const Style styles[]{
+            { SyntaxTokenType::Type, BrushId::SyntaxType, D2D1::ColorF(D2D1::ColorF::Red) },
+            { SyntaxTokenType::Number, BrushId::SyntaxNumber, D2D1::ColorF(D2D1::ColorF::Green) },
+            { SyntaxTokenType::Comment, BrushId::SyntaxComment, D2D1::ColorF(D2D1::ColorF::Blue) },
+            { SyntaxTokenType::Keyword, BrushId::SyntaxKeyword, D2D1::ColorF(D2D1::ColorF::Magenta) },
+            { SyntaxTokenType::String, BrushId::SyntaxString, D2D1::ColorF(D2D1::ColorF::Orange) },
+            { SyntaxTokenType::Function, BrushId::SyntaxFunction, D2D1::ColorF(D2D1::ColorF::Teal) },
+        };
+        const D2D1_POINT_2F origin = D2D1::Point2F(1.5f, 2.0f);
+        ComPtr<ID2D1RenderTarget> rt;
+        EXPECT_HRESULT_SUCCEEDED(CreateRenderTarget(rt, 96));
+        FixedBrushArray brushes;
+        for (const auto& s : styles) {
+            rt->CreateSolidColorBrush(s.color, &brushes[std::to_underlying(s.id)]);
+        }
+        const auto layout = CreateTextLayout(text, L"Consolas", L"ja-jp", 1000.0f, 1000.0f);
+        ComPtr<ID2D1SolidColorBrush> black;
+        rt->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black), &black);
+        rt->BeginDraw();
+        rt->Clear(D2D1::ColorF(D2D1::ColorF::White));
+        if (via_executor) {
+            CommandExecutor exec;
+            DrawCommandList cmds;
+            cmds.emplace_back(DrawTextLayoutCmd{ .origin = origin, .layout = layout.Get(), .color = D2D1::ColorF(D2D1::ColorF::Black), .syntax_tokens = tokens });
+            exec.Execute(cmds, rt.Get(), &brushes);
+        }
+        else {
+            for (const auto& t : tokens) {
+                const auto it = std::ranges::find(styles, t.type, &Style::type);
+                layout->SetDrawingEffect(brushes[std::to_underlying(it->id)].Get(), DWRITE_TEXT_RANGE{ t.start, t.length });
+            }
+            rt->DrawTextLayout(origin, layout.Get(), black.Get());
+        }
+        EXPECT_HRESULT_SUCCEEDED(rt->EndDraw());
+        return ReadAllPixels();
+    }
+
+    static bool HasColoredPixel(std::span<const uint32_t> pixels)
+    {
+        return std::ranges::any_of(pixels, [](uint32_t px) { return (px & 0xFF) != ((px >> 8) & 0xFF); });
+    }
+
+    UINT size_ = 32;
+    ComPtr<IDWriteFactory> dw_factory_;
     ComPtr<ID2D1Factory> d2d_factory_;
     ComPtr<IWICImagingFactory> wic_factory_;
     ComPtr<IWICBitmap> wic_bitmap_;
@@ -168,16 +235,12 @@ TEST_F(CommandExecutorIntegrationTest, NullTextLayoutDrawIsSkipped)
 // cull_runs のレイアウトは可視ランだけ描く経路になる。D2D の DrawTextLayout と同じ画素になること。
 TEST_F(CommandExecutorIntegrationTest, TallTextLayoutMatchesDrawTextLayout)
 {
-    ComPtr<IDWriteFactory> dw;
-    ASSERT_HRESULT_SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), &dw));
-    ComPtr<IDWriteTextFormat> fmt;
-    ASSERT_HRESULT_SUCCEEDED(dw->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 12.0f, L"en-us", &fmt));
     std::wstring text;
     for (int i = 0; i < 40; i++) {
         text += L"Wg_|\n";
     }
-    ComPtr<IDWriteTextLayout> layout;
-    ASSERT_HRESULT_SUCCEEDED(dw->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), fmt.Get(), 100.0f, 1000.0f, &layout));
+    const auto layout = CreateTextLayout(text, L"Segoe UI", L"en-us", 100.0f, 1000.0f);
+    ASSERT_TRUE(layout);
     // 2 行目 (先頭行は描画面外) に下線と取り消し線を付ける。
     layout->SetUnderline(TRUE, DWRITE_TEXT_RANGE{ 5, 2 });
     layout->SetStrikethrough(TRUE, DWRITE_TEXT_RANGE{ 12, 2 });
@@ -205,5 +268,40 @@ TEST_F(CommandExecutorIntegrationTest, TallTextLayoutMatchesDrawTextLayout)
     const auto expected = render(false);
     const auto actual = render(true);
     EXPECT_NE(std::ranges::count(expected, 0xFFFFFFFFu), static_cast<std::ptrdiff_t>(expected.size())) << "何も描かれていない";
+    EXPECT_EQ(actual, expected);
+}
+
+// 構文トークン付きのレイアウトはグリフランを分けて色を付ける。SetDrawingEffect で色を付けた
+// DrawTextLayout と同じ画素になること (フォールバックで別ランになる和文・ランの途中の境界・行またぎを含む)。
+TEST_F(CommandExecutorIntegrationTest, SyntaxTokensMatchSetDrawingEffect)
+{
+    const std::wstring_view text = L"int x=0;//あい\nreturn \"s\";\n/* a\nb */ f(1)";
+    const SyntaxToken tokens[]{
+        { 0, 3, SyntaxTokenType::Type },
+        { 6, 1, SyntaxTokenType::Number },
+        { 8, 4, SyntaxTokenType::Comment },
+        { 13, 6, SyntaxTokenType::Keyword },
+        { 20, 3, SyntaxTokenType::String },
+        { 25, 9, SyntaxTokenType::Comment },
+        { 35, 1, SyntaxTokenType::Function },
+        { 37, 1, SyntaxTokenType::Number },
+    };
+    const auto expected = RenderSyntaxColored(text, tokens, false);
+    const auto actual = RenderSyntaxColored(text, tokens, true);
+    EXPECT_TRUE(HasColoredPixel(expected)) << "色付きの画素が無い";
+    EXPECT_EQ(actual, expected);
+}
+
+// 右から左のラン (ヘブライ語) の途中にある境界でも同じ画素になること。
+TEST_F(CommandExecutorIntegrationTest, SyntaxTokensMatchSetDrawingEffectRtl)
+{
+    const std::wstring_view text = L"x=\"\u05E9\u05DC\u05D5\u05DD \u05E2\u05D5\u05DC\u05DD\";";
+    const SyntaxToken tokens[]{
+        { 2, 6, SyntaxTokenType::String },
+        { 11, 2, SyntaxTokenType::Number },
+    };
+    const auto expected = RenderSyntaxColored(text, tokens, false);
+    const auto actual = RenderSyntaxColored(text, tokens, true);
+    EXPECT_TRUE(HasColoredPixel(expected)) << "色付きの画素が無い";
     EXPECT_EQ(actual, expected);
 }

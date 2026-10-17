@@ -1,10 +1,13 @@
 #pragma once
 #include "brush_id.h"
+#include "syntax.h"
 #include <d2d1.h>
 #include <dwrite.h>
+#include <limits>
 #include <variant>
 #include <vector>
 #include <memory_resource>
+#include <span>
 #include <cstdint>
 
 struct FillRectCmd {
@@ -33,10 +36,13 @@ struct DrawTextLayoutCmd {
     D2D1_COLOR_F color;
     BrushId brush_id = BrushId::Custom;
     // 可視範囲より高いレイアウトは [cull_top, cull_bottom] (origin と同じ座標系) 外のランを飛ばす。
+    // cull_runs でなければ範囲は既定の無限のままにする。
     bool cull_runs = false;
-    float cull_top = 0.0f;
-    float cull_bottom = 0.0f;
+    float cull_top = -std::numeric_limits<float>::infinity();
+    float cull_bottom = std::numeric_limits<float>::infinity();
     float opacity = 1.0f;
+    // 非所有; layout と同じ NodeLayoutEntry が持つ。UTF-16 位置のトークンで、描画時にグリフランを色分けする。
+    std::span<const SyntaxToken> syntax_tokens;
 };
 
 struct DrawBitmapCmd {

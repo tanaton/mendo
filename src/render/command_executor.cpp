@@ -4,16 +4,41 @@
 #include "ui_constants.h"
 #include "utility.h"
 #include <dwrite.h>
+#include <algorithm>
 #include <bit>
 
 namespace {
 
+// SyntaxTokenType の順。Plain はトークンにならない (添字合わせ)。
+constexpr BrushId SYNTAX_BRUSHES[]{
+    BrushId::Custom,
+    BrushId::SyntaxKeyword,
+    BrushId::SyntaxType,
+    BrushId::SyntaxString,
+    BrushId::SyntaxNumber,
+    BrushId::SyntaxComment,
+    BrushId::SyntaxPreprocessor,
+    BrushId::SyntaxFunction,
+    BrushId::SyntaxInserted,
+    BrushId::SyntaxDeleted,
+};
+static_assert(std::size(SYNTAX_BRUSHES) == std::to_underlying(SyntaxTokenType::Deleted) + 1);
+
+// brushes が無いか、id が動的色・未作成なら nullptr。
+ID2D1SolidColorBrush* FixedBrush(const FixedBrushArray* brushes, BrushId id) noexcept
+{
+    return brushes && id != BrushId::Custom ? (*brushes)[std::to_underlying(id)].Get() : nullptr;
+}
+
 // D2D の DrawTextLayout は描画面外を含む全グリフランを処理するため、巨大なコードブロック等では
 // 1 フレームに数十 ms かかる (1 万行で約 20ms)。可視縦範囲外のランを飛ばして描く。
+// 構文トークンがあれば、グリフランをトークン境界で分けて種別の色で描く。SetDrawingEffect は
+// 1 回ごとに既存の範囲数に比例して重くなる (巨大なコードブロックで O(n^2)) ので使わない。
 class VisibleRunRenderer final : public IDWriteTextRenderer {
 public:
-    VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, float cull_top, float cull_bottom) noexcept
-        : rt_(rt), default_brush_(default_brush), cull_top_(cull_top), cull_bottom_(cull_bottom)
+    VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, float cull_top, float cull_bottom,
+        std::span<const SyntaxToken> tokens, const FixedBrushArray* brushes) noexcept
+        : rt_(rt), default_brush_(default_brush), cull_top_(cull_top), cull_bottom_(cull_bottom), tokens_(tokens), brushes_(brushes)
     {
         rt->GetTransform(&transform_);
         float dpi_x = DEFAULT_DPI;
@@ -59,13 +84,17 @@ public:
 
     HRESULT STDMETHODCALLTYPE DrawGlyphRun(
         void*, FLOAT x, FLOAT y, DWRITE_MEASURING_MODE mode,
-        const DWRITE_GLYPH_RUN* run, const DWRITE_GLYPH_RUN_DESCRIPTION*, IUnknown* effect) noexcept override
+        const DWRITE_GLYPH_RUN* run, const DWRITE_GLYPH_RUN_DESCRIPTION* desc, IUnknown* effect) noexcept override
     {
         // ベースラインから上下 1em あれば行の字形は収まる。
         if (y + run->fontEmSize < cull_top_ || y - run->fontEmSize > cull_bottom_) {
             return S_OK;
         }
-        rt_->DrawGlyphRun(D2D1::Point2F(x, y), run, BrushFor(effect), mode);
+        if (tokens_.empty() || !desc || !desc->clusterMap || effect) {
+            rt_->DrawGlyphRun(D2D1::Point2F(x, y), run, BrushFor(effect), mode);
+            return S_OK;
+        }
+        DrawSyntaxGlyphRun(x, y, mode, *run, *desc);
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE DrawUnderline(void*, FLOAT x, FLOAT y, const DWRITE_UNDERLINE* u, IUnknown* effect) noexcept override
@@ -89,6 +118,50 @@ private:
     {
         return effect ? static_cast<ID2D1Brush*>(effect) : default_brush_;
     }
+    ID2D1Brush* TokenBrush(SyntaxTokenType type) const noexcept
+    {
+        const auto idx = std::to_underlying(type);
+        auto* brush = idx < std::size(SYNTAX_BRUSHES) ? FixedBrush(brushes_, SYNTAX_BRUSHES[idx]) : nullptr;
+        return brush ? brush : default_brush_;
+    }
+
+    // 境界がクラスタ (合字等) の途中にあれば、そのクラスタは後ろのトークンの色になる。
+    // グリフは右から左のランでも文字順に並び、原点が右端になってペンが左へ進むだけ。
+    void DrawSyntaxGlyphRun(float x, float y, DWRITE_MEASURING_MODE mode, const DWRITE_GLYPH_RUN& run, const DWRITE_GLYPH_RUN_DESCRIPTION& desc) const noexcept
+    {
+        const float direction = (run.bidiLevel & 1) != 0 ? -1.0f : 1.0f;
+        const uint32_t run_begin = desc.textPosition;
+        const uint32_t run_end = run_begin + desc.stringLength;
+        // 文字位置 → その文字を含むクラスタの先頭グリフ
+        const auto glyph_at = [&](uint32_t pos) -> uint32_t {
+            return pos < run_end ? desc.clusterMap[pos - run_begin] : run.glyphCount;
+        };
+        uint32_t glyph = 0;
+        float pen_x = x;
+        const auto draw_until = [&](uint32_t glyph_end, ID2D1Brush* brush) {
+            if (glyph_end <= glyph) {
+                return;
+            }
+            DWRITE_GLYPH_RUN part = run;
+            part.glyphCount = glyph_end - glyph;
+            part.glyphIndices += glyph;
+            part.glyphAdvances += glyph;
+            if (part.glyphOffsets) {
+                part.glyphOffsets += glyph;
+            }
+            rt_->DrawGlyphRun(D2D1::Point2F(pen_x, y), &part, brush, mode);
+            for (; glyph < glyph_end; glyph++) {
+                pen_x += direction * run.glyphAdvances[glyph];
+            }
+        };
+        // トークンは重ならず start 昇順なので、終端も昇順に並ぶ。
+        auto it = std::ranges::partition_point(tokens_, [&](const SyntaxToken& t) { return t.start + t.length <= run_begin; });
+        for (; it != tokens_.end() && it->start < run_end; ++it) {
+            draw_until(glyph_at(std::max(it->start, run_begin)), default_brush_);
+            draw_until(glyph_at(std::min(it->start + it->length, run_end)), TokenBrush(it->type));
+        }
+        draw_until(run.glyphCount, default_brush_);
+    }
     void FillLine(float x, float top, float width, float thickness, IUnknown* effect) const noexcept
     {
         if (top + thickness < cull_top_ || top > cull_bottom_) {
@@ -103,16 +176,16 @@ private:
     float cull_bottom_;
     D2D1_MATRIX_3X2_F transform_{};
     float pixels_per_dip_ = 1.0f;
+    std::span<const SyntaxToken> tokens_;
+    const FixedBrushArray* brushes_;
 };
 
 } // namespace
 
 ID2D1SolidColorBrush* CommandExecutor::ResolveBrush(ID2D1RenderTarget* rt, const FixedBrushArray* brushes, BrushId id, D2D1_COLOR_F color)
 {
-    if (id != BrushId::Custom && brushes) {
-        if (auto* fixed = (*brushes)[std::to_underlying(id)].Get()) {
-            return fixed;
-        }
+    if (auto* fixed = FixedBrush(brushes, id)) {
+        return fixed;
     }
     if (scratch_brush_ && scratch_rt_ == rt) {
         scratch_brush_->SetColor(color);
@@ -155,8 +228,8 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
             }
             if (auto* b = ResolveBrush(rt, brushes, c.brush_id, c.color)) {
                 const OpacityScope opacity{ c.opacity != 1.0f ? b : nullptr, c.opacity };
-                if (c.cull_runs) {
-                    VisibleRunRenderer renderer{ rt, b, c.cull_top, c.cull_bottom };
+                if (c.cull_runs || !c.syntax_tokens.empty()) {
+                    VisibleRunRenderer renderer{ rt, b, c.cull_top, c.cull_bottom, c.syntax_tokens, brushes };
                     c.layout->Draw(nullptr, &renderer, c.origin.x, c.origin.y);
                 }
                 else {
