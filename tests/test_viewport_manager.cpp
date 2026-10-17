@@ -207,13 +207,11 @@ TEST(ViewportManagerTest, ClearSelection)
 {
     ViewportManager vm;
     vm.SetAnchor(3, 10);
-    vm.SetDragging(true);
     vm.SetSelection(TextSelection::MakeOrdered(0, 0, 5, 20));
 
     vm.ClearSelection();
     EXPECT_FALSE(vm.GetSelection().active);
     EXPECT_EQ(vm.GetAnchorNode(), -1);
-    EXPECT_FALSE(vm.IsDragging());
 }
 
 TEST(ViewportManagerTest, SelectAll)
@@ -241,7 +239,7 @@ TEST(ViewportManagerTest, SelectAllEmpty)
     EXPECT_FALSE(vm.GetSelection().active);
 }
 
-// 最終ノードが Table のとき、GetText() は空なので LinearizedText (= concat_text) を終端に使う必要がある。
+// 最終ノードが Table のときも concat_text (= GetText) の末尾を終端にする。
 TEST(ViewportManagerTest, SelectAllLastNodeIsTable)
 {
     std::pmr::vector<Node> nodes;
@@ -255,8 +253,7 @@ TEST(ViewportManagerTest, SelectAllLastNodeIsTable)
     EXPECT_EQ(vm.GetSelection().start_node, 0);
     EXPECT_EQ(vm.GetSelection().start_pos, 0u);
     EXPECT_EQ(vm.GetSelection().end_node, 1);
-    EXPECT_EQ(vm.GetSelection().end_pos, static_cast<uint32_t>(nodes[1].LinearizedText().size()));
-    EXPECT_GT(vm.GetSelection().end_pos, static_cast<uint32_t>(nodes[1].GetText().size()));
+    EXPECT_EQ(vm.GetSelection().end_pos, static_cast<uint32_t>(nodes[1].table_data()->concat_text.size()));
 }
 
 // ---- ズームテスト ----

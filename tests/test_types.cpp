@@ -364,7 +364,7 @@ TEST(NodeTest, HeadingLevelRequiresHeadingType)
 TEST(NodeTest, MermaidCodeBlockTextStored)
 {
     Node node;
-    node.type = NodeType::CodeBlock;
+    node.type = NodeType::Diagram;
     node.set_code_language(SyntaxLanguage::Mermaid);
     node.SetText("graph TD;A-->B", 0);
     EXPECT_EQ(node.GetText(), "graph TD;A-->B");
@@ -373,7 +373,7 @@ TEST(NodeTest, MermaidCodeBlockTextStored)
 TEST(NodeTest, LatexMathCodeBlockTextStored)
 {
     Node node;
-    node.type = NodeType::CodeBlock;
+    node.type = NodeType::Diagram;
     node.set_code_language(SyntaxLanguage::LatexMath);
     node.SetText("E = mc^2", 0);
     EXPECT_EQ(node.GetText(), "E = mc^2");

@@ -99,27 +99,20 @@ void FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TE
         }
     }
     entry.clear_inline_code_bgs();
-    if (reused_layout) {
-        entry.set_inline_code_bgs_stale(true);
+    if (!reused_layout) {
+        entry.set_effects_state(EffectsState::None);
     }
-    else {
-        entry.set_effects_applied(false);
+    else if (entry.effects_state() == EffectsState::Applied) {
+        entry.set_effects_state(EffectsState::BgsStale);
     }
 }
 
-// テキストレイアウトを持たないノード (HR / ダイアグラム / 画像 / 空テキスト) の高さを確定する。
+// テキストレイアウトを持たないノード (HR / 空テキスト) の高さを確定する。
 // 戻り値: 処理した場合 true。
 bool MeasureWithoutTextLayout(const Node& node, NodeLayoutEntry& entry, const Theme& theme) noexcept
 {
     if (node.type == NodeType::HorizontalRule) {
         entry.height = theme.paragraph_spacing + theme.hr_thickness;
-    }
-    // ダイアグラム / 画像: 高さはビットマップ側で決まる (画像は MeasureEntry が寸法から求める)。
-    // それまではプレースホルダー高さ。
-    else if (IsBitmapDrawNode(node)) {
-        if (entry.height <= 0) {
-            entry.height = layout::PlaceholderHeight(theme);
-        }
     }
     else if (node.GetText().empty()) {
         // loose LI で paragraph_spacing を入れると bullet と直下 P の文字 Y が分離する (issue#237)。
@@ -286,9 +279,7 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
         const DWRITE_TEXT_RANGE wr = cursor.WideRange(r.start, r.length);
         bold.Update(r.bold(), wr);
         italic.Update(r.italic(), wr);
-        if (scope.apply_code) {
-            code.Update(r.code(), wr);
-        }
+        code.Update(r.code(), wr);
         strike.Update(r.strikethrough(), wr);
         if (scope.apply_link) {
             link.Update(r.has_link(), wr);
@@ -386,7 +377,7 @@ void DWriteTextMeasurer::BuildCellLayout(const NodeTableData& tbl, size_t r, siz
     auto& cell_layout = tl.cell_layouts[tl.CellIndex(r, c)];
     CreateDocTextLayout(dwrite_, text, row_fmt, LAYOUT_INFINITY, LAYOUT_INFINITY, &cell_layout);
     if (cell_layout) {
-        ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, RunFormatScope::ForCell());
+        ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, RunFormatScope{});
     }
 }
 
@@ -584,7 +575,7 @@ void DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayoutEntry& entry, 
     entry.invalidate_per_frame_hl_caches();
 
     // 倒すと ApplyTableEffects が inline code 背景と行フラグを作り直す。
-    entry.set_effects_applied(false);
+    entry.set_effects_state(EffectsState::None);
     auto& tl = entry.ensure_table_layout();
     tl.row_heights.resize(row_count);
 

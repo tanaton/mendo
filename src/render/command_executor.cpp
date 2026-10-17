@@ -11,7 +11,7 @@ namespace {
 
 // SyntaxTokenType の順。Plain はトークンにならない (添字合わせ)。
 constexpr BrushId SYNTAX_BRUSHES[]{
-    BrushId::Custom,
+    BrushId::None,
     BrushId::SyntaxKeyword,
     BrushId::SyntaxType,
     BrushId::SyntaxString,
@@ -24,10 +24,10 @@ constexpr BrushId SYNTAX_BRUSHES[]{
 };
 static_assert(std::size(SYNTAX_BRUSHES) == std::to_underlying(SyntaxTokenType::Deleted) + 1);
 
-// brushes が無いか、id が動的色・未作成なら nullptr。
+// brushes が無いか、id がブラシ無し・未作成なら nullptr。
 ID2D1SolidColorBrush* FixedBrush(const FixedBrushArray* brushes, BrushId id) noexcept
 {
-    return brushes && id != BrushId::Custom ? (*brushes)[std::to_underlying(id)].Get() : nullptr;
+    return brushes && id != BrushId::None ? (*brushes)[std::to_underlying(id)].Get() : nullptr;
 }
 
 // D2D の DrawTextLayout は描画面外を含む全グリフランを処理するため、巨大なコードブロック等では
@@ -182,43 +182,27 @@ private:
 
 } // namespace
 
-ID2D1SolidColorBrush* CommandExecutor::ResolveBrush(ID2D1RenderTarget* rt, const FixedBrushArray* brushes, BrushId id, D2D1_COLOR_F color)
+void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray* brushes)
 {
-    if (auto* fixed = FixedBrush(brushes, id)) {
-        return fixed;
-    }
-    if (scratch_brush_ && scratch_rt_ == rt) {
-        scratch_brush_->SetColor(color);
-        return scratch_brush_.Get();
-    }
-    scratch_brush_.Reset();
-    scratch_rt_ = rt;
-    if (FAILED(rt->CreateSolidColorBrush(color, &scratch_brush_))) {
-        return nullptr;
-    }
-    return scratch_brush_.Get();
-}
-
-void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray* brushes)
-{
-    MENDO_PROFILE("CommandExecutor::Execute");
+    MENDO_PROFILE("ExecuteDrawCommands");
     if (!rt) {
         return;
     }
 
     const auto draw = overloaded{
         [&](const FillRectCmd& c) {
-            if (auto* b = ResolveBrush(rt, brushes, c.brush_id, c.color)) {
+            if (auto* b = FixedBrush(brushes, c.brush_id)) {
                 rt->FillRectangle(c.rect, b);
             }
         },
         [&](const FillRoundedRectCmd& c) {
-            if (auto* b = ResolveBrush(rt, brushes, c.brush_id, c.color)) {
+            if (auto* b = FixedBrush(brushes, c.brush_id)) {
+                const OpacityScope opacity{ c.opacity != 1.0f ? b : nullptr, c.opacity };
                 rt->FillRoundedRectangle(D2D1_ROUNDED_RECT{ c.rect, c.rx, c.ry }, b);
             }
         },
         [&](const DrawLineCmd& c) {
-            if (auto* b = ResolveBrush(rt, brushes, c.brush_id, c.color)) {
+            if (auto* b = FixedBrush(brushes, c.brush_id)) {
                 rt->DrawLine(c.p0, c.p1, b, c.stroke_width);
             }
         },
@@ -226,7 +210,7 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
             if (!c.layout) {
                 return;
             }
-            if (auto* b = ResolveBrush(rt, brushes, c.brush_id, c.color)) {
+            if (auto* b = FixedBrush(brushes, c.brush_id)) {
                 const OpacityScope opacity{ c.opacity != 1.0f ? b : nullptr, c.opacity };
                 if (c.cull_runs || !c.syntax_tokens.empty()) {
                     VisibleRunRenderer renderer{ rt, b, c.cull_top, c.cull_bottom, c.syntax_tokens, brushes };
@@ -243,12 +227,12 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
             }
         },
         [&](const FillEllipseCmd& c) {
-            if (auto* b = ResolveBrush(rt, brushes, c.brush_id, c.color)) {
+            if (auto* b = FixedBrush(brushes, c.brush_id)) {
                 rt->FillEllipse(D2D1::Ellipse(c.center, c.rx, c.ry), b);
             }
         },
         [&](const DrawEllipseCmd& c) {
-            if (auto* b = ResolveBrush(rt, brushes, c.brush_id, c.color)) {
+            if (auto* b = FixedBrush(brushes, c.brush_id)) {
                 rt->DrawEllipse(D2D1::Ellipse(c.center, c.rx, c.ry), b, c.stroke_width);
             }
         },

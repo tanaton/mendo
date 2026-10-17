@@ -6,20 +6,6 @@
 
 class PaneController {
 public:
-    enum class DragTarget : uint8_t {
-        None,
-        Splitter1,
-        Splitter2,
-        FileScrollbar,
-        TocScrollbar,
-        MdScrollbar
-    };
-
-    static constexpr bool IsSplitterDragTarget(DragTarget t) noexcept
-    {
-        return t == DragTarget::Splitter1 || t == DragTarget::Splitter2;
-    }
-
     constexpr bool IsSidePaneVisible(PaneTarget t) const noexcept
     {
         return Inst(t).show;
@@ -79,29 +65,8 @@ public:
     // 変化した場合 true。
     bool SetSideHoveredButton(PaneTarget t, PaneHeaderButton button) noexcept;
 
-    constexpr DragTarget GetDragTarget() const noexcept
-    {
-        return drag_target_;
-    }
-    constexpr void StartDrag(DragTarget t) noexcept
-    {
-        drag_target_ = t;
-    }
-    constexpr void EndDrag() noexcept
-    {
-        drag_target_ = DragTarget::None;
-    }
-    constexpr float GetDragScrollOffset() const noexcept
-    {
-        return drag_scroll_offset_;
-    }
-    constexpr void SetDragScrollOffset(float off) noexcept
-    {
-        drag_scroll_offset_ = off;
-    }
-
-    // target: Splitter1=File右端, Splitter2=Toc右端。
-    void DragSplitterTo(DragTarget target, float dip_x, float total_width, float splitter_w) noexcept;
+    // edge のペインの右端にあるスプリッタを dip_x へ動かす。
+    void DragSplitterTo(PaneTarget edge, float dip_x, float total_width, float splitter_w) noexcept;
 
     void ApplyZoom(float ratio) noexcept;
 
@@ -119,9 +84,6 @@ private:
         PaneHeaderButton hovered_button = PaneHeaderButton::None;
     };
     Instance instances_[2];
-
-    DragTarget drag_target_ = DragTarget::None;
-    float drag_scroll_offset_ = 0.0f;
 
     constexpr Instance& Inst(PaneTarget t) noexcept
     {

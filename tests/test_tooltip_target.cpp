@@ -14,8 +14,8 @@ TEST(TooltipTarget, DefaultConstructedIsEmpty)
 
 TEST(TooltipTarget, ConstructedWithZoneIsNotEmpty)
 {
-    TooltipTarget t{ TooltipTarget::Zone::CopyButton, 0 };
-    EXPECT_EQ(t.zone, TooltipTarget::Zone::CopyButton);
+    TooltipTarget t{ TooltipTarget::Zone::OverlayButton, 0 };
+    EXPECT_EQ(t.zone, TooltipTarget::Zone::OverlayButton);
     EXPECT_FALSE(t.IsEmpty());
 }
 

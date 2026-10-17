@@ -20,7 +20,7 @@ Node MakeParagraphNode(int line_count = 0)
 Node MakeCodeBlockNode(SyntaxLanguage lang, int line_count = 1)
 {
     Node n;
-    n.type = NodeType::CodeBlock;
+    n.type = IsDiagramLanguage(lang) ? NodeType::Diagram : NodeType::CodeBlock;
     n.SetText("code", line_count);
     n.set_code_language(lang);
     return n;
@@ -152,4 +152,22 @@ TEST(EstimateInvisibleNodeHeight, NonDiagramCodeBlockGrowsNormally)
     const bool changed = EstimateInvisibleNodeHeight(node, entry, theme, 400.0f);
     EXPECT_TRUE(changed);
     EXPECT_FLOAT_EQ(entry.height, estimated);
+}
+
+// 画像・図は寸法があればノード幅に収まるよう縮め、無ければ現在値、それも無ければプレースホルダー。
+TEST(BitmapNodeHeight, ScalesKeepsOrFallsBack)
+{
+    const auto& theme = GetLightTheme();
+    DiagramEntry wide;
+    wide.width = 1200.0f;
+    wide.height = 800.0f;
+    EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(&wide, 600.0f, 50.0f, theme), 400.0f);
+
+    DiagramEntry narrow;
+    narrow.width = 300.0f;
+    narrow.height = 200.0f;
+    EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(&narrow, 600.0f, 50.0f, theme), 200.0f);
+
+    EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(nullptr, 600.0f, 50.0f, theme), 50.0f);
+    EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(nullptr, 600.0f, 0.0f, theme), layout::PlaceholderHeight(theme));
 }

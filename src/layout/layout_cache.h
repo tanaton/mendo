@@ -255,6 +255,14 @@ constexpr T& EnsureUnique(std::unique_ptr<T>& p)
 
 } // namespace layout::detail
 
+enum class EffectsState : uint8_t {
+    None,
+    // SetMaxWidth だけの再計測は描画エフェクト/下線を保持するため、折り返しに依存する
+    // インラインコード背景だけ作り直させる。
+    BgsStale,
+    Applied,
+};
+
 struct NodeLayoutEntry {
     // ノード Y 位置 (text_top) は LayoutCache::Top(i) に分離して持つ (SoA)。
     float height = 0.0f;
@@ -325,21 +333,13 @@ struct NodeLayoutEntry {
     {
         SetAux(&Aux::natural_code_width, w);
     }
-    constexpr bool effects_applied() const noexcept
+    constexpr EffectsState effects_state() const noexcept
     {
-        return GetAux(&Aux::effects_applied);
+        return GetAux(&Aux::effects_state);
     }
-    constexpr void set_effects_applied(bool applied)
+    constexpr void set_effects_state(EffectsState state)
     {
-        SetAux(&Aux::effects_applied, applied);
-    }
-    constexpr bool inline_code_bgs_stale() const noexcept
-    {
-        return GetAux(&Aux::inline_code_bgs_stale);
-    }
-    constexpr void set_inline_code_bgs_stale(bool stale)
-    {
-        SetAux(&Aux::inline_code_bgs_stale, stale);
+        SetAux(&Aux::effects_state, state);
     }
 
     constexpr SearchHlCache& ensure_search_hl_cache() const
@@ -456,10 +456,7 @@ private:
         // CodeBlock の最長行幅 (NO_WRAP で計測した自然幅)。横スクロールバーのスケール計算と
         // クランプに使う。CodeBlock 以外では 0 のまま。
         float natural_code_width = 0.0f;
-        bool effects_applied = false;
-        // SetMaxWidth だけの再計測は描画エフェクト/下線を保持するため、折り返しに依存する
-        // インラインコード背景だけ作り直させる。effects_applied が true のときのみ意味を持つ。
-        bool inline_code_bgs_stale = false;
+        EffectsState effects_state = EffectsState::None;
         // 再計測のたびに作り直すので、確保し直さないよう Aux に直接持つ。
         std::pmr::vector<InlineCodeBg> inline_code_bgs;
         std::pmr::vector<SyntaxToken> syntax_tokens;
@@ -508,7 +505,7 @@ struct DiagramEntry {
     PngBytes png;
     // レンダリング失敗時のエラーメッセージ (表示用整形済み)。非空 = 失敗確定で、
     // プレースホルダにこの文言を表示し再リクエストを止める。リロード・幅変更・
-    // テーマ変更でクリアされ再試行の契機になる。オフスクリーン evict では保持する。
+    // テーマ変更・デバイスロストでクリアされ再試行の契機になる。オフスクリーン evict では保持する。
     std::pmr::wstring error;
 
     // 未確定 (成功も失敗もしていない) でレンダ要求すべき状態か。
@@ -522,6 +519,14 @@ struct DiagramEntry {
     {
         bitmap.Reset();
         png.reset();
+    }
+
+    // デバイスロスト用。旧デバイスのビットマップと、旧デバイスで確定したかもしれないエラーを捨てる。
+    // 寸法はレイアウト維持のため残す。
+    void EvictForRetry() noexcept
+    {
+        EvictBitmap();
+        error.clear();
     }
 
     // レンダ結果 (成功/失敗とも) を破棄し再試行可能に戻す。幅変更・テーマ変更用。
@@ -597,17 +602,17 @@ public:
     void InvalidateAllLayouts(const std::pmr::vector<Node>& nodes) noexcept;
 
     // 文字幾何 (IDWriteTextLayout / table cell layouts) は維持し、ApplyEffects を再走らせるため
-    // effects_applied フラグとエフェクト由来のキャッシュだけ落とす。デバイスロスト時用。
+    // effects_state とエフェクト由来のキャッシュだけ落とす。デバイスロスト時用。
     void InvalidateEffects() noexcept;
 
     // デバイスロスト時用。旧デバイス上のビットマップは新 RT で描画できず、
     // 残すと EndDraw が D2DERR_WRONG_RESOURCE_DOMAIN で失敗し続ける。
-    // 画像の寸法は再計測が表示高さに使うので残す。
-    void InvalidateAllDiagramBitmaps(const std::pmr::vector<Node>& nodes) noexcept;
+    // 寸法は再計測が表示高さに使うので残し、旧デバイスで確定したエラーは再試行させる。
+    void InvalidateAllDiagramBitmaps() noexcept;
 
-    // ダイアグラム系ノードのビットマップを無効化する。
-    // ダークモード切替時に text_layout とエフェクトを保持したまま図だけ再描画したい場合に使う。
-    void InvalidateDiagramBitmaps(const std::pmr::vector<Node>& nodes) noexcept;
+    // 図のビットマップを再描画待ちに戻す。ダークモード切替時に text_layout とエフェクトを
+    // 保持したまま図だけ再描画したい場合に使う。
+    void InvalidateDiagramBitmaps(std::span<const size_t> diagram_indices) noexcept;
 
     // [first_keep_inclusive, last_keep_exclusive) の外にある画像/図のビットマップを捨てる。寸法とエラーは残す。
     void EvictDiagramBitmapsOutside(size_t first_keep_inclusive, size_t last_keep_exclusive) noexcept;

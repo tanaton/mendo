@@ -326,7 +326,7 @@ TEST_F(IncrementalLayoutTest, MatchesFullLayoutAfterRandomOperations)
             ASSERT_FALSE(cache_[i].layout_dirty) << "i=" << i;
             NodeLayoutEntry remeasured{};
             remeasured.height = cache_[i].height;
-            measurer_.MeasureNode(nodes_[i], remeasured, cache_[i].cached_width);
+            MeasureEntry(measurer_, nodes_[i], remeasured, cache_[i].cached_width, {}, 0.0f, cache_.FindDiagram(i), theme_);
             ASSERT_FLOAT_EQ(cache_[i].height, remeasured.height) << "i=" << i;
         }
 

@@ -27,6 +27,19 @@ struct DocumentState {
     LayoutCache layout_cache;
 };
 
+// 進行中の左ボタンドラッグ。マウスキャプチャはこれが None でない間だけ持つ (右ボタンのジェスチャーを除く)。
+struct LeftDragState {
+    LeftDrag kind = LeftDrag::None;
+    // スクロールバー: つまみを掴んだ位置 (つまみ上端から)。
+    float grip_offset = 0.0f;
+    // BlockHScroll: 対象ノードと開始時の x・横スクロール量。
+    int block_node = -1;
+    float start_x = 0.0f;
+    float start_scroll = 0.0f;
+    // SearchInput: 選択の起点 (キャレット位置)。
+    int search_anchor = 0;
+};
+
 struct ViewState {
     ViewportManager viewport;
     PaneController panes;
@@ -38,10 +51,14 @@ struct ViewState {
     // 対象のみ描画するため、map サイズはユーザー操作分に限定される。
     std::pmr::unordered_map<int, float> block_scroll_x;
     int hovered_h_block = -1;
-    int h_drag_node = -1;
-    float h_drag_start_x = 0.0f;
-    float h_drag_start_scroll = 0.0f;
     int active_toc_index = -1;
+    LeftDragState drag;
+
+    // 横スクロールをドラッグ中のブロック。ドラッグしていなければ -1。
+    constexpr int HDragNode() const noexcept
+    {
+        return drag.kind == LeftDrag::BlockHScroll ? drag.block_node : -1;
+    }
 
     float GetBlockScrollX(int node_index, const BlockHScrollGeometry& geom) const noexcept
     {
@@ -49,12 +66,12 @@ struct ViewState {
     }
 
     // 再パースでノード/見出し index がずれると別の要素を指すため、リロード時にクリアする一時状態。
+    // ドラッグはキャプチャの解放を伴うので呼び出し側が EndLeftDrag で終える。
     void ResetPerNodeTransientState()
     {
         viewport.ClearSelection();
         block_scroll_x.clear();
         hovered_h_block = -1;
-        h_drag_node = -1;
         active_toc_index = -1;
     }
 
@@ -73,7 +90,7 @@ struct InteractionState {
     LastHoverPos last_hover_pos;
     Tooltip tooltip;
     ToastNotifier toast;
-    HoveredButtons hovered;
+    OverlayButtonHit hovered;
     NavButtonHover nav_hover = NavButtonHover::None;
     int zoom_wheel_accum = 0;
 };
@@ -149,14 +166,6 @@ inline SidePaneHeaderButtons SidePaneHeaderButtonsFor(const AppState& state, Pan
     return { .has_file_buttons = is_file, .reveal_enabled = is_file && state.document.doc.HasBackingFile() };
 }
 
-// 左ボタンのドラッグ (テキスト選択・スプリッタ・各スクロールバー・ブロック横スクロール・検索入力) が進行中か。
-inline bool IsLeftDragActive(const AppState& state) noexcept
-{
-    return state.view.viewport.IsDragging() ||
-           state.view.panes.GetDragTarget() != PaneController::DragTarget::None ||
-           state.view.h_drag_node >= 0 ||
-           state.search.search_bar_ctrl.IsDragging();
-}
 
 BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node_index) noexcept;
 float MdScrollableContentHeight(const AppState& state) noexcept;

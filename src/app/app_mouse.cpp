@@ -17,6 +17,20 @@
 
 namespace {
 
+std::wstring_view OverlayButtonTooltipText(OverlayButton kind) noexcept
+{
+    switch (kind) {
+    case OverlayButton::DiagramCopy:
+        return i18n::S().tooltip_copy_diagram;
+    case OverlayButton::DiagramSave:
+        return i18n::S().tooltip_save_image;
+    case OverlayButton::CodeCopy:
+    case OverlayButton::None:
+        break;
+    }
+    return i18n::S().tooltip_copy;
+}
+
 // button はペイン左上を原点とする矩形。
 constexpr bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_height, const D2D1_RECT_F& button)
 {
@@ -194,10 +208,10 @@ void App::OnLButtonDown(int px, int py)
         HandleSidePaneClick(*ToPaneTarget(zone), dip.x, dip.y, pane_layout);
         return;
     case PaneZone::Splitter1:
-        Dispatch(SplitterDragStartedAction{ PaneController::DragTarget::Splitter1 });
+        Dispatch(SplitterDragStartedAction{ PaneTarget::File });
         return;
     case PaneZone::Splitter2:
-        Dispatch(SplitterDragStartedAction{ PaneController::DragTarget::Splitter2 });
+        Dispatch(SplitterDragStartedAction{ PaneTarget::Toc });
         return;
     case PaneZone::MdPane:
         HandleMdPaneClick(dip.x, dip.y, px, py, pane_layout);
@@ -208,33 +222,12 @@ void App::OnLButtonDown(int px, int py)
 
 void App::OnLButtonUp(int px, int py)
 {
-    if (state_.view.h_drag_node >= 0) {
-        Dispatch(BlockHScrollDragEndedAction{});
+    const LeftDrag drag = state_.view.drag.kind;
+    if (drag == LeftDrag::None) {
         return;
     }
-
-    if (state_.search.search_bar_ctrl.IsDragging()) {
-        Dispatch(SearchInputDragEndedAction{});
-        return;
-    }
-
-    switch (state_.view.panes.GetDragTarget()) {
-    case PaneController::DragTarget::Splitter1:
-    case PaneController::DragTarget::Splitter2:
-        Dispatch(SplitterDragEndedAction{});
-        return;
-    case PaneController::DragTarget::MdScrollbar:
-        Dispatch(MdScrollbarDragEndedAction{});
-        return;
-    case PaneController::DragTarget::FileScrollbar:
-    case PaneController::DragTarget::TocScrollbar:
-        Dispatch(PaneScrollbarDragEndedAction{});
-        return;
-    case PaneController::DragTarget::None:
-        break;
-    }
-
-    if (!state_.view.viewport.IsDragging()) {
+    if (drag != LeftDrag::TextSelect) {
+        Dispatch(LeftDragEndedAction{});
         return;
     }
     const auto hit = HitTest(px, py);
@@ -282,44 +275,37 @@ void App::OnMouseMove(int px, int py)
 
     const auto dip = PixelToDip(px, py);
 
-    if (state_.search.search_bar_ctrl.IsDragging()) {
+    switch (state_.view.drag.kind) {
+    case LeftDrag::None:
+        return;
+    case LeftDrag::SearchInput: {
         const auto sbl = ComputeSearchBarLayoutForMd(GetPaneLayout().md_rect);
-        const int pos = HitTestSearchInputPos(sbl, state_.search.search_bar_ctrl.GetQueryWide(), dip.x);
-        Dispatch(SearchInputDragMovedAction{ pos });
+        Dispatch(SearchInputDragMovedAction{ HitTestSearchInputPos(sbl, state_.search.search_bar_ctrl.GetQueryWide(), dip.x) });
         return;
     }
-
-    switch (const auto drag = state_.view.panes.GetDragTarget()) {
-    case PaneController::DragTarget::Splitter1:
-    case PaneController::DragTarget::Splitter2:
+    case LeftDrag::Splitter1:
+    case LeftDrag::Splitter2:
         Dispatch(SplitterDragMovedAction{ dip.x });
         return;
-    case PaneController::DragTarget::FileScrollbar:
+    case LeftDrag::FileScrollbar:
         Dispatch(PaneScrollbarDragMovedAction{ PaneTarget::File, dip.y });
         return;
-    case PaneController::DragTarget::TocScrollbar:
+    case LeftDrag::TocScrollbar:
         Dispatch(PaneScrollbarDragMovedAction{ PaneTarget::Toc, dip.y });
         return;
-    case PaneController::DragTarget::MdScrollbar:
+    case LeftDrag::MdScrollbar:
         Dispatch(MdScrollbarDragMovedAction{ dip.y });
         return;
-    case PaneController::DragTarget::None:
-        break;
-    }
-
-    if (state_.view.h_drag_node >= 0) {
+    case LeftDrag::BlockHScroll:
         Dispatch(BlockHScrollDragMovedAction{ dip.x });
         return;
-    }
-
-    if (!state_.view.viewport.IsDragging()) {
+    case LeftDrag::TextSelect:
+        if (const auto hit = HitTest(px, py); hit.node_index >= 0) {
+            Dispatch(TextSelectionMovedAction{ hit.node_index, hit.text_pos });
+        }
         return;
     }
-    const auto hit = HitTest(px, py);
-    if (hit.node_index < 0) {
-        return;
-    }
-    Dispatch(TextSelectionMovedAction{ hit.node_index, hit.text_pos });
+    std::unreachable();
 }
 
 void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
@@ -359,7 +345,7 @@ bool App::OnRButtonDown(int px, int py)
     }
     // 左ドラッグ進行中にジェスチャを開始すると、完了時の ReleaseCapture が
     // 進行中ドラッグのキャプチャを破壊する。
-    if (IsLeftDragActive(state_)) {
+    if (state_.view.drag.kind != LeftDrag::None) {
         return false;
     }
     const auto dip = PixelToDip(px, py);
@@ -507,19 +493,24 @@ bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_
     return true;
 }
 
-void App::HandleOverlayButtonClick(const hit_test::CodeBlockButtonHit& btn_hit, float content_width)
+void App::HandleOverlayButtonClick(const OverlayButtonHit& hit, float content_width)
 {
     const bool dark = renderer_.GetTheme().IsDark();
-    if (btn_hit.copy_node >= 0) {
-        clipboard_manager_.CopyCodeBlock(state_.document.doc, btn_hit.copy_node, dark);
-    }
-    else if (btn_hit.diagram_copy_node >= 0) {
+    switch (hit.kind) {
+    case OverlayButton::CodeCopy:
+        clipboard_manager_.CopyCodeBlock(state_.document.doc, hit.node, dark);
+        break;
+    case OverlayButton::DiagramCopy: {
         // 画像は表示中ビットマップと同寿命の DiagramEntry::png から取る (ボタン表示条件と一致)。
-        const auto* diagram = state_.document.layout_cache.FindDiagram(btn_hit.diagram_copy_node);
-        clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, btn_hit.diagram_copy_node, diagram ? diagram->png : nullptr, content_width, dark);
+        const auto* diagram = state_.document.layout_cache.FindDiagram(hit.node);
+        clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, hit.node, diagram ? diagram->png : nullptr, content_width, dark);
+        break;
     }
-    else if (btn_hit.save_node >= 0) {
-        clipboard_manager_.SaveDiagramAsPng(state_.document.doc, btn_hit.save_node, content_width, dark);
+    case OverlayButton::DiagramSave:
+        clipboard_manager_.SaveDiagramAsPng(state_.document.doc, hit.node, content_width, dark);
+        break;
+    case OverlayButton::None:
+        break;
     }
 }
 
@@ -551,7 +542,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         }
         return;
     case MdPaneHit::Kind::OverlayButton:
-        HandleOverlayButtonClick(target.buttons, hit_ctx.content_width);
+        HandleOverlayButtonClick(target.overlay_button, hit_ctx.content_width);
         return;
     case MdPaneHit::Kind::Scrollbar:
         Dispatch(MdScrollbarDragStartedAction{ dip_y });
@@ -690,10 +681,9 @@ App::MdPaneHit App::ResolveMdPaneHit(float dip_x, float dip_y, const MdPaneHitCo
     if (const auto nav = hit_test::NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect); nav != NavButtonHover::None) {
         return { .kind = Kind::NavButton, .nav = nav };
     }
-    // 1 回の可視ノード走査でコピー/保存/ダイアグラムコピーボタンを同時に判定する。
     // 縮小表示で余白が狭いとボタンがスクロールバーのヒット余白に掛かるので、ボタンを優先する。
-    if (const auto buttons = hit_test::CodeBlockButtonsHitTest(hit_ctx); buttons.Any()) {
-        return { .kind = Kind::OverlayButton, .buttons = buttons };
+    if (const auto button = hit_test::OverlayButtonHitTest(hit_ctx); button.Any()) {
+        return { .kind = Kind::OverlayButton, .overlay_button = button };
     }
     if (IsOverMdScrollbar(dip_x, dip_y, pane_layout)) {
         return { .kind = Kind::Scrollbar };
@@ -724,24 +714,15 @@ HCURSOR App::HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLay
 
     const int node_index = hit_test::HitNode(hit_ctx);
     // 横スクロール対象 (Table / CodeBlock) で自然幅 > 可視幅 のときだけバーを出す。
-    if (state_.view.h_drag_node < 0 && ResolveBlockHScrollGeometry(state_, node_index).can_scroll()) {
+    if (state_.view.HDragNode() < 0 && ResolveBlockHScrollGeometry(state_, node_index).can_scroll()) {
         hover.h_block = node_index;
     }
 
-    const auto& btn_hit = target.buttons;
-    hover.buttons = HoveredButtons{ btn_hit.copy_node, btn_hit.save_node, btn_hit.diagram_copy_node };
-    const auto button_tooltip = [&](TooltipTarget::Zone zone, std::wstring_view text) {
-        hover.tooltip = MakeTooltip(current_tooltip, zone, 0, text);
+    hover.overlay_button = target.overlay_button;
+    if (hover.overlay_button.Any()) {
+        const auto kind = hover.overlay_button.kind;
+        hover.tooltip = MakeTooltip(current_tooltip, TooltipTarget::Zone::OverlayButton, std::to_underlying(kind), OverlayButtonTooltipText(kind));
         return cursors_.Hand();
-    };
-    if (hover.buttons.copy >= 0) {
-        return button_tooltip(TooltipTarget::Zone::CopyButton, i18n::S().tooltip_copy);
-    }
-    if (hover.buttons.diagram_copy >= 0) {
-        return button_tooltip(TooltipTarget::Zone::DiagramCopyButton, i18n::S().tooltip_copy_diagram);
-    }
-    if (hover.buttons.save >= 0) {
-        return button_tooltip(TooltipTarget::Zone::SaveButton, i18n::S().tooltip_save_image);
     }
 
     // 文字位置はリンク判定にしか使わないので、リンクを含むノードの上でだけ求める。

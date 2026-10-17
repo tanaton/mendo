@@ -45,28 +45,17 @@ public:
     }
 
 private:
-    // ApplyRunFormatting で適用する属性集合。Node 用は CodeBlock/Heading に応じて絞り、
-    // テーブルセル用 (ForCell) は全属性 (link underline 含む) を適用する。
+    // ApplyRunFormatting で適用する属性集合。既定値はテーブルセル用で link underline も適用する。
+    // Node 用は見出しでインラインコードの縮小を外す。CodeBlock は run を持たない。
     struct RunFormatScope {
-        bool apply_code = true;
         bool apply_code_size = true;
         bool apply_link = true;
 
         static constexpr RunFormatScope ForNode(NodeType t) noexcept
         {
-            const bool ac = (t != NodeType::CodeBlock);
             return {
-                .apply_code = ac,
-                .apply_code_size = ac && (t != NodeType::Heading),
+                .apply_code_size = (t != NodeType::Heading),
                 .apply_link = false,
-            };
-        }
-        static constexpr RunFormatScope ForCell() noexcept
-        {
-            return {
-                .apply_code = true,
-                .apply_code_size = true,
-                .apply_link = true,
             };
         }
     };

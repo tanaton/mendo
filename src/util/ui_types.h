@@ -69,14 +69,49 @@ struct ScrollRestoration {
     }
 };
 
-// -1 は「該当なし」。
-struct HoveredButtons {
-    int copy = -1;
-    int save = -1;
-    int diagram_copy = -1;
-
-    bool operator==(const HoveredButtons&) const = default;
+// コードブロック・図の右上に重ねるボタン。
+enum class OverlayButton : uint8_t {
+    None,
+    CodeCopy,
+    DiagramSave,
+    DiagramCopy,
 };
+
+// マウス位置にあるオーバーレイボタン。マウス座標は 1 点なので同時に当たるのは 1 つだけ。
+struct OverlayButtonHit {
+    int node = -1;
+    OverlayButton kind = OverlayButton::None;
+
+    constexpr bool Any() const noexcept
+    {
+        return kind != OverlayButton::None;
+    }
+    bool operator==(const OverlayButtonHit&) const = default;
+};
+
+// 進行中の左ボタンドラッグの種類。
+enum class LeftDrag : uint8_t {
+    None,
+    TextSelect,
+    Splitter1, // ファイルペインの右端
+    Splitter2, // 目次ペインの右端
+    FileScrollbar,
+    TocScrollbar,
+    MdScrollbar,
+    BlockHScroll,
+    SearchInput,
+};
+
+constexpr bool IsSplitterDrag(LeftDrag d) noexcept
+{
+    return d == LeftDrag::Splitter1 || d == LeftDrag::Splitter2;
+}
+
+// ノード番号や検索語に結び付くドラッグ。文書を差し替えると対象を失う。
+constexpr bool IsDocumentBoundDrag(LeftDrag d) noexcept
+{
+    return d == LeftDrag::TextSelect || d == LeftDrag::BlockHScroll || d == LeftDrag::SearchInput;
+}
 
 // マウスジェスチャー / 水平スワイプが示す履歴移動の向き。
 enum class NavDirection : uint8_t {

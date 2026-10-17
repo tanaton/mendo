@@ -52,7 +52,7 @@ TEST(GetBlockHScrollGeometry, ScrollableCodeBlockUsesNaturalCodeWidth)
 {
     const Theme theme = GetLightTheme();
     Node node;
-    node.type = NodeType::CodeBlock; // code_language()==None → IsScrollableCodeBlock
+    node.type = NodeType::CodeBlock;
     NodeLayoutEntry entry;
     entry.set_natural_code_width(1234.0f);
 

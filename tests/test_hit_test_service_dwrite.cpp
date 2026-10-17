@@ -190,9 +190,9 @@ TEST_F(HitTestDWriteTest, TableHitDetectsRowAndColumn)
         << "テーブル領域内の click は table ノードを返すはず";
 }
 
-// CodeBlockButtonsHitTest: Copy ボタンの上を click すると copy_node にコードブロック
+// OverlayButtonHitTest: Copy ボタンの上を click するとコードブロックの CodeCopy
 // インデックスが入ること。共有 cache の matches も正しく動くかを軽く確認する。
-TEST_F(HitTestDWriteTest, CodeBlockButtonsHitTest_CopyHitReturnsNode)
+TEST_F(HitTestDWriteTest, OverlayButtonHitTest_CopyHitReturnsNode)
 {
     auto pl = ParseAndLayout("```\nint main() { return 0; }\n```");
 
@@ -210,10 +210,7 @@ TEST_F(HitTestDWriteTest, CodeBlockButtonsHitTest_CopyHitReturnsNode)
         pl.nodes, pl.cache, theme_, 0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f,
         sx, sy, content_width
     };
-    const auto hits = hit_test::CodeBlockButtonsHitTest(ctx);
-    EXPECT_EQ(hits.copy_node, code_idx);
-    EXPECT_EQ(hits.save_node, -1);
-    EXPECT_EQ(hits.diagram_copy_node, -1);
+    EXPECT_EQ(hit_test::OverlayButtonHitTest(ctx), (OverlayButtonHit{ code_idx, OverlayButton::CodeCopy }));
 }
 
 // ---- FindTableRow / FindTableCol ----

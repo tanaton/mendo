@@ -84,6 +84,14 @@ float MdScrollableContentHeight(const AppState& state) noexcept
         state.theme->margin_bottom);
 }
 
+void EndLeftDrag(AppState& state, SideEffectList& effects)
+{
+    state.view.drag = {};
+    if (state.interaction.gesture.GetPhase() == GesturePhase::Idle) {
+        PushEffect(effects, effect::ReleaseCapture{});
+    }
+}
+
 namespace {
 
 void ClearTooltip(AppState& state, SideEffectList& effects)
@@ -205,7 +213,8 @@ void ReduceScrollPane(AppState& state, SideEffectList& effects, const ScrollPane
 void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& a)
 {
     // ホバー or ドラッグ中のブロックが横スクロール可能ならそこに適用し、スワイプオーバーレイには流さない。
-    const int target = (state.view.h_drag_node >= 0) ? state.view.h_drag_node : state.view.hovered_h_block;
+    const int drag_node = state.view.HDragNode();
+    const int target = (drag_node >= 0) ? drag_node : state.view.hovered_h_block;
     if (target >= 0) {
         // pane_layout_cache 未確立時は ResolveBlockHScrollGeometry が can_scroll()=false を返す。
         const auto geom = ResolveBlockHScrollGeometry(state, target);
@@ -237,9 +246,7 @@ void ReduceBlockHScrollDragStarted(AppState& state, SideEffectList& effects, con
     }
     // ドラッグ state の初期化は SetCapture より前に行う
     auto& sv = state.view;
-    sv.h_drag_node = a.node_index;
-    sv.h_drag_start_x = a.dip_x;
-    sv.h_drag_start_scroll = sv.GetBlockScrollX(a.node_index, geom);
+    sv.drag = { .kind = LeftDrag::BlockHScroll, .block_node = a.node_index, .start_x = a.dip_x, .start_scroll = sv.GetBlockScrollX(a.node_index, geom) };
     PushEffect(effects, effect::SetCapture{});
     PushEffect(effects, effect::InvalidateWindow{});
 }
@@ -247,33 +254,24 @@ void ReduceBlockHScrollDragStarted(AppState& state, SideEffectList& effects, con
 void ReduceBlockHScrollDragMoved(AppState& state, SideEffectList& effects, const BlockHScrollDragMovedAction& a)
 {
     auto& sv = state.view;
-    if (sv.h_drag_node < 0) {
+    const int node = sv.HDragNode();
+    if (node < 0) {
         return;
     }
-    const auto geom = ResolveBlockHScrollGeometry(state, sv.h_drag_node);
+    const auto geom = ResolveBlockHScrollGeometry(state, node);
     if (!geom.can_scroll()) {
         return;
     }
     // dip_delta はドラッグの sum = サムが動く DIP。サムが (track - thumb_w) 動いたとき
     // コンテンツが scroll_max 動くべきなので、scroll_delta = dip_delta * scroll_max / drag_range。
     // thumb_w が PANE_SCROLLBAR_THUMB_MIN に張り付いた長大コンテンツでも 1:1 で対応する。
-    const float dip_delta = a.dip_x - sv.h_drag_start_x;
+    const float dip_delta = a.dip_x - sv.drag.start_x;
     const float thumb_w = BlockHScrollbarThumbWidth(geom.visible_width, geom.natural_width);
     const float drag_range = std::max(1.0f, geom.visible_width - thumb_w);
     const float scroll_max = geom.scroll_max();
-    if (SetBlockScrollX(state, sv.h_drag_node, sv.h_drag_start_scroll + dip_delta * scroll_max / drag_range, geom)) {
+    if (SetBlockScrollX(state, node, sv.drag.start_scroll + dip_delta * scroll_max / drag_range, geom)) {
         PushEffect(effects, effect::InvalidateWindow{});
     }
-}
-
-void ReduceBlockHScrollDragEnded(AppState& state, SideEffectList& effects)
-{
-    if (state.view.h_drag_node < 0) {
-        return;
-    }
-    state.view.h_drag_node = -1;
-    PushEffect(effects, effect::ReleaseCapture{});
-    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ApplyNavResult(AppState& state, SideEffectList& effects, NavEntry&& entry)
@@ -393,10 +391,15 @@ void ReduceShowHelp(AppState& state, SideEffectList& effects)
     PushEffect(effects, effect::LoadFile{ std::pmr::wstring(HELP_PATH) });
 }
 
-constexpr PaneController::DragTarget SidePaneDragTarget(PaneTarget pane) noexcept
+constexpr LeftDrag SidePaneScrollbarDrag(PaneTarget pane) noexcept
 {
-    using enum PaneController::DragTarget;
-    return (pane == PaneTarget::File) ? FileScrollbar : TocScrollbar;
+    return (pane == PaneTarget::File) ? LeftDrag::FileScrollbar : LeftDrag::TocScrollbar;
+}
+
+// edge のペインの右端にあるスプリッタのドラッグ。
+constexpr LeftDrag SplitterDrag(PaneTarget edge) noexcept
+{
+    return (edge == PaneTarget::File) ? LeftDrag::Splitter1 : LeftDrag::Splitter2;
 }
 
 // つまみ上クリック → 位置維持 (オフセットのみ記録)、つまみ外 → 中心へジャンプ。
@@ -419,10 +422,9 @@ PaneScrollInfo MdScrollInfo(const AppState& state) noexcept
 }
 
 // ドラッグ state の初期化は SetCapture より前に行う。
-void BeginScrollbarDrag(AppState& state, SideEffectList& effects, PaneController::DragTarget target, float drag_offset)
+void BeginScrollbarDrag(AppState& state, SideEffectList& effects, LeftDrag target, float drag_offset)
 {
-    state.view.panes.StartDrag(target);
-    state.view.panes.SetDragScrollOffset(drag_offset);
+    state.view.drag = { .kind = target, .grip_offset = drag_offset };
     PushEffect(effects, effect::SetCapture{});
 }
 
@@ -433,8 +435,8 @@ void ApplyHoverHighlights(AppState& state, SideEffectList& effects, const Pointe
     bool changed = state.window.titlebar.SetHovered(h.titlebar);
     changed |= state.search.search_bar_ctrl.SetHover(h.search_bar);
     changed |= std::exchange(state.interaction.nav_hover, h.nav) != h.nav;
-    changed |= std::exchange(state.interaction.hovered, h.buttons) != h.buttons;
-    if (state.view.h_drag_node < 0) {
+    changed |= std::exchange(state.interaction.hovered, h.overlay_button) != h.overlay_button;
+    if (state.view.HDragNode() < 0) {
         changed |= std::exchange(state.view.hovered_h_block, h.h_block) != h.h_block;
     }
     for (const auto t : { PaneTarget::File, PaneTarget::Toc }) {
@@ -464,24 +466,15 @@ void ReduceMouseLeave(AppState& state, SideEffectList& effects)
 
 void ReduceCaptureChanged(AppState& state, SideEffectList& effects)
 {
-    state.search.search_bar_ctrl.EndDrag();
     bool invalidate = false;
     if (state.interaction.gesture.GetPhase() != GesturePhase::Idle) {
         state.interaction.gesture.Reset();
         invalidate = true;
     }
     // キャプチャ喪失時 (Alt+Tab・他アプリの SetCapture 等) は WM_LBUTTONUP が
-    // 届かないため、進行中の全ドラッグ状態をここで解除する
-    if (state.view.viewport.IsDragging()) {
-        state.view.viewport.SetDragging(false);
-        invalidate = true;
-    }
-    if (state.view.panes.GetDragTarget() != PaneController::DragTarget::None) {
-        state.view.panes.EndDrag();
-        invalidate = true;
-    }
-    if (state.view.h_drag_node >= 0) {
-        state.view.h_drag_node = -1;
+    // 届かないため、進行中のドラッグをここで終える。キャプチャは既に無いので解放しない。
+    if (state.view.drag.kind != LeftDrag::None) {
+        state.view.drag = {};
         invalidate = true;
     }
     if (invalidate) {
@@ -491,23 +484,20 @@ void ReduceCaptureChanged(AppState& state, SideEffectList& effects)
 
 void ReduceSplitterDragStarted(AppState& state, SideEffectList& effects, const SplitterDragStartedAction& a)
 {
-    if (!PaneController::IsSplitterDragTarget(a.target)) {
-        return;
-    }
-    state.view.panes.StartDrag(a.target);
+    state.view.drag = { .kind = SplitterDrag(a.edge) };
     PushEffect(effects, effect::SetCapture{});
 }
 
 void ReduceSplitterDragMoved(AppState& state, SideEffectList& effects, const SplitterDragMovedAction& a)
 {
-    const auto target = state.view.panes.GetDragTarget();
-    if (!PaneController::IsSplitterDragTarget(target)) {
+    const auto target = state.view.drag.kind;
+    if (!IsSplitterDrag(target)) {
         return;
     }
     const float splitter_w = state.theme->splitter_width;
     const float before_file = state.view.panes.GetSidePaneWidth(PaneTarget::File);
     const float before_toc = state.view.panes.GetSidePaneWidth(PaneTarget::Toc);
-    state.view.panes.DragSplitterTo(target, a.dip_x, state.pane_layout_cache.WindowWidth(), splitter_w);
+    state.view.panes.DragSplitterTo(target == LeftDrag::Splitter1 ? PaneTarget::File : PaneTarget::Toc, a.dip_x, state.pane_layout_cache.WindowWidth(), splitter_w);
     if (state.view.panes.GetSidePaneWidth(PaneTarget::File) == before_file && state.view.panes.GetSidePaneWidth(PaneTarget::Toc) == before_toc) {
         return;
     }
@@ -515,21 +505,27 @@ void ReduceSplitterDragMoved(AppState& state, SideEffectList& effects, const Spl
     PushEffect(effects, effect::InvalidateWindow{});
 }
 
-void ReduceSplitterDragEnded(AppState& state, SideEffectList& effects)
+void ReduceLeftDragEnded(AppState& state, SideEffectList& effects)
 {
-    const auto drag = state.view.panes.GetDragTarget();
-    if (!PaneController::IsSplitterDragTarget(drag)) {
+    const LeftDrag drag = state.view.drag.kind;
+    if (drag == LeftDrag::None || drag == LeftDrag::TextSelect) {
         return;
     }
-    state.view.panes.EndDrag();
-    state.pane_layout_cache.Invalidate();
-    PushEffect(effects, effect::ReleaseCapture{});
-    PushEffect(effects, effect::PerformResizeEnd{});
+    EndLeftDrag(state, effects);
+    if (IsSplitterDrag(drag)) {
+        state.pane_layout_cache.Invalidate();
+    }
+    if (IsSplitterDrag(drag) || drag == LeftDrag::MdScrollbar) {
+        PushEffect(effects, effect::PerformResizeEnd{});
+    }
+    else if (drag == LeftDrag::BlockHScroll) {
+        PushEffect(effects, effect::InvalidateWindow{});
+    }
 }
 
 void ReduceSearchInputDragStarted(AppState& state, SideEffectList& effects, const SearchInputDragStartedAction& a)
 {
-    state.search.search_bar_ctrl.StartDrag(a.caret_pos);
+    state.view.drag = { .kind = LeftDrag::SearchInput, .search_anchor = a.caret_pos };
     PushEffect(effects, effect::SetCapture{});
     PushEffect(
         effects,
@@ -539,25 +535,20 @@ void ReduceSearchInputDragStarted(AppState& state, SideEffectList& effects, cons
 void ReduceSearchInputDragMoved(AppState& state, SideEffectList& effects, const SearchInputDragMovedAction& a)
 {
     const auto& ctrl = state.search.search_bar_ctrl;
-    if (!ctrl.IsDragging()) {
+    if (state.view.drag.kind != LeftDrag::SearchInput) {
         return;
     }
-    if (a.caret_pos == ctrl.GetCaretPos() && ctrl.GetDragAnchor() == ctrl.GetSelectionStart()) {
+    const int anchor = state.view.drag.search_anchor;
+    if (a.caret_pos == ctrl.GetCaretPos() && anchor == ctrl.GetSelectionStart()) {
         return;
     }
     PushEffect(
         effects,
         effect::SearchFocus{
             effect::SearchFocus::Mode::SetSelection,
-            ctrl.GetDragAnchor(),
+            anchor,
             a.caret_pos,
         });
-}
-
-void ReduceSearchInputDragEnded(AppState& state, SideEffectList& effects)
-{
-    state.search.search_bar_ctrl.EndDrag();
-    PushEffect(effects, effect::ReleaseCapture{});
 }
 
 void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, const MdScrollbarDragStartedAction& a)
@@ -565,7 +556,7 @@ void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, cons
     const auto info = MdScrollInfo(state);
     auto& viewport = state.view.viewport;
     const auto grip = ComputeScrollbarDragGrip(ComputeThumbY(info, viewport.GetScrollY()), info.thumb_height, a.dip_y);
-    BeginScrollbarDrag(state, effects, PaneController::DragTarget::MdScrollbar, grip.drag_offset);
+    BeginScrollbarDrag(state, effects, LeftDrag::MdScrollbar, grip.drag_offset);
     // thumb 内クリックなら 1st jump は不要 (thumb-grip オフセット記録だけ)。
     if (!grip.inside_thumb) {
         WithScrollEffects(state, effects, [&] { viewport.ScrollTo(ScrollFromThumbY(info, a.dip_y - grip.drag_offset)); });
@@ -574,21 +565,11 @@ void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, cons
 
 void ReduceMdScrollbarDragMoved(AppState& state, SideEffectList& effects, const MdScrollbarDragMovedAction& a)
 {
-    if (state.view.panes.GetDragTarget() != PaneController::DragTarget::MdScrollbar) {
+    if (state.view.drag.kind != LeftDrag::MdScrollbar) {
         return;
     }
-    const float new_thumb_y = a.dip_y - state.view.panes.GetDragScrollOffset();
+    const float new_thumb_y = a.dip_y - state.view.drag.grip_offset;
     WithScrollEffects(state, effects, [&] { state.view.viewport.ScrollTo(ScrollFromThumbY(MdScrollInfo(state), new_thumb_y)); });
-}
-
-void ReduceMdScrollbarDragEnded(AppState& state, SideEffectList& effects)
-{
-    if (state.view.panes.GetDragTarget() != PaneController::DragTarget::MdScrollbar) {
-        return;
-    }
-    state.view.panes.EndDrag();
-    PushEffect(effects, effect::ReleaseCapture{});
-    PushEffect(effects, effect::PerformResizeEnd{});
 }
 
 void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, const PaneScrollbarDragStartedAction& a)
@@ -598,7 +579,7 @@ void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, co
         return;
     }
     const auto grip = ComputeScrollbarDragGrip(ComputeThumbY(ctx.info, ctx.scroll.scroll_y), ctx.info.thumb_height, a.dip_y);
-    BeginScrollbarDrag(state, effects, SidePaneDragTarget(a.pane), grip.drag_offset);
+    BeginScrollbarDrag(state, effects, SidePaneScrollbarDrag(a.pane), grip.drag_offset);
     if (!grip.inside_thumb) {
         ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, a.dip_y - grip.drag_offset);
         PushEffect(effects, effect::InvalidateWindow{});
@@ -609,24 +590,13 @@ void ReducePaneScrollbarDragMoved(AppState& state, SideEffectList& effects, cons
 {
     // drag target は pane だけから決まるので、ctx 構築前に短絡し
     // 非ドラッグ時の per-event GetEntries().size() + ComputeScrollInfo を回避。
-    if (state.view.panes.GetDragTarget() != SidePaneDragTarget(a.pane)) {
+    if (state.view.drag.kind != SidePaneScrollbarDrag(a.pane)) {
         return;
     }
     const auto ctx = GetSidePaneContext(state, a.pane);
-    const float new_thumb_y = a.dip_y - state.view.panes.GetDragScrollOffset();
+    const float new_thumb_y = a.dip_y - state.view.drag.grip_offset;
     ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, new_thumb_y);
     PushEffect(effects, effect::InvalidateWindow{});
-}
-
-void ReducePaneScrollbarDragEnded(AppState& state, SideEffectList& effects)
-{
-    using enum PaneController::DragTarget;
-    const auto drag = state.view.panes.GetDragTarget();
-    if (drag != FileScrollbar && drag != TocScrollbar) {
-        return;
-    }
-    state.view.panes.EndDrag();
-    PushEffect(effects, effect::ReleaseCapture{});
 }
 
 void ReduceTextSelectionStarted(AppState& state, SideEffectList& effects, const TextSelectionStartedAction& a)
@@ -636,7 +606,7 @@ void ReduceTextSelectionStarted(AppState& state, SideEffectList& effects, const 
         return;
     }
     state.view.viewport.SetAnchor(a.node_index, a.text_pos);
-    state.view.viewport.SetDragging(true);
+    state.view.drag = { .kind = LeftDrag::TextSelect };
     auto& selection = state.view.viewport.GetSelection();
     const bool had_selection = selection.active;
     selection.Clear();
@@ -648,7 +618,7 @@ void ReduceTextSelectionStarted(AppState& state, SideEffectList& effects, const 
 
 void ReduceTextSelectionMoved(AppState& state, SideEffectList& effects, const TextSelectionMovedAction& a)
 {
-    if (!state.view.viewport.IsDragging() || a.node_index < 0) {
+    if (state.view.drag.kind != LeftDrag::TextSelect || a.node_index < 0) {
         return;
     }
     // WM_MOUSEMOVE は 16ms 周期で連発するため、選択が同値なら早期 return。
@@ -666,7 +636,7 @@ void ReduceTextSelectionMoved(AppState& state, SideEffectList& effects, const Te
 
 void ReduceTextSelectionEnded(AppState& state, SideEffectList& effects, const TextSelectionEndedAction& a)
 {
-    if (!state.view.viewport.IsDragging()) {
+    if (state.view.drag.kind != LeftDrag::TextSelect) {
         return;
     }
     bool changed = false;
@@ -679,8 +649,7 @@ void ReduceTextSelectionEnded(AppState& state, SideEffectList& effects, const Te
         changed = next != state.view.viewport.GetSelection();
         state.view.viewport.SetSelection(next);
     }
-    state.view.viewport.SetDragging(false);
-    PushEffect(effects, effect::ReleaseCapture{});
+    EndLeftDrag(state, effects);
     // 選択の無いクリックなど、見た目が変わらないなら再描画しない。
     if (changed) {
         PushEffect(effects, effect::InvalidateWindow{});
@@ -776,7 +745,7 @@ void ReduceSelectWord(AppState& state, SideEffectList& effects, const SelectWord
     if (a.node_index < 0 || a.node_index >= static_cast<int>(nodes.size())) {
         return;
     }
-    const std::string_view text = nodes[a.node_index].LinearizedText();
+    const std::string_view text = nodes[a.node_index].GetText();
     if (text.empty()) {
         return;
     }
@@ -797,12 +766,11 @@ void ReduceClearSelection(AppState& state, SideEffectList& effects)
         return;
     }
     auto& viewport = state.view.viewport;
-    const bool dragging = viewport.IsDragging();
+    const bool dragging = state.view.drag.kind == LeftDrag::TextSelect;
     const bool visible = viewport.GetSelection().active || dragging;
-    // ClearSelection はドラッグ状態も落とすため、テキスト選択ドラッグ中だと後続の
-    // LButtonUp が TextSelectionEnded に入らずキャプチャが残る。
+    // テキスト選択のドラッグ中なら LButtonUp を待たずに終える。
     if (dragging) {
-        PushEffect(effects, effect::ReleaseCapture{});
+        EndLeftDrag(state, effects);
     }
     viewport.ClearSelection();
     if (visible) {
@@ -866,7 +834,7 @@ void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
     state.pane_layout_cache.Invalidate();
     // 色のみの変更なのでテキストレイアウトは維持する。描画エフェクトの固定ブラシは SetColor で
     // 色だけ差し替わるので再適用不要で、テーマ色を焼き込んだ Mermaid bitmap のみ破棄する。
-    state.document.layout_cache.InvalidateDiagramBitmaps(state.document.doc.GetNodes());
+    state.document.layout_cache.InvalidateDiagramBitmaps(state.document.doc.GetDiagramNodeIndices());
     if (anchor.IsValid()) {
         // Mermaid 再レンダリングで微小な高さ変化が起きるので target で追従する。
         state.view.viewport.SetScrollTarget(anchor.node, anchor.offset);
@@ -1003,7 +971,6 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const HWheelAction& a) { ReduceHWheel(state, effects, a); },
         [&](const BlockHScrollDragStartedAction& a) { ReduceBlockHScrollDragStarted(state, effects, a); },
         [&](const BlockHScrollDragMovedAction& a) { ReduceBlockHScrollDragMoved(state, effects, a); },
-        [&](const BlockHScrollDragEndedAction&) { ReduceBlockHScrollDragEnded(state, effects); },
 
         // ---- 検索 ----
         [&](const OpenSearchBarAction&) { state.search.search_bar_ctrl.OnOpen(state.document.doc.GetNodes()); },
@@ -1022,16 +989,13 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const PointerHoverAction& a) { ReducePointerHover(state, effects, a.hover); },
         [&](const SplitterDragStartedAction& a) { ReduceSplitterDragStarted(state, effects, a); },
         [&](const SplitterDragMovedAction& a) { ReduceSplitterDragMoved(state, effects, a); },
-        [&](const SplitterDragEndedAction&) { ReduceSplitterDragEnded(state, effects); },
+        [&](const LeftDragEndedAction&) { ReduceLeftDragEnded(state, effects); },
         [&](const SearchInputDragStartedAction& a) { ReduceSearchInputDragStarted(state, effects, a); },
         [&](const SearchInputDragMovedAction& a) { ReduceSearchInputDragMoved(state, effects, a); },
-        [&](const SearchInputDragEndedAction&) { ReduceSearchInputDragEnded(state, effects); },
         [&](const MdScrollbarDragStartedAction& a) { ReduceMdScrollbarDragStarted(state, effects, a); },
         [&](const MdScrollbarDragMovedAction& a) { ReduceMdScrollbarDragMoved(state, effects, a); },
-        [&](const MdScrollbarDragEndedAction&) { ReduceMdScrollbarDragEnded(state, effects); },
         [&](const PaneScrollbarDragStartedAction& a) { ReducePaneScrollbarDragStarted(state, effects, a); },
         [&](const PaneScrollbarDragMovedAction& a) { ReducePaneScrollbarDragMoved(state, effects, a); },
-        [&](const PaneScrollbarDragEndedAction&) { ReducePaneScrollbarDragEnded(state, effects); },
         [&](const TextSelectionStartedAction& a) { ReduceTextSelectionStarted(state, effects, a); },
         [&](const TextSelectionMovedAction& a) { ReduceTextSelectionMoved(state, effects, a); },
         [&](const TextSelectionEndedAction& a) { ReduceTextSelectionEnded(state, effects, a); },

@@ -288,9 +288,8 @@ TEST_F(HitTestTest, HitTestTable_ClickAboveAllRowsReturnsTextEnd)
                                     theme_.margin_left + 10.0f,
                                     entry_text_top - 10.0f);
     EXPECT_EQ(r.node_index, table_idx);
-    // テーブルの GetText() は空なので、末尾は concat_text で測る (0 だと先頭セルと区別できない)。
-    EXPECT_EQ(r.text_pos,
-              static_cast<uint32_t>(pr.nodes[table_idx].table_data()->concat_text.size()));
+    // 末尾は concat_text の長さ (0 だと先頭セルと区別できない)。
+    EXPECT_EQ(r.text_pos, static_cast<uint32_t>(pr.nodes[table_idx].GetText().size()));
 }
 
 TEST_F(HitTestTest, HitTestTable_HitsFirstCellWithoutCellLayout)
@@ -328,7 +327,7 @@ TEST_F(HitTestTest, SaveButton_NoDiagramReturnsNegative)
         0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f, 400, 100,
         content_width
     };
-    EXPECT_EQ(hit_test::CodeBlockButtonsHitTest(ctx).save_node, -1);
+    EXPECT_NE(hit_test::OverlayButtonHitTest(ctx).kind, OverlayButton::DiagramSave);
 }
 
 TEST_F(HitTestTest, SaveButton_NonDiagramCodeBlockReturnsNegative)
@@ -340,14 +339,14 @@ TEST_F(HitTestTest, SaveButton_NonDiagramCodeBlockReturnsNegative)
         0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f, 400, 100,
         content_width
     };
-    EXPECT_EQ(hit_test::CodeBlockButtonsHitTest(ctx).save_node, -1);
+    EXPECT_NE(hit_test::OverlayButtonHitTest(ctx).kind, OverlayButton::DiagramSave);
 }
 
 TEST_F(HitTestTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
 {
     // Mermaid ブロックはあるが diagram.bitmap が空（未ロード）→ -1
     auto pr = ParseAndLayout("```mermaid\ngraph TD\n```");
-    const int mermaid_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::CodeBlock);
+    const int mermaid_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::Diagram);
     ASSERT_GE(mermaid_idx, 0);
     ASSERT_TRUE(IsDiagramLanguage(pr.nodes[mermaid_idx].code_language()));
     const auto* diagram = pr.cache.FindDiagram(static_cast<size_t>(mermaid_idx));
@@ -362,7 +361,7 @@ TEST_F(HitTestTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
         static_cast<int>(entry_text_top + 5),
         content_width
     };
-    EXPECT_EQ(hit_test::CodeBlockButtonsHitTest(ctx).save_node, -1);
+    EXPECT_NE(hit_test::OverlayButtonHitTest(ctx).kind, OverlayButton::DiagramSave);
 }
 
 TEST_F(HitTestTest, SaveButton_EmptyDocumentReturnsNegative)
@@ -374,5 +373,5 @@ TEST_F(HitTestTest, SaveButton_EmptyDocumentReturnsNegative)
         0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f, 400, 100,
         content_width
     };
-    EXPECT_EQ(hit_test::CodeBlockButtonsHitTest(ctx).save_node, -1);
+    EXPECT_NE(hit_test::OverlayButtonHitTest(ctx).kind, OverlayButton::DiagramSave);
 }

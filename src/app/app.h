@@ -257,7 +257,7 @@ private:
         Kind kind = Kind::Content;
         SearchBarHitZone search_bar = SearchBarHitZone::None;
         NavButtonHover nav = NavButtonHover::None;
-        hit_test::CodeBlockButtonHit buttons{};
+        OverlayButtonHit overlay_button{};
     };
     MdPaneHit ResolveMdPaneHit(float dip_x, float dip_y, const MdPaneHitContext& hit_ctx, const PaneLayout& layout) const;
 
@@ -271,7 +271,7 @@ private:
     bool HandleTitleBarClick(float dip_x, float dip_y);
     bool HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& layout, bool is_double_click);
     void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& layout);
-    void HandleOverlayButtonClick(const hit_test::CodeBlockButtonHit& btn_hit, float content_width);
+    void HandleOverlayButtonClick(const OverlayButtonHit& hit, float content_width);
     // ホバー中ブロックの水平スクロールバー上ならドラッグを開始して true。
     bool TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x);
     void HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout);
@@ -339,7 +339,7 @@ private:
 
     void CancelPendingResources();
     void ResetViewForNewDocument();
-    void ReleaseCaptureIfDragDropped(bool had_left_drag);
+    void EndDocumentBoundDrag();
 
     // ---- テーマ ----
     void HandleApplyThemeChange(const effect::ApplyThemeChange& e);

@@ -78,6 +78,8 @@ const char* NodeTypeLabel(NodeType t)
         return "TaskListItem";
     case NodeType::Image:
         return "Image";
+    case NodeType::Diagram:
+        return "Diagram";
     }
     return "?";
 }

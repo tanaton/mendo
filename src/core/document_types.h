@@ -23,7 +23,9 @@ enum class NodeType : uint8_t {
     BlockQuote,
     Table,
     TaskListItem,
-    Image
+    Image,
+    // Mermaid / LaTeX 等、テキストではなくビットマップで描画するコードブロック。code_language() で描画器を選ぶ。
+    Diagram
 };
 
 enum class AlertType : uint8_t {
@@ -262,19 +264,6 @@ struct Node {
         run_count_ = static_cast<uint32_t>(runs_value.size());
     }
 
-    // テーブルは text_ が空で線形化テキストを table->concat_text に保持する。
-    // HitTestTable / OnLButtonDblClk が返す text_pos も concat_text 内のグローバル offset
-    // 体系で揃っているため、選択範囲を前提とする抽出側はこちらを使う。
-    constexpr std::string_view LinearizedText() const noexcept
-    {
-        if (type == NodeType::Table) {
-            if (const auto* tbl = table_data()) {
-                return tbl->concat_text;
-            }
-        }
-        return GetText();
-    }
-
     // get_if 風に *_data() でポインタを返す。所持していなければ nullptr。
     // C++23 deducing this で const/非 const を 1 つに集約。
     constexpr auto* list_data(this auto& self) noexcept
@@ -337,7 +326,7 @@ struct Node {
     // 該当 alternative を持たないノードでは黙ってデフォルト値 (0 / None / false) を返す。
     //
     // 規約: ホットパス (全 Node ループ等) では `node.type == NodeType::X && node.foo()` の順で短絡評価し、
-    //       variant タグ比較を skip すること。例: `node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language())`、
+    //       variant タグ比較を skip すること。例: `node.type == NodeType::Heading && node.heading_level() <= 2`、
     //       `node.alert_type != AlertType::None && node.alert_label_length() > 0`。
     //       新規アクセサを追加する場合もこの規約に倣い、type で先にゲートできる呼び出し側を維持する。
     constexpr int8_t heading_level() const noexcept
@@ -442,22 +431,10 @@ private:
 static_assert(sizeof(Node) <= 72,
               "Node size regression: exceeded 72 bytes — see comment above for remediation steps");
 
-// Mermaid / LaTeX 等、テキストではなくビットマップで描画するコードブロック。
-constexpr bool IsDiagramCodeBlock(const Node& node) noexcept
-{
-    return node.type == NodeType::CodeBlock && IsDiagramLanguage(node.code_language());
-}
-
-// テキストではなくビットマップを描くノード (画像 / Diagram コードブロック)。
+// テキストではなくビットマップを描くノード。
 constexpr bool IsBitmapDrawNode(const Node& node) noexcept
 {
-    return node.type == NodeType::Image || IsDiagramCodeBlock(node);
-}
-
-// CodeBlock かつ非 Diagram 言語。ブロック横スクロール対象判定で頻出する組合せ。
-constexpr bool IsScrollableCodeBlock(const Node& node) noexcept
-{
-    return node.type == NodeType::CodeBlock && !IsDiagramLanguage(node.code_language());
+    return node.type == NodeType::Image || node.type == NodeType::Diagram;
 }
 
 constexpr bool IsListItem(const Node& node) noexcept

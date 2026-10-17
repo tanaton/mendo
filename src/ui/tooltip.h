@@ -17,9 +17,7 @@ struct TooltipTarget {
         TocPaneButton,
         MdLink,
         MdImage,
-        CopyButton,
-        SaveButton,
-        DiagramCopyButton,
+        OverlayButton, // key は OverlayButton
         NavButton,
     };
 

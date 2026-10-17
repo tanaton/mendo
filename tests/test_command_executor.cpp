@@ -50,6 +50,23 @@ protected:
         return hr;
     }
 
+    struct BrushSpec {
+        BrushId id;
+        D2D1_COLOR_F color;
+    };
+    static FixedBrushArray MakeBrushes(ID2D1RenderTarget* rt, std::span<const BrushSpec> specs)
+    {
+        FixedBrushArray brushes;
+        for (const auto& s : specs) {
+            EXPECT_HRESULT_SUCCEEDED(rt->CreateSolidColorBrush(s.color, &brushes[std::to_underlying(s.id)]));
+        }
+        return brushes;
+    }
+    static FixedBrushArray MakeBrushes(ID2D1RenderTarget* rt, std::initializer_list<BrushSpec> specs)
+    {
+        return MakeBrushes(rt, std::span{ specs.begin(), specs.size() });
+    }
+
     // 32bppPBGRA の (x, y) を 0xAARRGGBB で返す。
     uint32_t PixelAt(UINT x, UINT y) const
     {
@@ -97,20 +114,20 @@ protected:
         const D2D1_POINT_2F origin = D2D1::Point2F(1.5f, 2.0f);
         ComPtr<ID2D1RenderTarget> rt;
         EXPECT_HRESULT_SUCCEEDED(CreateRenderTarget(rt, 96));
-        FixedBrushArray brushes;
-        for (const auto& s : styles) {
-            rt->CreateSolidColorBrush(s.color, &brushes[std::to_underlying(s.id)]);
+        std::vector<BrushSpec> specs{ { BrushId::CodeText, D2D1::ColorF(D2D1::ColorF::Black) } };
+        for (const auto& st : styles) {
+            specs.push_back({ st.id, st.color });
         }
+        const auto brushes = MakeBrushes(rt.Get(), specs);
         const auto layout = CreateTextLayout(text, L"Consolas", L"ja-jp", 1000.0f, 1000.0f);
         ComPtr<ID2D1SolidColorBrush> black;
         rt->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black), &black);
         rt->BeginDraw();
         rt->Clear(D2D1::ColorF(D2D1::ColorF::White));
         if (via_executor) {
-            CommandExecutor exec;
             DrawCommandList cmds;
-            cmds.emplace_back(DrawTextLayoutCmd{ .origin = origin, .layout = layout.Get(), .color = D2D1::ColorF(D2D1::ColorF::Black), .syntax_tokens = tokens });
-            exec.Execute(cmds, rt.Get(), &brushes);
+            cmds.emplace_back(DrawTextLayoutCmd{ .origin = origin, .layout = layout.Get(), .brush_id = BrushId::CodeText, .syntax_tokens = tokens });
+            ExecuteDrawCommands(cmds, rt.Get(), &brushes);
         }
         else {
             for (const auto& t : tokens) {
@@ -138,97 +155,98 @@ protected:
 
 TEST_F(CommandExecutorIntegrationTest, ExecuteIgnoresNullRenderTarget)
 {
-    CommandExecutor exec;
     DrawCommandList cmds;
-    cmds.emplace_back(FillRectCmd{ D2D1::RectF(0, 0, 10, 10), D2D1::ColorF(D2D1::ColorF::Red) });
-    exec.Execute(cmds, nullptr);
+    cmds.emplace_back(FillRectCmd{ D2D1::RectF(0, 0, 10, 10), BrushId::Text });
+    ExecuteDrawCommands(cmds, nullptr, nullptr);
 }
 
 TEST_F(CommandExecutorIntegrationTest, ExecuteEmptyListSucceeds)
 {
-    CommandExecutor exec;
     DrawCommandList cmds;
     rt_->BeginDraw();
-    exec.Execute(cmds, rt_.Get());
+    ExecuteDrawCommands(cmds, rt_.Get(), nullptr);
     EXPECT_HRESULT_SUCCEEDED(rt_->EndDraw());
 }
 
-// 動的色は 1 本のブラシを SetColor で使い回すので、後続の色変更が先行の描画に影響しないこと。
-TEST_F(CommandExecutorIntegrationTest, DistinctCustomColorsDrawWithOwnColor)
+// 各コマンドは brush_id の固定ブラシで描かれる。
+TEST_F(CommandExecutorIntegrationTest, FixedBrushesDrawWithOwnColor)
 {
-    CommandExecutor exec;
+    const auto brushes = MakeBrushes(rt_.Get(), {
+        { BrushId::Text, D2D1::ColorF(D2D1::ColorF::Red) },
+        { BrushId::Heading, D2D1::ColorF(0x00FF00) },
+        { BrushId::Link, D2D1::ColorF(D2D1::ColorF::Blue) },
+    });
     DrawCommandList cmds;
-    cmds.emplace_back(FillRectCmd{ D2D1::RectF(0, 0, 4, 4), D2D1::ColorF(D2D1::ColorF::Red) });
-    cmds.emplace_back(FillRectCmd{ D2D1::RectF(4, 0, 8, 4), D2D1::ColorF(0x00FF00) });
-    cmds.emplace_back(FillRectCmd{ D2D1::RectF(8, 0, 12, 4), D2D1::ColorF(D2D1::ColorF::Blue) });
+    cmds.emplace_back(FillRectCmd{ D2D1::RectF(0, 0, 4, 4), BrushId::Text });
+    cmds.emplace_back(FillRectCmd{ D2D1::RectF(4, 0, 8, 4), BrushId::Heading });
+    cmds.emplace_back(FillRectCmd{ D2D1::RectF(8, 0, 12, 4), BrushId::Link });
+    // 未作成のブラシは描かない。
+    cmds.emplace_back(FillRectCmd{ D2D1::RectF(12, 0, 16, 4), BrushId::Hr });
 
     rt_->BeginDraw();
-    exec.Execute(cmds, rt_.Get());
+    rt_->Clear(D2D1::ColorF(D2D1::ColorF::White));
+    ExecuteDrawCommands(cmds, rt_.Get(), &brushes);
     ASSERT_HRESULT_SUCCEEDED(rt_->EndDraw());
     EXPECT_EQ(PixelAt(1, 1), 0xFFFF0000u);
     EXPECT_EQ(PixelAt(5, 1), 0xFF00FF00u);
     EXPECT_EQ(PixelAt(9, 1), 0xFF0000FFu);
+    EXPECT_EQ(PixelAt(13, 1), 0xFFFFFFFFu);
 }
 
-TEST_F(CommandExecutorIntegrationTest, RenderTargetSwitchRecreatesBrush)
+// opacity は描いた後にブラシへ残らない。
+TEST_F(CommandExecutorIntegrationTest, RoundedRectOpacityIsRestored)
 {
-    CommandExecutor exec;
+    const auto brushes = MakeBrushes(rt_.Get(), { { BrushId::OverlayBlack, D2D1::ColorF(D2D1::ColorF::Black) } });
     DrawCommandList cmds;
-    cmds.emplace_back(FillRectCmd{ D2D1::RectF(0, 0, 4, 4), D2D1::ColorF(D2D1::ColorF::Red) });
+    cmds.emplace_back(FillRoundedRectCmd{ D2D1::RectF(0, 0, 8, 8), 0.0f, 0.0f, BrushId::OverlayBlack, 0.5f });
+    cmds.emplace_back(FillRectCmd{ D2D1::RectF(8, 0, 16, 8), BrushId::OverlayBlack });
 
     rt_->BeginDraw();
-    exec.Execute(cmds, rt_.Get());
+    rt_->Clear(D2D1::ColorF(D2D1::ColorF::White));
+    ExecuteDrawCommands(cmds, rt_.Get(), &brushes);
     ASSERT_HRESULT_SUCCEEDED(rt_->EndDraw());
-
-    ComPtr<ID2D1RenderTarget> rt2;
-    ASSERT_HRESULT_SUCCEEDED(CreateRenderTarget(rt2));
-    rt2->BeginDraw();
-    exec.Execute(cmds, rt2.Get());
-    ASSERT_HRESULT_SUCCEEDED(rt2->EndDraw());
-    EXPECT_EQ(PixelAt(1, 1), 0xFFFF0000u);
+    const uint32_t half = PixelAt(4, 4);
+    EXPECT_NE(half, 0xFFFFFFFFu);
+    EXPECT_NE(half, 0xFF000000u);
+    EXPECT_EQ(PixelAt(12, 4), 0xFF000000u);
 }
 
 TEST_F(CommandExecutorIntegrationTest, AllShapeCommandsExecuteWithoutError)
 {
-    CommandExecutor exec;
     DrawCommandList cmds;
-    cmds.emplace_back(FillRectCmd{ D2D1::RectF(0, 0, 8, 8), D2D1::ColorF(D2D1::ColorF::Red) });
-    cmds.emplace_back(FillRoundedRectCmd{
-        D2D1::RectF(8, 0, 16, 8), 2.0f, 2.0f, D2D1::ColorF(D2D1::ColorF::Green) });
-    cmds.emplace_back(DrawLineCmd{
-        D2D1::Point2F(0, 16), D2D1::Point2F(32, 16),
-        D2D1::ColorF(D2D1::ColorF::Blue), 1.0f });
-    cmds.emplace_back(FillEllipseCmd{ D2D1::Point2F(20, 20), 4.0f, 4.0f, D2D1::ColorF(D2D1::ColorF::Yellow) });
-    cmds.emplace_back(DrawEllipseCmd{ D2D1::Point2F(28, 28), 2.0f, 2.0f, D2D1::ColorF(D2D1::ColorF::Magenta), 1.0f });
+    const auto brushes = MakeBrushes(rt_.Get(), { { BrushId::Text, D2D1::ColorF(D2D1::ColorF::Red) } });
+    cmds.emplace_back(FillRectCmd{ D2D1::RectF(0, 0, 8, 8), BrushId::Text });
+    cmds.emplace_back(FillRoundedRectCmd{ D2D1::RectF(8, 0, 16, 8), 2.0f, 2.0f, BrushId::Text });
+    cmds.emplace_back(DrawLineCmd{ D2D1::Point2F(0, 16), D2D1::Point2F(32, 16), 1.0f, BrushId::Text });
+    cmds.emplace_back(FillEllipseCmd{ D2D1::Point2F(20, 20), 4.0f, 4.0f, BrushId::Text });
+    cmds.emplace_back(DrawEllipseCmd{ D2D1::Point2F(28, 28), 2.0f, 2.0f, 1.0f, BrushId::Text });
     cmds.emplace_back(PushClipCmd{ D2D1::RectF(0, 0, 32, 32) });
     cmds.emplace_back(SetTransformCmd{ D2D1::Matrix3x2F::Identity() });
     cmds.emplace_back(PopClipCmd{});
 
     rt_->BeginDraw();
-    exec.Execute(cmds, rt_.Get());
+    ExecuteDrawCommands(cmds, rt_.Get(), &brushes);
     EXPECT_HRESULT_SUCCEEDED(rt_->EndDraw());
 }
 
 TEST_F(CommandExecutorIntegrationTest, NullBitmapDrawIsSkipped)
 {
-    CommandExecutor exec;
     DrawCommandList cmds;
     cmds.emplace_back(DrawBitmapCmd{ nullptr, D2D1::RectF(0, 0, 8, 8) });
 
     rt_->BeginDraw();
-    exec.Execute(cmds, rt_.Get());
+    ExecuteDrawCommands(cmds, rt_.Get(), nullptr);
     EXPECT_HRESULT_SUCCEEDED(rt_->EndDraw());
 }
 
 TEST_F(CommandExecutorIntegrationTest, NullTextLayoutDrawIsSkipped)
 {
-    CommandExecutor exec;
     DrawCommandList cmds;
-    cmds.emplace_back(DrawTextLayoutCmd{
-        D2D1::Point2F(0, 0), nullptr, D2D1::ColorF(D2D1::ColorF::Black) });
+    cmds.emplace_back(DrawTextLayoutCmd{ D2D1::Point2F(0, 0), nullptr, BrushId::Text });
+    const auto brushes = MakeBrushes(rt_.Get(), { { BrushId::Text, D2D1::ColorF(D2D1::ColorF::Black) } });
 
     rt_->BeginDraw();
-    exec.Execute(cmds, rt_.Get());
+    ExecuteDrawCommands(cmds, rt_.Get(), &brushes);
     EXPECT_HRESULT_SUCCEEDED(rt_->EndDraw());
 }
 
@@ -249,18 +267,16 @@ TEST_F(CommandExecutorIntegrationTest, TallTextLayoutMatchesDrawTextLayout)
     const auto render = [&](bool via_executor) {
         ComPtr<ID2D1RenderTarget> rt;
         EXPECT_HRESULT_SUCCEEDED(CreateRenderTarget(rt));
-        CommandExecutor exec;
         DrawCommandList cmds;
-        cmds.emplace_back(DrawTextLayoutCmd{ .origin = origin, .layout = layout.Get(), .color = D2D1::ColorF(D2D1::ColorF::Black), .cull_runs = true, .cull_top = 0.0f, .cull_bottom = 32.0f });
-        ComPtr<ID2D1SolidColorBrush> black;
-        rt->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black), &black);
+        cmds.emplace_back(DrawTextLayoutCmd{ .origin = origin, .layout = layout.Get(), .brush_id = BrushId::Text, .cull_runs = true, .cull_top = 0.0f, .cull_bottom = 32.0f });
+        const auto brushes = MakeBrushes(rt.Get(), { { BrushId::Text, D2D1::ColorF(D2D1::ColorF::Black) } });
         rt->BeginDraw();
         rt->Clear(D2D1::ColorF(D2D1::ColorF::White));
         if (via_executor) {
-            exec.Execute(cmds, rt.Get());
+            ExecuteDrawCommands(cmds, rt.Get(), &brushes);
         }
         else {
-            rt->DrawTextLayout(origin, layout.Get(), black.Get());
+            rt->DrawTextLayout(origin, layout.Get(), brushes[std::to_underlying(BrushId::Text)].Get());
         }
         EXPECT_HRESULT_SUCCEEDED(rt->EndDraw());
         return ReadAllPixels();

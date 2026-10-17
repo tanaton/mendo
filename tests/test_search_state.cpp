@@ -523,7 +523,7 @@ TEST(SearchStateTest, MermaidCodeBlockExcludedFromSearch)
 {
     std::pmr::vector<Node> nodes;
     Node mermaid;
-    mermaid.type = NodeType::CodeBlock;
+    mermaid.type = NodeType::Diagram;
     mermaid.set_code_language(SyntaxLanguage::Mermaid);
     mermaid.SetText("graph TD; A-->B", 0);
     nodes.push_back(std::move(mermaid));

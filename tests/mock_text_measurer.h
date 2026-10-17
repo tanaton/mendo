@@ -41,15 +41,6 @@ public:
             return;
         }
 
-        // ダイアグラム / 画像: 実装と同じく既存の高さを保持する (画像の寸法からの高さは MeasureEntry が求める)
-        if (IsBitmapDrawNode(node)) {
-            if (entry.height <= 0) {
-                entry.height = 60.0f; // プレースホルダー高さ
-            }
-            entry.layout_dirty = false;
-            return;
-        }
-
         const auto& text = node.GetText();
         if (text.empty()) {
             // 実装と同じく空 LI は高さ 0 (bullet と直下 P の文字 Y を揃える issue#237)。
@@ -77,7 +68,7 @@ public:
         entry.reset_text_layout(); // モックでは実際のレイアウトなし
         entry.height = h;
         entry.layout_dirty = false;
-        entry.set_effects_applied(false);
+        entry.set_effects_state(EffectsState::None);
     }
 
 private:

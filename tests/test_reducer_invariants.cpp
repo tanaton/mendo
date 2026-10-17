@@ -107,7 +107,7 @@ LabeledAction GenerateSingleScrollAction(std::mt19937& rng, const ReducerHarness
         return { std::format("MdScrollbarDragMoved({})", y), MdScrollbarDragMovedAction{ y } };
     }
     case 5:
-        return { "MdScrollbarDragEnded", MdScrollbarDragEndedAction{} };
+        return { "MdScrollbarDragEnded", LeftDragEndedAction{} };
     case 6: {
         const int node = pick(-1, n + 1);
         return { std::format("TocItemClicked({})", node), TocItemClickedAction{ node } };
@@ -221,7 +221,7 @@ INSTANTIATE_TEST_SUITE_P(
     [](const auto& info) { return std::string(info.param.name); });
 
 // ---- マウスキャプチャ ----
-// 不変条件: 「SetCapture 保持中」⇔「左ドラッグ進行中 (IsLeftDragActive) または右ジェスチャ進行中」。
+// 不変条件: 「SetCapture 保持中」⇔「左ドラッグ進行中 (drag.kind != None) または右ジェスチャ進行中」。
 // 保持したままドラッグ状態だけ消えると、LButtonUp がどの終了経路にも入らずキャプチャが残り、
 // タイトルバーのドラッグやウィンドウ外への MouseLeave 検出が効かなくなる。
 // 逆に、ドラッグ状態が残ったままキャプチャを失うと、ボタンを離しても終了処理が走らない。
@@ -275,7 +275,7 @@ private:
 
 bool CaptureRequired(const AppState& s) noexcept
 {
-    return IsLeftDragActive(s) || s.interaction.gesture.GetPhase() != GesturePhase::Idle;
+    return (s.view.drag.kind != LeftDrag::None) || s.interaction.gesture.GetPhase() != GesturePhase::Idle;
 }
 
 class CaptureDriver {
@@ -358,8 +358,7 @@ private:
             return std::format("LDown:TextSelection({})", node);
         }
         case 2: {
-            const auto t = Pick(0, 1) ? PaneController::DragTarget::Splitter1 : PaneController::DragTarget::Splitter2;
-            model_.Dispatch(SplitterDragStartedAction{ t });
+            model_.Dispatch(SplitterDragStartedAction{ Pick(0, 1) ? PaneTarget::File : PaneTarget::Toc });
             return "LDown:Splitter";
         }
         case 3:
@@ -388,79 +387,56 @@ private:
     // App::OnMouseMove の振り分け。
     std::string LMove()
     {
-        const auto& s = h_.state;
-        if (s.search.search_bar_ctrl.IsDragging()) {
+        switch (h_.state.view.drag.kind) {
+        case LeftDrag::None:
+            return "LMove:Nothing";
+        case LeftDrag::SearchInput:
             model_.Dispatch(SearchInputDragMovedAction{ Pick(0, 5) });
             return "LMove:SearchInput";
-        }
-        switch (const auto drag = s.view.panes.GetDragTarget()) {
-        case PaneController::DragTarget::Splitter1:
-        case PaneController::DragTarget::Splitter2:
+        case LeftDrag::Splitter1:
+        case LeftDrag::Splitter2:
             model_.Dispatch(SplitterDragMovedAction{ PickF(50, 900) });
             return "LMove:Splitter";
-        case PaneController::DragTarget::FileScrollbar:
+        case LeftDrag::FileScrollbar:
             model_.Dispatch(PaneScrollbarDragMovedAction{ PaneTarget::File, PickF(0, 400) });
             return "LMove:FileScrollbar";
-        case PaneController::DragTarget::TocScrollbar:
+        case LeftDrag::TocScrollbar:
             model_.Dispatch(PaneScrollbarDragMovedAction{ PaneTarget::Toc, PickF(0, 400) });
             return "LMove:TocScrollbar";
-        case PaneController::DragTarget::MdScrollbar:
+        case LeftDrag::MdScrollbar:
             model_.Dispatch(MdScrollbarDragMovedAction{ PickF(0, 400) });
             return "LMove:MdScrollbar";
-        case PaneController::DragTarget::None:
-            break;
-        }
-        if (s.view.h_drag_node >= 0) {
+        case LeftDrag::BlockHScroll:
             model_.Dispatch(BlockHScrollDragMovedAction{ PickF(300, 900) });
             return "LMove:BlockHScroll";
-        }
-        if (s.view.viewport.IsDragging()) {
+        case LeftDrag::TextSelect:
             model_.Dispatch(TextSelectionMovedAction{ Pick(0, h_.NodeCount() - 1), static_cast<uint32_t>(Pick(0, 5)) });
             return "LMove:TextSelection";
         }
-        return "LMove:Nothing";
+        std::unreachable();
     }
 
     // App::OnLButtonUp の振り分け。
     std::string LButtonUp()
     {
         left_down_ = false;
-        const auto& s = h_.state;
-        if (s.view.h_drag_node >= 0) {
-            model_.Dispatch(BlockHScrollDragEndedAction{});
-            return "LUp:BlockHScroll";
-        }
-        if (s.search.search_bar_ctrl.IsDragging()) {
-            model_.Dispatch(SearchInputDragEndedAction{});
-            return "LUp:SearchInput";
-        }
-        switch (s.view.panes.GetDragTarget()) {
-        case PaneController::DragTarget::Splitter1:
-        case PaneController::DragTarget::Splitter2:
-            model_.Dispatch(SplitterDragEndedAction{});
-            return "LUp:Splitter";
-        case PaneController::DragTarget::MdScrollbar:
-            model_.Dispatch(MdScrollbarDragEndedAction{});
-            return "LUp:MdScrollbar";
-        case PaneController::DragTarget::FileScrollbar:
-        case PaneController::DragTarget::TocScrollbar:
-            model_.Dispatch(PaneScrollbarDragEndedAction{});
-            return "LUp:PaneScrollbar";
-        case PaneController::DragTarget::None:
-            break;
-        }
-        if (!s.view.viewport.IsDragging()) {
+        switch (h_.state.view.drag.kind) {
+        case LeftDrag::None:
             return "LUp:Nothing";
+        case LeftDrag::TextSelect:
+            model_.Dispatch(TextSelectionEndedAction{ Pick(-1, h_.NodeCount() - 1), 0 });
+            return "LUp:TextSelection";
+        default:
+            model_.Dispatch(LeftDragEndedAction{});
+            return "LUp:Drag";
         }
-        model_.Dispatch(TextSelectionEndedAction{ Pick(-1, h_.NodeCount() - 1), 0 });
-        return "LUp:TextSelection";
     }
 
     // App::OnRButtonDown: 左ドラッグ中はジェスチャを開始しない。
     std::string RButtonDown()
     {
         right_down_ = true;
-        if (IsLeftDragActive(h_.state)) {
+        if (h_.state.view.drag.kind != LeftDrag::None) {
             return "RDown:Ignored";
         }
         model_.Dispatch(RightClickGestureStartedAction{ 300.0f, 300.0f });
@@ -536,7 +512,7 @@ TEST(ReducerCaptureInvariant, CaptureHeldIffDragOrGestureActive)
             history += " " + label;
             SCOPED_TRACE(std::format("seed={} step={} event={}", seed, step, label));
             ASSERT_EQ(driver.Model().Held(), CaptureRequired(h.state))
-                << "left_drag=" << IsLeftDragActive(h.state)
+                << "left_drag=" << static_cast<int>(h.state.view.drag.kind)
                 << " gesture=" << static_cast<int>(h.state.interaction.gesture.GetPhase())
                 << "\nhistory:" << history;
         }
@@ -553,7 +529,7 @@ TEST(ReducerCaptureInvariant, EscDuringTextDragReleasesCapture)
 
     model.Dispatch(ClearSelectionAction{});
 
-    EXPECT_FALSE(h.state.view.viewport.IsDragging());
+    EXPECT_NE(h.state.view.drag.kind, LeftDrag::TextSelect);
     EXPECT_FALSE(model.Held());
 }
 
@@ -615,8 +591,10 @@ TEST_P(ReducerHWheelSwipeTest, BlockAbsorbsHorizontalWheel)
     auto& s = h.state;
     s.view.nav_history.Push(NavEntry(L"C:\\docs\\b.md", 0, 0.0f));
     s.view.hovered_h_block = ResolveNode(h, c.hover);
-    s.view.h_drag_node = ResolveNode(h, c.drag);
-    const int target = s.view.h_drag_node >= 0 ? s.view.h_drag_node : s.view.hovered_h_block;
+    if (const int drag_node = ResolveNode(h, c.drag); drag_node >= 0) {
+        s.view.drag = { .kind = LeftDrag::BlockHScroll, .block_node = drag_node };
+    }
+    const int target = s.view.HDragNode() >= 0 ? s.view.HDragNode() : s.view.hovered_h_block;
     const float block_x_before = BlockScrollX(h, target);
 
     // App::Dispatch は必ずペインレイアウトを確定させるため、無効ケースは Reduce を直接呼ぶ。

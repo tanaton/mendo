@@ -98,7 +98,7 @@ bool App::Init(HWND hwnd)
         // DiagramEntry::bitmap が新 RT で描画拒否されるのを防ぐ。ApplyCachedImages は
         // bitmap 残存ノードをスキップするため、LoadImages の前に破棄する必要がある。
         state_.document.layout_cache.InvalidateEffects();
-        state_.document.layout_cache.InvalidateAllDiagramBitmaps(state_.document.doc.GetNodes());
+        state_.document.layout_cache.InvalidateAllDiagramBitmaps();
         resource_manager_.LoadImages();
     });
 
@@ -328,7 +328,7 @@ void App::OnPaint()
         const BlockHScrollContext h_scroll{
             .scroll_x = &state_.view.block_scroll_x,
             .hovered_block = state_.view.hovered_h_block,
-            .drag_block = state_.view.h_drag_node,
+            .drag_block = state_.view.HDragNode(),
         };
         renderer_.Render(
             { state_.document.doc.GetNodes(), state_.document.layout_cache,
@@ -541,9 +541,6 @@ int App::HitTestSearchInputPos(const SearchBarLayout& sbl, std::wstring_view que
 
 RECT App::GetSearchEditRect()
 {
-    if (!state_.search.search_state.IsVisible()) {
-        return { 0, 0, 1, 1 };
-    }
     const auto sbl = ComputeSearchBarLayoutForMd(GetPaneLayout().md_rect);
     const float s = state_.window.cached_dpi_scale;
     return {
@@ -780,7 +777,7 @@ void App::OnDeferredLayout()
     // ビューポート後のノードが計測されると total_height が縮小し、中間的な
     // max_scroll に基づくクランプで scroll_y が不当に引き下げられるのを防ぐ。
     // スクロールバートラッキング中はユーザー操作を優先してクランプを反映する。
-    if (state_.view.panes.GetDragTarget() == PaneController::DragTarget::MdScrollbar) {
+    if (state_.view.drag.kind == LeftDrag::MdScrollbar) {
         SyncMaxScroll(md.height);
     }
 

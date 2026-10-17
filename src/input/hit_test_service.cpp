@@ -40,18 +40,17 @@ void ResolveTextHit(hit_test::HitResult& result, IDWriteTextLayout* layout, floa
 
 // ノード高さ範囲外 (ノード間の余白等) のヒットを最寄りの非空ノードにクランプする。
 // 文書全体の末尾へ飛ばすと、余白クリックからのドラッグで巨大選択になる。
-// 表は GetText が空なので LinearizedText で見る。飛ばすと表の直下から始めたドラッグに表全体が入る。
 hit_test::HitResult ClampToNearestTextNode(const std::pmr::vector<Node>& nodes, int candidate) noexcept
 {
     for (int i = candidate; i >= 0; --i) {
-        if (const auto text = nodes[static_cast<size_t>(i)].LinearizedText(); !text.empty()) {
+        if (const auto text = nodes[static_cast<size_t>(i)].GetText(); !text.empty()) {
             return { i, static_cast<uint32_t>(text.size()) };
         }
     }
     // candidate より前に非空ノードが無い場合 (文頭が HR/Image 等) も含め、
     // 先頭の非空ノードの先頭へ倒して常に有効なヒットを返す。
     for (const auto& [i, node] : nodes | std::views::enumerate) {
-        if (!node.LinearizedText().empty()) {
+        if (!node.GetText().empty()) {
             return { static_cast<int>(i), 0 };
         }
     }
@@ -148,6 +147,7 @@ hit_test::HitResult hit_test::HitTestTable(
 
     const auto* tl_ptr = entry.table_layout();
     if (!tl_ptr) {
+        result.text_pos = static_cast<uint32_t>(node.GetText().size());
         return result;
     }
     const auto& tl = *tl_ptr;
@@ -161,7 +161,7 @@ hit_test::HitResult hit_test::HitTestTable(
     const size_t row_count = tbl ? tbl->row_count : 0;
     const auto [hit_row, row_top] = FindTableRow(tl, row_count, dip_y - entry_text_top);
     if (hit_row < 0) {
-        result.text_pos = tbl ? static_cast<uint32_t>(tbl->concat_text.size()) : 0u;
+        result.text_pos = static_cast<uint32_t>(node.GetText().size());
         return result;
     }
     const float row_top_y = entry_text_top + row_top;
@@ -182,60 +182,36 @@ hit_test::HitResult hit_test::HitTestTable(
     return result;
 }
 
-hit_test::CodeBlockButtonHit hit_test::CodeBlockButtonsHitTest(const MdPaneHitContext& ctx) noexcept
+OverlayButtonHit hit_test::OverlayButtonHitTest(const MdPaneHitContext& ctx) noexcept
 {
-    if (ctx.nodes.empty()) {
-        return {};
-    }
     const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
-    const bool x_in_copy_band = dip_x >= OverlayButtonRect(ctx.theme.margin_left + ctx.content_width, 0.0f).left;
-
-    const float viewport_top = ctx.scroll_y;
     const float viewport_bottom = ctx.scroll_y + ctx.md_rect.height;
-    const int first = FindFirstVisibleNodeIndex(ctx.cache, viewport_top);
+    const int first = FindFirstVisibleNodeIndex(ctx.cache, ctx.scroll_y);
     const int count = static_cast<int>(ctx.cache.size());
 
-    CodeBlockButtonHit out;
-    for (int i = first; i < count; i++) {
+    OverlayButtonHit out;
+    for (int i = first; i < count && !out.Any(); i++) {
         const float entry_text_top = ctx.cache.Top(static_cast<size_t>(i));
         if (entry_text_top - ctx.theme.code_block_padding > viewport_bottom) {
             break;
         }
         const auto& node = ctx.nodes[i];
-        if (node.type != NodeType::CodeBlock) {
+        if (node.type != NodeType::CodeBlock && node.type != NodeType::Diagram) {
             continue;
         }
-        const float indent = NodeIndent(node, ctx.theme);
-        const float x = ctx.theme.margin_left + indent;
+        // ボタンは上端 (コードブロックは padding だけ上) から COPY_BTN_MARGIN 下に 1 段だけ並ぶ。
+        if (dip_y < entry_text_top - ctx.theme.code_block_padding + COPY_BTN_MARGIN || dip_y > entry_text_top + COPY_BTN_MARGIN + COPY_BTN_SIZE) {
+            continue;
+        }
+        const float x = ctx.theme.margin_left + NodeIndent(node, ctx.theme);
         const float w = NodeContentWidth(node, ctx.theme, ctx.content_width);
-        // 1 つ見つかった時点でループを抜けるため、ここに来る時点で out は全て未ヒット。
-        if (IsDiagramLanguage(node.code_language())) {
-            const auto* diagram = ctx.cache.FindDiagram(i);
-            if (diagram && diagram->bitmap) {
-                const auto bmp = MermaidBitmapRect(diagram->width, diagram->height, x, w, entry_text_top);
-                const D2D1_RECT_F btn = OverlayButtonRect(bmp.right, bmp.top, DiagramButtonSlot::Save);
-                if (PointInRectInclusive(dip_x, dip_y, btn)) {
-                    out.save_node = i;
-                }
-                const D2D1_RECT_F btn2 = OverlayButtonRect(bmp.right, bmp.top, DiagramButtonSlot::Copy);
-                if (PointInRectInclusive(dip_x, dip_y, btn2)) {
-                    out.diagram_copy_node = i;
-                }
-            }
-        }
-        else if (x_in_copy_band) {
-            const D2D1_RECT_F btn = OverlayButtonRect(x + w, entry_text_top - NodeBoxPadY(node, ctx.theme));
+        const DiagramEntry* diagram = node.type == NodeType::Diagram ? ctx.cache.FindDiagram(static_cast<size_t>(i)) : nullptr;
+        layout::ForEachOverlayButton(node, diagram, x, w, entry_text_top, ctx.theme, [&](const D2D1_RECT_F& btn, OverlayButton kind) {
             if (PointInRectInclusive(dip_x, dip_y, btn)) {
-                out.copy_node = i;
+                out = { i, kind };
             }
-        }
-        // マウス座標は1点なので、コピー/保存/ダイアグラムコピーボタンが同時にヒットすることはない。
-        // 1つでも見つかった時点で残りの可視ノード走査をスキップする。
-        if (out.Any()) {
-            break;
-        }
+        });
     }
-
     return out;
 }
 

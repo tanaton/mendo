@@ -148,15 +148,6 @@ public:
         anchor_pos_ = pos;
     }
 
-    constexpr bool IsDragging() const noexcept
-    {
-        return is_dragging_;
-    }
-    constexpr void SetDragging(bool v) noexcept
-    {
-        is_dragging_ = v;
-    }
-
     constexpr int GetClickStartX() const noexcept
     {
         return click_start_x_;
@@ -175,7 +166,6 @@ public:
     {
         selection_.Clear();
         anchor_node_ = -1;
-        is_dragging_ = false;
     }
 
     constexpr void SelectAll(const std::pmr::vector<Node>& nodes) noexcept
@@ -185,10 +175,8 @@ public:
             return;
         }
         const int last = static_cast<int>(nodes.size()) - 1;
-        // Table は GetText() が空 (実体は concat_text)。
-        // 抽出側 (ExtractSelectedText) と同じ LinearizedText で終端を取る。
         selection_ = TextSelection::MakeOrdered(
-            0, 0, last, static_cast<uint32_t>(nodes[last].LinearizedText().size()));
+            0, 0, last, static_cast<uint32_t>(nodes[last].GetText().size()));
     }
 
     // ---- ズーム ----
@@ -254,5 +242,4 @@ private:
 
     // --- 1 バイトアライメント ---
     uint8_t zoom_index_ = static_cast<uint8_t>(ZOOM_DEFAULT_INDEX);
-    bool is_dragging_ = false;
 };

@@ -76,7 +76,7 @@ std::map<std::string, WordKind> CollectWords(const std::pmr::vector<Node>& nodes
 {
     std::map<std::string, WordKind> words;
     for (const auto& node : nodes) {
-        const auto text = node.LinearizedText();
+        const auto text = node.GetText();
         for (size_t i = 0; i < text.size(); ++i) {
             if (text[i] != 'w' || (i > 0 && std::isalnum(static_cast<unsigned char>(text[i - 1])))) {
                 continue;

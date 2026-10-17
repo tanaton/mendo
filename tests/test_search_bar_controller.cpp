@@ -87,7 +87,6 @@ TEST_F(SearchBarControllerTest, InitialState)
     EXPECT_EQ(ctrl_.GetCaretPos(), -1);
     EXPECT_EQ(ctrl_.GetSelectionStart(), -1);
     EXPECT_EQ(ctrl_.GetHover(), SearchBarHitZone::None);
-    EXPECT_FALSE(ctrl_.IsDragging());
     EXPECT_TRUE(ctrl_.GetImeComposition().empty());
 }
 
@@ -228,18 +227,6 @@ TEST_F(SearchBarControllerTest, SetImeCompositionNoOpWhenUnchanged)
 // ドラッグ選択
 // ═══════════════════════════════════════════════
 
-TEST_F(SearchBarControllerTest, DragLifecycle)
-{
-    EXPECT_FALSE(ctrl_.IsDragging());
-
-    ctrl_.StartDrag(3);
-    EXPECT_TRUE(ctrl_.IsDragging());
-    EXPECT_EQ(ctrl_.GetDragAnchor(), 3);
-
-    ctrl_.EndDrag();
-    EXPECT_FALSE(ctrl_.IsDragging());
-}
-
 // ═══════════════════════════════════════════════
 // キャレット
 // ═══════════════════════════════════════════════
@@ -307,14 +294,12 @@ TEST_F(SearchBarControllerTest, ResetClearsAll)
 {
     std::pmr::vector<Node> nodes;
     ctrl_.OnOpen(nodes);
-    ctrl_.StartDrag(5);
     ctrl_.SetImeComposition(L"test");
 
     ctrl_.Reset();
     EXPECT_FALSE(ctrl_.HasFocus());
     EXPECT_EQ(ctrl_.GetCaretPos(), -1);
     EXPECT_EQ(ctrl_.GetSelectionStart(), -1);
-    EXPECT_FALSE(ctrl_.IsDragging());
     EXPECT_TRUE(ctrl_.GetImeComposition().empty());
     EXPECT_EQ(ctrl_.GetHover(), SearchBarHitZone::None);
 }
@@ -334,7 +319,6 @@ TEST_F(SearchBarControllerTest, BuildRenderStateReflectsState)
 
     const auto rs = ctrl_.BuildRenderState();
     EXPECT_TRUE(rs.visible);
-    EXPECT_TRUE(rs.has_focus);
     const int matches = rs.total_matches;
     EXPECT_GE(matches, 1);
 }

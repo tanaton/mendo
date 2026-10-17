@@ -91,11 +91,6 @@ void Renderer::RecreateBrushes()
         { BrushId::SyntaxFunction, theme_.syntax_function },
         { BrushId::SyntaxInserted, theme_.syntax_inserted },
         { BrushId::SyntaxDeleted, theme_.syntax_deleted },
-        { BrushId::AlertNote, theme_.alert_color[0] },
-        { BrushId::AlertTip, theme_.alert_color[1] },
-        { BrushId::AlertImportant, theme_.alert_color[2] },
-        { BrushId::AlertWarning, theme_.alert_color[3] },
-        { BrushId::AlertCaution, theme_.alert_color[4] },
         { BrushId::TitleBarBg, theme_.titlebar_bg_color },
         { BrushId::TitleBarText, theme_.titlebar_text_color },
         { BrushId::TitleBarButtonHover, theme_.titlebar_button_hover_color },
@@ -122,13 +117,20 @@ void Renderer::RecreateBrushes()
 
     // 既存ブラシには SetColor のみ、未生成のものだけ CreateSolidColorBrush。
     // テーマ切替時の 40+ 個の COM オブジェクト再生成を回避する。
-    for (const auto& s : specs) {
-        auto& brush = brushes_[std::to_underlying(s.id)];
+    const auto apply = [&](BrushId id, D2D1_COLOR_F color) {
+        auto& brush = brushes_[std::to_underlying(id)];
         if (brush) {
-            brush->SetColor(s.color);
-            continue;
+            brush->SetColor(color);
+            return;
         }
-        CreateSolidColorBrushOrFallback(target, s.color, brush);
+        CreateSolidColorBrushOrFallback(target, color, brush);
+    };
+    for (const auto& s : specs) {
+        apply(s.id, s.color);
+    }
+    for (size_t i = 0; i < ALERT_BRUSH_COUNT; ++i) {
+        apply(AlertBrushIdFromIndex(i), theme_.alert_color[i]);
+        apply(AlertBgBrushIdFromIndex(i), theme_.alert_bg_color[i]);
     }
 }
 

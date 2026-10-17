@@ -31,11 +31,8 @@ bool PaneController::SetSideHoveredButton(PaneTarget t, PaneHeaderButton button)
     return std::exchange(Inst(t).hovered_button, button) != button;
 }
 
-void PaneController::DragSplitterTo(DragTarget target, float dip_x, float total_width, float splitter_w) noexcept
+void PaneController::DragSplitterTo(PaneTarget edge, float dip_x, float total_width, float splitter_w) noexcept
 {
-    if (!IsSplitterDragTarget(target)) {
-        return;
-    }
     auto& file = Inst(PaneTarget::File);
     auto& toc = Inst(PaneTarget::Toc);
     const auto layout = ComputeLayout(total_width, 0.0f, splitter_w);
@@ -48,7 +45,7 @@ void PaneController::DragSplitterTo(DragTarget target, float dip_x, float total_
     };
     adopt_displayed(file, layout.file_rect.width);
     adopt_displayed(toc, layout.toc_rect.width);
-    if (target == DragTarget::Splitter1) {
+    if (edge == PaneTarget::File) {
         file.width = ConstrainSplitterWidth(dip_x, total_width, splitter_w, toc.width, toc.show);
     }
     else {

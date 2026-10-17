@@ -272,10 +272,10 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockDarkModeUsesDarkColors)
     EXPECT_NE(html.find("color:#d4d4d4"), std::string::npos);
 }
 
-// 表の選択座標は LinearizedText (concat_text) の offset。
+// 表の選択座標は concat_text (= GetText) の offset。
 static TextSelection MakeTableFullSelection(const Node& table)
 {
-    return TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(table.LinearizedText().size()));
+    return TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(table.GetText().size()));
 }
 
 TEST(ExtractSelectedTextAsHtml, TableRendersAsTableStructure)
@@ -342,7 +342,7 @@ TEST(ExtractSelectedTextAsHtml, TablePartialSelectionEmitsOnlySelectedRowsAndTex
                      "| 1 | 2 |\n"
                      "| 3 | 4 |");
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_EQ(nodes[0].LinearizedText(), "A\tB\n1\t2\n3\t4");
+    ASSERT_EQ(nodes[0].GetText(), "A\tB\n1\t2\n3\t4");
     const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 6, 0, 9));
     EXPECT_EQ(html.find("<thead>"), std::string::npos);
     EXPECT_EQ(html.find(">A</th>"), std::string::npos);
@@ -360,7 +360,7 @@ TEST(ExtractSelectedTextAsHtml, TableSelectionInsideOneCellEmitsThatSubstring)
                      "| hello | world |\n"
                      "|---|---|\n"
                      "| a | b |");
-    ASSERT_EQ(nodes[0].LinearizedText(), "hello\tworld\na\tb");
+    ASSERT_EQ(nodes[0].GetText(), "hello\tworld\na\tb");
     const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 1, 0, 4));
     EXPECT_NE(html.find(">ell</th>"), std::string::npos);
     EXPECT_EQ(html.find("world"), std::string::npos);
@@ -374,7 +374,7 @@ TEST(ExtractSelectedTextAsHtml, TableSelectionOfSeparatorOnlyEmitsNothing)
                      "| A | B |\n"
                      "|---|---|\n"
                      "| 1 | 2 |");
-    ASSERT_EQ(nodes[0].LinearizedText(), "A\tB\n1\t2");
+    ASSERT_EQ(nodes[0].GetText(), "A\tB\n1\t2");
     EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 1, 0, 2)), "");
 }
 
@@ -525,7 +525,7 @@ namespace {
 TextSelection SelectAll(const std::pmr::vector<Node>& nodes)
 {
     const int last = static_cast<int>(nodes.size()) - 1;
-    return TextSelection::MakeOrdered(0, 0, last, static_cast<uint32_t>(nodes[last].LinearizedText().size()));
+    return TextSelection::MakeOrdered(0, 0, last, static_cast<uint32_t>(nodes[last].GetText().size()));
 }
 
 } // namespace
@@ -928,8 +928,7 @@ TEST(ExtractSelectedText, SelectionSpanningTableNode)
     EXPECT_EQ(result, "A\tB");
 }
 
-// issue #200: parser 経由で生成されたテーブル（GetText() が空で table_data->concat_text に
-// 線形化テキストが入る）に対し、selection が concat_text 内 offset を指しているとき、
+// issue #200: parser 経由で生成されたテーブル（線形化テキストは table_data->concat_text）に対し、selection が concat_text 内 offset を指しているとき、
 // ExtractSelectedText がセル内テキストを返すこと。
 TEST(ExtractSelectedText, ParsedTableCellWordSelection)
 {

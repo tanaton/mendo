@@ -10,7 +10,7 @@
 using layout::NodeBoxPadY;
 using layout::NodeIndent;
 
-// OverlayButtonRect ユーティリティ関数と hit_test::CodeBlockButtonsHitTest のテスト。
+// OverlayButtonRect ユーティリティ関数と hit_test::OverlayButtonHitTest のテスト。
 // MockTextMeasurer を使用するため DirectWrite / COM は不要。
 
 class CopyButtonTest : public MockLayoutTestBase {
@@ -36,8 +36,9 @@ protected:
 
     int CopyNodeAt(const ParsedLayout& pr, int x, int y, float scroll_y = 0.0f, float pane_h = 2000.0f)
     {
-        return hit_test::CodeBlockButtonsHitTest(
-            { pr.nodes, pr.cache, theme_, scroll_y, PaneRect{ 0.0f, 0.0f, 0.0f, pane_h }, 1.0f, x, y, ContentWidth() }).copy_node;
+        const auto hit = hit_test::OverlayButtonHitTest(
+            { pr.nodes, pr.cache, theme_, scroll_y, PaneRect{ 0.0f, 0.0f, 0.0f, pane_h }, 1.0f, x, y, ContentWidth() });
+        return hit.kind == OverlayButton::CodeCopy ? hit.node : -1;
     }
 };
 
@@ -91,9 +92,9 @@ TEST_F(CopyButtonTest, NonCodeBlockReturnsNegative)
 
 TEST_F(CopyButtonTest, MermaidBlockReturnsNegative)
 {
-    // ダイアグラムにはテキスト用コピーボタン(copy_node)は付かない (専用のダイアグラムコピーボタンは別)
+    // ダイアグラムにはテキスト用コピーボタン(CodeCopy)は付かない (専用のダイアグラムコピーボタンは別)
     auto pr = ParseAndLayout("```mermaid\ngraph TD\n```");
-    const int mermaid_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::CodeBlock);
+    const int mermaid_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::Diagram);
     ASSERT_GE(mermaid_idx, 0);
     auto [cx, cy] = CopyBtnCenter(pr, mermaid_idx);
     EXPECT_EQ(CopyNodeAt(pr, cx, cy), -1);
@@ -101,9 +102,9 @@ TEST_F(CopyButtonTest, MermaidBlockReturnsNegative)
 
 TEST_F(CopyButtonTest, LatexMathBlockReturnsNegative)
 {
-    // LatexMath も Mermaid 同様、テキスト用コピーボタン(copy_node)は付かない (専用のダイアグラムコピーボタンは別)
+    // LatexMath も Mermaid 同様、テキスト用コピーボタン(CodeCopy)は付かない (専用のダイアグラムコピーボタンは別)
     auto pr = ParseAndLayout("$$E = mc^2$$");
-    const int latex_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::CodeBlock);
+    const int latex_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::Diagram);
     ASSERT_GE(latex_idx, 0);
     ASSERT_EQ(pr.nodes[latex_idx].code_language(), SyntaxLanguage::LatexMath);
     auto [cx, cy] = CopyBtnCenter(pr, latex_idx);

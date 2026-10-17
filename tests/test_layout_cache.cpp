@@ -11,16 +11,16 @@ TEST(LayoutCacheTest, InvalidateAllLayouts)
     const std::pmr::vector<Node> nodes(3);
 
     // レイアウトが設定された状態をシミュレート
-    cache[0].set_effects_applied(true);
-    cache[1].set_effects_applied(true);
-    cache[2].set_effects_applied(true);
+    cache[0].set_effects_state(EffectsState::Applied);
+    cache[1].set_effects_state(EffectsState::Applied);
+    cache[2].set_effects_state(EffectsState::Applied);
     cache[0].ensure_inline_code_bgs().emplace_back(0.0f, 0.0f, 10.0f, 10.0f);
     cache[1].ensure_inline_code_bgs().emplace_back(0.0f, 0.0f, 20.0f, 20.0f);
 
     cache.InvalidateAllLayouts(nodes);
 
     for (size_t i = 0; i < 3; ++i) {
-        EXPECT_FALSE(cache[i].effects_applied()) << "index " << i;
+        EXPECT_EQ(cache[i].effects_state(), EffectsState::None) << "index " << i;
         EXPECT_TRUE(cache[i].view_inline_code_bgs().empty()) << "index " << i;
         // text_layoutはComPtrで、Reset()するとnullになる
         EXPECT_EQ(cache[i].text_layout(), nullptr) << "index " << i;
@@ -62,7 +62,7 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsResetsTextHeightsButKeepsBitmapNodes)
     cache.Resize(3);
     std::pmr::vector<Node> nodes(3);
     nodes[1].type = NodeType::Image;
-    nodes[2].type = NodeType::CodeBlock;
+    nodes[2].type = NodeType::Diagram;
     nodes[2].set_code_language(SyntaxLanguage::Mermaid);
     for (size_t i = 0; i < 3; i++) {
         cache[i].height = 500.0f;
@@ -160,21 +160,15 @@ TEST(LayoutCacheTest, InvalidateAllDiagramBitmapsClearsError)
     cache.EnsureDiagram(0).error = L"Parse error on line 1";
     cache.EnsureDiagram(1).error = L"Parse error on line 3";
 
-    cache.InvalidateAllDiagramBitmaps(std::pmr::vector<Node>(2));
+    cache.InvalidateAllDiagramBitmaps();
 
     EXPECT_TRUE(cache.FindDiagram(0)->error.empty());
     EXPECT_TRUE(cache.FindDiagram(1)->error.empty());
 }
 
-// デバイスロストでビットマップを捨てても、画像の寸法は再計測が表示高さに使うので残す。
-// 図の寸法は従来どおり再描画待ちとして捨てる。
-TEST(LayoutCacheTest, InvalidateAllDiagramBitmapsKeepsImageSize)
+// デバイスロストでビットマップを捨てても、寸法は再計測が表示高さに使うので残す。
+TEST(LayoutCacheTest, InvalidateAllDiagramBitmapsKeepsSize)
 {
-    std::pmr::vector<Node> nodes(2);
-    nodes[0].type = NodeType::Image;
-    nodes[1].type = NodeType::CodeBlock;
-    nodes[1].set_code_language(SyntaxLanguage::Mermaid);
-
     LayoutCache cache;
     cache.Resize(2);
     for (size_t i = 0; i < 2; i++) {
@@ -183,12 +177,12 @@ TEST(LayoutCacheTest, InvalidateAllDiagramBitmapsKeepsImageSize)
         d.height = 300.0f;
     }
 
-    cache.InvalidateAllDiagramBitmaps(nodes);
+    cache.InvalidateAllDiagramBitmaps();
 
-    EXPECT_FLOAT_EQ(cache.FindDiagram(0)->width, 400.0f);
-    EXPECT_FLOAT_EQ(cache.FindDiagram(0)->height, 300.0f);
-    EXPECT_FLOAT_EQ(cache.FindDiagram(1)->width, 0.0f);
-    EXPECT_FLOAT_EQ(cache.FindDiagram(1)->height, 0.0f);
+    for (size_t i = 0; i < 2; i++) {
+        EXPECT_FLOAT_EQ(cache.FindDiagram(i)->width, 400.0f);
+        EXPECT_FLOAT_EQ(cache.FindDiagram(i)->height, 300.0f);
+    }
 }
 
 // 早期終了経路 (safe_exit_after で abs(text_top - y) < EPSILON ならスキップ) を通った後でも、

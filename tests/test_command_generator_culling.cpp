@@ -188,7 +188,7 @@ protected:
 
     const DrawCommandList& Generate(const ParsedLayout& pl, float scroll_y, float pane_h, const BlockHScrollContext& h_scroll, float pane_y = 0.0f)
     {
-        return gen_.GenerateMdPane(pl.nodes, pl.cache, PaneRect{ 0.0f, pane_y, PANE_W, pane_h }, scroll_y, TextSelection{}, HoveredButtons{}, 1.0f, h_scroll);
+        return gen_.GenerateMdPane(pl.nodes, pl.cache, PaneRect{ 0.0f, pane_y, PANE_W, pane_h }, scroll_y, TextSelection{}, OverlayButtonHit{}, 1.0f, h_scroll);
     }
 
     // ペイン原点 (先頭の SetTransform) の Y。

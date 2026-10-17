@@ -131,9 +131,7 @@ TEST_F(CmdGenTest, HorizontalRuleColorMatchesTheme)
     auto cmds = Generate("---");
     const auto line = FindFirst<DrawLineCmd>(cmds);
     ASSERT_TRUE(line.has_value());
-    EXPECT_FLOAT_EQ(line->color.r, theme_.hr_color.r);
-    EXPECT_FLOAT_EQ(line->color.g, theme_.hr_color.g);
-    EXPECT_FLOAT_EQ(line->color.b, theme_.hr_color.b);
+    EXPECT_EQ(line->brush_id, BrushId::Hr);
 }
 
 // ---- 複数ノード ----
@@ -203,13 +201,14 @@ TEST_F(CmdGenTest, AlertGeneratesBackground)
 
 TEST_F(CmdGenTest, AlertBarColorMatchesTheme)
 {
-    // Note の色は theme_.alert_color[0]。通常の blockquote のバーとは異なる色であるべき。
-    ASSERT_FALSE(ColorEq(theme_.alert_color[0], theme_.blockquote_bar_color));
+    // Note のバーは通常の blockquote のバーとは別のブラシで描く。
     auto cmds = Generate("> [!NOTE]\n> text");
     const auto bar = FindFirst<DrawLineCmd>(cmds, [&](const DrawLineCmd& l) {
-        return IsVertical(l) && ColorEq(l.color, theme_.alert_color[0]);
+        return IsVertical(l) && l.brush_id == BrushId::AlertNote;
     });
-    EXPECT_TRUE(bar.has_value()) << "Note のバー色が theme_.alert_color[0] と一致するべき";
+    EXPECT_TRUE(bar.has_value()) << "Note のバーは AlertNote ブラシで描くべき";
+    const auto bg = FindFirst<FillRoundedRectCmd>(cmds, [](const FillRoundedRectCmd& r) { return r.brush_id == BrushId::AlertNoteBg; });
+    EXPECT_TRUE(bg.has_value()) << "Note の背景は AlertNoteBg ブラシで描くべき";
 }
 
 TEST_F(CmdGenTest, RegularBlockquoteStillUsesOriginalColor)
@@ -217,9 +216,7 @@ TEST_F(CmdGenTest, RegularBlockquoteStillUsesOriginalColor)
     auto cmds = Generate("> Normal quote");
     const auto bar = FindFirst<DrawLineCmd>(cmds, IsVertical);
     ASSERT_TRUE(bar.has_value()) << "Regular blockquote は垂直バー線を生成するべき";
-    EXPECT_FLOAT_EQ(bar->color.r, theme_.blockquote_bar_color.r);
-    EXPECT_FLOAT_EQ(bar->color.g, theme_.blockquote_bar_color.g);
-    EXPECT_FLOAT_EQ(bar->color.b, theme_.blockquote_bar_color.b);
+    EXPECT_EQ(bar->brush_id, BrushId::BlockquoteBar);
 }
 
 TEST_F(CmdGenTest, AllAlertTypesGenerateCommands)
@@ -248,9 +245,7 @@ TEST_F(CmdGenTest, HeadingUnderlineColorMatchesTheme)
     auto cmds = Generate("# Title");
     const auto underline = FindFirst<DrawLineCmd>(cmds, IsHorizontal);
     ASSERT_TRUE(underline.has_value()) << "見出し下線が見つからない";
-    EXPECT_FLOAT_EQ(underline->color.r, theme_.hr_color.r);
-    EXPECT_FLOAT_EQ(underline->color.g, theme_.hr_color.g);
-    EXPECT_FLOAT_EQ(underline->color.b, theme_.hr_color.b);
+    EXPECT_EQ(underline->brush_id, BrushId::Hr);
     EXPECT_FLOAT_EQ(underline->stroke_width, theme_.hr_thickness);
 }
 
@@ -316,13 +311,13 @@ TEST_F(CmdGenTest, NestedListBulletCenteredOnFirstLine)
     EXPECT_EQ(idx, 2) << "親と子の箇条書き記号が1つずつ存在するべき";
 }
 
-// HoveredButtons パラメータが GenerateMdPane に渡せることの検証
+// OverlayButtonHit パラメータが GenerateMdPane に渡せることの検証
 TEST_F(CmdGenTest, CodeBlockWithHoveredCopyNodeAccepted)
 {
     Parse("```\ncode\n```");
     const PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
-    // hovered.copy=0 を渡してもクラッシュしない
-    const auto& cmds = gen_.GenerateMdPane(nodes_, cache_, md_pane, 0.0f, TextSelection{}, HoveredButtons{ 0, -1, -1 });
+    // ノード 0 のコピーボタンのホバーを渡してもクラッシュしない
+    const auto& cmds = gen_.GenerateMdPane(nodes_, cache_, md_pane, 0.0f, TextSelection{}, OverlayButtonHit{ 0, OverlayButton::CodeCopy });
     EXPECT_TRUE(std::holds_alternative<PushClipCmd>(cmds.front()));
     EXPECT_TRUE(std::holds_alternative<PopClipCmd>(cmds.back()));
 }
@@ -348,7 +343,5 @@ TEST_F(CmdGenTest, PlaceholderBgUsesCodeBgColor)
     auto cmds = Generate("![alt](image.png)");
     const auto rr = FindFirst<FillRoundedRectCmd>(cmds);
     ASSERT_TRUE(rr.has_value()) << "プレースホルダーの角丸四角形が見つからない";
-    EXPECT_FLOAT_EQ(rr->color.r, theme_.code_bg_color.r);
-    EXPECT_FLOAT_EQ(rr->color.g, theme_.code_bg_color.g);
-    EXPECT_FLOAT_EQ(rr->color.b, theme_.code_bg_color.b);
+    EXPECT_EQ(rr->brush_id, BrushId::CodeBg);
 }

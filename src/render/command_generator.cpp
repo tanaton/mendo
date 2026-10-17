@@ -57,9 +57,9 @@ constexpr bool OverlapsY(const D2D1_RECT_F& r, float cull_top, float cull_bottom
 }
 
 // 可視範囲より高いレイアウトだけ、executor に範囲外のグリフランを飛ばさせる。
-DrawTextLayoutCmd MakeTextLayoutCmd(D2D1_POINT_2F origin, IDWriteTextLayout* layout, float height, D2D1_COLOR_F color, BrushId brush_id, float cull_top, float cull_bottom) noexcept
+DrawTextLayoutCmd MakeTextLayoutCmd(D2D1_POINT_2F origin, IDWriteTextLayout* layout, float height, BrushId brush_id, float cull_top, float cull_bottom) noexcept
 {
-    DrawTextLayoutCmd cmd{ origin, layout, color, brush_id };
+    DrawTextLayoutCmd cmd{ origin, layout, brush_id };
     if (height > cull_bottom - cull_top) {
         cmd.cull_runs = true;
         cmd.cull_top = cull_top;
@@ -68,31 +68,31 @@ DrawTextLayoutCmd MakeTextLayoutCmd(D2D1_POINT_2F origin, IDWriteTextLayout* lay
     return cmd;
 }
 
-FillRoundedRectCmd MakeInlineCodeBgCmd(const D2D1_RECT_F& r, D2D1_COLOR_F color) noexcept
+FillRoundedRectCmd MakeInlineCodeBgCmd(const D2D1_RECT_F& r) noexcept
 {
-    return { r, INLINE_CODE_CORNER, INLINE_CODE_CORNER, color, BrushId::CodeBg };
+    return { r, INLINE_CODE_CORNER, INLINE_CODE_CORNER, BrushId::CodeBg };
 }
 
 // bgs はパディング適用済みのレイアウト原点相対矩形。
-void GenInlineCodeBgs(DrawCommandList& cmds, std::span<const InlineCodeBg> bgs, float origin_x, float origin_y, D2D1_COLOR_F color, float cull_top, float cull_bottom)
+void GenInlineCodeBgs(DrawCommandList& cmds, std::span<const InlineCodeBg> bgs, float origin_x, float origin_y, float cull_top, float cull_bottom)
 {
     for (const auto& bg : bgs) {
         const auto r = OffsetRectF(bg, origin_x, origin_y);
         if (OverlapsY(r, cull_top, cull_bottom)) {
-            cmds.emplace_back(MakeInlineCodeBgCmd(r, color));
+            cmds.emplace_back(MakeInlineCodeBgCmd(r));
         }
     }
 }
 
 // bgs は cell_index 昇順を維持しているため、cursor を進めるだけで O(N) 全体で済む。
 // 戻り値は次回呼び出し向けに進めた cursor。
-size_t GenCellInlineCodeBgs(DrawCommandList& cmds, std::span<const CellInlineCodeBg> bgs, size_t cursor, uint32_t cell_index, float origin_x, float origin_y, D2D1_COLOR_F color)
+size_t GenCellInlineCodeBgs(DrawCommandList& cmds, std::span<const CellInlineCodeBg> bgs, size_t cursor, uint32_t cell_index, float origin_x, float origin_y)
 {
     while (cursor < bgs.size() && bgs[cursor].cell_index < cell_index) {
         ++cursor;
     }
     while (cursor < bgs.size() && bgs[cursor].cell_index == cell_index) {
-        cmds.emplace_back(MakeInlineCodeBgCmd(OffsetRectF(bgs[cursor].rect, origin_x, origin_y), color));
+        cmds.emplace_back(MakeInlineCodeBgCmd(OffsetRectF(bgs[cursor].rect, origin_x, origin_y)));
         ++cursor;
     }
     return cursor;
@@ -163,13 +163,13 @@ float GetFirstLineHeight(const NodeLayoutEntry& entry, float font_size) noexcept
 } // namespace
 
 // box はスクロール位置に依らない値を渡す。矩形の差から求めると丸めでキャッシュが外れる。
-void CommandGenerator::EmitText(std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, D2D1_COLOR_F color, BrushId brush_id)
+void CommandGenerator::EmitText(std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, BrushId brush_id, float opacity)
 {
     if (!text_layouts_) {
         return;
     }
     if (auto* layout = text_layouts_->Get(fmt, text, box)) {
-        cmds_.emplace_back(DrawTextLayoutCmd{ origin, layout, color, brush_id });
+        cmds_.emplace_back(DrawTextLayoutCmd{ .origin = origin, .layout = layout, .brush_id = brush_id, .opacity = opacity });
     }
 }
 
@@ -204,7 +204,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     const std::pmr::vector<Node>& nodes, const LayoutCache& cache,
     const PaneRect& md_pane_rect, float scroll_y,
     const TextSelection& selection,
-    HoveredButtons hovered,
+    OverlayButtonHit hovered,
     float dpi_scale,
     const BlockHScrollContext& block_h_scroll)
 {
@@ -242,7 +242,6 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         .overhang = MaxNodeOverhang(),
     };
 
-    cull_top_ = 0.0f;
     cull_bottom_ = md_pane_rect.height;
 
     ReleaseStaleSelectionHlCaches(cache, selection);
@@ -324,26 +323,23 @@ void CommandGenerator::GenerateNode(const FrameContext& fc,
             [&](float scroll_x) { GenTable(fc, node, entry, node_index, x, entry_text_top, scroll_x); });
         return;
 
-    case NodeType::CodeBlock: {
-        const auto lang = node.code_language();
-        if (IsDiagramLanguage(lang)) {
-            if (diagram && diagram->bitmap) {
-                const auto bmp = MermaidBitmapRect(diagram->width, diagram->height, x, cw, entry_text_top);
-                cmds_.emplace_back(DrawBitmapCmd{ diagram->bitmap.Get(), bmp });
-                GenOverlayButton(OverlayButtonRect(bmp.right, bmp.top, DiagramButtonSlot::Save), L'', node_index == fc.hovered.save);
-                GenOverlayButton(OverlayButtonRect(bmp.right, bmp.top, DiagramButtonSlot::Copy), L'', node_index == fc.hovered.diagram_copy);
-            }
-            else {
-                GenDiagramPlaceholder(x, entry_text_top, cw, entry.height, diagram ? std::wstring_view{ diagram->error } : std::wstring_view{});
-            }
-            return;
+    case NodeType::Diagram:
+        if (diagram && diagram->bitmap) {
+            cmds_.emplace_back(DrawBitmapCmd{ diagram->bitmap.Get(), MermaidBitmapRect(diagram->width, diagram->height, x, cw, entry_text_top) });
+            GenOverlayButtons(fc, node, diagram, x, cw, entry_text_top, node_index);
         }
+        else {
+            GenDiagramPlaceholder(x, entry_text_top, cw, entry.height, diagram ? std::wstring_view{ diagram->error } : std::wstring_view{});
+        }
+        return;
+
+    case NodeType::CodeBlock: {
         const float pad = NodeBoxPadY(node, *theme_);
         const D2D1_RECT_F box = D2D1::RectF(x, entry_text_top - pad, x + cw, entry_text_top + entry.height + pad);
         GenCodeBlockBg(box);
         // 背景とコピーボタンはクリップ外で固定描画 (GitHub と同じ挙動)。テキスト本体だけ scroll_x 分平行移動。
         gen_h_scroll_block(box, pad, [&](float) { GenNodeTextDecorations(fc, node, entry, node_index, text_x, entry_text_top); });
-        GenOverlayButton(OverlayButtonRect(box.right, box.top), L'\uE8C8', node_index == fc.hovered.copy);
+        GenOverlayButtons(fc, node, nullptr, x, cw, entry_text_top, node_index);
         return;
     }
 
@@ -367,7 +363,7 @@ void CommandGenerator::GenerateNode(const FrameContext& fc,
             const float line_y = entry_text_top + entry.height + HeadingUnderlineGap(*theme_);
             cmds_.emplace_back(DrawLineCmd{
                 D2D1::Point2F(x, line_y), D2D1::Point2F(x + cw, line_y),
-                theme_->hr_color, theme_->GetHeadingUnderlineThickness(lv), BrushId::Hr });
+                theme_->GetHeadingUnderlineThickness(lv), BrushId::Hr });
         }
         break;
     }
@@ -395,24 +391,23 @@ CommandGenerator::NodeOverhang CommandGenerator::MaxNodeOverhang() const noexcep
     return { box, std::max({ box, underline, empty_li, copy_button }) };
 }
 
-CommandGenerator::NodeBaseStyle CommandGenerator::GetNodeBaseStyle(const Node& node) const noexcept
+BrushId CommandGenerator::GetNodeBaseBrush(const Node& node) noexcept
 {
     switch (node.type) {
     case NodeType::Heading:
-        return { theme_->heading_color, BrushId::Heading };
+        return BrushId::Heading;
     case NodeType::BlockQuote:
-        return (node.alert_type != AlertType::None)
-                   ? NodeBaseStyle{ theme_->text_color, BrushId::Text }
-                   : NodeBaseStyle{ theme_->blockquote_text_color, BrushId::BlockquoteText };
+        return (node.alert_type != AlertType::None) ? BrushId::Text : BrushId::BlockquoteText;
     case NodeType::CodeBlock:
-        return { theme_->code_text_color, BrushId::CodeText };
+        return BrushId::CodeText;
     case NodeType::Paragraph:
     case NodeType::HorizontalRule:
     case NodeType::ListItem:
     case NodeType::Table:
     case NodeType::TaskListItem:
     case NodeType::Image:
-        return { theme_->text_color, BrushId::Text };
+    case NodeType::Diagram:
+        return BrushId::Text;
     }
     std::unreachable();
 }
@@ -423,9 +418,7 @@ void CommandGenerator::GenNodeTextDecorations(const FrameContext& fc, const Node
         return;
     }
 
-    const auto [base_color, base_brush] = GetNodeBaseStyle(node);
-
-    GenInlineCodeBgs(cmds_, entry.view_inline_code_bgs(), text_x, entry_text_top, theme_->code_bg_color, cull_top_, cull_bottom_);
+    GenInlineCodeBgs(cmds_, entry.view_inline_code_bgs(), text_x, entry_text_top, cull_top_, cull_bottom_);
 
     // 検索マッチのハイライト（選択より先に描画し、選択が最前面になるようにする）
     GenSearchHighlights(entry, node_index, text_x, entry_text_top);
@@ -438,7 +431,7 @@ void CommandGenerator::GenNodeTextDecorations(const FrameContext& fc, const Node
         }
     }
 
-    auto cmd = MakeTextLayoutCmd(D2D1::Point2F(text_x, entry_text_top), entry.text_layout(), entry.height, base_color, base_brush, cull_top_, cull_bottom_);
+    auto cmd = MakeTextLayoutCmd(D2D1::Point2F(text_x, entry_text_top), entry.text_layout(), entry.height, GetNodeBaseBrush(node), cull_top_, cull_bottom_);
     cmd.syntax_tokens = entry.syntax_tokens();
     cmds_.emplace_back(cmd);
 }
@@ -449,7 +442,7 @@ void CommandGenerator::GenTaskListCheckbox(const Node& node, float x, float entr
     const float icon_size = theme_->font_size_body;
     const float cb_x = x - theme_->list_bullet_offset;
     EmitText(icon, formats_.icon_font, D2D1::Point2F(cb_x, entry_text_top),
-             D2D1::SizeF(icon_size, icon_size * TASK_CHECKBOX_HEIGHT_FACTOR), theme_->text_color, BrushId::Text);
+             D2D1::SizeF(icon_size, icon_size * TASK_CHECKBOX_HEIGHT_FACTOR), BrushId::Text);
 }
 
 void CommandGenerator::GenHorizontalRule(float x, float w, float entry_text_top)
@@ -457,12 +450,12 @@ void CommandGenerator::GenHorizontalRule(float x, float w, float entry_text_top)
     const float y = entry_text_top + theme_->paragraph_spacing * 0.5f;
     cmds_.emplace_back(DrawLineCmd{
         D2D1::Point2F(x, y), D2D1::Point2F(x + w, y),
-        theme_->hr_color, theme_->hr_thickness, BrushId::Hr });
+        theme_->hr_thickness, BrushId::Hr });
 }
 
 void CommandGenerator::GenCodeBlockBg(const D2D1_RECT_F& box)
 {
-    cmds_.emplace_back(FillRoundedRectCmd{ box, CODE_BLOCK_CORNER, CODE_BLOCK_CORNER, theme_->code_bg_color, BrushId::CodeBg });
+    cmds_.emplace_back(FillRoundedRectCmd{ box, CODE_BLOCK_CORNER, CODE_BLOCK_CORNER, BrushId::CodeBg });
 }
 
 void CommandGenerator::EmitBlockHScrollbarIfActive(const FrameContext& fc, int node_index, float block_x, float bar_y, const BlockHScrollGeometry& geom, float scroll_x)
@@ -485,8 +478,16 @@ void CommandGenerator::EmitBlockHScrollbarIfActive(const FrameContext& fc, int n
     cmds_.emplace_back(FillRoundedRectCmd{
         D2D1::RectF(thumb_x, thumb_y, thumb_x + w_snapped, thumb_y + h_snapped),
         h_snapped / 2.0f, h_snapped / 2.0f,
-        D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f),
         BrushId::ScrollbarThumb });
+}
+
+void CommandGenerator::GenOverlayButtons(const FrameContext& fc, const Node& node, const DiagramEntry* diagram, float x, float cw, float entry_text_top, int node_index)
+{
+    layout::ForEachOverlayButton(node, diagram, x, cw, entry_text_top, *theme_, [&](const D2D1_RECT_F& btn, OverlayButton kind) {
+        // 保存は Download、コピーは Copy (Segoe Fluent Icons)。
+        const wchar_t icon = kind == OverlayButton::DiagramSave ? L'\uE896' : L'\uE8C8';
+        GenOverlayButton(btn, icon, fc.hovered == OverlayButtonHit{ node_index, kind });
+    });
 }
 
 void CommandGenerator::GenOverlayButton(D2D1_RECT_F btn, wchar_t icon, bool is_hovered)
@@ -494,12 +495,13 @@ void CommandGenerator::GenOverlayButton(D2D1_RECT_F btn, wchar_t icon, bool is_h
     if (!formats_.copy_btn_icon) {
         return;
     }
+    const BrushId overlay = OverlayBrushId(cached_is_dark_);
     const float bg_alpha = is_hovered ? (cached_is_dark_ ? 0.30f : 0.15f) : (cached_is_dark_ ? 0.10f : 0.05f);
-    cmds_.emplace_back(FillRoundedRectCmd{ btn, COPY_BTN_CORNER, COPY_BTN_CORNER, MonochromeOverlay(cached_is_dark_, bg_alpha) });
+    cmds_.emplace_back(FillRoundedRectCmd{ btn, COPY_BTN_CORNER, COPY_BTN_CORNER, overlay, bg_alpha });
 
     const float text_alpha = is_hovered ? (cached_is_dark_ ? 0.9f : 0.8f) : (cached_is_dark_ ? 0.4f : 0.35f);
     EmitText({ &icon, 1 }, formats_.copy_btn_icon, D2D1::Point2F(btn.left, btn.top),
-             D2D1::SizeF(COPY_BTN_SIZE, COPY_BTN_SIZE), MonochromeOverlay(cached_is_dark_, text_alpha));
+             D2D1::SizeF(COPY_BTN_SIZE, COPY_BTN_SIZE), overlay, text_alpha);
 }
 
 void CommandGenerator::GenListBullet(const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top)
@@ -512,7 +514,7 @@ void CommandGenerator::GenListBullet(const FrameContext& fc, const Node& node, c
         EmitText({ num_buf, num_len }, formats_.list_number,
                  D2D1::Point2F(x - theme_->list_bullet_offset - LIST_NUMBER_PAD_RIGHT, entry_text_top),
                  D2D1::SizeF(theme_->list_bullet_offset + LIST_NUMBER_PAD_RIGHT - LIST_NUMBER_PAD_LEFT, first_line_h),
-                 theme_->text_color, BrushId::Text);
+                 BrushId::Text);
         return;
     }
 
@@ -520,10 +522,10 @@ void CommandGenerator::GenListBullet(const FrameContext& fc, const Node& node, c
     const float bullet_y = SnapToPhysicalPixel(entry_text_top + first_line_h * 0.5f, fc.dpi_scale);
     const float r = theme_->list_bullet_radius;
     if (node.indent_level <= 1) {
-        cmds_.emplace_back(FillEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, r, theme_->text_color, BrushId::Text });
+        cmds_.emplace_back(FillEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, r, BrushId::Text });
     }
     else {
-        cmds_.emplace_back(DrawEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, r, theme_->text_color, 1.0f, BrushId::Text });
+        cmds_.emplace_back(DrawEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, r, 1.0f, BrushId::Text });
     }
 }
 
@@ -591,7 +593,7 @@ void CommandGenerator::GenBlockQuoteGroup(const FrameContext& fc, const std::pmr
         const float outer_x = fc.offset_x + outer_x_indent;
         const float cw = fc.content_width - outer_x_indent;
         const D2D1_RECT_F bg_rect = D2D1::RectF(outer_x - ALERT_BG_PAD, group_top - ALERT_BG_PAD, outer_x + cw, group_bottom + ALERT_BG_PAD);
-        cmds_.emplace_back(FillRoundedRectCmd{ bg_rect, ALERT_BG_CORNER, ALERT_BG_CORNER, theme_->alert_bg_color[idx] });
+        cmds_.emplace_back(FillRoundedRectCmd{ bg_rect, ALERT_BG_CORNER, ALERT_BG_CORNER, AlertBgBrushIdFromIndex(idx) });
     }
 
     // GitHub と同様に、外側のバーはネストした範囲を貫通して連続描画する。
@@ -600,14 +602,13 @@ void CommandGenerator::GenBlockQuoteGroup(const FrameContext& fc, const std::pmr
         const float bar_indent_x = static_cast<float>(outer_indent + level - 1) * theme_->indent_width;
         const float bar_x = fc.offset_x + bar_indent_x - theme_->indent_width * 0.5f;
         const bool is_alert_bar = (level == 1 && alert_type != AlertType::None);
-        const D2D1_COLOR_F bar_color = is_alert_bar ? theme_->alert_color[AlertColorIndex(alert_type)] : theme_->blockquote_bar_color;
         const BrushId bar_brush = is_alert_bar ? AlertBrushIdFromIndex(AlertColorIndex(alert_type)) : BrushId::BlockquoteBar;
 
         const auto emit_bar = [&](float top, float bottom) {
             cmds_.emplace_back(DrawLineCmd{
                 D2D1::Point2F(bar_x, top - BAR_EXTEND),
                 D2D1::Point2F(bar_x, bottom + BAR_EXTEND),
-                bar_color, theme_->blockquote_bar_width, bar_brush });
+                theme_->blockquote_bar_width, bar_brush });
         };
 
         bool in_region = false;
@@ -639,10 +640,10 @@ void CommandGenerator::GenDiagramPlaceholder(float x, float y, float w, float h,
     const auto origin = D2D1::Point2F(x, y);
     const auto box = D2D1::SizeF(w, h);
     if (!error.empty()) {
-        EmitText(error, formats_.placeholder_text, origin, box, theme_->alert_color[AlertColorIndex(AlertType::Caution)], BrushId::AlertCaution);
+        EmitText(error, formats_.placeholder_text, origin, box, BrushId::AlertCaution);
         return;
     }
-    EmitText(i18n::S().loading, formats_.placeholder_text, origin, box, theme_->blockquote_text_color, BrushId::BlockquoteText);
+    EmitText(i18n::S().loading, formats_.placeholder_text, origin, box, BrushId::BlockquoteText);
 }
 
 void CommandGenerator::GenTableRowBg(const TableRowGeom& g, bool is_header, bool is_even_row)
@@ -652,10 +653,10 @@ void CommandGenerator::GenTableRowBg(const TableRowGeom& g, bool is_header, bool
     }
     const D2D1_RECT_F rect = D2D1::RectF(g.x, g.y, g.x + g.table_width, g.y + g.row_h + g.border);
     if (is_header) {
-        cmds_.emplace_back(FillRectCmd{ rect, theme_->code_bg_color, BrushId::CodeBg });
+        cmds_.emplace_back(FillRectCmd{ rect, BrushId::CodeBg });
     }
     else {
-        cmds_.emplace_back(FillRectCmd{ rect, cached_stripe_color_, BrushId::TableStripe });
+        cmds_.emplace_back(FillRectCmd{ rect, BrushId::TableStripe });
     }
 }
 
@@ -677,9 +678,8 @@ void CommandGenerator::GenTableCellContent(std::string_view cell_text, const Cel
             }
         }
     }
-    const D2D1_COLOR_F cell_color = ctx.is_header ? theme_->heading_color : theme_->text_color;
     const BrushId cell_brush = ctx.is_header ? BrushId::Heading : BrushId::Text;
-    cmds_.emplace_back(MakeTextLayoutCmd(D2D1::Point2F(ctx.text_x, ctx.text_y), ctx.layout, ctx.height, cell_color, cell_brush, cull_top_, cull_bottom_));
+    cmds_.emplace_back(MakeTextLayoutCmd(D2D1::Point2F(ctx.text_x, ctx.text_y), ctx.layout, ctx.height, cell_brush, cull_top_, cull_bottom_));
 }
 
 void CommandGenerator::GenTable(const FrameContext& fc,
@@ -695,8 +695,6 @@ void CommandGenerator::GenTable(const FrameContext& fc,
     const float border = TABLE_BORDER_WIDTH;
     const auto& tl = *tl_ptr;
     const auto& selection = fc.selection;
-    const float viewport_top = cull_top_;
-    const float viewport_bottom = cull_bottom_;
     const auto row_count = tbl->row_count;
     const auto col_count = static_cast<size_t>(tbl->col_count);
 
@@ -708,7 +706,7 @@ void CommandGenerator::GenTable(const FrameContext& fc,
     bool has_selection = selection.active && (node_index >= selection.start_node) && (node_index <= selection.end_node);
     uint32_t sel_start = 0, sel_end = 0;
     if (has_selection) {
-        const auto range = selection.ClampedRange(node_index, tbl->concat_text.size());
+        const auto range = selection.ClampedRange(node_index, node.GetText().size());
         sel_start = range.start;
         sel_end = range.end;
         if (sel_end <= sel_start) {
@@ -716,17 +714,14 @@ void CommandGenerator::GenTable(const FrameContext& fc,
         }
     }
 
-    // cell_inline_code_bgs は cell_index 昇順 (renderer.cpp の追記/rotate が維持) なので二分探索で進める。
-    const auto seek_bg = [&bgs = tl.cell_inline_code_bgs](uint32_t cell) noexcept {
-        return static_cast<size_t>(std::ranges::lower_bound(bgs, cell, {}, &CellInlineCodeBg::cell_index) - bgs.begin());
-    };
-
     // 可視行帯を row_cum_y の二分探索で求め、その範囲だけループする
     // (ApplyTableEffects / FindTableRow と同じパターン)。巨大テーブルで
     // 毎フレーム row_count 回の continue ループが走るのを防ぐ。
-    const auto [r_begin, r_end] = tl.VisibleRowRange(viewport_top - entry_text_top, viewport_bottom - entry_text_top);
+    const auto [r_begin, r_end] = tl.VisibleRowRange(cull_top_ - entry_text_top, cull_bottom_ - entry_text_top);
     float y = entry_text_top + tl.row_cum_y[r_begin];
-    size_t bg_cursor = seek_bg(static_cast<uint32_t>(r_begin * tl.col_count));
+    // cell_inline_code_bgs は cell_index 昇順 (renderer.cpp の追記/rotate が維持) なので二分探索で頭出しする。
+    const auto& bgs = tl.cell_inline_code_bgs;
+    size_t bg_cursor = static_cast<size_t>(std::ranges::lower_bound(bgs, static_cast<uint32_t>(r_begin * tl.col_count), {}, &CellInlineCodeBg::cell_index) - bgs.begin());
 
     // x は列順に単調なので、可視列は連続した区間 [c_begin, c_end) になる。
     size_t c_begin = 0;
@@ -744,25 +739,17 @@ void CommandGenerator::GenTable(const FrameContext& fc,
 
     for (size_t r = r_begin; r < r_end; r++) {
         const float row_h = tl.row_heights[r];
-
-        const float row_bottom = y + row_h + border;
-        if (row_bottom < viewport_top || y > viewport_bottom) {
-            y = row_bottom;
-            bg_cursor = seek_bg(static_cast<uint32_t>((r + 1) * tl.col_count));
-            continue;
-        }
-
         const bool is_header_row = tbl->IsHeaderRow(r);
         GenTableRowBg(TableRowGeom{ offset_x, y, table_width, row_h, border }, is_header_row, r % 2 == 0);
 
-        cmds_.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y), theme_->hr_color, border, BrushId::Hr });
+        cmds_.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y), border, BrushId::Hr });
 
         float cx = x_begin;
         for (size_t c = c_begin; c < c_end; c++) {
             const auto [text_x, text_y] = TableCellTextOrigin(cx, y);
 
             // bg_cursor は cell_index 昇順で進む。
-            bg_cursor = GenCellInlineCodeBgs(cmds_, tl.cell_inline_code_bgs, bg_cursor, static_cast<uint32_t>(tl.CellIndex(r, c)), text_x, text_y, theme_->code_bg_color);
+            bg_cursor = GenCellInlineCodeBgs(cmds_, tl.cell_inline_code_bgs, bg_cursor, static_cast<uint32_t>(tl.CellIndex(r, c)), text_x, text_y);
 
             IDWriteTextLayout* const cell_layout = tl.GetCellLayout(r, c);
             GenCellSearchHighlights(search_nm, cell_layout, r, c, text_x, text_y);
@@ -785,11 +772,11 @@ void CommandGenerator::GenTable(const FrameContext& fc,
 
     // r_end で打ち切った場合も下端線はテーブル全体の底に置く (可視外ならクリップされる)
     const float table_bottom = entry_text_top + tl.row_cum_y[row_count];
-    cmds_.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, table_bottom), D2D1::Point2F(offset_x + table_width, table_bottom), theme_->hr_color, border, BrushId::Hr });
+    cmds_.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, table_bottom), D2D1::Point2F(offset_x + table_width, table_bottom), border, BrushId::Hr });
 
     // 縦罫線は可視列ごとに表の上端から下端まで 1 本で引く (行ごとに引くと 行×列 本になる)。可視外はクリップされる。
     const auto vline = [&](float x) {
-        cmds_.emplace_back(DrawLineCmd{ D2D1::Point2F(x, entry_text_top), D2D1::Point2F(x, table_bottom), theme_->hr_color, border, BrushId::Hr });
+        cmds_.emplace_back(DrawLineCmd{ D2D1::Point2F(x, entry_text_top), D2D1::Point2F(x, table_bottom), border, BrushId::Hr });
     };
     float cx = x_begin;
     for (size_t c = c_begin; c < c_end; c++) {
@@ -807,10 +794,10 @@ std::span<const DWRITE_HIT_TEST_METRICS> CommandGenerator::HitTestRange(IDWriteT
     return { hit_test_buffer_->data(), count };
 }
 
-void CommandGenerator::EmitFillRectIfVisible(const D2D1_RECT_F& r, D2D1_COLOR_F color, BrushId brush)
+void CommandGenerator::EmitFillRectIfVisible(const D2D1_RECT_F& r, BrushId brush)
 {
     if (OverlapsY(r, cull_top_, cull_bottom_)) {
-        cmds_.emplace_back(FillRectCmd{ r, color, brush });
+        cmds_.emplace_back(FillRectCmd{ r, brush });
     }
 }
 
@@ -820,7 +807,7 @@ void CommandGenerator::GenSelectionHighlight(IDWriteTextLayout* layout, uint32_t
         return;
     }
     for (const auto& m : HitTestRange(layout, start, length)) {
-        EmitFillRectIfVisible(RectFromHitTest(m, origin_x, origin_y), SELECTION_COLOR, BrushId::Selection);
+        EmitFillRectIfVisible(RectFromHitTest(m, origin_x, origin_y), BrushId::Selection);
     }
 }
 
@@ -880,7 +867,7 @@ void CommandGenerator::GenSelectionHighlightCached(const Node& node, const NodeL
         MENDO_COUNT_INC(g_cmd_gen_stats.sel_hl_cache_hit);
     }
     for (const auto& local : cache.rects) {
-        EmitFillRectIfVisible(OffsetRectF(local, origin_x, origin_y), SELECTION_COLOR, BrushId::Selection);
+        EmitFillRectIfVisible(OffsetRectF(local, origin_x, origin_y), BrushId::Selection);
     }
 }
 
@@ -929,10 +916,9 @@ void CommandGenerator::EmitSearchMatches(const NodeSearchMatches& nm, IDWriteTex
         }
 
         const bool is_current = (static_cast<int>(nm.first_global + i) == current_match_index_);
-        const D2D1_COLOR_F color = is_current ? theme_->search_highlight_current_color : theme_->search_highlight_color;
         const BrushId hl_brush = is_current ? BrushId::SearchHighlightCurrent : BrushId::SearchHighlight;
         for (const auto& r : std::span{ cache.rects }.subspan(span.begin, span.count)) {
-            EmitFillRectIfVisible(OffsetRectF(r, origin_x, origin_y), color, hl_brush);
+            EmitFillRectIfVisible(OffsetRectF(r, origin_x, origin_y), hl_brush);
         }
     }
 }

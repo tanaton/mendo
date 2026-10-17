@@ -356,14 +356,8 @@ inline constexpr float TOAST_OVERLAY_BOTTOM_OFFSET = 16.0f;
 // ジェスチャー軌跡のスタイル
 inline constexpr float GESTURE_TRAIL_STROKE_WIDTH = 4.0f;
 
-// ダイアグラム（Mermaid 等）右上に並ぶオーバーレイボタンのスロット。
-// 値は OverlayButtonRect の button_index に対応し、0 が最も右、左隣に並ぶごとに +1。
-enum class DiagramButtonSlot : uint8_t {
-    Save = 0,
-    Copy = 1,
-};
-
 // 要素の右上を基準にオーバーレイボタン（コピー/保存）の矩形を返す。
+// 図のボタンは右から 保存・コピー の順に並ぶ。
 // anchor_right: 基準領域の右端, anchor_top: 基準領域の上端
 // button_index: 0=最も右, 1 以降は左隣に COPY_BTN_GAP 分ずれる。
 inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top, int button_index = 0) noexcept
@@ -373,9 +367,9 @@ inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top, int b
     return D2D1::RectF(bx, by, bx + COPY_BTN_SIZE, by + COPY_BTN_SIZE);
 }
 
-inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top, DiagramButtonSlot slot) noexcept
+inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top, OverlayButton kind) noexcept
 {
-    return OverlayButtonRect(anchor_right, anchor_top, static_cast<int>(slot));
+    return OverlayButtonRect(anchor_right, anchor_top, kind == OverlayButton::DiagramCopy ? 1 : 0);
 }
 
 // Mermaidダイアグラムのビットマップ描画矩形を計算する（スケーリング＋中央寄せ）。

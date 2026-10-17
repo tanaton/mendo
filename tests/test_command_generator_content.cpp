@@ -28,7 +28,7 @@ TEST_F(CmdGenContentTest, HeadingH1_EmitsUnderlineWithHrColor)
 
     const auto hr_lines = std::ranges::count_if(cmds, [&](const auto& c) {
         if (auto* l = std::get_if<DrawLineCmd>(&c)) {
-            return ColorEq(l->color, theme_.hr_color);
+            return l->brush_id == BrushId::Hr;
         }
         return false;
     });
@@ -44,7 +44,7 @@ TEST_F(CmdGenContentTest, HeadingH2_EmitsUnderlineWithCorrectThickness)
     bool found = false;
     for (const auto& c : cmds) {
         if (auto* l = std::get_if<DrawLineCmd>(&c)) {
-            if (ColorEq(l->color, theme_.hr_color) && l->stroke_width == theme_.h2_underline_thickness) {
+            if (l->brush_id == BrushId::Hr && l->stroke_width == theme_.h2_underline_thickness) {
                 found = true;
                 break;
             }
@@ -72,7 +72,7 @@ TEST_F(CmdGenContentTest, BlockQuote_EmitsBarLine)
 
     const auto bar_lines = std::ranges::count_if(cmds, [&](const auto& c) {
         if (auto* l = std::get_if<DrawLineCmd>(&c)) {
-            return l->stroke_width == theme_.blockquote_bar_width && ColorEq(l->color, theme_.blockquote_bar_color);
+            return l->stroke_width == theme_.blockquote_bar_width && l->brush_id == BrushId::BlockquoteBar;
         }
         return false;
     });
@@ -99,7 +99,7 @@ TEST_F(CmdGenContentTest, NestedBlockQuote_EmitsBarPerLevel)
     std::set<float> bar_x_positions;
     for (const auto& c : cmds) {
         if (auto* l = std::get_if<DrawLineCmd>(&c)) {
-            if (l->stroke_width == theme_.blockquote_bar_width && ColorEq(l->color, theme_.blockquote_bar_color)) {
+            if (l->stroke_width == theme_.blockquote_bar_width && l->brush_id == BrushId::BlockquoteBar) {
                 bar_x_positions.insert(l->p0.x);
             }
         }
@@ -118,7 +118,7 @@ TEST_F(CmdGenContentTest, NestedBlockQuote_OuterBarSpansAcrossInnerNesting)
     std::map<float, int> count_by_x;
     for (const auto& c : cmds) {
         if (auto* l = std::get_if<DrawLineCmd>(&c)) {
-            if (l->stroke_width == theme_.blockquote_bar_width && ColorEq(l->color, theme_.blockquote_bar_color)) {
+            if (l->stroke_width == theme_.blockquote_bar_width && l->brush_id == BrushId::BlockquoteBar) {
                 count_by_x[l->p0.x]++;
             }
         }
@@ -136,10 +136,9 @@ TEST_F(CmdGenContentTest, AlertWithNested_OuterBarUsesAlertColor)
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
 
-    const auto note_color = theme_.alert_color[AlertColorIndex(AlertType::Note)];
     const bool has_alert_bar = std::ranges::any_of(cmds, [&](const auto& c) {
         if (auto* l = std::get_if<DrawLineCmd>(&c)) {
-            return ColorEq(l->color, note_color);
+            return l->brush_id == BrushId::AlertNote;
         }
         return false;
     });
