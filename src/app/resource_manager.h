@@ -4,6 +4,7 @@
 #include "layout_cache.h"
 #include "layout_computer.h"
 #include "viewport_manager.h"
+#include "file_io.h"
 #include "image_loader.h"
 #include "mermaid_file_cache.h"
 #include "mermaid_renderer_interface.h"
@@ -98,7 +99,7 @@ public:
         for (const size_t i : slice) {
             const auto& node = nodes[i];
             const auto* const img = node.image_data();
-            if (!img || img->src.contains("://")) {
+            if (!img) {
                 continue;
             }
 
@@ -384,12 +385,21 @@ private:
         cb_.recompute_layout_anchored(TakeHeightChanges());
     }
 
-    // 解決済みパスはノード単位でキャッシュする。解決できなければ nullptr。
+    // 解決済みパスはノード単位でキャッシュする。開かない src も空文字列で覚え、毎回の解決を避ける。
     const std::wstring* ResolveImagePath(size_t node_index, std::string_view src, const std::pmr::wstring& doc_dir)
     {
         auto [it, inserted] = resolved_image_paths_.try_emplace(node_index);
-        if (!inserted) {
-            return &it->second;
+        if (inserted) {
+            it->second = ResolveLocalImagePath(src, doc_dir);
+        }
+        return it->second.empty() ? nullptr : &it->second;
+    }
+
+    // 開かない src (リモート・UNC・解決失敗) は空文字列。
+    static std::wstring ResolveLocalImagePath(std::string_view src, const std::pmr::wstring& doc_dir)
+    {
+        if (src.contains("://")) {
+            return {};
         }
         // canonical() は symlink 解決のためにファイルシステムを叩くので、
         // UI 同期パスから外すため absolute() + lexically_normal() を使う。
@@ -397,17 +407,19 @@ private:
         // src は UTF-8。char から直接構築すると ACP 解釈になり非 ASCII パスが壊れる。
         // "my%20images/a.png" のようなエンコード済みの記述も多いので、デコードしてから引く。
         std::filesystem::path img_path(string_convert::Utf8ToWide(PercentDecode(src)));
+        // 相対パスは文書と同じ場所を引くだけなので、文書が共有フォルダ上でも通す。
+        if (!path_util::IsLocalPath(img_path.native())) {
+            return {};
+        }
         if (img_path.is_relative()) {
             img_path = std::filesystem::path(doc_dir) / img_path;
         }
         std::error_code ec;
         const auto abs_path = std::filesystem::absolute(img_path, ec);
         if (ec) {
-            resolved_image_paths_.erase(it);
-            return nullptr;
+            return {};
         }
-        it->second = abs_path.lexically_normal().wstring();
-        return &it->second;
+        return abs_path.lexically_normal().wstring();
     }
 
     // 保持範囲 (±EVICT_BUFFER_SCREENS) を越えて移動していたら、旧位置で積んだ描画待ちを捨てる。

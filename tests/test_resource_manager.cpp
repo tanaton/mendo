@@ -328,6 +328,18 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesDecodesPercentEncodedPath)
     EXPECT_FLOAT_EQ(cache_[img_idx].height, 300.0f);
 }
 
+// UNC の画像はキャッシュにあっても引かない。判定はデコード後のパスにかける。
+TEST_F(ResourceManagerTest, ApplyCachedImagesIgnoresUncPaths)
+{
+    // Markdown の \\ は \ 1 個になるので、UNC の \\ は \\\\ と書く。
+    LoadMarkdown("![a](\\\\\\\\attacker\\share\\a.png)\n\n![c](%5C%5Cattacker%5Cshare%5Cc.png)\n");
+    image_loader_.InsertCacheEntryForTest(L"\\\\attacker\\share\\a.png", 400.0f, 300.0f);
+    image_loader_.InsertCacheEntryForTest(L"\\\\attacker\\share\\c.png", 400.0f, 300.0f);
+    ASSERT_EQ(doc_.GetImageNodeIndices().size(), 2u);
+
+    EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 0);
+}
+
 TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadReturnsZeroWhenCacheMisses)
 {
     LoadMarkdown("![alt](missing.png)\n");

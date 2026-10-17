@@ -196,8 +196,7 @@ std::pmr::wstring SessionService::LoadLastFilePath() const
     if (path.empty()) {
         return {};
     }
-    // UNCパス (\\server\...) やデバイスパス (\\.\, \\?\) をブロックしてローカルパスのみ許可。
-    if (path.size() >= 2 && path[0] == L'\\' && path[1] == L'\\') {
+    if (!path_util::IsLocalPath(path)) {
         return {};
     }
     if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {

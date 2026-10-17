@@ -42,6 +42,19 @@ constexpr std::wstring_view TrimTrailingSeparators(std::wstring_view path) noexc
     return path;
 }
 
+// 開いてもネットワークに出ないパスか。UNC (\\host・//host) やデバイスパス (\\?\・\\.\・\??\) は
+// 開くだけで SMB/WebDAV 接続と NTLM 認証が走る。
+constexpr bool IsLocalPath(std::wstring_view path) noexcept
+{
+    const auto is_slash = [](wchar_t c) { return c == L'/' || c == L'\\'; };
+    if (path.size() < 2 || !is_slash(path[0])) {
+        return true;
+    }
+    // \??\ は Win32 の正規化を通らず NT パスとして解釈されるので \??\UNC\host も届いてしまう。
+    const bool nt_prefix = path.size() >= 4 && path[1] == L'?' && path[2] == L'?' && is_slash(path[3]);
+    return !is_slash(path[1]) && !nt_prefix;
+}
+
 } // namespace path_util
 
 // OpenFileForReadShared の失敗区分。
