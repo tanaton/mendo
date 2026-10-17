@@ -142,12 +142,11 @@ ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const noexc
         BrushId::SyntaxComment,
         BrushId::SyntaxPreprocessor,
         BrushId::SyntaxFunction,
+        BrushId::SyntaxInserted,
+        BrushId::SyntaxDeleted,
     };
-    // SYNTAX_MAP が SyntaxKeyword..SyntaxFunction の連続値前提で書かれていることを担保。
-    // brush_id.h で間に新規 BrushId を挿入するとここが落ちて気付ける。
-    static_assert(
-        std::to_underlying(BrushId::SyntaxFunction) - std::to_underlying(BrushId::SyntaxKeyword) == 6,
-        "SYNTAX_MAP は SyntaxKeyword..SyntaxFunction の連続値に依存している");
+    // SyntaxTokenType を増やしたら SYNTAX_MAP も増やす。
+    static_assert(std::size(SYNTAX_MAP) == std::to_underlying(SyntaxTokenType::Deleted) + 1);
     const auto idx = std::to_underlying(type);
     if (idx >= std::size(SYNTAX_MAP)) {
         return nullptr;

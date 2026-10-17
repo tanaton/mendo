@@ -1252,6 +1252,21 @@ graph LR
         PS[PowerShell]
         CMD[Cmd]
         JSON[JSON / JSONC / JSON5]
+        JVM[Java / Kotlin]
+        CS[C#]
+        SW[Swift]
+        PHP[PHP]
+        RB[Ruby]
+        SQL[SQL]
+        CONF[YAML / TOML / INI]
+        WEB[HTML / XML / CSS / SCSS]
+        DIFF[diff]
+        BUILD[Dockerfile / Makefile]
+        ZIG[Zig]
+        HS[Haskell]
+        LISP[Clojure / Emacs Lisp / Common Lisp / Scheme・Racket]
+        LUA[Lua]
+        VIM[Vim script / Vim9 script]
         MER[Mermaid]
     end
 
@@ -1263,6 +1278,8 @@ graph LR
         CM[Comment]
         PP[Preprocessor]
         FN[Function]
+        IN[Inserted]
+        DE[Deleted]
     end
 
     CPP --> KW & TY & ST & NU & CM & PP & FN
@@ -1275,6 +1292,21 @@ graph LR
     PS --> KW & TY & ST & NU & CM
     CMD --> KW & ST & CM
     JSON --> KW & ST & NU
+    JVM --> KW & TY & ST & NU & CM & FN
+    CS --> KW & TY & ST & NU & CM & PP & FN
+    SW --> KW & TY & ST & NU & CM & PP & FN
+    PHP --> KW & TY & ST & NU & CM & FN
+    RB --> KW & TY & ST & NU & CM & FN
+    SQL --> KW & TY & ST & NU & CM & FN
+    CONF --> KW & TY & ST & NU & CM & PP
+    WEB --> KW & TY & ST & NU & CM & PP & FN
+    DIFF --> KW & TY & CM & IN & DE
+    BUILD --> KW & TY & ST & NU & CM & FN
+    ZIG --> KW & TY & ST & NU & CM & FN
+    HS --> KW & TY & ST & NU & CM & PP & FN
+    LISP --> KW & TY & ST & NU & CM & PP & FN
+    LUA --> KW & TY & ST & NU & CM & FN
+    VIM --> KW & TY & ST & NU & CM & PP & FN
 ```
 
 `SyntaxTokenType` には `Plain` も定義されているが、トークナイザは `Plain` トークンを出力しない。描画も HTML 化もトークン間の隙間を既定色のテキストとして扱うため、出力しても同じ結果になるうえトークン数の大半を占めるだけだからである。トークンは計測で text_layout を作るときに一緒に作り、UTF-16 位置に直して隣り合う同種をまとめてから `NodeLayoutEntry` に置き、画面外で layout を捨てるときに一緒に捨てる。描画（`ApplyCodeBlockEffects`）は可視範囲の前後 1 画面にかかるトークンだけを適用し、適用済みの添字区間を広げていくので、巨大なコードブロックが初めて見えたフレームでも全トークン分の `SetDrawingEffect` は走らない。書式付きコピーは表示の有無に関係なくその場でトークン化する。
@@ -1283,7 +1315,15 @@ C++ の生文字列 `R"delim(...)delim"` は、`R"` の直後から規格どお�
 
 JSON 系は ` ```json ` / ` ```jsonc ` / ` ```json5 ` の言語タグで認識される。`true` / `false` / `null` をキーワードとしてハイライトする。
 
-キーワードリストは `syntax_keywords.h` に集約され、長さでバケット分けしたソート済み配列（`BucketedTable<N>`）で持つ。判定は `word.size()` で該当バケットへ直接ジャンプし、バケット内を `std::ranges::binary_search` で二分探索する。なお `SyntaxLanguage` には図形言語として `Mermaid` に加え `LatexMath`（数式、トークン化対象外）もある。
+Java / C# / Kotlin / Swift / PHP / Ruby / SQL は C++ 等と同じ汎用 lexer (`TokenizeRange<LexerConfig>`) に設定フラグを足して扱う。C# の逐語的文字列 `@"..."`、SQL の `--` コメント、PHP 8 の属性 `#[...]`、Ruby の `=begin` / `=end` がそのためのフラグである。数値リテラルは `'` に加えて `_` も桁区切りとして受け付ける。
+
+YAML / TOML / INI / HTML / XML / CSS / SCSS / diff / Dockerfile / Makefile は、キーと値・タグと属性・セレクタと宣言・行頭の記号といった行や宣言の構造で色が決まるため専用 lexer を持つ。設定ファイル系の値はスカラー全体で数値・定数を判定し、`1.2.3` や `node:18-alpine` の一部だけを数値として色付けしない。埋め込み言語は汎用 lexer を範囲指定で呼んで色付けする（HTML の `<script>` / `<style>` を JS / CSS、Dockerfile の命令引数と Makefile のレシピ行をシェル）。diff の追加行・削除行には専用のトークン種別 `Inserted` / `Deleted` を使う。
+
+Zig は汎用 lexer に `\\` の行文字列と `@import` 等の組み込み関数のフラグを足して扱う。Haskell は専用 lexer で、`'` を識別子の一部 (`foldl'`)・文字リテラル・型レベルの昇格 (`'True`) に読み分け、記号と隣り合う `--` は演算子として扱う。大文字始まりの識別子を型・コンストラクタ、行頭の小文字始まりを定義名とする。Lisp 系 4 方言は 1 つの lexer を方言ごとのキーワード表と字句フラグ（大文字小文字の区別、`?a` / `\a` の文字リテラル、`cond` の節）で使い分ける。`-` や `?` を含むシンボルを 1 語として読み、リスト先頭の呼び出し位置を Function、特殊形式を Keyword にする。定義名（`defun foo` の `foo`）は Function とし、引数リストと `let` の束縛リストは呼び出しと見ない。
+
+Lua は汎用 lexer に長括弧（`[[ ]]` / `[==[ ]==]` の文字列と `--[[ ]]` のコメント）のフラグを足して扱う。Vim script は専用 lexer で、行頭と `|` の後をコマンド位置として読み、コマンド名（省略形を含む）を Keyword、`g:` / `s:` / `a:` 等のスコープ付き変数と `&option` / `$ENV` / `@r` を Type、`<CR>` 等のキー表記を Preprocessor にする。`"` は行頭ならコメント、式の中では同じ行に閉じの `"` があれば文字列、無ければ行末コメントとみなす。マッピングコマンドの引数はキー列なのでキー表記だけを色付けし、`lua << EOF` の本文は Lua として、`let x =<< END` の本文は文字列として色付けする。先頭のコマンドが `vim9script` の文書（と ` ```vim9 `）は Vim9 script として `#` をコメント、`"` を文字列とする。
+
+キーワードリストは `syntax_keywords.h` に集約され、長さでバケット分けしたソート済み配列（`BucketedTable<N>`）で持つ。判定は `word.size()` で該当バケットへ直接ジャンプし、バケット内を `std::ranges::binary_search` で二分探索する。なお `SyntaxLanguage` には図形言語として `Mermaid` に加え `LatexMath`（数式、トークン化対象外）もある。`LatexMath` になるのは ` ```math ` コードブロックと、`$$...$$` だけの段落である。
 
 ---
 
@@ -4203,6 +4243,582 @@ exit /b 0
 }
 ```
 
+##### Java コード
+
+```java
+import java.util.List;
+
+/** 行数を数える */
+public final class LineCounter {
+    private static final long LIMIT = 1_000_000L;
+
+    @Override
+    public String toString() {
+        return """
+            LineCounter(limit=%d)
+            """.formatted(LIMIT);
+    }
+
+    public static int count(List<String> lines) {
+        int n = 0;
+        for (String line : lines) {
+            if (!line.isBlank()) n++;
+        }
+        return n;
+    }
+}
+```
+
+##### C# コード
+
+```csharp
+#region Paths
+namespace Mendo.Tools;
+
+public record DocEntry(string Path, int Lines);
+
+public static class DocScanner
+{
+    private const string Root = @"C:\Users\docs\";
+
+    public static async Task<List<DocEntry>> ScanAsync(string pattern = "*.md")
+    {
+        var result = new List<DocEntry>();
+        foreach (var file in Directory.EnumerateFiles(Root, pattern))
+        {
+            var lines = await File.ReadAllLinesAsync(file);
+            result.Add(new DocEntry(file, lines.Length));
+        }
+        decimal ratio = 0.5m;
+        Console.WriteLine($"found {result.Count} files ({ratio})");
+        return result;
+    }
+}
+#endregion
+```
+
+##### Kotlin コード
+
+```kotlin
+data class Heading(val level: Int, val text: String)
+
+fun parseHeadings(lines: List<String>): List<Heading> =
+    lines.filter { it.startsWith("#") }
+        .map { line ->
+            val level = line.takeWhile { it == '#' }.length
+            Heading(level, line.drop(level).trim())
+        }
+
+val template = """
+    # ${'$'}title
+""".trimIndent()
+```
+
+##### Swift コード
+
+```swift
+import Foundation
+
+struct Heading {
+    let level: Int
+    var text: String
+}
+
+#if DEBUG
+let verbose = true
+#endif
+
+func parse(_ line: String) -> Heading? {
+    guard line.hasPrefix("#") else { return nil }
+    let level = line.prefix { $0 == "#" }.count
+    return Heading(level: level, text: String(line.dropFirst(level)))
+}
+```
+
+##### PHP コード
+
+```php
+<?php
+declare(strict_types=1);
+
+#[Route('/docs/{name}')]
+function renderDoc(string $name): string
+{
+    // 拡張子を補う
+    $path = __DIR__ . "/docs/{$name}.md"; # 相対パス
+    if (!file_exists($path)) {
+        throw new RuntimeException("not found: $name");
+    }
+    return htmlspecialchars(file_get_contents($path));
+}
+```
+
+##### Ruby コード
+
+```ruby
+=begin
+見出しを抽出するスクリプト
+=end
+require 'set'
+
+class HeadingExtractor
+  attr_reader :levels
+
+  def initialize(levels = 1..3)
+    @levels = levels
+  end
+
+  def extract(text)
+    text.each_line.filter_map do |line|
+      next unless line.start_with?('#') # 見出し行だけ
+      level = line[/\A#+/].size
+      [level, line.strip] if @levels.include?(level)
+    end
+  end
+end
+
+puts HeadingExtractor.new.extract(File.read("README.md")).inspect
+```
+
+##### SQL コード
+
+```sql
+-- 最近更新されたドキュメント
+CREATE TABLE documents (
+    id INTEGER PRIMARY KEY,
+    path VARCHAR(260) NOT NULL UNIQUE,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+/* 直近 10 件 */
+SELECT d.path, COUNT(h.id) AS headings
+FROM documents d
+LEFT JOIN headings h ON h.doc_id = d.id
+WHERE d.updated_at > '2026-01-01' AND `d`.`path` LIKE '%.md'
+GROUP BY d.path
+ORDER BY headings DESC
+LIMIT 10;
+```
+
+##### YAML コード
+
+```yaml
+# GitHub Actions のワークフロー
+name: build
+on:
+  push:
+    branches: [main, "release/*"]
+env:
+  BUILD_TYPE: Release
+  RETRY: 3
+  VERBOSE: false
+defaults: &defaults
+  shell: pwsh
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        <<: *defaults
+        run: |
+          cmake -B build
+          cmake --build build --config Release
+      - name: Test
+        run: build/tests/Release/mendo_tests.exe --gtest_brief=1 # 簡潔な出力
+```
+
+##### TOML コード
+
+```toml
+# Cargo.toml
+[package]
+name = "mendo-tools"
+version = "0.1.0"
+edition = "2021"
+released = 2026-10-17T09:00:00+09:00
+description = """
+Markdown を扱う
+補助ツール群
+"""
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+regex = "1"
+
+[[bin]]
+name = 'mendo-scan'
+path = 'src/main.rs'
+test = false
+```
+
+##### INI コード
+
+```ini
+; mendo の設定例
+[window]
+width = 1280
+height = 800
+maximized = false
+
+[font]
+family = "Yu Gothic UI"
+size: 14
+```
+
+##### HTML コード
+
+```html
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>mendo &amp; Markdown</title>
+  <style>
+    body { margin: 0 auto; max-width: 960px; }
+    .note:hover { color: #0969da !important; }
+  </style>
+</head>
+<body>
+  <!-- 本文 -->
+  <p class="note" data-id=42>Hello&nbsp;world</p>
+  <input type="checkbox" checked disabled>
+  <script>
+    const items = document.querySelectorAll(".note");
+    for (const el of items) {
+      el.addEventListener("click", () => console.log(el.dataset.id));
+    }
+  </script>
+</body>
+</html>
+```
+
+##### XML コード
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- ビルド設定 -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="docs\**\*.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Description><![CDATA[a < b && c > d]]></Description>
+</Project>
+```
+
+##### CSS コード
+
+```css
+/* ライトテーマ */
+@import url("base.css");
+
+:root {
+  --accent: #0969da;
+}
+
+.markdown-body h1,
+.markdown-body h2::after {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  margin: 1.5em 0 16px;
+}
+
+@media (max-width: 600px) {
+  .markdown-body {
+    padding: 0 8px;
+    background: url(data/bg.png) no-repeat;
+    font-family: "Segoe UI", sans-serif !important;
+  }
+}
+```
+
+##### SCSS コード
+
+```scss
+$accent: #0969da;
+$radius: 6px;
+
+// ボタン
+.button {
+  border-radius: $radius;
+  color: $accent;
+
+  &:hover {
+    color: darken($accent, 10%);
+  }
+
+  &--primary {
+    background: $accent;
+  }
+}
+```
+
+##### diff コード
+
+```diff
+diff --git a/src/core/syntax.cpp b/src/core/syntax.cpp
+index 1a2b3c4..5d6e7f8 100644
+--- a/src/core/syntax.cpp
++++ b/src/core/syntax.cpp
+@@ -496,6 +496,8 @@ SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept
+         { "json", SyntaxLanguage::Json },
+-        { "mermaid", SyntaxLanguage::Mermaid },
++        { "mermaid", SyntaxLanguage::Mermaid },
++        { "math", SyntaxLanguage::LatexMath },
+     };
+\ No newline at end of file
+```
+
+##### Dockerfile コード
+
+```dockerfile
+# syntax=docker/dockerfile:1
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci && \
+    npm run build
+
+FROM nginx:1.27
+ARG PORT=8080
+ENV NGINX_PORT=${PORT}
+COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 8080
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+##### Makefile コード
+
+```makefile
+# ビルド設定
+CXX      := cl
+CXXFLAGS ?= /O2 /std:c++latest
+SRCS     := $(wildcard src/*.cpp)
+OBJS      = $(SRCS:.cpp=.obj)
+
+.PHONY: all clean
+
+all: mendo.exe
+
+mendo.exe: $(OBJS)
+	$(CXX) $(CXXFLAGS) /Fe$@ $^
+
+%.obj: %.cpp
+	@echo "compiling $<"
+	$(CXX) $(CXXFLAGS) /c $< /Fo$@
+
+ifeq ($(OS),Windows_NT)
+RM = del /q
+else
+RM = rm -f
+endif
+
+clean:
+	$(RM) $(OBJS) mendo.exe
+```
+
+##### Zig コード
+
+```zig
+const std = @import("std");
+
+/// 見出しの深さを数える
+pub fn headingLevel(line: []const u8) ?u8 {
+    var level: u8 = 0;
+    for (line) |c| {
+        if (c != '#') break;
+        level += 1;
+    }
+    return if (level == 0) null else level;
+}
+
+pub fn main() !void {
+    const help =
+        \\usage: mendo-scan <file>
+        \\  "-v" で詳細表示
+    ;
+    const n: u32 = @intCast(help.len);
+    std.debug.print("{d} bytes, max = 0x{X}\n", .{ n, 1_000 });
+}
+```
+
+##### Haskell コード
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+module Main where
+
+import qualified Data.Map as M
+
+-- | 見出しを数える
+data Heading = Heading { level :: Int, title :: String }
+  deriving (Show, Eq)
+
+countHeadings :: [String] -> M.Map Int Int
+countHeadings = foldl' step M.empty
+  where
+    step acc' line = M.insertWith (+) (depth line) 1 acc'
+    depth = length . takeWhile (== '#')
+
+{- 入れ子の {- コメント -} も
+   ひとまとまり -}
+main :: IO ()
+main = do
+  let xs = ["# a", "## b", "## c"]
+  print (countHeadings xs)
+  print ('\n', "done")
+```
+
+##### Clojure コード
+
+```clojure
+(ns mendo.toc
+  (:require [clojure.string :as str]))
+
+(defn heading-level
+  "見出しの深さを返す。見出しでなければ nil。"
+  [line]
+  (let [n (count (take-while #(= % \#) line))]
+    (when (pos? n) n)))
+
+#_(println "debug")
+(def headings (filter heading-level ["# a" "text" "## b"]))
+(println (str/join \newline headings) #"\d+" {:count 2})
+```
+
+##### Emacs Lisp コード
+
+```elisp
+;;; mendo.el --- mendo で開く  -*- lexical-binding: t -*-
+
+(defcustom mendo-executable "mendo.exe"
+  "mendo の実行ファイル。"
+  :type 'string)
+
+(defun mendo-open-current-file (&optional arg)
+  "現在のファイルを mendo で開く。"
+  (interactive "P")
+  (let ((file (buffer-file-name)))
+    (when (and file (not arg))
+      (start-process "mendo" nil mendo-executable file))))
+
+(define-key global-map (kbd "C-c m") #'mendo-open-current-file)
+(insert ?a ?\n)
+```
+
+##### Common Lisp コード
+
+```lisp
+(defpackage :mendo-toc
+  (:use :cl))
+(in-package :mendo-toc)
+
+#| 見出しの一覧を作る
+   #| 入れ子のコメント |# |#
+(defun heading-level (line)
+  "LINE が見出しなら深さを返す。"
+  (let ((n (or (position #\# line :test-not #'char=) (length line))))
+    (if (plusp n) n nil)))
+
+(defun collect-headings (lines &key (max-level 3))
+  (loop for line in lines
+        for level = (heading-level line)
+        when (and level (<= level max-level))
+          collect (cons level line)))
+
+(format t "~a~%" (collect-headings '("# a" "## b") :max-level #x2))
+```
+
+##### Scheme / Racket コード
+
+```racket
+#lang racket
+;; 見出しの深さを数える
+(define (heading-level line)
+  (let loop ([i 0])
+    (cond
+      [(and (< i (string-length line))
+            (char=? (string-ref line i) #\#))
+       (loop (add1 i))]
+      [else i])))
+
+#;(displayln "無効化された式")
+(define headings
+  (filter (λ (l) (> (heading-level l) 0)) '("# a" "text" "## b")))
+(displayln (list headings #t 1/2 #:sep ", "))
+```
+
+##### Lua コード
+
+```lua
+--[[ Neovim の設定例
+     mendo で Markdown を開く ]]
+local M = {}
+
+local function open_in_mendo(path)
+  local cmd = { "mendo.exe", path or vim.fn.expand("%:p") }
+  vim.fn.jobstart(cmd, { detach = true })
+end
+
+function M.setup(opts)
+  opts = opts or {}
+  for key, value in pairs(opts) do
+    print(key, value) -- 設定の確認
+  end
+  vim.keymap.set("n", "<leader>m", open_in_mendo, { desc = [[mendo で開く]] })
+  return #opts == 0 and nil or 0x10
+end
+
+return M
+```
+
+##### Vim script コード
+
+```vim
+" mendo 連携
+set nocompatible
+set number          " 行番号を表示
+let g:mendo_path = 'C:\Tools\mendo.exe'
+
+function! s:OpenInMendo(...) abort
+  let l:file = a:0 > 0 ? a:1 : expand('%:p')
+  call job_start([g:mendo_path, l:file])
+endfunction
+
+command! -nargs=? Mendo call s:OpenInMendo(<f-args>)
+nnoremap <silent> <leader>m :Mendo<CR>
+
+augroup mendo
+  autocmd!
+  autocmd FileType markdown setlocal spell | echo "spell on"
+augroup END
+
+if has('nvim')
+  lua << EOF
+  require('mendo').setup({ auto_open = false })
+EOF
+endif
+```
+
+##### Vim9 script コード
+
+```vim
+vim9script
+# mendo 連携 (Vim9)
+var count: number = 0
+
+def OpenInMendo(file: string = expand('%:p')): void
+  count += 1
+  job_start(['mendo.exe', file])  # バックグラウンドで起動
+enddef
+
+nnoremap <silent> <leader>m <ScriptCmd>OpenInMendo()<CR>
+```
+
 ---
 
 #### C.7 テーブルテスト
@@ -4503,6 +5119,17 @@ $$
 (a - b)^2 &= a^2 - 2ab + b^2
 \end{aligned}
 $$
+
+##### math コードブロック
+
+GitHub / GitLab 互換の ` ```math ` コードブロックも `$$...$$` と同じく KaTeX で描画される。
+
+```math
+\begin{aligned}
+\nabla \cdot \mathbf{E} &= \frac{\rho}{\varepsilon_0} \\
+\nabla \times \mathbf{B} &= \mu_0 \mathbf{J} + \mu_0 \varepsilon_0 \frac{\partial \mathbf{E}}{\partial t}
+\end{aligned}
+```
 
 ##### フォールバック（混在段落）
 

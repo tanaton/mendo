@@ -89,6 +89,8 @@ void Renderer::RecreateBrushes()
         { BrushId::SyntaxComment, theme_.syntax_comment },
         { BrushId::SyntaxPreprocessor, theme_.syntax_preprocessor },
         { BrushId::SyntaxFunction, theme_.syntax_function },
+        { BrushId::SyntaxInserted, theme_.syntax_inserted },
+        { BrushId::SyntaxDeleted, theme_.syntax_deleted },
         { BrushId::AlertNote, theme_.alert_color[0] },
         { BrushId::AlertTip, theme_.alert_color[1] },
         { BrushId::AlertImportant, theme_.alert_color[2] },

@@ -28,6 +28,8 @@ struct Theme {
     D2D1_COLOR_F syntax_comment;
     D2D1_COLOR_F syntax_preprocessor;
     D2D1_COLOR_F syntax_function;
+    D2D1_COLOR_F syntax_inserted;
+    D2D1_COLOR_F syntax_deleted;
 
     // フォント
     std::wstring font_family;

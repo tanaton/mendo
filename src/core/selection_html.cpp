@@ -322,6 +322,10 @@ constexpr std::optional<uint32_t> SyntaxTokenColor(SyntaxTokenType type, const t
         return palette.syntax_preprocessor;
     case SyntaxTokenType::Function:
         return palette.syntax_function;
+    case SyntaxTokenType::Inserted:
+        return palette.syntax_inserted;
+    case SyntaxTokenType::Deleted:
+        return palette.syntax_deleted;
     }
     std::unreachable();
 }
