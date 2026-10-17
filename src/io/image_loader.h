@@ -26,13 +26,13 @@ public:
     ~ImageLoader();
 
     // 失敗時 false; 以降の RequestLoadAsync はデコードせず失敗扱いになる。
-    bool Init(ID2D1RenderTarget* rt, IWICImagingFactory* wic = nullptr);
+    bool Init(IWICImagingFactory* wic = nullptr);
     // **UI スレッドからのみ呼び出すこと** (worker が読むのは max_bitmap_dim_ だけ)。デバイスロスト後の
     // rt 差し替えは CancelPending() で旧 rt 向けのデコードを捨ててから呼ぶ規約 (App::Init の DeviceLost コールバック参照)。
     void SetRenderTarget(ID2D1RenderTarget* rt) noexcept
     {
         render_target_ = rt;
-        max_bitmap_dim_.store(rt ? rt->GetMaximumBitmapSize() : 0u);
+        max_bitmap_dim_.store(rt ? rt->GetMaximumBitmapSize() : kMaxBitmapDimWithoutTarget);
     }
 
     void InitAsync(HWND hwnd, UINT msg_id, TaskScheduler& scheduler);
@@ -106,8 +106,10 @@ private:
 
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     ID2D1RenderTarget* render_target_ = nullptr;
+    // デバイス作成前のデコードに使う上限。D3D11 (FL11) のテクスチャ最大辺。
+    static constexpr UINT kMaxBitmapDimWithoutTarget = 16384;
     // worker が縮小サイズ計算に使う。render_target_ は worker から触れないので値で持つ。
-    std::atomic<UINT> max_bitmap_dim_{ 0 };
+    std::atomic<UINT> max_bitmap_dim_{ kMaxBitmapDimWithoutTarget };
     LruCache<std::wstring, CachedImage, MAX_CACHE_ENTRIES> cache_;
 
     HWND hwnd_ = nullptr;

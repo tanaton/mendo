@@ -327,10 +327,6 @@ constexpr SearchBarHitZone HitTestSearchBar(const SearchBarLayout& sbl, float x,
 inline constexpr int DEFAULT_WINDOW_WIDTH = 1600;
 inline constexpr int DEFAULT_WINDOW_HEIGHT = 900;
 
-// レンダーターゲットがまだ確立していない初回 Init 時のフォールバック幅 (DIP)。
-// DEFAULT_WINDOW_WIDTH と同値だが、用途 (タイトルバーレイアウト計算) が異なるため別名を割り当てる。
-inline constexpr float FALLBACK_WINDOW_WIDTH = 1600.0f;
-
 // 検索ボックス IME コンポジションウィンドウのキャレット位置 X オフセット (px)。
 // EM_POSFROMCHAR が返す位置はキャレットの左端なので、フォント幅の半分強を足してキャレット直下に表示する。
 inline constexpr LONG IME_CARET_X_OFFSET = 8;

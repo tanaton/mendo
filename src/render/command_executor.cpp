@@ -1,4 +1,5 @@
 #include "command_executor.h"
+#include "d2d_util.h"
 #include "profiler.h"
 #include "ui_constants.h"
 #include "utility.h"
@@ -128,7 +129,6 @@ ID2D1SolidColorBrush* CommandExecutor::ResolveBrush(ID2D1RenderTarget* rt, const
 void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray* brushes)
 {
     MENDO_PROFILE("CommandExecutor::Execute");
-    MENDO_PLOT("draw.command_count", static_cast<int64_t>(cmds.size()));
     if (!rt) {
         return;
     }
@@ -154,6 +154,7 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
                 return;
             }
             if (auto* b = ResolveBrush(rt, brushes, c.brush_id, c.color)) {
+                const OpacityScope opacity{ c.opacity != 1.0f ? b : nullptr, c.opacity };
                 if (c.cull_runs) {
                     VisibleRunRenderer renderer{ rt, b, c.cull_top, c.cull_bottom };
                     c.layout->Draw(nullptr, &renderer, c.origin.x, c.origin.y);
@@ -165,7 +166,7 @@ void CommandExecutor::Execute(const DrawCommandList& cmds, ID2D1RenderTarget* rt
         },
         [&](const DrawBitmapCmd& c) {
             if (c.bitmap) {
-                rt->DrawBitmap(c.bitmap, c.dest);
+                rt->DrawBitmap(c.bitmap, c.dest, c.opacity);
             }
         },
         [&](const FillEllipseCmd& c) {

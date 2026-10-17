@@ -77,6 +77,9 @@ public:
     // 先に取り込むと既定サイズでレイアウトし、配置の復元でやり直しになる。
     // preload が無ければヘルプを開く。
     void LoadInitialDocument();
+    // Init は描画デバイスを作らない。D3D デバイスの作成を待つ間に文書の取り込みまで進めるため、
+    // LoadInitialDocument の後、初回描画の前に呼ぶ。
+    bool CreateRenderDevice();
     // Init 前に呼ぶ。初回描画に含まれるため無効化はしない。
     void SetInitialDirectory(std::wstring_view dir_path);
 

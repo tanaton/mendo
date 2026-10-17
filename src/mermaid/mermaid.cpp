@@ -147,12 +147,11 @@ void MermaidRenderer::ReleaseWebView()
 }
 
 void MermaidRenderer::Init(
-    HWND hwnd, ID2D1RenderTarget* render_target, IWICImagingFactory* wic,
+    HWND hwnd, IWICImagingFactory* wic,
     TaskScheduler& bg_scheduler, UINT disk_loaded_msg,
     const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_ready)
 {
     hwnd_ = hwnd;
-    render_target_ = render_target;
     wic_factory_ = wic;
     bg_scheduler_ = &bg_scheduler;
     disk_loaded_msg_ = disk_loaded_msg;

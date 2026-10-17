@@ -27,14 +27,8 @@ bool GetCachedImage(ImageLoader& loader, const std::wstring& path, DiagramEntry&
 
 class ImageLoaderCacheTest : public ::testing::Test {
 protected:
+    // FindCachedImage / InsertCacheEntryForTest だけを使うので Init は不要。
     ImageLoader loader_;
-
-    void SetUp() override
-    {
-        // キャッシュ動作テストでは FindCachedImage / InsertCacheEntryForTest のみ使用。
-        // レンダーターゲットや WIC は不要。
-        loader_.Init(nullptr);
-    }
 };
 
 TEST_F(ImageLoaderCacheTest, GetCachedImageReturnsFalseForUnknownPath)

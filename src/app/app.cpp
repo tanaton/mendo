@@ -78,12 +78,12 @@ bool App::Init(HWND hwnd)
         },
         AppSideEffectCallbacks{ this });
 
-    mermaid_renderer_.Init(hwnd_, renderer_.GetRenderTarget(), renderer_.GetWICFactory(), scheduler_, app_msg::MERMAID_DISK_LOADED,
+    mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), scheduler_, app_msg::MERMAID_DISK_LOADED,
                            config_.GetConfigPath(L"WebView2Data"), [this]() {
         resource_manager_.ScheduleMermaidBatch();
     });
 
-    if (!image_loader_.Init(renderer_.GetRenderTarget(), renderer_.GetWICFactory())) {
+    if (!image_loader_.Init(renderer_.GetWICFactory())) {
         MENDO_TRACE("ImageLoader::Init failed (WIC factory unavailable). Image rendering disabled.");
     }
     image_loader_.InitAsync(hwnd_, app_msg::IMAGE_LOADED, scheduler_);
@@ -106,10 +106,7 @@ bool App::Init(HWND hwnd)
 
     cursors_.Init();
 
-    {
-        const auto* rt = renderer_.GetRenderTarget();
-        state_.window.titlebar.UpdateLayout(rt ? rt->GetSize().width : FALLBACK_WINDOW_WIDTH);
-    }
+    state_.window.titlebar.UpdateLayout(renderer_.GetSize().width);
 
     RestorePaneState();
 
@@ -119,6 +116,22 @@ bool App::Init(HWND hwnd)
     state_.interaction.tooltip.ApplyDarkMode(theme_service_.IsDarkMode());
 
     state_.search.search_bar_ctrl.Init(state_.search.search_state, state_.view.viewport, state_.document.layout_cache, AppSearchBarCallbacks{ this });
+    return true;
+}
+
+bool App::CreateRenderDevice()
+{
+    renderer_.PrepareChrome(BuildTitleBarRenderState(), BuildSidePaneState(GetPaneLayout()));
+    if (!renderer_.CreateDevice()) {
+        return false;
+    }
+    // 作成前に始めたデコードは WIC ビットマップなので、取り消さずに新しい RT で使う。
+    auto* const rt = renderer_.GetRenderTarget();
+    mermaid_renderer_.SetRenderTarget(rt);
+    image_loader_.SetRenderTarget(rt);
+    // デバイスを待つ間に終わった読み込みを、完了通知を待たずに最初のフレームへ入れる。
+    OnAppImageLoaded();
+    OnMermaidDiskLoaded();
     return true;
 }
 
@@ -174,12 +187,11 @@ DipPoint App::PixelToDip(int px, int py) const noexcept
 const PaneLayout& App::GetPaneLayout()
 {
     if (!state_.pane_layout_cache.IsValid()) {
-        auto* rt = renderer_.GetRenderTarget();
-        if (!rt) {
+        const auto size = renderer_.GetSize();
+        if (size.width <= 0.0f) {
             static const PaneLayout empty{};
             return empty;
         }
-        const auto size = rt->GetSize();
         const float tb_h = state_.window.titlebar.GetHeight();
         state_.pane_layout_cache.Set(
             size.width,

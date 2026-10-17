@@ -36,11 +36,13 @@ struct DrawTextLayoutCmd {
     bool cull_runs = false;
     float cull_top = 0.0f;
     float cull_bottom = 0.0f;
+    float opacity = 1.0f;
 };
 
 struct DrawBitmapCmd {
-    ID2D1Bitmap* bitmap; // 非所有; ライフタイムはLayoutCache::DiagramEntryが管理。
+    ID2D1Bitmap* bitmap; // 非所有; ライフタイムは LayoutCache::DiagramEntry か Renderer が管理。
     D2D1_RECT_F dest;
+    float opacity = 1.0f;
 };
 
 struct FillEllipseCmd {

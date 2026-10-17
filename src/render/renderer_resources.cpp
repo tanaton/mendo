@@ -10,14 +10,12 @@
 
 using Microsoft::WRL::ComPtr;
 
-void Renderer::LoadAppIconBitmap()
+void Renderer::DecodeAppIcon()
 {
-    app_icon_bitmap_.Reset();
-
     const HMODULE hModule = GetModuleHandleW(nullptr);
     const HICON hIcon = static_cast<HICON>(LoadImageW(hModule, MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR));
     if (!hIcon) {
-        MENDO_TRACE("LoadAppIconBitmap: LoadImageW(IDI_APP_ICON) failed");
+        MENDO_TRACE("DecodeAppIcon: LoadImageW(IDI_APP_ICON) failed");
         return;
     }
     const auto icon_guard = ScopeGuard([hIcon] { DestroyIcon(hIcon); });
@@ -30,17 +28,30 @@ void Renderer::LoadAppIconBitmap()
     ComPtr<IWICBitmap> wic_bitmap;
     HRESULT hr = wic->CreateBitmapFromHICON(hIcon, &wic_bitmap);
     if (FAILED(hr)) {
-        LogHrFailure("LoadAppIconBitmap: CreateBitmapFromHICON", hr);
+        LogHrFailure("DecodeAppIcon: CreateBitmapFromHICON", hr);
         return;
     }
 
     auto converter = wic_util::ConvertBitmapSource(wic, wic_bitmap.Get());
     if (!converter) {
-        MENDO_TRACE("LoadAppIconBitmap: ConvertBitmapSource failed");
+        MENDO_TRACE("DecodeAppIcon: ConvertBitmapSource failed");
         return;
     }
 
-    hr = rt()->CreateBitmapFromWicBitmap(converter.Get(), nullptr, &app_icon_bitmap_);
+    // 変換をここで確定させ、デバイス作成後の処理を D2D ビットマップへの転送だけにする。
+    hr = wic->CreateBitmapFromSource(converter.Get(), WICBitmapCacheOnLoad, &app_icon_wic_);
+    if (FAILED(hr)) {
+        LogHrFailure("DecodeAppIcon: CreateBitmapFromSource", hr);
+    }
+}
+
+void Renderer::LoadAppIconBitmap()
+{
+    app_icon_bitmap_.Reset();
+    if (!app_icon_wic_) {
+        return;
+    }
+    const HRESULT hr = rt()->CreateBitmapFromWicBitmap(app_icon_wic_.Get(), nullptr, &app_icon_bitmap_);
     if (FAILED(hr)) {
         LogHrFailure("LoadAppIconBitmap: CreateBitmapFromWicBitmap", hr);
     }
