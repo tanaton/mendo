@@ -581,6 +581,11 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         }
         return 0;
 
+    case WM_CLOSE:
+        // 起動時と揃えて DWM の閉じるアニメーションを出さない。DestroyWindow 内の非表示化より前に隠す必要がある。
+        SetCloaked(hwnd_, TRUE);
+        return DefWindowProcW(hwnd_, msg, wParam, lParam);
+
     case WM_DESTROY:
         SaveWindowPlacement();
         // dwRefData=this を渡しているので、Win32Window 破棄前に subclass を外さないと
