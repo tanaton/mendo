@@ -438,7 +438,9 @@ void CommandGenerator::GenNodeTextDecorations(const FrameContext& fc, const Node
         }
     }
 
-    cmds_.emplace_back(MakeTextLayoutCmd(D2D1::Point2F(text_x, entry_text_top), entry.text_layout(), entry.height, base_color, base_brush, cull_top_, cull_bottom_));
+    auto cmd = MakeTextLayoutCmd(D2D1::Point2F(text_x, entry_text_top), entry.text_layout(), entry.height, base_color, base_brush, cull_top_, cull_bottom_);
+    cmd.syntax_tokens = entry.syntax_tokens();
+    cmds_.emplace_back(cmd);
 }
 
 void CommandGenerator::GenTaskListCheckbox(const Node& node, float x, float entry_text_top)

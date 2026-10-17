@@ -131,29 +131,6 @@ void Renderer::PrepareVisibleEffects(const std::pmr::vector<Node>& nodes, Layout
     MENDO_IF_TRACY(PublishEffectStats());
 }
 
-ID2D1SolidColorBrush* Renderer::GetSyntaxBrush(SyntaxTokenType type) const noexcept
-{
-    static constexpr BrushId SYNTAX_MAP[] = {
-        BrushId::Text, // Plain（トークン化されず ApplySyntaxEffects からも渡らない。添字合わせ）
-        BrushId::SyntaxKeyword,
-        BrushId::SyntaxType,
-        BrushId::SyntaxString,
-        BrushId::SyntaxNumber,
-        BrushId::SyntaxComment,
-        BrushId::SyntaxPreprocessor,
-        BrushId::SyntaxFunction,
-        BrushId::SyntaxInserted,
-        BrushId::SyntaxDeleted,
-    };
-    // SyntaxTokenType を増やしたら SYNTAX_MAP も増やす。
-    static_assert(std::size(SYNTAX_MAP) == std::to_underlying(SyntaxTokenType::Deleted) + 1);
-    const auto idx = std::to_underlying(type);
-    if (idx >= std::size(SYNTAX_MAP)) {
-        return nullptr;
-    }
-    return Brush(SYNTAX_MAP[idx]);
-}
-
 // DWRITE_HIT_TEST_METRICS からパディング適用済みの InlineCodeBg を生成する。
 static InlineCodeBg MakeInlineCodeBg(const DWRITE_HIT_TEST_METRICS& m) noexcept
 {
@@ -254,41 +231,6 @@ void Renderer::AppendCellInlineCodeBgs(TableLayoutData& tl, uint32_t cell_index,
     }
 }
 
-// 巨大なコードブロックの全トークンを最初に見えたフレームでまとめて適用すると WM_PAINT が詰まるので、
-// 可視範囲の前後 1 画面にかかるトークンだけを足していく。適用済みは添字の 1 区間で覚え、
-// 離れた位置へ飛んだら区間を作り直す (戻ったときの再適用は同じ色の上書きなので害はない)。
-void Renderer::ApplyCodeBlockEffects(NodeLayoutEntry& entry, float local_top, float local_bottom)
-{
-    IDWriteTextLayout* const layout = entry.text_layout();
-    if (!layout) {
-        return;
-    }
-    entry.set_effects_applied(true);
-    const auto tokens = entry.syntax_tokens();
-    auto [lo, hi] = entry.syntax_applied();
-    if (lo == 0 && hi == tokens.size()) {
-        return;
-    }
-    const auto& window = EnsureLineWindow(entry, { local_top, local_bottom });
-    // トークンは重ならず start 昇順なので、終端も昇順に並ぶ。
-    const auto a = static_cast<uint32_t>(std::ranges::partition_point(tokens, [&](const SyntaxToken& t) { return t.start + t.length <= window.text_begin; }) - tokens.begin());
-    const auto b = static_cast<uint32_t>(std::ranges::partition_point(tokens, [&](const SyntaxToken& t) { return t.start < window.text_end; }) - tokens.begin());
-    const auto apply = [&](uint32_t first, uint32_t last) {
-        for (uint32_t i = first; i < last; i++) {
-            if (auto* brush = GetSyntaxBrush(tokens[i].type)) {
-                layout->SetDrawingEffect(brush, DWRITE_TEXT_RANGE{ tokens[i].start, tokens[i].length });
-                MENDO_COUNT_INC(g_effect_stats.set_drawing_effect);
-            }
-        }
-    };
-    if (lo >= hi || b < lo || hi < a) {
-        lo = hi = a;
-    }
-    apply(a, std::min(b, lo));
-    apply(std::max(a, hi), b);
-    entry.set_syntax_applied(std::min(lo, a), std::max(hi, b));
-}
-
 void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom)
 {
     // テーブルノード: ビューポートカリング付きの行単位増分処理を行う。
@@ -296,9 +238,8 @@ void Renderer::ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry, float 
         ApplyTableEffects(node, entry, entry_text_top, viewport_top, viewport_bottom);
         return;
     }
-    // コードブロックは run もインラインコード背景も持たないので、構文色だけを可視範囲から足す。
+    // コードブロックは run もインラインコード背景も持たず、構文色は描画時に付ける。
     if (node.type == NodeType::CodeBlock) {
-        ApplyCodeBlockEffects(entry, viewport_top - entry_text_top, viewport_bottom - entry_text_top);
         return;
     }
 

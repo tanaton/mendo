@@ -302,21 +302,27 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     link.Flush();
 }
 
-// 描画時に UTF-16 位置へ数え直さないよう、ワーカー上で UTF-16 単位にし、隣り合う同種のトークンをまとめる
-// (SetDrawingEffect は内部で range tree を組み直すので呼び出しを減らす)。
+// 描画時に UTF-16 位置へ数え直さないよう、ワーカー上で UTF-16 単位にし、描画時のグリフラン分割を減らす。
+// 空白は色が見えないので、トークン間の空白だけの隙間は直前のトークンに含め、同種のトークンはまとめる。
 static std::pmr::vector<SyntaxToken> ToWideMergedTokens(std::string_view text, std::pmr::vector<SyntaxToken> tokens)
 {
     Utf16OffsetCursor cursor{ text };
     size_t out = 0;
+    uint32_t prev_end = 0; // 直前トークンの UTF-8 終端
     for (size_t i = 0; i < tokens.size(); i++) {
         const SyntaxToken t = tokens[i];
         const auto w = cursor.WideRange(t.start, t.length);
-        if (out > 0 && tokens[out - 1].type == t.type && tokens[out - 1].start + tokens[out - 1].length == w.startPosition) {
-            tokens[out - 1].length += w.length;
+        const auto gap = text.substr(prev_end, t.start - prev_end);
+        prev_end = t.start + t.length;
+        if (out > 0 && gap.find_first_not_of(" \t\r\n") == std::string_view::npos) {
+            SyntaxToken& prev = tokens[out - 1];
+            prev.length = w.startPosition - prev.start;
+            if (prev.type == t.type) {
+                prev.length += w.length;
+                continue;
+            }
         }
-        else {
-            tokens[out++] = SyntaxToken{ w.startPosition, w.length, t.type };
-        }
+        tokens[out++] = SyntaxToken{ w.startPosition, w.length, t.type };
     }
     tokens.resize(out);
     tokens.shrink_to_fit();
@@ -361,7 +367,7 @@ void DWriteTextMeasurer::MeasureNode(
     DWRITE_TEXT_METRICS metrics{};
     layout->GetMetrics(&metrics);
 
-    // 描画パス (ApplyNodeEffects) でのトークン化によるフレーム落ちを避けるため、ここで作る。
+    // 描画パスでのトークン化によるフレーム落ちを避けるため、ここで作る。
     // layout と一緒に捨てるので、画面外のコードブロックのトークンは残らない。
     if (node.type == NodeType::CodeBlock && node.code_language() != SyntaxLanguage::None) {
         entry.set_syntax_tokens(ToWideMergedTokens(text, Tokenize(text, node.code_language())));

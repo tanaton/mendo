@@ -6,7 +6,6 @@
 #include "dwrite_measurer.h"
 #include "command_generator.h"
 #include "command_executor.h"
-#include "syntax.h"
 #include "d2d_render_backend.h"
 #include "text_layout_cache.h"
 #include <d2d1.h>
@@ -158,12 +157,10 @@ private:
         return brushes_[std::to_underlying(id)].Get();
     }
 
-    ID2D1SolidColorBrush* GetSyntaxBrush(SyntaxTokenType type) const noexcept;
     void ApplyTableEffects(const Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom);
     // hit_test_buffer_ の先頭 count 件をセルのインラインコード背景として cell_index 昇順を保って追加する。
     void AppendCellInlineCodeBgs(TableLayoutData& tl, uint32_t cell_index, UINT32 count);
     void ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom);
-    void ApplyCodeBlockEffects(NodeLayoutEntry& entry, float local_top, float local_bottom);
     void RecreateBrushes();
     void InvalidateBrushes() noexcept;
     void ResolveThemeFonts();
