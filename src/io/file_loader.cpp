@@ -5,6 +5,7 @@
 #include "utf8_codec.h"
 #include <algorithm>
 #include <cstring>
+#include <new>
 #include <string_view>
 
 std::expected<LoadedFileDoc, FileLoadError> FileLoader::LoadFile(const std::pmr::wstring& path)
@@ -44,18 +45,22 @@ std::expected<LoadedFileDoc, FileLoadError> FileLoader::LoadFile(const std::pmr:
 
     LoadedFileDoc result;
     result.byte_size = r.size;
-    result.text.resize_and_overwrite(out_size, [&](char* buf, size_t /*cap*/) noexcept -> size_t {
-        if (carry > 0) {
-            std::memcpy(buf, prefix, carry);
-        }
-        if (remaining == 0) {
-            return carry;
-        }
-        if (!ReadExact(r.handle.get(), buf + carry, remaining)) {
-            return 0;
-        }
-        return carry + remaining;
-    });
+    try {
+        result.text.resize_and_overwrite(out_size, [&](char* buf, size_t /*cap*/) noexcept -> size_t {
+            if (carry > 0) {
+                std::memcpy(buf, prefix, carry);
+            }
+            if (remaining == 0) {
+                return carry;
+            }
+            if (!ReadExact(r.handle.get(), buf + carry, remaining)) {
+                return 0;
+            }
+            return carry + remaining;
+        });
+    } catch (const std::bad_alloc&) {
+        return std::unexpected(FileLoadError::TooLarge);
+    }
     if (result.text.size() != out_size) {
         return std::unexpected(FileLoadError::ReadFailed);
     }

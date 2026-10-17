@@ -205,6 +205,7 @@ struct Node {
     // 該当しないノードでは既定値のまま。
     int8_t heading_level_ = 0;
     SyntaxLanguage code_language_ = SyntaxLanguage::None;
+    bool has_child_blocks_ = false; // LI のみ。中身を子ブロック (loose list の段落・入れ子リスト等) に持つ
 
     constexpr bool HasSourceOffset() const noexcept
     {
@@ -355,6 +356,14 @@ struct Node {
     {
         code_language_ = lang;
     }
+    constexpr bool has_child_blocks() const noexcept
+    {
+        return has_child_blocks_;
+    }
+    constexpr void set_has_child_blocks() noexcept
+    {
+        has_child_blocks_ = true;
+    }
     constexpr int32_t list_number() const noexcept
     {
         const auto* ld = list_data();
@@ -458,7 +467,9 @@ constexpr bool IsListItem(const Node& node) noexcept
 
 // loose list の LI (md4c が中身を MD_BLOCK_P に外出しするためテキストを持たない枠)。
 // 高さ / spacing / cull / bullet 描画で同じ判定を共有するため集約する (issue#237)。
+// 子ブロックも無い本当に空の LI は含めない。高さ 0 にすると空の "1." の繰り返しが全部同じ Y に
+// 重なり、可視判定で間引けず毎フレーム全件描くことになる。
 constexpr bool IsEmptyListItemContainer(const Node& node) noexcept
 {
-    return IsListItem(node) && !node.HasText();
+    return IsListItem(node) && !node.HasText() && node.has_child_blocks();
 }

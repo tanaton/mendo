@@ -121,6 +121,31 @@ std::pmr::string PercentDecode(std::string_view s)
     return out;
 }
 
+namespace {
+
+// ShellExecuteW は関連付けのコマンド ("%1" を引用符で囲むだけの形式も多い) に URL を差し込むので、
+// 引用符を閉じて引数を足せる " と、区切りになる空白・制御文字を %XX にする。URL としての意味は変わらない。
+std::pmr::string EncodeShellUnsafeChars(std::string_view url)
+{
+    constexpr char kHex[] = "0123456789ABCDEF";
+    std::pmr::string out;
+    out.reserve(url.size());
+    for (const char ch : url) {
+        const auto c = static_cast<unsigned char>(ch);
+        if (c <= 0x20 || c == 0x7F || c == '"') {
+            out += '%';
+            out += kHex[c >> 4];
+            out += kHex[c & 0x0F];
+        }
+        else {
+            out += ch;
+        }
+    }
+    return out;
+}
+
+} // namespace
+
 LinkClickResult HandleLinkClick(std::string_view url)
 {
     LinkClickResult result;
@@ -136,6 +161,6 @@ LinkClickResult HandleLinkClick(std::string_view url)
         return result;
     }
     result.type = LinkClickResult::Type::ExternalUrl;
-    result.target.assign(url);
+    result.target = EncodeShellUnsafeChars(url);
     return result;
 }

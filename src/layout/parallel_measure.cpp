@@ -27,10 +27,9 @@ int MeasureChunk(
     int failed = 0;
     for (const size_t i : chunk_indices) {
         auto& entry = cache[i];
-        const float indent = NodeIndent(nodes[i], theme);
         const DiagramEntry* image = nodes[i].type == NodeType::Image ? cache.FindDiagram(i) : nullptr;
         try {
-            MeasureEntry(backend, nodes[i], entry, content_width - indent, viewport, cache.Top(i), image);
+            MeasureEntry(backend, nodes[i], entry, NodeContentWidth(nodes[i], theme, content_width), viewport, cache.Top(i), image);
         } catch (...) {
             // 諦めた後に再び dirty になって失敗し続けても一周しないよう、上限で頭打ちにする。
             if (entry.measure_failures < LayoutCache::kMaxMeasureAttempts) {

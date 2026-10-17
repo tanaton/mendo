@@ -17,6 +17,7 @@
 
 using layout::ComputeColumnWidths;
 using layout::EstimateNodeHeights;
+using layout::NodeContentWidth;
 using layout::NodeIndent;
 using layout::RecomputeYPositions;
 
@@ -1239,6 +1240,48 @@ TEST_F(LayoutTest, LooseListBulletAlignsWithFollowingParagraphText)
 
     EXPECT_NEAR(cache.Top(0), cache.Top(1), 0.01f);
     EXPECT_NEAR(cache.Top(2), cache.Top(3), 0.01f);
+}
+
+// インデントが本文幅を超える深いネストでも、幅に下限があるのでテキストレイアウトを作れる。
+TEST_F(LayoutTest, DeeplyNestedParagraphStillGetsTextLayout)
+{
+    std::string md;
+    for (int i = 0; i < 127; i++) {
+        md += "> ";
+    }
+    md += "text";
+    auto [nodes, cache] = ParseAndLayout(md);
+
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_GT(NodeIndent(nodes[0], theme_), theme_.ContentWidth(800.0f));
+    EXPECT_NE(cache[0].text_layout(), nullptr);
+    EXPECT_FALSE(cache[0].layout_dirty);
+    EXPECT_GT(cache[0].height, 0.0f);
+}
+
+TEST(NodeContentWidthTest, FloorsAtMinimumButNotAboveContentWidth)
+{
+    const Theme theme = GetLightTheme();
+    Node node;
+    node.indent_level = 127;
+    EXPECT_FLOAT_EQ(NodeContentWidth(node, theme, 800.0f), MIN_NODE_CONTENT_WIDTH);
+    EXPECT_FLOAT_EQ(NodeContentWidth(node, theme, MIN_NODE_CONTENT_WIDTH * 0.5f), MIN_NODE_CONTENT_WIDTH * 0.5f);
+    EXPECT_FLOAT_EQ(NodeContentWidth(node, theme, 0.0f), 0.0f);
+    node.indent_level = 1;
+    EXPECT_FLOAT_EQ(NodeContentWidth(node, theme, 800.0f), 800.0f - theme.indent_width);
+}
+
+// 子ブロックの無い空 LI は 1 行ぶんの高さを持ち、重ならない (高さ 0 だと全部が同じ Y に積まれる)。
+TEST_F(LayoutTest, EmptyListItemsWithoutChildrenDoNotOverlap)
+{
+    auto [nodes, cache] = ParseAndLayout("1.\n2.\n3.\n");
+
+    ASSERT_EQ(nodes.size(), 3u);
+    for (size_t i = 0; i < nodes.size(); i++) {
+        EXPECT_GT(cache[i].height, 0.0f) << i;
+    }
+    EXPECT_LT(cache.Top(0), cache.Top(1));
+    EXPECT_LT(cache.Top(1), cache.Top(2));
 }
 
 // 空 LI の first_line_height はフォールバック (font_size*FALLBACK_LINE_HEIGHT_FACTOR) なので

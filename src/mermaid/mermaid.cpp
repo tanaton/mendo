@@ -65,6 +65,12 @@ constexpr std::wstring_view APP_LOCAL_ORIGIN_PREFIX = L"https://app.local/";
 constexpr wchar_t APP_LOCAL_INDEX_URL[] = L"https://app.local/index.html";
 // res/mermaid.html の <script src> と一致させる
 constexpr std::wstring_view APP_LOCAL_MERMAID_JS_URL = L"https://app.local/mermaid.min.js";
+// mermaid.js に XSS があっても外へ通信させない。WebResourceRequested では WebSocket や Worker 発の
+// 通信を捕まえられないので、ページの CSP で止める。eval は mermaid の依存が使いうるので許す。
+constexpr wchar_t HTML_RESPONSE_HEADERS[] =
+    L"Content-Type: text/html; charset=utf-8\r\n"
+    L"Content-Security-Policy: default-src 'none'; script-src https://app.local 'unsafe-inline' 'unsafe-eval'; "
+    L"style-src 'unsafe-inline'; img-src data: blob:; font-src data:; worker-src 'none'; base-uri 'none'; form-action 'none'";
 
 // WebView2 は CapturePreview に IsVisible=TRUE を要求するため、非表示にせず画面外の遠い位置に置く。
 constexpr int HOST_OFFSCREEN_POS = -32000;
@@ -91,8 +97,8 @@ void DisableWebViewChrome(ICoreWebView2* webview)
 }
 
 // ハンドラ型は add_XXX の引数型から推論する。登録トークンは解除しないので受け取らない。
-template <class Handler, class Fn>
-void AddWebViewHandler(ICoreWebView2* webview, const char* what, HRESULT (STDMETHODCALLTYPE ICoreWebView2::*add)(Handler*, EventRegistrationToken*), Fn&& fn)
+template <class WebView, class Handler, class Fn>
+void AddWebViewHandler(WebView* webview, const char* what, HRESULT (STDMETHODCALLTYPE WebView::*add)(Handler*, EventRegistrationToken*), Fn&& fn)
 {
     LogHrFailure(what, (webview->*add)(Microsoft::WRL::Callback<Handler>(std::forward<Fn>(fn)).Get(), nullptr));
 }
@@ -434,6 +440,34 @@ void MermaidRenderer::RegisterWebViewHandlers(int index)
     );
     // clang-format on
 
+    // カメラ・位置情報・クリップボード等の権限要求は、図の描画に要らないのですべて拒否する。
+    // clang-format off
+    AddWebViewHandler(
+        webview,
+        "add_PermissionRequested",
+        &ICoreWebView2::add_PermissionRequested,
+        [](ICoreWebView2*, ICoreWebView2PermissionRequestedEventArgs* args) static -> HRESULT {
+            args->put_State(COREWEBVIEW2_PERMISSION_STATE_DENY);
+            return S_OK;
+        }
+    );
+    // clang-format on
+
+    // blob: などからのダウンロードでファイルを保存させない。
+    if (Microsoft::WRL::ComPtr<ICoreWebView2_4> webview4; SUCCEEDED(webview->QueryInterface(IID_PPV_ARGS(&webview4)))) {
+        // clang-format off
+        AddWebViewHandler(
+            webview4.Get(),
+            "add_DownloadStarting",
+            &ICoreWebView2_4::add_DownloadStarting,
+            [](ICoreWebView2*, ICoreWebView2DownloadStartingEventArgs* args) static -> HRESULT {
+                args->put_Cancel(TRUE);
+                return S_OK;
+            }
+        );
+        // clang-format on
+    }
+
     // 全URLをフィルタし、app.local 以外へのリクエストもここで遮断する。
     // clang-format off
     LogHrFailure("AddWebResourceRequestedFilter", webview->AddWebResourceRequestedFilter(L"*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL));
@@ -484,7 +518,7 @@ void MermaidRenderer::OnWebResourceRequested(ICoreWebView2WebResourceRequestedEv
         respond(nullptr, 500, L"Resource unavailable", L"");
         return;
     }
-    respond(stream.Get(), 200, L"OK", is_js ? L"Content-Type: text/javascript; charset=utf-8" : L"Content-Type: text/html; charset=utf-8");
+    respond(stream.Get(), 200, L"OK", is_js ? L"Content-Type: text/javascript; charset=utf-8" : HTML_RESPONSE_HEADERS);
 }
 
 void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target)
@@ -722,7 +756,7 @@ void MermaidRenderer::LoadDiskJob(DiskLoad& job, const std::filesystem::path& pa
         job.png = std::make_shared<const std::pmr::vector<uint8_t>>(std::move(data));
     }
     // job.png はデコード完了まで生きているので、コピーせずに参照して読む。
-    if (const auto decoded = wic_util::DecodeFromMemory(wic_factory_.Get(), *job.png)) {
+    if (const auto decoded = wic_util::DecodeFromMemory(wic_factory_.Get(), *job.png, GUID_ContainerFormatPng)) {
         job.bitmap = wic_util::DecodeToWicBitmap(wic_factory_.Get(), *decoded, { decoded->pixel_width, decoded->pixel_height });
     }
 }
@@ -743,8 +777,9 @@ void MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
         }
         return;
     }
-    // 描画直後の PNG を描き直しても同じ結果になりうるため、再要求は呼び出し側の走査に任せる。
+    // 描画直後の PNG を描き直しても同じ結果になるので、エラーを確定させて再要求させない。
     if (r.captured) {
+        SetDiagramError(r.req, {});
         if (r.req.on_complete) {
             r.req.on_complete();
         }
@@ -915,7 +950,7 @@ float MermaidRenderer::EstimateWorkerDpr() noexcept
 
 void MermaidRenderer::OnWorkerReady(Worker& worker, float dpr)
 {
-    if (dpr > 0) {
+    if (mermaid_util::IsPlausibleDpr(dpr)) {
         worker.dpr = dpr;
         // 拡大率の変更などで推定とずれていたら、以降のキャッシュは実際に描く DPR で引く。
         if (file_cache_) {
@@ -990,7 +1025,7 @@ void MermaidRenderer::OnRenderResult(int worker_idx, std::wstring_view json)
     const float dw = mermaid_util::ParseJsonNumber(json, L"\"width\"");
     const float dh = mermaid_util::ParseJsonNumber(json, L"\"height\"");
     float dpr = mermaid_util::ParseJsonNumber(json, L"\"dpr\"");
-    if (dpr <= 0) {
+    if (!mermaid_util::IsPlausibleDpr(dpr)) {
         dpr = 1.0f;
     }
     const bool ok = mermaid_util::ParseJsonTrueFlag(json, L"\"ok\"");
@@ -999,6 +1034,13 @@ void MermaidRenderer::OnRenderResult(int worker_idx, std::wstring_view json)
         // JS 側 renderMermaid が返す {ok:false, error:...} の内容をプレースホルダに
         // 表示させる。放置すると「読み込み中」のまま固着する (issue #271)。
         SetDiagramError(w.current_request, mermaid_util::ParseJsonString(json, L"\"error\""));
+        FinishWorkerRequest(w);
+        return;
+    }
+
+    // 描けない大きさのままキャプチャすると、毎回ビットマップ作成に失敗して描き直しを繰り返す。
+    if (!mermaid_util::FitsCaptureLimit(dw, dh, dpr, MaxBitmapDim(render_target_))) {
+        SetDiagramError(w.current_request, i18n::S().diagram_too_large);
         FinishWorkerRequest(w);
         return;
     }

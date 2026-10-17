@@ -30,6 +30,11 @@ TEST(HandleLinkClickTest, ClassifiesLinks)
         { "MailTo:user@example.com", Type::ExternalUrl, "MailTo:user@example.com" },
         // prefix 後が空でも通るのが現状の仕様。変えるならここを更新する
         { "http://", Type::ExternalUrl, "http://" },
+        // 関連付けのコマンドラインへ引数を差し込めないよう、引用符・空白・制御文字は %XX にする。
+        { "mailto:a\" /m \"x", Type::ExternalUrl, "mailto:a%22%20/m%20%22x" },
+        { "https://example.com/a b\tc\x7F", Type::ExternalUrl, "https://example.com/a%20b%09c%7F" },
+        { "https://example.com/?q=%22", Type::ExternalUrl, "https://example.com/?q=%22" },
+        { "https://例え.jp/パス", Type::ExternalUrl, "https://例え.jp/パス" },
 
         { "file:///C:/Windows/System32/cmd.exe", Type::None, "" },
         { "javascript:alert(1)", Type::None, "" },

@@ -235,6 +235,48 @@ TEST(Parser, UnorderedListLooseProducesParagraphChildren)
     EXPECT_EQ(nodes[3].GetText(), "b");
 }
 
+// 装飾 run は 1 テキストあたり 4096 個で打ち切る (DirectWrite の書式設定が二乗で遅くなるため)。
+TEST(Parser, StyledRunsAreCappedPerText)
+{
+    std::string para;
+    std::string row = "|h|\n|-|\n|";
+    for (int i = 0; i < 5000; i++) {
+        para += "`a` ";
+        row += "`a` ";
+    }
+    const auto nodes = ParseNodes(para);
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].runs().size(), 4096u);
+    EXPECT_EQ(nodes[0].GetText().size(), para.size() - 2 * 5000 - 1);
+
+    row += "|\n";
+    const auto table = ParseNodes(row);
+    ASSERT_EQ(table.size(), 1u);
+    ASSERT_TRUE(table[0].has_table());
+    EXPECT_EQ(table[0].table_data()->GetCellRuns(1, 0).size(), 4096u);
+}
+
+// 中身を子ブロックに持つ LI だけが高さ 0 の枠になる。本当に空の LI は枠扱いしない。
+TEST(Parser, EmptyListItemContainerRequiresChildBlocks)
+{
+    const auto loose = ParseNodes("- a\n\n- b");
+    ASSERT_EQ(loose.size(), 4u);
+    EXPECT_TRUE(IsEmptyListItemContainer(loose[0]));
+    EXPECT_TRUE(IsEmptyListItemContainer(loose[2]));
+
+    const auto nested = ParseNodes("-\n  - b");
+    ASSERT_EQ(nested.size(), 2u);
+    EXPECT_TRUE(IsEmptyListItemContainer(nested[0]));
+    EXPECT_FALSE(IsEmptyListItemContainer(nested[1]));
+
+    const auto empty = ParseNodes("1.\n2.\n- [ ]\n");
+    ASSERT_EQ(empty.size(), 3u);
+    for (const auto& node : empty) {
+        EXPECT_TRUE(IsListItem(node));
+        EXPECT_FALSE(IsEmptyListItemContainer(node));
+    }
+}
+
 // md4c は tight list の LI 直下に MD_BLOCK_P を出さないため、子ブロック後の本文は段落ノードで受ける。
 TEST(Parser, TightListTextAfterHeadingIsKept)
 {

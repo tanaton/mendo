@@ -38,6 +38,8 @@ inline constexpr float TABLE_BORDER_WIDTH = 1.0f;
 
 // 画像/ダイアグラム未デコード時の placeholder 最小高さ (DIP)。
 inline constexpr float MIN_DIAGRAM_PLACEHOLDER_HEIGHT = 60.0f;
+// 深いネストでもノードに残す本文幅 (DIP)。
+inline constexpr float MIN_NODE_CONTENT_WIDTH = 64.0f;
 
 // テーブルストライプ（偶数行背景）のアルファ値
 inline constexpr float TABLE_STRIPE_ALPHA_DARK = 0.05f;
@@ -75,7 +77,8 @@ constexpr float BlockHScrollbarThumbWidth(float visible_width, float natural_wid
         return 0.0f;
     }
     const float raw = visible_width * (visible_width / natural_width);
-    return std::clamp(raw, PANE_SCROLLBAR_THUMB_MIN, visible_width);
+    // 可視幅が最小幅を下回るとき std::clamp は下限 > 上限で未定義なので、可視幅に収める側を優先する。
+    return std::min(std::max(raw, PANE_SCROLLBAR_THUMB_MIN), visible_width);
 }
 
 // バーのヒット矩形 (block_x / bar_y と同じ座標系)。クリック判定 / 描画位置の式を一元化する。

@@ -151,6 +151,9 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
         if (IsEmptyListItemContainer(node)) {
             return 0.0f;
         }
+        if (!node.HasText()) {
+            return EmptyListItemHeight(theme);
+        }
         return line_height * static_cast<float>(1 + node.line_count);
     case NodeType::Paragraph:
     case NodeType::BlockQuote:

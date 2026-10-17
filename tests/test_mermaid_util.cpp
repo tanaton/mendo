@@ -189,11 +189,36 @@ TEST(ParseJsonNumber, ParsesValueAfterKey)
         { kMulti, L"\"dpr\""sv, 2.0f },
         // key だけで値が無ければ 0
         { L"\"width\":"sv, L"\"width\""sv, 0.0f },
+        // ページが偽った有限でない値は 0 (寸法は <= 0 判定で弾かれる)
+        { L"{\"width\":nan}"sv, L"\"width\""sv, 0.0f },
+        { L"{\"width\":inf}"sv, L"\"width\""sv, 0.0f },
+        { L"{\"width\":1e39}"sv, L"\"width\""sv, 0.0f },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.json }) + " key=" + ::testing::PrintToString(std::wstring{ c.key }));
         EXPECT_EQ(mermaid_util::ParseJsonNumber(c.json, c.key), c.expected);
     }
+}
+
+TEST(IsPlausibleDpr, AcceptsOnlyRealisticScales)
+{
+    EXPECT_TRUE(mermaid_util::IsPlausibleDpr(1.0f));
+    EXPECT_TRUE(mermaid_util::IsPlausibleDpr(2.5f));
+    EXPECT_FALSE(mermaid_util::IsPlausibleDpr(0.0f));
+    EXPECT_FALSE(mermaid_util::IsPlausibleDpr(-1.0f));
+    EXPECT_FALSE(mermaid_util::IsPlausibleDpr(100.0f));
+    EXPECT_FALSE(mermaid_util::IsPlausibleDpr(std::numeric_limits<float>::quiet_NaN()));
+}
+
+TEST(FitsCaptureLimit, RejectsSidesOverBitmapMaxAndHugeAreas)
+{
+    EXPECT_TRUE(mermaid_util::FitsCaptureLimit(1000.0f, 10000.0f, 1.5f, 16384));
+    EXPECT_TRUE(mermaid_util::FitsCaptureLimit(16384.0f, 100.0f, 1.0f, 16384));
+    EXPECT_FALSE(mermaid_util::FitsCaptureLimit(11000.0f, 100.0f, 1.5f, 16384));
+    EXPECT_FALSE(mermaid_util::FitsCaptureLimit(100.0f, 200000.0f, 1.0f, 16384));
+    EXPECT_FALSE(mermaid_util::FitsCaptureLimit(10000.0f, 10000.0f, 1.0f, 16384));
+    // 最大辺の小さい GPU ではその辺で弾く。
+    EXPECT_FALSE(mermaid_util::FitsCaptureLimit(9000.0f, 100.0f, 1.0f, 8192));
 }
 
 TEST(ParseJsonTrueFlag, TrueOnlyForExplicitTrue)

@@ -1,7 +1,6 @@
 #include "image_loader.h"
 #include "d2d_util.h"
 #include "file_io.h"
-#include "file_loader.h"
 #include "task_scheduler.h"
 #include "ui_constants.h"
 #include "wic_util.h"
@@ -118,8 +117,8 @@ void ImageLoader::DecodeForDisplay(const std::wstring& path, UINT max_width_px, 
         return;
     }
     // bytes はデコードしたビットマップを作り終えるまで生かす (ストリームはコピーせずに参照する)。
-    const auto bytes = ReadAllBytes(std::filesystem::path(path), nullptr, path_util::kFileShareRWDelete, MAX_FILE_SIZE);
-    const auto decoded = wic_util::DecodeFromMemory(wic_factory_.Get(), bytes);
+    const auto bytes = ReadAllBytes(std::filesystem::path(path), nullptr, path_util::kFileShareRWDelete, MAX_IMAGE_FILE_SIZE);
+    const auto decoded = wic_util::DecodeImageFileFromMemory(wic_factory_.Get(), bytes);
     if (!decoded) {
         return;
     }

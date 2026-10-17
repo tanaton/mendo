@@ -15,6 +15,13 @@ inline float NodeIndent(const Node& node, const Theme& theme) noexcept
     return node.indent_level * theme.indent_width;
 }
 
+// インデントは 127 段まで積めるので、本文幅から引くだけだと負になり、
+// テキストレイアウトの作成失敗・画像の原寸デコード・負の画像高さを招く。
+inline float NodeContentWidth(const Node& node, const Theme& theme, float content_width) noexcept
+{
+    return std::max(content_width - NodeIndent(node, theme), std::min(content_width, MIN_NODE_CONTENT_WIDTH));
+}
+
 inline float NodeTextXOffset(const Node& node, const Theme& theme) noexcept
 {
     return (node.type == NodeType::CodeBlock) ? theme.code_block_padding : 0.0f;
@@ -30,6 +37,12 @@ inline float NodeBoxPadY(const Node& node, const Theme& theme) noexcept
 inline float PlaceholderHeight(const Theme& theme) noexcept
 {
     return std::max(MIN_DIAGRAM_PLACEHOLDER_HEIGHT, theme.font_size_body * 3.0f);
+}
+
+// 子ブロックも無い空 LI は bullet / checkbox だけの 1 行。
+inline float EmptyListItemHeight(const Theme& theme) noexcept
+{
+    return theme.font_size_body * std::max(TASK_CHECKBOX_HEIGHT_FACTOR, FALLBACK_LINE_HEIGHT_FACTOR);
 }
 
 // 行高さが未計測の表の行に使う高さ。

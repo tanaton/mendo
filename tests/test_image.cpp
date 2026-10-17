@@ -1448,3 +1448,31 @@ TEST_F(ImageLoaderAsyncTest, AsyncLoadedBitmapIsUploadedFromDecodedPixels)
     EXPECT_EQ(px.width, 64u);
     EXPECT_EQ(px.height, 32u);
 }
+
+static const GUID* Sniff(std::initializer_list<uint8_t> head)
+{
+    const std::vector<uint8_t> bytes(head);
+    return wic_util::SniffImageContainer(bytes);
+}
+
+TEST(SniffImageContainer, AcceptsBrowserImageFormats)
+{
+    EXPECT_EQ(Sniff({ 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0 }), &GUID_ContainerFormatPng);
+    EXPECT_EQ(Sniff({ 0xFF, 0xD8, 0xFF, 0xE0 }), &GUID_ContainerFormatJpeg);
+    EXPECT_EQ(Sniff({ 'G', 'I', 'F', '8', '9', 'a' }), &GUID_ContainerFormatGif);
+    EXPECT_EQ(Sniff({ 'B', 'M', 0, 0 }), &GUID_ContainerFormatBmp);
+    EXPECT_EQ(Sniff({ 'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P' }), &GUID_ContainerFormatWebp);
+    EXPECT_EQ(Sniff({ 0x00, 0x00, 0x01, 0x00, 1, 0 }), &GUID_ContainerFormatIco);
+}
+
+// HEIF・TIFF・JPEG XR・DDS や、途中で切れた署名は弾く。
+TEST(SniffImageContainer, RejectsOtherFormats)
+{
+    EXPECT_EQ(Sniff({}), nullptr);
+    EXPECT_EQ(Sniff({ 0, 0, 0, 0x18, 'f', 't', 'y', 'p', 'h', 'e', 'i', 'c' }), nullptr);
+    EXPECT_EQ(Sniff({ 'I', 'I', 0x2A, 0 }), nullptr);
+    EXPECT_EQ(Sniff({ 'I', 'I', 0xBC, 0x01 }), nullptr);
+    EXPECT_EQ(Sniff({ 'D', 'D', 'S', ' ' }), nullptr);
+    EXPECT_EQ(Sniff({ 0x89, 'P', 'N', 'G' }), nullptr);
+    EXPECT_EQ(Sniff({ 'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'A', 'V', 'E' }), nullptr);
+}

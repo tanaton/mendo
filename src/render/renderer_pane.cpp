@@ -4,6 +4,7 @@
 #include "pane_layout.h"
 #include "string_convert.h"
 #include "ui_constants.h"
+#include "utf8_codec.h"
 #include <algorithm>
 
 // right_x はペイン右端。つまみはそこから VScrollbarLeftX で内側に寄せる。
@@ -12,6 +13,13 @@ static D2D1_ROUNDED_RECT VScrollThumbRect(float right_x, float thumb_y, float th
     const float x = VScrollbarLeftX(right_x);
     constexpr float radius = PANE_SCROLLBAR_WIDTH / 2.0f;
     return { D2D1::RectF(x, thumb_y, x + PANE_SCROLLBAR_WIDTH, thumb_y + thumb_height), radius, radius };
+}
+
+// 目次の行は 1 行で狭い。極端に長い見出しでも毎フレーム全文を UTF-16 化・ハッシュしないよう先頭だけ使う。
+static std::string_view TocItemText(std::string_view heading) noexcept
+{
+    constexpr uint32_t kMaxBytes = 512;
+    return heading.size() <= kMaxBytes ? heading : heading.substr(0, utf8_codec::SnapToCpStart(heading, kMaxBytes));
 }
 
 // ドラッグ処理 (ScrollFromThumbY) と同じ計算を共有し、見た目と挙動のズレを防ぐ。
@@ -138,7 +146,7 @@ void Renderer::GenToc(const std::pmr::vector<TocEntry>& entries, const std::pmr:
         }
 
         const float text_left = row.left + 8.0f + (entry.heading_level - 1) * TOC_INDENT_PER_LEVEL;
-        string_convert::Utf8ToWide(nodes[entry.node_index].GetText(), toc_text_scratch_);
+        string_convert::Utf8ToWide(TocItemText(nodes[entry.node_index].GetText()), toc_text_scratch_);
         EmitLeftText(fmt_.pane_item.Get(), toc_text_scratch_, text_left, row.top, item_h);
 
         if (i == active_index) {

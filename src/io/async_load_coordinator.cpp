@@ -3,6 +3,7 @@
 #include "layout_computer.h"
 #include "profiler.h"
 #include "task_scheduler.h"
+#include <new>
 #include <utility>
 
 AsyncLoadCoordinator::~AsyncLoadCoordinator()
@@ -32,7 +33,12 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
     stop_source_ = std::stop_source{};
 
     const bool posted = scheduler.Post([this, path = std::move(path), hwnd, msg_id, gen, theme, stop_token = stop_source_.get_token(), reload_base = std::move(reload_base), guard = latch_.Acquire()]() mutable {
-        RunWorker(path, gen, theme, stop_token, std::move(reload_base), hwnd, msg_id);
+        try {
+            RunWorker(path, gen, theme, stop_token, std::move(reload_base), hwnd, msg_id);
+        } catch (const std::bad_alloc&) {
+            // 空の表の行補完などは入力の百倍以上を確保させられる。worker で投げると terminate するので失敗として返す。
+            Publish(gen, hwnd, msg_id, std::unexpected(FileLoadError::TooLarge));
+        }
     });
 
     if (!posted) {
@@ -52,17 +58,9 @@ void AsyncLoadCoordinator::RunWorker(const std::pmr::wstring& path, uint32_t gen
                                      std::shared_ptr<const std::pmr::string> reload_base, HWND hwnd, UINT msg_id)
 {
     MENDO_PROFILE("AsyncLoadCoordinator::Start Posted Task");
-    // sink 書き込みは Cancel との直列化のため lock 内で gen を再確認してから行う。
     // 各段の前の gen/stop check は重い処理を skip するための short-circuit。
     const auto publish = [this, hwnd, msg_id, gen](AsyncLoadOutcome outcome) {
-        {
-            const std::lock_guard lock(mutex_);
-            if (IsStale(gen)) {
-                return;
-            }
-            outcome_.emplace(std::move(outcome));
-        }
-        ::PostMessageW(hwnd, msg_id, 0, 0);
+        Publish(gen, hwnd, msg_id, std::move(outcome));
     };
 
     if (IsStale(gen) || stop_token.stop_requested()) {
@@ -110,6 +108,18 @@ void AsyncLoadCoordinator::RunWorker(const std::pmr::wstring& path, uint32_t gen
     }
 
     publish(AsyncLoadResult{ std::move(doc), std::move(cache), std::move(reload) });
+}
+
+void AsyncLoadCoordinator::Publish(uint32_t gen, HWND hwnd, UINT msg_id, AsyncLoadOutcome outcome)
+{
+    {
+        const std::lock_guard lock(mutex_);
+        if (IsStale(gen)) {
+            return;
+        }
+        outcome_.emplace(std::move(outcome));
+    }
+    ::PostMessageW(hwnd, msg_id, 0, 0);
 }
 
 std::optional<AsyncLoadOutcome> AsyncLoadCoordinator::Take() noexcept

@@ -13,7 +13,7 @@ using layout::AdvanceNodeY;
 using layout::EstimateInvisibleNodeHeight;
 using layout::GetSpacingAbove;
 using layout::GetSpacingBelow;
-using layout::NodeIndent;
+using layout::NodeContentWidth;
 using layout::RecomputeYPositions;
 
 bool LayoutEngine::Init(ITextMeasurer* measurer, const Theme& theme)
@@ -84,7 +84,7 @@ void LayoutEngine::EstimateDirtyHeights(const std::pmr::vector<Node>& nodes, Lay
             entry.layout_dirty = true;
         }
         if (entry.layout_dirty) {
-            EstimateInvisibleNodeHeight(node, entry, *theme_, content_width - NodeIndent(node, *theme_));
+            EstimateInvisibleNodeHeight(node, entry, *theme_, NodeContentWidth(node, *theme_, content_width));
         }
         cache.SetTop(i, AdvanceNodeY(y, GetSpacingAbove(node, *theme_), entry.height, GetSpacingBelow(node, *theme_)));
     }
@@ -116,9 +116,8 @@ bool LayoutEngine::EnsureVisibleLayout(const std::pmr::vector<Node>& nodes, Layo
             last_measured = i;
         }
         else if (const auto* tl = entry.table_layout(); tl && tl->HasEvictedRows()) {
-            const float indent = NodeIndent(nodes[i], *theme_);
             cache.NoteMaterialized(static_cast<size_t>(i));
-            const auto restored = measurer_->RestoreEvictedTableRows(nodes[i], entry, content_width - indent, vp.ToLocal(entry_top));
+            const auto restored = measurer_->RestoreEvictedTableRows(nodes[i], entry, NodeContentWidth(nodes[i], *theme_, content_width), vp.ToLocal(entry_top));
             any_restored |= restored.restored;
             if (restored.height_changed) {
                 any_updated = true;
