@@ -220,7 +220,7 @@ private:
     }
 
     // ---- 初期化 ----
-    void RestoreThemeAndZoom();
+    void RestoreTheme();
     void RestorePaneState();
 
     // ---- 描画 ----

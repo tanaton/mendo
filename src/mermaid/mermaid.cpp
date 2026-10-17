@@ -314,7 +314,7 @@ void MermaidRenderer::OnEnvironmentCreated(HRESULT result, ICoreWebView2Environm
         // に失敗する。タイマーで遅延リトライする。
         if (env_retry_count_ < MAX_ENV_RETRIES && hwnd_) {
             ++env_retry_count_;
-            SetTimer(hwnd_, std::to_underlying(app_timer::Id::MERMAID_INIT_RETRY), 500, nullptr);
+            SetTimer(hwnd_, std::to_underlying(app_timer::Id::MERMAID_INIT_RETRY), ENV_RETRY_INTERVAL_MS, nullptr);
             return;
         }
         // リトライ上限。待機中リクエストを失敗で完了させてから状態を全リセットし、

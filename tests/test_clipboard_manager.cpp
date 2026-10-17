@@ -13,7 +13,6 @@
 namespace {
 
 // SVG リクエスト引数とコールバックを記録するモック。
-// MermaidFileCache 系は HWND/TaskScheduler 依存のため触らない経路だけ踏む。
 class MockMermaidRenderer : public IMermaidRenderer {
 public:
     void RequestRender(const Node&, DiagramEntry&, float, bool, Callback) override
@@ -59,9 +58,9 @@ struct ToastRecorder {
 ClipboardManager MakeManager(MockMermaidRenderer* renderer, ToastRecorder& toast)
 {
     ClipboardManager m;
-    // HWND/WIC/file_cache nullptr は production では成立しないが、ガード経路の単体テストに限り許容。
+    // HWND/WIC nullptr は production では成立しないが、ガード経路の単体テストに限り許容。
     // png 無し (nullptr) のため BuildDib は空を返し、クリップボード書き込みは行われない。
-    m.Init(nullptr, nullptr, renderer, nullptr, toast.Callback());
+    m.Init(nullptr, renderer, nullptr, toast.Callback());
     return m;
 }
 
@@ -100,8 +99,8 @@ TEST(ClipboardManager, SaveDiagramAsPngNoOpForOutOfRangeIndex)
     auto doc = Document::FromMarkdown("```mermaid\ngraph TD; A-->B\n```\n", L"t.md");
     ToastRecorder toast;
     auto m = MakeManager(nullptr, toast);
-    m.SaveDiagramAsPng(doc, -1, kDefaultMdWidth, false);
-    m.SaveDiagramAsPng(doc, 9999, kDefaultMdWidth, false);
+    m.SaveDiagramAsPng(doc, -1, kNoPng);
+    m.SaveDiagramAsPng(doc, 9999, kNoPng);
     EXPECT_TRUE(toast.messages.empty());
 }
 
@@ -112,18 +111,18 @@ TEST(ClipboardManager, SaveDiagramAsPngNoOpForNonDiagramLanguage)
     auto m = MakeManager(nullptr, toast);
     const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::CodeBlock);
     ASSERT_GE(cb_idx, 0);
-    m.SaveDiagramAsPng(doc, cb_idx, kDefaultMdWidth, false);
+    m.SaveDiagramAsPng(doc, cb_idx, kNoPng);
     EXPECT_TRUE(toast.messages.empty());
 }
 
-TEST(ClipboardManager, SaveDiagramAsPngNoOpWhenFileCacheNullptr)
+TEST(ClipboardManager, SaveDiagramAsPngNoOpWithoutPng)
 {
     auto doc = Document::FromMarkdown("```mermaid\ngraph TD; A-->B\n```\n", L"t.md");
     ToastRecorder toast;
     auto m = MakeManager(nullptr, toast);
     const int cb_idx = FindFirstNodeIndexByType(doc.GetNodes(), NodeType::Diagram);
     ASSERT_GE(cb_idx, 0);
-    m.SaveDiagramAsPng(doc, cb_idx, kDefaultMdWidth, false);
+    m.SaveDiagramAsPng(doc, cb_idx, kNoPng);
     EXPECT_TRUE(toast.messages.empty());
 }
 
@@ -227,7 +226,7 @@ TEST(ClipboardManager, CopyDiagramToClipboardInFlightReentryDoesNotStaleInProgre
     EXPECT_EQ(toast.messages.size(), before + 1);
 }
 
-TEST(ClipboardManager, CopyDiagramToClipboardCancelledCallbackEmitsNoToast)
+TEST(ClipboardManager, CopyDiagramToClipboardCancelledCallbackEmitsFailToast)
 {
     auto doc = Document::FromMarkdown("```mermaid\ngraph TD; A-->B\n```\n", L"t.md");
     MockMermaidRenderer renderer;
@@ -239,7 +238,7 @@ TEST(ClipboardManager, CopyDiagramToClipboardCancelledCallbackEmitsNoToast)
     m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, kDefaultMdWidth, false);
     const auto toast_count_before = toast.messages.size();
     renderer.FireCallback({}, true);
-    EXPECT_EQ(toast.messages.size(), toast_count_before);
+    EXPECT_EQ(toast.messages.size(), toast_count_before + 1);
     m.CopyDiagramToClipboard(doc, cb_idx, kNoPng, kDefaultMdWidth, false);
     EXPECT_EQ(renderer.request_count, 2);
 }
