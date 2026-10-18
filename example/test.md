@@ -2087,7 +2087,7 @@ public:
 };
 ```
 
-`SHGetKnownFolderPath` の結果は private static 関数 `DefaultConfigDir()` の関数ローカル static で一度だけ解決し、override 未設定時の問い合わせをプロセス全体で 1 回に抑える（別スレッドから `GetConfigDir` を呼んでも安全）。
+LocalAppData は環境変数 `LOCALAPPDATA` を優先し（`SHGetKnownFolderPath` は初回に `windows.storage.dll` のロード等で ms 単位かかるため）、取れない・絶対パスでない場合だけ `SHGetKnownFolderPath` にフォールバックする。結果は private static 関数 `DefaultConfigDir()` の関数ローカル static で一度だけ解決し、override 未設定時の問い合わせをプロセス全体で 1 回に抑える（別スレッドから `GetConfigDir` を呼んでも安全）。
 
 `Save*` は既存値と同じなら何もせず、値が変わったときだけ `dirty_` を立てる。`Flush` は `dirty_` が立っていなければ書き込まず、書き込みに成功したら `dirty_` を下ろす。終了のたびに同期書き込み（`FlushFileBuffers` + `MOVEFILE_WRITE_THROUGH`）が走るのを、設定を変えたセッションだけに限るためである。
 

@@ -37,14 +37,23 @@ void ConfigService::SetConfigDirOverride(const std::filesystem::path& dir)
 const std::filesystem::path& ConfigService::DefaultConfigDir()
 {
     // 失敗時は空 path のままキャッシュされ、GetConfigPath で空チェックされる。
-    static const std::filesystem::path kDir = []() static noexcept {
+    static const std::filesystem::path kDir = []() static noexcept -> std::filesystem::path {
+        // SHGetKnownFolderPath は初回に windows.storage.dll のロード等で ms 単位かかるため、環境変数を優先する。
+        wchar_t env[MAX_PATH];
+        const DWORD len = GetEnvironmentVariableW(L"LOCALAPPDATA", env, MAX_PATH);
+        if (len < MAX_PATH) {
+            std::filesystem::path base(std::wstring_view(env, len));
+            if (base.is_absolute()) {
+                base /= L"mendo";
+                return base;
+            }
+        }
         // 失敗時も解放が必要なので RAII で受ける。
         UniqueCoTaskMemStr appdata;
-        std::filesystem::path result;
         if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, appdata.put()))) {
-            result = std::filesystem::path(appdata.get()) / L"mendo";
+            return std::filesystem::path(appdata.get()) / L"mendo";
         }
-        return result;
+        return {};
     }();
     return kDir;
 }
