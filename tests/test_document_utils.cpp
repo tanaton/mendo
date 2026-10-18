@@ -585,7 +585,7 @@ TEST(ExtractSelectedTextAsHtml, LooseOrderedListFromParagraphKeepsNextStart)
 // (switch に default が無いので、対応が抜けると unreachable に落ちる)。
 TEST(ExtractSelectedTextAsHtml, DiffCodeBlockUsesInsertedAndDeletedColors)
 {
-    const auto color = [](uint32_t rgb) { return std::format("<span style=\"color:#{:06x}\">", rgb); };
+    const auto color = [](uint32_t rgb) static { return std::format("<span style=\"color:#{:06x}\">", rgb); };
     for (const bool dark : { false, true }) {
         SCOPED_TRACE(dark);
         const auto& palette = dark ? theme_palette::kDark : theme_palette::kLight;
@@ -1208,7 +1208,7 @@ TEST(FindLinkHitAtPosition, BinarySearchBoundaries)
     const int16_t l0 = AddTestLinkUrl(node, "https://a.com");
     const int16_t l1 = AddTestLinkUrl(node, "https://b.com");
     const int16_t l2 = AddTestLinkUrl(node, "https://c.com");
-    const auto run = [](uint32_t start, uint32_t length, int16_t link) {
+    const auto run = [](uint32_t start, uint32_t length, int16_t link) static {
         TextRun r;
         r.start = start;
         r.length = length;

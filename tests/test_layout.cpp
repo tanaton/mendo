@@ -888,8 +888,8 @@ TEST(RecomputeYPositionsTest, PairSpacingByNodeType)
         float second_height;
         float (*expected_gap)(const Theme&);
     };
-    const auto code_gap = [](const Theme& t) { return t.paragraph_spacing + t.code_block_spacing_above; };
-    const auto list_gap = [](const Theme& t) { return t.list_item_spacing; };
+    const auto code_gap = [](const Theme& t) static { return t.paragraph_spacing + t.code_block_spacing_above; };
+    const auto list_gap = [](const Theme& t) static { return t.list_item_spacing; };
     // 空テキスト LI は issue#237 の修正で sb=0 (loose 扱い)。tight LI 間隔の検証には HasText() が要る。
     const Case cases[] = {
         { "CodeBlockHasSpacingAbove", { .type = NodeType::Paragraph }, { .type = NodeType::CodeBlock }, 20.0f, 50.0f, code_gap },

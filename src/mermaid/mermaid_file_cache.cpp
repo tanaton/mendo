@@ -333,7 +333,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
 void MermaidFileCache::EvictIfNeeded(IndexState& index, uint32_t new_png_size)
 {
     while (!index.entries.empty() && (index.entries.size() >= max_entries_ || index.total_size + new_png_size > max_total_size_)) {
-        const auto oldest = std::ranges::min_element(index.entries, {}, [](const auto& kv) { return kv.second.last_used; });
+        const auto oldest = std::ranges::min_element(index.entries, {}, [](const auto& kv) static { return kv.second.last_used; });
         // 書き込み中なら着地後に worker が消す。ここで消しても後から書かれて孤立ファイルになる。
         bool pending = false;
         {

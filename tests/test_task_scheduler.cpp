@@ -195,7 +195,7 @@ constexpr auto kPostRaceLoopTime = std::chrono::milliseconds(30);
 // 隙間は数命令幅なので検出は確率的 (修正前実装で数千回に 1 回程度ハング)。
 TEST(TaskScheduler, ShutdownRightAfterInitNeverHangs)
 {
-    EXPECT_TRUE(CompletesWithin(kHangBudget, [](std::atomic<int>& iteration) {
+    EXPECT_TRUE(CompletesWithin(kHangBudget, [](std::atomic<int>& iteration) static {
         const auto deadline = std::chrono::steady_clock::now() + kShutdownRaceLoopTime;
         while (std::chrono::steady_clock::now() < deadline) {
             TaskScheduler sch;
@@ -211,7 +211,7 @@ TEST(TaskScheduler, ShutdownRightAfterInitNeverHangs)
 // 誰も実行しないタスクが残る。
 TEST(TaskScheduler, PostRacingShutdownRunsExactlyAcceptedTasks)
 {
-    EXPECT_TRUE(CompletesWithin(kHangBudget, [](std::atomic<int>& iteration) {
+    EXPECT_TRUE(CompletesWithin(kHangBudget, [](std::atomic<int>& iteration) static {
         constexpr int kPosters = 3;
         const auto deadline = std::chrono::steady_clock::now() + kPostRaceLoopTime;
         while (std::chrono::steady_clock::now() < deadline) {

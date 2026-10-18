@@ -87,7 +87,7 @@ template <size_t N>
 consteval BucketedTable<N> MakeBucketed(std::array<std::string_view, N> arr)
 {
     // (length, lex) 辞書順でソート。同じ長さ内では二分探索のために lex 昇順を維持する。
-    std::ranges::sort(arr, [](std::string_view a, std::string_view b) {
+    std::ranges::sort(arr, [](std::string_view a, std::string_view b) static {
         if (a.size() != b.size()) {
             return a.size() < b.size();
         }

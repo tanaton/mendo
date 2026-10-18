@@ -631,7 +631,7 @@ void DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayoutEntry& entry, 
     auto& tl = entry.ensure_table_layout();
     tl.row_heights.resize(row_count);
     // インラインコードの背景は行の計測 (MeasureRowHeight) で作る。持たないテーブルには確保しない。
-    if (std::ranges::any_of(tbl->all_runs, [](const TextRun& r) { return r.code() && r.length > 0; })) {
+    if (std::ranges::any_of(tbl->all_runs, [](const TextRun& r) static { return r.code() && r.length > 0; })) {
         tl.row_code_bgs.resize(row_count);
     }
     else {

@@ -91,7 +91,7 @@ void FileExplorer::ListEntries() const
         }
     }
 
-    std::ranges::sort(entries_.begin() + static_cast<ptrdiff_t>(sort_begin), entries_.end(), [](const FileEntry& a, const FileEntry& b) noexcept {
+    std::ranges::sort(entries_.begin() + static_cast<ptrdiff_t>(sort_begin), entries_.end(), [](const FileEntry& a, const FileEntry& b) static noexcept {
         if (a.is_directory() != b.is_directory()) {
             return a.is_directory() > b.is_directory();
         }

@@ -945,7 +945,7 @@ void CommandGenerator::GenCellSearchHighlights(const NodeSearchMatches& nm, IDWr
     // テーブル内 match は (row, col, start) 昇順なので、セル範囲を二分探索で切り出す。
     const auto cell = std::ranges::equal_range(
         nm.matches, std::pair{ static_cast<int>(row), static_cast<int>(col) }, {},
-        [](const SearchMatch& m) noexcept { return std::pair{ m.table_row, m.table_col }; });
+        [](const SearchMatch& m) static noexcept { return std::pair{ m.table_row, m.table_col }; });
     EmitSearchMatches(nm, layout,
         static_cast<size_t>(cell.begin() - nm.matches.begin()), static_cast<size_t>(cell.end() - nm.matches.begin()), origin_x, origin_y);
 }

@@ -243,7 +243,7 @@ namespace {
 
 size_t ComputedMatchCount(const NodeLayoutEntry& entry)
 {
-    return static_cast<size_t>(std::ranges::count_if(entry.ensure_search_hl_cache().spans, [](const SearchHlCache::Span& s) {
+    return static_cast<size_t>(std::ranges::count_if(entry.ensure_search_hl_cache().spans, [](const SearchHlCache::Span& s) static {
         return s.count != SearchHlCache::Span::NOT_COMPUTED;
     }));
 }

@@ -37,7 +37,7 @@ void ConfigService::SetConfigDirOverride(const std::filesystem::path& dir)
 const std::filesystem::path& ConfigService::DefaultConfigDir()
 {
     // 失敗時は空 path のままキャッシュされ、GetConfigPath で空チェックされる。
-    static const std::filesystem::path kDir = []() noexcept {
+    static const std::filesystem::path kDir = []() static noexcept {
         // 失敗時も解放が必要なので RAII で受ける。
         UniqueCoTaskMemStr appdata;
         std::filesystem::path result;

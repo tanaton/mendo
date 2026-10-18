@@ -303,7 +303,7 @@ TEST(SearchBarLayoutTest, CloseButtonFallsBackToLeftPackedWhenNarrow)
 TEST(SearchBarLayoutTest, RightAlignTogglesAroundThresholdWidth)
 {
     // 右寄せなら close は highlight から離れ、フォールバックなら highlight 直後に密着する
-    auto right_aligned = [](float w) {
+    auto right_aligned = [](float w) static {
         auto l = ComputeSearchBarLayout(PaneRect{ .x = 0.0f, .width = w, .height = 900.0f }, true);
         return l.close_btn.left > l.highlight_btn.right + SEARCH_BAR_GAP + 0.5f;
     };

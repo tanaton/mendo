@@ -273,7 +273,7 @@ TEST(LruCache, TrimToBudgetEvictsFromTail)
     cache.Insert(3, 30);
     // 内部 [3, 2, 1]、cost 合計 60
 
-    cache.TrimToBudget(50, [](int v) { return static_cast<size_t>(v); });
+    cache.TrimToBudget(50, [](int v) static { return static_cast<size_t>(v); });
     EXPECT_EQ(cache.Size(), 2u);
     EXPECT_EQ(cache.Find(1), nullptr);
     EXPECT_NE(cache.Find(3), nullptr);
@@ -290,7 +290,7 @@ TEST(LruCache, TrimToBudgetKeepsMostRecentEvenIfOverBudget)
     cache.Insert(1, 100);
     cache.Insert(2, 200);
 
-    cache.TrimToBudget(10, [](int v) { return static_cast<size_t>(v); });
+    cache.TrimToBudget(10, [](int v) static { return static_cast<size_t>(v); });
     EXPECT_EQ(cache.Size(), 1u);
     EXPECT_NE(cache.Find(2), nullptr);
 }

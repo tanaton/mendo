@@ -503,7 +503,7 @@ void App::Execute(const SideEffect& effect)
         [this](const effect::SetCapture&) {
             ::SetCapture(hwnd_);
         },
-        [](const effect::ReleaseCapture&) {
+        [](const effect::ReleaseCapture&) static {
             ::ReleaseCapture();
         },
         [this](const effect::ClipboardWrite& ev) {

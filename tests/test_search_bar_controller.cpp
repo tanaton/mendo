@@ -435,7 +435,7 @@ TEST_F(SearchBarControllerTest, ScrollToMatchMeasuresNodeBeforeResolvingY)
     ctrl_.OnTextChanged(L"hello", nodes, 0);
 
     ASSERT_FALSE(ensured.empty());
-    EXPECT_TRUE(std::ranges::all_of(ensured, [](int i) { return i == 2; }));
+    EXPECT_TRUE(std::ranges::all_of(ensured, [](int i) static { return i == 2; }));
     const float visible = tracker_.md_pane_height - SEARCH_BAR_HEIGHT;
     EXPECT_FLOAT_EQ(viewport_.GetScrollY(), 5000.0f - visible / 3.0f);
 }

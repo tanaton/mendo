@@ -113,7 +113,7 @@ TEST(AppControllerTest, HandleMouseWheel)
 // ピンチや高分解能ホイールの細かい delta は 1 ノッチ分たまるごとに 1 段だけズームする。
 TEST(AppControllerTest, CtrlWheelZoomsOncePerNotch)
 {
-    const auto wheel = [](int delta, int& accum) {
+    const auto wheel = [](int delta, int& accum) static {
         return app_controller::HandleMouseWheel(MouseWheelEvent{ .delta = delta, .ctrl = true }, accum);
     };
     int accum = 0;

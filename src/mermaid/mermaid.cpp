@@ -233,7 +233,7 @@ void MermaidRenderer::MaybeGrowWorkers()
     if (!webview_env_ || worker_count_ >= MAX_WORKERS || pending_requests_.empty()) {
         return;
     }
-    if (!std::ranges::all_of(ActiveWorkers(), [](const Worker& w) { return w.ready && w.rendering; })) {
+    if (!std::ranges::all_of(ActiveWorkers(), [](const Worker& w) static { return w.ready && w.rendering; })) {
         return;
     }
     const int index = worker_count_;
@@ -531,7 +531,7 @@ void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target)
 void MermaidRenderer::InsertCache(uint64_t hash, CachedResult result)
 {
     cache_.Insert(hash, std::move(result));
-    cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedResult& c) {
+    cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedResult& c) static {
         return (c.png ? c.png->size() : 0) + BitmapBytes(c.bitmap.Get());
     });
 }

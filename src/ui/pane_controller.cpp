@@ -28,7 +28,7 @@ void PaneController::DragSplitterTo(PaneTarget edge, float dip_x, float total_wi
     const auto layout = ComputeLayout(total_width, 0.0f, splitter_w);
     // ウィンドウが保存幅より狭く表示幅だけ縮小されている間は、見えている幅を論理幅として確定させる。
     // 論理幅のまま制約すると、触った瞬間に縮小が解けて反対側のペインが元の幅へジャンプする。
-    const auto adopt_displayed = [](Instance& inst, float displayed) noexcept {
+    const auto adopt_displayed = [](Instance& inst, float displayed) static noexcept {
         if (inst.show && displayed < inst.width) {
             inst.width = std::max(displayed, PANE_MIN_WIDTH);
         }

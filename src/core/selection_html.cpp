@@ -185,13 +185,13 @@ private:
 // ブラウザは解析前に先頭の制御文字・空白と途中のタブ・改行を捨てるので、それに合わせて判定する。
 bool IsSafeImageSrc(std::string_view src)
 {
-    src.remove_prefix(std::ranges::find_if(src, [](char c) { return static_cast<unsigned char>(c) > 0x20; }) - src.begin());
+    src.remove_prefix(std::ranges::find_if(src, [](char c) static { return static_cast<unsigned char>(c) > 0x20; }) - src.begin());
     std::string s;
-    std::ranges::copy_if(src, std::back_inserter(s), [](char c) { return c != '\t' && c != '\n' && c != '\r'; });
+    std::ranges::copy_if(src, std::back_inserter(s), [](char c) static { return c != '\t' && c != '\n' && c != '\r'; });
     if (ascii_util::istarts_with(s, "http://") || ascii_util::istarts_with(s, "https://")) {
         return true;
     }
-    const auto is_slash = [](char c) { return c == '/' || c == '\\'; };
+    const auto is_slash = [](char c) static { return c == '/' || c == '\\'; };
     if (s.empty() || (s.size() >= 2 && is_slash(s[0]) && is_slash(s[1]))) {
         return false;
     }
@@ -681,7 +681,7 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
     std::pmr::vector<OpenList> lists;
     // 同じ引用の深さなら段以上のインデントが項目の中。引用の深さが変わるノードは、その引用が項目の中で
     // 始まったとき (段より深いインデント) だけ含める。リストを出た直後の引用もインデントが上がるため。
-    const auto in_open_li = [](const OpenList& l, const Node& node) {
+    const auto in_open_li = [](const OpenList& l, const Node& node) static {
         return node.quote_depth == l.quote_depth ? node.indent_level >= l.indent
                                                  : node.quote_depth > l.quote_depth && node.indent_level > l.indent;
     };

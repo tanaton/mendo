@@ -68,7 +68,7 @@ TEST_F(AsyncLoadCoordinatorTest, ShutdownSchedulerCausesReadFailedError)
 // worker でメモリ確保に失敗しても terminate せず、大きすぎて読めなかった扱いで返す。
 TEST_F(AsyncLoadCoordinatorTest, BadAllocInWorkerProducesTooLargeError)
 {
-    AsyncLoadCoordinator c{ [](const std::pmr::wstring&, const std::stop_token&) -> std::expected<LoadedFileDoc, FileLoadError> {
+    AsyncLoadCoordinator c{ [](const std::pmr::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
         throw std::bad_alloc{};
     } };
     c.Start(scheduler_, std::pmr::wstring(L"unused.md"), nullptr, 0, GetLightTheme());
@@ -194,7 +194,7 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadWhileFileStillGrowingSkipsParse)
     TempFile tmp(L"aload_reload_growing", std::string(256, 'x'));
     auto base = std::make_shared<const std::pmr::string>("# Title\n\nbody\n");
     // 実ファイルより短い先頭だけを読んだ状態を再現する。
-    AsyncLoadCoordinator c([](const std::pmr::wstring&, const std::stop_token&) -> std::expected<LoadedFileDoc, FileLoadError> {
+    AsyncLoadCoordinator c([](const std::pmr::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
         return LoadedFileDoc{ std::pmr::string("# Title\n\nchanged\n"), 17 };
     });
     c.Start(scheduler_, tmp.PmrPath(), nullptr, 0, GetLightTheme(), base);
@@ -531,7 +531,7 @@ TEST_F(AsyncLoadCoordinatorTest, BadAllocAfterCancelProducesNoOutcome)
     static std::shared_future<void> released;
     std::promise<void> release;
     released = release.get_future().share();
-    AsyncLoadCoordinator c{ [](const std::pmr::wstring&, const std::stop_token&) -> std::expected<LoadedFileDoc, FileLoadError> {
+    AsyncLoadCoordinator c{ [](const std::pmr::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
         released.wait();
         throw std::bad_alloc{};
     } };
@@ -581,7 +581,7 @@ TEST_F(AsyncLoadCoordinatorTest, AttachBeforeOutcomeNotifiesLater)
     static std::shared_future<void> released;
     std::promise<void> release;
     released = release.get_future().share();
-    AsyncLoadCoordinator c{ [](const std::pmr::wstring&, const std::stop_token&) -> std::expected<LoadedFileDoc, FileLoadError> {
+    AsyncLoadCoordinator c{ [](const std::pmr::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
         released.wait();
         return LoadedFileDoc{ .text = std::pmr::string{ "# late\n" }, .byte_size = 7 };
     } };

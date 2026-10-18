@@ -218,7 +218,7 @@ INSTANTIATE_TEST_SUITE_P(
         ScrollLayoutCase{ "FitsInPane", 1, 2000.0f },
         // max_scroll が先頭ノードの Top より小さい: ノード基準の位置指定がそのまま範囲外になる。
         ScrollLayoutCase{ "TinyMaxScroll", 3, 400.0f, 5.0f }),
-    [](const auto& info) { return std::string(info.param.name); });
+    [](const auto& info) static { return std::string(info.param.name); });
 
 // ---- マウスキャプチャ ----
 // 不変条件: 「SetCapture 保持中」⇔「左ドラッグ進行中 (drag.kind != None) または右ジェスチャ進行中」。
@@ -638,4 +638,4 @@ INSTANTIATE_TEST_SUITE_P(
         HWheelCase{ "DraggingScrollableCode_Scrolls", kNone, kCodeBlock, false, false, false, true },
         HWheelCase{ "DraggingCodeThatFits", kNone, kCodeBlock, true, false, false, false },
         HWheelCase{ "DraggingWithInvalidPaneLayout", kNone, kCodeBlock, false, true, false, false }),
-    [](const auto& info) { return std::string(info.param.name); });
+    [](const auto& info) static { return std::string(info.param.name); });

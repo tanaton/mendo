@@ -27,7 +27,7 @@ TEST_F(FileExplorerTest, CurrentFileSurvivesRefreshAndDirectoryChange)
     FileExplorer explorer;
     explorer.SetCurrentFile(current);
     explorer.SetDirectory(temp_dir_.wstring());
-    const auto is_current = [](const FileEntry& e) { return e.is_current(); };
+    const auto is_current = [](const FileEntry& e) static { return e.is_current(); };
     EXPECT_EQ(std::ranges::count_if(explorer.GetEntries(), is_current), 1);
 
     explorer.SetDirectory((temp_dir_ / L"sub").wstring());
