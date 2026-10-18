@@ -54,3 +54,9 @@ TEST(TooltipTarget, MakeTooltipBuildsTextOnlyWhenTargetChanges)
     const auto other = MakeTooltip(current, TooltipTarget::Zone::NavButton, 2, L"forward");
     EXPECT_EQ(other.text, L"forward");
 }
+
+// 該当ボタンが無いときは文言が空になるので、ゾーンを残さず非表示にする。
+TEST(TooltipTarget, MakeTooltipWithEmptyTextIsEmpty)
+{
+    EXPECT_TRUE(MakeTooltip({}, TooltipTarget::Zone::NavButton, 0, L"").IsEmpty());
+}

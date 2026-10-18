@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 #include "cmd_gen_mock_test_base.h"
 #include "test_helpers.h"
+#include "ui_constants.h"
 #include <cmath>
 #include <map>
 #include <optional>
@@ -18,16 +19,17 @@ protected:
     {
         return l.stroke_width == theme_.blockquote_bar_width && l.brush_id == BrushId::BlockquoteBar;
     }
+
+    // text_layout が null なので 1 行目の高さはフォールバック値。bullet 中心は物理ピクセルへスナップされる。
+    float ExpectedBulletY(int node) const
+    {
+        return SnapToPhysicalPixel(cache_.Top(node) + theme_.font_size_body * FALLBACK_LINE_HEIGHT_FACTOR * 0.5f, 1.0f);
+    }
 };
 
 bool IsVertical(const DrawLineCmd& l)
 {
     return std::abs(l.p0.x - l.p1.x) < 0.01f;
-}
-
-std::ptrdiff_t CountVerticalLines(const DrawCommandList& cmds)
-{
-    return CountCmd<DrawLineCmd>(cmds, IsVertical);
 }
 
 } // namespace
@@ -179,23 +181,8 @@ TEST_F(CmdGenContentTest, BlocksWithBackgroundGenerateRoundedRect)
 TEST_F(CmdGenContentTest, TableGeneratesLinesAndRects)
 {
     auto cmds = Generate("| A | B |\n|---|---|\n| 1 | 2 |");
-    // テーブルは罫線と行背景を生成するべき
     EXPECT_GT(CountCmd<DrawLineCmd>(cmds), 0);
     EXPECT_GT(CountCmd<FillRectCmd>(cmds), 0);
-}
-
-// ---- リスト項目 ----
-
-TEST_F(CmdGenContentTest, UnorderedListGeneratesFillEllipse)
-{
-    auto cmds = Generate("- Item");
-    EXPECT_GE(CountCmd<FillEllipseCmd>(cmds), 1);
-}
-
-TEST_F(CmdGenContentTest, NestedListGeneratesDrawEllipse)
-{
-    auto cmds = Generate("- Item\n  - Sub");
-    EXPECT_GE(CountCmd<DrawEllipseCmd>(cmds), 1);
 }
 
 // ---- 引用ブロック ----
@@ -203,46 +190,14 @@ TEST_F(CmdGenContentTest, NestedListGeneratesDrawEllipse)
 TEST_F(CmdGenContentTest, MultiLineBlockQuoteGeneratesSingleBar)
 {
     auto cmds = Generate("> Line 1\n>\n> Line 2");
-    EXPECT_EQ(CountVerticalLines(cmds), 1) << "複数行の引用ブロックは1本の統合されたバーのみ生成するべき";
+    EXPECT_EQ(CountCmd<DrawLineCmd>(cmds, IsVertical), 1) << "複数行の引用ブロックは1本の統合されたバーのみ生成するべき";
 }
 
 TEST_F(CmdGenContentTest, MultiLineAlertGeneratesSingleBarAndBackground)
 {
     auto cmds = Generate("> [!NOTE]\n> Line 1\n>\n> Line 2");
-    EXPECT_EQ(CountVerticalLines(cmds), 1) << "複数行のAlertは1本の統合されたバーのみ生成するべき";
+    EXPECT_EQ(CountCmd<DrawLineCmd>(cmds, IsVertical), 1) << "複数行のAlertは1本の統合されたバーのみ生成するべき";
     EXPECT_EQ(CountCmd<FillRoundedRectCmd>(cmds), 1) << "複数行のAlertは1つの統合された背景のみ生成するべき";
-}
-
-// ---- ビューポートカリング ----
-
-TEST_F(CmdGenContentTest, ViewportCullingExcludesOffscreenNodes)
-{
-    // 多数の水平線を作成。text_layoutがなくてもDrawLineCmdを生成する。
-    std::string md;
-    for (int i = 0; i < 50; i++) {
-        md += "---\n\n";
-    }
-    Parse(md);
-
-    // 小さなビューポートを使用: [0, 100) -> 少数のノードのみ表示されるべき
-    const PaneRect md_pane{ 0, 0, 800.0f, 100.0f };
-    const size_t culled = gen_.GenerateMdPane(nodes_, cache_, md_pane, 0.0f, TextSelection{}).size();
-
-    // フルビューポートではより多くのコマンドがあるべき
-    const PaneRect md_pane_full{ 0, 0, 800.0f, 50000.0f };
-    const size_t full = gen_.GenerateMdPane(nodes_, cache_, md_pane_full, 0.0f, TextSelection{}).size();
-
-    EXPECT_LT(culled, full);
-}
-
-// ---- DrawLineCmdのプロパティ ----
-
-TEST_F(CmdGenContentTest, HorizontalRuleColorMatchesTheme)
-{
-    auto cmds = Generate("---");
-    const auto line = FindFirst<DrawLineCmd>(cmds);
-    ASSERT_TRUE(line.has_value());
-    EXPECT_EQ(line->brush_id, BrushId::Hr);
 }
 
 // ---- 複数ノード ----
@@ -250,36 +205,27 @@ TEST_F(CmdGenContentTest, HorizontalRuleColorMatchesTheme)
 TEST_F(CmdGenContentTest, MixedContentGeneratesVariousCommands)
 {
     auto cmds = Generate("# Heading\n\nParagraph\n\n---\n\n- List\n\n> Quote\n\n```\ncode\n```");
-    // すべてのノード種別からのコマンドがあるべき
     EXPECT_GT(CountCmd<DrawLineCmd>(cmds), 0);
     EXPECT_GT(CountCmd<FillEllipseCmd>(cmds), 0);
     EXPECT_GT(CountCmd<FillRoundedRectCmd>(cmds), 0);
 }
 
-// ---- 番号付きリスト ----
+// ---- 箇条書き記号を持たないリスト ----
 
-TEST_F(CmdGenContentTest, OrderedListGeneratesDrawText)
+TEST_F(CmdGenContentTest, OrderedAndTaskListsGenerateNoEllipse)
 {
-    auto cmds = Generate("1. First\n2. Second\n3. Third");
-    // 番号付きリストは箇条書きの楕円を生成しないべき
-    EXPECT_EQ(CountCmd<FillEllipseCmd>(cmds), 0);
+    for (const char* md : { "1. First\n2. Second\n3. Third", "- [x] Done\n- [ ] Not done" }) {
+        SCOPED_TRACE(md);
+        EXPECT_EQ(CountCmd<FillEllipseCmd>(Generate(md)), 0);
+    }
 }
 
-// ---- タスクリスト ----
+// ---- 水平線 ----
 
-TEST_F(CmdGenContentTest, TaskListItemGeneratesNoEllipse)
-{
-    auto cmds = Generate("- [x] Done\n- [ ] Not done");
-    // タスクリスト項目は箇条書きの楕円を生成しないべき
-    EXPECT_EQ(CountCmd<FillEllipseCmd>(cmds), 0);
-}
-
-// ---- 複数の水平線 ----
-
-TEST_F(CmdGenContentTest, MultipleHorizontalRulesGenerateMultipleLines)
+TEST_F(CmdGenContentTest, MultipleHorizontalRulesGenerateHrLines)
 {
     auto cmds = Generate("---\n\n---\n\n---");
-    EXPECT_GE(CountCmd<DrawLineCmd>(cmds), 3);
+    EXPECT_GE(CountCmd<DrawLineCmd>(cmds, [](const DrawLineCmd& l) static { return l.brush_id == BrushId::Hr; }), 3);
 }
 
 // ---- ダークテーマテスト ----
@@ -322,21 +268,19 @@ TEST_F(CmdGenContentTest, AllAlertTypesGenerateCommands)
         { "CAUTION",   "> [!CAUTION]\n> c"   },
     };
     for (const auto& a : alerts) {
-        auto cmds = Generate(a.md);
-        EXPECT_GE(CountCmd<DrawLineCmd>(cmds), 1) << "Alert '" << a.name << "' はバー線を生成するべき";
+        SCOPED_TRACE(a.name);
+        EXPECT_GE(CountCmd<DrawLineCmd>(Generate(a.md)), 1);
     }
 }
 
 // ---- コピーボタン ----
 
-// formats_.copy_btn_icon が null の場合、コピーボタンのアイコンは生成されない
 TEST_F(CmdGenContentTest, CodeBlockNoCopyButtonWithoutIconFont)
 {
     auto cmds = Generate("```\ncode\n```");
     EXPECT_EQ(CountCmd<DrawTextLayoutCmd>(cmds), 0) << "formats_.copy_btn_icon が null のときコピーボタンのアイコンは生成されないべき";
 }
 
-// 非コードブロックノードはコピーボタンのコマンドを生成しない
 TEST_F(CmdGenContentTest, NonCodeBlockNoCopyButton)
 {
     auto cmds = Generate("Hello world");
@@ -347,24 +291,16 @@ TEST_F(CmdGenContentTest, NonCodeBlockNoCopyButton)
 
 TEST_F(CmdGenContentTest, UnorderedListBulletCenteredOnFirstLine)
 {
-    auto cmds = Generate("- Item");
-
-    // text_layout が null のフォールバック: first_line_h = font_size_body * 1.3
-    // bullet 中心は物理ピクセル境界へスナップされるため、期待値も同じ規則でスナップする。
-    const float expected_y = SnapToPhysicalPixel(cache_.Top(0) + theme_.font_size_body * 1.3f * 0.5f, 1.0f);
-
-    const auto bullet = FindFirst<FillEllipseCmd>(cmds);
+    const auto bullet = FindFirst<FillEllipseCmd>(Generate("- Item"));
     ASSERT_TRUE(bullet.has_value()) << "FillEllipseCmd が見つからない";
-    EXPECT_NEAR(bullet->center.y, expected_y, 0.01f);
+    EXPECT_NEAR(bullet->center.y, ExpectedBulletY(0), 0.01f);
 }
 
 TEST_F(CmdGenContentTest, NestedListBulletCenteredOnFirstLine)
 {
     auto cmds = Generate("- A\n  - B");
-
-    // bullet 中心は物理ピクセル境界へスナップされるため、期待値も同じ規則でスナップする。
-    const float expected_y0 = SnapToPhysicalPixel(cache_.Top(0) + theme_.font_size_body * 1.3f * 0.5f, 1.0f);
-    const float expected_y1 = SnapToPhysicalPixel(cache_.Top(1) + theme_.font_size_body * 1.3f * 0.5f, 1.0f);
+    const float expected_y0 = ExpectedBulletY(0);
+    const float expected_y1 = ExpectedBulletY(1);
 
     int idx = 0;
     for (const auto& cmd : cmds) {

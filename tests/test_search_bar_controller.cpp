@@ -353,7 +353,7 @@ TEST_F(SearchBarControllerTest, ScrollToMatchClearsScrollTarget)
 // Why: 行毎の精密な Y が使われず block 先頭に丸まると、複数マッチ間でスクロールが進まない。
 TEST_F(SearchBarControllerTest, NextMatchAcrossTableRowsAdvancesScroll)
 {
-    nodes_.push_back(MakeSingleColumnTableNode("hit", 5));
+    nodes_.push_back(MakeTableNode({ { "hit" }, { "hit" }, { "hit" }, { "hit" }, { "hit" } }));
 
     cache_ = MakeUniformCache(1, 2000.0f);
     auto& tl = cache_[0].ensure_table_layout();

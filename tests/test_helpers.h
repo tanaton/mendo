@@ -47,50 +47,31 @@ inline Node MakeTextNode(const char* text)
     return n;
 }
 
-// 1 行 2 列のテーブルノードを作るテスト用ヘルパー。
-inline Node MakeTableNode(const char* cell0, const char* cell1)
+// rows[r][c] をセルに持つテーブルノード。区切りはパーサと同じく行内 '\t'、行間 '\n'。
+inline Node MakeTableNode(std::initializer_list<std::initializer_list<std::string_view>> rows)
 {
     Node n;
     n.type = NodeType::Table;
     auto* tbl = AttachTestTable(n);
-    tbl->row_count = 1;
-    tbl->col_count = 2;
-    tbl->concat_text.append(cell0);
-    tbl->concat_text.push_back('\t');
-    tbl->concat_text.append(cell1);
-    tbl->cell_text_starts.push_back(0);
-    tbl->cell_text_starts.push_back(static_cast<uint32_t>(std::char_traits<char>::length(cell0) + 1));
-    tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
-    tbl->cell_run_starts.push_back(0);
-    tbl->cell_run_starts.push_back(0);
-    tbl->cell_run_starts.push_back(0);
-    tbl->aligns.push_back(TableAlign::Default);
-    tbl->aligns.push_back(TableAlign::Default);
-    tbl->is_header_row.push_back(false);
-    n.SetText(tbl->concat_text);
-    return n;
-}
-
-// 各行に同じ cell が入る rows 行 1 列のテーブルノード。行は '\n' で区切る。
-inline Node MakeSingleColumnTableNode(std::string_view cell, uint32_t rows)
-{
-    Node n;
-    n.type = NodeType::Table;
-    auto* tbl = AttachTestTable(n);
-    tbl->row_count = rows;
-    tbl->col_count = 1;
-    for (uint32_t r = 0; r < rows; ++r) {
-        if (r > 0) {
+    tbl->row_count = static_cast<uint32_t>(rows.size());
+    tbl->col_count = static_cast<uint16_t>(rows.begin()->size());
+    for (const auto& row : rows) {
+        if (!tbl->is_header_row.empty()) {
             tbl->concat_text.push_back('\n');
         }
-        tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
-        tbl->cell_run_starts.push_back(0);
         tbl->is_header_row.push_back(false);
-        tbl->concat_text.append(cell);
+        for (size_t c = 0; c < row.size(); ++c) {
+            if (c > 0) {
+                tbl->concat_text.push_back('\t');
+            }
+            tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
+            tbl->cell_run_starts.push_back(0);
+            tbl->concat_text.append(row.begin()[c]);
+        }
     }
     tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
     tbl->cell_run_starts.push_back(0);
-    tbl->aligns.push_back(TableAlign::Default);
+    tbl->aligns.assign(tbl->col_count, TableAlign::Default);
     n.SetText(tbl->concat_text);
     return n;
 }

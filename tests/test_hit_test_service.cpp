@@ -32,42 +32,37 @@ protected:
 
 TEST_F(HitTestTest, NavButton_HitsButtonsInclusiveAndMissesAround)
 {
-    struct Point {
-        float x;
-        float y;
-    };
-    using Rect = D2D1_RECT_F;
-    struct Case {
-        const char* name;
-        Point (*point)(const Rect& back, const Rect& fwd);
-        NavButtonHover expected;
-    };
-    static constexpr auto cy = [](const Rect& r) static { return (r.top + r.bottom) * 0.5f; };
-    static constexpr auto cx = [](const Rect& r) static { return (r.left + r.right) * 0.5f; };
-    constexpr Case kCases[] = {
-        { "BackCenter", [](const Rect& b, const Rect&) static { return Point{ cx(b), cy(b) }; }, NavButtonHover::Back },
-        { "ForwardCenter", [](const Rect&, const Rect& f) static { return Point{ cx(f), cy(f) }; }, NavButtonHover::Forward },
-        // PointInRectInclusive なので左右の端ちょうども Back
-        { "BackLeftEdge", [](const Rect& b, const Rect&) static { return Point{ b.left, cy(b) }; }, NavButtonHover::Back },
-        { "BackRightEdge", [](const Rect& b, const Rect&) static { return Point{ b.right, cy(b) }; }, NavButtonHover::Back },
-        { "GapBetweenButtons", [](const Rect& b, const Rect&) static { return Point{ b.right + NAV_BTN_GAP * 0.5f, cy(b) }; }, NavButtonHover::None },
-        { "AboveBack", [](const Rect& b, const Rect&) static { return Point{ cx(b), b.top - 1.0f }; }, NavButtonHover::None },
-        { "BelowBack", [](const Rect& b, const Rect&) static { return Point{ cx(b), b.bottom + 1.0f }; }, NavButtonHover::None },
-        { "LeftOfBack", [](const Rect& b, const Rect&) static { return Point{ b.left - 1.0f, cy(b) }; }, NavButtonHover::None },
-        { "RightOfForward", [](const Rect&, const Rect& f) static { return Point{ f.right + 1.0f, cy(f) }; }, NavButtonHover::None },
-    };
     // MD ペインが原点以外にある場合も同じ結果になること
     constexpr PaneRect kPanes[] = {
         { 0.0f, 0.0f, 800.0f, 600.0f },
         { 200.0f, 40.0f, 600.0f, 500.0f },
     };
     for (const auto& md : kPanes) {
-        const Rect back = NavBackButtonRect(md);
-        const Rect fwd = NavForwardButtonRect(md);
-        for (const auto& c : kCases) {
+        const D2D1_RECT_F b = NavBackButtonRect(md);
+        const D2D1_RECT_F f = NavForwardButtonRect(md);
+        const float b_cx = (b.left + b.right) * 0.5f;
+        const float b_cy = (b.top + b.bottom) * 0.5f;
+        const float f_cy = (f.top + f.bottom) * 0.5f;
+        const struct {
+            const char* name;
+            float x;
+            float y;
+            NavButtonHover expected;
+        } cases[] = {
+            { "BackCenter", b_cx, b_cy, NavButtonHover::Back },
+            { "ForwardCenter", (f.left + f.right) * 0.5f, f_cy, NavButtonHover::Forward },
+            // PointInRectInclusive なので左右の端ちょうども Back
+            { "BackLeftEdge", b.left, b_cy, NavButtonHover::Back },
+            { "BackRightEdge", b.right, b_cy, NavButtonHover::Back },
+            { "GapBetweenButtons", b.right + NAV_BTN_GAP * 0.5f, b_cy, NavButtonHover::None },
+            { "AboveBack", b_cx, b.top - 1.0f, NavButtonHover::None },
+            { "BelowBack", b_cx, b.bottom + 1.0f, NavButtonHover::None },
+            { "LeftOfBack", b.left - 1.0f, b_cy, NavButtonHover::None },
+            { "RightOfForward", f.right + 1.0f, f_cy, NavButtonHover::None },
+        };
+        for (const auto& c : cases) {
             SCOPED_TRACE(::testing::Message() << c.name << " pane=(" << md.x << "," << md.y << ")");
-            const auto [x, y] = c.point(back, fwd);
-            EXPECT_EQ(hit_test::NavButtonHitTest(x, y, md), c.expected);
+            EXPECT_EQ(hit_test::NavButtonHitTest(c.x, c.y, md), c.expected);
         }
     }
 }

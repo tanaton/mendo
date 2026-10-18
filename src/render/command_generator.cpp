@@ -157,15 +157,6 @@ float GetFirstLineHeight(const NodeLayoutEntry& entry, float font_size) noexcept
     return (entry.first_line_height() > 0.0f) ? entry.first_line_height() : font_size * FALLBACK_LINE_HEIGHT_FACTOR;
 }
 
-// ノード内の選択範囲 (UTF-8 byte)。選択がノードにかからなければ空範囲。
-constexpr TextSelection::NodeRange NodeSelectionRange(const TextSelection& selection, int node_index, size_t text_size) noexcept
-{
-    if (!selection.active || node_index < selection.start_node || node_index > selection.end_node) {
-        return { 0, 0 };
-    }
-    return selection.ClampedRange(node_index, text_size);
-}
-
 } // namespace
 
 // box はスクロール位置に依らない値を渡す。矩形の差から求めると丸めでキャッシュが外れる。
@@ -429,7 +420,7 @@ void CommandGenerator::GenNodeTextDecorations(const FrameContext& fc, const Node
     // 検索マッチのハイライト（選択より先に描画し、選択が最前面になるようにする）
     GenSearchHighlights(entry, node_index, text_x, entry_text_top);
 
-    if (const auto [sel_start, sel_end] = NodeSelectionRange(fc.selection, node_index, node.GetText().size()); sel_end > sel_start) {
+    if (const auto [sel_start, sel_end] = fc.selection.RangeIn(node_index, node.GetText().size()); sel_end > sel_start) {
         GenSelectionHighlightCached(node, entry, sel_start, sel_end - sel_start, text_x, entry_text_top);
     }
 
@@ -704,7 +695,7 @@ void CommandGenerator::GenTable(const FrameContext& fc,
     const float cull_left = offset_x + fc.viewport_left + h_scroll_x;
     const float cull_right = offset_x + fc.viewport_right + h_scroll_x;
 
-    const auto selection = NodeSelectionRange(fc.selection, node_index, node.GetText().size());
+    const auto selection = fc.selection.RangeIn(node_index, node.GetText().size());
 
     // 可視行帯を row_cum_y の二分探索で求め、その範囲だけループする
     // (FindTableRow と同じパターン)。巨大テーブルで

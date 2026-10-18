@@ -73,7 +73,7 @@ Node MakeStressNode(size_t i, bool include_code_block)
         return n;
     }
     if (bucket < 17) {
-        Node table = MakeTableNode("a", "b");
+        Node table = MakeTableNode({ { "a", "b" } });
         table.SetSourceOffset(i);
         return table;
     }

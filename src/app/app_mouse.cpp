@@ -143,19 +143,6 @@ std::wstring_view PaneHeaderButtonTooltipText(PaneHeaderButton hit) noexcept
     std::unreachable();
 }
 
-// text が空 (該当ボタンなし) なら空のターゲットを返す。
-TooltipTarget MakeButtonTooltip(const TooltipTarget& current, TooltipTarget::Zone zone, uint64_t key, std::wstring_view text)
-{
-    return text.empty() ? TooltipTarget{} : MakeTooltip(current, zone, key, text);
-}
-
-TooltipTarget BuildTitleBarTooltip(const TooltipTarget& current, TitleBarHitZone zone, bool is_maximized)
-{
-    // 最大化ボタンは状態で文言が変わるため key を分ける。
-    const uint64_t key = std::to_underlying(zone) * 2ull + (zone == TitleBarHitZone::Maximize && is_maximized);
-    return MakeButtonTooltip(current, TooltipTarget::Zone::TitleBarButton, key, TitleBarTooltipText(zone, is_maximized));
-}
-
 // 上位 32bit に親 (node index・一覧の世代)、下位に子 (リンク index・項目 index) を詰める。
 constexpr uint64_t PackTooltipKey(uint32_t outer, uint32_t inner) noexcept
 {
@@ -711,11 +698,11 @@ HCURSOR App::HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLay
     switch (target.kind) {
     case MdPaneHit::Kind::SearchBar:
         hover.search_bar = target.search_bar;
-        hover.tooltip = MakeButtonTooltip(current_tooltip, TooltipTarget::Zone::SearchBarButton, std::to_underlying(hover.search_bar), SearchBarTooltipText(hover.search_bar));
+        hover.tooltip = MakeTooltip(current_tooltip, TooltipTarget::Zone::SearchBarButton, std::to_underlying(hover.search_bar), SearchBarTooltipText(hover.search_bar));
         return hover.search_bar == SearchBarHitZone::Input ? cursors_.IBeam() : cursors_.Arrow();
     case MdPaneHit::Kind::NavButton:
         hover.nav = target.nav;
-        hover.tooltip = MakeButtonTooltip(current_tooltip, TooltipTarget::Zone::NavButton, std::to_underlying(hover.nav), NavButtonTooltipText(hover.nav));
+        hover.tooltip = MakeTooltip(current_tooltip, TooltipTarget::Zone::NavButton, std::to_underlying(hover.nav), NavButtonTooltipText(hover.nav));
         return cursors_.Hand();
     case MdPaneHit::Kind::Scrollbar:
         return cursors_.Arrow();
@@ -809,7 +796,10 @@ void App::OnMouseHover(int px, int py)
     HCURSOR cursor = cursors_.Arrow();
     if (dip.y < state_.window.titlebar.GetHeight()) {
         hover.titlebar = state_.window.titlebar.HitTest(dip.x, dip.y);
-        hover.tooltip = BuildTitleBarTooltip(state_.interaction.tooltip.GetCurrent(), hover.titlebar, IsZoomed(hwnd_));
+        const bool maximized = IsZoomed(hwnd_);
+        // 最大化ボタンは状態で文言が変わるため key を分ける。
+        const uint64_t key = std::to_underlying(hover.titlebar) * 2ull + (hover.titlebar == TitleBarHitZone::Maximize && maximized);
+        hover.tooltip = MakeTooltip(state_.interaction.tooltip.GetCurrent(), TooltipTarget::Zone::TitleBarButton, key, TitleBarTooltipText(hover.titlebar, maximized));
     }
     else {
         const auto& pane_layout = GetPaneLayout();

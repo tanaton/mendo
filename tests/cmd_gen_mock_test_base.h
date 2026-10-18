@@ -27,18 +27,20 @@ protected:
         gen_.SetFormats({ nullptr, nullptr, nullptr, nullptr });
     }
 
-    void Parse(std::string_view md, float viewport_w = 800.0f)
+    static constexpr float kViewportW = 800.0f;
+
+    void Parse(std::string_view md)
     {
-        auto [nodes, cache] = ParseAndLayout(md, viewport_w);
+        auto [nodes, cache] = ParseAndLayout(md, kViewportW);
         nodes_ = std::move(nodes);
         cache_ = std::move(cache);
     }
 
     // 先頭から描いたコマンド。呼び出し後も nodes_ / cache_ で期待値を組み立てられる。
-    DrawCommandList Generate(std::string_view md, float viewport_w = 800.0f)
+    DrawCommandList Generate(std::string_view md)
     {
-        Parse(md, viewport_w);
-        const PaneRect md_pane{ 0, 0, viewport_w, 2000.0f };
+        Parse(md);
+        const PaneRect md_pane{ 0, 0, kViewportW, 2000.0f };
         return gen_.GenerateMdPane(nodes_, cache_, md_pane, 0.0f, TextSelection{});
     }
 };

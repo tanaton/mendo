@@ -494,8 +494,7 @@ void MermaidRenderer::OnWebResourceRequested(ICoreWebView2WebResourceRequestedEv
     Microsoft::WRL::ComPtr<ICoreWebView2WebResourceRequest> request;
     args->get_Request(&request);
     UniqueCoTaskMemStr uri;
-    const bool has_uri = SUCCEEDED(request->get_Uri(uri.put())) && uri;
-    const std::wstring_view url = has_uri ? std::wstring_view{ uri.get() } : std::wstring_view{};
+    const std::wstring_view url = SUCCEEDED(request->get_Uri(uri.put())) && uri ? std::wstring_view{ uri.get() } : std::wstring_view{};
 
     const auto respond = [&](IStream* body, int status, const wchar_t* reason, const wchar_t* response_headers) {
         Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;

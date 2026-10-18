@@ -201,7 +201,7 @@ TEST(SearchStateTest, HighlightToggle)
 
 TEST(SearchStateTest, TableCellMatch)
 {
-    const auto s = Searched(Nodes(MakeTableNode("hello", "world")), "hello");
+    const auto s = Searched(Nodes(MakeTableNode({ { "hello", "world" } })), "hello");
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].node_index, 0);
     EXPECT_EQ(s.GetMatches()[0].table_row, 0);
@@ -212,7 +212,7 @@ TEST(SearchStateTest, TableCellMatch)
 
 TEST(SearchStateTest, TableMultipleCellMatches)
 {
-    const auto s = Searched(Nodes(MakeTableNode("test one", "test two")), "test");
+    const auto s = Searched(Nodes(MakeTableNode({ { "test one", "test two" } })), "test");
     ASSERT_EQ(s.GetMatchCount(), 2);
     EXPECT_EQ(s.GetMatches()[0].table_col, 0);
     EXPECT_EQ(s.GetMatches()[1].table_col, 1);
@@ -220,7 +220,7 @@ TEST(SearchStateTest, TableMultipleCellMatches)
 
 TEST(SearchStateTest, TableCaseSensitiveMatch)
 {
-    const auto s = Searched(Nodes(MakeTableNode("Hello", "hello")), "Hello", true);
+    const auto s = Searched(Nodes(MakeTableNode({ { "Hello", "hello" } })), "Hello", true);
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].table_col, 0);
 }
@@ -228,7 +228,7 @@ TEST(SearchStateTest, TableCaseSensitiveMatch)
 TEST(SearchStateTest, MixedNodeAndTableMatches)
 {
     auto nodes = TextNodes({ "find me" });
-    nodes.push_back(MakeTableNode("find here", "no"));
+    nodes.push_back(MakeTableNode({ { "find here", "no" } }));
     const auto s = Searched(nodes, "find");
     ASSERT_EQ(s.GetMatchCount(), 2);
     EXPECT_EQ(s.GetMatches()[0].node_index, 0);
@@ -319,7 +319,7 @@ TEST(SearchStateTest, SetCurrentMatchNearNoMatches)
 // ブロック先頭 Y ではなく該当行の Y を評価してマッチを選択する。
 TEST(SearchStateTest, SetCurrentMatchNearUsesTableRowY)
 {
-    auto s = Searched(Nodes(MakeSingleColumnTableNode("hit", 3)), "hit");
+    auto s = Searched(Nodes(MakeTableNode({ { "hit" }, { "hit" }, { "hit" } })), "hit");
     ASSERT_EQ(s.GetMatchCount(), 3);
 
     // ブロックは y=0, 各行は高さ 100 → 行Y = 0, 100, 200
@@ -439,7 +439,7 @@ TEST(SearchStateTest, NonMermaidCodeBlockIncludedInSearch)
 // concat_text 一括走査でもセル区切りをまたぐ一致は拾わない。
 TEST(SearchStateTest, TableMatchDoesNotCrossCellBoundary)
 {
-    const auto nodes = Nodes(MakeTableNode("abc", "def"));
+    const auto nodes = Nodes(MakeTableNode({ { "abc", "def" } }));
     EXPECT_EQ(Searched(nodes, "c\td").GetMatchCount(), 0);
     auto s = Searched(nodes, "cd");
     EXPECT_EQ(s.GetMatchCount(), 0);
@@ -453,7 +453,7 @@ TEST(SearchStateTest, TableMatchDoesNotCrossCellBoundary)
 
 TEST(SearchStateTest, TableMatchesCarryCellLocalOffsets)
 {
-    const auto s = Searched(Nodes(MakeTableNode("xx Foo", "\xE3\x81\x82" "foo foo")), "FOO");
+    const auto s = Searched(Nodes(MakeTableNode({ { "xx Foo", "\xE3\x81\x82" "foo foo" } })), "FOO");
     ASSERT_EQ(s.GetMatchCount(), 3);
     EXPECT_EQ(s.GetMatches()[0].table_col, 0);
     EXPECT_EQ(s.GetMatches()[0].start, 3u);
