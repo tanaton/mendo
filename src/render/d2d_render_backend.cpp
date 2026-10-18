@@ -297,15 +297,14 @@ void D2DRenderBackend::Trim() noexcept
     }
 }
 
-bool D2DRenderBackend::AcquireFrame(DWORD timeout_ms) noexcept
+void D2DRenderBackend::AcquireFrame() noexcept
 {
     // ロスト中は描画側が作り直すので待たせない。
     if (frame_acquired_ || device_lost_ || !frame_latency_waitable_) {
-        return true;
+        return;
     }
     // alertable=FALSE: UI スレッドは APC を使わないので、意図しない早期復帰を防ぐ。
-    frame_acquired_ = WaitForSingleObjectEx(frame_latency_waitable_.get(), timeout_ms, FALSE) == WAIT_OBJECT_0;
-    return frame_acquired_;
+    frame_acquired_ = WaitForSingleObjectEx(frame_latency_waitable_.get(), kFrameWaitTimeoutMs, FALSE) == WAIT_OBJECT_0;
 }
 
 void D2DRenderBackend::Present() noexcept

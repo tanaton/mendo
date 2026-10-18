@@ -19,14 +19,12 @@ protected:
     CommandGenerator gen_;
     LayoutCache cache_;
     std::pmr::vector<Node> nodes_;
-    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 
     void SetUp() override
     {
         ASSERT_NO_FATAL_FAILURE(MockLayoutTestBase::SetUp());
         gen_.SetTheme(&theme_);
         gen_.SetFormats({ nullptr, nullptr, nullptr, nullptr });
-        gen_.SetHitTestBuffer(&hit_test_buffer_);
     }
 
     void Parse(std::string_view md, float viewport_w = 800.0f)

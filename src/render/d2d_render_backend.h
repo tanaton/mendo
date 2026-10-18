@@ -35,10 +35,10 @@ public:
     // 既存のデバイスがあれば捨てて作り直す。
     bool CreateDevice();
 
-    // 次のフレームを描いてよいか (Frame Latency Waitable Object のシグナル) を最大 timeout_ms 待つ。
+    // 次のフレームを描いてよいか (Frame Latency Waitable Object のシグナル) を最大 kFrameWaitTimeoutMs 待つ。
     // GPU パイプラインの 1 フレーム遅れに同期し、CPU 側を Present の Vsync ブロックまで詰めずに済ませる。
     // 取れたら Present するまで取れた扱いのままにして、描かずに終わったフレームの後で待ち直さない。
-    bool AcquireFrame(DWORD timeout_ms) noexcept;
+    void AcquireFrame() noexcept;
     // フレーム待ちの上限。GPU が止まっても UI スレッドを永久にブロックしないよう、これを過ぎたら諦めて描く。
     static constexpr DWORD kFrameWaitTimeoutMs = 1000;
     // 次のフレームを描いてよくなるのを待つためのハンドル。取れている間とロスト中は nullptr。

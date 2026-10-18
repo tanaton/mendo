@@ -96,10 +96,8 @@ TEST_F(SearchMatchYTest, MatchYRangeAgreesWithDrawnHighlight)
     Doc d;
     Load(d, MakeDoc(1, 1));
     CommandGenerator gen;
-    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_buf;
     gen.SetTheme(&theme_);
     gen.SetFormats({});
-    gen.SetHitTestBuffer(&hit_buf);
 
     const auto& matches = d.search.GetMatches();
     for (int i = 0; i < static_cast<int>(matches.size()); i++) {

@@ -554,7 +554,7 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersSkipsAnchoredRecomputeWhenNoBit
     EXPECT_EQ(tracker_.recompute_layout, 0);
 }
 
-// FlushPendingResources 経由 (outer_batch=true) では内側 recompute_layout_anchored は発火せず、
+// FlushPendingResources 経由では図ごとの recompute_layout_anchored は発火せず、
 // 外側 recompute_layout が 1 回だけ呼ばれる。OnBitmapManageTimer がこの経路をトリガする。
 TEST_F(ResourceManagerTest, RequestMermaidRendersInNestedFlushDoesNotFireAnchoredRecompute)
 {

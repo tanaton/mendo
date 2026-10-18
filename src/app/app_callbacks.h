@@ -1,7 +1,6 @@
 #pragma once
 #include "app_search_bar_callbacks.h"
 #include "resource_manager.h"
-#include "side_effect.h"
 #include "ui_types.h"
 
 struct AppResourceManagerCallbacks : AppCallbacksBase {

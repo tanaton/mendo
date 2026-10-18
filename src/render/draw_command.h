@@ -34,8 +34,7 @@ struct DrawTextLayoutCmd {
     IDWriteTextLayout* layout; // 非所有; ライフタイムは LayoutCache か TextLayoutCache が管理。
     BrushId brush_id;
     // 可視範囲より高いレイアウトは [cull_top, cull_bottom] (origin と同じ座標系) 外のランを飛ばす。
-    // cull_runs でなければ範囲は既定の無限のままにする。
-    bool cull_runs = false;
+    // 低いレイアウトでは範囲は既定の無限のままにする。
     float cull_top = -std::numeric_limits<float>::infinity();
     float cull_bottom = std::numeric_limits<float>::infinity();
     float opacity = 1.0f;

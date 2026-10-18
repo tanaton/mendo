@@ -45,14 +45,13 @@ bool App::Init(HWND hwnd)
     layout_service_.emplace(renderer_.GetLayout(), state_.view.viewport);
 
     // Mermaid 共有 scheduler_ と詰まり合わないよう独立して立ち上げる。
-    const auto cores = std::thread::hardware_concurrency();
-    layout_scheduler_.Init(LayoutWorkerCount(cores));
+    layout_scheduler_.Init(LayoutWorkerCount(std::thread::hardware_concurrency()));
     renderer_.SetLayoutScheduler(&layout_scheduler_);
 
     // PixelToDip 用に DPI スケールをキャッシュ（OnDpiChanged でも更新する）。
     state_.window.cached_dpi_scale = DpiScaleFrom(static_cast<float>(GetDpiForWindow(hwnd_)));
 
-    scheduler_.Init(SharedWorkerCount(cores));
+    InitSharedScheduler();
 
     file_cache_.SetCacheDir(config_.GetConfigPath(L"MermaidCache"));
     file_cache_.Init(MermaidRenderer::EstimateWorkerDpr(), scheduler_);
@@ -109,6 +108,11 @@ bool App::Init(HWND hwnd)
 
     state_.search.search_bar_ctrl.Init(state_.search.search_state, state_.view.viewport, state_.document.layout_cache, AppSearchBarCallbacks{ this });
     return true;
+}
+
+void App::InitSharedScheduler()
+{
+    scheduler_.Init(SharedWorkerCount(std::thread::hardware_concurrency()));
 }
 
 bool App::CreateRenderDevice()

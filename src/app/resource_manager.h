@@ -18,7 +18,6 @@
 #include <array>
 #include <chrono>
 #include <cmath>
-#include <concepts>
 #include <filesystem>
 #include <optional>
 #include <ranges>
@@ -191,24 +190,12 @@ public:
 
     int RequestMermaidRenders()
     {
-        const float content_width = cb_.get_content_width();
-        InvalidateMermaidForWidthChange(content_width);
-
-        if (content_width <= 0.0f) {
-            return 0;
+        // 同期キャッシュヒットの度に再レイアウトせず、まとめて 1 回だけ行う。
+        const int applied = RequestVisibleDiagrams();
+        if (!height_changed_.empty()) {
+            pending_flush_ = true;
+            cb_.recompute_layout_anchored(TakeHeightChanges());
         }
-
-        DropQueuesIfJumped();
-        const auto slices = PrioritizedSlices(deps_.doc->GetDiagramNodeIndices(), PREFETCH_BUFFER_SCREENS);
-        const bool dark_mode = deps_.theme_service->IsDarkMode();
-
-        // 同期キャッシュヒットの度に再レイアウトせず、ループ後にまとめて 1 回だけ行う。
-        int applied = 0;
-        BatchMermaidCompletions([&] {
-            for (const size_t i : slices | std::views::join) {
-                applied += RequestDiagramRender(i, content_width, dark_mode) ? 1 : 0;
-            }
-        });
         return applied;
     }
 
@@ -276,10 +263,8 @@ public:
 
         bool changed = (ApplyCachedImages() > 0);
 
-        // 外側でバッチ扱いにし、内側の anchored 再レイアウトを下の recompute_layout 1 回へ統合する。
-        const bool outer_batch = std::exchange(mermaid_batch_loading_, true);
-        changed |= (RequestMermaidRenders() > 0);
-        mermaid_batch_loading_ = outer_batch;
+        // 図の再レイアウトも下の recompute_layout 1 回へ統合する。
+        changed |= (RequestVisibleDiagrams() > 0);
 
         if (changed) {
             cb_.recompute_layout(TakeHeightChanges());
@@ -313,18 +298,24 @@ public:
     }
 
 private:
-    // f の中で結果が出た図の再レイアウトを 1 回にまとめる。
-    // nested 呼び出し (FlushPendingResources 経由) では外側が再レイアウトの責任を持つ。
-    template <std::invocable F>
-    void BatchMermaidCompletions(F&& f)
+    // 再レイアウトはしない。高さが変わったノードは height_changed_ に溜まる。
+    int RequestVisibleDiagrams()
     {
-        const bool outer_batch = std::exchange(mermaid_batch_loading_, true);
-        std::forward<F>(f)();
-        mermaid_batch_loading_ = outer_batch;
-        if (!outer_batch && !height_changed_.empty()) {
-            pending_flush_ = true;
-            cb_.recompute_layout_anchored(TakeHeightChanges());
+        const float content_width = cb_.get_content_width();
+        InvalidateMermaidForWidthChange(content_width);
+
+        if (content_width <= 0.0f) {
+            return 0;
         }
+
+        DropQueuesIfJumped();
+        const auto slices = PrioritizedSlices(deps_.doc->GetDiagramNodeIndices(), PREFETCH_BUFFER_SCREENS);
+        const bool dark_mode = deps_.theme_service->IsDarkMode();
+        int applied = 0;
+        for (const size_t i : slices | std::views::join) {
+            applied += RequestDiagramRender(i, content_width, dark_mode) ? 1 : 0;
+        }
+        return applied;
     }
 
     void OnImageLoadComplete()
@@ -343,11 +334,17 @@ private:
         if (!diagram.NeedsRender()) {
             return false;
         }
-        if (!deps_.mermaid->RequestRender(deps_.doc->GetNodes()[i], diagram, content_width, dark_mode)) {
+        const Node& node = deps_.doc->GetNodes()[i];
+        if (!deps_.mermaid->RequestRender(node, diagram, content_width, dark_mode)) {
             return false;
         }
-        OnDiagramResolved(i);
-        return diagram.bitmap != nullptr;
+        // 失敗 (エラー確定) でもプレースホルダーの文言が変わるので描き直す。
+        if (!diagram.bitmap) {
+            height_changed_.Add(i);
+            return false;
+        }
+        ApplyBitmapHeight(i, diagram, layout::NodeContentWidth(node, cb_.get_theme(), content_width));
+        return true;
     }
 
     // 画像・図の寸法が確定したノードの高さを決める。
@@ -357,18 +354,6 @@ private:
         entry.height = layout::BitmapDisplayHeight(bitmap.width, bitmap.height, node_width);
         entry.layout_dirty = false;
         height_changed_.Add(i);
-    }
-
-    void OnDiagramResolved(size_t node_index)
-    {
-        // 失敗 (エラー確定) でもプレースホルダーの文言が変わるので描き直す。
-        if (const auto* diagram = deps_.cache->FindDiagram(node_index); diagram && diagram->bitmap) {
-            const float node_width = layout::NodeContentWidth(deps_.doc->GetNodes()[node_index], cb_.get_theme(), cb_.get_content_width());
-            ApplyBitmapHeight(node_index, *diagram, node_width);
-        }
-        else {
-            height_changed_.Add(node_index);
-        }
     }
 
     // 解決済みパスは src 単位でキャッシュする。開かない src も空文字列で覚え、毎回の解決を避ける。
@@ -500,7 +485,6 @@ private:
 
     float last_mermaid_content_width_ = 0.0f;
     float last_request_scroll_ = 0.0f;
-    bool mermaid_batch_loading_ = false;
     std::unordered_map<std::string, std::wstring, StringTransparentHash, std::equal_to<>> resolved_image_paths_;
     std::pmr::wstring resolved_dir_;
     bool pending_flush_ = false;

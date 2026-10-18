@@ -61,7 +61,6 @@ DrawTextLayoutCmd MakeTextLayoutCmd(D2D1_POINT_2F origin, IDWriteTextLayout* lay
 {
     DrawTextLayoutCmd cmd{ origin, layout, brush_id };
     if (height > cull_bottom - cull_top) {
-        cmd.cull_runs = true;
         cmd.cull_top = cull_top;
         cmd.cull_bottom = cull_bottom;
     }
@@ -713,7 +712,7 @@ void CommandGenerator::GenTable(const FrameContext& fc,
     }
 
     // 可視行帯を row_cum_y の二分探索で求め、その範囲だけループする
-    // (ApplyTableEffects / FindTableRow と同じパターン)。巨大テーブルで
+    // (FindTableRow と同じパターン)。巨大テーブルで
     // 毎フレーム row_count 回の continue ループが走るのを防ぐ。
     const auto [r_begin, r_end] = tl.VisibleRowRange(cull_top_ - entry_text_top, cull_bottom_ - entry_text_top);
     float y = entry_text_top + tl.row_cum_y[r_begin];
@@ -786,10 +785,9 @@ void CommandGenerator::GenTable(const FrameContext& fc,
 
 std::span<const DWRITE_HIT_TEST_METRICS> CommandGenerator::HitTestRange(IDWriteTextLayout* layout, uint32_t start, uint32_t length)
 {
-    assert(hit_test_buffer_ && "SetHitTestBuffer must be called before GenerateMdPane");
     MENDO_COUNT_INC(g_cmd_gen_stats.hittest_range);
-    const UINT32 count = FetchHitTestMetrics(layout, start, length, *hit_test_buffer_);
-    return { hit_test_buffer_->data(), count };
+    const UINT32 count = FetchHitTestMetrics(layout, start, length, hit_test_buffer_);
+    return { hit_test_buffer_.data(), count };
 }
 
 void CommandGenerator::EmitFillRectIfVisible(const D2D1_RECT_F& r, BrushId brush)

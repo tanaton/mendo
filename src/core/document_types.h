@@ -160,7 +160,7 @@ struct Node {
     // `runs()` の link_url_index で引く URL の配列。
     const std::string_view* link_urls_ = nullptr;
 
-    // ノード種別ごとのデータ。どれを使うかは type (list_number は list_ordered) で決まる。
+    // ノード種別ごとのデータ。どれを使うかは type (list_number と alert_label_length は flags_) で決まる。
     union Payload {
         NodeTableData* table = nullptr; // Table
         const NodeImageData* image;     // Image
@@ -194,6 +194,7 @@ struct Node {
     static constexpr uint8_t kListOrdered = 1u << 0;
     static constexpr uint8_t kTaskChecked = 1u << 1;   // TaskListItem のときのみ意味を持つ
     static constexpr uint8_t kHasChildBlocks = 1u << 2; // LI のみ。中身を子ブロック (loose list の段落・入れ子リスト等) に持つ
+    static constexpr uint8_t kHasAlertLabel = 1u << 3;
 
     constexpr bool HasSourceOffset() const noexcept
     {
@@ -330,11 +331,12 @@ struct Node {
     // Alert の伝播先 (後続ノード) は alert_type だけを持ち、ラベル長は 0。
     constexpr uint32_t alert_label_length() const noexcept
     {
-        return type == NodeType::BlockQuote ? payload_.alert_label_length : 0u;
+        return (flags_ & kHasAlertLabel) != 0 ? payload_.alert_label_length : 0u;
     }
     constexpr void set_alert_label_length(uint32_t length) noexcept
     {
         payload_.alert_label_length = length;
+        flags_ |= kHasAlertLabel;
     }
 
     constexpr std::span<const std::string_view> view_link_urls() const noexcept

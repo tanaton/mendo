@@ -250,7 +250,7 @@ TEST_F(CommandExecutorIntegrationTest, NullTextLayoutDrawIsSkipped)
     EXPECT_HRESULT_SUCCEEDED(rt_->EndDraw());
 }
 
-// cull_runs のレイアウトは可視ランだけ描く経路になる。D2D の DrawTextLayout と同じ画素になること。
+// 間引き範囲を持つレイアウトは可視ランだけ描く経路になる。D2D の DrawTextLayout と同じ画素になること。
 TEST_F(CommandExecutorIntegrationTest, TallTextLayoutMatchesDrawTextLayout)
 {
     std::wstring text;
@@ -268,7 +268,7 @@ TEST_F(CommandExecutorIntegrationTest, TallTextLayoutMatchesDrawTextLayout)
         ComPtr<ID2D1RenderTarget> rt;
         EXPECT_HRESULT_SUCCEEDED(CreateRenderTarget(rt));
         DrawCommandList cmds;
-        cmds.emplace_back(DrawTextLayoutCmd{ .origin = origin, .layout = layout.Get(), .brush_id = BrushId::Text, .cull_runs = true, .cull_top = 0.0f, .cull_bottom = 32.0f });
+        cmds.emplace_back(DrawTextLayoutCmd{ .origin = origin, .layout = layout.Get(), .brush_id = BrushId::Text, .cull_top = 0.0f, .cull_bottom = 32.0f });
         const auto brushes = MakeBrushes(rt.Get(), { { BrushId::Text, D2D1::ColorF(D2D1::ColorF::Black) } });
         rt->BeginDraw();
         rt->Clear(D2D1::ColorF(D2D1::ColorF::White));

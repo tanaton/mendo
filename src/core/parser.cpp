@@ -219,10 +219,6 @@ struct ParseContext {
         active_text_buffer = &current_text;
         image_src = {};
         current_node->type = type;
-        // alert_label_length() は BlockQuote なら payload を読むので、Alert でない引用でも有効なメンバーにしておく。
-        if (type == NodeType::BlockQuote) {
-            current_node->set_alert_label_length(0);
-        }
         current_node_index = nodes.size() - 1;
         constexpr int kInt8Max = std::numeric_limits<int8_t>::max();
         current_node->indent_level = static_cast<int8_t>(std::min(indent_level, kInt8Max));

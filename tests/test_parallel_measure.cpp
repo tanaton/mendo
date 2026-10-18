@@ -81,17 +81,10 @@ BatchRun RunBatch(DirtyNodeFixture& f, const Theme& theme, MockTextMeasurer& mea
     LayoutEngine engine;
     EXPECT_TRUE(engine.Init(&measurer, theme));
     engine.SetLayoutScheduler(scheduler);
-    const auto dirty_count = [&f] {
-        int n = 0;
-        for (size_t i = 0; i < f.cache.size(); ++i) {
-            n += f.cache[i].layout_dirty ? 1 : 0;
-        }
-        return n;
-    };
-    const int before = dirty_count();
+    const size_t before = CountDirty(f.cache);
     const bool more = engine.ProcessDirtyBatch(f.nodes, f.cache, 800.0f, max_nodes, clip);
     engine.SetLayoutScheduler(nullptr);
-    return { before - dirty_count(), more };
+    return { static_cast<int>(before - CountDirty(f.cache)), more };
 }
 
 // ProcessDirtyBatch を残り dirty なしまで回し、回したバッチ数を返す。収束しなければ失敗にする。

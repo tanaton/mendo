@@ -12,7 +12,6 @@
 #include "win32_util.h"
 #include "reload_flow.h"
 #include <utility>
-#include <thread>
 
 using layout::RecomputeYPositions;
 
@@ -212,8 +211,7 @@ void App::CancelOtherFileLoad()
 // 推定に使う寸法はライト/ダーク共通でズームだけに依存するので、ダークモード未読込でも結果は同じ。
 void App::StartPreloadAsync(std::pmr::wstring path)
 {
-    // Init より前なので共有 scheduler をここで立ち上げる (Init でもう一度呼んでも何もしない)。
-    scheduler_.Init(SharedWorkerCount(std::thread::hardware_concurrency()));
+    InitSharedScheduler();
     file_load_service_.StartPreloadAsync(scheduler_, std::move(path), theme_service_.CreateTheme(theme_service_.LoadZoomIndex()));
 }
 

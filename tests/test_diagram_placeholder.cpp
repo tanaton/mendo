@@ -17,7 +17,6 @@ protected:
     CommandGenerator gen_;
     TextLayoutCache text_layouts_;
     ComPtr<IDWriteTextFormat> placeholder_fmt_;
-    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 
     void SetUp() override
     {
@@ -28,7 +27,6 @@ protected:
         text_layouts_.SetFactory(dwrite_factory_.Get());
         gen_.SetFormats({ nullptr, nullptr, nullptr, placeholder_fmt_.Get() });
         gen_.SetTextLayoutCache(&text_layouts_);
-        gen_.SetHitTestBuffer(&hit_test_buffer_);
     }
 
     // 生成コマンドから最初の文字列描画を返す (無ければ null)。

@@ -34,9 +34,11 @@ public:
         IDWriteTextFormat* placeholder_text = nullptr;
     };
 
-    void SetHitTestBuffer(std::pmr::vector<DWRITE_HIT_TEST_METRICS>* buf) noexcept
+    // ファイル切替時に呼ぶ。初期容量は次ファイルの描画 hot path で再拡大されないよう事前確保する。
+    void ShrinkBuffers()
     {
-        hit_test_buffer_ = buf;
+        hit_test_buffer_.shrink_to_fit();
+        hit_test_buffer_.reserve(HIT_TEST_METRICS_INITIAL_CAPACITY);
     }
     // 上の書式で描く文字列のレイアウトを作り置く先。null なら文字列を描かない。
     // 前フレームのレイアウトの破棄 (BeginFrame) は持ち主が行う。
@@ -201,7 +203,7 @@ private:
     static constexpr float cull_top_ = 0.0f;
     float cull_bottom_ = 0.0f;
 
-    std::pmr::vector<DWRITE_HIT_TEST_METRICS>* hit_test_buffer_ = nullptr;
+    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 
     // SetTheme 時に theme_ から導出する。
     bool cached_is_dark_ = false;

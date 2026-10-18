@@ -30,10 +30,7 @@ bool Renderer::Init(HWND hwnd, const Theme& theme)
     }
 
     cmd_generator_.SetTheme(&theme_);
-    cmd_generator_.SetHitTestBuffer(&hit_test_buffer_);
     cmd_generator_.SetTextLayoutCache(&text_layouts_);
-    // 初回描画での拡大 resize を避けるため、共有バッファを事前に予約しておく。
-    hit_test_buffer_.reserve(HIT_TEST_METRICS_INITIAL_CAPACITY);
 
     return true;
 }
@@ -113,7 +110,7 @@ bool Renderer::BeginFrame(const TitleBarRenderState& titlebar, const SidePaneSta
     text_layouts_.BeginFrame();
     PrepareChrome(titlebar, side_panes);
     // メッセージループが取っていなければ (モーダルループや UpdateWindow からの描画) ここで待つ。
-    backend_.AcquireFrame(D2DRenderBackend::kFrameWaitTimeoutMs);
+    backend_.AcquireFrame();
 
     rt()->BeginDraw();
     rt()->Clear(theme_.bg_color);

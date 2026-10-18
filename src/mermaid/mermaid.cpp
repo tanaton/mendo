@@ -262,7 +262,7 @@ void MermaidRenderer::OnIdleTimer()
     if (!std::ranges::all_of(ActiveWorkers(), &Worker::IsIdle)) {
         return;
     }
-    // 次の要求で EnsureInitialized から作り直し、準備完了時の on_ready_ で図を再要求させる。
+    // 次の要求で EnsureInitialized から作り直し、準備完了時の on_update_ で図を再要求させる。
     ReleaseWebView();
 }
 

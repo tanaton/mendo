@@ -16,6 +16,7 @@
 #include "render_params.h"
 #include "renderer.h"
 #include "selection_html.h"
+#include "side_effect.h"
 #include "task_scheduler.h"
 #include "theme_service.h"
 #include <windows.h>
@@ -338,6 +339,8 @@ private:
     void BeginAsyncLoad(std::pmr::wstring path, bool show_animation,
                         std::shared_ptr<const std::pmr::string> reload_base = nullptr);
     void StopLoadingAnimation();
+    // StartPreloadAsync が Init より前に呼ぶことがある。2 回目は何もしない。
+    void InitSharedScheduler();
     void FinishLoadMarkdownFile(bool follow_file_pane);
     void HandleLoadFailureFallback();
     // Mermaid/画像キャッシュの実測値でノード高さを上書きし、変化があれば Y 位置を再計算する。

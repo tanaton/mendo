@@ -105,11 +105,9 @@ public:
     }
 
     // ファイル切替時にヒットテストバッファ等を縮小する。
-    // 初期容量は次ファイルの描画 hot path で再拡大されないよう事前確保する。
     void ShrinkBuffers()
     {
-        hit_test_buffer_.shrink_to_fit();
-        hit_test_buffer_.reserve(HIT_TEST_METRICS_INITIAL_CAPACITY);
+        cmd_generator_.ShrinkBuffers();
     }
 
     // タイトルバーとサイドペインの描画コマンドを組み立てる。デバイスに依存しないので、
@@ -181,8 +179,6 @@ private:
     bool RecreateDevice();
     // 再描画要求を出した場合 true。
     bool HandleDeviceLost();
-
-    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 
     struct TextFormats {
         Microsoft::WRL::ComPtr<IDWriteTextFormat> icon_font;
