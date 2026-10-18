@@ -747,6 +747,7 @@ void MermaidRenderer::LoadDiskJob(DiskLoad& job, const std::filesystem::path& pa
         }
         job.png = std::make_shared<const std::pmr::vector<uint8_t>>(std::move(data));
     }
+    TaskScheduler::EnsureWorkerCom();
     // job.png はデコード完了まで生きているので、コピーせずに参照して読む。
     if (const auto decoded = wic_util::DecodeFromMemory(wic_factory_.Get(), *job.png, GUID_ContainerFormatPng)) {
         job.bitmap = wic_util::DecodeToWicBitmap(wic_factory_.Get(), *decoded, { decoded->pixel_width, decoded->pixel_height });

@@ -62,6 +62,7 @@ bool IsSameFile(std::wstring_view a, std::wstring_view b)
 
 StartupPlan PlanStartup(std::wstring_view arg, std::wstring_view last_file)
 {
+    MENDO_PROFILE("PlanStartup");
     const std::wstring cwd = QueryDirectory([](wchar_t* b, UINT n) static { return GetCurrentDirectoryW(n, b); });
     const std::wstring ignored_cwds[]{
         QueryDirectory(GetSystemDirectoryW),
@@ -101,6 +102,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
         SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
         // メディアの無いドライブを指す画像パスで「ディスクがありません」ダイアログを出させない。
         SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
+        // DPI 認識 (PerMonitorV2) はマニフェストで宣言しているので、ここでは設定しない。
         // 遅延ロードの D2D / DWrite を、D3D 先行作成スレッドの GPU ドライバ読み込み (ローダーロック) と
         // 重ねてメインスレッドが待たないよう、そのスレッドを始める前に読んでおく。
         LoadLibraryExW(L"d2d1.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
@@ -109,18 +111,14 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
 
     PrefetchD3DDevice();
 
-    // DPI 認識 (PerMonitorV2) はマニフェストで宣言している。
-    const HRESULT hr{ CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) };
-    if (FAILED(hr)) {
-        return 1;
-    }
     // CoUninitialize は Win32Window 破棄（COM オブジェクト解放）より後に走らせる必要がある。
     // window より先にこのガードを宣言することで、全 return 経路でこの順序を保証する。
-    ScopeGuard com_guard([] static { CoUninitialize(); });
-    INITCOMMONCONTROLSEX icc{};
-    icc.dwSize = sizeof(icc);
-    icc.dwICC = ICC_STANDARD_CLASSES;
-    InitCommonControlsEx(&icc);
+    bool com_initialized = false;
+    ScopeGuard com_guard([&com_initialized] {
+        if (com_initialized) {
+            CoUninitialize();
+        }
+    });
 
     ConfigService config;
     {
@@ -156,6 +154,17 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     if (!plan.pane_directory.empty()) {
         window.SetInitialDirectory(plan.pane_directory);
     }
+
+    // COM を使うのは Create (App::Init の D2D / DWrite / WIC) 以降だけなので、
+    // ここまで遅らせて preload を先に走らせる。worker は COM が要るときだけ自分で MTA に入る。
+    if (FAILED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE))) {
+        return 1;
+    }
+    com_initialized = true;
+    INITCOMMONCONTROLSEX icc{};
+    icc.dwSize = sizeof(icc);
+    icc.dwICC = ICC_STANDARD_CLASSES;
+    InitCommonControlsEx(&icc);
 
     if (!window.Create(hInstance, nCmdShow)) {
         return 1;
