@@ -201,12 +201,6 @@ void EvictTableRow(TableLayoutData& tl, size_t row_index) noexcept
         tl.cell_heights[ci] = 0.0f;
         tl.cell_applied_widths[ci] = -1.0f;
     }
-    // 背景は復元時の MeasureRowHeight で作り直すので、確保ごと返す。
-    if (!tl.row_code_bgs.empty()) {
-        auto& bgs = tl.row_code_bgs[row_index];
-        bgs.clear();
-        bgs.shrink_to_fit();
-    }
 }
 
 void EvictEntryLayout(NodeLayoutEntry& e) noexcept
@@ -265,7 +259,6 @@ void LayoutCache::Reset(size_t node_count)
 {
     const auto reset = [node_count](auto& v) {
         v.clear();
-        v.shrink_to_fit();
         v.resize(node_count);
     };
     reset(entries_);

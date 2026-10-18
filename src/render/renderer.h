@@ -104,12 +104,6 @@ public:
         cmd_generator_.SetSearchMatches(matches, current_index, generation);
     }
 
-    // ファイル切替時にヒットテストバッファ等を縮小する。
-    void ShrinkBuffers()
-    {
-        cmd_generator_.ShrinkBuffers();
-    }
-
     // タイトルバーとサイドペインの描画コマンドを組み立てる。デバイスに依存しないので、
     // デバイスの作成前に呼ぶと最初のフレームの文字レイアウトを先に作れる。
     void PrepareChrome(const TitleBarRenderState& titlebar, const SidePaneState& side_panes);

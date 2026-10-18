@@ -5,7 +5,6 @@
 #include "document_test_helpers.h"
 #include "dwrite_test_base.h"
 #include "task_scheduler.h"
-#include <algorithm>
 #include <array>
 #include <string>
 
@@ -158,31 +157,6 @@ TEST_F(TableEvictionDWriteTest, RestoreKeepsSearchHighlightCache)
 
     ASSERT_TRUE(result.restored);
     EXPECT_EQ(entry.ensure_search_hl_cache().gen, 7u);
-}
-
-// evict した行はインラインコード背景の確保も返し、復元した行は作り直す。
-TEST_F(TableEvictionDWriteTest, EvictReleasesRowCodeBgsAndRestoreRebuildsThem)
-{
-    std::string md = "| A | B |\n|---|---|\n";
-    for (size_t i = 0; i < 60; ++i) {
-        md += "| `c" + std::to_string(i) + "` | x |\n";
-    }
-    auto pl = ParseAndLayout(md);
-    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
-    ASSERT_GE(idx, 0);
-    auto& entry = pl.cache[idx];
-    auto& tl = *entry.table_layout();
-    ASSERT_EQ(tl.row_code_bgs.size(), 61u);
-    ASSERT_FALSE(tl.row_code_bgs[60].empty());
-
-    EvictWholeTable(pl.cache, idx);
-    EXPECT_TRUE(std::ranges::all_of(tl.row_code_bgs, [](const auto& row) { return row.capacity() == 0; }));
-
-    measurer_.RestoreEvictedTableRows(pl.nodes[idx], entry, ContentWidth(), MeasureViewportRange{ 0.0f, 80.0f });
-    ASSERT_FALSE(tl.row_evicted[1]);
-    EXPECT_EQ(tl.row_code_bgs[1].size(), 1u);
-    ASSERT_TRUE(tl.row_evicted[60]);
-    EXPECT_EQ(tl.row_code_bgs[60].capacity(), 0u);
 }
 
 // 部分復元 → 別 viewport で追加復元 → 最終的に全セルが揃い evict 行がなくなる。

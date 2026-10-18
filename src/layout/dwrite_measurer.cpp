@@ -365,7 +365,6 @@ static std::pmr::vector<SyntaxToken> ToWideMergedTokens(std::string_view text, s
         tokens[out++] = SyntaxToken{ w.startPosition, w.length, t.type };
     }
     tokens.resize(out);
-    tokens.shrink_to_fit();
     return tokens;
 }
 

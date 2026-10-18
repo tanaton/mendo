@@ -42,7 +42,6 @@ void App::ResetViewForNewDocument()
     EndDocumentBoundDrag();
     Execute(effect::SearchUnfocus{ /*clear_text=*/true });
     CancelPendingResources();
-    renderer_.ShrinkBuffers();
 }
 
 void App::StopLoadingAnimation()

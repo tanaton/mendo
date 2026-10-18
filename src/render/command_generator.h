@@ -34,16 +34,6 @@ public:
         IDWriteTextFormat* placeholder_text = nullptr;
     };
 
-    // ファイル切替時に呼ぶ。初期容量は次ファイルの描画 hot path で再拡大されないよう事前確保する。
-    // FetchHitTestMetrics は size をバッファ長に使い縮めないので、clear してから詰める。
-    void ShrinkBuffers()
-    {
-        if (hit_test_buffer_.capacity() > HIT_TEST_METRICS_INITIAL_CAPACITY) {
-            hit_test_buffer_.clear();
-            hit_test_buffer_.shrink_to_fit();
-            hit_test_buffer_.reserve(HIT_TEST_METRICS_INITIAL_CAPACITY);
-        }
-    }
     // 上の書式で描く文字列のレイアウトを作り置く先。null なら文字列を描かない。
     // 前フレームのレイアウトの破棄 (BeginFrame) は持ち主が行う。
     void SetTextLayoutCache(TextLayoutCache* cache) noexcept

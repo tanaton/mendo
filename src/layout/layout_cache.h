@@ -81,6 +81,7 @@ struct TableLayoutData {
         cell_layouts.assign(cell_count, {});
     }
     // r が row_evicted の範囲内であることは呼び出し側が保証する。
+    // 背景は幅が変わらない限り有効なので残す (復元時の行の計測で作り直す)。
     constexpr void MarkRowEvicted(size_t r) noexcept
     {
         if (!row_evicted[r]) {
