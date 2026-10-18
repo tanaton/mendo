@@ -10,6 +10,8 @@
 #include <vector>
 #include <set>
 #include <thread>
+#include <windows.h>
+#include <objbase.h>
 
 // ═══════════════════════════════════════════════
 // 基本的な Post → 実行
@@ -320,6 +322,51 @@ TEST(TaskScheduler, ZeroThreadsInitThenShutdownIsSafe)
     sch.Init(0); // ワーカーなし
     sch.Shutdown();
     SUCCEED();
+}
+
+// ============================================================
+// EnsureWorkerCom
+// ============================================================
+
+namespace {
+
+// 他スレッドが MTA に入っていると未初期化スレッドも暗黙の MTA と報告されるので、明示的に入ったかで判定する。
+bool InExplicitMta()
+{
+    APTTYPE type{};
+    APTTYPEQUALIFIER qualifier{};
+    return SUCCEEDED(CoGetApartmentType(&type, &qualifier)) && type == APTTYPE_MTA && qualifier == APTTYPEQUALIFIER_NONE;
+}
+
+} // namespace
+
+TEST(TaskScheduler, WorkerEntersMtaOnlyAfterEnsureWorkerCom)
+{
+    TaskScheduler sch;
+    sch.Init(1);
+    std::atomic<bool> done{ false };
+    bool before = true;
+    bool after = false;
+    sch.Post([&] {
+        before = InExplicitMta();
+        TaskScheduler::EnsureWorkerCom();
+        after = InExplicitMta();
+        done.store(true);
+    });
+    EXPECT_TRUE(PollUntil([&] { return done.load(); }));
+    EXPECT_FALSE(before);
+    EXPECT_TRUE(after);
+    sch.Shutdown();
+}
+
+TEST(TaskScheduler, EnsureWorkerComIgnoresNonWorkerThread)
+{
+    bool entered = true;
+    std::thread([&] {
+        TaskScheduler::EnsureWorkerCom();
+        entered = InExplicitMta();
+    }).join();
+    EXPECT_FALSE(entered);
 }
 
 // ============================================================

@@ -3,6 +3,20 @@
 #include <windows.h>
 #include <objbase.h>
 #include <algorithm>
+#include <cstdint>
+
+namespace {
+
+// 初期化に失敗したワーカーは NotWorker に戻し、再試行も CoUninitialize もしない。
+enum class WorkerCom : uint8_t {
+    NotWorker,
+    Uninitialized,
+    Initialized,
+};
+
+thread_local WorkerCom t_worker_com = WorkerCom::NotWorker;
+
+} // namespace
 
 TaskScheduler::~TaskScheduler()
 {
@@ -74,9 +88,17 @@ void TaskScheduler::Shutdown()
     thread_count_ = 0;
 }
 
+void TaskScheduler::EnsureWorkerCom() noexcept
+{
+    if (t_worker_com != WorkerCom::Uninitialized) {
+        return;
+    }
+    t_worker_com = SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED)) ? WorkerCom::Initialized : WorkerCom::NotWorker;
+}
+
 void TaskScheduler::WorkerLoop()
 {
-    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    t_worker_com = WorkerCom::Uninitialized;
 
     while (true) {
         std::move_only_function<void()> task;
@@ -95,5 +117,7 @@ void TaskScheduler::WorkerLoop()
         task();
     }
 
-    CoUninitialize();
+    if (t_worker_com == WorkerCom::Initialized) {
+        CoUninitialize();
+    }
 }

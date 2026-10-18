@@ -28,7 +28,7 @@ constexpr int LayoutWorkerCount(unsigned int cores) noexcept
         cores > 0 ? cores - 1 : kMinLayoutWorkers, kMinLayoutWorkers, kMaxLayoutWorkers));
 }
 
-// 各ワーカースレッドではCOMが初期化される（COINIT_MULTITHREADED）。
+// ワーカーは COM を初期化せずに起動する。COM を使うタスクは EnsureWorkerCom を呼ぶ。
 // Post() はスレッドセーフ。Init() / Shutdown() はUIスレッドから呼び出す。
 // ワーカーは初回 Post まで起動しない。小さい文書だけを開くセッションでスレッドを作らずに済む。
 class TaskScheduler {
@@ -49,6 +49,12 @@ public:
     bool Post(std::move_only_function<void()> task);
 
     void Shutdown();
+
+    // ワーカー上ならそのスレッドを一度だけ MTA に入れる。ワーカー以外では何もしない。
+    // WIC など COM を使う処理の直前で呼ぶ。
+    // 起動時に全ワーカーで初期化すると、プロセス初回の COM 初期化 (約 1.6ms) を
+    // COM を使わない preload のパースまで待たされる。
+    static void EnsureWorkerCom() noexcept;
 
     // 起動前でも Init で指定した数を返す (ParallelFor の分割数に使うため)。Init 前 / Shutdown 後は 0。
     size_t WorkerCount() const noexcept
