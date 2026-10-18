@@ -157,6 +157,15 @@ float GetFirstLineHeight(const NodeLayoutEntry& entry, float font_size) noexcept
     return (entry.first_line_height() > 0.0f) ? entry.first_line_height() : font_size * FALLBACK_LINE_HEIGHT_FACTOR;
 }
 
+// ノード内の選択範囲 (UTF-8 byte)。選択がノードにかからなければ空範囲。
+constexpr TextSelection::NodeRange NodeSelectionRange(const TextSelection& selection, int node_index, size_t text_size) noexcept
+{
+    if (!selection.active || node_index < selection.start_node || node_index > selection.end_node) {
+        return { 0, 0 };
+    }
+    return selection.ClampedRange(node_index, text_size);
+}
+
 } // namespace
 
 // box はスクロール位置に依らない値を渡す。矩形の差から求めると丸めでキャッシュが外れる。
@@ -420,12 +429,8 @@ void CommandGenerator::GenNodeTextDecorations(const FrameContext& fc, const Node
     // 検索マッチのハイライト（選択より先に描画し、選択が最前面になるようにする）
     GenSearchHighlights(entry, node_index, text_x, entry_text_top);
 
-    const auto& selection = fc.selection;
-    if (selection.active && node_index >= selection.start_node && node_index <= selection.end_node) {
-        const auto [sel_start, sel_end] = selection.ClampedRange(node_index, node.GetText().size());
-        if (sel_end > sel_start) {
-            GenSelectionHighlightCached(node, entry, sel_start, sel_end - sel_start, text_x, entry_text_top);
-        }
+    if (const auto [sel_start, sel_end] = NodeSelectionRange(fc.selection, node_index, node.GetText().size()); sel_end > sel_start) {
+        GenSelectionHighlightCached(node, entry, sel_start, sel_end - sel_start, text_x, entry_text_top);
     }
 
     auto cmd = MakeTextLayoutCmd(D2D1::Point2F(text_x, entry_text_top), entry.text_layout(), entry.height, GetNodeBaseBrush(node), cull_top_, cull_bottom_);
@@ -662,10 +667,10 @@ void CommandGenerator::GenTableCellContent(std::string_view cell_text, const Cel
     if (!ctx.layout) {
         return;
     }
-    if (ctx.has_selection) {
+    if (ctx.selection.end > ctx.selection.start) {
         const uint32_t cell_len = static_cast<uint32_t>(cell_text.size());
-        const uint32_t ov_start = std::max(ctx.sel_start, ctx.flat_offset);
-        const uint32_t ov_end = std::min(ctx.sel_end, ctx.flat_offset + cell_len);
+        const uint32_t ov_start = std::max(ctx.selection.start, ctx.flat_offset);
+        const uint32_t ov_end = std::min(ctx.selection.end, ctx.flat_offset + cell_len);
         if (ov_end > ov_start) {
             // sel_start/sel_end は UTF-8 byte offset。HitTestTextRange 用に UTF-16 へ変換する。
             Utf16OffsetCursor cursor{ cell_text };
@@ -691,7 +696,6 @@ void CommandGenerator::GenTable(const FrameContext& fc,
 
     const float border = TABLE_BORDER_WIDTH;
     const auto& tl = *tl_ptr;
-    const auto& selection = fc.selection;
     const auto row_count = tbl->row_count;
     const auto col_count = static_cast<size_t>(tbl->col_count);
 
@@ -700,16 +704,7 @@ void CommandGenerator::GenTable(const FrameContext& fc,
     const float cull_left = offset_x + fc.viewport_left + h_scroll_x;
     const float cull_right = offset_x + fc.viewport_right + h_scroll_x;
 
-    bool has_selection = selection.active && (node_index >= selection.start_node) && (node_index <= selection.end_node);
-    uint32_t sel_start = 0, sel_end = 0;
-    if (has_selection) {
-        const auto range = selection.ClampedRange(node_index, node.GetText().size());
-        sel_start = range.start;
-        sel_end = range.end;
-        if (sel_end <= sel_start) {
-            has_selection = false;
-        }
-    }
+    const auto selection = NodeSelectionRange(fc.selection, node_index, node.GetText().size());
 
     // 可視行帯を row_cum_y の二分探索で求め、その範囲だけループする
     // (FindTableRow と同じパターン)。巨大テーブルで
@@ -757,9 +752,7 @@ void CommandGenerator::GenTable(const FrameContext& fc,
                 .text_y = text_y,
                 .height = row_h,
                 .flat_offset = tbl->CellTextStart(r, c),
-                .sel_start = sel_start,
-                .sel_end = sel_end,
-                .has_selection = has_selection,
+                .selection = selection,
                 .is_header = is_header_row,
             });
             cx += tl.ColumnStep(c);

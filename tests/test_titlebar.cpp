@@ -1,9 +1,7 @@
 #include <gtest/gtest.h>
 #include <algorithm>
-#include <iterator>
 #include <span>
 #include <string>
-#include <utility>
 #include "titlebar.h"
 
 namespace {
@@ -11,23 +9,24 @@ namespace {
 struct ButtonSpec {
     const char* name;
     TitleBarHitZone zone;
+    float width;
 };
 
 // 左側ボタン群: Icon | OpenFile | Search | ThemeToggle | Help
 constexpr ButtonSpec kLeftButtons[] = {
-    { "OpenFile", TitleBarHitZone::OpenFile },
-    { "Search", TitleBarHitZone::Search },
-    { "ThemeToggle", TitleBarHitZone::ThemeToggle },
-    { "Help", TitleBarHitZone::Help },
+    { "OpenFile", TitleBarHitZone::OpenFile, TitleBar::BUTTON_WIDTH },
+    { "Search", TitleBarHitZone::Search, TitleBar::BUTTON_WIDTH },
+    { "ThemeToggle", TitleBarHitZone::ThemeToggle, TitleBar::BUTTON_WIDTH },
+    { "Help", TitleBarHitZone::Help, TitleBar::BUTTON_WIDTH },
 };
 
 // 右側ボタン群: FileToggle | TocToggle | Minimize | Maximize | Close
 constexpr ButtonSpec kRightButtons[] = {
-    { "FileToggle", TitleBarHitZone::FileToggle },
-    { "TocToggle", TitleBarHitZone::TocToggle },
-    { "Minimize", TitleBarHitZone::Minimize },
-    { "Maximize", TitleBarHitZone::Maximize },
-    { "Close", TitleBarHitZone::Close },
+    { "FileToggle", TitleBarHitZone::FileToggle, TitleBar::BUTTON_WIDTH },
+    { "TocToggle", TitleBarHitZone::TocToggle, TitleBar::BUTTON_WIDTH },
+    { "Minimize", TitleBarHitZone::Minimize, TitleBar::CAPTION_BTN_WIDTH },
+    { "Maximize", TitleBarHitZone::Maximize, TitleBar::CAPTION_BTN_WIDTH },
+    { "Close", TitleBarHitZone::Close, TitleBar::CAPTION_BTN_WIDTH },
 };
 
 constexpr std::span<const ButtonSpec> kButtonGroups[] = { kLeftButtons, kRightButtons };
@@ -81,52 +80,25 @@ TEST_F(TitleBarTest, ButtonGroupsArePackedWithoutGaps)
     }
 }
 
-TEST_F(TitleBarTest, AllButtonsUseFullHeight)
+// キャプションボタン（最小化/最大化/閉じる）だけ幅が広く、全ボタンがタイトルバーの全高を使う。
+TEST_F(TitleBarTest, ButtonSizes)
 {
     for (const auto group : kButtonGroups) {
         for (const auto& spec : group) {
+            SCOPED_TRACE(spec.name);
             const DipRect& btn = tb_.GetButton(spec.zone);
-            EXPECT_FLOAT_EQ(btn.top, 0.0f) << spec.name;
-            EXPECT_FLOAT_EQ(btn.bottom, TitleBar::BASE_HEIGHT) << spec.name;
+            EXPECT_FLOAT_EQ(btn.top, 0.0f);
+            EXPECT_FLOAT_EQ(btn.bottom, TitleBar::BASE_HEIGHT);
+            EXPECT_FLOAT_EQ(btn.right - btn.left, spec.width);
         }
     }
 }
 
-TEST_F(TitleBarTest, CaptionButtonWidth)
+TEST_F(TitleBarTest, TitleTextRectSpansBetweenButtonGroups)
 {
-    auto check = [](const DipRect& btn) static {
-        EXPECT_FLOAT_EQ(btn.right - btn.left, TitleBar::CAPTION_BTN_WIDTH);
-    };
-    check(tb_.GetButton(TitleBarHitZone::Minimize));
-    check(tb_.GetButton(TitleBarHitZone::Maximize));
-    check(tb_.GetButton(TitleBarHitZone::Close));
-}
-
-TEST_F(TitleBarTest, PaneToggleButtonWidth)
-{
-    auto check = [](const DipRect& btn) static {
-        EXPECT_FLOAT_EQ(btn.right - btn.left, TitleBar::BUTTON_WIDTH);
-    };
-    check(tb_.GetButton(TitleBarHitZone::OpenFile));
-    check(tb_.GetButton(TitleBarHitZone::Help));
-    check(tb_.GetButton(TitleBarHitZone::ThemeToggle));
-    check(tb_.GetButton(TitleBarHitZone::Search));
-    check(tb_.GetButton(TitleBarHitZone::FileToggle));
-    check(tb_.GetButton(TitleBarHitZone::TocToggle));
-}
-
-TEST_F(TitleBarTest, TitleTextRectStartsAfterLeftButtons)
-{
-    auto& rect = tb_.GetTitleTextRect();
-    auto& help = tb_.GetButton(TitleBarHitZone::Help);
-    EXPECT_FLOAT_EQ(rect.left, help.right);
-}
-
-TEST_F(TitleBarTest, TitleTextRectEndsAtFileToggleButton)
-{
-    auto& rect = tb_.GetTitleTextRect();
-    auto& file = tb_.GetButton(TitleBarHitZone::FileToggle);
-    EXPECT_FLOAT_EQ(rect.right, file.left);
+    const auto& rect = tb_.GetTitleTextRect();
+    EXPECT_FLOAT_EQ(rect.left, tb_.GetButton(TitleBarHitZone::Help).right);
+    EXPECT_FLOAT_EQ(rect.right, tb_.GetButton(TitleBarHitZone::FileToggle).left);
 }
 
 TEST_F(TitleBarTest, LayoutUpdatesOnWindowResize)
@@ -160,16 +132,6 @@ TEST_F(TitleBarTest, HitTestAtButtonCenters)
     }
 }
 
-TEST_F(TitleBarTest, HitTestOpenFileButtonBoundary)
-{
-    auto& btn = tb_.GetButton(TitleBarHitZone::OpenFile);
-    float cy = (btn.top + btn.bottom) / 2.0f;
-    // 左端ちょうどはボタン内
-    EXPECT_EQ(tb_.HitTest(btn.left, cy), TitleBarHitZone::OpenFile);
-    // 右端の直前はボタン内
-    EXPECT_EQ(tb_.HitTest(btn.right - 0.01f, cy), TitleBarHitZone::OpenFile);
-}
-
 TEST_F(TitleBarTest, HitTestCaptionArea)
 {
     // タイトルテキスト領域の中央 — どのボタンにも属さない
@@ -179,21 +141,19 @@ TEST_F(TitleBarTest, HitTestCaptionArea)
     EXPECT_EQ(tb_.HitTest(cx, cy), TitleBarHitZone::Caption);
 }
 
-TEST_F(TitleBarTest, HitTestButtonBoundaryLeft)
+// ボタンは左端を含み右端を含まない半開区間。右端ちょうどは右隣のボタンに当たる。
+TEST_F(TitleBarTest, HitTestButtonEdgesAreHalfOpen)
 {
-    // ボタンの左端ちょうどはボタン内
-    auto& btn = tb_.GetButton(TitleBarHitZone::Close);
-    EXPECT_EQ(tb_.HitTest(btn.left, TitleBar::BASE_HEIGHT / 2.0f), TitleBarHitZone::Close);
-}
-
-TEST_F(TitleBarTest, HitTestButtonBoundaryRight)
-{
-    // ボタンの右端ちょうどはボタン外（half-open interval）
-    auto& btn = tb_.GetButton(TitleBarHitZone::Minimize);
-    // right の直前のピクセルはMinimize内
-    EXPECT_EQ(tb_.HitTest(btn.right - 0.01f, TitleBar::BASE_HEIGHT / 2.0f), TitleBarHitZone::Minimize);
-    // right ちょうどはMaximize（右隣）
-    EXPECT_EQ(tb_.HitTest(btn.right, TitleBar::BASE_HEIGHT / 2.0f), TitleBarHitZone::Maximize);
+    constexpr float cy = TitleBar::BASE_HEIGHT / 2.0f;
+    for (const auto group : kButtonGroups) {
+        for (const auto& spec : group) {
+            SCOPED_TRACE(spec.name);
+            const auto& btn = tb_.GetButton(spec.zone);
+            EXPECT_EQ(tb_.HitTest(btn.left, cy), spec.zone);
+            EXPECT_EQ(tb_.HitTest(btn.right - 0.01f, cy), spec.zone);
+        }
+    }
+    EXPECT_EQ(tb_.HitTest(tb_.GetButton(TitleBarHitZone::Minimize).right, cy), TitleBarHitZone::Maximize);
 }
 
 // ═══════════════════════════════════════════════
@@ -202,36 +162,12 @@ TEST_F(TitleBarTest, HitTestButtonBoundaryRight)
 
 TEST_F(TitleBarTest, ButtonsDoNotOverlap)
 {
-    // 全ボタンの矩形を収集して、左端でソートし隣接確認
-    struct Rect { float left; float right; };
-    Rect rects[] = {
-        { tb_.GetButton(TitleBarHitZone::OpenFile).left,      tb_.GetButton(TitleBarHitZone::OpenFile).right },
-        { tb_.GetButton(TitleBarHitZone::Help).left,          tb_.GetButton(TitleBarHitZone::Help).right },
-        { tb_.GetButton(TitleBarHitZone::ThemeToggle).left,   tb_.GetButton(TitleBarHitZone::ThemeToggle).right },
-        { tb_.GetButton(TitleBarHitZone::Search).left,        tb_.GetButton(TitleBarHitZone::Search).right },
-        { tb_.GetButton(TitleBarHitZone::FileToggle).left,    tb_.GetButton(TitleBarHitZone::FileToggle).right },
-        { tb_.GetButton(TitleBarHitZone::TocToggle).left,     tb_.GetButton(TitleBarHitZone::TocToggle).right },
-        { tb_.GetButton(TitleBarHitZone::Minimize).left,      tb_.GetButton(TitleBarHitZone::Minimize).right },
-        { tb_.GetButton(TitleBarHitZone::Maximize).left,      tb_.GetButton(TitleBarHitZone::Maximize).right },
-        { tb_.GetButton(TitleBarHitZone::Close).left,         tb_.GetButton(TitleBarHitZone::Close).right },
-    };
-    // leftでソート
-    std::sort(std::begin(rects), std::end(rects),
-        [](const Rect& a, const Rect& b) static noexcept { return a.left < b.left; });
-
-    for (size_t i = 1; i < std::size(rects); ++i) {
+    TitleBarButtons rects = tb_.GetButtons();
+    std::ranges::sort(rects, {}, &DipRect::left);
+    for (size_t i = 1; i < rects.size(); ++i) {
         EXPECT_LE(rects[i - 1].right, rects[i].left)
             << "Button " << i - 1 << " overlaps button " << i;
     }
-}
-
-TEST_F(TitleBarTest, TitleTextDoesNotOverlapButtons)
-{
-    auto& title = tb_.GetTitleTextRect();
-    auto& help = tb_.GetButton(TitleBarHitZone::Help);
-    auto& file = tb_.GetButton(TitleBarHitZone::FileToggle);
-    EXPECT_GE(title.left, help.right);
-    EXPECT_LE(title.right, file.left);
 }
 
 // ═══════════════════════════════════════════════

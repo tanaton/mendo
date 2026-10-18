@@ -53,11 +53,17 @@ constexpr bool IsAsciiAlpha(Char c) noexcept
     return detail::IsAsciiLower(c) || detail::IsAsciiUpper(c);
 }
 
+template <typename Char>
+constexpr bool IsAsciiAlnum(Char c) noexcept
+{
+    return IsAsciiDigit(c) || IsAsciiAlpha(c);
+}
+
 // CJK は対象外。
 template <typename Char>
 constexpr bool IsAsciiWordChar(Char c) noexcept
 {
-    return IsAsciiDigit(c) || IsAsciiAlpha(c) || c == static_cast<Char>('_');
+    return IsAsciiAlnum(c) || c == static_cast<Char>('_');
 }
 
 namespace detail {

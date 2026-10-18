@@ -249,11 +249,8 @@ TEST_F(LayoutTest, TotalHeightWithManyNodes)
 
 TEST_F(LayoutTest, ProcessDirtyBatchCleansNodes)
 {
-    auto nodes = ParseNodes("# A\n\nB\n\nC\n\nD\n\nE");
-    LayoutCache cache;
-    cache.Resize(nodes.size());
     // まず部分的なレイアウトを実行
-    engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
+    auto [nodes, cache] = ParseAndLayout("# A\n\nB\n\nC\n\nD\n\nE", 800.0f, 0.0f, 50.0f);
 
     // ダーティなノードがあれば処理する
     if (cache.HasDirtyNodes()) {
@@ -270,14 +267,8 @@ TEST_F(LayoutTest, ProcessDirtyBatchCleansNodes)
 
 TEST_F(LayoutTest, ProcessDirtyBatchSmallBatch)
 {
-    // 多数の段落を作成
-    const auto md = MakeParagraphs(50);
-    auto nodes = ParseNodes(md);
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-
-    // 非常に小さなビューポートで部分的なレイアウトを実行
-    engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 10.0f);
+    // 多数の段落を非常に小さなビューポートで部分的にレイアウトする
+    auto [nodes, cache] = ParseAndLayout(MakeParagraphs(50), 800.0f, 0.0f, 10.0f);
 
     if (cache.HasDirtyNodes()) {
         // 一度に5ノードだけ処理
@@ -631,18 +622,8 @@ TEST(RecomputeYPositionsTest, H1H2UseLargerSpacingBelow)
 
 TEST(RecomputeYPositionsTest, MonotonicallyIncreasingY)
 {
-    std::pmr::vector<Node> nodes;
-    for (int i = 0; i < 10; i++) {
-        Node node;
-        node.type = NodeType::Paragraph;
-        nodes.emplace_back(std::move(node));
-    }
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    for (int i = 0; i < 10; i++) {
-        cache[i].height = 15.0f + static_cast<float>(i);
-        cache[i].layout_dirty = false;
-    }
+    auto nodes = MakeNodes({ {}, {}, {}, {}, {}, {}, {}, {}, {}, {} });
+    auto cache = MakeMeasuredCache({ 15.0f, 16.0f, 17.0f, 18.0f, 19.0f, 20.0f, 21.0f, 22.0f, 23.0f, 24.0f });
     const Theme& theme = GetLightTheme();
     RecomputeYPositions(nodes, cache, theme);
 
@@ -695,11 +676,7 @@ TEST_F(LayoutTest, EnsureVisibleLayoutReturnsFalseWhenClean)
 
 TEST_F(LayoutTest, EnsureVisibleLayoutSkipsOffscreenDirtyNodes)
 {
-    const auto md = MakeParagraphs(30);
-    auto nodes = ParseNodes(md);
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
+    auto [nodes, cache] = ParseAndLayout(MakeParagraphs(30), 800.0f, 0.0f, 50.0f);
 
     const auto dirty_before = CountDirty(cache);
 
@@ -732,11 +709,7 @@ TEST_F(LayoutTest, EnsureVisibleLayoutRecomputesYPositions)
 
 TEST_F(LayoutTest, EnsureVisibleLayoutUpdatesTotalHeight)
 {
-    const auto md = MakeParagraphs(10);
-    auto nodes = ParseNodes(md);
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
+    auto [nodes, cache] = ParseAndLayout(MakeParagraphs(10), 800.0f, 0.0f, 50.0f);
 
     engine_.EnsureVisibleLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
 
@@ -910,35 +883,22 @@ TEST(RecomputeYPositionsTest, PairSpacingByNodeType)
 
 // ---- from_index による途中再開 ----
 
-TEST(RecomputeYPositionsTest, FromIndexCodeBlock)
+// 直前ノードの spacing_below が種類で変わっても、途中から組み直した位置が全体の計算と一致すること。
+TEST(RecomputeYPositionsTest, FromIndexMatchesFullRecompute)
 {
     const Theme theme = GetLightTheme();
-    auto nodes = MakeNodes({ { .type = NodeType::CodeBlock }, { .type = NodeType::Paragraph } });
-    auto cache = MakeMeasuredCache({ 50.0f, 20.0f });
+    for (const NodeType first : { NodeType::CodeBlock, NodeType::ListItem }) {
+        SCOPED_TRACE(static_cast<int>(first));
+        auto nodes = MakeNodes({ { .type = first }, { .type = NodeType::Paragraph } });
+        auto cache = MakeMeasuredCache({ 50.0f, 20.0f });
 
-    // まず全体を計算
-    RecomputeYPositions(nodes, cache, theme);
-    float expected_y1 = cache.Top(1);
+        RecomputeYPositions(nodes, cache, theme);
+        const float expected_y1 = cache.Top(1);
 
-    // from_index=1 で途中から再計算
-    RecomputeYPositions(nodes, cache, theme, 1);
-    EXPECT_FLOAT_EQ(cache.Top(1), expected_y1);
+        RecomputeYPositions(nodes, cache, theme, 1);
+        EXPECT_FLOAT_EQ(cache.Top(1), expected_y1);
+    }
 }
-
-TEST(RecomputeYPositionsTest, FromIndexListItem)
-{
-    const Theme theme = GetLightTheme();
-    auto nodes = MakeNodes({ { .type = NodeType::ListItem }, { .type = NodeType::Paragraph } });
-    auto cache = MakeMeasuredCache({ 18.0f, 20.0f });
-
-    RecomputeYPositions(nodes, cache, theme);
-    float expected_y1 = cache.Top(1);
-
-    RecomputeYPositions(nodes, cache, theme, 1);
-    EXPECT_FLOAT_EQ(cache.Top(1), expected_y1);
-}
-
-// ---- リスト箇条書き記号の垂直位置（実DWriteレイアウト使用） ----
 
 // ---- 見出し内インラインコードのフォントサイズ ----
 

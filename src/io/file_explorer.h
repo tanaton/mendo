@@ -73,7 +73,6 @@ public:
     {
         return generation_;
     }
-    int HitTest(float local_y, float item_height) const;
     // 以降の SetDirectory / Refresh でも強調表示が維持される。
     void SetCurrentFile(std::wstring_view path);
     constexpr const std::pmr::wstring& GetDirectory() const noexcept

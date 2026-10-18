@@ -20,7 +20,6 @@ add_executable(mendo_tests
     test_config_service.cpp
     test_viewport_manager.cpp
     test_text_measurer.cpp
-    test_draw_command.cpp
     test_app_controller.cpp
     test_pane_controller.cpp
     test_nav_history.cpp
@@ -56,7 +55,6 @@ add_executable(mendo_tests
     test_reload_flow.cpp
     test_startup_plan.cpp
     test_string_convert.cpp
-    test_gesture_overlay.cpp
     test_file_io.cpp
     test_utility.cpp
     test_tooltip_target.cpp

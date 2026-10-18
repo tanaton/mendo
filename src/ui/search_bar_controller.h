@@ -6,14 +6,12 @@
 #include "string_convert.h"
 #include "ui_constants.h"
 #include "viewport_manager.h"
-#include <algorithm>
 #include <chrono>
 #include <memory_resource>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
-#include <windows.h>
 
 // 検索バーのUI状態管理。
 // SearchState（ドメインロジック）を参照で保持し、検索バー固有の

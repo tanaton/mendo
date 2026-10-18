@@ -56,25 +56,6 @@ std::pmr::wstring mermaid_util::JsEscape(std::wstring_view input)
     return result;
 }
 
-// コード本体は FNV-1a で hash し、幅と dark_mode は別 prime で xor mix する。
-// 既存キャッシュキー (MermaidCache 内ファイル名) と互換性を保つため hash 値は不変。
-namespace {
-
-// xor で混ぜるので、コード側のソルトと順序を問わず同じ値になる。
-constexpr uint64_t MixWidthAndTheme(uint64_t h, int max_width_int, bool dark_mode) noexcept
-{
-    h ^= static_cast<uint64_t>(max_width_int) * kFnv1a64Prime;
-    h ^= static_cast<uint64_t>(dark_mode) * 2654435761ULL; // Knuth multiplicative
-    return h;
-}
-
-} // namespace
-
-uint64_t mermaid_util::CombinedHash(std::string_view code, int max_width_int, bool dark_mode) noexcept
-{
-    return MixWidthAndTheme(Fnv1a64(code), max_width_int, dark_mode);
-}
-
 int mermaid_util::QuantizeWidth(float max_width) noexcept
 {
     // 細かなペイン幅変動でキャッシュミスを連発させない粒度。
@@ -344,9 +325,14 @@ uint64_t mermaid_util::DiagramCodeHash(const Node& node) noexcept
     return h;
 }
 
+// 幅と dark_mode は別 prime で xor mix する。xor なのでコード側のソルトと順序を問わない。
+// ディスクキャッシュのファイル名になるので値を変えない。
 uint64_t mermaid_util::DiagramRequestHash(uint64_t code_hash, float max_width, bool dark_mode) noexcept
 {
-    return MixWidthAndTheme(code_hash, QuantizeWidth(max_width), dark_mode);
+    uint64_t h = code_hash;
+    h ^= static_cast<uint64_t>(QuantizeWidth(max_width)) * kFnv1a64Prime;
+    h ^= static_cast<uint64_t>(dark_mode) * 2654435761ULL; // Knuth multiplicative
+    return h;
 }
 
 uint64_t mermaid_util::NodeDiagramHash(const Node& node, float max_width, bool dark_mode) noexcept

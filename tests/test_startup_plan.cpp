@@ -41,32 +41,28 @@ TEST(StartupPlanTest, NoArg_NoLastFile_ShowsHelpAndCwd)
     EXPECT_EQ(plan.pane_directory, kCwd);
 }
 
-TEST(StartupPlanTest, NoArg_SystemCwd_FallsBackToLastFileDirectory)
+// システムフォルダ・exe のフォルダ・空の cwd は作業場所とみなさず、前回ファイルのフォルダを出す。
+// それらの下のフォルダは作業場所として使う。
+TEST(StartupPlanTest, NoArg_PaneDirectoryForIgnoredCwd)
 {
-    auto ctx = MakeContext(StartupArgKind::None);
-    ctx.cwd = L"C:\\Windows\\System32";
-    EXPECT_EQ(DecideStartupPlan(ctx).pane_directory, L"D:\\notes");
-}
-
-TEST(StartupPlanTest, NoArg_ExeDirCwd_FallsBackToLastFileDirectory)
-{
-    auto ctx = MakeContext(StartupArgKind::None);
-    ctx.cwd = L"C:\\Tools\\mendo";
-    EXPECT_EQ(DecideStartupPlan(ctx).pane_directory, L"D:\\notes");
-}
-
-TEST(StartupPlanTest, NoArg_IgnoredCwdComparisonIsCaseAndTrailingSeparatorInsensitive)
-{
-    auto ctx = MakeContext(StartupArgKind::None);
-    ctx.cwd = L"c:\\windows\\SYSTEM32\\";
-    EXPECT_EQ(DecideStartupPlan(ctx).pane_directory, L"D:\\notes");
-}
-
-TEST(StartupPlanTest, NoArg_SubdirectoryOfIgnoredCwdIsUsed)
-{
-    auto ctx = MakeContext(StartupArgKind::None);
-    ctx.cwd = L"C:\\Windows\\System32\\drivers";
-    EXPECT_EQ(DecideStartupPlan(ctx).pane_directory, L"C:\\Windows\\System32\\drivers");
+    struct Case {
+        const char* name;
+        std::wstring_view cwd;
+        std::wstring_view expected;
+    };
+    const Case kCases[] = {
+        { "SystemCwd", L"C:\\Windows\\System32", L"D:\\notes" },
+        { "ExeDirCwd", L"C:\\Tools\\mendo", L"D:\\notes" },
+        { "CaseAndTrailingSeparatorInsensitive", L"c:\\windows\\SYSTEM32\\", L"D:\\notes" },
+        { "EmptyCwd", L"", L"D:\\notes" },
+        { "SubdirectoryOfIgnoredCwdIsUsed", L"C:\\Windows\\System32\\drivers", L"C:\\Windows\\System32\\drivers" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.name);
+        auto ctx = MakeContext(StartupArgKind::None);
+        ctx.cwd = c.cwd;
+        EXPECT_EQ(DecideStartupPlan(ctx).pane_directory, c.expected);
+    }
 }
 
 TEST(StartupPlanTest, NoArg_IgnoredCwdWithoutLastFile_KeepsCwd)
@@ -75,13 +71,6 @@ TEST(StartupPlanTest, NoArg_IgnoredCwdWithoutLastFile_KeepsCwd)
     ctx.cwd = L"C:\\Windows\\System32";
     ctx.last_file = {};
     EXPECT_EQ(DecideStartupPlan(ctx).pane_directory, L"C:\\Windows\\System32");
-}
-
-TEST(StartupPlanTest, NoArg_EmptyCwd_FallsBackToLastFileDirectory)
-{
-    auto ctx = MakeContext(StartupArgKind::None);
-    ctx.cwd = {};
-    EXPECT_EQ(DecideStartupPlan(ctx).pane_directory, L"D:\\notes");
 }
 
 // ---- ファイル指定 ----

@@ -51,7 +51,6 @@ inline void CreateSolidColorBrushOrFallback(
     }
 }
 
-// PBGRA 前提の GPU メモリ見積もり。キャッシュのバイト予算に使う。
 // ビットマップの最大辺。描画ターゲットを作る前は D3D11 (FL11) のテクスチャ最大辺を使う。
 inline UINT MaxBitmapDim(ID2D1RenderTarget* rt) noexcept
 {
@@ -59,6 +58,7 @@ inline UINT MaxBitmapDim(ID2D1RenderTarget* rt) noexcept
     return rt ? rt->GetMaximumBitmapSize() : kWithoutTarget;
 }
 
+// PBGRA 前提の GPU メモリ見積もり。キャッシュのバイト予算に使う。
 inline size_t BitmapBytes(ID2D1Bitmap* bitmap) noexcept
 {
     if (!bitmap) {

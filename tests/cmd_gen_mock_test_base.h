@@ -33,6 +33,14 @@ protected:
         nodes_ = std::move(nodes);
         cache_ = std::move(cache);
     }
+
+    // 先頭から描いたコマンド。呼び出し後も nodes_ / cache_ で期待値を組み立てられる。
+    DrawCommandList Generate(std::string_view md, float viewport_w = 800.0f)
+    {
+        Parse(md, viewport_w);
+        const PaneRect md_pane{ 0, 0, viewport_w, 2000.0f };
+        return gen_.GenerateMdPane(nodes_, cache_, md_pane, 0.0f, TextSelection{});
+    }
 };
 
 template <typename T>
@@ -62,5 +70,14 @@ std::ptrdiff_t CountCmd(const DrawCommandList& cmds)
 {
     return std::ranges::count_if(cmds, [](const DrawCommand& c) static {
         return std::holds_alternative<T>(c);
+    });
+}
+
+template <typename T, typename Pred>
+std::ptrdiff_t CountCmd(const DrawCommandList& cmds, Pred pred)
+{
+    return std::ranges::count_if(cmds, [&pred](const DrawCommand& c) {
+        const auto* p = std::get_if<T>(&c);
+        return p && pred(*p);
     });
 }

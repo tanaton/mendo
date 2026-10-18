@@ -10,101 +10,66 @@
 // MockTextMeasurer 前提のため、DirectWrite 依存経路 (text_layout
 // 非 null、row_cum_y/col_cum_x による二分探索、cell_layout) は対象外。
 
-using HitTestTest = MockLayoutTestBase;
+class HitTestTest : public MockLayoutTestBase {
+protected:
+    // dpi=1・ペイン原点 0 なので、画面座標がそのままペイン内の DIP になる。
+    MdPaneHitContext Ctx(const ParsedLayout& pl, float scroll_y, int screen_x, int screen_y) const
+    {
+        return { pl.nodes, pl.cache, theme_, scroll_y, PaneRect{}, 1.0f, screen_x, screen_y };
+    }
+
+    // オーバーレイボタンは可視範囲 (ペインの高さ) とコンテンツ幅で決まる。
+    MdPaneHitContext OverlayCtx(const ParsedLayout& pl, int screen_x, int screen_y) const
+    {
+        return { pl.nodes, pl.cache, theme_, 0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f,
+                 screen_x, screen_y, theme_.ContentWidth(800.0f) };
+    }
+};
 
 // ---- NavButtonHitTest: 純粋な座標計算のみ ----
 // 矩形は src 側の NavBackButtonRect / NavForwardButtonRect を使う。
 // 「式を二重実装するとリファクタ時にテストもズレる」問題を避けるため。
 
-TEST_F(HitTestTest, NavButton_HitBackCenter)
+TEST_F(HitTestTest, NavButton_HitsButtonsInclusiveAndMissesAround)
 {
-    PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const D2D1_RECT_F back = NavBackButtonRect(md);
-    EXPECT_EQ(hit_test::NavButtonHitTest((back.left + back.right) * 0.5f,
-                                         (back.top + back.bottom) * 0.5f, md),
-              NavButtonHover::Back);
-}
-
-TEST_F(HitTestTest, NavButton_HitForwardCenter)
-{
-    PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const D2D1_RECT_F fwd = NavForwardButtonRect(md);
-    EXPECT_EQ(hit_test::NavButtonHitTest((fwd.left + fwd.right) * 0.5f,
-                                         (fwd.top + fwd.bottom) * 0.5f, md),
-              NavButtonHover::Forward);
-}
-
-TEST_F(HitTestTest, NavButton_GapBetweenButtonsIsNone)
-{
-    PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const D2D1_RECT_F back = NavBackButtonRect(md);
-    // Back の右端より NAV_BTN_GAP/2 右（Forward 左端より NAV_BTN_GAP/2 左）
-    const float gx = back.right + NAV_BTN_GAP * 0.5f;
-    EXPECT_EQ(hit_test::NavButtonHitTest(gx, (back.top + back.bottom) * 0.5f, md),
-              NavButtonHover::None);
-}
-
-TEST_F(HitTestTest, NavButton_AboveRangeIsNone)
-{
-    PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const D2D1_RECT_F back = NavBackButtonRect(md);
-    EXPECT_EQ(hit_test::NavButtonHitTest((back.left + back.right) * 0.5f, back.top - 1.0f, md),
-              NavButtonHover::None);
-}
-
-TEST_F(HitTestTest, NavButton_BelowRangeIsNone)
-{
-    PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const D2D1_RECT_F back = NavBackButtonRect(md);
-    EXPECT_EQ(hit_test::NavButtonHitTest((back.left + back.right) * 0.5f,
-                                         back.bottom + 1.0f, md),
-              NavButtonHover::None);
-}
-
-TEST_F(HitTestTest, NavButton_LeftOfBackIsNone)
-{
-    PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const D2D1_RECT_F back = NavBackButtonRect(md);
-    EXPECT_EQ(hit_test::NavButtonHitTest(back.left - 1.0f, (back.top + back.bottom) * 0.5f, md),
-              NavButtonHover::None);
-}
-
-TEST_F(HitTestTest, NavButton_RightOfForwardIsNone)
-{
-    PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const D2D1_RECT_F fwd = NavForwardButtonRect(md);
-    EXPECT_EQ(hit_test::NavButtonHitTest(fwd.right + 1.0f,
-                                         (fwd.top + fwd.bottom) * 0.5f, md),
-              NavButtonHover::None);
-}
-
-TEST_F(HitTestTest, NavButton_BackLeftEdgeIsInclusive)
-{
-    // ヒット判定は PointInRectInclusive なので左端ちょうども Back
-    PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const D2D1_RECT_F back = NavBackButtonRect(md);
-    EXPECT_EQ(hit_test::NavButtonHitTest(back.left, (back.top + back.bottom) * 0.5f, md),
-              NavButtonHover::Back);
-}
-
-TEST_F(HitTestTest, NavButton_BackRightEdgeIsInclusive)
-{
-    // 右端ちょうども inclusive なので Back
-    PaneRect md{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const D2D1_RECT_F back = NavBackButtonRect(md);
-    EXPECT_EQ(hit_test::NavButtonHitTest(back.right,
-                                         (back.top + back.bottom) * 0.5f, md),
-              NavButtonHover::Back);
-}
-
-TEST_F(HitTestTest, NavButton_PositionsWithNonZeroPaneOrigin)
-{
-    // MD ペインが原点以外にある場合でも正しく算出されること
-    PaneRect md{ 200.0f, 40.0f, 600.0f, 500.0f };
-    const D2D1_RECT_F back = NavBackButtonRect(md);
-    EXPECT_EQ(hit_test::NavButtonHitTest((back.left + back.right) * 0.5f,
-                                         (back.top + back.bottom) * 0.5f, md),
-              NavButtonHover::Back);
+    struct Point {
+        float x;
+        float y;
+    };
+    using Rect = D2D1_RECT_F;
+    struct Case {
+        const char* name;
+        Point (*point)(const Rect& back, const Rect& fwd);
+        NavButtonHover expected;
+    };
+    static constexpr auto cy = [](const Rect& r) static { return (r.top + r.bottom) * 0.5f; };
+    static constexpr auto cx = [](const Rect& r) static { return (r.left + r.right) * 0.5f; };
+    constexpr Case kCases[] = {
+        { "BackCenter", [](const Rect& b, const Rect&) static { return Point{ cx(b), cy(b) }; }, NavButtonHover::Back },
+        { "ForwardCenter", [](const Rect&, const Rect& f) static { return Point{ cx(f), cy(f) }; }, NavButtonHover::Forward },
+        // PointInRectInclusive なので左右の端ちょうども Back
+        { "BackLeftEdge", [](const Rect& b, const Rect&) static { return Point{ b.left, cy(b) }; }, NavButtonHover::Back },
+        { "BackRightEdge", [](const Rect& b, const Rect&) static { return Point{ b.right, cy(b) }; }, NavButtonHover::Back },
+        { "GapBetweenButtons", [](const Rect& b, const Rect&) static { return Point{ b.right + NAV_BTN_GAP * 0.5f, cy(b) }; }, NavButtonHover::None },
+        { "AboveBack", [](const Rect& b, const Rect&) static { return Point{ cx(b), b.top - 1.0f }; }, NavButtonHover::None },
+        { "BelowBack", [](const Rect& b, const Rect&) static { return Point{ cx(b), b.bottom + 1.0f }; }, NavButtonHover::None },
+        { "LeftOfBack", [](const Rect& b, const Rect&) static { return Point{ b.left - 1.0f, cy(b) }; }, NavButtonHover::None },
+        { "RightOfForward", [](const Rect&, const Rect& f) static { return Point{ f.right + 1.0f, cy(f) }; }, NavButtonHover::None },
+    };
+    // MD ペインが原点以外にある場合も同じ結果になること
+    constexpr PaneRect kPanes[] = {
+        { 0.0f, 0.0f, 800.0f, 600.0f },
+        { 200.0f, 40.0f, 600.0f, 500.0f },
+    };
+    for (const auto& md : kPanes) {
+        const Rect back = NavBackButtonRect(md);
+        const Rect fwd = NavForwardButtonRect(md);
+        for (const auto& c : kCases) {
+            SCOPED_TRACE(::testing::Message() << c.name << " pane=(" << md.x << "," << md.y << ")");
+            const auto [x, y] = c.point(back, fwd);
+            EXPECT_EQ(hit_test::NavButtonHitTest(x, y, md), c.expected);
+        }
+    }
 }
 
 // ---- HitTest: MD ペイン汎用ヒット ----
@@ -118,10 +83,7 @@ TEST_F(HitTestTest, HitTest_EmptyDocumentReturnsSentinel)
         // 期待値をチェックする。
         GTEST_SKIP() << "ParseMarkdown(\"\") が空でないため empty 分岐を検証できない";
     }
-    MdPaneHitContext ctx{
-        pr.nodes, pr.cache, theme_,
-        0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 0.0f }, 1.0f, 100, 100
-    };
+    const auto ctx = Ctx(pr, 0.0f, 100, 100);
     auto r = hit_test::HitTest(ctx);
     EXPECT_EQ(r.node_index, -1);
     EXPECT_EQ(r.text_pos, 0u);
@@ -138,12 +100,7 @@ TEST_F(HitTestTest, HitTest_BelowAllNodesReturnsLastNonEmpty)
         const float text_top = pr.cache.Top(i);
         last_bottom = std::max(last_bottom, text_top + pr.cache[i].height);
     }
-    MdPaneHitContext ctx{
-        pr.nodes, pr.cache, theme_,
-        0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 0.0f }, 1.0f,
-        50,
-        static_cast<int>(last_bottom) + 1000
-    };
+    const auto ctx = Ctx(pr, 0.0f, 50, static_cast<int>(last_bottom) + 1000);
     auto r = hit_test::HitTest(ctx);
 
     // reverse 走査で最初に見つかる非空ノード
@@ -167,10 +124,7 @@ TEST_F(HitTestTest, HitTest_AboveFirstNodeClampsToFirstNodeStart)
     auto pr = ParseAndLayout("Hello\n\nWorld");
     ASSERT_GE(pr.nodes.size(), 2u);
 
-    MdPaneHitContext ctx{
-        pr.nodes, pr.cache, theme_,
-        0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 0.0f }, 1.0f, 50, 0
-    };
+    const auto ctx = Ctx(pr, 0.0f, 50, 0);
     auto r = hit_test::HitTest(ctx);
     EXPECT_EQ(r.node_index, 0);
     EXPECT_EQ(r.text_pos, 0u);
@@ -186,10 +140,7 @@ TEST_F(HitTestTest, HitTest_GapBetweenNodesClampsToPrecedingNodeEnd)
     ASSERT_LT(node0_bottom, pr.cache.Top(1)) << "ノード間に余白があること";
 
     const float gap_y = (node0_bottom + pr.cache.Top(1)) * 0.5f;
-    MdPaneHitContext ctx{
-        pr.nodes, pr.cache, theme_,
-        gap_y, PaneRect{ 0.0f, 0.0f, 0.0f, 0.0f }, 1.0f, 50, 0
-    };
+    const auto ctx = Ctx(pr, gap_y, 50, 0);
     auto r = hit_test::HitTest(ctx);
     EXPECT_EQ(r.node_index, 0);
     EXPECT_EQ(r.text_pos, pr.nodes[0].GetText().size());
@@ -207,10 +158,7 @@ TEST_F(HitTestTest, HitTest_GapBelowTableClampsToTableTextEnd)
     ASSERT_LT(table_bottom, pr.cache.Top(2)) << "表と次の段落の間に余白があること";
 
     const float gap_y = (table_bottom + pr.cache.Top(2)) * 0.5f;
-    MdPaneHitContext ctx{
-        pr.nodes, pr.cache, theme_,
-        gap_y, PaneRect{ 0.0f, 0.0f, 0.0f, 0.0f }, 1.0f, 50, 0
-    };
+    const auto ctx = Ctx(pr, gap_y, 50, 0);
     const auto r = hit_test::HitTest(ctx);
     EXPECT_EQ(r.node_index, 1);
     EXPECT_EQ(r.text_pos, 3u);
@@ -228,10 +176,7 @@ TEST_F(HitTestTest, HitTest_TextlessCandidateFallsForwardToFirstNonEmpty)
     ASSERT_GT(pr.cache[0].height, 0.0f);
 
     const float mid_y = pr.cache.Top(0) + pr.cache[0].height * 0.5f;
-    MdPaneHitContext ctx{
-        pr.nodes, pr.cache, theme_,
-        mid_y, PaneRect{ 0.0f, 0.0f, 0.0f, 0.0f }, 1.0f, 50, 0
-    };
+    const auto ctx = Ctx(pr, mid_y, 50, 0);
     auto r = hit_test::HitTest(ctx);
     EXPECT_EQ(r.node_index, 1);
     EXPECT_EQ(r.text_pos, 0u);
@@ -247,10 +192,7 @@ TEST_F(HitTestTest, HitTest_InsideEmptyAltImageHitsImage)
     ASSERT_GT(pr.cache[1].height, 0.0f);
 
     const float mid_y = pr.cache.Top(1) + pr.cache[1].height * 0.5f;
-    MdPaneHitContext ctx{
-        pr.nodes, pr.cache, theme_,
-        mid_y, PaneRect{ 0.0f, 0.0f, 0.0f, 0.0f }, 1.0f, 50, 0
-    };
+    const auto ctx = Ctx(pr, mid_y, 50, 0);
     const auto r = hit_test::HitTest(ctx);
     EXPECT_EQ(r.node_index, 1);
     EXPECT_EQ(r.text_pos, 0u);
@@ -264,10 +206,7 @@ TEST_F(HitTestTest, HitNodeMatchesHitTestNodeIndex)
     ASSERT_FALSE(pr.nodes.empty());
     const float bottom = pr.cache.Bottom(pr.nodes.size() - 1) + 50.0f;
     for (float y = -10.0f; y < bottom; y += 3.0f) {
-        MdPaneHitContext ctx{
-            pr.nodes, pr.cache, theme_,
-            y, PaneRect{ 0.0f, 0.0f, 0.0f, 0.0f }, 1.0f, 50, 0
-        };
+        const auto ctx = Ctx(pr, y, 50, 0);
         EXPECT_EQ(hit_test::HitNode(ctx), hit_test::HitTest(ctx).node_index) << "y=" << y;
     }
 }
@@ -342,24 +281,14 @@ TEST_F(HitTestTest, HitTestTable_HitsFirstCellWithoutCellLayout)
 TEST_F(HitTestTest, SaveButton_NoDiagramReturnsNegative)
 {
     auto pr = ParseAndLayout("Just text.");
-    const float content_width = theme_.ContentWidth(800.0f);
-    MdPaneHitContext ctx{
-        pr.nodes, pr.cache, theme_,
-        0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f, 400, 100,
-        content_width
-    };
+    const auto ctx = OverlayCtx(pr, 400, 100);
     EXPECT_NE(hit_test::OverlayButtonHitTest(ctx).kind, OverlayButton::DiagramSave);
 }
 
 TEST_F(HitTestTest, SaveButton_NonDiagramCodeBlockReturnsNegative)
 {
     auto pr = ParseAndLayout("```\nplain code\n```");
-    const float content_width = theme_.ContentWidth(800.0f);
-    MdPaneHitContext ctx{
-        pr.nodes, pr.cache, theme_,
-        0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f, 400, 100,
-        content_width
-    };
+    const auto ctx = OverlayCtx(pr, 400, 100);
     EXPECT_NE(hit_test::OverlayButtonHitTest(ctx).kind, OverlayButton::DiagramSave);
 }
 
@@ -375,24 +304,13 @@ TEST_F(HitTestTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
 
     const float content_width = theme_.ContentWidth(800.0f);
     const float entry_text_top = pr.cache.Top(static_cast<size_t>(mermaid_idx));
-    MdPaneHitContext ctx{
-        pr.nodes, pr.cache, theme_,
-        0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f,
-        static_cast<int>(theme_.margin_left + content_width - 10),
-        static_cast<int>(entry_text_top + 5),
-        content_width
-    };
+    const auto ctx = OverlayCtx(pr, static_cast<int>(theme_.margin_left + content_width - 10), static_cast<int>(entry_text_top + 5));
     EXPECT_NE(hit_test::OverlayButtonHitTest(ctx).kind, OverlayButton::DiagramSave);
 }
 
 TEST_F(HitTestTest, SaveButton_EmptyDocumentReturnsNegative)
 {
     auto pr = ParseAndLayout("");
-    const float content_width = theme_.ContentWidth(800.0f);
-    MdPaneHitContext ctx{
-        pr.nodes, pr.cache, theme_,
-        0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f, 400, 100,
-        content_width
-    };
+    const auto ctx = OverlayCtx(pr, 400, 100);
     EXPECT_NE(hit_test::OverlayButtonHitTest(ctx).kind, OverlayButton::DiagramSave);
 }

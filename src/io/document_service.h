@@ -4,12 +4,10 @@
 #include <cstdint>
 #include <expected>
 #include <optional>
-#include <stop_token>
 
 class DocumentService {
 public:
-    // default-constructed の stop_token はキャンセル不可。
-    static std::expected<Document, FileLoadError> LoadFile(const std::pmr::wstring& path, std::stop_token stop_token = {});
+    static std::expected<Document, FileLoadError> LoadFile(const std::pmr::wstring& path);
 
     // 非同期ロード経路に乗せる対象か (同期ロードの上限を超えるサイズ)。
     // ファイル取得失敗時 (アクセス不能/仮想パス等) も true を返し、async 経路で reject させる。

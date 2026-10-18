@@ -14,25 +14,14 @@ constexpr DWORD kLoadingAnimBytes = 16 * 1024 * 1024;
 
 } // namespace
 
-std::expected<Document, FileLoadError> DocumentService::LoadFile(const std::pmr::wstring& path, std::stop_token stop_token)
+std::expected<Document, FileLoadError> DocumentService::LoadFile(const std::pmr::wstring& path)
 {
-    // I/O 前にも check しないと、呼び出し時点で既にキャンセル済みでも無駄に同期 I/O を実行する。
-    if (stop_token.stop_requested()) {
-        return std::unexpected(FileLoadError::Cancelled);
-    }
     auto result = FileLoader::LoadFile(path);
     if (!result) {
         return std::unexpected(result.error());
     }
-    if (stop_token.stop_requested()) {
-        return std::unexpected(FileLoadError::Cancelled);
-    }
     MENDO_PROFILE("Document::FromMarkdown");
-    auto doc = Document::FromMarkdown(std::move(result->text), result->byte_size, path, stop_token);
-    if (stop_token.stop_requested()) {
-        return std::unexpected(FileLoadError::Cancelled);
-    }
-    return doc;
+    return Document::FromMarkdown(std::move(result->text), result->byte_size, path);
 }
 
 // 仮想パスや存在しないパスは「大きい」扱いにする (非同期ロード経路で失敗を検出させるため)。

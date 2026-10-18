@@ -12,86 +12,72 @@ protected:
 };
 
 // ═══════════════════════════════════════════════
-// 表示状態
+// 表示状態・幅・スクロール (ペインごとに同じ契約)
 // ═══════════════════════════════════════════════
 
-TEST_F(PaneControllerTest, DefaultVisibility)
+class PaneControllerPerPaneTest : public ::testing::TestWithParam<PaneTarget> {
+protected:
+    PaneController panes_;
+    PaneTarget pane_ = GetParam();
+    PaneTarget other_ = GetParam() == PaneTarget::File ? PaneTarget::Toc : PaneTarget::File;
+};
+
+INSTANTIATE_TEST_SUITE_P(Panes, PaneControllerPerPaneTest, ::testing::Values(PaneTarget::File, PaneTarget::Toc),
+                         [](const ::testing::TestParamInfo<PaneTarget>& info) static {
+                             return std::string(info.param == PaneTarget::File ? "File" : "Toc");
+                         });
+
+TEST_P(PaneControllerPerPaneTest, DefaultState)
 {
-    EXPECT_TRUE(panes_.IsSidePaneVisible(PaneTarget::File));
-    EXPECT_TRUE(panes_.IsSidePaneVisible(PaneTarget::Toc));
+    EXPECT_TRUE(panes_.IsSidePaneVisible(pane_));
+    EXPECT_FLOAT_EQ(panes_.GetSidePaneWidth(pane_), PaneController::PANE_DEFAULT_WIDTH);
+    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(pane_).scroll_y, 0.0f);
 }
 
-TEST_F(PaneControllerTest, ToggleFilePane)
+TEST_P(PaneControllerPerPaneTest, ToggleAndSetVisibleAffectOnlyThatPane)
 {
-    panes_.ToggleSidePane(PaneTarget::File);
-    EXPECT_FALSE(panes_.IsSidePaneVisible(PaneTarget::File));
-    panes_.ToggleSidePane(PaneTarget::File);
-    EXPECT_TRUE(panes_.IsSidePaneVisible(PaneTarget::File));
+    panes_.ToggleSidePane(pane_);
+    EXPECT_FALSE(panes_.IsSidePaneVisible(pane_));
+    EXPECT_TRUE(panes_.IsSidePaneVisible(other_));
+    panes_.ToggleSidePane(pane_);
+    EXPECT_TRUE(panes_.IsSidePaneVisible(pane_));
+
+    panes_.SetSidePaneVisible(pane_, false);
+    EXPECT_FALSE(panes_.IsSidePaneVisible(pane_));
+    EXPECT_TRUE(panes_.IsSidePaneVisible(other_));
+    panes_.SetSidePaneVisible(pane_, true);
+    EXPECT_TRUE(panes_.IsSidePaneVisible(pane_));
 }
 
-TEST_F(PaneControllerTest, ToggleTocPane)
+TEST_P(PaneControllerPerPaneTest, SetWidthClampsToMin)
 {
-    panes_.ToggleSidePane(PaneTarget::Toc);
-    EXPECT_FALSE(panes_.IsSidePaneVisible(PaneTarget::Toc));
+    panes_.SetSidePaneWidth(pane_, 10.0f);
+    EXPECT_FLOAT_EQ(panes_.GetSidePaneWidth(pane_), PaneController::PANE_MIN_WIDTH);
+    panes_.SetSidePaneWidth(pane_, 500.0f);
+    EXPECT_FLOAT_EQ(panes_.GetSidePaneWidth(pane_), 500.0f);
+    EXPECT_FLOAT_EQ(panes_.GetSidePaneWidth(other_), PaneController::PANE_DEFAULT_WIDTH);
 }
 
-// ═══════════════════════════════════════════════
-// 幅
-// ═══════════════════════════════════════════════
-
-TEST_F(PaneControllerTest, DefaultWidths)
+// 0..max_scroll にクランプし、位置が変わったときだけ true を返す。
+TEST_P(PaneControllerPerPaneTest, ScrollByClampsAndReportsChange)
 {
-    EXPECT_FLOAT_EQ(panes_.GetSidePaneWidth(PaneTarget::File), PaneController::PANE_DEFAULT_WIDTH);
-    EXPECT_FLOAT_EQ(panes_.GetSidePaneWidth(PaneTarget::Toc), PaneController::PANE_DEFAULT_WIDTH);
-}
+    EXPECT_FALSE(panes_.ScrollSidePaneBy(pane_, -10.0f, 200.0f));
+    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(pane_).scroll_y, 0.0f);
 
-TEST_F(PaneControllerTest, SetWidthClampedToMin)
-{
-    panes_.SetSidePaneWidth(PaneTarget::File, 10.0f);
-    EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::File), PaneController::PANE_MIN_WIDTH);
-}
+    EXPECT_TRUE(panes_.ScrollSidePaneBy(pane_, 50.0f, 200.0f));
+    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(pane_).scroll_y, 50.0f);
 
-TEST_F(PaneControllerTest, SetWidthAcceptsLargeValue)
-{
-    panes_.SetSidePaneWidth(PaneTarget::Toc, 500.0f);
-    EXPECT_FLOAT_EQ(panes_.GetSidePaneWidth(PaneTarget::Toc), 500.0f);
+    EXPECT_TRUE(panes_.ScrollSidePaneBy(pane_, 500.0f, 200.0f));
+    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(pane_).scroll_y, 200.0f);
+
+    EXPECT_TRUE(panes_.ScrollSidePaneBy(pane_, -500.0f, 200.0f));
+    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(pane_).scroll_y, 0.0f);
+    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(other_).scroll_y, 0.0f);
 }
 
 // ═══════════════════════════════════════════════
 // ペインスクロール
 // ═══════════════════════════════════════════════
-
-TEST_F(PaneControllerTest, ScrollFilePaneByPositive)
-{
-    bool changed = panes_.ScrollSidePaneBy(PaneTarget::File, 50.0f, 200.0f);
-    EXPECT_TRUE(changed);
-    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::File).scroll_y, 50.0f);
-}
-
-TEST_F(PaneControllerTest, ScrollFilePaneClampsToMax)
-{
-    panes_.ScrollSidePaneBy(PaneTarget::File, 500.0f, 200.0f);
-    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::File).scroll_y, 200.0f);
-}
-
-TEST_F(PaneControllerTest, ScrollFilePaneClampsToZero)
-{
-    panes_.ScrollSidePaneBy(PaneTarget::File, -50.0f, 200.0f);
-    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::File).scroll_y, 0.0f);
-}
-
-TEST_F(PaneControllerTest, ScrollFilePaneNoChangeReturnsFalse)
-{
-    bool changed = panes_.ScrollSidePaneBy(PaneTarget::File, -10.0f, 200.0f);
-    EXPECT_FALSE(changed); // すでに0の位置にいる
-}
-
-TEST_F(PaneControllerTest, ScrollTocPaneByPositive)
-{
-    bool changed = panes_.ScrollSidePaneBy(PaneTarget::Toc, 30.0f, 100.0f);
-    EXPECT_TRUE(changed);
-    EXPECT_FLOAT_EQ(panes_.SidePaneScroll(PaneTarget::Toc).scroll_y, 30.0f);
-}
 
 TEST_F(PaneControllerTest, ResetScrollStates)
 {
@@ -268,26 +254,6 @@ TEST_F(PaneControllerTest, ZoomRestoreMdContentWidthPositive)
 
     EXPECT_GT(content_width, 0.0f)
         << "ズーム復帰後のcontent_widthは正であるべき";
-}
-
-// ═══════════════════════════════════════════════
-// 表示状態の直接設定
-// ═══════════════════════════════════════════════
-
-TEST_F(PaneControllerTest, SetFilePaneVisible)
-{
-    panes_.SetSidePaneVisible(PaneTarget::File, false);
-    EXPECT_FALSE(panes_.IsSidePaneVisible(PaneTarget::File));
-    panes_.SetSidePaneVisible(PaneTarget::File, true);
-    EXPECT_TRUE(panes_.IsSidePaneVisible(PaneTarget::File));
-}
-
-TEST_F(PaneControllerTest, SetTocPaneVisible)
-{
-    panes_.SetSidePaneVisible(PaneTarget::Toc, false);
-    EXPECT_FALSE(panes_.IsSidePaneVisible(PaneTarget::Toc));
-    panes_.SetSidePaneVisible(PaneTarget::Toc, true);
-    EXPECT_TRUE(panes_.IsSidePaneVisible(PaneTarget::Toc));
 }
 
 // ═══════════════════════════════════════════════

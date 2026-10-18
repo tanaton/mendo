@@ -17,6 +17,12 @@
 
 namespace {
 
+// Node の深さ系フィールドは int8_t なので、極端に深い入れ子は最大値で頭打ちにする。
+constexpr int8_t SaturateToInt8(int value) noexcept
+{
+    return static_cast<int8_t>(std::min(value, int{ std::numeric_limits<int8_t>::max() }));
+}
+
 struct ParseContext {
     std::stop_token stop_token;
     // md4c コールバックは 100MB 入力で 50 万回以上呼ばれるため、毎回 atomic load せず
@@ -220,12 +226,11 @@ struct ParseContext {
         image_src = {};
         current_node->type = type;
         current_node_index = nodes.size() - 1;
-        constexpr int kInt8Max = std::numeric_limits<int8_t>::max();
-        current_node->indent_level = static_cast<int8_t>(std::min(indent_level, kInt8Max));
+        current_node->indent_level = SaturateToInt8(indent_level);
         if (blockquote_depth > 0) {
             current_node->blockquote_group = current_blockquote_group;
-            current_node->quote_depth = static_cast<int8_t>(std::min(blockquote_depth, kInt8Max));
-            current_node->quote_outer_indent = static_cast<int8_t>(std::min(outermost_quote_indent, kInt8Max));
+            current_node->quote_depth = SaturateToInt8(blockquote_depth);
+            current_node->quote_outer_indent = SaturateToInt8(outermost_quote_indent);
         }
         current_node_needs_copy = false;
     }
@@ -1018,12 +1023,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         // 不一致になり arena へのコピーが確定。memcmp スキップフラグを立てる。
         ctx->current_node_needs_copy = true;
         char entity_buf[4];
-        if (const auto resolved = ResolveHtmlEntity(chunk, entity_buf)) {
-            ctx->AppendDoc(*resolved);
-        }
-        else {
-            ctx->AppendDoc(chunk);
-        }
+        ctx->AppendDoc(ResolveHtmlEntity(chunk, entity_buf).value_or(chunk));
         break;
     }
 

@@ -9,8 +9,26 @@ namespace kw = syntax_keywords;
 
 namespace {
 
+using ascii_util::IsAsciiAlnum;
 using ascii_util::IsAsciiAlpha;
 using ascii_util::IsAsciiDigit;
+
+constexpr auto npos = std::string_view::npos;
+
+template <class Pred>
+constexpr size_t SkipWhile(std::string_view text, size_t pos, size_t end, Pred pred) noexcept
+{
+    while (pos < end && pred(text[pos])) {
+        pos++;
+    }
+    return pos;
+}
+
+template <class Pred>
+constexpr size_t SkipWhile(std::string_view text, size_t pos, Pred pred) noexcept
+{
+    return SkipWhile(text, pos, text.size(), pred);
+}
 
 // 識別子先頭文字: ASCII 英字 + '_' に加え、CJK 等の非 ASCII (UTF-8 の 0x80 以上の byte) も許可する。
 // char は signed のため unsigned 比較を明示しないと非 ASCII が負値で弾かれる。
@@ -44,14 +62,14 @@ std::pmr::vector<SyntaxToken> MakeTokenBuffer(std::string_view text)
 constexpr size_t SkipToEol(std::string_view text, size_t pos) noexcept
 {
     const auto p = text.find('\n', pos);
-    return p == std::string_view::npos ? text.size() : p;
+    return p == npos ? text.size() : p;
 }
 
 // pos から chars に含まれない最初の文字位置を返す（無ければ text.size()）。
 constexpr size_t SkipChars(std::string_view text, size_t pos, std::string_view chars) noexcept
 {
     const auto p = text.find_first_not_of(chars, pos);
-    return p == std::string_view::npos ? text.size() : p;
+    return p == npos ? text.size() : p;
 }
 
 // posから始まる文字列リテラルをスキャン（posは開始引用符を指す）。
@@ -94,7 +112,7 @@ constexpr size_t FindRawStringParen(std::string_view text, size_t quote_pos) noe
             break;
         }
     }
-    return std::string_view::npos;
+    return npos;
 }
 
 // C++ 生文字列 R"DELIM(...)DELIM" をスキャン。quote_pos は開きの '"'、paren は '(' の位置。
@@ -106,7 +124,7 @@ constexpr size_t ScanCppRawString(std::string_view text, size_t quote_pos, size_
     size_t k = paren + 1;
     while (k + end_marker_len <= text.size()) {
         const size_t found = text.find(')', k);
-        if (found == std::string_view::npos || found + end_marker_len > text.size()) {
+        if (found == npos || found + end_marker_len > text.size()) {
             break;
         }
         if (text[found + 1 + delim.size()] != '"') {
@@ -130,7 +148,7 @@ constexpr size_t ScanTripleQuote(std::string_view text, size_t pos, char quote, 
     const std::string_view delims(delims_buf, escapes ? 2 : 1);
     while (i + 2 < text.size()) {
         const auto p = text.find_first_of(delims, i);
-        if (p == std::string_view::npos || p + 2 >= text.size()) {
+        if (p == npos || p + 2 >= text.size()) {
             return text.size();
         }
         if (text[p] == '\\') {
@@ -152,7 +170,7 @@ constexpr size_t ScanCountedRawQuote(std::string_view text, size_t pos) noexcept
 {
     const size_t open_end = SkipChars(text, pos, "\"");
     const size_t n = open_end - pos;
-    for (size_t p = text.find('"', open_end); p != std::string_view::npos; p = text.find('"', p)) {
+    for (size_t p = text.find('"', open_end); p != npos; p = text.find('"', p)) {
         const size_t e = SkipChars(text, p, "\"");
         if (e - p >= n) {
             return e;
@@ -210,7 +228,7 @@ constexpr size_t ScanNumber(std::string_view text, size_t pos) noexcept
 constexpr bool IsFollowedByParen(std::string_view text, size_t end) noexcept
 {
     const auto i = text.find_first_not_of(" \t", end);
-    return i != std::string_view::npos && text[i] == '(';
+    return i != npos && text[i] == '(';
 }
 
 constexpr bool IsBlank(char c) noexcept
@@ -258,21 +276,16 @@ constexpr size_t ScanDoubledQuoteString(std::string_view text, size_t pos, char 
 // Lua の長括弧 [[ / [==[ の開き (pos は最初の '[') なら、対応する ]] / ]==] の直後を返す。開きでなければ npos。
 constexpr size_t ScanLuaLongBracket(std::string_view text, size_t pos) noexcept
 {
-    size_t i = pos + 1;
-    const size_t level_start = i;
-    while (i < text.size() && text[i] == '=') {
-        i++;
-    }
+    const size_t level_start = pos + 1;
+    const size_t i = SkipChars(text, level_start, "=");
     if (i >= text.size() || text[i] != '[') {
-        return std::string_view::npos;
+        return npos;
     }
     const size_t level = i - level_start;
-    for (size_t k = text.find(']', i + 1); k != std::string_view::npos; k = text.find(']', k + 1)) {
-        size_t j = k + 1;
-        while (j < text.size() && j - (k + 1) < level && text[j] == '=') {
-            j++;
-        }
-        if (j - (k + 1) == level && j < text.size() && text[j] == ']') {
+    for (size_t k = text.find(']', i + 1); k != npos; k = text.find(']', k + 1)) {
+        const size_t close_start = k + 1;
+        const size_t j = SkipWhile(text, close_start, std::min(text.size(), close_start + level), [](char c) { return c == '='; });
+        if (j - close_start == level && j < text.size() && text[j] == ']') {
             return j + 1;
         }
     }
@@ -283,7 +296,7 @@ constexpr size_t ScanLuaLongBracket(std::string_view text, size_t pos) noexcept
 constexpr size_t ScanRubyBlockComment(std::string_view text, size_t pos) noexcept
 {
     const auto p = text.find("\n=end", pos);
-    return p == std::string_view::npos ? text.size() : SkipToEol(text, p + 1);
+    return p == npos ? text.size() : SkipToEol(text, p + 1);
 }
 
 // posから始まるブロックコメントをスキャン（posは開始ペアの最初の文字を指す）。
@@ -294,7 +307,7 @@ constexpr size_t ScanBlockComment(std::string_view text, size_t pos, char close1
     size_t i = pos + 2;
     while (true) {
         const auto p = text.find(close1, i);
-        if (p == std::string_view::npos || p + 1 >= text.size()) {
+        if (p == npos || p + 1 >= text.size()) {
             return text.size();
         }
         if (text[p + 1] == close2) {
@@ -397,7 +410,7 @@ void TokenizeRange(
         if constexpr (Cfg.lua_long_bracket) {
             const bool comment = c == '-' && i + 2 < text.size() && text[i + 1] == '-' && text[i + 2] == '[';
             if (comment || c == '[') {
-                if (const size_t e = ScanLuaLongBracket(text, comment ? i + 2 : i); e != std::string_view::npos) {
+                if (const size_t e = ScanLuaLongBracket(text, comment ? i + 2 : i); e != npos) {
                     emit_until(e, comment ? SyntaxTokenType::Comment : SyntaxTokenType::String);
                     continue;
                 }
@@ -483,11 +496,7 @@ void TokenizeRange(
         // 3g. 組み込み関数: @import 等（Zig）
         if constexpr (Cfg.at_builtin) {
             if (c == '@' && i + 1 < text.size() && IsIdentStart(text[i + 1])) {
-                size_t e = i + 1;
-                while (e < text.size() && IsIdentChar(text[e])) {
-                    e++;
-                }
-                emit_until(e, SyntaxTokenType::Function);
+                emit_until(SkipWhile(text, i + 1, IsIdentChar), SyntaxTokenType::Function);
                 continue;
             }
         }
@@ -527,9 +536,7 @@ void TokenizeRange(
         // 8. 識別子とキーワード
         if (IsIdentStart(c)) {
             const size_t start = i;
-            while (i < text.size() && IsIdentChar(text[i])) {
-                i++;
-            }
+            i = SkipWhile(text, i, IsIdentChar);
 
             const std::string_view word(text.data() + start, i - start);
 
@@ -544,7 +551,7 @@ void TokenizeRange(
                 // word == "R" なら直前が非識別子文字であることも保証される。
                 if (word == "R" && i < text.size() && text[i] == '"') {
                     const size_t paren = FindRawStringParen(text, i);
-                    if (paren != std::string_view::npos) {
+                    if (paren != npos) {
                         i = ScanCppRawString(text, i, paren);
                     }
                     else {
@@ -707,8 +714,6 @@ inline constexpr LexerConfig SQL_LEXER_CONFIG{
 // 行や宣言の構造で色が決まる言語の専用 lexer
 // ============================================================
 
-constexpr auto npos = std::string_view::npos;
-
 constexpr bool IsMarkupSpace(char c) noexcept
 {
     return IsLineSpace(c) || c == '\n';
@@ -717,10 +722,7 @@ constexpr bool IsMarkupSpace(char c) noexcept
 // [pos, end) の先頭のスペース・タブを飛ばした位置。
 constexpr size_t SkipBlanks(std::string_view text, size_t pos, size_t end) noexcept
 {
-    while (pos < end && IsBlank(text[pos])) {
-        pos++;
-    }
-    return pos;
+    return SkipWhile(text, pos, end, IsBlank);
 }
 
 // [start, end) を type のトークンとして出し、end を返す (呼び出し側はそのまま走査位置にする)。
@@ -917,12 +919,8 @@ bool ScanYamlValue(std::string_view text, size_t i, size_t eol, std::pmr::vector
         }
         // アンカー &a・エイリアス *a・タグ !!str
         if (c == '&' || c == '*' || c == '!') {
-            size_t e = i + 1;
-            while (e < eol && !IsLineSpace(text[e]) && !kFlowIndicators.contains(text[e])) {
-                e++;
-            }
-            EmitRange(tokens, i, e, SyntaxTokenType::Preprocessor);
-            i = e;
+            const size_t e = SkipWhile(text, i + 1, eol, [&](char ch) { return !IsLineSpace(ch) && !kFlowIndicators.contains(ch); });
+            i = EmitRange(tokens, i, e, SyntaxTokenType::Preprocessor);
             continue;
         }
         if (first && (c == '|' || c == '>')) {
@@ -1050,9 +1048,7 @@ constexpr size_t FindTomlKeyEquals(std::string_view text, size_t pos) noexcept
             }
         }
         else if (IsTomlBareKeyChar(c)) {
-            while (pos < end && IsTomlBareKeyChar(text[pos])) {
-                pos++;
-            }
+            pos = SkipWhile(text, pos, end, IsTomlBareKeyChar);
         }
         else {
             return npos;
@@ -1155,10 +1151,7 @@ std::pmr::vector<SyntaxToken> TokenizeToml(std::string_view text)
             i++;
             continue;
         }
-        size_t e = i;
-        while (e < text.size() && (IsIdentChar(text[e]) || std::string_view{ "+-.:" }.contains(text[e]))) {
-            e++;
-        }
+        const size_t e = SkipWhile(text, i, [](char ch) { return IsIdentChar(ch) || std::string_view{ "+-.:" }.contains(ch); });
         if (e == i) {
             i++;
             continue;
@@ -1219,20 +1212,13 @@ constexpr bool IsDashedIdentChar(char c) noexcept
 
 constexpr size_t SkipCssIdent(std::string_view text, size_t pos) noexcept
 {
-    while (pos < text.size() && IsDashedIdentChar(text[pos])) {
-        pos++;
-    }
-    return pos;
+    return SkipWhile(text, pos, IsDashedIdentChar);
 }
 
 // 数値と単位（10px / 1.5em / 50% / -2）の終端。
 constexpr size_t ScanCssNumber(std::string_view text, size_t pos) noexcept
 {
-    size_t e = SkipChars(text, pos + 1, "0123456789.");
-    while (e < text.size() && (IsAsciiAlpha(text[e]) || text[e] == '%')) {
-        e++;
-    }
-    return e;
+    return SkipWhile(text, SkipChars(text, pos + 1, "0123456789."), [](char c) { return IsAsciiAlpha(c) || c == '%'; });
 }
 
 // セレクタの 1 トークンを読み、次の位置を返す。タグ名は Keyword、.class / #id は Function、疑似クラスと属性名は Type。
@@ -1428,9 +1414,7 @@ constexpr size_t ScanHtmlEntity(std::string_view text, size_t pos) noexcept
         i++;
     }
     const size_t name = i;
-    while (i < limit && (IsAsciiAlpha(text[i]) || IsAsciiDigit(text[i]))) {
-        i++;
-    }
+    i = SkipWhile(text, i, limit, IsAsciiAlnum<char>);
     return i > name && i < limit && text[i] == ';' ? i + 1 : npos;
 }
 
@@ -1492,10 +1476,7 @@ std::pmr::vector<SyntaxToken> TokenizeMarkup(std::string_view text)
         }
         const bool closing = rest.starts_with("</");
         const size_t name_start = lt + (closing ? 2 : 1);
-        size_t j = name_start;
-        while (j < n && IsMarkupNameChar(text[j])) {
-            j++;
-        }
+        size_t j = SkipWhile(text, name_start, IsMarkupNameChar);
         if (j == name_start || !IsIdentStart(text[name_start])) {
             i = lt + 1;
             continue;
@@ -1529,29 +1510,15 @@ std::pmr::vector<SyntaxToken> TokenizeMarkup(std::string_view text)
                 continue;
             }
             if (c == '=') {
-                j++;
-                while (j < n && IsMarkupSpace(text[j])) {
-                    j++;
-                }
-                size_t e = j;
-                if (j < n && (text[j] == '"' || text[j] == '\'')) {
-                    e = ScanString(text, j, text[j], true, false);
-                }
-                else {
-                    while (e < n && !IsMarkupSpace(text[e]) && text[e] != '>' && text[e] != '<') {
-                        e++;
-                    }
-                }
-                EmitRange(tokens, j, e, SyntaxTokenType::String);
-                j = e;
+                j = SkipWhile(text, j + 1, IsMarkupSpace);
+                const size_t e = j < n && (text[j] == '"' || text[j] == '\'')
+                                     ? ScanString(text, j, text[j], true, false)
+                                     : SkipWhile(text, j, [](char ch) { return !IsMarkupSpace(ch) && ch != '>' && ch != '<'; });
+                j = EmitRange(tokens, j, e, SyntaxTokenType::String);
                 continue;
             }
-            size_t e = j;
-            while (e < n && !IsMarkupSpace(text[e]) && !std::string_view{ "=>/<\"'" }.contains(text[e])) {
-                e++;
-            }
-            EmitRange(tokens, j, e, SyntaxTokenType::Type);
-            j = e;
+            const size_t e = SkipWhile(text, j, [](char ch) { return !IsMarkupSpace(ch) && !std::string_view{ "=>/<\"'" }.contains(ch); });
+            j = EmitRange(tokens, j, e, SyntaxTokenType::Type);
         }
         i = j;
         if constexpr (kHtml) {
@@ -1588,10 +1555,7 @@ std::pmr::vector<SyntaxToken> TokenizeDockerfile(std::string_view text)
             continue;
         }
         const size_t end = SkipToLogicalEol(text, i);
-        size_t j = i;
-        while (j < end && IsIdentChar(text[j])) {
-            j++;
-        }
+        const size_t j = SkipWhile(text, i, end, IsIdentChar);
         const auto word = text.substr(i, j - i);
         size_t rest = i;
         if (kw::DOCKER_KEYWORDS.contains_ignore_case(word)) {
@@ -1600,10 +1564,7 @@ std::pmr::vector<SyntaxToken> TokenizeDockerfile(std::string_view text)
             // FROM image AS stage の AS
             if (ascii_util::iequal(word, "from")) {
                 for (size_t k = SkipBlanks(text, j, end); k < end; k = SkipBlanks(text, k, end)) {
-                    size_t e = k;
-                    while (e < end && !IsMarkupSpace(text[e])) {
-                        e++;
-                    }
+                    const size_t e = SkipWhile(text, k, end, [](char ch) { return !IsMarkupSpace(ch); });
                     if (ascii_util::iequal(text.substr(k, e - k), "as")) {
                         TokenizeShellRange(text, rest, k, tokens);
                         EmitRange(tokens, k, e, SyntaxTokenType::Keyword);
@@ -1736,10 +1697,7 @@ std::pmr::vector<SyntaxToken> TokenizeMakefile(std::string_view text)
             pos = end + 1;
             continue;
         }
-        size_t j = i;
-        while (j < end && IsDashedIdentChar(text[j])) {
-            j++;
-        }
+        const size_t j = SkipWhile(text, i, end, IsDashedIdentChar);
         const auto word = text.substr(i, j - i);
         if (kw::MAKE_KEYWORDS.contains(word) && (j == end || IsLineSpace(text[j]) || text[j] == '(')) {
             EmitRange(tokens, i, j, SyntaxTokenType::Keyword);
@@ -1781,11 +1739,7 @@ std::pmr::vector<SyntaxToken> TokenizeMakefile(std::string_view text)
 // UTF-8 の 1 コードポイント分進めた位置（後続バイトを読み飛ばす）。pos < text.size() であること。
 constexpr size_t NextCodePoint(std::string_view text, size_t pos) noexcept
 {
-    pos++;
-    while (pos < text.size() && (static_cast<unsigned char>(text[pos]) & 0xC0) == 0x80) {
-        pos++;
-    }
-    return pos;
+    return SkipWhile(text, pos + 1, [](char c) { return (static_cast<unsigned char>(c) & 0xC0) == 0x80; });
 }
 
 // {- -} や #| |# の入れ子を数えて、最外の閉じの直後を返す。未終端なら text.size()。
@@ -1900,10 +1854,7 @@ std::pmr::vector<SyntaxToken> TokenizeHaskell(std::string_view text)
             continue;
         }
         if (IsIdentStart(c)) {
-            size_t e = i + 1;
-            while (e < n && (IsIdentChar(text[e]) || text[e] == '\'')) {
-                e++;
-            }
+            const size_t e = SkipWhile(text, i + 1, [](char ch) { return IsIdentChar(ch) || ch == '\''; });
             SyntaxTokenType type = SyntaxTokenType::Plain;
             if (c >= 'A' && c <= 'Z') {
                 type = SyntaxTokenType::Type;
@@ -1941,10 +1892,7 @@ constexpr bool IsLispDelimiter(char c) noexcept
 
 constexpr size_t SkipLispSymbol(std::string_view text, size_t pos) noexcept
 {
-    while (pos < text.size() && !IsLispDelimiter(text[pos])) {
-        pos++;
-    }
-    return pos;
+    return SkipWhile(text, pos, [](char c) { return !IsLispDelimiter(c); });
 }
 
 // 文字リテラル (#\a / \newline / ?\C-x) の本体の終端。英字で始まれば名前付き文字として英数字と - を続けて読む。
@@ -1953,22 +1901,18 @@ constexpr size_t ScanLispCharBody(std::string_view text, size_t pos) noexcept
     if (pos >= text.size()) {
         return text.size();
     }
-    size_t e = NextCodePoint(text, pos);
-    if (IsAsciiAlpha(text[pos])) {
-        while (e < text.size() && (IsAsciiAlpha(text[e]) || IsAsciiDigit(text[e]) || text[e] == '-')) {
-            e++;
-        }
+    const size_t e = NextCodePoint(text, pos);
+    if (!IsAsciiAlpha(text[pos])) {
+        return e;
     }
-    return e;
+    return SkipWhile(text, e, [](char c) { return IsAsciiAlnum(c) || c == '-'; });
 }
 
 // #_ / #; が読み飛ばす次の 1 データの終端。リストは括弧の対応を数える。
 constexpr size_t ScanLispDatum(std::string_view text, size_t pos) noexcept
 {
     const size_t n = text.size();
-    while (pos < n && (IsMarkupSpace(text[pos]) || std::string_view{ "'`#@^~," }.contains(text[pos]))) {
-        pos++;
-    }
+    pos = SkipWhile(text, pos, [](char c) { return IsMarkupSpace(c) || std::string_view{ "'`#@^~," }.contains(c); });
     if (pos >= n) {
         return n;
     }
@@ -2243,10 +2187,7 @@ constexpr VimName ScanVimName(std::string_view text, size_t pos) noexcept
         i = pos + 2;
         scoped = true;
     }
-    while (i < text.size() && (IsIdentChar(text[i]) || text[i] == '#')) {
-        i++;
-    }
-    return { i, scoped };
+    return { SkipWhile(text, i, [](char c) { return IsIdentChar(c) || c == '#'; }), scoped };
 }
 
 // <CR> / <leader> / <C-w> / <C-]> 等のキー表記の終端。キー表記でなければ npos。
@@ -2257,10 +2198,7 @@ constexpr size_t ScanVimKeyNotation(std::string_view text, size_t pos) noexcept
         return npos;
     }
     const size_t limit = std::min(text.size(), pos + kMaxLength);
-    size_t i = pos + 2;
-    while (i < limit && !std::string_view{ " \t<>" }.contains(text[i])) {
-        i++;
-    }
+    const size_t i = SkipWhile(text, pos + 2, limit, [](char c) { return !std::string_view{ " \t<>" }.contains(c); });
     return i < limit && text[i] == '>' ? i + 1 : npos;
 }
 
@@ -2269,10 +2207,7 @@ constexpr size_t ScanVimKeyNotation(std::string_view text, size_t pos) noexcept
 constexpr size_t SkipVimAutocmdHead(std::string_view text, size_t pos) noexcept
 {
     const auto skip_word = [&](size_t p) {
-        while (p < text.size() && !IsLineSpace(text[p])) {
-            p++;
-        }
-        return SkipBlanks(text, p, text.size());
+        return SkipBlanks(text, SkipWhile(text, p, [](char c) { return !IsLineSpace(c); }), text.size());
     };
     size_t i = SkipBlanks(text, pos, text.size());
     bool event = false;
@@ -2319,9 +2254,7 @@ VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bo
     const size_t eol = text.size();
     while (i < eol) {
         if (command_pos) {
-            while (i < eol && (text[i] == ':' || IsLineSpace(text[i]))) {
-                i++;
-            }
+            i = SkipWhile(text, i, eol, [](char c) { return c == ':' || IsLineSpace(c); });
             if (i >= eol) {
                 break;
             }
@@ -2329,10 +2262,7 @@ VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bo
                 EmitRange(tokens, i, eol, SyntaxTokenType::Comment);
                 break;
             }
-            size_t j = i;
-            while (j < eol && (IsAsciiAlpha(text[j]) || IsAsciiDigit(text[j]))) {
-                j++;
-            }
+            const size_t j = SkipWhile(text, i, eol, IsAsciiAlnum<char>);
             command_pos = false;
             const auto word = text.substr(i, j - i);
             const bool is_map = kw::VIM_MAP_COMMANDS.contains(word);
@@ -2352,12 +2282,8 @@ VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bo
                 static constexpr std::string_view kFunctionCommands[]{ "fu", "fun", "func", "function", "def" };
                 if (std::ranges::contains(kFunctionCommands, word)) {
                     const size_t name = SkipBlanks(text, i, eol);
-                    size_t e = name;
-                    while (e < eol && !IsLineSpace(text[e]) && text[e] != '(') {
-                        e++;
-                    }
-                    EmitRange(tokens, name, e, SyntaxTokenType::Function);
-                    i = e;
+                    const size_t e = SkipWhile(text, name, eol, [](char c) { return !IsLineSpace(c) && c != '('; });
+                    i = EmitRange(tokens, name, e, SyntaxTokenType::Function);
                     continue;
                 }
                 if (word == "au" || word == "autocmd") {
@@ -2442,12 +2368,8 @@ VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bo
         }
         // オプション &tabstop / &l:sw、環境変数 $HOME、レジスタ @a
         if ((c == '&' && IsAsciiAlpha(next)) || (c == '$' && IsIdentStart(next))) {
-            size_t e = i + 1;
-            while (e < eol && (IsIdentChar(text[e]) || text[e] == ':')) {
-                e++;
-            }
-            EmitRange(tokens, i, e, SyntaxTokenType::Type);
-            i = e;
+            const size_t e = SkipWhile(text, i + 1, eol, [](char ch) { return IsIdentChar(ch) || ch == ':'; });
+            i = EmitRange(tokens, i, e, SyntaxTokenType::Type);
             continue;
         }
         if (c == '@' && static_cast<unsigned char>(next) > ' ' && static_cast<unsigned char>(next) < 0x80) {

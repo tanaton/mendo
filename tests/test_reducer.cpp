@@ -11,8 +11,19 @@
 #include "file_io.h"
 #include <filesystem>
 #include <format>
-#include <fstream>
 #include <optional>
+#include <utility>
+
+namespace {
+
+// 文書を差し替え、各ノードを node_height ずつ縦に並べたレイアウトを持たせる。
+void SetDocument(AppState& state, std::string_view md, std::wstring_view path, float node_height = 100.0f)
+{
+    state.document.doc = Document::FromMarkdown(std::pmr::string(md), std::pmr::wstring(path));
+    state.document.layout_cache = MakeUniformCache(static_cast<int>(state.document.doc.GetNodes().size()), node_height);
+}
+
+} // namespace
 
 class ReducerTest : public ::testing::Test {
 protected:
@@ -38,10 +49,7 @@ protected:
     // 総コンテンツ高が total になるよう doc と layout_cache を構築する (margin_bottom=0 前提)。
     void SetupMdContentHeight(float total)
     {
-        state.document.doc = Document::FromMarkdown(std::pmr::string("Hello"), L"test.md");
-        state.document.layout_cache.Resize(state.document.doc.GetNodes().size());
-        state.document.layout_cache.SetTop(0, 0.0f);
-        state.document.layout_cache[0].height = total;
+        SetDocument(state, "Hello", L"test.md", total);
     }
 };
 
@@ -188,8 +196,7 @@ TEST_F(ReducerTest, ClearSelection_ClosesSearchBar)
 // 検索ジャンプのスクロールも通常スクロールと同じ副作用 (ツールチップ消去・ビットマップ管理・TOC 追従) を積む。
 TEST_F(ReducerTest, SearchJumpEmitsScrollEffects)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("a\n\ntarget"), L"test.md");
-    state.document.layout_cache = MakeUniformCache(2, 1000.0f);
+    SetDocument(state, "a\n\ntarget", L"test.md", 1000.0f);
     state.view.viewport.SyncMaxScroll(2000.0f, 500.0f);
     state.search.search_state.Show();
 
@@ -203,8 +210,7 @@ TEST_F(ReducerTest, SearchJumpEmitsScrollEffects)
 
 TEST_F(ReducerTest, SearchWithoutScrollEmitsNoScrollEffects)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("target"), L"test.md");
-    state.document.layout_cache = MakeUniformCache(1, 10.0f);
+    SetDocument(state, "target", L"test.md", 10.0f);
     state.view.viewport.SyncMaxScroll(0.0f, 500.0f);
     state.search.search_state.Show();
 
@@ -463,10 +469,16 @@ TEST_F(ReducerTest, BlockHScrollDragEnded_ReleasesCapture)
     EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
 }
 
-TEST_F(ReducerTest, BlockHScrollDragEnded_NotDragging_NoEffect)
+// テキスト選択の終了は TextSelectionEndedAction が担う。
+TEST_F(ReducerTest, LeftDragEnded_NoLeftDragOrTextSelect_NoEffect)
 {
-    auto effects = Reduce(state, LeftDragEndedAction{});
-    EXPECT_TRUE(effects.empty());
+    for (const LeftDrag kind : { LeftDrag::None, LeftDrag::TextSelect }) {
+        SCOPED_TRACE(static_cast<int>(kind));
+        state.view.drag = { .kind = kind };
+        auto effects = Reduce(state, LeftDragEndedAction{});
+        EXPECT_EQ(state.view.drag.kind, kind);
+        EXPECT_TRUE(effects.empty());
+    }
 }
 
 // ---- ナビゲーションテスト ----
@@ -488,9 +500,8 @@ TEST_F(ReducerTest, NavigateBack_DifferentFile_EmitsLoadFile)
 
 TEST_F(ReducerTest, NavigateBack_SameFile_ScrollsAndInvalidates)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\file.md");
     // ノード 0 に対してオフセット 50 → y_position(0) + 50 = 50.0f
-    state.document.layout_cache.Resize(state.document.doc.GetNodes().size());
+    SetDocument(state, "test", L"C:\\file.md");
     state.view.nav_history.Push(NavEntry{ L"C:\\file.md", 0, 50.0f });
     state.view.viewport.ScrollTo(200.0f);
 
@@ -503,8 +514,7 @@ TEST_F(ReducerTest, NavigateBack_SameFile_ScrollsAndInvalidates)
 // 戻る (別ファイルをロード中) → 進むで表示中の文書へ戻ったら、ロード中のファイルを取り消させる。
 TEST_F(ReducerTest, NavigateBackThenForwardWhileLoading_CancelsOtherFileLoad)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\current.md");
-    state.document.layout_cache.Resize(state.document.doc.GetNodes().size());
+    SetDocument(state, "test", L"C:\\current.md");
     state.view.nav_history.Push(NavEntry{ L"C:\\prev.md", 0, 0.0f });
 
     auto back = Reduce(state, NavigateBackAction{});
@@ -622,7 +632,6 @@ TEST_F(ReducerTest, ToggleDarkMode_EmitsApplyThemeChange)
 
 TEST_F(ReducerTest, ZoomIn_EmitsApplyThemeChange)
 {
-    theme.zoom = 1.0f;
     auto effects = Reduce(state, ZoomAction{ ZoomDirection::In });
 
     EXPECT_TRUE(HasEffect<effect::ApplyThemeChange>(effects));
@@ -736,18 +745,14 @@ TEST_F(ReducerTest, ButtonHoverChanged_Unchanged_NoEffect)
 
 // ---- SplitterDrag* テスト ----
 
-TEST_F(ReducerTest, SplitterDragStarted_Splitter1_SetsTargetAndCaptures)
+TEST_F(ReducerTest, SplitterDragStarted_SetsTargetAndCaptures)
 {
-    auto effects = Reduce(state, SplitterDragStartedAction{ PaneTarget::File });
-    EXPECT_EQ(state.view.drag.kind, LeftDrag::Splitter1);
-    EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
-}
-
-TEST_F(ReducerTest, SplitterDragStarted_Splitter2_SetsTargetAndCaptures)
-{
-    auto effects = Reduce(state, SplitterDragStartedAction{ PaneTarget::Toc });
-    EXPECT_EQ(state.view.drag.kind, LeftDrag::Splitter2);
-    EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
+    for (const auto [edge, expected] : { std::pair{ PaneTarget::File, LeftDrag::Splitter1 }, std::pair{ PaneTarget::Toc, LeftDrag::Splitter2 } }) {
+        SCOPED_TRACE(static_cast<int>(edge));
+        auto effects = Reduce(state, SplitterDragStartedAction{ edge });
+        EXPECT_EQ(state.view.drag.kind, expected);
+        EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
+    }
 }
 
 TEST_F(ReducerTest, SplitterDragMoved_Splitter1_UpdatesWidthAndInvalidates)
@@ -916,7 +921,6 @@ TEST_F(ReducerTest, MdScrollbarDragMoved_WhileDragging_UpdatesScroll)
 {
     SetupMdContentHeight(1000.0f);
     state.view.drag = { .kind = LeftDrag::MdScrollbar };
-    state.view.drag.grip_offset = 0.0f;
     state.view.viewport.ScrollTo(0.0f);
 
     auto effects = Reduce(state, MdScrollbarDragMovedAction{ 200.0f });
@@ -941,12 +945,6 @@ TEST_F(ReducerTest, MdScrollbarDragEnded_ReleasesAndSchedulesResize)
     EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
     EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
     EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
-}
-
-TEST_F(ReducerTest, MdScrollbarDragEnded_NotDragging_NoOp)
-{
-    auto effects = Reduce(state, LeftDragEndedAction{});
-    EXPECT_TRUE(effects.empty());
 }
 
 // ---- PaneScrollbarDrag* テスト（Toc ペイン経由）----
@@ -1018,7 +1016,6 @@ TEST_F(ReducerTest, PaneScrollbarDragMoved_WhileDragging_UpdatesScroll)
 {
     SetupScrollableToc(state);
     state.view.drag = { .kind = LeftDrag::TocScrollbar };
-    state.view.drag.grip_offset = 0.0f;
     state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y = 0.0f;
 
     auto effects = Reduce(state, PaneScrollbarDragMovedAction{ PaneTarget::Toc, 200.0f });
@@ -1043,12 +1040,6 @@ TEST_F(ReducerTest, PaneScrollbarDragEnded_TocOrFile_Releases)
 
     EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
     EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
-}
-
-TEST_F(ReducerTest, PaneScrollbarDragEnded_NotDragging_NoOp)
-{
-    auto effects = Reduce(state, LeftDragEndedAction{});
-    EXPECT_TRUE(effects.empty());
 }
 
 // ---- TextSelection* テスト ----
@@ -1382,14 +1373,7 @@ TEST_F(ReducerTest, TocItemClicked_InvalidIndex_PushesHistoryOnly)
 
 TEST_F(ReducerTest, TocItemClicked_ValidAnchor_ScrollsAndInvalidates)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("# First\n\n# Second\n\n# Third"), L"C:\\file.md");
-
-    // layout_cache を同期して y_position を設定
-    auto& cache = state.document.layout_cache;
-    const auto& nodes = state.document.doc.GetNodes();
-    cache.Resize(nodes.size());
-    // 2番目の見出しに仮の y 座標を割り当て
-    cache.SetTop(1, 100.0f);
+    SetDocument(state, "# First\n\n# Second\n\n# Third", L"C:\\file.md");
 
     auto effects = Reduce(state, TocItemClickedAction{ 1 });
 
@@ -1403,14 +1387,10 @@ TEST_F(ReducerTest, TocItemClicked_ValidAnchor_ScrollsAndInvalidates)
 // ApplyScrollTargetAndEmit が事前クランプする契約を担保する。
 TEST_F(ReducerTest, TocItemClicked_TailSection_ClampsToMaxScroll)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("# First\n\n# Second\n\n# Tail"), L"C:\\file.md");
-
-    auto& cache = state.document.layout_cache;
-    const auto& nodes = state.document.doc.GetNodes();
-    cache.Resize(nodes.size());
     // 末尾見出しを max_scroll (= 500) より遥か下に配置 → ペイン上端へ持ってくると要求 scroll_y > max_scroll
-    const int tail = static_cast<int>(nodes.size()) - 1;
-    cache.SetTop(tail, 900.0f);
+    SetDocument(state, "# First\n\n# Second\n\n# Tail", L"C:\\file.md", 450.0f);
+    const int tail = static_cast<int>(state.document.doc.GetNodes().size()) - 1;
+    ASSERT_FLOAT_EQ(state.document.layout_cache.Top(tail), 900.0f);
 
     Reduce(state, TocItemClickedAction{ tail });
 
@@ -1422,11 +1402,7 @@ TEST_F(ReducerTest, TocItemClicked_TailSection_ClampsToMaxScroll)
 // (ハイライト更新のみ)。クリック先の項目が画面内で動いて見失う混乱を防ぐ契約。
 TEST_F(ReducerTest, TocItemClicked_SuppressesTocAutoScroll)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("# First\n\n# Second"), L"C:\\file.md");
-    auto& cache = state.document.layout_cache;
-    const auto& nodes = state.document.doc.GetNodes();
-    cache.Resize(nodes.size());
-    cache.SetTop(1, 100.0f);
+    SetDocument(state, "# First\n\n# Second", L"C:\\file.md");
 
     auto effects = Reduce(state, TocItemClickedAction{ 1 });
 
@@ -1448,11 +1424,7 @@ TEST_F(ReducerTest, KeyScroll_KeepsTocAutoScroll)
 // MD ペイン内のアンカーリンク由来でも追従を維持する (抑制は目次クリックのみ)。
 TEST_F(ReducerTest, NavigateAnchor_KeepsTocAutoScroll)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("# First\n\n# Second"), L"C:\\file.md");
-    auto& cache = state.document.layout_cache;
-    const auto& nodes = state.document.doc.GetNodes();
-    cache.Resize(nodes.size());
-    cache.SetTop(1, 100.0f);
+    SetDocument(state, "# First\n\n# Second", L"C:\\file.md");
 
     auto effects = Reduce(state, NavigateAnchorAction{ std::pmr::string("second") });
 
@@ -1478,9 +1450,7 @@ TEST_F(ReducerTest, Resize_EmitsRendererResizeBeforeSizingUpdate)
 
 TEST_F(ReducerTest, RestoreScrollAfterLoad_HasNodeRestore_SetsScrollTarget)
 {
-    state.document.doc = Document::FromMarkdown(
-        std::pmr::string("# A\n\n# B\n\n# C"), L"test.md");
-    state.document.layout_cache = MakeUniformCache(static_cast<int>(state.document.doc.GetNodes().size()), 100.0f);
+    SetDocument(state, "# A\n\n# B\n\n# C", L"test.md");
     state.view.scroll_restore.SetNodeRestore(1, 7);
 
     Reduce(state, RestoreScrollAfterLoadAction{});
@@ -1517,8 +1487,7 @@ TEST_F(ReducerTest, LoadFailed_DropsPendingRestoreForNextDocument)
 
     // 続けてユーザーが別ファイルを開き、ロードに成功する。
     Reduce(state, FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\other.md") });
-    state.document.doc = Document::FromMarkdown(std::pmr::string("# X\n\n# Y\n\n# Z"), L"C:\\other.md");
-    state.document.layout_cache = MakeUniformCache(static_cast<int>(state.document.doc.GetNodes().size()), 100.0f);
+    SetDocument(state, "# X\n\n# Y\n\n# Z", L"C:\\other.md");
     Reduce(state, RestoreScrollAfterLoadAction{});
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
@@ -1601,8 +1570,7 @@ namespace {
 // 見出し 4 つ (高さ 100 ずつ) の文書に差し替える。
 void ReplaceDocument(AppState& state, std::wstring_view path)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("# A\n\n# B\n\n# C\n\n# D"), std::pmr::wstring(path));
-    state.document.layout_cache = MakeUniformCache(static_cast<int>(state.document.doc.GetNodes().size()), 100.0f);
+    SetDocument(state, "# A\n\n# B\n\n# C\n\n# D", path);
 }
 
 void ResetToDocument(AppState& state, std::wstring_view path)
@@ -1786,14 +1754,7 @@ TEST_F(ReducerTest, ConsecutiveNavigateBackAcrossFiles)
 
 TEST_F(ReducerTest, ZoomIn_PreservesScrollAnchorOnVisibleNode)
 {
-    theme.zoom = 1.0f;
-    state.document.doc = Document::FromMarkdown(
-        std::pmr::string("# A\n\n# B\n\n# C"), L"test.md");
-    auto& cache = state.document.layout_cache;
-    cache.Resize(state.document.doc.GetNodes().size());
-    for (size_t i = 0; i < cache.size(); ++i) {
-        cache.SetTop(i, static_cast<float>(i * 100));
-    }
+    SetDocument(state, "# A\n\n# B\n\n# C", L"test.md");
     state.view.viewport.ScrollTo(120.0f); // node 1 が可視先頭
 
     const auto pre = SnapshotVisibleTarget(state);
@@ -1815,13 +1776,7 @@ TEST_F(ReducerTest, ZoomReset_AtDefaultIndex_NoEffect)
 
 TEST_F(ReducerTest, ToggleDarkMode_PreservesScrollAnchorOnVisibleNode)
 {
-    state.document.doc = Document::FromMarkdown(
-        std::pmr::string("# A\n\n# B\n\n# C"), L"test.md");
-    auto& cache = state.document.layout_cache;
-    cache.Resize(state.document.doc.GetNodes().size());
-    for (size_t i = 0; i < cache.size(); ++i) {
-        cache.SetTop(i, static_cast<float>(i * 100));
-    }
+    SetDocument(state, "# A\n\n# B\n\n# C", L"test.md");
     state.view.viewport.ScrollTo(120.0f);
 
     const auto pre = SnapshotVisibleTarget(state);

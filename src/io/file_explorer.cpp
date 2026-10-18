@@ -1,6 +1,5 @@
 #include "file_explorer.h"
 #include "file_io.h"
-#include "pane_layout.h"
 #include "document_utils.h"
 #include "win_handle.h"
 #include <algorithm>
@@ -97,11 +96,6 @@ void FileExplorer::ListEntries() const
         }
         return path_util::iless(a.GetDisplayName(), b.GetDisplayName());
     });
-}
-
-int FileExplorer::HitTest(float local_y, float item_height) const
-{
-    return HitTestUniformList(local_y, item_height, GetEntries().size());
 }
 
 void FileExplorer::SetCurrentFile(std::wstring_view path)

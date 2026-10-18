@@ -46,42 +46,31 @@ TEST(SimdAsciiAsciiToLowerOnlyTest, VariousLengths)
 
 // ── HasAsciiUpper ──────────────────────────────────────────────
 
-TEST(SimdAsciiHasAsciiUpperTest, Empty)
+TEST(SimdAsciiHasAsciiUpperTest, DetectsOnlyAsciiUppercase)
 {
+    struct Case {
+        const char* name;
+        std::string_view text;
+        bool expected;
+    };
+    constexpr Case kCases[] = {
+        { "AllLower", "abcdefghijklmnop_xyz", false },
+        // 先頭 16 byte の SIMD ブロック内
+        { "OneUpperInSimdRange", "abcdeQghijklmnopqrstuvwx", true },
+        // SIMD 1 回 + 残り 1 byte
+        { "OneUpperInTail", "abcdefghijklmnopX", true },
+        // 「あいうえお一二三四」の UTF-8 (27 byte)。continuation byte を大文字と誤判定しない
+        { "NonAsciiOnly", "\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86\xE3\x81\x88\xE3\x81\x8A"
+                          "\xE4\xB8\x80\xE4\xBA\x8C\xE4\xB8\x89\xE5\x9B\x9B",
+          false },
+        // 'A' の直前の '@' (0x40) と 'Z' の直後の '[' (0x5B) は範囲外
+        { "BracketsOutsideRange", "[]@`{|}~[]@`{|}~[]@", false },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.name);
+        EXPECT_EQ(ascii_util::HasAsciiUpper(c.text.data(), c.text.size()), c.expected);
+    }
     EXPECT_FALSE(ascii_util::HasAsciiUpper(nullptr, 0));
-}
-
-TEST(SimdAsciiHasAsciiUpperTest, AllLower)
-{
-    const std::string s = "abcdefghijklmnop_xyz";
-    EXPECT_FALSE(ascii_util::HasAsciiUpper(s.data(), s.size()));
-}
-
-TEST(SimdAsciiHasAsciiUpperTest, OneUpperInSimdRange)
-{
-    const std::string s = "abcdeQghijklmnopqrstuvwx"; // 先頭 16 byte の SIMD ブロック内に Q
-    EXPECT_TRUE(ascii_util::HasAsciiUpper(s.data(), s.size()));
-}
-
-TEST(SimdAsciiHasAsciiUpperTest, OneUpperInTail)
-{
-    const std::string s = "abcdefghijklmnopX"; // SIMD 1 回 + 残り 1 byte (末尾の X)
-    EXPECT_TRUE(ascii_util::HasAsciiUpper(s.data(), s.size()));
-}
-
-TEST(SimdAsciiHasAsciiUpperTest, NonAsciiOnly)
-{
-    // 「あいうえお一二三四」の UTF-8 (27 byte)。continuation byte を大文字と誤判定しないこと
-    const std::string s = "\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86\xE3\x81\x88\xE3\x81\x8A"
-                          "\xE4\xB8\x80\xE4\xBA\x8C\xE4\xB8\x89\xE5\x9B\x9B";
-    EXPECT_FALSE(ascii_util::HasAsciiUpper(s.data(), s.size()));
-}
-
-TEST(SimdAsciiHasAsciiUpperTest, BracketsOutsideRange)
-{
-    // '[' (0x5B) と '@' (0x40) は範囲外であることを確認
-    const std::string s = "[]@`{|}~[]@`{|}~[]@";
-    EXPECT_FALSE(ascii_util::HasAsciiUpper(s.data(), s.size()));
 }
 
 // ── Find ──────────────────────────────────────────────────────

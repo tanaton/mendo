@@ -26,7 +26,6 @@ namespace {
 
 class HitTestDWriteTest : public DWriteTestBase {
 protected:
-
     // dpi=1, ペイン原点 0, scroll_y=0 なので画面座標 == DIP。
     MdPaneHitContext Ctx(const ParsedLayout& pl, DipPoint p) const
     {
@@ -62,16 +61,7 @@ TEST_F(HitTestDWriteTest, ParagraphHitReturnsTextPositionFromTextLayout)
     ASSERT_FALSE(pl.nodes.empty());
 
     // 段落の中央付近 (margin_left + 数文字分) をクリックする想定。
-    // dpi=1, md_pane_left=0, scroll_y=0 で screen 座標 == DIP。
-    const float content_width = theme_.ContentWidth(800.0f);
-    const int screen_x = static_cast<int>(theme_.margin_left + 50.0f);
-    const int screen_y = static_cast<int>(pl.cache.Top(0) + 4.0f);
-
-    const MdPaneHitContext ctx{
-        pl.nodes, pl.cache, theme_, 0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f,
-        screen_x, screen_y, content_width
-    };
-    const auto r = hit_test::HitTest(ctx);
+    const auto r = hit_test::HitTest(Ctx(pl, { theme_.margin_left + 50.0f, pl.cache.Top(0) + 4.0f }));
 
     EXPECT_EQ(r.node_index, 0);
     EXPECT_GT(r.text_pos, 0u)
@@ -198,20 +188,14 @@ TEST_F(HitTestDWriteTest, OffsetPaneHitMatchesUnoffsetPane)
     auto pl = ParseAndLayout("Hello, this is a long paragraph for hit testing.");
     ASSERT_FALSE(pl.nodes.empty());
 
-    const float content_width = theme_.ContentWidth(800.0f);
-    const int screen_x = static_cast<int>(theme_.margin_left + 50.0f);
-    const int screen_y = static_cast<int>(pl.cache.Top(0) + 4.0f);
-    constexpr int kPaneX = 220;
-    constexpr int kPaneY = 32;
+    constexpr float kPaneX = 220.0f;
+    constexpr float kPaneY = 32.0f;
+    const DipPoint p{ theme_.margin_left + 50.0f, pl.cache.Top(0) + 4.0f };
 
-    const MdPaneHitContext base{
-        pl.nodes, pl.cache, theme_, 0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f,
-        screen_x, screen_y, content_width
-    };
-    const MdPaneHitContext offset{
-        pl.nodes, pl.cache, theme_, 0.0f, PaneRect{ static_cast<float>(kPaneX), static_cast<float>(kPaneY), 0.0f, 600.0f }, 1.0f,
-        screen_x + kPaneX, screen_y + kPaneY, content_width
-    };
+    const auto base = Ctx(pl, p);
+    auto offset = Ctx(pl, { p.x + kPaneX, p.y + kPaneY });
+    offset.md_rect.x = kPaneX;
+    offset.md_rect.y = kPaneY;
     const auto a = hit_test::HitTest(base);
     const auto b = hit_test::HitTest(offset);
     EXPECT_EQ(a.node_index, b.node_index);
@@ -230,16 +214,7 @@ TEST_F(HitTestDWriteTest, TableHitDetectsRowAndColumn)
     ASSERT_TRUE(pl.cache[table_idx].has_table_layout());
 
     // テーブル中央あたりに hit する位置。
-    const auto& entry = pl.cache[table_idx];
-    const int sx = static_cast<int>(theme_.margin_left + 30.0f);
-    const int sy = static_cast<int>(pl.cache.Top(table_idx) + entry.height * 0.5f);
-
-    const float content_width = theme_.ContentWidth(800.0f);
-    const MdPaneHitContext ctx{
-        pl.nodes, pl.cache, theme_, 0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f,
-        sx, sy, content_width
-    };
-    const auto r = hit_test::HitTest(ctx);
+    const auto r = hit_test::HitTest(Ctx(pl, { theme_.margin_left + 30.0f, pl.cache.Top(table_idx) + pl.cache[table_idx].height * 0.5f }));
 
     EXPECT_EQ(r.node_index, table_idx)
         << "テーブル領域内の click は table ノードを返すはず";
@@ -258,13 +233,7 @@ TEST_F(HitTestDWriteTest, OverlayButtonHitTest_CopyHitReturnsNode)
     const float block_right = theme_.margin_left + content_width;
     const float block_top = pl.cache.Top(code_idx) - theme_.code_block_padding;
     const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
-    const int sx = static_cast<int>((btn.left + btn.right) * 0.5f);
-    const int sy = static_cast<int>((btn.top + btn.bottom) * 0.5f);
-
-    const MdPaneHitContext ctx{
-        pl.nodes, pl.cache, theme_, 0.0f, PaneRect{ 0.0f, 0.0f, 0.0f, 600.0f }, 1.0f,
-        sx, sy, content_width
-    };
+    const auto ctx = Ctx(pl, { (btn.left + btn.right) * 0.5f, (btn.top + btn.bottom) * 0.5f });
     EXPECT_EQ(hit_test::OverlayButtonHitTest(ctx), (OverlayButtonHit{ code_idx, OverlayButton::CodeCopy }));
 }
 

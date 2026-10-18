@@ -68,7 +68,6 @@ public:
         const BlockHScrollContext& block_h_scroll = {});
 
 private:
-    // GenerateMdPane の 1 フレーム呼び出しスコープでだけ意味を持つ入力をまとめる。
     // ノードの [text_top, text_top + height] の外へはみ出して描く量の全種別での上限
     // (見出し下線・空 LI の bullet・コード背景・引用装飾等)。ノード単位のカリングはこの余裕幅で
     // 判定し、実際の切り抜きは md ペインのクリップに任せる。
@@ -78,6 +77,7 @@ private:
     };
     NodeOverhang MaxNodeOverhang() const noexcept;
 
+    // GenerateMdPane の 1 フレーム呼び出しスコープでだけ意味を持つ入力をまとめる。
     struct FrameContext {
         float offset_x = 0.0f;
         // フレーム座標系でのビューポート左右端。各セル x を offset_x と
@@ -121,16 +121,14 @@ private:
     };
     void GenTableRowBg(const TableRowGeom& geom, bool is_header, bool is_even_row);
     // テーブルセル 1 個分の描画コンテキスト。GenTable から GenTableCellContent へ橋渡しする。
-    // selection 関連は (has_selection, sel_start, sel_end, flat_offset) を 1 まとまりで扱う。
+    // selection はテーブル全体の選択範囲で、セルの開始位置 flat_offset と同じく concat_text 上の UTF-8 byte。
     struct CellDrawContext {
         IDWriteTextLayout* layout = nullptr;
         float text_x = 0.0f;
         float text_y = 0.0f;
         float height = 0.0f;
         uint32_t flat_offset = 0;
-        uint32_t sel_start = 0;
-        uint32_t sel_end = 0;
-        bool has_selection = false;
+        TextSelection::NodeRange selection{ 0, 0 };
         bool is_header = false;
     };
     void GenTableCellContent(std::string_view cell_text, const CellDrawContext& ctx);

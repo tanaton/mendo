@@ -2,6 +2,7 @@
 #include "mermaid_util.h"
 #include "parser.h"
 #include "test_nodes.h"
+#include "utility.h"
 
 using namespace std::literals;
 
@@ -36,63 +37,6 @@ TEST(JsEscape, EscapesJsStringLiteralSpecials)
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.input }));
         EXPECT_EQ(mermaid_util::JsEscape(c.input), c.expected);
     }
-}
-
-// ============================================================
-// CombinedHash テスト
-// ============================================================
-
-TEST(CombinedHash, SameInputProducesSameHash)
-{
-    auto h1 = mermaid_util::CombinedHash("graph TD; A-->B;", 800, false);
-    auto h2 = mermaid_util::CombinedHash("graph TD; A-->B;", 800, false);
-    EXPECT_EQ(h1, h2);
-}
-
-TEST(CombinedHash, DifferentCodeProducesDifferentHash)
-{
-    auto h1 = mermaid_util::CombinedHash("graph TD; A-->B;", 800, false);
-    auto h2 = mermaid_util::CombinedHash("graph LR; A-->B;", 800, false);
-    EXPECT_NE(h1, h2);
-}
-
-TEST(CombinedHash, DifferentWidthProducesDifferentHash)
-{
-    auto h1 = mermaid_util::CombinedHash("graph TD; A-->B;", 800, false);
-    auto h2 = mermaid_util::CombinedHash("graph TD; A-->B;", 600, false);
-    EXPECT_NE(h1, h2);
-}
-
-TEST(CombinedHash, DifferentDarkModeProducesDifferentHash)
-{
-    auto h1 = mermaid_util::CombinedHash("graph TD; A-->B;", 800, false);
-    auto h2 = mermaid_util::CombinedHash("graph TD; A-->B;", 800, true);
-    EXPECT_NE(h1, h2);
-}
-
-TEST(CombinedHash, IdenticalDiagramsShareCacheKey)
-{
-    // 同じ図が複数配置されている場合、同一ハッシュでキャッシュを共有する
-    std::string_view diagram = "sequenceDiagram\n    Alice->>Bob: Hello\n    Bob-->>Alice: Hi";
-    auto h1 = mermaid_util::CombinedHash(diagram, 1000, false);
-    auto h2 = mermaid_util::CombinedHash(diagram, 1000, false);
-    auto h3 = mermaid_util::CombinedHash(diagram, 1000, false);
-    EXPECT_EQ(h1, h2);
-    EXPECT_EQ(h2, h3);
-}
-
-TEST(CombinedHash, WidthZero)
-{
-    auto h1 = mermaid_util::CombinedHash("graph TD;", 0, false);
-    auto h2 = mermaid_util::CombinedHash("graph TD;", 1, false);
-    EXPECT_NE(h1, h2);
-}
-
-TEST(CombinedHash, EmptyCode)
-{
-    auto h1 = mermaid_util::CombinedHash("", 800, false);
-    auto h2 = mermaid_util::CombinedHash("", 800, true);
-    EXPECT_NE(h1, h2);
 }
 
 // ═══════════════════════════════════════════════
@@ -436,10 +380,13 @@ TEST(NodeDiagramHash, LatexMathDoesNotCollideWithMermaid)
     EXPECT_NE(mermaid_util::NodeDiagramHash(mermaid, 600.0f, false), mermaid_util::NodeDiagramHash(math, 600.0f, false));
 }
 
-// ディスクキャッシュのファイル名になるので、コード部分を分けて求めても値を変えない。
-TEST(NodeDiagramHash, MatchesCombinedHashOfText)
+// ディスクキャッシュのファイル名になるので式を変えない。変えると既存のキャッシュを引けなくなる。
+TEST(NodeDiagramHash, KeepsPersistedFormula)
 {
     const auto a = ParseSingleCodeBlock("```mermaid\ngraph TD; A-->B\n```");
-    EXPECT_EQ(mermaid_util::NodeDiagramHash(a, 600.0f, true), mermaid_util::CombinedHash(a.GetText(), mermaid_util::QuantizeWidth(600.0f), true));
-    EXPECT_EQ(mermaid_util::DiagramRequestHash(mermaid_util::DiagramCodeHash(a), 600.0f, true), mermaid_util::NodeDiagramHash(a, 600.0f, true));
+    // 幅 600 は 608 に量子化される。
+    const uint64_t expected = Fnv1a64(a.GetText()) ^ (uint64_t{ 608 } * kFnv1a64Prime) ^ 2654435761ULL;
+    EXPECT_EQ(mermaid_util::NodeDiagramHash(a, 600.0f, true), expected);
+    EXPECT_EQ(mermaid_util::DiagramRequestHash(mermaid_util::DiagramCodeHash(a), 600.0f, true), expected);
+    EXPECT_EQ(mermaid_util::NodeDiagramHash(a, 600.0f, false), Fnv1a64(a.GetText()) ^ (uint64_t{ 608 } * kFnv1a64Prime));
 }

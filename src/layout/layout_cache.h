@@ -158,6 +158,12 @@ struct TableLayoutData {
     void RebuildRowCumY(size_t row_count, size_t first_row = 0);
     void RebuildColCumX();
 
+    // 最下行の下罫線まで含めた表の高さ (= entry.height)。row_cum_y が row_count 行分揃っていること。
+    float TotalHeight(size_t row_count) const noexcept
+    {
+        return row_cum_y[row_count] + TABLE_BORDER_WIDTH;
+    }
+
     // 行幾何が row_count と揃っていれば VisibleRowRange、未確定なら全行 [0, row_count)。
     std::pair<size_t, size_t> RowsInViewport(size_t row_count, float local_top, float local_bottom) const noexcept
     {

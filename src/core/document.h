@@ -145,19 +145,12 @@ public:
     }
 
 private:
-    // FromMarkdown だけが使う。生成後の Document の中身を差し替える経路は持たない。
-    void SetFilePath(std::wstring_view path)
-    {
-        file_path_ = path;
-        RebuildCachedDirectory();
-    }
+    // 以下は FromMarkdown だけが使う。生成後の Document の中身を差し替える経路は持たない。
     // text は LF 正規化済みであること。
     void ReplaceFromMarkdown(std::pmr::string text, size_t byte_size, std::stop_token stop_token);
 
     // 契約: 入力 ParseResult は raw_text_ をパースした結果であること。
     void ReplaceContent(ParseResult&& result);
-
-    void RebuildCachedDirectory();
 
     std::pmr::vector<Node> nodes_;
     // 原文をそのまま表示できないノードのテキストと、全ノードの runs・リンク URL の置き場所。

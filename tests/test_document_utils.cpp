@@ -23,6 +23,31 @@
 #include "utf8_fuzz_helpers.h"
 #include "test_nodes.h"
 
+namespace {
+
+TextSelection SelectAll(const std::pmr::vector<Node>& nodes)
+{
+    const int last = static_cast<int>(nodes.size()) - 1;
+    return TextSelection::MakeOrdered(0, 0, last, static_cast<uint32_t>(nodes[last].GetText().size()));
+}
+
+std::pmr::string CopyAllAsHtml(std::string_view md, bool dark_mode = false)
+{
+    const auto nodes = ParseNodes(md);
+    return ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), dark_mode);
+}
+
+TextRun MakeRun(uint32_t start, uint32_t length, int16_t link_url_index = -1)
+{
+    TextRun r;
+    r.start = start;
+    r.length = length;
+    r.link_url_index = link_url_index;
+    return r;
+}
+
+} // namespace
+
 // ============================================================
 // ExtractSelectedText
 // ============================================================
@@ -64,60 +89,36 @@ TEST(ExtractSelectedText, InactiveSelectionReturnsEmpty)
     EXPECT_TRUE(ExtractSelectedText(nodes, sel).empty());
 }
 
-TEST(ExtractSelectedText, SingleNodeFullSelection)
+// [start, end) を切り出し、end はテキスト長でクランプする。位置は UTF-8 byte。
+TEST(ExtractSelectedText, SingleNodeRange)
 {
-    auto nodes = ParseNodes("Hello world");
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    EXPECT_EQ(ExtractSelectedText(nodes, sel), "Hello world");
+    struct Case {
+        std::string_view md;
+        uint32_t start;
+        uint32_t end;
+        std::string_view expected;
+    };
+    constexpr Case kCases[] = {
+        { "Hello world", 0, 11, "Hello world" },
+        { "Hello world", 0, 5, "Hello" },
+        { "Hello world", 6, 11, "world" },
+        { "Short", 0, 1000, "Short" },
+        { "日本語テスト", 0, 18, "日本語テスト" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::Message() << c.md << " [" << c.start << ", " << c.end << ")");
+        const auto nodes = ParseNodes(c.md);
+        EXPECT_EQ(ExtractSelectedText(nodes, TextSelection::MakeOrdered(0, c.start, 0, c.end)), c.expected);
+    }
 }
 
-TEST(ExtractSelectedText, SingleNodePartialSelection)
-{
-    auto nodes = ParseNodes("Hello world");
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, 5);
-    EXPECT_EQ(ExtractSelectedText(nodes, sel), "Hello");
-}
-
-TEST(ExtractSelectedText, SingleNodeMiddleSelection)
-{
-    auto nodes = ParseNodes("Hello world");
-    auto sel = TextSelection::MakeOrdered(0, 6, 0, 11);
-    EXPECT_EQ(ExtractSelectedText(nodes, sel), "world");
-}
-
-TEST(ExtractSelectedText, MultipleNodesFullSelection)
+// ノード間は \r\n で区切り、端のノードは選択範囲だけを出す。
+TEST(ExtractSelectedText, MultipleNodesJoinedWithCrlf)
 {
     auto nodes = ParseNodes("First\n\nSecond\n\nThird");
     ASSERT_EQ(nodes.size(), 3u);
-    auto sel = TextSelection::MakeOrdered(
-        0, 0, 2, static_cast<uint32_t>(nodes[2].GetText().size()));
-    auto result = ExtractSelectedText(nodes, sel);
-    EXPECT_NE(result.find("First"), std::string::npos);
-    EXPECT_NE(result.find("Second"), std::string::npos);
-    EXPECT_NE(result.find("Third"), std::string::npos);
-}
-
-TEST(ExtractSelectedText, MultipleNodesPartialSelection)
-{
-    auto nodes = ParseNodes("First\n\nSecond\n\nThird");
-    ASSERT_EQ(nodes.size(), 3u);
-    // "First"の途中から"Third"の途中まで選択
-    auto sel = TextSelection::MakeOrdered(0, 2, 2, 3);
-    auto result = ExtractSelectedText(nodes, sel);
-    EXPECT_EQ(result.substr(0, 3), "rst");
-    EXPECT_NE(result.find("Second"), std::string::npos);
-    EXPECT_NE(result.find("Thi"), std::string::npos);
-}
-
-TEST(ExtractSelectedText, NewlineBetweenNodes)
-{
-    auto nodes = ParseNodes("A\n\nB");
-    ASSERT_EQ(nodes.size(), 2u);
-    auto sel = TextSelection::MakeOrdered(
-        0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
-    auto result = ExtractSelectedText(nodes, sel);
-    // ノード間に\r\nが含まれるべき
-    EXPECT_NE(result.find("\r\n"), std::string::npos);
+    EXPECT_EQ(ExtractSelectedText(nodes, SelectAll(nodes)), "First\r\nSecond\r\nThird");
+    EXPECT_EQ(ExtractSelectedText(nodes, TextSelection::MakeOrdered(0, 2, 2, 3)), "rst\r\nSecond\r\nThi");
 }
 
 TEST(ExtractSelectedText, EmptyNodes)
@@ -126,22 +127,6 @@ TEST(ExtractSelectedText, EmptyNodes)
     auto sel = TextSelection::MakeOrdered(0, 0, 0, 5);
     // 範囲外のノード - クラッシュしないこと
     EXPECT_TRUE(ExtractSelectedText(nodes, sel).empty());
-}
-
-TEST(ExtractSelectedText, EndBeyondTextSize)
-{
-    auto nodes = ParseNodes("Short");
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, 1000);
-    // end_posがテキストサイズを超える場合はクランプされるべき
-    EXPECT_EQ(ExtractSelectedText(nodes, sel), "Short");
-}
-
-TEST(ExtractSelectedText, JapaneseText)
-{
-    auto nodes = ParseNodes("日本語テスト");
-    auto sel = TextSelection::MakeOrdered(
-        0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    EXPECT_EQ(ExtractSelectedText(nodes, sel), "日本語テスト");
 }
 
 // ============================================================
@@ -158,58 +143,38 @@ TEST(ExtractSelectedTextAsHtml, InactiveSelectionReturnsEmpty)
 
 TEST(ExtractSelectedTextAsHtml, ParagraphWrapsInPTag)
 {
-    auto nodes = ParseNodes("Hello world");
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), "<p>Hello world</p>");
+    EXPECT_EQ(CopyAllAsHtml("Hello world"), "<p>Hello world</p>");
 }
 
 TEST(ExtractSelectedTextAsHtml, HeadingLevels)
 {
-    auto nodes = ParseNodes("## Section");
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), "<h2>Section</h2>");
+    EXPECT_EQ(CopyAllAsHtml("## Section"), "<h2>Section</h2>");
 }
 
 TEST(ExtractSelectedTextAsHtml, BoldAndItalic)
 {
-    auto nodes = ParseNodes("**bold** and *italic*");
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    const auto html = CopyAllAsHtml("**bold** and *italic*");
     EXPECT_NE(html.find("<strong>bold</strong>"), std::string::npos);
     EXPECT_NE(html.find("<em>italic</em>"), std::string::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, InlineCode)
 {
-    auto nodes = ParseNodes("text `code` more");
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find("<code>code</code>"), std::string::npos);
-}
-
-TEST(ExtractSelectedTextAsHtml, LinkProducesAnchor)
-{
-    auto nodes = ParseNodes("[click](https://example.com)");
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find("<a href=\"https://example.com\">click</a>"), std::string::npos);
+    EXPECT_NE(CopyAllAsHtml("text `code` more").find("<code>code</code>"), std::string::npos);
 }
 
 TEST(ExtractSelectedTextAsHtml, EscapesSpecialChars)
 {
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(MakeTextNode("a<b&c>d\"e'f"));
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel),
-              "<p>a&lt;b&amp;c&gt;d&quot;e&#39;f</p>");
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, SelectAll(nodes)), "<p>a&lt;b&amp;c&gt;d&quot;e&#39;f</p>");
 }
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockIsEscapedInPreCode)
 {
     auto nodes = ParseNodes("```\nint x = 1 < 2;\n```");
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
     EXPECT_NE(html.find("<pre"), std::string::npos);
     EXPECT_NE(html.find("<code>"), std::string::npos);
     EXPECT_NE(html.find("&lt;"), std::string::npos);
@@ -224,8 +189,7 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockWithoutTokensHasNoSyntaxSpans)
     // 言語指定なし -> トークンが無い -> span タグは付かない
     auto nodes = ParseNodes("```\nplain text\n```");
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
     EXPECT_EQ(html.find("<span"), std::string::npos);
     EXPECT_NE(html.find("plain text"), std::string::npos);
 }
@@ -234,8 +198,7 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockIsHighlighted)
 {
     auto nodes = ParseNodes("```cpp\nint x = 42;\n```");
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
     EXPECT_NE(html.find("<span style=\"color:#267f99\">int</span>"), std::string::npos);
     EXPECT_NE(html.find("<span style=\"color:#098658\">42</span>"), std::string::npos);
     // その他の Plain 区間は素のテキスト
@@ -244,11 +207,7 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockIsHighlighted)
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockSpanEscapesSpecialChars)
 {
-    auto nodes = ParseNodes("```cpp\n\"a<b\"\n```");
-    const std::string_view text = nodes[0].GetText();
-
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(text.size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    const auto html = CopyAllAsHtml("```cpp\n\"a<b\"\n```");
     // span 内のテキストも HTML エスケープされる
     EXPECT_NE(html.find("<span style=\"color:#a31515\">"), std::string::npos);
     EXPECT_NE(html.find("&lt;"), std::string::npos);
@@ -257,11 +216,7 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockSpanEscapesSpecialChars)
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockDarkModeUsesDarkColors)
 {
-    auto nodes = ParseNodes("```cpp\nint x = 42;\n```");
-    const std::string_view text = nodes[0].GetText();
-
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(text.size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel, /*dark_mode=*/true);
+    const auto html = CopyAllAsHtml("```cpp\nint x = 42;\n```", /*dark_mode=*/true);
     // ダーク用の色（VS Code Dark+ 相当）が使われる
     EXPECT_NE(html.find("<span style=\"color:#4ec9b0\">int</span>"), std::string::npos);
     EXPECT_NE(html.find("<span style=\"color:#b5cea8\">42</span>"), std::string::npos);
@@ -273,12 +228,6 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockDarkModeUsesDarkColors)
     EXPECT_NE(html.find("color:#d4d4d4"), std::string::npos);
 }
 
-// 表の選択座標は concat_text (= GetText) の offset。
-static TextSelection MakeTableFullSelection(const Node& table)
-{
-    return TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(table.GetText().size()));
-}
-
 TEST(ExtractSelectedTextAsHtml, TableRendersAsTableStructure)
 {
     auto nodes = ParseNodes(
@@ -287,8 +236,7 @@ TEST(ExtractSelectedTextAsHtml, TableRendersAsTableStructure)
                      "| 1 | 2 |");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
-    auto sel = MakeTableFullSelection(nodes[0]);
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
     EXPECT_NE(html.find("<table"), std::string::npos);
     EXPECT_NE(html.find("<thead>"), std::string::npos);
     EXPECT_NE(html.find("<th"), std::string::npos);
@@ -313,8 +261,7 @@ TEST(ExtractSelectedTextAsHtml, TableAlignmentAppliedAsTextAlign)
                      "| a | b | c |");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
-    auto sel = MakeTableFullSelection(nodes[0]);
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
     EXPECT_NE(html.find("text-align:center;"), std::string::npos);
     EXPECT_NE(html.find("text-align:right;"), std::string::npos);
 }
@@ -327,8 +274,7 @@ TEST(ExtractSelectedTextAsHtml, TablePreservesInlineFormatting)
                      "| **bold** | [link](https://example.com) |");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
-    auto sel = MakeTableFullSelection(nodes[0]);
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
     EXPECT_NE(html.find("<strong>bold</strong>"), std::string::npos);
     EXPECT_NE(html.find("<a href=\"https://example.com\">link</a>"), std::string::npos);
 }
@@ -388,7 +334,7 @@ TEST(ExtractSelectedTextAsHtml, TableFullSelectionKeepsEmptyHeaderRow)
                      "| a | b |");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
-    const auto html = ExtractSelectedTextAsHtml(nodes, MakeTableFullSelection(nodes[0]));
+    const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
     EXPECT_NE(html.find("<thead>"), std::string::npos);
     EXPECT_EQ(CountOccurrences(html, "<tr>"), 2u);
 }
@@ -415,8 +361,7 @@ TEST(ExtractSelectedTextAsHtml, TableDarkModeUsesDarkBorder)
                      "|---|---|\n"
                      "| 1 | 2 |");
     ASSERT_EQ(nodes[0].type, NodeType::Table);
-    auto sel = MakeTableFullSelection(nodes[0]);
-    auto html = ExtractSelectedTextAsHtml(nodes, sel, /*dark_mode=*/true);
+    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), /*dark_mode=*/true);
     EXPECT_NE(html.find("border:1px solid #3c3c3c"), std::string::npos);
     EXPECT_EQ(html.find("#d0d7de"), std::string::npos);
 }
@@ -429,8 +374,7 @@ TEST(ExtractSelectedTextAsHtml, TableWithoutDataFallsBackToPre)
     n.SetText("fallback", 0);
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(n));
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
     EXPECT_EQ(html.find("<table"), std::string::npos);
     EXPECT_NE(html.find("<pre>fallback</pre>"), std::string::npos);
 }
@@ -440,8 +384,7 @@ TEST(ExtractSelectedTextAsHtml, ImageRendersAsImgTag)
     auto nodes = ParseNodes("![alt text](https://example.com/img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Image);
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
     EXPECT_NE(html.find("<img src=\"https://example.com/img.png\""), std::string::npos);
     EXPECT_NE(html.find("alt=\"alt text\""), std::string::npos);
     EXPECT_EQ(html.find("<pre>"), std::string::npos);
@@ -453,8 +396,7 @@ TEST(ExtractSelectedTextAsHtml, ImageEscapesAttributesSafely)
     auto nodes = ParseNodes("![Q&A \"x\"](path?a=1&b=2)");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Image);
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
     EXPECT_NE(html.find("src=\"path?a=1&amp;b=2\""), std::string::npos);
     EXPECT_NE(html.find("Q&amp;A"), std::string::npos);
     EXPECT_NE(html.find("&quot;x&quot;"), std::string::npos);
@@ -490,52 +432,19 @@ TEST(ExtractSelectedTextAsHtml, ImageSrcDropsUnsafeSchemes)
         auto nodes = ParseNodes(c.md);
         ASSERT_EQ(nodes.size(), 1u);
         ASSERT_EQ(nodes[0].type, NodeType::Image);
-        auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-        const auto html = ExtractSelectedTextAsHtml(nodes, sel);
+        const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
         EXPECT_EQ(html.contains(" src=\""), c.keeps_src) << html;
         EXPECT_TRUE(html.contains("alt=\"x\"")) << html;
     }
 }
 
-TEST(ExtractSelectedTextAsHtml, UnorderedListWrapsInUl)
+TEST(ExtractSelectedTextAsHtml, ListsWrapInUlAndOl)
 {
-    auto nodes = ParseNodes("- one\n- two");
-    ASSERT_GE(nodes.size(), 2u);
-    auto sel = TextSelection::MakeOrdered(0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find("<ul>"), std::string::npos);
-    EXPECT_NE(html.find("<li>one</li>"), std::string::npos);
-    EXPECT_NE(html.find("<li>two</li>"), std::string::npos);
-    EXPECT_NE(html.find("</ul>"), std::string::npos);
+    EXPECT_EQ(CopyAllAsHtml("- one\n- two"), "<ul><li>one</li><li>two</li></ul>");
+    EXPECT_EQ(CopyAllAsHtml("1. first\n2. second"), "<ol><li>first</li><li>second</li></ol>");
+    EXPECT_EQ(CopyAllAsHtml("1. [ ] first\n2. [x] second"),
+              "<ol><li><input type=\"checkbox\" disabled> first</li><li><input type=\"checkbox\" checked disabled> second</li></ol>");
 }
-
-TEST(ExtractSelectedTextAsHtml, OrderedListWrapsInOl)
-{
-    auto nodes = ParseNodes("1. first\n2. second");
-    ASSERT_GE(nodes.size(), 2u);
-    auto sel = TextSelection::MakeOrdered(0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find("<ol>"), std::string::npos);
-    EXPECT_NE(html.find("<li>first</li>"), std::string::npos);
-    EXPECT_NE(html.find("<li>second</li>"), std::string::npos);
-    EXPECT_NE(html.find("</ol>"), std::string::npos);
-}
-
-namespace {
-
-TextSelection SelectAll(const std::pmr::vector<Node>& nodes)
-{
-    const int last = static_cast<int>(nodes.size()) - 1;
-    return TextSelection::MakeOrdered(0, 0, last, static_cast<uint32_t>(nodes[last].GetText().size()));
-}
-
-std::pmr::string CopyAllAsHtml(std::string_view md, bool dark_mode = false)
-{
-    const auto nodes = ParseNodes(md);
-    return ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), dark_mode);
-}
-
-} // namespace
 
 // loose list は LI が空の枠で本文が後ろの段落ノードになるが、段落を同じ <li> に入れてリストを保つ。
 TEST(ExtractSelectedTextAsHtml, LooseListKeepsParagraphsInsideItems)
@@ -629,7 +538,7 @@ TEST(ExtractSelectedTextAsHtml, TableLinkSafetyIsPerUrl)
     auto nodes = ParseNodes("| [a](https://a.example) | [b](javascript:alert(1)) |\n|---|---|\n"
                             "| [c](javascript:alert(2)) | [d](https://d.example) |");
     ASSERT_EQ(nodes.size(), 1u);
-    const auto html = ExtractSelectedTextAsHtml(nodes, MakeTableFullSelection(nodes[0]));
+    const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
     EXPECT_TRUE(html.contains("<a href=\"https://a.example\">a</a>")) << html;
     EXPECT_TRUE(html.contains("<a href=\"https://d.example\">d</a>")) << html;
     EXPECT_FALSE(html.contains("javascript")) << html;
@@ -685,34 +594,11 @@ TEST(ExtractSelectedTextAsHtml, QuoteAfterListIsOutsideList)
     EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, SelectAll(nodes)), "<ul><li>a</li></ul><blockquote>q</blockquote>");
 }
 
-TEST(ExtractSelectedTextAsHtml, BlockQuote)
+TEST(ExtractSelectedTextAsHtml, BlocksJoinWithoutSeparators)
 {
-    auto nodes = ParseNodes("> quoted text");
-    ASSERT_EQ(nodes[0].type, NodeType::BlockQuote);
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find("<blockquote>"), std::string::npos);
-    EXPECT_NE(html.find("</blockquote>"), std::string::npos);
-    EXPECT_NE(html.find("quoted text"), std::string::npos);
-}
-
-TEST(ExtractSelectedTextAsHtml, HorizontalRule)
-{
-    auto nodes = ParseNodes("before\n\n---\n\nafter");
-    ASSERT_GE(nodes.size(), 3u);
-    ASSERT_EQ(nodes[1].type, NodeType::HorizontalRule);
-    auto sel = TextSelection::MakeOrdered(0, 0, 2, static_cast<uint32_t>(nodes[2].GetText().size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find("<hr>"), std::string::npos);
-}
-
-TEST(ExtractSelectedTextAsHtml, MultiParagraph)
-{
-    auto nodes = ParseNodes("First\n\nSecond");
-    ASSERT_EQ(nodes.size(), 2u);
-    auto sel = TextSelection::MakeOrdered(0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
-    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel),
-              "<p>First</p><p>Second</p>");
+    EXPECT_EQ(CopyAllAsHtml("> quoted text"), "<blockquote>quoted text</blockquote>");
+    EXPECT_EQ(CopyAllAsHtml("before\n\n---\n\nafter"), "<p>before</p><hr><p>after</p>");
+    EXPECT_EQ(CopyAllAsHtml("First\n\nSecond"), "<p>First</p><p>Second</p>");
 }
 
 TEST(ExtractSelectedTextAsHtml, PartialSelectionInParagraph)
@@ -722,111 +608,52 @@ TEST(ExtractSelectedTextAsHtml, PartialSelectionInParagraph)
     EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), "<p>world</p>");
 }
 
-TEST(ExtractSelectedTextAsHtml, OrderedTaskListWrapsInOl)
+// IsSafeUrlScheme を通らないリンクは外し、文字だけ残す。
+TEST(ExtractSelectedTextAsHtml, LinkKeepsOnlySafeSchemes)
 {
-    auto nodes = ParseNodes("1. [ ] first\n2. [x] second");
-    ASSERT_GE(nodes.size(), 2u);
-    ASSERT_EQ(nodes[0].type, NodeType::TaskListItem);
-    ASSERT_EQ(nodes[1].type, NodeType::TaskListItem);
-    auto sel = TextSelection::MakeOrdered(0, 0, 1, static_cast<uint32_t>(nodes[1].GetText().size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find("<ol>"), std::string::npos);
-    EXPECT_NE(html.find("</ol>"), std::string::npos);
-    EXPECT_EQ(html.find("<ul>"), std::string::npos);
-}
-
-TEST(ExtractSelectedTextAsHtml, UnsafeSchemeLinkIsStripped)
-{
-    auto nodes = ParseNodes("[click](javascript:alert(1))");
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_EQ(html.find("<a href="), std::string::npos);
-    EXPECT_EQ(html.find("javascript"), std::string::npos);
-    EXPECT_NE(html.find("click"), std::string::npos);
-}
-
-TEST(ExtractSelectedTextAsHtml, FileSchemeLinkIsStripped)
-{
-    auto nodes = ParseNodes("[open](file:///C:/secret.txt)");
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_EQ(html.find("<a href="), std::string::npos);
-    EXPECT_NE(html.find("open"), std::string::npos);
-}
-
-TEST(ExtractSelectedTextAsHtml, MailtoLinkIsKept)
-{
-    auto nodes = ParseNodes("[mail](mailto:user@example.com)");
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_NE(html.find("<a href=\"mailto:user@example.com\">mail</a>"), std::string::npos);
-}
-
-TEST(ExtractSelectedTextAsHtml, InternalAnchorLinkIsStripped)
-{
-    auto nodes = ParseNodes("[sec](#section)");
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    auto html = ExtractSelectedTextAsHtml(nodes, sel);
-    EXPECT_EQ(html.find("<a href="), std::string::npos);
-    EXPECT_NE(html.find("sec"), std::string::npos);
+    struct Case {
+        std::string_view md;
+        std::string_view expected;
+    };
+    constexpr Case kCases[] = {
+        { "[click](https://example.com)", "<p><a href=\"https://example.com\">click</a></p>" },
+        { "[mail](mailto:user@example.com)", "<p><a href=\"mailto:user@example.com\">mail</a></p>" },
+        { "[click](javascript:alert(1))", "<p>click</p>" },
+        { "[open](file:///C:/secret.txt)", "<p>open</p>" },
+        { "[sec](#section)", "<p>sec</p>" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.md);
+        EXPECT_EQ(CopyAllAsHtml(c.md), c.expected);
+    }
 }
 
 // ============================================================
 // FindLinkAtPosition
 // ============================================================
 
-TEST(FindLinkAtPosition, NoLinks)
+TEST(FindLinkAtPosition, ParsedParagraph)
 {
-    auto nodes = ParseNodes("plain text");
-    ASSERT_EQ(nodes.size(), 1u);
-    auto result = FindLinkAtPosition(nodes[0], 0);
-    EXPECT_FALSE(result.has_value());
-}
-
-TEST(FindLinkAtPosition, LinkFound)
-{
-    auto nodes = ParseNodes("[click](https://example.com)");
-    ASSERT_EQ(nodes.size(), 1u);
-    // リンクテキスト内の位置
-    auto result = FindLinkAtPosition(nodes[0], 0);
-    ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(result.value(), "https://example.com");
-}
-
-TEST(FindLinkAtPosition, PositionOutsideLink)
-{
-    auto nodes = ParseNodes("before [link](https://example.com) after");
-    ASSERT_EQ(nodes.size(), 1u);
-    // "before"テキスト内の位置（リンクではないはず）
-    auto result = FindLinkAtPosition(nodes[0], 0);
-    EXPECT_FALSE(result.has_value());
-}
-
-TEST(FindLinkAtPosition, InternalLink)
-{
-    auto nodes = ParseNodes("[section](#my-section)");
-    ASSERT_EQ(nodes.size(), 1u);
-    auto result = FindLinkAtPosition(nodes[0], 0);
-    ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(result.value(), "#my-section");
-}
-
-TEST(FindLinkAtPosition, PositionAtLinkBoundary)
-{
-    auto nodes = ParseNodes("[link](https://example.com)");
-    ASSERT_EQ(nodes.size(), 1u);
-    // リンクの最後の文字の位置
-    uint32_t last_pos = static_cast<uint32_t>(nodes[0].GetText().size()) - 1;
-    auto result = FindLinkAtPosition(nodes[0], last_pos);
-    ASSERT_TRUE(result.has_value());
-}
-
-TEST(FindLinkAtPosition, PositionBeyondText)
-{
-    auto nodes = ParseNodes("[link](https://example.com)");
-    ASSERT_EQ(nodes.size(), 1u);
-    auto result = FindLinkAtPosition(nodes[0], 9999);
-    EXPECT_FALSE(result.has_value());
+    struct Case {
+        std::string_view md;
+        uint32_t pos;
+        std::optional<std::string_view> expected;
+    };
+    const Case kCases[] = {
+        { "plain text", 0, std::nullopt },
+        { "[click](https://example.com)", 0, "https://example.com" },
+        { "before [link](https://example.com) after", 0, std::nullopt },
+        { "[section](#my-section)", 0, "#my-section" },
+        // リンク文字列の最後の文字
+        { "[link](https://example.com)", 3, "https://example.com" },
+        { "[link](https://example.com)", 9999, std::nullopt },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::Message() << c.md << " pos=" << c.pos);
+        const auto nodes = ParseNodes(c.md);
+        ASSERT_EQ(nodes.size(), 1u);
+        EXPECT_EQ(FindLinkAtPosition(nodes[0], c.pos), c.expected);
+    }
 }
 
 TEST(FindLinkAtPosition, EmptyNode)
@@ -1045,15 +872,7 @@ TEST(ExtractSelectedText, SelectionSpanningTableNode)
 
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(table_node));
-    TextSelection sel;
-    sel.start_node = 0;
-    sel.start_pos = 0;
-    sel.end_node = 0;
-    sel.end_pos = 3;
-    sel.active = true;
-
-    auto result = ExtractSelectedText(nodes, sel);
-    EXPECT_EQ(result, "A\tB");
+    EXPECT_EQ(ExtractSelectedText(nodes, TextSelection::MakeOrdered(0, 0, 0, 3)), "A\tB");
 }
 
 // issue #200: parser 経由で生成されたテーブル（線形化テキストは table_data->concat_text）に対し、selection が concat_text 内 offset を指しているとき、
@@ -1085,117 +904,39 @@ TEST(ExtractSelectedText, ParsedTableFullSelectionPreservesSeparators)
                      "|---|---|\n"
                      "| 1 | 2 |");
     ASSERT_EQ(nodes[0].type, NodeType::Table);
-    const auto* tbl = nodes[0].table_data();
-    ASSERT_NE(tbl, nullptr);
-
-    auto sel = TextSelection::MakeOrdered(0, 0, 0, static_cast<uint32_t>(tbl->concat_text.size()));
-    auto result = ExtractSelectedText(nodes, sel);
-    EXPECT_FALSE(result.empty());
-    // セル区切り '\t' / 行区切り '\n' を含み、各セルテキストが含まれること。
-    EXPECT_NE(result.find('\t'), std::string::npos);
-    EXPECT_NE(result.find('\n'), std::string::npos);
-    EXPECT_NE(result.find("A"), std::string::npos);
-    EXPECT_NE(result.find("B"), std::string::npos);
-    EXPECT_NE(result.find("1"), std::string::npos);
-    EXPECT_NE(result.find("2"), std::string::npos);
+    ASSERT_EQ(nodes[0].GetText(), nodes[0].table_data()->concat_text);
+    EXPECT_EQ(ExtractSelectedText(nodes, SelectAll(nodes)), "A\tB\r\n1\t2");
 }
 
-TEST(ExtractSelectedText, StartNodeOutOfRange)
+// 範囲外のノード番号は飛ばし、範囲内のノードだけを出す。
+TEST(ExtractSelectedText, NodeIndexOutOfRange)
 {
     std::pmr::vector<Node> nodes;
-    Node n;
-    n.SetText("hello", 0);
-    nodes.emplace_back(std::move(n));
-
-    TextSelection sel;
-    sel.start_node = -5;
-    sel.start_pos = 0;
-    sel.end_node = 0;
-    sel.end_pos = 5;
-    sel.active = true;
-
-    // クラッシュせず、無効なノードをスキップするべき
-    auto result = ExtractSelectedText(nodes, sel);
-    EXPECT_FALSE(result.empty());
-}
-
-TEST(ExtractSelectedText, EndNodeOutOfRange)
-{
-    std::pmr::vector<Node> nodes;
-    Node n;
-    n.SetText("hello", 0);
-    nodes.emplace_back(std::move(n));
-
-    TextSelection sel;
-    sel.start_node = 0;
-    sel.start_pos = 0;
-    sel.end_node = 100;
-    sel.end_pos = 5;
-    sel.active = true;
-
-    auto result = ExtractSelectedText(nodes, sel);
-    // 少なくとも最初のノードのテキストが含まれるべき
-    EXPECT_FALSE(result.empty());
+    nodes.push_back(MakeTextNode("hello"));
+    EXPECT_EQ(ExtractSelectedText(nodes, { .start_node = -5, .start_pos = 0, .end_node = 0, .end_pos = 5, .active = true }), "hello");
+    EXPECT_TRUE(ExtractSelectedText(nodes, { .start_node = 0, .start_pos = 0, .end_node = 100, .end_pos = 5, .active = true }).starts_with("hello"));
 }
 
 // ---- FindLinkAtPosition 追加テスト ----
 
-TEST(FindLinkAtPosition, MultipleLinkRuns)
-{
-    Node node;
-    node.SetText("link1 link2", 0);
-
-    AddTestLinkUrl(node, "https://a.com");
-    AddTestLinkUrl(node, "https://b.com");
-
-    TextRun r1;
-    r1.start = 0;
-    r1.length = 5;
-    r1.link_url_index = 0;
-
-    TextRun r2;
-    r2.start = 6;
-    r2.length = 5;
-    r2.link_url_index = 1;
-
-    const TextRun runs[]{ r1, r2 };
-    node.SetRuns(runs);
-
-    auto result1 = FindLinkAtPosition(node, 2);
-    ASSERT_TRUE(result1.has_value());
-    EXPECT_EQ(*result1, "https://a.com");
-
-    auto result2 = FindLinkAtPosition(node, 8);
-    ASSERT_TRUE(result2.has_value());
-    EXPECT_EQ(*result2, "https://b.com");
-
-    // 2つのリンクの間
-    auto gap = FindLinkAtPosition(node, 5);
-    EXPECT_FALSE(gap.has_value());
-}
-
-TEST(FindLinkHitAtPosition, ReturnsUrlIndex)
+TEST(FindLinkHitAtPosition, ReturnsUrlAndIndex)
 {
     Node node;
     node.SetText("link1 link2", 0);
     AddTestLinkUrl(node, "https://a.com");
     AddTestLinkUrl(node, "https://b.com");
-
-    TextRun r1;
-    r1.start = 0;
-    r1.length = 5;
-    r1.link_url_index = 0;
-    TextRun r2;
-    r2.start = 6;
-    r2.length = 5;
-    r2.link_url_index = 1;
-    const TextRun runs[]{ r1, r2 };
+    const TextRun runs[]{ MakeRun(0, 5, 0), MakeRun(6, 5, 1) };
     node.SetRuns(runs);
 
-    const auto hit = FindLinkHitAtPosition(node, 8);
-    ASSERT_TRUE(hit.has_value());
-    EXPECT_EQ(hit->url, "https://b.com");
-    EXPECT_EQ(hit->index, 1u);
+    const auto first = FindLinkHitAtPosition(node, 2);
+    ASSERT_TRUE(first.has_value());
+    EXPECT_EQ(first->url, "https://a.com");
+    EXPECT_EQ(first->index, 0u);
+    const auto second = FindLinkHitAtPosition(node, 8);
+    ASSERT_TRUE(second.has_value());
+    EXPECT_EQ(second->url, "https://b.com");
+    EXPECT_EQ(second->index, 1u);
+    // 2 つのリンクの間
     EXPECT_FALSE(FindLinkHitAtPosition(node, 5).has_value());
 }
 
@@ -1209,10 +950,7 @@ TEST(FindLinkHitAtPosition, BinarySearchBoundaries)
     const int16_t l1 = AddTestLinkUrl(node, "https://b.com");
     const int16_t l2 = AddTestLinkUrl(node, "https://c.com");
     const auto run = [](uint32_t start, uint32_t length, int16_t link) static {
-        TextRun r;
-        r.start = start;
-        r.length = length;
-        r.link_url_index = link;
+        TextRun r = MakeRun(start, length, link);
         r.set_bold(link < 0);
         return r;
     };
@@ -1244,31 +982,14 @@ TEST(FindLinkAtPosition, TableCellLinkFound)
     Node node;
     node.type = NodeType::Table;
     auto* tbl = AttachTestTable(node);
-
-    TextRun h0r;
-    h0r.start = 0;
-    h0r.length = 4;
-    TextRun h1r;
-    h1r.start = 0;
-    h1r.length = 3;
-    TextRun d0r;
-    d0r.start = 0;
-    d0r.length = 3;
-    TextRun d1r;
-    d1r.start = 0;
-    d1r.length = 3;
-    d1r.link_url_index = static_cast<int16_t>(node.view_link_urls().size());
-    AddTestLinkUrl(node, "https://example.com");
+    const int16_t link = AddTestLinkUrl(node, "https://example.com");
 
     // concat 化: "Name\tURL\nfoo\tbar", cell_text_starts: [0, 5, 9, 13, 16]
     tbl->row_count = 2;
     tbl->col_count = 2;
     tbl->concat_text = "Name\tURL\nfoo\tbar";
     tbl->cell_text_starts = { 0u, 5u, 9u, 13u, 16u };
-    tbl->all_runs.push_back(h0r);
-    tbl->all_runs.push_back(h1r);
-    tbl->all_runs.push_back(d0r);
-    tbl->all_runs.push_back(d1r);
+    tbl->all_runs = { MakeRun(0, 4), MakeRun(0, 3), MakeRun(0, 3), MakeRun(0, 3, link) };
     tbl->cell_run_starts = { 0u, 1u, 2u, 3u, 4u };
     tbl->aligns = { TableAlign::Default, TableAlign::Default };
     tbl->is_header_row = { true, false };
@@ -1315,19 +1036,14 @@ TEST(FindLinkAtPosition, TableCellInternalLink)
     Node node;
     node.type = NodeType::Table;
     auto* tbl = AttachTestTable(node);
-
-    TextRun r;
-    r.start = 0;
-    r.length = 7;
-    r.link_url_index = static_cast<int16_t>(node.view_link_urls().size());
-    AddTestLinkUrl(node, "#my-section");
+    const int16_t link = AddTestLinkUrl(node, "#my-section");
 
     // concat 化: 1 行 1 列の "section"
     tbl->row_count = 1;
     tbl->col_count = 1;
     tbl->concat_text = "section";
     tbl->cell_text_starts = { 0u, 7u };
-    tbl->all_runs.push_back(r);
+    tbl->all_runs = { MakeRun(0, 7, link) };
     tbl->cell_run_starts = { 0u, 1u };
     tbl->aligns = { TableAlign::Default };
     tbl->is_header_row = { false };
@@ -1343,35 +1059,22 @@ TEST(FindLinkAtPosition, TablePositionOnSeparator)
     Node node;
     node.type = NodeType::Table;
     auto* tbl = AttachTestTable(node);
-
-    TextRun r0;
-    r0.start = 0;
-    r0.length = 1;
-    TextRun r1;
-    r1.start = 0;
-    r1.length = 1;
-    r1.link_url_index = static_cast<int16_t>(node.view_link_urls().size());
-    AddTestLinkUrl(node, "https://b.com");
+    const int16_t link = AddTestLinkUrl(node, "https://b.com");
 
     // concat 化: 1 行 2 列の "A\tB"
     tbl->row_count = 1;
     tbl->col_count = 2;
     tbl->concat_text = "A\tB";
     tbl->cell_text_starts = { 0u, 2u, 3u };
-    tbl->all_runs.push_back(r0);
-    tbl->all_runs.push_back(r1);
+    tbl->all_runs = { MakeRun(0, 1), MakeRun(0, 1, link) };
     tbl->cell_run_starts = { 0u, 1u, 2u };
     tbl->aligns = { TableAlign::Default, TableAlign::Default };
     tbl->is_header_row = { false };
 
     // タブ区切り（オフセット1）はどのセルにもマッチしないべき
-    auto result = FindLinkAtPosition(node, 1);
-    EXPECT_FALSE(result.has_value());
-
+    EXPECT_FALSE(FindLinkAtPosition(node, 1).has_value());
     // "B"（オフセット2）でリンクが見つかるべき
-    auto link = FindLinkAtPosition(node, 2);
-    ASSERT_TRUE(link.has_value());
-    EXPECT_EQ(*link, "https://b.com");
+    EXPECT_EQ(FindLinkAtPosition(node, 2), "https://b.com");
 }
 
 // ---- GetCellText: 末尾行が col_count 未満で padding された場合 ----
@@ -1670,7 +1373,6 @@ TEST(DiffToNode, DeleteParagraph)
     int node = SimulateEditAndFindNode(old_md, new_md);
     ASSERT_GE(node, 0);
     // diff_pos=7（"RemoveMe" vs "Last"の開始位置）→ "Last"(offset=7)か"First"
-    auto nodes = ParseNodes(new_md);
     EXPECT_LE(node, 1); // "First" or "Last"
 }
 
@@ -1679,7 +1381,6 @@ TEST(DiffToNode, AppendToEnd)
     std::string old_md = "Existing";
     std::string new_md = "Existing\n\nAppended";
     int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseNodes(new_md);
     ASSERT_GE(node, 0);
     // diff_pos=8（old の末尾）→ "Existing"(offset=0)を返す
     // "Appended" の offset=10 > 8 なので "Existing" がマッチ
@@ -2069,81 +1770,29 @@ TEST(IsMarkdownFile, MatchesMarkdownExtensionsCaseInsensitively)
 }
 
 // ============================================================
-// IsHelpPath (残りのケースは test_help.cpp)
-// ============================================================
-
-// ============================================================
 // AppendInlineHtml の LF バッチ化境界ケース
 // ============================================================
 
-// Node を手動構築して <br> の出力同一性を検証するヘルパー。
-static std::pmr::string HtmlFromNodeText(std::string_view text_with_lf)
+// LF ごとに <br> を 1 個出し、前後のテキストはそのまま続ける。
+TEST(ExtractSelectedTextAsHtml, EachLfBecomesBr)
 {
-    Node n;
-    n.type = NodeType::Paragraph;
-    const auto lf_count = static_cast<int32_t>(
-        std::ranges::count(text_with_lf, '\n'));
-    SetTestText(n, text_with_lf, lf_count);
-    std::pmr::vector<Node> nodes;
-    nodes.emplace_back(std::move(n));
-    auto sel = TextSelection::MakeOrdered(
-        0, 0, 0, static_cast<uint32_t>(nodes[0].GetText().size()));
-    return ExtractSelectedTextAsHtml(nodes, sel);
-}
-
-// LF が1個: <br>が1つ出力されること。
-TEST(ExtractSelectedTextAsHtml, SingleLfProducesBr)
-{
-    auto html = HtmlFromNodeText("line1\nline2");
-    EXPECT_NE(html.find("<br>"), std::string::npos);
-    EXPECT_NE(html.find("line1"), std::string::npos);
-    EXPECT_NE(html.find("line2"), std::string::npos);
-    // <br> が 1 個だけであること
-    const auto pos1 = html.find("<br>");
-    ASSERT_NE(pos1, std::string::npos);
-    EXPECT_EQ(html.find("<br>", pos1 + 1), std::string::npos);
-}
-
-// 先頭 LF: <br> が先頭に出て後続テキストが続く。
-TEST(ExtractSelectedTextAsHtml, LeadingLfProducesBrFirst)
-{
-    auto html = HtmlFromNodeText("\nafter");
-    EXPECT_NE(html.find("<br>"), std::string::npos);
-    EXPECT_NE(html.find("after"), std::string::npos);
-    // <br> が "after" より前にある。
-    EXPECT_LT(html.find("<br>"), html.find("after"));
-}
-
-// 末尾 LF: テキスト後に <br> が出力される。
-TEST(ExtractSelectedTextAsHtml, TrailingLfProducesBrLast)
-{
-    auto html = HtmlFromNodeText("before\n");
-    EXPECT_NE(html.find("<br>"), std::string::npos);
-    EXPECT_NE(html.find("before"), std::string::npos);
-    EXPECT_GT(html.find("<br>"), html.find("before"));
-}
-
-// 連続 LF: LF の数だけ <br> が出力される。
-TEST(ExtractSelectedTextAsHtml, ConsecutiveLfsProduceMultipleBrs)
-{
-    auto html = HtmlFromNodeText("a\n\nb");
-    // <br> が2個。
-    const auto pos1 = html.find("<br>");
-    ASSERT_NE(pos1, std::string::npos);
-    const auto pos2 = html.find("<br>", pos1 + 1);
-    EXPECT_NE(pos2, std::string::npos);
-    // 3個目はない。
-    EXPECT_EQ(html.find("<br>", pos2 + 1), std::string::npos);
-}
-
-// テキストが LF のみ: <br> だけが出力される。
-TEST(ExtractSelectedTextAsHtml, OnlyLf)
-{
-    auto html = HtmlFromNodeText("\n");
-    const auto p_pos = html.find("<p>");
-    ASSERT_NE(p_pos, std::string::npos);
-    // テキストコンテンツなし: <p> の直後に <br> が来る。
-    EXPECT_EQ(html.find("<br>"), p_pos + 3);
+    struct Case {
+        const char* text;
+        std::string_view expected;
+    };
+    constexpr Case kCases[] = {
+        { "line1\nline2", "<p>line1<br>line2</p>" },
+        { "\nafter", "<p><br>after</p>" },
+        { "before\n", "<p>before<br></p>" },
+        { "a\n\nb", "<p>a<br><br>b</p>" },
+        { "\n", "<p><br></p>" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(std::string_view{ c.text }));
+        std::pmr::vector<Node> nodes;
+        nodes.push_back(MakeTextNode(c.text));
+        EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, SelectAll(nodes)), c.expected);
+    }
 }
 
 // ============================================================

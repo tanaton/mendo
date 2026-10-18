@@ -10,7 +10,8 @@ Document Document::FromMarkdown(std::pmr::string text, size_t byte_size, std::ws
                                 std::stop_token stop_token)
 {
     Document doc;
-    doc.SetFilePath(path);
+    doc.file_path_ = path;
+    doc.cached_directory_ = ParentDirectory(path);
     doc.ReplaceFromMarkdown(std::move(text), byte_size, std::move(stop_token));
     return doc;
 }
@@ -22,11 +23,6 @@ Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
     const size_t byte_size = utf8.size();
     NormalizeNewlines(utf8);
     return FromMarkdown(std::move(utf8), byte_size, path);
-}
-
-void Document::RebuildCachedDirectory()
-{
-    cached_directory_ = ParentDirectory(file_path_);
 }
 
 void Document::ReplaceContent(ParseResult&& result)

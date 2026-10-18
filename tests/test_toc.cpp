@@ -1,5 +1,10 @@
 #include <gtest/gtest.h>
+#include <initializer_list>
 #include <memory_resource>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 #include "toc.h"
 #include "layout_cache.h"
 #include "layout_queries.h"
@@ -24,86 +29,77 @@ ParsedToc ParseToc(std::string_view markdown)
     return { std::move(nodes), std::move(toc) };
 }
 
+struct TocItem {
+    int level;
+    std::string text;
+    bool operator==(const TocItem&) const = default;
+    friend void PrintTo(const TocItem& item, std::ostream* os)
+    {
+        *os << "{" << item.level << ", " << item.text << "}";
+    }
+};
+
+std::vector<TocItem> TocItems(const ParsedToc& parsed)
+{
+    std::vector<TocItem> items;
+    for (const auto& entry : parsed.toc.GetEntries()) {
+        items.push_back({ entry.heading_level, std::string{ parsed.nodes[entry.node_index].GetText() } });
+    }
+    return items;
+}
+
+// 目次の i 番目の見出しノードを tops[i] に置き、高さを height にした LayoutCache。
+LayoutCache MakeHeadingCache(const ParsedToc& parsed, std::initializer_list<float> tops, float height = 30.0f)
+{
+    LayoutCache cache;
+    cache.Resize(parsed.nodes.size());
+    size_t i = 0;
+    for (const float top : tops) {
+        const int node_index = parsed.toc.GetEntries()[i++].node_index;
+        cache.SetTop(node_index, top);
+        cache[node_index].height = height;
+    }
+    return cache;
+}
+
 } // namespace
 
-TEST(Toc, EmptyDocument)
+TEST(Toc, NoEntriesWithoutHeadings)
 {
-    auto [nodes, toc] = ParseToc("");
-    EXPECT_TRUE(toc.GetEntries().empty());
+    for (const std::string_view md : { std::string_view{ "" }, std::string_view{ "Just a paragraph.\n\n- List item\n\n> Quote" } }) {
+        SCOPED_TRACE(md);
+        EXPECT_TRUE(ParseToc(md).toc.GetEntries().empty());
+    }
 }
 
-TEST(Toc, NoHeadings)
+// 見出しだけを文書順に、レベルとテキストを保って並べる。同じテキストの見出しもそれぞれ載せる。
+TEST(Toc, EntriesFollowHeadingsInOrder)
 {
-    auto [nodes, toc] = ParseToc("Just a paragraph.\n\n- List item\n\n> Quote");
-    EXPECT_TRUE(toc.GetEntries().empty());
-}
-
-TEST(Toc, SingleHeading)
-{
-    auto [nodes, toc] = ParseToc("# Title");
-    ASSERT_EQ(toc.GetEntries().size(), 1u);
-    EXPECT_EQ(nodes[toc.GetEntries()[0].node_index].GetText(), "Title");
-    EXPECT_EQ(toc.GetEntries()[0].heading_level, 1);
-}
-
-TEST(Toc, MultipleHeadings)
-{
-    auto [nodes, toc] = ParseToc(
-                     "# First\n\n## Second\n\n### Third\n\nParagraph\n\n## Another");
-    ASSERT_EQ(toc.GetEntries().size(), 4u);
-    EXPECT_EQ(toc.GetEntries()[0].heading_level, 1);
-    EXPECT_EQ(toc.GetEntries()[1].heading_level, 2);
-    EXPECT_EQ(toc.GetEntries()[2].heading_level, 3);
-    EXPECT_EQ(toc.GetEntries()[3].heading_level, 2);
-}
-
-TEST(Toc, HeadingTextPreserved)
-{
-    auto [nodes, toc] = ParseToc("## Hello World");
-    ASSERT_EQ(toc.GetEntries().size(), 1u);
-    EXPECT_EQ(nodes[toc.GetEntries()[0].node_index].GetText(), "Hello World");
-}
-
-// ---- HitTest ----
-
-TEST(Toc, HitTestValidIndex)
-{
-    auto [nodes, toc] = ParseToc("# A\n\n## B\n\n### C");
-
-    EXPECT_EQ(toc.HitTest(0.0f, 28.0f), 0);
-    EXPECT_EQ(toc.HitTest(28.0f, 28.0f), 1);
-    EXPECT_EQ(toc.HitTest(56.0f, 28.0f), 2);
-}
-
-TEST(Toc, HitTestOutOfRange)
-{
-    auto [nodes, toc] = ParseToc("# A");
-
-    EXPECT_EQ(toc.HitTest(-1.0f, 28.0f), -1);
-    EXPECT_EQ(toc.HitTest(100.0f, 28.0f), -1);
-}
-
-TEST(Toc, HitTestZeroItemHeight)
-{
-    auto [nodes, toc] = ParseToc("# A");
-    EXPECT_EQ(toc.HitTest(10.0f, 0.0f), -1);
-}
-
-TEST(Toc, HitTestEmpty)
-{
-    TableOfContents toc;
-    EXPECT_EQ(toc.HitTest(0.0f, 28.0f), -1);
-}
-
-// ---- 追加エッジケース ----
-
-TEST(Toc, DuplicateHeadingText)
-{
-    auto [nodes, toc] = ParseToc("# Title\n\nSome text\n\n# Title\n\nMore text\n\n## Title");
-    ASSERT_EQ(toc.GetEntries().size(), 3u);
-    // すべて同じテキストを持つべき
-    for (const auto& entry : toc.GetEntries()) {
-        EXPECT_EQ(nodes[entry.node_index].GetText(), "Title");
+    struct Case {
+        std::string_view md;
+        std::vector<TocItem> expected;
+    };
+    const Case kCases[] = {
+        { "# Title", { { 1, "Title" } } },
+        { "## Hello World", { { 2, "Hello World" } } },
+        { "# First\n\n## Second\n\n### Third\n\nParagraph\n\n## Another",
+          { { 1, "First" }, { 2, "Second" }, { 3, "Third" }, { 2, "Another" } } },
+        { "# L1\n\n## L2\n\n### L3\n\n#### L4\n\n##### L5\n\n###### L6",
+          { { 1, "L1" }, { 2, "L2" }, { 3, "L3" }, { 4, "L4" }, { 5, "L5" }, { 6, "L6" } } },
+        { "# Title\n\nSome text\n\n# Title\n\nMore text\n\n## Title", { { 1, "Title" }, { 1, "Title" }, { 2, "Title" } } },
+        { "Para\n\n# First\n\nMore text\n\n## Second", { { 1, "First" }, { 2, "Second" } } },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.md);
+        const auto parsed = ParseToc(c.md);
+        EXPECT_EQ(TocItems(parsed), c.expected);
+        int prev = -1;
+        for (const auto& entry : parsed.toc.GetEntries()) {
+            ASSERT_LT(entry.node_index, static_cast<int>(parsed.nodes.size()));
+            EXPECT_EQ(parsed.nodes[entry.node_index].type, NodeType::Heading);
+            EXPECT_GT(entry.node_index, prev);
+            prev = entry.node_index;
+        }
     }
 }
 
@@ -113,54 +109,7 @@ TEST(Toc, ManyHeadings)
     for (int i = 0; i < 100; i++) {
         md += "## Heading " + std::to_string(i) + "\n\ntext\n\n";
     }
-    auto [nodes, toc] = ParseToc(md);
-    EXPECT_EQ(toc.GetEntries().size(), 100u);
-}
-
-TEST(Toc, HeadingLevelsPreserved)
-{
-    auto [nodes, toc] = ParseToc(
-                     "# L1\n\n## L2\n\n### L3\n\n#### L4\n\n##### L5\n\n###### L6");
-    ASSERT_EQ(toc.GetEntries().size(), 6u);
-    for (int i = 0; i < 6; i++) {
-        EXPECT_EQ(toc.GetEntries()[i].heading_level, i + 1);
-    }
-}
-
-TEST(Toc, HitTestBoundary)
-{
-    auto [nodes, toc] = ParseToc("# A\n\n## B");
-    // アイテム間の境界上ちょうどの位置
-    EXPECT_EQ(toc.HitTest(27.9f, 28.0f), 0);
-    EXPECT_EQ(toc.HitTest(28.0f, 28.0f), 1);
-}
-
-TEST(Toc, HitTestNegativeItemHeight)
-{
-    auto [nodes, toc] = ParseToc("# A");
-    EXPECT_EQ(toc.HitTest(10.0f, -1.0f), -1);
-}
-
-// ---- node_index ----
-
-TEST(Toc, NodeIndexRecorded)
-{
-    auto [nodes, toc] = ParseToc("Para\n\n# First\n\nMore text\n\n## Second");
-    ASSERT_EQ(toc.GetEntries().size(), 2u);
-    // 最初のノード(Para)はインデックス0、# FirstはParagraphの次のノード
-    EXPECT_GE(toc.GetEntries()[0].node_index, 0);
-    EXPECT_LT(toc.GetEntries()[0].node_index, static_cast<int>(nodes.size()));
-    EXPECT_GE(toc.GetEntries()[1].node_index, 0);
-    EXPECT_GT(toc.GetEntries()[1].node_index, toc.GetEntries()[0].node_index);
-}
-
-TEST(Toc, NodeIndexOrderPreserved)
-{
-    auto [nodes, toc] = ParseToc("# A\n\n## B\n\n### C");
-    ASSERT_EQ(toc.GetEntries().size(), 3u);
-    for (size_t i = 1; i < toc.GetEntries().size(); ++i) {
-        EXPECT_GT(toc.GetEntries()[i].node_index, toc.GetEntries()[i - 1].node_index);
-    }
+    EXPECT_EQ(ParseToc(md).toc.GetEntries().size(), 100u);
 }
 
 // ---- FindActiveIndex ----
@@ -174,40 +123,20 @@ TEST(Toc, FindActiveIndexEmpty)
 
 TEST(Toc, FindActiveIndexBeforeFirstHeading)
 {
-    auto [nodes, toc] = ParseToc("Para\n\n# Title");
-
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    // 見出しノードのy_positionを200に設定
-    int heading_idx = toc.GetEntries()[0].node_index;
-    cache.SetTop(heading_idx, 200.0f);
-    cache[heading_idx].height = 30.0f;
-
-    // scroll_y=0 は見出しより前 → -1
-    EXPECT_EQ(FindActiveTocIndex(toc, cache, 0.0f), -1);
+    const auto parsed = ParseToc("Para\n\n# Title");
+    const auto cache = MakeHeadingCache(parsed, { 200.0f });
+    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 0.0f), -1);
 }
 
+// scroll_y 以前に始まる最後の見出しがアクティブ。
 TEST(Toc, FindActiveIndexAtHeading)
 {
-    auto [nodes, toc] = ParseToc("# First\n\nText\n\n## Second");
-
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    int first_idx = toc.GetEntries()[0].node_index;
-    int second_idx = toc.GetEntries()[1].node_index;
-    cache.SetTop(first_idx, 10.0f);
-    cache[first_idx].height = 30.0f;
-    cache.SetTop(second_idx, 200.0f);
-    cache[second_idx].height = 25.0f;
-
-    // scroll_y=10 は最初の見出しのy_position丁度 → 0
-    EXPECT_EQ(FindActiveTocIndex(toc, cache, 10.0f), 0);
-    // scroll_y=100 は最初の見出しの後、2番目の前 → 0
-    EXPECT_EQ(FindActiveTocIndex(toc, cache, 100.0f), 0);
-    // scroll_y=200 は2番目の見出しのy_position丁度 → 1
-    EXPECT_EQ(FindActiveTocIndex(toc, cache, 200.0f), 1);
-    // scroll_y=300 は2番目の見出しの後 → 1
-    EXPECT_EQ(FindActiveTocIndex(toc, cache, 300.0f), 1);
+    const auto parsed = ParseToc("# First\n\nText\n\n## Second");
+    const auto cache = MakeHeadingCache(parsed, { 10.0f, 200.0f });
+    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 10.0f), 0);
+    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 100.0f), 0);
+    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 200.0f), 1);
+    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 300.0f), 1);
 }
 
 TEST(Toc, FindActiveIndexManyHeadings)
@@ -216,43 +145,27 @@ TEST(Toc, FindActiveIndexManyHeadings)
     for (int i = 0; i < 10; ++i) {
         md += "## H" + std::to_string(i) + "\n\nText\n\n";
     }
-    auto [nodes, toc] = ParseToc(md);
-    ASSERT_EQ(toc.GetEntries().size(), 10u);
+    const auto parsed = ParseToc(md);
+    ASSERT_EQ(parsed.toc.GetEntries().size(), 10u);
+    const auto cache = MakeHeadingCache(parsed, { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f, 700.0f, 800.0f, 900.0f });
 
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    // 各見出しノードのy_positionを 100*i に設定
-    for (int i = 0; i < 10; ++i) {
-        int ni = toc.GetEntries()[i].node_index;
-        cache.SetTop(ni, static_cast<float>(i * 100));
-        cache[ni].height = 30.0f;
-    }
-
-    EXPECT_EQ(FindActiveTocIndex(toc, cache, 0.0f), 0);
-    EXPECT_EQ(FindActiveTocIndex(toc, cache, 450.0f), 4);
-    EXPECT_EQ(FindActiveTocIndex(toc, cache, 999.0f), 9);
+    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 0.0f), 0);
+    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 450.0f), 4);
+    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 999.0f), 9);
 }
 
 // margin付きのFindActiveIndex: TOCリンククリック時に正しい見出しがアクティブになることを確認
 TEST(Toc, FindActiveIndexWithMargin)
 {
-    auto [nodes, toc] = ParseToc("# First\n\nText\n\n## Second");
-
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    int first_idx = toc.GetEntries()[0].node_index;
-    int second_idx = toc.GetEntries()[1].node_index;
-    cache.SetTop(first_idx, 100.0f);
-    cache[first_idx].height = 30.0f;
-    cache.SetTop(second_idx, 300.0f);
-    cache[second_idx].height = 25.0f;
+    const auto parsed = ParseToc("# First\n\nText\n\n## Second");
+    const auto cache = MakeHeadingCache(parsed, { 100.0f, 300.0f });
 
     // NavigateToAnchorが target_y = y_position - margin でスクロールする想定
     // margin=50 のとき、scroll_y=250 (= 300 - 50) で2番目の見出しがアクティブになるべき
-    float margin = 50.0f;
-    float scroll_after_click = 300.0f - margin; // = 250
+    constexpr float margin = 50.0f;
+    constexpr float scroll_after_click = 300.0f - margin;
     // margin無しでは scroll_y=250 < y_position=300 なので1番目が選ばれてしまう
-    EXPECT_EQ(FindActiveTocIndex(toc, cache, scroll_after_click), 0);
+    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, scroll_after_click), 0);
     // margin有りでは threshold=300 >= y_position=300 なので2番目が正しく選ばれる
-    EXPECT_EQ(FindActiveTocIndex(toc, cache, scroll_after_click, margin), 1);
+    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, scroll_after_click, margin), 1);
 }

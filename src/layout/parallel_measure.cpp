@@ -5,7 +5,6 @@
 #include "task_scheduler.h"
 #include <algorithm>
 #include <atomic>
-#include <windows.h>
 
 namespace layout {
 
@@ -55,7 +54,7 @@ int MeasureIndicesParallel(
     const Theme& theme,
     const ITextMeasurer& backend,
     std::span<const size_t> indices,
-    MeasureViewportRange measure_vp,
+    MeasureViewportRange viewport,
     TaskScheduler* scheduler)
 {
     if (!indices.empty()) {
@@ -67,7 +66,7 @@ int MeasureIndicesParallel(
     // 1 画面分 (数十ノード) の dirty でも全 worker に行き渡らせる。
     ParallelFor(scheduler, indices.size(), 1, [&](size_t begin, size_t end) {
         MENDO_PROFILE("MeasureNode.chunk");
-        const int failed_in_chunk = MeasureChunk(nodes, cache, content_width, theme, backend, indices.subspan(begin, end - begin), measure_vp);
+        const int failed_in_chunk = MeasureChunk(nodes, cache, content_width, theme, backend, indices.subspan(begin, end - begin), viewport);
         if (failed_in_chunk > 0) {
             failed_node_count.fetch_add(failed_in_chunk, std::memory_order_relaxed);
         }

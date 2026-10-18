@@ -1,23 +1,25 @@
 #include <gtest/gtest.h>
 #include <memory_resource>
+#include <string>
 #include <string_view>
 #include "document_service.h"
 #include "test_helpers.h"
-#include <fstream>
-#include <filesystem>
 
 class DocumentServiceTest : public TempDirTestBase {
 protected:
-    std::pmr::wstring CreateTestFile(const std::string& name, const std::string& content)
+    std::pmr::wstring WriteDoc(std::wstring_view name, std::string_view content)
     {
-        const auto path = WriteTempFile(std::filesystem::path(name).wstring(), content);
-        return std::pmr::wstring{ path.wstring() };
+        return std::pmr::wstring{ WriteTempFile(name, content).native() };
+    }
+    std::pmr::wstring MissingPath() const
+    {
+        return std::pmr::wstring{ (temp_dir_ / L"missing.md").native() };
     }
 };
 
 TEST_F(DocumentServiceTest, LoadFileSuccess)
 {
-    auto path = CreateTestFile("test.md", "# Hello\nWorld");
+    const auto path = WriteDoc(L"test.md", "# Hello\nWorld");
 
     auto result = DocumentService::LoadFile(path);
     ASSERT_TRUE(result.has_value());
@@ -26,45 +28,31 @@ TEST_F(DocumentServiceTest, LoadFileSuccess)
     EXPECT_FALSE(result->GetToc().GetEntries().empty());
 }
 
+// 親フォルダはあるがファイルが無い場合と、親フォルダごと無い場合 (ERROR_PATH_NOT_FOUND)。
 TEST_F(DocumentServiceTest, LoadFileNotFound)
 {
-    std::pmr::wstring nonexistent{ L"C:\\nonexistent\\file.md" };
-    auto result = DocumentService::LoadFile(nonexistent);
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error(), FileLoadError::NotFound);
+    const std::pmr::wstring kPaths[] = {
+        MissingPath(),
+        std::pmr::wstring{ (temp_dir_ / L"no_such_dir" / L"file.md").native() },
+    };
+    for (const auto& path : kPaths) {
+        SCOPED_TRACE(::testing::PrintToString(std::wstring{ path }));
+        auto result = DocumentService::LoadFile(path);
+        ASSERT_FALSE(result.has_value());
+        EXPECT_EQ(result.error(), FileLoadError::NotFound);
+    }
 }
 
-TEST_F(DocumentServiceTest, IsAsyncLoadCandidateSmallFile)
+// 64KB を超えるファイルと、サイズを取れないパスは非同期ロードに回す。
+TEST_F(DocumentServiceTest, IsAsyncLoadCandidateBySize)
 {
-    auto path = CreateTestFile("small.md", "# Small");
-    EXPECT_FALSE(DocumentService::IsAsyncLoadCandidate(path));
+    EXPECT_FALSE(DocumentService::IsAsyncLoadCandidate(WriteDoc(L"small.md", "# Small")));
+    EXPECT_TRUE(DocumentService::IsAsyncLoadCandidate(WriteDoc(L"large.md", std::string(65 * 1024, 'x'))));
+    EXPECT_TRUE(DocumentService::IsAsyncLoadCandidate(MissingPath()));
 }
 
-TEST_F(DocumentServiceTest, IsAsyncLoadCandidateLargeFile)
+TEST_F(DocumentServiceTest, ShouldShowLoadingAnimationBySize)
 {
-    // 64KB超のファイルは非同期ロード判定
-    std::string content(65 * 1024, 'x');
-    auto path = CreateTestFile("large.md", content);
-    EXPECT_TRUE(DocumentService::IsAsyncLoadCandidate(path));
+    EXPECT_FALSE(DocumentService::ShouldShowLoadingAnimation(WriteDoc(L"small.md", "# Small")));
+    EXPECT_TRUE(DocumentService::ShouldShowLoadingAnimation(MissingPath()));
 }
-
-TEST_F(DocumentServiceTest, IsAsyncLoadCandidateNonexistent)
-{
-    auto ws = (temp_dir_ / "nonexistent_async.md").wstring();
-    std::pmr::wstring nonexistent{ ws };
-    EXPECT_TRUE(DocumentService::IsAsyncLoadCandidate(nonexistent));
-}
-
-TEST_F(DocumentServiceTest, ShouldShowLoadingAnimationSmallFile)
-{
-    auto path = CreateTestFile("small.md", "# Small");
-    EXPECT_FALSE(DocumentService::ShouldShowLoadingAnimation(path));
-}
-
-TEST_F(DocumentServiceTest, ShouldShowLoadingAnimationNonexistent)
-{
-    auto ws = (temp_dir_ / "nonexistent_anim.md").wstring();
-    std::pmr::wstring nonexistent{ ws };
-    EXPECT_TRUE(DocumentService::ShouldShowLoadingAnimation(nonexistent));
-}
-

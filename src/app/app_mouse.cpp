@@ -17,20 +17,6 @@
 
 namespace {
 
-std::wstring_view OverlayButtonTooltipText(OverlayButton kind) noexcept
-{
-    switch (kind) {
-    case OverlayButton::DiagramCopy:
-        return i18n::S().tooltip_copy_diagram;
-    case OverlayButton::DiagramSave:
-        return i18n::S().tooltip_save_image;
-    case OverlayButton::CodeCopy:
-    case OverlayButton::None:
-        return i18n::S().tooltip_copy;
-    }
-    std::unreachable();
-}
-
 // button はペイン左上を原点とする矩形。
 constexpr bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_height, const D2D1_RECT_F& button)
 {
@@ -64,6 +50,99 @@ bool IsOverPaneScrollbar(float dip_x, const PaneRect& rect, const PaneScrollInfo
     return dip_x - rect.x >= VScrollbarHitLeftX(rect.width) && scroll_info.total_content > scroll_info.content_height;
 }
 
+std::wstring_view OverlayButtonTooltipText(OverlayButton kind) noexcept
+{
+    switch (kind) {
+    case OverlayButton::DiagramCopy:
+        return i18n::S().tooltip_copy_diagram;
+    case OverlayButton::DiagramSave:
+        return i18n::S().tooltip_save_image;
+    case OverlayButton::CodeCopy:
+    case OverlayButton::None:
+        return i18n::S().tooltip_copy;
+    }
+    std::unreachable();
+}
+
+std::wstring_view TitleBarTooltipText(TitleBarHitZone zone, bool is_maximized) noexcept
+{
+    const auto& ls = i18n::S();
+    switch (zone) {
+    case TitleBarHitZone::None:
+    case TitleBarHitZone::Caption:
+    case TitleBarHitZone::Icon:
+        return {};
+    case TitleBarHitZone::OpenFile:
+        return ls.tooltip_open_file;
+    case TitleBarHitZone::Help:
+        return ls.tooltip_help;
+    case TitleBarHitZone::ThemeToggle:
+        return ls.tooltip_theme_toggle;
+    case TitleBarHitZone::Search:
+        return ls.tooltip_search;
+    case TitleBarHitZone::FileToggle:
+        return ls.tooltip_file_pane;
+    case TitleBarHitZone::TocToggle:
+        return ls.tooltip_toc_pane;
+    case TitleBarHitZone::Minimize:
+        return ls.tooltip_minimize;
+    case TitleBarHitZone::Maximize:
+        return is_maximized ? ls.tooltip_restore : ls.tooltip_maximize;
+    case TitleBarHitZone::Close:
+        return ls.tooltip_close;
+    }
+    std::unreachable();
+}
+
+std::wstring_view SearchBarTooltipText(SearchBarHitZone zone) noexcept
+{
+    const auto& ls = i18n::S();
+    switch (zone) {
+    case SearchBarHitZone::Up:
+        return ls.tooltip_search_prev;
+    case SearchBarHitZone::Down:
+        return ls.tooltip_search_next;
+    case SearchBarHitZone::CaseSensitive:
+        return ls.tooltip_search_case;
+    case SearchBarHitZone::Highlight:
+        return ls.tooltip_search_highlight;
+    case SearchBarHitZone::Close:
+        return ls.tooltip_search_close;
+    case SearchBarHitZone::None:
+    case SearchBarHitZone::Input:
+        return {};
+    }
+    std::unreachable();
+}
+
+std::wstring_view NavButtonTooltipText(NavButtonHover hit) noexcept
+{
+    switch (hit) {
+    case NavButtonHover::None:
+        return {};
+    case NavButtonHover::Back:
+        return i18n::S().tooltip_nav_back;
+    case NavButtonHover::Forward:
+        return i18n::S().tooltip_nav_forward;
+    }
+    std::unreachable();
+}
+
+std::wstring_view PaneHeaderButtonTooltipText(PaneHeaderButton hit) noexcept
+{
+    switch (hit) {
+    case PaneHeaderButton::None:
+        return {};
+    case PaneHeaderButton::Close:
+        return i18n::S().tooltip_pane_close;
+    case PaneHeaderButton::Refresh:
+        return i18n::S().tooltip_pane_refresh;
+    case PaneHeaderButton::Reveal:
+        return i18n::S().tooltip_pane_reveal;
+    }
+    std::unreachable();
+}
+
 // text が空 (該当ボタンなし) なら空のターゲットを返す。
 TooltipTarget MakeButtonTooltip(const TooltipTarget& current, TooltipTarget::Zone zone, uint64_t key, std::wstring_view text)
 {
@@ -72,78 +151,9 @@ TooltipTarget MakeButtonTooltip(const TooltipTarget& current, TooltipTarget::Zon
 
 TooltipTarget BuildTitleBarTooltip(const TooltipTarget& current, TitleBarHitZone zone, bool is_maximized)
 {
-    const auto& ls = i18n::S();
-    const std::wstring_view text = [&]() -> std::wstring_view {
-        switch (zone) {
-        case TitleBarHitZone::None:
-        case TitleBarHitZone::Caption:
-        case TitleBarHitZone::Icon:
-            return {};
-        case TitleBarHitZone::OpenFile:
-            return ls.tooltip_open_file;
-        case TitleBarHitZone::Help:
-            return ls.tooltip_help;
-        case TitleBarHitZone::ThemeToggle:
-            return ls.tooltip_theme_toggle;
-        case TitleBarHitZone::Search:
-            return ls.tooltip_search;
-        case TitleBarHitZone::FileToggle:
-            return ls.tooltip_file_pane;
-        case TitleBarHitZone::TocToggle:
-            return ls.tooltip_toc_pane;
-        case TitleBarHitZone::Minimize:
-            return ls.tooltip_minimize;
-        case TitleBarHitZone::Maximize:
-            return is_maximized ? ls.tooltip_restore : ls.tooltip_maximize;
-        case TitleBarHitZone::Close:
-            return ls.tooltip_close;
-        }
-        std::unreachable();
-    }();
     // 最大化ボタンは状態で文言が変わるため key を分ける。
     const uint64_t key = std::to_underlying(zone) * 2ull + (zone == TitleBarHitZone::Maximize && is_maximized);
-    return MakeButtonTooltip(current, TooltipTarget::Zone::TitleBarButton, key, text);
-}
-
-TooltipTarget BuildSearchBarTooltip(const TooltipTarget& current, SearchBarHitZone zone)
-{
-    const auto& ls = i18n::S();
-    const std::wstring_view text = [&]() -> std::wstring_view {
-        switch (zone) {
-        case SearchBarHitZone::Up:
-            return ls.tooltip_search_prev;
-        case SearchBarHitZone::Down:
-            return ls.tooltip_search_next;
-        case SearchBarHitZone::CaseSensitive:
-            return ls.tooltip_search_case;
-        case SearchBarHitZone::Highlight:
-            return ls.tooltip_search_highlight;
-        case SearchBarHitZone::Close:
-            return ls.tooltip_search_close;
-        case SearchBarHitZone::None:
-        case SearchBarHitZone::Input:
-            return {};
-        }
-        std::unreachable();
-    }();
-    return MakeButtonTooltip(current, TooltipTarget::Zone::SearchBarButton, std::to_underlying(zone), text);
-}
-
-TooltipTarget BuildNavButtonTooltip(const TooltipTarget& current, NavButtonHover hit)
-{
-    const auto& ls = i18n::S();
-    const std::wstring_view text = [&]() -> std::wstring_view {
-        switch (hit) {
-        case NavButtonHover::None:
-            return {};
-        case NavButtonHover::Back:
-            return ls.tooltip_nav_back;
-        case NavButtonHover::Forward:
-            return ls.tooltip_nav_forward;
-        }
-        std::unreachable();
-    }();
-    return MakeButtonTooltip(current, TooltipTarget::Zone::NavButton, std::to_underlying(hit), text);
+    return MakeButtonTooltip(current, TooltipTarget::Zone::TitleBarButton, key, TitleBarTooltipText(zone, is_maximized));
 }
 
 // 上位 32bit に親 (node index・一覧の世代)、下位に子 (リンク index・項目 index) を詰める。
@@ -268,8 +278,7 @@ void App::OnLButtonDblClk(int px, int py)
 
 void App::OnMouseMove(int px, int py)
 {
-    auto* rt = renderer_.GetRenderTarget();
-    if (!rt) {
+    if (!IsRenderReady()) {
         return;
     }
 
@@ -375,7 +384,6 @@ void App::OnRButtonMove(int px, int py)
     const auto dip = PixelToDip(px, py);
     Dispatch(RightClickGestureMovedAction{ dip.x, dip.y });
 }
-
 
 void App::HandleLinkClick(std::string_view url)
 {
@@ -703,11 +711,11 @@ HCURSOR App::HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLay
     switch (target.kind) {
     case MdPaneHit::Kind::SearchBar:
         hover.search_bar = target.search_bar;
-        hover.tooltip = BuildSearchBarTooltip(current_tooltip, hover.search_bar);
+        hover.tooltip = MakeButtonTooltip(current_tooltip, TooltipTarget::Zone::SearchBarButton, std::to_underlying(hover.search_bar), SearchBarTooltipText(hover.search_bar));
         return hover.search_bar == SearchBarHitZone::Input ? cursors_.IBeam() : cursors_.Arrow();
     case MdPaneHit::Kind::NavButton:
         hover.nav = target.nav;
-        hover.tooltip = BuildNavButtonTooltip(current_tooltip, hover.nav);
+        hover.tooltip = MakeButtonTooltip(current_tooltip, TooltipTarget::Zone::NavButton, std::to_underlying(hover.nav), NavButtonTooltipText(hover.nav));
         return cursors_.Hand();
     case MdPaneHit::Kind::Scrollbar:
         return cursors_.Arrow();
@@ -743,12 +751,8 @@ TooltipTarget App::BuildSidePaneTooltip(PaneTarget target, PaneHeaderButton hit,
     const bool is_file = target == PaneTarget::File;
     const auto& current = state_.interaction.tooltip.GetCurrent();
     if (hit != PaneHeaderButton::None) {
-        const auto& ls = i18n::S();
-        const std::wstring_view text = hit == PaneHeaderButton::Close     ? ls.tooltip_pane_close
-                                       : hit == PaneHeaderButton::Refresh ? ls.tooltip_pane_refresh
-                                                                          : ls.tooltip_pane_reveal;
         const auto zone = is_file ? TooltipTarget::Zone::FilePaneButton : TooltipTarget::Zone::TocPaneButton;
-        return MakeTooltip(current, zone, std::to_underlying(hit), text);
+        return MakeTooltip(current, zone, std::to_underlying(hit), PaneHeaderButtonTooltipText(hit));
     }
     if (idx < 0) {
         return {};

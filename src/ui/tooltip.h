@@ -64,6 +64,9 @@ inline TooltipTarget MakeTooltip(const TooltipTarget& current, TooltipTarget::Zo
 struct HWND__;
 using HWND = HWND__*;
 
+// メインウィンドウとツールチップの両方に使う。<dwmapi.h> / <uxtheme.h> をヘッダに漏らさないため実装は tooltip.cpp。
+void ApplyDarkModeToWindow(HWND hwnd, bool dark);
+
 class Tooltip {
 public:
     Tooltip();

@@ -71,6 +71,30 @@ inline Node MakeTableNode(const char* cell0, const char* cell1)
     return n;
 }
 
+// 各行に同じ cell が入る rows 行 1 列のテーブルノード。行は '\n' で区切る。
+inline Node MakeSingleColumnTableNode(std::string_view cell, uint32_t rows)
+{
+    Node n;
+    n.type = NodeType::Table;
+    auto* tbl = AttachTestTable(n);
+    tbl->row_count = rows;
+    tbl->col_count = 1;
+    for (uint32_t r = 0; r < rows; ++r) {
+        if (r > 0) {
+            tbl->concat_text.push_back('\n');
+        }
+        tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
+        tbl->cell_run_starts.push_back(0);
+        tbl->is_header_row.push_back(false);
+        tbl->concat_text.append(cell);
+    }
+    tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
+    tbl->cell_run_starts.push_back(0);
+    tbl->aligns.push_back(TableAlign::Default);
+    n.SetText(tbl->concat_text);
+    return n;
+}
+
 // 等間隔ノードの LayoutCache を構築するテスト用ヘルパー。
 // 複数テストファイルで共通して使用される。
 // spacing_above = spacing_below = 0 を仮定する。
@@ -119,6 +143,20 @@ inline Theme MakeLayoutTestTheme()
     return theme;
 }
 
+// content をバイナリで書き出す。失敗はテスト失敗として報告する。
+inline void WriteTestFile(const std::filesystem::path& path, std::string_view content)
+{
+    std::ofstream f(path, std::ios::binary);
+    if (!f.is_open()) {
+        ADD_FAILURE() << "Failed to open temp file: " << path.string();
+        return;
+    }
+    f.write(content.data(), static_cast<std::streamsize>(content.size()));
+    if (!f.good()) {
+        ADD_FAILURE() << "Failed to write temp file: " << path.string();
+    }
+}
+
 // temp ディレクトリを RAII で用意・破棄する。テスト名とプロセスIDで一意な名前を生成するため、
 // 並列実行や異常終了時も衝突しない。gtest はフィクスチャ生成前に current_test_info を
 // 設定するので、フィクスチャのメンバとして保持できる。
@@ -163,15 +201,7 @@ public:
     std::filesystem::path Write(std::wstring_view name, std::string_view content = {}) const
     {
         auto path = path_ / name;
-        std::ofstream f(path, std::ios::binary);
-        if (!f.is_open()) {
-            ADD_FAILURE() << "Failed to open temp file: " << path.string();
-            return path;
-        }
-        f.write(content.data(), static_cast<std::streamsize>(content.size()));
-        if (!f.good()) {
-            ADD_FAILURE() << "Failed to write temp file: " << path.string();
-        }
+        WriteTestFile(path, content);
         return path;
     }
 
@@ -259,15 +289,7 @@ public:
         fname += L"_";
         fname += std::to_wstring(reinterpret_cast<uintptr_t>(this));
         path_ = tmp_dir / fname;
-        std::ofstream f(path_, std::ios::binary);
-        if (!f.is_open()) {
-            ADD_FAILURE() << "Failed to open temp file: " << path_.string();
-            return;
-        }
-        f.write(content.data(), static_cast<std::streamsize>(content.size()));
-        if (!f.good()) {
-            ADD_FAILURE() << "Failed to write temp file: " << path_.string();
-        }
+        WriteTestFile(path_, content);
     }
     ~TempFile()
     {

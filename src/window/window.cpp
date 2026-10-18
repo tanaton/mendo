@@ -136,11 +136,14 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
     if (!hwnd_) {
         return false;
     }
-
-    if (!app_->Init(hwnd_)) {
+    const auto destroy = [this] {
         DestroyWindow(hwnd_);
         hwnd_ = nullptr;
         return false;
+    };
+
+    if (!app_->Init(hwnd_)) {
+        return destroy();
     }
 
     // IME 対応のため、検索入力は非表示の EDIT コントロールで受ける
@@ -160,9 +163,7 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
     }
     app_->LoadInitialDocument();
     if (!app_->CreateRenderDevice()) {
-        DestroyWindow(hwnd_);
-        hwnd_ = nullptr;
-        return false;
+        return destroy();
     }
     // デバイスを待つ間に起動時の読み込みが終わっていれば、空のフレームを出さずに最初のフレームへ入れる。
     if (MSG msg; PeekMessageW(&msg, hwnd_, app_msg::PARSE_COMPLETE, app_msg::PARSE_COMPLETE, PM_REMOVE)) {

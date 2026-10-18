@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "ini_parser.h"
+#include <string_view>
 
 // ---- Parse テスト ----
 
@@ -33,28 +34,31 @@ TEST(IniParserTest, ParseCommentLines)
     EXPECT_EQ(data["S"]["K"], "V");
 }
 
-TEST(IniParserTest, ParseEmptyValue)
+// セクション S のキー K の値。
+TEST(IniParserTest, ParseValue)
 {
-    auto data = ini::Parse("[S]\nKey=\n");
-    EXPECT_EQ(data["S"]["Key"], "");
-}
-
-TEST(IniParserTest, ParseValueContainingEquals)
-{
-    auto data = ini::Parse("[S]\nPath=C:\\a=b\\file.txt\n");
-    EXPECT_EQ(data["S"]["Path"], "C:\\a=b\\file.txt");
-}
-
-TEST(IniParserTest, ParseWhitespaceTrimming)
-{
-    auto data = ini::Parse("[S]\n  Key  =  Value  \n");
-    EXPECT_EQ(data["S"]["Key"], "Value");
-}
-
-TEST(IniParserTest, ParseNoTrailingNewline)
-{
-    auto data = ini::Parse("[S]\nK=V");
-    EXPECT_EQ(data["S"]["K"], "V");
+    struct Case {
+        const char* label;
+        std::string_view input;
+        std::string_view expected;
+    };
+    constexpr Case kCases[] = {
+        { "Empty", "[S]\nK=\n", "" },
+        // 最初の '=' だけで区切る
+        { "ContainsEquals", "[S]\nK=C:\\a=b\\file.txt\n", "C:\\a=b\\file.txt" },
+        { "TrimsBlanks", "[S]\n  K  =  Value  \n", "Value" },
+        { "NoTrailingNewline", "[S]\nK=V", "V" },
+        { "DuplicateKeyLastWins", "[S]\nK=first\nK=second\n", "second" },
+        { "Utf8", "[S]\nK=C:\\\xe3\x83\xa6\xe3\x83\xbc\xe3\x82\xb6\xe3\x83\xbc\\\xe6\x96\x87\xe6\x9b\xb8.md\n",
+          "C:\\\xe3\x83\xa6\xe3\x83\xbc\xe3\x82\xb6\xe3\x83\xbc\\\xe6\x96\x87\xe6\x9b\xb8.md" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.label);
+        auto data = ini::Parse(c.input);
+        // operator[] はキーが無くても空値を作るので、読めたことを先に確かめる。
+        ASSERT_TRUE(data["S"].contains("K"));
+        EXPECT_EQ(data["S"]["K"], c.expected);
+    }
 }
 
 TEST(IniParserTest, ParseCRLFLineEndings)
@@ -71,12 +75,6 @@ TEST(IniParserTest, ParseEmptySection)
     EXPECT_EQ(data["Full"]["K"], "V");
 }
 
-TEST(IniParserTest, ParseDuplicateKeysLastWins)
-{
-    auto data = ini::Parse("[S]\nK=first\nK=second\n");
-    EXPECT_EQ(data["S"]["K"], "second");
-}
-
 TEST(IniParserTest, ParseMalformedLineIgnored)
 {
     auto data = ini::Parse("[S]\nno_equals_here\nK=V\n");
@@ -89,13 +87,6 @@ TEST(IniParserTest, ParseKeyBeforeSection)
     auto data = ini::Parse("Orphan=1\n[S]\nK=2\n");
     EXPECT_EQ(data[""]["Orphan"], "1");
     EXPECT_EQ(data["S"]["K"], "2");
-}
-
-TEST(IniParserTest, ParseUtf8Content)
-{
-    std::string input = "[Session]\nLastFile=C:\\\xe3\x83\xa6\xe3\x83\xbc\xe3\x82\xb6\xe3\x83\xbc\\\xe6\x96\x87\xe6\x9b\xb8.md\n";
-    auto data = ini::Parse(input);
-    EXPECT_EQ(data["Session"]["LastFile"], "C:\\\xe3\x83\xa6\xe3\x83\xbc\xe3\x82\xb6\xe3\x83\xbc\\\xe6\x96\x87\xe6\x9b\xb8.md");
 }
 
 // ---- Serialize テスト ----
