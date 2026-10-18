@@ -215,6 +215,32 @@ private:
     bool active_ = false;
 };
 
+// 描画時に UTF-16 位置へ数え直さないよう、ワーカー上で UTF-16 単位にし、描画時のグリフラン分割を減らす。
+// 空白は色が見えないので、トークン間の空白だけの隙間は直前のトークンに含め、同種のトークンはまとめる。
+std::pmr::vector<SyntaxToken> ToWideMergedTokens(std::string_view text, std::pmr::vector<SyntaxToken> tokens)
+{
+    Utf16OffsetCursor cursor{ text };
+    size_t out = 0;
+    uint32_t prev_end = 0; // 直前トークンの UTF-8 終端
+    for (size_t i = 0; i < tokens.size(); i++) {
+        const SyntaxToken t = tokens[i];
+        const auto w = cursor.WideRange(t.start, t.length);
+        const auto gap = text.substr(prev_end, t.start - prev_end);
+        prev_end = t.start + t.length;
+        if (out > 0 && gap.find_first_not_of(" \t\r\n") == std::string_view::npos) {
+            SyntaxToken& prev = tokens[out - 1];
+            prev.length = w.startPosition - prev.start;
+            if (prev.type == t.type) {
+                prev.length += w.length;
+                continue;
+            }
+        }
+        tokens[out++] = SyntaxToken{ w.startPosition, w.length, t.type };
+    }
+    tokens.resize(out);
+    return tokens;
+}
+
 } // namespace
 
 void DWriteTextMeasurer::WarmUp(TaskScheduler& scheduler) const
@@ -340,32 +366,6 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     code.Flush();
     strike.Flush();
     link.Flush();
-}
-
-// 描画時に UTF-16 位置へ数え直さないよう、ワーカー上で UTF-16 単位にし、描画時のグリフラン分割を減らす。
-// 空白は色が見えないので、トークン間の空白だけの隙間は直前のトークンに含め、同種のトークンはまとめる。
-static std::pmr::vector<SyntaxToken> ToWideMergedTokens(std::string_view text, std::pmr::vector<SyntaxToken> tokens)
-{
-    Utf16OffsetCursor cursor{ text };
-    size_t out = 0;
-    uint32_t prev_end = 0; // 直前トークンの UTF-8 終端
-    for (size_t i = 0; i < tokens.size(); i++) {
-        const SyntaxToken t = tokens[i];
-        const auto w = cursor.WideRange(t.start, t.length);
-        const auto gap = text.substr(prev_end, t.start - prev_end);
-        prev_end = t.start + t.length;
-        if (out > 0 && gap.find_first_not_of(" \t\r\n") == std::string_view::npos) {
-            SyntaxToken& prev = tokens[out - 1];
-            prev.length = w.startPosition - prev.start;
-            if (prev.type == t.type) {
-                prev.length += w.length;
-                continue;
-            }
-        }
-        tokens[out++] = SyntaxToken{ w.startPosition, w.length, t.type };
-    }
-    tokens.resize(out);
-    return tokens;
 }
 
 void DWriteTextMeasurer::MeasureNode(
@@ -520,7 +520,6 @@ void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayou
     // ヒットテスト高速化用に行Y累積と列X累積を事前計算
     tl.RebuildRowCumY(tbl.row_count);
     tl.RebuildColCumX();
-    const float total_height = tl.row_cum_y[tbl.row_count] + border_width;
 
     // col_cum_x の末尾は border_width + Σ(col_w + 2*pad + border) と一致するため再計算しない。
     tl.cached_table_width = tl.col_cum_x.back();
@@ -533,7 +532,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayou
     }
     tl.natural_total_width = natural_total;
 
-    entry.height = total_height;
+    entry.height = tl.TotalHeight(tbl.row_count);
     tl.last_applied_max_width = max_width;
     // evict 行が残っていても dirty にはしない。dirty のままだと可視中は毎フレーム全行の
     // Finalize と effects 破棄が走る。残りは RestoreEvictedTableRows が可視行だけ埋める。
@@ -576,9 +575,8 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
 
     result.height_changed = first_changed_row < row_count;
     if (result.height_changed) {
-        const float border_width = TABLE_BORDER_WIDTH;
         tl.RebuildRowCumY(row_count, first_changed_row);
-        entry.height = border_width + tl.row_cum_y[row_count];
+        entry.height = tl.TotalHeight(row_count);
         entry.cached_height = entry.height;
     }
     return result;

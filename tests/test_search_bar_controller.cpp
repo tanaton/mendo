@@ -4,8 +4,8 @@
 #include "search_state.h"
 #include "viewport_manager.h"
 #include "layout_cache.h"
-#include "renderer.h"
 #include "test_helpers.h"
+#include <algorithm>
 #include <functional>
 #include <vector>
 
@@ -82,6 +82,7 @@ protected:
     LayoutCache cache_;
     CallbackTracker tracker_;
     SearchBarControllerT<TestSearchBarCallbacks> ctrl_;
+    std::pmr::vector<Node> nodes_;
 };
 
 // ═══════════════════════════════════════════════
@@ -102,8 +103,7 @@ TEST_F(SearchBarControllerTest, InitialState)
 
 TEST_F(SearchBarControllerTest, OnOpenSetsFocusAndInvalidates)
 {
-    std::pmr::vector<Node> nodes;
-    ctrl_.OnOpen(nodes);
+    ctrl_.OnOpen(nodes_);
 
     EXPECT_TRUE(ctrl_.HasFocus());
     EXPECT_TRUE(state_.IsVisible());
@@ -113,19 +113,17 @@ TEST_F(SearchBarControllerTest, OnOpenSetsFocusAndInvalidates)
 
 TEST_F(SearchBarControllerTest, OnOpenTogglesIfAlreadyOpen)
 {
-    std::pmr::vector<Node> nodes;
-    ctrl_.OnOpen(nodes);
+    ctrl_.OnOpen(nodes_);
     EXPECT_TRUE(state_.IsVisible());
 
-    ctrl_.OnOpen(nodes);
+    ctrl_.OnOpen(nodes_);
     EXPECT_FALSE(state_.IsVisible());
     EXPECT_FALSE(ctrl_.HasFocus());
 }
 
 TEST_F(SearchBarControllerTest, OnCloseResetsState)
 {
-    std::pmr::vector<Node> nodes;
-    ctrl_.OnOpen(nodes);
+    ctrl_.OnOpen(nodes_);
     ctrl_.OnClose();
 
     EXPECT_FALSE(state_.IsVisible());
@@ -139,32 +137,29 @@ TEST_F(SearchBarControllerTest, OnCloseResetsState)
 
 TEST_F(SearchBarControllerTest, OnTextChangedEmptyQuery)
 {
-    std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode("hello world"));
+    nodes_.push_back(MakeTextNode("hello world"));
 
-    ctrl_.OnTextChanged(L"", nodes, 0);
+    ctrl_.OnTextChanged(L"", nodes_, 0);
     EXPECT_TRUE(state_.GetQuery().empty());
     EXPECT_EQ(state_.GetMatchCount(), 0);
 }
 
 TEST_F(SearchBarControllerTest, OnTextChangedSmallDocImmediate)
 {
-    std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode("hello world"));
+    nodes_.push_back(MakeTextNode("hello world"));
     cache_ = MakeUniformCache(1, 100.0f);
 
-    ctrl_.OnTextChanged(L"hello", nodes, 0);
+    ctrl_.OnTextChanged(L"hello", nodes_, 0);
     EXPECT_EQ(state_.GetMatchCount(), 1);
 }
 
 // まだ検索していない大きな文書は、打鍵ごとの全走査が重い可能性があるのでデバウンスする。
 TEST_F(SearchBarControllerTest, OnTextChangedLargeUnmeasuredDocDebounces)
 {
-    std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode("text"));
+    nodes_.push_back(MakeTextNode("text"));
 
     const int before = tracker_.set_timer_count;
-    ctrl_.OnTextChanged(L"text", nodes, decltype(ctrl_)::kImmediateSearchMaxBytes + 1);
+    ctrl_.OnTextChanged(L"text", nodes_, decltype(ctrl_)::kImmediateSearchMaxBytes + 1);
     EXPECT_GT(tracker_.set_timer_count, before);
     EXPECT_EQ(tracker_.last_timer_id, app_timer::Id::SEARCH_DEBOUNCE);
     EXPECT_EQ(state_.GetMatchCount(), 0);
@@ -173,31 +168,29 @@ TEST_F(SearchBarControllerTest, OnTextChangedLargeUnmeasuredDocDebounces)
 // 一度速く検索できた文書は、大きくても待たずに検索する。文書を替えたら測り直す。
 TEST_F(SearchBarControllerTest, OnTextChangedFastMeasuredSearchIsImmediate)
 {
-    std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode("text"));
+    nodes_.push_back(MakeTextNode("text"));
     cache_ = MakeUniformCache(1, 100.0f);
     constexpr size_t kLargeBytes = decltype(ctrl_)::kImmediateSearchMaxBytes + 1;
 
-    ctrl_.OnOpen(nodes);
-    ctrl_.OnTextChanged(L"te", nodes, 0);
+    ctrl_.OnOpen(nodes_);
+    ctrl_.OnTextChanged(L"te", nodes_, 0);
     const int before = tracker_.set_timer_count;
-    ctrl_.OnTextChanged(L"text", nodes, kLargeBytes);
+    ctrl_.OnTextChanged(L"text", nodes_, kLargeBytes);
     EXPECT_EQ(tracker_.set_timer_count, before);
     EXPECT_EQ(state_.GetMatchCount(), 1);
 
     ctrl_.Reset();
-    ctrl_.OnTextChanged(L"text", nodes, kLargeBytes);
+    ctrl_.OnTextChanged(L"text", nodes_, kLargeBytes);
     EXPECT_GT(tracker_.set_timer_count, before) << "文書を替えたら測るまでデバウンスする";
 }
 
 // 文書の切り替えで入力欄を空にしたときのように、中身が変わらない通知では検索も再描画もしない。
 TEST_F(SearchBarControllerTest, OnTextChangedSameTextIsNoop)
 {
-    std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode("text"));
+    nodes_.push_back(MakeTextNode("text"));
 
     const int before = tracker_.invalidate_count;
-    ctrl_.OnTextChanged(L"", nodes, 0);
+    ctrl_.OnTextChanged(L"", nodes_, 0);
     EXPECT_EQ(tracker_.invalidate_count, before);
 }
 
@@ -207,8 +200,7 @@ TEST_F(SearchBarControllerTest, OnTextChangedSameTextIsNoop)
 
 TEST_F(SearchBarControllerTest, SetSelection)
 {
-    std::pmr::vector<Node> nodes;
-    ctrl_.OnOpen(nodes);
+    ctrl_.OnOpen(nodes_);
 
     ctrl_.SetSelection(2, 5);
     EXPECT_EQ(ctrl_.GetSelectionStart(), 2);
@@ -217,8 +209,7 @@ TEST_F(SearchBarControllerTest, SetSelection)
 
 TEST_F(SearchBarControllerTest, SetSelectionNoOpWhenUnchanged)
 {
-    std::pmr::vector<Node> nodes;
-    ctrl_.OnOpen(nodes);
+    ctrl_.OnOpen(nodes_);
 
     ctrl_.SetSelection(2, 5);
     const int before = tracker_.invalidate_count;
@@ -228,8 +219,7 @@ TEST_F(SearchBarControllerTest, SetSelectionNoOpWhenUnchanged)
 
 TEST_F(SearchBarControllerTest, SetImeComposition)
 {
-    std::pmr::vector<Node> nodes;
-    ctrl_.OnOpen(nodes);
+    ctrl_.OnOpen(nodes_);
 
     ctrl_.SetImeComposition(L"あい");
     EXPECT_EQ(ctrl_.GetImeComposition(), L"あい");
@@ -237,8 +227,7 @@ TEST_F(SearchBarControllerTest, SetImeComposition)
 
 TEST_F(SearchBarControllerTest, SetImeCompositionNoOpWhenUnchanged)
 {
-    std::pmr::vector<Node> nodes;
-    ctrl_.OnOpen(nodes);
+    ctrl_.OnOpen(nodes_);
 
     ctrl_.SetImeComposition(L"あ");
     const int before = tracker_.invalidate_count;
@@ -247,18 +236,13 @@ TEST_F(SearchBarControllerTest, SetImeCompositionNoOpWhenUnchanged)
 }
 
 // ═══════════════════════════════════════════════
-// ドラッグ選択
-// ═══════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════
 // キャレット
 // ═══════════════════════════════════════════════
 
 TEST_F(SearchBarControllerTest, CaretSteadyWithoutTimer)
 {
-    std::pmr::vector<Node> nodes;
     const int sets = tracker_.set_timer_count;
-    ctrl_.OnOpen(nodes);
+    ctrl_.OnOpen(nodes_);
 
     EXPECT_TRUE(ctrl_.BuildRenderState().caret_visible);
     EXPECT_EQ(tracker_.set_timer_count, sets);
@@ -266,8 +250,7 @@ TEST_F(SearchBarControllerTest, CaretSteadyWithoutTimer)
 
 TEST_F(SearchBarControllerTest, WindowDeactivateHidesCaret)
 {
-    std::pmr::vector<Node> nodes;
-    ctrl_.OnOpen(nodes);
+    ctrl_.OnOpen(nodes_);
 
     ctrl_.OnWindowActivate(false);
     EXPECT_FALSE(ctrl_.BuildRenderState().caret_visible);
@@ -293,12 +276,11 @@ TEST_F(SearchBarControllerTest, WindowActivateIgnoredWhenClosed)
 
 TEST_F(SearchBarControllerTest, ToggleCaseSensitive)
 {
-    std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode("Hello hello"));
+    nodes_.push_back(MakeTextNode("Hello hello"));
     cache_.Resize(1);
 
     EXPECT_FALSE(state_.IsCaseSensitive());
-    ctrl_.OnToggleCaseSensitive(nodes);
+    ctrl_.OnToggleCaseSensitive(nodes_);
     EXPECT_TRUE(state_.IsCaseSensitive());
 }
 
@@ -315,8 +297,7 @@ TEST_F(SearchBarControllerTest, ToggleHighlight)
 
 TEST_F(SearchBarControllerTest, ResetClearsAll)
 {
-    std::pmr::vector<Node> nodes;
-    ctrl_.OnOpen(nodes);
+    ctrl_.OnOpen(nodes_);
     ctrl_.SetImeComposition(L"test");
 
     ctrl_.Reset();
@@ -332,12 +313,11 @@ TEST_F(SearchBarControllerTest, ResetClearsAll)
 
 TEST_F(SearchBarControllerTest, BuildRenderStateReflectsState)
 {
-    std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode("abc"));
+    nodes_.push_back(MakeTextNode("abc"));
     cache_ = MakeUniformCache(1, 100.0f);
 
-    ctrl_.OnOpen(nodes);
-    ctrl_.OnTextChanged(L"abc", nodes, 0);
+    ctrl_.OnOpen(nodes_);
+    ctrl_.OnTextChanged(L"abc", nodes_, 0);
 
     const auto rs = ctrl_.BuildRenderState();
     EXPECT_TRUE(rs.visible);
@@ -353,9 +333,8 @@ TEST_F(SearchBarControllerTest, BuildRenderStateReflectsState)
 // Why: クリアされないと後続の ApplyScrollTarget で検索ジャンプが上書きされる (検索ジャンプ修正)。
 TEST_F(SearchBarControllerTest, ScrollToMatchClearsScrollTarget)
 {
-    std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode("hello"));
-    nodes.push_back(MakeTextNode("world hello"));
+    nodes_.push_back(MakeTextNode("hello"));
+    nodes_.push_back(MakeTextNode("world hello"));
 
     cache_ = MakeUniformCache(2, 500.0f);
 
@@ -364,7 +343,7 @@ TEST_F(SearchBarControllerTest, ScrollToMatchClearsScrollTarget)
     EXPECT_TRUE(viewport_.HasScrollTarget());
 
     state_.Show();
-    ctrl_.OnTextChanged(L"hello", nodes, 0);
+    ctrl_.OnTextChanged(L"hello", nodes_, 0);
     ctrl_.OnNext();
 
     EXPECT_FALSE(viewport_.HasScrollTarget());
@@ -374,18 +353,7 @@ TEST_F(SearchBarControllerTest, ScrollToMatchClearsScrollTarget)
 // Why: 行毎の精密な Y が使われず block 先頭に丸まると、複数マッチ間でスクロールが進まない。
 TEST_F(SearchBarControllerTest, NextMatchAcrossTableRowsAdvancesScroll)
 {
-    Node table;
-    table.type = NodeType::Table;
-    auto* tbl = AttachTestTable(table);
-    tbl->row_count = 5;
-    tbl->col_count = 1;
-    tbl->concat_text = "hit\nhit\nhit\nhit\nhit";
-    tbl->cell_text_starts = { 0u, 4u, 8u, 12u, 16u, 19u };
-    tbl->cell_run_starts = { 0u, 0u, 0u, 0u, 0u, 0u };
-    tbl->aligns = { TableAlign::Default };
-    tbl->is_header_row = { false, false, false, false, false };
-    std::pmr::vector<Node> nodes;
-    nodes.push_back(std::move(table));
+    nodes_.push_back(MakeTableNode({ { "hit" }, { "hit" }, { "hit" }, { "hit" }, { "hit" } }));
 
     cache_ = MakeUniformCache(1, 2000.0f);
     auto& tl = cache_[0].ensure_table_layout();
@@ -397,7 +365,7 @@ TEST_F(SearchBarControllerTest, NextMatchAcrossTableRowsAdvancesScroll)
     viewport_.SyncMaxScroll(2000.0f, tracker_.md_pane_height);
 
     state_.Show();
-    ctrl_.OnTextChanged(L"hit", nodes, 0);
+    ctrl_.OnTextChanged(L"hit", nodes_, 0);
 
     float prev_scroll = viewport_.GetScrollY();
     int advanced = 0;
@@ -417,10 +385,9 @@ TEST_F(SearchBarControllerTest, NextMatchAcrossTableRowsAdvancesScroll)
 // スクロール先を決めると、計測で位置が変わったマッチが画面外に残る。
 TEST_F(SearchBarControllerTest, ScrollToMatchMeasuresNodeBeforeResolvingY)
 {
-    std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode("a"));
-    nodes.push_back(MakeTextNode("b"));
-    nodes.push_back(MakeTextNode("x hello"));
+    nodes_.push_back(MakeTextNode("a"));
+    nodes_.push_back(MakeTextNode("b"));
+    nodes_.push_back(MakeTextNode("x hello"));
     cache_ = MakeUniformCache(3, 500.0f);
     std::vector<int> ensured;
     tracker_.on_ensure = [this, &ensured](int node_index) {
@@ -432,7 +399,7 @@ TEST_F(SearchBarControllerTest, ScrollToMatchMeasuresNodeBeforeResolvingY)
     viewport_.SyncMaxScroll(10000.0f, tracker_.md_pane_height);
 
     state_.Show();
-    ctrl_.OnTextChanged(L"hello", nodes, 0);
+    ctrl_.OnTextChanged(L"hello", nodes_, 0);
 
     ASSERT_FALSE(ensured.empty());
     EXPECT_TRUE(std::ranges::all_of(ensured, [](int i) static { return i == 2; }));
@@ -443,8 +410,7 @@ TEST_F(SearchBarControllerTest, ScrollToMatchMeasuresNodeBeforeResolvingY)
 // 現在位置が既に可視範囲内ならスクロールしない（余計な再描画を避ける）。
 TEST_F(SearchBarControllerTest, ScrollToMatchNoOpWhenAlreadyVisible)
 {
-    std::pmr::vector<Node> nodes;
-    nodes.push_back(MakeTextNode("hello"));
+    nodes_.push_back(MakeTextNode("hello"));
 
     cache_.Resize(1);
     cache_.SetTop(0, 100.0f);
@@ -452,7 +418,7 @@ TEST_F(SearchBarControllerTest, ScrollToMatchNoOpWhenAlreadyVisible)
 
     viewport_.SyncMaxScroll(1000.0f, tracker_.md_pane_height);
     state_.Show();
-    ctrl_.OnTextChanged(L"hello", nodes, 0);
+    ctrl_.OnTextChanged(L"hello", nodes_, 0);
 
     const float before = viewport_.GetScrollY();
     ctrl_.OnNext();

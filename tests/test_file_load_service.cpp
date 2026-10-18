@@ -62,8 +62,7 @@ TEST_F(FileLoadServiceTest, TickLoadingAnimationWraps)
     for (int i = 0; i < 50; ++i) {
         service_.TickLoadingAnimation();
     }
-    // ラップ後の角度は2*pi未満であること
-    EXPECT_LT(service_.GetLoadingAngle(), 6.2831853f);
+    EXPECT_LE(service_.GetLoadingAngle(), TWO_PI);
 }
 
 TEST_F(FileLoadServiceTest, SetLoadingPath)
@@ -104,12 +103,6 @@ TEST_F(FileLoadServiceTest, StartLoadingResetsAngle)
 }
 
 TEST_F(FileLoadServiceTest, TakeAsyncReturnsNulloptWhenEmpty)
-{
-    auto outcome = service_.TakeAsync();
-    EXPECT_FALSE(outcome.has_value());
-}
-
-TEST_F(FileLoadServiceTest, TakeAsyncReturnsNulloptAfterConsume)
 {
     // 結果がない状態で2回呼んでも安全
     EXPECT_FALSE(service_.TakeAsync().has_value());

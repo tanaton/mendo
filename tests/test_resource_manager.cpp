@@ -409,8 +409,8 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesBeyondVisibleRange)
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\two.png", 400.0f, 250.0f);
 
-    // viewport_height=600, PREFETCH_BUFFER=3 → 範囲は ~[-1800, 2400]。
-    // 2個目は y=3000+ にあり可視範囲外。ApplyCachedImages は 1 件のみ適用。
+    // 先読み範囲は可視 ± PREFETCH_BUFFER_SCREENS 画面。2個目は y=3000 にあり範囲外なので、
+    // ApplyCachedImages は 1 件のみ適用する。
     const int visible_applied = rm_.ApplyCachedImages();
     EXPECT_EQ(visible_applied, 1);
 
@@ -427,9 +427,10 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadAppliesBeyondVisibleRange)
 
 TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadIgnoresRemoteImages)
 {
-    LoadMarkdown("![alt](https://example.com/foo.png)\n");
-    // リモート画像はキャッシュ参照しない。
-    EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 0);
+    LoadMarkdown("![alt](https://example.com/foo.png)\n\n![local](foo.png)\n");
+    // キャッシュが空だと早期 return してリモート判定まで届かないので、ローカル画像を 1 件入れておく。
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\foo.png", 400.0f, 300.0f);
+    EXPECT_EQ(rm_.ApplyCachedImagesForReload(), 1);
 }
 
 TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadReturnsZeroWhenContentWidthIsZero)
@@ -456,14 +457,11 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersInvokesRendererForVisibleDiagra
 
 TEST_F(ResourceManagerTest, RequestMermaidRendersSkipsBeyondVisibleRange)
 {
-    // diagram が 2 個。1個目を可視範囲、2個目を範囲外に置く。
+    // diagram が 2 個。ノード間隔を先読み範囲 (可視 ± PREFETCH_BUFFER_SCREENS 画面) より広くし、
+    // 1個目を可視範囲、2個目を範囲外に置く。
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n",
-                 /*block_height=*/200.0f);
+                 /*block_height=*/3000.0f);
     ASSERT_GE(doc_.GetDiagramNodeIndices().size(), 2u);
-
-    // viewport_height = 600, PREFETCH_BUFFER = 3 screens → range_top=-1800, range_bottom=2400
-    // 各ノード間隔を広くして 2 個目を確実に範囲外に置く。
-    cache_ = SeedLayoutCache(doc_.GetNodes().size(), /*block_height=*/3000.0f);
 
     rm_.RequestMermaidRenders();
     // 1個目 (y=0, 可視範囲内) のみ Render される
@@ -703,9 +701,10 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsNoOpsWhenViewportHeightIsZero)
     }
 }
 
-TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesOutOfRangeTextLayouts)
+// 保持範囲外のノードも text_layout を捨てるだけで、計測済み (layout_dirty=false) のまま残す。
+// text_layout は実物の COM オブジェクトが要るので、layout_dirty の遷移だけを確かめる。
+TEST_F(ResourceManagerTest, EvictOffscreenBitmapsKeepsEvictedNodesMeasured)
 {
-    // 多くのノードを持つ document を作り、可視範囲外の text_layout が解放されることを確認
     std::string md;
     for (int i = 0; i < 20; i++) {
         md += "paragraph ";
@@ -713,19 +712,12 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesOutOfRangeTextLayouts)
         md += "\n\n";
     }
     LoadMarkdown(md, /*block_height=*/100.0f);
-
-    // 全ノードに layout_dirty=false をセット（SeedLayoutCache 後）
-    // text_layout は ComPtr で実物が必要なので、layout_dirty フラグの遷移のみ確認
-    for (size_t i = 0; i < cache_.size(); i++) {
-        cache_[i].layout_dirty = false;
-    }
-
-    // viewport は最初の 600px のみ可視。EVICT_BUFFER=5 screens → 6000px の幅で keep。
-    // 全 20 ノード（2000px）は keep 範囲内なので、解放されない（境界ケース確認）
     viewport_.SetScrollY(0.0f);
+    const float keep_bottom = tracker_.viewport_height * (1.0f + decltype(rm_)::EVICT_BUFFER_SCREENS);
+    ASSERT_GT(cache_.Top(cache_.size() - 1), keep_bottom) << "前提: 末尾のノードが保持範囲外にあること";
+
     rm_.EvictOffscreenBitmaps();
 
-    // 全ノードが範囲内のため layout_dirty は false のまま
     for (size_t i = 0; i < cache_.size(); i++) {
         EXPECT_FALSE(cache_[i].layout_dirty) << "node " << i;
     }

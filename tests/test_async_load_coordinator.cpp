@@ -29,6 +29,17 @@ protected:
 
 TaskScheduler AsyncLoadCoordinatorTest::scheduler_;
 
+// 結果が出るまで待って取り出す。時間切れなら nullopt。
+std::optional<AsyncLoadOutcome> WaitForOutcome(AsyncLoadCoordinator& c)
+{
+    std::optional<AsyncLoadOutcome> outcome;
+    PollUntil([&] {
+        outcome = c.Take();
+        return outcome.has_value();
+    });
+    return outcome;
+}
+
 } // namespace
 
 TEST_F(AsyncLoadCoordinatorTest, DefaultConstructionIsInactive)
@@ -73,8 +84,7 @@ TEST_F(AsyncLoadCoordinatorTest, BadAllocInWorkerProducesTooLargeError)
     } };
     c.Start(scheduler_, std::pmr::wstring(L"unused.md"), nullptr, 0, GetLightTheme());
 
-    std::optional<AsyncLoadOutcome> outcome;
-    PollUntil([&] { outcome = c.Take(); return outcome.has_value(); });
+    auto outcome = WaitForOutcome(c);
     ASSERT_TRUE(outcome.has_value());
     ASSERT_FALSE(outcome->has_value());
     EXPECT_EQ(outcome->error(), FileLoadError::TooLarge);
@@ -87,8 +97,7 @@ TEST_F(AsyncLoadCoordinatorTest, SuccessfulLoadProducesResult)
     AsyncLoadCoordinator c;
     c.Start(scheduler_, tmp.PmrPath(), nullptr, 0, GetLightTheme());
 
-    std::optional<AsyncLoadOutcome> outcome;
-    PollUntil([&] { outcome = c.Take(); return outcome.has_value(); });
+    auto outcome = WaitForOutcome(c);
     ASSERT_TRUE(outcome.has_value());
     ASSERT_TRUE(outcome->has_value());
     const AsyncLoadResult& result = **outcome;
@@ -103,8 +112,7 @@ TEST_F(AsyncLoadCoordinatorTest, NotFoundFileProducesError)
     AsyncLoadCoordinator c;
     c.Start(scheduler_, std::pmr::wstring(L"C:\\__mendo_no_such_file__.md"), nullptr, 0, GetLightTheme());
 
-    std::optional<AsyncLoadOutcome> outcome;
-    PollUntil([&] { outcome = c.Take(); return outcome.has_value(); });
+    auto outcome = WaitForOutcome(c);
     ASSERT_TRUE(outcome.has_value());
     ASSERT_FALSE(outcome->has_value());
     EXPECT_EQ(outcome->error(), FileLoadError::NotFound);
@@ -130,8 +138,7 @@ std::optional<AsyncLoadResult> RunReload(TaskScheduler& scheduler, const TempFil
     auto base = std::make_shared<const std::pmr::string>(old_text);
     AsyncLoadCoordinator c;
     c.Start(scheduler, tmp.PmrPath(), nullptr, 0, GetLightTheme(), base);
-    std::optional<AsyncLoadOutcome> outcome;
-    PollUntil([&] { outcome = c.Take(); return outcome.has_value(); });
+    auto outcome = WaitForOutcome(c);
     std::optional<AsyncLoadResult> result;
     if (outcome && outcome->has_value()) {
         result = std::move(**outcome);
@@ -198,8 +205,8 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadWhileFileStillGrowingSkipsParse)
         return LoadedFileDoc{ std::pmr::string("# Title\n\nchanged\n"), 17 };
     });
     c.Start(scheduler_, tmp.PmrPath(), nullptr, 0, GetLightTheme(), base);
-    std::optional<AsyncLoadOutcome> outcome;
-    ASSERT_TRUE(PollUntil([&] { outcome = c.Take(); return outcome.has_value(); }));
+    const auto outcome = WaitForOutcome(c);
+    ASSERT_TRUE(outcome.has_value());
     ASSERT_TRUE(outcome->has_value());
     const auto& result = **outcome;
     ASSERT_TRUE(result.reload.has_value());

@@ -108,7 +108,6 @@ hit_test::HitResult hit_test::HitTest(const MdPaneHitContext& ctx) noexcept
 
     const auto& node = ctx.nodes[direct.node_index];
     const auto& entry = ctx.cache[direct.node_index];
-    const float indent = NodeIndent(node, ctx.theme);
     const float h_scroll_x = LookupBlockScrollX(
         ctx.block_scroll_x, direct.node_index, GetBlockHScrollGeometry(node, entry, NodeContentWidth(node, ctx.theme, ctx.content_width)));
     if (node.type == NodeType::Table) {
@@ -118,7 +117,7 @@ hit_test::HitResult hit_test::HitTest(const MdPaneHitContext& ctx) noexcept
         return { direct.node_index, static_cast<uint32_t>(node.GetText().size()) };
     }
 
-    const float local_x = dip_x - ctx.theme.margin_left - indent - NodeTextXOffset(node, ctx.theme) + h_scroll_x;
+    const float local_x = dip_x - ctx.theme.margin_left - NodeIndent(node, ctx.theme) - NodeTextXOffset(node, ctx.theme) + h_scroll_x;
     const float local_y = dip_y - direct.text_top;
 
     HitResult result{ direct.node_index };

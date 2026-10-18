@@ -94,31 +94,17 @@ TEST(HtmlEntity, NumericHex)
     EXPECT_EQ(Resolve("&#x41;"), "A");
     EXPECT_EQ(Resolve("&#X41;"), "A");
     EXPECT_EQ(Resolve("&#x4E00;"), "一");
-    EXPECT_EQ(Resolve("&#xFFFF;"), "￿");
+    // 非文字 U+FFFF も拒否せず 3 byte で返す
+    EXPECT_EQ(Resolve("&#xFFFF;"), "\xEF\xBF\xBF");
+    // 追加面 (U+1F600) は UTF-8 の 4 byte
+    EXPECT_EQ(Resolve("&#x1F600;"), "\xF0\x9F\x98\x80");
 }
 
-TEST(HtmlEntity, SupplementaryPlaneSurrogatePair)
+// サロゲート (U+D800-U+DFFF) は単独では文字にならない
+TEST(HtmlEntity, RejectsSurrogates)
 {
-    // U+1F600 GRINNING FACE → UTF-8: F0 9F 98 80
-    const auto result = Resolve("&#x1F600;");
-    ASSERT_TRUE(result.has_value());
-    ASSERT_EQ(result->size(), 4u);
-    EXPECT_EQ(static_cast<unsigned char>((*result)[0]), 0xF0);
-    EXPECT_EQ(static_cast<unsigned char>((*result)[1]), 0x9F);
-    EXPECT_EQ(static_cast<unsigned char>((*result)[2]), 0x98);
-    EXPECT_EQ(static_cast<unsigned char>((*result)[3]), 0x80);
-}
-
-TEST(HtmlEntity, RejectsLoneSurrogateHigh)
-{
-    // U+D800-U+DBFF (high surrogate) は単独で UTF-16 として不正
     EXPECT_EQ(Resolve("&#xD800;"), std::nullopt);
     EXPECT_EQ(Resolve("&#xDBFF;"), std::nullopt);
-}
-
-TEST(HtmlEntity, RejectsLoneSurrogateLow)
-{
-    // U+DC00-U+DFFF (low surrogate) は単独で UTF-16 として不正
     EXPECT_EQ(Resolve("&#xDC00;"), std::nullopt);
     EXPECT_EQ(Resolve("&#xDFFF;"), std::nullopt);
 }

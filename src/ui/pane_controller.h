@@ -12,8 +12,7 @@ public:
     }
     constexpr void SetSidePaneVisible(PaneTarget t, bool v) noexcept
     {
-        auto& s = Inst(t);
-        s.show = v;
+        Inst(t).show = v;
     }
     constexpr void ToggleSidePane(PaneTarget t) noexcept
     {

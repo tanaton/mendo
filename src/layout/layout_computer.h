@@ -122,8 +122,6 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept;
 void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
                          std::stop_token stop_token = {});
 
-// 新文書用の LayoutCache。未計測のまま位置が全て 0 だと可視範囲の判定が効かないため、
-// 文書を表示に載せる経路はすべてこれで作る。stop 時は中間状態なので呼び出し側で破棄する。
 // リロードで、中身が変わらないノードの計測結果を旧キャッシュから新キャッシュへ移す。
 // 編集は 1 か所に固まることが多いので、先頭と末尾から中身が一致する範囲だけを見る。
 // Y 位置は呼び出し側が組み直す。戻り値は移したノード数。
@@ -131,6 +129,8 @@ size_t CarryOverUnchanged(
     const std::pmr::vector<Node>& old_nodes, LayoutCache& old_cache,
     const std::pmr::vector<Node>& new_nodes, LayoutCache& new_cache);
 
+// 新文書用の LayoutCache。未計測のまま位置が全て 0 だと可視範囲の判定が効かないため、
+// 文書を表示に載せる経路はすべてこれで作る。stop 時は中間状態なので呼び出し側で破棄する。
 LayoutCache MakeEstimatedLayoutCache(const std::pmr::vector<Node>& nodes, const Theme& theme,
                                      std::stop_token stop_token = {});
 

@@ -86,11 +86,21 @@ TEST_F(SessionServiceTest, SaveLastFilePathSkipsEmpty)
     EXPECT_EQ(session_.LoadLastFilePath(), std::wstring_view{ file });
 }
 
-TEST_F(SessionServiceTest, LoadLastFilePathRejectsUncPaths)
+// UNC (\\host)・拡張パス (\\?\)・デバイスパス (\\.\) と、存在しないファイルは返さない。
+TEST_F(SessionServiceTest, LoadLastFilePathRejectsRemoteDeviceAndMissingPaths)
 {
-    config_.SaveWString("Session", "LastFile", L"\\\\server\\share\\file.md");
-    auto path = session_.LoadLastFilePath();
-    EXPECT_TRUE(path.empty());
+    // 存在しないファイルは temp_dir_ 配下の作らない名前にし、絶対パスへのフレークを避ける。
+    const std::wstring kPaths[] = {
+        L"\\\\server\\share\\file.md",
+        L"\\\\?\\C:\\file.md",
+        L"\\\\.\\PhysicalDrive0",
+        (temp_dir_ / L"never_created.md").wstring(),
+    };
+    for (const auto& saved : kPaths) {
+        SCOPED_TRACE(::testing::PrintToString(saved));
+        config_.SaveWString("Session", "LastFile", saved);
+        EXPECT_TRUE(session_.LoadLastFilePath().empty());
+    }
 }
 
 // 実在するファイルを指すデバイスパスも弾く。存在しないパスでは存在確認で空になり、判定を外しても通ってしまう。
@@ -103,34 +113,6 @@ TEST_F(SessionServiceTest, LoadLastFilePathRejectsDeviceFormsOfExistingFile)
         config_.SaveWString("Session", "LastFile", prefixed);
         EXPECT_TRUE(session_.LoadLastFilePath().empty());
     }
-}
-
-// ---- LoadLastFilePath の境界: デバイスパス / 拡張パス / 存在しないファイル ----
-
-TEST_F(SessionServiceTest, LoadLastFilePathRejectsExtendedPathPrefix)
-{
-    // \\?\ 拡張パスは UNC パスと同じ \\ 始まりとして弾かれる。
-    config_.SaveWString("Session", "LastFile", L"\\\\?\\C:\\file.md");
-    auto path = session_.LoadLastFilePath();
-    EXPECT_TRUE(path.empty());
-}
-
-TEST_F(SessionServiceTest, LoadLastFilePathRejectsDevicePathPrefix)
-{
-    // \\.\ デバイスパスも \\ 始まりとして弾かれる。
-    config_.SaveWString("Session", "LastFile", L"\\\\.\\PhysicalDrive0");
-    auto path = session_.LoadLastFilePath();
-    EXPECT_TRUE(path.empty());
-}
-
-TEST_F(SessionServiceTest, LoadLastFilePathRejectsNonexistentLocalPath)
-{
-    // GetFileAttributesW がパス無効を返す通常パスは弾かれる。
-    // TempDirTestBase 配下の作成しないファイル名を使い、絶対パスへのフレークを避ける。
-    const auto missing = (temp_dir_ / L"never_created.md").wstring();
-    config_.SaveWString("Session", "LastFile", missing);
-    auto path = session_.LoadLastFilePath();
-    EXPECT_TRUE(path.empty());
 }
 
 TEST_F(SessionServiceTest, LoadLastFilePathReturnsEmptyWhenNothingSaved)
@@ -157,18 +139,12 @@ TEST_F(SessionServiceTest, LoadScrollPosition_DefaultsWhenNothingSaved)
     EXPECT_EQ(pos.offset, 0);
 }
 
-TEST_F(SessionServiceTest, LoadScrollPosition_OutOfRangeNodeFallsBackToDefault)
+// node は [-1, 1000000]、offset は ±1000000 を外れると既定値 (-1 / 0) に倒す。
+TEST_F(SessionServiceTest, LoadScrollPosition_OutOfRangeFallsBackToDefault)
 {
-    // LoadInt の min/max は -1 / 1000000。範囲外は default(-1) を返すはず。
     config_.SaveInt("Session", "ScrollNode", 10000000);
-    const auto pos = session_.LoadScrollPosition();
-    EXPECT_EQ(pos.node, -1);
-}
-
-TEST_F(SessionServiceTest, LoadScrollPosition_OutOfRangeOffsetFallsBackToDefault)
-{
-    // offset は ±1000000 を超えると default(0) になる。
     config_.SaveInt("Session", "ScrollOffset", 99999999);
     const auto pos = session_.LoadScrollPosition();
+    EXPECT_EQ(pos.node, -1);
     EXPECT_EQ(pos.offset, 0);
 }

@@ -553,6 +553,96 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
     out.append("</table>");
 }
 
+// 開いているリストを外側から積む。各段の <li> は次の項目かその段を出るまで開いたままにし、
+// loose list の本文や項目内のコードブロック・入れ子のリスト (LI の後ろに別ノードで並ぶ) を同じ <li> に入れる。
+class HtmlListStack {
+public:
+    explicit HtmlListStack(std::pmr::string& out) noexcept : out_(out)
+    {}
+
+    // node を含まない段を閉じ、node が項目なら <li> を開く (同じリストの続きなら前の </li> を閉じる)。
+    void Enter(const Node& node)
+    {
+        while (!levels_.empty() && !InOpenItem(levels_.back(), node)) {
+            CloseInnermost();
+        }
+        if (!IsListItem(node)) {
+            return;
+        }
+        const bool ordered = node.list_ordered();
+        const int32_t number = node.list_number();
+        const bool same_level = !levels_.empty() && levels_.back().indent == node.indent_level && levels_.back().quote_depth == node.quote_depth;
+        // 番号が続かない番号付きは別のリスト ("1. a" の後の "1) b" 等)。
+        if (same_level && levels_.back().ordered == ordered && (!ordered || levels_.back().next_number == number)) {
+            out_.append("</li>");
+            levels_.back().next_number = number + 1;
+            return;
+        }
+        if (same_level) {
+            CloseInnermost();
+        }
+        if (!ordered) {
+            out_.append("<ul>");
+        }
+        else if (number == 1) {
+            out_.append("<ol>");
+        }
+        else {
+            std::format_to(std::back_inserter(out_), "<ol start=\"{}\">", number);
+        }
+        levels_.push_back({ node.indent_level, node.quote_depth, ordered, number + 1 });
+    }
+
+    void CloseAll()
+    {
+        while (!levels_.empty()) {
+            CloseInnermost();
+        }
+    }
+
+private:
+    struct Level {
+        int indent;
+        int quote_depth;
+        bool ordered;
+        int32_t next_number;
+    };
+
+    // 同じ引用の深さなら段以上のインデントが項目の中。引用の深さが変わるノードは、その引用が項目の中で
+    // 始まったとき (段より深いインデント) だけ含める。リストを出た直後の引用もインデントが上がるため。
+    static constexpr bool InOpenItem(const Level& l, const Node& node) noexcept
+    {
+        return node.quote_depth == l.quote_depth ? node.indent_level >= l.indent
+                                                 : node.quote_depth > l.quote_depth && node.indent_level > l.indent;
+    }
+
+    void CloseInnermost()
+    {
+        out_.append(levels_.back().ordered ? "</li></ol>" : "</li></ul>");
+        levels_.pop_back();
+    }
+
+    std::pmr::string& out_;
+    std::pmr::vector<Level> levels_;
+};
+
+// src は Markdown 記述値をそのまま使う (相対パスは貼付先で解決不能だが仕様上の限界)。
+// alt は選択範囲内のノード線形化テキスト。[start, end) は呼び出し側でテキスト長にクランプ済み。
+void AppendImageHtml(std::pmr::string& out, const Node& node, uint32_t start, uint32_t end)
+{
+    out.append("<img");
+    if (const auto* img = node.image_data(); img && IsSafeImageSrc(img->src)) {
+        out.append(" src=\"");
+        AppendHtmlEscaped(out, img->src);
+        out.append("\"");
+    }
+    out.append(" alt=\"");
+    if (start < end) {
+        AppendHtmlEscaped(out, node.GetText().substr(start, end - start));
+    }
+    out.append("\">");
+}
+
 std::optional<LinkHit> FindLinkInRuns(std::span<const TextRun> runs, std::span<const std::string_view> link_urls, uint32_t pos)
 {
     // runs は start 昇順で重ならないので、pos を含みうるのは start <= pos の最後の run だけ。
@@ -670,58 +760,10 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
     // 3 倍の予約は 100MB 選択で 300MB を確保するため 2 倍に留め、超過分は成長に任せる。
     out.reserve(estimated * 2 + 128);
 
-    // 開いているリストを外側から積む。各段の <li> は次の項目かその段を出るまで開いたままにし、
-    // loose list の本文や項目内のコードブロック・入れ子のリスト (LI の後ろに別ノードで並ぶ) を同じ <li> に入れる。
-    struct OpenList {
-        int indent;
-        int quote_depth;
-        bool ordered;
-        int32_t next_number;
-    };
-    std::pmr::vector<OpenList> lists;
-    // 同じ引用の深さなら段以上のインデントが項目の中。引用の深さが変わるノードは、その引用が項目の中で
-    // 始まったとき (段より深いインデント) だけ含める。リストを出た直後の引用もインデントが上がるため。
-    const auto in_open_li = [](const OpenList& l, const Node& node) static {
-        return node.quote_depth == l.quote_depth ? node.indent_level >= l.indent
-                                                 : node.quote_depth > l.quote_depth && node.indent_level > l.indent;
-    };
-    const auto close_list = [&] {
-        out.append(lists.back().ordered ? "</li></ol>" : "</li></ul>");
-        lists.pop_back();
-    };
-
+    HtmlListStack lists(out);
     ForEachSelectedNode(nodes, selection, [&](int i, const Node& node) {
-        const auto text = node.GetText();
-        const auto [start, end] = selection.ClampedRange(i, text.size());
-
-        while (!lists.empty() && !in_open_li(lists.back(), node)) {
-            close_list();
-        }
-        if (IsListItem(node)) {
-            const bool ordered = node.list_ordered();
-            const int32_t number = node.list_number();
-            const bool same_level = !lists.empty() && lists.back().indent == node.indent_level && lists.back().quote_depth == node.quote_depth;
-            // 番号が続かない番号付きは別のリスト ("1. a" の後の "1) b" 等)。
-            if (same_level && lists.back().ordered == ordered && (!ordered || lists.back().next_number == number)) {
-                out.append("</li>");
-                lists.back().next_number = number + 1;
-            }
-            else {
-                if (same_level) {
-                    close_list();
-                }
-                if (!ordered) {
-                    out.append("<ul>");
-                }
-                else if (number == 1) {
-                    out.append("<ol>");
-                }
-                else {
-                    std::format_to(std::back_inserter(out), "<ol start=\"{}\">", number);
-                }
-                lists.push_back({ node.indent_level, node.quote_depth, ordered, number + 1 });
-            }
-        }
+        const auto [start, end] = selection.ClampedRange(i, node.GetText().size());
+        lists.Enter(node);
 
         const auto wrap_inline = [&](std::string_view open, std::string_view close) {
             out.append(open);
@@ -759,25 +801,11 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
             AppendTableHtml(out, node, start, end, dark_mode);
             break;
         case NodeType::Image:
-            // src は Markdown 記述値をそのまま使う (相対パスは貼付先で解決不能だが仕様上の限界)。
-            // alt は選択範囲内のノード線形化テキスト。
-            out.append("<img");
-            if (const auto* img = node.image_data(); img && IsSafeImageSrc(img->src)) {
-                out.append(" src=\"");
-                AppendHtmlEscaped(out, img->src);
-                out.append("\"");
-            }
-            out.append(" alt=\"");
-            if (start < end) {
-                AppendHtmlEscaped(out, text.substr(start, end - start));
-            }
-            out.append("\">");
+            AppendImageHtml(out, node, start, end);
             break;
         }
     });
-    while (!lists.empty()) {
-        close_list();
-    }
+    lists.CloseAll();
     return out;
 }
 

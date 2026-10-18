@@ -4,10 +4,12 @@
 #include "mermaid_util.h"
 #include "test_helpers.h"
 #include <filesystem>
-#include <fstream>
 #include <cstring>
 #include <future>
+#include <initializer_list>
+#include <limits>
 #include <memory>
+#include <string>
 
 // ダミーPNGデータを生成する（ファイルキャッシュの単体テスト用、有効なPNGである必要はない）。
 static PngBytes MakeDummyPng(size_t size = 1024)
@@ -17,6 +19,37 @@ static PngBytes MakeDummyPng(size_t size = 1024)
         data[i] = static_cast<uint8_t>(i & 0xFF);
     }
     return std::make_shared<const std::pmr::vector<uint8_t>>(std::move(data));
+}
+
+// 件数の上限だけを効かせるテスト用。
+constexpr uint64_t kNoSizeLimit = 1ULL * 1024 * 1024 * 1024;
+
+struct RawIndexRecord {
+    uint64_t key = 0;
+    float css_width = 0.0f;
+    float css_height = 0.0f;
+    uint32_t png_size = 0;
+    int64_t last_used = 0;
+};
+
+// index.bin の書式 (ヘッダ 16 バイト + レコード 28 バイト) でバイト列を組み立てる。
+// declared_count はヘッダに書く件数で、records の数と食い違わせて壊れた索引を作れる。
+static std::string BuildRawIndex(uint32_t declared_count, std::initializer_list<RawIndexRecord> records)
+{
+    std::string buf;
+    const auto put = [&buf](const auto& v) { buf.append(reinterpret_cast<const char*>(&v), sizeof(v)); };
+    put(uint32_t{ 0x4D454D43u }); // "MEMC"
+    put(uint32_t{ 1 });
+    put(1.0f);
+    put(declared_count);
+    for (const auto& r : records) {
+        put(r.key);
+        put(r.css_width);
+        put(r.css_height);
+        put(r.png_size);
+        put(r.last_used);
+    }
+    return buf;
 }
 
 class MermaidFileCacheTest : public TempDirTestBase {
@@ -42,7 +75,6 @@ protected:
     {
         cache_.SaveIndex();
         scheduler_.Shutdown();
-        cache_.SetCacheDir(temp_dir_);
         scheduler_.Init(2);
         cache_.Init(dpr, scheduler_);
     }
@@ -55,11 +87,14 @@ protected:
         return temp_dir_ / name;
     }
 
-    // 再ロード用の新しいキャッシュを作成
-    std::unique_ptr<MermaidFileCache> CreateFreshCache()
+    // 書き込みを着地させてから、同じディレクトリを別インスタンスで開く。
+    std::unique_ptr<MermaidFileCache> OpenFreshCache(float dpr = 1.0f)
     {
+        scheduler_.Shutdown();
+        scheduler_.Init(2);
         auto fresh = std::make_unique<MermaidFileCache>();
         fresh->SetCacheDir(temp_dir_);
+        fresh->Init(dpr, scheduler_);
         return fresh;
     }
 
@@ -68,7 +103,7 @@ protected:
     void ExpectEvictionDuringPendingWriteLeavesNoOrphanPng(int key1_stores)
     {
         scheduler_.Shutdown();
-        cache_.SetLimits(2, 1ULL * 1024 * 1024 * 1024);
+        cache_.SetLimits(2, kNoSizeLimit);
         InitCache();
         scheduler_.Init(1);
 
@@ -220,7 +255,7 @@ TEST_F(MermaidFileCacheTest, LookupPathAndOnReadFailed)
 
 TEST_F(MermaidFileCacheTest, EvictsOldestWhenMaxEntriesExceeded)
 {
-    cache_.SetLimits(3, 1ULL * 1024 * 1024 * 1024);
+    cache_.SetLimits(3, kNoSizeLimit);
     InitCache();
 
     // 3エントリを格納
@@ -277,16 +312,11 @@ TEST_F(MermaidFileCacheTest, DprMismatchSeparatesEntries)
     cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(256));
     cache_.StoreAsync(2, 200.0f, 100.0f, MakeDummyPng(256));
     EXPECT_EQ(cache_.EntryCount(), 2u);
-
-    // インデックスを保存してスケジューラを停止
     cache_.SaveIndex();
-    scheduler_.Shutdown();
 
     // 異なる DPR で再初期化 → エントリは index 上に残るが、別キー扱いとなり
     // 同じ external key での Lookup はミスになる（DPR ごとに独立してキャッシュ）。
-    auto fresh = CreateFreshCache();
-    scheduler_.Init(2);
-    fresh->Init(2.0f, scheduler_);
+    auto fresh = OpenFreshCache(2.0f);
     EXPECT_EQ(fresh->EntryCount(), 2u);
 
     MermaidFileCache::CacheEntry entry;
@@ -301,13 +331,9 @@ TEST_F(MermaidFileCacheTest, SameDprPreservesCache)
 
     cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(256));
     cache_.SaveIndex();
-    scheduler_.Shutdown();
 
     // 同じDPRで再初期化 → エントリが保持される
-    auto fresh = CreateFreshCache();
-    scheduler_.Init(2);
-    fresh->Init(1.5f, scheduler_);
-    EXPECT_EQ(fresh->EntryCount(), 1u);
+    EXPECT_EQ(OpenFreshCache(1.5f)->EntryCount(), 1u);
 }
 
 // ═══════════════════════════════════════════════
@@ -321,12 +347,8 @@ TEST_F(MermaidFileCacheTest, SaveAndLoadIndexRoundTrip)
     cache_.StoreAsync(100, 640.0f, 480.0f, MakeDummyPng(1024));
     cache_.StoreAsync(200, 320.0f, 240.0f, MakeDummyPng(512));
     cache_.SaveIndex();
-    scheduler_.Shutdown();
 
-    // 新しいキャッシュオブジェクトで読み込み
-    auto fresh = CreateFreshCache();
-    scheduler_.Init(2);
-    fresh->Init(1.0f, scheduler_);
+    auto fresh = OpenFreshCache();
     EXPECT_EQ(fresh->EntryCount(), 2u);
 
     MermaidFileCache::CacheEntry entry;
@@ -377,146 +399,44 @@ TEST_F(MermaidFileCacheTest, SaveIndexSkipsWriteWhenUnchanged)
     EXPECT_FALSE(std::filesystem::exists(index_path));
 }
 
-TEST_F(MermaidFileCacheTest, LoadIndexWithInvalidMagicIgnoresFile)
+// 壊れた索引はクラッシュせずに空として扱う。
+TEST_F(MermaidFileCacheTest, LoadIndexIgnoresBrokenFile)
 {
-    InitCache();
-    scheduler_.Shutdown();
-
-    // 不正なインデックスファイルを作成
-    auto index_path = temp_dir_ / L"index.bin";
-    {
-        std::ofstream ofs(index_path, std::ios::binary);
-        uint32_t bad_magic = 0xDEADBEEF;
-        ofs.write(reinterpret_cast<const char*>(&bad_magic), 4);
+    struct Case {
+        const char* label;
+        std::string bytes;
+    };
+    // 5 件と宣言したうえで、1 件目のレコードの途中 (28 バイト中 10 バイト) で切る。
+    auto truncated = BuildRawIndex(5, { { .key = 999, .css_width = 100.0f } });
+    truncated.resize(16 + 10);
+    const Case kCases[] = {
+        { "ZeroBytes", "" },
+        { "InvalidMagic", std::string("\xEF\xBE\xAD\xDE", 4) },
+        { "TruncatedRecord", std::move(truncated) },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.label);
+        WriteTempFile(L"index.bin", c.bytes);
+        EXPECT_EQ(OpenFreshCache()->EntryCount(), 0u);
     }
-
-    auto fresh = CreateFreshCache();
-    scheduler_.Init(2);
-    fresh->Init(1.0f, scheduler_);
-    EXPECT_EQ(fresh->EntryCount(), 0u);
-}
-
-TEST_F(MermaidFileCacheTest, LoadIndexWithTruncatedEntries)
-{
-    InitCache();
-    scheduler_.Shutdown();
-
-    // 正しいヘッダー + 途中で切れたエントリを書き込む
-    auto index_path = temp_dir_ / L"index.bin";
-    {
-        std::ofstream ofs(index_path, std::ios::binary);
-        uint32_t magic = 0x4D454D43u;
-        uint32_t version = 1;
-        float dpr = 1.0f;
-        uint32_t count = 5; // 5エントリあると宣言するが実データは途中まで
-        ofs.write(reinterpret_cast<const char*>(&magic), 4);
-        ofs.write(reinterpret_cast<const char*>(&version), 4);
-        ofs.write(reinterpret_cast<const char*>(&dpr), 4);
-        ofs.write(reinterpret_cast<const char*>(&count), 4);
-        // 1エントリ分だけ書いて打ち切り（28バイト中の10バイトだけ）
-        uint64_t key = 999;
-        ofs.write(reinterpret_cast<const char*>(&key), 8);
-        float w = 100.0f;
-        ofs.write(reinterpret_cast<const char*>(&w), 2); // 意図的に不完全
-    }
-
-    // クラッシュせずに空のインデックスとして扱われること
-    auto fresh = CreateFreshCache();
-    scheduler_.Init(2);
-    fresh->Init(1.0f, scheduler_);
-    EXPECT_EQ(fresh->EntryCount(), 0u);
 }
 
 TEST_F(MermaidFileCacheTest, LoadIndexSkipsCorruptedEntries)
 {
-    InitCache();
-    scheduler_.Shutdown();
+    WriteTempFile(L"index.bin", BuildRawIndex(4, {
+        // css_width が負
+        { 1, -100.0f, 50.0f, 256, 1000 },
+        // png_size が 0
+        { 2, 100.0f, 50.0f, 0, 1000 },
+        // css_width が NaN
+        { 3, std::numeric_limits<float>::quiet_NaN(), 100.0f, 256, 1000 },
+        // 正常
+        { 4, 200.0f, 100.0f, 512, 1000 },
+    }));
 
-    // 正しいヘッダー + 不正なフィールド値を持つエントリ
-    auto index_path = temp_dir_ / L"index.bin";
-    {
-        std::ofstream ofs(index_path, std::ios::binary);
-        uint32_t magic = 0x4D454D43u;
-        uint32_t version = 1;
-        float dpr = 1.0f;
-        uint32_t count = 3;
-        ofs.write(reinterpret_cast<const char*>(&magic), 4);
-        ofs.write(reinterpret_cast<const char*>(&version), 4);
-        ofs.write(reinterpret_cast<const char*>(&dpr), 4);
-        ofs.write(reinterpret_cast<const char*>(&count), 4);
-
-        auto write_entry = [&](uint64_t key, float w, float h, uint32_t sz, int64_t t) {
-            ofs.write(reinterpret_cast<const char*>(&key), 8);
-            ofs.write(reinterpret_cast<const char*>(&w), 4);
-            ofs.write(reinterpret_cast<const char*>(&h), 4);
-            ofs.write(reinterpret_cast<const char*>(&sz), 4);
-            ofs.write(reinterpret_cast<const char*>(&t), 8);
-        };
-
-        // エントリ1: css_widthが負 → スキップされる
-        write_entry(1, -100.0f, 50.0f, 256, 1000);
-        // エントリ2: png_sizeが0 → スキップされる
-        write_entry(2, 100.0f, 50.0f, 0, 1000);
-        // エントリ3: 正常 → 読み込まれる
-        write_entry(3, 200.0f, 100.0f, 512, 1000);
-    }
-
-    auto fresh = CreateFreshCache();
-    scheduler_.Init(2);
-    fresh->Init(1.0f, scheduler_);
-    // 不正な2エントリはスキップされ、正常な1エントリのみ読み込まれる
+    const auto fresh = OpenFreshCache();
     EXPECT_EQ(fresh->EntryCount(), 1u);
     EXPECT_EQ(fresh->TotalSize(), 512u);
-}
-
-TEST_F(MermaidFileCacheTest, LoadIndexWithNaNWidthSkipsEntry)
-{
-    InitCache();
-    scheduler_.Shutdown();
-
-    auto index_path = temp_dir_ / L"index.bin";
-    {
-        std::ofstream ofs(index_path, std::ios::binary);
-        uint32_t magic = 0x4D454D43u;
-        uint32_t version = 1;
-        float dpr = 1.0f;
-        uint32_t count = 1;
-        ofs.write(reinterpret_cast<const char*>(&magic), 4);
-        ofs.write(reinterpret_cast<const char*>(&version), 4);
-        ofs.write(reinterpret_cast<const char*>(&dpr), 4);
-        ofs.write(reinterpret_cast<const char*>(&count), 4);
-
-        uint64_t key = 42;
-        float nan_val = std::numeric_limits<float>::quiet_NaN();
-        float h = 100.0f;
-        uint32_t sz = 256;
-        int64_t t = 1000;
-        ofs.write(reinterpret_cast<const char*>(&key), 8);
-        ofs.write(reinterpret_cast<const char*>(&nan_val), 4);
-        ofs.write(reinterpret_cast<const char*>(&h), 4);
-        ofs.write(reinterpret_cast<const char*>(&sz), 4);
-        ofs.write(reinterpret_cast<const char*>(&t), 8);
-    }
-
-    auto fresh = CreateFreshCache();
-    scheduler_.Init(2);
-    fresh->Init(1.0f, scheduler_);
-    EXPECT_EQ(fresh->EntryCount(), 0u);
-}
-
-TEST_F(MermaidFileCacheTest, LoadIndexWithZeroBytesFile)
-{
-    InitCache();
-    scheduler_.Shutdown();
-
-    // 0バイトのインデックスファイル
-    auto index_path = temp_dir_ / L"index.bin";
-    { std::ofstream ofs(index_path, std::ios::binary); }
-
-    auto fresh = CreateFreshCache();
-    scheduler_.Init(2);
-    fresh->Init(1.0f, scheduler_);
-    EXPECT_EQ(fresh->EntryCount(), 0u);
 }
 
 // ═══════════════════════════════════════════════
@@ -564,7 +484,7 @@ TEST_F(MermaidFileCacheTest, OperationsWithoutInitAreNoOp)
 
 TEST_F(MermaidFileCacheTest, LookupRefreshesTimestamp)
 {
-    cache_.SetLimits(2, 1ULL * 1024 * 1024 * 1024);
+    cache_.SetLimits(2, kNoSizeLimit);
     InitCache();
 
     // key=1を最初に格納
@@ -572,13 +492,7 @@ TEST_F(MermaidFileCacheTest, LookupRefreshesTimestamp)
 
     // key=2を格納（key=1より新しい使用順）
     cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
-    scheduler_.Shutdown();
-
-    cache_.SetCacheDir(temp_dir_);
-    cache_.SetLimits(2, 1ULL * 1024 * 1024 * 1024);
-    cache_.SaveIndex();
-    scheduler_.Init(2);
-    cache_.Init(1.0f, scheduler_);
+    FlushAndReopen();
 
     // key=1をLookupして使用順を更新（key=2より新しくなる）
     MermaidFileCache::CacheEntry entry;
@@ -638,7 +552,7 @@ TEST_F(MermaidFileCacheTest, LookupDimensionsDoesNotUpdateLru)
 {
     // LookupDimensionsはLRU使用順を更新しないことを確認する。
     // エビクション対象の選択に影響しないため、推定専用の軽量パスとして安全。
-    cache_.SetLimits(2, 1ULL * 1024 * 1024 * 1024);
+    cache_.SetLimits(2, kNoSizeLimit);
     InitCache();
 
     cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));

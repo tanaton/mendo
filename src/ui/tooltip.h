@@ -54,8 +54,12 @@ TooltipTarget MakeTooltip(const TooltipTarget& current, TooltipTarget::Zone zone
     return t;
 }
 
+// text が空 (該当ボタンなし) なら空のターゲットを返す。
 inline TooltipTarget MakeTooltip(const TooltipTarget& current, TooltipTarget::Zone zone, uint64_t key, std::wstring_view text)
 {
+    if (text.empty()) {
+        return {};
+    }
     return MakeTooltip(current, zone, key, [text](std::pmr::wstring& out) { out = text; });
 }
 
@@ -63,6 +67,9 @@ inline TooltipTarget MakeTooltip(const TooltipTarget& current, TooltipTarget::Zo
 // DECLARE_HANDLE(HWND) と ABI 互換）。
 struct HWND__;
 using HWND = HWND__*;
+
+// メインウィンドウとツールチップの両方に使う。<dwmapi.h> / <uxtheme.h> をヘッダに漏らさないため実装は tooltip.cpp。
+void ApplyDarkModeToWindow(HWND hwnd, bool dark);
 
 class Tooltip {
 public:

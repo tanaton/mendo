@@ -203,18 +203,33 @@ void EvictTableRow(TableLayoutData& tl, size_t row_index) noexcept
     }
 }
 
+// 生存範囲のうち [keep_begin, keep_end) の外の行を evict し、生存範囲を keep との重なりに縮める。
+// evict 済みの行はなめ直さない。HasRowTracking を満たすテーブルでのみ呼ぶ。
+void EvictTableRowsOutside(TableLayoutData& tl, size_t keep_begin, size_t keep_end) noexcept
+{
+    const size_t live_begin = tl.live_row_begin;
+    const size_t live_end = tl.live_row_end;
+    for (size_t r = live_begin; r < std::min(live_end, keep_begin); ++r) {
+        EvictTableRow(tl, r);
+    }
+    for (size_t r = std::max(live_begin, keep_end); r < live_end; ++r) {
+        EvictTableRow(tl, r);
+    }
+    tl.live_row_begin = std::max(live_begin, keep_begin);
+    tl.live_row_end = std::min(live_end, keep_end);
+    if (tl.live_row_begin >= tl.live_row_end) {
+        tl.live_row_begin = 0;
+        tl.live_row_end = 0;
+    }
+}
+
 void EvictEntryLayout(NodeLayoutEntry& e) noexcept
 {
     // テーブルは列幅・行高さを残してセル layout だけ捨てる。幾何ごと捨てると再表示時に
     // 全セルの CreateTextLayout (巨大テーブルで秒単位) をやり直すことになる。
-    if (auto* tl_ptr = e.table_layout(); tl_ptr && HasRowTracking(*tl_ptr)) {
+    if (auto* tl = e.table_layout(); tl && HasRowTracking(*tl)) {
         e.invalidate_per_frame_hl_caches();
-        auto& tl = *tl_ptr;
-        for (size_t r = tl.live_row_begin; r < tl.live_row_end; ++r) {
-            EvictTableRow(tl, r);
-        }
-        tl.live_row_begin = 0;
-        tl.live_row_end = 0;
+        EvictTableRowsOutside(*tl, 0, 0);
         return;
     }
     // レイアウトを持たないノード (HR / 画像 / 空テキスト) は計測済みのまま残す。
@@ -358,28 +373,13 @@ void LayoutCache::EvictInvisibleTableRows(
         if (idx >= entries_.size()) {
             continue;
         }
-        auto* tl_ptr = entries_[idx].table_layout();
-        if (!tl_ptr || !HasRowTracking(*tl_ptr)) {
+        auto* tl = entries_[idx].table_layout();
+        if (!tl || !HasRowTracking(*tl)) {
             continue;
         }
-        auto& tl = *tl_ptr;
-        // 既に evict 済みの行はなめ直さず、生存範囲のうち keep 外の差分だけ捨てる。
         // 再可視化は dirty を経由せず LayoutEngine::EnsureVisibleLayout の行復元で行う。
-        const auto [keep_begin, keep_end] = tl.VisibleRowRange(keep_top - tops_[idx], keep_bottom - tops_[idx]);
-        const size_t live_begin = tl.live_row_begin;
-        const size_t live_end = tl.live_row_end;
-        for (size_t r = live_begin; r < std::min(live_end, keep_begin); ++r) {
-            EvictTableRow(tl, r);
-        }
-        for (size_t r = std::max(live_begin, keep_end); r < live_end; ++r) {
-            EvictTableRow(tl, r);
-        }
-        tl.live_row_begin = std::max(live_begin, keep_begin);
-        tl.live_row_end = std::min(live_end, keep_end);
-        if (tl.live_row_begin >= tl.live_row_end) {
-            tl.live_row_begin = 0;
-            tl.live_row_end = 0;
-        }
+        const auto [keep_begin, keep_end] = tl->VisibleRowRange(keep_top - tops_[idx], keep_bottom - tops_[idx]);
+        EvictTableRowsOutside(*tl, keep_begin, keep_end);
     }
 }
 

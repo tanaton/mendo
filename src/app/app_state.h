@@ -131,7 +131,6 @@ struct AppState {
 };
 
 ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept;
-NavEntry CurrentNavEntry(const AppState& state);
 // load_path: これから開くファイル。現在と別のファイルなら、ロード失敗 (LoadFailedAction) で取り消す仮の履歴にする。
 void PushCurrentNavEntry(AppState& state, std::wstring_view load_path = {});
 
@@ -149,7 +148,8 @@ inline int SidePaneItemAt(const AppState& state, PaneTarget pane, const PaneRect
 {
     const float item_h = state.theme->pane_item_height;
     const float local_y = SidePaneLocalY(dip_y, PaneContentTop(rect, state.theme->pane_header_height), state.view.panes.SidePaneScroll(pane).scroll_y);
-    return pane == PaneTarget::File ? state.file_explorer.HitTest(local_y, item_h) : state.document.doc.GetToc().HitTest(local_y, item_h);
+    const size_t count = pane == PaneTarget::File ? state.file_explorer.GetEntries().size() : state.document.doc.GetToc().GetEntries().size();
+    return HitTestUniformList(local_y, item_h, count);
 }
 
 // サイドペインヘッダーのボタン構成。Refresh/Reveal はファイルペインのみ。
@@ -164,7 +164,6 @@ inline SidePaneHeaderButtons SidePaneHeaderButtonsFor(const AppState& state, Pan
     const bool is_file = target == PaneTarget::File;
     return { .has_file_buttons = is_file, .reveal_enabled = is_file && state.document.doc.HasBackingFile() };
 }
-
 
 BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node_index) noexcept;
 float MdScrollableContentHeight(const AppState& state) noexcept;

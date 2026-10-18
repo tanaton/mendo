@@ -9,10 +9,15 @@
 
 class MockLayoutTest : public MockLayoutTestBase {
 protected:
+    // content 幅が content_width になるビューポート幅。
+    float ViewportWidthFor(float content_width) const
+    {
+        return content_width + theme_.margin_left + theme_.margin_right;
+    }
     // content 幅で全ノードを計測する。
     void LayoutAll(std::pmr::vector<Node>& nodes, LayoutCache& cache, float content_width)
     {
-        engine_.ComputeLayout(nodes, cache, content_width + theme_.margin_left + theme_.margin_right);
+        engine_.ComputeLayout(nodes, cache, ViewportWidthFor(content_width));
     }
 };
 
@@ -79,21 +84,15 @@ TEST_F(MockLayoutTest, NoDirtyAfterFullLayout)
 
 TEST_F(MockLayoutTest, PartialLayoutLeavesDirtyNodes)
 {
-    auto nodes = ParseNodes("A\n\nB\n\nC\n\nD\n\nE");
-    LayoutCache cache;
-    cache.Resize(nodes.size());
     // 部分レイアウト: ビューポート[0, 1)のみ — 非常に小さい
-    engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 1.0f);
+    auto [nodes, cache] = ParseAndLayout("A\n\nB\n\nC\n\nD\n\nE", 800.0f, 0.0f, 1.0f);
     // ビューポート外のノードはダーティであるべき
     EXPECT_TRUE(cache.HasDirtyNodes());
 }
 
 TEST_F(MockLayoutTest, ProcessDirtyBatchResolvesDirty)
 {
-    auto nodes = ParseNodes("A\n\nB\n\nC\n\nD\n\nE");
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 1.0f);
+    auto [nodes, cache] = ParseAndLayout("A\n\nB\n\nC\n\nD\n\nE", 800.0f, 0.0f, 1.0f);
 
     if (cache.HasDirtyNodes()) {
         bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 100);
@@ -107,11 +106,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchResolvesDirty)
 
 TEST_F(MockLayoutTest, ProcessDirtyBatchSmallBatch)
 {
-    const auto md = MakeParagraphs(50);
-    auto nodes = ParseNodes(md);
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 10.0f);
+    auto [nodes, cache] = ParseAndLayout(MakeParagraphs(50), 800.0f, 0.0f, 10.0f);
 
     if (cache.HasDirtyNodes()) {
         bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 5);
@@ -170,12 +165,8 @@ TEST_F(MockLayoutTest, HorizontalRuleHasHeight)
 
 TEST_F(MockLayoutTest, EnsureVisibleLayoutUpdatesViewport)
 {
-    const auto md = MakeParagraphs(20);
-    auto nodes = ParseNodes(md);
-    LayoutCache cache;
-    cache.Resize(nodes.size());
     // ビューポート[0,50)の部分レイアウト
-    engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
+    auto [nodes, cache] = ParseAndLayout(MakeParagraphs(20), 800.0f, 0.0f, 50.0f);
     EXPECT_TRUE(cache.HasDirtyNodes());
 
     const auto dirty_before = CountDirty(cache);
@@ -190,10 +181,7 @@ TEST_F(MockLayoutTest, EnsureVisibleLayoutUpdatesViewport)
 
 TEST_F(MockLayoutTest, FullLayoutMeasuresAllNodes)
 {
-    auto nodes = ParseNodes("A\n\nB");
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    LayoutAll(nodes, cache, 800.0f);
+    auto [nodes, cache] = ParseAndLayout("A\n\nB", ViewportWidthFor(800.0f));
     EXPECT_GT(ComputeTotalContentHeight(cache, theme_.margin_bottom), 0.0f);
     EXPECT_FALSE(cache.HasDirtyNodes());
 }
@@ -216,10 +204,7 @@ TEST_F(MockLayoutTest, MermaidBlockGetsPlaceholderHeight)
 // ビットマップレンダリング後の高さがレイアウト再計算で保持されること（ズーム操作を模擬）
 TEST_F(MockLayoutTest, MermaidHeightPreservedAcrossLayoutCycles)
 {
-    auto nodes = ParseNodes("Text\n\n```mermaid\ngraph TD;\n  A-->B;\n```\n\nMore text");
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    LayoutAll(nodes, cache, 800.0f);
+    auto [nodes, cache] = ParseAndLayout("Text\n\n```mermaid\ngraph TD;\n  A-->B;\n```\n\nMore text", ViewportWidthFor(800.0f));
 
     // ビットマップレンダリング完了後の高さを模擬（300 DIP）
     for (size_t i = 0; i < nodes.size(); i++) {
@@ -249,10 +234,7 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAcrossLayoutCycles)
 // （500%ズームでMDペインが極小になる場合を模擬）
 TEST_F(MockLayoutTest, MermaidHeightPreservedAtZeroWidth)
 {
-    auto nodes = ParseNodes("```mermaid\ngraph TD;\n  A-->B;\n```");
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-    LayoutAll(nodes, cache, 800.0f);
+    auto [nodes, cache] = ParseAndLayout("```mermaid\ngraph TD;\n  A-->B;\n```", ViewportWidthFor(800.0f));
 
     // ビットマップ描画後の高さを設定
     for (size_t i = 0; i < nodes.size(); i++) {
@@ -299,13 +281,9 @@ TEST_F(MockLayoutTest, LongTableHeightNotShrunkByEstimateInPartialMode)
     }
     md += "\nFollow-up paragraph";
 
-    auto nodes = ParseNodes(md);
-    ASSERT_GE(nodes.size(), 2u);
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-
     // 1) フルレイアウトでテーブルの実測高さを取得
-    LayoutAll(nodes, cache, 800.0f);
+    auto [nodes, cache] = ParseAndLayout(md, ViewportWidthFor(800.0f));
+    ASSERT_GE(nodes.size(), 2u);
     const int table_idx = FindFirstNodeIndexByType(nodes, NodeType::Table);
     ASSERT_GE(table_idx, 0);
     const float measured_table_h = cache[table_idx].height;
@@ -334,13 +312,9 @@ TEST_F(MockLayoutTest, LongTableHeightNotShrunkByEstimateInPartialMode)
 // 推定値より小さい既存高さは、推定値まで成長させてよい（max_scroll の精度のため）
 TEST_F(MockLayoutTest, PartialModeGrowsHeightWhenEstimateLarger)
 {
-    auto nodes = ParseNodes("First\n\nSecond\n\nThird");
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-
     // 高さ 0 で partial モード（width_changed=true）。
     // 不可視ノードでも entry.height が 0 なら推定値まで成長すべき。
-    engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 1.0f);
+    auto [nodes, cache] = ParseAndLayout("First\n\nSecond\n\nThird", 800.0f, 0.0f, 1.0f);
     for (size_t i = 0; i < nodes.size(); i++) {
         EXPECT_GT(cache[i].height, 0.0f)
             << "ノード " << i << " の高さが推定値まで成長していない";
@@ -356,11 +330,7 @@ TEST_F(MockLayoutTest, PartialModeClearsTableColWidthsWhenHeightGrows)
     for (int i = 0; i < 50; i++) {
         md += "| r" + std::to_string(i) + " | v" + std::to_string(i) + " |\n";
     }
-    auto nodes = ParseNodes(md);
-    LayoutCache cache;
-    cache.Resize(nodes.size());
-
-    LayoutAll(nodes, cache, 800.0f);
+    auto [nodes, cache] = ParseAndLayout(md, ViewportWidthFor(800.0f));
     const int table_idx = FindFirstNodeIndexByType(nodes, NodeType::Table);
     ASSERT_GE(table_idx, 0);
     ASSERT_TRUE(cache[table_idx].has_table_layout());

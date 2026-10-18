@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
+#include "gesture_overlay.h"
 #include "mouse_gesture.h"
+#include "swipe_detector.h"
 
 class MouseGestureTest : public ::testing::Test {
 protected:
@@ -51,6 +53,7 @@ TEST_F(MouseGestureTest, RightGestureReturnsForward)
     gesture_.OnMouseMove(200.0f, 100.0f);  // 右に100px
     EXPECT_TRUE(gesture_.IsGestureActive());
     EXPECT_EQ(gesture_.GetDirection(), NavDirection::Forward);
+    EXPECT_TRUE(gesture_.IsOverlayVisible());
 
     auto result = gesture_.OnRButtonUp();
     EXPECT_EQ(result, GestureResult::Forward);
@@ -67,6 +70,7 @@ TEST_F(MouseGestureTest, LeftGestureReturnsBack)
     gesture_.OnMouseMove(50.0f, 100.0f);  // 左に150px
     EXPECT_TRUE(gesture_.IsGestureActive());
     EXPECT_EQ(gesture_.GetDirection(), NavDirection::Back);
+    EXPECT_TRUE(gesture_.IsOverlayVisible());
 
     auto result = gesture_.OnRButtonUp();
     EXPECT_EQ(result, GestureResult::Back);
@@ -91,23 +95,7 @@ TEST_F(MouseGestureTest, VerticalGestureReturnsShowContextMenu)
     EXPECT_EQ(gesture_.GetPhase(), GesturePhase::Idle);
 }
 
-// ─── トラッキング中に方向が決定されたらオーバーレイ表示 ───
-
-TEST_F(MouseGestureTest, OverlayVisibleDuringTrackingWithDirection)
-{
-    gesture_.OnRButtonDown(100.0f, 100.0f);
-    gesture_.OnMouseMove(200.0f, 100.0f);  // 右
-    EXPECT_TRUE(gesture_.IsGestureActive());
-    EXPECT_TRUE(gesture_.IsOverlayVisible());
-}
-
-TEST_F(MouseGestureTest, OverlayHiddenDuringTrackingWithNoDirection)
-{
-    gesture_.OnRButtonDown(100.0f, 100.0f);
-    gesture_.OnMouseMove(100.0f, 200.0f);  // 垂直 → 方向なし
-    EXPECT_TRUE(gesture_.IsGestureActive());
-    EXPECT_FALSE(gesture_.IsOverlayVisible());
-}
+// ─── トラッキング中の方向変化に合わせてオーバーレイを切り替える ───
 
 TEST_F(MouseGestureTest, OverlayTogglesAsDirectionChanges)
 {
@@ -124,17 +112,6 @@ TEST_F(MouseGestureTest, OverlayTogglesAsDirectionChanges)
     gesture_.OnMouseMove(0.0f, 100.0f);
     EXPECT_TRUE(gesture_.IsOverlayVisible());
     EXPECT_EQ(gesture_.GetDirection(), NavDirection::Back);
-}
-
-TEST_F(MouseGestureTest, OverlayGoneAfterRButtonUp)
-{
-    gesture_.OnRButtonDown(100.0f, 100.0f);
-    gesture_.OnMouseMove(200.0f, 100.0f);
-    EXPECT_TRUE(gesture_.IsOverlayVisible());
-
-    gesture_.OnRButtonUp();
-    EXPECT_FALSE(gesture_.IsOverlayVisible());
-    EXPECT_EQ(gesture_.GetPhase(), GesturePhase::Idle);
 }
 
 // ─── 斜め移動の閾値 ───
@@ -234,4 +211,67 @@ TEST_F(MouseGestureTest, MouseMoveReportsOnlyVisibleChanges)
     EXPECT_TRUE(gesture_.OnMouseMove(150.0f, 100.0f)) << "追跡開始で点が増える";
     EXPECT_FALSE(gesture_.OnMouseMove(151.0f, 100.0f)) << "点の間隔未満で方向も同じ";
     EXPECT_TRUE(gesture_.OnMouseMove(160.0f, 100.0f));
+}
+
+// ─── ResolveGestureOverlay: マウスジェスチャーとスワイプの表示の合成 ───
+
+TEST(GestureOverlay, Idle)
+{
+    MouseGesture gesture;
+    SwipeDetector swipe;
+    auto gs = ResolveGestureOverlay(gesture, swipe);
+    EXPECT_FALSE(gs.trail_active);
+    EXPECT_FALSE(gs.overlay_visible);
+    EXPECT_EQ(gs.direction, NavDirection::None);
+    ASSERT_NE(gs.trail_points, nullptr);
+    EXPECT_TRUE(gs.trail_points->empty());
+}
+
+TEST(GestureOverlay, TrackingLeft)
+{
+    MouseGesture gesture;
+    SwipeDetector swipe;
+    gesture.OnRButtonDown(100.0f, 100.0f);
+    gesture.OnMouseMove(20.0f, 100.0f); // 左に80px移動
+
+    auto gs = ResolveGestureOverlay(gesture, swipe);
+    EXPECT_TRUE(gs.trail_active);
+    EXPECT_TRUE(gs.overlay_visible);
+    EXPECT_EQ(gs.direction, NavDirection::Back);
+}
+
+TEST(GestureOverlay, TrackingRight)
+{
+    MouseGesture gesture;
+    SwipeDetector swipe;
+    gesture.OnRButtonDown(100.0f, 100.0f);
+    gesture.OnMouseMove(200.0f, 100.0f);
+
+    auto gs = ResolveGestureOverlay(gesture, swipe);
+    EXPECT_EQ(gs.direction, NavDirection::Forward);
+}
+
+TEST(GestureOverlay, SwipeFallback_WhenGestureIdle)
+{
+    MouseGesture gesture;
+    SwipeDetector swipe;
+    swipe.OnHWheel(500, 1000);
+
+    auto gs = ResolveGestureOverlay(gesture, swipe);
+    EXPECT_FALSE(gs.trail_active);
+    EXPECT_TRUE(gs.overlay_visible);
+    EXPECT_EQ(gs.direction, NavDirection::Back);
+}
+
+TEST(GestureOverlay, GestureTakesPrecedenceOverSwipe)
+{
+    MouseGesture gesture;
+    SwipeDetector swipe;
+    gesture.OnRButtonDown(100.0f, 100.0f);
+    gesture.OnMouseMove(200.0f, 100.0f);
+    swipe.OnHWheel(-500, 1000);
+
+    auto gs = ResolveGestureOverlay(gesture, swipe);
+    EXPECT_TRUE(gs.overlay_visible);
+    EXPECT_EQ(gs.direction, NavDirection::Forward);
 }

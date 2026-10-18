@@ -17,12 +17,14 @@ struct ParsedLayout {
 // (呼び出し側が一時文字列を渡してもダングリングしない)。
 class LayoutSourceStore {
 public:
-    ParsedLayout ParseAndLayout(LayoutEngine& engine, std::string_view md, float viewport_w)
+    // 範囲は LayoutEngine::ComputeLayout と同じ。省略すると全ノードを計測する。
+    ParsedLayout ParseAndLayout(LayoutEngine& engine, std::string_view md, float viewport_w,
+                                float viewport_top = -MeasureViewportRange::kInf, float viewport_bottom = MeasureViewportRange::kInf)
     {
         ParsedLayout r;
         r.nodes = ParseNodes(sources_.emplace_back(md));
         r.cache.Resize(r.nodes.size());
-        engine.ComputeLayout(r.nodes, r.cache, viewport_w);
+        engine.ComputeLayout(r.nodes, r.cache, viewport_w, viewport_top, viewport_bottom);
         return r;
     }
 

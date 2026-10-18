@@ -19,6 +19,8 @@ ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
     return { node, state.view.viewport.GetScrollY() - y_before };
 }
 
+namespace {
+
 NavEntry CurrentNavEntry(const AppState& state)
 {
     const ScrollTarget t = SnapshotVisibleTarget(state);
@@ -27,11 +29,13 @@ NavEntry CurrentNavEntry(const AppState& state)
 
 // ロード中の別ファイルが取り消されたか失敗したときに、その仮の移動と移動先用の復元位置を捨てる。
 // 復元位置を残すと、次に開く別ファイルが無関係なノード位置へスクロールする。
-static void DiscardPendingLoad(AppState& state)
+void DiscardPendingLoad(AppState& state)
 {
     state.view.nav_history.RollbackPending();
     state.view.scroll_restore.ClearNodeRestore();
 }
+
+} // namespace
 
 void PushCurrentNavEntry(AppState& state, std::wstring_view load_path)
 {
@@ -539,10 +543,10 @@ void ReduceSearchInputDragStarted(AppState& state, SideEffectList& effects, cons
 
 void ReduceSearchInputDragMoved(AppState& state, SideEffectList& effects, const SearchInputDragMovedAction& a)
 {
-    const auto& ctrl = state.search.search_bar_ctrl;
     if (state.view.drag.kind != LeftDrag::SearchInput) {
         return;
     }
+    const auto& ctrl = state.search.search_bar_ctrl;
     const int anchor = state.view.drag.search_anchor;
     if (a.caret_pos == ctrl.GetCaretPos() && anchor == ctrl.GetSelectionStart()) {
         return;

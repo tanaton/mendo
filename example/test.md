@@ -1417,7 +1417,6 @@ enum class FileLoadError : uint8_t {
     NotFound,    // ファイルが見つからない、またはアクセス拒否
     TooLarge,    // ファイルサイズが MAX_FILE_SIZE を超過
     ReadFailed,  // 読み込み中の I/O エラー
-    Cancelled,   // stop_token 経由の協調キャンセル（トースト非表示）
 };
 
 struct LoadedFileDoc {
@@ -1477,9 +1476,7 @@ ReadDirectoryChangesW の通知バッファは 64KB 確保（バッファ溢れ�
 // src/io/document_service.h。static ユーティリティ群。FileWatcher は保持しない（監視は FileWatcher を直接使う）。
 class DocumentService {
 public:
-    // default-constructed の stop_token はキャンセル不可。
-    static std::expected<Document, FileLoadError> LoadFile(const std::pmr::wstring& path,
-                                                           std::stop_token stop_token = {});
+    static std::expected<Document, FileLoadError> LoadFile(const std::pmr::wstring& path);
 
     static bool IsAsyncLoadCandidate(const std::pmr::wstring& path) noexcept;
     static bool ShouldShowLoadingAnimation(const std::pmr::wstring& path) noexcept;
@@ -3046,7 +3043,6 @@ public:
 
 private:
     // FromMarkdown だけが使う。生成後の Document の中身を差し替える経路は持たない。
-    void SetFilePath(std::wstring_view path);
     void ReplaceFromMarkdown(std::pmr::string text, size_t byte_size, std::stop_token stop_token);
 
     std::pmr::vector<Node> nodes_;
@@ -3351,9 +3347,8 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_scroll_restoration.cpp` | ScrollRestoration |
 | `test_hit_test_service.cpp` | hit_test |
 | `test_last_hover_pos.cpp` | LastHoverPos |
-| `test_mouse_gesture.cpp` | MouseGesture |
+| `test_mouse_gesture.cpp` | MouseGesture・ジェスチャ / スワイプのオーバーレイ状態 |
 | `test_swipe_detector.cpp` | SwipeDetector |
-| `test_gesture_overlay.cpp` | ジェスチャ / スワイプのオーバーレイ状態 |
 | `test_nav_history.cpp` | NavHistory |
 | `test_navigation_service.cpp` | リンク解決・ナビゲーション |
 | `test_nav_button_format.cpp` | ナビゲーションボタン定数 |
@@ -3375,9 +3370,8 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_resource_manager.cpp` | ResourceManager |
 | `test_command_executor.cpp` | CommandExecutor（`ExecuteDrawCommands`、構文色の画素一致） |
 | `test_command_generator_frame.cpp` | CommandGenerator フレーム描画 |
-| `test_command_generator_content.cpp` | CommandGenerator コンテンツ描画 |
+| `test_command_generator_content.cpp` | CommandGenerator コンテンツ描画 (モック経路) |
 | `test_command_generator_highlight.cpp` | CommandGenerator ハイライト描画 |
-| `test_draw_command.cpp` | DrawCommand |
 | `test_lru_cache.cpp` | LruCache |
 | `test_memory_eviction.cpp` | メモリエビクション |
 | `test_task_scheduler.cpp` | TaskScheduler・ワーカー数（`SharedWorkerCount` / `LayoutWorkerCount`） |
@@ -3619,7 +3613,7 @@ src/
 │   ├── document_utils.h / .cpp    # テキスト操作
 │   ├── reload.h / reload.cpp      # AnalyzeReloadDiff / FindNodeBySourceOffset
 │   ├── selection_html.h / .cpp    # 選択範囲の HTML 生成
-│   ├── toc.h / toc.cpp            # 目次生成
+│   ├── toc.h                      # 目次
 │   ├── syntax.h / syntax.cpp      # シンタックスハイライト
 │   └── syntax_keywords.h          # 言語別キーワード辞書
 ├── layout/                        # レイアウト層
@@ -3667,12 +3661,11 @@ src/
 │   ├── context_menu_impl.h        # 内部実装
 │   ├── context_menu_logic.cpp     # ContextMenu 純粋ロジック (mendo_core)
 │   ├── toast_notifier.h           # ToastNotifier (ヘッダオンリー)
-│   ├── tooltip.h / tooltip.cpp    # Tooltip + TooltipTarget
+│   ├── tooltip.h / tooltip.cpp    # Tooltip + TooltipTarget + ApplyDarkModeToWindow
 │   ├── search_state.h / .cpp      # SearchState
 │   ├── search_bar_controller.h    # SearchBarControllerT<Cb> 宣言 + 実装
 │   ├── pane_controller.h / .cpp   # PaneController
-│   ├── last_hover_pos.h           # LastHoverPos (ヘッダオンリー)
-│   └── darkmode_util.h / .cpp     # Win32 dark mode 切替ヘルパー
+│   └── last_hover_pos.h           # LastHoverPos (ヘッダオンリー)
 └── util/                          # ユーティリティ層 (Win32 依存最小、テスト容易)
     ├── utility.h                  # 汎用ユーティリティ (ScopeGuard / FNV-1a / PngBytes / PmrFormat / overloaded)
     ├── win32_util.h               # Win32 小物 (IsKeyDown / LoadRcData / LogHrFailure)

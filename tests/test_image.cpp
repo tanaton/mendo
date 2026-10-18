@@ -33,6 +33,13 @@ bool GetCachedImage(ImageLoader& loader, const std::wstring& path, DiagramEntry&
     return true;
 }
 
+// 共有なしで書き込み用に開ければ、ローダーがファイルを開いたままにしていない。
+bool CanOpenExclusively(const std::wstring& path)
+{
+    const UniqueHandle file(CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    return static_cast<bool>(file);
+}
+
 } // namespace
 
 
@@ -600,54 +607,30 @@ TEST_F(ImageLoaderTest, DecodeFromMemoryUsesOnlyRequestedContainer)
 
 // ---- 正常系: 画像フォーマット ----
 
-TEST_F(ImageLoaderTest, LoadPng)
+TEST_F(ImageLoaderTest, LoadsEachFormatAtPixelSize)
 {
-    ASSERT_TRUE(CreateTestImage(L"test.png", GUID_ContainerFormatPng, 100, 80));
-    DiagramEntry entry;
-    EXPECT_TRUE(LoadAndGet(GetTestImagePath(L"test.png"), entry));
-    EXPECT_TRUE(entry.bitmap);
-    EXPECT_FLOAT_EQ(entry.width, 100.0f);
-    EXPECT_FLOAT_EQ(entry.height, 80.0f);
-}
-
-TEST_F(ImageLoaderTest, LoadBmp)
-{
-    ASSERT_TRUE(CreateTestImage(L"test.bmp", GUID_ContainerFormatBmp, 50, 50));
-    DiagramEntry entry;
-    EXPECT_TRUE(LoadAndGet(GetTestImagePath(L"test.bmp"), entry));
-    EXPECT_TRUE(entry.bitmap);
-    EXPECT_FLOAT_EQ(entry.width, 50.0f);
-    EXPECT_FLOAT_EQ(entry.height, 50.0f);
-}
-
-TEST_F(ImageLoaderTest, LoadJpeg)
-{
-    ASSERT_TRUE(CreateTestImage(L"test.jpg", GUID_ContainerFormatJpeg, 200, 150));
-    DiagramEntry entry;
-    EXPECT_TRUE(LoadAndGet(GetTestImagePath(L"test.jpg"), entry));
-    EXPECT_TRUE(entry.bitmap);
-    EXPECT_FLOAT_EQ(entry.width, 200.0f);
-    EXPECT_FLOAT_EQ(entry.height, 150.0f);
-}
-
-TEST_F(ImageLoaderTest, LoadLargeImage)
-{
-    ASSERT_TRUE(CreateTestImage(L"large.png", GUID_ContainerFormatPng, 4096, 2048));
-    DiagramEntry entry;
-    EXPECT_TRUE(LoadAndGet(GetTestImagePath(L"large.png"), entry));
-    EXPECT_TRUE(entry.bitmap);
-    EXPECT_FLOAT_EQ(entry.width, 4096.0f);
-    EXPECT_FLOAT_EQ(entry.height, 2048.0f);
-}
-
-TEST_F(ImageLoaderTest, LoadOneByOneImage)
-{
-    ASSERT_TRUE(CreateTestImage(L"tiny.png", GUID_ContainerFormatPng, 1, 1));
-    DiagramEntry entry;
-    EXPECT_TRUE(LoadAndGet(GetTestImagePath(L"tiny.png"), entry));
-    EXPECT_TRUE(entry.bitmap);
-    EXPECT_FLOAT_EQ(entry.width, 1.0f);
-    EXPECT_FLOAT_EQ(entry.height, 1.0f);
+    struct Case {
+        std::wstring_view filename;
+        const GUID& container;
+        UINT width;
+        UINT height;
+    };
+    const Case kCases[] = {
+        { L"test.png", GUID_ContainerFormatPng, 100, 80 },
+        { L"test.bmp", GUID_ContainerFormatBmp, 50, 50 },
+        { L"test.jpg", GUID_ContainerFormatJpeg, 200, 150 },
+        { L"large.png", GUID_ContainerFormatPng, 4096, 2048 },
+        { L"tiny.png", GUID_ContainerFormatPng, 1, 1 },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.filename }));
+        ASSERT_TRUE(CreateTestImage(c.filename, c.container, c.width, c.height));
+        DiagramEntry entry;
+        EXPECT_TRUE(LoadAndGet(GetTestImagePath(c.filename), entry));
+        EXPECT_TRUE(entry.bitmap);
+        EXPECT_FLOAT_EQ(entry.width, static_cast<float>(c.width));
+        EXPECT_FLOAT_EQ(entry.height, static_cast<float>(c.height));
+    }
 }
 
 // ---- 正常系: キャッシュ動作 ----
@@ -741,65 +724,31 @@ TEST_F(ImageLoaderTest, EmptyPathReturnsFalse)
     EXPECT_FALSE(entry.bitmap);
 }
 
-// ---- 異常系: 壊れた画像ファイル ----
+// ---- 異常系: 壊れた画像ファイル・非画像ファイル ----
 
-TEST_F(ImageLoaderTest, CorruptedPngReturnsFalse)
+TEST_F(ImageLoaderTest, UndecodableFileReturnsFalse)
 {
-    // PNGヘッダの途中で切れたデータ
-    const auto path = temp_dir_.Write(L"corrupt.png", std::string_view("\x89PNG\r\n\x1a\n\x00\x00", 10));
-
-    DiagramEntry entry;
-    EXPECT_FALSE(LoadAndGet(path.wstring(), entry));
-    EXPECT_FALSE(entry.bitmap);
-}
-
-TEST_F(ImageLoaderTest, EmptyFileReturnsFalse)
-{
-    const auto path = temp_dir_.Write(L"empty.png");
-
-    DiagramEntry entry;
-    EXPECT_FALSE(LoadAndGet(path.wstring(), entry));
-    EXPECT_FALSE(entry.bitmap);
-}
-
-TEST_F(ImageLoaderTest, RandomBytesReturnsFalse)
-{
-    const char garbage[] = "This is not an image file at all!";
-    const auto path = temp_dir_.Write(L"random.png", std::string_view(garbage, sizeof(garbage)));
-
-    DiagramEntry entry;
-    EXPECT_FALSE(LoadAndGet(path.wstring(), entry));
-    EXPECT_FALSE(entry.bitmap);
-}
-
-TEST_F(ImageLoaderTest, TruncatedJpegReturnsFalse)
-{
-    // JPEG SOIマーカーのみの不完全データ
-    const auto path = temp_dir_.Write(L"truncated.jpg", std::string_view("\xFF\xD8\xFF\xE0\x00\x10", 6));
-
-    DiagramEntry entry;
-    EXPECT_FALSE(LoadAndGet(path.wstring(), entry));
-    EXPECT_FALSE(entry.bitmap);
-}
-
-// ---- 異常系: 非画像ファイル ----
-
-TEST_F(ImageLoaderTest, TextFileReturnsFalse)
-{
-    const auto path = temp_dir_.Write(L"readme.txt", "Hello, World!");
-
-    DiagramEntry entry;
-    EXPECT_FALSE(LoadAndGet(path.wstring(), entry));
-    EXPECT_FALSE(entry.bitmap);
-}
-
-TEST_F(ImageLoaderTest, HtmlFileReturnsFalse)
-{
-    const auto path = temp_dir_.Write(L"page.html", "<html><body>test</body></html>");
-
-    DiagramEntry entry;
-    EXPECT_FALSE(LoadAndGet(path.wstring(), entry));
-    EXPECT_FALSE(entry.bitmap);
+    struct Case {
+        std::wstring_view filename;
+        std::string_view content;
+    };
+    constexpr Case kCases[] = {
+        // PNG ヘッダの途中で切れたデータ
+        { L"corrupt.png", std::string_view("\x89PNG\r\n\x1a\n\x00\x00", 10) },
+        { L"empty.png", {} },
+        { L"random.png", "This is not an image file at all!" },
+        // JPEG SOI マーカーのみの不完全データ
+        { L"truncated.jpg", std::string_view("\xFF\xD8\xFF\xE0\x00\x10", 6) },
+        { L"readme.txt", "Hello, World!" },
+        { L"page.html", "<html><body>test</body></html>" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.filename }));
+        const auto path = temp_dir_.Write(c.filename, c.content);
+        DiagramEntry entry;
+        EXPECT_FALSE(LoadAndGet(path.wstring(), entry));
+        EXPECT_FALSE(entry.bitmap);
+    }
 }
 
 // ---- 異常系: 未初期化の状態 ----
@@ -902,14 +851,7 @@ TEST_F(ImageLoaderTest, FileNotLockedAfterFailedLoad)
 
     DiagramEntry entry;
     LoadAndGet(path.wstring(), entry);
-
-    HANDLE hFile = CreateFileW(path.wstring().c_str(), GENERIC_WRITE,
-                               0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    EXPECT_NE(hFile, INVALID_HANDLE_VALUE)
-        << "失敗した読み込み後にファイルがロックされている";
-    if (hFile != INVALID_HANDLE_VALUE) {
-        CloseHandle(hFile);
-    }
+    EXPECT_TRUE(CanOpenExclusively(path.wstring())) << "失敗した読み込み後にファイルがロックされている";
 }
 
 // ---- 縮小デコード ----
@@ -969,106 +911,47 @@ TEST_F(WicDecodeTest, OriginalSizeKeepsPixels)
 // DPI スケーリングテスト: 画像サイズが DIP 単位で返されること
 // ============================================================
 
-// 基底の loader_ (既定 DPI) は使わず、各テストで CreateRenderTarget(dpi) から DPI 別のローダーを作る。
-class ImageLoaderDpiTest : public ImageLoaderTest {};
-
-TEST_F(ImageLoaderDpiTest, At96DpiSizeEqualsPixels)
+// 基底の loader_ (既定 DPI) は使わず、CreateRenderTarget(dpi) から DPI 別のローダーを作る。
+// 読み込み直後もキャッシュから引き直しても、同じ DIP サイズになること。
+TEST_F(ImageLoaderTest, SizeIsPixelsDividedByDpiScale)
 {
-    auto rt = CreateRenderTarget(96.0f);
-    ASSERT_TRUE(rt);
+    struct Case {
+        float dpi;
+        UINT px_width;
+        UINT px_height;
+        float dip_width;
+        float dip_height;
+    };
+    constexpr Case kCases[] = {
+        { 96.0f, 200, 100, 200.0f, 100.0f },
+        { 120.0f, 250, 100, 200.0f, 80.0f },  // 125%
+        { 144.0f, 300, 150, 200.0f, 100.0f }, // 150%
+        { 192.0f, 400, 200, 200.0f, 100.0f }, // 200%
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.dpi);
+        const auto rt = CreateRenderTarget(c.dpi);
+        ASSERT_TRUE(rt);
+        ImageLoader loader;
+        loader.Init();
+        loader.SetRenderTarget(rt.Get());
+        loader.InitAsync(nullptr, 0, scheduler_);
 
-    ImageLoader loader;
-    loader.Init();
-    loader.SetRenderTarget(rt.Get());
-    loader.InitAsync(nullptr, 0, scheduler_);
+        const auto filename = L"dpi" + std::to_wstring(static_cast<int>(c.dpi)) + L".png";
+        ASSERT_TRUE(CreateTestImage(filename, GUID_ContainerFormatPng, c.px_width, c.px_height));
+        const auto path = GetTestImagePath(filename);
+        // 96 / 192 DPI は倍率が 2 の冪なので丸め誤差なく一致する。
+        const float tolerance = (c.dpi == 96.0f || c.dpi == 192.0f) ? 0.0f : 0.1f;
+        DiagramEntry loaded;
+        ASSERT_TRUE(LoadAndGet(loader, path, loaded));
+        EXPECT_NEAR(loaded.width, c.dip_width, tolerance);
+        EXPECT_NEAR(loaded.height, c.dip_height, tolerance);
 
-    ASSERT_TRUE(CreateTestImage(L"test96.png", GUID_ContainerFormatPng, 200, 100));
-    DiagramEntry entry;
-    EXPECT_TRUE(LoadAndGet(loader, GetTestImagePath(L"test96.png"), entry));
-    // 96 DPI: 1 pixel = 1 DIP
-    EXPECT_FLOAT_EQ(entry.width, 200.0f);
-    EXPECT_FLOAT_EQ(entry.height, 100.0f);
-}
-
-TEST_F(ImageLoaderDpiTest, At144DpiSizeDividedByScale)
-{
-    // 150% スケーリング (144 DPI)
-    auto rt = CreateRenderTarget(144.0f);
-    ASSERT_TRUE(rt);
-
-    ImageLoader loader;
-    loader.Init();
-    loader.SetRenderTarget(rt.Get());
-    loader.InitAsync(nullptr, 0, scheduler_);
-
-    ASSERT_TRUE(CreateTestImage(L"test144.png", GUID_ContainerFormatPng, 300, 150));
-    DiagramEntry entry;
-    EXPECT_TRUE(LoadAndGet(loader, GetTestImagePath(L"test144.png"), entry));
-    // 300px / 1.5 = 200 DIP, 150px / 1.5 = 100 DIP
-    EXPECT_NEAR(entry.width, 200.0f, 0.1f);
-    EXPECT_NEAR(entry.height, 100.0f, 0.1f);
-}
-
-TEST_F(ImageLoaderDpiTest, At192DpiSizeDividedByScale)
-{
-    // 200% スケーリング (192 DPI)
-    auto rt = CreateRenderTarget(192.0f);
-    ASSERT_TRUE(rt);
-
-    ImageLoader loader;
-    loader.Init();
-    loader.SetRenderTarget(rt.Get());
-    loader.InitAsync(nullptr, 0, scheduler_);
-
-    ASSERT_TRUE(CreateTestImage(L"test192.png", GUID_ContainerFormatPng, 400, 200));
-    DiagramEntry entry;
-    EXPECT_TRUE(LoadAndGet(loader, GetTestImagePath(L"test192.png"), entry));
-    // 400px / 2.0 = 200 DIP, 200px / 2.0 = 100 DIP
-    EXPECT_FLOAT_EQ(entry.width, 200.0f);
-    EXPECT_FLOAT_EQ(entry.height, 100.0f);
-}
-
-TEST_F(ImageLoaderDpiTest, At120DpiSizeDividedByScale)
-{
-    // 125% スケーリング (120 DPI)
-    auto rt = CreateRenderTarget(120.0f);
-    ASSERT_TRUE(rt);
-
-    ImageLoader loader;
-    loader.Init();
-    loader.SetRenderTarget(rt.Get());
-    loader.InitAsync(nullptr, 0, scheduler_);
-
-    ASSERT_TRUE(CreateTestImage(L"test120.png", GUID_ContainerFormatPng, 250, 100));
-    DiagramEntry entry;
-    EXPECT_TRUE(LoadAndGet(loader, GetTestImagePath(L"test120.png"), entry));
-    // 250px / 1.25 = 200 DIP, 100px / 1.25 = 80 DIP
-    EXPECT_NEAR(entry.width, 200.0f, 0.1f);
-    EXPECT_NEAR(entry.height, 80.0f, 0.1f);
-}
-
-TEST_F(ImageLoaderDpiTest, CacheReturnsDipSize)
-{
-    auto rt = CreateRenderTarget(144.0f);
-    ASSERT_TRUE(rt);
-
-    ImageLoader loader;
-    loader.Init();
-    loader.SetRenderTarget(rt.Get());
-    loader.InitAsync(nullptr, 0, scheduler_);
-
-    ASSERT_TRUE(CreateTestImage(L"cache_dpi.png", GUID_ContainerFormatPng, 300, 150));
-    auto path = GetTestImagePath(L"cache_dpi.png");
-
-    // 1回目: 読み込んでキャッシュに格納
-    DiagramEntry entry1;
-    ASSERT_TRUE(LoadAndGet(loader, path, entry1));
-
-    // 2回目: キャッシュヒット — 同じ DIP サイズが返されること
-    DiagramEntry entry2;
-    ASSERT_TRUE(GetCachedImage(loader, path, entry2));
-    EXPECT_NEAR(entry2.width, 200.0f, 0.1f);
-    EXPECT_NEAR(entry2.height, 100.0f, 0.1f);
+        DiagramEntry cached;
+        ASSERT_TRUE(GetCachedImage(loader, path, cached));
+        EXPECT_NEAR(cached.width, c.dip_width, tolerance);
+        EXPECT_NEAR(cached.height, c.dip_height, tolerance);
+    }
 }
 
 // ============================================================
@@ -1179,15 +1062,7 @@ TEST_F(ImageLoaderAsyncTest, FileNotLockedAfterAsyncLoad)
 
     DiagramEntry entry;
     ASSERT_TRUE(LoadAndGet(path, entry)) << "非同期読み込みが完了しなかった";
-
-    // 非同期読み込み完了後、書き込みモードでファイルを開けること
-    HANDLE hFile = CreateFileW(path.c_str(), GENERIC_WRITE,
-                               0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    EXPECT_NE(hFile, INVALID_HANDLE_VALUE)
-        << "非同期読み込み後にファイルが書き込みロックされている";
-    if (hFile != INVALID_HANDLE_VALUE) {
-        CloseHandle(hFile);
-    }
+    EXPECT_TRUE(CanOpenExclusively(path)) << "非同期読み込み後にファイルが書き込みロックされている";
 }
 
 TEST_F(ImageLoaderAsyncTest, AsyncLoadReturnsDipSizeAt150Percent)

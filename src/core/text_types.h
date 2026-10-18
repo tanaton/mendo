@@ -97,6 +97,15 @@ struct TextSelection {
         return { start, end };
     }
 
+    // ClampedRange に加え、非アクティブや範囲外のノードでは空範囲を返す。
+    constexpr NodeRange RangeIn(int node_index, size_t text_size) const noexcept
+    {
+        if (!active || node_index < start_node || node_index > end_node) {
+            return { 0, 0 };
+        }
+        return ClampedRange(node_index, text_size);
+    }
+
     friend constexpr bool operator==(const TextSelection&, const TextSelection&) noexcept = default;
 
     constexpr void Clear() noexcept

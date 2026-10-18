@@ -47,26 +47,31 @@ inline Node MakeTextNode(const char* text)
     return n;
 }
 
-// 1 行 2 列のテーブルノードを作るテスト用ヘルパー。
-inline Node MakeTableNode(const char* cell0, const char* cell1)
+// rows[r][c] をセルに持つテーブルノード。区切りはパーサと同じく行内 '\t'、行間 '\n'。
+inline Node MakeTableNode(std::initializer_list<std::initializer_list<std::string_view>> rows)
 {
     Node n;
     n.type = NodeType::Table;
     auto* tbl = AttachTestTable(n);
-    tbl->row_count = 1;
-    tbl->col_count = 2;
-    tbl->concat_text.append(cell0);
-    tbl->concat_text.push_back('\t');
-    tbl->concat_text.append(cell1);
-    tbl->cell_text_starts.push_back(0);
-    tbl->cell_text_starts.push_back(static_cast<uint32_t>(std::char_traits<char>::length(cell0) + 1));
+    tbl->row_count = static_cast<uint32_t>(rows.size());
+    tbl->col_count = static_cast<uint16_t>(rows.begin()->size());
+    for (const auto& row : rows) {
+        if (!tbl->is_header_row.empty()) {
+            tbl->concat_text.push_back('\n');
+        }
+        tbl->is_header_row.push_back(false);
+        for (size_t c = 0; c < row.size(); ++c) {
+            if (c > 0) {
+                tbl->concat_text.push_back('\t');
+            }
+            tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
+            tbl->cell_run_starts.push_back(0);
+            tbl->concat_text.append(row.begin()[c]);
+        }
+    }
     tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
     tbl->cell_run_starts.push_back(0);
-    tbl->cell_run_starts.push_back(0);
-    tbl->cell_run_starts.push_back(0);
-    tbl->aligns.push_back(TableAlign::Default);
-    tbl->aligns.push_back(TableAlign::Default);
-    tbl->is_header_row.push_back(false);
+    tbl->aligns.assign(tbl->col_count, TableAlign::Default);
     n.SetText(tbl->concat_text);
     return n;
 }
@@ -119,6 +124,20 @@ inline Theme MakeLayoutTestTheme()
     return theme;
 }
 
+// content をバイナリで書き出す。失敗はテスト失敗として報告する。
+inline void WriteTestFile(const std::filesystem::path& path, std::string_view content)
+{
+    std::ofstream f(path, std::ios::binary);
+    if (!f.is_open()) {
+        ADD_FAILURE() << "Failed to open temp file: " << path.string();
+        return;
+    }
+    f.write(content.data(), static_cast<std::streamsize>(content.size()));
+    if (!f.good()) {
+        ADD_FAILURE() << "Failed to write temp file: " << path.string();
+    }
+}
+
 // temp ディレクトリを RAII で用意・破棄する。テスト名とプロセスIDで一意な名前を生成するため、
 // 並列実行や異常終了時も衝突しない。gtest はフィクスチャ生成前に current_test_info を
 // 設定するので、フィクスチャのメンバとして保持できる。
@@ -163,15 +182,7 @@ public:
     std::filesystem::path Write(std::wstring_view name, std::string_view content = {}) const
     {
         auto path = path_ / name;
-        std::ofstream f(path, std::ios::binary);
-        if (!f.is_open()) {
-            ADD_FAILURE() << "Failed to open temp file: " << path.string();
-            return path;
-        }
-        f.write(content.data(), static_cast<std::streamsize>(content.size()));
-        if (!f.good()) {
-            ADD_FAILURE() << "Failed to write temp file: " << path.string();
-        }
+        WriteTestFile(path, content);
         return path;
     }
 
@@ -259,15 +270,7 @@ public:
         fname += L"_";
         fname += std::to_wstring(reinterpret_cast<uintptr_t>(this));
         path_ = tmp_dir / fname;
-        std::ofstream f(path_, std::ios::binary);
-        if (!f.is_open()) {
-            ADD_FAILURE() << "Failed to open temp file: " << path_.string();
-            return;
-        }
-        f.write(content.data(), static_cast<std::streamsize>(content.size()));
-        if (!f.good()) {
-            ADD_FAILURE() << "Failed to write temp file: " << path_.string();
-        }
+        WriteTestFile(path_, content);
     }
     ~TempFile()
     {

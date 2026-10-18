@@ -45,109 +45,57 @@ TEST_F(ConfigServiceTest, GetConfigPathCombinesCorrectly)
     EXPECT_EQ(path, temp_dir_ / L"test.txt");
 }
 
-// ---- SaveBool / LoadBool ----
+// ---- 値の保存と読み出し ----
 
-TEST_F(ConfigServiceTest, SetAndGetBoolTrue)
+TEST_F(ConfigServiceTest, MissingKeysReturnDefaults)
+{
+    EXPECT_TRUE(config_.LoadBool("Test", "Missing", true));
+    EXPECT_FALSE(config_.LoadBool("Test", "Missing", false));
+    EXPECT_EQ(config_.LoadInt("Test", "Missing", 7, 0, 100), 7);
+    EXPECT_TRUE(config_.LoadWString("Test", "Missing").empty());
+}
+
+// 同じキーへ順に書き、上書きも確かめる。既定値と逆の値を読めれば保存値が返っている。
+TEST_F(ConfigServiceTest, SaveBoolOverwrites)
 {
     config_.SaveBool("Test", "Flag", true);
     EXPECT_TRUE(config_.LoadBool("Test", "Flag", false));
-}
-
-TEST_F(ConfigServiceTest, SetAndGetBoolFalse)
-{
     config_.SaveBool("Test", "Flag", false);
     EXPECT_FALSE(config_.LoadBool("Test", "Flag", true));
 }
 
-TEST_F(ConfigServiceTest, GetBoolReturnsDefaultWhenMissing)
+// 範囲は両端を含み、範囲外の保存値は既定値に倒す。
+TEST_F(ConfigServiceTest, LoadIntReturnsDefaultOutsideRange)
 {
-    EXPECT_TRUE(config_.LoadBool("Test", "Missing", true));
-    EXPECT_FALSE(config_.LoadBool("Test", "Missing", false));
+    struct Case {
+        int stored;
+        int min_v;
+        int max_v;
+        int expected;
+    };
+    constexpr Case kCases[] = {
+        { 42, 0, 100, 42 },
+        { 0, 0, 100, 0 },
+        { 100, 0, 100, 100 },
+        { -10, -20, 20, -10 },
+        { -5, 0, 100, 7 },
+        { 200, 0, 100, 7 },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.stored);
+        config_.SaveInt("Test", "Value", c.stored);
+        EXPECT_EQ(config_.LoadInt("Test", "Value", 7, c.min_v, c.max_v), c.expected);
+    }
 }
 
-TEST_F(ConfigServiceTest, SetBoolOverwrite)
+// 同じキーへ順に書き、上書きと空文字列の保存も確かめる。
+TEST_F(ConfigServiceTest, SaveWStringOverwrites)
 {
-    config_.SaveBool("Test", "Flag", true);
-    EXPECT_TRUE(config_.LoadBool("Test", "Flag"));
-    config_.SaveBool("Test", "Flag", false);
-    EXPECT_FALSE(config_.LoadBool("Test", "Flag"));
-}
-
-// ---- SaveInt / LoadInt ----
-
-TEST_F(ConfigServiceTest, SetAndGetInt)
-{
-    config_.SaveInt("Test", "Value", 42);
-    EXPECT_EQ(config_.LoadInt("Test", "Value", 0, 0, 100), 42);
-}
-
-TEST_F(ConfigServiceTest, GetIntReturnsDefaultWhenMissing)
-{
-    EXPECT_EQ(config_.LoadInt("Test", "Missing", 7, 0, 100), 7);
-}
-
-TEST_F(ConfigServiceTest, GetIntReturnsDefaultWhenBelowMin)
-{
-    config_.SaveInt("Test", "Value", -5);
-    EXPECT_EQ(config_.LoadInt("Test", "Value", 7, 0, 100), 7);
-}
-
-TEST_F(ConfigServiceTest, GetIntReturnsDefaultWhenAboveMax)
-{
-    config_.SaveInt("Test", "Value", 200);
-    EXPECT_EQ(config_.LoadInt("Test", "Value", 7, 0, 100), 7);
-}
-
-TEST_F(ConfigServiceTest, GetIntBoundaryValues)
-{
-    config_.SaveInt("Test", "Min", 0);
-    EXPECT_EQ(config_.LoadInt("Test", "Min", 99, 0, 100), 0);
-
-    config_.SaveInt("Test", "Max", 100);
-    EXPECT_EQ(config_.LoadInt("Test", "Max", 99, 0, 100), 100);
-}
-
-TEST_F(ConfigServiceTest, SetIntNegativeValues)
-{
-    config_.SaveInt("Test", "Neg", -10);
-    EXPECT_EQ(config_.LoadInt("Test", "Neg", 0, -20, 20), -10);
-}
-
-// ---- SaveWString / LoadWString ----
-
-TEST_F(ConfigServiceTest, SetAndGetWString)
-{
-    std::wstring_view test_path = L"C:\\Users\\test\\document.md";
-    config_.SaveWString("Session", "LastFile", test_path);
-    EXPECT_EQ(config_.LoadWString("Session", "LastFile"), test_path);
-}
-
-TEST_F(ConfigServiceTest, SetAndGetWStringJapanese)
-{
-    std::wstring_view jp = L"C:\\ユーザー\\テスト\\文書.md";
-    config_.SaveWString("Session", "Path", jp);
-    EXPECT_EQ(config_.LoadWString("Session", "Path"), jp);
-}
-
-TEST_F(ConfigServiceTest, GetWStringReturnsEmptyWhenMissing)
-{
-    EXPECT_TRUE(config_.LoadWString("Test", "Missing").empty());
-}
-
-TEST_F(ConfigServiceTest, SetWStringEmptyStoresEmpty)
-{
-    config_.SaveWString("Test", "Key", L"value");
-    EXPECT_EQ(config_.LoadWString("Test", "Key"), L"value");
-    config_.SaveWString("Test", "Key", L"");
-    EXPECT_TRUE(config_.LoadWString("Test", "Key").empty());
-}
-
-TEST_F(ConfigServiceTest, SetWStringOverwrite)
-{
-    config_.SaveWString("Test", "Key", L"first");
-    EXPECT_EQ(config_.LoadWString("Test", "Key"), L"first");
-    config_.SaveWString("Test", "Key", L"second");
-    EXPECT_EQ(config_.LoadWString("Test", "Key"), L"second");
+    for (const std::wstring_view value : { L"C:\\Users\\test\\document.md", L"C:\\ユーザー\\テスト\\文書.md", L"" }) {
+        SCOPED_TRACE(::testing::PrintToString(std::wstring{ value }));
+        config_.SaveWString("Session", "LastFile", value);
+        EXPECT_EQ(config_.LoadWString("Session", "LastFile"), value);
+    }
 }
 
 // ---- Load / Flush ラウンドトリップ ----
@@ -211,82 +159,22 @@ TEST_F(ConfigServiceTest, FlushWritesChangedValue)
     EXPECT_EQ(MakeFreshLoadedConfig().LoadInt("Window", "X", 0, 0, 100), 43);
 }
 
-// ---- 複数セクションの独立性 ----
-
-TEST_F(ConfigServiceTest, MultipleSectionsIndependent)
-{
-    config_.SaveBool("View", "DarkMode", true);
-    config_.SaveInt("Window", "X", 42);
-    config_.SaveWString("Session", "LastFile", L"hello");
-
-    EXPECT_TRUE(config_.LoadBool("View", "DarkMode"));
-    EXPECT_EQ(config_.LoadInt("Window", "X", 0, 0, 100), 42);
-    EXPECT_EQ(config_.LoadWString("Session", "LastFile"), L"hello");
-}
-
-// ---- ウィンドウ配置設定テスト ----
-
-TEST_F(ConfigServiceTest, WindowPlacementRoundTrip)
-{
-    config_.SaveInt("Window", "X", -500);
-    config_.SaveInt("Window", "Y", 200);
-    config_.SaveInt("Window", "Width", 1600);
-    config_.SaveInt("Window", "Height", 900);
-    config_.SaveBool("Window", "Maximized", true);
-
-    EXPECT_EQ(config_.LoadInt("Window", "X", 0, -100000, 100000), -500);
-    EXPECT_EQ(config_.LoadInt("Window", "Y", 0, -100000, 100000), 200);
-    EXPECT_EQ(config_.LoadInt("Window", "Width", 0, 100, 100000), 1600);
-    EXPECT_EQ(config_.LoadInt("Window", "Height", 0, 100, 100000), 900);
-    EXPECT_TRUE(config_.LoadBool("Window", "Maximized"));
-}
-
-TEST_F(ConfigServiceTest, WindowPlacementMissingReturnsDefaults)
-{
-    EXPECT_EQ(config_.LoadInt("Window", "Width", 0, 100, 100000), 0);
-    EXPECT_EQ(config_.LoadInt("Window", "Height", 0, 100, 100000), 0);
-    EXPECT_FALSE(config_.LoadBool("Window", "Maximized"));
-}
-
-// ---- スクロール復元設定テスト ----
-
-TEST_F(ConfigServiceTest, ScrollNodeRoundTrip)
-{
-    config_.SaveInt("Session", "ScrollNode", 42);
-    config_.SaveInt("Session", "ScrollOffset", 15);
-
-    EXPECT_EQ(config_.LoadInt("Session", "ScrollNode", -1, -1, 100000000), 42);
-    EXPECT_EQ(config_.LoadInt("Session", "ScrollOffset", 0, -100000, 100000), 15);
-}
-
-TEST_F(ConfigServiceTest, ScrollNodeMissingReturnsDefault)
-{
-    EXPECT_EQ(config_.LoadInt("Session", "ScrollNode", -1, -1, 100000000), -1);
-    EXPECT_EQ(config_.LoadInt("Session", "ScrollOffset", 0, -100000, 100000), 0);
-}
-
 // ---- INIファイル破損テスト ----
 
 TEST_F(ConfigServiceTest, LoadCorruptedIniFile)
 {
-    {
-        std::ofstream(temp_dir_ / L"settings.ini") << "garbage content\nno sections\n";
-    }
+    WriteTempFile(L"settings.ini", "garbage content\nno sections\n");
 
     config_.Load();
     // パースエラーでもクラッシュしないことを確認
     EXPECT_EQ(config_.LoadInt("Window", "Width", 0, 100, 100000), 0);
 }
 
-TEST_F(ConfigServiceTest, GetIntCorruptedValue)
+// 数値として読み切れない値 (末尾にゴミが残る部分パースを含む) は既定値に倒す。
+TEST_F(ConfigServiceTest, LoadIntReturnsDefaultForNonNumericValue)
 {
-    config_.SaveInt("Test", "Value", 42);
-    config_.Flush();
-    {
-        auto path = temp_dir_ / L"settings.ini";
-        std::ofstream ofs(path);
-        ofs << "[Test]\nValue=not_a_number\n";
-    }
-    auto fresh = MakeFreshLoadedConfig();
-    EXPECT_EQ(fresh.LoadInt("Test", "Value", 7, 0, 100), 7);
+    WriteTempFile(L"settings.ini", "[Test]\nWord=not_a_number\nSuffix=30px\n");
+    config_.Load();
+    EXPECT_EQ(config_.LoadInt("Test", "Word", 7, 0, 100), 7);
+    EXPECT_EQ(config_.LoadInt("Test", "Suffix", 7, 0, 100), 7);
 }

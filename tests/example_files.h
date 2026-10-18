@@ -2,21 +2,20 @@
 #include <filesystem>
 #include <fstream>
 #include <memory_resource>
-#include <sstream>
 #include <string>
 #include <string_view>
 
 // 開けなければ空文字列を返す (呼び出し側で GTEST_SKIP / ASSERT する)。
 inline std::pmr::string ReadFileBytes(const std::filesystem::path& full)
 {
-    std::ifstream file(full, std::ios::binary);
+    std::ifstream file(full, std::ios::binary | std::ios::ate);
     if (!file) {
         return {};
     }
-    std::ostringstream ss;
-    ss << file.rdbuf();
-    const std::string s = ss.str();
-    return std::pmr::string{ s.data(), s.size() };
+    std::pmr::string bytes(static_cast<size_t>(file.tellg()), '\0');
+    file.seekg(0);
+    file.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    return bytes;
 }
 
 // "example/xxx.md" 形式の相対パスを、cwd に依存せずソースツリーの example/ から開く。

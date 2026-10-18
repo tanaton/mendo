@@ -121,7 +121,6 @@ add_library(mendo_core STATIC
     src/core/html_entities.cpp
     src/core/reload.cpp
     src/core/selection_html.cpp
-    src/core/toc.cpp
     src/core/syntax.cpp
     # layout - レイアウト計算
     src/layout/layout_cache.cpp
@@ -140,7 +139,6 @@ add_library(mendo_core STATIC
     # context_menu.cpp は Win32/D2D 描画層（本体）と logic 層（mendo_core 入り）に
     # 分割されており、logic 側のみを mendo_core に含める。
     src/ui/context_menu_logic.cpp
-    src/ui/darkmode_util.cpp
     src/ui/pane_controller.cpp
     src/ui/search_state.cpp
     src/ui/titlebar.cpp

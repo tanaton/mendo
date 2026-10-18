@@ -11,17 +11,24 @@ protected:
 
 TEST_F(SwipeDetectorTest, InitiallyNoSwipe)
 {
-    EXPECT_EQ(detector_.Commit(), NavDirection::None);
     EXPECT_FALSE(detector_.IsOverlayVisible());
+    EXPECT_EQ(detector_.GetOverlayDirection(), NavDirection::None);
+    EXPECT_EQ(detector_.Commit(), NavDirection::None);
 }
 
 // ─── 閾値未満は None ───
 
 TEST_F(SwipeDetectorTest, BelowThresholdReturnsNone)
 {
-    detector_.OnHWheel(120, now_);
-    EXPECT_FALSE(detector_.IsOverlayVisible());
-    EXPECT_EQ(detector_.Commit(), NavDirection::None);
+    // ホイール 1 ノッチと、閾値のすぐ下。
+    for (const int delta : { 120, SwipeDetector::TRIGGER_THRESHOLD - 1 }) {
+        SCOPED_TRACE(delta);
+        SwipeDetector det;
+        det.OnHWheel(delta, now_);
+        EXPECT_FALSE(det.IsOverlayVisible());
+        EXPECT_EQ(det.GetOverlayDirection(), NavDirection::None);
+        EXPECT_EQ(det.Commit(), NavDirection::None);
+    }
 }
 
 // ─── 右スワイプ（正のdelta蓄積）→ Commit で Back ───
@@ -45,17 +52,21 @@ TEST_F(SwipeDetectorTest, LeftSwipeTriggersForward)
     EXPECT_EQ(detector_.Commit(), NavDirection::None);
 }
 
-// ─── ちょうど閾値で発動 ───
+// ─── ちょうど閾値でオーバーレイを出し、Commit で発動 ───
 
 TEST_F(SwipeDetectorTest, ExactThresholdTriggersBack)
 {
     detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_);
+    EXPECT_TRUE(detector_.IsOverlayVisible());
+    EXPECT_EQ(detector_.GetOverlayDirection(), NavDirection::Back);
     EXPECT_EQ(detector_.Commit(), NavDirection::Back);
 }
 
 TEST_F(SwipeDetectorTest, ExactNegativeThresholdTriggersForward)
 {
     detector_.OnHWheel(-SwipeDetector::TRIGGER_THRESHOLD, now_);
+    EXPECT_TRUE(detector_.IsOverlayVisible());
+    EXPECT_EQ(detector_.GetOverlayDirection(), NavDirection::Forward);
     EXPECT_EQ(detector_.Commit(), NavDirection::Forward);
 }
 
@@ -147,16 +158,6 @@ TEST_F(SwipeDetectorTest, ResetClearsAllState)
     EXPECT_EQ(detector_.Commit(), NavDirection::Back);
 }
 
-// ─── Commit はリセット後に再度 None を返す ───
-
-TEST_F(SwipeDetectorTest, CommitResetsState)
-{
-    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_);
-    EXPECT_EQ(detector_.Commit(), NavDirection::Back);
-    // 2回目のCommitはNone
-    EXPECT_EQ(detector_.Commit(), NavDirection::None);
-}
-
 // ─── 連続ナビゲーション: Commit後すぐに次のスワイプが可能 ───
 
 TEST_F(SwipeDetectorTest, ConsecutiveSwipes)
@@ -179,47 +180,15 @@ TEST_F(SwipeDetectorTest, VScrollResetsDelta)
     EXPECT_EQ(detector_.Commit(), NavDirection::None);
 }
 
-// ─── オーバーレイ表示（閾値到達で表示、Commitで消滅） ───
+// ─── Commit・縦スクロール・Reset でオーバーレイが消える ───
 
-TEST_F(SwipeDetectorTest, OverlayNotVisibleInitially)
-{
-    EXPECT_FALSE(detector_.IsOverlayVisible());
-    EXPECT_EQ(detector_.GetOverlayDirection(), NavDirection::None);
-}
-
-TEST_F(SwipeDetectorTest, OverlayNotVisibleBelowThreshold)
-{
-    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD - 1, now_);
-    EXPECT_FALSE(detector_.IsOverlayVisible());
-    EXPECT_EQ(detector_.GetOverlayDirection(), NavDirection::None);
-}
-
-TEST_F(SwipeDetectorTest, OverlayVisibleAtThreshold)
+TEST_F(SwipeDetectorTest, CommitResetsState)
 {
     detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_);
-    EXPECT_TRUE(detector_.IsOverlayVisible());
-}
-
-TEST_F(SwipeDetectorTest, OverlayDirectionBackOnPositiveDelta)
-{
-    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_);
-    EXPECT_EQ(detector_.GetOverlayDirection(), NavDirection::Back);  // 戻る
-}
-
-TEST_F(SwipeDetectorTest, OverlayDirectionForwardOnNegativeDelta)
-{
-    detector_.OnHWheel(-SwipeDetector::TRIGGER_THRESHOLD, now_);
-    EXPECT_EQ(detector_.GetOverlayDirection(), NavDirection::Forward);  // 進む
-}
-
-TEST_F(SwipeDetectorTest, OverlayDisappearsAfterCommit)
-{
-    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_);
-    EXPECT_TRUE(detector_.IsOverlayVisible());
-    // Commit後はデルタがリセットされオーバーレイが消える
-    detector_.Commit();
+    EXPECT_EQ(detector_.Commit(), NavDirection::Back);
     EXPECT_FALSE(detector_.IsOverlayVisible());
     EXPECT_EQ(detector_.GetOverlayDirection(), NavDirection::None);
+    EXPECT_EQ(detector_.Commit(), NavDirection::None);
 }
 
 TEST_F(SwipeDetectorTest, OverlayDisappearsAfterVScroll)

@@ -44,79 +44,46 @@ TEST(PointInRectTest, ZeroSizeRect)
 // SnapToPhysicalPixel
 // ═══════════════════════════════════════════════
 
-// 整数値はスナップしても変わらない
-TEST(SnapToPhysicalPixelTest, IntegerValueUnchanged_100Percent)
+// 物理ピクセル境界 (1/scale DIP 刻み) の最寄りへ寄せる。境界上の値はそのまま。
+TEST(SnapToPhysicalPixelTest, SnapsToNearestPhysicalPixel)
 {
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(10.0f, 1.0f), 10.0f);
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(0.0f, 1.0f), 0.0f);
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(999.0f, 1.0f), 999.0f);
-}
-
-// 100% DPI: サブピクセル値は最寄りの整数にスナップされる
-TEST(SnapToPhysicalPixelTest, SubPixelSnaps_100Percent)
-{
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(10.3f, 1.0f), 10.0f);
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(10.7f, 1.0f), 11.0f);
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(10.5f, 1.0f), 11.0f); // std::round は0.5を0から離れる方向に丸める
-}
-
-// 150% DPI: 物理ピクセル境界 = 1/1.5 DIP刻み
-TEST(SnapToPhysicalPixelTest, SubPixelSnaps_150Percent)
-{
-    float scale = 1.5f;
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(10.0f, scale), 10.0f);
-    EXPECT_NEAR(SnapToPhysicalPixel(10.2f, scale), 10.0f, 1e-5f);
-    EXPECT_NEAR(SnapToPhysicalPixel(10.4f, scale), 16.0f / 1.5f, 1e-5f);
-}
-
-// 200% DPI: 物理ピクセル境界 = 0.5 DIP刻み
-TEST(SnapToPhysicalPixelTest, SubPixelSnaps_200Percent)
-{
-    float scale = 2.0f;
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(10.0f, scale), 10.0f);
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(10.3f, scale), 10.5f);
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(10.1f, scale), 10.0f);
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(10.75f, scale), 11.0f);
-}
-
-// 200% DPI: ピクセル境界上の値はそのまま保持される
-TEST(SnapToPhysicalPixelTest, HalfDipValuesPreserved_200Percent)
-{
-    float scale = 2.0f;
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(10.5f, scale), 10.5f);
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(11.0f, scale), 11.0f);
-}
-
-// ゼロは常にゼロ
-TEST(SnapToPhysicalPixelTest, ZeroRemainsZero)
-{
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(0.0f, 1.0f), 0.0f);
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(0.0f, 1.5f), 0.0f);
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(0.0f, 2.0f), 0.0f);
-}
-
-// 大きい値でも正しくスナップされる
-TEST(SnapToPhysicalPixelTest, LargeValueSnaps)
-{
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(12345.3f, 1.0f), 12345.0f);
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(12345.7f, 1.0f), 12346.0f);
-}
-
-// 125% DPI: 整数DIPが非整数物理ピクセルになるケース
-TEST(SnapToPhysicalPixelTest, SubPixelSnaps_125Percent)
-{
-    float scale = 1.25f;
-    // 10.0 * 1.25 = 12.5 → std::round(12.5) = 13 → 13 / 1.25 = 10.4
-    EXPECT_NEAR(SnapToPhysicalPixel(10.0f, scale), 10.4f, 1e-5f);
-}
-
-// スムーススクロール補間で生成される典型的な端数値
-TEST(SnapToPhysicalPixelTest, SmoothScrollInterpolationValues)
-{
-    float scale = 1.0f;
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(25.0f, scale), 25.0f);
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(43.75f, scale), 44.0f);
-    EXPECT_FLOAT_EQ(SnapToPhysicalPixel(57.8125f, scale), 58.0f);
+    struct Case {
+        float dip;
+        float scale;
+        float expected;
+    };
+    constexpr Case kCases[] = {
+        { 0.0f, 1.0f, 0.0f },
+        { 10.0f, 1.0f, 10.0f },
+        { 25.0f, 1.0f, 25.0f },
+        { 999.0f, 1.0f, 999.0f },
+        { 10.3f, 1.0f, 10.0f },
+        { 10.7f, 1.0f, 11.0f },
+        // std::round は 0.5 を 0 から離れる方向に丸める
+        { 10.5f, 1.0f, 11.0f },
+        { 12345.3f, 1.0f, 12345.0f },
+        { 12345.7f, 1.0f, 12346.0f },
+        // スムーススクロール補間で生成される典型的な端数値
+        { 43.75f, 1.0f, 44.0f },
+        { 57.8125f, 1.0f, 58.0f },
+        // 10.0 * 1.25 = 12.5 → round で 13 → 13 / 1.25 = 10.4 (整数 DIP が非整数物理ピクセルになる)
+        { 10.0f, 1.25f, 10.4f },
+        { 0.0f, 1.5f, 0.0f },
+        { 10.0f, 1.5f, 10.0f },
+        { 10.2f, 1.5f, 10.0f },
+        { 10.4f, 1.5f, 16.0f / 1.5f },
+        { 0.0f, 2.0f, 0.0f },
+        { 10.0f, 2.0f, 10.0f },
+        { 10.1f, 2.0f, 10.0f },
+        { 10.3f, 2.0f, 10.5f },
+        { 10.5f, 2.0f, 10.5f },
+        { 10.75f, 2.0f, 11.0f },
+        { 11.0f, 2.0f, 11.0f },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::Message() << "dip=" << c.dip << " scale=" << c.scale);
+        EXPECT_NEAR(SnapToPhysicalPixel(c.dip, c.scale), c.expected, 1e-5f);
+    }
 }
 
 // スナップ前後でスクロール差が1物理ピクセル未満であることを確認

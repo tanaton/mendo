@@ -244,7 +244,7 @@ TEST(ViewportManagerTest, SelectAllLastNodeIsTable)
 {
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode("hello"));
-    nodes.push_back(MakeTableNode("cell0", "cell1"));
+    nodes.push_back(MakeTableNode({ { "cell0", "cell1" } }));
 
     ViewportManager vm;
     vm.SelectAll(nodes);

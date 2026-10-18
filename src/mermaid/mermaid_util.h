@@ -19,8 +19,6 @@ uint64_t DiagramRequestHash(uint64_t code_hash, float max_width, bool dark_mode)
 
 std::pmr::wstring JsEscape(std::wstring_view input);
 
-uint64_t CombinedHash(std::string_view code, int max_width_int, bool dark_mode) noexcept;
-
 int QuantizeWidth(float max_width) noexcept;
 // 有限でない値 (nan / inf) は 0。
 float ParseJsonNumber(std::wstring_view json, std::wstring_view key) noexcept;

@@ -103,6 +103,69 @@ void AddWebViewHandler(WebView* webview, const char* what, HRESULT (STDMETHODCAL
     LogHrFailure(what, (webview->*add)(Microsoft::WRL::Callback<Handler>(std::forward<Fn>(fn)).Get(), nullptr));
 }
 
+// app.local の外への遷移・新しいウィンドウ・権限要求・ダウンロードを止める。
+// 外部への通信そのものは WebResourceRequested と CSP で止める。
+void RestrictWebView(ICoreWebView2* webview)
+{
+    // clang-format off
+    AddWebViewHandler(
+        webview,
+        "add_NavigationStarting",
+        &ICoreWebView2::add_NavigationStarting,
+        [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) static -> HRESULT {
+            UniqueCoTaskMemStr uri;
+            if (SUCCEEDED(args->get_Uri(uri.put())) && uri) {
+                const std::wstring_view u(uri.get());
+                if (!u.starts_with(APP_LOCAL_ORIGIN_PREFIX) && u != L"about:blank") {
+                    args->put_Cancel(TRUE);
+                }
+            }
+            return S_OK;
+        }
+    );
+    // clang-format on
+
+    // clang-format off
+    AddWebViewHandler(
+        webview,
+        "add_NewWindowRequested",
+        &ICoreWebView2::add_NewWindowRequested,
+        [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) static -> HRESULT {
+            args->put_Handled(TRUE);
+            return S_OK;
+        }
+    );
+    // clang-format on
+
+    // カメラ・位置情報・クリップボード等の権限要求は、図の描画に要らないのですべて拒否する。
+    // clang-format off
+    AddWebViewHandler(
+        webview,
+        "add_PermissionRequested",
+        &ICoreWebView2::add_PermissionRequested,
+        [](ICoreWebView2*, ICoreWebView2PermissionRequestedEventArgs* args) static -> HRESULT {
+            args->put_State(COREWEBVIEW2_PERMISSION_STATE_DENY);
+            return S_OK;
+        }
+    );
+    // clang-format on
+
+    // blob: などからのダウンロードでファイルを保存させない。
+    if (Microsoft::WRL::ComPtr<ICoreWebView2_4> webview4; SUCCEEDED(webview->QueryInterface(IID_PPV_ARGS(&webview4)))) {
+        // clang-format off
+        AddWebViewHandler(
+            webview4.Get(),
+            "add_DownloadStarting",
+            &ICoreWebView2_4::add_DownloadStarting,
+            [](ICoreWebView2*, ICoreWebView2DownloadStartingEventArgs* args) static -> HRESULT {
+                args->put_Cancel(TRUE);
+                return S_OK;
+            }
+        );
+        // clang-format on
+    }
+}
+
 // CreateStreamOnHGlobal のストリームはアパートメントに縛られないので worker から読める。
 // HGLOBAL から直接写し、ゼロ埋めした中間バッファを挟まない。
 PngBytes ReadHGlobalStream(IStream* stream)
@@ -371,6 +434,7 @@ void MermaidRenderer::OnControllerCreated(int index, ICoreWebView2Controller* co
 
     controller->put_Bounds(RECT{ 0, 0, HOST_SIZE, HOST_SIZE });
     DisableWebViewChrome(w.webview.Get());
+    RestrictWebView(w.webview.Get());
     RegisterWebViewHandlers(index);
 
     // HTML + JS は WebResourceRequested ハンドラがメモリから配信する。
@@ -410,64 +474,6 @@ void MermaidRenderer::RegisterWebViewHandlers(int index)
     );
     // clang-format on
 
-    // clang-format off
-    AddWebViewHandler(
-        webview,
-        "add_NavigationStarting",
-        &ICoreWebView2::add_NavigationStarting,
-        [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) static -> HRESULT {
-            UniqueCoTaskMemStr uri;
-            if (SUCCEEDED(args->get_Uri(uri.put())) && uri) {
-                const std::wstring_view u(uri.get());
-                if (!u.starts_with(APP_LOCAL_ORIGIN_PREFIX) && u != L"about:blank") {
-                    args->put_Cancel(TRUE);
-                }
-            }
-            return S_OK;
-        }
-    );
-    // clang-format on
-
-    // clang-format off
-    AddWebViewHandler(
-        webview,
-        "add_NewWindowRequested",
-        &ICoreWebView2::add_NewWindowRequested,
-        [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) static -> HRESULT {
-            args->put_Handled(TRUE);
-            return S_OK;
-        }
-    );
-    // clang-format on
-
-    // カメラ・位置情報・クリップボード等の権限要求は、図の描画に要らないのですべて拒否する。
-    // clang-format off
-    AddWebViewHandler(
-        webview,
-        "add_PermissionRequested",
-        &ICoreWebView2::add_PermissionRequested,
-        [](ICoreWebView2*, ICoreWebView2PermissionRequestedEventArgs* args) static -> HRESULT {
-            args->put_State(COREWEBVIEW2_PERMISSION_STATE_DENY);
-            return S_OK;
-        }
-    );
-    // clang-format on
-
-    // blob: などからのダウンロードでファイルを保存させない。
-    if (Microsoft::WRL::ComPtr<ICoreWebView2_4> webview4; SUCCEEDED(webview->QueryInterface(IID_PPV_ARGS(&webview4)))) {
-        // clang-format off
-        AddWebViewHandler(
-            webview4.Get(),
-            "add_DownloadStarting",
-            &ICoreWebView2_4::add_DownloadStarting,
-            [](ICoreWebView2*, ICoreWebView2DownloadStartingEventArgs* args) static -> HRESULT {
-                args->put_Cancel(TRUE);
-                return S_OK;
-            }
-        );
-        // clang-format on
-    }
-
     // 全URLをフィルタし、app.local 以外へのリクエストもここで遮断する。
     // clang-format off
     LogHrFailure("AddWebResourceRequestedFilter", webview->AddWebResourceRequestedFilter(L"*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL));
@@ -487,10 +493,8 @@ void MermaidRenderer::OnWebResourceRequested(ICoreWebView2WebResourceRequestedEv
 {
     Microsoft::WRL::ComPtr<ICoreWebView2WebResourceRequest> request;
     args->get_Request(&request);
-    std::pmr::wstring url;
-    if (UniqueCoTaskMemStr uri; SUCCEEDED(request->get_Uri(uri.put())) && uri) {
-        url = uri.get();
-    }
+    UniqueCoTaskMemStr uri;
+    const std::wstring_view url = SUCCEEDED(request->get_Uri(uri.put())) && uri ? std::wstring_view{ uri.get() } : std::wstring_view{};
 
     const auto respond = [&](IStream* body, int status, const wchar_t* reason, const wchar_t* response_headers) {
         Microsoft::WRL::ComPtr<ICoreWebView2WebResourceResponse> response;
@@ -811,13 +815,13 @@ void MermaidRenderer::EnqueueWebRender(RenderRequest req)
 
 void MermaidRenderer::RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback)
 {
-    RenderRequest req;
-    req.svg_only = true;
-    req.max_width = max_width;
-    req.dark_mode = dark_mode;
-    req.svg_callback = std::move(callback);
-    req.code.assign(code);
-    pending_requests_.push(std::move(req));
+    pending_requests_.push(RenderRequest{
+        .code = std::pmr::string{ code },
+        .max_width = max_width,
+        .dark_mode = dark_mode,
+        .svg_only = true,
+        .svg_callback = std::move(callback),
+    });
 
     if (!lifecycle_.IsReady()) {
         EnsureInitialized();

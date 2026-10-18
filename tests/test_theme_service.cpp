@@ -24,23 +24,12 @@ TEST_F(ThemeServiceTest, ToggleDarkMode)
     EXPECT_FALSE(service_.IsDarkMode());
 }
 
-TEST_F(ThemeServiceTest, BaseThemeLightMode)
+// 毎回コピーせず、プロセス共有の定数テーマをそのまま返す。
+TEST_F(ThemeServiceTest, BaseThemeFollowsDarkMode)
 {
-    const Theme& theme = service_.BaseTheme();
-    const Theme& expected = GetLightTheme();
-    EXPECT_EQ(theme.bg_color.r, expected.bg_color.r);
-    EXPECT_EQ(theme.bg_color.g, expected.bg_color.g);
-    EXPECT_EQ(theme.bg_color.b, expected.bg_color.b);
-}
-
-TEST_F(ThemeServiceTest, BaseThemeDarkMode)
-{
+    EXPECT_EQ(&service_.BaseTheme(), &GetLightTheme());
     service_.ToggleDarkMode();
-    const Theme& theme = service_.BaseTheme();
-    const Theme& expected = GetDarkTheme();
-    EXPECT_EQ(theme.bg_color.r, expected.bg_color.r);
-    EXPECT_EQ(theme.bg_color.g, expected.bg_color.g);
-    EXPECT_EQ(theme.bg_color.b, expected.bg_color.b);
+    EXPECT_EQ(&service_.BaseTheme(), &GetDarkTheme());
 }
 
 TEST_F(ThemeServiceTest, CreateThemeDefaultZoom)
@@ -51,7 +40,6 @@ TEST_F(ThemeServiceTest, CreateThemeDefaultZoom)
 
 TEST_F(ThemeServiceTest, CreateThemeWithZoom)
 {
-    // Use zoom index 12 (2.00x)
     Theme theme = service_.CreateTheme(12);
     EXPECT_FLOAT_EQ(theme.zoom, ZOOM_STEPS[12]);
 }

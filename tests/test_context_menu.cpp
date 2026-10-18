@@ -2,7 +2,6 @@
 #include "context_menu.h"
 #include "resource.h"
 #include "theme.h"
-#include <d2d1.h>
 #include <dwrite.h>
 #include <iterator>
 #include <span>
@@ -176,33 +175,29 @@ TEST_F(ContextMenuTest, NavEnabledFollowsParams)
 // レイアウト・ヒットテスト（DWrite必要）
 // ============================================================
 
+// CreateTextFormats / ComputeLayout は DWrite だけを使う。D2D は Show で描くときにしか要らない。
 class ContextMenuLayoutTest : public ContextMenuTest {
 protected:
     static ComPtr<IDWriteFactory> dwrite_;
-    static ComPtr<ID2D1Factory> d2d_;
 
     static void SetUpTestSuite()
     {
-        HRESULT hr = DWriteCreateFactory(
+        const HRESULT hr = DWriteCreateFactory(
             DWRITE_FACTORY_TYPE_SHARED,
             __uuidof(IDWriteFactory),
             reinterpret_cast<IUnknown**>(dwrite_.GetAddressOf()));
         ASSERT_TRUE(SUCCEEDED(hr)) << "DWriteCreateFactory failed";
         ASSERT_NE(dwrite_.Get(), nullptr);
-        hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2d_.GetAddressOf());
-        ASSERT_TRUE(SUCCEEDED(hr)) << "D2D1CreateFactory failed";
-        ASSERT_NE(d2d_.Get(), nullptr);
     }
 
     static void TearDownTestSuite()
     {
         dwrite_.Reset();
-        d2d_.Reset();
     }
 
     void SetUp() override
     {
-        menu_.Init(d2d_.Get(), dwrite_.Get());
+        menu_.Init(nullptr, dwrite_.Get());
     }
 
     void BuildAndLayout(const ContextMenuParams& params)
@@ -214,134 +209,71 @@ protected:
 };
 
 ComPtr<IDWriteFactory> ContextMenuLayoutTest::dwrite_;
-ComPtr<ID2D1Factory> ContextMenuLayoutTest::d2d_;
 
 // ─── メニューサイズ ───
 
-TEST_F(ContextMenuLayoutTest, MenuWidthIsPositive)
-{
-    BuildAndLayout(MakeParams());
-    EXPECT_GT(menu_.GetMenuWidth(), 0.0f);
-}
-
-TEST_F(ContextMenuLayoutTest, MenuHeightIsPositive)
-{
-    BuildAndLayout(MakeParams());
-    EXPECT_GT(menu_.GetMenuHeight(), 0.0f);
-}
-
-TEST_F(ContextMenuLayoutTest, MenuWidthAtLeast160)
+TEST_F(ContextMenuLayoutTest, MenuHasMinimumWidthAndPositiveHeight)
 {
     BuildAndLayout(MakeParams());
     EXPECT_GE(menu_.GetMenuWidth(), 160.0f);
+    EXPECT_GT(menu_.GetMenuHeight(), 0.0f);
 }
 
 TEST_F(ContextMenuLayoutTest, NonMdPaneMenuIsShorter)
 {
     BuildAndLayout(MakeParams(true));
-    float full_h = menu_.GetMenuHeight();
+    const float full_h = menu_.GetMenuHeight();
 
     BuildAndLayout(MakeParams(false));
-    float short_h = menu_.GetMenuHeight();
+    const float short_h = menu_.GetMenuHeight();
 
     EXPECT_LT(short_h, full_h);
 }
 
 // ─── 項目矩形 ───
 
-TEST_F(ContextMenuLayoutTest, AllItemsHavePositiveHeight)
+// 項目は全幅で、重ならずに上から積まれ、メニューの高さに収まる。
+TEST_F(ContextMenuLayoutTest, ItemsStackVerticallyAtFullWidth)
 {
     BuildAndLayout(MakeParams());
-    for (const auto& item : menu_.GetItems()) {
-        EXPECT_LT(item.rect.top, item.rect.bottom)
-            << "item id=" << item.id;
-    }
-}
-
-TEST_F(ContextMenuLayoutTest, ItemsSpanFullWidth)
-{
-    BuildAndLayout(MakeParams());
-    float w = menu_.GetMenuWidth();
-    for (const auto& item : menu_.GetItems()) {
-        EXPECT_FLOAT_EQ(item.rect.left, 0.0f);
-        EXPECT_FLOAT_EQ(item.rect.right, w);
-    }
-}
-
-TEST_F(ContextMenuLayoutTest, ItemsDoNotOverlapVertically)
-{
-    BuildAndLayout(MakeParams());
+    const float w = menu_.GetMenuWidth();
+    const float h = menu_.GetMenuHeight();
     const auto& items = menu_.GetItems();
-    for (size_t i = 1; i < items.size(); ++i) {
-        EXPECT_GE(items[i].rect.top, items[i - 1].rect.bottom)
-            << "item " << i << " overlaps item " << (i - 1);
-    }
-}
-
-TEST_F(ContextMenuLayoutTest, ItemsFitWithinMenuHeight)
-{
-    BuildAndLayout(MakeParams());
-    float h = menu_.GetMenuHeight();
-    for (const auto& item : menu_.GetItems()) {
-        EXPECT_LE(item.rect.bottom, h);
+    for (size_t i = 0; i < items.size(); ++i) {
+        SCOPED_TRACE(i);
+        const auto& rect = items[i].rect;
+        EXPECT_LT(rect.top, rect.bottom);
+        EXPECT_FLOAT_EQ(rect.left, 0.0f);
+        EXPECT_FLOAT_EQ(rect.right, w);
+        EXPECT_LE(rect.bottom, h);
+        if (i > 0) {
+            EXPECT_GE(rect.top, items[i - 1].rect.bottom);
+        }
     }
 }
 
 // ─── ナビゲーションボタン配置 ───
 
-TEST_F(ContextMenuLayoutTest, NavButtonsHavePositiveSize)
+// 同じ大きさの 2 ボタンが間を空けて並び、ナビ行の中で左右中央に置かれる。
+TEST_F(ContextMenuLayoutTest, NavButtonsAreCenteredPairInNavRow)
 {
     BuildAndLayout(MakeParams());
-    auto& nav = menu_.GetNavLayout();
-    EXPECT_LT(nav.back_rect.left, nav.back_rect.right);
-    EXPECT_LT(nav.back_rect.top, nav.back_rect.bottom);
-    EXPECT_LT(nav.fwd_rect.left, nav.fwd_rect.right);
-    EXPECT_LT(nav.fwd_rect.top, nav.fwd_rect.bottom);
-}
+    const auto& nav = menu_.GetNavLayout();
+    const float bw = nav.back_rect.right - nav.back_rect.left;
+    const float bh = nav.back_rect.bottom - nav.back_rect.top;
+    EXPECT_GT(bw, 0.0f);
+    EXPECT_GT(bh, 0.0f);
+    EXPECT_FLOAT_EQ(nav.fwd_rect.right - nav.fwd_rect.left, bw);
+    EXPECT_FLOAT_EQ(nav.fwd_rect.bottom - nav.fwd_rect.top, bh);
+    EXPECT_GT(nav.fwd_rect.left - nav.back_rect.right, 0.0f);
 
-TEST_F(ContextMenuLayoutTest, NavButtonsAreEqualSize)
-{
-    BuildAndLayout(MakeParams());
-    auto& nav = menu_.GetNavLayout();
-    float bw = nav.back_rect.right - nav.back_rect.left;
-    float bh = nav.back_rect.bottom - nav.back_rect.top;
-    float fw = nav.fwd_rect.right - nav.fwd_rect.left;
-    float fh = nav.fwd_rect.bottom - nav.fwd_rect.top;
-    EXPECT_FLOAT_EQ(bw, fw);
-    EXPECT_FLOAT_EQ(bh, fh);
-}
+    const float btn_center = (nav.back_rect.left + nav.fwd_rect.right) / 2.0f;
+    EXPECT_NEAR(btn_center, menu_.GetMenuWidth() / 2.0f, 1.0f);
 
-TEST_F(ContextMenuLayoutTest, NavButtonsDoNotOverlap)
-{
-    BuildAndLayout(MakeParams());
-    auto& nav = menu_.GetNavLayout();
-    EXPECT_LE(nav.back_rect.right, nav.fwd_rect.left);
-}
-
-TEST_F(ContextMenuLayoutTest, NavButtonsHaveGap)
-{
-    BuildAndLayout(MakeParams());
-    auto& nav = menu_.GetNavLayout();
-    float gap = nav.fwd_rect.left - nav.back_rect.right;
-    EXPECT_GT(gap, 0.0f);
-}
-
-TEST_F(ContextMenuLayoutTest, NavButtonsCenteredHorizontally)
-{
-    BuildAndLayout(MakeParams());
-    auto& nav = menu_.GetNavLayout();
-    float w = menu_.GetMenuWidth();
-    float btn_center = (nav.back_rect.left + nav.fwd_rect.right) / 2.0f;
-    EXPECT_NEAR(btn_center, w / 2.0f, 1.0f);
-}
-
-TEST_F(ContextMenuLayoutTest, NavButtonsAreWithinNavRow)
-{
-    BuildAndLayout(MakeParams());
-    auto& items = menu_.GetItems();
-    auto& nav = menu_.GetNavLayout();
-    ASSERT_GE(items.size(), 1u);
-    auto& row = items[0].rect;
+    const auto& items = menu_.GetItems();
+    ASSERT_FALSE(items.empty());
+    ASSERT_EQ(items[0].type, ItemType::NavRow);
+    const auto& row = items[0].rect;
     EXPECT_GE(nav.back_rect.left, row.left);
     EXPECT_LE(nav.fwd_rect.right, row.right);
     EXPECT_GE(nav.back_rect.top, row.top);

@@ -6,42 +6,27 @@
 #include <string_view>
 #include <utility>
 
-
 // リロード diff (AnalyzeReloadDiff) は raw_text_ と FileLoader 出力が同じ LF 正規化済みである
 // 前提 (issue #273)。その正規化自体を担保する。
-TEST(NormalizeNewlines, CrlfToLf)
+TEST(NormalizeNewlines, CrlfAndLoneCrBecomeLf)
 {
-    std::pmr::string s{ "a\r\nb\r\nc\r\n" };
-    NormalizeNewlines(s);
-    EXPECT_EQ(s, "a\nb\nc\n");
-}
-
-TEST(NormalizeNewlines, LoneCrToLf)
-{
-    std::pmr::string s{ "a\rb\rc" };
-    NormalizeNewlines(s);
-    EXPECT_EQ(s, "a\nb\nc");
-}
-
-TEST(NormalizeNewlines, LfOnlyUnchanged)
-{
-    std::pmr::string s{ "a\nb\nc\n" };
-    NormalizeNewlines(s);
-    EXPECT_EQ(s, "a\nb\nc\n");
-}
-
-TEST(NormalizeNewlines, EmptyUnchanged)
-{
-    std::pmr::string s;
-    NormalizeNewlines(s);
-    EXPECT_TRUE(s.empty());
-}
-
-TEST(NormalizeNewlines, MixedAndTrailingCr)
-{
-    std::pmr::string s{ "a\r\nb\nc\r" };
-    NormalizeNewlines(s);
-    EXPECT_EQ(s, "a\nb\nc\n");
+    struct Case {
+        std::string_view in;
+        std::string_view expected;
+    };
+    constexpr Case kCases[] = {
+        { "a\r\nb\r\nc\r\n", "a\nb\nc\n" },
+        { "a\rb\rc", "a\nb\nc" },
+        { "a\nb\nc\n", "a\nb\nc\n" },
+        { "", "" },
+        { "a\r\nb\nc\r", "a\nb\nc\n" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(c.in));
+        std::pmr::string s{ c.in };
+        NormalizeNewlines(s);
+        EXPECT_EQ(s, c.expected);
+    }
 }
 
 TEST(DocumentTest, DefaultIsEmpty)
@@ -49,8 +34,11 @@ TEST(DocumentTest, DefaultIsEmpty)
     Document doc;
     EXPECT_TRUE(doc.IsEmpty());
     EXPECT_TRUE(doc.GetFilePath().empty());
+    EXPECT_TRUE(doc.GetDirectory().empty());
     EXPECT_TRUE(doc.GetNodes().empty());
     EXPECT_TRUE(doc.GetToc().GetEntries().empty());
+    EXPECT_TRUE(doc.GetRawText().empty());
+    EXPECT_EQ(doc.GetLoadedByteSize(), 0u);
 }
 
 TEST(DocumentTest, FromMarkdownBasic)
@@ -73,59 +61,32 @@ TEST(DocumentTest, FromMarkdownEmpty)
 
 TEST(DocumentTest, GetDirectory)
 {
-    auto doc = Document::FromMarkdown("test", L"C:\\dir\\sub\\file.md");
-    EXPECT_EQ(doc.GetDirectory(), L"C:\\dir\\sub");
-}
-
-TEST(DocumentTest, GetDirectoryForwardSlash)
-{
-    auto doc = Document::FromMarkdown("test", L"C:/dir/file.md");
-    EXPECT_EQ(doc.GetDirectory(), L"C:/dir");
-}
-
-TEST(DocumentTest, GetDirectoryEmpty)
-{
-    Document doc;
-    EXPECT_TRUE(doc.GetDirectory().empty());
-}
-
-TEST(DocumentTest, GetDirectoryNoSlash)
-{
-    auto doc = Document::FromMarkdown("test", L"file.md");
-    EXPECT_TRUE(doc.GetDirectory().empty());
+    struct Case {
+        std::wstring_view path;
+        std::wstring_view expected;
+    };
+    constexpr Case kCases[] = {
+        { L"C:\\dir\\sub\\file.md", L"C:\\dir\\sub" },
+        { L"C:/dir/file.md", L"C:/dir" },
+        { L"file.md", L"" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
+        EXPECT_EQ(Document::FromMarkdown("test", c.path).GetDirectory(), c.expected);
+    }
 }
 
 // ---- GetRawText / GetLoadedByteSize ----
 
-TEST(DocumentTest, GetRawTextFromMarkdown)
+// 原文はそのまま保持し、読み込みサイズは UTF-8 の byte 数。
+TEST(DocumentTest, GetRawTextKeepsInputAndByteSize)
 {
-    auto doc = Document::FromMarkdown("# Hello\nworld", L"test.md");
-    EXPECT_EQ(doc.GetRawText(), "# Hello\nworld");
-    EXPECT_EQ(doc.GetLoadedByteSize(), 13u);
-}
-
-TEST(DocumentTest, GetRawTextEmpty)
-{
-    auto doc = Document::FromMarkdown("", L"test.md");
-    EXPECT_TRUE(doc.GetRawText().empty());
-    EXPECT_EQ(doc.GetLoadedByteSize(), 0u);
-}
-
-TEST(DocumentTest, GetRawTextDefault)
-{
-    Document doc;
-    EXPECT_TRUE(doc.GetRawText().empty());
-    EXPECT_EQ(doc.GetLoadedByteSize(), 0u);
-}
-
-TEST(DocumentTest, GetRawTextUtf8Content)
-{
-    std::pmr::string utf8 = "# 日本語テスト\n\nこんにちは";
-    auto doc = Document::FromMarkdown(utf8, L"test.md");
-    // UTF-8 と Wide で同じ論理テキストが得られる
-    EXPECT_EQ(doc.GetRawText(), "# 日本語テスト\n\nこんにちは");
-    // バイトサイズは UTF-8 のサイズ（CJK は 3 byte/char）
-    EXPECT_EQ(doc.GetLoadedByteSize(), utf8.size());
+    for (const std::string_view md : { std::string_view{ "# Hello\nworld" }, std::string_view{ "" }, std::string_view{ "# 日本語テスト\n\nこんにちは" } }) {
+        SCOPED_TRACE(md);
+        auto doc = Document::FromMarkdown(std::pmr::string{ md }, L"test.md");
+        EXPECT_EQ(doc.GetRawText(), md);
+        EXPECT_EQ(doc.GetLoadedByteSize(), md.size());
+    }
 }
 
 TEST(DocumentTest, SourceOffsetPointsToNodeTextStart)
@@ -181,27 +142,21 @@ TEST(DocumentTest, SourceOffsetSurvivesEmbeddedNullInCodeBlock)
 
 // ---- 1.2 view 化 sanity (Document move) ----
 
-TEST(DocumentTest, ViewModeNodesSurviveMoveCtor)
+// 原文を直接指すノードのテキストも、move 後に同じ値を読めること。
+TEST(DocumentTest, ViewModeNodesSurviveMove)
 {
-    auto doc1 = Document::FromMarkdown("Hello world\n\nSecond paragraph", L"test.md");
-    ASSERT_GE(doc1.GetNodes().size(), 2u);
-    EXPECT_EQ(doc1.GetNodes()[0].GetText(), "Hello world");
-    EXPECT_EQ(doc1.GetNodes()[1].GetText(), "Second paragraph");
-
-    Document doc2 = std::move(doc1);
-    ASSERT_GE(doc2.GetNodes().size(), 2u);
-    EXPECT_EQ(doc2.GetNodes()[0].GetText(), "Hello world");
-    EXPECT_EQ(doc2.GetNodes()[1].GetText(), "Second paragraph");
-}
-
-TEST(DocumentTest, ViewModeNodesSurviveMoveAssign)
-{
-    auto src = Document::FromMarkdown("alpha\n\nbeta", L"src.md");
-    Document dst;
-    dst = std::move(src);
-    ASSERT_GE(dst.GetNodes().size(), 2u);
-    EXPECT_EQ(dst.GetNodes()[0].GetText(), "alpha");
-    EXPECT_EQ(dst.GetNodes()[1].GetText(), "beta");
+    auto check = [](const Document& doc) static {
+        ASSERT_EQ(doc.GetNodes().size(), 2u);
+        EXPECT_EQ(doc.GetNodes()[0].GetText(), "Hello world");
+        EXPECT_EQ(doc.GetNodes()[1].GetText(), "Second paragraph");
+    };
+    auto src = Document::FromMarkdown("Hello world\n\nSecond paragraph", L"test.md");
+    check(src);
+    Document moved = std::move(src);
+    check(moved);
+    Document assigned;
+    assigned = std::move(moved);
+    check(assigned);
 }
 
 // runs・リンク URL・画像 src は Document の arena か原文を指すので、move 後も同じ値を読めること。
