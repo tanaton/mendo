@@ -31,18 +31,18 @@ public:
     {
     }
 
-    void Push(const NavEntry& current);
+    void Push(NavEntry current);
     // PushPending と GoBack/GoForward は、ロード結果で確定 (Commit) か取り消し (Rollback) をする。
     // 開けなかったファイルの分だけ履歴が重複したり、戻る/進むの位置がずれたりするのを防ぐ。
     // Push や Clear が挟まった後の Rollback は何もしない。
     // ロード中に次の操作が来たら、ロード中の文書はまだ表示されていないので、
     // PushPending は前の仮の操作を取り消してから積み直し、戻る/進むの連続はロード中の移動先を起点に続ける。
     // 続けた操作は Rollback でまとめて取り消す。
-    void PushPending(const NavEntry& current);
+    void PushPending(NavEntry current);
     void CommitPending() noexcept;
     void RollbackPending();
-    bool GoBack(const NavEntry& current, NavEntry& out);
-    bool GoForward(const NavEntry& current, NavEntry& out);
+    bool GoBack(NavEntry current, NavEntry& out);
+    bool GoForward(NavEntry current, NavEntry& out);
 
     bool CanGoBack() const noexcept
     {
@@ -66,9 +66,9 @@ public:
 
 private:
     // GoBack/GoForward の対称処理を集約する。
-    bool Transfer(std::pmr::deque<NavEntry>& from, std::pmr::deque<NavEntry>& to, const NavEntry& current, NavEntry& out);
+    bool Transfer(std::pmr::deque<NavEntry>& from, std::pmr::deque<NavEntry>& to, NavEntry current, NavEntry& out);
     // 上限で押し出した最古のエントリを返す。
-    std::optional<NavEntry> PushCapped(std::pmr::deque<NavEntry>& stack, const NavEntry& e);
+    std::optional<NavEntry> PushCapped(std::pmr::deque<NavEntry>& stack, NavEntry e);
 
     // taken: PushPending では進む履歴全体、Transfer では移動先の 1 件。dropped: PushPending が上限で押し出した分。
     struct PendingOp {

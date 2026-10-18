@@ -104,10 +104,11 @@ struct OpenedFile {
 
 // 共有モードと最大サイズは呼び出し側で指定する。
 // out_error は CreateFileW 失敗時のみ GetLastError() を格納する。
-[[nodiscard]] OpenedFile OpenFileForReadShared(const std::filesystem::path& path, DWORD share_mode, LONGLONG max_size, DWORD* out_error = nullptr) noexcept;
+// 読み取り系は wstring から filesystem::path を作るヒープ確保を避けるため、NUL 終端文字列で受ける。
+[[nodiscard]] OpenedFile OpenFileForReadShared(const wchar_t* path, DWORD share_mode, LONGLONG max_size, DWORD* out_error = nullptr) noexcept;
 
 // 失敗時と空ファイルは空を返す。out_error が非 null の場合、CreateFileW 失敗時の GetLastError() を格納する。
-[[nodiscard]] std::pmr::vector<uint8_t> ReadAllBytes(const std::filesystem::path& path, DWORD* out_error = nullptr,
+[[nodiscard]] std::pmr::vector<uint8_t> ReadAllBytes(const wchar_t* path, DWORD* out_error = nullptr,
                                                      DWORD share_mode = FILE_SHARE_READ,
                                                      LONGLONG max_size = static_cast<LONGLONG>(path_util::MAX_READABLE_FILE_SIZE));
 

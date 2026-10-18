@@ -93,7 +93,7 @@ MermaidFileCache::IndexState MermaidFileCache::LoadIndex() const
         return index;
     }
 
-    const auto buf = ReadAllBytes(path);
+    const auto buf = ReadAllBytes(path.c_str());
     const size_t buf_size = buf.size();
     if (buf_size < sizeof(IndexHeader)) {
         return index;
@@ -189,7 +189,7 @@ bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, PngBlob& png)
         return false;
     }
     DWORD read_error = 0;
-    png = ReadAllBytes(path, &read_error);
+    png = ReadAllBytes(path.c_str(), &read_error);
     if (png.empty()) {
         OnReadFailed(key, read_error);
         return false;

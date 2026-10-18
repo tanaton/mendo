@@ -11,7 +11,7 @@ public:
         return dark_mode_;
     }
 
-    Theme CreateTheme() const;
+    const Theme& BaseTheme() const;
     Theme CreateTheme(int zoom_index) const;
     bool ToggleDarkMode() noexcept;
 

@@ -1,13 +1,13 @@
 #include "file_io.h"
 #include <new>
 
-OpenedFile OpenFileForReadShared(const std::filesystem::path& path, DWORD share_mode, LONGLONG max_size, DWORD* out_error) noexcept
+OpenedFile OpenFileForReadShared(const wchar_t* path, DWORD share_mode, LONGLONG max_size, DWORD* out_error) noexcept
 {
     if (out_error) {
         *out_error = 0;
     }
     OpenedFile r;
-    UniqueHandle hFile(CreateFileW(path.c_str(), GENERIC_READ, share_mode, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
+    UniqueHandle hFile(CreateFileW(path, GENERIC_READ, share_mode, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
     if (!hFile) {
         if (out_error) {
             *out_error = GetLastError();
@@ -29,7 +29,7 @@ OpenedFile OpenFileForReadShared(const std::filesystem::path& path, DWORD share_
     return r;
 }
 
-std::pmr::vector<uint8_t> ReadAllBytes(const std::filesystem::path& path, DWORD* out_error, DWORD share_mode, LONGLONG max_size)
+std::pmr::vector<uint8_t> ReadAllBytes(const wchar_t* path, DWORD* out_error, DWORD share_mode, LONGLONG max_size)
 {
     auto r = OpenFileForReadShared(path, share_mode, max_size, out_error);
     if (r.error != OpenFileError::None || r.size == 0) {

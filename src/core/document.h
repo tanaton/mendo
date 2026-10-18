@@ -56,7 +56,7 @@ public:
     }
 
     // 同一性 (ポインタ一致) で「同じテキストか」を判定できる共有参照。
-    std::shared_ptr<const std::pmr::string> Share() const noexcept
+    const std::shared_ptr<const std::pmr::string>& Share() const noexcept
     {
         return text_;
     }

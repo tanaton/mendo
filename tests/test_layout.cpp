@@ -536,7 +536,7 @@ TEST(RecomputeYPositionsTest, EmptyNodes)
 {
     std::pmr::vector<Node> nodes;
     LayoutCache cache;
-    Theme theme = GetLightTheme();
+    const Theme& theme = GetLightTheme();
     RecomputeYPositions(nodes, cache, theme);
     EXPECT_EQ(cache.size(), 0u);
 }
@@ -643,7 +643,7 @@ TEST(RecomputeYPositionsTest, MonotonicallyIncreasingY)
         cache[i].height = 15.0f + static_cast<float>(i);
         cache[i].layout_dirty = false;
     }
-    Theme theme = GetLightTheme();
+    const Theme& theme = GetLightTheme();
     RecomputeYPositions(nodes, cache, theme);
 
     for (size_t i = 1; i < nodes.size(); i++) {
@@ -1019,7 +1019,7 @@ TEST(EstimateNodeHeightsTest, EmptyNodes)
 {
     std::pmr::vector<Node> nodes;
     LayoutCache cache;
-    Theme theme = GetLightTheme();
+    const Theme& theme = GetLightTheme();
     EstimateNodeHeights(nodes, cache, theme);
     // 空でもクラッシュしないこと
 }

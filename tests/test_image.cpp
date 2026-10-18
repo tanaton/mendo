@@ -588,7 +588,7 @@ TEST_F(ImageLoaderTest, DoesNotDecodeFormatsOutsideAllowList)
 TEST_F(ImageLoaderTest, DecodeFromMemoryUsesOnlyRequestedContainer)
 {
     ASSERT_TRUE(CreateTestImage(L"mem.bmp", GUID_ContainerFormatBmp, 50, 40));
-    const auto bytes = ReadAllBytes(GetTestImagePath(L"mem.bmp"));
+    const auto bytes = ReadAllBytes(GetTestImagePath(L"mem.bmp").c_str());
     ASSERT_FALSE(bytes.empty());
 
     EXPECT_FALSE(wic_util::DecodeFromMemory(wic_factory_.Get(), bytes, GUID_ContainerFormatPng).has_value());

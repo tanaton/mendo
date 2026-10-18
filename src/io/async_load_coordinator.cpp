@@ -21,7 +21,7 @@ void AsyncLoadCoordinator::ResetSinks() noexcept
     }
 }
 
-void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring path, HWND hwnd, UINT msg_id, const Theme& theme,
+void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring path, HWND hwnd, UINT msg_id, Theme theme,
                                  std::shared_ptr<const std::pmr::string> reload_base)
 {
     // Cancel() と同じく gen を最初に進めて、旧 worker の publish を確実に弾く。
@@ -37,7 +37,7 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
     stop_source_.request_stop();
     stop_source_ = std::stop_source{};
 
-    const bool posted = scheduler.Post([this, path = std::move(path), gen, theme, stop_token = stop_source_.get_token(), reload_base = std::move(reload_base), guard = latch_.Acquire()]() mutable {
+    const bool posted = scheduler.Post([this, path = std::move(path), gen, theme = std::move(theme), stop_token = stop_source_.get_token(), reload_base = std::move(reload_base), guard = latch_.Acquire()]() mutable {
         try {
             RunWorker(path, gen, theme, stop_token, std::move(reload_base));
         } catch (const std::bad_alloc&) {

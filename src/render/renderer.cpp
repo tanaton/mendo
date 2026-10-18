@@ -12,9 +12,9 @@
 
 using Microsoft::WRL::ComPtr;
 
-bool Renderer::Init(HWND hwnd, const Theme& theme)
+bool Renderer::Init(HWND hwnd, Theme theme)
 {
-    theme_ = theme;
+    theme_ = std::move(theme);
 
     if (!backend_.Init(hwnd)) {
         return false;
@@ -35,10 +35,10 @@ bool Renderer::Init(HWND hwnd, const Theme& theme)
     return true;
 }
 
-void Renderer::SetTheme(const Theme& theme)
+void Renderer::SetTheme(Theme theme)
 {
     assert(theme.zoom == theme_.zoom && theme.font_size_body == theme_.font_size_body);
-    theme_ = theme;
+    theme_ = std::move(theme);
     ResolveThemeFonts();
     cmd_generator_.SetTheme(&theme_);
     RecreateBrushes();

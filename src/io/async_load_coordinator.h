@@ -43,7 +43,7 @@ public:
     // 変更なし / 書き込み途中 (prefix shrink) ならパースを省いて判定結果だけ返す。
     // 結果を出したら hwnd に msg_id を送る。hwnd が null なら送らず、後から Attach で通知先を渡す
     // (起動時にウィンドウを作るのと並行して読み込む)。
-    void Start(TaskScheduler& scheduler, std::pmr::wstring path, HWND hwnd, UINT msg_id, const Theme& theme,
+    void Start(TaskScheduler& scheduler, std::pmr::wstring path, HWND hwnd, UINT msg_id, Theme theme,
                std::shared_ptr<const std::pmr::string> reload_base = nullptr);
 
     enum class AttachResult {

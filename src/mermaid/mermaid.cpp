@@ -741,7 +741,7 @@ void MermaidRenderer::LoadDiskJob(DiskLoad& job, const std::filesystem::path& pa
         }
     }
     else {
-        auto data = ReadAllBytes(path, &job.read_error);
+        auto data = ReadAllBytes(path.c_str(), &job.read_error);
         if (data.empty()) {
             return;
         }

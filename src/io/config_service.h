@@ -16,7 +16,7 @@ public:
     ConfigService() noexcept = default;
 
     void SetConfigDirOverride(const std::filesystem::path& dir);
-    std::filesystem::path GetConfigDir() const;
+    const std::filesystem::path& GetConfigDir() const;
     // 区切り文字や ".." を含む名前は拒否する。
     std::filesystem::path GetConfigPath(std::wstring_view filename) const;
 
@@ -37,7 +37,7 @@ private:
     [[nodiscard]] const std::string* FindValue(std::string_view section, std::string_view key) const;
     void StoreValue(std::string_view section, std::string_view key, std::string value);
 
-    // SHGetKnownFolderPath の結果をプロセス全体で 1 回だけ resolve する。
+    // LocalAppData 配下の設定ディレクトリをプロセス全体で 1 回だけ resolve する。
     // 関数ローカル static (magic static) は C++11 以降 thread-safe な lazy init を保証するため、
     // 別スレッド (並列計測 worker 等) から GetConfigDir() を呼んでも安全。
     static const std::filesystem::path& DefaultConfigDir();
