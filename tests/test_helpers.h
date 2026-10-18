@@ -197,7 +197,7 @@ protected:
 template <typename T>
 bool HasEffect(const SideEffectList& effects) noexcept
 {
-    return std::ranges::any_of(effects, [](const SideEffect& se) {
+    return std::ranges::any_of(effects, [](const SideEffect& se) static {
         return std::holds_alternative<T>(se);
     });
 }

@@ -23,12 +23,12 @@ inline constexpr AlertInfo kAlerts[]{
     { "caution",   AlertType::Caution,   "Caution",   "⛔"               },
 };
 static_assert(std::size(kAlerts) == ALERT_TYPE_COUNT);
-static_assert(std::ranges::all_of(std::views::iota(size_t{ 0 }, ALERT_TYPE_COUNT), [](size_t i) {
+static_assert(std::ranges::all_of(std::views::iota(size_t{ 0 }, ALERT_TYPE_COUNT), [](size_t i) static {
     return AlertColorIndex(kAlerts[i].type) == i;
 }));
 
 // "[!" + 最長の名前 + "]"。マーカー判定はソフト改行ごとに走るので、']' を段落全体から探さない。
-constexpr size_t kMaxMarkerLength = 3 + std::ranges::max(kAlerts | std::views::transform([](const AlertInfo& e) { return e.name.value.size(); }));
+constexpr size_t kMaxMarkerLength = 3 + std::ranges::max(kAlerts | std::views::transform([](const AlertInfo& e) static { return e.name.value.size(); }));
 
 } // namespace
 

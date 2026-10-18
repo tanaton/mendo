@@ -142,7 +142,7 @@ protected:
 
     static bool HasColoredPixel(std::span<const uint32_t> pixels)
     {
-        return std::ranges::any_of(pixels, [](uint32_t px) { return (px & 0xFF) != ((px >> 8) & 0xFF); });
+        return std::ranges::any_of(pixels, [](uint32_t px) static { return (px & 0xFF) != ((px >> 8) & 0xFF); });
     }
 
     UINT size_ = 32;

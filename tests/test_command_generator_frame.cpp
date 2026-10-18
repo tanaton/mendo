@@ -137,7 +137,7 @@ TEST_F(CmdGenFrameTest, TableStripeUsesStripeBrush)
     Parse("| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
     const auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
-    EXPECT_TRUE(std::ranges::any_of(cmds, [](const DrawCommand& c) {
+    EXPECT_TRUE(std::ranges::any_of(cmds, [](const DrawCommand& c) static {
         const auto* fr = std::get_if<FillRectCmd>(&c);
         return fr && fr->brush_id == BrushId::TableStripe;
     }));

@@ -225,7 +225,7 @@ INSTANTIATE_TEST_SUITE_P(
               .step = ParseCompleteStep::ReplaceWithResult, .expect_follow = true },
         Case{ .label = "FirstDocumentDoesNotFollowPane", .current_path = L"", .current_text = "", .kind = ResultKind::Doc,
               .step = ParseCompleteStep::ReplaceWithResult, .expect_follow = false }),
-    [](const ::testing::TestParamInfo<Case>& info) { return std::string(info.param.label); });
+    [](const ::testing::TestParamInfo<Case>& info) static { return std::string(info.param.label); });
 
 TEST(FilePaneFollowsLoad, OnlyWhenSwitchingFromAnExistingDocumentToAnotherFile)
 {

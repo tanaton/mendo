@@ -62,25 +62,25 @@ TEST(Utility, OverloadedDispatchesByType)
 
     v = 42;
     int tag = std::visit(overloaded{
-        [](int)           { return 1; },
-        [](double)        { return 2; },
-        [](const std::wstring&) { return 3; },
+        [](int) static                 { return 1; },
+        [](double) static              { return 2; },
+        [](const std::wstring&) static { return 3; },
     }, v);
     EXPECT_EQ(tag, 1);
 
     v = 1.5;
     tag = std::visit(overloaded{
-        [](int)           { return 1; },
-        [](double)        { return 2; },
-        [](const std::wstring&) { return 3; },
+        [](int) static                 { return 1; },
+        [](double) static              { return 2; },
+        [](const std::wstring&) static { return 3; },
     }, v);
     EXPECT_EQ(tag, 2);
 
     v = std::wstring(L"hi");
     tag = std::visit(overloaded{
-        [](int)           { return 1; },
-        [](double)        { return 2; },
-        [](const std::wstring&) { return 3; },
+        [](int) static                 { return 1; },
+        [](double) static              { return 2; },
+        [](const std::wstring&) static { return 3; },
     }, v);
     EXPECT_EQ(tag, 3);
 }

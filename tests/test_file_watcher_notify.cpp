@@ -135,7 +135,7 @@ INSTANTIATE_TEST_SUITE_P(
         // 一致は次エントリの検証より先に確定する。
         NotifyCase{ "MatchBeforeCorruptNext",
                     { { FILE_ACTION_MODIFIED, L"readme.md", std::nullopt, 0xFFFFFFF0u } }, 0, kShort, true }),
-    [](const ::testing::TestParamInfo<NotifyCase>& info) { return std::string(info.param.label); });
+    [](const ::testing::TestParamInfo<NotifyCase>& info) static { return std::string(info.param.label); });
 
 // 実データ領域は名前の最後まであるが、bytes_returned (span) はその手前で切れている状況。
 // 名前長の検証を欠くと span の外にある正しい名前を読んで一致してしまう。

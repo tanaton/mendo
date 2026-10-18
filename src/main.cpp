@@ -95,14 +95,17 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     MENDO_IF_TRACY(Sleep(kTracyStartupDelayMs));
     MENDO_FRAME_MARK();
 
-    // 遅延ロード DLL と LoadLibrary を exe のフォルダやカレントディレクトリ (文書のフォルダ) から探させない。
-    SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
-    // メディアの無いドライブを指す画像パスで「ディスクがありません」ダイアログを出させない。
-    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
-    // 遅延ロードの D2D / DWrite を、D3D 先行作成スレッドの GPU ドライバ読み込み (ローダーロック) と
-    // 重ねてメインスレッドが待たないよう、そのスレッドを始める前に読んでおく。
-    LoadLibraryExW(L"d2d1.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-    LoadLibraryExW(L"dwrite.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    {
+        MENDO_PROFILE("wWinMain - init");
+        // 遅延ロード DLL と LoadLibrary を exe のフォルダやカレントディレクトリ (文書のフォルダ) から探させない。
+        SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
+        // メディアの無いドライブを指す画像パスで「ディスクがありません」ダイアログを出させない。
+        SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
+        // 遅延ロードの D2D / DWrite を、D3D 先行作成スレッドの GPU ドライバ読み込み (ローダーロック) と
+        // 重ねてメインスレッドが待たないよう、そのスレッドを始める前に読んでおく。
+        LoadLibraryExW(L"d2d1.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+        LoadLibraryExW(L"dwrite.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    }
 
     PrefetchD3DDevice();
 
@@ -120,8 +123,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     InitCommonControlsEx(&icc);
 
     ConfigService config;
-    config.Load();
-    i18n::Init(config.LoadWString(kConfigSectionGeneral, kConfigKeyLanguage));
+    {
+        MENDO_PROFILE("wWinMain - config");
+        config.Load();
+        i18n::Init(config.LoadWString(kConfigSectionGeneral, kConfigKeyLanguage));
+    }
 
     int argc = 0;
     LPWSTR* const argv = CommandLineToArgvW(GetCommandLineW(), &argc);

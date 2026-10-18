@@ -32,7 +32,7 @@ bool IsHorizontal(const DrawLineCmd& l)
 
 std::ptrdiff_t CountVerticalLines(const DrawCommandList& cmds)
 {
-    return std::ranges::count_if(cmds, [](const DrawCommand& c) {
+    return std::ranges::count_if(cmds, [](const DrawCommand& c) static {
         const auto* l = std::get_if<DrawLineCmd>(&c);
         return l && IsVertical(*l);
     });
@@ -207,7 +207,7 @@ TEST_F(CmdGenTest, AlertBarColorMatchesTheme)
         return IsVertical(l) && l.brush_id == BrushId::AlertNote;
     });
     EXPECT_TRUE(bar.has_value()) << "Note のバーは AlertNote ブラシで描くべき";
-    const auto bg = FindFirst<FillRoundedRectCmd>(cmds, [](const FillRoundedRectCmd& r) { return r.brush_id == BrushId::AlertNoteBg; });
+    const auto bg = FindFirst<FillRoundedRectCmd>(cmds, [](const FillRoundedRectCmd& r) static { return r.brush_id == BrushId::AlertNoteBg; });
     EXPECT_TRUE(bg.has_value()) << "Note の背景は AlertNoteBg ブラシで描くべき";
 }
 

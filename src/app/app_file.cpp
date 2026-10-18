@@ -254,7 +254,7 @@ void App::OnParseComplete()
     auto outcome = file_load_service_.TakeAsync();
     const auto plan = PlanParseComplete(
         outcome, file_load_service_.IsAsyncLoading(), state_.document.doc,
-        [](const std::pmr::wstring& path, size_t read_size) { return IsFileLargerThan(path.c_str(), read_size); });
+        [](const std::pmr::wstring& path, size_t read_size) static { return IsFileLargerThan(path.c_str(), read_size); });
 
     if (plan.step == ParseCompleteStep::IgnoreStale) {
         MENDO_TRACE("OnParseComplete: stale message ignored (new load in progress)");

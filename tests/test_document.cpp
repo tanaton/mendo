@@ -207,7 +207,7 @@ TEST(DocumentTest, ViewModeNodesSurviveMoveAssign)
 // runs・リンク URL・画像 src は Document の arena か原文を指すので、move 後も同じ値を読めること。
 TEST(DocumentTest, ArenaBackedFieldsSurviveMove)
 {
-    auto check = [](const Document& doc) {
+    auto check = [](const Document& doc) static {
         const auto& nodes = doc.GetNodes();
         ASSERT_EQ(nodes.size(), 2u);
         EXPECT_EQ(nodes[0].GetText(), "b l m");

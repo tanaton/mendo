@@ -622,8 +622,8 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersRequestsVisibleFirst)
     // 高さ 100 で並ぶので、可視範囲 [1500, 2100] は 15..21、±2 画面の範囲は 3..33。
     ASSERT_FALSE(order.empty());
     EXPECT_EQ(order.front(), 15u);
-    const auto first_above = std::ranges::find_if(order, [](size_t i) { return i < 15; });
-    const auto last_below = std::ranges::find_if(order | std::views::reverse, [](size_t i) { return i > 21; });
+    const auto first_above = std::ranges::find_if(order, [](size_t i) static { return i < 15; });
+    const auto last_below = std::ranges::find_if(order | std::views::reverse, [](size_t i) static { return i > 21; });
     ASSERT_NE(first_above, order.end());
     ASSERT_NE(last_below, order.rend());
     EXPECT_LE(std::distance(order.begin(), last_below.base()), std::distance(order.begin(), first_above)) << "上側より先に下側を要求する";

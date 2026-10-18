@@ -131,16 +131,16 @@ TEST_F(ContextMenuTest, ItemFlagsFollowParams)
     };
     using Item = ContextMenu::Item;
     constexpr Case kCases[] = {
-        { "EditFileDisabledWhenNoFile", [](ContextMenuParams& p) { p.has_file = false; }, IDM_EDIT_FILE, &Item::enabled, false },
-        { "CopyDisabledWhenNoSelection", [](ContextMenuParams& p) { p.has_selection = false; }, IDM_COPY, &Item::enabled, false },
-        { "CopyFormattedDisabledWhenNoSelection", [](ContextMenuParams& p) { p.has_selection = false; }, IDM_COPY_FORMATTED, &Item::enabled, false },
-        { "DarkModeChecked", [](ContextMenuParams& p) { p.dark_mode_checked = true; }, IDM_TOGGLE_DARK_MODE, &Item::checked, true },
+        { "EditFileDisabledWhenNoFile", [](ContextMenuParams& p) static { p.has_file = false; }, IDM_EDIT_FILE, &Item::enabled, false },
+        { "CopyDisabledWhenNoSelection", [](ContextMenuParams& p) static { p.has_selection = false; }, IDM_COPY, &Item::enabled, false },
+        { "CopyFormattedDisabledWhenNoSelection", [](ContextMenuParams& p) static { p.has_selection = false; }, IDM_COPY_FORMATTED, &Item::enabled, false },
+        { "DarkModeChecked", [](ContextMenuParams& p) static { p.dark_mode_checked = true; }, IDM_TOGGLE_DARK_MODE, &Item::checked, true },
         { "DarkModeUnchecked", nullptr, IDM_TOGGLE_DARK_MODE, &Item::checked, false },
         { "DarkModeAlwaysEnabled", nullptr, IDM_TOGGLE_DARK_MODE, &Item::enabled, true },
-        { "FilePaneChecked", [](ContextMenuParams& p) { p.file_pane_checked = true; }, IDM_TOGGLE_FILE_PANE, &Item::checked, true },
-        { "FilePaneUnchecked", [](ContextMenuParams& p) { p.file_pane_checked = false; }, IDM_TOGGLE_FILE_PANE, &Item::checked, false },
-        { "TocPaneChecked", [](ContextMenuParams& p) { p.toc_pane_checked = true; }, IDM_TOGGLE_TOC_PANE, &Item::checked, true },
-        { "TocPaneUnchecked", [](ContextMenuParams& p) { p.toc_pane_checked = false; }, IDM_TOGGLE_TOC_PANE, &Item::checked, false },
+        { "FilePaneChecked", [](ContextMenuParams& p) static { p.file_pane_checked = true; }, IDM_TOGGLE_FILE_PANE, &Item::checked, true },
+        { "FilePaneUnchecked", [](ContextMenuParams& p) static { p.file_pane_checked = false; }, IDM_TOGGLE_FILE_PANE, &Item::checked, false },
+        { "TocPaneChecked", [](ContextMenuParams& p) static { p.toc_pane_checked = true; }, IDM_TOGGLE_TOC_PANE, &Item::checked, true },
+        { "TocPaneUnchecked", [](ContextMenuParams& p) static { p.toc_pane_checked = false; }, IDM_TOGGLE_TOC_PANE, &Item::checked, false },
         { "FilePaneAlwaysEnabled", nullptr, IDM_TOGGLE_FILE_PANE, &Item::enabled, true },
         { "TocPaneAlwaysEnabled", nullptr, IDM_TOGGLE_TOC_PANE, &Item::enabled, true },
     };
@@ -384,12 +384,12 @@ TEST_F(ContextMenuLayoutTest, NavHitTest)
         int expected;
     };
     constexpr Case kCases[] = {
-        { "Back", true, true, [](const Nav& n) { return Center(n.back_rect); }, IDM_NAV_BACK },
-        { "Forward", true, true, [](const Nav& n) { return Center(n.fwd_rect); }, IDM_NAV_FORWARD },
-        { "BetweenButtons", true, true, [](const Nav& n) { return Point{ (n.back_rect.right + n.fwd_rect.left) / 2.0f, Center(n.back_rect).y }; }, 0 },
-        { "DisabledBack", false, true, [](const Nav& n) { return Center(n.back_rect); }, 0 },
-        { "DisabledForward", true, false, [](const Nav& n) { return Center(n.fwd_rect); }, 0 },
-        { "Outside", true, true, [](const Nav&) { return Point{ -10.0f, -10.0f }; }, 0 },
+        { "Back", true, true, [](const Nav& n) static { return Center(n.back_rect); }, IDM_NAV_BACK },
+        { "Forward", true, true, [](const Nav& n) static { return Center(n.fwd_rect); }, IDM_NAV_FORWARD },
+        { "BetweenButtons", true, true, [](const Nav& n) static { return Point{ (n.back_rect.right + n.fwd_rect.left) / 2.0f, Center(n.back_rect).y }; }, 0 },
+        { "DisabledBack", false, true, [](const Nav& n) static { return Center(n.back_rect); }, 0 },
+        { "DisabledForward", true, false, [](const Nav& n) static { return Center(n.fwd_rect); }, 0 },
+        { "Outside", true, true, [](const Nav&) static { return Point{ -10.0f, -10.0f }; }, 0 },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);

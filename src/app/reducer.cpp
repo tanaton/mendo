@@ -962,7 +962,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
 
     // clang-format off
     std::visit(overloaded{
-        [](const NoOpAction&) {},
+        [](const NoOpAction&) static {},
 
         // ---- スクロール ----
         [&](const KeyScrollAction& a) { ReduceKeyScroll(state, effects, a); },

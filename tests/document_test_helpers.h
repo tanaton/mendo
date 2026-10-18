@@ -21,7 +21,7 @@ inline std::pmr::string GenerateAnchorId(std::string_view text)
 // text_pos にあるリンクの URL。
 inline std::optional<std::string_view> FindLinkAtPosition(const Node& node, uint32_t text_pos)
 {
-    return FindLinkHitAtPosition(node, text_pos).transform([](const LinkHit& h) noexcept { return h.url; });
+    return FindLinkHitAtPosition(node, text_pos).transform([](const LinkHit& h) static noexcept { return h.url; });
 }
 
 // 指定 NodeType の最初のインデックスを返す。テストで「パース結果から特定種別の
