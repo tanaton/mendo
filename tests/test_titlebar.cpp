@@ -197,41 +197,6 @@ TEST_F(TitleBarTest, HitTestButtonBoundaryRight)
 }
 
 // ═══════════════════════════════════════════════
-// SetHovered
-// ═══════════════════════════════════════════════
-
-TEST_F(TitleBarTest, InitialHoverIsNone)
-{
-    EXPECT_EQ(tb_.GetHovered(), TitleBarHitZone::None);
-}
-
-TEST_F(TitleBarTest, SetHoveredReturnsTrueOnChange)
-{
-    EXPECT_TRUE(tb_.SetHovered(TitleBarHitZone::Close));
-    EXPECT_EQ(tb_.GetHovered(), TitleBarHitZone::Close);
-}
-
-TEST_F(TitleBarTest, SetHoveredReturnsFalseOnSame)
-{
-    tb_.SetHovered(TitleBarHitZone::Close);
-    EXPECT_FALSE(tb_.SetHovered(TitleBarHitZone::Close));
-}
-
-TEST_F(TitleBarTest, SetHoveredClearsPrevious)
-{
-    tb_.SetHovered(TitleBarHitZone::Close);
-    tb_.SetHovered(TitleBarHitZone::Minimize);
-    EXPECT_EQ(tb_.GetHovered(), TitleBarHitZone::Minimize);
-}
-
-TEST_F(TitleBarTest, SetHoveredNoneClearsAll)
-{
-    tb_.SetHovered(TitleBarHitZone::FileToggle);
-    tb_.SetHovered(TitleBarHitZone::None);
-    EXPECT_EQ(tb_.GetHovered(), TitleBarHitZone::None);
-}
-
-// ═══════════════════════════════════════════════
 // ボタンが重ならないことの検証
 // ═══════════════════════════════════════════════
 

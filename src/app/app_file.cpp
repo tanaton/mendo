@@ -23,25 +23,25 @@ void App::EndDocumentBoundDrag()
     }
     SideEffectList effects;
     EndLeftDrag(state_, effects);
-    effect_executor_.Execute(effects);
+    Execute(effects);
 }
 
 void App::CancelPendingResources()
 {
     resource_manager_.CancelMermaidBatch();
-    image_loader_.CancelPending();
-    resource_manager_.ClearResolvedPaths();
+    mermaid_renderer_.DropQueued();
+    image_loader_.DropQueued();
 }
 
 void App::ResetViewForNewDocument()
 {
     state_.view.ResetForNewDocument();
-    // 旧文書のマッチ位置が新 nodes に対して誤用されるのを防ぐ。
+    // 旧文書のマッチ位置が新 nodes に対して誤用されるのを防ぐ。先に空にしておくので、
+    // 入力欄を空にしたときの EN_CHANGE は OnTextChanged で何もせず終わる。
     state_.search.search_bar_ctrl.Reset();
     EndDocumentBoundDrag();
-    EmitEffect(effect::SearchUnfocus{ /*clear_text=*/true });
+    Execute(effect::SearchUnfocus{ /*clear_text=*/true });
     CancelPendingResources();
-    renderer_.ShrinkBuffers();
 }
 
 void App::StopLoadingAnimation()
@@ -50,7 +50,7 @@ void App::StopLoadingAnimation()
     if (file_load_service_.IsLoading()) {
         Invalidate();
     }
-    EmitEffect(effect::KillTimer{ app_timer::Id::LOADING_ANIM });
+    KillTimer(app_timer::Id::LOADING_ANIM);
     file_load_service_.StopLoading();
 }
 
@@ -69,7 +69,7 @@ void App::LoadHelpDocument()
 
     StopLoadingAnimation();
     file_load_service_.CancelAsyncLoad();
-    EmitEffect(effect::StopFileWatch{});
+    file_watcher_.StopWatching();
 
     std::pmr::string utf8(reinterpret_cast<const char*>(rc.data()), rc.size());
     ReplaceDocument(Document::FromMarkdown(std::move(utf8), HELP_PATH));
@@ -103,6 +103,15 @@ void App::ReplaceDocument(Document next, LayoutCache estimated)
     InvalidateHitPositions();
 }
 
+void App::ReloadDocument(Document next, LayoutCache estimated)
+{
+    // 保存のたびに可視範囲を作り直さず、実測の高さも推定値に戻さない (スクロール位置の計算と表示の跳ねを防ぐ)。
+    if (layout::CarryOverUnchanged(state_.document.doc.GetNodes(), state_.document.layout_cache, next.GetNodes(), estimated) > 0) {
+        RecomputeYPositions(next.GetNodes(), estimated, renderer_.GetTheme());
+    }
+    ReplaceDocument(std::move(next), std::move(estimated));
+}
+
 void App::ReplaceDocument(Document next)
 {
     LayoutCache estimated = layout::MakeEstimatedLayoutCache(next.GetNodes(), renderer_.GetTheme());
@@ -114,7 +123,7 @@ void App::BeginAsyncLoad(std::pmr::wstring path, bool show_animation, std::share
     if (show_animation) {
         MENDO_PROFILE("App::BeginAsyncLoad with animation");
         file_load_service_.StartLoading(std::move(path));
-        EmitEffect(effect::SetTimer{ app_timer::Id::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS });
+        SetTimer(app_timer::Id::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS);
         Invalidate();
         UpdateWindow(hwnd_);
     }
@@ -132,7 +141,7 @@ App::ReloadFlow App::ApplyReloadDecisionEarly(const ReloadDecision& decision, bo
     switch (decision.op) {
     case ReloadOp::NoChange:
         prefix_shrink_retry_.Reset();
-        EmitEffect(effect::ResumeFileWatch{});
+        file_watcher_.ResumeWatching();
         return ReloadFlow::Handled;
     case ReloadOp::DeferPrefixShrink:
         // 上限後は ReloadCurrentFile がパース込みで読み直すので、文書が無い結果は defer のまま流す。
@@ -155,16 +164,16 @@ void App::DeferReloadRetry()
 {
     // FileWatcher は paused のまま維持する。resume すると待機中の変更通知が
     // FILE_RELOAD_DEBOUNCE を 200ms に上書きし、短縮リトライが効かなくなる。
-    EmitEffect(effect::SetTimer{ app_timer::Id::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_RETRY_MS });
+    SetTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_RETRY_MS);
 }
 
 // reducer を経由せず App 層で直接実行する。ファイル I/O + 同期/非同期ロード分岐 +
 // パース + レイアウト初期化を含む大きな命令的ワークフローで、reducer 化すると
-// effect variant と executor が肥大化するため意図的に service 経路として分離している。
+// effect variant と App::Execute が肥大化するため意図的に service 経路として分離している。
 void App::LoadMarkdownFile(std::wstring_view path)
 {
     MENDO_PROFILE("App::LoadMarkdownFile");
-    EmitEffect(effect::KillTimer{ app_timer::Id::FILE_RELOAD_DEBOUNCE });
+    KillTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE);
     // 止めたリロードや取り消される進行中のリロードは、このロードが取り消し・失敗で終わったときに読み直す。
     file_watcher_.RequeueIfPaused();
     prefix_shrink_retry_.Reset();
@@ -194,21 +203,22 @@ void App::CancelOtherFileLoad()
     }
     StopLoadingAnimation();
     file_load_service_.CancelAsyncLoad();
-    EmitEffect(effect::ResumeFileWatch{});
+    file_watcher_.ResumeWatching();
 }
 
 // Init (RestoreTheme) 前に呼ばれるため、推定用のテーマは設定から直接作る。
 // 推定に使う寸法はライト/ダーク共通でズームだけに依存するので、ダークモード未読込でも結果は同じ。
 void App::StartPreloadAsync(std::pmr::wstring path)
 {
-    file_load_service_.StartPreloadAsync(std::move(path), theme_service_.CreateTheme(theme_service_.LoadZoomIndex()));
+    InitSharedScheduler();
+    file_load_service_.StartPreloadAsync(scheduler_, std::move(path), theme_service_.CreateTheme(theme_service_.LoadZoomIndex()));
 }
 
 void App::DoLoadMarkdownFile()
 {
     MENDO_PROFILE("DoLoadMarkdownFile");
 
-    EmitEffect(effect::KillTimer{ app_timer::Id::LOADING_ANIM });
+    KillTimer(app_timer::Id::LOADING_ANIM);
 
     const bool follow_file_pane = FilePaneFollowsLoad(state_.document.doc.GetFilePath(), file_load_service_.GetLoadingPath());
     {
@@ -227,7 +237,7 @@ void App::DoLoadMarkdownFile()
 
 void App::HandleLoadFailureFallback()
 {
-    EmitEffect(effect::ResumeFileWatch{});
+    file_watcher_.ResumeWatching();
     Dispatch(LoadFailedAction{});
     if (state_.document.doc.IsEmpty()) {
         LoadHelpDocument();
@@ -284,7 +294,7 @@ void App::OnParseComplete()
         if (ApplyReloadDecisionEarly(*plan.reload, !result->reload.has_value()) == ReloadFlow::Handled) {
             return;
         }
-        ReplaceDocument(std::move(result->doc), std::move(result->cache));
+        ReloadDocument(std::move(result->doc), std::move(result->cache));
         FinishReload(plan.reload->diff_pos);
         return;
     case ParseCompleteStep::ReplaceWithResult:
@@ -332,9 +342,9 @@ void App::FinishLoadMarkdownFile(bool follow_file_pane)
         state_.view.viewport.GetMaxScroll());
 
     UpdateTitleBar();
-    EmitEffect(effect::SyncTocActive{});
+    SyncTocActiveAndAutoScroll(true);
     if (state_.document.doc.HasBackingFile()) {
-        EmitEffect(effect::StartFileWatch{ state_.document.doc.GetFilePath() });
+        StartFileWatch(state_.document.doc.GetFilePath());
     }
 }
 
@@ -382,7 +392,7 @@ void App::DoReloadCurrentFile()
 
     auto load_result = FileLoader::LoadFile(state_.document.doc.GetFilePath());
     if (!load_result) {
-        EmitEffect(effect::ResumeFileWatch{});
+        file_watcher_.ResumeWatching();
         return;
     }
 
@@ -406,7 +416,9 @@ void App::DoReloadCurrentFile()
     if (ApplyReloadDecisionEarly(decision, /*has_parsed_doc=*/true) == ReloadFlow::Handled) {
         return;
     }
-    ReplaceDocument(Document::FromMarkdown(std::move(new_text), byte_size, state_.document.doc.GetFilePath()));
+    Document next = Document::FromMarkdown(std::move(new_text), byte_size, state_.document.doc.GetFilePath());
+    LayoutCache estimated = layout::MakeEstimatedLayoutCache(next.GetNodes(), renderer_.GetTheme());
+    ReloadDocument(std::move(next), std::move(estimated));
     FinishReload(decision.diff_pos);
 }
 
@@ -416,8 +428,9 @@ void App::FinishReload(size_t diff_pos)
 {
     MENDO_PROFILE("FinishReload");
 
-    // 旧ノード番号で発行した要求を捨てる。編集で画像が置かれた可能性があるので失敗記録も消す。
-    CancelPendingResources();
+    // 図と画像はコードやパスがキーなので、描画・デコード待ちも結果もそのまま使える。
+    // 編集で画像が置かれた可能性があるので失敗記録は消す。
+    resource_manager_.CancelMermaidBatch();
     image_loader_.ResetFailedPaths();
 
     // ノード index がずれると per-node-index の一時状態が別ノードを指すためクリアする
@@ -456,9 +469,9 @@ void App::FinishReload(size_t diff_pos)
         state_.search.search_bar_ctrl.RunSearchAndLocate(state_.document.doc.GetNodes());
     }
 
-    EmitEffect(effect::SyncTocActive{});
+    SyncTocActiveAndAutoScroll(true);
 
-    EmitEffect(effect::ResumeFileWatch{});
+    file_watcher_.ResumeWatching();
 }
 
 void App::ApplyCachedHeightsAndRecompute()

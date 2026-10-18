@@ -27,17 +27,22 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
     // Cancel() と同じく gen を最初に進めて、旧 worker の publish を確実に弾く。
     const uint32_t gen = gen_.fetch_add(1, std::memory_order_relaxed) + 1;
     ResetSinks();
+    {
+        const std::lock_guard lock(mutex_);
+        notify_hwnd_ = hwnd;
+        notify_msg_ = msg_id;
+    }
     in_flight_ = true;
     // 前 worker がキャプチャ済みの stop_token を協調キャンセルしてから、再使用不可の source を作り直す。
     stop_source_.request_stop();
     stop_source_ = std::stop_source{};
 
-    const bool posted = scheduler.Post([this, path = std::move(path), hwnd, msg_id, gen, theme, stop_token = stop_source_.get_token(), reload_base = std::move(reload_base), guard = latch_.Acquire()]() mutable {
+    const bool posted = scheduler.Post([this, path = std::move(path), gen, theme, stop_token = stop_source_.get_token(), reload_base = std::move(reload_base), guard = latch_.Acquire()]() mutable {
         try {
-            RunWorker(path, gen, theme, stop_token, std::move(reload_base), hwnd, msg_id);
+            RunWorker(path, gen, theme, stop_token, std::move(reload_base));
         } catch (const std::bad_alloc&) {
             // 空の表の行補完などは入力の百倍以上を確保させられる。worker で投げると terminate するので失敗として返す。
-            Publish(gen, hwnd, msg_id, std::unexpected(FileLoadError::TooLarge));
+            Publish(gen, std::unexpected(FileLoadError::TooLarge));
         }
     });
 
@@ -50,17 +55,34 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
             outcome_.emplace(std::unexpected(FileLoadError::ReadFailed));
             in_flight_ = false;
         }
-        ::PostMessageW(hwnd, msg_id, 0, 0);
+        if (hwnd) {
+            ::PostMessageW(hwnd, msg_id, 0, 0);
+        }
     }
 }
 
+AsyncLoadCoordinator::AttachResult AsyncLoadCoordinator::Attach(HWND hwnd, UINT msg_id)
+{
+    if (!in_flight_) {
+        return AttachResult::None;
+    }
+    // Publish と同じ mutex で、結果の有無の確認と通知先の設定をまとめる。
+    const std::lock_guard lock(mutex_);
+    if (outcome_) {
+        return AttachResult::AppliedSync;
+    }
+    notify_hwnd_ = hwnd;
+    notify_msg_ = msg_id;
+    return AttachResult::AttachedAsync;
+}
+
 void AsyncLoadCoordinator::RunWorker(const std::pmr::wstring& path, uint32_t gen, const Theme& theme, const std::stop_token& stop_token,
-                                     std::shared_ptr<const std::pmr::string> reload_base, HWND hwnd, UINT msg_id)
+                                     std::shared_ptr<const std::pmr::string> reload_base)
 {
     MENDO_PROFILE("AsyncLoadCoordinator::Start Posted Task");
     // 各段の前の gen/stop check は重い処理を skip するための short-circuit。
-    const auto publish = [this, hwnd, msg_id, gen](AsyncLoadOutcome outcome) {
-        Publish(gen, hwnd, msg_id, std::move(outcome));
+    const auto publish = [this, gen](AsyncLoadOutcome outcome) {
+        Publish(gen, std::move(outcome));
     };
 
     if (IsStale(gen) || stop_token.stop_requested()) {
@@ -110,16 +132,22 @@ void AsyncLoadCoordinator::RunWorker(const std::pmr::wstring& path, uint32_t gen
     publish(AsyncLoadResult{ std::move(doc), std::move(cache), std::move(reload) });
 }
 
-void AsyncLoadCoordinator::Publish(uint32_t gen, HWND hwnd, UINT msg_id, AsyncLoadOutcome outcome)
+void AsyncLoadCoordinator::Publish(uint32_t gen, AsyncLoadOutcome outcome)
 {
+    HWND hwnd = nullptr;
+    UINT msg_id = 0;
     {
         const std::lock_guard lock(mutex_);
         if (IsStale(gen)) {
             return;
         }
         outcome_.emplace(std::move(outcome));
+        hwnd = notify_hwnd_;
+        msg_id = notify_msg_;
     }
-    ::PostMessageW(hwnd, msg_id, 0, 0);
+    if (hwnd) {
+        ::PostMessageW(hwnd, msg_id, 0, 0);
+    }
 }
 
 std::optional<AsyncLoadOutcome> AsyncLoadCoordinator::Take() noexcept

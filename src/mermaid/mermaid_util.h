@@ -12,6 +12,10 @@ std::pmr::wstring BuildLatexFlowchartCode(std::wstring_view latex);
 
 // 言語種別ソルトで同テキストの Mermaid / LatexMath がキー衝突しない。
 uint64_t NodeDiagramHash(const Node& node, float max_width, bool dark_mode) noexcept;
+// NodeDiagramHash のうちノードのテキストと言語だけで決まる部分。幅とテーマは DiagramRequestHash で混ぜる。
+// テキストのハッシュは図の大きさに比例するので、覚えておけば要求し直すたびに読み直さずに済む。
+uint64_t DiagramCodeHash(const Node& node) noexcept;
+uint64_t DiagramRequestHash(uint64_t code_hash, float max_width, bool dark_mode) noexcept;
 
 std::pmr::wstring JsEscape(std::wstring_view input);
 

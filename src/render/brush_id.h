@@ -1,4 +1,6 @@
 #pragma once
+#include <unknwn.h>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <utility>
@@ -88,3 +90,47 @@ constexpr BrushId OverlayBrushId(bool is_dark) noexcept
 {
     return is_dark ? BrushId::OverlayWhite : BrushId::OverlayBlack;
 }
+
+// IDWriteTextLayout::SetDrawingEffect に渡す描画色の印。ブラシと違ってデバイスに依存しないので、
+// 計測ワーカーがテキストレイアウトを作るときに付けられ、デバイスを作り直しても付け直さずに済む。
+// 描画時に VisibleRunRenderer が BrushId の固定ブラシへ置き換える。静的な実体なので参照カウントは持たない。
+class BrushEffect final : public IUnknown {
+public:
+    static BrushEffect* For(BrushId id) noexcept
+    {
+        static auto effects = [] {
+            std::array<BrushEffect, std::to_underlying(BrushId::Count)> a{};
+            for (size_t i = 0; i < a.size(); i++) {
+                a[i].id_ = static_cast<BrushId>(i);
+            }
+            return a;
+        }();
+        return &effects[std::to_underlying(id)];
+    }
+    // 文書のテキストレイアウトに付ける描画効果はこれだけなので、QueryInterface せずに読む。
+    static BrushId IdOf(IUnknown* effect) noexcept
+    {
+        return effect ? static_cast<BrushEffect*>(effect)->id_ : BrushId::None;
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** out) noexcept override
+    {
+        if (riid == __uuidof(IUnknown)) {
+            *out = this;
+            return S_OK;
+        }
+        *out = nullptr;
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return 1;
+    }
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        return 1;
+    }
+
+private:
+    BrushId id_ = BrushId::None;
+};

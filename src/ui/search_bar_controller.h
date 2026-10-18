@@ -7,7 +7,9 @@
 #include "ui_constants.h"
 #include "viewport_manager.h"
 #include <algorithm>
+#include <chrono>
 #include <memory_resource>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -64,12 +66,17 @@ public:
         AfterMatchStep(state_->PrevMatch());
     }
 
-    // 1 ノードの巨大テーブル/コードブロックもあるため、ノード数だけでなくバイト数でも判定する。
-    static constexpr size_t kImmediateSearchMaxNodes = 1000;
-    static constexpr size_t kImmediateSearchMaxBytes = 256 * 1024;
+    // 直前の検索がこれより速ければ、入力のたびに待たずに検索する。
+    static constexpr auto kImmediateSearchBudget = std::chrono::milliseconds(8);
+    // この文書でまだ検索していないとき、待たずに検索する文書の大きさ。
+    static constexpr size_t kImmediateSearchMaxBytes = 1024 * 1024;
 
     void OnTextChanged(std::wstring_view text, const std::pmr::vector<Node>& nodes, size_t doc_bytes)
     {
+        // 文書の切り替えで入力欄を空にしたときなど、中身が変わらない通知は検索も再描画もしない。
+        if (text == query_wide_) {
+            return;
+        }
         // 検索バー入力は IME 経由で wstring。表示とヒットテストにはこのまま使い、
         // SearchState は Document テキスト (UTF-8) と比較するため変換して渡す。
         query_wide_.assign(text);
@@ -84,13 +91,16 @@ public:
             return;
         }
 
-        if (nodes.size() <= kImmediateSearchMaxNodes && doc_bytes <= kImmediateSearchMaxBytes) {
+        // 検索の速さは文書の大きさだけでなくマッチ数でも変わるので、直前の検索にかかった時間で決める。
+        // 入力で絞り込むほどマッチは減るので、直前の時間はおおむね上限になる。
+        const bool immediate = last_search_time_ ? *last_search_time_ <= kImmediateSearchBudget : doc_bytes <= kImmediateSearchMaxBytes;
+        if (immediate) {
             RunSearchAndLocate(nodes, true);
             cb_.invalidate();
             return;
         }
 
-        // 大規模ドキュメント: デバウンスで連続入力中の再検索を抑制
+        // 重い文書: デバウンスで連続入力中の再検索を抑制
         cb_.invalidate();
         cb_.set_timer(app_timer::Id::SEARCH_DEBOUNCE, app_timer::SEARCH_DEBOUNCE_MS);
     }
@@ -151,7 +161,9 @@ public:
 
     void RunSearchAndLocate(const std::pmr::vector<Node>& nodes, bool scroll_to_match = false)
     {
+        const auto start = std::chrono::steady_clock::now();
         state_->ExecuteSearch(nodes);
+        last_search_time_ = std::chrono::steady_clock::now() - start;
         if (state_->GetMatchCount() > 0) {
             state_->SetCurrentMatchNear(viewport_->GetScrollY(), *cache_);
             if (scroll_to_match) {
@@ -191,22 +203,11 @@ public:
     {
         state_->Reset();
         query_wide_.clear();
+        last_search_time_.reset();
         ResetInteractionState();
         ResetCaretAndSelection();
     }
 
-
-    // 変化した場合 true。Input ゾーンはテキスト編集領域でホバー強調は不要なので None に丸める。
-    bool SetHover(SearchBarHitZone zone) noexcept
-    {
-        const auto new_hover = (zone == SearchBarHitZone::Input) ? SearchBarHitZone::None : zone;
-        return std::exchange(hover_, new_hover) != new_hover;
-    }
-
-    SearchBarHitZone GetHover() const noexcept
-    {
-        return hover_;
-    }
 
     SearchBarRenderState BuildRenderState() const
     {
@@ -221,7 +222,6 @@ public:
         sb.ime_composition = ime_composition_;
         sb.case_sensitive = state_->IsCaseSensitive();
         sb.highlight_enabled = state_->IsHighlightEnabled();
-        sb.hovered = hover_;
         return sb;
     }
 
@@ -270,7 +270,6 @@ private:
 
     void ResetInteractionState()
     {
-        hover_ = SearchBarHitZone::None;
         caret_visible_ = false;
         ime_composition_.clear();
         cb_.kill_timer(app_timer::Id::SEARCH_DEBOUNCE);
@@ -281,11 +280,12 @@ private:
     LayoutCache* cache_ = nullptr;
     Cb cb_{};
 
-    SearchBarHitZone hover_ = SearchBarHitZone::None;
     // 点滅させない。点滅のたびに全画面再描画が走るため。
     bool caret_visible_ = false;
     int caret_pos_ = -1;
     int selection_start_ = -1;
     std::pmr::wstring ime_composition_;
     std::pmr::wstring query_wide_;
+    // 直前の RunSearchAndLocate の検索時間。文書を替えると測り直す。
+    std::optional<std::chrono::steady_clock::duration> last_search_time_;
 };

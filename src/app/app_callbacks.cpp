@@ -1,89 +1,21 @@
 #include "app_callbacks.h"
 #include "app.h"
-#include "file_dialog_service.h"
 #include "pane_layout.h"
 
 void AppCallbacksBase::set_timer(app_timer::Id id, UINT ms)
 {
-    app->win32_host_.SetTimer(id, ms);
+    app->SetTimer(id, ms);
 }
 
 void AppCallbacksBase::kill_timer(app_timer::Id id)
 {
-    app->win32_host_.KillTimer(id);
+    app->KillTimer(id);
 }
 
 float AppCallbacksBase::get_md_pane_height()
 {
     return app->GetPaneLayout().md_rect.height;
 }
-
-void AppSideEffectCallbacks::load_file(std::wstring_view path)
-{
-    app->LoadMarkdownFile(path);
-}
-
-void AppSideEffectCallbacks::reload_file()
-{
-    app->ReloadCurrentFile();
-}
-
-void AppSideEffectCallbacks::open_file_dialog()
-{
-    const auto path = file_dialog_service::OpenMarkdownFileDialog(app->hwnd_);
-    if (!path.empty()) {
-        PushCurrentNavEntry(app->state_, path);
-        app->LoadMarkdownFile(path);
-    }
-}
-
-void AppSideEffectCallbacks::cancel_other_file_load()
-{
-    app->CancelOtherFileLoad();
-}
-
-void AppSideEffectCallbacks::renderer_resize(UINT w, UINT h)
-{
-    app->renderer_.Resize(w, h);
-}
-
-void AppSideEffectCallbacks::renderer_set_dpi(float dpi)
-{
-    app->renderer_.SetDpi(dpi);
-}
-
-void AppSideEffectCallbacks::perform_resize_end()
-{
-    app->OnResizeEnd();
-}
-
-void AppSideEffectCallbacks::perform_sizing_update()
-{
-    app->SyncMaxScroll(get_md_pane_height());
-    app->Invalidate();
-}
-
-void AppSideEffectCallbacks::apply_theme_change(const effect::ApplyThemeChange& e)
-{
-    app->HandleApplyThemeChange(e);
-}
-
-void AppSideEffectCallbacks::show_context_menu(int x, int y)
-{
-    app->OnContextMenu(x, y);
-}
-
-void AppSideEffectCallbacks::sync_toc_active(bool auto_scroll)
-{
-    app->SyncTocActiveAndAutoScroll(auto_scroll);
-}
-
-void AppSideEffectCallbacks::schedule_bitmap_manage()
-{
-    app->resource_manager_.ScheduleBitmapManage();
-}
-
-template class SideEffectExecutorT<AppSideEffectCallbacks>;
 
 float AppResourceManagerCallbacks::get_content_width()
 {
@@ -124,12 +56,12 @@ void AppSearchBarCallbacks::invalidate()
 
 void AppSearchBarCallbacks::focus_select_all()
 {
-    app->EmitEffect(effect::SearchFocus{});
+    app->Execute(effect::SearchFocus{});
 }
 
 void AppSearchBarCallbacks::unfocus()
 {
-    app->EmitEffect(effect::SearchUnfocus{});
+    app->Execute(effect::SearchUnfocus{});
 }
 
 void AppSearchBarCallbacks::ensure_node_layout(int node_index)

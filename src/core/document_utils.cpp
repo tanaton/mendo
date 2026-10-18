@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <format>
 #include <iterator>
+#include <ranges>
 
 std::pmr::string ToLowerAsciiCopy(std::string_view text)
 {
@@ -301,4 +302,26 @@ std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent)
         std::format_to(std::back_inserter(title), L" ({}%)", zoom_percent);
     }
     return title;
+}
+
+bool NodeContentEquals(const Node& a, const Node& b) noexcept
+{
+    if (a.type != b.type || a.alert_type != b.alert_type || a.quote_depth != b.quote_depth ||
+        a.quote_outer_indent != b.quote_outer_indent || a.indent_level != b.indent_level || a.line_count != b.line_count ||
+        a.heading_level() != b.heading_level() || a.code_language() != b.code_language() || a.flags_ != b.flags_ ||
+        a.list_number() != b.list_number() || a.alert_label_length() != b.alert_label_length()) {
+        return false;
+    }
+    // 参照定義が後ろで変わると、前のノードはテキストが同じでもリンク先が変わる。
+    if (a.GetText() != b.GetText() || !std::ranges::equal(a.runs(), b.runs()) || !std::ranges::equal(a.view_link_urls(), b.view_link_urls())) {
+        return false;
+    }
+    const auto* ai = a.image_data();
+    const auto* bi = b.image_data();
+    if ((ai == nullptr) != (bi == nullptr) || (ai && ai->src != bi->src)) {
+        return false;
+    }
+    const auto* at = a.table_data();
+    const auto* bt = b.table_data();
+    return (at == nullptr) == (bt == nullptr) && (!at || *at == *bt);
 }

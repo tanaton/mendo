@@ -69,21 +69,30 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
         return;
     }
 
+    uint32_t drop_gen = 0;
     {
         const std::lock_guard lock(pending_mutex_);
         if (auto it = failed_paths_.find(abs_path); it != failed_paths_.end() && it->second >= kMaxImageRetries) {
             return;
         }
-        if (!pending_paths_.insert(abs_path).second) {
+        if (!pending_paths_.try_emplace(abs_path, false).second) {
             return;
         }
+        drop_gen = drop_gen_;
     }
 
     const uint32_t gen = cancel_gen_.load();
     const UINT max_width_px = DecodeWidthPx(max_width_dip);
-    const bool posted = scheduler_->Post([this, path = abs_path, on_complete = std::move(on_complete), gen, max_width_px, guard = latch_.Acquire()]() mutable {
-        if (cancel_gen_.load() != gen) {
-            return;
+    const bool posted = scheduler_->Post([this, path = abs_path, on_complete = std::move(on_complete), gen, drop_gen, max_width_px, guard = latch_.Acquire()]() mutable {
+        {
+            const std::lock_guard lock(pending_mutex_);
+            // 捨てられた要求の項目は消えている。同じパスで要求し直した別の項目があっても触らない。
+            if (cancel_gen_.load() != gen || drop_gen_ != drop_gen) {
+                return;
+            }
+            if (const auto it = pending_paths_.find(path); it != pending_paths_.end()) {
+                it->second = true;
+            }
         }
 
         DecodeResult result{ .on_complete = std::move(on_complete) };
@@ -143,6 +152,27 @@ void ImageLoader::ProcessCompletedDecodes()
         return;
     }
 
+    Callback last_cb;
+    for (auto& r : results) {
+        // GPU に載せられなかった画像もデコード失敗と同じく数える。数えないと完了通知のたびに読み直し続ける。
+        bool failed = !r.bitmap;
+        const auto* existing = cache_.Find(r.path);
+        if (r.bitmap && render_target_ && (!existing || existing->sharp_width_px < r.sharp_width_px)) {
+            Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
+            const HRESULT hr = render_target_->CreateBitmapFromWicBitmap(r.bitmap.Get(), &bitmap);
+            if (SUCCEEDED(hr) && bitmap) {
+                CacheBitmap(r.path, std::move(bitmap), r.width, r.height, r.sharp_width_px);
+            }
+            else {
+                failed = true;
+            }
+        }
+        if (failed) {
+            r.bitmap.Reset();
+        }
+        // 全 on_complete は同一の invalidate シグナルなので最後の 1 つだけ呼ぶ。
+        last_cb = std::move(r.on_complete);
+    }
     {
         const std::lock_guard lock(pending_mutex_);
         for (const auto& r : results) {
@@ -151,20 +181,6 @@ void ImageLoader::ProcessCompletedDecodes()
                 ++failed_paths_[r.path];
             }
         }
-    }
-
-    Callback last_cb;
-    for (auto& r : results) {
-        const auto* existing = cache_.Find(r.path);
-        if (r.bitmap && render_target_ && (!existing || existing->sharp_width_px < r.sharp_width_px)) {
-            Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-            const HRESULT hr = render_target_->CreateBitmapFromWicBitmap(r.bitmap.Get(), &bitmap);
-            if (SUCCEEDED(hr) && bitmap) {
-                CacheBitmap(r.path, std::move(bitmap), r.width, r.height, r.sharp_width_px);
-            }
-        }
-        // 全 on_complete は同一の invalidate シグナルなので最後の 1 つだけ呼ぶ。
-        last_cb = std::move(r.on_complete);
     }
 
     if (last_cb) {
@@ -182,6 +198,13 @@ void ImageLoader::CacheBitmap(
 
     cache_.Insert(path, CachedImage{ std::move(bitmap), width, height, sharp_width_px });
     cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedImage& c) { return BitmapBytes(c.bitmap.Get()); });
+}
+
+void ImageLoader::DropQueued()
+{
+    const std::lock_guard lock(pending_mutex_);
+    ++drop_gen_;
+    std::erase_if(pending_paths_, [](const auto& kv) { return !kv.second; });
 }
 
 void ImageLoader::CancelPending()

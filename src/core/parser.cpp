@@ -40,6 +40,8 @@ struct ParseContext {
     std::pmr::vector<Node> nodes;
     // 原文をそのまま使えないテキストと、runs・リンク URL の置き場所。ParseResult 経由で Document に渡す。
     std::unique_ptr<TextArena> arena;
+    // Table ノードが指すテーブル本体。arena と同じく Document に渡す。
+    std::pmr::vector<std::unique_ptr<NodeTableData>> tables;
 
     // パース後の全ノード走査を避けるため、特殊ノードのインデックスはパース中に構築する。
     std::pmr::vector<TocEntry> toc_entries;
@@ -99,7 +101,7 @@ struct ParseContext {
     Node* current_node = nullptr;
 
     // AppendDoc / FlushPendingRun のターゲットバッファのキャッシュ。
-    // 47-94 万回呼ばれる hot path で has_table() の variant 判定を毎回行わないよう、
+    // 47-94 万回呼ばれる hot path で毎回テーブルセル内かを判定しないよう、
     // 状態遷移点 (BeginNode / TD/TH 進入退出 / current_node clear) で更新したポインタを直接使う。
     // &current_text 以外を指すのはテーブルセル内 (NodeTableData::concat_text) のときだけ。
     // nullptr のときは AppendDoc / FlushPendingRun は no-op。
@@ -114,6 +116,8 @@ struct ParseContext {
 
     // ネスト画像 (![a ![b](inner)](outer)) では最外側の src を採用するため深度を追跡する。
     int image_span_depth = 0;
+    // 現在ノードの最後の画像の src。段落の終わりで Image ノードへ昇格するときに Node へ移す。
+    std::string_view image_src;
 
     // display math スパンが 1 個だけで他の内容が無い段落を LatexMath コードブロックに昇格する状態
     int paragraph_display_math_count = 0;
@@ -183,6 +187,16 @@ struct ParseContext {
         active_text_buffer = nullptr;
     }
 
+    // 予約を使い切ったら、読み終えた入力の割合から最終的なノード数を見積もって 1 回で広げる。
+    // リンク集のようにノードが細かい文書でも 1.5 倍ずつの伸長 (全ノードの移動) を繰り返さない。
+    // ソース位置を持たないノード (HR 等) だけが続くと見積もりが過大になるので 4 倍で頭打ちにする。
+    void GrowNodes()
+    {
+        const size_t size = nodes.size();
+        const size_t projected = size * markdown.size() / std::max<size_t>(last_source_offset, 1);
+        nodes.reserve(std::clamp(projected + projected / 8, size + size / 2, size * 4));
+    }
+
     void LeaveIndent() noexcept
     {
         if (indent_level > 0) {
@@ -197,9 +211,13 @@ struct ParseContext {
             current_node->set_has_child_blocks();
         }
         FinalizeCurrentNode();
+        if (nodes.size() == nodes.capacity()) [[unlikely]] {
+            GrowNodes();
+        }
         nodes.emplace_back();
         current_node = &nodes.back();
         active_text_buffer = &current_text;
+        image_src = {};
         current_node->type = type;
         current_node_index = nodes.size() - 1;
         constexpr int kInt8Max = std::numeric_limits<int8_t>::max();
@@ -404,7 +422,7 @@ struct ParseContext {
 };
 
 // 画像 src を受け取り Image ノードへ昇格できる種別。
-// 他の種別は extra に別の alternative を持つため ensure_image で壊れる (issue#298)。
+// 他の種別は payload を別の用途に使うため、昇格すると壊れる (issue#298)。
 constexpr bool IsImagePromotionCandidate(const Node& node) noexcept
 {
     return node.type == NodeType::Paragraph || node.type == NodeType::BlockQuote;
@@ -415,9 +433,11 @@ constexpr bool IsImagePromotionCandidate(const Node& node) noexcept
 bool TryPromoteParagraphToImage(ParseContext* ctx)
 {
     auto* const cn = ctx->current_node;
-    if (!cn || !IsImagePromotionCandidate(*cn) || !cn->has_image() || cn->image_data()->src.empty()) {
+    if (!cn || !IsImagePromotionCandidate(*cn) || ctx->image_src.empty()) {
         return false;
     }
+    const NodeImageData image{ ctx->image_src };
+    cn->set_image_data(ctx->arena->Copy(std::span{ &image, 1 }).data());
     cn->type = NodeType::Image;
     ctx->image_indices.emplace_back(ctx->current_node_index);
     return true;
@@ -450,21 +470,12 @@ void BeginListItem(ParseContext* ctx, const MD_BLOCK_LI_DETAIL* li)
 {
     const bool is_task = li->is_task;
     ctx->BeginNode(is_task ? NodeType::TaskListItem : NodeType::ListItem);
-    // unordered (counter<0) かつ非 task のときは NodeListData を確保しない
-    // (getter が ordered=false / list_number=0 / task_checked=false を返すため)。
-    const int counter = ctx->list_counter.empty() ? -1 : ctx->list_counter.back();
-    const bool ordered = (counter >= 0); // OL は start>=0、UL は番兵 -1
-    if (!is_task && !ordered) {
-        return;
+    if (is_task && (li->task_mark == 'x' || li->task_mark == 'X')) {
+        ctx->current_node->set_task_checked();
     }
-    auto* const ld = ctx->current_node->ensure_list();
-    if (is_task) {
-        ld->task_checked = (li->task_mark == 'x' || li->task_mark == 'X');
-    }
-    if (ordered) {
-        ld->ordered = true;
-        ld->list_number = counter;
-        ctx->list_counter.back()++;
+    // OL は start>=0、UL は番兵 -1
+    if (!ctx->list_counter.empty() && ctx->list_counter.back() >= 0) {
+        ctx->current_node->set_list_number(ctx->list_counter.back()++);
     }
 }
 
@@ -474,7 +485,8 @@ void BeginTable(ParseContext* ctx, const MD_BLOCK_TABLE_DETAIL* detail)
     ctx->table_indices.emplace_back(ctx->current_node_index);
     // 後続の TR/TH/TD で nullable チェックなく参照できるよう先に確保する。
     // これに依存して TR/TH/TD は has_table() ガードを省いている。
-    auto* const tbl = ctx->current_node->ensure_table();
+    auto* const tbl = ctx->tables.emplace_back(std::make_unique<NodeTableData>()).get();
+    ctx->current_node->set_table_data(tbl);
     if (!detail) {
         return;
     }
@@ -543,17 +555,6 @@ void FinalizeTableOffsets(NodeTableData& tbl)
     if (tbl.aligns.size() < tbl.col_count) {
         tbl.aligns.resize(tbl.col_count, TableAlign::Default);
     }
-    // 伸長の余り (最大で容量の 1/3) を文書の寿命の間持ち続けないよう、確定時に詰める。
-    // 小さな表が大量にある文書で数バイトのために再確保を繰り返さないよう、余りが大きいときだけにする。
-    const auto shrink = [](auto& v) {
-        if ((v.capacity() - v.size()) * sizeof(v[0]) >= 4096) {
-            v.shrink_to_fit();
-        }
-    };
-    shrink(tbl.concat_text);
-    shrink(tbl.all_runs);
-    shrink(tbl.cell_text_starts);
-    shrink(tbl.cell_run_starts);
 }
 
 // md4c は参照の中身をテキストで渡さないので、GitHub と同じく脚注番号を定義へのリンクとして補う。
@@ -579,9 +580,7 @@ void AppendFootnoteRef(ParseContext* ctx, const MD_SPAN_FOOTNOTE_REF_DETAIL* ref
 void BeginFootnoteDef(ParseContext* ctx, const MD_BLOCK_FOOTNOTE_DEF_DETAIL* def)
 {
     ctx->BeginNode(NodeType::ListItem);
-    auto* const ld = ctx->current_node->ensure_list();
-    ld->ordered = true;
-    ld->list_number = static_cast<int32_t>(def->id);
+    ctx->current_node->set_list_number(static_cast<int32_t>(def->id));
     ctx->footnote_def_indices.push_back(static_cast<int32_t>(ctx->current_node_index));
 }
 
@@ -927,7 +926,7 @@ void LeaveImageSpan(ParseContext* ctx, const MD_SPAN_IMG_DETAIL* img)
         return;
     }
     if (auto* const cn = ctx->current_node; cn && IsImagePromotionCandidate(*cn)) {
-        cn->ensure_image()->src = ctx->InternUrl(ctx->AttributeText(img->src));
+        ctx->image_src = ctx->InternUrl(ctx->AttributeText(img->src));
     }
 }
 
@@ -1054,27 +1053,21 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     return 0;
 }
 
-// 各種予約サイズのヒント定数。実測 (100MB 入力 = 30k ノード相当) を基準に、
-// 初期確保サイズと再確保回数のバランスで決めている。値は「入力 N byte あたり 1 個」を表す:
+// 各種予約サイズのヒント定数。値は「入力 N byte あたり 1 個」を表す:
 //   - kScratchInputBytesPerByte=8 → ノード当たりの平均テキスト長 ~8B 想定の scratch。
-//   - kInputBytesPerNode=128      → 1 ノード 128 byte まで細かい文書でもパース途中の再確保 (全ノードの移動) を
-//                                   避ける (example/test.md 実測 ~258 byte/ノード)。予約は入力と同程度のバイト数で、
-//                                   触れない分もコミットは残るが物理メモリには載らない。超過時は通常の伸長に任せる。
-//   - kInputBytesPerArenaByte=3   → arena の初回確保。example/test.md の実測では arena に置くテキスト・runs・URL が
-//                                   入力の約 3 割で、典型的な文書は 1 回の確保で収まる。足りない分は
-//                                   monotonic_buffer_resource が 1.5 倍ずつ大きくしながら確保する (MSVC)。
-//                                   原文をそのまま使うノードが多い文書では余るが、触れない分は物理メモリに載らない。
-// 見出し・画像などのインデックス配列は件数が少なく、通常の伸長で足りるので予約しない。
+//   - kInputBytesPerNode=128      → 実測 246〜283 byte/ノードの文書が予約内に収まる。256 だと 246 byte/ノードの
+//                                   100MB 文書で終盤に伸長 (全ノードのコピー) が起き、md_parse が約 3% 遅れた。
+//                                   余りはパース後に詰めるので、増えるのはパース中のコミットだけ。
+//                                   リンク集 (~47 byte/ノード) のように細かい文書は GrowNodes が 1 回で広げる。
+// arena はチャンクを積み足すので予約しない。見出し・画像などのインデックス配列は件数が少なく、通常の伸長で足りる。
 constexpr size_t kScratchInputBytesPerByte = 8;
 constexpr size_t kInputBytesPerNode = 128;
-constexpr size_t kInputBytesPerArenaByte = 3;
 constexpr size_t kScratchReserveMin = 1024;
-constexpr size_t kArenaReserveMin = 1024;
 constexpr size_t kScratchReserveMax = 64 * 1024;
 
 void ReserveForInput(ParseContext& ctx, size_t input_size)
 {
-    ctx.arena = std::make_unique<TextArena>(std::max(input_size / kInputBytesPerArenaByte, kArenaReserveMin));
+    ctx.arena = std::make_unique<TextArena>();
     ctx.current_text.reserve(std::clamp(input_size / kScratchInputBytesPerByte, kScratchReserveMin, kScratchReserveMax));
     const size_t nodes_reserve = std::max(input_size / kInputBytesPerNode, 64uz);
     ctx.nodes.reserve(nodes_reserve);
@@ -1124,8 +1117,13 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         DetectAlerts(ctx.nodes, *ctx.arena, std::span<const size_t>{ ctx.blockquote_indices });
     }
 
+    // 予約や見積もりの余りを文書の寿命の間持ち続けないよう、大きく余ったときだけ詰める。
+    if (ctx.nodes.capacity() > ctx.nodes.size() + ctx.nodes.size() / 4) {
+        ctx.nodes.shrink_to_fit();
+    }
+
     ParseResult result{
-        NodeStorage{ std::move(ctx.nodes), std::move(ctx.arena) }
+        NodeStorage{ std::move(ctx.nodes), std::move(ctx.arena), std::move(ctx.tables) }
     };
     result.toc_entries = std::move(ctx.toc_entries);
     result.image_indices = std::move(ctx.image_indices);

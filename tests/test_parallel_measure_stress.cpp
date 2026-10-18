@@ -1,11 +1,17 @@
 #include <gtest/gtest.h>
 #include <atomic>
+#include <dwrite.h>
+#include <wrl/client.h>
 #include <chrono>
 #include <iostream>
 #include <memory_resource>
 #include <string>
 #include <thread>
+#include "document.h"
 #include "document_types.h"
+#include "dwrite_measurer.h"
+#include "example_files.h"
+#include "layout.h"
 #include "layout_cache.h"
 #include "mock_text_measurer.h"
 #include "parallel_measure.h"
@@ -15,12 +21,17 @@
 #include "theme.h"
 #include "test_nodes.h"
 
-using layout::DirtyBatchResult;
-using layout::RunParallel;
-using layout::StopReason;
-using layout::ViewportClip;
-
 namespace {
+
+// 全ノードを MeasureIndicesParallel で計測し、計測できなかったノード数を返す。
+int MeasureAll(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, const ITextMeasurer& measurer, TaskScheduler* scheduler)
+{
+    std::pmr::vector<size_t> indices(nodes.size());
+    for (size_t i = 0; i < indices.size(); ++i) {
+        indices[i] = i;
+    }
+    return layout::MeasureIndicesParallel(nodes, cache, 800.0f, theme, measurer, indices, {}, scheduler);
+}
 
 // 22000 ノード級の Mixed fixture を決定論的に生成する。配分:
 // Paragraph 60% / Heading 10% / HorizontalRule 5% / Table(1x2) 10% / Image 10% / 空 Paragraph 5%
@@ -67,9 +78,9 @@ Node MakeStressNode(size_t i, bool include_code_block)
         return table;
     }
     if (bucket < 19) {
+        static constexpr NodeImageData kImage{ "img.png" };
         n.type = NodeType::Image;
-        auto* img = n.ensure_image();
-        img->src = "img.png";
+        n.set_image_data(&kImage);
         return n;
     }
     n.type = NodeType::Paragraph;
@@ -127,25 +138,17 @@ public:
     }
 };
 
-// Serial / Parallel の出力を比較。height (FLOAT_EQ) と layout_dirty / effects_state / syntax_tokens を観測する。
+// Serial / Parallel の出力を比較。height (FLOAT_EQ) と layout_dirty / syntax_tokens を観測する。
 // IDWriteTextLayout (entry.text_layout) は mock では nullptr 固定 / 実装では identity 不一致で
 // equality が無意味なため除外。total_height_ は LayoutEngine 経由でないと
 // 計算されないためスコープ外。
-void ExpectBitExactEqual(const StressFixture& s, const StressFixture& p,
-                         const DirtyBatchResult& rs, const DirtyBatchResult& rp)
+void ExpectBitExactEqual(const StressFixture& s, const StressFixture& p)
 {
-    EXPECT_EQ(rs.processed, rp.processed);
-    EXPECT_EQ(rs.first_processed, rp.first_processed);
-    EXPECT_EQ(rs.last_processed, rp.last_processed);
-    EXPECT_EQ(rs.reason, rp.reason);
-    EXPECT_EQ(rs.any_nearby_skipped(), rp.any_nearby_skipped());
-
     ASSERT_EQ(s.nodes.size(), p.nodes.size());
     const size_t n = s.nodes.size();
     for (size_t i = 0; i < n; ++i) {
         EXPECT_FLOAT_EQ(s.cache[i].height, p.cache[i].height) << "i=" << i;
         EXPECT_EQ(s.cache[i].layout_dirty, p.cache[i].layout_dirty) << "i=" << i;
-        EXPECT_EQ(s.cache[i].effects_state(), p.cache[i].effects_state()) << "i=" << i;
 
         const auto ts = s.cache[i].syntax_tokens();
         const auto tp = p.cache[i].syntax_tokens();
@@ -187,13 +190,12 @@ TEST_F(ParallelMeasureStressTest, MatchesSerialOutputOnLargeMixedFixture)
     StressFixture p;
     p.Build(N, /*include_code_block=*/false, /*all_dirty=*/true);
 
-    const auto rs = RunParallel(s.nodes, s.cache, 800.0f, theme_, mock_,
-                                ViewportClip{}, 0, nullptr);
-    const auto rp = RunParallel(p.nodes, p.cache, 800.0f, theme_, mock_,
-                                ViewportClip{}, 0, &task_scheduler_);
+    const int rs = MeasureAll(s.nodes, s.cache, theme_, mock_, nullptr);
+    const int rp = MeasureAll(p.nodes, p.cache, theme_, mock_, &task_scheduler_);
 
-    EXPECT_EQ(rp.processed, static_cast<int>(N));
-    ExpectBitExactEqual(s, p, rs, rp);
+    EXPECT_EQ(rs, 0);
+    EXPECT_EQ(rp, 0);
+    ExpectBitExactEqual(s, p);
 }
 
 // ===== タスク 2: CodeBlock の syntax_tokens 書き込み検証 =====
@@ -206,13 +208,12 @@ TEST_F(ParallelMeasureStressTest, CodeBlockSyntaxTokensAggregatedInOrder)
     StressFixture p;
     p.Build(N, /*include_code_block=*/true, /*all_dirty=*/true);
 
-    const auto rs = RunParallel(s.nodes, s.cache, 800.0f, theme_, mock_,
-                                ViewportClip{}, 0, nullptr);
-    const auto rp = RunParallel(p.nodes, p.cache, 800.0f, theme_, mock_,
-                                ViewportClip{}, 0, &task_scheduler_);
+    const int rs = MeasureAll(s.nodes, s.cache, theme_, mock_, nullptr);
+    const int rp = MeasureAll(p.nodes, p.cache, theme_, mock_, &task_scheduler_);
 
-    EXPECT_EQ(rp.processed, static_cast<int>(N));
-    ExpectBitExactEqual(s, p, rs, rp);
+    EXPECT_EQ(rs, 0);
+    EXPECT_EQ(rp, 0);
+    ExpectBitExactEqual(s, p);
 
     // 全 CodeBlock ノードが 3 トークンを持ち、token.start = source_offset + k*10 で並ぶこと。
     size_t code_block_count = 0;
@@ -257,13 +258,12 @@ TEST_P(ParallelWorkerCountTest, BitExactAcrossWorkerCount)
     StressFixture p;
     p.Build(N, /*include_code_block=*/true, /*all_dirty=*/true);
 
-    const auto rs = RunParallel(s.nodes, s.cache, 800.0f, theme_, mock_,
-                                ViewportClip{}, 0, nullptr);
-    const auto rp = RunParallel(p.nodes, p.cache, 800.0f, theme_, mock_,
-                                ViewportClip{}, 0, &ts);
+    const int rs = MeasureAll(s.nodes, s.cache, theme_, mock_, nullptr);
+    const int rp = MeasureAll(p.nodes, p.cache, theme_, mock_, &ts);
 
-    EXPECT_EQ(rp.processed, static_cast<int>(N));
-    ExpectBitExactEqual(s, p, rs, rp);
+    EXPECT_EQ(rs, 0);
+    EXPECT_EQ(rp, 0);
+    ExpectBitExactEqual(s, p);
 
     ts.Shutdown();
 }
@@ -275,7 +275,7 @@ INSTANTIATE_TEST_SUITE_P(WorkerCounts, ParallelWorkerCountTest, ::testing::Value
 TEST(ParallelMeasurePostFailure, AllChunksFallbackOnSaturatedQueue)
 {
     // worker 0 個で Init し、queue を MAX_PENDING_TASKS まで dummy で埋める。
-    // RunParallel の Post 試行はすべて false になり、fallback (UI スレッドで run_chunk 直接実行) を通る。
+    // MeasureIndicesParallel の Post 試行はすべて false になり、fallback (UI スレッドで run_chunk 直接実行) を通る。
     // dummy task は capture なし lambda なので Shutdown 時の dtor で安全に解放される (実行されない)。
     TaskScheduler ts;
     ts.Init(0);
@@ -296,11 +296,9 @@ TEST(ParallelMeasurePostFailure, AllChunksFallbackOnSaturatedQueue)
 
     MockTextMeasurerWithTokens mock;
     Theme theme = GetLightTheme();
-    const auto r = RunParallel(f.nodes, f.cache, 800.0f, theme, mock,
-                               ViewportClip{}, 0, &ts);
+    const int r = MeasureAll(f.nodes, f.cache, theme, mock, &ts);
 
-    EXPECT_EQ(r.processed, static_cast<int>(N));
-    EXPECT_EQ(r.reason, StopReason::Done);
+    EXPECT_EQ(r, 0);
     for (size_t i = 0; i < N; ++i) {
         EXPECT_FALSE(f.cache[i].layout_dirty) << "i=" << i;
         EXPECT_GT(f.cache[i].height, 0.0f) << "i=" << i;
@@ -361,16 +359,50 @@ TEST(ParallelMeasureBench, DISABLED_ChunkSizeSweep)
         pf.Build(N, /*include_code_block=*/false, /*all_dirty=*/true);
 
         const double us_serial = MeasureUs([&] {
-            RunParallel(sf.nodes, sf.cache, 800.0f, theme, mock,
-                        ViewportClip{}, 0, nullptr);
+            MeasureAll(sf.nodes, sf.cache, theme, mock, nullptr);
         });
         const double us_parallel = MeasureUs([&] {
-            RunParallel(pf.nodes, pf.cache, 800.0f, theme, mock,
-                        ViewportClip{}, 0, &ts);
+            MeasureAll(pf.nodes, pf.cache, theme, mock, &ts);
         });
         std::cout << N << ",serial," << us_serial << "\n";
         std::cout << N << ",parallel," << us_parallel << "\n";
     }
 
     ts.Shutdown();
+}
+
+// 実際の DirectWrite で全ノードを計測し、レイアウト用ワーカーの本数ごとの所要時間を出す。
+// --gtest_also_run_disabled_tests --gtest_filter=*RealMeasureWorkerSweep で起動。
+TEST(ParallelMeasureBench, DISABLED_RealMeasureWorkerSweep)
+{
+    auto bytes = ReadExampleFileBytes("example/test.md");
+    if (bytes.empty()) {
+        GTEST_SKIP() << "example/test.md not found";
+    }
+    std::pmr::string md;
+    for (int i = 0; i < 8; i++) {
+        md += bytes;
+    }
+    const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
+    Microsoft::WRL::ComPtr<IDWriteFactory> factory;
+    ASSERT_TRUE(SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(factory.GetAddressOf()))));
+    const Theme theme = GetLightTheme();
+
+    std::cout << "nodes=" << doc.GetNodes().size() << "\nworkers,ms\n";
+    for (const int workers : { 0, 0, 2, 4, 8, 12, 16 }) {
+        TaskScheduler ts;
+        ts.Init(workers);
+        DWriteTextMeasurer measurer;
+        measurer.SetFactory(factory.Get());
+        LayoutEngine engine;
+        ASSERT_TRUE(engine.Init(&measurer, theme));
+        engine.SetLayoutScheduler(workers > 0 ? &ts : nullptr);
+        measurer.SetScheduler(workers > 0 ? &ts : nullptr);
+        LayoutCache cache;
+        const double us = MeasureUs([&] { engine.ComputeLayout(doc.GetNodes(), cache, 1200.0f); });
+        engine.SetLayoutScheduler(nullptr);
+        measurer.SetScheduler(nullptr);
+        ts.Shutdown();
+        std::cout << workers << "," << us / 1000.0 << "\n";
+    }
 }

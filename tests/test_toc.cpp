@@ -18,8 +18,9 @@ ParsedToc ParseToc(std::string_view markdown)
 {
     auto result = ParseMarkdown(markdown);
     TableOfContents toc{ std::move(result.toc_entries) };
-    auto [nodes, arena] = result.TakeNodes();
-    test_nodes_detail::KeepAlive(std::move(arena));
+    auto storage = result.TakeNodes();
+    auto nodes = std::move(storage.nodes);
+    test_nodes_detail::KeepAlive(std::move(storage));
     return { std::move(nodes), std::move(toc) };
 }
 

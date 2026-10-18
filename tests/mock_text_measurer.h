@@ -43,7 +43,7 @@ public:
 
         const auto& text = node.GetText();
         if (text.empty()) {
-            // 実装と同じ高さを使う。Init 前 (RunParallel 単体テスト等) は theme が無いので行高の半分で代用する。
+            // 実装と同じ高さを使う。Init 前は theme が無いので行高の半分で代用する。
             if (theme_) {
                 entry.height = layout::EmptyTextNodeHeight(node, *theme_);
             }
@@ -67,7 +67,6 @@ public:
         entry.reset_text_layout(); // モックでは実際のレイアウトなし
         entry.height = h;
         entry.layout_dirty = false;
-        entry.set_effects_state(EffectsState::None);
     }
 
 private:

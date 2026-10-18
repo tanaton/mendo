@@ -10,7 +10,6 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 #include <WebView2.h>
-#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -41,12 +40,13 @@ public:
     // bg_scheduler はディスクキャッシュの読み込みと PNG デコードを UI スレッド外で行う先で、
     // 読み込み完了は disk_loaded_msg で hwnd に通知され、受信側が ProcessDiskLoads を呼ぶ。
     // user_data_folder は WebView2 のセッションデータの保存先（空なら WebView2 既定の場所）。
+    // on_update は準備完了と結果が出たときに呼ぶ。準備前の要求と、結果を待つ図を要求し直させる。
     void Init(HWND hwnd, IWICImagingFactory* wic,
               TaskScheduler& bg_scheduler, UINT disk_loaded_msg,
-              const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_ready);
+              const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_update);
 
-    void RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode, Callback on_complete) override;
-    void RequestSvg(std::wstring_view code, float max_width, bool dark_mode, SvgCallback callback) override;
+    bool RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode) override;
+    void RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback) override;
     void SetRenderTarget(ID2D1RenderTarget* render_target);
     void SetFileCache(MermaidFileCache* cache) noexcept
     {
@@ -57,7 +57,6 @@ public:
     static float EstimateWorkerDpr() noexcept;
     void ProcessDiskLoads();
     void Shutdown();
-    void CancelPending() override;
     void DropQueued() override;
     void OnInitRetryTimer();
     // 一定時間描画要求が無ければ WebView2 を環境ごと閉じる (browser/renderer/GPU プロセスのメモリ解放)。
@@ -65,11 +64,13 @@ public:
 
 private:
     struct RenderRequest {
-        const Node* node = nullptr;
-        DiagramEntry* diagram_entry = nullptr;
+        // UTF-8 の原文。呼び出し側の文字列の寿命から切り離して持つ。WebView2 向けの変換は描く直前に行い、
+        // 待ちの間 (準備前・ディスク読み込み中・キュー待ち) は原文の大きさのままにする。
+        std::pmr::string code;
+        // LaTeX 数式。flowchart で包んで描く。
+        bool latex = false;
         float max_width = 0.0f;
         bool dark_mode = false;
-        Callback on_complete;
         uint64_t code_hash = 0;
         float css_width = 0.0f; // JSから取得したCSSピクセル寸法（DIP）
         float css_height = 0.0f;
@@ -77,12 +78,10 @@ private:
         // プロセス障害からの requeue 済みフラグ。クラッシュ誘発入力での再起動ループを防ぐ。
         bool retried = false;
 
-        // SVGクリップボードコピー用リクエスト。true の場合 layout/diagram は使わず、
+        // SVGクリップボードコピー用リクエスト。true の場合キャッシュには入れず、
         // SVG文字列を svg_callback で返す。
         bool svg_only = false;
         SvgCallback svg_callback;
-        // SVG リクエスト時のコード保持（呼び出し側の文字列ライフタイムから切り離す）
-        std::pmr::wstring code_storage;
     };
 
     // 各ワーカーが独立したWebView2インスタンスを持ち、1つのダイアグラムを非同期レンダリングする。
@@ -102,16 +101,18 @@ private:
         }
     };
 
-    struct CachedBitmap {
+    // 描画結果。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。
+    struct CachedResult {
         Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
         float width = 0.0f;
         float height = 0.0f;
         // クリップボードコピー用 PNG。bitmap と同じ寿命で DiagramEntry へ伝播する。
         PngBytes png;
+        // 表示用に整形したエラー。非空なら失敗で、bitmap は持たない。
+        std::pmr::wstring error;
     };
 
     struct DiskLoad {
-        uint32_t gen = 0;
         RenderRequest req;
         // worker でデコード確定済み。失敗時は null で read_error に理由が入る。
         Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
@@ -131,16 +132,19 @@ private:
     static constexpr int MAX_WORKER_RETRIES = 3;
     // 閉じると次の図で環境生成からやり直すため、読み進める間に閉じない程度に長めにする。
     static constexpr UINT IDLE_SHUTDOWN_MS = 60000;
+    // エラーも含む。書きかけの図を保存するたびにエラーが増えても、古いものから捨てる。
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
     // ディスクキャッシュから戻せるので画像より控えめにする。
     static constexpr size_t MAX_CACHE_BYTES = 64u * 1024 * 1024;
 
     // SVG 専用リクエストならコールバックを呼んで svg_callback をクリアする (cancel / render-error / svg-result 共通)。
     static void InvokeSvgCallbackIfAny(RenderRequest& req, std::pmr::wstring svg, bool cancelled);
-    // 表示用リクエストの diagram_entry にエラーを確定させる。msg が空なら i18n の
-    // 汎用文言を入れ、「非空 = 失敗」の不変条件を保つ (issue #271)。
-    static void SetDiagramError(RenderRequest& req, std::wstring_view msg);
-    static void ApplyCachedBitmap(DiagramEntry& diagram_entry, const CachedBitmap& cached) noexcept;
+    // 表示用リクエストのエラーを確定させる。msg が空なら i18n の汎用文言を入れ、
+    // 「非空 = 失敗」の不変条件を保つ (issue #271)。
+    void SetDiagramError(const RenderRequest& req, std::wstring_view msg);
+    static void ApplyResult(DiagramEntry& diagram_entry, const CachedResult& result);
+    // 進行中の要求をすべて捨てる。SVG 要求は cancelled=true で完了させる。
+    void CancelPending();
 
     std::span<Worker> ActiveWorkers() noexcept
     {
@@ -172,11 +176,18 @@ private:
     void RenderInWorker(Worker& worker);
     // WebView2 ワーカーでの描画待ちキューに積む (初期化前なら初期化だけ起動して戻る)。
     void EnqueueWebRender(RenderRequest req);
+    // 要求の結果 (ビットマップかエラー) がキャッシュに入っていれば、通知して要求し直させる。
     void FinishWorkerRequest(Worker& worker);
     void ReleaseInflight(const RenderRequest& req) noexcept
     {
-        if (req.diagram_entry) {
-            inflight_entries_.erase(req.diagram_entry);
+        if (!req.svg_only) {
+            inflight_.erase(req.code_hash);
+        }
+    }
+    void NotifyUpdate()
+    {
+        if (on_update_) {
+            on_update_();
         }
     }
 
@@ -184,14 +195,15 @@ private:
     void StartDiskLoad(RenderRequest req, std::filesystem::path png_path, Microsoft::WRL::ComPtr<IStream> captured_stream = nullptr);
     // worker で呼ぶ。
     void LoadDiskJob(DiskLoad& job, const std::filesystem::path& path);
-    void ApplyDiskLoad(DiskLoad& r);
+    // 戻り値: 結果 (ビットマップかエラー) が出たか。
+    bool ApplyDiskLoad(DiskLoad& r);
 
     void DispatchWebMessage(int index, const mermaid_util::ParsedWebMessage& parsed);
     void OnWorkerReady(Worker& worker, float dpr);
     void OnRenderResult(int worker_idx, std::wstring_view json);
     void DoCapturePreview(int worker_idx);
     void OnCaptureComplete(int worker_idx, Microsoft::WRL::ComPtr<IStream> png_stream);
-    void InsertCache(uint64_t hash, CachedBitmap cached);
+    void InsertCache(uint64_t hash, CachedResult result);
 
     HWND hwnd_ = nullptr;
     ID2D1RenderTarget* render_target_ = nullptr;
@@ -204,22 +216,20 @@ private:
     int worker_count_ = 0;
     mermaid_lifecycle::Lifecycle lifecycle_;
     unsigned int request_counter_ = 0;
-    // 準備完了のたびに呼ぶ (アイドル解放後の再初期化を含む)。準備前の描画要求は捨てているため再要求させる。
-    std::move_only_function<void()> on_ready_;
+    // 準備完了 (アイドル解放後の再初期化を含む) と結果が出たときに呼ぶ。準備前の描画要求は捨てているため再要求させる。
+    std::move_only_function<void()> on_update_;
 
     std::queue<RenderRequest, std::pmr::deque<RenderRequest>> pending_requests_;
-    // 待機中/描画中の表示用リクエストの図。未完了の図はスクロールのたびに NeedsRender() が
-    // true のまま再要求されるため、ここで重複を弾く (二重描画・キュー肥大の防止)。
-    std::pmr::unordered_set<const DiagramEntry*> inflight_entries_;
+    // 待機中・読み込み中・描画中の表示用リクエストのコードハッシュ。未完了の図はスクロールのたびに
+    // 再要求されるため、ここで重複を弾く (二重描画・キュー肥大の防止)。
+    std::pmr::unordered_set<uint64_t> inflight_;
 
-    // code_hash -> CachedBitmap (LruCache の挙動は src/util/lru_cache.h 参照)。
-    LruCache<uint64_t, CachedBitmap, MAX_CACHE_ENTRIES> cache_;
+    // code_hash -> CachedResult (LruCache の挙動は src/util/lru_cache.h 参照)。
+    LruCache<uint64_t, CachedResult, MAX_CACHE_ENTRIES> cache_;
     MermaidFileCache* file_cache_ = nullptr;
 
     TaskScheduler* bg_scheduler_ = nullptr;
     UINT disk_loaded_msg_ = 0;
-    // CancelPending で進め、それ以前に投入した読み込み結果を捨てる。
-    std::atomic<uint32_t> disk_gen_{ 0 };
     std::mutex disk_mutex_;
     std::pmr::vector<DiskLoad> disk_results_;
 

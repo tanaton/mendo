@@ -46,8 +46,7 @@ std::pmr::vector<Node> MakeNodes(std::initializer_list<NodeSpec> specs)
             n.set_heading_level(spec.heading_level);
         }
         if (spec.table_rows > 0) {
-            n.ensure_table();
-            n.table_data()->row_count = spec.table_rows;
+            AttachTestTable(n)->row_count = spec.table_rows;
         }
     }
     return nodes;
@@ -257,7 +256,7 @@ TEST_F(LayoutTest, ProcessDirtyBatchCleansNodes)
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
 
     // ダーティなノードがあれば処理する
-    if (engine_.HasDirtyNodes()) {
+    if (cache.HasDirtyNodes()) {
         bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 100);
         // 十分に処理した後、ダーティなノードがなくなること
         EXPECT_FALSE(more);
@@ -280,7 +279,7 @@ TEST_F(LayoutTest, ProcessDirtyBatchSmallBatch)
     // 非常に小さなビューポートで部分的なレイアウトを実行
     engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 10.0f);
 
-    if (engine_.HasDirtyNodes()) {
+    if (cache.HasDirtyNodes()) {
         // 一度に5ノードだけ処理
         bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 5);
         // 50ノードでバッチ=5なら、まだダーティなノードが残るはず
@@ -308,7 +307,7 @@ TEST_F(LayoutTest, EmptyTableMinimalHeight)
 {
     Node node;
     node.type = NodeType::Table;
-    node.ensure_table();
+    AttachTestTable(node);
     // 0 行 0 列の空テーブル (新方式は row_count/col_count 既定で 0)
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(node));
@@ -538,8 +537,8 @@ TEST(RecomputeYPositionsTest, EmptyNodes)
     std::pmr::vector<Node> nodes;
     LayoutCache cache;
     Theme theme = GetLightTheme();
-    const bool has_dirty = RecomputeYPositions(nodes, cache, theme);
-    EXPECT_FALSE(has_dirty);
+    RecomputeYPositions(nodes, cache, theme);
+    EXPECT_EQ(cache.size(), 0u);
 }
 
 // ---- ComputeTotalContentHeight テスト ----
@@ -580,9 +579,8 @@ TEST(RecomputeYPositionsTest, SingleParagraph)
     auto cache = MakeMeasuredCache({ 20.0f });
     const Theme theme = GetLightTheme();
 
-    const bool has_dirty = RecomputeYPositions(nodes, cache, theme);
+    RecomputeYPositions(nodes, cache, theme);
     EXPECT_FLOAT_EQ(cache.Top(0), theme.margin_top);
-    EXPECT_FALSE(has_dirty);
 }
 
 TEST(RecomputeYPositionsTest, HeadingSpacing)
@@ -629,17 +627,6 @@ TEST(RecomputeYPositionsTest, H1H2UseLargerSpacingBelow)
 
     // 両者は実際に異なる値であること（テスト対象の分岐が意味を持つ前提）
     EXPECT_GT(theme.heading_spacing_below_h1h2, theme.heading_spacing_below);
-}
-
-TEST(RecomputeYPositionsTest, DetectsDirtyNodes)
-{
-    auto nodes = MakeNodes({ { .type = NodeType::Paragraph }, { .type = NodeType::Paragraph } });
-    auto cache = MakeMeasuredCache({ 20.0f, 20.0f });
-    cache[1].layout_dirty = true;
-    const Theme theme = GetLightTheme();
-
-    const bool has_dirty = RecomputeYPositions(nodes, cache, theme);
-    EXPECT_TRUE(has_dirty);
 }
 
 TEST(RecomputeYPositionsTest, MonotonicallyIncreasingY)
@@ -1489,7 +1476,7 @@ TEST_F(LayoutTest, PartialLayoutFromVisibleStartMatchesFullLayout)
     for (size_t i = 0; i < nodes.size(); i++) {
         EXPECT_FLOAT_EQ(cache.Top(i), ref_tops[i]) << "i=" << i;
     }
-    EXPECT_TRUE(engine_.HasDirtyNodes()) << "走査しない範囲の dirty は保守的に仮定する";
+    EXPECT_TRUE(cache.HasDirtyNodes()) << "走査しない範囲の dirty は保守的に仮定する";
 }
 
 // 範囲指定の RecomputeYPositions は、範囲外の後続ノードを一定量シフトするだけで全件計算と一致する。

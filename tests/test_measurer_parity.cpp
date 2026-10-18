@@ -44,10 +44,7 @@ private:
         n.set_code_language(src.code_language());
         n.SetText(src.GetText(), src.line_count);
         n.SetRuns(src.runs());
-        if (src.has_image()) {
-            n.ensure_image();
-            *n.image_data() = *src.image_data();
-        }
+        n.set_image_data(src.image_data());
         return n;
     }
 };

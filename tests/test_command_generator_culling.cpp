@@ -172,7 +172,6 @@ class CullingParityTest : public DWriteTestBase {
 protected:
     Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_;
     CommandGenerator gen_;
-    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_buf_;
 
     void SetUp() override
     {
@@ -183,7 +182,6 @@ protected:
             DWRITE_FONT_STRETCH_NORMAL, theme_.font_size_body, L"", &fmt_)));
         gen_.SetTheme(&theme_);
         gen_.SetFormats({ fmt_.Get(), fmt_.Get(), fmt_.Get(), fmt_.Get() });
-        gen_.SetHitTestBuffer(&hit_buf_);
     }
 
     const DrawCommandList& Generate(const ParsedLayout& pl, float scroll_y, float pane_h, const BlockHScrollContext& h_scroll, float pane_y = 0.0f)
@@ -283,8 +281,7 @@ TEST_F(CullingParityTest, TallLayoutRequestsRunCullingWithPaneLocalRange)
         }
     }
     ASSERT_EQ(layouts.size(), 2u);
-    EXPECT_FALSE(layouts[0]->cull_runs);
-    EXPECT_TRUE(layouts[1]->cull_runs);
+    EXPECT_EQ(layouts[0]->cull_bottom, std::numeric_limits<float>::infinity());
     // ペイン原点は transform に乗るので、間引き範囲はペインローカルの [0, 高さ]。
     EXPECT_EQ(layouts[1]->cull_top, 0.0f);
     EXPECT_EQ(layouts[1]->cull_bottom, PANE_H);

@@ -11,16 +11,12 @@ TEST(LayoutCacheTest, InvalidateAllLayouts)
     const std::pmr::vector<Node> nodes(3);
 
     // レイアウトが設定された状態をシミュレート
-    cache[0].set_effects_state(EffectsState::Applied);
-    cache[1].set_effects_state(EffectsState::Applied);
-    cache[2].set_effects_state(EffectsState::Applied);
     cache[0].ensure_inline_code_bgs().emplace_back(0.0f, 0.0f, 10.0f, 10.0f);
     cache[1].ensure_inline_code_bgs().emplace_back(0.0f, 0.0f, 20.0f, 20.0f);
 
     cache.InvalidateAllLayouts(nodes);
 
     for (size_t i = 0; i < 3; ++i) {
-        EXPECT_EQ(cache[i].effects_state(), EffectsState::None) << "index " << i;
         EXPECT_TRUE(cache[i].view_inline_code_bgs().empty()) << "index " << i;
         // text_layoutはComPtrで、Reset()するとnullになる
         EXPECT_EQ(cache[i].text_layout(), nullptr) << "index " << i;
@@ -326,4 +322,17 @@ TEST(LayoutCacheTest, SyntaxTokensReleasedWithTextLayout)
     entry.set_syntax_tokens({ SyntaxToken{ 0, 3, SyntaxTokenType::Keyword } });
     entry.release_layout_state();
     EXPECT_TRUE(entry.syntax_tokens().empty());
+}
+
+// dirty の有無はキャッシュと一緒に動く。差し替え用の新しいキャッシュは計測前なので dirty ありとして始まる。
+TEST(LayoutCacheTest, HasDirtyNodesTravelsWithCache)
+{
+    LayoutCache cache;
+    cache.Resize(3);
+    EXPECT_TRUE(cache.HasDirtyNodes());
+    cache.SetHasDirtyNodes(false);
+    LayoutCache moved = std::move(cache);
+    EXPECT_FALSE(moved.HasDirtyNodes());
+    moved.Resize(5);
+    EXPECT_TRUE(moved.HasDirtyNodes()) << "増えたノードは計測前";
 }

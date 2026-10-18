@@ -61,7 +61,6 @@ DrawTextLayoutCmd MakeTextLayoutCmd(D2D1_POINT_2F origin, IDWriteTextLayout* lay
 {
     DrawTextLayoutCmd cmd{ origin, layout, brush_id };
     if (height > cull_bottom - cull_top) {
-        cmd.cull_runs = true;
         cmd.cull_top = cull_top;
         cmd.cull_bottom = cull_bottom;
     }
@@ -84,18 +83,16 @@ void GenInlineCodeBgs(DrawCommandList& cmds, std::span<const InlineCodeBg> bgs, 
     }
 }
 
-// bgs は cell_index 昇順を維持しているため、cursor を進めるだけで O(N) 全体で済む。
-// 戻り値は次回呼び出し向けに進めた cursor。
-size_t GenCellInlineCodeBgs(DrawCommandList& cmds, std::span<const CellInlineCodeBg> bgs, size_t cursor, uint32_t cell_index, float origin_x, float origin_y)
+// row_bgs は列の昇順なので、col 以下の分を先頭から消費し col のセルの背景だけを描く。
+// 列を昇順に渡す限り、行全体で O(背景数) で済む。
+void GenCellInlineCodeBgs(DrawCommandList& cmds, std::span<const CellInlineCodeBg>& row_bgs, size_t col, float origin_x, float origin_y)
 {
-    while (cursor < bgs.size() && bgs[cursor].cell_index < cell_index) {
-        ++cursor;
+    while (!row_bgs.empty() && row_bgs.front().col <= col) {
+        if (row_bgs.front().col == col) {
+            cmds.emplace_back(MakeInlineCodeBgCmd(OffsetRectF(row_bgs.front().rect, origin_x, origin_y)));
+        }
+        row_bgs = row_bgs.subspan(1);
     }
-    while (cursor < bgs.size() && bgs[cursor].cell_index == cell_index) {
-        cmds.emplace_back(MakeInlineCodeBgCmd(OffsetRectF(bgs[cursor].rect, origin_x, origin_y)));
-        ++cursor;
-    }
-    return cursor;
 }
 
 // h1/h2 見出し下線を描画するY座標を heading_spacing_below_h1h2 のこの比率で決める。
@@ -715,13 +712,10 @@ void CommandGenerator::GenTable(const FrameContext& fc,
     }
 
     // 可視行帯を row_cum_y の二分探索で求め、その範囲だけループする
-    // (ApplyTableEffects / FindTableRow と同じパターン)。巨大テーブルで
+    // (FindTableRow と同じパターン)。巨大テーブルで
     // 毎フレーム row_count 回の continue ループが走るのを防ぐ。
     const auto [r_begin, r_end] = tl.VisibleRowRange(cull_top_ - entry_text_top, cull_bottom_ - entry_text_top);
     float y = entry_text_top + tl.row_cum_y[r_begin];
-    // cell_inline_code_bgs は cell_index 昇順 (renderer.cpp の追記/rotate が維持) なので二分探索で頭出しする。
-    const auto& bgs = tl.cell_inline_code_bgs;
-    size_t bg_cursor = static_cast<size_t>(std::ranges::lower_bound(bgs, static_cast<uint32_t>(r_begin * tl.col_count), {}, &CellInlineCodeBg::cell_index) - bgs.begin());
 
     // x は列順に単調なので、可視列は連続した区間 [c_begin, c_end) になる。
     size_t c_begin = 0;
@@ -745,11 +739,14 @@ void CommandGenerator::GenTable(const FrameContext& fc,
         cmds_.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y), border, BrushId::Hr });
 
         float cx = x_begin;
+        std::span<const CellInlineCodeBg> row_bgs;
+        if (r < tl.row_code_bgs.size()) {
+            row_bgs = tl.row_code_bgs[r];
+        }
         for (size_t c = c_begin; c < c_end; c++) {
             const auto [text_x, text_y] = TableCellTextOrigin(cx, y);
 
-            // bg_cursor は cell_index 昇順で進む。
-            bg_cursor = GenCellInlineCodeBgs(cmds_, tl.cell_inline_code_bgs, bg_cursor, static_cast<uint32_t>(tl.CellIndex(r, c)), text_x, text_y);
+            GenCellInlineCodeBgs(cmds_, row_bgs, c, text_x, text_y);
 
             IDWriteTextLayout* const cell_layout = tl.GetCellLayout(r, c);
             GenCellSearchHighlights(search_nm, cell_layout, r, c, text_x, text_y);
@@ -788,10 +785,9 @@ void CommandGenerator::GenTable(const FrameContext& fc,
 
 std::span<const DWRITE_HIT_TEST_METRICS> CommandGenerator::HitTestRange(IDWriteTextLayout* layout, uint32_t start, uint32_t length)
 {
-    assert(hit_test_buffer_ && "SetHitTestBuffer must be called before GenerateMdPane");
     MENDO_COUNT_INC(g_cmd_gen_stats.hittest_range);
-    const UINT32 count = FetchHitTestMetrics(layout, start, length, *hit_test_buffer_);
-    return { hit_test_buffer_->data(), count };
+    const UINT32 count = FetchHitTestMetrics(layout, start, length, hit_test_buffer_);
+    return { hit_test_buffer_.data(), count };
 }
 
 void CommandGenerator::EmitFillRectIfVisible(const D2D1_RECT_F& r, BrushId brush)

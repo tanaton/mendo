@@ -17,12 +17,13 @@ constexpr int SharedWorkerCount(unsigned int cores) noexcept
 }
 
 // レイアウト計測用 scheduler のワーカー数。
-// 上限 16 は超大規模 dirty バッチでも latch 待ちオーバーヘッドが利得を相殺する境界。
+// 上限 8: DirectWrite の計測は 4〜8 本で頭打ちになり、それ以上は共有ファクトリ内の競合で遅くなる
+// (24 コアで test.md x8 の全計測: 8 本 200ms、16 本 234ms。ParallelMeasureBench.DISABLED_RealMeasureWorkerSweep)。
 // 下限 2 は hardware_concurrency()==0 や 1 コア環境でも並列計測の枠組みを保つため。
 constexpr int LayoutWorkerCount(unsigned int cores) noexcept
 {
     constexpr unsigned kMinLayoutWorkers = 2u;
-    constexpr unsigned kMaxLayoutWorkers = 16u;
+    constexpr unsigned kMaxLayoutWorkers = 8u;
     return static_cast<int>(std::clamp<unsigned>(
         cores > 0 ? cores - 1 : kMinLayoutWorkers, kMinLayoutWorkers, kMaxLayoutWorkers));
 }

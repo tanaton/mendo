@@ -1,4 +1,5 @@
 #pragma once
+#include "app_events.h"
 #include "block_h_scroll.h"
 #include "document.h"
 #include "layout_cache.h"
@@ -50,7 +51,7 @@ struct ViewState {
     // ファイルロード/リロードでクリア (永続化しない)。スクロールバーはホバー中とドラッグ中の
     // 対象のみ描画するため、map サイズはユーザー操作分に限定される。
     std::pmr::unordered_map<int, float> block_scroll_x;
-    int hovered_h_block = -1;
+    HoverHighlights hover;
     int active_toc_index = -1;
     LeftDragState drag;
 
@@ -71,7 +72,7 @@ struct ViewState {
     {
         viewport.ClearSelection();
         block_scroll_x.clear();
-        hovered_h_block = -1;
+        hover.h_block = -1;
         active_toc_index = -1;
     }
 
@@ -90,8 +91,6 @@ struct InteractionState {
     LastHoverPos last_hover_pos;
     Tooltip tooltip;
     ToastNotifier toast;
-    OverlayButtonHit hovered;
-    NavButtonHover nav_hover = NavButtonHover::None;
     int zoom_wheel_accum = 0;
 };
 

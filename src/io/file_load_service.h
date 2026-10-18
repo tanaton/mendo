@@ -2,7 +2,6 @@
 #include "async_load_coordinator.h"
 #include "async_load_result.h"
 #include "file_loader.h"
-#include "preloader.h"
 #include "ui_constants.h"
 #include <expected>
 #include <memory>
@@ -49,9 +48,8 @@ struct Theme;
 class TaskScheduler;
 
 // ファイル読み込みのオーケストレーション。
-// 内部に LoadingAnimation / Preloader / AsyncLoadCoordinator を持ち、
-// UI から見える API はそれらを束ねた薄い facade。preload と StartAsyncLoad の
-// 結果ストレージは互いに独立で、TakeAsync が両者を順に確認する。
+// 内部に LoadingAnimation / AsyncLoadCoordinator を持ち、UI から見える API はそれらを束ねた薄い facade。
+// 起動時の読み込み (preload) も通知先を後から渡すだけで、同じ AsyncLoadCoordinator を通る。
 class FileLoadService {
 public:
     constexpr bool IsLoading() const noexcept
@@ -59,10 +57,10 @@ public:
         return animation_.IsActive();
     }
     // スピナー非表示でも非同期パースが進行中なら true。ライブリロードのバースト時に
-    // 重複スケジューリングを抑制するためのフラグ。preload 経路は preloader_ が状態を持つ。
+    // 重複スケジューリングを抑制するためのフラグ。
     bool IsAsyncLoading() const noexcept
     {
-        return coordinator_.IsActive() || preloader_.IsActive();
+        return coordinator_.IsActive();
     }
     constexpr float GetLoadingAngle() const noexcept
     {
@@ -86,31 +84,25 @@ public:
     // reload_base の意味は AsyncLoadCoordinator::Start を参照。
     void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, const Theme& theme,
                         std::shared_ptr<const std::pmr::string> reload_base = nullptr);
-    // preload 優先。
-    std::optional<AsyncLoadOutcome> TakeAsync();
+    std::optional<AsyncLoadOutcome> TakeAsync() noexcept
+    {
+        return coordinator_.Take();
+    }
     void CancelAsyncLoad() noexcept
     {
         coordinator_.Cancel();
-        preloader_.Cancel();
     }
 
-    // App::Init 前から走らせる経路。
-    void StartPreloadAsync(std::pmr::wstring path, Theme theme);
+    // App::Init 前 (ウィンドウを作る前) から走らせる経路。通知先は AttachPreload で渡す。
+    void StartPreloadAsync(TaskScheduler& scheduler, std::pmr::wstring path, const Theme& theme);
 
-    using PreloadAttachResult = Preloader::AttachResult;
+    using PreloadAttachResult = AsyncLoadCoordinator::AttachResult;
 
-    // App::LoadInitialDocument で呼ぶ。挙動は Preloader::AttachOrApply を参照。
-    PreloadAttachResult AttachOrApplyPreload(HWND hwnd, UINT msg_id)
+    // App::LoadInitialDocument で呼ぶ。挙動は AsyncLoadCoordinator::Attach を参照。
+    PreloadAttachResult AttachPreload(HWND hwnd, UINT msg_id)
     {
-        return preloader_.AttachOrApply(hwnd, msg_id);
+        return coordinator_.Attach(hwnd, msg_id);
     }
-
-#ifdef MENDO_TESTING
-    bool PreloadPublishedForTest() const
-    {
-        return preloader_.HasPublishedForTest();
-    }
-#endif
 
     constexpr const std::pmr::wstring& GetLoadingPath() const noexcept
     {
@@ -125,5 +117,4 @@ private:
     LoadingAnimation animation_;
     std::pmr::wstring loading_path_;
     AsyncLoadCoordinator coordinator_;
-    Preloader preloader_;
 };

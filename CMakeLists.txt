@@ -154,7 +154,6 @@ add_library(mendo_core STATIC
     src/io/file_explorer.cpp
     src/io/file_load_service.cpp
     src/io/async_load_coordinator.cpp
-    src/io/preloader.cpp
     src/io/config_service.cpp
     src/io/image_loader.cpp
     src/io/file_watcher.cpp
@@ -208,7 +207,6 @@ add_executable(mendo WIN32
     src/app/app_file.cpp
     src/app/app_mouse.cpp
     src/app/app_callbacks.cpp
-    src/app/win32_host.cpp
     src/ui/context_menu.cpp
     src/render/renderer.cpp
     src/render/renderer_resources.cpp

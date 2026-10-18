@@ -6,7 +6,6 @@
 #include "i18n.h"
 #include "mermaid_util.h"
 #include "selection_html.h"
-#include "string_convert.h"
 #include "wic_util.h"
 
 namespace {
@@ -127,12 +126,9 @@ void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_inde
     // 画像は同期で確定する。dib を move キャプチャするので SVG 取得完了時に再デコード不要。
     UniqueGlobalMem dib = BuildDib(png);
 
-    // RequestSvg は WebView2 経路のため wstring。UTF-8 → wide に変換して渡す。
-    std::pmr::wstring code_wide;
-    string_convert::Utf8ToWide(node.GetText(), code_wide);
     // clang-format off
     mermaid_renderer_->RequestSvg(
-        code_wide,
+        node.GetText(),
         md_width,
         dark,
         [this, key, gen, dib = std::move(dib)](std::pmr::wstring svg, bool cancelled) mutable {

@@ -58,12 +58,21 @@ std::pmr::wstring mermaid_util::JsEscape(std::wstring_view input)
 
 // コード本体は FNV-1a で hash し、幅と dark_mode は別 prime で xor mix する。
 // 既存キャッシュキー (MermaidCache 内ファイル名) と互換性を保つため hash 値は不変。
-uint64_t mermaid_util::CombinedHash(std::string_view code, int max_width_int, bool dark_mode) noexcept
+namespace {
+
+// xor で混ぜるので、コード側のソルトと順序を問わず同じ値になる。
+constexpr uint64_t MixWidthAndTheme(uint64_t h, int max_width_int, bool dark_mode) noexcept
 {
-    uint64_t h = Fnv1a64(code);
     h ^= static_cast<uint64_t>(max_width_int) * kFnv1a64Prime;
     h ^= static_cast<uint64_t>(dark_mode) * 2654435761ULL; // Knuth multiplicative
     return h;
+}
+
+} // namespace
+
+uint64_t mermaid_util::CombinedHash(std::string_view code, int max_width_int, bool dark_mode) noexcept
+{
+    return MixWidthAndTheme(Fnv1a64(code), max_width_int, dark_mode);
 }
 
 int mermaid_util::QuantizeWidth(float max_width) noexcept
@@ -324,13 +333,23 @@ std::pmr::wstring mermaid_util::SanitizeErrorMessage(std::wstring_view msg, size
     return result;
 }
 
-uint64_t mermaid_util::NodeDiagramHash(const Node& node, float max_width, bool dark_mode) noexcept
+uint64_t mermaid_util::DiagramCodeHash(const Node& node) noexcept
 {
     // LatexMath を Mermaid とキャッシュ衝突させないためのソルト（任意の定数）。
     constexpr uint64_t LATEX_MATH_HASH_SALT = 0xA1B2C3D4E5F60718ULL;
-    uint64_t h = CombinedHash(node.GetText(), QuantizeWidth(max_width), dark_mode);
+    uint64_t h = Fnv1a64(node.GetText());
     if (node.code_language() == SyntaxLanguage::LatexMath) {
         h ^= LATEX_MATH_HASH_SALT;
     }
     return h;
+}
+
+uint64_t mermaid_util::DiagramRequestHash(uint64_t code_hash, float max_width, bool dark_mode) noexcept
+{
+    return MixWidthAndTheme(code_hash, QuantizeWidth(max_width), dark_mode);
+}
+
+uint64_t mermaid_util::NodeDiagramHash(const Node& node, float max_width, bool dark_mode) noexcept
+{
+    return DiagramRequestHash(DiagramCodeHash(node), max_width, dark_mode);
 }

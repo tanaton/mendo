@@ -13,11 +13,7 @@ public:
     constexpr void SetSidePaneVisible(PaneTarget t, bool v) noexcept
     {
         auto& s = Inst(t);
-        if (s.show != v) {
-            s.show = v;
-            s.hovered_index = -1;
-            s.hovered_button = PaneHeaderButton::None;
-        }
+        s.show = v;
     }
     constexpr void ToggleSidePane(PaneTarget t) noexcept
     {
@@ -51,20 +47,6 @@ public:
     // 変化した場合 true。
     bool ScrollSidePaneBy(PaneTarget t, float delta, float max_scroll) noexcept;
 
-    constexpr int GetHoveredSideIndex(PaneTarget t) const noexcept
-    {
-        return Inst(t).hovered_index;
-    }
-    // 変化した場合 true。
-    bool SetHoveredSideIndex(PaneTarget t, int idx) noexcept;
-
-    constexpr PaneHeaderButton GetSideHoveredButton(PaneTarget t) const noexcept
-    {
-        return Inst(t).hovered_button;
-    }
-    // 変化した場合 true。
-    bool SetSideHoveredButton(PaneTarget t, PaneHeaderButton button) noexcept;
-
     // edge のペインの右端にあるスプリッタを dip_x へ動かす。
     void DragSplitterTo(PaneTarget edge, float dip_x, float total_width, float splitter_w) noexcept;
 
@@ -79,9 +61,7 @@ private:
     struct Instance {
         ScrollState scroll{};
         float width = PANE_DEFAULT_WIDTH;
-        int hovered_index = -1;
         bool show = true;
-        PaneHeaderButton hovered_button = PaneHeaderButton::None;
     };
     Instance instances_[2];
 

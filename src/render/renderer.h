@@ -21,7 +21,8 @@
 class Renderer {
 public:
     bool Init(HWND hwnd, const Theme& theme);
-    void Resize(UINT width, UINT height) noexcept;
+    // D2DRenderBackend::Resize を参照。
+    void Resize(UINT width, UINT height, bool live = false) noexcept;
     void Render(const RenderParams& params);
     void SetDpi(float dpi) noexcept;
     void TrimForMinimize() noexcept;
@@ -60,10 +61,14 @@ public:
         return layout_;
     }
     // 並列計測 (ノード単位 / 巨大テーブルのセル単位) に使う scheduler。Shutdown 前に nullptr へ戻す契約。
+    // 設定したらワーカーとフォントを先に起こしておく (DWriteTextMeasurer::WarmUp)。
     void SetLayoutScheduler(TaskScheduler* scheduler) noexcept
     {
         layout_.SetLayoutScheduler(scheduler);
         measurer_.SetScheduler(scheduler);
+        if (scheduler) {
+            measurer_.WarmUp(*scheduler);
+        }
     }
     constexpr const Theme& GetTheme() const noexcept
     {
@@ -83,23 +88,21 @@ public:
     {
         return backend_.IsDeviceLost();
     }
+    // D2DRenderBackend の同名関数を参照。
+    HANDLE FrameWaitHandle() const noexcept
+    {
+        return backend_.FrameWaitHandle();
+    }
+    void MarkFrameAcquired() noexcept
+    {
+        backend_.MarkFrameAcquired();
+    }
 
     int HitTestSearchInput(std::wstring_view query, float local_x, float max_width) const;
     void SetSearchMatches(const std::pmr::vector<SearchMatch>* matches, int current_index, uint32_t generation) noexcept
     {
         cmd_generator_.SetSearchMatches(matches, current_index, generation);
     }
-
-    // ファイル切替時にヒットテストバッファ等を縮小する。
-    // 初期容量は次ファイルの描画 hot path で再拡大されないよう事前確保する。
-    void ShrinkBuffers()
-    {
-        hit_test_buffer_.shrink_to_fit();
-        hit_test_buffer_.reserve(HIT_TEST_METRICS_INITIAL_CAPACITY);
-    }
-
-    // Render() の前に呼ぶこと。RenderParams を const にするための分離。
-    void PrepareVisibleEffects(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float scroll_y, float md_pane_height);
 
     // タイトルバーとサイドペインの描画コマンドを組み立てる。デバイスに依存しないので、
     // デバイスの作成前に呼ぶと最初のフレームの文字レイアウトを先に作れる。
@@ -161,10 +164,6 @@ private:
         return brushes_[std::to_underlying(id)].Get();
     }
 
-    void ApplyTableEffects(const Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom);
-    // hit_test_buffer_ の先頭 count 件をセルのインラインコード背景として cell_index 昇順を保って追加する。
-    void AppendCellInlineCodeBgs(TableLayoutData& tl, uint32_t cell_index, UINT32 count);
-    void ApplyNodeEffects(const Node& node, NodeLayoutEntry& entry, float entry_text_top, float viewport_top, float viewport_bottom);
     void RecreateBrushes();
     void InvalidateBrushes() noexcept;
     void ResolveThemeFonts();
@@ -174,8 +173,6 @@ private:
     bool RecreateDevice();
     // 再描画要求を出した場合 true。
     bool HandleDeviceLost();
-
-    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 
     struct TextFormats {
         Microsoft::WRL::ComPtr<IDWriteTextFormat> icon_font;

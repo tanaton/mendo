@@ -350,11 +350,11 @@ TEST(SharedWorkerCount, HalfOfProcessorsClampedToTwoThroughFour)
     }
 }
 
-TEST(LayoutWorkerCount, CoresMinusOneClampedToTwoThroughSixteen)
+TEST(LayoutWorkerCount, CoresMinusOneClampedToTwoThroughEight)
 {
     EXPECT_EQ(LayoutWorkerCount(0), 2);
     EXPECT_EQ(LayoutWorkerCount(1), 2);
     EXPECT_EQ(LayoutWorkerCount(4), 3);
-    EXPECT_EQ(LayoutWorkerCount(17), 16);
-    EXPECT_EQ(LayoutWorkerCount(64), 16);
+    EXPECT_EQ(LayoutWorkerCount(9), 8);
+    EXPECT_EQ(LayoutWorkerCount(64), 8);
 }

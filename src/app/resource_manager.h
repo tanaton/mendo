@@ -13,12 +13,14 @@
 #include "theme_service.h"
 #include "profiler.h"
 #include "string_convert.h"
+#include "utility.h"
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
-#include <concepts>
 #include <filesystem>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -59,7 +61,6 @@ public:
     // evict 範囲より広く先読みすると、evict 直後の flush で範囲外の画像/図を毎回読み直す。
     static constexpr float PREFETCH_BUFFER_SCREENS = 2.0f;
     static_assert(PREFETCH_BUFFER_SCREENS <= EVICT_BUFFER_SCREENS);
-    static constexpr int BATCH_TIME_BUDGET_US = 6000;
 
     constexpr void Init(const ResourceManagerDeps& deps, Cb cb) noexcept
     {
@@ -74,6 +75,11 @@ public:
         const std::pmr::wstring& doc_dir = deps_.doc->GetDirectory();
         if (doc_dir.empty()) {
             return 0;
+        }
+        // 解決結果は src と文書フォルダだけで決まるので、同じフォルダでのリロードでは使い回す。
+        if (doc_dir != resolved_dir_) {
+            resolved_image_paths_.clear();
+            resolved_dir_ = doc_dir;
         }
         // 全件モードは読み込みを起動しないので、キャッシュが空なら何も適用できない (起動直後の復元など)。
         if (!respect_viewport && deps_.image_loader->CacheSize() == 0) {
@@ -91,19 +97,22 @@ public:
 
         // 通常描画は可視範囲に intersect する image index のみを走査。
         // リロード時 (respect_viewport=false) は CalcScrollYForDiff の Y 計算用に全件処理する。
-        const auto slice = respect_viewport
-            ? BufferedSlice(image_indices, PREFETCH_BUFFER_SCREENS)
-            : std::span<const size_t>(image_indices);
+        if (respect_viewport) {
+            DropQueuesIfJumped();
+        }
+        const auto slices = respect_viewport
+            ? PrioritizedSlices(image_indices, PREFETCH_BUFFER_SCREENS)
+            : std::array{ std::span<const size_t>(image_indices), std::span<const size_t>{}, std::span<const size_t>{} };
 
         int applied = 0;
-        for (const size_t i : slice) {
+        for (const size_t i : slices | std::views::join) {
             const auto& node = nodes[i];
             const auto* const img = node.image_data();
             if (!img) {
                 continue;
             }
 
-            const std::wstring* abs_path = ResolveImagePath(i, img->src, doc_dir);
+            const std::wstring* abs_path = ResolveImagePath(img->src, doc_dir);
             if (!abs_path) {
                 continue;
             }
@@ -181,95 +190,38 @@ public:
 
     int RequestMermaidRenders()
     {
-        const float content_width = cb_.get_content_width();
-        InvalidateMermaidForWidthChange(content_width);
-
-        if (content_width <= 0.0f) {
-            return 0;
-        }
-
-        DropMermaidQueueIfJumped();
-        const auto slice = BufferedSlice(deps_.doc->GetDiagramNodeIndices(), PREFETCH_BUFFER_SCREENS);
-        const bool dark_mode = deps_.theme_service->IsDarkMode();
-
-        // 同期キャッシュヒットの度に再レイアウトせず、ループ後にまとめて 1 回だけ行う。
-        int applied = 0;
-        BatchMermaidCompletions([&] {
-            for (const size_t i : slice) {
-                applied += RequestDiagramRender(i, content_width, dark_mode) ? 1 : 0;
-            }
-        });
-        return applied;
-    }
-
-    // f の中で完了した図の再レイアウトを 1 回にまとめる (ディスクキャッシュの一括完了など)。
-    // nested 呼び出し (FlushPendingResources 経由) では外側が再レイアウトの責任を持つ。
-    template <std::invocable F>
-    void BatchMermaidCompletions(F&& f)
-    {
-        const bool outer_batch = std::exchange(mermaid_batch_loading_, true);
-        std::forward<F>(f)();
-        mermaid_batch_loading_ = outer_batch;
-        if (!outer_batch && !height_changed_.empty()) {
+        // 同期キャッシュヒットの度に再レイアウトせず、まとめて 1 回だけ行う。
+        const int applied = RequestVisibleDiagrams();
+        if (!height_changed_.empty()) {
             pending_flush_ = true;
             cb_.recompute_layout_anchored(TakeHeightChanges());
         }
+        return applied;
+    }
+
+    // 図の結果が出た・描画の準備ができた。結果を待っていた図を要求し直して反映する。
+    void OnMermaidUpdated()
+    {
+        RequestMermaidRenders();
     }
 
     void CancelMermaidBatch()
     {
-        deps_.mermaid->CancelPending();
         cb_.kill_timer(app_timer::Id::MERMAID_BATCH);
         height_changed_ = {};
     }
 
+    // レイアウトが落ち着いてから (次のタイマーで) 図を要求する。
     void ScheduleMermaidBatch()
     {
-        mermaid_batch_next_ = 0;
         cb_.set_timer(app_timer::Id::MERMAID_BATCH, app_timer::FRAME_INTERVAL_MS);
     }
 
     void ProcessMermaidBatch()
     {
         MENDO_PROFILE("ProcessMermaidBatch");
-
-        const float content_width = cb_.get_content_width();
-        InvalidateMermaidForWidthChange(content_width);
-
-        if (content_width <= 0.0f) {
-            cb_.kill_timer(app_timer::Id::MERMAID_BATCH);
-            return;
-        }
-
-        DropMermaidQueueIfJumped();
-        const bool dark_mode = deps_.theme_service->IsDarkMode();
-        const auto& indices = deps_.doc->GetDiagramNodeIndices();
-
-        const auto start = std::chrono::steady_clock::now();
-
-        // バッチ範囲を可視 + buffer の部分レンジに限定する。
-        // mermaid_batch_next_ は indices 内の position（indices[n] が node index）。
-        // 進捗の意味を保ったまま、可視レンジ内のみを走査。
-        const auto s = BufferedSlice(indices, EVICT_BUFFER_SCREENS);
-        const auto slice_start = static_cast<size_t>(s.data() - indices.data());
-        const size_t slice_end = slice_start + s.size();
-        mermaid_batch_next_ = std::max(mermaid_batch_next_, slice_start);
-
-        BatchMermaidCompletions([&] {
-            while (mermaid_batch_next_ < slice_end) {
-                RequestDiagramRender(indices[mermaid_batch_next_], content_width, dark_mode);
-                ++mermaid_batch_next_;
-
-                const auto elapsed = std::chrono::steady_clock::now() - start;
-                if (std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count() >= BATCH_TIME_BUDGET_US) {
-                    break;
-                }
-            }
-        });
-
-        if (mermaid_batch_next_ >= slice_end) {
-            cb_.kill_timer(app_timer::Id::MERMAID_BATCH);
-        }
+        cb_.kill_timer(app_timer::Id::MERMAID_BATCH);
+        RequestMermaidRenders();
     }
 
     void EvictOffscreenBitmaps()
@@ -311,10 +263,8 @@ public:
 
         bool changed = (ApplyCachedImages() > 0);
 
-        // 外側でバッチ扱いにし、内側の anchored 再レイアウトを下の recompute_layout 1 回へ統合する。
-        const bool outer_batch = std::exchange(mermaid_batch_loading_, true);
-        changed |= (RequestMermaidRenders() > 0);
-        mermaid_batch_loading_ = outer_batch;
+        // 図の再レイアウトも下の recompute_layout 1 回へ統合する。
+        changed |= (RequestVisibleDiagrams() > 0);
 
         if (changed) {
             cb_.recompute_layout(TakeHeightChanges());
@@ -347,12 +297,27 @@ public:
         FlushPendingResources();
     }
 
-    void ClearResolvedPaths() noexcept
+private:
+    // 再レイアウトはしない。高さが変わったノードは height_changed_ に溜まる。
+    int RequestVisibleDiagrams()
     {
-        resolved_image_paths_.clear();
+        const float content_width = cb_.get_content_width();
+        InvalidateMermaidForWidthChange(content_width);
+
+        if (content_width <= 0.0f) {
+            return 0;
+        }
+
+        DropQueuesIfJumped();
+        const auto slices = PrioritizedSlices(deps_.doc->GetDiagramNodeIndices(), PREFETCH_BUFFER_SCREENS);
+        const bool dark_mode = deps_.theme_service->IsDarkMode();
+        int applied = 0;
+        for (const size_t i : slices | std::views::join) {
+            applied += RequestDiagramRender(i, content_width, dark_mode) ? 1 : 0;
+        }
+        return applied;
     }
 
-private:
     void OnImageLoadComplete()
     {
         pending_flush_ = true;
@@ -361,7 +326,6 @@ private:
         }
     }
 
-    // 同期キャッシュヒットは RequestRender 内で OnMermaidRenderComplete まで完了する。
     // 戻り値: その場で bitmap が確定したか。
     bool RequestDiagramRender(size_t i, float content_width, bool dark_mode)
     {
@@ -370,8 +334,17 @@ private:
         if (!diagram.NeedsRender()) {
             return false;
         }
-        deps_.mermaid->RequestRender(deps_.doc->GetNodes()[i], diagram, content_width, dark_mode, [this, i] { OnMermaidRenderComplete(i); });
-        return diagram.bitmap != nullptr;
+        const Node& node = deps_.doc->GetNodes()[i];
+        if (!deps_.mermaid->RequestRender(node, diagram, content_width, dark_mode)) {
+            return false;
+        }
+        // 失敗 (エラー確定) でもプレースホルダーの文言が変わるので描き直す。
+        if (!diagram.bitmap) {
+            height_changed_.Add(i);
+            return false;
+        }
+        ApplyBitmapHeight(i, diagram, layout::NodeContentWidth(node, cb_.get_theme(), content_width));
+        return true;
     }
 
     // 画像・図の寸法が確定したノードの高さを決める。
@@ -383,29 +356,12 @@ private:
         height_changed_.Add(i);
     }
 
-    void OnMermaidRenderComplete(size_t node_index)
+    // 解決済みパスは src 単位でキャッシュする。開かない src も空文字列で覚え、毎回の解決を避ける。
+    const std::wstring* ResolveImagePath(std::string_view src, const std::pmr::wstring& doc_dir)
     {
-        // 失敗 (エラー確定) でもプレースホルダーの文言が変わるので描き直す。
-        if (const auto* diagram = deps_.cache->FindDiagram(node_index); diagram && diagram->bitmap) {
-            const float node_width = layout::NodeContentWidth(deps_.doc->GetNodes()[node_index], cb_.get_theme(), cb_.get_content_width());
-            ApplyBitmapHeight(node_index, *diagram, node_width);
-        }
-        else {
-            height_changed_.Add(node_index);
-        }
-        if (mermaid_batch_loading_) {
-            return;
-        }
-        pending_flush_ = true;
-        cb_.recompute_layout_anchored(TakeHeightChanges());
-    }
-
-    // 解決済みパスはノード単位でキャッシュする。開かない src も空文字列で覚え、毎回の解決を避ける。
-    const std::wstring* ResolveImagePath(size_t node_index, std::string_view src, const std::pmr::wstring& doc_dir)
-    {
-        auto [it, inserted] = resolved_image_paths_.try_emplace(node_index);
-        if (inserted) {
-            it->second = ResolveLocalImagePath(src, doc_dir);
+        auto it = resolved_image_paths_.find(src);
+        if (it == resolved_image_paths_.end()) {
+            it = resolved_image_paths_.emplace(std::string{ src }, ResolveLocalImagePath(src, doc_dir)).first;
         }
         return it->second.empty() ? nullptr : &it->second;
     }
@@ -442,16 +398,17 @@ private:
         return abs_path.lexically_normal().wstring();
     }
 
-    // 保持範囲 (±EVICT_BUFFER_SCREENS) を越えて移動していたら、旧位置で積んだ描画待ちを捨てる。
-    // FIFO のままだと TOC ジャンプや Ctrl+End の後に可視の図が旧位置の図の後回しになる。
-    void DropMermaidQueueIfJumped()
+    // 保持範囲 (±EVICT_BUFFER_SCREENS) を越えて移動していたら、旧位置で積んだ図の描画待ちと画像のデコード待ちを捨てる。
+    // FIFO のままだと TOC ジャンプや Ctrl+End の後に、見えている図や画像が旧位置の分の後回しになる。
+    void DropQueuesIfJumped()
     {
         const float scroll_y = deps_.viewport->GetScrollY();
         const float viewport_height = cb_.get_md_pane_height();
-        if (viewport_height > 0.0f && std::abs(scroll_y - last_mermaid_request_scroll_) > viewport_height * EVICT_BUFFER_SCREENS) {
+        if (viewport_height > 0.0f && std::abs(scroll_y - last_request_scroll_) > viewport_height * EVICT_BUFFER_SCREENS) {
             deps_.mermaid->DropQueued();
+            deps_.image_loader->DropQueued();
         }
-        last_mermaid_request_scroll_ = scroll_y;
+        last_request_scroll_ = scroll_y;
     }
 
     layout::HeightChangeRange TakeHeightChanges() noexcept
@@ -479,14 +436,20 @@ private:
         return BufferedRange{ viewport_top, viewport_bottom, buffer, vr };
     }
 
-    // indices のうち ComputeBufferedRange に交差する部分。範囲が決まらないときは全件を返す。
-    std::span<const size_t> BufferedSlice(std::span<const size_t> indices, float screens)
+    // indices のうち ComputeBufferedRange に交差する部分を、可視部分 → 下側 → 上側の順の 3 区間に分ける。
+    // 範囲が決まらないときは全件を可視部分として返す。要求キューは FIFO なので、
+    // スクロール位置の復元やジャンプの直後に、画面より上の分が見えている分より先に処理されないようにする。
+    std::array<std::span<const size_t>, 3> PrioritizedSlices(std::span<const size_t> indices, float screens)
     {
         const auto r = ComputeBufferedRange(screens);
         if (!r) {
-            return indices;
+            return { indices, {}, {} };
         }
-        return resource_manager_detail::VisibleSlice(indices, r->range.first, r->range.last_plus_1);
+        const auto all = resource_manager_detail::VisibleSlice(indices, r->range.first, r->range.last_plus_1);
+        const auto vr = ComputeVisibleNodeRange(*deps_.cache, r->viewport_top, r->viewport_bottom);
+        const auto visible = resource_manager_detail::VisibleSlice(all, vr.first, vr.last_plus_1);
+        const auto above = static_cast<size_t>(visible.data() - all.data());
+        return { visible, all.subspan(above + visible.size()), all.first(above) };
     }
 
     void InvalidateMermaidForWidthChange(float content_width)
@@ -511,8 +474,8 @@ private:
                     diagram->ResetForRetry();
                 }
             }
-            // 旧幅で処理中の in-flight リクエストを無効化し、完了時に旧 bitmap で上書きされるのを防ぐ。
-            deps_.mermaid->CancelPending();
+            // 旧幅の描画待ちを捨て、新しい幅の要求を先に処理させる。描画中のものは旧幅のキャッシュに入るだけ。
+            deps_.mermaid->DropQueued();
         }
         last_mermaid_content_width_ = content_width;
     }
@@ -521,10 +484,9 @@ private:
     Cb cb_{};
 
     float last_mermaid_content_width_ = 0.0f;
-    float last_mermaid_request_scroll_ = 0.0f;
-    bool mermaid_batch_loading_ = false;
-    size_t mermaid_batch_next_ = 0;
-    std::unordered_map<size_t, std::wstring> resolved_image_paths_;
+    float last_request_scroll_ = 0.0f;
+    std::unordered_map<std::string, std::wstring, StringTransparentHash, std::equal_to<>> resolved_image_paths_;
+    std::pmr::wstring resolved_dir_;
     bool pending_flush_ = false;
     std::chrono::steady_clock::time_point last_flush_time_{};
     // 画像/図の適用で高さを更新したノード範囲。Y 再計算をこの範囲に限定する。

@@ -229,7 +229,7 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
 {
     // ホバー or ドラッグ中のブロックが横スクロール可能ならそこに適用し、スワイプオーバーレイには流さない。
     const int drag_node = state.view.HDragNode();
-    const int target = (drag_node >= 0) ? drag_node : state.view.hovered_h_block;
+    const int target = (drag_node >= 0) ? drag_node : state.view.hover.h_block;
     if (target >= 0) {
         // pane_layout_cache 未確立時は ResolveBlockHScrollGeometry が can_scroll()=false を返す。
         const auto geom = ResolveBlockHScrollGeometry(state, target);
@@ -440,22 +440,17 @@ void BeginScrollbarDrag(AppState& state, SideEffectList& effects, LeftDrag targe
 }
 
 // ツールチップ以外のホバー状態を反映し、見た目が変わったら再描画させる。
-// 横スクロールのドラッグ中は、ポインタがどこへ出てもバーを出したままにする。
-void ApplyHoverHighlights(AppState& state, SideEffectList& effects, const PointerHover& h)
+void ApplyHoverHighlights(AppState& state, SideEffectList& effects, HoverHighlights h)
 {
-    bool changed = state.window.titlebar.SetHovered(h.titlebar);
-    changed |= state.search.search_bar_ctrl.SetHover(h.search_bar);
-    changed |= std::exchange(state.interaction.nav_hover, h.nav) != h.nav;
-    changed |= std::exchange(state.interaction.hovered, h.overlay_button) != h.overlay_button;
-    if (state.view.HDragNode() < 0) {
-        changed |= std::exchange(state.view.hovered_h_block, h.h_block) != h.h_block;
+    // 入力欄はテキスト編集領域でホバー強調は不要。
+    if (h.search_bar == SearchBarHitZone::Input) {
+        h.search_bar = SearchBarHitZone::None;
     }
-    for (const auto t : { PaneTarget::File, PaneTarget::Toc }) {
-        const auto k = std::to_underlying(t);
-        changed |= state.view.panes.SetHoveredSideIndex(t, h.side_index[k]);
-        changed |= state.view.panes.SetSideHoveredButton(t, h.side_button[k]);
+    // 横スクロールのドラッグ中は、ポインタがどこへ出てもバーを出したままにする。
+    if (state.view.HDragNode() >= 0) {
+        h.h_block = state.view.hover.h_block;
     }
-    if (changed) {
+    if (std::exchange(state.view.hover, h) != h) {
         PushEffect(effects, effect::InvalidateWindow{});
     }
 }
@@ -471,7 +466,7 @@ void ReducePointerHover(AppState& state, SideEffectList& effects, const PointerH
 // ペインを経由せずに離れた経路 (ウィンドウ外・キャプション上) で呼ばないとホバーハイライトが残留する。
 void ReduceMouseLeave(AppState& state, SideEffectList& effects)
 {
-    ApplyHoverHighlights(state, effects, PointerHover{});
+    ApplyHoverHighlights(state, effects, {});
     InvalidateHover(state, effects);
 }
 
@@ -740,6 +735,10 @@ void ReduceSearchTextChanged(AppState& state, SideEffectList& effects, const Sea
 void ReduceTogglePane(AppState& state, SideEffectList& effects, const TogglePaneAction& a)
 {
     state.view.panes.ToggleSidePane(a.target);
+    // 次に表示したとき、隠す前のホバー強調が残らないようにする。
+    const auto k = std::to_underlying(a.target);
+    state.view.hover.side_index[k] = -1;
+    state.view.hover.side_button[k] = PaneHeaderButton::None;
     state.pane_layout_cache.Invalidate();
     PushEffect(effects, effect::PerformResizeEnd{});
 }
@@ -878,7 +877,7 @@ void ReduceResize(AppState& state, SideEffectList& effects, const ResizeAction& 
     state.window.client_height = a.height;
     state.window.size_changed_in_sizing = true;
     state.pane_layout_cache.Invalidate();
-    PushEffect(effects, effect::RendererResize{ a.width, a.height });
+    PushEffect(effects, effect::RendererResize{ a.width, a.height, state.window.is_sizing });
     const float window_w_dip = PixelToDip(static_cast<float>(a.width), state.window.cached_dpi_scale);
     state.window.titlebar.UpdateLayout(window_w_dip);
     if (state.window.is_sizing) {
@@ -893,6 +892,8 @@ void ReduceExitSizeMove(AppState& state, SideEffectList& effects)
 {
     state.window.is_sizing = false;
     if (state.window.size_changed_in_sizing) {
+        // ライブリサイズ中に大きめに取った描画面を、実際の大きさに合わせ直す。
+        PushEffect(effects, effect::RendererResize{ state.window.client_width, state.window.client_height });
         PushEffect(effects, effect::PerformResizeEnd{});
     }
 }

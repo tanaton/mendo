@@ -61,13 +61,6 @@ public:
 
     TitleBarHitZone HitTest(float dip_x, float dip_y) const noexcept;
 
-    // 変化した場合 true。
-    bool SetHovered(TitleBarHitZone zone) noexcept;
-
-    constexpr TitleBarHitZone GetHovered() const noexcept
-    {
-        return hovered_;
-    }
     constexpr const DipRect& GetButton(TitleBarHitZone zone) const noexcept
     {
         return TitleBarButtonRect(buttons_, zone);
@@ -94,5 +87,4 @@ private:
     TitleBarButtons buttons_{};
     DipRect icon_rect_{};
     DipRect title_text_rect_{};
-    TitleBarHitZone hovered_ = TitleBarHitZone::None;
 };

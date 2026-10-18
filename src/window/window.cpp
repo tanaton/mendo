@@ -14,6 +14,7 @@
 #include <imm.h>
 #include <algorithm>
 #include <optional>
+#include <utility>
 
 #pragma comment(lib, "shcore.lib")
 #pragma comment(lib, "dwmapi.lib")
@@ -163,6 +164,10 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
         hwnd_ = nullptr;
         return false;
     }
+    // デバイスを待つ間に起動時の読み込みが終わっていれば、空のフレームを出さずに最初のフレームへ入れる。
+    if (MSG msg; PeekMessageW(&msg, hwnd_, app_msg::PARSE_COMPLETE, app_msg::PARSE_COMPLETE, PM_REMOVE)) {
+        app_->OnParseComplete();
+    }
     UpdateWindow(hwnd_);
     SetCloaked(hwnd_, FALSE);
 
@@ -196,20 +201,45 @@ int Win32Window::RunMessageLoop()
     MSG msg{};
 
     for (;;) {
-        // イベントハンドルは DispatchMessageW 中に変わりうるため毎回取得
-        const HANDLE evt = app_->GetFileWatchEvent();
-        const DWORD count = evt ? 1 : 0;
-        const DWORD wait = MsgWaitForMultipleObjects(count, evt ? &evt : nullptr, FALSE, INFINITE, QS_ALLINPUT);
+        // ハンドルは DispatchMessageW 中に変わりうるため毎回取得
+        HANDLE handles[2];
+        DWORD count = 0;
+        const HANDLE watch_evt = app_->GetFileWatchEvent();
+        if (watch_evt) {
+            handles[count++] = watch_evt;
+        }
+        // 前のフレームの表示待ちの間は WM_PAINT で起きず、フレームが取れるのを待つ。
+        // 描画側と同じ期限を付け、GPU が止まっても抜けられるようにする。
+        const HANDLE frame_evt = app_->GetFrameWaitHandle();
+        if (frame_evt) {
+            handles[count++] = frame_evt;
+        }
+        const DWORD wake_mask = frame_evt ? (QS_ALLINPUT & ~QS_PAINT) : QS_ALLINPUT;
+        const DWORD wait = MsgWaitForMultipleObjects(count, handles, FALSE, frame_evt ? D2DRenderBackend::kFrameWaitTimeoutMs : INFINITE, wake_mask);
 
-        if (wait == WAIT_FAILED) {
+        if (wait == WAIT_TIMEOUT) {
+            app_->OnFrameReady();
+        }
+        else if (wait == WAIT_FAILED) {
             // ハンドル無効時のビジーループ防止
             MsgWaitForMultipleObjects(0, nullptr, FALSE, INFINITE, QS_ALLINPUT);
         }
         else if (wait < WAIT_OBJECT_0 + count) {
-            app_->OnFileWatchEvent();
+            // 待ちが成立したのは返ったハンドル 1 つだけ (フレームの waitable はシグナルを消費済み)。
+            if (handles[wait - WAIT_OBJECT_0] == frame_evt) {
+                app_->OnFrameReady();
+            }
+            else {
+                app_->OnFileWatchEvent();
+            }
         }
 
-        while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+        // フレームが取れるまで WM_PAINT は取り出さずに残し、入力などを先に配る。
+        // 配っている間に Present されると表示待ちに戻るので、取り出すたびに確かめる。
+        const auto peek_flags = [this] {
+            return app_->GetFrameWaitHandle() ? (PM_REMOVE | PM_QS_INPUT | PM_QS_POSTMESSAGE | PM_QS_SENDMESSAGE) : PM_REMOVE;
+        };
+        while (PeekMessageW(&msg, nullptr, 0, 0, peek_flags())) {
             if (msg.message == WM_QUIT) {
                 return static_cast<int>(msg.wParam);
             }
@@ -641,7 +671,9 @@ void Win32Window::OnSize(WPARAM wParam, LPARAM lParam)
     // その未定義フレームを合成してしまう前に、同期的にWM_PAINTを走らせて
     // 新フレームをPresentしておく。対話的リサイズでは不要なので、
     // 最小化からの復元時に限定する。
+    // 最小化中の WM_PAINT は描かずに捨てているので、無効化してから描かせる。
     if (was_minimized_ && (wParam == SIZE_RESTORED || wParam == SIZE_MAXIMIZED)) {
+        InvalidateRect(hwnd_, nullptr, FALSE);
         UpdateWindow(hwnd_);
         was_minimized_ = false;
     }

@@ -18,7 +18,9 @@ class D2DRenderBackend final {
 public:
     // デバイスとスワップチェーンは作らない (CreateDevice で作る)。
     bool Init(HWND hwnd);
-    void Resize(UINT width, UINT height) noexcept;
+    // live: ライブリサイズ中。ResizeBuffers は GPU の同期と再確保を伴うので WM_SIZE ごとに呼ぶと重い。
+    // モニタ全体の大きさのバッファを使い回し、表示範囲 (source size) だけを変える。
+    void Resize(UINT width, UINT height, bool live = false) noexcept;
     void SetDpi(float dpi) noexcept;
     float GetDpi() const noexcept
     {
@@ -33,9 +35,22 @@ public:
     // 既存のデバイスがあれば捨てて作り直す。
     bool CreateDevice();
 
-    // BeginDraw 前に呼び出す。Frame Latency Waitable Object で GPU パイプラインの
-    // 1 フレーム遅れに同期し、CPU 側を Present 直前まで詰めずに済ませる。
-    void WaitForFrameLatency() noexcept;
+    // 次のフレームを描いてよいか (Frame Latency Waitable Object のシグナル) を最大 kFrameWaitTimeoutMs 待つ。
+    // GPU パイプラインの 1 フレーム遅れに同期し、CPU 側を Present の Vsync ブロックまで詰めずに済ませる。
+    // 取れたら Present するまで取れた扱いのままにして、描かずに終わったフレームの後で待ち直さない。
+    void AcquireFrame() noexcept;
+    // フレーム待ちの上限。GPU が止まっても UI スレッドを永久にブロックしないよう、これを過ぎたら諦めて描く。
+    static constexpr DWORD kFrameWaitTimeoutMs = 1000;
+    // 次のフレームを描いてよくなるのを待つためのハンドル。取れている間とロスト中は nullptr。
+    HANDLE FrameWaitHandle() const noexcept
+    {
+        return (frame_acquired_ || device_lost_) ? nullptr : frame_latency_waitable_.get();
+    }
+    // FrameWaitHandle の待ちが成立した (シグナルを消費した) ことを記録する。
+    void MarkFrameAcquired() noexcept
+    {
+        frame_acquired_ = true;
+    }
 
     // EndDraw 後に呼び出す。デバイスロスト系の失敗は IsDeviceLost() で通知する。
     void Present() noexcept;
@@ -75,13 +90,19 @@ public:
 private:
     bool CreateDeviceResources();
     bool CreateSwapChainBitmap();
+    // 表示範囲を描画面の左上 width x height にする。対応していなければ false。
+    bool SetSourceSize(UINT width, UINT height) noexcept;
     void ConfigureFrameLatency() noexcept;
 
     HWND hwnd_ = nullptr;
     float dpi_ = DEFAULT_DPI;
     UINT width_px_ = 0;
     UINT height_px_ = 0;
+    // スワップチェーンのバッファの大きさ。ライブリサイズ中は描画面 (width_px_ x height_px_) より大きい。
+    UINT buffer_width_ = 0;
+    UINT buffer_height_ = 0;
     bool device_lost_ = false;
+    bool frame_acquired_ = false;
     Microsoft::WRL::ComPtr<ID2D1Factory1> d2d_factory_;
     Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
     Microsoft::WRL::ComPtr<ID2D1Device> d2d_device_;

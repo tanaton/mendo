@@ -544,3 +544,73 @@ TEST_F(AsyncLoadCoordinatorTest, BadAllocAfterCancelProducesNoOutcome)
     EXPECT_FALSE(c.Take().has_value());
     EXPECT_FALSE(c.IsActive());
 }
+
+// ---- 起動時の読み込み (通知先を後から渡す) ----
+
+TEST_F(AsyncLoadCoordinatorTest, AttachReturnsNoneWhenNotStarted)
+{
+    AsyncLoadCoordinator c;
+    MessageOnlyWindow w;
+    EXPECT_EQ(c.Attach(w.Get(), WM_USER + 1), AsyncLoadCoordinator::AttachResult::None);
+}
+
+// 通知先なしで始めて結果が先に出たら、Attach は通知せずにその場で取り込ませる。
+TEST_F(AsyncLoadCoordinatorTest, AttachAfterOutcomeIsAppliedSync)
+{
+    TempFile tmp(L"coord_preload_sync", "# attach after done\n");
+    MessageOnlyWindow w;
+    AsyncLoadCoordinator c;
+    c.Start(scheduler_, tmp.PmrPath(), nullptr, 0, GetLightTheme());
+    ASSERT_TRUE(DrainScheduler(scheduler_));
+
+    EXPECT_EQ(c.Attach(w.Get(), WM_USER + 1), AsyncLoadCoordinator::AttachResult::AppliedSync);
+    auto outcome = c.Take();
+    ASSERT_TRUE(outcome.has_value());
+    ASSERT_TRUE(outcome->has_value());
+    const AsyncLoadResult& result = **outcome;
+    // cache は worker で推定済みの状態で渡る。
+    ASSERT_EQ(result.cache.size(), result.doc.GetNodes().size());
+    EXPECT_GT(result.cache[0].height, 0.0f);
+    EXPECT_EQ(w.DrainMessages(WM_USER + 1), 0);
+    EXPECT_FALSE(c.IsActive());
+}
+
+// 結果より先に Attach したら、結果を出したときに渡した通知先へ送る。
+TEST_F(AsyncLoadCoordinatorTest, AttachBeforeOutcomeNotifiesLater)
+{
+    static std::shared_future<void> released;
+    std::promise<void> release;
+    released = release.get_future().share();
+    AsyncLoadCoordinator c{ [](const std::pmr::wstring&, const std::stop_token&) -> std::expected<LoadedFileDoc, FileLoadError> {
+        released.wait();
+        return LoadedFileDoc{ .text = std::pmr::string{ "# late\n" }, .byte_size = 7 };
+    } };
+    MessageOnlyWindow w;
+    c.Start(scheduler_, std::pmr::wstring(L"unused.md"), nullptr, 0, GetLightTheme());
+    EXPECT_EQ(c.Attach(w.Get(), WM_USER + 1), AsyncLoadCoordinator::AttachResult::AttachedAsync);
+    release.set_value();
+    ASSERT_TRUE(DrainScheduler(scheduler_));
+
+    EXPECT_EQ(w.DrainMessages(WM_USER + 1), 1);
+    auto outcome = c.Take();
+    ASSERT_TRUE(outcome.has_value());
+    EXPECT_TRUE(outcome->has_value());
+}
+
+// 推定は渡したテーマ (ズーム適用済み) の寸法で行う。
+TEST_F(AsyncLoadCoordinatorTest, EstimatesWithGivenThemeZoom)
+{
+    TempFile tmp(L"coord_preload_zoom", "# heading\n\nbody\n");
+    const auto estimated_top = [&](float zoom) {
+        Theme theme = GetLightTheme();
+        theme.ApplyZoom(zoom);
+        AsyncLoadCoordinator c;
+        c.Start(scheduler_, tmp.PmrPath(), nullptr, 0, theme);
+        EXPECT_TRUE(DrainScheduler(scheduler_));
+        auto outcome = c.Take();
+        const bool ok = outcome && outcome->has_value();
+        EXPECT_TRUE(ok);
+        return ok ? (*outcome)->cache.Top(1) : 0.0f;
+    };
+    EXPECT_FLOAT_EQ(estimated_top(2.0f), estimated_top(1.0f) * 2.0f);
+}

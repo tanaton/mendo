@@ -41,8 +41,17 @@ public:
     // std::wstring メンバを非アトミックに書き換えるため、参照キャプチャだと EstimateNodeHeights と race。
     // reload_base を渡すと同一ファイルのリロードとして扱い、パース前に旧テキストとの差分判定を行う。
     // 変更なし / 書き込み途中 (prefix shrink) ならパースを省いて判定結果だけ返す。
+    // 結果を出したら hwnd に msg_id を送る。hwnd が null なら送らず、後から Attach で通知先を渡す
+    // (起動時にウィンドウを作るのと並行して読み込む)。
     void Start(TaskScheduler& scheduler, std::pmr::wstring path, HWND hwnd, UINT msg_id, const Theme& theme,
                std::shared_ptr<const std::pmr::string> reload_base = nullptr);
+
+    enum class AttachResult {
+        None,          // 読み込んでいない
+        AppliedSync,   // 結果が出ている。呼び出し側が Take して取り込む (通知は送らない)
+        AttachedAsync, // まだ。結果を出したら hwnd に msg_id を送る
+    };
+    AttachResult Attach(HWND hwnd, UINT msg_id);
 
     // ロード結果の取り出し。fired から Take までの間に Cancel が走った場合 sink は破棄済み。
     std::optional<AsyncLoadOutcome> Take() noexcept;
@@ -62,9 +71,9 @@ public:
 private:
     // worker スレッド本体。I/O → リロード差分判定 → Parse → Estimate の各段で gen/stop を確認する。
     void RunWorker(const std::pmr::wstring& path, uint32_t gen, const Theme& theme, const std::stop_token& stop_token,
-                   std::shared_ptr<const std::pmr::string> reload_base, HWND hwnd, UINT msg_id);
+                   std::shared_ptr<const std::pmr::string> reload_base);
     // sink 書き込みは Cancel との直列化のため lock 内で gen を再確認してから行う。
-    void Publish(uint32_t gen, HWND hwnd, UINT msg_id, AsyncLoadOutcome outcome);
+    void Publish(uint32_t gen, AsyncLoadOutcome outcome);
     static std::expected<LoadedFileDoc, FileLoadError> LoadFromDisk(const std::pmr::wstring& path, const std::stop_token& /*stop_token*/)
     {
         return FileLoader::LoadFile(path);
@@ -83,6 +92,9 @@ private:
     std::atomic<uint32_t> gen_{ 0 };
     std::mutex mutex_;
     std::optional<AsyncLoadOutcome> outcome_;
+    // 結果の通知先。worker が Publish で読むので mutex_ で守る。
+    HWND notify_hwnd_ = nullptr;
+    UINT notify_msg_ = 0;
 
     // request_stop 後は再使用不可なので Start 毎にフレッシュな source へ差し替える。
     std::stop_source stop_source_;

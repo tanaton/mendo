@@ -76,8 +76,8 @@ class Document {
 public:
     constexpr Document() noexcept = default;
 
-    // move-only: nodes_ のテキストは raw_text_ のバッファか text_arena_ を直接指す。RawText は共有文字列を、
-    // text_arena_ は unique_ptr で持つため、move してもバッファは relocate せず付け替えは不要。
+    // move-only: nodes_ のテキストは raw_text_ のバッファか text_arena_ を、テーブルは tables_ の要素を直接指す。
+    // RawText は共有文字列を、text_arena_ と tables_ の要素は unique_ptr で持つため、move しても relocate せず付け替えは不要。
     Document(const Document&) = delete;
     Document& operator=(const Document&) = delete;
     Document(Document&& other) noexcept = default;
@@ -162,6 +162,8 @@ private:
     std::pmr::vector<Node> nodes_;
     // 原文をそのまま表示できないノードのテキストと、全ノードの runs・リンク URL の置き場所。
     std::unique_ptr<TextArena> text_arena_;
+    // Table ノードが指すテーブル本体。
+    std::pmr::vector<std::unique_ptr<NodeTableData>> tables_;
     std::pmr::wstring file_path_;
     // RawText は append/resize 等の relocate API を提供しないため、ノードのテキストが
     // 指し続けるバッファの安全性が型レベルで担保される。設定するのは

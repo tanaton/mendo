@@ -128,8 +128,8 @@ TEST_F(FileLoadServicePreloadTest, StartAsyncLoadCancelsPreloadResult)
     TempFile preload_file(L"fls_preload", "# preload doc\n");
     TempFile new_file(L"fls_newload", "# new doc\n");
 
-    service_.StartPreloadAsync(preload_file.PmrPath(), GetLightTheme());
-    ASSERT_TRUE(PollUntil([&] { return service_.PreloadPublishedForTest(); }));
+    service_.StartPreloadAsync(scheduler_, preload_file.PmrPath(), GetLightTheme());
+    ASSERT_TRUE(PollUntil([&] { return service_.AttachPreload(nullptr, 0) == FileLoadService::PreloadAttachResult::AppliedSync; }));
 
     service_.SetLoadingPath(new_file.PmrPath());
     service_.StartAsyncLoad(scheduler_, nullptr, 0, GetLightTheme());

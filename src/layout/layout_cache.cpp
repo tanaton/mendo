@@ -228,7 +228,7 @@ void EvictEntryLayout(NodeLayoutEntry& e) noexcept
 // セルのレイアウトと計測値、列幅の適用状態を捨てる。行/列の幾何は次の計測で作り直される。
 void ResetTableCellCaches(TableLayoutData& tl) noexcept
 {
-    tl.ClearEffects();
+    tl.row_code_bgs.clear();
     tl.cell_layouts.clear();
     tl.ResetRowEviction(0);
     tl.natural_col_widths.clear();
@@ -251,6 +251,7 @@ void LayoutCache::Resize(size_t node_count)
         tops_.resize(node_count);
         std::erase_if(diagrams_, [node_count](const auto& kv) { return kv.first >= node_count; });
         ResetEvictionTracking();
+        has_dirty_nodes_ = true;
     }
 }
 
@@ -258,13 +259,13 @@ void LayoutCache::Reset(size_t node_count)
 {
     const auto reset = [node_count](auto& v) {
         v.clear();
-        v.shrink_to_fit();
         v.resize(node_count);
     };
     reset(entries_);
     reset(tops_);
     diagrams_ = {};
     ResetEvictionTracking();
+    has_dirty_nodes_ = true;
 }
 
 void LayoutCache::InvalidateAllLayouts(const std::pmr::vector<Node>& nodes) noexcept
@@ -287,17 +288,6 @@ void LayoutCache::InvalidateAllLayouts(const std::pmr::vector<Node>& nodes) noex
         }
     }
     ResetEvictionTracking();
-}
-
-void LayoutCache::InvalidateEffects() noexcept
-{
-    for (auto& e : entries_) {
-        e.set_effects_state(EffectsState::None);
-        e.clear_inline_code_bgs();
-        if (auto* tl = e.table_layout()) {
-            tl->ClearEffects();
-        }
-    }
 }
 
 void LayoutCache::InvalidateAllDiagramBitmaps() noexcept
@@ -398,4 +388,16 @@ void LayoutCache::NotifyDpiChanged() noexcept
     for (auto& e : entries_) {
         e.invalidate_per_frame_hl_caches();
     }
+}
+
+void LayoutCache::TakeEntry(LayoutCache& src, size_t from, size_t to)
+{
+    auto& entry = entries_[to];
+    entry = std::move(src.entries_[from]);
+    entry.invalidate_per_frame_hl_caches();
+    if (const auto it = src.diagrams_.find(from); it != src.diagrams_.end()) {
+        diagrams_.insert_or_assign(to, std::move(it->second));
+    }
+    // 次の evict で keep 範囲外に移った分も拾わせる。
+    NoteMaterialized(to);
 }

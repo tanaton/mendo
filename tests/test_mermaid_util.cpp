@@ -435,3 +435,11 @@ TEST(NodeDiagramHash, LatexMathDoesNotCollideWithMermaid)
 
     EXPECT_NE(mermaid_util::NodeDiagramHash(mermaid, 600.0f, false), mermaid_util::NodeDiagramHash(math, 600.0f, false));
 }
+
+// ディスクキャッシュのファイル名になるので、コード部分を分けて求めても値を変えない。
+TEST(NodeDiagramHash, MatchesCombinedHashOfText)
+{
+    const auto a = ParseSingleCodeBlock("```mermaid\ngraph TD; A-->B\n```");
+    EXPECT_EQ(mermaid_util::NodeDiagramHash(a, 600.0f, true), mermaid_util::CombinedHash(a.GetText(), mermaid_util::QuantizeWidth(600.0f), true));
+    EXPECT_EQ(mermaid_util::DiagramRequestHash(mermaid_util::DiagramCodeHash(a), 600.0f, true), mermaid_util::NodeDiagramHash(a, 600.0f, true));
+}

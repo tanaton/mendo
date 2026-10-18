@@ -315,7 +315,7 @@ public:
         }
         case 9: {
             const int node = Pick(-1, h_.NodeCount());
-            model_.Dispatch(PointerHoverAction{ PointerHover{ .h_block = node } });
+            model_.Dispatch(PointerHoverAction{ PointerHover{ { .h_block = node } } });
             return std::format("BlockHHover({})", node);
         }
         case 10:
@@ -590,11 +590,11 @@ TEST_P(ReducerHWheelSwipeTest, BlockAbsorbsHorizontalWheel)
     ReducerHarness h({ .markdown = MakeHarnessMarkdown(4), .code_natural_width = c.code_fits ? 100.0f : 1500.0f });
     auto& s = h.state;
     s.view.nav_history.Push(NavEntry(L"C:\\docs\\b.md", 0, 0.0f));
-    s.view.hovered_h_block = ResolveNode(h, c.hover);
+    s.view.hover.h_block = ResolveNode(h, c.hover);
     if (const int drag_node = ResolveNode(h, c.drag); drag_node >= 0) {
         s.view.drag = { .kind = LeftDrag::BlockHScroll, .block_node = drag_node };
     }
-    const int target = s.view.HDragNode() >= 0 ? s.view.HDragNode() : s.view.hovered_h_block;
+    const int target = s.view.HDragNode() >= 0 ? s.view.HDragNode() : s.view.hover.h_block;
     const float block_x_before = BlockScrollX(h, target);
 
     // App::Dispatch は必ずペインレイアウトを確定させるため、無効ケースは Reduce を直接呼ぶ。
