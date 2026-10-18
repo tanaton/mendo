@@ -75,7 +75,7 @@ SOFTWARE.
 - **Usage**: Offscreen rendering of Mermaid diagrams
 
 The WebView2 SDK is subject to the Microsoft Software License Terms.
-See: https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.2903.40/License
+See: https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.3967.48/License
 
 ---
 
