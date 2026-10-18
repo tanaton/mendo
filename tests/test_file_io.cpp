@@ -74,7 +74,7 @@ TEST_F(FileIoTest, RoundTripAscii)
 
     ASSERT_TRUE(WriteAllBytes(path, payload.data(), payload.size()));
 
-    const auto buf = ReadAllBytes(path);
+    const auto buf = ReadAllBytes(path.c_str());
     const size_t size = buf.size();
     ASSERT_FALSE(buf.empty());
     ASSERT_EQ(size, payload.size());
@@ -91,7 +91,7 @@ TEST_F(FileIoTest, RoundTripBinary)
 
     ASSERT_TRUE(WriteAllBytes(path, payload.data(), payload.size()));
 
-    const auto buf = ReadAllBytes(path);
+    const auto buf = ReadAllBytes(path.c_str());
     const size_t size = buf.size();
     ASSERT_EQ(size, payload.size());
     EXPECT_EQ(std::memcmp(buf.data(), payload.data(), size), 0);
@@ -106,7 +106,7 @@ TEST_F(FileIoTest, WriteOverwritesExistingFile)
     ASSERT_TRUE(WriteAllBytes(path, first.data(), first.size()));
     ASSERT_TRUE(WriteAllBytes(path, second.data(), second.size()));
 
-    const auto buf = ReadAllBytes(path);
+    const auto buf = ReadAllBytes(path.c_str());
     const size_t size = buf.size();
     ASSERT_EQ(size, second.size());
     EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.data()), size), second);
@@ -120,7 +120,7 @@ TEST_F(FileIoTest, ReadMissingFileReturnsEmpty)
 {
     const auto path = temp_dir_ / L"does_not_exist.bin";
     DWORD err = 0xDEADBEEF;
-    const auto buf = ReadAllBytes(path, &err);
+    const auto buf = ReadAllBytes(path.c_str(), &err);
     const size_t size = buf.size();
     EXPECT_TRUE(buf.empty());
     EXPECT_EQ(size, 0u);
@@ -130,7 +130,7 @@ TEST_F(FileIoTest, ReadMissingFileReturnsEmpty)
 TEST_F(FileIoTest, ReadMissingFileWithoutErrorPointer)
 {
     const auto path = temp_dir_ / L"does_not_exist.bin";
-    const auto buf = ReadAllBytes(path);
+    const auto buf = ReadAllBytes(path.c_str());
     const size_t size = buf.size();
     EXPECT_TRUE(buf.empty());
     EXPECT_EQ(size, 0u);
@@ -142,7 +142,7 @@ TEST_F(FileIoTest, ReadEmptyFileReturnsEmpty)
     std::ofstream(path, std::ios::binary).close();
 
     DWORD err = 0xDEADBEEF;
-    const auto buf = ReadAllBytes(path, &err);
+    const auto buf = ReadAllBytes(path.c_str(), &err);
     const size_t size = buf.size();
     EXPECT_TRUE(buf.empty());
     EXPECT_EQ(size, 0u);
@@ -165,7 +165,7 @@ TEST_F(FileIoTest, ErrorPointerResetOnSuccess)
     ASSERT_TRUE(WriteAllBytes(path, payload.data(), payload.size()));
 
     DWORD err = 0xDEADBEEF;
-    const auto buf = ReadAllBytes(path, &err);
+    const auto buf = ReadAllBytes(path.c_str(), &err);
     const size_t size = buf.size();
     EXPECT_EQ(err, 0u);
     EXPECT_EQ(size, 1u);
@@ -176,7 +176,7 @@ TEST_F(FileIoTest, WriteZeroBytesProducesEmptyFile)
     const auto path = temp_dir_ / L"zero.bin";
     ASSERT_TRUE(WriteAllBytes(path, "", 0));
 
-    const auto buf = ReadAllBytes(path);
+    const auto buf = ReadAllBytes(path.c_str());
     const size_t size = buf.size();
     EXPECT_EQ(size, 0u);
     EXPECT_TRUE(fs::exists(path));
@@ -268,7 +268,7 @@ TEST_F(FileIoTest, AtomicWrite_NewFile_WritesContentAndCleansUpTmp)
 
     ASSERT_TRUE(AtomicWriteAllBytes(path, payload.data(), payload.size()));
 
-    const auto buf = ReadAllBytes(path);
+    const auto buf = ReadAllBytes(path.c_str());
     const size_t size = buf.size();
     ASSERT_EQ(size, payload.size());
     EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.data()), size), payload);
@@ -287,7 +287,7 @@ TEST_F(FileIoTest, AtomicWrite_OverwritesExistingFile)
     ASSERT_TRUE(AtomicWriteAllBytes(path, first.data(), first.size()));
     ASSERT_TRUE(AtomicWriteAllBytes(path, second.data(), second.size()));
 
-    const auto buf = ReadAllBytes(path);
+    const auto buf = ReadAllBytes(path.c_str());
     const size_t size = buf.size();
     ASSERT_EQ(size, second.size());
     EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.data()), size), second);
@@ -324,7 +324,7 @@ TEST_F(FileIoTest, AtomicWrite_DoesNotLeavePreviousTmpBehind)
 
     ASSERT_TRUE(AtomicWriteAllBytes(path, payload.data(), payload.size()));
 
-    const auto buf = ReadAllBytes(path);
+    const auto buf = ReadAllBytes(path.c_str());
     const size_t size = buf.size();
     ASSERT_EQ(size, payload.size());
     EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.data()), size), payload);

@@ -295,7 +295,7 @@ TEST(ParallelMeasurePostFailure, AllChunksFallbackOnSaturatedQueue)
     f.Build(N, /*include_code_block=*/false, /*all_dirty=*/true);
 
     MockTextMeasurerWithTokens mock;
-    Theme theme = GetLightTheme();
+    const Theme& theme = GetLightTheme();
     const int r = MeasureAll(f.nodes, f.cache, theme, mock, &ts);
 
     EXPECT_EQ(r, 0);
@@ -345,7 +345,7 @@ TEST(ParallelMeasureBench, DISABLED_ChunkSizeSweep)
 {
     SlowMockMeasurer mock;
     mock.spin_us = 100;
-    Theme theme = GetLightTheme();
+    const Theme& theme = GetLightTheme();
     TaskScheduler ts;
     ts.Init(4);
 

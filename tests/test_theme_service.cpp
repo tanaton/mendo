@@ -24,20 +24,20 @@ TEST_F(ThemeServiceTest, ToggleDarkMode)
     EXPECT_FALSE(service_.IsDarkMode());
 }
 
-TEST_F(ThemeServiceTest, CreateThemeLightMode)
+TEST_F(ThemeServiceTest, BaseThemeLightMode)
 {
-    Theme theme = service_.CreateTheme();
-    Theme expected = GetLightTheme();
+    const Theme& theme = service_.BaseTheme();
+    const Theme& expected = GetLightTheme();
     EXPECT_EQ(theme.bg_color.r, expected.bg_color.r);
     EXPECT_EQ(theme.bg_color.g, expected.bg_color.g);
     EXPECT_EQ(theme.bg_color.b, expected.bg_color.b);
 }
 
-TEST_F(ThemeServiceTest, CreateThemeDarkMode)
+TEST_F(ThemeServiceTest, BaseThemeDarkMode)
 {
     service_.ToggleDarkMode();
-    Theme theme = service_.CreateTheme();
-    Theme expected = GetDarkTheme();
+    const Theme& theme = service_.BaseTheme();
+    const Theme& expected = GetDarkTheme();
     EXPECT_EQ(theme.bg_color.r, expected.bg_color.r);
     EXPECT_EQ(theme.bg_color.g, expected.bg_color.g);
     EXPECT_EQ(theme.bg_color.b, expected.bg_color.b);

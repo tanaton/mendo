@@ -82,7 +82,7 @@ public:
     std::expected<Document, FileLoadError> ExecuteLoad();
 
     // reload_base の意味は AsyncLoadCoordinator::Start を参照。
-    void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, const Theme& theme,
+    void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, Theme theme,
                         std::shared_ptr<const std::pmr::string> reload_base = nullptr);
     std::optional<AsyncLoadOutcome> TakeAsync() noexcept
     {
@@ -94,7 +94,7 @@ public:
     }
 
     // App::Init 前 (ウィンドウを作る前) から走らせる経路。通知先は AttachPreload で渡す。
-    void StartPreloadAsync(TaskScheduler& scheduler, std::pmr::wstring path, const Theme& theme);
+    void StartPreloadAsync(TaskScheduler& scheduler, std::pmr::wstring path, Theme theme);
 
     using PreloadAttachResult = AsyncLoadCoordinator::AttachResult;
 

@@ -58,7 +58,7 @@ const std::filesystem::path& ConfigService::DefaultConfigDir()
     return kDir;
 }
 
-std::filesystem::path ConfigService::GetConfigDir() const
+const std::filesystem::path& ConfigService::GetConfigDir() const
 {
     if (!config_dir_override_.empty()) {
         return config_dir_override_;
@@ -80,7 +80,7 @@ std::filesystem::path ConfigService::GetConfigPath(std::wstring_view filename) c
     if (filename == L".." || filename == L".") {
         return {};
     }
-    const auto dir = GetConfigDir();
+    const auto& dir = GetConfigDir();
     if (dir.empty()) {
         return {};
     }
@@ -93,7 +93,7 @@ void ConfigService::Load()
     if (ini_path.empty()) {
         return;
     }
-    const auto buf = ReadAllBytes(ini_path);
+    const auto buf = ReadAllBytes(ini_path.c_str());
     if (buf.empty()) {
         return;
     }

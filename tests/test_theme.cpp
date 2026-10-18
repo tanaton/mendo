@@ -43,7 +43,7 @@ TEST(Theme, HeadingSizesDecrease)
 
 TEST(Theme, GetHeadingSizeReturnsCorrectLevel)
 {
-    Theme t = GetLightTheme();
+    const Theme& t = GetLightTheme();
     EXPECT_EQ(t.GetHeadingSize(1), t.font_size_h[0]);
     EXPECT_EQ(t.GetHeadingSize(2), t.font_size_h[1]);
     EXPECT_EQ(t.GetHeadingSize(3), t.font_size_h[2]);
@@ -54,7 +54,7 @@ TEST(Theme, GetHeadingSizeReturnsCorrectLevel)
 
 TEST(Theme, GetHeadingSizeInvalidLevelReturnsBody)
 {
-    Theme t = GetLightTheme();
+    const Theme& t = GetLightTheme();
     EXPECT_EQ(t.GetHeadingSize(0), t.font_size_body);
     EXPECT_EQ(t.GetHeadingSize(7), t.font_size_body);
     EXPECT_EQ(t.GetHeadingSize(-1), t.font_size_body);
@@ -85,7 +85,7 @@ TEST(Theme, FontFamilyNotEmpty)
 
 TEST(Theme, BackgroundColorIsWhite)
 {
-    Theme t = GetLightTheme();
+    const Theme& t = GetLightTheme();
     EXPECT_FLOAT_EQ(t.bg_color.r, 1.0f);
     EXPECT_FLOAT_EQ(t.bg_color.g, 1.0f);
     EXPECT_FLOAT_EQ(t.bg_color.b, 1.0f);
@@ -95,7 +95,7 @@ TEST(Theme, BackgroundColorIsWhite)
 
 TEST(Theme, DarkThemeBackgroundIsDark)
 {
-    Theme t = GetDarkTheme();
+    const Theme& t = GetDarkTheme();
     // ダークテーマは暗い背景（低いRGB値）を持つべき
     EXPECT_LT(t.bg_color.r, 0.3f);
     EXPECT_LT(t.bg_color.g, 0.3f);
@@ -104,7 +104,7 @@ TEST(Theme, DarkThemeBackgroundIsDark)
 
 TEST(Theme, DarkThemeTextIsLight)
 {
-    Theme t = GetDarkTheme();
+    const Theme& t = GetDarkTheme();
     // ダークテーマのテキストは明るい（高いRGB値）べき
     EXPECT_GT(t.text_color.r, 0.7f);
     EXPECT_GT(t.text_color.g, 0.7f);
@@ -113,8 +113,8 @@ TEST(Theme, DarkThemeTextIsLight)
 
 TEST(Theme, DarkAndLightHaveSameFontSizes)
 {
-    Theme light = GetLightTheme();
-    Theme dark = GetDarkTheme();
+    const Theme& light = GetLightTheme();
+    const Theme& dark = GetDarkTheme();
     EXPECT_FLOAT_EQ(light.font_size_body, dark.font_size_body);
     EXPECT_FLOAT_EQ(light.font_size_h[0], dark.font_size_h[0]);
     EXPECT_FLOAT_EQ(light.font_size_code, dark.font_size_code);
@@ -122,8 +122,8 @@ TEST(Theme, DarkAndLightHaveSameFontSizes)
 
 TEST(Theme, DarkAndLightHaveSameSpacing)
 {
-    Theme light = GetLightTheme();
-    Theme dark = GetDarkTheme();
+    const Theme& light = GetLightTheme();
+    const Theme& dark = GetDarkTheme();
     EXPECT_FLOAT_EQ(light.margin_left, dark.margin_left);
     EXPECT_FLOAT_EQ(light.margin_top, dark.margin_top);
     EXPECT_FLOAT_EQ(light.paragraph_spacing, dark.paragraph_spacing);
@@ -136,8 +136,8 @@ TEST(Theme, DarkAndLightHaveSameSpacing)
 
 TEST(Theme, DarkAndLightHaveSameIndentation)
 {
-    Theme light = GetLightTheme();
-    Theme dark = GetDarkTheme();
+    const Theme& light = GetLightTheme();
+    const Theme& dark = GetDarkTheme();
     EXPECT_FLOAT_EQ(light.indent_width, dark.indent_width);
     EXPECT_FLOAT_EQ(light.margin_right, dark.margin_right);
     EXPECT_FLOAT_EQ(light.code_block_padding, dark.code_block_padding);
@@ -145,8 +145,8 @@ TEST(Theme, DarkAndLightHaveSameIndentation)
 
 TEST(Theme, DarkAndLightHaveSamePaneLayout)
 {
-    Theme light = GetLightTheme();
-    Theme dark = GetDarkTheme();
+    const Theme& light = GetLightTheme();
+    const Theme& dark = GetDarkTheme();
     EXPECT_FLOAT_EQ(light.splitter_width, dark.splitter_width);
     EXPECT_FLOAT_EQ(light.pane_item_height, dark.pane_item_height);
     EXPECT_FLOAT_EQ(light.pane_header_height, dark.pane_header_height);
@@ -154,8 +154,8 @@ TEST(Theme, DarkAndLightHaveSamePaneLayout)
 
 TEST(Theme, DarkAndLightHaveSameAllHeadingSizes)
 {
-    Theme light = GetLightTheme();
-    Theme dark = GetDarkTheme();
+    const Theme& light = GetLightTheme();
+    const Theme& dark = GetDarkTheme();
     for (int i = 0; i < 6; ++i) {
         EXPECT_FLOAT_EQ(light.font_size_h[i], dark.font_size_h[i]);
     }
@@ -163,15 +163,15 @@ TEST(Theme, DarkAndLightHaveSameAllHeadingSizes)
 
 TEST(Theme, GetHeadingSizeLargeLevel)
 {
-    Theme t = GetLightTheme();
+    const Theme& t = GetLightTheme();
     EXPECT_EQ(t.GetHeadingSize(100), t.font_size_body);
     EXPECT_EQ(t.GetHeadingSize(-100), t.font_size_body);
 }
 
 TEST(Theme, DarkAndLightDifferentColors)
 {
-    Theme light = GetLightTheme();
-    Theme dark = GetDarkTheme();
+    const Theme& light = GetLightTheme();
+    const Theme& dark = GetDarkTheme();
     // 背景色は異なるべき
     EXPECT_NE(light.bg_color.r, dark.bg_color.r);
     // テキスト色は異なるべき
@@ -180,7 +180,7 @@ TEST(Theme, DarkAndLightDifferentColors)
 
 TEST(Theme, LightThemeTextIsDark)
 {
-    Theme t = GetLightTheme();
+    const Theme& t = GetLightTheme();
     EXPECT_LT(t.text_color.r, 0.3f);
     EXPECT_LT(t.text_color.g, 0.3f);
     EXPECT_LT(t.text_color.b, 0.3f);
@@ -280,7 +280,7 @@ TEST(Theme, ApplyZoomNegativeIsNoOp)
 TEST(Theme, ApplyZoomFromBaseNoDrift)
 {
     // ベース再構築によるズームイン/アウトの繰り返しをシミュレーション（修正アプローチ）
-    Theme base = GetLightTheme();
+    const Theme& base = GetLightTheme();
     float base_body = base.font_size_body;
     float base_margin = base.margin_left;
 
@@ -348,8 +348,8 @@ TEST(Theme, AlertColorsAreDefined)
 
 TEST(Theme, AlertBgColorsHaveAlpha)
 {
-    Theme light = GetLightTheme();
-    Theme dark = GetDarkTheme();
+    const Theme& light = GetLightTheme();
+    const Theme& dark = GetDarkTheme();
     for (size_t i = 0; i < ALERT_TYPE_COUNT; ++i) {
         // 背景色は半透明であるべき
         EXPECT_GT(light.alert_bg_color[i].a, 0.0f);
@@ -361,8 +361,8 @@ TEST(Theme, AlertBgColorsHaveAlpha)
 
 TEST(Theme, LightAndDarkAlertColorsDiffer)
 {
-    Theme light = GetLightTheme();
-    Theme dark = GetDarkTheme();
+    const Theme& light = GetLightTheme();
+    const Theme& dark = GetDarkTheme();
     for (size_t i = 0; i < ALERT_TYPE_COUNT; ++i) {
         // ライトとダークでAlert色が異なるべき
         bool same = (light.alert_color[i].r == dark.alert_color[i].r)
@@ -374,7 +374,7 @@ TEST(Theme, LightAndDarkAlertColorsDiffer)
 
 TEST(Theme, AlertColorsAreDistinct)
 {
-    Theme t = GetLightTheme();
+    const Theme& t = GetLightTheme();
     // 5種のAlert色が互いに異なることを確認
     for (size_t i = 0; i < ALERT_TYPE_COUNT; ++i) {
         for (size_t j = i + 1; j < ALERT_TYPE_COUNT; ++j) {

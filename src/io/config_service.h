@@ -16,7 +16,7 @@ public:
     ConfigService() noexcept = default;
 
     void SetConfigDirOverride(const std::filesystem::path& dir);
-    std::filesystem::path GetConfigDir() const;
+    const std::filesystem::path& GetConfigDir() const;
     // 区切り文字や ".." を含む名前は拒否する。
     std::filesystem::path GetConfigPath(std::wstring_view filename) const;
 

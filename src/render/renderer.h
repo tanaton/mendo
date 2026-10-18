@@ -20,7 +20,7 @@
 
 class Renderer {
 public:
-    bool Init(HWND hwnd, const Theme& theme);
+    bool Init(HWND hwnd, Theme theme);
     // D2DRenderBackend::Resize を参照。
     void Resize(UINT width, UINT height, bool live = false) noexcept;
     void Render(const RenderParams& params);
@@ -75,7 +75,7 @@ public:
         return theme_;
     }
     // ライト/ダーク切替用。寸法とフォントは共通なのでテキストレイアウトを維持し、色だけ差し替える。
-    void SetTheme(const Theme& theme);
+    void SetTheme(Theme theme);
     // base theme (zoom=1.0) から再構築して現在 zoom を適用する。
     // 累積適用による誤差蓄積を避けるため、ズーム変更経路はこの関数に統一する。
     void ApplyZoomFromBase(const Theme& base_theme, float new_zoom);

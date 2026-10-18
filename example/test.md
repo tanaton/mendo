@@ -1269,7 +1269,7 @@ class ThemeService {
 public:
     explicit ThemeService(ConfigService& config) noexcept;
     constexpr bool IsDarkMode() const noexcept;
-    Theme CreateTheme() const;
+    const Theme& BaseTheme() const;
     Theme CreateTheme(int zoom_index) const;
     bool ToggleDarkMode() noexcept;
     void SaveDarkMode();
@@ -1522,13 +1522,13 @@ public:
     std::expected<Document, FileLoadError> ExecuteLoad();
 
     // 非同期ロード
-    void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, const Theme& theme,
+    void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, Theme theme,
                         std::shared_ptr<const std::pmr::string> reload_base = nullptr);
     std::optional<AsyncLoadOutcome> TakeAsync() noexcept;
     void CancelAsyncLoad() noexcept;
 
     // preload (App::Init 前から走らせる経路)。通知先は AttachPreload で渡す。
-    void StartPreloadAsync(TaskScheduler& scheduler, std::pmr::wstring path, const Theme& theme);
+    void StartPreloadAsync(TaskScheduler& scheduler, std::pmr::wstring path, Theme theme);
     using PreloadAttachResult = AsyncLoadCoordinator::AttachResult;
     PreloadAttachResult AttachPreload(HWND hwnd, UINT msg_id);
 
@@ -1704,13 +1704,13 @@ public:
     NavHistory() = default;
     explicit NavHistory(size_t max_history);   // テストで上限を差し替える
 
-    void Push(const NavEntry& current);
+    void Push(NavEntry current);
     // 別ファイルを開く前の仮の Push。ロード結果で確定 (Commit) か取り消し (Rollback) をする。
-    void PushPending(const NavEntry& current);
+    void PushPending(NavEntry current);
     void CommitPending() noexcept;
     void RollbackPending();
-    bool GoBack(const NavEntry& current, NavEntry& out);     // 仮の操作として積む
-    bool GoForward(const NavEntry& current, NavEntry& out);  // 同上
+    bool GoBack(NavEntry current, NavEntry& out);     // 仮の操作として積む
+    bool GoForward(NavEntry current, NavEntry& out);  // 同上
 
     bool   CanGoBack() const noexcept;
     bool   CanGoForward() const noexcept;
@@ -2067,7 +2067,7 @@ public:
 
     // 設定ディレクトリ
     void SetConfigDirOverride(const std::filesystem::path& dir);    // テスト用
-    std::filesystem::path GetConfigDir() const;
+    const std::filesystem::path& GetConfigDir() const;
     // 区切り文字や ".." を含む名前は拒否する。
     std::filesystem::path GetConfigPath(std::wstring_view filename) const;
 

@@ -4,9 +4,9 @@
 #include <iterator>
 #include <utility>
 
-std::optional<NavEntry> NavHistory::PushCapped(std::pmr::deque<NavEntry>& stack, const NavEntry& e)
+std::optional<NavEntry> NavHistory::PushCapped(std::pmr::deque<NavEntry>& stack, NavEntry e)
 {
-    stack.push_back(e);
+    stack.push_back(std::move(e));
     if (stack.size() <= max_history_) {
         return std::nullopt;
     }
@@ -15,18 +15,18 @@ std::optional<NavEntry> NavHistory::PushCapped(std::pmr::deque<NavEntry>& stack,
     return dropped;
 }
 
-void NavHistory::Push(const NavEntry& current)
+void NavHistory::Push(NavEntry current)
 {
     pending_.clear();
-    PushCapped(back_stack_, current);
+    PushCapped(back_stack_, std::move(current));
     forward_stack_.clear();
 }
 
-void NavHistory::PushPending(const NavEntry& current)
+void NavHistory::PushPending(NavEntry current)
 {
     RollbackPending();
     PendingOp& op = pending_.emplace_back(PendingOp{ .to_back = true, .taken = std::exchange(forward_stack_, {}) });
-    op.dropped = PushCapped(back_stack_, current);
+    op.dropped = PushCapped(back_stack_, std::move(current));
 }
 
 void NavHistory::CommitPending() noexcept
@@ -48,21 +48,20 @@ void NavHistory::RollbackPending()
     }
 }
 
-bool NavHistory::Transfer(std::pmr::deque<NavEntry>& from, std::pmr::deque<NavEntry>& to, const NavEntry& current, NavEntry& out)
+bool NavHistory::Transfer(std::pmr::deque<NavEntry>& from, std::pmr::deque<NavEntry>& to, NavEntry current, NavEntry& out)
 {
     // 表示中の文書は確定前の移動先へまだ切り替わっていないので、続けて移動するときは移動先を起点にする。
     // current のまま積むと表示中の位置が履歴に重複する。
-    std::optional<NavEntry> chained_from;
     if (!pending_.empty()) {
         if (pending_.back().transfer) {
-            chained_from = pending_.back().taken.back();
+            current = pending_.back().taken.back();
         }
         else {
             // 開きかけのファイルは取り消し、表示中の文書から移動し直す。移動できなければ元に戻す。
-            const NavEntry pushed = back_stack_.back();
+            NavEntry pushed = std::move(back_stack_.back());
             RollbackPending();
             if (from.empty()) {
-                PushPending(pushed);
+                PushPending(std::move(pushed));
                 return false;
             }
         }
@@ -74,21 +73,21 @@ bool NavHistory::Transfer(std::pmr::deque<NavEntry>& from, std::pmr::deque<NavEn
     // Push は進む履歴を空にして積むので back + forward は上限を超えず、移動で押し出しは起きない。
     assert(back_stack_.size() + forward_stack_.size() <= max_history_);
     PendingOp& op = pending_.emplace_back(PendingOp{ .to_back = &to == &back_stack_, .transfer = true });
-    to.push_back(chained_from ? std::move(*chained_from) : current);
+    to.push_back(std::move(current));
     out = std::move(from.back());
     from.pop_back();
     op.taken.push_back(out);
     return true;
 }
 
-bool NavHistory::GoBack(const NavEntry& current, NavEntry& out)
+bool NavHistory::GoBack(NavEntry current, NavEntry& out)
 {
-    return Transfer(back_stack_, forward_stack_, current, out);
+    return Transfer(back_stack_, forward_stack_, std::move(current), out);
 }
 
-bool NavHistory::GoForward(const NavEntry& current, NavEntry& out)
+bool NavHistory::GoForward(NavEntry current, NavEntry& out)
 {
-    return Transfer(forward_stack_, back_stack_, current, out);
+    return Transfer(forward_stack_, back_stack_, std::move(current), out);
 }
 
 void NavHistory::Clear() noexcept

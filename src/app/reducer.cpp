@@ -40,19 +40,19 @@ void PushCurrentNavEntry(AppState& state, std::wstring_view load_path)
     if (current_path.empty()) {
         return;
     }
-    const NavEntry entry = CurrentNavEntry(state);
+    NavEntry entry = CurrentNavEntry(state);
     if (load_path.empty()) {
-        state.view.nav_history.Push(entry);
+        state.view.nav_history.Push(std::move(entry));
         return;
     }
     // 新しいロードはロード中の別ファイルを取り消す。
     DiscardPendingLoad(state);
     // 同じファイルの開き直しはリロードとして終わり、確定 (RestoreScrollAfterLoadAction) が来ない。
     if (path_util::iequal(load_path, current_path)) {
-        state.view.nav_history.Push(entry);
+        state.view.nav_history.Push(std::move(entry));
     }
     else {
-        state.view.nav_history.PushPending(entry);
+        state.view.nav_history.PushPending(std::move(entry));
     }
 }
 
@@ -309,9 +309,8 @@ void ApplyNavResult(AppState& state, SideEffectList& effects, NavEntry&& entry)
 void NavigateHistory(AppState& state, SideEffectList& effects, bool forward)
 {
     auto& history = state.view.nav_history;
-    const NavEntry current = CurrentNavEntry(state);
     NavEntry out;
-    const bool moved = forward ? history.GoForward(current, out) : history.GoBack(current, out);
+    const bool moved = forward ? history.GoForward(CurrentNavEntry(state), out) : history.GoBack(CurrentNavEntry(state), out);
     if (moved) {
         ApplyNavResult(state, effects, std::move(out));
     }
