@@ -12,45 +12,13 @@
 namespace {
 
 struct CallbackTracker {
-    int invalidate_count = 0;
-    int set_timer_count = 0;
-    int kill_timer_count = 0;
-    int focus_select_all_count = 0;
-    int unfocus_count = 0;
-    app_timer::Id last_timer_id{};
-    UINT last_timer_ms = 0;
-    app_timer::Id last_killed_timer{};
     float md_pane_height = 800.0f;
-    int on_wrap_around_count = 0;
     std::function<void(int)> on_ensure;
 };
 
 struct TestSearchBarCallbacks {
     CallbackTracker* t = nullptr;
 
-    void invalidate()
-    {
-        t->invalidate_count++;
-    }
-    void set_timer(app_timer::Id id, UINT ms)
-    {
-        t->last_timer_id = id;
-        t->last_timer_ms = ms;
-        t->set_timer_count++;
-    }
-    void kill_timer(app_timer::Id id)
-    {
-        t->last_killed_timer = id;
-        t->kill_timer_count++;
-    }
-    void focus_select_all()
-    {
-        t->focus_select_all_count++;
-    }
-    void unfocus()
-    {
-        t->unfocus_count++;
-    }
     float get_md_pane_height()
     {
         return t->md_pane_height;
@@ -61,15 +29,11 @@ struct TestSearchBarCallbacks {
             t->on_ensure(node_index);
         }
     }
-    void on_wrap_around()
-    {
-        t->on_wrap_around_count++;
-    }
 };
 
 } // namespace
 
-// コールバック呼び出しを記録するテストフィクスチャ
+// 積まれた副作用を溜めて数えるテストフィクスチャ
 class SearchBarControllerTest : public ::testing::Test {
 protected:
     void SetUp() override
@@ -83,6 +47,8 @@ protected:
     CallbackTracker tracker_;
     SearchBarControllerT<TestSearchBarCallbacks> ctrl_;
     std::pmr::vector<Node> nodes_;
+    // 検証しない操作の副作用の捨て先。検証する操作はその場で新しいリストに積む。
+    SideEffectList effects_;
 };
 
 // ═══════════════════════════════════════════════
@@ -103,32 +69,35 @@ TEST_F(SearchBarControllerTest, InitialState)
 
 TEST_F(SearchBarControllerTest, OnOpenSetsFocusAndInvalidates)
 {
-    ctrl_.OnOpen(nodes_);
+    SideEffectList effects;
+    ctrl_.OnOpen(effects, nodes_);
 
     EXPECT_TRUE(ctrl_.HasFocus());
     EXPECT_TRUE(state_.IsVisible());
-    EXPECT_EQ(tracker_.focus_select_all_count, 1);
-    EXPECT_GT(tracker_.invalidate_count, 0);
+    EXPECT_TRUE(HasEffect<effect::SearchFocus>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+    EXPECT_FALSE(HasEffect<effect::SetTimer>(effects));
 }
 
 TEST_F(SearchBarControllerTest, OnOpenTogglesIfAlreadyOpen)
 {
-    ctrl_.OnOpen(nodes_);
+    ctrl_.OnOpen(effects_, nodes_);
     EXPECT_TRUE(state_.IsVisible());
 
-    ctrl_.OnOpen(nodes_);
+    ctrl_.OnOpen(effects_, nodes_);
     EXPECT_FALSE(state_.IsVisible());
     EXPECT_FALSE(ctrl_.HasFocus());
 }
 
 TEST_F(SearchBarControllerTest, OnCloseResetsState)
 {
-    ctrl_.OnOpen(nodes_);
-    ctrl_.OnClose();
+    ctrl_.OnOpen(effects_, nodes_);
+    SideEffectList effects;
+    ctrl_.OnClose(effects);
 
     EXPECT_FALSE(state_.IsVisible());
     EXPECT_FALSE(ctrl_.HasFocus());
-    EXPECT_GE(tracker_.unfocus_count, 1);
+    EXPECT_TRUE(HasEffect<effect::SearchUnfocus>(effects));
 }
 
 // ═══════════════════════════════════════════════
@@ -139,7 +108,7 @@ TEST_F(SearchBarControllerTest, OnTextChangedEmptyQuery)
 {
     nodes_.push_back(MakeTextNode("hello world"));
 
-    ctrl_.OnTextChanged(L"", nodes_, 0);
+    ctrl_.OnTextChanged(effects_, L"", nodes_, 0);
     EXPECT_TRUE(state_.GetQuery().empty());
     EXPECT_EQ(state_.GetMatchCount(), 0);
 }
@@ -149,7 +118,7 @@ TEST_F(SearchBarControllerTest, OnTextChangedSmallDocImmediate)
     nodes_.push_back(MakeTextNode("hello world"));
     cache_ = MakeUniformCache(1, 100.0f);
 
-    ctrl_.OnTextChanged(L"hello", nodes_, 0);
+    ctrl_.OnTextChanged(effects_, L"hello", nodes_, 0);
     EXPECT_EQ(state_.GetMatchCount(), 1);
 }
 
@@ -158,10 +127,11 @@ TEST_F(SearchBarControllerTest, OnTextChangedLargeUnmeasuredDocDebounces)
 {
     nodes_.push_back(MakeTextNode("text"));
 
-    const int before = tracker_.set_timer_count;
-    ctrl_.OnTextChanged(L"text", nodes_, decltype(ctrl_)::kImmediateSearchMaxBytes + 1);
-    EXPECT_GT(tracker_.set_timer_count, before);
-    EXPECT_EQ(tracker_.last_timer_id, app_timer::Id::SEARCH_DEBOUNCE);
+    SideEffectList effects;
+    ctrl_.OnTextChanged(effects, L"text", nodes_, decltype(ctrl_)::kImmediateSearchMaxBytes + 1);
+    const auto* timer = FindEffect<effect::SetTimer>(effects);
+    ASSERT_NE(timer, nullptr);
+    EXPECT_EQ(timer->id, app_timer::Id::SEARCH_DEBOUNCE);
     EXPECT_EQ(state_.GetMatchCount(), 0);
 }
 
@@ -172,16 +142,17 @@ TEST_F(SearchBarControllerTest, OnTextChangedFastMeasuredSearchIsImmediate)
     cache_ = MakeUniformCache(1, 100.0f);
     constexpr size_t kLargeBytes = decltype(ctrl_)::kImmediateSearchMaxBytes + 1;
 
-    ctrl_.OnOpen(nodes_);
-    ctrl_.OnTextChanged(L"te", nodes_, 0);
-    const int before = tracker_.set_timer_count;
-    ctrl_.OnTextChanged(L"text", nodes_, kLargeBytes);
-    EXPECT_EQ(tracker_.set_timer_count, before);
+    ctrl_.OnOpen(effects_, nodes_);
+    ctrl_.OnTextChanged(effects_, L"te", nodes_, 0);
+    SideEffectList measured;
+    ctrl_.OnTextChanged(measured, L"text", nodes_, kLargeBytes);
+    EXPECT_FALSE(HasEffect<effect::SetTimer>(measured));
     EXPECT_EQ(state_.GetMatchCount(), 1);
 
-    ctrl_.Reset();
-    ctrl_.OnTextChanged(L"text", nodes_, kLargeBytes);
-    EXPECT_GT(tracker_.set_timer_count, before) << "文書を替えたら測るまでデバウンスする";
+    ctrl_.Reset(effects_);
+    SideEffectList after_reset;
+    ctrl_.OnTextChanged(after_reset, L"text", nodes_, kLargeBytes);
+    EXPECT_TRUE(HasEffect<effect::SetTimer>(after_reset)) << "文書を替えたら測るまでデバウンスする";
 }
 
 // 文書の切り替えで入力欄を空にしたときのように、中身が変わらない通知では検索も再描画もしない。
@@ -189,9 +160,9 @@ TEST_F(SearchBarControllerTest, OnTextChangedSameTextIsNoop)
 {
     nodes_.push_back(MakeTextNode("text"));
 
-    const int before = tracker_.invalidate_count;
-    ctrl_.OnTextChanged(L"", nodes_, 0);
-    EXPECT_EQ(tracker_.invalidate_count, before);
+    SideEffectList effects;
+    ctrl_.OnTextChanged(effects, L"", nodes_, 0);
+    EXPECT_TRUE(effects.empty());
 }
 
 // ═══════════════════════════════════════════════
@@ -200,74 +171,39 @@ TEST_F(SearchBarControllerTest, OnTextChangedSameTextIsNoop)
 
 TEST_F(SearchBarControllerTest, SetSelection)
 {
-    ctrl_.OnOpen(nodes_);
+    ctrl_.OnOpen(effects_, nodes_);
 
-    ctrl_.SetSelection(2, 5);
+    ctrl_.SetSelection(effects_, 2, 5);
     EXPECT_EQ(ctrl_.GetSelectionStart(), 2);
     EXPECT_EQ(ctrl_.GetCaretPos(), 5);
 }
 
 TEST_F(SearchBarControllerTest, SetSelectionNoOpWhenUnchanged)
 {
-    ctrl_.OnOpen(nodes_);
+    ctrl_.OnOpen(effects_, nodes_);
 
-    ctrl_.SetSelection(2, 5);
-    const int before = tracker_.invalidate_count;
-    ctrl_.SetSelection(2, 5);
-    EXPECT_EQ(tracker_.invalidate_count, before);
+    ctrl_.SetSelection(effects_, 2, 5);
+    SideEffectList effects;
+    ctrl_.SetSelection(effects, 2, 5);
+    EXPECT_TRUE(effects.empty());
 }
 
 TEST_F(SearchBarControllerTest, SetImeComposition)
 {
-    ctrl_.OnOpen(nodes_);
+    ctrl_.OnOpen(effects_, nodes_);
 
-    ctrl_.SetImeComposition(L"あい");
+    ctrl_.SetImeComposition(effects_, L"あい");
     EXPECT_EQ(ctrl_.GetImeComposition(), L"あい");
 }
 
 TEST_F(SearchBarControllerTest, SetImeCompositionNoOpWhenUnchanged)
 {
-    ctrl_.OnOpen(nodes_);
+    ctrl_.OnOpen(effects_, nodes_);
 
-    ctrl_.SetImeComposition(L"あ");
-    const int before = tracker_.invalidate_count;
-    ctrl_.SetImeComposition(L"あ");
-    EXPECT_EQ(tracker_.invalidate_count, before);
-}
-
-// ═══════════════════════════════════════════════
-// キャレット
-// ═══════════════════════════════════════════════
-
-TEST_F(SearchBarControllerTest, CaretSteadyWithoutTimer)
-{
-    const int sets = tracker_.set_timer_count;
-    ctrl_.OnOpen(nodes_);
-
-    EXPECT_TRUE(ctrl_.BuildRenderState().caret_visible);
-    EXPECT_EQ(tracker_.set_timer_count, sets);
-}
-
-TEST_F(SearchBarControllerTest, WindowDeactivateHidesCaret)
-{
-    ctrl_.OnOpen(nodes_);
-
-    ctrl_.OnWindowActivate(false);
-    EXPECT_FALSE(ctrl_.BuildRenderState().caret_visible);
-    EXPECT_TRUE(ctrl_.HasFocus());
-
-    ctrl_.OnWindowActivate(true);
-    EXPECT_TRUE(ctrl_.BuildRenderState().caret_visible);
-}
-
-TEST_F(SearchBarControllerTest, WindowActivateIgnoredWhenClosed)
-{
-    const int kills = tracker_.kill_timer_count;
-    const int sets = tracker_.set_timer_count;
-    ctrl_.OnWindowActivate(false);
-    ctrl_.OnWindowActivate(true);
-    EXPECT_EQ(tracker_.kill_timer_count, kills);
-    EXPECT_EQ(tracker_.set_timer_count, sets);
+    ctrl_.SetImeComposition(effects_, L"あ");
+    SideEffectList effects;
+    ctrl_.SetImeComposition(effects, L"あ");
+    EXPECT_TRUE(effects.empty());
 }
 
 // ═══════════════════════════════════════════════
@@ -280,14 +216,14 @@ TEST_F(SearchBarControllerTest, ToggleCaseSensitive)
     cache_.Resize(1);
 
     EXPECT_FALSE(state_.IsCaseSensitive());
-    ctrl_.OnToggleCaseSensitive(nodes_);
+    ctrl_.OnToggleCaseSensitive(effects_, nodes_);
     EXPECT_TRUE(state_.IsCaseSensitive());
 }
 
 TEST_F(SearchBarControllerTest, ToggleHighlight)
 {
     const bool before = state_.IsHighlightEnabled();
-    ctrl_.OnToggleHighlight();
+    ctrl_.OnToggleHighlight(effects_);
     EXPECT_NE(state_.IsHighlightEnabled(), before);
 }
 
@@ -297,10 +233,10 @@ TEST_F(SearchBarControllerTest, ToggleHighlight)
 
 TEST_F(SearchBarControllerTest, ResetClearsAll)
 {
-    ctrl_.OnOpen(nodes_);
-    ctrl_.SetImeComposition(L"test");
+    ctrl_.OnOpen(effects_, nodes_);
+    ctrl_.SetImeComposition(effects_, L"test");
 
-    ctrl_.Reset();
+    ctrl_.Reset(effects_);
     EXPECT_FALSE(ctrl_.HasFocus());
     EXPECT_EQ(ctrl_.GetCaretPos(), -1);
     EXPECT_EQ(ctrl_.GetSelectionStart(), -1);
@@ -316,8 +252,8 @@ TEST_F(SearchBarControllerTest, BuildRenderStateReflectsState)
     nodes_.push_back(MakeTextNode("abc"));
     cache_ = MakeUniformCache(1, 100.0f);
 
-    ctrl_.OnOpen(nodes_);
-    ctrl_.OnTextChanged(L"abc", nodes_, 0);
+    ctrl_.OnOpen(effects_, nodes_);
+    ctrl_.OnTextChanged(effects_, L"abc", nodes_, 0);
 
     const auto rs = ctrl_.BuildRenderState();
     EXPECT_TRUE(rs.visible);
@@ -343,8 +279,8 @@ TEST_F(SearchBarControllerTest, ScrollToMatchClearsScrollTarget)
     EXPECT_TRUE(viewport_.HasScrollTarget());
 
     state_.Show();
-    ctrl_.OnTextChanged(L"hello", nodes_, 0);
-    ctrl_.OnNext();
+    ctrl_.OnTextChanged(effects_, L"hello", nodes_, 0);
+    ctrl_.OnNext(effects_);
 
     EXPECT_FALSE(viewport_.HasScrollTarget());
 }
@@ -365,12 +301,12 @@ TEST_F(SearchBarControllerTest, NextMatchAcrossTableRowsAdvancesScroll)
     viewport_.SyncMaxScroll(2000.0f, tracker_.md_pane_height);
 
     state_.Show();
-    ctrl_.OnTextChanged(L"hit", nodes_, 0);
+    ctrl_.OnTextChanged(effects_, L"hit", nodes_, 0);
 
     float prev_scroll = viewport_.GetScrollY();
     int advanced = 0;
     for (int i = 0; i < 4; i++) {
-        ctrl_.OnNext();
+        ctrl_.OnNext(effects_);
         const float now = viewport_.GetScrollY();
         if (now > prev_scroll) {
             advanced++;
@@ -399,7 +335,7 @@ TEST_F(SearchBarControllerTest, ScrollToMatchMeasuresNodeBeforeResolvingY)
     viewport_.SyncMaxScroll(10000.0f, tracker_.md_pane_height);
 
     state_.Show();
-    ctrl_.OnTextChanged(L"hello", nodes_, 0);
+    ctrl_.OnTextChanged(effects_, L"hello", nodes_, 0);
 
     ASSERT_FALSE(ensured.empty());
     EXPECT_TRUE(std::ranges::all_of(ensured, [](int i) static { return i == 2; }));
@@ -418,10 +354,10 @@ TEST_F(SearchBarControllerTest, ScrollToMatchNoOpWhenAlreadyVisible)
 
     viewport_.SyncMaxScroll(1000.0f, tracker_.md_pane_height);
     state_.Show();
-    ctrl_.OnTextChanged(L"hello", nodes_, 0);
+    ctrl_.OnTextChanged(effects_, L"hello", nodes_, 0);
 
     const float before = viewport_.GetScrollY();
-    ctrl_.OnNext();
+    ctrl_.OnNext(effects_);
     EXPECT_FLOAT_EQ(viewport_.GetScrollY(), before);
 }
 

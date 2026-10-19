@@ -27,38 +27,19 @@
 #include <string>
 #include <string_view>
 
-class CursorManager {
-public:
-    void Init() noexcept
-    {
-        arrow_ = LoadCursorW(nullptr, IDC_ARROW);
-        hand_ = LoadCursorW(nullptr, IDC_HAND);
-        ibeam_ = LoadCursorW(nullptr, IDC_IBEAM);
-        sizewe_ = LoadCursorW(nullptr, IDC_SIZEWE);
-    }
+struct SystemCursors {
+    HCURSOR arrow = nullptr;
+    HCURSOR hand = nullptr;
+    HCURSOR ibeam = nullptr;
+    HCURSOR size_we = nullptr;
 
-    constexpr HCURSOR Arrow() const noexcept
+    void Load() noexcept
     {
-        return arrow_;
+        arrow = LoadCursorW(nullptr, IDC_ARROW);
+        hand = LoadCursorW(nullptr, IDC_HAND);
+        ibeam = LoadCursorW(nullptr, IDC_IBEAM);
+        size_we = LoadCursorW(nullptr, IDC_SIZEWE);
     }
-    constexpr HCURSOR Hand() const noexcept
-    {
-        return hand_;
-    }
-    constexpr HCURSOR IBeam() const noexcept
-    {
-        return ibeam_;
-    }
-    constexpr HCURSOR SizeWE() const noexcept
-    {
-        return sizewe_;
-    }
-
-private:
-    HCURSOR arrow_ = nullptr;
-    HCURSOR hand_ = nullptr;
-    HCURSOR ibeam_ = nullptr;
-    HCURSOR sizewe_ = nullptr;
 };
 
 class App {
@@ -278,7 +259,7 @@ private:
         };
         Kind kind = Kind::Content;
         SearchBarHitZone search_bar = SearchBarHitZone::None;
-        NavButtonHover nav = NavButtonHover::None;
+        NavDirection nav = NavDirection::None;
         OverlayButtonHit overlay_button{};
     };
     MdPaneHit ResolveMdPaneHit(float dip_x, float dip_y, const MdPaneHitContext& hit_ctx, const PaneLayout& layout) const;
@@ -309,17 +290,22 @@ private:
 
     // ---- レイアウト ----
     void EnsureScrollTarget();
-    // 可視範囲を即時計測し、scroll_target があれば scroll_y を再評価する。
-    void ViewportLayout(float md_width, float md_height);
     // 合計コンテンツ高を max_scroll に反映し scroll_y をクランプする。
-    void SyncMaxScroll(float md_height);
+    void SyncMaxScroll();
     // 遅延レイアウトを仕掛けたら true。
     bool ScheduleDeferredLayoutIfNeeded();
     void SettleLayout();
+    // 可視範囲の図と画像の取りに行き方。
+    enum class RelayoutResources : uint8_t {
+        Diagrams,          // 図を今すぐ描き直す (テーマ・ズーム)
+        DiagramsBatched,   // 図のディスク読み込みを時間予算付きバッチに回す (リサイズ)
+        ImagesAndDiagrams, // 画像も読み込む (ロード・リロード)
+    };
+    // 可視範囲を計測し直し、スクロール上限・図と画像・遅延レイアウト・目次を追従させる。
+    void RelayoutViewport(RelayoutResources resources);
     void InvalidateHitPositions();
     void OnResizeEnd();
     void OnDeferredLayout();
-    void FinalizeLayout(float md_pane_height);
     void SyncTocActiveAndAutoScroll(bool auto_scroll);
     float MdContentWidth();
     // スクロール上限/スクロールバー計算用のコンテンツ高さ。
@@ -338,6 +324,7 @@ private:
     // reload_base は同一ファイルのリロード時の現在テキスト (worker でパース前に差分判定させる)。
     void BeginAsyncLoad(std::pmr::wstring path, bool show_animation,
                         std::shared_ptr<const std::pmr::string> reload_base = nullptr);
+    void StartLoadingAnimation();
     void StopLoadingAnimation();
     // StartPreloadAsync が Init より前に呼ぶことがある。2 回目は何もしない。
     void InitSharedScheduler();
@@ -369,12 +356,12 @@ private:
 
     // ---- テーマ ----
     void HandleApplyThemeChange(const effect::ApplyThemeChange& e);
-    void FinishThemeOrZoomChange();
 
 private:
     HWND hwnd_ = nullptr;
 
-    CursorManager cursors_;
+    SystemCursors cursors_;
+    Tooltip tooltip_;
 
     Renderer renderer_;
     TaskScheduler scheduler_;

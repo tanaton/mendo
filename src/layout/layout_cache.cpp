@@ -251,7 +251,6 @@ void ResetTableCellCaches(TableLayoutData& tl) noexcept
     tl.cell_applied_widths.clear();
     tl.col_count = 0;
     tl.last_applied_max_width = -1.0f;
-    tl.cached_table_width = 0.0f;
     tl.natural_total_width = 0.0f;
 }
 
@@ -268,19 +267,6 @@ void LayoutCache::Resize(size_t node_count)
         ResetEvictionTracking();
         has_dirty_nodes_ = true;
     }
-}
-
-void LayoutCache::Reset(size_t node_count)
-{
-    const auto reset = [node_count](auto& v) {
-        v.clear();
-        v.resize(node_count);
-    };
-    reset(entries_);
-    reset(tops_);
-    diagrams_ = {};
-    ResetEvictionTracking();
-    has_dirty_nodes_ = true;
 }
 
 void LayoutCache::InvalidateAllLayouts(const std::pmr::vector<Node>& nodes) noexcept

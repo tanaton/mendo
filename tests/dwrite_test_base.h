@@ -35,7 +35,7 @@ protected:
         ASSERT_TRUE(engine_.Init(&measurer_, theme_));
     }
 
-    // 範囲は LayoutEngine::ComputeLayout と同じ。省略すると全ノードを計測する。
+    // 範囲は ComputeLayout と同じ。省略すると全ノードを計測する。
     ParsedLayout ParseAndLayout(std::string_view md, float viewport_w = 800.0f,
                                 float viewport_top = -MeasureViewportRange::kInf, float viewport_bottom = MeasureViewportRange::kInf)
     {

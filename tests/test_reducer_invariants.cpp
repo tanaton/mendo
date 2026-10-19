@@ -300,7 +300,7 @@ public:
             return Key();
         case 7: {
             static constexpr app_timer::Id kTimers[] = {
-                app_timer::Id::SWIPE_OVERLAY, app_timer::Id::TOAST, app_timer::Id::TOOLTIP,
+                app_timer::Id::SWIPE_OVERLAY, app_timer::Id::TOAST,
                 app_timer::Id::SEARCH_DEBOUNCE,
             };
             const auto id = kTimers[Pick(0, static_cast<int>(std::size(kTimers)) - 1)];
@@ -393,16 +393,12 @@ private:
         case LeftDrag::SearchInput:
             model_.Dispatch(SearchInputDragMovedAction{ Pick(0, 5) });
             return "LMove:SearchInput";
-        case LeftDrag::Splitter1:
-        case LeftDrag::Splitter2:
+        case LeftDrag::Splitter:
             model_.Dispatch(SplitterDragMovedAction{ PickF(50, 900) });
             return "LMove:Splitter";
-        case LeftDrag::FileScrollbar:
-            model_.Dispatch(PaneScrollbarDragMovedAction{ PaneTarget::File, PickF(0, 400) });
-            return "LMove:FileScrollbar";
-        case LeftDrag::TocScrollbar:
-            model_.Dispatch(PaneScrollbarDragMovedAction{ PaneTarget::Toc, PickF(0, 400) });
-            return "LMove:TocScrollbar";
+        case LeftDrag::PaneScrollbar:
+            model_.Dispatch(PaneScrollbarDragMovedAction{ PickF(0, 400) });
+            return "LMove:PaneScrollbar";
         case LeftDrag::MdScrollbar:
             model_.Dispatch(MdScrollbarDragMovedAction{ PickF(0, 400) });
             return "LMove:MdScrollbar";

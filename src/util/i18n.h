@@ -35,6 +35,10 @@ struct Strings {
     std::wstring_view tooltip_nav_back;
     std::wstring_view tooltip_nav_forward;
 
+    // ジェスチャー/スワイプのオーバーレイ
+    std::wstring_view gesture_back;
+    std::wstring_view gesture_forward;
+
     // コピーボタン tooltip
     std::wstring_view tooltip_copy;
 
@@ -101,6 +105,8 @@ inline constexpr Strings kJa = {
     .tooltip_search_close = L"閉じる (Esc)",
     .tooltip_nav_back = L"戻る (Alt+\u2190)",
     .tooltip_nav_forward = L"進む (Alt+\u2192)",
+    .gesture_back = L"\u2190 戻る",
+    .gesture_forward = L"\u2192 進む",
     .tooltip_copy = L"書式付きコピー",
     .tooltip_save_image = L"画像を保存",
     .tooltip_copy_diagram = L"クリップボードにコピー",
@@ -148,6 +154,8 @@ inline constexpr Strings kEn = {
     .tooltip_search_close = L"Close (Esc)",
     .tooltip_nav_back = L"Back (Alt+\u2190)",
     .tooltip_nav_forward = L"Forward (Alt+\u2192)",
+    .gesture_back = L"\u2190 Back",
+    .gesture_forward = L"\u2192 Forward",
     .tooltip_copy = L"Copy as HTML",
     .tooltip_save_image = L"Save Image",
     .tooltip_copy_diagram = L"Copy to clipboard",

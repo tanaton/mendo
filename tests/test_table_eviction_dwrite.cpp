@@ -57,7 +57,7 @@ TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsCreatesNullCellsWithoutDirty)
     const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
     ASSERT_GE(idx, 0);
     auto& entry = pl.cache[idx];
-    ASSERT_TRUE(entry.has_table_layout());
+    ASSERT_NE(entry.table_layout(), nullptr);
     auto& tl = *entry.table_layout();
 
     const size_t total_cells = tl.cell_layouts.size();
@@ -80,7 +80,7 @@ TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsNoOpWhenAllVisible)
     const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
     ASSERT_GE(idx, 0);
     auto& entry = pl.cache[idx];
-    ASSERT_TRUE(entry.has_table_layout());
+    ASSERT_NE(entry.table_layout(), nullptr);
     auto& tl = *entry.table_layout();
 
     const size_t total_cells = tl.cell_layouts.size();
@@ -212,14 +212,14 @@ TEST_F(TableEvictionDWriteTest, NodeEvictionKeepsTableGeometry)
     const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
     ASSERT_GE(idx, 0);
     auto& entry = pl.cache[idx];
-    ASSERT_TRUE(entry.has_table_layout());
+    ASSERT_NE(entry.table_layout(), nullptr);
     const float height_before = entry.height;
     const auto col_widths_before = entry.table_layout()->col_widths;
 
     // keep 範囲を先頭ノードだけにしてテーブルを evict 対象にする。
     pl.cache.EvictTextLayouts(0, 1);
 
-    ASSERT_TRUE(entry.has_table_layout()) << "幾何ごと破棄すると再表示時に全セル再構築になる";
+    ASSERT_NE(entry.table_layout(), nullptr) << "幾何ごと破棄すると再表示時に全セル再構築になる";
     auto& tl = *entry.table_layout();
     EXPECT_EQ(CountNonNullCells(tl), 0u);
     EXPECT_TRUE(tl.HasEvictedRows());

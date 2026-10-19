@@ -139,7 +139,7 @@ void FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TE
 bool MeasureWithoutTextLayout(const Node& node, NodeLayoutEntry& entry, const Theme& theme) noexcept
 {
     if (node.type == NodeType::HorizontalRule) {
-        entry.height = theme.paragraph_spacing + theme.hr_thickness;
+        entry.height = layout::HorizontalRuleHeight(theme);
     }
     else if (node.GetText().empty()) {
         entry.height = layout::EmptyTextNodeHeight(node, theme);
@@ -521,10 +521,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayou
     tl.RebuildRowCumY(tbl.row_count);
     tl.RebuildColCumX();
 
-    // col_cum_x の末尾は border_width + Σ(col_w + 2*pad + border) と一致するため再計算しない。
-    tl.cached_table_width = tl.col_cum_x.back();
-
-    // 圧縮分岐に入った場合 cached_table_width は自然総幅と乖離する。
+    // 圧縮分岐に入った場合 TableWidth() は自然総幅と乖離する。
     // 横スクロールのクランプ計算は natural_total_width を基準にする。
     float natural_total = borders_width + paddings_width;
     for (const float w : natural_widths | std::views::take(col_count)) {

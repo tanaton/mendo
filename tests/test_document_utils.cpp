@@ -811,10 +811,10 @@ TEST(FindWordBoundariesW, Utf16)
 }
 
 // ============================================================
-// ExtractFilename
+// FilenameView
 // ============================================================
 
-TEST(ExtractFilename, ReturnsLastPathComponent)
+TEST(FilenameView, ReturnsLastPathComponent)
 {
     struct Case {
         std::wstring_view path;
@@ -832,7 +832,7 @@ TEST(ExtractFilename, ReturnsLastPathComponent)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
-        EXPECT_EQ(ExtractFilename(c.path), c.expected);
+        EXPECT_EQ(FilenameView(c.path), c.expected);
     }
 }
 

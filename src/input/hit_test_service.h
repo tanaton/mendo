@@ -104,7 +104,7 @@ HitResult HitTestTable(
     const Theme& theme,
     float dip_x, float dip_y, float h_scroll_x = 0.0f) noexcept;
 
-NavButtonHover NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) noexcept;
+NavDirection NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) noexcept;
 
 // 可視ノードのオーバーレイボタン (コードのコピー / 図の保存・コピー) のうちマウス位置にあるもの。
 OverlayButtonHit OverlayButtonHitTest(const MdPaneHitContext& ctx) noexcept;

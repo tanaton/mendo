@@ -214,15 +214,15 @@ OverlayButtonHit hit_test::OverlayButtonHitTest(const MdPaneHitContext& ctx) noe
     return out;
 }
 
-NavButtonHover hit_test::NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) noexcept
+NavDirection hit_test::NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) noexcept
 {
     if (PointInRectInclusive(dip_x, dip_y, NavBackButtonRect(md_rect))) {
-        return NavButtonHover::Back;
+        return NavDirection::Back;
     }
     if (PointInRectInclusive(dip_x, dip_y, NavForwardButtonRect(md_rect))) {
-        return NavButtonHover::Forward;
+        return NavDirection::Forward;
     }
-    return NavButtonHover::None;
+    return NavDirection::None;
 }
 
 bool hit_test::BlockHScrollbarHitTest(const MdPaneHitContext& ctx, int node_index, float visible_width) noexcept

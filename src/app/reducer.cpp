@@ -11,14 +11,6 @@
 #include <concepts>
 #include <utility>
 
-ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
-{
-    const auto& cache = state.document.layout_cache;
-    const int node = state.view.viewport.FindFirstVisibleNode(cache);
-    const float y_before = (node >= 0) ? cache.Top(static_cast<size_t>(node)) : 0.0f;
-    return { node, state.view.viewport.GetScrollY() - y_before };
-}
-
 namespace {
 
 NavEntry CurrentNavEntry(const AppState& state)
@@ -65,12 +57,8 @@ SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
     const float item_h = state.theme->pane_item_height;
     const float header_h = state.theme->pane_header_height;
     const auto& layout = state.pane_layout_cache.Get();
-    const size_t item_count =
-        pane == PaneTarget::File
-            ? state.file_explorer.GetEntries().size()
-            : state.document.doc.GetToc().GetEntries().size();
     return {
-        ComputeScrollInfo(layout.Get(pane), header_h, SidePaneContentHeight(item_count, item_h)),
+        ComputeScrollInfo(layout.Get(pane), header_h, SidePaneContentHeight(SidePaneItemCount(state, pane), item_h)),
         state.view.panes.SidePaneScroll(pane),
     };
 }
@@ -112,10 +100,16 @@ void EndLeftDrag(AppState& state, SideEffectList& effects)
 
 namespace {
 
+void BeginLeftDrag(AppState& state, SideEffectList& effects, const LeftDragState& drag)
+{
+    state.view.drag = drag;
+    PushEffect(effects, effect::SetCapture{});
+}
+
+// 対象も忘れるので、次のホバーで同じ対象に戻っても表示し直す。
 void ClearTooltip(AppState& state, SideEffectList& effects)
 {
-    state.interaction.tooltip.Hide();
-    state.interaction.tooltip.ResetTarget();
+    state.interaction.tooltip = {};
     PushEffect(effects, effect::ClearTooltip{});
 }
 
@@ -229,6 +223,19 @@ void ReduceScrollPane(AppState& state, SideEffectList& effects, const ScrollPane
     }
 }
 
+// 縦スクロールが発生した時点で軸ロックを更新 (再武装) し、直後の水平ホイールが
+// スワイプとして誤検出されないようにする。
+void ReduceVWheel(AppState& state, SideEffectList& effects, const VWheelAction& a)
+{
+    auto& swipe = state.interaction.swipe_detector;
+    const bool had_overlay = swipe.IsOverlayVisible();
+    swipe.NotifyVScroll(a.tick);
+    if (had_overlay) {
+        PushEffect(effects, effect::KillTimer{ app_timer::Id::SWIPE_OVERLAY });
+        PushEffect(effects, effect::InvalidateWindow{});
+    }
+}
+
 void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& a)
 {
     // ホバー or ドラッグ中のブロックが横スクロール可能ならそこに適用し、スワイプオーバーレイには流さない。
@@ -263,10 +270,7 @@ void ReduceBlockHScrollDragStarted(AppState& state, SideEffectList& effects, con
     if (!geom.can_scroll()) {
         return;
     }
-    // ドラッグ state の初期化は SetCapture より前に行う
-    auto& sv = state.view;
-    sv.drag = { .kind = LeftDrag::BlockHScroll, .block_node = a.node_index, .start_x = a.dip_x, .start_scroll = sv.GetBlockScrollX(a.node_index, geom) };
-    PushEffect(effects, effect::SetCapture{});
+    BeginLeftDrag(state, effects, { .kind = LeftDrag::BlockHScroll, .block_node = a.node_index, .start_x = a.dip_x, .start_scroll = state.view.GetBlockScrollX(a.node_index, geom) });
     PushEffect(effects, effect::InvalidateWindow{});
 }
 
@@ -405,17 +409,6 @@ void ReduceShowHelp(AppState& state, SideEffectList& effects)
     PushEffect(effects, effect::LoadFile{ std::pmr::wstring(HELP_PATH) });
 }
 
-constexpr LeftDrag SidePaneScrollbarDrag(PaneTarget pane) noexcept
-{
-    return (pane == PaneTarget::File) ? LeftDrag::FileScrollbar : LeftDrag::TocScrollbar;
-}
-
-// edge のペインの右端にあるスプリッタのドラッグ。
-constexpr LeftDrag SplitterDrag(PaneTarget edge) noexcept
-{
-    return (edge == PaneTarget::File) ? LeftDrag::Splitter1 : LeftDrag::Splitter2;
-}
-
 // つまみ上クリック → 位置維持 (オフセットのみ記録)、つまみ外 → 中心へジャンプ。
 struct ScrollbarDragGrip {
     float drag_offset;
@@ -433,13 +426,6 @@ ScrollbarDragGrip ComputeScrollbarDragGrip(float thumb_y, float thumb_height, fl
 PaneScrollInfo MdScrollInfo(const AppState& state) noexcept
 {
     return ComputeScrollInfo(state.pane_layout_cache.Get().md_rect, 0.0f, MdScrollableContentHeight(state));
-}
-
-// ドラッグ state の初期化は SetCapture より前に行う。
-void BeginScrollbarDrag(AppState& state, SideEffectList& effects, LeftDrag target, float drag_offset)
-{
-    state.view.drag = { .kind = target, .grip_offset = drag_offset };
-    PushEffect(effects, effect::SetCapture{});
 }
 
 // ツールチップ以外のホバー状態を反映し、見た目が変わったら再描画させる。
@@ -461,7 +447,8 @@ void ApplyHoverHighlights(AppState& state, SideEffectList& effects, HoverHighlig
 void ReducePointerHover(AppState& state, SideEffectList& effects, const PointerHover& hover)
 {
     ApplyHoverHighlights(state, effects, hover);
-    if (!hover.tooltip.SameTarget(state.interaction.tooltip.GetCurrent())) {
+    if (!hover.tooltip.SameTarget(state.interaction.tooltip)) {
+        state.interaction.tooltip = hover.tooltip;
         PushEffect(effects, effect::ShowTooltip{ hover.tooltip });
     }
 }
@@ -493,20 +480,18 @@ void ReduceCaptureChanged(AppState& state, SideEffectList& effects)
 
 void ReduceSplitterDragStarted(AppState& state, SideEffectList& effects, const SplitterDragStartedAction& a)
 {
-    state.view.drag = { .kind = SplitterDrag(a.edge) };
-    PushEffect(effects, effect::SetCapture{});
+    BeginLeftDrag(state, effects, { .kind = LeftDrag::Splitter, .pane = a.edge });
 }
 
 void ReduceSplitterDragMoved(AppState& state, SideEffectList& effects, const SplitterDragMovedAction& a)
 {
-    const auto target = state.view.drag.kind;
-    if (!IsSplitterDrag(target)) {
+    if (state.view.drag.kind != LeftDrag::Splitter) {
         return;
     }
     const float splitter_w = state.theme->splitter_width;
     const float before_file = state.view.panes.GetSidePaneWidth(PaneTarget::File);
     const float before_toc = state.view.panes.GetSidePaneWidth(PaneTarget::Toc);
-    state.view.panes.DragSplitterTo(target == LeftDrag::Splitter1 ? PaneTarget::File : PaneTarget::Toc, a.dip_x, state.pane_layout_cache.WindowWidth(), splitter_w);
+    state.view.panes.DragSplitterTo(state.view.drag.pane, a.dip_x, state.pane_layout_cache.WindowWidth(), splitter_w);
     if (state.view.panes.GetSidePaneWidth(PaneTarget::File) == before_file && state.view.panes.GetSidePaneWidth(PaneTarget::Toc) == before_toc) {
         return;
     }
@@ -521,10 +506,7 @@ void ReduceLeftDragEnded(AppState& state, SideEffectList& effects)
         return;
     }
     EndLeftDrag(state, effects);
-    if (IsSplitterDrag(drag)) {
-        state.pane_layout_cache.Invalidate();
-    }
-    if (IsSplitterDrag(drag) || drag == LeftDrag::MdScrollbar) {
+    if (drag == LeftDrag::Splitter || drag == LeftDrag::MdScrollbar) {
         PushEffect(effects, effect::PerformResizeEnd{});
     }
     else if (drag == LeftDrag::BlockHScroll) {
@@ -534,8 +516,7 @@ void ReduceLeftDragEnded(AppState& state, SideEffectList& effects)
 
 void ReduceSearchInputDragStarted(AppState& state, SideEffectList& effects, const SearchInputDragStartedAction& a)
 {
-    state.view.drag = { .kind = LeftDrag::SearchInput, .search_anchor = a.caret_pos };
-    PushEffect(effects, effect::SetCapture{});
+    BeginLeftDrag(state, effects, { .kind = LeftDrag::SearchInput, .search_anchor = a.caret_pos });
     PushEffect(
         effects,
         effect::SearchFocus{ effect::SearchFocus::Mode::SetCaret, 0, a.caret_pos });
@@ -565,7 +546,7 @@ void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, cons
     const auto info = MdScrollInfo(state);
     auto& viewport = state.view.viewport;
     const auto grip = ComputeScrollbarDragGrip(ComputeThumbY(info, viewport.GetScrollY()), info.thumb_height, a.dip_y);
-    BeginScrollbarDrag(state, effects, LeftDrag::MdScrollbar, grip.drag_offset);
+    BeginLeftDrag(state, effects, { .kind = LeftDrag::MdScrollbar, .grip_offset = grip.drag_offset });
     // thumb 内クリックなら 1st jump は不要 (thumb-grip オフセット記録だけ)。
     if (!grip.inside_thumb) {
         WithScrollEffects(state, effects, [&] { viewport.ScrollTo(ScrollFromThumbY(info, a.dip_y - grip.drag_offset)); });
@@ -588,7 +569,7 @@ void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, co
         return;
     }
     const auto grip = ComputeScrollbarDragGrip(ComputeThumbY(ctx.info, ctx.scroll.scroll_y), ctx.info.thumb_height, a.dip_y);
-    BeginScrollbarDrag(state, effects, SidePaneScrollbarDrag(a.pane), grip.drag_offset);
+    BeginLeftDrag(state, effects, { .kind = LeftDrag::PaneScrollbar, .pane = a.pane, .grip_offset = grip.drag_offset });
     if (!grip.inside_thumb) {
         ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, a.dip_y - grip.drag_offset);
         PushEffect(effects, effect::InvalidateWindow{});
@@ -597,12 +578,10 @@ void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, co
 
 void ReducePaneScrollbarDragMoved(AppState& state, SideEffectList& effects, const PaneScrollbarDragMovedAction& a)
 {
-    // drag target は pane だけから決まるので、ctx 構築前に短絡し
-    // 非ドラッグ時の per-event GetEntries().size() + ComputeScrollInfo を回避。
-    if (state.view.drag.kind != SidePaneScrollbarDrag(a.pane)) {
+    if (state.view.drag.kind != LeftDrag::PaneScrollbar) {
         return;
     }
-    const auto ctx = GetSidePaneContext(state, a.pane);
+    const auto ctx = GetSidePaneContext(state, state.view.drag.pane);
     const float new_thumb_y = a.dip_y - state.view.drag.grip_offset;
     ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, new_thumb_y);
     PushEffect(effects, effect::InvalidateWindow{});
@@ -706,7 +685,7 @@ void ReduceRightClickGestureCompleted(AppState& state, SideEffectList& effects, 
 void ReduceSearchDebounce(AppState& state, SideEffectList& effects)
 {
     WithScrollEffects(state, effects, [&] {
-        state.search.search_bar_ctrl.OnDebounceTimer(state.document.doc.GetNodes());
+        state.search.search_bar_ctrl.OnDebounceTimer(effects, state.document.doc.GetNodes());
     });
 }
 
@@ -714,15 +693,15 @@ void ReduceSearchStep(AppState& state, SideEffectList& effects, bool forward)
 {
     auto& ss = state.search;
     if (!ss.search_state.IsVisible()) {
-        ss.search_bar_ctrl.OnOpen(state.document.doc.GetNodes());
+        ss.search_bar_ctrl.OnOpen(effects, state.document.doc.GetNodes());
         return;
     }
     WithScrollEffects(state, effects, [&] {
         if (forward) {
-            ss.search_bar_ctrl.OnNext();
+            ss.search_bar_ctrl.OnNext(effects);
         }
         else {
-            ss.search_bar_ctrl.OnPrev();
+            ss.search_bar_ctrl.OnPrev(effects);
         }
     });
 }
@@ -731,7 +710,7 @@ void ReduceSearchTextChanged(AppState& state, SideEffectList& effects, const Sea
 {
     const auto& doc = state.document.doc;
     WithScrollEffects(state, effects, [&] {
-        state.search.search_bar_ctrl.OnTextChanged(a.text, doc.GetNodes(), doc.GetRawText().size());
+        state.search.search_bar_ctrl.OnTextChanged(effects, a.text, doc.GetNodes(), doc.GetRawText().size());
     });
 }
 
@@ -774,8 +753,7 @@ void ReduceSelectWord(AppState& state, SideEffectList& effects, const SelectWord
 void ReduceClearSelection(AppState& state, SideEffectList& effects)
 {
     if (state.search.search_state.IsVisible()) {
-        state.search.search_bar_ctrl.OnClose();
-        PushEffect(effects, effect::InvalidateWindow{});
+        state.search.search_bar_ctrl.OnClose(effects);
         return;
     }
     auto& viewport = state.view.viewport;
@@ -844,7 +822,6 @@ void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
 void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
 {
     const auto anchor = SnapshotVisibleTarget(state);
-    state.pane_layout_cache.Invalidate();
     // 色のみの変更なのでテキストレイアウトは維持する。描画エフェクトの固定ブラシは SetColor で
     // 色だけ差し替わるので再適用不要で、テーマ色を焼き込んだ Mermaid bitmap のみ破棄する。
     state.document.layout_cache.InvalidateDiagramBitmaps(state.document.doc.GetDiagramNodeIndices());
@@ -860,7 +837,6 @@ void ReduceActivate(AppState& state, SideEffectList& effects, const ActivateActi
     if (state.window.window_active != a.active) {
         state.window.window_active = a.active;
         PushEffect(effects, effect::InvalidateWindow{});
-        state.search.search_bar_ctrl.OnWindowActivate(a.active);
     }
     if (!a.active) {
         ClearTooltip(state, effects);
@@ -925,10 +901,6 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
         PushEffect(effects, effect::KillTimer{ app_timer::Id::TOAST });
         PushEffect(effects, effect::InvalidateWindow{});
         return;
-    case app_timer::Id::TOOLTIP:
-        PushEffect(effects, effect::KillTimer{ app_timer::Id::TOOLTIP });
-        state.interaction.tooltip.Show();
-        return;
     case app_timer::Id::SEARCH_DEBOUNCE:
         ReduceSearchDebounce(state, effects);
         return;
@@ -941,6 +913,7 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
         }
         return;
     }
+    case app_timer::Id::TOOLTIP:
     case app_timer::Id::DEFERRED_LAYOUT:
     case app_timer::Id::LOADING_ANIM:
     case app_timer::Id::MERMAID_BATCH:
@@ -949,7 +922,7 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
     case app_timer::Id::FILE_RELOAD_DEBOUNCE:
     case app_timer::Id::MERMAID_IDLE:
     case app_timer::Id::DEVICE_RECREATE_RETRY:
-        // 状態を持たないサービスのタイマーは App::HandleTimer が直接処理する。
+        // AppState を変えないタイマーは App::HandleTimer が直接処理する。
         return;
     case app_timer::Id::END: // 番兵。タイマーとしては使わない。新規タイマーはこの直前に追加する。
         break;
@@ -994,19 +967,20 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const ResizeAction& a) { ReduceResize(state, effects, a); },
         [&](const DpiChangedAction& a) { ReduceDpiChanged(state, effects, a); },
         [&](const HWheelAction& a) { ReduceHWheel(state, effects, a); },
+        [&](const VWheelAction& a) { ReduceVWheel(state, effects, a); },
         [&](const BlockHScrollDragStartedAction& a) { ReduceBlockHScrollDragStarted(state, effects, a); },
         [&](const BlockHScrollDragMovedAction& a) { ReduceBlockHScrollDragMoved(state, effects, a); },
 
         // ---- 検索 ----
-        [&](const OpenSearchBarAction&) { state.search.search_bar_ctrl.OnOpen(state.document.doc.GetNodes()); },
-        [&](const CloseSearchBarAction&) { state.search.search_bar_ctrl.OnClose(); },
+        [&](const OpenSearchBarAction&) { state.search.search_bar_ctrl.OnOpen(effects, state.document.doc.GetNodes()); },
+        [&](const CloseSearchBarAction&) { state.search.search_bar_ctrl.OnClose(effects); },
         [&](const SearchNextAction&) { ReduceSearchStep(state, effects, true); },
         [&](const SearchPrevAction&) { ReduceSearchStep(state, effects, false); },
         [&](const SearchTextChangedAction& a) { ReduceSearchTextChanged(state, effects, a); },
-        [&](const ToggleCaseSensitiveAction&) { state.search.search_bar_ctrl.OnToggleCaseSensitive(state.document.doc.GetNodes()); },
-        [&](const ToggleHighlightAction&) { state.search.search_bar_ctrl.OnToggleHighlight(); },
-        [&](const SearchSelectionAction& a) { state.search.search_bar_ctrl.SetSelection(a.sel_start, a.sel_end); },
-        [&](const ImeCompositionAction& a) { state.search.search_bar_ctrl.SetImeComposition(a.text); },
+        [&](const ToggleCaseSensitiveAction&) { state.search.search_bar_ctrl.OnToggleCaseSensitive(effects, state.document.doc.GetNodes()); },
+        [&](const ToggleHighlightAction&) { state.search.search_bar_ctrl.OnToggleHighlight(effects); },
+        [&](const SearchSelectionAction& a) { state.search.search_bar_ctrl.SetSelection(effects, a.sel_start, a.sel_end); },
+        [&](const ImeCompositionAction& a) { state.search.search_bar_ctrl.SetImeComposition(effects, a.text); },
 
         // ---- マウス関連 ----
         [&](const MouseLeaveAction&) { ReduceMouseLeave(state, effects); },
@@ -1028,7 +1002,6 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const RightClickGestureMovedAction& a) { ReduceRightClickGestureMoved(state, effects, a); },
         [&](const RightClickGestureCompletedAction& a) { ReduceRightClickGestureCompleted(state, effects, a); },
         [&](const FilePaneDirectoryClickedAction& a) { ReduceFilePaneDirectoryClicked(state, effects, a); },
-        [&](const FilePaneFileClickedAction& a) { OpenFileWithHistory(state, effects, a.full_path); },
         [&](const FilePaneRevealCurrentFileAction&) { ReduceFilePaneRevealCurrentFile(state, effects); },
         [&](const TocItemClickedAction& a) { ReduceTocItemClicked(state, effects, a); },
         [&](const NavigateAnchorAction& a) { ReduceNavigateAnchor(state, effects, a); },
@@ -1041,7 +1014,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const NavigateForwardAction&) { NavigateHistory(state, effects, /*forward=*/true); },
 
         // ---- ファイル操作 ----
-        [&](const DropFilesAction& a) { OpenFileWithHistory(state, effects, a.path); },
+        [&](const OpenPathAction& a) { OpenFileWithHistory(state, effects, a.path); },
         [&](const ShowHelpAction&) { ReduceShowHelp(state, effects); },
         [&](const OpenFileAction&) { PushEffect(effects, effect::OpenFileDialog{}); },
         [&](const ReloadFileAction&) { PushEffect(effects, effect::ReloadFile{}); },

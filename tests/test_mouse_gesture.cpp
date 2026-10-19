@@ -221,7 +221,6 @@ TEST(GestureOverlay, Idle)
     SwipeDetector swipe;
     auto gs = ResolveGestureOverlay(gesture, swipe);
     EXPECT_FALSE(gs.trail_active);
-    EXPECT_FALSE(gs.overlay_visible);
     EXPECT_EQ(gs.direction, NavDirection::None);
     ASSERT_NE(gs.trail_points, nullptr);
     EXPECT_TRUE(gs.trail_points->empty());
@@ -236,7 +235,6 @@ TEST(GestureOverlay, TrackingLeft)
 
     auto gs = ResolveGestureOverlay(gesture, swipe);
     EXPECT_TRUE(gs.trail_active);
-    EXPECT_TRUE(gs.overlay_visible);
     EXPECT_EQ(gs.direction, NavDirection::Back);
 }
 
@@ -259,7 +257,6 @@ TEST(GestureOverlay, SwipeFallback_WhenGestureIdle)
 
     auto gs = ResolveGestureOverlay(gesture, swipe);
     EXPECT_FALSE(gs.trail_active);
-    EXPECT_TRUE(gs.overlay_visible);
     EXPECT_EQ(gs.direction, NavDirection::Back);
 }
 
@@ -272,6 +269,5 @@ TEST(GestureOverlay, GestureTakesPrecedenceOverSwipe)
     swipe.OnHWheel(-500, 1000);
 
     auto gs = ResolveGestureOverlay(gesture, swipe);
-    EXPECT_TRUE(gs.overlay_visible);
     EXPECT_EQ(gs.direction, NavDirection::Forward);
 }

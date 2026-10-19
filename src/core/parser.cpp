@@ -61,7 +61,6 @@ struct ParseContext {
     std::pmr::vector<uint32_t> footnote_ref_counts;
     // 最後に記録したソース位置。RecordSourceOffset がこれより前の位置を記録しないために持つ。
     size_t last_source_offset = 0;
-    size_t current_node_index = 0;
 
     // span ネスト追跡は md4c 推奨のカウンタ方式。enter で +1, leave で -1。
     // counter > 0 の間その属性が有効。CommonMark で link はネスト禁止のため
@@ -185,6 +184,12 @@ struct ParseContext {
         link_url_lookup.clear();
     }
 
+    // ノードを追加するのは BeginNode だけなので、最後に始めたノードは常に末尾にある。
+    size_t CurrentNodeIndex() const noexcept
+    {
+        return nodes.size() - 1;
+    }
+
     // current_node と active_text_buffer は対で管理する不変式があるため一括で nullptr に倒す。
     void EndNode()
     {
@@ -225,7 +230,6 @@ struct ParseContext {
         active_text_buffer = &current_text;
         image_src = {};
         current_node->type = type;
-        current_node_index = nodes.size() - 1;
         current_node->indent_level = SaturateToInt8(indent_level);
         if (blockquote_depth > 0) {
             current_node->blockquote_group = current_blockquote_group;
@@ -259,7 +263,7 @@ struct ParseContext {
         const auto node_type = (blockquote_depth > 0) ? NodeType::BlockQuote : NodeType::Paragraph;
         BeginNode(node_type);
         if (node_type == NodeType::BlockQuote) {
-            blockquote_indices.emplace_back(current_node_index);
+            blockquote_indices.emplace_back(CurrentNodeIndex());
         }
     }
 
@@ -444,7 +448,7 @@ bool TryPromoteParagraphToImage(ParseContext* ctx)
     const NodeImageData image{ ctx->image_src };
     cn->set_image_data(ctx->arena->Copy(std::span{ &image, 1 }).data());
     cn->type = NodeType::Image;
-    ctx->image_indices.emplace_back(ctx->current_node_index);
+    ctx->image_indices.emplace_back(ctx->CurrentNodeIndex());
     return true;
 }
 
@@ -468,7 +472,7 @@ void TryPromoteParagraphToDisplayMath(ParseContext* ctx)
     node->set_code_language(SyntaxLanguage::LatexMath);
     ctx->current_runs.clear();
     node->SetText(ctx->arena->CopyText(text.substr(2, text.size() - 4)), 0);
-    ctx->diagram_indices.emplace_back(ctx->current_node_index);
+    ctx->diagram_indices.emplace_back(ctx->CurrentNodeIndex());
 }
 
 void BeginListItem(ParseContext* ctx, const MD_BLOCK_LI_DETAIL* li)
@@ -487,7 +491,7 @@ void BeginListItem(ParseContext* ctx, const MD_BLOCK_LI_DETAIL* li)
 void BeginTable(ParseContext* ctx, const MD_BLOCK_TABLE_DETAIL* detail)
 {
     ctx->BeginNode(NodeType::Table);
-    ctx->table_indices.emplace_back(ctx->current_node_index);
+    ctx->table_indices.emplace_back(ctx->CurrentNodeIndex());
     // 後続の TR/TH/TD で nullable チェックなく参照できるよう先に確保する。
     // これに依存して TR/TH/TD は has_table() ガードを省いている。
     auto* const tbl = ctx->tables.emplace_back(std::make_unique<NodeTableData>()).get();
@@ -572,7 +576,7 @@ void AppendFootnoteRef(ParseContext* ctx, const MD_SPAN_FOOTNOTE_REF_DETAIL* ref
         ctx->footnote_ref_counts.resize(ref->id, 0);
     }
     const uint32_t ref_id = ++ctx->footnote_ref_counts[ref->id - 1];
-    ctx->footnote_refs.push_back({ ref->id, ref_id, static_cast<int32_t>(ctx->current_node_index) });
+    ctx->footnote_refs.push_back({ ref->id, ref_id, static_cast<int32_t>(ctx->CurrentNodeIndex()) });
     // リンク文字列内の参照でも外側のリンクが続くよう戻す。
     const int16_t outer_link = ctx->current_link_url_index;
     ctx->ResolveLinkUrlIndex(FootnoteDefUrl(ref->id));
@@ -586,7 +590,7 @@ void BeginFootnoteDef(ParseContext* ctx, const MD_BLOCK_FOOTNOTE_DEF_DETAIL* def
 {
     ctx->BeginNode(NodeType::ListItem);
     ctx->current_node->set_list_number(static_cast<int32_t>(def->id));
-    ctx->footnote_def_indices.push_back(static_cast<int32_t>(ctx->current_node_index));
+    ctx->footnote_def_indices.push_back(static_cast<int32_t>(ctx->CurrentNodeIndex()));
 }
 
 // GitHub と同じく、定義の末尾に参照へ戻るリンク "↩" (2 回目以降は "↩2" ...) を参照の数だけ付ける。
@@ -638,7 +642,7 @@ void LeaveCodeBlock(ParseContext* ctx)
     }
     if (IsDiagramLanguage(cn->code_language())) {
         cn->type = NodeType::Diagram;
-        ctx->diagram_indices.emplace_back(ctx->current_node_index);
+        ctx->diagram_indices.emplace_back(ctx->CurrentNodeIndex());
     }
 }
 
@@ -798,7 +802,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 
     case MD_BLOCK_H:
         if (auto* const cn = ctx->current_node; cn && cn->type == NodeType::Heading) {
-            ctx->toc_entries.emplace_back(static_cast<int>(ctx->current_node_index), cn->heading_level());
+            ctx->toc_entries.emplace_back(static_cast<int>(ctx->CurrentNodeIndex()), cn->heading_level());
         }
         ctx->EndNode();
         break;
@@ -833,7 +837,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 
 bool IsAlertMarkerOnlyHead(const ParseContext* ctx)
 {
-    return ctx->current_node && IsAlertHeadCandidate(ctx->nodes, ctx->current_node_index) && IsAlertMarkerOnly(ctx->current_text);
+    return ctx->current_node && IsAlertHeadCandidate(ctx->nodes, ctx->CurrentNodeIndex()) && IsAlertMarkerOnly(ctx->current_text);
 }
 
 // "> [!NOTE]\n> ![img](p.png)" は md4c では 1 段落になり、画像段落として丸ごと Image に昇格すると

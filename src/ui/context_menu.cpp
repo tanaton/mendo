@@ -4,6 +4,7 @@
 #include "resource.h"
 #include "ui_constants.h"
 #include "utility.h"
+#include "win32_util.h"
 #include <algorithm>
 #include <mutex>
 #include <windowsx.h>
@@ -41,20 +42,14 @@ bool ContextMenu::Impl::RegisterWindowClass()
 
 LRESULT CALLBACK ContextMenu::Impl::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
-    ContextMenu::Impl* self = nullptr;
+    auto* self = BindWindowInstance<ContextMenu::Impl>(hwnd, msg, lParam);
+    if (!self) {
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
     if (msg == WM_NCCREATE) {
-        const auto* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
-        self = static_cast<ContextMenu::Impl*>(cs->lpCreateParams);
-        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
         self->hwnd = hwnd;
     }
-    else {
-        self = reinterpret_cast<ContextMenu::Impl*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-    }
-    if (self) {
-        return self->HandleMessage(msg, wParam, lParam);
-    }
-    return DefWindowProcW(hwnd, msg, wParam, lParam);
+    return self->HandleMessage(msg, wParam, lParam);
 }
 
 bool ContextMenu::Impl::CreatePopupWindow(int screen_x, int screen_y)

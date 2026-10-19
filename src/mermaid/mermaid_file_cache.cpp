@@ -182,21 +182,6 @@ void MermaidFileCache::SaveIndex()
     }
 }
 
-bool MermaidFileCache::Lookup(uint64_t key, CacheEntry& entry, PngBlob& png)
-{
-    std::filesystem::path path;
-    if (!LookupPath(key, entry, path)) {
-        return false;
-    }
-    DWORD read_error = 0;
-    png = ReadAllBytes(path.c_str(), &read_error);
-    if (png.empty()) {
-        OnReadFailed(key, read_error);
-        return false;
-    }
-    return true;
-}
-
 bool MermaidFileCache::LookupPath(uint64_t key, CacheEntry& entry, std::filesystem::path& png_path)
 {
     auto& index = Index();

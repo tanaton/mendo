@@ -3,6 +3,7 @@
 #include "toc.h"
 #include <cstddef>
 #include <memory_resource>
+#include <span>
 #include <string_view>
 
 class LayoutCache;
@@ -11,7 +12,7 @@ class LayoutCache;
 
 // scroll_y + margin の位置にある見出し (目次の項目番号)。無ければ -1。
 // margin は見出し上部余白で、画面上端に近い見出しを正しくアクティブにする。
-int FindActiveTocIndex(const TableOfContents& toc, const LayoutCache& cache, float scroll_y, float margin = 0.0f) noexcept;
+int FindActiveTocIndex(std::span<const TocEntry> entries, const LayoutCache& cache, float scroll_y, float margin = 0.0f) noexcept;
 
 // diff 位置のノードに基づくスクロールY座標を計算する。
 // diff_pos が npos (差分位置なし = スクロール維持) またはノードが見つからない場合は

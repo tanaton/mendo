@@ -15,18 +15,17 @@ namespace {
 
 struct ParsedToc {
     std::pmr::vector<Node> nodes;
-    TableOfContents toc;
+    std::pmr::vector<TocEntry> toc;
 };
 
 // パーサが見出しの終わりで積んだ目次をそのまま使う。
 ParsedToc ParseToc(std::string_view markdown)
 {
     auto result = ParseMarkdown(markdown);
-    TableOfContents toc{ std::move(result.toc_entries) };
     auto storage = result.TakeNodes();
     auto nodes = std::move(storage.nodes);
     test_nodes_detail::KeepAlive(std::move(storage));
-    return { std::move(nodes), std::move(toc) };
+    return { std::move(nodes), std::move(result.toc_entries) };
 }
 
 struct TocItem {
@@ -42,7 +41,7 @@ struct TocItem {
 std::vector<TocItem> TocItems(const ParsedToc& parsed)
 {
     std::vector<TocItem> items;
-    for (const auto& entry : parsed.toc.GetEntries()) {
+    for (const auto& entry : parsed.toc) {
         items.push_back({ entry.heading_level, std::string{ parsed.nodes[entry.node_index].GetText() } });
     }
     return items;
@@ -55,7 +54,7 @@ LayoutCache MakeHeadingCache(const ParsedToc& parsed, std::initializer_list<floa
     cache.Resize(parsed.nodes.size());
     size_t i = 0;
     for (const float top : tops) {
-        const int node_index = parsed.toc.GetEntries()[i++].node_index;
+        const int node_index = parsed.toc[i++].node_index;
         cache.SetTop(node_index, top);
         cache[node_index].height = height;
     }
@@ -68,7 +67,7 @@ TEST(Toc, NoEntriesWithoutHeadings)
 {
     for (const std::string_view md : { std::string_view{ "" }, std::string_view{ "Just a paragraph.\n\n- List item\n\n> Quote" } }) {
         SCOPED_TRACE(md);
-        EXPECT_TRUE(ParseToc(md).toc.GetEntries().empty());
+        EXPECT_TRUE(ParseToc(md).toc.empty());
     }
 }
 
@@ -94,7 +93,7 @@ TEST(Toc, EntriesFollowHeadingsInOrder)
         const auto parsed = ParseToc(c.md);
         EXPECT_EQ(TocItems(parsed), c.expected);
         int prev = -1;
-        for (const auto& entry : parsed.toc.GetEntries()) {
+        for (const auto& entry : parsed.toc) {
             ASSERT_LT(entry.node_index, static_cast<int>(parsed.nodes.size()));
             EXPECT_EQ(parsed.nodes[entry.node_index].type, NodeType::Heading);
             EXPECT_GT(entry.node_index, prev);
@@ -109,14 +108,14 @@ TEST(Toc, ManyHeadings)
     for (int i = 0; i < 100; i++) {
         md += "## Heading " + std::to_string(i) + "\n\ntext\n\n";
     }
-    EXPECT_EQ(ParseToc(md).toc.GetEntries().size(), 100u);
+    EXPECT_EQ(ParseToc(md).toc.size(), 100u);
 }
 
 // ---- FindActiveIndex ----
 
 TEST(Toc, FindActiveIndexEmpty)
 {
-    TableOfContents toc;
+    std::pmr::vector<TocEntry> toc;
     LayoutCache cache;
     EXPECT_EQ(FindActiveTocIndex(toc, cache, 0.0f), -1);
 }
@@ -146,7 +145,7 @@ TEST(Toc, FindActiveIndexManyHeadings)
         md += "## H" + std::to_string(i) + "\n\nText\n\n";
     }
     const auto parsed = ParseToc(md);
-    ASSERT_EQ(parsed.toc.GetEntries().size(), 10u);
+    ASSERT_EQ(parsed.toc.size(), 10u);
     const auto cache = MakeHeadingCache(parsed, { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f, 700.0f, 800.0f, 900.0f });
 
     EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 0.0f), 0);

@@ -112,12 +112,9 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept
 
 std::wstring_view ExtensionView(std::wstring_view path) noexcept
 {
-    const auto last_sep = path.find_last_of(L"\\/");
-    const auto dot_pos = path.rfind(L'.');
-    if (dot_pos == std::wstring_view::npos || (last_sep != std::wstring_view::npos && dot_pos < last_sep)) {
-        return {};
-    }
-    return path.substr(dot_pos);
+    const auto name = FilenameView(path);
+    const auto dot_pos = name.rfind(L'.');
+    return dot_pos == std::wstring_view::npos ? std::wstring_view{} : name.substr(dot_pos);
 }
 
 bool IsMarkdownFile(std::wstring_view path)
@@ -131,14 +128,6 @@ bool IsMarkdownFile(std::wstring_view path)
     return std::ranges::any_of(kMarkdownExts, [&](const auto& e) noexcept {
         return ascii_util::iequal(ext, e);
     });
-}
-
-std::pmr::wstring ExtractFilename(std::wstring_view path)
-{
-    if (path.empty()) {
-        return {};
-    }
-    return std::pmr::wstring{ std::filesystem::path(path).filename().native() };
 }
 
 std::pmr::wstring ParentDirectory(std::wstring_view path)
@@ -296,8 +285,8 @@ std::pmr::string ToLowerAnchorCopy(std::string_view text)
 
 std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent)
 {
-    const auto filename = ExtractFilename(path);
-    std::pmr::wstring title = filename.empty() ? std::pmr::wstring{ L"mendo" } : filename + L" - mendo";
+    std::pmr::wstring title{ FilenameView(path) };
+    title += title.empty() ? L"mendo" : L" - mendo";
     if (zoom_percent > 0 && zoom_percent != 100) {
         std::format_to(std::back_inserter(title), L" ({}%)", zoom_percent);
     }

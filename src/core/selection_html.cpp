@@ -402,51 +402,6 @@ void AppendCodeBlockHtml(std::pmr::string& out, const Node& node, uint32_t start
     out.append(kClose);
 }
 
-// <thead>/<tbody> や <ol>/<ul> のように、同時に 1 つだけ開いている要素の切替を管理する RAII スコープ。
-// 別の要素に切り替わるとき前の要素を自動で閉じ、スコープ終了時に最後の要素も閉じる。
-class ExclusiveTagScope {
-public:
-    constexpr explicit ExclusiveTagScope(std::pmr::string& out) noexcept : out_(out)
-    {}
-    // Close() は bad_alloc を投げ得るが、例外の巻き戻し中に投げると terminate するので握りつぶす。
-    ~ExclusiveTagScope() noexcept
-    {
-        try {
-            Close();
-        } catch (...) {
-            MENDO_TRACE("ExclusiveTagScope::~ - Close bad_alloc");
-        }
-    }
-    ExclusiveTagScope(const ExclusiveTagScope&) = delete;
-    ExclusiveTagScope& operator=(const ExclusiveTagScope&) = delete;
-
-    constexpr void Enter(std::string_view open_tag, std::string_view close_tag)
-    {
-        if (close_tag_ == close_tag) {
-            return;
-        }
-        Close();
-        out_.append(open_tag);
-        close_tag_ = close_tag;
-    }
-    constexpr bool IsOpen() const noexcept
-    {
-        return !close_tag_.empty();
-    }
-    // out_.append() は bad_alloc を投げうるため noexcept にはしない。
-    constexpr void Close()
-    {
-        if (!close_tag_.empty()) {
-            out_.append(close_tag_);
-            close_tag_ = {};
-        }
-    }
-
-private:
-    std::pmr::string& out_;
-    std::string_view close_tag_{};
-};
-
 constexpr void AppendTableCellStyle(std::pmr::string& out, TableAlign align, bool dark_mode)
 {
     out.append(" style=\"border:1px solid ");
@@ -523,33 +478,31 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
 
     UrlSafetyTable url_safety{ link_urls.size() };
     out.append("<table style=\"border-collapse:collapse;\">");
-    {
-        ExclusiveTagScope section(out);
-        for (size_t r = first_row; r < end_row; r++) {
-            const bool header_row = tbl->IsHeaderRow(r);
-            if (header_row) {
-                section.Enter("<thead>", "</thead>");
-            }
-            else {
-                section.Enter("<tbody>", "</tbody>");
-            }
-
-            const std::string_view open_tag = header_row ? "<th" : "<td";
-            const std::string_view close_tag = header_row ? "</th>" : "</td>";
-            out.append("<tr>");
-            for (size_t c = 0; c < col_count; c++) {
-                out.append(open_tag);
-                AppendTableCellStyle(out, tbl->ColAlign(c), dark_mode);
-                out.append(">");
-                const uint32_t cell_start = tbl->CellTextStart(r, c);
-                const uint32_t cell_end = tbl->CellTextEnd(r, c);
-                AppendInlineHtml(out, tbl->GetCellText(r, c), tbl->GetCellRuns(r, c), link_urls, url_safety.Span(),
-                                 std::clamp(start, cell_start, cell_end) - cell_start, std::clamp(end, cell_start, cell_end) - cell_start);
-                out.append(close_tag);
-            }
-            out.append("</tr>");
+    std::string_view section_close;
+    for (size_t r = first_row; r < end_row; r++) {
+        const bool header_row = tbl->IsHeaderRow(r);
+        if (const std::string_view close = header_row ? "</thead>" : "</tbody>"; close != section_close) {
+            out.append(section_close);
+            out.append(header_row ? "<thead>" : "<tbody>");
+            section_close = close;
         }
+
+        const std::string_view open_tag = header_row ? "<th" : "<td";
+        const std::string_view close_tag = header_row ? "</th>" : "</td>";
+        out.append("<tr>");
+        for (size_t c = 0; c < col_count; c++) {
+            out.append(open_tag);
+            AppendTableCellStyle(out, tbl->ColAlign(c), dark_mode);
+            out.append(">");
+            const uint32_t cell_start = tbl->CellTextStart(r, c);
+            const uint32_t cell_end = tbl->CellTextEnd(r, c);
+            AppendInlineHtml(out, tbl->GetCellText(r, c), tbl->GetCellRuns(r, c), link_urls, url_safety.Span(),
+                             std::clamp(start, cell_start, cell_end) - cell_start, std::clamp(end, cell_start, cell_end) - cell_start);
+            out.append(close_tag);
+        }
+        out.append("</tr>");
     }
+    out.append(section_close);
     out.append("</table>");
 }
 

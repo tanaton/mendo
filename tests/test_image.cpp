@@ -16,6 +16,7 @@
 #include <wrl/client.h>
 #include <shlwapi.h>
 #include <atomic>
+#include <deque>
 #include <latch>
 
 namespace {
@@ -310,12 +311,6 @@ TEST(ParserImage, ImageWithJapanesePath)
 // 画像の読み込み (DiagramEntry への寸法設定) を模してからレイアウトするため、ParseAndLayout ではなく Layout を使う。
 class ImageLayoutTest : public MockLayoutTestBase {
 protected:
-    static LayoutCache MakeCache(const std::pmr::vector<Node>& nodes)
-    {
-        LayoutCache cache;
-        cache.Resize(nodes.size());
-        return cache;
-    }
     static void SetImageSize(LayoutCache& cache, size_t i, float width, float height)
     {
         auto& d = cache.EnsureDiagram(i);
@@ -324,13 +319,13 @@ protected:
     }
     LayoutCache Layout(std::pmr::vector<Node>& nodes, float viewport_w = 800.0f)
     {
-        LayoutCache cache = MakeCache(nodes);
-        engine_.ComputeLayout(nodes, cache, viewport_w);
+        LayoutCache cache = MakeEmptyCache(nodes.size());
+        ComputeLayout(engine_, nodes, cache, viewport_w);
         return cache;
     }
     void Layout(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_w = 800.0f)
     {
-        engine_.ComputeLayout(nodes, cache, viewport_w);
+        ComputeLayout(engine_, nodes, cache, viewport_w);
     }
 };
 
@@ -351,7 +346,7 @@ TEST_F(ImageLayoutTest, ImageWithDimensionsUsesScaledHeight)
     auto nodes = ParseNodes("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     // 画像読み込み後のサイズをシミュレート
-    auto cache = MakeCache(nodes);
+    auto cache = MakeEmptyCache(nodes.size());
     SetImageSize(cache, 0, 400.0f, 300.0f);
     Layout(nodes, cache);
 
@@ -364,7 +359,7 @@ TEST_F(ImageLayoutTest, WideImageScaledDown)
     auto nodes = ParseNodes("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     // コンテンツ幅より大きい画像
-    auto cache = MakeCache(nodes);
+    auto cache = MakeEmptyCache(nodes.size());
     SetImageSize(cache, 0, 1600.0f, 900.0f);
     Layout(nodes, cache);
 
@@ -377,7 +372,7 @@ TEST_F(ImageLayoutTest, SmallImageNotScaledUp)
 {
     auto nodes = ParseNodes("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
-    auto cache = MakeCache(nodes);
+    auto cache = MakeEmptyCache(nodes.size());
     SetImageSize(cache, 0, 100.0f, 80.0f);
     Layout(nodes, cache);
 
@@ -389,15 +384,15 @@ TEST_F(ImageLayoutTest, ImageHeightRecalculatedOnWidthChange)
 {
     auto nodes = ParseNodes("![alt](img.png)");
     ASSERT_EQ(nodes.size(), 1u);
-    auto cache = MakeCache(nodes);
+    auto cache = MakeEmptyCache(nodes.size());
     SetImageSize(cache, 0, 1600.0f, 900.0f);
 
     // 広い幅
-    engine_.ComputeLayout(nodes, cache, 1800.0f);
+    ComputeLayout(engine_, nodes, cache, 1800.0f);
     float h_wide = cache[0].height;
 
     // 狭い幅 → 再計算で高さが変わること
-    engine_.ComputeLayout(nodes, cache, 400.0f);
+    ComputeLayout(engine_, nodes, cache, 400.0f);
     float h_narrow = cache[0].height;
 
     EXPECT_LT(h_narrow, h_wide);
@@ -406,7 +401,7 @@ TEST_F(ImageLayoutTest, ImageHeightRecalculatedOnWidthChange)
 TEST_F(ImageLayoutTest, ImageNodesDoNotOverlap)
 {
     auto nodes = ParseNodes("![a](a.png)\n\n![b](b.png)\n\n![c](c.png)");
-    auto cache = MakeCache(nodes);
+    auto cache = MakeEmptyCache(nodes.size());
     for (size_t i = 0; i < nodes.size(); i++) {
         SetImageSize(cache, i, 200.0f, 150.0f);
     }
@@ -422,7 +417,7 @@ TEST_F(ImageLayoutTest, ImageBetweenTextNodesDoNotOverlap)
 {
     auto nodes = ParseNodes("Text before\n\n![alt](img.png)\n\nText after");
     ASSERT_EQ(nodes.size(), 3u);
-    auto cache = MakeCache(nodes);
+    auto cache = MakeEmptyCache(nodes.size());
     SetImageSize(cache, 1, 400.0f, 300.0f);
     Layout(nodes, cache);
 
@@ -446,7 +441,7 @@ TEST_F(ImageLayoutTest, ImageWithZeroDimensionsGetsPlaceholder)
 TEST_F(ImageLayoutTest, ImageAspectRatioPreserved)
 {
     auto nodes = ParseNodes("![alt](img.png)");
-    auto cache = MakeCache(nodes);
+    auto cache = MakeEmptyCache(nodes.size());
     SetImageSize(cache, 0, 1000.0f, 500.0f);
 
     const float viewport_width = 600.0f;
@@ -858,14 +853,14 @@ TEST_F(ImageLoaderTest, FileNotLockedAfterFailedLoad)
 
 class WicDecodeTest : public ImageLoaderTest {
 protected:
+    // 戻り値はファイルのバイト列を参照するので、フィクスチャの寿命まで保持する。
     std::optional<wic_util::DecodeResult> Decode(std::wstring_view filename)
     {
-        ComPtr<IStream> stream;
-        if (FAILED(SHCreateStreamOnFileW(GetTestImagePath(filename).c_str(), STGM_READ, &stream))) {
-            return std::nullopt;
-        }
-        return wic_util::DecodeFromStream(wic_factory_.Get(), stream.Get());
+        const auto& bytes = files_.emplace_back(ReadAllBytes(GetTestImagePath(filename).c_str()));
+        return wic_util::DecodeImageFileFromMemory(wic_factory_.Get(), bytes);
     }
+
+    std::deque<std::pmr::vector<uint8_t>> files_;
 
     static void ExpectPbgraOfSize(IWICBitmap* bitmap, UINT width, UINT height)
     {

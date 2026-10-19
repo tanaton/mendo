@@ -29,6 +29,13 @@ std::pmr::string ToLowerAnchorCopy(std::string_view text);
 // ソース位置と引用グループ番号は比べない。リロードで計測結果を使い回せるかの判定に使う。
 bool NodeContentEquals(const Node& a, const Node& b) noexcept;
 
+// 最後のパス区切り以降。区切りで終わるパスでは空。
+constexpr std::wstring_view FilenameView(std::wstring_view path) noexcept
+{
+    const auto pos = path.find_last_of(L"\\/");
+    return pos == std::wstring_view::npos ? path : path.substr(pos + 1);
+}
+
 // 最後のパス区切り以降の "." を含む拡張子。無ければ空。
 std::wstring_view ExtensionView(std::wstring_view path) noexcept;
 
@@ -40,8 +47,6 @@ inline constexpr bool IsHelpPath(std::wstring_view path) noexcept
 {
     return path == HELP_PATH;
 }
-
-std::pmr::wstring ExtractFilename(std::wstring_view path);
 
 // 空パスや区切りを含まないパスでは空を返す。
 std::pmr::wstring ParentDirectory(std::wstring_view path);

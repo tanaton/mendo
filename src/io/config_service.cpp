@@ -243,11 +243,10 @@ SessionService::PaneState SessionService::LoadPaneState(float min_width, float d
     return s;
 }
 
-void SessionService::SaveScrollPosition(int node, float scroll_y, float node_y)
+void SessionService::SaveScrollPosition(int node, float offset)
 {
-    const int offset = static_cast<int>(std::lround(scroll_y - node_y));
     config_.SaveInt(kSectionSession, kKeyScrollNode, node);
-    config_.SaveInt(kSectionSession, kKeyScrollOffset, offset);
+    config_.SaveInt(kSectionSession, kKeyScrollOffset, static_cast<int>(std::lround(offset)));
 }
 
 SessionService::ScrollPosition SessionService::LoadScrollPosition() const

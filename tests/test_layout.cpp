@@ -85,7 +85,7 @@ TEST_F(LayoutTest, EmptyNodesProduceZeroHeight)
 {
     std::pmr::vector<Node> nodes;
     LayoutCache cache;
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    ComputeLayout(engine_, nodes, cache, 800.0f);
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, theme_.margin_bottom), 0.0f);
 }
 
@@ -140,7 +140,7 @@ TEST_F(LayoutTest, LayoutDirtyFlagCleared)
     LayoutCache cache;
     cache.Resize(nodes.size());
     EXPECT_TRUE(cache[0].layout_dirty);
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    ComputeLayout(engine_, nodes, cache, 800.0f);
     EXPECT_FALSE(cache[0].layout_dirty);
 }
 
@@ -172,7 +172,7 @@ TEST_F(LayoutTest, TableLayout)
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Table);
     EXPECT_GT(cache[0].height, 0.0f);
-    ASSERT_TRUE(cache[0].has_table_layout());
+    ASSERT_NE(cache[0].table_layout(), nullptr);
     EXPECT_FALSE(cache[0].table_layout()->col_widths.empty());
 }
 
@@ -182,7 +182,7 @@ TEST_F(LayoutTest, TableCellLayoutsCreated)
         "| A | B |\n"
         "|---|---|\n"
         "| 1 | 2 |");
-    ASSERT_TRUE(cache[0].has_table_layout());
+    ASSERT_NE(cache[0].table_layout(), nullptr);
     const auto& tl = *cache[0].table_layout();
     const auto* tbl = nodes[0].table_data();
     for (size_t r = 0; r < tbl->row_count; r++) {
@@ -205,7 +205,7 @@ TEST_F(LayoutTest, TableCellLinkHasUnderline)
     ASSERT_GE(tbl->row_count, 2u);
 
     // データ行の2番目のセルにはリンクランがあり、下線が適用されていること
-    ASSERT_TRUE(cache[0].has_table_layout());
+    ASSERT_NE(cache[0].table_layout(), nullptr);
     IDWriteTextLayout* cell_layout = cache[0].table_layout()->GetCellLayout(1, 1);
     ASSERT_NE(cell_layout, nullptr);
 
@@ -285,7 +285,7 @@ TEST_F(LayoutTest, WidthChangeRecomputesLayouts)
     auto [nodes, cache] = ParseAndLayout("This is a paragraph with some text that might wrap differently.");
     float height_wide = cache[0].height;
 
-    engine_.ComputeLayout(nodes, cache, 200.0f);
+    ComputeLayout(engine_, nodes, cache, 200.0f);
     float height_narrow = cache[0].height;
 
     // 狭い幅ではテキストが高くなる（折り返しが増える）
@@ -305,7 +305,7 @@ TEST_F(LayoutTest, EmptyTableMinimalHeight)
     LayoutCache cache;
     cache.Resize(nodes.size());
 
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    ComputeLayout(engine_, nodes, cache, 800.0f);
     // 空のテーブルはクラッシュせず、何らかの高さを持つこと
     EXPECT_GE(cache[0].height, 0.0f);
 }
@@ -513,10 +513,10 @@ TEST_F(LayoutTest, TableWidthFitsNodeOrScrollableNaturalWidth)
         SCOPED_TRACE("viewport_w=" + std::to_string(viewport_w));
         auto [nodes, cache] = ParseAndLayout(md, viewport_w);
         ASSERT_EQ(nodes.size(), 1u);
-        ASSERT_TRUE(cache[0].has_table_layout());
+        ASSERT_NE(cache[0].table_layout(), nullptr);
         const auto& tl = *cache[0].table_layout();
         const float node_width = theme_.ContentWidth(viewport_w) - NodeIndent(nodes[0], theme_);
-        EXPECT_LE(tl.cached_table_width, std::max(node_width, tl.natural_total_width) + 0.05f)
+        EXPECT_LE(tl.TableWidth(), std::max(node_width, tl.natural_total_width) + 0.05f)
             << "natural_total_width=" << tl.natural_total_width << " node_width=" << node_width;
     }
 }
@@ -640,7 +640,7 @@ TEST_F(LayoutTest, EnsureVisibleLayoutFixesDirtyVisibleNodes)
     auto [nodes, cache] = ParseAndLayout(MakeParagraphs(20));
 
     // 別の幅で部分的なレイアウトを実行 — 画面外のノードがダーティにマークされる
-    engine_.ComputeLayout(nodes, cache, 400.0f, 0.0f, 100.0f);
+    ComputeLayout(engine_, nodes, cache, 400.0f, 0.0f, 100.0f);
 
     // ビューポート外のノードはまだダーティであること
     ASSERT_GT(CountDirty(cache), 0u);
@@ -695,7 +695,7 @@ TEST_F(LayoutTest, EnsureVisibleLayoutRecomputesYPositions)
     auto [nodes, cache] = ParseAndLayout(MakeParagraphs(10));
 
     // 狭い幅で部分的なレイアウトを実行（画面外をダーティにマーク）
-    engine_.ComputeLayout(nodes, cache, 300.0f, 0.0f, 50.0f);
+    ComputeLayout(engine_, nodes, cache, 300.0f, 0.0f, 50.0f);
 
     // EnsureVisibleLayoutがY位置を一貫して更新すること
     engine_.EnsureVisibleLayout(nodes, cache, 300.0f, 0.0f, 50.0f);
@@ -738,7 +738,7 @@ TEST_F(LayoutTest, PartialLayoutRefreshesStaleInvisibleHeights)
 
     // 部分レイアウト：可視範囲は先頭わずかのみ。後方の invisible ダーティ群は
     // 現テーマでの推定値に置き換わるはずで、stale な巨大 height は混ざらない。
-    engine_.ComputeLayout(nodes, cache, 800.0f, 0.0f, 50.0f);
+    ComputeLayout(engine_, nodes, cache, 800.0f, 0.0f, 50.0f);
     const float last_top_after = cache.Top(node_count - 1);
 
     // baseline と同程度（推定誤差ぶんはあり得る）に収束し、stale の合計を
@@ -841,11 +841,11 @@ TEST(FindFirstVisibleNodeIndex, LastNodeVisible)
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 449.0f), 8);
 }
 
-// Reset 直後 (全ノードの位置・高さが 0) も該当なし扱い。
+// 作った直後 (全ノードの位置・高さが 0) も該当なし扱い。
 TEST(FindFirstVisibleNodeIndex, FreshCacheReturnsNodeCount)
 {
     LayoutCache cache;
-    cache.Reset(5);
+    cache.Resize(5);
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 0.0f), 5);
 }
 
@@ -1133,7 +1133,7 @@ TEST_F(LayoutTest, EstimateVsActualHeightReasonableRange)
     actual_cache.Resize(nodes.size());
 
     EstimateNodeHeights(nodes, est_cache, theme_);
-    engine_.ComputeLayout(nodes, actual_cache, 800.0f);
+    ComputeLayout(engine_, nodes, actual_cache, 800.0f);
 
     for (size_t i = 0; i < nodes.size(); i++) {
         // 推定値は実測値の0.2倍〜5倍の範囲内であること
@@ -1431,7 +1431,7 @@ TEST_F(LayoutTest, PartialLayoutFromVisibleStartMatchesFullLayout)
     RecomputeYPositions(nodes, cache, theme_);
     ASSERT_NE(cache.Top(150), ref_tops[150]);
 
-    engine_.ComputeLayout(nodes, cache, 800.0f, cache.Top(100), cache.Bottom(104));
+    ComputeLayout(engine_, nodes, cache, 800.0f, cache.Top(100), cache.Bottom(104));
 
     for (size_t i = 0; i < nodes.size(); i++) {
         EXPECT_FLOAT_EQ(cache.Top(i), ref_tops[i]) << "i=" << i;

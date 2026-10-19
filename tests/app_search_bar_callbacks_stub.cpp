@@ -12,23 +12,11 @@
 #include "search_bar_controller.h"
 #include "app_search_bar_callbacks.h"
 
-void AppSearchBarCallbacks::invalidate()
-{}
-void AppCallbacksBase::set_timer(app_timer::Id, UINT)
-{}
-void AppCallbacksBase::kill_timer(app_timer::Id)
-{}
-void AppSearchBarCallbacks::focus_select_all()
-{}
-void AppSearchBarCallbacks::unfocus()
-{}
 float AppCallbacksBase::get_md_pane_height()
 {
     return 0.0f;
 }
 void AppSearchBarCallbacks::ensure_node_layout(int)
-{}
-void AppSearchBarCallbacks::on_wrap_around()
 {}
 
 template class SearchBarControllerT<AppSearchBarCallbacks>;

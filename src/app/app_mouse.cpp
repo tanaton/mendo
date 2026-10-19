@@ -115,14 +115,14 @@ std::wstring_view SearchBarTooltipText(SearchBarHitZone zone) noexcept
     std::unreachable();
 }
 
-std::wstring_view NavButtonTooltipText(NavButtonHover hit) noexcept
+std::wstring_view NavButtonTooltipText(NavDirection hit) noexcept
 {
     switch (hit) {
-    case NavButtonHover::None:
+    case NavDirection::None:
         return {};
-    case NavButtonHover::Back:
+    case NavDirection::Back:
         return i18n::S().tooltip_nav_back;
-    case NavButtonHover::Forward:
+    case NavDirection::Forward:
         return i18n::S().tooltip_nav_forward;
     }
     std::unreachable();
@@ -279,15 +279,11 @@ void App::OnMouseMove(int px, int py)
         Dispatch(SearchInputDragMovedAction{ HitTestSearchInputPos(sbl, state_.search.search_bar_ctrl.GetQueryWide(), dip.x) });
         return;
     }
-    case LeftDrag::Splitter1:
-    case LeftDrag::Splitter2:
+    case LeftDrag::Splitter:
         Dispatch(SplitterDragMovedAction{ dip.x });
         return;
-    case LeftDrag::FileScrollbar:
-        Dispatch(PaneScrollbarDragMovedAction{ PaneTarget::File, dip.y });
-        return;
-    case LeftDrag::TocScrollbar:
-        Dispatch(PaneScrollbarDragMovedAction{ PaneTarget::Toc, dip.y });
+    case LeftDrag::PaneScrollbar:
+        Dispatch(PaneScrollbarDragMovedAction{ dip.y });
         return;
     case LeftDrag::MdScrollbar:
         Dispatch(MdScrollbarDragMovedAction{ dip.y });
@@ -316,15 +312,7 @@ void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
         return;
     }
 
-    // 縦スクロールが発生した時点で SwipeDetector の軸ロックを更新（再武装）し、
-    // 直後の水平ホイールがスワイプとして誤検出されないようにする。
-    const bool had_overlay = state_.interaction.swipe_detector.IsOverlayVisible();
-    state_.interaction.swipe_detector.NotifyVScroll(GetTickCount64());
-    if (had_overlay) {
-        KillTimer(app_timer::Id::SWIPE_OVERLAY);
-        Invalidate();
-    }
-
+    Dispatch(VWheelAction{ GetTickCount64() });
     const auto dip = PixelToDip(px, py);
     Dispatch(app_controller::HandleMouseWheel(MouseWheelEvent{ delta, false, ZoneAt(dip.x, GetPaneLayout()) }, zoom_accum));
 }
@@ -532,7 +520,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         HandleSearchBarClick(dip_x, dip_y, pane_layout, false);
         return;
     case MdPaneHit::Kind::NavButton:
-        if (target.nav == NavButtonHover::Back) {
+        if (target.nav == NavDirection::Back) {
             Dispatch(NavigateBackAction{});
         }
         else {
@@ -566,11 +554,11 @@ void App::RefreshFilePane()
 
 void App::HandleFileEntryClick(const FileEntry& entry)
 {
-    if (entry.is_directory()) {
+    if (entry.is_directory) {
         Dispatch(FilePaneDirectoryClickedAction{ entry.full_path });
         return;
     }
-    if (entry.is_current()) {
+    if (entry.is_current) {
         return;
     }
     if (GetFileAttributesW(entry.full_path.c_str()) == INVALID_FILE_ATTRIBUTES) {
@@ -578,7 +566,7 @@ void App::HandleFileEntryClick(const FileEntry& entry)
         ShowToast(i18n::S().toast_file_not_found);
         return;
     }
-    Dispatch(FilePaneFileClickedAction{ entry.full_path });
+    Dispatch(OpenPathAction{ entry.full_path });
 }
 
 void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout)
@@ -618,7 +606,7 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const
         HandleFileEntryClick(state_.file_explorer.GetEntries()[idx]);
     }
     else {
-        Dispatch(TocItemClickedAction{ state_.document.doc.GetToc().GetEntries()[idx].node_index });
+        Dispatch(TocItemClickedAction{ state_.document.doc.GetToc()[idx].node_index });
     }
 }
 
@@ -646,7 +634,7 @@ TooltipTarget App::BuildMdContentTooltip(int hit_node, std::optional<LinkHit> li
     if (hit_node < 0) {
         return {};
     }
-    const auto& current = state_.interaction.tooltip.GetCurrent();
+    const auto& current = state_.interaction.tooltip;
     const auto& node = state_.document.doc.GetNodes()[hit_node];
     const auto node_index = static_cast<uint32_t>(hit_node);
     if (link) {
@@ -677,7 +665,7 @@ App::MdPaneHit App::ResolveMdPaneHit(float dip_x, float dip_y, const MdPaneHitCo
     if (const auto sbl = SearchBarLayoutAt(dip_y, pane_layout.md_rect)) {
         return { .kind = Kind::SearchBar, .search_bar = HitTestSearchBar(*sbl, dip_x, dip_y) };
     }
-    if (const auto nav = hit_test::NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect); nav != NavButtonHover::None) {
+    if (const auto nav = hit_test::NavButtonHitTest(dip_x, dip_y, pane_layout.md_rect); nav != NavDirection::None) {
         return { .kind = Kind::NavButton, .nav = nav };
     }
     // 縮小表示で余白が狭いとボタンがスクロールバーのヒット余白に掛かるので、ボタンを優先する。
@@ -692,20 +680,20 @@ App::MdPaneHit App::ResolveMdPaneHit(float dip_x, float dip_y, const MdPaneHitCo
 
 HCURSOR App::HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout, PointerHover& hover) const
 {
-    const auto& current_tooltip = state_.interaction.tooltip.GetCurrent();
+    const auto& current_tooltip = state_.interaction.tooltip;
     const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
     const auto target = ResolveMdPaneHit(dip_x, dip_y, hit_ctx, pane_layout);
     switch (target.kind) {
     case MdPaneHit::Kind::SearchBar:
         hover.search_bar = target.search_bar;
         hover.tooltip = MakeTooltip(current_tooltip, TooltipTarget::Zone::SearchBarButton, std::to_underlying(hover.search_bar), SearchBarTooltipText(hover.search_bar));
-        return hover.search_bar == SearchBarHitZone::Input ? cursors_.IBeam() : cursors_.Arrow();
+        return hover.search_bar == SearchBarHitZone::Input ? cursors_.ibeam : cursors_.arrow;
     case MdPaneHit::Kind::NavButton:
         hover.nav = target.nav;
         hover.tooltip = MakeTooltip(current_tooltip, TooltipTarget::Zone::NavButton, std::to_underlying(hover.nav), NavButtonTooltipText(hover.nav));
-        return cursors_.Hand();
+        return cursors_.hand;
     case MdPaneHit::Kind::Scrollbar:
-        return cursors_.Arrow();
+        return cursors_.arrow;
     case MdPaneHit::Kind::OverlayButton:
     case MdPaneHit::Kind::Content:
         break;
@@ -721,7 +709,7 @@ HCURSOR App::HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLay
     if (hover.overlay_button.Any()) {
         const auto kind = hover.overlay_button.kind;
         hover.tooltip = MakeTooltip(current_tooltip, TooltipTarget::Zone::OverlayButton, std::to_underlying(kind), OverlayButtonTooltipText(kind));
-        return cursors_.Hand();
+        return cursors_.hand;
     }
 
     // 文字位置はリンク判定にしか使わないので、リンクを含むノードの上でだけ求める。
@@ -730,13 +718,13 @@ HCURSOR App::HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLay
         link = GetLinkAtHit(hit_test::HitTest(hit_ctx));
     }
     hover.tooltip = BuildMdContentTooltip(node_index, link);
-    return link ? cursors_.Hand() : cursors_.IBeam();
+    return link ? cursors_.hand : cursors_.ibeam;
 }
 
 TooltipTarget App::BuildSidePaneTooltip(PaneTarget target, PaneHeaderButton hit, int idx) const
 {
     const bool is_file = target == PaneTarget::File;
-    const auto& current = state_.interaction.tooltip.GetCurrent();
+    const auto& current = state_.interaction.tooltip;
     if (hit != PaneHeaderButton::None) {
         const auto zone = is_file ? TooltipTarget::Zone::FilePaneButton : TooltipTarget::Zone::TocPaneButton;
         return MakeTooltip(current, zone, std::to_underlying(hit), PaneHeaderButtonTooltipText(hit));
@@ -756,7 +744,7 @@ TooltipTarget App::BuildSidePaneTooltip(PaneTarget target, PaneHeaderButton hit,
             text = entries[item].full_path;
         });
     }
-    const auto& toc_entries = state_.document.doc.GetToc().GetEntries();
+    const auto& toc_entries = state_.document.doc.GetToc();
     if (item >= toc_entries.size()) {
         return {};
     }
@@ -775,7 +763,7 @@ HCURSOR App::HoverSidePane(PaneTarget target, float dip_x, float dip_y, const Pa
     hover.side_button[k] = button;
     hover.side_index[k] = SidePaneItemAt(state_, target, rect, dip_y);
     hover.tooltip = BuildSidePaneTooltip(target, button, hover.side_index[k]);
-    return button != PaneHeaderButton::None ? cursors_.Hand() : cursors_.Arrow();
+    return button != PaneHeaderButton::None ? cursors_.hand : cursors_.arrow;
 }
 
 void App::OnMouseHover(int px, int py)
@@ -793,20 +781,20 @@ void App::OnMouseHover(int px, int py)
     // 各ゾーンは自分のホバーだけを書き、それ以外は既定値 (ホバー無し) のまま reducer に渡して解除させる。
     const auto dip = PixelToDip(px, py);
     PointerHover hover;
-    HCURSOR cursor = cursors_.Arrow();
+    HCURSOR cursor = cursors_.arrow;
     if (dip.y < state_.window.titlebar.GetHeight()) {
         hover.titlebar = state_.window.titlebar.HitTest(dip.x, dip.y);
         const bool maximized = IsZoomed(hwnd_);
         // 最大化ボタンは状態で文言が変わるため key を分ける。
         const uint64_t key = std::to_underlying(hover.titlebar) * 2ull + (hover.titlebar == TitleBarHitZone::Maximize && maximized);
-        hover.tooltip = MakeTooltip(state_.interaction.tooltip.GetCurrent(), TooltipTarget::Zone::TitleBarButton, key, TitleBarTooltipText(hover.titlebar, maximized));
+        hover.tooltip = MakeTooltip(state_.interaction.tooltip, TooltipTarget::Zone::TitleBarButton, key, TitleBarTooltipText(hover.titlebar, maximized));
     }
     else {
         const auto& pane_layout = GetPaneLayout();
         switch (const auto zone = ZoneAt(dip.x, pane_layout)) {
         case PaneZone::Splitter1:
         case PaneZone::Splitter2:
-            cursor = cursors_.SizeWE();
+            cursor = cursors_.size_we;
             break;
         case PaneZone::FilePane:
         case PaneZone::TocPane:

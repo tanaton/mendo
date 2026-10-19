@@ -28,6 +28,18 @@ inline std::span<const std::byte> LoadRcData(UINT resource_id) noexcept
     return { data, size };
 }
 
+// WM_NCCREATE で lpCreateParams の T* を hwnd に結び付け、以降のメッセージではそれを返す。結び付け前は nullptr。
+template <class T>
+T* BindWindowInstance(HWND hwnd, UINT msg, LPARAM lParam) noexcept
+{
+    if (msg == WM_NCCREATE) {
+        auto* self = static_cast<T*>(reinterpret_cast<const CREATESTRUCTW*>(lParam)->lpCreateParams);
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+        return self;
+    }
+    return reinterpret_cast<T*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+}
+
 inline void LogHrFailure([[maybe_unused]] const char* what, HRESULT hr) noexcept
 {
     if (FAILED(hr)) {

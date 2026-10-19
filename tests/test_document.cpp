@@ -36,7 +36,7 @@ TEST(DocumentTest, DefaultIsEmpty)
     EXPECT_TRUE(doc.GetFilePath().empty());
     EXPECT_TRUE(doc.GetDirectory().empty());
     EXPECT_TRUE(doc.GetNodes().empty());
-    EXPECT_TRUE(doc.GetToc().GetEntries().empty());
+    EXPECT_TRUE(doc.GetToc().empty());
     EXPECT_TRUE(doc.GetRawText().empty());
     EXPECT_EQ(doc.GetLoadedByteSize(), 0u);
 }
@@ -48,8 +48,8 @@ TEST(DocumentTest, FromMarkdownBasic)
     EXPECT_EQ(doc.GetFilePath(), L"C:\\test.md");
     EXPECT_GE(doc.GetNodes().size(), 2u);
     // TOCに見出しが含まれるべき
-    EXPECT_FALSE(doc.GetToc().GetEntries().empty());
-    EXPECT_EQ(doc.GetNodes()[doc.GetToc().GetEntries()[0].node_index].GetText(), "Hello");
+    EXPECT_FALSE(doc.GetToc().empty());
+    EXPECT_EQ(doc.GetNodes()[doc.GetToc()[0].node_index].GetText(), "Hello");
 }
 
 TEST(DocumentTest, FromMarkdownEmpty)
@@ -239,7 +239,7 @@ TEST(DocumentTest, BuildIndicesDiagramNodes)
 TEST(DocumentTest, BuildIndicesTocAndAnchorConsistent)
 {
     auto doc = Document::FromMarkdown("# A\n\n## B\n\n### C", L"test.md");
-    const auto& toc = doc.GetToc().GetEntries();
+    const auto& toc = doc.GetToc();
     ASSERT_EQ(toc.size(), 3u);
     // TOCエントリのnode_indexがアンカーインデックスと一致
     const auto anchors = HeadingAnchors(doc.GetNodes());
@@ -322,7 +322,7 @@ TEST(DocumentTest, FindAnchorIndexLargeHeadingSet)
         md += "\n\n";
     }
     auto doc = Document::FromMarkdown(std::move(md), L"big.md");
-    const auto& toc = doc.GetToc().GetEntries();
+    const auto& toc = doc.GetToc();
     ASSERT_EQ(toc.size(), 1000u);
     const auto anchors = HeadingAnchors(doc.GetNodes());
     for (const auto& entry : toc) {
