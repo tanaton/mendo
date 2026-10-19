@@ -32,8 +32,6 @@ public:
         float css_height = 0.0f;
     };
 
-    using PngBlob = std::pmr::vector<uint8_t>;
-
     // 索引の読み込みは初回利用まで遅らせ、図を含まない文書の起動を塞がない。
     void Init(float current_dpr, TaskScheduler& scheduler);
     // 以降の参照・保存のキーに混ぜる DPR を差し替える。別の DPR のエントリは LRU で淘汰させる。
@@ -41,7 +39,6 @@ public:
     {
         current_dpr_ = dpr;
     }
-    bool Lookup(uint64_t key, CacheEntry& entry, PngBlob& png);
     // インデックスにあれば PNG のパスと寸法を返し LRU を更新する。読み込み (ReadAllBytes) は
     // 呼び出し側が任意のスレッドで行い、失敗したら OnReadFailed で UI スレッドに戻して反映する。
     bool LookupPath(uint64_t key, CacheEntry& entry, std::filesystem::path& png_path);

@@ -17,7 +17,6 @@ struct GestureRenderState {
     const std::pmr::deque<GesturePoint>* trail_points = nullptr;
     NavDirection direction = NavDirection::None;
     bool trail_active = false;
-    bool overlay_visible = false;
 };
 
 // message が空なら非表示。
@@ -78,7 +77,7 @@ struct SearchBarRenderState {
     int caret_pos = -1;       // キャレット位置（-1 = テキスト末尾）
     int selection_start = -1; // 選択開始位置（caret_posと異なる場合、選択範囲あり）
     bool visible = false;
-    bool caret_visible = false; // 非アクティブ時は隠す
+    bool caret_visible = false; // 非アクティブ時は隠す。点滅させない (点滅のたびに全画面再描画が走る)
     // チェックボックス状態
     bool case_sensitive = false;
     bool highlight_enabled = true;
@@ -97,7 +96,7 @@ struct RenderParams {
     const SearchBarRenderState& search_bar;
     float scroll_y = 0.0f;
     float total_content_height = 0.0f;
-    NavButtonHover nav_hovered = NavButtonHover::None;
+    NavDirection nav_hovered = NavDirection::None;
     OverlayButtonHit hovered;
     bool can_go_back = false;
     bool can_go_forward = false;

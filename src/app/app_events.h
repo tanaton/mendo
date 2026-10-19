@@ -97,7 +97,7 @@ struct HoverHighlights {
     TitleBarHitZone titlebar = TitleBarHitZone::None;
     // Input はホバー強調が無いので None と同じに扱う。
     SearchBarHitZone search_bar = SearchBarHitZone::None;
-    NavButtonHover nav = NavButtonHover::None;
+    NavDirection nav = NavDirection::None;
     OverlayButtonHit overlay_button{};
     // 横スクロールバーを出すブロック。-1 なら無し。
     int h_block = -1;
@@ -143,8 +143,8 @@ struct PaneScrollbarDragStartedAction {
     PaneTarget pane;
     float dip_y;
 };
+// ドラッグ中のペインは ViewState::drag から読む。
 struct PaneScrollbarDragMovedAction {
-    PaneTarget pane;
     float dip_y;
 };
 struct TextSelectionStartedAction {
@@ -176,9 +176,6 @@ struct RightClickGestureCompletedAction {
 struct FilePaneDirectoryClickedAction {
     std::pmr::wstring full_path;
 };
-struct FilePaneFileClickedAction {
-    std::pmr::wstring full_path;
-};
 struct FilePaneRevealCurrentFileAction {};
 struct TocItemClickedAction {
     int node_index;
@@ -195,6 +192,10 @@ struct HWheelAction {
     short delta;
     uint64_t tick;
 };
+// 縦ホイール。スクロール自体は HandleMouseWheel が返すアクションが行う。
+struct VWheelAction {
+    uint64_t tick;
+};
 
 struct BlockHScrollDragStartedAction {
     int node_index;
@@ -203,7 +204,8 @@ struct BlockHScrollDragStartedAction {
 struct BlockHScrollDragMovedAction {
     float dip_x;
 };
-struct DropFilesAction {
+// D&D・ファイルペイン・ファイルダイアログから、履歴を積んでファイルを開く。
+struct OpenPathAction {
     std::pmr::wstring path;
 };
 
@@ -281,16 +283,16 @@ using AppAction = std::variant<
     RightClickGestureMovedAction,
     RightClickGestureCompletedAction,
     FilePaneDirectoryClickedAction,
-    FilePaneFileClickedAction,
     FilePaneRevealCurrentFileAction,
     TocItemClickedAction,
     NavigateAnchorAction,
     RestoreScrollAfterLoadAction,
     LoadFailedAction,
     HWheelAction,
+    VWheelAction,
     BlockHScrollDragStartedAction,
     BlockHScrollDragMovedAction,
-    DropFilesAction,
+    OpenPathAction,
     InvalidateHoverAction,
     ResizeAction,
     DpiChangedAction,

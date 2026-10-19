@@ -32,6 +32,7 @@ struct ShowContextMenu {
     int screen_x;
     int screen_y;
 };
+struct Beep {};
 
 struct SearchFocus {
     enum class Mode : uint8_t {
@@ -59,7 +60,7 @@ struct ApplyThemeChange {
     };
     Type type;
 };
-// OnResizeEnd が BitmapManage (または遅延レイアウト) と SyncTocActive も出すので、併せて積まない。
+// OnResizeEnd (RelayoutViewport) が BitmapManage (または遅延レイアウト) と SyncTocActive も出すので、併せて積まない。
 struct PerformResizeEnd {};
 struct PerformSizingUpdate {};
 struct RendererResize {
@@ -111,6 +112,7 @@ using SideEffect = std::variant<
     effect::ShowTooltip,
     effect::ClearTooltip,
     effect::ShowContextMenu,
+    effect::Beep,
     // Window
     effect::SearchFocus,
     effect::SearchUnfocus,

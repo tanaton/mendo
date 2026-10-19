@@ -33,6 +33,7 @@ StartupPlan DecideStartupPlan(const StartupContext& ctx)
         plan.document_path = ctx.arg_path;
         plan.pane_directory = ParentDirectory(ctx.arg_path);
         plan.restore_scroll = ctx.arg_is_last_file;
+        plan.restore_scroll_if_same_file = !ctx.arg_is_last_file && !ctx.last_file.empty();
         return plan;
     case StartupArgKind::Directory:
         plan.document_path = ctx.last_file;

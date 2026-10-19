@@ -2,6 +2,7 @@
 #include "d2d_util.h"
 #include "doc_dwrite_bridge.h"
 #include "hit_test_service.h"
+#include "i18n.h"
 #include "ui_constants.h"
 #include "profiler.h"
 #include <array>
@@ -40,7 +41,6 @@ void Renderer::SetTheme(Theme theme)
     assert(theme.zoom == theme_.zoom && theme.font_size_body == theme_.font_size_body);
     theme_ = std::move(theme);
     ResolveThemeFonts();
-    cmd_generator_.SetTheme(&theme_);
     RecreateBrushes();
 }
 
@@ -74,7 +74,6 @@ void Renderer::ApplyThemeMetrics()
     layout_.UpdateTheme(theme_);
     layout_.RecreateFormats();
     RecreatePaneFormats();
-    cmd_generator_.SetTheme(&theme_);
 }
 
 void Renderer::PrepareChrome(const TitleBarRenderState& titlebar, const SidePaneState& sp)
@@ -160,17 +159,18 @@ void Renderer::DrawLoading(
     }
 
     DrawLoadingSpinner(angle, md_pane_rect);
+    // ローディング中もジェスチャーとトーストは表示する
+    DrawTransientOverlays(gesture, toast, md_pane_rect);
 
-    // ローディング中もジェスチャーオーバーレイは表示する
-    if (gesture.overlay_visible) {
-        DrawGestureOverlay(gesture.direction, md_pane_rect);
-    }
+    CheckEndDraw();
+}
 
+void Renderer::DrawTransientOverlays(const GestureRenderState& gesture, const ToastRenderState& toast, const PaneRect& md_pane_rect)
+{
+    DrawGestureOverlay(gesture.direction, md_pane_rect);
     if (!toast.message.empty()) {
         DrawToastOverlay(toast, md_pane_rect);
     }
-
-    CheckEndDraw();
 }
 
 void Renderer::Render(const RenderParams& p)
@@ -196,13 +196,7 @@ void Renderer::Render(const RenderParams& p)
         DrawGestureTrail(*p.gesture.trail_points);
     }
 
-    if (p.gesture.overlay_visible) {
-        DrawGestureOverlay(p.gesture.direction, p.md_pane_rect);
-    }
-
-    if (!p.toast.message.empty()) {
-        DrawToastOverlay(p.toast, p.md_pane_rect);
-    }
+    DrawTransientOverlays(p.gesture, p.toast, p.md_pane_rect);
 
     if (p.search_bar.visible) {
         DrawSearchBar(p.search_bar, p.md_pane_rect);
@@ -308,7 +302,7 @@ void Renderer::GenTitleBar(const TitleBarRenderState& tb)
     gen_plain(TitleBarHitZone::Minimize, L'\uE921');
     gen_plain(TitleBarHitZone::Maximize, tb.is_maximized ? L'\uE923' : L'\uE922');
     if (is_hovered(TitleBarHitZone::Close)) {
-        gen_button(tb.Button(TitleBarHitZone::Close), L'\uE8BB', true, BrushId::TitleBarCloseRed, BrushId::TitleBarCloseWhite, 1.0f);
+        gen_button(tb.Button(TitleBarHitZone::Close), L'\uE8BB', true, BrushId::TitleBarCloseRed, BrushId::OverlayWhite, 1.0f);
     }
     else {
         gen_plain(TitleBarHitZone::Close, L'\uE8BB');
@@ -341,7 +335,7 @@ void Renderer::DrawCenteredText(std::wstring_view text, IDWriteTextFormat* fmt, 
     rt()->DrawTextLayout(TextLayoutCache::Origin(rect, box), layout, brush);
 }
 
-void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool can_forward, NavButtonHover hovered)
+void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool can_forward, NavDirection hovered)
 {
     const bool is_dark = theme_.IsDark();
 
@@ -386,8 +380,8 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool 
     };
 
     // クリック判定 (NavButtonHitTest) と同じ矩形 API を使い、描画とヒットのズレを防ぐ
-    draw_button(NavBackButtonRect(md_pane_rect), can_back, hovered == NavButtonHover::Back, L"\x25C0");
-    draw_button(NavForwardButtonRect(md_pane_rect), can_forward, hovered == NavButtonHover::Forward, L"\x25B6");
+    draw_button(NavBackButtonRect(md_pane_rect), can_back, hovered == NavDirection::Back, L"\x25C0");
+    draw_button(NavForwardButtonRect(md_pane_rect), can_forward, hovered == NavDirection::Forward, L"\x25B6");
 }
 
 void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points)
@@ -442,7 +436,7 @@ void Renderer::DrawGestureOverlay(NavDirection direction, const PaneRect& md_pan
     const D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, cy - rect_h / 2, cx + rect_w / 2, cy + rect_h / 2);
     FillOverlayPanel(rect, GESTURE_OVERLAY_CORNER, theme_.IsDark() ? 0.8f : 0.6f);
 
-    DrawCenteredText((direction == NavDirection::Back) ? L"\x2190 \x623B\x308B" : L"\x2192 \x9032\x3080", fmt_.gesture_overlay.Get(), rect, BrushId::OverlayWhite, 1.0f, D2D1::SizeF(rect_w, rect_h));
+    DrawCenteredText((direction == NavDirection::Back) ? i18n::S().gesture_back : i18n::S().gesture_forward, fmt_.gesture_overlay.Get(), rect, BrushId::OverlayWhite, 1.0f, D2D1::SizeF(rect_w, rect_h));
 }
 
 void Renderer::FillOverlayPanel(const D2D1_RECT_F& rect, float corner, float alpha)

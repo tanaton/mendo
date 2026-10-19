@@ -90,7 +90,7 @@ private:
         auto& tl = entry.ensure_table_layout();
         const auto row_count = tbl->row_count;
         // 列幅は max_width/col_count の均等割り近似。実装 (dwrite_measurer の内容依存
-        // ComputeColumnWidths) とは異なるため、cached_table_width / col_widths の絶対値は
+        // ComputeColumnWidths) とは異なるため、TableWidth() / col_widths の絶対値は
         // 検証に使わないこと。行数・列数への依存形と border の入り方だけ実装に揃える。
         const float col_w = max_width / static_cast<float>(col_count);
         tl.col_widths.assign(col_count, col_w);
@@ -101,7 +101,6 @@ private:
         // 描画・ヒットテストは累積位置を参照するので、実装と同じ関数で積む。
         tl.RebuildRowCumY(row_count);
         tl.RebuildColCumX();
-        tl.cached_table_width = tl.col_cum_x.back();
 
         entry.height = tl.TotalHeight(row_count);
         entry.layout_dirty = false;
@@ -121,7 +120,7 @@ protected:
         ASSERT_TRUE(engine_.Init(&mock_, theme_));
     }
 
-    // 範囲は LayoutEngine::ComputeLayout と同じ。省略すると全ノードを計測する。
+    // 範囲は ComputeLayout と同じ。省略すると全ノードを計測する。
     ParsedLayout ParseAndLayout(std::string_view md, float viewport_w = 800.0f,
                                 float viewport_top = -MeasureViewportRange::kInf, float viewport_bottom = MeasureViewportRange::kInf)
     {

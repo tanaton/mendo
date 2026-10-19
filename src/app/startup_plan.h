@@ -16,7 +16,7 @@ enum class StartupArgKind : uint8_t {
 struct StartupContext {
     StartupArgKind arg_kind = StartupArgKind::None;
     std::wstring_view arg_path;
-    // arg_path が前回終了時のファイルと同一か (File のときのみ意味を持つ)。
+    // arg_path が前回終了時のファイルと同じ表記か (大文字小文字は区別しない。File のときのみ意味を持つ)。
     bool arg_is_last_file = false;
     // SessionService::LoadLastFilePath 済み。空なら復元対象なし。
     std::wstring_view last_file;
@@ -31,6 +31,9 @@ struct StartupPlan {
     // 空ならファイルペインを設定しない。
     std::pmr::wstring pane_directory;
     bool restore_scroll = false;
+    // 引数のファイルが前回のファイルと表記違いの同一ファイルなら復元する (スラッシュ違いなど)。
+    // 確かめるには 2 ファイルを開くので、呼び出し側がプリロードを始めてから調べる。
+    bool restore_scroll_if_same_file = false;
 };
 
 StartupPlan DecideStartupPlan(const StartupContext& ctx);

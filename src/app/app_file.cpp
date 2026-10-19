@@ -38,10 +38,19 @@ void App::ResetViewForNewDocument()
     state_.view.ResetForNewDocument();
     // 旧文書のマッチ位置が新 nodes に対して誤用されるのを防ぐ。先に空にしておくので、
     // 入力欄を空にしたときの EN_CHANGE は OnTextChanged で何もせず終わる。
-    state_.search.search_bar_ctrl.Reset();
+    SideEffectList effects;
+    state_.search.search_bar_ctrl.Reset(effects);
     EndDocumentBoundDrag();
-    Execute(effect::SearchUnfocus{ /*clear_text=*/true });
+    PushEffect(effects, effect::SearchUnfocus{ /*clear_text=*/true });
+    Execute(effects);
     CancelPendingResources();
+}
+
+void App::StartLoadingAnimation()
+{
+    file_load_service_.BeginLoadingAnimation();
+    SetTimer(app_timer::Id::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS);
+    Invalidate();
 }
 
 void App::StopLoadingAnimation()
@@ -120,16 +129,11 @@ void App::ReplaceDocument(Document next)
 
 void App::BeginAsyncLoad(std::pmr::wstring path, bool show_animation, std::shared_ptr<const std::pmr::string> reload_base)
 {
+    MENDO_PROFILE("App::BeginAsyncLoad");
+    file_load_service_.SetLoadingPath(std::move(path));
     if (show_animation) {
-        MENDO_PROFILE("App::BeginAsyncLoad with animation");
-        file_load_service_.StartLoading(std::move(path));
-        SetTimer(app_timer::Id::LOADING_ANIM, app_timer::FRAME_INTERVAL_MS);
-        Invalidate();
+        StartLoadingAnimation();
         UpdateWindow(hwnd_);
-    }
-    else {
-        MENDO_PROFILE("App::BeginAsyncLoad without animation");
-        file_load_service_.SetLoadingPath(std::move(path));
     }
     file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE, renderer_.GetTheme(), std::move(reload_base));
 }
@@ -317,8 +321,6 @@ void App::FinishLoadMarkdownFile(bool follow_file_pane)
     }
     state_.file_explorer.SetCurrentFile(state_.document.doc.GetFilePath());
 
-    const PaneRect md = GetPaneLayout().md_rect;
-
     // スクロール復元先の Y がずれないよう、推定高さを Mermaid/画像キャッシュの実測値で補正する。
     if (state_.view.scroll_restore.HasNodeRestore()) {
         MENDO_TRACEF(
@@ -329,12 +331,7 @@ void App::FinishLoadMarkdownFile(bool follow_file_pane)
     }
     Dispatch(RestoreScrollAfterLoadAction{});
 
-    {
-        MENDO_PROFILE("ViewportLayout(Initial)");
-        ViewportLayout(md.width, md.height);
-    }
-
-    FinalizeLayout(md.height);
+    RelayoutViewport(RelayoutResources::ImagesAndDiagrams);
 
     MENDO_TRACEF(
         "FinishLoad: scroll_y={:.1f} max_scroll={:.1f}",
@@ -342,7 +339,6 @@ void App::FinishLoadMarkdownFile(bool follow_file_pane)
         state_.view.viewport.GetMaxScroll());
 
     UpdateTitleBar();
-    SyncTocActiveAndAutoScroll(true);
     if (state_.document.doc.HasBackingFile()) {
         StartFileWatch(state_.document.doc.GetFilePath());
     }
@@ -396,17 +392,11 @@ void App::DoReloadCurrentFile()
         return;
     }
 
-    // 読んでいる間にも書き込みが続いていれば、書き終わるまで待ってから読み直す。
-    if (IsFileLargerThan(state_.document.doc.GetFilePath().c_str(), load_result->byte_size)) {
-        DeferReloadRetry();
-        return;
-    }
-
     const size_t byte_size = load_result->byte_size;
     std::pmr::string new_text = std::move(load_result->text);
 
     const std::string_view old_view(state_.document.doc.GetRawText());
-    const auto decision = AnalyzeReloadDiff(old_view, new_text);
+    const auto decision = DecideReload(IsFileLargerThan(state_.document.doc.GetFilePath().c_str(), byte_size), old_view, new_text);
 
     MENDO_TRACEF(
         "DoReload: diff_pos={} old_size={} new_size={} op={}",
@@ -451,25 +441,18 @@ void App::FinishReload(size_t diff_pos)
 
     MENDO_TRACEF("FinishReload: desired_scroll={:.1f} diff_pos={}", desired_scroll, diff_pos);
 
-    // スクロール位置を先に設定してから ViewportLayout を呼ぶことで、変更箇所周辺の
+    // スクロール位置を先に設定してから RelayoutViewport を呼ぶことで、変更箇所周辺の
     // 可視ノードが優先的に計測される。リロード時は直前の navigation target を破棄し、
     // ピクセル位置で固定する。
     state_.view.viewport.SetScrollY(desired_scroll);
 
-    {
-        MENDO_PROFILE("Reload::ViewportLayout");
-        ViewportLayout(md.width, md.height);
-    }
+    RelayoutViewport(RelayoutResources::ImagesAndDiagrams);
 
-    FinalizeLayout(md.height);
-
-    MENDO_TRACEF("FinishReload: after-finalize scroll_y={:.1f} max_scroll={:.1f}", state_.view.viewport.GetScrollY(), state_.view.viewport.GetMaxScroll());
+    MENDO_TRACEF("FinishReload: after-relayout scroll_y={:.1f} max_scroll={:.1f}", state_.view.viewport.GetScrollY(), state_.view.viewport.GetMaxScroll());
 
     if (state_.search.search_state.IsVisible() && !state_.search.search_state.GetQuery().empty()) {
         state_.search.search_bar_ctrl.RunSearchAndLocate(state_.document.doc.GetNodes());
     }
-
-    SyncTocActiveAndAutoScroll(true);
 
     file_watcher_.ResumeWatching();
 }

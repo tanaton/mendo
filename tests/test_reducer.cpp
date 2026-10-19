@@ -188,7 +188,24 @@ TEST_F(ReducerTest, ClearSelection_ClosesSearchBar)
 
     // 検索バーが閉じられる
     EXPECT_FALSE(state.search.search_state.IsVisible());
+    EXPECT_TRUE(HasEffect<effect::SearchUnfocus>(effects));
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+}
+
+// 検索バーの開閉はフォーカス移動と再描画を effect で返す。
+TEST_F(ReducerTest, OpenAndCloseSearchBar_EmitFocusEffects)
+{
+    auto opened = Reduce(state, OpenSearchBarAction{});
+    EXPECT_TRUE(state.search.search_state.IsVisible());
+    EXPECT_TRUE(HasEffect<effect::SearchFocus>(opened));
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(opened));
+
+    auto closed = Reduce(state, CloseSearchBarAction{});
+    EXPECT_FALSE(state.search.search_state.IsVisible());
+    EXPECT_TRUE(HasEffect<effect::SearchUnfocus>(closed));
+    const auto* kill = FindEffect<effect::KillTimer>(closed);
+    ASSERT_NE(kill, nullptr);
+    EXPECT_EQ(kill->id, app_timer::Id::SEARCH_DEBOUNCE);
 }
 
 // ---- 検索ジャンプ ----
@@ -345,6 +362,9 @@ TEST_F(ReducerTest, PointerHover_NewTooltipEmitsShowTooltipEffectWithSameTarget)
     ASSERT_NE(show, nullptr);
     EXPECT_TRUE(show->target.SameTarget(target));
     EXPECT_EQ(show->target.text, target.text);
+
+    // 同じ対象の上を動いている間は出し直さない。
+    EXPECT_TRUE(Reduce(state, PointerHoverAction{ PointerHover{ {}, target } }).empty());
 }
 
 TEST_F(ReducerTest, PointerHover_NothingChanged_NoEffect)
@@ -357,8 +377,7 @@ TEST_F(ReducerTest, PointerHover_NothingChanged_NoEffect)
 TEST_F(ReducerTest, PointerHover_EmptyTooltipAfterPrevTarget_EmitsShowTooltip)
 {
     // 既にターゲットが設定済みなら、空ターゲットへの遷移で ShowTooltip が発行される（App::Execute でタイマー停止）
-    state.interaction.tooltip.Update(
-        TooltipTarget{ TooltipTarget::Zone::MdLink, 1 });
+    state.interaction.tooltip = TooltipTarget{ TooltipTarget::Zone::MdLink, 1 };
 
     auto effects = Reduce(state, PointerHoverAction{});
     ASSERT_EQ(effects.size(), 1u);
@@ -373,9 +392,9 @@ TEST_F(ReducerTest, PointerHover_MovingToAnotherZoneClearsPreviousHighlights)
     EXPECT_EQ(state.view.hover.titlebar, TitleBarHitZone::None);
     EXPECT_EQ(state.view.hover.side_index[0], 2);
 
-    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ { .nav = NavButtonHover::Back } } });
+    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ { .nav = NavDirection::Back } } });
     EXPECT_EQ(state.view.hover.side_index[0], -1);
-    EXPECT_EQ(state.view.hover.nav, NavButtonHover::Back);
+    EXPECT_EQ(state.view.hover.nav, NavDirection::Back);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -388,12 +407,12 @@ TEST_F(ReducerTest, PointerHover_SearchBarInputHasNoHighlight)
 
 TEST_F(ReducerTest, InvalidateHoverAction_EmitsClearTooltipAndResetsState)
 {
-    state.interaction.tooltip.Update(
-        TooltipTarget{ TooltipTarget::Zone::MdLink, 1 });
+    state.interaction.tooltip = TooltipTarget{ TooltipTarget::Zone::MdLink, 1 };
 
     auto effects = Reduce(state, InvalidateHoverAction{});
 
     EXPECT_TRUE(HasEffect<effect::ClearTooltip>(effects));
+    EXPECT_TRUE(state.interaction.tooltip.IsEmpty());
 }
 
 // ---- コマンド系アクションテスト ----
@@ -535,21 +554,21 @@ TEST_F(ReducerTest, NavigateForward_NoHistory_NoEffects)
     EXPECT_TRUE(effects.empty());
 }
 
-// ---- DropFiles / ShowHelp テスト ----
+// ---- OpenPath / ShowHelp テスト ----
 
-TEST_F(ReducerTest, DropFiles_PushesHistoryAndLoads)
+TEST_F(ReducerTest, OpenPath_PushesHistoryAndLoads)
 {
     state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\current.md");
 
-    auto effects = Reduce(state, DropFilesAction{ std::pmr::wstring(L"C:\\dropped.md") });
+    auto effects = Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\dropped.md") });
     EXPECT_TRUE(HasEffect<effect::LoadFile>(effects));
     EXPECT_TRUE(state.view.nav_history.CanGoBack());
 }
 
-TEST_F(ReducerTest, DropFiles_EmptyDoc_NoPush)
+TEST_F(ReducerTest, OpenPath_EmptyDoc_NoPush)
 {
     // ドキュメントが空ならナビゲーション履歴にプッシュしない
-    auto effects = Reduce(state, DropFilesAction{ std::pmr::wstring(L"C:\\dropped.md") });
+    auto effects = Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\dropped.md") });
     EXPECT_TRUE(HasEffect<effect::LoadFile>(effects));
     EXPECT_FALSE(state.view.nav_history.CanGoBack());
 }
@@ -622,12 +641,14 @@ TEST_F(ReducerTest, DpiChanged_UpdatesScale)
 
 // ---- テーマ / ズームテスト ----
 
+// 色だけの変更なのでペイン配置は作り直さない。
 TEST_F(ReducerTest, ToggleDarkMode_EmitsApplyThemeChange)
 {
+    state.pane_layout_cache.Set(0.0f, PaneLayout{});
     auto effects = Reduce(state, ToggleDarkModeAction{});
 
     EXPECT_TRUE(HasEffect<effect::ApplyThemeChange>(effects));
-    EXPECT_FALSE(state.pane_layout_cache.IsValid());
+    EXPECT_TRUE(state.pane_layout_cache.IsValid());
 }
 
 TEST_F(ReducerTest, ZoomIn_EmitsApplyThemeChange)
@@ -644,6 +665,38 @@ TEST_F(ReducerTest, HWheel_EmitsSetTimer)
 {
     auto effects = Reduce(state, HWheelAction{ 120, 1000 });
     EXPECT_TRUE(HasEffect<effect::SetTimer>(effects));
+}
+
+// 縦スクロールでスワイプの蓄積を捨て、出ていたオーバーレイを消す。
+TEST_F(ReducerTest, VWheel_CancelsSwipeOverlay)
+{
+    for (uint64_t i = 0; i < 4; ++i) {
+        Reduce(state, HWheelAction{ 120, 1000 + i * 10 });
+    }
+    ASSERT_TRUE(state.interaction.swipe_detector.IsOverlayVisible());
+
+    auto effects = Reduce(state, VWheelAction{ 1100 });
+
+    EXPECT_FALSE(state.interaction.swipe_detector.IsOverlayVisible());
+    const auto* kill = FindEffect<effect::KillTimer>(effects);
+    ASSERT_NE(kill, nullptr);
+    EXPECT_EQ(kill->id, app_timer::Id::SWIPE_OVERLAY);
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+}
+
+// 直後の水平ホイールは軸ロックで無視する。
+TEST_F(ReducerTest, VWheel_LocksHorizontalSwipe)
+{
+    Reduce(state, VWheelAction{ 1000 });
+    for (uint64_t i = 0; i < 4; ++i) {
+        Reduce(state, HWheelAction{ 120, 1010 + i * 10 });
+    }
+    EXPECT_FALSE(state.interaction.swipe_detector.IsOverlayVisible());
+}
+
+TEST_F(ReducerTest, VWheel_NoOverlay_NoEffect)
+{
+    EXPECT_TRUE(Reduce(state, VWheelAction{ 1000 }).empty());
 }
 
 // ---- CaptureChanged テスト ----
@@ -703,7 +756,7 @@ TEST_F(ReducerTest, Timer_ServiceTimerIsIgnoredByReducer)
 
 TEST_F(ReducerTest, NavHover_NoneToBack_UpdatesStateAndInvalidates)
 {
-    using Hover = NavButtonHover;
+    using Hover = NavDirection;
     state.view.hover.overlay_button = { 3, OverlayButton::CodeCopy };
 
     // ナビボタン上ではコピー/保存ボタンはホバーしていない
@@ -716,7 +769,7 @@ TEST_F(ReducerTest, NavHover_NoneToBack_UpdatesStateAndInvalidates)
 
 TEST_F(ReducerTest, NavHover_Unchanged_NoEffect)
 {
-    using Hover = NavButtonHover;
+    using Hover = NavDirection;
     state.view.hover.nav = Hover::Forward;
 
     auto effects = Reduce(state, PointerHoverAction{ PointerHover{ { .nav = Hover::Forward } } });
@@ -747,10 +800,11 @@ TEST_F(ReducerTest, ButtonHoverChanged_Unchanged_NoEffect)
 
 TEST_F(ReducerTest, SplitterDragStarted_SetsTargetAndCaptures)
 {
-    for (const auto [edge, expected] : { std::pair{ PaneTarget::File, LeftDrag::Splitter1 }, std::pair{ PaneTarget::Toc, LeftDrag::Splitter2 } }) {
+    for (const auto edge : { PaneTarget::File, PaneTarget::Toc }) {
         SCOPED_TRACE(static_cast<int>(edge));
         auto effects = Reduce(state, SplitterDragStartedAction{ edge });
-        EXPECT_EQ(state.view.drag.kind, expected);
+        EXPECT_EQ(state.view.drag.kind, LeftDrag::Splitter);
+        EXPECT_EQ(state.view.drag.pane, edge);
         EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
     }
 }
@@ -759,7 +813,7 @@ TEST_F(ReducerTest, SplitterDragMoved_Splitter1_UpdatesWidthAndInvalidates)
 {
     theme.splitter_width = 4.0f;
     state.pane_layout_cache.Set(1000.0f, PaneLayout{});
-    state.view.drag = { .kind = LeftDrag::Splitter1 };
+    state.view.drag = { .kind = LeftDrag::Splitter, .pane = PaneTarget::File };
     const float old_width = state.view.panes.GetSidePaneWidth(PaneTarget::File);
 
     auto effects = Reduce(state, SplitterDragMovedAction{ 300.0f });
@@ -773,9 +827,9 @@ TEST_F(ReducerTest, SplitterDragMoved_Splitter2_UpdatesTocWidthAndInvalidates)
 {
     theme.splitter_width = 4.0f;
     state.pane_layout_cache.Set(1000.0f, PaneLayout{});
-    state.view.drag = { .kind = LeftDrag::Splitter2 };
+    state.view.drag = { .kind = LeftDrag::Splitter, .pane = PaneTarget::Toc };
 
-    // Splitter2 は toc_left 基準で toc_width を変更する
+    // 目次ペインのスプリッタは toc_left 基準で toc_width を変更する
     auto effects = Reduce(state, SplitterDragMovedAction{ 600.0f });
 
     EXPECT_FALSE(state.pane_layout_cache.IsValid());
@@ -785,7 +839,7 @@ TEST_F(ReducerTest, SplitterDragMoved_Splitter2_UpdatesTocWidthAndInvalidates)
 TEST_F(ReducerTest, SplitterDragMoved_InvalidTarget_NoOp)
 {
     state.pane_layout_cache.Set(1000.0f, PaneLayout{});
-    state.view.drag = { .kind = LeftDrag::FileScrollbar };
+    state.view.drag = { .kind = LeftDrag::PaneScrollbar };
     auto effects = Reduce(state, SplitterDragMovedAction{ 300.0f });
 
     EXPECT_TRUE(state.pane_layout_cache.IsValid());
@@ -794,13 +848,14 @@ TEST_F(ReducerTest, SplitterDragMoved_InvalidTarget_NoOp)
 
 TEST_F(ReducerTest, SplitterDragEnded_ReleasesAndRefreshes)
 {
-    state.view.drag = { .kind = LeftDrag::Splitter1 };
+    state.view.drag = { .kind = LeftDrag::Splitter, .pane = PaneTarget::File };
     state.pane_layout_cache.Set(0.0f, PaneLayout{});
 
     auto effects = Reduce(state, LeftDragEndedAction{});
 
+    // 配置はドラッグ中の移動ごとに作り直し済みなので、終了では捨てない。
     EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
-    EXPECT_FALSE(state.pane_layout_cache.IsValid());
+    EXPECT_TRUE(state.pane_layout_cache.IsValid());
     EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
     EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
 }
@@ -841,7 +896,7 @@ TEST_F(ReducerTest, EndLeftDrag_KeepsCaptureDuringGesture)
 {
     Reduce(state, RightClickGestureStartedAction{ 100.0f, 100.0f });
     ASSERT_NE(state.interaction.gesture.GetPhase(), GesturePhase::Idle);
-    state.view.drag = { .kind = LeftDrag::Splitter1 };
+    state.view.drag = { .kind = LeftDrag::Splitter, .pane = PaneTarget::File };
     SideEffectList effects;
     EndLeftDrag(state, effects);
     EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
@@ -865,7 +920,8 @@ TEST_F(ReducerTest, SearchInputDragMoved_Unchanged_NoEffect)
 {
     state.view.drag = { .kind = LeftDrag::SearchInput, .search_anchor = 5 };
     // caret と selection_start を drag_anchor に合わせると変化なしで no-op
-    state.search.search_bar_ctrl.SetSelection(5, 5);
+    SideEffectList ignored;
+    state.search.search_bar_ctrl.SetSelection(ignored, 5, 5);
     auto effects = Reduce(state, SearchInputDragMovedAction{ 5 });
     EXPECT_TRUE(effects.empty());
 }
@@ -991,7 +1047,8 @@ TEST_F(ReducerTest, PaneScrollbarDragStarted_TocScrollable_ThumbHit_StoresOffset
 
     auto effects = Reduce(state, PaneScrollbarDragStartedAction{ PaneTarget::Toc, dip_y });
 
-    EXPECT_EQ(state.view.drag.kind, LeftDrag::TocScrollbar);
+    EXPECT_EQ(state.view.drag.kind, LeftDrag::PaneScrollbar);
+    EXPECT_EQ(state.view.drag.pane, PaneTarget::Toc);
     EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
     // thumb 上クリックではスクロール位置は不変
     EXPECT_FLOAT_EQ(state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y, 0.0f);
@@ -1006,7 +1063,7 @@ TEST_F(ReducerTest, PaneScrollbarDragStarted_TocScrollable_ThumbMiss_Jumps)
 
     auto effects = Reduce(state, PaneScrollbarDragStartedAction{ PaneTarget::Toc, dip_y });
 
-    EXPECT_EQ(state.view.drag.kind, LeftDrag::TocScrollbar);
+    EXPECT_EQ(state.view.drag.kind, LeftDrag::PaneScrollbar);
     EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
     EXPECT_GT(state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y, 0.0f);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
@@ -1015,26 +1072,25 @@ TEST_F(ReducerTest, PaneScrollbarDragStarted_TocScrollable_ThumbMiss_Jumps)
 TEST_F(ReducerTest, PaneScrollbarDragMoved_WhileDragging_UpdatesScroll)
 {
     SetupScrollableToc(state);
-    state.view.drag = { .kind = LeftDrag::TocScrollbar };
+    state.view.drag = { .kind = LeftDrag::PaneScrollbar, .pane = PaneTarget::Toc };
     state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y = 0.0f;
 
-    auto effects = Reduce(state, PaneScrollbarDragMovedAction{ PaneTarget::Toc, 200.0f });
+    auto effects = Reduce(state, PaneScrollbarDragMovedAction{ 200.0f });
 
     EXPECT_GT(state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y, 0.0f);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
-TEST_F(ReducerTest, PaneScrollbarDragMoved_WrongTarget_NoOp)
+TEST_F(ReducerTest, PaneScrollbarDragMoved_NotDragging_NoOp)
 {
-    // drag_target が File の時に Toc への Move が来た → no-op
-    state.view.drag = { .kind = LeftDrag::FileScrollbar };
-    auto effects = Reduce(state, PaneScrollbarDragMovedAction{ PaneTarget::Toc, 200.0f });
+    state.view.drag = { .kind = LeftDrag::Splitter };
+    auto effects = Reduce(state, PaneScrollbarDragMovedAction{ 200.0f });
     EXPECT_TRUE(effects.empty());
 }
 
 TEST_F(ReducerTest, PaneScrollbarDragEnded_TocOrFile_Releases)
 {
-    state.view.drag = { .kind = LeftDrag::TocScrollbar };
+    state.view.drag = { .kind = LeftDrag::PaneScrollbar, .pane = PaneTarget::Toc };
 
     auto effects = Reduce(state, LeftDragEndedAction{});
 
@@ -1259,16 +1315,6 @@ TEST_F(ReducerTest, FilePaneDirectoryClicked_UpdatesDirAndInvalidates)
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
-TEST_F(ReducerTest, FilePaneFileClicked_PushesHistoryAndLoads)
-{
-    state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\current.md");
-
-    auto effects = Reduce(state, FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\clicked.md") });
-
-    EXPECT_TRUE(state.view.nav_history.CanGoBack());
-    EXPECT_TRUE(HasEffect<effect::LoadFile>(effects));
-}
-
 // ---- FilePaneRevealCurrentFile テスト ----
 
 class FilePaneRevealTest : public ReducerTest {
@@ -1313,7 +1359,7 @@ TEST_F(FilePaneRevealTest, MovesToDocumentDirectoryAndCentersCurrentFile)
     EXPECT_TRUE(path_util::iequal(state.file_explorer.GetDirectory(), dir_.wstring()));
     const auto& entries = state.file_explorer.GetEntries();
     ASSERT_EQ(entries.size(), 31u);
-    EXPECT_TRUE(entries[16].is_current());
+    EXPECT_TRUE(entries[16].is_current);
     // index 16 の上端 448 から (280 - 28) / 2 を引いて中央に置く
     EXPECT_FLOAT_EQ(FileScroll(), 322.0f);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
@@ -1486,7 +1532,7 @@ TEST_F(ReducerTest, LoadFailed_DropsPendingRestoreForNextDocument)
     EXPECT_FALSE(state.view.nav_history.CanGoForward());
 
     // 続けてユーザーが別ファイルを開き、ロードに成功する。
-    Reduce(state, FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\other.md") });
+    Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\other.md") });
     SetDocument(state, "# X\n\n# Y\n\n# Z", L"C:\\other.md");
     Reduce(state, RestoreScrollAfterLoadAction{});
 
@@ -1504,13 +1550,10 @@ TEST_F(ReducerTest, LoadFailed_RollsBackHistoryPushedForOpen)
     const size_t back = state.view.nav_history.BackSize();
     ASSERT_TRUE(state.view.nav_history.CanGoForward());
 
-    for (const AppAction& open : { AppAction{ FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\too_big.md") } },
-                                   AppAction{ DropFilesAction{ std::pmr::wstring(L"C:\\too_big.md") } } }) {
-        Reduce(state, open);
-        Reduce(state, LoadFailedAction{});
-        EXPECT_EQ(state.view.nav_history.BackSize(), back);
-        EXPECT_TRUE(state.view.nav_history.CanGoForward());
-    }
+    Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\too_big.md") });
+    Reduce(state, LoadFailedAction{});
+    EXPECT_EQ(state.view.nav_history.BackSize(), back);
+    EXPECT_TRUE(state.view.nav_history.CanGoForward());
 }
 
 // 今のファイルの開き直しはリロードとして終わり確定が来ないので、仮の履歴にしない。
@@ -1518,7 +1561,7 @@ TEST_F(ReducerTest, LoadFailed_RollsBackHistoryPushedForOpen)
 TEST_F(ReducerTest, LoadFailed_KeepsHistoryPushedForReopeningCurrentFile)
 {
     state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\Current.md");
-    Reduce(state, FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\current.md") });
+    Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\current.md") });
     Reduce(state, LoadFailedAction{});
     EXPECT_TRUE(state.view.nav_history.CanGoBack());
 }
@@ -1541,7 +1584,7 @@ TEST_F(ReducerTest, LoadFailed_KeepsSameFileNavigateBack)
 TEST_F(ReducerTest, LoadFailed_KeepsHistoryAfterSuccessfulLoad)
 {
     state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\current.md");
-    Reduce(state, FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\next.md") });
+    Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\next.md") });
     state.document.doc = Document::FromMarkdown(std::pmr::string("next"), L"C:\\next.md");
     Reduce(state, RestoreScrollAfterLoadAction{});
     Reduce(state, LoadFailedAction{});
@@ -1599,25 +1642,18 @@ std::optional<std::wstring> LoadedPath(const SideEffectList& effects)
 // その復元位置を残すと、開いたファイルが戻る先のノード位置へスクロールする。
 TEST_F(ReducerTest, OpenWhileNavigateBackLoading_DoesNotCarryRestoreOver)
 {
-    const AppAction opens[] = {
-        FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\other.md") },
-        DropFilesAction{ std::pmr::wstring(L"C:\\other.md") },
-    };
-    for (const auto& open : opens) {
-        SCOPED_TRACE(open.index());
-        ResetToDocument(state, L"C:\\current.md");
-        state.view.nav_history.Push(NavEntry{ L"C:\\b.md", 2, 30.0f });
-        ASSERT_TRUE(HasEffect<effect::LoadFile>(Reduce(state, NavigateBackAction{})));
-        ASSERT_TRUE(state.view.scroll_restore.HasNodeRestore());
+    ResetToDocument(state, L"C:\\current.md");
+    state.view.nav_history.Push(NavEntry{ L"C:\\b.md", 2, 30.0f });
+    ASSERT_TRUE(HasEffect<effect::LoadFile>(Reduce(state, NavigateBackAction{})));
+    ASSERT_TRUE(state.view.scroll_restore.HasNodeRestore());
 
-        Reduce(state, open);
-        CompleteLoad(state, L"C:\\other.md");
+    Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\other.md") });
+    CompleteLoad(state, L"C:\\other.md");
 
-        EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
-        EXPECT_FALSE(state.view.scroll_restore.HasNodeRestore());
-        EXPECT_EQ(state.view.nav_history.BackSize(), 2u);
-        EXPECT_EQ(state.view.nav_history.ForwardSize(), 0u);
-    }
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
+    EXPECT_FALSE(state.view.scroll_restore.HasNodeRestore());
+    EXPECT_EQ(state.view.nav_history.BackSize(), 2u);
+    EXPECT_EQ(state.view.nav_history.ForwardSize(), 0u);
 }
 
 // ヘルプ表示中の F1 はヘルプに留まり、ロード中の別ファイルを取り消すだけなので確定も失敗も来ない。
@@ -1642,8 +1678,8 @@ TEST_F(ReducerTest, ShowHelpWhileOnHelp_RollsBackPendingNavigation)
 TEST_F(ReducerTest, ReopenCurrentWhileOpenLoading_DoesNotDuplicateHistory)
 {
     ResetToDocument(state, L"C:\\docs\\a.md");
-    Reduce(state, FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\docs\\big.md") });
-    Reduce(state, FilePaneFileClickedAction{ std::pmr::wstring(L"c:\\docs\\A.md") });
+    Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\docs\\big.md") });
+    Reduce(state, OpenPathAction{ std::pmr::wstring(L"c:\\docs\\A.md") });
     EXPECT_EQ(state.view.nav_history.BackSize(), 1u);
 }
 
@@ -1654,7 +1690,7 @@ TEST_F(ReducerTest, NavigateBackWithinFileWhileOpenLoading_CommitsAndCancelsLoad
     ResetToDocument(state, L"C:\\current.md");
     state.view.nav_history.Push(NavEntry{ L"C:\\current.md", 0, 0.0f });
     state.view.viewport.ScrollTo(250.0f);
-    Reduce(state, FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\big.md") });
+    Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\big.md") });
 
     const auto effects = Reduce(state, NavigateBackAction{});
     EXPECT_FALSE(HasEffect<effect::LoadFile>(effects));
@@ -1677,7 +1713,7 @@ TEST_F(ReducerTest, NavigateBackToOtherFileWhileOpenLoading)
         ResetToDocument(state, L"C:\\current.md");
         state.view.nav_history.Push(NavEntry{ L"C:\\b.md", 2, 10.0f });
         state.view.viewport.ScrollTo(250.0f);
-        Reduce(state, FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\big.md") });
+        Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\big.md") });
 
         const auto effects = Reduce(state, NavigateBackAction{});
         EXPECT_EQ(LoadedPath(effects), L"C:\\b.md");
@@ -1705,7 +1741,7 @@ TEST_F(ReducerTest, NavigateBackWithoutHistoryWhileOpenLoading_KeepsOpenEntry)
     for (const bool succeed : { false, true }) {
         SCOPED_TRACE(succeed);
         ResetToDocument(state, L"C:\\current.md");
-        Reduce(state, FilePaneFileClickedAction{ std::pmr::wstring(L"C:\\big.md") });
+        Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\big.md") });
 
         EXPECT_TRUE(Reduce(state, NavigateBackAction{}).empty());
         EXPECT_TRUE(state.view.nav_history.CanGoBack());

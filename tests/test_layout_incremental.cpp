@@ -24,7 +24,7 @@ using layout::NodeIndent;
 namespace {
 
 constexpr float kYEps = 0.05f;
-// LayoutEngine::ComputeLayout が再計測を省く幅変化の上限。
+// Reestimate が再計測を省く幅変化の上限。
 constexpr float kWidthHysteresis = LayoutEngine::kWidthChangeThreshold;
 
 // 計測したエントリに目印 (行追跡の無い table_layout) を残す。EvictEntryLayout はこれを
@@ -132,11 +132,10 @@ protected:
     void Load(std::mt19937& rng, int blocks)
     {
         nodes_ = ParseNodes(sources_.emplace_back(MakeRandomMarkdown(rng, blocks)));
-        cache_.Reset(nodes_.size());
-        EstimateNodeHeights(nodes_, cache_, theme_);
+        cache_ = layout::MakeEstimatedLayoutCache(nodes_, theme_);
         width_ = 800.0f;
         scroll_ = 0.0f;
-        engine_.ComputeLayout(nodes_, cache_, width_, scroll_, scroll_ + kViewportHeight);
+        ComputeLayout(engine_, nodes_, cache_, width_, scroll_, scroll_ + kViewportHeight);
     }
 
     float MaxScroll() const
@@ -215,7 +214,7 @@ protected:
             ScrollTo(MaxScroll() > 0.0f ? std::uniform_real_distribution<float>(0.0f, MaxScroll())(rng) : 0.0f);
             return "Scroll+EnsureVisibleLayout scroll=" + std::to_string(scroll_);
         case Op::Layout:
-            engine_.ComputeLayout(nodes_, cache_, width_, scroll_, scroll_ + kViewportHeight);
+            ComputeLayout(engine_, nodes_, cache_, width_, scroll_, scroll_ + kViewportHeight);
             return "ComputeLayout";
         case Op::DirtyBatch: {
             const int batch = 1 + static_cast<int>(rng() % 5);
@@ -247,7 +246,7 @@ protected:
     void Resize(float delta)
     {
         width_ = std::clamp(width_ + delta, 300.0f, 1600.0f);
-        engine_.ComputeLayout(nodes_, cache_, width_, scroll_, scroll_ + kViewportHeight);
+        ComputeLayout(engine_, nodes_, cache_, width_, scroll_, scroll_ + kViewportHeight);
     }
 
     void ScrollTo(float y)
@@ -299,7 +298,7 @@ TEST_F(IncrementalLayoutTest, EvictReleasesEverythingOutsideKeep)
                 if (i >= keep.first && i < keep.last_plus_1) {
                     continue;
                 }
-                ASSERT_FALSE(cache_[i].has_table_layout()) << "keep 範囲外 i=" << i << " の layout が残っている";
+                ASSERT_EQ(cache_[i].table_layout(), nullptr) << "keep 範囲外 i=" << i << " の layout が残っている";
             }
         }
     }
@@ -335,7 +334,7 @@ TEST_F(IncrementalLayoutTest, MatchesFullLayoutAfterRandomOperations)
 
         // ヒステリシスを超える幅変更の後は、新規に全レイアウトした結果と一致する。
         width_ += 10.0f;
-        engine_.ComputeLayout(nodes_, cache_, width_, scroll_, scroll_ + kViewportHeight);
+        ComputeLayout(engine_, nodes_, cache_, width_, scroll_, scroll_ + kViewportHeight);
         Settle();
 
         LayoutEngine ref_engine;
@@ -343,7 +342,7 @@ TEST_F(IncrementalLayoutTest, MatchesFullLayoutAfterRandomOperations)
         LayoutCache ref;
         ref.Resize(nodes_.size());
         EstimateNodeHeights(nodes_, ref, theme_);
-        ref_engine.ComputeLayout(nodes_, ref, width_);
+        ComputeLayout(ref_engine, nodes_, ref, width_);
         for (size_t i = 0; i < nodes_.size(); ++i) {
             ASSERT_NEAR(cache_[i].height, ref[i].height, kYEps) << "i=" << i;
             ASSERT_NEAR(cache_.Top(i), ref.Top(i), kYEps) << "i=" << i;
@@ -387,7 +386,7 @@ TEST(LayoutServiceTest, ViewportLayoutMeasuresAroundScrollTargetAfterReestimate)
     auto doc = Document::FromMarkdown(std::pmr::string{ MakeParagraphs(400) }, L"t.md");
     measurer.base = doc.GetNodes().data();
     LayoutCache cache;
-    engine.ComputeLayout(doc.GetNodes(), cache, kWidth);
+    ComputeLayout(engine, doc.GetNodes(), cache, kWidth);
     viewport.SetScrollTarget(kTarget, 0.0f);
     viewport.ApplyScrollTarget(cache);
     const float measured_scroll_y = viewport.GetScrollY();

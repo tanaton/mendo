@@ -39,10 +39,6 @@ public:
     bool EnsureVisibleLayout(
         const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
         float viewport_top, float viewport_bottom);
-    // Reestimate してから範囲を計測する。範囲を省略すると全ノードを計測する。
-    void ComputeLayout(
-        const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
-        float viewport_top = -MeasureViewportRange::kInf, float viewport_bottom = MeasureViewportRange::kInf);
     // clip 内の dirty を最大 batch_size 件 (0 = 無制限) 計測する。clip 内に dirty が残れば true。
     // clip 省略時は全 dirty を対象にする。
     bool ProcessDirtyBatch(

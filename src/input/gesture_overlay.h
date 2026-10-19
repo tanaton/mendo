@@ -10,12 +10,7 @@ inline GestureRenderState ResolveGestureOverlay(
     GestureRenderState gs;
     gs.trail_active = gesture.IsGestureActive();
     gs.trail_points = &gesture.GetTrailPoints();
-    gs.overlay_visible = gesture.IsOverlayVisible();
-    gs.direction = gesture.GetDirection();
-
-    if (!gs.overlay_visible && swipe.IsOverlayVisible()) {
-        gs.overlay_visible = true;
-        gs.direction = swipe.GetOverlayDirection();
-    }
+    // マウスジェスチャーを優先する。None ならオーバーレイは出さない。
+    gs.direction = gesture.IsOverlayVisible() ? gesture.GetDirection() : swipe.GetOverlayDirection();
     return gs;
 }

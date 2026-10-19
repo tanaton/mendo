@@ -488,11 +488,12 @@ void CommandGenerator::GenOverlayButton(D2D1_RECT_F btn, wchar_t icon, bool is_h
     if (!formats_.copy_btn_icon) {
         return;
     }
-    const BrushId overlay = OverlayBrushId(cached_is_dark_);
-    const float bg_alpha = is_hovered ? (cached_is_dark_ ? 0.30f : 0.15f) : (cached_is_dark_ ? 0.10f : 0.05f);
+    const bool dark = theme_->IsDark();
+    const BrushId overlay = OverlayBrushId(dark);
+    const float bg_alpha = is_hovered ? (dark ? 0.30f : 0.15f) : (dark ? 0.10f : 0.05f);
     cmds_.emplace_back(FillRoundedRectCmd{ btn, COPY_BTN_CORNER, COPY_BTN_CORNER, overlay, bg_alpha });
 
-    const float text_alpha = is_hovered ? (cached_is_dark_ ? 0.9f : 0.8f) : (cached_is_dark_ ? 0.4f : 0.35f);
+    const float text_alpha = is_hovered ? (dark ? 0.9f : 0.8f) : (dark ? 0.4f : 0.35f);
     EmitText({ &icon, 1 }, formats_.copy_btn_icon, D2D1::Point2F(btn.left, btn.top),
              D2D1::SizeF(COPY_BTN_SIZE, COPY_BTN_SIZE), overlay, text_alpha);
 }
@@ -690,7 +691,7 @@ void CommandGenerator::GenTable(const FrameContext& fc,
     const auto row_count = tbl->row_count;
     const auto col_count = static_cast<size_t>(tbl->col_count);
 
-    const float table_width = tl.cached_table_width;
+    const float table_width = tl.TableWidth();
     // 横スクロール時は画面に映る範囲が h_scroll_x だけ右にずれる。
     const float cull_left = offset_x + fc.viewport_left + h_scroll_x;
     const float cull_right = offset_x + fc.viewport_right + h_scroll_x;

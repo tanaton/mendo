@@ -102,7 +102,7 @@ public:
     }
     // ディスク上の実ファイルに対応するか。空パスとヘルプの仮想パスは false。
     bool HasBackingFile() const noexcept;
-    constexpr const TableOfContents& GetToc() const noexcept
+    constexpr const std::pmr::vector<TocEntry>& GetToc() const noexcept
     {
         return toc_;
     }
@@ -164,7 +164,7 @@ private:
     // 常に LF-only (FileLoader または 2 引数 FromMarkdown が正規化する)。
     RawText raw_text_;
     size_t loaded_byte_size_ = 0;
-    TableOfContents toc_;
+    std::pmr::vector<TocEntry> toc_;
     std::pmr::vector<size_t> image_node_indices_;
     std::pmr::vector<size_t> diagram_node_indices_;
     std::pmr::vector<size_t> table_node_indices_;

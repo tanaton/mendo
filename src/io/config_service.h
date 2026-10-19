@@ -71,7 +71,7 @@ public:
         int node = -1;
         int offset = 0;
     };
-    void SaveScrollPosition(int node, float scroll_y, float node_y);
+    void SaveScrollPosition(int node, float offset);
     ScrollPosition LoadScrollPosition() const;
 
 private:

@@ -44,7 +44,6 @@ public:
     void SetTheme(const Theme* theme) noexcept
     {
         theme_ = theme;
-        cached_is_dark_ = theme->IsDark();
     }
     void SetFormats(const Formats& fmts) noexcept
     {
@@ -196,9 +195,6 @@ private:
     float cull_bottom_ = 0.0f;
 
     std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
-
-    // SetTheme 時に theme_ から導出する。
-    bool cached_is_dark_ = false;
 
     // 前フレームの選択ノード範囲。範囲外に出たノードの selection_hl_cache を
     // 解放するために使う。-1/-1 は「前フレームは非アクティブ」を示す。

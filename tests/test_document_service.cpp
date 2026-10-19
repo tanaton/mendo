@@ -25,7 +25,7 @@ TEST_F(DocumentServiceTest, LoadFileSuccess)
     ASSERT_TRUE(result.has_value());
     EXPECT_FALSE(result->IsEmpty());
     EXPECT_EQ(std::wstring_view{ result->GetFilePath() }, std::wstring_view{ path });
-    EXPECT_FALSE(result->GetToc().GetEntries().empty());
+    EXPECT_FALSE(result->GetToc().empty());
 }
 
 // 親フォルダはあるがファイルが無い場合と、親フォルダごと無い場合 (ERROR_PATH_NOT_FOUND)。

@@ -3,6 +3,7 @@
 #include "layout_cache.h"
 #include "render_params.h"
 #include "search_state.h"
+#include "side_effect.h"
 #include "string_convert.h"
 #include "ui_constants.h"
 #include "viewport_manager.h"
@@ -16,7 +17,8 @@
 // 検索バーのUI状態管理。
 // SearchState（ドメインロジック）を参照で保持し、検索バー固有の
 // UIステート（フォーカス、キャレット、ドラッグ選択、ホバー）を管理する。
-// Win32依存の操作は Cb 経由でAppに委譲する。
+// 再描画・タイマー・フォーカス・ビープは effects に積み、App::Execute に任せる。
+// Cb はレイアウト計測とペイン高さの問い合わせだけを担う。
 template <class Cb>
 class SearchBarControllerT {
 public:
@@ -28,40 +30,39 @@ public:
         cb_ = std::move(cb);
     }
 
-    void OnOpen(const std::pmr::vector<Node>& nodes)
+    void OnOpen(SideEffectList& effects, const std::pmr::vector<Node>& nodes)
     {
         if (state_->IsVisible()) {
-            OnClose();
+            OnClose(effects);
             return;
         }
         state_->Show();
-        caret_visible_ = true;
         ResetCaretAndSelection();
 
         if (!state_->GetQuery().empty()) {
             RunSearchAndLocate(nodes);
         }
 
-        cb_.focus_select_all();
-        cb_.invalidate();
+        PushEffect(effects, effect::SearchFocus{});
+        PushEffect(effects, effect::InvalidateWindow{});
     }
 
-    void OnClose()
+    void OnClose(SideEffectList& effects)
     {
         state_->Hide();
-        ResetInteractionState();
-        cb_.unfocus();
-        cb_.invalidate();
+        ResetInteractionState(effects);
+        PushEffect(effects, effect::SearchUnfocus{});
+        PushEffect(effects, effect::InvalidateWindow{});
     }
 
-    void OnNext()
+    void OnNext(SideEffectList& effects)
     {
-        AfterMatchStep(state_->NextMatch());
+        AfterMatchStep(effects, state_->NextMatch());
     }
 
-    void OnPrev()
+    void OnPrev(SideEffectList& effects)
     {
-        AfterMatchStep(state_->PrevMatch());
+        AfterMatchStep(effects, state_->PrevMatch());
     }
 
     // 直前の検索がこれより速ければ、入力のたびに待たずに検索する。
@@ -69,7 +70,7 @@ public:
     // この文書でまだ検索していないとき、待たずに検索する文書の大きさ。
     static constexpr size_t kImmediateSearchMaxBytes = 1024 * 1024;
 
-    void OnTextChanged(std::wstring_view text, const std::pmr::vector<Node>& nodes, size_t doc_bytes)
+    void OnTextChanged(SideEffectList& effects, std::wstring_view text, const std::pmr::vector<Node>& nodes, size_t doc_bytes)
     {
         // 文書の切り替えで入力欄を空にしたときなど、中身が変わらない通知は検索も再描画もしない。
         if (text == query_wide_) {
@@ -81,11 +82,11 @@ public:
         std::pmr::string text_utf8;
         string_convert::WideToUtf8(text, text_utf8);
         state_->SetQuery(text_utf8);
-        cb_.kill_timer(app_timer::Id::SEARCH_DEBOUNCE);
+        PushEffect(effects, effect::KillTimer{ app_timer::Id::SEARCH_DEBOUNCE });
 
         if (text.empty()) {
             state_->ExecuteSearch(nodes);
-            cb_.invalidate();
+            PushEffect(effects, effect::InvalidateWindow{});
             return;
         }
 
@@ -94,31 +95,31 @@ public:
         const bool immediate = last_search_time_ ? *last_search_time_ <= kImmediateSearchBudget : doc_bytes <= kImmediateSearchMaxBytes;
         if (immediate) {
             RunSearchAndLocate(nodes, true);
-            cb_.invalidate();
+            PushEffect(effects, effect::InvalidateWindow{});
             return;
         }
 
         // 重い文書: デバウンスで連続入力中の再検索を抑制
-        cb_.invalidate();
-        cb_.set_timer(app_timer::Id::SEARCH_DEBOUNCE, app_timer::SEARCH_DEBOUNCE_MS);
+        PushEffect(effects, effect::InvalidateWindow{});
+        PushEffect(effects, effect::SetTimer{ app_timer::Id::SEARCH_DEBOUNCE, app_timer::SEARCH_DEBOUNCE_MS });
     }
 
-    void OnToggleCaseSensitive(const std::pmr::vector<Node>& nodes)
+    void OnToggleCaseSensitive(SideEffectList& effects, const std::pmr::vector<Node>& nodes)
     {
         state_->ToggleCaseSensitive();
         if (!state_->GetQuery().empty()) {
             RunSearchAndLocate(nodes);
         }
-        cb_.invalidate();
+        PushEffect(effects, effect::InvalidateWindow{});
     }
 
-    void OnToggleHighlight()
+    void OnToggleHighlight(SideEffectList& effects)
     {
         state_->ToggleHighlightEnabled();
-        cb_.invalidate();
+        PushEffect(effects, effect::InvalidateWindow{});
     }
 
-    void SetSelection(int sel_start, int sel_end)
+    void SetSelection(SideEffectList& effects, int sel_start, int sel_end)
     {
         if (caret_pos_ == sel_end && selection_start_ == sel_start) {
             return;
@@ -126,35 +127,26 @@ public:
         caret_pos_ = sel_end;
         selection_start_ = sel_start;
         if (HasFocus()) {
-            cb_.invalidate();
+            PushEffect(effects, effect::InvalidateWindow{});
         }
     }
 
-    void SetImeComposition(std::wstring_view comp)
+    void SetImeComposition(SideEffectList& effects, std::wstring_view comp)
     {
         if (ime_composition_ == comp) {
             return;
         }
         ime_composition_ = comp;
         if (HasFocus()) {
-            cb_.invalidate();
+            PushEffect(effects, effect::InvalidateWindow{});
         }
     }
 
-    void OnWindowActivate(bool active)
+    void OnDebounceTimer(SideEffectList& effects, const std::pmr::vector<Node>& nodes)
     {
-        if (!HasFocus()) {
-            return;
-        }
-        caret_visible_ = active;
-        cb_.invalidate();
-    }
-
-    void OnDebounceTimer(const std::pmr::vector<Node>& nodes)
-    {
-        cb_.kill_timer(app_timer::Id::SEARCH_DEBOUNCE);
+        PushEffect(effects, effect::KillTimer{ app_timer::Id::SEARCH_DEBOUNCE });
         RunSearchAndLocate(nodes, true);
-        cb_.invalidate();
+        PushEffect(effects, effect::InvalidateWindow{});
     }
 
     void RunSearchAndLocate(const std::pmr::vector<Node>& nodes, bool scroll_to_match = false)
@@ -197,12 +189,12 @@ public:
         }
     }
 
-    void Reset()
+    void Reset(SideEffectList& effects)
     {
         state_->Reset();
         query_wide_.clear();
         last_search_time_.reset();
-        ResetInteractionState();
+        ResetInteractionState(effects);
         ResetCaretAndSelection();
     }
 
@@ -214,7 +206,6 @@ public:
         sb.query = GetQueryWide();
         sb.current_match = state_->GetCurrentMatchIndex();
         sb.total_matches = state_->GetMatchCount();
-        sb.caret_visible = caret_visible_;
         sb.caret_pos = caret_pos_;
         sb.selection_start = selection_start_;
         sb.ime_composition = ime_composition_;
@@ -251,13 +242,13 @@ public:
     }
 
 private:
-    void AfterMatchStep(bool wrapped)
+    void AfterMatchStep(SideEffectList& effects, bool wrapped)
     {
         if (wrapped && state_->GetMatchCount() > 1) {
-            cb_.on_wrap_around();
+            PushEffect(effects, effect::Beep{});
         }
         ScrollToCurrentMatch();
-        cb_.invalidate();
+        PushEffect(effects, effect::InvalidateWindow{});
     }
 
     constexpr void ResetCaretAndSelection() noexcept
@@ -266,11 +257,10 @@ private:
         selection_start_ = -1;
     }
 
-    void ResetInteractionState()
+    void ResetInteractionState(SideEffectList& effects)
     {
-        caret_visible_ = false;
         ime_composition_.clear();
-        cb_.kill_timer(app_timer::Id::SEARCH_DEBOUNCE);
+        PushEffect(effects, effect::KillTimer{ app_timer::Id::SEARCH_DEBOUNCE });
     }
 
     SearchState* state_ = nullptr;
@@ -278,8 +268,6 @@ private:
     LayoutCache* cache_ = nullptr;
     Cb cb_{};
 
-    // 点滅させない。点滅のたびに全画面再描画が走るため。
-    bool caret_visible_ = false;
     int caret_pos_ = -1;
     int selection_start_ = -1;
     std::pmr::wstring ime_composition_;

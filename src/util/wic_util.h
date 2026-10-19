@@ -99,24 +99,23 @@ inline const GUID* SniffImageContainer(std::span<const uint8_t> bytes) noexcept
     return nullptr;
 }
 
-// IStream から画像をデコードし、GUID_WICPixelFormat32bppPBGRA 形式の
-// FormatConverter とピクセルサイズを返す。converter の lifetime 注意は
-// ConvertBitmapSource を参照。container を渡すとその形式のデコーダだけを使う。
-inline std::optional<DecodeResult> DecodeFromStream(
-    IWICImagingFactory* wic, IStream* stream,
-    const WICPixelFormatGUID& pixel_format = GUID_WICPixelFormat32bppPBGRA, const GUID* container = nullptr)
+// bytes をコピーせずに参照して container 形式の画像をデコードし、pixel_format の FormatConverter と
+// ピクセルサイズを返す。bytes は戻り値を使い終えるまで生かすこと (converter の lifetime 注意は
+// ConvertBitmapSource を参照)。形式の判定を WIC に任せるとインストール済みのどのデコーダも
+// 動きうるので、container の形式に限る。
+inline std::optional<DecodeResult> DecodeFromMemory(
+    IWICImagingFactory* wic, std::span<const uint8_t> bytes, const GUID& container,
+    const WICPixelFormatGUID& pixel_format = GUID_WICPixelFormat32bppPBGRA)
 {
+    const auto stream = CreateStreamOnMemory(wic, bytes);
+    if (!stream) {
+        return std::nullopt;
+    }
     Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
     Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
-    HRESULT hr = S_OK;
-    if (container) {
-        hr = wic->CreateDecoder(*container, nullptr, &decoder);
-        if (SUCCEEDED(hr)) {
-            hr = decoder->Initialize(stream, WICDecodeMetadataCacheOnDemand);
-        }
-    }
-    else {
-        hr = wic->CreateDecoderFromStream(stream, nullptr, WICDecodeMetadataCacheOnDemand, &decoder);
+    HRESULT hr = wic->CreateDecoder(container, nullptr, &decoder);
+    if (SUCCEEDED(hr)) {
+        hr = decoder->Initialize(stream.Get(), WICDecodeMetadataCacheOnDemand);
     }
     if (FAILED(hr) || FAILED(decoder->GetFrame(0, &frame))) {
         return std::nullopt;
@@ -137,19 +136,6 @@ inline std::optional<DecodeResult> DecodeFromStream(
         result.opaque_frame = frame;
     }
     return result;
-}
-
-// bytes をコピーせずに参照してデコードする。bytes は戻り値を使い終えるまで生かすこと。
-// 形式の判定を WIC に任せるとインストール済みのどのデコーダも動きうるので、container の形式に限る。
-inline std::optional<DecodeResult> DecodeFromMemory(
-    IWICImagingFactory* wic, std::span<const uint8_t> bytes, const GUID& container,
-    const WICPixelFormatGUID& pixel_format = GUID_WICPixelFormat32bppPBGRA)
-{
-    const auto stream = CreateStreamOnMemory(wic, bytes);
-    if (!stream) {
-        return std::nullopt;
-    }
-    return DecodeFromStream(wic, stream.Get(), pixel_format, &container);
 }
 
 // 文書から指定された画像ファイル。SniffImageContainer で選んだ形式のデコーダだけを使う。

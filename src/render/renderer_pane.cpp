@@ -103,10 +103,10 @@ void Renderer::GenSidePane(const SidePaneInstance& pane, bool is_file_pane, size
 
 static const wchar_t* FileEntryIcon(const FileEntry& entry) noexcept
 {
-    if (entry.is_parent()) {
+    if (entry.is_parent) {
         return L"\uE74A";
     }
-    if (entry.is_directory()) {
+    if (entry.is_directory) {
         return L"\uE8B7";
     }
     return L"\uE8A5";
@@ -119,7 +119,7 @@ void Renderer::GenFileExplorer(const std::pmr::vector<FileEntry>& entries, const
     GenSidePane(pane, true, entries.size(), i18n::S().pane_header_files, [&](int i, const D2D1_RECT_F& row) {
         const auto& entry = entries[i];
 
-        if (entry.is_current()) {
+        if (entry.is_current) {
             chrome_cmds_.push_back(FillRectCmd{ .rect = row, .brush_id = BrushId::PaneItemActive });
         }
         else if (i == pane.hovered_index) {

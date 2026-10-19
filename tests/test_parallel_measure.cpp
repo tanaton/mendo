@@ -227,7 +227,7 @@ TEST_F(ParallelMeasureTest, ProcessDirtyBatchRetriesAfterChunkException)
         auto nodes = ParseNodes(md);
         LayoutCache cache;
         cache.Resize(nodes.size());
-        engine.ComputeLayout(nodes, cache, 800.0f);
+        ComputeLayout(engine, nodes, cache, 800.0f);
         ASSERT_FALSE(cache.HasDirtyNodes());
 
         // 再計測で高さが変わるようにして、計測済みノードの Y 反映漏れを見えるようにする。
@@ -347,7 +347,7 @@ TEST_F(ParallelMeasureTest, MeasureSuccessOnAnyPathResetsFailureCount)
     ASSERT_TRUE(cache[kThrower].layout_dirty);
 
     // 幅変更の全レイアウトは ComputeLayout から直接計測する。
-    engine.ComputeLayout(nodes, cache, 700.0f);
+    ComputeLayout(engine, nodes, cache, 700.0f);
     EXPECT_FALSE(cache[kThrower].layout_dirty);
     EXPECT_EQ(cache[kThrower].measure_failures, 0);
 }

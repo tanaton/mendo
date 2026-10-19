@@ -53,8 +53,8 @@ void FileExplorer::ListEntries() const
     if (auto parent = dir_base.parent_path(); parent != dir_base) {
         FileEntry pe;
         pe.full_path.assign(parent.native());
-        pe.set_directory(true);
-        pe.set_parent(true);
+        pe.is_directory = true;
+        pe.is_parent = true;
         entries_.emplace_back(std::move(pe));
     }
     // ".." はソート対象外で常に先頭。後段ソートはこの範囲を除く。
@@ -74,7 +74,7 @@ void FileExplorer::ListEntries() const
         if (ShouldListEntry(fd)) {
             FileEntry entry;
             entry.full_path.assign((dir_base / fd.cFileName).native());
-            entry.set_directory(IsDirectory(fd));
+            entry.is_directory = IsDirectory(fd);
             entries_.emplace_back(std::move(entry));
         }
         if (entries_.size() - sort_begin >= MAX_ENTRIES) {
@@ -91,8 +91,8 @@ void FileExplorer::ListEntries() const
     }
 
     std::ranges::sort(entries_.begin() + static_cast<ptrdiff_t>(sort_begin), entries_.end(), [](const FileEntry& a, const FileEntry& b) static noexcept {
-        if (a.is_directory() != b.is_directory()) {
-            return a.is_directory() > b.is_directory();
+        if (a.is_directory != b.is_directory) {
+            return a.is_directory > b.is_directory;
         }
         return path_util::iless(a.GetDisplayName(), b.GetDisplayName());
     });
@@ -107,6 +107,6 @@ void FileExplorer::SetCurrentFile(std::wstring_view path)
 void FileExplorer::ApplyCurrentFile() const
 {
     for (auto& entry : entries_) {
-        entry.set_current(!entry.is_directory() && path_util::iequal(entry.full_path, current_file_));
+        entry.is_current = !entry.is_directory && path_util::iequal(entry.full_path, current_file_);
     }
 }

@@ -59,7 +59,7 @@ TEST(HelpDocumentTest, HasBackingFileOnlyForRealPath)
 TEST(HelpDocumentTest, HelpDocumentHasToc)
 {
     auto doc = Document::FromMarkdown("# Title\n## Section", HELP_PATH);
-    EXPECT_GE(doc.GetToc().GetEntries().size(), 1u);
+    EXPECT_GE(doc.GetToc().size(), 1u);
 }
 
 TEST(HelpDocumentTest, HelpPathIsNotMarkdownFile)
@@ -86,12 +86,12 @@ TEST_F(HelpLayoutTest, OpeningHelpAfterAnotherDocumentMeasuresVisibleContent)
 
         auto prev = Document::FromMarkdown("# Sample\n\nhello", L"C:/docs/sample.md");
         LayoutCache cache;
-        cache.Reset(prev.GetNodes().size());
-        engine_.ComputeLayout(prev.GetNodes(), cache, kWidth, 0.0f, kViewportBottom);
+        cache.Resize(prev.GetNodes().size());
+        ComputeLayout(engine_, prev.GetNodes(), cache, kWidth, 0.0f, kViewportBottom);
 
         auto help = Document::FromMarkdown(std::move(text), HELP_PATH);
         cache = layout::MakeEstimatedLayoutCache(help.GetNodes(), theme_);
-        engine_.ComputeLayout(help.GetNodes(), cache, kWidth, 0.0f, kViewportBottom);
+        ComputeLayout(engine_, help.GetNodes(), cache, kWidth, 0.0f, kViewportBottom);
 
         const auto& nodes = help.GetNodes();
         ASSERT_GT(nodes.size(), 1u);

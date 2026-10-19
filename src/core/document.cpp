@@ -37,7 +37,7 @@ void Document::ReplaceContent(ParseResult&& result)
     table_node_indices_ = std::move(result.table_indices);
     footnote_def_indices_ = std::move(result.footnote_def_indices);
     footnote_refs_ = std::move(result.footnote_refs);
-    toc_ = TableOfContents{ std::move(result.toc_entries) };
+    toc_ = std::move(result.toc_entries);
     anchor_index_.reset();
 }
 
@@ -73,10 +73,9 @@ int Document::FindAnchorIndex(std::string_view anchor)
         return found;
     }
     // 割り当て済みのアンカーは後の見出しで変わらないので、前回の続きから延ばせばよい。
-    const auto& entries = toc_.GetEntries();
-    index.Reserve(entries.size());
-    for (size_t i = index.heading_count(); i < entries.size(); ++i) {
-        const int node_index = entries[i].node_index;
+    index.Reserve(toc_.size());
+    for (size_t i = index.heading_count(); i < toc_.size(); ++i) {
+        const int node_index = toc_[i].node_index;
         if (index.Add(nodes_[node_index].GetText(), node_index) == key) {
             return node_index;
         }

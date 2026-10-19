@@ -40,6 +40,15 @@ struct ReloadDecision {
 // 旧/新コンテンツの UTF-8 テキストを比較し、リロード方針を決定する純粋関数。
 ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text) noexcept;
 
+// still_growing: 読み終えた後もファイルが伸びている。書き込み途中なので差分を取らずに defer する。
+inline ReloadDecision DecideReload(bool still_growing, std::string_view old_text, std::string_view new_text) noexcept
+{
+    if (still_growing) {
+        return { ReloadOp::DeferPartialWrite, std::string_view::npos };
+    }
+    return AnalyzeReloadDiff(old_text, new_text);
+}
+
 // 末尾を削っただけの保存は何度読み直しても prefix shrink になるため、defer 回数に上限を設け、
 // 超えたら縮んだ内容を確定版として受け入れる。
 class PrefixShrinkRetry {

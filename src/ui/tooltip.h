@@ -1,7 +1,6 @@
 #pragma once
 #include <concepts>
 #include <cstdint>
-#include <memory>
 #include <memory_resource>
 #include <string>
 #include <string_view>
@@ -73,23 +72,25 @@ void ApplyDarkModeToWindow(HWND hwnd, bool dark);
 
 class Tooltip {
 public:
-    Tooltip();
+    Tooltip() = default;
     ~Tooltip();
     Tooltip(const Tooltip&) = delete;
     Tooltip& operator=(const Tooltip&) = delete;
-    Tooltip(Tooltip&&) noexcept;
-    Tooltip& operator=(Tooltip&&) noexcept;
 
     void Init(HWND parent_hwnd);
     bool Update(const TooltipTarget& target);
     void Show();
     void Hide();
     void ApplyDarkMode(bool dark);
-    void ResetTarget() noexcept;
-
-    const TooltipTarget& GetCurrent() const noexcept;
+    // 隠して対象も忘れる。次のホバーで同じ対象に戻っても表示し直す。
+    void Clear();
 
 private:
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
+    bool EnsureWindow();
+
+    HWND hwnd_ = nullptr;
+    HWND parent_ = nullptr;
+    TooltipTarget current_;
+    bool visible_ = false;
+    bool dark_ = false;
 };

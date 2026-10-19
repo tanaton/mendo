@@ -116,13 +116,11 @@ TEST(EstimateInvisibleNodeHeight, TableEstimateClearsTableLayoutCache)
     entry.height = 1.0f;
     auto& tl = entry.ensure_table_layout();
     tl.col_widths = { 50.0f, 50.0f };
-    tl.cached_table_width = 100.0f;
     const auto& theme = GetLightTheme();
     // cache_hit = false 経路 (cached_width 未設定) → 推定で成長 + table_layout を invalidate
     const bool changed = EstimateInvisibleNodeHeight(node, entry, theme, 300.0f);
     EXPECT_TRUE(changed);
     EXPECT_TRUE(tl.col_widths.empty());
-    EXPECT_FLOAT_EQ(tl.cached_table_width, 0.0f);
 }
 
 TEST(EstimateInvisibleNodeHeight, TableCacheHitPreservesTableLayout)
@@ -134,14 +132,12 @@ TEST(EstimateInvisibleNodeHeight, TableCacheHitPreservesTableLayout)
     entry.cached_height = 200.0f;
     auto& tl = entry.ensure_table_layout();
     tl.col_widths = { 100.0f, 200.0f };
-    tl.cached_table_width = 300.0f;
     const auto& theme = GetLightTheme();
     // cache_hit = true 経路 → table_layout を保持
     const bool changed = EstimateInvisibleNodeHeight(node, entry, theme, 300.0f);
     EXPECT_TRUE(changed);
     EXPECT_FLOAT_EQ(entry.height, 200.0f);
     EXPECT_EQ(tl.col_widths.size(), 2u);
-    EXPECT_FLOAT_EQ(tl.cached_table_width, 300.0f);
 }
 
 TEST(EstimateInvisibleNodeHeight, NonDiagramCodeBlockGrowsNormally)

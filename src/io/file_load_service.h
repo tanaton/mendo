@@ -9,52 +9,18 @@
 #include <string>
 #include <windows.h>
 
-// ローディングスピナーの回転角度と表示有効/無効だけを管理する薄いクラス。
-// FileLoadService の async/preload 状態とは独立して動き、テスト時にも純粋関数的に扱える。
-class LoadingAnimation {
-public:
-    constexpr bool IsActive() const noexcept
-    {
-        return active_;
-    }
-    constexpr float GetAngle() const noexcept
-    {
-        return angle_;
-    }
-
-    constexpr void Begin() noexcept
-    {
-        active_ = true;
-        angle_ = 0.0f;
-    }
-    constexpr void End() noexcept
-    {
-        active_ = false;
-    }
-    constexpr void Tick() noexcept
-    {
-        angle_ += spinner::ROTATION_INCREMENT;
-        if (angle_ > TWO_PI) {
-            angle_ -= TWO_PI;
-        }
-    }
-
-private:
-    bool active_ = false;
-    float angle_ = 0.0f;
-};
-
 struct Theme;
 class TaskScheduler;
 
 // ファイル読み込みのオーケストレーション。
-// 内部に LoadingAnimation / AsyncLoadCoordinator を持ち、UI から見える API はそれらを束ねた薄い facade。
+// スピナーの状態と AsyncLoadCoordinator を持ち、UI から見える API はそれらを束ねた薄い facade。
 // 起動時の読み込み (preload) も通知先を後から渡すだけで、同じ AsyncLoadCoordinator を通る。
 class FileLoadService {
 public:
+    // スピナー表示中。
     constexpr bool IsLoading() const noexcept
     {
-        return animation_.IsActive();
+        return loading_;
     }
     // スピナー非表示でも非同期パースが進行中なら true。ライブリロードのバースト時に
     // 重複スケジューリングを抑制するためのフラグ。
@@ -64,19 +30,24 @@ public:
     }
     constexpr float GetLoadingAngle() const noexcept
     {
-        return animation_.GetAngle();
+        return loading_angle_;
     }
 
-    void StartLoading(std::pmr::wstring path);
-    // 既に SetLoadingPath 済み (preload 経由など) の状態でアニメーションだけ起動する。
-    void BeginLoadingAnimation() noexcept
+    constexpr void BeginLoadingAnimation() noexcept
     {
-        animation_.Begin();
+        loading_ = true;
+        loading_angle_ = 0.0f;
     }
-    void StopLoading() noexcept;
-    void TickLoadingAnimation() noexcept
+    constexpr void StopLoading() noexcept
     {
-        animation_.Tick();
+        loading_ = false;
+    }
+    constexpr void TickLoadingAnimation() noexcept
+    {
+        loading_angle_ += spinner::ROTATION_INCREMENT;
+        if (loading_angle_ > TWO_PI) {
+            loading_angle_ -= TWO_PI;
+        }
     }
 
     std::expected<Document, FileLoadError> ExecuteLoad();
@@ -114,7 +85,8 @@ public:
     }
 
 private:
-    LoadingAnimation animation_;
+    bool loading_ = false;
+    float loading_angle_ = 0.0f;
     std::pmr::wstring loading_path_;
     AsyncLoadCoordinator coordinator_;
 };

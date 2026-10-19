@@ -7,6 +7,12 @@
 class FileLoadServiceTest : public ::testing::Test {
 protected:
     FileLoadService service_;
+
+    void StartLoading(const wchar_t* path)
+    {
+        service_.SetLoadingPath(std::pmr::wstring(path));
+        service_.BeginLoadingAnimation();
+    }
 };
 
 // preload と StartAsyncLoad を跨ぐキャンセル挙動は実 scheduler が要るため専用 fixture。
@@ -33,9 +39,9 @@ TEST_F(FileLoadServiceTest, InitiallyNotLoading)
     EXPECT_FLOAT_EQ(service_.GetLoadingAngle(), 0.0f);
 }
 
-TEST_F(FileLoadServiceTest, StartLoading)
+TEST_F(FileLoadServiceTest, BeginLoadingAnimation)
 {
-    service_.StartLoading(L"test.md");
+    StartLoading(L"test.md");
     EXPECT_TRUE(service_.IsLoading());
     EXPECT_FLOAT_EQ(service_.GetLoadingAngle(), 0.0f);
     EXPECT_EQ(service_.GetLoadingPath(), L"test.md");
@@ -43,21 +49,21 @@ TEST_F(FileLoadServiceTest, StartLoading)
 
 TEST_F(FileLoadServiceTest, StopLoading)
 {
-    service_.StartLoading(L"test.md");
+    StartLoading(L"test.md");
     service_.StopLoading();
     EXPECT_FALSE(service_.IsLoading());
 }
 
 TEST_F(FileLoadServiceTest, TickLoadingAnimation)
 {
-    service_.StartLoading(L"test.md");
+    StartLoading(L"test.md");
     service_.TickLoadingAnimation();
     EXPECT_GT(service_.GetLoadingAngle(), 0.0f);
 }
 
 TEST_F(FileLoadServiceTest, TickLoadingAnimationWraps)
 {
-    service_.StartLoading(L"test.md");
+    StartLoading(L"test.md");
     // 一周するのに十分な回数ティック（2*pi / 0.15 ≈ 42）
     for (int i = 0; i < 50; ++i) {
         service_.TickLoadingAnimation();
@@ -82,23 +88,22 @@ TEST_F(FileLoadServiceTest, ExecuteLoadNonexistentFile)
 
 TEST_F(FileLoadServiceTest, LoadStopsAnimation)
 {
-    service_.StartLoading(L"nonexistent.md");
+    StartLoading(L"nonexistent.md");
     EXPECT_TRUE(service_.IsLoading());
 
     (void)service_.ExecuteLoad();
     EXPECT_FALSE(service_.IsLoading());
 }
 
-TEST_F(FileLoadServiceTest, StartLoadingResetsAngle)
+TEST_F(FileLoadServiceTest, BeginLoadingAnimationResetsAngle)
 {
-    // 2回目のStartLoadingでアングルがリセットされる
-    service_.StartLoading(L"first.md");
+    StartLoading(L"first.md");
     for (int i = 0; i < 10; ++i) {
         service_.TickLoadingAnimation();
     }
     EXPECT_GT(service_.GetLoadingAngle(), 0.0f);
 
-    service_.StartLoading(L"second.md");
+    StartLoading(L"second.md");
     EXPECT_FLOAT_EQ(service_.GetLoadingAngle(), 0.0f);
 }
 

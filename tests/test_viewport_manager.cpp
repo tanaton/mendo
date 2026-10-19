@@ -521,11 +521,11 @@ TEST(ViewportManagerTest, ClampAndDetachClampsAndClearsTarget)
     EXPECT_FALSE(vm.HasScrollTarget());
 }
 
-// Reset 直後のキャッシュから見ている位置を合成すると誤ったノードへ飛ぶので、合成しない。
+// 作った直後のキャッシュから見ている位置を合成すると誤ったノードへ飛ぶので、合成しない。
 TEST(ViewportManagerTest, EnsureScrollTargetSkipsFreshCache)
 {
     LayoutCache cache;
-    cache.Reset(5);
+    cache.Resize(5);
     ViewportManager vm;
 
     EXPECT_EQ(vm.FindFirstVisibleNode(cache), -1);

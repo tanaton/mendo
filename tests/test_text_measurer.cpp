@@ -17,7 +17,7 @@ protected:
     // content 幅で全ノードを計測する。
     void LayoutAll(std::pmr::vector<Node>& nodes, LayoutCache& cache, float content_width)
     {
-        engine_.ComputeLayout(nodes, cache, ViewportWidthFor(content_width));
+        ComputeLayout(engine_, nodes, cache, ViewportWidthFor(content_width));
     }
 };
 
@@ -27,7 +27,7 @@ TEST_F(MockLayoutTest, EmptyNodesGiveMarginHeight)
 {
     std::pmr::vector<Node> nodes;
     LayoutCache cache;
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    ComputeLayout(engine_, nodes, cache, 800.0f);
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, theme_.margin_bottom), 0.0f);
 }
 
@@ -136,7 +136,7 @@ TEST_F(MockLayoutTest, WidthChangeRecalculates)
 {
     auto [nodes, cache] = ParseAndLayout("Some text that could wrap when narrower");
     float h_wide = cache[0].height;
-    engine_.ComputeLayout(nodes, cache, 200.0f);
+    ComputeLayout(engine_, nodes, cache, 200.0f);
     float h_narrow = cache[0].height;
     EXPECT_GE(h_narrow, h_wide);
 }
@@ -296,7 +296,7 @@ TEST_F(MockLayoutTest, LongTableHeightNotShrunkByEstimateInPartialMode)
     // 2) 幅変更 + partial モード（viewport は冒頭の小さい領域のみ）
     //    テーブルは viewport 外なので不可視扱いになり、現行バグでは推定値で
     //    上書きされて高さが縮む。
-    engine_.ComputeLayout(nodes, cache, 600.0f, 0.0f, 10.0f);
+    ComputeLayout(engine_, nodes, cache, 600.0f, 0.0f, 10.0f);
 
     // テーブルの高さが実測値から縮んでいないこと。
     // 修正後の partial モードは shrink を起こさないため厳密一致を期待する。
@@ -333,14 +333,14 @@ TEST_F(MockLayoutTest, PartialModeClearsTableColWidthsWhenHeightGrows)
     auto [nodes, cache] = ParseAndLayout(md, ViewportWidthFor(800.0f));
     const int table_idx = FindFirstNodeIndexByType(nodes, NodeType::Table);
     ASSERT_GE(table_idx, 0);
-    ASSERT_TRUE(cache[table_idx].has_table_layout());
+    ASSERT_NE(cache[table_idx].table_layout(), nullptr);
     ASSERT_FALSE(cache[table_idx].table_layout()->col_widths.empty());
 
     // 成長分岐を強制発動させるため、現在の entry.height を意図的に小さくする
     cache[table_idx].height = 1.0f;
 
     // partial + invisible (テーブルは viewport より下) で再レイアウト。viewport は先頭余白内に収める。
-    engine_.ComputeLayout(nodes, cache, 600.0f, 0.0f, theme_.margin_top * 0.5f);
+    ComputeLayout(engine_, nodes, cache, 600.0f, 0.0f, theme_.margin_top * 0.5f);
 
     EXPECT_TRUE(cache[table_idx].table_layout()->col_widths.empty())
         << "成長時に col_widths がクリアされず、描画範囲と entry.height が乖離する";
@@ -355,11 +355,11 @@ TEST_F(MockLayoutTest, RecreateFormatsForcesRemeasureAtSameWidth)
     const float h = cache[0].height;
 
     mock_.line_height *= 2.0f;
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    ComputeLayout(engine_, nodes, cache, 800.0f);
     ASSERT_FLOAT_EQ(cache[0].height, h) << "幅不変かつ dirty なしなら再計測しない前提";
 
     EXPECT_TRUE(engine_.RecreateFormats());
-    engine_.ComputeLayout(nodes, cache, 800.0f);
+    ComputeLayout(engine_, nodes, cache, 800.0f);
     EXPECT_FLOAT_EQ(cache[0].height, h * 2.0f);
 }
 
@@ -376,32 +376,12 @@ TEST_F(MockLayoutTest, ManyNodesProduceLargeHeight)
 
 // ---- ファイル切り替えリグレッションテスト ----
 
-TEST_F(MockLayoutTest, ResetClearsAllEntries)
-{
-    auto [nodes, cache] = ParseAndLayout("Hello\n\nWorld");
-
-    // レイアウト後、すべてのエントリはクリーンであるべき
-    for (size_t i = 0; i < cache.size(); i++) {
-        ASSERT_FALSE(cache[i].layout_dirty);
-        ASSERT_GT(cache[i].height, 0.0f);
-    }
-
-    // Resetはすべてをデフォルトにクリアすべき
-    cache.Reset(3);
-    EXPECT_EQ(cache.size(), 3u);
-    for (size_t i = 0; i < cache.size(); i++) {
-        EXPECT_TRUE(cache[i].layout_dirty) << "エントリ " << i << " はReset後にダーティであるべき";
-        EXPECT_FLOAT_EQ(cache[i].height, 0.0f) << "エントリ " << i << " の高さはReset後に0であるべき";
-        EXPECT_EQ(cache[i].text_layout(), nullptr);
-    }
-}
-
-TEST_F(MockLayoutTest, FileSwitchWithResetProducesCorrectLayout)
+TEST_F(MockLayoutTest, FileSwitchWithFreshCacheProducesCorrectLayout)
 {
     // ファイルAを開くシミュレーション: "# Big Heading\n\nSome paragraph"
     auto nodes_a = ParseNodes("# Big Heading\n\nSome paragraph");
     LayoutCache cache;
-    cache.Reset(nodes_a.size());
+    cache.Resize(nodes_a.size());
     LayoutAll(nodes_a, cache, 800.0f);
 
     ASSERT_EQ(nodes_a.size(), 2u);
@@ -412,7 +392,7 @@ TEST_F(MockLayoutTest, FileSwitchWithResetProducesCorrectLayout)
 
     // ファイルBへ切り替えシミュレーション: "Just a paragraph\n\nAnother one\n\nThird"
     auto nodes_b = ParseNodes("Just a paragraph\n\nAnother one\n\nThird");
-    cache.Reset(nodes_b.size());
+    cache = MakeEmptyCache(nodes_b.size());
     LayoutAll(nodes_b, cache, 800.0f);
 
     ASSERT_EQ(nodes_b.size(), 3u);
@@ -427,19 +407,19 @@ TEST_F(MockLayoutTest, FileSwitchWithResetProducesCorrectLayout)
         << "ファイルBの段落はファイルAの見出しの高さを保持していてはならない";
 }
 
-TEST_F(MockLayoutTest, FileSwitchSameNodeCountWithResetRecalculates)
+TEST_F(MockLayoutTest, FileSwitchSameNodeCountWithFreshCacheRecalculates)
 {
     // ファイルA: 見出し2つ
     auto nodes_a = ParseNodes("# H1\n\n## H2");
     LayoutCache cache;
-    cache.Reset(nodes_a.size());
+    cache.Resize(nodes_a.size());
     LayoutAll(nodes_a, cache, 800.0f);
     float h1_height = cache[0].height;
     float h2_height = cache[1].height;
 
     // ファイルB: 段落2つ（ファイルAと同じノード数）
     auto nodes_b = ParseNodes("alpha\n\nbeta");
-    cache.Reset(nodes_b.size());
+    cache = MakeEmptyCache(nodes_b.size());
     LayoutAll(nodes_b, cache, 800.0f);
 
     // 段落は見出しより短いべき
@@ -454,7 +434,7 @@ TEST_F(MockLayoutTest, FileSwitchSameNodeCountWithResetRecalculates)
     }
 }
 
-// ---- 文書差し替え直後 (cache.Reset) の各レイアウト入口 ----
+// ---- 文書差し替え直後 (空のキャッシュ) の各レイアウト入口 ----
 // アプリの文書切り替えは同じ幅のまま可視範囲だけ部分レイアウトする。
 
 namespace {
@@ -465,8 +445,8 @@ constexpr float kSwitchViewportBottom = 600.0f;
 void LayoutPreviousDocument(LayoutEngine& engine, LayoutCache& cache)
 {
     auto prev = ParseNodes("# Prev\n\nbody");
-    cache.Reset(prev.size());
-    engine.ComputeLayout(prev, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
+    cache = MakeEmptyCache(prev.size());
+    ComputeLayout(engine, prev, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
 }
 
 } // namespace
@@ -479,8 +459,8 @@ TEST_F(MockLayoutTest, FileSwitchPartialLayoutAtSameWidthMeasuresVisibleNodes)
 
     const auto md = MakeParagraphs(5);
     auto nodes = ParseNodes(md);
-    cache.Reset(nodes.size());
-    engine_.ComputeLayout(nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
+    cache = MakeEmptyCache(nodes.size());
+    ComputeLayout(engine_, nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
 
     ASSERT_EQ(nodes.size(), 5u);
     for (size_t i = 0; i < nodes.size(); i++) {
@@ -499,12 +479,12 @@ TEST_F(MockLayoutTest, EstimateOnSwitchGivesNearFullContentHeight)
     const auto md = MakeParagraphs(2000);
     auto nodes = ParseNodes(md);
     cache = layout::MakeEstimatedLayoutCache(nodes, theme_);
-    engine_.ComputeLayout(nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
+    ComputeLayout(engine_, nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
     while (engine_.ProcessDirtyBatch(nodes, cache, kSwitchWidth, 200, { 0.0f, kSwitchViewportBottom, 5.0f })) {
     }
 
     LayoutCache full;
-    full.Reset(nodes.size());
+    full.Resize(nodes.size());
     LayoutAll(nodes, full, kSwitchWidth);
     const float expected = ComputeTotalContentHeight(full, theme_.margin_bottom);
     const float actual = ComputeTotalContentHeight(cache, theme_.margin_bottom);
@@ -513,14 +493,14 @@ TEST_F(MockLayoutTest, EstimateOnSwitchGivesNearFullContentHeight)
 }
 
 // 遅延レイアウトタイマー (OnDeferredLayout) はビューポート制限付きで ProcessDirtyBatch を呼ぶ。
-TEST_F(MockLayoutTest, ProcessDirtyBatchWithClipAfterResetMeasuresTopNodes)
+TEST_F(MockLayoutTest, ProcessDirtyBatchWithClipOnFreshCacheMeasuresTopNodes)
 {
     LayoutCache cache;
     LayoutPreviousDocument(engine_, cache);
 
     const auto md = MakeParagraphs(10);
     auto nodes = ParseNodes(md);
-    cache.Reset(nodes.size());
+    cache = MakeEmptyCache(nodes.size());
     engine_.ProcessDirtyBatch(nodes, cache, kSwitchWidth, 100, { 0.0f, kSwitchViewportBottom, 1.0f });
 
     EXPECT_FALSE(cache[0].layout_dirty);
@@ -537,8 +517,8 @@ TEST_F(MockLayoutTest, EnsureVisibleLayoutAfterSwitchKeepsMeasuredNodes)
 
     const auto md = MakeParagraphs(10);
     auto nodes = ParseNodes(md);
-    cache.Reset(nodes.size());
-    engine_.ComputeLayout(nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
+    cache = MakeEmptyCache(nodes.size());
+    ComputeLayout(engine_, nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
     const float top0 = cache.Top(0);
     const float height0 = cache[0].height;
 
@@ -547,7 +527,7 @@ TEST_F(MockLayoutTest, EnsureVisibleLayoutAfterSwitchKeepsMeasuredNodes)
     EXPECT_FLOAT_EQ(cache[0].height, height0);
 }
 
-// 戻る/進むでのスクロール復元: Reset → 推定高さ → 復元位置を可視範囲として部分レイアウト。
+// 戻る/進むでのスクロール復元: 空のキャッシュ → 推定高さ → 復元位置を可視範囲として部分レイアウト。
 // 推定で位置が決まっているので、復元先の可視ノードが計測されること。
 TEST_F(MockLayoutTest, RestoreAfterSwitchMeasuresNodesAtRestoredPosition)
 {
@@ -560,7 +540,7 @@ TEST_F(MockLayoutTest, RestoreAfterSwitchMeasuresNodesAtRestoredPosition)
 
     constexpr size_t kTarget = 150;
     const float scroll_y = cache.Top(kTarget);
-    engine_.ComputeLayout(nodes, cache, kSwitchWidth, scroll_y, scroll_y + kSwitchViewportBottom);
+    ComputeLayout(engine_, nodes, cache, kSwitchWidth, scroll_y, scroll_y + kSwitchViewportBottom);
 
     const auto [first, last_plus_1] = ComputeVisibleNodeRange(cache, scroll_y, scroll_y + kSwitchViewportBottom);
     ASSERT_LT(first, last_plus_1);

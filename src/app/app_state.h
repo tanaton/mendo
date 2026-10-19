@@ -31,6 +31,8 @@ struct DocumentState {
 // 進行中の左ボタンドラッグ。マウスキャプチャはこれが None でない間だけ持つ (右ボタンのジェスチャーを除く)。
 struct LeftDragState {
     LeftDrag kind = LeftDrag::None;
+    // Splitter / PaneScrollbar: 対象のサイドペイン。
+    PaneTarget pane = PaneTarget::File;
     // スクロールバー: つまみを掴んだ位置 (つまみ上端から)。
     float grip_offset = 0.0f;
     // BlockHScroll: 対象ノードと開始時の x・横スクロール量。
@@ -89,7 +91,8 @@ struct InteractionState {
     MouseGesture gesture;
     SwipeDetector swipe_detector;
     LastHoverPos last_hover_pos;
-    Tooltip tooltip;
+    // 表示中か表示待ちのツールチップの対象。ウィンドウ (Tooltip) は App が持つ。
+    TooltipTarget tooltip;
     ToastNotifier toast;
     int zoom_wheel_accum = 0;
 };
@@ -130,7 +133,10 @@ struct AppState {
     PaneLayoutCache pane_layout_cache;
 };
 
-ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept;
+inline ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
+{
+    return state.view.viewport.CurrentTarget(state.document.layout_cache);
+}
 // load_path: これから開くファイル。現在と別のファイルなら、ロード失敗 (LoadFailedAction) で取り消す仮の履歴にする。
 void PushCurrentNavEntry(AppState& state, std::wstring_view load_path = {});
 
@@ -143,13 +149,17 @@ struct SidePaneContext {
 };
 SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane);
 
+inline size_t SidePaneItemCount(const AppState& state, PaneTarget pane)
+{
+    return pane == PaneTarget::File ? state.file_explorer.GetEntries().size() : state.document.doc.GetToc().size();
+}
+
 // サイドペイン (rect) で dip_y にある項目の番号。無ければ -1。
 inline int SidePaneItemAt(const AppState& state, PaneTarget pane, const PaneRect& rect, float dip_y)
 {
     const float item_h = state.theme->pane_item_height;
     const float local_y = SidePaneLocalY(dip_y, PaneContentTop(rect, state.theme->pane_header_height), state.view.panes.SidePaneScroll(pane).scroll_y);
-    const size_t count = pane == PaneTarget::File ? state.file_explorer.GetEntries().size() : state.document.doc.GetToc().GetEntries().size();
-    return HitTestUniformList(local_y, item_h, count);
+    return HitTestUniformList(local_y, item_h, SidePaneItemCount(state, pane));
 }
 
 // サイドペインヘッダーのボタン構成。Refresh/Reveal はファイルペインのみ。

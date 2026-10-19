@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "mermaid_file_cache.h"
+#include "file_io.h"
 #include "task_scheduler.h"
 #include "mermaid_util.h"
 #include "test_helpers.h"
@@ -19,6 +20,24 @@ static PngBytes MakeDummyPng(size_t size = 1024)
         data[i] = static_cast<uint8_t>(i & 0xFF);
     }
     return std::make_shared<const std::pmr::vector<uint8_t>>(std::move(data));
+}
+
+using PngBlob = std::pmr::vector<uint8_t>;
+
+// 製品側は LookupPath の後の読み込みを worker で行う。テストでは同期的に読む。
+static bool LookupAndRead(MermaidFileCache& cache, uint64_t key, MermaidFileCache::CacheEntry& entry, PngBlob& png)
+{
+    std::filesystem::path path;
+    if (!cache.LookupPath(key, entry, path)) {
+        return false;
+    }
+    DWORD read_error = 0;
+    png = ReadAllBytes(path.c_str(), &read_error);
+    if (png.empty()) {
+        cache.OnReadFailed(key, read_error);
+        return false;
+    }
+    return true;
 }
 
 // 件数の上限だけを効かせるテスト用。
@@ -149,8 +168,8 @@ TEST_F(MermaidFileCacheTest, StoreAndLookupRoundTrip)
     FlushAndReopen();
 
     MermaidFileCache::CacheEntry entry;
-    MermaidFileCache::PngBlob out;
-    EXPECT_TRUE(cache_.Lookup(key, entry, out));
+    PngBlob out;
+    EXPECT_TRUE(LookupAndRead(cache_, key, entry, out));
     EXPECT_EQ(entry.css_width, 400.0f);
     EXPECT_EQ(entry.css_height, 300.0f);
     ASSERT_EQ(out.size(), png->size());
@@ -162,8 +181,8 @@ TEST_F(MermaidFileCacheTest, LookupMissReturnsFalse)
     InitCache();
 
     MermaidFileCache::CacheEntry entry;
-    MermaidFileCache::PngBlob out;
-    EXPECT_FALSE(cache_.Lookup(99999, entry, out));
+    PngBlob out;
+    EXPECT_FALSE(LookupAndRead(cache_, 99999, entry, out));
 }
 
 TEST_F(MermaidFileCacheTest, StoreUpdatesEntryCount)
@@ -220,8 +239,8 @@ TEST_F(MermaidFileCacheTest, LookupCleansUpStaleIndexEntry)
     std::filesystem::remove(PngPathOf(42ULL));
 
     MermaidFileCache::CacheEntry entry;
-    MermaidFileCache::PngBlob out;
-    EXPECT_FALSE(cache_.Lookup(42, entry, out));
+    PngBlob out;
+    EXPECT_FALSE(LookupAndRead(cache_, 42, entry, out));
     // 古いインデックスエントリが削除されていること
     EXPECT_EQ(cache_.EntryCount(), 0u);
 }
@@ -272,11 +291,11 @@ TEST_F(MermaidFileCacheTest, EvictsOldestWhenMaxEntriesExceeded)
     FlushAndReopen();
 
     MermaidFileCache::CacheEntry entry;
-    MermaidFileCache::PngBlob out;
-    EXPECT_FALSE(cache_.Lookup(1, entry, out));
-    EXPECT_TRUE(cache_.Lookup(2, entry, out));
-    EXPECT_TRUE(cache_.Lookup(3, entry, out));
-    EXPECT_TRUE(cache_.Lookup(4, entry, out));
+    PngBlob out;
+    EXPECT_FALSE(LookupAndRead(cache_, 1, entry, out));
+    EXPECT_TRUE(LookupAndRead(cache_, 2, entry, out));
+    EXPECT_TRUE(LookupAndRead(cache_, 3, entry, out));
+    EXPECT_TRUE(LookupAndRead(cache_, 4, entry, out));
 }
 
 // ═══════════════════════════════════════════════
@@ -320,9 +339,9 @@ TEST_F(MermaidFileCacheTest, DprMismatchSeparatesEntries)
     EXPECT_EQ(fresh->EntryCount(), 2u);
 
     MermaidFileCache::CacheEntry entry;
-    MermaidFileCache::PngBlob out;
-    EXPECT_FALSE(fresh->Lookup(1, entry, out));
-    EXPECT_FALSE(fresh->Lookup(2, entry, out));
+    PngBlob out;
+    EXPECT_FALSE(LookupAndRead(*fresh, 1, entry, out));
+    EXPECT_FALSE(LookupAndRead(*fresh, 2, entry, out));
 }
 
 TEST_F(MermaidFileCacheTest, SameDprPreservesCache)
@@ -352,13 +371,13 @@ TEST_F(MermaidFileCacheTest, SaveAndLoadIndexRoundTrip)
     EXPECT_EQ(fresh->EntryCount(), 2u);
 
     MermaidFileCache::CacheEntry entry;
-    MermaidFileCache::PngBlob out;
-    EXPECT_TRUE(fresh->Lookup(100, entry, out));
+    PngBlob out;
+    EXPECT_TRUE(LookupAndRead(*fresh, 100, entry, out));
     EXPECT_EQ(entry.css_width, 640.0f);
     EXPECT_EQ(entry.css_height, 480.0f);
     EXPECT_EQ(out.size(), 1024u);
 
-    EXPECT_TRUE(fresh->Lookup(200, entry, out));
+    EXPECT_TRUE(LookupAndRead(*fresh, 200, entry, out));
     EXPECT_EQ(entry.css_width, 320.0f);
     EXPECT_EQ(entry.css_height, 240.0f);
     EXPECT_EQ(out.size(), 512u);
@@ -471,8 +490,8 @@ TEST_F(MermaidFileCacheTest, OperationsWithoutInitAreNoOp)
     uninit.SetCacheDir(temp_dir_);
 
     MermaidFileCache::CacheEntry entry;
-    MermaidFileCache::PngBlob out;
-    EXPECT_FALSE(uninit.Lookup(1, entry, out));
+    PngBlob out;
+    EXPECT_FALSE(LookupAndRead(uninit, 1, entry, out));
 
     uninit.SaveIndex();
     uninit.Shutdown();
@@ -496,8 +515,8 @@ TEST_F(MermaidFileCacheTest, LookupRefreshesTimestamp)
 
     // key=1をLookupして使用順を更新（key=2より新しくなる）
     MermaidFileCache::CacheEntry entry;
-    MermaidFileCache::PngBlob out;
-    EXPECT_TRUE(cache_.Lookup(1, entry, out));
+    PngBlob out;
+    EXPECT_TRUE(LookupAndRead(cache_, 1, entry, out));
 
     // key=3を追加 → key=2が最古なのでkey=2が削除される
     cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyPng(100));
@@ -506,9 +525,9 @@ TEST_F(MermaidFileCacheTest, LookupRefreshesTimestamp)
     // 永続化後にも確認
     FlushAndReopen();
 
-    EXPECT_TRUE(cache_.Lookup(1, entry, out));
-    EXPECT_FALSE(cache_.Lookup(2, entry, out));
-    EXPECT_TRUE(cache_.Lookup(3, entry, out));
+    EXPECT_TRUE(LookupAndRead(cache_, 1, entry, out));
+    EXPECT_FALSE(LookupAndRead(cache_, 2, entry, out));
+    EXPECT_TRUE(LookupAndRead(cache_, 3, entry, out));
 }
 
 // ═══════════════════════════════════════════════
@@ -596,8 +615,8 @@ TEST_F(MermaidFileCacheTest, LookupDuringPendingWriteKeepsIndex)
 
     // Lookup を即座に呼ぶ（タイミングによってはまだ書き込み完了前）。
     MermaidFileCache::CacheEntry entry;
-    MermaidFileCache::PngBlob out;
-    cache_.Lookup(key, entry, out);
+    PngBlob out;
+    LookupAndRead(cache_, key, entry, out);
 
     // 書き込み in-flight 中なら index は残されているべき。
     // タスクが先行して完了した場合は LookupDimensions も成功する。

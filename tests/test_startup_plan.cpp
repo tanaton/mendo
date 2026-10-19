@@ -80,6 +80,8 @@ TEST(StartupPlanTest, FileArg_OpensFileAndShowsItsDirectory)
     const auto plan = DecideStartupPlan(MakeContext(StartupArgKind::File, L"E:\\proj\\README.md"));
     EXPECT_EQ(plan.document_path, L"E:\\proj\\README.md");
     EXPECT_FALSE(plan.restore_scroll);
+    // 表記違いの同一ファイルかは呼び出し側が確かめる。
+    EXPECT_TRUE(plan.restore_scroll_if_same_file);
     EXPECT_EQ(plan.pane_directory, L"E:\\proj");
 }
 
@@ -90,6 +92,17 @@ TEST(StartupPlanTest, FileArg_SameAsLastFile_RestoresScroll)
     const auto plan = DecideStartupPlan(ctx);
     EXPECT_EQ(plan.document_path, kLastFile);
     EXPECT_TRUE(plan.restore_scroll);
+    EXPECT_FALSE(plan.restore_scroll_if_same_file);
+}
+
+// 比べる相手が無いので、ファイルを開いて確かめる必要も無い。
+TEST(StartupPlanTest, FileArg_NoLastFile_SkipsSameFileCheck)
+{
+    auto ctx = MakeContext(StartupArgKind::File, L"E:\\proj\\README.md");
+    ctx.last_file = {};
+    const auto plan = DecideStartupPlan(ctx);
+    EXPECT_FALSE(plan.restore_scroll);
+    EXPECT_FALSE(plan.restore_scroll_if_same_file);
 }
 
 TEST(StartupPlanTest, FileArg_NonMarkdownFileIsOpenedAsBefore)

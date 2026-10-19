@@ -399,7 +399,7 @@ TEST(ParallelMeasureBench, DISABLED_RealMeasureWorkerSweep)
         engine.SetLayoutScheduler(workers > 0 ? &ts : nullptr);
         measurer.SetScheduler(workers > 0 ? &ts : nullptr);
         LayoutCache cache;
-        const double us = MeasureUs([&] { engine.ComputeLayout(doc.GetNodes(), cache, 1200.0f); });
+        const double us = MeasureUs([&] { ComputeLayout(engine, doc.GetNodes(), cache, 1200.0f); });
         engine.SetLayoutScheduler(nullptr);
         measurer.SetScheduler(nullptr);
         ts.Shutdown();

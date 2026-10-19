@@ -57,9 +57,8 @@ float CalcScrollYForDiff(
     return std::max(0.0f, node_y - margin);
 }
 
-int FindActiveTocIndex(const TableOfContents& toc, const LayoutCache& cache, float scroll_y, float margin) noexcept
+int FindActiveTocIndex(std::span<const TocEntry> entries, const LayoutCache& cache, float scroll_y, float margin) noexcept
 {
-    const auto& entries = toc.GetEntries();
     const int n = static_cast<int>(entries.size());
     if (n == 0) {
         return -1;

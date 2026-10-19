@@ -142,7 +142,7 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
         return std::max(h, line_height);
     }
     case NodeType::HorizontalRule:
-        return theme.paragraph_spacing + theme.hr_thickness;
+        return HorizontalRuleHeight(theme);
     case NodeType::Table: {
         const size_t row_count = node.has_table() ? std::max<size_t>(1u, node.table_data()->row_count) : 1u;
         return line_height * 1.5f * static_cast<float>(row_count);
@@ -151,18 +151,10 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
         return PlaceholderHeight(theme);
     case NodeType::ListItem:
     case NodeType::TaskListItem:
-        // 空 LI に高さを与えると bullet と直下 P の文字 Y が分離する (issue#237)。
-        if (IsEmptyListItemContainer(node)) {
-            return 0.0f;
-        }
-        if (!node.HasText()) {
-            return EmptyListItemHeight(theme);
-        }
-        return line_height * static_cast<float>(1 + node.line_count);
     case NodeType::Paragraph:
     case NodeType::BlockQuote:
         if (!node.HasText()) {
-            return theme.paragraph_spacing;
+            return EmptyTextNodeHeight(node, theme);
         }
         return line_height * static_cast<float>(1 + node.line_count);
     }

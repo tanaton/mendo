@@ -2,17 +2,6 @@
 #include "document_service.h"
 #include "theme.h"
 
-void FileLoadService::StartLoading(std::pmr::wstring path)
-{
-    loading_path_ = std::move(path);
-    animation_.Begin();
-}
-
-void FileLoadService::StopLoading() noexcept
-{
-    animation_.End();
-}
-
 std::expected<Document, FileLoadError> FileLoadService::ExecuteLoad()
 {
     StopLoading();

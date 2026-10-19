@@ -45,11 +45,8 @@ struct TableLayoutData {
     // FinalizeTableLayout に最後に渡された max_width。CELL_WIDTH_EPSILON 以内の
     // 差分なら全体の再計算を完全スキップできる。負値 = 未設定。
     float last_applied_max_width = -1.0f;
-    // 列幅 + パディング + 罫線の合計。FinalizeTableLayout で確定後不変なので
-    // GenTable から毎フレーム fold_left せずキャッシュを参照する。
-    float cached_table_width = 0.0f;
     // 圧縮を行わなかった場合の自然な総幅。横スクロールのクランプ計算用に保持する。
-    // cached_table_width と一致することもあるが、圧縮分岐を通った場合は乖離する。
+    // TableWidth と一致することもあるが、圧縮分岐を通った場合は乖離する。
     float natural_total_width = 0.0f;
     size_t evicted_row_count = 0;
     // セル layout が生存しうる行範囲 [live_row_begin, live_row_end)。差分 evict の走査範囲で、
@@ -144,7 +141,12 @@ struct TableLayoutData {
     void InvalidateGeometry() noexcept
     {
         col_widths.clear();
-        cached_table_width = 0.0f;
+    }
+
+    // 列幅 + パディング + 罫線の合計。HasColGeometry() が前提。
+    float TableWidth() const noexcept
+    {
+        return col_cum_x.back();
     }
 
     // 列 c の左端から次の列の左端までの幅 (列幅 + 左右パディング + 罫線)。col_cum_x の刻み幅。
@@ -368,10 +370,6 @@ struct NodeLayoutEntry {
     {
         return layout::detail::EnsureUnique(ensure_aux().table_layout);
     }
-    constexpr bool has_table_layout() const noexcept
-    {
-        return table_layout() != nullptr;
-    }
     constexpr void reset_table_layout() noexcept
     {
         if (aux_) {
@@ -523,8 +521,6 @@ struct DiagramEntry {
 class LayoutCache {
 public:
     void Resize(size_t node_count);
-
-    void Reset(size_t node_count);
 
     constexpr size_t size() const noexcept
     {

@@ -47,18 +47,18 @@ TEST_F(HitTestTest, NavButton_HitsButtonsInclusiveAndMissesAround)
             const char* name;
             float x;
             float y;
-            NavButtonHover expected;
+            NavDirection expected;
         } cases[] = {
-            { "BackCenter", b_cx, b_cy, NavButtonHover::Back },
-            { "ForwardCenter", (f.left + f.right) * 0.5f, f_cy, NavButtonHover::Forward },
+            { "BackCenter", b_cx, b_cy, NavDirection::Back },
+            { "ForwardCenter", (f.left + f.right) * 0.5f, f_cy, NavDirection::Forward },
             // PointInRectInclusive なので左右の端ちょうども Back
-            { "BackLeftEdge", b.left, b_cy, NavButtonHover::Back },
-            { "BackRightEdge", b.right, b_cy, NavButtonHover::Back },
-            { "GapBetweenButtons", b.right + NAV_BTN_GAP * 0.5f, b_cy, NavButtonHover::None },
-            { "AboveBack", b_cx, b.top - 1.0f, NavButtonHover::None },
-            { "BelowBack", b_cx, b.bottom + 1.0f, NavButtonHover::None },
-            { "LeftOfBack", b.left - 1.0f, b_cy, NavButtonHover::None },
-            { "RightOfForward", f.right + 1.0f, f_cy, NavButtonHover::None },
+            { "BackLeftEdge", b.left, b_cy, NavDirection::Back },
+            { "BackRightEdge", b.right, b_cy, NavDirection::Back },
+            { "GapBetweenButtons", b.right + NAV_BTN_GAP * 0.5f, b_cy, NavDirection::None },
+            { "AboveBack", b_cx, b.top - 1.0f, NavDirection::None },
+            { "BelowBack", b_cx, b.bottom + 1.0f, NavDirection::None },
+            { "LeftOfBack", b.left - 1.0f, b_cy, NavDirection::None },
+            { "RightOfForward", f.right + 1.0f, f_cy, NavDirection::None },
         };
         for (const auto& c : cases) {
             SCOPED_TRACE(::testing::Message() << c.name << " pane=(" << md.x << "," << md.y << ")");
@@ -214,10 +214,10 @@ TEST_F(HitTestTest, HitTestTable_NoLayoutDataReturnsTextEnd)
     const int table_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::Table);
     ASSERT_GE(table_idx, 0);
 
-    // has_table_layout() を false にするためテーブル幾何を捨てる
+    // table_layout() を nullptr にするためテーブル幾何を捨てる
     auto& entry = pr.cache[table_idx];
     entry.reset_table_layout();
-    ASSERT_FALSE(entry.has_table_layout());
+    ASSERT_EQ(entry.table_layout(), nullptr);
 
     const float entry_text_top = pr.cache.Top(static_cast<size_t>(table_idx));
     auto r = hit_test::HitTestTable(pr.nodes[table_idx], entry, entry_text_top, table_idx,
@@ -234,7 +234,7 @@ TEST_F(HitTestTest, HitTestTable_ClickAboveAllRowsReturnsTextEnd)
     ASSERT_GE(table_idx, 0);
 
     const auto& entry = pr.cache[table_idx];
-    ASSERT_TRUE(entry.has_table_layout());
+    ASSERT_NE(entry.table_layout(), nullptr);
 
     // テーブル上端より 10 dip 上 → FindTableRow は -1 を返す
     const float entry_text_top = pr.cache.Top(static_cast<size_t>(table_idx));
@@ -256,7 +256,7 @@ TEST_F(HitTestTest, HitTestTable_HitsFirstCellWithoutCellLayout)
     ASSERT_GE(table_idx, 0);
 
     const auto& entry = pr.cache[table_idx];
-    ASSERT_TRUE(entry.has_table_layout());
+    ASSERT_NE(entry.table_layout(), nullptr);
     const auto& tl = *entry.table_layout();
     ASSERT_GE(tl.row_heights.size(), 1u);
     ASSERT_GE(tl.col_widths.size(), 1u);

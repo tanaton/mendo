@@ -31,131 +31,107 @@ void ApplyDarkModeToWindow(HWND hwnd, bool dark)
     SetWindowTheme(hwnd, dark ? L"DarkMode_Explorer" : L"Explorer", nullptr);
 }
 
-struct Tooltip::Impl {
-    HWND hwnd = nullptr;
-    HWND parent = nullptr;
-    TooltipTarget current;
-    bool visible = false;
-    bool dark = false;
-
-    bool EnsureWindow();
-
-    ~Impl()
-    {
-        if (hwnd) {
-            DestroyWindow(hwnd);
-            hwnd = nullptr;
-        }
+Tooltip::~Tooltip()
+{
+    if (hwnd_) {
+        DestroyWindow(hwnd_);
     }
-};
-
-Tooltip::Tooltip() : impl_(std::make_unique<Impl>())
-{}
-Tooltip::~Tooltip() = default;
-Tooltip::Tooltip(Tooltip&&) noexcept = default;
-Tooltip& Tooltip::operator=(Tooltip&&) noexcept = default;
+}
 
 void Tooltip::Init(HWND parent_hwnd)
 {
-    impl_->parent = parent_hwnd;
+    parent_ = parent_hwnd;
 }
 
 // 起動時の初回描画を遅らせないよう、ウィンドウは最初の表示まで作らない。
-bool Tooltip::Impl::EnsureWindow()
+bool Tooltip::EnsureWindow()
 {
-    if (hwnd || !parent) {
-        return hwnd != nullptr;
+    if (hwnd_ || !parent_) {
+        return hwnd_ != nullptr;
     }
-    hwnd = CreateWindowExW(
+    hwnd_ = CreateWindowExW(
         WS_EX_TOPMOST,
         TOOLTIPS_CLASSW,
         nullptr,
         WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP,
         CW_USEDEFAULT, CW_USEDEFAULT,
         CW_USEDEFAULT, CW_USEDEFAULT,
-        parent,
+        parent_,
         nullptr,
         GetModuleHandleW(nullptr),
         nullptr);
-    if (!hwnd) {
+    if (!hwnd_) {
         return false;
     }
 
     // 位置と表示を手動で制御するため TTF_TRACK で登録する。
-    TOOLINFOW ti = MakeToolInfo(parent);
+    TOOLINFOW ti = MakeToolInfo(parent_);
     ti.uFlags = TTF_TRACK | TTF_ABSOLUTE;
     ti.lpszText = const_cast<LPWSTR>(L"");
-    SendMessageW(hwnd, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
+    SendMessageW(hwnd_, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
 
     // 長い URL の折り返し用
-    SendMessageW(hwnd, TTM_SETMAXTIPWIDTH, 0, 600);
-    if (dark) {
-        ApplyDarkModeToWindow(hwnd, true);
+    SendMessageW(hwnd_, TTM_SETMAXTIPWIDTH, 0, 600);
+    if (dark_) {
+        ApplyDarkModeToWindow(hwnd_, true);
     }
     return true;
 }
 
 bool Tooltip::Update(const TooltipTarget& target)
 {
-    auto& s = *impl_;
-    if (target.SameTarget(s.current)) {
+    if (target.SameTarget(current_)) {
         return false;
     }
 
     Hide();
-    s.current = target;
-    return !s.current.IsEmpty();
+    current_ = target;
+    return !current_.IsEmpty();
 }
 
 void Tooltip::Show()
 {
-    auto& s = *impl_;
-    if (s.current.IsEmpty() || !s.EnsureWindow()) {
+    if (current_.IsEmpty() || !EnsureWindow()) {
         return;
     }
 
-    TOOLINFOW ti = MakeToolInfo(s.parent);
-    ti.lpszText = const_cast<LPWSTR>(s.current.text.c_str());
-    SendMessageW(s.hwnd, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&ti));
+    TOOLINFOW ti = MakeToolInfo(parent_);
+    ti.lpszText = const_cast<LPWSTR>(current_.text.c_str());
+    SendMessageW(hwnd_, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&ti));
 
     // 表示時点の実カーソル位置を使う。タイマー待機中に同一ターゲット内でカーソルが
     // 動いても最新位置で表示するため (同一ターゲットでは reducer 側で抑止され Update は
     // 呼ばれないので、保存した位置では陳腐化する)。
     POINT pt{};
     GetCursorPos(&pt);
-    const UINT dpi = GetDpiForWindow(s.parent);
+    const UINT dpi = GetDpiForWindow(parent_);
     const int offset_y = MulDiv(20, dpi, USER_DEFAULT_SCREEN_DPI);
-    SendMessageW(s.hwnd, TTM_TRACKPOSITION, 0, MAKELPARAM(pt.x, pt.y + offset_y));
+    SendMessageW(hwnd_, TTM_TRACKPOSITION, 0, MAKELPARAM(pt.x, pt.y + offset_y));
 
-    SendMessageW(s.hwnd, TTM_TRACKACTIVATE, TRUE, reinterpret_cast<LPARAM>(&ti));
-    s.visible = true;
+    SendMessageW(hwnd_, TTM_TRACKACTIVATE, TRUE, reinterpret_cast<LPARAM>(&ti));
+    visible_ = true;
 }
 
 void Tooltip::Hide()
 {
-    auto& s = *impl_;
-    if (!s.hwnd || !s.visible) {
+    if (!hwnd_ || !visible_) {
         return;
     }
-    TOOLINFOW ti = MakeToolInfo(s.parent);
-    SendMessageW(s.hwnd, TTM_TRACKACTIVATE, FALSE, reinterpret_cast<LPARAM>(&ti));
-    s.visible = false;
+    TOOLINFOW ti = MakeToolInfo(parent_);
+    SendMessageW(hwnd_, TTM_TRACKACTIVATE, FALSE, reinterpret_cast<LPARAM>(&ti));
+    visible_ = false;
 }
 
 void Tooltip::ApplyDarkMode(bool dark)
 {
-    impl_->dark = dark;
-    if (impl_->hwnd) {
-        ApplyDarkModeToWindow(impl_->hwnd, dark);
+    dark_ = dark;
+    if (hwnd_) {
+        ApplyDarkModeToWindow(hwnd_, dark);
     }
 }
 
-void Tooltip::ResetTarget() noexcept
+void Tooltip::Clear()
 {
-    impl_->current = {};
-}
-
-const TooltipTarget& Tooltip::GetCurrent() const noexcept
-{
-    return impl_->current;
+    Hide();
+    current_ = {};
 }

@@ -144,17 +144,13 @@ void TransformAlertNode(Node& node, TextArena& arena, AlertType type, size_t mar
 
 // 単一の BlockQuote ノードに対して Alert マーカーを検出・適用し、
 // 同一 blockquote_group の後続ノードに alert_type を伝播する。
-// 既に alert_type が設定されているノードはスキップする（伝播で当たった先頭等）。
+// 伝播先は先頭候補にならないので、先頭候補が既に alert_type を持つことはない。
 void DetectAlertAt(std::pmr::vector<Node>& nodes, TextArena& arena, size_t i)
 {
-    const auto node_count = nodes.size();
-    if (i >= node_count) {
+    if (!IsAlertHeadCandidate(nodes, i)) {
         return;
     }
     auto& node = nodes[i];
-    if (node.alert_type != AlertType::None || !IsAlertHeadCandidate(nodes, i)) {
-        return;
-    }
     const auto [type, marker_end] = DetectAlertMarker(node.GetText());
     if (type == AlertType::None) {
         return;
@@ -164,7 +160,7 @@ void DetectAlertAt(std::pmr::vector<Node>& nodes, TextArena& arena, size_t i)
 
     // 同一 blockquote_group の後続ノードにも同じ alert_type を伝播。
     // ノード種別に依存せず、グループIDで判定する（リスト等も含む）。
-    for (size_t j = i + 1; j < node_count; j++) {
+    for (size_t j = i + 1; j < nodes.size(); j++) {
         if (nodes[j].blockquote_group != group) {
             break;
         }

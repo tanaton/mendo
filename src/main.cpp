@@ -53,13 +53,6 @@ StartupArgKind ClassifyPath(const std::wstring& path)
     return (attrs & FILE_ATTRIBUTE_DIRECTORY) ? StartupArgKind::Directory : StartupArgKind::File;
 }
 
-// 大文字小文字・スラッシュ違いを吸収するため filesystem::equivalent でも比較する。
-bool IsSameFile(std::wstring_view a, std::wstring_view b)
-{
-    std::error_code ec;
-    return path_util::iequal(a, b) || std::filesystem::equivalent(a, b, ec);
-}
-
 StartupPlan PlanStartup(std::wstring_view arg, std::wstring_view last_file)
 {
     MENDO_PROFILE("PlanStartup");
@@ -81,7 +74,7 @@ StartupPlan PlanStartup(std::wstring_view arg, std::wstring_view last_file)
         arg_path = ToAbsolutePath(arg);
         ctx.arg_path = arg_path;
         ctx.arg_kind = ClassifyPath(arg_path);
-        ctx.arg_is_last_file = ctx.arg_kind == StartupArgKind::File && !last_file.empty() && IsSameFile(arg_path, last_file);
+        ctx.arg_is_last_file = ctx.arg_kind == StartupArgKind::File && !last_file.empty() && path_util::iequal(arg_path, last_file);
     }
     return DecideStartupPlan(ctx);
 }
@@ -134,7 +127,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
 
     // SessionService::LoadLastFilePath は UNC/デバイスパスや実在しないパスを除外する。
     SessionService session{ config };
-    StartupPlan plan = PlanStartup(arg, session.LoadLastFilePath());
+    const std::pmr::wstring last_file = session.LoadLastFilePath();
+    StartupPlan plan = PlanStartup(arg, last_file);
 
     Win32Window window(config);
 
@@ -147,7 +141,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     }
 
     // preload が Create 内で同期完了するパスに備え、復元情報を先にセット。
-    if (plan.restore_scroll) {
+    std::error_code ec;
+    if (plan.restore_scroll || (plan.restore_scroll_if_same_file && std::filesystem::equivalent(arg, last_file, ec))) {
         window.RestoreScrollPosition();
     }
     // Create 末尾の初回描画に間に合わせる。

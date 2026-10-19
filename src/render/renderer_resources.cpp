@@ -96,7 +96,6 @@ void Renderer::RecreateBrushes()
         { BrushId::TitleBarButtonHover, theme_.titlebar_button_hover_color },
         { BrushId::TitleBarButtonActive, theme_.titlebar_button_active_color },
         { BrushId::TitleBarCloseRed, D2D1::ColorF(0xE81123) },
-        { BrushId::TitleBarCloseWhite, D2D1::ColorF(D2D1::ColorF::White) },
         { BrushId::Splitter, theme_.splitter_color },
         { BrushId::PaneBg, theme_.pane_bg_color },
         { BrushId::PaneItemHover, theme_.pane_item_hover_color },

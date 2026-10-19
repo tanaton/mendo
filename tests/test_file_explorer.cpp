@@ -28,7 +28,7 @@ protected:
     {
         std::vector<std::wstring> names;
         for (const auto& e : explorer_.GetEntries()) {
-            if (!e.is_parent()) {
+            if (!e.is_parent) {
                 names.emplace_back(e.GetDisplayName());
             }
         }
@@ -77,7 +77,7 @@ TEST_F(FileExplorerTest, EmptyDirectoryHasParentOnly)
 {
     const auto& entries = ListTempDir();
     ASSERT_EQ(entries.size(), 1u);
-    EXPECT_TRUE(entries[0].is_parent());
+    EXPECT_TRUE(entries[0].is_parent);
     EXPECT_EQ(entries[0].GetDisplayName(), L"..");
 }
 
@@ -90,7 +90,7 @@ TEST_F(FileExplorerTest, SetDirectoryDefersListingUntilGetEntries)
     WriteTempFile(L"a.md");
 
     ASSERT_EQ(explorer_.GetEntries().size(), 2u);
-    EXPECT_TRUE(explorer_.GetEntries()[1].is_current());
+    EXPECT_TRUE(explorer_.GetEntries()[1].is_current);
 }
 
 TEST_F(FileExplorerTest, ListedOnceUntilRefresh)
@@ -145,9 +145,9 @@ TEST_F(FileExplorerTest, DirectoriesBeforeFiles)
 
     const auto& entries = ListTempDir();
     ASSERT_EQ(entries.size(), 3u);
-    EXPECT_TRUE(entries[0].is_parent());
-    EXPECT_TRUE(entries[1].is_directory());
-    EXPECT_FALSE(entries[2].is_directory());
+    EXPECT_TRUE(entries[0].is_parent);
+    EXPECT_TRUE(entries[1].is_directory);
+    EXPECT_FALSE(entries[2].is_directory);
     EXPECT_EQ(ListedNames(), (std::vector<std::wstring>{ L"zzz_dir", L"aaa.md" }));
 }
 
@@ -173,7 +173,7 @@ TEST_F(FileExplorerTest, SetCurrentFileMarksEntry)
 
     const auto* entry = FindEntry(L"b.md");
     ASSERT_NE(entry, nullptr);
-    EXPECT_TRUE(entry->is_current());
+    EXPECT_TRUE(entry->is_current);
     EXPECT_EQ(CountCurrent(), 1u);
 }
 
@@ -209,7 +209,7 @@ TEST_F(FileExplorerTest, SetDirectoryWithCurrentWorkingDirectory)
     EXPECT_FALSE(explorer_.GetDirectory().empty());
     // 少なくとも ".." エントリがあること
     ASSERT_GE(explorer_.GetEntries().size(), 1u);
-    EXPECT_TRUE(explorer_.GetEntries()[0].is_parent());
+    EXPECT_TRUE(explorer_.GetEntries()[0].is_parent);
 }
 
 TEST_F(FileExplorerTest, SetDirectoryThenSetDirectoryAgainSwitches)

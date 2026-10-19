@@ -211,7 +211,7 @@ TEST_F(HitTestDWriteTest, TableHitDetectsRowAndColumn)
 
     const int table_idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
     ASSERT_GE(table_idx, 0);
-    ASSERT_TRUE(pl.cache[table_idx].has_table_layout());
+    ASSERT_NE(pl.cache[table_idx].table_layout(), nullptr);
 
     // テーブル中央あたりに hit する位置。
     const auto r = hit_test::HitTest(Ctx(pl, { theme_.margin_left + 30.0f, pl.cache.Top(table_idx) + pl.cache[table_idx].height * 0.5f }));
@@ -270,7 +270,7 @@ protected:
         pl_ = ParseAndLayout(VARIED_TABLE_MD, VARIED_TABLE_VIEWPORT_W);
         const int idx = FindFirstNodeIndexByType(pl_.nodes, NodeType::Table);
         ASSERT_GE(idx, 0);
-        ASSERT_TRUE(pl_.cache[idx].has_table_layout());
+        ASSERT_NE(pl_.cache[idx].table_layout(), nullptr);
         const auto& tl = *pl_.cache[idx].table_layout();
         t_ = { &tl, pl_.nodes[idx].table_data()->row_count, pl_.cache[idx].height, pl_.cache.Top(static_cast<size_t>(idx)) };
         ASSERT_TRUE(tl.HasGeometry(t_.row_count, tl.col_count));

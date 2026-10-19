@@ -60,11 +60,11 @@ TEST_F(SessionServiceTest, LoadPaneStateUsesDefaultWhenWindowFitsIt)
 
 TEST_F(SessionServiceTest, SaveAndLoadScrollPosition)
 {
-    session_.SaveScrollPosition(5, 350.0f, 300.0f);
+    session_.SaveScrollPosition(5, 49.6f);
 
     const auto pos = session_.LoadScrollPosition();
     EXPECT_EQ(pos.node, 5);
-    EXPECT_EQ(pos.offset, 50);       // lround(350 - 300)
+    EXPECT_EQ(pos.offset, 50); // lround(49.6)
 }
 
 // ---- SaveLastFilePath / LoadLastFilePath ----
@@ -125,8 +125,8 @@ TEST_F(SessionServiceTest, LoadLastFilePathReturnsEmptyWhenNothingSaved)
 
 TEST_F(SessionServiceTest, SaveScrollPosition_NegativeOffsetRoundtrips)
 {
-    // 反転スクロール（node_y > scroll_y）で offset が負になるケース。
-    session_.SaveScrollPosition(3, 100.0f, 250.0f);
+    // ノード先頭より上を見ている (scroll_y < node_y) と offset は負になる。
+    session_.SaveScrollPosition(3, -150.0f);
     const auto pos = session_.LoadScrollPosition();
     EXPECT_EQ(pos.node, 3);
     EXPECT_EQ(pos.offset, -150);

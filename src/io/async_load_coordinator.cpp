@@ -102,9 +102,7 @@ void AsyncLoadCoordinator::RunWorker(const std::pmr::wstring& path, uint32_t gen
     if (reload_base) {
         // 無変更の保存や書き込み途中でも全文パース (100MB で ~0.6s) と
         // 新旧 Document の二重保持が起きないよう、パース前に判定する。
-        const ReloadDecision decision = IsFileLargerThan(path.c_str(), file->byte_size)
-                                            ? ReloadDecision{ ReloadOp::DeferPartialWrite, std::string_view::npos }
-                                            : AnalyzeReloadDiff(*reload_base, file->text);
+        const ReloadDecision decision = DecideReload(IsFileLargerThan(path.c_str(), file->byte_size), *reload_base, file->text);
         reload.emplace(ReloadCheck{ decision, reload_base, path, file->byte_size });
         // 以降のパース中に UI が文書を差し替えても旧テキストを延命しない。
         reload_base.reset();

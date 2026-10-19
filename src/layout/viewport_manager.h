@@ -110,9 +110,17 @@ public:
         if (scroll_target_.IsValid()) {
             return;
         }
-        if (const int idx = FindFirstVisibleNode(cache); idx >= 0) {
-            scroll_target_ = { idx, scroll_y_ - cache.Top(static_cast<size_t>(idx)) };
+        if (const auto t = CurrentTarget(cache); t.IsValid()) {
+            scroll_target_ = t;
         }
+    }
+
+    // 可視先頭ノード基準の現在位置。ノードが無ければ node=-1, offset=scroll_y。
+    constexpr ScrollTarget CurrentTarget(const LayoutCache& cache) const noexcept
+    {
+        const int idx = FindFirstVisibleNode(cache);
+        const float top = idx >= 0 ? cache.Top(static_cast<size_t>(idx)) : 0.0f;
+        return { idx, scroll_y_ - top };
     }
 
     // クランプを掛けない scroll_y 書き込み。scroll_target を無効化する。

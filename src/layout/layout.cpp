@@ -56,13 +56,6 @@ void LayoutEngine::Reestimate(const std::pmr::vector<Node>& nodes, LayoutCache& 
     MENDO_PLOT("layout.compute.node_count", static_cast<int64_t>(node_count));
 }
 
-void LayoutEngine::ComputeLayout(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width, float viewport_top, float viewport_bottom)
-{
-    MENDO_PROFILE("LayoutEngine::ComputeLayout");
-    Reestimate(nodes, cache, viewport_width);
-    EnsureVisibleLayout(nodes, cache, viewport_width, viewport_top, viewport_bottom);
-}
-
 void LayoutEngine::EstimateDirtyHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float content_width, bool mark_all_dirty)
 {
     MENDO_PROFILE("LayoutEngine::EstimateDirtyHeights");

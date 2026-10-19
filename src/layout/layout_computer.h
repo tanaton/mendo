@@ -51,6 +51,11 @@ inline float EmptyTextNodeHeight(const Node& node, const Theme& theme) noexcept
     return IsEmptyListItemContainer(node) ? 0.0f : IsListItem(node) ? EmptyListItemHeight(theme) : theme.paragraph_spacing;
 }
 
+inline float HorizontalRuleHeight(const Theme& theme) noexcept
+{
+    return theme.paragraph_spacing + theme.hr_thickness;
+}
+
 // 行高さが未計測の表の行に使う高さ。
 inline float TableBaseRowHeight(const Theme& theme) noexcept
 {

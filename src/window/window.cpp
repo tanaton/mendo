@@ -252,23 +252,14 @@ int Win32Window::RunMessageLoop()
 
 LRESULT CALLBACK Win32Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
-    Win32Window* self = nullptr;
-
+    auto* self = BindWindowInstance<Win32Window>(hwnd, msg, lParam);
+    if (!self) {
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
     if (msg == WM_NCCREATE) {
-        const auto* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
-        self = static_cast<Win32Window*>(cs->lpCreateParams);
-        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
         self->hwnd_ = hwnd;
     }
-    else {
-        self = reinterpret_cast<Win32Window*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-    }
-
-    if (self) {
-        return self->HandleMessage(msg, wParam, lParam);
-    }
-
-    return DefWindowProcW(hwnd, msg, wParam, lParam);
+    return self->HandleMessage(msg, wParam, lParam);
 }
 
 LRESULT Win32Window::OnNcCalcSize(WPARAM wParam, LPARAM lParam)
