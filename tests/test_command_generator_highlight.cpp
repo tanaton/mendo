@@ -26,8 +26,7 @@ namespace {
 // 失敗時のメッセージで「コマンド型の並び」が読みやすくなることを目的とする。
 std::vector<size_t> ExtractCmdKinds(const DrawCommandList& cmds)
 {
-    return cmds | std::views::transform([](const DrawCommand& c) static noexcept { return c.index(); })
-        | std::ranges::to<std::vector>();
+    return cmds | std::views::transform([](const DrawCommand& c) static noexcept { return c.index(); }) | std::ranges::to<std::vector>();
 }
 
 std::vector<D2D1_RECT_F> CollectRectsByBrush(const DrawCommandList& cmds, std::initializer_list<BrushId> brushes)

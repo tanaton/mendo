@@ -456,10 +456,12 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
     // 端の行は、選択文字を持つセルがあるか、行全体が選択範囲に含まれるときだけ出す。
     // 区切り文字だけにかかる行は出さず、全選択では空セルだけの行 (空のヘッダ行など) も落とさない。
     const auto row_selected = [&](size_t r) {
-        return (start <= row_begin(r) && row_end(r) <= end) ||
-               std::ranges::any_of(std::views::iota(size_t{ 0 }, col_count), [&](size_t c) {
-                   return std::max(start, tbl->CellTextStart(r, c)) < std::min(end, tbl->CellTextEnd(r, c));
-               });
+        if (start <= row_begin(r) && row_end(r) <= end) {
+            return true;
+        }
+        return std::ranges::any_of(std::views::iota(size_t{ 0 }, col_count), [&](size_t c) {
+            return std::max(start, tbl->CellTextStart(r, c)) < std::min(end, tbl->CellTextEnd(r, c));
+        });
     };
     while (first_row < end_row && !row_selected(first_row)) {
         ++first_row;
