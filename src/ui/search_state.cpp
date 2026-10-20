@@ -174,9 +174,9 @@ void SearchState::SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) 
         return match_y(m) < scroll_y;
     };
     // 境界の行より後のマッチは次の行以降 (行下端 > scroll_y) にあるので、走査はその行内で止まる。
-    auto it = std::ranges::partition_point(matches_, above);
-    while (it != matches_.end() && in_cache(*it) && match_y(*it) < scroll_y) {
-        ++it;
-    }
+    const auto boundary = std::ranges::partition_point(matches_, above);
+    const auto it = std::ranges::find_if_not(boundary, matches_.end(), [&](const SearchMatch& m) noexcept {
+        return in_cache(m) && match_y(m) < scroll_y;
+    });
     current_match_ = (it != matches_.end()) ? static_cast<int>(it - matches_.begin()) : 0;
 }

@@ -98,15 +98,10 @@ TEST_F(HitTestTest, HitTest_BelowAllNodesReturnsLastNonEmpty)
     const auto ctx = Ctx(pr, 0.0f, 50, static_cast<int>(last_bottom) + 1000);
     auto r = hit_test::HitTest(ctx);
 
-    // reverse 走査で最初に見つかる非空ノード
-    int expected_idx = -1;
-    for (int i = static_cast<int>(pr.nodes.size()) - 1; i >= 0; --i) {
-        if (!pr.nodes[i].GetText().empty()) {
-            expected_idx = i;
-            break;
-        }
-    }
-    ASSERT_GE(expected_idx, 0);
+    const auto last_non_empty = std::ranges::find_last_if(
+        pr.nodes, [](const Node& n) static noexcept { return !n.GetText().empty(); });
+    ASSERT_FALSE(last_non_empty.empty());
+    const int expected_idx = static_cast<int>(last_non_empty.begin() - pr.nodes.begin());
     EXPECT_EQ(r.node_index, expected_idx);
     EXPECT_EQ(r.text_pos,
               static_cast<uint32_t>(pr.nodes[expected_idx].GetText().size()));

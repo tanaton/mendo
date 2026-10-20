@@ -497,11 +497,10 @@ void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayou
     const float border_width = TABLE_BORDER_WIDTH;
     auto& tl = *entry.table_layout();
     const size_t col_count = tl.col_count;
-    const auto& natural_widths = tl.natural_col_widths;
     const float borders_width = (static_cast<float>(col_count) + 1.0f) * border_width;
     const float paddings_width = static_cast<float>(col_count) * cell_padding * 2.0f;
 
-    layout::ComputeColumnWidths(tl.col_widths, natural_widths, max_width - borders_width - paddings_width, col_count);
+    const float natural_sum = layout::ComputeColumnWidths(tl.col_widths, tl.natural_col_widths, max_width - borders_width - paddings_width, col_count);
 
     // 幅の適用 (SetMaxWidth + GetMetrics) は全セル分かかる。行ごとの書き込み先
     // (row_heights[r] と行内セルの幅・高さキャッシュ) は重ならないので行チャンクで並列化する。
@@ -523,11 +522,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayou
 
     // 圧縮分岐に入った場合 TableWidth() は自然総幅と乖離する。
     // 横スクロールのクランプ計算は natural_total_width を基準にする。
-    float natural_total = borders_width + paddings_width;
-    for (const float w : natural_widths | std::views::take(col_count)) {
-        natural_total += w;
-    }
-    tl.natural_total_width = natural_total;
+    tl.natural_total_width = natural_sum + borders_width + paddings_width;
 
     entry.height = tl.TotalHeight(tbl.row_count);
     tl.last_applied_max_width = max_width;

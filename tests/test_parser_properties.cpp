@@ -14,6 +14,7 @@
 #include <map>
 #include <numeric>
 #include <random>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -169,13 +170,7 @@ TEST(ParserProperty, TightAndLooseListsKeepEveryWordInItsBlockKind)
                 if (i > 0) {
                     md += item_sep;
                 }
-                std::string body;
-                for (size_t b = 0; b < items[i].size(); ++b) {
-                    if (b > 0) {
-                        body += block_sep;
-                    }
-                    body += items[i][b];
-                }
+                const auto body = items[i] | std::views::join_with(block_sep) | std::ranges::to<std::string>();
                 md += MarkdownFragmentGen::PrefixLines(body, marker, indent, "");
             }
             return md;
@@ -224,7 +219,7 @@ TEST(ParserProperty, HeadingAnchorsMatchGithubSluggerAndResolveToTheirHeading)
         ASSERT_EQ(doc.GetNodes().size(), static_cast<size_t>(n));
         // 索引は引いた見出しまでしか延ばさないので、引く順を混ぜて続きからの延長も検査する。
         std::vector<size_t> order(expected.size());
-        std::iota(order.begin(), order.end(), size_t{ 0 });
+        std::ranges::iota(order, size_t{ 0 });
         std::ranges::shuffle(order, rng);
         for (const size_t i : order) {
             if (!expected[i].empty()) {

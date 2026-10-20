@@ -1,11 +1,12 @@
 #include <gtest/gtest.h>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <initializer_list>
 #include <iostream>
 #include <memory_resource>
-#include <numeric>
 #include <random>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include "command_generator.h"
@@ -57,11 +58,10 @@ LayoutCache MakeMeasuredCache(std::initializer_list<float> heights)
 {
     LayoutCache cache;
     cache.Resize(heights.size());
-    size_t i = 0;
-    for (const float h : heights) {
-        cache[i].height = h;
-        cache[i].layout_dirty = false;
-        ++i;
+    for (const auto [i, h] : std::views::enumerate(heights)) {
+        auto& entry = cache[static_cast<size_t>(i)];
+        entry.height = h;
+        entry.layout_dirty = false;
     }
     return cache;
 }
@@ -485,8 +485,8 @@ TEST(ComputeColumnWidthsTest, TotalFitsAvailableUnlessLeftAtNaturalForScroll)
             ASSERT_EQ(out.size(), n) << input();
 
             const float effective = std::max(available, static_cast<float>(n) * kMinColumnWidth);
-            const float natural_total = std::reduce(natural.begin(), natural.end(), 0.0f);
-            const float out_total = std::reduce(out.begin(), out.end(), 0.0f);
+            const float natural_total = std::ranges::fold_left(natural, 0.0f, std::plus{});
+            const float out_total = std::ranges::fold_left(out, 0.0f, std::plus{});
             if (natural_total > effective && std::ranges::equal(out, natural)) {
                 continue;
             }

@@ -305,10 +305,8 @@ struct ParseContext {
     {
         const size_t n = current_link_urls.size();
         if (n <= kLinkUrlLinearScanMax) {
-            for (size_t i = 0; i < n; ++i) {
-                if (current_link_urls[i] == url) {
-                    return static_cast<int16_t>(i);
-                }
+            if (const auto it = std::ranges::find(current_link_urls, url); it != current_link_urls.end()) {
+                return static_cast<int16_t>(it - current_link_urls.begin());
             }
         }
         else {
@@ -604,8 +602,8 @@ void AppendFootnoteBackrefs(std::pmr::vector<Node>& nodes, TextArena& arena, std
         const auto id = static_cast<uint32_t>(i + 1);
         auto& node = nodes[static_cast<size_t>(def_indices[i])];
         text = node.GetText();
-        runs.assign(node.runs().begin(), node.runs().end());
-        urls.assign(node.view_link_urls().begin(), node.view_link_urls().end());
+        runs.assign_range(node.runs());
+        urls.assign_range(node.view_link_urls());
         for (uint32_t ref_id = 1; ref_id <= ref_counts[i] && urls.size() < kMaxLinkUrls; ++ref_id) {
             if (!text.empty()) {
                 text += ' ';
@@ -636,7 +634,7 @@ void LeaveCodeBlock(ParseContext* ctx)
     // md4c はコード各行を改行付きで渡すため、最終行の改行を表示テキストから落とす。
     // コード内には装飾もリンクも付かないので run は無く、調整は要らない。
     assert(ctx->current_runs.empty());
-    if (!ctx->current_text.empty() && ctx->current_text.back() == '\n') {
+    if (ctx->current_text.ends_with('\n')) {
         ctx->current_text.pop_back();
         cn->line_count--;
     }

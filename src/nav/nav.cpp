@@ -1,7 +1,7 @@
 #include "nav.h"
 #include "ascii_util.h"
 #include <cassert>
-#include <iterator>
+#include <ranges>
 #include <utility>
 
 std::optional<NavEntry> NavHistory::PushCapped(std::pmr::deque<NavEntry>& stack, NavEntry e)
@@ -44,7 +44,7 @@ void NavHistory::RollbackPending()
         if (op.dropped) {
             to.push_front(std::move(*op.dropped));
         }
-        from.insert(from.end(), std::make_move_iterator(op.taken.begin()), std::make_move_iterator(op.taken.end()));
+        from.append_range(op.taken | std::views::as_rvalue);
     }
 }
 

@@ -696,14 +696,11 @@ struct VisibleRange {
 inline VisibleRange ComputeVisibleNodeRange(const LayoutCache& cache, float range_top, float range_bottom) noexcept
 {
     const size_t first = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, range_top));
-    size_t last_plus_1 = first;
-    for (size_t i = first; i < cache.size(); ++i) {
-        if (cache.Top(i) > range_bottom) {
-            break;
-        }
-        last_plus_1 = i + 1;
-    }
-    return { first, last_plus_1 };
+    const auto rest = std::views::iota(first, cache.size());
+    const auto it = std::ranges::partition_point(rest, [&cache, range_bottom](size_t i) noexcept {
+        return cache.Top(i) <= range_bottom;
+    });
+    return { first, it == rest.end() ? cache.size() : *it };
 }
 
 // (node, offset) → 絶対スクロール位置。

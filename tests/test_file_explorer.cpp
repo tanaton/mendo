@@ -118,7 +118,7 @@ TEST_F(FileExplorerTest, TrailingBackslashNormalized)
     EXPECT_EQ(std::wstring_view{ explorer_.GetDirectory() }, temp_dir_.wstring());
     const auto* entry = FindEntry(L"hello.md");
     ASSERT_NE(entry, nullptr);
-    EXPECT_EQ(entry->full_path.find(L"\\\\"), std::wstring::npos) << "full_pathに二重バックスラッシュあり";
+    EXPECT_FALSE(entry->full_path.contains(L"\\\\")) << "full_pathに二重バックスラッシュあり";
 
     const uint32_t generation = explorer_.GetGeneration();
     explorer_.SetDirectory(temp_dir_.wstring());

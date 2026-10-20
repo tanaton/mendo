@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <format>
 #include <limits>
+#include <ranges>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -153,13 +154,11 @@ TEST(Parser, LinkUrlCountCappedAtInt16Max)
     // 上限超過後のセルはリンクなし (装飾なしなので run も出ない)。全 run の index が urls 範囲内に収まること
     const auto* tbl = nodes[0].table_data();
     ASSERT_NE(tbl, nullptr);
-    size_t linked = 0;
     for (const auto& run : tbl->all_runs) {
         ASSERT_TRUE(run.has_link());
         EXPECT_LT(static_cast<size_t>(run.link_url_index), urls.size());
-        ++linked;
     }
-    EXPECT_EQ(linked, urls.size());
+    EXPECT_EQ(tbl->all_runs.size(), urls.size());
 }
 
 // ---- コードブロック ----
@@ -170,12 +169,7 @@ TEST(Parser, CodeBlockPreservesNewlines)
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::CodeBlock);
     // 行間に改行を含むべき
-    const auto& text = nodes[0].GetText();
-    int newlines = 0;
-    for (wchar_t c : text)
-        if (c == '\n')
-            newlines++;
-    EXPECT_GE(newlines, 2);
+    EXPECT_GE(std::ranges::count(nodes[0].GetText(), '\n'), 2);
 }
 
 TEST(Parser, CodeBlockNoTrailingNewline)
@@ -356,7 +350,7 @@ TEST(Parser, NestedBlockquotePreservesOuterStyle)
     // 内側の引用ブロックが終了した後、"still outer"はまだBlockQuoteであるべき
     bool found_still_outer = false;
     for (const auto& node : nodes) {
-        if (node.GetText().find("still outer") != std::string::npos) {
+        if (node.GetText().contains("still outer")) {
             EXPECT_EQ(node.type, NodeType::BlockQuote)
                 << "内側の引用ブロック後のテキストはBlockQuoteのままであるべき";
             found_still_outer = true;
@@ -408,7 +402,7 @@ TEST(Parser, NestedBlockquote_OuterReturnAfterInnerKeepsDepthOne)
     auto nodes = ParseNodes("> outer\n> > inner\n>\n> back to outer");
     bool checked = false;
     for (const auto& n : nodes) {
-        if (n.GetText().find("back to outer") != std::string::npos) {
+        if (n.GetText().contains("back to outer")) {
             EXPECT_EQ(n.quote_depth, 1)
                 << "ネストを抜けて外側に戻ったノードは quote_depth=1";
             checked = true;
@@ -734,12 +728,7 @@ TEST(Parser, TableCellWithBold)
     ASSERT_GE(tbl->row_count, 1u);
     ASSERT_GE(tbl->col_count, 2u);
     // 2番目のヘッダーセルは太字ランを持つべき
-    bool has_bold = false;
-    for (const auto& run : tbl->GetCellRuns(0, 1)) {
-        if (run.bold())
-            has_bold = true;
-    }
-    EXPECT_TRUE(has_bold);
+    EXPECT_TRUE(std::ranges::any_of(tbl->GetCellRuns(0, 1), &TextRun::bold));
 }
 
 // ---- リンク付きテーブル ----
@@ -801,13 +790,7 @@ TEST(Parser, TableCellWithBoldLink)
     const auto* tbl = nodes[0].table_data();
     ASSERT_GE(tbl->row_count, 2u);
 
-    bool has_bold_link = false;
-    for (const auto& run : tbl->GetCellRuns(1, 0)) {
-        if (run.bold() && run.has_link()) {
-            has_bold_link = true;
-        }
-    }
-    EXPECT_TRUE(has_bold_link);
+    EXPECT_TRUE(std::ranges::any_of(tbl->GetCellRuns(1, 0), [](const TextRun& run) static { return run.bold() && run.has_link(); }));
 }
 
 TEST(Parser, TableCellMixedTextAndLink)
@@ -835,13 +818,7 @@ TEST(Parser, BoldLink)
 {
     auto nodes = ParseNodes("[**bold link**](https://example.com)");
     ASSERT_EQ(nodes.size(), 1u);
-    bool has_bold_link = false;
-    for (const auto& run : nodes[0].runs()) {
-        if (run.bold() && run.has_link()) {
-            has_bold_link = true;
-        }
-    }
-    EXPECT_TRUE(has_bold_link);
+    EXPECT_TRUE(std::ranges::any_of(nodes[0].runs(), [](const TextRun& run) static { return run.bold() && run.has_link(); }));
 }
 
 // ---- 深いネスト ----
@@ -907,8 +884,7 @@ TEST(Parser, LatexDisplayMathWithOtherContentFallsBackToText)
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
     EXPECT_NE(nodes[0].code_language(), SyntaxLanguage::LatexMath);
     // フォールバック時は $$ 区切りが復元されていること
-    const std::string text(nodes[0].GetText());
-    EXPECT_NE(text.find("$$x+y$$"), std::string::npos);
+    EXPECT_TRUE(nodes[0].GetText().contains("$$x+y$$"));
 }
 
 TEST(Parser, LatexMultipleDisplayMathInOneParagraphFallsBackToText)
@@ -926,8 +902,7 @@ TEST(Parser, LatexInlineMathRemainsAsText)
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
     EXPECT_NE(nodes[0].code_language(), SyntaxLanguage::LatexMath);
-    const std::string text(nodes[0].GetText());
-    EXPECT_NE(text.find("$x$"), std::string::npos);
+    EXPECT_TRUE(nodes[0].GetText().contains("$x$"));
 }
 
 TEST(Parser, LatexDisplayMathInBlockquoteNotPromoted)
@@ -947,9 +922,8 @@ TEST(Parser, PlainDollarSignsNotMisdetectedAsMath)
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
     EXPECT_NE(nodes[0].code_language(), SyntaxLanguage::LatexMath);
-    const std::string text(nodes[0].GetText());
-    EXPECT_NE(text.find("$5"), std::string::npos);
-    EXPECT_NE(text.find("$10"), std::string::npos);
+    EXPECT_TRUE(nodes[0].GetText().contains("$5"));
+    EXPECT_TRUE(nodes[0].GetText().contains("$10"));
 }
 
 TEST(Parser, LatexDisplayMathMultiline)
@@ -961,7 +935,7 @@ TEST(Parser, LatexDisplayMathMultiline)
     EXPECT_EQ(result.nodes()[0].code_language(), SyntaxLanguage::LatexMath);
     // 中身に 'E = mc^2' が含まれること（md4c の改行扱いに依存するが、式本体は保持される）
     const auto& body = result.nodes()[0].GetText();
-    EXPECT_NE(body.find("E = mc^2"), std::string::npos);
+    EXPECT_TRUE(body.contains("E = mc^2"));
 }
 
 TEST(Parser, LatexDisplayMathLineCountMatchesNewlines)
@@ -1163,25 +1137,15 @@ TEST(Parser, AlertMultiParagraphGrouping)
 {
     auto nodes = ParseNodes("> [!NOTE]\n> First para\n>\n> Second para");
     // 複数の BlockQuote ノードが生成され、すべて同じ alert_type を持つべき
-    int alert_count = 0;
-    for (const auto& node : nodes) {
-        if (node.type == NodeType::BlockQuote && node.alert_type == AlertType::Note) {
-            alert_count++;
-        }
-    }
-    EXPECT_GE(alert_count, 2) << "複数段落のAlertは全ノードに伝播されるべき";
+    EXPECT_GE(std::ranges::count_if(nodes, [](const Node& node) static { return node.type == NodeType::BlockQuote && node.alert_type == AlertType::Note; }), 2)
+        << "複数段落のAlertは全ノードに伝播されるべき";
 }
 
 TEST(Parser, AlertOnlyFirstNodeHasLabel)
 {
     auto nodes = ParseNodes("> [!TIP]\n> First\n>\n> Second");
     // 最初のノードだけ alert_label_length > 0
-    int label_count = 0;
-    for (const auto& node : nodes) {
-        if (node.alert_label_length() > 0)
-            label_count++;
-    }
-    EXPECT_EQ(label_count, 1);
+    EXPECT_EQ(std::ranges::count_if(nodes, [](const Node& node) static { return node.alert_label_length() > 0; }), 1);
 }
 
 TEST(Parser, RegularBlockquoteUnaffected)
@@ -1208,17 +1172,9 @@ TEST(Parser, AlertFollowedByRegularBlockquote)
 {
     auto nodes = ParseNodes("> [!NOTE]\n> Alert text\n\n> Normal quote");
     // Alert と通常の blockquote が混在
-    bool has_alert = false, has_normal = false;
-    for (const auto& node : nodes) {
-        if (node.type == NodeType::BlockQuote) {
-            if (node.alert_type != AlertType::None)
-                has_alert = true;
-            else
-                has_normal = true;
-        }
-    }
-    EXPECT_TRUE(has_alert);
-    EXPECT_TRUE(has_normal);
+    auto quotes = nodes | std::views::filter([](const Node& node) static { return node.type == NodeType::BlockQuote; });
+    EXPECT_TRUE(std::ranges::any_of(quotes, [](const Node& node) static { return node.alert_type != AlertType::None; }));
+    EXPECT_TRUE(std::ranges::contains(quotes, AlertType::None, &Node::alert_type));
 }
 
 // GitHub は blockquote の先頭行のマーカーだけを Alert として扱う。
@@ -1315,7 +1271,7 @@ TEST(Parser, Alert_PropagatesAcrossNestedBlockquote)
                      "> Alert continues");
     bool checked_continuation = false;
     for (const auto& n : nodes) {
-        if (n.GetText().find("Alert continues") != std::string::npos) {
+        if (n.GetText().contains("Alert continues")) {
             EXPECT_EQ(n.alert_type, AlertType::Note)
                 << "ネストを抜けた後段でも Alert が継続する";
             checked_continuation = true;
@@ -1344,7 +1300,7 @@ TEST(Parser, AlertUnknownTypeIgnored)
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].alert_type, AlertType::None);
     // マーカーがそのまま残っているべき
-    EXPECT_NE(nodes[0].GetText().find("UNKNOWN"), std::string::npos);
+    EXPECT_TRUE(nodes[0].GetText().contains("UNKNOWN"));
 }
 
 TEST(Parser, AlertLabelContents)
@@ -1396,18 +1352,11 @@ TEST(Parser, AlertWithInlineFormatting)
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].alert_type, AlertType::Tip);
     // テキストにboldとcodeが含まれるべき
-    EXPECT_NE(nodes[0].GetText().find("bold"), std::string::npos);
-    EXPECT_NE(nodes[0].GetText().find("code"), std::string::npos);
-    // フォーマット用のランがあるべき
-    bool has_bold = false, has_code = false;
-    for (const auto& run : nodes[0].runs()) {
-        if (run.bold() && run.start > 0)
-            has_bold = true; // ラベル以外の太字
-        if (run.code())
-            has_code = true;
-    }
-    EXPECT_TRUE(has_bold);
-    EXPECT_TRUE(has_code);
+    EXPECT_TRUE(nodes[0].GetText().contains("bold"));
+    EXPECT_TRUE(nodes[0].GetText().contains("code"));
+    // ラベル以外の太字と code のランがあるべき
+    EXPECT_TRUE(std::ranges::any_of(nodes[0].runs(), [](const TextRun& run) static { return run.bold() && run.start > 0; }));
+    EXPECT_TRUE(std::ranges::any_of(nodes[0].runs(), &TextRun::code));
 }
 
 // ---- ソースオフセット ----
@@ -1437,10 +1386,7 @@ TEST(Parser, SourceOffsetPointsAtTextStart)
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.md);
         const auto nodes = ParseNodes(c.md);
-        std::vector<size_t> offsets;
-        for (const auto& node : nodes) {
-            offsets.push_back(node.SourceOffset());
-        }
+        const auto offsets = nodes | std::views::transform(&Node::SourceOffset) | std::ranges::to<std::vector>();
         EXPECT_EQ(offsets, c.offsets);
     }
 }
@@ -1697,7 +1643,7 @@ TEST(Parser, FootnoteRefInsideQuoteKeepsAlert)
     const auto nodes = ParseNodes("> [!NOTE]\n> See[^1]\n\n[^1]: n");
     ASSERT_EQ(nodes.size(), 3u);
     EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
-    EXPECT_NE(nodes[0].GetText().find("See[1]"), std::string_view::npos);
+    EXPECT_TRUE(nodes[0].GetText().contains("See[1]"));
 }
 
 // md4c が URL を原文の外 (エスケープや文字参照を解いた一時バッファ) で渡したときだけ arena にコピーする。

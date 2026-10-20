@@ -1,8 +1,9 @@
 #include <gtest/gtest.h>
 #include "file_io.h"
 #include "test_helpers.h"
-#include <cstring>
+#include <algorithm>
 #include <filesystem>
+#include <numeric>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -96,16 +97,14 @@ TEST_F(FileIoTest, RoundTripAscii)
 TEST_F(FileIoTest, RoundTripBinary)
 {
     const auto path = temp_dir_ / L"binary.bin";
-    std::vector<uint8_t> payload;
-    for (int i = 0; i < 256; ++i) {
-        payload.push_back(static_cast<uint8_t>(i));
-    }
+    std::vector<uint8_t> payload(256);
+    std::ranges::iota(payload, uint8_t{ 0 });
 
     ASSERT_TRUE(WriteAllBytes(path, payload.data(), payload.size()));
 
     const auto buf = ReadAllBytes(path.c_str());
     ASSERT_EQ(buf.size(), payload.size());
-    EXPECT_EQ(std::memcmp(buf.data(), payload.data(), buf.size()), 0);
+    EXPECT_TRUE(std::ranges::equal(buf, payload));
 }
 
 TEST_F(FileIoTest, WriteOverwritesExistingFile)

@@ -4,6 +4,7 @@
 #include "document_types.h"
 #include "document_utils.h"
 #include "selection_html.h"
+#include <algorithm>
 #include <optional>
 #include <memory_resource>
 #include <ranges>
@@ -29,12 +30,8 @@ inline std::optional<std::string_view> FindLinkAtPosition(const Node& node, uint
 // があるため本関数は使わない。
 inline int FindFirstNodeIndexByType(const std::pmr::vector<Node>& nodes, NodeType type) noexcept
 {
-    for (size_t i = 0; i < nodes.size(); ++i) {
-        if (nodes[i].type == type) {
-            return static_cast<int>(i);
-        }
-    }
-    return -1;
+    const auto it = std::ranges::find(nodes, type, &Node::type);
+    return it != nodes.end() ? static_cast<int>(it - nodes.begin()) : -1;
 }
 
 // "line 0\nline 1\n..." の n 行を持つコードブロックの Markdown を返す。

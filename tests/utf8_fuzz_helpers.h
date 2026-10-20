@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <cstdint>
 #include <format>
 #include <iterator>
@@ -33,9 +34,7 @@ inline char PickMalformedUtf8Byte(std::mt19937& rng)
 inline std::string RandomMalformedUtf8(std::mt19937& rng, size_t len)
 {
     std::string s(len, '\0');
-    for (auto& c : s) {
-        c = PickMalformedUtf8Byte(rng);
-    }
+    std::ranges::generate(s, [&rng] { return PickMalformedUtf8Byte(rng); });
     return s;
 }
 

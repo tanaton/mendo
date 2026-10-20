@@ -131,7 +131,7 @@ constexpr size_t ScanCppRawString(std::string_view text, size_t quote_pos, size_
             k = found + 1;
             continue;
         }
-        if (delim.empty() || text.compare(found + 1, delim.size(), delim) == 0) {
+        if (text.substr(found + 1).starts_with(delim)) {
             return found + end_marker_len;
         }
         k = found + 1;

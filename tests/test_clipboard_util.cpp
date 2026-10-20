@@ -38,13 +38,13 @@ std::string BuildCfHtmlPayload(std::string_view fragment_utf8)
 TEST(BuildCfHtmlPayload, EmptyFragmentStillProducesValidHeader)
 {
     const auto p = BuildCfHtmlPayload("");
-    EXPECT_NE(p.find("Version:0.9"), std::string::npos);
-    EXPECT_NE(p.find("StartHTML:"), std::string::npos);
-    EXPECT_NE(p.find("EndHTML:"), std::string::npos);
-    EXPECT_NE(p.find("StartFragment:"), std::string::npos);
-    EXPECT_NE(p.find("EndFragment:"), std::string::npos);
-    EXPECT_NE(p.find("<!--StartFragment-->"), std::string::npos);
-    EXPECT_NE(p.find("<!--EndFragment-->"), std::string::npos);
+    EXPECT_TRUE(p.contains("Version:0.9"));
+    EXPECT_TRUE(p.contains("StartHTML:"));
+    EXPECT_TRUE(p.contains("EndHTML:"));
+    EXPECT_TRUE(p.contains("StartFragment:"));
+    EXPECT_TRUE(p.contains("EndFragment:"));
+    EXPECT_TRUE(p.contains("<!--StartFragment-->"));
+    EXPECT_TRUE(p.contains("<!--EndFragment-->"));
 }
 
 TEST(BuildCfHtmlPayload, OffsetsArePositionsOfMarkers)
@@ -89,7 +89,7 @@ TEST(BuildCfHtmlPayload, FragmentContentPreservedExactly)
     // HTMLエスケープや変換を行わない (呼び出し側で済んでいる前提)
     const std::string fragment = "<p>a &amp; b &lt; c</p>";
     const auto p = BuildCfHtmlPayload(fragment);
-    EXPECT_NE(p.find(fragment), std::string::npos);
+    EXPECT_TRUE(p.contains(fragment));
 }
 
 TEST(BuildCfHtmlPayload, OffsetDigitsAreTenZeroPadded)
@@ -108,17 +108,17 @@ TEST(BuildCfHtmlPayload, HeaderContainsCRLFSeparators)
 {
     const auto p = BuildCfHtmlPayload("x");
     // 各 keyword は \r\n で区切られる
-    EXPECT_NE(p.find("\r\nStartHTML:"), std::string::npos);
-    EXPECT_NE(p.find("\r\nEndHTML:"), std::string::npos);
-    EXPECT_NE(p.find("\r\nStartFragment:"), std::string::npos);
-    EXPECT_NE(p.find("\r\nEndFragment:"), std::string::npos);
+    EXPECT_TRUE(p.contains("\r\nStartHTML:"));
+    EXPECT_TRUE(p.contains("\r\nEndHTML:"));
+    EXPECT_TRUE(p.contains("\r\nStartFragment:"));
+    EXPECT_TRUE(p.contains("\r\nEndFragment:"));
 }
 
 TEST(BuildCfHtmlPayload, HtmlBodyWrapperPresent)
 {
     const auto p = BuildCfHtmlPayload("X");
-    EXPECT_NE(p.find("<html>\r\n<body>\r\n<!--StartFragment-->"), std::string::npos);
-    EXPECT_NE(p.find("<!--EndFragment-->\r\n</body>\r\n</html>"), std::string::npos);
+    EXPECT_TRUE(p.contains("<html>\r\n<body>\r\n<!--StartFragment-->"));
+    EXPECT_TRUE(p.contains("<!--EndFragment-->\r\n</body>\r\n</html>"));
 }
 
 TEST(BuildCfHtmlPayload, LongFragmentOffsetWithinTenDigitRange)

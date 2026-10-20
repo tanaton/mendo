@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory_resource>
+#include <ranges>
 #include <utility>
 
 using layout::AdvanceNodeY;
@@ -150,10 +151,10 @@ bool LayoutEngine::EnsureVisibleLayout(const std::pmr::vector<Node>& nodes, Layo
     // 範囲外は走査しないので dirty が残っていると保守的に仮定する。
     const auto node_count = nodes.size();
     const auto vr = ComputeVisibleNodeRange(cache, viewport_top, viewport_bottom);
-    bool any_dirty = vr.first > 0 || vr.last_plus_1 < node_count;
-    for (size_t i = vr.first; i < vr.last_plus_1 && !any_dirty; ++i) {
-        any_dirty = cache[i].layout_dirty;
-    }
+    const bool has_outside = vr.first > 0 || vr.last_plus_1 < node_count;
+    const bool any_dirty = has_outside || std::ranges::any_of(std::views::iota(vr.first, vr.last_plus_1), [&cache](size_t i) {
+        return cache[i].layout_dirty;
+    });
     cache.SetHasDirtyNodes(any_dirty);
     return true;
 }

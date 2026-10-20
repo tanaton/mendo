@@ -45,23 +45,13 @@ void AssertTokensWellFormed(const std::pmr::vector<SyntaxToken>& tokens, size_t 
 
 const SyntaxToken* FindToken(const std::pmr::vector<SyntaxToken>& tokens, SyntaxTokenType type)
 {
-    for (const auto& t : tokens) {
-        if (t.type == type) {
-            return &t;
-        }
-    }
-    return nullptr;
+    const auto it = std::ranges::find(tokens, type, &SyntaxToken::type);
+    return it != tokens.end() ? &*it : nullptr;
 }
 
 int CountTokens(const std::pmr::vector<SyntaxToken>& tokens, SyntaxTokenType type)
 {
-    int count = 0;
-    for (const auto& t : tokens) {
-        if (t.type == type) {
-            count++;
-        }
-    }
-    return count;
+    return static_cast<int>(std::ranges::count(tokens, type, &SyntaxToken::type));
 }
 
 std::string_view GetTokenText(std::string_view text, const SyntaxToken& token)
@@ -72,12 +62,8 @@ std::string_view GetTokenText(std::string_view text, const SyntaxToken& token)
 const SyntaxToken* FindTokenByText(std::string_view code, const std::pmr::vector<SyntaxToken>& tokens,
                                    std::string_view text)
 {
-    for (const auto& t : tokens) {
-        if (GetTokenText(code, t) == text) {
-            return &t;
-        }
-    }
-    return nullptr;
+    const auto it = std::ranges::find(tokens, text, [code](const SyntaxToken& t) { return GetTokenText(code, t); });
+    return it != tokens.end() ? &*it : nullptr;
 }
 
 struct LanguageCase {

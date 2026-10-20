@@ -216,11 +216,7 @@ bool mermaid_util::ParseJsonTrueFlag(std::wstring_view json, std::wstring_view k
     if (pos < json.size() && json[pos] == L' ') {
         ++pos;
     }
-    constexpr std::wstring_view kTrue = L"true";
-    if (json.size() - pos < kTrue.size()) {
-        return false;
-    }
-    return json.compare(pos, kTrue.size(), kTrue) == 0;
+    return json.substr(pos).starts_with(L"true");
 }
 
 std::pmr::wstring mermaid_util::ParseJsonString(std::wstring_view json, std::wstring_view key)

@@ -44,8 +44,8 @@ namespace resource_manager_detail {
 
 constexpr std::span<const size_t> VisibleSlice(std::span<const size_t> sorted_indices, size_t first_visible_node, size_t last_visible_node_plus_1) noexcept
 {
-    const auto b = std::lower_bound(sorted_indices.begin(), sorted_indices.end(), first_visible_node);
-    const auto e = std::lower_bound(b, sorted_indices.end(), last_visible_node_plus_1);
+    const auto b = std::ranges::lower_bound(sorted_indices, first_visible_node);
+    const auto e = std::ranges::lower_bound(b, sorted_indices.end(), last_visible_node_plus_1);
     return { b, e };
 }
 
