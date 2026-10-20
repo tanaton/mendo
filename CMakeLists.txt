@@ -232,6 +232,19 @@ set_target_properties(mendo PROPERTIES LINK_FLAGS "/MANIFEST:NO")
 
 target_precompile_headers(mendo REUSE_FROM mendo_core)
 
+# ---- アセンブラリスト出力（オプション） ----
+# /GL 有効時はリストをリンカが LTCG 後のコードで書き出す。出力先はコンパイル時に
+# 埋め込まれるため、mendo_core をリンクする mendo_tests も同じファイルを上書きする。
+# mendo の結果だけ欲しいときは --target mendo でビルドする。
+option(MENDO_ASM_LISTING "Emit source-annotated assembly listings (/FAs)" OFF)
+if(MENDO_ASM_LISTING AND MSVC)
+    foreach(_mendo_target mendo_core mendo)
+        target_compile_options(${_mendo_target} PRIVATE
+            /FAs "/Fa${CMAKE_BINARY_DIR}/asm/$<CONFIG>/")
+    endforeach()
+    unset(_mendo_target)
+endif()
+
 # ---- テスト ----
 option(MENDO_BUILD_TESTS "Build tests" ON)
 if(MENDO_BUILD_TESTS)
