@@ -428,8 +428,9 @@ private:
         // GetLineMetrics(&lm, 1, &lc) の結果をキャッシュ。0 なら未確定 (フォールバック計算する)。
         // MeasureNode で text_layout 確定時に同時に求める。
         float first_line_height = 0.0f;
-        // CodeBlock の最長行幅 (NO_WRAP で計測した自然幅)。横スクロールバーのスケール計算と
-        // クランプに使う。CodeBlock 以外では 0 のまま。
+        // CodeBlock の自然幅 (NO_WRAP で計測した最長行 + 左右の余白)。横スクロールバーのスケール計算と
+        // クランプに使う。余白込みにしないと末尾までスクロールしても最長行の右端が clip に隠れる。
+        // CodeBlock 以外では 0 のまま。
         float natural_code_width = 0.0f;
         // 計測のたびに作り直すので、確保し直さないよう Aux に直接持つ。
         std::pmr::vector<InlineCodeBg> inline_code_bgs;

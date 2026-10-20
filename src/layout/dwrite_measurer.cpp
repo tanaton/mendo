@@ -113,14 +113,14 @@ void CacheFirstLineHeight(IDWriteTextLayout* layout, NodeLayoutEntry& entry) noe
 
 // entry.text_layout の計測結果を確定する。折り返し行が変わるためハイライト矩形は無効化し、
 // インラインコード背景を作り直す (描画色と下線は SetMaxWidth だけの再計測でも残る)。
-void FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TEXT_METRICS& metrics, bool reused_layout)
+void FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TEXT_METRICS& metrics, const Theme& theme, bool reused_layout)
 {
     entry.height = metrics.height;
     entry.layout_dirty = false;
     CacheFirstLineHeight(entry.text_layout(), entry);
     entry.invalidate_per_frame_hl_caches();
     if (node.type == NodeType::CodeBlock) {
-        entry.set_natural_code_width(metrics.widthIncludingTrailingWhitespace);
+        entry.set_natural_code_width(metrics.widthIncludingTrailingWhitespace + 2.0f * layout::NodeTextXOffset(node, theme));
         // NO_WRAP なので再利用時は行も変わらず、インラインコード背景も持たない。
         if (reused_layout) {
             return;
@@ -154,13 +154,13 @@ bool MeasureWithoutTextLayout(const Node& node, NodeLayoutEntry& entry, const Th
 // 現存していればテキスト/runs/フォント幾何は一致している。CreateTextLayout は BiDi 解析と
 // shaping を走らせるためリサイズ時の最大コスト要因で、SetMaxWidth はラインブレーク再計算のみで済む。
 // 戻り値: 成功したら true。失敗時は layout を捨ててスローパスに委ねる。
-bool RemeasureExistingLayout(const Node& node, NodeLayoutEntry& entry, float layout_width)
+bool RemeasureExistingLayout(const Node& node, NodeLayoutEntry& entry, float layout_width, const Theme& theme)
 {
     MENDO_PROFILE("MeasureNode.fastpath");
     if (SUCCEEDED(entry.text_layout()->SetMaxWidth(layout_width))) {
         DWRITE_TEXT_METRICS metrics{};
         entry.text_layout()->GetMetrics(&metrics);
-        FinishTextMeasure(node, entry, metrics, true);
+        FinishTextMeasure(node, entry, metrics, theme, true);
         return true;
     }
     entry.reset_text_layout();
@@ -389,7 +389,7 @@ void DWriteTextMeasurer::MeasureNode(
         return;
     }
     const float layout_width = (node.type == NodeType::CodeBlock) ? LAYOUT_INFINITY : max_width;
-    if (entry.text_layout() && RemeasureExistingLayout(node, entry, layout_width)) {
+    if (entry.text_layout() && RemeasureExistingLayout(node, entry, layout_width, *theme_)) {
         return;
     }
 
@@ -417,7 +417,7 @@ void DWriteTextMeasurer::MeasureNode(
     }
 
     entry.set_text_layout(std::move(layout));
-    FinishTextMeasure(node, entry, metrics, false);
+    FinishTextMeasure(node, entry, metrics, *theme_, false);
 }
 
 void DWriteTextMeasurer::BuildCellLayout(const NodeTableData& tbl, size_t r, size_t c, IDWriteTextFormat* row_fmt, TableLayoutData& tl) const

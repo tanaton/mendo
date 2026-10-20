@@ -540,6 +540,36 @@ TEST_F(LayoutTest, TableHScrollReachesRightEdgeWithoutBlank)
     }
 }
 
+// コードは左余白の分だけ右から描くので、末尾までスクロールしたとき最長行の右に余白が 1 つ分残る。
+// 両側の余白込みで収まらなければ、行が可視幅に収まっていてもスクロールできる。
+TEST_F(LayoutTest, CodeBlockHScrollShowsLongestLineWithRightPadding)
+{
+    const float pad = theme_.code_block_padding;
+    int needs_padding_only = 0;
+    for (const size_t line_len : { size_t{ 60 }, size_t{ 300 } }) {
+        const std::string md = "```\n" + std::string(line_len, 'a') + "\n```";
+        for (float viewport_w = 300.0f; viewport_w <= 1200.0f; viewport_w += 3.0f) {
+            SCOPED_TRACE(std::format("line_len={} viewport_w={}", line_len, viewport_w));
+            auto [nodes, cache] = ParseAndLayout(md, viewport_w);
+            ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
+            DWRITE_TEXT_METRICS m{};
+            ASSERT_TRUE(SUCCEEDED(cache[0].text_layout()->GetMetrics(&m)));
+            const float line_w = m.widthIncludingTrailingWhitespace;
+            const auto geom = GetBlockHScrollGeometry(nodes[0], cache[0], theme_, viewport_w);
+            if (line_w <= geom.visible_width && line_w + 2.0f * pad > geom.visible_width + BLOCK_H_SCROLL_SLACK) {
+                ++needs_padding_only;
+            }
+            if (geom.can_scroll()) {
+                EXPECT_NEAR(pad + line_w - geom.scroll_max(), geom.visible_width - pad, 0.05f);
+            }
+            else {
+                EXPECT_LE(pad + line_w, geom.visible_width - pad + BLOCK_H_SCROLL_SLACK);
+            }
+        }
+    }
+    EXPECT_GT(needs_padding_only, 0);
+}
+
 // ---- RecomputeYPositions テスト ----
 
 TEST(RecomputeYPositionsTest, EmptyNodes)

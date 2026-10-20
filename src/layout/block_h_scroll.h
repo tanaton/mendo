@@ -12,7 +12,7 @@
 constexpr float BLOCK_H_SCROLL_SLACK = CELL_WIDTH_EPSILON;
 
 struct BlockHScrollGeometry {
-    // 表は描画と同じ配置後の幅、コードは最長行の幅 (左右の余白を含まない)。
+    // 描画されるブロックの幅。表は配置後の列幅合計、コードは最長行に左右の余白を足した幅。
     float block_width = 0.0f;
     float visible_width = 0.0f;
 
