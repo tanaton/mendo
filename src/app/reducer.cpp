@@ -289,7 +289,7 @@ void ReduceBlockHScrollDragMoved(AppState& state, SideEffectList& effects, const
     // コンテンツが scroll_max 動くべきなので、scroll_delta = dip_delta * scroll_max / drag_range。
     // thumb_w が PANE_SCROLLBAR_THUMB_MIN に張り付いた長大コンテンツでも 1:1 で対応する。
     const float dip_delta = a.dip_x - sv.drag.start_x;
-    const float thumb_w = BlockHScrollbarThumbWidth(geom.visible_width, geom.natural_width);
+    const float thumb_w = BlockHScrollbarThumbWidth(geom.visible_width, geom.block_width);
     const float drag_range = std::max(1.0f, geom.visible_width - thumb_w);
     const float scroll_max = geom.scroll_max();
     if (SetBlockScrollX(state, node, sv.drag.start_scroll + dip_delta * scroll_max / drag_range, geom)) {

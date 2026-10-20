@@ -2,6 +2,7 @@
 #include <d2d1.h>
 #include <dwrite.h>
 #include <wrl/client.h>
+#include <algorithm>
 #include <bit>
 #include <cstdint>
 #include <cstddef>
@@ -61,12 +62,11 @@ public:
     // テスト用: layout を作った文字列。見つからなければ空。
     std::wstring_view TextOf(const IDWriteTextLayout* layout) const noexcept
     {
-        for (const auto& [key, value] : entries_) {
-            if (value.layout.Get() == layout) {
-                return key.text;
-            }
+        const auto it = std::ranges::find(entries_, layout, [](const auto& kv) static noexcept { return kv.second.layout.Get(); });
+        if (it == entries_.end()) {
+            return {};
         }
-        return {};
+        return it->first.text;
     }
 
     static constexpr size_t kMaxEntries = 512;

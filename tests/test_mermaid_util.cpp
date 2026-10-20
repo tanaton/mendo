@@ -76,38 +76,38 @@ TEST(BuildLatexFlowchartCode, WrapsInFlowchartNode)
 {
     auto code = mermaid_util::BuildLatexFlowchartCode(L"E=mc^2");
     // 基本構造: flowchart LR ヘッダ + $$...$$ ラベル + style 透明化
-    EXPECT_NE(code.find(L"flowchart LR"), std::wstring::npos);
-    EXPECT_NE(code.find(L"$$E=mc^2$$"), std::wstring::npos);
-    EXPECT_NE(code.find(L"style A fill:none,stroke:none"), std::wstring::npos);
+    EXPECT_TRUE(code.contains(L"flowchart LR"));
+    EXPECT_TRUE(code.contains(L"$$E=mc^2$$"));
+    EXPECT_TRUE(code.contains(L"style A fill:none,stroke:none"));
 }
 
 TEST(BuildLatexFlowchartCode, EscapesDoubleQuote)
 {
     // LaTeX 内の " は mermaid ラベルを閉じてしまうため #quot; に置換される
     auto code = mermaid_util::BuildLatexFlowchartCode(L"a\"b");
-    EXPECT_NE(code.find(L"a#quot;b"), std::wstring::npos);
-    EXPECT_EQ(code.find(L"a\"b"), std::wstring::npos);
+    EXPECT_TRUE(code.contains(L"a#quot;b"));
+    EXPECT_FALSE(code.contains(L"a\"b"));
 }
 
 TEST(BuildLatexFlowchartCode, EscapesClosingBracket)
 {
     // ] も mermaid ラベル終端を避けるため #93; に置換される
     auto code = mermaid_util::BuildLatexFlowchartCode(L"a]b");
-    EXPECT_NE(code.find(L"a#93;b"), std::wstring::npos);
+    EXPECT_TRUE(code.contains(L"a#93;b"));
 }
 
 TEST(BuildLatexFlowchartCode, ReplacesNewlinesWithSpace)
 {
     auto code = mermaid_util::BuildLatexFlowchartCode(L"a\nb\rc");
     // 改行がラベル内に残っていないこと（空白に置換）
-    EXPECT_NE(code.find(L"$$a b c$$"), std::wstring::npos);
+    EXPECT_TRUE(code.contains(L"$$a b c$$"));
 }
 
 TEST(BuildLatexFlowchartCode, PreservesBackslashForKaTeX)
 {
     // LaTeX コマンドのバックスラッシュは KaTeX に渡すためそのまま保持する
     auto code = mermaid_util::BuildLatexFlowchartCode(L"\\frac{a}{b}");
-    EXPECT_NE(code.find(L"$$\\frac{a}{b}$$"), std::wstring::npos);
+    EXPECT_TRUE(code.contains(L"$$\\frac{a}{b}$$"));
 }
 
 // ============================================================

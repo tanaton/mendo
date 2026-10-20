@@ -5,6 +5,7 @@
 #include <chrono>
 #include <iostream>
 #include <memory_resource>
+#include <numeric>
 #include <string>
 #include <thread>
 #include "document.h"
@@ -27,9 +28,7 @@ namespace {
 int MeasureAll(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, const ITextMeasurer& measurer, TaskScheduler* scheduler)
 {
     std::pmr::vector<size_t> indices(nodes.size());
-    for (size_t i = 0; i < indices.size(); ++i) {
-        indices[i] = i;
-    }
+    std::ranges::iota(indices, size_t{ 0 });
     return layout::MeasureIndicesParallel(nodes, cache, 800.0f, theme, measurer, indices, {}, scheduler);
 }
 

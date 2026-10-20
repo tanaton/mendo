@@ -1,4 +1,5 @@
 #include "titlebar.h"
+#include <algorithm>
 #include <iterator>
 
 void TitleBar::UpdateLayout(float window_width_dip) noexcept
@@ -31,7 +32,7 @@ void TitleBar::UpdateLayout(float window_width_dip) noexcept
     Button(TitleBarHitZone::FileToggle) = take_right(BUTTON_WIDTH);
 
     const float title_right = GetButton(TitleBarHitZone::FileToggle).left;
-    title_text_rect_ = DipRect{ left, 0.0f, (title_right > left) ? title_right : left, BASE_HEIGHT };
+    title_text_rect_ = DipRect{ left, 0.0f, std::max(left, title_right), BASE_HEIGHT };
 }
 
 TitleBarHitZone TitleBar::HitTest(float dip_x, float dip_y) const noexcept

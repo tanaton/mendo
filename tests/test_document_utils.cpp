@@ -76,7 +76,7 @@ TEST(ExtractSelectedText, ConvertsNewlinesInsideNodesToCrlf)
     sel.active = true;
     const auto text = ExtractSelectedText(nodes, sel);
     EXPECT_TRUE(text.starts_with("a\r\nb\r\n")) << text;
-    EXPECT_NE(text.find("h\r\nc"), std::string::npos) << text;
+    EXPECT_TRUE(text.contains("h\r\nc")) << text;
     EXPECT_TRUE(text.ends_with("\r\nx\r\ny")) << text;
     EXPECT_LT(text.capacity(), text.size() + 16);
 }
@@ -154,13 +154,13 @@ TEST(ExtractSelectedTextAsHtml, HeadingLevels)
 TEST(ExtractSelectedTextAsHtml, BoldAndItalic)
 {
     const auto html = CopyAllAsHtml("**bold** and *italic*");
-    EXPECT_NE(html.find("<strong>bold</strong>"), std::string::npos);
-    EXPECT_NE(html.find("<em>italic</em>"), std::string::npos);
+    EXPECT_TRUE(html.contains("<strong>bold</strong>"));
+    EXPECT_TRUE(html.contains("<em>italic</em>"));
 }
 
 TEST(ExtractSelectedTextAsHtml, InlineCode)
 {
-    EXPECT_NE(CopyAllAsHtml("text `code` more").find("<code>code</code>"), std::string::npos);
+    EXPECT_TRUE(CopyAllAsHtml("text `code` more").contains("<code>code</code>"));
 }
 
 TEST(ExtractSelectedTextAsHtml, EscapesSpecialChars)
@@ -175,13 +175,13 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockIsEscapedInPreCode)
     auto nodes = ParseNodes("```\nint x = 1 < 2;\n```");
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
     auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
-    EXPECT_NE(html.find("<pre"), std::string::npos);
-    EXPECT_NE(html.find("<code>"), std::string::npos);
-    EXPECT_NE(html.find("&lt;"), std::string::npos);
-    EXPECT_NE(html.find("</code></pre>"), std::string::npos);
+    EXPECT_TRUE(html.contains("<pre"));
+    EXPECT_TRUE(html.contains("<code>"));
+    EXPECT_TRUE(html.contains("&lt;"));
+    EXPECT_TRUE(html.contains("</code></pre>"));
     // コードブロック内ではインラインタグ化しない
-    EXPECT_EQ(html.find("<strong>"), std::string::npos);
-    EXPECT_EQ(html.find("<em>"), std::string::npos);
+    EXPECT_FALSE(html.contains("<strong>"));
+    EXPECT_FALSE(html.contains("<em>"));
 }
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockWithoutTokensHasNoSyntaxSpans)
@@ -190,8 +190,8 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockWithoutTokensHasNoSyntaxSpans)
     auto nodes = ParseNodes("```\nplain text\n```");
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
     auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
-    EXPECT_EQ(html.find("<span"), std::string::npos);
-    EXPECT_NE(html.find("plain text"), std::string::npos);
+    EXPECT_FALSE(html.contains("<span"));
+    EXPECT_TRUE(html.contains("plain text"));
 }
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockIsHighlighted)
@@ -199,33 +199,33 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockIsHighlighted)
     auto nodes = ParseNodes("```cpp\nint x = 42;\n```");
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
     auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
-    EXPECT_NE(html.find("<span style=\"color:#267f99\">int</span>"), std::string::npos);
-    EXPECT_NE(html.find("<span style=\"color:#098658\">42</span>"), std::string::npos);
+    EXPECT_TRUE(html.contains("<span style=\"color:#267f99\">int</span>"));
+    EXPECT_TRUE(html.contains("<span style=\"color:#098658\">42</span>"));
     // その他の Plain 区間は素のテキスト
-    EXPECT_NE(html.find(" x = "), std::string::npos);
+    EXPECT_TRUE(html.contains(" x = "));
 }
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockSpanEscapesSpecialChars)
 {
     const auto html = CopyAllAsHtml("```cpp\n\"a<b\"\n```");
     // span 内のテキストも HTML エスケープされる
-    EXPECT_NE(html.find("<span style=\"color:#a31515\">"), std::string::npos);
-    EXPECT_NE(html.find("&lt;"), std::string::npos);
-    EXPECT_EQ(html.find("a<b"), std::string::npos);
+    EXPECT_TRUE(html.contains("<span style=\"color:#a31515\">"));
+    EXPECT_TRUE(html.contains("&lt;"));
+    EXPECT_FALSE(html.contains("a<b"));
 }
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockDarkModeUsesDarkColors)
 {
     const auto html = CopyAllAsHtml("```cpp\nint x = 42;\n```", /*dark_mode=*/true);
     // ダーク用の色（VS Code Dark+ 相当）が使われる
-    EXPECT_NE(html.find("<span style=\"color:#4ec9b0\">int</span>"), std::string::npos);
-    EXPECT_NE(html.find("<span style=\"color:#b5cea8\">42</span>"), std::string::npos);
+    EXPECT_TRUE(html.contains("<span style=\"color:#4ec9b0\">int</span>"));
+    EXPECT_TRUE(html.contains("<span style=\"color:#b5cea8\">42</span>"));
     // ライト用の色は混ざらない
-    EXPECT_EQ(html.find("#267f99"), std::string::npos);
-    EXPECT_EQ(html.find("#098658"), std::string::npos);
+    EXPECT_FALSE(html.contains("#267f99"));
+    EXPECT_FALSE(html.contains("#098658"));
     // コードブロック背景がダーク色
-    EXPECT_NE(html.find("background-color:#2d2d2d"), std::string::npos);
-    EXPECT_NE(html.find("color:#d4d4d4"), std::string::npos);
+    EXPECT_TRUE(html.contains("background-color:#2d2d2d"));
+    EXPECT_TRUE(html.contains("color:#d4d4d4"));
 }
 
 TEST(ExtractSelectedTextAsHtml, TableRendersAsTableStructure)
@@ -237,20 +237,20 @@ TEST(ExtractSelectedTextAsHtml, TableRendersAsTableStructure)
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
     auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
-    EXPECT_NE(html.find("<table"), std::string::npos);
-    EXPECT_NE(html.find("<thead>"), std::string::npos);
-    EXPECT_NE(html.find("<th"), std::string::npos);
-    EXPECT_NE(html.find(">A</th>"), std::string::npos);
-    EXPECT_NE(html.find(">B</th>"), std::string::npos);
-    EXPECT_NE(html.find("</thead>"), std::string::npos);
-    EXPECT_NE(html.find("<tbody>"), std::string::npos);
-    EXPECT_NE(html.find("<td"), std::string::npos);
-    EXPECT_NE(html.find(">1</td>"), std::string::npos);
-    EXPECT_NE(html.find(">2</td>"), std::string::npos);
-    EXPECT_NE(html.find("</tbody>"), std::string::npos);
-    EXPECT_NE(html.find("</table>"), std::string::npos);
+    EXPECT_TRUE(html.contains("<table"));
+    EXPECT_TRUE(html.contains("<thead>"));
+    EXPECT_TRUE(html.contains("<th"));
+    EXPECT_TRUE(html.contains(">A</th>"));
+    EXPECT_TRUE(html.contains(">B</th>"));
+    EXPECT_TRUE(html.contains("</thead>"));
+    EXPECT_TRUE(html.contains("<tbody>"));
+    EXPECT_TRUE(html.contains("<td"));
+    EXPECT_TRUE(html.contains(">1</td>"));
+    EXPECT_TRUE(html.contains(">2</td>"));
+    EXPECT_TRUE(html.contains("</tbody>"));
+    EXPECT_TRUE(html.contains("</table>"));
     // フォールバックの <pre> は使われないこと
-    EXPECT_EQ(html.find("<pre>"), std::string::npos);
+    EXPECT_FALSE(html.contains("<pre>"));
 }
 
 TEST(ExtractSelectedTextAsHtml, TableAlignmentAppliedAsTextAlign)
@@ -262,8 +262,8 @@ TEST(ExtractSelectedTextAsHtml, TableAlignmentAppliedAsTextAlign)
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
     auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
-    EXPECT_NE(html.find("text-align:center;"), std::string::npos);
-    EXPECT_NE(html.find("text-align:right;"), std::string::npos);
+    EXPECT_TRUE(html.contains("text-align:center;"));
+    EXPECT_TRUE(html.contains("text-align:right;"));
 }
 
 TEST(ExtractSelectedTextAsHtml, TablePreservesInlineFormatting)
@@ -275,8 +275,8 @@ TEST(ExtractSelectedTextAsHtml, TablePreservesInlineFormatting)
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
     auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
-    EXPECT_NE(html.find("<strong>bold</strong>"), std::string::npos);
-    EXPECT_NE(html.find("<a href=\"https://example.com\">link</a>"), std::string::npos);
+    EXPECT_TRUE(html.contains("<strong>bold</strong>"));
+    EXPECT_TRUE(html.contains("<a href=\"https://example.com\">link</a>"));
 }
 
 // 表の部分選択はプレーンテキストと同じく読み順の範囲で切り取り、範囲にかかる行だけを出す。
@@ -291,12 +291,12 @@ TEST(ExtractSelectedTextAsHtml, TablePartialSelectionEmitsOnlySelectedRowsAndTex
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].GetText(), "A\tB\n1\t2\n3\t4");
     const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 6, 0, 9));
-    EXPECT_EQ(html.find("<thead>"), std::string::npos);
-    EXPECT_EQ(html.find(">A</th>"), std::string::npos);
-    EXPECT_EQ(html.find(">1</td>"), std::string::npos);
-    EXPECT_EQ(html.find(">4</td>"), std::string::npos);
-    EXPECT_NE(html.find(">2</td>"), std::string::npos);
-    EXPECT_NE(html.find(">3</td>"), std::string::npos);
+    EXPECT_FALSE(html.contains("<thead>"));
+    EXPECT_FALSE(html.contains(">A</th>"));
+    EXPECT_FALSE(html.contains(">1</td>"));
+    EXPECT_FALSE(html.contains(">4</td>"));
+    EXPECT_TRUE(html.contains(">2</td>"));
+    EXPECT_TRUE(html.contains(">3</td>"));
     EXPECT_EQ(CountOccurrences(html, "<tr>"), 2u);
     EXPECT_EQ(CountOccurrences(html, "<td"), 4u);
 }
@@ -309,9 +309,9 @@ TEST(ExtractSelectedTextAsHtml, TableSelectionInsideOneCellEmitsThatSubstring)
                      "| a | b |");
     ASSERT_EQ(nodes[0].GetText(), "hello\tworld\na\tb");
     const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 1, 0, 4));
-    EXPECT_NE(html.find(">ell</th>"), std::string::npos);
-    EXPECT_EQ(html.find("world"), std::string::npos);
-    EXPECT_EQ(html.find("<tbody>"), std::string::npos);
+    EXPECT_TRUE(html.contains(">ell</th>"));
+    EXPECT_FALSE(html.contains("world"));
+    EXPECT_FALSE(html.contains("<tbody>"));
 }
 
 // 区切り文字 (セル間のタブ) だけを選んだ場合は、文字を含むセルが無いので表を出さない。
@@ -335,7 +335,7 @@ TEST(ExtractSelectedTextAsHtml, TableFullSelectionKeepsEmptyHeaderRow)
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
     const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
-    EXPECT_NE(html.find("<thead>"), std::string::npos);
+    EXPECT_TRUE(html.contains("<thead>"));
     EXPECT_EQ(CountOccurrences(html, "<tr>"), 2u);
 }
 
@@ -351,7 +351,7 @@ TEST(ExtractSelectedTextAsHtml, TableWithoutColumnsDoesNotReadOutOfRange)
     tbl->cell_run_starts.push_back(0);
     tbl->is_header_row.push_back(false);
     const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 0, 0, 1));
-    EXPECT_EQ(html.find("<table"), std::string::npos);
+    EXPECT_FALSE(html.contains("<table"));
 }
 
 TEST(ExtractSelectedTextAsHtml, TableDarkModeUsesDarkBorder)
@@ -362,8 +362,8 @@ TEST(ExtractSelectedTextAsHtml, TableDarkModeUsesDarkBorder)
                      "| 1 | 2 |");
     ASSERT_EQ(nodes[0].type, NodeType::Table);
     auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), /*dark_mode=*/true);
-    EXPECT_NE(html.find("border:1px solid #3c3c3c"), std::string::npos);
-    EXPECT_EQ(html.find("#d0d7de"), std::string::npos);
+    EXPECT_TRUE(html.contains("border:1px solid #3c3c3c"));
+    EXPECT_FALSE(html.contains("#d0d7de"));
 }
 
 TEST(ExtractSelectedTextAsHtml, TableWithoutDataFallsBackToPre)
@@ -375,8 +375,8 @@ TEST(ExtractSelectedTextAsHtml, TableWithoutDataFallsBackToPre)
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(n));
     auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
-    EXPECT_EQ(html.find("<table"), std::string::npos);
-    EXPECT_NE(html.find("<pre>fallback</pre>"), std::string::npos);
+    EXPECT_FALSE(html.contains("<table"));
+    EXPECT_TRUE(html.contains("<pre>fallback</pre>"));
 }
 
 TEST(ExtractSelectedTextAsHtml, ImageRendersAsImgTag)
@@ -385,9 +385,9 @@ TEST(ExtractSelectedTextAsHtml, ImageRendersAsImgTag)
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Image);
     auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
-    EXPECT_NE(html.find("<img src=\"https://example.com/img.png\""), std::string::npos);
-    EXPECT_NE(html.find("alt=\"alt text\""), std::string::npos);
-    EXPECT_EQ(html.find("<pre>"), std::string::npos);
+    EXPECT_TRUE(html.contains("<img src=\"https://example.com/img.png\""));
+    EXPECT_TRUE(html.contains("alt=\"alt text\""));
+    EXPECT_FALSE(html.contains("<pre>"));
 }
 
 TEST(ExtractSelectedTextAsHtml, ImageEscapesAttributesSafely)
@@ -397,9 +397,9 @@ TEST(ExtractSelectedTextAsHtml, ImageEscapesAttributesSafely)
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Image);
     auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
-    EXPECT_NE(html.find("src=\"path?a=1&amp;b=2\""), std::string::npos);
-    EXPECT_NE(html.find("Q&amp;A"), std::string::npos);
-    EXPECT_NE(html.find("&quot;x&quot;"), std::string::npos);
+    EXPECT_TRUE(html.contains("src=\"path?a=1&amp;b=2\""));
+    EXPECT_TRUE(html.contains("Q&amp;A"));
+    EXPECT_TRUE(html.contains("&quot;x&quot;"));
 }
 
 // 貼り付け先で読み込まれる <img src> は、リンクと同じく外部アクセスの経路になるスキームを外す。
@@ -1861,8 +1861,8 @@ TEST(BuildCodeBlockHtmlFragment, WrapsEscapedCodeInPre)
     const auto html = BuildCodeBlockHtmlFragment(nodes[0], false);
     EXPECT_TRUE(html.starts_with("<pre "));
     EXPECT_TRUE(html.ends_with("</code></pre>"));
-    EXPECT_NE(html.find("a &lt; b &amp;&amp; c &gt; d"), std::string::npos);
-    EXPECT_EQ(html.find("a < b"), std::string::npos);
+    EXPECT_TRUE(html.contains("a &lt; b &amp;&amp; c &gt; d"));
+    EXPECT_FALSE(html.contains("a < b"));
 }
 
 // ダーク時は貼り付け先の既定 (黒文字) で読めなくならないよう文字色を明示する。
@@ -1872,6 +1872,6 @@ TEST(BuildCodeBlockHtmlFragment, DarkModeSpecifiesTextColor)
     ASSERT_EQ(nodes.size(), 1u);
     const auto light = BuildCodeBlockHtmlFragment(nodes[0], false);
     const auto dark = BuildCodeBlockHtmlFragment(nodes[0], true);
-    EXPECT_EQ(light.find(";color:"), std::string::npos);
-    EXPECT_NE(dark.find(";color:"), std::string::npos);
+    EXPECT_FALSE(light.contains(";color:"));
+    EXPECT_TRUE(dark.contains(";color:"));
 }

@@ -2,6 +2,7 @@
 #include "context_menu.h"
 #include "resource.h"
 #include "theme.h"
+#include <algorithm>
 #include <dwrite.h>
 #include <iterator>
 #include <span>
@@ -81,12 +82,9 @@ protected:
 
     const ContextMenu::Item* FindItem(int id) const
     {
-        for (const auto& item : menu_.GetItems()) {
-            if (item.id == id) {
-                return &item;
-            }
-        }
-        return nullptr;
+        const auto& items = menu_.GetItems();
+        const auto it = std::ranges::find(items, id, &ContextMenu::Item::id);
+        return it != items.end() ? &*it : nullptr;
     }
 };
 

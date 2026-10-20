@@ -299,8 +299,7 @@ constexpr bool iequal(std::string_view a, DocLowercaseLiteral b) noexcept
 
 constexpr bool istarts_with(std::string_view s, DocLowercaseLiteral prefix) noexcept
 {
-    return s.size() >= prefix.value.size() &&
-           std::ranges::equal(s.substr(0, prefix.value.size()), prefix.value, {}, ToLowerAscii);
+    return std::ranges::starts_with(s, prefix.value, {}, ToLowerAscii);
 }
 
 template <typename T, std::unsigned_integral U>

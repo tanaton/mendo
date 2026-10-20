@@ -459,12 +459,9 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
         if (start <= row_begin(r) && row_end(r) <= end) {
             return true;
         }
-        for (size_t c = 0; c < col_count; c++) {
-            if (std::max(start, tbl->CellTextStart(r, c)) < std::min(end, tbl->CellTextEnd(r, c))) {
-                return true;
-            }
-        }
-        return false;
+        return std::ranges::any_of(std::views::iota(size_t{ 0 }, col_count), [&](size_t c) {
+            return std::max(start, tbl->CellTextStart(r, c)) < std::min(end, tbl->CellTextEnd(r, c));
+        });
     };
     while (first_row < end_row && !row_selected(first_row)) {
         ++first_row;

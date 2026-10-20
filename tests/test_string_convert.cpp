@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 #include "string_convert.h"
+#include <numeric>
+#include <string>
 
 using namespace string_convert;
 using namespace std::literals;
@@ -91,11 +93,8 @@ TEST(StringConvert, Utf8ToWideAlternatingAsciiCjk)
 
 TEST(StringConvert, Utf8ToWideAllAsciiCodepoints)
 {
-    std::string utf8;
-    utf8.reserve(128);
-    for (int c = 0; c < 128; ++c) {
-        utf8.push_back(static_cast<char>(c));
-    }
+    std::string utf8(128, '\0');
+    std::ranges::iota(utf8, '\0');
     auto result = Utf8ToWide(utf8);
     EXPECT_EQ(result.size(), 128u);
     for (int c = 0; c < 128; ++c) {

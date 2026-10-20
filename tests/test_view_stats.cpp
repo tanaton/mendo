@@ -172,13 +172,8 @@ TEST(ViewStats, DISABLED_BenchFromMarkdownCrlfVsLf)
     }
     // bytes_lf はリポジトリ上 CRLF (Windows checkout)。LF only 版を作る。
     std::pmr::string bytes_crlf = bytes_lf; // 既に CRLF
-    std::pmr::string lf_only;
-    lf_only.reserve(bytes_lf.size());
-    for (char c : bytes_lf) {
-        if (c != '\r') {
-            lf_only.push_back(c);
-        }
-    }
+    std::pmr::string lf_only = bytes_lf;
+    std::erase(lf_only, '\r');
 
     constexpr int kIterations = 50;
 
@@ -318,14 +313,7 @@ TEST(ViewStats, DISABLED_DumpFirstOwnedCodeBlocks)
         if (off != kUnsetSourceOffset && off < raw.size()) {
             const size_t avail = std::min<size_t>(text.size(), raw.size() - off);
             const std::string_view raw_slice = std::string_view{ raw }.substr(off, avail);
-            // 先頭 N 文字の差分位置を探す
-            size_t first_diff = avail;
-            for (size_t i = 0; i < avail; ++i) {
-                if (raw_slice[i] != text[i]) {
-                    first_diff = i;
-                    break;
-                }
-            }
+            const size_t first_diff = static_cast<size_t>(std::ranges::mismatch(raw_slice, text).in1 - raw_slice.begin());
             std::cout << " first_diff=" << first_diff;
             if (first_diff < avail) {
                 std::cout << " raw[" << first_diff << "]=" << static_cast<int>(raw_slice[first_diff])

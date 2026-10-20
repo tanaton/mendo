@@ -1,13 +1,16 @@
 #include <gtest/gtest.h>
 #include <chrono>
 #include <cstdint>
+#include <format>
+#include <functional>
 #include <initializer_list>
 #include <iostream>
 #include <memory_resource>
-#include <numeric>
 #include <random>
+#include <ranges>
 #include <string>
 #include <string_view>
+#include "block_h_scroll.h"
 #include "command_generator.h"
 #include "document_test_helpers.h"
 #include "dwrite_test_base.h"
@@ -57,11 +60,10 @@ LayoutCache MakeMeasuredCache(std::initializer_list<float> heights)
 {
     LayoutCache cache;
     cache.Resize(heights.size());
-    size_t i = 0;
-    for (const float h : heights) {
-        cache[i].height = h;
-        cache[i].layout_dirty = false;
-        ++i;
+    for (const auto [i, h] : std::views::enumerate(heights)) {
+        auto& entry = cache[static_cast<size_t>(i)];
+        entry.height = h;
+        entry.layout_dirty = false;
     }
     return cache;
 }
@@ -451,7 +453,7 @@ TEST(ComputeColumnWidthsTest, ZeroNaturalWidths)
 }
 
 // 合計が使える幅を超えてよいのは「自然幅のまま横スクロールに任せる」分岐だけ。
-// それ以外で超えると natural_total_width 基準の横スクロールも出ず、表がペイン外へはみ出す。
+// それ以外で超えると、自然幅なら収まる表まで横スクロールになる。
 // 自然幅が収まる場合は、どの列も自然幅を割らず、合計は使える幅ちょうどになること。
 TEST(ComputeColumnWidthsTest, TotalFitsAvailableUnlessLeftAtNaturalForScroll)
 {
@@ -485,8 +487,8 @@ TEST(ComputeColumnWidthsTest, TotalFitsAvailableUnlessLeftAtNaturalForScroll)
             ASSERT_EQ(out.size(), n) << input();
 
             const float effective = std::max(available, static_cast<float>(n) * kMinColumnWidth);
-            const float natural_total = std::reduce(natural.begin(), natural.end(), 0.0f);
-            const float out_total = std::reduce(out.begin(), out.end(), 0.0f);
+            const float natural_total = std::ranges::fold_left(natural, 0.0f, std::plus{});
+            const float out_total = std::ranges::fold_left(out, 0.0f, std::plus{});
             if (natural_total > effective && std::ranges::equal(out, natural)) {
                 continue;
             }
@@ -501,24 +503,71 @@ TEST(ComputeColumnWidthsTest, TotalFitsAvailableUnlessLeftAtNaturalForScroll)
     }
 }
 
-// DWrite 実測でも、表の描画幅はノード幅か横スクロール上限 (natural_total_width) のいずれかに収まる。
-TEST_F(LayoutTest, TableWidthFitsNodeOrScrollableNaturalWidth)
+// DWrite 実測で、横スクロールは描画した表の右端までちょうど届き、表の外の空白へは動かない。
+TEST_F(LayoutTest, TableHScrollReachesRightEdgeWithoutBlank)
 {
-    // 短い列と長い列 (均等幅を超えるが合計は収まる) の組み合わせ。
-    const std::string md =
-        "| a | " + std::string(40, 'w') + " |\n"
-        "|---|---|\n"
-        "| b | c |\n";
-    for (const float viewport_w : { 500.0f, 600.0f, 700.0f, 800.0f, 1200.0f }) {
-        SCOPED_TRACE("viewport_w=" + std::to_string(viewport_w));
-        auto [nodes, cache] = ParseAndLayout(md, viewport_w);
-        ASSERT_EQ(nodes.size(), 1u);
-        ASSERT_NE(cache[0].table_layout(), nullptr);
-        const auto& tl = *cache[0].table_layout();
-        const float node_width = theme_.ContentWidth(viewport_w) - NodeIndent(nodes[0], theme_);
-        EXPECT_LE(tl.TableWidth(), std::max(node_width, tl.natural_total_width) + 0.05f)
-            << "natural_total_width=" << tl.natural_total_width << " node_width=" << node_width;
+    const auto table = [](size_t col_count, std::string_view cell) {
+        std::string header = "|";
+        std::string sep = "|";
+        for (size_t c = 0; c < col_count; ++c) {
+            header += std::format(" {} |", cell);
+            sep += "---|";
+        }
+        return header + "\n" + sep + "\n" + header + "\n";
+    };
+    const std::string mds[] = {
+        // 短い列と長い列 (均等幅を超えるが合計は収まる)
+        "| a | " + std::string(40, 'w') + " |\n|---|---|\n| b | c |\n",
+        // 長いセルを比例圧縮して収める
+        table(2, std::string(80, 'w')),
+        // 列数 x 最小列幅がペインを超え、最小幅のぶん表がはみ出す
+        table(15, "a"),
+        table(30, "a"),
+        // 自然幅のまま出して横スクロールに任せる
+        "| a | " + std::string(300, 'w') + " |\n|---|---|\n| b | c |\n",
+    };
+    for (const auto& md : mds) {
+        for (const float viewport_w : { 500.0f, 600.0f, 700.0f, 800.0f, 1200.0f }) {
+            SCOPED_TRACE(std::format("viewport_w={} md={}", viewport_w, md.substr(0, md.find('\n'))));
+            auto [nodes, cache] = ParseAndLayout(md, viewport_w);
+            ASSERT_EQ(nodes.size(), 1u);
+            ASSERT_NE(cache[0].table_layout(), nullptr);
+            const float table_width = cache[0].table_layout()->TableWidth();
+            const auto geom = GetBlockHScrollGeometry(nodes[0], cache[0], theme_, viewport_w);
+            EXPECT_LE(table_width, geom.visible_width + geom.scroll_max() + BLOCK_H_SCROLL_SLACK);
+            EXPECT_LE(geom.visible_width + geom.scroll_max(), table_width + 0.05f);
+        }
     }
+}
+
+// コードは左余白の分だけ右から描くので、末尾までスクロールしたとき最長行の右に余白が 1 つ分残る。
+// 両側の余白込みで収まらなければ、行が可視幅に収まっていてもスクロールできる。
+TEST_F(LayoutTest, CodeBlockHScrollShowsLongestLineWithRightPadding)
+{
+    const float pad = theme_.code_block_padding;
+    int needs_padding_only = 0;
+    for (const size_t line_len : { size_t{ 60 }, size_t{ 300 } }) {
+        const std::string md = "```\n" + std::string(line_len, 'a') + "\n```";
+        for (float viewport_w = 300.0f; viewport_w <= 1200.0f; viewport_w += 3.0f) {
+            SCOPED_TRACE(std::format("line_len={} viewport_w={}", line_len, viewport_w));
+            auto [nodes, cache] = ParseAndLayout(md, viewport_w);
+            ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
+            DWRITE_TEXT_METRICS m{};
+            ASSERT_TRUE(SUCCEEDED(cache[0].text_layout()->GetMetrics(&m)));
+            const float line_w = m.widthIncludingTrailingWhitespace;
+            const auto geom = GetBlockHScrollGeometry(nodes[0], cache[0], theme_, viewport_w);
+            if (line_w <= geom.visible_width && line_w + 2.0f * pad > geom.visible_width + BLOCK_H_SCROLL_SLACK) {
+                ++needs_padding_only;
+            }
+            if (geom.can_scroll()) {
+                EXPECT_NEAR(pad + line_w - geom.scroll_max(), geom.visible_width - pad, 0.05f);
+            }
+            else {
+                EXPECT_LE(pad + line_w, geom.visible_width - pad + BLOCK_H_SCROLL_SLACK);
+            }
+        }
+    }
+    EXPECT_GT(needs_padding_only, 0);
 }
 
 // ---- RecomputeYPositions テスト ----

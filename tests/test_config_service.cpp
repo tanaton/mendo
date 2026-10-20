@@ -36,7 +36,7 @@ TEST_F(ConfigServiceTest, GetConfigDirReturnsDefaultWhenNoOverride)
     config_.SetConfigDirOverride({});
     const auto& dir = config_.GetConfigDir();
     EXPECT_FALSE(dir.empty());
-    EXPECT_NE(dir.wstring().find(L"mendo"), std::wstring::npos);
+    EXPECT_TRUE(dir.wstring().contains(L"mendo"));
 }
 
 TEST_F(ConfigServiceTest, GetConfigPathCombinesCorrectly)

@@ -137,7 +137,6 @@ private:
     void GenOverlayButton(D2D1_RECT_F btn, wchar_t icon, bool is_hovered);
     // ブロックローカルの水平スクロールバー。ホバー中 / ドラッグ中の対象ブロックでのみ emit する。
     // block_x はブロック左端、bar_y はバー上端 (ペイン内ローカル座標)。
-    // geom.visible_width / natural_width は BlockHScrollGeometry と同じ意味。
     void EmitBlockHScrollbarIfActive(const FrameContext& fc, int node_index, float block_x, float bar_y, const BlockHScrollGeometry& geom, float scroll_x);
     void GenListBullet(const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top);
     void GenBlockQuoteGroupDecorations(const FrameContext& fc, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible);

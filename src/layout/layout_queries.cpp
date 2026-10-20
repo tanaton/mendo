@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cassert>
 #include <iterator>
+#include <ranges>
 
 namespace {
 
@@ -14,13 +15,9 @@ namespace {
 size_t NextSourceOffset(const std::pmr::vector<Node>& nodes, int node_index, size_t node_start, size_t fallback) noexcept
 {
     constexpr int kMaxOffsetProbe = 4096;
-    const int probe_limit = std::min(static_cast<int>(nodes.size()), node_index + 1 + kMaxOffsetProbe);
-    for (int i = node_index + 1; i < probe_limit; ++i) {
-        if (nodes[i].HasSourceOffset() && nodes[i].SourceOffset() > node_start) {
-            return nodes[i].SourceOffset();
-        }
-    }
-    return fallback;
+    const auto probe = nodes | std::views::drop(node_index + 1) | std::views::take(kMaxOffsetProbe);
+    const auto it = std::ranges::find_if(probe, [node_start](const Node& n) noexcept { return n.HasSourceOffset() && n.SourceOffset() > node_start; });
+    return it != probe.end() ? it->SourceOffset() : fallback;
 }
 
 } // namespace

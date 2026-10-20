@@ -5,6 +5,7 @@
 #include "document_test_helpers.h"
 #include "dwrite_test_base.h"
 #include "task_scheduler.h"
+#include <algorithm>
 #include <array>
 #include <string>
 
@@ -25,13 +26,7 @@ protected:
 
     static size_t CountNonNullCells(const TableLayoutData& tl)
     {
-        size_t n = 0;
-        for (const auto& cl : tl.cell_layouts) {
-            if (cl) {
-                ++n;
-            }
-        }
-        return n;
+        return static_cast<size_t>(std::ranges::count_if(tl.cell_layouts, [](const auto& cl) static { return cl != nullptr; }));
     }
 
     // テーブル全体を一旦 evict (viewport より遠い範囲) → 全セルが null になる。

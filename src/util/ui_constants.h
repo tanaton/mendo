@@ -78,12 +78,12 @@ constexpr float BlockHScrollbarBarY(float entry_text_top, float entry_height, fl
 
 // thumb の幅 (DIP)。track の縦と異なり最小幅張り付き時もドラッグ範囲を可動域に揃える必要があるので、
 // 描画とドラッグの ratio 計算で同じ式を共有する。
-constexpr float BlockHScrollbarThumbWidth(float visible_width, float natural_width) noexcept
+constexpr float BlockHScrollbarThumbWidth(float visible_width, float block_width) noexcept
 {
-    if (natural_width <= 0.0f) {
+    if (block_width <= 0.0f) {
         return 0.0f;
     }
-    const float raw = visible_width * (visible_width / natural_width);
+    const float raw = visible_width * (visible_width / block_width);
     // 可視幅が最小幅を下回るとき std::clamp は下限 > 上限で未定義なので、可視幅に収める側を優先する。
     return std::min(std::max(raw, PANE_SCROLLBAR_THUMB_MIN), visible_width);
 }

@@ -209,9 +209,7 @@ TEST(Utf8Codec, BackwardWalkMatchesForwardDecodeUtf16)
         std::uniform_int_distribution<size_t> pick(0, std::size(kUnits) - 1);
         for (int iter = 0; iter < 300; ++iter) {
             std::wstring text(std::uniform_int_distribution<size_t>(1, 16)(rng), L'\0');
-            for (auto& c : text) {
-                c = kUnits[pick(rng)];
-            }
+            std::ranges::generate(text, [&] { return kUnits[pick(rng)]; });
             SCOPED_TRACE(std::format("seed={} iter={}", seed, iter));
             ASSERT_NO_FATAL_FAILURE(ExpectBackwardWalkMatchesForwardDecode(std::wstring_view{ text }));
         }

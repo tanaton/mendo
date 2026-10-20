@@ -21,8 +21,6 @@ namespace {
 // 1e7 は float の整数精度限界 (2^24 ≈ 1.67e7) より少し下で、DirectWrite 内部の
 // 幾何計算でも丸め誤差が乗らない安全な値。10MDIP ≈ 数十万行のコードブロックを許容する。
 constexpr float LAYOUT_INFINITY = 1.0e7f;
-// セル幅がこれ以下の差分なら前回の計測高さを再利用する
-constexpr float CELL_WIDTH_EPSILON = 0.5f;
 
 // セルに列幅と揃えを適用して高さを返す。幅不変ならキャッシュ済みの高さを使う。
 float ApplyCellWidth(TableLayoutData& tl, size_t ci, float cw, TableAlign align) noexcept
@@ -115,14 +113,14 @@ void CacheFirstLineHeight(IDWriteTextLayout* layout, NodeLayoutEntry& entry) noe
 
 // entry.text_layout の計測結果を確定する。折り返し行が変わるためハイライト矩形は無効化し、
 // インラインコード背景を作り直す (描画色と下線は SetMaxWidth だけの再計測でも残る)。
-void FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TEXT_METRICS& metrics, bool reused_layout)
+void FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TEXT_METRICS& metrics, const Theme& theme, bool reused_layout)
 {
     entry.height = metrics.height;
     entry.layout_dirty = false;
     CacheFirstLineHeight(entry.text_layout(), entry);
     entry.invalidate_per_frame_hl_caches();
     if (node.type == NodeType::CodeBlock) {
-        entry.set_natural_code_width(metrics.widthIncludingTrailingWhitespace);
+        entry.set_natural_code_width(metrics.widthIncludingTrailingWhitespace + 2.0f * layout::NodeTextXOffset(node, theme));
         // NO_WRAP なので再利用時は行も変わらず、インラインコード背景も持たない。
         if (reused_layout) {
             return;
@@ -156,13 +154,13 @@ bool MeasureWithoutTextLayout(const Node& node, NodeLayoutEntry& entry, const Th
 // 現存していればテキスト/runs/フォント幾何は一致している。CreateTextLayout は BiDi 解析と
 // shaping を走らせるためリサイズ時の最大コスト要因で、SetMaxWidth はラインブレーク再計算のみで済む。
 // 戻り値: 成功したら true。失敗時は layout を捨ててスローパスに委ねる。
-bool RemeasureExistingLayout(const Node& node, NodeLayoutEntry& entry, float layout_width)
+bool RemeasureExistingLayout(const Node& node, NodeLayoutEntry& entry, float layout_width, const Theme& theme)
 {
     MENDO_PROFILE("MeasureNode.fastpath");
     if (SUCCEEDED(entry.text_layout()->SetMaxWidth(layout_width))) {
         DWRITE_TEXT_METRICS metrics{};
         entry.text_layout()->GetMetrics(&metrics);
-        FinishTextMeasure(node, entry, metrics, true);
+        FinishTextMeasure(node, entry, metrics, theme, true);
         return true;
     }
     entry.reset_text_layout();
@@ -391,7 +389,7 @@ void DWriteTextMeasurer::MeasureNode(
         return;
     }
     const float layout_width = (node.type == NodeType::CodeBlock) ? LAYOUT_INFINITY : max_width;
-    if (entry.text_layout() && RemeasureExistingLayout(node, entry, layout_width)) {
+    if (entry.text_layout() && RemeasureExistingLayout(node, entry, layout_width, *theme_)) {
         return;
     }
 
@@ -419,7 +417,7 @@ void DWriteTextMeasurer::MeasureNode(
     }
 
     entry.set_text_layout(std::move(layout));
-    FinishTextMeasure(node, entry, metrics, false);
+    FinishTextMeasure(node, entry, metrics, *theme_, false);
 }
 
 void DWriteTextMeasurer::BuildCellLayout(const NodeTableData& tbl, size_t r, size_t c, IDWriteTextFormat* row_fmt, TableLayoutData& tl) const
@@ -497,11 +495,10 @@ void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayou
     const float border_width = TABLE_BORDER_WIDTH;
     auto& tl = *entry.table_layout();
     const size_t col_count = tl.col_count;
-    const auto& natural_widths = tl.natural_col_widths;
     const float borders_width = (static_cast<float>(col_count) + 1.0f) * border_width;
     const float paddings_width = static_cast<float>(col_count) * cell_padding * 2.0f;
 
-    layout::ComputeColumnWidths(tl.col_widths, natural_widths, max_width - borders_width - paddings_width, col_count);
+    layout::ComputeColumnWidths(tl.col_widths, tl.natural_col_widths, max_width - borders_width - paddings_width, col_count);
 
     // 幅の適用 (SetMaxWidth + GetMetrics) は全セル分かかる。行ごとの書き込み先
     // (row_heights[r] と行内セルの幅・高さキャッシュ) は重ならないので行チャンクで並列化する。
@@ -520,14 +517,6 @@ void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayou
     // ヒットテスト高速化用に行Y累積と列X累積を事前計算
     tl.RebuildRowCumY(tbl.row_count);
     tl.RebuildColCumX();
-
-    // 圧縮分岐に入った場合 TableWidth() は自然総幅と乖離する。
-    // 横スクロールのクランプ計算は natural_total_width を基準にする。
-    float natural_total = borders_width + paddings_width;
-    for (const float w : natural_widths | std::views::take(col_count)) {
-        natural_total += w;
-    }
-    tl.natural_total_width = natural_total;
 
     entry.height = tl.TotalHeight(tbl.row_count);
     tl.last_applied_max_width = max_width;

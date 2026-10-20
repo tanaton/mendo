@@ -71,7 +71,7 @@ TEST(IniParserTest, ParseCRLFLineEndings)
 TEST(IniParserTest, ParseEmptySection)
 {
     auto data = ini::Parse("[Empty]\n[Full]\nK=V\n");
-    EXPECT_TRUE(data.find("Empty") == data.end() || data["Empty"].empty());
+    EXPECT_TRUE(!data.contains("Empty") || data["Empty"].empty());
     EXPECT_EQ(data["Full"]["K"], "V");
 }
 
@@ -103,9 +103,9 @@ TEST(IniParserTest, SerializeSingleSection)
     data["Window"]["X"] = "100";
     data["Window"]["Y"] = "200";
     std::string result = ini::Serialize(data);
-    EXPECT_NE(result.find("[Window]"), std::string::npos);
-    EXPECT_NE(result.find("X=100"), std::string::npos);
-    EXPECT_NE(result.find("Y=200"), std::string::npos);
+    EXPECT_TRUE(result.contains("[Window]"));
+    EXPECT_TRUE(result.contains("X=100"));
+    EXPECT_TRUE(result.contains("Y=200"));
 }
 
 TEST(IniParserTest, SerializeSkipsEmptySections)
@@ -114,8 +114,8 @@ TEST(IniParserTest, SerializeSkipsEmptySections)
     data["Empty"];  // 空のセクション
     data["Full"]["K"] = "V";
     std::string result = ini::Serialize(data);
-    EXPECT_EQ(result.find("Empty"), std::string::npos);
-    EXPECT_NE(result.find("[Full]"), std::string::npos);
+    EXPECT_FALSE(result.contains("Empty"));
+    EXPECT_TRUE(result.contains("[Full]"));
 }
 
 TEST(IniParserTest, SerializeMultipleSectionsSeparatedByBlankLine)
@@ -125,7 +125,7 @@ TEST(IniParserTest, SerializeMultipleSectionsSeparatedByBlankLine)
     data["B"]["K2"] = "V2";
     std::string result = ini::Serialize(data);
     // セクション間に空行がある
-    EXPECT_NE(result.find("\n\n[B]"), std::string::npos);
+    EXPECT_TRUE(result.contains("\n\n[B]"));
 }
 
 TEST(IniParserTest, RoundTrip)

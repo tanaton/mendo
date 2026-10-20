@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 #include "dwrite_test_base.h"
 #include "command_generator.h"
+#include "document_test_helpers.h"
 #include "draw_command.h"
 #include "i18n.h"
 #include "syntax.h"
@@ -62,15 +63,9 @@ TEST_F(DiagramPlaceholderTest, ErrorShowsErrorMessageInCautionColor)
     ASSERT_FALSE(pl.nodes.empty());
 
     // 最初の diagram ノードにエラーを設定
-    bool found = false;
-    for (size_t i = 0; i < pl.nodes.size(); ++i) {
-        if (pl.nodes[i].type == NodeType::Diagram) {
-            pl.cache.EnsureDiagram(i).error = L"Parse error on line 1";
-            found = true;
-            break;
-        }
-    }
-    ASSERT_TRUE(found);
+    const int diagram_idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Diagram);
+    ASSERT_GE(diagram_idx, 0);
+    pl.cache.EnsureDiagram(static_cast<size_t>(diagram_idx)).error = L"Parse error on line 1";
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{});

@@ -122,12 +122,8 @@ StrippedHtml StripHtml(std::string_view html)
 
 std::string WithoutTableSeparators(std::string_view s)
 {
-    std::string out;
-    for (const char ch : s) {
-        if (ch != '\t' && ch != '\n') {
-            out += ch;
-        }
-    }
+    std::string out{ s };
+    std::erase_if(out, [](char ch) static { return ch == '\t' || ch == '\n'; });
     return out;
 }
 

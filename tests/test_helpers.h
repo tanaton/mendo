@@ -225,12 +225,11 @@ const T* GetEffect(const SideEffect& se) noexcept
 template <typename T>
 inline std::optional<size_t> IndexOfEffect(const SideEffectList& effects) noexcept
 {
-    for (size_t i = 0; i < effects.size(); ++i) {
-        if (GetEffect<T>(effects[i]) != nullptr) {
-            return i;
-        }
+    const auto it = std::ranges::find_if(effects, [](const SideEffect& se) static noexcept { return GetEffect<T>(se) != nullptr; });
+    if (it == effects.end()) {
+        return std::nullopt;
     }
-    return std::nullopt;
+    return static_cast<size_t>(it - effects.begin());
 }
 
 // SideEffectList の中で型 T が最初に現れる要素を返す。無ければ nullptr。

@@ -239,7 +239,7 @@ TEST_F(ClipboardManagerTest, CopyDiagramToClipboardPassesCodeAndDarkModeToRender
     EXPECT_EQ(renderer_.request_count, 1);
     EXPECT_FLOAT_EQ(renderer_.last_width, 1024.0f);
     EXPECT_TRUE(renderer_.last_dark);
-    EXPECT_NE(renderer_.last_code.find("graph LR"), std::string_view::npos);
+    EXPECT_TRUE(renderer_.last_code.contains("graph LR"));
 
     renderer_.FireCallback({}, true);
 }

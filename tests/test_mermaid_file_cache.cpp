@@ -5,7 +5,6 @@
 #include "mermaid_util.h"
 #include "test_helpers.h"
 #include <filesystem>
-#include <cstring>
 #include <future>
 #include <initializer_list>
 #include <limits>
@@ -172,8 +171,7 @@ TEST_F(MermaidFileCacheTest, StoreAndLookupRoundTrip)
     EXPECT_TRUE(LookupAndRead(cache_, key, entry, out));
     EXPECT_EQ(entry.css_width, 400.0f);
     EXPECT_EQ(entry.css_height, 300.0f);
-    ASSERT_EQ(out.size(), png->size());
-    EXPECT_EQ(std::memcmp(out.data(), png->data(), out.size()), 0);
+    EXPECT_EQ(out, *png);
 }
 
 TEST_F(MermaidFileCacheTest, LookupMissReturnsFalse)

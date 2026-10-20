@@ -700,7 +700,7 @@ HCURSOR App::HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLay
     }
 
     const int node_index = hit_test::HitNode(hit_ctx);
-    // 横スクロール対象 (Table / CodeBlock) で自然幅 > 可視幅 のときだけバーを出す。
+    // 横スクロールできるブロック (Table / CodeBlock) だけバーを出す。
     if (state_.view.HDragNode() < 0 && ResolveBlockHScrollGeometry(state_, node_index).can_scroll()) {
         hover.h_block = node_index;
     }

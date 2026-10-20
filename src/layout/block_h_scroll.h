@@ -7,21 +7,26 @@
 #include <memory_resource>
 #include <unordered_map>
 
+// 1px 未満のスクロール範囲は操作として意味がない。表は列幅の丸めと、幅差 CELL_WIDTH_EPSILON 未満で
+// 列幅の再計算を省く経路により、収まる場合でもこの程度まで可視幅を超えうる。
+constexpr float BLOCK_H_SCROLL_SLACK = CELL_WIDTH_EPSILON;
+
 struct BlockHScrollGeometry {
-    float natural_width = 0.0f;
+    // 描画されるブロックの幅。表は配置後の列幅合計、コードは最長行に左右の余白を足した幅。
+    float block_width = 0.0f;
     float visible_width = 0.0f;
 
     constexpr bool can_scroll() const noexcept
     {
-        return natural_width > visible_width && visible_width > 0.0f;
+        return visible_width > 0.0f && block_width - visible_width > BLOCK_H_SCROLL_SLACK;
     }
     constexpr float scroll_max() const noexcept
     {
-        return natural_width > visible_width ? natural_width - visible_width : 0.0f;
+        return can_scroll() ? block_width - visible_width : 0.0f;
     }
     constexpr float ClampScrollX(float x) const noexcept
     {
-        return can_scroll() ? std::clamp(x, 0.0f, scroll_max()) : 0.0f;
+        return std::clamp(x, 0.0f, scroll_max());
     }
 };
 
@@ -31,11 +36,12 @@ inline BlockHScrollGeometry GetBlockHScrollGeometry(
 {
     BlockHScrollGeometry g;
     g.visible_width = visible_width;
-    if (const auto* tl = entry.table_layout(); node.type == NodeType::Table && tl) {
-        g.natural_width = tl->natural_total_width;
+    // 表は描画と同じ TableWidth を使う。幾何が無効な間は GenTable も描かないのでスクロール不可。
+    if (const auto* tl = entry.table_layout(); node.type == NodeType::Table && tl && tl->HasColGeometry()) {
+        g.block_width = tl->TableWidth();
     }
     else if (node.type == NodeType::CodeBlock) {
-        g.natural_width = entry.natural_code_width();
+        g.block_width = entry.natural_code_width();
     }
     return g;
 }

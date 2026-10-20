@@ -2,6 +2,8 @@
 #include "document_test_helpers.h"
 #include "image_loader.h"
 #include "mock_text_measurer.h"
+#include <algorithm>
+#include <ranges>
 
 namespace {
 
@@ -135,13 +137,9 @@ TEST_F(ProcessDirtyBatchViewportTest, SkipsFarOffscreenNodes)
     EXPECT_FALSE(cache[0].layout_dirty) << "ビューポート内のノードは処理されるべき";
 
     // ビューポートから遠いノード（y > 1200）はダーティのまま
-    bool found_far_dirty = false;
-    for (size_t i = 0; i < nodes.size(); i++) {
-        if (cache.Top(i) > 1200.0f && cache[i].layout_dirty) {
-            found_far_dirty = true;
-            break;
-        }
-    }
+    const bool found_far_dirty = std::ranges::any_of(std::views::iota(size_t{ 0 }, nodes.size()), [&](size_t i) {
+        return cache.Top(i) > 1200.0f && cache[i].layout_dirty;
+    });
     EXPECT_TRUE(found_far_dirty) << "ビューポート遠方のノードは未処理のままであるべき";
 }
 

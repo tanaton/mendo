@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
-#include <numeric>
+#include <functional>
 #include <ranges>
 
 namespace layout {
@@ -74,7 +74,7 @@ void ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<fl
     }
     const float effective_available = std::max(available_width, static_cast<float>(col_count) * MIN_COLUMN_WIDTH);
 
-    const float total_natural = std::reduce(natural_widths.begin(), natural_widths.end(), 0.0f);
+    const float total_natural = std::ranges::fold_left(natural_widths | std::views::take(col_count), 0.0f, std::plus{});
 
     if (total_natural > 0 && total_natural > effective_available) {
         // 比例圧縮で最も狭い列が MIN_COLUMN_WIDTH を割る場合は、無理に押し込めず
@@ -90,7 +90,7 @@ void ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<fl
     }
     else {
         // 一律 max(nw + pad, even) だと幅広列の超過分だけ合計が available を超え、
-        // natural_total_width 基準の横スクロールも出ないまま表がペイン外へはみ出す。
+        // 自然幅なら収まる表まで横スクロールになる。
         // 幅広列に nw + pad を確保し、残りを他列で均等に分けて合計を available に揃える。
         const auto columns = std::views::zip(out, natural_widths) | std::views::take(col_count);
         const float n = static_cast<float>(col_count);

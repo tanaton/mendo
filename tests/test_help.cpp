@@ -161,5 +161,5 @@ TEST(HelpDocumentTest, BuildTitleStringWithHelpPath)
     auto title = BuildTitleString(HELP_PATH);
     // ヘルプパスでもクラッシュせずタイトルが生成される
     EXPECT_FALSE(title.empty());
-    EXPECT_NE(title.find(L"mendo"), std::pmr::wstring::npos);
+    EXPECT_TRUE(title.contains(L"mendo"));
 }

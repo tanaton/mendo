@@ -76,7 +76,7 @@ struct DecodeResult {
 inline const GUID* SniffImageContainer(std::span<const uint8_t> bytes) noexcept
 {
     const auto starts_with = [bytes](std::initializer_list<uint8_t> sig, size_t at = 0) {
-        return bytes.size() >= at + sig.size() && std::ranges::equal(bytes.subspan(at, sig.size()), sig);
+        return bytes.size() >= at && std::ranges::starts_with(bytes.subspan(at), sig);
     };
     if (starts_with({ 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A })) {
         return &GUID_ContainerFormatPng;

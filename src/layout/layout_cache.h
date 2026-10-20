@@ -25,6 +25,9 @@ struct CellInlineCodeBg {
     InlineCodeBg rect; // セルのテキスト原点基準
 };
 
+// 表の幅の差がこれ未満なら、前回の計測 (セル高さ・列幅) を再利用する。
+inline constexpr float CELL_WIDTH_EPSILON = 0.5f;
+
 // テーブル専用のレイアウトデータ（テーブルノードのみ確保してメモリを節約）
 struct TableLayoutData {
     std::pmr::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>> cell_layouts; // フラット配列 [行 * col_count + 列]
@@ -45,9 +48,6 @@ struct TableLayoutData {
     // FinalizeTableLayout に最後に渡された max_width。CELL_WIDTH_EPSILON 以内の
     // 差分なら全体の再計算を完全スキップできる。負値 = 未設定。
     float last_applied_max_width = -1.0f;
-    // 圧縮を行わなかった場合の自然な総幅。横スクロールのクランプ計算用に保持する。
-    // TableWidth と一致することもあるが、圧縮分岐を通った場合は乖離する。
-    float natural_total_width = 0.0f;
     size_t evicted_row_count = 0;
     // セル layout が生存しうる行範囲 [live_row_begin, live_row_end)。差分 evict の走査範囲で、
     // evict 済み行を毎回なめ直さないためのもの。
@@ -428,8 +428,9 @@ private:
         // GetLineMetrics(&lm, 1, &lc) の結果をキャッシュ。0 なら未確定 (フォールバック計算する)。
         // MeasureNode で text_layout 確定時に同時に求める。
         float first_line_height = 0.0f;
-        // CodeBlock の最長行幅 (NO_WRAP で計測した自然幅)。横スクロールバーのスケール計算と
-        // クランプに使う。CodeBlock 以外では 0 のまま。
+        // CodeBlock の自然幅 (NO_WRAP で計測した最長行 + 左右の余白)。横スクロールバーのスケール計算と
+        // クランプに使う。余白込みにしないと末尾までスクロールしても最長行の右端が clip に隠れる。
+        // CodeBlock 以外では 0 のまま。
         float natural_code_width = 0.0f;
         // 計測のたびに作り直すので、確保し直さないよう Aux に直接持つ。
         std::pmr::vector<InlineCodeBg> inline_code_bgs;
@@ -696,14 +697,11 @@ struct VisibleRange {
 inline VisibleRange ComputeVisibleNodeRange(const LayoutCache& cache, float range_top, float range_bottom) noexcept
 {
     const size_t first = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, range_top));
-    size_t last_plus_1 = first;
-    for (size_t i = first; i < cache.size(); ++i) {
-        if (cache.Top(i) > range_bottom) {
-            break;
-        }
-        last_plus_1 = i + 1;
-    }
-    return { first, last_plus_1 };
+    const auto rest = std::views::iota(first, cache.size());
+    const auto it = std::ranges::partition_point(rest, [&cache, range_bottom](size_t i) noexcept {
+        return cache.Top(i) <= range_bottom;
+    });
+    return { first, it == rest.end() ? cache.size() : *it };
 }
 
 // (node, offset) → 絶対スクロール位置。
