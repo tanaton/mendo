@@ -460,7 +460,7 @@ void CommandGenerator::EmitBlockHScrollbarIfActive(const FrameContext& fc, int n
         return;
     }
     const float track_w = geom.visible_width;
-    const float thumb_w = BlockHScrollbarThumbWidth(geom.visible_width, geom.natural_width);
+    const float thumb_w = BlockHScrollbarThumbWidth(geom.visible_width, geom.block_width);
     const float scroll_max = geom.scroll_max();
     const float ratio = (scroll_max > 0.0f) ? std::clamp(scroll_x / scroll_max, 0.0f, 1.0f) : 0.0f;
     // サブピクセル位置だとアンチエイリアスが上下に漏れて thumb の太さがブレるため snap する。

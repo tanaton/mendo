@@ -251,7 +251,6 @@ void ResetTableCellCaches(TableLayoutData& tl) noexcept
     tl.cell_applied_widths.clear();
     tl.col_count = 0;
     tl.last_applied_max_width = -1.0f;
-    tl.natural_total_width = 0.0f;
 }
 
 } // namespace

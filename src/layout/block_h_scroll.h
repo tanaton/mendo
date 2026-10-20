@@ -7,17 +7,26 @@
 #include <memory_resource>
 #include <unordered_map>
 
+// これ以下のはみ出しはスクロール対象にしない。表は列幅の丸めで収まる場合も可視幅をわずかに超え、
+// 幅差が 0.5 DIP 未満なら列幅の再計算を省くため、最大 0.5 DIP 古い幅のまま残る。
+constexpr float BLOCK_H_SCROLL_SLACK = 0.5f;
+
 struct BlockHScrollGeometry {
-    float natural_width = 0.0f;
+    // 描画されるブロックの幅 (表は配置後の列幅合計、コードは折り返さない最長行)。
+    float block_width = 0.0f;
     float visible_width = 0.0f;
 
+    constexpr bool overflows() const noexcept
+    {
+        return block_width - visible_width > BLOCK_H_SCROLL_SLACK;
+    }
     constexpr bool can_scroll() const noexcept
     {
-        return natural_width > visible_width && visible_width > 0.0f;
+        return overflows() && visible_width > 0.0f;
     }
     constexpr float scroll_max() const noexcept
     {
-        return natural_width > visible_width ? natural_width - visible_width : 0.0f;
+        return overflows() ? block_width - visible_width : 0.0f;
     }
     constexpr float ClampScrollX(float x) const noexcept
     {
@@ -31,11 +40,12 @@ inline BlockHScrollGeometry GetBlockHScrollGeometry(
 {
     BlockHScrollGeometry g;
     g.visible_width = visible_width;
-    if (const auto* tl = entry.table_layout(); node.type == NodeType::Table && tl) {
-        g.natural_width = tl->natural_total_width;
+    // 表は描画と同じ TableWidth を使う。幾何が無効な間は GenTable も描かないのでスクロール不可。
+    if (const auto* tl = entry.table_layout(); node.type == NodeType::Table && tl && tl->HasColGeometry()) {
+        g.block_width = tl->TableWidth();
     }
     else if (node.type == NodeType::CodeBlock) {
-        g.natural_width = entry.natural_code_width();
+        g.block_width = entry.natural_code_width();
     }
     return g;
 }

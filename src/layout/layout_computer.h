@@ -116,8 +116,7 @@ inline float AdvanceNodeY(float& y, float spacing_above, float height, float spa
     return text_top;
 }
 
-// 戻り値は先頭 col_count 列の自然幅の合計。
-float ComputeColumnWidths(
+void ComputeColumnWidths(
     std::pmr::vector<float>& out,
     const std::pmr::vector<float>& natural_widths,
     float available_width, size_t col_count);

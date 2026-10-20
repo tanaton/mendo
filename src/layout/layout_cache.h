@@ -45,9 +45,6 @@ struct TableLayoutData {
     // FinalizeTableLayout に最後に渡された max_width。CELL_WIDTH_EPSILON 以内の
     // 差分なら全体の再計算を完全スキップできる。負値 = 未設定。
     float last_applied_max_width = -1.0f;
-    // 圧縮を行わなかった場合の自然な総幅。横スクロールのクランプ計算用に保持する。
-    // TableWidth と一致することもあるが、圧縮分岐を通った場合は乖離する。
-    float natural_total_width = 0.0f;
     size_t evicted_row_count = 0;
     // セル layout が生存しうる行範囲 [live_row_begin, live_row_end)。差分 evict の走査範囲で、
     // evict 済み行を毎回なめ直さないためのもの。

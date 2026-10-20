@@ -66,11 +66,11 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
     std::unreachable();
 }
 
-float ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<float>& natural_widths, float available_width, size_t col_count)
+void ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<float>& natural_widths, float available_width, size_t col_count)
 {
     out.resize(col_count);
     if (col_count == 0) {
-        return 0.0f;
+        return;
     }
     const float effective_available = std::max(available_width, static_cast<float>(col_count) * MIN_COLUMN_WIDTH);
 
@@ -82,7 +82,7 @@ float ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<f
         const float smallest = *std::ranges::min_element(natural_widths | std::views::take(col_count));
         if (smallest * effective_available < MIN_COLUMN_WIDTH * total_natural) {
             std::ranges::copy(natural_widths | std::views::take(col_count), out.begin());
-            return total_natural;
+            return;
         }
         for (auto [w, nw] : std::views::zip(out, natural_widths) | std::views::take(col_count)) {
             w = effective_available * nw / total_natural;
@@ -90,7 +90,7 @@ float ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<f
     }
     else {
         // 一律 max(nw + pad, even) だと幅広列の超過分だけ合計が available を超え、
-        // natural_total_width 基準の横スクロールも出ないまま表がペイン外へはみ出す。
+        // 自然幅なら収まる表まで横スクロールになる。
         // 幅広列に nw + pad を確保し、残りを他列で均等に分けて合計を available に揃える。
         const auto columns = std::views::zip(out, natural_widths) | std::views::take(col_count);
         const float n = static_cast<float>(col_count);
@@ -101,7 +101,7 @@ float ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<f
             for (auto [w, nw] : columns) {
                 w = nw + extra;
             }
-            return total_natural;
+            return;
         }
         // level を下げるたびに nw + pad > level の列が増えるだけなので、列数回以内で収束する。
         float level = effective_available / n;
@@ -127,7 +127,6 @@ float ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<f
             w = std::max(nw + COLUMN_WIDTH_PADDING, level);
         }
     }
-    return total_natural;
 }
 
 float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
