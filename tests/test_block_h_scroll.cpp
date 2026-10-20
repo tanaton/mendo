@@ -27,16 +27,15 @@ TEST(BlockHScrollGeometry, NotScrollableWhenBlockSmaller)
     EXPECT_FLOAT_EQ(g.scroll_max(), 0.0f);
 }
 
-// visible_width が 0（未レイアウト）のとき can_scroll は false。scroll_max は
-// can_scroll でガードされる前提のため、ここでは block_width をそのまま返す挙動を固定する。
+// visible_width が 0（未レイアウト）のときはスクロールさせない。
 TEST(BlockHScrollGeometry, NotScrollableWhenVisibleZero)
 {
     constexpr BlockHScrollGeometry g{ .block_width = 200.0f, .visible_width = 0.0f };
     EXPECT_FALSE(g.can_scroll());
-    EXPECT_FLOAT_EQ(g.scroll_max(), 200.0f);
+    EXPECT_FLOAT_EQ(g.scroll_max(), 0.0f);
 }
 
-// 列幅の丸めや再計算省略で残る 1px 未満のはみ出しではスクロールさせない。
+// BLOCK_H_SCROLL_SLACK 以下のはみ出しではスクロールさせない。
 TEST(BlockHScrollGeometry, OverflowWithinSlackIsNotScrollable)
 {
     constexpr BlockHScrollGeometry g{ .block_width = 100.0f + BLOCK_H_SCROLL_SLACK, .visible_width = 100.0f };
@@ -78,7 +77,7 @@ TEST(GetBlockHScrollGeometry, ScrollableCodeBlockUsesNaturalCodeWidth)
     EXPECT_FLOAT_EQ(g.visible_width, theme.ContentWidth(kPaneWidth));
 }
 
-// Table は描画と同じ TableWidth (配置後の列幅合計) を採用する。
+// Table は描画と同じ TableWidth (配置後の列幅合計) を採用する。幾何を無効化した表は描画されないので、スクロールもさせない。
 TEST(GetBlockHScrollGeometry, TableUsesLaidOutTableWidth)
 {
     const Theme theme = GetLightTheme();
@@ -92,23 +91,11 @@ TEST(GetBlockHScrollGeometry, TableUsesLaidOutTableWidth)
     const auto g = GetBlockHScrollGeometry(node, entry, theme, 800.0f);
     EXPECT_FLOAT_EQ(g.block_width, tl.TableWidth());
     EXPECT_TRUE(g.can_scroll());
-}
 
-// 幾何を無効化した表は描画されないので、スクロールもさせない。
-TEST(GetBlockHScrollGeometry, TableWithInvalidatedGeometryIsNotScrollable)
-{
-    const Theme theme = GetLightTheme();
-    Node node;
-    node.type = NodeType::Table;
-    NodeLayoutEntry entry;
-    auto& tl = entry.ensure_table_layout();
-    tl.col_widths = { 1000.0f, 1000.0f };
-    tl.RebuildColCumX();
     tl.InvalidateGeometry();
-
-    const auto g = GetBlockHScrollGeometry(node, entry, theme, 800.0f);
-    EXPECT_FLOAT_EQ(g.block_width, 0.0f);
-    EXPECT_FALSE(g.can_scroll());
+    const auto invalidated = GetBlockHScrollGeometry(node, entry, theme, 800.0f);
+    EXPECT_FLOAT_EQ(invalidated.block_width, 0.0f);
+    EXPECT_FALSE(invalidated.can_scroll());
 }
 
 // table_layout 未確保（未計測）の Table は block_width=0 でスクロール不可。

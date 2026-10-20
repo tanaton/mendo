@@ -7,30 +7,26 @@
 #include <memory_resource>
 #include <unordered_map>
 
-// これ以下のはみ出しはスクロール対象にしない。表は列幅の丸めで収まる場合も可視幅をわずかに超え、
-// 幅差が 0.5 DIP 未満なら列幅の再計算を省くため、最大 0.5 DIP 古い幅のまま残る。
-constexpr float BLOCK_H_SCROLL_SLACK = 0.5f;
+// 1px 未満のスクロール範囲は操作として意味がない。表は列幅の丸めと、幅差 CELL_WIDTH_EPSILON 未満で
+// 列幅の再計算を省く経路により、収まる場合でもこの程度まで可視幅を超えうる。
+constexpr float BLOCK_H_SCROLL_SLACK = CELL_WIDTH_EPSILON;
 
 struct BlockHScrollGeometry {
-    // 描画されるブロックの幅 (表は配置後の列幅合計、コードは折り返さない最長行)。
+    // 表は描画と同じ配置後の幅、コードは最長行の幅 (左右の余白を含まない)。
     float block_width = 0.0f;
     float visible_width = 0.0f;
 
-    constexpr bool overflows() const noexcept
-    {
-        return block_width - visible_width > BLOCK_H_SCROLL_SLACK;
-    }
     constexpr bool can_scroll() const noexcept
     {
-        return overflows() && visible_width > 0.0f;
+        return visible_width > 0.0f && block_width - visible_width > BLOCK_H_SCROLL_SLACK;
     }
     constexpr float scroll_max() const noexcept
     {
-        return overflows() ? block_width - visible_width : 0.0f;
+        return can_scroll() ? block_width - visible_width : 0.0f;
     }
     constexpr float ClampScrollX(float x) const noexcept
     {
-        return can_scroll() ? std::clamp(x, 0.0f, scroll_max()) : 0.0f;
+        return std::clamp(x, 0.0f, scroll_max());
     }
 };
 

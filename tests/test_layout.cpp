@@ -533,10 +533,9 @@ TEST_F(LayoutTest, TableHScrollReachesRightEdgeWithoutBlank)
             ASSERT_EQ(nodes.size(), 1u);
             ASSERT_NE(cache[0].table_layout(), nullptr);
             const float table_width = cache[0].table_layout()->TableWidth();
-            const float node_width = theme_.ContentWidth(viewport_w) - NodeIndent(nodes[0], theme_);
-            const auto geom = GetBlockHScrollGeometry(nodes[0], cache[0], node_width);
-            EXPECT_LE(table_width, node_width + geom.scroll_max() + BLOCK_H_SCROLL_SLACK);
-            EXPECT_LE(node_width + geom.scroll_max(), table_width + 0.05f);
+            const auto geom = GetBlockHScrollGeometry(nodes[0], cache[0], theme_, viewport_w);
+            EXPECT_LE(table_width, geom.visible_width + geom.scroll_max() + BLOCK_H_SCROLL_SLACK);
+            EXPECT_LE(geom.visible_width + geom.scroll_max(), table_width + 0.05f);
         }
     }
 }

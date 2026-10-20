@@ -21,8 +21,6 @@ namespace {
 // 1e7 は float の整数精度限界 (2^24 ≈ 1.67e7) より少し下で、DirectWrite 内部の
 // 幾何計算でも丸め誤差が乗らない安全な値。10MDIP ≈ 数十万行のコードブロックを許容する。
 constexpr float LAYOUT_INFINITY = 1.0e7f;
-// セル幅がこれ以下の差分なら前回の計測高さを再利用する
-constexpr float CELL_WIDTH_EPSILON = 0.5f;
 
 // セルに列幅と揃えを適用して高さを返す。幅不変ならキャッシュ済みの高さを使う。
 float ApplyCellWidth(TableLayoutData& tl, size_t ci, float cw, TableAlign align) noexcept

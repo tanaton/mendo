@@ -25,6 +25,9 @@ struct CellInlineCodeBg {
     InlineCodeBg rect; // セルのテキスト原点基準
 };
 
+// 表の幅の差がこれ未満なら、前回の計測 (セル高さ・列幅) を再利用する。
+inline constexpr float CELL_WIDTH_EPSILON = 0.5f;
+
 // テーブル専用のレイアウトデータ（テーブルノードのみ確保してメモリを節約）
 struct TableLayoutData {
     std::pmr::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>> cell_layouts; // フラット配列 [行 * col_count + 列]

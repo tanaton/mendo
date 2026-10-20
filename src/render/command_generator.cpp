@@ -113,8 +113,8 @@ constexpr float ALERT_BG_PAD = 4.0f;
 static_assert(ALERT_BRUSH_COUNT == ALERT_TYPE_COUNT, "AlertBrushIdFromIndex table must cover every AlertType");
 
 // ブロックローカル横スクロールの clip と Translate を RAII で囲み、push/pop の対称性を強制する。
-// scroll_x == 0 のときは Translate を省略し、自然幅がペイン幅以下のときは Clip も省略する。
-// 自然幅が visible_width を超えるが scroll_x == 0 の場合 (初期状態) は、依然として右端で
+// scroll_x == 0 のときは Translate を省略し、ブロックがスクロールしないときは Clip も省略する。
+// スクロールできるが scroll_x == 0 の場合 (初期状態) は、依然として右端で
 // Clip しないとペイン余白に内容がはみ出るため、Clip と Translate を独立に判定する。
 class BlockHScrollScope {
 public:
@@ -462,7 +462,7 @@ void CommandGenerator::EmitBlockHScrollbarIfActive(const FrameContext& fc, int n
     const float track_w = geom.visible_width;
     const float thumb_w = BlockHScrollbarThumbWidth(geom.visible_width, geom.block_width);
     const float scroll_max = geom.scroll_max();
-    const float ratio = (scroll_max > 0.0f) ? std::clamp(scroll_x / scroll_max, 0.0f, 1.0f) : 0.0f;
+    const float ratio = std::clamp(scroll_x / scroll_max, 0.0f, 1.0f);
     // サブピクセル位置だとアンチエイリアスが上下に漏れて thumb の太さがブレるため snap する。
     const float thumb_x = SnapToPhysicalPixel(block_x + ratio * (track_w - thumb_w), fc.dpi_scale);
     const float thumb_y = SnapToPhysicalPixel(bar_y, fc.dpi_scale);
