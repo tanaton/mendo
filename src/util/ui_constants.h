@@ -63,10 +63,11 @@ constexpr float VScrollbarLeftX(float right_edge) noexcept
     return right_edge - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
 }
 
-// 縦スクロールバーのヒット判定の左端 X。細いバーを掴みやすいよう左に広げる。
-constexpr float VScrollbarHitLeftX(float right_edge) noexcept
+// 縦スクロールバーのヒット判定の X 範囲。細いバーを掴みやすいよう左に広げ、右端の余白は外す
+// (md ペインはウィンドウ右端に接するので、そこはリサイズ枠に譲る)。
+constexpr bool InVScrollbarHitX(float x, float right_edge) noexcept
 {
-    return VScrollbarLeftX(right_edge) - PANE_SCROLLBAR_HIT_PADDING;
+    return x >= VScrollbarLeftX(right_edge) - PANE_SCROLLBAR_HIT_PADDING && x <= right_edge - PANE_SCROLLBAR_MARGIN;
 }
 
 // ブロック横スクロールバーの bar 上端 Y 座標 (ペインローカル document Y)。
@@ -379,17 +380,21 @@ inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top, Overl
     return OverlayButtonRect(anchor_right, anchor_top, kind == OverlayButton::DiagramCopy ? 1 : 0);
 }
 
+// 画像・図は max_width を超える場合のみアスペクト比を保って縮小する (拡大はしない)。
+// レイアウトの高さと描画矩形の両方がこの規則を使う。
+constexpr D2D1_SIZE_F FitBitmapSize(float width, float height, float max_width) noexcept
+{
+    if (width > max_width && width > 0.0f) {
+        return { max_width, height * (max_width / width) };
+    }
+    return { width, height };
+}
+
 // Mermaidダイアグラムのビットマップ描画矩形を計算する（スケーリング＋中央寄せ）。
 // CommandGenerator（描画）と hit_test（クリック検出）の間で共有される。
 inline D2D1_RECT_F MermaidBitmapRect(float diagram_w, float diagram_h, float x, float cw, float y) noexcept
 {
-    float draw_w = diagram_w;
-    float draw_h = diagram_h;
-    if (draw_w > cw && draw_w > 0) {
-        const float scale = cw / draw_w;
-        draw_h *= scale;
-        draw_w = cw;
-    }
-    const float dx = x + (cw - draw_w) * 0.5f;
-    return D2D1::RectF(dx, y, dx + draw_w, y + draw_h);
+    const auto draw = FitBitmapSize(diagram_w, diagram_h, cw);
+    const float dx = x + (cw - draw.width) * 0.5f;
+    return D2D1::RectF(dx, y, dx + draw.width, y + draw.height);
 }

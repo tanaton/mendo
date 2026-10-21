@@ -12,20 +12,30 @@
 #include <string_view>
 #include <utility>
 
+// 検索バーがマッチへスクロールするときに App へ問い合わせること。
+class SearchBarHost {
+public:
+    virtual float MdPaneHeight() = 0;
+    virtual float MdMaxScroll() = 0;
+    // node_index のノードを計測済みにする (検索マッチの行位置を引けるようにする)。
+    virtual void EnsureNodeLayout(int node_index) = 0;
+
+protected:
+    ~SearchBarHost() = default;
+};
+
 // 検索バーのUI状態管理。
 // SearchState（ドメインロジック）を参照で保持し、検索バー固有の
 // UIステート（フォーカス、キャレット、ドラッグ選択、ホバー）を管理する。
 // 再描画・フォーカス・ビープは effects に積み、App::Execute に任せる。
-// Cb はレイアウト計測とペイン高さの問い合わせだけを担う。
-template <class Cb>
-class SearchBarControllerT {
+class SearchBarController {
 public:
-    constexpr void Init(SearchState& state, ViewportManager& viewport, LayoutCache& cache, Cb cb) noexcept
+    constexpr void Init(SearchState& state, ViewportManager& viewport, LayoutCache& cache, SearchBarHost& host) noexcept
     {
         state_ = &state;
         viewport_ = &viewport;
         cache_ = &cache;
-        cb_ = std::move(cb);
+        host_ = &host;
     }
 
     void OnOpen(SideEffectList& effects, const std::pmr::vector<Node>& nodes)
@@ -130,7 +140,8 @@ public:
     {
         state_->BeginSearch();
         scroll_after_search_ = scroll_to_match;
-        ContinueSearch(effects, nodes);
+        // クエリや前のマッチの消去を描画に出すため、始めの区切りは必ず描き直す。
+        ContinueSearch(effects, nodes, true);
     }
 
     void OnContinue(SideEffectList& effects, const std::pmr::vector<Node>& nodes)
@@ -153,17 +164,17 @@ public:
         }
 
         // 未計測や evict 済みのノードは text_layout が無く、行の Y を引けずにノード先頭へ寄ってしまう。
-        cb_.ensure_node_layout(match.node_index);
+        host_->EnsureNodeLayout(match.node_index);
         const auto& entry = (*cache_)[match.node_index];
         // Why: ブロック先頭/行先頭に丸めると、長い段落内の複数マッチ間で同じ Y に集約され
         //      「次へ」を押してもスクロールしない。start_w で行単位の Y を出す。
         const auto [match_y, match_h] = entry.GetMatchYRange(match.table_row, match.table_col, match.start_w, cache_->Top(static_cast<size_t>(match.node_index)));
-        const float visible_height = cb_.get_md_pane_height() - (state_->IsVisible() ? SEARCH_BAR_HEIGHT : 0.0f);
+        const float visible_height = host_->MdPaneHeight() - (state_->IsVisible() ? SEARCH_BAR_HEIGHT : 0.0f);
         const float scroll_y = viewport_->GetScrollY();
         const float effective_bottom = scroll_y + visible_height;
 
         if (match_y < scroll_y || match_y + match_h > effective_bottom) {
-            viewport_->ScrollTo(match_y - visible_height / 3.0f);
+            viewport_->ScrollTo(match_y - visible_height / 3.0f, host_->MdMaxScroll());
         }
     }
 
@@ -219,10 +230,14 @@ public:
     }
 
 private:
-    void ContinueSearch(SideEffectList& effects, const std::pmr::vector<Node>& nodes)
+    void ContinueSearch(SideEffectList& effects, const std::pmr::vector<Node>& nodes, bool force_invalidate = false)
     {
+        const int before = state_->GetMatchCount();
         const bool done = state_->ContinueSearch(nodes, std::chrono::steady_clock::now() + kSearchSliceBudget);
-        PushEffect(effects, effect::InvalidateWindow{});
+        // 描画は検索中かどうかを見ないので、続きの区切りはマッチが増えたときと完了時だけ描き直す。
+        if (force_invalidate || done || state_->GetMatchCount() != before) {
+            PushEffect(effects, effect::InvalidateWindow{});
+        }
         if (!done) {
             return;
         }
@@ -259,7 +274,7 @@ private:
     SearchState* state_ = nullptr;
     ViewportManager* viewport_ = nullptr;
     LayoutCache* cache_ = nullptr;
-    Cb cb_{};
+    SearchBarHost* host_ = nullptr;
 
     int caret_pos_ = -1;
     int selection_start_ = -1;

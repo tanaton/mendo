@@ -2,58 +2,52 @@
 #include "app.h"
 #include "pane_layout.h"
 
-float AppCallbacksBase::get_md_pane_height()
+void AppHost::SetTimer(app_timer::Id id, UINT ms)
 {
-    return app->GetPaneLayout().md_rect.height;
+    app_.SetTimer(id, ms);
 }
 
-void AppResourceManagerCallbacks::set_timer(app_timer::Id id, UINT ms)
+void AppHost::KillTimer(app_timer::Id id)
 {
-    app->SetTimer(id, ms);
+    app_.KillTimer(id);
 }
 
-void AppResourceManagerCallbacks::kill_timer(app_timer::Id id)
+float AppHost::MdContentWidth()
 {
-    app->KillTimer(id);
+    return app_.MdContentWidth();
 }
 
-float AppResourceManagerCallbacks::get_content_width()
+float AppHost::MdPaneHeight()
 {
-    return app->MdContentWidth();
+    return app_.GetPaneLayout().md_rect.height;
 }
 
-const Theme& AppResourceManagerCallbacks::get_theme()
+float AppHost::MdMaxScroll()
 {
-    return app->renderer_.GetTheme();
+    return app_.MdMaxScroll();
 }
 
-void AppResourceManagerCallbacks::recompute_layout(layout::HeightChangeRange changed)
+const Theme& AppHost::GetTheme()
 {
-    app->layout_service_->RecomputeAfterDiagram(
-        app->state_.document.doc,
-        app->state_.document.layout_cache,
-        app->renderer_.GetTheme(),
+    return app_.renderer_.GetTheme();
+}
+
+void AppHost::RecomputeLayout(layout::HeightChangeRange changed)
+{
+    // 画面より上の画像・図の高さが変わっても、見ている内容が動かないようにする。
+    app_.EnsureScrollTarget();
+    app_.layout_service_.RecomputeAfterDiagram(
+        app_.state_.document.doc,
+        app_.state_.document.layout_cache,
+        app_.renderer_.GetTheme(),
         changed);
-    // リフローで停止中のカーソル直下のノード/リンクが変わりうるため、ホバーの
-    // 同一座標スキップを解除し次のマウス移動で再評価させる (カーソル形状の陳腐化対策)。
-    app->InvalidateHitPositions();
-    app->Invalidate();
+    app_.ClampScrollToContent();
+    app_.Invalidate();
 }
 
-void AppResourceManagerCallbacks::recompute_layout_anchored(layout::HeightChangeRange changed)
+void AppHost::EnsureNodeLayout(int node_index)
 {
-    app->EnsureScrollTarget();
-    recompute_layout(changed);
-    app->SyncMaxScroll();
+    app_.layout_service_.EnsureNodeLayout(
+        app_.state_.document.doc, app_.state_.document.layout_cache,
+        app_.GetPaneLayout().md_rect.width, node_index);
 }
-
-template class ResourceManagerT<AppResourceManagerCallbacks>;
-
-void AppSearchBarCallbacks::ensure_node_layout(int node_index)
-{
-    app->layout_service_->EnsureNodeLayout(
-        app->state_.document.doc, app->state_.document.layout_cache,
-        app->GetPaneLayout().md_rect.width, node_index);
-}
-
-template class SearchBarControllerT<AppSearchBarCallbacks>;

@@ -39,8 +39,7 @@ bool Renderer::Init(HWND hwnd, Theme theme)
 void Renderer::SetTheme(Theme theme)
 {
     assert(theme.zoom == theme_.zoom && theme.font_size_body == theme_.font_size_body);
-    theme_ = std::move(theme);
-    ResolveThemeFonts();
+    AdoptThemeKeepingFonts(std::move(theme));
     RecreateBrushes();
 }
 
@@ -57,12 +56,12 @@ void Renderer::SetDpi(float dpi) noexcept
 void Renderer::TrimForMinimize() noexcept
 {
     backend_.Trim();
+    toc_titles_ = {};
 }
 
 void Renderer::ApplyZoomFromBase(const Theme& base_theme, float new_zoom)
 {
-    theme_ = base_theme;
-    ResolveThemeFonts();
+    AdoptThemeKeepingFonts(base_theme);
     if (new_zoom != 1.0f) {
         theme_.ApplyZoom(new_zoom);
     }
@@ -92,18 +91,18 @@ void Renderer::PrepareChrome(const TitleBarRenderState& titlebar, const SidePane
     }
     const auto& tp = sp.Get(PaneTarget::Toc);
     if (tp.show) {
-        GenToc(sp.toc_entries, sp.nodes, tp, sp.active_toc_index);
+        GenToc(sp, tp);
         gen_splitter(tp.rect);
     }
 }
 
-bool Renderer::BeginFrame(const TitleBarRenderState& titlebar, const SidePaneState& side_panes)
+std::optional<Renderer::FrameResult> Renderer::BeginFrame(const TitleBarRenderState& titlebar, const SidePaneState& side_panes)
 {
-    if (HandleDeviceLost()) {
-        return false;
+    if (backend_.IsDeviceLost()) {
+        return RecreateDeviceForFrame();
     }
     if (!rt()) {
-        return false;
+        return FrameResult::Done;
     }
 
     text_layouts_.BeginFrame();
@@ -114,7 +113,7 @@ bool Renderer::BeginFrame(const TitleBarRenderState& titlebar, const SidePaneSta
     rt()->BeginDraw();
     rt()->Clear(theme_.bg_color);
     ExecuteDrawCommands(chrome_cmds_, rt(), &brushes_);
-    return true;
+    return std::nullopt;
 }
 
 void Renderer::DrawLoadingSpinner(float angle, const PaneRect& md_pane_rect)
@@ -146,7 +145,7 @@ void Renderer::DrawLoadingSpinner(float angle, const PaneRect& md_pane_rect)
     }
 }
 
-void Renderer::DrawLoading(
+Renderer::FrameResult Renderer::DrawLoading(
     float angle,
     const PaneRect& md_pane_rect,
     const SidePaneState& sp,
@@ -154,15 +153,15 @@ void Renderer::DrawLoading(
     const GestureRenderState& gesture,
     const ToastRenderState& toast)
 {
-    if (!BeginFrame(titlebar, sp)) {
-        return;
+    if (const auto early = BeginFrame(titlebar, sp)) {
+        return *early;
     }
 
     DrawLoadingSpinner(angle, md_pane_rect);
     // ローディング中もジェスチャーとトーストは表示する
     DrawTransientOverlays(gesture, toast, md_pane_rect);
 
-    CheckEndDraw();
+    return EndFrame();
 }
 
 void Renderer::DrawTransientOverlays(const GestureRenderState& gesture, const ToastRenderState& toast, const PaneRect& md_pane_rect)
@@ -173,12 +172,12 @@ void Renderer::DrawTransientOverlays(const GestureRenderState& gesture, const To
     }
 }
 
-void Renderer::Render(const RenderParams& p)
+Renderer::FrameResult Renderer::Render(const RenderParams& p)
 {
     MENDO_PROFILE("Render");
 
-    if (!BeginFrame(p.titlebar, p.side_panes)) {
-        return;
+    if (const auto early = BeginFrame(p.titlebar, p.side_panes)) {
+        return *early;
     }
 
     {
@@ -204,36 +203,24 @@ void Renderer::Render(const RenderParams& p)
 
     DrawMdScrollbar(p.md_pane_rect, p.scroll_y, p.total_content_height, p.has_dirty_nodes);
 
-    CheckEndDraw();
+    return EndFrame();
 }
 
-void Renderer::CheckEndDraw()
+Renderer::FrameResult Renderer::EndFrame()
 {
     const HRESULT hr = rt()->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
-        RecreateDevice();
-        InvalidateRect(backend_.GetHwnd(), nullptr, FALSE);
-        return;
+        return RecreateDeviceForFrame();
     }
     if (SUCCEEDED(hr)) {
         backend_.Present();
+        // REMOVED/RESET/HUNG/DRIVER_INTERNAL_ERROR で backend が device_lost_ をセット済み。
+        // 次のフレームの BeginFrame で作り直す。
         if (backend_.IsDeviceLost()) {
-            // REMOVED/RESET/HUNG/DRIVER_INTERNAL_ERROR で backend が device_lost_ をセット済み。
-            // 次フレーム冒頭の HandleDeviceLost で再作成するため再描画を予約する。
-            InvalidateRect(backend_.GetHwnd(), nullptr, FALSE);
+            return FrameResult::RedrawNow;
         }
     }
-}
-
-bool Renderer::HandleDeviceLost()
-{
-    if (!backend_.IsDeviceLost()) {
-        return false;
-    }
-    if (RecreateDevice()) {
-        InvalidateRect(backend_.GetHwnd(), nullptr, FALSE);
-    }
-    return true;
+    return FrameResult::Done;
 }
 
 bool Renderer::CreateDevice()
@@ -384,7 +371,7 @@ void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool 
     draw_button(NavForwardButtonRect(md_pane_rect), can_forward, hovered == NavDirection::Forward, L"\x25B6");
 }
 
-void Renderer::DrawGestureTrail(const std::pmr::deque<GesturePoint>& points)
+void Renderer::DrawGestureTrail(const std::pmr::vector<GesturePoint>& points)
 {
     if (points.size() < 2) {
         return;

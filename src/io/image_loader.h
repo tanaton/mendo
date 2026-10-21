@@ -59,7 +59,7 @@ public:
     // 新しい結果は投函で知らせるので、続きが要るのは時間切れで残したときだけ。UI スレッド専用。
     bool HasLeftoverUploads() const noexcept
     {
-        return leftover_uploads_;
+        return completed_.HasLeftover();
     }
     // 始まっていないデコードを捨てる。始まったものの結果はキャッシュに入れる (パスがキーなので文書をまたいでも使える)。
     // 始まったものは要求中のまま残し、結果が届く前に同じパスを要求し直しても二重に読まない。
@@ -135,9 +135,7 @@ private:
     std::map<std::wstring, bool> pending_paths_;
     std::map<std::wstring, uint32_t> failed_paths_;
 
-    std::mutex result_mutex_;
-    std::vector<DecodeResult> completed_;
-    bool leftover_uploads_ = false;
+    PostedInbox<DecodeResult> completed_;
 
     // Shutdown で worker 完了を待つ。scheduler_ 共有 worker から self を参照する race を排除する。
     WorkerLatch latch_;

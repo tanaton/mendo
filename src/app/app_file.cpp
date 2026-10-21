@@ -35,11 +35,11 @@ void App::CancelPendingResources()
 
 void App::ResetViewForNewDocument()
 {
-    state_.view.ResetForNewDocument();
+    // 同一文書の再パースと違い、サイドペインのスクロールも先頭へ戻す。
+    state_.view.panes.ResetScrollStates();
     // 旧文書のマッチ位置が新 nodes に対して誤用されるのを防ぐ。先に空にしておくので、
     // 入力欄を空にしたときの EN_CHANGE は OnTextChanged で何もせず終わる。
     state_.search.search_bar_ctrl.Reset();
-    EndDocumentBoundDrag();
     Execute(effect::SearchUnfocus{ /*clear_text=*/true });
     CancelPendingResources();
 }
@@ -113,12 +113,17 @@ void App::ReplaceDocument(Document next, LayoutCache estimated)
     assert(estimated.size() == next.GetNodes().size());
     Document old = std::exchange(state_.document.doc, std::move(next));
     LayoutCache old_cache = std::exchange(state_.document.layout_cache, std::move(estimated));
+    renderer_.ForgetDocumentText();
     old_cache.ReleaseDiagrams();
     // 表は 1 ノードにセルの数だけレイアウトを持つので、ノード数によらずワーカーで捨てる。
     scheduler_.Post([o = std::move(old_cache)] {});
     DisposeOnWorkerIfLarge(scheduler_, old.GetNodes().size(), kDisposeMinNodes, std::move(old));
-    // ツールチップの同一判定は node / TOC の index で行うため、旧文書の対象を持ち越さない。
-    InvalidateHitPositions();
+    // ロードとリロードの両方がここを通る。番号に結び付いた状態を旧文書から持ち越さない。
+    state_.view.ResetPerNodeTransientState();
+    // 待たせていたリロードは旧文書のもの。
+    state_.view.reload_after_drag = false;
+    EndDocumentBoundDrag();
+    Dispatch(ClearTooltipAction{});
 }
 
 void App::ReloadDocument(Document next, LayoutCache estimated)
@@ -234,12 +239,13 @@ void App::DoLoadMarkdownFile()
 {
     MENDO_PROFILE("DoLoadMarkdownFile");
 
-    KillTimer(app_timer::Id::LOADING_ANIM);
+    StopLoadingAnimation();
 
-    const bool follow_file_pane = FilePaneFollowsLoad(state_.document.doc.GetFilePath(), file_load_service_.GetLoadingPath());
+    const auto& path = file_load_service_.GetLoadingPath();
+    const bool follow_file_pane = FilePaneFollowsLoad(state_.document.doc.GetFilePath(), path);
     {
-        MENDO_PROFILE("ExecuteLoad(FileIO+Parse)");
-        auto load_result = file_load_service_.ExecuteLoad();
+        MENDO_PROFILE("LoadFile(FileIO+Parse)");
+        auto load_result = DocumentService::LoadFile(path);
         if (!load_result) {
             ShowToast(FileLoadErrorMessage(load_result.error(), i18n::S()));
             HandleLoadFailureFallback();
@@ -312,6 +318,11 @@ void App::OnParseComplete()
         if (ApplyReloadDecisionEarly(*plan.reload, !result->reload.has_value()) == ReloadFlow::Handled) {
             return;
         }
+        // 読み始めた後にテキスト選択のドラッグが始まった。読み直しはドラッグの終わりに回す。
+        if (DeferReloadWhileSelecting()) {
+            DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
+            return;
+        }
         ReloadDocument(std::move(result->doc), std::move(result->cache));
         FinishReload(plan.reload->diff_pos);
         return;
@@ -336,21 +347,15 @@ void App::FinishLoadMarkdownFile(bool follow_file_pane)
     state_.file_explorer.SetCurrentFile(state_.document.doc.GetFilePath());
 
     // スクロール復元先の Y がずれないよう、推定高さを Mermaid/画像キャッシュの実測値で補正する。
-    if (state_.view.scroll_restore.HasNodeRestore()) {
-        MENDO_TRACEF(
-            "FinishLoad: node={} offset={}",
-            state_.view.scroll_restore.pending_restore_node,
-            state_.view.scroll_restore.pending_restore_offset);
+    if (state_.view.pending_restore.IsValid()) {
+        MENDO_TRACEF("FinishLoad: node={} offset={}", state_.view.pending_restore.node, state_.view.pending_restore.offset);
         ApplyCachedHeightsAndRecompute();
     }
     Dispatch(RestoreScrollAfterLoadAction{});
 
     RelayoutViewport(RelayoutResources::ImagesAndDiagrams);
 
-    MENDO_TRACEF(
-        "FinishLoad: scroll_y={:.1f} max_scroll={:.1f}",
-        state_.view.viewport.GetScrollY(),
-        state_.view.viewport.GetMaxScroll());
+    MENDO_TRACEF("FinishLoad: scroll_y={:.1f} max_scroll={:.1f}", state_.view.viewport.GetScrollY(), MdMaxScroll());
 
     UpdateTitleBar();
     if (state_.document.doc.HasBackingFile()) {
@@ -367,10 +372,7 @@ void App::ReloadCurrentFile()
     if (!state_.document.doc.HasBackingFile()) {
         return;
     }
-    // テキスト選択ドラッグ中にリロードすると選択の途中でドラッグが終わってしまう。ドラッグ終了後に
-    // リトライさせる (DeferReloadRetry がタイマを再セットし FileWatcher は paused 維持)。
-    if (state_.view.drag.kind == LeftDrag::TextSelect) {
-        DeferReloadRetry();
+    if (DeferReloadWhileSelecting()) {
         return;
     }
     // FileWatcher のバーストで重複スケジュールされないよう、進行中のロードが
@@ -396,6 +398,16 @@ void App::ReloadCurrentFile()
     }
     MENDO_TRACE("ReloadCurrentFile: sync path (DoReloadCurrentFile)");
     DoReloadCurrentFile();
+}
+
+// FileWatcher は paused のまま残し、ドラッグの終わり (reducer の ClearDrag) で読み直させる。
+bool App::DeferReloadWhileSelecting()
+{
+    if (state_.view.drag.kind != LeftDrag::TextSelect) {
+        return false;
+    }
+    state_.view.reload_after_drag = true;
+    return true;
 }
 
 void App::DoReloadCurrentFile()
@@ -439,11 +451,6 @@ void App::FinishReload(size_t diff_pos)
     resource_manager_.CancelMermaidBatch();
     image_loader_.ResetFailedPaths();
 
-    // ノード index がずれると per-node-index の一時状態が別ノードを指すためクリアする
-    // (別文書への切替は ViewState::ResetForNewDocument が担う)。
-    state_.view.ResetPerNodeTransientState();
-    EndDocumentBoundDrag();
-
     const PaneRect md = GetPaneLayout().md_rect;
 
     // Mermaid/LaTeX 図と通常画像の推定高さを実測値 (file_cache_ / image_loader メモリキャッシュ) で
@@ -464,7 +471,7 @@ void App::FinishReload(size_t diff_pos)
 
     RelayoutViewport(RelayoutResources::ImagesAndDiagrams);
 
-    MENDO_TRACEF("FinishReload: after-relayout scroll_y={:.1f} max_scroll={:.1f}", state_.view.viewport.GetScrollY(), state_.view.viewport.GetMaxScroll());
+    MENDO_TRACEF("FinishReload: after-relayout scroll_y={:.1f} max_scroll={:.1f}", state_.view.viewport.GetScrollY(), MdMaxScroll());
 
     if (state_.search.search_state.IsVisible() && !state_.search.search_state.GetQuery().empty()) {
         SideEffectList effects;

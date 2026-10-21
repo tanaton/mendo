@@ -16,11 +16,8 @@ using Microsoft::WRL::ComPtr;
 
 namespace {
 
-// CodeBlock は SetWordWrapping(NO_WRAP) のため max_width は折り返し計算に使われない。
-// MaxHeight も「事実上の上限」で十分なので、両方ともこの単一定数で運用する。
-// 1e7 は float の整数精度限界 (2^24 ≈ 1.67e7) より少し下で、DirectWrite 内部の
-// 幾何計算でも丸め誤差が乗らない安全な値。10MDIP ≈ 数十万行のコードブロックを許容する。
-constexpr float LAYOUT_INFINITY = 1.0e7f;
+// 折り返さない幅と MaxHeight は「事実上の上限」で十分なので、両方ともこの単一定数で運用する。
+constexpr float LAYOUT_INFINITY = layout::kNoWrapLayoutWidth;
 
 // セルに列幅と揃えを適用して高さを返す。幅不変ならキャッシュ済みの高さを使う。
 // 左揃えで列幅に収まるセルは作ったときの無限幅のまま使う。折り返さないので行組みは同じで、
@@ -388,13 +385,13 @@ void DWriteTextMeasurer::MeasureNode(
         return;
     }
 
-    // CodeBlock は fmt_code_ が NO_WRAP なので、高さも行もハイライト矩形も幅に依存しない。
-    if (node.type == NodeType::CodeBlock && entry.text_layout() && entry.cached_height > 0.0f) {
+    const float layout_width = layout::NodeLayoutWidth(node, max_width);
+    // 同じ幅で組んだ text_layout が残っていれば、高さも行もハイライト矩形も変わらない。
+    if (entry.text_layout() && entry.cached_height > 0.0f && entry.cached_width == layout_width) {
         entry.height = entry.cached_height;
         entry.layout_dirty = false;
         return;
     }
-    const float layout_width = (node.type == NodeType::CodeBlock) ? LAYOUT_INFINITY : max_width;
     if (entry.text_layout() && RemeasureExistingLayout(node, entry, layout_width, *theme_)) {
         return;
     }

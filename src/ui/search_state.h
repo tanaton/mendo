@@ -74,10 +74,7 @@ public:
     {
         return case_sensitive_;
     }
-    constexpr void SetCaseSensitive(bool v) noexcept
-    {
-        case_sensitive_ = v;
-    }
+
     constexpr void ToggleCaseSensitive() noexcept
     {
         case_sensitive_ = !case_sensitive_;
@@ -97,6 +94,9 @@ public:
     // 大きい文書でも入力や描画を止めないよう、検索を時間で区切って進める。
     // BeginSearch でマッチを空にし、ContinueSearch で deadline まで (少なくとも 1 ノード) 進める。
     // マッチは文書順に増える。終わったら true。
+    // 前回の検索を調べ切っていて、クエリを後ろへ伸ばしただけなら、前回マッチのあったノードだけを調べる
+    // (新しいクエリが現れるノードには前回のクエリも現れる)。文書を差し替えたら Reset するか、
+    // 同じクエリで調べ直すこと。
     void BeginSearch();
     bool ContinueSearch(const std::pmr::vector<Node>& nodes, std::chrono::steady_clock::time_point deadline);
     // クエリを変えたときなど、途中までのマッチを残して止める。
@@ -126,6 +126,7 @@ private:
     {
         matches_.clear();
         current_match_ = -1;
+        completed_ = false;
         BumpGeneration();
     }
     // 検索の途中でマッチが増えたときも、ハイライトのキャッシュを作り直させる。
@@ -142,8 +143,13 @@ private:
     // 進行中の検索のクエリ (fold 時は ASCII 小文字化済み)。query_ が途中で変わっても検索の中身は変えない。
     std::pmr::string active_query_;
     bool active_fold_ = false;
+    // 進行中 (または直前) の検索が調べるノード。narrowing_ なら candidate_nodes_ の番号、でなければ全ノード。
+    bool narrowing_ = false;
+    std::pmr::vector<int> candidate_nodes_;
     size_t next_node_ = 0;
     bool searching_ = false;
+    // 直前の検索が上限で打ち切らずに調べ終わり、matches_ が active_query_ の全マッチになっている。
+    bool completed_ = false;
     std::pmr::vector<SearchMatch> matches_;
     int current_match_ = -1;
     uint32_t generation_ = 1;

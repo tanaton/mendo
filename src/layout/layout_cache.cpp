@@ -286,8 +286,13 @@ void ResetTableCellCaches(TableLayoutData& tl, LayoutCache::ReleasedLayouts& rel
 void LayoutCache::Resize(size_t node_count)
 {
     if (entries_.size() != node_count) {
+        // ブロックの区切りが変わるので、オフセットを畳み込んでから大きさを変える。
+        for (size_t i = 0; i < tops_.size(); ++i) {
+            tops_[i] = Top(i);
+        }
         entries_.resize(node_count);
         tops_.resize(node_count);
+        top_block_offsets_.assign((node_count >> kTopBlockShift) + 1, 0.0f);
         std::erase_if(diagrams_, [node_count](const auto& kv) { return kv.first >= node_count; });
         ResetEvictionTracking();
         has_dirty_nodes_ = true;
@@ -390,7 +395,7 @@ void LayoutCache::EvictInvisibleTableRows(
             continue;
         }
         // 再可視化は dirty を経由せず LayoutEngine::EnsureVisibleLayout の行復元で行う。
-        const auto [keep_begin, keep_end] = tl->VisibleRowRange(keep_top - tops_[idx], keep_bottom - tops_[idx]);
+        const auto [keep_begin, keep_end] = tl->VisibleRowRange(keep_top - Top(idx), keep_bottom - Top(idx));
         EvictTableRowsOutside(*tl, keep_begin, keep_end, released_layouts_);
     }
 }

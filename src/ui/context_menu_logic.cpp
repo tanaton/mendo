@@ -1,4 +1,5 @@
 #include "context_menu_impl.h"
+#include "d2d_util.h"
 #include "theme.h"
 #include "i18n.h"
 #include "resource.h"
@@ -15,49 +16,6 @@ void ContextMenu::Init(ID2D1Factory* d2d_factory, IDWriteFactory* dwrite_factory
 {
     impl_->d2d_factory = d2d_factory;
     impl_->dwrite_factory = dwrite_factory;
-}
-
-int ContextMenu::HitTest(float x, float y) const noexcept
-{
-    return impl_->HitTest(x, y);
-}
-
-int ContextMenu::NavHitTest(float x, float y) const noexcept
-{
-    return impl_->NavHitTest(x, y);
-}
-
-const std::vector<ContextMenu::Item>& ContextMenu::GetItems() const noexcept
-{
-    return impl_->items;
-}
-
-const ContextMenu::NavRowLayout& ContextMenu::GetNavLayout() const noexcept
-{
-    return impl_->nav_layout;
-}
-
-float ContextMenu::GetMenuWidth() const noexcept
-{
-    return impl_->menu_width;
-}
-
-float ContextMenu::GetMenuHeight() const noexcept
-{
-    return impl_->menu_height;
-}
-
-void ContextMenu::TestBuildItems(const ContextMenuParams& params)
-{
-    impl_->BuildItems(params);
-}
-void ContextMenu::TestCreateTextFormats(const Theme& theme)
-{
-    impl_->CreateTextFormats(theme);
-}
-void ContextMenu::TestComputeLayout()
-{
-    impl_->ComputeLayout();
 }
 
 void ContextMenu::Impl::BuildItems(const ContextMenuParams& params)
@@ -92,26 +50,10 @@ void ContextMenu::Impl::CreateTextFormats(const Theme& t)
         return;
     }
 
-    const auto create = [this](const wchar_t* family, float size, ComPtr<IDWriteTextFormat>& out) {
-        dwrite_factory->CreateTextFormat(
-            family, nullptr,
-            DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, size,
-            L"ja-jp", out.ReleaseAndGetAddressOf());
-    };
-
-    create(t.font_family.c_str(), t.pane_font_size, fmt_text);
-    if (fmt_text) {
-        fmt_text->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        fmt_text->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    }
-
-    create(t.icon_font.c_str(), ICON_FONT_SIZE, fmt_icon);
-    if (fmt_icon) {
-        fmt_icon->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        fmt_icon->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-        fmt_icon->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-    }
+    // 項目の文字はサイドペインの項目 (Renderer の pane_item) と同じ書式にする。
+    constexpr auto CENTER = DWRITE_PARAGRAPH_ALIGNMENT_CENTER;
+    fmt_text = CreateTextFormat(dwrite_factory, { .family = t.font_family.c_str(), .size = t.pane_font_size, .para_align = CENTER, .no_wrap = true });
+    fmt_icon = CreateTextFormat(dwrite_factory, { .family = t.icon_font.c_str(), .size = ICON_FONT_SIZE, .text_align = DWRITE_TEXT_ALIGNMENT_CENTER, .para_align = CENTER, .no_wrap = true });
 
     cached_fmt_font_family.assign(t.font_family.begin(), t.font_family.end());
     cached_fmt_icon_font.assign(t.icon_font.begin(), t.icon_font.end());

@@ -26,7 +26,7 @@ static std::string_view TocItemText(std::string_view heading) noexcept
 static void GenPaneScrollbar(DrawCommandList& cmds, const PaneRect& pane, float header_height, float scroll_y, float total_content_height)
 {
     const PaneScrollInfo info = ComputeScrollInfo(pane, header_height, total_content_height);
-    if (info.thumb_height >= info.content_height) {
+    if (!ShowsVScrollbar(info)) {
         return;
     }
     const auto thumb = VScrollThumbRect(pane.x + pane.width, ComputeThumbY(info, scroll_y), info.thumb_height);
@@ -93,7 +93,7 @@ void Renderer::GenSidePane(const SidePaneInstance& pane, bool is_file_pane, size
     const int first = std::max(0, static_cast<int>(scroll_y / item_h));
     const int last = std::min(static_cast<int>(item_count) - 1, static_cast<int>((scroll_y + r.height - header_h) / item_h) + 1);
     for (int i = first; i <= last; i++) {
-        const float item_y = content_top + i * item_h - scroll_y;
+        const float item_y = content_top + SidePaneContentHeight(i, item_h) - scroll_y;
         gen_item(i, D2D1::RectF(r.x, item_y, r.x + r.width, item_y + item_h));
     }
 
@@ -133,9 +133,13 @@ void Renderer::GenFileExplorer(const std::pmr::vector<FileEntry>& entries, const
     });
 }
 
-void Renderer::GenToc(const std::pmr::vector<TocEntry>& entries, const std::pmr::vector<Node>& nodes,
-                      const SidePaneInstance& pane, int active_index)
+void Renderer::GenToc(const SidePaneState& sp, const SidePaneInstance& pane)
 {
+    const auto& entries = sp.toc_entries;
+    const int active_index = sp.active_toc_index;
+    if (toc_titles_.size() != entries.size()) {
+        toc_titles_.assign(entries.size(), {});
+    }
     const float item_h = theme_.pane_item_height;
     GenSidePane(pane, false, entries.size(), i18n::S().pane_header_toc, [&](int i, const D2D1_RECT_F& row) {
         const auto& entry = entries[i];
@@ -146,8 +150,11 @@ void Renderer::GenToc(const std::pmr::vector<TocEntry>& entries, const std::pmr:
         }
 
         const float text_left = row.left + 8.0f + (entry.heading_level - 1) * TOC_INDENT_PER_LEVEL;
-        DecodeForDWrite(TocItemText(nodes[entry.node_index].GetText()), toc_text_scratch_);
-        EmitLeftText(fmt_.pane_item.Get(), toc_text_scratch_, text_left, row.top, item_h);
+        auto& title = toc_titles_[i];
+        if (title.empty()) {
+            DecodeForDWrite(TocItemText(sp.nodes[entry.node_index].GetText()), title);
+        }
+        EmitLeftText(fmt_.pane_item.Get(), title, text_left, row.top, item_h);
 
         if (i == active_index) {
             const float line_y = row.bottom - 1.0f;
@@ -163,16 +170,9 @@ void Renderer::GenToc(const std::pmr::vector<TocEntry>& entries, const std::pmr:
 
 void Renderer::DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height, bool has_dirty_nodes)
 {
-    const float viewport_h = md_pane_rect.height;
-    if (viewport_h <= 0.0f) {
-        return;
-    }
-    // ダーティノードがある間は高さが増える可能性があるため、ぴったり一致でもスクロールバーを表示し続ける
-    const bool needs_scrollbar = has_dirty_nodes ? (total_content_height >= viewport_h) : (total_content_height > viewport_h);
-    if (!needs_scrollbar) {
-        return;
-    }
-
     const auto info = ComputeScrollInfo(md_pane_rect, 0.0f, total_content_height);
+    if (!ShowsVScrollbar(info, has_dirty_nodes)) {
+        return;
+    }
     rt()->FillRoundedRectangle(VScrollThumbRect(md_pane_rect.x + md_pane_rect.width, ComputeThumbY(info, scroll_y), info.thumb_height), Brush(BrushId::ScrollbarThumb));
 }

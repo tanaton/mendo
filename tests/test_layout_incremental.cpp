@@ -156,7 +156,7 @@ protected:
             if (cache_[i].layout_dirty) {
                 continue;
             }
-            const float drift = std::abs(cache_[i].cached_width - NodeWidth(i));
+            const float drift = std::abs(cache_[i].cached_width - layout::NodeLayoutWidth(nodes_[i], NodeWidth(i)));
             if (drift > 2.0f * kWidthHysteresis + 0.01f) {
                 return ::testing::AssertionFailure() << "i=" << i << " は古い幅のまま残っている (ずれ " << drift << "px)";
             }

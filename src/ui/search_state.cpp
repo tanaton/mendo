@@ -26,16 +26,26 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
 
 void SearchState::BeginSearch()
 {
-    ClearMatches();
-    next_node_ = 0;
-    searching_ = !query_.empty();
-    if (!searching_) {
-        return;
-    }
     // ASCII 英字を含まないクエリは大文字小文字を無視しても通常一致と結果が同じなので、
     // 比較時の小文字化 (fold) を省く。文書の小文字コピーは持たず走査中に畳み込む。
-    active_fold_ = !case_sensitive_ && ascii_util::HasAsciiLetter(query_);
-    active_query_ = active_fold_ ? ToLowerAsciiCopy(query_) : query_;
+    const bool fold = !case_sensitive_ && ascii_util::HasAsciiLetter(query_);
+    std::pmr::string active = fold ? ToLowerAsciiCopy(query_) : query_;
+    // 比べ方 (fold) が同じなら、前回のクエリを伸ばしたクエリは前回マッチのあったノードにしか現れない。
+    narrowing_ = completed_ && fold == active_fold_ &&
+                 active.size() > active_query_.size() && active.starts_with(active_query_);
+    candidate_nodes_.clear();
+    if (narrowing_) {
+        for (const auto& m : matches_) {
+            if (candidate_nodes_.empty() || candidate_nodes_.back() != m.node_index) {
+                candidate_nodes_.push_back(m.node_index);
+            }
+        }
+    }
+    ClearMatches();
+    next_node_ = 0;
+    active_fold_ = fold;
+    active_query_ = std::move(active);
+    searching_ = !query_.empty();
 }
 
 bool SearchState::ContinueSearch(const std::pmr::vector<Node>& nodes, std::chrono::steady_clock::time_point deadline)
@@ -48,10 +58,11 @@ bool SearchState::ContinueSearch(const std::pmr::vector<Node>& nodes, std::chron
     constexpr size_t kNodesPerClockCheck = 256;
     const std::string_view query = active_query_;
     const size_t before = matches_.size();
+    const size_t end = narrowing_ ? candidate_nodes_.size() : nodes.size();
     size_t scanned_bytes = 0;
     size_t scanned_nodes = 0;
-    while (next_node_ < nodes.size() && matches_.size() < MAX_MATCHES) {
-        const auto i = static_cast<int>(next_node_++);
+    while (next_node_ < end && matches_.size() < MAX_MATCHES) {
+        const int i = narrowing_ ? candidate_nodes_[next_node_++] : static_cast<int>(next_node_++);
         const auto& node = nodes[i];
         if (node.type == NodeType::Table && node.has_table()) {
             FindTableMatches(*node.table_data(), query, active_fold_, i);
@@ -72,7 +83,8 @@ bool SearchState::ContinueSearch(const std::pmr::vector<Node>& nodes, std::chron
     if (matches_.size() != before) {
         BumpGeneration();
     }
-    searching_ = next_node_ < nodes.size() && matches_.size() < MAX_MATCHES;
+    searching_ = next_node_ < end && matches_.size() < MAX_MATCHES;
+    completed_ = next_node_ >= end && matches_.size() < MAX_MATCHES;
     return !searching_;
 }
 

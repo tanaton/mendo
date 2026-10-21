@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include "app_constants.h"
-#include "app_search_bar_callbacks.h"
+
 #include "reducer.h"
 #include "document.h"
 #include "app_state.h"
@@ -33,16 +33,17 @@ protected:
     // 等が未初期化のまま残り、テスト順序により MakeHeadingTopTarget の offset 計算が非決定的になる
     // (TocItemClicked_TailSection の flaky 原因)。本番では ThemeService が全フィールドを設定する。
     Theme theme{};
+    ReducerTestSearchBarHost search_host{ state };
 
     void SetUp() override
     {
-        // スクロール範囲を設定（最大1000.0fまでスクロール可能）
-        state.view.viewport.SyncMaxScroll(1000.0f, 500.0f);
         // PaneLayout のモック（ページサイズ用）
         PaneLayout pl{};
         pl.md_rect.height = 500.0f;
         state.pane_layout_cache.Set(0.0f, pl);
-        InitReducerState(state, theme);
+        InitReducerState(state, theme, search_host);
+        // 内容高 1000・表示高 500 で、500 までスクロールできる。パスは空 (未ロード扱い) にする。
+        SetDocument(state, "Hello", L"", 1000.0f);
     }
 
     // MD スクロールバー系テスト用: reducer が ComputeTotalContentHeight で導出する
@@ -63,14 +64,12 @@ TEST_F(ReducerTest, KeyScrollLineDown)
     EXPECT_GT(state.view.viewport.GetScrollY(), old_scroll);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
     EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
-    // 内容がカーソルの下を動くので、マウスを動かさなくてもホバーを引き直させる。
-    EXPECT_TRUE(HasEffect<effect::RefreshHover>(effects));
 }
 
 TEST_F(ReducerTest, KeyScrollLineUp_AtTop_NoEffect)
 {
     // スクロール位置0で上にスクロール → 変化なし → 副作用なし
-    state.view.viewport.ScrollTo(0.0f);
+    state.view.viewport.ScrollTo(0.0f, MdMaxScroll(state));
     auto effects = Reduce(state, KeyScrollAction{ ScrollType::LineUp });
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
@@ -89,7 +88,7 @@ TEST_F(ReducerTest, KeyScrollPageDown)
 
 TEST_F(ReducerTest, KeyScrollHome)
 {
-    state.view.viewport.ScrollTo(500.0f);
+    state.view.viewport.ScrollTo(500.0f, MdMaxScroll(state));
     auto effects = Reduce(state, KeyScrollAction{ ScrollType::Home });
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
@@ -100,7 +99,7 @@ TEST_F(ReducerTest, KeyScrollEnd)
 {
     auto effects = Reduce(state, KeyScrollAction{ ScrollType::End });
 
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), state.view.viewport.GetMaxScroll());
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), MdMaxScroll(state));
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -119,7 +118,7 @@ TEST_F(ReducerTest, DirectScrollBy_ClampedAtMax)
 {
     auto effects = Reduce(state, DirectScrollByAction{ 99999.0f });
 
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), state.view.viewport.GetMaxScroll());
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), MdMaxScroll(state));
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -213,7 +212,6 @@ TEST_F(ReducerTest, OpenAndCloseSearchBar_EmitFocusEffects)
 TEST_F(ReducerTest, SearchJumpEmitsScrollEffects)
 {
     SetDocument(state, "a\n\ntarget", L"test.md", 1000.0f);
-    state.view.viewport.SyncMaxScroll(2000.0f, 500.0f);
     state.search.search_state.Show();
 
     auto effects = Reduce(state, SearchTextChangedAction{ std::pmr::wstring(L"target") });
@@ -227,7 +225,6 @@ TEST_F(ReducerTest, SearchJumpEmitsScrollEffects)
 TEST_F(ReducerTest, SearchWithoutScrollEmitsNoScrollEffects)
 {
     SetDocument(state, "target", L"test.md", 10.0f);
-    state.view.viewport.SyncMaxScroll(0.0f, 500.0f);
     state.search.search_state.Show();
 
     auto effects = Reduce(state, SearchTextChangedAction{ std::pmr::wstring(L"target") });
@@ -348,7 +345,7 @@ TEST_F(ReducerTest, MouseLeave_ClearsHoverHighlights)
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
-// ---- PointerHoverAction / InvalidateHoverAction テスト ----
+// ---- PointerHoverAction / ClearTooltipAction テスト ----
 
 TEST_F(ReducerTest, PointerHover_NewTooltipEmitsShowTooltipEffectWithSameTarget)
 {
@@ -404,11 +401,11 @@ TEST_F(ReducerTest, PointerHover_SearchBarInputHasNoHighlight)
     EXPECT_TRUE(effects.empty());
 }
 
-TEST_F(ReducerTest, InvalidateHoverAction_EmitsClearTooltipAndResetsState)
+TEST_F(ReducerTest, ClearTooltipAction_EmitsClearTooltipAndResetsState)
 {
     state.interaction.tooltip = TooltipTarget{ TooltipTarget::Zone::MdLink, 1 };
 
-    auto effects = Reduce(state, InvalidateHoverAction{});
+    auto effects = Reduce(state, ClearTooltipAction{});
 
     EXPECT_TRUE(HasEffect<effect::ClearTooltip>(effects));
     EXPECT_TRUE(state.interaction.tooltip.IsEmpty());
@@ -457,26 +454,23 @@ TEST_F(ReducerTest, TogglePane_ClearsThatPaneHover)
     EXPECT_EQ(state.view.hover.side_button[1], PaneHeaderButton::Close);
 }
 
-// ヘルプ表示もファイルオープンと同じくこのリセットを通る。旧文書の横スクロール量が
+// ロード・リロード・ヘルプ表示のどれもこのリセットを通る。旧文書の横スクロール量が
 // 残ると、同じ index の段落でヒットテストだけがずれる。
-TEST_F(ReducerTest, ViewStateResetForNewDocument_ClearsPerNodeAndPaneState)
+TEST_F(ReducerTest, ViewStateResetPerNodeTransientState_ClearsNodeBoundState)
 {
     state.view.block_scroll_x[3] = 100.0f;
     state.view.block_scroll_x[7] = 250.0f;
     state.view.hover.h_block = 3;
+    state.view.hover.side_index[std::to_underlying(PaneTarget::Toc)] = 4;
     state.view.active_toc_index = 2;
     state.view.viewport.SetSelection(TextSelection{ .start_node = 1, .end_node = 2, .end_pos = 3, .active = true });
-    state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y = 40.0f;
-    state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y = 80.0f;
 
-    state.view.ResetForNewDocument();
+    state.view.ResetPerNodeTransientState();
 
     EXPECT_TRUE(state.view.block_scroll_x.empty());
-    EXPECT_EQ(state.view.hover.h_block, -1);
+    EXPECT_EQ(state.view.hover, HoverHighlights{});
     EXPECT_EQ(state.view.active_toc_index, -1);
     EXPECT_FALSE(state.view.viewport.GetSelection().active);
-    EXPECT_FLOAT_EQ(state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y, 0.0f);
-    EXPECT_FLOAT_EQ(state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y, 0.0f);
 }
 
 TEST_F(ReducerTest, BlockHScrollDragEnded_ReleasesCapture)
@@ -519,9 +513,9 @@ TEST_F(ReducerTest, NavigateBack_DifferentFile_EmitsLoadFile)
 TEST_F(ReducerTest, NavigateBack_SameFile_ScrollsAndInvalidates)
 {
     // ノード 0 に対してオフセット 50 → y_position(0) + 50 = 50.0f
-    SetDocument(state, "test", L"C:\\file.md");
+    SetDocument(state, "test", L"C:\\file.md", 1000.0f);
     state.view.nav_history.Push(NavEntry{ L"C:\\file.md", 0, 50.0f });
-    state.view.viewport.ScrollTo(200.0f);
+    state.view.viewport.ScrollTo(200.0f, MdMaxScroll(state));
 
     auto effects = Reduce(state, NavigateBackAction{});
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 50.0f);
@@ -542,7 +536,7 @@ TEST_F(ReducerTest, NavigateBackThenForwardWhileLoading_CancelsOtherFileLoad)
     auto forward = Reduce(state, NavigateForwardAction{});
     EXPECT_FALSE(HasEffect<effect::LoadFile>(forward));
     EXPECT_TRUE(HasEffect<effect::CancelOtherFileLoad>(forward));
-    EXPECT_FALSE(state.view.scroll_restore.HasNodeRestore());
+    EXPECT_FALSE(state.view.pending_restore.IsValid());
     EXPECT_TRUE(state.view.nav_history.CanGoBack());
     EXPECT_FALSE(state.view.nav_history.CanGoForward());
 }
@@ -641,20 +635,20 @@ TEST_F(ReducerTest, DpiChanged_UpdatesScale)
 // ---- テーマ / ズームテスト ----
 
 // 色だけの変更なのでペイン配置は作り直さない。
-TEST_F(ReducerTest, ToggleDarkMode_EmitsApplyThemeChange)
+TEST_F(ReducerTest, ToggleDarkMode_EmitsToggleDarkMode)
 {
     state.pane_layout_cache.Set(0.0f, PaneLayout{});
     auto effects = Reduce(state, ToggleDarkModeAction{});
 
-    EXPECT_TRUE(HasEffect<effect::ApplyThemeChange>(effects));
+    EXPECT_TRUE(HasEffect<effect::ToggleDarkMode>(effects));
     EXPECT_TRUE(state.pane_layout_cache.IsValid());
 }
 
-TEST_F(ReducerTest, ZoomIn_EmitsApplyThemeChange)
+TEST_F(ReducerTest, ZoomIn_EmitsApplyZoom)
 {
     auto effects = Reduce(state, ZoomAction{ ZoomDirection::In });
 
-    EXPECT_TRUE(HasEffect<effect::ApplyThemeChange>(effects));
+    EXPECT_TRUE(HasEffect<effect::ApplyZoom>(effects));
     EXPECT_FALSE(state.pane_layout_cache.IsValid());
 }
 
@@ -665,7 +659,7 @@ TEST_F(ReducerTest, ZoomInMultipleStepsEmitsSingleThemeChange)
     auto effects = Reduce(state, ZoomAction{ ZoomDirection::In, 3 });
 
     EXPECT_EQ(state.view.viewport.GetZoomIndex(), before + 3);
-    EXPECT_EQ(std::ranges::count_if(effects, [](const SideEffect& e) static { return std::holds_alternative<effect::ApplyThemeChange>(e); }), 1);
+    EXPECT_EQ(std::ranges::count_if(effects, [](const SideEffect& e) static { return std::holds_alternative<effect::ApplyZoom>(e); }), 1);
 }
 
 // ---- HWheel テスト ----
@@ -727,6 +721,35 @@ TEST_F(ReducerTest, CaptureChanged_ResetsTextSelectionDrag)
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
+namespace {
+bool HasReloadTimer(const SideEffectList& effects)
+{
+    const auto* t = FindEffect<effect::SetTimer>(effects);
+    return t && t->id == app_timer::Id::FILE_RELOAD_DEBOUNCE;
+}
+} // namespace
+
+// ドラッグ中に待たせたリロードは、ドラッグの終わり方によらず 1 回だけ予約する。
+TEST_F(ReducerTest, TextSelectionDragEnd_SchedulesDeferredReload)
+{
+    state.view.drag = { .kind = LeftDrag::TextSelect };
+    state.view.reload_after_drag = true;
+    auto effects = Reduce(state, TextSelectionEndedAction{ -1, 0 });
+    EXPECT_TRUE(HasReloadTimer(effects));
+    EXPECT_FALSE(state.view.reload_after_drag);
+
+    state.view.drag = { .kind = LeftDrag::TextSelect };
+    EXPECT_FALSE(HasReloadTimer(Reduce(state, TextSelectionEndedAction{ -1, 0 })));
+}
+
+TEST_F(ReducerTest, CaptureChanged_SchedulesDeferredReload)
+{
+    state.view.drag = { .kind = LeftDrag::TextSelect };
+    state.view.reload_after_drag = true;
+    EXPECT_TRUE(HasReloadTimer(Reduce(state, CaptureChangedAction{})));
+    EXPECT_FALSE(state.view.reload_after_drag);
+}
+
 TEST_F(ReducerTest, CaptureChanged_ResetsScrollbarDrag)
 {
     state.view.drag = { .kind = LeftDrag::MdScrollbar };
@@ -747,9 +770,9 @@ TEST_F(ReducerTest, CaptureChanged_ResetsBlockHScrollDrag)
 
 TEST_F(ReducerTest, Timer_Toast_HidesAndKillsTimer)
 {
-    state.interaction.toast.Show(L"test");
+    state.interaction.toast_message = L"test";
     auto effects = Reduce(state, TimerAction{ app_timer::Id::TOAST });
-    EXPECT_FALSE(state.interaction.toast.IsVisible());
+    EXPECT_TRUE(state.interaction.toast_message.empty());
     EXPECT_TRUE(HasEffect<effect::KillTimer>(effects));
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
@@ -952,7 +975,7 @@ TEST_F(ReducerTest, MdScrollbarDragStarted_ThumbHit_StoresOffsetOnly)
     // fixture で md_rect.height = 500, total_height = 1000 → content_height=500, max_scroll=500
     // thumb_height = max(24, 500 * 500/1000) = 250, scroll_y=0 → thumb_y = 0
     SetupMdContentHeight(1000.0f);
-    state.view.viewport.ScrollTo(0.0f);
+    state.view.viewport.ScrollTo(0.0f, MdMaxScroll(state));
     const float dip_y = 100.0f; // thumb 内（0〜250）
     const float old_scroll = state.view.viewport.GetScrollY();
 
@@ -970,7 +993,7 @@ TEST_F(ReducerTest, MdScrollbarDragStarted_ThumbMiss_JumpsAndEmitsInvalidate)
 {
     // つまみ外クリック (thumb 領域外の dip_y=400)
     SetupMdContentHeight(1000.0f);
-    state.view.viewport.ScrollTo(0.0f);
+    state.view.viewport.ScrollTo(0.0f, MdMaxScroll(state));
     const float dip_y = 400.0f;
 
     auto effects = Reduce(state, MdScrollbarDragStartedAction{ dip_y });
@@ -986,7 +1009,7 @@ TEST_F(ReducerTest, MdScrollbarDragMoved_WhileDragging_UpdatesScroll)
 {
     SetupMdContentHeight(1000.0f);
     state.view.drag = { .kind = LeftDrag::MdScrollbar };
-    state.view.viewport.ScrollTo(0.0f);
+    state.view.viewport.ScrollTo(0.0f, MdMaxScroll(state));
 
     auto effects = Reduce(state, MdScrollbarDragMovedAction{ 200.0f });
 
@@ -1445,7 +1468,7 @@ TEST_F(ReducerTest, TocItemClicked_InvalidIndex_PushesHistoryOnly)
 
 TEST_F(ReducerTest, TocItemClicked_ValidAnchor_ScrollsAndInvalidates)
 {
-    SetDocument(state, "# First\n\n# Second\n\n# Third", L"C:\\file.md");
+    SetDocument(state, "# First\n\n# Second\n\n# Third", L"C:\\file.md", 400.0f);
 
     auto effects = Reduce(state, TocItemClickedAction{ 1 });
 
@@ -1456,7 +1479,7 @@ TEST_F(ReducerTest, TocItemClicked_ValidAnchor_ScrollsAndInvalidates)
 
 // issue#224: 末尾セクションへのジャンプで scroll_y が max_scroll を超えると、
 // その後のホイールスクロールで位置が一気に補正されて「飛ぶ」体感になる。
-// ApplyScrollTargetAndEmit が事前クランプする契約を担保する。
+// ApplyScrollTarget が事前クランプする契約を担保する。
 TEST_F(ReducerTest, TocItemClicked_TailSection_ClampsToMaxScroll)
 {
     // 末尾見出しを max_scroll (= 500) より遥か下に配置 → ペイン上端へ持ってくると要求 scroll_y > max_scroll
@@ -1466,7 +1489,7 @@ TEST_F(ReducerTest, TocItemClicked_TailSection_ClampsToMaxScroll)
 
     Reduce(state, TocItemClickedAction{ tail });
 
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), state.view.viewport.GetMaxScroll());
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), MdMaxScroll(state));
     EXPECT_FALSE(state.view.viewport.HasScrollTarget());
 }
 
@@ -1474,7 +1497,7 @@ TEST_F(ReducerTest, TocItemClicked_TailSection_ClampsToMaxScroll)
 // (ハイライト更新のみ)。クリック先の項目が画面内で動いて見失う混乱を防ぐ契約。
 TEST_F(ReducerTest, TocItemClicked_SuppressesTocAutoScroll)
 {
-    SetDocument(state, "# First\n\n# Second", L"C:\\file.md");
+    SetDocument(state, "# First\n\n# Second", L"C:\\file.md", 400.0f);
 
     auto effects = Reduce(state, TocItemClickedAction{ 1 });
 
@@ -1496,7 +1519,7 @@ TEST_F(ReducerTest, KeyScroll_KeepsTocAutoScroll)
 // MD ペイン内のアンカーリンク由来でも追従を維持する (抑制は目次クリックのみ)。
 TEST_F(ReducerTest, NavigateAnchor_KeepsTocAutoScroll)
 {
-    SetDocument(state, "# First\n\n# Second", L"C:\\file.md");
+    SetDocument(state, "# First\n\n# Second", L"C:\\file.md", 400.0f);
 
     auto effects = Reduce(state, NavigateAnchorAction{ std::pmr::string("second") });
 
@@ -1515,27 +1538,42 @@ TEST_F(ReducerTest, Resize_EmitsRendererResizeBeforeSizingUpdate)
     EXPECT_TRUE((HasEffectInOrder<effect::RendererResize, effect::PerformSizingUpdate>(effects)));
 }
 
+// ペイン配置はクライアント寸法と DPI から組む。DPI が変わると同じピクセル寸法でも DIP の幅が変わり、
+// 続く同じ大きさの WM_SIZE も描画面の作り直しのために通す。
+TEST_F(ReducerTest, PaneLayoutFollowsClientSizeAndDpi)
+{
+    Reduce(state, ResizeAction{ 1000, 800 });
+    EXPECT_FLOAT_EQ(EnsurePaneLayout(state).md_rect.width + EnsurePaneLayout(state).md_rect.x, 1000.0f);
+
+    Reduce(state, DpiChangedAction{ 192, PixelRect{ 0, 0, 1000, 800 } });
+    EnsurePaneLayout(state);
+    EXPECT_FLOAT_EQ(state.pane_layout_cache.WindowWidth(), 500.0f);
+
+    EXPECT_TRUE(HasEffect<effect::RendererResize>(Reduce(state, ResizeAction{ 1000, 800 })));
+    EXPECT_FALSE(HasEffect<effect::RendererResize>(Reduce(state, ResizeAction{ 1000, 800 })));
+}
+
 // ---- RestoreScrollAfterLoadAction: 2 分岐 ----
 // 仕様 (reducer.cpp の ReduceRestoreScrollAfterLoad):
-//   1. HasNodeRestore -> SetScrollTarget(node, offset)
+//   1. pending_restore 有効 -> SetScrollTarget(node, offset)
 //   2. (else) -> SetScrollY(0)
 
-TEST_F(ReducerTest, RestoreScrollAfterLoad_HasNodeRestore_SetsScrollTarget)
+TEST_F(ReducerTest, RestoreScrollAfterLoad_HasPendingRestore_SetsScrollTarget)
 {
     SetDocument(state, "# A\n\n# B\n\n# C", L"test.md");
-    state.view.scroll_restore.SetNodeRestore(1, 7);
+    state.view.pending_restore = { 1, 7.0f };
 
     Reduce(state, RestoreScrollAfterLoadAction{});
 
     // ApplyScrollTarget 後は scroll_target が消費される実装になり得るため
     // ScrollY 側で検証する (cache.Top(1) + offset)。
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 107.0f);
-    EXPECT_FALSE(state.view.scroll_restore.HasNodeRestore()); // 消費される
+    EXPECT_FALSE(state.view.pending_restore.IsValid()); // 消費される
 }
 
 TEST_F(ReducerTest, RestoreScrollAfterLoad_NoRestoreInfo_ScrollsToTop)
 {
-    state.view.viewport.ScrollTo(300.0f);
+    state.view.viewport.ScrollTo(300.0f, MdMaxScroll(state));
 
     Reduce(state, RestoreScrollAfterLoadAction{});
 
@@ -1551,7 +1589,7 @@ TEST_F(ReducerTest, LoadFailed_DropsPendingRestoreForNextDocument)
     state.view.nav_history.Push(NavEntry{ L"C:\\deleted.md", 2, 30.0f });
     auto effects = Reduce(state, NavigateBackAction{});
     ASSERT_TRUE(HasEffect<effect::LoadFile>(effects));
-    ASSERT_TRUE(state.view.scroll_restore.HasNodeRestore());
+    ASSERT_TRUE(state.view.pending_restore.IsValid());
 
     Reduce(state, LoadFailedAction{});
     EXPECT_EQ(state.view.nav_history.BackSize(), 1u);
@@ -1639,7 +1677,8 @@ namespace {
 // 見出し 4 つ (高さ 100 ずつ) の文書に差し替える。
 void ReplaceDocument(AppState& state, std::wstring_view path)
 {
-    SetDocument(state, "# A\n\n# B\n\n# C\n\n# D", path);
+    // 表示高 500 に対して内容高 1000 で、500 までスクロールできる。
+    SetDocument(state, "# A\n\n# B\n\n# C\n\n# D", path, 250.0f);
 }
 
 void ResetToDocument(AppState& state, std::wstring_view path)
@@ -1671,13 +1710,13 @@ TEST_F(ReducerTest, OpenWhileNavigateBackLoading_DoesNotCarryRestoreOver)
     ResetToDocument(state, L"C:\\current.md");
     state.view.nav_history.Push(NavEntry{ L"C:\\b.md", 2, 30.0f });
     ASSERT_TRUE(HasEffect<effect::LoadFile>(Reduce(state, NavigateBackAction{})));
-    ASSERT_TRUE(state.view.scroll_restore.HasNodeRestore());
+    ASSERT_TRUE(state.view.pending_restore.IsValid());
 
     Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\other.md") });
     CompleteLoad(state, L"C:\\other.md");
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
-    EXPECT_FALSE(state.view.scroll_restore.HasNodeRestore());
+    EXPECT_FALSE(state.view.pending_restore.IsValid());
     EXPECT_EQ(state.view.nav_history.BackSize(), 2u);
     EXPECT_EQ(state.view.nav_history.ForwardSize(), 0u);
 }
@@ -1696,7 +1735,7 @@ TEST_F(ReducerTest, ShowHelpWhileOnHelp_RollsBackPendingNavigation)
     EXPECT_TRUE(HasEffect<effect::CancelOtherFileLoad>(effects));
     EXPECT_EQ(state.view.nav_history.BackSize(), 1u);
     EXPECT_EQ(state.view.nav_history.ForwardSize(), 0u);
-    EXPECT_FALSE(state.view.scroll_restore.HasNodeRestore());
+    EXPECT_FALSE(state.view.pending_restore.IsValid());
 }
 
 // 別ファイルのロード中に今のファイルを開き直すと、ロード中の分は取り消される。
@@ -1715,7 +1754,7 @@ TEST_F(ReducerTest, NavigateBackWithinFileWhileOpenLoading_CommitsAndCancelsLoad
 {
     ResetToDocument(state, L"C:\\current.md");
     state.view.nav_history.Push(NavEntry{ L"C:\\current.md", 0, 0.0f });
-    state.view.viewport.ScrollTo(250.0f);
+    state.view.viewport.ScrollTo(250.0f, MdMaxScroll(state));
     Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\big.md") });
 
     const auto effects = Reduce(state, NavigateBackAction{});
@@ -1738,7 +1777,7 @@ TEST_F(ReducerTest, NavigateBackToOtherFileWhileOpenLoading)
         SCOPED_TRACE(succeed);
         ResetToDocument(state, L"C:\\current.md");
         state.view.nav_history.Push(NavEntry{ L"C:\\b.md", 2, 10.0f });
-        state.view.viewport.ScrollTo(250.0f);
+        state.view.viewport.ScrollTo(250.0f, MdMaxScroll(state));
         Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\big.md") });
 
         const auto effects = Reduce(state, NavigateBackAction{});
@@ -1749,11 +1788,11 @@ TEST_F(ReducerTest, NavigateBackToOtherFileWhileOpenLoading)
             Reduce(state, LoadFailedAction{});
             EXPECT_EQ(state.view.nav_history.BackSize(), 1u);
             EXPECT_EQ(state.view.nav_history.ForwardSize(), 0u);
-            EXPECT_FALSE(state.view.scroll_restore.HasNodeRestore());
+            EXPECT_FALSE(state.view.pending_restore.IsValid());
             continue;
         }
         CompleteLoad(state, L"C:\\b.md");
-        EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 210.0f);
+        EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), state.document.layout_cache.Top(2) + 10.0f);
         EXPECT_EQ(state.view.nav_history.BackSize(), 0u);
         EXPECT_EQ(state.view.nav_history.ForwardSize(), 1u);
         EXPECT_EQ(LoadedPath(Reduce(state, NavigateForwardAction{})), L"C:\\current.md");
@@ -1803,7 +1842,7 @@ TEST_F(ReducerTest, ConsecutiveNavigateBackAcrossFiles)
             continue;
         }
         CompleteLoad(state, L"C:\\b.md");
-        EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 310.0f);
+        EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), state.document.layout_cache.Top(3) + 10.0f);
         EXPECT_EQ(state.view.nav_history.BackSize(), 1u);
         EXPECT_EQ(state.view.nav_history.ForwardSize(), 1u);
     }
@@ -1817,7 +1856,7 @@ TEST_F(ReducerTest, ConsecutiveNavigateBackAcrossFiles)
 TEST_F(ReducerTest, ZoomIn_PreservesScrollAnchorOnVisibleNode)
 {
     SetDocument(state, "# A\n\n# B\n\n# C", L"test.md");
-    state.view.viewport.ScrollTo(120.0f); // node 1 が可視先頭
+    state.view.viewport.ScrollTo(120.0f, MdMaxScroll(state)); // node 1 が可視先頭
 
     const auto pre = SnapshotVisibleTarget(state);
     ASSERT_TRUE(pre.IsValid());
@@ -1833,13 +1872,13 @@ TEST_F(ReducerTest, ZoomReset_AtDefaultIndex_NoEffect)
 {
     // ZoomReset は既にデフォルト位置なら 0 を返し、early return する。
     auto effects = Reduce(state, ZoomAction{ ZoomDirection::Reset });
-    EXPECT_FALSE(HasEffect<effect::ApplyThemeChange>(effects));
+    EXPECT_FALSE(HasEffect<effect::ApplyZoom>(effects));
 }
 
 TEST_F(ReducerTest, ToggleDarkMode_PreservesScrollAnchorOnVisibleNode)
 {
     SetDocument(state, "# A\n\n# B\n\n# C", L"test.md");
-    state.view.viewport.ScrollTo(120.0f);
+    state.view.viewport.ScrollTo(120.0f, MdMaxScroll(state));
 
     const auto pre = SnapshotVisibleTarget(state);
     ASSERT_TRUE(pre.IsValid());

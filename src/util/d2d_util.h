@@ -2,7 +2,9 @@
 #include "ui_constants.h"
 #include "ui_types.h"
 #include "profiler.h"
+#include "win32_util.h"
 #include <d2d1.h>
+#include <dwrite.h>
 #include <wrl/client.h>
 #include <windows.h>
 #include <bit>
@@ -22,6 +24,43 @@ inline D2D1_RECT_F ToD2DRect(const DipRect& r) noexcept
     return std::bit_cast<D2D1_RECT_F>(r);
 }
 
+// テキスト書式の作り方。描画とコンテキストメニューで共有する。
+struct TextFormatSpec {
+    const wchar_t* family = nullptr;
+    DWRITE_FONT_WEIGHT weight = DWRITE_FONT_WEIGHT_NORMAL;
+    float size = 0.0f;
+    const wchar_t* locale = L"ja-jp";
+    DWRITE_TEXT_ALIGNMENT text_align = DWRITE_TEXT_ALIGNMENT_LEADING;
+    DWRITE_PARAGRAPH_ALIGNMENT para_align = DWRITE_PARAGRAPH_ALIGNMENT_NEAR;
+    bool no_wrap = false;
+};
+
+// 無効なフォントファミリ名は Segoe UI で作り直す (「フォントが効かない」状態を出さないための最終防壁)。
+inline Microsoft::WRL::ComPtr<IDWriteTextFormat> CreateTextFormat(IDWriteFactory* dw, const TextFormatSpec& s)
+{
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt;
+    const auto create = [&](const wchar_t* family) {
+        return dw->CreateTextFormat(family, nullptr, s.weight, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, s.size, s.locale, fmt.ReleaseAndGetAddressOf());
+    };
+    if (const HRESULT hr = create(s.family); FAILED(hr)) {
+        LogHrFailure("CreateTextFormat (falling back to Segoe UI)", hr);
+        if (const HRESULT fallback = create(L"Segoe UI"); FAILED(fallback)) {
+            LogHrFailure("CreateTextFormat (Segoe UI fallback)", fallback);
+            return nullptr;
+        }
+    }
+    if (s.no_wrap) {
+        fmt->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    }
+    if (s.text_align != DWRITE_TEXT_ALIGNMENT_LEADING) {
+        fmt->SetTextAlignment(s.text_align);
+    }
+    if (s.para_align != DWRITE_PARAGRAPH_ALIGNMENT_NEAR) {
+        fmt->SetParagraphAlignment(s.para_align);
+    }
+    return fmt;
+}
+
 // PaneRect は {x,y,width,height} で D2D1_RECT_F とビット等価ではないため計算で変換する。
 inline D2D1_RECT_F ToD2DRect(const PaneRect& r) noexcept
 {
@@ -35,7 +74,7 @@ inline D2D1_RECT_F OffsetRectF(const D2D1_RECT_F& r, float origin_x, float origi
 
 // CreateSolidColorBrush のフェイルセーフラッパ。失敗時は Magenta で再試行し、
 // nullptr ブラシが DrawXXX に渡るのを防ぐ。重い失敗 (D2DERR_RECREATE_TARGET 等) は
-// EndDraw 経路で検知されて次フレームの HandleDeviceLost で復旧される想定。
+// EndDraw 経路で検知されて次フレームの BeginFrame で作り直される想定。
 // ReleaseAndGetAddressOf を使い、既存 brush を持つ ComPtr が渡されても assert/leak
 // しないように防御する。
 inline void CreateSolidColorBrushOrFallback(

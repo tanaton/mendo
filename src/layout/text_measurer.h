@@ -48,7 +48,7 @@ public:
     }
 };
 
-// 実測値を cached_width/height に残し、同じ幅へ戻った際に
+// 組んだ幅 (NodeLayoutWidth) と実測値を cached_width/height に残し、同じ幅へ戻った際に
 // EstimateInvisibleNodeHeight が推定値で上書きしないようにする。
 // 計測に成功したら失敗回数を 0 に戻し、以後の一時的な失敗を初回として扱う。
 // viewport は文書座標で受け取り、entry_top 基準のローカル座標に直してバックエンドへ渡す。
@@ -64,7 +64,7 @@ inline void MeasureEntry(
     else {
         measurer.MeasureNode(node, entry, node_width, viewport.ToLocal(entry_top));
     }
-    entry.cached_width = node_width;
+    entry.cached_width = layout::NodeLayoutWidth(node, node_width);
     entry.cached_height = entry.height;
     entry.measure_failures = 0;
 }

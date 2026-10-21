@@ -46,9 +46,9 @@ private:
     static LRESULT CALLBACK SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
     LRESULT OnSearchEditKeyDown(HWND edit, WPARAM wParam, LPARAM lParam);
     void OnSearchEditChanged();
-    // mode は app_param::SEARCH_FOCUS_*。
     bool EnsureSearchEdit();
-    void FocusSearchEdit(WPARAM mode, LPARAM selection);
+    // selection は app_param::MakeSearchSelectionLParam で詰めた [anchor, caret)。
+    void FocusSearchEdit(LPARAM selection);
     void RepositionSearchEdit();
     void SyncSearchCaretFromEdit();
 

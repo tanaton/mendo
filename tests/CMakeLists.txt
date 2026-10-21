@@ -37,7 +37,6 @@ add_executable(mendo_tests
     test_swipe_detector.cpp
     test_titlebar.cpp
     test_ui_constants.cpp
-    test_toast_notifier.cpp
     test_context_menu.cpp
     test_image.cpp
     test_help.cpp
@@ -46,8 +45,6 @@ add_executable(mendo_tests
     test_locale.cpp
     test_memory_eviction.cpp
     test_lru_cache.cpp
-    test_scroll_restoration.cpp
-    test_last_hover_pos.cpp
     test_search_bar_controller.cpp
     test_session_service.cpp
     test_reducer.cpp
@@ -82,7 +79,6 @@ add_executable(mendo_tests
     test_clipboard_util.cpp
     test_clipboard_manager.cpp
     test_block_h_scroll.cpp
-    app_search_bar_callbacks_stub.cpp
     test_parser_properties.cpp
     test_selection_html_properties.cpp
 )

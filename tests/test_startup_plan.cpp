@@ -80,9 +80,20 @@ TEST(StartupPlanTest, FileArg_OpensFileAndShowsItsDirectory)
     const auto plan = DecideStartupPlan(MakeContext(StartupArgKind::File, L"E:\\proj\\README.md"));
     EXPECT_EQ(plan.document_path, L"E:\\proj\\README.md");
     EXPECT_FALSE(plan.restore_scroll);
-    // 表記違いの同一ファイルかは呼び出し側が確かめる。
-    EXPECT_TRUE(plan.restore_scroll_if_same_file);
+    // ファイル名が前回と違えば、開いて確かめるまでもなく別のファイル。
+    EXPECT_FALSE(plan.restore_scroll_if_same_file);
     EXPECT_EQ(plan.pane_directory, L"E:\\proj");
+}
+
+// 表記違いの同一ファイルかもしれないときだけ、呼び出し側が開いて確かめる。
+TEST(StartupPlanTest, FileArg_MaybeSameAsLastFile_ChecksByOpening)
+{
+    for (const std::wstring_view arg : { L"d:/notes/MEMO.md", L"D:\\NOTES~1\\memo.md", L"D:\\notes\\MEMO~1.MD" }) {
+        SCOPED_TRACE(std::wstring{ arg });
+        const auto plan = DecideStartupPlan(MakeContext(StartupArgKind::File, arg));
+        EXPECT_FALSE(plan.restore_scroll);
+        EXPECT_TRUE(plan.restore_scroll_if_same_file);
+    }
 }
 
 TEST(StartupPlanTest, FileArg_SameAsLastFile_RestoresScroll)

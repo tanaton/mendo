@@ -10,7 +10,7 @@
 #include "mermaid_renderer_interface.h"
 #include "mermaid_util.h"
 #include "nav.h"
-#include "theme_service.h"
+#include "theme.h"
 #include "profiler.h"
 #include "string_convert.h"
 #include "utility.h"
@@ -37,7 +37,6 @@ struct ResourceManagerDeps {
     IMermaidRenderer* mermaid = nullptr;
     // リロード時の高さ適用にだけ使う。nullptr なら適用しない。
     MermaidFileCache* mermaid_file_cache = nullptr;
-    ThemeService* theme_service = nullptr;
 };
 
 namespace resource_manager_detail {
@@ -60,10 +59,24 @@ constexpr bool KeepsAllTextLayouts(size_t doc_bytes) noexcept
 
 } // namespace resource_manager_detail
 
+// ResourceManager が App に頼むこと。
+class ResourceManagerHost {
+public:
+    virtual void SetTimer(app_timer::Id id, UINT ms) = 0;
+    virtual void KillTimer(app_timer::Id id) = 0;
+    virtual float MdContentWidth() = 0;
+    virtual float MdPaneHeight() = 0;
+    virtual const Theme& GetTheme() = 0;
+    // 画像・図の高さが changed の範囲で変わった。見ている位置を保って Y を組み直し、再描画させる。
+    virtual void RecomputeLayout(layout::HeightChangeRange changed) = 0;
+
+protected:
+    ~ResourceManagerHost() = default;
+};
+
 // 画像・Mermaidリソースのライフサイクル管理。
 // Appから画像読み込み、Mermaidバッチ処理、ビットマップ解放の責務を分離する。
-template <class Cb>
-class ResourceManagerT {
+class ResourceManager {
 public:
     // 画像/図のビットマップを残す範囲。遅延レイアウトの計測範囲も兼ねる。範囲外へのスクロールは EnsureVisibleLayout が同期計測で拾う。
     static constexpr float EVICT_BUFFER_SCREENS = 2.0f;
@@ -74,10 +87,10 @@ public:
     static constexpr float LAYOUT_EVICT_BUFFER_SCREENS = 8.0f;
     static_assert(EVICT_BUFFER_SCREENS < LAYOUT_EVICT_BUFFER_SCREENS);
 
-    constexpr void Init(const ResourceManagerDeps& deps, Cb cb) noexcept
+    constexpr void Init(const ResourceManagerDeps& deps, ResourceManagerHost& host) noexcept
     {
         deps_ = deps;
-        cb_ = std::move(cb);
+        host_ = &host;
     }
 
     // respect_viewport=true: 可視範囲のみ走査し、未キャッシュは非同期ロード起動（通常描画用）。
@@ -98,12 +111,12 @@ public:
             return 0;
         }
 
-        const float content_width = cb_.get_content_width();
+        const float content_width = host_->MdContentWidth();
         if (content_width <= 0.0f) {
             return 0;
         }
 
-        const Theme& theme = cb_.get_theme();
+        const Theme& theme = host_->GetTheme();
         const auto& nodes = deps_.doc->GetNodes();
         const auto& image_indices = deps_.doc->GetImageNodeIndices();
 
@@ -176,9 +189,9 @@ public:
         if (!deps_.mermaid_file_cache) {
             return false;
         }
-        const float content_width = cb_.get_content_width();
-        const bool dark_mode = deps_.theme_service->IsDarkMode();
-        const Theme& theme = cb_.get_theme();
+        const float content_width = host_->MdContentWidth();
+        const Theme& theme = host_->GetTheme();
+        const bool dark_mode = theme.IsDark();
         const auto& nodes = deps_.doc->GetNodes();
         bool any_applied = false;
         for (size_t i : deps_.doc->GetDiagramNodeIndices()) {
@@ -195,7 +208,7 @@ public:
     void LoadImages()
     {
         if (ApplyCachedImages() > 0) {
-            cb_.recompute_layout(TakeHeightChanges());
+            host_->RecomputeLayout(TakeHeightChanges());
         }
     }
 
@@ -205,33 +218,27 @@ public:
         const int applied = RequestVisibleDiagrams();
         if (!height_changed_.empty()) {
             pending_flush_ = true;
-            cb_.recompute_layout_anchored(TakeHeightChanges());
+            host_->RecomputeLayout(TakeHeightChanges());
         }
         return applied;
     }
 
-    // 図の結果が出た・描画の準備ができた。結果を待っていた図を要求し直して反映する。
-    void OnMermaidUpdated()
-    {
-        RequestMermaidRenders();
-    }
-
     void CancelMermaidBatch()
     {
-        cb_.kill_timer(app_timer::Id::MERMAID_BATCH);
+        host_->KillTimer(app_timer::Id::MERMAID_BATCH);
         height_changed_ = {};
     }
 
     // レイアウトが落ち着いてから (次のタイマーで) 図を要求する。
     void ScheduleMermaidBatch()
     {
-        cb_.set_timer(app_timer::Id::MERMAID_BATCH, app_timer::FRAME_INTERVAL_MS);
+        host_->SetTimer(app_timer::Id::MERMAID_BATCH, app_timer::FRAME_INTERVAL_MS);
     }
 
     void ProcessMermaidBatch()
     {
         MENDO_PROFILE("ProcessMermaidBatch");
-        cb_.kill_timer(app_timer::Id::MERMAID_BATCH);
+        host_->KillTimer(app_timer::Id::MERMAID_BATCH);
         RequestMermaidRenders();
     }
 
@@ -278,11 +285,11 @@ public:
 
         bool changed = (ApplyCachedImages() > 0);
 
-        // 図の再レイアウトも下の recompute_layout 1 回へ統合する。
+        // 図の再レイアウトも下の RecomputeLayout 1 回へ統合する。
         changed |= (RequestVisibleDiagrams() > 0);
 
         if (changed) {
-            cb_.recompute_layout(TakeHeightChanges());
+            host_->RecomputeLayout(TakeHeightChanges());
         }
     }
 
@@ -298,17 +305,17 @@ public:
             EvictOffscreenBitmaps();
             FlushPendingResources();
         }
-        cb_.set_timer(app_timer::Id::BITMAP_MANAGE, app_timer::BITMAP_MANAGE_DELAY_MS);
+        host_->SetTimer(app_timer::Id::BITMAP_MANAGE, app_timer::BITMAP_MANAGE_DELAY_MS);
     }
 
     void OnBitmapManageTimer()
     {
-        cb_.kill_timer(app_timer::Id::BITMAP_MANAGE);
+        host_->KillTimer(app_timer::Id::BITMAP_MANAGE);
 
         EvictOffscreenBitmaps();
         // evict 直後は可視範囲のリソース再読み込みが必要なので強制フラッシュする。
         pending_flush_ = true;
-        // evict 対象は可視範囲外なので、再描画はフラッシュで適用があった時 (recompute_layout) だけでよい。
+        // evict 対象は可視範囲外なので、再描画はフラッシュで適用があった時 (RecomputeLayout) だけでよい。
         FlushPendingResources();
     }
 
@@ -316,7 +323,7 @@ private:
     // 再レイアウトはしない。高さが変わったノードは height_changed_ に溜まる。
     int RequestVisibleDiagrams()
     {
-        const float content_width = cb_.get_content_width();
+        const float content_width = host_->MdContentWidth();
         InvalidateMermaidForWidthChange(content_width);
 
         if (content_width <= 0.0f) {
@@ -325,7 +332,7 @@ private:
 
         DropQueuesIfJumped();
         const auto slices = PrioritizedSlices(deps_.doc->GetDiagramNodeIndices(), PREFETCH_BUFFER_SCREENS);
-        const bool dark_mode = deps_.theme_service->IsDarkMode();
+        const bool dark_mode = host_->GetTheme().IsDark();
         int applied = 0;
         for (const size_t i : slices | std::views::join) {
             applied += RequestDiagramRender(i, content_width, dark_mode) ? 1 : 0;
@@ -337,7 +344,7 @@ private:
     {
         pending_flush_ = true;
         if (ApplyCachedImages() > 0) {
-            cb_.recompute_layout_anchored(TakeHeightChanges());
+            host_->RecomputeLayout(TakeHeightChanges());
         }
     }
 
@@ -358,7 +365,7 @@ private:
             height_changed_.Add(i);
             return false;
         }
-        ApplyBitmapHeight(i, diagram, layout::NodeContentWidth(node, cb_.get_theme(), content_width));
+        ApplyBitmapHeight(i, diagram, layout::NodeContentWidth(node, host_->GetTheme(), content_width));
         return true;
     }
 
@@ -418,7 +425,7 @@ private:
     void DropQueuesIfJumped()
     {
         const float scroll_y = deps_.viewport->GetScrollY();
-        const float viewport_height = cb_.get_md_pane_height();
+        const float viewport_height = host_->MdPaneHeight();
         if (viewport_height > 0.0f && std::abs(scroll_y - last_request_scroll_) > viewport_height * EVICT_BUFFER_SCREENS) {
             deps_.mermaid->DropQueued();
             deps_.image_loader->DropQueued();
@@ -440,7 +447,7 @@ private:
     // 可視範囲 ± viewport_height * screens に交差するノード範囲。viewport_height <= 0 (初期化中等) は範囲が決まらない。
     std::optional<BufferedRange> ComputeBufferedRange(float screens)
     {
-        const float viewport_height = cb_.get_md_pane_height();
+        const float viewport_height = host_->MdPaneHeight();
         if (viewport_height <= 0.0f) {
             return std::nullopt;
         }
@@ -496,7 +503,7 @@ private:
     }
 
     ResourceManagerDeps deps_{};
-    Cb cb_{};
+    ResourceManagerHost* host_ = nullptr;
 
     float last_mermaid_content_width_ = 0.0f;
     float last_request_scroll_ = 0.0f;

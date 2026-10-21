@@ -26,9 +26,9 @@ std::pmr::vector<Node> Nodes(Node node)
 SearchState Searched(const std::pmr::vector<Node>& nodes, std::string_view query, bool case_sensitive = false)
 {
     SearchState s;
-    // 既定値のまま検索する経路も通すため、false のときはセッターを呼ばない。
+    // 既定値のまま検索する経路も通すため、false のときは切り替えない。
     if (case_sensitive) {
-        s.SetCaseSensitive(true);
+        s.ToggleCaseSensitive();
     }
     s.SetQuery(query);
     s.ExecuteSearch(nodes);
@@ -411,7 +411,7 @@ TEST(SearchStateTest, ReExecuteAfterCaseSensitiveChange)
     auto s = Searched(nodes, "abc");
     EXPECT_EQ(s.GetMatchCount(), 3);
 
-    s.SetCaseSensitive(true);
+    s.ToggleCaseSensitive();
     s.ExecuteSearch(nodes);
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].start, 4u);
@@ -523,4 +523,45 @@ TEST(SearchStateTest, JapaneseMatchUtf16Offsets)
     EXPECT_EQ(s.GetMatches()[0].start, 7u);
     EXPECT_EQ(s.GetMatches()[0].start_w, 3u) << "サロゲートペア 2 + 'あ' 1";
     EXPECT_EQ(s.GetMatches()[0].length_w, 1u);
+}
+
+namespace {
+bool SameMatches(const SearchState& a, const SearchState& b)
+{
+    return std::ranges::equal(a.GetMatches(), b.GetMatches(), [](const SearchMatch& x, const SearchMatch& y) {
+        return x.node_index == y.node_index && x.start == y.start && x.length == y.length &&
+               x.table_row == y.table_row && x.table_col == y.table_col && x.start_w == y.start_w && x.length_w == y.length_w;
+    });
+}
+} // namespace
+
+// クエリを伸ばしたときは前回マッチのあったノードだけを調べ直すが、結果は最初から調べた場合と同じになる。
+// "aa" の貪欲なマッチは重なる位置を飛ばすので、マッチ位置ではなくノード単位で絞る必要がある。
+TEST(SearchStateTest, ExtendingQueryMatchesFullSearch)
+{
+    std::pmr::vector<Node> nodes = TextNodes({ "aaab", "xyz", "Aab aab", "b" });
+    nodes.push_back(MakeTableNode({ { "aab", "q" }, { "aa", "aaB" } }));
+    for (const bool case_sensitive : { false, true }) {
+        SCOPED_TRACE(case_sensitive);
+        SearchState s = Searched(nodes, "a", case_sensitive);
+        for (const char* q : { "aa", "aab" }) {
+            SCOPED_TRACE(q);
+            s.SetQuery(q);
+            s.ExecuteSearch(nodes);
+            EXPECT_TRUE(SameMatches(s, Searched(nodes, q, case_sensitive)));
+        }
+    }
+}
+
+// 調べ終わる前に伸ばしたときは、前回の結果が全マッチではないので最初から調べる。
+TEST(SearchStateTest, ExtendingQueryAfterStoppedSearchScansAll)
+{
+    const auto nodes = TextNodes({ "ab", "ab", "ab" });
+    SearchState s;
+    s.SetQuery("a");
+    s.BeginSearch();
+    s.StopSearch();
+    s.SetQuery("ab");
+    s.ExecuteSearch(nodes);
+    EXPECT_EQ(s.GetMatchCount(), 3);
 }

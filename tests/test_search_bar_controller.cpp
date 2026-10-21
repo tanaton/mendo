@@ -11,22 +11,23 @@
 
 namespace {
 
-struct CallbackTracker {
+struct TestSearchBarHost final : SearchBarHost {
     float md_pane_height = 800.0f;
+    float max_scroll = 0.0f;
     std::function<void(int)> on_ensure;
-};
 
-struct TestSearchBarCallbacks {
-    CallbackTracker* t = nullptr;
-
-    float get_md_pane_height()
+    float MdPaneHeight() override
     {
-        return t->md_pane_height;
+        return md_pane_height;
     }
-    void ensure_node_layout(int node_index)
+    float MdMaxScroll() override
     {
-        if (t->on_ensure) {
-            t->on_ensure(node_index);
+        return max_scroll;
+    }
+    void EnsureNodeLayout(int node_index) override
+    {
+        if (on_ensure) {
+            on_ensure(node_index);
         }
     }
 };
@@ -38,14 +39,14 @@ class SearchBarControllerTest : public ::testing::Test {
 protected:
     void SetUp() override
     {
-        ctrl_.Init(state_, viewport_, cache_, TestSearchBarCallbacks{ &tracker_ });
+        ctrl_.Init(state_, viewport_, cache_, host_);
     }
 
     SearchState state_;
     ViewportManager viewport_;
     LayoutCache cache_;
-    CallbackTracker tracker_;
-    SearchBarControllerT<TestSearchBarCallbacks> ctrl_;
+    TestSearchBarHost host_;
+    SearchBarController ctrl_;
     std::pmr::vector<Node> nodes_;
     // 検証しない操作の副作用の捨て先。検証する操作はその場で新しいリストに積む。
     SideEffectList effects_;
@@ -305,7 +306,7 @@ TEST_F(SearchBarControllerTest, ScrollToMatchClearsScrollTarget)
 
     cache_ = MakeUniformCache(2, 500.0f);
 
-    viewport_.SyncMaxScroll(1000.0f, 800.0f);
+    host_.max_scroll = 1000.0f - 800.0f;
     viewport_.SetScrollTarget(0, 0.0f);
     EXPECT_TRUE(viewport_.HasScrollTarget());
 
@@ -328,8 +329,8 @@ TEST_F(SearchBarControllerTest, NextMatchAcrossTableRowsAdvancesScroll)
     tl.row_heights = { 400.0f, 400.0f, 400.0f, 400.0f, 400.0f };
     tl.row_cum_y = { 0.0f, 400.0f, 800.0f, 1200.0f, 1600.0f, 2000.0f };
 
-    tracker_.md_pane_height = 600.0f;
-    viewport_.SyncMaxScroll(2000.0f, tracker_.md_pane_height);
+    host_.md_pane_height = 600.0f;
+    host_.max_scroll = 2000.0f - host_.md_pane_height;
 
     state_.Show();
     ctrl_.OnTextChanged(effects_, L"hit", nodes_);
@@ -357,20 +358,20 @@ TEST_F(SearchBarControllerTest, ScrollToMatchMeasuresNodeBeforeResolvingY)
     nodes_.push_back(MakeTextNode("x hello"));
     cache_ = MakeUniformCache(3, 500.0f);
     std::vector<int> ensured;
-    tracker_.on_ensure = [this, &ensured](int node_index) {
+    host_.on_ensure = [this, &ensured](int node_index) {
         ensured.push_back(node_index);
         if (node_index == 2) {
             cache_.SetTop(2, 5000.0f);
         }
     };
-    viewport_.SyncMaxScroll(10000.0f, tracker_.md_pane_height);
+    host_.max_scroll = 10000.0f - host_.md_pane_height;
 
     state_.Show();
     ctrl_.OnTextChanged(effects_, L"hello", nodes_);
 
     ASSERT_FALSE(ensured.empty());
     EXPECT_TRUE(std::ranges::all_of(ensured, [](int i) static { return i == 2; }));
-    const float visible = tracker_.md_pane_height - SEARCH_BAR_HEIGHT;
+    const float visible = host_.md_pane_height - SEARCH_BAR_HEIGHT;
     EXPECT_FLOAT_EQ(viewport_.GetScrollY(), 5000.0f - visible / 3.0f);
 }
 
@@ -383,7 +384,7 @@ TEST_F(SearchBarControllerTest, ScrollToMatchNoOpWhenAlreadyVisible)
     cache_.SetTop(0, 100.0f);
     cache_[0].height = 50.0f;
 
-    viewport_.SyncMaxScroll(1000.0f, tracker_.md_pane_height);
+    host_.max_scroll = 1000.0f - host_.md_pane_height;
     state_.Show();
     ctrl_.OnTextChanged(effects_, L"hello", nodes_);
 

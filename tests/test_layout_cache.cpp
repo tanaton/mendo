@@ -352,3 +352,28 @@ TEST(LayoutCacheTest, HasDirtyNodesTravelsWithCache)
     moved.Resize(5);
     EXPECT_TRUE(moved.HasDirtyNodes()) << "増えたノードは計測前";
 }
+
+// Top はブロックごとのオフセットに分けて持つ。ブロックをまたいでずらしても、大きさを変えても位置は変わらない。
+TEST(LayoutCacheTops, ShiftAcrossBlocksAndResizeKeepPositions)
+{
+    LayoutCache cache;
+    cache.Resize(10000);
+    for (size_t i = 0; i < cache.size(); ++i) {
+        cache.SetTop(i, static_cast<float>(i) * 2.0f);
+    }
+    cache.ShiftTops(3000, 5.0f);
+    cache.ShiftTops(8000, -1.0f);
+    const auto expected = [](size_t i) {
+        return static_cast<float>(i) * 2.0f + (i >= 3000 ? 5.0f : 0.0f) + (i >= 8000 ? -1.0f : 0.0f);
+    };
+    for (const size_t i : { 0uz, 2999uz, 3000uz, 4095uz, 4096uz, 7999uz, 8000uz, 8191uz, 8192uz, 9999uz }) {
+        EXPECT_FLOAT_EQ(cache.Top(i), expected(i)) << "i=" << i;
+    }
+
+    cache.Resize(12000);
+    for (const size_t i : { 0uz, 3000uz, 9999uz }) {
+        EXPECT_FLOAT_EQ(cache.Top(i), expected(i)) << "i=" << i;
+    }
+    cache.SetTop(11999, 1.0f);
+    EXPECT_FLOAT_EQ(cache.Top(11999), 1.0f);
+}

@@ -1,5 +1,4 @@
 #pragma once
-#include "app_search_bar_callbacks.h"
 #include "app_state.h"
 #include "document.h"
 #include "reducer.h"
@@ -8,9 +7,27 @@
 #include <string>
 #include <string_view>
 
+// App 相当の問い合わせ先。計測はしない (テストのキャッシュは計測済みとして組む)。
+struct ReducerTestSearchBarHost final : SearchBarHost {
+    explicit ReducerTestSearchBarHost(const AppState& s) noexcept : state(&s)
+    {}
+    const AppState* state;
+
+    float MdPaneHeight() override
+    {
+        return state->pane_layout_cache.Get().md_rect.height;
+    }
+    float MdMaxScroll() override
+    {
+        return ::MdMaxScroll(*state);
+    }
+    void EnsureNodeLayout(int) override
+    {}
+};
+
 // reducer が読む Theme の非ゼロ値を設定し、SearchBarController を Init する (未呼び出しだと nullptr deref)。
 // theme は value-init ({}) 済みであること: Theme は zoom 以外に default member initializer を持たない集約。
-inline void InitReducerState(AppState& state, Theme& theme)
+inline void InitReducerState(AppState& state, Theme& theme, SearchBarHost& host)
 {
     theme.pane_item_height = 28.0f;
     theme.pane_header_height = 32.0f;
@@ -21,10 +38,10 @@ inline void InitReducerState(AppState& state, Theme& theme)
         state.search.search_state,
         state.view.viewport,
         state.document.layout_cache,
-        AppSearchBarCallbacks{});
+        host);
 }
 
-// reducer を App 相当の前提 (Theme 設定済み・レイアウト確定済み・max_scroll 同期済み) で
+// reducer を App 相当の前提 (Theme 設定済み・レイアウト確定済み) で
 // 駆動するテスト用ハーネス。ランダム列テストで同じ初期状態を何度も組み立てるために使う。
 // SearchBarController が AppState 内部へのポインタを持つため、生成後は移動・コピーしない。
 class ReducerHarness {
@@ -47,7 +64,7 @@ public:
         theme.margin_left = 20.0f;
         theme.margin_right = 20.0f;
         theme.heading_spacing_above = 8.0f;
-        InitReducerState(state, theme);
+        InitReducerState(state, theme, search_host_);
 
         state.document.doc = Document::FromMarkdown(std::pmr::string(opt.markdown), L"C:\\docs\\a.md");
         const auto& nodes = state.document.doc.GetNodes();
@@ -67,7 +84,6 @@ public:
         layout_.toc_rect = { 154.0f, 0.0f, 150.0f, 120.0f };
         layout_.md_rect = { 308.0f, 0.0f, kMdWidth, opt.md_height };
         state.pane_layout_cache.Set(1000.0f, layout_);
-        SyncMaxScroll();
     }
 
     ReducerHarness(const ReducerHarness&) = delete;
@@ -82,18 +98,18 @@ public:
         return Reduce(state, action);
     }
 
-    // App::SyncMaxScroll 相当。
-    void SyncMaxScroll()
+    // App::ClampScrollToContent 相当。
+    void ClampScrollToContent()
     {
-        state.view.viewport.SyncMaxScroll(MdScrollableContentHeight(state), layout_.md_rect.height);
+        state.view.viewport.ClampScroll(MdMaxScroll(state));
     }
 
-    // ウィンドウリサイズ相当: md ペイン高を変えて max_scroll を再同期する。
+    // ウィンドウリサイズ相当: md ペイン高を変えて scroll_y を上限に収める。
     void ResizeMdPane(float md_height)
     {
         layout_.md_rect.height = md_height;
         state.pane_layout_cache.Set(1000.0f, layout_);
-        SyncMaxScroll();
+        ClampScrollToContent();
     }
 
     int NodeCount() const noexcept
@@ -105,6 +121,7 @@ public:
     AppState state;
 
 private:
+    ReducerTestSearchBarHost search_host_{ state };
     PaneLayout layout_{};
 };
 

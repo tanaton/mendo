@@ -6,8 +6,7 @@
 #include "viewport_manager.h"
 #include "image_loader.h"
 #include "mermaid_renderer_interface.h"
-#include "theme_service.h"
-#include "config_service.h"
+#include "theme.h"
 #include "test_helpers.h"
 #include <algorithm>
 #include <ranges>
@@ -125,12 +124,11 @@ private:
     }
 };
 
-// ResourceManager::Callbacks の各呼び出しを観測するための counter。
+// ResourceManagerHost の各呼び出しを観測するための counter。
 struct CallbackTracker {
     int set_timer = 0;
     int kill_timer = 0;
     int recompute_layout = 0;
-    int recompute_layout_anchored = 0;
     layout::HeightChangeRange last_change = {};
     app_timer::Id last_set_timer_id{};
     UINT last_set_timer_ms = 0;
@@ -140,45 +138,43 @@ struct CallbackTracker {
     float viewport_height = 600.0f;
     Theme theme = [] static noexcept {
         Theme t;
+        t.bg_color = GetLightTheme().bg_color;
         t.indent_width = 20.0f;
         return t;
     }();
 };
 
-struct TestResourceManagerCallbacks {
-    CallbackTracker* t = nullptr;
+struct TestResourceManagerHost final : ResourceManagerHost {
+    explicit TestResourceManagerHost(CallbackTracker& tracker) : t(&tracker)
+    {}
+    CallbackTracker* t;
 
-    void set_timer(app_timer::Id id, UINT ms)
+    void SetTimer(app_timer::Id id, UINT ms) override
     {
         t->set_timer++;
         t->last_set_timer_id = id;
         t->last_set_timer_ms = ms;
     }
-    void kill_timer(app_timer::Id id)
+    void KillTimer(app_timer::Id id) override
     {
         t->kill_timer++;
         t->last_killed_timer_id = id;
     }
-    float get_content_width()
+    float MdContentWidth() override
     {
         return t->content_width;
     }
-    float get_md_pane_height()
+    float MdPaneHeight() override
     {
         return t->viewport_height;
     }
-    const Theme& get_theme()
+    const Theme& GetTheme() override
     {
         return t->theme;
     }
-    void recompute_layout(layout::HeightChangeRange changed)
+    void RecomputeLayout(layout::HeightChangeRange changed) override
     {
         t->recompute_layout++;
-        t->last_change = changed;
-    }
-    void recompute_layout_anchored(layout::HeightChangeRange changed)
-    {
-        t->recompute_layout_anchored++;
         t->last_change = changed;
     }
 };
@@ -215,9 +211,8 @@ protected:
                 .viewport = &viewport_,
                 .image_loader = &image_loader_,
                 .mermaid = &mock_mermaid_,
-                .theme_service = &theme_service_,
             },
-            TestResourceManagerCallbacks{ &tracker_ });
+            host_);
     }
 
     Document doc_;
@@ -225,10 +220,9 @@ protected:
     ViewportManager viewport_;
     ImageLoader image_loader_; // Init せずに使う（画像経路は通らないテストのみ）
     MockMermaidRenderer mock_mermaid_;
-    ConfigService config_;
-    ThemeService theme_service_{ config_ };
     CallbackTracker tracker_;
-    ResourceManagerT<TestResourceManagerCallbacks> rm_;
+    TestResourceManagerHost host_{ tracker_ };
+    ResourceManager rm_;
 };
 
 // ---- 画像経路 ----
@@ -580,19 +574,19 @@ TEST_F(ResourceManagerTest, CarryOverUnchangedSkipsDiagramsWhenCountChanges)
     }
 }
 
-TEST_F(ResourceManagerTest, RequestMermaidRendersUsesDarkModeFromThemeService)
+TEST_F(ResourceManagerTest, RequestMermaidRendersUsesDarkModeFromTheme)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
-    theme_service_.ToggleDarkMode();
-    ASSERT_TRUE(theme_service_.IsDarkMode());
+    tracker_.theme.bg_color = GetDarkTheme().bg_color;
+    ASSERT_TRUE(tracker_.theme.IsDark());
 
     rm_.RequestMermaidRenders();
     EXPECT_TRUE(mock_mermaid_.last_dark_mode);
 }
 
-// 複数の図がディスクキャッシュにヒットしても、recompute_layout_anchored は per-figure ではなく
+// 複数の図がディスクキャッシュにヒットしても、再レイアウトは per-figure ではなく
 // ループ後にまとめて 1 回しか発火しないことを保証する (issue: 初回ロードで N 回フルスイープ)。
-TEST_F(ResourceManagerTest, RequestMermaidRendersBatchesAnchoredRecomputeAcrossCacheHits)
+TEST_F(ResourceManagerTest, RequestMermaidRendersBatchesRecomputeAcrossCacheHits)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n\n```mermaid\ngraph TD;E-->F\n```\n");
     ASSERT_EQ(doc_.GetDiagramNodeIndices().size(), 3u);
@@ -601,24 +595,22 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersBatchesAnchoredRecomputeAcrossC
     const int applied = rm_.RequestMermaidRenders();
     EXPECT_EQ(applied, 3);
     EXPECT_EQ(mock_mermaid_.request_render_count, 3);
-    EXPECT_EQ(tracker_.recompute_layout_anchored, 1);
-    EXPECT_EQ(tracker_.recompute_layout, 0);
+    EXPECT_EQ(tracker_.recompute_layout, 1);
 }
 
-// 同期適用が 0 件なら recompute_layout_anchored は発火しない (ガード正常動作の確認)。
-TEST_F(ResourceManagerTest, RequestMermaidRendersSkipsAnchoredRecomputeWhenNoBitmapApplied)
+// 同期適用が 0 件なら再レイアウトしない (ガード正常動作の確認)。
+TEST_F(ResourceManagerTest, RequestMermaidRendersSkipsRecomputeWhenNoBitmapApplied)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
     ASSERT_FALSE(mock_mermaid_.sync_apply_bitmap);
 
     rm_.RequestMermaidRenders();
-    EXPECT_EQ(tracker_.recompute_layout_anchored, 0);
     EXPECT_EQ(tracker_.recompute_layout, 0);
 }
 
-// FlushPendingResources 経由では図ごとの recompute_layout_anchored は発火せず、
-// 外側 recompute_layout が 1 回だけ呼ばれる。OnBitmapManageTimer がこの経路をトリガする。
-TEST_F(ResourceManagerTest, RequestMermaidRendersInNestedFlushDoesNotFireAnchoredRecompute)
+// FlushPendingResources 経由では図ごとに再レイアウトせず、画像と合わせて 1 回だけ行う。
+// OnBitmapManageTimer がこの経路をトリガする。
+TEST_F(ResourceManagerTest, FlushRecomputesOnceForAllDiagrams)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n\n```mermaid\ngraph TD;C-->D\n```\n");
     ASSERT_EQ(doc_.GetDiagramNodeIndices().size(), 2u);
@@ -626,7 +618,6 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersInNestedFlushDoesNotFireAnchore
 
     rm_.OnBitmapManageTimer();
 
-    EXPECT_EQ(tracker_.recompute_layout_anchored, 0);
     EXPECT_EQ(tracker_.recompute_layout, 1);
 }
 
@@ -672,7 +663,6 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersRequestsVisibleFirst)
         md += "```mermaid\ngraph TD;A-->B\n```\n\n";
     }
     LoadMarkdown(md);
-    viewport_.SyncMaxScroll(4000.0f, tracker_.viewport_height);
     viewport_.SetScrollY(1500.0f);
     rm_.RequestMermaidRenders();
 
@@ -711,18 +701,18 @@ TEST_F(ResourceManagerTest, ScheduleMermaidBatchSetsTimer)
 }
 
 // 結果が出た通知で、待っていた図を要求し直して反映する。
-TEST_F(ResourceManagerTest, OnMermaidUpdatedAppliesResolvedDiagrams)
+TEST_F(ResourceManagerTest, RequestMermaidRendersAgainAppliesResolvedDiagrams)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
     rm_.RequestMermaidRenders();
-    ASSERT_EQ(tracker_.recompute_layout_anchored, 0);
+    ASSERT_EQ(tracker_.recompute_layout, 0);
 
     mock_mermaid_.sync_apply_bitmap = true;
-    rm_.OnMermaidUpdated();
+    rm_.RequestMermaidRenders();
     const size_t i = doc_.GetDiagramNodeIndices()[0];
     ASSERT_NE(cache_.FindDiagram(i), nullptr);
     EXPECT_NE(cache_.FindDiagram(i)->bitmap, nullptr);
-    EXPECT_EQ(tracker_.recompute_layout_anchored, 1);
+    EXPECT_EQ(tracker_.recompute_layout, 1);
 }
 
 TEST_F(ResourceManagerTest, ProcessMermaidBatchKillsTimerWhenWidthIsZero)
@@ -839,7 +829,6 @@ TEST_F(ResourceManagerTest, OnBitmapManageTimerSkipsRecomputeWhenNothingApplied)
     rm_.OnBitmapManageTimer();
     EXPECT_GE(tracker_.kill_timer, 1);
     EXPECT_EQ(tracker_.recompute_layout, 0);
-    EXPECT_EQ(tracker_.recompute_layout_anchored, 0);
 }
 
 TEST_F(ResourceManagerTest, FlushPendingResourcesIsNoopWhenNotPending)

@@ -154,7 +154,7 @@ std::optional<AsyncLoadOutcome> AsyncLoadCoordinator::Take() noexcept
     if (!outcome_) {
         return std::nullopt;
     }
-    // 取り出し成功 = 非同期ロードの完結。同期 ExecuteLoad など別経路から in_flight を触ると
+    // 取り出し成功 = 非同期ロードの完結。同期ロードなど別経路から in_flight を触ると
     // race になるため、coordinator の責務に閉じる。
     in_flight_ = false;
     return std::exchange(outcome_, std::nullopt);

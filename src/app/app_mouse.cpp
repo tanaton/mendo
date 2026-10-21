@@ -46,9 +46,9 @@ constexpr PaneHeaderButton HitSidePaneHeaderButton(float dip_x, float dip_y, con
     return PaneHeaderButton::None;
 }
 
-bool IsOverPaneScrollbar(float dip_x, const PaneRect& rect, const PaneScrollInfo& scroll_info) noexcept
+bool IsOverPaneScrollbar(float dip_x, const PaneRect& rect, const PaneScrollInfo& scroll_info, bool may_grow = false) noexcept
 {
-    return dip_x - rect.x >= VScrollbarHitLeftX(rect.width) && scroll_info.total_content > scroll_info.content_height;
+    return ShowsVScrollbar(scroll_info, may_grow) && InVScrollbarHitX(dip_x, rect.x + rect.width);
 }
 
 std::wstring_view OverlayButtonTooltipText(OverlayButton kind) noexcept
@@ -185,10 +185,6 @@ std::optional<LinkHit> App::GetLinkAtHit(const HitResult& hit) const
 
 void App::OnLButtonDown(int px, int py)
 {
-    if (!IsRenderReady()) {
-        return;
-    }
-
     const auto dip = PixelToDip(px, py);
 
     if (HandleTitleBarClick(dip.x, dip.y)) {
@@ -243,9 +239,6 @@ void App::OnLButtonUp(int px, int py)
 
 void App::OnLButtonDblClk(int px, int py)
 {
-    if (!IsRenderReady()) {
-        return;
-    }
     const auto dip = PixelToDip(px, py);
     // CS_DBLCLKS により連続クリックの2回目は WM_LBUTTONDBLCLK になるため、
     // タイトルバーボタンのクリックを先に処理する。
@@ -266,10 +259,6 @@ void App::OnLButtonDblClk(int px, int py)
 
 void App::OnMouseMove(int px, int py)
 {
-    if (!IsRenderReady()) {
-        return;
-    }
-
     const auto dip = PixelToDip(px, py);
 
     switch (state_.view.drag.kind) {
@@ -303,10 +292,6 @@ void App::OnMouseMove(int px, int py)
 
 void App::OnMouseWheel(int px, int py, int delta, bool ctrl)
 {
-    if (!IsRenderReady()) {
-        return;
-    }
-
     auto& zoom_accum = state_.interaction.zoom_wheel_accum;
     if (ctrl) {
         Dispatch(app_controller::HandleMouseWheel(MouseWheelEvent{ delta, true, PaneZone::MdPane }, zoom_accum));
@@ -324,9 +309,6 @@ void App::OnMouseHWheel(short delta)
 
 bool App::OnRButtonDown(int px, int py)
 {
-    if (!IsRenderReady()) {
-        return false;
-    }
     // 左ドラッグ進行中にジェスチャを開始すると、完了時の ReleaseCapture が
     // 進行中ドラッグのキャプチャを破壊する。
     if (state_.view.drag.kind != LeftDrag::None) {
@@ -353,9 +335,6 @@ bool App::OnRButtonUp(int px, int py)
 
 void App::OnRButtonMove(int px, int py)
 {
-    if (!IsRenderReady()) {
-        return;
-    }
     const auto dip = PixelToDip(px, py);
     Dispatch(RightClickGestureMovedAction{ dip.x, dip.y });
 }
@@ -462,11 +441,7 @@ bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_
         // 自前で単語境界を計算して EM_SETSEL を発行する。
         const auto wb = FindWordBoundaries(std::wstring_view{ query_wide }, static_cast<uint32_t>(pos));
         if (wb.found) {
-            Execute(effect::SearchFocus{
-                effect::SearchFocus::Mode::SetSelection,
-                static_cast<int>(wb.start),
-                static_cast<int>(wb.end),
-            });
+            Execute(effect::SearchFocus{ static_cast<int>(wb.start), static_cast<int>(wb.end) });
         }
         return true;
     }
@@ -612,16 +587,11 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const
 
 bool App::IsOverMdScrollbar(float dip_x, float dip_y, const PaneLayout& layout) const noexcept
 {
-    const float total_h = ScrollableContentHeight();
-    const float viewport_h = layout.md_rect.height;
-    if (total_h <= viewport_h || viewport_h <= 0.0f) {
+    const PaneRect& md = layout.md_rect;
+    if (dip_y < md.y || dip_y > md.y + md.height) {
         return false;
     }
-    if (dip_y < layout.md_rect.y || dip_y > layout.md_rect.y + viewport_h) {
-        return false;
-    }
-    const float md_right = layout.md_rect.x + layout.md_rect.width;
-    return dip_x >= VScrollbarHitLeftX(md_right) && dip_x <= md_right - PANE_SCROLLBAR_MARGIN;
+    return IsOverPaneScrollbar(dip_x, md, ComputeScrollInfo(md, 0.0f, ScrollableContentHeight()), state_.document.layout_cache.HasDirtyNodes());
 }
 
 bool App::IsOverMdScrollbar(float dip_x, float dip_y)
@@ -776,22 +746,16 @@ void App::RefreshHoverAtCursor()
     if (!GetCursorPos(&pt) || WindowFromPoint(pt) != hwnd_) {
         return;
     }
+    // リサイズ枠やキャプションの上でカーソルを矢印に戻さない。
+    if (SendMessageW(hwnd_, WM_NCHITTEST, 0, MAKELPARAM(pt.x, pt.y)) != HTCLIENT) {
+        return;
+    }
     ScreenToClient(hwnd_, &pt);
     OnMouseHover(pt.x, pt.y);
 }
 
 void App::OnMouseHover(int px, int py)
 {
-    if (!IsRenderReady()) {
-        return;
-    }
-
-    // OS から同一座標の WM_MOUSEMOVE が連続して届くことがあるため、
-    // 完全同一座標なら後段の zone 判定・ヒットテストを全てスキップする。
-    if (state_.interaction.last_hover_pos.IsRepeat(px, py)) {
-        return;
-    }
-
     // 各ゾーンは自分のホバーだけを書き、それ以外は既定値 (ホバー無し) のまま reducer に渡して解除させる。
     const auto dip = PixelToDip(px, py);
     PointerHover hover;

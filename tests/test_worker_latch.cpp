@@ -122,3 +122,25 @@ TEST(WorkerLatch, ConcurrentAcquireRelease)
         t.join();
     }
 }
+
+// 空のときの 1 件目だけ投函させ、期限切れでも 1 件は進めて残りは順序を保って次に回す。
+TEST(PostedInbox, PostsOnceAndKeepsOrderOfLeftovers)
+{
+    PostedInbox<int> inbox;
+    EXPECT_TRUE(inbox.Push(1));
+    EXPECT_FALSE(inbox.Push(2));
+    EXPECT_FALSE(inbox.Push(3));
+
+    std::vector<int> seen;
+    const auto expired = std::chrono::steady_clock::time_point::min();
+    const auto first = inbox.Drain(expired, [&](int v) { seen.push_back(v); });
+    EXPECT_EQ(first.size(), 1u);
+    EXPECT_TRUE(inbox.HasLeftover());
+    EXPECT_FALSE(inbox.Push(4)) << "未回収が残っている間は投函しない";
+
+    inbox.Drain(std::chrono::steady_clock::time_point::max(), [&](int v) { seen.push_back(v); });
+    EXPECT_FALSE(inbox.HasLeftover());
+    EXPECT_EQ(seen, (std::vector<int>{ 1, 2, 3, 4 }));
+    EXPECT_TRUE(inbox.Push(5));
+    EXPECT_EQ(inbox.TakeAll().size(), 1u);
+}

@@ -444,3 +444,20 @@ TEST(PaneZoneConversion, NonSidePaneZonesHaveNoTarget)
         EXPECT_FALSE(ToPaneTarget(zone).has_value());
     }
 }
+
+// 描画とヒット判定はこの判定を共有する。つまみが動かせないほど低いペインでは出さない。
+TEST(ShowsVScrollbar, MatchesThumbMobility)
+{
+    EXPECT_TRUE(ShowsVScrollbar(ComputeScrollInfo({ 0.0f, 0.0f, 200.0f, 432.0f }, 32.0f, 1000.0f)));
+    EXPECT_FALSE(ShowsVScrollbar(ComputeScrollInfo({ 0.0f, 0.0f, 200.0f, 432.0f }, 32.0f, 400.0f)));
+    // 内容領域がつまみの最小高より低いと、つまみがトラック全体を占めて動かせない。
+    EXPECT_FALSE(ShowsVScrollbar(ComputeScrollInfo({ 0.0f, 0.0f, 200.0f, 52.0f }, 32.0f, 1000.0f)));
+}
+
+// 計測待ちで内容が伸びうる間は、ちょうど収まっていても出し続ける。
+TEST(ShowsVScrollbar, KeepsShowingWhileContentMayGrow)
+{
+    const auto info = ComputeScrollInfo({ 0.0f, 0.0f, 600.0f, 400.0f }, 0.0f, 400.0f);
+    EXPECT_FALSE(ShowsVScrollbar(info));
+    EXPECT_TRUE(ShowsVScrollbar(info, true));
+}

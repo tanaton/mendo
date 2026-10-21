@@ -31,7 +31,7 @@ struct StartupPlan {
     // 空ならファイルペインを設定しない。
     std::pmr::wstring pane_directory;
     bool restore_scroll = false;
-    // 引数のファイルが前回のファイルと表記違いの同一ファイルなら復元する (スラッシュ違いなど)。
+    // 引数のファイルが前回のファイルと表記違いの同一ファイルかもしれない (スラッシュ違いなど)。同じなら復元する。
     // 確かめるには 2 ファイルを開くので、呼び出し側がプリロードを始めてから調べる。
     bool restore_scroll_if_same_file = false;
 };

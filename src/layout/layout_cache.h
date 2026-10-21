@@ -372,12 +372,6 @@ struct NodeLayoutEntry {
     {
         return layout::detail::EnsureUnique(ensure_aux().table_layout);
     }
-    constexpr void reset_table_layout() noexcept
-    {
-        if (aux_) {
-            aux_->table_layout.reset();
-        }
-    }
 
     constexpr std::pmr::vector<InlineCodeBg>& ensure_inline_code_bgs()
     {
@@ -565,20 +559,29 @@ public:
     // 連続 float 配列として entries_ とは別に持つ。
     constexpr float Top(size_t i) const noexcept
     {
-        return tops_[i];
+        return tops_[i] + top_block_offsets_[i >> kTopBlockShift];
     }
     constexpr void SetTop(size_t i, float y) noexcept
     {
-        tops_[i] = y;
+        tops_[i] = y - top_block_offsets_[i >> kTopBlockShift];
     }
     constexpr float Bottom(size_t i) const noexcept
     {
-        return tops_[i] + entries_[i].height;
+        return Top(i) + entries_[i].height;
     }
+    // from 以降の Top を delta ずらす。後続のブロックはオフセットだけ書き換える。
     void ShiftTops(size_t from, float delta) noexcept
     {
-        for (float& top : std::span(tops_).subspan(from)) {
+        if (from >= tops_.size()) {
+            return;
+        }
+        const size_t block = from >> kTopBlockShift;
+        const size_t block_end = std::min((block + 1) << kTopBlockShift, tops_.size());
+        for (float& top : std::span(tops_).subspan(from, block_end - from)) {
             top += delta;
+        }
+        for (float& offset : std::span(top_block_offsets_).subspan(block + 1)) {
+            offset += delta;
         }
     }
 
@@ -702,8 +705,14 @@ public:
     }
 
 private:
+    // 計測で高さが変わるたびに後ろの全ノードをずらすと、数十万ノードの文書では 1 回で数百 µs かかる。
+    // Top は 2^kTopBlockShift 件ごとのブロック内の値とブロックのオフセットに分けて持ち、ずらしを
+    // 同じブロックの残りとブロック数ぶんの書き換えで済ませる。
+    static constexpr size_t kTopBlockShift = 12;
+
     std::pmr::vector<NodeLayoutEntry> entries_;
     std::pmr::vector<float> tops_;
+    std::pmr::vector<float> top_block_offsets_;
     std::pmr::unordered_map<size_t, DiagramEntry> diagrams_;
     ReleasedLayouts released_layouts_;
     bool has_dirty_nodes_ = true;

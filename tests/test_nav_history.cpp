@@ -188,21 +188,6 @@ TEST_F(NavHistoryTest, SameFileAnchorNavigation)
     EXPECT_FLOAT_EQ(out.offset, 30.0f);
 }
 
-// ─── クリア ───
-
-TEST_F(NavHistoryTest, ClearRemovesAll)
-{
-    hist_.Push({ L"a.md", 0, 0.0f });
-    hist_.Push({ L"b.md", 0, 0.0f });
-
-    NavEntry out;
-    hist_.GoBack({ L"c.md", 0, 0.0f }, out);
-
-    hist_.Clear();
-    EXPECT_FALSE(hist_.CanGoBack());
-    EXPECT_FALSE(hist_.CanGoForward());
-}
-
 // ─── 履歴の最大数制限 ───
 
 TEST_F(NavHistoryTest, MaxHistoryCapsForwardStack)
@@ -387,7 +372,7 @@ void RunNavHistoryModel(size_t max, uint32_t seed)
         }
         else {
             label = "Clear";
-            hist.Clear();
+            hist = NavHistory(max);
             model.Clear();
         }
 

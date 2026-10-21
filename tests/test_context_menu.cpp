@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "context_menu.h"
+#include "context_menu_impl.h"
 #include "resource.h"
 #include "theme.h"
 #include <algorithm>
@@ -59,12 +59,12 @@ constexpr Point Center(const DipRect& r)
 
 class ContextMenuTest : public ::testing::Test {
 protected:
-    ContextMenu menu_;
+    ContextMenu::Impl menu_;
     Theme theme_ = GetLightTheme();
 
     void Build(const ContextMenuParams& params)
     {
-        menu_.TestBuildItems(params);
+        menu_.BuildItems(params);
     }
 
     ContextMenuParams MakeParams(bool show_file = true) const
@@ -82,7 +82,7 @@ protected:
 
     const ContextMenu::Item* FindItem(int id) const
     {
-        const auto& items = menu_.GetItems();
+        const auto& items = menu_.items;
         const auto it = std::ranges::find(items, id, &ContextMenu::Item::id);
         return it != items.end() ? &*it : nullptr;
     }
@@ -105,7 +105,7 @@ TEST_F(ContextMenuTest, ItemSequenceDependsOnPane)
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);
         Build(MakeParams(c.show_file));
-        const auto& items = menu_.GetItems();
+        const auto& items = menu_.items;
         ASSERT_EQ(items.size(), c.expected.size());
         for (size_t i = 0; i < items.size(); ++i) {
             SCOPED_TRACE(i);
@@ -163,8 +163,8 @@ TEST_F(ContextMenuTest, NavEnabledFollowsParams)
             p.can_go_back = back;
             p.can_go_forward = fwd;
             Build(p);
-            EXPECT_EQ(menu_.GetNavLayout().back_enabled, back);
-            EXPECT_EQ(menu_.GetNavLayout().fwd_enabled, fwd);
+            EXPECT_EQ(menu_.nav_layout.back_enabled, back);
+            EXPECT_EQ(menu_.nav_layout.fwd_enabled, fwd);
         }
     }
 }
@@ -195,14 +195,14 @@ protected:
 
     void SetUp() override
     {
-        menu_.Init(nullptr, dwrite_.Get());
+        menu_.dwrite_factory = dwrite_.Get();
     }
 
     void BuildAndLayout(const ContextMenuParams& params)
     {
-        menu_.TestBuildItems(params);
-        menu_.TestCreateTextFormats(*params.theme);
-        menu_.TestComputeLayout();
+        menu_.BuildItems(params);
+        menu_.CreateTextFormats(*params.theme);
+        menu_.ComputeLayout();
     }
 };
 
@@ -213,8 +213,8 @@ ComPtr<IDWriteFactory> ContextMenuLayoutTest::dwrite_;
 TEST_F(ContextMenuLayoutTest, MenuHasMinimumWidthAndPositiveHeight)
 {
     BuildAndLayout(MakeParams());
-    EXPECT_GE(menu_.GetMenuWidth(), 160.0f);
-    EXPECT_GT(menu_.GetMenuHeight(), 0.0f);
+    EXPECT_GE(menu_.menu_width, 160.0f);
+    EXPECT_GT(menu_.menu_height, 0.0f);
 }
 
 // 文字幅は覚えて開くたびに測らないが、書式を作り直したら測り直す。
@@ -222,24 +222,24 @@ TEST_F(ContextMenuLayoutTest, TextWidthIsRemeasuredWhenFontChanges)
 {
     auto params = MakeParams();
     BuildAndLayout(params);
-    const float width = menu_.GetMenuWidth();
+    const float width = menu_.menu_width;
     BuildAndLayout(params);
-    EXPECT_FLOAT_EQ(menu_.GetMenuWidth(), width);
+    EXPECT_FLOAT_EQ(menu_.menu_width, width);
 
     Theme big = *params.theme;
     big.pane_font_size *= 4.0f;
     params.theme = &big;
     BuildAndLayout(params);
-    EXPECT_GT(menu_.GetMenuWidth(), width);
+    EXPECT_GT(menu_.menu_width, width);
 }
 
 TEST_F(ContextMenuLayoutTest, NonMdPaneMenuIsShorter)
 {
     BuildAndLayout(MakeParams(true));
-    const float full_h = menu_.GetMenuHeight();
+    const float full_h = menu_.menu_height;
 
     BuildAndLayout(MakeParams(false));
-    const float short_h = menu_.GetMenuHeight();
+    const float short_h = menu_.menu_height;
 
     EXPECT_LT(short_h, full_h);
 }
@@ -250,9 +250,9 @@ TEST_F(ContextMenuLayoutTest, NonMdPaneMenuIsShorter)
 TEST_F(ContextMenuLayoutTest, ItemsStackVerticallyAtFullWidth)
 {
     BuildAndLayout(MakeParams());
-    const float w = menu_.GetMenuWidth();
-    const float h = menu_.GetMenuHeight();
-    const auto& items = menu_.GetItems();
+    const float w = menu_.menu_width;
+    const float h = menu_.menu_height;
+    const auto& items = menu_.items;
     for (size_t i = 0; i < items.size(); ++i) {
         SCOPED_TRACE(i);
         const auto& rect = items[i].rect;
@@ -272,7 +272,7 @@ TEST_F(ContextMenuLayoutTest, ItemsStackVerticallyAtFullWidth)
 TEST_F(ContextMenuLayoutTest, NavButtonsAreCenteredPairInNavRow)
 {
     BuildAndLayout(MakeParams());
-    const auto& nav = menu_.GetNavLayout();
+    const auto& nav = menu_.nav_layout;
     const float bw = nav.back_rect.right - nav.back_rect.left;
     const float bh = nav.back_rect.bottom - nav.back_rect.top;
     EXPECT_GT(bw, 0.0f);
@@ -282,9 +282,9 @@ TEST_F(ContextMenuLayoutTest, NavButtonsAreCenteredPairInNavRow)
     EXPECT_GT(nav.fwd_rect.left - nav.back_rect.right, 0.0f);
 
     const float btn_center = (nav.back_rect.left + nav.fwd_rect.right) / 2.0f;
-    EXPECT_NEAR(btn_center, menu_.GetMenuWidth() / 2.0f, 1.0f);
+    EXPECT_NEAR(btn_center, menu_.menu_width / 2.0f, 1.0f);
 
-    const auto& items = menu_.GetItems();
+    const auto& items = menu_.items;
     ASSERT_FALSE(items.empty());
     ASSERT_EQ(items[0].type, ItemType::NavRow);
     const auto& row = items[0].rect;
@@ -300,7 +300,7 @@ TEST_F(ContextMenuLayoutTest, NavButtonsAreCenteredPairInNavRow)
 TEST_F(ContextMenuLayoutTest, HitTestAtItemCenters)
 {
     BuildAndLayout(MakeParams());
-    const auto& items = menu_.GetItems();
+    const auto& items = menu_.items;
     ASSERT_EQ(items.size(), std::size(kMdPaneItems));
     for (size_t i = 0; i < items.size(); ++i) {
         SCOPED_TRACE(i);
@@ -343,7 +343,7 @@ TEST_F(ContextMenuLayoutTest, NavHitTest)
         p.can_go_back = c.can_go_back;
         p.can_go_forward = c.can_go_forward;
         BuildAndLayout(p);
-        const auto [x, y] = c.point(menu_.GetNavLayout());
+        const auto [x, y] = c.point(menu_.nav_layout);
         EXPECT_EQ(menu_.NavHitTest(x, y), c.expected);
     }
 }

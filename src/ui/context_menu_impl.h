@@ -72,6 +72,7 @@ struct ContextMenu::Impl {
     void DrawSeparator(const Item& item);
     void DrawTextItem(const Item& item);
 
+    // 無効項目・区切り上は 0。
     int HitTest(float x, float y) const noexcept;
     int NavHitTest(float x, float y) const noexcept;
 

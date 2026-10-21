@@ -1,6 +1,7 @@
 #pragma once
 #include "document_types.h"
 #include "layout_cache.h"
+#include "pane_layout.h"
 #include "theme.h"
 #include <algorithm>
 #include <memory_resource>
@@ -25,6 +26,7 @@ constexpr ScrollTarget MakeHeadingTopTarget(int node, float heading_spacing_abov
     return { node, -heading_spacing_above };
 }
 
+
 // スクロール、選択、ズームの純粋な状態管理。
 // Win32 API依存なし — 完全にテスト可能。
 class ViewportManager {
@@ -35,35 +37,31 @@ public:
     {
         return scroll_y_;
     }
-    constexpr float GetMaxScroll() const noexcept
-    {
-        return max_scroll_;
-    }
 
     // ピクセル絶対スクロール。scroll_target を無効化する。
-    constexpr void ScrollTo(float position) noexcept
+    constexpr void ScrollTo(float position, float max_scroll) noexcept
     {
-        scroll_y_ = std::clamp(position, 0.0f, max_scroll_);
+        scroll_y_ = std::clamp(position, 0.0f, max_scroll);
         scroll_target_ = {};
     }
 
     // 現在の scroll_y を [0, max_scroll] にクランプし、scroll_target を無効化する。
     // ApplyScrollTarget 直後に「以降のレイアウト変化で範囲外へ戻らない」確定処理として使う。
-    constexpr void ClampAndDetach() noexcept
+    constexpr void ClampAndDetach(float max_scroll) noexcept
     {
-        ScrollTo(scroll_y_);
+        ScrollTo(scroll_y_, max_scroll);
     }
 
     // ユーザー発のピクセルスクロール。scroll_target を無効化する。
-    constexpr void DirectScrollBy(float delta) noexcept
+    constexpr void DirectScrollBy(float delta, float max_scroll) noexcept
     {
-        ScrollTo(scroll_y_ + delta);
+        ScrollTo(scroll_y_ + delta, max_scroll);
     }
 
-    constexpr void SyncMaxScroll(float total_height, float viewport_height) noexcept
+    // scroll_target は残す (以降のレイアウト変化でも見ている位置を保つ)。
+    constexpr void ClampScroll(float max_scroll) noexcept
     {
-        max_scroll_ = std::max(0.0f, total_height - viewport_height);
-        scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll_);
+        scroll_y_ = std::clamp(scroll_y_, 0.0f, max_scroll);
     }
 
     // 下端がscroll_y_より下にある最初のノードを見つける。
@@ -92,7 +90,7 @@ public:
     }
 
     // scroll_target が有効な場合、現在のレイアウトキャッシュから scroll_y を再評価する。
-    // max_scroll によるクランプは行わない（SyncMaxScroll が担当する）。
+    // max_scroll によるクランプは行わない（ClampScroll が担当する）。
     // 負値は NodeOffsetToScrollY 側で 0 に、node はキャッシュ末尾にクランプされる。
     constexpr void ApplyScrollTarget(const LayoutCache& cache) noexcept
     {
@@ -238,7 +236,6 @@ private:
     // --- 4 バイトアライメント ---
     // スクロール状態
     float scroll_y_ = 0.0f;
-    float max_scroll_ = 0.0f;
     ScrollTarget scroll_target_{}; // int(4) + float(4)
 
     // 選択状態

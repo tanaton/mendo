@@ -8,7 +8,6 @@
 #include "utility.h"
 #include <algorithm>
 #include <cmath>
-#include <concepts>
 #include <utility>
 
 namespace {
@@ -24,7 +23,7 @@ NavEntry CurrentNavEntry(const AppState& state)
 void DiscardPendingLoad(AppState& state)
 {
     state.view.nav_history.RollbackPending();
-    state.view.scroll_restore.ClearNodeRestore();
+    state.view.pending_restore = {};
 }
 
 } // namespace
@@ -50,6 +49,19 @@ void PushCurrentNavEntry(AppState& state, std::wstring_view load_path)
     else {
         state.view.nav_history.PushPending(std::move(entry));
     }
+}
+
+const PaneLayout& EnsurePaneLayout(AppState& state) noexcept
+{
+    auto& cache = state.pane_layout_cache;
+    // WM_NCHITTEST は Init 前にも届く。大きさが決まる (最初の WM_SIZE) までは空の配置のまま。
+    if (!cache.IsValid() && state.theme && state.window.client_width > 0) {
+        const float scale = state.window.cached_dpi_scale;
+        const float width = PixelToDip(static_cast<float>(state.window.client_width), scale);
+        const float height = PixelToDip(static_cast<float>(state.window.client_height), scale);
+        cache.Set(width, state.view.panes.ComputeLayout(width, height, state.theme->splitter_width, state.window.titlebar.GetHeight()));
+    }
+    return cache.Get();
 }
 
 SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
@@ -90,9 +102,27 @@ float MdScrollableContentHeight(const AppState& state) noexcept
         state.theme->margin_bottom);
 }
 
-void EndLeftDrag(AppState& state, SideEffectList& effects)
+float MdMaxScroll(const AppState& state) noexcept
+{
+    return MaxScroll(MdScrollableContentHeight(state), state.pane_layout_cache.Get().md_rect.height);
+}
+
+namespace {
+
+// 待たせていたリロードを予約する。LButtonUp の処理中に文書を差し替えないよう、タイマーで後に回す。
+void ClearDrag(AppState& state, SideEffectList& effects)
 {
     state.view.drag = {};
+    if (std::exchange(state.view.reload_after_drag, false)) {
+        PushEffect(effects, effect::SetTimer{ app_timer::Id::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_RETRY_MS });
+    }
+}
+
+} // namespace
+
+void EndLeftDrag(AppState& state, SideEffectList& effects)
+{
+    ClearDrag(state, effects);
     if (state.interaction.gesture.GetPhase() == GesturePhase::Idle) {
         PushEffect(effects, effect::ReleaseCapture{});
     }
@@ -113,49 +143,23 @@ void ClearTooltip(AppState& state, SideEffectList& effects)
     PushEffect(effects, effect::ClearTooltip{});
 }
 
-// 同座標スキップも解除し、次の WM_MOUSEMOVE でホバーを引き直させる。
-void InvalidateHover(AppState& state, SideEffectList& effects)
-{
-    state.interaction.last_hover_pos.Reset();
-    ClearTooltip(state, effects);
-}
-
-// スクロール位置が変わった時に共通で発火する副作用列。
-// toc_auto_scroll は発火元がスクロール先を決める: 目次ペイン操作由来のみ false (issue#259)。
-// デフォルト引数にすると新経路が暗黙で true を拾うため、呼び出し側で必ず明示する。
+// スクロール位置が変わった時の副作用列。Reduce が前後の scroll_y を比べて 1 回だけ積む。
+// toc_auto_scroll: 目次ペイン操作由来のみ false (issue#259)。
 void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects, bool toc_auto_scroll)
 {
-    InvalidateHover(state, effects);
-    PushEffect(effects, effect::RefreshHover{});
+    ClearTooltip(state, effects);
     PushEffect(effects, effect::InvalidateWindow{});
     PushEffect(effects, effect::BitmapManage{});
     PushEffect(effects, effect::SyncTocActive{ toc_auto_scroll });
 }
 
-void EmitScrollEffects(AppState& state, SideEffectList& effects, float old_scroll)
-{
-    if (state.view.viewport.GetScrollY() != old_scroll) {
-        EmitScrollChangedSideEffects(state, effects, /*toc_auto_scroll=*/true);
-    }
-}
-
-// f が viewport を直接動かした場合に、前後の scroll_y を比べて通常スクロールと同じ副作用を積む。
-template <std::invocable F>
-void WithScrollEffects(AppState& state, SideEffectList& effects, F&& f)
-{
-    const float old_scroll = state.view.viewport.GetScrollY();
-    std::forward<F>(f)();
-    EmitScrollEffects(state, effects, old_scroll);
-}
-
-void ApplyScrollTargetAndEmit(AppState& state, SideEffectList& effects, int node, float offset, bool toc_auto_scroll)
+void ApplyScrollTarget(AppState& state, int node, float offset)
 {
     state.view.viewport.SetScrollTarget(node, offset);
     state.view.viewport.ApplyScrollTarget(state.document.layout_cache);
     // 末尾セクションへのジャンプで scroll_y > max_scroll になると、後続の DirectScrollBy で
     // 位置が一気に飛ぶ。事前クランプ + target 無効化で範囲外への復帰を抑える。
-    state.view.viewport.ClampAndDetach();
-    EmitScrollChangedSideEffects(state, effects, toc_auto_scroll);
+    state.view.viewport.ClampAndDetach(MdMaxScroll(state));
 }
 
 // new_value は差分ではなく絶対値。
@@ -175,36 +179,35 @@ bool SetBlockScrollX(AppState& state, int node_index, float new_value, const Blo
     return true;
 }
 
-void ReduceKeyScroll(AppState& state, SideEffectList& effects, const KeyScrollAction& a)
+void ReduceKeyScroll(AppState& state, const KeyScrollAction& a)
 {
     auto& viewport = state.view.viewport;
     const float page_size = state.pane_layout_cache.Get().md_rect.height;
-    WithScrollEffects(state, effects, [&] {
-        switch (a.type) {
-        case ScrollType::LineUp:
-            viewport.DirectScrollBy(-SCROLL_LINE_AMOUNT);
-            return;
-        case ScrollType::LineDown:
-            viewport.DirectScrollBy(SCROLL_LINE_AMOUNT);
-            return;
-        case ScrollType::PageUp:
-            viewport.DirectScrollBy(-page_size * SCROLL_PAGE_FACTOR);
-            return;
-        case ScrollType::PageDown:
-            viewport.DirectScrollBy(page_size * SCROLL_PAGE_FACTOR);
-            return;
-        case ScrollType::Home:
-            // ノード 0 の target だと scroll_y = Top(0) になり上余白が隠れる (ロード直後の 0 と不一致)。
-            // 短い文書では max_scroll も超えるため、ピクセルで 0 を指定する。
-            viewport.ScrollTo(0.0f);
-            return;
-        case ScrollType::End:
-            // 末尾は max_scroll に依存するためピクセル指定。scroll target は無効化される。
-            viewport.ScrollTo(viewport.GetMaxScroll());
-            return;
-        }
-        std::unreachable();
-    });
+    const float max_scroll = MdMaxScroll(state);
+    switch (a.type) {
+    case ScrollType::LineUp:
+        viewport.DirectScrollBy(-SCROLL_LINE_AMOUNT, max_scroll);
+        return;
+    case ScrollType::LineDown:
+        viewport.DirectScrollBy(SCROLL_LINE_AMOUNT, max_scroll);
+        return;
+    case ScrollType::PageUp:
+        viewport.DirectScrollBy(-page_size * SCROLL_PAGE_FACTOR, max_scroll);
+        return;
+    case ScrollType::PageDown:
+        viewport.DirectScrollBy(page_size * SCROLL_PAGE_FACTOR, max_scroll);
+        return;
+    case ScrollType::Home:
+        // ノード 0 の target だと scroll_y = Top(0) になり上余白が隠れる (ロード直後の 0 と不一致)。
+        // 短い文書では max_scroll も超えるため、ピクセルで 0 を指定する。
+        viewport.ScrollTo(0.0f, max_scroll);
+        return;
+    case ScrollType::End:
+        // 末尾は max_scroll に依存するためピクセル指定。scroll target は無効化される。
+        viewport.ScrollTo(max_scroll, max_scroll);
+        return;
+    }
+    std::unreachable();
 }
 
 // 縦スクロールが発生した時点で軸ロックを更新 (再武装) し、直後の水平ホイールが
@@ -223,7 +226,7 @@ void NotifyVWheel(AppState& state, SideEffectList& effects, uint64_t tick)
 void ReduceDirectScrollBy(AppState& state, SideEffectList& effects, const DirectScrollByAction& a)
 {
     NotifyVWheel(state, effects, a.tick);
-    WithScrollEffects(state, effects, [&] { state.view.viewport.DirectScrollBy(a.delta); });
+    state.view.viewport.DirectScrollBy(a.delta, MdMaxScroll(state));
 }
 
 void ReduceScrollPane(AppState& state, SideEffectList& effects, const ScrollPaneAction& a)
@@ -303,17 +306,17 @@ void ReduceBlockHScrollDragMoved(AppState& state, SideEffectList& effects, const
 void ApplyNavResult(AppState& state, SideEffectList& effects, NavEntry&& entry)
 {
     if (!entry.file_path.empty() && !path_util::iequal(entry.file_path, state.document.doc.GetFilePath())) {
-        state.view.scroll_restore.SetNodeRestore(entry.node, static_cast<int>(std::lround(entry.offset)));
+        state.view.pending_restore = { entry.node, entry.offset };
         PushEffect(effects, effect::LoadFile{ std::move(entry.file_path) });
     }
     else {
         // 戻る/進むを続けて表示中の文書へ戻ったとき、途中で開き始めたファイルが後から表示されないようにする。
         PushEffect(effects, effect::CancelOtherFileLoad{});
         // 取り消すファイル用の復元位置なので、次に開くファイルへ持ち越さない。
-        state.view.scroll_restore.ClearNodeRestore();
+        state.view.pending_restore = {};
         // ロードを伴わないので、ここで確定しないと後の無関係なロード失敗で取り消される。
         state.view.nav_history.CommitPending();
-        ApplyScrollTargetAndEmit(state, effects, entry.node, entry.offset, /*toc_auto_scroll=*/true);
+        ApplyScrollTarget(state, entry.node, entry.offset);
     }
 }
 
@@ -334,13 +337,13 @@ void OpenFileWithHistory(AppState& state, SideEffectList& effects, const std::pm
     PushEffect(effects, effect::LoadFile{ path });
 }
 
-void ScrollToHeading(AppState& state, SideEffectList& effects, int node_index, bool toc_auto_scroll)
+void ScrollToHeading(AppState& state, int node_index)
 {
     if (node_index < 0) {
         return;
     }
     const auto target = MakeHeadingTopTarget(node_index, state.theme->heading_spacing_above);
-    ApplyScrollTargetAndEmit(state, effects, target.node, target.offset, toc_auto_scroll);
+    ApplyScrollTarget(state, target.node, target.offset);
 }
 
 void ReduceFilePaneDirectoryClicked(AppState& state, SideEffectList& effects, const FilePaneDirectoryClickedAction& a)
@@ -371,14 +374,13 @@ void ReduceFilePaneRevealCurrentFile(AppState& state, SideEffectList& effects)
     PushEffect(effects, effect::InvalidateWindow{});
 }
 
-void ReduceTocItemClicked(AppState& state, SideEffectList& effects, const TocItemClickedAction& a)
+void ReduceTocItemClicked(AppState& state, const TocItemClickedAction& a)
 {
     PushCurrentNavEntry(state);
-    // 目次クリック由来では目次ペインの自動スクロールを抑制する (issue#259)。
-    ScrollToHeading(state, effects, a.node_index, /*toc_auto_scroll=*/false);
+    ScrollToHeading(state, a.node_index);
 }
 
-void ReduceNavigateAnchor(AppState& state, SideEffectList& effects, const NavigateAnchorAction& a)
+void ReduceNavigateAnchor(AppState& state, const NavigateAnchorAction& a)
 {
     // リンク切れのアンカーで履歴を積むと、進む履歴が消えて戻っても同じ位置になる。
     const int node_index = state.document.doc.FindAnchorIndex(a.anchor_id);
@@ -386,18 +388,16 @@ void ReduceNavigateAnchor(AppState& state, SideEffectList& effects, const Naviga
         return;
     }
     PushCurrentNavEntry(state);
-    ScrollToHeading(state, effects, node_index, /*toc_auto_scroll=*/true);
+    ScrollToHeading(state, node_index);
 }
 
 void ReduceRestoreScrollAfterLoad(AppState& state)
 {
     state.view.nav_history.CommitPending();
     auto& viewport = state.view.viewport;
-    auto& restore = state.view.scroll_restore;
-    if (restore.HasNodeRestore()) {
-        viewport.SetScrollTarget(restore.pending_restore_node, static_cast<float>(restore.pending_restore_offset));
+    if (const ScrollTarget restore = std::exchange(state.view.pending_restore, {}); restore.IsValid()) {
+        viewport.SetScrollTarget(restore.node, restore.offset);
         viewport.ApplyScrollTarget(state.document.layout_cache);
-        restore.ClearNodeRestore();
     }
     else {
         viewport.SetScrollY(0.0f);
@@ -464,7 +464,7 @@ void ReducePointerHover(AppState& state, SideEffectList& effects, const PointerH
 void ReduceMouseLeave(AppState& state, SideEffectList& effects)
 {
     ApplyHoverHighlights(state, effects, {});
-    InvalidateHover(state, effects);
+    ClearTooltip(state, effects);
 }
 
 void ReduceCaptureChanged(AppState& state, SideEffectList& effects)
@@ -477,7 +477,7 @@ void ReduceCaptureChanged(AppState& state, SideEffectList& effects)
     // キャプチャ喪失時 (Alt+Tab・他アプリの SetCapture 等) は WM_LBUTTONUP が
     // 届かないため、進行中のドラッグをここで終える。キャプチャは既に無いので解放しない。
     if (state.view.drag.kind != LeftDrag::None) {
-        state.view.drag = {};
+        ClearDrag(state, effects);
         invalidate = true;
     }
     if (invalidate) {
@@ -524,9 +524,7 @@ void ReduceLeftDragEnded(AppState& state, SideEffectList& effects)
 void ReduceSearchInputDragStarted(AppState& state, SideEffectList& effects, const SearchInputDragStartedAction& a)
 {
     BeginLeftDrag(state, effects, { .kind = LeftDrag::SearchInput, .search_anchor = a.caret_pos });
-    PushEffect(
-        effects,
-        effect::SearchFocus{ effect::SearchFocus::Mode::SetCaret, 0, a.caret_pos });
+    PushEffect(effects, effect::SearchFocus{ a.caret_pos, a.caret_pos });
 }
 
 void ReduceSearchInputDragMoved(AppState& state, SideEffectList& effects, const SearchInputDragMovedAction& a)
@@ -539,13 +537,7 @@ void ReduceSearchInputDragMoved(AppState& state, SideEffectList& effects, const 
     if (a.caret_pos == ctrl.GetCaretPos() && anchor == ctrl.GetSelectionStart()) {
         return;
     }
-    PushEffect(
-        effects,
-        effect::SearchFocus{
-            effect::SearchFocus::Mode::SetSelection,
-            anchor,
-            a.caret_pos,
-        });
+    PushEffect(effects, effect::SearchFocus{ anchor, a.caret_pos });
 }
 
 void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, const MdScrollbarDragStartedAction& a)
@@ -556,17 +548,17 @@ void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, cons
     BeginLeftDrag(state, effects, { .kind = LeftDrag::MdScrollbar, .grip_offset = grip.drag_offset });
     // thumb 内クリックなら 1st jump は不要 (thumb-grip オフセット記録だけ)。
     if (!grip.inside_thumb) {
-        WithScrollEffects(state, effects, [&] { viewport.ScrollTo(ScrollFromThumbY(info, a.dip_y - grip.drag_offset)); });
+        viewport.ScrollTo(ScrollFromThumbY(info, a.dip_y - grip.drag_offset), MdMaxScroll(state));
     }
 }
 
-void ReduceMdScrollbarDragMoved(AppState& state, SideEffectList& effects, const MdScrollbarDragMovedAction& a)
+void ReduceMdScrollbarDragMoved(AppState& state, const MdScrollbarDragMovedAction& a)
 {
     if (state.view.drag.kind != LeftDrag::MdScrollbar) {
         return;
     }
     const float new_thumb_y = a.dip_y - state.view.drag.grip_offset;
-    WithScrollEffects(state, effects, [&] { state.view.viewport.ScrollTo(ScrollFromThumbY(MdScrollInfo(state), new_thumb_y)); });
+    state.view.viewport.ScrollTo(ScrollFromThumbY(MdScrollInfo(state), new_thumb_y), MdMaxScroll(state));
 }
 
 void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, const PaneScrollbarDragStartedAction& a)
@@ -688,14 +680,6 @@ void ReduceRightClickGestureCompleted(AppState& state, SideEffectList& effects, 
     PushEffect(effects, effect::InvalidateWindow{});
 }
 
-// SearchBarController は ScrollToCurrentMatch で viewport を直接動かすため WithScrollEffects で包む。
-void ReduceSearchContinue(AppState& state, SideEffectList& effects)
-{
-    WithScrollEffects(state, effects, [&] {
-        state.search.search_bar_ctrl.OnContinue(effects, state.document.doc.GetNodes());
-    });
-}
-
 void ReduceSearchStep(AppState& state, SideEffectList& effects, bool forward)
 {
     auto& ss = state.search;
@@ -703,22 +687,12 @@ void ReduceSearchStep(AppState& state, SideEffectList& effects, bool forward)
         ss.search_bar_ctrl.OnOpen(effects, state.document.doc.GetNodes());
         return;
     }
-    WithScrollEffects(state, effects, [&] {
-        if (forward) {
-            ss.search_bar_ctrl.OnNext(effects);
-        }
-        else {
-            ss.search_bar_ctrl.OnPrev(effects);
-        }
-    });
-}
-
-void ReduceSearchTextChanged(AppState& state, SideEffectList& effects, const SearchTextChangedAction& a)
-{
-    const auto& doc = state.document.doc;
-    WithScrollEffects(state, effects, [&] {
-        state.search.search_bar_ctrl.OnTextChanged(effects, a.text, doc.GetNodes());
-    });
+    if (forward) {
+        ss.search_bar_ctrl.OnNext(effects);
+    }
+    else {
+        ss.search_bar_ctrl.OnPrev(effects);
+    }
 }
 
 void ReduceTogglePane(AppState& state, SideEffectList& effects, const TogglePaneAction& a)
@@ -828,7 +802,7 @@ void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
         // offset もズーム比でスケールしないと、ノード内の同じ位置が可視先頭に残らない。
         state.view.viewport.SetScrollTarget(anchor.node, anchor.offset * zoom_ratio);
     }
-    PushEffect(effects, effect::ApplyThemeChange{ effect::ApplyThemeChange::Type::Zoom });
+    PushEffect(effects, effect::ApplyZoom{});
 }
 
 void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
@@ -841,7 +815,7 @@ void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
         // Mermaid 再レンダリングで微小な高さ変化が起きるので target で追従する。
         state.view.viewport.SetScrollTarget(anchor.node, anchor.offset);
     }
-    PushEffect(effects, effect::ApplyThemeChange{ effect::ApplyThemeChange::Type::DarkMode });
+    PushEffect(effects, effect::ToggleDarkMode{});
 }
 
 void ReduceActivate(AppState& state, SideEffectList& effects, const ActivateAction& a)
@@ -861,7 +835,8 @@ void ReduceResize(AppState& state, SideEffectList& effects, const ResizeAction& 
         return;
     }
     // 最小化からの復元などで同じ大きさの WM_SIZE が来ても、描画面もレイアウトも変わらない。
-    if (a.width == state.window.client_width && a.height == state.window.client_height) {
+    const bool dpi_changed = std::exchange(state.window.dpi_changed, false);
+    if (a.width == state.window.client_width && a.height == state.window.client_height && !dpi_changed) {
         return;
     }
     state.window.client_width = a.width;
@@ -895,8 +870,7 @@ void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChanged
     // ピクセルサイズ不変でも DIP サイズが変わるため、移動ループ終了時のレイアウトを要求する。
     // 続く WM_SIZE が同じピクセルサイズでも処理させる。
     state.window.size_changed_in_sizing = true;
-    state.window.client_width = 0;
-    state.window.client_height = 0;
+    state.window.dpi_changed = true;
     state.pane_layout_cache.Invalidate();
     // DPI 変更では IDWriteTextLayout (DIP 単位) は不変。
     state.document.layout_cache.NotifyDpiChanged();
@@ -909,7 +883,7 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
 {
     switch (a.timer_id) {
     case app_timer::Id::TOAST:
-        state.interaction.toast.Hide();
+        state.interaction.toast_message.clear();
         PushEffect(effects, effect::KillTimer{ app_timer::Id::TOAST });
         PushEffect(effects, effect::InvalidateWindow{});
         return;
@@ -943,13 +917,25 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
 SideEffectList Reduce(AppState& state, const AppAction& action)
 {
     SideEffectList effects;
+    EnsurePaneLayout(state);
+    // viewport を動かす経路 (キー・ホイール・スクロールバー・履歴・検索のマッチ移動など) を問わず、
+    // 前後の scroll_y を比べてスクロールの副作用を 1 回だけ積む。
+    enum class ScrollFollow : uint8_t {
+        All,
+        // 目次クリック由来では目次ペインの自動スクロールを抑制する (issue#259)。
+        KeepTocPane,
+        // ロード後の復元。直後の App::RelayoutViewport が計測してから追従させる。
+        None,
+    };
+    ScrollFollow follow = ScrollFollow::All;
+    const float old_scroll = state.view.viewport.GetScrollY();
 
     // clang-format off
     std::visit(overloaded{
         [](const NoOpAction&) static {},
 
         // ---- スクロール ----
-        [&](const KeyScrollAction& a) { ReduceKeyScroll(state, effects, a); },
+        [&](const KeyScrollAction& a) { ReduceKeyScroll(state, a); },
         [&](const DirectScrollByAction& a) { ReduceDirectScrollBy(state, effects, a); },
         [&](const ScrollPaneAction& a) { ReduceScrollPane(state, effects, a); },
 
@@ -983,8 +969,8 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const CloseSearchBarAction&) { state.search.search_bar_ctrl.OnClose(effects); },
         [&](const SearchNextAction&) { ReduceSearchStep(state, effects, true); },
         [&](const SearchPrevAction&) { ReduceSearchStep(state, effects, false); },
-        [&](const SearchTextChangedAction& a) { ReduceSearchTextChanged(state, effects, a); },
-        [&](const SearchContinueAction&) { ReduceSearchContinue(state, effects); },
+        [&](const SearchTextChangedAction& a) { state.search.search_bar_ctrl.OnTextChanged(effects, a.text, state.document.doc.GetNodes()); },
+        [&](const SearchContinueAction&) { state.search.search_bar_ctrl.OnContinue(effects, state.document.doc.GetNodes()); },
         [&](const ToggleCaseSensitiveAction&) { state.search.search_bar_ctrl.OnToggleCaseSensitive(effects, state.document.doc.GetNodes()); },
         [&](const ToggleHighlightAction&) { state.search.search_bar_ctrl.OnToggleHighlight(effects); },
         [&](const SearchSelectionAction& a) { state.search.search_bar_ctrl.SetSelection(effects, a.sel_start, a.sel_end); },
@@ -1000,7 +986,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const SearchInputDragStartedAction& a) { ReduceSearchInputDragStarted(state, effects, a); },
         [&](const SearchInputDragMovedAction& a) { ReduceSearchInputDragMoved(state, effects, a); },
         [&](const MdScrollbarDragStartedAction& a) { ReduceMdScrollbarDragStarted(state, effects, a); },
-        [&](const MdScrollbarDragMovedAction& a) { ReduceMdScrollbarDragMoved(state, effects, a); },
+        [&](const MdScrollbarDragMovedAction& a) { ReduceMdScrollbarDragMoved(state, a); },
         [&](const PaneScrollbarDragStartedAction& a) { ReducePaneScrollbarDragStarted(state, effects, a); },
         [&](const PaneScrollbarDragMovedAction& a) { ReducePaneScrollbarDragMoved(state, effects, a); },
         [&](const TextSelectionStartedAction& a) { ReduceTextSelectionStarted(state, effects, a); },
@@ -1011,11 +997,17 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const RightClickGestureCompletedAction& a) { ReduceRightClickGestureCompleted(state, effects, a); },
         [&](const FilePaneDirectoryClickedAction& a) { ReduceFilePaneDirectoryClicked(state, effects, a); },
         [&](const FilePaneRevealCurrentFileAction&) { ReduceFilePaneRevealCurrentFile(state, effects); },
-        [&](const TocItemClickedAction& a) { ReduceTocItemClicked(state, effects, a); },
-        [&](const NavigateAnchorAction& a) { ReduceNavigateAnchor(state, effects, a); },
-        [&](const RestoreScrollAfterLoadAction&) { ReduceRestoreScrollAfterLoad(state); },
+        [&](const TocItemClickedAction& a) {
+            ReduceTocItemClicked(state, a);
+            follow = ScrollFollow::KeepTocPane;
+        },
+        [&](const NavigateAnchorAction& a) { ReduceNavigateAnchor(state, a); },
+        [&](const RestoreScrollAfterLoadAction&) {
+            ReduceRestoreScrollAfterLoad(state);
+            follow = ScrollFollow::None;
+        },
         [&](const LoadFailedAction&) { DiscardPendingLoad(state); },
-        [&](const InvalidateHoverAction&) { InvalidateHover(state, effects); },
+        [&](const ClearTooltipAction&) { ClearTooltip(state, effects); },
 
         // ---- ナビゲーション ----
         [&](const NavigateBackAction&) { NavigateHistory(state, effects, /*forward=*/false); },
@@ -1031,5 +1023,8 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const TimerAction& a) { ReduceTimer(state, effects, a); },
     }, action);
     // clang-format on
+    if (follow != ScrollFollow::None && state.view.viewport.GetScrollY() != old_scroll) {
+        EmitScrollChangedSideEffects(state, effects, follow == ScrollFollow::All);
+    }
     return effects;
 }
