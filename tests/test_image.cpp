@@ -1144,12 +1144,15 @@ TEST_F(ImageLoaderAsyncTest, ProcessCompletedDecodesDefersOverBudget)
     // Shutdown はキュー済みタスクを実行し切ってから戻るので、全件の結果が届いている。
     scheduler_.Shutdown();
 
+    EXPECT_FALSE(loader_.HasLeftoverUploads()) << "届いただけの結果は投函で知らせる";
     loader_.ProcessCompletedDecodes(std::chrono::steady_clock::time_point::min());
     EXPECT_EQ(loader_.CacheSize(), 1u);
     EXPECT_EQ(callback_count_.load(), 1);
+    EXPECT_TRUE(loader_.HasLeftoverUploads());
 
     loader_.ProcessCompletedDecodes(std::chrono::steady_clock::time_point::max());
     EXPECT_EQ(loader_.CacheSize(), static_cast<size_t>(kImageCount));
+    EXPECT_FALSE(loader_.HasLeftoverUploads());
 }
 
 TEST_F(ImageLoaderAsyncTest, ShutdownDuringHeavyLoad)

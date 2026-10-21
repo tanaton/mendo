@@ -43,7 +43,8 @@ public:
     // 変更なし / 書き込み途中 (prefix shrink) ならパースを省いて判定結果だけ返す。
     // 結果を出したら hwnd に msg_id を送る。hwnd が null なら送らず、後から Attach で通知先を渡す
     // (起動時にウィンドウを作るのと並行して読み込む)。
-    void Start(TaskScheduler& scheduler, std::pmr::wstring path, HWND hwnd, UINT msg_id, Theme theme,
+    // content_width は推定に使う本文幅 (0 は幅を知らない)。
+    void Start(TaskScheduler& scheduler, std::pmr::wstring path, HWND hwnd, UINT msg_id, Theme theme, float content_width = 0.0f,
                std::shared_ptr<const std::pmr::string> reload_base = nullptr);
 
     enum class AttachResult {
@@ -70,7 +71,7 @@ public:
 
 private:
     // worker スレッド本体。I/O → リロード差分判定 → Parse → Estimate の各段で gen/stop を確認する。
-    void RunWorker(const std::pmr::wstring& path, uint32_t gen, const Theme& theme, const std::stop_token& stop_token,
+    void RunWorker(const std::pmr::wstring& path, uint32_t gen, const Theme& theme, float content_width, const std::stop_token& stop_token,
                    std::shared_ptr<const std::pmr::string> reload_base);
     // sink 書き込みは Cancel との直列化のため lock 内で gen を再確認してから行う。
     void Publish(uint32_t gen, AsyncLoadOutcome outcome);

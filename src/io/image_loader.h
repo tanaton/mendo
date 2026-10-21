@@ -54,8 +54,13 @@ public:
     {
         return DecodeWidthPx(max_width_dip) > image.sharp_width_px;
     }
-    // deadline を過ぎたら残りを UPLOAD_CONTINUE タイマーに回す。
+    // deadline を過ぎた分は残し、HasLeftoverUploads が真になる。
     void ProcessCompletedDecodes(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
+    // 新しい結果は投函で知らせるので、続きが要るのは時間切れで残したときだけ。UI スレッド専用。
+    bool HasLeftoverUploads() const noexcept
+    {
+        return leftover_uploads_;
+    }
     // 始まっていないデコードを捨てる。始まったものの結果はキャッシュに入れる (パスがキーなので文書をまたいでも使える)。
     // 始まったものは要求中のまま残し、結果が届く前に同じパスを要求し直しても二重に読まない。
     void DropQueued();
@@ -132,6 +137,7 @@ private:
 
     std::mutex result_mutex_;
     std::vector<DecodeResult> completed_;
+    bool leftover_uploads_ = false;
 
     // Shutdown で worker 完了を待つ。scheduler_ 共有 worker から self を参照する race を排除する。
     WorkerLatch latch_;

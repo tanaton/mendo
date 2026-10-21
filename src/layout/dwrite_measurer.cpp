@@ -23,12 +23,18 @@ namespace {
 constexpr float LAYOUT_INFINITY = 1.0e7f;
 
 // セルに列幅と揃えを適用して高さを返す。幅不変ならキャッシュ済みの高さを使う。
+// 左揃えで列幅に収まるセルは作ったときの無限幅のまま使う。折り返さないので行組みは同じで、
+// 幅を付けると組み直しになる (計測済みの結果を GetMetrics が返すだけになる)。
 float ApplyCellWidth(TableLayoutData& tl, size_t ci, float cw, TableAlign align) noexcept
 {
     const bool width_unchanged = std::abs(tl.cell_applied_widths[ci] - cw) < CELL_WIDTH_EPSILON && tl.cell_heights[ci] > 0.0f;
     if (!width_unchanged) {
         auto* layout = tl.cell_layouts[ci].Get();
-        layout->SetMaxWidth(cw);
+        const bool left = align == TableAlign::Default || align == TableAlign::Left;
+        const float layout_width = left && tl.cell_natural_widths[ci] <= cw ? LAYOUT_INFINITY : cw;
+        if (layout->GetMaxWidth() != layout_width) {
+            layout->SetMaxWidth(layout_width);
+        }
         if (align == TableAlign::Center) {
             layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
         }
@@ -449,9 +455,11 @@ void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayout
             IDWriteTextFormat* const row_fmt = GetTableRowFormat(tbl, r);
             for (size_t c = 0; c < col_count; c++) {
                 BuildCellLayout(tbl, r, c, row_fmt, tl);
-                if (const auto& cell_layout = tl.cell_layouts[tl.CellIndex(r, c)]) {
+                const size_t ci = tl.CellIndex(r, c);
+                if (const auto& cell_layout = tl.cell_layouts[ci]) {
                     DWRITE_TEXT_METRICS metrics{};
                     cell_layout->GetMetrics(&metrics);
+                    tl.cell_natural_widths[ci] = metrics.width;
                     local_widths[c] = std::max(local_widths[c], metrics.width);
                 }
             }
@@ -510,6 +518,13 @@ void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayou
     const float base_row_height = layout::TableBaseRowHeight(*theme_);
     ParallelFor(scheduler_, tbl.row_count, TableRowsPerChunk(col_count), [&](size_t row_begin, size_t row_end) {
         for (size_t r = row_begin; r < row_end; r++) {
+            // evict 済みの行はセルが無く、下の判定でも行高さを残すだけなので、全列をなめずに飛ばす。
+            if (tl.row_evicted[r] && tl.row_heights[r] > 0.0f) {
+                if (!tl.row_code_bgs.empty()) {
+                    tl.row_code_bgs[r].clear();
+                }
+                continue;
+            }
             const auto [row_height, has_unbuilt_cell] = MeasureRowHeight(tl, tbl, r, base_row_height);
             // 部分復元時は null セルがある行 = 範囲外 evict 行。再計算で行高さを既定値に戻すと
             // 累積位置がずれるため、既存の row_heights[r] を保持する (復元時に実測で補正される)。

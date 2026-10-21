@@ -100,9 +100,9 @@ AppAction HandleMouseWheel(const MouseWheelEvent& event, int& zoom_accum)
     const float scroll_amount = -event.delta * MOUSE_WHEEL_SCROLL_MULTIPLIER;
 
     if (event.zone == PaneZone::FilePane || event.zone == PaneZone::TocPane) {
-        return ScrollPaneAction{ event.zone, scroll_amount };
+        return ScrollPaneAction{ event.zone, scroll_amount, event.tick };
     }
-    return DirectScrollByAction{ scroll_amount };
+    return DirectScrollByAction{ scroll_amount, event.tick };
 }
 
 } // namespace app_controller

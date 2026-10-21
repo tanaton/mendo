@@ -182,9 +182,8 @@ public:
         const auto& nodes = deps_.doc->GetNodes();
         bool any_applied = false;
         for (size_t i : deps_.doc->GetDiagramNodeIndices()) {
-            const auto hash = mermaid_util::NodeDiagramHash(nodes[i], content_width, dark_mode);
             MermaidFileCache::CacheEntry fentry;
-            if (deps_.mermaid_file_cache->LookupDimensions(hash, fentry)) {
+            if (deps_.mermaid_file_cache->LookupDiagram(mermaid_util::DiagramCodeHash(nodes[i]), content_width, dark_mode, fentry)) {
                 const float node_width = layout::NodeContentWidth(nodes[i], theme, content_width);
                 (*deps_.cache)[i].height = layout::BitmapDisplayHeight(fentry.css_width, fentry.css_height, node_width);
                 any_applied = true;
@@ -482,7 +481,7 @@ private:
             for (size_t i : deps_.doc->GetDiagramNodeIndices()) {
                 auto* diagram = deps_.cache->FindDiagram(i);
                 if (diagram && diagram->bitmap && diagram->width > 0 &&
-                    diagram->width + 1.0f < min_width) {
+                    mermaid_util::IsWidthFree(diagram->width, min_width)) {
                     continue;
                 }
                 // 幅が変わればエラー結果も変わりうるため、error 込みで再試行させる。描き直しの間は旧幅の結果を仮に表示する。

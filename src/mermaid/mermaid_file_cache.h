@@ -45,6 +45,9 @@ public:
     // ファイルが確実に存在しない場合のみインデックスから除く (共有違反などの一時エラーは保持)。
     void OnReadFailed(uint64_t key, DWORD read_error);
     bool LookupDimensions(uint64_t key, CacheEntry& entry);
+    // 図の寸法を、幅に縛られない結果 (max_width より狭いときだけ使える) を先に、無ければ幅つきで引き、当たったキーを返す。
+    // LRU は更新しない (使えない幅なしの項目で更新しないため)。
+    std::optional<uint64_t> LookupDiagram(uint64_t code_hash, float max_width, bool dark_mode, CacheEntry& entry);
     // png_data は表示側 (メモリキャッシュ / DiagramEntry) と共有し、書き込み用にコピーしない。
     void StoreAsync(uint64_t key, float css_width, float css_height, PngBytes png_data);
     void SaveIndex();

@@ -18,7 +18,6 @@
 
 #pragma comment(lib, "shcore.lib")
 #pragma comment(lib, "dwmapi.lib")
-#pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "imm32.lib")
 
 namespace {
@@ -146,12 +145,6 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
         return destroy();
     }
 
-    // IME 対応のため、検索入力は非表示の EDIT コントロールで受ける
-    search_edit_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 1, 1, hwnd_, nullptr, hInstance, nullptr);
-    if (search_edit_) {
-        SetWindowSubclass(search_edit_, SearchEditProc, 0, reinterpret_cast<DWORD_PTR>(this));
-    }
-
     InitSystemMenu();
     UpdateDwmFrame();
     UpdateDpiMetricsCache();
@@ -241,10 +234,19 @@ int Win32Window::RunMessageLoop()
             handles[count++] = frame_evt;
         }
         const DWORD wake_mask = frame_evt ? (QS_ALLINPUT & ~QS_PAINT) : QS_ALLINPUT;
-        const DWORD wait = MsgWaitForMultipleObjects(count, handles, FALSE, frame_evt ? D2DRenderBackend::kFrameWaitTimeoutMs : INFINITE, wake_mask);
+        // 空き時間の仕事がある間は待たない。その間はフレーム待ちの期限を数えないが、仕事が尽きれば数え直す。
+        const bool idle_work = app_->HasIdleWork();
+        const DWORD timeout = idle_work ? 0 : frame_evt ? D2DRenderBackend::kFrameWaitTimeoutMs
+                                                        : INFINITE;
+        const DWORD wait = MsgWaitForMultipleObjects(count, handles, FALSE, timeout, wake_mask);
 
         if (wait == WAIT_TIMEOUT) {
-            app_->OnFrameReady();
+            if (idle_work) {
+                app_->RunIdleWork();
+            }
+            else {
+                app_->OnFrameReady();
+            }
         }
         else if (wait == WAIT_FAILED) {
             // ハンドル無効時のビジーループ防止
@@ -899,9 +901,22 @@ void Win32Window::OnSearchEditChanged()
     SyncSearchCaretFromEdit();
 }
 
-void Win32Window::FocusSearchEdit(WPARAM mode, LPARAM selection)
+// IME 対応のため、検索入力は非表示の EDIT コントロールで受ける。EDIT は comctl32 を読み込ませるので、
+// 起動時には作らず初めて検索するときに作る。
+bool Win32Window::EnsureSearchEdit()
 {
     if (!search_edit_) {
+        search_edit_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 1, 1, hwnd_, nullptr, GetModuleHandleW(nullptr), nullptr);
+        if (search_edit_) {
+            SetWindowSubclass(search_edit_, SearchEditProc, 0, reinterpret_cast<DWORD_PTR>(this));
+        }
+    }
+    return search_edit_ != nullptr;
+}
+
+void Win32Window::FocusSearchEdit(WPARAM mode, LPARAM selection)
+{
+    if (!EnsureSearchEdit()) {
         return;
     }
     RepositionSearchEdit();

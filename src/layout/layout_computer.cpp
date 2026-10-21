@@ -169,7 +169,7 @@ float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width)
     std::unreachable();
 }
 
-void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, std::stop_token stop_token)
+void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, float content_width, std::stop_token stop_token)
 {
     MENDO_PROFILE("EstimateNodeHeights");
     // ノードの種類に応じた既定の高さを割り当て、Y座標を累積計算する。
@@ -185,7 +185,7 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
             return;
         }
         const auto& node = nodes[i];
-        const float h = EstimateNodeHeight(node, theme);
+        const float h = EstimateNodeHeight(node, theme, content_width > 0.0f ? NodeContentWidth(node, theme, content_width) : 0.0f);
         const float sa = GetSpacingAbove(node, theme);
         const float sb = GetSpacingBelow(node, theme);
 
@@ -205,14 +205,14 @@ size_t CarryOverUnchanged(
     const size_t common = std::min(old_count, new_count);
     size_t head = 0;
     while (head < common && NodeContentEquals(old_nodes[head], new_nodes[head])) {
-        new_cache.TakeEntry(old_cache, head, head);
         ++head;
     }
     size_t tail = 0;
     while (head + tail < common && NodeContentEquals(old_nodes[old_count - 1 - tail], new_nodes[new_count - 1 - tail])) {
-        new_cache.TakeEntry(old_cache, old_count - 1 - tail, new_count - 1 - tail);
         ++tail;
     }
+    new_cache.TakeEntries(old_cache, 0, 0, head);
+    new_cache.TakeEntries(old_cache, old_count - tail, new_count - tail, tail);
 
     // 図のコードを書き換えて保存すると、描き直しの間プレースホルダに戻って下の文章が 2 回跳ねる。
     // 変わった範囲の図の数が新旧で同じなら、出現順に旧結果を仮表示として引き継ぐ。
@@ -236,11 +236,14 @@ size_t CarryOverUnchanged(
     return head + tail + stale;
 }
 
-LayoutCache MakeEstimatedLayoutCache(const std::pmr::vector<Node>& nodes, const Theme& theme, std::stop_token stop_token)
+LayoutCache MakeEstimatedLayoutCache(const std::pmr::vector<Node>& nodes, const Theme& theme, float content_width, std::stop_token stop_token)
 {
     LayoutCache cache;
     cache.Resize(nodes.size());
-    EstimateNodeHeights(nodes, cache, theme, std::move(stop_token));
+    EstimateNodeHeights(nodes, cache, theme, content_width, std::move(stop_token));
+    if (content_width > 0.0f) {
+        cache.SetEstimateBasis({ content_width, theme.zoom });
+    }
     return cache;
 }
 

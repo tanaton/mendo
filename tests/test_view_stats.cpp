@@ -292,6 +292,25 @@ TEST(ViewStats, SimpleParagraphIsViewed)
     ASSERT_TRUE(found_paragraph);
 }
 
+// 字下げは md4c から静的な空白で届くが、原文も空白なら 1 行目が字下げされたコードも原文を指す。
+// タブの字下げは空白に置き換わるのでコピーになる。
+TEST(ViewStats, CodeBlockWithIndentedFirstLineIsViewed)
+{
+    for (const auto& [md, viewed] : {
+             std::pair{ "```\n    return x;\nend\n```\n",    true  },
+             std::pair{ "text\n\n```cpp\n  a\n    b\n```\n", true  },
+             std::pair{ "```\n\tx\n```\n",                   false }
+    }) {
+        auto doc = Document::FromMarkdown(md, L"test.md");
+        const auto it = std::ranges::find(doc.GetNodes(), NodeType::CodeBlock, &Node::type);
+        ASSERT_NE(it, doc.GetNodes().end()) << md;
+        EXPECT_EQ(TextPointsIntoRaw(*it, doc.GetRawText()), viewed) << md;
+        if (viewed) {
+            EXPECT_EQ(std::string_view{ doc.GetRawText() }.substr(it->SourceOffset(), it->GetText().size()), it->GetText()) << md;
+        }
+    }
+}
+
 TEST(ViewStats, DISABLED_DumpFirstOwnedCodeBlocks)
 {
     auto bytes = ReadExampleFileBytes("example/test.md");

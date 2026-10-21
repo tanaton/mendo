@@ -1,5 +1,4 @@
 #include "image_loader.h"
-#include "app_constants.h"
 #include "d2d_util.h"
 #include "file_io.h"
 #include "task_scheduler.h"
@@ -112,7 +111,7 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
             completed_.emplace_back(std::move(result));
         }
 
-        // 未回収の結果があれば通知済みか、転送の続きのタイマーが回収する。1 件ずつ投函すると、
+        // 未回収の結果があれば通知済みか、空き時間の転送が回収する。1 件ずつ投函すると、
         // 投函メッセージは描画・入力より先に取り出されるので、時間で区切った転送が間を空けずに続いてしまう。
         if (was_empty && hwnd_) {
             ::PostMessageW(hwnd_, msg_id_, 0, 0);
@@ -154,7 +153,7 @@ void ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point 
         const std::lock_guard lock(result_mutex_);
         results.swap(completed_);
     }
-
+    leftover_uploads_ = false;
     if (results.empty()) {
         return;
     }
@@ -181,13 +180,9 @@ void ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point 
         last_cb = std::move(r.on_complete);
     });
     if (processed < results.size()) {
-        {
-            const std::lock_guard lock(result_mutex_);
-            RequeueFront(completed_, results, processed);
-        }
-        if (hwnd_) {
-            ::SetTimer(hwnd_, std::to_underlying(app_timer::Id::UPLOAD_CONTINUE), app_timer::UPLOAD_CONTINUE_MS, nullptr);
-        }
+        const std::lock_guard lock(result_mutex_);
+        RequeueFront(completed_, results, processed);
+        leftover_uploads_ = true;
     }
     {
         const std::lock_guard lock(pending_mutex_);

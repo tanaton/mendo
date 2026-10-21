@@ -7,9 +7,8 @@
 #include "startup_plan.h"
 #include "utility.h"
 #include <windows.h>
-#include <shellapi.h>
-#include <commctrl.h>
 #include <array>
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 #include <system_error>
@@ -120,10 +119,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
         i18n::Init(config.LoadWString(kConfigSectionGeneral, kConfigKeyLanguage));
     }
 
-    int argc = 0;
-    LPWSTR* const argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    ScopeGuard argv_guard([argv] { LocalFree(argv); });
-    const std::wstring_view arg{ (argv && argc > 1) ? argv[1] : L"" };
+    // 引数は CRT がスタートアップで分解済み。
+    const std::wstring_view arg{ (__wargv && __argc > 1) ? __wargv[1] : L"" };
 
     // SessionService::LoadLastFilePath は UNC/デバイスパスや実在しないパスを除外する。
     SessionService session{ config };
@@ -156,10 +153,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
         return 1;
     }
     com_initialized = true;
-    INITCOMMONCONTROLSEX icc{};
-    icc.dwSize = sizeof(icc);
-    icc.dwICC = ICC_STANDARD_CLASSES;
-    InitCommonControlsEx(&icc);
 
     if (!window.Create(hInstance, nCmdShow)) {
         return 1;

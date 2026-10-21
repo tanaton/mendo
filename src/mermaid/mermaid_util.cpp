@@ -321,14 +321,24 @@ uint64_t mermaid_util::DiagramCodeHash(const Node& node) noexcept
     return h;
 }
 
+namespace {
 // 幅と dark_mode は別 prime で xor mix する。xor なのでコード側のソルトと順序を問わない。
 // ディスクキャッシュのファイル名になるので値を変えない。
+constexpr uint64_t MixDiagramKey(uint64_t code_hash, uint64_t width_term, bool dark_mode) noexcept
+{
+    return code_hash ^ (width_term * kFnv1a64Prime) ^ (static_cast<uint64_t>(dark_mode) * 2654435761ULL); // Knuth multiplicative
+}
+} // namespace
+
 uint64_t mermaid_util::DiagramRequestHash(uint64_t code_hash, float max_width, bool dark_mode) noexcept
 {
-    uint64_t h = code_hash;
-    h ^= static_cast<uint64_t>(QuantizeWidth(max_width)) * kFnv1a64Prime;
-    h ^= static_cast<uint64_t>(dark_mode) * 2654435761ULL; // Knuth multiplicative
-    return h;
+    return MixDiagramKey(code_hash, static_cast<uint64_t>(QuantizeWidth(max_width)), dark_mode);
+}
+
+// 量子化幅は 32 の倍数なので、幅 1 として混ぜれば幅つきのキーと重ならない。
+uint64_t mermaid_util::DiagramWidthFreeHash(uint64_t code_hash, bool dark_mode) noexcept
+{
+    return MixDiagramKey(code_hash, 1, dark_mode);
 }
 
 uint64_t mermaid_util::NodeDiagramHash(const Node& node, float max_width, bool dark_mode) noexcept

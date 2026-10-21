@@ -21,7 +21,7 @@ void AsyncLoadCoordinator::ResetSinks() noexcept
     }
 }
 
-void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring path, HWND hwnd, UINT msg_id, Theme theme,
+void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring path, HWND hwnd, UINT msg_id, Theme theme, float content_width,
                                  std::shared_ptr<const std::pmr::string> reload_base)
 {
     // Cancel() と同じく gen を最初に進めて、旧 worker の publish を確実に弾く。
@@ -37,9 +37,9 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
     stop_source_.request_stop();
     stop_source_ = std::stop_source{};
 
-    const bool posted = scheduler.Post([this, path = std::move(path), gen, theme = std::move(theme), stop_token = stop_source_.get_token(), reload_base = std::move(reload_base), guard = latch_.Acquire()]() mutable {
+    const bool posted = scheduler.Post([this, path = std::move(path), gen, theme = std::move(theme), content_width, stop_token = stop_source_.get_token(), reload_base = std::move(reload_base), guard = latch_.Acquire()]() mutable {
         try {
-            RunWorker(path, gen, theme, stop_token, std::move(reload_base));
+            RunWorker(path, gen, theme, content_width, stop_token, std::move(reload_base));
         } catch (const std::bad_alloc&) {
             // 空の表の行補完などは入力の百倍以上を確保させられる。worker で投げると terminate するので失敗として返す。
             Publish(gen, std::unexpected(FileLoadError::TooLarge));
@@ -76,7 +76,7 @@ AsyncLoadCoordinator::AttachResult AsyncLoadCoordinator::Attach(HWND hwnd, UINT 
     return AttachResult::AttachedAsync;
 }
 
-void AsyncLoadCoordinator::RunWorker(const std::pmr::wstring& path, uint32_t gen, const Theme& theme, const std::stop_token& stop_token,
+void AsyncLoadCoordinator::RunWorker(const std::pmr::wstring& path, uint32_t gen, const Theme& theme, float content_width, const std::stop_token& stop_token,
                                      std::shared_ptr<const std::pmr::string> reload_base)
 {
     MENDO_PROFILE("AsyncLoadCoordinator::Start Posted Task");
@@ -122,7 +122,7 @@ void AsyncLoadCoordinator::RunWorker(const std::pmr::wstring& path, uint32_t gen
         return;
     }
 
-    LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme, stop_token);
+    LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme, content_width, stop_token);
     if (stop_token.stop_requested()) {
         return;
     }

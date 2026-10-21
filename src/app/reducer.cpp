@@ -207,32 +207,34 @@ void ReduceKeyScroll(AppState& state, SideEffectList& effects, const KeyScrollAc
     });
 }
 
+// 縦スクロールが発生した時点で軸ロックを更新 (再武装) し、直後の水平ホイールが
+// スワイプとして誤検出されないようにする。
+void NotifyVWheel(AppState& state, SideEffectList& effects, uint64_t tick)
+{
+    auto& swipe = state.interaction.swipe_detector;
+    const bool had_overlay = swipe.IsOverlayVisible();
+    swipe.NotifyVScroll(tick);
+    if (had_overlay) {
+        PushEffect(effects, effect::KillTimer{ app_timer::Id::SWIPE_OVERLAY });
+        PushEffect(effects, effect::InvalidateWindow{});
+    }
+}
+
 void ReduceDirectScrollBy(AppState& state, SideEffectList& effects, const DirectScrollByAction& a)
 {
+    NotifyVWheel(state, effects, a.tick);
     WithScrollEffects(state, effects, [&] { state.view.viewport.DirectScrollBy(a.delta); });
 }
 
 void ReduceScrollPane(AppState& state, SideEffectList& effects, const ScrollPaneAction& a)
 {
+    NotifyVWheel(state, effects, a.tick);
     const auto target = ToPaneTarget(a.pane);
     if (!target) {
         return;
     }
     const auto ctx = GetSidePaneContext(state, *target);
     if (state.view.panes.ScrollSidePaneBy(*target, a.delta, ctx.info.max_scroll)) {
-        PushEffect(effects, effect::InvalidateWindow{});
-    }
-}
-
-// 縦スクロールが発生した時点で軸ロックを更新 (再武装) し、直後の水平ホイールが
-// スワイプとして誤検出されないようにする。
-void ReduceVWheel(AppState& state, SideEffectList& effects, const VWheelAction& a)
-{
-    auto& swipe = state.interaction.swipe_detector;
-    const bool had_overlay = swipe.IsOverlayVisible();
-    swipe.NotifyVScroll(a.tick);
-    if (had_overlay) {
-        PushEffect(effects, effect::KillTimer{ app_timer::Id::SWIPE_OVERLAY });
         PushEffect(effects, effect::InvalidateWindow{});
     }
 }
@@ -687,17 +689,10 @@ void ReduceRightClickGestureCompleted(AppState& state, SideEffectList& effects, 
 }
 
 // SearchBarController は ScrollToCurrentMatch で viewport を直接動かすため WithScrollEffects で包む。
-void ReduceSearchDebounce(AppState& state, SideEffectList& effects)
-{
-    WithScrollEffects(state, effects, [&] {
-        state.search.search_bar_ctrl.OnDebounceTimer(effects, state.document.doc.GetNodes());
-    });
-}
-
 void ReduceSearchContinue(AppState& state, SideEffectList& effects)
 {
     WithScrollEffects(state, effects, [&] {
-        state.search.search_bar_ctrl.OnContinueTimer(effects, state.document.doc.GetNodes());
+        state.search.search_bar_ctrl.OnContinue(effects, state.document.doc.GetNodes());
     });
 }
 
@@ -722,7 +717,7 @@ void ReduceSearchTextChanged(AppState& state, SideEffectList& effects, const Sea
 {
     const auto& doc = state.document.doc;
     WithScrollEffects(state, effects, [&] {
-        state.search.search_bar_ctrl.OnTextChanged(effects, a.text, doc.GetNodes(), doc.GetRawText().size());
+        state.search.search_bar_ctrl.OnTextChanged(effects, a.text, doc.GetNodes());
     });
 }
 
@@ -918,12 +913,6 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
         PushEffect(effects, effect::KillTimer{ app_timer::Id::TOAST });
         PushEffect(effects, effect::InvalidateWindow{});
         return;
-    case app_timer::Id::SEARCH_DEBOUNCE:
-        ReduceSearchDebounce(state, effects);
-        return;
-    case app_timer::Id::SEARCH_CONTINUE:
-        ReduceSearchContinue(state, effects);
-        return;
     case app_timer::Id::SWIPE_OVERLAY: {
         const auto result = state.interaction.swipe_detector.Commit();
         PushEffect(effects, effect::KillTimer{ app_timer::Id::SWIPE_OVERLAY });
@@ -934,7 +923,6 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
         return;
     }
     case app_timer::Id::TOOLTIP:
-    case app_timer::Id::DEFERRED_LAYOUT:
     case app_timer::Id::LOADING_ANIM:
     case app_timer::Id::MERMAID_BATCH:
     case app_timer::Id::BITMAP_MANAGE:
@@ -942,7 +930,6 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
     case app_timer::Id::FILE_RELOAD_DEBOUNCE:
     case app_timer::Id::MERMAID_IDLE:
     case app_timer::Id::DEVICE_RECREATE_RETRY:
-    case app_timer::Id::UPLOAD_CONTINUE:
         // AppState を変えないタイマーは App::HandleTimer が直接処理する。
         return;
     case app_timer::Id::END: // 番兵。タイマーとしては使わない。新規タイマーはこの直前に追加する。
@@ -988,7 +975,6 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const ResizeAction& a) { ReduceResize(state, effects, a); },
         [&](const DpiChangedAction& a) { ReduceDpiChanged(state, effects, a); },
         [&](const HWheelAction& a) { ReduceHWheel(state, effects, a); },
-        [&](const VWheelAction& a) { ReduceVWheel(state, effects, a); },
         [&](const BlockHScrollDragStartedAction& a) { ReduceBlockHScrollDragStarted(state, effects, a); },
         [&](const BlockHScrollDragMovedAction& a) { ReduceBlockHScrollDragMoved(state, effects, a); },
 
@@ -998,6 +984,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const SearchNextAction&) { ReduceSearchStep(state, effects, true); },
         [&](const SearchPrevAction&) { ReduceSearchStep(state, effects, false); },
         [&](const SearchTextChangedAction& a) { ReduceSearchTextChanged(state, effects, a); },
+        [&](const SearchContinueAction&) { ReduceSearchContinue(state, effects); },
         [&](const ToggleCaseSensitiveAction&) { state.search.search_bar_ctrl.OnToggleCaseSensitive(effects, state.document.doc.GetNodes()); },
         [&](const ToggleHighlightAction&) { state.search.search_bar_ctrl.OnToggleHighlight(effects); },
         [&](const SearchSelectionAction& a) { state.search.search_bar_ctrl.SetSelection(effects, a.sel_start, a.sel_end); },

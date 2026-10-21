@@ -32,6 +32,7 @@ struct MouseWheelEvent {
     int delta; // 生のWHEEL_DELTA単位
     bool ctrl = false;
     PaneZone zone = PaneZone::MdPane;
+    uint64_t tick = 0;
 };
 
 enum class ScrollType : uint8_t {
@@ -47,13 +48,16 @@ struct KeyScrollAction {
     ScrollType type;
 };
 
+// 縦ホイールのスクロール。tick でスワイプ検出の軸ロックを更新する。
 struct DirectScrollByAction {
     float delta;
+    uint64_t tick = 0;
 };
 
 struct ScrollPaneAction {
     PaneZone pane;
     float delta;
+    uint64_t tick = 0;
 };
 
 struct CopyClipboardAction {};
@@ -194,10 +198,6 @@ struct HWheelAction {
     short delta;
     uint64_t tick;
 };
-// 縦ホイール。スクロール自体は HandleMouseWheel が返すアクションが行う。
-struct VWheelAction {
-    uint64_t tick;
-};
 
 struct BlockHScrollDragStartedAction {
     int node_index;
@@ -235,6 +235,8 @@ struct TimerAction {
 struct SearchTextChangedAction {
     std::pmr::wstring text;
 };
+// 時間で区切った検索を、メッセージループの空き時間に 1 回分進める。
+struct SearchContinueAction {};
 struct ToggleCaseSensitiveAction {};
 struct ToggleHighlightAction {};
 struct SearchSelectionAction {
@@ -291,7 +293,6 @@ using AppAction = std::variant<
     RestoreScrollAfterLoadAction,
     LoadFailedAction,
     HWheelAction,
-    VWheelAction,
     BlockHScrollDragStartedAction,
     BlockHScrollDragMovedAction,
     OpenPathAction,
@@ -304,6 +305,7 @@ using AppAction = std::variant<
     CaptureChangedAction,
     TimerAction,
     SearchTextChangedAction,
+    SearchContinueAction,
     ToggleCaseSensitiveAction,
     ToggleHighlightAction,
     SearchSelectionAction,

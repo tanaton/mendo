@@ -41,6 +41,8 @@ constexpr uint32_t ClampEndToText(uint32_t end, size_t text_size) noexcept
     return end > text_size ? static_cast<uint32_t>(text_size) : end;
 }
 
+constexpr std::string_view kHtmlEscapeChars = "&<>\"'";
+
 constexpr std::string_view HtmlEscapeOf(char c) noexcept
 {
     switch (c) {
@@ -59,21 +61,14 @@ constexpr std::string_view HtmlEscapeOf(char c) noexcept
     }
 }
 
-// 1 byte ずつ push_back すると巨大選択で容量チェックと NUL 書き込みが毎回走るため、
-// エスケープ不要な区間をまとめて append する。
+// エスケープ不要な区間をまとめて append する。数文字の find_first_of は STL がベクトル化している。
 constexpr void AppendHtmlEscaped(std::pmr::string& out, std::string_view text)
 {
-    size_t run_begin = 0;
-    for (size_t i = 0; i < text.size(); ++i) {
-        const auto escaped = HtmlEscapeOf(text[i]);
-        if (escaped.empty()) {
-            continue;
-        }
-        out.append(text.data() + run_begin, i - run_begin);
-        out.append(escaped);
-        run_begin = i + 1;
+    for (size_t p; (p = text.find_first_of(kHtmlEscapeChars)) != std::string_view::npos; text.remove_prefix(p + 1)) {
+        out.append(text.substr(0, p));
+        out.append(HtmlEscapeOf(text[p]));
     }
-    out.append(text.data() + run_begin, text.size() - run_begin);
+    out.append(text);
 }
 
 struct InlineState {
@@ -473,6 +468,17 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
         return;
     }
 
+    // セルの開きタグは列と見出し行かどうかだけで決まるので、表ごとに 1 回だけ組み立てる。
+    std::pmr::vector<std::pmr::string> open_tags(col_count * 2);
+    for (size_t c = 0; c < col_count; c++) {
+        for (const bool header : { false, true }) {
+            auto& tag = open_tags[c * 2 + header];
+            tag = header ? "<th" : "<td";
+            AppendTableCellStyle(tag, tbl->ColAlign(c), dark_mode);
+            tag += '>';
+        }
+    }
+
     UrlSafetyTable url_safety{ link_urls.size() };
     out.append("<table style=\"border-collapse:collapse;\">");
     std::string_view section_close;
@@ -484,13 +490,10 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
             section_close = close;
         }
 
-        const std::string_view open_tag = header_row ? "<th" : "<td";
         const std::string_view close_tag = header_row ? "</th>" : "</td>";
         out.append("<tr>");
         for (size_t c = 0; c < col_count; c++) {
-            out.append(open_tag);
-            AppendTableCellStyle(out, tbl->ColAlign(c), dark_mode);
-            out.append(">");
+            out.append(open_tags[c * 2 + header_row]);
             const uint32_t cell_start = tbl->CellTextStart(r, c);
             const uint32_t cell_end = tbl->CellTextEnd(r, c);
             AppendInlineHtml(out, tbl->GetCellText(r, c), tbl->GetCellRuns(r, c), link_urls, url_safety.Span(),

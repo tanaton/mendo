@@ -138,7 +138,7 @@ flowchart LR
 `Win32Window` はWin32 APIの薄いラッパーとして、以下を担当する。
 
 1. **ウィンドウ生成** — `WNDCLASSEXW` の登録、`CreateWindowExW` によるウィンドウ作成
-2. **メッセージループ** — `MsgWaitForMultipleObjects` でメッセージ・ファイル監視イベント・フレーム待ちの waitable（`App::GetFrameWaitHandle`）を待ち、`PeekMessageW` / `TranslateMessage` / `DispatchMessageW` で配る。前フレームの表示待ちの間は `WM_PAINT` を取り出さずに入力を先に配り、waitable の成立または期限（`D2DRenderBackend::kFrameWaitTimeoutMs` = 1000ms）で `App::OnFrameReady` を呼ぶ
+2. **メッセージループ** — `MsgWaitForMultipleObjects` でメッセージ・ファイル監視イベント・フレーム待ちの waitable（`App::GetFrameWaitHandle`）を待ち、`PeekMessageW` / `TranslateMessage` / `DispatchMessageW` で配る。前フレームの表示待ちの間は `WM_PAINT` を取り出さずに入力を先に配り、waitable の成立または期限（`D2DRenderBackend::kFrameWaitTimeoutMs` = 1000ms）で `App::OnFrameReady` を呼ぶ。時間で区切った仕事（`App::HasIdleWork`）が残っていれば待たずに戻り、配るメッセージが無ければ `App::RunIdleWork` で 1 回分進める
 3. **メッセージルーティング** — Win32メッセージを `App` のイベントハンドラに委譲
 4. **NC領域処理** — `WM_NCCALCSIZE` / `WM_NCHITTEST` でカスタムタイトルバーを実装
 
@@ -177,6 +177,7 @@ private:
     static LRESULT CALLBACK SearchEditProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
     LRESULT OnSearchEditKeyDown(HWND edit, WPARAM wParam, LPARAM lParam);
     void OnSearchEditChanged();
+    bool EnsureSearchEdit();
     void FocusSearchEdit(WPARAM mode, LPARAM selection);
     void RepositionSearchEdit();
     void SyncSearchCaretFromEdit();
@@ -197,7 +198,7 @@ private:
 };
 ```
 
-`Win32Window` は `ConfigService` の参照を受け取り、内部で `App` を `unique_ptr` で保持する。`Create` は `App::Init` の後、ウィンドウを DWM でクロークしたまま配置の復元 → `App::LoadInitialDocument` → `App::CreateRenderDevice` と進め、デバイス作成を待つ間に届いた `PARSE_COMPLETE` があれば取り込んでから初回描画（`UpdateWindow`）し、クロークを解く。検索バーの実体は Win32 の Edit コントロール（`search_edit_`）として作成され、サブクラス化（`SearchEditProc`）して IME・キャレット同期を行う。
+`Win32Window` は `ConfigService` の参照を受け取り、内部で `App` を `unique_ptr` で保持する。`Create` は `App::Init` の後、ウィンドウを DWM でクロークしたまま配置の復元 → `App::LoadInitialDocument` → `App::CreateRenderDevice` と進め、デバイス作成を待つ間に届いた `PARSE_COMPLETE` があれば取り込んでから初回描画（`UpdateWindow`）し、クロークを解く。検索バーの実体は Win32 の Edit コントロール（`search_edit_`）で、サブクラス化（`SearchEditProc`）して IME・キャレット同期を行う。Edit は comctl32 を読み込ませるので、起動時には作らず、初めて検索欄にフォーカスするときに `EnsureSearchEdit` で作る。
 
 ### 3.2 App — アプリケーション統括
 
@@ -329,7 +330,7 @@ private:
 
 | ファイル | 担当 |
 |:---------|:-----|
-| `app.cpp` | コアロジック（`Init`, `CreateRenderDevice`, `LoadInitialDocument`, `Dispatch`, `Execute`, `OnPaint`, `HandleTimer`, `OnDestroy`）、レイアウト・スクロール関連ヘルパー（`EnsureScrollTarget`, `RelayoutViewport`, `ScheduleDeferredLayoutIfNeeded`, `OnDeferredLayout`, `SyncTocActiveAndAutoScroll` 等）、テーマ・ズーム変更の適用（`HandleApplyThemeChange`）、カスタムコンテキストメニュー処理 |
+| `app.cpp` | コアロジック（`Init`, `CreateRenderDevice`, `LoadInitialDocument`, `Dispatch`, `Execute`, `OnPaint`, `HandleTimer`, `OnDestroy`）、レイアウト・スクロール関連ヘルパー（`EnsureScrollTarget`, `RelayoutViewport`, `RequestDeferredLayout`, `OnDeferredLayout`, `SyncTocActiveAndAutoScroll` 等）、空き時間の仕事（`HasIdleWork` / `RunIdleWork`）、テーマ・ズーム変更の適用（`HandleApplyThemeChange`）、カスタムコンテキストメニュー処理 |
 | `app_file.cpp` | `LoadMarkdownFile`, `StartPreloadAsync`, `BeginAsyncLoad`, `OnParseComplete`、文書の差し替え（`ReplaceDocument` / `ReloadDocument`）、リロード（`ReloadCurrentFile`, `FinishReload`）、`LoadHelpDocument` |
 | `app_mouse.cpp` | マウス入力ハンドラ（`OnMouseMove`, `OnMouseWheel`, `OnRButton*`, ドラッグ系統括）、クリック処理（`OnLButtonDown/Up`, `HandleMdPaneClick`, `HandleLinkClick` 等）、ホバー処理（`OnMouseHover`, `HoverMdPane`, `ResolveMdPaneHit`） |
 | `clipboard_manager.h / .cpp` | `ClipboardManager`（コピー/PNG 保存/SVG コピーを集約。 SVG LRU キャッシュを内包） |
@@ -676,7 +677,7 @@ using AppAction = std::variant<
     RightClickGestureStartedAction, RightClickGestureMovedAction, RightClickGestureCompletedAction,
     FilePaneDirectoryClickedAction, FilePaneRevealCurrentFileAction,
     TocItemClickedAction, NavigateAnchorAction,
-    RestoreScrollAfterLoadAction, LoadFailedAction, HWheelAction, VWheelAction,
+    RestoreScrollAfterLoadAction, LoadFailedAction, HWheelAction,
     BlockHScrollDragStartedAction, BlockHScrollDragMovedAction,
     OpenPathAction,
     InvalidateHoverAction,
@@ -686,13 +687,13 @@ using AppAction = std::variant<
     // タイマー
     TimerAction,
     // 検索
-    SearchTextChangedAction, ToggleCaseSensitiveAction, ToggleHighlightAction,
+    SearchTextChangedAction, SearchContinueAction, ToggleCaseSensitiveAction, ToggleHighlightAction,
     SearchSelectionAction, ImeCompositionAction>;
 ```
 
 `SplitterDragMovedAction` / `PaneScrollbarDragMovedAction` が運ぶのはマウスの `dip_x` / `dip_y` だけである。どのペインのスプリッタ・スクロールバーをドラッグ中かは `ViewState::drag`（`kind` と `pane`）、ウィンドウ幅は `pane_layout_cache` から Reducer が読む。ドラッグの開始は `BeginLeftDrag` が `drag` を設定して `SetCapture` を積む。
 
-`OpenPathAction` は D&D・ファイルペインのクリック・ファイルダイアログに共通で、履歴を積んでからファイルを開く。`VWheelAction` は縦ホイールのたびに送られ、`SwipeDetector` の軸ロックを更新（表示中のスワイプオーバーレイは消す）するだけで、スクロール自体は `HandleMouseWheel` が返すアクションが行う。
+`OpenPathAction` は D&D・ファイルペインのクリック・ファイルダイアログに共通で、履歴を積んでからファイルを開く。縦ホイールは `HandleMouseWheel` が返す `DirectScrollByAction` / `ScrollPaneAction` 1 つで、スクロールと同時に `tick` で `SwipeDetector` の軸ロックを更新する（表示中のスワイプオーバーレイは消す）。`SearchContinueAction` は時間で区切った検索を、メッセージループの空き時間に 1 回分進める。
 
 ドラッグの終了は、テキスト選択以外は種類を問わず `LeftDragEndedAction` 1 つである。Reducer が `drag.kind` を見て後処理（スプリッタと Markdown スクロールバーなら `PerformResizeEnd`、ブロック横スクロールなら再描画）を分け、`EndLeftDrag` で終える。テキスト選択の終了は、終点で選択を確定する `TextSelectionEndedAction` が担う。
 
@@ -996,19 +997,19 @@ public:
 };
 ```
 
-本番実装は `DWriteTextMeasurer`（DirectWrite を使用）。書式は `SetFactory` の後に `RecreateFormats` で作る。テスト時はモックに差し替えられる。`RecomputeYPositions` / `EstimateNodeHeight` / `EstimateNodeHeights` / `MakeEstimatedLayoutCache` などのフリー関数（`layout_computer.h` の `layout` 名前空間）で Y 座標再計算と高さ推定（DirectWrite 計測前の暫定値）を提供する。リロードでは `CarryOverUnchanged` が先頭・末尾から中身の一致するノードの計測結果を旧キャッシュから引き継ぐ。グローバル名前空間への `using` エイリアスは置かず、使う側の .cpp が必要な名前だけを `using layout::X;` で取り込む。
+本番実装は `DWriteTextMeasurer`（DirectWrite を使用）。書式は `SetFactory` の後に `RecreateFormats` で作る。テスト時はモックに差し替えられる。`RecomputeYPositions` / `EstimateNodeHeight` / `EstimateNodeHeights` / `MakeEstimatedLayoutCache` などのフリー関数（`layout_computer.h` の `layout` 名前空間）で Y 座標再計算と高さ推定（DirectWrite 計測前の暫定値）を提供する。リロードでは `CarryOverUnchanged` が先頭・末尾から中身の一致する範囲を数え、その計測結果を旧キャッシュから区間ごとに引き継ぐ（`LayoutCache::TakeEntries`）。グローバル名前空間への `using` エイリアスは置かず、使う側の .cpp が必要な名前だけを `using layout::X;` で取り込む。
 
 計測用の scheduler は Mermaid 等の共有 scheduler とは別に立て、ワーカー数は `LayoutWorkerCount`（コア数 − 1 を 2〜8 本に収める。16 本は 8 本より遅い）で決める。`Renderer::SetLayoutScheduler` は設定時に `DWriteTextMeasurer::WarmUp` で本文・コード・見出し 1 つの書式の小さなレイアウトを各ワーカーで作って捨て、最初の計測がフォントの読み込みとフォールバックの解決を待たないようにする。
 
 計測後の確定処理は `MeasureEntry` 1 か所にまとめている。実測値を `cached_width` / `cached_height` に残し、計測失敗回数 `measure_failures` を 0 に戻す。ビットマップを描くノード（画像・図、`IsBitmapDrawNode`）は `ITextMeasurer` に渡さず、`layout::BitmapNodeHeight` が `DiagramEntry` の寸法から表示高さを決める（寸法が届くまでは現在値、それも無ければプレースホルダーの高さ）。
 
-幅が `kWidthChangeThreshold`（2 DIP）を超えて変わるか書式が作り直されると、`Reestimate` が全ノードを dirty にして推定値で Y を組み直す（DirectWrite は呼ばない）。`LayoutService::ViewportLayout` は `Reestimate` の後に `ViewportManager::ApplyScrollTarget` で見ていた位置を当て直してから可視範囲を計測する。ズームや幅変更で推定し直すと Y がずれるため、古い `scroll_y` のまま計測すると見えない範囲を 1 画面分ムダに計測してしまう。
+幅が `kWidthChangeThreshold`（2 DIP）を超えて変わるか書式が作り直されると、`Reestimate` が全ノードを dirty にして推定値で Y を組み直す（DirectWrite は呼ばない）。推定に使った本文幅とズームは `LayoutCache::EstimateBasis` に残り、ワーカーが表示と同じ幅で推定したキャッシュは UI スレッドで推定し直さない（幅を知らない起動時の先読みだけ推定し直す）。`LayoutService::ViewportLayout` は `Reestimate` の後に `ViewportManager::ApplyScrollTarget` で見ていた位置を当て直してから可視範囲を計測する。ズームや幅変更で推定し直すと Y がずれるため、古い `scroll_y` のまま計測すると見えない範囲を 1 画面分ムダに計測してしまう。
 
 ダーティノードの計測は `LayoutEngine::MeasurePass`（private）に一本化されている。`MeasurePass` は範囲内の dirty を最大 `max_nodes` 件（0 = 無制限）集めて `layout::MeasureIndicesParallel`（`parallel_measure.cpp`）で計測し、幅不変のまま行単位で evict されたテーブルは `RestoreEvictedTableRows` で戻し、高さが変わった区間だけ `RecomputeYPositions` で組み直す。`ProcessDirtyBatch` は `ViewportClip`（可視範囲 ± `buffer_screens` 画面）内の dirty を `batch_size` 件まで計測する 1 回の `MeasurePass` で、時間予算は持たない（worker 側に中断点が無いため）。`EnsureVisibleLayout` は計測で高さが変わると範囲に入るノードも変わるため、範囲内の dirty が無くなるまで `MeasurePass` を繰り返す（失敗し続けるノードに備えて最大 8 回）。`MeasureIndicesParallel` は `ParallelFor` に 1 ノード単位で配り、1 画面分（数十ノード）の dirty でも全 worker に行き渡らせる。scheduler が null なら同じ関数が呼び出しスレッドで直列に計測する。例外はノード単位で捕まえ、失敗回数が `LayoutCache::kMaxMeasureAttempts` に達したノードは dirty を下ろして諦める。CodeBlock のトークン化と、リンク色・アラートラベル色の描画効果（`BrushEffect`）・インラインコード背景の付与は worker が担当ノードの `NodeLayoutEntry` へ直接書き込み、UI スレッドでの集約は行わない（`Tokenize` 完了後に代入するので、例外時に途中のトークンが残らない）。`ViewportClip` の型は `parallel_measure.h` に置く。`ProcessDirtyBatch` の `clip` を省略すると可視範囲で絞らず全 dirty を対象にする。
 
 計測待ちの dirty が残っているかは `LayoutCache::HasDirtyNodes` が持ち、キャッシュと一緒に動く。`Reestimate` / `EnsureVisibleLayout` / `ProcessDirtyBatch` が更新し、`EnsureVisibleLayout` は走査しない範囲外に dirty が残っていると保守的に仮定する。
 
-遅延レイアウト（`App::OnDeferredLayout`）は 1 回 200 ノードまでとし、`ResourceManager::EVICT_BUFFER_SCREENS`（2 画面）を `buffer_screens` に渡すため、画面外の計測は前後 2 画面までに限られる。範囲外へジャンプした場合は `EnsureVisibleLayout` が同期計測で拾う。
+遅延レイアウト（`App::OnDeferredLayout`）はメッセージループの空き時間（`App::RunIdleWork`）に、32 ノードずつ 4ms まで、入力が来たら途中でも譲って進める。`ResourceManager::EVICT_BUFFER_SCREENS`（2 画面）を `buffer_screens` に渡すため、画面外の計測は前後 2 画面までに限られる。範囲外へジャンプした場合は `EnsureVisibleLayout` が同期計測で拾う。
 
 #### 3.7.2 レイアウト計算フロー
 
@@ -1616,11 +1617,11 @@ public:
 
 `ResourceManager` は描画タイマー（`MERMAID_BATCH`）・`FlushPendingResources`・`OnMermaidUpdated` から、再レイアウトしない `RequestVisibleDiagrams` で可視範囲 → 下 → 上の順に図を走査し、1 図ずつ `RequestDiagramRender` で要求する。その場で結果が出た図の高さは `height_changed_` に溜め、呼び出し側が再レイアウトを 1 回にまとめる（`RequestMermaidRenders` は直後に、`FlushPendingResources` は画像の適用とあわせて）。大きく移動したとき・幅やテーマが変わったとき・文書を切り替えたときは `DropQueued` で不要になった描画待ちを捨てる。
 
-要求と結果のキーは、ノードのテキストと言語で決まる `DiagramCodeHash` に量子化幅とテーマを混ぜた `DiagramRequestHash`（`NodeDiagramHash` と同じ値で、ディスクキャッシュのキーにもなる）。コード部分は `DiagramEntry::code_hash` に覚え、幅・テーマの変更で結果を捨てても残すので、要求し直すたびにテキストを読み直さない。結果はビットマップかエラーの `CachedResult` 1 型で、`LruCache`（`MAX_CACHE_ENTRIES` = 128 件、`MAX_CACHE_BYTES` = 64MB）1 つに持つ。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。待ち・読み込み中・描画中の要求は `inflight_`（ハッシュの集合）で重複を弾く。要求はコードを UTF-8 のまま持ち、UTF-16 への変換と LaTeX の flowchart への包みは `RenderInWorker` で描く直前に行う。
+要求と結果のキーは、ノードのテキストと言語で決まる `DiagramCodeHash` に量子化幅とテーマを混ぜた `DiagramRequestHash`（`NodeDiagramHash` と同じ値で、ディスクキャッシュのキーにもなる）。mermaid は既定で `useMaxWidth` なので、幅の上限より狭く描けた図（`IsWidthFree`）はどの幅でも同じ結果になる。その結果は幅を混ぜない `DiagramWidthFreeHash` で持ち、メモリ（`FindCached`）でもディスク（`MermaidFileCache::LookupDiagram`）でも先に引いて、いまの幅の上限より狭いときだけ使う。ウィンドウやペインの幅を変えて開き直しても、描き直すのは幅に縛られる図（gantt など）とエラーだけになる。コード部分は `DiagramEntry::code_hash` に覚え、幅・テーマの変更で結果を捨てても残すので、要求し直すたびにテキストを読み直さない。結果はビットマップかエラーの `CachedResult` 1 型で、`LruCache`（`MAX_CACHE_ENTRIES` = 128 件、`MAX_CACHE_BYTES` = 64MB）1 つに持つ。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。待ち・読み込み中・描画中の要求は `inflight_`（ハッシュの集合）で重複を弾く。要求はコードを UTF-8 のまま持ち、UTF-16 への変換と LaTeX の flowchart への包みは `RenderInWorker` で描く直前に行う。
 
 `mendo_core` には `mermaid_lifecycle::Lifecycle`（純粋ロジック）と `IMermaidRenderer` 抽象のみが入り、WebView2 を呼び出す具象 `MermaidRenderer` は `mendo` 実行ファイル側に分離されている。`MermaidRenderer` は最大 2 ワーカー（`MAX_WORKERS`、独立した WebView2 インスタンス）を並行稼働させ、PNG/SVG を同時にレンダリングできる。ワーカーは最初 1 つだけ起動し、全ワーカーが描画中で待ちが溜まったときに `MaybeGrowWorkers` で増やす。
 
-PNG のデコードは UI スレッドで行わない。ディスクキャッシュから読む場合も、WebView2 の `CapturePreview` で描画した直後の PNG も同じ `DiskLoad` 経路に流し、バックグラウンド `TaskScheduler` でファイル読み込み（キャプチャ時は不要）と WIC デコードを済ませた `IWICBitmap` を作る。完了は `app_msg::MERMAID_DISK_LOADED` で通知され、UI スレッドの `ProcessDiskLoads` が `CreateBitmapFromWicBitmap` で `ID2D1Bitmap` 化してメモリキャッシュに入れ、結果が出たものがあれば `on_update_` をまとめて 1 回呼ぶ。キャプチャ由来の PNG はこのときディスクキャッシュへ `StoreAsync` される。ディスクから読めなかった・デコードできなかった図は WebView2 での描画に回し、キャプチャ直後の PNG がデコードできなければエラーとして確定させる。
+PNG のデコードは UI スレッドで行わない。ディスクキャッシュから読む場合も、WebView2 の `CapturePreview` で描画した直後の PNG も同じ `DiskLoad` 経路に流し、バックグラウンド `TaskScheduler` でファイル読み込み（キャプチャ時は不要）と WIC デコードを済ませた `IWICBitmap` を作る。完了は `app_msg::MERMAID_DISK_LOADED` で通知され、UI スレッドの `ProcessDiskLoads` が `CreateBitmapFromWicBitmap` で `ID2D1Bitmap` 化してメモリキャッシュに入れ、結果が出たものがあれば `on_update_` をまとめて 1 回呼ぶ。1 回の転送は `kUploadSliceBudget`（4ms）までで、残した分は `HasLeftoverDiskLoads` が真になり、メッセージループの空き時間（`App::RunIdleWork`）で続ける。キャプチャ由来の PNG はこのときディスクキャッシュへ `StoreAsync` される。ディスクから読めなかった・デコードできなかった図は WebView2 での描画に回し、キャプチャ直後の PNG がデコードできなければエラーとして確定させる。
 
 描画要求が無いまま `IDLE_SHUTDOWN_MS`（60 秒）経つと、`app_timer::Id::MERMAID_IDLE` → `App::HandleTimer` → `OnIdleTimer` で全ワーカーと WebView2 環境（browser / renderer / GPU プロセス）をまとめて閉じ、`Lifecycle` も未初期化に戻す。待ちキューが空になるたび（`ProcessQueue` 末尾）にタイマーを張り直し、待ちや描画中のワーカーが残っていれば閉じるのを見送る。次の描画要求で `EnsureInitialized` から作り直し、準備完了の通知（`on_update_`）は再初期化のたびに呼ばれて未描画の図を再要求させる。
 
@@ -2239,9 +2240,9 @@ public:
 
 #### 3.21.2 SearchBarController（UI制御）
 
-検索バーのUI状態（キャレット、選択範囲、IME 組成文字列、入力欄の UTF-16 クエリ、直前の検索時間）を管理する。再描画・タイマー・フォーカス・ビープは各ハンドラが受け取る `SideEffectList&` に `effect::InvalidateWindow` / `SetTimer` / `KillTimer` / `SearchFocus` / `SearchUnfocus` / `Beep` として積み、`App::Execute` に任せる。表示中は常に入力欄がフォーカスを持つので、`HasFocus()` は `SearchState::IsVisible()` を返す。ホバーは `ViewState::hover.search_bar`（`App` が `SearchBarRenderState::hovered` に詰める）、入力欄のドラッグ選択は `ViewState::drag`（`LeftDrag::SearchInput`、起点は `search_anchor`）が持つ（3.3）。
+検索バーのUI状態（キャレット、選択範囲、IME 組成文字列、入力欄の UTF-16 クエリ）を管理する。再描画・フォーカス・ビープは各ハンドラが受け取る `SideEffectList&` に `effect::InvalidateWindow` / `SearchFocus` / `SearchUnfocus` / `Beep` として積み、`App::Execute` に任せる。表示中は常に入力欄がフォーカスを持つので、`HasFocus()` は `SearchState::IsVisible()` を返す。ホバーは `ViewState::hover.search_bar`（`App` が `SearchBarRenderState::hovered` に詰める）、入力欄のドラッグ選択は `ViewState::drag`（`LeftDrag::SearchInput`、起点は `search_anchor`）が持つ（3.3）。
 
-Callbacks は `std::move_only_function` の type erasure を避けるため `template<class Cb>` 形式に統一されている。各メンバ呼び出しは direct call となり、`mendo.exe` Release バイナリで約 9.7KB の縮小を達成した。具体的な `Cb` は `app_search_bar_callbacks.h` の `AppSearchBarCallbacks` で、`App*` を保持してレイアウト計測（`ensure_node_layout`）と MD ペイン高さの問い合わせだけを App へ転送する。宣言と実装は `search_bar_controller.h` に置き、明示的インスタンス化は `app_callbacks.cpp` で行う。タイマーは入力デバウンス用の `app_timer::Id::SEARCH_DEBOUNCE` のみ。キャレットは点滅させず、フォーカス中かつウィンドウがアクティブな間は常時表示する（点滅タイマーが約 530ms ごとに全画面再描画を起こしていたため廃止した）。`SearchBarRenderState::caret_visible` は `App::OnPaint` が `WindowState::window_active` から詰める。
+Callbacks は `std::move_only_function` の type erasure を避けるため `template<class Cb>` 形式に統一されている。各メンバ呼び出しは direct call となり、`mendo.exe` Release バイナリで約 9.7KB の縮小を達成した。具体的な `Cb` は `app_search_bar_callbacks.h` の `AppSearchBarCallbacks` で、`App*` を保持してレイアウト計測（`ensure_node_layout`）と MD ペイン高さの問い合わせだけを App へ転送する。宣言と実装は `search_bar_controller.h` に置き、明示的インスタンス化は `app_callbacks.cpp` で行う。タイマーは持たない。キャレットは点滅させず、フォーカス中かつウィンドウがアクティブな間は常時表示する（点滅タイマーが約 530ms ごとに全画面再描画を起こしていたため廃止した）。`SearchBarRenderState::caret_visible` は `App::OnPaint` が `WindowState::window_active` から詰める。
 
 ```cpp
 template <class Cb>
@@ -2250,30 +2251,26 @@ public:
     constexpr void Init(SearchState& state, ViewportManager& viewport,
                         LayoutCache& cache, Cb cb) noexcept;
 
-    // イベントハンドラ。再描画・タイマー・フォーカス・ビープは effects に積む
+    // イベントハンドラ。再描画・フォーカス・ビープは effects に積む
     void OnOpen(SideEffectList& effects, const std::pmr::vector<Node>& nodes);
     void OnClose(SideEffectList& effects);
     void OnNext(SideEffectList& effects);   // 折り返したら effect::Beep
     void OnPrev(SideEffectList& effects);
 
-    // 直前の検索がこれより速ければ、入力のたびに待たずに検索する。
-    static constexpr auto   kImmediateSearchBudget   = std::chrono::milliseconds(8);
-    // この文書でまだ検索していないとき、待たずに検索する文書の大きさ。
-    static constexpr size_t kImmediateSearchMaxBytes = 1024 * 1024;
-    void OnTextChanged(SideEffectList& effects, std::wstring_view text, const std::pmr::vector<Node>& nodes, size_t doc_bytes);
+    void OnTextChanged(SideEffectList& effects, std::wstring_view text, const std::pmr::vector<Node>& nodes);
     void OnToggleCaseSensitive(SideEffectList& effects, const std::pmr::vector<Node>& nodes);
     void OnToggleHighlight(SideEffectList& effects);
     void SetSelection(SideEffectList& effects, int sel_start, int sel_end);
     void SetImeComposition(SideEffectList& effects, std::wstring_view comp);
 
-    // タイマー
-    void OnDebounceTimer(SideEffectList& effects, const std::pmr::vector<Node>& nodes);
-
-    // 検索を実行して所要時間を記録し、スクロール位置に近いマッチを現在にする
-    void RunSearchAndLocate(const std::pmr::vector<Node>& nodes, bool scroll_to_match = false);
+    // 1 回でこれを超える分は、メッセージループの空き時間 (OnContinue) へ回す
+    static constexpr auto kSearchSliceBudget = std::chrono::milliseconds(8);
+    // 検索を始めて 1 回分進め、終わったらスクロール位置に近いマッチを現在にする
+    void RunSearchAndLocate(SideEffectList& effects, const std::pmr::vector<Node>& nodes, bool scroll_to_match = false);
+    void OnContinue(SideEffectList& effects, const std::pmr::vector<Node>& nodes);   // SearchContinueAction
     void ScrollToCurrentMatch();
 
-    void Reset(SideEffectList& effects);   // クエリ・直前の検索時間も消す
+    void Reset();   // クエリも消す
 
     // レンダーステート構築（hovered は App が詰める）
     SearchBarRenderState BuildRenderState() const;
@@ -2304,9 +2301,9 @@ extern template class SearchBarControllerT<AppSearchBarCallbacks>;
 
 `AppState`（`mendo_core`）の値メンバとして保持されるため struct サイズは `mendo_core` から見える必要があるが、メソッド本体は App を触るため `mendo` target 側でしか定義できない。`mendo_tests` 向けには `tests/app_search_bar_callbacks_stub.cpp` の no-op 実装でリンクを通している。
 
-`OnTextChanged` は入力が前回と同じなら何もしない（文書の切替で入力欄を空にしたときの `EN_CHANGE` など）。空になったらその場でマッチを消す。それ以外は、直前の検索時間が `kImmediateSearchBudget`（8ms）以下なら入力のたびに即時検索し、超えていれば `SEARCH_DEBOUNCE`（150ms）でデバウンスする。検索の速さは文書の大きさだけでなくマッチ数でも変わるため、直前の実測で決める（入力で絞り込むほどマッチは減るので、直前の時間はおおむね上限になる）。この文書でまだ検索していないときは、`doc_bytes` が `kImmediateSearchMaxBytes`（1MB）以下なら即時検索する。検索時間は `RunSearchAndLocate` が測り、`Reset` で忘れる。
+`OnTextChanged` は入力が前回と同じなら何もしない（文書の切替で入力欄を空にしたときの `EN_CHANGE` など）。空になったらその場でマッチを消す。それ以外は入力のたびにすぐ検索を始める。検索は `kSearchSliceBudget`（8ms）ずつ区切って進み、残りは `App::HasIdleWork` が `SearchState::IsSearching` を見て、メッセージループの空き時間に `SearchContinueAction` で続けるので、大きな文書でも入力や描画を待たせない（デバウンスは持たない）。
 
-別文書（ヘルプを含む）へ切り替えると、`App::ResetViewForNewDocument` が `Reset(effects)` で検索バーを常に閉じ、クエリとマッチも空にしてから入力欄を空にする（`effect::SearchUnfocus{ clear_text = true }`）。旧文書のマッチ位置を新しいノードに使わないためである。
+別文書（ヘルプを含む）へ切り替えると、`App::ResetViewForNewDocument` が `Reset()` で検索バーを常に閉じ、クエリとマッチも空にしてから入力欄を空にする（`effect::SearchUnfocus{ clear_text = true }`）。旧文書のマッチ位置を新しいノードに使わないためである。
 
 ホバー領域は `SearchBarHitZone`（`ui_constants.h`）で定義され、None / Up / Down / CaseSensitive / Highlight / Close / Input の 7 値。Input はホバー強調が無いので None と同じに扱う。
 
@@ -2409,7 +2406,9 @@ public:
     void RequestLoadAsync(const std::wstring& abs_path, Callback on_complete, float max_width_dip = 0.0f);
     // 表示幅が広がり、キャッシュの解像度では足りなくなったか。
     bool NeedsSharperDecode(const CachedImage& image, float max_width_dip) const noexcept;
-    void ProcessCompletedDecodes();
+    // deadline を過ぎた分は残し、HasLeftoverUploads が真になる。
+    void ProcessCompletedDecodes(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
+    bool HasLeftoverUploads() const noexcept;   // UI スレッド専用
     // 始まっていないデコードを捨てる。始まったものは要求中のまま残し、結果はキャッシュに入れる。
     void DropQueued();
     // 始まったものも含めて結果を捨てる。
@@ -2427,7 +2426,7 @@ public:
 };
 ```
 
-LRU キャッシュは絶対パス → `CachedImage` で保持し、件数（最大 128、private 定数 `MAX_CACHE_ENTRIES`）とビットマップの合計バイト数（128MB、`MAX_CACHE_BYTES`）の両方で上限を掛ける。`RequestLoadAsync` は同じパスが要求中なら何もせず（`pending_paths_`）、`kMaxImageRetries`（3）回失敗したパスは要求しない。ワーカーは `TaskScheduler` 上でファイル（上限 256MB、`MAX_IMAGE_FILE_SIZE`）を読んで WIC デコードし、結果を `result_mutex_` 保護の `completed_` に積んでウィンドウへ `msg_id`（`app_msg::IMAGE_LOADED`）を投げる。UI スレッドの `ProcessCompletedDecodes` が `ID2D1Bitmap` に変換してキャッシュに入れ、要求中・失敗の記録を 1 回のロックでまとめて更新してから、最後の 1 件の `on_complete` だけを呼ぶ（どれも同じ再描画の合図なので）。画像の読み込みはこの非同期経路だけで、UI スレッドで原寸デコードする同期 API は持たない。
+LRU キャッシュは絶対パス → `CachedImage` で保持し、件数（最大 128、private 定数 `MAX_CACHE_ENTRIES`）とビットマップの合計バイト数（128MB、`MAX_CACHE_BYTES`）の両方で上限を掛ける。`RequestLoadAsync` は同じパスが要求中なら何もせず（`pending_paths_`）、`kMaxImageRetries`（3）回失敗したパスは要求しない。ワーカーは `TaskScheduler` 上でファイル（上限 256MB、`MAX_IMAGE_FILE_SIZE`）を読んで WIC デコードし、結果を `result_mutex_` 保護の `completed_` に積んでウィンドウへ `msg_id`（`app_msg::IMAGE_LOADED`）を投げる。UI スレッドの `ProcessCompletedDecodes` が `ID2D1Bitmap` に変換してキャッシュに入れ、要求中・失敗の記録を 1 回のロックでまとめて更新してから、最後の 1 件の `on_complete` だけを呼ぶ（どれも同じ再描画の合図なので）。1 回の転送は `kUploadSliceBudget`（4ms）までで、残した分は `HasLeftoverUploads` が真になり、メッセージループの空き時間（`App::RunIdleWork`）で続ける。新しい結果は投函で知らせるので、空き時間の判定でキューを覗くためにロックは取らない。画像の読み込みはこの非同期経路だけで、UI スレッドで原寸デコードする同期 API は持たない。
 
 待ちの捨て方は 2 通りある。`DropQueued` はデコードを始めていない要求だけを捨て、始めたものは要求中のまま残して結果をキャッシュに入れる。キーがパスなので文書をまたいでも結果を使え、結果が届く前に同じパスを要求し直しても二重に読まない。文書の切替と大きなジャンプ（3.26）で使う。`CancelPending` は始めたものも含めて結果を捨て、要求中・失敗の記録も消す。デバイスロスト（`ClearCache` と組で使う）と終了時に使う。リロードではキャッシュを捨てず、`ResetFailedPaths` で失敗記録だけを消す。
 
@@ -2947,7 +2946,9 @@ classDiagram
         +InvalidateAllDiagramBitmaps()
         +EvictTextLayouts(first_keep, last_keep)
         +EvictInvisibleTableRows(table_indices, ...)
-        +TakeEntry(src, from, to)
+        +TakeEntries(src, from, to, count)
+        +TakeReleasedLayouts() ReleasedLayouts
+        +GetEstimateBasis() EstimateBasis
         +HasDirtyNodes() bool
         -pmr::vector~float~ tops_
     }
@@ -2980,7 +2981,7 @@ classDiagram
         +size_t col_count
         +pmr::vector~float~ col_widths / row_heights
         +pmr::vector~float~ row_cum_y / col_cum_x
-        +pmr::vector~float~ natural_col_widths / cell_heights / cell_applied_widths
+        +pmr::vector~float~ natural_col_widths / cell_heights / cell_applied_widths / cell_natural_widths
         +pmr::vector~uint8_t~ row_evicted
         +float last_applied_max_width
         +float natural_total_width
@@ -3007,11 +3008,11 @@ classDiagram
     Aux "1" --> "0..1" TableLayoutData
 ```
 
-`NodeLayoutEntry` は全ノード分並ぶので、全ノードで要る高さ・実測キャッシュ・dirty フラグだけを直に持ち (24B)、テキストレイアウトやエフェクト状態など計測・描画したノードでしか使わないものは `Aux` に置いて必要になったときに確保する。既定値を書く setter（`set_first_line_height(0.0f)` など）は `Aux` を確保しない。evict では `Aux` ごと解放し (行単位 evict するテーブルは列幅・行高さを残す)、ズーム等の全無効化ではテーブル幾何だけ残して作り直す。ノードの Y 位置は `entries_` とは別の連続配列 `tops_` に持つ（SoA）ので、高さが変わったときの後続ノードの一括シフト（`ShiftTops`）がエントリ全体をなめない。CodeBlock の構文トークン（`syntax_tokens`、UTF-16 位置）は計測ワーカーが `text_layout` と一緒に作り、描画時のグリフランの色分けに使う。
+`NodeLayoutEntry` は全ノード分並ぶので、全ノードで要る高さ・実測キャッシュ・dirty フラグだけを直に持ち (24B)、テキストレイアウトやエフェクト状態など計測・描画したノードでしか使わないものは `Aux` に置いて必要になったときに確保する。既定値を書く setter（`set_first_line_height(0.0f)` など）は `Aux` を確保しない。evict では `Aux` ごと解放し (行単位 evict するテーブルは列幅・行高さを残す)、ズーム等の全無効化ではテーブル幾何だけ残して作り直す。`IDWriteTextLayout` の解放は 1 個 2〜3µs かかり、ズームや巨大な表の evict では数千〜数十万個になるので、捨てたレイアウトは `ReleasedLayouts` に溜め、`App::RunIdleWork` が多ければワーカーへ渡して解放する。文書を差し替えたときの旧 `LayoutCache` も、D2D のビットマップを持つ図だけ UI スレッドで捨て（`ReleaseDiagrams`）、残りはワーカーで捨てる。ノードの Y 位置は `entries_` とは別の連続配列 `tops_` に持つ（SoA）ので、高さが変わったときの後続ノードの一括シフト（`ShiftTops`）がエントリ全体をなめない。CodeBlock の構文トークン（`syntax_tokens`、UTF-16 位置）は計測ワーカーが `text_layout` と一緒に作り、描画時のグリフランの色分けに使う。
 
 遅延レイアウトで計測する dirty が残っているかは `LayoutCache` 自身が `HasDirtyNodes()` として持ち、`LayoutEngine` が計測のたびに決め直す。キャッシュと一緒に動くので、推定直後（true）のキャッシュを文書ごと差し替えても遅延レイアウトが拾う。
 
-`TableLayoutData` は `unique_ptr` でテーブルノードのみ確保される。セルレイアウトはフラット配列 `[row * col_count + col]` で持ち、`natural_col_widths` / `cell_heights` / `cell_applied_widths` などをまとめて管理する。セル単位の配列は `AllocateCells` でまとめて確保し、`cell_layouts` を最後に確保するので、途中で確保に失敗しても配列どうしのサイズは食い違わない。描画とヒットテストに要る幾何（`col_widths` / `row_heights` / `col_cum_x` / `row_cum_y`）が揃っているかは `HasGeometry` で判定する。幾何は計測完了時（`FinalizeTableLayout`）に揃い、`entry.height` だけを推定値で伸ばしたときなどは `InvalidateGeometry` で無効にして次の計測で作り直す。揃っていないテーブルは描かず、ヒットテストもしない（推定の行高さで描く線形のフォールバックは持たない）。表の総幅は `TableWidth`（`col_cum_x` の末尾）、列の刻み幅は `ColumnStep`、セル本文の原点は `TableCellTextOrigin` で求め、描画とヒットテストが同じ式を使う。インラインコードの背景は行ごとの配列 `row_code_bgs`（各行は列の昇順）で持ち、インラインコードを含むテーブルだけ `row_count` 分確保して行の計測で作り直す。描画は行の背景を列の昇順に読み進め、セルごとに行の全件を見ない。行単位 evict（`EvictInvisibleTableRows`）はセルレイアウトが生存しうる行範囲 `[live_row_begin, live_row_end)` のうち keep 範囲外の差分だけを捨て、背景は幅が変わらない限り有効なので残す。
+`TableLayoutData` は `unique_ptr` でテーブルノードのみ確保される。セルレイアウトはフラット配列 `[row * col_count + col]` で持ち、`natural_col_widths` / `cell_heights` / `cell_applied_widths` / `cell_natural_widths` などをまとめて管理する。セルのレイアウトは自然幅を測るために無限幅で作り、左揃えで列幅に収まるセルはそのまま使う（`ApplyCellWidth`。折り返さないので行組みは同じで、列幅を付けると組み直しになる）。セル単位の配列は `AllocateCells` でまとめて確保し、`cell_layouts` を最後に確保するので、途中で確保に失敗しても配列どうしのサイズは食い違わない。描画とヒットテストに要る幾何（`col_widths` / `row_heights` / `col_cum_x` / `row_cum_y`）が揃っているかは `HasGeometry` で判定する。幾何は計測完了時（`FinalizeTableLayout`）に揃い、`entry.height` だけを推定値で伸ばしたときなどは `InvalidateGeometry` で無効にして次の計測で作り直す。揃っていないテーブルは描かず、ヒットテストもしない（推定の行高さで描く線形のフォールバックは持たない）。表の総幅は `TableWidth`（`col_cum_x` の末尾）、列の刻み幅は `ColumnStep`、セル本文の原点は `TableCellTextOrigin` で求め、描画とヒットテストが同じ式を使う。インラインコードの背景は行ごとの配列 `row_code_bgs`（各行は列の昇順）で持ち、インラインコードを含むテーブルだけ `row_count` 分確保して行の計測で作り直す。描画は行の背景を列の昇順に読み進め、セルごとに行の全件を見ない。行単位 evict（`EvictInvisibleTableRows`）はセルレイアウトが生存しうる行範囲 `[live_row_begin, live_row_end)` のうち keep 範囲外の差分だけを捨て、背景は幅が変わらない限り有効なので残す。
 
 `DiagramEntry` の `width` / `height` は読み込んだ画像・描画した図の実寸で、再計測（幅変更・ズーム）でも表示高さの計算に使う。デバイスロスト時の `InvalidateAllDiagramBitmaps()` はビットマップを捨てても画像の寸法は残す。`png` はクリップボードコピー用の元 PNG データ（`PngBytes` = `shared_ptr<const pmr::vector<uint8_t>>`）。`error` は描画失敗時の表示用メッセージで、空でなければ再要求しない（リロード・幅変更・テーマ変更・デバイスロストで消えて再試行の契機になる）。`code_hash` は図のコード部分のハッシュで、結果を捨てても残し、要求し直すたびにテキストを読み直さない。`DiagramEntry` は画像/図のノードでしか使わないため、`diagrams_` は全ノード分の枠を持たず、ノード番号をキーにした `std::pmr::unordered_map<size_t, DiagramEntry>` として持つ。要素の位置はほかの要素の追加で動かないので、Mermaid の処理待ちが持つポインタも有効なまま。確保は結果を書き込む `EnsureDiagram(i)` だけが行い、読み取り・描画・破棄は未確保なら `nullptr` を返す `FindDiagram(i)` を使うので、表示していない画像/図ノードには確保しない。検索ヒットがあるノードでのみ `search_hl_cache` が確保される（フレーム間キャッシュ、`SearchState::generation_` と一致する間は HitTestTextRange を再計算しない）。検索・選択ハイライトは、本文 `text_layout` のうち可視範囲の上下に 1 画面ずつ足した行のテキスト範囲（`line_window`）を共有し、可視範囲がその窓に収まる間は引き直さない。
 
@@ -3115,10 +3116,9 @@ flowchart TD
     START[wWinMain] --> DLL[SetDefaultDllDirectories<br>System32 限定 + d2d1 / dwrite を先に読む]
     DLL --> D3D[PrefetchD3DDevice<br>D3D11 デバイスを別スレッドで先行作成]
     D3D --> COM[CoInitializeEx<br>COINIT_APARTMENTTHREADED + COINIT_DISABLE_OLE1DDE]
-    COM --> ICC[InitCommonControlsEx]
-    ICC --> CFGLOAD[ConfigService::Load<br>settings.ini読み込み]
+    COM --> CFGLOAD[ConfigService::Load<br>settings.ini読み込み]
     CFGLOAD --> I18NINIT[i18n::Init<br>config.LoadWString General/Language]
-    I18NINIT --> PLAN[PlanStartup → DecideStartupPlan<br>引数 CommandLineToArgvW / 前回ファイル / cwd]
+    I18NINIT --> PLAN[PlanStartup → DecideStartupPlan<br>引数 __wargv / 前回ファイル / cwd]
     PLAN --> WIN[Win32Window window&#40;config&#41;]
     WIN --> PCHK{document_path<br>あり？}
     PCHK -->|Yes| PRELOAD[StartPreloadAsync<br>共有 scheduler で読み込み + パース + 推定]
@@ -3237,7 +3237,7 @@ graph TD
     CORE --> D2D1[d2d1.lib]
     CORE --> DWRITE[dwrite.lib]
     CORE --> WIC_LIB[windowscodecs.lib]
-    EXE --> COMCTL[comctl32.lib]
+    EXE --> COMCTL[comctl32.lib<br>遅延ロード]
     EXE --> DELAY[delayimp.lib<br>遅延ロード]
 ```
 
@@ -3296,7 +3296,7 @@ build/tests/Release/mendo_tests.exe --gtest_brief=1
 | `/OPT:REF` | 未参照関数/データの除去 (Release) |
 | `/OPT:ICF` | 同一COMDATの統合 (Release) |
 | `/MT` | CRT静的リンク（単一exe配布のため） |
-| `/DELAYLOAD` | `comdlg32.dll`（ファイルダイアログでしか使わない）と、KnownDLLs に無い `d2d1` / `dwrite` / `d3d11` / `dwmapi` / `uxtheme` を遅延ロード。`/DEPENDENTLOADFLAG:0x800` と `SetDefaultDllDirectories` で System32 からだけ解決させる |
+| `/DELAYLOAD` | `comdlg32.dll`（ファイルダイアログでしか使わない）、`comctl32.dll`（検索の Edit とツールチップを初めて作るまで要らない）、`shell32.dll`（ドロップ・外部で開く・設定フォルダの取得の予備だけ）と、KnownDLLs に無い `d2d1` / `dwrite` / `d3d11` / `dwmapi` / `uxtheme` を遅延ロード。`/DEPENDENTLOADFLAG:0x800` と `SetDefaultDllDirectories` で System32 からだけ解決させる |
 
 ---
 
@@ -3484,34 +3484,33 @@ namespace app_timer {
 
 // Win32 API に渡す際は std::to_underlying でキャスト。1 始まりのギャップなし連番。
 enum class Id : UINT_PTR {
-    DEFERRED_LAYOUT = 1,
-    LOADING_ANIM,          // 2
-    SWIPE_OVERLAY,         // 3
-    TOAST,                 // 4
-    TOOLTIP,               // 5
-    SEARCH_DEBOUNCE,       // 6
-    MERMAID_BATCH,         // 7
-    BITMAP_MANAGE,         // 8
-    MERMAID_INIT_RETRY,    // 9
-    FILE_RELOAD_DEBOUNCE,  // 10
-    MERMAID_IDLE,          // 11
-    DEVICE_RECREATE_RETRY, // 12
+    LOADING_ANIM = 1,
+    SWIPE_OVERLAY,         // 2
+    TOAST,                 // 3
+    TOOLTIP,               // 4
+    MERMAID_BATCH,         // 5
+    BITMAP_MANAGE,         // 6
+    MERMAID_INIT_RETRY,    // 7
+    FILE_RELOAD_DEBOUNCE,  // 8
+    MERMAID_IDLE,          // 9
+    DEVICE_RECREATE_RETRY, // 10
     END,  // 番兵。新規タイマーはこの直前に追加する。
 };
 
 inline constexpr UINT FRAME_INTERVAL_MS         = 16;   // ~60fps アニメーション用
 inline constexpr UINT FILE_RELOAD_DEBOUNCE_MS   = 200;  // ファイル変更通知のデバウンス
 inline constexpr UINT FILE_RELOAD_RETRY_MS      = 50;   // truncate→rewrite 検出後の短縮リトライ
-inline constexpr UINT SEARCH_DEBOUNCE_MS        = 150;  // 大きな文書での検索入力のデバウンス
 inline constexpr UINT BITMAP_MANAGE_DELAY_MS    = 150;  // スクロール停止後のビットマップ解放/再構築
 inline constexpr UINT TOAST_DURATION_MS         = 1300; // トースト表示時間
 inline constexpr UINT DEVICE_RECREATE_RETRY_MS  = 500;  // 描画デバイスの作り直しに失敗した後の再試行間隔
 
 // [kFirstTimer, kLastTimer] の範囲判定に使う
-inline constexpr Id kFirstTimer = Id::DEFERRED_LAYOUT;
+inline constexpr Id kFirstTimer = Id::LOADING_ANIM;
 inline constexpr Id kLastTimer  = static_cast<Id>(std::to_underlying(Id::END) - 1);
 }
 ```
+
+遅延レイアウト・検索の続き・GPU 転送のように時間で区切って進める仕事はタイマーを使わない。WM_TIMER は約 15.6ms 刻みでしか発火せず 4〜8ms の仕事の合間が空くので、メッセージループが入力と描画を配り終えた空き時間に `App::RunIdleWork` で進める。
 
 ### 9.2 カスタムメッセージ（`src/app/app_constants.h`）
 
@@ -4399,17 +4398,16 @@ exit /b 0
 {
   // タイマーIDの一覧（src/app/app_constants.h と一致）
   "timers": {
-    "DEFERRED_LAYOUT":       1,
-    "LOADING_ANIM":          2,
-    "SWIPE_OVERLAY":         3,
-    "TOAST":                 4,
-    "TOOLTIP":               5,
-    "SEARCH_DEBOUNCE":       6,
-    "MERMAID_BATCH":         7,
-    "BITMAP_MANAGE":         8,
-    "MERMAID_INIT_RETRY":    9,
-    "FILE_RELOAD_DEBOUNCE": 10,
-    "MERMAID_IDLE":         11,
+    "LOADING_ANIM":          1,
+    "SWIPE_OVERLAY":         2,
+    "TOAST":                 3,
+    "TOOLTIP":               4,
+    "MERMAID_BATCH":         5,
+    "BITMAP_MANAGE":         6,
+    "MERMAID_INIT_RETRY":    7,
+    "FILE_RELOAD_DEBOUNCE":  8,
+    "MERMAID_IDLE":          9,
+    "DEVICE_RECREATE_RETRY": 10,
   },
   /* カスタム Win32 メッセージ
      WM_APP+N の形式で識別子を採番している (+1, +3 は欠番) */
