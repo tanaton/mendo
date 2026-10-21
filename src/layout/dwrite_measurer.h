@@ -60,7 +60,9 @@ private:
     // 全セルを生成し、列ごとの自然幅を tl.natural_col_widths に集計する。
     void MeasureTableCells(const NodeTableData& tbl, TableLayoutData& tl) const;
     void RestoreNullCellLayouts(const NodeTableData& tbl, TableLayoutData& tl, MeasureViewportRange viewport) const;
-    // evict 行 r の null セルを再生成し、復元済みにする。
+    // evict 行 r の null セルを再生成する。書くのは行 r のセルだけなので、別の行とは並列に呼べる。
+    void BuildRowCells(const NodeTableData& tbl, TableLayoutData& tl, size_t r) const;
+    // BuildRowCells して復元済みにする。
     void RestoreRowCells(const NodeTableData& tbl, TableLayoutData& tl, size_t r) const;
     void FinalizeTableLayout(const NodeTableData& tbl, NodeLayoutEntry& entry, float max_width) const;
 

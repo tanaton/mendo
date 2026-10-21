@@ -16,6 +16,7 @@ void ExpectSameAction(const AppAction& actual, const AppAction& expected)
     }
     if (const auto* zoom = std::get_if<ZoomAction>(&expected)) {
         EXPECT_EQ(std::get<ZoomAction>(actual).direction, zoom->direction);
+        EXPECT_EQ(std::get<ZoomAction>(actual).steps, zoom->steps);
     }
     if (const auto* direct = std::get_if<DirectScrollByAction>(&expected)) {
         EXPECT_FLOAT_EQ(std::get<DirectScrollByAction>(actual).delta, direct->delta);
@@ -122,7 +123,8 @@ TEST(AppControllerTest, CtrlWheelZoomsOncePerNotch)
     ExpectSameAction(wheel(40, accum), ZoomAction{ ZoomDirection::In });
     EXPECT_EQ(accum, 0);
     ExpectSameAction(wheel(-120, accum), ZoomAction{ ZoomDirection::Out });
-    ExpectSameAction(wheel(240, accum), ZoomAction{ ZoomDirection::In });
+    // まとめて届いたノッチは段数として渡す。
+    ExpectSameAction(wheel(240, accum), ZoomAction{ ZoomDirection::In, 2 });
 }
 
 // 向きが反転したら逆向きの端数は持ち越さない。

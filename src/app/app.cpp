@@ -101,6 +101,26 @@ bool App::Init(HWND hwnd)
 
     RestorePaneState();
 
+    // フォルダの列挙はネットワークドライブなどで数百 ms かかるので、描画を待たせずに別スレッドで行う。
+    // 共有 scheduler の画像デコード待ちの後ろに並ばないよう専用スレッドにする。
+    state_.file_explorer.SetAsyncLister([hwnd = hwnd_, slot = file_listing_](std::pmr::wstring dir, uint32_t request) {
+        std::thread([hwnd, slot, dir = std::move(dir), request] {
+            auto entries = FileExplorer::List(dir);
+            {
+                // 先に始めた遅い列挙が、まだ受け取っていない新しい結果を上書きしないようにする。
+                const std::lock_guard lock(slot->mutex);
+                if (!slot->result || slot->result->first < request) {
+                    slot->result.emplace(request, std::move(entries));
+                }
+            }
+            ::PostMessageW(hwnd, app_msg::FILE_LISTED, 0, 0);
+        }).detach();
+    });
+    // 起動時に表示するなら、D3D デバイスの作成と並行して列挙を始めておく。
+    if (state_.view.panes.IsSidePaneVisible(PaneTarget::File)) {
+        state_.file_explorer.GetEntries();
+    }
+
     state_.ctx_menu.Init(renderer_.GetD2DFactory(), renderer_.GetDWriteFactory());
 
     tooltip_.Init(hwnd_);
@@ -126,8 +146,10 @@ bool App::CreateRenderDevice()
     mermaid_renderer_.SetRenderTarget(rt);
     image_loader_.SetRenderTarget(rt);
     // デバイスを待つ間に終わった読み込みを、完了通知を待たずに最初のフレームへ入れる。
-    OnAppImageLoaded();
-    OnMermaidDiskLoaded();
+    // 届いた後で入ると高さが変わって表示が跳ねるので、時間予算で切らずに全部入れる。
+    constexpr auto kNoDeadline = std::chrono::steady_clock::time_point::max();
+    image_loader_.ProcessCompletedDecodes(kNoDeadline);
+    mermaid_renderer_.ProcessDiskLoads(kNoDeadline);
     return true;
 }
 
@@ -299,12 +321,7 @@ void App::OnPaint()
     const auto& layout = GetPaneLayout();
     const bool show_loading = file_load_service_.IsLoading();
     if (!show_loading) {
-        const bool updated = layout_service_->EnsureVisibleLayout(state_.document.doc, state_.document.layout_cache, layout.md_rect.width, layout.md_rect.height);
-        if (updated) {
-            SyncMaxScroll();
-            // 未計測領域に入った。スクロール先を先読み計測させ、以降のフレームでの同期計測を減らす。
-            ScheduleDeferredLayoutIfNeeded();
-        }
+        EnsureFrameLayout(layout);
     }
 
     const auto gs = ResolveGestureOverlay(state_.interaction.gesture, state_.interaction.swipe_detector);
@@ -336,11 +353,32 @@ void App::OnPaint()
     }
 
     EndPaint(hwnd_, &ps);
+    if (std::exchange(hover_refresh_pending_, false)) {
+        RefreshHoverAtCursor();
+    }
     // デバイスを作り直せなかった。すぐ再描画すると失敗を繰り返して UI スレッドを占有するので間を置く。
     if (renderer_.IsDeviceLost()) {
         SetTimer(app_timer::Id::DEVICE_RECREATE_RETRY, app_timer::DEVICE_RECREATE_RETRY_MS);
     }
     MENDO_FRAME_MARK();
+}
+
+void App::EnsureFrameLayout(const PaneLayout& layout)
+{
+    const bool updated = layout_service_->EnsureVisibleLayout(state_.document.doc, state_.document.layout_cache, layout.md_rect.width, layout.md_rect.height);
+    if (updated) {
+        SyncMaxScroll();
+        // 未計測領域に入った。スクロール先を先読み計測させ、以降のフレームでの同期計測を減らす。
+        ScheduleDeferredLayoutIfNeeded();
+    }
+}
+
+void App::PrepareFrame()
+{
+    if (!IsRenderReady() || IsIconic(hwnd_) || file_load_service_.IsLoading()) {
+        return;
+    }
+    EnsureFrameLayout(GetPaneLayout());
 }
 
 void App::OnResize(UINT width, UINT height)
@@ -373,6 +411,22 @@ void App::OnAppImageLoaded()
 void App::OnMermaidDiskLoaded()
 {
     mermaid_renderer_.ProcessDiskLoads();
+}
+
+void App::OnFileListed()
+{
+    std::optional<std::pair<uint32_t, std::pmr::vector<FileEntry>>> listed;
+    {
+        const std::lock_guard lock(file_listing_->mutex);
+        listed.swap(file_listing_->result);
+    }
+    if (!listed || !state_.file_explorer.ApplyListing(listed->first, std::move(listed->second))) {
+        return;
+    }
+    if (state_.file_explorer.TakeDeferredReveal()) {
+        Dispatch(FilePaneRevealCurrentFileAction{});
+    }
+    Invalidate();
 }
 
 void App::OnKeyDown(WPARAM key)
@@ -423,6 +477,7 @@ void App::HandleTimer(UINT_PTR timer_id)
     case SWIPE_OVERLAY:
     case TOAST:
     case SEARCH_DEBOUNCE:
+    case SEARCH_CONTINUE:
         Dispatch(TimerAction{ id });
         return;
     case TOOLTIP:
@@ -452,6 +507,14 @@ void App::HandleTimer(UINT_PTR timer_id)
         KillTimer(id);
         Invalidate();
         return;
+    case UPLOAD_CONTINUE: {
+        KillTimer(id);
+        // 両方で 1 回分の持ち時間を分け合う。
+        const auto deadline = std::chrono::steady_clock::now() + kUploadSliceBudget;
+        image_loader_.ProcessCompletedDecodes(deadline);
+        mermaid_renderer_.ProcessDiskLoads(deadline);
+        return;
+    }
     case FILE_RELOAD_DEBOUNCE:
         KillTimer(id);
         ReloadCurrentFile();
@@ -477,11 +540,35 @@ void App::ShowToast(std::wstring_view message)
     Invalidate();
 }
 
+void App::ShellOpenAsync(std::pmr::wstring target)
+{
+    // シェル拡張が COM で動くので STA に入る。共有 scheduler の worker は MTA なので専用スレッドで開く。
+    std::thread([target = std::move(target)] {
+        const HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        // 戻ったらすぐスレッドを畳むので、起動の受け渡しを非同期に残させない。
+        SHELLEXECUTEINFOW info{
+            .cbSize = sizeof(info),
+            .fMask = SEE_MASK_NOASYNC,
+            .lpVerb = L"open",
+            .lpFile = target.c_str(),
+            .nShow = SW_SHOWNORMAL,
+        };
+        ShellExecuteExW(&info);
+        if (SUCCEEDED(hr)) {
+            CoUninitialize();
+        }
+    }).detach();
+}
+
 void App::StartFileWatch(const std::pmr::wstring& path)
 {
     file_watcher_.StartWatching(path, [this] {
         KillTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE);
         SetTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_DEBOUNCE_MS);
+        // 図を書き換えた保存なら描き直しになる。WebView2 の起動 (1 秒前後) をデバウンスとパースの裏で進める。
+        if (!state_.document.doc.GetDiagramNodeIndices().empty()) {
+            mermaid_renderer_.Prewarm();
+        }
     });
 }
 
@@ -523,6 +610,10 @@ void App::Execute(const SideEffect& effect)
         [this](const effect::ClearTooltip&) {
             tooltip_.Clear();
             KillTimer(app_timer::Id::TOOLTIP);
+        },
+        [this](const effect::RefreshHover&) {
+            // 新しい位置の計測は OnPaint で済むので、ヒットテストはその後に行う。
+            hover_refresh_pending_ = true;
         },
         [this](const effect::ShowContextMenu& ev) {
             OnContextMenu(ev.screen_x, ev.screen_y);
@@ -742,7 +833,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
     case IDM_EDIT_FILE: {
         const auto& file_path = state_.document.doc.GetFilePath();
         if (IsEditableTextFile(file_path)) {
-            ShellExecuteW(nullptr, L"open", file_path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            ShellOpenAsync(file_path);
         }
         break;
     }
@@ -793,8 +884,16 @@ bool App::ScheduleDeferredLayoutIfNeeded()
     if (!state_.document.layout_cache.HasDirtyNodes()) {
         return false;
     }
-    SetTimer(app_timer::Id::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS);
+    if (!std::exchange(deferred_layout_scheduled_, true)) {
+        SetTimer(app_timer::Id::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS);
+    }
     return true;
+}
+
+void App::CancelDeferredLayout()
+{
+    deferred_layout_scheduled_ = false;
+    KillTimer(app_timer::Id::DEFERRED_LAYOUT);
 }
 
 // ロード・ズーム・リサイズでは画面外にもレイアウトが作られ (初回の MeasureTable は全セル)、
@@ -866,7 +965,7 @@ void App::OnResizeEnd()
 {
     MENDO_PROFILE("OnResizeEnd");
 
-    KillTimer(app_timer::Id::DEFERRED_LAYOUT);
+    CancelDeferredLayout();
     EnsureScrollTarget();
     RelayoutViewport(RelayoutResources::DiagramsBatched);
 }
@@ -875,16 +974,20 @@ void App::OnDeferredLayout()
 {
     MENDO_PROFILE("OnDeferredLayout");
 
-    constexpr int kDeferredLayoutBatchNodes = 200;
+    // 表やコードブロックが多いと同じノード数でも時間が大きく違うので、件数ではなく時間で区切る。
+    // 入力が来たら次のフレームを押し出さないよう途中でも譲る。
+    constexpr int kDeferredLayoutBatchNodes = 32;
+    constexpr auto kDeferredLayoutBudget = std::chrono::milliseconds(4);
 
     const PaneRect md = GetPaneLayout().md_rect;
+    const auto start = std::chrono::steady_clock::now();
     bool more;
-    {
+    do {
         MENDO_PROFILE("ProcessDirtyBatch");
         more = layout_service_->ProcessDirtyBatch(
             state_.document.doc, state_.document.layout_cache, md.width, kDeferredLayoutBatchNodes,
             LayoutService::ViewportLimit{ md.height, ResourceManager::EVICT_BUFFER_SCREENS });
-    }
+    } while (more && std::chrono::steady_clock::now() - start < kDeferredLayoutBudget && HIWORD(GetQueueStatus(QS_INPUT)) == 0);
 
     // 中間バッチでは SyncMaxScroll のクランプを遅延させる。
     // ビューポート後のノードが計測されると total_height が縮小し、中間的な
@@ -897,7 +1000,7 @@ void App::OnDeferredLayout()
     if (more) {
         return;
     }
-    KillTimer(app_timer::Id::DEFERRED_LAYOUT);
+    CancelDeferredLayout();
 
     // 同期ディスク I/O + PNG デコードで UI スレッドを長時間ブロックしないよう、
     // Mermaid ファイルキャッシュの読み込みは時間予算付きバッチに回す。

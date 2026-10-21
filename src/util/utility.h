@@ -1,4 +1,6 @@
 #pragma once
+#include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <format>
 #include <functional>
@@ -13,6 +15,32 @@
 
 // エンコード済み PNG。図のビットマップ・ディスクキャッシュ・クリップボードで共有する。
 using PngBytes = std::shared_ptr<const std::pmr::vector<uint8_t>>;
+
+// UI スレッドで溜まった結果を GPU へ転送する 1 回の持ち時間。1 件で数 ms かかるので、まとめて届くと 1 フレームを押し出す。
+inline constexpr std::chrono::microseconds kUploadSliceBudget{ 4000 };
+
+// items を先頭から deadline まで apply し、処理した件数を返す。必ず進むよう 1 件目は期限を見ない。
+template <class Items, class Apply>
+size_t ApplyUntil(Items& items, std::chrono::steady_clock::time_point deadline, Apply&& apply)
+{
+    size_t done = 0;
+    for (; done < items.size(); ++done) {
+        if (done > 0 && std::chrono::steady_clock::now() >= deadline) {
+            break;
+        }
+        apply(items[done]);
+    }
+    return done;
+}
+
+// ApplyUntil で残った items[done..] を queue の先頭へ戻す。
+template <class Queue, class Items>
+void RequeueFront(Queue& queue, Items& items, size_t done)
+{
+    const auto rest = items.begin() + static_cast<std::ptrdiff_t>(done);
+    queue.insert(queue.begin(), std::make_move_iterator(rest), std::make_move_iterator(items.end()));
+    items.erase(rest, items.end());
+}
 
 template <class... Ts>
 struct overloaded : Ts... {

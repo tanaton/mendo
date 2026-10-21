@@ -476,7 +476,7 @@ void DWriteTextMeasurer::RestoreNullCellLayouts(const NodeTableData& tbl, TableL
     }
 }
 
-void DWriteTextMeasurer::RestoreRowCells(const NodeTableData& tbl, TableLayoutData& tl, size_t r) const
+void DWriteTextMeasurer::BuildRowCells(const NodeTableData& tbl, TableLayoutData& tl, size_t r) const
 {
     IDWriteTextFormat* const row_fmt = GetTableRowFormat(tbl, r);
     for (size_t c = 0; c < tbl.col_count; c++) {
@@ -485,6 +485,11 @@ void DWriteTextMeasurer::RestoreRowCells(const NodeTableData& tbl, TableLayoutDa
             BuildCellLayout(tbl, r, c, row_fmt, tl);
         }
     }
+}
+
+void DWriteTextMeasurer::RestoreRowCells(const NodeTableData& tbl, TableLayoutData& tl, size_t r) const
+{
+    BuildRowCells(tbl, tl, r);
     tl.MarkRowRestored(r);
 }
 
@@ -543,18 +548,35 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
     }
 
     const auto [r_begin, r_end] = tl.RowsInViewport(row_count, viewport.top, viewport.bottom);
-    const float base_row_height = layout::TableBaseRowHeight(*theme_);
-    size_t first_changed_row = row_count;
+    std::pmr::vector<size_t> rows;
     for (size_t r = r_begin; r < r_end; r++) {
-        if (!tl.row_evicted[r]) {
-            continue;
+        if (tl.row_evicted[r]) {
+            rows.push_back(r);
         }
-        RestoreRowCells(*tbl, tl, r);
-        const float row_height = MeasureRowHeight(tl, *tbl, r, base_row_height).height;
-        result.restored = true;
+    }
+    if (rows.empty()) {
+        return result;
+    }
+    result.restored = true;
+
+    // 戻りスクロールで 1 画面分の行がまとめて戻るので、MeasureTableCells と同じく行チャンクで並列化する。
+    // 行ごとの書き込み先は重ならない。evict の管理情報 (MarkRowRestored) は後で直列に更新する。
+    const float base_row_height = layout::TableBaseRowHeight(*theme_);
+    std::pmr::vector<float> row_heights(rows.size());
+    ParallelFor(scheduler_, rows.size(), TableRowsPerChunk(tl.col_count), [&](size_t begin, size_t end) {
+        for (size_t k = begin; k < end; k++) {
+            BuildRowCells(*tbl, tl, rows[k]);
+            row_heights[k] = MeasureRowHeight(tl, *tbl, rows[k], base_row_height).height;
+        }
+    });
+
+    size_t first_changed_row = row_count;
+    for (size_t k = 0; k < rows.size(); k++) {
+        const size_t r = rows[k];
+        tl.MarkRowRestored(r);
         // 幅変更時に evict 中だった行は旧幅の行高さのまま残っているため、ここで実測に揃える。
-        if (row_height != tl.row_heights[r]) {
-            tl.row_heights[r] = row_height;
+        if (row_heights[k] != tl.row_heights[r]) {
+            tl.row_heights[r] = row_heights[k];
             first_changed_row = std::min(first_changed_row, r);
         }
     }

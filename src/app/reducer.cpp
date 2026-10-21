@@ -126,6 +126,7 @@ void InvalidateHover(AppState& state, SideEffectList& effects)
 void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects, bool toc_auto_scroll)
 {
     InvalidateHover(state, effects);
+    PushEffect(effects, effect::RefreshHover{});
     PushEffect(effects, effect::InvalidateWindow{});
     PushEffect(effects, effect::BitmapManage{});
     PushEffect(effects, effect::SyncTocActive{ toc_auto_scroll });
@@ -356,6 +357,10 @@ void ReduceFilePaneRevealCurrentFile(AppState& state, SideEffectList& effects)
     state.file_explorer.SetDirectory(state.document.doc.GetDirectory());
 
     const auto& entries = state.file_explorer.GetEntries();
+    if (state.file_explorer.IsListing()) {
+        state.file_explorer.DeferReveal();
+        return;
+    }
     const auto it = std::ranges::find_if(entries, &FileEntry::is_current);
     const auto ctx = GetSidePaneContext(state, PaneTarget::File);
     ctx.scroll.scroll_y = it != entries.end()
@@ -689,6 +694,13 @@ void ReduceSearchDebounce(AppState& state, SideEffectList& effects)
     });
 }
 
+void ReduceSearchContinue(AppState& state, SideEffectList& effects)
+{
+    WithScrollEffects(state, effects, [&] {
+        state.search.search_bar_ctrl.OnContinueTimer(effects, state.document.doc.GetNodes());
+    });
+}
+
 void ReduceSearchStep(AppState& state, SideEffectList& effects, bool forward)
 {
     auto& ss = state.search;
@@ -803,7 +815,12 @@ bool StepZoom(ViewportManager& viewport, ZoomDirection direction)
 
 void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
 {
-    if (!StepZoom(state.view.viewport, a.direction)) {
+    // 全レイアウトを捨てて組み直すのは段数によらず 1 回で済ませる。
+    int stepped = 0;
+    while (stepped < a.steps && StepZoom(state.view.viewport, a.direction)) {
+        ++stepped;
+    }
+    if (stepped == 0) {
         return;
     }
     const auto anchor = SnapshotVisibleTarget(state);
@@ -904,6 +921,9 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
     case app_timer::Id::SEARCH_DEBOUNCE:
         ReduceSearchDebounce(state, effects);
         return;
+    case app_timer::Id::SEARCH_CONTINUE:
+        ReduceSearchContinue(state, effects);
+        return;
     case app_timer::Id::SWIPE_OVERLAY: {
         const auto result = state.interaction.swipe_detector.Commit();
         PushEffect(effects, effect::KillTimer{ app_timer::Id::SWIPE_OVERLAY });
@@ -922,6 +942,7 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
     case app_timer::Id::FILE_RELOAD_DEBOUNCE:
     case app_timer::Id::MERMAID_IDLE:
     case app_timer::Id::DEVICE_RECREATE_RETRY:
+    case app_timer::Id::UPLOAD_CONTINUE:
         // AppState を変えないタイマーは App::HandleTimer が直接処理する。
         return;
     case app_timer::Id::END: // 番兵。タイマーとしては使わない。新規タイマーはこの直前に追加する。

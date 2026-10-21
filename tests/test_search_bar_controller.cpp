@@ -156,6 +156,71 @@ TEST_F(SearchBarControllerTest, OnTextChangedFastMeasuredSearchIsImmediate)
 }
 
 // 文書の切り替えで入力欄を空にしたときのように、中身が変わらない通知では検索も再描画もしない。
+// 区切った検索の続きはタイマーで進み、終わったら見ている位置の近くのマッチを選んでタイマーを止める。
+TEST_F(SearchBarControllerTest, OnContinueTimerFinishesSlicedSearch)
+{
+    for (int i = 0; i < 600; ++i) {
+        nodes_.push_back(MakeTextNode("x"));
+    }
+    cache_ = MakeUniformCache(600, 10.0f);
+    state_.SetQuery("x");
+    state_.BeginSearch();
+    state_.ContinueSearch(nodes_, std::chrono::steady_clock::now() - std::chrono::seconds(1));
+    ASSERT_TRUE(state_.IsSearching());
+
+    SideEffectList effects;
+    ctrl_.OnContinueTimer(effects, nodes_);
+
+    EXPECT_FALSE(state_.IsSearching());
+    EXPECT_EQ(state_.GetMatchCount(), 600);
+    EXPECT_GE(state_.GetCurrentMatchIndex(), 0);
+    const auto* kill = FindEffect<effect::KillTimer>(effects);
+    ASSERT_NE(kill, nullptr);
+    EXPECT_EQ(kill->id, app_timer::Id::SEARCH_CONTINUE);
+}
+
+// 検索の途中で移ったマッチは、終わった時点で選び直さない。
+TEST_F(SearchBarControllerTest, OnContinueTimerKeepsMatchChosenDuringSearch)
+{
+    for (int i = 0; i < 600; ++i) {
+        nodes_.push_back(MakeTextNode("x"));
+    }
+    cache_ = MakeUniformCache(600, 10.0f);
+    state_.SetQuery("x");
+    state_.BeginSearch();
+    state_.ContinueSearch(nodes_, std::chrono::steady_clock::now() - std::chrono::seconds(1));
+    ASSERT_TRUE(state_.IsSearching());
+
+    SideEffectList effects;
+    ctrl_.OnNext(effects);
+    ctrl_.OnNext(effects);
+    const int chosen = state_.GetCurrentMatchIndex();
+    ASSERT_GT(chosen, 0) << "前提: 見ている位置 (先頭) に最も近いマッチとは違うものを選んでいる";
+
+    ctrl_.OnContinueTimer(effects, nodes_);
+
+    ASSERT_FALSE(state_.IsSearching());
+    EXPECT_EQ(state_.GetCurrentMatchIndex(), chosen);
+}
+
+// 入力が変わったら、前のクエリの検索の続きは止める。
+TEST_F(SearchBarControllerTest, OnTextChangedStopsRunningSearch)
+{
+    for (int i = 0; i < 600; ++i) {
+        nodes_.push_back(MakeTextNode("x"));
+    }
+    state_.SetQuery("x");
+    state_.BeginSearch();
+    state_.ContinueSearch(nodes_, std::chrono::steady_clock::now() - std::chrono::seconds(1));
+    ASSERT_TRUE(state_.IsSearching());
+
+    SideEffectList effects;
+    ctrl_.OnTextChanged(effects, L"y", nodes_, decltype(ctrl_)::kImmediateSearchMaxBytes + 1);
+
+    EXPECT_FALSE(state_.IsSearching());
+    EXPECT_NE(FindEffect<effect::SetTimer>(effects), nullptr) << "大きい文書はデバウンスしてから検索し直す";
+}
+
 TEST_F(SearchBarControllerTest, OnTextChangedSameTextIsNoop)
 {
     nodes_.push_back(MakeTextNode("text"));

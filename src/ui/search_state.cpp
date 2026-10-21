@@ -20,31 +20,60 @@ void SearchState::SetQuery(std::string_view query)
 
 void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
 {
-    ClearMatches();
+    BeginSearch();
+    ContinueSearch(nodes, std::chrono::steady_clock::time_point::max());
+}
 
-    if (query_.empty()) {
+void SearchState::BeginSearch()
+{
+    ClearMatches();
+    next_node_ = 0;
+    searching_ = !query_.empty();
+    if (!searching_) {
         return;
     }
-
     // ASCII 英字を含まないクエリは大文字小文字を無視しても通常一致と結果が同じなので、
     // 比較時の小文字化 (fold) を省く。文書の小文字コピーは持たず走査中に畳み込む。
-    const bool fold = !case_sensitive_ && ascii_util::HasAsciiLetter(query_);
-    std::pmr::string lower_query;
-    if (fold) {
-        lower_query = ToLowerAsciiCopy(query_);
-    }
-    const std::string_view query = fold ? std::string_view(lower_query) : std::string_view(query_);
+    active_fold_ = !case_sensitive_ && ascii_util::HasAsciiLetter(query_);
+    active_query_ = active_fold_ ? ToLowerAsciiCopy(query_) : query_;
+}
 
-    const auto node_count = static_cast<int>(nodes.size());
-    for (int i = 0; i < node_count && matches_.size() < MAX_MATCHES; i++) {
+bool SearchState::ContinueSearch(const std::pmr::vector<Node>& nodes, std::chrono::steady_clock::time_point deadline)
+{
+    if (!searching_) {
+        return true;
+    }
+    // 時計を毎ノード読むと小さいノードの多い文書で検索より重くなるので、走査量でまとめて確かめる。
+    constexpr size_t kBytesPerClockCheck = 256 * 1024;
+    constexpr size_t kNodesPerClockCheck = 256;
+    const std::string_view query = active_query_;
+    const size_t before = matches_.size();
+    size_t scanned_bytes = 0;
+    size_t scanned_nodes = 0;
+    while (next_node_ < nodes.size() && matches_.size() < MAX_MATCHES) {
+        const auto i = static_cast<int>(next_node_++);
         const auto& node = nodes[i];
         if (node.type == NodeType::Table && node.has_table()) {
-            FindTableMatches(*node.table_data(), query, fold, i);
+            FindTableMatches(*node.table_data(), query, active_fold_, i);
+            scanned_bytes += node.table_data()->concat_text.size();
         }
         else if (const auto& text = node.GetText(); !text.empty() && !IsBitmapDrawNode(node)) {
-            FindTextMatches(text, query, fold, i);
+            FindTextMatches(text, query, active_fold_, i);
+            scanned_bytes += text.size();
+        }
+        if (scanned_bytes >= kBytesPerClockCheck || ++scanned_nodes >= kNodesPerClockCheck) {
+            scanned_bytes = 0;
+            scanned_nodes = 0;
+            if (std::chrono::steady_clock::now() >= deadline) {
+                break;
+            }
         }
     }
+    if (matches_.size() != before) {
+        BumpGeneration();
+    }
+    searching_ = next_node_ < nodes.size() && matches_.size() < MAX_MATCHES;
+    return !searching_;
 }
 
 void SearchState::FindTextMatches(std::string_view text, std::string_view query, bool fold, int node_index)

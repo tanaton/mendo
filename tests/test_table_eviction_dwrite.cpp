@@ -303,3 +303,39 @@ TEST_F(TableEvictionDWriteTest, ParallelCellBuildMatchesSerial)
     EXPECT_EQ(s.col_widths, p.col_widths);
     EXPECT_FLOAT_EQ(serial.cache[idx].height, parallel.cache[idx].height);
 }
+
+// scheduler があると evict 行の復元も行チャンクで並列化されるが、復元結果と行高さは直列と一致する。
+TEST_F(TableEvictionDWriteTest, ParallelRestoreMatchesSerial)
+{
+    std::string md = "| A | B |\n|---|---|\n";
+    for (int i = 0; i < 400; ++i) {
+        md += "| long text that wraps when the column becomes narrow " + std::to_string(i) + " | another long text in the second column |\n";
+    }
+    const float narrow = 200.0f;
+    const auto restore = [&](TaskScheduler* scheduler) {
+        auto pl = ParseAndLayout(md);
+        const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
+        auto& entry = pl.cache[idx];
+        EvictWholeTable(pl.cache, idx);
+        // 狭い幅で行高さを推定のまま残し、復元で実測に揃わせる。
+        entry.layout_dirty = true;
+        measurer_.MeasureNode(pl.nodes[idx], entry, narrow, MeasureViewportRange{ 0.0f, 60.0f });
+        measurer_.SetScheduler(scheduler);
+        const auto result = measurer_.RestoreEvictedTableRows(pl.nodes[idx], entry, narrow, MeasureViewportRange{});
+        measurer_.SetScheduler(nullptr);
+        EXPECT_TRUE(result.restored);
+        EXPECT_TRUE(result.height_changed);
+        EXPECT_FALSE(entry.table_layout()->HasEvictedRows());
+        EXPECT_EQ(CountNonNullCells(*entry.table_layout()), entry.table_layout()->cell_layouts.size());
+        return std::pair{ entry.table_layout()->row_heights, entry.height };
+    };
+
+    const auto serial = restore(nullptr);
+    TaskScheduler scheduler;
+    scheduler.Init(3);
+    const auto parallel = restore(&scheduler);
+    scheduler.Shutdown();
+
+    EXPECT_EQ(serial.first, parallel.first);
+    EXPECT_FLOAT_EQ(serial.second, parallel.second);
+}

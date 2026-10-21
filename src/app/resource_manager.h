@@ -49,6 +49,15 @@ constexpr std::span<const size_t> VisibleSlice(std::span<const size_t> sorted_in
     return { b, e };
 }
 
+// これ以下の文書は表のセル以外の text_layout を捨てない。1K 文字あたり 2-5KB なので最大でも数 MB に収まり、
+// 読み返すたびに CreateTextLayout をやり直すより安い。
+inline constexpr size_t kKeepAllLayoutsMaxDocBytes = 1024 * 1024;
+
+constexpr bool KeepsAllTextLayouts(size_t doc_bytes) noexcept
+{
+    return doc_bytes <= kKeepAllLayoutsMaxDocBytes;
+}
+
 } // namespace resource_manager_detail
 
 // 画像・Mermaidリソースのライフサイクル管理。
@@ -56,11 +65,14 @@ constexpr std::span<const size_t> VisibleSlice(std::span<const size_t> sorted_in
 template <class Cb>
 class ResourceManagerT {
 public:
-    // 遅延レイアウトの計測範囲も兼ねる。範囲外へのスクロールは EnsureVisibleLayout が同期計測で拾う。
+    // 画像/図のビットマップを残す範囲。遅延レイアウトの計測範囲も兼ねる。範囲外へのスクロールは EnsureVisibleLayout が同期計測で拾う。
     static constexpr float EVICT_BUFFER_SCREENS = 2.0f;
     // evict 範囲より広く先読みすると、evict 直後の flush で範囲外の画像/図を毎回読み直す。
     static constexpr float PREFETCH_BUFFER_SCREENS = 2.0f;
     static_assert(PREFETCH_BUFFER_SCREENS <= EVICT_BUFFER_SCREENS);
+    // 大きい文書で text_layout と表のセルを残す範囲。先読み範囲と同じだと、少し戻るだけで作り直しになる。
+    static constexpr float LAYOUT_EVICT_BUFFER_SCREENS = 8.0f;
+    static_assert(EVICT_BUFFER_SCREENS < LAYOUT_EVICT_BUFFER_SCREENS);
 
     constexpr void Init(const ResourceManagerDeps& deps, Cb cb) noexcept
     {
@@ -232,19 +244,23 @@ public:
         if (!keep) {
             return;
         }
-        const auto& vr = keep->range;
 
-        deps_.cache->EvictTextLayouts(vr.first, vr.last_plus_1);
-
-        // 可視範囲をまたぐ巨大テーブルでは、ノード単位 evict では拾えない不可視行のセルを別途解放する。
-        // keep 範囲外のテーブルは上の EvictTextLayouts で全行解放済みなので、範囲内だけ見る。
-        const auto tables = VisibleSlice(deps_.doc->GetTableNodeIndices(), vr.first, vr.last_plus_1);
-        deps_.cache->EvictInvisibleTableRows(tables, keep->viewport_top, keep->viewport_bottom, keep->buffer);
+        const auto layout_keep = ComputeBufferedRange(LAYOUT_EVICT_BUFFER_SCREENS);
+        std::span<const size_t> tables = deps_.doc->GetTableNodeIndices();
+        if (!resource_manager_detail::KeepsAllTextLayouts(deps_.doc->GetRawText().size())) {
+            const auto& lr = layout_keep->range;
+            deps_.cache->EvictTextLayouts(lr.first, lr.last_plus_1);
+            // keep 範囲外のテーブルは上で全行解放済みなので、範囲内だけ見る。
+            tables = VisibleSlice(tables, lr.first, lr.last_plus_1);
+        }
+        // 表はセル 1 つごとに text_layout を持ち、短いセルばかりの大きな表では文書の大きさに見合わず膨らむ。
+        // 小さい文書でも、ノード単位の evict では拾えない不可視行のセルは捨てる。
+        deps_.cache->EvictInvisibleTableRows(tables, layout_keep->viewport_top, layout_keep->viewport_bottom, layout_keep->buffer);
 
         // image/diagram bitmap も可視範囲外の分を捨てる。レンダ済みビットマップの
         // 二次キャッシュ (mermaid 内 LRU, 128 件) は自前で上限管理されるため全消去しない。
         // 全消去すると可視中の図まで捨てて WebView2 再レンダの cliff を生むため。
-        deps_.cache->EvictDiagramBitmapsOutside(vr.first, vr.last_plus_1);
+        deps_.cache->EvictDiagramBitmapsOutside(keep->range.first, keep->range.last_plus_1);
     }
 
     void FlushPendingResources()
@@ -469,9 +485,9 @@ private:
                     diagram->width + 1.0f < min_width) {
                     continue;
                 }
-                // 幅が変わればエラー結果も変わりうるため、error 込みで破棄して再試行させる。
+                // 幅が変わればエラー結果も変わりうるため、error 込みで再試行させる。描き直しの間は旧幅の結果を仮に表示する。
                 if (diagram) {
-                    diagram->ResetForRetry();
+                    diagram->MarkStale();
                 }
             }
             // 旧幅の描画待ちを捨て、新しい幅の要求を先に処理させる。描画中のものは旧幅のキャッシュに入るだけ。

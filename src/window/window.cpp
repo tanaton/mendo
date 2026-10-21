@@ -162,6 +162,7 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
         ShowWindow(hwnd_, nCmdShow);
     }
     app_->LoadInitialDocument();
+    AwaitInitialParseBeforeDevice();
     if (!app_->CreateRenderDevice()) {
         return destroy();
     }
@@ -169,10 +170,34 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
     if (MSG msg; PeekMessageW(&msg, hwnd_, app_msg::PARSE_COMPLETE, app_msg::PARSE_COMPLETE, PM_REMOVE)) {
         app_->OnParseComplete();
     }
+    // ファイルペインの列挙もデバイスの作成と並行して済んでいれば、空の一覧を出さずに最初のフレームへ入れる。
+    if (MSG msg; PeekMessageW(&msg, hwnd_, app_msg::FILE_LISTED, app_msg::FILE_LISTED, PM_REMOVE)) {
+        app_->OnFileListed();
+    }
     UpdateWindow(hwnd_);
     SetCloaked(hwnd_, FALSE);
 
     return true;
+}
+
+void Win32Window::AwaitInitialParseBeforeDevice()
+{
+    // 読み込みが D3D デバイスの作成より先に終われば、可視範囲の計測を join 前 (作成の裏) で済ませる。
+    // 作成が先に終わったら待たずに進み、結果は従来どおり最初のフレームの直前に取り込む。
+    const HANDLE device_ready = D3DPrefetchDoneEvent();
+    if (!device_ready || !app_->IsLoadingInitialDocument()) {
+        return;
+    }
+    for (;;) {
+        if (MSG msg; PeekMessageW(&msg, hwnd_, app_msg::PARSE_COMPLETE, app_msg::PARSE_COMPLETE, PM_REMOVE)) {
+            app_->OnParseComplete();
+            return;
+        }
+        // 確かめた後に届いたポストだけで起きる。他の通知 (画像の完了など) で起きたら確かめ直す。
+        if (MsgWaitForMultipleObjects(1, &device_ready, FALSE, INFINITE, QS_POSTMESSAGE) != WAIT_OBJECT_0 + 1) {
+            return;
+        }
+    }
 }
 
 void Win32Window::UpdateDpiMetricsCache()
@@ -246,6 +271,10 @@ int Win32Window::RunMessageLoop()
             }
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
+        }
+        // 入力を配り終えてもフレームが取れていなければ、待つ間に次のフレームの計測を済ませておく。
+        if (app_->GetFrameWaitHandle() && GetUpdateRect(hwnd_, nullptr, FALSE)) {
+            app_->PrepareFrame();
         }
     }
 }
@@ -409,7 +438,13 @@ std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wPara
         const short wheel_delta = GET_WHEEL_DELTA_WPARAM(wParam);
         const auto keys = LOWORD(wParam);
         if (keys & MK_CONTROL) {
-            app_->OnMouseWheel(0, 0, wheel_delta, true);
+            // ズームは 1 段ごとに全体を組み直すので、その間に溜まったノッチをまとめて 1 回で反映する。
+            int total_delta = wheel_delta;
+            for (MSG next; PeekMessageW(&next, hwnd_, WM_MOUSEWHEEL, WM_MOUSEWHEEL, PM_NOREMOVE) && (LOWORD(next.wParam) & MK_CONTROL);) {
+                PeekMessageW(&next, hwnd_, WM_MOUSEWHEEL, WM_MOUSEWHEEL, PM_REMOVE);
+                total_delta += GET_WHEEL_DELTA_WPARAM(next.wParam);
+            }
+            app_->OnMouseWheel(0, 0, total_delta, true);
         }
         else if (keys & MK_SHIFT) {
             // Shift+Wheel は横スクロール扱い。Web ブラウザの慣習に合わせ wheel-down を右スクロールに反転する。
@@ -498,6 +533,10 @@ LRESULT Win32Window::HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lPara
 
     case app_msg::MERMAID_DISK_LOADED:
         app_->OnMermaidDiskLoaded();
+        return 0;
+
+    case app_msg::FILE_LISTED:
+        app_->OnFileListed();
         return 0;
 
     case app_msg::SEARCH_FOCUS:

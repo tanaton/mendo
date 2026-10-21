@@ -52,6 +52,7 @@ private:
     void SyncSearchCaretFromEdit();
 
     void UpdateDpiMetricsCache();
+    void AwaitInitialParseBeforeDevice();
 
     HWND hwnd_ = nullptr;
     HWND search_edit_ = nullptr;

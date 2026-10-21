@@ -69,14 +69,14 @@ constexpr float BitmapDisplayHeight(float width, float height, float max_width) 
 }
 
 // ノードの右上に並ぶオーバーレイボタンを fn(rect, kind) で列挙する。描画とヒットテストで矩形を共有する。
-// x / w はノードの左端と内容幅、top はテキスト上端。diagram は図のビットマップ (無ければボタンも無い)。
+// x / w はノードの左端と内容幅、top はテキスト上端。diagram は図の結果 (コピー・保存する PNG が無ければボタンも無い)。
 template <class Fn>
 void ForEachOverlayButton(const Node& node, const DiagramEntry* diagram, float x, float w, float top, const Theme& theme, Fn&& fn)
 {
     if (node.type == NodeType::CodeBlock) {
         fn(OverlayButtonRect(x + w, top - NodeBoxPadY(node, theme), OverlayButton::CodeCopy), OverlayButton::CodeCopy);
     }
-    else if (node.type == NodeType::Diagram && diagram && diagram->bitmap) {
+    else if (node.type == NodeType::Diagram && diagram && diagram->png) {
         const auto bmp = MermaidBitmapRect(diagram->width, diagram->height, x, w, top);
         for (const auto kind : { OverlayButton::DiagramSave, OverlayButton::DiagramCopy }) {
             fn(OverlayButtonRect(bmp.right, bmp.top, kind), kind);
@@ -121,7 +121,8 @@ void ComputeColumnWidths(
     const std::pmr::vector<float>& natural_widths,
     float available_width, size_t col_count);
 
-float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept;
+// node_width > 0 なら、折り返す段落の行数を文字数から見積もる。0 は幅を知らないときの推定 (worker のロード時)。
+float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width = 0.0f) noexcept;
 
 // stop_token が stop_requested になると途中 return する (cache は中間状態のまま)。
 void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
@@ -129,7 +130,8 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
 
 // リロードで、中身が変わらないノードの計測結果を旧キャッシュから新キャッシュへ移す。
 // 編集は 1 か所に固まることが多いので、先頭と末尾から中身が一致する範囲だけを見る。
-// Y 位置は呼び出し側が組み直す。戻り値は移したノード数。
+// 変わった範囲の図は、新しい結果が届くまで旧結果を仮表示として引き継ぐ。
+// Y 位置は呼び出し側が組み直す。戻り値は移したノード数 (仮表示の図を含む)。
 size_t CarryOverUnchanged(
     const std::pmr::vector<Node>& old_nodes, LayoutCache& old_cache,
     const std::pmr::vector<Node>& new_nodes, LayoutCache& new_cache);

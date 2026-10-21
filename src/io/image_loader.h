@@ -8,6 +8,7 @@
 #include <wrl/client.h>
 #include <windows.h>
 #include <atomic>
+#include <chrono>
 #include <climits>
 #include <cstdint>
 #include <functional>
@@ -53,7 +54,8 @@ public:
     {
         return DecodeWidthPx(max_width_dip) > image.sharp_width_px;
     }
-    void ProcessCompletedDecodes();
+    // deadline を過ぎたら残りを UPLOAD_CONTINUE タイマーに回す。
+    void ProcessCompletedDecodes(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
     // 始まっていないデコードを捨てる。始まったものの結果はキャッシュに入れる (パスがキーなので文書をまたいでも使える)。
     // 始まったものは要求中のまま残し、結果が届く前に同じパスを要求し直しても二重に読まない。
     void DropQueued();

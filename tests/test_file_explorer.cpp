@@ -93,6 +93,57 @@ TEST_F(FileExplorerTest, SetDirectoryDefersListingUntilGetEntries)
     EXPECT_TRUE(explorer_.GetEntries()[1].is_current);
 }
 
+// 列挙を別スレッドに任せると、結果が届くまで前の一覧のまま待つ。古い要求の結果は捨てる。
+TEST_F(FileExplorerTest, AsyncListerKeepsPreviousEntriesUntilApplied)
+{
+    WriteTempFile(L"a.md");
+    EXPECT_EQ(ListTempDir().size(), 2u);
+    const uint32_t generation = explorer_.GetGeneration();
+
+    std::vector<std::pair<std::wstring, uint32_t>> requests;
+    explorer_.SetAsyncLister([&requests](std::pmr::wstring dir, uint32_t request) {
+        requests.emplace_back(std::wstring{ dir }, request);
+    });
+    WriteTempFile(L"b.md");
+    explorer_.Refresh();
+    EXPECT_EQ(explorer_.GetEntries().size(), 2u) << "届くまで前の一覧を見せる";
+    explorer_.GetEntries();
+    ASSERT_EQ(requests.size(), 1u) << "待っている間は列挙し直さない";
+    EXPECT_TRUE(explorer_.IsListing());
+
+    explorer_.Refresh();
+    explorer_.GetEntries();
+    ASSERT_EQ(requests.size(), 2u);
+    EXPECT_FALSE(explorer_.ApplyListing(requests[0].second, FileExplorer::List(requests[0].first)));
+
+    EXPECT_TRUE(explorer_.ApplyListing(requests[1].second, FileExplorer::List(requests[1].first)));
+    EXPECT_FALSE(explorer_.IsListing());
+    EXPECT_EQ(explorer_.GetEntries().size(), 3u);
+    EXPECT_NE(explorer_.GetGeneration(), generation);
+}
+
+// 列挙を待つ間に別のフォルダへ移ると、前のフォルダの結果と保留していた表示を捨てる。
+TEST_F(FileExplorerTest, AsyncListerDropsResultAndRevealAfterDirectoryChange)
+{
+    CreateDir(L"sub");
+    std::vector<std::pair<std::wstring, uint32_t>> requests;
+    explorer_.SetAsyncLister([&requests](std::pmr::wstring dir, uint32_t request) {
+        requests.emplace_back(std::wstring{ dir }, request);
+    });
+    explorer_.SetDirectory(temp_dir_.wstring());
+    explorer_.GetEntries();
+    ASSERT_EQ(requests.size(), 1u);
+    explorer_.DeferReveal();
+
+    explorer_.SetDirectory((temp_dir_ / L"sub").wstring());
+    EXPECT_FALSE(explorer_.ApplyListing(requests[0].second, FileExplorer::List(requests[0].first))) << "移動先を列挙し直す前に届いた前のフォルダの結果";
+    EXPECT_FALSE(explorer_.TakeDeferredReveal());
+
+    explorer_.GetEntries();
+    ASSERT_EQ(requests.size(), 2u);
+    EXPECT_TRUE(explorer_.ApplyListing(requests[1].second, FileExplorer::List(requests[1].first)));
+}
+
 TEST_F(FileExplorerTest, ListedOnceUntilRefresh)
 {
     EXPECT_EQ(ListTempDir().size(), 1u);

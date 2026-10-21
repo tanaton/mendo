@@ -11,6 +11,8 @@
 
 // D3D デバイスの作成 (数十 ms) を起動処理と重ねるため、wWinMain の冒頭で呼ぶ。
 void PrefetchD3DDevice();
+// 先行作成が終わるとシグナルになる。先行作成していないか、受け取り済みなら nullptr。
+HANDLE D3DPrefetchDoneEvent() noexcept;
 
 // D2D ファクトリ・レンダーターゲット・DPI を保持するレンダーバックエンド。
 // ブラシとテキストフォーマットは Renderer 側で管理する。
