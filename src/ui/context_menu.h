@@ -65,21 +65,9 @@ public:
 
     int Show(HWND owner_hwnd, const ContextMenuParams& params);
 
-    // 無効項目・区切り上は 0。
-    int HitTest(float x, float y) const noexcept;
-    int NavHitTest(float x, float y) const noexcept;
-
-    const std::vector<Item>& GetItems() const noexcept;
-    const NavRowLayout& GetNavLayout() const noexcept;
-    float GetMenuWidth() const noexcept;
-    float GetMenuHeight() const noexcept;
-
-    // テスト専用。ウィンドウを作らずに Impl の各段階を直接呼ぶ。
-    void TestBuildItems(const ContextMenuParams& params);
-    void TestCreateTextFormats(const Theme& theme);
-    void TestComputeLayout();
+    // 定義は context_menu_impl.h。テストはウィンドウを作らずに Impl の各段階を直接呼ぶ。
+    struct Impl;
 
 private:
-    struct Impl;
     std::unique_ptr<Impl> impl_;
 };

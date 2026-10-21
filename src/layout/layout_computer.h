@@ -15,10 +15,27 @@ inline float NodeIndent(const Node& node, const Theme& theme) noexcept
     return node.indent_level * theme.indent_width;
 }
 
+// ブロック左端のウィンドウ DIP X (横スクロール前)。
+inline float NodeBlockX(const Node& node, const Theme& theme) noexcept
+{
+    return theme.margin_left + NodeIndent(node, theme);
+}
+
 // インデントは 127 段まで積めるので、本文幅から引くだけだと負になる。
 inline float NodeContentWidth(const Node& node, const Theme& theme, float content_width) noexcept
 {
     return ShrinkKeepingMinContent(content_width, NodeIndent(node, theme));
+}
+
+// 折り返さないノード (CodeBlock) を組む幅。高さも行も本文幅に依存しない。
+// 1e7 は float の整数精度限界 (2^24 ≈ 1.67e7) より少し下で、DirectWrite 内部の
+// 幾何計算でも丸め誤差が乗らない安全な値。10MDIP ≈ 数十万行のコードブロックを許容する。
+inline constexpr float kNoWrapLayoutWidth = 1.0e7f;
+
+// ノードの text_layout を組む幅。計測結果を使い回せるかはこの幅が同じかで決まる。
+inline float NodeLayoutWidth(const Node& node, float node_width) noexcept
+{
+    return node.type == NodeType::CodeBlock ? kNoWrapLayoutWidth : node_width;
 }
 
 inline float NodeTextXOffset(const Node& node, const Theme& theme) noexcept
@@ -62,10 +79,9 @@ inline float TableBaseRowHeight(const Theme& theme) noexcept
     return theme.font_size_body * TABLE_ROW_HEIGHT_FACTOR;
 }
 
-// 画像・図は max_width を超える場合のみアスペクト比を保って縮小する (拡大はしない)。描画側の MermaidBitmapRect と同じ規則。
 constexpr float BitmapDisplayHeight(float width, float height, float max_width) noexcept
 {
-    return (width > max_width && width > 0.0f) ? height * (max_width / width) : height;
+    return FitBitmapSize(width, height, max_width).height;
 }
 
 // ノードの右上に並ぶオーバーレイボタンを fn(rect, kind) で列挙する。描画とヒットテストで矩形を共有する。

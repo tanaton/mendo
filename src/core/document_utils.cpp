@@ -174,10 +174,10 @@ constexpr auto kAsciiSlugTable = [] static noexcept {
     std::array<AsciiSlugAction, 128> t{};
     for (size_t i = 0; i < t.size(); ++i) {
         const char c = static_cast<char>(i);
-        if ((c >= 'a' && c <= 'z') || ascii_util::IsAsciiDigit(c) || c == '-' || c == '_') {
+        if (ascii_util::IsAsciiLower(c) || ascii_util::IsAsciiDigit(c) || c == '-' || c == '_') {
             t[i] = SlugKeep;
         }
-        else if (c >= 'A' && c <= 'Z') {
+        else if (ascii_util::IsAsciiUpper(c)) {
             t[i] = SlugLower;
         }
         else if (c == ' ' || c == '\t') {

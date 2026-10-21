@@ -13,6 +13,7 @@
 #include <wrl/client.h>
 #include <functional>
 #include <memory_resource>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -23,10 +24,24 @@ public:
     bool Init(HWND hwnd, Theme theme);
     // D2DRenderBackend::Resize を参照。
     void Resize(UINT width, UINT height, bool live = false) noexcept;
-    void Render(const RenderParams& params);
+
+    // 1 フレームの結果。再描画をいつ予約するかは呼び出し側が決める。
+    enum class FrameResult : uint8_t {
+        Done,
+        // デバイスを作り直した・失ったため、このフレームは表示されていない。すぐ描き直す。
+        RedrawNow,
+        // デバイスを作り直せなかった。すぐ描き直すと失敗を繰り返して UI スレッドを占有するので間を置く。
+        RetryLater,
+    };
+    FrameResult Render(const RenderParams& params);
     void SetDpi(float dpi) noexcept;
     void TrimForMinimize() noexcept;
-    void DrawLoading(
+    // 文書から作った描画用のテキスト (目次項目の UTF-16) を捨てる。文書を差し替えたら呼ぶ。
+    void ForgetDocumentText() noexcept
+    {
+        toc_titles_ = {};
+    }
+    FrameResult DrawLoading(
         float angle,
         const PaneRect& md_pane_rect,
         const SidePaneState& side_panes,
@@ -84,10 +99,7 @@ public:
     {
         on_device_lost_ = std::move(cb);
     }
-    bool IsDeviceLost() const noexcept
-    {
-        return backend_.IsDeviceLost();
-    }
+
     // D2DRenderBackend の同名関数を参照。
     HANDLE FrameWaitHandle() const noexcept
     {
@@ -113,14 +125,14 @@ private:
     void ApplyThemeMetrics();
 
     // フレーム共通の前処理 (デバイスロスト復旧・BeginDraw・タイトルバー・サイドペイン)。
-    // 描画できない場合 false を返し、その場合 BeginDraw は呼ばれていない。
-    bool BeginFrame(const TitleBarRenderState& titlebar, const SidePaneState& side_panes);
+    // 描画できない場合はそのフレームの結果を返し、その場合 BeginDraw は呼ばれていない。
+    std::optional<FrameResult> BeginFrame(const TitleBarRenderState& titlebar, const SidePaneState& side_panes);
     void DrawLoadingSpinner(float angle, const PaneRect& md_pane_rect);
 
 
     void GenTitleBar(const TitleBarRenderState& tb);
     void GenFileExplorer(const std::pmr::vector<FileEntry>& entries, const SidePaneInstance& pane);
-    void GenToc(const std::pmr::vector<TocEntry>& entries, const std::pmr::vector<Node>& nodes, const SidePaneInstance& pane, int active_index);
+    void GenToc(const SidePaneState& sp, const SidePaneInstance& pane);
     template <typename GenItemFn>
     void GenSidePane(const SidePaneInstance& pane, bool is_file_pane, size_t item_count, std::wstring_view header_text, GenItemFn gen_item);
     void GenSidePaneHeader(const SidePaneInstance& pane, bool is_file_pane, std::wstring_view header_text);
@@ -130,7 +142,7 @@ private:
     void EmitLeftText(IDWriteTextFormat* fmt, std::wstring_view text, float x, float y, float height);
     void DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height, bool has_dirty_nodes);
     void DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool can_forward, NavDirection hovered);
-    void DrawGestureTrail(const std::pmr::deque<GesturePoint>& points);
+    void DrawGestureTrail(const std::pmr::vector<GesturePoint>& points);
     void DrawTransientOverlays(const GestureRenderState& gesture, const ToastRenderState& toast, const PaneRect& md_pane_rect);
     void DrawGestureOverlay(NavDirection direction, const PaneRect& md_pane_rect);
     void DrawToastOverlay(const ToastRenderState& toast, const PaneRect& md_pane_rect);
@@ -167,13 +179,18 @@ private:
 
     void RecreateBrushes();
     void InvalidateBrushes() noexcept;
+    // 候補のうち実在するフォントに決める。テーマ間で共通なので Init で 1 回だけ解決し、
+    // 以後は AdoptThemeKeepingFonts で引き継ぐ。
     void ResolveThemeFonts();
+    void AdoptThemeKeepingFonts(Theme theme);
     void RecreatePaneFormats();
-    Microsoft::WRL::ComPtr<IDWriteTextFormat> CreatePaneFormat(const wchar_t* family, DWRITE_FONT_WEIGHT weight, float size, const wchar_t* locale);
-    void CheckEndDraw();
+
+    FrameResult EndFrame();
     bool RecreateDevice();
-    // 再描画要求を出した場合 true。
-    bool HandleDeviceLost();
+    FrameResult RecreateDeviceForFrame()
+    {
+        return RecreateDevice() ? FrameResult::RedrawNow : FrameResult::RetryLater;
+    }
 
     struct TextFormats {
         Microsoft::WRL::ComPtr<IDWriteTextFormat> icon_font;
@@ -200,8 +217,8 @@ private:
     // 最初のフレームで文字を出す部分だけをコマンドにし、デバイス作成前に組み立てられるようにしている。
     // 起動直後には出ないオーバーレイ (トースト・検索バー等) は即時描画のまま。
     DrawCommandList chrome_cmds_;
-    // 目次項目を組み立てるたびの UTF-16 変換先。項目ごとの確保を避けて再利用する。
-    std::pmr::wstring toc_text_scratch_;
+    // 目次項目の UTF-16。描いた項目だけ作り、ForgetDocumentText と最小化で捨てる。
+    std::pmr::vector<std::pmr::wstring> toc_titles_;
 
     // 検索バーの入力欄のレイアウト。height は定数なのでキーに含めない。
     struct SearchInputLayout {

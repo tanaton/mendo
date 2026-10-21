@@ -46,29 +46,6 @@ inline constexpr float PANE_SCROLLBAR_THUMB_MIN = 24.0f;
 inline constexpr float PANE_SCROLLBAR_MARGIN = 2.0f;
 inline constexpr float PANE_SCROLLBAR_HIT_PADDING = 4.0f;
 
-// 各フィールドは App の複数箇所から直接読み書きされるため public にしている。
-struct ScrollRestoration {
-    int pending_restore_node = -1;
-    int pending_restore_offset = 0;
-
-    constexpr bool HasNodeRestore() const noexcept
-    {
-        return pending_restore_node >= 0;
-    }
-
-    constexpr void SetNodeRestore(int node, int offset) noexcept
-    {
-        pending_restore_node = node;
-        pending_restore_offset = offset;
-    }
-
-    constexpr void ClearNodeRestore() noexcept
-    {
-        pending_restore_node = -1;
-        pending_restore_offset = 0;
-    }
-};
-
 // コードブロック・図の右上に重ねるボタン。
 enum class OverlayButton : uint8_t {
     None,

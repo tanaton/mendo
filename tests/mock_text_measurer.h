@@ -6,6 +6,7 @@
 #include "text_measurer.h"
 #include "theme.h"
 #include "ui_constants.h"
+#include <algorithm>
 #include <cmath>
 #include <memory_resource>
 #include <string_view>
@@ -54,10 +55,12 @@ public:
             return;
         }
 
-        // テキスト長と利用可能な幅から行数を推定
+        // テキスト長と利用可能な幅から行数を推定。コードブロックは実装と同じく折り返さない。
         float effective_chars = (max_width > 0) ? (max_width / (line_height * 0.6f)) : chars_per_line;
         effective_chars = std::max(effective_chars, 1.0f);
-        float lines = std::ceil(static_cast<float>(text.size()) / effective_chars);
+        const float lines = node.type == NodeType::CodeBlock
+                                ? static_cast<float>(node.line_count + 1)
+                                : std::ceil(static_cast<float>(text.size()) / effective_chars);
         float h = lines * line_height;
 
         if (node.type == NodeType::Heading) {

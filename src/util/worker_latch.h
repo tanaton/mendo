@@ -1,7 +1,77 @@
 #pragma once
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
+#include <cstddef>
+#include <iterator>
+#include <memory_resource>
 #include <mutex>
+#include <utility>
+#include <vector>
+
+// worker の結果を UI スレッドへ渡す受け箱。空のときに入った 1 件目だけ受け手へ投函させ、まとめて回収させる。
+// 1 件ずつ投函すると、投函メッセージは描画・入力より先に取り出されるので、時間で区切った回収が間を空けずに続いてしまう。
+template <class T>
+class PostedInbox {
+public:
+    // worker から呼ぶ。true なら投函する (それ以外は通知済みか、空き時間の回収が拾う)。
+    bool Push(T item)
+    {
+        const std::lock_guard lock(mutex_);
+        items_.push_back(std::move(item));
+        return items_.size() == 1;
+    }
+
+    // UI スレッドから呼ぶ。先頭から deadline まで apply し、処理した分を返す。必ず進むよう 1 件目は期限を見ない。
+    // 残りは先頭へ戻し、HasLeftover が真になる。
+    template <class Apply>
+    std::pmr::vector<T> Drain(std::chrono::steady_clock::time_point deadline, Apply&& apply)
+    {
+        std::pmr::vector<T> items;
+        {
+            const std::lock_guard lock(mutex_);
+            items.swap(items_);
+        }
+        size_t done = 0;
+        for (; done < items.size(); ++done) {
+            if (done > 0 && std::chrono::steady_clock::now() >= deadline) {
+                break;
+            }
+            apply(items[done]);
+        }
+        leftover_ = done < items.size();
+        if (leftover_) {
+            const auto rest = items.begin() + static_cast<std::ptrdiff_t>(done);
+            const std::lock_guard lock(mutex_);
+            items_.insert(items_.begin(), std::make_move_iterator(rest), std::make_move_iterator(items.end()));
+            items.erase(rest, items.end());
+        }
+        return items;
+    }
+
+    // 未回収の結果を捨てる。解放は lock の外 (戻り値の破棄) で行う。UI スレッド専用。
+    std::pmr::vector<T> TakeAll()
+    {
+        std::pmr::vector<T> items;
+        {
+            const std::lock_guard lock(mutex_);
+            items.swap(items_);
+        }
+        leftover_ = false;
+        return items;
+    }
+
+    // 新しい結果は投函で知らせるので、続きが要るのは時間切れで残したときだけ。UI スレッド専用。
+    bool HasLeftover() const noexcept
+    {
+        return leftover_;
+    }
+
+private:
+    std::mutex mutex_;
+    std::pmr::vector<T> items_;
+    bool leftover_ = false;
+};
 
 // 共有 TaskScheduler に Post した worker のライフタイムを所有者が join できるようにする latch。
 // 利用パターン:

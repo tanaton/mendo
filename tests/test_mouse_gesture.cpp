@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "gesture_overlay.h"
+#include "render_params.h"
 #include "mouse_gesture.h"
 #include "swipe_detector.h"
 

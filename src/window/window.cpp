@@ -542,7 +542,7 @@ LRESULT Win32Window::HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lPara
         return 0;
 
     case app_msg::SEARCH_FOCUS:
-        FocusSearchEdit(wParam, lParam);
+        FocusSearchEdit(lParam);
         return 0;
 
     case app_msg::SEARCH_UNFOCUS:
@@ -914,24 +914,15 @@ bool Win32Window::EnsureSearchEdit()
     return search_edit_ != nullptr;
 }
 
-void Win32Window::FocusSearchEdit(WPARAM mode, LPARAM selection)
+void Win32Window::FocusSearchEdit(LPARAM selection)
 {
     if (!EnsureSearchEdit()) {
         return;
     }
     RepositionSearchEdit();
     SetFocus(search_edit_);
-    if (mode == app_param::SEARCH_FOCUS_SET_CARET) {
-        const auto pos = static_cast<int>(selection);
-        SendMessageW(search_edit_, EM_SETSEL, pos, pos);
-    }
-    else if (mode == app_param::SEARCH_FOCUS_SET_SELECTION) {
-        const auto [anchor, caret] = app_param::UnpackSearchSelectionLParam(selection);
-        SendMessageW(search_edit_, EM_SETSEL, anchor, caret);
-    }
-    else {
-        SendMessageW(search_edit_, EM_SETSEL, 0, -1);
-    }
+    const auto [anchor, caret] = app_param::UnpackSearchSelectionLParam(selection);
+    SendMessageW(search_edit_, EM_SETSEL, anchor, caret);
     SyncSearchCaretFromEdit();
 }
 

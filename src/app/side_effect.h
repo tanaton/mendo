@@ -28,23 +28,16 @@ struct ShowTooltip {
     TooltipTarget target;
 };
 struct ClearTooltip {};
-// スクロールで内容がカーソルの下を動いた。WM_MOUSEMOVE は来ないので、描画後にカーソル位置のホバーを引き直す。
-struct RefreshHover {};
 struct ShowContextMenu {
     int screen_x;
     int screen_y;
 };
 struct Beep {};
 
+// EM_SETSEL の [anchor, caret)。既定値は全選択。
 struct SearchFocus {
-    enum class Mode : uint8_t {
-        SelectAll,    // 既存テキスト全選択
-        SetCaret,     // caret に位置決め
-        SetSelection, // [anchor, caret) を選択
-    };
-    Mode mode = Mode::SelectAll;
-    int anchor = 0; // SetSelection でのみ参照
-    int caret = 0;  // SetCaret/SetSelection で参照
+    int anchor = 0;
+    int caret = -1;
 };
 struct SearchUnfocus {
     bool clear_text = false; // ファイル切替時に true。検索ボックスのテキストを消去する。
@@ -55,13 +48,8 @@ struct SetWindowPosition {
     int cx;
     int cy;
 };
-struct ApplyThemeChange {
-    enum class Type : uint8_t {
-        Zoom,
-        DarkMode
-    };
-    Type type;
-};
+struct ApplyZoom {};
+struct ToggleDarkMode {};
 // OnResizeEnd (RelayoutViewport) が BitmapManage (または遅延レイアウト) と SyncTocActive も出すので、併せて積まない。
 struct PerformResizeEnd {};
 struct PerformSizingUpdate {};
@@ -113,14 +101,14 @@ using SideEffect = std::variant<
     effect::ClipboardWriteHtml,
     effect::ShowTooltip,
     effect::ClearTooltip,
-    effect::RefreshHover,
     effect::ShowContextMenu,
     effect::Beep,
     // Window
     effect::SearchFocus,
     effect::SearchUnfocus,
     effect::SetWindowPosition,
-    effect::ApplyThemeChange,
+    effect::ApplyZoom,
+    effect::ToggleDarkMode,
     effect::PerformResizeEnd,
     effect::PerformSizingUpdate,
     effect::RendererResize,

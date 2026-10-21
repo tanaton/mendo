@@ -41,8 +41,8 @@ TEST(ReducerHomeKey, ReturnsToAbsoluteTopIncludingTopMargin)
 {
     ReducerHarness h({ .markdown = MakeHarnessMarkdown(12) });
     ASSERT_GT(h.state.document.layout_cache.Top(0), 0.0f);
-    ASSERT_GT(h.state.view.viewport.GetMaxScroll(), 300.0f);
-    h.state.view.viewport.ScrollTo(300.0f);
+    ASSERT_GT(MdMaxScroll(h.state), 300.0f);
+    h.state.view.viewport.ScrollTo(300.0f, MdMaxScroll(h.state));
 
     const auto effects = h.Dispatch(KeyScrollAction{ ScrollType::Home });
 
@@ -54,7 +54,7 @@ TEST(ReducerHomeKey, ReturnsToAbsoluteTopIncludingTopMargin)
 TEST(ReducerHomeKey, ShortDocumentDoesNotExceedMaxScroll)
 {
     ReducerHarness h({ .markdown = MakeHarnessMarkdown(1), .md_height = 2000.0f });
-    ASSERT_FLOAT_EQ(h.state.view.viewport.GetMaxScroll(), 0.0f);
+    ASSERT_FLOAT_EQ(MdMaxScroll(h.state), 0.0f);
 
     h.Dispatch(KeyScrollAction{ ScrollType::Home });
 
@@ -186,7 +186,7 @@ void RunScrollInvariant(const ScrollLayoutCase& lc, uint32_t seed)
             const float before = h.state.view.viewport.GetScrollY();
             const auto effects = h.Dispatch(la.action);
             const float y = h.state.view.viewport.GetScrollY();
-            const float max_y = h.state.view.viewport.GetMaxScroll();
+            const float max_y = MdMaxScroll(h.state);
             ASSERT_GE(y, 0.0f) << "history:" << history;
             ASSERT_LE(y, max_y) << "history:" << history;
             if (y != before) {

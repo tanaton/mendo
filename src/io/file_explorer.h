@@ -15,15 +15,7 @@ struct FileEntry {
     bool is_parent = false;
 
     // 戻り値は full_path の内部バッファを指す view。
-    constexpr std::wstring_view GetDisplayName() const noexcept
-    {
-        if (is_parent) {
-            return L"..";
-        }
-        const std::wstring_view full{ full_path };
-        const auto pos = full.find_last_of(L"\\/");
-        return (pos != full.npos) ? full.substr(pos + 1) : full;
-    }
+    std::wstring_view GetDisplayName() const noexcept;
 };
 
 // 列挙は SetDirectory / Refresh 後の最初の GetEntries まで遅らせる。非表示のペインからは

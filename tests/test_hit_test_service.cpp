@@ -209,9 +209,8 @@ TEST_F(HitTestTest, HitTestTable_NoLayoutDataReturnsTextEnd)
     const int table_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::Table);
     ASSERT_GE(table_idx, 0);
 
-    // table_layout() を nullptr にするためテーブル幾何を捨てる
-    auto& entry = pr.cache[table_idx];
-    entry.reset_table_layout();
+    // テーブル幾何を持たない (計測前の) エントリ
+    const NodeLayoutEntry entry{};
     ASSERT_EQ(entry.table_layout(), nullptr);
 
     const float entry_text_top = pr.cache.Top(static_cast<size_t>(table_idx));

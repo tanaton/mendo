@@ -4,6 +4,12 @@
 #include <algorithm>
 #include <optional>
 
+// スクロール上限。内容の高さは計測や図の確定で変わり続けるので、値として持たずに使う時点で求める。
+constexpr float MaxScroll(float total_height, float viewport_height) noexcept
+{
+    return std::max(0.0f, total_height - viewport_height);
+}
+
 enum class PaneZone : uint8_t {
     None,
     FilePane,
@@ -60,6 +66,19 @@ struct PaneScrollInfo {
     float max_scroll = 0.0f;
     float thumb_height = 0.0f;
 };
+
+// 縦スクロールバーを出すか。描画とヒット判定で共有する。may_grow (計測待ちで内容が伸びうる) の間は、
+// ちょうど収まっていても出し続けてちらつきを防ぐ。それ以外はつまみを動かせるときだけ出す。
+constexpr bool ShowsVScrollbar(const PaneScrollInfo& info, bool may_grow = false) noexcept
+{
+    if (info.content_height <= 0.0f) {
+        return false;
+    }
+    if (may_grow) {
+        return info.total_content >= info.content_height;
+    }
+    return info.thumb_height < info.content_height;
+}
 
 class PaneLayoutCache {
 public:

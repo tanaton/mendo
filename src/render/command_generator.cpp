@@ -705,16 +705,10 @@ void CommandGenerator::GenTable(const FrameContext& fc,
     float y = entry_text_top + tl.row_cum_y[r_begin];
 
     // x は列順に単調なので、可視列は連続した区間 [c_begin, c_end) になる。
-    size_t c_begin = 0;
-    float x_begin = offset_x + border;
-    while (c_begin < col_count && x_begin + tl.ColumnStep(c_begin) - border < cull_left) {
-        x_begin += tl.ColumnStep(c_begin);
-        ++c_begin;
-    }
-    size_t c_end = c_begin;
-    for (float x = x_begin; c_end < col_count && x - border <= cull_right; ++c_end) {
-        x += tl.ColumnStep(c_end);
-    }
+    const auto cum_begin = tl.col_cum_x.begin();
+    const auto cum_cols_end = cum_begin + static_cast<ptrdiff_t>(col_count);
+    const size_t c_begin = static_cast<size_t>(std::lower_bound(cum_begin + 1, cum_cols_end + 1, cull_left - offset_x + border) - (cum_begin + 1));
+    const size_t c_end = static_cast<size_t>(std::upper_bound(cum_begin + static_cast<ptrdiff_t>(c_begin), cum_cols_end, cull_right - offset_x + border) - cum_begin);
 
     const auto search_nm = PrepareNodeSearchMatches(entry, node_index);
 
@@ -725,13 +719,12 @@ void CommandGenerator::GenTable(const FrameContext& fc,
 
         cmds_.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y), border, BrushId::Hr });
 
-        float cx = x_begin;
         std::span<const CellInlineCodeBg> row_bgs;
         if (r < tl.row_code_bgs.size()) {
             row_bgs = tl.row_code_bgs[r];
         }
         for (size_t c = c_begin; c < c_end; c++) {
-            const auto [text_x, text_y] = TableCellTextOrigin(cx, y);
+            const auto [text_x, text_y] = TableCellTextOrigin(offset_x + tl.col_cum_x[c], y);
 
             GenCellInlineCodeBgs(cmds_, row_bgs, c, text_x, text_y);
 
@@ -747,7 +740,6 @@ void CommandGenerator::GenTable(const FrameContext& fc,
                 .selection = selection,
                 .is_header = is_header_row,
             });
-            cx += tl.ColumnStep(c);
         }
         y += row_h + border;
     }
@@ -760,10 +752,8 @@ void CommandGenerator::GenTable(const FrameContext& fc,
     const auto vline = [&](float x) {
         cmds_.emplace_back(DrawLineCmd{ D2D1::Point2F(x, entry_text_top), D2D1::Point2F(x, table_bottom), border, BrushId::Hr });
     };
-    float cx = x_begin;
     for (size_t c = c_begin; c < c_end; c++) {
-        vline(cx - border);
-        cx += tl.ColumnStep(c);
+        vline(offset_x + tl.col_cum_x[c] - border);
     }
     vline(offset_x + table_width);
 }

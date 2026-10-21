@@ -22,6 +22,11 @@ bool ShouldListEntry(const WIN32_FIND_DATAW& fd) noexcept
 }
 } // namespace
 
+std::wstring_view FileEntry::GetDisplayName() const noexcept
+{
+    return is_parent ? std::wstring_view{ L".." } : FilenameView(full_path);
+}
+
 void FileExplorer::SetDirectory(std::wstring_view dir_path)
 {
     const std::wstring_view normalized = path_util::TrimTrailingSeparators(dir_path);

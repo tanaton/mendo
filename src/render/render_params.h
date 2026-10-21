@@ -9,15 +9,26 @@
 #include "pane_layout.h"
 #include "ui_types.h"
 #include "mouse_gesture.h"
+#include "swipe_detector.h"
 #include <memory_resource>
 #include <string_view>
 #include <utility>
 
 struct GestureRenderState {
-    const std::pmr::deque<GesturePoint>* trail_points = nullptr;
+    const std::pmr::vector<GesturePoint>* trail_points = nullptr;
     NavDirection direction = NavDirection::None;
     bool trail_active = false;
 };
+
+inline GestureRenderState ResolveGestureOverlay(const MouseGesture& gesture, const SwipeDetector& swipe) noexcept
+{
+    GestureRenderState gs;
+    gs.trail_active = gesture.IsGestureActive();
+    gs.trail_points = &gesture.GetTrailPoints();
+    // マウスジェスチャーを優先する。None ならオーバーレイは出さない。
+    gs.direction = gesture.IsOverlayVisible() ? gesture.GetDirection() : swipe.GetOverlayDirection();
+    return gs;
+}
 
 // message が空なら非表示。
 struct ToastRenderState {

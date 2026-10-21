@@ -2,8 +2,8 @@
 #include "ui_types.h"
 #include <cmath>
 #include <cstdint>
-#include <deque>
 #include <memory_resource>
+#include <vector>
 
 enum class GesturePhase : uint8_t {
     Idle,
@@ -63,7 +63,7 @@ public:
         const float pdy = y - last.y;
         if (pdx * pdx + pdy * pdy >= MIN_POINT_DISTANCE_SQ) {
             if (trail_points_.size() >= static_cast<size_t>(TRAIL_MAX_POINTS)) {
-                trail_points_.pop_front();
+                trail_points_.erase(trail_points_.begin());
             }
             trail_points_.emplace_back(x, y);
             changed = true;
@@ -117,7 +117,7 @@ public:
     {
         return phase_ == GesturePhase::Tracking && direction_ != NavDirection::None;
     }
-    constexpr const std::pmr::deque<GesturePoint>& GetTrailPoints() const noexcept
+    constexpr const std::pmr::vector<GesturePoint>& GetTrailPoints() const noexcept
     {
         return trail_points_;
     }
@@ -144,5 +144,6 @@ private:
     NavDirection direction_ = NavDirection::None;
     float start_x_ = 0.0f;
     float start_y_ = 0.0f;
-    std::pmr::deque<GesturePoint> trail_points_;
+    // clear で容量を残し、ジェスチャーごとの確保を避ける。
+    std::pmr::vector<GesturePoint> trail_points_;
 };

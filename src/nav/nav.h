@@ -62,8 +62,6 @@ public:
         return forward_stack_.size();
     }
 
-    void Clear() noexcept;
-
 private:
     // GoBack/GoForward の対称処理を集約する。
     bool Transfer(std::pmr::deque<NavEntry>& from, std::pmr::deque<NavEntry>& to, NavEntry current, NavEntry& out);

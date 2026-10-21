@@ -4,7 +4,6 @@
 #include "task_scheduler.h"
 #include "ui_constants.h"
 #include "wic_util.h"
-#include <cmath>
 #include <iterator>
 
 ImageLoader::~ImageLoader()
@@ -60,7 +59,7 @@ UINT ImageLoader::DecodeWidthPx(float width_dip) const noexcept
         return 0;
     }
     constexpr UINT kQuantumPx = 256;
-    const auto px = static_cast<UINT>(std::ceil(width_dip * DpiScale()));
+    const auto px = static_cast<UINT>(DipToPixelCeil(width_dip, DpiScale()));
     return (px + kQuantumPx - 1) / kQuantumPx * kQuantumPx;
 }
 
@@ -104,16 +103,7 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
             return;
         }
 
-        bool was_empty = false;
-        {
-            const std::lock_guard lock(result_mutex_);
-            was_empty = completed_.empty();
-            completed_.emplace_back(std::move(result));
-        }
-
-        // 未回収の結果があれば通知済みか、空き時間の転送が回収する。1 件ずつ投函すると、
-        // 投函メッセージは描画・入力より先に取り出されるので、時間で区切った転送が間を空けずに続いてしまう。
-        if (was_empty && hwnd_) {
+        if (completed_.Push(std::move(result)) && hwnd_) {
             ::PostMessageW(hwnd_, msg_id_, 0, 0);
         }
     });
@@ -148,18 +138,8 @@ void ImageLoader::DecodeForDisplay(const std::wstring& path, UINT max_width_px, 
 
 void ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point deadline)
 {
-    std::vector<DecodeResult> results;
-    {
-        const std::lock_guard lock(result_mutex_);
-        results.swap(completed_);
-    }
-    leftover_uploads_ = false;
-    if (results.empty()) {
-        return;
-    }
-
     Callback last_cb;
-    const size_t processed = ApplyUntil(results, deadline, [&](DecodeResult& r) {
+    const auto results = completed_.Drain(deadline, [&](DecodeResult& r) {
         // GPU に載せられなかった画像もデコード失敗と同じく数える。数えないと完了通知のたびに読み直し続ける。
         bool failed = !r.bitmap;
         const auto* existing = cache_.Find(r.path);
@@ -179,10 +159,8 @@ void ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point 
         // 全 on_complete は同一の invalidate シグナルなので最後の 1 つだけ呼ぶ。
         last_cb = std::move(r.on_complete);
     });
-    if (processed < results.size()) {
-        const std::lock_guard lock(result_mutex_);
-        RequeueFront(completed_, results, processed);
-        leftover_uploads_ = true;
+    if (results.empty()) {
+        return;
     }
     {
         const std::lock_guard lock(pending_mutex_);
@@ -226,8 +204,5 @@ void ImageLoader::CancelPending()
         pending_paths_.clear();
         failed_paths_.clear();
     }
-    {
-        const std::lock_guard lock(result_mutex_);
-        completed_.clear();
-    }
+    completed_.TakeAll();
 }

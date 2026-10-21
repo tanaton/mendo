@@ -12,8 +12,6 @@ namespace ascii_util {
 
 inline constexpr size_t npos = std::wstring_view::npos;
 
-namespace detail {
-
 template <typename Char>
 constexpr bool IsAsciiUpper(Char c) noexcept
 {
@@ -26,17 +24,15 @@ constexpr bool IsAsciiLower(Char c) noexcept
     return c >= static_cast<Char>('a') && c <= static_cast<Char>('z');
 }
 
-} // namespace detail
-
 // std::tolower の locale 依存 (トルコ語の I→ı 等) を回避。
 struct ToLowerAsciiFn {
     static constexpr wchar_t operator()(wchar_t c) noexcept
     {
-        return detail::IsAsciiUpper(c) ? static_cast<wchar_t>(c - L'A' + L'a') : c;
+        return IsAsciiUpper(c) ? static_cast<wchar_t>(c - L'A' + L'a') : c;
     }
     static constexpr char operator()(char c) noexcept
     {
-        return detail::IsAsciiUpper(c) ? static_cast<char>(c - 'A' + 'a') : c;
+        return IsAsciiUpper(c) ? static_cast<char>(c - 'A' + 'a') : c;
     }
 };
 inline constexpr ToLowerAsciiFn ToLowerAscii{};
@@ -50,7 +46,7 @@ constexpr bool IsAsciiDigit(Char c) noexcept
 template <typename Char>
 constexpr bool IsAsciiAlpha(Char c) noexcept
 {
-    return detail::IsAsciiLower(c) || detail::IsAsciiUpper(c);
+    return IsAsciiLower(c) || IsAsciiUpper(c);
 }
 
 template <typename Char>
@@ -113,7 +109,7 @@ inline bool HasAsciiUpper(const char* s, size_t n) noexcept
         }
         i += detail::kSimdStep;
     }
-    return std::ranges::any_of(s + i, s + n, detail::IsAsciiUpper<char>);
+    return std::ranges::any_of(s + i, s + n, IsAsciiUpper<char>);
 }
 
 namespace detail {
@@ -276,7 +272,7 @@ struct BasicLowercaseAsciiLiteral {
             if (static_cast<std::make_unsigned_t<CharT>>(literal[i]) > 0x7F) {
                 detail::consteval_fail("LowercaseAsciiLiteral: literal must contain only ASCII characters");
             }
-            if (detail::IsAsciiUpper(literal[i])) {
+            if (IsAsciiUpper(literal[i])) {
                 detail::consteval_fail("LowercaseAsciiLiteral: literal must be lowercase ASCII");
             }
         }

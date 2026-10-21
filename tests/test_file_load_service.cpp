@@ -77,24 +77,6 @@ TEST_F(FileLoadServiceTest, SetLoadingPath)
     EXPECT_EQ(service_.GetLoadingPath(), L"path/to/file.md");
 }
 
-TEST_F(FileLoadServiceTest, ExecuteLoadNonexistentFile)
-{
-    service_.SetLoadingPath(L"nonexistent_file.md");
-    auto result = service_.ExecuteLoad();
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error(), FileLoadError::NotFound);
-    EXPECT_FALSE(service_.IsLoading());
-}
-
-TEST_F(FileLoadServiceTest, LoadStopsAnimation)
-{
-    StartLoading(L"nonexistent.md");
-    EXPECT_TRUE(service_.IsLoading());
-
-    (void)service_.ExecuteLoad();
-    EXPECT_FALSE(service_.IsLoading());
-}
-
 TEST_F(FileLoadServiceTest, BeginLoadingAnimationResetsAngle)
 {
     StartLoading(L"first.md");

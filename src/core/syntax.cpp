@@ -12,6 +12,7 @@ namespace {
 using ascii_util::IsAsciiAlnum;
 using ascii_util::IsAsciiAlpha;
 using ascii_util::IsAsciiDigit;
+using ascii_util::IsAsciiUpper;
 
 constexpr auto npos = std::string_view::npos;
 
@@ -1856,7 +1857,7 @@ std::pmr::vector<SyntaxToken> TokenizeHaskell(std::string_view text)
         if (IsIdentStart(c)) {
             const size_t e = SkipWhile(text, i + 1, [](char ch) { return IsIdentChar(ch) || ch == '\''; });
             SyntaxTokenType type = SyntaxTokenType::Plain;
-            if (c >= 'A' && c <= 'Z') {
+            if (IsAsciiUpper(c)) {
                 type = SyntaxTokenType::Type;
             }
             else if (kw::HASKELL_KEYWORDS.contains(text.substr(i, e - i))) {
@@ -2211,7 +2212,7 @@ constexpr size_t SkipVimAutocmdHead(std::string_view text, size_t pos) noexcept
     };
     size_t i = SkipBlanks(text, pos, text.size());
     bool event = false;
-    while (i < text.size() && text[i] >= 'A' && text[i] <= 'Z') {
+    while (i < text.size() && IsAsciiUpper(text[i])) {
         i = skip_word(i);
         event = true;
     }
@@ -2315,7 +2316,7 @@ VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bo
                 continue;
             }
             // Plug 'x' 等のユーザー定義コマンド
-            if (j > i && text[i] >= 'A' && text[i] <= 'Z' && (j == eol || !std::string_view{ "(.:" }.contains(text[j]))) {
+            if (j > i && IsAsciiUpper(text[i]) && (j == eol || !std::string_view{ "(.:" }.contains(text[j]))) {
                 EmitRange(tokens, i, j, SyntaxTokenType::Function);
                 i = j;
             }

@@ -190,7 +190,7 @@ struct NavigateAnchorAction {
     std::pmr::string anchor_id;
 };
 
-// pending_restore_node があればそこへ、なければ先頭へスクロールする。
+// pending_restore があればそこへ、なければ先頭へスクロールする。
 struct RestoreScrollAfterLoadAction {};
 // ファイルロードが失敗した (RestoreScrollAfterLoadAction が来ない) ことの通知。
 struct LoadFailedAction {};
@@ -211,7 +211,8 @@ struct OpenPathAction {
     std::pmr::wstring path;
 };
 
-struct InvalidateHoverAction {};
+// ツールチップの同一判定は node / TOC の index で行うため、文書を差し替えたら対象を忘れる。
+struct ClearTooltipAction {};
 
 struct ResizeAction {
     uint32_t width;
@@ -296,7 +297,7 @@ using AppAction = std::variant<
     BlockHScrollDragStartedAction,
     BlockHScrollDragMovedAction,
     OpenPathAction,
-    InvalidateHoverAction,
+    ClearTooltipAction,
     ResizeAction,
     DpiChangedAction,
     ActivateAction,

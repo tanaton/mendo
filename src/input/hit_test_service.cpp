@@ -7,9 +7,9 @@
 #include <ranges>
 #include <utility>
 
+using layout::NodeBlockX;
 using layout::NodeBoxPadY;
 using layout::NodeContentWidth;
-using layout::NodeIndent;
 using layout::NodeTextXOffset;
 
 namespace {
@@ -117,7 +117,7 @@ hit_test::HitResult hit_test::HitTest(const MdPaneHitContext& ctx) noexcept
         return { direct.node_index, static_cast<uint32_t>(node.GetText().size()) };
     }
 
-    const float local_x = dip_x - ctx.theme.margin_left - NodeIndent(node, ctx.theme) - NodeTextXOffset(node, ctx.theme) + h_scroll_x;
+    const float local_x = dip_x - NodeBlockX(node, ctx.theme) - NodeTextXOffset(node, ctx.theme) + h_scroll_x;
     const float local_y = dip_y - direct.text_top;
 
     HitResult result{ direct.node_index };
@@ -151,10 +151,9 @@ hit_test::HitResult hit_test::HitTestTable(
     }
     const auto& tl = *tl_ptr;
 
-    const float indent = NodeIndent(node, theme);
     // テーブルが scroll_x 分左にスライドして見えるため、列の自然座標と一致させるには
     // base_x を scroll_x 分左にずらして与える。
-    const float base_x = theme.margin_left + indent - h_scroll_x;
+    const float base_x = NodeBlockX(node, theme) - h_scroll_x;
 
     const auto* tbl = node.table_data();
     const size_t row_count = tbl ? tbl->row_count : 0;
@@ -202,7 +201,7 @@ OverlayButtonHit hit_test::OverlayButtonHitTest(const MdPaneHitContext& ctx) noe
         if (dip_y < entry_text_top - ctx.theme.code_block_padding + COPY_BTN_MARGIN || dip_y > entry_text_top + COPY_BTN_MARGIN + COPY_BTN_SIZE) {
             continue;
         }
-        const float x = ctx.theme.margin_left + NodeIndent(node, ctx.theme);
+        const float x = NodeBlockX(node, ctx.theme);
         const float w = NodeContentWidth(node, ctx.theme, ctx.content_width);
         const DiagramEntry* diagram = node.type == NodeType::Diagram ? ctx.cache.FindDiagram(static_cast<size_t>(i)) : nullptr;
         layout::ForEachOverlayButton(node, diagram, x, w, entry_text_top, ctx.theme, [&](const D2D1_RECT_F& btn, OverlayButton kind) {
@@ -234,6 +233,6 @@ bool hit_test::BlockHScrollbarHitTest(const MdPaneHitContext& ctx, int node_inde
     const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
     const auto& node = ctx.nodes[i];
     const float bar_y = BlockHScrollbarBarY(ctx.cache.Top(i), ctx.cache[i].height, NodeBoxPadY(node, ctx.theme));
-    const float block_x = ctx.theme.margin_left + NodeIndent(node, ctx.theme);
+    const float block_x = NodeBlockX(node, ctx.theme);
     return PointInRect(dip_x, dip_y, BlockHScrollbarHitRect(block_x, visible_width, bar_y));
 }

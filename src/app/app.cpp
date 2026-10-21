@@ -6,7 +6,6 @@
 #include "document_service.h"
 #include "document_utils.h"
 #include "file_dialog_service.h"
-#include "gesture_overlay.h"
 #include "i18n.h"
 #include "layout_queries.h"
 #include "pane_layout.h"
@@ -42,8 +41,6 @@ bool App::Init(HWND hwnd)
         return false;
     }
 
-    layout_service_.emplace(renderer_.GetLayout(), state_.view.viewport);
-
     // Mermaid 共有 scheduler_ と詰まり合わないよう独立して立ち上げる。
     layout_scheduler_.Init(LayoutWorkerCount(std::thread::hardware_concurrency()));
     renderer_.SetLayoutScheduler(&layout_scheduler_);
@@ -67,13 +64,13 @@ bool App::Init(HWND hwnd)
             .image_loader = &image_loader_,
             .mermaid = &mermaid_renderer_,
             .mermaid_file_cache = &file_cache_,
-            .theme_service = &theme_service_,
         },
-        AppResourceManagerCallbacks{ this });
+        host_);
 
     mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), scheduler_, app_msg::MERMAID_DISK_LOADED,
                            config_.GetConfigPath(L"WebView2Data"), [this]() {
-        resource_manager_.OnMermaidUpdated();
+        // 結果を待っていた図を要求し直して反映する。
+        resource_manager_.RequestMermaidRenders();
     });
 
     if (!image_loader_.Init(renderer_.GetWICFactory())) {
@@ -121,12 +118,12 @@ bool App::Init(HWND hwnd)
         state_.file_explorer.GetEntries();
     }
 
-    state_.ctx_menu.Init(renderer_.GetD2DFactory(), renderer_.GetDWriteFactory());
+    ctx_menu_.Init(renderer_.GetD2DFactory(), renderer_.GetDWriteFactory());
 
     tooltip_.Init(hwnd_);
     tooltip_.ApplyDarkMode(theme_service_.IsDarkMode());
 
-    state_.search.search_bar_ctrl.Init(state_.search.search_state, state_.view.viewport, state_.document.layout_cache, AppSearchBarCallbacks{ this });
+    state_.search.search_bar_ctrl.Init(state_.search.search_state, state_.view.viewport, state_.document.layout_cache, host_);
     return true;
 }
 
@@ -201,18 +198,7 @@ DipPoint App::PixelToDip(int px, int py) const noexcept
 
 const PaneLayout& App::GetPaneLayout()
 {
-    if (!state_.pane_layout_cache.IsValid()) {
-        const auto size = renderer_.GetSize();
-        if (size.width <= 0.0f) {
-            static const PaneLayout empty{};
-            return empty;
-        }
-        const float tb_h = state_.window.titlebar.GetHeight();
-        state_.pane_layout_cache.Set(
-            size.width,
-            state_.view.panes.ComputeLayout(size.width, size.height, renderer_.GetTheme().splitter_width, tb_h));
-    }
-    return state_.pane_layout_cache.Get();
+    return EnsurePaneLayout(state_);
 }
 
 void App::UpdateTitleBar()
@@ -229,9 +215,6 @@ void App::UpdateTitleBar()
 
 PaneZone App::PaneAtPoint(float dip_x)
 {
-    if (!IsRenderReady()) {
-        return PaneZone::None;
-    }
     return ZoneAt(dip_x, GetPaneLayout());
 }
 
@@ -327,10 +310,12 @@ void App::OnPaint()
     const auto gs = ResolveGestureOverlay(state_.interaction.gesture, state_.interaction.swipe_detector);
     const SidePaneState sp = BuildSidePaneState(layout);
     const TitleBarRenderState tb = BuildTitleBarRenderState();
-    const ToastRenderState ts{ .message = state_.interaction.toast.GetMessage() };
+    const ToastRenderState ts{ .message = state_.interaction.toast_message };
 
+    using FrameResult = Renderer::FrameResult;
+    FrameResult result = FrameResult::Done;
     if (show_loading) {
-        renderer_.DrawLoading(file_load_service_.GetLoadingAngle(), layout.md_rect, sp, tb, gs, ts);
+        result = renderer_.DrawLoading(file_load_service_.GetLoadingAngle(), layout.md_rect, sp, tb, gs, ts);
     }
     else {
         SyncRendererSearchMatches();
@@ -343,7 +328,7 @@ void App::OnPaint()
             .hovered_block = state_.view.hover.h_block,
             .drag_block = state_.view.HDragNode(),
         };
-        renderer_.Render(
+        result = renderer_.Render(
             { state_.document.doc.GetNodes(), state_.document.layout_cache,
               state_.view.viewport.GetSelection(), layout.md_rect, sp, tb, gs, ts, sb,
               state_.view.viewport.GetScrollY(), ScrollableContentHeight(),
@@ -353,21 +338,30 @@ void App::OnPaint()
     }
 
     EndPaint(hwnd_, &ps);
-    if (std::exchange(hover_refresh_pending_, false)) {
+    // スクロール・リフロー・ズーム・ペイン開閉などで、止まったカーソルの下の内容が変わる。
+    // 経路ごとに引き直しを要求させず、描いた後に毎回引き直す。変化が無ければ reducer が何もしない。
+    // ロード中は旧文書に対して引くことになるので、終わった後の描画に任せる。
+    if (!show_loading) {
         RefreshHoverAtCursor();
     }
-    // デバイスを作り直せなかった。すぐ再描画すると失敗を繰り返して UI スレッドを占有するので間を置く。
-    if (renderer_.IsDeviceLost()) {
+    switch (result) {
+    case FrameResult::Done:
+        break;
+    case FrameResult::RedrawNow:
+        Invalidate();
+        break;
+    case FrameResult::RetryLater:
         SetTimer(app_timer::Id::DEVICE_RECREATE_RETRY, app_timer::DEVICE_RECREATE_RETRY_MS);
+        break;
     }
     MENDO_FRAME_MARK();
 }
 
 void App::EnsureFrameLayout(const PaneLayout& layout)
 {
-    const bool updated = layout_service_->EnsureVisibleLayout(state_.document.doc, state_.document.layout_cache, layout.md_rect.width, layout.md_rect.height);
+    const bool updated = layout_service_.EnsureVisibleLayout(state_.document.doc, state_.document.layout_cache, layout.md_rect.width, layout.md_rect.height);
     if (updated) {
-        SyncMaxScroll();
+        ClampScrollToContent();
         // 未計測領域に入った。スクロール先を先読み計測させ、以降のフレームでの同期計測を減らす。
         RequestDeferredLayout();
     }
@@ -442,8 +436,6 @@ void App::OnKeyDown(WPARAM key)
 
 void App::Dispatch(const AppAction& action)
 {
-    // reducer は pane_layout_cache を参照するだけなので、ここで確実に確定させておく。
-    GetPaneLayout();
     auto effects = Reduce(state_, action);
     Execute(effects);
 }
@@ -522,7 +514,7 @@ void App::ShowToast(std::wstring_view message)
     if (message.empty()) {
         return;
     }
-    state_.interaction.toast.Show(message);
+    state_.interaction.toast_message = message;
     SetTimer(app_timer::Id::TOAST, app_timer::TOAST_DURATION_MS);
     Invalidate();
 }
@@ -594,10 +586,6 @@ void App::Execute(const SideEffect& effect)
             tooltip_.Clear();
             KillTimer(app_timer::Id::TOOLTIP);
         },
-        [this](const effect::RefreshHover&) {
-            // 新しい位置の計測は OnPaint で済むので、ヒットテストはその後に行う。
-            hover_refresh_pending_ = true;
-        },
         [this](const effect::ShowContextMenu& ev) {
             OnContextMenu(ev.screen_x, ev.screen_y);
         },
@@ -606,19 +594,7 @@ void App::Execute(const SideEffect& effect)
         },
         // ---- Window ----
         [this](const effect::SearchFocus& ev) {
-            using Mode = effect::SearchFocus::Mode;
-            switch (ev.mode) {
-            case Mode::SelectAll:
-                PostMessageW(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SELECT_ALL, 0);
-                return;
-            case Mode::SetCaret:
-                PostMessageW(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_CARET, static_cast<LPARAM>(ev.caret));
-                return;
-            case Mode::SetSelection:
-                PostMessageW(hwnd_, app_msg::SEARCH_FOCUS, app_param::SEARCH_FOCUS_SET_SELECTION, app_param::MakeSearchSelectionLParam(ev.anchor, ev.caret));
-                return;
-            }
-            std::unreachable();
+            PostMessageW(hwnd_, app_msg::SEARCH_FOCUS, 0, app_param::MakeSearchSelectionLParam(ev.anchor, ev.caret));
         },
         [this](const effect::SearchUnfocus& ev) {
             const WPARAM wp = ev.clear_text ? app_param::SEARCH_UNFOCUS_FILE_SWITCH : app_param::SEARCH_UNFOCUS_CLOSE;
@@ -627,14 +603,17 @@ void App::Execute(const SideEffect& effect)
         [this](const effect::SetWindowPosition& ev) {
             SetWindowPos(hwnd_, nullptr, ev.x, ev.y, ev.cx, ev.cy, SWP_NOZORDER | SWP_NOACTIVATE);
         },
-        [this](const effect::ApplyThemeChange& ev) {
-            HandleApplyThemeChange(ev);
+        [this](const effect::ApplyZoom&) {
+            ApplyZoom();
+        },
+        [this](const effect::ToggleDarkMode&) {
+            ToggleDarkMode();
         },
         [this](const effect::PerformResizeEnd&) {
             OnResizeEnd();
         },
         [this](const effect::PerformSizingUpdate&) {
-            SyncMaxScroll();
+            ClampScrollToContent();
             Invalidate();
         },
         [this](const effect::RendererResize& ev) {
@@ -761,16 +740,16 @@ void App::SetInitialDirectory(std::wstring_view dir_path)
     state_.file_explorer.SetDirectory(dir_path);
 }
 
-void App::HandleApplyThemeChange(const effect::ApplyThemeChange& e)
+void App::ApplyZoom()
 {
-    if (e.type == effect::ApplyThemeChange::Type::Zoom) {
-        renderer_.ApplyZoomFromBase(theme_service_.BaseTheme(), state_.view.viewport.GetCurrentZoom());
-        RelayoutViewport(RelayoutResources::Diagrams);
-        UpdateTitleBar();
-        theme_service_.SaveZoomLevel(state_.view.viewport.GetZoomIndex());
-        return;
-    }
+    renderer_.ApplyZoomFromBase(theme_service_.BaseTheme(), state_.view.viewport.GetCurrentZoom());
+    RelayoutViewport(RelayoutResources::Diagrams);
+    UpdateTitleBar();
+    theme_service_.SaveZoomLevel(state_.view.viewport.GetZoomIndex());
+}
 
+void App::ToggleDarkMode()
+{
     theme_service_.ToggleDarkMode();
     renderer_.SetTheme(theme_service_.CreateTheme(state_.view.viewport.GetZoomIndex()));
     const bool dark = theme_service_.IsDarkMode();
@@ -806,7 +785,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
         .theme = &renderer_.GetTheme(),
     };
 
-    switch (state_.ctx_menu.Show(hwnd_, params)) {
+    switch (ctx_menu_.Show(hwnd_, params)) {
     case IDM_NAV_BACK:
         Dispatch(NavigateBackAction{});
         break;
@@ -845,9 +824,15 @@ void App::EnsureScrollTarget()
     state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
 }
 
-void App::SyncMaxScroll()
+float App::MdMaxScroll()
 {
-    state_.view.viewport.SyncMaxScroll(ScrollableContentHeight(), GetPaneLayout().md_rect.height);
+    EnsurePaneLayout(state_);
+    return ::MdMaxScroll(state_);
+}
+
+void App::ClampScrollToContent()
+{
+    state_.view.viewport.ClampScroll(MdMaxScroll());
 }
 
 float App::ScrollableContentHeight() const noexcept
@@ -913,8 +898,8 @@ void App::RelayoutViewport(RelayoutResources resources)
     MENDO_PROFILE("RelayoutViewport");
     const PaneRect md = GetPaneLayout().md_rect;
     // 可視範囲を即時計測し、scroll_target があれば scroll_y を再評価する。
-    layout_service_->ViewportLayout(state_.document.doc, state_.document.layout_cache, md.width, md.height);
-    SyncMaxScroll();
+    layout_service_.ViewportLayout(state_.document.doc, state_.document.layout_cache, md.width, md.height);
+    ClampScrollToContent();
     switch (resources) {
     case RelayoutResources::Diagrams:
         resource_manager_.RequestMermaidRenders();
@@ -930,11 +915,6 @@ void App::RelayoutViewport(RelayoutResources resources)
     Invalidate();
     SettleLayout();
     SyncTocActiveAndAutoScroll(true);
-}
-
-void App::InvalidateHitPositions()
-{
-    Dispatch(InvalidateHoverAction{});
 }
 
 void App::SyncTocActiveAndAutoScroll(bool auto_scroll)
@@ -986,19 +966,13 @@ void App::OnDeferredLayout()
     bool more;
     do {
         MENDO_PROFILE("ProcessDirtyBatch");
-        more = layout_service_->ProcessDirtyBatch(
+        more = layout_service_.ProcessDirtyBatch(
             state_.document.doc, state_.document.layout_cache, md.width, kDeferredLayoutBatchNodes,
             LayoutService::ViewportLimit{ md.height, ResourceManager::EVICT_BUFFER_SCREENS });
     } while (more && std::chrono::steady_clock::now() - start < kDeferredLayoutBudget && HIWORD(GetQueueStatus(QS_INPUT)) == 0);
 
-    // 中間バッチでは SyncMaxScroll のクランプを遅延させる。
-    // ビューポート後のノードが計測されると total_height が縮小し、中間的な
-    // max_scroll に基づくクランプで scroll_y が不当に引き下げられるのを防ぐ。
-    // スクロールバートラッキング中はユーザー操作を優先してクランプを反映する。
-    if (state_.view.drag.kind == LeftDrag::MdScrollbar) {
-        SyncMaxScroll();
-    }
-
+    // 中間バッチではクランプしない (ClampScrollToContent の注記)。スクロールバーのドラッグは
+    // 移動のたびにその時点の上限で位置を決めるので、ここで合わせる必要はない。
     if (more) {
         return;
     }
@@ -1009,7 +983,7 @@ void App::OnDeferredLayout()
     resource_manager_.ScheduleMermaidBatch();
     resource_manager_.ScheduleBitmapManage();
 
-    SyncMaxScroll();
+    ClampScrollToContent();
     Invalidate();
 
     // layout_cache の text_top が確定したので目次アクティブ見出しを再同期する。

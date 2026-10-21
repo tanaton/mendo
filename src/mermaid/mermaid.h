@@ -61,7 +61,7 @@ public:
     // 新しい結果は投函で知らせるので、続きが要るのは時間切れで残したときだけ。UI スレッド専用。
     bool HasLeftoverDiskLoads() const noexcept
     {
-        return leftover_disk_loads_;
+        return disk_results_.HasLeftover();
     }
     void Shutdown();
     void DropQueued() override;
@@ -109,12 +109,16 @@ private:
         RenderRequest current_request;
         float dpr = 1.0f;
         int init_retries = 0;
-        bool rendering = false;
         bool ready = false;
 
+        // request_id は ProcessQueue で 1 以上を振り、完了・破棄で current_request ごと 0 に戻す。
+        bool IsRendering() const noexcept
+        {
+            return current_request.request_id != 0;
+        }
         bool IsIdle() const noexcept
         {
-            return ready && !rendering;
+            return ready && !IsRendering();
         }
     };
 
@@ -255,9 +259,7 @@ private:
     TaskScheduler* bg_scheduler_ = nullptr;
     UINT disk_loaded_msg_ = 0;
     bool editing_diagrams_ = false;
-    std::mutex disk_mutex_;
-    bool leftover_disk_loads_ = false;
-    std::pmr::vector<DiskLoad> disk_results_;
+    PostedInbox<DiskLoad> disk_results_;
 
     // Shutdown で worker 完了を待つ。scheduler 共有 worker から self を参照する race を排除する。
     WorkerLatch latch_;

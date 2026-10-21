@@ -6,17 +6,14 @@
 #include "viewport_manager.h"
 #include "pane_controller.h"
 #include "search_state.h"
-#include "app_search_bar_callbacks.h"
+#include "search_bar_controller.h"
 #include "nav.h"
 #include "file_explorer.h"
 #include "mouse_gesture.h"
 #include "swipe_detector.h"
 #include "titlebar.h"
-#include "toast_notifier.h"
 #include "tooltip.h"
 #include "ui_types.h"
-#include "context_menu.h"
-#include "last_hover_pos.h"
 #include "pane_layout.h"
 #include "theme.h"
 #include <string>
@@ -46,7 +43,8 @@ struct LeftDragState {
 struct ViewState {
     ViewportManager viewport;
     PaneController panes;
-    ScrollRestoration scroll_restore;
+    // 次に開き終えた文書で復元するスクロール位置。
+    ScrollTarget pending_restore;
     NavHistory nav_history;
 
     // ブロック単位の横スクロール。キーは LayoutCache のノードインデックス。
@@ -56,6 +54,8 @@ struct ViewState {
     HoverHighlights hover;
     int active_toc_index = -1;
     LeftDragState drag;
+    // テキスト選択のドラッグ中に届いたリロード。差し替えると選択の途中でドラッグが終わるので、終わるまで待つ。
+    bool reload_after_drag = false;
 
     // 横スクロールをドラッグ中のブロック。ドラッグしていなければ -1。
     constexpr int HDragNode() const noexcept
@@ -68,32 +68,25 @@ struct ViewState {
         return LookupBlockScrollX(&block_scroll_x, node_index, geom);
     }
 
-    // 再パースでノード/見出し index がずれると別の要素を指すため、リロード時にクリアする一時状態。
+    // ノード/見出し index に結び付く一時状態。文書を差し替えると別の要素を指すのでクリアする。
     // ドラッグはキャプチャの解放を伴うので呼び出し側が EndLeftDrag で終える。
+    // ホバーは描画後に引き直される (App::RefreshHoverAtCursor)。
     void ResetPerNodeTransientState()
     {
         viewport.ClearSelection();
         block_scroll_x.clear();
-        hover.h_block = -1;
+        hover = {};
         active_toc_index = -1;
-    }
-
-    // 別文書 (ヘルプ含む) へ切り替える時のリセット。同一文書の再パースと違い
-    // サイドペインのスクロールも先頭へ戻す。
-    void ResetForNewDocument()
-    {
-        panes.ResetScrollStates();
-        ResetPerNodeTransientState();
     }
 };
 
 struct InteractionState {
     MouseGesture gesture;
     SwipeDetector swipe_detector;
-    LastHoverPos last_hover_pos;
     // 表示中か表示待ちのツールチップの対象。ウィンドウ (Tooltip) は App が持つ。
     TooltipTarget tooltip;
-    ToastNotifier toast;
+    // 空なら非表示。フェードは毎フレームの全画面再描画を伴うので、表示と消去の 2 回だけ描き直す。
+    std::pmr::wstring toast_message;
     int zoom_wheel_accum = 0;
 };
 
@@ -109,9 +102,11 @@ struct WindowState {
     bool size_changed_in_sizing = false;
     bool window_active = true;
     float cached_dpi_scale = 1.0f;
-    // 直近の WM_SIZE のクライアント領域 (物理 px)。同じ大きさの WM_SIZE を無視するために使う。
+    // 直近の WM_SIZE のクライアント領域 (物理 px)。ペイン配置の元になり、同じ大きさの WM_SIZE を無視するのにも使う。
     uint32_t client_width = 0;
     uint32_t client_height = 0;
+    // DPI が変わった。次の WM_SIZE は同じピクセルサイズでも処理する。
+    bool dpi_changed = false;
 };
 
 struct AppState {
@@ -127,7 +122,6 @@ struct AppState {
     const Theme* theme = nullptr;
 
     FileExplorer file_explorer;
-    ContextMenu ctx_menu;
 
     std::pmr::wstring cached_title_text = L"mendo";
     PaneLayoutCache pane_layout_cache;
@@ -175,5 +169,9 @@ inline SidePaneHeaderButtons SidePaneHeaderButtonsFor(const AppState& state, Pan
     return { .has_file_buttons = is_file, .reveal_enabled = is_file && state.document.doc.HasBackingFile() };
 }
 
+// 無効なら window の寸法・ペイン・テーマから組み直す。Reduce は入口で必ず呼ぶ。
+const PaneLayout& EnsurePaneLayout(AppState& state) noexcept;
 BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node_index) noexcept;
 float MdScrollableContentHeight(const AppState& state) noexcept;
+// pane_layout_cache が確定していること。
+float MdMaxScroll(const AppState& state) noexcept;

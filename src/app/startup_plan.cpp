@@ -13,6 +13,15 @@ bool IsIgnoredCwd(const StartupContext& ctx)
     });
 }
 
+// 表記の違う同じファイルでありうるか。開かずに分かる範囲で絞り、ありうるときだけ呼び出し側に開いて確かめさせる。
+// ファイル名が違えば別のファイルとみなす (8.3 短縮名は ~ を含むので確かめる)。名前の違うハードリンクは見逃す。
+bool MaybeSameFile(std::wstring_view a, std::wstring_view b) noexcept
+{
+    const auto name_a = FilenameView(a);
+    const auto name_b = FilenameView(b);
+    return path_util::iequal(name_a, name_b) || name_a.contains(L'~') || name_b.contains(L'~');
+}
+
 // スタートメニュー等から起動されると cwd はユーザーの作業場所と無関係になるため、
 // その場合は前回ファイルのフォルダを優先する。
 std::pmr::wstring PaneDirectoryFromCwd(const StartupContext& ctx)
@@ -33,7 +42,7 @@ StartupPlan DecideStartupPlan(const StartupContext& ctx)
         plan.document_path = ctx.arg_path;
         plan.pane_directory = ParentDirectory(ctx.arg_path);
         plan.restore_scroll = ctx.arg_is_last_file;
-        plan.restore_scroll_if_same_file = !ctx.arg_is_last_file && !ctx.last_file.empty();
+        plan.restore_scroll_if_same_file = !ctx.arg_is_last_file && !ctx.last_file.empty() && MaybeSameFile(ctx.arg_path, ctx.last_file);
         return plan;
     case StartupArgKind::Directory:
         plan.document_path = ctx.last_file;

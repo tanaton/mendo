@@ -1,12 +1,5 @@
 #include "file_load_service.h"
-#include "document_service.h"
 #include "theme.h"
-
-std::expected<Document, FileLoadError> FileLoadService::ExecuteLoad()
-{
-    StopLoading();
-    return DocumentService::LoadFile(loading_path_);
-}
 
 void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, Theme theme, float content_width,
                                      std::shared_ptr<const std::pmr::string> reload_base)

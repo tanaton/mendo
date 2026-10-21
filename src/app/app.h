@@ -5,6 +5,7 @@
 #include "async_load_result.h"
 #include "clipboard_manager.h"
 #include "config_service.h"
+#include "context_menu.h"
 #include "file_load_service.h"
 #include "file_watcher.h"
 #include "hit_test_service.h"
@@ -46,9 +47,7 @@ struct SystemCursors {
 };
 
 class App {
-    friend struct AppCallbacksBase;
-    friend struct AppResourceManagerCallbacks;
-    friend struct AppSearchBarCallbacks;
+    friend class AppHost;
 
 public:
     explicit App(ConfigService& config) noexcept : config_(config)
@@ -74,7 +73,7 @@ public:
     // LoadInitialDocument より前に呼ぶこと。preload 即時完了パスはそこで復元情報を参照する。
     constexpr void SetPendingRestoreNode(int node, int offset) noexcept
     {
-        state_.view.scroll_restore.SetNodeRestore(node, offset);
+        state_.view.pending_restore = { node, static_cast<float>(offset) };
     }
 
     void OnPaint();
@@ -300,6 +299,7 @@ private:
     void RefreshFilePane();
 
     // ---- ホバー (app_mouse.cpp) ----
+    // カーソルがクライアント領域にあれば、その位置のホバーを引き直す。
     void RefreshHoverAtCursor();
     // ゾーン内のホバーを hover に書き、表示するカーソルを返す。状態の反映は reducer が行う。
     HCURSOR HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLayout& layout, PointerHover& hover) const;
@@ -309,8 +309,10 @@ private:
 
     // ---- レイアウト ----
     void EnsureScrollTarget();
-    // 合計コンテンツ高を max_scroll に反映し scroll_y をクランプする。
-    void SyncMaxScroll();
+    float MdMaxScroll();
+    // 計測や図の確定で内容が縮んだら、scroll_y を上限に収める。遅延レイアウトの途中では呼ばない
+    // (後続の計測で戻る中間的な上限で、見ている位置を引き下げないため)。
+    void ClampScrollToContent();
     // 可視範囲を計測し、変わればスクロール上限と遅延レイアウトを追従させる。
     void EnsureFrameLayout(const PaneLayout& layout);
     // dirty が残っていれば、空き時間の遅延レイアウトに回して true。
@@ -324,7 +326,6 @@ private:
     };
     // 可視範囲を計測し直し、スクロール上限・図と画像・遅延レイアウト・目次を追従させる。
     void RelayoutViewport(RelayoutResources resources);
-    void InvalidateHitPositions();
     void OnResizeEnd();
     void OnDeferredLayout();
     // 捨てたテキストレイアウトが多ければワーカーで解放する。
@@ -370,6 +371,8 @@ private:
     // 短縮リトライで再リロードを予約する。エディタの truncate→rewrite 中や
     // partial-read を検出した時に共通で使う。
     void DeferReloadRetry();
+    // テキスト選択のドラッグ中なら、リロードをドラッグの終わりまで待たせて true。
+    bool DeferReloadWhileSelecting();
 
     void CancelPendingResources();
     // リロード用。中身が変わらないノードの計測結果を引き継いでから差し替える。
@@ -378,13 +381,15 @@ private:
     void EndDocumentBoundDrag();
 
     // ---- テーマ ----
-    void HandleApplyThemeChange(const effect::ApplyThemeChange& e);
+    void ApplyZoom();
+    void ToggleDarkMode();
 
 private:
     HWND hwnd_ = nullptr;
 
     SystemCursors cursors_;
     Tooltip tooltip_;
+    ContextMenu ctx_menu_;
 
     Renderer renderer_;
     TaskScheduler scheduler_;
@@ -406,10 +411,10 @@ private:
         std::optional<std::pair<uint32_t, std::pmr::vector<FileEntry>>> result;
     };
     std::shared_ptr<FileListingSlot> file_listing_ = std::make_shared<FileListingSlot>();
-    bool hover_refresh_pending_ = false;
 
     AppState state_;
 
-    std::optional<LayoutService> layout_service_;
+    LayoutService layout_service_{ renderer_.GetLayout(), state_.view.viewport };
+    AppHost host_{ *this };
     ResourceManager resource_manager_;
 };

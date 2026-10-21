@@ -255,11 +255,10 @@ bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
         return false;
     }
     // 同じ幅での実測キャッシュがあればそれを使い、無ければ推定値で成長させる。
-    // コードブロックは折り返さないので幅が違っても実測値が使える。
     constexpr float kCachedWidthEpsilon = 0.5f;
     const bool cache_hit =
         entry.is_measured() &&
-        (node.type == NodeType::CodeBlock || std::abs(entry.cached_width - node_width) < kCachedWidthEpsilon) &&
+        std::abs(entry.cached_width - NodeLayoutWidth(node, node_width)) < kCachedWidthEpsilon &&
         entry.cached_height > 0.0f;
     const float fallback = cache_hit ? entry.cached_height : EstimateNodeHeight(node, theme, node_width);
     // テーブルや折り返しが多い段落では推定値が実測値を大きく下回るため、

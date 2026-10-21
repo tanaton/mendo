@@ -17,7 +17,6 @@
 #include <wrl/client.h>
 #include <wrl/event.h>
 #include <algorithm>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
@@ -311,7 +310,7 @@ void MermaidRenderer::MaybeGrowWorkers()
     if (!webview_env_ || worker_count_ >= MAX_WORKERS || pending_requests_.empty()) {
         return;
     }
-    if (!std::ranges::all_of(ActiveWorkers(), [](const Worker& w) static { return w.ready && w.rendering; })) {
+    if (!std::ranges::all_of(ActiveWorkers(), [](const Worker& w) static { return w.ready && w.IsRendering(); })) {
         return;
     }
     const int index = worker_count_;
@@ -615,17 +614,11 @@ void MermaidRenderer::CancelPending()
     for (int i = 0; i < worker_count_; i++) {
         auto& w = workers_[i];
         InvokeSvgCallbackIfAny(w.current_request, {}, true);
-        w.rendering = false;
         w.current_request = {};
     }
     inflight_.clear();
 
-    // 結果の破棄 (bitmap/PNG の解放) を lock 外で行う。
-    std::pmr::vector<DiskLoad> stale;
-    {
-        const std::lock_guard lock(disk_mutex_);
-        stale.swap(disk_results_);
-    }
+    disk_results_.TakeAll();
 }
 
 void MermaidRenderer::DropQueued()
@@ -652,7 +645,7 @@ void MermaidRenderer::RecoverWorker(int index)
     // 入力での再起動ループは retried で 1 回に打ち切る。
     InvokeSvgCallbackIfAny(w.current_request, {}, false);
     bool failed = false;
-    if (w.rendering && !w.current_request.svg_only) {
+    if (w.IsRendering() && !w.current_request.svg_only) {
         if (!w.current_request.retried) {
             w.current_request.retried = true;
             pending_requests_.push(std::move(w.current_request));
@@ -666,7 +659,6 @@ void MermaidRenderer::RecoverWorker(int index)
         }
     }
     w.current_request = {};
-    w.rendering = false;
     w.ready = false;
     // 死んだプロセスの webview/controller は再利用できない
     if (w.controller) {
@@ -755,14 +747,7 @@ void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path png
     // ファイル読み込みと PNG デコードは worker で行う (UI では時間予算なしに積み上がる)。
     const bool posted = bg_scheduler_->Post([this, job = std::move(job), path = std::move(png_path), guard = latch_.Acquire()]() mutable {
         LoadDiskJob(job, path);
-        bool was_empty = false;
-        {
-            const std::lock_guard lock(disk_mutex_);
-            was_empty = disk_results_.empty();
-            disk_results_.push_back(std::move(job));
-        }
-        // 未回収の結果があれば通知済みで、受信側がまとめて回収する。
-        if (was_empty) {
+        if (disk_results_.Push(std::move(job))) {
             ::PostMessageW(hwnd_, disk_loaded_msg_, 0, 0);
         }
     });
@@ -824,18 +809,8 @@ bool MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
 
 void MermaidRenderer::ProcessDiskLoads(std::chrono::steady_clock::time_point deadline)
 {
-    std::pmr::vector<DiskLoad> results;
-    {
-        const std::lock_guard lock(disk_mutex_);
-        results.swap(disk_results_);
-    }
     bool resolved = false;
-    const size_t processed = ApplyUntil(results, deadline, [&](DiskLoad& r) { resolved |= ApplyDiskLoad(r); });
-    leftover_disk_loads_ = processed < results.size();
-    if (leftover_disk_loads_) {
-        const std::lock_guard lock(disk_mutex_);
-        RequeueFront(disk_results_, results, processed);
-    }
+    disk_results_.Drain(deadline, [&](DiskLoad& r) { resolved |= ApplyDiskLoad(r); });
     // まとめて 1 回だけ要求し直させる。
     if (resolved) {
         NotifyUpdate();
@@ -899,7 +874,6 @@ void MermaidRenderer::ProcessQueue()
         idle->current_request = std::move(front);
         pending_requests_.pop();
         idle->current_request.request_id = ++request_counter_;
-        idle->rendering = true;
         RenderInWorker(*idle);
     }
     MaybeGrowWorkers();
@@ -912,7 +886,6 @@ void MermaidRenderer::ProcessQueue()
 void MermaidRenderer::FinishWorkerRequest(Worker& worker)
 {
     const bool resolved = !worker.current_request.svg_only && FindCached(worker.current_request);
-    worker.rendering = false;
     ReleaseInflight(worker.current_request);
     worker.current_request = {};
     ProcessQueue();
@@ -939,31 +912,22 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
     // CSS ビューポートが max_width (DIP) と等しくなるよう境界を物理ピクセルで設定する
     // (WebView2 は内部で devicePixelRatio で除算する)。SVG 出力 (折返し等) も CSS 幅に
     // 依存するため、PNG/SVG 両経路で同じ bounds を使う。
-    const int vp_phys = std::max(1, static_cast<int>(std::ceil(req.max_width * worker.dpr)));
+    const int vp_phys = std::max(1, DipToPixelCeil(req.max_width, worker.dpr));
     ResizeWorkerView(worker, vp_phys, HOST_SIZE);
 
     // リクエスト ID を postMessage に含め、C++ 側でコールバックとリクエストを照合する。
-    if (req.svg_only) {
-        const auto js = PmrFormat(
-            L"renderMermaidSvg('{}', {})"
-            L".then(function(s){{window.chrome.webview.postMessage('svg-result:{}:'+(s||''));}})"
-            L".catch(function(e){{window.chrome.webview.postMessage('render-error:{}:'+String(e));}})",
-            mermaid_util::JsEscape(code),
-            req.dark_mode ? L"true" : L"false",
-            req.request_id, req.request_id);
-        LogHrFailure("ExecuteScript(svg)", worker.webview->ExecuteScript(js.c_str(), nullptr));
-        return;
-    }
-
-    // maxWidth=0 は CSS 制約なし (ビューポートが制約する)。
+    // renderMermaid の maxWidth=0 は CSS 制約なし (ビューポートが制約する)。
     const auto js = PmrFormat(
-        L"renderMermaid('{}', {}, 0)"
-        L".then(function(r){{window.chrome.webview.postMessage('render-result:{}:'+r);}})"
+        L"{}('{}', {}{})"
+        L".then(function(r){{window.chrome.webview.postMessage('{}:{}:'+(r||''));}})"
         L".catch(function(e){{window.chrome.webview.postMessage('render-error:{}:'+String(e));}})",
+        req.svg_only ? L"renderMermaidSvg" : L"renderMermaid",
         mermaid_util::JsEscape(code),
         req.dark_mode ? L"true" : L"false",
+        req.svg_only ? L"" : L", 0",
+        req.svg_only ? L"svg-result" : L"render-result",
         req.request_id, req.request_id);
-    LogHrFailure("ExecuteScript(render)", worker.webview->ExecuteScript(js.c_str(), nullptr));
+    LogHrFailure(req.svg_only ? "ExecuteScript(svg)" : "ExecuteScript(render)", worker.webview->ExecuteScript(js.c_str(), nullptr));
 }
 
 float MermaidRenderer::EstimateWorkerDpr() noexcept
@@ -1078,7 +1042,7 @@ void MermaidRenderer::OnRenderResult(int worker_idx, std::wstring_view json)
     w.current_request.css_height = dh;
 
     // キャプチャ用に WebView をダイアグラムの正確な物理ピクセルサイズにリサイズする。
-    ResizeWorkerView(w, static_cast<int>(std::ceil(dw * dpr)), static_cast<int>(std::ceil(dh * dpr)));
+    ResizeWorkerView(w, DipToPixelCeil(dw, dpr), DipToPixelCeil(dh, dpr));
 
     // rAF 2 回で新サイズでの再描画を待ってから postMessage で通知する (Promise-await の問題を回避)。
     const auto cap_js = PmrFormat(
