@@ -101,63 +101,32 @@ TEST_F(SearchBarControllerTest, OnCloseResetsState)
 }
 
 // ═══════════════════════════════════════════════
-// テキスト変更とデバウンス
+// テキスト変更
 // ═══════════════════════════════════════════════
 
 TEST_F(SearchBarControllerTest, OnTextChangedEmptyQuery)
 {
     nodes_.push_back(MakeTextNode("hello world"));
 
-    ctrl_.OnTextChanged(effects_, L"", nodes_, 0);
+    ctrl_.OnTextChanged(effects_, L"", nodes_);
     EXPECT_TRUE(state_.GetQuery().empty());
     EXPECT_EQ(state_.GetMatchCount(), 0);
 }
 
-TEST_F(SearchBarControllerTest, OnTextChangedSmallDocImmediate)
+TEST_F(SearchBarControllerTest, OnTextChangedSearchesImmediately)
 {
     nodes_.push_back(MakeTextNode("hello world"));
     cache_ = MakeUniformCache(1, 100.0f);
 
-    ctrl_.OnTextChanged(effects_, L"hello", nodes_, 0);
-    EXPECT_EQ(state_.GetMatchCount(), 1);
-}
-
-// まだ検索していない大きな文書は、打鍵ごとの全走査が重い可能性があるのでデバウンスする。
-TEST_F(SearchBarControllerTest, OnTextChangedLargeUnmeasuredDocDebounces)
-{
-    nodes_.push_back(MakeTextNode("text"));
-
     SideEffectList effects;
-    ctrl_.OnTextChanged(effects, L"text", nodes_, decltype(ctrl_)::kImmediateSearchMaxBytes + 1);
-    const auto* timer = FindEffect<effect::SetTimer>(effects);
-    ASSERT_NE(timer, nullptr);
-    EXPECT_EQ(timer->id, app_timer::Id::SEARCH_DEBOUNCE);
-    EXPECT_EQ(state_.GetMatchCount(), 0);
-}
-
-// 一度速く検索できた文書は、大きくても待たずに検索する。文書を替えたら測り直す。
-TEST_F(SearchBarControllerTest, OnTextChangedFastMeasuredSearchIsImmediate)
-{
-    nodes_.push_back(MakeTextNode("text"));
-    cache_ = MakeUniformCache(1, 100.0f);
-    constexpr size_t kLargeBytes = decltype(ctrl_)::kImmediateSearchMaxBytes + 1;
-
-    ctrl_.OnOpen(effects_, nodes_);
-    ctrl_.OnTextChanged(effects_, L"te", nodes_, 0);
-    SideEffectList measured;
-    ctrl_.OnTextChanged(measured, L"text", nodes_, kLargeBytes);
-    EXPECT_FALSE(HasEffect<effect::SetTimer>(measured));
+    ctrl_.OnTextChanged(effects, L"hello", nodes_);
     EXPECT_EQ(state_.GetMatchCount(), 1);
-
-    ctrl_.Reset(effects_);
-    SideEffectList after_reset;
-    ctrl_.OnTextChanged(after_reset, L"text", nodes_, kLargeBytes);
-    EXPECT_TRUE(HasEffect<effect::SetTimer>(after_reset)) << "文書を替えたら測るまでデバウンスする";
+    EXPECT_FALSE(HasEffect<effect::SetTimer>(effects));
 }
 
 // 文書の切り替えで入力欄を空にしたときのように、中身が変わらない通知では検索も再描画もしない。
-// 区切った検索の続きはタイマーで進み、終わったら見ている位置の近くのマッチを選んでタイマーを止める。
-TEST_F(SearchBarControllerTest, OnContinueTimerFinishesSlicedSearch)
+// 区切った検索の続きは空き時間に進み、終わったら見ている位置の近くのマッチを選ぶ。
+TEST_F(SearchBarControllerTest, OnContinueFinishesSlicedSearch)
 {
     for (int i = 0; i < 600; ++i) {
         nodes_.push_back(MakeTextNode("x"));
@@ -169,18 +138,15 @@ TEST_F(SearchBarControllerTest, OnContinueTimerFinishesSlicedSearch)
     ASSERT_TRUE(state_.IsSearching());
 
     SideEffectList effects;
-    ctrl_.OnContinueTimer(effects, nodes_);
+    ctrl_.OnContinue(effects, nodes_);
 
     EXPECT_FALSE(state_.IsSearching());
     EXPECT_EQ(state_.GetMatchCount(), 600);
     EXPECT_GE(state_.GetCurrentMatchIndex(), 0);
-    const auto* kill = FindEffect<effect::KillTimer>(effects);
-    ASSERT_NE(kill, nullptr);
-    EXPECT_EQ(kill->id, app_timer::Id::SEARCH_CONTINUE);
 }
 
 // 検索の途中で移ったマッチは、終わった時点で選び直さない。
-TEST_F(SearchBarControllerTest, OnContinueTimerKeepsMatchChosenDuringSearch)
+TEST_F(SearchBarControllerTest, OnContinueKeepsMatchChosenDuringSearch)
 {
     for (int i = 0; i < 600; ++i) {
         nodes_.push_back(MakeTextNode("x"));
@@ -197,7 +163,7 @@ TEST_F(SearchBarControllerTest, OnContinueTimerKeepsMatchChosenDuringSearch)
     const int chosen = state_.GetCurrentMatchIndex();
     ASSERT_GT(chosen, 0) << "前提: 見ている位置 (先頭) に最も近いマッチとは違うものを選んでいる";
 
-    ctrl_.OnContinueTimer(effects, nodes_);
+    ctrl_.OnContinue(effects, nodes_);
 
     ASSERT_FALSE(state_.IsSearching());
     EXPECT_EQ(state_.GetCurrentMatchIndex(), chosen);
@@ -215,10 +181,10 @@ TEST_F(SearchBarControllerTest, OnTextChangedStopsRunningSearch)
     ASSERT_TRUE(state_.IsSearching());
 
     SideEffectList effects;
-    ctrl_.OnTextChanged(effects, L"y", nodes_, decltype(ctrl_)::kImmediateSearchMaxBytes + 1);
+    ctrl_.OnTextChanged(effects, L"y", nodes_);
 
-    EXPECT_FALSE(state_.IsSearching());
-    EXPECT_NE(FindEffect<effect::SetTimer>(effects), nullptr) << "大きい文書はデバウンスしてから検索し直す";
+    EXPECT_FALSE(state_.IsSearching()) << "y は無いので新しい検索は 1 回で終わる";
+    EXPECT_EQ(state_.GetMatchCount(), 0);
 }
 
 TEST_F(SearchBarControllerTest, OnTextChangedSameTextIsNoop)
@@ -226,7 +192,7 @@ TEST_F(SearchBarControllerTest, OnTextChangedSameTextIsNoop)
     nodes_.push_back(MakeTextNode("text"));
 
     SideEffectList effects;
-    ctrl_.OnTextChanged(effects, L"", nodes_, 0);
+    ctrl_.OnTextChanged(effects, L"", nodes_);
     EXPECT_TRUE(effects.empty());
 }
 
@@ -301,7 +267,7 @@ TEST_F(SearchBarControllerTest, ResetClearsAll)
     ctrl_.OnOpen(effects_, nodes_);
     ctrl_.SetImeComposition(effects_, L"test");
 
-    ctrl_.Reset(effects_);
+    ctrl_.Reset();
     EXPECT_FALSE(ctrl_.HasFocus());
     EXPECT_EQ(ctrl_.GetCaretPos(), -1);
     EXPECT_EQ(ctrl_.GetSelectionStart(), -1);
@@ -318,7 +284,7 @@ TEST_F(SearchBarControllerTest, BuildRenderStateReflectsState)
     cache_ = MakeUniformCache(1, 100.0f);
 
     ctrl_.OnOpen(effects_, nodes_);
-    ctrl_.OnTextChanged(effects_, L"abc", nodes_, 0);
+    ctrl_.OnTextChanged(effects_, L"abc", nodes_);
 
     const auto rs = ctrl_.BuildRenderState();
     EXPECT_TRUE(rs.visible);
@@ -344,7 +310,7 @@ TEST_F(SearchBarControllerTest, ScrollToMatchClearsScrollTarget)
     EXPECT_TRUE(viewport_.HasScrollTarget());
 
     state_.Show();
-    ctrl_.OnTextChanged(effects_, L"hello", nodes_, 0);
+    ctrl_.OnTextChanged(effects_, L"hello", nodes_);
     ctrl_.OnNext(effects_);
 
     EXPECT_FALSE(viewport_.HasScrollTarget());
@@ -366,7 +332,7 @@ TEST_F(SearchBarControllerTest, NextMatchAcrossTableRowsAdvancesScroll)
     viewport_.SyncMaxScroll(2000.0f, tracker_.md_pane_height);
 
     state_.Show();
-    ctrl_.OnTextChanged(effects_, L"hit", nodes_, 0);
+    ctrl_.OnTextChanged(effects_, L"hit", nodes_);
 
     float prev_scroll = viewport_.GetScrollY();
     int advanced = 0;
@@ -400,7 +366,7 @@ TEST_F(SearchBarControllerTest, ScrollToMatchMeasuresNodeBeforeResolvingY)
     viewport_.SyncMaxScroll(10000.0f, tracker_.md_pane_height);
 
     state_.Show();
-    ctrl_.OnTextChanged(effects_, L"hello", nodes_, 0);
+    ctrl_.OnTextChanged(effects_, L"hello", nodes_);
 
     ASSERT_FALSE(ensured.empty());
     EXPECT_TRUE(std::ranges::all_of(ensured, [](int i) static { return i == 2; }));
@@ -419,7 +385,7 @@ TEST_F(SearchBarControllerTest, ScrollToMatchNoOpWhenAlreadyVisible)
 
     viewport_.SyncMaxScroll(1000.0f, tracker_.md_pane_height);
     state_.Show();
-    ctrl_.OnTextChanged(effects_, L"hello", nodes_, 0);
+    ctrl_.OnTextChanged(effects_, L"hello", nodes_);
 
     const float before = viewport_.GetScrollY();
     ctrl_.OnNext(effects_);

@@ -390,3 +390,24 @@ TEST(NodeDiagramHash, KeepsPersistedFormula)
     EXPECT_EQ(mermaid_util::DiagramRequestHash(mermaid_util::DiagramCodeHash(a), 600.0f, true), expected);
     EXPECT_EQ(mermaid_util::NodeDiagramHash(a, 600.0f, false), Fnv1a64(a.GetText()) ^ (uint64_t{ 608 } * kFnv1a64Prime));
 }
+
+// 幅を混ぜないキーは、どの幅のキーとも重ならず、テーマでは分かれる。ディスクキャッシュのファイル名になるので式を変えない。
+TEST(DiagramWidthFreeHash, DistinctFromWidthKeysAndKeepsFormula)
+{
+    const auto a = ParseSingleCodeBlock("```mermaid\ngraph TD; A-->B\n```");
+    const uint64_t code = mermaid_util::DiagramCodeHash(a);
+    const uint64_t free_light = mermaid_util::DiagramWidthFreeHash(code, false);
+    EXPECT_EQ(free_light, Fnv1a64(a.GetText()) ^ kFnv1a64Prime);
+    EXPECT_NE(mermaid_util::DiagramWidthFreeHash(code, true), free_light);
+    for (const float w : { 0.0f, 1.0f, 32.0f, 600.0f, 4000.0f }) {
+        EXPECT_NE(mermaid_util::DiagramRequestHash(code, w, false), free_light) << w;
+    }
+}
+
+// 1 DIP の余裕を見て、幅の上限より狭い図だけを幅によらない結果として扱う。
+TEST(DiagramWidthFreeHash, IsWidthFreeNeedsMargin)
+{
+    EXPECT_TRUE(mermaid_util::IsWidthFree(400.0f, 600.0f));
+    EXPECT_FALSE(mermaid_util::IsWidthFree(599.5f, 600.0f));
+    EXPECT_FALSE(mermaid_util::IsWidthFree(600.0f, 600.0f));
+}

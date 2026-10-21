@@ -121,12 +121,12 @@ void ComputeColumnWidths(
     const std::pmr::vector<float>& natural_widths,
     float available_width, size_t col_count);
 
-// node_width > 0 なら、折り返す段落の行数を文字数から見積もる。0 は幅を知らないときの推定 (worker のロード時)。
+// node_width > 0 なら、折り返す段落の行数を文字数から見積もる。0 は幅を知らないときの推定 (起動時の先読み)。
 float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width = 0.0f) noexcept;
 
-// stop_token が stop_requested になると途中 return する (cache は中間状態のまま)。
+// content_width > 0 なら折り返しを見積もる。stop_token が stop_requested になると途中 return する (cache は中間状態のまま)。
 void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
-                         std::stop_token stop_token = {});
+                         float content_width = 0.0f, std::stop_token stop_token = {});
 
 // リロードで、中身が変わらないノードの計測結果を旧キャッシュから新キャッシュへ移す。
 // 編集は 1 か所に固まることが多いので、先頭と末尾から中身が一致する範囲だけを見る。
@@ -138,8 +138,9 @@ size_t CarryOverUnchanged(
 
 // 新文書用の LayoutCache。未計測のまま位置が全て 0 だと可視範囲の判定が効かないため、
 // 文書を表示に載せる経路はすべてこれで作る。stop 時は中間状態なので呼び出し側で破棄する。
+// 表示する本文幅を渡せば、UI スレッドで推定し直さずに済む (0 は幅を知らない)。
 LayoutCache MakeEstimatedLayoutCache(const std::pmr::vector<Node>& nodes, const Theme& theme,
-                                     std::stop_token stop_token = {});
+                                     float content_width = 0.0f, std::stop_token stop_token = {});
 
 // 不可視ノードに対し、現在の高さを下回らない範囲で推定値で更新する。
 // 型別の touch/no-touch ポリシー (Diagram は触らない、Table は推定で成長させた場合のみ

@@ -249,7 +249,13 @@ struct ParseContext {
         if (!IsSubrangeOf(chunk, markdown)) {
             return;
         }
-        const auto offset = static_cast<size_t>(chunk.data() - markdown.data());
+        auto offset = static_cast<size_t>(chunk.data() - markdown.data());
+        // コードの字下げは静的な空白で届くので、1 行目が字下げされたコードでは本文が原文と突き合わず
+        // arena へコピーになる。先に積んだ字下げが直前の原文と同じなら、そこから記録する。
+        const size_t pending = active_text_buffer == &current_text ? current_text.size() : 0;
+        if (pending > 0 && offset >= last_source_offset + pending && markdown.compare(offset - pending, pending, current_text) == 0) {
+            offset -= pending;
+        }
         if (offset < last_source_offset) {
             return;
         }

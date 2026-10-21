@@ -129,6 +129,10 @@ public:
     }
 
     void HandleTimer(UINT_PTR timer_id);
+    // 時間で区切った仕事 (遅延レイアウト・検索・GPU 転送) が残っている。WM_TIMER は約 15.6ms 刻みでしか
+    // 発火せず仕事の合間が空くので、メッセージループが入力と描画を配り終えた空き時間に RunIdleWork で進める。
+    bool HasIdleWork();
+    void RunIdleWork();
     // 起動時の読み込みを LoadInitialDocument で取り込めず、結果を待っている。
     bool IsLoadingInitialDocument() const noexcept
     {
@@ -309,9 +313,8 @@ private:
     void SyncMaxScroll();
     // 可視範囲を計測し、変わればスクロール上限と遅延レイアウトを追従させる。
     void EnsureFrameLayout(const PaneLayout& layout);
-    // 遅延レイアウトを仕掛けたら true。
-    bool ScheduleDeferredLayoutIfNeeded();
-    void CancelDeferredLayout();
+    // dirty が残っていれば、空き時間の遅延レイアウトに回して true。
+    bool RequestDeferredLayout();
     void SettleLayout();
     // 可視範囲の図と画像の取りに行き方。
     enum class RelayoutResources : uint8_t {
@@ -324,6 +327,8 @@ private:
     void InvalidateHitPositions();
     void OnResizeEnd();
     void OnDeferredLayout();
+    // 捨てたテキストレイアウトが多ければワーカーで解放する。
+    void DisposeReleasedLayouts();
     void SyncTocActiveAndAutoScroll(bool auto_scroll);
     float MdContentWidth();
     // スクロール上限/スクロールバー計算用のコンテンツ高さ。
@@ -394,8 +399,7 @@ private:
     SessionService session_{ config_ };
     FileLoadService file_load_service_;
     PrefixShrinkRetry prefix_shrink_retry_;
-    // 同じ ID の SetTimer は待ちをやり直すので、毎フレーム掛け直すと連続スクロール中に一度も発火しない。
-    bool deferred_layout_scheduled_ = false;
+    bool deferred_layout_pending_ = false;
     // 列挙スレッドの結果の受け渡し。スレッドは App より長生きしうるので共有で持たせる。
     struct FileListingSlot {
         std::mutex mutex;

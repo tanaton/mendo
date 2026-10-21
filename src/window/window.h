@@ -47,6 +47,7 @@ private:
     LRESULT OnSearchEditKeyDown(HWND edit, WPARAM wParam, LPARAM lParam);
     void OnSearchEditChanged();
     // mode は app_param::SEARCH_FOCUS_*。
+    bool EnsureSearchEdit();
     void FocusSearchEdit(WPARAM mode, LPARAM selection);
     void RepositionSearchEdit();
     void SyncSearchCaretFromEdit();

@@ -1,5 +1,4 @@
 #pragma once
-#include "app_constants.h"
 #include "layout_cache.h"
 #include "render_params.h"
 #include "search_state.h"
@@ -9,7 +8,6 @@
 #include "viewport_manager.h"
 #include <chrono>
 #include <memory_resource>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -17,7 +15,7 @@
 // 検索バーのUI状態管理。
 // SearchState（ドメインロジック）を参照で保持し、検索バー固有の
 // UIステート（フォーカス、キャレット、ドラッグ選択、ホバー）を管理する。
-// 再描画・タイマー・フォーカス・ビープは effects に積み、App::Execute に任せる。
+// 再描画・フォーカス・ビープは effects に積み、App::Execute に任せる。
 // Cb はレイアウト計測とペイン高さの問い合わせだけを担う。
 template <class Cb>
 class SearchBarControllerT {
@@ -50,7 +48,7 @@ public:
     void OnClose(SideEffectList& effects)
     {
         state_->Hide();
-        ResetInteractionState(effects);
+        ResetInteractionState();
         PushEffect(effects, effect::SearchUnfocus{});
         PushEffect(effects, effect::InvalidateWindow{});
     }
@@ -65,12 +63,7 @@ public:
         AfterMatchStep(effects, state_->PrevMatch());
     }
 
-    // 直前の検索がこれより速ければ、入力のたびに待たずに検索する。
-    static constexpr auto kImmediateSearchBudget = std::chrono::milliseconds(8);
-    // この文書でまだ検索していないとき、待たずに検索する文書の大きさ。
-    static constexpr size_t kImmediateSearchMaxBytes = 1024 * 1024;
-
-    void OnTextChanged(SideEffectList& effects, std::wstring_view text, const std::pmr::vector<Node>& nodes, size_t doc_bytes)
+    void OnTextChanged(SideEffectList& effects, std::wstring_view text, const std::pmr::vector<Node>& nodes)
     {
         // 文書の切り替えで入力欄を空にしたときなど、中身が変わらない通知は検索も再描画もしない。
         if (text == query_wide_) {
@@ -82,26 +75,13 @@ public:
         std::pmr::string text_utf8;
         string_convert::WideToUtf8(text, text_utf8);
         state_->SetQuery(text_utf8);
-        PushEffect(effects, effect::KillTimer{ app_timer::Id::SEARCH_DEBOUNCE });
-        StopSearch(effects);
-
         if (text.empty()) {
             state_->ExecuteSearch(nodes);
             PushEffect(effects, effect::InvalidateWindow{});
             return;
         }
-
-        // 検索の速さは文書の大きさだけでなくマッチ数でも変わるので、直前の検索にかかった時間で決める。
-        // 入力で絞り込むほどマッチは減るので、直前の時間はおおむね上限になる。
-        const bool immediate = last_search_time_ ? *last_search_time_ <= kImmediateSearchBudget : doc_bytes <= kImmediateSearchMaxBytes;
-        if (immediate) {
-            RunSearchAndLocate(effects, nodes, true);
-            return;
-        }
-
-        // 重い文書: デバウンスで連続入力中の再検索を抑制
-        PushEffect(effects, effect::InvalidateWindow{});
-        PushEffect(effects, effect::SetTimer{ app_timer::Id::SEARCH_DEBOUNCE, app_timer::SEARCH_DEBOUNCE_MS });
+        // 検索は時間で区切って進むので、大きな文書でも入力を待たせずにすぐ始める。
+        RunSearchAndLocate(effects, nodes, true);
     }
 
     void OnToggleCaseSensitive(SideEffectList& effects, const std::pmr::vector<Node>& nodes)
@@ -142,31 +122,22 @@ public:
         }
     }
 
-    void OnDebounceTimer(SideEffectList& effects, const std::pmr::vector<Node>& nodes)
-    {
-        PushEffect(effects, effect::KillTimer{ app_timer::Id::SEARCH_DEBOUNCE });
-        RunSearchAndLocate(effects, nodes, true);
-    }
-
-    // 1 回でこれを超える分は、次のタイマーへ回す。WM_TIMER は入力より後に配られるので打鍵やスクロールを待たせない。
+    // 1 回でこれを超える分は、メッセージループが入力と描画を配った後の空き時間 (OnContinue) へ回す。
     static constexpr auto kSearchSliceBudget = std::chrono::milliseconds(8);
 
     // 終わった時点で見ている位置の近くのマッチを選び、scroll_to_match ならそこへスクロールする。
     void RunSearchAndLocate(SideEffectList& effects, const std::pmr::vector<Node>& nodes, bool scroll_to_match = false)
     {
         state_->BeginSearch();
-        search_work_time_ = {};
         scroll_after_search_ = scroll_to_match;
         ContinueSearch(effects, nodes);
     }
 
-    void OnContinueTimer(SideEffectList& effects, const std::pmr::vector<Node>& nodes)
+    void OnContinue(SideEffectList& effects, const std::pmr::vector<Node>& nodes)
     {
-        if (!state_->IsSearching()) {
-            PushEffect(effects, effect::KillTimer{ app_timer::Id::SEARCH_CONTINUE });
-            return;
+        if (state_->IsSearching()) {
+            ContinueSearch(effects, nodes);
         }
-        ContinueSearch(effects, nodes);
     }
 
     void ScrollToCurrentMatch()
@@ -196,12 +167,11 @@ public:
         }
     }
 
-    void Reset(SideEffectList& effects)
+    void Reset()
     {
         state_->Reset();
         query_wide_.clear();
-        last_search_time_.reset();
-        ResetInteractionState(effects);
+        ResetInteractionState();
         ResetCaretAndSelection();
     }
 
@@ -251,17 +221,11 @@ public:
 private:
     void ContinueSearch(SideEffectList& effects, const std::pmr::vector<Node>& nodes)
     {
-        const auto start = std::chrono::steady_clock::now();
-        const bool done = state_->ContinueSearch(nodes, start + kSearchSliceBudget);
-        search_work_time_ += std::chrono::steady_clock::now() - start;
+        const bool done = state_->ContinueSearch(nodes, std::chrono::steady_clock::now() + kSearchSliceBudget);
         PushEffect(effects, effect::InvalidateWindow{});
         if (!done) {
-            PushEffect(effects, effect::SetTimer{ app_timer::Id::SEARCH_CONTINUE, app_timer::SEARCH_CONTINUE_MS });
             return;
         }
-        PushEffect(effects, effect::KillTimer{ app_timer::Id::SEARCH_CONTINUE });
-        // 区切ったぶんを足した時間で、次の入力を待たずに検索するかを決める。
-        last_search_time_ = search_work_time_;
         // 途中でユーザーがマッチへ移っていれば (BeginSearch で -1 に戻した選択がある)、選び直して上書きしない。
         if (state_->GetMatchCount() > 0 && state_->GetCurrentMatchIndex() < 0) {
             state_->SetCurrentMatchNear(viewport_->GetScrollY(), *cache_);
@@ -269,12 +233,6 @@ private:
                 ScrollToCurrentMatch();
             }
         }
-    }
-
-    void StopSearch(SideEffectList& effects)
-    {
-        state_->StopSearch();
-        PushEffect(effects, effect::KillTimer{ app_timer::Id::SEARCH_CONTINUE });
     }
 
     void AfterMatchStep(SideEffectList& effects, bool wrapped)
@@ -292,11 +250,10 @@ private:
         selection_start_ = -1;
     }
 
-    void ResetInteractionState(SideEffectList& effects)
+    void ResetInteractionState()
     {
         ime_composition_.clear();
-        PushEffect(effects, effect::KillTimer{ app_timer::Id::SEARCH_DEBOUNCE });
-        StopSearch(effects);
+        state_->StopSearch();
     }
 
     SearchState* state_ = nullptr;
@@ -308,9 +265,5 @@ private:
     int selection_start_ = -1;
     std::pmr::wstring ime_composition_;
     std::pmr::wstring query_wide_;
-    // 直前の RunSearchAndLocate の検索時間。文書を替えると測り直す。
-    std::optional<std::chrono::steady_clock::duration> last_search_time_;
-    // 進行中の検索で区切ったぶんの合計時間。
-    std::chrono::steady_clock::duration search_work_time_{};
     bool scroll_after_search_ = false;
 };

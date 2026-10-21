@@ -137,7 +137,7 @@ std::optional<AsyncLoadResult> RunReload(TaskScheduler& scheduler, const TempFil
 {
     auto base = std::make_shared<const std::pmr::string>(old_text);
     AsyncLoadCoordinator c;
-    c.Start(scheduler, tmp.PmrPath(), nullptr, 0, GetLightTheme(), base);
+    c.Start(scheduler, tmp.PmrPath(), nullptr, 0, GetLightTheme(), 0.0f, base);
     auto outcome = WaitForOutcome(c);
     std::optional<AsyncLoadResult> result;
     if (outcome && outcome->has_value()) {
@@ -204,7 +204,7 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadWhileFileStillGrowingSkipsParse)
     AsyncLoadCoordinator c([](const std::pmr::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
         return LoadedFileDoc{ std::pmr::string("# Title\n\nchanged\n"), 17 };
     });
-    c.Start(scheduler_, tmp.PmrPath(), nullptr, 0, GetLightTheme(), base);
+    c.Start(scheduler_, tmp.PmrPath(), nullptr, 0, GetLightTheme(), 0.0f, base);
     const auto outcome = WaitForOutcome(c);
     ASSERT_TRUE(outcome.has_value());
     ASSERT_TRUE(outcome->has_value());
@@ -483,7 +483,7 @@ TEST_F(AsyncLoadCoordinatorTest, RandomStartCancelSequencesExposeOnlyLastLoad)
                         expect = Expect::Missing;
                         break;
                     case 3:
-                        c.Start(scheduler_, ok1.PmrPath(), w.Get(), kParseCompleteMsg, GetLightTheme(), ok1_base);
+                        c.Start(scheduler_, ok1.PmrPath(), w.Get(), kParseCompleteMsg, GetLightTheme(), 0.0f, ok1_base);
                         expect = Expect::Ok1NoChange;
                         break;
                     default:

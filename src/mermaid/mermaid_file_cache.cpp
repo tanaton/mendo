@@ -1,4 +1,5 @@
 #include "mermaid_file_cache.h"
+#include "mermaid_util.h"
 #include "task_scheduler.h"
 #include "file_io.h"
 #include "utility.h"
@@ -223,6 +224,17 @@ void MermaidFileCache::OnReadFailed(uint64_t key, DWORD read_error)
         }
     }
     index.Remove(it);
+}
+
+std::optional<uint64_t> MermaidFileCache::LookupDiagram(uint64_t code_hash, float max_width, bool dark_mode, CacheEntry& entry)
+{
+    if (const uint64_t key = mermaid_util::DiagramWidthFreeHash(code_hash, dark_mode); LookupDimensions(key, entry) && mermaid_util::IsWidthFree(entry.css_width, max_width)) {
+        return key;
+    }
+    if (const uint64_t key = mermaid_util::DiagramRequestHash(code_hash, max_width, dark_mode); LookupDimensions(key, entry)) {
+        return key;
+    }
+    return std::nullopt;
 }
 
 bool MermaidFileCache::LookupDimensions(uint64_t key, CacheEntry& entry)

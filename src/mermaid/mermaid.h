@@ -56,8 +56,13 @@ public:
     // ワーカーは画面外に置くため、PNG は本体ウィンドウではなくその位置のモニタの DPR で描かれる。
     // ワーカーを起動する前にディスクキャッシュを引くときの DPR に使う。
     static float EstimateWorkerDpr() noexcept;
-    // deadline を過ぎたら残りを UPLOAD_CONTINUE タイマーに回す。
+    // deadline を過ぎた分は残し、HasLeftoverDiskLoads が真になる。
     void ProcessDiskLoads(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
+    // 新しい結果は投函で知らせるので、続きが要るのは時間切れで残したときだけ。UI スレッド専用。
+    bool HasLeftoverDiskLoads() const noexcept
+    {
+        return leftover_disk_loads_;
+    }
     void Shutdown();
     void DropQueued() override;
     void OnInitRetryTimer();
@@ -65,11 +70,6 @@ public:
     void OnIdleTimer();
     // 図のある文書を書き換えながら見ている (変更の通知で読み直した) 間は、保存のたびにコールドスタートしないよう長めに残す。
     void SetEditingDiagrams(bool editing);
-    // 図が描き直しになりそうなとき (ファイル変更の通知) に、要求を待たずに WebView2 を起動しておく。
-    void Prewarm()
-    {
-        EnsureInitialized();
-    }
 
 private:
     struct RenderRequest {
@@ -80,7 +80,15 @@ private:
         bool latex = false;
         float max_width = 0.0f;
         bool dark_mode = false;
+        // 幅つきのキー。要求中の判定とエラー結果はこちらで持つ。
         uint64_t code_hash = 0;
+        uint64_t width_free_hash = 0;
+        // 結果を width_free_hash で持つ。ディスクで当たったか、描いた結果が幅の上限より狭かった。
+        bool width_free = false;
+        uint64_t CacheKey() const noexcept
+        {
+            return width_free ? width_free_hash : code_hash;
+        }
         float css_width = 0.0f; // JSから取得したCSSピクセル寸法（DIP）
         float css_height = 0.0f;
         unsigned int request_id = 0; // リクエスト固有のID（JS側のpostMessageと照合）
@@ -215,6 +223,11 @@ private:
     void DoCapturePreview(int worker_idx);
     void OnCaptureComplete(int worker_idx, Microsoft::WRL::ComPtr<IStream> png_stream);
     void InsertCache(uint64_t hash, CachedResult result);
+    const CachedResult* FindCached(uint64_t code_hash, uint64_t width_free_hash, float max_width);
+    const CachedResult* FindCached(const RenderRequest& req)
+    {
+        return FindCached(req.code_hash, req.width_free_hash, req.max_width);
+    }
 
     HWND hwnd_ = nullptr;
     ID2D1RenderTarget* render_target_ = nullptr;
@@ -243,6 +256,7 @@ private:
     UINT disk_loaded_msg_ = 0;
     bool editing_diagrams_ = false;
     std::mutex disk_mutex_;
+    bool leftover_disk_loads_ = false;
     std::pmr::vector<DiskLoad> disk_results_;
 
     // Shutdown で worker 完了を待つ。scheduler 共有 worker から self を参照する race を排除する。

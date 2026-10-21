@@ -219,7 +219,9 @@ target_link_libraries(mendo PRIVATE mendo_core comctl32 delayimp
     "${WEBVIEW2_LIB_DIR}/WebView2LoaderStatic.lib"
 )
 # ファイルダイアログでしか使わないので、起動時にロードしない (約 1ms)。
-target_link_options(mendo PRIVATE /DELAYLOAD:comdlg32.dll)
+# comctl32 は検索の EDIT とツールチップを初めて作るときまで要らない。
+# shell32 はドロップ・外部で開く・設定フォルダの取得の予備でしか使わない。
+target_link_options(mendo PRIVATE /DELAYLOAD:comdlg32.dll /DELAYLOAD:comctl32.dll /DELAYLOAD:shell32.dll)
 # KnownDLLs に無い DLL を静的インポートすると、ローダーが exe と同じフォルダを先に探すので
 # Downloads 等に置かれた偽 DLL を読んでしまう。遅延ロードにして、wWinMain 先頭の
 # SetDefaultDllDirectories (System32 限定) の後で解決させる。

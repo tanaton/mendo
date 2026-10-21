@@ -48,12 +48,14 @@ void LayoutEngine::Reestimate(const std::pmr::vector<Node>& nodes, LayoutCache& 
     }
     // 未推定のキャッシュ (位置が全て 0) では可視範囲が決まらないので、幅変更と同じく組み直す。
     const bool unpositioned = node_count > 0 && cache.Bottom(node_count - 1) <= 0.0f;
-    // worker の推定は折り返しを知らず段落を 1 行と見るので、最初の画面で実際より多くのノードを計測してしまう。
-    const bool width_free = !cache.HasWidthAwareEstimate();
-    if (width_changed || unpositioned || width_free) {
-        EstimateDirtyHeights(nodes, cache, theme_->ContentWidth(viewport_width), width_changed);
+    // 別の幅やズームでの推定は折り返しの行数が合わず、最初の画面で実際と違う数のノードを計測してしまう。
+    const float content_width = theme_->ContentWidth(viewport_width);
+    const auto basis = cache.GetEstimateBasis();
+    const bool basis_changed = basis.zoom != theme_->zoom || std::abs(basis.content_width - content_width) > kWidthChangeThreshold;
+    if (width_changed || unpositioned || basis_changed) {
+        EstimateDirtyHeights(nodes, cache, content_width, width_changed);
         cache.SetHasDirtyNodes(true);
-        cache.SetWidthAwareEstimate();
+        cache.SetEstimateBasis({ content_width, theme_->zoom });
     }
     MENDO_PLOT("layout.compute.width_changed", static_cast<int64_t>(width_changed));
     MENDO_PLOT("layout.compute.node_count", static_cast<int64_t>(node_count));

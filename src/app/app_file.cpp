@@ -38,11 +38,9 @@ void App::ResetViewForNewDocument()
     state_.view.ResetForNewDocument();
     // 旧文書のマッチ位置が新 nodes に対して誤用されるのを防ぐ。先に空にしておくので、
     // 入力欄を空にしたときの EN_CHANGE は OnTextChanged で何もせず終わる。
-    SideEffectList effects;
-    state_.search.search_bar_ctrl.Reset(effects);
+    state_.search.search_bar_ctrl.Reset();
     EndDocumentBoundDrag();
-    PushEffect(effects, effect::SearchUnfocus{ /*clear_text=*/true });
-    Execute(effects);
+    Execute(effect::SearchUnfocus{ /*clear_text=*/true });
     CancelPendingResources();
 }
 
@@ -89,25 +87,36 @@ void App::LoadHelpDocument()
 namespace {
 // 100MB 級の文書はテキスト・runs・リンク URL を arena ごと捨てても、数十万ノードの走査と
 // 表等の解放で UI を十数 ms 止めるため worker で破棄する。
-// 渡すものは COM / D2D の参照を持たないこと (確保元の既定 pmr リソースはスレッド安全)。
+constexpr size_t kDisposeMinNodes = 4096;
+// IDWriteTextLayout の解放は 1 個 2〜3µs かかる。
+constexpr size_t kDisposeMinLayouts = 256;
+
+// 渡すものは D2D の参照を持たないこと (確保元の既定 pmr リソースはスレッド安全)。
 template <class T>
-void DisposeOnWorkerIfLarge(TaskScheduler& scheduler, size_t node_count, T&& obj)
+void DisposeOnWorkerIfLarge(TaskScheduler& scheduler, size_t count, size_t min_count, T&& obj)
 {
-    constexpr size_t kBackgroundDisposeMinNodes = 4096;
-    if (node_count >= kBackgroundDisposeMinNodes) {
+    if (count >= min_count) {
         scheduler.Post([o = std::forward<T>(obj)] {});
     }
 }
 } // namespace
+
+void App::DisposeReleasedLayouts()
+{
+    auto released = state_.document.layout_cache.TakeReleasedLayouts();
+    DisposeOnWorkerIfLarge(scheduler_, released.size(), kDisposeMinLayouts, std::move(released));
+}
 
 void App::ReplaceDocument(Document next, LayoutCache estimated)
 {
     // 以降、doc のノードと layout_cache のエントリは常に同数 (描画・ヒットテスト等はこれを前提にする)。
     assert(estimated.size() == next.GetNodes().size());
     Document old = std::exchange(state_.document.doc, std::move(next));
-    // 旧 LayoutCache は D2D 由来の参照を持つので worker に渡さず UI スレッドで破棄する。
-    state_.document.layout_cache = std::move(estimated);
-    DisposeOnWorkerIfLarge(scheduler_, old.GetNodes().size(), std::move(old));
+    LayoutCache old_cache = std::exchange(state_.document.layout_cache, std::move(estimated));
+    old_cache.ReleaseDiagrams();
+    // 表は 1 ノードにセルの数だけレイアウトを持つので、ノード数によらずワーカーで捨てる。
+    scheduler_.Post([o = std::move(old_cache)] {});
+    DisposeOnWorkerIfLarge(scheduler_, old.GetNodes().size(), kDisposeMinNodes, std::move(old));
     // ツールチップの同一判定は node / TOC の index で行うため、旧文書の対象を持ち越さない。
     InvalidateHitPositions();
 }
@@ -123,7 +132,7 @@ void App::ReloadDocument(Document next, LayoutCache estimated)
 
 void App::ReplaceDocument(Document next)
 {
-    LayoutCache estimated = layout::MakeEstimatedLayoutCache(next.GetNodes(), renderer_.GetTheme());
+    LayoutCache estimated = layout::MakeEstimatedLayoutCache(next.GetNodes(), renderer_.GetTheme(), MdContentWidth());
     ReplaceDocument(std::move(next), std::move(estimated));
 }
 
@@ -135,7 +144,7 @@ void App::BeginAsyncLoad(std::pmr::wstring path, bool show_animation, std::share
         StartLoadingAnimation();
         UpdateWindow(hwnd_);
     }
-    file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE, renderer_.GetTheme(), std::move(reload_base));
+    file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE, renderer_.GetTheme(), MdContentWidth(), std::move(reload_base));
 }
 
 // Defer* はエディタの保存途中 (truncate→rewrite の前半や書き込み中) を読んだ状態。
@@ -295,7 +304,7 @@ void App::OnParseComplete()
     case ParseCompleteStep::RetryPartialWrite:
         // worker が作った推定済み LayoutCache は D2D 由来の参照を持たないので、文書ごと worker で捨てられる。
         if (result) {
-            DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), std::move(outcome));
+            DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
         }
         DeferReloadRetry();
         return;
@@ -414,7 +423,7 @@ void App::DoReloadCurrentFile()
         return;
     }
     Document next = Document::FromMarkdown(std::move(new_text), byte_size, state_.document.doc.GetFilePath());
-    LayoutCache estimated = layout::MakeEstimatedLayoutCache(next.GetNodes(), renderer_.GetTheme());
+    LayoutCache estimated = layout::MakeEstimatedLayoutCache(next.GetNodes(), renderer_.GetTheme(), MdContentWidth());
     ReloadDocument(std::move(next), std::move(estimated));
     FinishReload(decision.diff_pos);
 }

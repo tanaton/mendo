@@ -339,3 +339,23 @@ TEST_F(TableEvictionDWriteTest, ParallelRestoreMatchesSerial)
     EXPECT_EQ(serial.first, parallel.first);
     EXPECT_FLOAT_EQ(serial.second, parallel.second);
 }
+
+// 捨てたセルや本文のレイアウトは、UI スレッドで解放せずに TakeReleasedLayouts で渡す。
+TEST_F(TableEvictionDWriteTest, EvictedLayoutsAreHandedOverForRelease)
+{
+    auto pl = ParseAndLayout("para\n\n" + MakeBigTableMd(40));
+    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
+    ASSERT_GE(idx, 0);
+    auto& tl = *pl.cache[idx].table_layout();
+    const size_t before = CountNonNullCells(tl);
+    ASSERT_TRUE(pl.cache.TakeReleasedLayouts().empty());
+
+    EvictWholeTable(pl.cache, idx);
+    EXPECT_EQ(pl.cache.TakeReleasedLayouts().size(), before);
+    EXPECT_EQ(CountNonNullCells(tl), 0u);
+
+    ASSERT_NE(pl.cache[0].text_layout(), nullptr);
+    pl.cache.InvalidateAllLayouts(pl.nodes);
+    EXPECT_EQ(pl.cache.TakeReleasedLayouts().size(), 1u) << "段落の text_layout だけが残っていた";
+    EXPECT_EQ(pl.cache[0].text_layout(), nullptr);
+}

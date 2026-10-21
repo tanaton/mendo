@@ -302,9 +302,11 @@ public:
             static constexpr app_timer::Id kTimers[] = {
                 app_timer::Id::SWIPE_OVERLAY,
                 app_timer::Id::TOAST,
-                app_timer::Id::SEARCH_DEBOUNCE,
-                app_timer::Id::SEARCH_CONTINUE,
             };
+            if (Pick(0, 2) == 0) {
+                model_.Dispatch(SearchContinueAction{});
+                return "SearchContinue";
+            }
             const auto id = kTimers[Pick(0, static_cast<int>(std::size(kTimers)) - 1)];
             model_.Dispatch(TimerAction{ id });
             return std::format("Timer({})", static_cast<int>(id));

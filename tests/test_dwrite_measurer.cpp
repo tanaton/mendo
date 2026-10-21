@@ -38,3 +38,29 @@ TEST_F(DWriteMeasurerTest, CodeBlockSyntaxTokensAbsorbBlankGaps)
     EXPECT_EQ(tokens[2].type, SyntaxTokenType::Type);
     EXPECT_EQ(tokens[2].start, 29u);
 }
+
+// 左揃えで列幅に収まるセルは無限幅のまま使い、折り返す幅になったら列幅を付け、広がれば無限幅に戻す。
+// 中央揃えは揃える基準が要るので常に列幅を付ける。高さは折り返しの有無に従う。
+TEST_F(DWriteMeasurerTest, FittingLeftAlignedCellKeepsNaturalWidthLayout)
+{
+    auto [nodes, cache] = ParseAndLayout("| left | center |\n|---|:---:|\n| some words that wrap when narrow | other words that wrap when narrow |\n");
+    ASSERT_EQ(nodes.size(), 1u);
+    auto& entry = cache[0];
+    const auto* tl = entry.table_layout();
+    ASSERT_NE(tl, nullptr);
+    auto* left = tl->GetCellLayout(1, 0);
+    auto* center = tl->GetCellLayout(1, 1);
+    ASSERT_NE(left, nullptr);
+    ASSERT_NE(center, nullptr);
+    const float wide_height = tl->cell_heights[tl->CellIndex(1, 0)];
+    EXPECT_GE(left->GetMaxWidth(), 1.0e6f);
+    EXPECT_LT(center->GetMaxWidth(), 1.0e6f);
+
+    measurer_.MeasureNode(nodes[0], entry, 300.0f);
+    EXPECT_LT(left->GetMaxWidth(), 1.0e6f) << "収まらない幅では列幅で折り返す";
+    EXPECT_GT(tl->cell_heights[tl->CellIndex(1, 0)], wide_height);
+
+    measurer_.MeasureNode(nodes[0], entry, 800.0f);
+    EXPECT_GE(left->GetMaxWidth(), 1.0e6f);
+    EXPECT_FLOAT_EQ(tl->cell_heights[tl->CellIndex(1, 0)], wide_height);
+}

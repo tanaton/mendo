@@ -369,7 +369,7 @@ void App::EnsureFrameLayout(const PaneLayout& layout)
     if (updated) {
         SyncMaxScroll();
         // 未計測領域に入った。スクロール先を先読み計測させ、以降のフレームでの同期計測を減らす。
-        ScheduleDeferredLayoutIfNeeded();
+        RequestDeferredLayout();
     }
 }
 
@@ -476,16 +476,11 @@ void App::HandleTimer(UINT_PTR timer_id)
     switch (id) {
     case SWIPE_OVERLAY:
     case TOAST:
-    case SEARCH_DEBOUNCE:
-    case SEARCH_CONTINUE:
         Dispatch(TimerAction{ id });
         return;
     case TOOLTIP:
         KillTimer(id);
         tooltip_.Show();
-        return;
-    case DEFERRED_LAYOUT:
-        OnDeferredLayout();
         return;
     case LOADING_ANIM:
         file_load_service_.TickLoadingAnimation();
@@ -507,14 +502,6 @@ void App::HandleTimer(UINT_PTR timer_id)
         KillTimer(id);
         Invalidate();
         return;
-    case UPLOAD_CONTINUE: {
-        KillTimer(id);
-        // 両方で 1 回分の持ち時間を分け合う。
-        const auto deadline = std::chrono::steady_clock::now() + kUploadSliceBudget;
-        image_loader_.ProcessCompletedDecodes(deadline);
-        mermaid_renderer_.ProcessDiskLoads(deadline);
-        return;
-    }
     case FILE_RELOAD_DEBOUNCE:
         KillTimer(id);
         ReloadCurrentFile();
@@ -565,10 +552,6 @@ void App::StartFileWatch(const std::pmr::wstring& path)
     file_watcher_.StartWatching(path, [this] {
         KillTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE);
         SetTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_DEBOUNCE_MS);
-        // 図を書き換えた保存なら描き直しになる。WebView2 の起動 (1 秒前後) をデバウンスとパースの裏で進める。
-        if (!state_.document.doc.GetDiagramNodeIndices().empty()) {
-            mermaid_renderer_.Prewarm();
-        }
     });
 }
 
@@ -879,21 +862,40 @@ float App::MdContentWidth()
     return renderer_.GetTheme().ContentWidth(GetPaneLayout().md_rect.width);
 }
 
-bool App::ScheduleDeferredLayoutIfNeeded()
+bool App::RequestDeferredLayout()
 {
     if (!state_.document.layout_cache.HasDirtyNodes()) {
         return false;
     }
-    if (!std::exchange(deferred_layout_scheduled_, true)) {
-        SetTimer(app_timer::Id::DEFERRED_LAYOUT, app_timer::FRAME_INTERVAL_MS);
-    }
+    deferred_layout_pending_ = true;
     return true;
 }
 
-void App::CancelDeferredLayout()
+bool App::HasIdleWork()
 {
-    deferred_layout_scheduled_ = false;
-    KillTimer(app_timer::Id::DEFERRED_LAYOUT);
+    return deferred_layout_pending_ || state_.search.search_state.IsSearching() || state_.document.layout_cache.HasReleasedLayouts() ||
+           image_loader_.HasLeftoverUploads() || mermaid_renderer_.HasLeftoverDiskLoads();
+}
+
+// 1 回に 1 種類だけ進めてメッセージループへ戻り、入力と描画を先に配らせる。
+// 画面に出る転送、待たれている検索、先読みの計測の順。捨てたレイアウトの解放は渡すだけなので先に済ませる。
+void App::RunIdleWork()
+{
+    DisposeReleasedLayouts();
+    if (image_loader_.HasLeftoverUploads() || mermaid_renderer_.HasLeftoverDiskLoads()) {
+        // 両方で 1 回分の持ち時間を分け合う。
+        const auto deadline = std::chrono::steady_clock::now() + kUploadSliceBudget;
+        image_loader_.ProcessCompletedDecodes(deadline);
+        mermaid_renderer_.ProcessDiskLoads(deadline);
+        return;
+    }
+    if (state_.search.search_state.IsSearching()) {
+        Dispatch(SearchContinueAction{});
+        return;
+    }
+    if (deferred_layout_pending_) {
+        OnDeferredLayout();
+    }
 }
 
 // ロード・ズーム・リサイズでは画面外にもレイアウトが作られ (初回の MeasureTable は全セル)、
@@ -901,7 +903,7 @@ void App::CancelDeferredLayout()
 // 遅延レイアウトが残っていれば、その完了時 (OnDeferredLayout) に出す。
 void App::SettleLayout()
 {
-    if (!ScheduleDeferredLayoutIfNeeded()) {
+    if (!RequestDeferredLayout()) {
         resource_manager_.ScheduleBitmapManage();
     }
 }
@@ -965,7 +967,7 @@ void App::OnResizeEnd()
 {
     MENDO_PROFILE("OnResizeEnd");
 
-    CancelDeferredLayout();
+    deferred_layout_pending_ = false;
     EnsureScrollTarget();
     RelayoutViewport(RelayoutResources::DiagramsBatched);
 }
@@ -1000,7 +1002,7 @@ void App::OnDeferredLayout()
     if (more) {
         return;
     }
-    CancelDeferredLayout();
+    deferred_layout_pending_ = false;
 
     // 同期ディスク I/O + PNG デコードで UI スレッドを長時間ブロックしないよう、
     // Mermaid ファイルキャッシュの読み込みは時間予算付きバッチに回す。

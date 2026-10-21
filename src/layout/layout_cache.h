@@ -39,6 +39,7 @@ struct TableLayoutData {
     std::pmr::vector<float> natural_col_widths;  // リサイズ高速パス用キャッシュ
     std::pmr::vector<float> cell_heights;        // 各セルに最後に適用した幅での計測高さ
     std::pmr::vector<float> cell_applied_widths; // 各セルに最後に適用した max_width（変更判定用）
+    std::pmr::vector<float> cell_natural_widths; // 各セルの折り返さない幅。テキストは変わらないので evict しても残す
     std::pmr::vector<uint8_t> row_evicted;       // 行単位 evict でセル layout を捨てた行
     // ヒットテスト高速化用の累積オフセット。
     // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ。サイズは row_count+1。
@@ -73,6 +74,7 @@ struct TableLayoutData {
         const size_t cell_count = row_count * new_col_count;
         cell_heights.assign(cell_count, 0.0f);
         cell_applied_widths.assign(cell_count, -1.0f);
+        cell_natural_widths.assign(cell_count, 0.0f);
         ResetRowEviction(row_count);
         col_count = new_col_count;
         cell_layouts.assign(cell_count, {});
@@ -413,6 +415,10 @@ struct NodeLayoutEntry {
     {
         aux_.reset();
     }
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> take_text_layout() noexcept
+    {
+        return aux_ ? std::move(aux_->text_layout) : nullptr;
+    }
 
     // マッチの絶対 Y とその行の高さを返す。text_layout（テーブルはセル layout）が
     // あれば text_offset_w (UTF-16 code unit) に対応する行 Y を精密に計算し、無ければ
@@ -629,7 +635,7 @@ public:
     }
 
     // 計測が例外で失敗し続けるノードの試行回数の上限 (NodeLayoutEntry::measure_failures)。
-    // 超えたら dirty を外して諦め、ダーティ処理タイマーが同じノードを毎 tick 計測し続けるのを止める。
+    // 超えたら dirty を外して諦め、遅延レイアウトが同じノードを毎回計測し続けるのを止める。
     static constexpr uint8_t kMaxMeasureAttempts = 3;
 
     // 全 text_layout を破棄する操作の後に呼ぶ。差分エビクトが「破棄済み」と誤認して
@@ -646,9 +652,9 @@ public:
     // DPI 変更時の最小リセット。IDWriteTextLayout は DIP 単位なので不変、ピクセルに依存するハイライト矩形だけ捨てる。
     void NotifyDpiChanged() noexcept;
 
-    // src のノード from の計測結果 (高さ・テキストレイアウト・図) を、中身が同じノード to へ移す。
-    // ハイライト系のキャッシュは選択や検索の位置に依るので捨てる。Y 位置は呼び出し側が組み直す。
-    void TakeEntry(LayoutCache& src, size_t from, size_t to);
+    // src のノード [from, from + count) の計測結果 (高さ・テキストレイアウト・図) を、中身が同じノード
+    // [to, to + count) へ移す。ハイライト系のキャッシュは選択や検索の位置に依るので捨てる。Y 位置は呼び出し側が組み直す。
+    void TakeEntries(LayoutCache& src, size_t from, size_t to, size_t count);
     // src のノード from の図を、コードが書き換わったノード to へ仮表示として移す。高さも引き継いで表示を跳ねさせない。
     // 描いた結果が無ければ何もせず false を返す。
     bool TakeDiagramAsStale(LayoutCache& src, size_t from, size_t to);
@@ -664,22 +670,44 @@ public:
     {
         has_dirty_nodes_ = v;
     }
-    // 未計測ノードの高さを、表示幅を使って推定し直したか。worker が作った推定は幅を知らない。
-    constexpr bool HasWidthAwareEstimate() const noexcept
+    // 捨てたテキストレイアウト。1 個の解放に数 µs かかり、ズームや巨大な表の evict では数千〜数十万個になるので、
+    // UI スレッドで解放せず、呼び出し側が受け取ってワーカーで解放する。
+    using ReleasedLayouts = std::pmr::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>>;
+    bool HasReleasedLayouts() const noexcept
     {
-        return width_aware_estimate_;
+        return !released_layouts_.empty();
     }
-    constexpr void SetWidthAwareEstimate() noexcept
+    ReleasedLayouts TakeReleasedLayouts() noexcept
     {
-        width_aware_estimate_ = true;
+        return std::exchange(released_layouts_, {});
+    }
+    // D2D のビットマップは UI スレッドで解放させる。残りはどのスレッドで破棄してもよい。
+    void ReleaseDiagrams() noexcept
+    {
+        diagrams_.clear();
+    }
+
+    // 未計測ノードの高さを推定した本文幅とズーム。幅 0 は幅を知らずに推定した (起動時の先読み)。
+    struct EstimateBasis {
+        float content_width = 0.0f;
+        float zoom = 0.0f;
+    };
+    constexpr EstimateBasis GetEstimateBasis() const noexcept
+    {
+        return estimate_basis_;
+    }
+    constexpr void SetEstimateBasis(EstimateBasis basis) noexcept
+    {
+        estimate_basis_ = basis;
     }
 
 private:
     std::pmr::vector<NodeLayoutEntry> entries_;
     std::pmr::vector<float> tops_;
     std::pmr::unordered_map<size_t, DiagramEntry> diagrams_;
+    ReleasedLayouts released_layouts_;
     bool has_dirty_nodes_ = true;
-    bool width_aware_estimate_ = false;
+    EstimateBasis estimate_basis_;
     size_t last_evict_fk_ = 0;
     size_t last_evict_lk_ = 0;
     // 前回 evict 以降に計測した index の範囲 [begin, end)。空は begin >= end。

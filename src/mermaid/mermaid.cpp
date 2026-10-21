@@ -563,6 +563,15 @@ void MermaidRenderer::InsertCache(uint64_t hash, CachedResult result)
     });
 }
 
+// 幅を混ぜないキーの結果は、いまの幅の上限より狭いときだけ使う。
+const MermaidRenderer::CachedResult* MermaidRenderer::FindCached(uint64_t code_hash, uint64_t width_free_hash, float max_width)
+{
+    if (const auto* free = cache_.Find(width_free_hash); free && mermaid_util::IsWidthFree(free->width, max_width)) {
+        return free;
+    }
+    return cache_.Find(code_hash);
+}
+
 void MermaidRenderer::SetDiagramError(const RenderRequest& req, std::wstring_view msg)
 {
     if (req.svg_only) {
@@ -703,9 +712,9 @@ bool MermaidRenderer::RequestRender(
     if (diagram_entry.code_hash == 0) {
         diagram_entry.code_hash = mermaid_util::DiagramCodeHash(node);
     }
-    const auto hash = mermaid_util::DiagramRequestHash(diagram_entry.code_hash, max_width, dark_mode);
-
-    if (const auto* cached = cache_.Find(hash)) {
+    const uint64_t hash = mermaid_util::DiagramRequestHash(diagram_entry.code_hash, max_width, dark_mode);
+    const uint64_t width_free_hash = mermaid_util::DiagramWidthFreeHash(diagram_entry.code_hash, dark_mode);
+    if (const auto* cached = FindCached(hash, width_free_hash, max_width)) {
         ApplyResult(diagram_entry, *cached);
         return true;
     }
@@ -720,11 +729,13 @@ bool MermaidRenderer::RequestRender(
         .max_width = max_width,
         .dark_mode = dark_mode,
         .code_hash = hash,
+        .width_free_hash = width_free_hash,
     };
     if (file_cache_) {
         MermaidFileCache::CacheEntry fentry;
         std::filesystem::path png_path;
-        if (file_cache_->LookupPath(hash, fentry, png_path)) {
+        if (const auto key = file_cache_->LookupDiagram(diagram_entry.code_hash, max_width, dark_mode, fentry); key && file_cache_->LookupPath(*key, fentry, png_path)) {
+            req.width_free = *key == width_free_hash;
             req.css_width = fentry.css_width;
             req.css_height = fentry.css_height;
             StartDiskLoad(std::move(req), std::move(png_path));
@@ -788,10 +799,13 @@ bool MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
 {
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
     if (r.bitmap && render_target_ && SUCCEEDED(render_target_->CreateBitmapFromWicBitmap(r.bitmap.Get(), &bitmap)) && bitmap) {
-        if (r.captured && file_cache_) {
-            file_cache_->StoreAsync(r.req.code_hash, r.req.css_width, r.req.css_height, r.png);
+        if (r.captured) {
+            r.req.width_free = mermaid_util::IsWidthFree(r.req.css_width, r.req.max_width);
+            if (file_cache_) {
+                file_cache_->StoreAsync(r.req.CacheKey(), r.req.css_width, r.req.css_height, r.png);
+            }
         }
-        InsertCache(r.req.code_hash, CachedResult{ std::move(bitmap), r.req.css_width, r.req.css_height, std::move(r.png) });
+        InsertCache(r.req.CacheKey(), CachedResult{ std::move(bitmap), r.req.css_width, r.req.css_height, std::move(r.png) });
         ReleaseInflight(r.req);
         return true;
     }
@@ -802,7 +816,7 @@ bool MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
         return true;
     }
     if (file_cache_ && !r.png) {
-        file_cache_->OnReadFailed(r.req.code_hash, r.read_error);
+        file_cache_->OnReadFailed(r.req.CacheKey(), r.read_error);
     }
     EnqueueWebRender(std::move(r.req));
     return false;
@@ -817,14 +831,10 @@ void MermaidRenderer::ProcessDiskLoads(std::chrono::steady_clock::time_point dea
     }
     bool resolved = false;
     const size_t processed = ApplyUntil(results, deadline, [&](DiskLoad& r) { resolved |= ApplyDiskLoad(r); });
-    if (processed < results.size()) {
-        {
-            const std::lock_guard lock(disk_mutex_);
-            RequeueFront(disk_results_, results, processed);
-        }
-        if (hwnd_) {
-            ::SetTimer(hwnd_, std::to_underlying(app_timer::Id::UPLOAD_CONTINUE), app_timer::UPLOAD_CONTINUE_MS, nullptr);
-        }
+    leftover_disk_loads_ = processed < results.size();
+    if (leftover_disk_loads_) {
+        const std::lock_guard lock(disk_mutex_);
+        RequeueFront(disk_results_, results, processed);
     }
     // まとめて 1 回だけ要求し直させる。
     if (resolved) {
@@ -875,7 +885,7 @@ void MermaidRenderer::ProcessQueue()
     while (!pending_requests_.empty()) {
         auto& front = pending_requests_.front();
         // 結果を出した要求が通知済みなので、ここでは取り除くだけでよい。
-        if (!front.svg_only && cache_.Contains(front.code_hash)) {
+        if (!front.svg_only && FindCached(front)) {
             ReleaseInflight(front);
             pending_requests_.pop();
             continue;
@@ -901,7 +911,7 @@ void MermaidRenderer::ProcessQueue()
 
 void MermaidRenderer::FinishWorkerRequest(Worker& worker)
 {
-    const bool resolved = !worker.current_request.svg_only && cache_.Contains(worker.current_request.code_hash);
+    const bool resolved = !worker.current_request.svg_only && FindCached(worker.current_request);
     worker.rendering = false;
     ReleaseInflight(worker.current_request);
     worker.current_request = {};

@@ -437,6 +437,33 @@ TEST(LayoutServiceTest, ViewportLayoutReestimatesWorkerEstimateWithWidth)
     EXPECT_FLOAT_EQ(cache[last].height, layout::EstimateNodeHeight(doc.GetNodes()[last], theme, layout::NodeContentWidth(doc.GetNodes()[last], theme, theme.ContentWidth(kWidth))));
 }
 
+// 表示幅を渡した worker の推定は、UI スレッドで推定し直したものと同じ高さと位置になる。
+TEST(LayoutServiceTest, WidthAwareWorkerEstimateMatchesReestimate)
+{
+    constexpr float kWidth = 800.0f;
+    const Theme theme = GetLightTheme();
+    MockTextMeasurer measurer;
+    LayoutEngine engine;
+    ASSERT_TRUE(engine.Init(&measurer, theme));
+
+    std::string md;
+    for (int i = 0; i < 50; ++i) {
+        md += "# H\n\n" + std::string(static_cast<size_t>(100 + i * 40), 'a') + "\n\n```\ncode\n```\n\n";
+    }
+    auto doc = Document::FromMarkdown(std::pmr::string{ md }, L"t.md");
+    LayoutCache reestimated = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme);
+    engine.Reestimate(doc.GetNodes(), reestimated, kWidth);
+    LayoutCache width_aware = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme, theme.ContentWidth(kWidth));
+    const auto basis = width_aware.GetEstimateBasis();
+    EXPECT_FLOAT_EQ(basis.content_width, theme.ContentWidth(kWidth));
+
+    ASSERT_EQ(width_aware.size(), reestimated.size());
+    for (size_t i = 0; i < reestimated.size(); ++i) {
+        EXPECT_FLOAT_EQ(width_aware[i].height, reestimated[i].height) << i;
+        EXPECT_FLOAT_EQ(width_aware.Top(i), reestimated.Top(i)) << i;
+    }
+}
+
 // リロードで中身が変わらないノードの計測結果を引き継ぎ、変わったノードだけ計測し直させる。
 TEST(CarryOverUnchangedTest, KeepsMeasuredEntriesOfUnchangedNodes)
 {

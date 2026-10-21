@@ -205,9 +205,6 @@ TEST_F(ReducerTest, OpenAndCloseSearchBar_EmitFocusEffects)
     auto closed = Reduce(state, CloseSearchBarAction{});
     EXPECT_FALSE(state.search.search_state.IsVisible());
     EXPECT_TRUE(HasEffect<effect::SearchUnfocus>(closed));
-    const auto* kill = FindEffect<effect::KillTimer>(closed);
-    ASSERT_NE(kill, nullptr);
-    EXPECT_EQ(kill->id, app_timer::Id::SEARCH_DEBOUNCE);
 }
 
 // ---- 検索ジャンプ ----
@@ -687,7 +684,7 @@ TEST_F(ReducerTest, VWheel_CancelsSwipeOverlay)
     }
     ASSERT_TRUE(state.interaction.swipe_detector.IsOverlayVisible());
 
-    auto effects = Reduce(state, VWheelAction{ 1100 });
+    auto effects = Reduce(state, DirectScrollByAction{ 0.0f, 1100 });
 
     EXPECT_FALSE(state.interaction.swipe_detector.IsOverlayVisible());
     const auto* kill = FindEffect<effect::KillTimer>(effects);
@@ -699,7 +696,7 @@ TEST_F(ReducerTest, VWheel_CancelsSwipeOverlay)
 // 直後の水平ホイールは軸ロックで無視する。
 TEST_F(ReducerTest, VWheel_LocksHorizontalSwipe)
 {
-    Reduce(state, VWheelAction{ 1000 });
+    Reduce(state, DirectScrollByAction{ 0.0f, 1000 });
     for (uint64_t i = 0; i < 4; ++i) {
         Reduce(state, HWheelAction{ 120, 1010 + i * 10 });
     }
@@ -708,7 +705,7 @@ TEST_F(ReducerTest, VWheel_LocksHorizontalSwipe)
 
 TEST_F(ReducerTest, VWheel_NoOverlay_NoEffect)
 {
-    EXPECT_TRUE(Reduce(state, VWheelAction{ 1000 }).empty());
+    EXPECT_TRUE(Reduce(state, DirectScrollByAction{ 0.0f, 1000 }).empty());
 }
 
 // ---- CaptureChanged テスト ----
@@ -759,7 +756,7 @@ TEST_F(ReducerTest, Timer_Toast_HidesAndKillsTimer)
 
 TEST_F(ReducerTest, Timer_ServiceTimerIsIgnoredByReducer)
 {
-    auto effects = Reduce(state, TimerAction{ app_timer::Id::DEFERRED_LAYOUT });
+    auto effects = Reduce(state, TimerAction{ app_timer::Id::BITMAP_MANAGE });
     EXPECT_TRUE(effects.empty());
 }
 

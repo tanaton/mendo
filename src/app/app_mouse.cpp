@@ -313,9 +313,8 @@ void App::OnMouseWheel(int px, int py, int delta, bool ctrl)
         return;
     }
 
-    Dispatch(VWheelAction{ GetTickCount64() });
     const auto dip = PixelToDip(px, py);
-    Dispatch(app_controller::HandleMouseWheel(MouseWheelEvent{ delta, false, ZoneAt(dip.x, GetPaneLayout()) }, zoom_accum));
+    Dispatch(app_controller::HandleMouseWheel(MouseWheelEvent{ delta, false, ZoneAt(dip.x, GetPaneLayout()), GetTickCount64() }, zoom_accum));
 }
 
 void App::OnMouseHWheel(short delta)
