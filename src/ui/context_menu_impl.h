@@ -9,6 +9,7 @@
 #include <windows.h>
 #include <memory_resource>
 #include <string>
+#include <unordered_map>
 
 namespace context_menu_constants {
 inline constexpr float ITEM_HEIGHT = 28.0f;
@@ -41,7 +42,10 @@ struct ContextMenu::Impl {
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
 
     // CreatePopupWindow が false を返したら Show() は早期 return。
+    // 開くたびにウィンドウと描画先を作ると数 ms かかるので、前回のものがあれば動かして使い回す。
     bool CreatePopupWindow(int screen_x, int screen_y);
+    // 閉じても壊さずに隠す。まだ前面にいればオーナーへ前面を返してから隠す。
+    void HidePopupWindow() noexcept;
     // ~Impl (mendo_core 側) からも呼ぶため inline で定義する。rt はウィンドウを壊してから捨てる。
     void DestroyPopupWindow() noexcept
     {
@@ -56,7 +60,12 @@ struct ContextMenu::Impl {
     void BuildItems(const ContextMenuParams& params);
     void ComputeLayout();
     bool CreateDeviceResources();
+    // 使い回す描画先を今回の大きさ・DPI・テーマ色に合わせる。無ければ作る。
+    bool PrepareDeviceResources(UINT32 pixel_w, UINT32 pixel_h);
+    void ApplyBrushColors();
     void CreateTextFormats(const Theme& theme);
+    // 項目の文言は i18n の静的な文字列なので、書式が同じ間は幅を覚えて TextLayout を作り直さない。
+    float TextWidth(std::wstring_view text);
 
     void Paint();
     void DrawNavRow();
@@ -96,6 +105,8 @@ struct ContextMenu::Impl {
     std::pmr::wstring cached_fmt_font_family;
     std::pmr::wstring cached_fmt_icon_font;
     float cached_fmt_font_size = 0.0f;
+    // 文言の先頭ポインタ -> 幅。書式を作り直したら捨てる。
+    std::unordered_map<const wchar_t*, float> text_widths;
 
     const Theme* theme = nullptr;
     float dpi_scale = 1.0f;

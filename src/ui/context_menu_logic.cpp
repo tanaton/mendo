@@ -116,6 +116,26 @@ void ContextMenu::Impl::CreateTextFormats(const Theme& t)
     cached_fmt_font_family.assign(t.font_family.begin(), t.font_family.end());
     cached_fmt_icon_font.assign(t.icon_font.begin(), t.icon_font.end());
     cached_fmt_font_size = t.pane_font_size;
+    text_widths.clear();
+}
+
+float ContextMenu::Impl::TextWidth(std::wstring_view text)
+{
+    if (const auto it = text_widths.find(text.data()); it != text_widths.end()) {
+        return it->second;
+    }
+    float width = 0.0f;
+    ComPtr<IDWriteTextLayout> layout;
+    dwrite_factory->CreateTextLayout(
+        text.data(), static_cast<UINT32>(text.size()),
+        fmt_text.Get(), 1000.0f, 100.0f, &layout);
+    if (layout) {
+        DWRITE_TEXT_METRICS metrics{};
+        layout->GetMetrics(&metrics);
+        width = metrics.width;
+        text_widths.emplace(text.data(), width);
+    }
+    return width;
 }
 
 void ContextMenu::Impl::ComputeLayout()
@@ -125,15 +145,7 @@ void ContextMenu::Impl::ComputeLayout()
         if (item.type != ItemType::Text || item.text.empty()) {
             continue;
         }
-        ComPtr<IDWriteTextLayout> layout;
-        dwrite_factory->CreateTextLayout(
-            item.text.data(), static_cast<UINT32>(item.text.size()),
-            fmt_text.Get(), 1000.0f, 100.0f, &layout);
-        if (layout) {
-            DWRITE_TEXT_METRICS metrics{};
-            layout->GetMetrics(&metrics);
-            max_text_w = std::max(max_text_w, metrics.width);
-        }
+        max_text_w = std::max(max_text_w, TextWidth(item.text));
     }
 
     const float nav_row_w = 2 * CTX_NAV_BTN_SIZE + CTX_NAV_BTN_GAP + 2 * PAD_X;

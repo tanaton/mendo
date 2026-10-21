@@ -29,6 +29,8 @@ void FileExplorer::SetDirectory(std::wstring_view dir_path)
         return;
     }
     directory_ = normalized;
+    // 前のフォルダで頼まれた表示を、ユーザーが移った先の一覧に持ち越さない。
+    reveal_deferred_ = false;
     Refresh();
 }
 
@@ -36,36 +38,56 @@ const std::pmr::vector<FileEntry>& FileExplorer::GetEntries() const
 {
     if (stale_) {
         stale_ = false;
-        ++generation_;
-        entries_.clear();
-        if (!directory_.empty()) {
-            ListEntries();
+        ++request_;
+        if (lister_ && !directory_.empty()) {
+            // ネットワークドライブや大きいフォルダでは数百 ms かかるので、終わるまで前の一覧を見せておく。
+            listing_ = true;
+            lister_(directory_, request_);
+        }
+        else {
+            ++generation_;
+            listing_ = false;
+            entries_ = directory_.empty() ? std::pmr::vector<FileEntry>{} : List(directory_);
             ApplyCurrentFile();
         }
     }
     return entries_;
 }
 
-void FileExplorer::ListEntries() const
+bool FileExplorer::ApplyListing(uint32_t request, std::pmr::vector<FileEntry> entries)
 {
-    const std::filesystem::path dir_base{ directory_ };
+    // 列挙し直しを待っている間 (フォルダの移動直後など) は、届いた結果も古い。
+    if (request != request_ || !listing_ || stale_) {
+        return false;
+    }
+    listing_ = false;
+    ++generation_;
+    entries_ = std::move(entries);
+    ApplyCurrentFile();
+    return true;
+}
+
+std::pmr::vector<FileEntry> FileExplorer::List(std::wstring_view dir)
+{
+    std::pmr::vector<FileEntry> entries;
+    const std::filesystem::path dir_base{ dir };
     // ルートでは ".." を出さない
     if (auto parent = dir_base.parent_path(); parent != dir_base) {
         FileEntry pe;
         pe.full_path.assign(parent.native());
         pe.is_directory = true;
         pe.is_parent = true;
-        entries_.emplace_back(std::move(pe));
+        entries.emplace_back(std::move(pe));
     }
     // ".." はソート対象外で常に先頭。後段ソートはこの範囲を除く。
-    const size_t sort_begin = entries_.size();
+    const size_t sort_begin = entries.size();
 
     const auto pattern = dir_base / L"*";
     WIN32_FIND_DATAW fd;
     // 短縮名は使わないので取得を省き、大きなバッファで列挙してディレクトリの往復を減らす。
     UniqueFindHandle hFind{ FindFirstFileExW(pattern.c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr, FIND_FIRST_EX_LARGE_FETCH) };
     if (!hFind) {
-        return;
+        return entries;
     }
 
     static constexpr size_t MAX_ENTRIES = 4096;
@@ -75,27 +97,28 @@ void FileExplorer::ListEntries() const
             FileEntry entry;
             entry.full_path.assign((dir_base / fd.cFileName).native());
             entry.is_directory = IsDirectory(fd);
-            entries_.emplace_back(std::move(entry));
+            entries.emplace_back(std::move(entry));
         }
-        if (entries_.size() - sort_begin >= MAX_ENTRIES) {
+        if (entries.size() - sort_begin >= MAX_ENTRIES) {
             break;
         }
         if (!FindNextFileW(hFind.get(), &fd)) {
             // 列挙の途中失敗を正常終了 (ERROR_NO_MORE_FILES) と区別する。
             // 中断時は部分結果を完全な一覧と誤認させないよう破棄する。
             if (GetLastError() != ERROR_NO_MORE_FILES) {
-                entries_.resize(sort_begin);
+                entries.resize(sort_begin);
             }
             break;
         }
     }
 
-    std::ranges::sort(entries_.begin() + static_cast<ptrdiff_t>(sort_begin), entries_.end(), [](const FileEntry& a, const FileEntry& b) static noexcept {
+    std::ranges::sort(entries.begin() + static_cast<ptrdiff_t>(sort_begin), entries.end(), [](const FileEntry& a, const FileEntry& b) static noexcept {
         if (a.is_directory != b.is_directory) {
             return a.is_directory > b.is_directory;
         }
         return path_util::iless(a.GetDisplayName(), b.GetDisplayName());
     });
+    return entries;
 }
 
 void FileExplorer::SetCurrentFile(std::wstring_view path)

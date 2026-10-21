@@ -410,6 +410,33 @@ TEST(LayoutServiceTest, ViewportLayoutMeasuresAroundScrollTargetAfterReestimate)
     }
 }
 
+// worker の推定は幅を知らず段落を 1 行と見る。文書の最初のレイアウトで、未計測の段落を表示幅で推定し直す。
+TEST(LayoutServiceTest, ViewportLayoutReestimatesWorkerEstimateWithWidth)
+{
+    constexpr float kWidth = 800.0f;
+    const Theme theme = GetLightTheme();
+    MockTextMeasurer measurer;
+    LayoutEngine engine;
+    ASSERT_TRUE(engine.Init(&measurer, theme));
+    ViewportManager viewport;
+    LayoutService service(engine, viewport);
+
+    std::string md;
+    for (int i = 0; i < 200; ++i) {
+        md += std::string(2000, 'a') + "\n\n";
+    }
+    auto doc = Document::FromMarkdown(std::pmr::string{ md }, L"t.md");
+    LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme);
+    const size_t last = doc.GetNodes().size() - 1;
+    const float width_free = cache[last].height;
+
+    service.ViewportLayout(doc, cache, kWidth, 600.0f);
+
+    ASSERT_TRUE(cache[last].layout_dirty) << "前提: 末尾は画面外で計測されていない";
+    EXPECT_GT(cache[last].height, width_free);
+    EXPECT_FLOAT_EQ(cache[last].height, layout::EstimateNodeHeight(doc.GetNodes()[last], theme, layout::NodeContentWidth(doc.GetNodes()[last], theme, theme.ContentWidth(kWidth))));
+}
+
 // リロードで中身が変わらないノードの計測結果を引き継ぎ、変わったノードだけ計測し直させる。
 TEST(CarryOverUnchangedTest, KeepsMeasuredEntriesOfUnchangedNodes)
 {

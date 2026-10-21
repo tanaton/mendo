@@ -57,7 +57,9 @@ bool ContextMenu::Impl::CreatePopupWindow(int screen_x, int screen_y)
     if (!RegisterWindowClass()) {
         return false;
     }
-    DestroyPopupWindow();
+    if (hwnd && GetWindow(hwnd, GW_OWNER) != owner) {
+        DestroyPopupWindow();
+    }
 
     const int pixel_w = DipToPixelCeil(menu_width, dpi_scale);
     const int pixel_h = DipToPixelCeil(menu_height, dpi_scale);
@@ -70,18 +72,22 @@ bool ContextMenu::Impl::CreatePopupWindow(int screen_x, int screen_y)
     const int x = std::max(std::min(screen_x, static_cast<int>(mi.rcWork.right) - pixel_w), static_cast<int>(mi.rcWork.left));
     const int y = std::max(std::min(screen_y, static_cast<int>(mi.rcWork.bottom) - pixel_h), static_cast<int>(mi.rcWork.top));
 
-    hwnd = CreateWindowExW(
-        WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
-        kContextMenuClass, nullptr,
-        WS_POPUP,
-        x, y, pixel_w, pixel_h,
-        owner, nullptr, GetModuleHandleW(nullptr), this);
-
-    if (!hwnd) {
-        return false;
+    if (hwnd) {
+        SetWindowPos(hwnd, HWND_TOPMOST, x, y, pixel_w, pixel_h, SWP_NOACTIVATE);
+    }
+    else {
+        hwnd = CreateWindowExW(
+            WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+            kContextMenuClass, nullptr,
+            WS_POPUP,
+            x, y, pixel_w, pixel_h,
+            owner, nullptr, GetModuleHandleW(nullptr), this);
+        if (!hwnd) {
+            return false;
+        }
     }
 
-    if (!CreateDeviceResources()) {
+    if (!PrepareDeviceResources(static_cast<UINT32>(pixel_w), static_cast<UINT32>(pixel_h))) {
         DestroyPopupWindow();
         return false;
     }
@@ -98,10 +104,25 @@ bool ContextMenu::Impl::CreatePopupWindow(int screen_x, int screen_y)
     hovered_id = 0;
     hovered_nav = 0;
 
+    // 使い回したウィンドウには前回の絵が残っているので、見せたらすぐ描き直す。
+    InvalidateRect(hwnd, nullptr, FALSE);
     ShowWindow(hwnd, SW_SHOW);
+    UpdateWindow(hwnd);
     SetForegroundWindow(hwnd);
     SetCapture(hwnd);
     return true;
+}
+
+void ContextMenu::Impl::HidePopupWindow() noexcept
+{
+    if (!hwnd) {
+        return;
+    }
+    // 壊すときと違い、隠すだけでは前面がオーナーへ戻らない。他のアプリへ移って閉じたときは奪わない。
+    if (GetForegroundWindow() == hwnd) {
+        SetForegroundWindow(owner);
+    }
+    ShowWindow(hwnd, SW_HIDE);
 }
 
 void ContextMenu::Impl::RunModalLoop()
@@ -148,7 +169,7 @@ int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
     if (s.hwnd) {
         ReleaseCapture();
     }
-    s.DestroyPopupWindow();
+    s.HidePopupWindow();
 
     return s.selected_id;
 }
@@ -220,8 +241,47 @@ LRESULT ContextMenu::Impl::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_DESTROY:
         return 0;
 
+    case WM_NCDESTROY: {
+        // オーナーと一緒に壊されたときも、使い回すつもりで壊れたハンドルを持ち続けない。
+        const HWND destroyed = std::exchange(hwnd, nullptr);
+        rt.Reset();
+        return DefWindowProcW(destroyed, msg, wParam, lParam);
+    }
+
     default:
         return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+}
+
+bool ContextMenu::Impl::PrepareDeviceResources(UINT32 pixel_w, UINT32 pixel_h)
+{
+    if (!rt) {
+        return CreateDeviceResources();
+    }
+    rt->SetDpi(dpi_scale * DEFAULT_DPI, dpi_scale * DEFAULT_DPI);
+    if (FAILED(rt->Resize(D2D1_SIZE_U{ pixel_w, pixel_h }))) {
+        rt.Reset();
+        return CreateDeviceResources();
+    }
+    ApplyBrushColors();
+    return true;
+}
+
+void ContextMenu::Impl::ApplyBrushColors()
+{
+    auto gray = theme->text_color;
+    gray.a = DISABLED_UI_ALPHA;
+    const std::pair<ID2D1SolidColorBrush*, D2D1_COLOR_F> colors[] = {
+        { brush_border.Get(), theme->splitter_color        },
+        { brush_text.Get(),   theme->text_color            },
+        { brush_gray.Get(),   gray                         },
+        { brush_hover.Get(),  theme->pane_item_hover_color },
+        { brush_check.Get(),  theme->link_color            },
+    };
+    for (const auto& [brush, color] : colors) {
+        if (brush) {
+            brush->SetColor(color);
+        }
     }
 }
 
@@ -232,7 +292,7 @@ bool ContextMenu::Impl::CreateDeviceResources()
         return false;
     }
     const D2D1_SIZE_U size{ static_cast<UINT32>(rc.right), static_cast<UINT32>(rc.bottom) };
-    // 開くたびに作り直すので、D3D デバイスの生成を伴うハードウェアは使わない。数百 px ならソフトウェアで足りる。
+    // D3D デバイスの生成を伴うハードウェアは使わない。数百 px ならソフトウェアで足りる。
     D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE);
     rtProps.dpiX = dpi_scale * DEFAULT_DPI;
     rtProps.dpiY = dpi_scale * DEFAULT_DPI;
@@ -241,26 +301,19 @@ bool ContextMenu::Impl::CreateDeviceResources()
         return false;
     }
 
-    auto make = [&](D2D1_COLOR_F c) {
-        ComPtr<ID2D1SolidColorBrush> b;
-        CreateSolidColorBrushOrFallback(rt.Get(), c, b);
-        return b;
-    };
-
-    brush_border = make(theme->splitter_color);
-    brush_text = make(theme->text_color);
-
-    auto gray = theme->text_color;
-    gray.a = DISABLED_UI_ALPHA;
-    brush_gray = make(gray);
-
-    brush_hover = make(theme->pane_item_hover_color);
-    brush_check = make(theme->link_color);
+    for (auto* brush : { std::addressof(brush_border), std::addressof(brush_text), std::addressof(brush_gray), std::addressof(brush_hover), std::addressof(brush_check) }) {
+        CreateSolidColorBrushOrFallback(rt.Get(), theme->text_color, *brush);
+    }
+    ApplyBrushColors();
     return true;
 }
 
 void ContextMenu::Impl::Paint()
 {
+    // 隠している間はテーマを借りていない。
+    if (!theme) {
+        return;
+    }
     // デバイスロスト後 (EndDraw が D2DERR_RECREATE_TARGET で rt を破棄) はここで再生成する。
     if (!rt && !CreateDeviceResources()) {
         return;

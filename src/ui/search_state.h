@@ -1,6 +1,7 @@
 #pragma once
 #include "document_types.h"
 #include "layout_cache.h"
+#include <chrono>
 #include <cstdint>
 #include <memory_resource>
 #include <string>
@@ -37,6 +38,7 @@ public:
     {
         visible_ = false;
         ClearMatches();
+        searching_ = false;
     }
     void Reset() noexcept
     {
@@ -92,6 +94,20 @@ public:
 
     void SetQuery(std::string_view query);
     void ExecuteSearch(const std::pmr::vector<Node>& nodes);
+    // 大きい文書でも入力や描画を止めないよう、検索を時間で区切って進める。
+    // BeginSearch でマッチを空にし、ContinueSearch で deadline まで (少なくとも 1 ノード) 進める。
+    // マッチは文書順に増える。終わったら true。
+    void BeginSearch();
+    bool ContinueSearch(const std::pmr::vector<Node>& nodes, std::chrono::steady_clock::time_point deadline);
+    // クエリを変えたときなど、途中までのマッチを残して止める。
+    constexpr void StopSearch() noexcept
+    {
+        searching_ = false;
+    }
+    constexpr bool IsSearching() const noexcept
+    {
+        return searching_;
+    }
     bool NextMatch() noexcept; // ラップしたらtrueを返す
     bool PrevMatch() noexcept; // ラップしたらtrueを返す
     void SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) noexcept;
@@ -110,6 +126,11 @@ private:
     {
         matches_.clear();
         current_match_ = -1;
+        BumpGeneration();
+    }
+    // 検索の途中でマッチが増えたときも、ハイライトのキャッシュを作り直させる。
+    constexpr void BumpGeneration() noexcept
+    {
         if (++generation_ == 0) {
             generation_ = 1;
         }
@@ -118,6 +139,11 @@ private:
     static constexpr size_t MAX_MATCHES = 10000;
 
     std::pmr::string query_;
+    // 進行中の検索のクエリ (fold 時は ASCII 小文字化済み)。query_ が途中で変わっても検索の中身は変えない。
+    std::pmr::string active_query_;
+    bool active_fold_ = false;
+    size_t next_node_ = 0;
+    bool searching_ = false;
     std::pmr::vector<SearchMatch> matches_;
     int current_match_ = -1;
     uint32_t generation_ = 1;

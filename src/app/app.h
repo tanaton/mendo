@@ -21,11 +21,14 @@
 #include "theme_service.h"
 #include <windows.h>
 #include <shellapi.h>
+#include <cstdint>
 #include <memory>
 #include <memory_resource>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 
 struct SystemCursors {
     HCURSOR arrow = nullptr;
@@ -77,7 +80,7 @@ public:
     void OnPaint();
     void OnResize(UINT width, UINT height);
     void OnMinimize();
-    void OnMouseWheel(int px, int py, short delta, bool ctrl = false);
+    void OnMouseWheel(int px, int py, int delta, bool ctrl = false);
     void OnMouseHWheel(short delta);
     void OnKeyDown(WPARAM key);
     void OnDropFiles(HDROP hDrop);
@@ -126,9 +129,18 @@ public:
     }
 
     void HandleTimer(UINT_PTR timer_id);
+    // 起動時の読み込みを LoadInitialDocument で取り込めず、結果を待っている。
+    bool IsLoadingInitialDocument() const noexcept
+    {
+        return file_load_service_.IsAsyncLoading();
+    }
+    // 前のフレームの表示を待つ間に呼ぶ。次の WM_PAINT で同期計測するはずの可視範囲を先に計測し、
+    // 計測時間を vblank 待ちに隠す。
+    void PrepareFrame();
     void OnAppImageLoaded();
     void OnParseComplete();
     void OnMermaidDiskLoaded();
+    void OnFileListed();
     void OnCaptureChanged();
     void OnDestroy();
 
@@ -209,6 +221,8 @@ private:
         ::KillTimer(hwnd_, std::to_underlying(id));
     }
     void ShowToast(std::wstring_view message);
+    // 関連付けの解決やブラウザの起動で数百 ms 止まりうるので、UI スレッドを待たせずに開く。
+    static void ShellOpenAsync(std::pmr::wstring target);
     // 変更通知はデバウンスしてから読み直す。
     void StartFileWatch(const std::pmr::wstring& path);
     void OpenFileDialog();
@@ -282,6 +296,7 @@ private:
     void RefreshFilePane();
 
     // ---- ホバー (app_mouse.cpp) ----
+    void RefreshHoverAtCursor();
     // ゾーン内のホバーを hover に書き、表示するカーソルを返す。状態の反映は reducer が行う。
     HCURSOR HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLayout& layout, PointerHover& hover) const;
     HCURSOR HoverSidePane(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout, PointerHover& hover) const;
@@ -292,8 +307,11 @@ private:
     void EnsureScrollTarget();
     // 合計コンテンツ高を max_scroll に反映し scroll_y をクランプする。
     void SyncMaxScroll();
+    // 可視範囲を計測し、変わればスクロール上限と遅延レイアウトを追従させる。
+    void EnsureFrameLayout(const PaneLayout& layout);
     // 遅延レイアウトを仕掛けたら true。
     bool ScheduleDeferredLayoutIfNeeded();
+    void CancelDeferredLayout();
     void SettleLayout();
     // 可視範囲の図と画像の取りに行き方。
     enum class RelayoutResources : uint8_t {
@@ -376,6 +394,15 @@ private:
     SessionService session_{ config_ };
     FileLoadService file_load_service_;
     PrefixShrinkRetry prefix_shrink_retry_;
+    // 同じ ID の SetTimer は待ちをやり直すので、毎フレーム掛け直すと連続スクロール中に一度も発火しない。
+    bool deferred_layout_scheduled_ = false;
+    // 列挙スレッドの結果の受け渡し。スレッドは App より長生きしうるので共有で持たせる。
+    struct FileListingSlot {
+        std::mutex mutex;
+        std::optional<std::pair<uint32_t, std::pmr::vector<FileEntry>>> result;
+    };
+    std::shared_ptr<FileListingSlot> file_listing_ = std::make_shared<FileListingSlot>();
+    bool hover_refresh_pending_ = false;
 
     AppState state_;
 

@@ -217,6 +217,22 @@ TEST_F(ContextMenuLayoutTest, MenuHasMinimumWidthAndPositiveHeight)
     EXPECT_GT(menu_.GetMenuHeight(), 0.0f);
 }
 
+// 文字幅は覚えて開くたびに測らないが、書式を作り直したら測り直す。
+TEST_F(ContextMenuLayoutTest, TextWidthIsRemeasuredWhenFontChanges)
+{
+    auto params = MakeParams();
+    BuildAndLayout(params);
+    const float width = menu_.GetMenuWidth();
+    BuildAndLayout(params);
+    EXPECT_FLOAT_EQ(menu_.GetMenuWidth(), width);
+
+    Theme big = *params.theme;
+    big.pane_font_size *= 4.0f;
+    params.theme = &big;
+    BuildAndLayout(params);
+    EXPECT_GT(menu_.GetMenuWidth(), width);
+}
+
 TEST_F(ContextMenuLayoutTest, NonMdPaneMenuIsShorter)
 {
     BuildAndLayout(MakeParams(true));

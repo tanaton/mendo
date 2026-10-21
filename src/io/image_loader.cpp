@@ -1,10 +1,12 @@
 #include "image_loader.h"
+#include "app_constants.h"
 #include "d2d_util.h"
 #include "file_io.h"
 #include "task_scheduler.h"
 #include "ui_constants.h"
 #include "wic_util.h"
 #include <cmath>
+#include <iterator>
 
 ImageLoader::~ImageLoader()
 {
@@ -103,12 +105,16 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
             return;
         }
 
+        bool was_empty = false;
         {
             const std::lock_guard lock(result_mutex_);
+            was_empty = completed_.empty();
             completed_.emplace_back(std::move(result));
         }
 
-        if (hwnd_) {
+        // 未回収の結果があれば通知済みか、転送の続きのタイマーが回収する。1 件ずつ投函すると、
+        // 投函メッセージは描画・入力より先に取り出されるので、時間で区切った転送が間を空けずに続いてしまう。
+        if (was_empty && hwnd_) {
             ::PostMessageW(hwnd_, msg_id_, 0, 0);
         }
     });
@@ -141,7 +147,7 @@ void ImageLoader::DecodeForDisplay(const std::wstring& path, UINT max_width_px, 
     result.sharp_width_px = width_limited ? target.width : UINT_MAX;
 }
 
-void ImageLoader::ProcessCompletedDecodes()
+void ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point deadline)
 {
     std::vector<DecodeResult> results;
     {
@@ -154,7 +160,7 @@ void ImageLoader::ProcessCompletedDecodes()
     }
 
     Callback last_cb;
-    for (auto& r : results) {
+    const size_t processed = ApplyUntil(results, deadline, [&](DecodeResult& r) {
         // GPU に載せられなかった画像もデコード失敗と同じく数える。数えないと完了通知のたびに読み直し続ける。
         bool failed = !r.bitmap;
         const auto* existing = cache_.Find(r.path);
@@ -173,6 +179,15 @@ void ImageLoader::ProcessCompletedDecodes()
         }
         // 全 on_complete は同一の invalidate シグナルなので最後の 1 つだけ呼ぶ。
         last_cb = std::move(r.on_complete);
+    });
+    if (processed < results.size()) {
+        {
+            const std::lock_guard lock(result_mutex_);
+            RequeueFront(completed_, results, processed);
+        }
+        if (hwnd_) {
+            ::SetTimer(hwnd_, std::to_underlying(app_timer::Id::UPLOAD_CONTINUE), app_timer::UPLOAD_CONTINUE_MS, nullptr);
+        }
     }
     {
         const std::lock_guard lock(pending_mutex_);

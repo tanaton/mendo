@@ -53,6 +53,12 @@ void PrefetchD3DDevice()
     g_prefetch_thread = std::jthread([] static noexcept { g_prefetched_device = CreateD3DDevice(); });
 }
 
+HANDLE D3DPrefetchDoneEvent() noexcept
+{
+    // スレッドのハンドルは終了でシグナルになる。
+    return g_prefetch_thread.joinable() ? g_prefetch_thread.native_handle() : nullptr;
+}
+
 void D2DRenderBackend::ConfigureFrameLatency() noexcept
 {
     frame_latency_waitable_.reset();

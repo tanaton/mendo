@@ -89,11 +89,12 @@ AppAction HandleMouseWheel(const MouseWheelEvent& event, int& zoom_accum)
             zoom_accum = 0;
         }
         zoom_accum += event.delta;
-        if (std::abs(zoom_accum) < WHEEL_DELTA) {
+        const int steps = std::abs(zoom_accum) / WHEEL_DELTA;
+        if (steps == 0) {
             return NoOpAction{};
         }
         zoom_accum = 0;
-        return ZoomAction{ event.delta > 0 ? ZoomDirection::In : ZoomDirection::Out };
+        return ZoomAction{ event.delta > 0 ? ZoomDirection::In : ZoomDirection::Out, steps };
     }
 
     const float scroll_amount = -event.delta * MOUSE_WHEEL_SCROLL_MULTIPLIER;

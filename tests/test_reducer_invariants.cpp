@@ -300,8 +300,10 @@ public:
             return Key();
         case 7: {
             static constexpr app_timer::Id kTimers[] = {
-                app_timer::Id::SWIPE_OVERLAY, app_timer::Id::TOAST,
+                app_timer::Id::SWIPE_OVERLAY,
+                app_timer::Id::TOAST,
                 app_timer::Id::SEARCH_DEBOUNCE,
+                app_timer::Id::SEARCH_CONTINUE,
             };
             const auto id = kTimers[Pick(0, static_cast<int>(std::size(kTimers)) - 1)];
             model_.Dispatch(TimerAction{ id });

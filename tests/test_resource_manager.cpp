@@ -516,6 +516,70 @@ TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeClearsError)
     EXPECT_EQ(mock_mermaid_.request_render_count, 2);
 }
 
+// 幅の変化で描き直す図は、新しい結果が届くまで旧幅の結果を仮表示として残す (プレースホルダに戻して跳ねさせない)。
+TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeKeepsBitmapAsStale)
+{
+    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
+    const size_t diagram_index = doc_.GetDiagramNodeIndices()[0];
+    mock_mermaid_.sync_apply_bitmap = true;
+    tracker_.content_width = 800.0f;
+    rm_.RequestMermaidRenders();
+    auto& diagram = *cache_.FindDiagram(diagram_index);
+    ASSERT_TRUE(diagram.bitmap);
+    // 表示幅に合わせて縮めた図なので、幅が変われば描き直しになる。
+    diagram.width = 2000.0f;
+
+    mock_mermaid_.sync_apply_bitmap = false;
+    tracker_.content_width = 1000.0f;
+    rm_.RequestMermaidRenders();
+
+    EXPECT_TRUE(diagram.bitmap) << "描き直しの間も旧結果を表示する";
+    EXPECT_TRUE(diagram.stale);
+    EXPECT_TRUE(diagram.NeedsRender());
+    EXPECT_EQ(mock_mermaid_.request_render_count, 2);
+}
+
+// 図のコードを書き換えたリロードでは、旧結果と高さを仮表示として新しいノードへ引き継ぐ。
+TEST_F(ResourceManagerTest, CarryOverUnchangedKeepsEditedDiagramAsStale)
+{
+    LoadMarkdown("# t\n\n```mermaid\ngraph TD;A-->B\n```\n\ntail\n");
+    const size_t old_index = doc_.GetDiagramNodeIndices()[0];
+    mock_mermaid_.sync_apply_bitmap = true;
+    rm_.RequestMermaidRenders();
+    ASSERT_TRUE(cache_.FindDiagram(old_index)->bitmap);
+    cache_.EnsureDiagram(old_index).png = std::make_shared<const std::pmr::vector<uint8_t>>(4, uint8_t{ 1 });
+    cache_[old_index].height = 321.0f;
+
+    auto next = Document::FromMarkdown(std::pmr::string{ "# t\n\n```mermaid\ngraph TD;A-->C\n```\n\ntail\n" }, kTestDocPath);
+    auto next_cache = layout::MakeEstimatedLayoutCache(next.GetNodes(), tracker_.theme);
+    const size_t new_index = next.GetDiagramNodeIndices()[0];
+
+    EXPECT_EQ(layout::CarryOverUnchanged(doc_.GetNodes(), cache_, next.GetNodes(), next_cache), next.GetNodes().size());
+    const auto* d = next_cache.FindDiagram(new_index);
+    ASSERT_NE(d, nullptr);
+    EXPECT_TRUE(d->bitmap);
+    EXPECT_TRUE(d->stale);
+    EXPECT_EQ(d->code_hash, 0u) << "新しいコードでハッシュを引き直させる";
+    EXPECT_EQ(d->png, nullptr) << "前のコードの絵をコピー・保存させない";
+    EXPECT_FLOAT_EQ(next_cache[new_index].height, 321.0f);
+}
+
+// 変わった範囲の図の数が変わったら、どの図の続きか分からないので引き継がない。
+TEST_F(ResourceManagerTest, CarryOverUnchangedSkipsDiagramsWhenCountChanges)
+{
+    LoadMarkdown("# t\n\n```mermaid\ngraph TD;A-->B\n```\n\ntail\n");
+    mock_mermaid_.sync_apply_bitmap = true;
+    rm_.RequestMermaidRenders();
+
+    auto next = Document::FromMarkdown(std::pmr::string{ "# t\n\n```mermaid\ngraph TD;X-->Y\n```\n\n```mermaid\ngraph TD;A-->C\n```\n\ntail\n" }, kTestDocPath);
+    auto next_cache = layout::MakeEstimatedLayoutCache(next.GetNodes(), tracker_.theme);
+
+    layout::CarryOverUnchanged(doc_.GetNodes(), cache_, next.GetNodes(), next_cache);
+    for (const size_t i : next.GetDiagramNodeIndices()) {
+        EXPECT_EQ(next_cache.FindDiagram(i), nullptr) << "node " << i;
+    }
+}
+
 TEST_F(ResourceManagerTest, RequestMermaidRendersUsesDarkModeFromThemeService)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
@@ -706,14 +770,16 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsNoOpsWhenViewportHeightIsZero)
 TEST_F(ResourceManagerTest, EvictOffscreenBitmapsKeepsEvictedNodesMeasured)
 {
     std::string md;
-    for (int i = 0; i < 20; i++) {
+    for (int i = 0; i < 80; i++) {
         md += "paragraph ";
         md += std::to_string(i);
         md += "\n\n";
     }
+    // 小さい文書は evict しないので、大きい文書にする。
+    md.append(resource_manager_detail::kKeepAllLayoutsMaxDocBytes, 'x');
     LoadMarkdown(md, /*block_height=*/100.0f);
     viewport_.SetScrollY(0.0f);
-    const float keep_bottom = tracker_.viewport_height * (1.0f + decltype(rm_)::EVICT_BUFFER_SCREENS);
+    const float keep_bottom = tracker_.viewport_height * (1.0f + decltype(rm_)::LAYOUT_EVICT_BUFFER_SCREENS);
     ASSERT_GT(cache_.Top(cache_.size() - 1), keep_bottom) << "前提: 末尾のノードが保持範囲外にあること";
 
     rm_.EvictOffscreenBitmaps();
@@ -721,6 +787,16 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsKeepsEvictedNodesMeasured)
     for (size_t i = 0; i < cache_.size(); i++) {
         EXPECT_FALSE(cache_[i].layout_dirty) << "node " << i;
     }
+}
+
+// 小さい文書は読み返すたびに作り直さないよう text_layout を捨てない。
+TEST(ResourceManagerDetailTest, KeepsAllTextLayoutsOnlyForSmallDocuments)
+{
+    using resource_manager_detail::KeepsAllTextLayouts;
+    using resource_manager_detail::kKeepAllLayoutsMaxDocBytes;
+    EXPECT_TRUE(KeepsAllTextLayouts(0));
+    EXPECT_TRUE(KeepsAllTextLayouts(kKeepAllLayoutsMaxDocBytes));
+    EXPECT_FALSE(KeepsAllTextLayouts(kKeepAllLayoutsMaxDocBytes + 1));
 }
 
 TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesDiagramPngButKeepsSize)

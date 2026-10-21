@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <utility>
 
@@ -188,6 +189,20 @@ PngBytes ReadHGlobalStream(IStream* stream)
     return png;
 }
 
+// 画面外でも表示中のトップレベルなので、外部ツールが本体の代わりにこれを閉じに来る (CloseMainWindow など)。
+// 自分は破棄されず、閉じる要求は本体へ回す。
+LRESULT CALLBACK HostWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    const HWND main = BindWindowInstance<HWND__>(hwnd, msg, lParam);
+    if (msg == WM_CLOSE) {
+        if (main) {
+            PostMessageW(main, WM_CLOSE, 0, 0);
+        }
+        return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
 } // namespace
 
 MermaidRenderer::~MermaidRenderer()
@@ -259,7 +274,7 @@ bool MermaidRenderer::CreateWorkerWindow(int index)
     std::call_once(class_register_flag, [] static {
         WNDCLASSEXW wc{};
         wc.cbSize = sizeof(wc);
-        wc.lpfnWndProc = DefWindowProcW;
+        wc.lpfnWndProc = HostWndProc;
         wc.hInstance = GetModuleHandleW(nullptr);
         wc.lpszClassName = MERMAID_HOST_CLASS.data();
         RegisterClassExW(&wc);
@@ -275,7 +290,7 @@ bool MermaidRenderer::CreateWorkerWindow(int index)
         WS_POPUP,
         HOST_OFFSCREEN_POS, HOST_OFFSCREEN_POS,
         HOST_SIZE, HOST_SIZE,
-        nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+        nullptr, nullptr, GetModuleHandleW(nullptr), hwnd_);
     if (!w.hwnd) {
         return false;
     }
@@ -312,7 +327,15 @@ void MermaidRenderer::ScheduleIdleShutdown()
     if (!hwnd_ || worker_count_ == 0) {
         return;
     }
-    SetTimer(hwnd_, std::to_underlying(app_timer::Id::MERMAID_IDLE), IDLE_SHUTDOWN_MS, nullptr);
+    SetTimer(hwnd_, std::to_underlying(app_timer::Id::MERMAID_IDLE), editing_diagrams_ ? IDLE_SHUTDOWN_EDITING_MS : IDLE_SHUTDOWN_MS, nullptr);
+}
+
+void MermaidRenderer::SetEditingDiagrams(bool editing)
+{
+    if (std::exchange(editing_diagrams_, editing) != editing) {
+        // 張り済みの待ち時間を新しい長さで張り直す。描画中なら OnIdleTimer が見送り、完了時に張り直される。
+        ScheduleIdleShutdown();
+    }
 }
 
 void MermaidRenderer::OnIdleTimer()
@@ -656,6 +679,8 @@ void MermaidRenderer::RecoverWorker(int index)
 void MermaidRenderer::ApplyResult(DiagramEntry& diagram_entry, const CachedResult& result)
 {
     if (!result.error.empty()) {
+        // 仮表示中の旧結果より、新しいコードのエラーを見せる。
+        diagram_entry.ResetForRetry();
         diagram_entry.error = result.error;
         return;
     }
@@ -663,6 +688,7 @@ void MermaidRenderer::ApplyResult(DiagramEntry& diagram_entry, const CachedResul
     diagram_entry.width = result.width;
     diagram_entry.height = result.height;
     diagram_entry.png = result.png;
+    diagram_entry.stale = false;
 }
 
 bool MermaidRenderer::RequestRender(
@@ -782,7 +808,7 @@ bool MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
     return false;
 }
 
-void MermaidRenderer::ProcessDiskLoads()
+void MermaidRenderer::ProcessDiskLoads(std::chrono::steady_clock::time_point deadline)
 {
     std::pmr::vector<DiskLoad> results;
     {
@@ -790,8 +816,15 @@ void MermaidRenderer::ProcessDiskLoads()
         results.swap(disk_results_);
     }
     bool resolved = false;
-    for (auto& r : results) {
-        resolved |= ApplyDiskLoad(r);
+    const size_t processed = ApplyUntil(results, deadline, [&](DiskLoad& r) { resolved |= ApplyDiskLoad(r); });
+    if (processed < results.size()) {
+        {
+            const std::lock_guard lock(disk_mutex_);
+            RequeueFront(disk_results_, results, processed);
+        }
+        if (hwnd_) {
+            ::SetTimer(hwnd_, std::to_underlying(app_timer::Id::UPLOAD_CONTINUE), app_timer::UPLOAD_CONTINUE_MS, nullptr);
+        }
     }
     // まとめて 1 回だけ要求し直させる。
     if (resolved) {

@@ -129,7 +129,7 @@ void ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<fl
     }
 }
 
-float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
+float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width) noexcept
 {
     const float line_height = theme.font_size_body * 1.5f;
     switch (node.type) {
@@ -156,7 +156,15 @@ float EstimateNodeHeight(const Node& node, const Theme& theme) noexcept
         if (!node.HasText()) {
             return EmptyTextNodeHeight(node, theme);
         }
-        return line_height * static_cast<float>(1 + node.line_count);
+        float lines = static_cast<float>(1 + node.line_count);
+        if (node_width > 0.0f) {
+            // ASCII は 1 バイトで約 0.5em、CJK は 3 バイトで約 1em。文字を数えずバイト数だけで見積もり、
+            // 少なめに倒す (多すぎると初回の計測範囲が足りず計測をやり直す)。
+            constexpr float kEmPerByte = 0.4f;
+            const float text_width = static_cast<float>(node.GetText().size()) * kEmPerByte * theme.font_size_body;
+            lines += std::floor(text_width / node_width);
+        }
+        return line_height * lines;
     }
     std::unreachable();
 }
@@ -205,7 +213,27 @@ size_t CarryOverUnchanged(
         new_cache.TakeEntry(old_cache, old_count - 1 - tail, new_count - 1 - tail);
         ++tail;
     }
-    return head + tail;
+
+    // 図のコードを書き換えて保存すると、描き直しの間プレースホルダに戻って下の文章が 2 回跳ねる。
+    // 変わった範囲の図の数が新旧で同じなら、出現順に旧結果を仮表示として引き継ぐ。
+    const auto diagrams_in = [](const std::pmr::vector<Node>& nodes, size_t begin, size_t end) {
+        std::pmr::vector<size_t> indices;
+        for (size_t i = begin; i < end; ++i) {
+            if (nodes[i].type == NodeType::Diagram) {
+                indices.push_back(i);
+            }
+        }
+        return indices;
+    };
+    const auto old_diagrams = diagrams_in(old_nodes, head, old_count - tail);
+    const auto new_diagrams = diagrams_in(new_nodes, head, new_count - tail);
+    size_t stale = 0;
+    if (old_diagrams.size() == new_diagrams.size()) {
+        for (size_t k = 0; k < old_diagrams.size(); ++k) {
+            stale += new_cache.TakeDiagramAsStale(old_cache, old_diagrams[k], new_diagrams[k]) ? 1 : 0;
+        }
+    }
+    return head + tail + stale;
 }
 
 LayoutCache MakeEstimatedLayoutCache(const std::pmr::vector<Node>& nodes, const Theme& theme, std::stop_token stop_token)
@@ -230,7 +258,7 @@ bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
         entry.is_measured() &&
         (node.type == NodeType::CodeBlock || std::abs(entry.cached_width - node_width) < kCachedWidthEpsilon) &&
         entry.cached_height > 0.0f;
-    const float fallback = cache_hit ? entry.cached_height : EstimateNodeHeight(node, theme);
+    const float fallback = cache_hit ? entry.cached_height : EstimateNodeHeight(node, theme, node_width);
     // テーブルや折り返しが多い段落では推定値が実測値を大きく下回るため、
     // シュリンク方向の更新は後続ノードと重なる原因になる。よって既存値より小さくはしない。
     if (entry.height >= fallback) {

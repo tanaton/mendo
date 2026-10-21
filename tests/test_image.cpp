@@ -1132,6 +1132,26 @@ TEST_F(ImageLoaderAsyncTest, ManyImagesAllCachedCorrectly)
     }
 }
 
+// まとめて届いた結果は時間予算を超えた分を次の呼び出しに回す。予算が無くても 1 件は進める。
+TEST_F(ImageLoaderAsyncTest, ProcessCompletedDecodesDefersOverBudget)
+{
+    constexpr int kImageCount = 3;
+    for (int i = 0; i < kImageCount; ++i) {
+        const auto name = L"budget_" + std::to_wstring(i) + L".png";
+        ASSERT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, 16, 16));
+        loader_.RequestLoadAsync(GetTestImagePath(name), OnComplete);
+    }
+    // Shutdown はキュー済みタスクを実行し切ってから戻るので、全件の結果が届いている。
+    scheduler_.Shutdown();
+
+    loader_.ProcessCompletedDecodes(std::chrono::steady_clock::time_point::min());
+    EXPECT_EQ(loader_.CacheSize(), 1u);
+    EXPECT_EQ(callback_count_.load(), 1);
+
+    loader_.ProcessCompletedDecodes(std::chrono::steady_clock::time_point::max());
+    EXPECT_EQ(loader_.CacheSize(), static_cast<size_t>(kImageCount));
+}
+
 TEST_F(ImageLoaderAsyncTest, ShutdownDuringHeavyLoad)
 {
     // 大量のリクエスト中に Shutdown してもクラッシュしないこと

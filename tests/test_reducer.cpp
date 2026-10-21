@@ -63,6 +63,8 @@ TEST_F(ReducerTest, KeyScrollLineDown)
     EXPECT_GT(state.view.viewport.GetScrollY(), old_scroll);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
     EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
+    // 内容がカーソルの下を動くので、マウスを動かさなくてもホバーを引き直させる。
+    EXPECT_TRUE(HasEffect<effect::RefreshHover>(effects));
 }
 
 TEST_F(ReducerTest, KeyScrollLineUp_AtTop_NoEffect)
@@ -657,6 +659,16 @@ TEST_F(ReducerTest, ZoomIn_EmitsApplyThemeChange)
 
     EXPECT_TRUE(HasEffect<effect::ApplyThemeChange>(effects));
     EXPECT_FALSE(state.pane_layout_cache.IsValid());
+}
+
+// まとめて届いたノッチは段数ぶん進めるが、組み直しの要求は 1 回だけ出す。
+TEST_F(ReducerTest, ZoomInMultipleStepsEmitsSingleThemeChange)
+{
+    const int before = state.view.viewport.GetZoomIndex();
+    auto effects = Reduce(state, ZoomAction{ ZoomDirection::In, 3 });
+
+    EXPECT_EQ(state.view.viewport.GetZoomIndex(), before + 3);
+    EXPECT_EQ(std::ranges::count_if(effects, [](const SideEffect& e) static { return std::holds_alternative<effect::ApplyThemeChange>(e); }), 1);
 }
 
 // ---- HWheel テスト ----
@@ -1363,6 +1375,23 @@ TEST_F(FilePaneRevealTest, MovesToDocumentDirectoryAndCentersCurrentFile)
     // index 16 の上端 448 から (280 - 28) / 2 を引いて中央に置く
     EXPECT_FLOAT_EQ(FileScroll(), 322.0f);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+}
+
+// 列挙を別スレッドに任せていると一覧がまだ無いので、届いてからやり直させる。
+TEST_F(FilePaneRevealTest, DefersRevealWhileListingAsync)
+{
+    OpenDocument(L"f15.md");
+    std::optional<uint32_t> request;
+    state.file_explorer.SetAsyncLister([&request](std::pmr::wstring, uint32_t r) { request = r; });
+
+    Reduce(state, FilePaneRevealCurrentFileAction{});
+    ASSERT_TRUE(request.has_value());
+    EXPECT_TRUE(state.file_explorer.IsListing());
+
+    ASSERT_TRUE(state.file_explorer.ApplyListing(*request, FileExplorer::List(dir_.wstring())));
+    ASSERT_TRUE(state.file_explorer.TakeDeferredReveal());
+    Reduce(state, FilePaneRevealCurrentFileAction{});
+    EXPECT_FLOAT_EQ(FileScroll(), 322.0f);
 }
 
 TEST_F(FilePaneRevealTest, ClampsScrollNearEnd)

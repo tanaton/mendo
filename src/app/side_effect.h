@@ -28,6 +28,8 @@ struct ShowTooltip {
     TooltipTarget target;
 };
 struct ClearTooltip {};
+// スクロールで内容がカーソルの下を動いた。WM_MOUSEMOVE は来ないので、描画後にカーソル位置のホバーを引き直す。
+struct RefreshHover {};
 struct ShowContextMenu {
     int screen_x;
     int screen_y;
@@ -111,6 +113,7 @@ using SideEffect = std::variant<
     effect::ClipboardWriteHtml,
     effect::ShowTooltip,
     effect::ClearTooltip,
+    effect::RefreshHover,
     effect::ShowContextMenu,
     effect::Beep,
     // Window

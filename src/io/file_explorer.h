@@ -1,7 +1,9 @@
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 #include <memory_resource>
 
@@ -28,6 +30,32 @@ struct FileEntry {
 // 呼ばれないため、起動時やファイルを開くたびの UI スレッド I/O が起きない。
 class FileExplorer {
 public:
+    // 列挙を別スレッドに任せる先。dir を List で列挙し、結果を request と一緒に ApplyListing へ渡させる。
+    // 設定すると GetEntries は列挙を待たずに今の一覧を返す。未設定なら GetEntries がその場で列挙する。
+    using AsyncLister = std::move_only_function<void(std::pmr::wstring dir, uint32_t request)>;
+    void SetAsyncLister(AsyncLister lister)
+    {
+        lister_ = std::move(lister);
+    }
+    // スレッド安全。".." を先頭に、ディレクトリ → Markdown ファイルの順に並べた一覧。
+    static std::pmr::vector<FileEntry> List(std::wstring_view dir);
+    // 最新の要求の結果なら一覧を差し替えて true。古い要求の結果や、その後に Refresh / SetDirectory された結果は捨てる。
+    bool ApplyListing(uint32_t request, std::pmr::vector<FileEntry> entries);
+    // 別スレッドの列挙を待っている。GetEntries は前の一覧のまま。
+    constexpr bool IsListing() const noexcept
+    {
+        return listing_;
+    }
+    // 列挙を待つ間に頼まれた「現在のファイルを表示」を、一覧が届いたらやり直させる。別のフォルダへ移ると取り消す。
+    constexpr void DeferReveal() noexcept
+    {
+        reveal_deferred_ = true;
+    }
+    constexpr bool TakeDeferredReveal() noexcept
+    {
+        return std::exchange(reveal_deferred_, false);
+    }
+
     void SetDirectory(std::wstring_view dir_path);
     constexpr void Refresh() noexcept
     {
@@ -47,7 +75,6 @@ public:
     }
 
 private:
-    void ListEntries() const;
     void ApplyCurrentFile() const;
 
     std::pmr::wstring directory_;
@@ -56,4 +83,9 @@ private:
     mutable std::pmr::vector<FileEntry> entries_;
     mutable uint32_t generation_ = 0;
     mutable bool stale_ = false;
+    // 列挙を始めた回数。結果がどの要求のものかを見分ける。
+    mutable uint32_t request_ = 0;
+    mutable bool listing_ = false;
+    bool reveal_deferred_ = false;
+    mutable AsyncLister lister_;
 };

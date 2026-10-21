@@ -10,6 +10,7 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 #include <WebView2.h>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -55,12 +56,20 @@ public:
     // ワーカーは画面外に置くため、PNG は本体ウィンドウではなくその位置のモニタの DPR で描かれる。
     // ワーカーを起動する前にディスクキャッシュを引くときの DPR に使う。
     static float EstimateWorkerDpr() noexcept;
-    void ProcessDiskLoads();
+    // deadline を過ぎたら残りを UPLOAD_CONTINUE タイマーに回す。
+    void ProcessDiskLoads(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
     void Shutdown();
     void DropQueued() override;
     void OnInitRetryTimer();
     // 一定時間描画要求が無ければ WebView2 を環境ごと閉じる (browser/renderer/GPU プロセスのメモリ解放)。
     void OnIdleTimer();
+    // 図のある文書を書き換えながら見ている (変更の通知で読み直した) 間は、保存のたびにコールドスタートしないよう長めに残す。
+    void SetEditingDiagrams(bool editing);
+    // 図が描き直しになりそうなとき (ファイル変更の通知) に、要求を待たずに WebView2 を起動しておく。
+    void Prewarm()
+    {
+        EnsureInitialized();
+    }
 
 private:
     struct RenderRequest {
@@ -132,6 +141,8 @@ private:
     static constexpr int MAX_WORKER_RETRIES = 3;
     // 閉じると次の図で環境生成からやり直すため、読み進める間に閉じない程度に長めにする。
     static constexpr UINT IDLE_SHUTDOWN_MS = 60000;
+    // 編集中は考えている間に閉じると保存のたびに 1 秒前後待たせるので、さらに長くする。
+    static constexpr UINT IDLE_SHUTDOWN_EDITING_MS = 10 * 60000;
     // エラーも含む。書きかけの図を保存するたびにエラーが増えても、古いものから捨てる。
     static constexpr size_t MAX_CACHE_ENTRIES = 128;
     // ディスクキャッシュから戻せるので画像より控えめにする。
@@ -230,6 +241,7 @@ private:
 
     TaskScheduler* bg_scheduler_ = nullptr;
     UINT disk_loaded_msg_ = 0;
+    bool editing_diagrams_ = false;
     std::mutex disk_mutex_;
     std::pmr::vector<DiskLoad> disk_results_;
 

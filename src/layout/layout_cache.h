@@ -475,8 +475,8 @@ struct DiagramEntry {
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
     float width = 0.0f;
     float height = 0.0f;
-    // クリップボードコピー用の元 PNG。bitmap と同時に設定/破棄されるため (EvictBitmap 含む)、
-    // コピーボタンの表示条件 (bitmap 有無) とデータの有無が常に一致する。
+    // クリップボードコピー・保存用の元 PNG。bitmap と同時に設定/破棄する (EvictBitmap 含む)。
+    // コードを書き換えた図の仮表示では別の図の絵なので捨て、描き直すまでボタンを出さない。
     PngBytes png;
     // レンダリング失敗時のエラーメッセージ (表示用整形済み)。非空 = 失敗確定で、
     // プレースホルダにこの文言を表示し再リクエストを止める。リロード・幅変更・
@@ -485,11 +485,14 @@ struct DiagramEntry {
     // 図のコード部分のハッシュ (mermaid_util::DiagramCodeHash)。0 は未計算。ノードのテキストだけで決まるので、
     // 結果を捨てても (幅・テーマの変更を含む) 残し、結果を待つ図を要求し直すたびにテキストを読み直さない。
     uint64_t code_hash = 0;
+    // bitmap・寸法・png は前のコード・幅・テーマで描いたもの。描き直しの間にプレースホルダへ戻って
+    // 高さが 2 回変わらないよう、新しい結果が届くまで仮に表示する。
+    bool stale = false;
 
-    // 未確定 (成功も失敗もしていない) でレンダ要求すべき状態か。
+    // 未確定 (成功も失敗もしていない) か、仮表示中でレンダ要求すべき状態か。
     bool NeedsRender() const noexcept
     {
-        return !bitmap && error.empty();
+        return (!bitmap || stale) && error.empty();
     }
 
     // オフスクリーン evict 用。寸法とエラーはレイアウト維持/再試行抑止のため残す。
@@ -497,6 +500,7 @@ struct DiagramEntry {
     {
         bitmap.Reset();
         png.reset();
+        stale = false;
     }
 
     // デバイスロスト用。旧デバイスのビットマップと、旧デバイスで確定したかもしれないエラーを捨てる。
@@ -507,7 +511,7 @@ struct DiagramEntry {
         error.clear();
     }
 
-    // レンダ結果 (成功/失敗とも) を破棄し再試行可能に戻す。幅変更・テーマ変更用。
+    // レンダ結果 (成功/失敗とも) を破棄し再試行可能に戻す。
     // オフスクリーン evict は bitmap のみ破棄する別意図なのでこれを使わない。
     void ResetForRetry() noexcept
     {
@@ -515,6 +519,18 @@ struct DiagramEntry {
         width = 0.0f;
         height = 0.0f;
         png.reset();
+        error.clear();
+        stale = false;
+    }
+
+    // 幅・テーマ・コードの変更用。描いた結果があれば仮表示として残して描き直させ、無ければ ResetForRetry と同じ。
+    void MarkStale() noexcept
+    {
+        if (!bitmap) {
+            ResetForRetry();
+            return;
+        }
+        stale = true;
         error.clear();
     }
 };
@@ -594,7 +610,7 @@ public:
     // 行追跡のあるテーブルは幾何を残してセルのレイアウトだけ捨て、dirty にはしない。レイアウトを持たないノードも dirty にはしない。
     // Why: IDWriteTextLayout は内部で glyph buffer / bidi 解析を保持し
     // 1K 文字あたり 2-5KB。可視外も保持し続けると巨大ドキュメントで数十 MB
-    // のメモリを COM 側に常駐させてしまう。EVICT_BUFFER_SCREENS 分の安全マージン
+    // のメモリを COM 側に常駐させてしまう。LAYOUT_EVICT_BUFFER_SCREENS 分の安全マージン
     // を取った上で範囲外を解放する。呼び出し側（ResourceManager）は再描画時の
     // 再生成コストを踏まえてタイマー駆動で間引く。
     void EvictTextLayouts(size_t first_keep_inclusive, size_t last_keep_exclusive) noexcept;
@@ -633,6 +649,9 @@ public:
     // src のノード from の計測結果 (高さ・テキストレイアウト・図) を、中身が同じノード to へ移す。
     // ハイライト系のキャッシュは選択や検索の位置に依るので捨てる。Y 位置は呼び出し側が組み直す。
     void TakeEntry(LayoutCache& src, size_t from, size_t to);
+    // src のノード from の図を、コードが書き換わったノード to へ仮表示として移す。高さも引き継いで表示を跳ねさせない。
+    // 描いた結果が無ければ何もせず false を返す。
+    bool TakeDiagramAsStale(LayoutCache& src, size_t from, size_t to);
 
     // 遅延レイアウトで計測する dirty が残っているかもしれない。LayoutEngine が計測のたびに決め直す。
     // キャッシュと一緒に動くので、文書と一緒に差し替えても (推定直後は true) 遅延レイアウトが拾う。
@@ -645,12 +664,22 @@ public:
     {
         has_dirty_nodes_ = v;
     }
+    // 未計測ノードの高さを、表示幅を使って推定し直したか。worker が作った推定は幅を知らない。
+    constexpr bool HasWidthAwareEstimate() const noexcept
+    {
+        return width_aware_estimate_;
+    }
+    constexpr void SetWidthAwareEstimate() noexcept
+    {
+        width_aware_estimate_ = true;
+    }
 
 private:
     std::pmr::vector<NodeLayoutEntry> entries_;
     std::pmr::vector<float> tops_;
     std::pmr::unordered_map<size_t, DiagramEntry> diagrams_;
     bool has_dirty_nodes_ = true;
+    bool width_aware_estimate_ = false;
     size_t last_evict_fk_ = 0;
     size_t last_evict_lk_ = 0;
     // 前回 evict 以降に計測した index の範囲 [begin, end)。空は begin >= end。

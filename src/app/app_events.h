@@ -77,6 +77,8 @@ enum class ZoomDirection : uint8_t {
 };
 struct ZoomAction {
     ZoomDirection direction;
+    // 段数。速く回したホイールのノッチをまとめて 1 回で組み直す。Reset では使わない。
+    int steps = 1;
 };
 
 struct ReloadFileAction {};

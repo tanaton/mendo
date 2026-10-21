@@ -12,6 +12,7 @@
 #include "tooltip.h"
 #include "ui_constants.h"
 #include "ui_types.h"
+#include "win32_util.h"
 #include <string_view>
 #include <utility>
 
@@ -300,7 +301,7 @@ void App::OnMouseMove(int px, int py)
     std::unreachable();
 }
 
-void App::OnMouseWheel(int px, int py, short delta, bool ctrl)
+void App::OnMouseWheel(int px, int py, int delta, bool ctrl)
 {
     if (!IsRenderReady()) {
         return;
@@ -375,7 +376,7 @@ void App::HandleLinkClick(std::string_view url)
     case LinkClickResult::Type::ExternalUrl: {
         std::pmr::wstring url_wide;
         string_convert::Utf8ToWide(result.target, url_wide);
-        ShellExecuteW(nullptr, L"open", url_wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        ShellOpenAsync(std::move(url_wide));
         return;
     }
     }
@@ -483,7 +484,7 @@ void App::HandleOverlayButtonClick(const OverlayButtonHit& hit, float content_wi
         return;
     case OverlayButton::DiagramCopy:
     case OverlayButton::DiagramSave: {
-        // 画像は表示中ビットマップと同寿命の DiagramEntry::png から取る (ボタン表示条件と一致)。
+        // ボタンは DiagramEntry::png があるときだけ出す。
         const auto* diagram = state_.document.layout_cache.FindDiagram(hit.node);
         const PngBytes png = diagram ? diagram->png : nullptr;
         if (hit.kind == OverlayButton::DiagramCopy) {
@@ -764,6 +765,20 @@ HCURSOR App::HoverSidePane(PaneTarget target, float dip_x, float dip_y, const Pa
     hover.side_index[k] = SidePaneItemAt(state_, target, rect, dip_y);
     hover.tooltip = BuildSidePaneTooltip(target, button, hover.side_index[k]);
     return button != PaneHeaderButton::None ? cursors_.hand : cursors_.arrow;
+}
+
+void App::RefreshHoverAtCursor()
+{
+    // ボタンを押している間は WM_MOUSEMOVE でもホバーを引かない (ドラッグ側が扱う)。
+    if (IsKeyDown(VK_LBUTTON) || IsKeyDown(VK_RBUTTON)) {
+        return;
+    }
+    POINT pt{};
+    if (!GetCursorPos(&pt) || WindowFromPoint(pt) != hwnd_) {
+        return;
+    }
+    ScreenToClient(hwnd_, &pt);
+    OnMouseHover(pt.x, pt.y);
 }
 
 void App::OnMouseHover(int px, int py)

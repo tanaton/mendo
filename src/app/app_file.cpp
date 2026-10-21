@@ -190,6 +190,9 @@ void App::LoadMarkdownFile(std::wstring_view path)
     std::pmr::wstring path_str{ path };
     const auto size = QueryFileSize(path_str.c_str());
     if (DocumentService::IsAsyncLoadCandidate(size)) {
+        // 共有 scheduler は FIFO なので、旧文書の画像デコード待ちが残っているとパースがその後ろに並ぶ。
+        // 読み込みに失敗して旧文書に戻ったら HandleLoadFailureFallback が要求し直す。
+        CancelPendingResources();
         BeginAsyncLoad(std::move(path_str), DocumentService::ShouldShowLoadingAnimation(size));
         return;
     }
@@ -247,6 +250,8 @@ void App::HandleLoadFailureFallback()
         LoadHelpDocument();
     }
     else {
+        // 読み込み開始時に捨てた画像・図の待ちを、表示を続ける旧文書のぶんだけ要求し直す。
+        resource_manager_.ScheduleBitmapManage();
         Invalidate();
     }
 }
@@ -342,6 +347,8 @@ void App::FinishLoadMarkdownFile(bool follow_file_pane)
     if (state_.document.doc.HasBackingFile()) {
         StartFileWatch(state_.document.doc.GetFilePath());
     }
+    // 開いただけの文書は読むだけかもしれないので、変更の通知で読み直すまでは短く閉じる。
+    mermaid_renderer_.SetEditingDiagrams(false);
 }
 
 void App::ReloadCurrentFile()
@@ -451,9 +458,12 @@ void App::FinishReload(size_t diff_pos)
     MENDO_TRACEF("FinishReload: after-relayout scroll_y={:.1f} max_scroll={:.1f}", state_.view.viewport.GetScrollY(), state_.view.viewport.GetMaxScroll());
 
     if (state_.search.search_state.IsVisible() && !state_.search.search_state.GetQuery().empty()) {
-        state_.search.search_bar_ctrl.RunSearchAndLocate(state_.document.doc.GetNodes());
+        SideEffectList effects;
+        state_.search.search_bar_ctrl.RunSearchAndLocate(effects, state_.document.doc.GetNodes());
+        Execute(effects);
     }
 
+    mermaid_renderer_.SetEditingDiagrams(!state_.document.doc.GetDiagramNodeIndices().empty());
     file_watcher_.ResumeWatching();
 }
 

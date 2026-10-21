@@ -348,6 +348,51 @@ TEST(SearchStateTest, SetCurrentMatchNearUsesTableRowY)
 // 再検索（クエリ変更後の再実行）
 // ═══════════════════════════════════════════════
 
+// 期限を過ぎていても、時計を確かめるまでのまとまりは進めてから譲る。マッチは文書順に増え、世代も進む。
+TEST(SearchStateTest, ContinueSearchYieldsAtDeadlineAndResumes)
+{
+    std::pmr::vector<Node> nodes;
+    for (int i = 0; i < 600; ++i) {
+        nodes.push_back(MakeTextNode("x"));
+    }
+    SearchState s;
+    s.SetQuery("x");
+    s.BeginSearch();
+    const auto past = std::chrono::steady_clock::now() - std::chrono::seconds(1);
+
+    const uint32_t gen = s.GetGeneration();
+    EXPECT_FALSE(s.ContinueSearch(nodes, past));
+    EXPECT_TRUE(s.IsSearching());
+    const int first = s.GetMatchCount();
+    EXPECT_GT(first, 0);
+    EXPECT_LT(first, 600);
+    EXPECT_NE(s.GetGeneration(), gen) << "途中のマッチもハイライトさせる";
+
+    while (!s.ContinueSearch(nodes, past)) {
+    }
+    EXPECT_FALSE(s.IsSearching());
+    ASSERT_EQ(s.GetMatchCount(), 600);
+    EXPECT_EQ(s.GetMatches()[599].node_index, 599);
+}
+
+// 止めた検索は続きを進めず、途中までのマッチを残す。
+TEST(SearchStateTest, StopSearchKeepsPartialMatches)
+{
+    std::pmr::vector<Node> nodes;
+    for (int i = 0; i < 600; ++i) {
+        nodes.push_back(MakeTextNode("x"));
+    }
+    SearchState s;
+    s.SetQuery("x");
+    s.BeginSearch();
+    s.ContinueSearch(nodes, std::chrono::steady_clock::now() - std::chrono::seconds(1));
+    const int partial = s.GetMatchCount();
+
+    s.StopSearch();
+    EXPECT_TRUE(s.ContinueSearch(nodes, std::chrono::steady_clock::time_point::max()));
+    EXPECT_EQ(s.GetMatchCount(), partial);
+}
+
 TEST(SearchStateTest, ReExecuteSearchUpdatesMatches)
 {
     const auto nodes = TextNodes({ "abc def abc" });
