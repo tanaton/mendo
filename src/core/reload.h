@@ -5,7 +5,6 @@
 // ルックアップを提供する。OnParseComplete / DoReloadCurrentFile の同一ファイル
 // 再読み込み時の分岐を統一するために 1 か所に集約している。
 #include "document_types.h"
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <memory_resource>
@@ -16,13 +15,6 @@
 // 前提: 両テキストとも LF 正規化済みであること。old は raw_text_、new は FileLoader 由来で
 // どちらも正規化済み (issue #273)。
 size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept;
-
-// diff_pos が短い方の末尾と一致するかを判定する。
-// 片方がもう片方の prefix であり、ファイルの伸縮（エディタの中間書き込み状態）を示す。
-inline constexpr bool IsPrefixOnlyDiff(size_t diff_pos, size_t old_size, size_t new_size) noexcept
-{
-    return diff_pos == std::min(old_size, new_size);
-}
 
 // 同一ファイルのリロード時に取るべき操作を示す。
 enum class ReloadOp : uint8_t {

@@ -90,8 +90,7 @@ bool NavHistory::GoForward(NavEntry current, NavEntry& out)
     return Transfer(forward_stack_, back_stack_, std::move(current), out);
 }
 
-// ShellExecuteWに渡しても安全なURLスキームかどうかを判定する。
-// file:// やその他の危険なスキームをブロックし、http/https/mailto のみ許可する。
+// 外部で開く・HTML に残してよいリンクのスキームか。file:// などは通さない。
 bool IsSafeUrlScheme(std::string_view url) noexcept
 {
     return ascii_util::istarts_with(url, "http://") || ascii_util::istarts_with(url, "https://") || ascii_util::istarts_with(url, "mailto:");

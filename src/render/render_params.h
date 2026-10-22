@@ -4,7 +4,6 @@
 #include "document_types.h"
 #include "layout_cache.h"
 #include "file_explorer.h"
-#include "toc.h"
 #include "titlebar.h"
 #include "pane_layout.h"
 #include "ui_types.h"

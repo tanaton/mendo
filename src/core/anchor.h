@@ -54,11 +54,7 @@ struct FootnoteRef {
     int32_t node_index = -1;
 };
 
-// アンカーは GitHub と同じ "user-content-fn-N" (定義) / "user-content-fnref-N[-M]" (M 回目の参照) 形式。
-inline constexpr std::string_view kFootnoteDefAnchorPrefix = "user-content-fn-";
-inline constexpr std::string_view kFootnoteRefAnchorPrefix = "user-content-fnref-";
-
-// 先頭の '#' を含むリンク URL。
+// 先頭の '#' を含むリンク URL。GitHub と同じ "user-content-fn-N" (定義) / "user-content-fnref-N[-M]" (M 回目の参照) 形式。
 std::string FootnoteDefUrl(uint32_t id);
 std::string FootnoteRefUrl(uint32_t id, uint32_t ref_id);
 

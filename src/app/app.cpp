@@ -750,9 +750,8 @@ void App::ApplyZoom()
 
 void App::ToggleDarkMode()
 {
-    theme_service_.ToggleDarkMode();
+    const bool dark = theme_service_.ToggleDarkMode();
     renderer_.SetTheme(theme_service_.CreateTheme(state_.view.viewport.GetZoomIndex()));
-    const bool dark = theme_service_.IsDarkMode();
     ApplyDarkModeToWindow(hwnd_, dark);
     tooltip_.ApplyDarkMode(dark);
     // メモリキャッシュはキーにダークモードを含むので消さず、往復時に再利用する。描画待ちは旧テーマの分なので捨てる。

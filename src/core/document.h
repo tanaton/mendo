@@ -2,7 +2,6 @@
 #include "anchor.h"
 #include "document_types.h"
 #include "text_arena.h"
-#include "toc.h"
 #include <cstddef>
 #include <memory>
 #include <memory_resource>
@@ -70,8 +69,6 @@ private:
     std::shared_ptr<const std::pmr::string> text_;
 };
 
-struct ParseResult;
-
 class Document {
 public:
     constexpr Document() noexcept = default;
@@ -86,7 +83,7 @@ public:
 
     // ファクトリ。本体は (text, byte_size, path) の 3 引数版で、text は LF 正規化済み (FileLoader 出力) であること。
     // 2 引数版は byte_size 計算と LF 正規化を内蔵した便利ラッパー (テスト / Help リソース経路、入力は BOM 無し前提)。
-    // default-constructed の stop_token はキャンセル不可で従来通り動作。
+    // 既定の stop_token ではキャンセルしない。
     static Document FromMarkdown(
         std::pmr::string text, size_t byte_size, std::wstring_view path,
         std::stop_token stop_token = {});
@@ -110,11 +107,8 @@ public:
     {
         return nodes_.empty();
     }
-    // パース入力の string テキストへの参照。AnalyzeReloadDiff の比較用。
-    // ノードレベルでは検出できない編集 (空行追加・末尾空白・改行種別変更等) も
-    // UTF-8 byte offset 精度で差分位置を求めるため、Document が常時保持する。
-    // 戻り値は RawText 専用ラッパで、append/resize 等の relocate API を遮断している。
-    // std::string_view への暗黙変換あり。
+    // パース入力の原文。AnalyzeReloadDiff の比較用。ノードレベルでは検出できない編集
+    // (空行追加・末尾空白・改行種別変更等) も UTF-8 byte offset 精度で差分位置を求めるため、常時保持する。
     const RawText& GetRawText() const noexcept
     {
         return raw_text_;
@@ -145,23 +139,13 @@ public:
     }
 
 private:
-    // 以下は FromMarkdown だけが使う。生成後の Document の中身を差し替える経路は持たない。
-    // text は LF 正規化済みであること。
-    void ReplaceFromMarkdown(std::pmr::string text, size_t byte_size, std::stop_token stop_token);
-
-    // 契約: 入力 ParseResult は raw_text_ をパースした結果であること。
-    void ReplaceContent(ParseResult&& result);
-
     std::pmr::vector<Node> nodes_;
     // 原文をそのまま表示できないノードのテキストと、全ノードの runs・リンク URL の置き場所。
     std::unique_ptr<TextArena> text_arena_;
     // Table ノードが指すテーブル本体。
     std::pmr::vector<std::unique_ptr<NodeTableData>> tables_;
     std::pmr::wstring file_path_;
-    // RawText は append/resize 等の relocate API を提供しないため、ノードのテキストが
-    // 指し続けるバッファの安全性が型レベルで担保される。設定するのは
-    // FromMarkdown (ReplaceFromMarkdown) だけ。
-    // 常に LF-only (FileLoader または 2 引数 FromMarkdown が正規化する)。
+    // 設定するのは FromMarkdown だけ。常に LF-only (FileLoader または 2 引数 FromMarkdown が正規化する)。
     RawText raw_text_;
     size_t loaded_byte_size_ = 0;
     std::pmr::vector<TocEntry> toc_;

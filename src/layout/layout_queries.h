@@ -1,6 +1,5 @@
 #pragma once
 #include "document_types.h"
-#include "toc.h"
 #include <cstddef>
 #include <memory_resource>
 #include <span>

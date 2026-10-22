@@ -2,9 +2,9 @@
 #include "anchor.h"
 #include "document_types.h"
 #include "text_arena.h"
-#include "toc.h"
 #include <concepts>
 #include <memory>
+#include <optional>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -54,8 +54,7 @@ private:
 };
 
 // 本物の Markdown パーサ。md4c を UTF-8 モード (MD_CHAR=char) で起動するため入力は char 列。
-// stop_token を渡すと md4c コールバックから途中で abort できる。default-constructed の場合は
-// 永久に stop_requested() == false なので、従来どおり最後まで走る。
+// stop_token を渡すと md4c コールバックから途中で abort できる。既定の stop_token では最後まで走る。
 ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token = {});
 
 // ノードは入力テキストを参照するため、一時文字列を渡すと戻り値が即座にダングリングする。
@@ -63,3 +62,8 @@ template <class S>
     requires(!std::is_lvalue_reference_v<S> &&
              (std::same_as<std::remove_cv_t<S>, std::string> || std::same_as<std::remove_cv_t<S>, std::pmr::string>))
 ParseResult ParseMarkdown(S&& markdown_text, std::stop_token stop_token = {}) = delete;
+
+// HTML エンティティ (例: "&amp;", "&#x1F600;") を解決する。
+// view が指す領域は (a) static なリテラル または (b) 呼び出し側が渡した buffer のいずれか。
+// buffer のスコープ内でのみ valid。UTF-8 では U+10FFFF までを最大 4 byte で表現できる。
+[[nodiscard]] std::optional<std::string_view> ResolveHtmlEntity(std::string_view entity, char (&buffer)[4]);

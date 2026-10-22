@@ -1,6 +1,5 @@
 #include "parser.h"
 #include "parser_alerts.h"
-#include "html_entities.h"
 #include "syntax.h"
 #include "profiler.h"
 #include "utility.h"

@@ -119,7 +119,6 @@ add_library(mendo_core STATIC
     src/core/parser.cpp
     src/core/parser_alerts.cpp
     src/core/html_entities.cpp
-    src/core/reload.cpp
     src/core/selection_html.cpp
     src/core/syntax.cpp
     # layout - レイアウト計算
@@ -162,7 +161,6 @@ add_library(mendo_core STATIC
     src/nav/nav.cpp
     # theme - テーマ管理
     src/theme/theme.cpp
-    src/theme/theme_service.cpp
     # app - アプリケーション制御
     src/app/app_controller.cpp
     src/app/reducer.cpp

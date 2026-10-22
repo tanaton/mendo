@@ -9,6 +9,9 @@
 
 namespace {
 
+constexpr std::string_view kFootnoteDefAnchorPrefix = "user-content-fn-";
+constexpr std::string_view kFootnoteRefAnchorPrefix = "user-content-fnref-";
+
 // s 全体が 1 以上の 10 進数なら値を返す。
 std::optional<uint32_t> ParsePositive(std::string_view s) noexcept
 {
