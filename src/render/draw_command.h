@@ -3,12 +3,15 @@
 #include "syntax.h"
 #include <d2d1.h>
 #include <dwrite.h>
+#include <wrl/client.h>
+#include <array>
 #include <limits>
 #include <variant>
 #include <vector>
 #include <memory_resource>
 #include <span>
 #include <cstdint>
+#include <utility>
 
 // 色はすべて固定ブラシ (BrushId) で指定する。半透明は opacity で掛ける。
 struct FillRectCmd {
@@ -84,3 +87,8 @@ using DrawCommand = std::variant<
     SetTransformCmd>;
 
 using DrawCommandList = std::pmr::vector<DrawCommand>;
+
+using FixedBrushArray = std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>, std::to_underlying(BrushId::Count)>;
+
+// brushes が null、または該当ブラシが未作成のコマンドは描かない。
+void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray* brushes);

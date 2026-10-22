@@ -7,7 +7,7 @@
 #include "document_utils.h"
 #include "file_dialog_service.h"
 #include "i18n.h"
-#include "layout_queries.h"
+#include "layout_computer.h"
 #include "pane_layout.h"
 #include "profiler.h"
 #include "reducer.h"

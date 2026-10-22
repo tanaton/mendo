@@ -67,9 +67,4 @@ struct BlockHScrollContext {
     const std::pmr::unordered_map<int, float>* scroll_x = nullptr;
     int hovered_block = -1;
     int drag_block = -1;
-
-    float GetScrollX(int node_index, const BlockHScrollGeometry& geom) const noexcept
-    {
-        return LookupBlockScrollX(scroll_x, node_index, geom);
-    }
 };

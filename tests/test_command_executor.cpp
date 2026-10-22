@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "command_executor.h"
+#include "draw_command.h"
 #include "test_helpers.h"
 #include <d2d1.h>
 #include <dwrite.h>

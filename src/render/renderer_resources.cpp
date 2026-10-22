@@ -59,7 +59,7 @@ void Renderer::LoadAppIconBitmap()
 
 void Renderer::RecreateBrushes()
 {
-    auto* const target = backend_.GetRenderTarget();
+    auto* const target = rt();
     if (!target) {
         return;
     }
@@ -140,7 +140,8 @@ void Renderer::InvalidateBrushes() noexcept
     }
 }
 
-static std::wstring ResolveFontFamily(IDWriteFontCollection* collection, std::initializer_list<const wchar_t*> candidates)
+namespace {
+std::wstring ResolveFontFamily(IDWriteFontCollection* collection, std::initializer_list<const wchar_t*> candidates)
 {
     if (collection) {
         for (const wchar_t* name : candidates) {
@@ -153,6 +154,7 @@ static std::wstring ResolveFontFamily(IDWriteFontCollection* collection, std::in
     }
     return *(candidates.end() - 1);
 }
+} // namespace
 
 void Renderer::ResolveThemeFonts()
 {

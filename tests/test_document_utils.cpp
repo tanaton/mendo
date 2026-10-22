@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "layout_queries.h"
+#include "layout_computer.h"
 #include <algorithm>
 #include <format>
 #include <iterator>
@@ -12,7 +12,6 @@
 #include <vector>
 #include "document_utils.h"
 #include "document_test_helpers.h"
-#include "layout_computer.h"
 #include "test_helpers.h"
 #include "parser.h"
 #include "reload.h"

@@ -54,7 +54,7 @@ private:
     void MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width, MeasureViewportRange viewport) const;
     // apply_code_size=false はインラインコードを縮小しない (見出し用)。CodeBlock は run を持たない。
     void ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, bool apply_code_size) const;
-    // MeasureTableCells / RestoreRowCells 共通のセル生成処理。空セルは layout を
+    // MeasureTableCells / BuildRowCells 共通のセル生成処理。空セルは layout を
     // null のまま残し、呼び出し側のスキップ判定に委ねる。
     void BuildCellLayout(const NodeTableData& tbl, size_t r, size_t c, IDWriteTextFormat* row_fmt, TableLayoutData& tl) const;
     // 全セルを生成し、列ごとの自然幅を tl.natural_col_widths に集計する。
@@ -62,8 +62,6 @@ private:
     void RestoreNullCellLayouts(const NodeTableData& tbl, TableLayoutData& tl, MeasureViewportRange viewport) const;
     // evict 行 r の null セルを再生成する。書くのは行 r のセルだけなので、別の行とは並列に呼べる。
     void BuildRowCells(const NodeTableData& tbl, TableLayoutData& tl, size_t r) const;
-    // BuildRowCells して復元済みにする。
-    void RestoreRowCells(const NodeTableData& tbl, TableLayoutData& tl, size_t r) const;
     void FinalizeTableLayout(const NodeTableData& tbl, NodeLayoutEntry& entry, float max_width) const;
 
     IDWriteFactory* dwrite_ = nullptr;

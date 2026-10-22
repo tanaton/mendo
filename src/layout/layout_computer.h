@@ -7,7 +7,9 @@
 #include <algorithm>
 #include <limits>
 #include <memory_resource>
+#include <span>
 #include <stop_token>
+#include <string_view>
 
 namespace layout {
 
@@ -31,6 +33,7 @@ inline float NodeContentWidth(const Node& node, const Theme& theme, float conten
 // 折り返さないノード (CodeBlock) を組む幅。高さも行も本文幅に依存しない。
 // 1e7 は float の整数精度限界 (2^24 ≈ 1.67e7) より少し下で、DirectWrite 内部の
 // 幾何計算でも丸め誤差が乗らない安全な値。10MDIP ≈ 数十万行のコードブロックを許容する。
+// MaxHeight も事実上の上限で十分なので同じ値を使う。
 inline constexpr float kNoWrapLayoutWidth = 1.0e7f;
 
 // ノードの text_layout を組む幅。計測結果を使い回せるかはこの幅が同じかで決まる。
@@ -113,15 +116,6 @@ inline float BitmapNodeHeight(const DiagramEntry* bitmap, float node_width, floa
 float GetSpacingAbove(const Node& node, const Theme& theme) noexcept;
 float GetSpacingBelow(const Node& node, const Theme& theme) noexcept;
 
-// nodes[index] の spacing_above を足す前の Y (直前ノードの下端 + spacing_below)。index == 0 は margin_top。
-inline float NodeStartY(const std::pmr::vector<Node>& nodes, const LayoutCache& cache, const Theme& theme, size_t index) noexcept
-{
-    if (index == 0) {
-        return theme.margin_top;
-    }
-    return cache.Bottom(index - 1) + GetSpacingBelow(nodes[index - 1], theme);
-}
-
 // 1 ノード分の Y 進行。戻り値はテキスト上端。加算順序 (above → height → below) は大規模ファイルでの
 // catastrophic cancellation 回避のため既存の累積順序を厳密に保持する。
 inline float AdvanceNodeY(float& y, float spacing_above, float height, float spacing_below) noexcept
@@ -193,3 +187,20 @@ void RecomputeYPositions(
     size_t from_index = 0, size_t safe_exit_after = std::numeric_limits<size_t>::max()) noexcept;
 
 } // namespace layout
+
+// 以下は文書位置と LayoutCache の Y 座標を突き合わせる問い合わせ。
+
+// scroll_y + margin の位置にある見出し (目次の項目番号)。無ければ -1。
+// margin は見出し上部余白で、画面上端に近い見出しを正しくアクティブにする。
+int FindActiveTocIndex(std::span<const TocEntry> entries, const LayoutCache& cache, float scroll_y, float margin = 0.0f) noexcept;
+
+// diff 位置のノードに基づくスクロールY座標を計算する。
+// diff_pos が npos (差分位置なし = スクロール維持) またはノードが見つからない場合は
+// fallback_scroll を返す。
+float CalcScrollYForDiff(
+    const std::pmr::vector<Node>& nodes,
+    const LayoutCache& cache,
+    std::string_view content,
+    size_t diff_pos,
+    float viewport_height,
+    float fallback_scroll) noexcept;

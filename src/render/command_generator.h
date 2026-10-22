@@ -109,7 +109,7 @@ private:
     static BrushId GetNodeBaseBrush(const Node& node) noexcept;
 
     void GenHorizontalRule(float x, float w, float entry_text_top);
-    void GenTable(const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, int node_index, float offset_x, float entry_text_top, float h_scroll_x = 0.0f);
+    void GenTable(const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, int node_index, float offset_x, float entry_text_top, float h_scroll_x);
     // テーブル 1 行分の幾何。GenTableRowBg と内部ループで使い回す。
     struct TableRowGeom {
         float x;
@@ -139,7 +139,7 @@ private:
     // block_x はブロック左端、bar_y はバー上端 (ペイン内ローカル座標)。
     void EmitBlockHScrollbarIfActive(const FrameContext& fc, int node_index, float block_x, float bar_y, const BlockHScrollGeometry& geom, float scroll_x);
     void GenListBullet(const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, float x, float entry_text_top);
-    void GenBlockQuoteGroupDecorations(const FrameContext& fc, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible);
+    void GenBlockQuoteGroupDecorations(const FrameContext& fc, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int first_visible);
     // nodes[first, last) が 1 つの引用グループ。group_top / group_bottom はペインローカル Y。
     void GenBlockQuoteGroup(const FrameContext& fc, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int first, int last, int max_depth, float group_top, float group_bottom);
     // error 非空時は「読み込み中...」の代わりにエラーメッセージを表示する (issue #271)。
