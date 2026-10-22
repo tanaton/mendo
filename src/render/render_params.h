@@ -84,7 +84,7 @@ struct SearchBarRenderState {
     std::wstring_view query;
     std::wstring_view ime_composition;
     int current_match = -1; // 0-based、-1 = マッチなし
-    int total_matches = 0;
+    int total_matches = 0;    // -1 = 見せる結果がまだ無い (初めての検索の途中)
     int caret_pos = -1;       // キャレット位置（-1 = テキスト末尾）
     int selection_start = -1; // 選択開始位置（caret_posと異なる場合、選択範囲あり）
     bool visible = false;

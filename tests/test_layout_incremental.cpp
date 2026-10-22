@@ -479,7 +479,7 @@ TEST(CarryOverUnchangedTest, KeepsMeasuredEntriesOfUnchangedNodes)
     const float title_height = old_cache[0].height;
     new_cache = layout::MakeEstimatedLayoutCache(new_nodes, theme);
 
-    EXPECT_EQ(layout::CarryOverUnchanged(old_nodes, old_cache, new_nodes, new_cache), 3u);
+    EXPECT_EQ(layout::CarryOverUnchanged(old_nodes, old_cache, new_nodes, new_cache).carried, 3u);
     EXPECT_FALSE(new_cache[0].layout_dirty);
     EXPECT_FLOAT_EQ(new_cache[0].height, title_height);
     EXPECT_FALSE(new_cache[1].layout_dirty);

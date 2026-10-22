@@ -16,6 +16,15 @@ std::pmr::vector<Node> TextNodes(std::initializer_list<const char*> texts)
     return nodes;
 }
 
+std::pmr::vector<Node> RepeatedTextNodes(const char* text, int count)
+{
+    std::pmr::vector<Node> nodes;
+    for (int i = 0; i < count; ++i) {
+        nodes.push_back(MakeTextNode(text));
+    }
+    return nodes;
+}
+
 std::pmr::vector<Node> Nodes(Node node)
 {
     std::pmr::vector<Node> nodes;
@@ -76,6 +85,7 @@ TEST(SearchStateTest, HideClearsMatches)
     s.Hide();
     EXPECT_EQ(s.GetMatchCount(), 0);
     EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
+    EXPECT_EQ(s.GetMatches().capacity(), 0u) << "使わない間は結果の確保を返す";
 }
 
 TEST(SearchStateTest, ResetClearsQueryAndMatches)
@@ -348,13 +358,11 @@ TEST(SearchStateTest, SetCurrentMatchNearUsesTableRowY)
 // 再検索（クエリ変更後の再実行）
 // ═══════════════════════════════════════════════
 
-// 期限を過ぎていても、時計を確かめるまでのまとまりは進めてから譲る。マッチは文書順に増え、世代も進む。
+// 期限を過ぎていても、時計を確かめるまでのまとまりは進めてから譲る。
+// 途中のマッチは見せず、調べ終えたときに文書順の全マッチへ差し替える。
 TEST(SearchStateTest, ContinueSearchYieldsAtDeadlineAndResumes)
 {
-    std::pmr::vector<Node> nodes;
-    for (int i = 0; i < 600; ++i) {
-        nodes.push_back(MakeTextNode("x"));
-    }
+    const auto nodes = RepeatedTextNodes("x", 600);
     SearchState s;
     s.SetQuery("x");
     s.BeginSearch();
@@ -363,34 +371,124 @@ TEST(SearchStateTest, ContinueSearchYieldsAtDeadlineAndResumes)
     const uint32_t gen = s.GetGeneration();
     EXPECT_FALSE(s.ContinueSearch(nodes, past));
     EXPECT_TRUE(s.IsSearching());
-    const int first = s.GetMatchCount();
-    EXPECT_GT(first, 0);
-    EXPECT_LT(first, 600);
-    EXPECT_NE(s.GetGeneration(), gen) << "途中のマッチもハイライトさせる";
+    EXPECT_EQ(s.GetMatchCount(), 0);
+    EXPECT_FALSE(s.HasResult()) << "初めての検索の途中は 0 件を「見つからない」と見せない";
+    EXPECT_EQ(s.GetGeneration(), gen) << "途中ではハイライトを作り直させない";
 
     while (!s.ContinueSearch(nodes, past)) {
     }
     EXPECT_FALSE(s.IsSearching());
+    EXPECT_TRUE(s.HasResult());
+    EXPECT_NE(s.GetGeneration(), gen);
     ASSERT_EQ(s.GetMatchCount(), 600);
     EXPECT_EQ(s.GetMatches()[599].node_index, 599);
 }
 
-// 止めた検索は続きを進めず、途中までのマッチを残す。
-TEST(SearchStateTest, StopSearchKeepsPartialMatches)
+// 調べ直している間は前回の結果を見せ続ける (保存のたびの再検索で 0 件に戻ってちらつかない)。
+TEST(SearchStateTest, ShowsPreviousMatchesUntilSearchFinishes)
 {
-    std::pmr::vector<Node> nodes;
-    for (int i = 0; i < 600; ++i) {
-        nodes.push_back(MakeTextNode("x"));
-    }
-    SearchState s;
-    s.SetQuery("x");
+    const auto nodes = RepeatedTextNodes("x", 600);
+    auto s = Searched(nodes, "x");
+    s.NextMatch();
+    s.SetQuery("z");
+    s.BeginSearch();
+
+    EXPECT_FALSE(s.ContinueSearch(nodes, std::chrono::steady_clock::now() - std::chrono::seconds(1)));
+    EXPECT_EQ(s.GetMatchCount(), 600);
+    EXPECT_EQ(s.GetCurrentMatchIndex(), 0);
+
+    EXPECT_TRUE(s.ContinueSearch(nodes, std::chrono::steady_clock::time_point::max()));
+    EXPECT_EQ(s.GetMatchCount(), 0);
+    EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
+}
+
+// 前回が 0 件なら、調べ直している間も 0 件の結果として見せ続ける (赤背景が途中で消えない)。
+TEST(SearchStateTest, KeepsZeroResultWhileResearching)
+{
+    const auto nodes = RepeatedTextNodes("x", 600);
+    auto s = Searched(nodes, "z");
+    ASSERT_TRUE(s.HasResult());
+    s.SetQuery("w");
+    s.BeginSearch();
+    EXPECT_FALSE(s.ContinueSearch(nodes, std::chrono::steady_clock::now() - std::chrono::seconds(1)));
+    EXPECT_TRUE(s.HasResult());
+    EXPECT_EQ(s.GetMatchCount(), 0);
+}
+
+// 止めた検索は続きを進めず、前回の結果を残す。
+TEST(SearchStateTest, StopSearchKeepsPreviousMatches)
+{
+    const auto nodes = RepeatedTextNodes("x", 600);
+    auto s = Searched(nodes, "x");
+    s.SetQuery("z");
     s.BeginSearch();
     s.ContinueSearch(nodes, std::chrono::steady_clock::now() - std::chrono::seconds(1));
-    const int partial = s.GetMatchCount();
 
     s.StopSearch();
     EXPECT_TRUE(s.ContinueSearch(nodes, std::chrono::steady_clock::time_point::max()));
-    EXPECT_EQ(s.GetMatchCount(), partial);
+    EXPECT_EQ(s.GetMatchCount(), 600);
+}
+
+// 空のクエリは調べるまでもなく、すぐ結果を消す。
+TEST(SearchStateTest, EmptyQueryClearsMatchesImmediately)
+{
+    const auto nodes = RepeatedTextNodes("x", 3);
+    auto s = Searched(nodes, "x");
+    s.SetQuery("");
+    s.BeginSearch();
+    EXPECT_FALSE(s.IsSearching());
+    EXPECT_EQ(s.GetMatchCount(), 0);
+}
+
+// リロードで中身の変わらなかった先頭と末尾のノードのマッチだけを、新しい番号で残す。
+TEST(SearchStateTest, KeepMatchesOfUnchangedNodesRemapsTail)
+{
+    const auto nodes = RepeatedTextNodes("x", 5);
+    auto s = Searched(nodes, "x");
+    for (int i = 0; i < 4; ++i) {
+        s.NextMatch();
+    }
+    ASSERT_EQ(s.GetCurrentMatchIndex(), 3);
+
+    // 旧 [0,1 | 2 | 3,4] → 新 [0,1 | 2,3 | 4,5]
+    s.KeepMatchesOfUnchangedNodes({ .head = 2, .tail = 2, .old_count = 5, .new_count = 6 });
+
+    ASSERT_EQ(s.GetMatchCount(), 4);
+    const std::vector<int> expected{ 0, 1, 4, 5 };
+    for (size_t k = 0; k < expected.size(); ++k) {
+        EXPECT_EQ(s.GetMatches()[k].node_index, expected[k]);
+    }
+    EXPECT_EQ(s.GetCurrentMatchIndex(), 2) << "旧ノード 3 のマッチを選んだまま";
+}
+
+// 選んでいたマッチが変わった範囲にあれば選択を外す。残したマッチは全マッチではないので絞り込みに使わない。
+TEST(SearchStateTest, KeepMatchesOfUnchangedNodesDropsChangedRange)
+{
+    const auto nodes = RepeatedTextNodes("xy", 5);
+    auto s = Searched(nodes, "x");
+    for (int i = 0; i < 3; ++i) {
+        s.NextMatch();
+    }
+    ASSERT_EQ(s.GetCurrentMatchIndex(), 2);
+
+    s.KeepMatchesOfUnchangedNodes({ .head = 1, .tail = 1, .old_count = 5, .new_count = 5 });
+    EXPECT_EQ(s.GetMatchCount(), 2);
+    EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
+    EXPECT_TRUE(s.HasResult());
+
+    s.SetQuery("xy");
+    s.ExecuteSearch(nodes);
+    EXPECT_EQ(s.GetMatchCount(), 5);
+}
+
+// 残すマッチが無くなったら、変わった範囲にまだあるかもしれないので「見つからない」と見せない。
+TEST(SearchStateTest, KeepMatchesOfUnchangedNodesWithNothingLeftHasNoResult)
+{
+    const auto nodes = RepeatedTextNodes("x", 3);
+    auto s = Searched(nodes, "x");
+    s.KeepMatchesOfUnchangedNodes({ .head = 0, .tail = 0, .old_count = 3, .new_count = 3 });
+    EXPECT_EQ(s.GetMatchCount(), 0);
+    EXPECT_FALSE(s.HasResult());
 }
 
 TEST(SearchStateTest, ReExecuteSearchUpdatesMatches)

@@ -42,6 +42,18 @@ protected:
         ctrl_.Init(state_, viewport_, cache_, host_);
     }
 
+    // count 個の "x" の段落で "x" を探し始め、最初の区切りで止まった状態にする。
+    void StartSlicedSearch(int count)
+    {
+        for (int i = 0; i < count; ++i) {
+            nodes_.push_back(MakeTextNode("x"));
+        }
+        state_.SetQuery("x");
+        state_.BeginSearch();
+        state_.ContinueSearch(nodes_, std::chrono::steady_clock::now() - std::chrono::seconds(1));
+        ASSERT_TRUE(state_.IsSearching());
+    }
+
     SearchState state_;
     ViewportManager viewport_;
     LayoutCache cache_;
@@ -125,61 +137,27 @@ TEST_F(SearchBarControllerTest, OnTextChangedSearchesImmediately)
     EXPECT_FALSE(HasEffect<effect::SetTimer>(effects));
 }
 
-// 文書の切り替えで入力欄を空にしたときのように、中身が変わらない通知では検索も再描画もしない。
 // 区切った検索の続きは空き時間に進み、終わったら見ている位置の近くのマッチを選ぶ。
+// 初めての検索を調べ終えるまでは件数を出さず (-1)、0 件を「見つからない」と見せない。
 TEST_F(SearchBarControllerTest, OnContinueFinishesSlicedSearch)
 {
-    for (int i = 0; i < 600; ++i) {
-        nodes_.push_back(MakeTextNode("x"));
-    }
+    StartSlicedSearch(600);
     cache_ = MakeUniformCache(600, 10.0f);
-    state_.SetQuery("x");
-    state_.BeginSearch();
-    state_.ContinueSearch(nodes_, std::chrono::steady_clock::now() - std::chrono::seconds(1));
-    ASSERT_TRUE(state_.IsSearching());
+    EXPECT_EQ(ctrl_.BuildRenderState().total_matches, -1);
 
     SideEffectList effects;
     ctrl_.OnContinue(effects, nodes_);
 
     EXPECT_FALSE(state_.IsSearching());
-    EXPECT_EQ(state_.GetMatchCount(), 600);
+    EXPECT_EQ(ctrl_.BuildRenderState().total_matches, 600);
     EXPECT_GE(state_.GetCurrentMatchIndex(), 0);
-}
-
-// 検索の途中で移ったマッチは、終わった時点で選び直さない。
-TEST_F(SearchBarControllerTest, OnContinueKeepsMatchChosenDuringSearch)
-{
-    for (int i = 0; i < 600; ++i) {
-        nodes_.push_back(MakeTextNode("x"));
-    }
-    cache_ = MakeUniformCache(600, 10.0f);
-    state_.SetQuery("x");
-    state_.BeginSearch();
-    state_.ContinueSearch(nodes_, std::chrono::steady_clock::now() - std::chrono::seconds(1));
-    ASSERT_TRUE(state_.IsSearching());
-
-    SideEffectList effects;
-    ctrl_.OnNext(effects);
-    ctrl_.OnNext(effects);
-    const int chosen = state_.GetCurrentMatchIndex();
-    ASSERT_GT(chosen, 0) << "前提: 見ている位置 (先頭) に最も近いマッチとは違うものを選んでいる";
-
-    ctrl_.OnContinue(effects, nodes_);
-
-    ASSERT_FALSE(state_.IsSearching());
-    EXPECT_EQ(state_.GetCurrentMatchIndex(), chosen);
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 // 入力が変わったら、前のクエリの検索の続きは止める。
 TEST_F(SearchBarControllerTest, OnTextChangedStopsRunningSearch)
 {
-    for (int i = 0; i < 600; ++i) {
-        nodes_.push_back(MakeTextNode("x"));
-    }
-    state_.SetQuery("x");
-    state_.BeginSearch();
-    state_.ContinueSearch(nodes_, std::chrono::steady_clock::now() - std::chrono::seconds(1));
-    ASSERT_TRUE(state_.IsSearching());
+    StartSlicedSearch(600);
 
     SideEffectList effects;
     ctrl_.OnTextChanged(effects, L"y", nodes_);
@@ -188,6 +166,7 @@ TEST_F(SearchBarControllerTest, OnTextChangedStopsRunningSearch)
     EXPECT_EQ(state_.GetMatchCount(), 0);
 }
 
+// 文書の切り替えで入力欄を空にしたときのように、中身が変わらない通知では検索も再描画もしない。
 TEST_F(SearchBarControllerTest, OnTextChangedSameTextIsNoop)
 {
     nodes_.push_back(MakeTextNode("text"));

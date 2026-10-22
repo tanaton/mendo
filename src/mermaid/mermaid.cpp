@@ -244,6 +244,9 @@ void MermaidRenderer::Init(
     on_update_ = std::move(on_update);
 }
 
+// 確定仕様: WebView2 は図の描画要求が来てから起動し、ファイルの変更通知などで先に起動しない
+// (57621be4 で入れ、f181f428 で外した)。パースと描画が速く先に起動しても体感の差が出ず、
+// 図の無い文書の方が多いので、起動すれば数十 MB 常駐するプロセスを要るまで作らない。
 void MermaidRenderer::EnsureInitialized()
 {
     if (!lifecycle_.TryMarkInitialized()) {

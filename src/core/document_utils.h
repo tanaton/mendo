@@ -2,6 +2,7 @@
 #include "document_types.h"
 #include <cstdint>
 #include <memory_resource>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -28,6 +29,25 @@ std::pmr::string ToLowerAnchorCopy(std::string_view text);
 // 表示に効く中身 (種別・テキスト・runs・リンク先・入れ子の深さ・表や画像など) が同じか。
 // ソース位置と引用グループ番号は比べない。リロードで計測結果を使い回せるかの判定に使う。
 bool NodeContentEquals(const Node& a, const Node& b) noexcept;
+
+// リロードで新旧のノード列の先頭 head 個と末尾 tail 個が NodeContentEquals で一致した範囲 (両者は重ならない)。
+// 編集は 1 か所に固まることが多いので、先頭と末尾から一致する範囲だけを見る。
+struct UnchangedEnds {
+    size_t head = 0;
+    size_t tail = 0;
+    size_t old_count = 0;
+    size_t new_count = 0;
+
+    constexpr size_t OldTailBegin() const noexcept
+    {
+        return old_count - tail;
+    }
+    constexpr size_t NewTailBegin() const noexcept
+    {
+        return new_count - tail;
+    }
+};
+UnchangedEnds FindUnchangedEnds(std::span<const Node> old_nodes, std::span<const Node> new_nodes) noexcept;
 
 // 最後のパス区切り以降。区切りで終わるパスでは空。
 constexpr std::wstring_view FilenameView(std::wstring_view path) noexcept

@@ -194,25 +194,15 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
     }
 }
 
-size_t CarryOverUnchanged(
+CarryOverResult CarryOverUnchanged(
     const std::pmr::vector<Node>& old_nodes, LayoutCache& old_cache,
     const std::pmr::vector<Node>& new_nodes, LayoutCache& new_cache)
 {
     MENDO_PROFILE("layout::CarryOverUnchanged");
     assert(old_cache.size() == old_nodes.size() && new_cache.size() == new_nodes.size());
-    const size_t old_count = old_nodes.size();
-    const size_t new_count = new_nodes.size();
-    const size_t common = std::min(old_count, new_count);
-    size_t head = 0;
-    while (head < common && NodeContentEquals(old_nodes[head], new_nodes[head])) {
-        ++head;
-    }
-    size_t tail = 0;
-    while (head + tail < common && NodeContentEquals(old_nodes[old_count - 1 - tail], new_nodes[new_count - 1 - tail])) {
-        ++tail;
-    }
-    new_cache.TakeEntries(old_cache, 0, 0, head);
-    new_cache.TakeEntries(old_cache, old_count - tail, new_count - tail, tail);
+    const auto ends = FindUnchangedEnds(old_nodes, new_nodes);
+    new_cache.TakeEntries(old_cache, 0, 0, ends.head);
+    new_cache.TakeEntries(old_cache, ends.OldTailBegin(), ends.NewTailBegin(), ends.tail);
 
     // 図のコードを書き換えて保存すると、描き直しの間プレースホルダに戻って下の文章が 2 回跳ねる。
     // 変わった範囲の図の数が新旧で同じなら、出現順に旧結果を仮表示として引き継ぐ。
@@ -225,15 +215,15 @@ size_t CarryOverUnchanged(
         }
         return indices;
     };
-    const auto old_diagrams = diagrams_in(old_nodes, head, old_count - tail);
-    const auto new_diagrams = diagrams_in(new_nodes, head, new_count - tail);
+    const auto old_diagrams = diagrams_in(old_nodes, ends.head, ends.OldTailBegin());
+    const auto new_diagrams = diagrams_in(new_nodes, ends.head, ends.NewTailBegin());
     size_t stale = 0;
     if (old_diagrams.size() == new_diagrams.size()) {
         for (size_t k = 0; k < old_diagrams.size(); ++k) {
             stale += new_cache.TakeDiagramAsStale(old_cache, old_diagrams[k], new_diagrams[k]) ? 1 : 0;
         }
     }
-    return head + tail + stale;
+    return { .ends = ends, .carried = ends.head + ends.tail + stale };
 }
 
 LayoutCache MakeEstimatedLayoutCache(const std::pmr::vector<Node>& nodes, const Theme& theme, float content_width, std::stop_token stop_token)

@@ -1063,7 +1063,8 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 
 // 各種予約サイズのヒント定数。値は「入力 N byte あたり 1 個」を表す:
 //   - kScratchInputBytesPerByte=8 → ノード当たりの平均テキスト長 ~8B 想定の scratch。
-//   - kInputBytesPerNode=128      → 実測 246〜283 byte/ノードの文書が予約内に収まる。256 だと 246 byte/ノードの
+//   - kInputBytesPerNode=128      → 確定仕様。256 と 2 往復した (8b22f224, cc98b79b で 256 にし、8eee1cc6, 29e67089 で戻した)。
+//                                   256 に戻さないこと。実測 246〜283 byte/ノードの文書が予約内に収まる。256 だと 246 byte/ノードの
 //                                   100MB 文書で終盤に伸長 (全ノードのコピー) が起き、md_parse が約 3% 遅れた。
 //                                   余りはパース後に詰めるので、増えるのはパース中のコミットだけ。
 //                                   リンク集 (~47 byte/ノード) のように細かい文書は GrowNodes が 1 回で広げる。
@@ -1126,6 +1127,9 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     }
 
     // 予約や見積もりの余りを文書の寿命の間持ち続けないよう、大きく余ったときだけ詰める。
+    // 確定仕様: 詰める処理は全体のメモリ (commit) の 10% 以上効くものだけ置く。これは 100MB の文書で
+    //   commit を約 30MB (詰めないときの 266MB の約 12%) 減らし、約 3.6ms かかる。物理メモリは変わらない。
+    //   表・構文トークン・ヒットテストのバッファ・表の行の背景は 0.5MB 未満しか効かないので詰めない (e48be6cc)。
     if (ctx.nodes.capacity() > ctx.nodes.size() + ctx.nodes.size() / 4) {
         ctx.nodes.shrink_to_fit();
     }

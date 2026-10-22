@@ -548,7 +548,7 @@ TEST_F(ResourceManagerTest, CarryOverUnchangedKeepsEditedDiagramAsStale)
     auto next_cache = layout::MakeEstimatedLayoutCache(next.GetNodes(), tracker_.theme);
     const size_t new_index = next.GetDiagramNodeIndices()[0];
 
-    EXPECT_EQ(layout::CarryOverUnchanged(doc_.GetNodes(), cache_, next.GetNodes(), next_cache), next.GetNodes().size());
+    EXPECT_EQ(layout::CarryOverUnchanged(doc_.GetNodes(), cache_, next.GetNodes(), next_cache).carried, next.GetNodes().size());
     const auto* d = next_cache.FindDiagram(new_index);
     ASSERT_NE(d, nullptr);
     EXPECT_TRUE(d->bitmap);
@@ -765,8 +765,6 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsKeepsEvictedNodesMeasured)
         md += std::to_string(i);
         md += "\n\n";
     }
-    // 小さい文書は evict しないので、大きい文書にする。
-    md.append(resource_manager_detail::kKeepAllLayoutsMaxDocBytes, 'x');
     LoadMarkdown(md, /*block_height=*/100.0f);
     viewport_.SetScrollY(0.0f);
     const float keep_bottom = tracker_.viewport_height * (1.0f + decltype(rm_)::LAYOUT_EVICT_BUFFER_SCREENS);
@@ -777,16 +775,6 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsKeepsEvictedNodesMeasured)
     for (size_t i = 0; i < cache_.size(); i++) {
         EXPECT_FALSE(cache_[i].layout_dirty) << "node " << i;
     }
-}
-
-// 小さい文書は読み返すたびに作り直さないよう text_layout を捨てない。
-TEST(ResourceManagerDetailTest, KeepsAllTextLayoutsOnlyForSmallDocuments)
-{
-    using resource_manager_detail::KeepsAllTextLayouts;
-    using resource_manager_detail::kKeepAllLayoutsMaxDocBytes;
-    EXPECT_TRUE(KeepsAllTextLayouts(0));
-    EXPECT_TRUE(KeepsAllTextLayouts(kKeepAllLayoutsMaxDocBytes));
-    EXPECT_FALSE(KeepsAllTextLayouts(kKeepAllLayoutsMaxDocBytes + 1));
 }
 
 TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesDiagramPngButKeepsSize)

@@ -314,3 +314,17 @@ bool NodeContentEquals(const Node& a, const Node& b) noexcept
     const auto* bt = b.table_data();
     return (at == nullptr) == (bt == nullptr) && (!at || *at == *bt);
 }
+
+UnchangedEnds FindUnchangedEnds(std::span<const Node> old_nodes, std::span<const Node> new_nodes) noexcept
+{
+    UnchangedEnds ends{ .old_count = old_nodes.size(), .new_count = new_nodes.size() };
+    const size_t common = std::min(ends.old_count, ends.new_count);
+    while (ends.head < common && NodeContentEquals(old_nodes[ends.head], new_nodes[ends.head])) {
+        ++ends.head;
+    }
+    while (ends.head + ends.tail < common &&
+           NodeContentEquals(old_nodes[ends.old_count - 1 - ends.tail], new_nodes[ends.new_count - 1 - ends.tail])) {
+        ++ends.tail;
+    }
+    return ends;
+}

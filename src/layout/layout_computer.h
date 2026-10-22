@@ -1,5 +1,6 @@
 #pragma once
 #include "document_types.h"
+#include "document_utils.h"
 #include "layout_cache.h"
 #include "theme.h"
 #include "ui_constants.h"
@@ -144,11 +145,14 @@ float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width 
 void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
                          float content_width = 0.0f, std::stop_token stop_token = {});
 
-// リロードで、中身が変わらないノードの計測結果を旧キャッシュから新キャッシュへ移す。
-// 編集は 1 か所に固まることが多いので、先頭と末尾から中身が一致する範囲だけを見る。
+// リロードで、中身が変わらないノード (FindUnchangedEnds) の計測結果を旧キャッシュから新キャッシュへ移す。
 // 変わった範囲の図は、新しい結果が届くまで旧結果を仮表示として引き継ぐ。
-// Y 位置は呼び出し側が組み直す。戻り値は移したノード数 (仮表示の図を含む)。
-size_t CarryOverUnchanged(
+// Y 位置は呼び出し側が組み直す。
+struct CarryOverResult {
+    UnchangedEnds ends;
+    size_t carried = 0; // 移したノード数 (仮表示の図を含む)
+};
+CarryOverResult CarryOverUnchanged(
     const std::pmr::vector<Node>& old_nodes, LayoutCache& old_cache,
     const std::pmr::vector<Node>& new_nodes, LayoutCache& new_cache);
 

@@ -161,7 +161,7 @@ void Renderer::DrawSearchBarButtons(const SearchBarRenderState& sb, const Search
     draw_icon_btn(sbl.up_btn, L"\uE70E", sb.hovered == SearchBarHitZone::Up, nav_alpha);
     draw_icon_btn(sbl.down_btn, L"\uE70D", sb.hovered == SearchBarHitZone::Down, nav_alpha);
 
-    if (fmt_.search_count && !sb.query.empty()) {
+    if (fmt_.search_count && !sb.query.empty() && sb.total_matches >= 0) {
         // 「N / M」形式で表示。M は実用上 4-5 桁に収まる (md 内 hit 数) ので
         // 32 wchar_t は十分な余裕。format_to_n で先端から書き、長さを返してもらう。
         constexpr size_t kCountBufLen = 32;

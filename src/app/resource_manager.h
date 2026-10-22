@@ -48,15 +48,6 @@ constexpr std::span<const size_t> VisibleSlice(std::span<const size_t> sorted_in
     return { b, e };
 }
 
-// これ以下の文書は表のセル以外の text_layout を捨てない。1K 文字あたり 2-5KB なので最大でも数 MB に収まり、
-// 読み返すたびに CreateTextLayout をやり直すより安い。
-inline constexpr size_t kKeepAllLayoutsMaxDocBytes = 1024 * 1024;
-
-constexpr bool KeepsAllTextLayouts(size_t doc_bytes) noexcept
-{
-    return doc_bytes <= kKeepAllLayoutsMaxDocBytes;
-}
-
 } // namespace resource_manager_detail
 
 // ResourceManager が App に頼むこと。
@@ -83,7 +74,10 @@ public:
     // evict 範囲より広く先読みすると、evict 直後の flush で範囲外の画像/図を毎回読み直す。
     static constexpr float PREFETCH_BUFFER_SCREENS = 2.0f;
     static_assert(PREFETCH_BUFFER_SCREENS <= EVICT_BUFFER_SCREENS);
-    // 大きい文書で text_layout と表のセルを残す範囲。先読み範囲と同じだと、少し戻るだけで作り直しになる。
+    // text_layout と表のセルを残す範囲。先読み範囲と同じだと、少し戻るだけで作り直しになる。
+    // 確定仕様: 文書の大きさによらず上下 8 画面 (5 → 2 → 8 と揺れた末に決定)。1MB の文書を最後まで読んで測ると、
+    //   8 画面と 2 画面ではメモリに差が出なかった (プライベートワーキングセット 63〜84MB)。
+    //   1MB 以下の文書で全部残すのは、物理メモリ +50MB (全体の約 4 割) かかったのでやめた。
     static constexpr float LAYOUT_EVICT_BUFFER_SCREENS = 8.0f;
     static_assert(EVICT_BUFFER_SCREENS < LAYOUT_EVICT_BUFFER_SCREENS);
 
@@ -252,16 +246,12 @@ public:
         }
 
         const auto layout_keep = ComputeBufferedRange(LAYOUT_EVICT_BUFFER_SCREENS);
-        std::span<const size_t> tables = deps_.doc->GetTableNodeIndices();
-        if (!resource_manager_detail::KeepsAllTextLayouts(deps_.doc->GetRawText().size())) {
-            const auto& lr = layout_keep->range;
-            deps_.cache->EvictTextLayouts(lr.first, lr.last_plus_1);
-            // keep 範囲外のテーブルは上で全行解放済みなので、範囲内だけ見る。
-            tables = VisibleSlice(tables, lr.first, lr.last_plus_1);
-        }
-        // 表はセル 1 つごとに text_layout を持ち、短いセルばかりの大きな表では文書の大きさに見合わず膨らむ。
-        // 小さい文書でも、ノード単位の evict では拾えない不可視行のセルは捨てる。
-        deps_.cache->EvictInvisibleTableRows(tables, layout_keep->viewport_top, layout_keep->viewport_bottom, layout_keep->buffer);
+        const auto& lr = layout_keep->range;
+        deps_.cache->EvictTextLayouts(lr.first, lr.last_plus_1);
+        // keep 範囲外のテーブルは上で全行解放済みなので、範囲内だけ見る。表はセル 1 つごとに text_layout を持つので、
+        // ノード単位の evict では拾えない不可視行のセルも捨てる。
+        deps_.cache->EvictInvisibleTableRows(VisibleSlice(deps_.doc->GetTableNodeIndices(), lr.first, lr.last_plus_1),
+                                             layout_keep->viewport_top, layout_keep->viewport_bottom, layout_keep->buffer);
 
         // image/diagram bitmap も可視範囲外の分を捨てる。レンダ済みビットマップの
         // 二次キャッシュ (mermaid 内 LRU, 128 件) は自前で上限管理されるため全消去しない。
