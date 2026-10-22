@@ -1,6 +1,5 @@
 #include "file_load_service.h"
 #include "file_io.h"
-#include "profiler.h"
 #include "theme.h"
 
 void FileLoadService::StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, Theme theme, float content_width,
@@ -34,7 +33,6 @@ std::expected<Document, FileLoadError> DocumentService::LoadFile(const std::pmr:
     if (!result) {
         return std::unexpected(result.error());
     }
-    MENDO_PROFILE("Document::FromMarkdown");
     return Document::FromMarkdown(std::move(result->text), result->byte_size, path);
 }
 
