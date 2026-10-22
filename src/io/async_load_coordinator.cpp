@@ -113,11 +113,7 @@ void AsyncLoadCoordinator::RunWorker(const std::pmr::wstring& path, uint32_t gen
         }
     }
 
-    Document doc;
-    {
-        MENDO_PROFILE("Document::FromMarkdown");
-        doc = Document::FromMarkdown(std::move(file->text), file->byte_size, path, stop_token);
-    }
+    Document doc = Document::FromMarkdown(std::move(file->text), file->byte_size, path, stop_token);
     if (stop_token.stop_requested() || IsStale(gen)) {
         return;
     }

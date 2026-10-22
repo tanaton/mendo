@@ -2,15 +2,53 @@
 #include "document_types.h"
 #include "layout_cache.h"
 #include "layout_computer.h"
-#include "parallel_measure.h"
 #include "text_measurer.h"
 #include "theme.h"
 #include <memory_resource>
 #include <optional>
+#include <span>
 
 class Document;
 class TaskScheduler;
 class ViewportManager;
+
+namespace layout {
+
+// top<0 ならクリップなし。
+struct ViewportClip {
+    float top = -1.0f;
+    float height = -1.0f;
+    float buffer_screens = 0.0f;
+
+    constexpr bool active() const noexcept
+    {
+        return top >= 0.0f && height > 0.0f;
+    }
+
+    // 非クリップ時は ±∞ なので、帯の二分探索・下端 break がすべて素通りになる。
+    constexpr MeasureViewportRange Range() const noexcept
+    {
+        if (!active()) {
+            return {};
+        }
+        const float buffer = height * buffer_screens;
+        return { top - buffer, top + height + buffer };
+    }
+};
+
+// indices のノードを scheduler の worker で並列計測する。scheduler が null なら呼び出しスレッドで直列に計測する。
+// 戻り値は例外で計測できなかったノード数。
+int MeasureIndicesParallel(
+    const std::pmr::vector<Node>& nodes,
+    LayoutCache& cache,
+    float content_width,
+    const Theme& theme,
+    const ITextMeasurer& backend,
+    std::span<const size_t> indices,
+    MeasureViewportRange viewport,
+    TaskScheduler* scheduler);
+
+} // namespace layout
 
 class LayoutEngine {
 public:
@@ -82,7 +120,7 @@ public:
     }
 
     // 推定し直した Y で見ている位置を求めてから、その可視範囲を計測する。
-    void ViewportLayout(Document& doc, LayoutCache& cache, float width, float height);
+    void ViewportLayout(const Document& doc, LayoutCache& cache, float width, float height);
 
     // 増分レイアウトのビューポート絞り込み。height > 0 で可視範囲 + 周辺バッファのみ
     // 処理し、height <= 0 なら全 dirty を順次処理する。
@@ -92,17 +130,17 @@ public:
     };
     // ProcessDirtyBatch / EnsureVisibleLayout は見ている位置を保つ (前後で scroll target を確定・適用する)。
     bool ProcessDirtyBatch(
-        Document& doc, LayoutCache& cache, float width, int batch_size,
+        const Document& doc, LayoutCache& cache, float width, int batch_size,
         ViewportLimit viewport);
-    bool EnsureVisibleLayout(Document& doc, LayoutCache& cache, float width, float height);
+    bool EnsureVisibleLayout(const Document& doc, LayoutCache& cache, float width, float height);
     // 画面外の node も計測する。見ている位置は保つ。
-    bool EnsureNodeLayout(Document& doc, LayoutCache& cache, float width, int node);
-    void RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme,
+    bool EnsureNodeLayout(const Document& doc, LayoutCache& cache, float width, int node);
+    void RecomputeAfterDiagram(const Document& doc, LayoutCache& cache, const Theme& theme,
                                layout::HeightChangeRange changed) noexcept;
 
 private:
     // [top, bottom] を計測する。前後で scroll target を確定・適用して見ている位置を保つ。
-    bool EnsureRangeLayout(Document& doc, LayoutCache& cache, float width, float top, float bottom);
+    bool EnsureRangeLayout(const Document& doc, LayoutCache& cache, float width, float top, float bottom);
 
     LayoutEngine& engine_;
     ViewportManager& viewport_;

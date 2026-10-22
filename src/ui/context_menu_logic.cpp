@@ -90,7 +90,7 @@ void ContextMenu::Impl::ComputeLayout()
         max_text_w = std::max(max_text_w, TextWidth(item.text));
     }
 
-    const float nav_row_w = 2 * CTX_NAV_BTN_SIZE + CTX_NAV_BTN_GAP + 2 * PAD_X;
+    const float nav_row_w = CTX_NAV_BUTTONS_WIDTH + 2 * PAD_X;
     const float text_w = CHECK_WIDTH + max_text_w + PAD_X * 2;
     menu_width = std::max({ nav_row_w, text_w, MIN_MENU_WIDTH });
 
@@ -102,11 +102,10 @@ void ContextMenu::Impl::ComputeLayout()
             item.rect = { 0, y, menu_width, y + row_h };
 
             const float cx = menu_width / 2.0f;
-            const float total_w = 2 * CTX_NAV_BTN_SIZE + CTX_NAV_BTN_GAP;
-            const float bx = cx - total_w / 2.0f;
+            const float bx = cx - CTX_NAV_BUTTONS_WIDTH / 2.0f;
             const float by = y + CTX_NAV_ROW_PAD_Y;
             nav_layout.back_rect = { bx, by, bx + CTX_NAV_BTN_SIZE, by + CTX_NAV_BTN_SIZE };
-            nav_layout.fwd_rect = { bx + CTX_NAV_BTN_SIZE + CTX_NAV_BTN_GAP, by, bx + total_w, by + CTX_NAV_BTN_SIZE };
+            nav_layout.fwd_rect = { bx + CTX_NAV_BTN_SIZE + CTX_NAV_BTN_GAP, by, bx + CTX_NAV_BUTTONS_WIDTH, by + CTX_NAV_BTN_SIZE };
             y += row_h;
             break;
         }

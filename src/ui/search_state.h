@@ -51,7 +51,7 @@ public:
         query_.clear();
     }
 
-    // ExecuteSearch / Hide / Reset のたびにインクリメントされる世代カウンタ。
+    // マッチ列が変わるたびに進む世代カウンタ。
     // 描画側が検索ハイライト矩形のキャッシュ有効性判定に使う。0 は未初期化を意味するため
     // 1 からカウントし始める（search_hl_gen=0 と常に不一致になる）。
     constexpr uint32_t GetGeneration() const noexcept

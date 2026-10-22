@@ -1,13 +1,11 @@
 #include "app.h"
 #include "app_constants.h"
-#include "app_controller.h"
 #include "ascii_util.h"
 #include "clipboard_util.h"
-#include "document_service.h"
 #include "document_utils.h"
 #include "file_dialog_service.h"
 #include "i18n.h"
-#include "layout_queries.h"
+#include "layout_computer.h"
 #include "pane_layout.h"
 #include "profiler.h"
 #include "reducer.h"
@@ -750,9 +748,8 @@ void App::ApplyZoom()
 
 void App::ToggleDarkMode()
 {
-    theme_service_.ToggleDarkMode();
+    const bool dark = theme_service_.ToggleDarkMode();
     renderer_.SetTheme(theme_service_.CreateTheme(state_.view.viewport.GetZoomIndex()));
-    const bool dark = theme_service_.IsDarkMode();
     ApplyDarkModeToWindow(hwnd_, dark);
     tooltip_.ApplyDarkMode(dark);
     // メモリキャッシュはキーにダークモードを含むので消さず、往復時に再利用する。描画待ちは旧テーマの分なので捨てる。
@@ -923,7 +920,7 @@ void App::SyncTocActiveAndAutoScroll(bool auto_scroll)
         return;
     }
     const auto& theme = renderer_.GetTheme();
-    const int new_active = FindActiveTocIndex(
+    const int new_active = layout::FindActiveTocIndex(
         state_.document.doc.GetToc(), state_.document.layout_cache, state_.view.viewport.GetScrollY(), theme.heading_spacing_above);
     if (new_active == state_.view.active_toc_index) {
         return;
@@ -988,4 +985,54 @@ void App::OnDeferredLayout()
 
     // layout_cache の text_top が確定したので目次アクティブ見出しを再同期する。
     SyncTocActiveAndAutoScroll(true);
+}
+
+void AppHost::SetTimer(app_timer::Id id, UINT ms)
+{
+    app_.SetTimer(id, ms);
+}
+
+void AppHost::KillTimer(app_timer::Id id)
+{
+    app_.KillTimer(id);
+}
+
+float AppHost::MdContentWidth()
+{
+    return app_.MdContentWidth();
+}
+
+float AppHost::MdPaneHeight()
+{
+    return app_.GetPaneLayout().md_rect.height;
+}
+
+float AppHost::MdMaxScroll()
+{
+    return app_.MdMaxScroll();
+}
+
+const Theme& AppHost::GetTheme()
+{
+    return app_.renderer_.GetTheme();
+}
+
+void AppHost::RecomputeLayout(layout::HeightChangeRange changed)
+{
+    // 画面より上の画像・図の高さが変わっても、見ている内容が動かないようにする。
+    app_.EnsureScrollTarget();
+    app_.layout_service_.RecomputeAfterDiagram(
+        app_.state_.document.doc,
+        app_.state_.document.layout_cache,
+        app_.renderer_.GetTheme(),
+        changed);
+    app_.ClampScrollToContent();
+    app_.Invalidate();
+}
+
+void AppHost::EnsureNodeLayout(int node_index)
+{
+    app_.layout_service_.EnsureNodeLayout(
+        app_.state_.document.doc, app_.state_.document.layout_cache,
+        app_.GetPaneLayout().md_rect.width, node_index);
 }

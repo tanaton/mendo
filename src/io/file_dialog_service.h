@@ -4,7 +4,6 @@
 #include <windows.h>
 
 // ファイル選択ダイアログ。`<commdlg.h>` を call site に巻き込まないよう宣言だけを露出する。
-// 「path を選ばせる」責務を FileLoader から分離し、テストでは任意の path を直接渡せるようにする。
 namespace file_dialog_service {
 
 // キャンセル時は空文字列。

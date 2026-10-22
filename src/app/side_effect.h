@@ -73,11 +73,8 @@ struct CancelOtherFileLoad {};
 
 struct BitmapManage {};
 struct SyncTocActive {
-    // false: ハイライト更新のみで目次ペインの自動スクロールを行わない。
-    // 目次ペイン操作由来のジャンプでクリック先が動く混乱を防ぐ (issue#259)。
-    // ジャンプ由来の判断は reducer 層 (EmitScrollChangedSideEffects) が明示引数で担い、
-    // SyncTocActive{} で発火する App 側の再同期 (リサイズ/ロード等) は常に追従で正しい。
-    // デフォルトを外すと {} が値初期化で false になり挙動が静かに反転するため維持する。
+    // false: ハイライト更新のみで目次ペインの自動スクロールを行わない。目次ペイン操作由来の
+    // ジャンプでクリック先が動く混乱を防ぐ (issue#259)。既定値を外すと {} が false になり反転する。
     bool auto_scroll = true;
 };
 

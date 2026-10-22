@@ -1,4 +1,4 @@
-#include "html_entities.h"
+#include "parser.h"
 #include "html_entity_table.h"
 #include "ascii_util.h"
 #include "utf8_codec.h"

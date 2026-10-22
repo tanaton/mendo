@@ -12,7 +12,6 @@
 #include "layout_invariants.h"
 #include "mock_text_measurer.h"
 #include "parser.h"
-#include "parallel_measure.h"
 #include "task_scheduler.h"
 #include "test_helpers.h"
 #include "theme.h"

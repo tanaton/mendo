@@ -394,7 +394,7 @@ void LayoutCache::EvictInvisibleTableRows(
         if (!tl || !HasRowTracking(*tl)) {
             continue;
         }
-        // 再可視化は dirty を経由せず LayoutEngine::EnsureVisibleLayout の行復元で行う。
+        // 再可視化は dirty を経由せず LayoutEngine::MeasurePass の行復元で行う。
         const auto [keep_begin, keep_end] = tl->VisibleRowRange(keep_top - Top(idx), keep_bottom - Top(idx));
         EvictTableRowsOutside(*tl, keep_begin, keep_end, released_layouts_);
     }

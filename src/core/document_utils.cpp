@@ -161,13 +161,12 @@ size_t WriteLowerNonAscii(utf8_codec::DecodedCp decoded, const char* src, char* 
     return utf8_codec::EncodeCp(lower, dst);
 }
 
-// GenerateAnchorId の ASCII (0x00–0x7F) 処理を 1 回の lookup で判定するテーブル。
-// 値: 0=skip, 1=keep, 2=hyphen, 3=lower (A-Z のみ。実際の変換は c | 0x20 で小文字化)。
+// GenerateAnchorIdInto の ASCII 処理を 1 回の表引きで決める。SlugLower は A-Z のみ。
 enum AsciiSlugAction : uint8_t {
-    SlugSkip = 0,
-    SlugKeep = 1,
-    SlugHyphen = 2,
-    SlugLower = 3,
+    SlugSkip,
+    SlugKeep,
+    SlugHyphen,
+    SlugLower,
 };
 
 constexpr auto kAsciiSlugTable = [] static noexcept {
@@ -293,6 +292,8 @@ std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent)
     return title;
 }
 
+namespace {
+
 bool NodeContentEquals(const Node& a, const Node& b) noexcept
 {
     if (a.type != b.type || a.alert_type != b.alert_type || a.quote_depth != b.quote_depth ||
@@ -315,6 +316,8 @@ bool NodeContentEquals(const Node& a, const Node& b) noexcept
     return (at == nullptr) == (bt == nullptr) && (!at || *at == *bt);
 }
 
+} // namespace
+
 UnchangedEnds FindUnchangedEnds(std::span<const Node> old_nodes, std::span<const Node> new_nodes) noexcept
 {
     UnchangedEnds ends{ .old_count = old_nodes.size(), .new_count = new_nodes.size() };
@@ -327,4 +330,55 @@ UnchangedEnds FindUnchangedEnds(std::span<const Node> old_nodes, std::span<const
         ++ends.tail;
     }
     return ends;
+}
+
+size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept
+{
+    // MSVC STL の mismatch は 1 バイト要素をベクトル化する。
+    const size_t pos = static_cast<size_t>(std::ranges::mismatch(old_text, new_text).in1 - old_text.begin());
+    if (pos == old_text.size() && pos == new_text.size()) {
+        return std::string_view::npos;
+    }
+    return pos;
+}
+
+ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text) noexcept
+{
+    const size_t diff_pos = FindFirstDifference(old_text, new_text);
+    if (diff_pos == std::string_view::npos) {
+        return { ReloadOp::NoChange, std::string_view::npos };
+    }
+    // 新しい方が古い方の prefix (エディタの truncate→rewrite の途中)。
+    if (diff_pos == new_text.size()) {
+        return { ReloadOp::DeferPrefixShrink, diff_pos };
+    }
+    return { ReloadOp::Replace, diff_pos };
+}
+
+int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, size_t diff_offset) noexcept
+{
+    // source_offset はパース順で基本的に単調増加するため二分探索を使用。
+    // 未設定ノードに当たった場合は左に有効ノードを探してから判定する。
+    int lo = 0;
+    int hi = static_cast<int>(nodes.size()) - 1;
+    int result = -1;
+    while (lo <= hi) {
+        const int mid = lo + (hi - lo) / 2;
+        int probe = mid;
+        while (probe >= lo && !nodes[probe].HasSourceOffset()) {
+            probe--;
+        }
+        if (probe < lo) {
+            lo = mid + 1;
+            continue;
+        }
+        if (nodes[probe].SourceOffset() <= diff_offset) {
+            result = probe;
+            lo = mid + 1;
+        }
+        else {
+            hi = probe - 1;
+        }
+    }
+    return result;
 }

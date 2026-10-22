@@ -2,13 +2,10 @@
 #include "d2d_util.h"
 #include "doc_dwrite_bridge.h"
 #include "i18n.h"
-#include "layout.h"
 #include "layout_computer.h"
 #include "profiler.h"
-#include "render_params.h"
 #include "ui_constants.h"
 #include <algorithm>
-#include <cassert>
 #include <cstdint>
 #include <format>
 #include <ranges>
@@ -109,8 +106,8 @@ constexpr float HeadingUnderlineGap(const Theme& theme) noexcept
 constexpr float BAR_EXTEND = 2.0f;
 constexpr float ALERT_BG_PAD = 4.0f;
 
-// AlertBrushIdFromIndex (brush_id.h) の table が AlertType 全種を網羅することを担保する。
-static_assert(ALERT_BRUSH_COUNT == ALERT_TYPE_COUNT, "AlertBrushIdFromIndex table must cover every AlertType");
+// AlertBrushIdFromIndex (brush_id.h) の連番が AlertType 全種を網羅することを担保する。
+static_assert(ALERT_BRUSH_COUNT == ALERT_TYPE_COUNT, "AlertBrushIdFromIndex must cover every AlertType");
 
 // ブロックローカル横スクロールの clip と Translate を RAII で囲み、push/pop の対称性を強制する。
 // scroll_x == 0 のときは Translate を省略し、ブロックがスクロールしないときは Clip も省略する。
@@ -251,7 +248,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
 
     // 同一 blockquote_group のノードをまとめてバー/背景を描画する。
     // ノード単体ごとではなく一括で描画することで、複数行の引用ブロックが連続した見た目になる。
-    GenBlockQuoteGroupDecorations(fc, nodes, cache, node_count, first_visible);
+    GenBlockQuoteGroupDecorations(fc, nodes, cache, first_visible);
 
     int visible_count = 0;
     for (int i = first_visible; i < node_count; i++) {
@@ -289,7 +286,7 @@ void CommandGenerator::GenerateNode(const FrameContext& fc,
     // 直後にスクロールバーを積む。幾何はヒットテスト/reducer と共有の GetBlockHScrollGeometry に寄せる。
     const auto gen_h_scroll_block = [&](const D2D1_RECT_F& clip, float pad_y, auto&& gen_content) {
         const auto geom = GetBlockHScrollGeometry(node, entry, cw);
-        const float scroll_x = fc.h_scroll.GetScrollX(node_index, geom);
+        const float scroll_x = LookupBlockScrollX(fc.h_scroll.scroll_x, node_index, geom);
         {
             BlockHScrollScope guard(cmds_, clip, fc.pane_transform, scroll_x, geom.can_scroll());
             gen_content(scroll_x);
@@ -523,9 +520,10 @@ void CommandGenerator::GenListBullet(const FrameContext& fc, const Node& node, c
     }
 }
 
-void CommandGenerator::GenBlockQuoteGroupDecorations(const FrameContext& fc, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int node_count, int first_visible)
+void CommandGenerator::GenBlockQuoteGroupDecorations(const FrameContext& fc, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int first_visible)
 {
     const float snap = fc.snapped_scroll_y;
+    const int node_count = static_cast<int>(nodes.size());
 
     // バーと背景はクリップされるので、グループの可視範囲外の部分は走査しない (巨大な引用でも
     // 可視ノード数ぶんで済む)。first_visible がグループ途中なら、可視範囲より上にある直前の

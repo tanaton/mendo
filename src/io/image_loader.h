@@ -1,6 +1,6 @@
 #pragma once
 #include "d2d_util.h"
-#include "layout_cache.h"
+#include "utility.h"
 #include "lru_cache.h"
 #include "worker_latch.h"
 #include <d2d1.h>

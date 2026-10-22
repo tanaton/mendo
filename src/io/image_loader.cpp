@@ -4,7 +4,6 @@
 #include "task_scheduler.h"
 #include "ui_constants.h"
 #include "wic_util.h"
-#include <iterator>
 
 ImageLoader::~ImageLoader()
 {

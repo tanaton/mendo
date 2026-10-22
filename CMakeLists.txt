@@ -119,17 +119,14 @@ add_library(mendo_core STATIC
     src/core/parser.cpp
     src/core/parser_alerts.cpp
     src/core/html_entities.cpp
-    src/core/reload.cpp
     src/core/selection_html.cpp
     src/core/syntax.cpp
     # layout - レイアウト計算
     src/layout/layout_cache.cpp
     src/layout/layout.cpp
     src/layout/layout_computer.cpp
-    src/layout/parallel_measure.cpp
     src/layout/dwrite_measurer.cpp
     src/layout/doc_dwrite_bridge.cpp
-    src/layout/layout_queries.cpp
     # render - 描画パイプライン
     src/render/command_generator.cpp
     src/render/command_executor.cpp
@@ -146,7 +143,6 @@ add_library(mendo_core STATIC
     # input - 入力処理
     src/input/hit_test_service.cpp
     # io - ファイルI/O・永続化
-    src/io/document_service.cpp
     src/io/file_loader.cpp
     src/io/file_dialog_service.cpp
     src/io/file_explorer.cpp
@@ -204,7 +200,6 @@ add_executable(mendo WIN32
     src/app/app.cpp
     src/app/app_file.cpp
     src/app/app_mouse.cpp
-    src/app/app_callbacks.cpp
     src/ui/context_menu.cpp
     src/render/renderer.cpp
     src/render/renderer_resources.cpp

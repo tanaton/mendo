@@ -131,8 +131,6 @@ inline ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
 {
     return state.view.viewport.CurrentTarget(state.document.layout_cache);
 }
-// load_path: これから開くファイル。現在と別のファイルなら、ロード失敗 (LoadFailedAction) で取り消す仮の履歴にする。
-void PushCurrentNavEntry(AppState& state, std::wstring_view load_path = {});
 
 // reducer と App (Win32 層) の双方が AppState から導出するペイン/ブロック情報。
 // 非 inline 関数の定義は reducer.cpp。

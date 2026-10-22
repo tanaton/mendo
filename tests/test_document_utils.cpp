@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#include "layout_queries.h"
 #include <algorithm>
 #include <format>
 #include <iterator>
@@ -15,13 +14,14 @@
 #include "layout_computer.h"
 #include "test_helpers.h"
 #include "parser.h"
-#include "reload.h"
 #include "selection_html.h"
 #include "syntax.h"
 #include "theme.h"
 #include "theme_palette.h"
 #include "utf8_fuzz_helpers.h"
 #include "test_nodes.h"
+
+using layout::CalcScrollYForDiff;
 
 namespace {
 
@@ -1480,50 +1480,6 @@ TEST(DiffToNode, LargeDocumentMiddleEdit)
     auto nodes = ParseNodes(new_md);
     ASSERT_GE(node, 0);
     EXPECT_EQ(nodes[node].GetText(), "CHANGED paragraph 50");
-}
-
-// ============================================================
-// IsPrefixOnlyDiff
-// ============================================================
-
-// diff_pos が短い方の長さと一致するときだけ true
-TEST(IsPrefixOnlyDiff, TrueWhenDiffAtShorterEnd)
-{
-    struct Case {
-        size_t diff_pos;
-        size_t old_size;
-        size_t new_size;
-        bool expected;
-    };
-    constexpr Case kCases[] = {
-        { 5, 10, 10, false },
-        { 3, 3, 6, true },
-        { 3, 6, 3, true },
-        { 2, 6, 3, false },
-        { 0, 0, 3, true },
-        { 0, 3, 0, true },
-        // 通常 FindFirstDifference は npos を返すのでここには到達しない
-        { 0, 0, 0, true },
-    };
-    for (const auto& c : kCases) {
-        SCOPED_TRACE(::testing::Message() << "diff_pos=" << c.diff_pos << " old=" << c.old_size << " new=" << c.new_size);
-        EXPECT_EQ(IsPrefixOnlyDiff(c.diff_pos, c.old_size, c.new_size), c.expected);
-    }
-}
-
-TEST(IsPrefixOnlyDiff, IntegrationWithFindFirstDifference)
-{
-    // FindFirstDifference と組み合わせた実際のユースケース
-    std::string_view old_text = "Hello World";
-    std::string_view new_text = "Hello World, more text";
-    size_t diff = FindFirstDifference(old_text, new_text);
-    EXPECT_TRUE(IsPrefixOnlyDiff(diff, old_text.size(), new_text.size()));
-
-    // 内容が異なる場合
-    std::string_view old_text2 = "Hello World";
-    std::string_view new_text2 = "Hello Xxxxx";
-    size_t diff2 = FindFirstDifference(old_text2, new_text2);
-    EXPECT_FALSE(IsPrefixOnlyDiff(diff2, old_text2.size(), new_text2.size()));
 }
 
 // ============================================================

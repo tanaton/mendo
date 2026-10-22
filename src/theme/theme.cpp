@@ -1,10 +1,11 @@
 #include "theme.h"
 #include "theme_palette.h"
 
+namespace {
 // Theme 内の「ズームでスケールする float メンバ」を一元管理する。
 // 新規のスケーラブルフィールドを追加する際はここに追記すれば
 // ApplyZoom へのスケール漏れを防げる。font_size_h は配列なので別ループで扱う。
-inline constexpr float Theme::* kScalableThemeFields[]{
+constexpr float Theme::* kScalableThemeFields[]{
     &Theme::font_size_body,
     &Theme::font_size_code,
     &Theme::margin_left,
@@ -29,6 +30,7 @@ inline constexpr float Theme::* kScalableThemeFields[]{
     &Theme::splitter_width,
     &Theme::pane_font_size,
 };
+} // namespace
 
 float Theme::GetHeadingSize(int level) const noexcept
 {
@@ -40,9 +42,7 @@ float Theme::GetHeadingSize(int level) const noexcept
 
 void Theme::ApplyZoom(float new_zoom) noexcept
 {
-    // 0/負値は通常の呼び出しでは発生しない (viewport ZOOM_MIN..ZOOM_MAX クランプ済み) が、
-    // ゼロ除算回避と inf/NaN 伝染を防ぐため early return する。テスト test_theme.cpp の
-    // ApplyZoomZeroIsNoOp / ApplyZoomNegativeIsNoOp が契約を保証する。
+    // ZOOM_STEPS は正値のみだが、ゼロ除算と inf/NaN の伝染を防ぐ。
     if (new_zoom <= 0.0f || zoom <= 0.0f) {
         return;
     }
@@ -57,8 +57,9 @@ void Theme::ApplyZoom(float new_zoom) noexcept
     }
 }
 
+namespace {
 // selection_html (HTML コピー) と共有するコード/シンタックス色。
-static void ApplySharedColors(Theme& t, const theme_palette::SharedColors& p)
+void ApplySharedColors(Theme& t, const theme_palette::SharedColors& p)
 {
     t.code_bg_color = D2D1::ColorF(p.code_bg);
     t.code_text_color = D2D1::ColorF(p.code_text);
@@ -74,7 +75,7 @@ static void ApplySharedColors(Theme& t, const theme_palette::SharedColors& p)
 }
 
 // ライトテーマとダークテーマで共有するフォントとレイアウト定数。
-static void ApplyCommonLayout(Theme& t)
+void ApplyCommonLayout(Theme& t)
 {
     t.font_family = L"Yu Gothic UI";
     t.monospace_font = L"Consolas";
@@ -113,13 +114,13 @@ static void ApplyCommonLayout(Theme& t)
     t.pane_font_size = 13.0f;
 }
 
-static void SetAlertColors(Theme& t, AlertType type, D2D1_COLOR_F bar, D2D1_COLOR_F bg)
+void SetAlertColors(Theme& t, AlertType type, D2D1_COLOR_F bar, D2D1_COLOR_F bg)
 {
     t.alert_color[AlertColorIndex(type)] = bar;
     t.alert_bg_color[AlertColorIndex(type)] = bg;
 }
 
-static Theme BuildLightTheme()
+Theme BuildLightTheme()
 {
     Theme t{};
 
@@ -166,7 +167,7 @@ static Theme BuildLightTheme()
     return t;
 }
 
-static Theme BuildDarkTheme()
+Theme BuildDarkTheme()
 {
     Theme t{};
 
@@ -212,6 +213,7 @@ static Theme BuildDarkTheme()
 
     return t;
 }
+} // namespace
 
 // 初回呼び出し時に 1 回だけ構築する。Magic statics の保護コストは
 // 呼び出しごとの atomic ロードのみで、ホットパスでもほぼ無視できる。

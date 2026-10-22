@@ -4,16 +4,10 @@
 #include <string_view>
 #include <memory_resource>
 #include <expected>
-#include <limits>
-#include <windows.h>
-
-// ファイル読み込みの最大サイズ。Markdown 経路は md4c が int を取るため ~2GB-1 が
-// 実効上限。事前ガード (OpenFileForReadShared) もこの値で揃え、二段ガードを排除する。
-inline constexpr LONGLONG MAX_FILE_SIZE = static_cast<LONGLONG>(std::numeric_limits<int>::max());
 
 enum class FileLoadError : uint8_t {
     NotFound,   // ファイルが見つからない、またはアクセス拒否
-    TooLarge,   // ファイルサイズが MAX_FILE_SIZE を超過
+    TooLarge,   // ファイルサイズが上限を超過
     ReadFailed, // 読み込み中のI/Oエラー
 };
 
@@ -37,8 +31,6 @@ struct LoadedFileDoc {
     size_t byte_size = 0;
 };
 
-// ファイル読み込みユーティリティ（静的メソッドのみ）。
-// path 選択は file_dialog_service.h に分離してある。
 class FileLoader {
 public:
     // ファイルを ReadFile で string バッファへ直接読み込み、UTF-8 BOM を除去して LF に正規化して返す。

@@ -2,7 +2,7 @@
 #include <memory_resource>
 #include <string>
 #include <string_view>
-#include "document_service.h"
+#include "file_load_service.h"
 #include "test_helpers.h"
 
 class DocumentServiceTest : public TempDirTestBase {

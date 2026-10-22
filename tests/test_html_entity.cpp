@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "html_entities.h"
+#include "parser.h"
 #include "html_entity_table.h"
 #include "utf8_codec.h"
 #include <iterator>

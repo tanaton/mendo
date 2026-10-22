@@ -5,11 +5,12 @@
 #include <string_view>
 #include <utility>
 #include <vector>
-#include "toc.h"
 #include "layout_cache.h"
-#include "layout_queries.h"
+#include "layout_computer.h"
 #include "parser.h"
 #include "test_nodes.h"
+
+using layout::FindActiveTocIndex;
 
 namespace {
 

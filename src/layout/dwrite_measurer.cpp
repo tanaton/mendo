@@ -16,9 +16,6 @@ using Microsoft::WRL::ComPtr;
 
 namespace {
 
-// 折り返さない幅と MaxHeight は「事実上の上限」で十分なので、両方ともこの単一定数で運用する。
-constexpr float LAYOUT_INFINITY = layout::kNoWrapLayoutWidth;
-
 // セルに列幅と揃えを適用して高さを返す。幅不変ならキャッシュ済みの高さを使う。
 // 左揃えで列幅に収まるセルは作ったときの無限幅のまま使う。折り返さないので行組みは同じで、
 // 幅を付けると組み直しになる (計測済みの結果を GetMetrics が返すだけになる)。
@@ -28,7 +25,7 @@ float ApplyCellWidth(TableLayoutData& tl, size_t ci, float cw, TableAlign align)
     if (!width_unchanged) {
         auto* layout = tl.cell_layouts[ci].Get();
         const bool left = align == TableAlign::Default || align == TableAlign::Left;
-        const float layout_width = left && tl.cell_natural_widths[ci] <= cw ? LAYOUT_INFINITY : cw;
+        const float layout_width = left && tl.cell_natural_widths[ci] <= cw ? layout::kNoWrapLayoutWidth : cw;
         if (layout->GetMaxWidth() != layout_width) {
             layout->SetMaxWidth(layout_width);
         }
@@ -258,7 +255,7 @@ void DWriteTextMeasurer::WarmUp(TaskScheduler& scheduler) const
             MENDO_PROFILE("DWriteTextMeasurer::WarmUp");
             constexpr std::wstring_view kSample = L"Aa1 日本語のテキスト";
             ComPtr<IDWriteTextLayout> layout;
-            if (SUCCEEDED(factory->CreateTextLayout(kSample.data(), static_cast<UINT32>(kSample.size()), fmt.Get(), LAYOUT_INFINITY, LAYOUT_INFINITY, &layout))) {
+            if (SUCCEEDED(factory->CreateTextLayout(kSample.data(), static_cast<UINT32>(kSample.size()), fmt.Get(), layout::kNoWrapLayoutWidth, layout::kNoWrapLayoutWidth, &layout))) {
                 DWRITE_TEXT_METRICS metrics{};
                 layout->GetMetrics(&metrics);
             }
@@ -398,7 +395,7 @@ void DWriteTextMeasurer::MeasureNode(
 
     const auto& text = node.GetText();
     ComPtr<IDWriteTextLayout> layout;
-    if (FAILED(CreateDocTextLayout(dwrite_, text, GetTextFormat(node), layout_width, LAYOUT_INFINITY, &layout))) {
+    if (FAILED(CreateDocTextLayout(dwrite_, text, GetTextFormat(node), layout_width, layout::kNoWrapLayoutWidth, &layout))) {
         return;
     }
 
@@ -430,7 +427,7 @@ void DWriteTextMeasurer::BuildCellLayout(const NodeTableData& tbl, size_t r, siz
         return;
     }
     auto& cell_layout = tl.cell_layouts[tl.CellIndex(r, c)];
-    CreateDocTextLayout(dwrite_, text, row_fmt, LAYOUT_INFINITY, LAYOUT_INFINITY, &cell_layout);
+    CreateDocTextLayout(dwrite_, text, row_fmt, layout::kNoWrapLayoutWidth, layout::kNoWrapLayoutWidth, &cell_layout);
     if (cell_layout) {
         ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, /*apply_code_size=*/true);
     }
@@ -476,7 +473,8 @@ void DWriteTextMeasurer::RestoreNullCellLayouts(const NodeTableData& tbl, TableL
     const auto [r_begin, r_end] = tl.RowsInViewport(tbl.row_count, viewport.top, viewport.bottom);
     for (size_t r = r_begin; r < r_end; r++) {
         if (tl.row_evicted[r]) {
-            RestoreRowCells(tbl, tl, r);
+            BuildRowCells(tbl, tl, r);
+            tl.MarkRowRestored(r);
         }
     }
 }
@@ -490,12 +488,6 @@ void DWriteTextMeasurer::BuildRowCells(const NodeTableData& tbl, TableLayoutData
             BuildCellLayout(tbl, r, c, row_fmt, tl);
         }
     }
-}
-
-void DWriteTextMeasurer::RestoreRowCells(const NodeTableData& tbl, TableLayoutData& tl, size_t r) const
-{
-    BuildRowCells(tbl, tl, r);
-    tl.MarkRowRestored(r);
 }
 
 void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayoutEntry& entry, float max_width) const
@@ -538,7 +530,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayou
     entry.height = tl.TotalHeight(tbl.row_count);
     tl.last_applied_max_width = max_width;
     // evict 行が残っていても dirty にはしない。dirty のままだと可視中は毎フレーム全行の
-    // Finalize と effects 破棄が走る。残りは RestoreEvictedTableRows が可視行だけ埋める。
+    // Finalize が走る。残りは RestoreEvictedTableRows が可視行だけ埋める。
     entry.layout_dirty = false;
 }
 
@@ -628,7 +620,7 @@ void DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayoutEntry& entry, 
 
     // 超高速パス: 前回と max_width がほぼ一致しキャッシュ済みレイアウトが揃っていれば、
     // セル幅・行高さ・累積位置・行オフセットすべて変化しないため、layout_dirty を倒すだけで終える。
-    // 検索ハイライト矩形・effects・inline_code_bgs もテキスト位置に依存するので保持できる。
+    // 検索ハイライト矩形・inline_code_bgs もテキスト位置に依存するので保持できる。
     // evict 済み行のセルは RestoreEvictedTableRows が可視になった時点で再生成する。
     // 幾何が無効 (EstimateInvisibleNodeHeight が InvalidateGeometry 済み) のまま通すと
     // GenTable が空テーブルを描画し続ける。

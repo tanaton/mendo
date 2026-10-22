@@ -7,7 +7,6 @@
 #include "startup_plan.h"
 #include "utility.h"
 #include <windows.h>
-#include <array>
 #include <cstdlib>
 #include <filesystem>
 #include <string>

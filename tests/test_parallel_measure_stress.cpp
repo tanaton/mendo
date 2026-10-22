@@ -15,7 +15,6 @@
 #include "layout.h"
 #include "layout_cache.h"
 #include "mock_text_measurer.h"
-#include "parallel_measure.h"
 #include "syntax.h"
 #include "task_scheduler.h"
 #include "test_helpers.h"

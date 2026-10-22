@@ -1,10 +1,12 @@
 #pragma once
 #include "document_types.h"
+#include <cstddef>
 #include <cstdint>
 #include <memory_resource>
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 struct WordBoundary {
     uint32_t start = 0;
@@ -26,11 +28,8 @@ void GenerateAnchorIdInto(std::string_view text, std::pmr::string& slug);
 // リンク先のアンカーを GenerateAnchorIdInto と同じ規則で小文字にする。
 std::pmr::string ToLowerAnchorCopy(std::string_view text);
 
-// 表示に効く中身 (種別・テキスト・runs・リンク先・入れ子の深さ・表や画像など) が同じか。
-// ソース位置と引用グループ番号は比べない。リロードで計測結果を使い回せるかの判定に使う。
-bool NodeContentEquals(const Node& a, const Node& b) noexcept;
-
-// リロードで新旧のノード列の先頭 head 個と末尾 tail 個が NodeContentEquals で一致した範囲 (両者は重ならない)。
+// リロードで新旧のノード列の先頭 head 個と末尾 tail 個が、表示に効く中身で一致した範囲 (両者は重ならない)。
+// ソース位置と引用グループ番号は比べない。
 // 編集は 1 か所に固まることが多いので、先頭と末尾から一致する範囲だけを見る。
 struct UnchangedEnds {
     size_t head = 0;
@@ -73,3 +72,67 @@ std::pmr::wstring ParentDirectory(std::wstring_view path);
 
 // zoom_percent: 0 または 100 はデフォルト（省略）、それ以外は "(125%)" 等として表示。
 std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent = 0);
+
+// 以下は同一ファイルのリロード判定。旧/新の UTF-8 テキストを比べてリロード方針を決め、差分位置 (UTF-8 byte オフセット) を
+// ノードへ写像する。OnParseComplete / DoReloadCurrentFile の分岐を揃えるために 1 か所に集める。
+
+// 新旧コンテンツの最初の差分 UTF-8 byte 位置を返す。同一の場合は npos。
+// 前提: 両テキストとも LF 正規化済みであること。old は raw_text_、new は FileLoader 由来で
+// どちらも正規化済み (issue #273)。
+size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept;
+
+// 同一ファイルのリロード時に取るべき操作を示す。
+enum class ReloadOp : uint8_t {
+    NoChange,          // 差分なし。リロード不要。
+    DeferPrefixShrink, // prefix-only shrink。truncate→rewrite の前半として defer。
+    DeferPartialWrite, // 読み終えた後もファイルが伸びている (書き込み途中)。差分判定もパースもせず defer。
+    Replace,           // 再パースした文書に差し替え、差分位置へスクロールする。
+};
+
+struct ReloadDecision {
+    ReloadOp op;
+    size_t diff_pos; // NoChange のとき std::string_view::npos、それ以外は差分開始位置。
+};
+
+// 旧/新コンテンツの UTF-8 テキストを比較し、リロード方針を決定する純粋関数。
+ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text) noexcept;
+
+// still_growing: 読み終えた後もファイルが伸びている。書き込み途中なので差分を取らずに defer する。
+inline ReloadDecision DecideReload(bool still_growing, std::string_view old_text, std::string_view new_text) noexcept
+{
+    if (still_growing) {
+        return { ReloadOp::DeferPartialWrite, std::string_view::npos };
+    }
+    return AnalyzeReloadDiff(old_text, new_text);
+}
+
+// 末尾を削っただけの保存は何度読み直しても prefix shrink になるため、defer 回数に上限を設け、
+// 超えたら縮んだ内容を確定版として受け入れる。
+class PrefixShrinkRetry {
+public:
+    static constexpr uint8_t kMaxDefers = 10;
+
+    // true なら defer を続ける (回数を 1 つ消費する)。
+    bool TryDefer() noexcept
+    {
+        if (Exhausted()) {
+            return false;
+        }
+        ++count_;
+        return true;
+    }
+    bool Exhausted() const noexcept
+    {
+        return count_ >= kMaxDefers;
+    }
+    void Reset() noexcept
+    {
+        count_ = 0;
+    }
+
+private:
+    uint8_t count_ = 0;
+};
+
+// source_offset が diff_offset 以下の最後のノードを返す。該当なしの場合は -1。
+[[nodiscard]] int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, size_t diff_offset) noexcept;

@@ -6,32 +6,37 @@
 #include "ui_constants.h"
 #include "utf8_codec.h"
 #include <algorithm>
+#include <optional>
 
-// right_x はペイン右端。つまみはそこから VScrollbarLeftX で内側に寄せる。
-static D2D1_ROUNDED_RECT VScrollThumbRect(float right_x, float thumb_y, float thumb_height) noexcept
+namespace {
+// ドラッグ処理 (ScrollFromThumbY) と同じ計算を共有し、見た目と挙動のズレを防ぐ。
+// つまみはペイン右端から VScrollbarLeftX で内側に寄せる。
+std::optional<D2D1_ROUNDED_RECT> VScrollThumb(const PaneRect& pane, float header_height, float scroll_y, float total_content_height, bool may_grow = false) noexcept
 {
-    const float x = VScrollbarLeftX(right_x);
+    const PaneScrollInfo info = ComputeScrollInfo(pane, header_height, total_content_height);
+    if (!ShowsVScrollbar(info, may_grow)) {
+        return std::nullopt;
+    }
+    const float x = VScrollbarLeftX(pane.x + pane.width);
+    const float thumb_y = ComputeThumbY(info, scroll_y);
     constexpr float radius = PANE_SCROLLBAR_WIDTH / 2.0f;
-    return { D2D1::RectF(x, thumb_y, x + PANE_SCROLLBAR_WIDTH, thumb_y + thumb_height), radius, radius };
+    return D2D1_ROUNDED_RECT{ D2D1::RectF(x, thumb_y, x + PANE_SCROLLBAR_WIDTH, thumb_y + info.thumb_height), radius, radius };
 }
 
 // 目次の行は 1 行で狭い。極端に長い見出しでも毎フレーム全文を UTF-16 化・ハッシュしないよう先頭だけ使う。
-static std::string_view TocItemText(std::string_view heading) noexcept
+std::string_view TocItemText(std::string_view heading) noexcept
 {
     constexpr uint32_t kMaxBytes = 512;
     return heading.size() <= kMaxBytes ? heading : heading.substr(0, utf8_codec::SnapToCpStart(heading, kMaxBytes));
 }
 
-// ドラッグ処理 (ScrollFromThumbY) と同じ計算を共有し、見た目と挙動のズレを防ぐ。
-static void GenPaneScrollbar(DrawCommandList& cmds, const PaneRect& pane, float header_height, float scroll_y, float total_content_height)
+void GenPaneScrollbar(DrawCommandList& cmds, const PaneRect& pane, float header_height, float scroll_y, float total_content_height)
 {
-    const PaneScrollInfo info = ComputeScrollInfo(pane, header_height, total_content_height);
-    if (!ShowsVScrollbar(info)) {
-        return;
+    if (const auto thumb = VScrollThumb(pane, header_height, scroll_y, total_content_height)) {
+        cmds.push_back(FillRoundedRectCmd{ .rect = thumb->rect, .rx = thumb->radiusX, .ry = thumb->radiusY, .brush_id = BrushId::ScrollbarThumb });
     }
-    const auto thumb = VScrollThumbRect(pane.x + pane.width, ComputeThumbY(info, scroll_y), info.thumb_height);
-    cmds.push_back(FillRoundedRectCmd{ .rect = thumb.rect, .rx = thumb.radiusX, .ry = thumb.radiusY, .brush_id = BrushId::ScrollbarThumb });
 }
+} // namespace
 
 void Renderer::EmitLeftText(IDWriteTextFormat* fmt, std::wstring_view text, float x, float y, float height)
 {
@@ -101,7 +106,8 @@ void Renderer::GenSidePane(const SidePaneInstance& pane, bool is_file_pane, size
     GenPaneScrollbar(chrome_cmds_, r, header_h, scroll_y, SidePaneContentHeight(item_count, item_h));
 }
 
-static const wchar_t* FileEntryIcon(const FileEntry& entry) noexcept
+namespace {
+const wchar_t* FileEntryIcon(const FileEntry& entry) noexcept
 {
     if (entry.is_parent) {
         return L"\uE74A";
@@ -111,6 +117,7 @@ static const wchar_t* FileEntryIcon(const FileEntry& entry) noexcept
     }
     return L"\uE8A5";
 }
+} // namespace
 
 void Renderer::GenFileExplorer(const std::pmr::vector<FileEntry>& entries, const SidePaneInstance& pane)
 {
@@ -170,9 +177,7 @@ void Renderer::GenToc(const SidePaneState& sp, const SidePaneInstance& pane)
 
 void Renderer::DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height, bool has_dirty_nodes)
 {
-    const auto info = ComputeScrollInfo(md_pane_rect, 0.0f, total_content_height);
-    if (!ShowsVScrollbar(info, has_dirty_nodes)) {
-        return;
+    if (const auto thumb = VScrollThumb(md_pane_rect, 0.0f, scroll_y, total_content_height, has_dirty_nodes)) {
+        rt()->FillRoundedRectangle(*thumb, Brush(BrushId::ScrollbarThumb));
     }
-    rt()->FillRoundedRectangle(VScrollThumbRect(md_pane_rect.x + md_pane_rect.width, ComputeThumbY(info, scroll_y), info.thumb_height), Brush(BrushId::ScrollbarThumb));
 }

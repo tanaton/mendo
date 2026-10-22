@@ -5,7 +5,6 @@
 #include "layout.h"
 #include "dwrite_measurer.h"
 #include "command_generator.h"
-#include "command_executor.h"
 #include "d2d_render_backend.h"
 #include "text_layout_cache.h"
 #include <d2d1.h>
@@ -121,9 +120,6 @@ public:
     void PrepareChrome(const TitleBarRenderState& titlebar, const SidePaneState& side_panes);
 
 private:
-    // テーマのフォント/寸法変更をレイアウト・テキストフォーマット・コマンド生成へ反映する。
-    void ApplyThemeMetrics();
-
     // フレーム共通の前処理 (デバイスロスト復旧・BeginDraw・タイトルバー・サイドペイン)。
     // 描画できない場合はそのフレームの結果を返し、その場合 BeginDraw は呼ばれていない。
     std::optional<FrameResult> BeginFrame(const TitleBarRenderState& titlebar, const SidePaneState& side_panes);
@@ -164,10 +160,6 @@ private:
     ID2D1DeviceContext* rt() const noexcept
     {
         return backend_.GetRenderTarget();
-    }
-    ID2D1Factory* d2d() const noexcept
-    {
-        return backend_.GetD2DFactory();
     }
 
     FixedBrushArray brushes_;

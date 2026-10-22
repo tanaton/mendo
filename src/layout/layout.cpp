@@ -1,14 +1,90 @@
 #include "layout.h"
 #include "document.h"
-#include "parallel_measure.h"
+#include "parallel_for.h"
 #include "profiler.h"
 #include "task_scheduler.h"
 #include "viewport_manager.h"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <memory_resource>
 #include <ranges>
 #include <utility>
+
+namespace layout {
+
+namespace {
+
+// 戻り値は例外で計測できず dirty のまま再試行を待つノード数。
+int MeasureChunk(
+    const std::pmr::vector<Node>& nodes,
+    LayoutCache& cache,
+    float content_width,
+    const Theme& theme,
+    const ITextMeasurer& backend,
+    std::span<const size_t> chunk_indices,
+    MeasureViewportRange viewport)
+{
+    // 例外はノード単位で捕まえる。chunk 単位だと失敗ノードを特定できず、同じ chunk の残りも計測されない。
+    // 失敗回数は worker が担当する自エントリにだけ書くので同期は要らない。
+    // DiagramEntry は計測中に追加・削除されないので、worker から読むだけなら同期は要らない。
+    int failed = 0;
+    for (const size_t i : chunk_indices) {
+        auto& entry = cache[i];
+        const DiagramEntry* bitmap = IsBitmapDrawNode(nodes[i]) ? cache.FindDiagram(i) : nullptr;
+        try {
+            MeasureEntry(backend, nodes[i], entry, NodeContentWidth(nodes[i], theme, content_width), viewport, cache.Top(i), bitmap, theme);
+        } catch (...) {
+            // 諦めた後に再び dirty になって失敗し続けても一周しないよう、上限で頭打ちにする。
+            if (entry.measure_failures < LayoutCache::kMaxMeasureAttempts) {
+                ++entry.measure_failures;
+            }
+            if (entry.measure_failures >= LayoutCache::kMaxMeasureAttempts) {
+                entry.layout_dirty = false;
+            }
+            else {
+                ++failed;
+            }
+        }
+    }
+    return failed;
+}
+
+} // namespace
+
+int MeasureIndicesParallel(
+    const std::pmr::vector<Node>& nodes,
+    LayoutCache& cache,
+    float content_width,
+    const Theme& theme,
+    const ITextMeasurer& backend,
+    std::span<const size_t> indices,
+    MeasureViewportRange viewport,
+    TaskScheduler* scheduler)
+{
+    if (!indices.empty()) {
+        const auto [lo, hi] = std::ranges::minmax(indices);
+        cache.NoteMaterialized(lo, hi);
+    }
+    std::atomic<int> failed_node_count{ 0 };
+    // 1 ノードの計測 (数十 µs) に比べ chunk 取得の fetch_add は無視できるので、1 ノード単位で配って
+    // 1 画面分 (数十ノード) の dirty でも全 worker に行き渡らせる。
+    ParallelFor(scheduler, indices.size(), 1, [&](size_t begin, size_t end) {
+        MENDO_PROFILE("MeasureNode.chunk");
+        const int failed_in_chunk = MeasureChunk(nodes, cache, content_width, theme, backend, indices.subspan(begin, end - begin), viewport);
+        if (failed_in_chunk > 0) {
+            failed_node_count.fetch_add(failed_in_chunk, std::memory_order_relaxed);
+        }
+    });
+    const int failed = failed_node_count.load(std::memory_order_relaxed);
+    if (failed > 0) {
+        MENDO_TRACE("MeasureIndicesParallel: node measure threw exception");
+    }
+    MENDO_PLOT("layout.parallel.error_count", static_cast<int64_t>(failed));
+    return failed;
+}
+
+} // namespace layout
 
 using layout::AdvanceNodeY;
 using layout::EstimateInvisibleNodeHeight;
@@ -108,7 +184,7 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
             last_measured = i;
         }
         else if (const auto* tl = entry.table_layout(); tl && tl->HasEvictedRows()) {
-            cache.NoteMaterialized(i);
+            cache.NoteMaterialized(i, i);
             const auto restored = measurer_->RestoreEvictedTableRows(nodes[i], entry, NodeContentWidth(nodes[i], *theme_, content_width), range.ToLocal(entry_top));
             result.updated |= restored.restored;
             if (restored.height_changed) {
@@ -177,7 +253,7 @@ bool LayoutEngine::ProcessDirtyBatch(
     return remaining;
 }
 
-void LayoutService::ViewportLayout(Document& doc, LayoutCache& cache, float width, float height)
+void LayoutService::ViewportLayout(const Document& doc, LayoutCache& cache, float width, float height)
 {
     engine_.Reestimate(doc.GetNodes(), cache, width);
     // ズームや幅変更で推定し直すと Y がずれるので、計測の前に見ていた位置を当て直す。
@@ -188,7 +264,7 @@ void LayoutService::ViewportLayout(Document& doc, LayoutCache& cache, float widt
     viewport_.ApplyScrollTarget(cache);
 }
 
-bool LayoutService::ProcessDirtyBatch(Document& doc, LayoutCache& cache, float width, int batch_size, ViewportLimit viewport)
+bool LayoutService::ProcessDirtyBatch(const Document& doc, LayoutCache& cache, float width, int batch_size, ViewportLimit viewport)
 {
     viewport_.EnsureScrollTarget(cache);
     // height <= 0 なら ViewportClip::active() が false になりクリップは無効。
@@ -197,7 +273,7 @@ bool LayoutService::ProcessDirtyBatch(Document& doc, LayoutCache& cache, float w
     return more;
 }
 
-bool LayoutService::EnsureRangeLayout(Document& doc, LayoutCache& cache, float width, float top, float bottom)
+bool LayoutService::EnsureRangeLayout(const Document& doc, LayoutCache& cache, float width, float top, float bottom)
 {
     viewport_.EnsureScrollTarget(cache);
     const bool updated = engine_.EnsureVisibleLayout(doc.GetNodes(), cache, width, top, bottom);
@@ -205,13 +281,13 @@ bool LayoutService::EnsureRangeLayout(Document& doc, LayoutCache& cache, float w
     return updated;
 }
 
-bool LayoutService::EnsureVisibleLayout(Document& doc, LayoutCache& cache, float width, float height)
+bool LayoutService::EnsureVisibleLayout(const Document& doc, LayoutCache& cache, float width, float height)
 {
     const float scroll_y = viewport_.GetScrollY();
     return EnsureRangeLayout(doc, cache, width, scroll_y, scroll_y + height);
 }
 
-bool LayoutService::EnsureNodeLayout(Document& doc, LayoutCache& cache, float width, int node)
+bool LayoutService::EnsureNodeLayout(const Document& doc, LayoutCache& cache, float width, int node)
 {
     if (node < 0 || static_cast<size_t>(node) >= cache.size() || !cache[node].layout_dirty) {
         return false;
@@ -220,7 +296,7 @@ bool LayoutService::EnsureNodeLayout(Document& doc, LayoutCache& cache, float wi
     return EnsureRangeLayout(doc, cache, width, top, top);
 }
 
-void LayoutService::RecomputeAfterDiagram(Document& doc, LayoutCache& cache, const Theme& theme,
+void LayoutService::RecomputeAfterDiagram(const Document& doc, LayoutCache& cache, const Theme& theme,
                                           layout::HeightChangeRange changed) noexcept
 {
     if (!changed.empty()) {

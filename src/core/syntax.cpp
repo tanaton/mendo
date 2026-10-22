@@ -225,7 +225,7 @@ constexpr size_t ScanNumber(std::string_view text, size_t pos) noexcept
     return SkipChars(text, i, kNumSuffix);
 }
 
-// [start, end)の識別子の後に'('が続くか確認（空白をスキップ）。
+// end の後に空白を挟んで '(' が続くか。
 constexpr bool IsFollowedByParen(std::string_view text, size_t end) noexcept
 {
     const auto i = text.find_first_not_of(" \t", end);

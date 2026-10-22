@@ -255,7 +255,7 @@ constexpr T& EnsureUnique(std::unique_ptr<T>& p)
 struct NodeLayoutEntry {
     // ノード Y 位置 (text_top) は LayoutCache::Top(i) に分離して持つ (SoA)。
     float height = 0.0f;
-    // 直近 MeasureNode の幅と実測 height。同じ幅へ戻った際に EstimateNodeHeight の上書きを避ける。
+    // 直近 MeasureNode の幅と実測 height。同じ幅へ戻った際に EstimateInvisibleNodeHeight の上書きを避ける。
     // 「未計測」のセンチネルは kUnmeasuredWidth (= 負値)。MeasureNode 入力 (node_width) は
     // 常に正なので負値は初期化/invalidate 経路でしか出現しない。per-node で密に並ぶ hot field の
     // ため optional<float> 化はサイズ膨張を招き避けている (is_measured() で判定統一)。
@@ -553,8 +553,8 @@ public:
         return entries_[i];
     }
 
-    // ノード Y 位置の唯一の真実。WRITE 経路は RecomputeYPositions / ComputeLayout /
-    // EstimateNodeHeights のみ。MeasureNode は触らない (= 中間状態は古い値のまま)。
+    // ノード Y 位置の唯一の真実。WRITE 経路は RecomputeYPositions / EstimateNodeHeights /
+    // LayoutEngine::EstimateDirtyHeights のみ。MeasureNode は触らない (= 中間状態は古い値のまま)。
     // 高さ変化時の後続ノード一括シフトが AoS のエントリを全件なめないよう、
     // 連続 float 配列として entries_ とは別に持つ。
     constexpr float Top(size_t i) const noexcept
@@ -598,7 +598,7 @@ public:
         return it != self.diagrams_.end() ? &it->second : nullptr;
     }
 
-    // すべてのテキストレイアウトとエフェクトを無効化する（ズーム変更時）。
+    // すべてのテキストレイアウトを無効化する（ズーム変更時）。
     // ダイアグラム/Mermaid キャッシュの処理は呼び出し側で別途行うこと。
     void InvalidateAllLayouts(const std::pmr::vector<Node>& nodes) noexcept;
 
@@ -607,7 +607,7 @@ public:
     // 寸法は再計測が表示高さに使うので残し、旧デバイスで確定したエラーは再試行させる。
     void InvalidateAllDiagramBitmaps() noexcept;
 
-    // 図のビットマップを再描画待ちに戻す。ダークモード切替時に text_layout とエフェクトを
+    // 図のビットマップを再描画待ちに戻す。ダークモード切替時に text_layout を
     // 保持したまま図だけ再描画したい場合に使う。
     void InvalidateDiagramBitmaps(std::span<const size_t> diagram_indices) noexcept;
 
@@ -632,10 +632,6 @@ public:
         materialized_begin_ = std::min(materialized_begin_, first);
         materialized_end_ = std::max(materialized_end_, last_inclusive + 1);
     }
-    constexpr void NoteMaterialized(size_t i) noexcept
-    {
-        NoteMaterialized(i, i);
-    }
 
     // 計測が例外で失敗し続けるノードの試行回数の上限 (NodeLayoutEntry::measure_failures)。
     // 超えたら dirty を外して諦め、遅延レイアウトが同じノードを毎回計測し続けるのを止める。
@@ -646,7 +642,7 @@ public:
     void ResetEvictionTracking() noexcept;
 
     // 可視範囲をまたぐテーブルの可視外行で cell_layouts を Reset する。
-    // 再表示時は LayoutEngine::EnsureVisibleLayout の行復元で CreateTextLayout を再発行する。
+    // 再表示時は LayoutEngine::MeasurePass の行復元で CreateTextLayout を再発行する。
     // viewport は文書グローバル座標で渡す (entry ローカル座標ではない)。
     // table_indices は Document::GetTableNodeIndices() のうち keep 範囲と交差するもの。全エントリ走査だと 100MB 級
     // 文書でスクロール休止のたびに ~100万エントリを読むため、index リストで絞る。

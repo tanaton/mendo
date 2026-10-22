@@ -1,12 +1,11 @@
 #include "app.h"
 #include "app_constants.h"
-#include "document_service.h"
 #include "file_loader.h"
 #include "file_io.h"
 #include "i18n.h"
 #include "document_utils.h"
 #include "layout.h"
-#include "layout_queries.h"
+#include "layout_computer.h"
 #include "profiler.h"
 #include "reducer.h"
 #include "win32_util.h"
@@ -250,8 +249,7 @@ void App::DoLoadMarkdownFile()
         MENDO_PROFILE("LoadFile(FileIO+Parse)");
         auto load_result = DocumentService::LoadFile(path);
         if (!load_result) {
-            ShowToast(FileLoadErrorMessage(load_result.error(), i18n::S()));
-            HandleLoadFailureFallback();
+            HandleLoadFailureFallback(load_result.error());
             return;
         }
         ReplaceDocument(std::move(*load_result));
@@ -260,8 +258,11 @@ void App::DoLoadMarkdownFile()
     FinishLoadMarkdownFile(follow_file_pane);
 }
 
-void App::HandleLoadFailureFallback()
+void App::HandleLoadFailureFallback(std::optional<FileLoadError> error)
 {
+    if (error) {
+        ShowToast(FileLoadErrorMessage(*error, i18n::S()));
+    }
     file_watcher_.ResumeWatching();
     Dispatch(LoadFailedAction{});
     if (state_.document.doc.IsEmpty()) {
@@ -304,10 +305,7 @@ void App::OnParseComplete()
         return;
     case ParseCompleteStep::Fail:
         MENDO_TRACE("OnParseComplete: no result (cancelled or load failed)");
-        if (plan.error) {
-            ShowToast(FileLoadErrorMessage(*plan.error, i18n::S()));
-        }
-        HandleLoadFailureFallback();
+        HandleLoadFailureFallback(plan.error);
         return;
     case ParseCompleteStep::RetryDocumentChanged:
     case ParseCompleteStep::RetryPartialWrite:
@@ -460,7 +458,7 @@ void App::FinishReload(size_t diff_pos)
     // 上書きし、CalcScrollYForDiff の Y 計算がずれないようにする。
     ApplyCachedHeightsAndRecompute();
 
-    const float desired_scroll = CalcScrollYForDiff(
+    const float desired_scroll = layout::CalcScrollYForDiff(
         state_.document.doc.GetNodes(), state_.document.layout_cache,
         std::string_view{ state_.document.doc.GetRawText() },
         diff_pos, md.height, state_.view.viewport.GetScrollY());

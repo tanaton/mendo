@@ -84,10 +84,6 @@ public:
     {
         return wic_factory_.Get();
     }
-    HWND GetHwnd() const noexcept
-    {
-        return hwnd_;
-    }
 
 private:
     bool CreateDeviceResources();

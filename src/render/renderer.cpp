@@ -1,6 +1,5 @@
 #include "renderer.h"
 #include "d2d_util.h"
-#include "doc_dwrite_bridge.h"
 #include "hit_test_service.h"
 #include "i18n.h"
 #include "ui_constants.h"
@@ -65,11 +64,6 @@ void Renderer::ApplyZoomFromBase(const Theme& base_theme, float new_zoom)
     if (new_zoom != 1.0f) {
         theme_.ApplyZoom(new_zoom);
     }
-    ApplyThemeMetrics();
-}
-
-void Renderer::ApplyThemeMetrics()
-{
     layout_.UpdateTheme(theme_);
     layout_.RecreateFormats();
     RecreatePaneFormats();
@@ -241,7 +235,7 @@ bool Renderer::RecreateDevice()
         return false;
     }
     if (on_device_lost_) {
-        on_device_lost_(backend_.GetRenderTarget());
+        on_device_lost_(rt());
     }
     return true;
 }
@@ -377,13 +371,14 @@ void Renderer::DrawGestureTrail(const std::pmr::vector<GesturePoint>& points)
         return;
     }
     auto* const trail_brush = Brush(BrushId::GestureTrail);
-    if (!trail_brush || !d2d()) {
+    auto* const factory = GetD2DFactory();
+    if (!trail_brush || !factory) {
         return;
     }
 
     // パスジオメトリで一筆描きすることで、結合部のアルファ蓄積（節）を防ぐ
     ComPtr<ID2D1PathGeometry> path;
-    if (FAILED(d2d()->CreatePathGeometry(&path))) {
+    if (FAILED(factory->CreatePathGeometry(&path))) {
         return;
     }
 
@@ -404,7 +399,7 @@ void Renderer::DrawGestureTrail(const std::pmr::vector<GesturePoint>& points)
     if (!gesture_stroke_style_) {
         // 滑らかなジェスチャー軌跡のための丸型キャップと結合（初回のみ生成）
         const D2D1_STROKE_STYLE_PROPERTIES ssp = D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND);
-        d2d()->CreateStrokeStyle(ssp, nullptr, 0, &gesture_stroke_style_);
+        factory->CreateStrokeStyle(ssp, nullptr, 0, &gesture_stroke_style_);
     }
     OpacityScope guard{ trail_brush, 0.5f };
     rt()->DrawGeometry(path.Get(), trail_brush, GESTURE_TRAIL_STROKE_WIDTH, gesture_stroke_style_.Get());

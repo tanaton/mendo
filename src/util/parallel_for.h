@@ -6,7 +6,6 @@
 #include <cstddef>
 #include <memory>
 #include <type_traits>
-#include <windows.h>
 
 // [0, count) を grain 単位の chunk に分け、scheduler の worker と呼び出し元で分担して fn(begin, end) を実行する。
 // 呼び出し元自身も chunk を取りに行くため、同じ scheduler の worker 上から呼んでもデッドロックしない
