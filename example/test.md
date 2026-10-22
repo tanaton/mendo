@@ -2303,6 +2303,8 @@ extern template class SearchBarControllerT<AppSearchBarCallbacks>;
 
 `OnTextChanged` は入力が前回と同じなら何もしない（文書の切替で入力欄を空にしたときの `EN_CHANGE` など）。空になったらその場でマッチを消す。それ以外は入力のたびにすぐ検索を始める。検索は `kSearchSliceBudget`（8ms）ずつ区切って進み、残りは `App::HasIdleWork` が `SearchState::IsSearching` を見て、メッセージループの空き時間に `SearchContinueAction` で続けるので、大きな文書でも入力や描画を待たせない（デバウンスは持たない）。
 
+途中のマッチは見せない。調べている間は前回の結果（件数・ハイライト。0 件なら赤背景も）を見せ続け、調べ終えたときにまとめて差し替える。初めての検索を調べ終えるまでは `SearchState::HasResult` が偽で、`SearchBarRenderState::total_matches` を -1 にして赤背景も件数も出さない。リロードでは `App::ReloadDocument` が `CarryOverUnchanged` の求めた先頭・末尾の一致範囲（`UnchangedEnds`）を `SearchState::KeepMatchesOfUnchangedNodes` に渡し、変わらなかったノードのマッチだけを新しい番号で残してから調べ直す。保存のたびに件数が 0 に戻ってハイライトが消えるちらつきを出さず、同期の再検索で UI を止めることもないためである。
+
 別文書（ヘルプを含む）へ切り替えると、`App::ResetViewForNewDocument` が `Reset()` で検索バーを常に閉じ、クエリとマッチも空にしてから入力欄を空にする（`effect::SearchUnfocus{ clear_text = true }`）。旧文書のマッチ位置を新しいノードに使わないためである。
 
 ホバー領域は `SearchBarHitZone`（`ui_constants.h`）で定義され、None / Up / Down / CaseSensitive / Highlight / Close / Input の 7 値。Input はホバー強調が無いので None と同じに扱う。
@@ -2602,7 +2604,7 @@ extern template class ResourceManagerT<AppResourceManagerCallbacks>;
 
 図は `IMermaidRenderer::RequestRender` で要求する。結果（ビットマップかエラー）が出ていればその場で `DiagramEntry` に書かれ、高さを決める。まだなら描画が始まり、結果が出ると `MermaidRenderer` が初期化時に渡された通知で `OnMermaidUpdated` を呼び、待っていた図を要求し直させる。要求と結果はコードのハッシュで引くので、リロード・幅・テーマの変更でも出来上がった結果を使い回す（3.12）。`RequestVisibleDiagrams` 自体は再レイアウトせず、高さの変化を `height_changed_` に溜める。`RequestMermaidRenders` はその後に anchored 再レイアウトを 1 回だけ行い、`FlushPendingResources` は画像の適用と合わせて再レイアウトを 1 回にまとめる。量子化した本文幅が変わると、`InvalidateMermaidForWidthChange` が新旧どちらの幅にも収まる図以外を作り直し対象にし、旧幅の描画待ちを捨てる。
 
-可視範囲外のビットマップは解放する（前後 `EVICT_BUFFER_SCREENS` = 2 画面分は保持、`PREFETCH_BUFFER_SCREENS` = 2 画面分は先読み）。先読み範囲は evict 範囲を超えない（超えると evict 直後の flush で範囲外の画像/図を毎回読み直す）。`EVICT_BUFFER_SCREENS` は遅延レイアウトの計測範囲も兼ね、範囲外へのスクロールは `EnsureVisibleLayout` が同期計測で拾う。`ScheduleBitmapManage` は前回の flush から 50ms 以上経っていれば、スクロールの停止を待たずに evict と flush を行い、`BITMAP_MANAGE` タイマー（150ms）を仕掛け直す。スクロール停止後の `OnBitmapManageTimer` は evict → 強制 flush を行い、flush でリソースを適用してレイアウトが変わったときだけ再描画を要求する（evict 対象は可視範囲外なので見た目は変わらない）。タイマー ID は `app_constants.h` の `app_timer::Id` enum で集約管理される。
+可視範囲外のビットマップは解放する（前後 `EVICT_BUFFER_SCREENS` = 2 画面分は保持、`PREFETCH_BUFFER_SCREENS` = 2 画面分は先読み）。先読み範囲は evict 範囲を超えない（超えると evict 直後の flush で範囲外の画像/図を毎回読み直す）。`EVICT_BUFFER_SCREENS` は遅延レイアウトの計測範囲も兼ね、範囲外へのスクロールは `EnsureVisibleLayout` が同期計測で拾う。text_layout と表のセルは、文書の大きさによらず前後 `LAYOUT_EVICT_BUFFER_SCREENS`（8 画面）の外で捨てる。2 画面と比べてメモリに差が出ず、少し戻るだけで作り直しになるのを避けられる。小さい文書で全部残すと、1MB の文書を読み終えたときに物理メモリが約 4 割増えたため、全部残す扱いは持たない。`ScheduleBitmapManage` は前回の flush から 50ms 以上経っていれば、スクロールの停止を待たずに evict と flush を行い、`BITMAP_MANAGE` タイマー（150ms）を仕掛け直す。スクロール停止後の `OnBitmapManageTimer` は evict → 強制 flush を行い、flush でリソースを適用してレイアウトが変わったときだけ再描画を要求する（evict 対象は可視範囲外なので見た目は変わらない）。タイマー ID は `app_constants.h` の `app_timer::Id` enum で集約管理される。
 
 別文書への切替では、`App::CancelPendingResources` が `CancelMermaidBatch` と図・画像の `DropQueued` を呼び、始まっていない要求だけを捨てる。リロードでは描画・デコードの待ちも結果も捨てない（図はコードのハッシュ、画像はパスがキーなので、そのまま使える）。編集で画像が置かれた可能性があるので、画像の失敗記録（`ResetFailedPaths`）だけを消す。
 

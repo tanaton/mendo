@@ -193,7 +193,7 @@ public:
         sb.visible = state_->IsVisible();
         sb.query = GetQueryWide();
         sb.current_match = state_->GetCurrentMatchIndex();
-        sb.total_matches = state_->GetMatchCount();
+        sb.total_matches = state_->HasResult() ? state_->GetMatchCount() : -1;
         sb.caret_pos = caret_pos_;
         sb.selection_start = selection_start_;
         sb.ime_composition = ime_composition_;
@@ -232,21 +232,18 @@ public:
 private:
     void ContinueSearch(SideEffectList& effects, const std::pmr::vector<Node>& nodes, bool force_invalidate = false)
     {
-        const int before = state_->GetMatchCount();
         const bool done = state_->ContinueSearch(nodes, std::chrono::steady_clock::now() + kSearchSliceBudget);
-        // 描画は検索中かどうかを見ないので、続きの区切りはマッチが増えたときと完了時だけ描き直す。
-        if (force_invalidate || done || state_->GetMatchCount() != before) {
+        // 結果は終わったときにまとめて差し替わるので、続きの区切りでは描き直さない。
+        if (force_invalidate || done) {
             PushEffect(effects, effect::InvalidateWindow{});
         }
         if (!done) {
             return;
         }
-        // 途中でユーザーがマッチへ移っていれば (BeginSearch で -1 に戻した選択がある)、選び直して上書きしない。
-        if (state_->GetMatchCount() > 0 && state_->GetCurrentMatchIndex() < 0) {
-            state_->SetCurrentMatchNear(viewport_->GetScrollY(), *cache_);
-            if (scroll_after_search_) {
-                ScrollToCurrentMatch();
-            }
+        // 差し替えで選択は外れている。途中で前回の結果を辿っていても、見ている位置の近くで選び直す。
+        state_->SetCurrentMatchNear(viewport_->GetScrollY(), *cache_);
+        if (scroll_after_search_) {
+            ScrollToCurrentMatch();
         }
     }
 

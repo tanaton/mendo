@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <limits>
 #include <optional>
+#include <ranges>
+#include <utility>
 
 namespace {
 size_t FindNext(std::string_view text, std::string_view query, bool fold, size_t pos) noexcept
@@ -26,13 +28,18 @@ void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
 
 void SearchState::BeginSearch()
 {
+    StopSearch();
+    if (query_.empty()) {
+        ClearMatches();
+        return;
+    }
     // ASCII 英字を含まないクエリは大文字小文字を無視しても通常一致と結果が同じなので、
     // 比較時の小文字化 (fold) を省く。文書の小文字コピーは持たず走査中に畳み込む。
     const bool fold = !case_sensitive_ && ascii_util::HasAsciiLetter(query_);
     std::pmr::string active = fold ? ToLowerAsciiCopy(query_) : query_;
     // 比べ方 (fold) が同じなら、前回のクエリを伸ばしたクエリは前回マッチのあったノードにしか現れない。
-    narrowing_ = completed_ && fold == active_fold_ &&
-                 active.size() > active_query_.size() && active.starts_with(active_query_);
+    narrowing_ = completed_ && fold == matched_.fold &&
+                 active.size() > matched_.text.size() && active.starts_with(matched_.text);
     candidate_nodes_.clear();
     if (narrowing_) {
         for (const auto& m : matches_) {
@@ -41,11 +48,9 @@ void SearchState::BeginSearch()
             }
         }
     }
-    ClearMatches();
     next_node_ = 0;
-    active_fold_ = fold;
-    active_query_ = std::move(active);
-    searching_ = !query_.empty();
+    active_ = { std::move(active), fold };
+    searching_ = true;
 }
 
 bool SearchState::ContinueSearch(const std::pmr::vector<Node>& nodes, std::chrono::steady_clock::time_point deadline)
@@ -56,20 +61,19 @@ bool SearchState::ContinueSearch(const std::pmr::vector<Node>& nodes, std::chron
     // 時計を毎ノード読むと小さいノードの多い文書で検索より重くなるので、走査量でまとめて確かめる。
     constexpr size_t kBytesPerClockCheck = 256 * 1024;
     constexpr size_t kNodesPerClockCheck = 256;
-    const std::string_view query = active_query_;
-    const size_t before = matches_.size();
+    const std::string_view query = active_.text;
     const size_t end = narrowing_ ? candidate_nodes_.size() : nodes.size();
     size_t scanned_bytes = 0;
     size_t scanned_nodes = 0;
-    while (next_node_ < end && matches_.size() < MAX_MATCHES) {
+    while (next_node_ < end && pending_.size() < MAX_MATCHES) {
         const int i = narrowing_ ? candidate_nodes_[next_node_++] : static_cast<int>(next_node_++);
         const auto& node = nodes[i];
         if (node.type == NodeType::Table && node.has_table()) {
-            FindTableMatches(*node.table_data(), query, active_fold_, i);
+            FindTableMatches(*node.table_data(), query, active_.fold, i);
             scanned_bytes += node.table_data()->concat_text.size();
         }
         else if (const auto& text = node.GetText(); !text.empty() && !IsBitmapDrawNode(node)) {
-            FindTextMatches(text, query, active_fold_, i);
+            FindTextMatches(text, query, active_.fold, i);
             scanned_bytes += text.size();
         }
         if (scanned_bytes >= kBytesPerClockCheck || ++scanned_nodes >= kNodesPerClockCheck) {
@@ -80,12 +84,46 @@ bool SearchState::ContinueSearch(const std::pmr::vector<Node>& nodes, std::chron
             }
         }
     }
-    if (matches_.size() != before) {
-        BumpGeneration();
+    const bool truncated = pending_.size() >= MAX_MATCHES;
+    searching_ = next_node_ < end && !truncated;
+    if (searching_) {
+        return false;
     }
-    searching_ = next_node_ < end && matches_.size() < MAX_MATCHES;
-    completed_ = next_node_ >= end && matches_.size() < MAX_MATCHES;
-    return !searching_;
+    matches_.swap(pending_);
+    pending_.clear();
+    current_match_ = -1;
+    std::swap(matched_, active_);
+    completed_ = !truncated;
+    has_result_ = true;
+    BumpGeneration();
+    return true;
+}
+
+void SearchState::KeepMatchesOfUnchangedNodes(const UnchangedEnds& ends) noexcept
+{
+    StopSearch();
+    // matches_ は文書順なので、変わった範囲のマッチは 1 つの連続区間になる。
+    const auto node_of = [](const SearchMatch& m) static noexcept { return static_cast<size_t>(m.node_index); };
+    const auto first = std::ranges::lower_bound(matches_, ends.head, {}, node_of);
+    const auto last = std::ranges::lower_bound(first, matches_.end(), ends.OldTailBegin(), {}, node_of);
+    const int shift = static_cast<int>(ends.new_count) - static_cast<int>(ends.old_count);
+    for (auto& m : std::ranges::subrange(last, matches_.end())) {
+        m.node_index += shift;
+    }
+    const auto first_k = static_cast<int>(first - matches_.begin());
+    const auto removed = static_cast<int>(last - first);
+    if (current_match_ >= first_k + removed) {
+        current_match_ -= removed;
+    }
+    else if (current_match_ >= first_k) {
+        current_match_ = -1;
+    }
+    matches_.erase(first, last);
+    // 全部消えたら、変わった範囲にあったマッチが今も 0 件とは限らないので「見つからない」と見せない。
+    has_result_ = has_result_ && !(matches_.empty() && removed > 0);
+    // 変わった範囲のマッチが抜けているので、伸ばしたクエリの絞り込みには使えない。
+    completed_ = false;
+    BumpGeneration();
 }
 
 void SearchState::FindTextMatches(std::string_view text, std::string_view query, bool fold, int node_index)
@@ -94,10 +132,10 @@ void SearchState::FindTextMatches(std::string_view text, std::string_view query,
     // UTF-16 位置は最初のヒットから前方へ数えるだけにし、ノード全文の UTF-16 化を避ける。
     Utf16OffsetCursor cursor{ text };
     size_t pos = 0;
-    while (matches_.size() < MAX_MATCHES && (pos = FindNext(text, query, fold, pos)) != ascii_util::npos) {
+    while (pending_.size() < MAX_MATCHES && (pos = FindNext(text, query, fold, pos)) != ascii_util::npos) {
         const auto byte_start = static_cast<uint32_t>(pos);
         const auto w = cursor.WideRange(byte_start, query_len);
-        matches_.emplace_back(SearchMatch{
+        pending_.emplace_back(SearchMatch{
             .node_index = node_index,
             .start = byte_start,
             .length = query_len,
@@ -125,7 +163,7 @@ void SearchState::FindTableMatches(const NodeTableData& tbl, std::string_view qu
     size_t cursor_cell = std::numeric_limits<size_t>::max();
     std::optional<Utf16OffsetCursor> cursor;
     size_t pos = 0;
-    while (matches_.size() < MAX_MATCHES && (pos = FindNext(concat, query, fold, pos)) != ascii_util::npos) {
+    while (pending_.size() < MAX_MATCHES && (pos = FindNext(concat, query, fold, pos)) != ascii_util::npos) {
         const auto it = std::upper_bound(starts.begin(), starts.begin() + static_cast<std::ptrdiff_t>(cell_limit + 1), static_cast<uint32_t>(pos));
         const size_t cell = static_cast<size_t>(it - starts.begin()) - 1;
         if (cell >= cell_limit) {
@@ -144,7 +182,7 @@ void SearchState::FindTableMatches(const NodeTableData& tbl, std::string_view qu
             cursor_cell = cell;
         }
         const auto w = cursor->WideRange(local, query_len);
-        matches_.emplace_back(SearchMatch{
+        pending_.emplace_back(SearchMatch{
             .node_index = node_index,
             .start = local,
             .length = query_len,

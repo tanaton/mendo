@@ -129,9 +129,12 @@ void App::ReplaceDocument(Document next, LayoutCache estimated)
 void App::ReloadDocument(Document next, LayoutCache estimated)
 {
     // 保存のたびに可視範囲を作り直さず、実測の高さも推定値に戻さない (スクロール位置の計算と表示の跳ねを防ぐ)。
-    if (layout::CarryOverUnchanged(state_.document.doc.GetNodes(), state_.document.layout_cache, next.GetNodes(), estimated) > 0) {
+    const auto carry = layout::CarryOverUnchanged(state_.document.doc.GetNodes(), state_.document.layout_cache, next.GetNodes(), estimated);
+    if (carry.carried > 0) {
         RecomputeYPositions(next.GetNodes(), estimated, renderer_.GetTheme());
     }
+    // FinishReload の再検索が終わるまで、変わらなかったノードのハイライトと件数を残す。
+    state_.search.search_state.KeepMatchesOfUnchangedNodes(carry.ends);
     ReplaceDocument(std::move(next), std::move(estimated));
 }
 
