@@ -77,7 +77,6 @@ struct ParsedWebMessage {
     RequestPrefix request{};
 };
 
-// switch で扱える形にすることで mermaid.cpp 側の if-else 連鎖を排除する。
 ParsedWebMessage ParseWebMessage(std::wstring_view msg) noexcept;
 
 } // namespace mermaid_util

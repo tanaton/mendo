@@ -2,7 +2,6 @@
 #include "app_constants.h"
 #include "ascii_util.h"
 #include "clipboard_util.h"
-#include "document_service.h"
 #include "document_utils.h"
 #include "file_dialog_service.h"
 #include "i18n.h"

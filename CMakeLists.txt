@@ -143,7 +143,6 @@ add_library(mendo_core STATIC
     # input - 入力処理
     src/input/hit_test_service.cpp
     # io - ファイルI/O・永続化
-    src/io/document_service.cpp
     src/io/file_loader.cpp
     src/io/file_dialog_service.cpp
     src/io/file_explorer.cpp

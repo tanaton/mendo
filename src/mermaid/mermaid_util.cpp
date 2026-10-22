@@ -112,7 +112,7 @@ size_t FindJsonValueStart(std::wstring_view json, std::wstring_view key) noexcep
 float ParseFloatPrefix(std::wstring_view s) noexcept
 {
     wchar_t buf[64];
-    const auto num_len = (std::min)(s.size(), std::size(buf) - 1);
+    const auto num_len = std::min(s.size(), std::size(buf) - 1);
     std::char_traits<wchar_t>::copy(buf, s.data(), num_len);
     buf[num_len] = L'\0';
     const float v = std::wcstof(buf, nullptr);
@@ -279,7 +279,7 @@ std::pmr::wstring mermaid_util::ParseJsonString(std::wstring_view json, std::wst
 std::pmr::wstring mermaid_util::SanitizeErrorMessage(std::wstring_view msg, size_t max_len)
 {
     std::pmr::wstring result;
-    result.reserve((std::min)(msg.size(), max_len));
+    result.reserve(std::min(msg.size(), max_len));
     bool prev_space = true; // 先頭の空白は落とす
     bool truncated = false;
     for (size_t i = 0; i < msg.size(); ++i) {

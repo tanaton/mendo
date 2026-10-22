@@ -8,7 +8,6 @@
 #include "ui_constants.h"
 #include "profiler.h"
 #include <windowsx.h>
-#include <shellscalingapi.h>
 #include <dwmapi.h>
 #include <commctrl.h>
 #include <imm.h>
@@ -16,7 +15,6 @@
 #include <optional>
 #include <utility>
 
-#pragma comment(lib, "shcore.lib")
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "imm32.lib")
 

@@ -80,12 +80,12 @@ public:
     void Init(HWND parent_hwnd);
     bool Update(const TooltipTarget& target);
     void Show();
-    void Hide();
     void ApplyDarkMode(bool dark);
     // 隠して対象も忘れる。次のホバーで同じ対象に戻っても表示し直す。
     void Clear();
 
 private:
+    void Hide();
     bool EnsureWindow();
 
     HWND hwnd_ = nullptr;

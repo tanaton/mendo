@@ -15,6 +15,7 @@ namespace context_menu_constants {
 inline constexpr float ITEM_HEIGHT = 28.0f;
 inline constexpr float CTX_NAV_BTN_SIZE = 28.0f;
 inline constexpr float CTX_NAV_BTN_GAP = 16.0f;
+inline constexpr float CTX_NAV_BUTTONS_WIDTH = 2 * CTX_NAV_BTN_SIZE + CTX_NAV_BTN_GAP;
 inline constexpr float CTX_NAV_ROW_PAD_Y = 5.0f;
 inline constexpr float CTX_NAV_BTN_CORNER = 4.0f;
 inline constexpr float SEPARATOR_HEIGHT = 9.0f;

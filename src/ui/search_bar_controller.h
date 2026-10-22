@@ -26,7 +26,7 @@ protected:
 
 // 検索バーのUI状態管理。
 // SearchState（ドメインロジック）を参照で保持し、検索バー固有の
-// UIステート（フォーカス、キャレット、ドラッグ選択、ホバー）を管理する。
+// UIステート（キャレット、選択、IME 変換中の文字列）を管理する。
 // 再描画・フォーカス・ビープは effects に積み、App::Execute に任せる。
 class SearchBarController {
 public:
@@ -132,9 +132,6 @@ public:
         }
     }
 
-    // 1 回でこれを超える分は、メッセージループが入力と描画を配った後の空き時間 (OnContinue) へ回す。
-    static constexpr auto kSearchSliceBudget = std::chrono::milliseconds(8);
-
     // 終わった時点で見ている位置の近くのマッチを選び、scroll_to_match ならそこへスクロールする。
     void RunSearchAndLocate(SideEffectList& effects, const std::pmr::vector<Node>& nodes, bool scroll_to_match = false)
     {
@@ -151,33 +148,6 @@ public:
         }
     }
 
-    void ScrollToCurrentMatch()
-    {
-        const int idx = state_->GetCurrentMatchIndex();
-        if (idx < 0 || idx >= state_->GetMatchCount()) {
-            return;
-        }
-        const auto& match = state_->GetMatches()[idx];
-        if (match.node_index < 0 ||
-            match.node_index >= static_cast<int>(cache_->size())) {
-            return;
-        }
-
-        // 未計測や evict 済みのノードは text_layout が無く、行の Y を引けずにノード先頭へ寄ってしまう。
-        host_->EnsureNodeLayout(match.node_index);
-        const auto& entry = (*cache_)[match.node_index];
-        // Why: ブロック先頭/行先頭に丸めると、長い段落内の複数マッチ間で同じ Y に集約され
-        //      「次へ」を押してもスクロールしない。start_w で行単位の Y を出す。
-        const auto [match_y, match_h] = entry.GetMatchYRange(match.table_row, match.table_col, match.start_w, cache_->Top(static_cast<size_t>(match.node_index)));
-        const float visible_height = host_->MdPaneHeight() - (state_->IsVisible() ? SEARCH_BAR_HEIGHT : 0.0f);
-        const float scroll_y = viewport_->GetScrollY();
-        const float effective_bottom = scroll_y + visible_height;
-
-        if (match_y < scroll_y || match_y + match_h > effective_bottom) {
-            viewport_->ScrollTo(match_y - visible_height / 3.0f, host_->MdMaxScroll());
-        }
-    }
-
     void Reset()
     {
         state_->Reset();
@@ -185,7 +155,6 @@ public:
         ResetInteractionState();
         ResetCaretAndSelection();
     }
-
 
     SearchBarRenderState BuildRenderState() const
     {
@@ -230,6 +199,36 @@ public:
     }
 
 private:
+    // 1 回でこれを超える分は、メッセージループが入力と描画を配った後の空き時間 (OnContinue) へ回す。
+    static constexpr auto kSearchSliceBudget = std::chrono::milliseconds(8);
+
+    void ScrollToCurrentMatch()
+    {
+        const int idx = state_->GetCurrentMatchIndex();
+        if (idx < 0 || idx >= state_->GetMatchCount()) {
+            return;
+        }
+        const auto& match = state_->GetMatches()[idx];
+        if (match.node_index < 0 ||
+            match.node_index >= static_cast<int>(cache_->size())) {
+            return;
+        }
+
+        // 未計測や evict 済みのノードは text_layout が無く、行の Y を引けずにノード先頭へ寄ってしまう。
+        host_->EnsureNodeLayout(match.node_index);
+        const auto& entry = (*cache_)[match.node_index];
+        // Why: ブロック先頭/行先頭に丸めると、長い段落内の複数マッチ間で同じ Y に集約され
+        //      「次へ」を押してもスクロールしない。start_w で行単位の Y を出す。
+        const auto [match_y, match_h] = entry.GetMatchYRange(match.table_row, match.table_col, match.start_w, cache_->Top(static_cast<size_t>(match.node_index)));
+        const float visible_height = host_->MdPaneHeight() - (state_->IsVisible() ? SEARCH_BAR_HEIGHT : 0.0f);
+        const float scroll_y = viewport_->GetScrollY();
+        const float effective_bottom = scroll_y + visible_height;
+
+        if (match_y < scroll_y || match_y + match_h > effective_bottom) {
+            viewport_->ScrollTo(match_y - visible_height / 3.0f, host_->MdMaxScroll());
+        }
+    }
+
     void ContinueSearch(SideEffectList& effects, const std::pmr::vector<Node>& nodes, bool force_invalidate = false)
     {
         const bool done = state_->ContinueSearch(nodes, std::chrono::steady_clock::now() + kSearchSliceBudget);

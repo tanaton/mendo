@@ -6,7 +6,13 @@
 #include <algorithm>
 #include <cstring>
 #include <new>
+#include <limits>
 #include <string_view>
+
+namespace {
+// md4c が長さを int で取るため ~2GB-1 が実効上限。事前ガード (OpenFileForReadShared) もこの値で揃え、二段ガードを排除する。
+constexpr LONGLONG MAX_FILE_SIZE = static_cast<LONGLONG>(std::numeric_limits<int>::max());
+} // namespace
 
 std::expected<LoadedFileDoc, FileLoadError> FileLoader::LoadFile(const std::pmr::wstring& path)
 {

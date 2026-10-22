@@ -20,7 +20,7 @@ public:
     void SetInitialDirectory(std::wstring_view dir_path);
     void StartPreloadAsync(std::pmr::wstring path);
 
-    // App::LoadInitialDocument が AttachOrApplyPreload で同期復元するパスに備えて、Create より前に呼ぶ。
+    // App::LoadInitialDocument が FileLoadService::AttachPreload で同期復元するパスに備えて、Create より前に呼ぶ。
     void RestoreScrollPosition();
 
 private:
