@@ -293,10 +293,6 @@ void App::OnParseComplete()
 
     // ApplyReload / ReplaceWithResult のときだけ結果がある。
     AsyncLoadResult* const result = (outcome && *outcome) ? &**outcome : nullptr;
-    // worker が作った推定済み LayoutCache は D2D 由来の参照を持たないので、文書ごと worker で捨てられる。
-    const auto dispose_outcome = [&] {
-        DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
-    };
     if (plan.reload) {
         MENDO_TRACEF(
             "OnParseComplete: reload worker_diff={} node_count={} diff_pos={} new_size={} op={}",
@@ -313,8 +309,9 @@ void App::OnParseComplete()
         return;
     case ParseCompleteStep::RetryDocumentChanged:
     case ParseCompleteStep::RetryPartialWrite:
+        // worker が作った推定済み LayoutCache は D2D 由来の参照を持たないので、文書ごと worker で捨てられる。
         if (result) {
-            dispose_outcome();
+            DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
         }
         DeferReloadRetry();
         return;
@@ -324,7 +321,7 @@ void App::OnParseComplete()
         }
         // 読み始めた後にテキスト選択のドラッグが始まった。読み直しはドラッグの終わりに回す。
         if (DeferReloadWhileSelecting()) {
-            dispose_outcome();
+            DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
             return;
         }
         ReloadDocument(std::move(result->doc), std::move(result->cache));
@@ -461,7 +458,7 @@ void App::FinishReload(size_t diff_pos)
     // 上書きし、CalcScrollYForDiff の Y 計算がずれないようにする。
     ApplyCachedHeightsAndRecompute();
 
-    const float desired_scroll = CalcScrollYForDiff(
+    const float desired_scroll = layout::CalcScrollYForDiff(
         state_.document.doc.GetNodes(), state_.document.layout_cache,
         std::string_view{ state_.document.doc.GetRawText() },
         diff_pos, md.height, state_.view.viewport.GetScrollY());

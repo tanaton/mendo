@@ -4,7 +4,7 @@
 // 任意入力のパース結果に対して一括検査できるようにしておく。
 #include <gtest/gtest.h>
 #include "document_types.h"
-#include "reload.h"
+#include "document_utils.h"
 #include "test_nodes.h"
 #include <algorithm>
 #include <cstddef>

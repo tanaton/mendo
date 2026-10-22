@@ -10,6 +10,8 @@
 #include "parser.h"
 #include "test_nodes.h"
 
+using layout::FindActiveTocIndex;
+
 namespace {
 
 struct ParsedToc {

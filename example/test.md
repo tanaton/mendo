@@ -334,7 +334,7 @@ private:
 | `app_file.cpp` | `LoadMarkdownFile`, `StartPreloadAsync`, `BeginAsyncLoad`, `OnParseComplete`、文書の差し替え（`ReplaceDocument` / `ReloadDocument`）、リロード（`ReloadCurrentFile`, `FinishReload`）、`LoadHelpDocument` |
 | `app_mouse.cpp` | マウス入力ハンドラ（`OnMouseMove`, `OnMouseWheel`, `OnRButton*`, ドラッグ系統括）、クリック処理（`OnLButtonDown/Up`, `HandleMdPaneClick`, `HandleLinkClick` 等）、ホバー処理（`OnMouseHover`, `HoverMdPane`, `ResolveMdPaneHit`） |
 | `clipboard_manager.h / .cpp` | `ClipboardManager`（コピー/PNG 保存/SVG コピーを集約。 SVG LRU キャッシュを内包） |
-| `app_controller.cpp` | `app_controller::HandleKeyDown` / `HandleMouseWheel`（宣言は `reducer.h`） |
+| `app_controller.cpp` | `app_controller::HandleKeyDown` / `HandleMouseWheel`（宣言は `app_events.h`） |
 | `reducer.h / .cpp` | `Reduce(state, action)`（in-place 更新、副作用リストを返す）と、ドメイン別の `Reduce*` 関数（スクロール・入力・ナビゲーション・検索・UI・システム）。`Reduce*` は無名名前空間に置く。左ドラッグの終了とキャプチャ解放をまとめた `EndLeftDrag` も公開する |
 | `side_effect.h` | `SideEffect`（`effect::*` の variant）と `SideEffectList`。実行は `App::Execute` |
 | `resource_manager.h` | 画像・図（Mermaid / LaTeX）・ビットマップ管理（ヘッダ内定義）と、App に頼むことの抽象インターフェース `ResourceManagerHost` |
@@ -430,7 +430,7 @@ flowchart TD
 
 #### 3.2.7 app_controller — イベント→アクション変換
 
-`app_controller` はステートレスなマッパー（namespace + 自由関数）である。宣言は `reducer.h`、実装は `app_controller.cpp` に置く。必要な状態は呼び出し側が持って渡す。Win32 / D2D 依存なし、完全にテスト可能。
+`app_controller` はステートレスなマッパー（namespace + 自由関数）である。宣言は `app_events.h`、実装は `app_controller.cpp` に置く。必要な状態は呼び出し側が持って渡す。Win32 / D2D 依存なし、完全にテスト可能。
 
 ```cpp
 struct KeyDownEvent {
@@ -1265,8 +1265,6 @@ struct Theme {
 Reducer は `AppState::theme`（`Renderer` 所有 `Theme` への非所有ポインタ）経由で寸法を直接参照する。
 
 #### 3.9.2 ThemeService — テーマ管理サービス
-
-宣言は `theme_service.h`、実装は `theme.cpp` に置く。
 
 ```cpp
 class ThemeService {
@@ -3057,7 +3055,7 @@ private:
 
 脚注のアンカー (`user-content-fn-N` / `user-content-fnref-N[-M]`) は、パース時に作った `footnote_def_indices_`（脚注番号 → 定義ノード）と `footnote_refs_`（参照の位置）を引く。見出しの索引より先に照合するので、脚注のアンカーと同じスラグの見出しがあっても脚注が優先される。
 
-`raw_text_` はパース入力の UTF-8 テキストを常時保持する。これはリロード時の差分比較（`AnalyzeReloadDiff`、差分位置からのスクロール量は `layout_computer.h` の `CalcScrollYForDiff`）用で、ノードレベルでは検出できない編集（空行追加・末尾空白等）も UTF-8 byte オフセット精度で差分位置を求めるため。`RawText` は不変の共有文字列で持ち、非同期リロードのワーカーは `Share()` で旧テキストを受け取って、パースの前に差分を判定する。`raw_text_` は常に LF 正規化済み（`FileLoader` か 2 引数版の `FromMarkdown` が `NormalizeNewlines` を通す）なので、リロード diff の新テキストも `FileLoader` で同じ正規化を通してから比較する。これによりファイル全体の改行コードを変換して保存するエディタ（issue #273）でも差分位置が編集行を正しく指し、改行コード変換のみの保存は NoChange としてスクロール位置が維持される。
+`raw_text_` はパース入力の UTF-8 テキストを常時保持する。これはリロード時の差分比較（`AnalyzeReloadDiff`、差分位置からのスクロール量は `layout_computer.h` の `layout::CalcScrollYForDiff`）用で、ノードレベルでは検出できない編集（空行追加・末尾空白等）も UTF-8 byte オフセット精度で差分位置を求めるため。`RawText` は不変の共有文字列で持ち、非同期リロードのワーカーは `Share()` で旧テキストを受け取って、パースの前に差分を判定する。`raw_text_` は常に LF 正規化済み（`FileLoader` か 2 引数版の `FromMarkdown` が `NormalizeNewlines` を通す）なので、リロード diff の新テキストも `FileLoader` で同じ正規化を通してから比較する。これによりファイル全体の改行コードを変換して保存するエディタ（issue #273）でも差分位置が編集行を正しく指し、改行コード変換のみの保存は NoChange としてスクロール位置が維持される。
 
 ### 4.4 NodeType / AlertType
 
@@ -3573,10 +3571,10 @@ src/
 │   ├── app_state.h                # AppState (全状態集約) + reducer と App が導出するペイン/ブロック情報
 │   ├── reload_flow.h              # 非同期ロード完了時の分岐判定 (純粋関数)
 │   ├── startup_plan.h / .cpp      # 起動時の初期表示の決定
-│   ├── app_events.h               # AppAction variant
+│   ├── app_events.h               # AppAction variant + app_controller の宣言
 │   ├── app_constants.h            # タイマーID / WM_APP+N / WPARAM 定義
 │   ├── app_controller.cpp         # app_controller (Event→Action)
-│   ├── reducer.h / reducer.cpp    # Reducer (Action+State→Effects, in-place) + ドメイン別 Reduce* + app_controller の宣言
+│   ├── reducer.h / reducer.cpp    # Reducer (Action+State→Effects, in-place) + ドメイン別 Reduce*
 │   ├── side_effect.h              # SideEffect 単一variant + PushEffect
 │   └── resource_manager.h         # ResourceManager + ResourceManagerHost (ヘッダ内定義)
 ├── window/                        # ウィンドウ層
@@ -3604,8 +3602,7 @@ src/
 │   ├── html_entity_table.h        # HTML5 名前付き文字参照表 (生成コード)
 │   ├── unicode_lower_table.h      # 非 ASCII の単純小文字化表 (生成コード)
 │   ├── document.h / document.cpp  # Document + RawText (パース入力 UTF-8 の保持)
-│   ├── document_utils.h / .cpp    # テキスト操作 + reload.h の実装
-│   ├── reload.h                   # AnalyzeReloadDiff / DecideReload / FindNodeBySourceOffset
+│   ├── document_utils.h / .cpp    # テキスト操作 + リロード判定 (AnalyzeReloadDiff / DecideReload / FindNodeBySourceOffset)
 │   ├── selection_html.h / .cpp    # 選択範囲の HTML 生成
 │   ├── syntax.h / syntax.cpp      # シンタックスハイライト
 │   └── syntax_keywords.h          # 言語別キーワード辞書
@@ -3619,9 +3616,9 @@ src/
 │   ├── text_measurer.h            # ITextMeasurer インターフェース (本番/モック差し替え用) + MeasureEntry
 │   └── dwrite_measurer.h / .cpp   # DirectWrite 実装
 ├── theme/                         # テーマ層
-│   ├── theme.h / theme.cpp        # Theme + theme_palette + ThemeService の実装
+│   ├── theme.h / theme.cpp        # Theme + theme_palette
 │   ├── theme_palette.h            # 配色パレット定義
-│   └── theme_service.h            # テーマ管理サービス
+│   └── theme_service.h / .cpp     # テーマ管理サービス
 ├── nav/                           # ナビゲーション層
 │   └── nav.h / nav.cpp            # NavHistory + LinkClickResult / HandleLinkClick
 ├── input/                         # 入力処理層
@@ -5019,7 +5016,7 @@ nnoremap <silent> <leader>m <ScriptCmd>OpenInMendo()<CR>
 | 1 | Win32Window | window.h/cpp | mendo | なし |
 | 2 | App | app.h + app_*.cpp | mendo | 部分 |
 | 3 | AppState | app_state.h | mendo_core | あり (各サブgrp) |
-| 4 | app_controller | reducer.h + app_controller.cpp | mendo_core | あり |
+| 4 | app_controller | app_events.h + app_controller.cpp | mendo_core | あり |
 | 5 | Reducer | reducer.h/cpp | mendo_core | あり |
 | 6 | SideEffect + App::Execute | side_effect.h + app.cpp | mendo_core (型) / mendo (実行) | Reducer 経由 |
 | 7 | Renderer | renderer*.cpp | mendo | なし |
@@ -5031,7 +5028,7 @@ nnoremap <silent> <leader>m <ScriptCmd>OpenInMendo()<CR>
 | 13 | Document | document.h/cpp | mendo_core | あり |
 | 14 | DocumentService | file_load_service.h/cpp | mendo_core | あり |
 | 15 | Theme | theme.h/cpp | mendo_core | あり |
-| 16 | ThemeService | theme_service.h + theme.cpp | mendo_core | あり |
+| 16 | ThemeService | theme_service.h/cpp | mendo_core | あり |
 | 17 | Syntax | syntax.h/cpp | mendo_core | あり |
 | 18 | FileLoader | file_loader.h/cpp | mendo_core | あり |
 | 19 | FileWatcher | file_watcher.h/cpp | mendo_core | あり |

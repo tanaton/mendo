@@ -920,7 +920,7 @@ void App::SyncTocActiveAndAutoScroll(bool auto_scroll)
         return;
     }
     const auto& theme = renderer_.GetTheme();
-    const int new_active = FindActiveTocIndex(
+    const int new_active = layout::FindActiveTocIndex(
         state_.document.doc.GetToc(), state_.document.layout_cache, state_.view.viewport.GetScrollY(), theme.heading_spacing_above);
     if (new_active == state_.view.active_toc_index) {
         return;

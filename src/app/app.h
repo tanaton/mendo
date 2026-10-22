@@ -11,7 +11,7 @@
 #include "layout.h"
 #include "mermaid.h"
 #include "mermaid_file_cache.h"
-#include "reload.h"
+#include "document_utils.h"
 #include "render_params.h"
 #include "renderer.h"
 #include "resource_manager.h"

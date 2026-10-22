@@ -1,7 +1,6 @@
 #include "layout_computer.h"
 #include "document_utils.h"
 #include "profiler.h"
-#include "reload.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -30,6 +29,18 @@ float NodeStartY(const std::pmr::vector<Node>& nodes, const LayoutCache& cache, 
         return theme.margin_top;
     }
     return cache.Bottom(index - 1) + GetSpacingBelow(nodes[index - 1], theme);
+}
+
+// node_index より後ろで node_start を超える最初の source offset。見つからなければ fallback。
+// 途中に offset 無しノード (HR や空のルーズリスト等) が連続しても取り逃さないよう探索するが、
+// 末尾まで線形走査すると大規模ファイルのリロードが重くなるため上限を設ける
+// (通常は最初の有効 offset で見つかるため上限には届かない)。
+size_t NextSourceOffset(const std::pmr::vector<Node>& nodes, int node_index, size_t node_start, size_t fallback) noexcept
+{
+    constexpr int kMaxOffsetProbe = 4096;
+    const auto probe = nodes | std::views::drop(node_index + 1) | std::views::take(kMaxOffsetProbe);
+    const auto it = std::ranges::find_if(probe, [node_start](const Node& n) noexcept { return n.HasSourceOffset() && n.SourceOffset() > node_start; });
+    return it != probe.end() ? it->SourceOffset() : fallback;
 }
 } // namespace
 
@@ -304,24 +315,6 @@ void RecomputeYPositions(
     }
 }
 
-} // namespace layout
-
-namespace {
-
-// node_index より後ろで node_start を超える最初の source offset。見つからなければ fallback。
-// 途中に offset 無しノード (HR や空のルーズリスト等) が連続しても取り逃さないよう探索するが、
-// 末尾まで線形走査すると大規模ファイルのリロードが重くなるため上限を設ける
-// (通常は最初の有効 offset で見つかるため上限には届かない)。
-size_t NextSourceOffset(const std::pmr::vector<Node>& nodes, int node_index, size_t node_start, size_t fallback) noexcept
-{
-    constexpr int kMaxOffsetProbe = 4096;
-    const auto probe = nodes | std::views::drop(node_index + 1) | std::views::take(kMaxOffsetProbe);
-    const auto it = std::ranges::find_if(probe, [node_start](const Node& n) noexcept { return n.HasSourceOffset() && n.SourceOffset() > node_start; });
-    return it != probe.end() ? it->SourceOffset() : fallback;
-}
-
-} // namespace
-
 float CalcScrollYForDiff(
     const std::pmr::vector<Node>& nodes,
     const LayoutCache& cache,
@@ -367,3 +360,5 @@ int FindActiveTocIndex(std::span<const TocEntry> entries, const LayoutCache& cac
     });
     return (it != entries.begin()) ? static_cast<int>(std::prev(it) - entries.begin()) : -1;
 }
+
+} // namespace layout

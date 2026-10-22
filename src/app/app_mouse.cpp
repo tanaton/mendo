@@ -1,5 +1,4 @@
 #include "app.h"
-#include "reducer.h"
 #include "block_h_scroll.h"
 #include "document_utils.h"
 #include "i18n.h"

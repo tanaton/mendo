@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#include "layout_computer.h"
 #include <algorithm>
 #include <format>
 #include <iterator>
@@ -12,15 +11,17 @@
 #include <vector>
 #include "document_utils.h"
 #include "document_test_helpers.h"
+#include "layout_computer.h"
 #include "test_helpers.h"
 #include "parser.h"
-#include "reload.h"
 #include "selection_html.h"
 #include "syntax.h"
 #include "theme.h"
 #include "theme_palette.h"
 #include "utf8_fuzz_helpers.h"
 #include "test_nodes.h"
+
+using layout::CalcScrollYForDiff;
 
 namespace {
 

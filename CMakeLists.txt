@@ -158,6 +158,7 @@ add_library(mendo_core STATIC
     src/nav/nav.cpp
     # theme - テーマ管理
     src/theme/theme.cpp
+    src/theme/theme_service.cpp
     # app - アプリケーション制御
     src/app/app_controller.cpp
     src/app/reducer.cpp

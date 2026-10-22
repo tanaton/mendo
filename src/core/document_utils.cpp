@@ -1,5 +1,4 @@
 #include "document_utils.h"
-#include "reload.h"
 #include "ascii_util.h"
 #include "unicode_lower_table.h"
 #include "utf8_codec.h"
@@ -294,7 +293,7 @@ std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent)
 }
 
 namespace {
-// 種別・テキスト・runs・リンク先・入れ子の深さ・表や画像などを比べる。
+
 bool NodeContentEquals(const Node& a, const Node& b) noexcept
 {
     if (a.type != b.type || a.alert_type != b.alert_type || a.quote_depth != b.quote_depth ||
@@ -316,6 +315,7 @@ bool NodeContentEquals(const Node& a, const Node& b) noexcept
     const auto* bt = b.table_data();
     return (at == nullptr) == (bt == nullptr) && (!at || *at == *bt);
 }
+
 } // namespace
 
 UnchangedEnds FindUnchangedEnds(std::span<const Node> old_nodes, std::span<const Node> new_nodes) noexcept

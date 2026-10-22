@@ -186,10 +186,6 @@ void RecomputeYPositions(
     const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
     size_t from_index = 0, size_t safe_exit_after = std::numeric_limits<size_t>::max()) noexcept;
 
-} // namespace layout
-
-// 以下は文書位置と LayoutCache の Y 座標を突き合わせる問い合わせ。
-
 // scroll_y + margin の位置にある見出し (目次の項目番号)。無ければ -1。
 // margin は見出し上部余白で、画面上端に近い見出しを正しくアクティブにする。
 int FindActiveTocIndex(std::span<const TocEntry> entries, const LayoutCache& cache, float scroll_y, float margin = 0.0f) noexcept;
@@ -204,3 +200,5 @@ float CalcScrollYForDiff(
     size_t diff_pos,
     float viewport_height,
     float fallback_scroll) noexcept;
+
+} // namespace layout

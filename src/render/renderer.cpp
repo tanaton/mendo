@@ -371,13 +371,14 @@ void Renderer::DrawGestureTrail(const std::pmr::vector<GesturePoint>& points)
         return;
     }
     auto* const trail_brush = Brush(BrushId::GestureTrail);
-    if (!trail_brush || !GetD2DFactory()) {
+    auto* const factory = GetD2DFactory();
+    if (!trail_brush || !factory) {
         return;
     }
 
     // パスジオメトリで一筆描きすることで、結合部のアルファ蓄積（節）を防ぐ
     ComPtr<ID2D1PathGeometry> path;
-    if (FAILED(GetD2DFactory()->CreatePathGeometry(&path))) {
+    if (FAILED(factory->CreatePathGeometry(&path))) {
         return;
     }
 
@@ -398,7 +399,7 @@ void Renderer::DrawGestureTrail(const std::pmr::vector<GesturePoint>& points)
     if (!gesture_stroke_style_) {
         // 滑らかなジェスチャー軌跡のための丸型キャップと結合（初回のみ生成）
         const D2D1_STROKE_STYLE_PROPERTIES ssp = D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND);
-        GetD2DFactory()->CreateStrokeStyle(ssp, nullptr, 0, &gesture_stroke_style_);
+        factory->CreateStrokeStyle(ssp, nullptr, 0, &gesture_stroke_style_);
     }
     OpacityScope guard{ trail_brush, 0.5f };
     rt()->DrawGeometry(path.Get(), trail_brush, GESTURE_TRAIL_STROKE_WIDTH, gesture_stroke_style_.Get());
