@@ -200,7 +200,6 @@ add_executable(mendo WIN32
     src/app/app.cpp
     src/app/app_file.cpp
     src/app/app_mouse.cpp
-    src/app/app_callbacks.cpp
     src/ui/context_menu.cpp
     src/render/renderer.cpp
     src/render/renderer_resources.cpp

@@ -250,8 +250,7 @@ void App::DoLoadMarkdownFile()
         MENDO_PROFILE("LoadFile(FileIO+Parse)");
         auto load_result = DocumentService::LoadFile(path);
         if (!load_result) {
-            ShowToast(FileLoadErrorMessage(load_result.error(), i18n::S()));
-            HandleLoadFailureFallback();
+            HandleLoadFailureFallback(load_result.error());
             return;
         }
         ReplaceDocument(std::move(*load_result));
@@ -260,8 +259,11 @@ void App::DoLoadMarkdownFile()
     FinishLoadMarkdownFile(follow_file_pane);
 }
 
-void App::HandleLoadFailureFallback()
+void App::HandleLoadFailureFallback(std::optional<FileLoadError> error)
 {
+    if (error) {
+        ShowToast(FileLoadErrorMessage(*error, i18n::S()));
+    }
     file_watcher_.ResumeWatching();
     Dispatch(LoadFailedAction{});
     if (state_.document.doc.IsEmpty()) {
@@ -292,6 +294,10 @@ void App::OnParseComplete()
 
     // ApplyReload / ReplaceWithResult のときだけ結果がある。
     AsyncLoadResult* const result = (outcome && *outcome) ? &**outcome : nullptr;
+    // worker が作った推定済み LayoutCache は D2D 由来の参照を持たないので、文書ごと worker で捨てられる。
+    const auto dispose_outcome = [&] {
+        DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
+    };
     if (plan.reload) {
         MENDO_TRACEF(
             "OnParseComplete: reload worker_diff={} node_count={} diff_pos={} new_size={} op={}",
@@ -304,16 +310,12 @@ void App::OnParseComplete()
         return;
     case ParseCompleteStep::Fail:
         MENDO_TRACE("OnParseComplete: no result (cancelled or load failed)");
-        if (plan.error) {
-            ShowToast(FileLoadErrorMessage(*plan.error, i18n::S()));
-        }
-        HandleLoadFailureFallback();
+        HandleLoadFailureFallback(plan.error);
         return;
     case ParseCompleteStep::RetryDocumentChanged:
     case ParseCompleteStep::RetryPartialWrite:
-        // worker が作った推定済み LayoutCache は D2D 由来の参照を持たないので、文書ごと worker で捨てられる。
         if (result) {
-            DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
+            dispose_outcome();
         }
         DeferReloadRetry();
         return;
@@ -323,7 +325,7 @@ void App::OnParseComplete()
         }
         // 読み始めた後にテキスト選択のドラッグが始まった。読み直しはドラッグの終わりに回す。
         if (DeferReloadWhileSelecting()) {
-            DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
+            dispose_outcome();
             return;
         }
         ReloadDocument(std::move(result->doc), std::move(result->cache));

@@ -1,6 +1,5 @@
 #include "app.h"
-#include "app_constants.h"
-#include "app_controller.h"
+#include "reducer.h"
 #include "block_h_scroll.h"
 #include "document_utils.h"
 #include "i18n.h"
@@ -299,7 +298,7 @@ void App::OnMouseWheel(int px, int py, int delta, bool ctrl)
     }
 
     const auto dip = PixelToDip(px, py);
-    Dispatch(app_controller::HandleMouseWheel(MouseWheelEvent{ delta, false, ZoneAt(dip.x, GetPaneLayout()), GetTickCount64() }, zoom_accum));
+    Dispatch(app_controller::HandleMouseWheel(MouseWheelEvent{ delta, false, PaneAtPoint(dip.x), GetTickCount64() }, zoom_accum));
 }
 
 void App::OnMouseHWheel(short delta)
@@ -449,7 +448,7 @@ bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_
     std::unreachable();
 }
 
-void App::HandleOverlayButtonClick(const OverlayButtonHit& hit, float content_width)
+void App::HandleOverlayButtonClick(const OverlayButtonHit& hit)
 {
     const bool dark = renderer_.GetTheme().IsDark();
     switch (hit.kind) {
@@ -462,7 +461,7 @@ void App::HandleOverlayButtonClick(const OverlayButtonHit& hit, float content_wi
         const auto* diagram = state_.document.layout_cache.FindDiagram(hit.node);
         const PngBytes png = diagram ? diagram->png : nullptr;
         if (hit.kind == OverlayButton::DiagramCopy) {
-            clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, hit.node, png, content_width, dark);
+            clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, hit.node, png, MdContentWidth(), dark);
         }
         else {
             clipboard_manager_.SaveDiagramAsPng(state_.document.doc, hit.node, png);
@@ -503,7 +502,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         }
         return;
     case MdPaneHit::Kind::OverlayButton:
-        HandleOverlayButtonClick(target.overlay_button, hit_ctx.content_width);
+        HandleOverlayButtonClick(target.overlay_button);
         return;
     case MdPaneHit::Kind::Scrollbar:
         Dispatch(MdScrollbarDragStartedAction{ dip_y });
@@ -513,7 +512,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
         if (TryStartBlockHScrollDrag(hit_ctx, dip_x)) {
             return;
         }
-        const auto hit = HitTest(px, py);
+        const auto hit = hit_test::HitTest(hit_ctx);
         Dispatch(TextSelectionStartedAction{ hit.node_index, hit.text_pos, px, py });
         return;
     }

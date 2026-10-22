@@ -2,12 +2,10 @@
 #include "app_constants.h"
 #include "pane_layout.h"
 #include "ui_types.h"
-#include "pane_controller.h"
 #include "titlebar.h"
 #include "tooltip.h"
 #include "ui_constants.h"
 #include <array>
-#include <optional>
 #include <variant>
 #include <string>
 #include <cstdint>

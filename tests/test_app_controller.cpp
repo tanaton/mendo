@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "app_controller.h"
+#include "reducer.h"
 #include <windows.h>
 
 namespace {

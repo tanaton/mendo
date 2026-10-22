@@ -26,9 +26,8 @@ void DiscardPendingLoad(AppState& state)
     state.view.pending_restore = {};
 }
 
-} // namespace
-
-void PushCurrentNavEntry(AppState& state, std::wstring_view load_path)
+// load_path: これから開くファイル。現在と別のファイルなら、ロード失敗 (LoadFailedAction) で取り消す仮の履歴にする。
+void PushCurrentNavEntry(AppState& state, std::wstring_view load_path = {})
 {
     const auto& current_path = state.document.doc.GetFilePath();
     // doc 未ロード (パス空) の状態は戻り先にならないため積まない
@@ -50,6 +49,8 @@ void PushCurrentNavEntry(AppState& state, std::wstring_view load_path)
         state.view.nav_history.PushPending(std::move(entry));
     }
 }
+
+} // namespace
 
 const PaneLayout& EnsurePaneLayout(AppState& state) noexcept
 {
@@ -117,18 +118,6 @@ void ClearDrag(AppState& state, SideEffectList& effects)
         PushEffect(effects, effect::SetTimer{ app_timer::Id::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_RETRY_MS });
     }
 }
-
-} // namespace
-
-void EndLeftDrag(AppState& state, SideEffectList& effects)
-{
-    ClearDrag(state, effects);
-    if (state.interaction.gesture.GetPhase() == GesturePhase::Idle) {
-        PushEffect(effects, effect::ReleaseCapture{});
-    }
-}
-
-namespace {
 
 void BeginLeftDrag(AppState& state, SideEffectList& effects, const LeftDragState& drag)
 {
@@ -906,13 +895,21 @@ void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
     case app_timer::Id::DEVICE_RECREATE_RETRY:
         // AppState を変えないタイマーは App::HandleTimer が直接処理する。
         return;
-    case app_timer::Id::END: // 番兵。タイマーとしては使わない。新規タイマーはこの直前に追加する。
+    case app_timer::Id::END:
         break;
     }
     std::unreachable();
 }
 
 } // namespace
+
+void EndLeftDrag(AppState& state, SideEffectList& effects)
+{
+    ClearDrag(state, effects);
+    if (state.interaction.gesture.GetPhase() == GesturePhase::Idle) {
+        PushEffect(effects, effect::ReleaseCapture{});
+    }
+}
 
 SideEffectList Reduce(AppState& state, const AppAction& action)
 {

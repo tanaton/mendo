@@ -39,17 +39,6 @@ struct ResourceManagerDeps {
     MermaidFileCache* mermaid_file_cache = nullptr;
 };
 
-namespace resource_manager_detail {
-
-constexpr std::span<const size_t> VisibleSlice(std::span<const size_t> sorted_indices, size_t first_visible_node, size_t last_visible_node_plus_1) noexcept
-{
-    const auto b = std::ranges::lower_bound(sorted_indices, first_visible_node);
-    const auto e = std::ranges::lower_bound(b, sorted_indices.end(), last_visible_node_plus_1);
-    return { b, e };
-}
-
-} // namespace resource_manager_detail
-
 // ResourceManager が App に頼むこと。
 class ResourceManagerHost {
 public:
@@ -136,7 +125,7 @@ public:
                 continue;
             }
 
-            // 通常運用時のみ非同期ロードを起動する。リロード時は後続の LoadImages effect で起動する。
+            // 通常運用時のみ非同期ロードを起動する。リロード時は後続の RelayoutViewport (LoadImages) で起動する。
             const float max_width = layout::NodeContentWidth(node, theme, content_width);
             const auto request = [&] {
                 if (respect_viewport) {
@@ -238,8 +227,6 @@ public:
 
     void EvictOffscreenBitmaps()
     {
-        using resource_manager_detail::VisibleSlice;
-
         const auto keep = ComputeBufferedRange(EVICT_BUFFER_SCREENS);
         if (!keep) {
             return;
@@ -310,6 +297,13 @@ public:
     }
 
 private:
+    static constexpr std::span<const size_t> VisibleSlice(std::span<const size_t> sorted_indices, size_t first_visible_node, size_t last_visible_node_plus_1) noexcept
+    {
+        const auto b = std::ranges::lower_bound(sorted_indices, first_visible_node);
+        const auto e = std::ranges::lower_bound(b, sorted_indices.end(), last_visible_node_plus_1);
+        return { b, e };
+    }
+
     // 再レイアウトはしない。高さが変わったノードは height_changed_ に溜まる。
     int RequestVisibleDiagrams()
     {
@@ -333,9 +327,7 @@ private:
     void OnImageLoadComplete()
     {
         pending_flush_ = true;
-        if (ApplyCachedImages() > 0) {
-            host_->RecomputeLayout(TakeHeightChanges());
-        }
+        LoadImages();
     }
 
     // 戻り値: その場で bitmap が確定したか。
@@ -457,9 +449,9 @@ private:
         if (!r) {
             return { indices, {}, {} };
         }
-        const auto all = resource_manager_detail::VisibleSlice(indices, r->range.first, r->range.last_plus_1);
+        const auto all = VisibleSlice(indices, r->range.first, r->range.last_plus_1);
         const auto vr = ComputeVisibleNodeRange(*deps_.cache, r->viewport_top, r->viewport_bottom);
-        const auto visible = resource_manager_detail::VisibleSlice(all, vr.first, vr.last_plus_1);
+        const auto visible = VisibleSlice(all, vr.first, vr.last_plus_1);
         const auto above = static_cast<size_t>(visible.data() - all.data());
         return { visible, all.subspan(above + visible.size()), all.first(above) };
     }

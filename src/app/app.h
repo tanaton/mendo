@@ -1,8 +1,6 @@
 #pragma once
-#include "app_callbacks.h"
 #include "app_events.h"
 #include "app_state.h"
-#include "async_load_result.h"
 #include "clipboard_manager.h"
 #include "config_service.h"
 #include "context_menu.h"
@@ -16,6 +14,8 @@
 #include "reload.h"
 #include "render_params.h"
 #include "renderer.h"
+#include "resource_manager.h"
+#include "search_bar_controller.h"
 #include "selection_html.h"
 #include "side_effect.h"
 #include "task_scheduler.h"
@@ -30,6 +30,27 @@
 #include <string>
 #include <string_view>
 #include <utility>
+
+class App;
+
+// ResourceManager と SearchBarController が App に問い合わせる窓口。
+class AppHost final : public ResourceManagerHost, public SearchBarHost {
+public:
+    explicit AppHost(App& app) noexcept : app_(app)
+    {}
+
+    void SetTimer(app_timer::Id id, UINT ms) override;
+    void KillTimer(app_timer::Id id) override;
+    float MdContentWidth() override;
+    float MdPaneHeight() override;
+    float MdMaxScroll() override;
+    const Theme& GetTheme() override;
+    void RecomputeLayout(layout::HeightChangeRange changed) override;
+    void EnsureNodeLayout(int node_index) override;
+
+private:
+    App& app_;
+};
 
 struct SystemCursors {
     HCURSOR arrow = nullptr;
@@ -54,7 +75,6 @@ public:
     {}
     bool Init(HWND hwnd);
 
-    void LoadHelpDocument();
     // ウィンドウを保存済みの配置で表示した後、初回描画の前に呼ぶ。
     // 先に取り込むと既定サイズでレイアウトし、配置の復元でやり直しになる。
     // preload が無ければヘルプを開く。
@@ -291,7 +311,7 @@ private:
     bool HandleTitleBarClick(float dip_x, float dip_y);
     bool HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& layout, bool is_double_click);
     void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& layout);
-    void HandleOverlayButtonClick(const OverlayButtonHit& hit, float content_width);
+    void HandleOverlayButtonClick(const OverlayButtonHit& hit);
     // ホバー中ブロックの水平スクロールバー上ならドラッグを開始して true。
     bool TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x);
     void HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout);
@@ -336,6 +356,7 @@ private:
     float ScrollableContentHeight() const noexcept;
 
     // ---- ファイル読み込み (app_file.cpp) ----
+    void LoadHelpDocument();
     void LoadMarkdownFile(std::wstring_view path);
     void CancelOtherFileLoad();
     // 表示文書とレイアウトキャッシュを一緒に差し替え、旧文書の破棄を worker に回す。
@@ -353,7 +374,8 @@ private:
     // StartPreloadAsync が Init より前に呼ぶことがある。2 回目は何もしない。
     void InitSharedScheduler();
     void FinishLoadMarkdownFile(bool follow_file_pane);
-    void HandleLoadFailureFallback();
+    // error があればトーストで知らせる。
+    void HandleLoadFailureFallback(std::optional<FileLoadError> error);
     // Mermaid/画像キャッシュの実測値でノード高さを上書きし、変化があれば Y 位置を再計算する。
     // 呼び出し前にノード高さの初期化 (EstimateNodeHeights) は完了していること。
     void ApplyCachedHeightsAndRecompute();
@@ -361,7 +383,7 @@ private:
     void FinishReload(size_t diff_pos);
 
     enum class ReloadFlow : uint8_t {
-        Handled,            // ResumeFileWatch / DeferReloadRetry が発行済み、呼び出し元は return
+        Handled,            // ResumeWatching / DeferReloadRetry 済み、呼び出し元は return
         ContinueWithReload, // Replace を呼び出し元で実行する
     };
     // NoChange / Defer* をここで処理し、Replace は呼び出し元に任せる。
