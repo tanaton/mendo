@@ -1,6 +1,7 @@
 #include "dwrite_measurer.h"
 #include "brush_id.h"
 #include "doc_dwrite_bridge.h"
+#include "document_utils.h"
 #include "layout_computer.h"
 #include "parallel_for.h"
 #include "profiler.h"
@@ -62,37 +63,47 @@ void ForEachInlineCodeBg(IDWriteTextLayout* layout, std::string_view text, std::
     }
 }
 
-struct RowHeightResult {
-    float height;
-    // 本文があるのに layout が無いセル (= 範囲外で evict されたまま) を含む
-    bool has_unbuilt_cell;
-};
-
-// 構築済みセルに列幅を適用し、行高さ (上下パディング込み、base_row_height 以上) を求める。
-// インラインコードを含むテーブルなら、行の背景も作り直す。
-RowHeightResult MeasureRowHeight(TableLayoutData& tl, const NodeTableData& tbl, size_t r, float base_row_height)
+// layout を持たないセル (evict 中の行) の高さ。列幅に収まれば初回計測で残した折り返さない高さそのもので、
+// 収まらなければ折り返しの行数を見積もる (行を復元したときの実測で直す)。
+float EvictedCellHeight(const TableLayoutData& tl, size_t ci, float cw) noexcept
 {
-    RowHeightResult result{ base_row_height, false };
+    const float natural = tl.cell_natural_widths[ci];
+    const float height = tl.cell_nowrap_heights[ci];
+    if (natural <= cw || cw <= 0.0f) {
+        return height;
+    }
+    return height * std::ceil(natural / cw);
+}
+
+// セルに列幅を適用し、行高さ (上下パディング込み、base_row_height 以上) を求める。
+// インラインコードを含むテーブルなら、行の背景も作り直す (layout の無い evict 中の行は背景も持たない)。
+float MeasureRowHeight(TableLayoutData& tl, const NodeTableData& tbl, size_t r, float base_row_height)
+{
+    float height = base_row_height;
     auto* const bgs = tl.row_code_bgs.empty() ? nullptr : &tl.row_code_bgs[r];
     if (bgs) {
         bgs->clear();
     }
     for (size_t c = 0; c < tl.col_count; c++) {
         const size_t ci = tl.CellIndex(r, c);
-        if (auto* const layout = tl.cell_layouts[ci].Get()) {
-            result.height = std::max(result.height, ApplyCellWidth(tl, ci, tl.col_widths[c], tbl.ColAlign(c)) + TABLE_CELL_PADDING * 2.0f);
-            if (bgs) {
-                ForEachInlineCodeBg(layout, tbl.GetCellText(r, c), tbl.GetCellRuns(r, c), [&](const InlineCodeBg& rect) {
-                    bgs->push_back({ static_cast<uint32_t>(c), rect });
-                });
-            }
+        auto* const layout = tl.cell_layouts[ci].Get();
+        if (!layout) {
+            height = std::max(height, EvictedCellHeight(tl, ci, tl.col_widths[c]) + TABLE_CELL_PADDING * 2.0f);
+            continue;
         }
-        else if (!tbl.GetCellText(r, c).empty()) {
-            result.has_unbuilt_cell = true;
+        height = std::max(height, ApplyCellWidth(tl, ci, tl.col_widths[c], tbl.ColAlign(c)) + TABLE_CELL_PADDING * 2.0f);
+        if (bgs) {
+            ForEachInlineCodeBg(layout, tbl.GetCellText(r, c), tbl.GetCellRuns(r, c), [&](const InlineCodeBg& rect) {
+                bgs->push_back({ static_cast<uint32_t>(c), rect });
+            });
         }
     }
-    return result;
+    return height;
 }
+
+// 初回計測でセル layout を残す表の大きさの上限。layout は 1 セル 7KB ほどあり、5 万行 6 列の表で 2GB になる。
+// これより大きい表は自然幅と高さだけ測って捨て、可視行だけ作り直す。小さい表は可視行を 2 回作らないよう残す。
+constexpr size_t kMaxKeptTableCells = 1024;
 
 // 巨大テーブルを行チャンクで並列処理するときの 1 チャンクの行数。
 constexpr size_t TableRowsPerChunk(size_t col_count) noexcept
@@ -413,24 +424,21 @@ void DWriteTextMeasurer::MeasureNode(
     // 描画パスでのトークン化によるフレーム落ちを避けるため、ここで作る。
     // layout と一緒に捨てるので、画面外のコードブロックのトークンは残らない。
     if (node.type == NodeType::CodeBlock && node.code_language() != SyntaxLanguage::None) {
-        entry.set_syntax_tokens(ToWideMergedTokens(text, Tokenize(text, node.code_language())));
+        entry.set_syntax_tokens(ToWideMergedTokens(text, TokenizeCodeNode(node)));
     }
 
     entry.set_text_layout(std::move(layout));
     FinishTextMeasure(node, entry, metrics, *theme_, false);
 }
 
-void DWriteTextMeasurer::BuildCellLayout(const NodeTableData& tbl, size_t r, size_t c, IDWriteTextFormat* row_fmt, TableLayoutData& tl) const
+ComPtr<IDWriteTextLayout> DWriteTextMeasurer::CreateCellLayout(const NodeTableData& tbl, size_t r, size_t c, IDWriteTextFormat* row_fmt) const
 {
+    ComPtr<IDWriteTextLayout> cell_layout;
     const auto text = tbl.GetCellText(r, c);
-    if (text.empty()) {
-        return;
-    }
-    auto& cell_layout = tl.cell_layouts[tl.CellIndex(r, c)];
-    CreateDocTextLayout(dwrite_, text, row_fmt, layout::kNoWrapLayoutWidth, layout::kNoWrapLayoutWidth, &cell_layout);
-    if (cell_layout) {
+    if (!text.empty() && SUCCEEDED(CreateDocTextLayout(dwrite_, text, row_fmt, layout::kNoWrapLayoutWidth, layout::kNoWrapLayoutWidth, &cell_layout))) {
         ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, /*apply_code_size=*/true);
     }
+    return cell_layout;
 }
 
 void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayoutData& tl) const
@@ -439,22 +447,29 @@ void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayout
     const size_t col_count = tbl.col_count;
     auto& natural_widths = tl.natural_col_widths;
     natural_widths.assign(col_count, 0.0f);
+    const bool keep_layouts = tl.cell_layouts.size() <= kMaxKeptTableCells;
 
     // 巨大テーブルは全セルの CreateTextLayout が秒単位になるため行チャンクで並列化する。
     // セルは chunk ごとに別 index へ書くので排他不要で、自然幅だけ chunk 末尾でマージする。
+    // 残さない layout は worker 上で解放する。
     std::mutex merge_mutex;
     ParallelFor(scheduler_, tbl.row_count, TableRowsPerChunk(col_count), [&](size_t row_begin, size_t row_end) {
         std::pmr::vector<float> local_widths(col_count, 0.0f);
         for (size_t r = row_begin; r < row_end; r++) {
             IDWriteTextFormat* const row_fmt = GetTableRowFormat(tbl, r);
             for (size_t c = 0; c < col_count; c++) {
-                BuildCellLayout(tbl, r, c, row_fmt, tl);
+                auto cell_layout = CreateCellLayout(tbl, r, c, row_fmt);
+                if (!cell_layout) {
+                    continue;
+                }
+                DWRITE_TEXT_METRICS metrics{};
+                cell_layout->GetMetrics(&metrics);
                 const size_t ci = tl.CellIndex(r, c);
-                if (const auto& cell_layout = tl.cell_layouts[ci]) {
-                    DWRITE_TEXT_METRICS metrics{};
-                    cell_layout->GetMetrics(&metrics);
-                    tl.cell_natural_widths[ci] = metrics.width;
-                    local_widths[c] = std::max(local_widths[c], metrics.width);
+                tl.cell_natural_widths[ci] = metrics.width;
+                tl.cell_nowrap_heights[ci] = metrics.height;
+                local_widths[c] = std::max(local_widths[c], metrics.width);
+                if (keep_layouts) {
+                    tl.cell_layouts[ci] = std::move(cell_layout);
                 }
             }
         }
@@ -463,6 +478,9 @@ void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayout
             natural_widths[c] = std::max(natural_widths[c], local_widths[c]);
         }
     });
+    if (!keep_layouts) {
+        tl.ResetRowEviction(tbl.row_count, /*evicted=*/true);
+    }
 }
 
 void DWriteTextMeasurer::RestoreNullCellLayouts(const NodeTableData& tbl, TableLayoutData& tl, MeasureViewportRange viewport) const
@@ -485,7 +503,7 @@ void DWriteTextMeasurer::BuildRowCells(const NodeTableData& tbl, TableLayoutData
     for (size_t c = 0; c < tbl.col_count; c++) {
         const size_t ci = tl.CellIndex(r, c);
         if (ci < tl.cell_layouts.size() && !tl.cell_layouts[ci]) {
-            BuildCellLayout(tbl, r, c, row_fmt, tl);
+            tl.cell_layouts[ci] = CreateCellLayout(tbl, r, c, row_fmt);
         }
     }
 }
@@ -507,19 +525,7 @@ void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayou
     const float base_row_height = layout::TableBaseRowHeight(*theme_);
     ParallelFor(scheduler_, tbl.row_count, TableRowsPerChunk(col_count), [&](size_t row_begin, size_t row_end) {
         for (size_t r = row_begin; r < row_end; r++) {
-            // evict 済みの行はセルが無く、下の判定でも行高さを残すだけなので、全列をなめずに飛ばす。
-            if (tl.row_evicted[r] && tl.row_heights[r] > 0.0f) {
-                if (!tl.row_code_bgs.empty()) {
-                    tl.row_code_bgs[r].clear();
-                }
-                continue;
-            }
-            const auto [row_height, has_unbuilt_cell] = MeasureRowHeight(tl, tbl, r, base_row_height);
-            // 部分復元時は null セルがある行 = 範囲外 evict 行。再計算で行高さを既定値に戻すと
-            // 累積位置がずれるため、既存の row_heights[r] を保持する (復元時に実測で補正される)。
-            if (!has_unbuilt_cell || tl.row_heights[r] <= 0.0f) {
-                tl.row_heights[r] = row_height;
-            }
+            tl.row_heights[r] = MeasureRowHeight(tl, tbl, r, base_row_height);
         }
     });
 
@@ -570,7 +576,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
     ParallelFor(scheduler_, rows.size(), TableRowsPerChunk(tl.col_count), [&](size_t begin, size_t end) {
         for (size_t k = begin; k < end; k++) {
             BuildRowCells(*tbl, tl, rows[k]);
-            row_heights[k] = MeasureRowHeight(tl, *tbl, rows[k], base_row_height).height;
+            row_heights[k] = MeasureRowHeight(tl, *tbl, rows[k], base_row_height);
         }
     });
 
@@ -578,7 +584,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
     for (size_t k = 0; k < rows.size(); k++) {
         const size_t r = rows[k];
         tl.MarkRowRestored(r);
-        // 幅変更時に evict 中だった行は旧幅の行高さのまま残っているため、ここで実測に揃える。
+        // evict 中の行の高さは折り返しの行数を見積もったものなので、ここで実測に揃える。
         if (row_heights[k] != tl.row_heights[r]) {
             tl.row_heights[r] = row_heights[k];
             first_changed_row = std::min(first_changed_row, r);
@@ -657,7 +663,7 @@ void DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayoutEntry& entry, 
     }
     else {
         tl.AllocateCells(row_count, col_count);
-        // 初回構築は常に全行を作る (列幅判定に全行の自然幅が必要なため)。
+        // 列幅判定に全行の自然幅が要るので、初回は全セルを測る。
         MeasureTableCells(*tbl, tl);
     }
     FinalizeTableLayout(*tbl, entry, max_width);

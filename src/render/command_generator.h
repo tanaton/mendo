@@ -89,6 +89,9 @@ private:
         // ブロック横スクロールの clip 内で平行移動を合成し、抜けたあと復元するための基底 Translation。
         D2D1::Matrix3x2F pane_transform;
         const TextSelection& selection;
+        // 区切ったコードブロックの並びを 1 つのブロックとして横スクロールするのに使う。
+        std::span<const Node> nodes;
+        const LayoutCache& cache;
         OverlayButtonHit hovered;
         BlockHScrollContext h_scroll;
         NodeOverhang overhang;
@@ -132,7 +135,8 @@ private:
     };
     void GenTableCellContent(std::string_view cell_text, const CellDrawContext& ctx);
     // box は padding 込みのコードブロック矩形 (ペインローカル)。
-    void GenCodeBlockBg(const D2D1_RECT_F& box);
+    // 区切ったコードブロックの継ぎ目の側は角を丸めず、隣の背景とつなげる。
+    void GenCodeBlockBg(const D2D1_RECT_F& box, bool round_top, bool round_bottom);
     void GenOverlayButtons(const FrameContext& fc, const Node& node, const DiagramEntry* diagram, float x, float cw, float entry_text_top, int node_index);
     void GenOverlayButton(D2D1_RECT_F btn, wchar_t icon, bool is_hovered);
     // ブロックローカルの水平スクロールバー。ホバー中 / ドラッグ中の対象ブロックでのみ emit する。

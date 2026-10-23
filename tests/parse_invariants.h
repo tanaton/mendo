@@ -147,6 +147,21 @@ inline ::testing::AssertionResult ParseInvariantsHold(std::string_view raw, cons
             prev_offset = offset;
         }
 
+        // 区切ったノードの並びは前後のフラグが対になり、同じ種別・同じ入れ子に収まり、空のノードを含まない。
+        if (node.continues_prev() != (i > 0 && nodes[i - 1].continues_next())) {
+            sink.Add("node {}: continues_prev {} does not pair with previous continues_next", i, node.continues_prev());
+        }
+        if (node.continues_prev()) {
+            const auto& prev = nodes[i - 1];
+            if (prev.type != node.type || prev.indent_level != node.indent_level || prev.blockquote_group != node.blockquote_group ||
+                prev.code_language() != node.code_language()) {
+                sink.Add("node {}: continuation differs from previous node in type or nesting", i);
+            }
+        }
+        if ((node.continues_prev() || node.continues_next()) && !node.HasText()) {
+            sink.Add("node {}: empty chunk", i);
+        }
+
         if (node.type == NodeType::Table) {
             CheckTable(sink, i, node);
             continue;

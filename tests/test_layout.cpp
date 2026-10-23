@@ -533,7 +533,7 @@ TEST_F(LayoutTest, TableHScrollReachesRightEdgeWithoutBlank)
             ASSERT_EQ(nodes.size(), 1u);
             ASSERT_NE(cache[0].table_layout(), nullptr);
             const float table_width = cache[0].table_layout()->TableWidth();
-            const auto geom = GetBlockHScrollGeometry(nodes[0], cache[0], theme_, viewport_w);
+            const auto geom = GetBlockHScrollGeometry(nodes, cache, 0, theme_, viewport_w);
             EXPECT_LE(table_width, geom.visible_width + geom.scroll_max() + BLOCK_H_SCROLL_SLACK);
             EXPECT_LE(geom.visible_width + geom.scroll_max(), table_width + 0.05f);
         }
@@ -555,7 +555,7 @@ TEST_F(LayoutTest, CodeBlockHScrollShowsLongestLineWithRightPadding)
             DWRITE_TEXT_METRICS m{};
             ASSERT_TRUE(SUCCEEDED(cache[0].text_layout()->GetMetrics(&m)));
             const float line_w = m.widthIncludingTrailingWhitespace;
-            const auto geom = GetBlockHScrollGeometry(nodes[0], cache[0], theme_, viewport_w);
+            const auto geom = GetBlockHScrollGeometry(nodes, cache, 0, theme_, viewport_w);
             if (line_w <= geom.visible_width && line_w + 2.0f * pad > geom.visible_width + BLOCK_H_SCROLL_SLACK) {
                 ++needs_padding_only;
             }

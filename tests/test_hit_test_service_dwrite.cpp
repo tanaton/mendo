@@ -111,7 +111,7 @@ TEST_F(HitTestDWriteTest, BlockScrollXIsClampedBeforeHitTest)
 
     auto narrow = ParseAndLayout("```\nabcdef\n```");
     ASSERT_EQ(narrow.nodes[0].type, NodeType::CodeBlock);
-    ASSERT_FALSE(GetBlockHScrollGeometry(narrow.nodes[0], narrow.cache[0], theme_, 800.0f).can_scroll());
+    ASSERT_FALSE(GetBlockHScrollGeometry(narrow.nodes, narrow.cache, 0, theme_, 800.0f).can_scroll());
     const std::pmr::unordered_map<int, float> stale{ { 0, 500.0f } };
     const auto unscrolled = hit_with(narrow, nullptr);
     const auto with_stale = hit_with(narrow, &stale);
@@ -120,7 +120,7 @@ TEST_F(HitTestDWriteTest, BlockScrollXIsClampedBeforeHitTest)
 
     const std::string wide_md = "```\n" + std::string(300, 'a') + "\n```";
     auto wide = ParseAndLayout(wide_md);
-    const auto geom = GetBlockHScrollGeometry(wide.nodes[0], wide.cache[0], theme_, 800.0f);
+    const auto geom = GetBlockHScrollGeometry(wide.nodes, wide.cache, 0, theme_, 800.0f);
     ASSERT_TRUE(geom.can_scroll());
     const std::pmr::unordered_map<int, float> at_max{ { 0, geom.scroll_max() } };
     const std::pmr::unordered_map<int, float> beyond{ { 0, 1.0e6f } };

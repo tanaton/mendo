@@ -382,3 +382,27 @@ int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, size_t diff_offs
     }
     return result;
 }
+
+std::pmr::vector<SyntaxToken> TokenizeCodeNode(const Node& node)
+{
+    const std::string_view text = node.GetText();
+    if (!node.continues_prev()) {
+        return Tokenize(text, node.code_language());
+    }
+    // 続きのノードはパーサが前のノードの直後に置く。
+    const Node& prev = (&node)[-1];
+    std::pmr::string joined;
+    joined.reserve(prev.GetText().size() + 1 + text.size());
+    joined.append(prev.GetText()).append(ChunkSeparator(node));
+    const auto offset = static_cast<uint32_t>(joined.size());
+    joined.append(text);
+    auto tokens = Tokenize(joined, node.code_language());
+    // 前のノードの分を落とし、またがるトークンは継ぎ目から始める。
+    std::erase_if(tokens, [offset](const SyntaxToken& t) noexcept { return t.start + t.length <= offset; });
+    for (auto& t : tokens) {
+        const uint32_t start = std::max(t.start, offset);
+        t.length -= start - t.start;
+        t.start = start - offset;
+    }
+    return tokens;
+}

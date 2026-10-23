@@ -5,6 +5,8 @@
 #include "document_utils.h"
 #include "selection_html.h"
 #include <algorithm>
+#include <format>
+#include <iterator>
 #include <optional>
 #include <memory_resource>
 #include <ranges>
@@ -32,6 +34,16 @@ inline int FindFirstNodeIndexByType(const std::pmr::vector<Node>& nodes, NodeTyp
 {
     const auto it = std::ranges::find(nodes, type, &Node::type);
     return it != nodes.end() ? static_cast<int>(it - nodes.begin()) : -1;
+}
+
+// "line 0 value=0\nline 1 value=7\n..." の count 行。各行の先頭に prefix を付ける。
+inline std::string MakeNumberedLines(size_t count, std::string_view prefix = {})
+{
+    std::string out;
+    for (size_t i = 0; i < count; ++i) {
+        std::format_to(std::back_inserter(out), "{}line {} value={}\n", prefix, i, i * 7);
+    }
+    return out;
 }
 
 // "line 0\nline 1\n..." の n 行を持つコードブロックの Markdown を返す。

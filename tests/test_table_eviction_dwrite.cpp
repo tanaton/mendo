@@ -228,7 +228,7 @@ TEST_F(TableEvictionDWriteTest, NodeEvictionKeepsTableGeometry)
     EXPECT_FLOAT_EQ(entry.height, height_before);
 }
 
-// 幅変更で evict 中だった行は旧幅の行高さのまま残り、復元時に実測へ補正される。
+// 幅変更で evict 中だった行は折り返しの行数を見積もった高さになり、復元時に実測へ揃う。
 // 全行復元後の高さは、最初から新幅で計測したテーブルと一致する。
 TEST_F(TableEvictionDWriteTest, RestoreAfterWidthChangeCorrectsRowHeights)
 {
@@ -252,7 +252,6 @@ TEST_F(TableEvictionDWriteTest, RestoreAfterWidthChangeCorrectsRowHeights)
 
     const auto result = measurer_.RestoreEvictedTableRows(pl.nodes[idx], entry, narrow, MeasureViewportRange{});
     EXPECT_TRUE(result.restored);
-    EXPECT_TRUE(result.height_changed);
     EXPECT_FALSE(entry.table_layout()->HasEvictedRows());
 
     auto fresh = ParseAndLayout(md);
@@ -317,14 +316,13 @@ TEST_F(TableEvictionDWriteTest, ParallelRestoreMatchesSerial)
         const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
         auto& entry = pl.cache[idx];
         EvictWholeTable(pl.cache, idx);
-        // 狭い幅で行高さを推定のまま残し、復元で実測に揃わせる。
+        // 狭い幅で行高さを見積もりのまま残し、復元で実測に揃わせる。
         entry.layout_dirty = true;
         measurer_.MeasureNode(pl.nodes[idx], entry, narrow, MeasureViewportRange{ 0.0f, 60.0f });
         measurer_.SetScheduler(scheduler);
         const auto result = measurer_.RestoreEvictedTableRows(pl.nodes[idx], entry, narrow, MeasureViewportRange{});
         measurer_.SetScheduler(nullptr);
         EXPECT_TRUE(result.restored);
-        EXPECT_TRUE(result.height_changed);
         EXPECT_FALSE(entry.table_layout()->HasEvictedRows());
         EXPECT_EQ(CountNonNullCells(*entry.table_layout()), entry.table_layout()->cell_layouts.size());
         return std::pair{ entry.table_layout()->row_heights, entry.height };
@@ -358,4 +356,41 @@ TEST_F(TableEvictionDWriteTest, EvictedLayoutsAreHandedOverForRelease)
     pl.cache.InvalidateAllLayouts(pl.nodes);
     EXPECT_EQ(pl.cache.TakeReleasedLayouts().size(), 1u) << "段落の text_layout だけが残っていた";
     EXPECT_EQ(pl.cache[0].text_layout(), nullptr);
+}
+
+// 大きな表の初回計測はセル layout を残さず、全行を evict 済みにする (5 万行で 2GB になるのを防ぐ)。
+// 折り返さない表なら、行の高さは全セルを作ったときと同じになる。
+TEST_F(TableEvictionDWriteTest, LargeTableFirstMeasureKeepsNoCellLayouts)
+{
+    auto pl = ParseAndLayout(MakeBigTableMd(600));
+    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
+    ASSERT_GE(idx, 0);
+    const auto row_heights_built = pl.cache[idx].table_layout()->row_heights;
+    const float height_built = pl.cache[idx].height;
+    ASSERT_EQ(CountNonNullCells(*pl.cache[idx].table_layout()), pl.cache[idx].table_layout()->cell_layouts.size());
+
+    NodeLayoutEntry entry;
+    entry.layout_dirty = true;
+    measurer_.MeasureNode(pl.nodes[idx], entry, ContentWidth());
+
+    const auto& tl = *entry.table_layout();
+    EXPECT_FALSE(entry.layout_dirty);
+    EXPECT_EQ(CountNonNullCells(tl), 0u);
+    EXPECT_EQ(tl.evicted_row_count, tl.row_heights.size());
+    EXPECT_EQ(tl.row_heights, row_heights_built);
+    EXPECT_FLOAT_EQ(entry.height, height_built);
+}
+
+// 大きな表を可視範囲だけ計測すると、セル layout は可視行の分だけ作られる。
+TEST_F(TableEvictionDWriteTest, LargeTableBuildsOnlyVisibleRows)
+{
+    auto pl = ParseAndLayout(MakeBigTableMd(600), 800.0f, 0.0f, 600.0f);
+    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
+    ASSERT_GE(idx, 0);
+    const auto& tl = *pl.cache[idx].table_layout();
+    const size_t built = CountNonNullCells(tl);
+
+    EXPECT_GT(built, 0u);
+    EXPECT_LT(built, tl.cell_layouts.size() / 10);
+    EXPECT_FALSE(pl.cache[idx].layout_dirty);
 }

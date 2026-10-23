@@ -48,6 +48,10 @@ struct UnchangedEnds {
 };
 UnchangedEnds FindUnchangedEnds(std::span<const Node> old_nodes, std::span<const Node> new_nodes) noexcept;
 
+// コードブロックのトークン。区切ったコードの続きは、前のノードからの続きとしてトークン化する
+// (ブロックコメントや複数行の文字列の途中から始まっても色が崩れないように)。node は文書のノード配列の要素であること。
+std::pmr::vector<SyntaxToken> TokenizeCodeNode(const Node& node);
+
 // 最後のパス区切り以降。区切りで終わるパスでは空。
 constexpr std::wstring_view FilenameView(std::wstring_view path) noexcept
 {

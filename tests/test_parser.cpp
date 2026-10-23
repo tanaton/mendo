@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "document_test_helpers.h"
 #include "parse_invariants.h"
 #include "parser.h"
 #include "parser_alerts.h"
@@ -1698,4 +1699,217 @@ TEST(Parser, ImageSrcResolvesCharacterReferences)
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_NE(nodes[0].image_data(), nullptr);
     EXPECT_EQ(nodes[0].image_data()->src, "img/a&b.png");
+}
+
+// ---- 長いテキストの区切り ----
+
+namespace {
+
+// 区切ったノードはこの範囲に収まる (改行の後ろの空白や span が足す "$" の分だけ超えうる)。
+constexpr size_t kChunkMax = kTextChunkTarget + kTextChunkWindow + 16;
+
+// first から始まる区切ったノードの並びを、区切る前のテキストに戻す。
+std::string JoinChunks(const std::pmr::vector<Node>& nodes, size_t first)
+{
+    std::string out{ nodes[first].GetText() };
+    for (size_t i = first + 1; i < nodes.size() && nodes[i].continues_prev(); ++i) {
+        out += ChunkSeparator(nodes[i]);
+        out += nodes[i].GetText();
+    }
+    return out;
+}
+
+// ノードの先頭の語が、ソース位置の原文と一致するか。
+bool StartsAtSourceOffset(std::string_view md, const Node& node)
+{
+    const auto text = node.GetText();
+    const auto word = text.substr(0, text.find_first_of(" \n"));
+    return node.HasSourceOffset() && md.substr(node.SourceOffset()).starts_with(word);
+}
+
+} // namespace
+
+// 空行の無い長いテキストは、目安の長さ付近のソフト改行で区切る。改行の代わりの空白は前のノードに残る。
+TEST(ParserChunks, LongParagraphSplitsAtSoftBreaks)
+{
+    const std::string md = MakeNumberedLines(4000);
+    const auto nodes = ParseNodes(md);
+    ASSERT_GT(nodes.size(), 3u);
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+
+    std::string expected = md.substr(0, md.size() - 1);
+    std::ranges::replace(expected, '\n', ' ');
+    EXPECT_EQ(JoinChunks(nodes, 0), expected);
+    EXPECT_FALSE(nodes.front().continues_prev());
+    EXPECT_FALSE(nodes.back().continues_next());
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        SCOPED_TRACE(i);
+        const auto text = nodes[i].GetText();
+        EXPECT_EQ(nodes[i].type, NodeType::Paragraph);
+        EXPECT_FALSE(nodes[i].newline_before_chunk());
+        EXPECT_LE(text.size(), kChunkMax);
+        EXPECT_TRUE(StartsAtSourceOffset(md, nodes[i]));
+        if (i + 1 < nodes.size()) {
+            EXPECT_GE(text.size(), kTextChunkTarget - kTextChunkWindow);
+            EXPECT_TRUE(text.ends_with(' '));
+        }
+    }
+}
+
+// 改行の無い長い行は、目安の長さ付近の空白で区切る。
+TEST(ParserChunks, LongLineSplitsAtSpaces)
+{
+    std::string md;
+    for (int i = 0; i < 6000; ++i) {
+        std::format_to(std::back_inserter(md), "word{} ", i);
+    }
+    md.pop_back();
+    const auto nodes = ParseNodes(md);
+    ASSERT_GT(nodes.size(), 2u);
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+    EXPECT_EQ(JoinChunks(nodes, 0), md);
+    for (size_t i = 0; i + 1 < nodes.size(); ++i) {
+        SCOPED_TRACE(i);
+        EXPECT_TRUE(nodes[i].GetText().ends_with(' '));
+        EXPECT_LE(nodes[i].GetText().size(), kChunkMax);
+        EXPECT_TRUE(StartsAtSourceOffset(md, nodes[i + 1]));
+    }
+}
+
+// 空白の無い長い行は目安の長さで、UTF-8 の文字の途中を避けて区切る。
+TEST(ParserChunks, LongLineWithoutSpacesSplitsAtCharacterBoundary)
+{
+    std::string md;
+    for (int i = 0; i < 20000; ++i) {
+        md += "あ";
+    }
+    const auto nodes = ParseNodes(md);
+    ASSERT_GT(nodes.size(), 2u);
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+    EXPECT_EQ(JoinChunks(nodes, 0), md);
+    for (const auto& node : nodes) {
+        EXPECT_EQ(node.GetText().size() % 3, 0u);
+        EXPECT_LE(node.GetText().size(), kChunkMax);
+    }
+}
+
+// コードブロックは行末で区切り、区切った改行は続きのノードの印に移る。言語は続きにも引き継ぐ。
+TEST(ParserChunks, LongCodeBlockSplitsAtLineEnds)
+{
+    const std::string code = MakeNumberedLines(3000);
+    const std::string md = "```cpp\n" + code + "```\n";
+    const auto nodes = ParseNodes(md);
+    ASSERT_GT(nodes.size(), 2u);
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+    EXPECT_EQ(JoinChunks(nodes, 0), code.substr(0, code.size() - 1));
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        SCOPED_TRACE(i);
+        EXPECT_EQ(nodes[i].type, NodeType::CodeBlock);
+        EXPECT_EQ(nodes[i].code_language(), SyntaxLanguage::Cpp);
+        EXPECT_EQ(nodes[i].newline_before_chunk(), i > 0);
+        EXPECT_FALSE(nodes[i].GetText().ends_with('\n'));
+        EXPECT_TRUE(StartsAtSourceOffset(md, nodes[i]));
+    }
+}
+
+// 区切りを待つ改行の後が空行だけでブロックが終わっても、空のノードを作らずに元のテキストに戻る。
+TEST(ParserChunks, TrailingBlankLinesNearBoundaryKeepCodeText)
+{
+    for (size_t lines = 650; lines < 800; ++lines) {
+        SCOPED_TRACE(lines);
+        const std::string content = MakeNumberedLines(lines) + "\n\n";
+        const std::string md = "```\n" + content + "```\n";
+        const auto nodes = ParseNodes(md);
+        ASSERT_TRUE(ParseInvariantsHold(md, nodes));
+        ASSERT_EQ(JoinChunks(nodes, 0), content.substr(0, content.size() - 1));
+    }
+}
+
+// 区切りをまたぐ装飾とリンクは、続きのノードにも掛かる。
+TEST(ParserChunks, SpansContinueAcrossChunks)
+{
+    std::string body = MakeNumberedLines(2000);
+    body.pop_back();
+    // 区切りの空白は装飾の中にあるので、各ノードのテキスト全体に 1 つの run が掛かる。
+    const auto expect_whole_run = [](const std::string& md, auto&& check) {
+        const auto nodes = ParseNodes(md);
+        ASSERT_GT(nodes.size(), 1u);
+        EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            SCOPED_TRACE(i);
+            const auto runs = nodes[i].runs();
+            ASSERT_EQ(runs.size(), 1u);
+            EXPECT_EQ(runs[0].length, nodes[i].GetText().size());
+            EXPECT_TRUE(check(nodes[i], runs[0]));
+        }
+    };
+    const std::string bold = "**" + body + "**";
+    expect_whole_run(bold, [](const Node&, const TextRun& r) { return r.bold(); });
+    const std::string link = "[" + body + "](https://e.com/)";
+    expect_whole_run(link, [](const Node& n, const TextRun& r) {
+        return r.has_link() && n.view_link_urls().size() == 1 && n.view_link_urls()[0] == "https://e.com/";
+    });
+}
+
+// 引用は同じ引用グループのまま区切り、Alert の種類は続きにも伝わる。
+TEST(ParserChunks, QuoteChunksStayInAlertGroup)
+{
+    const std::string md = "> [!NOTE]\n" + MakeNumberedLines(2000, "> ");
+    const auto nodes = ParseNodes(md);
+    ASSERT_GT(nodes.size(), 1u);
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+    EXPECT_GT(nodes[0].alert_label_length(), 0u);
+    for (const auto& node : nodes) {
+        EXPECT_EQ(node.type, NodeType::BlockQuote);
+        EXPECT_EQ(node.alert_type, AlertType::Note);
+        EXPECT_EQ(node.alert_label_length() > 0, !node.continues_prev());
+    }
+}
+
+// 見出し・リスト項目・図・表は区切らない (記号や下線が増え、図は 1 つのコードから描く)。
+TEST(ParserChunks, OtherBlocksAreNotSplit)
+{
+    std::string long_line;
+    for (int i = 0; i < 6000; ++i) {
+        std::format_to(std::back_inserter(long_line), "w{} ", i);
+    }
+    long_line.pop_back();
+    const std::pair<std::string, NodeType> cases[] = {
+        { "# " + long_line,                                 NodeType::Heading  },
+        { "- " + long_line,                                 NodeType::ListItem },
+        { "```mermaid\n" + MakeNumberedLines(2000) + "```", NodeType::Diagram  },
+        { "| a |\n|---|\n| " + long_line + " |",            NodeType::Table    },
+    };
+    for (const auto& [md, type] : cases) {
+        const auto nodes = ParseNodes(md);
+        ASSERT_EQ(nodes.size(), 1u);
+        EXPECT_EQ(nodes[0].type, type);
+        EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+    }
+}
+
+// 区切った段落の続きは、画像を含んでいても画像ノードにしない (前の部分だけが本文として残るため)。
+TEST(ParserChunks, ContinuationIsNotPromotedToImage)
+{
+    const std::string md = MakeNumberedLines(2000) + "![alt](a.png)";
+    const auto nodes = ParseNodes(md);
+    ASSERT_GT(nodes.size(), 1u);
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+    for (const auto& node : nodes) {
+        EXPECT_EQ(node.type, NodeType::Paragraph);
+    }
+}
+
+// 区切りを待つ間に空行が目安の長さを超えて続いても、順序を保って区切る。
+TEST(ParserChunks, LongRunOfBlankLinesKeepsOrder)
+{
+    const std::string content = MakeNumberedLines(800) + std::string(40000, '\n') + "tail\n";
+    const std::string md = "```\n" + content + "```\n";
+    const auto nodes = ParseNodes(md);
+    ASSERT_GT(nodes.size(), 3u);
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+    EXPECT_EQ(JoinChunks(nodes, 0), content.substr(0, content.size() - 1));
+    for (const auto& node : nodes) {
+        EXPECT_LE(node.GetText().size(), kChunkMax);
+    }
 }

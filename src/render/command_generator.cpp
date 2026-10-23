@@ -12,7 +12,8 @@
 #include <span>
 #include <utility>
 
-using layout::NodeBoxPadY;
+using layout::NodeBoxPadBottom;
+using layout::NodeBoxPadTop;
 using layout::NodeContentWidth;
 using layout::NodeIndent;
 using layout::NodeTextXOffset;
@@ -231,6 +232,8 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         .snapped_scroll_y = snapped_y,
         .pane_transform = pane_transform,
         .selection = selection,
+        .nodes = nodes,
+        .cache = cache,
         .hovered = hovered,
         .h_scroll = block_h_scroll,
         .overhang = MaxNodeOverhang(),
@@ -285,8 +288,8 @@ void CommandGenerator::GenerateNode(const FrameContext& fc,
     // ブロック横スクロール対象 (テーブル/コードブロック) の内容を clip + 平行移動で囲み、
     // 直後にスクロールバーを積む。幾何はヒットテスト/reducer と共有の GetBlockHScrollGeometry に寄せる。
     const auto gen_h_scroll_block = [&](const D2D1_RECT_F& clip, float pad_y, auto&& gen_content) {
-        const auto geom = GetBlockHScrollGeometry(node, entry, cw);
-        const float scroll_x = LookupBlockScrollX(fc.h_scroll.scroll_x, node_index, geom);
+        const auto geom = GetBlockHScrollGeometry(fc.nodes, fc.cache, static_cast<size_t>(node_index), cw);
+        const float scroll_x = LookupBlockScrollX(fc.h_scroll.scroll_x, geom);
         {
             BlockHScrollScope guard(cmds_, clip, fc.pane_transform, scroll_x, geom.can_scroll());
             gen_content(scroll_x);
@@ -313,7 +316,7 @@ void CommandGenerator::GenerateNode(const FrameContext& fc,
     case NodeType::Table:
         gen_h_scroll_block(
             D2D1::RectF(x, entry_text_top, x + cw, entry_text_top + entry.height),
-            NodeBoxPadY(node, *theme_),
+            NodeBoxPadBottom(node, *theme_),
             [&](float scroll_x) { GenTable(fc, node, entry, node_index, x, entry_text_top, scroll_x); });
         return;
 
@@ -328,11 +331,11 @@ void CommandGenerator::GenerateNode(const FrameContext& fc,
         return;
 
     case NodeType::CodeBlock: {
-        const float pad = NodeBoxPadY(node, *theme_);
-        const D2D1_RECT_F box = D2D1::RectF(x, entry_text_top - pad, x + cw, entry_text_top + entry.height + pad);
-        GenCodeBlockBg(box);
+        const float pad_bottom = NodeBoxPadBottom(node, *theme_);
+        const D2D1_RECT_F box = D2D1::RectF(x, entry_text_top - NodeBoxPadTop(node, *theme_), x + cw, entry_text_top + entry.height + pad_bottom);
+        GenCodeBlockBg(box, !node.continues_prev(), !node.continues_next());
         // 背景とコピーボタンはクリップ外で固定描画 (GitHub と同じ挙動)。テキスト本体だけ scroll_x 分平行移動。
-        gen_h_scroll_block(box, pad, [&](float) { GenNodeTextDecorations(fc, node, entry, node_index, text_x, entry_text_top); });
+        gen_h_scroll_block(box, pad_bottom, [&](float) { GenNodeTextDecorations(fc, node, entry, node_index, text_x, entry_text_top); });
         GenOverlayButtons(fc, node, nullptr, x, cw, entry_text_top, node_index);
         return;
     }
@@ -443,9 +446,20 @@ void CommandGenerator::GenHorizontalRule(float x, float w, float entry_text_top)
         theme_->hr_thickness, BrushId::Hr });
 }
 
-void CommandGenerator::GenCodeBlockBg(const D2D1_RECT_F& box)
+void CommandGenerator::GenCodeBlockBg(const D2D1_RECT_F& box, bool round_top, bool round_bottom)
 {
+    if (!round_top && !round_bottom) {
+        cmds_.emplace_back(FillRectCmd{ box, BrushId::CodeBg });
+        return;
+    }
     cmds_.emplace_back(FillRoundedRectCmd{ box, CODE_BLOCK_CORNER, CODE_BLOCK_CORNER, BrushId::CodeBg });
+    // 背景は不透明なので、丸めない側の角を矩形で塗りつぶす。
+    if (!round_top) {
+        cmds_.emplace_back(FillRectCmd{ D2D1::RectF(box.left, box.top, box.right, box.top + CODE_BLOCK_CORNER), BrushId::CodeBg });
+    }
+    if (!round_bottom) {
+        cmds_.emplace_back(FillRectCmd{ D2D1::RectF(box.left, box.bottom - CODE_BLOCK_CORNER, box.right, box.bottom), BrushId::CodeBg });
+    }
 }
 
 void CommandGenerator::EmitBlockHScrollbarIfActive(const FrameContext& fc, int node_index, float block_x, float bar_y, const BlockHScrollGeometry& geom, float scroll_x)
@@ -628,7 +642,7 @@ void CommandGenerator::GenBlockQuoteGroup(const FrameContext& fc, const std::pmr
 
 void CommandGenerator::GenDiagramPlaceholder(float x, float y, float w, float h, std::wstring_view error)
 {
-    GenCodeBlockBg(D2D1::RectF(x, y, x + w, y + h));
+    GenCodeBlockBg(D2D1::RectF(x, y, x + w, y + h), true, true);
     const auto origin = D2D1::Point2F(x, y);
     const auto box = D2D1::SizeF(w, h);
     if (!error.empty()) {

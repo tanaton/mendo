@@ -275,6 +275,7 @@ void ResetTableCellCaches(TableLayoutData& tl, LayoutCache::ReleasedLayouts& rel
     tl.cell_heights.clear();
     tl.cell_applied_widths.clear();
     tl.cell_natural_widths.clear();
+    tl.cell_nowrap_heights.clear();
     tl.col_count = 0;
     tl.last_applied_max_width = -1.0f;
 }

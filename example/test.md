@@ -486,7 +486,8 @@ struct ViewState {
     ScrollRestoration scroll_restore;
     NavHistory        nav_history;
 
-    // ブロック単位の横スクロール。キーは LayoutCache のノードインデックス。
+    // ブロック単位の横スクロール。キーは BlockHScrollGeometry::scroll_key (ノードインデックス。
+    // 区切ったコードブロックは並びの先頭)。
     // 永続化しない (ファイルロード/リロードでクリア)。スクロールバー本体は
     // 「ホバー中とドラッグ中のブロック」だけ描画するので、map のサイズは
     // ユーザー操作実績分に限定される。
@@ -496,7 +497,7 @@ struct ViewState {
     LeftDragState   drag;
 
     constexpr int HDragNode() const noexcept;  // 横スクロールをドラッグ中のブロック。無ければ -1
-    float GetBlockScrollX(int node_index, const BlockHScrollGeometry& geom) const noexcept;
+    float GetBlockScrollX(const BlockHScrollGeometry& geom) const noexcept;  // geom.scroll_key のスクロール量
     void  ResetPerNodeTransientState();   // リロード時のクリア (選択・横スクロール・hover.h_block・active_toc_index)
     void  ResetForNewDocument();          // 別文書への切替時。サイドペインのスクロールも先頭へ戻す
 };
@@ -919,6 +920,26 @@ md4c の `MD_FLAG_FOOTNOTES`（v0.6.0 で `MD_DIALECT_GITHUB` に追加）を有
 - 定義の末尾には参照へ戻る `↩` リンク（2 回目以降の参照は `↩2` …）を付ける。後の定義の中の参照は前の定義を閉じた後に届くため、`AppendFootnoteBackrefs` がパース後にまとめて付ける。
 - 定義ノードは文書末尾に並ぶが原文では途中にあるので、ソース位置を記録しない。ソース位置の単調増加は `FindNodeBySourceOffset` の二分探索の前提。
 - 参照されない定義は表示せず、定義の無い `[^x]` はテキストのまま残す。
+
+#### 3.6.6 長いテキストの区切り
+
+段落・引用・コードブロック（図を除く）のテキストは、`kTextChunkTarget`（16KB、`parser.h`）前後で区切って同じ種別のノードの並びにする。DirectWrite は 1 段落の行分割が長さに対して二乗に近く遅くなり（空行の無い 4MB のテキストで 28 秒）、1 ノードのままだと並列に計測できず、見えている間は解放もできないため。区切りはパース中に、テキストを足しながら決める（装飾の範囲が区切りをまたがず、続きのノードのソース位置も原文と正確に対応する）。
+
+- 改行（ソフト改行・`<br>`・コードの行末）が目安の `kTextChunkWindow`（2KB）手前を過ぎたら、そこで区切る。区切るのは後に本文が続くときだけで、末尾に空のノードは作らない。
+- 1 行が長ければ目安の前後 2KB にある空白の直後で、空白も無ければ目安の長さ（UTF-8 の文字の境目）で区切る。
+- ソフト改行の代わりの空白は前のノードの末尾に残す。`\n` は取り除き、続きのノードに `kNewlineBeforeChunk` を立てる。
+- 見出し・リスト項目・図・表は区切らない（記号や下線が増え、図は 1 つのコードから描く）。
+
+並びは見た目もコピーも 1 つのブロックとして扱う。
+
+| 使う側 | 扱い |
+|:--|:--|
+| 間隔 | `GetSpacingAbove` / `GetSpacingBelow` は継ぎ目で 0 を返す |
+| コードブロックの背景 | `NodeBoxPadTop` / `NodeBoxPadBottom` は継ぎ目ではみ出さず、`GenCodeBlockBg` は継ぎ目の側の角を丸めない |
+| コピーボタン | 先頭のノードにだけ置き、`ClipboardManager::CopyCodeBlock` が並び全体をコピーする |
+| 横スクロール | `GetBlockHScrollGeometry` が並びの先頭を `scroll_key` として返し、幅は並びのうち計測済みの部分の最大にする |
+| 構文の色分け | `TokenizeCodeNode` が前のノードからの続きとしてトークン化する（ブロックコメントの途中から始まっても色が崩れない） |
+| コピー | `ExtractSelectedText` は継ぎ目に元の改行だけを戻し、`ExtractSelectedTextAsHtml` は並びを 1 つの `<p>` / `<pre>` にまとめる |
 
 [^spec-admonitions]: 同じく追加された `MD_FLAG_ADMONITIONS` は使わない。ネストした引用でも Alert として扱うなど、`DetectAlerts`（GitHub 準拠）と挙動が違うため。
 [^spec-refcount]: md4c はテーブル行の判定でもインラインを解析するため、表の中の参照が二重に数えられ、`ref_id` / `ref_count` が実際の参照数とずれる。
@@ -2897,7 +2918,7 @@ classDiagram
 
 `NodeImageData` が持つのは Markdown に書かれた `src` だけである。読み込んだ画像の幅・高さはパース結果ではないので `Node` には置かず、`LayoutCache` の `DiagramEntry` が持つ（[4.2](#42-layoutcache)）。
 
-`Node` は自分では何も所有しない trivially copyable なビューで、`static_assert(sizeof(Node) == 64)` と `static_assert(std::is_trivially_copyable_v<Node>)` で退行を検出する。ノード種別ごとのデータは 8B の union `payload_` に 1 つだけ置き、どれを読むかは `type` で決まる（`list_number` と `alert_label_length` は `flags_` の `kListOrdered` / `kHasAlertLabel` で判定する）。Table は `Document` が `unique_ptr` で所有する `NodeTableData` を、Image は `TextArena` に置いた `NodeImageData` を指す。`heading_level_` / `code_language_` / `flags_` は末尾の 1 バイト領域に置く。`heading_level()` は Heading 以外では 0 を返し、`code_language()` は設定されない限り既定値の `SyntaxLanguage::None` を返す（設定するのは CodeBlock と Diagram だけ）。`flags_` は `kListOrdered`・`kTaskChecked`・`kHasChildBlocks`（loose list の LI が中身を子ブロックに持つ）・`kHasAlertLabel` を持つ。
+`Node` は自分では何も所有しない trivially copyable なビューで、`static_assert(sizeof(Node) == 64)` と `static_assert(std::is_trivially_copyable_v<Node>)` で退行を検出する。ノード種別ごとのデータは 8B の union `payload_` に 1 つだけ置き、どれを読むかは `type` で決まる（`list_number` と `alert_label_length` は `flags_` の `kListOrdered` / `kHasAlertLabel` で判定する）。Table は `Document` が `unique_ptr` で所有する `NodeTableData` を、Image は `TextArena` に置いた `NodeImageData` を指す。`heading_level_` / `code_language_` / `flags_` は末尾の 1 バイト領域に置く。`heading_level()` は Heading 以外では 0 を返し、`code_language()` は設定されない限り既定値の `SyntaxLanguage::None` を返す（設定するのは CodeBlock と Diagram だけ）。`flags_` は `kListOrdered`・`kTaskChecked`・`kHasChildBlocks`（loose list の LI が中身を子ブロックに持つ）・`kHasAlertLabel` と、長いテキストを区切ったノードの並びを表す `kContinuesPrev`・`kContinuesNext`・`kNewlineBeforeChunk`（3.6.6）を持つ。
 
 > **Why**: ノード配列の伸長やパース後の詰め直しを memcpy で済ませるため、ノードには所有するメンバを置かない。`TextArena` のチャンク化と合わせて、100MB の文書でパース後のコミットが 162MB → 82MB に減った。
 
@@ -2917,6 +2938,9 @@ bool list_ordered() const noexcept;
 bool task_checked() const noexcept;
 bool has_child_blocks() const noexcept;
 uint32_t alert_label_length() const noexcept;    // ラベルを持たない (Alert の伝播先) ノードは 0
+bool continues_prev() const noexcept;            // 区切ったテキストの続き (前のノードと同じブロック)
+bool continues_next() const noexcept;            // 次のノードが続き
+bool newline_before_chunk() const noexcept;      // 前のノードとの間の改行を、区切るときに取り除いた
 void set_list_number(int32_t number) noexcept;   // payload に書いて kListOrdered を立てる
 void set_alert_label_length(uint32_t length) noexcept;
 ```
@@ -2975,7 +2999,7 @@ classDiagram
         +size_t col_count
         +pmr::vector~float~ col_widths / row_heights
         +pmr::vector~float~ row_cum_y / col_cum_x
-        +pmr::vector~float~ natural_col_widths / cell_heights / cell_applied_widths / cell_natural_widths
+        +pmr::vector~float~ natural_col_widths / cell_heights / cell_applied_widths / cell_natural_widths / cell_nowrap_heights
         +pmr::vector~uint8_t~ row_evicted
         +float last_applied_max_width
         +float natural_total_width
@@ -3006,7 +3030,7 @@ classDiagram
 
 遅延レイアウトで計測する dirty が残っているかは `LayoutCache` 自身が `HasDirtyNodes()` として持ち、`LayoutEngine` が計測のたびに決め直す。キャッシュと一緒に動くので、推定直後（true）のキャッシュを文書ごと差し替えても遅延レイアウトが拾う。
 
-`TableLayoutData` は `unique_ptr` でテーブルノードのみ確保される。セルレイアウトはフラット配列 `[row * col_count + col]` で持ち、`natural_col_widths` / `cell_heights` / `cell_applied_widths` / `cell_natural_widths` などをまとめて管理する。セルのレイアウトは自然幅を測るために無限幅で作り、左揃えで列幅に収まるセルはそのまま使う（`ApplyCellWidth`。折り返さないので行組みは同じで、列幅を付けると組み直しになる）。セル単位の配列は `AllocateCells` でまとめて確保し、`cell_layouts` を最後に確保するので、途中で確保に失敗しても配列どうしのサイズは食い違わない。描画とヒットテストに要る幾何（`col_widths` / `row_heights` / `col_cum_x` / `row_cum_y`）が揃っているかは `HasGeometry` で判定する。幾何は計測完了時（`FinalizeTableLayout`）に揃い、`entry.height` だけを推定値で伸ばしたときなどは `InvalidateGeometry` で無効にして次の計測で作り直す。揃っていないテーブルは描かず、ヒットテストもしない（推定の行高さで描く線形のフォールバックは持たない）。表の総幅は `TableWidth`（`col_cum_x` の末尾）、列の刻み幅は `ColumnStep`、セル本文の原点は `TableCellTextOrigin` で求め、描画とヒットテストが同じ式を使う。インラインコードの背景は行ごとの配列 `row_code_bgs`（各行は列の昇順）で持ち、インラインコードを含むテーブルだけ `row_count` 分確保して行の計測で作り直す。描画は行の背景を列の昇順に読み進め、セルごとに行の全件を見ない。行単位 evict（`EvictInvisibleTableRows`）はセルレイアウトが生存しうる行範囲 `[live_row_begin, live_row_end)` のうち keep 範囲外の差分だけを捨て、背景は幅が変わらない限り有効なので残す。
+`TableLayoutData` は `unique_ptr` でテーブルノードのみ確保される。セルレイアウトはフラット配列 `[row * col_count + col]` で持ち、`natural_col_widths` / `cell_heights` / `cell_applied_widths` / `cell_natural_widths` などをまとめて管理する。セルのレイアウトは自然幅を測るために無限幅で作り、左揃えで列幅に収まるセルはそのまま使う（`ApplyCellWidth`。折り返さないので行組みは同じで、列幅を付けると組み直しになる）。セル単位の配列は `AllocateCells` でまとめて確保し、`cell_layouts` を最後に確保するので、途中で確保に失敗しても配列どうしのサイズは食い違わない。描画とヒットテストに要る幾何（`col_widths` / `row_heights` / `col_cum_x` / `row_cum_y`）が揃っているかは `HasGeometry` で判定する。幾何は計測完了時（`FinalizeTableLayout`）に揃い、`entry.height` だけを推定値で伸ばしたときなどは `InvalidateGeometry` で無効にして次の計測で作り直す。揃っていないテーブルは描かず、ヒットテストもしない（推定の行高さで描く線形のフォールバックは持たない）。表の総幅は `TableWidth`（`col_cum_x` の末尾）、列の刻み幅は `ColumnStep`、セル本文の原点は `TableCellTextOrigin` で求め、描画とヒットテストが同じ式を使う。インラインコードの背景は行ごとの配列 `row_code_bgs`（各行は列の昇順）で持ち、インラインコードを含むテーブルだけ `row_count` 分確保して行の計測で作り直す。描画は行の背景を列の昇順に読み進め、セルごとに行の全件を見ない。行単位 evict（`EvictInvisibleTableRows`）はセルレイアウトが生存しうる行範囲 `[live_row_begin, live_row_end)` のうち keep 範囲外の差分だけを捨て、背景は幅が変わらない限り有効なので残す。初回の計測（`MeasureTableCells`）は列幅を決めるために全セルを測るが、`kMaxKeptTableCells`（1024）を超える表はセルの自然幅と折り返さない高さ（`cell_nowrap_heights`）だけを残してレイアウトを捨て、全行を evict 済みにする（セルのレイアウトは 1 個 7KB ほどあり、5 万行 6 列の表で 2GB になる）。evict 中の行の高さは、列幅に収まるセルは折り返さない高さそのもの、収まらないセルは折り返しの行数を見積もった値で、行が可視になって `RestoreEvictedTableRows` が作り直したときに実測へ揃える。
 
 `DiagramEntry` の `width` / `height` は読み込んだ画像・描画した図の実寸で、再計測（幅変更・ズーム）でも表示高さの計算に使う。デバイスロスト時の `InvalidateAllDiagramBitmaps()` はビットマップを捨てても画像の寸法は残す。`png` はクリップボードコピー用の元 PNG データ（`PngBytes` = `shared_ptr<const pmr::vector<uint8_t>>`）。`error` は描画失敗時の表示用メッセージで、空でなければ再要求しない（リロード・幅変更・テーマ変更・デバイスロストで消えて再試行の契機になる）。`code_hash` は図のコード部分のハッシュで、結果を捨てても残し、要求し直すたびにテキストを読み直さない。`DiagramEntry` は画像/図のノードでしか使わないため、`diagrams_` は全ノード分の枠を持たず、ノード番号をキーにした `std::pmr::unordered_map<size_t, DiagramEntry>` として持つ。要素の位置はほかの要素の追加で動かないので、Mermaid の処理待ちが持つポインタも有効なまま。確保は結果を書き込む `EnsureDiagram(i)` だけが行い、読み取り・描画・破棄は未確保なら `nullptr` を返す `FindDiagram(i)` を使うので、表示していない画像/図ノードには確保しない。検索ヒットがあるノードでのみ `search_hl_cache` が確保される（フレーム間キャッシュ、`SearchState::generation_` と一致する間は HitTestTextRange を再計算しない）。検索・選択ハイライトは、本文 `text_layout` のうち可視範囲の上下に 1 画面ずつ足した行のテキスト範囲（`line_window`）を共有し、可視範囲がその窓に収まる間は引き直さない。
 

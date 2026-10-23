@@ -5,6 +5,7 @@
 #include "theme.h"
 #include <algorithm>
 #include <memory_resource>
+#include <span>
 #include <unordered_map>
 
 // 1px 未満のスクロール範囲は操作として意味がない。表は列幅の丸めと、幅差 CELL_WIDTH_EPSILON 未満で
@@ -15,6 +16,8 @@ struct BlockHScrollGeometry {
     // 描画されるブロックの幅。表は配置後の列幅合計、コードは最長行に左右の余白を足した幅。
     float block_width = 0.0f;
     float visible_width = 0.0f;
+    // 横スクロール量を持つ鍵 (ノード番号)。区切ったコードブロックは並びの先頭。
+    int scroll_key = -1;
 
     constexpr bool can_scroll() const noexcept
     {
@@ -31,35 +34,43 @@ struct BlockHScrollGeometry {
 };
 
 // 呼び出し側が可視幅 (ContentWidth − indent) を計算済みの場合のオーバーロード。
+// 区切ったコードブロックは並び全体を 1 つのブロックとして横スクロールする。スクロール量は並びの先頭を鍵に持ち、
+// 幅は並びのうち計測済みの部分の最大にする (部分ごとに幅が違うと、継ぎ目で行がずれる)。
 inline BlockHScrollGeometry GetBlockHScrollGeometry(
-    const Node& node, const NodeLayoutEntry& entry, float visible_width) noexcept
+    std::span<const Node> nodes, const LayoutCache& cache, size_t node_index, float visible_width) noexcept
 {
+    const Node& node = nodes[node_index];
     BlockHScrollGeometry g;
     g.visible_width = visible_width;
+    g.scroll_key = static_cast<int>(node_index);
     // 表は描画と同じ TableWidth を使う。幾何が無効な間は GenTable も描かないのでスクロール不可。
-    if (const auto* tl = entry.table_layout(); node.type == NodeType::Table && tl && tl->HasColGeometry()) {
+    if (const auto* tl = cache[node_index].table_layout(); node.type == NodeType::Table && tl && tl->HasColGeometry()) {
         g.block_width = tl->TableWidth();
     }
     else if (node.type == NodeType::CodeBlock) {
-        g.block_width = entry.natural_code_width();
+        const size_t first = ChunkRunFirst(nodes, node_index);
+        g.scroll_key = static_cast<int>(first);
+        for (size_t i = first, last = ChunkRunLast(nodes, node_index); i <= last; ++i) {
+            g.block_width = std::max(g.block_width, cache[i].natural_code_width());
+        }
     }
     return g;
 }
 
 inline BlockHScrollGeometry GetBlockHScrollGeometry(
-    const Node& node, const NodeLayoutEntry& entry, const Theme& theme, float md_pane_width) noexcept
+    std::span<const Node> nodes, const LayoutCache& cache, size_t node_index, const Theme& theme, float md_pane_width) noexcept
 {
-    return GetBlockHScrollGeometry(node, entry, layout::NodeContentWidth(node, theme, theme.ContentWidth(md_pane_width)));
+    return GetBlockHScrollGeometry(nodes, cache, node_index, layout::NodeContentWidth(nodes[node_index], theme, theme.ContentWidth(md_pane_width)));
 }
 
-// node のブロック横スクロール量。マップ未設定・未登録は 0。
+// geom のブロックの横スクロール量。マップ未設定・未登録は 0。
 // 保存値は幅が縮んでも残るので、描画・ヒットテスト・入力が同じ値を使うよう読み出し時に必ず clamp する。
-inline float LookupBlockScrollX(const std::pmr::unordered_map<int, float>* scroll_x, int node_index, const BlockHScrollGeometry& geom) noexcept
+inline float LookupBlockScrollX(const std::pmr::unordered_map<int, float>* scroll_x, const BlockHScrollGeometry& geom) noexcept
 {
     if (!scroll_x) {
         return 0.0f;
     }
-    const auto it = scroll_x->find(node_index);
+    const auto it = scroll_x->find(geom.scroll_key);
     return (it != scroll_x->end()) ? geom.ClampScrollX(it->second) : 0.0f;
 }
 

@@ -63,9 +63,9 @@ struct ViewState {
         return drag.kind == LeftDrag::BlockHScroll ? drag.block_node : -1;
     }
 
-    float GetBlockScrollX(int node_index, const BlockHScrollGeometry& geom) const noexcept
+    float GetBlockScrollX(const BlockHScrollGeometry& geom) const noexcept
     {
-        return LookupBlockScrollX(&block_scroll_x, node_index, geom);
+        return LookupBlockScrollX(&block_scroll_x, geom);
     }
 
     // ノード/見出し index に結び付く一時状態。文書を差し替えると別の要素を指すのでクリアする。

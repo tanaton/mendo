@@ -577,7 +577,7 @@ int ResolveNode(const ReducerHarness& h, int which)
 
 float BlockScrollX(const ReducerHarness& h, int node_index)
 {
-    return h.state.view.GetBlockScrollX(node_index, ResolveBlockHScrollGeometry(h.state, node_index));
+    return h.state.view.GetBlockScrollX(ResolveBlockHScrollGeometry(h.state, node_index));
 }
 
 } // namespace

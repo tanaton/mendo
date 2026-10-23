@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-using layout::NodeBoxPadY;
+using layout::NodeBoxPadTop;
 using layout::NodeIndent;
 
 // OverlayButtonRect ユーティリティ関数と hit_test::OverlayButtonHitTest のテスト。
@@ -28,7 +28,7 @@ protected:
         const float indent = NodeIndent(pr.nodes[node_index], theme_);
         const float x = theme_.margin_left + indent;
         const float w = ContentWidth() - indent;
-        const float block_top = pr.cache.Top(node_index) - NodeBoxPadY(pr.nodes[node_index], theme_);
+        const float block_top = pr.cache.Top(node_index) - NodeBoxPadTop(pr.nodes[node_index], theme_);
         const D2D1_RECT_F btn = OverlayButtonRect(x + w, block_top);
         return { static_cast<int>((btn.left + btn.right) * 0.5f),
                  static_cast<int>((btn.top + btn.bottom) * 0.5f - scroll_y) };
@@ -146,4 +146,19 @@ TEST_F(CopyButtonTest, ScrolledViewportHitTest)
     const float scroll_y = std::max(0.0f, pr.cache.Top(code_idx) - 50.0f);
     auto [sx, sy] = CopyBtnCenter(pr, code_idx, scroll_y);
     EXPECT_EQ(CopyNodeAt(pr, sx, sy, scroll_y, 600.0f), code_idx);
+}
+
+// 区切ったコードブロックのコピーボタンは先頭にだけ置く。
+TEST_F(CopyButtonTest, SplitCodeBlockHasCopyButtonOnlyOnFirstChunk)
+{
+    const std::string md = MakeCodeBlockMd(5000);
+    auto pr = ParseAndLayout(md);
+    ASSERT_GT(pr.nodes.size(), 1u);
+    ASSERT_TRUE(pr.nodes[1].continues_prev());
+
+    const auto [x0, y0] = CopyBtnCenter(pr, 0);
+    EXPECT_EQ(CopyNodeAt(pr, x0, y0), 0);
+    const float scroll_y = pr.cache.Top(1) - 100.0f;
+    const auto [x1, y1] = CopyBtnCenter(pr, 1, scroll_y);
+    EXPECT_EQ(CopyNodeAt(pr, x1, y1, scroll_y), -1);
 }

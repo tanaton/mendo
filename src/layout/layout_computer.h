@@ -47,10 +47,15 @@ inline float NodeTextXOffset(const Node& node, const Theme& theme) noexcept
     return (node.type == NodeType::CodeBlock) ? theme.code_block_padding : 0.0f;
 }
 
-// ブロック背景がテキスト範囲の上下にはみ出す量。背景・ヒット判定・横スクロールバー位置で共有する。
-inline float NodeBoxPadY(const Node& node, const Theme& theme) noexcept
+// ブロック背景がテキスト範囲の上と下にはみ出す量。背景・ヒット判定・横スクロールバー位置で共有する。
+// 区切ったコードブロックの継ぎ目でははみ出さず、隣のノードの背景とつなげる。
+inline float NodeBoxPadTop(const Node& node, const Theme& theme) noexcept
 {
-    return (node.type == NodeType::CodeBlock) ? theme.code_block_padding : 0.0f;
+    return (node.type == NodeType::CodeBlock && !node.continues_prev()) ? theme.code_block_padding : 0.0f;
+}
+inline float NodeBoxPadBottom(const Node& node, const Theme& theme) noexcept
+{
+    return (node.type == NodeType::CodeBlock && !node.continues_next()) ? theme.code_block_padding : 0.0f;
 }
 
 // ダイアグラム/画像ノードのビットマップ未確定時に使うプレースホルダー高さ。
@@ -93,8 +98,9 @@ constexpr float BitmapDisplayHeight(float width, float height, float max_width) 
 template <class Fn>
 void ForEachOverlayButton(const Node& node, const DiagramEntry* diagram, float x, float w, float top, const Theme& theme, Fn&& fn)
 {
-    if (node.type == NodeType::CodeBlock) {
-        fn(OverlayButtonRect(x + w, top - NodeBoxPadY(node, theme), OverlayButton::CodeCopy), OverlayButton::CodeCopy);
+    // 区切ったコードブロックは先頭にだけ置き、並び全体をコピーする。
+    if (node.type == NodeType::CodeBlock && !node.continues_prev()) {
+        fn(OverlayButtonRect(x + w, top - NodeBoxPadTop(node, theme), OverlayButton::CodeCopy), OverlayButton::CodeCopy);
     }
     else if (node.type == NodeType::Diagram && diagram && diagram->png) {
         const auto bmp = MermaidBitmapRect(diagram->width, diagram->height, x, w, top);

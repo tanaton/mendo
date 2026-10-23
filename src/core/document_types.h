@@ -195,6 +195,9 @@ struct Node {
     static constexpr uint8_t kTaskChecked = 1u << 1;   // TaskListItem のときのみ意味を持つ
     static constexpr uint8_t kHasChildBlocks = 1u << 2; // LI のみ。中身を子ブロック (loose list の段落・入れ子リスト等) に持つ
     static constexpr uint8_t kHasAlertLabel = 1u << 3;
+    static constexpr uint8_t kContinuesPrev = 1u << 4;
+    static constexpr uint8_t kContinuesNext = 1u << 5;
+    static constexpr uint8_t kNewlineBeforeChunk = 1u << 6;
 
     constexpr bool HasSourceOffset() const noexcept
     {
@@ -339,6 +342,30 @@ struct Node {
         flags_ |= kHasAlertLabel;
     }
 
+    // 長いテキストはパーサが区切り、同じ種別のノードの並びにする (DirectWrite の計測が長さに対して二乗に近く遅くなるため)。
+    // 並びは見た目もコピーも 1 つのブロックとして扱う。
+    constexpr bool continues_prev() const noexcept
+    {
+        return (flags_ & kContinuesPrev) != 0;
+    }
+    constexpr bool continues_next() const noexcept
+    {
+        return (flags_ & kContinuesNext) != 0;
+    }
+    // 前のノードとの間にあった改行を、区切るときに取り除いた。立っていなければ前のノードにそのままつながる。
+    constexpr bool newline_before_chunk() const noexcept
+    {
+        return (flags_ & kNewlineBeforeChunk) != 0;
+    }
+    constexpr void set_continues_prev(bool newline_before) noexcept
+    {
+        flags_ |= kContinuesPrev | (newline_before ? kNewlineBeforeChunk : 0);
+    }
+    constexpr void set_continues_next() noexcept
+    {
+        flags_ |= kContinuesNext;
+    }
+
     constexpr std::span<const std::string_view> view_link_urls() const noexcept
     {
         return { link_urls_, link_url_count_ };
@@ -356,6 +383,28 @@ struct Node {
 // 超過したら /d1reportSingleClassLayoutNode で並びを確認し、payload か末尾の 1 バイト領域に寄せる。
 static_assert(sizeof(Node) == 64, "Node size regression: expected 64 bytes");
 static_assert(std::is_trivially_copyable_v<Node>, "Node must stay a trivially copyable view");
+
+// i を含む、区切ったノードの並びの先頭と末尾。区切っていなければ i。
+constexpr size_t ChunkRunFirst(std::span<const Node> nodes, size_t i) noexcept
+{
+    while (i > 0 && nodes[i].continues_prev()) {
+        --i;
+    }
+    return i;
+}
+constexpr size_t ChunkRunLast(std::span<const Node> nodes, size_t i) noexcept
+{
+    while (i + 1 < nodes.size() && nodes[i].continues_next()) {
+        ++i;
+    }
+    return i;
+}
+
+// 区切ったノードの間に戻す文字。next は続きのノード。
+constexpr std::string_view ChunkSeparator(const Node& next) noexcept
+{
+    return next.newline_before_chunk() ? "\n" : "";
+}
 
 // テキストではなくビットマップを描くノード。
 constexpr bool IsBitmapDrawNode(const Node& node) noexcept
