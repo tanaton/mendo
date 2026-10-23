@@ -10,8 +10,11 @@
 #include "ui_constants.h"
 #include <algorithm>
 #include <cmath>
+#include <memory_resource>
 #include <mutex>
 #include <ranges>
+#include <string_view>
+#include <unordered_map>
 
 using Microsoft::WRL::ComPtr;
 
@@ -104,6 +107,34 @@ float MeasureRowHeight(TableLayoutData& tl, const NodeTableData& tbl, size_t r, 
 // 初回計測でセル layout を残す表の大きさの上限。layout は 1 セル 7KB ほどあり、5 万行 6 列の表で 2GB になる。
 // これより大きい表は自然幅と高さだけ測って捨て、可視行だけ作り直す。小さい表は可視行を 2 回作らないよう残す。
 constexpr size_t kMaxKeptTableCells = 1024;
+
+// 列ごとに、同じ中身 (テキストと装飾) のセルのうち最初の行を代表にし、[セル] = 代表の行を返す。
+// 大きな表は状態や種別のような同じ値が列に並びやすく、代表だけ測れば CreateTextLayout が減る。
+// 見出し行 (書式が違う) と空のセル (測らない) は自分自身を代表にする。
+std::pmr::vector<uint32_t> FindRepresentativeRows(const NodeTableData& tbl, TaskScheduler* scheduler)
+{
+    std::pmr::vector<uint32_t> rep_rows(static_cast<size_t>(tbl.row_count) * tbl.col_count);
+    ParallelFor(scheduler, tbl.col_count, 1, [&](size_t col_begin, size_t col_end) {
+        for (size_t c = col_begin; c < col_end; ++c) {
+            std::pmr::monotonic_buffer_resource arena;
+            std::pmr::unordered_map<std::string_view, uint32_t> first_rows(&arena);
+            for (uint32_t r = 0; r < tbl.row_count; ++r) {
+                uint32_t& rep = rep_rows[tbl.CellIndex(r, c)];
+                rep = r;
+                const auto text = tbl.GetCellText(r, c);
+                if (text.empty() || tbl.IsHeaderRow(r)) {
+                    continue;
+                }
+                // 同じテキストで装飾が違うセルは、最初のものだけを代表にして自分で測る。
+                const auto [it, inserted] = first_rows.try_emplace(text, r);
+                if (!inserted && std::ranges::equal(tbl.GetCellRuns(r, c), tbl.GetCellRuns(it->second, c))) {
+                    rep = it->second;
+                }
+            }
+        }
+    });
+    return rep_rows;
+}
 
 // 巨大テーブルを行チャンクで並列処理するときの 1 チャンクの行数。
 constexpr size_t TableRowsPerChunk(size_t col_count) noexcept
@@ -448,6 +479,9 @@ void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayout
     auto& natural_widths = tl.natural_col_widths;
     natural_widths.assign(col_count, 0.0f);
     const bool keep_layouts = tl.cell_layouts.size() <= kMaxKeptTableCells;
+    // layout を残す小さい表は、全セルの layout が要るので代表を探さない。
+    const auto rep_rows = keep_layouts ? std::pmr::vector<uint32_t>{} : FindRepresentativeRows(tbl, scheduler_);
+    const auto measures_itself = [&](size_t r, size_t ci) { return keep_layouts || rep_rows[ci] == r; };
 
     // 巨大テーブルは全セルの CreateTextLayout が秒単位になるため行チャンクで並列化する。
     // セルは chunk ごとに別 index へ書くので排他不要で、自然幅だけ chunk 末尾でマージする。
@@ -458,13 +492,16 @@ void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayout
         for (size_t r = row_begin; r < row_end; r++) {
             IDWriteTextFormat* const row_fmt = GetTableRowFormat(tbl, r);
             for (size_t c = 0; c < col_count; c++) {
+                const size_t ci = tl.CellIndex(r, c);
+                if (!measures_itself(r, ci)) {
+                    continue;
+                }
                 auto cell_layout = CreateCellLayout(tbl, r, c, row_fmt);
                 if (!cell_layout) {
                     continue;
                 }
                 DWRITE_TEXT_METRICS metrics{};
                 cell_layout->GetMetrics(&metrics);
-                const size_t ci = tl.CellIndex(r, c);
                 tl.cell_natural_widths[ci] = metrics.width;
                 tl.cell_nowrap_heights[ci] = metrics.height;
                 local_widths[c] = std::max(local_widths[c], metrics.width);
@@ -478,9 +515,22 @@ void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayout
             natural_widths[c] = std::max(natural_widths[c], local_widths[c]);
         }
     });
-    if (!keep_layouts) {
-        tl.ResetRowEviction(tbl.row_count, /*evicted=*/true);
+    if (keep_layouts) {
+        return;
     }
+    // 代表と同じ中身のセルは代表の値を写す。列の自然幅は代表が足し込み済み。
+    ParallelFor(scheduler_, tbl.row_count, TableRowsPerChunk(col_count) * 16, [&](size_t row_begin, size_t row_end) {
+        for (size_t r = row_begin; r < row_end; r++) {
+            for (size_t c = 0; c < col_count; c++) {
+                if (const size_t ci = tl.CellIndex(r, c); !measures_itself(r, ci)) {
+                    const size_t rep = tl.CellIndex(rep_rows[ci], c);
+                    tl.cell_natural_widths[ci] = tl.cell_natural_widths[rep];
+                    tl.cell_nowrap_heights[ci] = tl.cell_nowrap_heights[rep];
+                }
+            }
+        }
+    });
+    tl.ResetRowEviction(tbl.row_count, /*evicted=*/true);
 }
 
 void DWriteTextMeasurer::RestoreNullCellLayouts(const NodeTableData& tbl, TableLayoutData& tl, MeasureViewportRange viewport) const

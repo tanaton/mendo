@@ -394,3 +394,34 @@ TEST_F(TableEvictionDWriteTest, LargeTableBuildsOnlyVisibleRows)
     EXPECT_LT(built, tl.cell_layouts.size() / 10);
     EXPECT_FALSE(pl.cache[idx].layout_dirty);
 }
+
+// 大きな表の初回計測は、列の中で中身 (テキストと装飾) が同じセルを 1 回だけ測り、他は代表の値を使う。
+// 装飾が違えば幅も違うので別に測る。行の高さは全セルを作って測ったときと同じになる。
+TEST_F(TableEvictionDWriteTest, LargeTableMeasuresDuplicateCellsOnce)
+{
+    std::string md = "| A | B | C |\n|---|---|---|\n";
+    for (size_t i = 0; i < 600; ++i) {
+        md += (i % 3 == 0) ? "| **ok** " : "| ok ";
+        md += "| r" + std::to_string(i) + " | same text in every row |\n";
+    }
+    auto pl = ParseAndLayout(md);
+    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
+    ASSERT_GE(idx, 0);
+    const auto& built = *pl.cache[idx].table_layout();
+    ASSERT_EQ(CountNonNullCells(built), built.cell_layouts.size());
+
+    NodeLayoutEntry entry;
+    entry.layout_dirty = true;
+    measurer_.MeasureNode(pl.nodes[idx], entry, ContentWidth());
+    const auto& tl = *entry.table_layout();
+
+    // 0 行目は見出し。1 行目 (i=0) が太字、2 行目 (i=1) と 3 行目 (i=2) が普通の "ok"。
+    const auto width = [&](size_t r, size_t c) { return tl.cell_natural_widths[tl.CellIndex(r, c)]; };
+    EXPECT_GT(width(1, 0), width(2, 0));
+    EXPECT_EQ(width(2, 0), width(3, 0));
+    EXPECT_EQ(width(4, 0), width(1, 0));
+    EXPECT_EQ(width(5, 2), width(1, 2));
+    EXPECT_EQ(tl.cell_natural_widths, built.cell_natural_widths);
+    EXPECT_EQ(tl.cell_nowrap_heights, built.cell_nowrap_heights);
+    EXPECT_EQ(tl.row_heights, built.row_heights);
+}
