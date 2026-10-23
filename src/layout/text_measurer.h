@@ -18,7 +18,7 @@ struct MeasureViewportRange {
 
 struct TableRestoreResult {
     bool restored = false;
-    // 旧幅の行高さのまま evict されていた行を実測し直して高さが変わった
+    // 見積もった行高さで evict されていた行を実測し直して高さが変わった
     bool height_changed = false;
 };
 

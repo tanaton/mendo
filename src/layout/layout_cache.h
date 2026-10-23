@@ -40,6 +40,7 @@ struct TableLayoutData {
     std::pmr::vector<float> cell_heights;        // 各セルに最後に適用した幅での計測高さ
     std::pmr::vector<float> cell_applied_widths; // 各セルに最後に適用した max_width（変更判定用）
     std::pmr::vector<float> cell_natural_widths; // 各セルの折り返さない幅。テキストは変わらないので evict しても残す
+    std::pmr::vector<float> cell_nowrap_heights; // 各セルの折り返さないときの高さ。evict 中の行の高さを出すのに使う
     std::pmr::vector<uint8_t> row_evicted;       // 行単位 evict でセル layout を捨てた行
     // ヒットテスト高速化用の累積オフセット。
     // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ。サイズは row_count+1。
@@ -59,12 +60,13 @@ struct TableLayoutData {
     {
         return evicted_row_count > 0;
     }
-    void ResetRowEviction(size_t row_count)
+    // evicted なら全行がセル layout を持たない状態にする。行は可視になったときに LayoutEngine::MeasurePass の行復元が作る。
+    void ResetRowEviction(size_t row_count, bool evicted = false)
     {
-        row_evicted.assign(row_count, 0);
-        evicted_row_count = 0;
+        row_evicted.assign(row_count, evicted ? 1 : 0);
+        evicted_row_count = evicted ? row_count : 0;
         live_row_begin = 0;
-        live_row_end = row_count;
+        live_row_end = evicted ? 0 : row_count;
     }
     // セル単位の配列と row_evicted を row_count x col_count に揃えて確保し直す (セル layout は空)。
     // cell_layouts を最後に確保するので、途中で例外になっても「cell_layouts が非空なら
@@ -75,6 +77,7 @@ struct TableLayoutData {
         cell_heights.assign(cell_count, 0.0f);
         cell_applied_widths.assign(cell_count, -1.0f);
         cell_natural_widths.assign(cell_count, 0.0f);
+        cell_nowrap_heights.assign(cell_count, 0.0f);
         ResetRowEviction(row_count);
         col_count = new_col_count;
         cell_layouts.assign(cell_count, {});

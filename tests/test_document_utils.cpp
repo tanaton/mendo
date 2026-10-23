@@ -1800,21 +1800,14 @@ TEST(ParentDirectory, ReturnsDirectoryPart)
 }
 
 // ============================================================
-// BuildCodeBlockHtmlFragment
+// コードブロックの HTML (コピーボタン)
 // ============================================================
 
-TEST(BuildCodeBlockHtmlFragment, NonCodeBlockReturnsEmpty)
-{
-    const auto nodes = ParseNodes("plain paragraph");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_TRUE(BuildCodeBlockHtmlFragment(nodes[0], false).empty());
-}
-
-TEST(BuildCodeBlockHtmlFragment, WrapsEscapedCodeInPre)
+TEST(CodeBlockHtml, WrapsEscapedCodeInPre)
 {
     const auto nodes = ParseNodes("```\na < b && c > d\n```");
     ASSERT_EQ(nodes.size(), 1u);
-    const auto html = BuildCodeBlockHtmlFragment(nodes[0], false);
+    const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
     EXPECT_TRUE(html.starts_with("<pre "));
     EXPECT_TRUE(html.ends_with("</code></pre>"));
     EXPECT_TRUE(html.contains("a &lt; b &amp;&amp; c &gt; d"));
@@ -1822,12 +1815,86 @@ TEST(BuildCodeBlockHtmlFragment, WrapsEscapedCodeInPre)
 }
 
 // ダーク時は貼り付け先の既定 (黒文字) で読めなくならないよう文字色を明示する。
-TEST(BuildCodeBlockHtmlFragment, DarkModeSpecifiesTextColor)
+TEST(CodeBlockHtml, DarkModeSpecifiesTextColor)
 {
     const auto nodes = ParseNodes("```\ncode\n```");
     ASSERT_EQ(nodes.size(), 1u);
-    const auto light = BuildCodeBlockHtmlFragment(nodes[0], false);
-    const auto dark = BuildCodeBlockHtmlFragment(nodes[0], true);
+    const auto light = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
+    const auto dark = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), true);
     EXPECT_FALSE(light.contains(";color:"));
     EXPECT_TRUE(dark.contains(";color:"));
+}
+
+// ============================================================
+// 区切ったテキストのコピー
+// ============================================================
+
+// 区切ったコードブロックは、区切る前と同じテキストと 1 つの <pre> としてコピーする。
+TEST(ChunkCopy, SplitCodeCopiesAsOneBlock)
+{
+    const std::string code = MakeNumberedLines(3000);
+    const std::string md = "```\n" + code + "```";
+    const auto nodes = ParseNodes(md);
+    ASSERT_GT(nodes.size(), 2u);
+
+    std::string expected;
+    for (const char c : std::string_view{ code }.substr(0, code.size() - 1)) {
+        expected += c == '\n' ? std::string_view{ "\r\n" } : std::string_view{ &c, 1 };
+    }
+    EXPECT_EQ(ExtractSelectedText(nodes, SelectAll(nodes)), std::pmr::string{ expected });
+
+    const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
+    EXPECT_EQ(CountOccurrences(html, "<pre "), 1u);
+    EXPECT_EQ(CountOccurrences(html, "</pre>"), 1u);
+    EXPECT_EQ(CountOccurrences(html, "\n"), 2999u);
+}
+
+// 区切った段落は改行を挟まず、1 つの <p> としてコピーする。
+TEST(ChunkCopy, SplitParagraphCopiesAsOneParagraph)
+{
+    const std::string md = MakeNumberedLines(4000);
+    const auto nodes = ParseNodes(md);
+    ASSERT_GT(nodes.size(), 2u);
+
+    std::string expected = md.substr(0, md.size() - 1);
+    std::ranges::replace(expected, '\n', ' ');
+    EXPECT_EQ(ExtractSelectedText(nodes, SelectAll(nodes)), std::pmr::string{ expected });
+
+    const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
+    EXPECT_EQ(CountOccurrences(html, "<p>"), 1u);
+    EXPECT_EQ(CountOccurrences(html, "</p>"), 1u);
+}
+
+// 並びの途中だけを選んでも、選択の端で要素を開いて閉じる。
+TEST(ChunkCopy, PartialSelectionInsideRunIsClosed)
+{
+    const std::string md = MakeNumberedLines(4000);
+    const auto nodes = ParseNodes(md);
+    ASSERT_GT(nodes.size(), 2u);
+    const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(1, 0, 1, 10), false);
+    EXPECT_TRUE(html.starts_with("<p>"));
+    EXPECT_TRUE(html.ends_with("</p>"));
+}
+
+// 区切ったコードの続きは前のノードからの続きとしてトークン化するので、継ぎ目をまたぐブロックコメントも色が崩れない。
+TEST(ChunkCopy, ContinuedCodeTokenizesFromPreviousChunk)
+{
+    const std::string md = "```cpp\n/*\n" + MakeNumberedLines(1000) + "*/\nint x;\n```";
+    const auto nodes = ParseNodes(md);
+    ASSERT_EQ(nodes.size(), 2u);
+    ASSERT_TRUE(nodes[1].continues_prev());
+
+    const auto tokens = TokenizeCodeNode(nodes[1]);
+    ASSERT_FALSE(tokens.empty());
+    EXPECT_EQ(tokens[0].start, 0u);
+    EXPECT_EQ(tokens[0].type, SyntaxTokenType::Comment);
+    const auto text = nodes[1].GetText();
+    const auto keyword = text.find("int x;");
+    ASSERT_NE(keyword, std::string_view::npos);
+    EXPECT_TRUE(std::ranges::any_of(tokens, [&](const SyntaxToken& t) {
+        return t.start == keyword && t.type != SyntaxTokenType::Comment;
+    }));
+    for (const auto& t : tokens) {
+        EXPECT_LE(t.start + t.length, text.size());
+    }
 }

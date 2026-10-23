@@ -3,6 +3,7 @@
 #include "syntax.h"
 #include "profiler.h"
 #include "utility.h"
+#include "utf8_codec.h"
 #include "md4c.h"
 #include <cassert>
 #include <unordered_map>
@@ -130,6 +131,12 @@ struct ParseContext {
     // md_parse() に渡した入力バッファ。source_offset 計算と、md4c が渡すポインタが原文を指すかの判定に使う。
     std::string_view markdown;
 
+    // 改行の位置で区切ると決めたが、まだ区切っていない。後に本文が続くときだけ区切り、末尾に空のノードを作らない。
+    // 改行は足さずに数えて待ち、区切るときは 1 個を継ぎ目として取り除き、残り (空行) を続きの頭に置く。
+    // 区切らずにブロックが終わったら前のノードに戻す。SOFTBR は代わりの空白を前のノードに足してから待つ。
+    uint32_t pending_newlines = 0;
+    bool pending_joined = false;
+
     // 現在ノードのテキストを arena へコピーすることが確定しているか。span markup (** _ ` 等) の存在や、
     // entity 解決 / BR / SOFTBR で text を置換するケースは current_text と raw_slice が
     // 構造的に一致しなくなるため、FinalizeCurrentNode の memcmp を完全にスキップできる。
@@ -158,6 +165,7 @@ struct ParseContext {
     // スクラッチの capacity は保持して次ノードで再利用する (確保回数削減のため)。
     void FinalizeCurrentNode()
     {
+        CancelPendingSplit();
         FlushPendingRun();
         if (current_node) {
             // 昇格処理 (TryPromoteParagraphToDisplayMath 等) がテキストを直接設定済みのノードは、
@@ -236,6 +244,142 @@ struct ParseContext {
             current_node->quote_outer_indent = SaturateToInt8(outermost_quote_indent);
         }
         current_node_needs_copy = false;
+    }
+
+    // 区切るのは段落・引用・コードブロック (図を除く) だけ。見出しやリスト項目は区切ると記号や下線が増え、
+    // 図は 1 つのコードから描く。
+    bool CanSplitCurrentNode() const noexcept
+    {
+        if (active_text_buffer != &current_text) {
+            return false;
+        }
+        switch (current_node->type) {
+        case NodeType::Paragraph:
+        case NodeType::BlockQuote:
+            return true;
+        case NodeType::CodeBlock:
+            return !IsDiagramLanguage(current_node->code_language());
+        default:
+            return false;
+        }
+    }
+
+    // 現在のノードをここで閉じ、同じ種別の続きのノードを始める。開いている装飾とリンクは続きにも掛ける。
+    void SplitCurrentNode(bool newline_before)
+    {
+        std::string_view link_url;
+        if (current_link_url_index >= 0) {
+            link_url = current_link_urls[static_cast<size_t>(current_link_url_index)];
+        }
+        const NodeType type = current_node->type;
+        const SyntaxLanguage language = current_node->code_language();
+        current_node->set_continues_next();
+        BeginNode(type);
+        current_node->set_code_language(language);
+        current_node->set_continues_prev(newline_before);
+        // 区切った段落は $$..$$ だけの段落ではないので、ブロック数式に昇格させない。
+        paragraph_has_other_content = true;
+        if (!link_url.empty()) {
+            ResolveLinkUrlIndex(link_url);
+        }
+    }
+
+    constexpr bool HasPendingSplit() const noexcept
+    {
+        return pending_newlines > 0 || pending_joined;
+    }
+
+    // 続きの頭に置く空行が目安の長さを超えると、そこでまた区切りを待つので、待ちが無くなるまで繰り返す。
+    void ApplyPendingSplit()
+    {
+        while (HasPendingSplit()) {
+            const uint32_t newlines = std::exchange(pending_newlines, 0);
+            pending_joined = false;
+            SplitCurrentNode(newlines > 0);
+            for (uint32_t k = 1; k < newlines; ++k) {
+                AppendLineBreak("\n");
+            }
+        }
+    }
+
+    // 区切らずにブロックが終わるので、待っていた改行を前のノードに戻す。
+    void CancelPendingSplit()
+    {
+        for (; pending_newlines > 0; --pending_newlines) {
+            AppendDoc("\n");
+        }
+        pending_joined = false;
+    }
+
+    // chunk を先頭から target バイト付近で区切る位置 (target < chunk.size())。前後 kTextChunkWindow にある最後の空白の
+    // 直後で区切り、空白が無ければ target の手前の文字の境目で区切る。後ろに必ず 1 バイト以上残す。
+    static size_t FindChunkCut(std::string_view chunk, size_t target) noexcept
+    {
+        const size_t lo = target > kTextChunkWindow ? target - kTextChunkWindow : 0;
+        const size_t hi = std::min(chunk.size() - 1, target + kTextChunkWindow);
+        if (const size_t space = chunk.substr(lo, hi - lo).find_last_of(" \t"); space != std::string_view::npos) {
+            return lo + space + 1;
+        }
+        // 文字の境目まで戻れないほど壊れた UTF-8 でも、区切りが進むよう target で切る。
+        const size_t cut = utf8_codec::SnapToCpStart(chunk, static_cast<uint32_t>(target));
+        return cut > 0 ? cut : target;
+    }
+
+    // 本文を足す。区切りを待っているか目安の長さを大きく超えるときだけ区切る。
+    // 100MB の入力で数百万回呼ばれるので、ほとんどの呼び出しは比較だけで AppendDoc に進める
+    // (表のセル内では current_text を使わないが、比べても結果は CanSplitCurrentNode で弾かれる)。
+    void AppendSplittable(std::string_view chunk)
+    {
+        if (current_text.size() + chunk.size() > kTextChunkTarget + kTextChunkWindow || HasPendingSplit()) [[unlikely]] {
+            chunk = SplitBeforeAppend(chunk);
+        }
+        AppendDoc(chunk);
+    }
+
+    // 区切ってから、現在のノードに足す chunk の残りを返す。
+    __declspec(noinline) std::string_view SplitBeforeAppend(std::string_view chunk)
+    {
+        if (HasPendingSplit()) {
+            ApplyPendingSplit();
+            RecordSourceOffset(chunk);
+        }
+        while (current_text.size() + chunk.size() > kTextChunkTarget + kTextChunkWindow && CanSplitCurrentNode()) {
+            const size_t cut = FindChunkCut(chunk, kTextChunkTarget - std::min(current_text.size(), kTextChunkTarget));
+            AppendDoc(chunk.substr(0, cut));
+            SplitCurrentNode(false);
+            chunk.remove_prefix(cut);
+            RecordSourceOffset(chunk);
+        }
+        return chunk;
+    }
+
+    // 改行 ("\n" か、SOFTBR の代わりの " ") を足す。区切りの目安に近ければ、ここを区切りの候補にする。
+    void AppendLineBreak(std::string_view text)
+    {
+        if (current_text.size() + kTextChunkWindow < kTextChunkTarget && !HasPendingSplit()) [[likely]] {
+            AppendDoc(text);
+            return;
+        }
+        AppendLineBreakNearSplit(text);
+    }
+
+    __declspec(noinline) void AppendLineBreakNearSplit(std::string_view text)
+    {
+        if (pending_newlines > 0 && text == "\n") {
+            ++pending_newlines;
+            return;
+        }
+        ApplyPendingSplit();
+        if (current_text.size() + kTextChunkWindow < kTextChunkTarget || !CanSplitCurrentNode()) {
+            AppendDoc(text);
+            return;
+        }
+        if (text == "\n") {
+            pending_newlines = 1;
+            return;
+        }
+        AppendDoc(text);
+        pending_joined = true;
     }
 
     // md4c は MD_TEXT_NULLCHAR / MD_TEXT_BR / MD_TEXT_SOFTBR や、CODE/LATEXMATH/HTML の改行・空白置換で
@@ -445,7 +589,8 @@ constexpr bool IsImagePromotionCandidate(const Node& node) noexcept
 bool TryPromoteParagraphToImage(ParseContext* ctx)
 {
     auto* const cn = ctx->current_node;
-    if (!cn || !IsImagePromotionCandidate(*cn) || ctx->image_src.empty()) {
+    // 区切った段落の続きを画像にすると、前の部分だけが本文として残る。
+    if (!cn || !IsImagePromotionCandidate(*cn) || ctx->image_src.empty() || cn->continues_prev()) {
         return false;
     }
     const NodeImageData image{ ctx->image_src };
@@ -638,6 +783,9 @@ void LeaveCodeBlock(ParseContext* ctx)
     }
     // md4c はコード各行を改行付きで渡すため、最終行の改行を表示テキストから落とす。
     // コード内には装飾もリンクも付かないので run は無く、調整は要らない。
+    // 区切りを待って取り除いていた改行は戻してから落とす。
+    ctx->CancelPendingSplit();
+    ctx->FlushPendingRun();
     assert(ctx->current_runs.empty());
     if (ctx->current_text.ends_with('\n')) {
         ctx->current_text.pop_back();
@@ -872,6 +1020,10 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
 
     ctx->EnsureNodeForListItemText();
     ctx->FlushPendingRun();
+    // span が自分で足す文字 ("$" や脚注番号) は、待っている区切りの後ろに入れる。
+    if (type == MD_SPAN_LATEXMATH || type == MD_SPAN_LATEXMATH_DISPLAY || type == MD_SPAN_FOOTNOTE_REF) {
+        ctx->ApplyPendingSplit();
+    }
     // src が空の画像は Image ノードに昇格しないので、分割せず Alert 本文のままにする。
     if (type == MD_SPAN_IMG && ctx->image_span_depth == 0 && static_cast<const MD_SPAN_IMG_DETAIL*>(detail)->src.size > 0) {
         SplitAlertMarkerBeforeImage(ctx);
@@ -1017,11 +1169,17 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     case MD_TEXT_NORMAL:
     case MD_TEXT_CODE:
         ctx->paragraph_has_other_content = true;
-        ctx->AppendDoc(chunk);
+        // コードの行末は単独の "\n" で届く。
+        if (type == MD_TEXT_CODE && chunk == "\n") {
+            ctx->AppendLineBreak(chunk);
+        }
+        else {
+            ctx->AppendSplittable(chunk);
+        }
         break;
 
     case MD_TEXT_LATEXMATH:
-        ctx->AppendDoc(chunk);
+        ctx->AppendSplittable(chunk);
         break;
 
     case MD_TEXT_ENTITY: {
@@ -1030,7 +1188,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         // 不一致になり arena へのコピーが確定。memcmp スキップフラグを立てる。
         ctx->current_node_needs_copy = true;
         char entity_buf[4];
-        ctx->AppendDoc(ResolveHtmlEntity(chunk, entity_buf).value_or(chunk));
+        ctx->AppendSplittable(ResolveHtmlEntity(chunk, entity_buf).value_or(chunk));
         break;
     }
 
@@ -1038,7 +1196,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         ctx->paragraph_has_other_content = true;
         // BR / SOFTBR は原文の `<br>` や 2 個の半角空白+改行を `\n`/` ` に置換するため raw_slice 不一致。
         ctx->current_node_needs_copy = true;
-        ctx->AppendDoc("\n");
+        ctx->AppendLineBreak("\n");
         break;
 
     case MD_TEXT_SOFTBR:
@@ -1046,7 +1204,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         ctx->current_node_needs_copy = true;
         // Alert マーカーだけの先頭行の後ろは改行のまま残す。空白にすると、GitHub が Alert にしない
         // 同じ行の "[!NOTE] 本文" と区別できない。
-        ctx->AppendDoc(IsAlertMarkerOnlyHead(ctx) ? "\n" : " ");
+        ctx->AppendLineBreak(IsAlertMarkerOnlyHead(ctx) ? "\n" : " ");
         break;
 
     case MD_TEXT_NULLCHAR:

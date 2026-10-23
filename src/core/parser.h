@@ -12,6 +12,13 @@
 #include <vector>
 #include <memory_resource>
 
+// 段落・引用・コードブロックのテキストをこの長さ前後で区切り、続きのノードの並びにする。DirectWrite は 1 段落の
+// 行分割が長さに対して二乗に近く遅くなり (空行の無い 4MB のテキストで 28 秒)、1 ノードのままだと並列に計測できず、
+// 見えている間は解放もできない。改行が目安の kTextChunkWindow 手前を過ぎたらそこで、1 行が長ければ目安の前後
+// kTextChunkWindow にある空白で、空白も無ければ目安の長さで区切る。
+inline constexpr size_t kTextChunkTarget = 16 * 1024;
+inline constexpr size_t kTextChunkWindow = kTextChunkTarget / 8;
+
 // ノードと、ノードが指すもの (テキスト・runs・リンク URL を置いた arena とテーブル) の組。
 struct NodeStorage {
     std::pmr::vector<Node> nodes;

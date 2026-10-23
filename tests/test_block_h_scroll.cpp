@@ -1,4 +1,7 @@
 #include <gtest/gtest.h>
+#include <string>
+#include "document_test_helpers.h"
+#include "test_nodes.h"
 #include "block_h_scroll.h"
 #include "theme.h"
 
@@ -62,38 +65,62 @@ TEST(BlockHScrollGeometry, DefaultIsNotScrollable)
 // GetBlockHScrollGeometry: ノード種別ごとの block_width 選択 / visible_width 計算
 // ─────────────────────────────────────────────
 
+namespace {
+
+// ノード 1 つの文書と、その計測結果。
+struct OneNodeDoc {
+    std::pmr::vector<Node> nodes;
+    LayoutCache cache;
+
+    explicit OneNodeDoc(NodeType type, int8_t indent_level = 0)
+    {
+        Node node;
+        node.type = type;
+        node.indent_level = indent_level;
+        nodes.push_back(node);
+        cache.Resize(1);
+    }
+    NodeLayoutEntry& entry()
+    {
+        return cache[0];
+    }
+    BlockHScrollGeometry Geometry(const Theme& theme, float md_pane_width) const
+    {
+        return GetBlockHScrollGeometry(nodes, cache, 0, theme, md_pane_width);
+    }
+};
+
+} // namespace
+
 // CodeBlock（diagram でない）は natural_code_width を採用する。
 TEST(GetBlockHScrollGeometry, ScrollableCodeBlockUsesNaturalCodeWidth)
 {
     const Theme theme = GetLightTheme();
-    Node node;
-    node.type = NodeType::CodeBlock;
-    NodeLayoutEntry entry;
-    entry.set_natural_code_width(1234.0f);
+    OneNodeDoc doc{ NodeType::CodeBlock };
+    doc.entry().set_natural_code_width(1234.0f);
 
     constexpr float kPaneWidth = 800.0f;
-    const auto g = GetBlockHScrollGeometry(node, entry, theme, kPaneWidth);
+    const auto g = doc.Geometry(theme, kPaneWidth);
     EXPECT_FLOAT_EQ(g.block_width, 1234.0f);
     EXPECT_FLOAT_EQ(g.visible_width, theme.ContentWidth(kPaneWidth));
+    EXPECT_EQ(g.scroll_key, 0);
 }
 
 // Table は描画と同じ TableWidth (配置後の列幅合計) を採用する。幾何を無効化した表は描画されないので、スクロールもさせない。
 TEST(GetBlockHScrollGeometry, TableUsesLaidOutTableWidth)
 {
     const Theme theme = GetLightTheme();
-    Node node;
-    node.type = NodeType::Table;
-    NodeLayoutEntry entry;
-    auto& tl = entry.ensure_table_layout();
+    OneNodeDoc doc{ NodeType::Table };
+    auto& tl = doc.entry().ensure_table_layout();
     tl.col_widths = { 1000.0f, 1000.0f };
     tl.RebuildColCumX();
 
-    const auto g = GetBlockHScrollGeometry(node, entry, theme, 800.0f);
+    const auto g = doc.Geometry(theme, 800.0f);
     EXPECT_FLOAT_EQ(g.block_width, tl.TableWidth());
     EXPECT_TRUE(g.can_scroll());
 
     tl.InvalidateGeometry();
-    const auto invalidated = GetBlockHScrollGeometry(node, entry, theme, 800.0f);
+    const auto invalidated = doc.Geometry(theme, 800.0f);
     EXPECT_FLOAT_EQ(invalidated.block_width, 0.0f);
     EXPECT_FALSE(invalidated.can_scroll());
 }
@@ -102,11 +129,9 @@ TEST(GetBlockHScrollGeometry, TableUsesLaidOutTableWidth)
 TEST(GetBlockHScrollGeometry, TableWithoutLayoutHasZeroWidth)
 {
     const Theme theme = GetLightTheme();
-    Node node;
-    node.type = NodeType::Table;
-    NodeLayoutEntry entry;
+    const OneNodeDoc doc{ NodeType::Table };
 
-    const auto g = GetBlockHScrollGeometry(node, entry, theme, 800.0f);
+    const auto g = doc.Geometry(theme, 800.0f);
     EXPECT_FLOAT_EQ(g.block_width, 0.0f);
     EXPECT_FALSE(g.can_scroll());
 }
@@ -115,12 +140,10 @@ TEST(GetBlockHScrollGeometry, TableWithoutLayoutHasZeroWidth)
 TEST(GetBlockHScrollGeometry, ParagraphIsNotScrollable)
 {
     const Theme theme = GetLightTheme();
-    Node node;
-    node.type = NodeType::Paragraph;
-    NodeLayoutEntry entry;
-    entry.set_natural_code_width(9999.0f);
+    OneNodeDoc doc{ NodeType::Paragraph };
+    doc.entry().set_natural_code_width(9999.0f);
 
-    const auto g = GetBlockHScrollGeometry(node, entry, theme, 800.0f);
+    const auto g = doc.Geometry(theme, 800.0f);
     EXPECT_FLOAT_EQ(g.block_width, 0.0f);
     EXPECT_FALSE(g.can_scroll());
 }
@@ -129,14 +152,11 @@ TEST(GetBlockHScrollGeometry, ParagraphIsNotScrollable)
 TEST(GetBlockHScrollGeometry, IndentReducesVisibleWidth)
 {
     const Theme theme = GetLightTheme();
-    Node node;
-    node.type = NodeType::CodeBlock;
-    node.indent_level = 2;
-    NodeLayoutEntry entry;
-    entry.set_natural_code_width(1000.0f);
+    OneNodeDoc doc{ NodeType::CodeBlock, 2 };
+    doc.entry().set_natural_code_width(1000.0f);
 
     constexpr float kPaneWidth = 800.0f;
-    const auto g = GetBlockHScrollGeometry(node, entry, theme, kPaneWidth);
+    const auto g = doc.Geometry(theme, kPaneWidth);
     EXPECT_FLOAT_EQ(g.visible_width, theme.ContentWidth(kPaneWidth) - 2 * theme.indent_width);
 }
 
@@ -157,4 +177,23 @@ TEST(BlockHScrollGeometry, ClampScrollXIsZeroWhenNotScrollable)
 {
     constexpr BlockHScrollGeometry g{ .block_width = 100.0f, .visible_width = 300.0f };
     EXPECT_FLOAT_EQ(g.ClampScrollX(80.0f), 0.0f);
+}
+
+// 区切ったコードブロックは並び全体で横スクロールする。スクロール量の鍵は先頭で、幅は並びの最大。
+TEST(GetBlockHScrollGeometry, SplitCodeBlockSharesKeyAndWidestChunk)
+{
+    const std::string md = MakeCodeBlockMd(5000);
+    const auto nodes = ParseNodes(md);
+    ASSERT_GT(nodes.size(), 2u);
+    LayoutCache cache;
+    cache.Resize(nodes.size());
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        cache[i].set_natural_code_width(i == 1 ? 500.0f : 100.0f);
+    }
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        SCOPED_TRACE(i);
+        const auto g = GetBlockHScrollGeometry(nodes, cache, i, 300.0f);
+        EXPECT_EQ(g.scroll_key, 0);
+        EXPECT_FLOAT_EQ(g.block_width, 500.0f);
+    }
 }

@@ -144,7 +144,7 @@ TEST_F(HitTestTest, HitTest_GapBelowTableClampsToTableTextEnd)
     ASSERT_EQ(pr.nodes.size(), 3u);
     ASSERT_EQ(pr.nodes[1].type, NodeType::Table);
     ASSERT_EQ(pr.nodes[1].GetText(), "a\nb");
-    const float table_bottom = pr.cache.Bottom(1) + layout::NodeBoxPadY(pr.nodes[1], theme_);
+    const float table_bottom = pr.cache.Bottom(1) + layout::NodeBoxPadBottom(pr.nodes[1], theme_);
     ASSERT_LT(table_bottom, pr.cache.Top(2)) << "表と次の段落の間に余白があること";
 
     const float gap_y = (table_bottom + pr.cache.Top(2)) * 0.5f;

@@ -86,11 +86,7 @@ BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node
     if (node_index >= static_cast<int>(cache.size())) {
         return {};
     }
-    return GetBlockHScrollGeometry(
-        nodes[node_index],
-        cache[node_index],
-        *state.theme,
-        state.pane_layout_cache.Get().md_rect.width);
+    return GetBlockHScrollGeometry(nodes, cache, static_cast<size_t>(node_index), *state.theme, state.pane_layout_cache.Get().md_rect.width);
 }
 
 // MD ペインの総コンテンツ高。詳細は layout_cache.h の ComputeTotalContentHeight 注記参照。
@@ -152,18 +148,18 @@ void ApplyScrollTarget(AppState& state, int node, float offset)
 }
 
 // new_value は差分ではなく絶対値。
-bool SetBlockScrollX(AppState& state, int node_index, float new_value, const BlockHScrollGeometry& geom)
+bool SetBlockScrollX(AppState& state, float new_value, const BlockHScrollGeometry& geom)
 {
     const float clamped = geom.ClampScrollX(new_value);
-    const float prev = state.view.GetBlockScrollX(node_index, geom);
+    const float prev = state.view.GetBlockScrollX(geom);
     if (std::abs(prev - clamped) < 1e-3f) {
         return false;
     }
     if (clamped <= 0.0f) {
-        state.view.block_scroll_x.erase(node_index);
+        state.view.block_scroll_x.erase(geom.scroll_key);
     }
     else {
-        state.view.block_scroll_x[node_index] = clamped;
+        state.view.block_scroll_x[geom.scroll_key] = clamped;
     }
     return true;
 }
@@ -243,7 +239,7 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
             return;
         }
         const float dx = static_cast<float>(a.delta) / WHEEL_DELTA * HSCROLL_DIP_PER_NOTCH;
-        if (SetBlockScrollX(state, target, state.view.GetBlockScrollX(target, geom) + dx, geom)) {
+        if (SetBlockScrollX(state, state.view.GetBlockScrollX(geom) + dx, geom)) {
             PushEffect(effects, effect::InvalidateWindow{});
         }
         return;
@@ -265,7 +261,7 @@ void ReduceBlockHScrollDragStarted(AppState& state, SideEffectList& effects, con
     if (!geom.can_scroll()) {
         return;
     }
-    BeginLeftDrag(state, effects, { .kind = LeftDrag::BlockHScroll, .block_node = a.node_index, .start_x = a.dip_x, .start_scroll = state.view.GetBlockScrollX(a.node_index, geom) });
+    BeginLeftDrag(state, effects, { .kind = LeftDrag::BlockHScroll, .block_node = a.node_index, .start_x = a.dip_x, .start_scroll = state.view.GetBlockScrollX(geom) });
     PushEffect(effects, effect::InvalidateWindow{});
 }
 
@@ -287,7 +283,7 @@ void ReduceBlockHScrollDragMoved(AppState& state, SideEffectList& effects, const
     const float thumb_w = BlockHScrollbarThumbWidth(geom.visible_width, geom.block_width);
     const float drag_range = std::max(1.0f, geom.visible_width - thumb_w);
     const float scroll_max = geom.scroll_max();
-    if (SetBlockScrollX(state, node, sv.drag.start_scroll + dip_delta * scroll_max / drag_range, geom)) {
+    if (SetBlockScrollX(state, sv.drag.start_scroll + dip_delta * scroll_max / drag_range, geom)) {
         PushEffect(effects, effect::InvalidateWindow{});
     }
 }

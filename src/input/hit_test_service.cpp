@@ -8,7 +8,7 @@
 #include <utility>
 
 using layout::NodeBlockX;
-using layout::NodeBoxPadY;
+using layout::NodeBoxPadBottom;
 using layout::NodeContentWidth;
 using layout::NodeTextXOffset;
 
@@ -84,7 +84,7 @@ DirectHit FindDirectHit(const MdPaneHitContext& ctx, float dip_y) noexcept
     hit.text_top = ctx.cache.Top(c);
     // 背景の下側はみ出し部分 (横スクロールバーを置きたい領域) もそのノードのヒットとして扱い、
     // ホバーが切れないようにする。
-    const bool inside = dip_y <= hit.text_top + ctx.cache[c].height + NodeBoxPadY(ctx.nodes[c], ctx.theme);
+    const bool inside = dip_y <= hit.text_top + ctx.cache[c].height + NodeBoxPadBottom(ctx.nodes[c], ctx.theme);
     const NodeType type = ctx.nodes[c].type;
     if (inside && (type == NodeType::Table || type == NodeType::Image || ctx.cache[c].text_layout())) {
         hit.node_index = hit.candidate;
@@ -109,7 +109,7 @@ hit_test::HitResult hit_test::HitTest(const MdPaneHitContext& ctx) noexcept
     const auto& node = ctx.nodes[direct.node_index];
     const auto& entry = ctx.cache[direct.node_index];
     const float h_scroll_x = LookupBlockScrollX(
-        ctx.block_scroll_x, direct.node_index, GetBlockHScrollGeometry(node, entry, NodeContentWidth(node, ctx.theme, ctx.content_width)));
+        ctx.block_scroll_x, GetBlockHScrollGeometry(ctx.nodes, ctx.cache, static_cast<size_t>(direct.node_index), NodeContentWidth(node, ctx.theme, ctx.content_width)));
     if (node.type == NodeType::Table) {
         return HitTestTable(node, entry, direct.text_top, direct.node_index, ctx.theme, dip_x, dip_y, h_scroll_x);
     }
@@ -232,7 +232,7 @@ bool hit_test::BlockHScrollbarHitTest(const MdPaneHitContext& ctx, int node_inde
     }
     const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
     const auto& node = ctx.nodes[i];
-    const float bar_y = BlockHScrollbarBarY(ctx.cache.Top(i), ctx.cache[i].height, NodeBoxPadY(node, ctx.theme));
+    const float bar_y = BlockHScrollbarBarY(ctx.cache.Top(i), ctx.cache[i].height, NodeBoxPadBottom(node, ctx.theme));
     const float block_x = NodeBlockX(node, ctx.theme);
     return PointInRect(dip_x, dip_y, BlockHScrollbarHitRect(block_x, visible_width, bar_y));
 }

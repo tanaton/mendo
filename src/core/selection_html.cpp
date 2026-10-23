@@ -1,5 +1,6 @@
 #include "selection_html.h"
 #include "ascii_util.h"
+#include "document_utils.h"
 #include "nav.h"
 #include "profiler.h"
 #include "syntax.h"
@@ -34,6 +35,13 @@ void ForEachSelectedNode(const std::pmr::vector<Node>& nodes, const TextSelectio
 constexpr const theme_palette::SharedColors& PaletteFor(bool dark_mode) noexcept
 {
     return dark_mode ? theme_palette::kDark : theme_palette::kLight;
+}
+
+// i と次のノードの間に改行を置くか。区切ったテキストの続きとは、区切るときに改行を取り除いたときだけ置く。
+constexpr bool LineBreakAfter(const std::pmr::vector<Node>& nodes, int i) noexcept
+{
+    const auto next = static_cast<size_t>(i) + 1;
+    return next >= nodes.size() || !nodes[next].continues_prev() || nodes[next].newline_before_chunk();
 }
 
 constexpr uint32_t ClampEndToText(uint32_t end, size_t text_size) noexcept
@@ -374,12 +382,12 @@ void AppendHighlightedCode(
     }
 }
 
-void AppendCodeBlockHtml(std::pmr::string& out, const Node& node, uint32_t start, uint32_t end, bool dark_mode)
+constexpr std::string_view kCodeBlockClose = "</code></pre>";
+
+void AppendCodeBlockOpen(std::pmr::string& out, bool dark_mode)
 {
     constexpr std::string_view kStyleTail =
         ";padding:12px;border-radius:4px;overflow:auto;font-family:Consolas,'Courier New',monospace;font-size:13px;line-height:1.45;\"><code>";
-    constexpr std::string_view kClose = "</code></pre>";
-
     const auto& palette = PaletteFor(dark_mode);
     out.append("<pre style=\"background-color:");
     AppendHexColor(out, palette.code_bg);
@@ -389,12 +397,15 @@ void AppendCodeBlockHtml(std::pmr::string& out, const Node& node, uint32_t start
         AppendHexColor(out, palette.code_text);
     }
     out.append(kStyleTail);
+}
+
+void AppendCodeBlockBody(std::pmr::string& out, const Node& node, uint32_t start, uint32_t end, bool dark_mode)
+{
     const std::string_view text = node.GetText();
     end = ClampEndToText(end, text.size());
     if (start < end) {
-        AppendHighlightedCode(out, text, Tokenize(text, node.code_language()), start, end, palette);
+        AppendHighlightedCode(out, text, TokenizeCodeNode(node), start, end, PaletteFor(dark_mode));
     }
-    out.append(kClose);
 }
 
 constexpr void AppendTableCellStyle(std::pmr::string& out, TableAlign align, bool dark_mode)
@@ -662,7 +673,8 @@ std::pmr::string ExtractSelectedText(const std::pmr::vector<Node>& nodes, const 
         ForEachSelectedNode(nodes, selection, [&](int i, const Node& node) {
             const std::string_view text = node.GetText();
             const auto [start, end] = selection.ClampedRange(i, text.size());
-            fn(start < end ? text.substr(start, end - start) : std::string_view{}, i < selection.end_node);
+            const bool separated = i < selection.end_node && LineBreakAfter(nodes, i);
+            fn(start < end ? text.substr(start, end - start) : std::string_view{}, separated);
         });
     };
     // 数えるだけなら行に分けず、LF 1 個につき CR 1 個増えるとして足す (count はベクトル化される)。
@@ -717,11 +729,22 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
     ForEachSelectedNode(nodes, selection, [&](int i, const Node& node) {
         const auto [start, end] = selection.ClampedRange(i, node.GetText().size());
         lists.Enter(node);
+        // 区切ったテキストの並びは 1 つの要素にまとめ、間に元の改行を戻す。
+        const bool opens = !node.continues_prev() || i == selection.start_node;
+        const bool closes = !node.continues_next() || i == selection.end_node;
+        const bool newline_before = !opens && node.newline_before_chunk();
 
         const auto wrap_inline = [&](std::string_view open, std::string_view close) {
-            out.append(open);
+            if (opens) {
+                out.append(open);
+            }
+            else if (newline_before) {
+                out.append("<br>");
+            }
             AppendNodeInlineHtml(out, node, start, end);
-            out.append(close);
+            if (closes) {
+                out.append(close);
+            }
         };
         switch (node.type) {
         case NodeType::Heading: {
@@ -736,7 +759,16 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
             break;
         case NodeType::CodeBlock:
         case NodeType::Diagram:
-            AppendCodeBlockHtml(out, node, start, end, dark_mode);
+            if (opens) {
+                AppendCodeBlockOpen(out, dark_mode);
+            }
+            else if (newline_before) {
+                out.push_back('\n');
+            }
+            AppendCodeBlockBody(out, node, start, end, dark_mode);
+            if (closes) {
+                out.append(kCodeBlockClose);
+            }
             break;
         case NodeType::BlockQuote:
             wrap_inline("<blockquote>", "</blockquote>");
@@ -759,18 +791,6 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
         }
     });
     lists.CloseAll();
-    return out;
-}
-
-std::pmr::string BuildCodeBlockHtmlFragment(const Node& node, bool dark_mode)
-{
-    std::pmr::string out;
-    if (node.type != NodeType::CodeBlock) {
-        return out;
-    }
-    const std::string_view text = node.GetText();
-    out.reserve(text.size() * 3 + 128);
-    AppendCodeBlockHtml(out, node, 0, static_cast<uint32_t>(text.size()), dark_mode);
     return out;
 }
 

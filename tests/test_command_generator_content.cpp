@@ -3,6 +3,7 @@
 // IDWriteTextFormat / IDWriteTextLayout が必要なため別ファイル
 // (test_command_generator_highlight.cpp) で扱う。
 #include <gtest/gtest.h>
+#include "document_test_helpers.h"
 #include "cmd_gen_mock_test_base.h"
 #include "test_helpers.h"
 #include "ui_constants.h"
@@ -335,4 +336,24 @@ TEST_F(CmdGenContentTest, PlaceholderBgUsesCodeBgColor)
     const auto rr = FindFirst<FillRoundedRectCmd>(cmds);
     ASSERT_TRUE(rr.has_value()) << "プレースホルダーの角丸四角形が見つからない";
     EXPECT_EQ(rr->brush_id, BrushId::CodeBg);
+}
+
+// 区切ったコードブロックは間を空けずに並べ、背景は継ぎ目で丸めずにつなげる。
+TEST_F(CmdGenContentTest, SplitCodeBlockDrawsContinuousBackground)
+{
+    const std::string md = MakeCodeBlockMd(5000);
+    Parse(md);
+    ASSERT_GT(nodes_.size(), 2u);
+    for (size_t i = 1; i < nodes_.size(); ++i) {
+        EXPECT_FLOAT_EQ(cache_.Top(i), cache_.Top(i - 1) + cache_[i - 1].height);
+    }
+
+    // 1 つ目と 2 つ目の継ぎ目を画面の y=200 に置く。
+    const float seam = cache_.Top(1);
+    const auto cmds = gen_.GenerateMdPane(nodes_, cache_, PaneRect{ 0, 0, kViewportW, 400.0f }, seam - 200.0f, TextSelection{});
+    const auto code_bg_edge = [&](auto edge) {
+        return CountCmd<FillRectCmd>(cmds, [&](const FillRectCmd& c) { return c.brush_id == BrushId::CodeBg && std::abs(edge(c.rect) - 200.0f) < 0.01f; });
+    };
+    EXPECT_GE(code_bg_edge([](const D2D1_RECT_F& r) { return r.bottom; }), 1);
+    EXPECT_GE(code_bg_edge([](const D2D1_RECT_F& r) { return r.top; }), 1);
 }

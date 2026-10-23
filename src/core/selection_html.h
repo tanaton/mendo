@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-// ノード間を \r\n で連結。
+// ノード間を \r\n で連結する。区切ったテキストの続きは元のとおりにつなぐ。
 std::pmr::string ExtractSelectedText(const std::pmr::vector<Node>& nodes, const TextSelection& selection);
 
 // 戻り値は CF_HTML のフラグメント部（<!--StartFragment--> と <!--EndFragment--> の間に入る本文）。
@@ -14,9 +14,6 @@ std::pmr::string ExtractSelectedTextAsHtml(
     const std::pmr::vector<Node>& nodes,
     const TextSelection& selection,
     bool dark_mode = false);
-
-// node が CodeBlock 以外の場合は空文字列を返す。
-std::pmr::string BuildCodeBlockHtmlFragment(const Node& node, bool dark_mode);
 
 struct LinkHit {
     std::string_view url; // node 内の URL を指す

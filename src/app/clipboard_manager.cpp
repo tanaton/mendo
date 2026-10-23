@@ -36,11 +36,11 @@ void ClipboardManager::CopyCodeBlock(const Document& doc, int node_index, bool d
         return;
     }
 
-    const std::pmr::string html_utf8 = BuildCodeBlockHtmlFragment(*node, dark);
-    // 選択コピーと同じく、プレーンテキストの改行は CRLF にする。
-    const auto len = static_cast<uint32_t>(node->GetText().size());
-    const std::pmr::string plain = ExtractSelectedText(doc.GetNodes(), TextSelection::MakeOrdered(node_index, 0, node_index, len));
-    WriteClipboardHtml(hwnd_, html_utf8, plain);
+    // 区切ったコードブロックは並び全体をコピーする。選択コピーと同じく、プレーンテキストの改行は CRLF にする。
+    const auto& nodes = doc.GetNodes();
+    const auto last = static_cast<int>(ChunkRunLast(nodes, static_cast<size_t>(node_index)));
+    const auto selection = TextSelection::MakeOrdered(node_index, 0, last, static_cast<uint32_t>(nodes[last].GetText().size()));
+    WriteClipboardHtml(hwnd_, ExtractSelectedTextAsHtml(nodes, selection, dark), ExtractSelectedText(nodes, selection));
 }
 
 void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, const PngBytes& png) const

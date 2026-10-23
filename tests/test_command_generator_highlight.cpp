@@ -315,7 +315,7 @@ TEST_F(VisibleHighlightTest, CodeBlockSearchComputesOnlyMatchesNearViewport)
 TEST_F(VisibleHighlightTest, WrappedParagraphSearchMatchesAllMatchesRects)
 {
     std::string md;
-    for (int i = 0; i < 3000; ++i) {
+    for (int i = 0; i < 1600; ++i) {
         md += "alpha beta ";
     }
     auto pl = ParseAndLayout(md);

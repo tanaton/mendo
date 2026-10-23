@@ -46,6 +46,9 @@ size_t NextSourceOffset(const std::pmr::vector<Node>& nodes, int node_index, siz
 
 float GetSpacingAbove(const Node& node, const Theme& theme) noexcept
 {
+    if (node.continues_prev()) {
+        return 0.0f;
+    }
     switch (node.type) {
     case NodeType::Heading:
         return theme.heading_spacing_above;
@@ -66,6 +69,9 @@ float GetSpacingAbove(const Node& node, const Theme& theme) noexcept
 
 float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
 {
+    if (node.continues_next()) {
+        return 0.0f;
+    }
     switch (node.type) {
     case NodeType::Heading:
         // h1/h2 は下線を描くため、下線と次行の余白を確保すべく大きめの値を返す。
