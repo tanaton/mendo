@@ -34,6 +34,8 @@ struct Theme {
 
     // フォント
     std::wstring font_family;
+    // 本文の書式に渡すロケール (i18n::TextLocale)。
+    const wchar_t* text_locale = L"ja-jp";
     std::wstring monospace_font;
     std::wstring icon_font;
 
@@ -106,16 +108,6 @@ struct Theme {
 
     void ApplyZoom(float new_zoom) noexcept;
 };
-
-// Chrome風の段階的ズームステップ
-inline constexpr float ZOOM_STEPS[] = {
-    0.25f, 0.33f, 0.50f, 0.67f, 0.75f, 0.80f, 0.90f,
-    1.00f,
-    1.10f, 1.25f, 1.50f, 1.75f, 2.00f, 2.50f, 3.00f, 4.00f, 5.00f
-};
-inline constexpr int ZOOM_STEP_COUNT = static_cast<int>(std::size(ZOOM_STEPS));
-inline constexpr int ZOOM_DEFAULT_INDEX = 7;
-static_assert(ZOOM_STEPS[ZOOM_DEFAULT_INDEX] == 1.0f);
 
 // プロセス内で 1 度だけ初期化される定数テーマへの参照を返す。
 // 値変更が必要な場合は呼び出し側でコピーして ApplyZoom 等を行うこと。

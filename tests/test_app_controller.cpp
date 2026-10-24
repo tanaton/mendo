@@ -17,6 +17,7 @@ void ExpectSameAction(const AppAction& actual, const AppAction& expected)
     if (const auto* zoom = std::get_if<ZoomAction>(&expected)) {
         EXPECT_EQ(std::get<ZoomAction>(actual).direction, zoom->direction);
         EXPECT_EQ(std::get<ZoomAction>(actual).steps, zoom->steps);
+        EXPECT_EQ(std::get<ZoomAction>(actual).pane, zoom->pane);
     }
     if (const auto* direct = std::get_if<DirectScrollByAction>(&expected)) {
         EXPECT_FLOAT_EQ(std::get<DirectScrollByAction>(actual).delta, direct->delta);
@@ -101,8 +102,10 @@ TEST(AppControllerTest, HandleMouseWheel)
         { "Splitter scrolls MdPane", { .delta = 120, .zone = PaneZone::Splitter1 }, DirectScrollByAction{ -120.0f * 0.8f } },
         { "Ctrl+Up", { .delta = 120, .ctrl = true }, ZoomAction{ ZoomDirection::In } },
         { "Ctrl+Down", { .delta = -120, .ctrl = true }, ZoomAction{ ZoomDirection::Out } },
-        // Ctrl+ホイールはペインに関係なくズーム
-        { "Ctrl+Up in FilePane", { .delta = 120, .ctrl = true, .zone = PaneZone::FilePane }, ZoomAction{ ZoomDirection::In } },
+        // Ctrl+ホイールはポインタの下の領域だけをズームする。スプリッタの上は本文。
+        { "Ctrl+Up in FilePane", { .delta = 120, .ctrl = true, .zone = PaneZone::FilePane }, ZoomAction{ ZoomDirection::In, 1, PaneTarget::File } },
+        { "Ctrl+Down in TocPane", { .delta = -120, .ctrl = true, .zone = PaneZone::TocPane }, ZoomAction{ ZoomDirection::Out, 1, PaneTarget::Toc } },
+        { "Ctrl+Up on Splitter", { .delta = 120, .ctrl = true, .zone = PaneZone::Splitter1 }, ZoomAction{ ZoomDirection::In } },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);

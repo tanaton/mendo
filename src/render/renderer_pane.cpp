@@ -89,7 +89,7 @@ void Renderer::GenSidePane(const SidePaneInstance& pane, bool is_file_pane, size
 
     GenSidePaneHeader(pane, is_file_pane, header_text);
 
-    const float item_h = theme_.pane_item_height;
+    const float item_h = pane.item_height;
     const float header_h = theme_.pane_header_height;
     const float content_top = PaneContentTop(r, header_h);
     const float scroll_y = pane.scroll.scroll_y;
@@ -121,8 +121,9 @@ const wchar_t* FileEntryIcon(const FileEntry& entry) noexcept
 
 void Renderer::GenFileExplorer(const std::pmr::vector<FileEntry>& entries, const SidePaneInstance& pane)
 {
-    constexpr float icon_col_width = 24.0f;
-    const float item_h = theme_.pane_item_height;
+    const auto& fmt = pane_list_fmt_[std::to_underlying(PaneTarget::File)];
+    const float icon_col_width = 24.0f * pane.zoom;
+    const float pad = 4.0f * pane.zoom;
     GenSidePane(pane, true, entries.size(), i18n::S().pane_header_files, [&](int i, const D2D1_RECT_F& row) {
         const auto& entry = entries[i];
 
@@ -133,10 +134,11 @@ void Renderer::GenFileExplorer(const std::pmr::vector<FileEntry>& entries, const
             chrome_cmds_.push_back(FillRectCmd{ .rect = row, .brush_id = BrushId::PaneItemHover });
         }
 
-        const D2D1_RECT_F icon_rect = D2D1::RectF(row.left + 4.0f, row.top, row.left + 4.0f + icon_col_width, row.bottom);
-        EmitChromeText(FileEntryIcon(entry), fmt_.pane_icon.Get(), icon_rect, BrushId::Text, 1.0f, D2D1::SizeF(icon_col_width, item_h));
+        const D2D1_RECT_F icon_rect = D2D1::RectF(row.left + pad, row.top, row.left + pad + icon_col_width, row.bottom);
+        const float item_h = row.bottom - row.top;
+        EmitChromeText(FileEntryIcon(entry), fmt.icon.Get(), icon_rect, BrushId::Text, 1.0f, D2D1::SizeF(icon_col_width, item_h));
 
-        EmitLeftText(fmt_.pane_item.Get(), entry.GetDisplayName(), row.left + 4.0f + icon_col_width, row.top, item_h);
+        EmitLeftText(fmt.item.Get(), entry.GetDisplayName(), row.left + pad + icon_col_width, row.top, item_h);
     });
 }
 
@@ -147,7 +149,7 @@ void Renderer::GenToc(const SidePaneState& sp, const SidePaneInstance& pane)
     if (toc_titles_.size() != entries.size()) {
         toc_titles_.assign(entries.size(), {});
     }
-    const float item_h = theme_.pane_item_height;
+    const auto& fmt = pane_list_fmt_[std::to_underlying(PaneTarget::Toc)];
     GenSidePane(pane, false, entries.size(), i18n::S().pane_header_toc, [&](int i, const D2D1_RECT_F& row) {
         const auto& entry = entries[i];
 
@@ -156,12 +158,12 @@ void Renderer::GenToc(const SidePaneState& sp, const SidePaneInstance& pane)
             chrome_cmds_.push_back(FillRectCmd{ .rect = row, .brush_id = bid });
         }
 
-        const float text_left = row.left + 8.0f + (entry.heading_level - 1) * TOC_INDENT_PER_LEVEL;
+        const float text_left = row.left + (8.0f + (entry.heading_level - 1) * TOC_INDENT_PER_LEVEL) * pane.zoom;
         auto& title = toc_titles_[i];
         if (title.empty()) {
             DecodeForDWrite(TocItemText(sp.nodes[entry.node_index].GetText()), title);
         }
-        EmitLeftText(fmt_.pane_item.Get(), title, text_left, row.top, item_h);
+        EmitLeftText(fmt.item.Get(), title, text_left, row.top, row.bottom - row.top);
 
         if (i == active_index) {
             const float line_y = row.bottom - 1.0f;

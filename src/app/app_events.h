@@ -72,15 +72,12 @@ struct TogglePaneAction {
     PaneTarget target;
 };
 
-enum class ZoomDirection : uint8_t {
-    In,
-    Out,
-    Reset
-};
 struct ZoomAction {
     ZoomDirection direction;
     // 段数。速く回したホイールのノッチをまとめて 1 回で組み直す。Reset では使わない。
     int steps = 1;
+    // ズームするサイドペイン。無ければ本文。
+    std::optional<PaneTarget> pane;
 };
 
 struct ReloadFileAction {};
@@ -103,6 +100,8 @@ struct HoverHighlights {
     SearchBarHitZone search_bar = SearchBarHitZone::None;
     NavDirection nav = NavDirection::None;
     OverlayButtonHit overlay_button{};
+    // マウスが図の画像領域上にあるノード。-1 なら無し。図の保存/コピーはこれがある間だけ描く。
+    int diagram = -1;
     // 横スクロールバーを出すブロック。-1 なら無し。
     int h_block = -1;
     // PaneTarget 順 (File, Toc)。

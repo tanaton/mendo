@@ -642,22 +642,58 @@ TEST_F(ReducerTest, ToggleDarkMode_EmitsToggleDarkMode)
     EXPECT_TRUE(state.pane_layout_cache.IsValid());
 }
 
+// ズームは本文だけに掛かる。サイドペインの幅・スプリッタ幅は変わらないので、
+// ペイン配置 (md_rect の位置と幅) も作り直さない。
 TEST_F(ReducerTest, ZoomIn_EmitsApplyZoom)
 {
+    state.pane_layout_cache.Set(1000.0f, PaneLayout{});
     auto effects = Reduce(state, ZoomAction{ ZoomDirection::In });
 
     EXPECT_TRUE(HasEffect<effect::ApplyZoom>(effects));
-    EXPECT_FALSE(state.pane_layout_cache.IsValid());
+    EXPECT_TRUE(state.pane_layout_cache.IsValid());
 }
 
 // まとめて届いたノッチは段数ぶん進めるが、組み直しの要求は 1 回だけ出す。
 TEST_F(ReducerTest, ZoomInMultipleStepsEmitsSingleThemeChange)
 {
-    const int before = state.view.viewport.GetZoomIndex();
+    const int before = state.view.viewport.Zoom().Index();
     auto effects = Reduce(state, ZoomAction{ ZoomDirection::In, 3 });
 
-    EXPECT_EQ(state.view.viewport.GetZoomIndex(), before + 3);
+    EXPECT_EQ(state.view.viewport.Zoom().Index(), before + 3);
     EXPECT_EQ(std::ranges::count_if(effects, [](const SideEffect& e) static { return std::holds_alternative<effect::ApplyZoom>(e); }), 1);
+}
+
+// サイドペインのズームはそのペインの倍率だけを変え、本文は組み直さない。
+TEST_F(ReducerTest, SidePaneZoomChangesOnlyThatPane)
+{
+    const int md_before = state.view.viewport.Zoom().Index();
+    auto effects = Reduce(state, ZoomAction{ ZoomDirection::In, 2, PaneTarget::File });
+
+    EXPECT_EQ(state.view.panes.SidePaneZoom(PaneTarget::File).Index(), ZOOM_DEFAULT_INDEX + 2);
+    EXPECT_TRUE(state.view.panes.SidePaneZoom(PaneTarget::Toc).IsDefault());
+    EXPECT_EQ(state.view.viewport.Zoom().Index(), md_before);
+    EXPECT_FALSE(HasEffect<effect::ApplyZoom>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+}
+
+// 先頭に見えていた項目が先頭に残るよう、スクロール位置を倍率の比で動かす。
+TEST_F(ReducerTest, SidePaneZoomScalesScrollPosition)
+{
+    // 配置が無ければ上限で切らない (項目が無いので切ると 0 になる)。
+    state.pane_layout_cache.Invalidate();
+    state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y = 100.0f;
+    Reduce(state, ZoomAction{ ZoomDirection::In, 1, PaneTarget::Toc });
+
+    EXPECT_FLOAT_EQ(state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y, 100.0f * ZOOM_STEPS[ZOOM_DEFAULT_INDEX + 1]);
+}
+
+// 端で止まったら何もしない。
+TEST_F(ReducerTest, SidePaneZoomAtLimitIsNoOp)
+{
+    state.view.panes.SidePaneZoom(PaneTarget::File).SetIndex(ZOOM_STEP_COUNT - 1);
+    auto effects = Reduce(state, ZoomAction{ ZoomDirection::In, 1, PaneTarget::File });
+
+    EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
 // ---- HWheel テスト ----

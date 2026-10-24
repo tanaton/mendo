@@ -201,7 +201,8 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     const TextSelection& selection,
     OverlayButtonHit hovered,
     float dpi_scale,
-    const BlockHScrollContext& block_h_scroll)
+    const BlockHScrollContext& block_h_scroll,
+    int hovered_diagram)
 {
     MENDO_PROFILE("GenerateMdPane");
     cmds_.clear();
@@ -235,6 +236,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
         .nodes = nodes,
         .cache = cache,
         .hovered = hovered,
+        .hovered_diagram = hovered_diagram,
         .h_scroll = block_h_scroll,
         .overhang = MaxNodeOverhang(),
     };
@@ -488,6 +490,10 @@ void CommandGenerator::EmitBlockHScrollbarIfActive(const FrameContext& fc, int n
 
 void CommandGenerator::GenOverlayButtons(const FrameContext& fc, const Node& node, const DiagramEntry* diagram, float x, float cw, float entry_text_top, int node_index)
 {
+    // 図の保存/コピーは普段は隠し、マウスが図の画像領域へ入ったときだけ出す。
+    if (node.type == NodeType::Diagram && fc.hovered_diagram != node_index) {
+        return;
+    }
     layout::ForEachOverlayButton(node, diagram, x, cw, entry_text_top, *theme_, [&](const D2D1_RECT_F& btn, OverlayButton kind) {
         // 保存は Download、コピーは Copy (Segoe Fluent Icons)。
         const wchar_t icon = kind == OverlayButton::DiagramSave ? L'\uE896' : L'\uE8C8';

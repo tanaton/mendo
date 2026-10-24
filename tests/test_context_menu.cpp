@@ -5,7 +5,9 @@
 #include <algorithm>
 #include <dwrite.h>
 #include <iterator>
+#include <optional>
 #include <span>
+#include <utility>
 #include <wrl/client.h>
 
 using Microsoft::WRL::ComPtr;
@@ -152,6 +154,26 @@ TEST_F(ContextMenuTest, ItemFlagsFollowParams)
         ASSERT_NE(item, nullptr);
         EXPECT_EQ(item->*c.flag, c.expected);
     }
+}
+
+// ズームの行は倍率を渡した領域でだけ出し、直後に区切りを置く。
+TEST_F(ContextMenuTest, ZoomRowOnlyWithZoomLevel)
+{
+    const auto has_zoom_row = [this] {
+        return std::ranges::contains(menu_.items, ItemType::ZoomRow, &ContextMenu::Item::type);
+    };
+    Build(MakeParams(false));
+    EXPECT_FALSE(has_zoom_row());
+
+    ZoomLevel zoom;
+    auto p = MakeParams(false);
+    p.zoom = &zoom;
+    Build(p);
+    const auto& items = menu_.items;
+    const auto it = std::ranges::find(items, ItemType::ZoomRow, &ContextMenu::Item::type);
+    ASSERT_NE(it, items.end());
+    ASSERT_NE(std::next(it), items.end());
+    EXPECT_EQ(std::next(it)->type, ItemType::Separator);
 }
 
 TEST_F(ContextMenuTest, NavEnabledFollowsParams)
@@ -315,6 +337,63 @@ TEST_F(ContextMenuLayoutTest, HitTestOutsideReturnsZero)
     BuildAndLayout(MakeParams());
     EXPECT_EQ(menu_.HitTest(-10.0f, -10.0f), 0);
     EXPECT_EQ(menu_.HitTest(9999.0f, 9999.0f), 0);
+}
+
+// ─── ズームの行 ───
+
+// 縮小・倍率・拡大・元に戻すが左から重ならずに並び、見出しの右・メニューの内側に収まる。
+TEST_F(ContextMenuLayoutTest, ZoomRowButtonsLineUpInsideRow)
+{
+    ZoomLevel zoom;
+    auto p = MakeParams(false);
+    p.zoom = &zoom;
+    BuildAndLayout(p);
+    const auto it = std::ranges::find(menu_.items, ItemType::ZoomRow, &ContextMenu::Item::type);
+    ASSERT_NE(it, menu_.items.end());
+    const auto& row = it->rect;
+    const auto& z = menu_.zoom_layout;
+    EXPECT_GT(z.out_rect.left, menu_.TextWidth(it->text));
+    EXPECT_LE(z.out_rect.right, z.percent_rect.left);
+    EXPECT_LE(z.percent_rect.right, z.in_rect.left);
+    EXPECT_LT(z.in_rect.right, z.reset_rect.left);
+    EXPECT_LE(z.reset_rect.right, menu_.menu_width);
+    for (const auto* r : { &z.out_rect, &z.percent_rect, &z.in_rect, &z.reset_rect }) {
+        EXPECT_GE(r->top, row.top);
+        EXPECT_LE(r->bottom, row.bottom);
+    }
+}
+
+// 端に着いた向きと、等倍での元に戻すは押せない。倍率の数字は押せない。
+TEST_F(ContextMenuLayoutTest, ZoomHitTestFollowsZoomLevel)
+{
+    struct Case {
+        const char* name;
+        int index;
+        bool out, in, reset;
+    };
+    constexpr Case kCases[] = {
+        { "Default", ZOOM_DEFAULT_INDEX, true, true, false },
+        { "Max", ZOOM_STEP_COUNT - 1, true, false, true },
+        { "Min", 0, false, true, true },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.name);
+        ZoomLevel zoom;
+        zoom.SetIndex(c.index);
+        auto p = MakeParams(false);
+        p.zoom = &zoom;
+        BuildAndLayout(p);
+        const auto& z = menu_.zoom_layout;
+        const auto hit = [this](const DipRect& r) {
+            const auto [cx, cy] = Center(r);
+            return menu_.ZoomHitTest(cx, cy);
+        };
+        const auto expect = [](bool enabled, ZoomDirection d) { return enabled ? std::optional{ d } : std::nullopt; };
+        EXPECT_EQ(hit(z.out_rect), expect(c.out, ZoomDirection::Out));
+        EXPECT_EQ(hit(z.in_rect), expect(c.in, ZoomDirection::In));
+        EXPECT_EQ(hit(z.reset_rect), expect(c.reset, ZoomDirection::Reset));
+        EXPECT_EQ(hit(z.percent_rect), std::nullopt);
+    }
 }
 
 // ─── ナビゲーションヒットテスト ───

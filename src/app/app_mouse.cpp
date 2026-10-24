@@ -291,13 +291,8 @@ void App::OnMouseMove(int px, int py)
 void App::OnMouseWheel(int px, int py, int delta, bool ctrl)
 {
     auto& zoom_accum = state_.interaction.zoom_wheel_accum;
-    if (ctrl) {
-        Dispatch(app_controller::HandleMouseWheel(MouseWheelEvent{ delta, true, PaneZone::MdPane }, zoom_accum));
-        return;
-    }
-
     const auto dip = PixelToDip(px, py);
-    Dispatch(app_controller::HandleMouseWheel(MouseWheelEvent{ delta, false, PaneAtPoint(dip.x), GetTickCount64() }, zoom_accum));
+    Dispatch(app_controller::HandleMouseWheel(MouseWheelEvent{ delta, ctrl, PaneAtPoint(dip.x), GetTickCount64() }, zoom_accum));
 }
 
 void App::OnMouseHWheel(short delta)
@@ -668,6 +663,10 @@ HCURSOR App::HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLay
     }
 
     const int node_index = hit_test::HitNode(hit_ctx);
+    // ボタンは画像の右上の内側にあるので、ボタンの上でも画像の上と判定される。
+    if (hit_test::DiagramImageHitTest(hit_ctx, node_index)) {
+        hover.diagram = node_index;
+    }
     // 横スクロールできるブロック (Table / CodeBlock) だけバーを出す。
     if (state_.view.HDragNode() < 0 && ResolveBlockHScrollGeometry(state_, node_index).can_scroll()) {
         hover.h_block = node_index;

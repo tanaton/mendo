@@ -7,6 +7,8 @@
 #include "utility.h"
 #include "win32_util.h"
 #include <algorithm>
+#include <format>
+#include <iterator>
 #include <mutex>
 #include <windowsx.h>
 
@@ -40,6 +42,11 @@ void ContextMenu::Impl::BuildItems(const ContextMenuParams& params)
         items.emplace_back(ItemType::Text, IDM_COPY_FORMATTED, ls.menu_copy_formatted, params.has_selection, false);
         items.emplace_back(ItemType::Separator);
     }
+    zoom = params.zoom;
+    if (zoom) {
+        items.emplace_back(ItemType::ZoomRow, 0, ls.menu_zoom);
+        items.emplace_back(ItemType::Separator);
+    }
     items.emplace_back(ItemType::Text, IDM_TOGGLE_DARK_MODE, ls.menu_dark_mode, true, params.dark_mode_checked);
     items.emplace_back(ItemType::Separator);
     items.emplace_back(ItemType::Text, IDM_TOGGLE_FILE_PANE, ls.menu_file_pane, true, params.file_pane_checked);
@@ -48,16 +55,17 @@ void ContextMenu::Impl::BuildItems(const ContextMenuParams& params)
 
 void ContextMenu::Impl::CreateTextFormats(const Theme& t)
 {
-    if (fmt_text && fmt_icon &&
+    if (fmt_text && fmt_text_center && fmt_icon &&
         cached_fmt_font_family == std::wstring_view{ t.font_family } &&
         cached_fmt_icon_font == std::wstring_view{ t.icon_font } &&
         cached_fmt_font_size == t.pane_font_size) {
         return;
     }
 
-    // 項目の文字はサイドペインの項目 (Renderer の pane_item) と同じ書式にする。
+    // 項目の文字は等倍のサイドペインの項目と同じ大きさにする。
     constexpr auto CENTER = DWRITE_PARAGRAPH_ALIGNMENT_CENTER;
-    fmt_text = CreateTextFormat(dwrite_factory, { .family = t.font_family.c_str(), .size = t.pane_font_size, .para_align = CENTER, .no_wrap = true });
+    fmt_text = CreateTextFormat(dwrite_factory, { .family = t.font_family.c_str(), .size = t.pane_font_size, .locale = t.text_locale, .para_align = CENTER, .no_wrap = true });
+    fmt_text_center = CreateTextFormat(dwrite_factory, { .family = t.font_family.c_str(), .size = t.pane_font_size, .locale = t.text_locale, .text_align = DWRITE_TEXT_ALIGNMENT_CENTER, .para_align = CENTER, .no_wrap = true });
     fmt_icon = CreateTextFormat(dwrite_factory, { .family = t.icon_font.c_str(), .size = ICON_FONT_SIZE, .text_align = DWRITE_TEXT_ALIGNMENT_CENTER, .para_align = CENTER, .no_wrap = true });
 
     cached_fmt_font_family.assign(t.font_family.begin(), t.font_family.end());
@@ -88,7 +96,11 @@ float ContextMenu::Impl::TextWidth(std::wstring_view text)
 void ContextMenu::Impl::ComputeLayout()
 {
     float max_text_w = 0.0f;
+    float zoom_row_w = 0.0f;
     for (const auto& item : items) {
+        if (item.type == ItemType::ZoomRow) {
+            zoom_row_w = PAD_X + TextWidth(item.text) + ZOOM_LABEL_GAP + ZOOM_CONTROLS_WIDTH + ZOOM_PAD_RIGHT;
+        }
         if (item.type != ItemType::Text || item.text.empty()) {
             continue;
         }
@@ -97,7 +109,7 @@ void ContextMenu::Impl::ComputeLayout()
 
     const float nav_row_w = CTX_NAV_BUTTONS_WIDTH + 2 * PAD_X;
     const float text_w = CHECK_WIDTH + max_text_w + PAD_X * 2;
-    menu_width = std::max({ nav_row_w, text_w, MIN_MENU_WIDTH });
+    menu_width = std::max({ nav_row_w, text_w, zoom_row_w, MIN_MENU_WIDTH });
 
     float y = PAD_Y;
     for (auto& item : items) {
@@ -112,6 +124,17 @@ void ContextMenu::Impl::ComputeLayout()
             nav_layout.back_rect = { bx, by, bx + CTX_NAV_BTN_SIZE, by + CTX_NAV_BTN_SIZE };
             nav_layout.fwd_rect = { bx + CTX_NAV_BTN_SIZE + CTX_NAV_BTN_GAP, by, bx + CTX_NAV_BUTTONS_WIDTH, by + CTX_NAV_BTN_SIZE };
             y += row_h;
+            break;
+        }
+        case ItemType::ZoomRow: {
+            item.rect = { 0, y, menu_width, y + ITEM_HEIGHT };
+            // 右端から 元に戻す・拡大・倍率・縮小 の順に詰める。
+            const auto box = [y](float right, float width) { return DipRect{ right - width, y, right, y + ZOOM_BTN_SIZE }; };
+            zoom_layout.reset_rect = box(menu_width - ZOOM_PAD_RIGHT, ZOOM_BTN_SIZE);
+            zoom_layout.in_rect = box(zoom_layout.reset_rect.left - ZOOM_RESET_GAP, ZOOM_BTN_SIZE);
+            zoom_layout.percent_rect = box(zoom_layout.in_rect.left, ZOOM_PERCENT_WIDTH);
+            zoom_layout.out_rect = box(zoom_layout.percent_rect.left, ZOOM_BTN_SIZE);
+            y += ITEM_HEIGHT;
             break;
         }
         case ItemType::Separator:
@@ -152,6 +175,24 @@ int ContextMenu::Impl::NavHitTest(float x, float y) const noexcept
         return IDM_NAV_FORWARD;
     }
     return 0;
+}
+
+std::optional<ZoomDirection> ContextMenu::Impl::ZoomHitTest(float x, float y) const noexcept
+{
+    if (!zoom) {
+        return std::nullopt;
+    }
+    const std::pair<const DipRect&, ZoomDirection> buttons[] = {
+        { zoom_layout.out_rect, ZoomDirection::Out },
+        { zoom_layout.in_rect, ZoomDirection::In },
+        { zoom_layout.reset_rect, ZoomDirection::Reset },
+    };
+    for (const auto& [rect, direction] : buttons) {
+        if (zoom->CanStep(direction) && PointInRect(x, y, rect)) {
+            return direction;
+        }
+    }
+    return std::nullopt;
 }
 
 namespace {
@@ -254,6 +295,7 @@ bool ContextMenu::Impl::CreatePopupWindow(int screen_x, int screen_y)
     done = false;
     hovered_id = 0;
     hovered_nav = 0;
+    hovered_zoom.reset();
 
     // 使い回したウィンドウには前回の絵が残っているので、見せたらすぐ描き直す。
     InvalidateRect(hwnd, nullptr, FALSE);
@@ -287,6 +329,11 @@ void ContextMenu::Impl::RunModalLoop()
             done = true;
             break;
         }
+        // 開いたままのズームで本体が無効化されたら、メニューの裏でも描き直す。
+        if (PeekMessageW(&msg, owner, WM_PAINT, WM_PAINT, PM_REMOVE)) {
+            DispatchMessageW(&msg);
+            continue;
+        }
         if (!PeekMessageW(&msg, hwnd, 0, 0, PM_REMOVE)) {
             WaitMessage();
             continue;
@@ -306,8 +353,13 @@ int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
     s.owner = owner_hwnd;
     s.theme = params.theme;
     s.dpi_scale = params.dpi_scale;
-    // theme は呼び出し側 Theme の借用ポインタ。Show 終了後にダングリングさせないよう必ず手放す。
-    auto theme_guard = ScopeGuard([&s] { s.theme = nullptr; });
+    s.on_zoom = params.on_zoom;
+    // theme と zoom は呼び出し側の借用ポインタ。Show 終了後にダングリングさせないよう必ず手放す。
+    auto theme_guard = ScopeGuard([&s] {
+        s.theme = nullptr;
+        s.zoom = nullptr;
+        s.on_zoom = nullptr;
+    });
 
     s.BuildItems(params);
     s.CreateTextFormats(*s.theme);
@@ -340,11 +392,13 @@ LRESULT ContextMenu::Impl::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         const auto [x, y] = DipPointFromLParam(lParam, dpi_scale);
         const int old_hovered = hovered_id;
         const int old_nav = hovered_nav;
+        const auto old_zoom = hovered_zoom;
 
         hovered_nav = NavHitTest(x, y);
-        hovered_id = hovered_nav == 0 ? HitTest(x, y) : 0;
+        hovered_zoom = ZoomHitTest(x, y);
+        hovered_id = hovered_nav == 0 && !hovered_zoom ? HitTest(x, y) : 0;
 
-        if (hovered_id != old_hovered || hovered_nav != old_nav) {
+        if (hovered_id != old_hovered || hovered_nav != old_nav || hovered_zoom != old_zoom) {
             InvalidateRect(hwnd, nullptr, FALSE);
         }
         return 0;
@@ -358,6 +412,15 @@ LRESULT ContextMenu::Impl::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
 
+        // ズームは閉じずに倍率だけ変え、続けて押せるようにする。端に着いたボタンは押せなくなる。
+        if (const auto zoom_hit = ZoomHitTest(x, y)) {
+            if (on_zoom) {
+                on_zoom(*zoom_hit);
+            }
+            hovered_zoom = ZoomHitTest(x, y);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        }
         const int nav_hit = NavHitTest(x, y);
         const int hit = nav_hit != 0 ? nav_hit : HitTest(x, y);
         if (hit != 0) {
@@ -486,6 +549,9 @@ void ContextMenu::Impl::Paint()
         case ItemType::NavRow:
             DrawNavRow();
             break;
+        case ItemType::ZoomRow:
+            DrawZoomRow(item);
+            break;
         case ItemType::Separator:
             DrawSeparator(item);
             break;
@@ -505,22 +571,43 @@ void ContextMenu::Impl::Paint()
     }
 }
 
+void ContextMenu::Impl::DrawIconButton(const DipRect& rect, const wchar_t* glyph, bool enabled, bool hovered, float corner)
+{
+    const D2D1_RECT_F rc = ToD2DRect(rect);
+    if (hovered) {
+        rt->FillRoundedRectangle({ rc, corner, corner }, brush_hover.Get());
+    }
+    if (fmt_icon) {
+        rt->DrawText(glyph, 1, fmt_icon.Get(), rc, enabled ? brush_text.Get() : brush_gray.Get());
+    }
+}
+
 void ContextMenu::Impl::DrawNavRow()
 {
-    auto draw_btn = [&](const DipRect& dr, const wchar_t* glyph, bool enabled, bool hovered) {
-        const D2D1_RECT_F rc = ToD2DRect(dr);
-        if (hovered) {
-            const D2D1_ROUNDED_RECT rr = { rc, CTX_NAV_BTN_CORNER, CTX_NAV_BTN_CORNER };
-            rt->FillRoundedRectangle(rr, brush_hover.Get());
-        }
-        auto* brush = enabled ? brush_text.Get() : brush_gray.Get();
-        if (fmt_icon) {
-            rt->DrawText(glyph, 1, fmt_icon.Get(), rc, brush);
-        }
-    };
+    DrawIconButton(nav_layout.back_rect, GLYPH_BACK, nav_layout.back_enabled, hovered_nav == IDM_NAV_BACK, CTX_NAV_BTN_CORNER);
+    DrawIconButton(nav_layout.fwd_rect, GLYPH_FORWARD, nav_layout.fwd_enabled, hovered_nav == IDM_NAV_FORWARD, CTX_NAV_BTN_CORNER);
+}
 
-    draw_btn(nav_layout.back_rect, GLYPH_BACK, nav_layout.back_enabled, hovered_nav == IDM_NAV_BACK);
-    draw_btn(nav_layout.fwd_rect, GLYPH_FORWARD, nav_layout.fwd_enabled, hovered_nav == IDM_NAV_FORWARD);
+void ContextMenu::Impl::DrawZoomRow(const Item& item)
+{
+    if (!zoom || !fmt_text || !fmt_text_center) {
+        return;
+    }
+    const D2D1_RECT_F label_rc = { item.rect.left + PAD_X, item.rect.top, zoom_layout.out_rect.left, item.rect.bottom };
+    rt->DrawText(item.text.data(), static_cast<UINT32>(item.text.size()), fmt_text.Get(), label_rc, brush_text.Get());
+
+    const auto draw_btn = [&](const DipRect& rect, const wchar_t* glyph, ZoomDirection direction) {
+        const bool enabled = zoom->CanStep(direction);
+        DrawIconButton(rect, glyph, enabled, enabled && hovered_zoom == direction, HOVER_CORNER);
+    };
+    draw_btn(zoom_layout.out_rect, GLYPH_ZOOM_OUT, ZoomDirection::Out);
+    draw_btn(zoom_layout.in_rect, GLYPH_ZOOM_IN, ZoomDirection::In);
+    draw_btn(zoom_layout.reset_rect, GLYPH_ZOOM_RESET, ZoomDirection::Reset);
+
+    wchar_t percent[16];
+    const auto r = std::format_to_n(percent, std::size(percent), L"{}%", zoom->Percent());
+    const UINT32 len = static_cast<UINT32>(std::min(static_cast<size_t>(r.size), std::size(percent)));
+    rt->DrawText(percent, len, fmt_text_center.Get(), ToD2DRect(zoom_layout.percent_rect), brush_text.Get());
 }
 
 void ContextMenu::Impl::DrawSeparator(const Item& item)

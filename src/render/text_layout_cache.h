@@ -13,8 +13,8 @@
 
 // 繰り返し描く短い文字列 (アイコン・リスト番号・プレースホルダ・サイドペインの項目等) のテキストレイアウトを
 // (書式, 文字列, 箱の大きさ) ごとに作り置く。DrawText は呼ぶたびに内部でレイアウトを作るため、
-// これで得たレイアウトを DrawTextLayout で描く。レイアウトは書式に結び付くので、書式を
-// 作り直したら SetFactory で捨てる。
+// これで得たレイアウトを DrawTextLayout で描く。キーで書式を参照して持つので、書式を作り直しても
+// 解放したアドレスが新しい書式に使い回されて別の大きさのレイアウトが返ることはなく、古いものは上限で捨てる。
 class TextLayoutCache {
 public:
     void SetFactory(IDWriteFactory* factory) noexcept
@@ -38,7 +38,7 @@ public:
             return nullptr;
         }
         auto* const raw = layout.Get();
-        entries_.emplace(Key{ fmt, std::wstring(text), box.width, box.height }, Entry{ std::move(layout), frame_ });
+        entries_.emplace(Key{ Microsoft::WRL::ComPtr<IDWriteTextFormat>(fmt), std::wstring(text), box.width, box.height }, Entry{ std::move(layout), frame_ });
         return raw;
     }
 
@@ -80,13 +80,13 @@ private:
         bool operator==(const KeyView&) const = default;
     };
     struct Key {
-        IDWriteTextFormat* fmt;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt;
         std::wstring text;
         float width;
         float height;
         operator KeyView() const noexcept
         {
-            return { fmt, text, width, height };
+            return { fmt.Get(), text, width, height };
         }
     };
     struct KeyHash {

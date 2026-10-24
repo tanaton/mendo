@@ -156,10 +156,22 @@ inline size_t SidePaneItemCount(const AppState& state, PaneTarget pane)
     return pane == PaneTarget::File ? state.file_explorer.GetEntries().size() : state.document.doc.GetToc().size();
 }
 
+// ズームの対象。ペインの指定が無ければ本文 (スプリッタの上も本文)。
+inline ZoomLevel& ZoomOf(AppState& state, std::optional<PaneTarget> pane) noexcept
+{
+    return pane ? state.view.panes.SidePaneZoom(*pane) : state.view.viewport.Zoom();
+}
+
+// 一覧の 1 項目の高さ。ペインごとの倍率を掛ける。
+inline float SidePaneItemHeight(const AppState& state, PaneTarget pane) noexcept
+{
+    return state.theme->pane_item_height * state.view.panes.SidePaneZoom(pane).Value();
+}
+
 // サイドペイン (rect) で dip_y にある項目の番号。無ければ -1。
 inline int SidePaneItemAt(const AppState& state, PaneTarget pane, const PaneRect& rect, float dip_y)
 {
-    const float item_h = state.theme->pane_item_height;
+    const float item_h = SidePaneItemHeight(state, pane);
     const float local_y = SidePaneLocalY(dip_y, PaneContentTop(rect, state.theme->pane_header_height), state.view.panes.SidePaneScroll(pane).scroll_y);
     return HitTestUniformList(local_y, item_h, SidePaneItemCount(state, pane));
 }

@@ -312,11 +312,11 @@ bool DWriteTextMeasurer::RecreateFormats()
 
     // 描画側と同じ作り方にし、無効なフォント名でも描画と同じフォールバックで測る。
     const wchar_t* family = theme_->font_family.c_str();
-    fmt_body_ = CreateTextFormat(dwrite_, { .family = family, .size = theme_->font_size_body });
+    fmt_body_ = CreateTextFormat(dwrite_, { .family = family, .size = theme_->font_size_body, .locale = theme_->text_locale });
     for (const auto i : std::views::iota(0, 6)) {
-        fmt_h_[i] = CreateTextFormat(dwrite_, { .family = family, .weight = DWRITE_FONT_WEIGHT_BOLD, .size = theme_->font_size_h[i] });
+        fmt_h_[i] = CreateTextFormat(dwrite_, { .family = family, .weight = DWRITE_FONT_WEIGHT_BOLD, .size = theme_->font_size_h[i], .locale = theme_->text_locale });
     }
-    fmt_code_ = CreateTextFormat(dwrite_, { .family = theme_->monospace_font.c_str(), .size = theme_->font_size_code, .no_wrap = true });
+    fmt_code_ = CreateTextFormat(dwrite_, { .family = theme_->monospace_font.c_str(), .size = theme_->font_size_code, .locale = theme_->text_locale, .no_wrap = true });
     return fmt_body_ && fmt_code_ && std::ranges::all_of(fmt_h_, [](const auto& f) static { return f != nullptr; });
 }
 

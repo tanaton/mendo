@@ -34,8 +34,8 @@ bool App::Init(HWND hwnd)
 
     // 書式とブラシを 1 回で作るため、保存済みテーマ/ズームを Renderer 初期化前に読む。
     theme_service_.LoadDarkMode();
-    state_.view.viewport.SetZoomIndex(theme_service_.LoadZoomIndex());
-    if (!renderer_.Init(hwnd_, theme_service_.CreateTheme(state_.view.viewport.GetZoomIndex()))) {
+    state_.view.viewport.Zoom() = theme_service_.LoadZoomLevel();
+    if (!renderer_.Init(hwnd_, theme_service_.CreateTheme(state_.view.viewport.Zoom().Index()))) {
         return false;
     }
 
@@ -157,14 +157,14 @@ void App::RestoreTheme()
 
 void App::RestorePaneState()
 {
-    // 保存値はズーム適用後の幅なのでそのまま使う。既定幅は既定のままズームしたときと同じになるよう倍率を掛ける。
-    const float default_width = PaneController::PANE_DEFAULT_WIDTH * state_.view.viewport.GetCurrentZoom();
-    const auto s = session_.LoadPaneState(PaneController::PANE_MIN_WIDTH, default_width);
+    const auto s = session_.LoadPaneState(PaneController::PANE_MIN_WIDTH, PaneController::PANE_DEFAULT_WIDTH);
     auto& panes = state_.view.panes;
     panes.SetSidePaneVisible(PaneTarget::File, s.show_file);
     panes.SetSidePaneVisible(PaneTarget::Toc, s.show_toc);
     panes.SetSidePaneWidth(PaneTarget::File, s.file_width);
     panes.SetSidePaneWidth(PaneTarget::Toc, s.toc_width);
+    panes.SidePaneZoom(PaneTarget::File) = s.file_zoom;
+    panes.SidePaneZoom(PaneTarget::Toc) = s.toc_zoom;
 }
 
 void App::LoadInitialDocument()
@@ -200,8 +200,7 @@ const PaneLayout& App::GetPaneLayout()
 
 void App::UpdateTitleBar()
 {
-    const int zoom_percent = static_cast<int>(state_.view.viewport.GetCurrentZoom() * 100.0f + 0.5f);
-    auto title = BuildTitleString(state_.document.doc.GetFilePath(), zoom_percent);
+    auto title = BuildTitleString(state_.document.doc.GetFilePath(), state_.view.viewport.Zoom().Percent());
     if (title == state_.cached_title_text) {
         return;
     }
@@ -239,6 +238,8 @@ SidePaneState App::BuildSidePaneState(const PaneLayout& layout) const
             .show = panes.IsSidePaneVisible(t),
             .hovered_button = state_.view.hover.side_button[std::to_underlying(t)],
             .reveal_enabled = SidePaneHeaderButtonsFor(state_, t).reveal_enabled,
+            .zoom = panes.SidePaneZoom(t).Value(),
+            .item_height = SidePaneItemHeight(state_, t),
         };
     };
     return SidePaneState{
@@ -326,6 +327,7 @@ void App::OnPaint()
               state_.view.viewport.GetSelection(), layout.md_rect, sp, tb, gs, ts, sb,
               state_.view.viewport.GetScrollY(), ScrollableContentHeight(),
               state_.view.hover.nav, state_.view.hover.overlay_button,
+              state_.view.hover.diagram,
               state_.view.nav_history.CanGoBack(), state_.view.nav_history.CanGoForward(),
               state_.document.layout_cache.HasDirtyNodes(), h_scroll });
     }
@@ -664,6 +666,8 @@ void App::SaveSession()
         .show_toc = panes.IsSidePaneVisible(PaneTarget::Toc),
         .file_width = panes.GetSidePaneWidth(PaneTarget::File),
         .toc_width = panes.GetSidePaneWidth(PaneTarget::Toc),
+        .file_zoom = panes.SidePaneZoom(PaneTarget::File),
+        .toc_zoom = panes.SidePaneZoom(PaneTarget::Toc),
     });
 
     config_.SaveWString(kConfigSectionGeneral, kConfigKeyLanguage, i18n::GetLangKey());
@@ -735,16 +739,16 @@ void App::SetInitialDirectory(std::wstring_view dir_path)
 
 void App::ApplyZoom()
 {
-    renderer_.ApplyZoomFromBase(theme_service_.BaseTheme(), state_.view.viewport.GetCurrentZoom());
+    renderer_.ApplyZoomFromBase(theme_service_.BaseTheme(), state_.view.viewport.Zoom().Value());
     RelayoutViewport(RelayoutResources::Diagrams);
     UpdateTitleBar();
-    theme_service_.SaveZoomLevel(state_.view.viewport.GetZoomIndex());
+    theme_service_.SaveZoomLevel(state_.view.viewport.Zoom().Index());
 }
 
 void App::ToggleDarkMode()
 {
     const bool dark = theme_service_.ToggleDarkMode();
-    renderer_.SetTheme(theme_service_.CreateTheme(state_.view.viewport.GetZoomIndex()));
+    renderer_.SetTheme(theme_service_.CreateTheme(state_.view.viewport.Zoom().Index()));
     ApplyDarkModeToWindow(hwnd_, dark);
     tooltip_.ApplyDarkMode(dark);
     // メモリキャッシュはキーにダークモードを含むので消さず、往復時に再利用する。描画待ちは旧テーマの分なので捨てる。
@@ -761,6 +765,8 @@ void App::OnContextMenu(int screen_x, int screen_y)
 
     const auto& selection = state_.view.viewport.GetSelection();
     const auto& panes = state_.view.panes;
+    const PaneZone zone = PaneAtPoint(dip.x);
+    const std::optional<PaneTarget> zoom_pane = ToPaneTarget(zone);
     const ContextMenuParams params{
         .screen_x = screen_x,
         .screen_y = screen_y,
@@ -773,7 +779,9 @@ void App::OnContextMenu(int screen_x, int screen_y)
         .dark_mode_checked = theme_service_.IsDarkMode(),
         .file_pane_checked = panes.IsSidePaneVisible(PaneTarget::File),
         .toc_pane_checked = panes.IsSidePaneVisible(PaneTarget::Toc),
-        .show_file_items = PaneAtPoint(dip.x) == PaneZone::MdPane,
+        .show_file_items = zone == PaneZone::MdPane,
+        .zoom = &ZoomOf(state_, zoom_pane),
+        .on_zoom = [this, zoom_pane](ZoomDirection direction) { Dispatch(ZoomAction{ direction, 1, zoom_pane }); },
         .theme = &renderer_.GetTheme(),
     };
 
@@ -926,7 +934,7 @@ void App::SyncTocActiveAndAutoScroll(bool auto_scroll)
     // アクティブ見出しを目次ペインの中央に保つように追従スクロールする。
     const auto ctx = GetSidePaneContext(state_, PaneTarget::Toc);
     if (ctx.info.content_height > 0.0f) {
-        ctx.scroll.scroll_y = CenterPaneScrollOnItem(static_cast<size_t>(new_active), theme.pane_item_height, ctx.info);
+        ctx.scroll.scroll_y = CenterPaneScrollOnItem(static_cast<size_t>(new_active), SidePaneItemHeight(state_, PaneTarget::Toc), ctx.info);
     }
 }
 

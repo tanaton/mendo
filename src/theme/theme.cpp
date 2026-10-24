@@ -1,10 +1,13 @@
 #include "theme.h"
 #include "theme_palette.h"
+#include "i18n.h"
 
 namespace {
 // Theme 内の「ズームでスケールする float メンバ」を一元管理する。
 // 新規のスケーラブルフィールドを追加する際はここに追記すれば
 // ApplyZoom へのスケール漏れを防げる。font_size_h は配列なので別ループで扱う。
+// サイドペイン (ファイル一覧・目次) の寸法は含めない。ズームは本文の可読性を上げる
+// ためのもので、一覧まで拡大すると同時に見える項目数が減って操作しにくくなる。
 constexpr float Theme::* kScalableThemeFields[]{
     &Theme::font_size_body,
     &Theme::font_size_code,
@@ -25,10 +28,6 @@ constexpr float Theme::* kScalableThemeFields[]{
     &Theme::list_bullet_radius,
     &Theme::hr_thickness,
     &Theme::h2_underline_thickness,
-    &Theme::pane_item_height,
-    &Theme::pane_header_height,
-    &Theme::splitter_width,
-    &Theme::pane_font_size,
 };
 } // namespace
 
@@ -77,8 +76,12 @@ void ApplySharedColors(Theme& t, const theme_palette::SharedColors& p)
 // ライトテーマとダークテーマで共有するフォントとレイアウト定数。
 void ApplyCommonLayout(Theme& t)
 {
-    t.font_family = L"Yu Gothic UI";
-    t.monospace_font = L"Consolas";
+    // 確定仕様: 本文は GitHub (Windows) と同じく英数字を Segoe UI で組み、Segoe UI に無い漢字・かな・全角記号は
+    // DirectWrite のシステムフォールバックに任せる。フォールバック先は書式のロケール (i18n::TextLocale) で決まり、
+    // ja-jp なら Yu Gothic UI、zh-cn なら Microsoft YaHei UI になる。
+    t.font_family = L"Segoe UI";
+    t.text_locale = i18n::TextLocale();
+    t.monospace_font = L"Cascadia Mono";
     t.icon_font = L"Segoe Fluent Icons";
 
     t.font_size_body = 16.0f;

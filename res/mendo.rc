@@ -45,3 +45,4 @@ IDR_MERMAID_HTML RCDATA "mermaid.html"
 // Embedded help documents (UTF-8 Markdown)
 IDR_HELP_MD    RCDATA "help_ja.md"
 IDR_HELP_EN_MD RCDATA "help_en.md"
+IDR_HELP_ZH_MD RCDATA "help_zh.md"

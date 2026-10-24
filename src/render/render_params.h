@@ -56,6 +56,9 @@ struct SidePaneInstance {
     bool show = false;
     PaneHeaderButton hovered_button = PaneHeaderButton::None;
     bool reveal_enabled = false; // TOC 側は常に false
+    // 一覧の項目に掛ける倍率と、それを掛けた行の高さ (当たり判定と同じ SidePaneItemHeight)。
+    float zoom = 1.0f;
+    float item_height = 0.0f;
 };
 
 struct SidePaneState {
@@ -100,6 +103,7 @@ struct RenderParams {
     float total_content_height = 0.0f;
     NavDirection nav_hovered = NavDirection::None;
     OverlayButtonHit hovered;
+    int hovered_diagram = -1;
     bool can_go_back = false;
     bool can_go_forward = false;
     bool has_dirty_nodes = false;

@@ -158,49 +158,13 @@ public:
 
     // ---- ズーム ----
 
-    constexpr int GetZoomIndex() const noexcept
+    constexpr ZoomLevel& Zoom() noexcept
     {
-        return zoom_index_;
+        return zoom_;
     }
-    // ZOOM_STEPS の有効範囲 [0, ZOOM_STEP_COUNT) に必ずクランプする。
-    // 設定ファイル等の外部入力経路から不正値が来ても out-of-bounds にならない契約を setter 側で保証する。
-    constexpr void SetZoomIndex(int idx) noexcept
+    constexpr const ZoomLevel& Zoom() const noexcept
     {
-        zoom_index_ = static_cast<uint8_t>(std::clamp(idx, 0, ZOOM_STEP_COUNT - 1));
-    }
-    constexpr float GetCurrentZoom() const noexcept
-    {
-        return ZOOM_STEPS[zoom_index_];
-    }
-
-    // zoom_index が変化したら true を返す。新しい値は GetZoomIndex() / GetCurrentZoom() で取得する。
-    // Why: float の戻り値で「0.0 == 変化なし」を表現すると ZOOM_STEPS に 0.0 が含まれた瞬間に
-    // 破綻するし、SSOT を zoom_index に寄せる方針と相性が悪い。
-    constexpr bool ZoomIn() noexcept
-    {
-        if (zoom_index_ < ZOOM_STEP_COUNT - 1) {
-            ++zoom_index_;
-            return true;
-        }
-        return false;
-    }
-
-    constexpr bool ZoomOut() noexcept
-    {
-        if (zoom_index_ > 0) {
-            --zoom_index_;
-            return true;
-        }
-        return false;
-    }
-
-    constexpr bool ZoomReset() noexcept
-    {
-        if (zoom_index_ != ZOOM_DEFAULT_INDEX) {
-            zoom_index_ = static_cast<uint8_t>(ZOOM_DEFAULT_INDEX);
-            return true;
-        }
-        return false;
+        return zoom_;
     }
 
 private:
@@ -213,5 +177,5 @@ private:
     TextSelection selection_; // 20B
 
     // --- 1 バイトアライメント ---
-    uint8_t zoom_index_ = static_cast<uint8_t>(ZOOM_DEFAULT_INDEX);
+    ZoomLevel zoom_;
 };

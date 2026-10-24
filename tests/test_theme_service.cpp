@@ -55,9 +55,9 @@ TEST_F(ThemeServiceTest, CreateThemeDarkModeWithZoom)
     EXPECT_EQ(theme.bg_color.r, expected.bg_color.r);
 }
 
-TEST_F(ThemeServiceTest, LoadZoomIndexDefault)
+TEST_F(ThemeServiceTest, LoadZoomLevelDefault)
 {
-    int idx = service_.LoadZoomIndex();
+    const int idx = service_.LoadZoomLevel().Index();
     EXPECT_GE(idx, 0);
     EXPECT_LT(idx, ZOOM_STEP_COUNT);
 }

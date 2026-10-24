@@ -19,7 +19,7 @@ public:
     void LoadDarkMode();
 
     void SaveZoomLevel(int zoom_index);
-    int LoadZoomIndex() const;
+    ZoomLevel LoadZoomLevel() const;
 
 private:
     ConfigService& config_;

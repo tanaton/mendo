@@ -213,6 +213,23 @@ OverlayButtonHit hit_test::OverlayButtonHitTest(const MdPaneHitContext& ctx) noe
     return out;
 }
 
+bool hit_test::DiagramImageHitTest(const MdPaneHitContext& ctx, int node_index) noexcept
+{
+    if (node_index < 0 || static_cast<size_t>(node_index) >= ctx.nodes.size() || ctx.nodes[node_index].type != NodeType::Diagram) {
+        return false;
+    }
+    // ボタンを出す条件 (layout::ForEachOverlayButton) と同じく、描けていて元の PNG がある図だけ。
+    const DiagramEntry* diagram = ctx.cache.FindDiagram(static_cast<size_t>(node_index));
+    if (!diagram || !diagram->bitmap || !diagram->png) {
+        return false;
+    }
+    const auto& node = ctx.nodes[node_index];
+    const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
+    const D2D1_RECT_F image = MermaidBitmapRect(diagram->width, diagram->height, NodeBlockX(node, ctx.theme),
+                                                NodeContentWidth(node, ctx.theme, ctx.content_width), ctx.cache.Top(static_cast<size_t>(node_index)));
+    return PointInRectInclusive(dip_x, dip_y, image);
+}
+
 NavDirection hit_test::NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) noexcept
 {
     if (PointInRectInclusive(dip_x, dip_y, NavBackButtonRect(md_rect))) {

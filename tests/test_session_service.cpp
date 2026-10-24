@@ -56,6 +56,41 @@ TEST_F(SessionServiceTest, LoadPaneStateUsesDefaultWhenWindowFitsIt)
     EXPECT_FLOAT_EQ(loaded.toc_width, PaneController::PANE_DEFAULT_WIDTH);
 }
 
+// 幅はズームを含まない DIP 値として往復する。読み側は倍率を掛けない。
+TEST_F(SessionServiceTest, SavedWidthRoundTripsAsDip)
+{
+    session_.SavePaneState({ .show_file = true, .show_toc = true, .file_width = 300.0f, .toc_width = 260.0f });
+
+    const auto loaded = session_.LoadPaneState(PaneController::PANE_MIN_WIDTH,
+                                               PaneController::PANE_DEFAULT_WIDTH);
+
+    EXPECT_FLOAT_EQ(loaded.file_width, 300.0f);
+    EXPECT_FLOAT_EQ(loaded.toc_width, 260.0f);
+}
+
+// ペインの倍率はペインごとに往復する。
+TEST_F(SessionServiceTest, PaneZoomRoundTrips)
+{
+    SessionService::PaneState saved;
+    saved.file_zoom.SetIndex(ZOOM_DEFAULT_INDEX + 2);
+    saved.toc_zoom.SetIndex(ZOOM_DEFAULT_INDEX - 1);
+    session_.SavePaneState(saved);
+
+    const auto loaded = session_.LoadPaneState(PaneController::PANE_MIN_WIDTH, PaneController::PANE_DEFAULT_WIDTH);
+
+    EXPECT_EQ(loaded.file_zoom.Index(), ZOOM_DEFAULT_INDEX + 2);
+    EXPECT_EQ(loaded.toc_zoom.Index(), ZOOM_DEFAULT_INDEX - 1);
+}
+
+// 保存が無ければ等倍。
+TEST_F(SessionServiceTest, PaneZoomDefaultsToActualSize)
+{
+    const auto loaded = session_.LoadPaneState(PaneController::PANE_MIN_WIDTH, PaneController::PANE_DEFAULT_WIDTH);
+
+    EXPECT_TRUE(loaded.file_zoom.IsDefault());
+    EXPECT_TRUE(loaded.toc_zoom.IsDefault());
+}
+
 // ---- SaveScrollPosition / LoadScrollPosition ----
 
 TEST_F(SessionServiceTest, SaveAndLoadScrollPosition)

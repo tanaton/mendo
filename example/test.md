@@ -410,7 +410,7 @@ flowchart TD
 | `Ctrl++` / `Ctrl+=` | `ZoomAction(In)` | ズームイン（テンキーの `+` も可） |
 | `Ctrl+-` | `ZoomAction(Out)` | ズームアウト（テンキーの `-` も可） |
 | `Ctrl+0` | `ZoomAction(Reset)` | ズーム100%（テンキーの `0` も可） |
-| `Ctrl+ホイール` | `ZoomAction(In/Out)` | ホイール方向で増減（端数の扱いは 3.2.7） |
+| `Ctrl+ホイール` | `ZoomAction(In/Out)` | ポインタの下の領域（本文・ファイルペイン・目次ペイン）をホイール方向で増減（端数の扱いは 3.2.7） |
 | `Alt+←` | `NavigateBackAction` | 戻る（`WM_SYSKEYDOWN` で届く） |
 | `Alt+→` | `NavigateForwardAction` | 進む（同上） |
 | `↑` / `↓` | `KeyScrollAction(LineUp/Down)` | 1行スクロール |
@@ -1055,16 +1055,18 @@ flowchart TB
 
 | 用途 | フォントファミリ | 既定サイズ (DIP) |
 |:-----|:----------------|:-----------------|
-| H1 | Yu Gothic UI | 32 |
-| H2 | Yu Gothic UI | 26 |
-| H3 | Yu Gothic UI | 22 |
-| H4 | Yu Gothic UI | 18 |
-| H5 | Yu Gothic UI | 16 |
-| H6 | Yu Gothic UI | 14 |
-| 本文 | Yu Gothic UI | 16 |
-| コード | Consolas | 14 |
+| H1 | Segoe UI | 32 |
+| H2 | Segoe UI | 26 |
+| H3 | Segoe UI | 22 |
+| H4 | Segoe UI | 18 |
+| H5 | Segoe UI | 16 |
+| H6 | Segoe UI | 14 |
+| 本文 | Segoe UI | 16 |
+| コード | Cascadia Mono（無ければ Consolas） | 14 |
 
-> **Note**: すべてのフォントサイズはズーム倍率 (`Theme::zoom`) で乗算される。
+本文は GitHub (Windows) と同じく英数字を Segoe UI で組み、Segoe UI に無い漢字・かな・全角記号は DirectWrite のシステムフォールバックに任せる。フォールバック先は書式のロケール `i18n::TextLocale()` で決まり、OS の表示言語が中国語でなければ `ja-jp`（Yu Gothic UI）、簡体字なら `zh-cn`（Microsoft YaHei UI）、繁体字なら `zh-tw` / `zh-hk`（Microsoft JhengHei UI）になる。描画先は不透明なので `D2D1_ALPHA_MODE_IGNORE` で作り、文字は ClearType で描く。
+
+> **Note**: 本文側のフォントサイズと余白はズーム倍率 (`Theme::zoom`) で乗算される。サイドペイン（ファイル一覧・目次）の項目はペインごとの倍率で別に拡大する（3.9.3）。窓枠（タイトルバー）・サイドペインのヘッダー・検索バーは固定サイズである。
 
 ---
 
@@ -1247,8 +1249,8 @@ struct Theme {
     D2D1_COLOR_F search_no_match_bg_color;
 
     // フォント
-    std::wstring font_family;     // "Yu Gothic UI"
-    std::wstring monospace_font;  // "Consolas"
+    std::wstring font_family;     // "Segoe UI"
+    std::wstring monospace_font;  // "Cascadia Mono"
     std::wstring icon_font;       // "Segoe Fluent Icons"
 
     // フォントサイズ (DIP)
@@ -1266,7 +1268,7 @@ struct Theme {
     float indent_width, blockquote_bar_width;
     float list_bullet_offset, list_bullet_radius, hr_thickness, h2_underline_thickness;
 
-    // ペインレイアウト
+    // ペインレイアウト（本文のズームの対象外。一覧の項目はペインごとの倍率を掛けて使う）
     float pane_item_height;
     float pane_header_height;
     float splitter_width;
@@ -1298,17 +1300,17 @@ public:
     void SaveDarkMode();
     void LoadDarkMode();
     void SaveZoomLevel(int zoom_index);
-    int  LoadZoomIndex() const;
+    ZoomLevel LoadZoomLevel() const;
 };
 ```
 
-起動時は `App::Init` が `Renderer` より先に `LoadDarkMode` / `LoadZoomIndex` を読み、保存済みのテーマとズームで作った `Theme` を `Renderer::Init(hwnd, theme)` に渡す。書式とブラシは 1 回の生成で済み、ライトテーマで作ってから作り直す二重生成を避ける。
+起動時は `App::Init` が `Renderer` より先に `LoadDarkMode` / `LoadZoomLevel` を読み、保存済みのテーマとズームで作った `Theme` を `Renderer::Init(hwnd, theme)` に渡す。書式とブラシは 1 回の生成で済み、ライトテーマで作ってから作り直す二重生成を避ける。
 
 ライト/ダークの切替はフォントと寸法が共通なので色だけの変更として扱う。`Renderer::SetTheme` は書式やテキストレイアウトを作り直さず、固定ブラシの色を `SetColor` で差し替えるだけである（ズーム変更は `ApplyZoomFromBase` の別経路）。テキストレイアウトに付けた描画効果はブラシ ID の印（`BrushEffect`）なので付け直しも要らない。Reducer 側（`ReduceToggleDarkMode`）もテキストレイアウトと描画エフェクトを維持し、テーマ色を焼き込んだ Mermaid ビットマップだけを `LayoutCache::InvalidateDiagramBitmaps` で破棄する。
 
 #### 3.9.3 ズームシステム
 
-17段階の離散的なズームレベル（`theme.h::ZOOM_STEPS`）。
+17段階の離散的なズームレベル（`ui_types.h::ZOOM_STEPS`）。段は `ZoomLevel` が持ち、本文（`ViewportManager`）・ファイルペイン・目次ペイン（`PaneController`）がそれぞれ 1 つずつ持つ。
 
 | インデックス | 倍率 | インデックス | 倍率 |
 |:------------|:------|:------------|:------|
@@ -1325,6 +1327,10 @@ public:
 `ZOOM_DEFAULT_INDEX = 7`、`ZOOM_STEP_COUNT = 17`。
 
 ズーム変更では `ReduceZoom` が可視先頭のノードとノード内オフセット（ズーム比でスケール）を scroll target に置いて全ノードのレイアウトを無効化し、`Renderer::ApplyZoomFromBase` が zoom=1.0 の基準テーマから作り直して倍率を掛ける（累積適用による誤差を避ける）。続く `App::RelayoutViewport(RelayoutResources::Diagrams)` の `LayoutService::ViewportLayout` が推定し直した Y で見ていた位置を当て直してから可視範囲を計測する（3.7.1）。
+
+本文のズームは Markdown 本文だけに掛かる。`Theme::ApplyZoom` は本文のフォントサイズと余白のみを倍し、サイドペインの `pane_item_height` / `pane_header_height` / `splitter_width` / `pane_font_size` は据え置く。ペイン幅もズーム倍率でスケールせず、`ReduceZoom` は `pane_layout_cache` を無効化しない。保存するペイン幅はズームを含まない DIP 値である。
+
+サイドペインはペインごとの倍率で一覧の項目（行の高さ `SidePaneItemHeight`・文字・アイコン・目次の字下げ）だけを拡大する。ヘッダーとペイン幅は変えない。`ZoomAction::pane` があれば `ReduceSidePaneZoom` がそのペインの段を動かし、先頭に見えていた項目が残るようスクロール位置を倍率の比で動かす。本文は組み直さない。Renderer はペインごとの一覧の書式（`pane_list_fmt_`）を描画時の倍率で作り直す。`TextLayoutCache` はキーで書式を参照して持つので、書式を作り直してもキャッシュを捨てる必要はない（解放したアドレスが新しい書式に使い回されない）。図の保存・コピーのボタンは、ポインタが画像の矩形の上にあるとき（`hit_test::DiagramImageHitTest`）だけ出す。Ctrl+ホイールはポインタの下の領域を、右クリックメニューの「ズーム」の行（ブラウザのメニューと同じ − / 倍率 / + / 元に戻す）は右クリックした領域をズームする。ズームの行のボタンはメニューを閉じず、`ContextMenuParams::on_zoom` で `ZoomAction` を流す。メニューのモーダルループは本体宛ての `WM_PAINT` だけは配るので、本体はメニューの裏で描き直される（`WM_APP` などの通知はメインループに残す）。倍率の表示と押せるかは開いている間に変わるので、`ZoomLevel` から都度求める。
 
 ---
 
@@ -1894,17 +1900,12 @@ public:
     constexpr int      GetClickStartY() const noexcept;
     constexpr void     SetClickStart(int x, int y) noexcept;
 
-    // ズーム — 戻り値 bool は zoom_index が変化したかどうか
-    constexpr int   GetZoomIndex() const noexcept;
-    constexpr void  SetZoomIndex(int idx) noexcept;          // [0, ZOOM_STEP_COUNT) に必ず clamp
-    constexpr float GetCurrentZoom() const noexcept;         // ZOOM_STEPS[zoom_index]
-    constexpr bool  ZoomIn() noexcept;
-    constexpr bool  ZoomOut() noexcept;
-    constexpr bool  ZoomReset() noexcept;
+    // ズーム — 段 (SetIndex は [0, ZOOM_STEP_COUNT) に必ず clamp、Step / CanStep / Percent) は ZoomLevel が持つ
+    constexpr ZoomLevel& Zoom() noexcept;
 };
 ```
 
-`ScrollTarget` は **「ノード i の先頭から offset ピクセル下」** という相対位置を保持する。ファイル再読み込み・ズーム・DPI 変更でレイアウトが変わっても、同じノードに戻ることで「見ている位置を保つ」を実現する。ノード数は `LayoutCache` のエントリ数で数える。文書のノードとキャッシュのエントリは常に同数で（文書を差し替える `ReplaceDocument` が assert で確かめる）、ノード数を別の引数で渡して突き合わせることはしない。`SetZoomIndex` は外部入力経路から不正値が来ても out-of-bounds にならないよう setter 側で必ず clamp する。テキスト選択のドラッグ中かどうかはここでは持たず、`ViewState::drag`（`LeftDrag::TextSelect`、3.3）で表す。
+`ScrollTarget` は **「ノード i の先頭から offset ピクセル下」** という相対位置を保持する。ファイル再読み込み・ズーム・DPI 変更でレイアウトが変わっても、同じノードに戻ることで「見ている位置を保つ」を実現する。ノード数は `LayoutCache` のエントリ数で数える。文書のノードとキャッシュのエントリは常に同数で（文書を差し替える `ReplaceDocument` が assert で確かめる）、ノード数を別の引数で渡して突き合わせることはしない。`ZoomLevel::SetIndex` は外部入力経路から不正値が来ても out-of-bounds にならないよう setter 側で必ず clamp する。テキスト選択のドラッグ中かどうかはここでは持たず、`ViewState::drag`（`LeftDrag::TextSelect`、3.3）で表す。
 
 ---
 
@@ -1934,8 +1935,7 @@ public:
     void DragSplitterTo(PaneTarget edge, float dip_x, float total_width,
                         float splitter_w) noexcept;
 
-    // ズーム / レイアウト
-    void ApplyZoom(float ratio) noexcept;
+    // レイアウト（幅はズーム倍率を含まない DIP 値）
     PaneLayout ComputeLayout(float total_w, float total_h, float splitter_w,
                              float top_offset = 0.0f) const noexcept;
 
@@ -2057,7 +2057,7 @@ struct OverlayButtonHit {
 
 | セクション | キー | 型 | 既定値 | 説明 |
 |:-----------|:-----|:---|:------|:-----|
-| `General` | `Language` | `wstring` | （OS自動判定） | UI言語 (`ja` / `en`) |
+| `General` | `Language` | `wstring` | （OS自動判定） | UI言語 (`ja` / `en` / `zh`) |
 | `View` | `DarkMode` | `bool` | `false` | ダークモード |
 | `View` | `ZoomLevel` | `int` | `7` (1.00x) | ズームインデックス |
 | `Window` | `X` / `Y` | `int` | `0` | 通常表示時のウィンドウ位置 |
@@ -2065,8 +2065,10 @@ struct OverlayButtonHit {
 | `Window` | `Maximized` | `bool` | `false` | 最大化状態（最小化中に閉じたときは最小化前の状態） |
 | `Pane` | `ShowFile` | `bool` | `true` | ファイルペイン表示 |
 | `Pane` | `ShowToc` | `bool` | `true` | TOCペイン表示 |
-| `Pane` | `FileWidth` | `int` | `220` (DIP) | ファイルペイン幅 |
-| `Pane` | `TocWidth` | `int` | `220` (DIP) | TOCペイン幅 |
+| `Pane` | `FileWidth` | `int` | `220` (DIP、ズーム非適用) | ファイルペイン幅 |
+| `Pane` | `TocWidth` | `int` | `220` (DIP、ズーム非適用) | TOCペイン幅 |
+| `Pane` | `FileZoomLevel` | `int` | `7` (1.00x) | ファイルペインのズームインデックス |
+| `Pane` | `TocZoomLevel` | `int` | `7` (1.00x) | TOCペインのズームインデックス |
 | `Session` | `LastFile` | `wstring` | 空文字列 | 最後に開いたファイルパス |
 | `Session` | `ScrollNode` | `int` | `-1` | スクロール位置（ノードインデックス） |
 | `Session` | `ScrollOffset` | `int` | `0` | スクロール位置（ノード内オフセット） |
@@ -2776,7 +2778,7 @@ namespace ini {
 
 #### 3.28.5 i18n — 国際化
 
-UI文字列のローカライズ。日本語 (`ja`) / 英語 (`en`) の2言語をサポート。
+UI文字列のローカライズ。日本語 (`ja`) / 英語 (`en`) / 簡体字中国語 (`zh`) の3言語をサポート。
 
 ```cpp
 namespace i18n {
@@ -2785,10 +2787,13 @@ namespace i18n {
     void Init(std::wstring_view config_lang) noexcept;
     const Strings& S() noexcept;
     std::wstring_view GetLangKey() noexcept;
+    const wchar_t* TextLocale() noexcept;  // 本文の書式に渡すロケール
 }
 ```
 
-言語は `Strings` 定義済みインスタンス（`kJa` / `kEn`）へのポインタで選択し、`std::atomic<const Strings*>` で保持する。`config_lang` が `"ja"` / `"en"` なら直接選択、空または未知の場合は `GetUserDefaultUILanguage()` から自動判定する。
+言語は `Strings` 定義済みインスタンス（`kAllStrings` = `kJa` / `kEn` / `kZh`）へのポインタで選択し、`std::atomic<const Strings*>` で保持する。`config_lang` がいずれかの `Strings::lang_key`（`"ja"` / `"en"` / `"zh"`）なら直接選択、空または未知の場合は `GetUserDefaultUILanguage()` から自動判定する（日本語 → `kJa`、簡体字の地域 → `kZh`、それ以外 → `kEn`）。繁体字の文言は持たないので、繁体字の地域は英語になる。
+
+`TextLocale()` は UI の言語設定とは別に OS の表示言語から決める。`Theme::text_locale` がこれを持ち、本文と同じ書体を使う書式（本文・見出し・コード・ペイン・メニュー）に渡す。
 
 #### 3.28.6 StringConvert — 文字列変換ユーティリティ
 
@@ -3143,7 +3148,7 @@ flowchart TD
     CREATE --> REG[RegisterClassExW]
     REG --> WND[CreateWindowExW<br>WS_EX_ACCEPTFILES + WS_EX_NOREDIRECTIONBITMAP]
     WND --> INIT[App::Init]
-    INIT --> CFG[ThemeService::LoadDarkMode<br>+ LoadZoomIndex]
+    INIT --> CFG[ThemeService::LoadDarkMode<br>+ LoadZoomLevel]
     CFG --> D2D[Renderer::Init&#40;hwnd, theme&#41;<br>保存済みテーマで D2D / DWrite / WIC ファクトリ + Formats]
     D2D --> LSCHED[layout_scheduler_.Init + SetLayoutScheduler<br>WarmUp でワーカーとフォントを先に起こす]
     LSCHED --> SCHED[InitSharedScheduler<br>スレッド数の記録のみ、初回 Post で起動]

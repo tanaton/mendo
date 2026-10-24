@@ -1,5 +1,6 @@
 #pragma once
 #include "ini_parser.h"
+#include "ui_types.h"
 #include <string>
 #include <string_view>
 #include <filesystem>
@@ -29,6 +30,8 @@ public:
 
     void SaveInt(std::string_view section, std::string_view key, int value);
     int LoadInt(std::string_view section, std::string_view key, int def, int min_v, int max_v) const;
+    // 無ければ等倍。範囲外は ZoomLevel::SetIndex が丸める。
+    ZoomLevel LoadZoomLevel(std::string_view section, std::string_view key) const;
 
     void SaveWString(std::string_view section, std::string_view key, std::wstring_view value);
     std::pmr::wstring LoadWString(std::string_view section, std::string_view key) const;
@@ -63,8 +66,11 @@ public:
         bool show_toc = true;
         float file_width = 220.0f;
         float toc_width = 220.0f;
+        ZoomLevel file_zoom;
+        ZoomLevel toc_zoom;
     };
     void SavePaneState(const PaneState& state);
+    // 幅はズーム倍率を含まない DIP 値として保存・復元する。
     PaneState LoadPaneState(float min_width, float default_width) const;
 
     struct ScrollPosition {
