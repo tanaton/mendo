@@ -38,7 +38,7 @@ public:
     // ビットマップを描くノード (IsBitmapDrawNode) は渡さない。高さは MeasureEntry が BitmapNodeHeight で決める。
     virtual void MeasureNode(
         const Node& node, NodeLayoutEntry& entry, float max_width,
-        MeasureViewportRange viewport = {}) const = 0;
+        MeasureViewportRange viewport) const = 0;
     // 幅不変のまま行単位 evict されたテーブルの、viewport 内の evict 行だけセルを再生成する。
     // layout_dirty を経由しないため、可視中に毎フレーム全行を再計測することがない。
     virtual TableRestoreResult RestoreEvictedTableRows(const Node& /*node*/, NodeLayoutEntry& /*entry*/, float /*max_width*/,

@@ -63,7 +63,7 @@ enum class WebMessageKind : uint8_t {
     RenderResult,  // "render-result:<id>:<payload>"
     CaptureReady,  // "capture-ready:<id>"
     SvgResult,     // "svg-result:<id>:<payload>"
-    RenderError,   // "render-error:<id>"
+    RenderError,   // "render-error:<id>:<message>"
     Failed,        // "mermaid-failed"
 };
 

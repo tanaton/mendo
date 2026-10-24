@@ -1,5 +1,4 @@
 #pragma once
-#include "ui_constants.h"
 #include "ui_types.h"
 #include <algorithm>
 #include <optional>
@@ -69,7 +68,7 @@ struct PaneScrollInfo {
 
 // 縦スクロールバーを出すか。描画とヒット判定で共有する。may_grow (計測待ちで内容が伸びうる) の間は、
 // ちょうど収まっていても出し続けてちらつきを防ぐ。それ以外はつまみを動かせるときだけ出す。
-constexpr bool ShowsVScrollbar(const PaneScrollInfo& info, bool may_grow = false) noexcept
+constexpr bool ShowsVScrollbar(const PaneScrollInfo& info, bool may_grow) noexcept
 {
     if (info.content_height <= 0.0f) {
         return false;
@@ -155,7 +154,7 @@ PaneLayout ComputePaneLayout(
     float total_width, float total_height,
     float file_pane_width, float toc_pane_width,
     float splitter_width, bool show_file, bool show_toc,
-    float top_offset = 0.0f) noexcept;
+    float top_offset) noexcept;
 PaneZone DetectPaneZone(float dip_x, const PaneLayout& layout, float splitter_width, bool show_file, bool show_toc) noexcept;
 PaneScrollInfo ComputeScrollInfo(const PaneRect& rect, float header_height, float total_content) noexcept;
 float ComputeThumbY(const PaneScrollInfo& info, float scroll_y) noexcept;

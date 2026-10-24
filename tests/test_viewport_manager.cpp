@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <memory_resource>
 #include "viewport_manager.h"
+#include "pane_layout.h"
 #include "test_helpers.h"
 #include "document_types.h"
 
@@ -257,7 +258,7 @@ TEST(ViewportManagerTest, SelectAllLastNodeIsTable)
 TEST(ViewportManagerTest, ZoomInAdvancesIndex)
 {
     ViewportManager vm; // starts at ZOOM_DEFAULT_INDEX (1.0)
-    EXPECT_TRUE(vm.Zoom().ZoomIn());
+    EXPECT_TRUE(vm.Zoom().Step(ZoomDirection::In));
     EXPECT_EQ(vm.Zoom().Index(), ZOOM_DEFAULT_INDEX + 1);
     EXPECT_GT(vm.Zoom().Value(), 1.0f);
 }
@@ -265,7 +266,7 @@ TEST(ViewportManagerTest, ZoomInAdvancesIndex)
 TEST(ViewportManagerTest, ZoomOutDecrementsIndex)
 {
     ViewportManager vm;
-    EXPECT_TRUE(vm.Zoom().ZoomOut());
+    EXPECT_TRUE(vm.Zoom().Step(ZoomDirection::Out));
     EXPECT_EQ(vm.Zoom().Index(), ZOOM_DEFAULT_INDEX - 1);
     EXPECT_LT(vm.Zoom().Value(), 1.0f);
     EXPECT_GT(vm.Zoom().Value(), 0.0f);
@@ -276,8 +277,8 @@ TEST(ViewportManagerTest, ZoomInAtMaxReturnsFalse)
     ViewportManager vm;
     // 最大までズーム
     for (int i = 0; i < 50; ++i)
-        vm.Zoom().ZoomIn();
-    EXPECT_FALSE(vm.Zoom().ZoomIn());
+        vm.Zoom().Step(ZoomDirection::In);
+    EXPECT_FALSE(vm.Zoom().Step(ZoomDirection::In));
     EXPECT_EQ(vm.Zoom().Index(), ZOOM_STEP_COUNT - 1);
 }
 
@@ -286,17 +287,17 @@ TEST(ViewportManagerTest, ZoomOutAtMinReturnsFalse)
     ViewportManager vm;
     // 最小までズーム
     for (int i = 0; i < 50; ++i)
-        vm.Zoom().ZoomOut();
-    EXPECT_FALSE(vm.Zoom().ZoomOut());
+        vm.Zoom().Step(ZoomDirection::Out);
+    EXPECT_FALSE(vm.Zoom().Step(ZoomDirection::Out));
     EXPECT_EQ(vm.Zoom().Index(), 0);
 }
 
 TEST(ViewportManagerTest, ZoomResetFromNonDefault)
 {
     ViewportManager vm;
-    vm.Zoom().ZoomIn();
-    vm.Zoom().ZoomIn();
-    EXPECT_TRUE(vm.Zoom().ZoomReset());
+    vm.Zoom().Step(ZoomDirection::In);
+    vm.Zoom().Step(ZoomDirection::In);
+    EXPECT_TRUE(vm.Zoom().Step(ZoomDirection::Reset));
     EXPECT_EQ(vm.Zoom().Index(), ZOOM_DEFAULT_INDEX);
     EXPECT_FLOAT_EQ(vm.Zoom().Value(), 1.0f);
 }
@@ -304,7 +305,7 @@ TEST(ViewportManagerTest, ZoomResetFromNonDefault)
 TEST(ViewportManagerTest, ZoomResetAlreadyDefault)
 {
     ViewportManager vm;
-    EXPECT_FALSE(vm.Zoom().ZoomReset()); // 変更不要
+    EXPECT_FALSE(vm.Zoom().Step(ZoomDirection::Reset)); // 変更不要
     EXPECT_EQ(vm.Zoom().Index(), ZOOM_DEFAULT_INDEX);
 }
 

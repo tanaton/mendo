@@ -86,7 +86,7 @@ TEST_F(HighlightOrderTest, SearchThenSelectionThenText)
     sel.active = true;
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, sel);
+    const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, sel, {}, 1.0f, {}, -1);
 
     // 検索色・選択色・本文 の各最小 index を見つける。
     std::optional<size_t> first_search;
@@ -126,7 +126,7 @@ TEST_F(HighlightOrderTest, NoHighlightsWhenNeitherActive)
     gen_.SetSearchMatches(nullptr, -1, 0);
     const TextSelection sel{};
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, sel);
+    const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, sel, {}, 1.0f, {}, -1);
 
     for (const auto& c : cmds) {
         if (auto* fr = std::get_if<FillRectCmd>(&c)) {
@@ -149,7 +149,7 @@ TEST_F(HighlightOrderTest, CurrentMatchUsesCurrentColor)
     gen_.SetSearchMatches(&matches, 1, 1); // 2 番目を current にする
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{});
+    const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
 
     EXPECT_GE(CollectRectsByBrush(cmds, { BrushId::SearchHighlight }).size(), 1u) << "非カレントの検索マッチが少なくとも 1 つあるはず";
     EXPECT_GE(CollectRectsByBrush(cmds, { BrushId::SearchHighlightCurrent }).size(), 1u) << "カレントマッチが 1 つあるはず";
@@ -165,7 +165,7 @@ TEST_F(HighlightOrderTest, EmptySelectionProducesNoSelectionRect)
     sel.active = true;
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, sel);
+    const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, sel, {}, 1.0f, {}, -1);
 
     for (const auto& c : cmds) {
         if (auto* fr = std::get_if<FillRectCmd>(&c)) {
@@ -180,7 +180,7 @@ TEST_F(HighlightOrderTest, ExtractCmdKindsIsOrdered)
 {
     auto pl = ParseAndLayout("Hello");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{});
+    const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
     const auto kinds = ExtractCmdKinds(cmds);
     ASSERT_EQ(kinds.size(), cmds.size());
     for (size_t i = 0; i < cmds.size(); ++i) {
@@ -199,7 +199,7 @@ TEST_F(HighlightOrderTest, SearchHighlightHandlesUtf8MultibyteOffset)
     std::pmr::vector<SearchMatch> matches1;
     matches1.push_back({ 0, 0, 3, -1, -1, 0, 3 });
     gen_.SetSearchMatches(&matches1, 0, 1);
-    const auto& cmds1 = gen_.GenerateMdPane(pl1.nodes, pl1.cache, pane, 0.0f, TextSelection{});
+    const auto& cmds1 = gen_.GenerateMdPane(pl1.nodes, pl1.cache, pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
     const auto rect1 = FindFirstFillRectByBrush(cmds1,
         { BrushId::SearchHighlight, BrushId::SearchHighlightCurrent });
     ASSERT_TRUE(rect1.has_value());
@@ -209,7 +209,7 @@ TEST_F(HighlightOrderTest, SearchHighlightHandlesUtf8MultibyteOffset)
     std::pmr::vector<SearchMatch> matches2;
     matches2.push_back({ 0, 9, 3, -1, -1, 3, 3 });
     gen_.SetSearchMatches(&matches2, 0, 1);
-    const auto& cmds2 = gen_.GenerateMdPane(pl2.nodes, pl2.cache, pane, 0.0f, TextSelection{});
+    const auto& cmds2 = gen_.GenerateMdPane(pl2.nodes, pl2.cache, pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
     const auto rect2 = FindFirstFillRectByBrush(cmds2,
         { BrushId::SearchHighlight, BrushId::SearchHighlightCurrent });
     ASSERT_TRUE(rect2.has_value()) << "非 ASCII オフセット後の ASCII マッチが描画されるべき";
@@ -226,14 +226,14 @@ TEST_F(HighlightOrderTest, SelectionHighlightHandlesUtf8MultibyteOffset)
     auto pl1 = ParseAndLayout("abc");
     TextSelection sel1 = TextSelection::MakeOrdered(0, 0, 0, 3);
     sel1.active = true;
-    const auto& cmds1 = gen_.GenerateMdPane(pl1.nodes, pl1.cache, pane, 0.0f, sel1);
+    const auto& cmds1 = gen_.GenerateMdPane(pl1.nodes, pl1.cache, pane, 0.0f, sel1, {}, 1.0f, {}, -1);
     const auto rect1 = FindFirstFillRectByBrush(cmds1, { BrushId::Selection });
     ASSERT_TRUE(rect1.has_value());
 
     auto pl2 = ParseAndLayout("\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86" "abc");
     TextSelection sel2 = TextSelection::MakeOrdered(0, 9, 0, 12);
     sel2.active = true;
-    const auto& cmds2 = gen_.GenerateMdPane(pl2.nodes, pl2.cache, pane, 0.0f, sel2);
+    const auto& cmds2 = gen_.GenerateMdPane(pl2.nodes, pl2.cache, pane, 0.0f, sel2, {}, 1.0f, {}, -1);
     const auto rect2 = FindFirstFillRectByBrush(cmds2, { BrushId::Selection });
     ASSERT_TRUE(rect2.has_value());
     EXPECT_NEAR(rect2->right - rect2->left, rect1->right - rect1->left, 2.0f);
@@ -265,7 +265,7 @@ protected:
     {
         auto* layout = pl.cache[0].text_layout();
         ASSERT_NE(layout, nullptr);
-        const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, scroll_y, TextSelection{});
+        const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, scroll_y, TextSelection{}, {}, 1.0f, {}, -1);
         const auto text_cmd = FindFirst<DrawTextLayoutCmd>(cmds, [&](const DrawTextLayoutCmd& t) { return t.layout == layout; });
         ASSERT_TRUE(text_cmd.has_value());
 
@@ -348,13 +348,13 @@ TEST_F(VisibleHighlightTest, TableSearchComputesOnlyVisibleCells)
     Search(pl, "cell");
     ASSERT_EQ(search_.GetMatchCount(), 900);
 
-    const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, 0.0f, TextSelection{});
+    const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
     EXPECT_FALSE(CollectRectsByBrush(cmds, { BrushId::SearchHighlight }).empty());
     const size_t computed = ComputedMatchCount(pl.cache[0]);
     EXPECT_GT(computed, 0u);
     EXPECT_LT(computed, 100u);
 
-    const auto& cmds2 = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, pl.cache[0].height * 0.5f, TextSelection{});
+    const auto& cmds2 = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, pl.cache[0].height * 0.5f, TextSelection{}, {}, 1.0f, {}, -1);
     EXPECT_FALSE(CollectRectsByBrush(cmds2, { BrushId::SearchHighlight }).empty());
     EXPECT_LT(ComputedMatchCount(pl.cache[0]), 200u);
 }
@@ -374,14 +374,14 @@ TEST_F(VisibleHighlightTest, TableSearchHighlightAppearsAfterEvictedRowsRestore)
     pl.cache.EvictInvisibleTableRows(std::array{ size_t{ 0 } }, far_top, far_top + 1000.0f, 0.0f);
     ASSERT_TRUE(pl.cache[0].table_layout()->HasEvictedRows());
 
-    const auto& evicted = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, 0.0f, TextSelection{});
+    const auto& evicted = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
     EXPECT_TRUE(CollectRectsByBrush(evicted, { BrushId::SearchHighlight }).empty());
     EXPECT_EQ(ComputedMatchCount(pl.cache[0]), 0u);
 
     const auto restored = measurer_.RestoreEvictedTableRows(pl.nodes[0], pl.cache[0], theme_.ContentWidth(PANE.width),
                                                             MeasureViewportRange{ 0.0f, PANE.height });
     ASSERT_TRUE(restored.restored);
-    const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, 0.0f, TextSelection{});
+    const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
     EXPECT_FALSE(CollectRectsByBrush(cmds, { BrushId::SearchHighlight }).empty());
     EXPECT_GT(ComputedMatchCount(pl.cache[0]), 0u);
 }
@@ -441,7 +441,7 @@ TEST_F(VisibleHighlightTest, SelectionComputesOnlyLinesNearViewport)
     sel.active = true;
 
     for (const float y : { 0.0f, 100.0f, pl.cache[0].height * 0.5f }) {
-        const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, y, sel);
+        const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, y, sel, {}, 1.0f, {}, -1);
         const auto rects = CollectRectsByBrush(cmds, { BrushId::Selection });
         ASSERT_GT(rects.size(), 5u) << "scroll_y=" << y;
         EXPECT_LT(rects.size(), 50u) << "scroll_y=" << y << " で 1000 行ぶんの矩形を積んでいる";

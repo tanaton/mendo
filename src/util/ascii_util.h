@@ -226,13 +226,13 @@ inline size_t FindImpl(std::string_view text, std::string_view query, size_t sta
 
 } // namespace detail
 
-inline size_t Find(std::string_view text, std::string_view query, size_t start = 0) noexcept
+inline size_t Find(std::string_view text, std::string_view query, size_t start) noexcept
 {
     return detail::FindImpl<false>(text, query, start);
 }
 
 // ASCII の大文字小文字を区別しない検索。lower_query は ASCII 小文字化済みであること。
-inline size_t FindAsciiCaseInsensitive(std::string_view text, std::string_view lower_query, size_t start = 0) noexcept
+inline size_t FindAsciiCaseInsensitive(std::string_view text, std::string_view lower_query, size_t start) noexcept
 {
     return detail::FindImpl<true>(text, lower_query, start);
 }

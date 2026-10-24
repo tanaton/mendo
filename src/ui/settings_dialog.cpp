@@ -21,12 +21,6 @@ std::wstring FormatByteSize(uint64_t bytes)
     return value < 100.0 ? std::format(L"{:.1f} {}", value, kUnits[unit]) : std::format(L"{:.0f} {}", value, kUnits[unit]);
 }
 
-void SettingsDialog::Init(ID2D1Factory* d2d_factory, IDWriteFactory* dwrite_factory)
-{
-    d2d_factory_ = d2d_factory;
-    dwrite_factory_ = dwrite_factory;
-}
-
 void SettingsDialog::Impl::CreateTextFormats()
 {
     const wchar_t* const family = theme->font_family.c_str();
@@ -114,6 +108,12 @@ void SettingsDialog::Impl::Activate(const Hit& hit)
         }
         on_language(chosen);
         Rebuild();
+        // 言語で幅が変わるので、今の中心のまま大きさを合わせる。テストはウィンドウを作らずに呼ぶ。
+        if (hwnd) {
+            RECT rc{};
+            GetWindowRect(hwnd, &rc);
+            Place(CenteredIn(rc));
+        }
         break;
     }
     case HitKind::ClearCache:
@@ -121,12 +121,6 @@ void SettingsDialog::Impl::Activate(const Hit& hit)
         cache_bytes = 0;
         cache_size_text = FormatByteSize(cache_bytes);
         break;
-    }
-    // 言語で幅が変わるので、今の中心のまま大きさを合わせる。テストはウィンドウを作らずに呼ぶ。
-    if (hit.kind == HitKind::Language && hwnd) {
-        RECT rc{};
-        GetWindowRect(hwnd, &rc);
-        Place(CenteredIn(rc));
     }
 }
 
@@ -150,7 +144,7 @@ void SettingsDialog::Impl::OnPress(UINT msg, float x, float y)
 void SettingsDialog::Show(HWND owner_hwnd, const SettingsDialogParams& params)
 {
     Impl s;
-    if (!s.Setup(d2d_factory_, dwrite_factory_, params.theme, params.dpi_scale)) {
+    if (!s.Setup(params.env)) {
         return;
     }
     s.cache_bytes = params.diagram_cache_bytes;
@@ -174,10 +168,10 @@ void SettingsDialog::Impl::PaintContent()
     for (size_t row = 0; row < layout.languages.size(); ++row) {
         const DipRect& rect = layout.languages[row];
         if (hovered == Hit{ HitKind::Language, row }) {
-            FillHover({ HOVER_MARGIN_X, rect.top + 1.0f, w - HOVER_MARGIN_X, rect.bottom - 1.0f }, HOVER_CORNER);
+            FillHover({ HOVER_MARGIN_X, rect.top + 1.0f, w - HOVER_MARGIN_X, rect.bottom - 1.0f });
         }
         if (LanguageOfRow(row) == chosen) {
-            DrawLabel(GLYPH_CHECKMARK, fmt_icon.Get(), { PAD_X - 4.0f, rect.top, PAD_X + CHECK_WIDTH - 8.0f, rect.bottom }, brushes.check.Get());
+            DrawCheck({ PAD_X - 4.0f, rect.top, PAD_X + CHECK_WIDTH - 8.0f, rect.bottom });
         }
         const auto [text, fmt] = LabelOfRow(row);
         DrawLabel(text, fmt, { PAD_X + CHECK_WIDTH, rect.top, w - PAD_X, rect.bottom }, brushes.text.Get());
@@ -189,9 +183,10 @@ void SettingsDialog::Impl::PaintContent()
     DrawLabel(cache_size_text, fmt_text.Get(), layout.cache_size, brushes.text.Get());
     // 押せないボタンには HitTest が当たらないので、ホバーは押せるときだけ出る。
     if (hovered.kind == HitKind::ClearCache) {
-        FillHover(layout.clear, HOVER_CORNER);
+        FillHover(layout.clear);
     }
+    // 枠はホバーの塗りと同じ角丸にする (ボタンのホバーが枠からはみ出さないように)。
     const D2D1_RECT_F button_border{ layout.clear.left + 0.5f, layout.clear.top + 0.5f, layout.clear.right - 0.5f, layout.clear.bottom - 0.5f };
-    rt->DrawRoundedRectangle({ button_border, HOVER_CORNER, HOVER_CORNER }, brushes.border.Get(), 1.0f);
+    rt->DrawRoundedRectangle({ button_border, POPUP_HOVER_CORNER, POPUP_HOVER_CORNER }, brushes.border.Get(), 1.0f);
     DrawLabel(ls.settings_clear_cache, fmt_text_center.Get(), layout.clear, CanClearCache() ? brushes.text.Get() : brushes.gray.Get());
 }

@@ -83,7 +83,7 @@ TEST(LayoutComputerTest, EstimateAfterInvalidateAllLayoutsCanShrink)
     cache.InvalidateAllLayouts(nodes);
     layout::EstimateInvisibleNodeHeight(nodes[0], cache[0], theme, 600.0f);
 
-    EXPECT_FLOAT_EQ(cache[0].height, layout::EstimateNodeHeight(nodes[0], theme));
+    EXPECT_FLOAT_EQ(cache[0].height, layout::EstimateNodeHeight(nodes[0], theme, 0.0f));
 }
 
 // 幅が分かれば、折り返す段落の行数を文字数から見積もる。幅を知らない推定はハード改行の数だけを見る。
@@ -94,12 +94,12 @@ TEST(LayoutComputerTest, EstimateNodeHeightWrapsLongParagraphByWidth)
     const Node long_node = MakeTextNode(long_text.c_str());
     const Node short_node = MakeTextNode("short");
 
-    const float width_free = layout::EstimateNodeHeight(long_node, theme);
+    const float width_free = layout::EstimateNodeHeight(long_node, theme, 0.0f);
     const float wide = layout::EstimateNodeHeight(long_node, theme, 2000.0f);
     const float narrow = layout::EstimateNodeHeight(long_node, theme, 200.0f);
     EXPECT_GT(wide, width_free);
     EXPECT_GT(narrow, wide);
-    EXPECT_FLOAT_EQ(layout::EstimateNodeHeight(short_node, theme, 600.0f), layout::EstimateNodeHeight(short_node, theme));
+    EXPECT_FLOAT_EQ(layout::EstimateNodeHeight(short_node, theme, 600.0f), layout::EstimateNodeHeight(short_node, theme, 0.0f));
 }
 
 TEST(LayoutCacheTest, InvalidateEmptyCache)
@@ -212,7 +212,7 @@ TEST(LayoutCacheTest, RecomputeYPositionsEarlyExitKeepsTextTop)
         n.type = NodeType::Paragraph;
     }
 
-    layout::EstimateNodeHeights(nodes, cache, theme);
+    layout::EstimateNodeHeights(nodes, cache, theme, 0.0f, {});
     std::vector<float> expected;
     for (size_t i = 0; i < cache.size(); ++i) {
         cache[i].layout_dirty = false;

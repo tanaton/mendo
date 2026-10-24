@@ -4,7 +4,7 @@
 using Microsoft::WRL::ComPtr;
 
 // ナビゲーションボタンの矢印グリフが、中央揃えフォーマットでボックス中央に描画されることを検証する。
-// フォーマットはRenderer::RecreatePaneFormats()のfmt_nav_button_の設定を再現したもの。
+// フォーマットはRenderer::CreateTextFormats()のfmt_nav_button_の設定を再現したもの。
 
 class NavButtonFormatTest : public DWriteTestBase {
 protected:
@@ -14,7 +14,7 @@ protected:
     {
         DWriteTestBase::SetUp();
 
-        // Renderer::RecreatePaneFormatsと同じパラメータでフォーマットを作成
+        // Renderer::CreateTextFormatsと同じパラメータでフォーマットを作成
         fmt_ = CreateThemeFormat(theme_.pane_font_size);
         ASSERT_NE(fmt_, nullptr);
 

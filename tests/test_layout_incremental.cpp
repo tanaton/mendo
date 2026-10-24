@@ -223,7 +223,7 @@ protected:
                 engine_.ProcessDirtyBatch(nodes_, cache_, width_, batch, { scroll_, kViewportHeight, buffer });
                 return "ProcessDirtyBatch batch=" + std::to_string(batch) + " clip buffer=" + std::to_string(buffer);
             }
-            engine_.ProcessDirtyBatch(nodes_, cache_, width_, batch);
+            engine_.ProcessDirtyBatch(nodes_, cache_, width_, batch, {});
             return "ProcessDirtyBatch batch=" + std::to_string(batch) + " noclip";
         }
         case Op::MarkDirty: {
@@ -260,7 +260,7 @@ protected:
     {
         engine_.SetLayoutScheduler(nullptr);
         for (int guard = 0; guard < 10000; ++guard) {
-            if (!engine_.ProcessDirtyBatch(nodes_, cache_, width_, 0)) {
+            if (!engine_.ProcessDirtyBatch(nodes_, cache_, width_, 0, {})) {
                 return;
             }
         }
@@ -341,7 +341,7 @@ TEST_F(IncrementalLayoutTest, MatchesFullLayoutAfterRandomOperations)
         ASSERT_TRUE(ref_engine.Init(&measurer_, theme_));
         LayoutCache ref;
         ref.Resize(nodes_.size());
-        EstimateNodeHeights(nodes_, ref, theme_);
+        EstimateNodeHeights(nodes_, ref, theme_, 0.0f, {});
         ComputeLayout(ref_engine, nodes_, ref, width_);
         for (size_t i = 0; i < nodes_.size(); ++i) {
             ASSERT_NEAR(cache_[i].height, ref[i].height, kYEps) << "i=" << i;

@@ -222,7 +222,7 @@ public:
     // 起動時に Win32Window から呼ばれる
     void SetInitialDirectory(std::wstring_view dir_path);   // Init 前
     void StartPreloadAsync(std::pmr::wstring path);         // Init 前
-    void SetPendingRestoreNode(int node, int offset) noexcept;
+    void RestoreScrollPosition();                           // 保存したスクロール位置を戻す位置にする
     void LoadInitialDocument();   // preload を取り込む。無ければヘルプを開く
     bool CreateRenderDevice();    // LoadInitialDocument の後、初回描画の前
 
@@ -1205,7 +1205,7 @@ public:
 描画コストを抑えるためのキャッシュ:
 
 - **サイドペインの項目テキスト**: 可視項目は数十個なのでオフスクリーンに溜めず毎フレームコマンドに積む。左寄せ NO_WRAP の項目名・見出しはレイアウト幅を固定して `TextLayoutCache` に載せ、はみ出しはクリップで切るため、スプリッタのドラッグ中もレイアウトを作り直さない。
-- **短い文字列**: `DrawText` は呼び出しごとに内部でテキストレイアウトを作るため使わない。アイコン・リスト番号・プレースホルダ・タイトル・ナビボタン・ジェスチャー・トースト・検索バーのラベルや件数は、(書式, 文字列, 箱の大きさ) ごとに `TextLayoutCache`（`text_layouts_`、`CommandGenerator` と共有）に作り置き、文字列と書式が同じ間は使い回す。箱を指定しなければ中央揃え書式のレイアウトを幅/高さ 0 で作って矩形中心に置き、固定サイズの箱が必要なものは箱サイズで作って左上に置く（`TextLayoutCache::Origin`）。コマンド列に積むものは `EmitChromeText` / `EmitText`、即時描画のものは `DrawCenteredText` を使う。項目数が `kMaxEntries`（512）を超えたら `BeginFrame` で直前のフレームに使わなかったものを捨て、書式を作り直す `RecreatePaneFormats` でまとめて破棄する。
+- **短い文字列**: `DrawText` は呼び出しごとに内部でテキストレイアウトを作るため使わない。アイコン・リスト番号・プレースホルダ・タイトル・ナビボタン・ジェスチャー・トースト・検索バーのラベルや件数は、(書式, 文字列, 箱の大きさ) ごとに `TextLayoutCache`（`text_layouts_`、`CommandGenerator` と共有）に作り置き、文字列と書式が同じ間は使い回す。箱を指定しなければ中央揃え書式のレイアウトを幅/高さ 0 で作って矩形中心に置き、固定サイズの箱が必要なものは箱サイズで作って左上に置く（`TextLayoutCache::Origin`）。コマンド列に積むものは `EmitChromeText` / `EmitText`、即時描画のものは `DrawCenteredText` を使う。項目数が `kMaxEntries`（512）を超えたら `BeginFrame` で直前のフレームに使わなかったものを捨て、書式を作り直す `RecreateAllTextFormats` でまとめて破棄する。
 - **検索入力欄**: IME の合成中テキストを挿入した表示テキストと幅が前フレームと同じ間は `search_input_` のレイアウトを使い回す。
 
 ---
@@ -1306,7 +1306,7 @@ public:
 
 起動時は `App::Init` が `Renderer` より先に `LoadDarkMode` / `LoadZoomLevel` を読み、保存済みのテーマとズームで作った `Theme` を `Renderer::Init(hwnd, theme)` に渡す。書式とブラシは 1 回の生成で済み、ライトテーマで作ってから作り直す二重生成を避ける。
 
-ライト/ダークの切替はフォントと寸法が共通なので色だけの変更として扱う。`Renderer::SetTheme` は書式やテキストレイアウトを作り直さず、固定ブラシの色を `SetColor` で差し替えるだけである（ズーム変更は `ApplyZoomFromBase` の別経路）。テキストレイアウトに付けた描画効果はブラシ ID の印（`BrushEffect`）なので付け直しも要らない。Reducer 側（`ReduceToggleDarkMode`）もテキストレイアウトと描画エフェクトを維持し、テーマ色を焼き込んだ Mermaid ビットマップだけを `LayoutCache::InvalidateDiagramBitmaps` で破棄する。
+ライト/ダークの切替はフォントと寸法が共通なので色だけの変更として扱う。`Renderer::SetTheme` は書式やテキストレイアウトを作り直さず、固定ブラシの色を `SetColor` で差し替えるだけである（ズーム変更は `ApplyZoom` の別経路）。テキストレイアウトに付けた描画効果はブラシ ID の印（`BrushEffect`）なので付け直しも要らない。Reducer 側（`ReduceToggleDarkMode`）もテキストレイアウトと描画エフェクトを維持し、テーマ色を焼き込んだ Mermaid ビットマップだけを `LayoutCache::InvalidateDiagramBitmaps` で破棄する。
 
 #### 3.9.3 ズームシステム
 
@@ -1326,7 +1326,7 @@ public:
 
 `ZOOM_DEFAULT_INDEX = 7`、`ZOOM_STEP_COUNT = 17`。
 
-ズーム変更では `ReduceZoom` が可視先頭のノードとノード内オフセット（ズーム比でスケール）を scroll target に置いて全ノードのレイアウトを無効化し、`Renderer::ApplyZoomFromBase` が zoom=1.0 の基準テーマから作り直して倍率を掛ける（累積適用による誤差を避ける）。続く `App::RelayoutViewport(RelayoutResources::Diagrams)` の `LayoutService::ViewportLayout` が推定し直した Y で見ていた位置を当て直してから可視範囲を計測する（3.7.1）。
+ズーム変更では `ReduceZoom` が可視先頭のノードとノード内オフセット（ズーム比でスケール）を scroll target に置いて全ノードのレイアウトを無効化し、`ThemeService::CreateTheme` が zoom=1.0 の基準テーマから倍率を掛けたテーマを作り（累積適用による誤差を避ける）、`Renderer::ApplyZoom` がそれに差し替えて書式を作り直す。続く `App::RelayoutViewport(RelayoutResources::Diagrams)` の `LayoutService::ViewportLayout` が推定し直した Y で見ていた位置を当て直してから可視範囲を計測する（3.7.1）。
 
 本文のズームは Markdown 本文だけに掛かる。`Theme::ApplyZoom` は本文のフォントサイズと余白のみを倍し、サイドペインの `pane_item_height` / `pane_header_height` / `splitter_width` / `pane_font_size` は据え置く。ペイン幅もズーム倍率でスケールせず、`ReduceZoom` は `pane_layout_cache` を無効化しない。保存するペイン幅はズームを含まない DIP 値である。
 
@@ -2110,7 +2110,7 @@ LocalAppData は環境変数 `LOCALAPPDATA` を優先し（`SHGetKnownFolderPath
 
 #### 3.19.4 SessionService
 
-セッション状態（最後に開いたファイル、ペイン構成、スクロール位置）の永続化を担当する。`ConfigService` のセクション "Session" / "Pane" を排他的に扱う薄いラッパ。
+セッション状態（最後に開いたファイル、ペイン構成、スクロール位置、言語）の永続化を担当する。`ConfigService` のセクション "Session" / "Pane" / "General" を排他的に扱う薄いラッパ。
 
 ```cpp
 class SessionService {
@@ -2124,11 +2124,13 @@ public:
     struct PaneState {
         bool  show_file  = true;
         bool  show_toc   = true;
-        float file_width = 220.0f;
-        float toc_width  = 220.0f;
+        float file_width = SIDE_PANE_DEFAULT_WIDTH;
+        float toc_width  = SIDE_PANE_DEFAULT_WIDTH;
+        ZoomLevel file_zoom;
+        ZoomLevel toc_zoom;
     };
     void      SavePaneState(const PaneState& state);
-    PaneState LoadPaneState(float min_width, float default_width) const;
+    PaneState LoadPaneState() const;   // 幅は SIDE_PANE_MIN_WIDTH 以上
 
     struct ScrollPosition {
         int node   = -1;
@@ -2136,6 +2138,9 @@ public:
     };
     void           SaveScrollPosition(int node, float offset);
     ScrollPosition LoadScrollPosition() const;
+
+    void              SaveLanguage(std::wstring_view lang_key);   // 空は OS に合わせる
+    std::pmr::wstring LoadLanguage() const;
 };
 ```
 
@@ -2360,17 +2365,17 @@ struct ContextMenuParams {
     bool  file_pane_checked = false;
     bool  toc_pane_checked = false;
     bool  show_file_items = false;  // MdPaneの場合のみtrue
+    const ZoomLevel* zoom = nullptr;  // 右クリックした領域の倍率。無ければズームの行を出さない
+    std::function<void(ZoomDirection)> on_zoom;
     const Theme* theme = nullptr;
+    ID2D1Factory*   d2d_factory = nullptr;
+    IDWriteFactory* dwrite_factory = nullptr;
 };
 
 class ContextMenu {
 public:
-    enum class ItemType : uint8_t { NavRow, Separator, Text };
-
-    void Init(ID2D1Factory* d2d_factory, IDWriteFactory* dwrite_factory);
-    int  Show(HWND owner, const ContextMenuParams& params);
-    int  HitTest(float x, float y) const noexcept;     // 無効項目・区切り上は 0
-    int  NavHitTest(float x, float y) const noexcept;
+    static int Show(HWND owner, const ContextMenuParams& params);  // 選んだ項目の ID。選ばずに閉じたら 0
+    struct Impl;  // context_menu_impl.h。開くたびに作る (項目・レイアウト・HitTest / NavHitTest / ZoomHitTest)
 };
 ```
 
@@ -3629,7 +3634,7 @@ src/
 │   ├── html_entity_table.h        # HTML5 名前付き文字参照表 (生成コード)
 │   ├── unicode_lower_table.h      # 非 ASCII の単純小文字化表 (生成コード)
 │   ├── document.h / document.cpp  # Document + RawText (パース入力 UTF-8 の保持)
-│   ├── document_utils.h / .cpp    # テキスト操作 + リロード判定 (AnalyzeReloadDiff / DecideReload / FindNodeBySourceOffset)
+│   ├── document_utils.h / .cpp    # テキスト操作 + 改行の正規化 (NormalizeNewlines) + リロード判定 (AnalyzeReloadDiff / DecideReload / FindNodeBySourceOffset)
 │   ├── selection_html.h / .cpp    # 選択範囲の HTML 生成
 │   ├── syntax.h / syntax.cpp      # シンタックスハイライト
 │   └── syntax_keywords.h          # 言語別キーワード辞書
@@ -3683,7 +3688,6 @@ src/
     ├── win32_util.h               # Win32 小物 (IsKeyDown / LoadRcData / BindWindowInstance / LogHrFailure)
     ├── string_convert.h           # UTF-8 ↔ Wide 変換 (ヘッダオンリー)
     ├── utf8_codec.h               # UTF-8 低レベルコーデック
-    ├── newline_util.h             # CRLF / CR → LF 正規化
     ├── file_io.h / .cpp           # ファイルI/Oヘルパー
     ├── wic_util.h                 # WIC ヘルパー
     ├── d2d_util.h                 # Direct2D ヘルパー

@@ -6,10 +6,6 @@
 #include <filesystem>
 #include <memory_resource>
 
-// 読み込み (main) と保存 (App) で共有する ini キー。既存設定との互換性のため値の変更は禁止。
-inline constexpr std::string_view kConfigSectionGeneral = "General";
-inline constexpr std::string_view kConfigKeyLanguage = "Language";
-
 // 設定 (settings.ini) のメモリ上マップとディスク永続化を保持する。
 // インスタンスごとに独立した状態を持つので、テストでは新しいインスタンスを使えば良い。
 class ConfigService {
@@ -26,12 +22,13 @@ public:
     void Flush();
 
     void SaveBool(std::string_view section, std::string_view key, bool value);
-    bool LoadBool(std::string_view section, std::string_view key, bool default_value = false) const;
+    bool LoadBool(std::string_view section, std::string_view key, bool default_value) const;
 
     void SaveInt(std::string_view section, std::string_view key, int value);
     int LoadInt(std::string_view section, std::string_view key, int def, int min_v, int max_v) const;
-    // 無ければ等倍。範囲外は ZoomLevel::SetIndex が丸める。
+    // 無い・不正・範囲外なら等倍。
     ZoomLevel LoadZoomLevel(std::string_view section, std::string_view key) const;
+    void SaveZoomLevel(std::string_view section, std::string_view key, ZoomLevel zoom);
 
     void SaveWString(std::string_view section, std::string_view key, std::wstring_view value);
     std::pmr::wstring LoadWString(std::string_view section, std::string_view key) const;
@@ -50,8 +47,8 @@ private:
     bool dirty_ = false;
 };
 
-// セッション状態（最後に開いたファイル、ペイン構成、スクロール位置）の永続化を担当する。
-// ConfigService のセクション "Session" / "Pane" を排他的に扱う薄いラッパ。
+// セッション状態（最後に開いたファイル、ペイン構成、スクロール位置、言語）の永続化を担当する。
+// ConfigService のセクション "Session" / "Pane" / "General" を排他的に扱う薄いラッパ。
 class SessionService {
 public:
     explicit SessionService(ConfigService& config) noexcept : config_(config)
@@ -64,14 +61,14 @@ public:
     struct PaneState {
         bool show_file = true;
         bool show_toc = true;
-        float file_width = 220.0f;
-        float toc_width = 220.0f;
+        float file_width = SIDE_PANE_DEFAULT_WIDTH;
+        float toc_width = SIDE_PANE_DEFAULT_WIDTH;
         ZoomLevel file_zoom;
         ZoomLevel toc_zoom;
     };
     void SavePaneState(const PaneState& state);
     // 幅はズーム倍率を含まない DIP 値として保存・復元する。
-    PaneState LoadPaneState(float min_width, float default_width) const;
+    PaneState LoadPaneState() const;
 
     struct ScrollPosition {
         int node = -1;
@@ -79,6 +76,10 @@ public:
     };
     void SaveScrollPosition(int node, float offset);
     ScrollPosition LoadScrollPosition() const;
+
+    // 選んだ言語 (i18n::ConfigLangKey)。空は OS に合わせる。
+    void SaveLanguage(std::wstring_view lang_key);
+    std::pmr::wstring LoadLanguage() const;
 
 private:
     ConfigService& config_;

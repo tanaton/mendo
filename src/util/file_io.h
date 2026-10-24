@@ -35,18 +35,18 @@ inline bool iless(std::wstring_view a, std::wstring_view b) noexcept
     return ::CompareStringOrdinal(a.data(), static_cast<int>(a.size()), b.data(), static_cast<int>(b.size()), TRUE) == CSTR_LESS_THAN;
 }
 
-// "C:\" のようなルートの区切りは残す。
-constexpr std::wstring_view TrimTrailingSeparators(std::wstring_view path) noexcept
-{
-    while (path.size() > 3 && (path.back() == L'\\' || path.back() == L'/')) {
-        path.remove_suffix(1);
-    }
-    return path;
-}
-
 constexpr bool IsPathSlash(wchar_t c) noexcept
 {
     return c == L'/' || c == L'\\';
+}
+
+// "C:\" のようなルートの区切りは残す。
+constexpr std::wstring_view TrimTrailingSeparators(std::wstring_view path) noexcept
+{
+    while (path.size() > 3 && IsPathSlash(path.back())) {
+        path.remove_suffix(1);
+    }
+    return path;
 }
 
 // \??\ は Win32 の正規化を通らず NT パスとして解釈されるので \??\UNC\host も届いてしまう。

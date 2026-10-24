@@ -454,7 +454,7 @@ std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wPara
             app_->OnMouseHWheel(static_cast<short>(-wheel_delta));
         }
         else {
-            app_->OnMouseWheel(pt.x, pt.y, wheel_delta);
+            app_->OnMouseWheel(pt.x, pt.y, wheel_delta, false);
         }
         return 0;
     }
@@ -803,12 +803,7 @@ bool Win32Window::RestoreWindowPlacement(int nCmdShow)
 
 void Win32Window::RestoreScrollPosition()
 {
-    const SessionService session{ config_ };
-    const auto pos = session.LoadScrollPosition();
-    if (pos.node < 0) {
-        return;
-    }
-    app_->SetPendingRestoreNode(pos.node, pos.offset);
+    app_->RestoreScrollPosition();
 }
 
 LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR /*uIdSubclass*/, DWORD_PTR dwRefData)

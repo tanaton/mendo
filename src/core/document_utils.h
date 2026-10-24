@@ -14,7 +14,7 @@ struct WordBoundary {
     bool found = false;
 };
 
-// カテゴリ: ASCII単語(英数+_) / ひらがな / カタカナ / 漢字 / 全角英数 / その他。
+// カテゴリ: 語 (英数+_・ラテン文字・ギリシャ文字・キリル文字・ハングル) / ひらがな / カタカナ / 漢字 / 全角英数 / その他。
 // 「その他」(空白・記号など) は {0, 0, false}。形態素解析は行わない (UAX#29 簡易版)。
 // pos がマルチバイト/サロゲートの途中を指した場合は code point 先頭へスナップする。
 WordBoundary FindWordBoundaries(std::string_view text, uint32_t pos) noexcept;
@@ -27,6 +27,14 @@ void GenerateAnchorIdInto(std::string_view text, std::pmr::string& slug);
 
 // リンク先のアンカーを GenerateAnchorIdInto と同じ規則で小文字にする。
 std::pmr::string ToLowerAnchorCopy(std::string_view text);
+
+// CRLF / 旧式 CR を LF に正規化する (in-place)。
+// 改行を LF に揃えておくと、パーサ中の current_text と raw_text_ の memcmp 一致判定が成立し、
+// 大半の code block が raw_text_ をそのまま指せる (arena へのコピーが要らない)。
+// 複数行の paragraph は SOFTBR を空白に置き換えるため常に arena へコピーする。
+// CR まで一気にスキップし、その間は memmove でブロックコピーする (MSVC UCRT で SIMD)。
+// LF-only ファイルでは memchr 1 回で素通し。
+void NormalizeNewlines(std::pmr::string& s);
 
 // リロードで新旧のノード列の先頭 head 個と末尾 tail 個が、表示に効く中身で一致した範囲 (両者は重ならない)。
 // ソース位置と引用グループ番号は比べない。
@@ -75,7 +83,7 @@ inline constexpr bool IsHelpPath(std::wstring_view path) noexcept
 std::pmr::wstring ParentDirectory(std::wstring_view path);
 
 // zoom_percent: 0 または 100 はデフォルト（省略）、それ以外は "(125%)" 等として表示。
-std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent = 0);
+std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent);
 
 // 以下は同一ファイルのリロード判定。旧/新の UTF-8 テキストを比べてリロード方針を決め、差分位置 (UTF-8 byte オフセット) を
 // ノードへ写像する。OnParseComplete / DoReloadCurrentFile の分岐を揃えるために 1 か所に集める。
@@ -95,7 +103,7 @@ enum class ReloadOp : uint8_t {
 
 struct ReloadDecision {
     ReloadOp op;
-    size_t diff_pos; // NoChange のとき std::string_view::npos、それ以外は差分開始位置。
+    size_t diff_pos; // NoChange と DeferPartialWrite のとき std::string_view::npos、それ以外は差分開始位置。
 };
 
 // 旧/新コンテンツの UTF-8 テキストを比較し、リロード方針を決定する純粋関数。

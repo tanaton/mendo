@@ -35,10 +35,6 @@ enum class AlertType : uint8_t {
     Caution
 };
 
-static_assert(std::to_underlying(AlertType::None) == 0, "AlertType::None must be 0");
-static_assert(std::to_underlying(AlertType::Note) == 1, "AlertType::Note must be 1");
-static_assert(std::to_underlying(AlertType::Caution) == 5, "AlertType::Caution must be 5");
-
 inline constexpr size_t ALERT_TYPE_COUNT = 5;
 
 constexpr size_t AlertColorIndex(AlertType t) noexcept
@@ -190,14 +186,6 @@ struct Node {
     int8_t heading_level_ = 0;
     SyntaxLanguage code_language_ = SyntaxLanguage::None;
     uint8_t flags_ = 0;
-
-    static constexpr uint8_t kListOrdered = 1u << 0;
-    static constexpr uint8_t kTaskChecked = 1u << 1;   // TaskListItem のときのみ意味を持つ
-    static constexpr uint8_t kHasChildBlocks = 1u << 2; // LI のみ。中身を子ブロック (loose list の段落・入れ子リスト等) に持つ
-    static constexpr uint8_t kHasAlertLabel = 1u << 3;
-    static constexpr uint8_t kContinuesPrev = 1u << 4;
-    static constexpr uint8_t kContinuesNext = 1u << 5;
-    static constexpr uint8_t kNewlineBeforeChunk = 1u << 6;
 
     constexpr bool HasSourceOffset() const noexcept
     {
@@ -378,6 +366,15 @@ struct Node {
         link_urls_ = urls.data();
         link_url_count_ = static_cast<uint16_t>(urls.size());
     }
+
+private:
+    static constexpr uint8_t kListOrdered = 1u << 0;
+    static constexpr uint8_t kTaskChecked = 1u << 1;    // TaskListItem のときのみ意味を持つ
+    static constexpr uint8_t kHasChildBlocks = 1u << 2; // LI のみ。中身を子ブロック (loose list の段落・入れ子リスト等) に持つ
+    static constexpr uint8_t kHasAlertLabel = 1u << 3;
+    static constexpr uint8_t kContinuesPrev = 1u << 4;
+    static constexpr uint8_t kContinuesNext = 1u << 5;
+    static constexpr uint8_t kNewlineBeforeChunk = 1u << 6;
 };
 
 // 超過したら /d1reportSingleClassLayoutNode で並びを確認し、payload か末尾の 1 バイト領域に寄せる。

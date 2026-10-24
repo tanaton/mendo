@@ -1266,7 +1266,7 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         ctx.FinalizeCurrentNode();
     }
 
-    // キャンセル時は中途半端な nodes に対する DetectAlerts は無意味なので skip し、
+    // キャンセル時は中途半端な nodes の後処理 (脚注の戻りリンク・Alert 検出・詰め) を飛ばし、
     // 呼び出し側がチェックしやすいよう空 ParseResult を返す。
     if (ctx.cancel_requested) {
         return {};
@@ -1276,7 +1276,7 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
 
     {
         MENDO_PROFILE("DetectAlerts");
-        DetectAlerts(ctx.nodes, *ctx.arena, std::span<const size_t>{ ctx.blockquote_indices });
+        DetectAlerts(ctx.nodes, *ctx.arena, ctx.blockquote_indices);
     }
 
     // 予約や見積もりの余りを文書の寿命の間持ち続けないよう、大きく余ったときだけ詰める。

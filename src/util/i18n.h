@@ -398,9 +398,8 @@ inline constexpr Strings kKo = {
     .lang_locale = L"ko-kr",
 };
 
-// std::atomic<const Strings*> にしてあるのは、テスト並列実行時 (ja/en を別スレッドで切り替える
-// 言語切替テストなど) の data race を避けるため。各言語の表は static const なので
-// load 値は常に有効ポインタで、参照剥がしも安全。
+// 書き換えは UI スレッドだけだが、読む側のスレッドを縛らないよう std::atomic<const Strings*> にする。
+// 各言語の表は static const なので load 値は常に有効ポインタで、参照剥がしも安全。
 inline std::atomic<const Strings*> g_strings{ &kJa };
 
 // 台湾・香港・マカオと、地域なしの zh-Hant を繁体字とみなす。残りの中国語 (中国本土・シンガポール・zh-Hans) は簡体字。

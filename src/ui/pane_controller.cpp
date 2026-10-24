@@ -1,14 +1,15 @@
 #include "pane_controller.h"
+#include "ui_constants.h"
 #include <algorithm>
 
 namespace {
 
 float ConstrainSplitterWidth(float requested_width, float total_width, float splitter_w, float other_width, bool other_visible) noexcept
 {
-    // MD ペインの最小幅を残せる上限。ただし PANE_MIN_WIDTH を下回らせない。
+    // MD ペインの最小幅を残せる上限。ただし SIDE_PANE_MIN_WIDTH を下回らせない。
     const float others = splitter_w + (other_visible ? other_width + splitter_w : 0.0f);
     const float max_w = total_width - MD_PANE_MIN_WIDTH - others;
-    return std::max(PaneController::PANE_MIN_WIDTH, std::min(requested_width, max_w));
+    return std::max(SIDE_PANE_MIN_WIDTH, std::min(requested_width, max_w));
 }
 
 } // namespace
@@ -30,7 +31,7 @@ void PaneController::DragSplitterTo(PaneTarget edge, float dip_x, float total_wi
     // 論理幅のまま制約すると、触った瞬間に縮小が解けて反対側のペインが元の幅へジャンプする。
     const auto adopt_displayed = [](Instance& inst, float displayed) static noexcept {
         if (inst.show && displayed < inst.width) {
-            inst.width = std::max(displayed, PANE_MIN_WIDTH);
+            inst.width = std::max(displayed, SIDE_PANE_MIN_WIDTH);
         }
     };
     adopt_displayed(file, layout.file_rect.width);

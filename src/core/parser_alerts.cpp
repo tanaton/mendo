@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <iterator>
 #include <ranges>
-#include <utility>
 
 namespace {
 
@@ -159,7 +158,6 @@ void DetectAlertAt(std::pmr::vector<Node>& nodes, TextArena& arena, size_t i)
     const int group = node.blockquote_group;
     TransformAlertNode(node, arena, type, marker_end);
 
-    // 同一 blockquote_group の後続ノードにも同じ alert_type を伝播。
     // ノード種別に依存せず、グループIDで判定する（リスト等も含む）。
     for (size_t j = i + 1; j < nodes.size(); j++) {
         if (nodes[j].blockquote_group != group) {

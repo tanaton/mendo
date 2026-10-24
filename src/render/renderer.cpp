@@ -21,7 +21,7 @@ bool Renderer::Init(HWND hwnd, Theme theme)
     }
 
     ResolveThemeFonts();
-    RecreatePaneFormats();
+    RecreateAllTextFormats();
     DecodeAppIcon();
 
     measurer_.SetFactory(backend_.GetDWriteFactory());
@@ -58,15 +58,11 @@ void Renderer::TrimForMinimize() noexcept
     toc_titles_ = {};
 }
 
-void Renderer::ApplyZoomFromBase(const Theme& base_theme, float new_zoom)
+void Renderer::ApplyZoom(Theme zoomed_theme)
 {
-    AdoptThemeKeepingFonts(base_theme);
-    if (new_zoom != 1.0f) {
-        theme_.ApplyZoom(new_zoom);
-    }
-    layout_.UpdateTheme(theme_);
+    AdoptThemeKeepingFonts(std::move(zoomed_theme));
     layout_.RecreateFormats();
-    RecreatePaneFormats();
+    RecreateAllTextFormats();
 }
 
 void Renderer::PrepareChrome(const TitleBarRenderState& titlebar, const SidePaneState& sp)
@@ -259,7 +255,7 @@ void Renderer::GenTitleBar(const TitleBarRenderState& tb)
         if (show_bg) {
             chrome_cmds_.push_back(FillRectCmd{ .rect = rect, .brush_id = bg_id });
         }
-        EmitChromeText({ &icon, 1 }, fmt_.titlebar_icon.Get(), rect, text_id, alpha);
+        EmitCenteredChromeText({ &icon, 1 }, fmt_.ui_icon.Get(), rect, text_id, alpha);
     };
 
     const auto gen_plain = [&](TitleBarHitZone zone, wchar_t icon) {
@@ -297,14 +293,21 @@ void Renderer::GenTitleBar(const TitleBarRenderState& tb)
     }
 
     if (!tb.title_text.empty()) {
-        EmitChromeText(tb.title_text, fmt_.titlebar_text.Get(), ToD2DRect(bar.GetTitleTextRect()), BrushId::TitleBarText, text_alpha);
+        EmitCenteredChromeText(tb.title_text, fmt_.titlebar_text.Get(), ToD2DRect(bar.GetTitleTextRect()), BrushId::TitleBarText, text_alpha);
     }
 }
 
-void Renderer::EmitChromeText(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float opacity, D2D1_SIZE_F box)
+void Renderer::EmitChromeText(std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, BrushId brush_id, float opacity)
 {
     if (auto* layout = text_layouts_.Get(fmt, text, box)) {
-        chrome_cmds_.push_back(DrawTextLayoutCmd{ .origin = TextLayoutCache::Origin(rect, box), .layout = layout, .brush_id = brush_id, .opacity = opacity });
+        chrome_cmds_.push_back(DrawTextLayoutCmd{ .origin = origin, .layout = layout, .brush_id = brush_id, .opacity = opacity });
+    }
+}
+
+void Renderer::EmitCenteredChromeText(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float opacity)
+{
+    if (auto* layout = text_layouts_.Get(fmt, text, {})) {
+        chrome_cmds_.push_back(DrawTextLayoutCmd{ .origin = TextLayoutCache::Origin(rect, {}), .layout = layout, .brush_id = brush_id, .opacity = opacity });
     }
 }
 

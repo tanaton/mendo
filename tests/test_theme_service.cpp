@@ -32,22 +32,31 @@ TEST_F(ThemeServiceTest, BaseThemeFollowsDarkMode)
     EXPECT_EQ(&service_.BaseTheme(), &GetDarkTheme());
 }
 
+namespace {
+ZoomLevel ZoomAt(int index)
+{
+    ZoomLevel zoom;
+    zoom.SetIndex(index);
+    return zoom;
+}
+} // namespace
+
 TEST_F(ThemeServiceTest, CreateThemeDefaultZoom)
 {
-    Theme theme = service_.CreateTheme(ZOOM_DEFAULT_INDEX);
+    Theme theme = service_.CreateTheme(ZoomLevel{});
     EXPECT_FLOAT_EQ(theme.zoom, 1.0f);
 }
 
 TEST_F(ThemeServiceTest, CreateThemeWithZoom)
 {
-    Theme theme = service_.CreateTheme(12);
+    Theme theme = service_.CreateTheme(ZoomAt(12));
     EXPECT_FLOAT_EQ(theme.zoom, ZOOM_STEPS[12]);
 }
 
 TEST_F(ThemeServiceTest, CreateThemeDarkModeWithZoom)
 {
     service_.ToggleDarkMode();
-    Theme theme = service_.CreateTheme(12);
+    Theme theme = service_.CreateTheme(ZoomAt(12));
 
     Theme expected = GetDarkTheme();
     expected.ApplyZoom(ZOOM_STEPS[12]);

@@ -20,18 +20,8 @@ inline constexpr float POPUP_FRAME_WIDTH = 2.0f;
 inline constexpr float POPUP_FRAME_ALPHA = 0.45f;
 // 見出しの文字。押せない文字 (DISABLED_UI_ALPHA) より濃くする。
 inline constexpr float POPUP_SUB_TEXT_ALPHA = 0.7f;
-
-// 1 行に組んだときの幅。ポップアップの幅を文言に合わせるのに使う。
-inline float MeasureTextWidth(IDWriteFactory* dw, std::wstring_view text, IDWriteTextFormat* fmt) noexcept
-{
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
-    if (!fmt || FAILED(dw->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), fmt, 10000.0f, 100.0f, &layout))) {
-        return 0.0f;
-    }
-    DWRITE_TEXT_METRICS metrics{};
-    layout->GetMetrics(&metrics);
-    return metrics.width;
-}
+inline constexpr float POPUP_HOVER_CORNER = 4.0f;
+inline constexpr wchar_t POPUP_GLYPH_CHECKMARK[] = L"\xE73E";
 
 // 確定仕様: ポップアップはどれも同じ振る舞いにし、新しいポップアップは中身だけを書けば済むようにする。
 // - Impl は開くたびに作り、閉じたら捨てる (ウィンドウ・描画先・ブラシ・書式を開いている間だけ持つ)。
@@ -82,13 +72,13 @@ struct PopupWindow {
     Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_icon;
 
     // 開く前に呼ぶ。描けない組み合わせなら false。
-    bool Setup(ID2D1Factory* d2d, IDWriteFactory* dw, const Theme* t, float dpi) noexcept
+    bool Setup(const PopupEnv& env) noexcept
     {
-        d2d_factory = d2d;
-        dwrite_factory = dw;
-        theme = t;
-        dpi_scale = dpi;
-        return d2d && dw && t && dpi > 0.0f;
+        d2d_factory = env.d2d_factory;
+        dwrite_factory = env.dwrite_factory;
+        theme = env.theme;
+        dpi_scale = env.dpi_scale;
+        return d2d_factory && dwrite_factory && theme && dpi_scale > 0.0f;
     }
 
     // 文字は等倍のサイドペインの項目と同じ大きさにする。言語を切り替えたら呼び直す (アイコンはロケールに依らないので作り直さない)。
@@ -104,9 +94,16 @@ struct PopupWindow {
         }
     }
 
+    // 1 行に組んだときの幅。ポップアップの幅を文言に合わせるのに使う。
     float Measure(std::wstring_view text, IDWriteTextFormat* fmt) const noexcept
     {
-        return MeasureTextWidth(dwrite_factory, text, fmt);
+        Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+        if (!fmt || FAILED(dwrite_factory->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), fmt, 10000.0f, 100.0f, &layout))) {
+            return 0.0f;
+        }
+        DWRITE_TEXT_METRICS metrics{};
+        layout->GetMetrics(&metrics);
+        return metrics.width;
     }
 
     void DrawLabel(std::wstring_view text, IDWriteTextFormat* fmt, const DipRect& rect, ID2D1Brush* brush)
@@ -116,9 +113,14 @@ struct PopupWindow {
         }
     }
 
-    void FillHover(const DipRect& rect, float corner)
+    void FillHover(const DipRect& rect)
     {
-        rt->FillRoundedRectangle({ ToD2DRect(rect), corner, corner }, brushes.hover.Get());
+        rt->FillRoundedRectangle({ ToD2DRect(rect), POPUP_HOVER_CORNER, POPUP_HOVER_CORNER }, brushes.hover.Get());
+    }
+
+    void DrawCheck(const DipRect& rect)
+    {
+        DrawLabel(POPUP_GLYPH_CHECKMARK, fmt_icon.Get(), rect, brushes.check.Get());
     }
 
     // ウィンドウを作って pos (左上、スクリーン座標) に置き、閉じるまで戻らない。title は読み上げ用のウィンドウ名で、

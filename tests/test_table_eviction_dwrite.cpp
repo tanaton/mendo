@@ -100,7 +100,7 @@ TEST_F(TableEvictionDWriteTest, SameWidthMeasureTakesFastPathAfterEviction)
     ASSERT_EQ(CountNonNullCells(tl), 0u);
 
     entry.layout_dirty = true;
-    measurer_.MeasureNode(pl.nodes[idx], entry, ContentWidth());
+    measurer_.MeasureNode(pl.nodes[idx], entry, ContentWidth(), {});
 
     EXPECT_FALSE(entry.layout_dirty);
     EXPECT_EQ(CountNonNullCells(tl), 0u) << "幅不変なら MeasureNode はセルを作り直さない";
@@ -257,7 +257,7 @@ TEST_F(TableEvictionDWriteTest, RestoreAfterWidthChangeCorrectsRowHeights)
     auto fresh = ParseAndLayout(md);
     auto& fresh_entry = fresh.cache[idx];
     fresh_entry.layout_dirty = true;
-    measurer_.MeasureNode(fresh.nodes[idx], fresh_entry, narrow);
+    measurer_.MeasureNode(fresh.nodes[idx], fresh_entry, narrow, {});
     EXPECT_FLOAT_EQ(entry.height, fresh_entry.height);
 }
 
@@ -371,7 +371,7 @@ TEST_F(TableEvictionDWriteTest, LargeTableFirstMeasureKeepsNoCellLayouts)
 
     NodeLayoutEntry entry;
     entry.layout_dirty = true;
-    measurer_.MeasureNode(pl.nodes[idx], entry, ContentWidth());
+    measurer_.MeasureNode(pl.nodes[idx], entry, ContentWidth(), {});
 
     const auto& tl = *entry.table_layout();
     EXPECT_FALSE(entry.layout_dirty);
@@ -412,7 +412,7 @@ TEST_F(TableEvictionDWriteTest, LargeTableMeasuresDuplicateCellsOnce)
 
     NodeLayoutEntry entry;
     entry.layout_dirty = true;
-    measurer_.MeasureNode(pl.nodes[idx], entry, ContentWidth());
+    measurer_.MeasureNode(pl.nodes[idx], entry, ContentWidth(), {});
     const auto& tl = *entry.table_layout();
 
     // 0 行目は見出し。1 行目 (i=0) が太字、2 行目 (i=1) が普通の "ok"。

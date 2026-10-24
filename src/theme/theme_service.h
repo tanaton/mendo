@@ -12,13 +12,13 @@ public:
     }
 
     const Theme& BaseTheme() const;
-    Theme CreateTheme(int zoom_index) const;
+    Theme CreateTheme(ZoomLevel zoom) const;
     bool ToggleDarkMode() noexcept;
 
     void SaveDarkMode();
     void LoadDarkMode();
 
-    void SaveZoomLevel(int zoom_index);
+    void SaveZoomLevel(ZoomLevel zoom);
     ZoomLevel LoadZoomLevel() const;
 
 private:

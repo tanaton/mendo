@@ -176,16 +176,16 @@ TEST(AsciiUtilFind, MatchesReferenceAcrossSimdBoundaries)
 
 TEST(AsciiUtilFind, QueryLongerThanTextOrEmpty)
 {
-    EXPECT_EQ(ascii_util::Find("abc", "abcd"), ascii_util::npos);
-    EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive("ABC", "abcd"), ascii_util::npos);
+    EXPECT_EQ(ascii_util::Find("abc", "abcd", 0), ascii_util::npos);
+    EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive("ABC", "abcd", 0), ascii_util::npos);
     EXPECT_EQ(ascii_util::Find("abc", "", 2), 2u);
 }
 
 TEST(AsciiUtilFind, CaseInsensitiveDoesNotFoldNonAscii)
 {
     // 'Ä' (C3 84) と 'ä' (C3 A4) は ASCII 畳み込みの対象外
-    EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive("x\xC3\x84y", "\xC3\xA4"), ascii_util::npos);
-    EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive("x\xC3\x84Y", "\xC3\x84y"), 1u);
+    EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive("x\xC3\x84y", "\xC3\xA4", 0), ascii_util::npos);
+    EXPECT_EQ(ascii_util::FindAsciiCaseInsensitive("x\xC3\x84Y", "\xC3\x84y", 0), 1u);
 }
 
 TEST(AsciiUtilFind, HasAsciiLetter)

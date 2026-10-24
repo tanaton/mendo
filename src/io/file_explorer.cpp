@@ -50,10 +50,7 @@ const std::pmr::vector<FileEntry>& FileExplorer::GetEntries() const
             lister_(directory_, request_);
         }
         else {
-            ++generation_;
-            listing_ = false;
-            entries_ = directory_.empty() ? std::pmr::vector<FileEntry>{} : List(directory_);
-            ApplyCurrentFile();
+            ReplaceEntries(directory_.empty() ? std::pmr::vector<FileEntry>{} : List(directory_));
         }
     }
     return entries_;
@@ -65,11 +62,16 @@ bool FileExplorer::ApplyListing(uint32_t request, std::pmr::vector<FileEntry> en
     if (request != request_ || !listing_ || stale_) {
         return false;
     }
+    ReplaceEntries(std::move(entries));
+    return true;
+}
+
+void FileExplorer::ReplaceEntries(std::pmr::vector<FileEntry> entries) const
+{
     listing_ = false;
     ++generation_;
     entries_ = std::move(entries);
     ApplyCurrentFile();
-    return true;
 }
 
 std::pmr::vector<FileEntry> FileExplorer::List(std::wstring_view dir)

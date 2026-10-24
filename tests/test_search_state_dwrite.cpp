@@ -103,7 +103,7 @@ TEST_F(SearchMatchYTest, MatchYRangeAgreesWithDrawnHighlight)
     for (int i = 0; i < static_cast<int>(matches.size()); i++) {
         SCOPED_TRACE(i);
         gen.SetSearchMatches(&matches, i, d.search.GetGeneration());
-        const auto& cmds = gen.GenerateMdPane(d.pl.nodes, d.pl.cache, PaneRect{ 0.0f, 0.0f, 4000.0f, 4000.0f }, 0.0f, TextSelection{});
+        const auto& cmds = gen.GenerateMdPane(d.pl.nodes, d.pl.cache, PaneRect{ 0.0f, 0.0f, 4000.0f, 4000.0f }, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
         std::optional<float> drawn_top;
         for (const auto& c : cmds) {
             if (const auto* r = std::get_if<FillRectCmd>(&c); r && r->brush_id == BrushId::SearchHighlightCurrent) {

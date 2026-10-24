@@ -26,6 +26,12 @@ bool IsEditableTextFile(std::wstring_view path)
     return IsMarkdownFile(path) || ascii_util::iequal(ExtensionView(path), L".txt");
 }
 
+// ズームの対象。ペインの指定が無ければ本文 (スプリッタの上も本文)。
+ZoomLevel& ZoomOf(AppState& state, std::optional<PaneTarget> pane) noexcept
+{
+    return pane ? state.view.panes.SidePaneZoom(*pane) : state.view.viewport.Zoom();
+}
+
 } // namespace
 
 bool App::Init(HWND hwnd)
@@ -35,7 +41,7 @@ bool App::Init(HWND hwnd)
     // 書式とブラシを 1 回で作るため、保存済みテーマ/ズームを Renderer 初期化前に読む。
     theme_service_.LoadDarkMode();
     state_.view.viewport.Zoom() = theme_service_.LoadZoomLevel();
-    if (!renderer_.Init(hwnd_, theme_service_.CreateTheme(state_.view.viewport.Zoom().Index()))) {
+    if (!renderer_.Init(hwnd_, theme_service_.CreateTheme(state_.view.viewport.Zoom()))) {
         return false;
     }
 
@@ -115,9 +121,6 @@ bool App::Init(HWND hwnd)
         state_.file_explorer.GetEntries();
     }
 
-    ctx_menu_.Init(renderer_.GetD2DFactory(), renderer_.GetDWriteFactory());
-    settings_dialog_.Init(renderer_.GetD2DFactory(), renderer_.GetDWriteFactory());
-
     tooltip_.Init(hwnd_);
     tooltip_.ApplyDarkMode(theme_service_.IsDarkMode());
 
@@ -158,7 +161,7 @@ void App::RestoreTheme()
 
 void App::RestorePaneState()
 {
-    const auto s = session_.LoadPaneState(PaneController::PANE_MIN_WIDTH, PaneController::PANE_DEFAULT_WIDTH);
+    const auto s = session_.LoadPaneState();
     auto& panes = state_.view.panes;
     panes.SetSidePaneVisible(PaneTarget::File, s.show_file);
     panes.SetSidePaneVisible(PaneTarget::Toc, s.show_toc);
@@ -323,14 +326,26 @@ void App::OnPaint()
             .hovered_block = state_.view.hover.h_block,
             .drag_block = state_.view.HDragNode(),
         };
-        result = renderer_.Render(
-            { state_.document.doc.GetNodes(), state_.document.layout_cache,
-              state_.view.viewport.GetSelection(), layout.md_rect, sp, tb, gs, ts, sb,
-              state_.view.viewport.GetScrollY(), ScrollableContentHeight(),
-              state_.view.hover.nav, state_.view.hover.overlay_button,
-              state_.view.hover.diagram,
-              state_.view.nav_history.CanGoBack(), state_.view.nav_history.CanGoForward(),
-              state_.document.layout_cache.HasDirtyNodes(), h_scroll });
+        result = renderer_.Render({
+            .nodes = state_.document.doc.GetNodes(),
+            .cache = state_.document.layout_cache,
+            .selection = state_.view.viewport.GetSelection(),
+            .md_pane_rect = layout.md_rect,
+            .side_panes = sp,
+            .titlebar = tb,
+            .gesture = gs,
+            .toast = ts,
+            .search_bar = sb,
+            .scroll_y = state_.view.viewport.GetScrollY(),
+            .total_content_height = ScrollableContentHeight(),
+            .nav_hovered = state_.view.hover.nav,
+            .hovered = state_.view.hover.overlay_button,
+            .hovered_diagram = state_.view.hover.diagram,
+            .can_go_back = state_.view.nav_history.CanGoBack(),
+            .can_go_forward = state_.view.nav_history.CanGoForward(),
+            .has_dirty_nodes = state_.document.layout_cache.HasDirtyNodes(),
+            .block_h_scroll = h_scroll,
+        });
     }
 
     EndPaint(hwnd_, &ps);
@@ -674,7 +689,7 @@ void App::SaveSession()
         .toc_zoom = panes.SidePaneZoom(PaneTarget::Toc),
     });
 
-    config_.SaveWString(kConfigSectionGeneral, kConfigKeyLanguage, i18n::ConfigLangKey());
+    session_.SaveLanguage(i18n::ConfigLangKey());
     // 個別 Save 呼び出しでは write が遅延されるため、終了前に明示 flush で
     // すべての設定値を 1 度のディスク書き込みにまとめる。
     config_.Flush();
@@ -719,9 +734,9 @@ std::optional<SearchBarLayout> App::SearchBarLayoutAt(float dip_y, const PaneRec
     return sbl;
 }
 
-int App::HitTestSearchInputPos(const SearchBarLayout& sbl, std::wstring_view query_wide, float dip_x) const
+int App::HitTestSearchInputPos(const SearchBarLayout& sbl, float dip_x) const
 {
-    return renderer_.HitTestSearchInput(query_wide, dip_x - sbl.text_left(), sbl.text_width());
+    return renderer_.HitTestSearchInput(state_.search.search_bar_ctrl.GetQueryWide(), dip_x - sbl.text_left(), sbl.text_width());
 }
 
 RECT App::GetSearchEditRect()
@@ -741,18 +756,26 @@ void App::SetInitialDirectory(std::wstring_view dir_path)
     state_.file_explorer.SetDirectory(dir_path);
 }
 
+void App::RestoreScrollPosition()
+{
+    const auto pos = session_.LoadScrollPosition();
+    if (pos.node >= 0) {
+        state_.view.pending_restore = { pos.node, static_cast<float>(pos.offset) };
+    }
+}
+
 void App::ApplyZoom()
 {
-    renderer_.ApplyZoomFromBase(theme_service_.BaseTheme(), state_.view.viewport.Zoom().Value());
+    renderer_.ApplyZoom(theme_service_.CreateTheme(state_.view.viewport.Zoom()));
     RelayoutViewport(RelayoutResources::Diagrams);
     UpdateTitleBar();
-    theme_service_.SaveZoomLevel(state_.view.viewport.Zoom().Index());
+    theme_service_.SaveZoomLevel(state_.view.viewport.Zoom());
 }
 
 void App::ToggleDarkMode()
 {
     const bool dark = theme_service_.ToggleDarkMode();
-    renderer_.SetTheme(theme_service_.CreateTheme(state_.view.viewport.Zoom().Index()));
+    renderer_.SetTheme(theme_service_.CreateTheme(state_.view.viewport.Zoom()));
     ApplyDarkModeToWindow(hwnd_, dark);
     tooltip_.ApplyDarkMode(dark);
     // メモリキャッシュはキーにダークモードを含むので消さず、往復時に再利用する。描画待ちは旧テーマの分なので捨てる。
@@ -772,9 +795,9 @@ void App::OnContextMenu(int screen_x, int screen_y)
     const PaneZone zone = PaneAtPoint(dip.x);
     const std::optional<PaneTarget> zoom_pane = ToPaneTarget(zone);
     const ContextMenuParams params{
+        .env = MakePopupEnv(),
         .screen_x = screen_x,
         .screen_y = screen_y,
-        .dpi_scale = state_.window.cached_dpi_scale,
         .can_go_back = state_.view.nav_history.CanGoBack(),
         .can_go_forward = state_.view.nav_history.CanGoForward(),
         // ヘルプは埋め込みリソースで、エディタで開くファイルが無い。
@@ -786,10 +809,9 @@ void App::OnContextMenu(int screen_x, int screen_y)
         .show_file_items = zone == PaneZone::MdPane,
         .zoom = &ZoomOf(state_, zoom_pane),
         .on_zoom = [this, zoom_pane](ZoomDirection direction) { Dispatch(ZoomAction{ direction, 1, zoom_pane }); },
-        .theme = &renderer_.GetTheme(),
     };
 
-    switch (ctx_menu_.Show(hwnd_, params)) {
+    switch (ContextMenu::Show(hwnd_, params)) {
     case IDM_NAV_BACK:
         Dispatch(NavigateBackAction{});
         break;
@@ -823,15 +845,25 @@ void App::OnContextMenu(int screen_x, int screen_y)
     }
 }
 
+PopupEnv App::MakePopupEnv() const noexcept
+{
+    return {
+        .d2d_factory = renderer_.GetD2DFactory(),
+        .dwrite_factory = renderer_.GetDWriteFactory(),
+        .theme = &renderer_.GetTheme(),
+        .dpi_scale = state_.window.cached_dpi_scale,
+    };
+}
+
 void App::ShowSettingsDialog()
 {
-    settings_dialog_.Show(hwnd_, {
-        .dpi_scale = state_.window.cached_dpi_scale,
-        .theme = &renderer_.GetTheme(),
+    const SettingsDialogParams params{
+        .env = MakePopupEnv(),
         .diagram_cache_bytes = file_cache_.TotalSize(),
         .on_language = [this](const i18n::Strings* chosen) { ApplyLanguage(chosen); },
         .on_clear_cache = [this] { file_cache_.Clear(); },
-    });
+    };
+    SettingsDialog::Show(hwnd_, params);
 }
 
 void App::ApplyLanguage(const i18n::Strings* chosen)
@@ -961,7 +993,7 @@ void App::SyncTocActiveAndAutoScroll(bool auto_scroll)
     // アクティブ見出しを目次ペインの中央に保つように追従スクロールする。
     const auto ctx = GetSidePaneContext(state_, PaneTarget::Toc);
     if (ctx.info.content_height > 0.0f) {
-        ctx.scroll.scroll_y = CenterPaneScrollOnItem(static_cast<size_t>(new_active), SidePaneItemHeight(state_, PaneTarget::Toc), ctx.info);
+        ctx.scroll.scroll_y = CenterPaneScrollOnItem(static_cast<size_t>(new_active), ctx.item_height, ctx.info);
     }
 }
 

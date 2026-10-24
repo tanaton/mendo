@@ -1,6 +1,5 @@
 #pragma once
 #include <d2d1.h>
-#include <iterator>
 #include <string>
 #include "document_types.h"
 #include "ui_constants.h"

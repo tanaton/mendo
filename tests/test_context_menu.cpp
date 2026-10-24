@@ -16,7 +16,7 @@ using Microsoft::WRL::ComPtr;
 
 namespace {
 
-using ItemType = ContextMenu::ItemType;
+using ItemType = ContextMenu::Impl::ItemType;
 
 struct ExpectedItem {
     ItemType type;
@@ -74,8 +74,8 @@ protected:
     ContextMenuParams MakeParams(bool show_file = true) const
     {
         ContextMenuParams p;
-        p.theme = &theme_;
-        p.dpi_scale = 1.0f;
+        p.env.theme = &theme_;
+        p.env.dpi_scale = 1.0f;
         p.can_go_back = true;
         p.can_go_forward = true;
         p.has_file = true;
@@ -84,10 +84,10 @@ protected:
         return p;
     }
 
-    const ContextMenu::Item* FindItem(int id) const
+    const ContextMenu::Impl::Item* FindItem(int id) const
     {
         const auto& items = menu_.items;
-        const auto it = std::ranges::find(items, id, &ContextMenu::Item::id);
+        const auto it = std::ranges::find(items, id, &ContextMenu::Impl::Item::id);
         return it != items.end() ? &*it : nullptr;
     }
 };
@@ -127,10 +127,10 @@ TEST_F(ContextMenuTest, ItemFlagsFollowParams)
         const char* name;
         void (*tweak)(ContextMenuParams&);
         int id;
-        bool ContextMenu::Item::*flag;
+        bool ContextMenu::Impl::Item::* flag;
         bool expected;
     };
-    using Item = ContextMenu::Item;
+    using Item = ContextMenu::Impl::Item;
     constexpr Case kCases[] = {
         { "EditFileDisabledWhenNoFile", [](ContextMenuParams& p) static { p.has_file = false; }, IDM_EDIT_FILE, &Item::enabled, false },
         { "CopyDisabledWhenNoSelection", [](ContextMenuParams& p) static { p.has_selection = false; }, IDM_COPY, &Item::enabled, false },
@@ -162,7 +162,7 @@ TEST_F(ContextMenuTest, ItemFlagsFollowParams)
 TEST_F(ContextMenuTest, ZoomRowOnlyWithZoomLevel)
 {
     const auto has_zoom_row = [this] {
-        return std::ranges::contains(menu_.items, ItemType::ZoomRow, &ContextMenu::Item::type);
+        return std::ranges::contains(menu_.items, ItemType::ZoomRow, &ContextMenu::Impl::Item::type);
     };
     Build(MakeParams(false));
     EXPECT_FALSE(has_zoom_row());
@@ -172,7 +172,7 @@ TEST_F(ContextMenuTest, ZoomRowOnlyWithZoomLevel)
     p.zoom = &zoom;
     Build(p);
     const auto& items = menu_.items;
-    const auto it = std::ranges::find(items, ItemType::ZoomRow, &ContextMenu::Item::type);
+    const auto it = std::ranges::find(items, ItemType::ZoomRow, &ContextMenu::Impl::Item::type);
     ASSERT_NE(it, items.end());
     ASSERT_NE(std::next(it), items.end());
     EXPECT_EQ(std::next(it)->type, ItemType::Separator);
@@ -224,7 +224,7 @@ protected:
 
     void BuildAndLayout(const ContextMenuParams& params)
     {
-        menu_.theme = params.theme;
+        menu_.theme = params.env.theme;
         menu_.BuildItems(params);
         menu_.CreateBaseTextFormats(context_menu_constants::ICON_FONT_SIZE);
         menu_.ComputeLayout();
@@ -251,9 +251,9 @@ TEST_F(ContextMenuLayoutTest, TextWidthIsRemeasuredWhenFontChanges)
     BuildAndLayout(params);
     EXPECT_FLOAT_EQ(menu_.width, width);
 
-    Theme big = *params.theme;
+    Theme big = *params.env.theme;
     big.pane_font_size *= 4.0f;
-    params.theme = &big;
+    params.env.theme = &big;
     BuildAndLayout(params);
     EXPECT_GT(menu_.width, width);
 }
@@ -365,7 +365,7 @@ TEST_F(ContextMenuLayoutTest, ZoomRowButtonsLineUpInsideRow)
     auto p = MakeParams(false);
     p.zoom = &zoom;
     BuildAndLayout(p);
-    const auto it = std::ranges::find(menu_.items, ItemType::ZoomRow, &ContextMenu::Item::type);
+    const auto it = std::ranges::find(menu_.items, ItemType::ZoomRow, &ContextMenu::Impl::Item::type);
     ASSERT_NE(it, menu_.items.end());
     const auto& row = it->rect;
     const auto& z = menu_.zoom_layout;
@@ -417,7 +417,7 @@ TEST_F(ContextMenuLayoutTest, ZoomHitTestFollowsZoomLevel)
 
 TEST_F(ContextMenuLayoutTest, NavHitTest)
 {
-    using Nav = ContextMenu::NavRowLayout;
+    using Nav = ContextMenu::Impl::NavRowLayout;
     struct Case {
         const char* name;
         bool can_go_back;

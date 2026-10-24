@@ -72,7 +72,7 @@ LayoutCache EstimateHeights(const std::pmr::vector<Node>& nodes, const Theme& th
 {
     LayoutCache cache;
     cache.Resize(nodes.size());
-    EstimateNodeHeights(nodes, cache, theme);
+    EstimateNodeHeights(nodes, cache, theme, 0.0f, {});
     return cache;
 }
 
@@ -256,7 +256,7 @@ TEST_F(LayoutTest, ProcessDirtyBatchCleansNodes)
 
     // ダーティなノードがあれば処理する
     if (cache.HasDirtyNodes()) {
-        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 100);
+        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 100, {});
         // 十分に処理した後、ダーティなノードがなくなること
         EXPECT_FALSE(more);
     }
@@ -274,7 +274,7 @@ TEST_F(LayoutTest, ProcessDirtyBatchSmallBatch)
 
     if (cache.HasDirtyNodes()) {
         // 一度に5ノードだけ処理
-        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 5);
+        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 5, {});
         // 50ノードでバッチ=5なら、まだダーティなノードが残るはず
         EXPECT_TRUE(more);
     }
@@ -1029,7 +1029,7 @@ TEST(EstimateNodeHeightsTest, EmptyNodes)
     std::pmr::vector<Node> nodes;
     LayoutCache cache;
     const Theme& theme = GetLightTheme();
-    EstimateNodeHeights(nodes, cache, theme);
+    EstimateNodeHeights(nodes, cache, theme, 0.0f, {});
     // 空でもクラッシュしないこと
 }
 
@@ -1144,7 +1144,7 @@ TEST(EstimateNodeHeightsTest, LayoutDirtyNotChanged)
     // layout_dirty はデフォルトで true
     ASSERT_TRUE(cache[0].layout_dirty);
 
-    EstimateNodeHeights(nodes, cache, theme);
+    EstimateNodeHeights(nodes, cache, theme, 0.0f, {});
 
     // EstimateNodeHeights は layout_dirty を変更しないこと
     EXPECT_TRUE(cache[0].layout_dirty);
@@ -1181,7 +1181,7 @@ TEST_F(LayoutTest, EstimateVsActualHeightReasonableRange)
     LayoutCache actual_cache;
     actual_cache.Resize(nodes.size());
 
-    EstimateNodeHeights(nodes, est_cache, theme_);
+    EstimateNodeHeights(nodes, est_cache, theme_, 0.0f, {});
     ComputeLayout(engine_, nodes, actual_cache, 800.0f);
 
     for (size_t i = 0; i < nodes.size(); i++) {
@@ -1211,7 +1211,7 @@ TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout)
     gen.SetTheme(&theme_);
     gen.SetFormats({ nullptr, nullptr, nullptr });
     PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
-    auto cmds = gen.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
+    auto cmds = gen.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
 
     for (const auto& cmd : cmds) {
         if (auto* e = std::get_if<FillEllipseCmd>(&cmd)) {
@@ -1326,7 +1326,7 @@ TEST_F(LayoutTest, LooseListBulletCenteredOnFollowingParagraphLine)
     gen.SetTheme(&theme_);
     gen.SetFormats({ nullptr, nullptr, nullptr });
     PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
-    auto cmds = gen.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
+    auto cmds = gen.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
 
     const float expected_y = cache.Top(1) + lm.height * 0.5f;
     bool found = false;
@@ -1352,7 +1352,7 @@ TEST_F(LayoutTest, LooseTaskListCheckboxIsEmitted)
     EXPECT_EQ(nodes[2].type, NodeType::TaskListItem);
     EXPECT_FALSE(nodes[2].HasText());
 
-    // checkbox 描画には formats_.icon_font (非 null) が必要。
+    // checkbox 描画には formats_.checkbox (非 null) が必要。
     Microsoft::WRL::ComPtr<IDWriteTextFormat> icon_fmt;
     ASSERT_TRUE(SUCCEEDED(dwrite_factory_->CreateTextFormat(
         L"Segoe UI Symbol", nullptr,
@@ -1366,7 +1366,7 @@ TEST_F(LayoutTest, LooseTaskListCheckboxIsEmitted)
     gen.SetFormats({ nullptr, icon_fmt.Get(), nullptr, nullptr });
     gen.SetTextLayoutCache(&text_layouts);
     PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
-    auto cmds = gen.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{});
+    auto cmds = gen.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
 
     int unchecked = 0;
     int checked = 0;
@@ -1421,7 +1421,7 @@ TEST(RecomputeYPositionsTest, DISABLED_BenchLargeDocument)
 
     LayoutCache cache;
     cache.Resize(N);
-    EstimateNodeHeights(nodes, cache, theme);
+    EstimateNodeHeights(nodes, cache, theme, 0.0f, {});
 
     // ウォームアップ
     for (int i = 0; i < 5; i++) {

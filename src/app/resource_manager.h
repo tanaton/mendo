@@ -103,8 +103,6 @@ public:
         const auto& nodes = deps_.doc->GetNodes();
         const auto& image_indices = deps_.doc->GetImageNodeIndices();
 
-        // 通常描画は可視範囲に intersect する image index のみを走査。
-        // リロード時 (respect_viewport=false) は CalcScrollYForDiff の Y 計算用に全件処理する。
         if (respect_viewport) {
             DropQueuesIfJumped();
         }
@@ -244,7 +242,6 @@ public:
 
     void FlushPendingResources()
     {
-        // 完了した非同期デコード結果をキャッシュに格納する。
         // 結果があればコールバック経由で pending_flush_ が設定される。
         deps_.image_loader->ProcessCompletedDecodes();
 

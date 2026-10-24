@@ -118,14 +118,14 @@ TEST(Toc, FindActiveIndexEmpty)
 {
     std::pmr::vector<TocEntry> toc;
     LayoutCache cache;
-    EXPECT_EQ(FindActiveTocIndex(toc, cache, 0.0f), -1);
+    EXPECT_EQ(FindActiveTocIndex(toc, cache, 0.0f, 0.0f), -1);
 }
 
 TEST(Toc, FindActiveIndexBeforeFirstHeading)
 {
     const auto parsed = ParseToc("Para\n\n# Title");
     const auto cache = MakeHeadingCache(parsed, { 200.0f });
-    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 0.0f), -1);
+    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 0.0f, 0.0f), -1);
 }
 
 // scroll_y 以前に始まる最後の見出しがアクティブ。
@@ -133,10 +133,10 @@ TEST(Toc, FindActiveIndexAtHeading)
 {
     const auto parsed = ParseToc("# First\n\nText\n\n## Second");
     const auto cache = MakeHeadingCache(parsed, { 10.0f, 200.0f });
-    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 10.0f), 0);
-    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 100.0f), 0);
-    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 200.0f), 1);
-    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 300.0f), 1);
+    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 10.0f, 0.0f), 0);
+    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 100.0f, 0.0f), 0);
+    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 200.0f, 0.0f), 1);
+    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 300.0f, 0.0f), 1);
 }
 
 TEST(Toc, FindActiveIndexManyHeadings)
@@ -149,9 +149,9 @@ TEST(Toc, FindActiveIndexManyHeadings)
     ASSERT_EQ(parsed.toc.size(), 10u);
     const auto cache = MakeHeadingCache(parsed, { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f, 700.0f, 800.0f, 900.0f });
 
-    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 0.0f), 0);
-    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 450.0f), 4);
-    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 999.0f), 9);
+    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 0.0f, 0.0f), 0);
+    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 450.0f, 0.0f), 4);
+    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, 999.0f, 0.0f), 9);
 }
 
 // margin付きのFindActiveIndex: TOCリンククリック時に正しい見出しがアクティブになることを確認
@@ -165,7 +165,7 @@ TEST(Toc, FindActiveIndexWithMargin)
     constexpr float margin = 50.0f;
     constexpr float scroll_after_click = 300.0f - margin;
     // margin無しでは scroll_y=250 < y_position=300 なので1番目が選ばれてしまう
-    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, scroll_after_click), 0);
+    EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, scroll_after_click, 0.0f), 0);
     // margin有りでは threshold=300 >= y_position=300 なので2番目が正しく選ばれる
     EXPECT_EQ(FindActiveTocIndex(parsed.toc, cache, scroll_after_click, margin), 1);
 }

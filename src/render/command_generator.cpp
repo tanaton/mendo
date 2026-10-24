@@ -238,7 +238,6 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
     cmds_.emplace_back(SetTransformCmd{ pane_transform });
 
     const FrameContext fc{
-        .offset_x = theme_->margin_left,
         // 水平カリング範囲: ペイン内ローカル座標で margin_left を起点とした相対値
         .viewport_left = -theme_->margin_left,
         .viewport_right = md_pane_rect.width - theme_->margin_left,
@@ -297,8 +296,7 @@ void CommandGenerator::GenerateNode(const FrameContext& fc,
         return;
     }
 
-    const float indent = NodeIndent(node, *theme_);
-    const float x = fc.offset_x + indent;
+    const float x = layout::NodeBlockX(node, *theme_);
     const float cw = NodeContentWidth(node, *theme_, fc.content_width);
     const float text_x = x + NodeTextXOffset(node, *theme_);
 
@@ -405,7 +403,8 @@ CommandGenerator::NodeOverhang CommandGenerator::MaxNodeOverhang() const noexcep
     return { box, std::max({ box, underline, empty_li, copy_button }) };
 }
 
-BrushId CommandGenerator::GetNodeBaseBrush(const Node& node) noexcept
+namespace {
+BrushId GetNodeBaseBrush(const Node& node) noexcept
 {
     switch (node.type) {
     case NodeType::Heading:
@@ -425,6 +424,7 @@ BrushId CommandGenerator::GetNodeBaseBrush(const Node& node) noexcept
     }
     std::unreachable();
 }
+} // namespace
 
 void CommandGenerator::GenNodeTextDecorations(const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, int node_index, float text_x, float entry_text_top)
 {
@@ -451,7 +451,7 @@ void CommandGenerator::GenTaskListCheckbox(const Node& node, float x, float entr
     const std::wstring_view icon = node.task_checked() ? L"\u2611" : L"\u2610"; // ☑ / ☐
     const float icon_size = theme_->font_size_body;
     const float cb_x = x - theme_->list_bullet_offset;
-    EmitText(icon, formats_.icon_font, D2D1::Point2F(cb_x, entry_text_top),
+    EmitText(icon, formats_.checkbox, D2D1::Point2F(cb_x, entry_text_top),
              D2D1::SizeF(icon_size, icon_size * TASK_CHECKBOX_HEIGHT_FACTOR), BrushId::Text);
 }
 
@@ -621,7 +621,7 @@ void CommandGenerator::GenBlockQuoteGroup(const FrameContext& fc, int first, int
     const int outer_indent = nodes[first].quote_outer_indent;
     const float outer_x_indent = static_cast<float>(outer_indent) * theme_->indent_width;
     if (const auto idx = AlertColorIndex(alert_type); idx < ALERT_TYPE_COUNT) {
-        const float outer_x = fc.offset_x + outer_x_indent;
+        const float outer_x = theme_->margin_left + outer_x_indent;
         const float cw = fc.content_width - outer_x_indent;
         const D2D1_RECT_F bg_rect = D2D1::RectF(outer_x - ALERT_BG_PAD, group_top - ALERT_BG_PAD, outer_x + cw, group_bottom + ALERT_BG_PAD);
         cmds_.emplace_back(FillRoundedRectCmd{ bg_rect, ALERT_BG_CORNER, ALERT_BG_CORNER, AlertBgBrushIdFromIndex(idx) });
@@ -631,7 +631,7 @@ void CommandGenerator::GenBlockQuoteGroup(const FrameContext& fc, int first, int
     // 各 level ごとに quote_depth >= level の連続区間を求めてバーを発行。
     for (int level = 1; level <= max_depth; ++level) {
         const float bar_indent_x = static_cast<float>(outer_indent + level - 1) * theme_->indent_width;
-        const float bar_x = fc.offset_x + bar_indent_x - theme_->indent_width * 0.5f;
+        const float bar_x = theme_->margin_left + bar_indent_x - theme_->indent_width * 0.5f;
         const bool is_alert_bar = (level == 1 && alert_type != AlertType::None);
         const BrushId bar_brush = is_alert_bar ? AlertBrushIdFromIndex(AlertColorIndex(alert_type)) : BrushId::BlockquoteBar;
 
@@ -677,20 +677,6 @@ void CommandGenerator::GenDiagramPlaceholder(float x, float y, float w, float h,
     EmitText(i18n::S().loading, formats_.placeholder_text, origin, box, BrushId::BlockquoteText);
 }
 
-void CommandGenerator::GenTableRowBg(const TableRowGeom& g, bool is_header, bool is_even_row)
-{
-    if (!is_header && !is_even_row) {
-        return;
-    }
-    const D2D1_RECT_F rect = D2D1::RectF(g.x, g.y, g.x + g.table_width, g.y + g.row_h + g.border);
-    if (is_header) {
-        cmds_.emplace_back(FillRectCmd{ rect, BrushId::CodeBg });
-    }
-    else {
-        cmds_.emplace_back(FillRectCmd{ rect, BrushId::TableStripe });
-    }
-}
-
 void CommandGenerator::GenTableCellContent(std::string_view cell_text, const CellDrawContext& ctx)
 {
     if (!ctx.layout) {
@@ -705,7 +691,9 @@ void CommandGenerator::GenTableCellContent(std::string_view cell_text, const Cel
             Utf16OffsetCursor cursor{ cell_text };
             const auto range = cursor.WideRange(ov_start - ctx.flat_offset, ov_end - ov_start);
             if (range.length > 0) {
-                GenSelectionHighlight(ctx.layout, range.startPosition, range.length, ctx.text_x, ctx.text_y);
+                for (const auto& m : HitTestRange(ctx.layout, range.startPosition, range.length)) {
+                    EmitFillRectIfVisible(RectFromHitTest(m, ctx.text_x, ctx.text_y), BrushId::Selection);
+                }
             }
         }
     }
@@ -752,7 +740,10 @@ void CommandGenerator::GenTable(const FrameContext& fc,
     for (size_t r = r_begin; r < r_end; r++) {
         const float row_h = tl.row_heights[r];
         const bool is_header_row = tbl->IsHeaderRow(r);
-        GenTableRowBg(TableRowGeom{ offset_x, y, table_width, row_h, border }, is_header_row, r % 2 == 0);
+        if (is_header_row || r % 2 == 0) {
+            cmds_.emplace_back(FillRectCmd{ D2D1::RectF(offset_x, y, offset_x + table_width, y + row_h + border),
+                                            is_header_row ? BrushId::CodeBg : BrushId::TableStripe });
+        }
 
         cmds_.emplace_back(DrawLineCmd{ D2D1::Point2F(offset_x, y), D2D1::Point2F(offset_x + table_width, y), border, BrushId::Hr });
 
@@ -806,16 +797,6 @@ void CommandGenerator::EmitFillRectIfVisible(const D2D1_RECT_F& r, BrushId brush
 {
     if (OverlapsY(r, cull_top_, cull_bottom_)) {
         cmds_.emplace_back(FillRectCmd{ r, brush });
-    }
-}
-
-void CommandGenerator::GenSelectionHighlight(IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y)
-{
-    if (!layout || length == 0) {
-        return;
-    }
-    for (const auto& m : HitTestRange(layout, start, length)) {
-        EmitFillRectIfVisible(RectFromHitTest(m, origin_x, origin_y), BrushId::Selection);
     }
 }
 

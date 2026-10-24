@@ -1,6 +1,5 @@
 #include "document.h"
 #include "document_utils.h"
-#include "newline_util.h"
 #include "parser.h"
 #include "profiler.h"
 #include <cassert>
@@ -34,7 +33,6 @@ Document Document::FromMarkdown(std::pmr::string text, size_t byte_size, std::ws
 Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
 {
     // 入力 (Help 埋め込みリソース / テスト文字列) は BOM 無しが保証されている。
-    // FileLoader を通らないため、ここで LF 正規化してから 3 引数版へ委譲する。
     const size_t byte_size = utf8.size();
     NormalizeNewlines(utf8);
     return FromMarkdown(std::move(utf8), byte_size, path);

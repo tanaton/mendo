@@ -1,5 +1,4 @@
 #include "theme_service.h"
-#include <cassert>
 
 // ini 永続化キー。既存設定との互換性のため値の変更は禁止。
 namespace {
@@ -19,12 +18,11 @@ const Theme& ThemeService::BaseTheme() const
     return dark_mode_ ? GetDarkTheme() : GetLightTheme();
 }
 
-Theme ThemeService::CreateTheme(int zoom_index) const
+Theme ThemeService::CreateTheme(ZoomLevel zoom) const
 {
-    assert(zoom_index >= 0 && zoom_index < ZOOM_STEP_COUNT && "zoom_index must be within ZOOM_STEPS bounds; ZoomLevel::SetIndex clamps it");
     Theme theme = BaseTheme();
-    if (zoom_index != ZOOM_DEFAULT_INDEX) {
-        theme.ApplyZoom(ZOOM_STEPS[zoom_index]);
+    if (!zoom.IsDefault()) {
+        theme.ApplyZoom(zoom.Value());
     }
     return theme;
 }
@@ -45,9 +43,9 @@ void ThemeService::LoadDarkMode()
     dark_mode_ = config_.LoadBool(kSectionView, kKeyDarkMode, false);
 }
 
-void ThemeService::SaveZoomLevel(int zoom_index)
+void ThemeService::SaveZoomLevel(ZoomLevel zoom)
 {
-    config_.SaveInt(kSectionView, kKeyZoomLevel, zoom_index);
+    config_.SaveZoomLevel(kSectionView, kKeyZoomLevel, zoom);
 }
 
 ZoomLevel ThemeService::LoadZoomLevel() const

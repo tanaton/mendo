@@ -112,17 +112,17 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     });
 
     ConfigService config;
+    SessionService session{ config };
     {
         MENDO_PROFILE("wWinMain - config");
         config.Load();
-        i18n::Init(config.LoadWString(kConfigSectionGeneral, kConfigKeyLanguage));
+        i18n::Init(session.LoadLanguage());
     }
 
     // 引数は CRT がスタートアップで分解済み。
     const std::wstring_view arg{ (__wargv && __argc > 1) ? __wargv[1] : L"" };
 
     // SessionService::LoadLastFilePath は UNC/デバイスパスや実在しないパスを除外する。
-    SessionService session{ config };
     const std::pmr::wstring last_file = session.LoadLastFilePath();
     StartupPlan plan = PlanStartup(arg, last_file);
 

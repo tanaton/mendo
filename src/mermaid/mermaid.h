@@ -14,14 +14,11 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
-#include <memory>
 #include <memory_resource>
-#include <mutex>
 #include <queue>
 #include <span>
 #include <string>
 #include <unordered_set>
-#include <vector>
 
 class MermaidFileCache;
 class TaskScheduler;

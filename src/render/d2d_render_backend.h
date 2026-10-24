@@ -22,7 +22,7 @@ public:
     bool Init(HWND hwnd);
     // live: ライブリサイズ中。ResizeBuffers は GPU の同期と再確保を伴うので WM_SIZE ごとに呼ぶと重い。
     // モニタ全体の大きさのバッファを使い回し、表示範囲 (source size) だけを変える。
-    void Resize(UINT width, UINT height, bool live = false) noexcept;
+    void Resize(UINT width, UINT height, bool live) noexcept;
     void SetDpi(float dpi) noexcept;
     float GetDpi() const noexcept
     {

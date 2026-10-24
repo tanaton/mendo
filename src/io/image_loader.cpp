@@ -1,5 +1,4 @@
 #include "image_loader.h"
-#include "d2d_util.h"
 #include "file_io.h"
 #include "task_scheduler.h"
 #include "ui_constants.h"
@@ -181,8 +180,8 @@ void ImageLoader::CacheBitmap(
     float pixel_width, float pixel_height, UINT sharp_width_px)
 {
     const float scale = DpiScale();
-    const float width = pixel_width / scale;
-    const float height = pixel_height / scale;
+    const float width = PixelToDip(pixel_width, scale);
+    const float height = PixelToDip(pixel_height, scale);
 
     cache_.Insert(path, CachedImage{ std::move(bitmap), width, height, sharp_width_px });
     cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedImage& c) static { return BitmapBytes(c.bitmap.Get()); });

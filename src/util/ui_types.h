@@ -5,6 +5,19 @@
 
 // include 連鎖を浅く保つため 1 か所に集約。
 
+struct Theme;
+// 実体は <d2d1.h> / <dwrite.h> のものと ABI 互換。
+struct ID2D1Factory;
+struct IDWriteFactory;
+
+// 自前描画のポップアップ (右クリックメニュー・設定ダイアログ) を開くのに要るもの。どれも呼び出し側から借りる。
+struct PopupEnv {
+    ID2D1Factory* d2d_factory = nullptr;
+    IDWriteFactory* dwrite_factory = nullptr;
+    const Theme* theme = nullptr;
+    float dpi_scale = 1.0f;
+};
+
 struct DipPoint {
     float x = 0.0f;
     float y = 0.0f;
@@ -42,6 +55,10 @@ struct PaneRect {
 struct ScrollState {
     float scroll_y = 0.0f;
 };
+
+// サイドペイン (ファイル一覧・目次) の幅 (DIP、ズームを含まない)。
+inline constexpr float SIDE_PANE_DEFAULT_WIDTH = 220.0f;
+inline constexpr float SIDE_PANE_MIN_WIDTH = 100.0f;
 
 inline constexpr float PANE_SCROLLBAR_WIDTH = 8.0f;
 inline constexpr float PANE_SCROLLBAR_THUMB_MIN = 24.0f;
@@ -131,68 +148,38 @@ public:
     {
         return static_cast<int>(Value() * 100.0f + 0.5f);
     }
-    constexpr bool CanZoomIn() const noexcept
-    {
-        return index_ < ZOOM_STEP_COUNT - 1;
-    }
-    constexpr bool CanZoomOut() const noexcept
-    {
-        return index_ > 0;
-    }
     constexpr bool IsDefault() const noexcept
     {
         return index_ == ZOOM_DEFAULT_INDEX;
     }
-    constexpr bool ZoomIn() noexcept
-    {
-        if (!CanZoomIn()) {
-            return false;
-        }
-        ++index_;
-        return true;
-    }
-    constexpr bool ZoomOut() noexcept
-    {
-        if (!CanZoomOut()) {
-            return false;
-        }
-        --index_;
-        return true;
-    }
-    constexpr bool ZoomReset() noexcept
-    {
-        if (IsDefault()) {
-            return false;
-        }
-        index_ = static_cast<uint8_t>(ZOOM_DEFAULT_INDEX);
-        return true;
-    }
     constexpr bool Step(ZoomDirection direction) noexcept
     {
-        switch (direction) {
-        case ZoomDirection::In:
-            return ZoomIn();
-        case ZoomDirection::Out:
-            return ZoomOut();
-        case ZoomDirection::Reset:
-            return ZoomReset();
+        const int target = TargetIndex(direction);
+        if (target == index_) {
+            return false;
         }
-        return false;
+        index_ = static_cast<uint8_t>(target);
+        return true;
     }
     // 押せるか (段が動くか)。メニューのボタンの有効・無効に使う。
     constexpr bool CanStep(ZoomDirection direction) const noexcept
     {
-        switch (direction) {
-        case ZoomDirection::In:
-            return CanZoomIn();
-        case ZoomDirection::Out:
-            return CanZoomOut();
-        case ZoomDirection::Reset:
-            return !IsDefault();
-        }
-        return false;
+        return TargetIndex(direction) != index_;
     }
 
 private:
+    constexpr int TargetIndex(ZoomDirection direction) const noexcept
+    {
+        switch (direction) {
+        case ZoomDirection::In:
+            return std::min(index_ + 1, ZOOM_STEP_COUNT - 1);
+        case ZoomDirection::Out:
+            return std::max(index_ - 1, 0);
+        case ZoomDirection::Reset:
+            break;
+        }
+        return ZOOM_DEFAULT_INDEX;
+    }
+
     uint8_t index_ = static_cast<uint8_t>(ZOOM_DEFAULT_INDEX);
 };

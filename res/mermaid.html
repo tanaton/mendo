@@ -32,7 +32,7 @@
     }
   }
 
-  async function renderMermaid(code, isDark, maxWidth) {
+  async function renderMermaid(code, isDark) {
     try {
       if (!mermaidReady()) {
         return JSON.stringify({ ok: false, error: 'mermaid not loaded' });
@@ -41,8 +41,6 @@
       ensureInitialized(isDark, true);
       const container = document.getElementById('container');
       container.innerHTML = '';
-      document.body.style.width = '';
-      container.style.maxWidth = '';
       renderCount++;
       const id = 'mmd-' + renderCount;
       const { svg } = await mermaid.render(id, code);

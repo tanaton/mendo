@@ -5,7 +5,6 @@
 #include <memory_resource>
 #include <mutex>
 #include <optional>
-#include <vector>
 #include <filesystem>
 #include <unordered_map>
 #include <atomic>

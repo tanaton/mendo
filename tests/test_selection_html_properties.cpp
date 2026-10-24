@@ -2,7 +2,7 @@
 #include "document.h"
 #include "example_files.h"
 #include "markdown_fragment_gen.h"
-#include "newline_util.h"
+#include "document_utils.h"
 #include "parser.h"
 #include "selection_html.h"
 #include "syntax.h"

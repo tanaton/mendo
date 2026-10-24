@@ -158,7 +158,7 @@ TEST_F(HelpNavigationTest, HelpPathInHistoryCanGoBack)
 
 TEST(HelpDocumentTest, BuildTitleStringWithHelpPath)
 {
-    auto title = BuildTitleString(HELP_PATH);
+    auto title = BuildTitleString(HELP_PATH, 0);
     // ヘルプパスでもクラッシュせずタイトルが生成される
     EXPECT_FALSE(title.empty());
     EXPECT_TRUE(title.contains(L"mendo"));

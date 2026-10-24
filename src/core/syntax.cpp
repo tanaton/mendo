@@ -142,7 +142,7 @@ constexpr size_t ScanCppRawString(std::string_view text, size_t quote_pos, size_
 
 // トリプルクォート文字列をスキャン（pos はトリプルクォートの最初の引用符を指す）。
 // escapes=false は Kotlin の raw string や TOML の ''' のように \ をエスケープにしない形。
-constexpr size_t ScanTripleQuote(std::string_view text, size_t pos, char quote, bool escapes = true) noexcept
+constexpr size_t ScanTripleQuote(std::string_view text, size_t pos, char quote, bool escapes) noexcept
 {
     size_t i = pos + 3;
     const char delims_buf[]{ quote, '\\' };

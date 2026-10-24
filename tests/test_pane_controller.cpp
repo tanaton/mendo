@@ -30,7 +30,7 @@ INSTANTIATE_TEST_SUITE_P(Panes, PaneControllerPerPaneTest, ::testing::Values(Pan
 TEST_P(PaneControllerPerPaneTest, DefaultState)
 {
     EXPECT_TRUE(panes_.IsSidePaneVisible(pane_));
-    EXPECT_FLOAT_EQ(panes_.GetSidePaneWidth(pane_), PaneController::PANE_DEFAULT_WIDTH);
+    EXPECT_FLOAT_EQ(panes_.GetSidePaneWidth(pane_), SIDE_PANE_DEFAULT_WIDTH);
     EXPECT_FLOAT_EQ(panes_.SidePaneScroll(pane_).scroll_y, 0.0f);
 }
 
@@ -52,10 +52,10 @@ TEST_P(PaneControllerPerPaneTest, ToggleAndSetVisibleAffectOnlyThatPane)
 TEST_P(PaneControllerPerPaneTest, SetWidthClampsToMin)
 {
     panes_.SetSidePaneWidth(pane_, 10.0f);
-    EXPECT_FLOAT_EQ(panes_.GetSidePaneWidth(pane_), PaneController::PANE_MIN_WIDTH);
+    EXPECT_FLOAT_EQ(panes_.GetSidePaneWidth(pane_), SIDE_PANE_MIN_WIDTH);
     panes_.SetSidePaneWidth(pane_, 500.0f);
     EXPECT_FLOAT_EQ(panes_.GetSidePaneWidth(pane_), 500.0f);
-    EXPECT_FLOAT_EQ(panes_.GetSidePaneWidth(other_), PaneController::PANE_DEFAULT_WIDTH);
+    EXPECT_FLOAT_EQ(panes_.GetSidePaneWidth(other_), SIDE_PANE_DEFAULT_WIDTH);
 }
 
 // 0..max_scroll にクランプし、位置が変わったときだけ true を返す。
@@ -95,7 +95,7 @@ TEST_F(PaneControllerTest, ResetScrollStates)
 TEST_F(PaneControllerTest, DragSplitter1RespectsMinWidth)
 {
     panes_.DragSplitterTo(PaneTarget::File, 10.0f, 1200.0f, 4.0f);
-    EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::File), PaneController::PANE_MIN_WIDTH);
+    EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::File), SIDE_PANE_MIN_WIDTH);
 }
 
 TEST_F(PaneControllerTest, DragSplitter1RespectsMinMdWidth)
@@ -111,7 +111,7 @@ TEST_F(PaneControllerTest, DragSplitter2RespectsMinWidth)
 {
     // 目次の左端位置はレイアウトに依存する; 非常に小さくドラッグ
     panes_.DragSplitterTo(PaneTarget::Toc, panes_.GetSidePaneWidth(PaneTarget::File) + 4.0f + 10.0f, 1200.0f, 4.0f);
-    EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::Toc), PaneController::PANE_MIN_WIDTH);
+    EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::Toc), SIDE_PANE_MIN_WIDTH);
 }
 
 TEST_F(PaneControllerTest, DragSplitter2RespectsMinMdWidth)
@@ -132,14 +132,14 @@ TEST_F(PaneControllerTest, DragSplitter1WithFilePaneHidden)
     panes_.ToggleSidePane(PaneTarget::File); // ファイルペインを非表示
     // 非表示のファイルペインでsplitter1をドラッグしても正しくクランプされるべき
     panes_.DragSplitterTo(PaneTarget::File, 300.0f, 1200.0f, 4.0f);
-    EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::File), PaneController::PANE_MIN_WIDTH);
+    EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::File), SIDE_PANE_MIN_WIDTH);
 }
 
 TEST_F(PaneControllerTest, DragSplitter2WithTocPaneHidden)
 {
     panes_.ToggleSidePane(PaneTarget::Toc); // 目次ペインを非表示
     panes_.DragSplitterTo(PaneTarget::Toc, 1000.0f, 1200.0f, 4.0f);
-    EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::Toc), PaneController::PANE_MIN_WIDTH);
+    EXPECT_GE(panes_.GetSidePaneWidth(PaneTarget::Toc), SIDE_PANE_MIN_WIDTH);
 }
 
 // ═══════════════════════════════════════════════
@@ -179,13 +179,13 @@ TEST_F(PaneControllerTest, ScrollBothPanesIndependently)
 }
 
 // ═══════════════════════════════════════════════
-// PANE_DEFAULT_WIDTH定数
+// SIDE_PANE_DEFAULT_WIDTH定数
 // ═══════════════════════════════════════════════
 
 TEST_F(PaneControllerTest, DefaultWidthConstant)
 {
-    EXPECT_FLOAT_EQ(PaneController::PANE_DEFAULT_WIDTH, 220.0f);
-    EXPECT_GT(PaneController::PANE_DEFAULT_WIDTH, PaneController::PANE_MIN_WIDTH);
+    EXPECT_FLOAT_EQ(SIDE_PANE_DEFAULT_WIDTH, 220.0f);
+    EXPECT_GT(SIDE_PANE_DEFAULT_WIDTH, SIDE_PANE_MIN_WIDTH);
 }
 
 // ═══════════════════════════════════════════════
@@ -213,23 +213,23 @@ struct DragCase {
 // 論理幅の合計がウィンドウを超えて表示幅が縮小されるケースを多めに含む。
 DragCase RandomDragCase(std::mt19937& rng)
 {
-    const float min_window = MD_PANE_MIN_WIDTH + SPLITTER_W * 2.0f + PaneController::PANE_MIN_WIDTH * 2.0f;
+    const float min_window = MD_PANE_MIN_WIDTH + SPLITTER_W * 2.0f + SIDE_PANE_MIN_WIDTH * 2.0f;
     std::uniform_real_distribution<float> window(min_window, 2400.0f);
-    std::uniform_real_distribution<float> width(PaneController::PANE_MIN_WIDTH, 1400.0f);
+    std::uniform_real_distribution<float> width(SIDE_PANE_MIN_WIDTH, 1400.0f);
     const float w = window(rng);
     const float f = width(rng);
     const float t = width(rng);
     return { w, f, t };
 }
 
-// 表示幅が PANE_MIN_WIDTH 未満まで縮んだケースは、ドラッグ側の最小幅制約が優先されるので対象外。
+// 表示幅が SIDE_PANE_MIN_WIDTH 未満まで縮んだケースは、ドラッグ側の最小幅制約が優先されるので対象外。
 std::optional<PaneController> MakePanes(const DragCase& c)
 {
     PaneController panes;
     panes.SetSidePaneWidth(PaneTarget::File, c.file_w);
     panes.SetSidePaneWidth(PaneTarget::Toc, c.toc_w);
     const auto layout = panes.ComputeLayout(c.window_w, WINDOW_H, SPLITTER_W);
-    if (layout.file_rect.width < PaneController::PANE_MIN_WIDTH || layout.toc_rect.width < PaneController::PANE_MIN_WIDTH) {
+    if (layout.file_rect.width < SIDE_PANE_MIN_WIDTH || layout.toc_rect.width < SIDE_PANE_MIN_WIDTH) {
         return std::nullopt;
     }
     return panes;

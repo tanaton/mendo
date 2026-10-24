@@ -1,4 +1,5 @@
 #include "pane_layout.h"
+#include "ui_constants.h"
 #include <algorithm>
 
 PaneLayout ComputePaneLayout(

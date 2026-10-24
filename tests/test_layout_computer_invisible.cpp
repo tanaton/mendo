@@ -75,7 +75,7 @@ TEST(EstimateInvisibleNodeHeight, GrowsToEstimateWhenSmaller)
     auto node = MakeParagraphNode(/*line_count=*/3);
     auto entry = MakeEntry(/*height=*/1.0f);
     const auto& theme = GetLightTheme();
-    const float estimated = EstimateNodeHeight(node, theme);
+    const float estimated = EstimateNodeHeight(node, theme, 0.0f);
     const bool changed = EstimateInvisibleNodeHeight(node, entry, theme, 400.0f);
     EXPECT_TRUE(changed);
     EXPECT_FLOAT_EQ(entry.height, estimated);
@@ -102,7 +102,7 @@ TEST(EstimateInvisibleNodeHeight, FallsBackToEstimateWhenWidthDiffers)
     entry.cached_width = 200.0f;
     entry.cached_height = 5.0f; // 推定値より小さい設定
     const auto& theme = GetLightTheme();
-    const float estimated = EstimateNodeHeight(node, theme);
+    const float estimated = EstimateNodeHeight(node, theme, 0.0f);
     // node_width が cached_width と離れているので fallback は EstimateNodeHeight
     const bool changed = EstimateInvisibleNodeHeight(node, entry, theme, 800.0f);
     EXPECT_TRUE(changed);
@@ -145,7 +145,7 @@ TEST(EstimateInvisibleNodeHeight, NonDiagramCodeBlockGrowsNormally)
     auto node = MakeCodeBlockNode(SyntaxLanguage::Cpp, /*line_count=*/4);
     auto entry = MakeEntry(/*height=*/0.0f);
     const auto& theme = GetLightTheme();
-    const float estimated = EstimateNodeHeight(node, theme);
+    const float estimated = EstimateNodeHeight(node, theme, 0.0f);
     const bool changed = EstimateInvisibleNodeHeight(node, entry, theme, 400.0f);
     EXPECT_TRUE(changed);
     EXPECT_FLOAT_EQ(entry.height, estimated);

@@ -52,8 +52,8 @@ public:
     }
 
     // マッチ列が変わるたびに進む世代カウンタ。
-    // 描画側が検索ハイライト矩形のキャッシュ有効性判定に使う。0 は未初期化を意味するため
-    // 1 からカウントし始める（search_hl_gen=0 と常に不一致になる）。
+    // 描画側が検索ハイライト矩形のキャッシュ有効性判定に使う。キャッシュの世代の初期値 0 と
+    // 常に不一致になるよう 1 からカウントし始める。
     constexpr uint32_t GetGeneration() const noexcept
     {
         return generation_;
@@ -143,7 +143,7 @@ private:
         has_result_ = false;
         BumpGeneration();
     }
-    // 0 は search_hl_gen の未初期化センチネルなので、32bit ラップアラウンドで 0 に
+    // 0 はキャッシュの未初期化センチネルなので、32bit ラップアラウンドで 0 に
     // 戻るケースだけはスキップして必ず非ゼロを維持する。
     constexpr void BumpGeneration() noexcept
     {

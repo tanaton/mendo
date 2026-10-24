@@ -56,11 +56,11 @@ TEST_F(DWriteMeasurerTest, FittingLeftAlignedCellKeepsNaturalWidthLayout)
     EXPECT_GE(left->GetMaxWidth(), 1.0e6f);
     EXPECT_LT(center->GetMaxWidth(), 1.0e6f);
 
-    measurer_.MeasureNode(nodes[0], entry, 300.0f);
+    measurer_.MeasureNode(nodes[0], entry, 300.0f, {});
     EXPECT_LT(left->GetMaxWidth(), 1.0e6f) << "収まらない幅では列幅で折り返す";
     EXPECT_GT(tl->cell_heights[tl->CellIndex(1, 0)], wide_height);
 
-    measurer_.MeasureNode(nodes[0], entry, 800.0f);
+    measurer_.MeasureNode(nodes[0], entry, 800.0f, {});
     EXPECT_GE(left->GetMaxWidth(), 1.0e6f);
     EXPECT_FLOAT_EQ(tl->cell_heights[tl->CellIndex(1, 0)], wide_height);
 }
