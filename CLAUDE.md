@@ -36,10 +36,6 @@ cmake --build build_bench --config Release --target mendo_bench -- //v:q //nolog
 build_bench/bench/Release/mendo_bench.exe --benchmark_filter=<正規表現>
 ```
 
-- 時間を測るコードは gtest の `DISABLED_` テストではなく `bench/benchmarks.cpp` に書く
-- 比べるのは Time 列だけ。CPU 列は Windows では粒度が粗く、`manual_time` のベンチでは準備も含む
-- 前後の比較は `--benchmark_repetitions=10 --benchmark_report_aggregates_only=true` の median で見る。同じ exe を続けて 2 回走らせても ±5% ほどずれるので、5% に満たない差は前後の exe を交互に何度か走らせて確かめる
-
 ## 注意事項
 
 - コメントは簡潔にまとめる。Whatコメントは禁止

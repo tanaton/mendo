@@ -153,12 +153,6 @@ cmake --build build_bench --config Release --target mendo_bench
 build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown
 ```
 
-修改前后请用多次重复运行的中位数（median）进行比较。
-
-```
-build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown --benchmark_repetitions=10 --benchmark_report_aggregates_only=true
-```
-
 ### 启用 Tracy 性能分析器的构建（面向开发者）
 
 集成 [Tracy](https://github.com/wolfpld/tracy) v0.14.1，可获取帧时间、区段计时和计数器时间序列图。Tracy 以 `TRACY_ON_DEMAND` 模式集成，在 Tracy GUI 连接之前，计测代码不执行任何操作。
@@ -167,8 +161,6 @@ build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown --benc
 cmake -B build_tracy -DMENDO_USE_TRACY=ON
 cmake --build build_tracy --config Release
 ```
-
-启动 Tracy GUI（从 [Releases](https://github.com/wolfpld/tracy/releases) 下载）后运行 `build_tracy/Release/mendo.exe` 即可连接。只有在 `MENDO_USE_TRACY=ON` 时才会链接和插桩 Tracy，默认（OFF）的构建产物完全不受影响。
 
 ## 用法
 

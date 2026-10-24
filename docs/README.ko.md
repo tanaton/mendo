@@ -153,12 +153,6 @@ cmake --build build_bench --config Release --target mendo_bench
 build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown
 ```
 
-변경 전후는 여러 번 반복 실행한 중앙값(median)으로 비교합니다.
-
-```
-build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown --benchmark_repetitions=10 --benchmark_report_aggregates_only=true
-```
-
 ### Tracy 프로파일러를 켠 빌드 (개발자용)
 
 [Tracy](https://github.com/wolfpld/tracy) v0.14.1을 포함하여 프레임 시간, 구간 측정, 카운터 시계열 그래프를 얻을 수 있습니다. Tracy는 `TRACY_ON_DEMAND` 모드로 포함되므로 Tracy GUI가 연결되기 전까지 측정 코드는 아무것도 하지 않습니다.
@@ -167,8 +161,6 @@ build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown --benc
 cmake -B build_tracy -DMENDO_USE_TRACY=ON
 cmake --build build_tracy --config Release
 ```
-
-Tracy GUI([Releases](https://github.com/wolfpld/tracy/releases)에서 내려받기)를 실행한 상태에서 `build_tracy/Release/mendo.exe`를 실행하면 연결됩니다. `MENDO_USE_TRACY=ON`일 때만 Tracy가 링크되고 계측되며, 기본값(OFF) 빌드 결과물에는 전혀 영향을 주지 않습니다.
 
 ## 사용법
 
