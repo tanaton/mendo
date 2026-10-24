@@ -48,6 +48,9 @@ std::pmr::vector<uint8_t> ReadAllBytes(const wchar_t* path, DWORD* out_error, DW
     return buf;
 }
 
+namespace {
+
+// 取得できなければ nullopt (存在しない・アクセス不可・仮想パス)。
 std::optional<uint64_t> QueryFileSize(const wchar_t* path) noexcept
 {
     WIN32_FILE_ATTRIBUTE_DATA attr{};
@@ -56,6 +59,8 @@ std::optional<uint64_t> QueryFileSize(const wchar_t* path) noexcept
     }
     return (static_cast<uint64_t>(attr.nFileSizeHigh) << 32) | static_cast<uint64_t>(attr.nFileSizeLow);
 }
+
+} // namespace
 
 bool IsFileLargerThan(const wchar_t* path, size_t reference_size, size_t tolerance) noexcept
 {

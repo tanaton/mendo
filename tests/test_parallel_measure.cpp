@@ -75,13 +75,13 @@ struct BatchRun {
 };
 
 // f に ProcessDirtyBatch を 1 回かけ、計測したノード数と戻り値を返す。
-BatchRun RunBatch(DirtyNodeFixture& f, const Theme& theme, MockTextMeasurer& measurer, ViewportClip clip, int max_nodes, TaskScheduler* scheduler)
+BatchRun RunBatch(DirtyNodeFixture& f, const Theme& theme, MockTextMeasurer& measurer, ViewportClip clip, LayoutDeadline deadline, TaskScheduler* scheduler)
 {
     LayoutEngine engine;
     EXPECT_TRUE(engine.Init(&measurer, theme));
     engine.SetLayoutScheduler(scheduler);
     const size_t before = CountDirty(f.cache);
-    const bool more = engine.ProcessDirtyBatch(f.nodes, f.cache, 800.0f, max_nodes, clip);
+    const bool more = engine.ProcessDirtyBatch(f.nodes, f.cache, 800.0f, deadline, clip);
     engine.SetLayoutScheduler(nullptr);
     return { static_cast<int>(before - CountDirty(f.cache)), more };
 }
@@ -91,7 +91,7 @@ int DrainDirtyBatches(LayoutEngine& engine, const std::pmr::vector<Node>& nodes,
 {
     constexpr int kMaxBatches = 20;
     for (int batches = 1; batches <= kMaxBatches; ++batches) {
-        if (!engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200, {})) {
+        if (!engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, {})) {
             return batches;
         }
     }
@@ -105,7 +105,7 @@ TEST_F(ParallelMeasureTest, EmptyDirtyReturnsNoneDirty)
 {
     DirtyNodeFixture f;
     f.Build(10, false);
-    const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, 0, &task_scheduler_);
+    const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, kNoLayoutDeadline, &task_scheduler_);
     EXPECT_EQ(r.processed, 0);
     EXPECT_FALSE(r.more);
 }
@@ -120,8 +120,8 @@ TEST_F(ParallelMeasureTest, MatchesSerialOutputOnSmallFixture)
     DirtyNodeFixture f_parallel;
     f_parallel.Build(N, true);
 
-    const auto r_serial = RunBatch(f_serial, theme_, mock_, ViewportClip{}, 0, nullptr);
-    const auto r_parallel = RunBatch(f_parallel, theme_, mock_, ViewportClip{}, 0, &task_scheduler_);
+    const auto r_serial = RunBatch(f_serial, theme_, mock_, ViewportClip{}, kNoLayoutDeadline, nullptr);
+    const auto r_parallel = RunBatch(f_parallel, theme_, mock_, ViewportClip{}, kNoLayoutDeadline, &task_scheduler_);
 
     EXPECT_EQ(r_serial.processed, r_parallel.processed);
     EXPECT_EQ(r_serial.more, r_parallel.more);
@@ -140,7 +140,7 @@ TEST_F(ParallelMeasureTest, ViewportClipSkipsOffscreen)
     DirtyNodeFixture f;
     f.Build(100, true);
     ViewportClip clip{ 200.0f, 400.0f, 1.0f };
-    const auto r = RunBatch(f, theme_, mock_, clip, 0, &task_scheduler_);
+    const auto r = RunBatch(f, theme_, mock_, clip, kNoLayoutDeadline, &task_scheduler_);
     // y_position[i] = i*100, height=80。clip [-200, 1000] に重なるのは i=0..10
     EXPECT_GT(r.processed, 0);
     EXPECT_LE(r.processed, 11);
@@ -148,12 +148,13 @@ TEST_F(ParallelMeasureTest, ViewportClipSkipsOffscreen)
     EXPECT_TRUE(f.cache[50].layout_dirty);
 }
 
-TEST_F(ParallelMeasureTest, BatchLimitClampsProcessed)
+// 期限を過ぎていても 1 ノードは計測し、残りは次の呼び出しに回す。
+TEST_F(ParallelMeasureTest, ExpiredDeadlineMeasuresOneNode)
 {
     DirtyNodeFixture f;
     f.Build(100, true);
-    const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, 10, &task_scheduler_);
-    EXPECT_EQ(r.processed, 10);
+    const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, LayoutDeadline{}, &task_scheduler_);
+    EXPECT_EQ(r.processed, 1);
     EXPECT_TRUE(r.more);
 }
 
@@ -163,7 +164,7 @@ TEST_F(ParallelMeasureTest, AllDirtyClearedAfterRun)
     constexpr size_t N = 1000;
     DirtyNodeFixture f;
     f.Build(N, true);
-    const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, 0, &task_scheduler_);
+    const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, kNoLayoutDeadline, &task_scheduler_);
     EXPECT_EQ(r.processed, static_cast<int>(N));
     for (size_t i = 0; i < N; ++i) {
         EXPECT_FALSE(f.cache[i].layout_dirty) << "i=" << i;
@@ -239,8 +240,8 @@ TEST_F(ParallelMeasureTest, ProcessDirtyBatchRetriesAfterChunkException)
 
         engine.SetLayoutScheduler(&task_scheduler_);
         const bool more = c.clip
-            ? engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200, { 0.0f, 600.0f, 100.0f })
-            : engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200, {});
+            ? engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, { 0.0f, 600.0f, 100.0f })
+            : engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, {});
         engine.SetLayoutScheduler(nullptr);
 
         EXPECT_TRUE(cache[thrower].layout_dirty);
@@ -270,7 +271,7 @@ TEST_F(ParallelMeasureTest, AlwaysThrowingNodeStopsRetryingAfterMaxAttempts)
     measurer.throw_on = &nodes[kThrower];
 
     engine.SetLayoutScheduler(&task_scheduler_);
-    ASSERT_TRUE(engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200, {}));
+    ASSERT_TRUE(engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, {}));
     for (size_t k = 0; k < kDirtyCount; ++k) {
         const size_t i = kFirstDirty + k;
         if (i != kThrower) {
@@ -339,7 +340,7 @@ TEST_F(ParallelMeasureTest, MeasureSuccessOnAnyPathResetsFailureCount)
     measurer.throw_times = LayoutCache::kMaxMeasureAttempts - 1;
     engine.SetLayoutScheduler(&task_scheduler_);
     for (int k = 0; k + 1 < LayoutCache::kMaxMeasureAttempts; ++k) {
-        engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200, {});
+        engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, {});
     }
     engine.SetLayoutScheduler(nullptr);
     ASSERT_EQ(cache[kThrower].measure_failures, LayoutCache::kMaxMeasureAttempts - 1);
@@ -355,7 +356,7 @@ TEST_F(DirtyBatchSerialTest, NoneDirtyReturnsNoneDirty)
 {
     DirtyNodeFixture f;
     f.Build(5, false);
-    const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, 0, nullptr);
+    const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, kNoLayoutDeadline, nullptr);
     EXPECT_EQ(r.processed, 0);
     EXPECT_FALSE(r.more);
 }
@@ -364,22 +365,22 @@ TEST_F(DirtyBatchSerialTest, AllDirtyProcessedReturnsDone)
 {
     DirtyNodeFixture f;
     f.Build(5, true);
-    const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, 0, nullptr);
+    const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, kNoLayoutDeadline, nullptr);
     EXPECT_EQ(r.processed, 5);
     EXPECT_FALSE(r.more);
     EXPECT_FALSE(f.cache[0].layout_dirty);
     EXPECT_FALSE(f.cache[4].layout_dirty);
 }
 
-TEST_F(DirtyBatchSerialTest, BatchLimitStopsAtMaxNodes)
+TEST_F(DirtyBatchSerialTest, ExpiredDeadlineMeasuresFirstNode)
 {
     DirtyNodeFixture f;
     f.Build(10, true);
-    const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, 3, nullptr);
-    EXPECT_EQ(r.processed, 3);
+    const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, LayoutDeadline{}, nullptr);
+    EXPECT_EQ(r.processed, 1);
     EXPECT_TRUE(r.more);
     EXPECT_FALSE(f.cache[0].layout_dirty);
-    EXPECT_FALSE(f.cache[2].layout_dirty);
+    EXPECT_TRUE(f.cache[1].layout_dirty);
 }
 
 TEST_F(DirtyBatchSerialTest, ViewportClipSkipsOffscreenDirty)
@@ -393,7 +394,7 @@ TEST_F(DirtyBatchSerialTest, ViewportClipSkipsOffscreenDirty)
     // i=0,4..9: 含まれない
     DirtyNodeFixture f;
     f.Build(10, true);
-    const auto r = RunBatch(f, theme_, mock_, ViewportClip{ 150.0f, 200.0f, 0.0f }, 0, nullptr);
+    const auto r = RunBatch(f, theme_, mock_, ViewportClip{ 150.0f, 200.0f, 0.0f }, kNoLayoutDeadline, nullptr);
     EXPECT_EQ(r.processed, 3);
     EXPECT_FALSE(r.more);
     EXPECT_FALSE(f.cache[1].layout_dirty);
@@ -409,7 +410,7 @@ TEST_F(DirtyBatchSerialTest, ViewportClipWithBufferIncludesNearbyDirty)
     //      range_bottom=500、5の y=500 → !(y < range_bottom) なので IsOffscreen=true → 含まない
     DirtyNodeFixture f;
     f.Build(10, true);
-    const auto r = RunBatch(f, theme_, mock_, ViewportClip{ 300.0f, 100.0f, 1.0f }, 0, nullptr);
+    const auto r = RunBatch(f, theme_, mock_, ViewportClip{ 300.0f, 100.0f, 1.0f }, kNoLayoutDeadline, nullptr);
     EXPECT_GE(r.processed, 3);
     EXPECT_LE(r.processed, 4);
     EXPECT_FALSE(r.more);
@@ -419,19 +420,10 @@ TEST_F(DirtyBatchSerialTest, FirstLastProcessedTracking)
 {
     DirtyNodeFixture f;
     f.Build(7, { 3, 4, 5 });
-    const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, 0, nullptr);
+    const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, kNoLayoutDeadline, nullptr);
     EXPECT_EQ(r.processed, 3);
     EXPECT_FALSE(f.cache[3].layout_dirty);
     EXPECT_FALSE(f.cache[5].layout_dirty);
-    EXPECT_FALSE(r.more);
-}
-
-TEST_F(DirtyBatchSerialTest, BudgetZeroIsUnlimited)
-{
-    DirtyNodeFixture f;
-    f.Build(50, true);
-    const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, 0, nullptr);
-    EXPECT_EQ(r.processed, 50);
     EXPECT_FALSE(r.more);
 }
 
@@ -441,7 +433,7 @@ TEST_F(DirtyBatchSerialTest, MeasureNodeIsCalledOnEachProcessed)
     // 計測 callback がインスタンスごとに 1 回ずつ呼ばれたことを検証する。
     DirtyNodeFixture f;
     f.Build(5, true);
-    const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, 0, nullptr);
+    const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, kNoLayoutDeadline, nullptr);
     EXPECT_EQ(r.processed, 5);
     for (int i = 0; i < 5; ++i) {
         EXPECT_FALSE(f.cache[i].layout_dirty) << "node " << i << " should be cleaned";
@@ -455,7 +447,7 @@ TEST_F(DirtyBatchSerialTest, NoClipProcessesAllDirtyEvenIfYUnreachable)
     f.Build(5, { 0, 4 });
     f.cache.SetTop(0, -1000.0f); // 大きく外れた値
     f.cache.SetTop(4, 999999.0f);
-    const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, 0, nullptr);
+    const auto r = RunBatch(f, theme_, mock_, ViewportClip{}, kNoLayoutDeadline, nullptr);
     EXPECT_EQ(r.processed, 2);
     EXPECT_FALSE(f.cache[0].layout_dirty);
     EXPECT_FALSE(f.cache[4].layout_dirty);

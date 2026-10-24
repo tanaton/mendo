@@ -546,7 +546,7 @@ TEST(ExtractSelectedTextAsHtml, TableLinkSafetyIsPerUrl)
     EXPECT_TRUE(html.contains(">c</td>")) << html;
 }
 
-// 判定結果の一時領域 (スタック 32 バイト) を超える数のリンクでも URL ごとの判定がずれない。
+// リンクが多くても URL ごとの判定がずれない。
 TEST(ExtractSelectedTextAsHtml, ManyLinksKeepPerUrlSafety)
 {
     std::string md;

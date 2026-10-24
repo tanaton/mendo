@@ -112,7 +112,7 @@ TEST_F(FileLoadServicePreloadTest, StartAsyncLoadCancelsPreloadResult)
     ASSERT_TRUE(PollUntil([&] { return service_.AttachPreload(nullptr, 0) == FileLoadService::PreloadAttachResult::AppliedSync; }));
 
     service_.SetLoadingPath(new_file.PmrPath());
-    service_.StartAsyncLoad(scheduler_, nullptr, 0, GetLightTheme(), 0.0f, nullptr);
+    service_.StartAsyncLoad(scheduler_, nullptr, 0, GetLightTheme(), 0.0f, {});
 
     std::optional<AsyncLoadOutcome> outcome;
     PollUntil([&] { outcome = service_.TakeAsync(); return outcome.has_value(); });

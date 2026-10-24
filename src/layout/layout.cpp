@@ -16,6 +16,7 @@ namespace layout {
 namespace {
 
 // 戻り値は例外で計測できず dirty のまま再試行を待つノード数。
+// skip が真を返したノードには手を付けない (dirty のまま)。
 int MeasureChunk(
     const std::pmr::vector<Node>& nodes,
     LayoutCache& cache,
@@ -23,13 +24,17 @@ int MeasureChunk(
     const Theme& theme,
     const ITextMeasurer& backend,
     std::span<const size_t> chunk_indices,
-    MeasureViewportRange viewport)
+    MeasureViewportRange viewport,
+    auto&& skip)
 {
     // 例外はノード単位で捕まえる。chunk 単位だと失敗ノードを特定できず、同じ chunk の残りも計測されない。
     // 失敗回数は worker が担当する自エントリにだけ書くので同期は要らない。
     // DiagramEntry は計測中に追加・削除されないので、worker から読むだけなら同期は要らない。
     int failed = 0;
     for (const size_t i : chunk_indices) {
+        if (skip()) {
+            continue;
+        }
         auto& entry = cache[i];
         const DiagramEntry* bitmap = IsBitmapDrawNode(nodes[i]) ? cache.FindDiagram(i) : nullptr;
         try {
@@ -60,18 +65,29 @@ int MeasureIndicesParallel(
     const ITextMeasurer& backend,
     std::span<const size_t> indices,
     MeasureViewportRange viewport,
-    TaskScheduler* scheduler)
+    TaskScheduler* scheduler,
+    LayoutDeadline deadline)
 {
     if (!indices.empty()) {
         const auto [lo, hi] = std::ranges::minmax(indices);
         cache.NoteMaterialized(lo, hi);
     }
     std::atomic<int> failed_node_count{ 0 };
+    std::atomic<int> skipped_node_count{ 0 };
+    std::atomic<size_t> taken{ 0 };
+    const auto skip = [&] {
+        if (deadline == kNoLayoutDeadline || taken.fetch_add(1, std::memory_order_relaxed) == 0 ||
+            std::chrono::steady_clock::now() < deadline) {
+            return false;
+        }
+        skipped_node_count.fetch_add(1, std::memory_order_relaxed);
+        return true;
+    };
     // 1 ノードの計測 (数十 µs) に比べ chunk 取得の fetch_add は無視できるので、1 ノード単位で配って
     // 1 画面分 (数十ノード) の dirty でも全 worker に行き渡らせる。
     ParallelFor(scheduler, indices.size(), 1, [&](size_t begin, size_t end) {
         MENDO_PROFILE("MeasureNode.chunk");
-        const int failed_in_chunk = MeasureChunk(nodes, cache, content_width, theme, backend, indices.subspan(begin, end - begin), viewport);
+        const int failed_in_chunk = MeasureChunk(nodes, cache, content_width, theme, backend, indices.subspan(begin, end - begin), viewport, skip);
         if (failed_in_chunk > 0) {
             failed_node_count.fetch_add(failed_in_chunk, std::memory_order_relaxed);
         }
@@ -81,7 +97,7 @@ int MeasureIndicesParallel(
         MENDO_TRACE("MeasureIndicesParallel: node measure threw exception");
     }
     MENDO_PLOT("layout.parallel.error_count", static_cast<int64_t>(failed));
-    return failed;
+    return failed + skipped_node_count.load(std::memory_order_relaxed);
 }
 
 } // namespace layout
@@ -110,7 +126,7 @@ bool LayoutEngine::RecreateFormats()
     return measurer_->RecreateFormats();
 }
 
-void LayoutEngine::Reestimate(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
+bool LayoutEngine::Reestimate(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
 {
     MENDO_PROFILE("LayoutEngine::Reestimate");
     const auto node_count = nodes.size();
@@ -135,6 +151,7 @@ void LayoutEngine::Reestimate(const std::pmr::vector<Node>& nodes, LayoutCache& 
     }
     MENDO_PLOT("layout.compute.width_changed", static_cast<int64_t>(width_changed));
     MENDO_PLOT("layout.compute.node_count", static_cast<int64_t>(node_count));
+    return width_changed;
 }
 
 void LayoutEngine::EstimateDirtyHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float content_width, bool mark_all_dirty)
@@ -155,7 +172,7 @@ void LayoutEngine::EstimateDirtyHeights(const std::pmr::vector<Node>& nodes, Lay
 }
 
 LayoutEngine::PassResult LayoutEngine::MeasurePass(
-    const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width, MeasureViewportRange range, size_t max_nodes)
+    const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width, MeasureViewportRange range, LayoutDeadline deadline)
 {
     MENDO_PROFILE("LayoutEngine::MeasurePass");
     const float content_width = theme_->ContentWidth(viewport_width);
@@ -176,10 +193,6 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
             break;
         }
         if (entry.layout_dirty) {
-            if (max_nodes > 0 && dirty_indices.size() >= max_nodes) {
-                result.remaining = true;
-                break;
-            }
             dirty_indices.push_back(i);
             last_measured = i;
         }
@@ -197,9 +210,9 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
     if (!dirty_indices.empty()) {
         // 未計測領域へのジャンプやスクロールバードラッグでは 1 画面分 (数十〜百ノード) を
         // 毎フレーム計測するため、scheduler があれば並列化する。
-        const int failed = layout::MeasureIndicesParallel(nodes, cache, content_width, *theme_, *measurer_, dirty_indices, range, layout_scheduler_);
-        // 計測できなかったノードの dirty は次の呼び出しで再試行させる。
-        result.remaining |= failed > 0;
+        const int left = layout::MeasureIndicesParallel(nodes, cache, content_width, *theme_, *measurer_, dirty_indices, range, layout_scheduler_, deadline);
+        // 計測できなかったノードと期限で残したノードは、次の呼び出しで計測させる。
+        result.remaining |= left > 0;
         height_changed = true;
     }
 
@@ -219,7 +232,7 @@ bool LayoutEngine::EnsureVisibleLayout(const std::pmr::vector<Node>& nodes, Layo
     constexpr int kMaxMeasurePasses = 8;
     bool updated = false;
     for (int pass = 0; pass < kMaxMeasurePasses; ++pass) {
-        if (!MeasurePass(nodes, cache, viewport_width, range, 0).updated) {
+        if (!MeasurePass(nodes, cache, viewport_width, range, kNoLayoutDeadline).updated) {
             break;
         }
         updated = true;
@@ -241,34 +254,39 @@ bool LayoutEngine::EnsureVisibleLayout(const std::pmr::vector<Node>& nodes, Layo
 
 bool LayoutEngine::ProcessDirtyBatch(
     const std::pmr::vector<Node>& nodes, LayoutCache& cache,
-    float viewport_width, int batch_size,
+    float viewport_width, LayoutDeadline deadline,
     layout::ViewportClip clip)
 {
     MENDO_PROFILE("LayoutEngine::ProcessDirtyBatch");
     // 遠方の dirty はスクロール時に EnsureVisibleLayout で計測する。
     // last_viewport_width_ は Reestimate が再計測を決めた幅のまま据え置く。ここで進めると
     // 2px 未満のリサイズとダーティ処理が交互に続いたとき、可視ノードが古い幅のまま取り残される。
-    const bool remaining = MeasurePass(nodes, cache, viewport_width, clip.Range(), static_cast<size_t>(std::max(batch_size, 0))).remaining;
+    const bool remaining = MeasurePass(nodes, cache, viewport_width, clip.Range(), deadline).remaining;
     cache.SetHasDirtyNodes(remaining);
     return remaining;
 }
 
 void LayoutService::ViewportLayout(const Document& doc, LayoutCache& cache, float width, float height)
 {
-    engine_.Reestimate(doc.GetNodes(), cache, width);
+    const bool width_changed = engine_.Reestimate(doc.GetNodes(), cache, width);
     // ズームや幅変更で推定し直すと Y がずれるので、計測の前に見ていた位置を当て直す。
     // 古い scroll_y のまま計測すると、見えない範囲を 1 画面分ムダに計測してしまう。
     viewport_.ApplyScrollTarget(cache);
     const float scroll_y = viewport_.GetScrollY();
+    if (width_changed) {
+        // 幅が変わると、残っている表の行 (上下 8 画面分) は全部組み直しになる。画面の外の行は捨てて、見えたときに作らせる
+        // (2 万行 6 列の表の中で幅を変えたときの可視範囲のレイアウトが 3.7ms → 0.55ms)。
+        cache.EvictInvisibleTableRows(doc.GetTableNodeIndices(), scroll_y, scroll_y + height, 0.0f);
+    }
     engine_.EnsureVisibleLayout(doc.GetNodes(), cache, width, scroll_y, scroll_y + height);
     viewport_.ApplyScrollTarget(cache);
 }
 
-bool LayoutService::ProcessDirtyBatch(const Document& doc, LayoutCache& cache, float width, int batch_size, ViewportLimit viewport)
+bool LayoutService::ProcessDirtyBatch(const Document& doc, LayoutCache& cache, float width, LayoutDeadline deadline, ViewportLimit viewport)
 {
     viewport_.EnsureScrollTarget(cache);
     // height <= 0 なら ViewportClip::active() が false になりクリップは無効。
-    const bool more = engine_.ProcessDirtyBatch(doc.GetNodes(), cache, width, batch_size, { viewport_.GetScrollY(), viewport.height, viewport.buffer_screens });
+    const bool more = engine_.ProcessDirtyBatch(doc.GetNodes(), cache, width, deadline, { viewport_.GetScrollY(), viewport.height, viewport.buffer_screens });
     viewport_.ApplyScrollTarget(cache);
     return more;
 }

@@ -4,6 +4,7 @@
 #include "layout_computer.h"
 #include "text_measurer.h"
 #include "theme.h"
+#include <chrono>
 #include <memory_resource>
 #include <optional>
 #include <span>
@@ -11,6 +12,10 @@
 class Document;
 class TaskScheduler;
 class ViewportManager;
+
+// 計測を打ち切る時刻。過ぎても 1 ノード目は計測するので、呼び出しごとに必ず進む。
+using LayoutDeadline = std::chrono::steady_clock::time_point;
+inline constexpr LayoutDeadline kNoLayoutDeadline = LayoutDeadline::max();
 
 namespace layout {
 
@@ -37,7 +42,7 @@ struct ViewportClip {
 };
 
 // indices のノードを scheduler の worker で並列計測する。scheduler が null なら呼び出しスレッドで直列に計測する。
-// 戻り値は例外で計測できなかったノード数。
+// 戻り値は dirty のまま残したノード数 (例外で計測できなかったか、期限を過ぎて手を付けなかった)。
 int MeasureIndicesParallel(
     const std::pmr::vector<Node>& nodes,
     LayoutCache& cache,
@@ -46,7 +51,8 @@ int MeasureIndicesParallel(
     const ITextMeasurer& backend,
     std::span<const size_t> indices,
     MeasureViewportRange viewport,
-    TaskScheduler* scheduler);
+    TaskScheduler* scheduler,
+    LayoutDeadline deadline);
 
 } // namespace layout
 
@@ -64,31 +70,31 @@ public:
     }
     bool RecreateFormats();
     // 幅が変わったら全ノードを dirty にして推定値で Y を組み直す (DirectWrite は呼ばない)。
-    // 未推定のキャッシュ (位置が全て 0) も組み直す。
-    void Reestimate(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width);
+    // 未推定のキャッシュ (位置が全て 0) も組み直す。戻り値は幅 (か書式) が変わって全ノードを dirty にしたか。
+    bool Reestimate(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width);
     // [viewport_top, viewport_bottom] に入る dirty を計測し、退避したテーブル行を戻す。
     // 計測で高さが変わると範囲に入るノードも変わるため、範囲内の dirty が無くなるまで繰り返す。
     // 戻り値は高さ・位置・テーブル行のいずれかが変わったか。
     bool EnsureVisibleLayout(
         const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
         float viewport_top, float viewport_bottom);
-    // clip 内の dirty を最大 batch_size 件 (0 = 無制限) 計測する。clip 内に dirty が残れば true。
+    // clip 内の dirty を deadline まで計測する。clip 内に dirty が残れば true。
     // clip が既定値 ({}) なら全 dirty を対象にする。
     bool ProcessDirtyBatch(
         const std::pmr::vector<Node>& nodes, LayoutCache& cache,
-        float viewport_width, int batch_size,
+        float viewport_width, LayoutDeadline deadline,
         layout::ViewportClip clip);
 
 private:
     struct PassResult {
         bool updated = false;
-        // 上限か計測失敗で、範囲内の dirty を計測しきれなかった。
+        // 期限か計測失敗で、範囲内の dirty を計測しきれなかった。
         bool remaining = false;
     };
-    // 範囲内の dirty を最大 max_nodes 件 (0 = 無制限) 計測し、退避したテーブル行を戻して Y を組み直す。
+    // 範囲内の dirty を deadline まで計測し、退避したテーブル行を戻して Y を組み直す。
     PassResult MeasurePass(
         const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
-        MeasureViewportRange range, size_t max_nodes);
+        MeasureViewportRange range, LayoutDeadline deadline);
 
     // dirty なノード (mark_all_dirty なら全ノード) の高さを推定値で更新し、全ノードの Y を組み直す。
     void EstimateDirtyHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float content_width, bool mark_all_dirty);
@@ -125,7 +131,7 @@ public:
     };
     // ProcessDirtyBatch / EnsureVisibleLayout は見ている位置を保つ (前後で scroll target を確定・適用する)。
     bool ProcessDirtyBatch(
-        const Document& doc, LayoutCache& cache, float width, int batch_size,
+        const Document& doc, LayoutCache& cache, float width, LayoutDeadline deadline,
         ViewportLimit viewport);
     bool EnsureVisibleLayout(const Document& doc, LayoutCache& cache, float width, float height);
     // 画面外の node も計測する。見ている位置は保つ。

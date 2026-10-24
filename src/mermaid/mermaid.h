@@ -10,6 +10,7 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 #include <WebView2.h>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -136,6 +137,9 @@ private:
         // WebView2 で描画した直後の PNG。成功時はディスクキャッシュへ書き出す。
         bool captured = false;
         DWORD read_error = 0;
+        // 投入時の disk_drop_gen_。worker で変わっていたら読まずに dropped で返す。
+        uint32_t drop_gen = 0;
+        bool dropped = false;
     };
 
     // 1 つ増やすごとにレンダラープロセスの起動と mermaid.js のロードが要り、数十 MB 常駐する。
@@ -253,6 +257,8 @@ private:
     UINT disk_loaded_msg_ = 0;
     bool editing_diagrams_ = false;
     PostedInbox<DiskLoad> disk_results_;
+    // DropQueued / CancelPending で進め、投入済みのディスクキャッシュの読み込みを取り消す (ImageLoader の drop_gen_ と同じ)。
+    std::atomic<uint32_t> disk_drop_gen_{ 0 };
 
     // Shutdown で worker 完了を待つ。scheduler 共有 worker から self を参照する race を排除する。
     WorkerLatch latch_;

@@ -17,10 +17,7 @@ Document Document::FromMarkdown(std::pmr::string text, size_t byte_size, std::ws
     doc.loaded_byte_size_ = byte_size;
     // raw_text_ をパースした結果なのでノードのテキストは raw_text_ か arena を指しており rebase 不要。
     ParseResult result = ParseMarkdown(doc.raw_text_, std::move(stop_token));
-    auto [nodes, arena, tables] = result.TakeNodes();
-    doc.nodes_ = std::move(nodes);
-    doc.text_arena_ = std::move(arena);
-    doc.tables_ = std::move(tables);
+    doc.storage_ = std::make_shared<const NodeStorage>(result.TakeNodes());
     doc.image_node_indices_ = std::move(result.image_indices);
     doc.diagram_node_indices_ = std::move(result.diagram_indices);
     doc.table_node_indices_ = std::move(result.table_indices);
@@ -64,7 +61,7 @@ int Document::FindAnchorIndex(std::string_view anchor)
     index.Reserve(toc_.size());
     for (size_t i = index.heading_count(); i < toc_.size(); ++i) {
         const int node_index = toc_[i].node_index;
-        if (index.Add(nodes_[node_index].GetText(), node_index) == key) {
+        if (index.Add(GetNodes()[node_index].GetText(), node_index) == key) {
             return node_index;
         }
     }

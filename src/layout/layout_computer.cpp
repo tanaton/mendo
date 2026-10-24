@@ -165,8 +165,9 @@ float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width)
         return theme.GetHeadingSize(node.heading_level()) * 1.5f;
     case NodeType::CodeBlock:
     case NodeType::Diagram: {
+        // 段落と同じく少なめに倒す。Cascadia Mono 14px の 1 行は実測 16.27 DIP (1.162 倍)、日本語を含むと 17.45。
         const int lines = 1 + node.line_count;
-        const float h = theme.font_size_code * 1.3f * static_cast<float>(lines);
+        const float h = theme.font_size_code * 1.16f * static_cast<float>(lines);
         return std::max(h, line_height);
     }
     case NodeType::HorizontalRule:
@@ -224,11 +225,11 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
 
 CarryOverResult CarryOverUnchanged(
     const std::pmr::vector<Node>& old_nodes, LayoutCache& old_cache,
-    const std::pmr::vector<Node>& new_nodes, LayoutCache& new_cache)
+    const std::pmr::vector<Node>& new_nodes, LayoutCache& new_cache, const UnchangedEnds& ends)
 {
     MENDO_PROFILE("layout::CarryOverUnchanged");
     assert(old_cache.size() == old_nodes.size() && new_cache.size() == new_nodes.size());
-    const auto ends = FindUnchangedEnds(old_nodes, new_nodes);
+    assert(ends.old_count == old_nodes.size() && ends.new_count == new_nodes.size());
     new_cache.TakeEntries(old_cache, 0, 0, ends.head);
     new_cache.TakeEntries(old_cache, ends.OldTailBegin(), ends.NewTailBegin(), ends.tail);
 

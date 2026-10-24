@@ -95,22 +95,12 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchResolvesDirty)
     auto [nodes, cache] = ParseAndLayout("A\n\nB\n\nC\n\nD\n\nE", 800.0f, 0.0f, 1.0f);
 
     if (cache.HasDirtyNodes()) {
-        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 100, {});
+        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, {});
         EXPECT_FALSE(more);
     }
 
     for (size_t i = 1; i < nodes.size(); i++) {
         EXPECT_GT(cache.Top(i), cache.Top(i - 1));
-    }
-}
-
-TEST_F(MockLayoutTest, ProcessDirtyBatchSmallBatch)
-{
-    auto [nodes, cache] = ParseAndLayout(MakeParagraphs(50), 800.0f, 0.0f, 10.0f);
-
-    if (cache.HasDirtyNodes()) {
-        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 5, {});
-        EXPECT_TRUE(more); // 50 nodes, batch=5
     }
 }
 
@@ -125,7 +115,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchNoDirtyPreservesHeight)
     EXPECT_GT(height_before, 0.0f);
 
     // ダーティなものがない場合のProcessDirtyBatchはtotal_heightを破損させないべき
-    bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 100, {});
+    bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, {});
     EXPECT_FALSE(more);
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, theme_.margin_bottom), height_before);
 }
@@ -480,7 +470,7 @@ TEST_F(MockLayoutTest, EstimateOnSwitchGivesNearFullContentHeight)
     auto nodes = ParseNodes(md);
     cache = layout::MakeEstimatedLayoutCache(nodes, theme_);
     ComputeLayout(engine_, nodes, cache, kSwitchWidth, 0.0f, kSwitchViewportBottom);
-    while (engine_.ProcessDirtyBatch(nodes, cache, kSwitchWidth, 200, { 0.0f, kSwitchViewportBottom, 5.0f })) {
+    while (engine_.ProcessDirtyBatch(nodes, cache, kSwitchWidth, kNoLayoutDeadline, { 0.0f, kSwitchViewportBottom, 5.0f })) {
     }
 
     LayoutCache full;
@@ -501,7 +491,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchWithClipOnFreshCacheMeasuresTopNodes)
     const auto md = MakeParagraphs(10);
     auto nodes = ParseNodes(md);
     cache = MakeEmptyCache(nodes.size());
-    engine_.ProcessDirtyBatch(nodes, cache, kSwitchWidth, 100, { 0.0f, kSwitchViewportBottom, 1.0f });
+    engine_.ProcessDirtyBatch(nodes, cache, kSwitchWidth, kNoLayoutDeadline, { 0.0f, kSwitchViewportBottom, 1.0f });
 
     EXPECT_FALSE(cache[0].layout_dirty);
     EXPECT_GT(cache[0].height, 0.0f);

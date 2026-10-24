@@ -1,6 +1,5 @@
 add_executable(mendo_tests
     test_document.cpp
-    test_document_service.cpp
     test_parser.cpp
     test_types.cpp
     test_theme.cpp

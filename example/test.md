@@ -53,8 +53,7 @@ graph TB
     end
 
     subgraph ドメインサービス
-        DS[DocumentService<br>ファイル読込統括]
-        FLS[FileLoadService<br>非同期ロード制御]
+        FLS[FileLoadService<br>ファイル読込・非同期ロード制御]
         LS[LayoutService<br>レイアウト計算統括]
         NH[NavHistory + HandleLinkClick<br>履歴・リンク解決]
         TS[ThemeService<br>テーマ・ズーム永続化]
@@ -90,8 +89,8 @@ graph TB
     CG --> CE
     REN --> RB
     CE & RB --> D2D_OS
-    APP --> DS & FLS & LS & NH & TS & SS_SVC & RM & HT
-    DS --> MD
+    APP --> FLS & LS & NH & TS & SS_SVC & RM & HT
+    FLS --> MD
     RM --> WV
     WV --> MJ
 ```
@@ -987,12 +986,13 @@ public:
     void UpdateTheme(const Theme& theme) noexcept;
     bool RecreateFormats();
 
-    void Reestimate(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width);
+    // 幅 (か書式) が変わって全ノードを dirty にしたら true。
+    bool Reestimate(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width);
     bool EnsureVisibleLayout(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
                              float viewport_top, float viewport_bottom);
     bool ProcessDirtyBatch(const std::pmr::vector<Node>& nodes, LayoutCache& cache,
-                           float viewport_width, int batch_size,
-                           layout::ViewportClip clip = {});
+                           float viewport_width, LayoutDeadline deadline,
+                           layout::ViewportClip clip);
 };
 
 class LayoutService {
@@ -1005,7 +1005,7 @@ public:
     };
 
     void ViewportLayout(const Document& doc, LayoutCache& cache, float width, float height);
-    bool ProcessDirtyBatch(const Document& doc, LayoutCache& cache, float width, int batch_size,
+    bool ProcessDirtyBatch(const Document& doc, LayoutCache& cache, float width, LayoutDeadline deadline,
                            ViewportLimit viewport);
     bool EnsureVisibleLayout(const Document& doc, LayoutCache& cache, float width, float height);
     // 画面外の node も計測する。
@@ -1015,19 +1015,21 @@ public:
 };
 ```
 
-本番実装は `DWriteTextMeasurer`（DirectWrite を使用）。書式は `SetFactory` の後に `RecreateFormats` で作る。テスト時はモックに差し替えられる。`RecomputeYPositions` / `EstimateNodeHeight` / `EstimateNodeHeights` / `MakeEstimatedLayoutCache` などのフリー関数（`layout_computer.h` の `layout` 名前空間）で Y 座標再計算と高さ推定（DirectWrite 計測前の暫定値）を提供する。リロードでは `CarryOverUnchanged` が先頭・末尾から中身の一致する範囲を数え、その計測結果を旧キャッシュから区間ごとに引き継ぐ（`LayoutCache::TakeEntries`）。グローバル名前空間への `using` エイリアスは置かず、使う側の .cpp が必要な名前だけを `using layout::X;` で取り込む。
+本番実装は `DWriteTextMeasurer`（DirectWrite を使用）。書式は `SetFactory` の後に `RecreateFormats` で作る。テスト時はモックに差し替えられる。`RecreateFormats` を呼んだスレッド（UI スレッド）は共有ファクトリで、それ以外の計測ワーカーはスレッドごとの ISOLATED ファクトリと書式（`thread_local`、`RecreateFormats` の世代番号が変わったら作り直す）で測る。共有ファクトリを全スレッドで使うと、ファクトリ内部の競合で 4 本を超えると遅くなるため（`test.md` x8 の全計測で、共有は 8 本 705ms・16 本 1480ms、分けると 410ms・260ms）。`RecomputeYPositions` / `EstimateNodeHeight` / `EstimateNodeHeights` / `MakeEstimatedLayoutCache` などのフリー関数（`layout_computer.h` の `layout` 名前空間）で Y 座標再計算と高さ推定（DirectWrite 計測前の暫定値）を提供する。リロードでは `CarryOverUnchanged` が、先頭・末尾から中身の一致する範囲（`FindUnchangedEnds` の結果。非同期リロードでは worker が数えて渡す）の計測結果を、旧キャッシュから区間ごとに引き継ぐ（`LayoutCache::TakeEntries`）。グローバル名前空間への `using` エイリアスは置かず、使う側の .cpp が必要な名前だけを `using layout::X;` で取り込む。
 
-計測用の scheduler は Mermaid 等の共有 scheduler とは別に立て、ワーカー数は `LayoutWorkerCount`（コア数 − 1 を 2〜8 本に収める。16 本は 8 本より遅い）で決める。`Renderer::SetLayoutScheduler` は設定時に `DWriteTextMeasurer::WarmUp` で本文・コード・見出し 1 つの書式の小さなレイアウトを各ワーカーで作って捨て、最初の計測がフォントの読み込みとフォールバックの解決を待たないようにする。
+計測用の scheduler は Mermaid 等の共有 scheduler とは別に立て、ワーカー数は `LayoutWorkerCount`（コア数 − 1 を 2〜8 本に収める。16 本はさらに速いがファクトリの分だけ commit が約 11% 増える）で決める。`Renderer::SetLayoutScheduler` は設定時に `DWriteTextMeasurer::WarmUp` で、各ワーカーにファクトリと書式を作らせ、本文・コード・見出し 1 つの書式の小さなレイアウトを作って捨てる。最初の計測がフォントの読み込みとフォールバックの解決を待たないようにするためで、作り終えたワーカーは全員がそろうまで待ち、1 本に 1 つずつ行き渡らせる。
+
+幅が変わったときに既存の text_layout を作り直さずに済む経路は 2 つある。改行でしか折れておらず最も長い行が新しい幅に収まるノードは、組み直しても行が同じなので幅を付け替えない（`SetMaxWidth` の後の `GetMetrics` は作り直しとほぼ同じだけかかる。リサイズ時の計測し直しが `test.md` で 174ms → 143ms、README で 6.0ms → 3.1ms）。それ以外は `SetMaxWidth` で組み直す（作り直しより 1〜16% 速いだけだが、装飾の付け直しが要らない）。
 
 計測後の確定処理は `MeasureEntry` 1 か所にまとめている。実測値を `cached_width` / `cached_height` に残し、計測失敗回数 `measure_failures` を 0 に戻す。ビットマップを描くノード（画像・図、`IsBitmapDrawNode`）は `ITextMeasurer` に渡さず、`layout::BitmapNodeHeight` が `DiagramEntry` の寸法から表示高さを決める（寸法が届くまでは現在値、それも無ければプレースホルダーの高さ）。
 
-幅が `kWidthChangeThreshold`（2 DIP）を超えて変わるか書式が作り直されると、`Reestimate` が全ノードを dirty にして推定値で Y を組み直す（DirectWrite は呼ばない）。推定に使った本文幅とズームは `LayoutCache::EstimateBasis` に残り、ワーカーが表示と同じ幅で推定したキャッシュは UI スレッドで推定し直さない（幅を知らない起動時の先読みだけ推定し直す）。`LayoutService::ViewportLayout` は `Reestimate` の後に `ViewportManager::ApplyScrollTarget` で見ていた位置を当て直してから可視範囲を計測する。ズームや幅変更で推定し直すと Y がずれるため、古い `scroll_y` のまま計測すると見えない範囲を 1 画面分ムダに計測してしまう。
+幅が `kWidthChangeThreshold`（2 DIP）を超えて変わるか書式が作り直されると、`Reestimate` が全ノードを dirty にして推定値で Y を組み直す（DirectWrite は呼ばない）。推定に使った本文幅とズームは `LayoutCache::EstimateBasis` に残り、ワーカーが表示と同じ幅で推定したキャッシュは UI スレッドで推定し直さない（幅を知らない起動時の先読みだけ推定し直す）。`LayoutService::ViewportLayout` は `Reestimate` の後に `ViewportManager::ApplyScrollTarget` で見ていた位置を当て直してから可視範囲を計測する。ズームや幅変更で推定し直すと Y がずれるため、古い `scroll_y` のまま計測すると見えない範囲を 1 画面分ムダに計測してしまう。幅が変わったときは、残っている表の行（上下 8 画面分）が全部組み直しになるので、計測の前に画面外の行を捨て（`EvictInvisibleTableRows`）、見えたときに作らせる（2 万行 6 列の表の中で幅を変えたときの可視範囲のレイアウトが 3.7ms → 0.55ms）。
 
-ダーティノードの計測は `LayoutEngine::MeasurePass`（private）に一本化されている。`MeasurePass` は範囲内の dirty を最大 `max_nodes` 件（0 = 無制限）集めて `layout::MeasureIndicesParallel`（`layout.cpp`）で計測し、幅不変のまま行単位で evict されたテーブルは `RestoreEvictedTableRows` で戻し、高さが変わった区間だけ `RecomputeYPositions` で組み直す。`ProcessDirtyBatch` は `ViewportClip`（可視範囲 ± `buffer_screens` 画面）内の dirty を `batch_size` 件まで計測する 1 回の `MeasurePass` で、時間予算は持たない（worker 側に中断点が無いため）。`EnsureVisibleLayout` は計測で高さが変わると範囲に入るノードも変わるため、範囲内の dirty が無くなるまで `MeasurePass` を繰り返す（失敗し続けるノードに備えて最大 8 回）。`MeasureIndicesParallel` は `ParallelFor` に 1 ノード単位で配り、1 画面分（数十ノード）の dirty でも全 worker に行き渡らせる。scheduler が null なら同じ関数が呼び出しスレッドで直列に計測する。例外はノード単位で捕まえ、失敗回数が `LayoutCache::kMaxMeasureAttempts` に達したノードは dirty を下ろして諦める。CodeBlock のトークン化と、リンク色・アラートラベル色の描画効果（`BrushEffect`）・インラインコード背景の付与は worker が担当ノードの `NodeLayoutEntry` へ直接書き込み、UI スレッドでの集約は行わない（`Tokenize` 完了後に代入するので、例外時に途中のトークンが残らない）。`ViewportClip` の型は `layout.h` に置く。`ProcessDirtyBatch` の `clip` を省略すると可視範囲で絞らず全 dirty を対象にする。
+ダーティノードの計測は `LayoutEngine::MeasurePass`（private）に一本化されている。`MeasurePass` は範囲内の dirty を集めて `layout::MeasureIndicesParallel`（`layout.cpp`）で期限（`LayoutDeadline`）まで計測し、幅不変のまま行単位で evict されたテーブルは `RestoreEvictedTableRows` で戻し、高さが変わった区間だけ `RecomputeYPositions` で組み直す。`ProcessDirtyBatch` は `ViewportClip`（可視範囲 ± `buffer_screens` 画面）内の dirty を期限まで計測する 1 回の `MeasurePass` である。期限は各ワーカーが次のノードを取る前に見て、過ぎていたら手を付けずに dirty のまま残す。ただし 1 ノード目は期限を過ぎていても計測するので、呼び出しごとに必ず進む。`EnsureVisibleLayout` は計測で高さが変わると範囲に入るノードも変わるため、範囲内の dirty が無くなるまで `MeasurePass` を繰り返す（失敗し続けるノードに備えて最大 8 回）。`MeasureIndicesParallel` は `ParallelFor` に 1 ノード単位で配り、1 画面分（数十ノード）の dirty でも全 worker に行き渡らせる。scheduler が null なら同じ関数が呼び出しスレッドで直列に計測する。例外はノード単位で捕まえ、失敗回数が `LayoutCache::kMaxMeasureAttempts` に達したノードは dirty を下ろして諦める。CodeBlock のトークン化と、リンク色・アラートラベル色の描画効果（`BrushEffect`）・インラインコード背景の付与は worker が担当ノードの `NodeLayoutEntry` へ直接書き込み、UI スレッドでの集約は行わない（`Tokenize` 完了後に代入するので、例外時に途中のトークンが残らない）。`ViewportClip` の型は `layout.h` に置く。`ProcessDirtyBatch` の `clip` に既定値（`{}`）を渡すと可視範囲で絞らず全 dirty を対象にする。
 
 計測待ちの dirty が残っているかは `LayoutCache::HasDirtyNodes` が持ち、キャッシュと一緒に動く。`Reestimate` / `EnsureVisibleLayout` / `ProcessDirtyBatch` が更新し、`EnsureVisibleLayout` は走査しない範囲外に dirty が残っていると保守的に仮定する。
 
-遅延レイアウト（`App::OnDeferredLayout`）はメッセージループの空き時間（`App::RunIdleWork`）に、32 ノードずつ 4ms まで、入力が来たら途中でも譲って進める。`ResourceManager::EVICT_BUFFER_SCREENS`（2 画面）を `buffer_screens` に渡すため、画面外の計測は前後 2 画面までに限られる。範囲外へジャンプした場合は `EnsureVisibleLayout` が同期計測で拾う。
+遅延レイアウト（`App::OnDeferredLayout`）はメッセージループの空き時間（`App::RunIdleWork`）に、4ms の期限で `ProcessDirtyBatch` を 1 回呼んで進める。件数で細かく区切ると、区切るたびに走査・Y の組み直し・ワーカーの待ち合わせが挟まるためである（`test.md` x4 の全計測で、32 件ずつだと一度に測る 165ms が 290ms になった）。`ResourceManager::EVICT_BUFFER_SCREENS`（2 画面）を `buffer_screens` に渡すため、画面外の計測は前後 2 画面までに限られる。範囲外へジャンプした場合は `EnsureVisibleLayout` が同期計測で拾う。
 
 #### 3.7.2 レイアウト計算フロー
 
@@ -1036,7 +1038,7 @@ flowchart TB
     START[LayoutService 呼出し] --> MODE{モード}
     MODE -->|ViewportLayout| REEST[Reestimate<br>推定値で Y 再構築]
     MODE -->|EnsureVisibleLayout / EnsureNodeLayout| ENSURE[可視領域保証<br>dirty が無くなるまで繰り返す]
-    MODE -->|ProcessDirtyBatch| BATCH[ダーティバッチ処理<br>ViewportClip 内を batch_size 件]
+    MODE -->|ProcessDirtyBatch| BATCH[ダーティバッチ処理<br>ViewportClip 内を期限まで]
     MODE -->|RecomputeAfterDiagram| YPOS
 
     REEST --> TARGET[ApplyScrollTarget<br>見ていた位置を当て直す]
@@ -1426,7 +1428,7 @@ Lua は汎用 lexer に長括弧（`[[ ]]` / `[==[ ]==]` の文字列と `--[[ ]
 
 ---
 
-### 3.11 ファイルI/O — FileLoader / FileWatcher / DocumentService / FileLoadService
+### 3.11 ファイルI/O — FileLoader / FileWatcher / FileLoadService
 
 #### 3.11.1 ファイル読み込み
 
@@ -1496,25 +1498,7 @@ public:
 
 ReadDirectoryChangesW の通知バッファは 64KB 確保（バッファ溢れで通知喪失を防ぐため）。
 
-#### 3.11.3 DocumentService — 読み込みオーケストレーション
-
-```cpp
-// src/io/file_load_service.h。static ユーティリティ群。FileWatcher は保持しない（監視は FileWatcher を直接使う）。
-class DocumentService {
-public:
-    static std::expected<Document, FileLoadError> LoadFile(const std::pmr::wstring& path);
-
-    static bool IsAsyncLoadCandidate(const std::pmr::wstring& path) noexcept;
-    static bool ShouldShowLoadingAnimation(const std::pmr::wstring& path) noexcept;
-    // size は QueryFileSize の結果。取得失敗 (nullopt) は上限超え扱い。
-    static bool IsAsyncLoadCandidate(std::optional<uint64_t> size) noexcept;
-    static bool ShouldShowLoadingAnimation(std::optional<uint64_t> size) noexcept;
-};
-```
-
-`LoadFile` は `std::expected` で成功時 `Document`（FromMarkdown 済み）を、失敗時 `FileLoadError` を返す。`IsAsyncLoadCandidate` / `ShouldShowLoadingAnimation` はファイルサイズで判定する閾値関数。ファイル読み込み（`FileLoader`）とパース（`Document`）をつなぐ役なので、`core` ではなく `io` に置く。`core` は `io` / `layout` に依存しない。
-
-#### 3.11.4 FileLoadService — 非同期ロード制御 + アニメーション
+#### 3.11.3 FileLoadService — 非同期ロード制御 + アニメーション
 
 ```cpp
 // ワーカースレッドでのパース結果。cache は doc 向けに EstimateNodeHeights 済み。
@@ -1522,7 +1506,14 @@ struct AsyncLoadResult {
     Document    doc;
     LayoutCache cache;
     // 同一ファイルのリロードで、worker がパース前に差分判定まで済ませた結果。
+    // 旧文書のノードと比べて変わらなかった先頭と末尾のノード数 (ends) も worker で数えて持つ。
     std::optional<ReloadCheck> reload;
+};
+
+// 同一ファイルのリロードで worker に渡す旧文書。text はパース前の差分判定、nodes はパース後の比較に使う。
+struct ReloadBase {
+    std::shared_ptr<const std::pmr::string> text;
+    std::weak_ptr<const NodeStorage> nodes;
 };
 
 // 非同期ロード 1 回分の結果。成功時は AsyncLoadResult、失敗時はその理由。
@@ -1540,12 +1531,8 @@ public:
     constexpr void StopLoading() noexcept;
     constexpr void TickLoadingAnimation() noexcept;
 
-    // 同期ロード
-    std::expected<Document, FileLoadError> ExecuteLoad();
-
-    // 非同期ロード
-    void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, Theme theme,
-                        std::shared_ptr<const std::pmr::string> reload_base = nullptr);
+    void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, Theme theme, float content_width,
+                        ReloadBase reload_base);
     std::optional<AsyncLoadOutcome> TakeAsync() noexcept;
     void CancelAsyncLoad() noexcept;
 
@@ -1559,11 +1546,13 @@ public:
 };
 ```
 
-非同期ロードはワーカースレッドで Document を構築し、推定高さまで埋めた `LayoutCache` を返す。ワーカー同期は `AsyncLoadCoordinator`（`src/io/async_load_coordinator.h`）に分離されており、ワーカーは世代カウンタ（atomic な `gen_`）の確認と mutex 保護の `outcome_` への書き込みだけを行う。`Start` は世代を進めて進行中の読み込み（preload を含む）を置き換える。成功と失敗は `AsyncLoadOutcome`（`std::expected`）1 つで運ぶので、結果とエラーが両方入っている状態や、片方だけ取り残される状態は起きない。UI スレッドは `App::OnParseComplete` で `TakeAsync` を 1 回呼んで受け取る。
+ファイルの読み込みとパースは大きさによらず（ヘルプを除いて）ワーカーで行い、UI スレッドはファイルに触れない（ネットワーク上のファイルで止まらない）。スピナーは、読み込みが `LOADING_SPINNER_DELAY_MS`（150ms）より長引いたときだけ出す（`App::ScheduleLoadingAnimation` が `LOADING_ANIM` タイマーを遅延付きで張り、最初の発火でスピナーを始める）。すぐ終わる読み込みでちらつかせないためである。読み込みのタスクは `TaskScheduler::PostFront` で、画像のデコードや図の読み込みの待ちより先に実行させる（リロードは旧文書の表示を続けるので、それらの待ちを捨てられない）。
+
+非同期ロードはワーカースレッドで Document を構築し、推定高さまで埋めた `LayoutCache` を返す。同一ファイルのリロードでは、パース後に旧文書のノード（`Document::ShareNodes` の弱参照）と比べ、変わらなかった先頭と末尾のノード数（`UnchangedEnds`）も worker で数える（100MB で約 20ms を UI スレッドから外す）。パース中に UI が旧文書を手放していれば数えず、`App::ReloadDocument` が数え直す。ワーカー同期は `AsyncLoadCoordinator`（`src/io/async_load_coordinator.h`）に分離されており、ワーカーは世代カウンタ（atomic な `gen_`）の確認と mutex 保護の `outcome_` への書き込みだけを行う。`Start` は世代を進めて進行中の読み込み（preload を含む）を置き換える。成功と失敗は `AsyncLoadOutcome`（`std::expected`）1 つで運ぶので、結果とエラーが両方入っている状態や、片方だけ取り残される状態は起きない。UI スレッドは `App::OnParseComplete` で `TakeAsync` を 1 回呼んで受け取る。
 
 起動時の読み込みは、ウィンドウを作る前に `StartPreloadAsync` が通知先なし（`hwnd` = null）で `Start` する。ウィンドウ作成後の `App::LoadInitialDocument` が `AttachPreload` で通知先を渡し、結果がもう出ていれば `AppliedSync` を返してその場で `OnParseComplete` を呼び（直後の同期 `WM_PAINT` で初回フレームが空にならないように）、まだなら `AttachedAsync` で完了時に `PARSE_COMPLETE` を送らせる。読み込んでいなければ `None` でヘルプを表示する。
 
-#### 3.11.5 対応ファイル形式
+#### 3.11.4 対応ファイル形式
 
 | フィルタ名 | 拡張子 |
 |:----------|:-------|
@@ -1631,7 +1620,7 @@ public:
     // SVG をクリップボード用に取得する。PNG レンダリングと同じワーカー枠を共有する。code は UTF-8。
     virtual void RequestSvg(std::string_view code, float max_width, bool dark_mode,
                             SvgCallback callback) = 0;
-    // 描画待ちの表示用要求だけを捨てる (描画中と SVG 要求は維持)。捨てた図は再要求される。
+    // 描画待ちの表示用要求と、ディスクキャッシュの読み込み待ちを捨てる (描画中と SVG 要求は維持)。捨てた図は再要求される。
     virtual void DropQueued() {}
 };
 ```
@@ -1642,7 +1631,9 @@ public:
 
 `mendo_core` には `IMermaidRenderer` 抽象のみが入り、WebView2 を呼び出す具象 `MermaidRenderer` は `mendo` 実行ファイル側に分離されている。`MermaidRenderer` は最大 2 ワーカー（`MAX_WORKERS`、独立した WebView2 インスタンス）を並行稼働させ、PNG/SVG を同時にレンダリングできる。ワーカーは最初 1 つだけ起動し、全ワーカーが描画中で待ちが溜まったときに `MaybeGrowWorkers` で増やす。
 
-PNG のデコードは UI スレッドで行わない。ディスクキャッシュから読む場合も、WebView2 の `CapturePreview` で描画した直後の PNG も同じ `DiskLoad` 経路に流し、バックグラウンド `TaskScheduler` でファイル読み込み（キャプチャ時は不要）と WIC デコードを済ませた `IWICBitmap` を作る。完了は `app_msg::MERMAID_DISK_LOADED` で通知され、UI スレッドの `ProcessDiskLoads` が `CreateBitmapFromWicBitmap` で `ID2D1Bitmap` 化してメモリキャッシュに入れ、結果が出たものがあれば `on_update_` をまとめて 1 回呼ぶ。1 回の転送は `kUploadSliceBudget`（4ms）までで、残した分は `HasLeftoverDiskLoads` が真になり、メッセージループの空き時間（`App::RunIdleWork`）で続ける。キャプチャ由来の PNG はこのときディスクキャッシュへ `StoreAsync` される。ディスクから読めなかった・デコードできなかった図は WebView2 での描画に回し、キャプチャ直後の PNG がデコードできなければエラーとして確定させる。
+PNG のデコードは UI スレッドで行わない。ディスクキャッシュから読む場合も、WebView2 の `CapturePreview` で描画した直後の PNG も同じ `DiskLoad` 経路に流し、バックグラウンド `TaskScheduler` でファイル読み込み（キャプチャ時は不要）と WIC デコードを済ませた `IWICBitmap` を作る。完了は `app_msg::MERMAID_DISK_LOADED` で通知され、UI スレッドの `ProcessDiskLoads` が `CreateBitmapFromWicBitmap` で `ID2D1Bitmap` 化してメモリキャッシュに入れ、結果が出たものがあれば `on_update_` をまとめて 1 回呼ぶ。1 回の転送は `kUploadSliceBudget`（4ms）までで、残した分は `HasLeftoverDiskLoads` が真になり、メッセージループの空き時間（`App::RunIdleWork`）で続ける。キャプチャ由来の PNG はこのときディスクキャッシュへ `StoreAsync` される。ディスクから読めなかった・デコードできなかった図は WebView2 での描画に回し、キャプチャ直後の PNG がデコードできなければエラーとして確定させる。ディスクキャッシュの読み込みは `DropQueued` / `CancelPending` で世代（`disk_drop_gen_`）を進めて取り消す（ImageLoader の `drop_gen_` と同じ）。worker は世代が変わっていれば読まずに返し、UI は要求中の印だけを外す。描画直後の PNG はディスクへ保存したいので取り消さない。
+
+WebView2 の環境は `--disable-gpu` を付けて作る（`CoreWebView2EnvironmentOptions::put_AdditionalBrowserArguments`）。図は SVG 1 枚をオフスクリーンで描いて写すだけなので GPU で描く利点が無く、GPU プロセスが GPU ドライバを読み込んで D3D11 デバイスを作るコストと、キャプチャのときの GPU からの読み戻しだけが残るためである。シーケンス図 1 つで mendo + WebView2 の commit が 262MB → 171MB（GPU プロセスだけで 118MB → 22MB）、描き終わるまでも 1〜2 割縮む。写した図と数式は GPU ありと同じ。
 
 描画要求が無いまま `IDLE_SHUTDOWN_MS`（60 秒）経つと、`app_timer::Id::MERMAID_IDLE` → `App::HandleTimer` → `OnIdleTimer` で全ワーカーと WebView2 環境（browser / renderer / GPU プロセス）をまとめて閉じ、準備完了の印 (`ready_`) も戻す。待ちキューが空になるたび（`ProcessQueue` 末尾）にタイマーを張り直し、待ちや描画中のワーカーが残っていれば閉じるのを見送る。次の描画要求で `EnsureInitialized` から作り直し、準備完了の通知（`on_update_`）は再初期化のたびに呼ばれて未描画の図を再要求させる。
 
@@ -2118,6 +2109,7 @@ public:
     explicit SessionService(ConfigService& config) noexcept;
 
     void              SaveLastFilePath(std::wstring_view path);
+    // UNC・デバイスパスと実在しないパスは空。ネットワークドライブは切断時に止まらないよう存在を確かめない。
     std::pmr::wstring LoadLastFilePath() const;
 
     // PaneController との変換は呼び出し側が担う。
@@ -2583,10 +2575,10 @@ public:
     constexpr void Init(const ResourceManagerDeps& deps, ResourceManagerHost& host) noexcept;
 
     // 画像
-    int  ApplyCachedImages(bool respect_viewport = true);
-    int  ApplyCachedImagesForReload();   // respect_viewport=false で全画像走査
-    // リロード直後のスクロール位置計算用に、ディスクキャッシュにある図の寸法を推定高さへ上書きする。
-    bool ApplyMermaidCacheHeightsForReload();
+    int  ApplyCachedImages();                              // 可視範囲。未キャッシュは読み込みを起動
+    int  ApplyCachedImagesForReload(VisibleRange range);   // range の全画像。未キャッシュは無視
+    // リロード直後のスクロール位置計算用に、range の図の推定高さをディスクキャッシュにある寸法で上書きする。
+    bool ApplyMermaidCacheHeightsForReload(VisibleRange range);
     void LoadImages();
 
     // Mermaid
@@ -2756,15 +2748,17 @@ public:
     // スレッドセーフ。キューが MAX_PENDING_TASKS (1024) を超えると破棄して false。
     // 初回の Post でワーカーを起動する。
     bool Post(std::move_only_function<void()> task);
+    // 待っているタスクより先に実行させる。上限は見ない。Shutdown 後だけ false。
+    bool PostFront(std::move_only_function<void()> task);
     // 起動前でも Init で指定した数を返す (ParallelFor の分割数に使うため)。
     size_t WorkerCount() const noexcept;
     void Shutdown();
 };
 ```
 
-`App::Init` は `std::thread::hardware_concurrency()` を上の 2 関数に渡して、レイアウト用（`layout_scheduler_`）とバックグラウンド用（`scheduler_`）のワーカー数を決める。ワーカー数の規則は `task_scheduler.h` の 2 関数だけにあり、呼び出し側では計算しない。レイアウト用の上限 8 は、DirectWrite の計測が 4〜8 本で頭打ちになり、それ以上は共有ファクトリ内の競合で遅くなるため（24 コアで `test.md` x8 の全計測が 8 本 200ms、16 本 234ms）。バックグラウンド用の `Init` は `App::InitSharedScheduler` にまとめてあり、起動時の読み込み（`App::StartPreloadAsync`、`App::Init` より前に呼ばれる）と `App::Init` の両方から呼ぶ（2 回目は何もしない）。
+`App::Init` は `std::thread::hardware_concurrency()` を上の 2 関数に渡して、レイアウト用（`layout_scheduler_`）とバックグラウンド用（`scheduler_`）のワーカー数を決める。ワーカー数の規則は `task_scheduler.h` の 2 関数だけにあり、呼び出し側では計算しない。レイアウト用の上限 8 は、ワーカーごとの ISOLATED ファクトリで本数なりに速くなる（3.7.1）が、ファクトリ 1 つで約 0.4MB 増え、16 本では `test.md` 表示時の commit が約 11% 増えるため。ふだんの計測は可視範囲の数十ノードで、8 本でも余る。バックグラウンド用の `Init` は `App::InitSharedScheduler` にまとめてあり、起動時の読み込み（`App::StartPreloadAsync`、`App::Init` より前に呼ばれる）と `App::Init` の両方から呼ぶ（2 回目は何もしない）。
 
-ワーカーは初回 `Post` で指定数をまとめて起動する。レイアウト用は `Renderer::SetLayoutScheduler` が `DWriteTextMeasurer::WarmUp`（本文・コード・見出し 1 つの書式で小さなテキストレイアウトを作る）を `Post` するので、起動直後にワーカーとフォントが温まる。バックグラウンド用は起動時の読み込みや画像・Mermaid の要求が来るまで起動しない。各ワーカースレッドは `CoInitializeEx(COINIT_MULTITHREADED)` を自動呼び出しする。バックグラウンド用は `MermaidFileCache` の非同期書き込み、`FileLoadService` のバックグラウンドロードなどに使用される。
+ワーカーは初回 `Post` で指定数をまとめて起動する。レイアウト用は `Renderer::SetLayoutScheduler` が `DWriteTextMeasurer::WarmUp`（各ワーカーにファクトリと書式を作らせ、本文・コード・見出し 1 つの書式で小さなテキストレイアウトを作る）を `Post` するので、起動直後にワーカーとフォントが温まる。バックグラウンド用は起動時の読み込みや画像・Mermaid の要求が来るまで起動しない。各ワーカースレッドは `CoInitializeEx(COINIT_MULTITHREADED)` を自動呼び出しする。バックグラウンド用は `MermaidFileCache` の非同期書き込み、`FileLoadService` のバックグラウンドロードなどに使用される。
 
 #### 3.28.4 IniParser — INIファイルパーサ
 
@@ -3008,7 +3002,7 @@ classDiagram
         +size_t col_count
         +pmr::vector~float~ col_widths / row_heights
         +pmr::vector~float~ row_cum_y / col_cum_x
-        +pmr::vector~float~ natural_col_widths / cell_heights / cell_applied_widths / cell_natural_widths / cell_nowrap_heights
+        +pmr::vector~float~ natural_col_widths / cell_natural_widths / cell_nowrap_heights
         +pmr::vector~uint8_t~ row_evicted
         +float last_applied_max_width
         +float natural_total_width
@@ -3039,7 +3033,7 @@ classDiagram
 
 遅延レイアウトで計測する dirty が残っているかは `LayoutCache` 自身が `HasDirtyNodes()` として持ち、`LayoutEngine` が計測のたびに決め直す。キャッシュと一緒に動くので、推定直後（true）のキャッシュを文書ごと差し替えても遅延レイアウトが拾う。
 
-`TableLayoutData` は `unique_ptr` でテーブルノードのみ確保される。セルレイアウトはフラット配列 `[row * col_count + col]` で持ち、`natural_col_widths` / `cell_heights` / `cell_applied_widths` / `cell_natural_widths` などをまとめて管理する。セルのレイアウトは自然幅を測るために無限幅で作り、左揃えで列幅に収まるセルはそのまま使う（`ApplyCellWidth`。折り返さないので行組みは同じで、列幅を付けると組み直しになる）。セル単位の配列は `AllocateCells` でまとめて確保し、`cell_layouts` を最後に確保するので、途中で確保に失敗しても配列どうしのサイズは食い違わない。描画とヒットテストに要る幾何（`col_widths` / `row_heights` / `col_cum_x` / `row_cum_y`）が揃っているかは `HasGeometry` で判定する。幾何は計測完了時（`FinalizeTableLayout`）に揃い、`entry.height` だけを推定値で伸ばしたときなどは `InvalidateGeometry` で無効にして次の計測で作り直す。揃っていないテーブルは描かず、ヒットテストもしない（推定の行高さで描く線形のフォールバックは持たない）。表の総幅は `TableWidth`（`col_cum_x` の末尾）、列の刻み幅は `ColumnStep`、セル本文の原点は `TableCellTextOrigin` で求め、描画とヒットテストが同じ式を使う。インラインコードの背景は行ごとの配列 `row_code_bgs`（各行は列の昇順）で持ち、インラインコードを含むテーブルだけ `row_count` 分確保して行の計測で作り直す。描画は行の背景を列の昇順に読み進め、セルごとに行の全件を見ない。行単位 evict（`EvictInvisibleTableRows`）はセルレイアウトが生存しうる行範囲 `[live_row_begin, live_row_end)` のうち keep 範囲外の差分だけを捨て、背景は幅が変わらない限り有効なので残す。初回の計測（`MeasureTableCells`）は列幅を決めるために全セルを測るが、`kMaxKeptTableCells`（1024）を超える表はセルの自然幅と折り返さない高さ（`cell_nowrap_heights`）だけを残してレイアウトを捨て、全行を evict 済みにする（セルのレイアウトは 1 個 7KB ほどあり、5 万行 6 列の表で 2GB になる）。このとき列ごとに中身（テキストと装飾）が同じセルは最初の 1 つだけを測り、残りはその値を使う（`FindRepresentativeCells`。状態や種別のような同じ値が並ぶ表では計測が 4 割ほど縮む）。見出し行は書式が違うので対象にしない。evict 中の行の高さは、列幅に収まるセルは折り返さない高さそのもの、収まらないセルは折り返しの行数を見積もった値で、行が可視になって `RestoreEvictedTableRows` が作り直したときに実測へ揃える。
+`TableLayoutData` は `unique_ptr` でテーブルノードのみ確保される。セルレイアウトはフラット配列 `[row * col_count + col]` で持ち、`natural_col_widths` / `cell_natural_widths` などをまとめて管理する。セルのレイアウトは自然幅を測るために無限幅で作り（列の揃えは作るときに付ける）、左揃えで列幅に収まるセルはそのまま使う（`ApplyCellWidth`。折り返さないので行組みは同じで、列幅を付けると組み直しになる）。幅が変わったかはレイアウト自身の `GetMaxWidth` で判定し、変わらなければ `GetMetrics` が計測済みの高さを返すだけなので、セルごとの高さや適用幅は持たない。セル単位の配列は `AllocateCells` でまとめて確保し、`cell_layouts` を最後に確保するので、途中で確保に失敗しても配列どうしのサイズは食い違わない。描画とヒットテストに要る幾何（`col_widths` / `row_heights` / `col_cum_x` / `row_cum_y`）が揃っているかは `HasGeometry` で判定する。幾何は計測完了時（`FinalizeTableLayout`）に揃い、`entry.height` だけを推定値で伸ばしたときなどは `InvalidateGeometry` で無効にして次の計測で作り直す。揃っていないテーブルは描かず、ヒットテストもしない（推定の行高さで描く線形のフォールバックは持たない）。表の総幅は `TableWidth`（`col_cum_x` の末尾）、列の刻み幅は `ColumnStep`、セル本文の原点は `TableCellTextOrigin` で求め、描画とヒットテストが同じ式を使う。インラインコードの背景は行ごとの配列 `row_code_bgs`（各行は列の昇順）で持ち、インラインコードを含むテーブルだけ `row_count` 分確保して行の計測で作り直す。描画は行の背景を列の昇順に読み進め、セルごとに行の全件を見ない。行単位 evict（`EvictInvisibleTableRows`）はセルレイアウトが生存しうる行範囲 `[live_row_begin, live_row_end)` のうち keep 範囲外の差分だけを捨て、背景は幅が変わらない限り有効なので残す。初回の計測（`MeasureTableCells`）は列幅を決めるために全セルを測るが、`kMaxKeptTableCells`（1024）を超える表はセルの自然幅と折り返さない高さ（`cell_nowrap_heights`）だけを残してレイアウトを捨て、全行を evict 済みにする（セルのレイアウトは 1 個 7KB ほどあり、5 万行 6 列の表で 2GB になる）。このとき列ごとに中身（テキストと装飾）が同じセルは最初の 1 つだけを測り、残りはその値を使う（`FindRepresentativeCells`。状態や種別のような同じ値が並ぶ表では計測が 4 割ほど縮む）。見出し行は書式が違うので対象にしない。evict 中の行の高さは、列幅に収まるセルは折り返さない高さそのもの、収まらないセルは折り返しの行数を見積もった値で、行が可視になって `RestoreEvictedTableRows` が作り直したときに実測へ揃える。
 
 `DiagramEntry` の `width` / `height` は読み込んだ画像・描画した図の実寸で、再計測（幅変更・ズーム）でも表示高さの計算に使う。デバイスロスト時の `InvalidateAllDiagramBitmaps()` はビットマップを捨てても画像の寸法は残す。`png` はクリップボードコピー用の元 PNG データ（`PngBytes` = `shared_ptr<const pmr::vector<uint8_t>>`）。`error` は描画失敗時の表示用メッセージで、空でなければ再要求しない（リロード・幅変更・テーマ変更・デバイスロストで消えて再試行の契機になる）。`code_hash` は図のコード部分のハッシュで、結果を捨てても残し、要求し直すたびにテキストを読み直さない。`DiagramEntry` は画像/図のノードでしか使わないため、`diagrams_` は全ノード分の枠を持たず、ノード番号をキーにした `std::pmr::unordered_map<size_t, DiagramEntry>` として持つ。要素の位置はほかの要素の追加で動かないので、Mermaid の処理待ちが持つポインタも有効なまま。確保は結果を書き込む `EnsureDiagram(i)` だけが行い、読み取り・描画・破棄は未確保なら `nullptr` を返す `FindDiagram(i)` を使うので、表示していない画像/図ノードには確保しない。検索ヒットがあるノードでのみ `search_hl_cache` が確保される（フレーム間キャッシュ、`SearchState::generation_` と一致する間は HitTestTextRange を再計算しない）。検索・選択ハイライトは、本文 `text_layout` のうち可視範囲の上下に 1 画面ずつ足した行のテキスト範囲（`line_window`）を共有し、可視範囲がその窓に収まる間は引き直さない。
 
@@ -3058,11 +3052,13 @@ public:
     // byte_size の計算と LF 正規化を内蔵した版 (ヘルプの埋め込みリソース / テスト用)
     static Document FromMarkdown(std::pmr::string utf8, std::wstring_view path);
 
-    constexpr const std::pmr::vector<Node>& GetNodes() const noexcept;  // 書き換え用のアクセサは持たない
+    const std::pmr::vector<Node>&           GetNodes() const noexcept;  // 書き換え用のアクセサは持たない
+    // 非同期リロードの worker が旧ノードと比べるための弱参照
+    std::weak_ptr<const NodeStorage>        ShareNodes() const noexcept;
     constexpr const std::pmr::wstring&      GetFilePath() const noexcept;
     bool                                    HasBackingFile() const noexcept;    // 空パスとヘルプの仮想パスは false
     constexpr const std::pmr::vector<TocEntry>& GetToc() const noexcept;   // 文書順の見出し
-    constexpr bool                          IsEmpty() const noexcept;
+    bool                                    IsEmpty() const noexcept;
     const RawText&                          GetRawText() const noexcept;        // リロード差分比較用 (UTF-8 ラッパ)
     constexpr size_t                        GetLoadedByteSize() const noexcept; // partial-write 検出用
     constexpr const std::pmr::wstring&      GetDirectory() const noexcept;      // キャッシュ済み参照
@@ -3074,15 +3070,14 @@ public:
     constexpr const std::pmr::vector<size_t>& GetTableNodeIndices() const noexcept;
 
 private:
-    std::pmr::vector<Node> nodes_;
-    std::unique_ptr<TextArena> text_arena_;                    // 加工したテキストと全ノードの runs・URL・画像の src
-    std::pmr::vector<std::unique_ptr<NodeTableData>> tables_;  // Table ノードが指すテーブル本体
+    // ノードと、加工したテキスト・全ノードの runs・URL・画像の src を置く arena、Table ノードが指すテーブル本体
+    std::shared_ptr<const NodeStorage> storage_;
     RawText raw_text_;                                         // パース入力 (LF 正規化済み)
     // ... TOC・各種ノード番号の索引・脚注・アンカー索引など
 };
 ```
 
-`Document` は `FromMarkdown` で作ったら中身を変えない。別の内容を表示するときは新しい `Document` を作り、`App::ReplaceDocument` が推定高さ入りの `LayoutCache` と一緒に丸ごと差し替える。このときノード数とキャッシュのエントリ数が等しいことを assert で確かめ、以降の描画・ヒットテスト・スクロール計算はこの一致を前提にする。`Document` は move-only で、ノードは `raw_text_`・`text_arena_`・`tables_` の要素を直接指すが、どれも move で位置が変わらない（`RawText` は共有文字列、ほかは `unique_ptr`）ので、move してもポインタの付け替えは要らない。
+`Document` は `FromMarkdown` で作ったら中身を変えない。別の内容を表示するときは新しい `Document` を作り、`App::ReplaceDocument` が推定高さ入りの `LayoutCache` と一緒に丸ごと差し替える。このときノード数とキャッシュのエントリ数が等しいことを assert で確かめ、以降の描画・ヒットテスト・スクロール計算はこの一致を前提にする。`Document` は move-only で、ノードは `raw_text_` と `storage_` の arena・テーブルを直接指すが、どちらも共有で持つので move で位置が変わらず、ポインタの付け替えは要らない。`storage_` を共有で持つのは、非同期リロードの worker が UI の文書の差し替えと無関係に旧ノードを読めるようにするためでもある（3.11.3）。
 
 アンカーは文書内リンクのクリック時にしか使わないため、パースでは作らない。`FindAnchorIndex` はクエリを ASCII 小文字に畳み、`HeadingAnchorIndex`（アンカー → ノード番号のハッシュ索引）を引く。無ければ TOC の続きから見出しのスラグを作って github-slugger と同じ規則で連番を付け、見つかるまでだけ索引を延ばす。索引はリンクを辿った文書にだけ作られ、内容を差し替えると捨てる。115MB・見出し 14 万件の文書では、パースが約 65ms 短くなる代わりに、存在しないアンカーを初めて引いたときだけ約 50ms・+19MB かかる。
 
@@ -3164,7 +3159,7 @@ flowchart TD
     SHOWW --> ATTACH{LoadInitialDocument<br>AttachPreload}
 
     ATTACH -->|AppliedSync| APPLY[OnParseComplete]
-    ATTACH -->|AttachedAsync| WAIT[完了は PARSE_COMPLETE で合流<br>大きければスピナー]
+    ATTACH -->|AttachedAsync| WAIT[完了は PARSE_COMPLETE で合流<br>長引けばスピナー]
     ATTACH -->|None| HELP[LoadHelpDocument]
 
     APPLY --> DEV[App::CreateRenderDevice<br>先行作成した D3D デバイスで D2D デバイス + Brushes]
@@ -3185,17 +3180,12 @@ flowchart TD
 ```mermaid
 flowchart TD
     TRIGGER[ファイルオープン<br>Ctrl+O / D&D / ファイルペイン / リンク] --> LMF[App::LoadMarkdownFile]
-    LMF --> ANIM{IsAsyncLoadCandidate<br>大きいファイル？}
-    ANIM -->|Yes| ASYNC[BeginAsyncLoad<br>さらに大きければローディングアニメーション]
-    ANIM -->|No| SYNC[DoLoadMarkdownFile<br>UI スレッドで同期実行]
-    ASYNC --> WORKER[AsyncLoadCoordinator のワーカー<br>FileLoader → Document::FromMarkdown<br>→ MakeEstimatedLayoutCache]
+    LMF --> ASYNC[BeginAsyncLoad<br>150ms を超えたらローディングアニメーション]
+    ASYNC --> WORKER[AsyncLoadCoordinator のワーカー<br>PostFront で先に実行<br>FileLoader → Document::FromMarkdown<br>→ MakeEstimatedLayoutCache]
     WORKER --> POST[WM_APP+6 PARSE_COMPLETE ポスト]
     POST --> OPC[App::OnParseComplete<br>TakeAsync]
-    SYNC --> EXEC[FileLoadService::ExecuteLoad<br>FileLoader → Document::FromMarkdown]
-    EXEC --> EST[MakeEstimatedLayoutCache]
 
     OPC --> REPL[App::ReplaceDocument<br>Document と推定済み LayoutCache を差し替え]
-    EST --> REPL
     REPL --> RESET[FinishLoadMarkdownFile<br>ResetViewForNewDocument]
     RESET --> FE[FileExplorer 更新<br>ペイン非表示中は列挙しない]
     FE --> RESTORE[RestoreScrollAfterLoadAction<br>復元先ノード or 先頭]
@@ -3354,7 +3344,6 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_theme.cpp` | テーマ定義 |
 | `test_theme_service.cpp` | ThemeService |
 | `test_document.cpp` | Document |
-| `test_document_service.cpp` | DocumentService |
 | `test_document_utils.cpp` | テキスト操作 |
 | `test_html_entity.cpp` | HTML 文字参照の解決 |
 | `test_anchor.cpp` | アンカーID生成（`GenerateAnchorId` はテスト用ヘルパー `document_test_helpers.h` に置く）・見出しアンカー索引・脚注アンカー |
@@ -3404,7 +3393,7 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_task_scheduler.cpp` | TaskScheduler・ワーカー数（`SharedWorkerCount` / `LayoutWorkerCount`） |
 | `test_utility.cpp` | ユーティリティ関数（`utility.h`、FNV-1a ハッシュを含む） |
 | `test_async_load_coordinator.cpp` | AsyncLoadCoordinator（起動時の先行読み込みと `Attach` を含む） |
-| `test_parallel_measure.cpp` | 並列計測と `ProcessDirtyBatch` のダーティバッチ計測（件数上限・クリップ・計測失敗の再試行） |
+| `test_parallel_measure.cpp` | 並列計測と `ProcessDirtyBatch` のダーティバッチ計測（期限・クリップ・計測失敗の再試行） |
 | `test_clipboard_manager.cpp` | ClipboardManager |
 | `test_block_h_scroll.cpp` | ブロック横スクロール |
 | `test_utf8_codec.cpp` | UTF-8 コーデック |
@@ -3521,6 +3510,7 @@ enum class Id : UINT_PTR {
 };
 
 inline constexpr UINT FRAME_INTERVAL_MS         = 16;   // ~60fps アニメーション用
+inline constexpr UINT LOADING_SPINNER_DELAY_MS  = 150;  // 読み込みがこれより長引いたらスピナーを出す
 inline constexpr UINT FILE_RELOAD_DEBOUNCE_MS   = 200;  // ファイル変更通知のデバウンス
 inline constexpr UINT FILE_RELOAD_RETRY_MS      = 50;   // truncate→rewrite 検出後の短縮リトライ
 inline constexpr UINT BITMAP_MANAGE_DELAY_MS    = 150;  // スクロール停止後のビットマップ解放/再構築
@@ -3559,7 +3549,7 @@ std::pair<int, int> UnpackSearchSelectionLParam(LPARAM lp) noexcept;
 }
 ```
 
-`SEARCH_FOCUS` の `WPARAM` は `SEARCH_FOCUS_SELECT_ALL` / `SEARCH_FOCUS_SET_CARET` / `SEARCH_FOCUS_SET_SELECTION` を区別する。`SEARCH_UNFOCUS` の `WPARAM` はファイル切替に伴うアンフォーカスかユーザー操作によるクローズかを区別する。非同期ロード切替閾値 `kAsyncLoadBytes`（64KB）とスピナー表示下限 `kLoadingAnimBytes`（16MB）は `src/io/file_load_service.cpp` に定義する。
+`SEARCH_FOCUS` の `WPARAM` は `SEARCH_FOCUS_SELECT_ALL` / `SEARCH_FOCUS_SET_CARET` / `SEARCH_FOCUS_SET_SELECTION` を区別する。`SEARCH_UNFOCUS` の `WPARAM` はファイル切替に伴うアンフォーカスかユーザー操作によるクローズかを区別する。ファイルの読み込みは常に非同期で、スピナーは読み込みが `LOADING_SPINNER_DELAY_MS`（150ms）より長引いたときだけ出す。
 
 ---
 
@@ -3661,7 +3651,7 @@ src/
 │   ├── file_loader.h / .cpp       # FileLoader (LoadFile)
 │   ├── file_dialog_service.h / .cpp # OpenFileDialog 等
 │   ├── file_watcher.h / .cpp      # ReadDirectoryChangesW 監視
-│   ├── file_load_service.h / .cpp # ロード制御 + スピナーの状態 + DocumentService (FileLoader → Document)
+│   ├── file_load_service.h / .cpp # ロード制御 + スピナーの状態
 │   ├── file_explorer.h / .cpp     # ディレクトリブラウザ
 │   ├── image_loader.h / .cpp      # 非同期画像読み込み
 │   ├── async_load_coordinator.h / .cpp # 非同期ロード調停 (世代カウンタ管理・起動時の先行読み込み)
@@ -5056,44 +5046,43 @@ nnoremap <silent> <leader>m <ScriptCmd>OpenInMendo()<CR>
 | 11 | LayoutEngine + LayoutService | layout.h/cpp | mendo_core | あり |
 | 12 | DWriteTextMeasurer | dwrite_measurer.h/cpp | mendo_core | parity |
 | 13 | Document | document.h/cpp | mendo_core | あり |
-| 14 | DocumentService | file_load_service.h/cpp | mendo_core | あり |
-| 15 | Theme | theme.h/cpp | mendo_core | あり |
-| 16 | ThemeService | theme_service.h/cpp | mendo_core | あり |
-| 17 | Syntax | syntax.h/cpp | mendo_core | あり |
-| 18 | FileLoader | file_loader.h/cpp | mendo_core | あり |
-| 19 | FileWatcher | file_watcher.h/cpp | mendo_core | あり |
-| 20 | FileLoadService | file_load_service.h/cpp | mendo_core | あり |
-| 21 | AsyncLoadCoordinator | async_load_coordinator.h/cpp | mendo_core | あり |
-| 22 | FileExplorer | file_explorer.h/cpp | mendo_core | あり |
-| 23 | TOC + FindActiveTocIndex | document_types.h + layout_computer.h/cpp | mendo_core | あり |
-| 24 | PaneController | pane_controller.h/cpp | mendo_core | あり |
-| 25 | ViewportManager | viewport_manager.h | mendo_core | あり |
-| 26 | NavHistory + HandleLinkClick | nav.h / nav.cpp | mendo_core | あり |
-| 27 | MouseGesture | mouse_gesture.h | mendo_core | あり |
-| 28 | SwipeDetector | swipe_detector.h | mendo_core | あり |
-| 29 | hit_test | hit_test_service.h/cpp | mendo_core | あり |
-| 30 | ConfigService + SessionService | config_service.h/cpp | mendo_core | あり |
-| 31 | MermaidRenderer | mermaid.h/cpp | mendo | なし |
-| 32 | MermaidFileCache | mermaid_file_cache.h/cpp | mendo_core | あり |
-| 33 | TitleBar | titlebar.h/cpp | mendo_core | あり |
-| 34 | ContextMenu | context_menu.h/cpp | mendo_core | あり |
-| 35 | ToastNotifier | toast_notifier.h | mendo_core | あり |
-| 36 | Tooltip + TooltipTarget | tooltip.h/cpp | mendo_core | TooltipTarget のみ |
-| 37 | SearchState | search_state.h/cpp | mendo_core | あり |
-| 38 | SearchBarController | search_bar_controller.h + app.h/cpp (AppHost) | mendo_core / mendo (AppHost) | あり |
-| 39 | ImageLoader | image_loader.h/cpp | mendo_core | あり |
-| 40 | ResourceManager | resource_manager.h + app.h/cpp (AppHost) | mendo_core / mendo (AppHost) | あり |
-| 41 | i18n | i18n.h | mendo_core | あり |
-| 42 | IniParser | ini_parser.h | mendo_core | あり |
-| 43 | TaskScheduler | task_scheduler.h/cpp | mendo_core | あり |
-| 44 | LruCache | lru_cache.h | mendo_core | あり |
-| 45 | UniqueResource + Clipboard utils | win_handle.h + clipboard_util.h | mendo_core | なし |
-| 46 | LastHoverPos | last_hover_pos.h | mendo_core | あり |
-| 47 | ScrollRestoration | ui_types.h 内 | mendo_core | あり |
-| 48 | SystemCursors | app.h 内 | mendo_core | なし |
-| 49 | UIConstants | ui_constants.h | mendo_core | あり |
-| 50 | StringConvert | string_convert.h | mendo_core | あり |
-| 51 | Profiler | profiler.h | mendo_core | なし |
+| 14 | Theme | theme.h/cpp | mendo_core | あり |
+| 15 | ThemeService | theme_service.h/cpp | mendo_core | あり |
+| 16 | Syntax | syntax.h/cpp | mendo_core | あり |
+| 17 | FileLoader | file_loader.h/cpp | mendo_core | あり |
+| 18 | FileWatcher | file_watcher.h/cpp | mendo_core | あり |
+| 19 | FileLoadService | file_load_service.h/cpp | mendo_core | あり |
+| 20 | AsyncLoadCoordinator | async_load_coordinator.h/cpp | mendo_core | あり |
+| 21 | FileExplorer | file_explorer.h/cpp | mendo_core | あり |
+| 22 | TOC + FindActiveTocIndex | document_types.h + layout_computer.h/cpp | mendo_core | あり |
+| 23 | PaneController | pane_controller.h/cpp | mendo_core | あり |
+| 24 | ViewportManager | viewport_manager.h | mendo_core | あり |
+| 25 | NavHistory + HandleLinkClick | nav.h / nav.cpp | mendo_core | あり |
+| 26 | MouseGesture | mouse_gesture.h | mendo_core | あり |
+| 27 | SwipeDetector | swipe_detector.h | mendo_core | あり |
+| 28 | hit_test | hit_test_service.h/cpp | mendo_core | あり |
+| 29 | ConfigService + SessionService | config_service.h/cpp | mendo_core | あり |
+| 30 | MermaidRenderer | mermaid.h/cpp | mendo | なし |
+| 31 | MermaidFileCache | mermaid_file_cache.h/cpp | mendo_core | あり |
+| 32 | TitleBar | titlebar.h/cpp | mendo_core | あり |
+| 33 | ContextMenu | context_menu.h/cpp | mendo_core | あり |
+| 34 | ToastNotifier | toast_notifier.h | mendo_core | あり |
+| 35 | Tooltip + TooltipTarget | tooltip.h/cpp | mendo_core | TooltipTarget のみ |
+| 36 | SearchState | search_state.h/cpp | mendo_core | あり |
+| 37 | SearchBarController | search_bar_controller.h + app.h/cpp (AppHost) | mendo_core / mendo (AppHost) | あり |
+| 38 | ImageLoader | image_loader.h/cpp | mendo_core | あり |
+| 39 | ResourceManager | resource_manager.h + app.h/cpp (AppHost) | mendo_core / mendo (AppHost) | あり |
+| 40 | i18n | i18n.h | mendo_core | あり |
+| 41 | IniParser | ini_parser.h | mendo_core | あり |
+| 42 | TaskScheduler | task_scheduler.h/cpp | mendo_core | あり |
+| 43 | LruCache | lru_cache.h | mendo_core | あり |
+| 44 | UniqueResource + Clipboard utils | win_handle.h + clipboard_util.h | mendo_core | なし |
+| 45 | LastHoverPos | last_hover_pos.h | mendo_core | あり |
+| 46 | ScrollRestoration | ui_types.h 内 | mendo_core | あり |
+| 47 | SystemCursors | app.h 内 | mendo_core | なし |
+| 48 | UIConstants | ui_constants.h | mendo_core | あり |
+| 49 | StringConvert | string_convert.h | mendo_core | あり |
+| 50 | Profiler | profiler.h | mendo_core | なし |
 
 ---
 

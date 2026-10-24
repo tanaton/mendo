@@ -76,91 +76,20 @@ public:
         host_ = &host;
     }
 
-    // respect_viewport=true: 可視範囲のみ走査し、未キャッシュは非同期ロード起動（通常描画用）。
-    // respect_viewport=false: 全画像を走査、未キャッシュは無視（リロード時のスクロール計算前用）。
-    int ApplyCachedImages(bool respect_viewport = true)
+    // 可視範囲のみ走査し、未キャッシュは非同期ロード起動（通常描画用）。
+    int ApplyCachedImages()
     {
-        const std::pmr::wstring& doc_dir = deps_.doc->GetDirectory();
-        if (doc_dir.empty()) {
-            return 0;
-        }
-        // 解決結果は src と文書フォルダだけで決まるので、同じフォルダでのリロードでは使い回す。
-        if (doc_dir != resolved_dir_) {
-            resolved_image_paths_.clear();
-            resolved_dir_ = doc_dir;
-        }
-        // 全件モードは読み込みを起動しないので、キャッシュが空なら何も適用できない (起動直後の復元など)。
-        if (!respect_viewport && deps_.image_loader->CacheSize() == 0) {
-            return 0;
-        }
-
-        const float content_width = host_->MdContentWidth();
-        if (content_width <= 0.0f) {
-            return 0;
-        }
-
-        const Theme& theme = host_->GetTheme();
-        const auto& nodes = deps_.doc->GetNodes();
-        const auto& image_indices = deps_.doc->GetImageNodeIndices();
-
-        if (respect_viewport) {
-            DropQueuesIfJumped();
-        }
-        const auto slices = respect_viewport
-                                ? PrioritizedSlices(image_indices, PREFETCH_BUFFER_SCREENS)
-                                : std::array{ std::span<const size_t>(image_indices), std::span<const size_t>{}, std::span<const size_t>{} };
-
-        int applied = 0;
-        for (const size_t i : slices | std::views::join) {
-            const auto& node = nodes[i];
-            const auto* const img = node.image_data();
-            if (!img) {
-                continue;
-            }
-
-            const std::wstring* abs_path = ResolveImagePath(img->src, doc_dir);
-            if (!abs_path) {
-                continue;
-            }
-
-            // 通常運用時のみ非同期ロードを起動する。リロード時は後続の RelayoutViewport (LoadImages) で起動する。
-            const float max_width = layout::NodeContentWidth(node, theme, content_width);
-            const auto request = [&] {
-                if (respect_viewport) {
-                    deps_.image_loader->RequestLoadAsync(*abs_path, [this] { OnImageLoadComplete(); }, max_width);
-                }
-            };
-            const auto* d = deps_.cache->FindDiagram(i);
-            const auto* cached = deps_.image_loader->FindCachedImage(*abs_path);
-            if (!cached) {
-                // LRU から落ちても表示中のビットマップはそのまま使う。
-                if (!d || !d->bitmap) {
-                    request();
-                }
-                continue;
-            }
-
-            // DiagramEntry はキャッシュに当たった画像だけ確保する。寸法は再計測 (幅変更・ズーム) でも使う。
-            if (!d || !d->bitmap || d->bitmap != cached->bitmap) {
-                auto& diagram = deps_.cache->EnsureDiagram(i);
-                diagram.bitmap = cached->bitmap;
-                diagram.width = cached->width;
-                diagram.height = cached->height;
-
-                ApplyBitmapHeight(i, diagram, max_width);
-                ++applied;
-            }
-            // 表示幅が広がったら、今の解像度で描きながら高い解像度で読み直す。
-            if (deps_.image_loader->NeedsSharperDecode(*cached, max_width)) {
-                request();
-            }
-        }
-        return applied;
+        return ApplyCachedImagesIn(std::nullopt);
+    }
+    // range のノードの画像を全部走査、未キャッシュは無視（リロード時のスクロール計算前用）。
+    int ApplyCachedImagesForReload(VisibleRange range)
+    {
+        return ApplyCachedImagesIn(range);
     }
 
-    // リロード直後のスクロール位置計算用に、ディスクキャッシュにある図の寸法を推定高さへ上書きする。
+    // リロード直後のスクロール位置計算用に、range のノードの図の推定高さをディスクキャッシュにある寸法で上書きする。
     // ビットマップは読まないので、描画は後続の RequestMermaidRenders に任せる。
-    bool ApplyMermaidCacheHeightsForReload()
+    bool ApplyMermaidCacheHeightsForReload(VisibleRange range)
     {
         if (!deps_.mermaid_file_cache) {
             return false;
@@ -170,7 +99,7 @@ public:
         const bool dark_mode = theme.IsDark();
         const auto& nodes = deps_.doc->GetNodes();
         bool any_applied = false;
-        for (size_t i : deps_.doc->GetDiagramNodeIndices()) {
+        for (size_t i : VisibleSlice(deps_.doc->GetDiagramNodeIndices(), range.first, range.last_plus_1)) {
             MermaidFileCache::CacheEntry fentry;
             if (deps_.mermaid_file_cache->LookupDiagram(mermaid_util::DiagramCodeHash(nodes[i]), content_width, dark_mode, fentry)) {
                 const float node_width = layout::NodeContentWidth(nodes[i], theme, content_width);
@@ -290,6 +219,87 @@ public:
     }
 
 private:
+    int ApplyCachedImagesIn(std::optional<VisibleRange> reload_range)
+    {
+        const bool respect_viewport = !reload_range;
+        const std::pmr::wstring& doc_dir = deps_.doc->GetDirectory();
+        if (doc_dir.empty()) {
+            return 0;
+        }
+        // 解決結果は src と文書フォルダだけで決まるので、同じフォルダでのリロードでは使い回す。
+        if (doc_dir != resolved_dir_) {
+            resolved_image_paths_.clear();
+            resolved_dir_ = doc_dir;
+        }
+        // 全件モードは読み込みを起動しないので、キャッシュが空なら何も適用できない (起動直後の復元など)。
+        if (!respect_viewport && deps_.image_loader->CacheSize() == 0) {
+            return 0;
+        }
+
+        const float content_width = host_->MdContentWidth();
+        if (content_width <= 0.0f) {
+            return 0;
+        }
+
+        const Theme& theme = host_->GetTheme();
+        const auto& nodes = deps_.doc->GetNodes();
+        const auto& image_indices = deps_.doc->GetImageNodeIndices();
+
+        if (respect_viewport) {
+            DropQueuesIfJumped();
+        }
+        const auto slices = respect_viewport
+                                ? PrioritizedSlices(image_indices, PREFETCH_BUFFER_SCREENS)
+                                : std::array{ VisibleSlice(image_indices, reload_range->first, reload_range->last_plus_1), std::span<const size_t>{}, std::span<const size_t>{} };
+
+        int applied = 0;
+        for (const size_t i : slices | std::views::join) {
+            const auto& node = nodes[i];
+            const auto* const img = node.image_data();
+            if (!img) {
+                continue;
+            }
+
+            const std::wstring* abs_path = ResolveImagePath(img->src, doc_dir);
+            if (!abs_path) {
+                continue;
+            }
+
+            // 通常運用時のみ非同期ロードを起動する。リロード時は後続の RelayoutViewport (LoadImages) で起動する。
+            const float max_width = layout::NodeContentWidth(node, theme, content_width);
+            const auto request = [&] {
+                if (respect_viewport) {
+                    deps_.image_loader->RequestLoadAsync(*abs_path, [this] { OnImageLoadComplete(); }, max_width);
+                }
+            };
+            const auto* d = deps_.cache->FindDiagram(i);
+            const auto* cached = deps_.image_loader->FindCachedImage(*abs_path);
+            if (!cached) {
+                // LRU から落ちても表示中のビットマップはそのまま使う。
+                if (!d || !d->bitmap) {
+                    request();
+                }
+                continue;
+            }
+
+            // DiagramEntry はキャッシュに当たった画像だけ確保する。寸法は再計測 (幅変更・ズーム) でも使う。
+            if (!d || !d->bitmap || d->bitmap != cached->bitmap) {
+                auto& diagram = deps_.cache->EnsureDiagram(i);
+                diagram.bitmap = cached->bitmap;
+                diagram.width = cached->width;
+                diagram.height = cached->height;
+
+                ApplyBitmapHeight(i, diagram, max_width);
+                ++applied;
+            }
+            // 表示幅が広がったら、今の解像度で描きながら高い解像度で読み直す。
+            if (deps_.image_loader->NeedsSharperDecode(*cached, max_width)) {
+                request();
+            }
+        }
+        return applied;
+    }
+
     static constexpr std::span<const size_t> VisibleSlice(std::span<const size_t> sorted_indices, size_t first_visible_node, size_t last_visible_node_plus_1) noexcept
     {
         const auto b = std::ranges::lower_bound(sorted_indices, first_visible_node);
