@@ -374,23 +374,23 @@ private:
     void ReplaceDocument(Document next, LayoutCache estimated);
     void ReplaceDocument(Document next);
     void ReloadCurrentFile();
-    void DoReloadCurrentFile();
-    void DoLoadMarkdownFile();
-    // reload_base は同一ファイルのリロード時の現在テキスト (worker でパース前に差分判定させる)。
-    void BeginAsyncLoad(std::pmr::wstring path, bool show_animation,
-                        std::shared_ptr<const std::pmr::string> reload_base = nullptr);
+    // reload_base は同一ファイルのリロード時の現在の文書 (worker で差分判定させる)。
+    void BeginAsyncLoad(std::pmr::wstring path, bool show_animation, ReloadBase reload_base = {});
     void StartLoadingAnimation();
+    // 読み込みが LOADING_SPINNER_DELAY_MS より長引いたらスピナーを出す。
+    void ScheduleLoadingAnimation();
     void StopLoadingAnimation();
     // StartPreloadAsync が Init より前に呼ぶことがある。2 回目は何もしない。
     void InitSharedScheduler();
     void FinishLoadMarkdownFile(bool follow_file_pane);
     // error があればトーストで知らせる。
     void HandleLoadFailureFallback(std::optional<FileLoadError> error);
-    // Mermaid/画像キャッシュの実測値でノード高さを上書きし、変化があれば Y 位置を再計算する。
+    // nodes の範囲の推定高さを、図と画像のキャッシュにある実測の寸法で上書きする。変えたら true (Y は組み直さない)。
     // 呼び出し前にノード高さの初期化 (EstimateNodeHeights) は完了していること。
-    void ApplyCachedHeightsAndRecompute();
+    bool ApplyCachedHeights(VisibleRange nodes);
 
-    void FinishReload(size_t diff_pos);
+    // carry は ReloadDocument の結果。
+    void FinishReload(size_t diff_pos, const layout::CarryOverResult& carry);
 
     enum class ReloadFlow : uint8_t {
         Handled,            // ResumeWatching / DeferReloadRetry 済み、呼び出し元は return
@@ -408,7 +408,8 @@ private:
 
     void CancelPendingResources();
     // リロード用。中身が変わらないノードの計測結果を引き継いでから差し替える。
-    void ReloadDocument(Document next, LayoutCache estimated);
+    // ends は worker が数えた変わらなかったノード数。無ければここで数える。Y の組み直しは FinishReload に任せる。
+    layout::CarryOverResult ReloadDocument(Document next, LayoutCache estimated, std::optional<UnchangedEnds> ends);
     void ResetViewForNewDocument();
     void EndDocumentBoundDrag();
 

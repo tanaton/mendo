@@ -57,6 +57,38 @@ TEST(TaskScheduler, TasksRunOnWorkerThreadsNotCaller)
     sch.Shutdown();
 }
 
+// PostFront は待っているタスクより先に実行される。
+TEST(TaskScheduler, PostFrontRunsBeforeQueuedTasks)
+{
+    TaskScheduler sch;
+    sch.Init(1);
+    std::promise<void> gate;
+    std::shared_future<void> gate_future = gate.get_future().share();
+    std::atomic<bool> blocking{ false };
+    sch.Post([&] {
+        blocking.store(true);
+        gate_future.wait();
+    });
+    ASSERT_TRUE(PollUntil([&] { return blocking.load(); }));
+
+    std::mutex m;
+    std::vector<int> order;
+    const auto record = [&](int v) {
+        const std::lock_guard lock(m);
+        order.push_back(v);
+    };
+    sch.Post([&] { record(1); });
+    sch.Post([&] { record(2); });
+    EXPECT_TRUE(sch.PostFront([&] { record(0); }));
+    gate.set_value();
+    EXPECT_TRUE(PollUntil([&] {
+        const std::lock_guard lock(m);
+        return order.size() == 3;
+    }));
+    sch.Shutdown();
+    EXPECT_EQ(order, (std::vector<int>{ 0, 1, 2 }));
+}
+
 // ═══════════════════════════════════════════════
 // 並行性
 // ═══════════════════════════════════════════════

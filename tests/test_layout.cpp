@@ -256,7 +256,7 @@ TEST_F(LayoutTest, ProcessDirtyBatchCleansNodes)
 
     // ダーティなノードがあれば処理する
     if (cache.HasDirtyNodes()) {
-        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 100, {});
+        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, {});
         // 十分に処理した後、ダーティなノードがなくなること
         EXPECT_FALSE(more);
     }
@@ -264,19 +264,6 @@ TEST_F(LayoutTest, ProcessDirtyBatchCleansNodes)
     // すべてのノードが有効な位置を持つこと
     for (size_t i = 1; i < nodes.size(); i++) {
         EXPECT_GT(cache.Top(i), cache.Top(i - 1));
-    }
-}
-
-TEST_F(LayoutTest, ProcessDirtyBatchSmallBatch)
-{
-    // 多数の段落を非常に小さなビューポートで部分的にレイアウトする
-    auto [nodes, cache] = ParseAndLayout(MakeParagraphs(50), 800.0f, 0.0f, 10.0f);
-
-    if (cache.HasDirtyNodes()) {
-        // 一度に5ノードだけ処理
-        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 5, {});
-        // 50ノードでバッチ=5なら、まだダーティなノードが残るはず
-        EXPECT_TRUE(more);
     }
 }
 

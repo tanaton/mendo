@@ -15,6 +15,7 @@
 #include <shellscalingapi.h>
 #include <wrl/client.h>
 #include <wrl/event.h>
+#include <WebView2EnvironmentOptions.h>
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -377,11 +378,16 @@ void MermaidRenderer::CreateWebView2Environment()
         user_data = user_data_folder_.c_str();
     }
 
+    // 図は SVG 1 枚をオフスクリーンで描いて写すだけなので GPU プロセスは要らない。止めると mendo + WebView2 の
+    // commit が 3 割強減り (シーケンス図 1 つで 262MB → 171MB)、描き終わるまでも 1〜2 割縮む。写した図は GPU ありと同じ。
+    const auto options = Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
+    options->put_AdditionalBrowserArguments(L"--disable-gpu");
+
     // clang-format off
     CreateCoreWebView2EnvironmentWithOptions(
         nullptr,
         user_data,
-        nullptr,
+        options.Get(),
         Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
             [this](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
                 OnEnvironmentCreated(result, env);
@@ -620,11 +626,14 @@ void MermaidRenderer::CancelPending()
     }
     inflight_.clear();
 
+    disk_drop_gen_.fetch_add(1, std::memory_order_relaxed);
     disk_results_.TakeAll();
 }
 
 void MermaidRenderer::DropQueued()
 {
+    // 読み込み待ちのディスクキャッシュも取り消す。描画直後の PNG はディスクへ保存したいので取り消さない。
+    disk_drop_gen_.fetch_add(1, std::memory_order_relaxed);
     std::queue<RenderRequest, std::pmr::deque<RenderRequest>> kept;
     while (!pending_requests_.empty()) {
         auto& req = pending_requests_.front();
@@ -743,10 +752,14 @@ void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path png
 {
     const bool captured = captured_stream != nullptr;
     const uint64_t hash = req.code_hash;
-    DiskLoad job{ .req = std::move(req), .captured_stream = std::move(captured_stream), .captured = captured };
+    DiskLoad job{ .req = std::move(req), .captured_stream = std::move(captured_stream), .captured = captured,
+                  .drop_gen = disk_drop_gen_.load(std::memory_order_relaxed) };
     // ファイル読み込みと PNG デコードは worker で行う (UI では時間予算なしに積み上がる)。
     const bool posted = bg_scheduler_->Post([this, job = std::move(job), path = std::move(png_path), guard = latch_.Acquire()]() mutable {
-        LoadDiskJob(job, path);
+        job.dropped = !job.captured && job.drop_gen != disk_drop_gen_.load(std::memory_order_relaxed);
+        if (!job.dropped) {
+            LoadDiskJob(job, path);
+        }
         if (disk_results_.Push(std::move(job))) {
             ::PostMessageW(hwnd_, disk_loaded_msg_, 0, 0);
         }
@@ -782,6 +795,11 @@ void MermaidRenderer::LoadDiskJob(DiskLoad& job, const std::filesystem::path& pa
 
 bool MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
 {
+    // 表示に要るなら要求し直される。
+    if (r.dropped) {
+        ReleaseInflight(r.req);
+        return false;
+    }
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
     if (r.bitmap && render_target_ && SUCCEEDED(render_target_->CreateBitmapFromWicBitmap(r.bitmap.Get(), &bitmap)) && bitmap) {
         if (r.captured) {

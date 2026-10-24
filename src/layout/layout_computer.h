@@ -152,9 +152,10 @@ struct CarryOverResult {
     UnchangedEnds ends;
     size_t carried = 0; // 移したノード数 (仮表示の図を含む)
 };
+// ends は FindUnchangedEnds(old_nodes, new_nodes) の結果。
 CarryOverResult CarryOverUnchanged(
     const std::pmr::vector<Node>& old_nodes, LayoutCache& old_cache,
-    const std::pmr::vector<Node>& new_nodes, LayoutCache& new_cache);
+    const std::pmr::vector<Node>& new_nodes, LayoutCache& new_cache, const UnchangedEnds& ends);
 
 // 新文書用の LayoutCache。未計測のまま位置が全て 0 だと可視範囲の判定が効かないため、
 // 文書を表示に載せる経路はすべてこれで作る。stop 時は中間状態なので呼び出し側で破棄する。

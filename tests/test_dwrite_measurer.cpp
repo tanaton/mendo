@@ -52,15 +52,20 @@ TEST_F(DWriteMeasurerTest, FittingLeftAlignedCellKeepsNaturalWidthLayout)
     auto* center = tl->GetCellLayout(1, 1);
     ASSERT_NE(left, nullptr);
     ASSERT_NE(center, nullptr);
-    const float wide_height = tl->cell_heights[tl->CellIndex(1, 0)];
+    const auto height = [](IDWriteTextLayout* layout) {
+        DWRITE_TEXT_METRICS metrics{};
+        layout->GetMetrics(&metrics);
+        return metrics.height;
+    };
+    const float wide_height = height(left);
     EXPECT_GE(left->GetMaxWidth(), 1.0e6f);
     EXPECT_LT(center->GetMaxWidth(), 1.0e6f);
 
     measurer_.MeasureNode(nodes[0], entry, 300.0f, {});
     EXPECT_LT(left->GetMaxWidth(), 1.0e6f) << "収まらない幅では列幅で折り返す";
-    EXPECT_GT(tl->cell_heights[tl->CellIndex(1, 0)], wide_height);
+    EXPECT_GT(height(left), wide_height);
 
     measurer_.MeasureNode(nodes[0], entry, 800.0f, {});
     EXPECT_GE(left->GetMaxWidth(), 1.0e6f);
-    EXPECT_FLOAT_EQ(tl->cell_heights[tl->CellIndex(1, 0)], wide_height);
+    EXPECT_FLOAT_EQ(height(left), wide_height);
 }

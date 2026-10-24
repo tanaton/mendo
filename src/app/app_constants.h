@@ -25,6 +25,7 @@ enum class Id : UINT_PTR {
 };
 
 inline constexpr UINT FRAME_INTERVAL_MS = 16;        // ~60fps アニメーション用
+inline constexpr UINT LOADING_SPINNER_DELAY_MS = 150; // 読み込みがこれより長引いたらスピナーを出す (すぐ終わる読み込みでちらつかせない)
 inline constexpr UINT FILE_RELOAD_DEBOUNCE_MS = 200; // ファイル変更通知のデバウンス
 inline constexpr UINT FILE_RELOAD_RETRY_MS = 50;     // truncate→rewrite 検出後の短縮リトライ
 inline constexpr UINT BITMAP_MANAGE_DELAY_MS = 150;  // スクロール停止後のビットマップ解放/再構築

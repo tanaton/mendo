@@ -49,7 +49,7 @@ void TaskScheduler::StartWorkersLocked()
     }
 }
 
-bool TaskScheduler::Post(std::move_only_function<void()> task)
+bool TaskScheduler::PostImpl(std::move_only_function<void()> task, bool front)
 {
     {
         const std::lock_guard lock(mutex_);
@@ -58,11 +58,16 @@ bool TaskScheduler::Post(std::move_only_function<void()> task)
         if (shutdown_) {
             return false;
         }
-        if (queue_.size() >= MAX_PENDING_TASKS) {
-            MENDO_TRACE("TaskScheduler: queue saturated, task dropped");
-            return false;
+        if (front) {
+            queue_.push_front(std::move(task));
         }
-        queue_.push(std::move(task));
+        else {
+            if (queue_.size() >= MAX_PENDING_TASKS) {
+                MENDO_TRACE("TaskScheduler: queue saturated, task dropped");
+                return false;
+            }
+            queue_.push_back(std::move(task));
+        }
         StartWorkersLocked();
     }
     cv_.notify_one();
@@ -112,7 +117,7 @@ void TaskScheduler::WorkerLoop()
                 break;
             }
             task = std::move(queue_.front());
-            queue_.pop();
+            queue_.pop_front();
         }
         task();
     }

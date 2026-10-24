@@ -224,6 +224,14 @@ std::pmr::wstring SessionService::LoadLastFilePath() const
     if (!path_util::IsLocalPath(path)) {
         return {};
     }
+    // 割り当てたネットワークドライブは、切断されていると存在の確認だけでウィンドウを出す前に数秒止まる。
+    // 確かめずに渡し、無ければ worker での読み込みの失敗に任せる。
+    if (path_util::StartsWithDrive(path)) {
+        const wchar_t root[] = { path[0], L':', L'\\', L'\0' };
+        if (GetDriveTypeW(root) == DRIVE_REMOTE) {
+            return path;
+        }
+    }
     if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
         return {};
     }

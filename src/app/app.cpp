@@ -181,9 +181,7 @@ void App::LoadInitialDocument()
         OnParseComplete();
         return;
     case PreloadAttachResult::AttachedAsync:
-        if (DocumentService::ShouldShowLoadingAnimation(file_load_service_.GetLoadingPath())) {
-            StartLoadingAnimation();
-        }
+        ScheduleLoadingAnimation();
         return;
     case PreloadAttachResult::None:
         LoadHelpDocument();
@@ -486,6 +484,16 @@ void App::HandleTimer(UINT_PTR timer_id)
         tooltip_.Show();
         return;
     case LOADING_ANIM:
+        // 最初の 1 回は ScheduleLoadingAnimation の遅延の後に届く。
+        if (!file_load_service_.IsLoading()) {
+            if (file_load_service_.IsAsyncLoading()) {
+                StartLoadingAnimation();
+            }
+            else {
+                KillTimer(id);
+            }
+            return;
+        }
         file_load_service_.TickLoadingAnimation();
         Invalidate();
         return;
@@ -1011,19 +1019,14 @@ void App::OnDeferredLayout()
     MENDO_PROFILE("OnDeferredLayout");
 
     // 表やコードブロックが多いと同じノード数でも時間が大きく違うので、件数ではなく時間で区切る。
-    // 入力が来たら次のフレームを押し出さないよう途中でも譲る。
-    constexpr int kDeferredLayoutBatchNodes = 32;
+    // 件数で細かく区切ると、区切るたびに走査・Y の組み直し・ワーカーの待ち合わせが挟まる
+    // (test.md x4 の全計測で、32 件ずつだと一度に測る 165ms が 290ms になった)。
     constexpr auto kDeferredLayoutBudget = std::chrono::milliseconds(4);
 
     const PaneRect md = GetPaneLayout().md_rect;
-    const auto start = std::chrono::steady_clock::now();
-    bool more;
-    do {
-        MENDO_PROFILE("ProcessDirtyBatch");
-        more = layout_service_.ProcessDirtyBatch(
-            state_.document.doc, state_.document.layout_cache, md.width, kDeferredLayoutBatchNodes,
-            LayoutService::ViewportLimit{ md.height, ResourceManager::EVICT_BUFFER_SCREENS });
-    } while (more && std::chrono::steady_clock::now() - start < kDeferredLayoutBudget && HIWORD(GetQueueStatus(QS_INPUT)) == 0);
+    const bool more = layout_service_.ProcessDirtyBatch(
+        state_.document.doc, state_.document.layout_cache, md.width, std::chrono::steady_clock::now() + kDeferredLayoutBudget,
+        LayoutService::ViewportLimit{ md.height, ResourceManager::EVICT_BUFFER_SCREENS });
 
     // 中間バッチではクランプしない (ClampScrollToContent の注記)。スクロールバーのドラッグは
     // 移動のたびにその時点の上限で位置を決めるので、ここで合わせる必要はない。

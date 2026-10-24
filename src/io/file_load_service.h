@@ -1,9 +1,7 @@
 #pragma once
 #include "async_load_coordinator.h"
 #include "async_load_result.h"
-#include "file_loader.h"
 #include "ui_constants.h"
-#include <expected>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -12,20 +10,6 @@
 
 struct Theme;
 class TaskScheduler;
-
-class DocumentService {
-public:
-    static std::expected<Document, FileLoadError> LoadFile(const std::pmr::wstring& path);
-
-    // 非同期ロード経路に乗せる対象か (同期ロードの上限を超えるサイズ)。
-    // ファイル取得失敗時 (アクセス不能/仮想パス等) も true を返し、async 経路で reject させる。
-    static bool IsAsyncLoadCandidate(const std::pmr::wstring& path) noexcept;
-    // ローディングスピナーを表示すべきサイズか。
-    static bool ShouldShowLoadingAnimation(const std::pmr::wstring& path) noexcept;
-    // size は QueryFileSize の結果。取得失敗 (nullopt) は上限超え扱い。
-    static bool IsAsyncLoadCandidate(std::optional<uint64_t> size) noexcept;
-    static bool ShouldShowLoadingAnimation(std::optional<uint64_t> size) noexcept;
-};
 
 // ファイル読み込みのオーケストレーション。
 // スピナーの状態と AsyncLoadCoordinator を持ち、UI から見える API はそれらを束ねた薄い facade。
@@ -66,7 +50,7 @@ public:
 
     // reload_base の意味は AsyncLoadCoordinator::Start を参照。
     void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, Theme theme, float content_width,
-                        std::shared_ptr<const std::pmr::string> reload_base);
+                        ReloadBase reload_base);
     std::optional<AsyncLoadOutcome> TakeAsync() noexcept
     {
         return coordinator_.Take();

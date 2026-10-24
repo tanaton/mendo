@@ -155,29 +155,6 @@ private:
     size_t count_ = 0;
 };
 
-enum class UrlSafety : uint8_t {
-    Unchecked,
-    Safe,
-    Unsafe,
-};
-
-// URL 数は典型的に少数なので、その範囲ではスタック上の領域を使い heap 確保しない。
-class UrlSafetyTable {
-public:
-    explicit UrlSafetyTable(size_t url_count) : table_(url_count, UrlSafety::Unchecked, &resource_)
-    {}
-
-    std::span<UrlSafety> Span() noexcept
-    {
-        return table_;
-    }
-
-private:
-    std::array<std::byte, 32> buffer_;
-    std::pmr::monotonic_buffer_resource resource_{ buffer_.data(), buffer_.size() };
-    std::pmr::vector<UrlSafety> table_;
-};
-
 // 貼り付け先で読み込まれても外部アクセスの経路にならない src か。http(s) とスキームの無い相対パスだけ通す。
 // javascript: / file: / C:\ などのスキームと、認証付きで取りに行かれる //host・\\host (UNC) は外す。
 // ブラウザは解析前に先頭の制御文字・空白と途中のタブ・改行を捨てるので、それに合わせて判定する。
@@ -198,18 +175,14 @@ bool IsSafeImageSrc(std::string_view src)
     return p == std::string::npos || s[p] != ':';
 }
 
-// 危険なスキームのリンクは外す。IsSafeUrlScheme の結果は URL ごとに url_safety へキャッシュする。
-InlineState InlineStateOf(const TextRun& r, std::span<const std::string_view> link_urls, std::span<UrlSafety> url_safety)
+// 危険なスキームのリンクは外す。
+InlineState InlineStateOf(const TextRun& r, std::span<const std::string_view> link_urls)
 {
     InlineState s{ r.bold(), r.italic(), r.code(), r.strikethrough(), r.link_url_index };
     if (s.link_url_index < 0 || static_cast<size_t>(s.link_url_index) >= link_urls.size()) {
         return s;
     }
-    auto& safety = url_safety[static_cast<size_t>(s.link_url_index)];
-    if (safety == UrlSafety::Unchecked) {
-        safety = IsSafeUrlScheme(link_urls[static_cast<size_t>(s.link_url_index)]) ? UrlSafety::Safe : UrlSafety::Unsafe;
-    }
-    if (safety == UrlSafety::Unsafe) {
+    if (!IsSafeUrlScheme(link_urls[static_cast<size_t>(s.link_url_index)])) {
         s.link_url_index = -1;
     }
     return s;
@@ -217,13 +190,11 @@ InlineState InlineStateOf(const TextRun& r, std::span<const std::string_view> li
 
 // runs は start 昇順・非重複で並ぶ前提。run 境界単位で処理することで
 // 同一 state 区間の比較を run あたり 1 回に抑える。
-// url_safety は link_urls と同じ長さで、テーブルではセル間で共有して IsSafeUrlScheme を URL あたり 1 回にする。
 constexpr void AppendInlineHtml(
     std::pmr::string& out,
     std::string_view text,
     std::span<const TextRun> runs,
     std::span<const std::string_view> link_urls,
-    std::span<UrlSafety> url_safety,
     uint32_t start, uint32_t end)
 {
     assert(end <= text.size());
@@ -248,7 +219,7 @@ constexpr void AppendInlineHtml(
         }
         else {
             const auto& r = runs[run_idx];
-            s = InlineStateOf(r, link_urls, url_safety);
+            s = InlineStateOf(r, link_urls);
             segment_end = std::min(end, r.start + r.length);
         }
 
@@ -287,9 +258,7 @@ constexpr void AppendInlineHtml(
 
 void AppendNodeInlineHtml(std::pmr::string& out, const Node& node, uint32_t start, uint32_t end)
 {
-    const auto link_urls = node.view_link_urls();
-    UrlSafetyTable url_safety{ link_urls.size() };
-    AppendInlineHtml(out, node.GetText(), node.runs(), link_urls, url_safety.Span(), start, end);
+    AppendInlineHtml(out, node.GetText(), node.runs(), node.view_link_urls(), start, end);
 }
 
 constexpr void AppendHexColor(std::pmr::string& out, uint32_t rgb)
@@ -474,7 +443,6 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
         }
     }
 
-    UrlSafetyTable url_safety{ link_urls.size() };
     out.append("<table style=\"border-collapse:collapse;\">");
     std::string_view section_close;
     for (size_t r = first_row; r < end_row; r++) {
@@ -491,7 +459,7 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
             out.append(open_tags[c * 2 + header_row]);
             const uint32_t cell_start = tbl->CellTextStart(r, c);
             const uint32_t cell_end = tbl->CellTextEnd(r, c);
-            AppendInlineHtml(out, tbl->GetCellText(r, c), tbl->GetCellRuns(r, c), link_urls, url_safety.Span(),
+            AppendInlineHtml(out, tbl->GetCellText(r, c), tbl->GetCellRuns(r, c), link_urls,
                              std::clamp(start, cell_start, cell_end) - cell_start, std::clamp(end, cell_start, cell_end) - cell_start);
             out.append(close_tag);
         }

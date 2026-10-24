@@ -530,11 +530,7 @@ void App::HandleFileEntryClick(const FileEntry& entry)
     if (entry.is_current) {
         return;
     }
-    if (GetFileAttributesW(entry.full_path.c_str()) == INVALID_FILE_ATTRIBUTES) {
-        RefreshFilePane();
-        ShowToast(i18n::S().toast_file_not_found);
-        return;
-    }
+    // 消えていたら読み込みの失敗 (HandleLoadFailureFallback) で知らせて一覧を直す。
     Dispatch(OpenPathAction{ entry.full_path });
 }
 

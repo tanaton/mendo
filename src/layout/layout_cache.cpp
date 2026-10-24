@@ -209,7 +209,7 @@ void BuryCells(TableLayoutData& tl, LayoutCache::ReleasedLayouts& released) noex
     }
 }
 
-// 1 行分の cell_layouts を捨て、cell_heights / cell_applied_widths を再計測待ちに戻す。
+// 1 行分の cell_layouts を捨てる。
 // 行/列の幾何 (row_cum_y, col_cum_x, row_heights, col_widths) は維持する。
 // HasRowTracking を満たすテーブルの row_index < 行数 でのみ呼ぶ (セル単位の配列は AllocateCells が揃えている)。
 void EvictTableRow(TableLayoutData& tl, size_t row_index, LayoutCache::ReleasedLayouts& released) noexcept
@@ -220,8 +220,6 @@ void EvictTableRow(TableLayoutData& tl, size_t row_index, LayoutCache::ReleasedL
             Bury(released, std::move(tl.cell_layouts[ci]));
             tl.MarkRowEvicted(row_index);
         }
-        tl.cell_heights[ci] = 0.0f;
-        tl.cell_applied_widths[ci] = -1.0f;
     }
 }
 
@@ -274,8 +272,6 @@ void ResetTableCellCaches(TableLayoutData& tl, LayoutCache::ReleasedLayouts& rel
     tl.cell_layouts.clear();
     tl.ResetRowEviction(0);
     tl.natural_col_widths.clear();
-    tl.cell_heights.clear();
-    tl.cell_applied_widths.clear();
     tl.cell_natural_widths.clear();
     tl.cell_nowrap_heights.clear();
     tl.col_count = 0;

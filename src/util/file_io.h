@@ -65,6 +65,12 @@ constexpr bool IsLocalPath(std::wstring_view path) noexcept
     return !IsPathSlash(path[1]) && !HasNtPrefix(path);
 }
 
+// C: か C:\ で始まるか。
+constexpr bool StartsWithDrive(std::wstring_view path) noexcept
+{
+    return path.size() >= 2 && ascii_util::IsAsciiAlpha(path[0]) && path[1] == L':' && (path.size() == 2 || IsPathSlash(path[2]));
+}
+
 // \\?\C:\a・\\.\C:\a を C:\a に、\\?\UNC\host\share を \\host\share に直す。
 // デバイス名前空間では .. がドライブや共有を越えて \\?\UNC\host へ届くが、Win32 形式ならルートで止まる。
 // ドライブでも UNC でもないデバイスパス (\\.\pipe\x 等) は nullopt。それ以外のパスはそのまま返す。
@@ -75,7 +81,7 @@ inline std::optional<std::wstring> ToWin32Path(std::wstring_view path)
         return std::wstring(path);
     }
     const auto rest = path.substr(4);
-    if (rest.size() >= 2 && ascii_util::IsAsciiAlpha(rest[0]) && rest[1] == L':' && (rest.size() == 2 || IsPathSlash(rest[2]))) {
+    if (StartsWithDrive(rest)) {
         return std::wstring(rest);
     }
     if (rest.size() >= 4 && iequal(rest.substr(0, 3), L"UNC") && IsPathSlash(rest[3])) {
@@ -128,9 +134,6 @@ struct OpenedFile {
     }
     return true;
 }
-
-// 取得できなければ nullopt (存在しない・アクセス不可・仮想パス)。
-std::optional<uint64_t> QueryFileSize(const wchar_t* path) noexcept;
 
 // 読み込み済みコンテンツの後にファイルがさらに伸びていれば、エディタ側が
 // 書き込み途中である可能性が高い。BOM の 3 バイトずれ等を吸収するため

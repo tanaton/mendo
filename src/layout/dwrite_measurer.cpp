@@ -11,7 +11,10 @@
 #include "ui_constants.h"
 #include "utf8_codec.h"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <latch>
+#include <memory>
 #include <memory_resource>
 #include <mutex>
 #include <ranges>
@@ -22,31 +25,20 @@ using Microsoft::WRL::ComPtr;
 
 namespace {
 
-// セルに列幅と揃えを適用して高さを返す。幅不変ならキャッシュ済みの高さを使う。
+// セルに列幅を適用して高さを返す。揃えはセルを作るときに付けてある。
 // 左揃えで列幅に収まるセルは作ったときの無限幅のまま使う。折り返さないので行組みは同じで、
-// 幅を付けると組み直しになる (計測済みの結果を GetMetrics が返すだけになる)。
-float ApplyCellWidth(TableLayoutData& tl, size_t ci, float cw, TableAlign align) noexcept
+// 幅を付けると組み直しになる。幅を変えなければ GetMetrics は計測済みの結果を返すだけ。
+float ApplyCellWidth(const TableLayoutData& tl, size_t ci, float cw, TableAlign align) noexcept
 {
-    const bool width_unchanged = std::abs(tl.cell_applied_widths[ci] - cw) < CELL_WIDTH_EPSILON && tl.cell_heights[ci] > 0.0f;
-    if (!width_unchanged) {
-        auto* layout = tl.cell_layouts[ci].Get();
-        const bool left = align == TableAlign::Default || align == TableAlign::Left;
-        const float layout_width = left && tl.cell_natural_widths[ci] <= cw ? layout::kNoWrapLayoutWidth : cw;
-        if (layout->GetMaxWidth() != layout_width) {
-            layout->SetMaxWidth(layout_width);
-        }
-        if (align == TableAlign::Center) {
-            layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        }
-        else if (align == TableAlign::Right) {
-            layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
-        }
-        DWRITE_TEXT_METRICS metrics{};
-        layout->GetMetrics(&metrics);
-        tl.cell_heights[ci] = metrics.height;
-        tl.cell_applied_widths[ci] = cw;
+    auto* layout = tl.cell_layouts[ci].Get();
+    const bool left = align == TableAlign::Default || align == TableAlign::Left;
+    const float layout_width = left && tl.cell_natural_widths[ci] <= cw ? layout::kNoWrapLayoutWidth : cw;
+    if (std::abs(layout->GetMaxWidth() - layout_width) >= CELL_WIDTH_EPSILON) {
+        layout->SetMaxWidth(layout_width);
     }
-    return tl.cell_heights[ci];
+    DWRITE_TEXT_METRICS metrics{};
+    layout->GetMetrics(&metrics);
+    return metrics.height;
 }
 
 // インラインコードの run の矩形 (字間のパディング込み、レイアウト原点基準) を add に渡す。折り返した run は行ごとに 1 つ。
@@ -140,10 +132,11 @@ std::pmr::vector<size_t> FindRepresentativeCells(const NodeTableData& tbl, TaskS
     return reps;
 }
 
-// 巨大テーブルを行チャンクで並列処理するときの 1 チャンクの行数。
+// 巨大テーブルを行チャンクで並列処理するときの 1 チャンクの行数。1 画面分の行の復元 (数百セル) も
+// ワーカーに行き渡る細かさにする (2 万行 6 列で 256 セルだと復元 4.7ms、32 セルで 1.2ms。初回計測は変わらない)。
 constexpr size_t TableRowsPerChunk(size_t col_count) noexcept
 {
-    constexpr size_t kCellsPerChunk = 256;
+    constexpr size_t kCellsPerChunk = 32;
     return std::max<size_t>(1, kCellsPerChunk / std::max<size_t>(col_count, 1));
 }
 
@@ -159,7 +152,7 @@ void CacheFirstLineHeight(IDWriteTextLayout* layout, NodeLayoutEntry& entry) noe
 
 // entry.text_layout の計測結果を確定する。折り返し行が変わるためハイライト矩形は無効化し、
 // インラインコード背景を作り直す (描画色と下線は SetMaxWidth だけの再計測でも残る)。
-void FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TEXT_METRICS& metrics, const Theme& theme, bool reused_layout)
+void FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TEXT_METRICS& metrics, const Theme& theme)
 {
     entry.height = metrics.height;
     entry.layout_dirty = false;
@@ -167,10 +160,6 @@ void FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TE
     entry.invalidate_per_frame_hl_caches();
     if (node.type == NodeType::CodeBlock) {
         entry.set_natural_code_width(metrics.widthIncludingTrailingWhitespace + 2.0f * layout::NodeTextXOffset(node, theme));
-        // NO_WRAP なので再利用時は行も変わらず、インラインコード背景も持たない。
-        if (reused_layout) {
-            return;
-        }
     }
     entry.clear_inline_code_bgs();
     ForEachInlineCodeBg(entry.text_layout(), node.GetText(), node.runs(), [&entry](const InlineCodeBg& rect) {
@@ -197,8 +186,8 @@ bool MeasureWithoutTextLayout(const Node& node, NodeLayoutEntry& entry, const Th
 
 // 既存の text_layout を SetMaxWidth で再計測する。text_layout は内容変更時に呼び出し側
 // (LayoutCache::InvalidateAllLayouts / EvictTextLayouts) で必ず Reset される契約のため、
-// 現存していればテキスト/runs/フォント幾何は一致している。CreateTextLayout は BiDi 解析と
-// shaping を走らせるためリサイズ時の最大コスト要因で、SetMaxWidth はラインブレーク再計算のみで済む。
+// 現存していればテキスト/runs/フォント幾何は一致している。SetMaxWidth の後の GetMetrics は解析からやり直すので
+// 作り直しより 1〜16% 速いだけだが、装飾の付け直しは要らない。
 // 戻り値: 成功したら true。失敗時は layout を捨ててスローパスに委ねる。
 bool RemeasureExistingLayout(const Node& node, NodeLayoutEntry& entry, float layout_width, const Theme& theme)
 {
@@ -206,7 +195,7 @@ bool RemeasureExistingLayout(const Node& node, NodeLayoutEntry& entry, float lay
     if (SUCCEEDED(entry.text_layout()->SetMaxWidth(layout_width))) {
         DWRITE_TEXT_METRICS metrics{};
         entry.text_layout()->GetMetrics(&metrics);
-        FinishTextMeasure(node, entry, metrics, theme, true);
+        FinishTextMeasure(node, entry, metrics, theme);
         return true;
     }
     entry.reset_text_layout();
@@ -281,63 +270,94 @@ std::pmr::vector<SyntaxToken> ToWideMergedTokens(std::string_view text, std::pmr
 
 void DWriteTextMeasurer::WarmUp(TaskScheduler& scheduler) const
 {
-    if (!dwrite_) {
+    if (!ctx_.body) {
         return;
     }
-    // 書式は参照を持って渡し、UI スレッドが作り直しても worker の途中で解放されないようにする。
-    const auto post = [&](ComPtr<IDWriteTextFormat> fmt) {
-        if (!fmt) {
-            return;
-        }
-        scheduler.Post([factory = ComPtr<IDWriteFactory>(dwrite_), fmt = std::move(fmt)] {
-            MENDO_PROFILE("DWriteTextMeasurer::WarmUp");
-            constexpr std::wstring_view kSample = L"Aa1 日本語のテキスト";
+    // 各書式で日本語を含む小さなレイアウトを測り、フォントの読み込みとフォールバックの解決を済ませる。
+    // 見出しはサイズしか違わず、フォントの読み込みとフォールバックの解決は 1 つで済む。
+    static constexpr auto warm = [](const DWriteContext& ctx) {
+        MENDO_PROFILE("DWriteTextMeasurer::WarmUp");
+        constexpr std::wstring_view kSample = L"Aa1 日本語のテキスト";
+        for (IDWriteTextFormat* fmt : { ctx.body.Get(), ctx.code.Get(), ctx.h[0].Get() }) {
             ComPtr<IDWriteTextLayout> layout;
-            if (SUCCEEDED(factory->CreateTextLayout(kSample.data(), static_cast<UINT32>(kSample.size()), fmt.Get(), layout::kNoWrapLayoutWidth, layout::kNoWrapLayoutWidth, &layout))) {
+            if (fmt && SUCCEEDED(ctx.factory->CreateTextLayout(kSample.data(), static_cast<UINT32>(kSample.size()), fmt, layout::kNoWrapLayoutWidth, layout::kNoWrapLayoutWidth, &layout))) {
                 DWRITE_TEXT_METRICS metrics{};
                 layout->GetMetrics(&metrics);
             }
-        });
+        }
     };
-    post(fmt_body_);
-    post(fmt_code_);
-    // 見出しはサイズしか違わず、フォントの読み込みとフォールバックの解決は 1 つで済む。
-    post(fmt_h_[0]);
+    // ワーカーの組はタスクを取ったワーカーで作られる。作り終えたワーカーは全員がそろうまで待ち、1 本に 1 つずつ行き渡らせる。
+    const auto workers = static_cast<std::ptrdiff_t>(scheduler.WorkerCount());
+    const auto arrived = std::make_shared<std::latch>(workers);
+    for (std::ptrdiff_t i = 0; i < workers; ++i) {
+        if (!scheduler.Post([this, arrived] { warm(Context()); arrived->arrive_and_wait(); })) {
+            arrived->count_down();
+        }
+    }
+    // 共有ファクトリ (UI スレッドの計測用) は書式の参照を持って渡し、UI スレッドが作り直しても途中で解放されないようにする。
+    scheduler.Post([ctx = ctx_] { warm(ctx); });
+}
+
+bool DWriteTextMeasurer::CreateFormats(const Theme& theme, DWriteContext& ctx)
+{
+    // 描画側と同じ作り方にし、無効なフォント名でも描画と同じフォールバックで測る。
+    IDWriteFactory* const factory = ctx.factory.Get();
+    const wchar_t* family = theme.font_family.c_str();
+    ctx.body = CreateTextFormat(factory, { .family = family, .size = theme.font_size_body, .locale = theme.text_locale, .line_height_factor = BODY_LINE_HEIGHT_FACTOR });
+    for (const auto i : std::views::iota(0, 6)) {
+        ctx.h[i] = CreateTextFormat(factory, { .family = family, .weight = DWRITE_FONT_WEIGHT_BOLD, .size = theme.font_size_h[i], .locale = theme.text_locale });
+    }
+    ctx.code = CreateTextFormat(factory, { .family = theme.monospace_font.c_str(), .size = theme.font_size_code, .locale = theme.text_locale, .no_wrap = true });
+    return ctx.body && ctx.code && std::ranges::all_of(ctx.h, [](const auto& f) static { return f != nullptr; });
 }
 
 bool DWriteTextMeasurer::RecreateFormats()
 {
-    if (!dwrite_ || !theme_) {
+    if (!ctx_.factory || !theme_) {
         return false;
     }
-
-    // 描画側と同じ作り方にし、無効なフォント名でも描画と同じフォールバックで測る。
-    const wchar_t* family = theme_->font_family.c_str();
-    fmt_body_ = CreateTextFormat(dwrite_, { .family = family, .size = theme_->font_size_body, .locale = theme_->text_locale, .line_height_factor = BODY_LINE_HEIGHT_FACTOR });
-    for (const auto i : std::views::iota(0, 6)) {
-        fmt_h_[i] = CreateTextFormat(dwrite_, { .family = family, .weight = DWRITE_FONT_WEIGHT_BOLD, .size = theme_->font_size_h[i], .locale = theme_->text_locale });
-    }
-    fmt_code_ = CreateTextFormat(dwrite_, { .family = theme_->monospace_font.c_str(), .size = theme_->font_size_code, .locale = theme_->text_locale, .no_wrap = true });
-    return fmt_body_ && fmt_code_ && std::ranges::all_of(fmt_h_, [](const auto& f) static { return f != nullptr; });
+    static std::atomic<uint64_t> s_generation{ 0 };
+    ctx_.generation = ++s_generation;
+    owner_thread_ = std::this_thread::get_id();
+    return CreateFormats(*theme_, ctx_);
 }
 
-IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const Node& node) const noexcept
+const DWriteTextMeasurer::DWriteContext& DWriteTextMeasurer::Context() const
+{
+    if (std::this_thread::get_id() == owner_thread_) {
+        return ctx_;
+    }
+    thread_local DWriteContext t_ctx;
+    if (t_ctx.generation != ctx_.generation) {
+        if (!t_ctx.factory) {
+            DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(t_ctx.factory.GetAddressOf()));
+        }
+        // 作れなければ共有ファクトリで測る (競合で遅いだけで結果は同じ)。
+        if (!t_ctx.factory || !CreateFormats(*theme_, t_ctx)) {
+            return ctx_;
+        }
+        t_ctx.generation = ctx_.generation;
+    }
+    return t_ctx;
+}
+
+IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const DWriteContext& ctx, const Node& node) noexcept
 {
     if (node.type == NodeType::CodeBlock) {
-        return fmt_code_.Get();
+        return ctx.code.Get();
     }
     if (node.type == NodeType::Heading) {
         const int8_t lv = node.heading_level();
         if (lv >= 1 && lv <= 6) {
-            return fmt_h_[lv - 1].Get();
+            return ctx.h[lv - 1].Get();
         }
     }
-    return fmt_body_.Get();
+    return ctx.body.Get();
 }
 
-IDWriteTextFormat* DWriteTextMeasurer::GetTableRowFormat(const NodeTableData& tbl, size_t r) const noexcept
+IDWriteTextFormat* DWriteTextMeasurer::GetTableRowFormat(const DWriteContext& ctx, const NodeTableData& tbl, size_t r) noexcept
 {
-    return tbl.IsHeaderRow(r) ? fmt_h_[3].Get() : fmt_body_.Get();
+    return tbl.IsHeaderRow(r) ? ctx.h[3].Get() : ctx.body.Get();
 }
 
 void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, bool apply_code_size) const
@@ -404,7 +424,7 @@ void DWriteTextMeasurer::MeasureNode(
     MeasureViewportRange viewport) const
 {
     MENDO_PROFILE("MeasureNode");
-    if (!dwrite_ || !theme_) {
+    if (!ctx_.factory || !theme_) {
         return;
     }
     if (node.type == NodeType::Table) {
@@ -422,13 +442,26 @@ void DWriteTextMeasurer::MeasureNode(
         entry.layout_dirty = false;
         return;
     }
-    if (entry.text_layout() && RemeasureExistingLayout(node, entry, layout_width, *theme_)) {
-        return;
+    if (entry.text_layout()) {
+        // 改行でしか折れておらず最も長い行が新しい幅に収まるなら、組み直しても行は同じ。左揃えなので幅は付け替えない
+        // (SetMaxWidth の後の GetMetrics は作り直しとほぼ同じだけかかる)。GetMetrics は前回の結果を返すだけ。
+        // 幅を変えたときの全ノードの計測し直しが test.md で 174ms → 143ms、README で 6.0ms → 3.1ms。
+        DWRITE_TEXT_METRICS metrics{};
+        entry.text_layout()->GetMetrics(&metrics);
+        if (metrics.lineCount == static_cast<UINT32>(node.line_count) + 1 && metrics.width <= layout_width) {
+            entry.height = metrics.height;
+            entry.layout_dirty = false;
+            return;
+        }
+        if (RemeasureExistingLayout(node, entry, layout_width, *theme_)) {
+            return;
+        }
     }
 
     const auto& text = node.GetText();
+    const auto& ctx = Context();
     ComPtr<IDWriteTextLayout> layout;
-    if (FAILED(CreateDocTextLayout(dwrite_, text, GetTextFormat(node), layout_width, layout::kNoWrapLayoutWidth, &layout))) {
+    if (FAILED(CreateDocTextLayout(ctx.factory.Get(), text, GetTextFormat(ctx, node), layout_width, layout::kNoWrapLayoutWidth, &layout))) {
         return;
     }
 
@@ -450,15 +483,22 @@ void DWriteTextMeasurer::MeasureNode(
     }
 
     entry.set_text_layout(std::move(layout));
-    FinishTextMeasure(node, entry, metrics, *theme_, false);
+    FinishTextMeasure(node, entry, metrics, *theme_);
 }
 
-ComPtr<IDWriteTextLayout> DWriteTextMeasurer::CreateCellLayout(const NodeTableData& tbl, size_t r, size_t c, IDWriteTextFormat* row_fmt) const
+ComPtr<IDWriteTextLayout> DWriteTextMeasurer::CreateCellLayout(const DWriteContext& ctx, const NodeTableData& tbl, size_t r, size_t c) const
 {
     ComPtr<IDWriteTextLayout> cell_layout;
     const auto text = tbl.GetCellText(r, c);
-    if (!text.empty() && SUCCEEDED(CreateDocTextLayout(dwrite_, text, row_fmt, layout::kNoWrapLayoutWidth, layout::kNoWrapLayoutWidth, &cell_layout))) {
+    if (!text.empty() && SUCCEEDED(CreateDocTextLayout(ctx.factory.Get(), text, GetTableRowFormat(ctx, tbl, r), layout::kNoWrapLayoutWidth, layout::kNoWrapLayoutWidth, &cell_layout))) {
         ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, /*apply_code_size=*/true);
+        // 揃えは折り返さない幅に影響しないので、自然幅の計測前に付けてよい。
+        if (const TableAlign align = tbl.ColAlign(c); align == TableAlign::Center) {
+            cell_layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        }
+        else if (align == TableAlign::Right) {
+            cell_layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+        }
     }
     return cell_layout;
 }
@@ -479,14 +519,14 @@ void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayout
     std::mutex merge_mutex;
     ParallelFor(scheduler_, tbl.row_count, TableRowsPerChunk(col_count), [&](size_t row_begin, size_t row_end) {
         std::pmr::vector<float> local_widths(col_count, 0.0f);
+        const auto& ctx = Context();
         for (size_t r = row_begin; r < row_end; r++) {
-            IDWriteTextFormat* const row_fmt = GetTableRowFormat(tbl, r);
             for (size_t c = 0; c < col_count; c++) {
                 const size_t ci = tl.CellIndex(r, c);
                 if (!reps.empty() && reps[ci] != ci) {
                     continue;
                 }
-                auto cell_layout = CreateCellLayout(tbl, r, c, row_fmt);
+                auto cell_layout = CreateCellLayout(ctx, tbl, r, c);
                 if (!cell_layout) {
                     continue;
                 }
@@ -531,11 +571,11 @@ void DWriteTextMeasurer::RestoreNullCellLayouts(const NodeTableData& tbl, TableL
 
 void DWriteTextMeasurer::BuildRowCells(const NodeTableData& tbl, TableLayoutData& tl, size_t r) const
 {
-    IDWriteTextFormat* const row_fmt = GetTableRowFormat(tbl, r);
+    const auto& ctx = Context();
     for (size_t c = 0; c < tbl.col_count; c++) {
         const size_t ci = tl.CellIndex(r, c);
         if (ci < tl.cell_layouts.size() && !tl.cell_layouts[ci]) {
-            tl.cell_layouts[ci] = CreateCellLayout(tbl, r, c, row_fmt);
+            tl.cell_layouts[ci] = CreateCellLayout(ctx, tbl, r, c);
         }
     }
 }
@@ -578,7 +618,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
     TableRestoreResult result;
     auto* tl_ptr = entry.table_layout();
     const auto* tbl = node.table_data();
-    if (!dwrite_ || !theme_ || !tl_ptr || !tbl || !tl_ptr->HasEvictedRows()) {
+    if (!ctx_.factory || !theme_ || !tl_ptr || !tbl || !tl_ptr->HasEvictedRows()) {
         return result;
     }
     auto& tl = *tl_ptr;

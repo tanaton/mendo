@@ -196,8 +196,7 @@ protected:
                 desc += " w=" + std::to_string(width_);
                 switch (rng() % 3) {
                 case 0:
-                    // アプリのタイマーと同じバッチ上限。
-                    engine_.ProcessDirtyBatch(nodes_, cache_, width_, 200, { scroll_, kViewportHeight, 1.0f });
+                    engine_.ProcessDirtyBatch(nodes_, cache_, width_, kNoLayoutDeadline, { scroll_, kViewportHeight, 1.0f });
                     desc += "+batch";
                     break;
                 case 1:
@@ -217,14 +216,17 @@ protected:
             ComputeLayout(engine_, nodes_, cache_, width_, scroll_, scroll_ + kViewportHeight);
             return "ComputeLayout";
         case Op::DirtyBatch: {
-            const int batch = 1 + static_cast<int>(rng() % 5);
+            // 期限切れ (1 ノードだけ) か期限なし。
+            const bool expired = rng() % 2 == 0;
+            const LayoutDeadline deadline = expired ? LayoutDeadline{} : kNoLayoutDeadline;
+            const std::string desc = std::string("ProcessDirtyBatch ") + (expired ? "expired" : "unlimited");
             if (rng() % 2 == 0) {
                 const float buffer = static_cast<float>(rng() % 3);
-                engine_.ProcessDirtyBatch(nodes_, cache_, width_, batch, { scroll_, kViewportHeight, buffer });
-                return "ProcessDirtyBatch batch=" + std::to_string(batch) + " clip buffer=" + std::to_string(buffer);
+                engine_.ProcessDirtyBatch(nodes_, cache_, width_, deadline, { scroll_, kViewportHeight, buffer });
+                return desc + " clip buffer=" + std::to_string(buffer);
             }
-            engine_.ProcessDirtyBatch(nodes_, cache_, width_, batch, {});
-            return "ProcessDirtyBatch batch=" + std::to_string(batch) + " noclip";
+            engine_.ProcessDirtyBatch(nodes_, cache_, width_, deadline, {});
+            return desc + " noclip";
         }
         case Op::MarkDirty: {
             const size_t i = rng() % nodes_.size();
@@ -260,7 +262,7 @@ protected:
     {
         engine_.SetLayoutScheduler(nullptr);
         for (int guard = 0; guard < 10000; ++guard) {
-            if (!engine_.ProcessDirtyBatch(nodes_, cache_, width_, 0, {})) {
+            if (!engine_.ProcessDirtyBatch(nodes_, cache_, width_, kNoLayoutDeadline, {})) {
                 return;
             }
         }
@@ -479,7 +481,7 @@ TEST(CarryOverUnchangedTest, KeepsMeasuredEntriesOfUnchangedNodes)
     const float title_height = old_cache[0].height;
     new_cache = layout::MakeEstimatedLayoutCache(new_nodes, theme);
 
-    EXPECT_EQ(layout::CarryOverUnchanged(old_nodes, old_cache, new_nodes, new_cache).carried, 3u);
+    EXPECT_EQ(layout::CarryOverUnchanged(old_nodes, old_cache, new_nodes, new_cache, FindUnchangedEnds(old_nodes, new_nodes)).carried, 3u);
     EXPECT_FALSE(new_cache[0].layout_dirty);
     EXPECT_FLOAT_EQ(new_cache[0].height, title_height);
     EXPECT_FALSE(new_cache[1].layout_dirty);
@@ -500,7 +502,7 @@ TEST(CarryOverUnchangedTest, LinkTargetChangeIsNotCarried)
     ASSERT_EQ(old_nodes.size(), new_nodes.size());
     new_cache = layout::MakeEstimatedLayoutCache(new_nodes, theme);
 
-    layout::CarryOverUnchanged(old_nodes, old_cache, new_nodes, new_cache);
+    layout::CarryOverUnchanged(old_nodes, old_cache, new_nodes, new_cache, FindUnchangedEnds(old_nodes, new_nodes));
     EXPECT_TRUE(new_cache[0].layout_dirty);
     EXPECT_FALSE(new_cache[1].layout_dirty);
 }

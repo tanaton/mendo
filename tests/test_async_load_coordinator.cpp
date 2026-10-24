@@ -137,7 +137,7 @@ std::optional<AsyncLoadResult> RunReload(TaskScheduler& scheduler, const TempFil
 {
     auto base = std::make_shared<const std::pmr::string>(old_text);
     AsyncLoadCoordinator c;
-    c.Start(scheduler, tmp.PmrPath(), nullptr, 0, GetLightTheme(), 0.0f, base);
+    c.Start(scheduler, tmp.PmrPath(), nullptr, 0, GetLightTheme(), 0.0f, ReloadBase{ base });
     auto outcome = WaitForOutcome(c);
     std::optional<AsyncLoadResult> result;
     if (outcome && outcome->has_value()) {
@@ -195,6 +195,36 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadWithChangeParsesAndCarriesDecision)
     EXPECT_EQ(result->reload->loaded_byte_size, result->doc.GetLoadedByteSize());
 }
 
+// 旧文書のノードを渡すと、変わらなかったノードを worker で数えて返す。UI が旧文書を手放していれば数えない。
+TEST_F(AsyncLoadCoordinatorTest, ReloadCountsUnchangedNodesOnWorker)
+{
+    TempFile tmp(L"aload_reload_ends", "# Title\n\nchanged\n\ntail\n");
+    for (const bool keep_old : { true, false }) {
+        SCOPED_TRACE(keep_old ? "keep_old" : "released");
+        auto old_doc = std::make_optional(Document::FromMarkdown(std::pmr::string("# Title\n\nbody\n\ntail\n"), L"old.md"));
+        ReloadBase base{ old_doc->GetRawText().Share(), old_doc->ShareNodes() };
+        if (!keep_old) {
+            base.nodes.reset();
+        }
+        AsyncLoadCoordinator c;
+        c.Start(scheduler_, tmp.PmrPath(), nullptr, 0, GetLightTheme(), 0.0f, std::move(base));
+        const auto outcome = WaitForOutcome(c);
+        ASSERT_TRUE(outcome.has_value());
+        ASSERT_TRUE(outcome->has_value());
+        const auto& reload = (*outcome)->reload;
+        ASSERT_TRUE(reload.has_value());
+        ASSERT_EQ(reload->decision.op, ReloadOp::Replace);
+        if (keep_old) {
+            ASSERT_TRUE(reload->ends.has_value());
+            EXPECT_EQ(reload->ends->head, 1u);
+            EXPECT_EQ(reload->ends->tail, 1u);
+        }
+        else {
+            EXPECT_FALSE(reload->ends.has_value());
+        }
+    }
+}
+
 // 読み終えた後もファイルが伸びている (書き込み途中) なら、差分判定もパースもせずに返す。
 TEST_F(AsyncLoadCoordinatorTest, ReloadWhileFileStillGrowingSkipsParse)
 {
@@ -204,7 +234,7 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadWhileFileStillGrowingSkipsParse)
     AsyncLoadCoordinator c([](const std::pmr::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
         return LoadedFileDoc{ std::pmr::string("# Title\n\nchanged\n"), 17 };
     });
-    c.Start(scheduler_, tmp.PmrPath(), nullptr, 0, GetLightTheme(), 0.0f, base);
+    c.Start(scheduler_, tmp.PmrPath(), nullptr, 0, GetLightTheme(), 0.0f, ReloadBase{ base });
     const auto outcome = WaitForOutcome(c);
     ASSERT_TRUE(outcome.has_value());
     ASSERT_TRUE(outcome->has_value());
@@ -483,7 +513,7 @@ TEST_F(AsyncLoadCoordinatorTest, RandomStartCancelSequencesExposeOnlyLastLoad)
                         expect = Expect::Missing;
                         break;
                     case 3:
-                        c.Start(scheduler_, ok1.PmrPath(), w.Get(), kParseCompleteMsg, GetLightTheme(), 0.0f, ok1_base);
+                        c.Start(scheduler_, ok1.PmrPath(), w.Get(), kParseCompleteMsg, GetLightTheme(), 0.0f, ReloadBase{ ok1_base });
                         expect = Expect::Ok1NoChange;
                         break;
                     default:

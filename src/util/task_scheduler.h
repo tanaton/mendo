@@ -1,7 +1,6 @@
 #pragma once
 #include <algorithm>
 #include <vector>
-#include <queue>
 #include <deque>
 #include <memory_resource>
 #include <thread>
@@ -16,8 +15,8 @@ constexpr int SharedWorkerCount(unsigned int cores) noexcept
 }
 
 // レイアウト計測用 scheduler のワーカー数。
-// 上限 8: DirectWrite の計測は 4〜8 本で頭打ちになり、それ以上は共有ファクトリ内の競合で遅くなる
-// (24 コアで test.md x8 の全計測: 8 本 200ms、16 本 234ms。ParallelMeasureBench.DISABLED_RealMeasureWorkerSweep)。
+// 上限 8: ワーカーごとの ISOLATED ファクトリで本数なりに速くなるが (計測値は DWriteTextMeasurer)、ファクトリ 1 つで約 0.4MB 増える。
+// 16 本は test.md 表示時の commit を約 11% 増やし、ふだんの計測は可視範囲の数十ノードで 8 本でも余るので上げない。
 // 下限 2 は hardware_concurrency()==0 や 1 コア環境でも並列計測の枠組みを保つため。
 constexpr int LayoutWorkerCount(unsigned int cores) noexcept
 {
@@ -45,7 +44,15 @@ public:
     void Init(int thread_count);
 
     // 呼び出し側は戻り値を無視してもよい（破棄されたタスクは単に未実行）。
-    bool Post(std::move_only_function<void()> task);
+    bool Post(std::move_only_function<void()> task)
+    {
+        return PostImpl(std::move(task), /*front=*/false);
+    }
+    // 待っているタスクより先に実行させる。上限 (MAX_PENDING_TASKS) は見ない。Shutdown 後だけ false。
+    bool PostFront(std::move_only_function<void()> task)
+    {
+        return PostImpl(std::move(task), /*front=*/true);
+    }
 
     void Shutdown();
 
@@ -62,13 +69,14 @@ public:
     }
 
 private:
+    bool PostImpl(std::move_only_function<void()> task, bool front);
     // mutex_ を保持して呼ぶ。
     void StartWorkersLocked();
     void WorkerLoop();
 
     size_t thread_count_ = 0;
     std::vector<std::thread> workers_;
-    std::queue<std::move_only_function<void()>, std::pmr::deque<std::move_only_function<void()>>> queue_;
+    std::pmr::deque<std::move_only_function<void()>> queue_;
     std::mutex mutex_;
     std::condition_variable cv_;
     // 読み書きはすべて mutex_ の下で行う。

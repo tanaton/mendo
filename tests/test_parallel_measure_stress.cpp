@@ -9,16 +9,20 @@
 #include <string>
 #include <thread>
 #include "document.h"
+#include "document_utils.h"
 #include "document_types.h"
 #include "dwrite_measurer.h"
+#include "dwrite_test_base.h"
 #include "example_files.h"
 #include "layout.h"
 #include "layout_cache.h"
+#include "layout_computer.h"
 #include "mock_text_measurer.h"
 #include "syntax.h"
 #include "task_scheduler.h"
 #include "test_helpers.h"
 #include "theme.h"
+#include "viewport_manager.h"
 #include "test_nodes.h"
 
 namespace {
@@ -28,7 +32,7 @@ int MeasureAll(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& t
 {
     std::pmr::vector<size_t> indices(nodes.size());
     std::ranges::iota(indices, size_t{ 0 });
-    return layout::MeasureIndicesParallel(nodes, cache, 800.0f, theme, measurer, indices, {}, scheduler);
+    return layout::MeasureIndicesParallel(nodes, cache, 800.0f, theme, measurer, indices, {}, scheduler, kNoLayoutDeadline);
 }
 
 // 22000 ノード級の Mixed fixture を決定論的に生成する。配分:
@@ -386,7 +390,8 @@ TEST(ParallelMeasureBench, DISABLED_RealMeasureWorkerSweep)
     ASSERT_TRUE(SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(factory.GetAddressOf()))));
     const Theme theme = GetLightTheme();
 
-    std::cout << "nodes=" << doc.GetNodes().size() << "\nworkers,ms\n";
+    // cold はワーカーのファクトリと書式の作成を含む。warm は同じワーカーでの 2 回目。
+    std::cout << "nodes=" << doc.GetNodes().size() << "\nworkers,cold_ms,warm_ms\n";
     for (const int workers : { 0, 0, 2, 4, 8, 12, 16 }) {
         TaskScheduler ts;
         ts.Init(workers);
@@ -396,11 +401,172 @@ TEST(ParallelMeasureBench, DISABLED_RealMeasureWorkerSweep)
         ASSERT_TRUE(engine.Init(&measurer, theme));
         engine.SetLayoutScheduler(workers > 0 ? &ts : nullptr);
         measurer.SetScheduler(workers > 0 ? &ts : nullptr);
-        LayoutCache cache;
-        const double us = MeasureUs([&] { ComputeLayout(engine, doc.GetNodes(), cache, 1200.0f); });
+        LayoutCache cold_cache;
+        const double cold_us = MeasureUs([&] { ComputeLayout(engine, doc.GetNodes(), cold_cache, 1200.0f); });
+        LayoutCache warm_cache;
+        const double warm_us = MeasureUs([&] { ComputeLayout(engine, doc.GetNodes(), warm_cache, 1200.0f); });
         engine.SetLayoutScheduler(nullptr);
         measurer.SetScheduler(nullptr);
         ts.Shutdown();
-        std::cout << workers << "," << us / 1000.0 << "\n";
+        std::cout << workers << "," << cold_us / 1000.0 << "," << warm_us / 1000.0 << "\n";
     }
+}
+
+namespace {
+
+// 2 万行 6 列の表。日本語・右揃え・中央揃えを含み、中身はほぼ行ごとに違う。
+std::pmr::string MakeBenchTableMd()
+{
+    std::pmr::string md = "| 名前 | 状態 | 説明 | 数量 | 単価 | 備考 |\n|---|---|---|--:|--:|:-:|\n";
+    for (size_t r = 0; r < 20000; ++r) {
+        const auto n = std::to_string(r);
+        md += "| 項目" + n + " | 状態" + std::to_string(r % 97) + " | 説明のテキスト " + n + " を少し長めに書く | " + n + " | " +
+              std::to_string(r * 7 % 1000) + " | 備考" + n + " |\n";
+    }
+    return md;
+}
+
+} // namespace
+
+// 実際の DirectWrite で測るベンチ。UseWorkers でワーカー 8 本を計測器とエンジンに結ぶ。
+class DWriteMeasureBench : public DWriteTestBase {
+protected:
+    void UseWorkers()
+    {
+        scheduler_.Init(8);
+        measurer_.SetScheduler(&scheduler_);
+        engine_.SetLayoutScheduler(&scheduler_);
+    }
+    void TearDown() override
+    {
+        engine_.SetLayoutScheduler(nullptr);
+        measurer_.SetScheduler(nullptr);
+        scheduler_.Shutdown();
+    }
+
+    TaskScheduler scheduler_;
+};
+
+// 大きな表 (evict 前提) の初回計測、1 画面分の行の復元、幅の変更の所要時間を出す。
+// --gtest_also_run_disabled_tests --gtest_filter=*TableMeasureBench* で起動。
+TEST_F(DWriteMeasureBench, DISABLED_TableMeasureBench)
+{
+    const auto doc = Document::FromMarkdown(MakeBenchTableMd(), L"bench.md");
+    const auto& nodes = doc.GetNodes();
+    const auto it = std::ranges::find(nodes, NodeType::Table, &Node::type);
+    ASSERT_NE(it, nodes.end());
+    UseWorkers();
+
+    for (int round = 0; round < 2; ++round) {
+        NodeLayoutEntry entry;
+        const double initial_us = MeasureUs([&] { measurer_.MeasureNode(*it, entry, 1200.0f, {}); });
+        ASSERT_NE(entry.table_layout(), nullptr);
+        // 1 画面 (1000 DIP) 分の行を、表のあちこちで 20 回復元する。
+        double restore_us = 0.0;
+        for (int k = 0; k < 20; ++k) {
+            const float top = entry.height * static_cast<float>(k) / 20.0f;
+            restore_us += MeasureUs([&] { measurer_.RestoreEvictedTableRows(*it, entry, 1200.0f, { top, top + 1000.0f }); });
+        }
+        entry.layout_dirty = true;
+        const double resize_us = MeasureUs([&] { measurer_.MeasureNode(*it, entry, 1000.0f, { 0.0f, 1000.0f }); });
+        std::cout << "round" << round << ": initial_ms=" << initial_us / 1000.0 << " restore_avg_ms=" << restore_us / 20000.0
+                  << " resize_ms=" << resize_us / 1000.0 << "\n";
+    }
+}
+
+// 全ノードを計測したあと幅を変えたときの再計測の所要時間 (直列)。
+// --gtest_also_run_disabled_tests --gtest_filter=*ResizeRemeasureBench* で起動。
+TEST_F(DWriteMeasureBench, DISABLED_ResizeRemeasureBench)
+{
+    for (const char* path : { "example/test.md", "../README.md" }) {
+        auto bytes = ReadExampleFileBytes(path);
+        if (bytes.empty()) {
+            continue;
+        }
+        const auto doc = Document::FromMarkdown(std::move(bytes), L"bench.md");
+        LayoutCache cache;
+        ComputeLayout(engine_, doc.GetNodes(), cache, 1200.0f);
+        std::cout << path << ":";
+        for (const float width : { 1100.0f, 1000.0f, 1300.0f }) {
+            const double us = MeasureUs([&] { ComputeLayout(engine_, doc.GetNodes(), cache, width); });
+            std::cout << " w" << width << "=" << us / 1000.0 << "ms";
+        }
+        std::cout << "\n";
+    }
+}
+
+// 大きな表の上下 8 画面分の行が残っている状態で幅を変えたときの、可視範囲のレイアウトの所要時間。
+// --gtest_also_run_disabled_tests --gtest_filter=*TableResizeViewportBench* で起動。
+TEST_F(DWriteMeasureBench, DISABLED_TableResizeViewportBench)
+{
+    constexpr float kScreen = 1000.0f;
+    const auto doc = Document::FromMarkdown(MakeBenchTableMd(), L"bench.md");
+    UseWorkers();
+    ViewportManager viewport;
+    LayoutService service(engine_, viewport);
+
+    for (const float width : { 1100.0f, 1000.0f, 1200.0f, 900.0f }) {
+        LayoutCache cache;
+        ComputeLayout(engine_, doc.GetNodes(), cache, 1300.0f, 0.0f, kScreen);
+        const float mid = cache.Bottom(cache.size() - 1) / 2.0f;
+        engine_.EnsureVisibleLayout(doc.GetNodes(), cache, 1300.0f, mid - 8.0f * kScreen, mid + 9.0f * kScreen);
+        viewport.SetScrollY(mid);
+        const double us = MeasureUs([&] { service.ViewportLayout(doc, cache, width, kScreen); });
+        std::cout << "w" << width << ": " << us / 1000.0 << "ms\n";
+    }
+}
+
+// 遅延レイアウトを期限で区切ったときの、全 dirty を計測し終えるまでの所要時間。
+// --gtest_also_run_disabled_tests --gtest_filter=*DirtyBatchDeadlineBench* で起動。
+TEST_F(DWriteMeasureBench, DISABLED_DirtyBatchDeadlineBench)
+{
+    const auto bytes = ReadExampleFileBytes("example/test.md");
+    if (bytes.empty()) {
+        GTEST_SKIP() << "example/test.md not found";
+    }
+    std::pmr::string md;
+    for (int i = 0; i < 4; i++) {
+        md += bytes;
+    }
+    const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
+    UseWorkers();
+    for (const int budget_ms : { 4, 0, 4, 0 }) {
+        LayoutCache cache;
+        engine_.Reestimate(doc.GetNodes(), cache, 1200.0f);
+        const double us = MeasureUs([&] {
+            const auto deadline = [&] {
+                return budget_ms > 0 ? std::chrono::steady_clock::now() + std::chrono::milliseconds(budget_ms) : kNoLayoutDeadline;
+            };
+            while (engine_.ProcessDirtyBatch(doc.GetNodes(), cache, 1200.0f, deadline(), {})) {
+            }
+        });
+        std::cout << "budget" << budget_ms << "ms: " << us / 1000.0 << "ms\n";
+    }
+}
+
+// 大きな文書の末尾近くを編集して保存したときの、リロードの UI スレッド側の処理の所要時間。
+// --gtest_also_run_disabled_tests --gtest_filter=*ReloadCarryOverBench* で起動。
+TEST(ParallelMeasureBench, DISABLED_ReloadCarryOverBench)
+{
+    auto bytes = ReadExampleFileBytes("example/test.md");
+    if (bytes.empty()) {
+        GTEST_SKIP() << "example/test.md not found";
+    }
+    std::pmr::string old_md;
+    while (old_md.size() < 100u * 1024 * 1024) {
+        old_md += bytes;
+    }
+    std::pmr::string new_md = old_md;
+    new_md.insert(new_md.size() - 200, "\n\n追記した段落。\n\n");
+    const Theme theme = GetLightTheme();
+    auto old_doc = Document::FromMarkdown(std::move(old_md), L"bench.md");
+    auto new_doc = Document::FromMarkdown(std::move(new_md), L"bench.md");
+    auto old_cache = layout::MakeEstimatedLayoutCache(old_doc.GetNodes(), theme, 800.0f);
+    auto new_cache = layout::MakeEstimatedLayoutCache(new_doc.GetNodes(), theme, 800.0f);
+    UnchangedEnds ends;
+    const double find_us = MeasureUs([&] { ends = FindUnchangedEnds(old_doc.GetNodes(), new_doc.GetNodes()); });
+    const double carry_us = MeasureUs([&] { layout::CarryOverUnchanged(old_doc.GetNodes(), old_cache, new_doc.GetNodes(), new_cache, ends); });
+    const double recompute_us = MeasureUs([&] { layout::RecomputeYPositions(new_doc.GetNodes(), new_cache, theme); });
+    std::cout << "nodes=" << new_doc.GetNodes().size() << " head=" << ends.head << " tail=" << ends.tail << " find_ms=" << find_us / 1000.0
+              << " carry_ms=" << carry_us / 1000.0 << " recompute_ms=" << recompute_us / 1000.0 << "\n";
 }

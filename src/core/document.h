@@ -1,7 +1,7 @@
 #pragma once
 #include "anchor.h"
 #include "document_types.h"
-#include "text_arena.h"
+#include "parser.h"
 #include <cstddef>
 #include <memory>
 #include <memory_resource>
@@ -73,8 +73,8 @@ class Document {
 public:
     constexpr Document() noexcept = default;
 
-    // move-only: nodes_ のテキストは raw_text_ のバッファか text_arena_ を、テーブルは tables_ の要素を直接指す。
-    // RawText は共有文字列を、text_arena_ と tables_ の要素は unique_ptr で持つため、move しても relocate せず付け替えは不要。
+    // move-only: ノードのテキストは raw_text_ のバッファか storage_ の arena を、テーブルは storage_ の要素を直接指す。
+    // どちらも共有で持つため、move しても relocate せず付け替えは不要。
     Document(const Document&) = delete;
     Document& operator=(const Document&) = delete;
     Document(Document&& other) noexcept = default;
@@ -89,9 +89,15 @@ public:
         std::stop_token stop_token = {});
     static Document FromMarkdown(std::pmr::string utf8, std::wstring_view path);
 
-    constexpr const std::pmr::vector<Node>& GetNodes() const noexcept
+    const std::pmr::vector<Node>& GetNodes() const noexcept
     {
-        return nodes_;
+        static const std::pmr::vector<Node> kEmpty;
+        return storage_ ? storage_->nodes : kEmpty;
+    }
+    // 非同期リロードの worker が旧ノードと比べるための弱参照。ノードが指す原文は GetRawText().Share() で別に生かす。
+    std::weak_ptr<const NodeStorage> ShareNodes() const noexcept
+    {
+        return storage_;
     }
     constexpr const std::pmr::wstring& GetFilePath() const noexcept
     {
@@ -103,9 +109,9 @@ public:
     {
         return toc_;
     }
-    constexpr bool IsEmpty() const noexcept
+    bool IsEmpty() const noexcept
     {
-        return nodes_.empty();
+        return GetNodes().empty();
     }
     // パース入力の原文。AnalyzeReloadDiff の比較用。ノードレベルでは検出できない編集
     // (空行追加・末尾空白・改行種別変更等) も UTF-8 byte offset 精度で差分位置を求めるため、常時保持する。
@@ -139,11 +145,9 @@ public:
     }
 
 private:
-    std::pmr::vector<Node> nodes_;
-    // 原文をそのまま表示できないノードのテキストと、全ノードの runs・リンク URL の置き場所。
-    std::unique_ptr<TextArena> text_arena_;
-    // Table ノードが指すテーブル本体。
-    std::pmr::vector<std::unique_ptr<NodeTableData>> tables_;
+    // ノードと、原文をそのまま表示できないノードのテキスト・全ノードの runs・リンク URL・テーブル本体。
+    // パース後は書き換えない。非同期リロードの worker が UI の差し替えと無関係に読めるよう共有で持つ。
+    std::shared_ptr<const NodeStorage> storage_;
     std::pmr::wstring file_path_;
     // 設定するのは FromMarkdown だけ。常に LF-only (FileLoader または 2 引数 FromMarkdown が正規化する)。
     RawText raw_text_;

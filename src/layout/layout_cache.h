@@ -37,8 +37,6 @@ struct TableLayoutData {
     std::pmr::vector<float> col_widths;
     std::pmr::vector<float> row_heights;
     std::pmr::vector<float> natural_col_widths;  // リサイズ高速パス用キャッシュ
-    std::pmr::vector<float> cell_heights;        // 各セルに最後に適用した幅での計測高さ
-    std::pmr::vector<float> cell_applied_widths; // 各セルに最後に適用した max_width（変更判定用）
     std::pmr::vector<float> cell_natural_widths; // 各セルの折り返さない幅。テキストは変わらないので evict しても残す
     std::pmr::vector<float> cell_nowrap_heights; // 各セルの折り返さないときの高さ。evict 中の行の高さを出すのに使う
     std::pmr::vector<uint8_t> row_evicted;       // 行単位 evict でセル layout を捨てた行
@@ -74,8 +72,6 @@ struct TableLayoutData {
     void AllocateCells(size_t row_count, size_t new_col_count)
     {
         const size_t cell_count = row_count * new_col_count;
-        cell_heights.assign(cell_count, 0.0f);
-        cell_applied_widths.assign(cell_count, -1.0f);
         cell_natural_widths.assign(cell_count, 0.0f);
         cell_nowrap_heights.assign(cell_count, 0.0f);
         ResetRowEviction(row_count);
