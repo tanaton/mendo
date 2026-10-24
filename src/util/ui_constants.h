@@ -114,10 +114,16 @@ inline constexpr float COPY_BTN_MARGIN = 6.0f;
 inline constexpr float COPY_BTN_CORNER = 4.0f;
 inline constexpr float COPY_BTN_GAP = 4.0f;
 
-inline constexpr float INLINE_CODE_PAD_X = 3.0f;
-inline constexpr float INLINE_CODE_PAD_Y = 2.0f;
-inline constexpr float INLINE_CODE_CORNER = 3.0f;
+// 背景を行の高さから上下に縮める量。行送り 24 DIP で背景の高さと隙間を GitHub と同じ 21 / 3 DIP にする。
+inline constexpr float INLINE_CODE_INSET_Y = 1.5f;
+// コード範囲の両端に足す字間で、背景の左右パディングになる。背景はこの字間までに留め、
+// GitHub と同じく前後の空白を背景の外にまるごと残す。
+inline constexpr float INLINE_CODE_SPACING = 5.0f;
+inline constexpr float INLINE_CODE_CORNER = 6.0f;
 inline constexpr float CODE_BLOCK_CORNER = 4.0f;
+// 本文の行送りをフォントサイズの何倍にするか (GitHub の line-height: 1.5)。
+// 行頭に重ねて描くリスト番号・チェックボックスも同じ行送りにしてベースラインを揃える。
+inline constexpr float BODY_LINE_HEIGHT_FACTOR = 1.5f;
 
 inline constexpr float LIST_BULLET_X_FACTOR = 0.6f;
 inline constexpr float LIST_NUMBER_PAD_LEFT = 4.0f;

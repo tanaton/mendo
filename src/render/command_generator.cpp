@@ -67,10 +67,10 @@ DrawTextLayoutCmd MakeTextLayoutCmd(D2D1_POINT_2F origin, IDWriteTextLayout* lay
 
 FillRoundedRectCmd MakeInlineCodeBgCmd(const D2D1_RECT_F& r) noexcept
 {
-    return { r, INLINE_CODE_CORNER, INLINE_CODE_CORNER, BrushId::CodeBg };
+    return { r, INLINE_CODE_CORNER, INLINE_CODE_CORNER, BrushId::InlineCodeBg };
 }
 
-// bgs はパディング適用済みのレイアウト原点相対矩形。
+// bgs はレイアウト原点相対矩形。
 void GenInlineCodeBgs(DrawCommandList& cmds, std::span<const InlineCodeBg> bgs, float origin_x, float origin_y, float cull_top, float cull_bottom)
 {
     for (const auto& bg : bgs) {
@@ -397,8 +397,8 @@ CommandGenerator::NodeOverhang CommandGenerator::MaxNodeOverhang() const noexcep
     const float underline = HeadingUnderlineGap(*theme_) + std::max(theme_->GetHeadingUnderlineThickness(1), theme_->GetHeadingUnderlineThickness(2));
     // 空 LI は height=0 だが bullet/checkbox は text_top より下に描かれる。
     const float empty_li = layout::EmptyListItemHeight(*theme_);
-    // インラインコード背景・コードブロックの padding 内の装飾・アラート背景・引用バーは上下両方へ出る。
-    const float box = std::max({ INLINE_CODE_PAD_Y, theme_->code_block_padding, ALERT_BG_PAD, BAR_EXTEND });
+    // コードブロックの padding 内の装飾・アラート背景・引用バーは上下両方へ出る。
+    const float box = std::max({ theme_->code_block_padding, ALERT_BG_PAD, BAR_EXTEND });
     // コピー/保存ボタンはズームに依らない固定サイズで box 上端から下へ伸びるため、縮小表示の
     // 低いブロックでは box の下へはみ出す。ノード上端からのボタン下端までを下側の上限に含める。
     const float copy_button = COPY_BTN_MARGIN + COPY_BTN_SIZE;

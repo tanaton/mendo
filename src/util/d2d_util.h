@@ -4,7 +4,7 @@
 #include "profiler.h"
 #include "win32_util.h"
 #include <d2d1.h>
-#include <dwrite.h>
+#include <dwrite_3.h>
 #include <wrl/client.h>
 #include <windows.h>
 #include <bit>
@@ -34,7 +34,26 @@ struct TextFormatSpec {
     DWRITE_TEXT_ALIGNMENT text_align = DWRITE_TEXT_ALIGNMENT_LEADING;
     DWRITE_PARAGRAPH_ALIGNMENT para_align = DWRITE_PARAGRAPH_ALIGNMENT_NEAR;
     bool no_wrap = false;
+    // 0 より大きければ、主フォントの行の高さを size のこの倍にする。増減分は行の上下に半分ずつ配る。
+    float line_height_factor = 0.0f;
 };
+
+// 比率指定の行間にして、フォールバックで高くなる行は既定と同じく高いまま、主フォントの行を line_height にする。
+inline void SetLineHeight(IDWriteFactory* dw, IDWriteTextFormat* fmt, float line_height)
+{
+    Microsoft::WRL::ComPtr<IDWriteTextFormat3> fmt3;
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> probe;
+    if (FAILED(fmt->QueryInterface(IID_PPV_ARGS(&fmt3))) || FAILED(dw->CreateTextLayout(L"a", 1, fmt, 0.0f, 0.0f, &probe))) {
+        return;
+    }
+    DWRITE_LINE_METRICS lm{};
+    UINT32 count = 0;
+    if (FAILED(probe->GetLineMetrics(&lm, 1, &count)) || count == 0 || lm.height <= 0.0f) {
+        return;
+    }
+    const DWRITE_LINE_SPACING spacing{ DWRITE_LINE_SPACING_METHOD_PROPORTIONAL, line_height / lm.height, 1.0f, 0.5f, DWRITE_FONT_LINE_GAP_USAGE_DEFAULT };
+    fmt3->SetLineSpacing(&spacing);
+}
 
 // 無効なフォントファミリ名は Segoe UI で作り直す (「フォントが効かない」状態を出さないための最終防壁)。
 inline Microsoft::WRL::ComPtr<IDWriteTextFormat> CreateTextFormat(IDWriteFactory* dw, const TextFormatSpec& s)
@@ -55,6 +74,9 @@ inline Microsoft::WRL::ComPtr<IDWriteTextFormat> CreateTextFormat(IDWriteFactory
     }
     if (s.text_align != DWRITE_TEXT_ALIGNMENT_LEADING) {
         fmt->SetTextAlignment(s.text_align);
+    }
+    if (s.line_height_factor > 0.0f) {
+        SetLineHeight(dw, fmt.Get(), s.size * s.line_height_factor);
     }
     if (s.para_align != DWRITE_PARAGRAPH_ALIGNMENT_NEAR) {
         fmt->SetParagraphAlignment(s.para_align);

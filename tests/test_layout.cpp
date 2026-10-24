@@ -1482,8 +1482,9 @@ TEST_F(LayoutTest, PartialLayoutFromVisibleStartMatchesFullLayout)
 
     ComputeLayout(engine_, nodes, cache, 800.0f, cache.Top(100), cache.Bottom(104));
 
+    // 一括シフトは足す順序が全件レイアウトと違い、行の高さが 2 進で割り切れないと丸めがずれる。
     for (size_t i = 0; i < nodes.size(); i++) {
-        EXPECT_FLOAT_EQ(cache.Top(i), ref_tops[i]) << "i=" << i;
+        EXPECT_NEAR(cache.Top(i), ref_tops[i], 0.01f) << "i=" << i;
     }
     EXPECT_TRUE(cache.HasDirtyNodes()) << "走査しない範囲の dirty は保守的に仮定する";
 }

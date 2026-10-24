@@ -159,7 +159,7 @@ void ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<fl
 
 float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width) noexcept
 {
-    const float line_height = theme.font_size_body * 1.5f;
+    const float line_height = theme.font_size_body * BODY_LINE_HEIGHT_FACTOR;
     switch (node.type) {
     case NodeType::Heading:
         return theme.GetHeadingSize(node.heading_level()) * 1.5f;
