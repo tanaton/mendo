@@ -9,6 +9,7 @@
 #include "syntax.h"
 #include "task_scheduler.h"
 #include "ui_constants.h"
+#include "utf8_codec.h"
 #include <algorithm>
 #include <cmath>
 #include <memory_resource>
@@ -48,7 +49,7 @@ float ApplyCellWidth(TableLayoutData& tl, size_t ci, float cw, TableAlign align)
     return tl.cell_heights[ci];
 }
 
-// インラインコードの run の矩形 (パディング込み、レイアウト原点基準) を add に渡す。折り返した run は行ごとに 1 つ。
+// インラインコードの run の矩形 (字間のパディング込み、レイアウト原点基準) を add に渡す。折り返した run は行ごとに 1 つ。
 // 折り返しに依存するので、幅を変えて計測し直すたびに作り直す。
 template <class Add>
 void ForEachInlineCodeBg(IDWriteTextLayout* layout, std::string_view text, std::span<const TextRun> runs, Add&& add)
@@ -62,7 +63,7 @@ void ForEachInlineCodeBg(IDWriteTextLayout* layout, std::string_view text, std::
         const auto range = cursor.WideRange(run.start, run.length);
         const UINT32 count = FetchHitTestMetrics(layout, range.startPosition, range.length, buffer);
         for (const auto& m : std::span(buffer).first(count)) {
-            add(D2D1::RectF(m.left - INLINE_CODE_PAD_X, m.top - INLINE_CODE_PAD_Y, m.left + m.width + INLINE_CODE_PAD_X, m.top + m.height + INLINE_CODE_PAD_Y));
+            add(D2D1::RectF(m.left, m.top + INLINE_CODE_INSET_Y, m.left + m.width, m.top + m.height - INLINE_CODE_INSET_Y));
         }
     }
 }
@@ -312,7 +313,7 @@ bool DWriteTextMeasurer::RecreateFormats()
 
     // 描画側と同じ作り方にし、無効なフォント名でも描画と同じフォールバックで測る。
     const wchar_t* family = theme_->font_family.c_str();
-    fmt_body_ = CreateTextFormat(dwrite_, { .family = family, .size = theme_->font_size_body, .locale = theme_->text_locale });
+    fmt_body_ = CreateTextFormat(dwrite_, { .family = family, .size = theme_->font_size_body, .locale = theme_->text_locale, .line_height_factor = BODY_LINE_HEIGHT_FACTOR });
     for (const auto i : std::views::iota(0, 6)) {
         fmt_h_[i] = CreateTextFormat(dwrite_, { .family = family, .weight = DWRITE_FONT_WEIGHT_BOLD, .size = theme_->font_size_h[i], .locale = theme_->text_locale });
     }
@@ -351,11 +352,23 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     AttrRangeBuilder italic{ [layout](DWRITE_TEXT_RANGE r) noexcept {
         layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC, r);
     } };
-    AttrRangeBuilder code{ [this, layout, apply_code_size](DWRITE_TEXT_RANGE r) noexcept {
+    // 背景の左右パディングとして、コード範囲の両端に字間を足す。
+    // 末尾の字間は最後の文字の位置に置くので、サロゲートペアなら 2 単位ぶん指定する。
+    ComPtr<IDWriteTextLayout1> layout1;
+    layout->QueryInterface(IID_PPV_ARGS(&layout1));
+    UINT32 code_tail_units = 1;
+    AttrRangeBuilder code{ [this, layout, apply_code_size, layout1 = layout1.Get(), &code_tail_units](DWRITE_TEXT_RANGE r) noexcept {
         layout->SetFontFamilyName(theme_->monospace_font.c_str(), r);
         if (apply_code_size) {
             layout->SetFontSize(theme_->font_size_code, r);
         }
+        if (!layout1 || r.length == 0) {
+            return;
+        }
+        // 1 文字だけの範囲は 2 回目の指定が 1 回目を上書きするので、先頭の字間も 2 回目に含める。
+        const UINT32 tail = code_tail_units;
+        layout1->SetCharacterSpacing(INLINE_CODE_SPACING, 0.0f, 0.0f, { r.startPosition, 1 });
+        layout1->SetCharacterSpacing(tail == r.length ? INLINE_CODE_SPACING : 0.0f, INLINE_CODE_SPACING, 0.0f, { r.startPosition + r.length - tail, tail });
     } };
     AttrRangeBuilder strike{ [layout](DWRITE_TEXT_RANGE r) noexcept {
         layout->SetStrikethrough(TRUE, r);
@@ -372,6 +385,9 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
         bold.Update(r.bold(), wr);
         italic.Update(r.italic(), wr);
         code.Update(r.code(), wr);
+        if (r.code() && r.length > 0) {
+            code_tail_units = utf8_codec::DecodePrev(text, r.start + r.length).cp > 0xFFFF ? 2 : 1;
+        }
         strike.Update(r.strikethrough(), wr);
         link.Update(r.has_link(), wr);
     }

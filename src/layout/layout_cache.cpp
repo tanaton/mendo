@@ -1,4 +1,5 @@
 #include "layout_cache.h"
+#include "doc_dwrite_bridge.h"
 #include "ui_constants.h"
 #include <algorithm>
 #include <cmath>
@@ -22,7 +23,11 @@ std::optional<LineHit> HitLineAt(IDWriteTextLayout* layout, float y) noexcept
     if (FAILED(layout->HitTestPoint(0.0f, y, &is_trailing, &is_inside, &m))) {
         return std::nullopt;
     }
-    return LineHit{ m.textPosition, m.top, m.top + m.height };
+    const auto line = LineBoxAt(layout, m.textPosition);
+    if (!line) {
+        return std::nullopt;
+    }
+    return LineHit{ m.textPosition, line->top, line->top + line->height };
 }
 
 // ローカル Y 範囲にかかる行のテキスト位置を、隣の行の位置で挟んだ [first, second) で返す。
@@ -163,11 +168,9 @@ std::pair<float, float> NodeLayoutEntry::GetMatchYRange(
     }
 
     if (layout != nullptr) {
-        FLOAT px = 0.0f, py = 0.0f;
-        DWRITE_HIT_TEST_METRICS htm{};
-        if (SUCCEEDED(layout->HitTestTextPosition(text_offset_w, FALSE, &px, &py, &htm))) {
-            const float line_h = (htm.height > 0.0f) ? htm.height : fallback_h;
-            return { base_y + py, line_h };
+        if (const auto line = LineBoxAt(layout, text_offset_w)) {
+            const float line_h = (line->height > 0.0f) ? line->height : fallback_h;
+            return { base_y + line->top, line_h };
         }
     }
     return { base_y, fallback_h };

@@ -76,6 +76,7 @@ void Renderer::RecreateBrushes()
         { BrushId::Text, theme_.text_color },
         { BrushId::Heading, theme_.heading_color },
         { BrushId::CodeBg, theme_.code_bg_color },
+        { BrushId::InlineCodeBg, theme_.inline_code_bg_color },
         { BrushId::CodeText, theme_.code_text_color },
         { BrushId::Link, theme_.link_color },
         { BrushId::Hr, theme_.hr_color },
@@ -232,9 +233,9 @@ void Renderer::CreateTextFormats(bool ui_only)
 
     // clang-format off
     const FormatSpec specs[] = {
-        { &fmt_.icon_font,        Loc::Doc,  { body_font, W,                       theme_.font_size_body,        nullptr, TA_LEAD, PA_TOP, false } },
+        { &fmt_.icon_font,        Loc::Doc,  { body_font, W,                       theme_.font_size_body,        nullptr, TA_LEAD, PA_TOP, false, BODY_LINE_HEIGHT_FACTOR } },
         { &fmt_.copy_btn_icon,    Loc::En,   { icon_font, W,                       theme_.font_size_body,        nullptr, TA_CTR,  PA_CTR, true  } },
-        { &fmt_.list_number,      Loc::Doc,  { body_font, W,                       theme_.font_size_body,        nullptr, TA_TAIL, PA_TOP, false } },
+        { &fmt_.list_number,      Loc::Doc,  { body_font, W,                       theme_.font_size_body,        nullptr, TA_TAIL, PA_TOP, false, BODY_LINE_HEIGHT_FACTOR } },
         { &fmt_.placeholder_text, Loc::Ui,   { body_font, W,                       theme_.font_size_body,        nullptr, TA_CTR,  PA_CTR, false } },
         { &fmt_.titlebar_text,    Loc::Doc,  { body_font, W,                       TITLEBAR_TEXT_FONT_SIZE,      nullptr, TA_CTR,  PA_CTR, true  } },
         { &fmt_.titlebar_icon,    Loc::En,   { icon_font, W,                       14.0f,                        nullptr, TA_CTR,  PA_CTR, true  } },

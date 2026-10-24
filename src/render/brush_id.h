@@ -11,6 +11,7 @@ enum class BrushId : uint8_t {
     Text,
     Heading,
     CodeBg,
+    InlineCodeBg,
     CodeText,
     Link,
     Hr,

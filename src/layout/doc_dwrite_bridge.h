@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <dwrite.h>
 #include <memory_resource>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -70,6 +71,18 @@ inline UINT32 FetchHitTestMetrics(IDWriteTextLayout* layout, UINT32 start, UINT3
         layout->HitTestTextRange(start, length, 0, 0, buffer.data(), count, &count);
     }
     return count;
+}
+
+// pos を含む行全体の箱。行間を足した layout では HitTestPoint / HitTestTextPosition の箱は
+// 足した余白を除くので、行の上端と高さは長さ 0 の HitTestTextRange で引く。
+inline std::optional<DWRITE_HIT_TEST_METRICS> LineBoxAt(IDWriteTextLayout* layout, UINT32 pos)
+{
+    DWRITE_HIT_TEST_METRICS m{};
+    UINT32 count = 0;
+    if (FAILED(layout->HitTestTextRange(pos, 0, 0.0f, 0.0f, &m, 1, &count)) || count == 0) {
+        return std::nullopt;
+    }
+    return m;
 }
 
 HRESULT CreateDocTextLayout(

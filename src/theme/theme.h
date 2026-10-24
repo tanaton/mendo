@@ -11,6 +11,7 @@ struct Theme {
     D2D1_COLOR_F text_color;
     D2D1_COLOR_F heading_color;
     D2D1_COLOR_F code_bg_color;
+    D2D1_COLOR_F inline_code_bg_color;
     D2D1_COLOR_F code_text_color;
     D2D1_COLOR_F link_color;
     D2D1_COLOR_F hr_color;
