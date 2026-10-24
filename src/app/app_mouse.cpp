@@ -75,6 +75,8 @@ std::wstring_view TitleBarTooltipText(TitleBarHitZone zone, bool is_maximized) n
         return ls.tooltip_open_file;
     case TitleBarHitZone::Help:
         return ls.tooltip_help;
+    case TitleBarHitZone::Settings:
+        return ls.settings_title;
     case TitleBarHitZone::ThemeToggle:
         return ls.tooltip_theme_toggle;
     case TitleBarHitZone::Search:
@@ -366,6 +368,9 @@ bool App::HandleTitleBarClick(float dip_x, float dip_y)
         break;
     case TitleBarHitZone::Help:
         Dispatch(ShowHelpAction{});
+        break;
+    case TitleBarHitZone::Settings:
+        ShowSettingsDialog();
         break;
     case TitleBarHitZone::Search:
         Dispatch(OpenSearchBarAction{});
@@ -737,6 +742,9 @@ void App::RefreshHoverAtCursor()
 {
     // ボタンを押している間は WM_MOUSEMOVE でもホバーを引かない (ドラッグ側が扱う)。
     if (IsKeyDown(VK_LBUTTON) || IsKeyDown(VK_RBUTTON)) {
+        return;
+    }
+    if (in_modal_loop_) {
         return;
     }
     POINT pt{};

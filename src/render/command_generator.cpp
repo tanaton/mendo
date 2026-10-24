@@ -155,6 +155,20 @@ float GetFirstLineHeight(const NodeLayoutEntry& entry, float font_size) noexcept
     return (entry.first_line_height() > 0.0f) ? entry.first_line_height() : font_size * FALLBACK_LINE_HEIGHT_FACTOR;
 }
 
+// 失敗していなければ空。
+std::wstring_view DiagramErrorText(const DiagramError& error) noexcept
+{
+    switch (error.kind) {
+    case DiagramError::Kind::None:
+        return {};
+    case DiagramError::Kind::Render:
+        return error.message.empty() ? i18n::S().diagram_error : std::wstring_view{ error.message };
+    case DiagramError::Kind::TooLarge:
+        return i18n::S().diagram_too_large;
+    }
+    return {};
+}
+
 } // namespace
 
 // box はスクロール位置に依らない値を渡す。矩形の差から求めると丸めでキャッシュが外れる。
@@ -329,7 +343,7 @@ void CommandGenerator::GenerateNode(const FrameContext& fc,
             GenOverlayButtons(fc, node, diagram, x, cw, entry_text_top, node_index);
         }
         else {
-            GenDiagramPlaceholder(x, entry_text_top, cw, entry.height, diagram ? std::wstring_view{ diagram->error } : std::wstring_view{});
+            GenDiagramPlaceholder(x, entry_text_top, cw, entry.height, diagram ? DiagramErrorText(diagram->error) : std::wstring_view{});
         }
         return;
 

@@ -2,7 +2,7 @@
 
 Direct2D/DirectWriteで直接描画するMarkdownビュアーです。高速かつ省メモリで動作します。
 
-**[English](README.en.md)**
+**日本語** | [English](docs/README.en.md) | [简体中文](docs/README.zh-CN.md) | [繁體中文](docs/README.zh-TW.md) | [한국어](docs/README.ko.md)
 
 ![mendoのようす](./example/image/mendo_light.png)
 
@@ -31,6 +31,7 @@ winget install tanaton.mendo
 - **ドラッグ&ドロップ** — Markdownファイルをウィンドウにドロップして開けます。
 - **ファイル内検索** — タイトルバーの検索ボタンや `Ctrl+F` でファイル内を検索できます。
 - **見た目の変更** — 各ペインの表示/非表示切り替え、テーマのライト/ダーク切り替え、0.25x〜5.00xの17段階ズーム等、見た目の変更ができます。
+- **多言語 UI** — Windows の表示言語に合わせて、画面とヘルプを日本語・英語・簡体字中国語・繁体字中国語・韓国語で表示します。タイトルバーの設定ボタンからも切り替えられます。
 - **設定の永続化** — ダークモード・ズームレベル・最後に開いたファイル等を `%LOCALAPPDATA%\mendo\` に保存します。
 
 ## 対応するMarkdown要素

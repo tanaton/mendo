@@ -116,6 +116,7 @@ bool App::Init(HWND hwnd)
     }
 
     ctx_menu_.Init(renderer_.GetD2DFactory(), renderer_.GetDWriteFactory());
+    settings_dialog_.Init(renderer_.GetD2DFactory(), renderer_.GetDWriteFactory());
 
     tooltip_.Init(hwnd_);
     tooltip_.ApplyDarkMode(theme_service_.IsDarkMode());
@@ -560,8 +561,11 @@ void App::Execute(const SideEffect& effect)
         [this](const effect::SetCapture&) {
             ::SetCapture(hwnd_);
         },
-        [](const effect::ReleaseCapture&) static {
-            ::ReleaseCapture();
+        [this](const effect::ReleaseCapture&) {
+            // ポップアップ (設定ダイアログなど) が持っているキャプチャまで外さない。
+            if (::GetCapture() == hwnd_) {
+                ::ReleaseCapture();
+            }
         },
         [this](const effect::ClipboardWrite& ev) {
             WriteClipboardText(hwnd_, ev.text);
@@ -670,7 +674,7 @@ void App::SaveSession()
         .toc_zoom = panes.SidePaneZoom(PaneTarget::Toc),
     });
 
-    config_.SaveWString(kConfigSectionGeneral, kConfigKeyLanguage, i18n::GetLangKey());
+    config_.SaveWString(kConfigSectionGeneral, kConfigKeyLanguage, i18n::ConfigLangKey());
     // 個別 Save 呼び出しでは write が遅延されるため、終了前に明示 flush で
     // すべての設定値を 1 度のディスク書き込みにまとめる。
     config_.Flush();
@@ -817,6 +821,29 @@ void App::OnContextMenu(int screen_x, int screen_y)
     default:
         break;
     }
+}
+
+void App::ShowSettingsDialog()
+{
+    settings_dialog_.Show(hwnd_, {
+        .dpi_scale = state_.window.cached_dpi_scale,
+        .theme = &renderer_.GetTheme(),
+        .diagram_cache_bytes = file_cache_.TotalSize(),
+        .on_language = [this](const i18n::Strings* chosen) { ApplyLanguage(chosen); },
+        .on_clear_cache = [this] { file_cache_.Clear(); },
+    });
+}
+
+void App::ApplyLanguage(const i18n::Strings* chosen)
+{
+    // 表示する文言が変わらなければ、選んだ値を保存するだけ。
+    if (!i18n::SetLanguage(chosen)) {
+        return;
+    }
+    if (IsHelpPath(state_.document.doc.GetFilePath())) {
+        ShowHelpResource();
+    }
+    Invalidate();
 }
 
 float App::MdMaxScroll()

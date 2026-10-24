@@ -71,6 +71,9 @@ void Renderer::ApplyZoomFromBase(const Theme& base_theme, float new_zoom)
 
 void Renderer::PrepareChrome(const TitleBarRenderState& titlebar, const SidePaneState& sp)
 {
+    if (ui_fmt_locale_ != i18n::S().lang_locale) {
+        CreateTextFormats(/*ui_only=*/true);
+    }
     EnsurePaneListFormats(PaneTarget::File, sp.Get(PaneTarget::File).zoom);
     EnsurePaneListFormats(PaneTarget::Toc, sp.Get(PaneTarget::Toc).zoom);
     chrome_cmds_.clear();
@@ -275,6 +278,7 @@ void Renderer::GenTitleBar(const TitleBarRenderState& tb)
 
     gen_plain(TitleBarHitZone::OpenFile, L'\uE838');
     gen_plain(TitleBarHitZone::Help, L'\uE897');
+    gen_plain(TitleBarHitZone::Settings, L'\uE713');
     gen_plain(TitleBarHitZone::ThemeToggle, tb.is_dark_mode ? L'\uE706' : L'\uE708');
     gen_toggle(TitleBarHitZone::Search, L'\uE721', tb.search_active);
     gen_toggle(TitleBarHitZone::FileToggle, L'\uE8B7', tb.file_pane_visible);

@@ -12,11 +12,12 @@ struct ButtonSpec {
     float width;
 };
 
-// 左側ボタン群: Icon | OpenFile | Search | ThemeToggle | Help
+// 左側ボタン群: Icon | OpenFile | Search | ThemeToggle | Settings | Help
 constexpr ButtonSpec kLeftButtons[] = {
     { "OpenFile", TitleBarHitZone::OpenFile, TitleBar::BUTTON_WIDTH },
     { "Search", TitleBarHitZone::Search, TitleBar::BUTTON_WIDTH },
     { "ThemeToggle", TitleBarHitZone::ThemeToggle, TitleBar::BUTTON_WIDTH },
+    { "Settings", TitleBarHitZone::Settings, TitleBar::BUTTON_WIDTH },
     { "Help", TitleBarHitZone::Help, TitleBar::BUTTON_WIDTH },
 };
 

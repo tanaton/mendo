@@ -78,7 +78,7 @@ void ApplyCommonLayout(Theme& t)
 {
     // 確定仕様: 本文は GitHub (Windows) と同じく英数字を Segoe UI で組み、Segoe UI に無い漢字・かな・全角記号は
     // DirectWrite のシステムフォールバックに任せる。フォールバック先は書式のロケール (i18n::TextLocale) で決まり、
-    // ja-jp なら Yu Gothic UI、zh-cn なら Microsoft YaHei UI になる。
+    // ja-jp なら Yu Gothic UI、zh-cn なら Microsoft YaHei UI、zh-tw なら Microsoft JhengHei UI、ko-kr なら Malgun Gothic になる。
     t.font_family = L"Segoe UI";
     t.text_locale = i18n::TextLocale();
     t.monospace_font = L"Cascadia Mono";

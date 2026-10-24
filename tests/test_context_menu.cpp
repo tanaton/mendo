@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "context_menu_impl.h"
+#include "i18n.h"
 #include "resource.h"
 #include "theme.h"
 #include <algorithm>
@@ -7,6 +8,7 @@
 #include <iterator>
 #include <optional>
 #include <span>
+#include <string>
 #include <utility>
 #include <wrl/client.h>
 
@@ -222,8 +224,9 @@ protected:
 
     void BuildAndLayout(const ContextMenuParams& params)
     {
+        menu_.theme = params.theme;
         menu_.BuildItems(params);
-        menu_.CreateTextFormats(*params.theme);
+        menu_.CreateBaseTextFormats(context_menu_constants::ICON_FONT_SIZE);
         menu_.ComputeLayout();
     }
 };
@@ -235,8 +238,8 @@ ComPtr<IDWriteFactory> ContextMenuLayoutTest::dwrite_;
 TEST_F(ContextMenuLayoutTest, MenuHasMinimumWidthAndPositiveHeight)
 {
     BuildAndLayout(MakeParams());
-    EXPECT_GE(menu_.menu_width, 160.0f);
-    EXPECT_GT(menu_.menu_height, 0.0f);
+    EXPECT_GE(menu_.width, 160.0f);
+    EXPECT_GT(menu_.height, 0.0f);
 }
 
 // 文字幅は覚えて開くたびに測らないが、書式を作り直したら測り直す。
@@ -244,24 +247,38 @@ TEST_F(ContextMenuLayoutTest, TextWidthIsRemeasuredWhenFontChanges)
 {
     auto params = MakeParams();
     BuildAndLayout(params);
-    const float width = menu_.menu_width;
+    const float width = menu_.width;
     BuildAndLayout(params);
-    EXPECT_FLOAT_EQ(menu_.menu_width, width);
+    EXPECT_FLOAT_EQ(menu_.width, width);
 
     Theme big = *params.theme;
     big.pane_font_size *= 4.0f;
     params.theme = &big;
     BuildAndLayout(params);
-    EXPECT_GT(menu_.menu_width, width);
+    EXPECT_GT(menu_.width, width);
+}
+
+// 項目は UI の文言なので、言語を切り替えたら書式もその言語のロケールで作り直す。
+TEST_F(ContextMenuLayoutTest, TextFormatFollowsUiLanguage)
+{
+    const auto params = MakeParams();
+    for (const i18n::Strings* language : { &i18n::kZhHant, &i18n::kKo, &i18n::kJa }) {
+        SCOPED_TRACE(std::wstring(language->lang_key));
+        i18n::SetLanguage(language);
+        BuildAndLayout(params);
+        wchar_t locale[LOCALE_NAME_MAX_LENGTH]{};
+        ASSERT_TRUE(SUCCEEDED(menu_.fmt_text->GetLocaleName(locale, LOCALE_NAME_MAX_LENGTH)));
+        EXPECT_STREQ(locale, language->lang_locale);
+    }
 }
 
 TEST_F(ContextMenuLayoutTest, NonMdPaneMenuIsShorter)
 {
     BuildAndLayout(MakeParams(true));
-    const float full_h = menu_.menu_height;
+    const float full_h = menu_.height;
 
     BuildAndLayout(MakeParams(false));
-    const float short_h = menu_.menu_height;
+    const float short_h = menu_.height;
 
     EXPECT_LT(short_h, full_h);
 }
@@ -272,8 +289,8 @@ TEST_F(ContextMenuLayoutTest, NonMdPaneMenuIsShorter)
 TEST_F(ContextMenuLayoutTest, ItemsStackVerticallyAtFullWidth)
 {
     BuildAndLayout(MakeParams());
-    const float w = menu_.menu_width;
-    const float h = menu_.menu_height;
+    const float w = menu_.width;
+    const float h = menu_.height;
     const auto& items = menu_.items;
     for (size_t i = 0; i < items.size(); ++i) {
         SCOPED_TRACE(i);
@@ -304,7 +321,7 @@ TEST_F(ContextMenuLayoutTest, NavButtonsAreCenteredPairInNavRow)
     EXPECT_GT(nav.fwd_rect.left - nav.back_rect.right, 0.0f);
 
     const float btn_center = (nav.back_rect.left + nav.fwd_rect.right) / 2.0f;
-    EXPECT_NEAR(btn_center, menu_.menu_width / 2.0f, 1.0f);
+    EXPECT_NEAR(btn_center, menu_.width / 2.0f, 1.0f);
 
     const auto& items = menu_.items;
     ASSERT_FALSE(items.empty());
@@ -352,11 +369,11 @@ TEST_F(ContextMenuLayoutTest, ZoomRowButtonsLineUpInsideRow)
     ASSERT_NE(it, menu_.items.end());
     const auto& row = it->rect;
     const auto& z = menu_.zoom_layout;
-    EXPECT_GT(z.out_rect.left, menu_.TextWidth(it->text));
+    EXPECT_GT(z.out_rect.left, menu_.Measure(it->text, menu_.fmt_text.Get()));
     EXPECT_LE(z.out_rect.right, z.percent_rect.left);
     EXPECT_LE(z.percent_rect.right, z.in_rect.left);
     EXPECT_LT(z.in_rect.right, z.reset_rect.left);
-    EXPECT_LE(z.reset_rect.right, menu_.menu_width);
+    EXPECT_LE(z.reset_rect.right, menu_.width);
     for (const auto* r : { &z.out_rect, &z.percent_rect, &z.in_rect, &z.reset_rect }) {
         EXPECT_GE(r->top, row.top);
         EXPECT_LE(r->bottom, row.bottom);

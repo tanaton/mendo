@@ -474,6 +474,29 @@ static_assert(sizeof(NodeLayoutEntry) <= 24, "NodeLayoutEntry size regression: m
 // 同じフレームの検索・選択ハイライトが共有し、view が窓に収まる間は引き直さない。
 const LineWindow& EnsureLineWindow(const NodeLayoutEntry& entry, LocalYRange view);
 
+// 図を描けなかった理由。言語で変わる文言は描くときに引き、言語を切り替えても前の言語の文言を残さない。
+struct DiagramError {
+    enum class Kind : uint8_t {
+        None,
+        // message を出す。空なら汎用の文言を出す。
+        Render,
+        TooLarge,
+    };
+    Kind kind = Kind::None;
+    // Mermaid が返した文言 (表示用に整形済み)。Mermaid の文言は訳さないのでそのまま持つ。
+    std::pmr::wstring message;
+
+    bool empty() const noexcept
+    {
+        return kind == Kind::None;
+    }
+    void clear() noexcept
+    {
+        kind = Kind::None;
+        message.clear();
+    }
+};
+
 struct DiagramEntry {
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
     float width = 0.0f;
@@ -481,10 +504,10 @@ struct DiagramEntry {
     // クリップボードコピー・保存用の元 PNG。bitmap と同時に設定/破棄する (EvictBitmap 含む)。
     // コードを書き換えた図の仮表示では別の図の絵なので捨て、描き直すまでボタンを出さない。
     PngBytes png;
-    // レンダリング失敗時のエラーメッセージ (表示用整形済み)。非空 = 失敗確定で、
-    // プレースホルダにこの文言を表示し再リクエストを止める。リロード・幅変更・
+    // レンダリング失敗の理由。非空 = 失敗確定で、
+    // プレースホルダにその文言を表示し再リクエストを止める。リロード・幅変更・
     // テーマ変更・デバイスロストでクリアされ再試行の契機になる。オフスクリーン evict では保持する。
-    std::pmr::wstring error;
+    DiagramError error;
     // 図のコード部分のハッシュ (mermaid_util::DiagramCodeHash)。0 は未計算。ノードのテキストだけで決まるので、
     // 結果を捨てても (幅・テーマの変更を含む) 残し、結果を待つ図を要求し直すたびにテキストを読み直さない。
     uint64_t code_hash = 0;

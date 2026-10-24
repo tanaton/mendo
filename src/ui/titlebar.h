@@ -10,6 +10,7 @@ enum class TitleBarHitZone : uint8_t {
     Caption,
     Icon,
     OpenFile,
+    Settings,
     Help,
     ThemeToggle,
     Search,

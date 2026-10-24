@@ -632,6 +632,73 @@ TEST_F(MermaidFileCacheTest, EvictionDuringDuplicatePendingWritesLeavesNoOrphanP
     ExpectEvictionDuringPendingWriteLeavesNoOrphanPng(2);
 }
 
+// ═══════════════════════════════════════════════
+// Clear (設定ダイアログのキャッシュ削除)
+// ═══════════════════════════════════════════════
+
+// 索引に無い PNG も含めてフォルダごと消える。消す作業は worker に回り、移したフォルダも残らない。次に開いても空のまま。
+TEST_F(MermaidFileCacheTest, ClearRemovesEntriesAndFiles)
+{
+    // 消すフォルダの移し先 (隣) まで temp_dir_ の中に収める。
+    const auto dir = temp_dir_ / L"cache";
+    cache_.SetCacheDir(dir);
+    InitCache();
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(200));
+    FlushAndReopen();
+    ASSERT_EQ(cache_.EntryCount(), 2u);
+    const auto orphan = dir / L"0123456789abcdef.png";
+    ASSERT_TRUE(WriteAllBytes(orphan, "x", 1));
+
+    cache_.Clear();
+
+    EXPECT_EQ(cache_.EntryCount(), 0u);
+    EXPECT_EQ(cache_.TotalSize(), 0u);
+    EXPECT_FALSE(std::filesystem::exists(orphan));
+    EXPECT_FALSE(std::filesystem::exists(dir / L"index.bin"));
+
+    FlushAndReopen();
+    EXPECT_EQ(cache_.EntryCount(), 0u);
+    EXPECT_TRUE(std::filesystem::is_empty(temp_dir_)) << "移したフォルダが残っている";
+}
+
+// 書き込み中の PNG は着地後に消え、消した後に孤立ファイルとして現れない。
+TEST_F(MermaidFileCacheTest, ClearDuringPendingWriteLeavesNoPng)
+{
+    scheduler_.Shutdown();
+    InitCache();
+    scheduler_.Init(1);
+
+    std::promise<void> release;
+    std::shared_future<void> released = release.get_future().share();
+    ASSERT_TRUE(scheduler_.Post([released] { released.wait(); }));
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
+
+    cache_.Clear();
+    release.set_value();
+    scheduler_.Shutdown();
+
+    EXPECT_FALSE(std::filesystem::exists(PngPathOf(1)));
+    EXPECT_EQ(cache_.EntryCount(), 0u);
+    scheduler_.Init(2);
+}
+
+// 消した後に保存した図は通常どおり残る。
+TEST_F(MermaidFileCacheTest, StoreAfterClearPersists)
+{
+    InitCache();
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.Clear();
+    cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
+    cache_.SaveIndex();
+
+    const auto fresh = OpenFreshCache();
+    MermaidFileCache::CacheEntry entry;
+    PngBlob out;
+    EXPECT_TRUE(LookupAndRead(*fresh, 2, entry, out));
+    EXPECT_FALSE(fresh->LookupDimensions(1, entry));
+}
+
 // 図の解像度は描画するワーカーの DPR で決まるので、キーもその DPR に追従する。
 // Init 時の DPR に固定すると、別の DPR で描いた PNG を引いて図がぼやける・ずれる。
 TEST_F(MermaidFileCacheTest, SetDprSwitchesKeySpace)

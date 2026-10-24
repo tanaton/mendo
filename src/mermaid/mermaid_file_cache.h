@@ -51,6 +51,8 @@ public:
     // png_data は表示側 (メモリキャッシュ / DiagramEntry) と共有し、書き込み用にコピーしない。
     void StoreAsync(uint64_t key, float css_width, float css_height, PngBytes png_data);
     void SaveIndex();
+    // 索引と PNG をすべて消す。書き込み中の PNG は着地後に worker が消す。
+    void Clear();
     void Shutdown();
     void SetCacheDir(const std::filesystem::path& dir);
     void SetLimits(size_t max_entries, uint64_t max_total_size);

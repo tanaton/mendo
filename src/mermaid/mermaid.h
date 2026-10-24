@@ -125,8 +125,8 @@ private:
         float height = 0.0f;
         // クリップボードコピー用 PNG。bitmap と同じ寿命で DiagramEntry へ伝播する。
         PngBytes png;
-        // 表示用に整形したエラー。非空なら失敗で、bitmap は持たない。
-        std::pmr::wstring error;
+        // 非空なら失敗で、bitmap は持たない。
+        DiagramError error;
     };
 
     struct DiskLoad {
@@ -158,9 +158,8 @@ private:
 
     // SVG 専用リクエストならコールバックを呼んで svg_callback をクリアする (cancel / render-error / svg-result 共通)。
     static void InvokeSvgCallbackIfAny(RenderRequest& req, std::pmr::wstring svg, bool cancelled);
-    // 表示用リクエストのエラーを確定させる。msg が空なら i18n の汎用文言を入れ、
-    // 「非空 = 失敗」の不変条件を保つ (issue #271)。
-    void SetDiagramError(const RenderRequest& req, std::wstring_view msg);
+    // 表示用リクエストのエラーを kind で確定させる (issue #271)。msg は Render のときの Mermaid の文言で、空なら汎用の文言を出す。
+    void SetDiagramError(const RenderRequest& req, DiagramError::Kind kind, std::wstring_view msg = {});
     static void ApplyResult(DiagramEntry& diagram_entry, const CachedResult& result);
     // 進行中の要求をすべて捨てる。SVG 要求は cancelled=true で完了させる。
     void CancelPending();

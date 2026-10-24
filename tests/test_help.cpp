@@ -79,7 +79,7 @@ TEST_F(HelpLayoutTest, OpeningHelpAfterAnotherDocumentMeasuresVisibleContent)
     constexpr float kWidth = 800.0f;
     constexpr float kViewportBottom = 600.0f;
 
-    for (const auto name : { u8"help_ja.md", u8"help_en.md" }) {
+    for (const auto name : { u8"help_ja.md", u8"help_en.md", u8"help_zh.md", u8"help_zh_hant.md", u8"help_ko.md" }) {
         SCOPED_TRACE(reinterpret_cast<const char*>(name));
         auto text = ReadFileBytes(std::filesystem::path(MENDO_RES_DIR) / name);
         ASSERT_FALSE(text.empty());

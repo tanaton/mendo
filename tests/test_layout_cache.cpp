@@ -169,8 +169,8 @@ TEST(LayoutCacheTest, InvalidateAllDiagramBitmapsClearsError)
     LayoutCache cache;
     cache.Resize(2);
 
-    cache.EnsureDiagram(0).error = L"Parse error on line 1";
-    cache.EnsureDiagram(1).error = L"Parse error on line 3";
+    cache.EnsureDiagram(0).error = { DiagramError::Kind::Render, L"Parse error on line 1" };
+    cache.EnsureDiagram(1).error = { DiagramError::Kind::Render, L"Parse error on line 3" };
 
     cache.InvalidateAllDiagramBitmaps();
 

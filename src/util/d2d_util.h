@@ -29,7 +29,7 @@ struct TextFormatSpec {
     const wchar_t* family = nullptr;
     DWRITE_FONT_WEIGHT weight = DWRITE_FONT_WEIGHT_NORMAL;
     float size = 0.0f;
-    // 本文と同じ書体で組む文字は Theme::text_locale を渡す (漢字の字形とフォールバック先が決まる)。
+    // 漢字の字形とフォールバック先が決まる。文書から来る文字は Theme::text_locale、UI の決まった文言は i18n::S().lang_locale を渡す。
     const wchar_t* locale = L"en-us";
     DWRITE_TEXT_ALIGNMENT text_align = DWRITE_TEXT_ALIGNMENT_LEADING;
     DWRITE_PARAGRAPH_ALIGNMENT para_align = DWRITE_PARAGRAPH_ALIGNMENT_NEAR;

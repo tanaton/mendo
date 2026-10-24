@@ -637,6 +637,18 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         app_->HandleTimer(wParam);
         return 0;
 
+    case WM_ENTERMENULOOP:
+    case WM_EXITMENULOOP:
+        app_->OnModalLoop(msg == WM_ENTERMENULOOP);
+        return 0;
+
+    case WM_INITMENUPOPUP:
+        // 設定で言語を切り替えても追従するよう、開くたびに今の言語の文言にする (ほかの文言も使うたびに引く)。
+        if (HIWORD(lParam)) {
+            ModifyMenuW(reinterpret_cast<HMENU>(wParam), SC_RESET_WINDOW, MF_BYCOMMAND | MF_STRING, SC_RESET_WINDOW, i18n::S().menu_reset_window.data());
+        }
+        return DefWindowProcW(hwnd_, msg, wParam, lParam);
+
     case WM_SYSCOMMAND:
         if ((wParam & 0xFFF0) == SC_RESET_WINDOW) {
             ResetWindowPlacement();

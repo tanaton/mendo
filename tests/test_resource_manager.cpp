@@ -475,7 +475,7 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersSkipsErroredDiagram)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
     ASSERT_FALSE(doc_.GetDiagramNodeIndices().empty());
-    cache_.EnsureDiagram(doc_.GetDiagramNodeIndices()[0]).error = L"Parse error on line 1";
+    cache_.EnsureDiagram(doc_.GetDiagramNodeIndices()[0]).error = { DiagramError::Kind::Render, L"Parse error on line 1" };
 
     EXPECT_EQ(rm_.RequestMermaidRenders(), 0);
     EXPECT_EQ(mock_mermaid_.request_render_count, 0);
@@ -485,7 +485,7 @@ TEST_F(ResourceManagerTest, ProcessMermaidBatchSkipsErroredDiagram)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
     ASSERT_FALSE(doc_.GetDiagramNodeIndices().empty());
-    cache_.EnsureDiagram(doc_.GetDiagramNodeIndices()[0]).error = L"Parse error on line 1";
+    cache_.EnsureDiagram(doc_.GetDiagramNodeIndices()[0]).error = { DiagramError::Kind::Render, L"Parse error on line 1" };
 
     rm_.ProcessMermaidBatch();
     EXPECT_EQ(mock_mermaid_.request_render_count, 0);
@@ -502,7 +502,7 @@ TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeClearsError)
     rm_.RequestMermaidRenders();
     ASSERT_EQ(mock_mermaid_.request_render_count, 1);
 
-    cache_.EnsureDiagram(diagram_index).error = L"Parse error on line 1";
+    cache_.EnsureDiagram(diagram_index).error = { DiagramError::Kind::Render, L"Parse error on line 1" };
 
     tracker_.content_width = 1000.0f;
     rm_.RequestMermaidRenders();
