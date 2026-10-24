@@ -12,6 +12,7 @@ Direct2D/DirectWriteを使用して直接描画を行うMarkdownビュアー。
 - **テキスト**: DirectWrite (`IDWriteTextLayout`)
 - **Markdownパーサ**: md4c (SAX型コールバック、`third_party/md4c/`)
 - **テスト**: Google Test v1.18.0
+- **ベンチマーク**: Google Benchmark v1.10.0 (`bench/`、`-DMENDO_BUILD_BENCHMARKS=ON` のときだけ)
 - **ビルド**: CMake 4.2+ (Visual Studio 2026)
 
 ## ビルド方法
@@ -25,6 +26,14 @@ cmake --build build --config Release -- //v:q //nologo
 
 ```bash
 build/tests/Release/mendo_tests.exe --gtest_brief=1
+```
+
+## ベンチマーク
+
+```bash
+cmake -B build_bench -DMENDO_BUILD_BENCHMARKS=ON
+cmake --build build_bench --config Release --target mendo_bench -- //v:q //nologo
+build_bench/bench/Release/mendo_bench.exe --benchmark_filter=<正規表現>
 ```
 
 ## 注意事項

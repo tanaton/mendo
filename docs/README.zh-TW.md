@@ -143,6 +143,16 @@ cmake --build build --config Release
 build/tests/Release/mendo_tests.exe
 ```
 
+### 基準測試（開發者適用）
+
+使用 [Google Benchmark](https://github.com/google/benchmark) v1.10.0 量測剖析與版面配置的耗時。預設（OFF）的建置不包含它。
+
+```
+cmake -B build_bench -DMENDO_BUILD_BENCHMARKS=ON
+cmake --build build_bench --config Release --target mendo_bench
+build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown
+```
+
 ### 啟用 Tracy 效能分析工具的建置（開發者適用）
 
 內嵌 [Tracy](https://github.com/wolfpld/tracy) v0.14.1，可取得影格時間、區段計時和計數器時間序列圖。Tracy 以 `TRACY_ON_DEMAND` 模式內嵌，在 Tracy GUI 連線之前，量測程式碼不執行任何動作。
@@ -151,8 +161,6 @@ build/tests/Release/mendo_tests.exe
 cmake -B build_tracy -DMENDO_USE_TRACY=ON
 cmake --build build_tracy --config Release
 ```
-
-啟動 Tracy GUI（從 [Releases](https://github.com/wolfpld/tracy/releases) 下載）後執行 `build_tracy/Release/mendo.exe` 即可連線。只有在 `MENDO_USE_TRACY=ON` 時才會連結並植入 Tracy，預設（OFF）的建置成品完全不受影響。
 
 ## 使用方式
 
@@ -182,6 +190,7 @@ mendo.exe [檔案路徑 | 資料夾路徑]
 | 公式 | [KaTeX](https://katex.org/)（透過 Mermaid） |
 | Markdown 剖析器 | [md4c](https://github.com/mity/md4c)（SAX 式回呼） |
 | 測試 | Google Test v1.18.0 |
+| 基準測試 | Google Benchmark v1.10.0 |
 | 建置 | CMake 4.2+ |
 
 ## 授權

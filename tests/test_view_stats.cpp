@@ -1,17 +1,11 @@
 #include <gtest/gtest.h>
-#include <windows.h>
-#include <psapi.h>
 #include "document.h"
 #include "example_files.h"
 #include "test_nodes.h"
 #include <algorithm>
-#include <chrono>
-#include <format>
-#include <iterator>
-#include <memory>
 #include <iostream>
 #include <string>
-#include <vector>
+#include <utility>
 
 namespace {
 
@@ -155,127 +149,6 @@ TEST(ViewStats, SimpleCodeBlockIsViewed)
         }
     }
     ASSERT_TRUE(found_code);
-}
-
-// FromMarkdown 全体の処理時間を CRLF / LF それぞれで計測 (相対比較)。
-// CRLF は NormalizeNewlines slow path、LF は fast path (\r 検索のみ)。
-// 差分が NormalizeNewlines slow path のコスト概算 (parse 部分は同等のため)。
-//
-// DISABLED_ プレフィックスでデフォルト無効化 (50 iter × 2 で 100ms+ 占有するため)。
-// 手元で実行: build/tests/Release/mendo_tests.exe --gtest_also_run_disabled_tests \
-//   --gtest_filter="ViewStats.DISABLED_BenchFromMarkdownCrlfVsLf"
-TEST(ViewStats, DISABLED_BenchFromMarkdownCrlfVsLf)
-{
-    auto bytes_lf = ReadExampleFileBytes("example/test.md");
-    if (bytes_lf.empty()) {
-        GTEST_SKIP() << "example/test.md not found";
-    }
-    // bytes_lf はリポジトリ上 CRLF (Windows checkout)。LF only 版を作る。
-    std::pmr::string bytes_crlf = bytes_lf; // 既に CRLF
-    std::pmr::string lf_only = bytes_lf;
-    std::erase(lf_only, '\r');
-
-    constexpr int kIterations = 50;
-
-    auto bench = [&](std::string_view label, const std::pmr::string& src) {
-        auto start = std::chrono::steady_clock::now();
-        for (int i = 0; i < kIterations; ++i) {
-            std::pmr::string copy = src;
-            auto doc = Document::FromMarkdown(std::move(copy), L"bench.md");
-            (void)doc;
-        }
-        auto end = std::chrono::steady_clock::now();
-        const double ms = std::chrono::duration<double, std::milli>(end - start).count();
-        std::cout << "  " << label << " (" << src.size() << " bytes): "
-                  << (ms / kIterations) << " ms/iter (total " << ms << " ms over "
-                  << kIterations << " iters)\n";
-    };
-
-    std::cout << "=== FromMarkdown bench ===\n";
-    bench("CRLF input", bytes_crlf);
-    bench("LF only input", lf_only);
-}
-
-namespace {
-
-PROCESS_MEMORY_COUNTERS_EX MemoryCounters()
-{
-    PROCESS_MEMORY_COUNTERS_EX pmc{};
-    pmc.cb = sizeof(pmc);
-    ::GetProcessMemoryInfo(::GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&pmc), sizeof(pmc));
-    return pmc;
-}
-
-constexpr size_t kBenchTargetBytes = 100 * 1024 * 1024;
-
-// パース・破棄の時間とパース後のメモリ増分を測る。
-void BenchLargeDocument(std::string_view label, const std::pmr::string& src)
-{
-    constexpr int kIterations = 3;
-    double parse_ms = 0.0;
-    double destroy_ms = 0.0;
-    size_t nodes = 0;
-    // 初回のみ (2 回目以降は解放済み領域の再利用で小さく出る)。
-    size_t private_delta = 0;
-    size_t working_set_delta = 0;
-    for (int i = 0; i < kIterations; ++i) {
-        std::pmr::string copy = src;
-        const auto before = MemoryCounters();
-        const auto t0 = std::chrono::steady_clock::now();
-        auto doc = std::make_unique<Document>(Document::FromMarkdown(std::move(copy), L"bench.md"));
-        const auto t1 = std::chrono::steady_clock::now();
-        if (i == 0) {
-            const auto after = MemoryCounters();
-            private_delta = after.PrivateUsage - before.PrivateUsage;
-            working_set_delta = after.WorkingSetSize - before.WorkingSetSize;
-        }
-        nodes = doc->GetNodes().size();
-        doc.reset();
-        const auto t2 = std::chrono::steady_clock::now();
-        parse_ms += std::chrono::duration<double, std::milli>(t1 - t0).count();
-        destroy_ms += std::chrono::duration<double, std::milli>(t2 - t1).count();
-    }
-    std::cout << "=== " << label << " (" << src.size() << " bytes, " << nodes << " nodes, sizeof(Node)="
-              << sizeof(Node) << ") ===\n"
-              << "  parse:   " << parse_ms / kIterations << " ms\n"
-              << "  destroy: " << destroy_ms / kIterations << " ms\n"
-              << "  committed by parse:   " << private_delta / (1024.0 * 1024.0) << " MB\n"
-              << "  working set by parse: " << working_set_delta / (1024.0 * 1024.0) << " MB\n";
-}
-
-} // namespace
-
-// 手元で実行: build/tests/Release/mendo_tests.exe --gtest_also_run_disabled_tests \
-//   --gtest_filter="ViewStats.DISABLED_BenchLarge*"
-TEST(ViewStats, DISABLED_BenchLargeDocument)
-{
-    const auto unit = ReadExampleFileBytes("example/test.md");
-    if (unit.empty()) {
-        GTEST_SKIP() << "example/test.md not found";
-    }
-    std::pmr::string src;
-    src.reserve(kBenchTargetBytes + unit.size());
-    while (src.size() < kBenchTargetBytes) {
-        src += unit;
-        src += "\n\n";
-    }
-    BenchLargeDocument("large document (test.md)", src);
-}
-
-// リンク集のように全行がリンクを持つ文書。
-TEST(ViewStats, DISABLED_BenchLargeLinkDocument)
-{
-    std::pmr::string src;
-    src.reserve(kBenchTargetBytes + 256);
-    for (size_t i = 0; src.size() < kBenchTargetBytes; ++i) {
-        std::format_to(std::back_inserter(src),
-                       "- [Item {0}](https://example.com/docs/page-{0}.html) と [詳細](#section-{1}) を参照\n",
-                       i, i % 100);
-        if (i % 20 == 19) {
-            src += '\n';
-        }
-    }
-    BenchLargeDocument("large document (links)", src);
 }
 
 // シンプルな段落 (span マークアップなし) が view 化されることを確認
