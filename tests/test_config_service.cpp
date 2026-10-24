@@ -108,7 +108,7 @@ TEST_F(ConfigServiceTest, FlushAndLoadRoundTrip)
     config_.Flush();
 
     auto fresh = MakeFreshLoadedConfig();
-    EXPECT_TRUE(fresh.LoadBool("View", "DarkMode"));
+    EXPECT_TRUE(fresh.LoadBool("View", "DarkMode", false));
     EXPECT_EQ(fresh.LoadInt("Window", "X", 0, -100000, 100000), -500);
     EXPECT_EQ(fresh.LoadWString("Session", "LastFile"), L"C:\\テスト\\file.md");
 }
@@ -117,7 +117,7 @@ TEST_F(ConfigServiceTest, LoadEmptyDirectoryProducesDefaults)
 {
     config_.Load();
     EXPECT_EQ(config_.LoadInt("Window", "Width", 0, 100, 100000), 0);
-    EXPECT_FALSE(config_.LoadBool("View", "DarkMode"));
+    EXPECT_FALSE(config_.LoadBool("View", "DarkMode", false));
 }
 
 TEST_F(ConfigServiceTest, LoadSkipsUtf8Bom)

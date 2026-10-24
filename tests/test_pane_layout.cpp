@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "pane_layout.h"
+#include "ui_constants.h"
 
 // ============================================================
 // ComputePaneLayout
@@ -7,7 +8,7 @@
 
 TEST(PaneLayout, BothPanesVisible)
 {
-    auto layout = ComputePaneLayout(1200.0f, 700.0f, 220.0f, 220.0f, 4.0f, true, true);
+    auto layout = ComputePaneLayout(1200.0f, 700.0f, 220.0f, 220.0f, 4.0f, true, true, 0.0f);
 
     // ファイルペインはx=0
     EXPECT_FLOAT_EQ(layout.file_rect.x, 0.0f);
@@ -25,7 +26,7 @@ TEST(PaneLayout, BothPanesVisible)
 
 TEST(PaneLayout, NoPanesVisible)
 {
-    auto layout = ComputePaneLayout(1200.0f, 700.0f, 220.0f, 220.0f, 4.0f, false, false);
+    auto layout = ComputePaneLayout(1200.0f, 700.0f, 220.0f, 220.0f, 4.0f, false, false, 0.0f);
 
     // MDペインが全幅を占める
     EXPECT_FLOAT_EQ(layout.md_rect.x, 0.0f);
@@ -34,7 +35,7 @@ TEST(PaneLayout, NoPanesVisible)
 
 TEST(PaneLayout, OnlyFilePaneVisible)
 {
-    auto layout = ComputePaneLayout(1200.0f, 700.0f, 220.0f, 220.0f, 4.0f, true, false);
+    auto layout = ComputePaneLayout(1200.0f, 700.0f, 220.0f, 220.0f, 4.0f, true, false, 0.0f);
 
     EXPECT_FLOAT_EQ(layout.file_rect.x, 0.0f);
     EXPECT_FLOAT_EQ(layout.file_rect.width, 220.0f);
@@ -48,7 +49,7 @@ TEST(PaneLayout, OnlyFilePaneVisible)
 
 TEST(PaneLayout, OnlyTocPaneVisible)
 {
-    auto layout = ComputePaneLayout(1200.0f, 700.0f, 220.0f, 220.0f, 4.0f, false, true);
+    auto layout = ComputePaneLayout(1200.0f, 700.0f, 220.0f, 220.0f, 4.0f, false, true, 0.0f);
 
     EXPECT_FLOAT_EQ(layout.file_rect.width, 0.0f);
     EXPECT_FLOAT_EQ(layout.toc_rect.x, 0.0f);
@@ -59,14 +60,14 @@ TEST(PaneLayout, OnlyTocPaneVisible)
 TEST(PaneLayout, MdPaneMinWidth)
 {
     // 全幅が小さすぎる: MDペインは少なくとも MD_PANE_MIN_WIDTH であるべき
-    auto layout = ComputePaneLayout(400.0f, 700.0f, 220.0f, 220.0f, 4.0f, true, true);
+    auto layout = ComputePaneLayout(400.0f, 700.0f, 220.0f, 220.0f, 4.0f, true, true, 0.0f);
 
     EXPECT_GE(layout.md_rect.width, MD_PANE_MIN_WIDTH);
 }
 
 TEST(PaneLayout, HeightPassedThrough)
 {
-    auto layout = ComputePaneLayout(1200.0f, 500.0f, 220.0f, 220.0f, 4.0f, true, true);
+    auto layout = ComputePaneLayout(1200.0f, 500.0f, 220.0f, 220.0f, 4.0f, true, true, 0.0f);
 
     EXPECT_FLOAT_EQ(layout.file_rect.height, 500.0f);
     EXPECT_FLOAT_EQ(layout.toc_rect.height, 500.0f);
@@ -75,7 +76,7 @@ TEST(PaneLayout, HeightPassedThrough)
 
 TEST(PaneLayout, DifferentPaneWidths)
 {
-    auto layout = ComputePaneLayout(1200.0f, 700.0f, 150.0f, 300.0f, 4.0f, true, true);
+    auto layout = ComputePaneLayout(1200.0f, 700.0f, 150.0f, 300.0f, 4.0f, true, true, 0.0f);
 
     EXPECT_FLOAT_EQ(layout.file_rect.width, 150.0f);
     EXPECT_FLOAT_EQ(layout.toc_rect.width, 300.0f);
@@ -89,7 +90,7 @@ TEST(PaneLayout, DifferentPaneWidths)
 
 TEST(DetectPaneZone, BothPanes)
 {
-    auto layout = ComputePaneLayout(1200.0f, 700.0f, 220.0f, 220.0f, 4.0f, true, true);
+    auto layout = ComputePaneLayout(1200.0f, 700.0f, 220.0f, 220.0f, 4.0f, true, true, 0.0f);
 
     // ファイルペイン内
     EXPECT_EQ(DetectPaneZone(100.0f, layout, 4.0f, true, true), PaneZone::FilePane);
@@ -105,7 +106,7 @@ TEST(DetectPaneZone, BothPanes)
 
 TEST(DetectPaneZone, NoPanes)
 {
-    auto layout = ComputePaneLayout(1200.0f, 700.0f, 220.0f, 220.0f, 4.0f, false, false);
+    auto layout = ComputePaneLayout(1200.0f, 700.0f, 220.0f, 220.0f, 4.0f, false, false, 0.0f);
 
     EXPECT_EQ(DetectPaneZone(0.0f, layout, 4.0f, false, false), PaneZone::MdPane);
     EXPECT_EQ(DetectPaneZone(600.0f, layout, 4.0f, false, false), PaneZone::MdPane);
@@ -113,7 +114,7 @@ TEST(DetectPaneZone, NoPanes)
 
 TEST(DetectPaneZone, OnlyFilePaneHidesToc)
 {
-    auto layout = ComputePaneLayout(1200.0f, 700.0f, 220.0f, 220.0f, 4.0f, true, false);
+    auto layout = ComputePaneLayout(1200.0f, 700.0f, 220.0f, 220.0f, 4.0f, true, false, 0.0f);
 
     EXPECT_EQ(DetectPaneZone(100.0f, layout, 4.0f, true, false), PaneZone::FilePane);
     EXPECT_EQ(DetectPaneZone(221.0f, layout, 4.0f, true, false), PaneZone::Splitter1);
@@ -122,7 +123,7 @@ TEST(DetectPaneZone, OnlyFilePaneHidesToc)
 
 TEST(DetectPaneZone, NegativeX)
 {
-    auto layout = ComputePaneLayout(1200.0f, 700.0f, 220.0f, 220.0f, 4.0f, true, true);
+    auto layout = ComputePaneLayout(1200.0f, 700.0f, 220.0f, 220.0f, 4.0f, true, true, 0.0f);
 
     EXPECT_EQ(DetectPaneZone(-10.0f, layout, 4.0f, true, true), PaneZone::None);
 }
@@ -299,14 +300,14 @@ TEST(ScrollFromThumbY, ClampsAboveContent)
 
 TEST(ComputePaneLayout, ZeroWidth)
 {
-    auto layout = ComputePaneLayout(0.0f, 600.0f, 220.0f, 220.0f, 4.0f, true, true);
+    auto layout = ComputePaneLayout(0.0f, 600.0f, 220.0f, 220.0f, 4.0f, true, true, 0.0f);
     // MDペインはmd_min_widthを使用すべき
     EXPECT_GE(layout.md_rect.width, 200.0f);
 }
 
 TEST(ComputePaneLayout, VeryNarrowWindow)
 {
-    auto layout = ComputePaneLayout(100.0f, 600.0f, 220.0f, 220.0f, 4.0f, true, true);
+    auto layout = ComputePaneLayout(100.0f, 600.0f, 220.0f, 220.0f, 4.0f, true, true, 0.0f);
     // MDペインは最小幅を下回らないべき
     EXPECT_GE(layout.md_rect.width, 200.0f);
 }
@@ -317,7 +318,7 @@ TEST(ComputePaneLayout, OversizedSavedWidthsKeepMdOnScreen)
     // MD ペインとスプリッタは画面内に収まり、操作不能ロックアウトにならない。
     const float total = 700.0f;
     const float md_min = MD_PANE_MIN_WIDTH;
-    auto layout = ComputePaneLayout(total, 600.0f, 2000.0f, 2000.0f, 4.0f, true, true);
+    auto layout = ComputePaneLayout(total, 600.0f, 2000.0f, 2000.0f, 4.0f, true, true, 0.0f);
 
     EXPECT_GE(layout.md_rect.width, md_min);
     // MD ペイン左端が画面内に収まる (md_min 幅を確保できる位置)
@@ -334,7 +335,7 @@ TEST(ComputePaneLayout, SingleOversizedPaneKeepsSplitterOnScreen)
     // 片ペインの保存幅だけでウィンドウを超える場合でも、そのスプリッタは画面内に残る。
     const float total = 600.0f;
     const float md_min = MD_PANE_MIN_WIDTH;
-    auto layout = ComputePaneLayout(total, 600.0f, 5000.0f, 0.0f, 4.0f, true, false);
+    auto layout = ComputePaneLayout(total, 600.0f, 5000.0f, 0.0f, 4.0f, true, false, 0.0f);
 
     EXPECT_GE(layout.md_rect.width, md_min);
     const float splitter1_x = layout.file_rect.x + layout.file_rect.width;
@@ -343,7 +344,7 @@ TEST(ComputePaneLayout, SingleOversizedPaneKeepsSplitterOnScreen)
 
 TEST(DetectPaneZone, ExactlySplitter1Edge)
 {
-    auto layout = ComputePaneLayout(1200.0f, 600.0f, 220.0f, 220.0f, 4.0f, true, true);
+    auto layout = ComputePaneLayout(1200.0f, 600.0f, 220.0f, 220.0f, 4.0f, true, true, 0.0f);
     float splitter1_x = layout.file_rect.x + layout.file_rect.width;
     EXPECT_EQ(DetectPaneZone(splitter1_x, layout, 4.0f, true, true), PaneZone::Splitter1);
     EXPECT_EQ(DetectPaneZone(splitter1_x + 3.9f, layout, 4.0f, true, true), PaneZone::Splitter1);
@@ -352,7 +353,7 @@ TEST(DetectPaneZone, ExactlySplitter1Edge)
 
 TEST(DetectPaneZone, ExactlySplitter2Edge)
 {
-    auto layout = ComputePaneLayout(1200.0f, 600.0f, 220.0f, 220.0f, 4.0f, true, true);
+    auto layout = ComputePaneLayout(1200.0f, 600.0f, 220.0f, 220.0f, 4.0f, true, true, 0.0f);
     float splitter2_x = layout.toc_rect.x + layout.toc_rect.width;
     EXPECT_EQ(DetectPaneZone(splitter2_x, layout, 4.0f, true, true), PaneZone::Splitter2);
 }
@@ -448,16 +449,16 @@ TEST(PaneZoneConversion, NonSidePaneZonesHaveNoTarget)
 // 描画とヒット判定はこの判定を共有する。つまみが動かせないほど低いペインでは出さない。
 TEST(ShowsVScrollbar, MatchesThumbMobility)
 {
-    EXPECT_TRUE(ShowsVScrollbar(ComputeScrollInfo({ 0.0f, 0.0f, 200.0f, 432.0f }, 32.0f, 1000.0f)));
-    EXPECT_FALSE(ShowsVScrollbar(ComputeScrollInfo({ 0.0f, 0.0f, 200.0f, 432.0f }, 32.0f, 400.0f)));
+    EXPECT_TRUE(ShowsVScrollbar(ComputeScrollInfo({ 0.0f, 0.0f, 200.0f, 432.0f }, 32.0f, 1000.0f), false));
+    EXPECT_FALSE(ShowsVScrollbar(ComputeScrollInfo({ 0.0f, 0.0f, 200.0f, 432.0f }, 32.0f, 400.0f), false));
     // 内容領域がつまみの最小高より低いと、つまみがトラック全体を占めて動かせない。
-    EXPECT_FALSE(ShowsVScrollbar(ComputeScrollInfo({ 0.0f, 0.0f, 200.0f, 52.0f }, 32.0f, 1000.0f)));
+    EXPECT_FALSE(ShowsVScrollbar(ComputeScrollInfo({ 0.0f, 0.0f, 200.0f, 52.0f }, 32.0f, 1000.0f), false));
 }
 
 // 計測待ちで内容が伸びうる間は、ちょうど収まっていても出し続ける。
 TEST(ShowsVScrollbar, KeepsShowingWhileContentMayGrow)
 {
     const auto info = ComputeScrollInfo({ 0.0f, 0.0f, 600.0f, 400.0f }, 0.0f, 400.0f);
-    EXPECT_FALSE(ShowsVScrollbar(info));
+    EXPECT_FALSE(ShowsVScrollbar(info, false));
     EXPECT_TRUE(ShowsVScrollbar(info, true));
 }

@@ -1,6 +1,6 @@
 #include "file_loader.h"
+#include "document_utils.h"
 #include "file_io.h"
-#include "newline_util.h"
 #include "profiler.h"
 #include "utf8_codec.h"
 #include <algorithm>

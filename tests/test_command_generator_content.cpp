@@ -77,7 +77,7 @@ TEST_F(CmdGenContentTest, BlockQuote_FullyAboveViewport_NoBar)
     Parse("> Quoted");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 50.0f };
     // viewport_top を blockquote の下端より十分大きくする
-    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 100000.0f, TextSelection{});
+    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 100000.0f, TextSelection{}, {}, 1.0f, {}, -1);
 
     EXPECT_EQ(CountCmd<DrawLineCmd>(cmds), 0) << "viewport より上にあるグループは bar が描画されない";
 }
@@ -133,7 +133,7 @@ TEST_F(CmdGenContentTest, HorizontalRule_PartialViewportLimitsToVisible)
     // 1 本目の hr の下端より少し大きい viewport を用意する。
     const float first_hr_bottom = cache_.Top(0) + cache_[0].height;
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, first_hr_bottom + 1.0f };
-    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
+    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
 
     const auto draw_lines = CountCmd<DrawLineCmd>(cmds);
     EXPECT_GE(draw_lines, 1) << "1 本目は確実に可視範囲内";
@@ -323,7 +323,7 @@ TEST_F(CmdGenContentTest, CodeBlockWithHoveredCopyNodeAccepted)
     Parse("```\ncode\n```");
     const PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
     // ノード 0 のコピーボタンのホバーを渡してもクラッシュしない
-    const auto& cmds = gen_.GenerateMdPane(nodes_, cache_, md_pane, 0.0f, TextSelection{}, OverlayButtonHit{ 0, OverlayButton::CodeCopy });
+    const auto& cmds = gen_.GenerateMdPane(nodes_, cache_, md_pane, 0.0f, TextSelection{}, OverlayButtonHit{ 0, OverlayButton::CodeCopy }, 1.0f, {}, -1);
     EXPECT_TRUE(std::holds_alternative<PushClipCmd>(cmds.front()));
     EXPECT_TRUE(std::holds_alternative<PopClipCmd>(cmds.back()));
 }
@@ -350,7 +350,7 @@ TEST_F(CmdGenContentTest, SplitCodeBlockDrawsContinuousBackground)
 
     // 1 つ目と 2 つ目の継ぎ目を画面の y=200 に置く。
     const float seam = cache_.Top(1);
-    const auto cmds = gen_.GenerateMdPane(nodes_, cache_, PaneRect{ 0, 0, kViewportW, 400.0f }, seam - 200.0f, TextSelection{});
+    const auto cmds = gen_.GenerateMdPane(nodes_, cache_, PaneRect{ 0, 0, kViewportW, 400.0f }, seam - 200.0f, TextSelection{}, {}, 1.0f, {}, -1);
     const auto code_bg_edge = [&](auto edge) {
         return CountCmd<FillRectCmd>(cmds, [&](const FillRectCmd& c) { return c.brush_id == BrushId::CodeBg && std::abs(edge(c.rect) - 200.0f) < 0.01f; });
     };

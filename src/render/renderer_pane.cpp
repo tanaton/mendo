@@ -29,20 +29,13 @@ std::string_view TocItemText(std::string_view heading) noexcept
     constexpr uint32_t kMaxBytes = 512;
     return heading.size() <= kMaxBytes ? heading : heading.substr(0, utf8_codec::SnapToCpStart(heading, kMaxBytes));
 }
-
-void GenPaneScrollbar(DrawCommandList& cmds, const PaneRect& pane, float header_height, float scroll_y, float total_content_height)
-{
-    if (const auto thumb = VScrollThumb(pane, header_height, scroll_y, total_content_height)) {
-        cmds.push_back(FillRoundedRectCmd{ .rect = thumb->rect, .rx = thumb->radiusX, .ry = thumb->radiusY, .brush_id = BrushId::ScrollbarThumb });
-    }
-}
 } // namespace
 
 void Renderer::EmitLeftText(IDWriteTextFormat* fmt, std::wstring_view text, float x, float y, float height)
 {
     // 箱の幅で見た目が変わらないので、幅を固定してスプリッタのドラッグ中もレイアウトを使い回す。
     constexpr float kLayoutWidth = 4096.0f;
-    EmitChromeText(text, fmt, D2D1::RectF(x, y, x + kLayoutWidth, y + height), BrushId::Text, 1.0f, D2D1::SizeF(kLayoutWidth, height));
+    EmitChromeText(text, fmt, D2D1::Point2F(x, y), D2D1::SizeF(kLayoutWidth, height), BrushId::Text, 1.0f);
 }
 
 void Renderer::GenSidePaneHeader(const SidePaneInstance& pane, bool is_file_pane, std::wstring_view header_text)
@@ -52,14 +45,13 @@ void Renderer::GenSidePaneHeader(const SidePaneInstance& pane, bool is_file_pane
     chrome_cmds_.push_back(FillRectCmd{ .rect = D2D1::RectF(r.x, r.y, r.x + r.width, r.y + header_h), .brush_id = BrushId::Splitter });
 
     // 無効なボタンはホバー状態が残っていても強調しない (ヘルプへ切替直後など)。
-    // 箱の大きさはペイン内座標の矩形から取る。ずらした後の差では丸めでキャッシュが外れる。
     const auto gen_button = [&](const D2D1_RECT_F& local, std::wstring_view icon, PaneHeaderButton button, bool enabled = true) {
         const D2D1_RECT_F rect = OffsetRectF(local, r.x, r.y);
         if (enabled && pane.hovered_button == button) {
             chrome_cmds_.push_back(FillRectCmd{ .rect = rect, .brush_id = BrushId::PaneItemHover });
         }
         const auto box = D2D1::SizeF(local.right - local.left, local.bottom - local.top);
-        EmitChromeText(icon, fmt_.pane_icon.Get(), rect, BrushId::Text, enabled ? 1.0f : DISABLED_UI_ALPHA, box);
+        EmitChromeText(icon, fmt_.pane_icon.Get(), D2D1::Point2F(rect.left, rect.top), box, BrushId::Text, enabled ? 1.0f : DISABLED_UI_ALPHA);
     };
 
     gen_button(PaneCloseButtonRect(r.width, header_h), L"\uE8BB", PaneHeaderButton::Close);
@@ -103,7 +95,9 @@ void Renderer::GenSidePane(const SidePaneInstance& pane, bool is_file_pane, size
     }
 
     chrome_cmds_.push_back(PopClipCmd{});
-    GenPaneScrollbar(chrome_cmds_, r, header_h, scroll_y, SidePaneContentHeight(item_count, item_h));
+    if (const auto thumb = VScrollThumb(r, header_h, scroll_y, SidePaneContentHeight(item_count, item_h))) {
+        chrome_cmds_.push_back(FillRoundedRectCmd{ .rect = thumb->rect, .rx = thumb->radiusX, .ry = thumb->radiusY, .brush_id = BrushId::ScrollbarThumb });
+    }
 }
 
 namespace {
@@ -134,11 +128,9 @@ void Renderer::GenFileExplorer(const std::pmr::vector<FileEntry>& entries, const
             chrome_cmds_.push_back(FillRectCmd{ .rect = row, .brush_id = BrushId::PaneItemHover });
         }
 
-        const D2D1_RECT_F icon_rect = D2D1::RectF(row.left + pad, row.top, row.left + pad + icon_col_width, row.bottom);
-        const float item_h = row.bottom - row.top;
-        EmitChromeText(FileEntryIcon(entry), fmt.icon.Get(), icon_rect, BrushId::Text, 1.0f, D2D1::SizeF(icon_col_width, item_h));
+        EmitChromeText(FileEntryIcon(entry), fmt.icon.Get(), D2D1::Point2F(row.left + pad, row.top), D2D1::SizeF(icon_col_width, pane.item_height), BrushId::Text, 1.0f);
 
-        EmitLeftText(fmt.item.Get(), entry.GetDisplayName(), row.left + pad + icon_col_width, row.top, item_h);
+        EmitLeftText(fmt.item.Get(), entry.GetDisplayName(), row.left + pad + icon_col_width, row.top, pane.item_height);
     });
 }
 
@@ -163,7 +155,7 @@ void Renderer::GenToc(const SidePaneState& sp, const SidePaneInstance& pane)
         if (title.empty()) {
             DecodeForDWrite(TocItemText(sp.nodes[entry.node_index].GetText()), title);
         }
-        EmitLeftText(fmt.item.Get(), title, text_left, row.top, row.bottom - row.top);
+        EmitLeftText(fmt.item.Get(), title, text_left, row.top, pane.item_height);
 
         if (i == active_index) {
             const float line_y = row.bottom - 1.0f;

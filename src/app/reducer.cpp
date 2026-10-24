@@ -72,6 +72,7 @@ SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
     const auto& layout = state.pane_layout_cache.Get();
     return {
         ComputeScrollInfo(layout.Get(pane), header_h, SidePaneContentHeight(SidePaneItemCount(state, pane), item_h)),
+        item_h,
         state.view.panes.SidePaneScroll(pane),
     };
 }
@@ -350,7 +351,7 @@ void ReduceFilePaneRevealCurrentFile(AppState& state, SideEffectList& effects)
     const auto it = std::ranges::find_if(entries, &FileEntry::is_current);
     const auto ctx = GetSidePaneContext(state, PaneTarget::File);
     ctx.scroll.scroll_y = it != entries.end()
-                              ? CenterPaneScrollOnItem(static_cast<size_t>(std::distance(entries.begin(), it)), SidePaneItemHeight(state, PaneTarget::File), ctx.info)
+                              ? CenterPaneScrollOnItem(static_cast<size_t>(std::distance(entries.begin(), it)), ctx.item_height, ctx.info)
                               : 0.0f;
     PushEffect(effects, effect::InvalidateWindow{});
 }
@@ -635,7 +636,6 @@ void ReduceRightClickGestureCompleted(AppState& state, SideEffectList& effects, 
     PushEffect(effects, effect::ReleaseCapture{});
     switch (result) {
     case GestureResult::ShowContextMenu:
-        state.interaction.gesture.Reset();
         PushEffect(effects, effect::ShowContextMenu{ a.screen_x, a.screen_y });
         break;
     case GestureResult::Back:

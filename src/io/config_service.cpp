@@ -29,6 +29,8 @@ constexpr auto kKeyFileWidth = "FileWidth"sv;
 constexpr auto kKeyTocWidth = "TocWidth"sv;
 constexpr auto kKeyFileZoomLevel = "FileZoomLevel"sv;
 constexpr auto kKeyTocZoomLevel = "TocZoomLevel"sv;
+constexpr auto kSectionGeneral = "General"sv;
+constexpr auto kKeyLanguage = "Language"sv;
 } // namespace
 
 void ConfigService::SetConfigDirOverride(const std::filesystem::path& dir)
@@ -189,6 +191,11 @@ ZoomLevel ConfigService::LoadZoomLevel(std::string_view section, std::string_vie
     return zoom;
 }
 
+void ConfigService::SaveZoomLevel(std::string_view section, std::string_view key, ZoomLevel zoom)
+{
+    SaveInt(section, key, zoom.Index());
+}
+
 void ConfigService::SaveWString(std::string_view section, std::string_view key, std::wstring_view value)
 {
     StoreValue(section, key, string_convert::WideToUtf8(value));
@@ -229,18 +236,18 @@ void SessionService::SavePaneState(const PaneState& state)
     config_.SaveBool(kSectionPane, kKeyShowToc, state.show_toc);
     config_.SaveInt(kSectionPane, kKeyFileWidth, static_cast<int>(std::lround(state.file_width)));
     config_.SaveInt(kSectionPane, kKeyTocWidth, static_cast<int>(std::lround(state.toc_width)));
-    config_.SaveInt(kSectionPane, kKeyFileZoomLevel, state.file_zoom.Index());
-    config_.SaveInt(kSectionPane, kKeyTocZoomLevel, state.toc_zoom.Index());
+    config_.SaveZoomLevel(kSectionPane, kKeyFileZoomLevel, state.file_zoom);
+    config_.SaveZoomLevel(kSectionPane, kKeyTocZoomLevel, state.toc_zoom);
 }
 
-SessionService::PaneState SessionService::LoadPaneState(float min_width, float default_width) const
+SessionService::PaneState SessionService::LoadPaneState() const
 {
     PaneState s;
     s.show_file = config_.LoadBool(kSectionPane, kKeyShowFile, true);
     s.show_toc = config_.LoadBool(kSectionPane, kKeyShowToc, true);
 
-    const int default_int = static_cast<int>(default_width);
-    const int min_int = static_cast<int>(min_width);
+    constexpr int default_int = static_cast<int>(SIDE_PANE_DEFAULT_WIDTH);
+    constexpr int min_int = static_cast<int>(SIDE_PANE_MIN_WIDTH);
 
     // 過剰幅の表示制限は ComputePaneLayout 側 (side 幅を表示時に clamp して MD ペインと
     // スプリッタを画面内に保つ。論理幅は不変) に委ね、ここでは下限のみ保証する。
@@ -268,4 +275,14 @@ SessionService::ScrollPosition SessionService::LoadScrollPosition() const
         .node = config_.LoadInt(kSectionSession, kKeyScrollNode, -1, -1, 1000000),
         .offset = config_.LoadInt(kSectionSession, kKeyScrollOffset, 0, -1000000, 1000000),
     };
+}
+
+void SessionService::SaveLanguage(std::wstring_view lang_key)
+{
+    config_.SaveWString(kSectionGeneral, kKeyLanguage, lang_key);
+}
+
+std::pmr::wstring SessionService::LoadLanguage() const
+{
+    return config_.LoadWString(kSectionGeneral, kKeyLanguage);
 }

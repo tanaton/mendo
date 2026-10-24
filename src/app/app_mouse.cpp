@@ -266,7 +266,7 @@ void App::OnMouseMove(int px, int py)
         return;
     case LeftDrag::SearchInput: {
         const auto sbl = ComputeSearchBarLayoutForMd(GetPaneLayout().md_rect);
-        Dispatch(SearchInputDragMovedAction{ HitTestSearchInputPos(sbl, state_.search.search_bar_ctrl.GetQueryWide(), dip.x) });
+        Dispatch(SearchInputDragMovedAction{ HitTestSearchInputPos(sbl, dip.x) });
         return;
     }
     case LeftDrag::Splitter:
@@ -336,9 +336,6 @@ void App::OnRButtonMove(int px, int py)
 
 void App::HandleLinkClick(std::string_view url)
 {
-    if (url.empty()) {
-        return;
-    }
     auto result = ::HandleLinkClick(url);
     switch (result.type) {
     case LinkClickResult::Type::None:
@@ -429,15 +426,14 @@ bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_
         Dispatch(CloseSearchBarAction{});
         return true;
     case SearchBarHitZone::Input: {
-        const auto& query_wide = state_.search.search_bar_ctrl.GetQueryWide();
-        const int pos = HitTestSearchInputPos(sbl, query_wide, dip_x);
+        const int pos = HitTestSearchInputPos(sbl, dip_x);
         if (!is_double_click) {
             Dispatch(SearchInputDragStartedAction{ pos });
             return true;
         }
         // 検索 EDIT は非表示で WM_LBUTTONDBLCLK を直接受けないため、
         // 自前で単語境界を計算して EM_SETSEL を発行する。
-        const auto wb = FindWordBoundaries(std::wstring_view{ query_wide }, static_cast<uint32_t>(pos));
+        const auto wb = FindWordBoundaries(std::wstring_view{ state_.search.search_bar_ctrl.GetQueryWide() }, static_cast<uint32_t>(pos));
         if (wb.found) {
             Execute(effect::SearchFocus{ static_cast<int>(wb.start), static_cast<int>(wb.end) });
         }

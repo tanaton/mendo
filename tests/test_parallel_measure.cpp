@@ -91,7 +91,7 @@ int DrainDirtyBatches(LayoutEngine& engine, const std::pmr::vector<Node>& nodes,
 {
     constexpr int kMaxBatches = 20;
     for (int batches = 1; batches <= kMaxBatches; ++batches) {
-        if (!engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200)) {
+        if (!engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200, {})) {
             return batches;
         }
     }
@@ -181,7 +181,7 @@ TEST_F(ParallelMeasureTest, EnsureVisibleLayoutParallelMatchesSerial)
     const auto build = [&](LayoutEngine& engine, std::pmr::vector<Node>& nodes, LayoutCache& cache) {
         nodes = ParseNodes(md);
         cache.Resize(nodes.size());
-        EstimateNodeHeights(nodes, cache, theme_);
+        EstimateNodeHeights(nodes, cache, theme_, 0.0f, {});
         engine.EnsureVisibleLayout(nodes, cache, 800.0f, 0.0f, 100000.0f);
     };
 
@@ -240,7 +240,7 @@ TEST_F(ParallelMeasureTest, ProcessDirtyBatchRetriesAfterChunkException)
         engine.SetLayoutScheduler(&task_scheduler_);
         const bool more = c.clip
             ? engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200, { 0.0f, 600.0f, 100.0f })
-            : engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200);
+            : engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200, {});
         engine.SetLayoutScheduler(nullptr);
 
         EXPECT_TRUE(cache[thrower].layout_dirty);
@@ -270,7 +270,7 @@ TEST_F(ParallelMeasureTest, AlwaysThrowingNodeStopsRetryingAfterMaxAttempts)
     measurer.throw_on = &nodes[kThrower];
 
     engine.SetLayoutScheduler(&task_scheduler_);
-    ASSERT_TRUE(engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200));
+    ASSERT_TRUE(engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200, {}));
     for (size_t k = 0; k < kDirtyCount; ++k) {
         const size_t i = kFirstDirty + k;
         if (i != kThrower) {
@@ -339,7 +339,7 @@ TEST_F(ParallelMeasureTest, MeasureSuccessOnAnyPathResetsFailureCount)
     measurer.throw_times = LayoutCache::kMaxMeasureAttempts - 1;
     engine.SetLayoutScheduler(&task_scheduler_);
     for (int k = 0; k + 1 < LayoutCache::kMaxMeasureAttempts; ++k) {
-        engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200);
+        engine.ProcessDirtyBatch(nodes, cache, 800.0f, 200, {});
     }
     engine.SetLayoutScheduler(nullptr);
     ASSERT_EQ(cache[kThrower].measure_failures, LayoutCache::kMaxMeasureAttempts - 1);

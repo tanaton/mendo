@@ -13,7 +13,7 @@ std::pmr::string ExtractSelectedText(const std::pmr::vector<Node>& nodes, const 
 std::pmr::string ExtractSelectedTextAsHtml(
     const std::pmr::vector<Node>& nodes,
     const TextSelection& selection,
-    bool dark_mode = false);
+    bool dark_mode);
 
 struct LinkHit {
     std::string_view url; // node 内の URL を指す

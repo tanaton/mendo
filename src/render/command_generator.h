@@ -29,7 +29,7 @@ class CommandGenerator {
 public:
     struct Formats {
         IDWriteTextFormat* list_number = nullptr;
-        IDWriteTextFormat* icon_font = nullptr;
+        IDWriteTextFormat* checkbox = nullptr;
         IDWriteTextFormat* copy_btn_icon = nullptr;
         IDWriteTextFormat* placeholder_text = nullptr;
     };
@@ -62,10 +62,10 @@ public:
         const std::pmr::vector<Node>& nodes, const LayoutCache& cache,
         const PaneRect& md_pane_rect, float scroll_y,
         const TextSelection& selection,
-        OverlayButtonHit hovered = {},
-        float dpi_scale = 1.0f,
-        const BlockHScrollContext& block_h_scroll = {},
-        int hovered_diagram = -1);
+        OverlayButtonHit hovered,
+        float dpi_scale,
+        const BlockHScrollContext& block_h_scroll,
+        int hovered_diagram);
 
 private:
     // ノードの [text_top, text_top + height] の外へはみ出して描く量の全種別での上限
@@ -79,8 +79,7 @@ private:
 
     // GenerateMdPane の 1 フレーム呼び出しスコープでだけ意味を持つ入力をまとめる。
     struct FrameContext {
-        float offset_x = 0.0f;
-        // フレーム座標系でのビューポート左右端。各セル x を offset_x と
+        // フレーム座標系でのビューポート左右端。各セル x を表の左端と
         // 合成したあとカリング判定に使う。
         float viewport_left = 0.0f;
         float viewport_right = 0.0f;
@@ -111,19 +110,8 @@ private:
     // early return を経由せず描画したいため独立メソッド化。
     void GenTaskListCheckbox(const Node& node, float x, float entry_text_top);
 
-    static BrushId GetNodeBaseBrush(const Node& node) noexcept;
-
     void GenHorizontalRule(float x, float w, float entry_text_top);
     void GenTable(const FrameContext& fc, const Node& node, const NodeLayoutEntry& entry, int node_index, float offset_x, float entry_text_top, float h_scroll_x);
-    // テーブル 1 行分の幾何。GenTableRowBg と内部ループで使い回す。
-    struct TableRowGeom {
-        float x;
-        float y;
-        float table_width;
-        float row_h;
-        float border;
-    };
-    void GenTableRowBg(const TableRowGeom& geom, bool is_header, bool is_even_row);
     // テーブルセル 1 個分の描画コンテキスト。GenTable から GenTableCellContent へ橋渡しする。
     // selection はテーブル全体の選択範囲で、セルの開始位置 flat_offset と同じく concat_text 上の UTF-8 byte。
     struct CellDrawContext {
@@ -157,7 +145,6 @@ private:
     // HitTestTextRange の結果をレイアウト原点相対の D2D1_RECT_F に変換し out へ append する。
     // SearchHlCache / SelectionHlCache の rebuild に共用する。
     void CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::pmr::vector<D2D1_RECT_F>& out);
-    void GenSelectionHighlight(IDWriteTextLayout* layout, uint32_t start, uint32_t length, float origin_x, float origin_y);
     // 本文ノード（テーブル外）専用の選択ハイライト発行。
     // (layout, doc_start, doc_length) 一致でフレーム間キャッシュをヒットさせ
     // HitTestTextRange と UTF-8→UTF-16 decode の両方を省く。doc_start / doc_length は UTF-8 byte 単位。

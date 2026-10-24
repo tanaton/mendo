@@ -44,11 +44,6 @@ constexpr bool LineBreakAfter(const std::pmr::vector<Node>& nodes, int i) noexce
     return next >= nodes.size() || !nodes[next].continues_prev() || nodes[next].newline_before_chunk();
 }
 
-constexpr uint32_t ClampEndToText(uint32_t end, size_t text_size) noexcept
-{
-    return end > text_size ? static_cast<uint32_t>(text_size) : end;
-}
-
 constexpr std::string_view kHtmlEscapeChars = "&<>\"'";
 
 constexpr std::string_view HtmlEscapeOf(char c) noexcept
@@ -231,7 +226,7 @@ constexpr void AppendInlineHtml(
     std::span<UrlSafety> url_safety,
     uint32_t start, uint32_t end)
 {
-    end = ClampEndToText(end, text.size());
+    assert(end <= text.size());
     if (start >= end) {
         return;
     }
@@ -399,15 +394,6 @@ void AppendCodeBlockOpen(std::pmr::string& out, bool dark_mode)
     out.append(kStyleTail);
 }
 
-void AppendCodeBlockBody(std::pmr::string& out, const Node& node, uint32_t start, uint32_t end, bool dark_mode)
-{
-    const std::string_view text = node.GetText();
-    end = ClampEndToText(end, text.size());
-    if (start < end) {
-        AppendHighlightedCode(out, text, TokenizeCodeNode(node), start, end, PaletteFor(dark_mode));
-    }
-}
-
 constexpr void AppendTableCellStyle(std::pmr::string& out, TableAlign align, bool dark_mode)
 {
     out.append(" style=\"border:1px solid ");
@@ -432,11 +418,9 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
 {
     const auto* tbl = node.table_data();
     if (!tbl || tbl->row_count == 0 || tbl->col_count == 0) {
-        const std::string_view text = node.GetText();
-        end = ClampEndToText(end, text.size());
         out.append("<pre>");
         if (start < end) {
-            AppendHtmlEscaped(out, text.substr(start, end - start));
+            AppendHtmlEscaped(out, node.GetText().substr(start, end - start));
         }
         out.append("</pre>");
         return;
@@ -650,7 +634,7 @@ CellRunsHit FindTableCellRuns(const Node& node, uint32_t text_pos)
     }
     const uint32_t start = starts[idx];
     // 末尾区切りを除いたセル長で in-range 判定。padding セルは長さ 0 で必ず外れる。
-    if (text_pos >= start + tbl->GetCellText(r, c).size()) {
+    if (text_pos >= tbl->CellTextEnd(r, c)) {
         return {};
     }
     return { tbl->GetCellRuns(r, c), text_pos - start };
@@ -765,7 +749,9 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
             else if (newline_before) {
                 out.push_back('\n');
             }
-            AppendCodeBlockBody(out, node, start, end, dark_mode);
+            if (start < end) {
+                AppendHighlightedCode(out, node.GetText(), TokenizeCodeNode(node), start, end, PaletteFor(dark_mode));
+            }
             if (closes) {
                 out.append(kCodeBlockClose);
             }

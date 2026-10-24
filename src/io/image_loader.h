@@ -48,7 +48,7 @@ public:
     // ヒットしたら LRU を更新する。次の挿入・Clear まで有効。
     const CachedImage* FindCachedImage(const std::wstring& abs_path);
     // max_width_dip: 表示幅。これを量子化した物理 px まで縮小してデコードする。0 は原寸。
-    void RequestLoadAsync(const std::wstring& abs_path, Callback on_complete, float max_width_dip = 0.0f);
+    void RequestLoadAsync(const std::wstring& abs_path, Callback on_complete, float max_width_dip);
     // 表示幅が広がり、キャッシュの解像度では足りなくなったか。
     bool NeedsSharperDecode(const CachedImage& image, float max_width_dip) const noexcept
     {

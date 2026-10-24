@@ -7,12 +7,6 @@
 
 using namespace context_menu_constants;
 
-void ContextMenu::Init(ID2D1Factory* d2d_factory, IDWriteFactory* dwrite_factory)
-{
-    d2d_factory_ = d2d_factory;
-    dwrite_factory_ = dwrite_factory;
-}
-
 void ContextMenu::Impl::BuildItems(const ContextMenuParams& params)
 {
     items.clear();
@@ -31,6 +25,7 @@ void ContextMenu::Impl::BuildItems(const ContextMenuParams& params)
         items.emplace_back(ItemType::Separator);
     }
     zoom = params.zoom;
+    on_zoom = params.on_zoom;
     if (zoom) {
         items.emplace_back(ItemType::ZoomRow, 0, ls.menu_zoom);
         items.emplace_back(ItemType::Separator);
@@ -180,10 +175,9 @@ void ContextMenu::Impl::OnPress(UINT msg, float x, float y)
 int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
 {
     Impl s;
-    if (!s.Setup(d2d_factory_, dwrite_factory_, params.theme, params.dpi_scale)) {
+    if (!s.Setup(params.env)) {
         return 0;
     }
-    s.on_zoom = params.on_zoom;
     s.BuildItems(params);
     s.CreateBaseTextFormats(ICON_FONT_SIZE);
     s.ComputeLayout();
@@ -213,18 +207,18 @@ void ContextMenu::Impl::PaintContent()
     }
 }
 
-void ContextMenu::Impl::DrawIconButton(const DipRect& rect, const wchar_t* glyph, bool enabled, bool hovered, float corner)
+void ContextMenu::Impl::DrawIconButton(const DipRect& rect, const wchar_t* glyph, bool enabled, bool hovered)
 {
     if (hovered) {
-        FillHover(rect, corner);
+        FillHover(rect);
     }
     DrawLabel(glyph, fmt_icon.Get(), rect, enabled ? brushes.text.Get() : brushes.gray.Get());
 }
 
 void ContextMenu::Impl::DrawNavRow()
 {
-    DrawIconButton(nav_layout.back_rect, GLYPH_BACK, nav_layout.back_enabled, hovered_nav == IDM_NAV_BACK, CTX_NAV_BTN_CORNER);
-    DrawIconButton(nav_layout.fwd_rect, GLYPH_FORWARD, nav_layout.fwd_enabled, hovered_nav == IDM_NAV_FORWARD, CTX_NAV_BTN_CORNER);
+    DrawIconButton(nav_layout.back_rect, GLYPH_BACK, nav_layout.back_enabled, hovered_nav == IDM_NAV_BACK);
+    DrawIconButton(nav_layout.fwd_rect, GLYPH_FORWARD, nav_layout.fwd_enabled, hovered_nav == IDM_NAV_FORWARD);
 }
 
 void ContextMenu::Impl::DrawZoomRow(const Item& item)
@@ -236,7 +230,7 @@ void ContextMenu::Impl::DrawZoomRow(const Item& item)
 
     const auto draw_btn = [&](const DipRect& rect, const wchar_t* glyph, ZoomDirection direction) {
         const bool enabled = zoom->CanStep(direction);
-        DrawIconButton(rect, glyph, enabled, enabled && hovered_zoom == direction, HOVER_CORNER);
+        DrawIconButton(rect, glyph, enabled, enabled && hovered_zoom == direction);
     };
     draw_btn(zoom_layout.out_rect, GLYPH_ZOOM_OUT, ZoomDirection::Out);
     draw_btn(zoom_layout.in_rect, GLYPH_ZOOM_IN, ZoomDirection::In);
@@ -261,10 +255,10 @@ void ContextMenu::Impl::DrawSeparator(const Item& item)
 void ContextMenu::Impl::DrawTextItem(const Item& item)
 {
     if (item.id != 0 && item.id == hovered_id) {
-        FillHover({ item.rect.left + HOVER_MARGIN_X, item.rect.top + 1.0f, item.rect.right - HOVER_MARGIN_X, item.rect.bottom - 1.0f }, HOVER_CORNER);
+        FillHover({ item.rect.left + HOVER_MARGIN_X, item.rect.top + 1.0f, item.rect.right - HOVER_MARGIN_X, item.rect.bottom - 1.0f });
     }
     if (item.checked) {
-        DrawLabel(GLYPH_CHECKMARK, fmt_icon.Get(), { item.rect.left + CHECK_LEFT, item.rect.top, item.rect.left + CHECK_WIDTH + 4.0f, item.rect.bottom }, brushes.check.Get());
+        DrawCheck({ item.rect.left + CHECK_LEFT, item.rect.top, item.rect.left + CHECK_WIDTH + 4.0f, item.rect.bottom });
     }
     DrawLabel(item.text, fmt_text.Get(), { item.rect.left + PAD_X, item.rect.top, item.rect.right - TEXT_PAD_RIGHT, item.rect.bottom },
               item.enabled ? brushes.text.Get() : brushes.gray.Get());

@@ -79,17 +79,12 @@ public:
             return GestureResult::None;
         }
 
-        if (phase_ == GesturePhase::Pressed) {
-            phase_ = GesturePhase::Idle;
-            return GestureResult::ShowContextMenu;
-        }
-
-        const NavDirection dir = direction_;
+        const NavDirection dir = phase_ == GesturePhase::Pressed ? NavDirection::None : direction_;
         Reset();
 
         switch (dir) {
         case NavDirection::None:
-            // 方向が確定しなかった右ドラッグは通常の右クリック扱いとし、
+            // 動かさずに離したときと、方向が確定しなかった右ドラッグは通常の右クリック扱いとし、
             // コンテキストメニューを表示する (イベントを握り潰してメニューを失わない)。
             return GestureResult::ShowContextMenu;
         case NavDirection::Back:

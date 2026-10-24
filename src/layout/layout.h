@@ -62,11 +62,6 @@ public:
     {
         layout_scheduler_ = scheduler;
     }
-    void UpdateTheme(const Theme& theme) noexcept
-    {
-        theme_ = &theme;
-        measurer_->UpdateTheme(theme);
-    }
     bool RecreateFormats();
     // 幅が変わったら全ノードを dirty にして推定値で Y を組み直す (DirectWrite は呼ばない)。
     // 未推定のキャッシュ (位置が全て 0) も組み直す。
@@ -78,11 +73,11 @@ public:
         const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
         float viewport_top, float viewport_bottom);
     // clip 内の dirty を最大 batch_size 件 (0 = 無制限) 計測する。clip 内に dirty が残れば true。
-    // clip 省略時は全 dirty を対象にする。
+    // clip が既定値 ({}) なら全 dirty を対象にする。
     bool ProcessDirtyBatch(
         const std::pmr::vector<Node>& nodes, LayoutCache& cache,
         float viewport_width, int batch_size,
-        layout::ViewportClip clip = {});
+        layout::ViewportClip clip);
 
 private:
     struct PassResult {
@@ -98,7 +93,7 @@ private:
     // dirty なノード (mark_all_dirty なら全ノード) の高さを推定値で更新し、全ノードの Y を組み直す。
     void EstimateDirtyHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float content_width, bool mark_all_dirty);
 
-    // lifecycle 系 (RecreateFormats/UpdateTheme) は UI スレッドからのみ呼び、
+    // lifecycle 系 (Init/RecreateFormats) は UI スレッドからのみ呼び、
     // MeasureNode は const 経由で layout_scheduler_ 上の worker から並列呼び出しされる。
     ITextMeasurer* measurer_ = nullptr;
     const Theme* theme_ = nullptr;

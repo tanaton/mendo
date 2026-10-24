@@ -68,6 +68,7 @@ public:
 
 private:
     void ApplyCurrentFile() const;
+    void ReplaceEntries(std::pmr::vector<FileEntry> entries) const;
 
     std::pmr::wstring directory_;
     std::pmr::wstring current_file_;

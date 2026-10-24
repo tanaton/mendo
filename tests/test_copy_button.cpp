@@ -29,7 +29,7 @@ protected:
         const float x = theme_.margin_left + indent;
         const float w = ContentWidth() - indent;
         const float block_top = pr.cache.Top(node_index) - NodeBoxPadTop(pr.nodes[node_index], theme_);
-        const D2D1_RECT_F btn = OverlayButtonRect(x + w, block_top);
+        const D2D1_RECT_F btn = OverlayButtonRect(x + w, block_top, OverlayButton::CodeCopy);
         return { static_cast<int>((btn.left + btn.right) * 0.5f),
                  static_cast<int>((btn.top + btn.bottom) * 0.5f - scroll_y) };
     }
@@ -46,7 +46,7 @@ protected:
 
 TEST_F(CopyButtonTest, CopyButtonRectHasCorrectSize)
 {
-    D2D1_RECT_F r = OverlayButtonRect(100.0f, 10.0f);
+    D2D1_RECT_F r = OverlayButtonRect(100.0f, 10.0f, OverlayButton::CodeCopy);
     float w = r.right - r.left;
     float h = r.bottom - r.top;
     EXPECT_FLOAT_EQ(w, COPY_BTN_SIZE);
@@ -57,7 +57,7 @@ TEST_F(CopyButtonTest, CopyButtonRectIsInsideBlockTopRight)
 {
     float block_right = 500.0f;
     float block_top = 100.0f;
-    D2D1_RECT_F r = OverlayButtonRect(block_right, block_top);
+    D2D1_RECT_F r = OverlayButtonRect(block_right, block_top, OverlayButton::CodeCopy);
     // ボタンの右端はブロック右端から COPY_BTN_MARGIN 内側
     EXPECT_FLOAT_EQ(r.right, block_right - COPY_BTN_MARGIN);
     // ボタンの上端はブロック上端から COPY_BTN_MARGIN 下

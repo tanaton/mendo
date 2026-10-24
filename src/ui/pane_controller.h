@@ -25,7 +25,7 @@ public:
     }
     constexpr void SetSidePaneWidth(PaneTarget t, float w) noexcept
     {
-        Inst(t).width = std::max(w, PANE_MIN_WIDTH);
+        Inst(t).width = std::max(w, SIDE_PANE_MIN_WIDTH);
     }
 
     constexpr ScrollState& SidePaneScroll(PaneTarget t) noexcept
@@ -61,13 +61,10 @@ public:
 
     PaneLayout ComputeLayout(float total_w, float total_h, float splitter_w, float top_offset = 0.0f) const noexcept;
 
-    static constexpr float PANE_DEFAULT_WIDTH = 220.0f;
-    static constexpr float PANE_MIN_WIDTH = 100.0f;
-
 private:
     struct Instance {
         ScrollState scroll{};
-        float width = PANE_DEFAULT_WIDTH;
+        float width = SIDE_PANE_DEFAULT_WIDTH;
         ZoomLevel zoom;
         bool show = true;
     };

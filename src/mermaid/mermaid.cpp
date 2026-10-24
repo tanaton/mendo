@@ -267,15 +267,17 @@ void MermaidRenderer::EnsureInitialized()
 
 bool MermaidRenderer::CreateWorkerWindow(int index)
 {
-    static std::once_flag class_register_flag;
-    std::call_once(class_register_flag, [] static {
+    static const bool registered = [] {
         WNDCLASSEXW wc{};
         wc.cbSize = sizeof(wc);
         wc.lpfnWndProc = HostWndProc;
         wc.hInstance = GetModuleHandleW(nullptr);
         wc.lpszClassName = MERMAID_HOST_CLASS.data();
-        RegisterClassExW(&wc);
-    });
+        return RegisterClassExW(&wc) != 0;
+    }();
+    if (!registered) {
+        return false;
+    }
 
     auto& w = workers_[index];
     w = Worker{};
@@ -402,7 +404,7 @@ void MermaidRenderer::OnEnvironmentCreated(HRESULT result, ICoreWebView2Environm
         }
         // リトライ上限。待機中リクエストを失敗で完了させてから状態を全リセットし、
         // 次回 RequestRender/RequestSvg でクリーンに再初期化させる。リセットしないと
-        // initialized_ が立ったままで EnsureInitialized が二度と走らず、以後の
+        // worker_count_ > 0 のままで EnsureInitialized が二度と走らず、以後の
         // リクエストが処理も失敗もされず in-flight 固着する。worker/env を残したまま
         // 再 init するとリークするため Shutdown 経由で破棄する。
         DrainPendingRequests(/*cancelled=*/false);
@@ -480,7 +482,7 @@ void MermaidRenderer::RegisterWebViewHandlers(int index)
     );
     // clang-format on
 
-    // レンダラ/ブラウザプロセスのクラッシュを放置するとワーカーが rendering=true の
+    // レンダラ/ブラウザプロセスのクラッシュを放置するとワーカーが描画中 (IsRendering) の
     // まま恒久的にビジー扱いになり、全ワーカー喪失で以後の図が Loading 固着する。
     // clang-format off
     AddWebViewHandler(
@@ -910,15 +912,13 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
     ResizeWorkerView(worker, vp_phys, HOST_SIZE);
 
     // リクエスト ID を postMessage に含め、C++ 側でコールバックとリクエストを照合する。
-    // renderMermaid の maxWidth=0 は CSS 制約なし (ビューポートが制約する)。
     const auto js = PmrFormat(
-        L"{}('{}', {}{})"
+        L"{}('{}', {})"
         L".then(function(r){{window.chrome.webview.postMessage('{}:{}:'+(r||''));}})"
         L".catch(function(e){{window.chrome.webview.postMessage('render-error:{}:'+String(e));}})",
         req.svg_only ? L"renderMermaidSvg" : L"renderMermaid",
         mermaid_util::JsEscape(code),
         req.dark_mode ? L"true" : L"false",
-        req.svg_only ? L"" : L", 0",
         req.svg_only ? L"svg-result" : L"render-result",
         req.request_id, req.request_id);
     LogHrFailure(req.svg_only ? "ExecuteScript(svg)" : "ExecuteScript(render)", worker.webview->ExecuteScript(js.c_str(), nullptr));

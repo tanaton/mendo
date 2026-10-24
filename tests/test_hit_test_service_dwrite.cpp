@@ -232,7 +232,7 @@ TEST_F(HitTestDWriteTest, OverlayButtonHitTest_CopyHitReturnsNode)
     const float content_width = theme_.ContentWidth(800.0f);
     const float block_right = theme_.margin_left + content_width;
     const float block_top = pl.cache.Top(code_idx) - theme_.code_block_padding;
-    const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top);
+    const D2D1_RECT_F btn = OverlayButtonRect(block_right, block_top, OverlayButton::CodeCopy);
     const auto ctx = Ctx(pl, { (btn.left + btn.right) * 0.5f, (btn.top + btn.bottom) * 0.5f });
     EXPECT_EQ(hit_test::OverlayButtonHitTest(ctx), (OverlayButtonHit{ code_idx, OverlayButton::CodeCopy }));
 }
@@ -286,7 +286,7 @@ TEST_F(FindTableCellTest, BordersAttributedLikeDrawing)
     CommandGenerator gen;
     gen.SetTheme(&theme_);
     gen.SetFormats({});
-    const auto& cmds = gen.GenerateMdPane(pl_.nodes, pl_.cache, PaneRect{ 0.0f, 0.0f, 4000.0f, 2000.0f }, 0.0f, TextSelection{});
+    const auto& cmds = gen.GenerateMdPane(pl_.nodes, pl_.cache, PaneRect{ 0.0f, 0.0f, 4000.0f, 2000.0f }, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
 
     std::vector<float> col_lines;
     std::vector<float> row_lines;

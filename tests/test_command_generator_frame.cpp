@@ -20,7 +20,7 @@ TEST_F(CmdGenFrameTest, PushClipMatchesPaneRect)
 {
     Parse("Hello");
     const PaneRect pane{ 100.0f, 50.0f, 600.0f, 400.0f };
-    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
+    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
 
     const auto clip = FindFirst<PushClipCmd>(cmds);
     ASSERT_TRUE(clip.has_value());
@@ -37,7 +37,7 @@ TEST_F(CmdGenFrameTest, TransformTranslatesByPaneOriginOnly)
     constexpr float origin_x = 120.0f;
     constexpr float scroll_y = 40.0f;
     const PaneRect pane{ origin_x, 0.0f, 600.0f, 400.0f };
-    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, scroll_y, TextSelection{});
+    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, scroll_y, TextSelection{}, {}, 1.0f, {}, -1);
 
     const auto first_xform = FindFirst<SetTransformCmd>(cmds);
     ASSERT_TRUE(first_xform.has_value());
@@ -59,7 +59,7 @@ TEST_F(CmdGenFrameTest, ScrollSnapsToPixelWithDpi)
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
     const float scroll_y = 0.3f;
     const float dpi = 2.0f;
-    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, scroll_y, TextSelection{}, OverlayButtonHit{}, dpi);
+    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, scroll_y, TextSelection{}, OverlayButtonHit{}, dpi, {}, -1);
 
     const auto xform = FindFirst<SetTransformCmd>(cmds);
     ASSERT_TRUE(xform.has_value());
@@ -82,7 +82,7 @@ TEST_F(CmdGenFrameTest, ScrolledBeyondBottomProducesOnlyFrameCommands)
     Parse("---\n\n---\n\n---");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 100.0f };
     // 全ノードより下にスクロール → DrawLineCmd なし
-    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 10000.0f, TextSelection{});
+    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 10000.0f, TextSelection{}, {}, 1.0f, {}, -1);
 
     EXPECT_EQ(CountCmd<DrawLineCmd>(cmds), 0) << "すべてのノードがビューポート上ならDrawLineCmdは生成されない";
     // PushClip + SetTransform×2 + PopClip のみ
@@ -94,7 +94,7 @@ TEST_F(CmdGenFrameTest, EmptyNodesListEmitsOnlyFrameScaffolding)
     nodes_.clear();
     cache_.Resize(0);
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
+    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
 
     ASSERT_EQ(cmds.size(), 4u);
     EXPECT_TRUE(std::holds_alternative<PushClipCmd>(cmds[0]));
@@ -112,7 +112,7 @@ TEST_F(CmdGenFrameTest, SetSearchMatchesWithNullIsSafe)
     Parse("Hello world");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
     gen_.SetSearchMatches(nullptr, -1, 0);
-    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
+    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
     EXPECT_FALSE(cmds.empty());
 }
 
@@ -122,7 +122,7 @@ TEST_F(CmdGenFrameTest, SetSearchMatchesWithEmptyProducesNoHighlight)
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
     std::pmr::vector<SearchMatch> matches;
     gen_.SetSearchMatches(&matches, -1, 1);
-    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
+    auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
     // マッチ空のため FillRectCmd は選択ハイライト経路以外は生成されない
     // (paragraph text_layout=null なので選択経路も走らない)
     EXPECT_EQ(CountCmd<FillRectCmd>(cmds), 0);
@@ -136,7 +136,7 @@ TEST_F(CmdGenFrameTest, TableStripeUsesStripeBrush)
 {
     Parse("| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
-    const auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{});
+    const auto& cmds = gen_.GenerateMdPane(nodes_, cache_, pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
     EXPECT_TRUE(std::ranges::any_of(cmds, [](const DrawCommand& c) static {
         const auto* fr = std::get_if<FillRectCmd>(&c);
         return fr && fr->brush_id == BrushId::TableStripe;

@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include "document.h"
 #include "document_test_helpers.h"
-#include "newline_util.h"
+#include "document_utils.h"
 #include <string>
 #include <string_view>
 #include <utility>

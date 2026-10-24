@@ -18,7 +18,7 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
 
     rt()->DrawLine(D2D1::Point2F(bar_rect.left, sbl.bar_top), D2D1::Point2F(bar_rect.right, sbl.bar_top), Brush(BrushId::SearchBarBorder), 1.0f);
 
-    DrawCenteredText(L"\uE721", fmt_.search_icon.Get(), sbl.icon_rect, BrushId::SearchInputText, 0.6f);
+    DrawCenteredText(L"\uE721", fmt_.ui_icon.Get(), sbl.icon_rect, BrushId::SearchInputText, 0.6f);
 
     const D2D1_ROUNDED_RECT input_rrect = D2D1::RoundedRect(sbl.input_rect, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER);
     const bool no_match = !sb.query.empty() && sb.total_matches == 0;
@@ -145,7 +145,7 @@ void Renderer::DrawSearchBarButtons(const SearchBarRenderState& sb, const Search
         if (hovered) {
             rt()->FillRoundedRectangle(D2D1::RoundedRect(r, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER), Brush(BrushId::TitleBarButtonHover));
         }
-        DrawCenteredText(icon, fmt_.search_icon.Get(), r, BrushId::SearchInputText, alpha);
+        DrawCenteredText(icon, fmt_.ui_icon.Get(), r, BrushId::SearchInputText, alpha);
     };
 
     const auto draw_toggle_btn = [&](const D2D1_RECT_F& r, std::wstring_view label, IDWriteTextFormat* fmt, bool checked, bool hovered) {
@@ -174,7 +174,7 @@ void Renderer::DrawSearchBarButtons(const SearchBarRenderState& sb, const Search
     }
 
     draw_toggle_btn(sbl.case_btn, L"Aa", fmt_.search_count.Get(), sb.case_sensitive, sb.hovered == SearchBarHitZone::CaseSensitive);
-    draw_toggle_btn(sbl.highlight_btn, L"\uE7E6", fmt_.search_icon.Get(), sb.highlight_enabled, sb.hovered == SearchBarHitZone::Highlight);
+    draw_toggle_btn(sbl.highlight_btn, L"\uE7E6", fmt_.ui_icon.Get(), sb.highlight_enabled, sb.hovered == SearchBarHitZone::Highlight);
     draw_icon_btn(sbl.close_btn, L"\uE8BB", sb.hovered == SearchBarHitZone::Close);
 }
 

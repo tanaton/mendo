@@ -241,7 +241,7 @@ target_link_options(mendo PRIVATE
     /DEPENDENTLOADFLAG:0x800
 )
 # 自動生成マニフェストを無効化（RC経由で独自のマニフェストを提供するため）
-set_target_properties(mendo PROPERTIES LINK_FLAGS "/MANIFEST:NO")
+target_link_options(mendo PRIVATE /MANIFEST:NO)
 
 target_precompile_headers(mendo REUSE_FROM mendo_core)
 

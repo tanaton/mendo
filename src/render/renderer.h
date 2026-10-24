@@ -22,7 +22,7 @@ class Renderer {
 public:
     bool Init(HWND hwnd, Theme theme);
     // D2DRenderBackend::Resize を参照。
-    void Resize(UINT width, UINT height, bool live = false) noexcept;
+    void Resize(UINT width, UINT height, bool live) noexcept;
 
     // 1 フレームの結果。再描画をいつ予約するかは呼び出し側が決める。
     enum class FrameResult : uint8_t {
@@ -45,8 +45,8 @@ public:
         const PaneRect& md_pane_rect,
         const SidePaneState& side_panes,
         const TitleBarRenderState& titlebar,
-        const GestureRenderState& gesture = {},
-        const ToastRenderState& toast = {});
+        const GestureRenderState& gesture,
+        const ToastRenderState& toast);
 
     // 最初の描画の前に呼ぶ (App::CreateRenderDevice 参照)。
     bool CreateDevice();
@@ -90,9 +90,9 @@ public:
     }
     // ライト/ダーク切替用。寸法とフォントは共通なのでテキストレイアウトを維持し、色だけ差し替える。
     void SetTheme(Theme theme);
-    // base theme (zoom=1.0) から再構築して現在 zoom を適用する。
-    // 累積適用による誤差蓄積を避けるため、ズーム変更経路はこの関数に統一する。
-    void ApplyZoomFromBase(const Theme& base_theme, float new_zoom);
+    // 倍率を変えたテーマに差し替えて書式を作り直す。累積適用による誤差蓄積を避けるため、
+    // base theme (zoom=1.0) から作ったもの (ThemeService::CreateTheme) を渡す。
+    void ApplyZoom(Theme zoomed_theme);
 
     void SetDeviceLostCallback(std::move_only_function<void(ID2D1RenderTarget*)> cb)
     {
@@ -134,8 +134,11 @@ private:
     void GenSidePaneHeader(const SidePaneInstance& pane, bool is_file_pane, std::wstring_view header_text);
     // 倍率が変わったら作り直す。
     void EnsurePaneListFormats(PaneTarget target, float zoom);
-    // 置き方は TextLayoutCache::Origin。
-    void EmitChromeText(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float opacity = 1.0f, D2D1_SIZE_F box = {});
+    // box の大きさで組んで origin (左上) に置く。box はずらした矩形の差ではなく元の寸法から渡す
+    // (差では丸めで値が揺れ、文字レイアウトのキャッシュが外れる)。
+    void EmitChromeText(std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, BrushId brush_id, float opacity);
+    // 中央揃え書式で組んで rect の中央に置く。
+    void EmitCenteredChromeText(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float opacity);
     // NO_WRAP の左寄せテキスト。はみ出しは呼び出し側のクリップで切る。
     void EmitLeftText(IDWriteTextFormat* fmt, std::wstring_view text, float x, float y, float height);
     void DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height, bool has_dirty_nodes);
@@ -177,7 +180,7 @@ private:
     // 以後は AdoptThemeKeepingFonts で引き継ぐ。
     void ResolveThemeFonts();
     void AdoptThemeKeepingFonts(Theme theme);
-    void RecreatePaneFormats();
+    void RecreateAllTextFormats();
     // ui_only は言語を切り替えたとき。UI の決まった文言の書式だけを作り直し、文字レイアウトのキャッシュは捨てない
     // (キャッシュは書式を参照で持つので、古い書式の分は使われずに上限で追い出される)。
     void CreateTextFormats(bool ui_only);
@@ -190,12 +193,13 @@ private:
     }
 
     struct TextFormats {
-        Microsoft::WRL::ComPtr<IDWriteTextFormat> icon_font;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> checkbox;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> copy_btn_icon;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> list_number;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> placeholder_text;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> titlebar_text;
-        Microsoft::WRL::ComPtr<IDWriteTextFormat> titlebar_icon;
+        // タイトルバーと検索バーのアイコン。
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> ui_icon;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> pane_icon;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> pane_header;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> nav_button;
@@ -203,7 +207,6 @@ private:
         Microsoft::WRL::ComPtr<IDWriteTextFormat> toast_text;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> search_input;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> search_count;
-        Microsoft::WRL::ComPtr<IDWriteTextFormat> search_icon;
     };
     TextFormats fmt_;
 

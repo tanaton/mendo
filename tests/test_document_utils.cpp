@@ -138,7 +138,7 @@ TEST(ExtractSelectedTextAsHtml, InactiveSelectionReturnsEmpty)
     auto nodes = ParseNodes("Hello");
     TextSelection sel;
     sel.active = false;
-    EXPECT_TRUE(ExtractSelectedTextAsHtml(nodes, sel).empty());
+    EXPECT_TRUE(ExtractSelectedTextAsHtml(nodes, sel, false).empty());
 }
 
 TEST(ExtractSelectedTextAsHtml, ParagraphWrapsInPTag)
@@ -167,14 +167,14 @@ TEST(ExtractSelectedTextAsHtml, EscapesSpecialChars)
 {
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(MakeTextNode("a<b&c>d\"e'f"));
-    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, SelectAll(nodes)), "<p>a&lt;b&amp;c&gt;d&quot;e&#39;f</p>");
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false), "<p>a&lt;b&amp;c&gt;d&quot;e&#39;f</p>");
 }
 
 TEST(ExtractSelectedTextAsHtml, CodeBlockIsEscapedInPreCode)
 {
     auto nodes = ParseNodes("```\nint x = 1 < 2;\n```");
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
-    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
+    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
     EXPECT_TRUE(html.contains("<pre"));
     EXPECT_TRUE(html.contains("<code>"));
     EXPECT_TRUE(html.contains("&lt;"));
@@ -189,7 +189,7 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockWithoutTokensHasNoSyntaxSpans)
     // 言語指定なし -> トークンが無い -> span タグは付かない
     auto nodes = ParseNodes("```\nplain text\n```");
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
-    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
+    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
     EXPECT_FALSE(html.contains("<span"));
     EXPECT_TRUE(html.contains("plain text"));
 }
@@ -198,7 +198,7 @@ TEST(ExtractSelectedTextAsHtml, CodeBlockIsHighlighted)
 {
     auto nodes = ParseNodes("```cpp\nint x = 42;\n```");
     ASSERT_EQ(nodes[0].type, NodeType::CodeBlock);
-    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
+    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
     EXPECT_TRUE(html.contains("<span style=\"color:#267f99\">int</span>"));
     EXPECT_TRUE(html.contains("<span style=\"color:#098658\">42</span>"));
     // その他の Plain 区間は素のテキスト
@@ -236,7 +236,7 @@ TEST(ExtractSelectedTextAsHtml, TableRendersAsTableStructure)
                      "| 1 | 2 |");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
-    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
+    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
     EXPECT_TRUE(html.contains("<table"));
     EXPECT_TRUE(html.contains("<thead>"));
     EXPECT_TRUE(html.contains("<th"));
@@ -261,7 +261,7 @@ TEST(ExtractSelectedTextAsHtml, TableAlignmentAppliedAsTextAlign)
                      "| a | b | c |");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
-    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
+    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
     EXPECT_TRUE(html.contains("text-align:center;"));
     EXPECT_TRUE(html.contains("text-align:right;"));
 }
@@ -274,7 +274,7 @@ TEST(ExtractSelectedTextAsHtml, TablePreservesInlineFormatting)
                      "| **bold** | [link](https://example.com) |");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
-    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
+    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
     EXPECT_TRUE(html.contains("<strong>bold</strong>"));
     EXPECT_TRUE(html.contains("<a href=\"https://example.com\">link</a>"));
 }
@@ -290,7 +290,7 @@ TEST(ExtractSelectedTextAsHtml, TablePartialSelectionEmitsOnlySelectedRowsAndTex
                      "| 3 | 4 |");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].GetText(), "A\tB\n1\t2\n3\t4");
-    const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 6, 0, 9));
+    const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 6, 0, 9), false);
     EXPECT_FALSE(html.contains("<thead>"));
     EXPECT_FALSE(html.contains(">A</th>"));
     EXPECT_FALSE(html.contains(">1</td>"));
@@ -308,7 +308,7 @@ TEST(ExtractSelectedTextAsHtml, TableSelectionInsideOneCellEmitsThatSubstring)
                      "|---|---|\n"
                      "| a | b |");
     ASSERT_EQ(nodes[0].GetText(), "hello\tworld\na\tb");
-    const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 1, 0, 4));
+    const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 1, 0, 4), false);
     EXPECT_TRUE(html.contains(">ell</th>"));
     EXPECT_FALSE(html.contains("world"));
     EXPECT_FALSE(html.contains("<tbody>"));
@@ -322,7 +322,7 @@ TEST(ExtractSelectedTextAsHtml, TableSelectionOfSeparatorOnlyEmitsNothing)
                      "|---|---|\n"
                      "| 1 | 2 |");
     ASSERT_EQ(nodes[0].GetText(), "A\tB\n1\t2");
-    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 1, 0, 2)), "");
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 1, 0, 2), false), "");
 }
 
 // 空セルだけの行 (見出し無し表の空ヘッダ行など) も、選択範囲に丸ごと含まれれば出す。
@@ -334,7 +334,7 @@ TEST(ExtractSelectedTextAsHtml, TableFullSelectionKeepsEmptyHeaderRow)
                      "| a | b |");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Table);
-    const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
+    const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
     EXPECT_TRUE(html.contains("<thead>"));
     EXPECT_EQ(CountOccurrences(html, "<tr>"), 2u);
 }
@@ -350,7 +350,7 @@ TEST(ExtractSelectedTextAsHtml, TableWithoutColumnsDoesNotReadOutOfRange)
     tbl->cell_text_starts.push_back(0);
     tbl->cell_run_starts.push_back(0);
     tbl->is_header_row.push_back(false);
-    const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 0, 0, 1));
+    const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 0, 0, 1), false);
     EXPECT_FALSE(html.contains("<table"));
 }
 
@@ -374,7 +374,7 @@ TEST(ExtractSelectedTextAsHtml, TableWithoutDataFallsBackToPre)
     n.SetText("fallback", 0);
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(n));
-    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
+    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
     EXPECT_FALSE(html.contains("<table"));
     EXPECT_TRUE(html.contains("<pre>fallback</pre>"));
 }
@@ -384,7 +384,7 @@ TEST(ExtractSelectedTextAsHtml, ImageRendersAsImgTag)
     auto nodes = ParseNodes("![alt text](https://example.com/img.png)");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Image);
-    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
+    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
     EXPECT_TRUE(html.contains("<img src=\"https://example.com/img.png\""));
     EXPECT_TRUE(html.contains("alt=\"alt text\""));
     EXPECT_FALSE(html.contains("<pre>"));
@@ -396,7 +396,7 @@ TEST(ExtractSelectedTextAsHtml, ImageEscapesAttributesSafely)
     auto nodes = ParseNodes("![Q&A \"x\"](path?a=1&b=2)");
     ASSERT_EQ(nodes.size(), 1u);
     ASSERT_EQ(nodes[0].type, NodeType::Image);
-    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
+    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
     EXPECT_TRUE(html.contains("src=\"path?a=1&amp;b=2\""));
     EXPECT_TRUE(html.contains("Q&amp;A"));
     EXPECT_TRUE(html.contains("&quot;x&quot;"));
@@ -432,7 +432,7 @@ TEST(ExtractSelectedTextAsHtml, ImageSrcDropsUnsafeSchemes)
         auto nodes = ParseNodes(c.md);
         ASSERT_EQ(nodes.size(), 1u);
         ASSERT_EQ(nodes[0].type, NodeType::Image);
-        const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
+        const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
         EXPECT_EQ(html.contains(" src=\""), c.keeps_src) << html;
         EXPECT_TRUE(html.contains("alt=\"x\"")) << html;
     }
@@ -450,13 +450,13 @@ TEST(ExtractSelectedTextAsHtml, ListsWrapInUlAndOl)
 TEST(ExtractSelectedTextAsHtml, LooseListKeepsParagraphsInsideItems)
 {
     auto nodes = ParseNodes("1. a\n\n2. b");
-    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, SelectAll(nodes)), "<ol><li><p>a</p></li><li><p>b</p></li></ol>");
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false), "<ol><li><p>a</p></li><li><p>b</p></li></ol>");
 }
 
 TEST(ExtractSelectedTextAsHtml, ListItemKeepsFollowingCodeBlock)
 {
     auto nodes = ParseNodes("- a\n\n  ```\n  x\n  ```\n- b\n\nafter");
-    const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
+    const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
     EXPECT_TRUE(html.starts_with("<ul><li><p>a</p><pre")) << html;
     EXPECT_TRUE(html.ends_with("</li><li><p>b</p></li></ul><p>after</p>")) << html;
 }
@@ -464,7 +464,7 @@ TEST(ExtractSelectedTextAsHtml, ListItemKeepsFollowingCodeBlock)
 TEST(ExtractSelectedTextAsHtml, OrderedListKeepsStartNumber)
 {
     auto nodes = ParseNodes("3. c\n4. d");
-    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, SelectAll(nodes)), "<ol start=\"3\"><li>c</li><li>d</li></ol>");
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false), "<ol start=\"3\"><li>c</li><li>d</li></ol>");
 }
 
 // start は選択の先頭項目の番号。1 のときだけ省き、0 は省かない。種類が変わればリストを分ける。
@@ -478,7 +478,7 @@ TEST(ExtractSelectedTextAsHtml, OrderedListStartBoundaries)
     auto mid = ParseNodes("1. a\n2. b\n3. c");
     ASSERT_EQ(mid.size(), 3u);
     const auto from_second = TextSelection::MakeOrdered(1, 0, 2, 1);
-    EXPECT_EQ(ExtractSelectedTextAsHtml(mid, from_second), "<ol start=\"2\"><li>b</li><li>c</li></ol>");
+    EXPECT_EQ(ExtractSelectedTextAsHtml(mid, from_second, false), "<ol start=\"2\"><li>b</li><li>c</li></ol>");
 }
 
 // loose list の段落の途中から選んでも、後続の項目の番号は start に出る。
@@ -487,7 +487,7 @@ TEST(ExtractSelectedTextAsHtml, LooseOrderedListFromParagraphKeepsNextStart)
     auto nodes = ParseNodes("1. a\n\n2. b");
     ASSERT_EQ(nodes.size(), 4u);
     const auto sel = TextSelection::MakeOrdered(1, 0, 3, 1);
-    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), "<p>a</p><ol start=\"2\"><li><p>b</p></li></ol>");
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel, false), "<p>a</p><ol start=\"2\"><li><p>b</p></li></ol>");
 }
 
 // 一度も描画していないコードブロックはコピー時にトークン化する。diff の追加/削除色も対応表から引けること
@@ -509,7 +509,7 @@ TEST(ExtractSelectedTextAsHtml, PartialCodeBlockSelectionSplitsToken)
 {
     auto nodes = ParseNodes("```cpp\nint x = 42;\n```");
     const auto sel = TextSelection::MakeOrdered(0, 1, 0, 6);
-    const auto html = ExtractSelectedTextAsHtml(nodes, sel);
+    const auto html = ExtractSelectedTextAsHtml(nodes, sel, false);
     EXPECT_TRUE(html.contains("<code><span style=\"color:#267f99\">nt</span> x </code>")) << html;
     EXPECT_FALSE(html.contains(">int<")) << html;
     EXPECT_FALSE(html.contains("42")) << html;
@@ -523,7 +523,7 @@ TEST(ExtractSelectedTextAsHtml, DiagramCopiesSourceAsPre)
         auto nodes = ParseNodes(md);
         ASSERT_EQ(nodes.size(), 1u);
         ASSERT_EQ(nodes[0].type, NodeType::Diagram);
-        const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
+        const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
         EXPECT_TRUE(html.starts_with("<pre")) << html;
         EXPECT_TRUE(html.contains(std::string(nodes[0].GetText()) + "</code></pre>")) << html;
     }
@@ -538,7 +538,7 @@ TEST(ExtractSelectedTextAsHtml, TableLinkSafetyIsPerUrl)
     auto nodes = ParseNodes("| [a](https://a.example) | [b](javascript:alert(1)) |\n|---|---|\n"
                             "| [c](javascript:alert(2)) | [d](https://d.example) |");
     ASSERT_EQ(nodes.size(), 1u);
-    const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
+    const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
     EXPECT_TRUE(html.contains("<a href=\"https://a.example\">a</a>")) << html;
     EXPECT_TRUE(html.contains("<a href=\"https://d.example\">d</a>")) << html;
     EXPECT_FALSE(html.contains("javascript")) << html;
@@ -555,7 +555,7 @@ TEST(ExtractSelectedTextAsHtml, ManyLinksKeepPerUrlSafety)
     }
     auto nodes = ParseNodes(md);
     ASSERT_EQ(nodes.size(), 1u);
-    const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes));
+    const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
     for (int i = 0; i < 40; i++) {
         SCOPED_TRACE(i);
         EXPECT_EQ(html.contains(std::format("<a href=\"https://e.example/{}\">s{}</a>", i, i)), i % 2 == 0);
@@ -591,7 +591,7 @@ TEST(ExtractSelectedTextAsHtml, QuoteInsideItemInsideQuoteStaysInItem)
 TEST(ExtractSelectedTextAsHtml, QuoteAfterListIsOutsideList)
 {
     auto nodes = ParseNodes("- a\n\n> q");
-    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, SelectAll(nodes)), "<ul><li>a</li></ul><blockquote>q</blockquote>");
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false), "<ul><li>a</li></ul><blockquote>q</blockquote>");
 }
 
 TEST(ExtractSelectedTextAsHtml, BlocksJoinWithoutSeparators)
@@ -605,7 +605,7 @@ TEST(ExtractSelectedTextAsHtml, PartialSelectionInParagraph)
 {
     auto nodes = ParseNodes("Hello world");
     auto sel = TextSelection::MakeOrdered(0, 6, 0, 11);
-    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel), "<p>world</p>");
+    EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, sel, false), "<p>world</p>");
 }
 
 // IsSafeUrlScheme を通らないリンクは外し、文字だけ残す。
@@ -853,7 +853,7 @@ TEST(BuildTitleString, PrefixesFilenameToAppName)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
-        EXPECT_EQ(BuildTitleString(c.path), c.expected);
+        EXPECT_EQ(BuildTitleString(c.path, 0), c.expected);
     }
 }
 
@@ -1747,7 +1747,7 @@ TEST(ExtractSelectedTextAsHtml, EachLfBecomesBr)
         SCOPED_TRACE(::testing::PrintToString(std::string_view{ c.text }));
         std::pmr::vector<Node> nodes;
         nodes.push_back(MakeTextNode(c.text));
-        EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, SelectAll(nodes)), c.expected);
+        EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false), c.expected);
     }
 }
 

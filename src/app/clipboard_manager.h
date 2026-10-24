@@ -19,8 +19,7 @@ class Document;
 //       Mermaid: image/svg+xml + 画像(CF_DIB) / LaTeX: 画像(CF_DIB) のみ。
 //       SVG は非同期取得のため LRU キャッシュ付き。
 // SVG キャッシュは閲覧 1 ファイルで数十～100 entries 想定。 上限 128 で LRU。
-// 通知 (toast) は App 側のコールバックに委譲し、 ClipboardManager は i18n も
-// effect も直接触らない。
+// 通知 (toast) は App 側のコールバックに委譲し、 ClipboardManager は effect を直接触らない。
 class ClipboardManager {
 public:
     using ToastCallback = std::function<void(std::wstring_view)>;

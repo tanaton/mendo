@@ -159,8 +159,7 @@ std::pair<float, float> NodeLayoutEntry::GetMatchYRange(
             layout = tl->GetCellLayout(row, static_cast<size_t>(table_col));
         }
         if (layout != nullptr) {
-            // セル本文は行上端から TABLE_CELL_PADDING 下に描かれる (GenTable の text_y と同じ)。
-            base_y += TABLE_CELL_PADDING;
+            base_y = TableCellTextOrigin(0.0f, base_y).y;
         }
     }
     else {

@@ -147,6 +147,7 @@ inline ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
 
 struct SidePaneContext {
     PaneScrollInfo info;
+    float item_height;
     ScrollState& scroll;
 };
 SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane);
@@ -154,12 +155,6 @@ SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane);
 inline size_t SidePaneItemCount(const AppState& state, PaneTarget pane)
 {
     return pane == PaneTarget::File ? state.file_explorer.GetEntries().size() : state.document.doc.GetToc().size();
-}
-
-// ズームの対象。ペインの指定が無ければ本文 (スプリッタの上も本文)。
-inline ZoomLevel& ZoomOf(AppState& state, std::optional<PaneTarget> pane) noexcept
-{
-    return pane ? state.view.panes.SidePaneZoom(*pane) : state.view.viewport.Zoom();
 }
 
 // 一覧の 1 項目の高さ。ペインごとの倍率を掛ける。

@@ -92,15 +92,13 @@ public:
     void StartPreloadAsync(std::pmr::wstring path);
 
     // LoadInitialDocument より前に呼ぶこと。preload 即時完了パスはそこで復元情報を参照する。
-    constexpr void SetPendingRestoreNode(int node, int offset) noexcept
-    {
-        state_.view.pending_restore = { node, static_cast<float>(offset) };
-    }
+    // 保存したスクロール位置を、文書を開いたときに戻す位置にする。
+    void RestoreScrollPosition();
 
     void OnPaint();
     void OnResize(UINT width, UINT height);
     void OnMinimize();
-    void OnMouseWheel(int px, int py, int delta, bool ctrl = false);
+    void OnMouseWheel(int px, int py, int delta, bool ctrl);
     void OnMouseHWheel(short delta);
     void OnKeyDown(WPARAM key);
     void OnDropFiles(HDROP hDrop);
@@ -315,7 +313,7 @@ private:
     SearchBarLayout ComputeSearchBarLayoutForMd(const PaneRect& md_rect) const;
     // 検索バーが表示中で dip_y がバーの上にあるときだけ、そのレイアウトを返す。
     std::optional<SearchBarLayout> SearchBarLayoutAt(float dip_y, const PaneRect& md_rect) const;
-    int HitTestSearchInputPos(const SearchBarLayout& sbl, std::wstring_view query_wide, float dip_x) const;
+    int HitTestSearchInputPos(const SearchBarLayout& sbl, float dip_x) const;
 
     // ---- クリック (app_mouse.cpp) ----
     void HandleLinkClick(std::string_view url);
@@ -420,6 +418,7 @@ private:
 
     // ---- 設定 ----
     void ShowSettingsDialog();
+    PopupEnv MakePopupEnv() const noexcept;
     // 設定ダイアログで選んだ言語を、開いている画面にすぐ反映する。
     void ApplyLanguage(const i18n::Strings* chosen);
 
@@ -428,8 +427,6 @@ private:
 
     SystemCursors cursors_;
     Tooltip tooltip_;
-    ContextMenu ctx_menu_;
-    SettingsDialog settings_dialog_;
     bool in_modal_loop_ = false;
 
     Renderer renderer_;

@@ -30,7 +30,7 @@ public:
     }
 
     void MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
-                     MeasureViewportRange /*viewport*/ = {}) const override
+                     MeasureViewportRange /*viewport*/) const override
     {
         if (node.type == NodeType::HorizontalRule) {
             entry.height = 10.0f;

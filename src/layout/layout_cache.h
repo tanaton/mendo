@@ -16,7 +16,7 @@
 #include <unordered_map>
 #include <utility>
 
-// インラインコードの背景矩形（レイアウト原点からの相対座標、パディング適用済み）
+// インラインコードの背景矩形（字間のパディング込み、レイアウト原点からの相対座標）
 using InlineCodeBg = D2D1_RECT_F;
 
 // テーブル内インラインコード背景の 1 エントリ。行ごとに列の昇順で並ぶ。
@@ -663,10 +663,6 @@ public:
     // 超えたら dirty を外して諦め、遅延レイアウトが同じノードを毎回計測し続けるのを止める。
     static constexpr uint8_t kMaxMeasureAttempts = 3;
 
-    // 全 text_layout を破棄する操作の後に呼ぶ。差分エビクトが「破棄済み」と誤認して
-    // 再生成済みの画面外レイアウトを取り逃がさないよう、追跡境界を初期化する。
-    void ResetEvictionTracking() noexcept;
-
     // 可視範囲をまたぐテーブルの可視外行で cell_layouts を Reset する。
     // 再表示時は LayoutEngine::MeasurePass の行復元で CreateTextLayout を再発行する。
     // viewport は文書グローバル座標で渡す (entry ローカル座標ではない)。
@@ -727,6 +723,10 @@ public:
     }
 
 private:
+    // 全 text_layout を破棄する操作の後に呼ぶ。差分エビクトが「破棄済み」と誤認して
+    // 再生成済みの画面外レイアウトを取り逃がさないよう、追跡境界を初期化する。
+    void ResetEvictionTracking() noexcept;
+
     // 計測で高さが変わるたびに後ろの全ノードをずらすと、数十万ノードの文書では 1 回で数百 µs かかる。
     // Top は 2^kTopBlockShift 件ごとのブロック内の値とブロックのオフセットに分けて持ち、ずらしを
     // 同じブロックの残りとブロック数ぶんの書き換えで済ませる。

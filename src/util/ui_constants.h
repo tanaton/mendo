@@ -222,6 +222,8 @@ constexpr DipPoint PixelToDip(int px, int py, float dpi_scale) noexcept
 // タイトルバーのテキストフォントサイズ（DIP）。
 // 本文ズームは Markdown 本文だけを対象にするので、窓枠側の寸法は固定値で持つ。
 inline constexpr float TITLEBAR_TEXT_FONT_SIZE = 13.0f;
+// タイトルバーと検索バーのアイコンのフォントサイズ（DIP）。
+inline constexpr float UI_ICON_FONT_SIZE = 14.0f;
 
 // 検索バーの定数（DIP単位）
 inline constexpr float SEARCH_BAR_HEIGHT = 36.0f;
@@ -349,7 +351,7 @@ inline constexpr int DEFAULT_WINDOW_HEIGHT = 900;
 inline constexpr LONG IME_CARET_X_OFFSET = 8;
 
 // マークダウンペインの最小幅 (DIP)。スプリッタードラッグでこれ以上 md ペインを縮められない。
-// pane_layout.h のデフォルト引数と PaneController の最小幅判定で共有する。
+// ComputePaneLayout と PaneController の最小幅判定で共有する。
 inline constexpr float MD_PANE_MIN_WIDTH = 200.0f;
 
 // キーボードスクロール量（DIP）
@@ -371,19 +373,14 @@ inline constexpr float TOAST_OVERLAY_BOTTOM_OFFSET = 16.0f;
 inline constexpr float GESTURE_TRAIL_STROKE_WIDTH = 4.0f;
 
 // 要素の右上を基準にオーバーレイボタン（コピー/保存）の矩形を返す。
-// 図のボタンは右から 保存・コピー の順に並ぶ。
+// 図のボタンは右から 保存・コピー の順に、間隔 COPY_BTN_GAP で並ぶ。
 // anchor_right: 基準領域の右端, anchor_top: 基準領域の上端
-// button_index: 0=最も右, 1 以降は左隣に COPY_BTN_GAP 分ずれる。
-inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top, int button_index = 0) noexcept
-{
-    const float bx = anchor_right - COPY_BTN_MARGIN - COPY_BTN_SIZE - static_cast<float>(button_index) * (COPY_BTN_SIZE + COPY_BTN_GAP);
-    const float by = anchor_top + COPY_BTN_MARGIN;
-    return D2D1::RectF(bx, by, bx + COPY_BTN_SIZE, by + COPY_BTN_SIZE);
-}
-
 inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top, OverlayButton kind) noexcept
 {
-    return OverlayButtonRect(anchor_right, anchor_top, kind == OverlayButton::DiagramCopy ? 1 : 0);
+    const float slot = kind == OverlayButton::DiagramCopy ? 1.0f : 0.0f;
+    const float bx = anchor_right - COPY_BTN_MARGIN - COPY_BTN_SIZE - slot * (COPY_BTN_SIZE + COPY_BTN_GAP);
+    const float by = anchor_top + COPY_BTN_MARGIN;
+    return D2D1::RectF(bx, by, bx + COPY_BTN_SIZE, by + COPY_BTN_SIZE);
 }
 
 // 画像・図は max_width を超える場合のみアスペクト比を保って縮小する (拡大はしない)。

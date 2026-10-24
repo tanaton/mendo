@@ -25,7 +25,7 @@ public:
         const Node& node,
         NodeLayoutEntry& entry,
         float max_width,
-        MeasureViewportRange viewport = {}) const override;
+        MeasureViewportRange viewport) const override;
     TableRestoreResult RestoreEvictedTableRows(
         const Node& node,
         NodeLayoutEntry& entry,

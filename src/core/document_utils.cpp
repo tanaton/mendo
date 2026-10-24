@@ -1,9 +1,11 @@
 #include "document_utils.h"
 #include "ascii_util.h"
+#include "profiler.h"
 #include "unicode_lower_table.h"
 #include "utf8_codec.h"
 #include <array>
 #include <algorithm>
+#include <cstring>
 #include <cstdint>
 #include <filesystem>
 #include <format>
@@ -253,7 +255,6 @@ void GenerateAnchorIdInto(std::string_view text, std::pmr::string& slug)
     });
 }
 
-
 std::pmr::string ToLowerAnchorCopy(std::string_view text)
 {
     std::pmr::string result;
@@ -405,4 +406,55 @@ std::pmr::vector<SyntaxToken> TokenizeCodeNode(const Node& node)
         t.start = start - offset;
     }
     return tokens;
+}
+
+namespace {
+
+// CR は ASCII 1 byte なので UTF-8 multi-byte シーケンスの中間バイトとは絶対に衝突しない
+// (UTF-8 continuation byte は 10xxxxxx で 0x80-0xBF)。memchr(_, _, 0) は規格上 nullptr を返す。
+char* FindCr(char* p, size_t len) noexcept
+{
+    return static_cast<char*>(std::memchr(p, '\r', len));
+}
+
+} // namespace
+
+void NormalizeNewlines(std::pmr::string& s)
+{
+    MENDO_PROFILE("NormalizeNewlines");
+    const size_t n = s.size();
+    if (n == 0) {
+        return;
+    }
+
+    char* const data = s.data();
+    char* const end = data + n;
+
+    char* first_cr = FindCr(data, n);
+    if (!first_cr) {
+        MENDO_STATF("NormalizeNewlines: in={} out={} shrunk=0 (fast LF-only)", n, n);
+        return;
+    }
+
+    // ループ進入時、src は必ず CR を指す (first_cr または直前反復の FindCr 結果)。
+    char* dst = first_cr;
+    char* src = first_cr;
+    do {
+        *dst++ = '\n';
+        ++src;
+        if (src < end && *src == '\n') {
+            ++src; // CRLF を LF 1 つに縮約
+        }
+
+        char* next_cr = FindCr(src, static_cast<size_t>(end - src));
+        const size_t chunk = next_cr ? static_cast<size_t>(next_cr - src) : static_cast<size_t>(end - src);
+        if (chunk > 0) {
+            std::memmove(dst, src, chunk * sizeof(char));
+            src += chunk;
+            dst += chunk;
+        }
+    } while (src < end);
+
+    s.resize(static_cast<size_t>(dst - data));
+    MENDO_STATF("NormalizeNewlines: in={} out={} shrunk={}", n, s.size(), n - s.size());
 }

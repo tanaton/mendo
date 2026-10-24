@@ -215,7 +215,7 @@ TEST_F(HitTestTest, HitTestTable_NoLayoutDataReturnsTextEnd)
 
     const float entry_text_top = pr.cache.Top(static_cast<size_t>(table_idx));
     auto r = hit_test::HitTestTable(pr.nodes[table_idx], entry, entry_text_top, table_idx,
-                                    theme_, 100.0f, entry_text_top + 5.0f);
+                                    theme_, 100.0f, entry_text_top + 5.0f, 0.0f);
     EXPECT_EQ(r.node_index, table_idx);
     EXPECT_EQ(r.text_pos,
               static_cast<uint32_t>(pr.nodes[table_idx].GetText().size()));
@@ -235,7 +235,7 @@ TEST_F(HitTestTest, HitTestTable_ClickAboveAllRowsReturnsTextEnd)
     auto r = hit_test::HitTestTable(pr.nodes[table_idx], entry, entry_text_top, table_idx,
                                     theme_,
                                     theme_.margin_left + 10.0f,
-                                    entry_text_top - 10.0f);
+                                    entry_text_top - 10.0f, 0.0f);
     EXPECT_EQ(r.node_index, table_idx);
     // 末尾は concat_text の長さ (0 だと先頭セルと区別できない)。
     EXPECT_EQ(r.text_pos, static_cast<uint32_t>(pr.nodes[table_idx].GetText().size()));
@@ -260,7 +260,7 @@ TEST_F(HitTestTest, HitTestTable_HitsFirstCellWithoutCellLayout)
     const float col0_mid_x = theme_.margin_left + tl.col_widths[0] * 0.5f;
 
     auto r = hit_test::HitTestTable(pr.nodes[table_idx], entry, entry_text_top, table_idx,
-                                    theme_, col0_mid_x, row0_mid_y);
+                                    theme_, col0_mid_x, row0_mid_y, 0.0f);
     EXPECT_EQ(r.node_index, table_idx);
     EXPECT_EQ(r.text_pos, 0u);
 }

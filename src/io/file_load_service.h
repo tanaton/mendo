@@ -65,8 +65,8 @@ public:
     }
 
     // reload_base の意味は AsyncLoadCoordinator::Start を参照。
-    void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, Theme theme, float content_width = 0.0f,
-                        std::shared_ptr<const std::pmr::string> reload_base = nullptr);
+    void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, Theme theme, float content_width,
+                        std::shared_ptr<const std::pmr::string> reload_base);
     std::optional<AsyncLoadOutcome> TakeAsync() noexcept
     {
         return coordinator_.Take();

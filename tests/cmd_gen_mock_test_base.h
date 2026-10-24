@@ -41,7 +41,7 @@ protected:
     {
         Parse(md);
         const PaneRect md_pane{ 0, 0, kViewportW, 2000.0f };
-        return gen_.GenerateMdPane(nodes_, cache_, md_pane, 0.0f, TextSelection{});
+        return gen_.GenerateMdPane(nodes_, cache_, md_pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
     }
 };
 

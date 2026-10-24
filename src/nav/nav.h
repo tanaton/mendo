@@ -14,7 +14,7 @@ struct NavEntry {
     float offset = 0.0f;
 
     NavEntry() = default;
-    NavEntry(std::wstring_view fp, int n = -1, float off = 0.0f)
+    NavEntry(std::wstring_view fp, int n, float off)
         : file_path(fp), node(n), offset(off)
     {
     }

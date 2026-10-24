@@ -16,16 +16,12 @@ inline constexpr float HEADING_HEIGHT = 24.0f;
 inline constexpr float ROW_HEIGHT = 28.0f;
 inline constexpr float CHECK_WIDTH = 24.0f;
 inline constexpr float HOVER_MARGIN_X = 8.0f;
-// ホバーの塗りと削除ボタンの枠で共有する (ボタンのホバーが枠からはみ出さないように)。
-inline constexpr float HOVER_CORNER = 4.0f;
 inline constexpr float SECTION_GAP = 10.0f;
 inline constexpr float BUTTON_PAD_X = 14.0f;
 inline constexpr float BUTTON_MIN_WIDTH = 72.0f;
 inline constexpr float BUTTON_GAP = 16.0f;
 inline constexpr float BOTTOM_PAD = 14.0f;
 inline constexpr float ICON_FONT_SIZE = 12.0f;
-
-inline constexpr wchar_t GLYPH_CHECKMARK[] = L"\xE73E";
 
 // 言語の一覧の行。先頭は OS に合わせる (nullptr)、残りは i18n::kAllStrings の並び。
 inline constexpr size_t kLanguageRowCount = std::size(i18n::kAllStrings) + 1;

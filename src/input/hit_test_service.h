@@ -102,7 +102,7 @@ HitResult HitTestTable(
     float entry_text_top,
     int node_index,
     const Theme& theme,
-    float dip_x, float dip_y, float h_scroll_x = 0.0f) noexcept;
+    float dip_x, float dip_y, float h_scroll_x) noexcept;
 
 NavDirection NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) noexcept;
 

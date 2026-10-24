@@ -95,7 +95,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchResolvesDirty)
     auto [nodes, cache] = ParseAndLayout("A\n\nB\n\nC\n\nD\n\nE", 800.0f, 0.0f, 1.0f);
 
     if (cache.HasDirtyNodes()) {
-        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 100);
+        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 100, {});
         EXPECT_FALSE(more);
     }
 
@@ -109,7 +109,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchSmallBatch)
     auto [nodes, cache] = ParseAndLayout(MakeParagraphs(50), 800.0f, 0.0f, 10.0f);
 
     if (cache.HasDirtyNodes()) {
-        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 5);
+        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 5, {});
         EXPECT_TRUE(more); // 50 nodes, batch=5
     }
 }
@@ -125,7 +125,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchNoDirtyPreservesHeight)
     EXPECT_GT(height_before, 0.0f);
 
     // ダーティなものがない場合のProcessDirtyBatchはtotal_heightを破損させないべき
-    bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 100);
+    bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, 100, {});
     EXPECT_FALSE(more);
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, theme_.margin_bottom), height_before);
 }

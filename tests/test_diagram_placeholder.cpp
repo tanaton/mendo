@@ -50,7 +50,7 @@ TEST_F(DiagramPlaceholderTest, NoErrorShowsLoadingText)
     ASSERT_FALSE(pl.nodes.empty());
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{});
+    auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
 
     const auto* text_cmd = FirstDrawText(cmds);
     ASSERT_NE(text_cmd, nullptr);
@@ -68,7 +68,7 @@ TEST_F(DiagramPlaceholderTest, ErrorShowsErrorMessageInCautionColor)
     pl.cache.EnsureDiagram(static_cast<size_t>(diagram_idx)).error = { DiagramError::Kind::Render, L"Parse error on line 1" };
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{});
+    auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
 
     const auto* error_cmd = FirstDrawText(cmds);
     ASSERT_NE(error_cmd, nullptr);
@@ -85,7 +85,7 @@ TEST_F(DiagramPlaceholderTest, LocalizedErrorFollowsLanguageSwitch)
     auto& error = pl.cache.EnsureDiagram(static_cast<size_t>(diagram_idx)).error;
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     const auto text_of = [&] {
-        const auto* cmd = FirstDrawText(gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{}));
+        const auto* cmd = FirstDrawText(gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1));
         return cmd ? std::wstring(text_layouts_.TextOf(cmd->layout)) : std::wstring();
     };
 

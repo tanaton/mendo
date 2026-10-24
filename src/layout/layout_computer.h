@@ -139,11 +139,11 @@ void ComputeColumnWidths(
     float available_width, size_t col_count);
 
 // node_width > 0 なら、折り返す段落の行数を文字数から見積もる。0 は幅を知らないときの推定 (起動時の先読み)。
-float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width = 0.0f) noexcept;
+float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width) noexcept;
 
 // content_width > 0 なら折り返しを見積もる。stop_token が stop_requested になると途中 return する (cache は中間状態のまま)。
 void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
-                         float content_width = 0.0f, std::stop_token stop_token = {});
+                         float content_width, std::stop_token stop_token);
 
 // リロードで、中身が変わらないノード (FindUnchangedEnds) の計測結果を旧キャッシュから新キャッシュへ移す。
 // 変わった範囲の図は、新しい結果が届くまで旧結果を仮表示として引き継ぐ。
@@ -194,7 +194,7 @@ void RecomputeYPositions(
 
 // scroll_y + margin の位置にある見出し (目次の項目番号)。無ければ -1。
 // margin は見出し上部余白で、画面上端に近い見出しを正しくアクティブにする。
-int FindActiveTocIndex(std::span<const TocEntry> entries, const LayoutCache& cache, float scroll_y, float margin = 0.0f) noexcept;
+int FindActiveTocIndex(std::span<const TocEntry> entries, const LayoutCache& cache, float scroll_y, float margin) noexcept;
 
 // diff 位置のノードに基づくスクロールY座標を計算する。
 // diff_pos が npos (差分位置なし = スクロール維持) またはノードが見つからない場合は

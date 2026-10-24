@@ -496,7 +496,7 @@ protected:
     bool LoadAndGet(ImageLoader& loader, const std::wstring& path, DiagramEntry& out)
     {
         bool done = false;
-        loader.RequestLoadAsync(path, [&done] { done = true; });
+        loader.RequestLoadAsync(path, [&done] { done = true; }, 0.0f);
         if (!PollUntil([&] {
             loader.ProcessCompletedDecodes();
             return done;
@@ -694,7 +694,7 @@ TEST_F(ImageLoaderTest, DropQueuedAllowsRerequest)
     }
     ASSERT_TRUE(PollUntil([&] { return blocked.load() == 2; }));
     bool dropped_done = false;
-    loader_.RequestLoadAsync(path, [&dropped_done] { dropped_done = true; });
+    loader_.RequestLoadAsync(path, [&dropped_done] { dropped_done = true; }, 0.0f);
     loader_.DropQueued();
     release.count_down();
 
@@ -992,7 +992,7 @@ protected:
     {
         for (int i = 0; i < times; ++i) {
             const int before = callback_count_.load();
-            loader_.RequestLoadAsync(path, OnComplete);
+            loader_.RequestLoadAsync(path, OnComplete, 0.0f);
             if (!WaitForResults(before + 1)) {
                 return false;
             }
@@ -1021,8 +1021,8 @@ TEST_F(ImageLoaderAsyncTest, DuplicateRequestIsIgnored)
     auto path = GetTestImagePath(L"dup.png");
 
     // 同じパスを2回リクエスト — 重複は無視される
-    loader_.RequestLoadAsync(path, OnComplete);
-    loader_.RequestLoadAsync(path, OnComplete);
+    loader_.RequestLoadAsync(path, OnComplete, 0.0f);
+    loader_.RequestLoadAsync(path, OnComplete, 0.0f);
 
     ASSERT_TRUE(WaitForResults(1));
 
@@ -1037,8 +1037,8 @@ TEST_F(ImageLoaderAsyncTest, MultiplePathsAllCached)
     auto path_a = GetTestImagePath(L"a.png");
     auto path_b = GetTestImagePath(L"b.png");
 
-    loader_.RequestLoadAsync(path_a, OnComplete);
-    loader_.RequestLoadAsync(path_b, OnComplete);
+    loader_.RequestLoadAsync(path_a, OnComplete, 0.0f);
+    loader_.RequestLoadAsync(path_b, OnComplete, 0.0f);
 
     ASSERT_TRUE(WaitForCached(2));
     EXPECT_GE(callback_count_.load(), 1);
@@ -1089,7 +1089,7 @@ TEST_F(ImageLoaderAsyncTest, CancelPendingClearsQueue)
     ASSERT_TRUE(CreateTestImage(L"cancel.png", GUID_ContainerFormatPng, 30, 30));
     auto path = GetTestImagePath(L"cancel.png");
 
-    loader_.RequestLoadAsync(path, OnComplete);
+    loader_.RequestLoadAsync(path, OnComplete, 0.0f);
     loader_.CancelPending();
 
     // Shutdown はキュー済みタスクを実行し切ってから戻るので、以降に結果が届くことはない
@@ -1117,7 +1117,7 @@ TEST_F(ImageLoaderAsyncTest, ManyImagesAllCachedCorrectly)
     }
 
     for (auto& p : paths) {
-        loader_.RequestLoadAsync(p, OnComplete);
+        loader_.RequestLoadAsync(p, OnComplete, 0.0f);
     }
 
     ASSERT_TRUE(WaitForCached(paths.size())) << "非同期読み込みが完了しなかった";
@@ -1139,7 +1139,7 @@ TEST_F(ImageLoaderAsyncTest, ProcessCompletedDecodesDefersOverBudget)
     for (int i = 0; i < kImageCount; ++i) {
         const auto name = L"budget_" + std::to_wstring(i) + L".png";
         ASSERT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, 16, 16));
-        loader_.RequestLoadAsync(GetTestImagePath(name), OnComplete);
+        loader_.RequestLoadAsync(GetTestImagePath(name), OnComplete, 0.0f);
     }
     // Shutdown はキュー済みタスクを実行し切ってから戻るので、全件の結果が届いている。
     scheduler_.Shutdown();
@@ -1162,7 +1162,7 @@ TEST_F(ImageLoaderAsyncTest, ShutdownDuringHeavyLoad)
     for (int i = 0; i < kImageCount; ++i) {
         auto name = L"heavy_" + std::to_wstring(i) + L".png";
         ASSERT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, 100, 100));
-        loader_.RequestLoadAsync(GetTestImagePath(name), OnComplete);
+        loader_.RequestLoadAsync(GetTestImagePath(name), OnComplete, 0.0f);
     }
 
     // 処理途中で即座にシャットダウン — デッドロックやクラッシュが起きないこと
@@ -1176,7 +1176,7 @@ TEST_F(ImageLoaderAsyncTest, ReinitAfterShutdownWithHeavyLoad)
     for (int i = 0; i < kImageCount; ++i) {
         auto name = L"reinit_a_" + std::to_wstring(i) + L".png";
         ASSERT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, 40, 40));
-        loader_.RequestLoadAsync(GetTestImagePath(name), OnComplete);
+        loader_.RequestLoadAsync(GetTestImagePath(name), OnComplete, 0.0f);
     }
 
     loader_.Shutdown();
@@ -1203,7 +1203,7 @@ TEST_F(ImageLoaderAsyncTest, CancelDuringHeavyLoadThenReload)
     for (int i = 0; i < kImageCount; ++i) {
         auto name = L"cancel_heavy_" + std::to_wstring(i) + L".png";
         ASSERT_TRUE(CreateTestImage(name, GUID_ContainerFormatPng, 50, 50));
-        loader_.RequestLoadAsync(GetTestImagePath(name), OnComplete);
+        loader_.RequestLoadAsync(GetTestImagePath(name), OnComplete, 0.0f);
     }
 
     loader_.CancelPending();
@@ -1213,7 +1213,7 @@ TEST_F(ImageLoaderAsyncTest, CancelDuringHeavyLoadThenReload)
     ASSERT_TRUE(CreateTestImage(L"after_cancel.png", GUID_ContainerFormatPng, 88, 66));
     auto path = GetTestImagePath(L"after_cancel.png");
 
-    loader_.RequestLoadAsync(path, OnComplete);
+    loader_.RequestLoadAsync(path, OnComplete, 0.0f);
 
     // キャンセル直後は進行中だったワーカーの結果が先に返る可能性があるため、
     // コールバック回数ではなく対象画像がキャッシュされるまで直接ポーリングする
@@ -1238,7 +1238,7 @@ TEST_F(ImageLoaderAsyncTest, NonexistentPathBlockedAfterMaxRetries)
     // 4回目のリクエストはブロックされ、ワーカーが起動しないこと。
     // Shutdown はキュー済みタスクを実行し切ってから戻るので、投入されていれば結果が残る。
     callback_count_.store(0);
-    loader_.RequestLoadAsync(path, OnComplete);
+    loader_.RequestLoadAsync(path, OnComplete, 0.0f);
     scheduler_.Shutdown();
     loader_.ProcessCompletedDecodes();
     EXPECT_EQ(callback_count_.load(), 0);
