@@ -21,7 +21,7 @@ const Theme& ThemeService::BaseTheme() const
 
 Theme ThemeService::CreateTheme(int zoom_index) const
 {
-    assert(zoom_index >= 0 && zoom_index < ZOOM_STEP_COUNT && "zoom_index must be within ZOOM_STEPS bounds; ViewportManager::SetZoomIndex clamps it");
+    assert(zoom_index >= 0 && zoom_index < ZOOM_STEP_COUNT && "zoom_index must be within ZOOM_STEPS bounds; ZoomLevel::SetIndex clamps it");
     Theme theme = BaseTheme();
     if (zoom_index != ZOOM_DEFAULT_INDEX) {
         theme.ApplyZoom(ZOOM_STEPS[zoom_index]);
@@ -50,7 +50,7 @@ void ThemeService::SaveZoomLevel(int zoom_index)
     config_.SaveInt(kSectionView, kKeyZoomLevel, zoom_index);
 }
 
-int ThemeService::LoadZoomIndex() const
+ZoomLevel ThemeService::LoadZoomLevel() const
 {
-    return config_.LoadInt(kSectionView, kKeyZoomLevel, ZOOM_DEFAULT_INDEX, 0, ZOOM_STEP_COUNT - 1);
+    return config_.LoadZoomLevel(kSectionView, kKeyZoomLevel);
 }

@@ -36,6 +36,16 @@ public:
     {
         return Inst(t).scroll;
     }
+    // 一覧の項目 (文字・行の高さ) だけに掛かる倍率。ヘッダーとペイン幅は変えない。
+    constexpr ZoomLevel& SidePaneZoom(PaneTarget t) noexcept
+    {
+        return Inst(t).zoom;
+    }
+    constexpr const ZoomLevel& SidePaneZoom(PaneTarget t) const noexcept
+    {
+        return Inst(t).zoom;
+    }
+
     constexpr void ResetScrollStates() noexcept
     {
         for (auto& inst : instances_) {
@@ -49,8 +59,6 @@ public:
     // edge のペインの右端にあるスプリッタを dip_x へ動かす。
     void DragSplitterTo(PaneTarget edge, float dip_x, float total_width, float splitter_w) noexcept;
 
-    void ApplyZoom(float ratio) noexcept;
-
     PaneLayout ComputeLayout(float total_w, float total_h, float splitter_w, float top_offset = 0.0f) const noexcept;
 
     static constexpr float PANE_DEFAULT_WIDTH = 220.0f;
@@ -60,6 +68,7 @@ private:
     struct Instance {
         ScrollState scroll{};
         float width = PANE_DEFAULT_WIDTH;
+        ZoomLevel zoom;
         bool show = true;
     };
     Instance instances_[2];

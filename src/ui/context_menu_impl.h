@@ -8,6 +8,7 @@
 #include <wrl/client.h>
 #include <windows.h>
 #include <memory_resource>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -31,10 +32,21 @@ inline constexpr float HOVER_MARGIN_X = 4.0f;
 inline constexpr float HOVER_CORNER = 4.0f;
 inline constexpr float CHECK_LEFT = 8.0f;
 inline constexpr float TEXT_PAD_RIGHT = 8.0f;
+inline constexpr float ZOOM_BTN_SIZE = ITEM_HEIGHT;
+// 「500%」が収まる幅。
+inline constexpr float ZOOM_PERCENT_WIDTH = 48.0f;
+// 拡大と元に戻すの間。−/+ と同じ組に見せないよう空ける。
+inline constexpr float ZOOM_RESET_GAP = 8.0f;
+inline constexpr float ZOOM_LABEL_GAP = 16.0f;
+inline constexpr float ZOOM_PAD_RIGHT = 8.0f;
+inline constexpr float ZOOM_CONTROLS_WIDTH = 3 * ZOOM_BTN_SIZE + ZOOM_PERCENT_WIDTH + ZOOM_RESET_GAP;
 
 inline constexpr wchar_t GLYPH_BACK[] = L"\xE72B";
 inline constexpr wchar_t GLYPH_FORWARD[] = L"\xE72A";
 inline constexpr wchar_t GLYPH_CHECKMARK[] = L"\xE73E";
+inline constexpr wchar_t GLYPH_ZOOM_OUT[] = L"\xE738";
+inline constexpr wchar_t GLYPH_ZOOM_IN[] = L"\xE710";
+inline constexpr wchar_t GLYPH_ZOOM_RESET[] = L"\xE7A7";
 } // namespace context_menu_constants
 
 struct ContextMenu::Impl {
@@ -63,12 +75,16 @@ struct ContextMenu::Impl {
 
     void Paint();
     void DrawNavRow();
+    void DrawZoomRow(const Item& item);
+    void DrawIconButton(const DipRect& rect, const wchar_t* glyph, bool enabled, bool hovered, float corner);
     void DrawSeparator(const Item& item);
     void DrawTextItem(const Item& item);
 
     // 無効項目・区切り上は 0。
     int HitTest(float x, float y) const noexcept;
     int NavHitTest(float x, float y) const noexcept;
+    // 押せないボタンの上は無し。
+    std::optional<ZoomDirection> ZoomHitTest(float x, float y) const noexcept;
 
     HWND hwnd = nullptr;
     HWND owner = nullptr;
@@ -79,9 +95,14 @@ struct ContextMenu::Impl {
     int hovered_id = 0;
     // IDM_NAV_BACK / IDM_NAV_FORWARD / 0
     int hovered_nav = 0;
+    std::optional<ZoomDirection> hovered_zoom;
 
     std::vector<Item> items;
     NavRowLayout nav_layout{};
+    ZoomRowLayout zoom_layout{};
+    // 表示中だけ呼び出し側から借りる。
+    const ZoomLevel* zoom = nullptr;
+    std::function<void(ZoomDirection)> on_zoom;
     float menu_width = 0.0f;
     float menu_height = 0.0f;
 
@@ -94,6 +115,8 @@ struct ContextMenu::Impl {
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush_hover;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush_check;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_text;
+    // 倍率の数字。中身が変わるので TextWidth で測って寄せず、書式で中央に置く。
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_text_center;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_icon;
 
     // 同一フォントでの Show 連発時に IDWriteTextFormat の再生成を抑止するためのキー。

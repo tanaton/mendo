@@ -257,18 +257,18 @@ TEST(ViewportManagerTest, SelectAllLastNodeIsTable)
 TEST(ViewportManagerTest, ZoomInAdvancesIndex)
 {
     ViewportManager vm; // starts at ZOOM_DEFAULT_INDEX (1.0)
-    EXPECT_TRUE(vm.ZoomIn());
-    EXPECT_EQ(vm.GetZoomIndex(), ZOOM_DEFAULT_INDEX + 1);
-    EXPECT_GT(vm.GetCurrentZoom(), 1.0f);
+    EXPECT_TRUE(vm.Zoom().ZoomIn());
+    EXPECT_EQ(vm.Zoom().Index(), ZOOM_DEFAULT_INDEX + 1);
+    EXPECT_GT(vm.Zoom().Value(), 1.0f);
 }
 
 TEST(ViewportManagerTest, ZoomOutDecrementsIndex)
 {
     ViewportManager vm;
-    EXPECT_TRUE(vm.ZoomOut());
-    EXPECT_EQ(vm.GetZoomIndex(), ZOOM_DEFAULT_INDEX - 1);
-    EXPECT_LT(vm.GetCurrentZoom(), 1.0f);
-    EXPECT_GT(vm.GetCurrentZoom(), 0.0f);
+    EXPECT_TRUE(vm.Zoom().ZoomOut());
+    EXPECT_EQ(vm.Zoom().Index(), ZOOM_DEFAULT_INDEX - 1);
+    EXPECT_LT(vm.Zoom().Value(), 1.0f);
+    EXPECT_GT(vm.Zoom().Value(), 0.0f);
 }
 
 TEST(ViewportManagerTest, ZoomInAtMaxReturnsFalse)
@@ -276,9 +276,9 @@ TEST(ViewportManagerTest, ZoomInAtMaxReturnsFalse)
     ViewportManager vm;
     // 最大までズーム
     for (int i = 0; i < 50; ++i)
-        vm.ZoomIn();
-    EXPECT_FALSE(vm.ZoomIn());
-    EXPECT_EQ(vm.GetZoomIndex(), ZOOM_STEP_COUNT - 1);
+        vm.Zoom().ZoomIn();
+    EXPECT_FALSE(vm.Zoom().ZoomIn());
+    EXPECT_EQ(vm.Zoom().Index(), ZOOM_STEP_COUNT - 1);
 }
 
 TEST(ViewportManagerTest, ZoomOutAtMinReturnsFalse)
@@ -286,50 +286,50 @@ TEST(ViewportManagerTest, ZoomOutAtMinReturnsFalse)
     ViewportManager vm;
     // 最小までズーム
     for (int i = 0; i < 50; ++i)
-        vm.ZoomOut();
-    EXPECT_FALSE(vm.ZoomOut());
-    EXPECT_EQ(vm.GetZoomIndex(), 0);
+        vm.Zoom().ZoomOut();
+    EXPECT_FALSE(vm.Zoom().ZoomOut());
+    EXPECT_EQ(vm.Zoom().Index(), 0);
 }
 
 TEST(ViewportManagerTest, ZoomResetFromNonDefault)
 {
     ViewportManager vm;
-    vm.ZoomIn();
-    vm.ZoomIn();
-    EXPECT_TRUE(vm.ZoomReset());
-    EXPECT_EQ(vm.GetZoomIndex(), ZOOM_DEFAULT_INDEX);
-    EXPECT_FLOAT_EQ(vm.GetCurrentZoom(), 1.0f);
+    vm.Zoom().ZoomIn();
+    vm.Zoom().ZoomIn();
+    EXPECT_TRUE(vm.Zoom().ZoomReset());
+    EXPECT_EQ(vm.Zoom().Index(), ZOOM_DEFAULT_INDEX);
+    EXPECT_FLOAT_EQ(vm.Zoom().Value(), 1.0f);
 }
 
 TEST(ViewportManagerTest, ZoomResetAlreadyDefault)
 {
     ViewportManager vm;
-    EXPECT_FALSE(vm.ZoomReset()); // 変更不要
-    EXPECT_EQ(vm.GetZoomIndex(), ZOOM_DEFAULT_INDEX);
+    EXPECT_FALSE(vm.Zoom().ZoomReset()); // 変更不要
+    EXPECT_EQ(vm.Zoom().Index(), ZOOM_DEFAULT_INDEX);
 }
 
 TEST(ViewportManagerTest, SetZoomIndexClampsBelowZero)
 {
     ViewportManager vm;
-    vm.SetZoomIndex(-5);
-    EXPECT_EQ(vm.GetZoomIndex(), 0);
-    EXPECT_FLOAT_EQ(vm.GetCurrentZoom(), ZOOM_STEPS[0]);
+    vm.Zoom().SetIndex(-5);
+    EXPECT_EQ(vm.Zoom().Index(), 0);
+    EXPECT_FLOAT_EQ(vm.Zoom().Value(), ZOOM_STEPS[0]);
 }
 
 TEST(ViewportManagerTest, SetZoomIndexClampsAboveMax)
 {
     ViewportManager vm;
-    vm.SetZoomIndex(ZOOM_STEP_COUNT + 100);
-    EXPECT_EQ(vm.GetZoomIndex(), ZOOM_STEP_COUNT - 1);
-    EXPECT_FLOAT_EQ(vm.GetCurrentZoom(), ZOOM_STEPS[ZOOM_STEP_COUNT - 1]);
+    vm.Zoom().SetIndex(ZOOM_STEP_COUNT + 100);
+    EXPECT_EQ(vm.Zoom().Index(), ZOOM_STEP_COUNT - 1);
+    EXPECT_FLOAT_EQ(vm.Zoom().Value(), ZOOM_STEPS[ZOOM_STEP_COUNT - 1]);
 }
 
 TEST(ViewportManagerTest, SetZoomIndexAcceptsValidValues)
 {
     ViewportManager vm;
-    vm.SetZoomIndex(3);
-    EXPECT_EQ(vm.GetZoomIndex(), 3);
-    EXPECT_FLOAT_EQ(vm.GetCurrentZoom(), ZOOM_STEPS[3]);
+    vm.Zoom().SetIndex(3);
+    EXPECT_EQ(vm.Zoom().Index(), 3);
+    EXPECT_FLOAT_EQ(vm.Zoom().Value(), ZOOM_STEPS[3]);
 }
 
 // ---- バグ #17: scroll_y の非負クランプ ----
@@ -526,4 +526,29 @@ TEST(ViewportManagerTest, EnsureScrollTargetSkipsFreshCache)
     EXPECT_EQ(vm.FindFirstVisibleNode(cache), -1);
     vm.EnsureScrollTarget(cache);
     EXPECT_FALSE(vm.HasScrollTarget());
+}
+
+// Step は向きごとの操作と同じで、CanStep は段が動くかと一致する。
+TEST(ZoomLevelTest, StepMatchesCanStep)
+{
+    for (const int index : { 0, ZOOM_DEFAULT_INDEX, ZOOM_STEP_COUNT - 1 }) {
+        for (const auto direction : { ZoomDirection::In, ZoomDirection::Out, ZoomDirection::Reset }) {
+            SCOPED_TRACE(index);
+            ZoomLevel zoom;
+            zoom.SetIndex(index);
+            const bool can = zoom.CanStep(direction);
+            EXPECT_EQ(zoom.Step(direction), can);
+            EXPECT_EQ(zoom.Index() != index, can);
+        }
+    }
+}
+
+TEST(ZoomLevelTest, PercentRoundsStepValue)
+{
+    ZoomLevel zoom;
+    EXPECT_EQ(zoom.Percent(), 100);
+    zoom.SetIndex(1);
+    EXPECT_EQ(zoom.Percent(), 33);
+    zoom.SetIndex(3);
+    EXPECT_EQ(zoom.Percent(), 67);
 }

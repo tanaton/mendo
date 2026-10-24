@@ -234,7 +234,7 @@ void App::CancelOtherFileLoad()
 void App::StartPreloadAsync(std::pmr::wstring path)
 {
     InitSharedScheduler();
-    file_load_service_.StartPreloadAsync(scheduler_, std::move(path), theme_service_.CreateTheme(theme_service_.LoadZoomIndex()));
+    file_load_service_.StartPreloadAsync(scheduler_, std::move(path), theme_service_.CreateTheme(theme_service_.LoadZoomLevel().Index()));
 }
 
 void App::DoLoadMarkdownFile()

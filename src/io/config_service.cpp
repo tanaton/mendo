@@ -27,6 +27,8 @@ constexpr auto kKeyShowFile = "ShowFile"sv;
 constexpr auto kKeyShowToc = "ShowToc"sv;
 constexpr auto kKeyFileWidth = "FileWidth"sv;
 constexpr auto kKeyTocWidth = "TocWidth"sv;
+constexpr auto kKeyFileZoomLevel = "FileZoomLevel"sv;
+constexpr auto kKeyTocZoomLevel = "TocZoomLevel"sv;
 } // namespace
 
 void ConfigService::SetConfigDirOverride(const std::filesystem::path& dir)
@@ -180,6 +182,13 @@ int ConfigService::LoadInt(std::string_view section, std::string_view key, int d
     return result;
 }
 
+ZoomLevel ConfigService::LoadZoomLevel(std::string_view section, std::string_view key) const
+{
+    ZoomLevel zoom;
+    zoom.SetIndex(LoadInt(section, key, ZOOM_DEFAULT_INDEX, 0, ZOOM_STEP_COUNT - 1));
+    return zoom;
+}
+
 void ConfigService::SaveWString(std::string_view section, std::string_view key, std::wstring_view value)
 {
     StoreValue(section, key, string_convert::WideToUtf8(value));
@@ -220,6 +229,8 @@ void SessionService::SavePaneState(const PaneState& state)
     config_.SaveBool(kSectionPane, kKeyShowToc, state.show_toc);
     config_.SaveInt(kSectionPane, kKeyFileWidth, static_cast<int>(std::lround(state.file_width)));
     config_.SaveInt(kSectionPane, kKeyTocWidth, static_cast<int>(std::lround(state.toc_width)));
+    config_.SaveInt(kSectionPane, kKeyFileZoomLevel, state.file_zoom.Index());
+    config_.SaveInt(kSectionPane, kKeyTocZoomLevel, state.toc_zoom.Index());
 }
 
 SessionService::PaneState SessionService::LoadPaneState(float min_width, float default_width) const
@@ -240,6 +251,8 @@ SessionService::PaneState SessionService::LoadPaneState(float min_width, float d
     const int toc_w = config_.LoadInt(kSectionPane, kKeyTocWidth, default_int, min_int, kPaneWidthLoadMax);
     s.file_width = static_cast<float>(file_w);
     s.toc_width = static_cast<float>(toc_w);
+    s.file_zoom = config_.LoadZoomLevel(kSectionPane, kKeyFileZoomLevel);
+    s.toc_zoom = config_.LoadZoomLevel(kSectionPane, kKeyTocZoomLevel);
     return s;
 }
 

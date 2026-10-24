@@ -67,7 +67,7 @@ const PaneLayout& EnsurePaneLayout(AppState& state) noexcept
 
 SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
 {
-    const float item_h = state.theme->pane_item_height;
+    const float item_h = SidePaneItemHeight(state, pane);
     const float header_h = state.theme->pane_header_height;
     const auto& layout = state.pane_layout_cache.Get();
     return {
@@ -350,7 +350,7 @@ void ReduceFilePaneRevealCurrentFile(AppState& state, SideEffectList& effects)
     const auto it = std::ranges::find_if(entries, &FileEntry::is_current);
     const auto ctx = GetSidePaneContext(state, PaneTarget::File);
     ctx.scroll.scroll_y = it != entries.end()
-                              ? CenterPaneScrollOnItem(static_cast<size_t>(std::distance(entries.begin(), it)), state.theme->pane_item_height, ctx.info)
+                              ? CenterPaneScrollOnItem(static_cast<size_t>(std::distance(entries.begin(), it)), SidePaneItemHeight(state, PaneTarget::File), ctx.info)
                               : 0.0f;
     PushEffect(effects, effect::InvalidateWindow{});
 }
@@ -738,34 +738,46 @@ void ReduceCopyFormattedClipboard(const AppState& state, SideEffectList& effects
     PushEffect(effects, effect::ClipboardWriteHtml{ ExtractSelectedTextAsHtml(nodes, sel, state.theme->IsDark()), ExtractSelectedText(nodes, sel) });
 }
 
-bool StepZoom(ViewportManager& viewport, ZoomDirection direction)
+// 戻り値: 段が動いたか。
+bool StepZoomBy(ZoomLevel& zoom, const ZoomAction& a)
 {
-    switch (direction) {
-    case ZoomDirection::In:
-        return viewport.ZoomIn();
-    case ZoomDirection::Out:
-        return viewport.ZoomOut();
-    case ZoomDirection::Reset:
-        return viewport.ZoomReset();
+    int stepped = 0;
+    while (stepped < a.steps && zoom.Step(a.direction)) {
+        ++stepped;
     }
-    std::unreachable();
+    return stepped > 0;
+}
+
+void ReduceSidePaneZoom(AppState& state, SideEffectList& effects, PaneTarget pane, const ZoomAction& a)
+{
+    auto& zoom = state.view.panes.SidePaneZoom(pane);
+    const float old_zoom = zoom.Value();
+    if (!StepZoomBy(zoom, a)) {
+        return;
+    }
+    // 先頭に見えていた項目が先頭に残るよう、スクロール位置も倍率の比で動かす。
+    auto& scroll = state.view.panes.SidePaneScroll(pane);
+    scroll.scroll_y *= zoom.Value() / old_zoom;
+    if (state.pane_layout_cache.IsValid()) {
+        scroll.scroll_y = std::clamp(scroll.scroll_y, 0.0f, GetSidePaneContext(state, pane).info.max_scroll);
+    }
+    PushEffect(effects, effect::InvalidateWindow{});
 }
 
 void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
 {
-    // 全レイアウトを捨てて組み直すのは段数によらず 1 回で済ませる。
-    int stepped = 0;
-    while (stepped < a.steps && StepZoom(state.view.viewport, a.direction)) {
-        ++stepped;
+    if (a.pane) {
+        ReduceSidePaneZoom(state, effects, *a.pane, a);
+        return;
     }
-    if (stepped == 0) {
+    // 全レイアウトを捨てて組み直すのは段数によらず 1 回で済ませる。
+    if (!StepZoomBy(state.view.viewport.Zoom(), a)) {
         return;
     }
     const auto anchor = SnapshotVisibleTarget(state);
-    state.pane_layout_cache.Invalidate();
-    const float new_zoom = state.view.viewport.GetCurrentZoom();
+    const float new_zoom = state.view.viewport.Zoom().Value();
     const float zoom_ratio = new_zoom / state.theme->zoom;
-    state.view.panes.ApplyZoom(zoom_ratio);
+    // サイドペインは別に倍率を持つので、幅・スクロール位置もペイン配置もそのまま。
     state.document.layout_cache.InvalidateAllLayouts(state.document.doc.GetNodes());
     if (anchor.IsValid()) {
         // offset もズーム比でスケールしないと、ノード内の同じ位置が可視先頭に残らない。

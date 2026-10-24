@@ -69,7 +69,7 @@ Type `mendo` into the File Explorer address bar and press Enter.
 | `Shift+F3` / `Ctrl+Shift+G` | Previous match (`Shift+Enter` also works inside the search bar) |
 | `Ctrl++` / `Ctrl+-` | Zoom in / Zoom out |
 | `Ctrl+0` | Reset zoom (100%) |
-| `Ctrl+Mouse wheel` | Zoom in / Zoom out |
+| `Ctrl+Mouse wheel` | Zoom in / Zoom out the area under the pointer (document, file pane, or TOC pane) |
 | `Alt+Left` | Go back |
 | `Alt+Right` | Go forward |
 | `F1` | Show help |

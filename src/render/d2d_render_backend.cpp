@@ -205,9 +205,11 @@ bool D2DRenderBackend::CreateSwapChainBitmap()
         return false;
     }
 
+    // 不透明なウィンドウなので IGNORE にする。PREMULTIPLIED だと D2D が透過のある描画先とみなし、
+    // 文字のアンチエイリアスを ClearType からグレースケールに落とす。
     const D2D1_BITMAP_PROPERTIES1 bp = D2D1::BitmapProperties1(
         D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
         dpi_, dpi_);
 
     ComPtr<ID2D1Bitmap1> target_bitmap;

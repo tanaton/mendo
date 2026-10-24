@@ -64,7 +64,8 @@ public:
         const TextSelection& selection,
         OverlayButtonHit hovered = {},
         float dpi_scale = 1.0f,
-        const BlockHScrollContext& block_h_scroll = {});
+        const BlockHScrollContext& block_h_scroll = {},
+        int hovered_diagram = -1);
 
 private:
     // ノードの [text_top, text_top + height] の外へはみ出して描く量の全種別での上限
@@ -93,6 +94,7 @@ private:
         std::span<const Node> nodes;
         const LayoutCache& cache;
         OverlayButtonHit hovered;
+        int hovered_diagram = -1;
         BlockHScrollContext h_scroll;
         NodeOverhang overhang;
     };

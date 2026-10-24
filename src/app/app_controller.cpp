@@ -94,7 +94,8 @@ AppAction HandleMouseWheel(const MouseWheelEvent& event, int& zoom_accum)
             return NoOpAction{};
         }
         zoom_accum = 0;
-        return ZoomAction{ event.delta > 0 ? ZoomDirection::In : ZoomDirection::Out, steps };
+        // ポインタの下の領域だけをズームする。
+        return ZoomAction{ event.delta > 0 ? ZoomDirection::In : ZoomDirection::Out, steps, ToPaneTarget(event.zone) };
     }
 
     const float scroll_amount = -event.delta * MOUSE_WHEEL_SCROLL_MULTIPLIER;

@@ -1,6 +1,7 @@
 #pragma once
 #include "ui_types.h"
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string_view>
 #include <vector>
@@ -26,6 +27,11 @@ struct ContextMenuParams {
     bool file_pane_checked = false;
     bool toc_pane_checked = false;
     bool show_file_items = false; // MdPaneの場合のみtrue
+    // 右クリックした領域 (本文・ファイル一覧・目次) の倍率。無ければズームの行を出さない。
+    // メニューを開いたまま on_zoom で変わるので、表示中は生きている倍率を指す。
+    const ZoomLevel* zoom = nullptr;
+    // ズームの行のボタンで呼ぶ。ブラウザと同じくメニューは閉じない。本体の再描画はメニューのループが配る。
+    std::function<void(ZoomDirection)> on_zoom;
     const Theme* theme = nullptr;
 };
 
@@ -34,6 +40,7 @@ class ContextMenu {
 public:
     enum class ItemType : uint8_t {
         NavRow,
+        ZoomRow,
         Separator,
         Text
     };
@@ -52,6 +59,14 @@ public:
         DipRect fwd_rect{};
         bool back_enabled = false;
         bool fwd_enabled = false;
+    };
+
+    // 押せるかは開いている間に変わるので、ZoomLevel から都度求める。
+    struct ZoomRowLayout {
+        DipRect out_rect{};
+        DipRect percent_rect{};
+        DipRect in_rect{};
+        DipRect reset_rect{};
     };
 
     ContextMenu();

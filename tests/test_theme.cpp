@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "theme.h"
+#include <span>
 #include <cmath>
 
 namespace {
@@ -14,12 +15,13 @@ constexpr ThemeCase kBothThemes[] = {
     { "dark", GetDarkTheme },
 };
 
-// ライト/ダークで共通の値を持ち、ズームでスケールする寸法。font_size_h は配列なので別に扱う。
+// ライト/ダークで共通の値を持つ寸法。font_size_h は配列なので別に扱う。
 struct LayoutField {
     const char* name;
     float Theme::* member;
 };
-constexpr LayoutField kLayoutFields[] = {
+// 本文のズームでスケールする寸法。
+constexpr LayoutField kScalableFields[] = {
     { "font_size_body", &Theme::font_size_body },
     { "font_size_code", &Theme::font_size_code },
     { "margin_left", &Theme::margin_left },
@@ -39,11 +41,15 @@ constexpr LayoutField kLayoutFields[] = {
     { "list_bullet_radius", &Theme::list_bullet_radius },
     { "hr_thickness", &Theme::hr_thickness },
     { "h2_underline_thickness", &Theme::h2_underline_thickness },
+};
+// サイドペインの寸法。本文のズームでは変えない。
+constexpr LayoutField kPaneFields[] = {
     { "pane_item_height", &Theme::pane_item_height },
     { "pane_header_height", &Theme::pane_header_height },
     { "splitter_width", &Theme::splitter_width },
     { "pane_font_size", &Theme::pane_font_size },
 };
+constexpr std::span<const LayoutField> kAllLayoutFields[] = { kScalableFields, kPaneFields };
 
 bool SameRgb(const D2D1_COLOR_F& a, const D2D1_COLOR_F& b)
 {
@@ -57,8 +63,10 @@ TEST(Theme, LayoutValuesArePositive)
     for (const auto& [name, get] : kBothThemes) {
         SCOPED_TRACE(name);
         const Theme& t = get();
-        for (const auto& f : kLayoutFields) {
-            EXPECT_GT(t.*f.member, 0.0f) << f.name;
+        for (const auto fields : kAllLayoutFields) {
+            for (const auto& f : fields) {
+                EXPECT_GT(t.*f.member, 0.0f) << f.name;
+            }
         }
         for (int i = 0; i < 6; ++i) {
             EXPECT_GT(t.font_size_h[i], 0.0f) << "h" << i + 1;
@@ -130,8 +138,10 @@ TEST(Theme, DarkAndLightShareLayout)
 {
     const Theme& light = GetLightTheme();
     const Theme& dark = GetDarkTheme();
-    for (const auto& f : kLayoutFields) {
-        EXPECT_FLOAT_EQ(light.*f.member, dark.*f.member) << f.name;
+    for (const auto fields : kAllLayoutFields) {
+        for (const auto& f : fields) {
+            EXPECT_FLOAT_EQ(light.*f.member, dark.*f.member) << f.name;
+        }
     }
     for (int i = 0; i < 6; ++i) {
         EXPECT_FLOAT_EQ(light.font_size_h[i], dark.font_size_h[i]) << "h" << i + 1;
@@ -159,12 +169,29 @@ TEST(Theme, ApplyZoomScalesLayoutValues)
         Theme t = base;
         t.ApplyZoom(zoom);
         EXPECT_FLOAT_EQ(t.zoom, zoom);
-        for (const auto& f : kLayoutFields) {
+        for (const auto& f : kScalableFields) {
             EXPECT_NEAR(t.*f.member, base.*f.member * zoom, 0.01f) << f.name;
         }
         for (int i = 0; i < 6; ++i) {
             EXPECT_NEAR(t.font_size_h[i], base.font_size_h[i] * zoom, 0.01f) << "h" << i + 1;
         }
+    }
+}
+
+// ズームは本文だけに掛ける。サイドペインの寸法を一緒に拡大すると、
+// ファイル一覧や目次で同時に見える項目数が変わってしまう。
+TEST(Theme, ApplyZoomKeepsSidePaneMetrics)
+{
+    const Theme& base = GetLightTheme();
+    for (const float zoom : { 0.5f, 0.8f, 1.25f, 2.0f }) {
+        SCOPED_TRACE(zoom);
+        Theme t = base;
+        t.ApplyZoom(zoom);
+        for (const auto& f : kPaneFields) {
+            EXPECT_FLOAT_EQ(t.*f.member, base.*f.member) << f.name;
+        }
+        // 本文側はスケールしていること (取り違え防止)。
+        EXPECT_NEAR(t.font_size_body, base.font_size_body * zoom, 0.01f);
     }
 }
 

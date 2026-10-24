@@ -437,22 +437,23 @@ std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wPara
     case WM_MOUSEWHEEL: {
         const short wheel_delta = GET_WHEEL_DELTA_WPARAM(wParam);
         const auto keys = LOWORD(wParam);
+        POINT pt = { x, y };
+        ScreenToClient(hwnd_, &pt);
         if (keys & MK_CONTROL) {
             // ズームは 1 段ごとに全体を組み直すので、その間に溜まったノッチをまとめて 1 回で反映する。
+            // ズームする領域は最初のノッチの位置で決める。
             int total_delta = wheel_delta;
             for (MSG next; PeekMessageW(&next, hwnd_, WM_MOUSEWHEEL, WM_MOUSEWHEEL, PM_NOREMOVE) && (LOWORD(next.wParam) & MK_CONTROL);) {
                 PeekMessageW(&next, hwnd_, WM_MOUSEWHEEL, WM_MOUSEWHEEL, PM_REMOVE);
                 total_delta += GET_WHEEL_DELTA_WPARAM(next.wParam);
             }
-            app_->OnMouseWheel(0, 0, total_delta, true);
+            app_->OnMouseWheel(pt.x, pt.y, total_delta, true);
         }
         else if (keys & MK_SHIFT) {
             // Shift+Wheel は横スクロール扱い。Web ブラウザの慣習に合わせ wheel-down を右スクロールに反転する。
             app_->OnMouseHWheel(static_cast<short>(-wheel_delta));
         }
         else {
-            POINT pt = { x, y };
-            ScreenToClient(hwnd_, &pt);
             app_->OnMouseWheel(pt.x, pt.y, wheel_delta);
         }
         return 0;

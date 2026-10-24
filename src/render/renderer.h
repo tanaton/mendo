@@ -132,6 +132,8 @@ private:
     template <typename GenItemFn>
     void GenSidePane(const SidePaneInstance& pane, bool is_file_pane, size_t item_count, std::wstring_view header_text, GenItemFn gen_item);
     void GenSidePaneHeader(const SidePaneInstance& pane, bool is_file_pane, std::wstring_view header_text);
+    // 倍率が変わったら作り直す。
+    void EnsurePaneListFormats(PaneTarget target, float zoom);
     // 置き方は TextLayoutCache::Origin。
     void EmitChromeText(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float opacity = 1.0f, D2D1_SIZE_F box = {});
     // NO_WRAP の左寄せテキスト。はみ出しは呼び出し側のクリップで切る。
@@ -192,7 +194,6 @@ private:
         Microsoft::WRL::ComPtr<IDWriteTextFormat> titlebar_text;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> titlebar_icon;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> pane_icon;
-        Microsoft::WRL::ComPtr<IDWriteTextFormat> pane_item;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> pane_header;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> nav_button;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> gesture_overlay;
@@ -202,6 +203,15 @@ private:
         Microsoft::WRL::ComPtr<IDWriteTextFormat> search_icon;
     };
     TextFormats fmt_;
+
+    // サイドペインの一覧の書式。ペインごとの倍率で作る。
+    struct PaneListFormats {
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> item;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> icon;
+        // 作ったときの倍率。0 は未作成。
+        float zoom = 0.0f;
+    };
+    PaneListFormats pane_list_fmt_[2];
 
     // CommandGenerator と共有する。
     TextLayoutCache text_layouts_;

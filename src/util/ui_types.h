@@ -1,5 +1,7 @@
 #pragma once
+#include <algorithm>
 #include <cstdint>
+#include <iterator>
 
 // include 連鎖を浅く保つため 1 か所に集約。
 
@@ -88,4 +90,109 @@ enum class NavDirection : uint8_t {
     None,
     Back,
     Forward
+};
+
+// Chrome風の段階的ズームステップ
+inline constexpr float ZOOM_STEPS[] = {
+    0.25f, 0.33f, 0.50f, 0.67f, 0.75f, 0.80f, 0.90f,
+    1.00f,
+    1.10f, 1.25f, 1.50f, 1.75f, 2.00f, 2.50f, 3.00f, 4.00f, 5.00f
+};
+inline constexpr int ZOOM_STEP_COUNT = static_cast<int>(std::size(ZOOM_STEPS));
+inline constexpr int ZOOM_DEFAULT_INDEX = 7;
+static_assert(ZOOM_STEPS[ZOOM_DEFAULT_INDEX] == 1.0f);
+
+enum class ZoomDirection : uint8_t {
+    In,
+    Out,
+    Reset
+};
+
+// ZOOM_STEPS の段。本文とサイドペイン (ファイル一覧・目次) がそれぞれ持つ。
+// 段を動かす操作は変化したかを返す。float の戻り値で「0.0 == 変化なし」を表すと
+// ZOOM_STEPS に 0.0 が入った瞬間に破綻するし、SSOT を段に寄せる方針と相性が悪い。
+class ZoomLevel {
+public:
+    constexpr int Index() const noexcept
+    {
+        return index_;
+    }
+    // 設定ファイル等の外部入力から不正値が来ても範囲外を指さないよう、ここで必ずクランプする。
+    constexpr void SetIndex(int idx) noexcept
+    {
+        index_ = static_cast<uint8_t>(std::clamp(idx, 0, ZOOM_STEP_COUNT - 1));
+    }
+    constexpr float Value() const noexcept
+    {
+        return ZOOM_STEPS[index_];
+    }
+    // 表示用の百分率。
+    constexpr int Percent() const noexcept
+    {
+        return static_cast<int>(Value() * 100.0f + 0.5f);
+    }
+    constexpr bool CanZoomIn() const noexcept
+    {
+        return index_ < ZOOM_STEP_COUNT - 1;
+    }
+    constexpr bool CanZoomOut() const noexcept
+    {
+        return index_ > 0;
+    }
+    constexpr bool IsDefault() const noexcept
+    {
+        return index_ == ZOOM_DEFAULT_INDEX;
+    }
+    constexpr bool ZoomIn() noexcept
+    {
+        if (!CanZoomIn()) {
+            return false;
+        }
+        ++index_;
+        return true;
+    }
+    constexpr bool ZoomOut() noexcept
+    {
+        if (!CanZoomOut()) {
+            return false;
+        }
+        --index_;
+        return true;
+    }
+    constexpr bool ZoomReset() noexcept
+    {
+        if (IsDefault()) {
+            return false;
+        }
+        index_ = static_cast<uint8_t>(ZOOM_DEFAULT_INDEX);
+        return true;
+    }
+    constexpr bool Step(ZoomDirection direction) noexcept
+    {
+        switch (direction) {
+        case ZoomDirection::In:
+            return ZoomIn();
+        case ZoomDirection::Out:
+            return ZoomOut();
+        case ZoomDirection::Reset:
+            return ZoomReset();
+        }
+        return false;
+    }
+    // 押せるか (段が動くか)。メニューのボタンの有効・無効に使う。
+    constexpr bool CanStep(ZoomDirection direction) const noexcept
+    {
+        switch (direction) {
+        case ZoomDirection::In:
+            return CanZoomIn();
+        case ZoomDirection::Out:
+            return CanZoomOut();
+        case ZoomDirection::Reset:
+            return !IsDefault();
+        }
+        return false;
+    }
+
+private:
+    uint8_t index_ = static_cast<uint8_t>(ZOOM_DEFAULT_INDEX);
 };

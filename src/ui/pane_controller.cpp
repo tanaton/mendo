@@ -44,14 +44,6 @@ void PaneController::DragSplitterTo(PaneTarget edge, float dip_x, float total_wi
     }
 }
 
-void PaneController::ApplyZoom(float ratio) noexcept
-{
-    for (auto& inst : instances_) {
-        inst.width *= ratio;
-        inst.scroll.scroll_y *= ratio;
-    }
-}
-
 PaneLayout PaneController::ComputeLayout(float total_w, float total_h, float splitter_w, float top_offset) const noexcept
 {
     const auto& file = Inst(PaneTarget::File);

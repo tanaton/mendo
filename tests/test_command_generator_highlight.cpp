@@ -13,12 +13,16 @@
 #include <algorithm>
 #include <array>
 #include <initializer_list>
+#include <memory>
+#include <memory_resource>
 #include <optional>
 #include <ranges>
 #include <string>
 #include <string_view>
 #include <variant>
 #include <vector>
+#include <wincodec.h>
+#include <wrl/client.h>
 
 namespace {
 
@@ -380,6 +384,51 @@ TEST_F(VisibleHighlightTest, TableSearchHighlightAppearsAfterEvictedRowsRestore)
     const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, 0.0f, TextSelection{});
     EXPECT_FALSE(CollectRectsByBrush(cmds, { BrushId::SearchHighlight }).empty());
     EXPECT_GT(ComputedMatchCount(pl.cache[0]), 0u);
+}
+
+// 図の保存/コピーボタンは、その図の画像領域をホバーしている間だけ描く。
+TEST_F(HighlightOrderTest, DiagramOverlayButtonsAreGatedByDiagramHover)
+{
+    auto pl = ParseAndLayout("```mermaid\ngraph TD;A-->B\n```\n");
+    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Diagram);
+    ASSERT_GE(idx, 0);
+
+    // ボタンは描けた (bitmap があり) 保存・コピー元の PNG もある図にだけ付く。
+    auto& diagram = pl.cache.EnsureDiagram(static_cast<size_t>(idx));
+    diagram.width = 100.0f;
+    diagram.height = 80.0f;
+    diagram.png = std::make_shared<const std::pmr::vector<uint8_t>>(std::pmr::vector<uint8_t>{ 0x89 });
+
+    Microsoft::WRL::ComPtr<IWICImagingFactory> wic;
+    ASSERT_HRESULT_SUCCEEDED(CoCreateInstance(
+        CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(wic.GetAddressOf())));
+    Microsoft::WRL::ComPtr<IWICBitmap> wic_bitmap;
+    ASSERT_HRESULT_SUCCEEDED(wic->CreateBitmap(10, 10, GUID_WICPixelFormat32bppPBGRA,
+                                               WICBitmapCacheOnLoad, wic_bitmap.GetAddressOf()));
+    Microsoft::WRL::ComPtr<ID2D1Factory> d2d;
+    ASSERT_HRESULT_SUCCEEDED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2d.GetAddressOf()));
+    Microsoft::WRL::ComPtr<ID2D1RenderTarget> rt;
+    ASSERT_HRESULT_SUCCEEDED(d2d->CreateWicBitmapRenderTarget(
+        wic_bitmap.Get(), D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE), rt.GetAddressOf()));
+    ASSERT_HRESULT_SUCCEEDED(rt->CreateBitmapFromWicBitmap(wic_bitmap.Get(), diagram.bitmap.GetAddressOf()));
+
+    auto icon = CreateThemeFormat(COPY_BTN_SIZE);
+    ASSERT_NE(icon, nullptr);
+    gen_.SetFormats({ nullptr, nullptr, icon.Get(), nullptr });
+
+    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
+    const auto count_overlay_fills = [](const DrawCommandList& cmds) {
+        return std::ranges::count_if(cmds, [](const DrawCommand& c) {
+            const auto* fill = std::get_if<FillRoundedRectCmd>(&c);
+            return fill && fill->brush_id == OverlayBrushId(false);
+        });
+    };
+
+    const auto& hidden = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
+    EXPECT_EQ(count_overlay_fills(hidden), 0);
+
+    const auto& shown = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{}, {}, 1.0f, {}, idx);
+    EXPECT_EQ(count_overlay_fills(shown), 2);
 }
 
 // 全行選択でも、矩形を引くのは可視範囲の前後の行だけ。スクロール先でも選択を描く。
