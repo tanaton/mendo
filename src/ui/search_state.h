@@ -13,7 +13,7 @@
 // start / length は UTF-8 byte 単位 (ascii_util::Find の戻り値)。
 // start_w / length_w は同じ範囲を UTF-16 code unit で表したもので
 // IDWriteTextLayout の HitTestTextRange / HitTestTextPosition にそのまま渡せる。
-// 不変条件: 両者は同じノード/セル内の同一範囲を指し、ExecuteSearch で同時に確定される。
+// 不変条件: 両者は同じノード/セル内の同一範囲を指し、検索の完了時に同時に確定される。
 struct SearchMatch {
     int node_index;
     uint32_t start;
@@ -100,7 +100,6 @@ public:
     }
 
     void SetQuery(std::string_view query);
-    void ExecuteSearch(const std::pmr::vector<Node>& nodes);
     // 大きい文書でも入力や描画を止めないよう、検索を時間で区切って進める。
     // BeginSearch で始め、ContinueSearch で deadline まで (少なくとも 1 ノード) 進める。終わったら true。
     // 確定仕様: 途中のマッチは見せず、終わるまで前回の結果 (件数・ハイライト) を見せ続け、終わったら差し替える。

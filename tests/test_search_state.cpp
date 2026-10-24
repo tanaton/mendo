@@ -40,7 +40,7 @@ SearchState Searched(const std::pmr::vector<Node>& nodes, std::string_view query
         s.ToggleCaseSensitive();
     }
     s.SetQuery(query);
-    s.ExecuteSearch(nodes);
+    RunSearchToEnd(s, nodes);
     return s;
 }
 
@@ -477,7 +477,7 @@ TEST(SearchStateTest, KeepMatchesOfUnchangedNodesDropsChangedRange)
     EXPECT_TRUE(s.HasResult());
 
     s.SetQuery("xy");
-    s.ExecuteSearch(nodes);
+    RunSearchToEnd(s, nodes);
     EXPECT_EQ(s.GetMatchCount(), 5);
 }
 
@@ -498,7 +498,7 @@ TEST(SearchStateTest, ReExecuteSearchUpdatesMatches)
     EXPECT_EQ(s.GetMatchCount(), 2);
 
     s.SetQuery("def");
-    s.ExecuteSearch(nodes);
+    RunSearchToEnd(s, nodes);
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].start, 4u);
 }
@@ -510,7 +510,7 @@ TEST(SearchStateTest, ReExecuteAfterCaseSensitiveChange)
     EXPECT_EQ(s.GetMatchCount(), 3);
 
     s.ToggleCaseSensitive();
-    s.ExecuteSearch(nodes);
+    RunSearchToEnd(s, nodes);
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].start, 4u);
 }
@@ -589,7 +589,7 @@ TEST(SearchStateTest, TableMatchDoesNotCrossCellBoundary)
 
     // 同じ状態で表ノードを検索し直しても、セル内の一致は見つかる。
     s.SetQuery("abc");
-    s.ExecuteSearch(nodes);
+    RunSearchToEnd(s, nodes);
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].table_col, 0);
 }
@@ -645,7 +645,7 @@ TEST(SearchStateTest, ExtendingQueryMatchesFullSearch)
         for (const char* q : { "aa", "aab" }) {
             SCOPED_TRACE(q);
             s.SetQuery(q);
-            s.ExecuteSearch(nodes);
+            RunSearchToEnd(s, nodes);
             EXPECT_TRUE(SameMatches(s, Searched(nodes, q, case_sensitive)));
         }
     }
@@ -660,6 +660,6 @@ TEST(SearchStateTest, ExtendingQueryAfterStoppedSearchScansAll)
     s.BeginSearch();
     s.StopSearch();
     s.SetQuery("ab");
-    s.ExecuteSearch(nodes);
+    RunSearchToEnd(s, nodes);
     EXPECT_EQ(s.GetMatchCount(), 3);
 }

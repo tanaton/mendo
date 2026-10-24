@@ -58,7 +58,7 @@ public:
     void OnClose(SideEffectList& effects)
     {
         state_->Hide();
-        ResetInteractionState();
+        ime_composition_.clear();
         PushEffect(effects, effect::SearchUnfocus{});
         PushEffect(effects, effect::InvalidateWindow{});
     }
@@ -86,7 +86,7 @@ public:
         string_convert::WideToUtf8(text, text_utf8);
         state_->SetQuery(text_utf8);
         if (text.empty()) {
-            state_->ExecuteSearch(nodes);
+            state_->BeginSearch();
             PushEffect(effects, effect::InvalidateWindow{});
             return;
         }
@@ -152,7 +152,7 @@ public:
     {
         state_->Reset();
         query_wide_.clear();
-        ResetInteractionState();
+        ime_composition_.clear();
         ResetCaretAndSelection();
     }
 
@@ -185,11 +185,6 @@ public:
     int GetSelectionStart() const noexcept
     {
         return selection_start_;
-    }
-
-    const std::pmr::wstring& GetImeComposition() const noexcept
-    {
-        return ime_composition_;
     }
 
     // 入力欄に表示している検索クエリ。SearchState::GetQuery() の UTF-16 版。
@@ -259,12 +254,6 @@ private:
     {
         caret_pos_ = -1;
         selection_start_ = -1;
-    }
-
-    void ResetInteractionState()
-    {
-        ime_composition_.clear();
-        state_->StopSearch();
     }
 
     SearchState* state_ = nullptr;

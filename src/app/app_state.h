@@ -38,6 +38,16 @@ struct LeftDragState {
     float start_scroll = 0.0f;
     // SearchInput: 選択の起点 (キャレット位置)。
     int search_anchor = 0;
+    // TextSelect: 選択の起点と、押した位置 (px。小さいクリックの判定に使う)。
+    int select_node = -1;
+    uint32_t select_pos = 0;
+    int click_x = 0;
+    int click_y = 0;
+
+    constexpr TextSelection SelectionTo(int node, uint32_t pos) const noexcept
+    {
+        return TextSelection::MakeOrdered(select_node, select_pos, node, pos);
+    }
 };
 
 struct ViewState {

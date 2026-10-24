@@ -328,7 +328,6 @@ private:
     TooltipTarget BuildMdContentTooltip(int hit_node, std::optional<LinkHit> link) const;
 
     // ---- レイアウト ----
-    void EnsureScrollTarget();
     float MdMaxScroll();
     // 計測や図の確定で内容が縮んだら、scroll_y を上限に収める。遅延レイアウトの途中では呼ばない
     // (後続の計測で戻る中間的な上限で、見ている位置を引き下げないため)。

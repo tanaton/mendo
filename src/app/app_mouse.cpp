@@ -223,8 +223,8 @@ void App::OnLButtonUp(int px, int py)
         return;
     }
     const auto hit = HitTest(px, py);
-    const int dx = px - state_.view.viewport.GetClickStartX();
-    const int dy = py - state_.view.viewport.GetClickStartY();
+    const int dx = px - state_.view.drag.click_x;
+    const int dy = py - state_.view.drag.click_y;
     const bool small_click = (dx * dx + dy * dy) < CLICK_DISTANCE_THRESHOLD_SQ;
     Dispatch(TextSelectionEndedAction{ hit.node_index, hit.text_pos });
     if (!small_click || state_.view.viewport.GetSelection().active) {

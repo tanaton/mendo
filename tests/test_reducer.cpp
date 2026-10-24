@@ -147,8 +147,6 @@ TEST_F(ReducerTest, SelectWord_SelectsWordAndSetsAnchor)
     EXPECT_EQ(sel.start_node, 0);
     EXPECT_EQ(sel.start_pos, 6u);
     EXPECT_EQ(sel.end_pos, 11u);
-    EXPECT_EQ(state.view.viewport.GetAnchorNode(), 0);
-    EXPECT_EQ(state.view.viewport.GetAnchorPos(), 6u);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -1140,24 +1138,22 @@ TEST_F(ReducerTest, TextSelectionStarted_WithHit_SetsAnchorAndCaptures)
 
     auto effects = Reduce(state, TextSelectionStartedAction{ 0, 3u, 10, 20 });
 
-    EXPECT_EQ(state.view.viewport.GetClickStartX(), 10);
-    EXPECT_EQ(state.view.viewport.GetClickStartY(), 20);
-    EXPECT_EQ(state.view.viewport.GetAnchorNode(), 0);
-    EXPECT_EQ(state.view.viewport.GetAnchorPos(), 3u);
     EXPECT_EQ(state.view.drag.kind, LeftDrag::TextSelect);
+    EXPECT_EQ(state.view.drag.click_x, 10);
+    EXPECT_EQ(state.view.drag.click_y, 20);
+    EXPECT_EQ(state.view.drag.select_node, 0);
+    EXPECT_EQ(state.view.drag.select_pos, 3u);
     EXPECT_FALSE(state.view.viewport.GetSelection().active);
     EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
-TEST_F(ReducerTest, TextSelectionStarted_NoHit_StoresClickStartOnly)
+TEST_F(ReducerTest, TextSelectionStarted_NoHit_DoesNotStartDrag)
 {
-    // ヒットなし（空白領域のクリック）: ClickStart は記録するが SetCapture も anchor/dragging も変えない。
+    // ヒットなし（空白領域のクリック）: SetCapture もドラッグも始めない。
     // SetCapture をスキップすることで、対応する ReleaseCapture を省略できる。
     auto effects = Reduce(state, TextSelectionStartedAction{ -1, 0u, 5, 7 });
 
-    EXPECT_EQ(state.view.viewport.GetClickStartX(), 5);
-    EXPECT_EQ(state.view.viewport.GetClickStartY(), 7);
     EXPECT_NE(state.view.drag.kind, LeftDrag::TextSelect);
     EXPECT_FALSE(HasEffect<effect::SetCapture>(effects));
     EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
@@ -1174,8 +1170,7 @@ TEST_F(ReducerTest, TextSelectionMoved_NotDragging_NoOp)
 TEST_F(ReducerTest, TextSelectionMoved_DraggingWithHit_UpdatesSelection)
 {
     state.document.doc = Document::FromMarkdown(std::pmr::string("Hello world"), L"test.md");
-    state.view.viewport.SetAnchor(0, 2u);
-    state.view.drag = { .kind = LeftDrag::TextSelect };
+    state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = 0, .select_pos = 2u };
 
     auto effects = Reduce(state, TextSelectionMovedAction{ 0, 7u });
 
@@ -1190,8 +1185,7 @@ TEST_F(ReducerTest, TextSelectionMoved_DraggingWithHit_UpdatesSelection)
 
 TEST_F(ReducerTest, TextSelectionMoved_NoHit_NoUpdate)
 {
-    state.view.viewport.SetAnchor(0, 2u);
-    state.view.drag = { .kind = LeftDrag::TextSelect };
+    state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = 0, .select_pos = 2u };
 
     auto effects = Reduce(state, TextSelectionMovedAction{ -1, 0u });
 
@@ -1208,8 +1202,7 @@ TEST_F(ReducerTest, TextSelectionEnded_NotDragging_NoOp)
 TEST_F(ReducerTest, TextSelectionEnded_WithHit_FinalizesSelection)
 {
     state.document.doc = Document::FromMarkdown(std::pmr::string("Hello world"), L"test.md");
-    state.view.viewport.SetAnchor(0, 2u);
-    state.view.drag = { .kind = LeftDrag::TextSelect };
+    state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = 0, .select_pos = 2u };
 
     auto effects = Reduce(state, TextSelectionEndedAction{ 0, 8u });
 
@@ -1223,8 +1216,7 @@ TEST_F(ReducerTest, TextSelectionEnded_WithHit_FinalizesSelection)
 
 TEST_F(ReducerTest, TextSelectionEnded_NoHit_ClearsDraggingOnly)
 {
-    state.view.viewport.SetAnchor(0, 2u);
-    state.view.drag = { .kind = LeftDrag::TextSelect };
+    state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = 0, .select_pos = 2u };
     // 事前選択なし
     auto effects = Reduce(state, TextSelectionEndedAction{ -1, 0u });
 

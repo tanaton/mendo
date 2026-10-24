@@ -53,7 +53,7 @@ struct DirectScrollByAction {
 };
 
 struct ScrollPaneAction {
-    PaneZone pane;
+    PaneTarget pane;
     float delta;
     uint64_t tick = 0;
 };

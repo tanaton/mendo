@@ -50,7 +50,6 @@ bool App::Init(HWND hwnd)
 
     file_cache_.SetCacheDir(config_.GetConfigPath(L"MermaidCache"));
     file_cache_.Init(MermaidRenderer::EstimateWorkerDpr(), scheduler_);
-    mermaid_renderer_.SetFileCache(&file_cache_);
 
     clipboard_manager_.Init(hwnd_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });
 
@@ -65,7 +64,7 @@ bool App::Init(HWND hwnd)
         },
         host_);
 
-    mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), scheduler_, app_msg::MERMAID_DISK_LOADED,
+    mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), file_cache_, scheduler_, app_msg::MERMAID_DISK_LOADED,
                            config_.GetConfigPath(L"WebView2Data"), [this]() {
         // 結果を待っていた図を要求し直して反映する。
         resource_manager_.RequestMermaidRenders();
@@ -256,14 +255,10 @@ SidePaneState App::BuildSidePaneState(const PaneLayout& layout) const
 
 TitleBarRenderState App::BuildTitleBarRenderState() const
 {
-    const auto& tbar = state_.window.titlebar;
     const auto& panes = state_.view.panes;
     return TitleBarRenderState{
+        .bar = state_.window.titlebar,
         .title_text = state_.cached_title_text,
-        .buttons = tbar.GetButtons(),
-        .icon_rect = tbar.GetIconRect(),
-        .title_text_rect = tbar.GetTitleTextRect(),
-        .height = tbar.GetHeight(),
         .window_width = state_.pane_layout_cache.WindowWidth(),
         .hovered_zone = state_.view.hover.titlebar,
         .is_dark_mode = theme_service_.IsDarkMode(),
@@ -816,11 +811,6 @@ void App::OnContextMenu(int screen_x, int screen_y)
     }
 }
 
-void App::EnsureScrollTarget()
-{
-    state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
-}
-
 float App::MdMaxScroll()
 {
     EnsurePaneLayout(state_);
@@ -945,7 +935,7 @@ void App::OnResizeEnd()
     MENDO_PROFILE("OnResizeEnd");
 
     deferred_layout_pending_ = false;
-    EnsureScrollTarget();
+    state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
     RelayoutViewport(RelayoutResources::DiagramsBatched);
 }
 
@@ -1019,8 +1009,6 @@ const Theme& AppHost::GetTheme()
 
 void AppHost::RecomputeLayout(layout::HeightChangeRange changed)
 {
-    // 画面より上の画像・図の高さが変わっても、見ている内容が動かないようにする。
-    app_.EnsureScrollTarget();
     app_.layout_service_.RecomputeAfterDiagram(
         app_.state_.document.doc,
         app_.state_.document.layout_cache,

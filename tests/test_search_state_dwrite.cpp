@@ -49,7 +49,7 @@ protected:
     {
         d.pl = ParseAndLayout(md, VIEWPORT_W);
         d.search.SetQuery("hit");
-        d.search.ExecuteSearch(d.pl.nodes);
+        RunSearchToEnd(d.search, d.pl.nodes);
         for (const auto& m : d.search.GetMatches()) {
             const auto node = static_cast<size_t>(m.node_index);
             d.match_ys.push_back(d.pl.cache[node].GetMatchYRange(m.table_row, m.table_col, m.start_w, d.pl.cache.Top(node)).first);

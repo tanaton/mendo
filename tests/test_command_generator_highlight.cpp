@@ -252,7 +252,7 @@ protected:
     void Search(const ParsedLayout& pl, std::string_view query)
     {
         search_.SetQuery(query);
-        search_.ExecuteSearch(pl.nodes);
+        RunSearchToEnd(search_, pl.nodes);
         gen_.SetSearchMatches(&search_.GetMatches(), -1, search_.GetGeneration());
     }
 

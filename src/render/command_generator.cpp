@@ -251,7 +251,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(
 
     // 同一 blockquote_group のノードをまとめてバー/背景を描画する。
     // ノード単体ごとではなく一括で描画することで、複数行の引用ブロックが連続した見た目になる。
-    GenBlockQuoteGroupDecorations(fc, nodes, cache, first_visible);
+    GenBlockQuoteGroupDecorations(fc, first_visible);
 
     int visible_count = 0;
     for (int i = first_visible; i < node_count; i++) {
@@ -276,7 +276,8 @@ void CommandGenerator::GenerateNode(const FrameContext& fc,
     const Node& node, const NodeLayoutEntry& entry, const DiagramEntry* diagram,
     int node_index, float entry_text_top)
 {
-    if (entry_text_top + entry.height + fc.overhang.below < cull_top_ || entry_text_top - fc.overhang.above > cull_bottom_) {
+    const auto& oh = fc.overhang;
+    if (IsOffscreen(entry_text_top - oh.above, entry.height + oh.above + oh.below, cull_top_, cull_bottom_)) {
         return;
     }
 
@@ -534,8 +535,10 @@ void CommandGenerator::GenListBullet(const FrameContext& fc, const Node& node, c
     }
 }
 
-void CommandGenerator::GenBlockQuoteGroupDecorations(const FrameContext& fc, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int first_visible)
+void CommandGenerator::GenBlockQuoteGroupDecorations(const FrameContext& fc, int first_visible)
 {
+    const auto nodes = fc.nodes;
+    const auto& cache = fc.cache;
     const float snap = fc.snapped_scroll_y;
     const int node_count = static_cast<int>(nodes.size());
 
@@ -578,7 +581,7 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(const FrameContext& fc, con
         }
 
         if (max_depth > 0 && nodes[i].quote_outer_indent > 0) {
-            GenBlockQuoteGroup(fc, nodes, cache, i, j, max_depth, group_top, group_bottom);
+            GenBlockQuoteGroup(fc, i, j, max_depth, group_top, group_bottom);
         }
         // 下端で打ち切ったグループの残りを別グループとして描かない。
         if (j < node_count && nodes[j].blockquote_group == group) {
@@ -588,8 +591,10 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(const FrameContext& fc, con
     }
 }
 
-void CommandGenerator::GenBlockQuoteGroup(const FrameContext& fc, const std::pmr::vector<Node>& nodes, const LayoutCache& cache, int first, int last, int max_depth, float group_top, float group_bottom)
+void CommandGenerator::GenBlockQuoteGroup(const FrameContext& fc, int first, int last, int max_depth, float group_top, float group_bottom)
 {
+    const auto nodes = fc.nodes;
+    const auto& cache = fc.cache;
     static constexpr float ALERT_BG_CORNER = 4.0f;
 
     const AlertType alert_type = nodes[first].alert_type;

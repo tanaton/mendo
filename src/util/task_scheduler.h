@@ -7,7 +7,6 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
-#include <atomic>
 #include <functional>
 
 // Mermaid / 画像デコード等で共有する scheduler のワーカー数。コア数の半分を 2〜4 に収める。
@@ -72,5 +71,6 @@ private:
     std::queue<std::move_only_function<void()>, std::pmr::deque<std::move_only_function<void()>>> queue_;
     std::mutex mutex_;
     std::condition_variable cv_;
-    std::atomic<bool> shutdown_{ false };
+    // 読み書きはすべて mutex_ の下で行う。
+    bool shutdown_ = false;
 };

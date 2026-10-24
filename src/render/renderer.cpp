@@ -242,12 +242,9 @@ bool Renderer::RecreateDevice()
 
 void Renderer::GenTitleBar(const TitleBarRenderState& tb)
 {
-    if (tb.height <= 0.0f) {
-        return;
-    }
-
+    const TitleBar& bar = tb.bar;
     // 完全不透明でガラス効果を隠す
-    chrome_cmds_.push_back(FillRectCmd{ .rect = D2D1::RectF(0.0f, 0.0f, tb.window_width, tb.height), .brush_id = BrushId::TitleBarBg });
+    chrome_cmds_.push_back(FillRectCmd{ .rect = D2D1::RectF(0.0f, 0.0f, tb.window_width, bar.GetHeight()), .brush_id = BrushId::TitleBarBg });
 
     const float text_alpha = tb.window_active ? 1.0f : 0.5f;
     const auto is_hovered = [&](TitleBarHitZone z) noexcept { return tb.hovered_zone == z; };
@@ -261,12 +258,12 @@ void Renderer::GenTitleBar(const TitleBarRenderState& tb)
     };
 
     const auto gen_plain = [&](TitleBarHitZone zone, wchar_t icon) {
-        gen_button(tb.Button(zone), icon, is_hovered(zone), BrushId::TitleBarButtonHover, BrushId::TitleBarText, text_alpha);
+        gen_button(bar.GetButton(zone), icon, is_hovered(zone), BrushId::TitleBarButtonHover, BrushId::TitleBarText, text_alpha);
     };
     // active > hover の優先度
     const auto gen_toggle = [&](TitleBarHitZone zone, wchar_t icon, bool active) {
         gen_button(
-            tb.Button(zone),
+            bar.GetButton(zone),
             icon,
             active || is_hovered(zone),
             active ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
@@ -283,18 +280,18 @@ void Renderer::GenTitleBar(const TitleBarRenderState& tb)
     gen_plain(TitleBarHitZone::Minimize, L'\uE921');
     gen_plain(TitleBarHitZone::Maximize, tb.is_maximized ? L'\uE923' : L'\uE922');
     if (is_hovered(TitleBarHitZone::Close)) {
-        gen_button(tb.Button(TitleBarHitZone::Close), L'\uE8BB', true, BrushId::TitleBarCloseRed, BrushId::OverlayWhite, 1.0f);
+        gen_button(bar.GetButton(TitleBarHitZone::Close), L'\uE8BB', true, BrushId::TitleBarCloseRed, BrushId::OverlayWhite, 1.0f);
     }
     else {
         gen_plain(TitleBarHitZone::Close, L'\uE8BB');
     }
 
     if (app_icon_bitmap_) {
-        chrome_cmds_.push_back(DrawBitmapCmd{ .bitmap = app_icon_bitmap_.Get(), .dest = ToD2DRect(tb.icon_rect), .opacity = text_alpha });
+        chrome_cmds_.push_back(DrawBitmapCmd{ .bitmap = app_icon_bitmap_.Get(), .dest = ToD2DRect(bar.GetIconRect()), .opacity = text_alpha });
     }
 
     if (!tb.title_text.empty()) {
-        EmitChromeText(tb.title_text, fmt_.titlebar_text.Get(), ToD2DRect(tb.title_text_rect), BrushId::TitleBarText, text_alpha);
+        EmitChromeText(tb.title_text, fmt_.titlebar_text.Get(), ToD2DRect(bar.GetTitleTextRect()), BrushId::TitleBarText, text_alpha);
     }
 }
 

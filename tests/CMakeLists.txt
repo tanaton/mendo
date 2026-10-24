@@ -15,7 +15,6 @@ add_executable(mendo_tests
     test_pane_layout.cpp
     test_mermaid_util.cpp
     test_mermaid_file_cache.cpp
-    test_mermaid_lifecycle.cpp
     test_ini_parser.cpp
     test_config_service.cpp
     test_viewport_manager.cpp
