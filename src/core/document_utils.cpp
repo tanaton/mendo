@@ -26,7 +26,9 @@ namespace {
 
 // ダブルクリック選択時の文字種カテゴリ。同じカテゴリが連続する code point を 1 単語として扱う。
 enum class CharCategory : uint8_t {
-    AsciiWord,
+    // 英数字・_ とラテン文字・ギリシャ文字・キリル文字・ハングル。空白で語を区切る文字体系なので、
+    // UAX#29 と同じく混ざっても 1 語にする (「API를」「café」)。
+    Word,
     Hiragana,
     Katakana,
     Han,
@@ -37,7 +39,13 @@ enum class CharCategory : uint8_t {
 constexpr CharCategory CategorizeCodePoint(uint32_t cp) noexcept
 {
     if (cp < 0x80) {
-        return ascii_util::IsAsciiWordChar(static_cast<char>(cp)) ? CharCategory::AsciiWord : CharCategory::Other;
+        return ascii_util::IsAsciiWordChar(static_cast<char>(cp)) ? CharCategory::Word : CharCategory::Other;
+    }
+    // ラテン文字・IPA・結合文字・ギリシャ文字・キリル文字・ラテン拡張追加 (ベトナム語)。
+    // 結合文字を含めるのは NFD (e + U+0301) の語を切らないため。× ÷ とギリシャ文字の ; · は記号なので除く。
+    if (((cp >= 0xC0 && cp <= 0x2AF) || (cp >= 0x300 && cp <= 0x52F) || (cp >= 0x1E00 && cp <= 0x1EFF)) &&
+        cp != 0xD7 && cp != 0xF7 && cp != 0x37E && cp != 0x387) {
+        return CharCategory::Word;
     }
     // 漢字繰り返し記号 (々〆〇) はひらがな/カタカナ範囲より先に判定。
     if (cp == 0x3005 || cp == 0x3006 || cp == 0x3007) {
@@ -51,6 +59,11 @@ constexpr CharCategory CategorizeCodePoint(uint32_t cp) noexcept
     }
     if ((cp >= 0x3400 && cp <= 0x4DBF) || (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0x20000 && cp <= 0x2FFFF)) {
         return CharCategory::Han;
+    }
+    // ハングルの音節・字母・互換字母・半角字母。
+    if ((cp >= 0xAC00 && cp <= 0xD7A3) || (cp >= 0x1100 && cp <= 0x11FF) || (cp >= 0x3131 && cp <= 0x318E) ||
+        (cp >= 0xA960 && cp <= 0xA97C) || (cp >= 0xD7B0 && cp <= 0xD7FB) || (cp >= 0xFFA0 && cp <= 0xFFDC)) {
+        return CharCategory::Word;
     }
     if ((cp >= 0xFF10 && cp <= 0xFF19) || (cp >= 0xFF21 && cp <= 0xFF3A) || (cp >= 0xFF41 && cp <= 0xFF5A)) {
         return CharCategory::FullwidthAlnum;

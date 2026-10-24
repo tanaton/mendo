@@ -14,7 +14,7 @@ struct WordBoundary {
     bool found = false;
 };
 
-// カテゴリ: ASCII単語(英数+_) / ひらがな / カタカナ / 漢字 / 全角英数 / その他。
+// カテゴリ: 語 (英数+_・ラテン文字・ギリシャ文字・キリル文字・ハングル) / ひらがな / カタカナ / 漢字 / 全角英数 / その他。
 // 「その他」(空白・記号など) は {0, 0, false}。形態素解析は行わない (UAX#29 簡易版)。
 // pos がマルチバイト/サロゲートの途中を指した場合は code point 先頭へスナップする。
 WordBoundary FindWordBoundaries(std::string_view text, uint32_t pos) noexcept;

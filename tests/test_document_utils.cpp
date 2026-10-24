@@ -720,6 +720,26 @@ TEST(FindWordBoundaries, Utf8)
         // 長音「ー」(U+30FC) はカタカナと同カテゴリ
         { "KatakanaWithLongVowel", "コーヒー", 3, true, 0, 12 },
         { "FullwidthAlnumSequence", "ＡＢＣ１２３", 6, true, 0, 18 },
+        // ハングルは空白で区切った語節を 1 単語にし、漢字とは別カテゴリ
+        { "HangulSequence", "한국어 문장", 3, true, 0, 9 },
+        { "HangulAfterSpace", "한국어 문장", 10, true, 10, 16 },
+        { "HangulAfterHan", "韓國한국", 6, true, 6, 12 },
+        // 英数字に続くハングル (助詞・助数詞) は同じ語
+        { "HangulParticleAfterAscii", "API를 쓴다", 4, true, 0, 6 },
+        { "HangulCounterAfterDigit", "3개", 0, true, 0, 4 },
+        // 互換字母 (U+314B) もハングル
+        { "HangulCompatibilityJamo", "ㅋㅋㅋ", 3, true, 0, 9 },
+        // アクセント付きのラテン文字・ギリシャ文字・キリル文字も英数字と同じ語
+        { "LatinAccentFromAscii", "café au lait", 0, true, 0, 5 },
+        { "LatinAccentOnAccent", "café au lait", 3, true, 0, 5 },
+        { "LatinSharpS", "Straße", 0, true, 0, 7 },
+        { "LatinExtendedAdditional", "Việt Nam", 0, true, 0, 6 },
+        { "LatinCombiningMark", "cafe\xCC\x81 noir", 0, true, 0, 6 },
+        { "Cyrillic", "Привет мир", 4, true, 0, 12 },
+        { "Greek", "Ελληνικά", 0, true, 0, 16 },
+        // ×(U+00D7) は記号
+        { "MultiplicationSignSplitsWord", "2×3", 0, true, 0, 1 },
+        { "MultiplicationSignNotSelected", "2×3", 1, false, 0, 0 },
         // 全角句読点「、」(U+3001) は Other
         { "FullwidthSymbolNotSelected", "、", 0, false, 0, 0 },
         // 「々」(U+3005) は Han
@@ -803,6 +823,8 @@ TEST(FindWordBoundariesW, Utf16)
         { "KatakanaSequence", L"テスト", 0, true, 0, 3 },
         { "HiraganaSequence", L"これはテスト", 0, true, 0, 3 },
         { "HanAndHiraganaBoundary", L"日本語です", 3, true, 3, 5 },
+        { "HangulSequence", L"한국어 문장", 4, true, 4, 6 },
+        { "LatinAccent", L"café au lait", 2, true, 0, 4 },
         { "HanSurrogatePair", L"𠮷田", 0, true, 0, 3 },
         // low surrogate を指しても high surrogate にスナップする
         { "PosOnLowSurrogate", L"𠮷田", 1, true, 0, 3 },
