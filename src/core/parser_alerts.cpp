@@ -70,7 +70,7 @@ AlertMarker DetectAlertMarker(std::string_view text)
         return {};
     }
 
-    // 確定仕様: GitHub に合わせ、マーカーと本文や画像が同じ行にある "[!NOTE] 本文" は Alert にしない
+    // GitHub に合わせ、マーカーと本文や画像が同じ行にある "[!NOTE] 本文" は Alert にしない
     // (fe1ae552 で同じ行の画像を Alert にし、db6320d7 で戻した)。表示を GitHub と食い違わせない。
     // 行末の空白は md4c が落とすので、マーカー直後は改行か終端だけを見ればよい。
     const size_t end = close + 1;

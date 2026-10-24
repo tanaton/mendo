@@ -64,9 +64,9 @@ public:
     static constexpr float PREFETCH_BUFFER_SCREENS = 2.0f;
     static_assert(PREFETCH_BUFFER_SCREENS <= EVICT_BUFFER_SCREENS);
     // text_layout と表のセルを残す範囲。先読み範囲と同じだと、少し戻るだけで作り直しになる。
-    // 確定仕様: 文書の大きさによらず上下 8 画面 (5 → 2 → 8 と揺れた末に決定)。1MB の文書を最後まで読んで測ると、
-    //   8 画面と 2 画面ではメモリに差が出なかった (プライベートワーキングセット 63〜84MB)。
-    //   1MB 以下の文書で全部残すのは、物理メモリ +50MB (全体の約 4 割) かかったのでやめた。
+    // 文書の大きさによらず上下 8 画面 (5 → 2 → 8 と揺れた末に決定)。1MB の文書を最後まで読んで測ると、
+    // 8 画面と 2 画面ではメモリに差が出なかった (プライベートワーキングセット 63〜84MB)。
+    // 1MB 以下の文書で全部残すのは、物理メモリ +50MB (全体の約 4 割) かかったのでやめた。
     static constexpr float LAYOUT_EVICT_BUFFER_SCREENS = 8.0f;
     static_assert(EVICT_BUFFER_SCREENS < LAYOUT_EVICT_BUFFER_SCREENS);
 
@@ -107,8 +107,8 @@ public:
             DropQueuesIfJumped();
         }
         const auto slices = respect_viewport
-            ? PrioritizedSlices(image_indices, PREFETCH_BUFFER_SCREENS)
-            : std::array{ std::span<const size_t>(image_indices), std::span<const size_t>{}, std::span<const size_t>{} };
+                                ? PrioritizedSlices(image_indices, PREFETCH_BUFFER_SCREENS)
+                                : std::array{ std::span<const size_t>(image_indices), std::span<const size_t>{}, std::span<const size_t>{} };
 
         int applied = 0;
         for (const size_t i : slices | std::views::join) {

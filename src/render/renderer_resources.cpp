@@ -218,7 +218,7 @@ void Renderer::CreateTextFormats(bool ui_only)
     const wchar_t* const body_font = theme_.font_family.c_str();
     const wchar_t* const icon_font = theme_.icon_font.c_str();
 
-    // i18n::TextLocale の確定仕様: 文書から来る文字は Doc、UI の決まった文言は Ui のロケールで組む。アイコンは En。
+    // i18n::TextLocale の文書から来る文字は Doc、UI の決まった文言は Ui のロケールで組む。アイコンは En。
     enum class Loc : uint8_t {
         Doc,
         Ui,

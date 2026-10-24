@@ -476,7 +476,7 @@ inline std::wstring_view ConfigLangKey() noexcept
 // 本文の書式に渡すロケール。漢字は同じ符号でも地域で字形が違い、DirectWrite はこれでフォールバック先を選ぶ
 // (ja-jp: Yu Gothic UI、zh-cn: Microsoft YaHei UI、zh-tw / zh-hk: Microsoft JhengHei UI、ko-kr: Malgun Gothic)。
 // 文書の言語は UI の言語設定 (英語 UI で日本語を読む人もいる) ではなく OS の表示言語から推す。
-// 確定仕様: これを使うのは文書から来る文字 (本文・ファイル名・目次・タイトル・検索語) だけ。メニュー・ペインの見出し・
+// これを使うのは文書から来る文字 (本文・ファイル名・目次・タイトル・検索語) だけ。メニュー・ペインの見出し・
 // トースト・設定ダイアログなど UI の決まった文言は、選んだ言語の Strings::lang_locale で組む。OS と違う言語を選んでも
 // UI の漢字をその言語の字形で出し、UI のどこでも字形を揃えるため。
 // 漢字を使わない英語 (と文言を持たない言語) は従来どおり日本語の字形にする。

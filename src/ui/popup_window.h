@@ -23,7 +23,7 @@ inline constexpr float POPUP_SUB_TEXT_ALPHA = 0.7f;
 inline constexpr float POPUP_HOVER_CORNER = 4.0f;
 inline constexpr wchar_t POPUP_GLYPH_CHECKMARK[] = L"\xE73E";
 
-// 確定仕様: ポップアップはどれも同じ振る舞いにし、新しいポップアップは中身だけを書けば済むようにする。
+// ポップアップはどれも同じ振る舞いにし、新しいポップアップは中身だけを書けば済むようにする。
 // - Impl は開くたびに作り、閉じたら捨てる (ウィンドウ・描画先・ブラシ・書式を開いている間だけ持つ)。
 // - オーナーの上に出して前面・フォーカス・キャプチャを取り、閉じたら前面をオーナーへ返す。
 // - 開閉をオーナーへ WM_ENTERMENULOOP / WM_EXITMENULOOP で知らせる (本体はその間ホバーとツールチップを出さない)。
@@ -422,7 +422,11 @@ private:
         rt->BeginDraw();
         rt->Clear(theme->pane_bg_color);
         constexpr float half = POPUP_FRAME_WIDTH * 0.5f;
-        rt->DrawRoundedRectangle({ { half, half, width - half, height - half }, POPUP_CORNER, POPUP_CORNER }, brushes.frame.Get(), POPUP_FRAME_WIDTH);
+        rt->DrawRoundedRectangle({
+                                     { half, half, width - half, height - half },
+                                     POPUP_CORNER, POPUP_CORNER
+        },
+                                 brushes.frame.Get(), POPUP_FRAME_WIDTH);
         derived().PaintContent();
         if (rt->EndDraw() == D2DERR_RECREATE_TARGET) {
             rt.Reset();

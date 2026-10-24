@@ -241,7 +241,7 @@ void MermaidRenderer::Init(
     on_update_ = std::move(on_update);
 }
 
-// 確定仕様: WebView2 は図の描画要求が来てから起動し、ファイルの変更通知などで先に起動しない
+// WebView2 は図の描画要求が来てから起動し、ファイルの変更通知などで先に起動しない
 // (57621be4 で入れ、f181f428 で外した)。パースと描画が速く先に起動しても体感の差が出ず、
 // 図の無い文書の方が多いので、起動すれば数十 MB 常駐するプロセスを要るまで作らない。
 void MermaidRenderer::EnsureInitialized()
@@ -535,7 +535,7 @@ void MermaidRenderer::OnWebResourceRequested(ICoreWebView2WebResourceRequestedEv
     // 名前で引けるのはそれだけなので、数値 ID の他のリソースは返らない。path は NUL 終端した uri の末尾。
     const bool is_html = url == APP_LOCAL_INDEX_URL;
     const std::wstring_view path = url.substr(APP_LOCAL_ORIGIN_PREFIX.size());
-    const auto body = is_html                             ? LoadRcData(IDR_MERMAID_HTML)
+    const auto body = is_html                            ? LoadRcData(IDR_MERMAID_HTML)
                       : mermaid_util::IsModulePath(path) ? LoadRcData(path.data())
                                                          : std::span<const std::byte>{};
     Microsoft::WRL::ComPtr<IStream> stream;
@@ -582,7 +582,9 @@ void MermaidRenderer::SetDiagramError(const RenderRequest& req, DiagramError::Ki
     }
     // DrawTextCmd の 255 文字上限とプレースホルダ高さ (約3行) に収まる長さ。
     constexpr size_t MAX_ERROR_LEN = 200;
-    InsertCache(req.code_hash, CachedResult{ .error = { kind, mermaid_util::SanitizeErrorMessage(msg, MAX_ERROR_LEN) } });
+    InsertCache(req.code_hash, CachedResult{
+                                   .error = { kind, mermaid_util::SanitizeErrorMessage(msg, MAX_ERROR_LEN) }
+    });
 }
 
 void MermaidRenderer::InvokeSvgCallbackIfAny(RenderRequest& req, std::pmr::wstring svg, bool cancelled)
