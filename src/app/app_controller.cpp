@@ -99,8 +99,8 @@ AppAction HandleMouseWheel(const MouseWheelEvent& event, int& zoom_accum)
 
     const float scroll_amount = -event.delta * MOUSE_WHEEL_SCROLL_MULTIPLIER;
 
-    if (event.zone == PaneZone::FilePane || event.zone == PaneZone::TocPane) {
-        return ScrollPaneAction{ event.zone, scroll_amount, event.tick };
+    if (const auto pane = ToPaneTarget(event.zone)) {
+        return ScrollPaneAction{ *pane, scroll_amount, event.tick };
     }
     return DirectScrollByAction{ scroll_amount, event.tick };
 }

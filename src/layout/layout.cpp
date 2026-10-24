@@ -299,6 +299,8 @@ bool LayoutService::EnsureNodeLayout(const Document& doc, LayoutCache& cache, fl
 void LayoutService::RecomputeAfterDiagram(const Document& doc, LayoutCache& cache, const Theme& theme,
                                           layout::HeightChangeRange changed) noexcept
 {
+    // 画面より上の画像・図の高さが変わっても、見ている内容が動かないようにする。
+    viewport_.EnsureScrollTarget(cache);
     if (!changed.empty()) {
         RecomputeYPositions(doc.GetNodes(), cache, theme, changed.first, changed.last);
     }

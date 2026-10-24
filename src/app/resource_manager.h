@@ -160,11 +160,6 @@ public:
         return applied;
     }
 
-    int ApplyCachedImagesForReload()
-    {
-        return ApplyCachedImages(false);
-    }
-
     // リロード直後のスクロール位置計算用に、ディスクキャッシュにある図の寸法を推定高さへ上書きする。
     // ビットマップは読まないので、描画は後続の RequestMermaidRenders に任せる。
     bool ApplyMermaidCacheHeightsForReload()
@@ -181,8 +176,9 @@ public:
             MermaidFileCache::CacheEntry fentry;
             if (deps_.mermaid_file_cache->LookupDiagram(mermaid_util::DiagramCodeHash(nodes[i]), content_width, dark_mode, fentry)) {
                 const float node_width = layout::NodeContentWidth(nodes[i], theme, content_width);
-                (*deps_.cache)[i].height = layout::BitmapDisplayHeight(fentry.css_width, fentry.css_height, node_width);
-                any_applied = true;
+                // 引き継いだ図は高さが変わらないので、Y の再計算を呼ばせない。
+                const float height = layout::BitmapDisplayHeight(fentry.css_width, fentry.css_height, node_width);
+                any_applied |= std::exchange((*deps_.cache)[i].height, height) != height;
             }
         }
         return any_applied;

@@ -30,7 +30,7 @@ void TaskScheduler::Init(int thread_count)
     if (thread_count_ != 0) {
         return;
     }
-    shutdown_.store(false);
+    shutdown_ = false;
     thread_count_ = static_cast<size_t>(std::max(thread_count, 0));
     // Init 前に積まれたタスクを消化する。
     if (!queue_.empty()) {
@@ -55,7 +55,7 @@ bool TaskScheduler::Post(std::move_only_function<void()> task)
         const std::lock_guard lock(mutex_);
         // Shutdown 後の Post は棄却。判定を lock 外で行うと、Shutdown の store → join 完了の後に
         // push して true を返し、誰も実行しないタスクが残る。
-        if (shutdown_.load(std::memory_order_acquire)) {
+        if (shutdown_) {
             return false;
         }
         if (queue_.size() >= MAX_PENDING_TASKS) {
@@ -76,7 +76,7 @@ void TaskScheduler::Shutdown()
     // store 後の Post は workers_ に触れずに棄却されるので、以降は lock 外で join してよい。
     {
         const std::lock_guard lock(mutex_);
-        shutdown_.store(true, std::memory_order_release);
+        shutdown_ = true;
     }
     cv_.notify_all();
     for (auto& t : workers_) {
@@ -105,7 +105,7 @@ void TaskScheduler::WorkerLoop()
         {
             std::unique_lock lock(mutex_);
             cv_.wait(lock, [this] {
-                return !queue_.empty() || shutdown_.load();
+                return !queue_.empty() || shutdown_;
             });
             // predicate から戻った時点で queue に残りがあれば shutdown 中でも処理する
             if (queue_.empty()) {

@@ -42,17 +42,13 @@ public:
     // 読み込み完了は disk_loaded_msg で hwnd に通知され、受信側が ProcessDiskLoads を呼ぶ。
     // user_data_folder は WebView2 のセッションデータの保存先（空なら WebView2 既定の場所）。
     // on_update は準備完了と結果が出たときに呼ぶ。準備前の要求と、結果を待つ図を要求し直させる。
-    void Init(HWND hwnd, IWICImagingFactory* wic,
+    void Init(HWND hwnd, IWICImagingFactory* wic, MermaidFileCache& file_cache,
               TaskScheduler& bg_scheduler, UINT disk_loaded_msg,
               const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_update);
 
     bool RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode) override;
     void RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback) override;
     void SetRenderTarget(ID2D1RenderTarget* render_target);
-    void SetFileCache(MermaidFileCache* cache) noexcept
-    {
-        file_cache_ = cache;
-    }
     // ワーカーは画面外に置くため、PNG は本体ウィンドウではなくその位置のモニタの DPR で描かれる。
     // ワーカーを起動する前にディスクキャッシュを引くときの DPR に使う。
     static float EstimateWorkerDpr() noexcept;
@@ -242,7 +238,8 @@ private:
 
     Worker workers_[MAX_WORKERS];
     int worker_count_ = 0;
-    mermaid_lifecycle::Lifecycle lifecycle_;
+    // 最初のワーカーの準備ができたか。アイドル解放で戻す。
+    bool ready_ = false;
     unsigned int request_counter_ = 0;
     // 準備完了 (アイドル解放後の再初期化を含む) と結果が出たときに呼ぶ。準備前の描画要求は捨てているため再要求させる。
     std::move_only_function<void()> on_update_;

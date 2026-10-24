@@ -133,9 +133,7 @@ add_library(mendo_core STATIC
     # app - クリップボード操作 (CopyCodeBlock / SaveDiagramAsPng / CopyDiagramToClipboard)
     src/app/clipboard_manager.cpp
     # ui - UIコンポーネント
-    # context_menu.cpp は Win32/D2D 描画層（本体）と logic 層（mendo_core 入り）に
-    # 分割されており、logic 側のみを mendo_core に含める。
-    src/ui/context_menu_logic.cpp
+    src/ui/context_menu.cpp
     src/ui/pane_controller.cpp
     src/ui/search_state.cpp
     src/ui/titlebar.cpp
@@ -200,7 +198,6 @@ add_executable(mendo WIN32
     src/app/app.cpp
     src/app/app_file.cpp
     src/app/app_mouse.cpp
-    src/ui/context_menu.cpp
     src/render/renderer.cpp
     src/render/renderer_resources.cpp
     src/render/renderer_pane.cpp

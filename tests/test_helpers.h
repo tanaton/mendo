@@ -16,9 +16,17 @@
 #include <vector>
 #include "document_types.h"
 #include "layout_cache.h"
+#include "search_state.h"
 #include "side_effect.h"
 #include "test_nodes.h"
 #include "theme.h"
+
+// 検索を区切らずに最後まで進める。
+inline void RunSearchToEnd(SearchState& s, const std::pmr::vector<Node>& nodes)
+{
+    s.BeginSearch();
+    s.ContinueSearch(nodes, std::chrono::steady_clock::time_point::max());
+}
 
 // 重なりを許さず needle の出現回数を数える。
 inline size_t CountOccurrences(std::string_view s, std::string_view needle)

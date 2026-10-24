@@ -267,10 +267,7 @@ struct ParseContext {
     // 現在のノードをここで閉じ、同じ種別の続きのノードを始める。開いている装飾とリンクは続きにも掛ける。
     void SplitCurrentNode(bool newline_before)
     {
-        std::string_view link_url;
-        if (current_link_url_index >= 0) {
-            link_url = current_link_urls[static_cast<size_t>(current_link_url_index)];
-        }
+        const std::string_view link_url = OpenLinkUrl();
         const NodeType type = current_node->type;
         const SyntaxLanguage language = current_node->code_language();
         current_node->set_continues_next();
@@ -279,9 +276,7 @@ struct ParseContext {
         current_node->set_continues_prev(newline_before);
         // 区切った段落は $$..$$ だけの段落ではないので、ブロック数式に昇格させない。
         paragraph_has_other_content = true;
-        if (!link_url.empty()) {
-            ResolveLinkUrlIndex(link_url);
-        }
+        ResolveLinkUrlIndex(link_url);
     }
 
     constexpr bool HasPendingSplit() const noexcept
@@ -439,6 +434,12 @@ struct ParseContext {
         run.set_raw_flags(current_run_flags);
         run.link_url_index = current_link_url_index;
         return run;
+    }
+
+    // ノードを閉じても続きのノードへ登録し直せるよう、開いているリンクの URL を返す。無ければ空。
+    std::string_view OpenLinkUrl() const noexcept
+    {
+        return current_link_url_index >= 0 ? std::string_view{ current_link_urls[static_cast<size_t>(current_link_url_index)] } : std::string_view{};
     }
 
     // url を current_link_urls に登録し、インデックスを current_link_url_index にキャッシュする。
@@ -1000,15 +1001,10 @@ void SplitAlertMarkerBeforeImage(ParseContext* ctx)
         return;
     }
     // [![badge](b.svg)](url) では MD_SPAN_A が先に来て URL を閉じるノードへ登録済みなので、新ノードへ登録し直す。
-    std::string_view link_url;
-    if (ctx->current_link_url_index >= 0) {
-        link_url = ctx->current_link_urls[static_cast<size_t>(ctx->current_link_url_index)];
-    }
+    const std::string_view link_url = ctx->OpenLinkUrl();
     ctx->EndNode();
     ctx->BeginParagraphNode();
-    if (!link_url.empty()) {
-        ctx->ResolveLinkUrlIndex(link_url);
-    }
+    ctx->ResolveLinkUrlIndex(link_url);
 }
 
 int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)

@@ -96,8 +96,8 @@ TEST(AppControllerTest, HandleMouseWheel)
     const WheelCase kCases[] = {
         { "Up in MdPane", { .delta = 120 }, DirectScrollByAction{ -120.0f * 0.8f } },
         { "Down in MdPane", { .delta = -120 }, DirectScrollByAction{ 120.0f * 0.8f } },
-        { "FilePane", { .delta = 120, .zone = PaneZone::FilePane }, ScrollPaneAction{ PaneZone::FilePane, -120.0f * 0.8f } },
-        { "TocPane", { .delta = -120, .zone = PaneZone::TocPane }, ScrollPaneAction{ PaneZone::TocPane, 120.0f * 0.8f } },
+        { "FilePane", { .delta = 120, .zone = PaneZone::FilePane }, ScrollPaneAction{ PaneTarget::File, -120.0f * 0.8f } },
+        { "TocPane", { .delta = -120, .zone = PaneZone::TocPane }, ScrollPaneAction{ PaneTarget::Toc, 120.0f * 0.8f } },
         { "Splitter scrolls MdPane", { .delta = 120, .zone = PaneZone::Splitter1 }, DirectScrollByAction{ -120.0f * 0.8f } },
         { "Ctrl+Up", { .delta = 120, .ctrl = true }, ZoomAction{ ZoomDirection::In } },
         { "Ctrl+Down", { .delta = -120, .ctrl = true }, ZoomAction{ ZoomDirection::Out } },

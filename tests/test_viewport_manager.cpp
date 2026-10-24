@@ -204,12 +204,10 @@ TEST(ViewportManagerTest, EnsureScrollTargetPreservesExistingTarget)
 TEST(ViewportManagerTest, ClearSelection)
 {
     ViewportManager vm;
-    vm.SetAnchor(3, 10);
     vm.SetSelection(TextSelection::MakeOrdered(0, 0, 5, 20));
 
     vm.ClearSelection();
     EXPECT_FALSE(vm.GetSelection().active);
-    EXPECT_EQ(vm.GetAnchorNode(), -1);
 }
 
 TEST(ViewportManagerTest, SelectAll)

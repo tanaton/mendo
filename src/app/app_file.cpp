@@ -487,7 +487,7 @@ void App::FinishReload(size_t diff_pos)
 void App::ApplyCachedHeightsAndRecompute()
 {
     const bool mermaid_applied = resource_manager_.ApplyMermaidCacheHeightsForReload();
-    const bool image_applied = resource_manager_.ApplyCachedImagesForReload() > 0;
+    const bool image_applied = resource_manager_.ApplyCachedImages(false) > 0;
     if (mermaid_applied || image_applied) {
         RecomputeYPositions(
             state_.document.doc.GetNodes(),

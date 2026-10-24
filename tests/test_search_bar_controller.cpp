@@ -73,7 +73,7 @@ TEST_F(SearchBarControllerTest, InitialState)
     EXPECT_FALSE(ctrl_.HasFocus());
     EXPECT_EQ(ctrl_.GetCaretPos(), -1);
     EXPECT_EQ(ctrl_.GetSelectionStart(), -1);
-    EXPECT_TRUE(ctrl_.GetImeComposition().empty());
+    EXPECT_TRUE(ctrl_.BuildRenderState().ime_composition.empty());
 }
 
 // ═══════════════════════════════════════════════
@@ -204,7 +204,7 @@ TEST_F(SearchBarControllerTest, SetImeComposition)
     ctrl_.OnOpen(effects_, nodes_);
 
     ctrl_.SetImeComposition(effects_, L"あい");
-    EXPECT_EQ(ctrl_.GetImeComposition(), L"あい");
+    EXPECT_EQ(ctrl_.BuildRenderState().ime_composition, L"あい");
 }
 
 TEST_F(SearchBarControllerTest, SetImeCompositionNoOpWhenUnchanged)
@@ -251,7 +251,7 @@ TEST_F(SearchBarControllerTest, ResetClearsAll)
     EXPECT_FALSE(ctrl_.HasFocus());
     EXPECT_EQ(ctrl_.GetCaretPos(), -1);
     EXPECT_EQ(ctrl_.GetSelectionStart(), -1);
-    EXPECT_TRUE(ctrl_.GetImeComposition().empty());
+    EXPECT_TRUE(ctrl_.BuildRenderState().ime_composition.empty());
 }
 
 // ═══════════════════════════════════════════════

@@ -217,12 +217,8 @@ void ReduceDirectScrollBy(AppState& state, SideEffectList& effects, const Direct
 void ReduceScrollPane(AppState& state, SideEffectList& effects, const ScrollPaneAction& a)
 {
     NotifyVWheel(state, effects, a.tick);
-    const auto target = ToPaneTarget(a.pane);
-    if (!target) {
-        return;
-    }
-    const auto ctx = GetSidePaneContext(state, *target);
-    if (state.view.panes.ScrollSidePaneBy(*target, a.delta, ctx.info.max_scroll)) {
+    const auto ctx = GetSidePaneContext(state, a.pane);
+    if (state.view.panes.ScrollSidePaneBy(a.pane, a.delta, ctx.info.max_scroll)) {
         PushEffect(effects, effect::InvalidateWindow{});
     }
 }
@@ -573,16 +569,13 @@ void ReducePaneScrollbarDragMoved(AppState& state, SideEffectList& effects, cons
 
 void ReduceTextSelectionStarted(AppState& state, SideEffectList& effects, const TextSelectionStartedAction& a)
 {
-    state.view.viewport.SetClickStart(a.click_x, a.click_y);
     if (a.node_index < 0) {
         return;
     }
-    state.view.viewport.SetAnchor(a.node_index, a.text_pos);
-    state.view.drag = { .kind = LeftDrag::TextSelect };
     auto& selection = state.view.viewport.GetSelection();
     const bool had_selection = selection.active;
     selection.Clear();
-    PushEffect(effects, effect::SetCapture{});
+    BeginLeftDrag(state, effects, { .kind = LeftDrag::TextSelect, .select_node = a.node_index, .select_pos = a.text_pos, .click_x = a.click_x, .click_y = a.click_y });
     if (had_selection) {
         PushEffect(effects, effect::InvalidateWindow{});
     }
@@ -594,11 +587,7 @@ void ReduceTextSelectionMoved(AppState& state, SideEffectList& effects, const Te
         return;
     }
     // WM_MOUSEMOVE は 16ms 周期で連発するため、選択が同値なら早期 return。
-    const auto next = TextSelection::MakeOrdered(
-        state.view.viewport.GetAnchorNode(),
-        state.view.viewport.GetAnchorPos(),
-        a.node_index,
-        a.text_pos);
+    const auto next = state.view.drag.SelectionTo(a.node_index, a.text_pos);
     if (next == state.view.viewport.GetSelection()) {
         return;
     }
@@ -613,11 +602,7 @@ void ReduceTextSelectionEnded(AppState& state, SideEffectList& effects, const Te
     }
     bool changed = false;
     if (a.end_node_index >= 0) {
-        const auto next = TextSelection::MakeOrdered(
-            state.view.viewport.GetAnchorNode(),
-            state.view.viewport.GetAnchorPos(),
-            a.end_node_index,
-            a.end_text_pos);
+        const auto next = state.view.drag.SelectionTo(a.end_node_index, a.end_text_pos);
         changed = next != state.view.viewport.GetSelection();
         state.view.viewport.SetSelection(next);
     }
@@ -711,7 +696,6 @@ void ReduceSelectWord(AppState& state, SideEffectList& effects, const SelectWord
     if (!wb.found) {
         return;
     }
-    state.view.viewport.SetAnchor(a.node_index, wb.start);
     state.view.viewport.SetSelection(TextSelection::MakeOrdered(a.node_index, wb.start, a.node_index, wb.end));
     PushEffect(effects, effect::InvalidateWindow{});
 }

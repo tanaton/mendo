@@ -1566,7 +1566,7 @@ public:
 
 ---
 
-### 3.12 MermaidRenderer / mermaid_lifecycle::Lifecycle / MermaidFileCache
+### 3.12 MermaidRenderer / MermaidFileCache
 
 #### 3.12.1 アーキテクチャ
 
@@ -1574,7 +1574,6 @@ public:
 sequenceDiagram
     participant APP as App
     participant RM as ResourceManager
-    participant ML as mermaid_lifecycle::Lifecycle
     participant MR as MermaidRenderer
     participant FC as MermaidFileCache
     participant WV as WebView2 (画面外ポップアップ)
@@ -1593,7 +1592,7 @@ sequenceDiagram
         APP->>MR: ProcessDiskLoads → ID2D1Bitmap 化してメモリキャッシュへ (UI スレッド)
         MR-->>RM: on_update → RequestMermaidRenders（要求し直してメモリキャッシュから受け取る）
     else キャッシュミス
-        MR->>ML: TryMarkInitialized（未起動なら WebView2 環境を生成）
+        MR->>MR: EnsureInitialized（ワーカーが無ければ WebView2 環境を生成）
         MR->>WV: ExecuteScript(render)
         WV->>JS: mermaid.render(code)
         JS-->>WV: SVG文字列
@@ -1635,11 +1634,11 @@ public:
 
 要求と結果のキーは、ノードのテキストと言語で決まる `DiagramCodeHash` に量子化幅とテーマを混ぜた `DiagramRequestHash`（`NodeDiagramHash` と同じ値で、ディスクキャッシュのキーにもなる）。mermaid は既定で `useMaxWidth` なので、幅の上限より狭く描けた図（`IsWidthFree`）はどの幅でも同じ結果になる。その結果は幅を混ぜない `DiagramWidthFreeHash` で持ち、メモリ（`FindCached`）でもディスク（`MermaidFileCache::LookupDiagram`）でも先に引いて、いまの幅の上限より狭いときだけ使う。ウィンドウやペインの幅を変えて開き直しても、描き直すのは幅に縛られる図（gantt など）とエラーだけになる。コード部分は `DiagramEntry::code_hash` に覚え、幅・テーマの変更で結果を捨てても残すので、要求し直すたびにテキストを読み直さない。結果はビットマップかエラーの `CachedResult` 1 型で、`LruCache`（`MAX_CACHE_ENTRIES` = 128 件、`MAX_CACHE_BYTES` = 64MB）1 つに持つ。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。待ち・読み込み中・描画中の要求は `inflight_`（ハッシュの集合）で重複を弾く。要求はコードを UTF-8 のまま持ち、UTF-16 への変換と LaTeX の flowchart への包みは `RenderInWorker` で描く直前に行う。
 
-`mendo_core` には `mermaid_lifecycle::Lifecycle`（純粋ロジック）と `IMermaidRenderer` 抽象のみが入り、WebView2 を呼び出す具象 `MermaidRenderer` は `mendo` 実行ファイル側に分離されている。`MermaidRenderer` は最大 2 ワーカー（`MAX_WORKERS`、独立した WebView2 インスタンス）を並行稼働させ、PNG/SVG を同時にレンダリングできる。ワーカーは最初 1 つだけ起動し、全ワーカーが描画中で待ちが溜まったときに `MaybeGrowWorkers` で増やす。
+`mendo_core` には `IMermaidRenderer` 抽象のみが入り、WebView2 を呼び出す具象 `MermaidRenderer` は `mendo` 実行ファイル側に分離されている。`MermaidRenderer` は最大 2 ワーカー（`MAX_WORKERS`、独立した WebView2 インスタンス）を並行稼働させ、PNG/SVG を同時にレンダリングできる。ワーカーは最初 1 つだけ起動し、全ワーカーが描画中で待ちが溜まったときに `MaybeGrowWorkers` で増やす。
 
 PNG のデコードは UI スレッドで行わない。ディスクキャッシュから読む場合も、WebView2 の `CapturePreview` で描画した直後の PNG も同じ `DiskLoad` 経路に流し、バックグラウンド `TaskScheduler` でファイル読み込み（キャプチャ時は不要）と WIC デコードを済ませた `IWICBitmap` を作る。完了は `app_msg::MERMAID_DISK_LOADED` で通知され、UI スレッドの `ProcessDiskLoads` が `CreateBitmapFromWicBitmap` で `ID2D1Bitmap` 化してメモリキャッシュに入れ、結果が出たものがあれば `on_update_` をまとめて 1 回呼ぶ。1 回の転送は `kUploadSliceBudget`（4ms）までで、残した分は `HasLeftoverDiskLoads` が真になり、メッセージループの空き時間（`App::RunIdleWork`）で続ける。キャプチャ由来の PNG はこのときディスクキャッシュへ `StoreAsync` される。ディスクから読めなかった・デコードできなかった図は WebView2 での描画に回し、キャプチャ直後の PNG がデコードできなければエラーとして確定させる。
 
-描画要求が無いまま `IDLE_SHUTDOWN_MS`（60 秒）経つと、`app_timer::Id::MERMAID_IDLE` → `App::HandleTimer` → `OnIdleTimer` で全ワーカーと WebView2 環境（browser / renderer / GPU プロセス）をまとめて閉じ、`Lifecycle` も未初期化に戻す。待ちキューが空になるたび（`ProcessQueue` 末尾）にタイマーを張り直し、待ちや描画中のワーカーが残っていれば閉じるのを見送る。次の描画要求で `EnsureInitialized` から作り直し、準備完了の通知（`on_update_`）は再初期化のたびに呼ばれて未描画の図を再要求させる。
+描画要求が無いまま `IDLE_SHUTDOWN_MS`（60 秒）経つと、`app_timer::Id::MERMAID_IDLE` → `App::HandleTimer` → `OnIdleTimer` で全ワーカーと WebView2 環境（browser / renderer / GPU プロセス）をまとめて閉じ、準備完了の印 (`ready_`) も戻す。待ちキューが空になるたび（`ProcessQueue` 末尾）にタイマーを張り直し、待ちや描画中のワーカーが残っていれば閉じるのを見送る。次の描画要求で `EnsureInitialized` から作り直し、準備完了の通知（`on_update_`）は再初期化のたびに呼ばれて未描画の図を再要求させる。
 
 #### 3.12.3 MermaidFileCache — 永続キャッシュ
 
@@ -1691,7 +1690,7 @@ WebView2 は起動時には作らず、最初の描画要求（`RequestRender` /
 1. 画面外に置いたポップアップウィンドウを作成（`CapturePreview` は可視状態を要求するため非表示にはしない）
 2. WebView2 環境とコントローラを非同期に生成。環境の生成に失敗したら `MERMAID_INIT_RETRY` タイマーで `ENV_RETRY_INTERVAL_MS`（500ms）おきに `MAX_ENV_RETRIES`（3 回）まで再試行し、上限に達したら待ちの要求を失敗で完了させて未初期化に戻す
 3. `https://app.local/index.html` へ `Navigate` し、`WebResourceRequested` で HTML テンプレート（`IDR_MERMAID_HTML`）と `mermaid.min.js`（`IDR_MERMAID_JS`）を RCDATA から無圧縮のまま配信する
-4. 最初のワーカーの準備完了で `Lifecycle::MarkReady` し `on_update_` を呼ぶ。準備前の描画要求は捨てているので、これで図の描画を要求し直させる
+4. 最初のワーカーの準備完了で `ready_` を立て `on_update_` を呼ぶ。準備前の描画要求は捨てているので、これで図の描画を要求し直させる
 
 ---
 
@@ -2344,7 +2343,7 @@ private:
 
 ### 3.22 ContextMenu — カスタムコンテキストメニュー
 
-`ContextMenu` は Win32 のシステムメニューの代わりに、Direct2D で自前描画するカスタムコンテキストメニュー。`context_menu_logic.cpp`（mendo_core 入り、純粋ロジック）と `context_menu.cpp`（D2D 描画）に分離されている。
+`ContextMenu` は Win32 のシステムメニューの代わりに、Direct2D で自前描画するカスタムコンテキストメニュー。実装は `context_menu.cpp`（mendo_core 入り）にまとまっている。
 
 ```cpp
 struct ContextMenuParams {
@@ -3382,7 +3381,6 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_image.cpp` | ImageLoader |
 | `test_help.cpp` | ヘルプドキュメント |
 | `test_mermaid_util.cpp` | Mermaidユーティリティ |
-| `test_mermaid_lifecycle.cpp` | mermaid_lifecycle::Lifecycle |
 | `test_mermaid_file_cache.cpp` | MermaidFileCache |
 | `test_app_controller.cpp` | app_controller |
 | `test_reducer.cpp` | Reducer |
@@ -3663,13 +3661,12 @@ src/
 ├── mermaid/                       # Mermaid層
 │   ├── mermaid.h / mermaid.cpp    # MermaidRenderer (WebView2)
 │   ├── mermaid_renderer_interface.h # IMermaidRenderer
-│   ├── mermaid_util.h / .cpp      # ヘルパー + mermaid_lifecycle::Lifecycle
+│   ├── mermaid_util.h / .cpp      # ヘルパー
 │   └── mermaid_file_cache.h / .cpp # 永続キャッシュ (MEMC v1)
 ├── ui/                            # UI層 (Win32/D2D 依存ありの可視層)
 │   ├── titlebar.h / titlebar.cpp  # TitleBar
 │   ├── context_menu.h / .cpp      # ContextMenu (D2D描画)
 │   ├── context_menu_impl.h        # 内部実装
-│   ├── context_menu_logic.cpp     # ContextMenu 純粋ロジック (mendo_core)
 │   ├── toast_notifier.h           # ToastNotifier (ヘッダオンリー)
 │   ├── tooltip.h / tooltip.cpp    # Tooltip + TooltipTarget + ApplyDarkModeToWindow
 │   ├── search_state.h / .cpp      # SearchState
@@ -5068,27 +5065,26 @@ nnoremap <silent> <leader>m <ScriptCmd>OpenInMendo()<CR>
 | 29 | hit_test | hit_test_service.h/cpp | mendo_core | あり |
 | 30 | ConfigService + SessionService | config_service.h/cpp | mendo_core | あり |
 | 31 | MermaidRenderer | mermaid.h/cpp | mendo | なし |
-| 32 | mermaid_lifecycle::Lifecycle | mermaid_util.h/cpp | mendo_core | あり |
-| 33 | MermaidFileCache | mermaid_file_cache.h/cpp | mendo_core | あり |
-| 34 | TitleBar | titlebar.h/cpp | mendo_core | あり |
-| 35 | ContextMenu | context_menu.h/cpp + logic | mendo / mendo_core | あり (logic) |
-| 36 | ToastNotifier | toast_notifier.h | mendo_core | あり |
-| 37 | Tooltip + TooltipTarget | tooltip.h/cpp | mendo_core | TooltipTarget のみ |
-| 38 | SearchState | search_state.h/cpp | mendo_core | あり |
-| 39 | SearchBarController | search_bar_controller.h + app.h/cpp (AppHost) | mendo_core / mendo (AppHost) | あり |
-| 40 | ImageLoader | image_loader.h/cpp | mendo_core | あり |
-| 41 | ResourceManager | resource_manager.h + app.h/cpp (AppHost) | mendo_core / mendo (AppHost) | あり |
-| 42 | i18n | i18n.h | mendo_core | あり |
-| 43 | IniParser | ini_parser.h | mendo_core | あり |
-| 44 | TaskScheduler | task_scheduler.h/cpp | mendo_core | あり |
-| 45 | LruCache | lru_cache.h | mendo_core | あり |
-| 46 | UniqueResource + Clipboard utils | win_handle.h + clipboard_util.h | mendo_core | なし |
-| 47 | LastHoverPos | last_hover_pos.h | mendo_core | あり |
-| 48 | ScrollRestoration | ui_types.h 内 | mendo_core | あり |
-| 49 | SystemCursors | app.h 内 | mendo_core | なし |
-| 50 | UIConstants | ui_constants.h | mendo_core | あり |
-| 51 | StringConvert | string_convert.h | mendo_core | あり |
-| 52 | Profiler | profiler.h | mendo_core | なし |
+| 32 | MermaidFileCache | mermaid_file_cache.h/cpp | mendo_core | あり |
+| 33 | TitleBar | titlebar.h/cpp | mendo_core | あり |
+| 34 | ContextMenu | context_menu.h/cpp | mendo_core | あり |
+| 35 | ToastNotifier | toast_notifier.h | mendo_core | あり |
+| 36 | Tooltip + TooltipTarget | tooltip.h/cpp | mendo_core | TooltipTarget のみ |
+| 37 | SearchState | search_state.h/cpp | mendo_core | あり |
+| 38 | SearchBarController | search_bar_controller.h + app.h/cpp (AppHost) | mendo_core / mendo (AppHost) | あり |
+| 39 | ImageLoader | image_loader.h/cpp | mendo_core | あり |
+| 40 | ResourceManager | resource_manager.h + app.h/cpp (AppHost) | mendo_core / mendo (AppHost) | あり |
+| 41 | i18n | i18n.h | mendo_core | あり |
+| 42 | IniParser | ini_parser.h | mendo_core | あり |
+| 43 | TaskScheduler | task_scheduler.h/cpp | mendo_core | あり |
+| 44 | LruCache | lru_cache.h | mendo_core | あり |
+| 45 | UniqueResource + Clipboard utils | win_handle.h + clipboard_util.h | mendo_core | なし |
+| 46 | LastHoverPos | last_hover_pos.h | mendo_core | あり |
+| 47 | ScrollRestoration | ui_types.h 内 | mendo_core | あり |
+| 48 | SystemCursors | app.h 内 | mendo_core | なし |
+| 49 | UIConstants | ui_constants.h | mendo_core | あり |
+| 50 | StringConvert | string_convert.h | mendo_core | あり |
+| 51 | Profiler | profiler.h | mendo_core | なし |
 
 ---
 

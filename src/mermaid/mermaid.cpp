@@ -225,15 +225,16 @@ void MermaidRenderer::ReleaseWebView()
     }
     worker_count_ = 0;
     webview_env_.Reset();
-    lifecycle_.Reset();
+    ready_ = false;
 }
 
 void MermaidRenderer::Init(
-    HWND hwnd, IWICImagingFactory* wic,
+    HWND hwnd, IWICImagingFactory* wic, MermaidFileCache& file_cache,
     TaskScheduler& bg_scheduler, UINT disk_loaded_msg,
     const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_update)
 {
     hwnd_ = hwnd;
+    file_cache_ = &file_cache;
     wic_factory_ = wic;
     bg_scheduler_ = &bg_scheduler;
     disk_loaded_msg_ = disk_loaded_msg;
@@ -248,7 +249,7 @@ void MermaidRenderer::Init(
 // 図の無い文書の方が多いので、起動すれば数十 MB 常駐するプロセスを要るまで作らない。
 void MermaidRenderer::EnsureInitialized()
 {
-    if (!lifecycle_.TryMarkInitialized()) {
+    if (worker_count_ > 0) {
         return;
     }
 
@@ -256,16 +257,14 @@ void MermaidRenderer::EnsureInitialized()
     worker_count_ = CreateWorkerWindow(0) ? 1 : 0;
 
     if (worker_count_ == 0) {
-        // ワーカーウィンドウを 1 つも作れなければ初期化済みフラグを戻し、
-        // 次回 RequestRender/RequestSvg で再試行できるようにする。
+        // ワーカーウィンドウを 1 つも作れなければ、次回 RequestRender/RequestSvg で再試行する。
         // 既にキューされた SVG リクエストは失敗で完了させ in-flight 固着を防ぐ。
-        lifecycle_.Reset();
         DrainPendingRequests(/*cancelled=*/false);
         return;
     }
 
     // WebView2環境の生成失敗はタイマーリトライで対処されるため、
-    // ワーカーウィンドウ作成完了時点で（initialized は既にマーク済みで）次段へ進む。
+    // ワーカーウィンドウ作成完了時点で次段へ進む。
     CreateWebView2Environment();
 }
 
@@ -725,16 +724,14 @@ bool MermaidRenderer::RequestRender(
         .code_hash = hash,
         .width_free_hash = width_free_hash,
     };
-    if (file_cache_) {
-        MermaidFileCache::CacheEntry fentry;
-        std::filesystem::path png_path;
-        if (const auto key = file_cache_->LookupDiagram(diagram_entry.code_hash, max_width, dark_mode, fentry); key && file_cache_->LookupPath(*key, fentry, png_path)) {
-            req.width_free = *key == width_free_hash;
-            req.css_width = fentry.css_width;
-            req.css_height = fentry.css_height;
-            StartDiskLoad(std::move(req), std::move(png_path));
-            return false;
-        }
+    MermaidFileCache::CacheEntry fentry;
+    std::filesystem::path png_path;
+    if (const auto key = file_cache_->LookupDiagram(diagram_entry.code_hash, max_width, dark_mode, fentry); key && file_cache_->LookupPath(*key, fentry, png_path)) {
+        req.width_free = *key == width_free_hash;
+        req.css_width = fentry.css_width;
+        req.css_height = fentry.css_height;
+        StartDiskLoad(std::move(req), std::move(png_path));
+        return false;
     }
 
     EnqueueWebRender(std::move(req));
@@ -788,9 +785,7 @@ bool MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
     if (r.bitmap && render_target_ && SUCCEEDED(render_target_->CreateBitmapFromWicBitmap(r.bitmap.Get(), &bitmap)) && bitmap) {
         if (r.captured) {
             r.req.width_free = mermaid_util::IsWidthFree(r.req.css_width, r.req.max_width);
-            if (file_cache_) {
-                file_cache_->StoreAsync(r.req.CacheKey(), r.req.css_width, r.req.css_height, r.png);
-            }
+            file_cache_->StoreAsync(r.req.CacheKey(), r.req.css_width, r.req.css_height, r.png);
         }
         InsertCache(r.req.CacheKey(), CachedResult{ std::move(bitmap), r.req.css_width, r.req.css_height, std::move(r.png) });
         ReleaseInflight(r.req);
@@ -802,7 +797,7 @@ bool MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
         ReleaseInflight(r.req);
         return true;
     }
-    if (file_cache_ && !r.png) {
+    if (!r.png) {
         file_cache_->OnReadFailed(r.req.CacheKey(), r.read_error);
     }
     EnqueueWebRender(std::move(r.req));
@@ -821,7 +816,7 @@ void MermaidRenderer::ProcessDiskLoads(std::chrono::steady_clock::time_point dea
 
 void MermaidRenderer::EnqueueWebRender(RenderRequest req)
 {
-    if (!lifecycle_.IsReady()) {
+    if (!ready_) {
         // 準備完了の通知で要求し直させる。
         ReleaseInflight(req);
         EnsureInitialized();
@@ -843,7 +838,7 @@ void MermaidRenderer::RequestSvg(std::string_view code, float max_width, bool da
         .svg_callback = std::move(callback),
     });
 
-    if (!lifecycle_.IsReady()) {
+    if (!ready_) {
         EnsureInitialized();
         return;
     }
@@ -852,7 +847,7 @@ void MermaidRenderer::RequestSvg(std::string_view code, float max_width, bool da
 
 void MermaidRenderer::ProcessQueue()
 {
-    if (!lifecycle_.IsReady()) {
+    if (!ready_) {
         return;
     }
 
@@ -948,16 +943,13 @@ void MermaidRenderer::OnWorkerReady(Worker& worker, float dpr)
     if (mermaid_util::IsPlausibleDpr(dpr)) {
         worker.dpr = dpr;
         // 拡大率の変更などで推定とずれていたら、以降のキャッシュは実際に描く DPR で引く。
-        if (file_cache_) {
-            file_cache_->SetDpr(dpr);
-        }
+        file_cache_->SetDpr(dpr);
     }
     worker.ready = true;
     worker.init_retries = 0;
     // 初期化 (アイドル解放後の再初期化を含む) ごとに、最初のワーカーの準備完了で on_update_ を呼ぶ。
     // 残りは準備でき次第プールに参加する。
-    if (!lifecycle_.IsReady()) {
-        lifecycle_.MarkReady();
+    if (!std::exchange(ready_, true)) {
         NotifyUpdate();
     }
     ProcessQueue();

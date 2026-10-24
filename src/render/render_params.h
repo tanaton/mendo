@@ -35,11 +35,8 @@ struct ToastRenderState {
 };
 
 struct TitleBarRenderState {
+    const TitleBar& bar;
     std::wstring_view title_text;
-    TitleBarButtons buttons{};
-    DipRect icon_rect{};
-    DipRect title_text_rect{};
-    float height = 0.0f;
     float window_width = 0.0f;
     // ホバー中のボタン。ボタンごとに bool を持たせず一元管理する。
     TitleBarHitZone hovered_zone = TitleBarHitZone::None;
@@ -49,11 +46,6 @@ struct TitleBarRenderState {
     bool toc_pane_visible = false;
     bool is_maximized = false;
     bool window_active = true;
-
-    constexpr const DipRect& Button(TitleBarHitZone zone) const noexcept
-    {
-        return TitleBarButtonRect(buttons, zone);
-    }
 };
 
 // File / TOC ペインの対称な状態をまとめた値型。SidePaneState::panes[2] の要素。

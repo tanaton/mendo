@@ -20,12 +20,6 @@ void SearchState::SetQuery(std::string_view query)
     query_.assign(query);
 }
 
-void SearchState::ExecuteSearch(const std::pmr::vector<Node>& nodes)
-{
-    BeginSearch();
-    ContinueSearch(nodes, std::chrono::steady_clock::time_point::max());
-}
-
 void SearchState::BeginSearch()
 {
     StopSearch();

@@ -140,38 +140,9 @@ public:
         selection_ = sel;
     }
 
-    constexpr int GetAnchorNode() const noexcept
-    {
-        return anchor_node_;
-    }
-    constexpr uint32_t GetAnchorPos() const noexcept
-    {
-        return anchor_pos_;
-    }
-    constexpr void SetAnchor(int node, uint32_t pos) noexcept
-    {
-        anchor_node_ = node;
-        anchor_pos_ = pos;
-    }
-
-    constexpr int GetClickStartX() const noexcept
-    {
-        return click_start_x_;
-    }
-    constexpr int GetClickStartY() const noexcept
-    {
-        return click_start_y_;
-    }
-    constexpr void SetClickStart(int x, int y) noexcept
-    {
-        click_start_x_ = x;
-        click_start_y_ = y;
-    }
-
     constexpr void ClearSelection() noexcept
     {
         selection_.Clear();
-        anchor_node_ = -1;
     }
 
     constexpr void SelectAll(const std::pmr::vector<Node>& nodes) noexcept
@@ -240,10 +211,6 @@ private:
 
     // 選択状態
     TextSelection selection_; // 20B
-    int32_t anchor_node_ = -1;
-    uint32_t anchor_pos_ = 0;
-    int32_t click_start_x_ = 0;
-    int32_t click_start_y_ = 0;
 
     // --- 1 バイトアライメント ---
     uint8_t zoom_index_ = static_cast<uint8_t>(ZOOM_DEFAULT_INDEX);

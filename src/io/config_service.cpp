@@ -72,7 +72,7 @@ std::filesystem::path ConfigService::GetConfigPath(std::wstring_view filename) c
         return {};
     }
     if (std::ranges::any_of(filename, [](wchar_t c) static noexcept {
-        return c == L'\\' || c == L'/' || c == L':';
+        return path_util::IsPathSlash(c) || c == L':';
     })) {
         return {};
     }

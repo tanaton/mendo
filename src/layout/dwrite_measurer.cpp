@@ -1,5 +1,6 @@
 #include "dwrite_measurer.h"
 #include "brush_id.h"
+#include "d2d_util.h"
 #include "doc_dwrite_bridge.h"
 #include "document_utils.h"
 #include "layout_computer.h"
@@ -211,14 +212,6 @@ bool RemeasureExistingLayout(const Node& node, NodeLayoutEntry& entry, float lay
     return false;
 }
 
-HRESULT CreateFormat(IDWriteFactory* factory, const wchar_t* family, float size, DWRITE_FONT_WEIGHT weight, IDWriteTextFormat** out)
-{
-    return factory->CreateTextFormat(
-        family, nullptr, weight,
-        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        size, L"ja-jp", out);
-}
-
 // 1 属性ぶんのレンジビルダ。隣接ランで属性が連続する間はマージし、切れたら emit する。
 // 範囲は UTF-16 textPosition 単位。
 template <typename Emit>
@@ -317,34 +310,14 @@ bool DWriteTextMeasurer::RecreateFormats()
         return false;
     }
 
-    fmt_body_.Reset();
-    for (auto& fmt : fmt_h_) {
-        fmt.Reset();
-    }
-    fmt_code_.Reset();
-
-    const auto W = DWRITE_FONT_WEIGHT_NORMAL;
-    const auto B = DWRITE_FONT_WEIGHT_BOLD;
-
-    if (FAILED(CreateFormat(dwrite_, theme_->font_family.c_str(), theme_->font_size_body, W, &fmt_body_))) {
-        return false;
-    }
+    // 描画側と同じ作り方にし、無効なフォント名でも描画と同じフォールバックで測る。
+    const wchar_t* family = theme_->font_family.c_str();
+    fmt_body_ = CreateTextFormat(dwrite_, { .family = family, .size = theme_->font_size_body });
     for (const auto i : std::views::iota(0, 6)) {
-        if (FAILED(CreateFormat(dwrite_, theme_->font_family.c_str(), theme_->font_size_h[i], B, &fmt_h_[i]))) {
-            return false;
-        }
+        fmt_h_[i] = CreateTextFormat(dwrite_, { .family = family, .weight = DWRITE_FONT_WEIGHT_BOLD, .size = theme_->font_size_h[i] });
     }
-    if (FAILED(CreateFormat(dwrite_, theme_->monospace_font.c_str(), theme_->font_size_code, W, &fmt_code_))) {
-        return false;
-    }
-
-    fmt_body_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
-    for (auto& fmt : fmt_h_) {
-        fmt->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
-    }
-    fmt_code_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-
-    return true;
+    fmt_code_ = CreateTextFormat(dwrite_, { .family = theme_->monospace_font.c_str(), .size = theme_->font_size_code, .no_wrap = true });
+    return fmt_body_ && fmt_code_ && std::ranges::all_of(fmt_h_, [](const auto& f) static { return f != nullptr; });
 }
 
 IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const Node& node) const noexcept
