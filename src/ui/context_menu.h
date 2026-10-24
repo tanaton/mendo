@@ -2,7 +2,6 @@
 #include "ui_types.h"
 #include <cstdint>
 #include <functional>
-#include <memory>
 #include <string_view>
 #include <vector>
 
@@ -69,8 +68,7 @@ public:
         DipRect reset_rect{};
     };
 
-    ContextMenu();
-    ~ContextMenu();
+    ContextMenu() = default;
 
     ContextMenu(const ContextMenu&) = delete;
     ContextMenu& operator=(const ContextMenu&) = delete;
@@ -80,9 +78,10 @@ public:
 
     int Show(HWND owner_hwnd, const ContextMenuParams& params);
 
-    // 定義は context_menu_impl.h。テストはウィンドウを作らずに Impl の各段階を直接呼ぶ。
+    // 定義は context_menu_impl.h。開くたびに作る。テストはウィンドウを作らずに Impl の各段階を直接呼ぶ。
     struct Impl;
 
 private:
-    std::unique_ptr<Impl> impl_;
+    ID2D1Factory* d2d_factory_ = nullptr;
+    IDWriteFactory* dwrite_factory_ = nullptr;
 };

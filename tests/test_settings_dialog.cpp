@@ -88,16 +88,16 @@ protected:
 TEST_F(SettingsDialogLayoutTest, RowsStackInsideDialog)
 {
     const auto& l = dialog_.layout;
-    EXPECT_GE(l.width, MIN_WIDTH);
+    EXPECT_GE(dialog_.width, MIN_WIDTH);
     EXPECT_FLOAT_EQ(l.languages.front().top, l.language_heading.bottom);
     for (size_t row = 1; row < l.languages.size(); ++row) {
         EXPECT_FLOAT_EQ(l.languages[row].top, l.languages[row - 1].bottom);
     }
     EXPECT_GT(l.separator_y, l.languages.back().bottom);
     EXPECT_GT(l.cache_heading.top, l.separator_y);
-    EXPECT_LE(l.clear.right, l.width - PAD_X);
+    EXPECT_LE(l.clear.right, dialog_.width - PAD_X);
     EXPECT_LT(l.cache_size.right, l.clear.left);
-    EXPECT_LT(l.clear.bottom, l.height);
+    EXPECT_LT(l.clear.bottom, dialog_.height);
 }
 
 // どの言語の表示中でも、一番長い行がダイアログの幅に収まる。
@@ -107,9 +107,9 @@ TEST_F(SettingsDialogLayoutTest, WidthFitsLongestTextInEveryLanguage)
         SCOPED_TRACE(std::wstring(language->lang_key));
         i18n::SetLanguage(language);
         dialog_.Rebuild();
-        const float system_w = dialog_.TextWidth(dialog_.system_language_text, dialog_.fmt_text.Get());
-        EXPECT_LE(PAD_X + CHECK_WIDTH + system_w, dialog_.layout.width - PAD_X + 0.5f);
-        const float button_w = dialog_.TextWidth(language->settings_clear_cache, dialog_.fmt_text.Get());
+        const float system_w = dialog_.Measure(dialog_.system_language_text, dialog_.fmt_text.Get());
+        EXPECT_LE(PAD_X + CHECK_WIDTH + system_w, dialog_.width - PAD_X + 0.5f);
+        const float button_w = dialog_.Measure(language->settings_clear_cache, dialog_.fmt_text.Get());
         EXPECT_LE(button_w, dialog_.layout.clear.right - dialog_.layout.clear.left);
     }
 }
@@ -118,7 +118,7 @@ TEST_F(SettingsDialogLayoutTest, HitTestFindsEachControl)
 {
     const auto& l = dialog_.layout;
     // タイトル行に押せるものは無い (範囲外のクリックで閉じる)。
-    EXPECT_EQ(dialog_.HitTest(l.width - 4.0f, 4.0f), Hit{});
+    EXPECT_EQ(dialog_.HitTest(dialog_.width - 4.0f, 4.0f), Hit{});
     for (size_t row = 0; row < l.languages.size(); ++row) {
         EXPECT_EQ(HitAt(l.languages[row]), (Hit{ HitKind::Language, row }));
     }
@@ -173,6 +173,6 @@ TEST_F(SettingsDialogLayoutTest, ClickOutsideCloses)
     EXPECT_TRUE(dialog_.done);
 
     dialog_.done = false;
-    click(static_cast<int>(dialog_.layout.width) + 5, 10);
+    click(static_cast<int>(dialog_.width) + 5, 10);
     EXPECT_TRUE(dialog_.done);
 }

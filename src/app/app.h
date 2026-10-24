@@ -120,6 +120,16 @@ public:
     {
         Dispatch(MouseLeaveAction{});
     }
+    // ポップアップ (PopupWindow) やシステムメニューのモーダルループに入った・出た (WM_ENTERMENULOOP / WM_EXITMENULOOP)。
+    // 開いている間は本体に入力が来ないので、先にホバーとツールチップを消し、裏で本体を描き直しても出さない
+    // (RefreshHoverAtCursor)。
+    void OnModalLoop(bool entered)
+    {
+        in_modal_loop_ = entered;
+        if (entered) {
+            OnMouseLeave();
+        }
+    }
 
     void OnXButtonBack()
     {
@@ -420,6 +430,7 @@ private:
     Tooltip tooltip_;
     ContextMenu ctx_menu_;
     SettingsDialog settings_dialog_;
+    bool in_modal_loop_ = false;
 
     Renderer renderer_;
     TaskScheduler scheduler_;

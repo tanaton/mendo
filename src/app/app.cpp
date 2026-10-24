@@ -763,8 +763,6 @@ void App::ToggleDarkMode()
 
 void App::OnContextMenu(int screen_x, int screen_y)
 {
-    // 開いている間は本体に入力が来ないので、ホバーとツールチップを先に消しておく。
-    Dispatch(MouseLeaveAction{});
     POINT client_pt{ screen_x, screen_y };
     ScreenToClient(hwnd_, &client_pt);
     const auto dip = PixelToDip(client_pt.x, client_pt.y);
@@ -827,8 +825,6 @@ void App::OnContextMenu(int screen_x, int screen_y)
 
 void App::ShowSettingsDialog()
 {
-    // 開いている間は本体に入力が来ないので、ホバーとツールチップを先に消しておく。
-    Dispatch(MouseLeaveAction{});
     settings_dialog_.Show(hwnd_, {
         .dpi_scale = state_.window.cached_dpi_scale,
         .theme = &renderer_.GetTheme(),
@@ -840,7 +836,10 @@ void App::ShowSettingsDialog()
 
 void App::ApplyLanguage(const i18n::Strings* chosen)
 {
-    i18n::SetLanguage(chosen);
+    // 表示する文言が変わらなければ、選んだ値を保存するだけ。
+    if (!i18n::SetLanguage(chosen)) {
+        return;
+    }
     if (IsHelpPath(state_.document.doc.GetFilePath())) {
         ShowHelpResource();
     }

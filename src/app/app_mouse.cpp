@@ -76,7 +76,7 @@ std::wstring_view TitleBarTooltipText(TitleBarHitZone zone, bool is_maximized) n
     case TitleBarHitZone::Help:
         return ls.tooltip_help;
     case TitleBarHitZone::Settings:
-        return ls.tooltip_settings;
+        return ls.settings_title;
     case TitleBarHitZone::ThemeToggle:
         return ls.tooltip_theme_toggle;
     case TitleBarHitZone::Search:
@@ -744,9 +744,7 @@ void App::RefreshHoverAtCursor()
     if (IsKeyDown(VK_LBUTTON) || IsKeyDown(VK_RBUTTON)) {
         return;
     }
-    // 右クリックメニューや設定ダイアログが開いている (キャプチャを持っている) 間は、
-    // その裏で本体を描き直してもホバーとツールチップを出さない。
-    if (const HWND capture = GetCapture(); capture && capture != hwnd_) {
+    if (in_modal_loop_) {
         return;
     }
     POINT pt{};

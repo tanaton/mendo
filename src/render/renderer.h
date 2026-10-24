@@ -178,6 +178,9 @@ private:
     void ResolveThemeFonts();
     void AdoptThemeKeepingFonts(Theme theme);
     void RecreatePaneFormats();
+    // ui_only は言語を切り替えたとき。UI の決まった文言の書式だけを作り直し、文字レイアウトのキャッシュは捨てない
+    // (キャッシュは書式を参照で持つので、古い書式の分は使われずに上限で追い出される)。
+    void CreateTextFormats(bool ui_only);
 
     FrameResult EndFrame();
     bool RecreateDevice();
@@ -212,6 +215,8 @@ private:
         float zoom = 0.0f;
     };
     PaneListFormats pane_list_fmt_[2];
+    // UI の決まった文言の書式を作ったときの i18n::Strings::lang_locale。
+    const wchar_t* ui_fmt_locale_ = nullptr;
 
     // CommandGenerator と共有する。
     TextLayoutCache text_layouts_;

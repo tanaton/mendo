@@ -168,12 +168,12 @@ TEST_F(LocaleTest, StringsAreNotEmpty)
         EXPECT_FALSE(s.menu_file_pane.empty());
         EXPECT_FALSE(s.menu_toc_pane.empty());
         EXPECT_FALSE(s.menu_zoom.empty());
+        EXPECT_FALSE(s.menu_title.empty());
         EXPECT_FALSE(s.pane_header_files.empty());
         EXPECT_FALSE(s.pane_header_toc.empty());
         EXPECT_FALSE(s.menu_reset_window.empty());
         EXPECT_FALSE(s.toast_file_not_found.empty());
         EXPECT_FALSE(s.loading.empty());
-        EXPECT_FALSE(s.tooltip_settings.empty());
         EXPECT_FALSE(s.settings_title.empty());
         EXPECT_FALSE(s.settings_language.empty());
         EXPECT_FALSE(s.settings_language_system.empty());

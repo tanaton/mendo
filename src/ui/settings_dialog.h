@@ -1,7 +1,6 @@
 #pragma once
 #include <cstdint>
 #include <functional>
-#include <memory>
 
 struct Theme;
 
@@ -27,8 +26,7 @@ struct SettingsDialogParams {
 // 本体と同じ色で描くため自前描画。開いている間は本体を無効にする (モーダル)。
 class SettingsDialog {
 public:
-    SettingsDialog();
-    ~SettingsDialog();
+    SettingsDialog() = default;
 
     SettingsDialog(const SettingsDialog&) = delete;
     SettingsDialog& operator=(const SettingsDialog&) = delete;
@@ -39,9 +37,10 @@ public:
     // 閉じるまで戻らない。
     void Show(HWND owner_hwnd, const SettingsDialogParams& params);
 
-    // 定義は settings_dialog_impl.h。テストはウィンドウを作らずに Impl の各段階を直接呼ぶ。
+    // 定義は settings_dialog_impl.h。開くたびに作る。テストはウィンドウを作らずに Impl の各段階を直接呼ぶ。
     struct Impl;
 
 private:
-    std::unique_ptr<Impl> impl_;
+    ID2D1Factory* d2d_factory_ = nullptr;
+    IDWriteFactory* dwrite_factory_ = nullptr;
 };

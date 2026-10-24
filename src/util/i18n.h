@@ -16,7 +16,6 @@ struct Strings {
     std::wstring_view tooltip_search;
     std::wstring_view tooltip_file_pane;
     std::wstring_view tooltip_toc_pane;
-    std::wstring_view tooltip_settings;
     std::wstring_view tooltip_minimize;
     std::wstring_view tooltip_maximize;
     std::wstring_view tooltip_restore;
@@ -59,6 +58,8 @@ struct Strings {
     std::wstring_view menu_file_pane;
     std::wstring_view menu_toc_pane;
     std::wstring_view menu_zoom;
+    // 右クリックメニューのウィンドウ名 (読み上げ用)。Windows の表記に合わせる。
+    std::wstring_view menu_title;
 
     // ペインヘッダー
     std::wstring_view pane_header_files;
@@ -98,7 +99,7 @@ struct Strings {
     std::wstring_view lang_key;
     // 言語の一覧に出す名前。どの言語の表示中でもその言語自身の表記で出す。
     std::wstring_view lang_name;
-    // lang_name を組むロケール (漢字の字形を言語に合わせる)。
+    // この言語の文言 (UI の決まった文言と lang_name) を組むロケール。漢字の字形をこの言語に合わせる。
     const wchar_t* lang_locale;
 };
 
@@ -109,7 +110,6 @@ inline constexpr Strings kJa = {
     .tooltip_search = L"検索 (Ctrl+F)",
     .tooltip_file_pane = L"ファイルペイン (Ctrl+1)",
     .tooltip_toc_pane = L"目次ペイン (Ctrl+2)",
-    .tooltip_settings = L"設定",
     .tooltip_minimize = L"最小化",
     .tooltip_maximize = L"最大化",
     .tooltip_restore = L"元に戻す",
@@ -136,6 +136,7 @@ inline constexpr Strings kJa = {
     .menu_file_pane = L"ファイルペイン",
     .menu_toc_pane = L"目次ペイン",
     .menu_zoom = L"ズーム",
+    .menu_title = L"コンテキスト メニュー",
     .pane_header_files = L"ファイル",
     .pane_header_toc = L"目次",
     .menu_reset_window = L"ウィンドウ位置をリセット(&R)",
@@ -168,7 +169,6 @@ inline constexpr Strings kEn = {
     .tooltip_search = L"Search (Ctrl+F)",
     .tooltip_file_pane = L"File Pane (Ctrl+1)",
     .tooltip_toc_pane = L"TOC Pane (Ctrl+2)",
-    .tooltip_settings = L"Settings",
     .tooltip_minimize = L"Minimize",
     .tooltip_maximize = L"Maximize",
     .tooltip_restore = L"Restore",
@@ -195,6 +195,7 @@ inline constexpr Strings kEn = {
     .menu_file_pane = L"File Pane",
     .menu_toc_pane = L"TOC Pane",
     .menu_zoom = L"Zoom",
+    .menu_title = L"Context menu",
     .pane_header_files = L"Files",
     .pane_header_toc = L"TOC",
     .menu_reset_window = L"Reset Window Position (&R)",
@@ -227,7 +228,6 @@ inline constexpr Strings kZh = {
     .tooltip_search = L"搜索 (Ctrl+F)",
     .tooltip_file_pane = L"文件窗格 (Ctrl+1)",
     .tooltip_toc_pane = L"目录窗格 (Ctrl+2)",
-    .tooltip_settings = L"设置",
     .tooltip_minimize = L"最小化",
     .tooltip_maximize = L"最大化",
     .tooltip_restore = L"还原",
@@ -254,6 +254,7 @@ inline constexpr Strings kZh = {
     .menu_file_pane = L"文件窗格",
     .menu_toc_pane = L"目录窗格",
     .menu_zoom = L"缩放",
+    .menu_title = L"上下文菜单",
     .pane_header_files = L"文件",
     .pane_header_toc = L"目录",
     .menu_reset_window = L"重置窗口位置(&R)",
@@ -286,7 +287,6 @@ inline constexpr Strings kZhHant = {
     .tooltip_search = L"搜尋 (Ctrl+F)",
     .tooltip_file_pane = L"檔案窗格 (Ctrl+1)",
     .tooltip_toc_pane = L"目錄窗格 (Ctrl+2)",
-    .tooltip_settings = L"設定",
     .tooltip_minimize = L"最小化",
     .tooltip_maximize = L"最大化",
     .tooltip_restore = L"還原",
@@ -313,6 +313,7 @@ inline constexpr Strings kZhHant = {
     .menu_file_pane = L"檔案窗格",
     .menu_toc_pane = L"目錄窗格",
     .menu_zoom = L"縮放",
+    .menu_title = L"內容功能表",
     .pane_header_files = L"檔案",
     .pane_header_toc = L"目錄",
     .menu_reset_window = L"重設視窗位置(&R)",
@@ -345,7 +346,6 @@ inline constexpr Strings kKo = {
     .tooltip_search = L"검색 (Ctrl+F)",
     .tooltip_file_pane = L"파일 창 (Ctrl+1)",
     .tooltip_toc_pane = L"목차 창 (Ctrl+2)",
-    .tooltip_settings = L"설정",
     .tooltip_minimize = L"최소화",
     .tooltip_maximize = L"최대화",
     .tooltip_restore = L"이전 크기로 복원",
@@ -372,6 +372,7 @@ inline constexpr Strings kKo = {
     .menu_file_pane = L"파일 창",
     .menu_toc_pane = L"목차 창",
     .menu_zoom = L"확대/축소",
+    .menu_title = L"상황에 맞는 메뉴",
     .pane_header_files = L"파일",
     .pane_header_toc = L"목차",
     .menu_reset_window = L"창 위치 초기화(&R)",
@@ -441,10 +442,12 @@ inline constexpr const Strings* kAllStrings[] = { &kJa, &kEn, &kZh, &kZhHant, &k
 inline std::atomic<const Strings*> g_chosen{ nullptr };
 
 // chosen が nullptr なら OS の表示言語に合わせる。表示中の文言はすぐ切り替わる (文言は使うたびに S() から引く)。
-inline void SetLanguage(const Strings* chosen) noexcept
+// 表示する文言が変わったら true (「OS に合わせる」と OS と同じ言語の間では変わらない)。
+inline bool SetLanguage(const Strings* chosen) noexcept
 {
     g_chosen.store(chosen, std::memory_order_relaxed);
-    g_strings.store(chosen ? chosen : &SystemStrings(), std::memory_order_release);
+    const Strings* const shown = chosen ? chosen : &SystemStrings();
+    return g_strings.exchange(shown, std::memory_order_acq_rel) != shown;
 }
 
 // config_lang は設定ファイルの値。空や知らない値は OS に合わせる。
@@ -474,21 +477,22 @@ inline std::wstring_view ConfigLangKey() noexcept
 // 本文の書式に渡すロケール。漢字は同じ符号でも地域で字形が違い、DirectWrite はこれでフォールバック先を選ぶ
 // (ja-jp: Yu Gothic UI、zh-cn: Microsoft YaHei UI、zh-tw / zh-hk: Microsoft JhengHei UI、ko-kr: Malgun Gothic)。
 // 文書の言語は UI の言語設定 (英語 UI で日本語を読む人もいる) ではなく OS の表示言語から推す。
-// 中国語・韓国語以外は従来どおり日本語の字形にする。
+// 確定仕様: これを使うのは文書から来る文字 (本文・ファイル名・目次・タイトル・検索語) だけ。メニュー・ペインの見出し・
+// トースト・設定ダイアログなど UI の決まった文言は、選んだ言語の Strings::lang_locale で組む。OS と違う言語を選んでも
+// UI の漢字をその言語の字形で出し、UI のどこでも字形を揃えるため。
+// 漢字を使わない英語 (と文言を持たない言語) は従来どおり日本語の字形にする。
 inline const wchar_t* TextLocaleForUiLanguage(LANGID langid) noexcept
 {
-    switch (PRIMARYLANGID(langid)) {
-    case LANG_KOREAN:
-        return L"ko-kr";
-    case LANG_CHINESE:
-        if (!IsTraditionalChinese(langid)) {
-            return L"zh-cn";
-        }
-        return SUBLANGID(langid) == SUBLANG_CHINESE_HONGKONG || SUBLANGID(langid) == SUBLANG_CHINESE_MACAU ? L"zh-hk"
-                                                                                                          : L"zh-tw";
-    default:
-        return L"ja-jp";
+    const Strings* strings = StringsForUiLanguage(langid);
+    if (strings == &kEn) {
+        return kJa.lang_locale;
     }
+    // 香港・マカオは同じ繁体字でも台湾と字形が違う。
+    const WORD sub = SUBLANGID(langid);
+    if (strings == &kZhHant && (sub == SUBLANG_CHINESE_HONGKONG || sub == SUBLANG_CHINESE_MACAU)) {
+        return L"zh-hk";
+    }
+    return strings->lang_locale;
 }
 
 // Theme::text_locale がこれを持ち、本文と同じ書体の書式に渡す。

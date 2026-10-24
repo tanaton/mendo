@@ -2,7 +2,6 @@
 #include "app_constants.h"
 #include "d2d_util.h"
 #include "file_io.h"
-#include "i18n.h"
 #include "mermaid_file_cache.h"
 #include "resource.h"
 #include "string_convert.h"
@@ -572,18 +571,14 @@ const MermaidRenderer::CachedResult* MermaidRenderer::FindCached(uint64_t code_h
     return cache_.Find(code_hash);
 }
 
-void MermaidRenderer::SetDiagramError(const RenderRequest& req, std::wstring_view msg)
+void MermaidRenderer::SetDiagramError(const RenderRequest& req, DiagramError::Kind kind, std::wstring_view msg)
 {
     if (req.svg_only) {
         return;
     }
     // DrawTextCmd の 255 文字上限とプレースホルダ高さ (約3行) に収まる長さ。
     constexpr size_t MAX_ERROR_LEN = 200;
-    auto sanitized = mermaid_util::SanitizeErrorMessage(msg, MAX_ERROR_LEN);
-    if (sanitized.empty()) {
-        sanitized = i18n::S().diagram_error;
-    }
-    InsertCache(req.code_hash, CachedResult{ .error = std::move(sanitized) });
+    InsertCache(req.code_hash, CachedResult{ .error = { kind, mermaid_util::SanitizeErrorMessage(msg, MAX_ERROR_LEN) } });
 }
 
 void MermaidRenderer::InvokeSvgCallbackIfAny(RenderRequest& req, std::pmr::wstring svg, bool cancelled)
@@ -654,7 +649,7 @@ void MermaidRenderer::RecoverWorker(int index)
         else {
             // リトライ済みの再クラッシュ。エラー確定にしないと Loading 固着かつ
             // 完了通知も出ないため、汎用エラーを設定して再描画させる。
-            SetDiagramError(w.current_request, {});
+            SetDiagramError(w.current_request, DiagramError::Kind::Render);
             ReleaseInflight(w.current_request);
             failed = true;
         }
@@ -793,7 +788,7 @@ bool MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
     }
     // 描画直後の PNG を描き直しても同じ結果になるので、エラーを確定させて再要求させない。
     if (r.captured) {
-        SetDiagramError(r.req, {});
+        SetDiagramError(r.req, DiagramError::Kind::Render);
         ReleaseInflight(r.req);
         return true;
     }
@@ -987,7 +982,7 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
         return;
     case WebMessageKind::RenderError:
         if (req_id_match) {
-            SetDiagramError(w.current_request, payload);
+            SetDiagramError(w.current_request, DiagramError::Kind::Render, payload);
             InvokeSvgCallbackIfAny(w.current_request, {}, false);
             FinishWorkerRequest(w);
         }
@@ -1019,14 +1014,14 @@ void MermaidRenderer::OnRenderResult(int worker_idx, std::wstring_view json)
     if (!ok || dw <= 0 || dh <= 0) {
         // JS 側 renderMermaid が返す {ok:false, error:...} の内容をプレースホルダに
         // 表示させる。放置すると「読み込み中」のまま固着する (issue #271)。
-        SetDiagramError(w.current_request, mermaid_util::ParseJsonString(json, L"\"error\""));
+        SetDiagramError(w.current_request, DiagramError::Kind::Render, mermaid_util::ParseJsonString(json, L"\"error\""));
         FinishWorkerRequest(w);
         return;
     }
 
     // 描けない大きさのままキャプチャすると、毎回ビットマップ作成に失敗して描き直しを繰り返す。
     if (!mermaid_util::FitsCaptureLimit(dw, dh, dpr, MaxBitmapDim(render_target_))) {
-        SetDiagramError(w.current_request, i18n::S().diagram_too_large);
+        SetDiagramError(w.current_request, DiagramError::Kind::TooLarge);
         FinishWorkerRequest(w);
         return;
     }

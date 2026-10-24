@@ -1,5 +1,6 @@
 #include "renderer.h"
 #include "d2d_util.h"
+#include "i18n.h"
 #include "resource.h"
 #include "ui_constants.h"
 #include "utility.h"
@@ -192,7 +193,21 @@ void Renderer::EnsurePaneListFormats(PaneTarget target, float zoom)
 
 void Renderer::RecreatePaneFormats()
 {
+    CreateTextFormats(/*ui_only=*/false);
+
+    for (auto& f : pane_list_fmt_) {
+        f = {};
+    }
+
+    // 古い書式のレイアウトは二度と引かれないので、まとめて捨てる。
+    text_layouts_.SetFactory(backend_.GetDWriteFactory());
+    search_input_ = {};
+}
+
+void Renderer::CreateTextFormats(bool ui_only)
+{
     constexpr DWRITE_FONT_WEIGHT W = DWRITE_FONT_WEIGHT_NORMAL;
+    constexpr DWRITE_FONT_WEIGHT SEMI = DWRITE_FONT_WEIGHT_SEMI_BOLD;
     constexpr DWRITE_TEXT_ALIGNMENT TA_LEAD = DWRITE_TEXT_ALIGNMENT_LEADING;
     constexpr DWRITE_TEXT_ALIGNMENT TA_CTR = DWRITE_TEXT_ALIGNMENT_CENTER;
     constexpr DWRITE_TEXT_ALIGNMENT TA_TAIL = DWRITE_TEXT_ALIGNMENT_TRAILING;
@@ -201,44 +216,60 @@ void Renderer::RecreatePaneFormats()
 
     const wchar_t* const body_font = theme_.font_family.c_str();
     const wchar_t* const icon_font = theme_.icon_font.c_str();
-    const wchar_t* const loc = theme_.text_locale;
 
+    // i18n::TextLocale の確定仕様: 文書から来る文字は Doc、UI の決まった文言は Ui のロケールで組む。アイコンは En。
+    enum class Loc : uint8_t {
+        Doc,
+        Ui,
+        En,
+    };
     struct FormatSpec {
         ComPtr<IDWriteTextFormat>* target;
+        Loc loc;
+        // locale は loc から決める。
         TextFormatSpec spec;
     };
 
     // clang-format off
     const FormatSpec specs[] = {
-        { &fmt_.icon_font,        { body_font, W,                            theme_.font_size_body,        loc,     TA_LEAD, PA_TOP, false } },
-        { &fmt_.copy_btn_icon,    { icon_font, W,                            theme_.font_size_body,        L"en-us", TA_CTR,  PA_CTR, true  } },
-        { &fmt_.list_number,      { body_font, W,                            theme_.font_size_body,        loc,     TA_TAIL, PA_TOP, false } },
-        { &fmt_.placeholder_text, { body_font, W,                            theme_.font_size_body,        loc,     TA_CTR,  PA_CTR, false } },
-        { &fmt_.titlebar_text,    { body_font, W,                            TITLEBAR_TEXT_FONT_SIZE,      loc,     TA_CTR,  PA_CTR, true  } },
-        { &fmt_.titlebar_icon,    { icon_font, W,                            14.0f,                        L"en-us", TA_CTR,  PA_CTR, true  } },
-        { &fmt_.pane_icon,        { icon_font, W,                            theme_.pane_font_size,        L"en-us", TA_CTR,  PA_CTR, true  } },
-        { &fmt_.pane_header,      { body_font, DWRITE_FONT_WEIGHT_SEMI_BOLD, theme_.pane_font_size,        loc,     TA_LEAD, PA_CTR, true  } },
-        { &fmt_.nav_button,       { body_font, W,                            theme_.pane_font_size,        loc,     TA_CTR,  PA_CTR, true  } },
-        { &fmt_.gesture_overlay,  { body_font, DWRITE_FONT_WEIGHT_BOLD,      32.0f * theme_.zoom,          loc,     TA_CTR,  PA_CTR, false } },
-        { &fmt_.toast_text,       { body_font, DWRITE_FONT_WEIGHT_SEMI_BOLD, theme_.pane_font_size * 1.1f, loc,     TA_CTR,  PA_CTR, true  } },
-        { &fmt_.search_input,     { body_font, W,                            SEARCH_INPUT_FONT_SIZE,       loc,     TA_LEAD, PA_CTR, true  } },
-        { &fmt_.search_count,     { body_font, W,                            SEARCH_COUNT_FONT_SIZE,       loc,     TA_CTR,  PA_CTR, true  } },
-        { &fmt_.search_icon,      { icon_font, W,                            14.0f,                        L"en-us", TA_CTR,  PA_CTR, true  } },
+        { &fmt_.icon_font,        Loc::Doc,  { body_font, W,                       theme_.font_size_body,        nullptr, TA_LEAD, PA_TOP, false } },
+        { &fmt_.copy_btn_icon,    Loc::En,   { icon_font, W,                       theme_.font_size_body,        nullptr, TA_CTR,  PA_CTR, true  } },
+        { &fmt_.list_number,      Loc::Doc,  { body_font, W,                       theme_.font_size_body,        nullptr, TA_TAIL, PA_TOP, false } },
+        { &fmt_.placeholder_text, Loc::Ui,   { body_font, W,                       theme_.font_size_body,        nullptr, TA_CTR,  PA_CTR, false } },
+        { &fmt_.titlebar_text,    Loc::Doc,  { body_font, W,                       TITLEBAR_TEXT_FONT_SIZE,      nullptr, TA_CTR,  PA_CTR, true  } },
+        { &fmt_.titlebar_icon,    Loc::En,   { icon_font, W,                       14.0f,                        nullptr, TA_CTR,  PA_CTR, true  } },
+        { &fmt_.pane_icon,        Loc::En,   { icon_font, W,                       theme_.pane_font_size,        nullptr, TA_CTR,  PA_CTR, true  } },
+        { &fmt_.pane_header,      Loc::Ui,   { body_font, SEMI,                    theme_.pane_font_size,        nullptr, TA_LEAD, PA_CTR, true  } },
+        { &fmt_.nav_button,       Loc::Doc,  { body_font, W,                       theme_.pane_font_size,        nullptr, TA_CTR,  PA_CTR, true  } },
+        { &fmt_.gesture_overlay,  Loc::Ui,   { body_font, DWRITE_FONT_WEIGHT_BOLD, 32.0f * theme_.zoom,          nullptr, TA_CTR,  PA_CTR, false } },
+        { &fmt_.toast_text,       Loc::Ui,   { body_font, SEMI,                    theme_.pane_font_size * 1.1f, nullptr, TA_CTR,  PA_CTR, true  } },
+        { &fmt_.search_input,     Loc::Doc,  { body_font, W,                       SEARCH_INPUT_FONT_SIZE,       nullptr, TA_LEAD, PA_CTR, true  } },
+        { &fmt_.search_count,     Loc::Doc,  { body_font, W,                       SEARCH_COUNT_FONT_SIZE,       nullptr, TA_CTR,  PA_CTR, true  } },
+        { &fmt_.search_icon,      Loc::En,   { icon_font, W,                       14.0f,                        nullptr, TA_CTR,  PA_CTR, true  } },
     };
     // clang-format on
 
+    ui_fmt_locale_ = i18n::S().lang_locale;
+    const auto locale_of = [this](Loc loc) noexcept {
+        switch (loc) {
+        case Loc::Doc:
+            return theme_.text_locale;
+        case Loc::Ui:
+            return ui_fmt_locale_;
+        case Loc::En:
+            break;
+        }
+        return L"en-us";
+    };
     auto* const dw = backend_.GetDWriteFactory();
     for (const auto& s : specs) {
-        *s.target = CreateTextFormat(dw, s.spec);
+        if (ui_only && s.loc != Loc::Ui) {
+            continue;
+        }
+        auto spec = s.spec;
+        spec.locale = locale_of(s.loc);
+        *s.target = CreateTextFormat(dw, spec);
     }
-
-    for (auto& f : pane_list_fmt_) {
-        f = {};
-    }
-
-    // 全レイアウトは IDWriteTextFormat にバインドされているため format 再作成と同時に破棄する。
-    text_layouts_.SetFactory(backend_.GetDWriteFactory());
-    search_input_ = {};
 
     cmd_generator_.SetFormats({ fmt_.list_number.Get(), fmt_.icon_font.Get(), fmt_.copy_btn_icon.Get(), fmt_.placeholder_text.Get() });
 }

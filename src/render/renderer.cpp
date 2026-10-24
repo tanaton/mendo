@@ -71,6 +71,9 @@ void Renderer::ApplyZoomFromBase(const Theme& base_theme, float new_zoom)
 
 void Renderer::PrepareChrome(const TitleBarRenderState& titlebar, const SidePaneState& sp)
 {
+    if (ui_fmt_locale_ != i18n::S().lang_locale) {
+        CreateTextFormats(/*ui_only=*/true);
+    }
     EnsurePaneListFormats(PaneTarget::File, sp.Get(PaneTarget::File).zoom);
     EnsurePaneListFormats(PaneTarget::Toc, sp.Get(PaneTarget::Toc).zoom);
     chrome_cmds_.clear();
