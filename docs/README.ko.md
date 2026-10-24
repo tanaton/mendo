@@ -143,6 +143,22 @@ cmake --build build --config Release
 build/tests/Release/mendo_tests.exe
 ```
 
+### 벤치마크 (개발자용)
+
+[Google Benchmark](https://github.com/google/benchmark) v1.10.0으로 파싱과 레이아웃에 걸리는 시간을 측정합니다. 기본값(OFF) 빌드에는 포함되지 않습니다.
+
+```
+cmake -B build_bench -DMENDO_BUILD_BENCHMARKS=ON
+cmake --build build_bench --config Release --target mendo_bench
+build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown
+```
+
+변경 전후는 여러 번 반복 실행한 중앙값(median)으로 비교합니다.
+
+```
+build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown --benchmark_repetitions=10 --benchmark_report_aggregates_only=true
+```
+
 ### Tracy 프로파일러를 켠 빌드 (개발자용)
 
 [Tracy](https://github.com/wolfpld/tracy) v0.14.1을 포함하여 프레임 시간, 구간 측정, 카운터 시계열 그래프를 얻을 수 있습니다. Tracy는 `TRACY_ON_DEMAND` 모드로 포함되므로 Tracy GUI가 연결되기 전까지 측정 코드는 아무것도 하지 않습니다.
@@ -182,6 +198,7 @@ mendo.exe [파일 경로 | 폴더 경로]
 | 수식 | [KaTeX](https://katex.org/) (Mermaid 경유) |
 | Markdown 파서 | [md4c](https://github.com/mity/md4c) (SAX 방식 콜백) |
 | 테스트 | Google Test v1.18.0 |
+| 벤치마크 | Google Benchmark v1.10.0 |
 | 빌드 | CMake 4.2+ |
 
 ## 라이선스

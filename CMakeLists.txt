@@ -272,3 +272,22 @@ if(MENDO_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
+
+# ---- ベンチマーク ----
+# tests/ のヘルパーとモックを使う。それらは gtest を include するので、テストのビルドが要る。
+option(MENDO_BUILD_BENCHMARKS "Build benchmarks" OFF)
+if(MENDO_BUILD_BENCHMARKS)
+    if(NOT MENDO_BUILD_TESTS)
+        message(FATAL_ERROR "mendo: MENDO_BUILD_BENCHMARKS requires MENDO_BUILD_TESTS.")
+    endif()
+    FetchContent_Declare(
+        benchmark
+        URL https://github.com/google/benchmark/archive/refs/tags/v1.10.0.zip
+    )
+    set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+    set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+    set(BENCHMARK_ENABLE_WERROR OFF CACHE BOOL "" FORCE)
+    set(BENCHMARK_INSTALL_DOCS OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(benchmark)
+    add_subdirectory(bench)
+endif()

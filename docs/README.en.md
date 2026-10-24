@@ -143,6 +143,22 @@ cmake --build build --config Release
 build/tests/Release/mendo_tests.exe
 ```
 
+### Benchmarks (developers)
+
+Measures parsing and layout times with [Google Benchmark](https://github.com/google/benchmark) v1.10.0. Not included in the default (OFF) build.
+
+```
+cmake -B build_bench -DMENDO_BUILD_BENCHMARKS=ON
+cmake --build build_bench --config Release --target mendo_bench
+build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown
+```
+
+Compare before and after a change using the median of repeated runs.
+
+```
+build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown --benchmark_repetitions=10 --benchmark_report_aggregates_only=true
+```
+
 ### Build with Tracy Profiler (developers)
 
 Embeds [Tracy](https://github.com/wolfpld/tracy) v0.14.1 for frame timing, zone tracing, and counter time-series plots. Tracy is built in `TRACY_ON_DEMAND` mode, so instrumentation is a no-op until a Tracy GUI client connects.
@@ -182,6 +198,7 @@ If there is no last opened file, open a file with `Ctrl+O` or drag & drop.
 | Math | [KaTeX](https://katex.org/) (via Mermaid) |
 | Markdown parser | [md4c](https://github.com/mity/md4c) (SAX-style callbacks) |
 | Tests | Google Test v1.18.0 |
+| Benchmarks | Google Benchmark v1.10.0 |
 | Build | CMake 4.2+ |
 
 ## License

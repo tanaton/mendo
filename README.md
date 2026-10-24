@@ -143,6 +143,22 @@ cmake --build build --config Release
 build/tests/Release/mendo_tests.exe
 ```
 
+### ベンチマーク（開発者向け）
+
+[Google Benchmark](https://github.com/google/benchmark) v1.10.0 でパースやレイアウトの所要時間を測ります。既定（OFF）のビルドには含まれません。
+
+```
+cmake -B build_bench -DMENDO_BUILD_BENCHMARKS=ON
+cmake --build build_bench --config Release --target mendo_bench
+build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown
+```
+
+変更の前後は、繰り返し実行した中央値（median）で比べます。
+
+```
+build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown --benchmark_repetitions=10 --benchmark_report_aggregates_only=true
+```
+
 ### Tracyプロファイラ有効ビルド（開発者向け）
 
 [Tracy](https://github.com/wolfpld/tracy) v0.14.1 を組み込み、フレーム時間・ゾーン計測・カウンタ時系列プロットを取得できます。Tracy GUI 接続前は計測コードが no-op になる `TRACY_ON_DEMAND` モードで組み込まれます。
@@ -182,6 +198,7 @@ mendo.exe [ファイルパス | フォルダパス]
 | 数式 | [KaTeX](https://katex.org/) (Mermaid経由) |
 | Markdownパーサ | [md4c](https://github.com/mity/md4c) (SAX型コールバック) |
 | テスト | Google Test v1.18.0 |
+| ベンチマーク | Google Benchmark v1.10.0 |
 | ビルド | CMake 4.2+ |
 
 ## ライセンス

@@ -82,19 +82,23 @@ add_executable(mendo_tests
     test_selection_html_properties.cpp
 )
 
+# tests/ のヘルパーを使うターゲット (mendo_tests / mendo_bench) 共通の設定。
+add_library(mendo_test_support INTERFACE)
+target_include_directories(mendo_test_support INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+# cwd に依存せず example/ を開けるよう、ソースツリーの絶対パスを渡す。
+# u8 リテラルで定義し、std::filesystem::path(const char8_t*) に直接渡せるようにする (UTF-8 保証)。
+target_compile_definitions(mendo_test_support INTERFACE "MENDO_EXAMPLE_DIR=u8\"${CMAKE_SOURCE_DIR}/example\"")
+
 target_link_libraries(mendo_tests PRIVATE
     mendo_core
+    mendo_test_support
     GTest::gtest_main
     shlwapi
 )
 target_compile_definitions(mendo_tests PRIVATE MENDO_TESTING)
-# test_view_stats 等が cwd に依存せず example/ を開けるよう、ソースツリーの絶対パスを渡す。
-# u8 リテラルで定義し、std::filesystem::path(const char8_t*) に直接渡せるようにする (UTF-8 保証)。
-target_compile_definitions(mendo_tests PRIVATE "MENDO_EXAMPLE_DIR=u8\"${CMAKE_SOURCE_DIR}/example\"")
 # test_help が埋め込みヘルプ (res/help_*.md) の実物を読むため。
 target_compile_definitions(mendo_tests PRIVATE "MENDO_RES_DIR=u8\"${CMAKE_SOURCE_DIR}/res\"")
 
 # ---- プリコンパイル済みヘッダー ----
-# `<test_pch.h>` 形式は日本語パス + `/utf-8` 衝突回避のため。tests/ を include path に追加する必要がある。
-target_include_directories(mendo_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+# `<test_pch.h>` 形式は日本語パス + `/utf-8` 衝突回避のため。tests/ は mendo_test_support で include path に入る。
 target_precompile_headers(mendo_tests PRIVATE <test_pch.h>)

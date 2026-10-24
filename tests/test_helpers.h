@@ -109,6 +109,82 @@ inline size_t CountDirty(const LayoutCache& cache) noexcept
     return n;
 }
 
+// 22000 ノード級の Mixed fixture を決定論的に生成する。配分:
+// Paragraph 60% / Heading 10% / HorizontalRule 5% / Table(1x2) 10% / Image 10% / 空 Paragraph 5%
+// include_code_block=true の場合は bucket==0,1 を CodeBlock(Cpp) に置換し Paragraph を 50% に減らす。
+inline Node MakeStressNode(size_t i, bool include_code_block)
+{
+    Node n;
+    // 派生 mock のトークン seed として使うため、必ず source_offset を埋める。
+    n.SetSourceOffset(i);
+    const size_t bucket = i % 20;
+
+    if (include_code_block && bucket < 2) {
+        n.type = NodeType::CodeBlock;
+        n.set_code_language(SyntaxLanguage::Cpp);
+        std::string text = "int v_" + std::to_string(i) + " = 0;";
+        SetTestText(n, text, 0);
+        return n;
+    }
+    if (bucket < 12) {
+        n.type = NodeType::Paragraph;
+        const size_t len = 5 + (i % 80);
+        std::string text;
+        text.reserve(len);
+        for (size_t k = 0; k < len; ++k) {
+            text.push_back(static_cast<wchar_t>('a' + ((i + k) % 26)));
+        }
+        SetTestText(n, text, 0);
+        return n;
+    }
+    if (bucket < 14) {
+        n.type = NodeType::Heading;
+        n.set_heading_level(static_cast<int8_t>(1 + (i % 6)));
+        std::string text = "Heading " + std::to_string(i);
+        SetTestText(n, text, 0);
+        return n;
+    }
+    if (bucket == 14) {
+        n.type = NodeType::HorizontalRule;
+        return n;
+    }
+    if (bucket < 17) {
+        Node table = MakeTableNode({ { "a", "b" } });
+        table.SetSourceOffset(i);
+        return table;
+    }
+    if (bucket < 19) {
+        static constexpr NodeImageData kImage{ "img.png" };
+        n.type = NodeType::Image;
+        n.set_image_data(&kImage);
+        return n;
+    }
+    n.type = NodeType::Paragraph;
+    n.SetText("", 0);
+    return n;
+}
+
+struct StressFixture {
+    std::pmr::vector<Node> nodes;
+    LayoutCache cache;
+
+    void Build(size_t n, bool include_code_block)
+    {
+        nodes.reserve(n);
+        for (size_t i = 0; i < n; ++i) {
+            nodes.push_back(MakeStressNode(i, include_code_block));
+        }
+        cache = MakeUniformCache(static_cast<int>(n), 80.0f);
+        for (size_t i = 0; i < n; ++i) {
+            if (nodes[i].type == NodeType::Image) {
+                auto& d = cache.EnsureDiagram(i);
+                d.width = 100.0f + static_cast<float>(i % 50);
+                d.height = 50.0f + static_cast<float>(i % 30);
+            }
+        }
+    }
+};
+
 // レイアウト系テスト共通の Theme。Theme は zoom 以外初期化子なしの集約のため、
 // value-init + 明示設定で未初期化読み（flaky の温床）を防ぐ。
 inline Theme MakeLayoutTestTheme()

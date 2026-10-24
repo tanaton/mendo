@@ -157,3 +157,16 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
+
+---
+
+## Google Benchmark
+
+- **Description**: C++ microbenchmark library
+- **Website**: https://github.com/google/benchmark
+- **License**: Apache License 2.0
+- **Obtained via**: CMake FetchContent (v1.10.0)
+- **Usage**: Optional, opt-in via `-DMENDO_BUILD_BENCHMARKS=ON` (not included in release binary)
+
+Google Benchmark is licensed under the Apache License, Version 2.0.
+See: https://github.com/google/benchmark/blob/v1.10.0/LICENSE

@@ -143,6 +143,22 @@ cmake --build build --config Release
 build/tests/Release/mendo_tests.exe
 ```
 
+### 基准测试（面向开发者）
+
+使用 [Google Benchmark](https://github.com/google/benchmark) v1.10.0 测量解析和布局的耗时。默认（OFF）的构建不包含它。
+
+```
+cmake -B build_bench -DMENDO_BUILD_BENCHMARKS=ON
+cmake --build build_bench --config Release --target mendo_bench
+build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown
+```
+
+修改前后请用多次重复运行的中位数（median）进行比较。
+
+```
+build_bench/bench/Release/mendo_bench.exe --benchmark_filter=FromMarkdown --benchmark_repetitions=10 --benchmark_report_aggregates_only=true
+```
+
 ### 启用 Tracy 性能分析器的构建（面向开发者）
 
 集成 [Tracy](https://github.com/wolfpld/tracy) v0.14.1，可获取帧时间、区段计时和计数器时间序列图。Tracy 以 `TRACY_ON_DEMAND` 模式集成，在 Tracy GUI 连接之前，计测代码不执行任何操作。
@@ -182,6 +198,7 @@ mendo.exe [文件路径 | 文件夹路径]
 | 公式 | [KaTeX](https://katex.org/)（通过 Mermaid） |
 | Markdown 解析器 | [md4c](https://github.com/mity/md4c)（SAX 式回调） |
 | 测试 | Google Test v1.18.0 |
+| 基准测试 | Google Benchmark v1.10.0 |
 | 构建 | CMake 4.2+ |
 
 ## 许可证

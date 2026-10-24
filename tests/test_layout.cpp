@@ -1,10 +1,8 @@
 #include <gtest/gtest.h>
-#include <chrono>
 #include <cstdint>
 #include <format>
 #include <functional>
 #include <initializer_list>
-#include <iostream>
 #include <memory_resource>
 #include <random>
 #include <ranges>
@@ -1370,83 +1368,6 @@ TEST_F(LayoutTest, LooseTaskListCheckboxIsEmitted)
     }
     EXPECT_EQ(unchecked, 1);
     EXPECT_EQ(checked, 1);
-}
-
-// 22000 ノード × 200 iter で RecomputeYPositions のフルパス (from_index=0) 経過時間を測る。
-// 通常の test 走行から外すため DISABLED_ プレフィックス。実行は次のコマンドで:
-//   build/tests/Release/mendo_tests.exe --gtest_filter='RecomputeYPositionsTest.DISABLED_BenchLargeDocument' --gtest_also_run_disabled_tests
-TEST(RecomputeYPositionsTest, DISABLED_BenchLargeDocument)
-{
-    using namespace layout;
-    constexpr int N = 22000;
-    constexpr int ITER = 200;
-
-    std::pmr::vector<Node> nodes;
-    nodes.resize(N);
-    for (int i = 0; i < N; i++) {
-        switch (i % 5) {
-        case 0:
-            nodes[i].type = NodeType::Heading;
-            nodes[i].set_heading_level(2);
-            break;
-        case 1:
-            nodes[i].type = NodeType::Paragraph;
-            break;
-        case 2:
-            nodes[i].type = NodeType::CodeBlock;
-            break;
-        case 3:
-            nodes[i].type = NodeType::ListItem;
-            break;
-        case 4:
-            nodes[i].type = NodeType::HorizontalRule;
-            break;
-        }
-    }
-
-    Theme theme = MakeLayoutTestTheme();
-
-    LayoutCache cache;
-    cache.Resize(N);
-    EstimateNodeHeights(nodes, cache, theme, 0.0f, {});
-
-    // ウォームアップ
-    for (int i = 0; i < 5; i++) {
-        RecomputeYPositions(nodes, cache, theme);
-    }
-
-    auto start = std::chrono::high_resolution_clock::now();
-    for (int iter = 0; iter < ITER; iter++) {
-        RecomputeYPositions(nodes, cache, theme);
-    }
-    auto end = std::chrono::high_resolution_clock::now();
-
-    auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-    std::cout << "[BENCH] RecomputeYPositions N=" << N
-              << " ITER=" << ITER
-              << " total=" << elapsed_us << "us"
-              << " avg=" << (static_cast<double>(elapsed_us) / ITER) << "us/iter\n";
-
-    // EnsureVisibleLayout の実ユースケース: 可視範囲 (5 ノード) だけ height を弄り、
-    // [from_index=100, safe_exit_after=104] で呼ぶ。tail [105, N) は shift-only パスを通る。
-    constexpr size_t kFromIndex = 100;
-    constexpr size_t kSafeExitAfter = 104;
-    for (int i = 0; i < 5; i++) {
-        cache[kFromIndex + static_cast<size_t>(i)].height += 1.0f; // 高さを揺らして delta != 0 にする
-        RecomputeYPositions(nodes, cache, theme, kFromIndex, kSafeExitAfter);
-    }
-    auto start2 = std::chrono::high_resolution_clock::now();
-    for (int iter = 0; iter < ITER; iter++) {
-        cache[kFromIndex].height += (iter % 2 == 0) ? 0.5f : -0.5f;
-        RecomputeYPositions(nodes, cache, theme, kFromIndex, kSafeExitAfter);
-    }
-    auto end2 = std::chrono::high_resolution_clock::now();
-    auto elapsed2_us = std::chrono::duration_cast<std::chrono::microseconds>(end2 - start2).count();
-    std::cout << "[BENCH] RecomputeYPositions (tail-shift) N=" << N
-              << " from=" << kFromIndex << " safe_exit=" << kSafeExitAfter
-              << " ITER=" << ITER
-              << " total=" << elapsed2_us << "us"
-              << " avg=" << (static_cast<double>(elapsed2_us) / ITER) << "us/iter\n";
 }
 
 // 幅不変の部分レイアウトは可視先頭から走査し、可視範囲の高さ変化は後続へ一括シフトする。
