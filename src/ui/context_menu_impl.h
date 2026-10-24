@@ -61,7 +61,6 @@ struct ContextMenu::Impl {
     void HidePopupWindow() noexcept;
     // rt はウィンドウを壊してから捨てる。
     void DestroyPopupWindow() noexcept;
-    void RunModalLoop();
 
     void BuildItems(const ContextMenuParams& params);
     void ComputeLayout();

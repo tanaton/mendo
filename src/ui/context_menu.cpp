@@ -9,8 +9,6 @@
 #include <algorithm>
 #include <format>
 #include <iterator>
-#include <mutex>
-#include <windowsx.h>
 
 using Microsoft::WRL::ComPtr;
 using namespace context_menu_constants;
@@ -199,11 +197,6 @@ namespace {
 
 constexpr wchar_t kContextMenuClass[] = L"mendoContextMenu";
 
-DipPoint DipPointFromLParam(LPARAM lParam, float dpi_scale) noexcept
-{
-    return PixelToDip(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), dpi_scale);
-}
-
 } // namespace
 
 void ContextMenu::Impl::DestroyPopupWindow() noexcept
@@ -217,18 +210,7 @@ void ContextMenu::Impl::DestroyPopupWindow() noexcept
 
 bool ContextMenu::Impl::RegisterWindowClass()
 {
-    static std::once_flag flag;
-    static bool registered_ok = false;
-    std::call_once(flag, [] static {
-        WNDCLASSEXW wc{};
-        wc.cbSize = sizeof(wc);
-        wc.style = CS_HREDRAW | CS_VREDRAW;
-        wc.lpfnWndProc = WndProc;
-        wc.hInstance = GetModuleHandleW(nullptr);
-        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-        wc.lpszClassName = kContextMenuClass;
-        registered_ok = (RegisterClassExW(&wc) != 0);
-    });
+    static const bool registered_ok = RegisterPopupWindowClass(kContextMenuClass, WndProc, CS_HREDRAW | CS_VREDRAW);
     return registered_ok;
 }
 
@@ -256,13 +238,7 @@ bool ContextMenu::Impl::CreatePopupWindow(int screen_x, int screen_y)
     const int pixel_w = DipToPixelCeil(menu_width, dpi_scale);
     const int pixel_h = DipToPixelCeil(menu_height, dpi_scale);
 
-    const HMONITOR monitor = MonitorFromPoint({ screen_x, screen_y }, MONITOR_DEFAULTTONEAREST);
-    MONITORINFO mi = { sizeof(mi) };
-    GetMonitorInfoW(monitor, &mi);
-
-    // 作業領域より大きいメニューは左上端を優先する (std::clamp は lo > hi で使えない)。
-    const int x = std::max(std::min(screen_x, static_cast<int>(mi.rcWork.right) - pixel_w), static_cast<int>(mi.rcWork.left));
-    const int y = std::max(std::min(screen_y, static_cast<int>(mi.rcWork.bottom) - pixel_h), static_cast<int>(mi.rcWork.top));
+    const auto [x, y] = ClampToWorkArea(screen_x, screen_y, pixel_w, pixel_h);
 
     if (hwnd) {
         SetWindowPos(hwnd, HWND_TOPMOST, x, y, pixel_w, pixel_h, SWP_NOACTIVATE);
@@ -284,12 +260,7 @@ bool ContextMenu::Impl::CreatePopupWindow(int screen_x, int screen_y)
         return false;
     }
 
-    // SetWindowRgn は成功時のみ rgn の所有権を OS に移譲する。失敗時は呼び出し側で DeleteObject。
-    const int corner_px = DipToPixel(MENU_CORNER, dpi_scale);
-    const HRGN rgn = CreateRoundRectRgn(0, 0, pixel_w + 1, pixel_h + 1, corner_px, corner_px);
-    if (rgn && !SetWindowRgn(hwnd, rgn, FALSE)) {
-        DeleteObject(rgn);
-    }
+    ApplyRoundedRegion(hwnd, pixel_w, pixel_h, MENU_CORNER, dpi_scale, /*redraw=*/false);
 
     selected_id = 0;
     done = false;
@@ -318,31 +289,6 @@ void ContextMenu::Impl::HidePopupWindow() noexcept
     ShowWindow(hwnd, SW_HIDE);
 }
 
-void ContextMenu::Impl::RunModalLoop()
-{
-    MSG msg{};
-    while (!done) {
-        // WM_APP+* (TaskScheduler 完了通知など) を parent_hwnd 宛のままキューに残し、メインループで処理させる。
-        // メニュー表示中に App 状態を書き換えると race になるため。
-        if (PeekMessageW(&msg, nullptr, WM_QUIT, WM_QUIT, PM_NOREMOVE)) {
-            PostQuitMessage(static_cast<int>(msg.wParam));
-            done = true;
-            break;
-        }
-        // 開いたままのズームで本体が無効化されたら、メニューの裏でも描き直す。
-        if (PeekMessageW(&msg, owner, WM_PAINT, WM_PAINT, PM_REMOVE)) {
-            DispatchMessageW(&msg);
-            continue;
-        }
-        if (!PeekMessageW(&msg, hwnd, 0, 0, PM_REMOVE)) {
-            WaitMessage();
-            continue;
-        }
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
-    }
-}
-
 int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
 {
     auto& s = *impl_;
@@ -367,7 +313,7 @@ int ContextMenu::Show(HWND owner_hwnd, const ContextMenuParams& params)
     if (!s.CreatePopupWindow(params.screen_x, params.screen_y)) {
         return 0;
     }
-    s.RunModalLoop();
+    RunPopupModalLoop(s.done);
 
     if (s.hwnd) {
         ReleaseCapture();

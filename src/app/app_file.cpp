@@ -67,7 +67,11 @@ void App::LoadHelpDocument()
         CancelOtherFileLoad();
         return;
     }
+    ShowHelpResource();
+}
 
+void App::ShowHelpResource()
+{
     const auto rc = LoadRcData(i18n::S().help_resource_id);
     if (rc.empty()) {
         return;

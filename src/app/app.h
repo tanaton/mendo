@@ -17,6 +17,7 @@
 #include "resource_manager.h"
 #include "search_bar_controller.h"
 #include "selection_html.h"
+#include "settings_dialog.h"
 #include "side_effect.h"
 #include "task_scheduler.h"
 #include "theme_service.h"
@@ -356,6 +357,8 @@ private:
 
     // ---- ファイル読み込み (app_file.cpp) ----
     void LoadHelpDocument();
+    // 表示中の言語のヘルプに差し替える。
+    void ShowHelpResource();
     void LoadMarkdownFile(std::wstring_view path);
     void CancelOtherFileLoad();
     // 表示文書とレイアウトキャッシュを一緒に差し替え、旧文書の破棄を worker に回す。
@@ -405,12 +408,18 @@ private:
     void ApplyZoom();
     void ToggleDarkMode();
 
+    // ---- 設定 ----
+    void ShowSettingsDialog();
+    // 設定ダイアログで選んだ言語を、開いている画面にすぐ反映する。
+    void ApplyLanguage(const i18n::Strings* chosen);
+
 private:
     HWND hwnd_ = nullptr;
 
     SystemCursors cursors_;
     Tooltip tooltip_;
     ContextMenu ctx_menu_;
+    SettingsDialog settings_dialog_;
 
     Renderer renderer_;
     TaskScheduler scheduler_;

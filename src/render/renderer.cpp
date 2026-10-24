@@ -275,6 +275,7 @@ void Renderer::GenTitleBar(const TitleBarRenderState& tb)
 
     gen_plain(TitleBarHitZone::OpenFile, L'\uE838');
     gen_plain(TitleBarHitZone::Help, L'\uE897');
+    gen_plain(TitleBarHitZone::Settings, L'\uE713');
     gen_plain(TitleBarHitZone::ThemeToggle, tb.is_dark_mode ? L'\uE706' : L'\uE708');
     gen_toggle(TitleBarHitZone::Search, L'\uE721', tb.search_active);
     gen_toggle(TitleBarHitZone::FileToggle, L'\uE8B7', tb.file_pane_visible);

@@ -2,9 +2,9 @@
 
 A Markdown viewer that renders directly with Direct2D/DirectWrite. It is fast and uses little memory.
 
-**[Japanese / 日本語](README.md)**
+[日本語](../README.md) | **English** | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [한국어](README.ko.md)
 
-![mendo screenshot](./example/image/mendo_light.png)
+![mendo screenshot](../example/image/mendo_light.png)
 
 ## Installation
 
@@ -31,6 +31,7 @@ Type `mendo` into the File Explorer address bar and press Enter.
 - **Drag & Drop** — Drop a Markdown file onto the window to open it.
 - **In-file search** — Search within the file from the title bar search button or `Ctrl+F`.
 - **Customizable view** — Show/hide each pane, switch between light and dark themes, zoom in 17 steps from 0.25x to 5.00x, and more.
+- **Multilingual UI** — Shows the UI and help in Japanese, English, Simplified Chinese, Traditional Chinese, or Korean to match the Windows display language. You can also switch it from the settings button in the title bar.
 - **Persistent settings** — Dark mode, zoom level, last opened file, and more are saved to `%LOCALAPPDATA%\mendo\`.
 
 ## Supported Markdown Elements
@@ -107,9 +108,9 @@ Type `mendo` into the File Explorer address bar and press Enter.
 
 ## Screenshots
 
-![mendo with mermaid](./example/image/mendo_light_mermaid.png)
+![mendo with mermaid](../example/image/mendo_light_mermaid.png)
 
-![mendo dark mode](./example/image/mendo_dark_test.png)
+![mendo dark mode](../example/image/mendo_dark_test.png)
 
 ## Build
 
@@ -185,6 +186,6 @@ If there is no last opened file, open a file with `Ctrl+O` or drag & drop.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](../LICENSE)
 
-See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for third-party library licenses.
+See [THIRD_PARTY_LICENSES.md](../THIRD_PARTY_LICENSES.md) for third-party library licenses.

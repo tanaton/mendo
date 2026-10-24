@@ -7,6 +7,7 @@
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <windows.h>
+#include <algorithm>
 #include <bit>
 #include <cstddef>
 
@@ -143,3 +144,68 @@ public:
 private:
     ID2D1SolidColorBrush* brush_;
 };
+
+// ---- 自前描画のポップアップ (ContextMenu / SettingsDialog) の共通部分 ----
+
+// マウスのメッセージの lParam (クライアント座標)。windowsx.h の GET_X_LPARAM と同じく符号付きで読む。
+inline DipPoint DipPointFromLParam(LPARAM lParam, float dpi_scale) noexcept
+{
+    return PixelToDip(static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam)), dpi_scale);
+}
+
+// 呼び出し側の関数内 static で 1 回だけ呼ぶ。
+inline bool RegisterPopupWindowClass(const wchar_t* class_name, WNDPROC wndproc, UINT style = 0) noexcept
+{
+    WNDCLASSEXW wc{};
+    wc.cbSize = sizeof(wc);
+    wc.style = style;
+    wc.lpfnWndProc = wndproc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.lpszClassName = class_name;
+    return RegisterClassExW(&wc) != 0;
+}
+
+// 左上を (x, y) に置きたい w×h のウィンドウを、その点のモニタの作業領域に収める。
+// 作業領域より大きいときは左上端を優先する (std::clamp は lo > hi で使えない)。
+inline POINT ClampToWorkArea(int x, int y, int w, int h) noexcept
+{
+    MONITORINFO mi = { sizeof(mi) };
+    GetMonitorInfoW(MonitorFromPoint({ x, y }, MONITOR_DEFAULTTONEAREST), &mi);
+    return {
+        std::max(std::min(x, static_cast<int>(mi.rcWork.right) - w), static_cast<int>(mi.rcWork.left)),
+        std::max(std::min(y, static_cast<int>(mi.rcWork.bottom) - h), static_cast<int>(mi.rcWork.top)),
+    };
+}
+
+// done が立つまで回すモーダルループ。入力はキャプチャとフォーカスでポップアップに来るので、
+// 本体宛ての描画・タイマー・通知はそのまま配る (開いている間も図の描画や読み直しが進み、閉じた後にまとめて動かない)。
+// Dispatch は副作用の一覧を呼び出しごとに持つので、ポップアップを開いた Dispatch の途中で割り込まれても壊れない。
+inline void RunPopupModalLoop(const bool& done) noexcept
+{
+    MSG msg{};
+    while (!done) {
+        if (!PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+            WaitMessage();
+            continue;
+        }
+        if (msg.message == WM_QUIT) {
+            // メインループにも終了を届ける。
+            PostQuitMessage(static_cast<int>(msg.wParam));
+            break;
+        }
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+}
+
+// ウィンドウを角丸で切り抜く。
+inline void ApplyRoundedRegion(HWND hwnd, int w, int h, float corner_dip, float dpi_scale, bool redraw) noexcept
+{
+    // SetWindowRgn は成功時のみ rgn の所有権を OS に移譲する。失敗時は呼び出し側で DeleteObject。
+    const int corner_px = DipToPixel(corner_dip, dpi_scale);
+    const HRGN rgn = CreateRoundRectRgn(0, 0, w + 1, h + 1, corner_px, corner_px);
+    if (rgn && !SetWindowRgn(hwnd, rgn, redraw)) {
+        DeleteObject(rgn);
+    }
+}

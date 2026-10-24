@@ -16,6 +16,7 @@ struct Strings {
     std::wstring_view tooltip_search;
     std::wstring_view tooltip_file_pane;
     std::wstring_view tooltip_toc_pane;
+    std::wstring_view tooltip_settings;
     std::wstring_view tooltip_minimize;
     std::wstring_view tooltip_maximize;
     std::wstring_view tooltip_restore;
@@ -83,11 +84,22 @@ struct Strings {
     std::wstring_view diagram_error;
     std::wstring_view diagram_too_large;
 
+    // 設定ダイアログ
+    std::wstring_view settings_title;
+    std::wstring_view settings_language;
+    std::wstring_view settings_language_system;
+    std::wstring_view settings_diagram_cache;
+    std::wstring_view settings_clear_cache;
+
     // ヘルプリソースID
     UINT help_resource_id;
 
     // 設定ファイルの General/Language に保存する値。
     std::wstring_view lang_key;
+    // 言語の一覧に出す名前。どの言語の表示中でもその言語自身の表記で出す。
+    std::wstring_view lang_name;
+    // lang_name を組むロケール (漢字の字形を言語に合わせる)。
+    const wchar_t* lang_locale;
 };
 
 inline constexpr Strings kJa = {
@@ -97,6 +109,7 @@ inline constexpr Strings kJa = {
     .tooltip_search = L"検索 (Ctrl+F)",
     .tooltip_file_pane = L"ファイルペイン (Ctrl+1)",
     .tooltip_toc_pane = L"目次ペイン (Ctrl+2)",
+    .tooltip_settings = L"設定",
     .tooltip_minimize = L"最小化",
     .tooltip_maximize = L"最大化",
     .tooltip_restore = L"元に戻す",
@@ -137,8 +150,15 @@ inline constexpr Strings kJa = {
     .loading = L"読み込み中...",
     .diagram_error = L"図の描画に失敗しました",
     .diagram_too_large = L"図が大きすぎるため表示できません",
+    .settings_title = L"設定",
+    .settings_language = L"言語",
+    .settings_language_system = L"OS の設定に合わせる",
+    .settings_diagram_cache = L"図のキャッシュ",
+    .settings_clear_cache = L"削除",
     .help_resource_id = IDR_HELP_MD,
     .lang_key = L"ja",
+    .lang_name = L"日本語",
+    .lang_locale = L"ja-jp",
 };
 
 inline constexpr Strings kEn = {
@@ -148,6 +168,7 @@ inline constexpr Strings kEn = {
     .tooltip_search = L"Search (Ctrl+F)",
     .tooltip_file_pane = L"File Pane (Ctrl+1)",
     .tooltip_toc_pane = L"TOC Pane (Ctrl+2)",
+    .tooltip_settings = L"Settings",
     .tooltip_minimize = L"Minimize",
     .tooltip_maximize = L"Maximize",
     .tooltip_restore = L"Restore",
@@ -188,8 +209,15 @@ inline constexpr Strings kEn = {
     .loading = L"Loading...",
     .diagram_error = L"Failed to render diagram",
     .diagram_too_large = L"Diagram is too large to display",
+    .settings_title = L"Settings",
+    .settings_language = L"Language",
+    .settings_language_system = L"Use system setting",
+    .settings_diagram_cache = L"Diagram cache",
+    .settings_clear_cache = L"Clear",
     .help_resource_id = IDR_HELP_EN_MD,
     .lang_key = L"en",
+    .lang_name = L"English",
+    .lang_locale = L"en-us",
 };
 
 inline constexpr Strings kZh = {
@@ -199,6 +227,7 @@ inline constexpr Strings kZh = {
     .tooltip_search = L"搜索 (Ctrl+F)",
     .tooltip_file_pane = L"文件窗格 (Ctrl+1)",
     .tooltip_toc_pane = L"目录窗格 (Ctrl+2)",
+    .tooltip_settings = L"设置",
     .tooltip_minimize = L"最小化",
     .tooltip_maximize = L"最大化",
     .tooltip_restore = L"还原",
@@ -239,38 +268,195 @@ inline constexpr Strings kZh = {
     .loading = L"正在加载...",
     .diagram_error = L"图表渲染失败",
     .diagram_too_large = L"图表过大，无法显示",
+    .settings_title = L"设置",
+    .settings_language = L"语言",
+    .settings_language_system = L"跟随系统设置",
+    .settings_diagram_cache = L"图表缓存",
+    .settings_clear_cache = L"清除",
     .help_resource_id = IDR_HELP_ZH_MD,
     .lang_key = L"zh",
+    .lang_name = L"简体中文",
+    .lang_locale = L"zh-cn",
+};
+
+inline constexpr Strings kZhHant = {
+    .tooltip_open_file = L"開啟檔案 (Ctrl+O)",
+    .tooltip_help = L"說明 (F1)",
+    .tooltip_theme_toggle = L"切換深色/淺色模式",
+    .tooltip_search = L"搜尋 (Ctrl+F)",
+    .tooltip_file_pane = L"檔案窗格 (Ctrl+1)",
+    .tooltip_toc_pane = L"目錄窗格 (Ctrl+2)",
+    .tooltip_settings = L"設定",
+    .tooltip_minimize = L"最小化",
+    .tooltip_maximize = L"最大化",
+    .tooltip_restore = L"還原",
+    .tooltip_close = L"關閉",
+    .tooltip_pane_close = L"關閉",
+    .tooltip_pane_refresh = L"重新整理",
+    .tooltip_pane_reveal = L"前往目前檔案所在位置",
+    .tooltip_search_prev = L"上一個相符項目 (Shift+Enter)",
+    .tooltip_search_next = L"下一個相符項目 (Enter)",
+    .tooltip_search_case = L"大小寫須相符",
+    .tooltip_search_highlight = L"醒目提示所有相符項目",
+    .tooltip_search_close = L"關閉 (Esc)",
+    .tooltip_nav_back = L"上一頁 (Alt+←)",
+    .tooltip_nav_forward = L"下一頁 (Alt+→)",
+    .gesture_back = L"← 上一頁",
+    .gesture_forward = L"→ 下一頁",
+    .tooltip_copy = L"複製為 HTML",
+    .tooltip_save_image = L"儲存圖片",
+    .tooltip_copy_diagram = L"複製到剪貼簿",
+    .menu_edit_file = L"在編輯器中開啟",
+    .menu_copy = L"複製",
+    .menu_copy_formatted = L"複製為 HTML",
+    .menu_dark_mode = L"深色模式",
+    .menu_file_pane = L"檔案窗格",
+    .menu_toc_pane = L"目錄窗格",
+    .menu_zoom = L"縮放",
+    .pane_header_files = L"檔案",
+    .pane_header_toc = L"目錄",
+    .menu_reset_window = L"重設視窗位置(&R)",
+    .toast_file_not_found = L"找不到檔案",
+    .toast_file_too_large = L"檔案太大",
+    .toast_file_read_failed = L"無法讀取檔案",
+    .toast_image_saved = L"已儲存圖片",
+    .toast_image_save_failed = L"無法儲存圖片",
+    .toast_diagram_copying = L"正在複製到剪貼簿...",
+    .toast_diagram_copied = L"已複製到剪貼簿",
+    .toast_diagram_copy_failed = L"複製失敗",
+    .loading = L"正在載入...",
+    .diagram_error = L"無法繪製圖表",
+    .diagram_too_large = L"圖表太大，無法顯示",
+    .settings_title = L"設定",
+    .settings_language = L"語言",
+    .settings_language_system = L"依照系統設定",
+    .settings_diagram_cache = L"圖表快取",
+    .settings_clear_cache = L"清除",
+    .help_resource_id = IDR_HELP_ZH_HANT_MD,
+    .lang_key = L"zh-hant",
+    .lang_name = L"繁體中文",
+    .lang_locale = L"zh-tw",
+};
+
+inline constexpr Strings kKo = {
+    .tooltip_open_file = L"파일 열기 (Ctrl+O)",
+    .tooltip_help = L"도움말 (F1)",
+    .tooltip_theme_toggle = L"다크/라이트 모드 전환",
+    .tooltip_search = L"검색 (Ctrl+F)",
+    .tooltip_file_pane = L"파일 창 (Ctrl+1)",
+    .tooltip_toc_pane = L"목차 창 (Ctrl+2)",
+    .tooltip_settings = L"설정",
+    .tooltip_minimize = L"최소화",
+    .tooltip_maximize = L"최대화",
+    .tooltip_restore = L"이전 크기로 복원",
+    .tooltip_close = L"닫기",
+    .tooltip_pane_close = L"닫기",
+    .tooltip_pane_refresh = L"새로 고침",
+    .tooltip_pane_reveal = L"현재 파일 위치로 이동",
+    .tooltip_search_prev = L"이전 일치 항목 (Shift+Enter)",
+    .tooltip_search_next = L"다음 일치 항목 (Enter)",
+    .tooltip_search_case = L"대/소문자 구분",
+    .tooltip_search_highlight = L"모든 일치 항목 강조 표시",
+    .tooltip_search_close = L"닫기 (Esc)",
+    .tooltip_nav_back = L"뒤로 (Alt+←)",
+    .tooltip_nav_forward = L"앞으로 (Alt+→)",
+    .gesture_back = L"← 뒤로",
+    .gesture_forward = L"→ 앞으로",
+    .tooltip_copy = L"HTML로 복사",
+    .tooltip_save_image = L"이미지 저장",
+    .tooltip_copy_diagram = L"클립보드에 복사",
+    .menu_edit_file = L"편집기에서 열기",
+    .menu_copy = L"복사",
+    .menu_copy_formatted = L"HTML로 복사",
+    .menu_dark_mode = L"다크 모드",
+    .menu_file_pane = L"파일 창",
+    .menu_toc_pane = L"목차 창",
+    .menu_zoom = L"확대/축소",
+    .pane_header_files = L"파일",
+    .pane_header_toc = L"목차",
+    .menu_reset_window = L"창 위치 초기화(&R)",
+    .toast_file_not_found = L"파일을 찾을 수 없습니다",
+    .toast_file_too_large = L"파일이 너무 큽니다",
+    .toast_file_read_failed = L"파일을 읽지 못했습니다",
+    .toast_image_saved = L"이미지를 저장했습니다",
+    .toast_image_save_failed = L"이미지를 저장하지 못했습니다",
+    .toast_diagram_copying = L"클립보드에 복사하는 중...",
+    .toast_diagram_copied = L"클립보드에 복사했습니다",
+    .toast_diagram_copy_failed = L"복사하지 못했습니다",
+    .loading = L"불러오는 중...",
+    .diagram_error = L"다이어그램을 그리지 못했습니다",
+    .diagram_too_large = L"다이어그램이 너무 커서 표시할 수 없습니다",
+    .settings_title = L"설정",
+    .settings_language = L"언어",
+    .settings_language_system = L"시스템 설정 사용",
+    .settings_diagram_cache = L"다이어그램 캐시",
+    .settings_clear_cache = L"삭제",
+    .help_resource_id = IDR_HELP_KO_MD,
+    .lang_key = L"ko",
+    .lang_name = L"한국어",
+    .lang_locale = L"ko-kr",
 };
 
 // std::atomic<const Strings*> にしてあるのは、テスト並列実行時 (ja/en を別スレッドで切り替える
-// 言語切替テストなど) の data race を避けるため。kJa/kEn/kZh は static const なので
+// 言語切替テストなど) の data race を避けるため。各言語の表は static const なので
 // load 値は常に有効ポインタで、参照剥がしも安全。
 inline std::atomic<const Strings*> g_strings{ &kJa };
 
-// 繁体字の文言は持たないので、簡体字の地域だけ中国語にする。
-inline bool IsSimplifiedChinese(LANGID langid) noexcept
+// 台湾・香港・マカオと、地域なしの zh-Hant を繁体字とみなす。残りの中国語 (中国本土・シンガポール・zh-Hans) は簡体字。
+inline bool IsTraditionalChinese(LANGID langid) noexcept
 {
-    return PRIMARYLANGID(langid) == LANG_CHINESE &&
-           (SUBLANGID(langid) == SUBLANG_CHINESE_SIMPLIFIED || SUBLANGID(langid) == SUBLANG_CHINESE_SINGAPORE);
+    if (PRIMARYLANGID(langid) != LANG_CHINESE) {
+        return false;
+    }
+    const WORD sub = SUBLANGID(langid);
+    return sub == SUBLANG_CHINESE_TRADITIONAL || sub == SUBLANG_CHINESE_HONGKONG || sub == SUBLANG_CHINESE_MACAU ||
+           langid == LANG_CHINESE_TRADITIONAL;
 }
 
-inline constexpr const Strings* kAllStrings[] = { &kJa, &kEn, &kZh };
+// 設定に言語が無いとき、OS の表示言語から選ぶ文言。
+inline const Strings* StringsForUiLanguage(LANGID langid) noexcept
+{
+    switch (PRIMARYLANGID(langid)) {
+    case LANG_JAPANESE:
+        return &kJa;
+    case LANG_KOREAN:
+        return &kKo;
+    case LANG_CHINESE:
+        return IsTraditionalChinese(langid) ? &kZhHant : &kZh;
+    default:
+        return &kEn;
+    }
+}
 
+// OS の表示言語に合わせたときの文言。
+inline const Strings& SystemStrings() noexcept
+{
+    return *StringsForUiLanguage(GetUserDefaultUILanguage());
+}
+
+// 設定ダイアログの一覧の並び。
+inline constexpr const Strings* kAllStrings[] = { &kJa, &kEn, &kZh, &kZhHant, &kKo };
+
+// 設定で選んだ言語。nullptr は OS の表示言語に合わせる。g_strings と同じ理由で atomic にする。
+inline std::atomic<const Strings*> g_chosen{ nullptr };
+
+// chosen が nullptr なら OS の表示言語に合わせる。表示中の文言はすぐ切り替わる (文言は使うたびに S() から引く)。
+inline void SetLanguage(const Strings* chosen) noexcept
+{
+    g_chosen.store(chosen, std::memory_order_relaxed);
+    g_strings.store(chosen ? chosen : &SystemStrings(), std::memory_order_release);
+}
+
+// config_lang は設定ファイルの値。空や知らない値は OS に合わせる。
 inline void Init(std::wstring_view config_lang) noexcept
 {
     const auto it = std::ranges::find(kAllStrings, config_lang, &Strings::lang_key);
-    const Strings* selected = nullptr;
-    if (it != std::end(kAllStrings)) {
-        selected = *it;
-    }
-    else {
-        const LANGID langid = GetUserDefaultUILanguage();
-        selected = PRIMARYLANGID(langid) == LANG_JAPANESE ? &kJa
-                   : IsSimplifiedChinese(langid)          ? &kZh
-                                                          : &kEn;
-    }
-    g_strings.store(selected, std::memory_order_release);
+    SetLanguage(it != std::end(kAllStrings) ? *it : nullptr);
+}
+
+inline const Strings* ChosenLanguage() noexcept
+{
+    return g_chosen.load(std::memory_order_relaxed);
 }
 
 inline const Strings& S() noexcept
@@ -278,28 +464,37 @@ inline const Strings& S() noexcept
     return *g_strings.load(std::memory_order_acquire);
 }
 
-inline std::wstring_view GetLangKey() noexcept
+// 設定ファイルに保存する値。OS に合わせるときは空にし、次回も OS の表示言語で決める。
+inline std::wstring_view ConfigLangKey() noexcept
 {
-    return g_strings.load(std::memory_order_relaxed)->lang_key;
+    const Strings* chosen = ChosenLanguage();
+    return chosen ? chosen->lang_key : std::wstring_view{};
 }
 
 // 本文の書式に渡すロケール。漢字は同じ符号でも地域で字形が違い、DirectWrite はこれでフォールバック先を選ぶ
-// (ja-jp: Yu Gothic UI、zh-cn: Microsoft YaHei UI、zh-tw: Microsoft JhengHei UI)。
+// (ja-jp: Yu Gothic UI、zh-cn: Microsoft YaHei UI、zh-tw / zh-hk: Microsoft JhengHei UI、ko-kr: Malgun Gothic)。
 // 文書の言語は UI の言語設定 (英語 UI で日本語を読む人もいる) ではなく OS の表示言語から推す。
-// Theme::text_locale がこれを持ち、本文と同じ書体の書式に渡す。
-// 中国語以外は従来どおり日本語の字形にする。
-inline const wchar_t* TextLocale() noexcept
+// 中国語・韓国語以外は従来どおり日本語の字形にする。
+inline const wchar_t* TextLocaleForUiLanguage(LANGID langid) noexcept
 {
-    static const wchar_t* const locale = [] {
-        const LANGID langid = GetUserDefaultUILanguage();
-        if (PRIMARYLANGID(langid) != LANG_CHINESE) {
-            return L"ja-jp";
-        }
-        if (IsSimplifiedChinese(langid)) {
+    switch (PRIMARYLANGID(langid)) {
+    case LANG_KOREAN:
+        return L"ko-kr";
+    case LANG_CHINESE:
+        if (!IsTraditionalChinese(langid)) {
             return L"zh-cn";
         }
-        return SUBLANGID(langid) == SUBLANG_CHINESE_TRADITIONAL ? L"zh-tw" : L"zh-hk";
-    }();
+        return SUBLANGID(langid) == SUBLANG_CHINESE_HONGKONG || SUBLANGID(langid) == SUBLANG_CHINESE_MACAU ? L"zh-hk"
+                                                                                                          : L"zh-tw";
+    default:
+        return L"ja-jp";
+    }
+}
+
+// Theme::text_locale がこれを持ち、本文と同じ書体の書式に渡す。
+inline const wchar_t* TextLocale() noexcept
+{
+    static const wchar_t* const locale = TextLocaleForUiLanguage(GetUserDefaultUILanguage());
     return locale;
 }
 

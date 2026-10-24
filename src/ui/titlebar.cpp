@@ -23,6 +23,7 @@ void TitleBar::UpdateLayout(float window_width_dip) noexcept
     Button(TitleBarHitZone::OpenFile) = take_left(BUTTON_WIDTH);
     Button(TitleBarHitZone::Search) = take_left(BUTTON_WIDTH);
     Button(TitleBarHitZone::ThemeToggle) = take_left(BUTTON_WIDTH);
+    Button(TitleBarHitZone::Settings) = take_left(BUTTON_WIDTH);
     Button(TitleBarHitZone::Help) = take_left(BUTTON_WIDTH);
 
     Button(TitleBarHitZone::Close) = take_right(CAPTION_BTN_WIDTH);
@@ -48,6 +49,7 @@ TitleBarHitZone TitleBar::HitTest(float dip_x, float dip_y) const noexcept
         TitleBarHitZone::OpenFile,
         TitleBarHitZone::Search,
         TitleBarHitZone::ThemeToggle,
+        TitleBarHitZone::Settings,
         TitleBarHitZone::Help,
         TitleBarHitZone::FileToggle,
         TitleBarHitZone::TocToggle,

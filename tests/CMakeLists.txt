@@ -37,6 +37,7 @@ add_executable(mendo_tests
     test_titlebar.cpp
     test_ui_constants.cpp
     test_context_menu.cpp
+    test_settings_dialog.cpp
     test_image.cpp
     test_help.cpp
     test_search_state.cpp
