@@ -1695,7 +1695,7 @@ WebView2 は起動時には作らず、最初の描画要求（`RequestRender` /
 
 1. 画面外に置いたポップアップウィンドウを作成（`CapturePreview` は可視状態を要求するため非表示にはしない）
 2. WebView2 環境とコントローラを非同期に生成。環境の生成に失敗したら `MERMAID_INIT_RETRY` タイマーで `ENV_RETRY_INTERVAL_MS`（500ms）おきに `MAX_ENV_RETRIES`（3 回）まで再試行し、上限に達したら待ちの要求を失敗で完了させて未初期化に戻す
-3. `https://app.local/index.html` へ `Navigate` し、`WebResourceRequested` で HTML テンプレート（`IDR_MERMAID_HTML`）と `mermaid.min.js`（`IDR_MERMAID_JS`）を RCDATA から無圧縮のまま配信する
+3. `https://app.local/index.html` へ `Navigate` し、`WebResourceRequested` で HTML テンプレート（`IDR_MERMAID_HTML`）と mermaid の ESM ファイル（`.mjs`）を RCDATA から無圧縮のまま配信する
 4. 最初のワーカーの準備完了で `ready_` を立て `on_update_` を呼ぶ。準備前の描画要求は捨てているので、これで図の描画を要求し直させる
 
 ---
@@ -3299,9 +3299,9 @@ build/tests/Release/mendo_tests.exe --gtest_brief=1
 
 `mendo_core` には **DirectWrite / WebView2 抽象化越し** のサービスが入る — `ITextMeasurer` / `IMermaidRenderer` を通して使い、`MermaidRenderer`（WebView2）と `Renderer` / `D2DRenderBackend`（Direct2D）、`App` / `Win32Window` は `mendo` 実行ファイル側に置く。`DWriteTextMeasurer` は `mendo_core` に含まれ、`dwrite.lib` への依存を持つ。
 
-### 6.4 mermaid.min.js の埋め込み
+### 6.4 mermaid の埋め込み
 
-`mermaid.min.js` は `res/mendo.rc` で `IDR_MERMAID_JS` の RCDATA として無圧縮のまま EXE に埋め込み、`WebResourceRequested` でリソースのバイト列をそのまま配信する。ビルド時の圧縮ステップや実行時の展開処理は持たず、`cabinet.lib` にも依存しない。配布は zip なので事前圧縮しても配布サイズはほぼ変わらず、展開（ワーカー起動のたびに 12〜18ms）の方が高くつくためである。
+mermaid は ESM 版（本体の `mermaid.esm.min.mjs` と、図の種類ごとに遅延読み込みされる `chunks/mermaid.esm.min/*.mjs`）を使う。CMake が `third_party/mermaid` 配下の `.mjs` を列挙して、相対パスをそのままリソース名にした RCDATA 定義（`build/generated/mermaid_esm.rc`）を生成し、`res/mendo.rc` がそれを `#include` して無圧縮のまま EXE に埋め込む。`WebResourceRequested` は `index.html` に HTML テンプレートを返し、それ以外は `.mjs` のパスだけを名前でリソースから引いてバイト列をそのまま配信する（見つからなければ 404）。名前で引けるのは ESM ファイルだけなので、数値 ID の他のリソースは返らない。CMake は rc.exe が名前として受け付けないファイル名を構成時にエラーにする。ページは必要なチャンクだけを読み込むので、使わない図の種類のコードはパースしない。ビルド時の圧縮ステップや実行時の展開処理は持たず、`cabinet.lib` にも依存しない。配布は zip なので事前圧縮しても配布サイズはほぼ変わらず、展開（ワーカー起動のたびに 12〜18ms）の方が高くつくためである。
 
 ### 6.5 MSVC ビルド最適化
 
@@ -3709,7 +3709,7 @@ src/
 | md4c | 0.6.0 | Markdown パース | MIT |
 | WebView2 SDK | 1.0.3967.48 | Mermaid描画用ブラウザコントロール | BSD |
 | Google Test | 1.18.0 | ユニットテスト | BSD-3-Clause |
-| mermaid.js | 11.15.0 | ダイアグラム描画 | MIT |
+| mermaid.js | 12.2.0 | ダイアグラム描画 | MIT |
 | Tracy | 0.14.1 | プロファイラ（`MENDO_USE_TRACY=ON` 時のみ） | BSD-3-Clause |
 
 ### 付録C: Markdown表示サンプル

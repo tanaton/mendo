@@ -61,8 +61,6 @@ constexpr std::wstring_view MERMAID_HOST_CLASS = L"mendo_MermaidHost";
 
 constexpr std::wstring_view APP_LOCAL_ORIGIN_PREFIX = L"https://app.local/";
 constexpr wchar_t APP_LOCAL_INDEX_URL[] = L"https://app.local/index.html";
-// res/mermaid.html の <script src> と一致させる
-constexpr std::wstring_view APP_LOCAL_MERMAID_JS_URL = L"https://app.local/mermaid.min.js";
 // mermaid.js に XSS があっても外へ通信させない。WebResourceRequested では WebSocket や Worker 発の
 // 通信を捕まえられないので、ページの CSP で止める。eval は mermaid の依存が使いうるので許す。
 constexpr wchar_t HTML_RESPONSE_HEADERS[] =
@@ -531,20 +529,24 @@ void MermaidRenderer::OnWebResourceRequested(ICoreWebView2WebResourceRequestedEv
         return;
     }
 
-    // その他のパスにはHTMLテンプレート（res/mermaid.html）を配信する
-    const bool is_js = url == APP_LOCAL_MERMAID_JS_URL;
-    const auto body = LoadRcData(is_js ? IDR_MERMAID_JS : IDR_MERMAID_HTML);
+    // mermaid の ESM ファイルは third_party/mermaid からの相対パスを名前にして埋め込んでいる。
+    // 名前で引けるのはそれだけなので、数値 ID の他のリソースは返らない。path は NUL 終端した uri の末尾。
+    const bool is_html = url == APP_LOCAL_INDEX_URL;
+    const std::wstring_view path = url.substr(APP_LOCAL_ORIGIN_PREFIX.size());
+    const auto body = is_html                             ? LoadRcData(IDR_MERMAID_HTML)
+                      : mermaid_util::IsModulePath(path) ? LoadRcData(path.data())
+                                                         : std::span<const std::byte>{};
     Microsoft::WRL::ComPtr<IStream> stream;
     if (!body.empty()) {
         stream = CreateMemoryStream(body.data(), body.size());
     }
 
-    // リソース欠落時は空ボディを200で返さず500を返して失敗を明示する
+    // 空ボディを200で返さず、失敗を明示する
     if (!stream) {
-        respond(nullptr, 500, L"Resource unavailable", L"");
+        respond(nullptr, 404, L"Not Found", L"");
         return;
     }
-    respond(stream.Get(), 200, L"OK", is_js ? L"Content-Type: text/javascript; charset=utf-8" : HTML_RESPONSE_HEADERS);
+    respond(stream.Get(), 200, L"OK", is_html ? HTML_RESPONSE_HEADERS : L"Content-Type: text/javascript; charset=utf-8");
 }
 
 void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target)

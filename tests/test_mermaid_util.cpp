@@ -411,3 +411,14 @@ TEST(DiagramWidthFreeHash, IsWidthFreeNeedsMargin)
     EXPECT_FALSE(mermaid_util::IsWidthFree(599.5f, 600.0f));
     EXPECT_FALSE(mermaid_util::IsWidthFree(600.0f, 600.0f));
 }
+
+TEST(IsModulePath, AcceptsMjsExceptNumericIdSyntax)
+{
+    EXPECT_TRUE(mermaid_util::IsModulePath(L"mermaid.esm.min.mjs"sv));
+    EXPECT_TRUE(mermaid_util::IsModulePath(L"chunks/mermaid.esm.min/chunk-WLHZKB66.mjs"sv));
+    EXPECT_FALSE(mermaid_util::IsModulePath(L""sv));
+    EXPECT_FALSE(mermaid_util::IsModulePath(L"index.html"sv));
+    EXPECT_FALSE(mermaid_util::IsModulePath(L"mermaid.esm.min.mjs?v=1"sv));
+    // # で始まる名前は FindResourceW が数値 ID と読み、ESM 以外の埋め込みリソースに届きうる
+    EXPECT_FALSE(mermaid_util::IsModulePath(L"#304.mjs"sv));
+}
