@@ -10,9 +10,10 @@ inline bool IsKeyDown(int vk) noexcept
 }
 
 // リソースはプロセスのアドレス空間にマップされておりコピー不要。
-inline std::span<const std::byte> LoadRcData(UINT resource_id) noexcept
+// 文字列の名前は大文字小文字を区別せずに引く。
+inline std::span<const std::byte> LoadRcData(const wchar_t* name) noexcept
 {
-    const HRSRC hRes = FindResourceW(nullptr, MAKEINTRESOURCEW(resource_id), RT_RCDATA);
+    const HRSRC hRes = FindResourceW(nullptr, name, RT_RCDATA);
     if (!hRes) {
         return {};
     }
@@ -26,6 +27,11 @@ inline std::span<const std::byte> LoadRcData(UINT resource_id) noexcept
         return {};
     }
     return { data, size };
+}
+
+inline std::span<const std::byte> LoadRcData(UINT resource_id) noexcept
+{
+    return LoadRcData(MAKEINTRESOURCEW(resource_id));
 }
 
 // WM_NCCREATE で lpCreateParams の T* を hwnd に結び付け、以降のメッセージではそれを返す。結び付け前は nullptr。

@@ -40,7 +40,7 @@ IN THE SOFTWARE.
 - **Description**: JavaScript-based diagramming and charting tool
 - **Website**: https://mermaid.js.org/
 - **License**: MIT
-- **Included in**: `third_party/mermaid/` (minified + gzipped, embedded in binary)
+- **Included in**: `third_party/mermaid/` (ESM build: `mermaid.esm.min.mjs` + lazily loaded chunks, embedded in binary)
 
 ```
 Copyright (c) 2014 - 2022 Knut Sveidqvist

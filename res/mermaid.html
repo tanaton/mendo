@@ -81,13 +81,8 @@
 
   (async function() {
     try {
-      await new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = 'https://app.local/mermaid.min.js';
-        s.onload = resolve;
-        s.onerror = reject;
-        document.head.appendChild(s);
-      });
+      // 図の種類ごとのチャンクは、mermaid が描くときに必要な分だけ読み込む
+      window.mermaid = (await import('https://app.local/mermaid.esm.min.mjs')).default;
       var dpr = window.devicePixelRatio || 1;
       window.chrome.webview.postMessage(
         mermaidReady() ? ('mermaid-ready:' + dpr) : 'mermaid-failed');

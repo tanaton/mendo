@@ -192,6 +192,24 @@ endif()
 # 日本語パス配下では MSVC `/utf-8` と衝突するため。
 target_precompile_headers(mendo_core PRIVATE <pch.h>)
 
+# ---- mermaid（ESM 版、本体 + 遅延読み込みのチャンク） ----
+# third_party/mermaid からの相対パスをそのままリソース名にして埋め込み、URL のパスで引く。
+# 日本語パスを rc.exe に渡さないよう、ファイルは res/mendo.rc からの相対パスで書く。
+file(GLOB_RECURSE _mendo_mermaid_files CONFIGURE_DEPENDS
+    RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mermaid"
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mermaid/*.mjs")
+set(_mendo_mermaid_rc "")
+foreach(_f IN LISTS _mendo_mermaid_files)
+    # rc.exe は数字で始まる名前を数値 ID と読み、記号によっては名前を区切る
+    if(NOT _f MATCHES "^[A-Za-z][A-Za-z0-9._/-]*$")
+        message(FATAL_ERROR "mendo: '${_f}' cannot be used as an rc resource name.")
+    endif()
+    string(APPEND _mendo_mermaid_rc "${_f} RCDATA \"../third_party/mermaid/${_f}\"\n")
+endforeach()
+file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/mermaid_esm.rc" CONTENT "${_mendo_mermaid_rc}")
+unset(_mendo_mermaid_files)
+unset(_mendo_mermaid_rc)
+
 # ---- メイン実行ファイル ----
 add_executable(mendo WIN32
     src/main.cpp
@@ -207,7 +225,7 @@ add_executable(mendo WIN32
     src/mermaid/mermaid.cpp
     res/mendo.rc
 )
-target_include_directories(mendo PRIVATE ${WEBVIEW2_INCLUDE})
+target_include_directories(mendo PRIVATE ${WEBVIEW2_INCLUDE} "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(mendo PRIVATE mendo_core comctl32 delayimp
     "${WEBVIEW2_LIB_DIR}/WebView2LoaderStatic.lib"
 )

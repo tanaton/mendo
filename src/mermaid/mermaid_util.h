@@ -79,4 +79,10 @@ struct ParsedWebMessage {
 
 ParsedWebMessage ParseWebMessage(std::wstring_view msg) noexcept;
 
+// FindResourceW は "#123" を数値 ID と読むので、# で始まる名前で引かせない。
+constexpr bool IsModulePath(std::wstring_view path) noexcept
+{
+    return path.ends_with(L".mjs") && !path.starts_with(L'#');
+}
+
 } // namespace mermaid_util
