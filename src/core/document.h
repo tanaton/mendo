@@ -107,7 +107,7 @@ public:
     bool HasBackingFile() const noexcept;
     constexpr const std::pmr::vector<TocEntry>& GetToc() const noexcept
     {
-        return toc_;
+        return indices_.toc_entries;
     }
     bool IsEmpty() const noexcept
     {
@@ -133,15 +133,15 @@ public:
     int FindAnchorIndex(std::string_view anchor);
     constexpr const std::pmr::vector<size_t>& GetImageNodeIndices() const noexcept
     {
-        return image_node_indices_;
+        return indices_.image_indices;
     }
     constexpr const std::pmr::vector<size_t>& GetDiagramNodeIndices() const noexcept
     {
-        return diagram_node_indices_;
+        return indices_.diagram_indices;
     }
     constexpr const std::pmr::vector<size_t>& GetTableNodeIndices() const noexcept
     {
-        return table_node_indices_;
+        return indices_.table_indices;
     }
 
 private:
@@ -152,12 +152,7 @@ private:
     // 設定するのは FromMarkdown だけ。常に LF-only (FileLoader または 2 引数 FromMarkdown が正規化する)。
     RawText raw_text_;
     size_t loaded_byte_size_ = 0;
-    std::pmr::vector<TocEntry> toc_;
-    std::pmr::vector<size_t> image_node_indices_;
-    std::pmr::vector<size_t> diagram_node_indices_;
-    std::pmr::vector<size_t> table_node_indices_;
-    std::pmr::vector<int32_t> footnote_def_indices_;
-    std::pmr::vector<FootnoteRef> footnote_refs_;
+    NodeIndices indices_;
     std::pmr::wstring cached_directory_;
     // アンカーはリンクを辿るときにしか使わないので、パースでは作らず FindAnchorIndex で目次の先頭から
     // 見つかるまでだけ索引を延ばす。リンクを辿らない文書では確保しない。

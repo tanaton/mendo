@@ -49,8 +49,8 @@ public:
     }
 
     // reload_base の意味は AsyncLoadCoordinator::Start を参照。
-    void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, Theme theme, float content_width,
-                        ReloadBase reload_base);
+    void StartAsyncLoad(TaskScheduler& scheduler, std::pmr::wstring path, HWND hwnd, UINT msg_id, Theme theme,
+                        float content_width, ReloadBase reload_base);
     std::optional<AsyncLoadOutcome> TakeAsync() noexcept
     {
         return coordinator_.Take();
@@ -74,10 +74,6 @@ public:
     constexpr const std::pmr::wstring& GetLoadingPath() const noexcept
     {
         return loading_path_;
-    }
-    constexpr void SetLoadingPath(std::pmr::wstring path) noexcept
-    {
-        loading_path_ = std::move(path);
     }
 
 private:

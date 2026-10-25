@@ -158,11 +158,11 @@ void App::ReplaceDocument(Document next)
 void App::BeginAsyncLoad(std::pmr::wstring path, bool show_animation, ReloadBase reload_base)
 {
     MENDO_PROFILE("App::BeginAsyncLoad");
-    file_load_service_.SetLoadingPath(std::move(path));
     if (show_animation) {
         ScheduleLoadingAnimation();
     }
-    file_load_service_.StartAsyncLoad(scheduler_, hwnd_, app_msg::PARSE_COMPLETE, renderer_.GetTheme(), MdContentWidth(), std::move(reload_base));
+    file_load_service_.StartAsyncLoad(scheduler_, std::move(path), hwnd_, app_msg::PARSE_COMPLETE, renderer_.GetTheme(), MdContentWidth(),
+                                      std::move(reload_base));
 }
 
 // Defer* はエディタの保存途中 (truncate→rewrite の前半や書き込み中) を読んだ状態。

@@ -171,14 +171,10 @@ std::wstring_view DiagramErrorText(const DiagramError& error) noexcept
 
 } // namespace
 
-// box はスクロール位置に依らない値を渡す。矩形の差から求めると丸めでキャッシュが外れる。
 void CommandGenerator::EmitText(std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, BrushId brush_id, float opacity)
 {
-    if (!text_layouts_) {
-        return;
-    }
-    if (auto* layout = text_layouts_->Get(fmt, text, box)) {
-        cmds_.emplace_back(DrawTextLayoutCmd{ .origin = origin, .layout = layout, .brush_id = brush_id, .opacity = opacity });
+    if (text_layouts_) {
+        text_layouts_->Emit(cmds_, text, fmt, origin, box, brush_id, opacity);
     }
 }
 
@@ -622,7 +618,7 @@ void CommandGenerator::GenBlockQuoteGroup(const FrameContext& fc, int first, int
     const float outer_x_indent = static_cast<float>(outer_indent) * theme_->indent_width;
     if (const auto idx = AlertColorIndex(alert_type); idx < ALERT_TYPE_COUNT) {
         const float outer_x = theme_->margin_left + outer_x_indent;
-        const float cw = fc.content_width - outer_x_indent;
+        const float cw = ShrinkKeepingMinContent(fc.content_width, outer_x_indent);
         const D2D1_RECT_F bg_rect = D2D1::RectF(outer_x - ALERT_BG_PAD, group_top - ALERT_BG_PAD, outer_x + cw, group_bottom + ALERT_BG_PAD);
         cmds_.emplace_back(FillRoundedRectCmd{ bg_rect, ALERT_BG_CORNER, ALERT_BG_CORNER, AlertBgBrushIdFromIndex(idx) });
     }

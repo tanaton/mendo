@@ -141,7 +141,7 @@ private:
     void EmitCenteredChromeText(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float opacity);
     // NO_WRAP の左寄せテキスト。はみ出しは呼び出し側のクリップで切る。
     void EmitLeftText(IDWriteTextFormat* fmt, std::wstring_view text, float x, float y, float height);
-    void DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height, bool has_dirty_nodes);
+    void DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, const LayoutCache& cache);
     void DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool can_forward, NavDirection hovered);
     void DrawGestureTrail(const std::pmr::vector<GesturePoint>& points);
     void DrawTransientOverlays(const GestureRenderState& gesture, const ToastRenderState& toast, const PaneRect& md_pane_rect);

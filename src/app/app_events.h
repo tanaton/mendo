@@ -226,9 +226,9 @@ struct EnterSizeMoveAction {};
 struct ExitSizeMoveAction {};
 struct CaptureChangedAction {};
 
-struct TimerAction {
-    app_timer::Id timer_id;
-};
+// AppState を変えるタイマーだけをアクションにする。サービスを進めるだけのものは App::HandleTimer が直接処理する。
+struct ToastExpiredAction {};
+struct SwipeOverlayTimeoutAction {};
 
 struct SearchTextChangedAction {
     std::pmr::wstring text;
@@ -301,7 +301,8 @@ using AppAction = std::variant<
     EnterSizeMoveAction,
     ExitSizeMoveAction,
     CaptureChangedAction,
-    TimerAction,
+    ToastExpiredAction,
+    SwipeOverlayTimeoutAction,
     SearchTextChangedAction,
     SearchContinueAction,
     ToggleCaseSensitiveAction,

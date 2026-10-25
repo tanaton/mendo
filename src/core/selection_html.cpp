@@ -586,26 +586,18 @@ CellRunsHit FindTableCellRuns(const Node& node, uint32_t text_pos)
     if (!tbl || tbl->row_count == 0 || tbl->col_count == 0) {
         return {};
     }
-    // cell_text_starts は単調非減少 (= 行頭 / セル間で進む)。upper_bound で text_pos を超える
-    // 最初の境界を取り、その直前を flat cell index にする。
-    const auto& starts = tbl->cell_text_starts;
-    const auto it = std::ranges::upper_bound(starts, text_pos);
-    if (it == starts.begin() || it == starts.end()) {
-        return {};
-    }
-    const size_t idx = static_cast<size_t>(it - starts.begin()) - 1;
+    const size_t idx = tbl->CellIndexAt(text_pos);
     const size_t col_count = tbl->col_count;
     const size_t r = idx / col_count;
     const size_t c = idx % col_count;
     if (r >= tbl->row_count) {
         return {};
     }
-    const uint32_t start = starts[idx];
     // 末尾区切りを除いたセル長で in-range 判定。padding セルは長さ 0 で必ず外れる。
     if (text_pos >= tbl->CellTextEnd(r, c)) {
         return {};
     }
-    return { tbl->GetCellRuns(r, c), text_pos - start };
+    return { tbl->GetCellRuns(r, c), text_pos - tbl->CellTextStart(r, c) };
 }
 
 } // namespace

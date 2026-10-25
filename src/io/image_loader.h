@@ -28,10 +28,15 @@ public:
 
     // 失敗時 false; 以降の RequestLoadAsync はデコードせず失敗扱いになる。
     bool Init(IWICImagingFactory* wic = nullptr);
-    // **UI スレッドからのみ呼び出すこと** (worker が読むのは max_bitmap_dim_ だけ)。デバイスロスト後の
-    // rt 差し替えは CancelPending() で旧 rt 向けのデコードを捨ててから呼ぶ規約 (App::Init の DeviceLost コールバック参照)。
-    void SetRenderTarget(ID2D1RenderTarget* rt) noexcept
+    // **UI スレッドからのみ呼び出すこと** (worker が読むのは max_bitmap_dim_ だけ)。
+    // デバイスロストでの差し替えでは、旧 rt 向けのデコードとビットマップを捨てる。
+    // 最初の設定では、デバイス作成前に始めたデコード (WIC ビットマップ) をそのまま新しい rt で使う。
+    void SetRenderTarget(ID2D1RenderTarget* rt)
     {
+        if (render_target_) {
+            CancelPending();
+            ClearCache();
+        }
         render_target_ = rt;
         max_bitmap_dim_.store(MaxBitmapDim(rt));
     }

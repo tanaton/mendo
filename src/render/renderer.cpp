@@ -196,7 +196,7 @@ Renderer::FrameResult Renderer::Render(const RenderParams& p)
         DrawSearchBar(p.search_bar, p.md_pane_rect);
     }
 
-    DrawMdScrollbar(p.md_pane_rect, p.scroll_y, p.total_content_height, p.has_dirty_nodes);
+    DrawMdScrollbar(p.md_pane_rect, p.scroll_y, p.cache);
 
     return EndFrame();
 }
@@ -299,16 +299,12 @@ void Renderer::GenTitleBar(const TitleBarRenderState& tb)
 
 void Renderer::EmitChromeText(std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, BrushId brush_id, float opacity)
 {
-    if (auto* layout = text_layouts_.Get(fmt, text, box)) {
-        chrome_cmds_.push_back(DrawTextLayoutCmd{ .origin = origin, .layout = layout, .brush_id = brush_id, .opacity = opacity });
-    }
+    text_layouts_.Emit(chrome_cmds_, text, fmt, origin, box, brush_id, opacity);
 }
 
 void Renderer::EmitCenteredChromeText(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float opacity)
 {
-    if (auto* layout = text_layouts_.Get(fmt, text, {})) {
-        chrome_cmds_.push_back(DrawTextLayoutCmd{ .origin = TextLayoutCache::Origin(rect, {}), .layout = layout, .brush_id = brush_id, .opacity = opacity });
-    }
+    EmitChromeText(text, fmt, TextLayoutCache::Origin(rect, {}), {}, brush_id, opacity);
 }
 
 void Renderer::DrawCenteredText(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box)

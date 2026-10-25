@@ -1,6 +1,7 @@
 #include "window.h"
 #include "config_service.h"
 #include "d2d_render_backend.h"
+#include "document_utils.h"
 #include "file_io.h"
 #include "i18n.h"
 #include "profiler.h"
@@ -29,8 +30,7 @@ std::wstring ExeDirectory()
     if (len == 0 || len >= MAX_PATH) {
         return {};
     }
-    const std::wstring_view exe{ buf, len };
-    return std::wstring{ exe.substr(0, exe.find_last_of(L'\\')) };
+    return std::wstring{ ParentDirectory({ buf, len }) };
 }
 
 // "." や相対パスを FileExplorer / 前回ファイル比較でそのまま扱えるよう絶対パス化する。

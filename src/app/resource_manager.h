@@ -79,12 +79,22 @@ public:
     // 可視範囲のみ走査し、未キャッシュは非同期ロード起動（通常描画用）。
     int ApplyCachedImages()
     {
-        return ApplyCachedImagesIn(std::nullopt);
+        return ApplyCachedImagesIn([this](std::span<const size_t> images) {
+            DropQueuesIfJumped();
+            return PrioritizedSlices(images, PREFETCH_BUFFER_SCREENS);
+        }, true);
     }
     // range のノードの画像を全部走査、未キャッシュは無視（リロード時のスクロール計算前用）。
+    // 読み込みは後続の RelayoutViewport (LoadImages) が起動する。
     int ApplyCachedImagesForReload(VisibleRange range)
     {
-        return ApplyCachedImagesIn(range);
+        // 読み込みを起動しないので、キャッシュが空なら何も適用できない (起動直後の復元など)。
+        if (deps_.image_loader->CacheSize() == 0) {
+            return 0;
+        }
+        return ApplyCachedImagesIn([range](std::span<const size_t> images) {
+            return std::array{ VisibleSlice(images, range.first, range.last_plus_1) };
+        }, false);
     }
 
     // リロード直後のスクロール位置計算用に、range のノードの図の推定高さをディスクキャッシュにある寸法で上書きする。
@@ -219,9 +229,10 @@ public:
     }
 
 private:
-    int ApplyCachedImagesIn(std::optional<VisibleRange> reload_range)
+    // make_slices は画像ノードの番号列から走査する範囲の並びを返す。start_loads なら未キャッシュの画像の読み込みを起動する。
+    template <class MakeSlices>
+    int ApplyCachedImagesIn(MakeSlices&& make_slices, bool start_loads)
     {
-        const bool respect_viewport = !reload_range;
         const std::pmr::wstring& doc_dir = deps_.doc->GetDirectory();
         if (doc_dir.empty()) {
             return 0;
@@ -231,11 +242,6 @@ private:
             resolved_image_paths_.clear();
             resolved_dir_ = doc_dir;
         }
-        // 全件モードは読み込みを起動しないので、キャッシュが空なら何も適用できない (起動直後の復元など)。
-        if (!respect_viewport && deps_.image_loader->CacheSize() == 0) {
-            return 0;
-        }
-
         const float content_width = host_->MdContentWidth();
         if (content_width <= 0.0f) {
             return 0;
@@ -243,14 +249,7 @@ private:
 
         const Theme& theme = host_->GetTheme();
         const auto& nodes = deps_.doc->GetNodes();
-        const auto& image_indices = deps_.doc->GetImageNodeIndices();
-
-        if (respect_viewport) {
-            DropQueuesIfJumped();
-        }
-        const auto slices = respect_viewport
-                                ? PrioritizedSlices(image_indices, PREFETCH_BUFFER_SCREENS)
-                                : std::array{ VisibleSlice(image_indices, reload_range->first, reload_range->last_plus_1), std::span<const size_t>{}, std::span<const size_t>{} };
+        const auto slices = make_slices(std::span<const size_t>{ deps_.doc->GetImageNodeIndices() });
 
         int applied = 0;
         for (const size_t i : slices | std::views::join) {
@@ -265,10 +264,9 @@ private:
                 continue;
             }
 
-            // 通常運用時のみ非同期ロードを起動する。リロード時は後続の RelayoutViewport (LoadImages) で起動する。
             const float max_width = layout::NodeContentWidth(node, theme, content_width);
             const auto request = [&] {
-                if (respect_viewport) {
+                if (start_loads) {
                     deps_.image_loader->RequestLoadAsync(*abs_path, [this] { OnImageLoadComplete(); }, max_width);
                 }
             };
@@ -357,9 +355,7 @@ private:
     // 画像・図の寸法が確定したノードの高さを決める。
     void ApplyBitmapHeight(size_t i, const DiagramEntry& bitmap, float node_width)
     {
-        auto& entry = (*deps_.cache)[i];
-        entry.height = layout::BitmapDisplayHeight(bitmap.width, bitmap.height, node_width);
-        entry.layout_dirty = false;
+        (*deps_.cache)[i].CommitMeasured(node_width, layout::BitmapDisplayHeight(bitmap.width, bitmap.height, node_width));
         height_changed_.Add(i);
     }
 

@@ -403,7 +403,9 @@ std::pmr::vector<SyntaxToken> TokenizeCodeNode(const Node& node)
     if (!node.continues_prev()) {
         return Tokenize(text, node.code_language());
     }
-    // 続きのノードはパーサが前のノードの直後に置く。
+    // 続きのノードはパーサが前のノードの直後に置く。前のノードごとトークナイズし直すので 2 倍かかるが
+    // (syntax.cpp の 16KB ノードで 47 → 97µs)、ノードの計測全体 (6.7ms) の 1% 未満なので、
+    // 字句解析の状態を前のノードから持ち越す作りにはしない (BM_TokenizeCodeChunk / BM_MeasureCodeChunk)。
     const Node& prev = (&node)[-1];
     std::pmr::string joined;
     joined.reserve(prev.GetText().size() + 1 + text.size());

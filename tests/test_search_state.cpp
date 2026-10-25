@@ -112,17 +112,17 @@ TEST(SearchStateTest, SingleMatch)
     const auto s = Searched(TextNodes({ "Hello World" }), "World");
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].node_index, 0);
-    EXPECT_EQ(s.GetMatches()[0].start, 6u);
-    EXPECT_EQ(s.GetMatches()[0].length, 5u);
+    EXPECT_EQ(s.GetMatches()[0].start_w, 6u);
+    EXPECT_EQ(s.GetMatches()[0].length_w, 5u);
 }
 
 TEST(SearchStateTest, MultipleMatchesInOneNode)
 {
     const auto s = Searched(TextNodes({ "abcabcabc" }), "abc");
     ASSERT_EQ(s.GetMatchCount(), 3);
-    EXPECT_EQ(s.GetMatches()[0].start, 0u);
-    EXPECT_EQ(s.GetMatches()[1].start, 3u);
-    EXPECT_EQ(s.GetMatches()[2].start, 6u);
+    EXPECT_EQ(s.GetMatches()[0].start_w, 0u);
+    EXPECT_EQ(s.GetMatches()[1].start_w, 3u);
+    EXPECT_EQ(s.GetMatches()[2].start_w, 6u);
 }
 
 TEST(SearchStateTest, MatchesAcrossMultipleNodes)
@@ -178,7 +178,7 @@ TEST(SearchStateTest, CaseSensitiveMatchesExact)
 {
     const auto s = Searched(TextNodes({ "Hello HELLO hello" }), "Hello", true);
     ASSERT_EQ(s.GetMatchCount(), 1);
-    EXPECT_EQ(s.GetMatches()[0].start, 0u);
+    EXPECT_EQ(s.GetMatches()[0].start_w, 0u);
 }
 
 TEST(SearchStateTest, CaseSensitiveNoMatch)
@@ -216,8 +216,8 @@ TEST(SearchStateTest, TableCellMatch)
     EXPECT_EQ(s.GetMatches()[0].node_index, 0);
     EXPECT_EQ(s.GetMatches()[0].table_row, 0);
     EXPECT_EQ(s.GetMatches()[0].table_col, 0);
-    EXPECT_EQ(s.GetMatches()[0].start, 0u);
-    EXPECT_EQ(s.GetMatches()[0].length, 5u);
+    EXPECT_EQ(s.GetMatches()[0].start_w, 0u);
+    EXPECT_EQ(s.GetMatches()[0].length_w, 5u);
 }
 
 TEST(SearchStateTest, TableMultipleCellMatches)
@@ -500,7 +500,7 @@ TEST(SearchStateTest, ReExecuteSearchUpdatesMatches)
     s.SetQuery("def");
     RunSearchToEnd(s, nodes);
     ASSERT_EQ(s.GetMatchCount(), 1);
-    EXPECT_EQ(s.GetMatches()[0].start, 4u);
+    EXPECT_EQ(s.GetMatches()[0].start_w, 4u);
 }
 
 TEST(SearchStateTest, ReExecuteAfterCaseSensitiveChange)
@@ -512,7 +512,7 @@ TEST(SearchStateTest, ReExecuteAfterCaseSensitiveChange)
     s.ToggleCaseSensitive();
     RunSearchToEnd(s, nodes);
     ASSERT_EQ(s.GetMatchCount(), 1);
-    EXPECT_EQ(s.GetMatches()[0].start, 4u);
+    EXPECT_EQ(s.GetMatches()[0].start_w, 4u);
 }
 
 // ═══════════════════════════════════════════════
@@ -523,10 +523,10 @@ TEST(SearchStateTest, JapaneseTextSearch)
 {
     const auto s = Searched(TextNodes({ "これはテストです。テスト完了。" }), "テスト");
     ASSERT_EQ(s.GetMatchCount(), 2);
-    // UTF-8: 各 BMP CJK 文字 3 byte。"これは" 9 / "テスト" 9 / "です。" 9
-    EXPECT_EQ(s.GetMatches()[0].start, 9u);
-    EXPECT_EQ(s.GetMatches()[0].length, 9u);
-    EXPECT_EQ(s.GetMatches()[1].start, 27u);
+    // UTF-16: 各 BMP CJK 文字 1 code unit。"これは" 3 / "テスト" 3 / "です。" 3
+    EXPECT_EQ(s.GetMatches()[0].start_w, 3u);
+    EXPECT_EQ(s.GetMatches()[0].length_w, 3u);
+    EXPECT_EQ(s.GetMatches()[1].start_w, 9u);
 }
 
 // ═══════════════════════════════════════════════
@@ -599,13 +599,10 @@ TEST(SearchStateTest, TableMatchesCarryCellLocalOffsets)
     const auto s = Searched(Nodes(MakeTableNode({ { "xx Foo", "\xE3\x81\x82" "foo foo" } })), "FOO");
     ASSERT_EQ(s.GetMatchCount(), 3);
     EXPECT_EQ(s.GetMatches()[0].table_col, 0);
-    EXPECT_EQ(s.GetMatches()[0].start, 3u);
     EXPECT_EQ(s.GetMatches()[0].start_w, 3u);
     EXPECT_EQ(s.GetMatches()[1].table_col, 1);
-    EXPECT_EQ(s.GetMatches()[1].start, 3u);
     EXPECT_EQ(s.GetMatches()[1].start_w, 1u);
     EXPECT_EQ(s.GetMatches()[1].length_w, 3u);
-    EXPECT_EQ(s.GetMatches()[2].start, 7u);
     EXPECT_EQ(s.GetMatches()[2].start_w, 5u);
 }
 
@@ -618,7 +615,6 @@ TEST(SearchStateTest, JapaneseMatchUtf16Offsets)
 {
     const auto s = Searched(TextNodes({ "\xF0\x9F\x98\x80\xE3\x81\x82\xE3\x81\x84" }), "\xE3\x81\x84");
     ASSERT_EQ(s.GetMatchCount(), 1);
-    EXPECT_EQ(s.GetMatches()[0].start, 7u);
     EXPECT_EQ(s.GetMatches()[0].start_w, 3u) << "サロゲートペア 2 + 'あ' 1";
     EXPECT_EQ(s.GetMatches()[0].length_w, 1u);
 }
@@ -627,8 +623,8 @@ namespace {
 bool SameMatches(const SearchState& a, const SearchState& b)
 {
     return std::ranges::equal(a.GetMatches(), b.GetMatches(), [](const SearchMatch& x, const SearchMatch& y) {
-        return x.node_index == y.node_index && x.start == y.start && x.length == y.length &&
-               x.table_row == y.table_row && x.table_col == y.table_col && x.start_w == y.start_w && x.length_w == y.length_w;
+        return x.node_index == y.node_index && x.table_row == y.table_row && x.table_col == y.table_col &&
+               x.start_w == y.start_w && x.length_w == y.length_w;
     });
 }
 } // namespace

@@ -9,6 +9,7 @@
 #include "test_helpers.h"
 #include "document_utils.h"
 #include "file_io.h"
+#include "layout_computer.h"
 #include <filesystem>
 #include <format>
 #include <optional>
@@ -217,7 +218,6 @@ TEST_F(ReducerTest, SearchJumpEmitsScrollEffects)
     EXPECT_GT(state.view.viewport.GetScrollY(), 0.0f);
     EXPECT_TRUE(HasEffect<effect::ClearTooltip>(effects));
     EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
-    EXPECT_TRUE(HasEffect<effect::SyncTocActive>(effects));
 }
 
 TEST_F(ReducerTest, SearchWithoutScrollEmitsNoScrollEffects)
@@ -229,7 +229,6 @@ TEST_F(ReducerTest, SearchWithoutScrollEmitsNoScrollEffects)
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
     EXPECT_FALSE(HasEffect<effect::BitmapManage>(effects));
-    EXPECT_FALSE(HasEffect<effect::SyncTocActive>(effects));
 }
 
 // ---- NoOpAction テスト ----
@@ -805,16 +804,10 @@ TEST_F(ReducerTest, CaptureChanged_ResetsBlockHScrollDrag)
 TEST_F(ReducerTest, Timer_Toast_HidesAndKillsTimer)
 {
     state.interaction.toast_message = L"test";
-    auto effects = Reduce(state, TimerAction{ app_timer::Id::TOAST });
+    auto effects = Reduce(state, ToastExpiredAction{});
     EXPECT_TRUE(state.interaction.toast_message.empty());
     EXPECT_TRUE(HasEffect<effect::KillTimer>(effects));
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
-}
-
-TEST_F(ReducerTest, Timer_ServiceTimerIsIgnoredByReducer)
-{
-    auto effects = Reduce(state, TimerAction{ app_timer::Id::BITMAP_MANAGE });
-    EXPECT_TRUE(effects.empty());
 }
 
 
@@ -1521,40 +1514,85 @@ TEST_F(ReducerTest, TocItemClicked_TailSection_ClampsToMaxScroll)
     EXPECT_FALSE(state.view.viewport.HasScrollTarget());
 }
 
-// issue#259: 目次クリック由来のジャンプでは目次ペインの自動スクロールを抑制する
-// (ハイライト更新のみ)。クリック先の項目が画面内で動いて見失う混乱を防ぐ契約。
-TEST_F(ReducerTest, TocItemClicked_SuppressesTocAutoScroll)
+namespace {
+
+// 見出し 30 件の文書を、目次ペインがあふれる大きさで表示する。最初の描画の同期を済ませた状態を返す。
+void SetupTocFollow(AppState& state)
 {
-    SetDocument(state, "# First\n\n# Second", L"C:\\file.md", 400.0f);
-
-    auto effects = Reduce(state, TocItemClickedAction{ 1 });
-
-    const auto* sync = FindEffect<effect::SyncTocActive>(effects);
-    ASSERT_NE(sync, nullptr);
-    EXPECT_FALSE(sync->auto_scroll);
+    std::string md;
+    for (int i = 0; i < 30; ++i) {
+        md += std::format("# Heading {}\n\n", i);
+        for (int k = 0; k < 20; ++k) {
+            md += "line\n\n";
+        }
+    }
+    state.view.panes.SetSidePaneVisible(PaneTarget::Toc, true);
+    PaneLayout pl{};
+    pl.md_rect = { 400.0f, 0.0f, 800.0f, 400.0f };
+    pl.toc_rect = { 0.0f, 0.0f, 200.0f, 300.0f };
+    state.pane_layout_cache.Set(1200.0f, pl);
+    SetDocument(state, md, L"C:\\file.md", 400.0f);
+    SyncActiveTocIndex(state);
 }
 
-// MD ペインのスクロール由来では従来通り目次が追従する。
-TEST_F(ReducerTest, KeyScroll_KeepsTocAutoScroll)
+float TocPaneScroll(AppState& state)
 {
-    auto effects = Reduce(state, KeyScrollAction{ ScrollType::LineDown });
-
-    const auto* sync = FindEffect<effect::SyncTocActive>(effects);
-    ASSERT_NE(sync, nullptr);
-    EXPECT_TRUE(sync->auto_scroll);
+    return state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y;
 }
 
-// MD ペイン内のアンカーリンク由来でも追従を維持する (抑制は目次クリックのみ)。
-TEST_F(ReducerTest, NavigateAnchor_KeepsTocAutoScroll)
+} // namespace
+
+// MD ペインのスクロール由来では、描画時の同期でアクティブ見出しが変わり、目次ペインが追従する。
+TEST_F(ReducerTest, SyncActiveToc_FollowsMdScroll)
 {
-    SetDocument(state, "# First\n\n# Second", L"C:\\file.md", 400.0f);
+    SetupTocFollow(state);
+    ASSERT_EQ(state.view.active_toc_index, 0);
+    ASSERT_FLOAT_EQ(TocPaneScroll(state), 0.0f);
 
-    auto effects = Reduce(state, NavigateAnchorAction{ std::pmr::string("second") });
+    Reduce(state, NavigateAnchorAction{ std::pmr::string("heading-20") });
+    SyncActiveTocIndex(state);
 
-    const auto* sync = FindEffect<effect::SyncTocActive>(effects);
-    ASSERT_NE(sync, nullptr);
-    EXPECT_TRUE(sync->auto_scroll);
-    EXPECT_TRUE(state.view.nav_history.CanGoBack());
+    EXPECT_EQ(state.view.active_toc_index, 20);
+    EXPECT_GT(TocPaneScroll(state), 0.0f) << "アンカーリンク由来でも目次は追従する (抑制は目次クリックのみ)";
+}
+
+// issue#259: 目次クリック由来のジャンプでは、直後の同期でハイライトだけ更新し、目次ペインはスクロールさせない。
+// クリック先の項目がペイン内で動いて見失う混乱を防ぐ契約。抑制はその 1 回だけで、以後のスクロールでは追従する。
+TEST_F(ReducerTest, SyncActiveToc_TocClickKeepsTocPaneOnce)
+{
+    SetupTocFollow(state);
+
+    Reduce(state, TocItemClickedAction{ state.document.doc.GetToc()[20].node_index });
+    SyncActiveTocIndex(state);
+    EXPECT_EQ(state.view.active_toc_index, 20);
+    EXPECT_FLOAT_EQ(TocPaneScroll(state), 0.0f);
+
+    Reduce(state, NavigateAnchorAction{ std::pmr::string("heading-25") });
+    SyncActiveTocIndex(state);
+    EXPECT_EQ(state.view.active_toc_index, 25);
+    EXPECT_GT(TocPaneScroll(state), 0.0f);
+}
+
+// スクロールしなくても、計測などで見出しの Y が動けば次の描画で決め直す。
+TEST_F(ReducerTest, SyncActiveToc_FollowsLayoutChangeWithoutScroll)
+{
+    SetupTocFollow(state);
+    const float scroll_y = state.view.viewport.GetScrollY();
+    auto& cache = state.document.layout_cache;
+    const auto& toc = state.document.doc.GetToc();
+    ASSERT_EQ(state.view.active_toc_index, 0);
+
+    // 見出し 1 より前の高さを縮めて、見出し 1 を画面上端より上へ動かす。
+    cache[0].height = 0.0f;
+    for (int i = 1; i < toc[1].node_index; ++i) {
+        cache[i].height = 0.0f;
+    }
+    layout::RecomputeYPositions(state.document.doc.GetNodes(), cache, *state.theme);
+    ASSERT_FLOAT_EQ(state.view.viewport.GetScrollY(), scroll_y);
+    ASSERT_LE(cache.Top(static_cast<size_t>(toc[1].node_index)), scroll_y + state.theme->heading_spacing_above);
+
+    SyncActiveTocIndex(state);
+    EXPECT_GE(state.view.active_toc_index, 1);
 }
 
 // ---- 副作用順序 (test_helpers.h::HasEffectInOrder) ----

@@ -9,15 +9,10 @@
 #include <string_view>
 #include <vector>
 
-// 検索マッチの位置情報。
-// start / length は UTF-8 byte 単位 (ascii_util::Find の戻り値)。
-// start_w / length_w は同じ範囲を UTF-16 code unit で表したもので
+// 検索マッチの位置情報。start_w / length_w はノード (表ならセル) 内の UTF-16 code unit 位置で、
 // IDWriteTextLayout の HitTestTextRange / HitTestTextPosition にそのまま渡せる。
-// 不変条件: 両者は同じノード/セル内の同一範囲を指し、検索の完了時に同時に確定される。
 struct SearchMatch {
     int node_index;
-    uint32_t start;
-    uint32_t length;
     int table_row = -1; // テーブルセル用（-1なら通常ノード）
     int table_col = -1;
     uint32_t start_w = 0;

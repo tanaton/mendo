@@ -7,12 +7,6 @@
 class FileLoadServiceTest : public ::testing::Test {
 protected:
     FileLoadService service_;
-
-    void StartLoading(const wchar_t* path)
-    {
-        service_.SetLoadingPath(std::pmr::wstring(path));
-        service_.BeginLoadingAnimation();
-    }
 };
 
 // preload と StartAsyncLoad を跨ぐキャンセル挙動は実 scheduler が要るため専用 fixture。
@@ -41,29 +35,28 @@ TEST_F(FileLoadServiceTest, InitiallyNotLoading)
 
 TEST_F(FileLoadServiceTest, BeginLoadingAnimation)
 {
-    StartLoading(L"test.md");
+    service_.BeginLoadingAnimation();
     EXPECT_TRUE(service_.IsLoading());
     EXPECT_FLOAT_EQ(service_.GetLoadingAngle(), 0.0f);
-    EXPECT_EQ(service_.GetLoadingPath(), L"test.md");
 }
 
 TEST_F(FileLoadServiceTest, StopLoading)
 {
-    StartLoading(L"test.md");
+    service_.BeginLoadingAnimation();
     service_.StopLoading();
     EXPECT_FALSE(service_.IsLoading());
 }
 
 TEST_F(FileLoadServiceTest, TickLoadingAnimation)
 {
-    StartLoading(L"test.md");
+    service_.BeginLoadingAnimation();
     service_.TickLoadingAnimation();
     EXPECT_GT(service_.GetLoadingAngle(), 0.0f);
 }
 
 TEST_F(FileLoadServiceTest, TickLoadingAnimationWraps)
 {
-    StartLoading(L"test.md");
+    service_.BeginLoadingAnimation();
     // 一周するのに十分な回数ティック（2*pi / 0.15 ≈ 42）
     for (int i = 0; i < 50; ++i) {
         service_.TickLoadingAnimation();
@@ -71,21 +64,15 @@ TEST_F(FileLoadServiceTest, TickLoadingAnimationWraps)
     EXPECT_LE(service_.GetLoadingAngle(), TWO_PI);
 }
 
-TEST_F(FileLoadServiceTest, SetLoadingPath)
-{
-    service_.SetLoadingPath(L"path/to/file.md");
-    EXPECT_EQ(service_.GetLoadingPath(), L"path/to/file.md");
-}
-
 TEST_F(FileLoadServiceTest, BeginLoadingAnimationResetsAngle)
 {
-    StartLoading(L"first.md");
+    service_.BeginLoadingAnimation();
     for (int i = 0; i < 10; ++i) {
         service_.TickLoadingAnimation();
     }
     EXPECT_GT(service_.GetLoadingAngle(), 0.0f);
 
-    StartLoading(L"second.md");
+    service_.BeginLoadingAnimation();
     EXPECT_FLOAT_EQ(service_.GetLoadingAngle(), 0.0f);
 }
 
@@ -111,8 +98,8 @@ TEST_F(FileLoadServicePreloadTest, StartAsyncLoadCancelsPreloadResult)
     service_.StartPreloadAsync(scheduler_, preload_file.PmrPath(), GetLightTheme());
     ASSERT_TRUE(PollUntil([&] { return service_.AttachPreload(nullptr, 0) == FileLoadService::PreloadAttachResult::AppliedSync; }));
 
-    service_.SetLoadingPath(new_file.PmrPath());
-    service_.StartAsyncLoad(scheduler_, nullptr, 0, GetLightTheme(), 0.0f, {});
+    service_.StartAsyncLoad(scheduler_, new_file.PmrPath(), nullptr, 0, GetLightTheme(), 0.0f, {});
+    EXPECT_EQ(service_.GetLoadingPath(), new_file.PmrPath());
 
     std::optional<AsyncLoadOutcome> outcome;
     PollUntil([&] { outcome = service_.TakeAsync(); return outcome.has_value(); });

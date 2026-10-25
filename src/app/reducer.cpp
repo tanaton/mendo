@@ -3,6 +3,7 @@
 #include "block_h_scroll.h"
 #include "document_utils.h"
 #include "file_io.h"
+#include "layout_computer.h"
 #include "selection_html.h"
 #include "ui_constants.h"
 #include "utility.h"
@@ -77,6 +78,28 @@ SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
     };
 }
 
+void SyncActiveTocIndex(AppState& state)
+{
+    const bool follow = !std::exchange(state.view.keep_toc_pane_once, false);
+    if (!state.theme || !state.view.panes.IsSidePaneVisible(PaneTarget::Toc)) {
+        return;
+    }
+    const int new_active = layout::FindActiveTocIndex(
+        state.document.doc.GetToc(), state.document.layout_cache, state.view.viewport.GetScrollY(), state.theme->heading_spacing_above);
+    if (new_active == state.view.active_toc_index) {
+        return;
+    }
+    state.view.active_toc_index = new_active;
+    if (!follow || new_active < 0) {
+        return;
+    }
+    // アクティブ見出しを目次ペインの中央に保つように追従スクロールする。
+    const auto ctx = GetSidePaneContext(state, PaneTarget::Toc);
+    if (ctx.info.content_height > 0.0f) {
+        ctx.scroll.scroll_y = CenterPaneScrollOnItem(static_cast<size_t>(new_active), ctx.item_height, ctx.info);
+    }
+}
+
 BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node_index) noexcept
 {
     if (node_index < 0 || !state.theme || !state.pane_layout_cache.IsValid()) {
@@ -130,13 +153,12 @@ void ClearTooltip(AppState& state, SideEffectList& effects)
 }
 
 // スクロール位置が変わった時の副作用列。Reduce が前後の scroll_y を比べて 1 回だけ積む。
-// toc_auto_scroll: 目次ペイン操作由来のみ false (issue#259)。
-void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects, bool toc_auto_scroll)
+// 目次のアクティブ見出しは描画時に SyncActiveTocIndex が決め直す。
+void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects)
 {
     ClearTooltip(state, effects);
     PushEffect(effects, effect::InvalidateWindow{});
     PushEffect(effects, effect::BitmapManage{});
-    PushEffect(effects, effect::SyncTocActive{ toc_auto_scroll });
 }
 
 void ApplyScrollTarget(AppState& state, int node, float offset)
@@ -360,6 +382,7 @@ void ReduceTocItemClicked(AppState& state, const TocItemClickedAction& a)
 {
     PushCurrentNavEntry(state);
     ScrollToHeading(state, a.node_index);
+    state.view.keep_toc_pane_once = true;
 }
 
 void ReduceNavigateAnchor(AppState& state, const NavigateAnchorAction& a)
@@ -860,37 +883,21 @@ void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChanged
     PushEffect(effects, effect::SetWindowPosition{ rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top });
 }
 
-void ReduceTimer(AppState& state, SideEffectList& effects, const TimerAction& a)
+void ReduceToastExpired(AppState& state, SideEffectList& effects)
 {
-    switch (a.timer_id) {
-    case app_timer::Id::TOAST:
-        state.interaction.toast_message.clear();
-        PushEffect(effects, effect::KillTimer{ app_timer::Id::TOAST });
+    state.interaction.toast_message.clear();
+    PushEffect(effects, effect::KillTimer{ app_timer::Id::TOAST });
+    PushEffect(effects, effect::InvalidateWindow{});
+}
+
+void ReduceSwipeOverlayTimeout(AppState& state, SideEffectList& effects)
+{
+    const auto result = state.interaction.swipe_detector.Commit();
+    PushEffect(effects, effect::KillTimer{ app_timer::Id::SWIPE_OVERLAY });
+    if (result != NavDirection::None) {
+        NavigateHistory(state, effects, result == NavDirection::Forward);
         PushEffect(effects, effect::InvalidateWindow{});
-        return;
-    case app_timer::Id::SWIPE_OVERLAY: {
-        const auto result = state.interaction.swipe_detector.Commit();
-        PushEffect(effects, effect::KillTimer{ app_timer::Id::SWIPE_OVERLAY });
-        if (result != NavDirection::None) {
-            NavigateHistory(state, effects, result == NavDirection::Forward);
-            PushEffect(effects, effect::InvalidateWindow{});
-        }
-        return;
     }
-    case app_timer::Id::TOOLTIP:
-    case app_timer::Id::LOADING_ANIM:
-    case app_timer::Id::MERMAID_BATCH:
-    case app_timer::Id::BITMAP_MANAGE:
-    case app_timer::Id::MERMAID_INIT_RETRY:
-    case app_timer::Id::FILE_RELOAD_DEBOUNCE:
-    case app_timer::Id::MERMAID_IDLE:
-    case app_timer::Id::DEVICE_RECREATE_RETRY:
-        // AppState を変えないタイマーは App::HandleTimer が直接処理する。
-        return;
-    case app_timer::Id::END:
-        break;
-    }
-    std::unreachable();
 }
 
 } // namespace
@@ -909,14 +916,8 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
     EnsurePaneLayout(state);
     // viewport を動かす経路 (キー・ホイール・スクロールバー・履歴・検索のマッチ移動など) を問わず、
     // 前後の scroll_y を比べてスクロールの副作用を 1 回だけ積む。
-    enum class ScrollFollow : uint8_t {
-        All,
-        // 目次クリック由来では目次ペインの自動スクロールを抑制する (issue#259)。
-        KeepTocPane,
-        // ロード後の復元。直後の App::RelayoutViewport が計測してから追従させる。
-        None,
-    };
-    ScrollFollow follow = ScrollFollow::All;
+    // ロード後の復元では積まない。直後の App::RelayoutViewport が計測してから描き直させる。
+    bool emit_scroll_effects = true;
     const float old_scroll = state.view.viewport.GetScrollY();
 
     // clang-format off
@@ -986,14 +987,11 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const RightClickGestureCompletedAction& a) { ReduceRightClickGestureCompleted(state, effects, a); },
         [&](const FilePaneDirectoryClickedAction& a) { ReduceFilePaneDirectoryClicked(state, effects, a); },
         [&](const FilePaneRevealCurrentFileAction&) { ReduceFilePaneRevealCurrentFile(state, effects); },
-        [&](const TocItemClickedAction& a) {
-            ReduceTocItemClicked(state, a);
-            follow = ScrollFollow::KeepTocPane;
-        },
+        [&](const TocItemClickedAction& a) { ReduceTocItemClicked(state, a); },
         [&](const NavigateAnchorAction& a) { ReduceNavigateAnchor(state, a); },
         [&](const RestoreScrollAfterLoadAction&) {
             ReduceRestoreScrollAfterLoad(state);
-            follow = ScrollFollow::None;
+            emit_scroll_effects = false;
         },
         [&](const LoadFailedAction&) { DiscardPendingLoad(state); },
         [&](const ClearTooltipAction&) { ClearTooltip(state, effects); },
@@ -1009,11 +1007,12 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const ReloadFileAction&) { PushEffect(effects, effect::ReloadFile{}); },
 
         // ---- 非同期・タイマー ----
-        [&](const TimerAction& a) { ReduceTimer(state, effects, a); },
+        [&](const ToastExpiredAction&) { ReduceToastExpired(state, effects); },
+        [&](const SwipeOverlayTimeoutAction&) { ReduceSwipeOverlayTimeout(state, effects); },
     }, action);
     // clang-format on
-    if (follow != ScrollFollow::None && state.view.viewport.GetScrollY() != old_scroll) {
-        EmitScrollChangedSideEffects(state, effects, follow == ScrollFollow::All);
+    if (emit_scroll_effects && state.view.viewport.GetScrollY() != old_scroll) {
+        EmitScrollChangedSideEffects(state, effects);
     }
     return effects;
 }

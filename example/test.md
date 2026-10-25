@@ -329,7 +329,7 @@ private:
 
 | ファイル | 担当 |
 |:---------|:-----|
-| `app.h / app.cpp` | `App` と `AppHost`（`ResourceManagerHost` / `SearchBarHost` の実装。タイマー操作・ペイン寸法・テーマ・再レイアウトの問い合わせを App に転送する）。`.cpp` はコアロジック（`Init`, `CreateRenderDevice`, `LoadInitialDocument`, `Dispatch`, `Execute`, `OnPaint`, `HandleTimer`, `OnDestroy`）、レイアウト・スクロール関連ヘルパー（`EnsureScrollTarget`, `RelayoutViewport`, `RequestDeferredLayout`, `OnDeferredLayout`, `SyncTocActiveAndAutoScroll` 等）、空き時間の仕事（`HasIdleWork` / `RunIdleWork`）、テーマ・ズーム変更の適用（`HandleApplyThemeChange`）、カスタムコンテキストメニュー処理 |
+| `app.h / app.cpp` | `App` と `AppHost`（`ResourceManagerHost` / `SearchBarHost` の実装。タイマー操作・ペイン寸法・テーマ・再レイアウトの問い合わせを App に転送する）。`.cpp` はコアロジック（`Init`, `CreateRenderDevice`, `LoadInitialDocument`, `Dispatch`, `Execute`, `OnPaint`, `HandleTimer`, `OnDestroy`）、レイアウト・スクロール関連ヘルパー（`EnsureScrollTarget`, `RelayoutViewport`, `RequestDeferredLayout`, `OnDeferredLayout` 等）、空き時間の仕事（`HasIdleWork` / `RunIdleWork`）、テーマ・ズーム変更の適用（`HandleApplyThemeChange`）、カスタムコンテキストメニュー処理 |
 | `app_file.cpp` | `LoadMarkdownFile`, `StartPreloadAsync`, `BeginAsyncLoad`, `OnParseComplete`、文書の差し替え（`ReplaceDocument` / `ReloadDocument`）、リロード（`ReloadCurrentFile`, `FinishReload`）、`LoadHelpDocument` |
 | `app_mouse.cpp` | マウス入力ハンドラ（`OnMouseMove`, `OnMouseWheel`, `OnRButton*`, ドラッグ系統括）、クリック処理（`OnLButtonDown/Up`, `HandleMdPaneClick`, `HandleLinkClick` 等）、ホバー処理（`OnMouseHover`, `HoverMdPane`, `ResolveMdPaneHit`） |
 | `clipboard_manager.h / .cpp` | `ClipboardManager`（コピー/PNG 保存/SVG コピーを集約。 SVG LRU キャッシュを内包） |
@@ -682,7 +682,7 @@ using AppAction = std::variant<
     ResizeAction, DpiChangedAction, ActivateAction,
     EnterSizeMoveAction, ExitSizeMoveAction, CaptureChangedAction,
     // タイマー
-    TimerAction,
+    ToastExpiredAction, SwipeOverlayTimeoutAction,
     // 検索
     SearchTextChangedAction, SearchContinueAction, ToggleCaseSensitiveAction, ToggleHighlightAction,
     SearchSelectionAction, ImeCompositionAction>;
@@ -715,7 +715,7 @@ using SideEffect = std::variant<
     effect::LoadFile, effect::ReloadFile, effect::OpenFileDialog,
     effect::CancelOtherFileLoad,
     // Layout
-    effect::BitmapManage, effect::SyncTocActive,
+    effect::BitmapManage,
     // Timer
     effect::SetTimer, effect::KillTimer>;
 
@@ -753,7 +753,7 @@ void App::Dispatch(const AppAction& action)
 | | `PerformResizeEnd` / `PerformSizingUpdate` | `App::OnResizeEnd` / `SyncMaxScroll` と再描画 |
 | | `RendererResize` / `RendererSetDpi` | `Renderer::Resize(width, height, live)` / `Renderer::SetDpi` |
 | Navigation | `LoadFile` / `ReloadFile` / `OpenFileDialog` / `CancelOtherFileLoad` | `App::LoadMarkdownFile` / `ReloadCurrentFile` / `OpenFileDialog` / `CancelOtherFileLoad` |
-| Layout | `BitmapManage` / `SyncTocActive` | `ResourceManager::ScheduleBitmapManage` / `App::SyncTocActiveAndAutoScroll(auto_scroll)` |
+| Layout | `BitmapManage` | `ResourceManager::ScheduleBitmapManage` |
 | Timer | `SetTimer` / `KillTimer` | `::SetTimer` / `::KillTimer`（ID は `app_timer::Id`） |
 
 ---
@@ -1531,8 +1531,8 @@ public:
     constexpr void StopLoading() noexcept;
     constexpr void TickLoadingAnimation() noexcept;
 
-    void StartAsyncLoad(TaskScheduler& scheduler, HWND hwnd, UINT msg_id, Theme theme, float content_width,
-                        ReloadBase reload_base);
+    void StartAsyncLoad(TaskScheduler& scheduler, std::pmr::wstring path, HWND hwnd, UINT msg_id, Theme theme,
+                        float content_width, ReloadBase reload_base);
     std::optional<AsyncLoadOutcome> TakeAsync() noexcept;
     void CancelAsyncLoad() noexcept;
 
@@ -1542,7 +1542,6 @@ public:
     PreloadAttachResult AttachPreload(HWND hwnd, UINT msg_id);
 
     constexpr const std::pmr::wstring& GetLoadingPath() const noexcept;
-    constexpr void SetLoadingPath(std::pmr::wstring path) noexcept;
 };
 ```
 
@@ -3191,7 +3190,7 @@ flowchart TD
     FE --> RESTORE[RestoreScrollAfterLoadAction<br>復元先ノード or 先頭]
     RESTORE --> LAYOUT[App::RelayoutViewport ImagesAndDiagrams<br>LayoutService::ViewportLayout<br>Reestimate → ApplyScrollTarget → EnsureVisibleLayout]
     LAYOUT --> FINAL[SyncMaxScroll<br>+ LoadImages + RequestMermaidRenders]
-    FINAL --> INVAL[Invalidate + SettleLayout + SyncTocActiveAndAutoScroll<br>計測待ちが残れば遅延レイアウト]
+    FINAL --> INVAL[Invalidate + SettleLayout<br>計測待ちが残れば遅延レイアウト]
     INVAL --> PAINT[WM_PAINT → OnPaint → Renderer::Render]
 ```
 
@@ -3209,7 +3208,7 @@ sequenceDiagram
     Note over ML: 前フレームの表示待ちの間は WM_PAINT を配らず待つ (期限 1 秒)
     ML->>APP: WM_PAINT → OnPaint
     Note right of APP: 最小化中は描かずに戻る
-    APP->>APP: EnsureVisibleLayout (ロード中以外)
+    APP->>APP: EnsureFrameLayout + SyncActiveTocIndex (ロード中以外)
     APP->>R: Render(RenderParams)
     R->>R: PrepareChrome (タイトルバー / サイドペインのコマンド生成)
     R->>BE: AcquireFrame (ループで取れていなければ待つ)

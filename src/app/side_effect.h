@@ -50,7 +50,7 @@ struct SetWindowPosition {
 };
 struct ApplyZoom {};
 struct ToggleDarkMode {};
-// OnResizeEnd (RelayoutViewport) が BitmapManage (または遅延レイアウト) と SyncTocActive も出すので、併せて積まない。
+// OnResizeEnd (RelayoutViewport) が BitmapManage (または遅延レイアウト) も出すので、併せて積まない。
 struct PerformResizeEnd {};
 struct PerformSizingUpdate {};
 struct RendererResize {
@@ -72,11 +72,6 @@ struct OpenFileDialog {};
 struct CancelOtherFileLoad {};
 
 struct BitmapManage {};
-struct SyncTocActive {
-    // false: ハイライト更新のみで目次ペインの自動スクロールを行わない。目次ペイン操作由来の
-    // ジャンプでクリック先が動く混乱を防ぐ (issue#259)。既定値を外すと {} が false になり反転する。
-    bool auto_scroll = true;
-};
 
 struct SetTimer {
     app_timer::Id id;
@@ -117,7 +112,6 @@ using SideEffect = std::variant<
     effect::CancelOtherFileLoad,
     // Layout
     effect::BitmapManage,
-    effect::SyncTocActive,
     // Timer
     effect::SetTimer,
     effect::KillTimer>;

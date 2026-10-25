@@ -269,6 +269,17 @@ struct NodeLayoutEntry {
     // 計測が例外で失敗した連続回数 (成功で 0 に戻る)。
     uint8_t measure_failures = 0;
 
+    // 計測した高さを確定する。height・layout_dirty・cached_*・measure_failures を計測の結果として書くのはここだけ。
+    // layout_width は組んだ幅 (NodeLayoutWidth)。
+    constexpr void CommitMeasured(float layout_width, float measured_height) noexcept
+    {
+        height = measured_height;
+        layout_dirty = false;
+        cached_width = layout_width;
+        cached_height = measured_height;
+        measure_failures = 0;
+    }
+
     // 以降は計測・描画したノードでしか使わないので aux_ に置き、全ノード分は持たない。
     // 既定値を書く setter は aux_ を確保しない。
     constexpr IDWriteTextLayout* text_layout() const noexcept

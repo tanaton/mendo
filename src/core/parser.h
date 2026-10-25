@@ -27,6 +27,17 @@ struct NodeStorage {
     std::pmr::vector<std::unique_ptr<NodeTableData>> tables;
 };
 
+// パース後の全ノード走査を避けるため、パース中に構築する特殊ノードのインデックス。
+struct NodeIndices {
+    std::pmr::vector<TocEntry> toc_entries;
+    std::pmr::vector<size_t> image_indices;
+    std::pmr::vector<size_t> diagram_indices;
+    std::pmr::vector<size_t> table_indices;
+    // 脚注番号順の定義ノード。脚注は文書末尾に参照順で並ぶ。
+    std::pmr::vector<int32_t> footnote_def_indices;
+    std::pmr::vector<FootnoteRef> footnote_refs;
+};
+
 // パーサーの出力: ノード本体と、パース中に構築された特殊ノードインデックス
 struct ParseResult {
     ParseResult() = default;
@@ -49,13 +60,7 @@ struct ParseResult {
         return std::move(storage_);
     }
 
-    std::pmr::vector<TocEntry> toc_entries;
-    std::pmr::vector<size_t> image_indices;
-    std::pmr::vector<size_t> diagram_indices;
-    std::pmr::vector<size_t> table_indices;
-    // 脚注番号順の定義ノード。脚注は文書末尾に参照順で並ぶ。
-    std::pmr::vector<int32_t> footnote_def_indices;
-    std::pmr::vector<FootnoteRef> footnote_refs;
+    NodeIndices indices;
 
 private:
     NodeStorage storage_;

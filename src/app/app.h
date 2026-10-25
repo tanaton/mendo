@@ -358,7 +358,6 @@ private:
     void OnDeferredLayout();
     // 捨てたテキストレイアウトが多ければワーカーで解放する。
     void DisposeReleasedLayouts();
-    void SyncTocActiveAndAutoScroll(bool auto_scroll);
     float MdContentWidth();
     // スクロール上限/スクロールバー計算用のコンテンツ高さ。
     float ScrollableContentHeight() const noexcept;
