@@ -1,4 +1,5 @@
 #pragma once
+#include "draw_command.h"
 #include <d2d1.h>
 #include <dwrite.h>
 #include <wrl/client.h>
@@ -47,6 +48,15 @@ public:
     {
         return (box.width > 0.0f) ? D2D1::Point2F(rect.left, rect.top)
                                   : D2D1::Point2F((rect.left + rect.right) * 0.5f, (rect.top + rect.bottom) * 0.5f);
+    }
+
+    // box はスクロール位置に依らない値を渡す。矩形の差から求めると丸めでキャッシュが外れる。
+    void Emit(DrawCommandList& out, std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box,
+              BrushId brush_id, float opacity)
+    {
+        if (auto* layout = Get(fmt, text, box)) {
+            out.push_back(DrawTextLayoutCmd{ .origin = origin, .layout = layout, .brush_id = brush_id, .opacity = opacity });
+        }
     }
 
     // 箱の大きさや番号ごとに増え続けないよう、描画の合間 (前フレームのレイアウトを参照し終えた後) に上限で捨てる。

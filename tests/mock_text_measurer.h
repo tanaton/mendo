@@ -29,30 +29,23 @@ public:
         theme_ = &theme;
     }
 
-    void MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
-                     MeasureViewportRange /*viewport*/) const override
+    std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
+                                     MeasureViewportRange /*viewport*/) const override
     {
         if (node.type == NodeType::HorizontalRule) {
-            entry.height = 10.0f;
-            entry.layout_dirty = false;
-            return;
+            return 10.0f;
         }
         if (node.type == NodeType::Table) {
-            MeasureTable(node, entry, max_width);
-            return;
+            return MeasureTable(node, entry, max_width);
         }
 
         const auto& text = node.GetText();
         if (text.empty()) {
             // 実装と同じ高さを使う。Init 前は theme が無いので行高の半分で代用する。
             if (theme_) {
-                entry.height = layout::EmptyTextNodeHeight(node, *theme_);
+                return layout::EmptyTextNodeHeight(node, *theme_);
             }
-            else {
-                entry.height = IsEmptyListItemContainer(node) ? 0.0f : line_height * 0.5f;
-            }
-            entry.layout_dirty = false;
-            return;
+            return IsEmptyListItemContainer(node) ? 0.0f : line_height * 0.5f;
         }
 
         // テキスト長と利用可能な幅から行数を推定。コードブロックは実装と同じく折り返さない。
@@ -68,26 +61,22 @@ public:
         }
 
         entry.reset_text_layout(); // モックでは実際のレイアウトなし
-        entry.height = h;
-        entry.layout_dirty = false;
+        return h;
     }
 
 private:
     const Theme* theme_ = nullptr;
 
-    void MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width) const
+    float MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width) const
     {
         const auto* tbl = node.table_data();
         if (!tbl || tbl->row_count == 0) {
-            entry.height = 0;
-            entry.layout_dirty = false;
-            return;
+            return 0.0f;
         }
 
         const size_t col_count = tbl->col_count;
         if (col_count == 0) {
-            entry.layout_dirty = false;
-            return;
+            return entry.height;
         }
 
         auto& tl = entry.ensure_table_layout();
@@ -105,8 +94,7 @@ private:
         tl.RebuildRowCumY(row_count);
         tl.RebuildColCumX();
 
-        entry.height = tl.TotalHeight(row_count);
-        entry.layout_dirty = false;
+        return tl.TotalHeight(row_count);
     }
 };
 

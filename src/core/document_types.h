@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <cassert>
 #include <string>
 #include <string_view>
@@ -89,6 +90,13 @@ struct NodeTableData {
     constexpr size_t CellIndex(size_t r, size_t c) const noexcept
     {
         return r * static_cast<size_t>(col_count) + c;
+    }
+
+    // concat_text 内の offset が属するセルの CellIndex。区切り文字の位置は前のセルに属する。
+    // 最後のセルより後ろ (末尾・セルが無い表) では row_count * col_count 以上を返す。
+    constexpr size_t CellIndexAt(uint32_t offset) const noexcept
+    {
+        return static_cast<size_t>(std::ranges::upper_bound(cell_text_starts, offset) - cell_text_starts.begin()) - 1;
     }
 
     // セルの concat_text 内開始 offset。

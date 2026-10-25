@@ -59,13 +59,13 @@ public:
     int throw_times = std::numeric_limits<int>::max();
     mutable std::atomic<int> attempts{ 0 };
 
-    void MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
-                     MeasureViewportRange viewport = {}) const override
+    std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
+                                     MeasureViewportRange viewport = {}) const override
     {
         if (&node == throw_on && attempts.fetch_add(1) < throw_times) {
             throw std::runtime_error("measure failed");
         }
-        MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
+        return MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
     }
 };
 
@@ -350,6 +350,31 @@ TEST_F(ParallelMeasureTest, MeasureSuccessOnAnyPathResetsFailureCount)
     ComputeLayout(engine, nodes, cache, 700.0f);
     EXPECT_FALSE(cache[kThrower].layout_dirty);
     EXPECT_EQ(cache[kThrower].measure_failures, 0);
+}
+
+// 測れなかった (例外でなく nullopt) ノードは dirty のまま残り、推定の高さを実測値として残さない。
+// 残すと同じ幅に戻ったとき EstimateInvisibleNodeHeight が推定値を実測値とみなす。
+TEST(MeasureEntryTest, UnmeasurableNodeCommitsNothing)
+{
+    struct FailingMeasurer : MockTextMeasurer {
+        std::optional<float> MeasureNode(const Node&, NodeLayoutEntry&, float, MeasureViewportRange) const override
+        {
+            return std::nullopt;
+        }
+    } measurer;
+    const Theme theme = GetLightTheme();
+    const auto nodes = ParseNodes("text");
+    NodeLayoutEntry entry;
+    entry.height = 42.0f;
+    entry.measure_failures = 1;
+
+    MeasureEntry(measurer, nodes[0], entry, 300.0f, {}, 0.0f, nullptr, theme);
+
+    EXPECT_TRUE(entry.layout_dirty);
+    EXPECT_FALSE(entry.is_measured());
+    EXPECT_FLOAT_EQ(entry.cached_height, 0.0f);
+    EXPECT_FLOAT_EQ(entry.height, 42.0f);
+    EXPECT_EQ(entry.measure_failures, 1);
 }
 
 TEST_F(DirtyBatchSerialTest, NoneDirtyReturnsNoneDirty)

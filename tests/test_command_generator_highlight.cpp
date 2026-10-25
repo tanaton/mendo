@@ -77,9 +77,9 @@ TEST_F(HighlightOrderTest, SearchThenSelectionThenText)
 
     // node 0 の "Hello" を検索マッチに、"World" を選択範囲に設定する。
     // 範囲が重ならないことで、ハイライト矩形が独立に発行されることを保証する。
-    // ASCII のみの本文なので start_w == start / length_w == length を直接渡せる。
+    // ASCII のみの本文なので UTF-16 の位置は byte の位置と同じ。
     std::pmr::vector<SearchMatch> matches;
-    matches.push_back({ 0, 0, 5, -1, -1, 0, 5 });
+    matches.push_back({ 0, -1, -1, 0, 5 });
     gen_.SetSearchMatches(&matches, 0, 1);
 
     TextSelection sel = TextSelection::MakeOrdered(0, 6, 0, 11);
@@ -144,8 +144,8 @@ TEST_F(HighlightOrderTest, CurrentMatchUsesCurrentColor)
 {
     auto pl = ParseAndLayout("Hello Hello");
     std::pmr::vector<SearchMatch> matches;
-    matches.push_back({ 0, 0, 5, -1, -1, 0, 5 });
-    matches.push_back({ 0, 6, 5, -1, -1, 6, 5 });
+    matches.push_back({ 0, -1, -1, 0, 5 });
+    matches.push_back({ 0, -1, -1, 6, 5 });
     gen_.SetSearchMatches(&matches, 1, 1); // 2 番目を current にする
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
@@ -188,8 +188,8 @@ TEST_F(HighlightOrderTest, ExtractCmdKindsIsOrdered)
     }
 }
 
-// SearchMatch::start, length は UTF-8 byte 単位。HitTestTextRange は UTF-16 code unit
-// を要求するため、変換漏れがあると非 ASCII 後方の ASCII マッチで矩形位置が破綻する。
+// SearchMatch は UTF-16 code unit の位置を持つ。HitTestTextRange に UTF-8 byte 位置を渡す取り違えがあると、
+// 非 ASCII 後方の ASCII マッチで矩形位置が破綻する。
 // 「あいうabc」の "abc" を検索して、ASCII 単独 "abc" と同等幅の矩形が出ることで担保する。
 TEST_F(HighlightOrderTest, SearchHighlightHandlesUtf8MultibyteOffset)
 {
@@ -197,7 +197,7 @@ TEST_F(HighlightOrderTest, SearchHighlightHandlesUtf8MultibyteOffset)
 
     auto pl1 = ParseAndLayout("abc");
     std::pmr::vector<SearchMatch> matches1;
-    matches1.push_back({ 0, 0, 3, -1, -1, 0, 3 });
+    matches1.push_back({ 0, -1, -1, 0, 3 });
     gen_.SetSearchMatches(&matches1, 0, 1);
     const auto& cmds1 = gen_.GenerateMdPane(pl1.nodes, pl1.cache, pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
     const auto rect1 = FindFirstFillRectByBrush(cmds1,
@@ -207,7 +207,7 @@ TEST_F(HighlightOrderTest, SearchHighlightHandlesUtf8MultibyteOffset)
     // "あいう" は UTF-8 で 9 byte / UTF-16 で 3 code unit。
     auto pl2 = ParseAndLayout("\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86" "abc");
     std::pmr::vector<SearchMatch> matches2;
-    matches2.push_back({ 0, 9, 3, -1, -1, 3, 3 });
+    matches2.push_back({ 0, -1, -1, 3, 3 });
     gen_.SetSearchMatches(&matches2, 0, 1);
     const auto& cmds2 = gen_.GenerateMdPane(pl2.nodes, pl2.cache, pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
     const auto rect2 = FindFirstFillRectByBrush(cmds2,
@@ -378,8 +378,8 @@ TEST_F(VisibleHighlightTest, TableSearchHighlightAppearsAfterEvictedRowsRestore)
     EXPECT_TRUE(CollectRectsByBrush(evicted, { BrushId::SearchHighlight }).empty());
     EXPECT_EQ(ComputedMatchCount(pl.cache[0]), 0u);
 
-    const auto restored = measurer_.RestoreEvictedTableRows(pl.nodes[0], pl.cache[0], theme_.ContentWidth(PANE.width),
-                                                            MeasureViewportRange{ 0.0f, PANE.height });
+    const auto restored = RestoreEntryTableRows(measurer_, pl.nodes[0], pl.cache[0], theme_.ContentWidth(PANE.width),
+                                                MeasureViewportRange{ 0.0f, PANE.height });
     ASSERT_TRUE(restored.restored);
     const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
     EXPECT_FALSE(CollectRectsByBrush(cmds, { BrushId::SearchHighlight }).empty());

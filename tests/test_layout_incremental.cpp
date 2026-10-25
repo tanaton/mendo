@@ -31,11 +31,12 @@ constexpr float kWidthHysteresis = LayoutEngine::kWidthChangeThreshold;
 // 破棄するので、keep 範囲外に目印が残っていれば解放漏れと分かる。
 class MarkingMeasurer : public MockTextMeasurer {
 public:
-    void MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
-                     MeasureViewportRange viewport = {}) const override
+    std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
+                                     MeasureViewportRange viewport = {}) const override
     {
-        MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
+        const auto height = MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
         entry.ensure_table_layout();
+        return height;
     }
 };
 
@@ -360,11 +361,11 @@ public:
     const Node* base = nullptr;
     mutable std::vector<size_t> measured;
 
-    void MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
-                     MeasureViewportRange viewport = {}) const override
+    std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
+                                     MeasureViewportRange viewport = {}) const override
     {
         measured.push_back(static_cast<size_t>(&node - base));
-        MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
+        return MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
     }
 };
 

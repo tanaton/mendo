@@ -169,9 +169,9 @@ void Renderer::GenToc(const SidePaneState& sp, const SidePaneInstance& pane)
     });
 }
 
-void Renderer::DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, float total_content_height, bool has_dirty_nodes)
+void Renderer::DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, const LayoutCache& cache)
 {
-    if (const auto thumb = VScrollThumb(md_pane_rect, 0.0f, scroll_y, total_content_height, has_dirty_nodes)) {
+    if (const auto thumb = VScrollThumb(md_pane_rect, 0.0f, scroll_y, ComputeTotalContentHeight(cache, theme_.margin_bottom), cache.HasDirtyNodes())) {
         rt()->FillRoundedRectangle(*thumb, Brush(BrushId::ScrollbarThumb));
     }
 }

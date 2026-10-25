@@ -217,6 +217,24 @@ void BM_NormalizeNewlines(benchmark::State& state)
 }
 BENCHMARK(BM_NormalizeNewlines)->UseManualTime()->Unit(benchmark::kMillisecond);
 
+// 1 ノードぶん (区切りの目安 16KB) を DirectWrite に渡す UTF-16 へ変換する。英文と和文混じり。
+void BM_DecodeForDWrite(benchmark::State& state, std::string_view unit)
+{
+    std::pmr::string src;
+    while (src.size() < 16 * 1024) {
+        src += unit;
+    }
+    std::pmr::wstring out;
+    for (auto _ : state) {
+        DecodeForDWrite(src, out);
+        benchmark::DoNotOptimize(out.data());
+    }
+    state.SetBytesProcessed(state.iterations() * static_cast<int64_t>(src.size()));
+}
+BENCHMARK_CAPTURE(BM_DecodeForDWrite, ascii, "The quick brown fox jumps over the lazy dog 1234\n")->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_DecodeForDWrite, mixed, "DirectWrite で描画する Markdown ビューア\n")->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_DecodeForDWrite, cjk, "高速で省メモリの表示。\n")->Unit(benchmark::kMicrosecond);
+
 // ===== レイアウト (計測器のモック) =====
 
 // MeasureNode ごとに busy spin を足し、ワーカーでの並列化の利得を見えるようにする。
@@ -224,13 +242,13 @@ class SlowMockMeasurer : public MockTextMeasurer {
 public:
     static constexpr auto kSpin = std::chrono::microseconds(100);
 
-    void MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
-                     MeasureViewportRange viewport = {}) const override
+    std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
+                                     MeasureViewportRange viewport = {}) const override
     {
         const auto deadline = std::chrono::steady_clock::now() + kSpin;
         while (std::chrono::steady_clock::now() < deadline) {
         }
-        MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
+        return MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
     }
 };
 
@@ -512,6 +530,65 @@ BENCHMARK_CAPTURE(BM_GiantBlock, table5k_jump, GiantBlock::Table5k, OpenPhase::J
 BENCHMARK_CAPTURE(BM_GiantBlock, table50k_first, GiantBlock::Table50k, OpenPhase::FirstScreen)->Apply(GiantBlockOptions);
 BENCHMARK_CAPTURE(BM_GiantBlock, table50k_jump, GiantBlock::Table50k, OpenPhase::Jump)->Apply(GiantBlockOptions);
 
+// 実際の C++ ソース (syntax.cpp、約 100KB) を 1 つのコードブロックにした文書を doc に作り、先頭のノードか
+// 2 つ目のノード (continuation) を返す。kTextChunkTarget ごとの続きのノードに区切られる。取れなければスキップにする。
+const Node* CodeChunkOrSkip(benchmark::State& state, std::optional<Document>& doc, bool continuation)
+{
+    const auto src = ReadOrSkip(state, "../src/core/syntax.cpp");
+    if (state.skipped()) {
+        return nullptr;
+    }
+    std::pmr::string md = "```cpp\n";
+    md += src;
+    md += "```\n";
+    doc = Document::FromMarkdown(std::move(md), L"bench.md");
+    const auto& nodes = doc->GetNodes();
+    const auto it = std::ranges::find_if(nodes, [continuation](const Node& n) {
+        return n.type == NodeType::CodeBlock && n.continues_prev() == continuation;
+    });
+    if (it == nodes.end()) {
+        state.SkipWithError("code chunk not parsed");
+        return nullptr;
+    }
+    return &*it;
+}
+
+// 区切ったコードブロックの 1 ノードのトークナイズ。計測で text_layout を作るたびに走る。
+void BM_TokenizeCodeChunk(benchmark::State& state, bool continuation)
+{
+    std::optional<Document> doc;
+    const Node* node = CodeChunkOrSkip(state, doc, continuation);
+    if (!node) {
+        return;
+    }
+    for (auto _ : state) {
+        benchmark::DoNotOptimize(TokenizeCodeNode(*node));
+    }
+    state.SetBytesProcessed(state.iterations() * static_cast<int64_t>(node->GetText().size()));
+}
+BENCHMARK_CAPTURE(BM_TokenizeCodeChunk, head, false)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_TokenizeCodeChunk, continuation, true)->Unit(benchmark::kMicrosecond);
+
+// 比較用: 同じノードを text_layout から作って計測する全体 (レイアウト作成・トークナイズ・装飾)。
+void BM_MeasureCodeChunk(benchmark::State& state, bool continuation)
+{
+    std::optional<Document> doc;
+    const Node* node = CodeChunkOrSkip(state, doc, continuation);
+    if (!node) {
+        return;
+    }
+    DWriteLayout l(0);
+    if (l.SkipIfFailed(state)) {
+        return;
+    }
+    for (auto _ : state) {
+        NodeLayoutEntry entry;
+        benchmark::DoNotOptimize(l.measurer.MeasureNode(*node, entry, 1200.0f, {}));
+    }
+}
+BENCHMARK_CAPTURE(BM_MeasureCodeChunk, head, false)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_MeasureCodeChunk, continuation, true)->Unit(benchmark::kMicrosecond);
+
 constexpr float kViewWidth = 1100.0f;
 constexpr float kViewHeight = 950.0f;
 constexpr int kViewJumps = 30;
@@ -568,6 +645,30 @@ void BM_ViewportJump(benchmark::State& state)
     }
 }
 BENCHMARK(BM_ViewportJump)->UseManualTime()->Iterations(kViewJumps)->Unit(benchmark::kMicrosecond);
+
+// 描画のたびに目次のアクティブ見出しを決め直すコスト (SyncActiveTocIndex の本体)。100MB の文書で、
+// 位置を変えながら見出しの二分探索を繰り返す。
+void BM_FindActiveTocIndex(benchmark::State& state)
+{
+    auto md = RepeatTestMd(state, 0, kLargeBytes);
+    if (state.skipped()) {
+        return;
+    }
+    const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
+    const Theme theme = GetLightTheme();
+    const LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme, theme.ContentWidth(kViewWidth));
+    const float bottom = cache.Bottom(cache.size() - 1);
+    float y = 0.0f;
+    for (auto _ : state) {
+        y += bottom / 997.0f;
+        if (y > bottom) {
+            y -= bottom;
+        }
+        benchmark::DoNotOptimize(layout::FindActiveTocIndex(doc.GetToc(), cache, y, theme.heading_spacing_above));
+    }
+    state.counters["headings"] = static_cast<double>(doc.GetToc().size());
+}
+BENCHMARK(BM_FindActiveTocIndex)->Unit(benchmark::kNanosecond);
 
 // 40 行の表の全セルの選択矩形 (1 フレーム分)。
 void BM_TableSelectionHitTest(benchmark::State& state)
@@ -649,12 +750,12 @@ public:
 protected:
     void MeasureInitial(NodeLayoutEntry& entry)
     {
-        layout_->measurer.MeasureNode(*table_, entry, 1200.0f, {});
+        MeasureEntry(layout_->measurer, *table_, entry, 1200.0f, {}, 0.0f, nullptr, layout_->theme);
     }
     void RestoreScreen(NodeLayoutEntry& entry, int k)
     {
         const float top = entry.height * static_cast<float>(k) / static_cast<float>(kRestores);
-        layout_->measurer.RestoreEvictedTableRows(*table_, entry, 1200.0f, { top, top + 1000.0f });
+        RestoreEntryTableRows(layout_->measurer, *table_, entry, 1200.0f, { top, top + 1000.0f });
     }
 
     std::optional<Document> doc_;
@@ -696,7 +797,7 @@ BENCHMARK_DEFINE_F(TableMeasure, Resize)(benchmark::State& state)
             RestoreScreen(entry, k);
         }
         entry.layout_dirty = true;
-        state.SetIterationTime(SecondsOf([&] { layout_->measurer.MeasureNode(*table_, entry, 1000.0f, { 0.0f, 1000.0f }); }));
+        state.SetIterationTime(SecondsOf([&] { MeasureEntry(layout_->measurer, *table_, entry, 1000.0f, { 0.0f, 1000.0f }, 0.0f, nullptr, layout_->theme); }));
     }
 }
 BENCHMARK_REGISTER_F(TableMeasure, Resize)->UseManualTime()->Iterations(3)->Unit(benchmark::kMicrosecond);

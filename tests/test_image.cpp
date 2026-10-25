@@ -190,8 +190,8 @@ TEST(ParserImage, ImageInTightOrderedListKeepsNumber)
 TEST(ParserImage, ImageInFootnoteDefKeepsNumber)
 {
     const auto result = ParseMarkdown("text[^1]\n\n[^1]: ![alt](img.png)");
-    ASSERT_EQ(result.footnote_def_indices.size(), 1u);
-    const auto& def = result.nodes()[result.footnote_def_indices[0]];
+    ASSERT_EQ(result.indices.footnote_def_indices.size(), 1u);
+    const auto& def = result.nodes()[result.indices.footnote_def_indices[0]];
     EXPECT_EQ(def.type, NodeType::ListItem);
     EXPECT_TRUE(def.list_ordered());
     EXPECT_EQ(def.list_number(), 1);

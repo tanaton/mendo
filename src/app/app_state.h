@@ -62,7 +62,11 @@ struct ViewState {
     // 対象のみ描画するため、map サイズはユーザー操作分に限定される。
     std::pmr::unordered_map<int, float> block_scroll_x;
     HoverHighlights hover;
+    // SyncActiveTocIndex が描画のたびに決め直す。
     int active_toc_index = -1;
+    // 目次クリック直後の同期 1 回だけ、目次ペインを追従スクロールさせない (issue#259)。
+    // クリックした項目がペイン内で動いて見失うのを防ぐ。
+    bool keep_toc_pane_once = false;
     LeftDragState drag;
     // テキスト選択のドラッグ中に届いたリロード。差し替えると選択の途中でドラッグが終わるので、終わるまで待つ。
     bool reload_after_drag = false;
@@ -151,6 +155,9 @@ struct SidePaneContext {
     ScrollState& scroll;
 };
 SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane);
+// 目次のアクティブ見出しを今の scroll_y と見出しの Y から決め直し、変わったら目次ペインを追従させる。
+// 描画のたびに呼ぶので、スクロール・計測・画像や図の高さの確定など Y が動くどの経路でも同期が漏れない。
+void SyncActiveTocIndex(AppState& state);
 
 inline size_t SidePaneItemCount(const AppState& state, PaneTarget pane)
 {

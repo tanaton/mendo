@@ -100,7 +100,7 @@ TEST_F(TableEvictionDWriteTest, SameWidthMeasureTakesFastPathAfterEviction)
     ASSERT_EQ(CountNonNullCells(tl), 0u);
 
     entry.layout_dirty = true;
-    measurer_.MeasureNode(pl.nodes[idx], entry, ContentWidth(), {});
+    MeasureEntry(measurer_, pl.nodes[idx], entry, ContentWidth(), {}, 0.0f, nullptr, theme_);
 
     EXPECT_FALSE(entry.layout_dirty);
     EXPECT_EQ(CountNonNullCells(tl), 0u) << "幅不変なら MeasureNode はセルを作り直さない";
@@ -124,10 +124,10 @@ TEST_F(TableEvictionDWriteTest, RestoreRestoresOnlyVisibleRows)
     ASSERT_LT(after_evict, total_cells);
 
     const MeasureViewportRange vp{ 0.0f, 80.0f };
-    const auto result = measurer_.RestoreEvictedTableRows(pl.nodes[idx], entry, ContentWidth(), vp);
+    const auto result = RestoreEntryTableRows(measurer_, pl.nodes[idx], entry, ContentWidth(), vp);
 
     EXPECT_TRUE(result.restored);
-    EXPECT_FALSE(result.height_changed);
+    EXPECT_FALSE(result.height.has_value());
     const size_t after_restore = CountNonNullCells(tl);
     EXPECT_GT(after_restore, after_evict);
     EXPECT_LT(after_restore, total_cells);
@@ -148,7 +148,7 @@ TEST_F(TableEvictionDWriteTest, RestoreKeepsSearchHighlightCache)
     EvictWholeTable(pl.cache, idx);
     entry.ensure_search_hl_cache().gen = 7;
 
-    const auto result = measurer_.RestoreEvictedTableRows(pl.nodes[idx], entry, ContentWidth(), MeasureViewportRange{ 0.0f, 80.0f });
+    const auto result = RestoreEntryTableRows(measurer_, pl.nodes[idx], entry, ContentWidth(), MeasureViewportRange{ 0.0f, 80.0f });
 
     ASSERT_TRUE(result.restored);
     EXPECT_EQ(entry.ensure_search_hl_cache().gen, 7u);
@@ -168,11 +168,11 @@ TEST_F(TableEvictionDWriteTest, ProgressivelyRestoresAcrossScrolls)
     ASSERT_LT(CountNonNullCells(tl), total_cells);
 
     const MeasureViewportRange vp1{ 0.0f, entry.height * 0.5f };
-    measurer_.RestoreEvictedTableRows(pl.nodes[idx], entry, ContentWidth(), vp1);
+    RestoreEntryTableRows(measurer_, pl.nodes[idx], entry, ContentWidth(), vp1);
     EXPECT_TRUE(tl.HasEvictedRows());
 
     const MeasureViewportRange vp2{ 0.0f, entry.height };
-    measurer_.RestoreEvictedTableRows(pl.nodes[idx], entry, ContentWidth(), vp2);
+    RestoreEntryTableRows(measurer_, pl.nodes[idx], entry, ContentWidth(), vp2);
 
     EXPECT_EQ(CountNonNullCells(tl), total_cells);
     EXPECT_FALSE(tl.HasEvictedRows());
@@ -191,7 +191,7 @@ TEST_F(TableEvictionDWriteTest, EvictIsDifferentialAgainstLiveRange)
     EXPECT_EQ(tl.live_row_begin, tl.live_row_end) << "全行 evict 後は生存範囲が空";
 
     const MeasureViewportRange vp{ 0.0f, 80.0f };
-    measurer_.RestoreEvictedTableRows(pl.nodes[idx], entry, ContentWidth(), vp);
+    RestoreEntryTableRows(measurer_, pl.nodes[idx], entry, ContentWidth(), vp);
     const size_t restored_cells = CountNonNullCells(tl);
     ASSERT_GT(restored_cells, 0u);
     EXPECT_LT(tl.live_row_begin, tl.live_row_end);
@@ -222,7 +222,7 @@ TEST_F(TableEvictionDWriteTest, NodeEvictionKeepsTableGeometry)
     EXPECT_FALSE(entry.layout_dirty);
 
     const MeasureViewportRange vp{ 0.0f, entry.height };
-    const auto result = measurer_.RestoreEvictedTableRows(pl.nodes[idx], entry, ContentWidth(), vp);
+    const auto result = RestoreEntryTableRows(measurer_, pl.nodes[idx], entry, ContentWidth(), vp);
     EXPECT_TRUE(result.restored);
     EXPECT_EQ(CountNonNullCells(tl), tl.cell_layouts.size());
     EXPECT_FLOAT_EQ(entry.height, height_before);
@@ -246,18 +246,18 @@ TEST_F(TableEvictionDWriteTest, RestoreAfterWidthChangeCorrectsRowHeights)
     const float narrow = 200.0f;
     const MeasureViewportRange vp{ 0.0f, 60.0f };
     entry.layout_dirty = true;
-    measurer_.MeasureNode(pl.nodes[idx], entry, narrow, vp);
+    MeasureEntry(measurer_, pl.nodes[idx], entry, narrow, vp, 0.0f, nullptr, theme_);
     EXPECT_FALSE(entry.layout_dirty);
     ASSERT_TRUE(entry.table_layout()->HasEvictedRows());
 
-    const auto result = measurer_.RestoreEvictedTableRows(pl.nodes[idx], entry, narrow, MeasureViewportRange{});
+    const auto result = RestoreEntryTableRows(measurer_, pl.nodes[idx], entry, narrow, MeasureViewportRange{});
     EXPECT_TRUE(result.restored);
     EXPECT_FALSE(entry.table_layout()->HasEvictedRows());
 
     auto fresh = ParseAndLayout(md);
     auto& fresh_entry = fresh.cache[idx];
     fresh_entry.layout_dirty = true;
-    measurer_.MeasureNode(fresh.nodes[idx], fresh_entry, narrow, {});
+    MeasureEntry(measurer_, fresh.nodes[idx], fresh_entry, narrow, {}, 0.0f, nullptr, theme_);
     EXPECT_FLOAT_EQ(entry.height, fresh_entry.height);
 }
 
@@ -318,9 +318,9 @@ TEST_F(TableEvictionDWriteTest, ParallelRestoreMatchesSerial)
         EvictWholeTable(pl.cache, idx);
         // 狭い幅で行高さを見積もりのまま残し、復元で実測に揃わせる。
         entry.layout_dirty = true;
-        measurer_.MeasureNode(pl.nodes[idx], entry, narrow, MeasureViewportRange{ 0.0f, 60.0f });
+        MeasureEntry(measurer_, pl.nodes[idx], entry, narrow, MeasureViewportRange{ 0.0f, 60.0f }, 0.0f, nullptr, theme_);
         measurer_.SetScheduler(scheduler);
-        const auto result = measurer_.RestoreEvictedTableRows(pl.nodes[idx], entry, narrow, MeasureViewportRange{});
+        const auto result = RestoreEntryTableRows(measurer_, pl.nodes[idx], entry, narrow, MeasureViewportRange{});
         measurer_.SetScheduler(nullptr);
         EXPECT_TRUE(result.restored);
         EXPECT_FALSE(entry.table_layout()->HasEvictedRows());
@@ -371,7 +371,7 @@ TEST_F(TableEvictionDWriteTest, LargeTableFirstMeasureKeepsNoCellLayouts)
 
     NodeLayoutEntry entry;
     entry.layout_dirty = true;
-    measurer_.MeasureNode(pl.nodes[idx], entry, ContentWidth(), {});
+    MeasureEntry(measurer_, pl.nodes[idx], entry, ContentWidth(), {}, 0.0f, nullptr, theme_);
 
     const auto& tl = *entry.table_layout();
     EXPECT_FALSE(entry.layout_dirty);
@@ -412,7 +412,7 @@ TEST_F(TableEvictionDWriteTest, LargeTableMeasuresDuplicateCellsOnce)
 
     NodeLayoutEntry entry;
     entry.layout_dirty = true;
-    measurer_.MeasureNode(pl.nodes[idx], entry, ContentWidth(), {});
+    MeasureEntry(measurer_, pl.nodes[idx], entry, ContentWidth(), {}, 0.0f, nullptr, theme_);
     const auto& tl = *entry.table_layout();
 
     // 0 行目は見出し。1 行目 (i=0) が太字、2 行目 (i=1) が普通の "ok"。

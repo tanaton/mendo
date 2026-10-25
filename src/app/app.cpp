@@ -84,9 +84,7 @@ bool App::Init(HWND hwnd)
     // D2D デバイスロストでレンダーターゲットが再作成されたら、各ローダーへ伝搬する。
     renderer_.SetDeviceLostCallback([this](ID2D1RenderTarget* new_rt) {
         mermaid_renderer_.SetRenderTarget(new_rt);
-        image_loader_.CancelPending();
         image_loader_.SetRenderTarget(new_rt);
-        image_loader_.ClearCache();
         // DiagramEntry::bitmap が新 RT で描画拒否されるのを防ぐ。ApplyCachedImages は
         // bitmap 残存ノードをスキップするため、LoadImages の前に破棄する必要がある。
         state_.document.layout_cache.InvalidateAllDiagramBitmaps();
@@ -301,6 +299,8 @@ void App::OnPaint()
     const bool show_loading = file_load_service_.IsLoading();
     if (!show_loading) {
         EnsureFrameLayout(layout);
+        // 計測で見出しの Y が決まった後、目次ペインを組む前に決め直す。
+        SyncActiveTocIndex(state_);
     }
 
     const auto gs = ResolveGestureOverlay(state_.interaction.gesture, state_.interaction.swipe_detector);
@@ -335,13 +335,11 @@ void App::OnPaint()
             .toast = ts,
             .search_bar = sb,
             .scroll_y = state_.view.viewport.GetScrollY(),
-            .total_content_height = ScrollableContentHeight(),
             .nav_hovered = state_.view.hover.nav,
             .hovered = state_.view.hover.overlay_button,
             .hovered_diagram = state_.view.hover.diagram,
             .can_go_back = state_.view.nav_history.CanGoBack(),
             .can_go_forward = state_.view.nav_history.CanGoForward(),
-            .has_dirty_nodes = state_.document.layout_cache.HasDirtyNodes(),
             .block_h_scroll = h_scroll,
         });
     }
@@ -476,8 +474,10 @@ void App::HandleTimer(UINT_PTR timer_id)
     const auto id = static_cast<app_timer::Id>(timer_id);
     switch (id) {
     case SWIPE_OVERLAY:
+        Dispatch(SwipeOverlayTimeoutAction{});
+        return;
     case TOAST:
-        Dispatch(TimerAction{ id });
+        Dispatch(ToastExpiredAction{});
         return;
     case TOOLTIP:
         KillTimer(id);
@@ -660,9 +660,6 @@ void App::Execute(const SideEffect& effect)
         // ---- Layout ----
         [this](const effect::BitmapManage&) {
             resource_manager_.ScheduleBitmapManage();
-        },
-        [this](const effect::SyncTocActive& ev) {
-            SyncTocActiveAndAutoScroll(ev.auto_scroll);
         },
         // ---- Timer ----
         [this](const effect::SetTimer& ev) {
@@ -976,33 +973,6 @@ void App::RelayoutViewport(RelayoutResources resources)
     }
     Invalidate();
     SettleLayout();
-    SyncTocActiveAndAutoScroll(true);
-}
-
-void App::SyncTocActiveAndAutoScroll(bool auto_scroll)
-{
-    if (!state_.view.panes.IsSidePaneVisible(PaneTarget::Toc)) {
-        return;
-    }
-    const auto& theme = renderer_.GetTheme();
-    const int new_active = layout::FindActiveTocIndex(
-        state_.document.doc.GetToc(), state_.document.layout_cache, state_.view.viewport.GetScrollY(), theme.heading_spacing_above);
-    if (new_active == state_.view.active_toc_index) {
-        return;
-    }
-    state_.view.active_toc_index = new_active;
-
-    // auto_scroll=false (目次クリック由来) ではハイライト更新のみ。
-    // ユーザーが操作中の目次ペインのスクロール位置を勝手に動かさない (issue#259)。
-    if (!auto_scroll || new_active < 0) {
-        return;
-    }
-
-    // アクティブ見出しを目次ペインの中央に保つように追従スクロールする。
-    const auto ctx = GetSidePaneContext(state_, PaneTarget::Toc);
-    if (ctx.info.content_height > 0.0f) {
-        ctx.scroll.scroll_y = CenterPaneScrollOnItem(static_cast<size_t>(new_active), ctx.item_height, ctx.info);
-    }
 }
 
 void App::OnResizeEnd()
@@ -1042,9 +1012,6 @@ void App::OnDeferredLayout()
 
     ClampScrollToContent();
     Invalidate();
-
-    // layout_cache の text_top が確定したので目次アクティブ見出しを再同期する。
-    SyncTocActiveAndAutoScroll(true);
 }
 
 void AppHost::SetTimer(app_timer::Id id, UINT ms)

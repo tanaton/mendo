@@ -23,13 +23,13 @@ int MeasureAll(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& t
 // CodeBlock の syntax_tokens を書く派生 mock。並列経路では worker から entry へ直接書かれる。
 class MockTextMeasurerWithTokens : public MockTextMeasurer {
 public:
-    void MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
-                     MeasureViewportRange viewport = {}) const override
+    std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
+                                     MeasureViewportRange viewport = {}) const override
     {
-        MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
+        const auto height = MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
 
         if (node.type != NodeType::CodeBlock) {
-            return;
+            return height;
         }
         const size_t seed = node.SourceOffset();
         const auto seed32 = static_cast<uint32_t>(seed);
@@ -41,6 +41,7 @@ public:
             };
         };
         entry.set_syntax_tokens({ MakeTok(0), MakeTok(1), MakeTok(2) });
+        return height;
     }
 };
 

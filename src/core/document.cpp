@@ -18,12 +18,7 @@ Document Document::FromMarkdown(std::pmr::string text, size_t byte_size, std::ws
     // raw_text_ をパースした結果なのでノードのテキストは raw_text_ か arena を指しており rebase 不要。
     ParseResult result = ParseMarkdown(doc.raw_text_, std::move(stop_token));
     doc.storage_ = std::make_shared<const NodeStorage>(result.TakeNodes());
-    doc.image_node_indices_ = std::move(result.image_indices);
-    doc.diagram_node_indices_ = std::move(result.diagram_indices);
-    doc.table_node_indices_ = std::move(result.table_indices);
-    doc.footnote_def_indices_ = std::move(result.footnote_def_indices);
-    doc.footnote_refs_ = std::move(result.footnote_refs);
-    doc.toc_ = std::move(result.toc_entries);
+    doc.indices_ = std::move(result.indices);
     return doc;
 }
 
@@ -47,7 +42,7 @@ int Document::FindAnchorIndex(std::string_view anchor)
     }
     // 割り当てるアンカーは小文字なので query 側だけ畳む。
     const auto key = ToLowerAnchorCopy(anchor);
-    if (const int footnote = FindFootnoteAnchor(key, footnote_def_indices_, footnote_refs_); footnote >= 0) {
+    if (const int footnote = FindFootnoteAnchor(key, indices_.footnote_def_indices, indices_.footnote_refs); footnote >= 0) {
         return footnote;
     }
     if (!anchor_index_) {
@@ -58,9 +53,9 @@ int Document::FindAnchorIndex(std::string_view anchor)
         return found;
     }
     // 割り当て済みのアンカーは後の見出しで変わらないので、前回の続きから延ばせばよい。
-    index.Reserve(toc_.size());
-    for (size_t i = index.heading_count(); i < toc_.size(); ++i) {
-        const int node_index = toc_[i].node_index;
+    index.Reserve(indices_.toc_entries.size());
+    for (size_t i = index.heading_count(); i < indices_.toc_entries.size(); ++i) {
+        const int node_index = indices_.toc_entries[i].node_index;
         if (index.Add(GetNodes()[node_index].GetText(), node_index) == key) {
             return node_index;
         }

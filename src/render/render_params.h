@@ -100,13 +100,11 @@ struct RenderParams {
     const ToastRenderState& toast;
     const SearchBarRenderState& search_bar;
     float scroll_y = 0.0f;
-    float total_content_height = 0.0f;
     NavDirection nav_hovered = NavDirection::None;
     OverlayButtonHit hovered;
     int hovered_diagram = -1;
     bool can_go_back = false;
     bool can_go_forward = false;
-    bool has_dirty_nodes = false;
     // ブロック単位の横スクロール。値で持ち、ポインタで AppState 側 map を参照する。
     BlockHScrollContext block_h_scroll;
 };

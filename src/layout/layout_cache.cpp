@@ -223,18 +223,25 @@ void EvictTableRow(TableLayoutData& tl, size_t row_index, LayoutCache::ReleasedL
     }
 }
 
+// [begin, end) のうち [keep_begin, keep_end) の外の番号を fn に渡す。
+template <class Fn>
+void ForEachOutsideKeep(size_t begin, size_t end, size_t keep_begin, size_t keep_end, Fn&& fn) noexcept
+{
+    for (size_t i = begin; i < std::min(end, keep_begin); ++i) {
+        fn(i);
+    }
+    for (size_t i = std::max(begin, keep_end); i < end; ++i) {
+        fn(i);
+    }
+}
+
 // 生存範囲のうち [keep_begin, keep_end) の外の行を evict し、生存範囲を keep との重なりに縮める。
 // evict 済みの行はなめ直さない。HasRowTracking を満たすテーブルでのみ呼ぶ。
 void EvictTableRowsOutside(TableLayoutData& tl, size_t keep_begin, size_t keep_end, LayoutCache::ReleasedLayouts& released) noexcept
 {
     const size_t live_begin = tl.live_row_begin;
     const size_t live_end = tl.live_row_end;
-    for (size_t r = live_begin; r < std::min(live_end, keep_begin); ++r) {
-        EvictTableRow(tl, r, released);
-    }
-    for (size_t r = std::max(live_begin, keep_end); r < live_end; ++r) {
-        EvictTableRow(tl, r, released);
-    }
+    ForEachOutsideKeep(live_begin, live_end, keep_begin, keep_end, [&](size_t r) noexcept { EvictTableRow(tl, r, released); });
     tl.live_row_begin = std::max(live_begin, keep_begin);
     tl.live_row_end = std::min(live_end, keep_end);
     if (tl.live_row_begin >= tl.live_row_end) {
@@ -353,12 +360,7 @@ void LayoutCache::EvictTextLayouts(size_t first_keep_inclusive, size_t last_keep
     const size_t lk = std::min(last_keep_exclusive, n);
 
     const auto evict_outside_keep = [&](size_t begin, size_t end) noexcept {
-        for (size_t i = begin; i < std::min(end, fk); ++i) {
-            EvictEntryLayout(entries_[i], released_layouts_);
-        }
-        for (size_t i = std::max(begin, lk); i < end; ++i) {
-            EvictEntryLayout(entries_[i], released_layouts_);
-        }
+        ForEachOutsideKeep(begin, end, fk, lk, [&](size_t i) noexcept { EvictEntryLayout(entries_[i], released_layouts_); });
     };
     // layout が生存しうるのは前回 keep 範囲と、その後に計測した範囲だけなので、その keep 外だけ走査する。
     // 未追跡 (0, 0) は前回 keep を全域 [0, n) とみなす。

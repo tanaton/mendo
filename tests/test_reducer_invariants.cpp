@@ -64,7 +64,7 @@ TEST(ReducerHomeKey, ShortDocumentDoesNotExceedMaxScroll)
 // ---- スクロール不変条件 ----
 // reducer 経由のどのスクロール操作の後も
 //   (a) 0 <= scroll_y <= max_scroll
-//   (b) scroll_y が変わったら 再描画 (InvalidateWindow) と目次同期 (SyncTocActive) を積む
+//   (b) scroll_y が変わったら 再描画 (InvalidateWindow) を積む (目次は描画時に同期する)
 // が成り立つこと。(a) が破れると後続のホイールで位置が一気に補正されて「飛ぶ」(issue#224)。
 
 namespace {
@@ -142,7 +142,7 @@ LabeledAction GenerateSingleScrollAction(std::mt19937& rng, const ReducerHarness
         return { std::format("HWheel({}, {})", d, tick), HWheelAction{ d, tick } };
     }
     default:
-        return { "Timer(SWIPE_OVERLAY)", TimerAction{ app_timer::Id::SWIPE_OVERLAY } };
+        return { "Timer(SWIPE_OVERLAY)", SwipeOverlayTimeoutAction{} };
     }
 }
 
@@ -191,7 +191,6 @@ void RunScrollInvariant(const ScrollLayoutCase& lc, uint32_t seed)
             ASSERT_LE(y, max_y) << "history:" << history;
             if (y != before) {
                 ASSERT_TRUE(HasEffect<effect::InvalidateWindow>(effects)) << "history:" << history;
-                ASSERT_TRUE(HasEffect<effect::SyncTocActive>(effects)) << "history:" << history;
             }
         }
     }
@@ -299,17 +298,17 @@ public:
         case 6:
             return Key();
         case 7: {
-            static constexpr app_timer::Id kTimers[] = {
-                app_timer::Id::SWIPE_OVERLAY,
-                app_timer::Id::TOAST,
-            };
-            if (Pick(0, 2) == 0) {
+            switch (Pick(0, 2)) {
+            case 0:
                 model_.Dispatch(SearchContinueAction{});
                 return "SearchContinue";
+            case 1:
+                model_.Dispatch(SwipeOverlayTimeoutAction{});
+                return "Timer(SWIPE_OVERLAY)";
+            default:
+                model_.Dispatch(ToastExpiredAction{});
+                return "Timer(TOAST)";
             }
-            const auto id = kTimers[Pick(0, static_cast<int>(std::size(kTimers)) - 1)];
-            model_.Dispatch(TimerAction{ id });
-            return std::format("Timer({})", static_cast<int>(id));
         }
         case 8: {
             tick_ += 20;
@@ -615,7 +614,7 @@ TEST_P(ReducerHWheelSwipeTest, BlockAbsorbsHorizontalWheel)
         timer_scheduled |= (t && t->id == app_timer::Id::SWIPE_OVERLAY);
         overlay_shown |= s.interaction.swipe_detector.IsOverlayVisible();
     }
-    const auto commit = dispatch(TimerAction{ app_timer::Id::SWIPE_OVERLAY });
+    const auto commit = dispatch(SwipeOverlayTimeoutAction{});
     const bool navigated = HasEffect<effect::LoadFile>(commit);
 
     EXPECT_EQ(timer_scheduled, c.expect_swipe);

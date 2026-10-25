@@ -26,7 +26,7 @@ public:
         theme_ = &theme;
     }
 
-    void MeasureNode(
+    std::optional<float> MeasureNode(
         const Node& node,
         NodeLayoutEntry& entry,
         float max_width,
@@ -69,7 +69,7 @@ private:
     const DWriteContext& Context() const;
     static IDWriteTextFormat* GetTextFormat(const DWriteContext& ctx, const Node& node) noexcept;
     static IDWriteTextFormat* GetTableRowFormat(const DWriteContext& ctx, const NodeTableData& tbl, size_t r) noexcept;
-    void MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width, MeasureViewportRange viewport) const;
+    std::optional<float> MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width, MeasureViewportRange viewport) const;
     // apply_code_size=false はインラインコードを縮小しない (見出し用)。CodeBlock は run を持たない。
     void ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, bool apply_code_size) const;
     // MeasureTableCells / BuildRowCells 共通のセル生成処理。空セルは null。
@@ -80,7 +80,8 @@ private:
     void RestoreNullCellLayouts(const NodeTableData& tbl, TableLayoutData& tl, MeasureViewportRange viewport) const;
     // evict 行 r の null セルを再生成する。書くのは行 r のセルだけなので、別の行とは並列に呼べる。
     void BuildRowCells(const NodeTableData& tbl, TableLayoutData& tl, size_t r) const;
-    void FinalizeTableLayout(const NodeTableData& tbl, NodeLayoutEntry& entry, float max_width) const;
+    // 戻り値はテーブル全体の高さ。
+    float FinalizeTableLayout(const NodeTableData& tbl, TableLayoutData& tl, float max_width) const;
 
     const Theme* theme_ = nullptr;
     TaskScheduler* scheduler_ = nullptr;

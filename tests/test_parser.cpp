@@ -873,8 +873,8 @@ TEST(Parser, LatexDisplayMathSingleLinePromotedToDiagram)
     EXPECT_EQ(result.nodes()[0].code_language(), SyntaxLanguage::LatexMath);
     EXPECT_EQ(result.nodes()[0].GetText(), "E = mc^2");
     // diagram_indices に登録される（描画パイプラインに流すため）
-    ASSERT_EQ(result.diagram_indices.size(), 1u);
-    EXPECT_EQ(result.diagram_indices[0], 0u);
+    ASSERT_EQ(result.indices.diagram_indices.size(), 1u);
+    EXPECT_EQ(result.indices.diagram_indices[0], 0u);
 }
 
 TEST(Parser, LatexDisplayMathWithOtherContentFallsBackToText)
@@ -970,8 +970,8 @@ TEST(Parser, LatexDisplayMathSurroundingParagraphs)
     EXPECT_EQ(result.nodes()[1].code_language(), SyntaxLanguage::LatexMath);
     EXPECT_EQ(result.nodes()[1].GetText(), "E=mc^2");
     EXPECT_EQ(result.nodes()[2].type, NodeType::Paragraph);
-    ASSERT_EQ(result.diagram_indices.size(), 1u);
-    EXPECT_EQ(result.diagram_indices[0], 1u);
+    ASSERT_EQ(result.indices.diagram_indices.size(), 1u);
+    EXPECT_EQ(result.indices.diagram_indices[0], 1u);
 }
 
 TEST(Parser, MathFencedCodeBlockIsLatexDiagram)
@@ -982,8 +982,8 @@ TEST(Parser, MathFencedCodeBlockIsLatexDiagram)
     EXPECT_EQ(result.nodes()[1].type, NodeType::Diagram);
     EXPECT_EQ(result.nodes()[1].code_language(), SyntaxLanguage::LatexMath);
     EXPECT_EQ(result.nodes()[1].GetText(), "\\frac{a}{b}\n\\sqrt{x}");
-    ASSERT_EQ(result.diagram_indices.size(), 1u);
-    EXPECT_EQ(result.diagram_indices[0], 1u);
+    ASSERT_EQ(result.indices.diagram_indices.size(), 1u);
+    EXPECT_EQ(result.indices.diagram_indices[0], 1u);
 }
 
 // ---- 空の見出し ----
@@ -1569,8 +1569,8 @@ TEST(Parser, FootnoteRefBecomesNumberedLinkAndDefinitionMovesToEnd)
     EXPECT_EQ(LinkUrlAt(nodes[3], "here"), "");
     EXPECT_FALSE(nodes[3].HasSourceOffset()) << "末尾に並ぶ定義はソース位置の単調増加を崩さないよう持たない";
     EXPECT_TRUE(ParseInvariantsHold(md, nodes));
-    ASSERT_EQ(result.footnote_def_indices.size(), 1u);
-    EXPECT_EQ(result.footnote_def_indices[0], 3);
+    ASSERT_EQ(result.indices.footnote_def_indices.size(), 1u);
+    EXPECT_EQ(result.indices.footnote_def_indices[0], 3);
 }
 
 TEST(Parser, FootnotesAreNumberedInReferenceOrder)
@@ -1592,8 +1592,8 @@ TEST(Parser, FootnoteWithMultipleRefsGetsNumberedBackrefs)
     ASSERT_EQ(nodes.size(), 3u);
     EXPECT_EQ(nodes[2].GetText(), "n ↩ ↩2");
     EXPECT_EQ(LinkUrlAt(nodes[2], "↩2"), "#user-content-fnref-1-2");
-    ASSERT_EQ(result.footnote_refs.size(), 2u);
-    EXPECT_EQ(result.footnote_refs[1].ref_id, 2u);
+    ASSERT_EQ(result.indices.footnote_refs.size(), 2u);
+    EXPECT_EQ(result.indices.footnote_refs[1].ref_id, 2u);
 }
 
 // md4c はテーブル行の判定でもインラインを解析して参照数を数えるため、ref_id / ref_count が実際の参照数とずれる。
@@ -1605,9 +1605,9 @@ TEST(Parser, FootnoteRefInTableIsCountedOnce)
     ASSERT_EQ(nodes.size(), 4u);
     EXPECT_EQ(nodes[0].table_data()->GetCellText(1, 0), "c[1]");
     EXPECT_EQ(nodes[3].GetText(), "n ↩ ↩2");
-    ASSERT_EQ(result.footnote_refs.size(), 2u);
-    EXPECT_EQ(result.footnote_refs[0].node_index, 0);
-    EXPECT_EQ(result.footnote_refs[1].ref_id, 2u);
+    ASSERT_EQ(result.indices.footnote_refs.size(), 2u);
+    EXPECT_EQ(result.indices.footnote_refs[0].node_index, 0);
+    EXPECT_EQ(result.indices.footnote_refs[1].ref_id, 2u);
     EXPECT_TRUE(ParseInvariantsHold(md, nodes));
 }
 
@@ -1618,8 +1618,8 @@ TEST(Parser, FootnoteRefInsideLaterDefinitionGetsBackref)
     ASSERT_EQ(nodes.size(), 4u);
     EXPECT_EQ(nodes[2].GetText(), "one ↩ ↩2");
     EXPECT_EQ(nodes[3].GetText(), "two[1] ↩");
-    ASSERT_EQ(result.footnote_refs.size(), 3u);
-    EXPECT_EQ(result.footnote_refs[2].node_index, 3);
+    ASSERT_EQ(result.indices.footnote_refs.size(), 3u);
+    EXPECT_EQ(result.indices.footnote_refs[2].node_index, 3);
 }
 
 TEST(Parser, UndefinedFootnoteRefStaysPlainText)
@@ -1627,7 +1627,7 @@ TEST(Parser, UndefinedFootnoteRefStaysPlainText)
     const auto result = ParseMarkdown("[^x] text");
     ASSERT_EQ(result.nodes().size(), 1u);
     EXPECT_EQ(result.nodes()[0].GetText(), "[^x] text");
-    EXPECT_TRUE(result.footnote_refs.empty());
+    EXPECT_TRUE(result.indices.footnote_refs.empty());
 }
 
 // GitHub と同じく、参照されない定義は表示しない。
@@ -1636,7 +1636,7 @@ TEST(Parser, UnreferencedFootnoteDefinitionIsHidden)
     const auto result = ParseMarkdown("Text\n\n[^1]: unused");
     ASSERT_EQ(result.nodes().size(), 1u);
     EXPECT_EQ(result.nodes()[0].GetText(), "Text");
-    EXPECT_TRUE(result.footnote_def_indices.empty());
+    EXPECT_TRUE(result.indices.footnote_def_indices.empty());
 }
 
 TEST(Parser, FootnoteRefInsideQuoteKeepsAlert)

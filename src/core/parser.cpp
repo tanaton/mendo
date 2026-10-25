@@ -49,14 +49,8 @@ struct ParseContext {
     // Table ノードが指すテーブル本体。arena と同じく Document に渡す。
     std::pmr::vector<std::unique_ptr<NodeTableData>> tables;
 
-    // パース後の全ノード走査を避けるため、特殊ノードのインデックスはパース中に構築する。
-    std::pmr::vector<TocEntry> toc_entries;
-    std::pmr::vector<size_t> image_indices;
-    std::pmr::vector<size_t> diagram_indices;
-    std::pmr::vector<size_t> table_indices;
+    NodeIndices indices;
     std::pmr::vector<size_t> blockquote_indices;
-    std::pmr::vector<int32_t> footnote_def_indices;
-    std::pmr::vector<FootnoteRef> footnote_refs;
     // [id - 1] が脚注 id への参照数。md4c の ref_id はテーブル行の判定でも数えられて飛ぶので自前で数える。
     std::pmr::vector<uint32_t> footnote_ref_counts;
     // 最後に記録したソース位置。RecordSourceOffset がこれより前の位置を記録しないために持つ。
@@ -597,7 +591,7 @@ bool TryPromoteParagraphToImage(ParseContext* ctx)
     const NodeImageData image{ ctx->image_src };
     cn->set_image_data(ctx->arena->Copy(std::span{ &image, 1 }).data());
     cn->type = NodeType::Image;
-    ctx->image_indices.emplace_back(ctx->CurrentNodeIndex());
+    ctx->indices.image_indices.emplace_back(ctx->CurrentNodeIndex());
     return true;
 }
 
@@ -621,7 +615,7 @@ void TryPromoteParagraphToDisplayMath(ParseContext* ctx)
     node->set_code_language(SyntaxLanguage::LatexMath);
     ctx->current_runs.clear();
     node->SetText(ctx->arena->CopyText(text.substr(2, text.size() - 4)), 0);
-    ctx->diagram_indices.emplace_back(ctx->CurrentNodeIndex());
+    ctx->indices.diagram_indices.emplace_back(ctx->CurrentNodeIndex());
 }
 
 void BeginListItem(ParseContext* ctx, const MD_BLOCK_LI_DETAIL* li)
@@ -640,7 +634,7 @@ void BeginListItem(ParseContext* ctx, const MD_BLOCK_LI_DETAIL* li)
 void BeginTable(ParseContext* ctx, const MD_BLOCK_TABLE_DETAIL* detail)
 {
     ctx->BeginNode(NodeType::Table);
-    ctx->table_indices.emplace_back(ctx->CurrentNodeIndex());
+    ctx->indices.table_indices.emplace_back(ctx->CurrentNodeIndex());
     // 後続の TR/TH/TD で nullable チェックなく参照できるよう先に確保する。
     // これに依存して TR/TH/TD は has_table() ガードを省いている。
     auto* const tbl = ctx->tables.emplace_back(std::make_unique<NodeTableData>()).get();
@@ -725,7 +719,7 @@ void AppendFootnoteRef(ParseContext* ctx, const MD_SPAN_FOOTNOTE_REF_DETAIL* ref
         ctx->footnote_ref_counts.resize(ref->id, 0);
     }
     const uint32_t ref_id = ++ctx->footnote_ref_counts[ref->id - 1];
-    ctx->footnote_refs.push_back({ ref->id, ref_id, static_cast<int32_t>(ctx->CurrentNodeIndex()) });
+    ctx->indices.footnote_refs.push_back({ ref->id, ref_id, static_cast<int32_t>(ctx->CurrentNodeIndex()) });
     // リンク文字列内の参照でも外側のリンクが続くよう戻す。
     const int16_t outer_link = ctx->current_link_url_index;
     ctx->ResolveLinkUrlIndex(FootnoteDefUrl(ref->id));
@@ -739,7 +733,7 @@ void BeginFootnoteDef(ParseContext* ctx, const MD_BLOCK_FOOTNOTE_DEF_DETAIL* def
 {
     ctx->BeginNode(NodeType::ListItem);
     ctx->current_node->set_list_number(static_cast<int32_t>(def->id));
-    ctx->footnote_def_indices.push_back(static_cast<int32_t>(ctx->CurrentNodeIndex()));
+    ctx->indices.footnote_def_indices.push_back(static_cast<int32_t>(ctx->CurrentNodeIndex()));
 }
 
 // GitHub と同じく、定義の末尾に参照へ戻るリンク "↩" (2 回目以降は "↩2" ...) を参照の数だけ付ける。
@@ -794,7 +788,7 @@ void LeaveCodeBlock(ParseContext* ctx)
     }
     if (IsDiagramLanguage(cn->code_language())) {
         cn->type = NodeType::Diagram;
-        ctx->diagram_indices.emplace_back(ctx->CurrentNodeIndex());
+        ctx->indices.diagram_indices.emplace_back(ctx->CurrentNodeIndex());
     }
 }
 
@@ -954,7 +948,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 
     case MD_BLOCK_H:
         if (auto* const cn = ctx->current_node; cn && cn->type == NodeType::Heading) {
-            ctx->toc_entries.emplace_back(static_cast<int>(ctx->CurrentNodeIndex()), cn->heading_level());
+            ctx->indices.toc_entries.emplace_back(static_cast<int>(ctx->CurrentNodeIndex()), cn->heading_level());
         }
         ctx->EndNode();
         break;
@@ -1272,7 +1266,7 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         return {};
     }
 
-    AppendFootnoteBackrefs(ctx.nodes, *ctx.arena, ctx.footnote_def_indices, ctx.footnote_ref_counts);
+    AppendFootnoteBackrefs(ctx.nodes, *ctx.arena, ctx.indices.footnote_def_indices, ctx.footnote_ref_counts);
 
     {
         MENDO_PROFILE("DetectAlerts");
@@ -1290,11 +1284,6 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     ParseResult result{
         NodeStorage{ std::move(ctx.nodes), std::move(ctx.arena), std::move(ctx.tables) }
     };
-    result.toc_entries = std::move(ctx.toc_entries);
-    result.image_indices = std::move(ctx.image_indices);
-    result.diagram_indices = std::move(ctx.diagram_indices);
-    result.table_indices = std::move(ctx.table_indices);
-    result.footnote_def_indices = std::move(ctx.footnote_def_indices);
-    result.footnote_refs = std::move(ctx.footnote_refs);
+    result.indices = std::move(ctx.indices);
     return result;
 }

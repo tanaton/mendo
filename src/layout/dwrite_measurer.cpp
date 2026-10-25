@@ -150,12 +150,10 @@ void CacheFirstLineHeight(IDWriteTextLayout* layout, NodeLayoutEntry& entry) noe
     entry.set_first_line_height(((SUCCEEDED(hr) || hr == E_NOT_SUFFICIENT_BUFFER) && lc > 0) ? lm.height : 0.0f);
 }
 
-// entry.text_layout の計測結果を確定する。折り返し行が変わるためハイライト矩形は無効化し、
+// entry.text_layout の計測結果から高さを返す。折り返し行が変わるためハイライト矩形は無効化し、
 // インラインコード背景を作り直す (描画色と下線は SetMaxWidth だけの再計測でも残る)。
-void FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TEXT_METRICS& metrics, const Theme& theme)
+float FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TEXT_METRICS& metrics, const Theme& theme)
 {
-    entry.height = metrics.height;
-    entry.layout_dirty = false;
     CacheFirstLineHeight(entry.text_layout(), entry);
     entry.invalidate_per_frame_hl_caches();
     if (node.type == NodeType::CodeBlock) {
@@ -165,41 +163,36 @@ void FinishTextMeasure(const Node& node, NodeLayoutEntry& entry, const DWRITE_TE
     ForEachInlineCodeBg(entry.text_layout(), node.GetText(), node.runs(), [&entry](const InlineCodeBg& rect) {
         entry.ensure_inline_code_bgs().push_back(rect);
     });
+    return metrics.height;
 }
 
-// テキストレイアウトを持たないノード (HR / 空テキスト) の高さを確定する。
-// 戻り値: 処理した場合 true。
-bool MeasureWithoutTextLayout(const Node& node, NodeLayoutEntry& entry, const Theme& theme) noexcept
+// テキストレイアウトを持たないノード (HR / 空テキスト) の高さ。それ以外は nullopt。
+std::optional<float> MeasureWithoutTextLayout(const Node& node, const Theme& theme) noexcept
 {
     if (node.type == NodeType::HorizontalRule) {
-        entry.height = layout::HorizontalRuleHeight(theme);
+        return layout::HorizontalRuleHeight(theme);
     }
-    else if (node.GetText().empty()) {
-        entry.height = layout::EmptyTextNodeHeight(node, theme);
+    if (node.GetText().empty()) {
+        return layout::EmptyTextNodeHeight(node, theme);
     }
-    else {
-        return false;
-    }
-    entry.layout_dirty = false;
-    return true;
+    return std::nullopt;
 }
 
 // 既存の text_layout を SetMaxWidth で再計測する。text_layout は内容変更時に呼び出し側
 // (LayoutCache::InvalidateAllLayouts / EvictTextLayouts) で必ず Reset される契約のため、
 // 現存していればテキスト/runs/フォント幾何は一致している。SetMaxWidth の後の GetMetrics は解析からやり直すので
 // 作り直しより 1〜16% 速いだけだが、装飾の付け直しは要らない。
-// 戻り値: 成功したら true。失敗時は layout を捨ててスローパスに委ねる。
-bool RemeasureExistingLayout(const Node& node, NodeLayoutEntry& entry, float layout_width, const Theme& theme)
+// 戻り値: 成功したら高さ。失敗時は layout を捨ててスローパスに委ねる。
+std::optional<float> RemeasureExistingLayout(const Node& node, NodeLayoutEntry& entry, float layout_width, const Theme& theme)
 {
     MENDO_PROFILE("MeasureNode.fastpath");
     if (SUCCEEDED(entry.text_layout()->SetMaxWidth(layout_width))) {
         DWRITE_TEXT_METRICS metrics{};
         entry.text_layout()->GetMetrics(&metrics);
-        FinishTextMeasure(node, entry, metrics, theme);
-        return true;
+        return FinishTextMeasure(node, entry, metrics, theme);
     }
     entry.reset_text_layout();
-    return false;
+    return std::nullopt;
 }
 
 // 1 属性ぶんのレンジビルダ。隣接ランで属性が連続する間はマージし、切れたら emit する。
@@ -419,28 +412,25 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     link.Flush();
 }
 
-void DWriteTextMeasurer::MeasureNode(
+std::optional<float> DWriteTextMeasurer::MeasureNode(
     const Node& node, NodeLayoutEntry& entry, float max_width,
     MeasureViewportRange viewport) const
 {
     MENDO_PROFILE("MeasureNode");
     if (!ctx_.factory || !theme_) {
-        return;
+        return std::nullopt;
     }
     if (node.type == NodeType::Table) {
-        MeasureTable(node, entry, max_width, viewport);
-        return;
+        return MeasureTable(node, entry, max_width, viewport);
     }
-    if (MeasureWithoutTextLayout(node, entry, *theme_)) {
-        return;
+    if (const auto height = MeasureWithoutTextLayout(node, *theme_)) {
+        return height;
     }
 
     const float layout_width = layout::NodeLayoutWidth(node, max_width);
     // 同じ幅で組んだ text_layout が残っていれば、高さも行もハイライト矩形も変わらない。
     if (entry.text_layout() && entry.cached_height > 0.0f && entry.cached_width == layout_width) {
-        entry.height = entry.cached_height;
-        entry.layout_dirty = false;
-        return;
+        return entry.cached_height;
     }
     if (entry.text_layout()) {
         // 改行でしか折れておらず最も長い行が新しい幅に収まるなら、組み直しても行は同じ。左揃えなので幅は付け替えない
@@ -449,12 +439,10 @@ void DWriteTextMeasurer::MeasureNode(
         DWRITE_TEXT_METRICS metrics{};
         entry.text_layout()->GetMetrics(&metrics);
         if (metrics.lineCount == static_cast<UINT32>(node.line_count) + 1 && metrics.width <= layout_width) {
-            entry.height = metrics.height;
-            entry.layout_dirty = false;
-            return;
+            return metrics.height;
         }
-        if (RemeasureExistingLayout(node, entry, layout_width, *theme_)) {
-            return;
+        if (const auto height = RemeasureExistingLayout(node, entry, layout_width, *theme_)) {
+            return height;
         }
     }
 
@@ -462,7 +450,7 @@ void DWriteTextMeasurer::MeasureNode(
     const auto& ctx = Context();
     ComPtr<IDWriteTextLayout> layout;
     if (FAILED(CreateDocTextLayout(ctx.factory.Get(), text, GetTextFormat(ctx, node), layout_width, layout::kNoWrapLayoutWidth, &layout))) {
-        return;
+        return std::nullopt;
     }
 
     ApplyRunFormatting(layout.Get(), node.runs(), text, /*apply_code_size=*/node.type != NodeType::Heading);
@@ -483,7 +471,7 @@ void DWriteTextMeasurer::MeasureNode(
     }
 
     entry.set_text_layout(std::move(layout));
-    FinishTextMeasure(node, entry, metrics, *theme_);
+    return FinishTextMeasure(node, entry, metrics, *theme_);
 }
 
 ComPtr<IDWriteTextLayout> DWriteTextMeasurer::CreateCellLayout(const DWriteContext& ctx, const NodeTableData& tbl, size_t r, size_t c) const
@@ -580,12 +568,11 @@ void DWriteTextMeasurer::BuildRowCells(const NodeTableData& tbl, TableLayoutData
     }
 }
 
-void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayoutEntry& entry, float max_width) const
+float DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, TableLayoutData& tl, float max_width) const
 {
     MENDO_PROFILE("FinalizeTableLayout");
     const float cell_padding = TABLE_CELL_PADDING;
     const float border_width = TABLE_BORDER_WIDTH;
-    auto& tl = *entry.table_layout();
     const size_t col_count = tl.col_count;
     const float borders_width = (static_cast<float>(col_count) + 1.0f) * border_width;
     const float paddings_width = static_cast<float>(col_count) * cell_padding * 2.0f;
@@ -605,11 +592,10 @@ void DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, NodeLayou
     tl.RebuildRowCumY(tbl.row_count);
     tl.RebuildColCumX();
 
-    entry.height = tl.TotalHeight(tbl.row_count);
     tl.last_applied_max_width = max_width;
-    // evict 行が残っていても dirty にはしない。dirty のままだと可視中は毎フレーム全行の
+    // evict 行が残っていても確定させる (dirty に残さない)。dirty のままだと可視中は毎フレーム全行の
     // Finalize が走る。残りは RestoreEvictedTableRows が可視行だけ埋める。
-    entry.layout_dirty = false;
+    return tl.TotalHeight(tbl.row_count);
 }
 
 TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node, NodeLayoutEntry& entry, float max_width, MeasureViewportRange viewport) const
@@ -663,33 +649,25 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
         }
     }
 
-    result.height_changed = first_changed_row < row_count;
-    if (result.height_changed) {
+    if (first_changed_row < row_count) {
         tl.RebuildRowCumY(row_count, first_changed_row);
-        entry.height = tl.TotalHeight(row_count);
-        entry.cached_height = entry.height;
+        result.height = tl.TotalHeight(row_count);
     }
     return result;
 }
 
-void DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width,
-                                      MeasureViewportRange viewport) const
+std::optional<float> DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width,
+                                                      MeasureViewportRange viewport) const
 {
     MENDO_PROFILE("MeasureTable");
     const auto* tbl = node.table_data();
-    if (!tbl || tbl->row_count == 0) {
-        entry.height = 0;
-        entry.layout_dirty = false;
-        return;
+    // パーサが NodeTableData::col_count に最大列数を保持済みなので全行走査は不要。
+    if (!tbl || tbl->row_count == 0 || tbl->col_count == 0) {
+        return 0.0f;
     }
 
     const size_t row_count = tbl->row_count;
-    // パーサが NodeTableData::col_count に最大列数を保持済みなので全行走査は不要。
     const size_t col_count = tbl->col_count;
-    if (col_count == 0) {
-        entry.layout_dirty = false;
-        return;
-    }
 
     // 既存レイアウトの互換性判定。row*col の積だけだと (旧6×4) と (新8×3) のように積が一致するだけで
     // ストライド (col_count) が違うケースを取りこぼすため、col_count も明示的に比較する。
@@ -697,7 +675,7 @@ void DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayoutEntry& entry, 
     const bool has_compatible_layouts = tl_existing && tl_existing->col_count == col_count && !tl_existing->cell_layouts.empty() && tl_existing->cell_layouts.size() == row_count * col_count;
 
     // 超高速パス: 前回と max_width がほぼ一致しキャッシュ済みレイアウトが揃っていれば、
-    // セル幅・行高さ・累積位置・行オフセットすべて変化しないため、layout_dirty を倒すだけで終える。
+    // セル幅・行高さ・累積位置・行オフセットすべて変化しないため、今の高さのまま確定させる。
     // 検索ハイライト矩形・inline_code_bgs もテキスト位置に依存するので保持できる。
     // evict 済み行のセルは RestoreEvictedTableRows が可視になった時点で再生成する。
     // 幾何が無効 (EstimateInvisibleNodeHeight が InvalidateGeometry 済み) のまま通すと
@@ -706,8 +684,7 @@ void DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayoutEntry& entry, 
         const bool same_width = tl_existing->last_applied_max_width >= 0.0f &&
                                 std::abs(tl_existing->last_applied_max_width - max_width) < CELL_WIDTH_EPSILON;
         if (same_width && tl_existing->HasGeometry(row_count, col_count)) {
-            entry.layout_dirty = false;
-            return;
+            return entry.height;
         }
     }
 
@@ -738,5 +715,5 @@ void DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayoutEntry& entry, 
         // 列幅判定に全行の自然幅が要るので、初回は全セルを測る。
         MeasureTableCells(*tbl, tl);
     }
-    FinalizeTableLayout(*tbl, entry, max_width);
+    return FinalizeTableLayout(*tbl, tl, max_width);
 }
