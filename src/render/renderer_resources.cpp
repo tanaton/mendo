@@ -225,7 +225,8 @@ void Renderer::CreateTextFormats(bool ui_only)
         En,
     };
     struct FormatSpec {
-        ComPtr<IDWriteTextFormat>* target;
+        // ComPtr の & は中身を解放するので、参照で持つ (ui_only のとき作り直さない書式まで消える)。
+        ComPtr<IDWriteTextFormat>& target;
         Loc loc;
         // locale は loc から決める。
         TextFormatSpec spec;
@@ -233,19 +234,19 @@ void Renderer::CreateTextFormats(bool ui_only)
 
     // clang-format off
     const FormatSpec specs[] = {
-        { &fmt_.checkbox,         Loc::Doc,  { body_font, W,                       theme_.font_size_body,        nullptr, TA_LEAD, PA_TOP, false, BODY_LINE_HEIGHT_FACTOR } },
-        { &fmt_.copy_btn_icon,    Loc::En,   { icon_font, W,                       theme_.font_size_body,        nullptr, TA_CTR,  PA_CTR, true  } },
-        { &fmt_.list_number,      Loc::Doc,  { body_font, W,                       theme_.font_size_body,        nullptr, TA_TAIL, PA_TOP, false, BODY_LINE_HEIGHT_FACTOR } },
-        { &fmt_.placeholder_text, Loc::Ui,   { body_font, W,                       theme_.font_size_body,        nullptr, TA_CTR,  PA_CTR, false } },
-        { &fmt_.titlebar_text,    Loc::Doc,  { body_font, W,                       TITLEBAR_TEXT_FONT_SIZE,      nullptr, TA_CTR,  PA_CTR, true  } },
-        { &fmt_.ui_icon,          Loc::En,   { icon_font, W,                       UI_ICON_FONT_SIZE,            nullptr, TA_CTR,  PA_CTR, true  } },
-        { &fmt_.pane_icon,        Loc::En,   { icon_font, W,                       theme_.pane_font_size,        nullptr, TA_CTR,  PA_CTR, true  } },
-        { &fmt_.pane_header,      Loc::Ui,   { body_font, SEMI,                    theme_.pane_font_size,        nullptr, TA_LEAD, PA_CTR, true  } },
-        { &fmt_.nav_button,       Loc::Doc,  { body_font, W,                       theme_.pane_font_size,        nullptr, TA_CTR,  PA_CTR, true  } },
-        { &fmt_.gesture_overlay,  Loc::Ui,   { body_font, DWRITE_FONT_WEIGHT_BOLD, 32.0f * theme_.zoom,          nullptr, TA_CTR,  PA_CTR, false } },
-        { &fmt_.toast_text,       Loc::Ui,   { body_font, SEMI,                    theme_.pane_font_size * 1.1f, nullptr, TA_CTR,  PA_CTR, true  } },
-        { &fmt_.search_input,     Loc::Doc,  { body_font, W,                       SEARCH_INPUT_FONT_SIZE,       nullptr, TA_LEAD, PA_CTR, true  } },
-        { &fmt_.search_count,     Loc::Doc,  { body_font, W,                       SEARCH_COUNT_FONT_SIZE,       nullptr, TA_CTR,  PA_CTR, true  } },
+        { fmt_.checkbox,          Loc::Doc,  { body_font, W,                       theme_.font_size_body,        nullptr, TA_LEAD, PA_TOP, false, BODY_LINE_HEIGHT_FACTOR } },
+        { fmt_.copy_btn_icon,     Loc::En,   { icon_font, W,                       theme_.font_size_body,        nullptr, TA_CTR,  PA_CTR, true  } },
+        { fmt_.list_number,       Loc::Doc,  { body_font, W,                       theme_.font_size_body,        nullptr, TA_TAIL, PA_TOP, false, BODY_LINE_HEIGHT_FACTOR } },
+        { fmt_.placeholder_text,  Loc::Ui,   { body_font, W,                       theme_.font_size_body,        nullptr, TA_CTR,  PA_CTR, false } },
+        { fmt_.titlebar_text,     Loc::Doc,  { body_font, W,                       TITLEBAR_TEXT_FONT_SIZE,      nullptr, TA_CTR,  PA_CTR, true  } },
+        { fmt_.ui_icon,           Loc::En,   { icon_font, W,                       UI_ICON_FONT_SIZE,            nullptr, TA_CTR,  PA_CTR, true  } },
+        { fmt_.pane_icon,         Loc::En,   { icon_font, W,                       theme_.pane_font_size,        nullptr, TA_CTR,  PA_CTR, true  } },
+        { fmt_.pane_header,       Loc::Ui,   { body_font, SEMI,                    theme_.pane_font_size,        nullptr, TA_LEAD, PA_CTR, true  } },
+        { fmt_.nav_button,        Loc::Doc,  { body_font, W,                       theme_.pane_font_size,        nullptr, TA_CTR,  PA_CTR, true  } },
+        { fmt_.gesture_overlay,   Loc::Ui,   { body_font, DWRITE_FONT_WEIGHT_BOLD, 32.0f * theme_.zoom,          nullptr, TA_CTR,  PA_CTR, false } },
+        { fmt_.toast_text,        Loc::Ui,   { body_font, SEMI,                    theme_.pane_font_size * 1.1f, nullptr, TA_CTR,  PA_CTR, true  } },
+        { fmt_.search_input,      Loc::Doc,  { body_font, W,                       SEARCH_INPUT_FONT_SIZE,       nullptr, TA_LEAD, PA_CTR, true  } },
+        { fmt_.search_count,      Loc::Doc,  { body_font, W,                       SEARCH_COUNT_FONT_SIZE,       nullptr, TA_CTR,  PA_CTR, true  } },
     };
     // clang-format on
 
@@ -268,7 +269,7 @@ void Renderer::CreateTextFormats(bool ui_only)
         }
         auto spec = s.spec;
         spec.locale = locale_of(s.loc);
-        *s.target = CreateTextFormat(dw, spec);
+        s.target = CreateTextFormat(dw, spec);
     }
 
     cmd_generator_.SetFormats({ fmt_.list_number.Get(), fmt_.checkbox.Get(), fmt_.copy_btn_icon.Get(), fmt_.placeholder_text.Get() });
