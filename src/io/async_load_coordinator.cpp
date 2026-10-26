@@ -38,9 +38,9 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
     stop_source_ = std::stop_source{};
 
     // 画像のデコードや図の読み込みが溜まっていても待たせない。リロードは旧文書の表示を続けるので、それらの待ちを捨てられない。
-    const bool posted = scheduler.PostFront([this, path = std::move(path), gen, theme = std::move(theme), content_width, stop_token = stop_source_.get_token(), reload_base = std::move(reload_base), guard = latch_.Acquire()]() mutable {
+    const bool posted = scheduler.PostFront([this, &scheduler, path = std::move(path), gen, theme = std::move(theme), content_width, stop_token = stop_source_.get_token(), reload_base = std::move(reload_base), guard = latch_.Acquire()]() mutable {
         try {
-            RunWorker(path, gen, theme, content_width, stop_token, std::move(reload_base));
+            RunWorker(scheduler, path, gen, theme, content_width, stop_token, std::move(reload_base));
         } catch (const std::bad_alloc&) {
             // 空の表の行補完などは入力の百倍以上を確保させられる。worker で投げると terminate するので失敗として返す。
             Publish(gen, std::unexpected(FileLoadError::TooLarge));
@@ -77,8 +77,8 @@ AsyncLoadCoordinator::AttachResult AsyncLoadCoordinator::Attach(HWND hwnd, UINT 
     return AttachResult::AttachedAsync;
 }
 
-void AsyncLoadCoordinator::RunWorker(const std::pmr::wstring& path, uint32_t gen, const Theme& theme, float content_width, const std::stop_token& stop_token,
-                                     ReloadBase reload_base)
+void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::pmr::wstring& path, uint32_t gen, const Theme& theme, float content_width,
+                                     const std::stop_token& stop_token, ReloadBase reload_base)
 {
     MENDO_PROFILE("AsyncLoadCoordinator::Start Posted Task");
     // 各段の前の gen/stop check は重い処理を skip するための short-circuit。
@@ -114,7 +114,7 @@ void AsyncLoadCoordinator::RunWorker(const std::pmr::wstring& path, uint32_t gen
         }
     }
 
-    Document doc = Document::FromMarkdown(std::move(file->text), file->byte_size, path, stop_token);
+    Document doc = Document::FromMarkdown(std::move(file->text), file->byte_size, path, stop_token, &scheduler);
     if (stop_token.stop_requested() || IsStale(gen)) {
         return;
     }

@@ -9,7 +9,9 @@
 #include <format>
 #include <memory>
 #include <ranges>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -32,6 +34,33 @@ struct IndexRecord {
 
 static_assert(sizeof(IndexHeader) == 16);
 static_assert(sizeof(IndexRecord) == 28);
+
+constexpr std::wstring_view kDoomedSuffix = L".deleting-";
+
+// dir の直下で pred に合うものを消す (フォルダは中身ごと)。消せないものは残す。
+template <class Pred>
+void RemoveEntriesIf(const std::filesystem::path& dir, Pred pred)
+{
+    // 走査中に消すと列挙が飛ぶことがあるので、集めてから消す。
+    std::pmr::vector<std::filesystem::path> targets;
+    std::error_code ec;
+    for (auto it = std::filesystem::directory_iterator(dir, ec); !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
+        if (pred(it->path())) {
+            targets.push_back(it->path());
+        }
+    }
+    for (const auto& path : targets) {
+        std::error_code remove_ec;
+        std::filesystem::remove_all(path, remove_ec);
+    }
+}
+
+void RemoveDoomedDirs(const std::filesystem::path& cache_dir)
+{
+    std::wstring prefix = cache_dir.filename().native();
+    prefix += kDoomedSuffix;
+    RemoveEntriesIf(cache_dir.parent_path(), [&prefix](const std::filesystem::path& path) { return path.filename().native().starts_with(prefix); });
+}
 
 } // namespace
 
@@ -82,6 +111,10 @@ MermaidFileCache::IndexState& MermaidFileCache::Index()
 {
     if (!index_) {
         index_ = LoadIndex();
+        // 消し損ねたフォルダは図のキャッシュを初めて使うときに掃除する。起動を塞がないよう worker があるときだけ。
+        if (scheduler_) {
+            RemoveDoomedDirsAsync();
+        }
     }
     return *index_;
 }
@@ -367,25 +400,27 @@ void MermaidFileCache::Clear()
     // 以降の書き込みは新しく作るフォルダへ着地し、移した側の読み込みは見つからずに作り直しへ回る。
     // 索引に載っていない PNG (索引を書き戻す前に落ちたときなど) も残らない。
     auto doomed = cache_dir_;
-    doomed += std::format(L".deleting-{}", GetTickCount64());
+    doomed += std::format(L"{}{}", kDoomedSuffix, GetTickCount64());
     std::error_code ec;
     std::filesystem::rename(cache_dir_, doomed, ec);
     if (ec) {
         // 中のファイルを誰かが開いていると移せない。消せるものだけその場で消す。
-        for (auto it = std::filesystem::directory_iterator(cache_dir_, ec); !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
-            if (it->path().extension() == L".png" || it->path() == GetIndexPath()) {
-                std::error_code remove_ec;
-                std::filesystem::remove(it->path(), remove_ec);
-            }
-        }
+        RemoveEntriesIf(cache_dir_, [index_path = GetIndexPath()](const std::filesystem::path& path) {
+            return path.extension() == L".png" || path == index_path;
+        });
         return;
     }
-    const auto remove_all = [doomed = std::move(doomed)] {
-        std::error_code remove_ec;
-        std::filesystem::remove_all(doomed, remove_ec);
-    };
-    if (!scheduler_ || !scheduler_->Post(remove_all)) {
-        remove_all();
+    RemoveDoomedDirsAsync();
+}
+
+void MermaidFileCache::RemoveDoomedDirsAsync()
+{
+    if (cache_dir_.empty()) {
+        return;
+    }
+    const auto remove = [dir = cache_dir_] { RemoveDoomedDirs(dir); };
+    if (!scheduler_ || !scheduler_->Post(remove)) {
+        remove();
     }
 }
 

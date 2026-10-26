@@ -153,15 +153,20 @@ private:
     void GenSearchHighlights(const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y);
 
     // ノードのマッチと、現在の検索世代に揃えたキャッシュ。マッチが無ければ matches は空。
+    // spill_length_w は前のノードのマッチ (first_global - 1 番) がこのノードの先頭へはみ出した長さで、
+    // キャッシュの最後の span を使う。
     struct NodeSearchMatches {
         std::span<const SearchMatch> matches;
         size_t first_global = 0;
         SearchHlCache* cache = nullptr;
+        uint32_t spill_length_w = 0;
     };
     NodeSearchMatches PrepareNodeSearchMatches(const NodeLayoutEntry& entry, int node_index);
     void GenCellSearchHighlights(const NodeSearchMatches& nm, IDWriteTextLayout* layout, size_t row, size_t col, float origin_x, float origin_y);
     // matches[begin, end) のうち未計算のものを layout で計算し、FillRectCmd を積む。layout が null なら計算を見送る。
     void EmitSearchMatches(const NodeSearchMatches& nm, IDWriteTextLayout* layout, size_t begin, size_t end, float origin_x, float origin_y);
+    void EmitSearchSpan(SearchHlCache& cache, size_t span_index, IDWriteTextLayout* layout, uint32_t start_w, uint32_t length_w, size_t global_index,
+                        float origin_x, float origin_y);
 
     // origin_y に置いた本文 layout の、可視範囲の上下に 1 画面ずつ足した行のテキスト範囲。
     const LineWindow& LineWindowAround(const NodeLayoutEntry& entry, float origin_y) const;

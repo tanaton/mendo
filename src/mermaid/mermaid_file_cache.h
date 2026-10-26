@@ -117,6 +117,9 @@ private:
     IndexState& Index();
     IndexState LoadIndex() const;
     void EvictIfNeeded(IndexState& index, uint32_t new_png_size);
+    // Clear が別名にして消すフォルダ (<cache_dir_>.deleting-*) を worker ですべて消す。
+    // 消している途中で終了したり、中のファイルを開かれていて消し損ねたりしたものも拾う。
+    void RemoveDoomedDirsAsync();
 
     // current_dpr_ を mix した内部キーを返す。DPR ごとにエントリを分離して
     // DPI 変更/モニタ切替時の全消去を避ける。

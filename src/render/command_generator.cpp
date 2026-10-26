@@ -863,10 +863,11 @@ CommandGenerator::NodeSearchMatches CommandGenerator::PrepareNodeSearchMatches(c
     }
     const std::span<const SearchMatch> matches = *search_matches_;
     const auto range = std::ranges::equal_range(matches, node_index, {}, &SearchMatch::node_index);
-    if (range.empty()) {
+    const size_t first_global = static_cast<size_t>(range.begin() - matches.begin());
+    const uint32_t spill_length_w = SpillLengthInto(matches, first_global, node_index);
+    if (range.empty() && spill_length_w == 0) {
         return {};
     }
-    const size_t first_global = static_cast<size_t>(range.begin() - matches.begin());
 
     // layout 変更時は invalidate_search_hl_cache() でキャッシュ自体が破棄されており、SearchState の
     // generation は 1 から始まるため、cache.gen == search_generation_ のみでキャッシュ有効性を判定できる。
@@ -874,48 +875,56 @@ CommandGenerator::NodeSearchMatches CommandGenerator::PrepareNodeSearchMatches(c
     if (cache.gen != search_generation_) {
         MENDO_COUNT_INC(g_cmd_gen_stats.search_hl_reset);
         cache.rects.clear();
-        cache.spans.assign(range.size(), {});
+        cache.spans.assign(range.size() + (spill_length_w > 0 ? 1 : 0), {});
         cache.gen = search_generation_;
     }
-    return { matches.subspan(first_global, range.size()), first_global, &cache };
+    return { matches.subspan(first_global, range.size()), first_global, &cache, spill_length_w };
 }
 
 void CommandGenerator::EmitSearchMatches(const NodeSearchMatches& nm, IDWriteTextLayout* layout, size_t begin, size_t end, float origin_x, float origin_y)
 {
-    auto& cache = *nm.cache;
     for (size_t i = begin; i < end; ++i) {
-        auto& span = cache.spans[i];
-        if (span.count == SearchHlCache::Span::NOT_COMPUTED) {
-            // evict 中のセルは未計算のまま残し、layout が復元されてから計算する。
-            if (!layout) {
-                MENDO_COUNT_INC(g_cmd_gen_stats.search_hl_provisional);
-                continue;
-            }
-            MENDO_COUNT_INC(g_cmd_gen_stats.search_hl_computed);
-            const auto& m = nm.matches[i];
-            span.begin = static_cast<uint32_t>(cache.rects.size());
-            if (m.length_w > 0) {
-                CollectHitTestRects(layout, m.start_w, m.length_w, cache.rects);
-            }
-            span.count = static_cast<uint32_t>(cache.rects.size()) - span.begin;
-        }
+        const auto& m = nm.matches[i];
+        EmitSearchSpan(*nm.cache, i, layout, m.start_w, m.length_w, nm.first_global + i, origin_x, origin_y);
+    }
+}
 
-        const bool is_current = (static_cast<int>(nm.first_global + i) == current_match_index_);
-        const BrushId hl_brush = is_current ? BrushId::SearchHighlightCurrent : BrushId::SearchHighlight;
-        for (const auto& r : std::span{ cache.rects }.subspan(span.begin, span.count)) {
-            EmitFillRectIfVisible(OffsetRectF(r, origin_x, origin_y), hl_brush);
+void CommandGenerator::EmitSearchSpan(SearchHlCache& cache, size_t span_index, IDWriteTextLayout* layout, uint32_t start_w, uint32_t length_w,
+                                      size_t global_index, float origin_x, float origin_y)
+{
+    auto& span = cache.spans[span_index];
+    if (span.count == SearchHlCache::Span::NOT_COMPUTED) {
+        // evict 中のセルは未計算のまま残し、layout が復元されてから計算する。
+        if (!layout) {
+            MENDO_COUNT_INC(g_cmd_gen_stats.search_hl_provisional);
+            return;
         }
+        MENDO_COUNT_INC(g_cmd_gen_stats.search_hl_computed);
+        span.begin = static_cast<uint32_t>(cache.rects.size());
+        if (length_w > 0) {
+            CollectHitTestRects(layout, start_w, length_w, cache.rects);
+        }
+        span.count = static_cast<uint32_t>(cache.rects.size()) - span.begin;
+    }
+
+    const bool is_current = (static_cast<int>(global_index) == current_match_index_);
+    const BrushId hl_brush = is_current ? BrushId::SearchHighlightCurrent : BrushId::SearchHighlight;
+    for (const auto& r : std::span{ cache.rects }.subspan(span.begin, span.count)) {
+        EmitFillRectIfVisible(OffsetRectF(r, origin_x, origin_y), hl_brush);
     }
 }
 
 void CommandGenerator::GenSearchHighlights(const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y)
 {
     const auto nm = PrepareNodeSearchMatches(entry, node_index);
-    if (nm.matches.empty()) {
+    if (nm.matches.empty() && nm.spill_length_w == 0) {
         return;
     }
     // マッチは start_w 昇順で重ならないので、終端も昇順に並ぶ。
     const auto& window = LineWindowAround(entry, origin_y);
+    if (nm.spill_length_w > window.text_begin) {
+        EmitSearchSpan(*nm.cache, nm.matches.size(), entry.text_layout(), 0, nm.spill_length_w, nm.first_global - 1, origin_x, origin_y);
+    }
     const auto first = std::ranges::partition_point(nm.matches, [b = window.text_begin](const SearchMatch& m) noexcept {
         return m.start_w + m.length_w <= b;
     });

@@ -925,7 +925,8 @@ md4c の `MD_FLAG_FOOTNOTES`（v0.6.0 で `MD_DIALECT_GITHUB` に追加）を有
 段落・引用・コードブロック（図を除く）のテキストは、`kTextChunkTarget`（16KB、`parser.h`）前後で区切って同じ種別のノードの並びにする。DirectWrite は 1 段落の行分割が長さに対して二乗に近く遅くなり（空行の無い 4MB のテキストで 28 秒）、1 ノードのままだと並列に計測できず、見えている間は解放もできないため。区切りはパース中に、テキストを足しながら決める（装飾の範囲が区切りをまたがず、続きのノードのソース位置も原文と正確に対応する）。
 
 - 改行（ソフト改行・`<br>`・コードの行末）が目安の `kTextChunkWindow`（2KB）手前を過ぎたら、そこで区切る。区切るのは後に本文が続くときだけで、末尾に空のノードは作らない。
-- 1 行が長ければ目安の前後 2KB にある空白の直後で、空白も無ければ目安の長さ（UTF-8 の文字の境目）で区切る。
+- 1 行が長ければ目安の前後 2KB にある空白の直後で、空白も無ければ和文の句読点（、。，．！？）の直後で、どちらも無ければ目安の長さ（UTF-8 の文字の境目）で区切る。区切ったノードは別のレイアウトなので、行の途中で区切るとそこで改行して見える。
+- コードブロックは折り返さないので、足す行がノード 1 つに収まる限り、その行の前の改行で区切る（行の頭の字下げは続きのノードへ移す）。収まらない長い行だけを行の途中で区切る。
 - ソフト改行の代わりの空白は前のノードの末尾に残す。`\n` は取り除き、続きのノードに `kNewlineBeforeChunk` を立てる。
 - 見出し・リスト項目・図・表は区切らない（記号や下線が増え、図は 1 つのコードから描く）。
 
@@ -937,7 +938,9 @@ md4c の `MD_FLAG_FOOTNOTES`（v0.6.0 で `MD_DIALECT_GITHUB` に追加）を有
 | コードブロックの背景 | `NodeBoxPadTop` / `NodeBoxPadBottom` は継ぎ目ではみ出さず、`GenCodeBlockBg` は継ぎ目の側の角を丸めない |
 | コピーボタン | 先頭のノードにだけ置き、`ClipboardManager::CopyCodeBlock` が並び全体をコピーする |
 | 横スクロール | `GetBlockHScrollGeometry` が並びの先頭を `scroll_key` として返し、幅は並びのうち計測済みの部分の最大にする |
-| 構文の色分け | `TokenizeCodeNode` が前のノードからの続きとしてトークン化する（ブロックコメントの途中から始まっても色が崩れない） |
+| 構文の色分け | パーサが並びを前から字句解析し（`AnnotateCodeChunkLeads`）、続きのノードの先頭を占める前からのトークンの長さと種類を `Node::code_lead_length` / `code_lead_type` に残す。`TokenizeCodeNode` はそれを先頭に置き、その後ろからトークン化する（ブロックコメントや文字列が何ノードにまたがっても色が崩れない）。区間に分けて worker で並列に解析し、区間の境目をトークンがまたいだ所だけ順に解析し直す |
+| 検索 | 改行を挟まない継ぎ目をまたぐマッチは前のノードに置き、続きのノードへはみ出す長さを `SearchMatch::next_length_w` に持つ。ハイライトは両方のノードに描く |
+| 語の選択 | `FindNodeWordBoundaries` が、改行を挟まない継ぎ目で切れた語を並びの続く限り隣のノードへ伸ばす |
 | コピー | `ExtractSelectedText` は継ぎ目に元の改行だけを戻し、`ExtractSelectedTextAsHtml` は並びを 1 つの `<p>` / `<pre>` にまとめる |
 
 [^spec-admonitions]: 同じく追加された `MD_FLAG_ADMONITIONS` は使わない。ネストした引用でも Alert として扱うなど、`DetectAlerts`（GitHub 準拠）と挙動が違うため。
@@ -971,8 +974,8 @@ public:
                                                        float max_width, MeasureViewportRange viewport) const;
 };
 
-// 計測結果を entry に確定させる。画像・図ノードは BitmapNodeHeight で高さを決める。
-void MeasureEntry(const ITextMeasurer& measurer, const Node& node, NodeLayoutEntry& entry,
+// 計測結果を entry に確定させ、測れたかを返す。画像・図ノードは BitmapNodeHeight で高さを決める。
+bool MeasureEntry(const ITextMeasurer& measurer, const Node& node, NodeLayoutEntry& entry,
                   float node_width, MeasureViewportRange viewport, float entry_top,
                   const DiagramEntry* bitmap, const Theme& theme);
 
@@ -1021,7 +1024,7 @@ public:
 
 幅が変わったときに既存の text_layout を作り直さずに済む経路は 2 つある。改行でしか折れておらず最も長い行が新しい幅に収まるノードは、組み直しても行が同じなので幅を付け替えない（`SetMaxWidth` の後の `GetMetrics` は作り直しとほぼ同じだけかかる。リサイズ時の計測し直しが `test.md` で 174ms → 143ms、README で 6.0ms → 3.1ms）。それ以外は `SetMaxWidth` で組み直す（作り直しより 1〜16% 速いだけだが、装飾の付け直しが要らない）。
 
-計測後の確定処理は `MeasureEntry` 1 か所にまとめている。実測値を `cached_width` / `cached_height` に残し、計測失敗回数 `measure_failures` を 0 に戻す。ビットマップを描くノード（画像・図、`IsBitmapDrawNode`）は `ITextMeasurer` に渡さず、`layout::BitmapNodeHeight` が `DiagramEntry` の寸法から表示高さを決める（寸法が届くまでは現在値、それも無ければプレースホルダーの高さ）。
+計測後の確定処理は `MeasureEntry` 1 か所にまとめている。実測値を `cached_width` / `cached_height` に残し、計測失敗回数 `measure_failures` を 0 に戻す。例外で測れなかったときも、書式やレイアウトを作れず測れなかった（`MeasureNode` が nullopt）ときも、`NodeLayoutEntry::RecordMeasureFailure` が失敗を数え、`kMaxMeasureAttempts` 回で dirty を外して諦める（描画のたびに同じノードを測り直して失敗し続けない）。ビットマップを描くノード（画像・図、`IsBitmapDrawNode`）は `ITextMeasurer` に渡さず、`layout::BitmapNodeHeight` が `DiagramEntry` の寸法から表示高さを決める（寸法が届くまでは現在値、それも無ければプレースホルダーの高さ）。
 
 幅が `kWidthChangeThreshold`（2 DIP）を超えて変わるか書式が作り直されると、`Reestimate` が全ノードを dirty にして推定値で Y を組み直す（DirectWrite は呼ばない）。推定に使った本文幅とズームは `LayoutCache::EstimateBasis` に残り、ワーカーが表示と同じ幅で推定したキャッシュは UI スレッドで推定し直さない（幅を知らない起動時の先読みだけ推定し直す）。`LayoutService::ViewportLayout` は `Reestimate` の後に `ViewportManager::ApplyScrollTarget` で見ていた位置を当て直してから可視範囲を計測する。ズームや幅変更で推定し直すと Y がずれるため、古い `scroll_y` のまま計測すると見えない範囲を 1 画面分ムダに計測してしまう。幅が変わったときは、残っている表の行（上下 8 画面分）が全部組み直しになるので、計測の前に画面外の行を捨て（`EvictInvisibleTableRows`）、見えたときに作らせる（2 万行 6 列の表の中で幅を変えたときの可視範囲のレイアウトが 3.7ms → 0.55ms）。
 
@@ -1335,7 +1338,7 @@ public:
 
 本文のズームは Markdown 本文だけに掛かる。`Theme::ApplyZoom` は本文のフォントサイズと余白のみを倍し、サイドペインの `pane_item_height` / `pane_header_height` / `splitter_width` / `pane_font_size` は据え置く。ペイン幅もズーム倍率でスケールせず、`ReduceZoom` は `pane_layout_cache` を無効化しない。保存するペイン幅はズームを含まない DIP 値である。
 
-サイドペインはペインごとの倍率で一覧の項目（行の高さ `SidePaneItemHeight`・文字・アイコン・目次の字下げ）だけを拡大する。ヘッダーとペイン幅は変えない。`ZoomAction::pane` があれば `ReduceSidePaneZoom` がそのペインの段を動かし、先頭に見えていた項目が残るようスクロール位置を倍率の比で動かす。本文は組み直さない。Renderer はペインごとの一覧の書式（`pane_list_fmt_`）を描画時の倍率で作り直す。`TextLayoutCache` はキーで書式を参照して持つので、書式を作り直してもキャッシュを捨てる必要はない（解放したアドレスが新しい書式に使い回されない）。図の保存・コピーのボタンは、ポインタが画像の矩形の上にあるとき（`hit_test::DiagramImageHitTest`）だけ出す。Ctrl+ホイールはポインタの下の領域を、右クリックメニューの「ズーム」の行（ブラウザのメニューと同じ − / 倍率 / + / 元に戻す）は右クリックした領域をズームする。ズームの行のボタンはメニューを閉じず、`ContextMenuParams::on_zoom` で `ZoomAction` を流す。メニューのモーダルループは本体宛ての `WM_PAINT` だけは配るので、本体はメニューの裏で描き直される（`WM_APP` などの通知はメインループに残す）。倍率の表示と押せるかは開いている間に変わるので、`ZoomLevel` から都度求める。
+サイドペインはペインごとの倍率で一覧の項目（行の高さ `SidePaneItemHeight`・文字・アイコン・目次の字下げ）だけを拡大する。ヘッダーとペイン幅は変えない。`ZoomAction::pane` があれば `ReduceSidePaneZoom` がそのペインの段を動かし、先頭に見えていた項目が残るようスクロール位置を倍率の比で動かす。本文は組み直さない。Renderer はペインごとの一覧の書式（`pane_list_fmt_`）を描画時の倍率で作り直す。`TextLayoutCache` はキーで書式を参照して持つので、書式を作り直してもキャッシュを捨てる必要はない（解放したアドレスが新しい書式に使い回されない）。図の保存・コピーのボタンは、ポインタが画像の矩形の上にあるとき（`hit_test::DiagramImageHitTest`）だけ出す。Ctrl+ホイールはポインタの下の領域を、右クリックメニューの「ズーム」の行（ブラウザのメニューと同じ − / 倍率 / + / 元に戻す）は右クリックした領域をズームする。ズームの行のボタンはメニューを閉じず、`ContextMenuParams::on_zoom` で `ZoomAction` を流す。メニューと設定ダイアログのモーダルループは本体のメッセージループ（`ModalLoop`、`Win32Window` が実装）で回すので、開いている間も本体の描画・タイマー・通知・ファイル監視・空き時間の仕事が進む（保存すれば裏で読み直される）。倍率の表示と押せるかは開いている間に変わるので、`ZoomLevel` から都度求める。
 
 ---
 
@@ -2252,7 +2255,7 @@ public:
 
 `generation_` は `ExecuteSearch / Hide / Reset` のたびにインクリメントされる世代カウンタ。0 は未初期化センチネルとして扱い、32-bit ラップアラウンドで 0 に戻ったときは 1 へ補正する。
 
-大文字小文字を無視する検索でも文書の小文字コピーは持たない。クエリだけを ASCII 小文字にし、`ascii_util::FindAsciiCaseInsensitive` が走査しながら文書側を畳み込む（畳み込むのは ASCII 英字だけ）。クエリに ASCII 英字が無ければ通常一致と結果が同じなので、畳み込みを省いて `ascii_util::Find` を使う。テーブルは `concat_text` を 1 回だけ走査し、セル区切りをまたぐヒットを除いてセル単位のマッチに振り分ける。UTF-16 位置（`start_w` / `length_w`）は `Utf16OffsetCursor` が最初のヒットから前方へ数えて求め、ノード全文を UTF-16 に変換しない。
+大文字小文字を無視する検索でも文書の小文字コピーは持たない。クエリだけを ASCII 小文字にし、`ascii_util::FindAsciiCaseInsensitive` が走査しながら文書側を畳み込む（畳み込むのは ASCII 英字だけ）。クエリに ASCII 英字が無ければ通常一致と結果が同じなので、畳み込みを省いて `ascii_util::Find` を使う。テーブルは `concat_text` を 1 回だけ走査し、セル区切りをまたぐヒットを除いてセル単位のマッチに振り分ける。UTF-16 位置（`start_w` / `length_w`）は `Utf16OffsetCursor` が最初のヒットから前方へ数えて求め、ノード全文を UTF-16 に変換しない。パーサが改行を挟まずに区切った継ぎ目では、前のノードの末尾とクエリ長 − 1 バイトの続きだけをつないで探し、またぐマッチを前のノードに置く（3.6.6）。
 
 #### 3.21.2 SearchBarController（UI制御）
 
@@ -2619,7 +2622,7 @@ private:
 
 可視範囲外のビットマップは解放する（前後 `EVICT_BUFFER_SCREENS` = 2 画面分は保持、`PREFETCH_BUFFER_SCREENS` = 2 画面分は先読み）。先読み範囲は evict 範囲を超えない（超えると evict 直後の flush で範囲外の画像/図を毎回読み直す）。`EVICT_BUFFER_SCREENS` は遅延レイアウトの計測範囲も兼ね、範囲外へのスクロールは `EnsureVisibleLayout` が同期計測で拾う。text_layout と表のセルは、文書の大きさによらず前後 `LAYOUT_EVICT_BUFFER_SCREENS`（8 画面）の外で捨てる。2 画面と比べてメモリに差が出ず、少し戻るだけで作り直しになるのを避けられる。小さい文書で全部残すと、1MB の文書を読み終えたときに物理メモリが約 4 割増えたため、全部残す扱いは持たない。`ScheduleBitmapManage` は前回の flush から 50ms 以上経っていれば、スクロールの停止を待たずに evict と flush を行い、`BITMAP_MANAGE` タイマー（150ms）を仕掛け直す。スクロール停止後の `OnBitmapManageTimer` は evict → 強制 flush を行い、flush でリソースを適用してレイアウトが変わったときだけ再描画を要求する（evict 対象は可視範囲外なので見た目は変わらない）。タイマー ID は `app_constants.h` の `app_timer::Id` enum で集約管理される。
 
-別文書への切替では、`App::CancelPendingResources` が `CancelMermaidBatch` と図・画像の `DropQueued` を呼び、始まっていない要求だけを捨てる。リロードでは描画・デコードの待ちも結果も捨てない（図はコードのハッシュ、画像はパスがキーなので、そのまま使える）。編集で画像が置かれた可能性があるので、画像の失敗記録（`ResetFailedPaths`）だけを消す。
+別文書への切替では、`App::CancelPendingResources` が `CancelMermaidBatch` と図・画像の `DropQueued` を呼び、始まっていない要求だけを捨てる。別のファイルを読み始めた時点で捨て、文書を差し替えずに終わったら（失敗・取り消し・開いている文書への戻り・読み直しの見送り）`App::RequestDroppedResourcesAgain` が表示を続ける文書のぶんを要求し直す。開いている文書を開き直したときは捨てない。リロードでは描画・デコードの待ちも結果も捨てない（図はコードのハッシュ、画像はパスがキーなので、そのまま使える）。編集で画像が置かれた可能性があるので、画像の失敗記録（`ResetFailedPaths`）だけを消す。
 
 ---
 
@@ -2946,11 +2949,13 @@ uint32_t alert_label_length() const noexcept;    // ラベルを持たない (Al
 bool continues_prev() const noexcept;            // 区切ったテキストの続き (前のノードと同じブロック)
 bool continues_next() const noexcept;            // 次のノードが続き
 bool newline_before_chunk() const noexcept;      // 前のノードとの間の改行を、区切るときに取り除いた
+uint32_t code_lead_length() const noexcept;      // 区切ったコードの続きで、前から続くトークンが先頭から占める長さ (無ければ 0)
+SyntaxTokenType code_lead_type() const noexcept; // その種類 (kHasCodeLead が立っていなければ Plain)
 void set_list_number(int32_t number) noexcept;   // payload に書いて kListOrdered を立てる
 void set_alert_label_length(uint32_t length) noexcept;
 ```
 
-リロードで中身が同じノードの計測結果を引き継ぐときの照合（`FindUnchangedEnds`、`document_utils.h`。比較本体は `document_utils.cpp` 内部の `NodeContentEquals`）は、ノードが指す先の内容（テキスト・`runs`・URL・画像の `src`・表）と `flags_` を比べる。表は `NodeTableData` の既定の `operator==` で比べる。
+リロードで中身が同じノードの計測結果を引き継ぐときの照合（`FindUnchangedEnds`、`document_utils.h`。比較本体は `document_utils.cpp` 内部の `NodeContentEquals`）は、ノードが指す先の内容（テキスト・`runs`・URL・画像の `src`・表）と `flags_`、区切ったコードの続きの先頭のトークン（`code_lead_*`）を比べる。表は `NodeTableData` の既定の `operator==` で比べる。
 
 ### 4.2 LayoutCache
 

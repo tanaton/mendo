@@ -170,6 +170,10 @@ struct Node {
         const NodeImageData* image;     // Image
         int32_t list_number;            // 順序付きの ListItem / TaskListItem (0 始まりも可)
         uint32_t alert_label_length;    // Alert の BlockQuote 本体
+        struct CodeLead {
+            uint32_t length;
+            SyntaxTokenType type;
+        } code_lead; // 区切ったコードブロックの続き
     } payload_;
 
     // --- 4 バイトアライメント ---
@@ -361,6 +365,25 @@ struct Node {
     {
         flags_ |= kContinuesNext;
     }
+    // 区切ったコードブロックの続きで、前のノードから続くトークンが先頭から占める長さ (ノード全体のこともある) と種類。
+    // ブロックコメントや文字列はノードをいくつもまたぎうるので、パーサが並びを前から字句解析して決める (AnnotateCodeChunkLeads)。
+    constexpr uint32_t code_lead_length() const noexcept
+    {
+        return (flags_ & kHasCodeLead) != 0 ? payload_.code_lead.length : 0u;
+    }
+    constexpr SyntaxTokenType code_lead_type() const noexcept
+    {
+        return (flags_ & kHasCodeLead) != 0 ? payload_.code_lead.type : SyntaxTokenType::Plain;
+    }
+    constexpr void set_code_lead(uint32_t length, SyntaxTokenType token_type) noexcept
+    {
+        if (length == 0 || token_type == SyntaxTokenType::Plain) {
+            flags_ &= static_cast<uint8_t>(~kHasCodeLead);
+            return;
+        }
+        payload_.code_lead = { length, token_type };
+        flags_ |= kHasCodeLead;
+    }
 
     constexpr std::span<const std::string_view> view_link_urls() const noexcept
     {
@@ -383,6 +406,7 @@ private:
     static constexpr uint8_t kContinuesPrev = 1u << 4;
     static constexpr uint8_t kContinuesNext = 1u << 5;
     static constexpr uint8_t kNewlineBeforeChunk = 1u << 6;
+    static constexpr uint8_t kHasCodeLead = 1u << 7;
 };
 
 // 超過したら /d1reportSingleClassLayoutNode で並びを確認し、payload か末尾の 1 バイト領域に寄せる。
@@ -409,6 +433,12 @@ constexpr size_t ChunkRunLast(std::span<const Node> nodes, size_t i) noexcept
 constexpr std::string_view ChunkSeparator(const Node& next) noexcept
 {
     return next.newline_before_chunk() ? "\n" : "";
+}
+
+// next が前のノードに改行を挟まずつながる (同じ行の続き) か。
+constexpr bool JoinsPrevInline(const Node& next) noexcept
+{
+    return next.continues_prev() && !next.newline_before_chunk();
 }
 
 // テキストではなくビットマップを描くノード。

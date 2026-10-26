@@ -67,6 +67,8 @@ private:
     static bool CreateFormats(const Theme& theme, DWriteContext& ctx);
     // 呼び出しスレッドで使うファクトリと書式。書式を作ったスレッドは ctx_ (共有ファクトリ)。
     const DWriteContext& Context() const;
+    // 呼び出しスレッド専用のファクトリと書式。generation が変わったら theme で作り直す。作れなければ nullptr。
+    static const DWriteContext* ThreadContext(const Theme& theme, uint64_t generation);
     static IDWriteTextFormat* GetTextFormat(const DWriteContext& ctx, const Node& node) noexcept;
     static IDWriteTextFormat* GetTableRowFormat(const DWriteContext& ctx, const NodeTableData& tbl, size_t r) noexcept;
     std::optional<float> MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width, MeasureViewportRange viewport) const;

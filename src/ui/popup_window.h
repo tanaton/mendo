@@ -64,6 +64,7 @@ struct PopupWindow {
     IDWriteFactory* dwrite_factory = nullptr;
     // 呼び出し側から借りる。
     const Theme* theme = nullptr;
+    ModalLoop* modal_loop = nullptr;
     Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> rt;
     Brushes brushes;
     // UI の文言は表示中の言語のロケールで組む (OS と違う言語を選んでも漢字の字形をその言語に合わせる)。
@@ -78,7 +79,8 @@ struct PopupWindow {
         dwrite_factory = env.dwrite_factory;
         theme = env.theme;
         dpi_scale = env.dpi_scale;
-        return d2d_factory && dwrite_factory && theme && dpi_scale > 0.0f;
+        modal_loop = env.modal_loop;
+        return d2d_factory && dwrite_factory && theme && modal_loop && dpi_scale > 0.0f;
     }
 
     // 文字は等倍のサイドペインの項目と同じ大きさにする。言語を切り替えたら呼び直す (アイコンはロケールに依らないので作り直さない)。
@@ -125,8 +127,8 @@ struct PopupWindow {
 
     // ウィンドウを作って pos (左上、スクリーン座標) に置き、閉じるまで戻らない。title は読み上げ用のウィンドウ名で、
     // i18n の NUL 終端のリテラルを渡す。
-    // 入力は前面・フォーカス・キャプチャでポップアップに来るので、本体宛ての描画・タイマー・通知はそのまま配る
-    // (開いている間も図の描画や読み直しが進み、閉じた後にまとめて動かない)。
+    // 入力は前面・フォーカス・キャプチャでポップアップに来るので、本体のメッセージループ (ModalLoop) で本体宛ての描画・
+    // タイマー・通知・ファイル監視・空き時間の仕事も進める (開いている間も図の描画や読み直しが進み、閉じた後にまとめて動かない)。
     // Dispatch は副作用の一覧を呼び出しごとに持つので、ポップアップを開いた Dispatch の途中で割り込まれても壊れない。
     void RunModal(HWND owner_hwnd, std::wstring_view title, POINT pos)
     {
@@ -156,7 +158,6 @@ struct PopupWindow {
         }
     }
 
-    // 今の width / height にして pos (左上) に置く。
     void Place(POINT pos)
     {
         const RECT r = BoundsAt(pos);
@@ -172,7 +173,6 @@ struct PopupWindow {
         ApplyRegion(pixel_w, pixel_h);
     }
 
-    // around (スクリーン座標) の中央に置くときの左上。
     POINT CenteredIn(const RECT& around) const noexcept
     {
         const int pixel_w = DipToPixelCeil(width, dpi_scale);
@@ -361,20 +361,7 @@ private:
         SetFocus(hwnd);
         SetCapture(hwnd);
 
-        MSG msg{};
-        while (!done) {
-            if (!PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
-                WaitMessage();
-                continue;
-            }
-            if (msg.message == WM_QUIT) {
-                // メインループにも終了を届ける。
-                PostQuitMessage(static_cast<int>(msg.wParam));
-                break;
-            }
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
+        modal_loop->RunUntil(done);
 
         if (GetCapture() == hwnd) {
             ReleaseCapture();

@@ -93,13 +93,17 @@ PROCESS_MEMORY_COUNTERS_EX MemoryCounters()
 
 // ===== パース =====
 
-// 反復ごとにコピーしてパースする。コピーと破棄は測らない。
-void RunParse(benchmark::State& state, const std::pmr::string& src)
+// 反復ごとにコピーしてパースする。コピーと破棄は測らない。scheduler はパースの一部を並列にする先。
+void RunParse(benchmark::State& state, const std::pmr::string& src, TaskScheduler* scheduler = nullptr)
 {
     for (auto _ : state) {
         std::pmr::string copy = src;
         std::optional<Document> doc;
-        state.SetIterationTime(SecondsOf([&] { doc.emplace(Document::FromMarkdown(std::move(copy), L"bench.md")); }));
+        state.SetIterationTime(SecondsOf([&] {
+            const size_t size = copy.size();
+            NormalizeNewlines(copy);
+            doc.emplace(Document::FromMarkdown(std::move(copy), size, L"bench.md", {}, scheduler));
+        }));
     }
     state.SetBytesProcessed(state.iterations() * static_cast<int64_t>(src.size()));
 }
@@ -201,6 +205,34 @@ void BM_ParseGiantText(benchmark::State& state)
     RunParse(state, LogLines(200000));
 }
 BENCHMARK(BM_ParseGiantText)->UseManualTime()->Unit(benchmark::kMillisecond);
+
+// 改行も空白も無い 16MB の 1 行の段落。区切る位置を探す窓 (前後 2KB) を毎回調べ切る最悪の場合。
+void BM_ParseLongLine(benchmark::State& state, std::string_view unit)
+{
+    std::pmr::string md;
+    md.reserve(16 * 1024 * 1024 + unit.size());
+    while (md.size() < 16 * 1024 * 1024) {
+        md += unit;
+    }
+    md += '\n';
+    RunParse(state, md);
+}
+BENCHMARK_CAPTURE(BM_ParseLongLine, ascii, std::string_view{ "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo" })->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_ParseLongLine, cjk, std::string_view{ "あいうえおかきくけこ日本語文章" })->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_ParseLongLine, cjk_punct, std::string_view{ "日本語の文章です、続きます。" })->UseManualTime()->Unit(benchmark::kMillisecond);
+
+// 同じ 20 万行の 1 つのコードブロック。区切ったコードの続きのノードに、前から続くトークンを付ける字句解析も通る。
+// workers が 0 でなければ、アプリと同じくその字句解析を worker に配る (読み込みに使う scheduler は最大 4 本)。
+void BM_ParseGiantCode(benchmark::State& state, int workers)
+{
+    TaskScheduler scheduler;
+    if (workers > 0) {
+        scheduler.Init(workers);
+    }
+    RunParse(state, LogLines(200000, "```cpp\n", "```\n"), workers > 0 ? &scheduler : nullptr);
+}
+BENCHMARK_CAPTURE(BM_ParseGiantCode, serial, 0)->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_ParseGiantCode, workers4, 4)->UseManualTime()->Unit(benchmark::kMillisecond);
 
 void BM_NormalizeNewlines(benchmark::State& state)
 {

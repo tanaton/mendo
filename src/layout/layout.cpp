@@ -15,7 +15,7 @@ namespace layout {
 
 namespace {
 
-// 戻り値は例外で計測できず dirty のまま再試行を待つノード数。
+// 戻り値は計測できず (例外か、書式やレイアウトを作れなかった) dirty のまま再試行を待つノード数。
 // skip が真を返したノードには手を付けない (dirty のまま)。
 int MeasureChunk(
     const std::pmr::vector<Node>& nodes,
@@ -37,19 +37,13 @@ int MeasureChunk(
         }
         auto& entry = cache[i];
         const DiagramEntry* bitmap = IsBitmapDrawNode(nodes[i]) ? cache.FindDiagram(i) : nullptr;
+        bool measured = false;
         try {
-            MeasureEntry(backend, nodes[i], entry, NodeContentWidth(nodes[i], theme, content_width), viewport, cache.Top(i), bitmap, theme);
+            measured = MeasureEntry(backend, nodes[i], entry, NodeContentWidth(nodes[i], theme, content_width), viewport, cache.Top(i), bitmap, theme);
         } catch (...) {
-            // 諦めた後に再び dirty になって失敗し続けても一周しないよう、上限で頭打ちにする。
-            if (entry.measure_failures < LayoutCache::kMaxMeasureAttempts) {
-                ++entry.measure_failures;
-            }
-            if (entry.measure_failures >= LayoutCache::kMaxMeasureAttempts) {
-                entry.layout_dirty = false;
-            }
-            else {
-                ++failed;
-            }
+        }
+        if (!measured && entry.RecordMeasureFailure(LayoutCache::kMaxMeasureAttempts)) {
+            ++failed;
         }
     }
     return failed;

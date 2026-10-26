@@ -5,19 +5,30 @@
 #include <chrono>
 #include <cstdint>
 #include <memory_resource>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
 // 検索マッチの位置情報。start_w / length_w はノード (表ならセル) 内の UTF-16 code unit 位置で、
 // IDWriteTextLayout の HitTestTextRange / HitTestTextPosition にそのまま渡せる。
+// パーサが区切ったノードの継ぎ目 (改行を挟まない) をまたぐマッチは前のノードに置き、length_w はそのノードの末尾まで、
+// 続きのノードの先頭からの長さを next_length_w に持つ。
 struct SearchMatch {
     int node_index;
     int table_row = -1; // テーブルセル用（-1なら通常ノード）
     int table_col = -1;
     uint32_t start_w = 0;
     uint32_t length_w = 0;
+    uint32_t next_length_w = 0;
 };
+
+// matches[first] がノード node の最初のマッチ (無ければ node より後ろの最初のマッチ) のとき、
+// 前のノードのマッチが node の先頭へはみ出した長さ。
+constexpr uint32_t SpillLengthInto(std::span<const SearchMatch> matches, size_t first, int node) noexcept
+{
+    return first > 0 && matches[first - 1].node_index + 1 == node ? matches[first - 1].next_length_w : 0;
+}
 
 // 検索状態の管理。start_w / length_w 算出のため doc_dwrite_bridge (UTF-8↔UTF-16) に依存する。
 class SearchState {
@@ -123,8 +134,10 @@ public:
     void SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) noexcept;
 
 private:
-    // query は case-insensitive (fold) 時は ASCII 小文字化済み。
-    void FindTextMatches(std::string_view text, std::string_view query, bool fold, int node_index);
+    // query は case-insensitive (fold) 時は ASCII 小文字化済み。text の from バイト目から探す。
+    // next は text に改行を挟まずつながる続きのノードのテキスト (無ければ空) で、継ぎ目をまたぐマッチも拾う。
+    // 戻り値はまたいだマッチが next の先頭から使ったバイト数。next はそこから探す。
+    size_t FindTextMatches(std::string_view text, std::string_view next, size_t from, std::string_view query, bool fold, int node_index);
     // concat_text を 1 回だけ走査し、セル境界をまたぐヒットを除いてセル単位のマッチに振り分ける。
     // セルごとに Find を呼ぶと 1 セル十数バイトでは SIMD ループに入らず呼び出しコストが支配的になる。
     void FindTableMatches(const NodeTableData& tbl, std::string_view query, bool fold, int node_index);
@@ -162,6 +175,9 @@ private:
     bool narrowing_ = false;
     std::pmr::vector<int> candidate_nodes_;
     size_t next_node_ = 0;
+    // 継ぎ目をまたいだマッチが使った、ノード skip_node_ の先頭のバイト数。
+    int skip_node_ = -1;
+    size_t skip_bytes_ = 0;
     bool searching_ = false;
     // matches_ を出した検索。completed_ なら matches_ はその全マッチ (上限で打ち切っていない)。
     QueryKey matched_;

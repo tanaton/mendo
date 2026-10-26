@@ -7,15 +7,6 @@
 
 namespace {
 
-std::pmr::vector<Node> TextNodes(std::initializer_list<const char*> texts)
-{
-    std::pmr::vector<Node> nodes;
-    for (const char* text : texts) {
-        nodes.push_back(MakeTextNode(text));
-    }
-    return nodes;
-}
-
 std::pmr::vector<Node> RepeatedTextNodes(const char* text, int count)
 {
     std::pmr::vector<Node> nodes;
@@ -658,4 +649,74 @@ TEST(SearchStateTest, ExtendingQueryAfterStoppedSearchScansAll)
     s.SetQuery("ab");
     RunSearchToEnd(s, nodes);
     EXPECT_EQ(s.GetMatchCount(), 3);
+}
+
+// ═══════════════════════════════════════════════
+// 区切ったノードの継ぎ目
+// ═══════════════════════════════════════════════
+
+// 改行を挟まない継ぎ目をまたぐマッチは前のノードに置き、続きのノードへはみ出す長さを持つ。
+TEST(SearchStateTest, MatchAcrossChunkSeam)
+{
+    const auto nodes = ChunkedTextNodes({ "abc fo", "o bar" });
+    const auto s = Searched(nodes, "foo");
+    ASSERT_EQ(s.GetMatchCount(), 1);
+    const auto& m = s.GetMatches()[0];
+    EXPECT_EQ(m.node_index, 0);
+    EXPECT_EQ(m.start_w, 4u);
+    EXPECT_EQ(m.length_w, 2u);
+    EXPECT_EQ(m.next_length_w, 1u);
+}
+
+// またいだマッチと重なる位置は、続きのノードで数え直さない。
+TEST(SearchStateTest, MatchAcrossChunkSeamDoesNotOverlap)
+{
+    const auto nodes = ChunkedTextNodes({ "xo", "oo" });
+    const auto s = Searched(nodes, "oo");
+    ASSERT_EQ(s.GetMatchCount(), 1);
+    EXPECT_EQ(s.GetMatches()[0].node_index, 0);
+    EXPECT_EQ(s.GetMatches()[0].next_length_w, 1u);
+}
+
+// 位置は UTF-16 で数え、大文字小文字を無視する比べ方でもまたいだマッチを拾う。
+TEST(SearchStateTest, MatchAcrossChunkSeamUtf16AndCaseFold)
+{
+    const auto nodes = ChunkedTextNodes({ "日本Fo", "O語" });
+    const auto s = Searched(nodes, "本foo語");
+    ASSERT_EQ(s.GetMatchCount(), 1);
+    const auto& m = s.GetMatches()[0];
+    EXPECT_EQ(m.start_w, 1u);
+    EXPECT_EQ(m.length_w, 3u);
+    EXPECT_EQ(m.next_length_w, 2u);
+}
+
+// 改行を挟む継ぎ目は、1 行の検索語ではまたがない。
+TEST(SearchStateTest, NewlineChunkSeamIsNotJoined)
+{
+    const auto nodes = ChunkedTextNodes({ "abc fo", "o bar" }, /*newline_before=*/true);
+    EXPECT_EQ(Searched(nodes, "foo").GetMatchCount(), 0);
+}
+
+// 前回のクエリを伸ばした絞り込みでも、継ぎ目をまたぐマッチを拾う。
+TEST(SearchStateTest, NarrowedSearchFindsMatchAcrossChunkSeam)
+{
+    const auto nodes = ChunkedTextNodes({ "zz fo", "o bar", "fo" });
+    auto s = Searched(nodes, "fo");
+    ASSERT_EQ(s.GetMatchCount(), 2);
+    s.SetQuery("foo b");
+    RunSearchToEnd(s, nodes);
+    ASSERT_EQ(s.GetMatchCount(), 1);
+    EXPECT_EQ(s.GetMatches()[0].node_index, 0);
+    EXPECT_EQ(s.GetMatches()[0].next_length_w, 3u);
+}
+
+// 変わった範囲の先頭のノードへはみ出したマッチは、リロードで残さない。
+TEST(SearchStateTest, KeepMatchesOfUnchangedNodesDropsMatchSpillingIntoChangedRange)
+{
+    const auto nodes = ChunkedTextNodes({ "a fo", "o b", "foo" });
+    auto s = Searched(nodes, "foo");
+    ASSERT_EQ(s.GetMatchCount(), 2);
+    s.KeepMatchesOfUnchangedNodes({ .head = 1, .tail = 1, .old_count = 3, .new_count = 3 });
+    ASSERT_EQ(s.GetMatchCount(), 1);
+    EXPECT_EQ(s.GetMatches()[0].node_index, 2);
 }

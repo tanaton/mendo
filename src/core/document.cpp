@@ -6,7 +6,7 @@
 #include <cstring>
 
 Document Document::FromMarkdown(std::pmr::string text, size_t byte_size, std::wstring_view path,
-                                std::stop_token stop_token)
+                                std::stop_token stop_token, TaskScheduler* scheduler)
 {
     MENDO_PROFILE("Document::FromMarkdown");
     assert(std::memchr(text.data(), '\r', text.size()) == nullptr);
@@ -16,7 +16,7 @@ Document Document::FromMarkdown(std::pmr::string text, size_t byte_size, std::ws
     doc.raw_text_.Replace(std::move(text));
     doc.loaded_byte_size_ = byte_size;
     // raw_text_ をパースした結果なのでノードのテキストは raw_text_ か arena を指しており rebase 不要。
-    ParseResult result = ParseMarkdown(doc.raw_text_, std::move(stop_token));
+    ParseResult result = ParseMarkdown(doc.raw_text_, std::move(stop_token), scheduler);
     doc.storage_ = std::make_shared<const NodeStorage>(result.TakeNodes());
     doc.indices_ = std::move(result.indices);
     return doc;

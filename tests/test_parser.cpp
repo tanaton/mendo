@@ -1913,3 +1913,65 @@ TEST(ParserChunks, LongRunOfBlankLinesKeepsOrder)
         EXPECT_LE(node.GetText().size(), kChunkMax);
     }
 }
+
+// コードブロックで目安を超える行は、その行がノード 1 つに収まる限り前の改行で区切り、行の途中では区切らない
+// (折り返さないコードで、無い改行が入って見えないように)。
+TEST(ParserChunks, CodeLineThatWouldOverflowStartsNextChunk)
+{
+    std::string code;
+    while (code.size() < 13 * 1024) {
+        code += "short line\n";
+    }
+    std::string long_line = "    ";
+    while (long_line.size() < 6 * 1024) {
+        long_line += "tok ";
+    }
+    code += long_line + "\nend\n";
+    const std::string md = "```cpp\n" + code + "```\n";
+    const auto nodes = ParseNodes(md);
+    ASSERT_EQ(nodes.size(), 2u);
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+    EXPECT_TRUE(nodes[1].newline_before_chunk());
+    EXPECT_TRUE(nodes[1].GetText().starts_with(long_line));
+    EXPECT_EQ(JoinChunks(nodes, 0), code.substr(0, code.size() - 1));
+    for (const auto& node : nodes) {
+        EXPECT_EQ(node.line_count, std::ranges::count(node.GetText(), '\n'));
+    }
+    EXPECT_TRUE(StartsAtSourceOffset(md, nodes[1]));
+}
+
+// ノード 1 つに収まらない長い行だけは、行の途中で区切る。
+TEST(ParserChunks, CodeLineLongerThanChunkSplitsInsideLine)
+{
+    std::string line;
+    while (line.size() < 40 * 1024) {
+        line += "tok ";
+    }
+    const std::string md = "```cpp\nhead\n" + line + "\n```\n";
+    const auto nodes = ParseNodes(md);
+    ASSERT_GT(nodes.size(), 2u);
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+    EXPECT_EQ(JoinChunks(nodes, 0), "head\n" + line);
+    for (const auto& node : nodes) {
+        EXPECT_LE(node.GetText().size(), kChunkMax);
+    }
+}
+
+// 空白の無い和文は、目安の前後にある句読点の直後で区切る (語の途中で改行して見えないように)。
+TEST(ParserChunks, LongJapaneseLineSplitsAfterPunctuation)
+{
+    std::string md;
+    for (int i = 0; i < 1500; ++i) {
+        md += "日本語の文章です、続きます。";
+    }
+    const auto nodes = ParseNodes(md);
+    ASSERT_GT(nodes.size(), 2u);
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+    EXPECT_EQ(JoinChunks(nodes, 0), md);
+    for (size_t i = 0; i + 1 < nodes.size(); ++i) {
+        SCOPED_TRACE(i);
+        const auto text = nodes[i].GetText();
+        EXPECT_TRUE(text.ends_with("。") || text.ends_with("、"));
+        EXPECT_LE(text.size(), kChunkMax);
+    }
+}

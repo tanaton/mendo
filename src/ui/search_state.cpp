@@ -43,6 +43,7 @@ void SearchState::BeginSearch()
         }
     }
     next_node_ = 0;
+    skip_node_ = -1;
     active_ = { std::move(active), fold };
     searching_ = true;
 }
@@ -67,7 +68,11 @@ bool SearchState::ContinueSearch(const std::pmr::vector<Node>& nodes, std::chron
             scanned_bytes += node.table_data()->concat_text.size();
         }
         else if (const auto& text = node.GetText(); !text.empty() && !IsBitmapDrawNode(node)) {
-            FindTextMatches(text, query, active_.fold, i);
+            // 検索欄は 1 行なので、改行を挟む継ぎ目はまたがない。
+            const bool joined = static_cast<size_t>(i) + 1 < nodes.size() && JoinsPrevInline(nodes[i + 1]);
+            const size_t from = i == skip_node_ ? skip_bytes_ : 0;
+            skip_bytes_ = FindTextMatches(text, joined ? nodes[i + 1].GetText() : std::string_view{}, from, query, active_.fold, i);
+            skip_node_ = i + 1;
             scanned_bytes += text.size();
         }
         if (scanned_bytes >= kBytesPerClockCheck || ++scanned_nodes >= kNodesPerClockCheck) {
@@ -98,7 +103,11 @@ void SearchState::KeepMatchesOfUnchangedNodes(const UnchangedEnds& ends) noexcep
     StopSearch();
     // matches_ は文書順なので、変わった範囲のマッチは 1 つの連続区間になる。
     const auto node_of = [](const SearchMatch& m) static noexcept { return static_cast<size_t>(m.node_index); };
-    const auto first = std::ranges::lower_bound(matches_, ends.head, {}, node_of);
+    auto first = std::ranges::lower_bound(matches_, ends.head, {}, node_of);
+    // 変わった範囲の先頭のノードへはみ出したマッチも消す。
+    if (SpillLengthInto(matches_, static_cast<size_t>(first - matches_.begin()), static_cast<int>(ends.head)) > 0) {
+        --first;
+    }
     const auto last = std::ranges::lower_bound(first, matches_.end(), ends.OldTailBegin(), {}, node_of);
     const int shift = static_cast<int>(ends.new_count) - static_cast<int>(ends.old_count);
     for (auto& m : std::ranges::subrange(last, matches_.end())) {
@@ -120,21 +129,48 @@ void SearchState::KeepMatchesOfUnchangedNodes(const UnchangedEnds& ends) noexcep
     BumpGeneration();
 }
 
-void SearchState::FindTextMatches(std::string_view text, std::string_view query, bool fold, int node_index)
+size_t SearchState::FindTextMatches(std::string_view text, std::string_view next, size_t from, std::string_view query, bool fold, int node_index)
 {
     const uint32_t query_len = static_cast<uint32_t>(query.size());
     // UTF-16 位置は最初のヒットから前方へ数えるだけにし、ノード全文の UTF-16 化を避ける。
     Utf16OffsetCursor cursor{ text };
-    size_t pos = 0;
-    while (pending_.size() < MAX_MATCHES && (pos = FindNext(text, query, fold, pos)) != ascii_util::npos) {
-        const auto w = cursor.WideRange(static_cast<uint32_t>(pos), query_len);
+    size_t pos = from;
+    size_t found;
+    while (pending_.size() < MAX_MATCHES && (found = FindNext(text, query, fold, pos)) != ascii_util::npos) {
+        const auto w = cursor.WideRange(static_cast<uint32_t>(found), query_len);
         pending_.emplace_back(SearchMatch{
             .node_index = node_index,
             .start_w = w.startPosition,
             .length_w = w.length,
         });
-        pos += query_len;
+        pos = found + query_len;
     }
+    // 継ぎ目をまたぐのは text の末尾 query_len - 1 バイトから始まるマッチだけなので、その前後だけをつないで探す。
+    // どれも継ぎ目を含んで重なるので、拾うのは最初の 1 つだけ。
+    if (next.empty() || query_len < 2 || pending_.size() >= MAX_MATCHES) {
+        return 0;
+    }
+    const size_t tail_begin = std::max(pos, text.size() - std::min<size_t>(text.size(), query_len - 1));
+    if (tail_begin >= text.size()) {
+        return 0;
+    }
+    const std::string_view tail = text.substr(tail_begin);
+    std::pmr::string joined{ tail };
+    joined.append(next.substr(0, query_len - 1));
+    const size_t at = FindNext(joined, query, fold, 0);
+    if (at == ascii_util::npos || at >= tail.size()) {
+        return 0;
+    }
+    const auto start = static_cast<uint32_t>(tail_begin + at);
+    const auto w = cursor.WideRange(start, static_cast<uint32_t>(text.size()) - start);
+    const size_t next_bytes = query_len - (text.size() - start);
+    pending_.emplace_back(SearchMatch{
+        .node_index = node_index,
+        .start_w = w.startPosition,
+        .length_w = w.length,
+        .next_length_w = Utf16OffsetCursor{ next }.WideAt(static_cast<uint32_t>(next_bytes)),
+    });
+    return next_bytes;
 }
 
 void SearchState::FindTableMatches(const NodeTableData& tbl, std::string_view query, bool fold, int node_index)

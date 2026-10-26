@@ -8,6 +8,8 @@
 #include <string_view>
 #include <vector>
 
+class TaskScheduler;
+
 struct WordBoundary {
     uint32_t start = 0;
     uint32_t end = 0;
@@ -19,6 +21,16 @@ struct WordBoundary {
 // pos がマルチバイト/サロゲートの途中を指した場合は code point 先頭へスナップする。
 WordBoundary FindWordBoundaries(std::string_view text, uint32_t pos) noexcept;
 WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept;
+
+// nodes[node] の pos を含む語。パーサが改行を挟まずに区切った継ぎ目で切れた語は、隣のノードへ伸ばす。
+struct NodeWordRange {
+    size_t start_node = 0;
+    uint32_t start = 0;
+    size_t end_node = 0;
+    uint32_t end = 0;
+    bool found = false;
+};
+NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, uint32_t pos) noexcept;
 
 std::pmr::string ToLowerAsciiCopy(std::string_view text);
 
@@ -56,9 +68,14 @@ struct UnchangedEnds {
 };
 UnchangedEnds FindUnchangedEnds(std::span<const Node> old_nodes, std::span<const Node> new_nodes) noexcept;
 
-// コードブロックのトークン。区切ったコードの続きは、前のノードからの続きとしてトークン化する
-// (ブロックコメントや複数行の文字列の途中から始まっても色が崩れないように)。node は文書のノード配列の要素であること。
+// コードブロックのトークン。区切ったコードの続きは、前のノードから続くトークン (code_lead_length) を先頭に置き、
+// その後ろからトークン化する (ブロックコメントや複数行の文字列の途中から始まっても色が崩れないように)。
 std::pmr::vector<SyntaxToken> TokenizeCodeNode(const Node& node);
+
+// 区切ったコードブロックの並び (先頭から末尾まで) の続きのノードに、前のノードから続くトークンを記録する。
+// 並びをつないだテキストを数ノードずつの窓で字句解析し、窓の端で切れたトークンはその先頭から次の窓で解析し直す。
+// 並び全体のトークンを一度に持たない。scheduler があれば区間に分けて並列に解析する (同じ worker 上から呼んでよい)。
+void AnnotateCodeChunkLeads(std::span<Node> run, TaskScheduler* scheduler = nullptr);
 
 // 最後のパス区切り以降。区切りで終わるパスでは空。
 constexpr std::wstring_view FilenameView(std::wstring_view path) noexcept

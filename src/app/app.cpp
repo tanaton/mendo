@@ -857,6 +857,7 @@ PopupEnv App::MakePopupEnv() const noexcept
         .dwrite_factory = renderer_.GetDWriteFactory(),
         .theme = &renderer_.GetTheme(),
         .dpi_scale = state_.window.cached_dpi_scale,
+        .modal_loop = &modal_loop_,
     };
 }
 

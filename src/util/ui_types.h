@@ -10,12 +10,24 @@ struct Theme;
 struct ID2D1Factory;
 struct IDWriteFactory;
 
+// ポップアップのモーダルループを本体のメッセージループと同じ待ち方 (ファイル監視・空き時間の仕事・フレーム待ち) で回す。
+// メッセージだけを待つと、本体のループが待っているイベントと空き時間の仕事が閉じるまで止まる。
+class ModalLoop {
+public:
+    // done が立つまで回す。WM_QUIT を受けたら本体のループにも届くよう置き直して戻る。
+    virtual void RunUntil(const bool& done) = 0;
+
+protected:
+    ~ModalLoop() = default;
+};
+
 // 自前描画のポップアップ (右クリックメニュー・設定ダイアログ) を開くのに要るもの。どれも呼び出し側から借りる。
 struct PopupEnv {
     ID2D1Factory* d2d_factory = nullptr;
     IDWriteFactory* dwrite_factory = nullptr;
     const Theme* theme = nullptr;
     float dpi_scale = 1.0f;
+    ModalLoop* modal_loop = nullptr;
 };
 
 struct DipPoint {

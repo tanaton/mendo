@@ -662,6 +662,43 @@ TEST_F(MermaidFileCacheTest, ClearRemovesEntriesAndFiles)
     EXPECT_TRUE(std::filesystem::is_empty(temp_dir_)) << "移したフォルダが残っている";
 }
 
+// 消している途中で終わって残った移し先のフォルダは、次に図のキャッシュを使うときに worker で消える。
+TEST_F(MermaidFileCacheTest, LeftoverDoomedDirIsRemovedOnFirstUse)
+{
+    const auto dir = temp_dir_ / L"cache";
+    const auto leftover = temp_dir_ / L"cache.deleting-1";
+    const auto unrelated = temp_dir_ / L"cache-other";
+    std::filesystem::create_directories(leftover);
+    std::filesystem::create_directories(unrelated);
+    ASSERT_TRUE(WriteAllBytes(leftover / L"0123456789abcdef.png", "x", 1));
+    cache_.SetCacheDir(dir);
+    InitCache();
+
+    EXPECT_EQ(cache_.EntryCount(), 0u);
+    scheduler_.Shutdown();
+    EXPECT_FALSE(std::filesystem::exists(leftover));
+    EXPECT_TRUE(std::filesystem::exists(unrelated));
+    scheduler_.Init(2);
+}
+
+// 前に消し損ねたフォルダも、次に消すときにまとめて消える。
+TEST_F(MermaidFileCacheTest, ClearAlsoRemovesLeftoverDoomedDirs)
+{
+    const auto dir = temp_dir_ / L"cache";
+    const auto leftover = temp_dir_ / L"cache.deleting-1";
+    cache_.SetCacheDir(dir);
+    InitCache();
+    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
+    FlushAndReopen();
+    std::filesystem::create_directories(leftover);
+    ASSERT_TRUE(WriteAllBytes(leftover / L"0123456789abcdef.png", "x", 1));
+
+    cache_.Clear();
+    scheduler_.Shutdown();
+    EXPECT_TRUE(std::filesystem::is_empty(temp_dir_));
+    scheduler_.Init(2);
+}
+
 // 書き込み中の PNG は着地後に消え、消した後に孤立ファイルとして現れない。
 TEST_F(MermaidFileCacheTest, ClearDuringPendingWriteLeavesNoPng)
 {

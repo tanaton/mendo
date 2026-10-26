@@ -15,6 +15,8 @@ uint64_t NodeDiagramHash(const Node& node, float max_width, bool dark_mode) noex
 // NodeDiagramHash のうちノードのテキストと言語だけで決まる部分。幅とテーマは DiagramRequestHash で混ぜる。
 // テキストのハッシュは図の大きさに比例するので、覚えておけば要求し直すたびに読み直さずに済む。
 uint64_t DiagramCodeHash(const Node& node) noexcept;
+// cached は DiagramEntry::code_hash。0 (未計算) のときだけテキストを読む。
+uint64_t EnsureDiagramCodeHash(uint64_t& cached, const Node& node) noexcept;
 uint64_t DiagramRequestHash(uint64_t code_hash, float max_width, bool dark_mode) noexcept;
 // mermaid は既定で useMaxWidth なので、幅の上限より狭く描けた図はどの幅でも同じ結果になる。
 // その結果は幅を混ぜないこのキーでも引けるようにし、幅が変わっても描き直さない。

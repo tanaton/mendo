@@ -1,5 +1,6 @@
 #include "document_utils.h"
 #include "ascii_util.h"
+#include "parallel_for.h"
 #include "profiler.h"
 #include "unicode_lower_table.h"
 #include "utf8_codec.h"
@@ -123,6 +124,35 @@ WordBoundary FindWordBoundaries(std::string_view text, uint32_t pos) noexcept
 WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept
 {
     return FindWordBoundariesImpl(text, pos);
+}
+
+NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, uint32_t pos) noexcept
+{
+    const std::string_view text = nodes[node].GetText();
+    const auto wb = FindWordBoundaries(text, pos);
+    if (!wb.found) {
+        return {};
+    }
+    const auto category = CategorizeCodePoint(utf8_codec::DecodeAt(text, wb.start).cp);
+    NodeWordRange r{ node, wb.start, node, wb.end, true };
+    // 空白も句読点も無い長い語 (base64 など) は 2 つ以上の継ぎ目をまたぐ。
+    while (r.start == 0 && r.start_node > 0 && JoinsPrevInline(nodes[r.start_node])) {
+        const std::string_view prev = nodes[r.start_node - 1].GetText();
+        if (prev.empty() || CategorizeCodePoint(utf8_codec::DecodePrev(prev, static_cast<uint32_t>(prev.size())).cp) != category) {
+            break;
+        }
+        --r.start_node;
+        r.start = FindWordBoundaries(prev, static_cast<uint32_t>(prev.size()) - 1).start;
+    }
+    while (r.end == nodes[r.end_node].GetText().size() && r.end_node + 1 < nodes.size() && JoinsPrevInline(nodes[r.end_node + 1])) {
+        const std::string_view next = nodes[r.end_node + 1].GetText();
+        if (next.empty() || CategorizeCodePoint(utf8_codec::DecodeAt(next, 0).cp) != category) {
+            break;
+        }
+        ++r.end_node;
+        r.end = FindWordBoundaries(next, 0).end;
+    }
+    return r;
 }
 
 std::wstring_view ExtensionView(std::wstring_view path) noexcept
@@ -310,10 +340,12 @@ namespace {
 
 bool NodeContentEquals(const Node& a, const Node& b) noexcept
 {
+    // 続きのコードの色分けは前のノードから続くトークン (code_lead_*) でも決まる。
     if (a.type != b.type || a.alert_type != b.alert_type || a.quote_depth != b.quote_depth ||
         a.quote_outer_indent != b.quote_outer_indent || a.indent_level != b.indent_level || a.line_count != b.line_count ||
         a.heading_level() != b.heading_level() || a.code_language() != b.code_language() || a.flags_ != b.flags_ ||
-        a.list_number() != b.list_number() || a.alert_label_length() != b.alert_label_length()) {
+        a.list_number() != b.list_number() || a.alert_label_length() != b.alert_label_length() ||
+        a.code_lead_length() != b.code_lead_length() || a.code_lead_type() != b.code_lead_type()) {
         return false;
     }
     // 参照定義が後ろで変わると、前のノードはテキストが同じでもリンク先が変わる。
@@ -400,27 +432,121 @@ int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, size_t diff_offs
 std::pmr::vector<SyntaxToken> TokenizeCodeNode(const Node& node)
 {
     const std::string_view text = node.GetText();
-    if (!node.continues_prev()) {
+    const auto lead = static_cast<uint32_t>(std::min<size_t>(node.code_lead_length(), text.size()));
+    if (lead == 0) {
         return Tokenize(text, node.code_language());
     }
-    // 続きのノードはパーサが前のノードの直後に置く。前のノードごとトークナイズし直すので 2 倍かかるが
-    // (syntax.cpp の 16KB ノードで 47 → 97µs)、ノードの計測全体 (6.7ms) の 1% 未満なので、
-    // 字句解析の状態を前のノードから持ち越す作りにはしない (BM_TokenizeCodeChunk / BM_MeasureCodeChunk)。
-    const Node& prev = (&node)[-1];
-    std::pmr::string joined;
-    joined.reserve(prev.GetText().size() + 1 + text.size());
-    joined.append(prev.GetText()).append(ChunkSeparator(node));
-    const auto offset = static_cast<uint32_t>(joined.size());
-    joined.append(text);
-    auto tokens = Tokenize(joined, node.code_language());
-    // 前のノードの分を落とし、またがるトークンは継ぎ目から始める。
-    std::erase_if(tokens, [offset](const SyntaxToken& t) noexcept { return t.start + t.length <= offset; });
+    // 前のノードをつないで字句解析し直すと、1 ノードしか遡れず (16KB を超えるコメントや文字列の 3 つ目以降のノードで崩れる)、
+    // 解析も 2 倍かかる (syntax.cpp の 16KB ノードで 47 → 97µs)。続くトークンの後ろは、トークンの外から解析を始めたのと同じになる。
+    auto tokens = Tokenize(text.substr(lead), node.code_language());
     for (auto& t : tokens) {
-        const uint32_t start = std::max(t.start, offset);
-        t.length -= start - t.start;
-        t.start = start - offset;
+        t.start += lead;
     }
+    tokens.insert(tokens.begin(), { 0, lead, node.code_lead_type() });
     return tokens;
+}
+
+namespace {
+
+// 区切ったコードの並びをつないだテキストでの、ノード k の終わり。begins は各ノードの始まり。
+size_t RunEnd(std::span<const Node> run, std::span<const size_t> begins, size_t k) noexcept
+{
+    return begins[k] + run[k].GetText().size();
+}
+
+// 解析の進み具合。next は続くトークンがまだ決まっていない最初のノード、restart は次に解析を始められる位置
+// (トークンの先頭か、どのトークンにも入らない位置)。
+struct AnnotateCursor {
+    size_t next = 0;
+    size_t restart = 0;
+};
+
+// 並びの [c.restart, ノード last - 1 の終わり) を 1 つの窓として字句解析し、続くトークンが決まった継ぎ目 (c.next から
+// last 未満) に書いて c を進める。窓の端 (並びの終わりでない) に届いたトークンは窓の先まで続くかもしれないので決めず、
+// その先頭から解析し直させる。
+void AnnotateWindow(std::span<Node> run, std::span<const size_t> begins, AnnotateCursor& c, size_t last, std::pmr::string& seg)
+{
+    const size_t restart = c.restart;
+    const size_t end = RunEnd(run, begins, last - 1);
+    size_t j = static_cast<size_t>(std::ranges::upper_bound(begins, restart) - begins.begin()) - 1;
+    const std::string_view head = run[j].GetText();
+    seg.reserve(end - restart);
+    seg.assign(head.substr(std::min(restart - begins[j], head.size())));
+    for (++j; j < last; ++j) {
+        seg.append(ChunkSeparator(run[j])).append(run[j].GetText());
+    }
+    const auto tokens = Tokenize(seg, run.front().code_language());
+    size_t limit = end;
+    if (last < run.size() && !tokens.empty() && restart + tokens.back().start + tokens.back().length == end) {
+        limit = restart + tokens.back().start;
+    }
+    size_t t = 0;
+    for (; c.next < last && begins[c.next] <= limit; ++c.next) {
+        const size_t b = begins[c.next];
+        while (t < tokens.size() && restart + tokens[t].start + tokens[t].length <= b) {
+            ++t;
+        }
+        if (t < tokens.size() && restart + tokens[t].start < b) {
+            const size_t token_end = restart + tokens[t].start + tokens[t].length;
+            run[c.next].set_code_lead(static_cast<uint32_t>(std::min(token_end, RunEnd(run, begins, c.next)) - b), tokens[t].type);
+        }
+        else {
+            run[c.next].set_code_lead(0, SyntaxTokenType::Plain);
+        }
+    }
+    c.restart = limit;
+}
+
+} // namespace
+
+void AnnotateCodeChunkLeads(std::span<Node> run, TaskScheduler* scheduler)
+{
+    MENDO_PROFILE("AnnotateCodeChunkLeads");
+    const size_t n = run.size();
+    if (n < 2) {
+        return;
+    }
+    std::pmr::vector<size_t> begins(n);
+    size_t pos = 0;
+    for (size_t j = 0; j < n; ++j) {
+        pos += j > 0 ? ChunkSeparator(run[j]).size() : 0;
+        begins[j] = pos;
+        pos += run[j].GetText().size();
+    }
+
+    // 並びを前から順に解析すると、16MB のコードでパースが 18ms から 80ms になる (区間に分けて worker 4 本に配ると 32ms)。
+    // 区間ごとに先頭がトークンの外から始まると仮定して並列に解析しておき、前の区間の解析が区間の終わりをトークンの外で
+    // 迎えたら (ほとんどの区間) そのまま使い、外れた所だけ順に解析し直す。区間は並列に配れる数を、窓は解析し直しの短さを優先した大きさ。
+    constexpr size_t kSegmentNodes = 8;
+    constexpr size_t kWindowNodes = 4;
+    const size_t segment_count = (n + kSegmentNodes - 1) / kSegmentNodes;
+    std::pmr::vector<AnnotateCursor> spec(segment_count);
+    // 区間 s は自分の区間のノード (先頭を除く) にだけ書くので、区間どうしは同期しなくてよい。
+    ParallelFor(scheduler, segment_count, 1, [&](size_t begin, size_t end) {
+        std::pmr::string seg;
+        for (size_t s = begin; s < end; ++s) {
+            const size_t first = s * kSegmentNodes;
+            spec[s] = { first + 1, begins[first] };
+            AnnotateWindow(run, begins, spec[s], std::min(n, first + kSegmentNodes), seg);
+        }
+    });
+
+    std::pmr::string seg;
+    AnnotateCursor c = spec[0];
+    size_t window = kWindowNodes;
+    while (c.next < n) {
+        // 区間の先頭のノードは先読みでも書かないので、作ったときのまま (続くトークン無し) でよい。
+        if (c.next % kSegmentNodes == 0 && c.restart == RunEnd(run, begins, c.next - 1)) {
+            c = spec[c.next / kSegmentNodes];
+            continue;
+        }
+        // 区間の終わりで窓を閉じ、トークンの外で終われば次の区間から先読みの結果に戻る。
+        // 1 つのトークンが窓を越えて解析を始める位置が進まないときは、終わりが見つかるまで窓を広げる。
+        const size_t last = std::min(n, (c.next + window + kSegmentNodes - 1) / kSegmentNodes * kSegmentNodes);
+        const size_t before = c.restart;
+        AnnotateWindow(run, begins, c, last, seg);
+        window = last < n && c.restart == before ? window * 2 : kWindowNodes;
+    }
 }
 
 namespace {

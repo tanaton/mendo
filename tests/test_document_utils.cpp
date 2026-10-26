@@ -16,6 +16,7 @@
 #include "parser.h"
 #include "selection_html.h"
 #include "syntax.h"
+#include "task_scheduler.h"
 #include "theme.h"
 #include "theme_palette.h"
 #include "utf8_fuzz_helpers.h"
@@ -1898,7 +1899,7 @@ TEST(ChunkCopy, PartialSelectionInsideRunIsClosed)
     EXPECT_TRUE(html.ends_with("</p>"));
 }
 
-// 区切ったコードの続きは前のノードからの続きとしてトークン化するので、継ぎ目をまたぐブロックコメントも色が崩れない。
+// 区切ったコードの続きは前のノードから続くトークンを先頭に置くので、継ぎ目をまたぐブロックコメントも色が崩れない。
 TEST(ChunkCopy, ContinuedCodeTokenizesFromPreviousChunk)
 {
     const std::string md = "```cpp\n/*\n" + MakeNumberedLines(1000) + "*/\nint x;\n```";
@@ -1919,4 +1920,187 @@ TEST(ChunkCopy, ContinuedCodeTokenizesFromPreviousChunk)
     for (const auto& t : tokens) {
         EXPECT_LE(t.start + t.length, text.size());
     }
+}
+
+namespace {
+
+// 区切ったコードの並びをつないで 1 度にトークン化した結果を、各ノードの範囲に切り分ける。
+std::vector<std::vector<SyntaxToken>> TokenizeRunAtOnce(std::span<const Node> run)
+{
+    std::string joined;
+    std::vector<size_t> begins;
+    for (size_t i = 0; i < run.size(); ++i) {
+        if (i > 0) {
+            joined += ChunkSeparator(run[i]);
+        }
+        begins.push_back(joined.size());
+        joined += run[i].GetText();
+    }
+    std::vector<std::vector<SyntaxToken>> out(run.size());
+    for (const auto& t : Tokenize(joined, run.front().code_language())) {
+        for (size_t i = 0; i < run.size(); ++i) {
+            const size_t b = begins[i];
+            const size_t e = b + run[i].GetText().size();
+            const size_t s = std::max<size_t>(t.start, b);
+            const size_t f = std::min<size_t>(t.start + t.length, e);
+            if (s < f) {
+                out[i].push_back({ static_cast<uint32_t>(s - b), static_cast<uint32_t>(f - s), t.type });
+            }
+        }
+    }
+    return out;
+}
+
+void ExpectChunkTokensMatchRunTokenizedAtOnce(const std::pmr::vector<Node>& nodes)
+{
+    const auto expected = TokenizeRunAtOnce(nodes);
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        SCOPED_TRACE(i);
+        const auto actual = TokenizeCodeNode(nodes[i]);
+        ASSERT_EQ(actual.size(), expected[i].size());
+        for (size_t k = 0; k < actual.size(); ++k) {
+            EXPECT_EQ(actual[k].start, expected[i][k].start) << "k=" << k;
+            EXPECT_EQ(actual[k].length, expected[i][k].length) << "k=" << k;
+            EXPECT_EQ(actual[k].type, expected[i][k].type) << "k=" << k;
+        }
+    }
+}
+
+} // namespace
+
+// 16KB を超えるブロックコメントがノードをいくつもまたいでも、3 つ目以降のノードもコメントとして色分けする。
+TEST(ChunkCopy, CodeCommentSpanningManyChunksStaysComment)
+{
+    const std::string md = "```cpp\nint a;\n/*\n" + MakeNumberedLines(4000) + "*/\nint x;\n```";
+    const auto nodes = ParseNodes(md);
+    ASSERT_GE(nodes.size(), 5u);
+    for (size_t i = 1; i + 1 < nodes.size(); ++i) {
+        SCOPED_TRACE(i);
+        const auto tokens = TokenizeCodeNode(nodes[i]);
+        ASSERT_EQ(tokens.size(), 1u);
+        EXPECT_EQ(tokens[0].type, SyntaxTokenType::Comment);
+        EXPECT_EQ(tokens[0].length, nodes[i].GetText().size());
+    }
+    ExpectChunkTokensMatchRunTokenizedAtOnce(nodes);
+}
+
+// 区切った長い 1 行の文字列 (base64 など) は、窓を越えても文字列のまま続き、閉じた後ろは普通に色分けする。
+TEST(ChunkCopy, CodeStringSpanningManyChunksStaysString)
+{
+    const std::string md = "```json\n{\"data\": \"" + std::string(200000, 'A') + "\", \"n\": 1}\n```";
+    const auto nodes = ParseNodes(md);
+    ASSERT_GE(nodes.size(), 10u);
+    for (size_t i = 1; i + 1 < nodes.size(); ++i) {
+        SCOPED_TRACE(i);
+        const auto tokens = TokenizeCodeNode(nodes[i]);
+        ASSERT_EQ(tokens.size(), 1u);
+        EXPECT_EQ(tokens[0].type, SyntaxTokenType::String);
+    }
+    const auto last = TokenizeCodeNode(nodes.back());
+    EXPECT_TRUE(std::ranges::any_of(last, [](const SyntaxToken& t) { return t.type == SyntaxTokenType::Number; }));
+    ExpectChunkTokensMatchRunTokenizedAtOnce(nodes);
+}
+
+// コメント・文字列・キーワードの混じった長いコードも、区切る前に 1 度にトークン化したのと同じ色分けになる。
+TEST(ChunkCopy, ChunkTokensMatchCodeTokenizedAtOnce)
+{
+    std::string code;
+    for (int i = 0; i < 2000; ++i) {
+        std::format_to(std::back_inserter(code), "int f{}() {{ return {}; }} // c{}\n", i, i, i);
+        if (i % 97 == 0) {
+            code += "/* block\n   comment */ const char* s = \"str\";\n";
+        }
+    }
+    const std::string md = "```cpp\n" + code + "```\n";
+    const auto nodes = ParseNodes(md);
+    ASSERT_GE(nodes.size(), 3u);
+    ExpectChunkTokensMatchRunTokenizedAtOnce(nodes);
+}
+
+// 前のノードでコメントを開くと、続きのノードは中身が同じでも色分けが変わるので、変わらなかったノードに数えない。
+TEST(FindUnchangedEnds, ContinuedCodeWithChangedLeadIsChanged)
+{
+    const std::string body = MakeNumberedLines(2000);
+    const std::string old_md = "```cpp\nxx\n" + body + "```\n";
+    const std::string new_md = "```cpp\n/*\n" + body + "```\n";
+    const auto old_nodes = ParseNodes(old_md);
+    const auto new_nodes = ParseNodes(new_md);
+    ASSERT_EQ(old_nodes.size(), new_nodes.size());
+    ASSERT_GE(new_nodes.size(), 3u);
+    EXPECT_EQ(FindUnchangedEnds(old_nodes, new_nodes).tail, 0u);
+}
+
+// 改行を挟まない継ぎ目で切れた語は、どちらのノードから選んでも隣のノードへ伸ばす。
+TEST(FindNodeWordBoundaries, ExtendsAcrossChunkSeam)
+{
+    const auto nodes = ChunkedTextNodes({ "hello wor", "ld again" });
+    const auto from_next = FindNodeWordBoundaries(nodes, 1, 0);
+    ASSERT_TRUE(from_next.found);
+    EXPECT_EQ(from_next.start_node, 0u);
+    EXPECT_EQ(from_next.start, 6u);
+    EXPECT_EQ(from_next.end_node, 1u);
+    EXPECT_EQ(from_next.end, 2u);
+
+    const auto from_prev = FindNodeWordBoundaries(nodes, 0, 7);
+    ASSERT_TRUE(from_prev.found);
+    EXPECT_EQ(from_prev.start_node, 0u);
+    EXPECT_EQ(from_prev.start, 6u);
+    EXPECT_EQ(from_prev.end_node, 1u);
+    EXPECT_EQ(from_prev.end, 2u);
+}
+
+// 空白の無い長い語は、継ぎ目をいくつまたいでも並びの続く限り伸ばす。
+TEST(FindNodeWordBoundaries, ExtendsAcrossSeveralChunkSeams)
+{
+    const auto nodes = ChunkedTextNodes({ "x abc", "def", "ghi y" });
+    const auto r = FindNodeWordBoundaries(nodes, 1, 1);
+    ASSERT_TRUE(r.found);
+    EXPECT_EQ(r.start_node, 0u);
+    EXPECT_EQ(r.start, 2u);
+    EXPECT_EQ(r.end_node, 2u);
+    EXPECT_EQ(r.end, 3u);
+}
+
+// 改行を挟む継ぎ目や、継ぎ目の両側で文字の種類が違うときは伸ばさない。
+TEST(FindNodeWordBoundaries, DoesNotExtendAcrossNewlineOrCategoryChange)
+{
+    const auto newline = ChunkedTextNodes({ "hello wor", "ld" }, /*newline_before=*/true);
+    const auto a = FindNodeWordBoundaries(newline, 1, 0);
+    EXPECT_EQ(a.start_node, 1u);
+    EXPECT_EQ(a.start, 0u);
+
+    const auto mixed = ChunkedTextNodes({ "abc", "日本" });
+    const auto b = FindNodeWordBoundaries(mixed, 0, 1);
+    EXPECT_EQ(b.end_node, 0u);
+    EXPECT_EQ(b.end, 3u);
+}
+
+// 区間を worker に配って並列に解析しても、順に解析したのと同じになる。区間の境目をまたぐコメントや文字列も含める。
+TEST(ChunkCopy, ParallelCodeChunkLeadsMatchSerial)
+{
+    std::string code;
+    for (int i = 0; i < 6000; ++i) {
+        std::format_to(std::back_inserter(code), "int f{}() {{ return {}; }} // c{}\n", i, i, i);
+        if (i % 500 == 0) {
+            code += "/*\n" + MakeNumberedLines(600) + "*/\n";
+        }
+        if (i % 777 == 0) {
+            code += "const char* s = \"" + std::string(40000, 'A') + "\";\n";
+        }
+    }
+    const std::string md = "```cpp\n" + code + "```\n";
+    const auto serial = ParseNodes(md);
+    ASSERT_GE(serial.size(), 24u);
+
+    TaskScheduler scheduler;
+    scheduler.Init(4);
+    const auto parallel = ParseNodes(md, &scheduler);
+    scheduler.Shutdown();
+    ASSERT_EQ(parallel.size(), serial.size());
+    for (size_t i = 0; i < serial.size(); ++i) {
+        SCOPED_TRACE(i);
+        EXPECT_EQ(parallel[i].code_lead_length(), serial[i].code_lead_length());
+        EXPECT_EQ(parallel[i].code_lead_type(), serial[i].code_lead_type());
+    }
+    ExpectChunkTokensMatchRunTokenizedAtOnce(serial);
 }
