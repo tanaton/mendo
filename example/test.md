@@ -1064,9 +1064,12 @@ flowchart TB
 | H5 | Segoe UI | 16 |
 | H6 | Segoe UI | 14 |
 | 本文 | Segoe UI | 16 |
-| コード | Cascadia Mono（無ければ Consolas） | 14 |
+| コード | Cascadia Mono → Consolas → Courier New | 14 |
+| アイコン | Segoe Fluent Icons → Segoe MDL2 Assets | 用途ごとに異なる |
 
-本文は GitHub (Windows) と同じく英数字を Segoe UI で組み、Segoe UI に無い漢字・かな・全角記号は DirectWrite のシステムフォールバックに任せる。フォールバック先は書式のロケール `i18n::TextLocale()` で決まり、OS の表示言語が中国語でなければ `ja-jp`（Yu Gothic UI）、簡体字なら `zh-cn`（Microsoft YaHei UI）、繁体字なら `zh-tw` / `zh-hk`（Microsoft JhengHei UI）になる。描画先は不透明なので `D2D1_ALPHA_MODE_IGNORE` で作り、文字は ClearType で描く。
+コードとアイコンのフォントは `theme_palette.h` の候補リスト（`kMonospaceFontCandidates` / `kIconFontCandidates`）で決まる。起動時に `Renderer::ResolveThemeFonts` が先頭から実在するものを選び、どれも無ければ末尾を使う。HTML コピーのコードブロックの `font-family` も同じリストからコンパイル時に組み立てる。
+
+本文は GitHub (Windows) と同じく英数字を Segoe UI で組み、Segoe UI に無い漢字・かな・全角記号は DirectWrite のシステムフォールバックに任せる。フォールバック先は書式のロケール `i18n::TextLocale()` で決まり、OS の表示言語が中国語・韓国語でなければ `ja-jp`（Yu Gothic UI）、簡体字なら `zh-cn`（Microsoft YaHei UI）、繁体字なら `zh-tw` / `zh-hk`（Microsoft JhengHei UI）、韓国語なら `ko-kr`（Malgun Gothic）になる。描画先は不透明なので `D2D1_ALPHA_MODE_IGNORE` で作り、文字は ClearType で描く。
 
 > **Note**: 本文側のフォントサイズと余白はズーム倍率 (`Theme::zoom`) で乗算される。サイドペイン（ファイル一覧・目次）の項目はペインごとの倍率で別に拡大する（3.9.3）。窓枠（タイトルバー）・サイドペインのヘッダー・検索バーは固定サイズである。
 
@@ -1252,8 +1255,8 @@ struct Theme {
 
     // フォント
     std::wstring font_family;     // "Segoe UI"
-    std::wstring monospace_font;  // "Cascadia Mono"
-    std::wstring icon_font;       // "Segoe Fluent Icons"
+    std::wstring monospace_font;  // kMonospaceFontCandidates から解決した名前
+    std::wstring icon_font;       // kIconFontCandidates から解決した名前
 
     // フォントサイズ (DIP)
     float font_size_body;
@@ -3638,7 +3641,7 @@ src/
 │   └── dwrite_measurer.h / .cpp   # DirectWrite 実装
 ├── theme/                         # テーマ層
 │   ├── theme.h / theme.cpp        # Theme + theme_palette
-│   ├── theme_palette.h            # 配色パレット定義
+│   ├── theme_palette.h            # 配色パレットとフォント候補の定義
 │   └── theme_service.h / .cpp     # テーマ管理サービス
 ├── nav/                           # ナビゲーション層
 │   └── nav.h / nav.cpp            # NavHistory + LinkClickResult / HandleLinkClick

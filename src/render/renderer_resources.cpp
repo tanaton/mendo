@@ -2,11 +2,13 @@
 #include "d2d_util.h"
 #include "i18n.h"
 #include "resource.h"
+#include "theme_palette.h"
 #include "ui_constants.h"
 #include "utility.h"
 #include "wic_util.h"
 #include "win32_util.h"
 #include "profiler.h"
+#include <span>
 #include <utility>
 
 using Microsoft::WRL::ComPtr;
@@ -143,7 +145,7 @@ void Renderer::InvalidateBrushes() noexcept
 }
 
 namespace {
-std::wstring ResolveFontFamily(IDWriteFontCollection* collection, std::initializer_list<const wchar_t*> candidates)
+std::wstring ResolveFontFamily(IDWriteFontCollection* collection, std::span<const wchar_t* const> candidates)
 {
     if (collection) {
         for (const wchar_t* name : candidates) {
@@ -154,7 +156,7 @@ std::wstring ResolveFontFamily(IDWriteFontCollection* collection, std::initializ
             }
         }
     }
-    return *(candidates.end() - 1);
+    return candidates.back();
 }
 } // namespace
 
@@ -165,8 +167,8 @@ void Renderer::ResolveThemeFonts()
     if (dw) {
         dw->GetSystemFontCollection(&collection, FALSE);
     }
-    theme_.monospace_font = ResolveFontFamily(collection.Get(), { theme_.monospace_font.c_str(), L"Consolas", L"Courier New" });
-    theme_.icon_font = ResolveFontFamily(collection.Get(), { theme_.icon_font.c_str(), L"Segoe Fluent Icons", L"Segoe MDL2 Assets" });
+    theme_.monospace_font = ResolveFontFamily(collection.Get(), theme_palette::kMonospaceFontCandidates);
+    theme_.icon_font = ResolveFontFamily(collection.Get(), theme_palette::kIconFontCandidates);
 }
 
 void Renderer::AdoptThemeKeepingFonts(Theme theme)

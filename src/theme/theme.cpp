@@ -81,8 +81,8 @@ void ApplyCommonLayout(Theme& t)
     // ja-jp なら Yu Gothic UI、zh-cn なら Microsoft YaHei UI、zh-tw なら Microsoft JhengHei UI、ko-kr なら Malgun Gothic になる。
     t.font_family = L"Segoe UI";
     t.text_locale = i18n::TextLocale();
-    t.monospace_font = L"Cascadia Mono";
-    t.icon_font = L"Segoe Fluent Icons";
+    t.monospace_font = theme_palette::kMonospaceFontCandidates[0];
+    t.icon_font = theme_palette::kIconFontCandidates[0];
 
     t.font_size_body = 16.0f;
     t.font_size_h[0] = 32.0f;
