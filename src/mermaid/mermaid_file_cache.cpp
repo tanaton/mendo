@@ -37,22 +37,29 @@ static_assert(sizeof(IndexRecord) == 28);
 
 constexpr std::wstring_view kDoomedSuffix = L".deleting-";
 
+// dir の直下で pred に合うものを消す (フォルダは中身ごと)。消せないものは残す。
+template <class Pred>
+void RemoveEntriesIf(const std::filesystem::path& dir, Pred pred)
+{
+    // 走査中に消すと列挙が飛ぶことがあるので、集めてから消す。
+    std::pmr::vector<std::filesystem::path> targets;
+    std::error_code ec;
+    for (auto it = std::filesystem::directory_iterator(dir, ec); !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
+        if (pred(it->path())) {
+            targets.push_back(it->path());
+        }
+    }
+    for (const auto& path : targets) {
+        std::error_code remove_ec;
+        std::filesystem::remove_all(path, remove_ec);
+    }
+}
+
 void RemoveDoomedDirs(const std::filesystem::path& cache_dir)
 {
     std::wstring prefix = cache_dir.filename().native();
     prefix += kDoomedSuffix;
-    // 走査中に消すと列挙が飛ぶことがあるので、集めてから消す。
-    std::pmr::vector<std::filesystem::path> doomed;
-    std::error_code ec;
-    for (auto it = std::filesystem::directory_iterator(cache_dir.parent_path(), ec); !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
-        if (it->path().filename().native().starts_with(prefix)) {
-            doomed.push_back(it->path());
-        }
-    }
-    for (const auto& dir : doomed) {
-        std::error_code remove_ec;
-        std::filesystem::remove_all(dir, remove_ec);
-    }
+    RemoveEntriesIf(cache_dir.parent_path(), [&prefix](const std::filesystem::path& path) { return path.filename().native().starts_with(prefix); });
 }
 
 } // namespace
@@ -398,12 +405,9 @@ void MermaidFileCache::Clear()
     std::filesystem::rename(cache_dir_, doomed, ec);
     if (ec) {
         // 中のファイルを誰かが開いていると移せない。消せるものだけその場で消す。
-        for (auto it = std::filesystem::directory_iterator(cache_dir_, ec); !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
-            if (it->path().extension() == L".png" || it->path() == GetIndexPath()) {
-                std::error_code remove_ec;
-                std::filesystem::remove(it->path(), remove_ec);
-            }
-        }
+        RemoveEntriesIf(cache_dir_, [index_path = GetIndexPath()](const std::filesystem::path& path) {
+            return path.extension() == L".png" || path == index_path;
+        });
         return;
     }
     RemoveDoomedDirsAsync();
