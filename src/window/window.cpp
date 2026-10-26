@@ -88,7 +88,7 @@ std::pmr::wstring GetImeCompositionString(HIMC himc)
 } // namespace
 
 Win32Window::Win32Window(ConfigService& config)
-    : config_(config), app_(std::make_unique<App>(config))
+    : config_(config), app_(std::make_unique<App>(config, *this))
 {
 }
 Win32Window::~Win32Window() = default;
@@ -215,6 +215,19 @@ void Win32Window::UpdateDwmFrame()
 
 int Win32Window::RunMessageLoop()
 {
+    constexpr bool kNever = false;
+    return *PumpMessages(kNever);
+}
+
+void Win32Window::RunUntil(const bool& done)
+{
+    if (const auto exit_code = PumpMessages(done)) {
+        PostQuitMessage(*exit_code);
+    }
+}
+
+std::optional<int> Win32Window::PumpMessages(const bool& done)
+{
     MSG msg{};
 
     for (;;) {
@@ -265,12 +278,15 @@ int Win32Window::RunMessageLoop()
         const auto peek_flags = [this] {
             return app_->GetFrameWaitHandle() ? (PM_REMOVE | PM_QS_INPUT | PM_QS_POSTMESSAGE | PM_QS_SENDMESSAGE) : PM_REMOVE;
         };
-        while (PeekMessageW(&msg, nullptr, 0, 0, peek_flags())) {
+        while (!done && PeekMessageW(&msg, nullptr, 0, 0, peek_flags())) {
             if (msg.message == WM_QUIT) {
                 return static_cast<int>(msg.wParam);
             }
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
+        }
+        if (done) {
+            return std::nullopt;
         }
         // 入力を配り終えてもフレームが取れていなければ、待つ間に次のフレームの計測を済ませておく。
         if (app_->GetFrameWaitHandle() && GetUpdateRect(hwnd_, nullptr, FALSE)) {

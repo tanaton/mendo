@@ -336,6 +336,35 @@ TEST_F(VisibleHighlightTest, WrappedParagraphSearchMatchesAllMatchesRects)
     EXPECT_LT(ComputedMatchCount(pl.cache[0]), static_cast<size_t>(search_.GetMatchCount()));
 }
 
+// 区切ったノードの継ぎ目をまたぐマッチは、続きのノードの先頭にもハイライトを描き、両方を現在のマッチの色にする。
+TEST_F(VisibleHighlightTest, SearchMatchAcrossChunkSeamHighlightsBothNodes)
+{
+    std::string md;
+    for (int i = 0; i < 20000; ++i) {
+        md += static_cast<char>('a' + i % 26);
+    }
+    auto pl = ParseAndLayout(md);
+    ASSERT_GE(pl.nodes.size(), 2u);
+    ASSERT_FALSE(pl.nodes[1].newline_before_chunk());
+    const auto head = pl.nodes[0].GetText();
+    const std::string query = std::string{ head.substr(head.size() - 3) } + std::string{ pl.nodes[1].GetText().substr(0, 2) };
+    Search(pl, query);
+    const auto& matches = search_.GetMatches();
+    const auto seam = std::ranges::find_if(matches, [](const SearchMatch& m) { return m.next_length_w > 0; });
+    ASSERT_NE(seam, matches.end());
+    EXPECT_EQ(seam->node_index, 0);
+    EXPECT_EQ(seam->length_w, 3u);
+    EXPECT_EQ(seam->next_length_w, 2u);
+    gen_.SetSearchMatches(&matches, static_cast<int>(seam - matches.begin()), search_.GetGeneration());
+
+    const float seam_y = 100.0f;
+    const float scroll_y = pl.cache.Top(1) - seam_y;
+    const auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, PANE, scroll_y, TextSelection{}, {}, 1.0f, {}, -1);
+    const auto current = CollectRectsByBrush(cmds, { BrushId::SearchHighlightCurrent });
+    EXPECT_TRUE(std::ranges::any_of(current, [&](const D2D1_RECT_F& r) { return r.bottom <= seam_y + 0.5f; })) << "前のノードの末尾";
+    EXPECT_TRUE(std::ranges::any_of(current, [&](const D2D1_RECT_F& r) { return r.top >= seam_y - 0.5f; })) << "続きのノードの先頭";
+}
+
 // 巨大テーブルでも、矩形を計算するのは描いたセルのマッチだけ。
 TEST_F(VisibleHighlightTest, TableSearchComputesOnlyVisibleCells)
 {

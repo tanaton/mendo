@@ -41,7 +41,7 @@ constexpr const theme_palette::SharedColors& PaletteFor(bool dark_mode) noexcept
 constexpr bool LineBreakAfter(const std::pmr::vector<Node>& nodes, int i) noexcept
 {
     const auto next = static_cast<size_t>(i) + 1;
-    return next >= nodes.size() || !nodes[next].continues_prev() || nodes[next].newline_before_chunk();
+    return next >= nodes.size() || !JoinsPrevInline(nodes[next]);
 }
 
 constexpr std::string_view kHtmlEscapeChars = "&<>\"'";

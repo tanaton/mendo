@@ -57,12 +57,17 @@ public:
     const Node* throw_on = nullptr;
     // throw_on の計測を最初の throw_times 回だけ失敗させる。worker から呼ばれるので試行回数は atomic。
     int throw_times = std::numeric_limits<int>::max();
+    // 例外の代わりに、書式やレイアウトを作れなかったときと同じく nullopt で失敗させる。
+    bool fail_with_nullopt = false;
     mutable std::atomic<int> attempts{ 0 };
 
     std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
                                      MeasureViewportRange viewport = {}) const override
     {
         if (&node == throw_on && attempts.fetch_add(1) < throw_times) {
+            if (fail_with_nullopt) {
+                return std::nullopt;
+            }
             throw std::runtime_error("measure failed");
         }
         return MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
@@ -290,6 +295,29 @@ TEST_F(ParallelMeasureTest, AlwaysThrowingNodeStopsRetryingAfterMaxAttempts)
     DrainDirtyBatches(engine, nodes, cache);
     engine.SetLayoutScheduler(nullptr);
     EXPECT_EQ(measurer.attempts.load(), 2 * LayoutCache::kMaxMeasureAttempts) << "無効化後は改めて上限回数まで試す";
+}
+
+// 測れない (nullopt) ノードも例外と同じく kMaxMeasureAttempts 回で諦め、描画のたびに測り直し続けない。
+TEST_F(ParallelMeasureTest, UnmeasurableNodeStopsRetryingAfterMaxAttempts)
+{
+    constexpr size_t kTarget = 8;
+    ThrowingMeasurer measurer;
+    measurer.fail_with_nullopt = true;
+    LayoutEngine engine;
+    ASSERT_TRUE(engine.Init(&measurer, theme_));
+    LayoutSourceStore store;
+    auto [nodes, cache] = store.ParseAndLayout(engine, MakeParagraphs(30), 800.0f);
+
+    cache[kTarget].layout_dirty = true;
+    measurer.throw_on = &nodes[kTarget];
+    engine.SetLayoutScheduler(&task_scheduler_);
+    DrainDirtyBatches(engine, nodes, cache);
+    engine.SetLayoutScheduler(nullptr);
+
+    EXPECT_EQ(measurer.attempts.load(), LayoutCache::kMaxMeasureAttempts);
+    EXPECT_FALSE(cache[kTarget].layout_dirty);
+    EXPECT_FALSE(cache.HasDirtyNodes());
+    EXPECT_TRUE(YChainConsistent(nodes, cache, theme_));
 }
 
 // 一時的な失敗は再試行で計測され、上限に達する前に成功すれば諦めない。成功すると失敗の記録は消える。

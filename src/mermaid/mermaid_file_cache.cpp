@@ -9,7 +9,9 @@
 #include <format>
 #include <memory>
 #include <ranges>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -32,6 +34,26 @@ struct IndexRecord {
 
 static_assert(sizeof(IndexHeader) == 16);
 static_assert(sizeof(IndexRecord) == 28);
+
+constexpr std::wstring_view kDoomedSuffix = L".deleting-";
+
+void RemoveDoomedDirs(const std::filesystem::path& cache_dir)
+{
+    std::wstring prefix = cache_dir.filename().native();
+    prefix += kDoomedSuffix;
+    // 走査中に消すと列挙が飛ぶことがあるので、集めてから消す。
+    std::pmr::vector<std::filesystem::path> doomed;
+    std::error_code ec;
+    for (auto it = std::filesystem::directory_iterator(cache_dir.parent_path(), ec); !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
+        if (it->path().filename().native().starts_with(prefix)) {
+            doomed.push_back(it->path());
+        }
+    }
+    for (const auto& dir : doomed) {
+        std::error_code remove_ec;
+        std::filesystem::remove_all(dir, remove_ec);
+    }
+}
 
 } // namespace
 
@@ -82,6 +104,10 @@ MermaidFileCache::IndexState& MermaidFileCache::Index()
 {
     if (!index_) {
         index_ = LoadIndex();
+        // 消し損ねたフォルダは図のキャッシュを初めて使うときに掃除する。起動を塞がないよう worker があるときだけ。
+        if (scheduler_) {
+            RemoveDoomedDirsAsync();
+        }
     }
     return *index_;
 }
@@ -367,7 +393,7 @@ void MermaidFileCache::Clear()
     // 以降の書き込みは新しく作るフォルダへ着地し、移した側の読み込みは見つからずに作り直しへ回る。
     // 索引に載っていない PNG (索引を書き戻す前に落ちたときなど) も残らない。
     auto doomed = cache_dir_;
-    doomed += std::format(L".deleting-{}", GetTickCount64());
+    doomed += std::format(L"{}{}", kDoomedSuffix, GetTickCount64());
     std::error_code ec;
     std::filesystem::rename(cache_dir_, doomed, ec);
     if (ec) {
@@ -380,12 +406,17 @@ void MermaidFileCache::Clear()
         }
         return;
     }
-    const auto remove_all = [doomed = std::move(doomed)] {
-        std::error_code remove_ec;
-        std::filesystem::remove_all(doomed, remove_ec);
-    };
-    if (!scheduler_ || !scheduler_->Post(remove_all)) {
-        remove_all();
+    RemoveDoomedDirsAsync();
+}
+
+void MermaidFileCache::RemoveDoomedDirsAsync()
+{
+    if (cache_dir_.empty()) {
+        return;
+    }
+    const auto remove = [dir = cache_dir_] { RemoveDoomedDirs(dir); };
+    if (!scheduler_ || !scheduler_->Post(remove)) {
+        remove();
     }
 }
 

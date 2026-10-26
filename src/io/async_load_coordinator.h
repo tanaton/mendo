@@ -71,8 +71,8 @@ public:
 
 private:
     // worker スレッド本体。I/O → リロード差分判定 → Parse → Estimate の各段で gen/stop を確認する。
-    void RunWorker(const std::pmr::wstring& path, uint32_t gen, const Theme& theme, float content_width, const std::stop_token& stop_token,
-                   ReloadBase reload_base);
+    void RunWorker(TaskScheduler& scheduler, const std::pmr::wstring& path, uint32_t gen, const Theme& theme, float content_width,
+                   const std::stop_token& stop_token, ReloadBase reload_base);
     // sink 書き込みは Cancel との直列化のため lock 内で gen を再確認してから行う。
     void Publish(uint32_t gen, AsyncLoadOutcome outcome);
     static std::expected<LoadedFileDoc, FileLoadError> LoadFromDisk(const std::pmr::wstring& path, const std::stop_token& /*stop_token*/)

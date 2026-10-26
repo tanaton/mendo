@@ -72,7 +72,8 @@ class App {
     friend class AppHost;
 
 public:
-    explicit App(ConfigService& config) noexcept : config_(config)
+    // modal_loop はポップアップを本体のメッセージループで回させる先。
+    App(ConfigService& config, ModalLoop& modal_loop) noexcept : config_(config), modal_loop_(modal_loop)
     {}
     bool Init(HWND hwnd);
 
@@ -406,6 +407,9 @@ private:
     bool DeferReloadWhileSelecting();
 
     void CancelPendingResources();
+    // 読み込みの開始時に捨てた画像・図の待ちを、文書を差し替えずに終わったら (失敗・取り消し・開き直し・
+    // 読み直しの見送り) 表示を続ける文書のぶんだけ要求し直す。
+    void RequestDroppedResourcesAgain();
     // リロード用。中身が変わらないノードの計測結果を引き継いでから差し替える。
     // ends は worker が数えた変わらなかったノード数。無ければここで数える。Y の組み直しは FinishReload に任せる。
     layout::CarryOverResult ReloadDocument(Document next, LayoutCache estimated, std::optional<UnchangedEnds> ends);
@@ -428,6 +432,9 @@ private:
     SystemCursors cursors_;
     Tooltip tooltip_;
     bool in_modal_loop_ = false;
+    ModalLoop& modal_loop_;
+    // 別のファイルを読み始めたときに旧文書の画像・図の待ちを捨てた。文書を差し替えたら外す。
+    bool resources_dropped_for_load_ = false;
 
     Renderer renderer_;
     TaskScheduler scheduler_;

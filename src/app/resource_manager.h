@@ -110,8 +110,12 @@ public:
         const auto& nodes = deps_.doc->GetNodes();
         bool any_applied = false;
         for (size_t i : VisibleSlice(deps_.doc->GetDiagramNodeIndices(), range.first, range.last_plus_1)) {
+            // 結果を残しているエントリ (仮表示で引き継いだ図など) にはハッシュも残し、RequestRender に計算し直させない。
+            const auto compute = [&node = nodes[i]] { return mermaid_util::DiagramCodeHash(node); };
+            auto* const diagram = deps_.cache->FindDiagram(i);
+            const uint64_t code_hash = diagram ? diagram->EnsureCodeHash(compute) : compute();
             MermaidFileCache::CacheEntry fentry;
-            if (deps_.mermaid_file_cache->LookupDiagram(mermaid_util::DiagramCodeHash(nodes[i]), content_width, dark_mode, fentry)) {
+            if (deps_.mermaid_file_cache->LookupDiagram(code_hash, content_width, dark_mode, fentry)) {
                 const float node_width = layout::NodeContentWidth(nodes[i], theme, content_width);
                 // 引き継いだ図は高さが変わらないので、Y の再計算を呼ばせない。
                 const float height = layout::BitmapDisplayHeight(fentry.css_width, fentry.css_height, node_width);

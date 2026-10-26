@@ -1,4 +1,5 @@
 #pragma once
+#include "ui_types.h"
 #include <windows.h>
 #include <string>
 #include <string_view>
@@ -9,13 +10,14 @@
 class App;
 class ConfigService;
 
-class Win32Window {
+class Win32Window final : public ModalLoop {
 public:
     explicit Win32Window(ConfigService& config);
     ~Win32Window();
 
     bool Create(HINSTANCE hInstance, int nCmdShow);
     int RunMessageLoop();
+    void RunUntil(const bool& done) override;
 
     void SetInitialDirectory(std::wstring_view dir_path);
     void StartPreloadAsync(std::pmr::wstring path);
@@ -24,6 +26,8 @@ public:
     void RestoreScrollPosition();
 
 private:
+    // WM_QUIT を受けたら終了コードを、done が立ったら nullopt を返す。
+    std::optional<int> PumpMessages(const bool& done);
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT OnNcCalcSize(WPARAM wParam, LPARAM lParam);

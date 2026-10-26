@@ -32,6 +32,15 @@ void App::CancelPendingResources()
     image_loader_.DropQueued();
 }
 
+void App::RequestDroppedResourcesAgain()
+{
+    if (!std::exchange(resources_dropped_for_load_, false)) {
+        return;
+    }
+    resource_manager_.ScheduleBitmapManage();
+    Invalidate();
+}
+
 void App::ResetViewForNewDocument()
 {
     // 同一文書の再パースと違い、サイドペインのスクロールも先頭へ戻す。
@@ -123,6 +132,7 @@ void App::ReplaceDocument(Document next, LayoutCache estimated)
 {
     // 以降、doc のノードと layout_cache のエントリは常に同数 (描画・ヒットテスト等はこれを前提にする)。
     assert(estimated.size() == next.GetNodes().size());
+    resources_dropped_for_load_ = false;
     Document old = std::exchange(state_.document.doc, std::move(next));
     LayoutCache old_cache = std::exchange(state_.document.layout_cache, std::move(estimated));
     renderer_.ForgetDocumentText();
@@ -214,8 +224,12 @@ void App::LoadMarkdownFile(std::wstring_view path)
         LoadHelpDocument();
         return;
     }
-    // 旧文書の画像・図の待ちはもう要らない。読み込みに失敗して旧文書に戻ったら HandleLoadFailureFallback が要求し直す。
-    CancelPendingResources();
+    // 旧文書の画像・図の待ちはもう要らない。差し替えずに終わったら RequestDroppedResourcesAgain が要求し直す。
+    // 開いている文書を開き直すとリロードとして扱われ、図と画像はコードやパスがキーなので待ちをそのまま使える。
+    if (!path_util::iequal(path, state_.document.doc.GetFilePath())) {
+        CancelPendingResources();
+        resources_dropped_for_load_ = true;
+    }
     BeginAsyncLoad(std::pmr::wstring{ path }, /*show_animation=*/true);
 }
 
@@ -229,6 +243,7 @@ void App::CancelOtherFileLoad()
     StopLoadingAnimation();
     file_load_service_.CancelAsyncLoad();
     file_watcher_.ResumeWatching();
+    RequestDroppedResourcesAgain();
 }
 
 // Init (RestoreTheme) 前に呼ばれるため、推定用のテーマは設定から直接作る。
@@ -252,11 +267,6 @@ void App::HandleLoadFailureFallback(std::optional<FileLoadError> error)
     Dispatch(LoadFailedAction{});
     if (state_.document.doc.IsEmpty()) {
         LoadHelpDocument();
-    }
-    else {
-        // 読み込み開始時に捨てた画像・図の待ちを、表示を続ける旧文書のぶんだけ要求し直す。
-        resource_manager_.ScheduleBitmapManage();
-        Invalidate();
     }
 }
 
@@ -283,6 +293,10 @@ void App::OnParseComplete()
             "OnParseComplete: reload worker_diff={} node_count={} diff_pos={} new_size={} op={}",
             result->reload.has_value(), result->doc.GetNodes().size(), plan.reload->diff_pos,
             result->doc.GetRawText().size(), std::to_underlying(plan.reload->op));
+    }
+
+    if (plan.step != ParseCompleteStep::ReplaceWithResult) {
+        RequestDroppedResourcesAgain();
     }
 
     switch (plan.step) {

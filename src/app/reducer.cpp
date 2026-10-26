@@ -711,15 +711,11 @@ void ReduceSelectWord(AppState& state, SideEffectList& effects, const SelectWord
     if (a.node_index < 0 || a.node_index >= static_cast<int>(nodes.size())) {
         return;
     }
-    const std::string_view text = nodes[a.node_index].GetText();
-    if (text.empty()) {
-        return;
-    }
-    const auto wb = FindWordBoundaries(text, a.text_pos);
+    const auto wb = FindNodeWordBoundaries(nodes, static_cast<size_t>(a.node_index), a.text_pos);
     if (!wb.found) {
         return;
     }
-    state.view.viewport.SetSelection(TextSelection::MakeOrdered(a.node_index, wb.start, a.node_index, wb.end));
+    state.view.viewport.SetSelection(TextSelection::MakeOrdered(static_cast<int>(wb.start_node), wb.start, static_cast<int>(wb.end_node), wb.end));
     PushEffect(effects, effect::InvalidateWindow{});
 }
 

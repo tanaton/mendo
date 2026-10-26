@@ -266,11 +266,11 @@ struct NodeLayoutEntry {
         return cached_width > 0.0f;
     }
     bool layout_dirty = true;
-    // 計測が例外で失敗した連続回数 (成功で 0 に戻る)。
+    // 計測に失敗した (例外か、測れなかった) 連続回数 (成功で 0 に戻る)。
     uint8_t measure_failures = 0;
 
-    // 計測した高さを確定する。height・layout_dirty・cached_*・measure_failures を計測の結果として書くのはここだけ。
-    // layout_width は組んだ幅 (NodeLayoutWidth)。
+    // 計測した高さを確定する。height・layout_dirty・cached_*・measure_failures を計測の結果として書くのは
+    // ここと RecordMeasureFailure だけ。layout_width は組んだ幅 (NodeLayoutWidth)。
     constexpr void CommitMeasured(float layout_width, float measured_height) noexcept
     {
         height = measured_height;
@@ -278,6 +278,19 @@ struct NodeLayoutEntry {
         cached_width = layout_width;
         cached_height = measured_height;
         measure_failures = 0;
+    }
+    // 測れなかったことを記録し、まだ再試行するなら true。上限に達したら dirty を外して諦め、
+    // 描画のたびに同じノードを測り直して失敗し続けない。諦めた後に再び dirty になって失敗しても一周しないよう頭打ちにする。
+    constexpr bool RecordMeasureFailure(uint8_t max_attempts) noexcept
+    {
+        if (measure_failures < max_attempts) {
+            ++measure_failures;
+        }
+        if (measure_failures >= max_attempts) {
+            layout_dirty = false;
+            return false;
+        }
+        return true;
     }
 
     // 以降は計測・描画したノードでしか使わないので aux_ に置き、全ノード分は持たない。
@@ -518,6 +531,14 @@ struct DiagramEntry {
     // 図のコード部分のハッシュ (mermaid_util::DiagramCodeHash)。0 は未計算。ノードのテキストだけで決まるので、
     // 結果を捨てても (幅・テーマの変更を含む) 残し、結果を待つ図を要求し直すたびにテキストを読み直さない。
     uint64_t code_hash = 0;
+    // code_hash が未計算なら compute (DiagramCodeHash) で求めて残す。
+    uint64_t EnsureCodeHash(auto&& compute)
+    {
+        if (code_hash == 0) {
+            code_hash = compute();
+        }
+        return code_hash;
+    }
     // bitmap・寸法・png は前のコード・幅・テーマで描いたもの。描き直しの間にプレースホルダへ戻って
     // 高さが 2 回変わらないよう、新しい結果が届くまで仮に表示する。
     bool stale = false;
@@ -666,7 +687,7 @@ public:
         materialized_end_ = std::max(materialized_end_, last_inclusive + 1);
     }
 
-    // 計測が例外で失敗し続けるノードの試行回数の上限 (NodeLayoutEntry::measure_failures)。
+    // 計測に失敗し続けるノードの試行回数の上限 (NodeLayoutEntry::measure_failures)。
     // 超えたら dirty を外して諦め、遅延レイアウトが同じノードを毎回計測し続けるのを止める。
     static constexpr uint8_t kMaxMeasureAttempts = 3;
 

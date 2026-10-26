@@ -83,10 +83,10 @@ public:
 
     // ファクトリ。本体は (text, byte_size, path) の 3 引数版で、text は LF 正規化済み (FileLoader 出力) であること。
     // 2 引数版は byte_size 計算と LF 正規化を内蔵した便利ラッパー (テスト / Help リソース経路、入力は BOM 無し前提)。
-    // 既定の stop_token ではキャンセルしない。
+    // 既定の stop_token ではキャンセルしない。scheduler はパースの一部を並列にする先 (ParseMarkdown)。
     static Document FromMarkdown(
         std::pmr::string text, size_t byte_size, std::wstring_view path,
-        std::stop_token stop_token = {});
+        std::stop_token stop_token = {}, TaskScheduler* scheduler = nullptr);
     static Document FromMarkdown(std::pmr::string utf8, std::wstring_view path);
 
     const std::pmr::vector<Node>& GetNodes() const noexcept

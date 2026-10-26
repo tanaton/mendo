@@ -280,10 +280,17 @@ void DWriteTextMeasurer::WarmUp(TaskScheduler& scheduler) const
         }
     };
     // ワーカーの組はタスクを取ったワーカーで作られる。作り終えたワーカーは全員がそろうまで待ち、1 本に 1 つずつ行き渡らせる。
+    // 計測と違って UI スレッドを待たせないので、その間にズームなどで書き換わるテーマと ctx_ は読まず、今の値を渡す。
     const auto workers = static_cast<std::ptrdiff_t>(scheduler.WorkerCount());
     const auto arrived = std::make_shared<std::latch>(workers);
+    const auto theme = std::make_shared<const Theme>(*theme_);
     for (std::ptrdiff_t i = 0; i < workers; ++i) {
-        if (!scheduler.Post([this, arrived] { warm(Context()); arrived->arrive_and_wait(); })) {
+        if (!scheduler.Post([theme, generation = ctx_.generation, arrived] {
+            if (const auto* ctx = ThreadContext(*theme, generation)) {
+                warm(*ctx);
+            }
+            arrived->arrive_and_wait();
+        })) {
             arrived->count_down();
         }
     }
@@ -315,23 +322,29 @@ bool DWriteTextMeasurer::RecreateFormats()
     return CreateFormats(*theme_, ctx_);
 }
 
+const DWriteTextMeasurer::DWriteContext* DWriteTextMeasurer::ThreadContext(const Theme& theme, uint64_t generation)
+{
+    thread_local DWriteContext t_ctx;
+    if (t_ctx.generation != generation) {
+        if (!t_ctx.factory) {
+            DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(t_ctx.factory.GetAddressOf()));
+        }
+        if (!t_ctx.factory || !CreateFormats(theme, t_ctx)) {
+            return nullptr;
+        }
+        t_ctx.generation = generation;
+    }
+    return &t_ctx;
+}
+
 const DWriteTextMeasurer::DWriteContext& DWriteTextMeasurer::Context() const
 {
     if (std::this_thread::get_id() == owner_thread_) {
         return ctx_;
     }
-    thread_local DWriteContext t_ctx;
-    if (t_ctx.generation != ctx_.generation) {
-        if (!t_ctx.factory) {
-            DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(t_ctx.factory.GetAddressOf()));
-        }
-        // 作れなければ共有ファクトリで測る (競合で遅いだけで結果は同じ)。
-        if (!t_ctx.factory || !CreateFormats(*theme_, t_ctx)) {
-            return ctx_;
-        }
-        t_ctx.generation = ctx_.generation;
-    }
-    return t_ctx;
+    // 作れなければ共有ファクトリで測る (競合で遅いだけで結果は同じ)。
+    const auto* ctx = ThreadContext(*theme_, ctx_.generation);
+    return ctx ? *ctx : ctx_;
 }
 
 IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const DWriteContext& ctx, const Node& node) noexcept

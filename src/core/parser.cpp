@@ -1,5 +1,6 @@
 #include "parser.h"
 #include "parser_alerts.h"
+#include "document_utils.h"
 #include "syntax.h"
 #include "profiler.h"
 #include "utility.h"
@@ -130,6 +131,8 @@ struct ParseContext {
     // 区切らずにブロックが終わったら前のノードに戻す。SOFTBR は代わりの空白を前のノードに足してから待つ。
     uint32_t pending_newlines = 0;
     bool pending_joined = false;
+    // 区切った (色分けする) コードブロックの並びの先頭。パースを終えてから AnnotateCodeChunkLeads に渡す。
+    std::pmr::vector<size_t> split_code_runs;
 
     // 現在ノードのテキストを arena へコピーすることが確定しているか。span markup (** _ ` 等) の存在や、
     // entity 解決 / BR / SOFTBR で text を置換するケースは current_text と raw_slice が
@@ -264,6 +267,9 @@ struct ParseContext {
         const std::string_view link_url = OpenLinkUrl();
         const NodeType type = current_node->type;
         const SyntaxLanguage language = current_node->code_language();
+        if (type == NodeType::CodeBlock && language != SyntaxLanguage::None && !current_node->continues_prev()) {
+            split_code_runs.push_back(CurrentNodeIndex());
+        }
         current_node->set_continues_next();
         BeginNode(type);
         current_node->set_code_language(language);
@@ -300,14 +306,41 @@ struct ParseContext {
         pending_joined = false;
     }
 
+    // window の中で最後の和文の句読点 (、。，．！？) の直後。無ければ npos。
+    // 1 バイトずつ調べると、句読点の無い 16MB の 1 行で毎回窓を調べ切り、パースが約 3ms (3 割) 遅くなる。
+    // 2 バイト目 (0x80 / 0xBC) は和文でもまれなので、ベクトル化される find_last_of でまとめて探してから前後を確かめる。
+    static size_t FindLastCjkPunctuationEnd(std::string_view window) noexcept
+    {
+        constexpr std::string_view kSecondBytes = "\x80\xBC";
+        for (size_t mid = window.find_last_of(kSecondBytes); mid != std::string_view::npos && mid > 0;
+             mid = window.find_last_of(kSecondBytes, mid - 1)) {
+            if (mid + 1 >= window.size()) {
+                continue;
+            }
+            const auto b0 = static_cast<uint8_t>(window[mid - 1]);
+            const auto b1 = static_cast<uint8_t>(window[mid]);
+            const auto b2 = static_cast<uint8_t>(window[mid + 1]);
+            if ((b0 == 0xE3 && b1 == 0x80 && (b2 == 0x81 || b2 == 0x82)) ||
+                (b0 == 0xEF && b1 == 0xBC && (b2 == 0x81 || b2 == 0x8C || b2 == 0x8E || b2 == 0x9F))) {
+                return mid + 2;
+            }
+        }
+        return std::string_view::npos;
+    }
+
     // chunk を先頭から target バイト付近で区切る位置 (target < chunk.size())。前後 kTextChunkWindow にある最後の空白の
-    // 直後で区切り、空白が無ければ target の手前の文字の境目で区切る。後ろに必ず 1 バイト以上残す。
+    // 直後で区切り、空白が無ければ和文の句読点の直後、それも無ければ target の手前の文字の境目で区切る。
+    // 語の途中で区切ると、見た目も語の途中で改行し、検索や語の選択も継ぎ目をつながないと切れる。後ろに必ず 1 バイト以上残す。
     static size_t FindChunkCut(std::string_view chunk, size_t target) noexcept
     {
         const size_t lo = target > kTextChunkWindow ? target - kTextChunkWindow : 0;
         const size_t hi = std::min(chunk.size() - 1, target + kTextChunkWindow);
-        if (const size_t space = chunk.substr(lo, hi - lo).find_last_of(" \t"); space != std::string_view::npos) {
+        const std::string_view window = chunk.substr(lo, hi - lo);
+        if (const size_t space = window.find_last_of(" \t"); space != std::string_view::npos) {
             return lo + space + 1;
+        }
+        if (const size_t punct = FindLastCjkPunctuationEnd(window); punct != std::string_view::npos) {
+            return lo + punct;
         }
         // 文字の境目まで戻れないほど壊れた UTF-8 でも、区切りが進むよう target で切る。
         const size_t cut = utf8_codec::SnapToCpStart(chunk, static_cast<uint32_t>(target));
@@ -332,14 +365,47 @@ struct ParseContext {
             ApplyPendingSplit();
             RecordSourceOffset(chunk);
         }
+        // 区切る処理は 1 か所にまとめる。コードの区切りを別の関数にして区切りの補助関数を呼ぶと、段落の長い 1 行の
+        // 区切りが 16MB で 1ms (8%) 遅くなる (呼ばない関数として置くだけなら変わらないので、展開のされ方による)。
+        std::pmr::string indent;
         while (current_text.size() + chunk.size() > kTextChunkTarget + kTextChunkWindow && CanSplitCurrentNode()) {
-            const size_t cut = FindChunkCut(chunk, kTextChunkTarget - std::min(current_text.size(), kTextChunkTarget));
-            AppendDoc(chunk.substr(0, cut));
-            SplitCurrentNode(false);
+            const size_t line_begin = CodeLineBeginToMove(chunk);
+            size_t cut = 0;
+            if (line_begin != std::string_view::npos) {
+                // 行の頭に積んだ字下げは続きのノードへ移す。コードには run が無いので、テキストと改行の数だけ直せばよい。
+                FlushPendingRun();
+                indent.assign(std::string_view{ current_text }.substr(line_begin));
+                current_text.resize(line_begin - 1);
+                current_node->line_count--;
+            }
+            else {
+                cut = FindChunkCut(chunk, kTextChunkTarget - std::min(current_text.size(), kTextChunkTarget));
+                AppendDoc(chunk.substr(0, cut));
+            }
+            SplitCurrentNode(line_begin != std::string_view::npos);
+            if (!indent.empty()) {
+                AppendDoc(indent);
+                indent.clear();
+            }
             chunk.remove_prefix(cut);
             RecordSourceOffset(chunk);
         }
         return chunk;
+    }
+
+    // コードブロックで、chunk を足す行がノード 1 つに収まるなら、その行の頭 (current_text での位置)。そうでなければ npos で、
+    // 行の途中で区切る。前のノードが空になるときも、区切っても行の途中で区切るのと変わらないので npos。
+    size_t CodeLineBeginToMove(std::string_view chunk) const noexcept
+    {
+        if (current_node->type != NodeType::CodeBlock) {
+            return std::string_view::npos;
+        }
+        const size_t newline = current_text.rfind('\n');
+        if (newline == std::string_view::npos || newline == 0) {
+            return std::string_view::npos;
+        }
+        const size_t line_begin = newline + 1;
+        return current_text.size() - line_begin + chunk.size() <= kTextChunkTarget + kTextChunkWindow ? line_begin : std::string_view::npos;
     }
 
     // 改行 ("\n" か、SOFTBR の代わりの " ") を足す。区切りの目安に近ければ、ここを区切りの候補にする。
@@ -1233,7 +1299,7 @@ void ReserveForInput(ParseContext& ctx, size_t input_size)
 
 } // namespace
 
-ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token)
+ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token, TaskScheduler* scheduler)
 {
     MENDO_PROFILE("ParseMarkdown");
     const size_t input_size = markdown_text.size();
@@ -1267,6 +1333,11 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     }
 
     AppendFootnoteBackrefs(ctx.nodes, *ctx.arena, ctx.indices.footnote_def_indices, ctx.footnote_ref_counts);
+
+    for (const size_t first : ctx.split_code_runs) {
+        const size_t last = ChunkRunLast(ctx.nodes, first);
+        AnnotateCodeChunkLeads(std::span{ ctx.nodes }.subspan(first, last - first + 1), scheduler);
+    }
 
     {
         MENDO_PROFILE("DetectAlerts");
