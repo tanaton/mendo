@@ -36,6 +36,7 @@ struct Theme {
     std::wstring font_family;
     // 本文の書式に渡すロケール (i18n::TextLocale)。
     const wchar_t* text_locale = L"ja-jp";
+    // 解決前は候補の先頭、Renderer::ResolveThemeFonts の後は実在する候補。
     std::wstring monospace_font;
     std::wstring icon_font;
 

@@ -348,10 +348,33 @@ void AppendHighlightedCode(
 
 constexpr std::string_view kCodeBlockClose = "</code></pre>";
 
+// font-family をテーマのフォント候補から組むためにコンパイル時に連結する。
+constexpr std::string BuildCodeBlockStyleTail()
+{
+    std::string s = ";padding:12px;border-radius:4px;overflow:auto;font-family:";
+    for (const std::wstring_view name : theme_palette::kMonospaceFontCandidates) {
+        s += '\'';
+        for (const wchar_t c : name) {
+            if (c >= 0x80) {
+                throw "font candidate must be ASCII"; // 定数評価中なのでコンパイルエラーになる
+            }
+            s += static_cast<char>(c);
+        }
+        s += "',";
+    }
+    s += "monospace;font-size:13px;line-height:1.45;\"><code>";
+    return s;
+}
+
+// constexpr の std::string は定数評価の外へ持ち出せないので固定長配列に写す。
+constexpr auto kCodeBlockStyleTailBuf = [] {
+    std::array<char, BuildCodeBlockStyleTail().size()> buf{};
+    std::ranges::copy(BuildCodeBlockStyleTail(), buf.begin());
+    return buf;
+}();
+constexpr std::string_view kCodeBlockStyleTail(kCodeBlockStyleTailBuf.data(), kCodeBlockStyleTailBuf.size());
 void AppendCodeBlockOpen(std::pmr::string& out, bool dark_mode)
 {
-    constexpr std::string_view kStyleTail =
-        ";padding:12px;border-radius:4px;overflow:auto;font-family:'Cascadia Mono',Consolas,'Courier New',monospace;font-size:13px;line-height:1.45;\"><code>";
     const auto& palette = PaletteFor(dark_mode);
     out.append("<pre style=\"background-color:");
     AppendHexColor(out, palette.code_bg);
@@ -360,7 +383,7 @@ void AppendCodeBlockOpen(std::pmr::string& out, bool dark_mode)
         out.append(";color:");
         AppendHexColor(out, palette.code_text);
     }
-    out.append(kStyleTail);
+    out.append(kCodeBlockStyleTail);
 }
 
 constexpr void AppendTableCellStyle(std::pmr::string& out, TableAlign align, bool dark_mode)
