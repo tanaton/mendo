@@ -340,14 +340,12 @@ namespace {
 
 bool NodeContentEquals(const Node& a, const Node& b) noexcept
 {
-    // 続きのコードの色分けは前のノードから続くトークンでも決まる。
-    if (a.code_lead_length() != b.code_lead_length() || a.code_lead_type() != b.code_lead_type()) {
-        return false;
-    }
+    // 続きのコードの色分けは前のノードから続くトークン (code_lead_*) でも決まる。
     if (a.type != b.type || a.alert_type != b.alert_type || a.quote_depth != b.quote_depth ||
         a.quote_outer_indent != b.quote_outer_indent || a.indent_level != b.indent_level || a.line_count != b.line_count ||
         a.heading_level() != b.heading_level() || a.code_language() != b.code_language() || a.flags_ != b.flags_ ||
-        a.list_number() != b.list_number() || a.alert_label_length() != b.alert_label_length()) {
+        a.list_number() != b.list_number() || a.alert_label_length() != b.alert_label_length() ||
+        a.code_lead_length() != b.code_lead_length() || a.code_lead_type() != b.code_lead_type()) {
         return false;
     }
     // 参照定義が後ろで変わると、前のノードはテキストが同じでもリンク先が変わる。
@@ -440,23 +438,21 @@ std::pmr::vector<SyntaxToken> TokenizeCodeNode(const Node& node)
     }
     // 前のノードをつないで字句解析し直すと、1 ノードしか遡れず (16KB を超えるコメントや文字列の 3 つ目以降のノードで崩れる)、
     // 解析も 2 倍かかる (syntax.cpp の 16KB ノードで 47 → 97µs)。続くトークンの後ろは、トークンの外から解析を始めたのと同じになる。
-    auto rest = Tokenize(text.substr(lead), node.code_language());
-    std::pmr::vector<SyntaxToken> tokens;
-    tokens.reserve(rest.size() + 1);
-    tokens.push_back({ 0, lead, node.code_lead_type() });
-    for (const auto& t : rest) {
-        tokens.push_back({ t.start + lead, t.length, t.type });
+    auto tokens = Tokenize(text.substr(lead), node.code_language());
+    for (auto& t : tokens) {
+        t.start += lead;
     }
+    tokens.insert(tokens.begin(), { 0, lead, node.code_lead_type() });
     return tokens;
 }
 
 namespace {
 
-// 区切ったコードの並びをつないだテキストでの、各ノードの始まりと終わり。
-struct CodeRunSpans {
-    std::pmr::vector<size_t> begins;
-    std::pmr::vector<size_t> ends;
-};
+// 区切ったコードの並びをつないだテキストでの、ノード k の終わり。begins は各ノードの始まり。
+size_t RunEnd(std::span<const Node> run, std::span<const size_t> begins, size_t k) noexcept
+{
+    return begins[k] + run[k].GetText().size();
+}
 
 // 解析の進み具合。next は続くトークンがまだ決まっていない最初のノード、restart は次に解析を始められる位置
 // (トークンの先頭か、どのトークンにも入らない位置)。
@@ -468,14 +464,14 @@ struct AnnotateCursor {
 // 並びの [c.restart, ノード last - 1 の終わり) を 1 つの窓として字句解析し、続くトークンが決まった継ぎ目 (c.next から
 // last 未満) に書いて c を進める。窓の端 (並びの終わりでない) に届いたトークンは窓の先まで続くかもしれないので決めず、
 // その先頭から解析し直させる。
-void AnnotateWindow(std::span<Node> run, const CodeRunSpans& spans, AnnotateCursor& c, size_t last, std::pmr::string& seg)
+void AnnotateWindow(std::span<Node> run, std::span<const size_t> begins, AnnotateCursor& c, size_t last, std::pmr::string& seg)
 {
     const size_t restart = c.restart;
-    const size_t end = spans.ends[last - 1];
-    size_t j = static_cast<size_t>(std::ranges::upper_bound(spans.begins, restart) - spans.begins.begin()) - 1;
+    const size_t end = RunEnd(run, begins, last - 1);
+    size_t j = static_cast<size_t>(std::ranges::upper_bound(begins, restart) - begins.begin()) - 1;
     const std::string_view head = run[j].GetText();
     seg.reserve(end - restart);
-    seg.assign(head.substr(std::min(restart - spans.begins[j], head.size())));
+    seg.assign(head.substr(std::min(restart - begins[j], head.size())));
     for (++j; j < last; ++j) {
         seg.append(ChunkSeparator(run[j])).append(run[j].GetText());
     }
@@ -485,14 +481,14 @@ void AnnotateWindow(std::span<Node> run, const CodeRunSpans& spans, AnnotateCurs
         limit = restart + tokens.back().start;
     }
     size_t t = 0;
-    for (; c.next < last && spans.begins[c.next] <= limit; ++c.next) {
-        const size_t b = spans.begins[c.next];
+    for (; c.next < last && begins[c.next] <= limit; ++c.next) {
+        const size_t b = begins[c.next];
         while (t < tokens.size() && restart + tokens[t].start + tokens[t].length <= b) {
             ++t;
         }
         if (t < tokens.size() && restart + tokens[t].start < b) {
             const size_t token_end = restart + tokens[t].start + tokens[t].length;
-            run[c.next].set_code_lead(static_cast<uint32_t>(std::min(token_end, spans.ends[c.next]) - b), tokens[t].type);
+            run[c.next].set_code_lead(static_cast<uint32_t>(std::min(token_end, RunEnd(run, begins, c.next)) - b), tokens[t].type);
         }
         else {
             run[c.next].set_code_lead(0, SyntaxTokenType::Plain);
@@ -510,13 +506,12 @@ void AnnotateCodeChunkLeads(std::span<Node> run, TaskScheduler* scheduler)
     if (n < 2) {
         return;
     }
-    CodeRunSpans spans{ std::pmr::vector<size_t>(n), std::pmr::vector<size_t>(n) };
+    std::pmr::vector<size_t> begins(n);
     size_t pos = 0;
     for (size_t j = 0; j < n; ++j) {
         pos += j > 0 ? ChunkSeparator(run[j]).size() : 0;
-        spans.begins[j] = pos;
+        begins[j] = pos;
         pos += run[j].GetText().size();
-        spans.ends[j] = pos;
     }
 
     // 並びを前から順に解析すると、16MB のコードでパースが 18ms から 80ms になる (区間に分けて worker 4 本に配ると 32ms)。
@@ -531,8 +526,8 @@ void AnnotateCodeChunkLeads(std::span<Node> run, TaskScheduler* scheduler)
         std::pmr::string seg;
         for (size_t s = begin; s < end; ++s) {
             const size_t first = s * kSegmentNodes;
-            spec[s] = { first + 1, spans.begins[first] };
-            AnnotateWindow(run, spans, spec[s], std::min(n, first + kSegmentNodes), seg);
+            spec[s] = { first + 1, begins[first] };
+            AnnotateWindow(run, begins, spec[s], std::min(n, first + kSegmentNodes), seg);
         }
     });
 
@@ -541,7 +536,7 @@ void AnnotateCodeChunkLeads(std::span<Node> run, TaskScheduler* scheduler)
     size_t window = kWindowNodes;
     while (c.next < n) {
         // 区間の先頭のノードは先読みでも書かないので、作ったときのまま (続くトークン無し) でよい。
-        if (c.next % kSegmentNodes == 0 && c.restart == spans.ends[c.next - 1]) {
+        if (c.next % kSegmentNodes == 0 && c.restart == RunEnd(run, begins, c.next - 1)) {
             c = spec[c.next / kSegmentNodes];
             continue;
         }
@@ -549,7 +544,7 @@ void AnnotateCodeChunkLeads(std::span<Node> run, TaskScheduler* scheduler)
         // 1 つのトークンが窓を越えて解析を始める位置が進まないときは、終わりが見つかるまで窓を広げる。
         const size_t last = std::min(n, (c.next + window + kSegmentNodes - 1) / kSegmentNodes * kSegmentNodes);
         const size_t before = c.restart;
-        AnnotateWindow(run, spans, c, last, seg);
+        AnnotateWindow(run, begins, c, last, seg);
         window = last < n && c.restart == before ? window * 2 : kWindowNodes;
     }
 }

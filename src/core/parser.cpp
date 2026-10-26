@@ -370,8 +370,9 @@ struct ParseContext {
         std::pmr::string indent;
         while (current_text.size() + chunk.size() > kTextChunkTarget + kTextChunkWindow && CanSplitCurrentNode()) {
             const size_t line_begin = CodeLineBeginToMove(chunk);
+            const bool move_line = line_begin != std::string_view::npos;
             size_t cut = 0;
-            if (line_begin != std::string_view::npos) {
+            if (move_line) {
                 // 行の頭に積んだ字下げは続きのノードへ移す。コードには run が無いので、テキストと改行の数だけ直せばよい。
                 FlushPendingRun();
                 indent.assign(std::string_view{ current_text }.substr(line_begin));
@@ -382,7 +383,7 @@ struct ParseContext {
                 cut = FindChunkCut(chunk, kTextChunkTarget - std::min(current_text.size(), kTextChunkTarget));
                 AppendDoc(chunk.substr(0, cut));
             }
-            SplitCurrentNode(line_begin != std::string_view::npos);
+            SplitCurrentNode(move_line);
             if (!indent.empty()) {
                 AppendDoc(indent);
                 indent.clear();

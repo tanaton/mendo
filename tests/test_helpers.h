@@ -55,13 +55,19 @@ inline Node MakeTextNode(const char* text)
     return n;
 }
 
-// パーサが区切ったテキストノードの並び。newline_before なら継ぎ目に改行を挟む。
-inline std::pmr::vector<Node> ChunkedTextNodes(std::initializer_list<const char*> texts, bool newline_before = false)
+inline std::pmr::vector<Node> TextNodes(std::initializer_list<const char*> texts)
 {
     std::pmr::vector<Node> nodes;
     for (const char* text : texts) {
         nodes.push_back(MakeTextNode(text));
     }
+    return nodes;
+}
+
+// パーサが区切ったテキストノードの並び。newline_before なら継ぎ目に改行を挟む。
+inline std::pmr::vector<Node> ChunkedTextNodes(std::initializer_list<const char*> texts, bool newline_before = false)
+{
+    auto nodes = TextNodes(texts);
     for (size_t i = 0; i + 1 < nodes.size(); ++i) {
         nodes[i].set_continues_next();
         nodes[i + 1].set_continues_prev(newline_before);

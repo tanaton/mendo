@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdint>
 #include <memory_resource>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -21,6 +22,13 @@ struct SearchMatch {
     uint32_t length_w = 0;
     uint32_t next_length_w = 0;
 };
+
+// matches[first] がノード node の最初のマッチ (無ければ node より後ろの最初のマッチ) のとき、
+// 前のノードのマッチが node の先頭へはみ出した長さ。
+constexpr uint32_t SpillLengthInto(std::span<const SearchMatch> matches, size_t first, int node) noexcept
+{
+    return first > 0 && matches[first - 1].node_index + 1 == node ? matches[first - 1].next_length_w : 0;
+}
 
 // 検索状態の管理。start_w / length_w 算出のため doc_dwrite_bridge (UTF-8↔UTF-16) に依存する。
 class SearchState {

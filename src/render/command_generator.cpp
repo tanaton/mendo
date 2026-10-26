@@ -864,9 +864,7 @@ CommandGenerator::NodeSearchMatches CommandGenerator::PrepareNodeSearchMatches(c
     const std::span<const SearchMatch> matches = *search_matches_;
     const auto range = std::ranges::equal_range(matches, node_index, {}, &SearchMatch::node_index);
     const size_t first_global = static_cast<size_t>(range.begin() - matches.begin());
-    const uint32_t spill_length_w = (first_global > 0 && matches[first_global - 1].node_index == node_index - 1)
-                                        ? matches[first_global - 1].next_length_w
-                                        : 0;
+    const uint32_t spill_length_w = SpillLengthInto(matches, first_global, node_index);
     if (range.empty() && spill_length_w == 0) {
         return {};
     }

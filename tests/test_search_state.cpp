@@ -7,15 +7,6 @@
 
 namespace {
 
-std::pmr::vector<Node> TextNodes(std::initializer_list<const char*> texts)
-{
-    std::pmr::vector<Node> nodes;
-    for (const char* text : texts) {
-        nodes.push_back(MakeTextNode(text));
-    }
-    return nodes;
-}
-
 std::pmr::vector<Node> RepeatedTextNodes(const char* text, int count)
 {
     std::pmr::vector<Node> nodes;

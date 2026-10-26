@@ -321,6 +321,14 @@ uint64_t mermaid_util::DiagramCodeHash(const Node& node) noexcept
     return h;
 }
 
+uint64_t mermaid_util::EnsureDiagramCodeHash(uint64_t& cached, const Node& node) noexcept
+{
+    if (cached == 0) {
+        cached = DiagramCodeHash(node);
+    }
+    return cached;
+}
+
 namespace {
 // 幅と dark_mode は別 prime で xor mix する。xor なのでコード側のソルトと順序を問わない。
 // ディスクキャッシュのファイル名になるので値を変えない。

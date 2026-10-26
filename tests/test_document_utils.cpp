@@ -2094,9 +2094,8 @@ TEST(ChunkCopy, ParallelCodeChunkLeadsMatchSerial)
 
     TaskScheduler scheduler;
     scheduler.Init(4);
-    const auto storage = ParseMarkdown(md, {}, &scheduler).TakeNodes();
+    const auto parallel = ParseNodes(md, &scheduler);
     scheduler.Shutdown();
-    const auto& parallel = storage.nodes;
     ASSERT_EQ(parallel.size(), serial.size());
     for (size_t i = 0; i < serial.size(); ++i) {
         SCOPED_TRACE(i);

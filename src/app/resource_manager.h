@@ -111,9 +111,9 @@ public:
         bool any_applied = false;
         for (size_t i : VisibleSlice(deps_.doc->GetDiagramNodeIndices(), range.first, range.last_plus_1)) {
             // 結果を残しているエントリ (仮表示で引き継いだ図など) にはハッシュも残し、RequestRender に計算し直させない。
-            const auto compute = [&node = nodes[i]] { return mermaid_util::DiagramCodeHash(node); };
             auto* const diagram = deps_.cache->FindDiagram(i);
-            const uint64_t code_hash = diagram ? diagram->EnsureCodeHash(compute) : compute();
+            const uint64_t code_hash = diagram ? mermaid_util::EnsureDiagramCodeHash(diagram->code_hash, nodes[i])
+                                               : mermaid_util::DiagramCodeHash(nodes[i]);
             MermaidFileCache::CacheEntry fentry;
             if (deps_.mermaid_file_cache->LookupDiagram(code_hash, content_width, dark_mode, fentry)) {
                 const float node_width = layout::NodeContentWidth(nodes[i], theme, content_width);

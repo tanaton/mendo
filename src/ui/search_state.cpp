@@ -105,7 +105,7 @@ void SearchState::KeepMatchesOfUnchangedNodes(const UnchangedEnds& ends) noexcep
     const auto node_of = [](const SearchMatch& m) static noexcept { return static_cast<size_t>(m.node_index); };
     auto first = std::ranges::lower_bound(matches_, ends.head, {}, node_of);
     // 変わった範囲の先頭のノードへはみ出したマッチも消す。
-    if (first != matches_.begin() && std::prev(first)->next_length_w > 0 && node_of(*std::prev(first)) + 1 == ends.head) {
+    if (SpillLengthInto(matches_, static_cast<size_t>(first - matches_.begin()), static_cast<int>(ends.head)) > 0) {
         --first;
     }
     const auto last = std::ranges::lower_bound(first, matches_.end(), ends.OldTailBegin(), {}, node_of);

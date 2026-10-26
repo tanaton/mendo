@@ -531,14 +531,6 @@ struct DiagramEntry {
     // 図のコード部分のハッシュ (mermaid_util::DiagramCodeHash)。0 は未計算。ノードのテキストだけで決まるので、
     // 結果を捨てても (幅・テーマの変更を含む) 残し、結果を待つ図を要求し直すたびにテキストを読み直さない。
     uint64_t code_hash = 0;
-    // code_hash が未計算なら compute (DiagramCodeHash) で求めて残す。
-    uint64_t EnsureCodeHash(auto&& compute)
-    {
-        if (code_hash == 0) {
-            code_hash = compute();
-        }
-        return code_hash;
-    }
     // bitmap・寸法・png は前のコード・幅・テーマで描いたもの。描き直しの間にプレースホルダへ戻って
     // 高さが 2 回変わらないよう、新しい結果が届くまで仮に表示する。
     bool stale = false;
