@@ -1,7 +1,7 @@
 #pragma once
 #include "document_types.h"
 #include "layout_cache.h"
-#include "lru_cache.h"
+#include "transposition_cache.h"
 #include "mermaid_renderer_interface.h"
 #include "mermaid_util.h"
 #include "utility.h"
@@ -251,8 +251,8 @@ private:
     // 再要求されるため、ここで重複を弾く (二重描画・キュー肥大の防止)。
     std::pmr::unordered_set<uint64_t> inflight_;
 
-    // code_hash -> CachedResult (LruCache の挙動は src/util/lru_cache.h 参照)。
-    LruCache<uint64_t, CachedResult, MAX_CACHE_ENTRIES> cache_;
+    // code_hash -> CachedResult (挙動は src/util/transposition_cache.h 参照)。
+    TranspositionCache<uint64_t, CachedResult, MAX_CACHE_ENTRIES> cache_;
     MermaidFileCache* file_cache_ = nullptr;
 
     TaskScheduler* bg_scheduler_ = nullptr;

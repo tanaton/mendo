@@ -157,7 +157,7 @@ void ResourceManager::EvictOffscreenBitmaps()
     deps_.cache->EvictInvisibleTableRows(VisibleSlice(deps_.doc->GetTableNodeIndices(), lr.first, lr.last_plus_1), layout_keep->keep);
 
     // image/diagram bitmap も可視範囲外の分を捨てる。レンダ済みビットマップの
-    // 二次キャッシュ (mermaid 内 LRU, 128 件) は自前で上限管理されるため全消去しない。
+    // 二次キャッシュ (mermaid 内, 128 件) は自前で上限管理されるため全消去しない。
     // 全消去すると可視中の図まで捨てて WebView2 再レンダの cliff を生むため。
     deps_.cache->EvictDiagramBitmapsOutside(keep->range.first, keep->range.last_plus_1);
 }
@@ -239,7 +239,7 @@ void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t
         const auto* d = deps_.cache->FindDiagram(i);
         const auto* cached = deps_.image_loader->FindCachedImage(*abs_path);
         if (!cached) {
-            // LRU から落ちても表示中のビットマップはそのまま使う。
+            // キャッシュから落ちても表示中のビットマップはそのまま使う。
             if (!d || !d->bitmap) {
                 request();
             }

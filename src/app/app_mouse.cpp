@@ -733,7 +733,7 @@ void App::RefreshHoverAtCursor()
         return;
     }
     // リサイズ枠やキャプションの上でカーソルを矢印に戻さない。
-    if (window_.HitTestNonClient(pt) != HTCLIENT) {
+    if (SendMessageW(hwnd_, WM_NCHITTEST, 0, MAKELPARAM(pt.x, pt.y)) != HTCLIENT) {
         return;
     }
     ScreenToClient(hwnd_, &pt);

@@ -1,5 +1,5 @@
 #pragma once
-#include "lru_cache.h"
+#include "transposition_cache.h"
 #include "mermaid_renderer_interface.h"
 #include "utility.h"
 #include "win_handle.h"
@@ -17,8 +17,8 @@ class Document;
 //   - Mermaid 等ダイアグラムの PNG 保存 (ファイルダイアログ経由)
 //   - Mermaid 等ダイアグラムのクリップボードコピー
 //       Mermaid: image/svg+xml + 画像(CF_DIB) / LaTeX: 画像(CF_DIB) のみ。
-//       SVG は非同期取得のため LRU キャッシュ付き。
-// SVG キャッシュは閲覧 1 ファイルで数十～100 entries 想定。 上限 128 で LRU。
+//       SVG は非同期取得のためキャッシュ付き。
+// SVG キャッシュは閲覧 1 ファイルで数十～100 entries 想定。 上限 128 件。
 // 通知 (toast) は App 側のコールバックに委譲し、 ClipboardManager は effect を直接触らない。
 class ClipboardManager {
 public:
@@ -45,7 +45,7 @@ private:
     ToastCallback show_toast_ = [](std::wstring_view) static {};
 
     static constexpr size_t MAX_SVG_CACHE_ENTRIES = 128;
-    LruCache<uint64_t, std::pmr::wstring, MAX_SVG_CACHE_ENTRIES> svg_cache_;
+    TranspositionCache<uint64_t, std::pmr::wstring, MAX_SVG_CACHE_ENTRIES> svg_cache_;
     bool copy_in_flight_ = false;
     // 書き込みを行う(または開始する)コピーごとに増やす世代。保留中の非同期 SVG コールバックが
     // 後発コピーを上書きしないよう、コールバックは捕捉した世代と現在値が一致する時のみ書き込む。

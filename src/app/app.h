@@ -41,8 +41,6 @@ public:
     virtual void FocusSearchEdit(int anchor, int caret) = 0;
     // 本体にフォーカスを戻す。clear_text なら入力欄を空にする (文書の切り替え)。
     virtual void UnfocusSearch(bool clear_text) = 0;
-    // スクリーン座標 pt での WM_NCHITTEST の結果。
-    virtual LRESULT HitTestNonClient(POINT pt) = 0;
 
 protected:
     ~WindowHost() = default;

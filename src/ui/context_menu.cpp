@@ -140,13 +140,11 @@ std::optional<ZoomDirection> ContextMenu::Impl::ZoomHitTest(float x, float y) co
 
 bool ContextMenu::Impl::UpdateHover(float x, float y)
 {
-    const int nav = NavHitTest(x, y);
     const auto zoom_hit = ZoomHitTest(x, y);
-    const int id = nav == 0 && !zoom_hit ? HitTest(x, y) : 0;
-    if (nav == hovered_nav && zoom_hit == hovered_zoom && id == hovered_id) {
+    const int id = zoom_hit ? 0 : CommandAt(x, y);
+    if (zoom_hit == hovered_zoom && id == hovered_id) {
         return false;
     }
-    hovered_nav = nav;
     hovered_zoom = zoom_hit;
     hovered_id = id;
     return true;
@@ -164,9 +162,7 @@ void ContextMenu::Impl::OnPress(UINT msg, float x, float y)
         }
         return;
     }
-    const int nav_hit = NavHitTest(x, y);
-    const int hit = nav_hit != 0 ? nav_hit : HitTest(x, y);
-    if (hit != 0) {
+    if (const int hit = CommandAt(x, y); hit != 0) {
         selected_id = hit;
         done = true;
     }
@@ -217,8 +213,8 @@ void ContextMenu::Impl::DrawIconButton(const DipRect& rect, const wchar_t* glyph
 
 void ContextMenu::Impl::DrawNavRow()
 {
-    DrawIconButton(nav_layout.back_rect, GLYPH_BACK, nav_layout.back_enabled, hovered_nav == IDM_NAV_BACK);
-    DrawIconButton(nav_layout.fwd_rect, GLYPH_FORWARD, nav_layout.fwd_enabled, hovered_nav == IDM_NAV_FORWARD);
+    DrawIconButton(nav_layout.back_rect, GLYPH_BACK, nav_layout.back_enabled, hovered_id == IDM_NAV_BACK);
+    DrawIconButton(nav_layout.fwd_rect, GLYPH_FORWARD, nav_layout.fwd_enabled, hovered_id == IDM_NAV_FORWARD);
 }
 
 void ContextMenu::Impl::DrawZoomRow(const Item& item)

@@ -1,6 +1,6 @@
 #pragma once
 #include "utility.h"
-#include "lru_cache.h"
+#include "transposition_cache.h"
 #include "worker_latch.h"
 #include <d2d1.h>
 #include <wincodec.h>
@@ -39,7 +39,7 @@ public:
         // この幅 (物理 px) までは縮小によるぼけ無しで描ける。原寸でデコードしていれば上限なし。
         UINT sharp_width_px = UINT_MAX;
     };
-    // ヒットしたら LRU を更新する。次の挿入・Clear まで有効。
+    // ヒットしたら順位を上げる。次の挿入・Clear まで有効。
     const CachedImage* FindCachedImage(const std::wstring& abs_path);
     // 今の DPI での表示寸法 (画像の 1 px を物理 1 px で描く)。
     D2D1_SIZE_F DipSize(const CachedImage& image) const noexcept;
@@ -116,7 +116,7 @@ private:
     ID2D1RenderTarget* render_target_ = nullptr;
     // worker が縮小サイズ計算に使う。render_target_ は worker から触れないので値で持つ。
     std::atomic<UINT> max_bitmap_dim_;
-    LruCache<std::wstring, CachedImage, MAX_CACHE_ENTRIES> cache_;
+    TranspositionCache<std::wstring, CachedImage, MAX_CACHE_ENTRIES> cache_;
 
     HWND hwnd_ = nullptr;
     UINT msg_id_ = 0;

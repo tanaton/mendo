@@ -16,7 +16,6 @@ public:
     void RunUntil(const bool& done) override;
     void FocusSearchEdit(int anchor, int caret) override;
     void UnfocusSearch(bool clear_text) override;
-    LRESULT HitTestNonClient(POINT pt) override;
 
     // 起動時の準備 (preload・スクロール位置・ファイルペインのフォルダ) は Create より前に App へ直接頼む。
     App& app() noexcept
@@ -30,6 +29,8 @@ private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT OnNcCalcSize(WPARAM wParam, LPARAM lParam);
+    // スクリーン座標 pt での WM_NCHITTEST の結果。
+    LRESULT HitTestNonClient(POINT pt);
     // 最大化時は HTNOWHERE を返す。
     LRESULT HitTestResizeFrame(POINT pt) const noexcept;
     LRESULT HitTestTitleBar(POINT pt) const noexcept;
