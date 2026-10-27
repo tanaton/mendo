@@ -208,7 +208,7 @@ void App::OnLButtonDown(int px, int py)
         Dispatch(SplitterDragStartedAction{ PaneTarget::Toc });
         return;
     case PaneZone::MdPane:
-        HandleMdPaneClick(dip.x, dip.y, px, py, pane_layout);
+        HandleMdPaneClick(dip.x, dip.y, px, py, pane_layout, false);
         return;
     }
     std::unreachable();
@@ -240,21 +240,16 @@ void App::OnLButtonUp(int px, int py)
 void App::OnLButtonDblClk(int px, int py)
 {
     const auto dip = PixelToDip(px, py);
-    // CS_DBLCLKS により連続クリックの2回目は WM_LBUTTONDBLCLK になるため、
-    // タイトルバーボタンのクリックを先に処理する。
+    // CS_DBLCLKS により連続クリックの2回目は WM_LBUTTONDBLCLK になるため、ボタンやスクロールバーは
+    // 1 回目と同じ判定で連打として扱い、本文の上でだけ単語を選ぶ。
     if (HandleTitleBarClick(dip.x, dip.y)) {
         return;
     }
-    if (PaneAtPoint(dip.x) != PaneZone::MdPane) {
-        return;
+    // サイドペインは 1 回目のクリックで一覧が変わりうる (フォルダに入る) ので、2 回目を別の項目に当てない。
+    const auto pane_layout = GetPaneLayout();
+    if (ZoneAt(dip.x, pane_layout) == PaneZone::MdPane) {
+        HandleMdPaneClick(dip.x, dip.y, px, py, pane_layout, true);
     }
-    // 検索バーのボタンも連打として扱う (タイトルバーボタンと同じ理由)。
-    if (HandleSearchBarClick(dip.x, dip.y, GetPaneLayout(), true)) {
-        return;
-    }
-    const auto hit = HitTest(px, py);
-    // 単語はカーソル下の文字で決める。文字の上でない (行末より右等) ときは従来どおりキャレット位置で決める。
-    Dispatch(SelectWordAction{ hit.node_index, hit.char_pos != hit_test::HitResult::kNoChar ? hit.char_pos : hit.text_pos });
 }
 
 void App::OnMouseMove(int px, int py)
@@ -391,47 +386,42 @@ bool App::HandleTitleBarClick(float dip_x, float dip_y)
     return true;
 }
 
-bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_layout, bool is_double_click)
+void App::HandleSearchBarClick(SearchBarHitZone zone, float dip_x, const PaneRect& md_rect, bool is_double_click)
 {
-    const auto bar = SearchBarLayoutAt(dip_y, pane_layout.md_rect);
-    if (!bar) {
-        return false;
-    }
-    const SearchBarLayout& sbl = *bar;
-    switch (HitTestSearchBar(sbl, dip_x, dip_y)) {
+    switch (zone) {
     case SearchBarHitZone::None:
         if (!is_double_click) {
-            Execute(effect::SearchFocus{});
+            window_.FocusSearchEdit(0, -1);
         }
-        return true;
+        return;
     case SearchBarHitZone::Up:
         Dispatch(SearchPrevAction{});
-        return true;
+        return;
     case SearchBarHitZone::Down:
         Dispatch(SearchNextAction{});
-        return true;
+        return;
     case SearchBarHitZone::CaseSensitive:
         Dispatch(ToggleCaseSensitiveAction{});
-        return true;
+        return;
     case SearchBarHitZone::Highlight:
         Dispatch(ToggleHighlightAction{});
-        return true;
+        return;
     case SearchBarHitZone::Close:
         Dispatch(CloseSearchBarAction{});
-        return true;
+        return;
     case SearchBarHitZone::Input: {
-        const int pos = HitTestSearchInputPos(sbl, dip_x);
+        const int pos = HitTestSearchInputPos(ComputeSearchBarLayoutForMd(md_rect), dip_x);
         if (!is_double_click) {
             Dispatch(SearchInputDragStartedAction{ pos });
-            return true;
+            return;
         }
         // 検索 EDIT は非表示で WM_LBUTTONDBLCLK を直接受けないため、
         // 自前で単語境界を計算して EM_SETSEL を発行する。
         const auto wb = FindWordBoundaries(std::wstring_view{ state_.search.query_wide }, static_cast<uint32_t>(pos));
         if (wb.found) {
-            Execute(effect::SearchFocus{ static_cast<int>(wb.start), static_cast<int>(wb.end) });
+            window_.FocusSearchEdit(static_cast<int>(wb.start), static_cast<int>(wb.end));
         }
-        return true;
+        return;
     }
     }
     std::unreachable();
@@ -474,13 +464,13 @@ bool App::TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x)
     return true;
 }
 
-void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout)
+void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout, bool is_double_click)
 {
     const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
     const auto target = ResolveMdPaneHit(dip_x, dip_y, hit_ctx, pane_layout);
     switch (target.kind) {
     case MdPaneHit::Kind::SearchBar:
-        HandleSearchBarClick(dip_x, dip_y, pane_layout, false);
+        HandleSearchBarClick(target.search_bar, dip_x, pane_layout.md_rect, is_double_click);
         return;
     case MdPaneHit::Kind::NavButton:
         if (target.nav == NavDirection::Back) {
@@ -502,6 +492,11 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
             return;
         }
         const auto hit = hit_test::HitTest(hit_ctx);
+        if (is_double_click) {
+            // 単語はカーソル下の文字で決める。文字の上でない (行末より右等) ときはキャレット位置で決める。
+            Dispatch(SelectWordAction{ hit.node_index, hit.char_pos != hit_test::HitResult::kNoChar ? hit.char_pos : hit.text_pos });
+            return;
+        }
         Dispatch(TextSelectionStartedAction{ hit.node_index, hit.text_pos, px, py });
         return;
     }

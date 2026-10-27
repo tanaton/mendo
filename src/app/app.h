@@ -284,8 +284,8 @@ private:
     // ---- クリック (app_mouse.cpp) ----
     void HandleLinkClick(std::string_view url);
     bool HandleTitleBarClick(float dip_x, float dip_y);
-    bool HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& layout, bool is_double_click);
-    void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& layout);
+    void HandleSearchBarClick(SearchBarHitZone zone, float dip_x, const PaneRect& md_rect, bool is_double_click);
+    void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& layout, bool is_double_click);
     void HandleOverlayButtonClick(const OverlayButtonHit& hit);
     // ホバー中ブロックの水平スクロールバー上ならドラッグを開始して true。
     bool TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x);
