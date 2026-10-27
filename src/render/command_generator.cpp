@@ -8,6 +8,7 @@
 #include "profiler.h"
 #include "ui_constants.h"
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <format>
 #include <ranges>
@@ -171,7 +172,56 @@ std::wstring_view DiagramErrorText(const DiagramError& error) noexcept
     return {};
 }
 
+// リストの記号と番号の書式は 3 種類を段ごとに繰り返す。GitHub (ブラウザ既定) は 3 段目より深くても 3 種類目のままだが、
+// 深い段も見分けられるようにする。段を持たない (0 以下) ときは最外側として扱う。
+constexpr int ListStyleIndex(int list_depth) noexcept
+{
+    return (std::max(list_depth, 1) - 1) % 3;
+}
+
 } // namespace
+
+std::wstring_view FormatListNumber(std::span<wchar_t, kListNumberMaxLen> buf, int32_t number, int list_depth) noexcept
+{
+    const int style = ListStyleIndex(list_depth);
+    size_t len = 0;
+    if (style == 1 && number >= 1 && number <= 3999) {
+        static constexpr std::pair<int32_t, std::wstring_view> kRoman[] = {
+            { 1000, L"m"  },
+            { 900,  L"cm" },
+            { 500,  L"d"  },
+            { 400,  L"cd" },
+            { 100,  L"c"  },
+            { 90,   L"xc" },
+            { 50,   L"l"  },
+            { 40,   L"xl" },
+            { 10,   L"x"  },
+            { 9,    L"ix" },
+            { 5,    L"v"  },
+            { 4,    L"iv" },
+            { 1,    L"i"  },
+        };
+        for (int32_t rest = number; const auto& [value, digits] : kRoman) {
+            for (; rest >= value; rest -= value) {
+                for (const wchar_t ch : digits) {
+                    buf[len++] = ch;
+                }
+            }
+        }
+    }
+    else if (style == 2 && number >= 1) {
+        // a..z の次は aa (0 を持たない 26 進)。下の桁から書いて反転する。
+        for (int32_t rest = number; rest > 0; rest = (rest - 1) / 26) {
+            buf[len++] = static_cast<wchar_t>(L'a' + (rest - 1) % 26);
+        }
+        std::ranges::reverse(buf.first(len));
+    }
+    else {
+        len = static_cast<size_t>(std::format_to_n(buf.data(), buf.size() - 1, L"{}", number).size);
+    }
+    buf[len++] = L'.';
+    return { buf.data(), len };
+}
 
 // つまみはペイン右端から VScrollbarLeftX で内側に寄せる。
 std::optional<FillRoundedRectCmd> VScrollThumb(const PaneRect& pane, float header_height, float scroll_y, float total_content_height, bool may_grow) noexcept
@@ -806,10 +856,8 @@ void CommandGenerator::GenListBullet(const Node& node, const NodeLayoutEntry& en
 {
     const float first_line_h = GetFirstLineHeight(entry, theme_->font_size_body);
     if (node.list_ordered()) {
-        wchar_t num_buf[16];
-        const auto fmt_result = std::format_to_n(num_buf, std::size(num_buf), L"{}.", node.list_number());
-        const size_t num_len = std::min(static_cast<size_t>(fmt_result.size), std::size(num_buf));
-        EmitText({ num_buf, num_len }, formats_->list_number.Get(),
+        std::array<wchar_t, kListNumberMaxLen> num_buf;
+        EmitText(FormatListNumber(num_buf, node.list_number(), node.list_depth()), formats_->list_number.Get(),
                  D2D1::Point2F(x - theme_->list_bullet_offset - LIST_NUMBER_PAD_RIGHT, entry_text_top),
                  D2D1::SizeF(theme_->list_bullet_offset + LIST_NUMBER_PAD_RIGHT - LIST_NUMBER_PAD_LEFT, first_line_h),
                  BrushId::Text);
@@ -819,11 +867,19 @@ void CommandGenerator::GenListBullet(const Node& node, const NodeLayoutEntry& en
     const float bullet_x = SnapToPhysicalPixel(x - theme_->list_bullet_offset * LIST_BULLET_X_FACTOR, frame_.dpi_scale);
     const float bullet_y = SnapToPhysicalPixel(entry_text_top + first_line_h * 0.5f, frame_.dpi_scale);
     const float r = theme_->list_bullet_radius;
-    if (node.indent_level <= 1) {
+    switch (ListStyleIndex(node.list_depth())) {
+    case 0:
         cmds_.emplace_back(FillEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, r, BrushId::Text });
-    }
-    else {
+        break;
+    case 1:
         cmds_.emplace_back(DrawEllipseCmd{ D2D1::Point2F(bullet_x, bullet_y), r, r, 1.0f, BrushId::Text });
+        break;
+    default: {
+        // 中心は物理ピクセル境界にあるので、半辺も物理ピクセル単位にして辺をにじませない。
+        const float h = SnapToPhysicalPixel(r * LIST_SQUARE_HALF_FACTOR, frame_.dpi_scale);
+        cmds_.emplace_back(FillRectCmd{ D2D1::RectF(bullet_x - h, bullet_y - h, bullet_x + h, bullet_y + h), BrushId::Text });
+        break;
+    }
     }
 }
 

@@ -126,6 +126,8 @@ inline constexpr float CODE_BLOCK_CORNER = 4.0f;
 inline constexpr float BODY_LINE_HEIGHT_FACTOR = 1.5f;
 
 inline constexpr float LIST_BULLET_X_FACTOR = 0.6f;
+// 円と同じ直径の四角は面積が 4/π 倍あって重く見えるので、半辺を半径より少し小さくする。
+inline constexpr float LIST_SQUARE_HALF_FACTOR = 0.85f;
 inline constexpr float LIST_NUMBER_PAD_LEFT = 4.0f;
 inline constexpr float LIST_NUMBER_PAD_RIGHT = 8.0f;
 
