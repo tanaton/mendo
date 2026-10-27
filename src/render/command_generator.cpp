@@ -521,8 +521,7 @@ void EmitTitleBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTe
     const float text_alpha = tb.window_active ? 1.0f : 0.5f;
     const auto is_hovered = [&](TitleBarHitZone z) noexcept { return tb.hovered_zone == z; };
 
-    const auto gen_button = [&](const DipRect& dip_rect, wchar_t icon, bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
-        const D2D1_RECT_F rect = ToD2DRect(dip_rect);
+    const auto gen_button = [&](const D2D1_RECT_F& rect, wchar_t icon, bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
         if (show_bg) {
             out.push_back(FillRectCmd{ .rect = rect, .brush_id = bg_id });
         }
@@ -560,11 +559,11 @@ void EmitTitleBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTe
     }
 
     if (app_icon) {
-        out.push_back(DrawBitmapCmd{ .bitmap = app_icon, .dest = ToD2DRect(TitleBar::ICON_RECT), .opacity = text_alpha });
+        out.push_back(DrawBitmapCmd{ .bitmap = app_icon, .dest = TitleBar::ICON_RECT, .opacity = text_alpha });
     }
 
     if (!tb.title_text.empty()) {
-        text_layouts.EmitCentered(out, tb.title_text, title_fmt, ToD2DRect(bar.GetTitleTextRect()), BrushId::TitleBarText, text_alpha);
+        text_layouts.EmitCentered(out, tb.title_text, title_fmt, bar.GetTitleTextRect(), BrushId::TitleBarText, text_alpha);
     }
 }
 

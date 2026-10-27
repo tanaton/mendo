@@ -1,10 +1,7 @@
 #pragma once
 #include "ui_types.h"
 #include <functional>
-
-// Win32 の公開ヘッダ依存を避けるため最小の前方宣言で済ませる。実体は <windows.h> のものと ABI 互換。
-struct HWND__;
-using HWND = HWND__*;
+#include <windows.h>
 
 struct ContextMenuParams {
     PopupEnv env;

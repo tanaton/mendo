@@ -425,18 +425,18 @@ TEST(ChromeCommandsTest, TitleBarButtonBackgrounds)
     DrawCommandList cmds;
     TitleBarRenderState tb{ .bar = bar, .window_width = 800.0f, .hovered_zone = TitleBarHitZone::Search, .search_active = true };
     chrome::EmitTitleBar(cmds, text_layouts, nullptr, nullptr, nullptr, false, tb);
-    EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, ToD2DRect(bar.GetButton(TitleBarHitZone::Search))), BrushId::TitleBarButtonActive);
-    EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, ToD2DRect(bar.GetButton(TitleBarHitZone::FileToggle))), std::nullopt);
+    EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, bar.GetButton(TitleBarHitZone::Search)), BrushId::TitleBarButtonActive);
+    EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, bar.GetButton(TitleBarHitZone::FileToggle)), std::nullopt);
 
     cmds.clear();
     tb.hovered_zone = TitleBarHitZone::FileToggle;
     chrome::EmitTitleBar(cmds, text_layouts, nullptr, nullptr, nullptr, false, tb);
-    EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, ToD2DRect(bar.GetButton(TitleBarHitZone::FileToggle))), BrushId::TitleBarButtonHover);
+    EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, bar.GetButton(TitleBarHitZone::FileToggle)), BrushId::TitleBarButtonHover);
 
     cmds.clear();
     tb.hovered_zone = TitleBarHitZone::Close;
     chrome::EmitTitleBar(cmds, text_layouts, nullptr, nullptr, nullptr, false, tb);
-    EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, ToD2DRect(bar.GetButton(TitleBarHitZone::Close))), BrushId::TitleBarCloseRed);
+    EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, bar.GetButton(TitleBarHitZone::Close)), BrushId::TitleBarCloseRed);
 }
 
 // 見えている行だけを積む。現在のファイルとホバーも、見えている行の分だけ塗る。

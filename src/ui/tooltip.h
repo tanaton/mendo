@@ -4,6 +4,7 @@
 #include <memory_resource>
 #include <string>
 #include <string_view>
+#include <windows.h>
 
 // ツールチップの対象。同一判定は zone と key だけで行い、表示文字列の内容には依らない。
 struct TooltipTarget {
@@ -58,11 +59,6 @@ inline TooltipHover MakeTooltip(const TooltipTarget& current, TooltipTarget::Zon
     }
     return MakeTooltip(current, zone, key, [text](std::pmr::wstring& out) { out = text; });
 }
-
-// <windows.h> を巻き込まずに HWND を扱うための前方宣言（Windows SDK の
-// DECLARE_HANDLE(HWND) と ABI 互換）。
-struct HWND__;
-using HWND = HWND__*;
 
 // メインウィンドウとツールチップの両方に使う。<dwmapi.h> / <uxtheme.h> をヘッダに漏らさないため実装は tooltip.cpp。
 void ApplyDarkModeToWindow(HWND hwnd, bool dark);

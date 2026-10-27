@@ -2,10 +2,7 @@
 #include "ui_types.h"
 #include <cstdint>
 #include <functional>
-
-// context_menu.h と同じく、Win32 の公開ヘッダを App に漏らさない。
-struct HWND__;
-using HWND = HWND__*;
+#include <windows.h>
 
 namespace i18n {
 struct Strings;
