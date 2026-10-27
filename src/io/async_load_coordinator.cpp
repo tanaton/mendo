@@ -128,17 +128,17 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
     }
 }
 
-AsyncLoadCoordinator::AttachResult AsyncLoadCoordinator::Attach(HWND hwnd, UINT msg_id)
+bool AsyncLoadCoordinator::Attach(HWND hwnd, UINT msg_id)
 {
     // Publish と同じ mutex で、結果の有無の確認と通知先の設定をまとめる。
-    // 出ている結果はもう通知されないので、ここで通知先を設定しても二重には届かない。
+    // 出ている結果は Publish が通知していないので、ここで送っても二重には届かない。
     const std::lock_guard lock(mutex_);
     notify_hwnd_ = hwnd;
     notify_msg_ = msg_id;
-    if (!in_flight_) {
-        return AttachResult::None;
+    if (outcome_) {
+        ::PostMessageW(hwnd, msg_id, 0, 0);
     }
-    return outcome_ ? AttachResult::AppliedSync : AttachResult::AttachedAsync;
+    return in_flight_;
 }
 
 void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::pmr::wstring& path, const Theme& theme, float content_width,

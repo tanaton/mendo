@@ -164,21 +164,13 @@ void App::RestoreTheme()
 
 void App::LoadInitialDocument()
 {
-    // small file は preload がここまでに完了している場合が多い。直後の UpdateWindow が
-    // 同期 WM_PAINT を発行するため、ここで取り込んでおかないと初回フレームが空になる。
-    using PreloadAttachResult = AsyncLoadCoordinator::AttachResult;
-    switch (load_coordinator_.Attach(hwnd_, app_msg::PARSE_COMPLETE)) {
-    case PreloadAttachResult::AppliedSync:
-        OnParseComplete();
-        return;
-    case PreloadAttachResult::AttachedAsync:
+    // 結果は出ていても通知で届く。Win32Window::Create が最初のフレームより前に取り込む。
+    if (load_coordinator_.Attach(hwnd_, app_msg::PARSE_COMPLETE)) {
         ScheduleLoadingAnimation();
-        return;
-    case PreloadAttachResult::None:
-        ShowHelpResource();
-        return;
     }
-    std::unreachable();
+    else {
+        ShowHelpResource();
+    }
 }
 
 DipPoint App::PixelToDip(int px, int py) const noexcept

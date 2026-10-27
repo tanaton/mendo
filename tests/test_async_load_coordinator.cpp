@@ -650,11 +650,12 @@ TEST_F(AsyncLoadCoordinatorTest, BadAllocAfterCancelProducesNoOutcome)
 
 // ---- 起動時の読み込み (通知先を後から渡す) ----
 
-TEST_F(AsyncLoadCoordinatorTest, AttachReturnsNoneWhenNotStarted)
+TEST_F(AsyncLoadCoordinatorTest, AttachReturnsFalseWhenNotStarted)
 {
     AsyncLoadCoordinator c;
     MessageOnlyWindow w;
-    EXPECT_EQ(c.Attach(w.Get(), WM_USER + 1), AsyncLoadCoordinator::AttachResult::None);
+    EXPECT_FALSE(c.Attach(w.Get(), WM_USER + 1));
+    EXPECT_EQ(w.DrainMessages(WM_USER + 1), 0);
 }
 
 // 起動時に読み込まなくても、Attach で渡した通知先へ以後の読み込みの結果を送る。
@@ -663,7 +664,7 @@ TEST_F(AsyncLoadCoordinatorTest, AttachWhenIdleNotifiesLaterStarts)
     TempFile tmp(L"coord_attach_idle", "# later\n");
     MessageOnlyWindow w;
     AsyncLoadCoordinator c;
-    ASSERT_EQ(c.Attach(w.Get(), WM_USER + 1), AsyncLoadCoordinator::AttachResult::None);
+    ASSERT_FALSE(c.Attach(w.Get(), WM_USER + 1));
     c.Start(scheduler_, tmp.PmrPath(), GetLightTheme());
     EXPECT_EQ(c.LoadingPath(), tmp.PmrPath());
     ASSERT_TRUE(DrainScheduler(scheduler_));
@@ -673,7 +674,8 @@ TEST_F(AsyncLoadCoordinatorTest, AttachWhenIdleNotifiesLaterStarts)
 }
 
 // 起動時の結果が出ていても、取り込む前に次の読み込みを始めたらそちらの結果だけを返す。
-TEST_F(AsyncLoadCoordinatorTest, StartAfterAppliedSyncReplacesPreloadResult)
+// 先に送った通知は、結果を取り出せない古い通知になる (PlanParseComplete の IgnoreStale)。
+TEST_F(AsyncLoadCoordinatorTest, StartAfterAttachReplacesPreloadResult)
 {
     TempFile preload_file(L"coord_preload", "# preload doc\n");
     TempFile new_file(L"coord_newload", "# new doc\n");
@@ -681,19 +683,19 @@ TEST_F(AsyncLoadCoordinatorTest, StartAfterAppliedSyncReplacesPreloadResult)
     AsyncLoadCoordinator c;
     c.Start(scheduler_, preload_file.PmrPath(), GetLightTheme());
     ASSERT_TRUE(DrainScheduler(scheduler_));
-    ASSERT_EQ(c.Attach(w.Get(), WM_USER + 1), AsyncLoadCoordinator::AttachResult::AppliedSync);
+    ASSERT_TRUE(c.Attach(w.Get(), WM_USER + 1));
 
     c.Start(scheduler_, new_file.PmrPath(), GetLightTheme());
     EXPECT_EQ(c.LoadingPath(), new_file.PmrPath());
     ASSERT_TRUE(DrainScheduler(scheduler_));
 
-    EXPECT_EQ(w.DrainMessages(WM_USER + 1), 1);
+    EXPECT_EQ(w.DrainMessages(WM_USER + 1), 2);
     EXPECT_EQ(ResultPath(c.Take()), new_file.PmrPath());
     EXPECT_FALSE(c.Take().has_value());
 }
 
-// 通知先なしで始めて結果が先に出たら、Attach は通知せずにその場で取り込ませる。
-TEST_F(AsyncLoadCoordinatorTest, AttachAfterOutcomeIsAppliedSync)
+// 通知先なしで始めて結果が先に出たら、Attach がその場で通知を送る。
+TEST_F(AsyncLoadCoordinatorTest, AttachAfterOutcomeNotifiesAtOnce)
 {
     TempFile tmp(L"coord_preload_sync", "# attach after done\n");
     MessageOnlyWindow w;
@@ -701,7 +703,8 @@ TEST_F(AsyncLoadCoordinatorTest, AttachAfterOutcomeIsAppliedSync)
     c.Start(scheduler_, tmp.PmrPath(), GetLightTheme());
     ASSERT_TRUE(DrainScheduler(scheduler_));
 
-    EXPECT_EQ(c.Attach(w.Get(), WM_USER + 1), AsyncLoadCoordinator::AttachResult::AppliedSync);
+    EXPECT_TRUE(c.Attach(w.Get(), WM_USER + 1));
+    EXPECT_EQ(w.DrainMessages(WM_USER + 1), 1);
     auto outcome = c.Take();
     ASSERT_TRUE(outcome.has_value());
     ASSERT_TRUE(outcome->has_value());
@@ -709,7 +712,6 @@ TEST_F(AsyncLoadCoordinatorTest, AttachAfterOutcomeIsAppliedSync)
     // cache は worker で推定済みの状態で渡る。
     ASSERT_EQ(result.cache.size(), result.doc.GetNodes().size());
     EXPECT_GT(result.cache[0].height, 0.0f);
-    EXPECT_EQ(w.DrainMessages(WM_USER + 1), 0);
     EXPECT_FALSE(c.IsActive());
 }
 
@@ -725,7 +727,8 @@ TEST_F(AsyncLoadCoordinatorTest, AttachBeforeOutcomeNotifiesLater)
     } };
     MessageOnlyWindow w;
     c.Start(scheduler_, std::pmr::wstring(L"unused.md"), GetLightTheme());
-    EXPECT_EQ(c.Attach(w.Get(), WM_USER + 1), AsyncLoadCoordinator::AttachResult::AttachedAsync);
+    EXPECT_TRUE(c.Attach(w.Get(), WM_USER + 1));
+    EXPECT_EQ(w.DrainMessages(WM_USER + 1), 0);
     release.set_value();
     ASSERT_TRUE(DrainScheduler(scheduler_));
 

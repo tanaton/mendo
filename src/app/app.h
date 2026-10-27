@@ -83,7 +83,7 @@ public:
     // 通常の async load 経路に合流する。
     void StartPreloadAsync(std::pmr::wstring path);
 
-    // LoadInitialDocument より前に呼ぶこと。preload 即時完了パスはそこで復元情報を参照する。
+    // LoadInitialDocument より前に呼ぶこと。起動時の読み込みの結果を取り込むときに復元情報を参照する。
     // 保存したスクロール位置を、文書を開いたときに戻す位置にする。
     void RestoreScrollPosition();
 
@@ -146,7 +146,7 @@ public:
     // 発火せず仕事の合間が空くので、メッセージループが入力と描画を配り終えた空き時間に RunIdleWork で進める。
     bool HasIdleWork();
     void RunIdleWork();
-    // 起動時の読み込みを LoadInitialDocument で取り込めず、結果を待っている。
+    // 起動時の読み込みの結果をまだ取り込んでいない。
     bool IsLoadingInitialDocument() const noexcept
     {
         return load_coordinator_.IsActive();

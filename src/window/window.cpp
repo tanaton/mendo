@@ -170,17 +170,18 @@ void Win32Window::AwaitInitialParseBeforeDevice()
 {
     // 読み込みが D3D デバイスの作成より先に終われば、可視範囲の計測を join 前 (作成の裏) で済ませる。
     // 作成が先に終わったら待たずに進み、結果は従来どおり最初のフレームの直前に取り込む。
-    const HANDLE device_ready = D3DPrefetchDoneEvent();
-    if (!device_ready || !app_->IsLoadingInitialDocument()) {
+    if (!app_->IsLoadingInitialDocument()) {
         return;
     }
+    const HANDLE device_ready = D3DPrefetchDoneEvent();
     for (;;) {
+        // 先行作成が無くても、Attach の時点で出ていた結果はここで取り込む。
         if (MSG msg; PeekMessageW(&msg, hwnd_, app_msg::PARSE_COMPLETE, app_msg::PARSE_COMPLETE, PM_REMOVE)) {
             app_->OnParseComplete();
             return;
         }
         // 確かめた後に届いたポストだけで起きる。他の通知 (画像の完了など) で起きたら確かめ直す。
-        if (MsgWaitForMultipleObjects(1, &device_ready, FALSE, INFINITE, QS_POSTMESSAGE) != WAIT_OBJECT_0 + 1) {
+        if (!device_ready || MsgWaitForMultipleObjects(1, &device_ready, FALSE, INFINITE, QS_POSTMESSAGE) != WAIT_OBJECT_0 + 1) {
             return;
         }
     }

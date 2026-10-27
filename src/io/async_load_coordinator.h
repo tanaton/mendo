@@ -103,13 +103,8 @@ public:
     // content_width は推定に使う本文幅 (0 は幅を知らない)。
     void Start(TaskScheduler& scheduler, std::pmr::wstring path, Theme theme, float content_width = 0.0f, ReloadBase reload_base = {});
 
-    enum class AttachResult {
-        None,          // 読み込んでいない
-        AppliedSync,   // 結果が出ている。呼び出し側が Take して取り込む (通知は送らない)
-        AttachedAsync, // まだ。結果を出したら hwnd に msg_id を送る
-    };
-    // 通知先を渡す。以後の Start の結果もここへ送る。
-    AttachResult Attach(HWND hwnd, UINT msg_id);
+    // 通知先を渡す。以後の Start の結果もここへ送る。読み込み中なら true で、結果が出ていればこの場で通知を送る。
+    bool Attach(HWND hwnd, UINT msg_id);
 
     // ロード結果の取り出し。fired から Take までの間に Cancel が走った場合 sink は破棄済み。
     std::optional<AsyncLoadOutcome> Take() noexcept;
