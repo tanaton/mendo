@@ -69,10 +69,11 @@ public:
     {
         RecreateBrushes();
     }
-    // ズーム。書式を作り直す。
+    // ズーム。大きさがズームに従う書式 (本文・ジェスチャー) だけ作り直す。タイトルバーやサイドペインの書式は
+    // ズームしないので、それらで作ったレイアウトも残す (作り直すと 1 段ごとに 80 個ほどで約 2.7ms)。
     void OnThemeMetricsChanged()
     {
-        RecreateAllTextFormats();
+        CreateTextFormats(/*zoomed_only=*/true);
     }
     // UI の決まった文言の書式は選んだ言語のロケールで組むので作り直す。
     void OnLanguageChanged()
@@ -126,7 +127,7 @@ private:
 
     void RecreateBrushes();
     void RecreateAllTextFormats();
-    void CreateTextFormats();
+    void CreateTextFormats(bool zoomed_only = false);
 
     FrameResult EndFrame();
     bool RecreateDevice();
