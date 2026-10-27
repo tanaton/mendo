@@ -573,9 +573,7 @@ TEST(Parser, TableConcatStructure)
     EXPECT_EQ(tbl->cell_text_starts[3], 6u);
     EXPECT_EQ(tbl->cell_text_starts[4], 7u);
     EXPECT_TRUE(tbl->cell_run_starts.empty()) << "装飾の無い表は持たない";
-    ASSERT_EQ(tbl->is_header_row.size(), 2u);
-    EXPECT_TRUE(tbl->is_header_row[0]);
-    EXPECT_FALSE(tbl->is_header_row[1]);
+    EXPECT_EQ(tbl->head_row_count, 1u);
     EXPECT_EQ(tbl->aligns.size(), 2u);
     EXPECT_EQ(tbl->GetCellText(0, 0), "A");
     EXPECT_EQ(tbl->GetCellText(0, 1), "B");
@@ -606,6 +604,49 @@ TEST(Parser, TableCellRunStartsBackfilledAtFirstRun)
             }
         }
     }
+}
+
+// md4c は短い行も列数ぶんのセルで出すので、最後のセルが空でも区切りは前のセルに入らない。
+TEST(Parser, TableEmptyLastCellsKeepSeparatorsOut)
+{
+    for (const std::string_view md : { std::string_view{ "| a | b |\n|---|---|\n| x |   |" },
+                                       std::string_view{ "| a | b |\n|---|---|\n| x |" },
+                                       std::string_view{ "| a | b |\n|---|---|\n|   |   |" } }) {
+        SCOPED_TRACE(md);
+        const auto nodes = ParseNodes(md);
+        ASSERT_EQ(nodes.size(), 1u);
+        EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+        const auto* tbl = nodes[0].table_data();
+        ASSERT_NE(tbl, nullptr);
+        for (size_t r = 0; r < tbl->row_count; ++r) {
+            for (size_t c = 0; c < tbl->col_count; ++c) {
+                EXPECT_FALSE(tbl->GetCellText(r, c).contains('\t')) << r << "," << c;
+                EXPECT_FALSE(tbl->GetCellText(r, c).contains('\n')) << r << "," << c;
+            }
+        }
+        EXPECT_EQ(tbl->GetCellText(1, 1), "");
+    }
+}
+
+// md4c は列数を 16 bit で持つので、65536 列を超える表も 16 bit に収まった列数のセルで出る。
+TEST(Parser, TableColumnCountWrapsInMd4c)
+{
+    constexpr size_t kCols = size_t{ std::numeric_limits<uint16_t>::max() } + 2;
+    std::string md;
+    for (const std::string_view cell : { "h", "-", "d" }) {
+        for (size_t c = 0; c < kCols; ++c) {
+            md += '|';
+            md += cell;
+        }
+        md += "|\n";
+    }
+    const auto nodes = ParseNodes(md);
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_NE(tbl, nullptr);
+    EXPECT_EQ(tbl->col_count, kCols & 0xFFFF);
+    EXPECT_EQ(tbl->cell_text_starts.size(), size_t{ tbl->row_count } * tbl->col_count + 1);
 }
 
 TEST(Parser, TableHeaderCells)

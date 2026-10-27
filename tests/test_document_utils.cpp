@@ -357,7 +357,6 @@ TEST(ExtractSelectedTextAsHtml, TableWithoutColumnsDoesNotReadOutOfRange)
     tbl->col_count = 0;
     tbl->cell_text_starts.push_back(0);
     tbl->cell_run_starts.push_back(0);
-    tbl->is_header_row.push_back(false);
     const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 0, 0, 1), false);
     EXPECT_FALSE(html.contains("<table"));
 }
@@ -1022,7 +1021,7 @@ TEST(FindLinkAtPosition, TableCellLinkFound)
     tbl->all_runs = { MakeRun(0, 4), MakeRun(0, 3), MakeRun(0, 3), MakeRun(0, 3, link) };
     tbl->cell_run_starts = { 0u, 1u, 2u, 3u, 4u };
     tbl->aligns = { TableAlign::Default, TableAlign::Default };
-    tbl->is_header_row = { true, false };
+    tbl->head_row_count = 1;
 
     // "bar"内の位置（オフセット13）でリンクが見つかるべき
     auto result = FindLinkAtPosition(node, 13);
@@ -1076,7 +1075,6 @@ TEST(FindLinkAtPosition, TableCellInternalLink)
     tbl->all_runs = { MakeRun(0, 7, link) };
     tbl->cell_run_starts = { 0u, 1u };
     tbl->aligns = { TableAlign::Default };
-    tbl->is_header_row = { false };
 
     auto result = FindLinkAtPosition(node, 3);
     ASSERT_TRUE(result.has_value());
@@ -1099,40 +1097,11 @@ TEST(FindLinkAtPosition, TablePositionOnSeparator)
     tbl->all_runs = { MakeRun(0, 1), MakeRun(0, 1, link) };
     tbl->cell_run_starts = { 0u, 1u, 2u };
     tbl->aligns = { TableAlign::Default, TableAlign::Default };
-    tbl->is_header_row = { false };
 
     // タブ区切り（オフセット1）はどのセルにもマッチしないべき
     EXPECT_FALSE(FindLinkAtPosition(node, 1).has_value());
     // "B"（オフセット2）でリンクが見つかるべき
     EXPECT_EQ(FindLinkAtPosition(node, 2), "https://b.com");
-}
-
-// ---- GetCellText: 末尾行が col_count 未満で padding された場合 ----
-
-TEST(NodeTableData, GetCellTextShortLastRow)
-{
-    // 3 行 3 列のうち、最後の行が 1 セルしか持たないケース。OnLeaveBlock の padding で
-    // 末尾の cell_text_starts が concat_text.size() に揃えられる。座標ベースの last_cell
-    // 判定では (2,0) が end-start-1 = サイズ -1、(2,1) が underflow して SIZE_MAX を
-    // 返してしまっていた。データ駆動 (end == concat_text.size()) で 0 を返すこと。
-    Node node;
-    node.type = NodeType::Table;
-    auto* tbl = AttachTestTable(node);
-    tbl->row_count = 3;
-    tbl->col_count = 3;
-    tbl->concat_text = "a\tb\tc\nd\te\tf\ng";
-    // 実セル 7 個 + padding 2 個 + 番兵 1 = サイズ 10。padding と番兵は concat 末尾を指す。
-    tbl->cell_text_starts = { 0u, 2u, 4u, 6u, 8u, 10u, 12u, 13u, 13u, 13u };
-    tbl->cell_run_starts = { 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u };
-    tbl->aligns = { TableAlign::Default, TableAlign::Default, TableAlign::Default };
-    tbl->is_header_row = { true, false, false };
-
-    EXPECT_EQ(tbl->GetCellText(0, 0), "a");
-    EXPECT_EQ(tbl->GetCellText(0, 2), "c");
-    EXPECT_EQ(tbl->GetCellText(1, 2), "f");
-    EXPECT_EQ(tbl->GetCellText(2, 0), "g");
-    EXPECT_EQ(tbl->GetCellText(2, 1).size(), 0u);
-    EXPECT_EQ(tbl->GetCellText(2, 2).size(), 0u);
 }
 
 // ============================================================

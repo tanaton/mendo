@@ -185,7 +185,6 @@ void SearchState::FindTableMatches(const NodeTableData& tbl, std::string_view qu
     const size_t row_limit = std::min<size_t>(tbl.row_count, std::numeric_limits<int>::max());
     const size_t cell_limit = std::min(row_limit * col_count, starts.size() - 1);
     const uint32_t query_len = static_cast<uint32_t>(query.size());
-    const auto concat_size = static_cast<uint32_t>(concat.size());
 
     size_t cursor_cell = std::numeric_limits<size_t>::max();
     std::optional<Utf16OffsetCursor> cursor;
@@ -196,7 +195,7 @@ void SearchState::FindTableMatches(const NodeTableData& tbl, std::string_view qu
             break;
         }
         const uint32_t cell_start = starts[cell];
-        const uint32_t cell_len = CellLengthFromOffsets(cell_start, starts[cell + 1], concat_size);
+        const uint32_t cell_len = tbl.CellLength(cell);
         const auto local = static_cast<uint32_t>(pos) - cell_start;
         if (local + query_len > cell_len) {
             // セル区切り ('\t' / '\n') をまたぐヒット。1 byte 進めて探し直す。

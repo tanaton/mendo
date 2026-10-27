@@ -736,25 +736,26 @@ void BeginTable(ParseContext* ctx, const MD_BLOCK_TABLE_DETAIL* detail)
     // md4c から正確なテーブルサイズが渡されるので、要素数が決まる配列は一度に reserve して
     // 余りを持たせない。セル本文の長さは分からないので concat_text は伸長に任せる。
     const size_t total_rows = static_cast<size_t>(detail->head_row_count) + detail->body_row_count;
-    tbl->col_count = static_cast<uint16_t>(std::min<unsigned>(detail->col_count, std::numeric_limits<uint16_t>::max()));
+    tbl->head_row_count = detail->head_row_count;
+    // md4c は列数を 16 bit で持ち、各行をちょうどその数のセルで出す。
+    tbl->col_count = static_cast<uint16_t>(detail->col_count);
     const size_t total_cells = total_rows * tbl->col_count;
     tbl->cell_text_starts.reserve(total_cells + 1);
     tbl->aligns.reserve(tbl->col_count);
-    tbl->is_header_row.reserve(total_rows);
 }
 
-void BeginTableCell(ParseContext* ctx, bool is_header, const MD_BLOCK_TD_DETAIL* detail)
+void BeginTableCell(ParseContext* ctx, const MD_BLOCK_TD_DETAIL* detail)
 {
     // セルの中身は行内要素だけなので、表の中では current_node は表ノードのまま。md4c は TH/TD を TR の中にしか置かない。
     auto* const cn = ctx->current_node;
     assert(cn && cn->type == NodeType::Table);
     auto* const tbl = cn->table_data();
     assert(tbl->row_count > 0);
-    // 行内セル数 (is_header_row エントリ数が現 row_count 未満なら未確定 = 行頭)。
-    const bool first_cell_in_row = (tbl->is_header_row.size() < tbl->row_count);
+    const size_t col = tbl->cell_text_starts.size() - static_cast<size_t>(tbl->row_count - 1) * tbl->col_count;
+    assert(col < tbl->col_count);
     const bool first_row = (tbl->row_count == 1);
     // 区切り: 行内 2 セル目以降は '\t'、行頭かつ 2 行目以降は '\n'。
-    if (!first_cell_in_row) {
+    if (col > 0) {
         tbl->concat_text.push_back('\t');
     }
     else if (!first_row) {
@@ -770,33 +771,15 @@ void BeginTableCell(ParseContext* ctx, bool is_header, const MD_BLOCK_TD_DETAIL*
     if (first_row) {
         tbl->aligns.push_back(detail ? static_cast<TableAlign>(detail->align) : TableAlign::Default);
     }
-    // md4c は TR 内で TH/TD を混在させないため、1 セル目で行の種別が確定する。
-    if (first_cell_in_row) {
-        tbl->is_header_row.push_back(is_header);
-    }
 }
 
-// offset テーブルを R*C+1 サイズに揃える。行内セル数が col_count に満たない行は空セル扱い
-// (offset は concat 末尾に詰めて padding)。
+// 番兵を積む。セルは md4c が全部出しているので、埋めるものは無い。
 void FinalizeTableOffsets(NodeTableData& tbl)
 {
-    const size_t expected_cells = static_cast<size_t>(tbl.row_count) * tbl.col_count;
-    const auto text_end = static_cast<uint32_t>(tbl.concat_text.size());
-    const auto run_end = static_cast<uint32_t>(tbl.all_runs.size());
-    // padding は extend のみ (md4c が誤ってセル超過した場合に切り詰めない)。
-    if (tbl.cell_text_starts.size() < expected_cells) {
-        tbl.cell_text_starts.resize(expected_cells, text_end);
-    }
-    tbl.cell_text_starts.push_back(text_end);
+    assert(tbl.cell_text_starts.size() == static_cast<size_t>(tbl.row_count) * tbl.col_count);
+    tbl.cell_text_starts.push_back(static_cast<uint32_t>(tbl.concat_text.size()));
     if (!tbl.cell_run_starts.empty()) {
-        tbl.cell_run_starts.resize(tbl.cell_text_starts.size() - 1, run_end);
-        tbl.cell_run_starts.push_back(run_end);
-    }
-    if (tbl.is_header_row.size() < tbl.row_count) {
-        tbl.is_header_row.resize(tbl.row_count, false);
-    }
-    if (tbl.aligns.size() < tbl.col_count) {
-        tbl.aligns.resize(tbl.col_count, TableAlign::Default);
+        tbl.cell_run_starts.push_back(static_cast<uint32_t>(tbl.all_runs.size()));
     }
 }
 
@@ -958,7 +941,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 
     case MD_BLOCK_TH:
     case MD_BLOCK_TD:
-        BeginTableCell(ctx, type == MD_BLOCK_TH, static_cast<const MD_BLOCK_TD_DETAIL*>(detail));
+        BeginTableCell(ctx, static_cast<const MD_BLOCK_TD_DETAIL*>(detail));
         break;
 
     case MD_BLOCK_FOOTNOTE_DEF_SECTION:

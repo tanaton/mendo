@@ -84,10 +84,9 @@ inline Node MakeTableNode(std::initializer_list<std::initializer_list<std::strin
     tbl->row_count = static_cast<uint32_t>(rows.size());
     tbl->col_count = static_cast<uint16_t>(rows.begin()->size());
     for (const auto& row : rows) {
-        if (!tbl->is_header_row.empty()) {
+        if (!tbl->cell_text_starts.empty()) {
             tbl->concat_text.push_back('\n');
         }
-        tbl->is_header_row.push_back(false);
         for (size_t c = 0; c < row.size(); ++c) {
             if (c > 0) {
                 tbl->concat_text.push_back('\t');
