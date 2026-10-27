@@ -127,11 +127,13 @@ private:
     // sink 書き込みは Cancel との直列化のため lock 内で stop を再確認してから行う。
     void Publish(const std::stop_token& stop_token, AsyncLoadOutcome outcome);
 
-    // sink を swap-out して lock 解放後に破棄する。100MB 級の Document/LayoutCache の
-    // destruction を mutex 保持時間に乗せないため。
+    // sink を swap-out して破棄する。100MB 級の Document/LayoutCache の破棄は UI を十数 ms 止めるので、
+    // mutex の外で、最後に Start した scheduler の worker に回す。
     void ResetSinks() noexcept;
 
     LoadFileFn load_file_ = &LoadFile;
+    // 最後に Start で渡された scheduler。worker の完了を待つ (latch_) ので coordinator より長く生きる。
+    TaskScheduler* scheduler_ = nullptr;
     bool in_flight_ = false;
     std::pmr::wstring loading_path_;
     std::mutex mutex_;

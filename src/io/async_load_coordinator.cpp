@@ -81,6 +81,14 @@ void AsyncLoadCoordinator::ResetSinks() noexcept
         const std::lock_guard lock(mutex_);
         stale.swap(outcome_);
     }
+    // 投函できなければ (Shutdown 後・確保の失敗) ここで捨てる。推定済みの LayoutCache は D2D の参照を持たない。
+    if (stale && *stale && scheduler_) {
+        try {
+            scheduler_->Post([s = std::move(stale)] {});
+        } catch (...) {
+            MENDO_TRACE("ResetSinks: Post threw exception");
+        }
+    }
 }
 
 void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring path, Theme theme, float content_width, ReloadBase reload_base)
@@ -89,6 +97,7 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
     // request_stop 後の source は再使用できないので作り直す。
     stop_source_.request_stop();
     stop_source_ = std::stop_source{};
+    scheduler_ = &scheduler;
     ResetSinks();
     in_flight_ = true;
     loading_path_ = path;
