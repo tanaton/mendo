@@ -94,7 +94,7 @@ int DrainDirtyBatches(LayoutEngine& engine, const std::pmr::vector<Node>& nodes,
 {
     constexpr int kMaxBatches = 20;
     for (int batches = 1; batches <= kMaxBatches; ++batches) {
-        if (!engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline)) {
+        if (!engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All())) {
             return batches;
         }
     }
@@ -242,7 +242,7 @@ TEST_F(ParallelMeasureTest, ProcessDirtyBatchRetriesAfterChunkException)
         engine.SetLayoutScheduler(&task_scheduler_);
         const bool more = c.clip
             ? engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, layout::BufferedRange(0.0f, 600.0f, 100.0f))
-            : engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline);
+            : engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All());
         engine.SetLayoutScheduler(nullptr);
 
         EXPECT_TRUE(cache[thrower].layout_dirty);
@@ -272,7 +272,7 @@ TEST_F(ParallelMeasureTest, AlwaysThrowingNodeStopsRetryingAfterMaxAttempts)
     measurer.throw_on = &nodes[kThrower];
 
     engine.SetLayoutScheduler(&task_scheduler_);
-    ASSERT_TRUE(engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline));
+    ASSERT_TRUE(engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All()));
     for (size_t k = 0; k < kDirtyCount; ++k) {
         const size_t i = kFirstDirty + k;
         if (i != kThrower) {
@@ -364,7 +364,7 @@ TEST_F(ParallelMeasureTest, MeasureSuccessOnAnyPathResetsFailureCount)
     measurer.throw_times = LayoutCache::kMaxMeasureAttempts - 1;
     engine.SetLayoutScheduler(&task_scheduler_);
     for (int k = 0; k + 1 < LayoutCache::kMaxMeasureAttempts; ++k) {
-        engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline);
+        engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All());
     }
     engine.SetLayoutScheduler(nullptr);
     ASSERT_EQ(cache[kThrower].measure_failures, LayoutCache::kMaxMeasureAttempts - 1);

@@ -152,7 +152,7 @@ TEST_F(ProcessDirtyBatchViewportTest, WithoutViewportLimitProcessesAll)
     }
 
     // ビューポート制限なし (clip 省略)
-    engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline);
+    engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All());
 
     // 全ノードが処理されるべき
     for (size_t i = 0; i < nodes.size(); i++) {

@@ -61,8 +61,7 @@ public:
     // range (文書座標) 内の dirty を deadline まで計測する。range 内に dirty が残れば true。
     bool ProcessDirtyBatch(
         const std::pmr::vector<Node>& nodes, LayoutCache& cache,
-        float viewport_width, LayoutDeadline deadline,
-        YRange range = YRange::All());
+        float viewport_width, LayoutDeadline deadline, YRange range);
     const Theme& GetTheme() const noexcept
     {
         return measurer_->GetTheme();

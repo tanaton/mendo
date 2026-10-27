@@ -226,7 +226,7 @@ protected:
                 engine_.ProcessDirtyBatch(nodes_, cache_, width_, deadline, layout::BufferedRange(scroll_, kViewportHeight, buffer));
                 return desc + " clip buffer=" + std::to_string(buffer);
             }
-            engine_.ProcessDirtyBatch(nodes_, cache_, width_, deadline);
+            engine_.ProcessDirtyBatch(nodes_, cache_, width_, deadline, YRange::All());
             return desc + " noclip";
         }
         case Op::MarkDirty: {
@@ -263,7 +263,7 @@ protected:
     {
         engine_.SetLayoutScheduler(nullptr);
         for (int guard = 0; guard < 10000; ++guard) {
-            if (!engine_.ProcessDirtyBatch(nodes_, cache_, width_, kNoLayoutDeadline)) {
+            if (!engine_.ProcessDirtyBatch(nodes_, cache_, width_, kNoLayoutDeadline, YRange::All())) {
                 return;
             }
         }
@@ -410,6 +410,27 @@ TEST(LayoutServiceTest, ViewportLayoutMeasuresAroundScrollTargetAfterReestimate)
         EXPECT_GE(i, vr.first) << "見ていた位置より上を計測した";
         EXPECT_LT(i, kTarget + kEstimatedScreenNodes) << "見ていた位置から離れた所を計測した";
     }
+}
+
+// 本文ペインの高さが 0 (ウィンドウをタイトルバーまで縮めた) でも、遅延レイアウトは文書全体を測らない。
+TEST(LayoutServiceTest, ProcessDirtyBatchWithZeroHeightStaysAtScrollPosition)
+{
+    constexpr float kWidth = 800.0f;
+    const Theme theme = GetLightTheme();
+    RecordingMeasurer measurer;
+    LayoutEngine engine;
+    ASSERT_TRUE(engine.Init(&measurer, theme));
+    ViewportManager viewport;
+    LayoutService service(engine, viewport);
+
+    auto doc = Document::FromMarkdown(std::pmr::string{ MakeParagraphs(400) }, L"t.md");
+    measurer.base = doc.GetNodes().data();
+    LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme);
+
+    service.ProcessDirtyBatch(doc, cache, kWidth, kNoLayoutDeadline, 0.0f, 2.0f);
+
+    EXPECT_LE(measurer.measured.size(), 2u);
+    EXPECT_TRUE(cache[doc.GetNodes().size() - 1].layout_dirty);
 }
 
 // worker の推定は幅を知らず段落を 1 行と見る。文書の最初のレイアウトで、未計測の段落を表示幅で推定し直す。

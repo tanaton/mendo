@@ -227,8 +227,8 @@ void LayoutService::ViewportLayout(const Document& doc, LayoutCache& cache, floa
 bool LayoutService::ProcessDirtyBatch(const Document& doc, LayoutCache& cache, float width, LayoutDeadline deadline, float height, float buffer_screens)
 {
     return KeepingAnchor(cache, [&] {
-        const YRange range = height > 0.0f ? layout::BufferedRange(viewport_.GetScrollY(), height, buffer_screens) : YRange::All();
-        return engine_.ProcessDirtyBatch(doc.GetNodes(), cache, width, deadline, range);
+        // 高さ 0 (ウィンドウをタイトルバーまで縮めた) でも全域にしない。巨大な表の退避した行を全部戻してしまう。
+        return engine_.ProcessDirtyBatch(doc.GetNodes(), cache, width, deadline, layout::BufferedRange(viewport_.GetScrollY(), height, buffer_screens));
     });
 }
 

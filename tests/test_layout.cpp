@@ -251,7 +251,7 @@ TEST_F(LayoutTest, ProcessDirtyBatchCleansNodes)
 
     // ダーティなノードがあれば処理する
     if (cache.HasDirtyNodes()) {
-        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline);
+        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All());
         // 十分に処理した後、ダーティなノードがなくなること
         EXPECT_FALSE(more);
     }
