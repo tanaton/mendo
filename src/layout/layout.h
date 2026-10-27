@@ -174,7 +174,7 @@ public:
     void ViewportLayout(const Document& doc, LayoutCache& cache, float width, float height);
 
     // ProcessDirtyBatch / EnsureVisibleLayout は見ている位置を保つ (前後で scroll target を確定・適用する)。
-    // ProcessDirtyBatch は可視範囲の上下 height * buffer_screens までの dirty を計測する。height <= 0 なら全 dirty が対象。
+    // ProcessDirtyBatch は可視範囲の上下 height * buffer_screens までの dirty を計測する。height が 0 でも全域にはしない。
     bool ProcessDirtyBatch(
         const Document& doc, LayoutCache& cache, float width, LayoutDeadline deadline,
         float height, float buffer_screens);

@@ -2,27 +2,9 @@
 #include "document_test_helpers.h"
 #include "image_loader.h"
 #include "mock_text_measurer.h"
+#include "test_helpers.h"
 #include <algorithm>
 #include <ranges>
-
-namespace {
-
-// FindCachedImage の結果を DiagramEntry に写す (旧 GetCachedImage と同じ形で検証するため)。
-bool GetCachedImage(ImageLoader& loader, const std::wstring& path, DiagramEntry& out)
-{
-    const auto* cached = loader.FindCachedImage(path);
-    if (!cached) {
-        return false;
-    }
-    out.bitmap = cached->bitmap;
-    const auto size = loader.DipSize(*cached);
-    out.width = size.width;
-    out.height = size.height;
-    return true;
-}
-
-} // namespace
-
 
 // ============================================================
 // ImageLoader キャッシュテスト

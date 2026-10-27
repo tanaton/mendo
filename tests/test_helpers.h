@@ -15,6 +15,7 @@
 #include <windows.h>
 #include <vector>
 #include "document_types.h"
+#include "image_loader.h"
 #include "layout_cache.h"
 #include "search_state.h"
 #include "side_effect.h"
@@ -116,6 +117,20 @@ inline LayoutCache MakeUniformCache(int count, float node_height = 100.0f)
         y += node_height;
     }
     return cache;
+}
+
+// FindCachedImage の結果を DiagramEntry に写す (bitmap と、今の DPI での寸法)。
+inline bool GetCachedImage(ImageLoader& loader, const std::wstring& path, DiagramEntry& out)
+{
+    const auto* cached = loader.FindCachedImage(path);
+    if (!cached) {
+        return false;
+    }
+    out.bitmap = cached->bitmap;
+    const auto size = loader.DipSize(*cached);
+    out.width = size.width;
+    out.height = size.height;
+    return true;
 }
 
 inline size_t CountDirty(const LayoutCache& cache) noexcept
