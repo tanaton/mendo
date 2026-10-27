@@ -762,7 +762,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
         .can_go_forward = state_.view.nav_history.CanGoForward(),
         // ヘルプは埋め込みリソースで、エディタで開くファイルが無い。
         .has_file = state_.document.doc.HasBackingFile(),
-        .has_selection = selection.active && selection.start_node >= 0,
+        .has_selection = selection.active() && selection.start_node >= 0,
         .dark_mode_checked = theme_service_.IsDarkMode(),
         .file_pane_checked = panes.IsSidePaneVisible(PaneTarget::File),
         .toc_pane_checked = panes.IsSidePaneVisible(PaneTarget::Toc),

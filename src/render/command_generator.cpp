@@ -750,8 +750,8 @@ void CommandGenerator::EmitText(std::wstring_view text, IDWriteTextFormat* fmt, 
 // (Ctrl+A 後のドラッグ等で範囲全体を毎回走査しない)。
 void CommandGenerator::ReleaseStaleSelectionHlCaches(const LayoutCache& cache, const TextSelection& selection)
 {
-    const int new_start = selection.active ? selection.start_node : -1;
-    const int new_end = selection.active ? selection.end_node : -1;
+    const int new_start = selection.active() ? selection.start_node : -1;
+    const int new_end = selection.active() ? selection.end_node : -1;
     if ((new_start != prev_sel_start_node_ || new_end != prev_sel_end_node_) && prev_sel_start_node_ >= 0) {
         const int lo = prev_sel_start_node_;
         const int hi = std::min(prev_sel_end_node_, static_cast<int>(cache.size()) - 1);

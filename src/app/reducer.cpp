@@ -612,7 +612,7 @@ void ReduceTextSelectionStarted(AppState& state, SideEffectList& effects, const 
         return;
     }
     auto& selection = state.view.viewport.GetSelection();
-    const bool had_selection = selection.active;
+    const bool had_selection = selection.active();
     selection.Clear();
     BeginLeftDrag(state, effects, { .kind = LeftDrag::TextSelect, .select_node = a.node_index, .select_pos = a.text_pos, .click_x = a.click_x, .click_y = a.click_y });
     if (had_selection) {
@@ -898,7 +898,7 @@ void ReduceClearSelection(AppState& state, SideEffectList& effects)
     }
     auto& viewport = state.view.viewport;
     const bool dragging = state.view.drag.kind == LeftDrag::TextSelect;
-    const bool visible = viewport.GetSelection().active || dragging;
+    const bool visible = viewport.GetSelection().active() || dragging;
     // テキスト選択のドラッグ中なら LButtonUp を待たずに終える。
     if (dragging) {
         EndLeftDrag(state, effects);
@@ -912,7 +912,7 @@ void ReduceClearSelection(AppState& state, SideEffectList& effects)
 void ReduceCopyClipboard(const AppState& state, SideEffectList& effects)
 {
     const auto& sel = state.view.viewport.GetSelection();
-    if (!sel.active) {
+    if (!sel.active()) {
         return;
     }
     PushEffect(effects, effect::ClipboardWrite{ ExtractSelectedText(state.document.doc.GetNodes(), sel) });
@@ -921,7 +921,7 @@ void ReduceCopyClipboard(const AppState& state, SideEffectList& effects)
 void ReduceCopyFormattedClipboard(const AppState& state, SideEffectList& effects)
 {
     const auto& sel = state.view.viewport.GetSelection();
-    if (!sel.active) {
+    if (!sel.active()) {
         return;
     }
     const auto& nodes = state.document.doc.GetNodes();

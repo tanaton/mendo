@@ -38,7 +38,7 @@ struct NodeIndices {
 // ノードは arena を指すので、nodes だけを取り出すときは arena ごと持ち続けること。
 struct NodeStorage {
     std::pmr::vector<Node> nodes;
-    std::unique_ptr<TextArena> arena;
+    TextArena arena;
     std::pmr::vector<std::unique_ptr<NodeTableData>> tables;
     NodeIndices indices;
 };

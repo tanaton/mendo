@@ -67,7 +67,7 @@ struct ParseContext {
 
     std::pmr::vector<Node> nodes;
     // 原文をそのまま使えないテキストと、runs・リンク URL の置き場所。NodeStorage として Document に渡す。
-    std::unique_ptr<TextArena> arena;
+    TextArena arena;
     // Table ノードが指すテーブル本体。arena と同じく Document に渡す。
     std::pmr::vector<std::unique_ptr<NodeTableData>> tables;
 
@@ -189,14 +189,14 @@ struct ParseContext {
                 const bool matches_raw = !current_node_needs_copy && offset != kUnsetSourceOffset && CurrentTextMatchesRawSliceAt(offset);
                 const std::string_view text = matches_raw
                                                   ? markdown.substr(offset, current_text.size())
-                                                  : arena->CopyText(current_text);
+                                                  : arena.CopyText(current_text);
                 current_node->SetText(text);
             }
             if (!current_runs.empty()) {
-                current_node->SetRuns(arena->Copy(current_runs));
+                current_node->SetRuns(arena.Copy(current_runs));
             }
             if (!current_link_urls.empty()) {
-                current_node->SetLinkUrls(arena->Copy(current_link_urls));
+                current_node->SetLinkUrls(arena.Copy(current_link_urls));
             }
         }
         current_text.clear();
@@ -553,7 +553,7 @@ struct ParseContext {
     // 原文の外にあるものだけ arena へコピーする。
     std::string_view InternUrl(std::string_view url)
     {
-        return IsSubrangeOf(url, markdown) ? url : arena->CopyText(url);
+        return IsSubrangeOf(url, markdown) ? url : arena.CopyText(url);
     }
 
     // md4c は属性 (href / src / コードブロックの言語) の中の文字参照を解かずに MD_TEXT_ENTITY の部分として渡すので、ここで解く
@@ -677,7 +677,7 @@ bool TryPromoteParagraphToImage(ParseContext* ctx)
         return false;
     }
     const NodeImageData image{ ctx->image_src };
-    cn->set_image_data(ctx->arena->Copy(std::span{ &image, 1 }).data());
+    cn->set_image_data(ctx->arena.Copy(std::span{ &image, 1 }).data());
     cn->type = NodeType::Image;
     ctx->indices.image_indices.emplace_back(ctx->CurrentNodeIndex());
     return true;
@@ -704,7 +704,7 @@ void TryPromoteParagraphToDisplayMath(ParseContext* ctx)
     node->type = NodeType::Diagram;
     node->code_language = SyntaxLanguage::LatexMath;
     ctx->current_runs.clear();
-    node->SetText(ctx->arena->CopyText(text.substr(2, text.size() - 4)), 0);
+    node->SetText(ctx->arena.CopyText(text.substr(2, text.size() - 4)), 0);
     ctx->indices.diagram_indices.emplace_back(ctx->CurrentNodeIndex());
 }
 
@@ -1434,7 +1434,6 @@ constexpr size_t kScratchReserveMax = 64 * 1024;
 
 void ReserveForInput(ParseContext& ctx, size_t input_size)
 {
-    ctx.arena = std::make_unique<TextArena>();
     ctx.current_text.reserve(std::clamp(input_size / kScratchInputBytesPerByte, kScratchReserveMin, kScratchReserveMax));
     const size_t nodes_reserve = std::max(input_size / kInputBytesPerNode, 64uz);
     ctx.nodes.reserve(nodes_reserve);
@@ -1477,7 +1476,7 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         return {};
     }
 
-    AppendFootnoteBackrefs(ctx.nodes, *ctx.arena, ctx.indices.footnote_def_indices, ctx.footnote_ref_counts);
+    AppendFootnoteBackrefs(ctx.nodes, ctx.arena, ctx.indices.footnote_def_indices, ctx.footnote_ref_counts);
 
     for (const size_t first : ctx.split_code_runs) {
         const size_t last = ChunkRunLast(ctx.nodes, first);
@@ -1488,7 +1487,7 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         // BlockQuote ノードから GitHub Alerts を検出し、マーカー除去・ラベル挿入・グルーピングを行う。
         MENDO_PROFILE("DetectAlerts");
         for (const size_t i : ctx.blockquote_indices) {
-            DetectAlertAt(ctx.nodes, *ctx.arena, i);
+            DetectAlertAt(ctx.nodes, ctx.arena, i);
         }
     }
 

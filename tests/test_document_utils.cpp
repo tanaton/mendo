@@ -61,7 +61,6 @@ TEST(ExtractSelectedText, ReservesExactLength)
     nodes.push_back(MakeTextNode("second"));
     nodes.push_back(MakeTextNode("third one"));
     TextSelection sel = TextSelection::MakeOrdered(0, 6, 2, 5);
-    sel.active = true;
     const auto text = ExtractSelectedText(nodes, sel);
     EXPECT_EQ(text, "paragraph\r\nsecond\r\nthird");
     // reserve は確保粒度 (16 byte) までの切り上げのみ許容する。
@@ -74,7 +73,6 @@ TEST(ExtractSelectedText, ConvertsNewlinesInsideNodesToCrlf)
     auto nodes = ParseNodes("```\na\nb\n```\n\n| h |\n|---|\n| c |\n\nx  \ny");
     ASSERT_EQ(nodes.size(), 3u);
     auto sel = TextSelection::MakeOrdered(0, 0, 2, std::numeric_limits<uint32_t>::max());
-    sel.active = true;
     const auto text = ExtractSelectedText(nodes, sel);
     EXPECT_TRUE(text.starts_with("a\r\nb\r\n")) << text;
     EXPECT_TRUE(text.contains("h\r\nc")) << text;
@@ -86,7 +84,6 @@ TEST(ExtractSelectedText, InactiveSelectionReturnsEmpty)
 {
     auto nodes = ParseNodes("Hello world");
     TextSelection sel;
-    sel.active = false;
     EXPECT_TRUE(ExtractSelectedText(nodes, sel).empty());
 }
 
@@ -138,7 +135,6 @@ TEST(ExtractSelectedTextAsHtml, InactiveSelectionReturnsEmpty)
 {
     auto nodes = ParseNodes("Hello");
     TextSelection sel;
-    sel.active = false;
     EXPECT_TRUE(ExtractSelectedTextAsHtml(nodes, sel, false).empty());
 }
 
@@ -942,8 +938,8 @@ TEST(ExtractSelectedText, NodeIndexOutOfRange)
 {
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode("hello"));
-    EXPECT_EQ(ExtractSelectedText(nodes, { .start_node = -5, .start_pos = 0, .end_node = 0, .end_pos = 5, .active = true }), "hello");
-    EXPECT_TRUE(ExtractSelectedText(nodes, { .start_node = 0, .start_pos = 0, .end_node = 100, .end_pos = 5, .active = true }).starts_with("hello"));
+    EXPECT_EQ(ExtractSelectedText(nodes, { .start_node = -5, .start_pos = 0, .end_node = 0, .end_pos = 5 }), "hello");
+    EXPECT_TRUE(ExtractSelectedText(nodes, { .start_node = 0, .start_pos = 0, .end_node = 100, .end_pos = 5 }).starts_with("hello"));
 }
 
 // ---- FindLinkAtPosition 追加テスト ----

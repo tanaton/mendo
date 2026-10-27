@@ -81,7 +81,6 @@ TEST_F(HighlightOrderTest, SearchThenSelectionThenText)
     matches.push_back({ 0, -1, -1, 0, 5 });
 
     TextSelection sel = TextSelection::MakeOrdered(0, 6, 0, 11);
-    sel.active = true;
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     const auto& cmds = gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = pane, .search_matches = matches, .current_match_index = 0, .search_generation = 1 }, 1.0f);
@@ -158,7 +157,6 @@ TEST_F(HighlightOrderTest, EmptySelectionProducesNoSelectionRect)
 {
     auto pl = ParseAndLayout("Hello World");
     TextSelection sel = TextSelection::MakeOrdered(0, 5, 0, 5);
-    sel.active = true;
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     const auto& cmds = gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = pane }, 1.0f);
@@ -219,14 +217,12 @@ TEST_F(HighlightOrderTest, SelectionHighlightHandlesUtf8MultibyteOffset)
 
     auto pl1 = ParseAndLayout("abc");
     TextSelection sel1 = TextSelection::MakeOrdered(0, 0, 0, 3);
-    sel1.active = true;
     const auto& cmds1 = gen_.GenerateMdPane({ .nodes = pl1.nodes, .cache = pl1.cache, .selection = sel1, .md_pane_rect = pane }, 1.0f);
     const auto rect1 = FindFirstFillRectByBrush(cmds1, { BrushId::Selection });
     ASSERT_TRUE(rect1.has_value());
 
     auto pl2 = ParseAndLayout("\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86" "abc");
     TextSelection sel2 = TextSelection::MakeOrdered(0, 9, 0, 12);
-    sel2.active = true;
     const auto& cmds2 = gen_.GenerateMdPane({ .nodes = pl2.nodes, .cache = pl2.cache, .selection = sel2, .md_pane_rect = pane }, 1.0f);
     const auto rect2 = FindFirstFillRectByBrush(cmds2, { BrushId::Selection });
     ASSERT_TRUE(rect2.has_value());
@@ -468,7 +464,6 @@ TEST_F(VisibleHighlightTest, SelectionComputesOnlyLinesNearViewport)
     ASSERT_EQ(pl.nodes.size(), 1u);
     const auto text_size = static_cast<uint32_t>(pl.nodes[0].GetText().size());
     TextSelection sel = TextSelection::MakeOrdered(0, 0, 0, text_size);
-    sel.active = true;
 
     for (const float y : { 0.0f, 100.0f, pl.cache[0].height * 0.5f }) {
         const auto& cmds = Generate(pl, y, sel);

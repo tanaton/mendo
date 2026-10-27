@@ -228,7 +228,7 @@ TEST_F(ReducerTest, SelectAll_WithNodes)
 
     auto effects = Reduce(state, SelectAllAction{});
 
-    EXPECT_TRUE(state.view.viewport.GetSelection().active);
+    EXPECT_TRUE(state.view.viewport.GetSelection().active());
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -241,7 +241,7 @@ TEST_F(ReducerTest, SelectWord_SelectsWordAndSetsAnchor)
     auto effects = Reduce(state, SelectWordAction{ 0, 7 });
 
     const auto& sel = state.view.viewport.GetSelection();
-    ASSERT_TRUE(sel.active);
+    ASSERT_TRUE(sel.active());
     EXPECT_EQ(sel.start_node, 0);
     EXPECT_EQ(sel.start_pos, 6u);
     EXPECT_EQ(sel.end_pos, 11u);
@@ -254,7 +254,7 @@ TEST_F(ReducerTest, SelectWord_InvalidNode_NoOp)
 
     auto effects = Reduce(state, SelectWordAction{ -1, 0 });
 
-    EXPECT_FALSE(state.view.viewport.GetSelection().active);
+    EXPECT_FALSE(state.view.viewport.GetSelection().active());
     EXPECT_TRUE(effects.empty());
 }
 
@@ -266,7 +266,7 @@ TEST_F(ReducerTest, ClearSelection_WhenNotVisible)
     state.view.viewport.SetSelection(TextSelection::MakeOrdered(0, 0, 0, 3));
     auto effects = Reduce(state, ClearSelectionAction{});
 
-    EXPECT_FALSE(state.view.viewport.GetSelection().active);
+    EXPECT_FALSE(state.view.viewport.GetSelection().active());
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -559,7 +559,7 @@ TEST_F(ReducerTest, DocumentReloaded_ClearsNodeBoundState)
     state.view.hover.h_block = 3;
     state.view.hover.side_index[std::to_underlying(PaneTarget::Toc)] = 4;
     state.view.active_toc_index = 2;
-    state.view.viewport.SetSelection(TextSelection{ .start_node = 1, .end_node = 2, .end_pos = 3, .active = true });
+    state.view.viewport.SetSelection(TextSelection{ .start_node = 1, .end_node = 2, .end_pos = 3 });
     state.interaction.tooltip = kLinkTooltip;
 
     const auto effects = Reduce(state, DocumentReloadedAction{});
@@ -567,7 +567,7 @@ TEST_F(ReducerTest, DocumentReloaded_ClearsNodeBoundState)
     EXPECT_TRUE(state.view.block_scroll_x.empty());
     EXPECT_EQ(state.view.hover, HoverHighlights{});
     EXPECT_EQ(state.view.active_toc_index, -1);
-    EXPECT_FALSE(state.view.viewport.GetSelection().active);
+    EXPECT_FALSE(state.view.viewport.GetSelection().active());
     // ツールチップの対象も index で決まるので忘れ、出ていれば隠させる。
     EXPECT_TRUE(state.interaction.tooltip.IsEmpty());
     EXPECT_TRUE(HidesTooltip(effects));
@@ -1306,7 +1306,7 @@ TEST_F(ReducerTest, TextSelectionStarted_WithHit_SetsAnchorAndCaptures)
     EXPECT_EQ(state.view.drag.click_y, 20);
     EXPECT_EQ(state.view.drag.select_node, 0);
     EXPECT_EQ(state.view.drag.select_pos, 3u);
-    EXPECT_FALSE(state.view.viewport.GetSelection().active);
+    EXPECT_FALSE(state.view.viewport.GetSelection().active());
     EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
@@ -1326,7 +1326,7 @@ TEST_F(ReducerTest, TextSelectionMoved_NotDragging_NoOp)
 {
     state.document.doc = Document::FromMarkdown(std::pmr::string("Hello"), L"test.md");
     auto effects = Reduce(state, TextSelectionMovedAction{ 0, 3u });
-    EXPECT_FALSE(state.view.viewport.GetSelection().active);
+    EXPECT_FALSE(state.view.viewport.GetSelection().active());
     EXPECT_TRUE(effects.empty());
 }
 
@@ -1338,7 +1338,7 @@ TEST_F(ReducerTest, TextSelectionMoved_DraggingWithHit_UpdatesSelection)
     auto effects = Reduce(state, TextSelectionMovedAction{ 0, 7u });
 
     const auto& sel = state.view.viewport.GetSelection();
-    EXPECT_TRUE(sel.active);
+    EXPECT_TRUE(sel.active());
     EXPECT_EQ(sel.start_node, 0);
     EXPECT_EQ(sel.end_node, 0);
     EXPECT_EQ(sel.start_pos, 2u);
@@ -1352,7 +1352,7 @@ TEST_F(ReducerTest, TextSelectionMoved_NoHit_NoUpdate)
 
     auto effects = Reduce(state, TextSelectionMovedAction{ -1, 0u });
 
-    EXPECT_FALSE(state.view.viewport.GetSelection().active);
+    EXPECT_FALSE(state.view.viewport.GetSelection().active());
     EXPECT_TRUE(effects.empty());
 }
 
@@ -1370,7 +1370,7 @@ TEST_F(ReducerTest, TextSelectionEnded_WithHit_FinalizesSelection)
     auto effects = Reduce(state, TextSelectionEndedAction{ 0, 8u });
 
     const auto& sel = state.view.viewport.GetSelection();
-    EXPECT_TRUE(sel.active);
+    EXPECT_TRUE(sel.active());
     EXPECT_EQ(sel.start_pos, 2u);
     EXPECT_EQ(sel.end_pos, 8u);
     EXPECT_NE(state.view.drag.kind, LeftDrag::TextSelect);
@@ -1384,7 +1384,7 @@ TEST_F(ReducerTest, TextSelectionEnded_NoHit_ClearsDraggingOnly)
     auto effects = Reduce(state, TextSelectionEndedAction{ -1, 0u });
 
     EXPECT_NE(state.view.drag.kind, LeftDrag::TextSelect);
-    EXPECT_FALSE(state.view.viewport.GetSelection().active);
+    EXPECT_FALSE(state.view.viewport.GetSelection().active());
     EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
     // 見た目が変わらないので再描画しない
     EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));

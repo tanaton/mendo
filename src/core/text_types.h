@@ -55,7 +55,12 @@ struct TextSelection {
     uint32_t start_pos = 0;
     int end_node = -1;
     uint32_t end_pos = 0;
-    bool active = false;
+
+    // 空でない範囲を選んでいる。
+    constexpr bool active() const noexcept
+    {
+        return start_node != end_node || start_pos != end_pos;
+    }
 
     struct NodeRange {
         uint32_t start;
@@ -82,7 +87,7 @@ struct TextSelection {
     // ClampedRange に加え、非アクティブや範囲外のノードでは空範囲を返す。
     constexpr NodeRange RangeIn(int node_index, size_t text_size) const noexcept
     {
-        if (!active || node_index < start_node || node_index > end_node) {
+        if (!active() || node_index < start_node || node_index > end_node) {
             return { 0, 0 };
         }
         return ClampedRange(node_index, text_size);
@@ -93,8 +98,9 @@ struct TextSelection {
     constexpr void Clear() noexcept
     {
         start_node = -1;
+        start_pos = 0;
         end_node = -1;
-        active = false;
+        end_pos = 0;
     }
 
     // アンカー/キャレットをドキュメント順で start <= end に正規化する
@@ -113,7 +119,6 @@ struct TextSelection {
             s.end_node = node_a;
             s.end_pos = pos_a;
         }
-        s.active = (s.start_node != s.end_node || s.start_pos != s.end_pos);
         return s;
     }
 };

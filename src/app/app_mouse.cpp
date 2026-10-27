@@ -229,7 +229,7 @@ void App::OnLButtonUp(int px, int py)
     const int dy = py - state_.view.drag.click_y;
     const bool small_click = (dx * dx + dy * dy) < CLICK_DISTANCE_THRESHOLD_SQ;
     Dispatch(TextSelectionEndedAction{ hit.node_index, hit.text_pos });
-    if (!small_click || state_.view.viewport.GetSelection().active) {
+    if (!small_click || state_.view.viewport.GetSelection().active()) {
         return;
     }
     if (const auto link = GetLinkAtHit(hit)) {
