@@ -606,6 +606,18 @@ void BM_TokenizeCodeChunk(benchmark::State& state, bool continuation)
 BENCHMARK_CAPTURE(BM_TokenizeCodeChunk, head, false)->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_TokenizeCodeChunk, continuation, true)->Unit(benchmark::kMicrosecond);
 
+// 文書を開いた直後 (layout を作ったのは見えている範囲だけ) の 1 回目の EvictTextLayouts。
+// 30 万ノードは 100MB 程度の文書。
+void BM_FirstEvictAfterOpen(benchmark::State& state)
+{
+    const auto n = static_cast<size_t>(state.range(0));
+    for (auto _ : state) {
+        LayoutCache cache(n);
+        state.SetIterationTime(SecondsOf([&] { cache.EvictTextLayouts(0, 100); }));
+    }
+}
+BENCHMARK(BM_FirstEvictAfterOpen)->Arg(10'000)->Arg(300'000)->Iterations(20)->UseManualTime()->Unit(benchmark::kMicrosecond);
+
 // C 系以外の字句解析。区切ったノードと同じ 16KB 程度になるまで snippet を繰り返す。
 void BM_TokenizeLanguage(benchmark::State& state, SyntaxLanguage language, std::string_view snippet)
 {

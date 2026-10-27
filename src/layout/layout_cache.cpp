@@ -328,9 +328,10 @@ void LayoutCache::EvictTextLayouts(size_t first_keep_inclusive, size_t last_keep
         ForEachOutsideKeep(begin, end, fk, lk, [&](size_t i) noexcept { EvictEntryLayout(entries_[i], released_layouts_); });
     };
     // layout が生存しうるのは前回 keep 範囲と、その後に計測した範囲だけなので、その keep 外だけ走査する。
-    // 未追跡 (0, 0) は前回 keep を全域 [0, n) とみなす。
-    const size_t prev_lk = (last_evict_fk_ == 0 && last_evict_lk_ == 0) ? n : std::min(last_evict_lk_, n);
-    evict_outside_keep(std::min(last_evict_fk_, n), prev_lk);
+    // layout を作る経路 (MeasureIndicesParallel・表の行の復元・TakeEntries) はどれも NoteMaterialized を通るので、
+    // 前回の keep が無い (作った直後・全部捨てた直後) なら計測した範囲だけを見ればよい
+    // (30 万ノードの文書を開いた直後の 1 回目が 1.2ms → 0)。
+    evict_outside_keep(std::min(last_evict_fk_, n), std::min(last_evict_lk_, n));
     evict_outside_keep(std::min(materialized_begin_, n), std::min(materialized_end_, n));
     last_evict_fk_ = fk;
     last_evict_lk_ = lk;
