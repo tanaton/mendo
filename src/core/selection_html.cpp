@@ -380,7 +380,7 @@ void AppendCodeBlockOpen(std::pmr::string& out, bool dark_mode)
 constexpr void AppendTableCellStyle(std::pmr::string& out, TableAlign align, bool dark_mode)
 {
     out.append(" style=\"border:1px solid ");
-    AppendHexColor(out, PaletteFor(dark_mode).table_border);
+    AppendHexColor(out, PaletteFor(dark_mode).rule);
     out.append(";padding:6px 13px");
     switch (align) {
     case TableAlign::Center:

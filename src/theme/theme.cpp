@@ -62,11 +62,12 @@ void SetColor(Theme& t, BrushId id, D2D1_COLOR_F color) noexcept
     t.colors[std::to_underlying(id)] = color;
 }
 
-// selection_html (HTML コピー) と共有するコード/シンタックス色。
+// selection_html (HTML コピー) と共有するコード/罫線/シンタックス色。
 void ApplySharedColors(Theme& t, const theme_palette::SharedColors& p)
 {
     SetColor(t, BrushId::CodeBg, D2D1::ColorF(p.code_bg));
     SetColor(t, BrushId::CodeText, D2D1::ColorF(p.code_text));
+    SetColor(t, BrushId::Hr, D2D1::ColorF(p.rule));
     SetColor(t, BrushId::SyntaxKeyword, D2D1::ColorF(p.syntax_keyword));
     SetColor(t, BrushId::SyntaxType, D2D1::ColorF(p.syntax_type));
     SetColor(t, BrushId::SyntaxString, D2D1::ColorF(p.syntax_string));
@@ -158,7 +159,6 @@ Theme BuildLightTheme()
     SetColor(t, BrushId::Text, D2D1::ColorF(0x24292e));
     SetColor(t, BrushId::Heading, D2D1::ColorF(0x1a1a1a));
     SetColor(t, BrushId::Link, D2D1::ColorF(0x0366d6));
-    SetColor(t, BrushId::Hr, D2D1::ColorF(0xd0d0d0));
     SetColor(t, BrushId::BlockquoteBar, D2D1::ColorF(0xdfe2e5));
     SetColor(t, BrushId::BlockquoteText, D2D1::ColorF(0x6a737d));
 
@@ -210,7 +210,6 @@ Theme BuildDarkTheme()
     SetColor(t, BrushId::Text, D2D1::ColorF(0xd4d4d4));
     SetColor(t, BrushId::Heading, D2D1::ColorF(0xe0e0e0));
     SetColor(t, BrushId::Link, D2D1::ColorF(0x569cd6));
-    SetColor(t, BrushId::Hr, D2D1::ColorF(0x404040));
     SetColor(t, BrushId::BlockquoteBar, D2D1::ColorF(0x505050));
     SetColor(t, BrushId::BlockquoteText, D2D1::ColorF(0x9e9e9e));
 

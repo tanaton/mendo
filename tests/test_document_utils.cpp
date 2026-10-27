@@ -369,8 +369,8 @@ TEST(ExtractSelectedTextAsHtml, TableDarkModeUsesDarkBorder)
                      "| 1 | 2 |");
     ASSERT_EQ(nodes[0].type, NodeType::Table);
     auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), /*dark_mode=*/true);
-    EXPECT_TRUE(html.contains("border:1px solid #3c3c3c"));
-    EXPECT_FALSE(html.contains("#d0d7de"));
+    EXPECT_TRUE(html.contains("border:1px solid #404040"));
+    EXPECT_FALSE(html.contains("#d0d0d0"));
 }
 
 TEST(ExtractSelectedTextAsHtml, TableWithoutDataFallsBackToPre)
