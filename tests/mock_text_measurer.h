@@ -55,7 +55,6 @@ public:
             h *= heading_scale;
         }
 
-        entry.reset_text_layout(); // モックでは実際のレイアウトなし
         return h;
     }
 

@@ -1379,15 +1379,9 @@ void CommandGenerator::GenSelectionHighlightCached(const Node& node, const NodeL
     auto& cache = entry.ensure_selection_hl_cache();
     // キャッシュキーは UTF-8 byte 単位 (selection 状態と直接対応)。
     // 位置変換は選択が変わったときだけ前方走査で行う。
-    if (cache.layout_ptr != layout || cache.start != doc_start || cache.length != doc_length) {
+    if (cache.start != doc_start || cache.length != doc_length) {
         Utf16OffsetCursor cursor{ node.GetText() };
         const auto wr = cursor.WideRange(doc_start, doc_length);
-        if (cache.layout_ptr != layout) {
-            cache.rects.clear();
-            cache.rects_begin_w = 0;
-            cache.rects_end_w = 0;
-        }
-        cache.layout_ptr = layout;
         cache.start = doc_start;
         cache.length = doc_length;
         cache.start_w = wr.startPosition;
