@@ -119,13 +119,13 @@ void Renderer::GenOverlays(const RenderParams& p)
         if (p.can_go_back || p.can_go_forward) {
             overlay::EmitNavButtons(overlay_cmds_, text_layouts_, fmt_.nav_button.Get(), md_pane_rect, dark, p.can_go_back, p.can_go_forward, p.nav_hovered);
         }
-        if (p.gesture.trail_active && p.gesture.trail_points) {
-            GenGestureTrail(*p.gesture.trail_points);
+        if (p.gesture.trail) {
+            GenGestureTrail(*p.gesture.trail);
         }
     }
     // 読み込み中もジェスチャーとトーストは出す。
     overlay::EmitGestureOverlay(overlay_cmds_, text_layouts_, fmt_.gesture_overlay.Get(), md_pane_rect, dark, p.gesture.direction);
-    overlay::EmitToast(overlay_cmds_, text_layouts_, fmt_.toast_text.Get(), md_pane_rect, dark, p.toast.message);
+    overlay::EmitToast(overlay_cmds_, text_layouts_, fmt_.toast_text.Get(), md_pane_rect, dark, p.toast_message);
     if (p.loading_angle) {
         return;
     }
@@ -160,6 +160,10 @@ bool Renderer::CreateDevice()
     if (!backend_.CreateDevice()) {
         return false;
     }
+    // ブラシはデバイスに紐付くので、作り直しでは旧デバイスのものに SetColor せず作り直す。
+    for (auto& brush : brushes_) {
+        brush.Reset();
+    }
     RecreateBrushes();
     LoadAppIconBitmap();
     return true;
@@ -167,8 +171,6 @@ bool Renderer::CreateDevice()
 
 bool Renderer::RecreateDevice()
 {
-    // 旧レンダーターゲットに紐付いたブラシを捨てる
-    InvalidateBrushes();
     if (!CreateDevice()) {
         return false;
     }

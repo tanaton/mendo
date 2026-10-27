@@ -1146,8 +1146,10 @@ SearchBarRenderState BuildSearchBarRenderState(const AppState& state)
         .caret_pos = sg.caret_pos,
         .selection_start = sg.selection_start,
         .visible = ss.IsVisible(),
+        .caret_visible = state.window.window_active,
         .case_sensitive = ss.IsCaseSensitive(),
         .highlight_enabled = ss.IsHighlightEnabled(),
+        .hovered = state.view.hover.search_bar,
     };
 }
 

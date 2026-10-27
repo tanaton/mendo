@@ -109,18 +109,5 @@ using DrawCommandList = std::pmr::vector<DrawCommand>;
 
 using FixedBrushArray = std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>, BRUSH_COUNT>;
 
-// 構文トークンの色。Plain はトークンにならないので BrushId::None。
-constexpr BrushId SyntaxBrushId(SyntaxTokenType type) noexcept
-{
-    static_assert(std::to_underlying(BrushId::SyntaxDeleted) - std::to_underlying(BrushId::SyntaxKeyword) ==
-                  std::to_underlying(SyntaxTokenType::Deleted) - std::to_underlying(SyntaxTokenType::Keyword));
-    static_assert(std::to_underlying(BrushId::SyntaxFunction) - std::to_underlying(BrushId::SyntaxKeyword) ==
-                  std::to_underlying(SyntaxTokenType::Function) - std::to_underlying(SyntaxTokenType::Keyword));
-    if (type < SyntaxTokenType::Keyword || type > SyntaxTokenType::Deleted) {
-        return BrushId::None;
-    }
-    return BrushIdAt(BrushId::SyntaxKeyword, std::to_underlying(type) - std::to_underlying(SyntaxTokenType::Keyword));
-}
-
 // 該当ブラシが未作成のコマンドは描かない。rt は null にしない。
 void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes);

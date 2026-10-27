@@ -125,7 +125,6 @@ private:
     FixedBrushArray brushes_;
 
     void RecreateBrushes();
-    void InvalidateBrushes() noexcept;
     void RecreateAllTextFormats();
     void CreateTextFormats();
 

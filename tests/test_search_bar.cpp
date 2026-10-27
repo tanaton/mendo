@@ -296,6 +296,15 @@ TEST_F(SearchBarTest, RenderStateReflectsState)
     EXPECT_TRUE(rs.visible);
     EXPECT_EQ(rs.query, L"abc");
     EXPECT_GE(rs.total_matches, 1);
+    EXPECT_TRUE(rs.caret_visible);
+    EXPECT_EQ(rs.hovered, SearchBarHitZone::None);
+
+    // ホバーと、ウィンドウが非アクティブならキャレットを隠すことも描画状態に入れる。
+    state_.view.hover.search_bar = SearchBarHitZone::Close;
+    state_.window.window_active = false;
+    const auto inactive = RenderState();
+    EXPECT_FALSE(inactive.caret_visible);
+    EXPECT_EQ(inactive.hovered, SearchBarHitZone::Close);
 }
 
 // リロードの後の検索し直し。スクロールはせず、見ている位置の近くのマッチを選ぶ。

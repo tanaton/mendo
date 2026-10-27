@@ -52,19 +52,19 @@ void PublishCmdGenStats() noexcept
 
 namespace {
 
-// 可視 Y 範囲 [cull_top, cull_bottom] (ペインローカル) と重なるか。
-constexpr bool OverlapsY(const D2D1_RECT_F& r, float cull_top, float cull_bottom) noexcept
+// 可視 Y 範囲 (ペインローカル) と重なるか。
+constexpr bool OverlapsY(const D2D1_RECT_F& r, YRange visible) noexcept
 {
-    return !IsOffscreen(r.top, r.bottom - r.top, cull_top, cull_bottom);
+    return !IsOffscreen(r.top, r.bottom - r.top, visible.top, visible.bottom);
 }
 
 // 可視範囲より高いレイアウトだけ、executor に範囲外のグリフランを飛ばさせる。
-DrawTextLayoutCmd MakeTextLayoutCmd(D2D1_POINT_2F origin, IDWriteTextLayout* layout, float height, BrushId brush_id, float cull_top, float cull_bottom) noexcept
+DrawTextLayoutCmd MakeTextLayoutCmd(D2D1_POINT_2F origin, IDWriteTextLayout* layout, float height, BrushId brush_id, YRange visible) noexcept
 {
     DrawTextLayoutCmd cmd{ origin, layout, brush_id };
-    if (height > cull_bottom - cull_top) {
-        cmd.cull_top = cull_top;
-        cmd.cull_bottom = cull_bottom;
+    if (height > visible.bottom - visible.top) {
+        cmd.cull_top = visible.top;
+        cmd.cull_bottom = visible.bottom;
     }
     return cmd;
 }
@@ -75,11 +75,11 @@ FillRoundedRectCmd MakeInlineCodeBgCmd(const D2D1_RECT_F& r) noexcept
 }
 
 // bgs はレイアウト原点相対矩形。
-void GenInlineCodeBgs(DrawCommandList& cmds, std::span<const InlineCodeBg> bgs, float origin_x, float origin_y, float cull_top, float cull_bottom)
+void GenInlineCodeBgs(DrawCommandList& cmds, std::span<const InlineCodeBg> bgs, float origin_x, float origin_y, YRange visible)
 {
     for (const auto& bg : bgs) {
         const auto r = OffsetRectF(bg, origin_x, origin_y);
-        if (OverlapsY(r, cull_top, cull_bottom)) {
+        if (OverlapsY(r, visible)) {
             cmds.emplace_back(MakeInlineCodeBgCmd(r));
         }
     }
@@ -112,7 +112,8 @@ constexpr float BAR_EXTEND = 2.0f;
 constexpr float ALERT_BG_PAD = 4.0f;
 
 // AlertBrushIdFromIndex (brush_id.h) の連番が AlertType 全種を網羅することを担保する。
-static_assert(ALERT_BRUSH_COUNT == ALERT_TYPE_COUNT, "AlertBrushIdFromIndex must cover every AlertType");
+static_assert(std::to_underlying(BrushId::AlertCaution) - std::to_underlying(BrushId::AlertNote) + 1 == ALERT_TYPE_COUNT,
+              "AlertBrushIdFromIndex must cover every AlertType");
 
 // ブロックローカル横スクロールの clip と Translate を RAII で囲み、push/pop の対称性を強制する。
 // scroll_x == 0 のときは Translate を省略し、ブロックがスクロールしないときは Clip も省略する。
@@ -804,7 +805,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(const MdPaneParams& p, f
         .content_width = theme_->ContentWidth(md_pane_rect.width),
         .dpi_scale = dpi_scale,
         .snapped_scroll_y = snapped_y,
-        .cull_bottom = md_pane_rect.height,
+        .visible = { 0.0f, md_pane_rect.height },
         .pane_transform = pane_transform,
         .overhang = MaxNodeOverhang(),
     };
@@ -824,7 +825,7 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(const MdPaneParams& p, f
     int visible_count = 0;
     for (int i = first_visible; i < node_count; i++) {
         const float local_text_top = cache.Top(i) - snapped_y;
-        if (local_text_top - frame_.overhang.above > frame_.cull_bottom) {
+        if (local_text_top - frame_.overhang.above > frame_.visible.bottom) {
             break;
         }
         const Node& node = nodes[i];
@@ -843,11 +844,6 @@ const DrawCommandList& CommandGenerator::GenerateMdPane(const MdPaneParams& p, f
 
 void CommandGenerator::GenerateNode(const Node& node, const NodeLayoutEntry& entry, const DiagramEntry* diagram, int node_index, float entry_text_top)
 {
-    const auto& oh = frame_.overhang;
-    if (IsOffscreen(entry_text_top - oh.above, entry.height + oh.above + oh.below, cull_top_, frame_.cull_bottom)) {
-        return;
-    }
-
     const float x = layout::NodeBlockX(node, *theme_);
     const float cw = NodeContentWidth(node, *theme_, frame_.content_width);
     const float text_x = x + NodeTextXOffset(node, *theme_);
@@ -984,7 +980,7 @@ void CommandGenerator::GenNodeTextDecorations(const Node& node, const NodeLayout
         return;
     }
 
-    GenInlineCodeBgs(cmds_, entry.view_inline_code_bgs(), text_x, entry_text_top, cull_top_, frame_.cull_bottom);
+    GenInlineCodeBgs(cmds_, entry.view_inline_code_bgs(), text_x, entry_text_top, frame_.visible);
 
     // 検索マッチのハイライト（選択より先に描画し、選択が最前面になるようにする）
     GenSearchHighlights(entry, node_index, text_x, entry_text_top);
@@ -993,7 +989,7 @@ void CommandGenerator::GenNodeTextDecorations(const Node& node, const NodeLayout
         GenSelectionHighlightCached(node, entry, sel_start, sel_end - sel_start, text_x, entry_text_top);
     }
 
-    auto cmd = MakeTextLayoutCmd(D2D1::Point2F(text_x, entry_text_top), entry.text_layout(), entry.height, GetNodeBaseBrush(node), cull_top_, frame_.cull_bottom);
+    auto cmd = MakeTextLayoutCmd(D2D1::Point2F(text_x, entry_text_top), entry.text_layout(), entry.height, GetNodeBaseBrush(node), frame_.visible);
     cmd.syntax_tokens = entry.syntax_tokens();
     cmds_.emplace_back(cmd);
 }
@@ -1133,14 +1129,14 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(int first_visible)
         if (group < 0) {
             // text_top は単調なので、非引用ノードが下端を超えたら以降のグループも全て可視域外。
             // ここで break しないと引用が可視域以降に無い文書で毎フレーム末尾まで全走査する。
-            if (cache.Top(i) - snap > frame_.cull_bottom) {
+            if (cache.Top(i) - snap > frame_.visible.bottom) {
                 break;
             }
             i++;
             continue;
         }
         const float group_top = cache.Top(i) - snap;
-        if (group_top - frame_.overhang.above > frame_.cull_bottom) {
+        if (group_top - frame_.overhang.above > frame_.visible.bottom) {
             break;
         }
 
@@ -1153,7 +1149,7 @@ void CommandGenerator::GenBlockQuoteGroupDecorations(int first_visible)
             group_bottom = std::max(group_bottom, cache.Bottom(j) - snap);
             max_depth = std::max<int>(max_depth, nodes[j].quote_depth);
             j++;
-            if (group_bottom > frame_.cull_bottom) {
+            if (group_bottom > frame_.visible.bottom) {
                 break;
             }
         }
@@ -1256,7 +1252,7 @@ void CommandGenerator::GenTableCellContent(std::string_view cell_text, const Cel
         }
     }
     const BrushId cell_brush = ctx.is_header ? BrushId::Heading : BrushId::Text;
-    cmds_.emplace_back(MakeTextLayoutCmd(D2D1::Point2F(ctx.text_x, ctx.text_y), ctx.layout, ctx.height, cell_brush, cull_top_, frame_.cull_bottom));
+    cmds_.emplace_back(MakeTextLayoutCmd(D2D1::Point2F(ctx.text_x, ctx.text_y), ctx.layout, ctx.height, cell_brush, frame_.visible));
 }
 
 void CommandGenerator::GenTable(const Node& node, const NodeLayoutEntry& entry,
@@ -1283,7 +1279,8 @@ void CommandGenerator::GenTable(const Node& node, const NodeLayoutEntry& entry,
     // 可視行帯を row_cum_y の二分探索で求め、その範囲だけループする
     // (FindTableRow と同じパターン)。巨大テーブルで
     // 毎フレーム row_count 回の continue ループが走るのを防ぐ。
-    const auto [r_begin, r_end] = tl.VisibleRowRange(cull_top_ - entry_text_top, frame_.cull_bottom - entry_text_top);
+    const YRange local_visible = frame_.visible.ToLocal(entry_text_top);
+    const auto [r_begin, r_end] = tl.VisibleRowRange(local_visible.top, local_visible.bottom);
     float y = entry_text_top + tl.row_cum_y[r_begin];
 
     // x は列順に単調なので、可視列は連続した区間 [c_begin, c_end) になる。
@@ -1352,7 +1349,7 @@ std::span<const DWRITE_HIT_TEST_METRICS> CommandGenerator::HitTestRange(IDWriteT
 
 void CommandGenerator::EmitFillRectIfVisible(const D2D1_RECT_F& r, BrushId brush)
 {
-    if (OverlapsY(r, cull_top_, frame_.cull_bottom)) {
+    if (OverlapsY(r, frame_.visible)) {
         cmds_.emplace_back(FillRectCmd{ r, brush });
     }
 }
@@ -1367,7 +1364,7 @@ void CommandGenerator::CollectHitTestRects(IDWriteTextLayout* layout, uint32_t s
 
 const LineWindow& CommandGenerator::LineWindowAround(const NodeLayoutEntry& entry, float origin_y) const
 {
-    return EnsureLineWindow(entry, { cull_top_ - origin_y, frame_.cull_bottom - origin_y });
+    return EnsureLineWindow(entry, frame_.visible.ToLocal(origin_y));
 }
 
 void CommandGenerator::GenSelectionHighlightCached(const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y)

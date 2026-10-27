@@ -40,9 +40,8 @@ bool App::Init(HWND hwnd)
     hwnd_ = hwnd;
 
     // 書式とブラシを 1 回で作るため、保存済みテーマ/ズームを Renderer 初期化前に読む。
-    theme_service_.LoadDarkMode();
     state_.view.viewport.Zoom() = theme_service_.LoadZoomLevel();
-    theme_service_.Init(state_.view.viewport.Zoom());
+    theme_service_.Init(theme_service_.LoadDarkMode(), state_.view.viewport.Zoom());
     const Theme& theme = theme_service_.GetTheme();
     if (!renderer_.Init(hwnd_, theme)) {
         return false;
@@ -287,13 +286,10 @@ void App::OnPaint()
     const auto gs = ResolveGestureOverlay(state_.interaction.gesture, state_.interaction.swipe_detector);
     const SidePaneState sp = BuildSidePaneState(layout);
     const TitleBarRenderState tb = BuildTitleBarRenderState();
-    const ToastRenderState ts{ .message = toast_message_ };
 
     const auto& ss = state_.search.search_state;
     const bool highlight = ss.IsVisible() && ss.IsHighlightEnabled();
-    auto sb = BuildSearchBarRenderState(state_);
-    sb.hovered = state_.view.hover.search_bar;
-    sb.caret_visible = state_.window.window_active;
+    const auto sb = BuildSearchBarRenderState(state_);
     const BlockHScrollContext h_scroll{
         .scroll_x = &state_.view.block_scroll_x,
         .hovered_block = state_.view.hover.h_block,
@@ -317,7 +313,7 @@ void App::OnPaint()
         .side_panes = sp,
         .titlebar = tb,
         .gesture = gs,
-        .toast = ts,
+        .toast_message = toast_message_,
         .search_bar = sb,
         .nav_hovered = state_.view.hover.nav,
         .can_go_back = state_.view.nav_history.CanGoBack(),
@@ -738,7 +734,7 @@ void App::ApplyZoom()
 
 void App::ToggleDarkMode()
 {
-    const bool dark = theme_service_.ToggleDarkMode(state_.view.viewport.Zoom());
+    const bool dark = theme_service_.ToggleDarkMode();
     renderer_.OnThemeColorsChanged();
     ApplyDarkModeToWindow(hwnd_, dark);
     tooltip_.ApplyDarkMode(dark);

@@ -18,14 +18,9 @@ struct GesturePoint;
 
 // App がマウスジェスチャーとスワイプから作る (ResolveGestureOverlay)。
 struct GestureRenderState {
-    const std::pmr::vector<GesturePoint>* trail_points = nullptr;
+    // ジェスチャー中の軌跡。描かないときは null。
+    const std::pmr::vector<GesturePoint>* trail = nullptr;
     NavDirection direction = NavDirection::None;
-    bool trail_active = false;
-};
-
-// message が空なら非表示。
-struct ToastRenderState {
-    std::wstring_view message;
 };
 
 struct TitleBarRenderState {
@@ -105,7 +100,8 @@ struct RenderParams {
     const SidePaneState& side_panes;
     const TitleBarRenderState& titlebar;
     const GestureRenderState& gesture;
-    const ToastRenderState& toast;
+    // 空なら非表示。
+    std::wstring_view toast_message;
     const SearchBarRenderState& search_bar;
     NavDirection nav_hovered = NavDirection::None;
     bool can_go_back = false;

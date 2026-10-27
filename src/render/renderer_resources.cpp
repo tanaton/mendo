@@ -79,13 +79,6 @@ void Renderer::RecreateBrushes()
     }
 }
 
-void Renderer::InvalidateBrushes() noexcept
-{
-    for (auto& b : brushes_) {
-        b.Reset();
-    }
-}
-
 void Renderer::EnsurePaneListFormats(PaneTarget target, float zoom)
 {
     auto& f = pane_list_fmt_[std::to_underlying(target)];
