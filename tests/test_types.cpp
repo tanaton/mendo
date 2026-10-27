@@ -18,21 +18,24 @@ TEST(TextSelection, MakeOrderedSortsEndpoints)
         int b_node;
         uint32_t b_pos;
         TextSelection expected;
+        bool active;
     };
     constexpr Case kCases[] = {
-        { 3, 5, 3, 10, { 3, 5, 3, 10, true } },
-        { 3, 10, 3, 5, { 3, 5, 3, 10, true } },
-        { 1, 0, 5, 3, { 1, 0, 5, 3, true } },
-        { 5, 3, 1, 0, { 1, 0, 5, 3, true } },
-        { 5, 0, 1, 0, { 1, 0, 5, 0, true } },
-        { 0, 5, 0, 6, { 0, 5, 0, 6, true } },
-        { 100000, 50000, 200000, 99999, { 100000, 50000, 200000, 99999, true } },
-        { 2, 7, 2, 7, { 2, 7, 2, 7, false } },
-        { 0, 0, 0, 0, { 0, 0, 0, 0, false } },
+        { 3, 5, 3, 10, { 3, 5, 3, 10 }, true },
+        { 3, 10, 3, 5, { 3, 5, 3, 10 }, true },
+        { 1, 0, 5, 3, { 1, 0, 5, 3 }, true },
+        { 5, 3, 1, 0, { 1, 0, 5, 3 }, true },
+        { 5, 0, 1, 0, { 1, 0, 5, 0 }, true },
+        { 0, 5, 0, 6, { 0, 5, 0, 6 }, true },
+        { 100000, 50000, 200000, 99999, { 100000, 50000, 200000, 99999 }, true },
+        { 2, 7, 2, 7, { 2, 7, 2, 7 }, false },
+        { 0, 0, 0, 0, { 0, 0, 0, 0 }, false },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::Message() << "(" << c.a_node << ", " << c.a_pos << ") - (" << c.b_node << ", " << c.b_pos << ")");
-        EXPECT_EQ(TextSelection::MakeOrdered(c.a_node, c.a_pos, c.b_node, c.b_pos), c.expected);
+        const auto s = TextSelection::MakeOrdered(c.a_node, c.a_pos, c.b_node, c.b_pos);
+        EXPECT_EQ(s, c.expected);
+        EXPECT_EQ(s.active(), c.active);
     }
 }
 
@@ -40,12 +43,12 @@ TEST(TextSelection, ClearResetsStateAndAllowsNewSelection)
 {
     auto s = TextSelection::MakeOrdered(1, 0, 5, 3);
     s.Clear();
-    EXPECT_FALSE(s.active);
+    EXPECT_FALSE(s.active());
     EXPECT_EQ(s.start_node, -1);
     EXPECT_EQ(s.end_node, -1);
 
     s = TextSelection::MakeOrdered(2, 1, 3, 4);
-    EXPECT_TRUE(s.active);
+    EXPECT_TRUE(s.active());
     EXPECT_EQ(s.start_node, 2);
     EXPECT_EQ(s.end_node, 3);
 }
@@ -56,7 +59,7 @@ TEST(NodeTest, DefaultState)
 {
     Node node;
     EXPECT_EQ(node.type, NodeType::Paragraph);
-    EXPECT_EQ(node.heading_level(), 0);
+    EXPECT_EQ(node.heading_level, 0);
     EXPECT_EQ(node.indent_level, 0);
     EXPECT_EQ(node.line_count, 0);
     EXPECT_EQ(node.list_number(), 0);
@@ -64,7 +67,7 @@ TEST(NodeTest, DefaultState)
     EXPECT_FALSE(node.HasText());
     EXPECT_TRUE(node.GetText().empty());
     EXPECT_TRUE(node.runs().empty());
-    EXPECT_EQ(node.code_language(), SyntaxLanguage::None);
+    EXPECT_EQ(node.code_language, SyntaxLanguage::None);
     EXPECT_FALSE(node.has_table());
 }
 
@@ -206,15 +209,6 @@ TEST(NodeTest, ImageDataRequiresImageType)
     EXPECT_EQ(node.image_data()->src, "a.png");
 }
 
-TEST(NodeTest, HeadingLevelRequiresHeadingType)
-{
-    Node node;
-    node.set_heading_level(3);
-    EXPECT_EQ(node.heading_level(), 0);
-    node.type = NodeType::Heading;
-    EXPECT_EQ(node.heading_level(), 3);
-}
-
 // テキストの置き場所は種別や言語に依存しない。
 TEST(NodeTest, TextStoredRegardlessOfType)
 {
@@ -233,10 +227,10 @@ TEST(NodeTest, TextStoredRegardlessOfType)
         SCOPED_TRACE(c.text);
         Node node;
         node.type = c.type;
-        node.set_code_language(c.language);
+        node.code_language = c.language;
         node.SetText(c.text, 0);
         EXPECT_EQ(node.GetText(), c.text);
-        EXPECT_EQ(node.code_language(), c.language);
+        EXPECT_EQ(node.code_language, c.language);
     }
 }
 
@@ -297,6 +291,20 @@ TEST(TextArenaTest, CopiesSurviveChunkGrowthAndLargeRequests)
         ASSERT_EQ(copies[i], sources[i]) << "i=" << i;
         ASSERT_NE(copies[i].data(), sources[i].data());
     }
+}
+
+// 移し先が配った領域を持ち続け、移し元に書いても移し先のチャンクを上書きしない。
+TEST(TextArenaTest, MoveKeepsCopiesAndDetachesSource)
+{
+    TextArena source;
+    const auto hello = source.CopyText("hello");
+    TextArena moved = std::move(source);
+    const auto world = source.CopyText("world");
+    const auto after = moved.CopyText("after");
+    EXPECT_EQ(hello, "hello");
+    EXPECT_EQ(world, "world");
+    EXPECT_EQ(after, "after");
+    EXPECT_EQ(after.data(), hello.data() + hello.size()) << "移し先は続きから積む";
 }
 
 TEST(TextArenaTest, CopyKeepsAlignmentAfterOddSizedText)

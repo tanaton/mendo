@@ -191,7 +191,7 @@ std::optional<float> RemeasureExistingLayout(const Node& node, NodeLayoutEntry& 
         entry.text_layout()->GetMetrics(&metrics);
         return FinishTextMeasure(node, entry, metrics, theme);
     }
-    entry.reset_text_layout();
+    entry.release_layout_state();
     return std::nullopt;
 }
 
@@ -353,7 +353,7 @@ IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const DWriteContext& ctx, c
         return ctx.code.Get();
     }
     if (node.type == NodeType::Heading) {
-        const int8_t lv = node.heading_level();
+        const int8_t lv = node.heading_level;
         if (lv >= 1 && lv <= 6) {
             return ctx.h[lv - 1].Get();
         }
@@ -479,7 +479,7 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(
 
     // 描画パスでのトークン化によるフレーム落ちを避けるため、ここで作る。
     // layout と一緒に捨てるので、画面外のコードブロックのトークンは残らない。
-    if (node.type == NodeType::CodeBlock && node.code_language() != SyntaxLanguage::None) {
+    if (node.type == NodeType::CodeBlock && node.code_language != SyntaxLanguage::None) {
         entry.set_syntax_tokens(ToWideMergedTokens(text, TokenizeCodeNode(node)));
     }
 
@@ -553,14 +553,13 @@ void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayout
     if (!keep_layouts) {
         tl.MarkAllRowsEvicted();
     }
-    tl.cells_measured = true;
 }
 
 std::pmr::vector<size_t> DWriteTextMeasurer::RestoreRowsInViewport(
     const NodeTableData& tbl, TableLayoutData& tl, YRange viewport, std::pmr::vector<float>* row_heights) const
 {
     MENDO_PROFILE("RestoreRowsInViewport");
-    const auto [r_begin, r_end] = tl.RowsInViewport(viewport.top, viewport.bottom);
+    const auto [r_begin, r_end] = tl.VisibleRowRange(viewport.top, viewport.bottom);
     std::pmr::vector<size_t> rows;
     for (size_t r = r_begin; r < r_end; r++) {
         if (tl.row_evicted[r]) {
@@ -610,7 +609,7 @@ float DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, TableLay
     const float borders_width = (static_cast<float>(col_count) + 1.0f) * border_width;
     const float paddings_width = static_cast<float>(col_count) * cell_padding * 2.0f;
 
-    layout::ComputeColumnWidths(tl.col_widths, tl.natural_col_widths, max_width - borders_width - paddings_width, col_count);
+    layout::ComputeColumnWidths(tl.col_widths, tl.natural_col_widths, max_width - borders_width - paddings_width);
 
     // 幅の適用 (SetMaxWidth + GetMetrics) は全セル分かかる。行ごとの書き込み先
     // (row_heights[r] と行内セルの幅・高さキャッシュ) は重ならないので行チャンクで並列化する。
@@ -639,7 +638,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
     auto& tl = *tl_ptr;
     const size_t row_count = tbl->row_count;
     // 幾何が無効 (InvalidateGeometry 後) か幅が変わっていれば dirty 経由の MeasureTable (Finalize) が担当する。
-    if (!tl.HasGeometry() || std::abs(tl.last_applied_max_width - max_width) >= CELL_WIDTH_EPSILON) {
+    if (!tl.GeometryValidAt(max_width)) {
         return result;
     }
 
@@ -687,8 +686,7 @@ std::optional<float> DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayo
     // 幾何が無効 (EstimateInvisibleNodeHeight が InvalidateGeometry 済み) のまま通すと
     // GenTable が空テーブルを描画し続ける。
     auto* tl_existing = entry.table_layout();
-    if (tl_existing && tl_existing->HasGeometry() && tl_existing->last_applied_max_width >= 0.0f &&
-        std::abs(tl_existing->last_applied_max_width - max_width) < CELL_WIDTH_EPSILON) {
+    if (tl_existing && tl_existing->GeometryValidAt(max_width)) {
         return entry.height;
     }
 
@@ -706,7 +704,7 @@ std::optional<float> DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayo
 
     // 全セルを測り終えていれば、テキストレイアウトの作成をスキップして列幅の再計算だけ行う。
     // 自然幅はセルのテキストだけで決まり、evict しても残る。
-    if (tl.cells_measured) {
+    if (tl.HasRowGeometry()) {
         // 行高さは FinalizeTableLayout が新しい列幅で全行測る。
         RestoreRowsInViewport(*tbl, tl, viewport, nullptr);
     }

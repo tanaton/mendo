@@ -33,8 +33,6 @@
 #include <string_view>
 #include <utility>
 
-class App;
-
 // App が本体のウィンドウ (Win32Window) に頼むこと。ポップアップのモーダルループも回させる。
 // どれも呼び出し中に App::Dispatch へ入り直しうる (フォーカスの移動や入力欄の書き換えの通知)。
 class WindowHost : public ModalLoop {
@@ -43,29 +41,9 @@ public:
     virtual void FocusSearchEdit(int anchor, int caret) = 0;
     // 本体にフォーカスを戻す。clear_text なら入力欄を空にする (文書の切り替え)。
     virtual void UnfocusSearch(bool clear_text) = 0;
-    // スクリーン座標 pt での WM_NCHITTEST の結果。
-    virtual LRESULT HitTestNonClient(POINT pt) = 0;
 
 protected:
     ~WindowHost() = default;
-};
-
-// ResourceManager と reducer が App に問い合わせる窓口。
-class AppHost final : public ResourceManagerHost, public NodeLayoutAccess {
-public:
-    explicit AppHost(App& app) noexcept : app_(app)
-    {}
-
-    void SetTimer(app_timer::Id id, UINT ms) override;
-    void KillTimer(app_timer::Id id) override;
-    float MdContentWidth() override;
-    float MdPaneHeight() override;
-    const Theme& GetTheme() override;
-    void RecomputeLayout(layout::HeightChangeRange changed) override;
-    void EnsureNodeLayout(int node_index) override;
-
-private:
-    App& app_;
 };
 
 struct SystemCursors {
@@ -83,9 +61,8 @@ struct SystemCursors {
     }
 };
 
-class App {
-    friend class AppHost;
-
+// ResourceManager と reducer が問い合わせる窓口も App が受ける。
+class App final : private ResourceManagerHost, private NodeLayoutAccess {
 public:
     App(ConfigService& config, WindowHost& window) noexcept : config_(config), window_(window)
     {}
@@ -119,10 +96,10 @@ public:
     void OnKeyDown(WPARAM key);
     void OnDropFiles(HDROP hDrop);
 
-    void OnLButtonDown(int px, int py);
+    // is_double_click は WM_LBUTTONDBLCLK (連続クリックの 2 回目)。
+    void OnLButtonDown(int px, int py, bool is_double_click);
     void OnLButtonUp(int px, int py);
     void OnMouseMove(int px, int py);
-    void OnLButtonDblClk(int px, int py);
     void OnContextMenu(int screen_x, int screen_y);
     bool OnRButtonDown(int px, int py);
     bool OnRButtonUp(int px, int py);
@@ -193,10 +170,6 @@ public:
     {
         return state_.window.cached_dpi_scale;
     }
-    float GetTitleBarHeightDip() const noexcept
-    {
-        return state_.window.titlebar.GetHeight();
-    }
     TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const noexcept
     {
         return state_.window.titlebar.HitTest(dip_x, dip_y);
@@ -212,11 +185,11 @@ private:
         }
     }
     void Execute(const SideEffect& effect);
-    void SetTimer(app_timer::Id id, UINT ms) noexcept
+    void SetTimer(app_timer::Id id, UINT ms) noexcept override
     {
         ::SetTimer(hwnd_, std::to_underlying(id), ms, nullptr);
     }
-    void KillTimer(app_timer::Id id) noexcept
+    void KillTimer(app_timer::Id id) noexcept override
     {
         ::KillTimer(hwnd_, std::to_underlying(id));
     }
@@ -241,7 +214,8 @@ private:
 
     // ---- 描画 ----
     void UpdateTitleBar();
-    SidePaneState BuildSidePaneState(const PaneLayout& layout) const;
+    // ファイルペインが表示中なら、一覧の列挙も始める。
+    SidePaneState BuildSidePaneState(const PaneLayout& layout);
     TitleBarRenderState BuildTitleBarRenderState() const;
 
     // ---- 終了 ----
@@ -284,12 +258,12 @@ private:
     // ---- クリック (app_mouse.cpp) ----
     void HandleLinkClick(std::string_view url);
     bool HandleTitleBarClick(float dip_x, float dip_y);
-    bool HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& layout, bool is_double_click);
-    void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& layout);
+    void HandleSearchBarClick(SearchBarHitZone zone, float dip_x, const PaneRect& md_rect, bool is_double_click);
+    void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& layout, bool is_double_click);
     void HandleOverlayButtonClick(const OverlayButtonHit& hit);
     // ホバー中ブロックの水平スクロールバー上ならドラッグを開始して true。
     bool TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x);
-    void HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout);
+    void HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout, bool is_double_click);
     void HandleFileEntryClick(const FileEntry& entry);
     void RefreshFilePane();
 
@@ -320,11 +294,16 @@ private:
     };
     // 可視範囲を計測し直し、スクロール上限・図と画像・遅延レイアウト・目次を追従させる。
     void RelayoutViewport(RelayoutResources resources);
-    void OnResizeEnd();
+    void SettleViewport();
     void OnDeferredLayout();
     // 捨てたテキストレイアウトが多ければワーカーで解放する。
     void DisposeReleasedLayouts();
-    float MdContentWidth();
+    float MdContentWidth() override;
+    float MdPaneHeight() override;
+    const Theme& GetTheme() override;
+    // 画像・図の高さが変わった範囲の Y を組み直し、スクロールを収めて描き直す。
+    void RecomputeLayout(layout::HeightChangeRange changed) override;
+    void EnsureNodeLayout(int node_index) override;
     // スクロール上限/スクロールバー計算用のコンテンツ高さ。
     float ScrollableContentHeight() const noexcept;
 
@@ -361,7 +340,7 @@ private:
         Handled,            // ResumeWatching / DeferReloadRetry 済み、呼び出し元は return
         ContinueWithReload, // Replace を呼び出し元で実行する
     };
-    // NoChange / Defer* をここで処理し、Replace は呼び出し元に任せる。
+    // NoChange / DeferPrefixShrink をここで処理し、Replace は呼び出し元に任せる。
     // has_parsed_doc は新しい内容のパース済み文書が手元にあるか (prefix shrink を受け入れられるか)。
     ReloadFlow ApplyReloadDecisionEarly(const ReloadDecision& decision, bool has_parsed_doc);
 
@@ -430,6 +409,5 @@ private:
     DWriteTextMeasurer measurer_;
     LayoutEngine layout_engine_;
     LayoutService layout_service_{ layout_engine_, state_.view.viewport };
-    AppHost host_{ *this };
     ResourceManager resource_manager_;
 };

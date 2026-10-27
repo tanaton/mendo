@@ -41,7 +41,7 @@ add_executable(mendo_tests
     test_search_state_dwrite.cpp
     test_locale.cpp
     test_memory_eviction.cpp
-    test_lru_cache.cpp
+    test_transposition_cache.cpp
     test_search_bar.cpp
     test_session_service.cpp
     test_reducer.cpp

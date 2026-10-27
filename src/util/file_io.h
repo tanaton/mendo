@@ -68,6 +68,39 @@ constexpr bool IsLocalPath(std::wstring_view path) noexcept
     return !IsPathSlash(path[1]) && !HasNtPrefix(path);
 }
 
+// 最後のパス区切り以降。区切りで終わるパスでは空。
+constexpr std::wstring_view FilenameView(std::wstring_view path) noexcept
+{
+    const auto last_slash = std::ranges::find_last_if(path, IsPathSlash);
+    return last_slash.empty() ? path : std::wstring_view{ last_slash.begin() + 1, path.end() };
+}
+
+// 最後のパス区切り以降の "." を含む拡張子。無ければ空。
+constexpr std::wstring_view ExtensionView(std::wstring_view path) noexcept
+{
+    const auto name = FilenameView(path);
+    const auto dot_pos = name.rfind(L'.');
+    return dot_pos == std::wstring_view::npos ? std::wstring_view{} : name.substr(dot_pos);
+}
+
+// 拡張子の大文字小文字は区別しない。
+constexpr bool IsMarkdownFile(std::wstring_view path) noexcept
+{
+    constexpr ascii_util::LowercaseAsciiLiteral kMarkdownExts[]{
+        L".md",
+        L".markdown",
+        L".mkd",
+    };
+    const auto ext = ExtensionView(path);
+    return std::ranges::any_of(kMarkdownExts, [&](const auto& e) noexcept { return ascii_util::iequal(ext, e); });
+}
+
+// 空パスや区切りを含まないパスでは空を返す。
+inline std::pmr::wstring ParentDirectory(std::wstring_view path)
+{
+    return std::pmr::wstring{ std::filesystem::path(path).parent_path().native() };
+}
+
 // C: か C:\ で始まるか。
 constexpr bool StartsWithDrive(std::wstring_view path) noexcept
 {

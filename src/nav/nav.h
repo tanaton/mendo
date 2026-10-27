@@ -96,7 +96,7 @@ struct LinkClickResult {
     std::pmr::string target;
 };
 
-LinkClickResult HandleLinkClick(std::string_view url);
+LinkClickResult ClassifyLinkClick(std::string_view url);
 bool IsSafeUrlScheme(std::string_view url) noexcept;
 // md4c は URL をエンコードされたまま渡すので、ファイルパスやアンカーとして引く前に通す。
 // 16 進 2 桁が続かない % はそのまま残す。

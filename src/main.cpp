@@ -1,7 +1,6 @@
 #include "window.h"
 #include "config_service.h"
 #include "d2d_render_backend.h"
-#include "document_utils.h"
 #include "file_io.h"
 #include "i18n.h"
 #include "profiler.h"
@@ -30,7 +29,7 @@ std::wstring ExeDirectory()
     if (len == 0 || len >= MAX_PATH) {
         return {};
     }
-    return std::wstring{ ParentDirectory({ buf, len }) };
+    return std::wstring{ path_util::ParentDirectory({ buf, len }) };
 }
 
 // "." や相対パスを FileExplorer / 前回ファイル比較でそのまま扱えるよう絶対パス化する。

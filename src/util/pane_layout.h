@@ -88,9 +88,8 @@ public:
     {
         valid_ = false;
     }
-    constexpr void Set(float window_width, const PaneLayout& layout) noexcept
+    constexpr void Set(const PaneLayout& layout) noexcept
     {
-        window_width_ = window_width;
         layout_ = layout;
         valid_ = true;
     }
@@ -102,14 +101,8 @@ public:
     {
         return layout_;
     }
-    constexpr float WindowWidth() const noexcept
-    {
-        return window_width_;
-    }
-
 private:
     PaneLayout layout_{};
-    float window_width_ = 0.0f;
     bool valid_ = false;
 };
 

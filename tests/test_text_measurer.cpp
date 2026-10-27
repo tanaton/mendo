@@ -95,7 +95,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchResolvesDirty)
     auto [nodes, cache] = ParseAndLayout("A\n\nB\n\nC\n\nD\n\nE", 800.0f, 0.0f, 1.0f);
 
     if (cache.HasDirtyNodes()) {
-        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline);
+        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All());
         EXPECT_FALSE(more);
     }
 
@@ -115,7 +115,7 @@ TEST_F(MockLayoutTest, ProcessDirtyBatchNoDirtyPreservesHeight)
     EXPECT_GT(height_before, 0.0f);
 
     // ダーティなものがない場合のProcessDirtyBatchはtotal_heightを破損させないべき
-    bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline);
+    bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All());
     EXPECT_FALSE(more);
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, theme_.margin_bottom), height_before);
 }
@@ -184,7 +184,7 @@ TEST_F(MockLayoutTest, MermaidBlockGetsPlaceholderHeight)
     auto [nodes, cache] = ParseAndLayout("```mermaid\ngraph TD;\n  A-->B;\n```");
 
     for (size_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i].code_language() == SyntaxLanguage::Mermaid) {
+        if (nodes[i].code_language == SyntaxLanguage::Mermaid) {
             EXPECT_GT(cache[i].height, 0.0f) << "Mermaidブロックのプレースホルダー高さは正であるべき";
             EXPECT_FALSE(cache[i].layout_dirty);
         }
@@ -198,7 +198,7 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAcrossLayoutCycles)
 
     // ビットマップレンダリング完了後の高さを模擬（300 DIP）
     for (size_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i].code_language() == SyntaxLanguage::Mermaid) {
+        if (nodes[i].code_language == SyntaxLanguage::Mermaid) {
             cache[i].height = 300.0f; // ビットマップ描画サイズ
             cache.EnsureDiagram(i).width = 400.0f;
             cache.EnsureDiagram(i).height = 300.0f;
@@ -210,7 +210,7 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAcrossLayoutCycles)
     LayoutAll(nodes, cache, 600.0f);
 
     for (size_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i].code_language() == SyntaxLanguage::Mermaid) {
+        if (nodes[i].code_language == SyntaxLanguage::Mermaid) {
             EXPECT_FLOAT_EQ(cache[i].height, 300.0f)
                 << "Mermaidブロックの高さはレイアウト再計算後も保持されるべき";
             // ダイアグラムエントリも保持
@@ -228,7 +228,7 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAtZeroWidth)
 
     // ビットマップ描画後の高さを設定
     for (size_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i].code_language() == SyntaxLanguage::Mermaid) {
+        if (nodes[i].code_language == SyntaxLanguage::Mermaid) {
             cache[i].height = 250.0f;
         }
     }
@@ -238,7 +238,7 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAtZeroWidth)
     LayoutAll(nodes, cache, 0.0f);
 
     for (size_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i].code_language() == SyntaxLanguage::Mermaid) {
+        if (nodes[i].code_language == SyntaxLanguage::Mermaid) {
             EXPECT_FLOAT_EQ(cache[i].height, 250.0f)
                 << "幅0でのレイアウトでもMermaidブロックの高さは保持されるべき";
         }
@@ -249,7 +249,7 @@ TEST_F(MockLayoutTest, MermaidHeightPreservedAtZeroWidth)
     LayoutAll(nodes, cache, 800.0f);
 
     for (size_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i].code_language() == SyntaxLanguage::Mermaid) {
+        if (nodes[i].code_language == SyntaxLanguage::Mermaid) {
             EXPECT_FLOAT_EQ(cache[i].height, 250.0f)
                 << "幅復帰後もMermaidブロックの高さは保持されるべき";
         }
@@ -348,7 +348,7 @@ TEST_F(MockLayoutTest, InvalidateAllLayoutsForcesRemeasureAtSameWidth)
     ComputeLayout(engine_, nodes, cache, 800.0f);
     ASSERT_FLOAT_EQ(cache[0].height, h) << "幅不変かつ dirty なしなら再計測しない前提";
 
-    EXPECT_TRUE(engine_.RecreateFormats());
+    EXPECT_TRUE(mock_.RecreateFormats());
     cache.InvalidateAllLayouts(nodes);
     EXPECT_TRUE(cache.HasDirtyNodes());
     ComputeLayout(engine_, nodes, cache, 800.0f);

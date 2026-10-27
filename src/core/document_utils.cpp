@@ -1,12 +1,12 @@
 #include "document_utils.h"
 #include "ascii_util.h"
+#include "file_io.h"
 #include "parallel_for.h"
 #include "profiler.h"
 #include "utf8_codec.h"
 #include <algorithm>
 #include <cstring>
 #include <cstdint>
-#include <filesystem>
 #include <format>
 #include <iterator>
 #include <ranges>
@@ -153,34 +153,9 @@ NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, u
     return r;
 }
 
-std::wstring_view ExtensionView(std::wstring_view path) noexcept
-{
-    const auto name = FilenameView(path);
-    const auto dot_pos = name.rfind(L'.');
-    return dot_pos == std::wstring_view::npos ? std::wstring_view{} : name.substr(dot_pos);
-}
-
-bool IsMarkdownFile(std::wstring_view path)
-{
-    static constexpr ascii_util::LowercaseAsciiLiteral kMarkdownExts[]{
-        L".md",
-        L".markdown",
-        L".mkd",
-    };
-    const auto ext = ExtensionView(path);
-    return std::ranges::any_of(kMarkdownExts, [&](const auto& e) noexcept {
-        return ascii_util::iequal(ext, e);
-    });
-}
-
-std::pmr::wstring ParentDirectory(std::wstring_view path)
-{
-    return std::pmr::wstring{ std::filesystem::path(path).parent_path().native() };
-}
-
 std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent)
 {
-    std::pmr::wstring title{ FilenameView(path) };
+    std::pmr::wstring title{ path_util::FilenameView(path) };
     title += title.empty() ? L"mendo" : L" - mendo";
     if (zoom_percent > 0 && zoom_percent != 100) {
         std::format_to(std::back_inserter(title), L" ({}%)", zoom_percent);
@@ -195,7 +170,7 @@ bool NodeContentEquals(const Node& a, const Node& b) noexcept
     // 続きのコードの色分けは前のノードから続くトークン (code_lead_*) でも決まる。
     if (a.type != b.type || a.alert_type != b.alert_type || a.quote_depth != b.quote_depth ||
         a.quote_outer_indent != b.quote_outer_indent || a.indent_level != b.indent_level || a.line_count != b.line_count ||
-        a.heading_level() != b.heading_level() || a.code_language() != b.code_language() || a.flags_ != b.flags_ ||
+        a.heading_level != b.heading_level || a.code_language != b.code_language || a.flags_ != b.flags_ ||
         a.list_number() != b.list_number() || a.alert_label_length() != b.alert_label_length() ||
         a.code_lead_length() != b.code_lead_length() || a.code_lead_type() != b.code_lead_type()) {
         return false;
@@ -286,7 +261,7 @@ std::pmr::vector<SyntaxToken> TokenizeCodeNode(const Node& node)
     const std::string_view text = node.GetText();
     const auto lead = static_cast<uint32_t>(std::min<size_t>(node.code_lead_length(), text.size()));
     if (lead == 0) {
-        return Tokenize(text, node.code_language());
+        return Tokenize(text, node.code_language);
     }
     // 前のノードをつないで字句解析し直すと、1 ノードしか遡れず (16KB を超えるコメントや文字列の 3 つ目以降のノードで崩れる)、
     // 解析も 2 倍かかる (syntax.cpp の 16KB ノードで 47 → 97µs)。続くトークンの後ろは、トークンの外から解析を始めたのと同じになる。
@@ -294,7 +269,7 @@ std::pmr::vector<SyntaxToken> TokenizeCodeNode(const Node& node)
     std::pmr::vector<SyntaxToken> tokens;
     tokens.reserve(rest.size() / 32 + 1);
     tokens.push_back({ 0, lead, node.code_lead_type() });
-    AppendTokens(rest, node.code_language(), tokens);
+    AppendTokens(rest, node.code_language, tokens);
     for (auto& t : std::span{ tokens }.subspan(1)) {
         t.start += lead;
     }
@@ -330,7 +305,7 @@ void AnnotateWindow(std::span<Node> run, std::span<const size_t> begins, Annotat
     for (++j; j < last; ++j) {
         seg.append(ChunkSeparator(run[j])).append(run[j].GetText());
     }
-    const auto tokens = Tokenize(seg, run.front().code_language());
+    const auto tokens = Tokenize(seg, run.front().code_language);
     size_t limit = end;
     if (last < run.size() && !tokens.empty() && restart + tokens.back().start + tokens.back().length == end) {
         limit = restart + tokens.back().start;

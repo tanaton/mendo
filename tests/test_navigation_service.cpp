@@ -46,7 +46,7 @@ TEST(HandleLinkClickTest, ClassifiesLinks)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(c.url));
-        const auto result = HandleLinkClick(c.url);
+        const auto result = ClassifyLinkClick(c.url);
         EXPECT_EQ(result.type, c.type);
         EXPECT_EQ(result.target, c.target);
     }

@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <span>
 #include <string>
+#include <vector>
 #include "titlebar.h"
 
 namespace {
@@ -43,15 +44,6 @@ protected:
     static constexpr float WINDOW_WIDTH = 800.0f;
     TitleBar tb_;
 };
-
-// ═══════════════════════════════════════════════
-// 基本定数
-// ═══════════════════════════════════════════════
-
-TEST_F(TitleBarTest, HeightIsBaseHeight)
-{
-    EXPECT_FLOAT_EQ(tb_.GetHeight(), TitleBar::BASE_HEIGHT);
-}
 
 // ═══════════════════════════════════════════════
 // UpdateLayout — ボタン配置
@@ -163,7 +155,13 @@ TEST_F(TitleBarTest, HitTestButtonEdgesAreHalfOpen)
 
 TEST_F(TitleBarTest, ButtonsDoNotOverlap)
 {
-    TitleBarButtons rects = tb_.GetButtons();
+    std::vector<DipRect> rects;
+    for (const auto zone : { TitleBarHitZone::OpenFile, TitleBarHitZone::Settings, TitleBarHitZone::Help, TitleBarHitZone::ThemeToggle,
+                             TitleBarHitZone::Search, TitleBarHitZone::FileToggle, TitleBarHitZone::TocToggle, TitleBarHitZone::Minimize,
+                             TitleBarHitZone::Maximize, TitleBarHitZone::Close }) {
+        rects.push_back(tb_.GetButton(zone));
+    }
+    ASSERT_EQ(rects.size(), kTitleBarButtonCount);
     std::ranges::sort(rects, {}, &DipRect::left);
     for (size_t i = 1; i < rects.size(); ++i) {
         EXPECT_LE(rects[i - 1].right, rects[i].left)

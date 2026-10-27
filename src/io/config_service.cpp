@@ -9,9 +9,6 @@
 #include <shlobj.h>
 #include <windows.h>
 
-#pragma comment(lib, "shell32.lib")
-#pragma comment(lib, "ole32.lib")
-
 // ini 永続化キー。生文字列を散らさず一覧化し、タイポを静的に検出可能にする。
 // 既存の ini ファイル下位互換が要求されるため値の変更は禁止。
 namespace {

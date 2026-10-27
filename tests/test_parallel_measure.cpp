@@ -82,10 +82,10 @@ BatchRun RunBatch(DirtyNodeFixture& f, const Theme& theme, MockTextMeasurer& mea
 {
     LayoutEngine engine;
     EXPECT_TRUE(engine.Init(&measurer, theme));
-    engine.SetLayoutScheduler(scheduler);
+    measurer.SetScheduler(scheduler);
     const size_t before = CountDirty(f.cache);
     const bool more = engine.ProcessDirtyBatch(f.nodes, f.cache, 800.0f, deadline, range);
-    engine.SetLayoutScheduler(nullptr);
+    measurer.SetScheduler(nullptr);
     return { static_cast<int>(before - CountDirty(f.cache)), more };
 }
 
@@ -94,7 +94,7 @@ int DrainDirtyBatches(LayoutEngine& engine, const std::pmr::vector<Node>& nodes,
 {
     constexpr int kMaxBatches = 20;
     for (int batches = 1; batches <= kMaxBatches; ++batches) {
-        if (!engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline)) {
+        if (!engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All())) {
             return batches;
         }
     }
@@ -196,11 +196,11 @@ TEST_F(ParallelMeasureTest, EnsureVisibleLayoutParallelMatchesSerial)
 
     LayoutEngine parallel;
     ASSERT_TRUE(parallel.Init(&mock_, theme_));
-    parallel.SetLayoutScheduler(&task_scheduler_);
+    mock_.SetScheduler(&task_scheduler_);
     std::pmr::vector<Node> p_nodes;
     LayoutCache p_cache;
     build(parallel, p_nodes, p_cache);
-    parallel.SetLayoutScheduler(nullptr);
+    mock_.SetScheduler(nullptr);
 
     ASSERT_EQ(s_nodes.size(), p_nodes.size());
     for (size_t i = 0; i < s_nodes.size(); ++i) {
@@ -239,11 +239,11 @@ TEST_F(ParallelMeasureTest, ProcessDirtyBatchRetriesAfterChunkException)
         const size_t thrower = kFirstDirty + c.throw_at;
         measurer.throw_on = &nodes[thrower];
 
-        engine.SetLayoutScheduler(&task_scheduler_);
+        measurer.SetScheduler(&task_scheduler_);
         const bool more = c.clip
             ? engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, layout::BufferedRange(0.0f, 600.0f, 100.0f))
-            : engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline);
-        engine.SetLayoutScheduler(nullptr);
+            : engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All());
+        measurer.SetScheduler(nullptr);
 
         EXPECT_TRUE(cache[thrower].layout_dirty);
         EXPECT_TRUE(more);
@@ -271,8 +271,8 @@ TEST_F(ParallelMeasureTest, AlwaysThrowingNodeStopsRetryingAfterMaxAttempts)
     }
     measurer.throw_on = &nodes[kThrower];
 
-    engine.SetLayoutScheduler(&task_scheduler_);
-    ASSERT_TRUE(engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline));
+    measurer.SetScheduler(&task_scheduler_);
+    ASSERT_TRUE(engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All()));
     for (size_t k = 0; k < kDirtyCount; ++k) {
         const size_t i = kFirstDirty + k;
         if (i != kThrower) {
@@ -289,7 +289,7 @@ TEST_F(ParallelMeasureTest, AlwaysThrowingNodeStopsRetryingAfterMaxAttempts)
     cache.InvalidateAllLayouts(nodes);
     cache[kThrower].layout_dirty = true;
     DrainDirtyBatches(engine, nodes, cache);
-    engine.SetLayoutScheduler(nullptr);
+    measurer.SetScheduler(nullptr);
     EXPECT_EQ(measurer.attempts.load(), 2 * LayoutCache::kMaxMeasureAttempts) << "無効化後は改めて上限回数まで試す";
 }
 
@@ -306,9 +306,9 @@ TEST_F(ParallelMeasureTest, UnmeasurableNodeStopsRetryingAfterMaxAttempts)
 
     cache[kTarget].layout_dirty = true;
     measurer.throw_on = &nodes[kTarget];
-    engine.SetLayoutScheduler(&task_scheduler_);
+    measurer.SetScheduler(&task_scheduler_);
     DrainDirtyBatches(engine, nodes, cache);
-    engine.SetLayoutScheduler(nullptr);
+    measurer.SetScheduler(nullptr);
 
     EXPECT_EQ(measurer.attempts.load(), LayoutCache::kMaxMeasureAttempts);
     EXPECT_FALSE(cache[kTarget].layout_dirty);
@@ -332,7 +332,7 @@ TEST_F(ParallelMeasureTest, TransientMeasureFailureIsRetriedUntilMeasured)
     measurer.throw_on = &nodes[kThrower];
     measurer.throw_times = LayoutCache::kMaxMeasureAttempts - 1;
 
-    engine.SetLayoutScheduler(&task_scheduler_);
+    measurer.SetScheduler(&task_scheduler_);
     DrainDirtyBatches(engine, nodes, cache);
     EXPECT_EQ(measurer.attempts.load(), LayoutCache::kMaxMeasureAttempts);
     EXPECT_FALSE(cache[kThrower].layout_dirty);
@@ -344,7 +344,7 @@ TEST_F(ParallelMeasureTest, TransientMeasureFailureIsRetriedUntilMeasured)
     const int before = measurer.attempts.load();
     cache[kThrower].layout_dirty = true;
     DrainDirtyBatches(engine, nodes, cache);
-    engine.SetLayoutScheduler(nullptr);
+    measurer.SetScheduler(nullptr);
     EXPECT_EQ(measurer.attempts.load() - before, LayoutCache::kMaxMeasureAttempts);
 }
 
@@ -362,11 +362,11 @@ TEST_F(ParallelMeasureTest, MeasureSuccessOnAnyPathResetsFailureCount)
     cache[kThrower].layout_dirty = true;
     measurer.throw_on = &nodes[kThrower];
     measurer.throw_times = LayoutCache::kMaxMeasureAttempts - 1;
-    engine.SetLayoutScheduler(&task_scheduler_);
+    measurer.SetScheduler(&task_scheduler_);
     for (int k = 0; k + 1 < LayoutCache::kMaxMeasureAttempts; ++k) {
-        engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline);
+        engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All());
     }
-    engine.SetLayoutScheduler(nullptr);
+    measurer.SetScheduler(nullptr);
     ASSERT_EQ(cache[kThrower].measure_failures, LayoutCache::kMaxMeasureAttempts - 1);
     ASSERT_TRUE(cache[kThrower].layout_dirty);
 

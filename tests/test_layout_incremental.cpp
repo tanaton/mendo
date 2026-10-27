@@ -125,7 +125,7 @@ protected:
     }
     void TearDown() override
     {
-        engine_.SetLayoutScheduler(nullptr);
+        measurer_.SetScheduler(nullptr);
         scheduler_.Shutdown();
     }
 
@@ -179,7 +179,7 @@ protected:
     // 1 操作を適用し、再現用の説明を返す。Evict の keep 範囲は keep_out に返す。
     std::string Apply(std::mt19937& rng, Op op, VisibleRange& keep_out)
     {
-        engine_.SetLayoutScheduler(rng() % 2 == 0 ? &scheduler_ : nullptr);
+        measurer_.SetScheduler(rng() % 2 == 0 ? &scheduler_ : nullptr);
         switch (op) {
         case Op::Resize: {
             const float magnitude = static_cast<float>(1 + rng() % 50);
@@ -226,7 +226,7 @@ protected:
                 engine_.ProcessDirtyBatch(nodes_, cache_, width_, deadline, layout::BufferedRange(scroll_, kViewportHeight, buffer));
                 return desc + " clip buffer=" + std::to_string(buffer);
             }
-            engine_.ProcessDirtyBatch(nodes_, cache_, width_, deadline);
+            engine_.ProcessDirtyBatch(nodes_, cache_, width_, deadline, YRange::All());
             return desc + " noclip";
         }
         case Op::MarkDirty: {
@@ -261,9 +261,9 @@ protected:
     // ProcessDirtyBatch が残り dirty なしを返すまで直列で処理し切る。
     void Settle()
     {
-        engine_.SetLayoutScheduler(nullptr);
+        measurer_.SetScheduler(nullptr);
         for (int guard = 0; guard < 10000; ++guard) {
-            if (!engine_.ProcessDirtyBatch(nodes_, cache_, width_, kNoLayoutDeadline)) {
+            if (!engine_.ProcessDirtyBatch(nodes_, cache_, width_, kNoLayoutDeadline, YRange::All())) {
                 return;
             }
         }
@@ -299,6 +299,12 @@ TEST_F(IncrementalLayoutTest, EvictReleasesEverythingOutsideKeep)
             SCOPED_TRACE("seed=" + std::to_string(seed) + " step=" + std::to_string(step) + " " + desc);
             for (size_t i = 0; i < nodes_.size(); ++i) {
                 if (i >= keep.first && i < keep.last_plus_1) {
+                    continue;
+                }
+                // 行の幾何を持つ表は、作り直しを避けるため幾何だけ残してセルの layout を捨てる。
+                if (const auto* tl = cache_[i].table_layout(); tl && tl->HasRowGeometry()) {
+                    ASSERT_TRUE(std::ranges::none_of(tl->cell_layouts, [](const auto& cell) { return cell != nullptr; }))
+                        << "keep 範囲外 i=" << i << " のセルの layout が残っている";
                     continue;
                 }
                 ASSERT_EQ(cache_[i].table_layout(), nullptr) << "keep 範囲外 i=" << i << " の layout が残っている";
@@ -393,7 +399,7 @@ TEST(LayoutServiceTest, ViewportLayoutMeasuresAroundScrollTargetAfterReestimate)
     viewport.ApplyScrollTarget(cache);
     const float measured_scroll_y = viewport.GetScrollY();
 
-    ASSERT_TRUE(engine.RecreateFormats());
+    ASSERT_TRUE(measurer.RecreateFormats());
     cache.InvalidateAllLayouts(doc.GetNodes());
     measurer.measured.clear();
     service.ViewportLayout(doc, cache, kWidth, kHeight);
@@ -410,6 +416,27 @@ TEST(LayoutServiceTest, ViewportLayoutMeasuresAroundScrollTargetAfterReestimate)
         EXPECT_GE(i, vr.first) << "見ていた位置より上を計測した";
         EXPECT_LT(i, kTarget + kEstimatedScreenNodes) << "見ていた位置から離れた所を計測した";
     }
+}
+
+// 本文ペインの高さが 0 (ウィンドウをタイトルバーまで縮めた) でも、遅延レイアウトは文書全体を測らない。
+TEST(LayoutServiceTest, ProcessDirtyBatchWithZeroHeightStaysAtScrollPosition)
+{
+    constexpr float kWidth = 800.0f;
+    const Theme theme = GetLightTheme();
+    RecordingMeasurer measurer;
+    LayoutEngine engine;
+    ASSERT_TRUE(engine.Init(&measurer, theme));
+    ViewportManager viewport;
+    LayoutService service(engine, viewport);
+
+    auto doc = Document::FromMarkdown(std::pmr::string{ MakeParagraphs(400) }, L"t.md");
+    measurer.base = doc.GetNodes().data();
+    LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme);
+
+    service.ProcessDirtyBatch(doc, cache, kWidth, kNoLayoutDeadline, 0.0f, 2.0f);
+
+    EXPECT_LE(measurer.measured.size(), 2u);
+    EXPECT_TRUE(cache[doc.GetNodes().size() - 1].layout_dirty);
 }
 
 // worker の推定は幅を知らず段落を 1 行と見る。文書の最初のレイアウトで、未計測の段落を表示幅で推定し直す。

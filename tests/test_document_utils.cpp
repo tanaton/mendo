@@ -11,6 +11,7 @@
 #include <vector>
 #include "document_utils.h"
 #include "document_test_helpers.h"
+#include "file_io.h"
 #include "layout_computer.h"
 #include "test_helpers.h"
 #include "parser.h"
@@ -61,7 +62,6 @@ TEST(ExtractSelectedText, ReservesExactLength)
     nodes.push_back(MakeTextNode("second"));
     nodes.push_back(MakeTextNode("third one"));
     TextSelection sel = TextSelection::MakeOrdered(0, 6, 2, 5);
-    sel.active = true;
     const auto text = ExtractSelectedText(nodes, sel);
     EXPECT_EQ(text, "paragraph\r\nsecond\r\nthird");
     // reserve は確保粒度 (16 byte) までの切り上げのみ許容する。
@@ -74,7 +74,6 @@ TEST(ExtractSelectedText, ConvertsNewlinesInsideNodesToCrlf)
     auto nodes = ParseNodes("```\na\nb\n```\n\n| h |\n|---|\n| c |\n\nx  \ny");
     ASSERT_EQ(nodes.size(), 3u);
     auto sel = TextSelection::MakeOrdered(0, 0, 2, std::numeric_limits<uint32_t>::max());
-    sel.active = true;
     const auto text = ExtractSelectedText(nodes, sel);
     EXPECT_TRUE(text.starts_with("a\r\nb\r\n")) << text;
     EXPECT_TRUE(text.contains("h\r\nc")) << text;
@@ -86,7 +85,6 @@ TEST(ExtractSelectedText, InactiveSelectionReturnsEmpty)
 {
     auto nodes = ParseNodes("Hello world");
     TextSelection sel;
-    sel.active = false;
     EXPECT_TRUE(ExtractSelectedText(nodes, sel).empty());
 }
 
@@ -138,7 +136,6 @@ TEST(ExtractSelectedTextAsHtml, InactiveSelectionReturnsEmpty)
 {
     auto nodes = ParseNodes("Hello");
     TextSelection sel;
-    sel.active = false;
     EXPECT_TRUE(ExtractSelectedTextAsHtml(nodes, sel, false).empty());
 }
 
@@ -357,7 +354,6 @@ TEST(ExtractSelectedTextAsHtml, TableWithoutColumnsDoesNotReadOutOfRange)
     tbl->col_count = 0;
     tbl->cell_text_starts.push_back(0);
     tbl->cell_run_starts.push_back(0);
-    tbl->is_header_row.push_back(false);
     const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 0, 0, 1), false);
     EXPECT_FALSE(html.contains("<table"));
 }
@@ -370,8 +366,8 @@ TEST(ExtractSelectedTextAsHtml, TableDarkModeUsesDarkBorder)
                      "| 1 | 2 |");
     ASSERT_EQ(nodes[0].type, NodeType::Table);
     auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), /*dark_mode=*/true);
-    EXPECT_TRUE(html.contains("border:1px solid #3c3c3c"));
-    EXPECT_FALSE(html.contains("#d0d7de"));
+    EXPECT_TRUE(html.contains("border:1px solid #404040"));
+    EXPECT_FALSE(html.contains("#d0d0d0"));
 }
 
 TEST(ExtractSelectedTextAsHtml, TableWithoutDataFallsBackToPre)
@@ -862,7 +858,7 @@ TEST(FilenameView, ReturnsLastPathComponent)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
-        EXPECT_EQ(FilenameView(c.path), c.expected);
+        EXPECT_EQ(path_util::FilenameView(c.path), c.expected);
     }
 }
 
@@ -943,8 +939,8 @@ TEST(ExtractSelectedText, NodeIndexOutOfRange)
 {
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode("hello"));
-    EXPECT_EQ(ExtractSelectedText(nodes, { .start_node = -5, .start_pos = 0, .end_node = 0, .end_pos = 5, .active = true }), "hello");
-    EXPECT_TRUE(ExtractSelectedText(nodes, { .start_node = 0, .start_pos = 0, .end_node = 100, .end_pos = 5, .active = true }).starts_with("hello"));
+    EXPECT_EQ(ExtractSelectedText(nodes, { .start_node = -5, .start_pos = 0, .end_node = 0, .end_pos = 5 }), "hello");
+    EXPECT_TRUE(ExtractSelectedText(nodes, { .start_node = 0, .start_pos = 0, .end_node = 100, .end_pos = 5 }).starts_with("hello"));
 }
 
 // ---- FindLinkAtPosition 追加テスト ----
@@ -1022,7 +1018,7 @@ TEST(FindLinkAtPosition, TableCellLinkFound)
     tbl->all_runs = { MakeRun(0, 4), MakeRun(0, 3), MakeRun(0, 3), MakeRun(0, 3, link) };
     tbl->cell_run_starts = { 0u, 1u, 2u, 3u, 4u };
     tbl->aligns = { TableAlign::Default, TableAlign::Default };
-    tbl->is_header_row = { true, false };
+    tbl->head_row_count = 1;
 
     // "bar"内の位置（オフセット13）でリンクが見つかるべき
     auto result = FindLinkAtPosition(node, 13);
@@ -1076,7 +1072,6 @@ TEST(FindLinkAtPosition, TableCellInternalLink)
     tbl->all_runs = { MakeRun(0, 7, link) };
     tbl->cell_run_starts = { 0u, 1u };
     tbl->aligns = { TableAlign::Default };
-    tbl->is_header_row = { false };
 
     auto result = FindLinkAtPosition(node, 3);
     ASSERT_TRUE(result.has_value());
@@ -1099,40 +1094,11 @@ TEST(FindLinkAtPosition, TablePositionOnSeparator)
     tbl->all_runs = { MakeRun(0, 1), MakeRun(0, 1, link) };
     tbl->cell_run_starts = { 0u, 1u, 2u };
     tbl->aligns = { TableAlign::Default, TableAlign::Default };
-    tbl->is_header_row = { false };
 
     // タブ区切り（オフセット1）はどのセルにもマッチしないべき
     EXPECT_FALSE(FindLinkAtPosition(node, 1).has_value());
     // "B"（オフセット2）でリンクが見つかるべき
     EXPECT_EQ(FindLinkAtPosition(node, 2), "https://b.com");
-}
-
-// ---- GetCellText: 末尾行が col_count 未満で padding された場合 ----
-
-TEST(NodeTableData, GetCellTextShortLastRow)
-{
-    // 3 行 3 列のうち、最後の行が 1 セルしか持たないケース。OnLeaveBlock の padding で
-    // 末尾の cell_text_starts が concat_text.size() に揃えられる。座標ベースの last_cell
-    // 判定では (2,0) が end-start-1 = サイズ -1、(2,1) が underflow して SIZE_MAX を
-    // 返してしまっていた。データ駆動 (end == concat_text.size()) で 0 を返すこと。
-    Node node;
-    node.type = NodeType::Table;
-    auto* tbl = AttachTestTable(node);
-    tbl->row_count = 3;
-    tbl->col_count = 3;
-    tbl->concat_text = "a\tb\tc\nd\te\tf\ng";
-    // 実セル 7 個 + padding 2 個 + 番兵 1 = サイズ 10。padding と番兵は concat 末尾を指す。
-    tbl->cell_text_starts = { 0u, 2u, 4u, 6u, 8u, 10u, 12u, 13u, 13u, 13u };
-    tbl->cell_run_starts = { 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u };
-    tbl->aligns = { TableAlign::Default, TableAlign::Default, TableAlign::Default };
-    tbl->is_header_row = { true, false, false };
-
-    EXPECT_EQ(tbl->GetCellText(0, 0), "a");
-    EXPECT_EQ(tbl->GetCellText(0, 2), "c");
-    EXPECT_EQ(tbl->GetCellText(1, 2), "f");
-    EXPECT_EQ(tbl->GetCellText(2, 0), "g");
-    EXPECT_EQ(tbl->GetCellText(2, 1).size(), 0u);
-    EXPECT_EQ(tbl->GetCellText(2, 2).size(), 0u);
 }
 
 // ============================================================
@@ -1751,7 +1717,7 @@ TEST(IsMarkdownFile, MatchesMarkdownExtensionsCaseInsensitively)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
-        EXPECT_EQ(IsMarkdownFile(c.path), c.expected);
+        EXPECT_EQ(path_util::IsMarkdownFile(c.path), c.expected);
     }
 }
 
@@ -1805,7 +1771,7 @@ TEST(ExtensionView, ReturnsDotExtensionOfLastComponent)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
-        EXPECT_EQ(ExtensionView(c.path), c.expected);
+        EXPECT_EQ(path_util::ExtensionView(c.path), c.expected);
     }
 }
 
@@ -1825,7 +1791,7 @@ TEST(ParentDirectory, ReturnsDirectoryPart)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
-        EXPECT_EQ(ParentDirectory(c.path), c.expected);
+        EXPECT_EQ(path_util::ParentDirectory(c.path), c.expected);
     }
 }
 
@@ -1944,7 +1910,7 @@ std::vector<std::vector<SyntaxToken>> TokenizeRunAtOnce(std::span<const Node> ru
         joined += run[i].GetText();
     }
     std::vector<std::vector<SyntaxToken>> out(run.size());
-    for (const auto& t : Tokenize(joined, run.front().code_language())) {
+    for (const auto& t : Tokenize(joined, run.front().code_language)) {
         for (size_t i = 0; i < run.size(); ++i) {
             const size_t b = begins[i];
             const size_t e = b + run[i].GetText().size();

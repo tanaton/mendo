@@ -22,9 +22,6 @@
 #include <limits>
 #include <utility>
 
-#pragma comment(lib, "shcore.lib")
-#pragma comment(lib, "windowscodecs.lib")
-
 namespace {
 
 bool SeekToBegin(IStream* stream) noexcept
@@ -33,25 +30,20 @@ bool SeekToBegin(IStream* stream) noexcept
     return SUCCEEDED(stream->Seek(zero, STREAM_SEEK_SET, nullptr));
 }
 
-// size == 0 は空ストリームを要求する正当なユースケース（WebView2 CapturePreview の
-// 書き込み先バッファ用途）として許容するが、size > 0 && data == nullptr は呼び出し
-// 側バグなので nullptr を返して失敗させる。
-Microsoft::WRL::ComPtr<IStream> CreateMemoryStream(const void* data, size_t size)
+// 空なら書き込み先 (CapturePreview) に使う空のストリーム。読み出し (ReadHGlobalStream) が HGLOBAL を前提にするので、
+// どちらも CreateStreamOnHGlobal で作る。
+Microsoft::WRL::ComPtr<IStream> CreateMemoryStream(std::span<const std::byte> body = {})
 {
-    if (size > 0 && !data) {
+    if (body.size() > std::numeric_limits<ULONG>::max()) {
         return nullptr;
     }
-    if (size > std::numeric_limits<ULONG>::max()) {
-        return nullptr;
-    }
-
     Microsoft::WRL::ComPtr<IStream> stream;
     if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream)) || !stream) {
         return nullptr;
     }
-    if (size > 0) {
+    if (!body.empty()) {
         ULONG written = 0;
-        if (FAILED(stream->Write(data, static_cast<ULONG>(size), &written)) || written != size || !SeekToBegin(stream.Get())) {
+        if (FAILED(stream->Write(body.data(), static_cast<ULONG>(body.size()), &written)) || written != body.size() || !SeekToBegin(stream.Get())) {
             return nullptr;
         }
     }
@@ -545,7 +537,7 @@ void MermaidRenderer::OnWebResourceRequested(ICoreWebView2WebResourceRequestedEv
                                                          : std::span<const std::byte>{};
     Microsoft::WRL::ComPtr<IStream> stream;
     if (!body.empty()) {
-        stream = CreateMemoryStream(body.data(), body.size());
+        stream = CreateMemoryStream(body);
     }
 
     // 空ボディを200で返さず、失敗を明示する
@@ -725,7 +717,7 @@ bool MermaidRenderer::RequestRender(
     // ディスクから読めなかったときは描画し直すので、ディスクに当たってもコードを持たせる。
     RenderRequest req{
         .code = std::pmr::string{ node.GetText() },
-        .latex = node.code_language() == SyntaxLanguage::LatexMath,
+        .latex = node.code_language == SyntaxLanguage::LatexMath,
         .max_width = max_width,
         .dark_mode = dark_mode,
         .code_hash = hash,
@@ -902,6 +894,13 @@ void MermaidRenderer::FreeWorker(Worker& worker)
     ProcessQueue();
 }
 
+void MermaidRenderer::FailWorkerRequest(Worker& worker, DiagramError::Kind kind, std::wstring_view msg)
+{
+    SetDiagramError(worker.current_request, kind, msg);
+    InvokeSvgCallbackIfAny(worker.current_request, {}, false);
+    FinishWorkerRequest(worker);
+}
+
 void MermaidRenderer::FinishWorkerRequest(Worker& worker)
 {
     const bool resolved = !worker.current_request.svg_only && FindCached(worker.current_request);
@@ -1007,9 +1006,7 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
         return;
     case WebMessageKind::RenderError:
         if (req_id_match) {
-            SetDiagramError(w.current_request, DiagramError::Kind::Render, payload);
-            InvokeSvgCallbackIfAny(w.current_request, {}, false);
-            FinishWorkerRequest(w);
+            FailWorkerRequest(w, DiagramError::Kind::Render, payload);
         }
         return;
     case WebMessageKind::Failed:
@@ -1034,15 +1031,13 @@ void MermaidRenderer::OnRenderResult(int worker_idx, const mermaid_util::RenderS
 
     if (dw <= 0 || dh <= 0) {
         // 大きさの無い図はキャプチャできない。放置すると「読み込み中」のまま固着する (issue #271)。
-        SetDiagramError(w.current_request, DiagramError::Kind::Render);
-        FinishWorkerRequest(w);
+        FailWorkerRequest(w, DiagramError::Kind::Render);
         return;
     }
 
     // 描けない大きさのままキャプチャすると、毎回ビットマップ作成に失敗して描き直しを繰り返す。
     if (!mermaid_util::FitsCaptureLimit(dw, dh, dpr, MaxBitmapDim(render_target_))) {
-        SetDiagramError(w.current_request, DiagramError::Kind::TooLarge);
-        FinishWorkerRequest(w);
+        FailWorkerRequest(w, DiagramError::Kind::TooLarge);
         return;
     }
 
@@ -1069,7 +1064,7 @@ void MermaidRenderer::DoCapturePreview(int worker_idx)
         return;
     }
 
-    auto png_stream = CreateMemoryStream(nullptr, 0);
+    auto png_stream = CreateMemoryStream();
     if (!png_stream) {
         FinishWorkerRequest(w);
         return;

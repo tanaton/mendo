@@ -1,6 +1,5 @@
 #pragma once
 #include <algorithm>
-#include <concepts>
 #include <cstddef>
 #include <cstring>
 #include <emmintrin.h>
@@ -296,35 +295,6 @@ constexpr bool iequal(std::string_view a, DocLowercaseLiteral b) noexcept
 constexpr bool istarts_with(std::string_view s, DocLowercaseLiteral prefix) noexcept
 {
     return std::ranges::starts_with(s, prefix.value, {}, ToLowerAscii);
-}
-
-template <typename T, std::unsigned_integral U>
-constexpr const T* from_chars(const T* start, std::size_t len, U& value, U base = 10) noexcept
-{
-    const auto end = start + len;
-    U b;
-
-    value = 0;
-    if (base <= 10) {
-        for (; (start < end) && ((b = *start - static_cast<T>('0')) < base); ++start) {
-            value = (value * base) + b;
-        }
-    }
-    else {
-        for (; start < end; ++start) {
-            const U c = static_cast<std::make_unsigned_t<T>>(*start);
-            b = c - static_cast<T>('0');
-            if (b >= 10) {
-                b = (c | 0x20) - static_cast<T>('a');
-                if (b >= (base - 10)) {
-                    break;
-                }
-                b += 10;
-            }
-            value = (value * base) + b;
-        }
-    }
-    return start;
 }
 
 } // namespace ascii_util

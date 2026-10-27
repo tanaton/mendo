@@ -23,7 +23,7 @@ Node MakeCodeBlockNode(SyntaxLanguage lang, int line_count = 1)
     Node n;
     n.type = IsDiagramLanguage(lang) ? NodeType::Diagram : NodeType::CodeBlock;
     n.SetText("code", line_count);
-    n.set_code_language(lang);
+    n.code_language = lang;
     return n;
 }
 

@@ -52,11 +52,9 @@ public:
     static constexpr float ICON_RIGHT_GAP = 4.0f;
     // キャプションボタン（最小化/最大化/閉じる）はタイトルバーの全高を使う
     static constexpr float CAPTION_BTN_WIDTH = 46.0f;
-
-    constexpr float GetHeight() const noexcept
-    {
-        return BASE_HEIGHT;
-    }
+    // アイコンの位置は幅に依存しない。
+    static constexpr DipRect ICON_RECT{ ICON_LEFT_MARGIN, (BASE_HEIGHT - ICON_SIZE) / 2.0f, ICON_LEFT_MARGIN + ICON_SIZE,
+                                        (BASE_HEIGHT + ICON_SIZE) / 2.0f };
 
     void UpdateLayout(float window_width_dip) noexcept;
 
@@ -65,14 +63,6 @@ public:
     constexpr const DipRect& GetButton(TitleBarHitZone zone) const noexcept
     {
         return TitleBarButtonRect(buttons_, zone);
-    }
-    constexpr const TitleBarButtons& GetButtons() const noexcept
-    {
-        return buttons_;
-    }
-    constexpr const DipRect& GetIconRect() const noexcept
-    {
-        return icon_rect_;
     }
     constexpr const DipRect& GetTitleTextRect() const noexcept
     {
@@ -86,6 +76,5 @@ private:
     }
 
     TitleBarButtons buttons_{};
-    DipRect icon_rect_{};
     DipRect title_text_rect_{};
 };

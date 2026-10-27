@@ -55,7 +55,7 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsResetsTextHeightsButKeepsBitmapNodes)
     std::pmr::vector<Node> nodes(3);
     nodes[1].type = NodeType::Image;
     nodes[2].type = NodeType::Diagram;
-    nodes[2].set_code_language(SyntaxLanguage::Mermaid);
+    nodes[2].code_language = SyntaxLanguage::Mermaid;
     for (size_t i = 0; i < 3; i++) {
         cache[i].height = 500.0f;
     }
@@ -279,13 +279,13 @@ TEST(TableRowRangeTest, VisibleRowRangeBelowTableIsEmpty)
     EXPECT_GE(begin, end);
 }
 
-// 行幾何が未計測のときは全行を対象にする。
-TEST(TableRowRangeTest, RowsInViewportFallsBackToAllRowsWithoutGeometry)
+// 行幾何が未計測のときはどの行も返さない (全行のセルを作り直させない)。
+TEST(TableRowRangeTest, VisibleRowRangeIsEmptyWithoutGeometry)
 {
     const TableLayoutData unmeasured(5, 1, false);
-    EXPECT_EQ(unmeasured.RowsInViewport(15.0f, 25.0f), (std::pair<size_t, size_t>{ 0, 5 }));
+    EXPECT_EQ(unmeasured.VisibleRowRange(15.0f, 25.0f), (std::pair<size_t, size_t>{ 0, 0 }));
     const auto tl = MakeThreeRowTable();
-    EXPECT_EQ(tl.RowsInViewport(15.0f, 25.0f), (std::pair<size_t, size_t>{ 1, 3 }));
+    EXPECT_EQ(tl.VisibleRowRange(15.0f, 25.0f), (std::pair<size_t, size_t>{ 1, 3 }));
 }
 
 TEST(TableRowRangeTest, RowIndexAtBoundaries)
@@ -307,10 +307,6 @@ TEST(LayoutCacheTest, SyntaxTokensReleasedWithTextLayout)
     entry.set_syntax_tokens({ SyntaxToken{ 0, 3, SyntaxTokenType::Keyword } });
     ASSERT_EQ(entry.syntax_tokens().size(), 1u);
 
-    entry.reset_text_layout();
-    EXPECT_TRUE(entry.syntax_tokens().empty());
-
-    entry.set_syntax_tokens({ SyntaxToken{ 0, 3, SyntaxTokenType::Keyword } });
     entry.release_layout_state();
     EXPECT_TRUE(entry.syntax_tokens().empty());
 }

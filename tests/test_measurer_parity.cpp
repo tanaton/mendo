@@ -40,8 +40,8 @@ private:
     {
         Node n;
         n.type = src.type;
-        n.set_heading_level(src.heading_level());
-        n.set_code_language(src.code_language());
+        n.heading_level = src.heading_level;
+        n.code_language = src.code_language;
         n.SetText(src.GetText(), src.line_count);
         n.SetRuns(src.runs());
         n.set_image_data(src.image_data());
@@ -76,7 +76,7 @@ TEST_F(MeasurerParityTest, HeadingTallerThanParagraphInBoth)
 
     Node heading = MakeTextNode("Sample text");
     heading.type = NodeType::Heading;
-    heading.set_heading_level(1);
+    heading.heading_level = 1;
 
     const auto p = MeasureBoth(para, 600.0f);
     const auto h = MeasureBoth(heading, 600.0f);

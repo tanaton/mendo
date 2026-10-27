@@ -14,6 +14,11 @@ constexpr auto kSectionView = "View"sv;
 constexpr auto kKeyDarkMode = "DarkMode"sv;
 constexpr auto kKeyZoomLevel = "ZoomLevel"sv;
 
+const Theme& BaseTheme(bool dark)
+{
+    return dark ? GetDarkTheme() : GetLightTheme();
+}
+
 std::wstring ResolveFontFamily(IDWriteFontCollection* collection, std::span<const wchar_t* const> candidates)
 {
     if (collection) {
@@ -34,23 +39,23 @@ ThemeService::ThemeService(ConfigService& config) noexcept
 {
 }
 
-const Theme& ThemeService::BaseTheme() const
+Theme ThemeService::MakeTheme(bool dark, ZoomLevel zoom)
 {
-    return dark_mode_ ? GetDarkTheme() : GetLightTheme();
-}
-
-Theme ThemeService::CreateTheme(ZoomLevel zoom) const
-{
-    Theme theme = BaseTheme();
+    Theme theme = BaseTheme(dark);
     if (!zoom.IsDefault()) {
         theme.ApplyZoom(zoom.Value());
     }
     return theme;
 }
 
-void ThemeService::Init(ZoomLevel zoom)
+Theme ThemeService::CreateTheme(ZoomLevel zoom) const
 {
-    theme_ = CreateTheme(zoom);
+    return MakeTheme(theme_.dark, zoom);
+}
+
+void ThemeService::Init(bool dark, ZoomLevel zoom)
+{
+    theme_ = MakeTheme(dark, zoom);
     // 共有ファクトリはプロセスで 1 つなので、描画側 (D2DRenderBackend) が作るものと同じになる。
     Microsoft::WRL::ComPtr<IDWriteFactory> dw;
     Microsoft::WRL::ComPtr<IDWriteFontCollection> collection;
@@ -65,7 +70,17 @@ void ThemeService::Init(ZoomLevel zoom)
     theme_.icon_font = ResolveFontFamily(collection.Get(), theme_palette::kIconFontCandidates);
 }
 
-void ThemeService::Rebuild(ZoomLevel zoom)
+// ライトとダークの違いは色だけ。
+bool ThemeService::ToggleDarkMode()
+{
+    const bool dark = !theme_.dark;
+    theme_.colors = BaseTheme(dark).colors;
+    theme_.dark = dark;
+    return dark;
+}
+
+// 累積の誤差を溜めないよう、毎回ベーステーマから作る。決めたフォントは引き継ぐ。
+void ThemeService::ApplyZoom(ZoomLevel zoom)
 {
     Theme next = CreateTheme(zoom);
     next.monospace_font = std::move(theme_.monospace_font);
@@ -73,26 +88,14 @@ void ThemeService::Rebuild(ZoomLevel zoom)
     theme_ = std::move(next);
 }
 
-bool ThemeService::ToggleDarkMode(ZoomLevel zoom)
-{
-    dark_mode_ = !dark_mode_;
-    Rebuild(zoom);
-    return dark_mode_;
-}
-
-void ThemeService::ApplyZoom(ZoomLevel zoom)
-{
-    Rebuild(zoom);
-}
-
 void ThemeService::SaveDarkMode()
 {
-    config_.SaveBool(kSectionView, kKeyDarkMode, dark_mode_);
+    config_.SaveBool(kSectionView, kKeyDarkMode, theme_.dark);
 }
 
-void ThemeService::LoadDarkMode()
+bool ThemeService::LoadDarkMode() const
 {
-    dark_mode_ = config_.LoadBool(kSectionView, kKeyDarkMode, false);
+    return config_.LoadBool(kSectionView, kKeyDarkMode, false);
 }
 
 void ThemeService::SaveZoomLevel(ZoomLevel zoom)

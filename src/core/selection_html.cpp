@@ -380,7 +380,7 @@ void AppendCodeBlockOpen(std::pmr::string& out, bool dark_mode)
 constexpr void AppendTableCellStyle(std::pmr::string& out, TableAlign align, bool dark_mode)
 {
     out.append(" style=\"border:1px solid ");
-    AppendHexColor(out, PaletteFor(dark_mode).table_border);
+    AppendHexColor(out, PaletteFor(dark_mode).rule);
     out.append(";padding:6px 13px");
     switch (align) {
     case TableAlign::Center:
@@ -618,7 +618,7 @@ CellRunsHit FindTableCellRuns(const Node& node, uint32_t text_pos)
 
 std::pmr::string ExtractSelectedText(const std::pmr::vector<Node>& nodes, const TextSelection& selection)
 {
-    if (!selection.active) {
+    if (!selection.active()) {
         return {};
     }
 
@@ -666,7 +666,7 @@ std::pmr::string ExtractSelectedText(const std::pmr::vector<Node>& nodes, const 
 
 std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, const TextSelection& selection, bool dark_mode)
 {
-    if (!selection.active) {
+    if (!selection.active()) {
         return {};
     }
 
@@ -706,7 +706,7 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
         };
         switch (node.type) {
         case NodeType::Heading: {
-            const int level = std::clamp(static_cast<int>(node.heading_level()), 1, 6);
+            const int level = std::clamp(static_cast<int>(node.heading_level), 1, 6);
             std::format_to(std::back_inserter(out), "<h{}>", level);
             AppendNodeInlineHtml(out, node, start, end);
             std::format_to(std::back_inserter(out), "</h{}>", level);

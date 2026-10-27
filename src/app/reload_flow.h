@@ -18,15 +18,14 @@ inline bool FilePaneFollowsLoad(std::wstring_view prev_path, std::wstring_view n
 }
 
 enum class ParseCompleteStep : uint8_t {
-    // 結果もエラーも無いのに別のロードが進行中 = Start の ResetSinks で無効化された古い通知。
-    // 進行中ロードのアニメーションや FileWatcher 状態に触らない。
+    // 結果もエラーも無い = Start の ResetSinks か Cancel で捨てた読み込みの古い通知。後始末は捨てた側
+    // (Start は次の読み込み、Cancel の呼び出し元) が済ませているので、アニメーションや FileWatcher に触らない。
     IgnoreStale,
-    // 結果なし (失敗 / キャンセル)。paused の FileWatcher を必ず再開させる。
+    // 読み込みに失敗した。paused の FileWatcher を必ず再開させる。
     Fail,
-    // worker の差分判定後に表示文書が差し替わり、判定の前提が崩れた。
-    RetryDocumentChanged,
+    // 読み直す。worker の差分判定の後に表示文書が差し替わって判定の前提が崩れたか、
     // エディタの書き込み途中を読んだ (読み込み後にファイルが伸びている)。
-    RetryPartialWrite,
+    Retry,
     // 同一ファイルの再読込。op は reload に入る。
     ApplyReload,
     // 別ファイルとして結果の文書を開く。
@@ -43,13 +42,11 @@ struct ParseCompletePlan {
     bool follow_file_pane = false;
 };
 
-// outcome は AsyncLoadCoordinator::Take の戻り値。another_load_active は取り出し後の IsActive()。
-// 書き込み途中 (still_growing) は同一パスの再読込のときだけ見る。
-[[nodiscard]] inline ParseCompletePlan PlanParseComplete(const std::optional<AsyncLoadOutcome>& outcome, bool another_load_active,
-                                                         const Document& current)
+// outcome は AsyncLoadCoordinator::Take の戻り値。書き込み途中 (still_growing) は同一パスの再読込のときだけ見る。
+[[nodiscard]] inline ParseCompletePlan PlanParseComplete(const std::optional<AsyncLoadOutcome>& outcome, const Document& current)
 {
     if (!outcome) {
-        return { .step = another_load_active ? ParseCompleteStep::IgnoreStale : ParseCompleteStep::Fail };
+        return { .step = ParseCompleteStep::IgnoreStale };
     }
     if (!*outcome) {
         return { .step = ParseCompleteStep::Fail, .error = outcome->error() };
@@ -60,19 +57,16 @@ struct ParseCompletePlan {
     // 非同期のファイルオープンでも同じ経路を通るため、別ファイルなら decision は空のまま。
     std::optional<ReloadDecision> decision;
     if (result->reload) {
-        // worker がパース前に差分判定を済ませている (NoChange 等は doc が空)。
+        // worker がパース前に差分判定を済ませている (NoChange 等と書き込み途中は doc が空)。
         const auto& rc = *result->reload;
-        if (rc.base.lock() != current.ShareRawText() || !path_util::iequal(rc.path, current.GetFilePath())) {
-            return { .step = ParseCompleteStep::RetryDocumentChanged };
-        }
-        if (result->still_growing) {
-            return { .step = ParseCompleteStep::RetryPartialWrite };
+        if (result->still_growing || rc.base.lock() != current.ShareRawText() || !path_util::iequal(rc.path, current.GetFilePath())) {
+            return { .step = ParseCompleteStep::Retry };
         }
         decision = rc.decision;
     }
     else if (path_util::iequal(result->doc.GetFilePath(), current.GetFilePath())) {
         if (result->still_growing) {
-            return { .step = ParseCompleteStep::RetryPartialWrite };
+            return { .step = ParseCompleteStep::Retry };
         }
         decision = AnalyzeReloadDiff(std::string_view(current.GetRawText()), std::string_view(result->doc.GetRawText()));
     }

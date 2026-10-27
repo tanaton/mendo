@@ -14,9 +14,6 @@
 #include <optional>
 #include <utility>
 
-#pragma comment(lib, "dwmapi.lib")
-#pragma comment(lib, "imm32.lib")
-
 namespace {
 
 constexpr wchar_t WINDOW_CLASS[] = L"mendoWindow";
@@ -33,6 +30,14 @@ constexpr auto kKeyWindowY = "Y"sv;
 constexpr auto kKeyWindowWidth = "Width"sv;
 constexpr auto kKeyWindowHeight = "Height"sv;
 constexpr auto kKeyWindowMaximized = "Maximized"sv;
+
+// デフォルトウィンドウサイズ（ピクセル）
+constexpr int DEFAULT_WINDOW_WIDTH = 1600;
+constexpr int DEFAULT_WINDOW_HEIGHT = 900;
+
+// 検索ボックス IME コンポジションウィンドウのキャレット位置 X オフセット (px)。
+// EM_POSFROMCHAR が返す位置はキャレットの左端なので、フォント幅の半分強を足してキャレット直下に表示する。
+constexpr LONG IME_CARET_X_OFFSET = 8;
 
 // IME 変換候補ウィンドウを入力フィールドの下、キャレット位置に合わせる。
 void PlaceImeWindowsBelowCaret(HWND edit)
@@ -366,7 +371,7 @@ LRESULT Win32Window::HitTestResizeFrame(POINT pt) const noexcept
 LRESULT Win32Window::HitTestTitleBar(POINT pt) const noexcept
 {
     const auto [dip_x, dip_y] = PixelToDip(pt.x, pt.y, app_->GetDpiScale());
-    if (dip_y >= app_->GetTitleBarHeightDip()) {
+    if (dip_y >= TitleBar::BASE_HEIGHT) {
         return HTCLIENT;
     }
 
@@ -397,7 +402,8 @@ std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wPara
     }
 
     case WM_LBUTTONDOWN:
-        app_->OnLButtonDown(x, y);
+    case WM_LBUTTONDBLCLK:
+        app_->OnLButtonDown(x, y, msg == WM_LBUTTONDBLCLK);
         return 0;
 
     case WM_LBUTTONUP:
@@ -435,10 +441,6 @@ std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wPara
         }
         return DefWindowProcW(hwnd_, msg, wParam, lParam);
 
-    case WM_LBUTTONDBLCLK:
-        app_->OnLButtonDblClk(x, y);
-        return 0;
-
     case WM_MOUSEWHEEL: {
         const short wheel_delta = GET_WHEEL_DELTA_WPARAM(wParam);
         const auto keys = LOWORD(wParam);
@@ -456,7 +458,7 @@ std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wPara
         }
         else if (keys & MK_SHIFT) {
             // Shift+Wheel は横スクロール扱い。Web ブラウザの慣習に合わせ wheel-down を右スクロールに反転する。
-            app_->Dispatch(HWheelAction{ static_cast<short>(-wheel_delta), GetTickCount64() });
+            app_->Dispatch(HWheelAction{ -wheel_delta, GetTickCount64() });
         }
         else {
             app_->OnMouseWheel(pt.x, pt.y, wheel_delta, false);
@@ -502,7 +504,7 @@ void Win32Window::OnContextMenu(int screen_x, int screen_y)
     }
     POINT pt = { screen_x, screen_y };
     ScreenToClient(hwnd_, &pt);
-    if (PixelToDip(static_cast<float>(pt.y), app_->GetDpiScale()) < app_->GetTitleBarHeightDip()) {
+    if (PixelToDip(static_cast<float>(pt.y), app_->GetDpiScale()) < TitleBar::BASE_HEIGHT) {
         return;
     }
     app_->OnContextMenu(screen_x, screen_y);
@@ -526,8 +528,12 @@ POINT Win32Window::KeyboardContextMenuPoint() const
     return pt;
 }
 
-LRESULT Win32Window::HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lParam)
+LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
+    if (const auto result = TryHandleMouseMessage(msg, wParam, lParam)) {
+        return *result;
+    }
+
     switch (msg) {
     case app_msg::IMAGE_LOADED:
         app_->OnAppImageLoaded();
@@ -545,23 +551,6 @@ LRESULT Win32Window::HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lPara
         app_->OnFileListed();
         return 0;
 
-    default:
-        break;
-    }
-    return DefWindowProcW(hwnd_, msg, wParam, lParam);
-}
-
-LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
-{
-    if (const auto result = TryHandleMouseMessage(msg, wParam, lParam)) {
-        return *result;
-    }
-
-    if (msg >= WM_APP && msg < app_msg::END) {
-        return HandleAppNotification(msg, wParam, lParam);
-    }
-
-    switch (msg) {
     case WM_NCCALCSIZE:
         return OnNcCalcSize(wParam, lParam);
 

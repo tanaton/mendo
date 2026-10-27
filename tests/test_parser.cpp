@@ -58,7 +58,7 @@ TEST(Parser, HeadingLevels)
         auto nodes = ParseNodes(md);
         ASSERT_EQ(nodes.size(), 1u);
         EXPECT_EQ(nodes[0].type, NodeType::Heading);
-        EXPECT_EQ(nodes[0].heading_level(), level);
+        EXPECT_EQ(nodes[0].heading_level, level);
         EXPECT_EQ(nodes[0].GetText(), "Title");
     }
 }
@@ -573,9 +573,7 @@ TEST(Parser, TableConcatStructure)
     EXPECT_EQ(tbl->cell_text_starts[3], 6u);
     EXPECT_EQ(tbl->cell_text_starts[4], 7u);
     EXPECT_TRUE(tbl->cell_run_starts.empty()) << "装飾の無い表は持たない";
-    ASSERT_EQ(tbl->is_header_row.size(), 2u);
-    EXPECT_TRUE(tbl->is_header_row[0]);
-    EXPECT_FALSE(tbl->is_header_row[1]);
+    EXPECT_EQ(tbl->head_row_count, 1u);
     EXPECT_EQ(tbl->aligns.size(), 2u);
     EXPECT_EQ(tbl->GetCellText(0, 0), "A");
     EXPECT_EQ(tbl->GetCellText(0, 1), "B");
@@ -606,6 +604,49 @@ TEST(Parser, TableCellRunStartsBackfilledAtFirstRun)
             }
         }
     }
+}
+
+// md4c は短い行も列数ぶんのセルで出すので、最後のセルが空でも区切りは前のセルに入らない。
+TEST(Parser, TableEmptyLastCellsKeepSeparatorsOut)
+{
+    for (const std::string_view md : { std::string_view{ "| a | b |\n|---|---|\n| x |   |" },
+                                       std::string_view{ "| a | b |\n|---|---|\n| x |" },
+                                       std::string_view{ "| a | b |\n|---|---|\n|   |   |" } }) {
+        SCOPED_TRACE(md);
+        const auto nodes = ParseNodes(md);
+        ASSERT_EQ(nodes.size(), 1u);
+        EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+        const auto* tbl = nodes[0].table_data();
+        ASSERT_NE(tbl, nullptr);
+        for (size_t r = 0; r < tbl->row_count; ++r) {
+            for (size_t c = 0; c < tbl->col_count; ++c) {
+                EXPECT_FALSE(tbl->GetCellText(r, c).contains('\t')) << r << "," << c;
+                EXPECT_FALSE(tbl->GetCellText(r, c).contains('\n')) << r << "," << c;
+            }
+        }
+        EXPECT_EQ(tbl->GetCellText(1, 1), "");
+    }
+}
+
+// md4c は列数を 16 bit で持つので、65536 列を超える表も 16 bit に収まった列数のセルで出る。
+TEST(Parser, TableColumnCountWrapsInMd4c)
+{
+    constexpr size_t kCols = size_t{ std::numeric_limits<uint16_t>::max() } + 2;
+    std::string md;
+    for (const std::string_view cell : { "h", "-", "d" }) {
+        for (size_t c = 0; c < kCols; ++c) {
+            md += '|';
+            md += cell;
+        }
+        md += "|\n";
+    }
+    const auto nodes = ParseNodes(md);
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_NE(tbl, nullptr);
+    EXPECT_EQ(tbl->col_count, kCols & 0xFFFF);
+    EXPECT_EQ(tbl->cell_text_starts.size(), size_t{ tbl->row_count } * tbl->col_count + 1);
 }
 
 TEST(Parser, TableHeaderCells)
@@ -916,7 +957,7 @@ TEST(Parser, MermaidCodeBlock)
     auto nodes = ParseNodes("```mermaid\ngraph TD;\n  A-->B;\n```");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Diagram);
-    EXPECT_EQ(nodes[0].code_language(), SyntaxLanguage::Mermaid);
+    EXPECT_EQ(nodes[0].code_language, SyntaxLanguage::Mermaid);
 }
 
 // ---- LaTeX display math ($$...$$) ----
@@ -926,7 +967,7 @@ TEST(Parser, LatexDisplayMathSingleLinePromotedToDiagram)
     auto result = ParseMarkdown("$$E = mc^2$$");
     ASSERT_EQ(result.nodes.size(), 1u);
     EXPECT_EQ(result.nodes[0].type, NodeType::Diagram);
-    EXPECT_EQ(result.nodes[0].code_language(), SyntaxLanguage::LatexMath);
+    EXPECT_EQ(result.nodes[0].code_language, SyntaxLanguage::LatexMath);
     EXPECT_EQ(result.nodes[0].GetText(), "E = mc^2");
     // diagram_indices に登録される（描画パイプラインに流すため）
     ASSERT_EQ(result.indices.diagram_indices.size(), 1u);
@@ -939,7 +980,7 @@ TEST(Parser, LatexDisplayMathWithOtherContentFallsBackToText)
     auto nodes = ParseNodes("before $$x+y$$ after");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
-    EXPECT_NE(nodes[0].code_language(), SyntaxLanguage::LatexMath);
+    EXPECT_NE(nodes[0].code_language, SyntaxLanguage::LatexMath);
     // フォールバック時は $$ 区切りが復元されていること
     EXPECT_TRUE(nodes[0].GetText().contains("$$x+y$$"));
 }
@@ -995,7 +1036,7 @@ TEST(Parser, LatexInlineMathRemainsAsText)
     auto nodes = ParseNodes("value is $x$ here");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
-    EXPECT_NE(nodes[0].code_language(), SyntaxLanguage::LatexMath);
+    EXPECT_NE(nodes[0].code_language, SyntaxLanguage::LatexMath);
     EXPECT_TRUE(nodes[0].GetText().contains("$x$"));
 }
 
@@ -1015,7 +1056,7 @@ TEST(Parser, PlainDollarSignsNotMisdetectedAsMath)
     auto nodes = ParseNodes("The price is $5 or $10.");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
-    EXPECT_NE(nodes[0].code_language(), SyntaxLanguage::LatexMath);
+    EXPECT_NE(nodes[0].code_language, SyntaxLanguage::LatexMath);
     EXPECT_TRUE(nodes[0].GetText().contains("$5"));
     EXPECT_TRUE(nodes[0].GetText().contains("$10"));
 }
@@ -1026,7 +1067,7 @@ TEST(Parser, LatexDisplayMathMultiline)
     auto result = ParseMarkdown("$$\nE = mc^2\n$$");
     ASSERT_EQ(result.nodes.size(), 1u);
     EXPECT_EQ(result.nodes[0].type, NodeType::Diagram);
-    EXPECT_EQ(result.nodes[0].code_language(), SyntaxLanguage::LatexMath);
+    EXPECT_EQ(result.nodes[0].code_language, SyntaxLanguage::LatexMath);
     // 中身に 'E = mc^2' が含まれること（md4c の改行扱いに依存するが、式本体は保持される）
     const auto& body = result.nodes[0].GetText();
     EXPECT_TRUE(body.contains("E = mc^2"));
@@ -1046,7 +1087,7 @@ TEST(Parser, LatexDisplayMathLineCountMatchesNewlines)
         auto result = ParseMarkdown(src);
         ASSERT_EQ(result.nodes.size(), 1u);
         ASSERT_EQ(result.nodes[0].type, NodeType::Diagram);
-        ASSERT_EQ(result.nodes[0].code_language(), SyntaxLanguage::LatexMath);
+        ASSERT_EQ(result.nodes[0].code_language, SyntaxLanguage::LatexMath);
         const auto text = result.nodes[0].GetText();
         const auto expected = static_cast<int>(std::ranges::count(text, '\n'));
         EXPECT_EQ(result.nodes[0].line_count, expected);
@@ -1060,7 +1101,7 @@ TEST(Parser, LatexDisplayMathSurroundingParagraphs)
     ASSERT_EQ(result.nodes.size(), 3u);
     EXPECT_EQ(result.nodes[0].type, NodeType::Paragraph);
     EXPECT_EQ(result.nodes[1].type, NodeType::Diagram);
-    EXPECT_EQ(result.nodes[1].code_language(), SyntaxLanguage::LatexMath);
+    EXPECT_EQ(result.nodes[1].code_language, SyntaxLanguage::LatexMath);
     EXPECT_EQ(result.nodes[1].GetText(), "E=mc^2");
     EXPECT_EQ(result.nodes[2].type, NodeType::Paragraph);
     ASSERT_EQ(result.indices.diagram_indices.size(), 1u);
@@ -1073,7 +1114,7 @@ TEST(Parser, MathFencedCodeBlockIsLatexDiagram)
     auto result = ParseMarkdown("before\n\n```math\n\\frac{a}{b}\n\\sqrt{x}\n```");
     ASSERT_EQ(result.nodes.size(), 2u);
     EXPECT_EQ(result.nodes[1].type, NodeType::Diagram);
-    EXPECT_EQ(result.nodes[1].code_language(), SyntaxLanguage::LatexMath);
+    EXPECT_EQ(result.nodes[1].code_language, SyntaxLanguage::LatexMath);
     EXPECT_EQ(result.nodes[1].GetText(), "\\frac{a}{b}\n\\sqrt{x}");
     ASSERT_EQ(result.indices.diagram_indices.size(), 1u);
     EXPECT_EQ(result.indices.diagram_indices[0], 1u);
@@ -1087,7 +1128,7 @@ TEST(Parser, EmptyHeading)
     auto nodes = ParseNodes("# \n\ntext");
     ASSERT_EQ(nodes.size(), 2u);
     EXPECT_EQ(nodes[0].type, NodeType::Heading);
-    EXPECT_EQ(nodes[0].heading_level(), 1);
+    EXPECT_EQ(nodes[0].heading_level, 1);
     EXPECT_TRUE(nodes[0].GetText().empty());
     EXPECT_EQ(nodes[1].type, NodeType::Paragraph);
     EXPECT_EQ(nodes[1].GetText(), "text");
@@ -1873,7 +1914,7 @@ TEST(ParserChunks, LongCodeBlockSplitsAtLineEnds)
     for (size_t i = 0; i < nodes.size(); ++i) {
         SCOPED_TRACE(i);
         EXPECT_EQ(nodes[i].type, NodeType::CodeBlock);
-        EXPECT_EQ(nodes[i].code_language(), SyntaxLanguage::Cpp);
+        EXPECT_EQ(nodes[i].code_language, SyntaxLanguage::Cpp);
         EXPECT_EQ(nodes[i].newline_before_chunk(), i > 0);
         EXPECT_FALSE(nodes[i].GetText().ends_with('\n'));
         EXPECT_TRUE(StartsAtSourceOffset(md, nodes[i]));

@@ -4,6 +4,7 @@
 #include "clipboard_util.h"
 #include "document_utils.h"
 #include "file_dialog_service.h"
+#include "file_io.h"
 #include "i18n.h"
 #include "layout_computer.h"
 #include "pane_layout.h"
@@ -18,13 +19,11 @@
 #include <thread>
 #include <utility>
 
-#pragma comment(lib, "shell32.lib")
-
 namespace {
 
 bool IsEditableTextFile(std::wstring_view path)
 {
-    return IsMarkdownFile(path) || ascii_util::iequal(ExtensionView(path), L".txt");
+    return path_util::IsMarkdownFile(path) || ascii_util::iequal(path_util::ExtensionView(path), L".txt");
 }
 
 // ズームの対象。ペインの指定が無ければ本文 (スプリッタの上も本文)。
@@ -40,9 +39,8 @@ bool App::Init(HWND hwnd)
     hwnd_ = hwnd;
 
     // 書式とブラシを 1 回で作るため、保存済みテーマ/ズームを Renderer 初期化前に読む。
-    theme_service_.LoadDarkMode();
     state_.view.viewport.Zoom() = theme_service_.LoadZoomLevel();
-    theme_service_.Init(state_.view.viewport.Zoom());
+    theme_service_.Init(theme_service_.LoadDarkMode(), state_.view.viewport.Zoom());
     const Theme& theme = theme_service_.GetTheme();
     if (!renderer_.Init(hwnd_, theme)) {
         return false;
@@ -54,7 +52,7 @@ bool App::Init(HWND hwnd)
 
     // Mermaid 共有 scheduler_ と詰まり合わないよう独立して立ち上げる。
     layout_scheduler_.Init(LayoutWorkerCount(std::thread::hardware_concurrency()));
-    layout_engine_.SetLayoutScheduler(&layout_scheduler_);
+    measurer_.SetScheduler(&layout_scheduler_);
     // 最初の計測がフォントの読み込みを待たないよう、ワーカーとフォントを先に起こしておく。
     measurer_.WarmUp(layout_scheduler_);
 
@@ -77,7 +75,7 @@ bool App::Init(HWND hwnd)
             .mermaid = &mermaid_renderer_,
             .mermaid_file_cache = &file_cache_,
         },
-        host_);
+        *this);
 
     mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), file_cache_, scheduler_,
                            config_.GetConfigPath(L"WebView2Data"), [this]() {
@@ -124,7 +122,7 @@ bool App::Init(HWND hwnd)
     });
     // 起動時に表示するなら、D3D デバイスの作成と並行して列挙を始めておく。
     if (state_.view.panes.IsSidePaneVisible(PaneTarget::File)) {
-        state_.file_explorer.GetEntries();
+        state_.file_explorer.EnsureListed();
     }
 
     tooltip_.Init(hwnd_);
@@ -215,10 +213,13 @@ PaneZone App::ZoneAt(float dip_x, const PaneLayout& layout) const noexcept
     return DetectPaneZone(dip_x, layout, theme_service_.GetTheme().splitter_width);
 }
 
-SidePaneState App::BuildSidePaneState(const PaneLayout& layout) const
+SidePaneState App::BuildSidePaneState(const PaneLayout& layout)
 {
     const auto& panes = state_.view.panes;
-    // GetEntries は未列挙なら列挙するため、非表示のファイルペインでは呼ばない。
+    const bool file_visible = panes.IsSidePaneVisible(PaneTarget::File);
+    if (file_visible) {
+        state_.file_explorer.EnsureListed();
+    }
     static const std::pmr::vector<FileEntry> kNoEntries;
     const auto make_side_pane = [this, &panes](PaneTarget t, PaneRect rect) {
         return SidePaneInstance{
@@ -237,7 +238,7 @@ SidePaneState App::BuildSidePaneState(const PaneLayout& layout) const
                   make_side_pane(PaneTarget::File, layout.file_rect),
                   make_side_pane(PaneTarget::Toc, layout.toc_rect),
                   },
-        .file_entries = panes.IsSidePaneVisible(PaneTarget::File) ? state_.file_explorer.GetEntries() : kNoEntries,
+        .file_entries = file_visible ? state_.file_explorer.GetEntries() : kNoEntries,
         .toc_entries = state_.document.doc.GetToc(),
         .nodes = state_.document.doc.GetNodes(),
         .active_toc_index = state_.view.active_toc_index,
@@ -250,9 +251,8 @@ TitleBarRenderState App::BuildTitleBarRenderState() const
     return TitleBarRenderState{
         .bar = state_.window.titlebar,
         .title_text = title_text_,
-        .window_width = state_.pane_layout_cache.WindowWidth(),
+        .window_width = state_.window.WidthDip(),
         .hovered_zone = state_.view.hover.titlebar,
-        .is_dark_mode = theme_service_.IsDarkMode(),
         .search_active = state_.search.search_state.IsVisible(),
         .file_pane_visible = panes.IsSidePaneVisible(PaneTarget::File),
         .toc_pane_visible = panes.IsSidePaneVisible(PaneTarget::Toc),
@@ -285,13 +285,10 @@ void App::OnPaint()
     const auto gs = ResolveGestureOverlay(state_.interaction.gesture, state_.interaction.swipe_detector);
     const SidePaneState sp = BuildSidePaneState(layout);
     const TitleBarRenderState tb = BuildTitleBarRenderState();
-    const ToastRenderState ts{ .message = toast_message_ };
 
     const auto& ss = state_.search.search_state;
     const bool highlight = ss.IsVisible() && ss.IsHighlightEnabled();
-    auto sb = BuildSearchBarRenderState(state_);
-    sb.hovered = state_.view.hover.search_bar;
-    sb.caret_visible = state_.window.window_active;
+    const auto sb = BuildSearchBarRenderState(state_);
     const BlockHScrollContext h_scroll{
         .scroll_x = &state_.view.block_scroll_x,
         .hovered_block = state_.view.hover.h_block,
@@ -315,7 +312,7 @@ void App::OnPaint()
         .side_panes = sp,
         .titlebar = tb,
         .gesture = gs,
-        .toast = ts,
+        .toast_message = toast_message_,
         .search_bar = sb,
         .nav_hovered = state_.view.hover.nav,
         .can_go_back = state_.view.nav_history.CanGoBack(),
@@ -410,7 +407,7 @@ void App::Dispatch(const AppAction& action)
     // 副作用が持つ文字列は既定のリソースのまま (variant は allocator を受け継がない) なので、領域より長生きしない。
     alignas(std::max_align_t) std::array<std::byte, 1024> buffer;
     std::pmr::monotonic_buffer_resource arena(buffer.data(), buffer.size());
-    auto effects = Reduce(state_, action, host_, &arena);
+    auto effects = Reduce(state_, action, *this, &arena);
     Execute(effects);
 }
 
@@ -528,7 +525,7 @@ void App::ShellOpenAsync(std::pmr::wstring target)
 void App::StartFileWatch(const std::pmr::wstring& path)
 {
     file_watcher_.StartWatching(path, [this] {
-        KillTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE);
+        // 同じ ID の SetTimer は動いているタイマーを置き換えるので、通知のたびに待ち直しになる。
         SetTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_DEBOUNCE_MS);
     });
 }
@@ -569,7 +566,7 @@ void App::Execute(const SideEffect& effect)
                 KillTimer(app_timer::Id::TOOLTIP);
             }
             else {
-                SetTimer(app_timer::Id::TOOLTIP, TOOLTIP_DELAY_MS);
+                SetTimer(app_timer::Id::TOOLTIP, app_timer::TOOLTIP_DELAY_MS);
             }
         },
         [this](const effect::ShowContextMenu& ev) {
@@ -595,8 +592,8 @@ void App::Execute(const SideEffect& effect)
         [this](const effect::ToggleDarkMode&) {
             ToggleDarkMode();
         },
-        [this](const effect::PerformResizeEnd&) {
-            OnResizeEnd();
+        [this](const effect::SettleViewport&) {
+            SettleViewport();
         },
         [this](const effect::PerformSizingUpdate&) {
             ClampScrollToContent();
@@ -663,7 +660,7 @@ void App::OnDestroy()
     mermaid_renderer_.Shutdown();
     // 走行中タスクが latch.wait 中の参照を保ったまま解放されないよう、
     // LayoutEngine の参照解除 → Shutdown (join) → ターゲット deinit の順を守る。
-    layout_engine_.SetLayoutScheduler(nullptr);
+    measurer_.SetScheduler(nullptr);
     layout_scheduler_.Shutdown();
     // Shutdown はキューを最後まで処理するので、結果を使わないタスクは先に空振りさせる。
     image_loader_.CancelPending();
@@ -727,7 +724,7 @@ void App::RestoreScrollPosition()
 void App::ApplyZoom()
 {
     theme_service_.ApplyZoom(state_.view.viewport.Zoom());
-    layout_engine_.RecreateFormats();
+    measurer_.RecreateFormats();
     renderer_.OnThemeMetricsChanged();
     RelayoutViewport(RelayoutResources::Diagrams);
     UpdateTitleBar();
@@ -736,7 +733,7 @@ void App::ApplyZoom()
 
 void App::ToggleDarkMode()
 {
-    const bool dark = theme_service_.ToggleDarkMode(state_.view.viewport.Zoom());
+    const bool dark = theme_service_.ToggleDarkMode();
     renderer_.OnThemeColorsChanged();
     ApplyDarkModeToWindow(hwnd_, dark);
     tooltip_.ApplyDarkMode(dark);
@@ -764,7 +761,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
         .can_go_forward = state_.view.nav_history.CanGoForward(),
         // ヘルプは埋め込みリソースで、エディタで開くファイルが無い。
         .has_file = state_.document.doc.HasBackingFile(),
-        .has_selection = selection.active && selection.start_node >= 0,
+        .has_selection = selection.active() && selection.start_node >= 0,
         .dark_mode_checked = theme_service_.IsDarkMode(),
         .file_pane_checked = panes.IsSidePaneVisible(PaneTarget::File),
         .toc_pane_checked = panes.IsSidePaneVisible(PaneTarget::Toc),
@@ -934,9 +931,9 @@ void App::RelayoutViewport(RelayoutResources resources)
     SettleLayout();
 }
 
-void App::OnResizeEnd()
+void App::SettleViewport()
 {
-    MENDO_PROFILE("OnResizeEnd");
+    MENDO_PROFILE("SettleViewport");
 
     deferred_layout_pending_ = false;
     state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
@@ -973,42 +970,24 @@ void App::OnDeferredLayout()
     Invalidate();
 }
 
-void AppHost::SetTimer(app_timer::Id id, UINT ms)
+float App::MdPaneHeight()
 {
-    app_.SetTimer(id, ms);
+    return GetPaneLayout().md_rect.height;
 }
 
-void AppHost::KillTimer(app_timer::Id id)
+const Theme& App::GetTheme()
 {
-    app_.KillTimer(id);
+    return theme_service_.GetTheme();
 }
 
-float AppHost::MdContentWidth()
+void App::EnsureNodeLayout(int node_index)
 {
-    return app_.MdContentWidth();
+    layout_service_.EnsureNodeLayout(state_.document.doc, state_.document.layout_cache, GetPaneLayout().md_rect.width, node_index);
 }
 
-float AppHost::MdPaneHeight()
+void App::RecomputeLayout(layout::HeightChangeRange changed)
 {
-    return app_.GetPaneLayout().md_rect.height;
-}
-
-const Theme& AppHost::GetTheme()
-{
-    return app_.theme_service_.GetTheme();
-}
-
-void AppHost::EnsureNodeLayout(int node_index)
-{
-    app_.layout_service_.EnsureNodeLayout(app_.state_.document.doc, app_.state_.document.layout_cache, app_.GetPaneLayout().md_rect.width, node_index);
-}
-
-void AppHost::RecomputeLayout(layout::HeightChangeRange changed)
-{
-    app_.layout_service_.RecomputeAfterDiagram(
-        app_.state_.document.doc,
-        app_.state_.document.layout_cache,
-        changed);
-    app_.ClampScrollToContent();
-    app_.Invalidate();
+    layout_service_.RecomputeAfterDiagram(state_.document.doc, state_.document.layout_cache, changed);
+    ClampScrollToContent();
+    Invalidate();
 }

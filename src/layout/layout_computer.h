@@ -133,10 +133,7 @@ inline float AdvanceNodeY(float& y, float spacing_above, float height, float spa
     return text_top;
 }
 
-void ComputeColumnWidths(
-    std::pmr::vector<float>& out,
-    const std::pmr::vector<float>& natural_widths,
-    float available_width, size_t col_count);
+void ComputeColumnWidths(std::pmr::vector<float>& out, std::span<const float> natural_widths, float available_width);
 
 // node_width > 0 なら、折り返す段落の行数を文字数から見積もる。0 は幅を知らないときの推定 (起動時の先読み)。
 float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width) noexcept;

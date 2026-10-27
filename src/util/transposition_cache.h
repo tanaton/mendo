@@ -5,18 +5,18 @@
 #include <type_traits>
 #include <utility>
 
-// 固定長キャッシュ。Self-organizing list (transposition rule) で
+// 固定長キャッシュ。LRU ではなく Self-organizing list (transposition rule) で
 // アクセス順を整列させる。Find / Insert (既存キー) はヒットしたエントリを
 // 1 つ前と swap して promote。新規 Insert は循環バッファ + 先頭インデックス
 // (head_) を 1 つ後ろにずらすことで O(1)。物理位置 = (head_ + 論理位置) % MaxEntries。
 // std::array で連続メモリ、ヒープアロケーション 0。
 // 非スレッド安全 (非 const Find / Insert は内部順序を変更する)。
 template <typename Key, typename Value, size_t MaxEntries>
-class LruCache {
-    static_assert(MaxEntries > 0, "LruCache: MaxEntries must be greater than 0");
+class TranspositionCache {
+    static_assert(MaxEntries > 0, "TranspositionCache: MaxEntries must be greater than 0");
 
 public:
-    constexpr LruCache() = default;
+    constexpr TranspositionCache() = default;
 
     constexpr auto* Find(this auto& self, const Key& key)
     {
@@ -34,11 +34,6 @@ public:
             }
         }
         return self.values_.data() + p;
-    }
-
-    constexpr bool Contains(const Key& key) const
-    {
-        return FindLogical(key) < size_;
     }
 
     constexpr void Insert(const Key& key, Value value)
@@ -84,14 +79,6 @@ public:
     constexpr size_t Size() const noexcept
     {
         return size_;
-    }
-    constexpr bool Empty() const noexcept
-    {
-        return size_ == 0;
-    }
-    constexpr size_t MaxSize() const noexcept
-    {
-        return MaxEntries;
     }
 
 private:

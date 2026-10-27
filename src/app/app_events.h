@@ -107,7 +107,7 @@ struct MouseLeaveAction {};
 struct SplitterDragStartedAction {
     PaneTarget edge;
 };
-// ドラッグ中のスプリッタは ViewState::drag、ウィンドウ幅は pane_layout_cache から読む。
+// ドラッグ中のスプリッタは ViewState::drag、ウィンドウ幅は WindowState から読む。
 struct SplitterDragMovedAction {
     float dip_x;
 };
@@ -187,7 +187,7 @@ struct ReloadSettledAction {};
 // ファイルロードが失敗した (DocumentOpenedAction が来ない) ことの通知。
 struct LoadFailedAction {};
 struct HWheelAction {
-    short delta;
+    int delta; // 生の WHEEL_DELTA 単位
     uint64_t tick;
 };
 

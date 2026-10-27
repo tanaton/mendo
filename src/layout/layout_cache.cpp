@@ -177,12 +177,6 @@ std::pair<float, float> NodeLayoutEntry::GetMatchYRange(
 
 namespace {
 
-// 行単位 evict できる状態 (全セルを測り終えて行の幾何がある) か。
-bool HasRowTracking(const TableLayoutData& tl) noexcept
-{
-    return tl.cells_measured && tl.HasRowGeometry();
-}
-
 // 確保に失敗したらその場で解放する。
 void Bury(LayoutCache::ReleasedLayouts& released, Microsoft::WRL::ComPtr<IDWriteTextLayout>&& layout) noexcept
 {
@@ -205,7 +199,7 @@ void BuryCells(TableLayoutData& tl, LayoutCache::ReleasedLayouts& released) noex
 
 // 1 行分の cell_layouts を捨てる。
 // 行/列の幾何 (row_cum_y, col_cum_x, row_heights, col_widths) は維持する。
-// HasRowTracking を満たすテーブルの row_index < 行数 でのみ呼ぶ。
+// 行の幾何 (HasRowGeometry) があるテーブルの row_index < 行数 でのみ呼ぶ。
 void EvictTableRow(TableLayoutData& tl, size_t row_index, LayoutCache::ReleasedLayouts& released) noexcept
 {
     const size_t base = tl.CellIndex(row_index, 0);
@@ -230,7 +224,7 @@ void ForEachOutsideKeep(size_t begin, size_t end, size_t keep_begin, size_t keep
 }
 
 // 生存範囲のうち [keep_begin, keep_end) の外の行を evict し、生存範囲を keep との重なりに縮める。
-// evict 済みの行はなめ直さない。HasRowTracking を満たすテーブルでのみ呼ぶ。
+// evict 済みの行はなめ直さない。行の幾何 (HasRowGeometry) があるテーブルでのみ呼ぶ。
 void EvictTableRowsOutside(TableLayoutData& tl, size_t keep_begin, size_t keep_end, LayoutCache::ReleasedLayouts& released) noexcept
 {
     const size_t live_begin = tl.live_row_begin;
@@ -258,7 +252,7 @@ void EvictEntryLayout(NodeLayoutEntry& e, LayoutCache::ReleasedLayouts& released
 {
     // テーブルは列幅・行高さを残してセル layout だけ捨てる。幾何ごと捨てると再表示時に
     // 全セルの CreateTextLayout (巨大テーブルで秒単位) をやり直すことになる。
-    if (auto* tl = e.table_layout(); tl && HasRowTracking(*tl)) {
+    if (auto* tl = e.table_layout(); tl && tl->HasRowGeometry()) {
         e.invalidate_per_frame_hl_caches();
         EvictTableRowsOutside(*tl, 0, 0, released);
         return;
@@ -334,9 +328,10 @@ void LayoutCache::EvictTextLayouts(size_t first_keep_inclusive, size_t last_keep
         ForEachOutsideKeep(begin, end, fk, lk, [&](size_t i) noexcept { EvictEntryLayout(entries_[i], released_layouts_); });
     };
     // layout が生存しうるのは前回 keep 範囲と、その後に計測した範囲だけなので、その keep 外だけ走査する。
-    // 未追跡 (0, 0) は前回 keep を全域 [0, n) とみなす。
-    const size_t prev_lk = (last_evict_fk_ == 0 && last_evict_lk_ == 0) ? n : std::min(last_evict_lk_, n);
-    evict_outside_keep(std::min(last_evict_fk_, n), prev_lk);
+    // layout を作る経路 (MeasureIndicesParallel・表の行の復元・TakeEntries) はどれも NoteMaterialized を通るので、
+    // 前回の keep が無い (作った直後・全部捨てた直後) なら計測した範囲だけを見ればよい
+    // (30 万ノードの文書を開いた直後の 1 回目が 1.2ms → 0)。
+    evict_outside_keep(std::min(last_evict_fk_, n), std::min(last_evict_lk_, n));
     evict_outside_keep(std::min(materialized_begin_, n), std::min(materialized_end_, n));
     last_evict_fk_ = fk;
     last_evict_lk_ = lk;
@@ -359,7 +354,7 @@ void LayoutCache::EvictInvisibleTableRows(std::span<const size_t> table_indices,
             continue;
         }
         auto* tl = entries_[idx].table_layout();
-        if (!tl || !HasRowTracking(*tl)) {
+        if (!tl || !tl->HasRowGeometry()) {
             continue;
         }
         // 再可視化は dirty を経由せず LayoutEngine::MeasurePass の行復元で行う。

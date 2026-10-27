@@ -3,7 +3,6 @@
 #include "layout.h"
 #include "layout_computer.h"
 #include "parsed_layout.h"
-#include "text_measurer.h"
 #include "theme.h"
 #include "ui_constants.h"
 #include <algorithm>
@@ -56,7 +55,6 @@ public:
             h *= heading_scale;
         }
 
-        entry.reset_text_layout(); // モックでは実際のレイアウトなし
         return h;
     }
 

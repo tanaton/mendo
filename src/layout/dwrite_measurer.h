@@ -1,6 +1,5 @@
 #pragma once
-#include "doc_dwrite_bridge.h"
-#include "text_measurer.h"
+#include "layout.h"
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <cstdint>

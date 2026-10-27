@@ -91,14 +91,19 @@ struct ContextMenu::Impl : PopupWindow<ContextMenu::Impl> {
     // 無効項目・区切り上は 0。
     int HitTest(float x, float y) const noexcept;
     int NavHitTest(float x, float y) const noexcept;
+    // 戻る/進むのボタン (IDM_NAV_*) か項目の ID。どちらでもなければ 0。
+    int CommandAt(float x, float y) const noexcept
+    {
+        const int nav = NavHitTest(x, y);
+        return nav != 0 ? nav : HitTest(x, y);
+    }
     // 押せないボタンの上は無し。
     std::optional<ZoomDirection> ZoomHitTest(float x, float y) const noexcept;
 
     int selected_id = 0;
 
+    // CommandAt の結果。戻る/進むのボタンも項目と同じ ID の並びにある。
     int hovered_id = 0;
-    // IDM_NAV_BACK / IDM_NAV_FORWARD / 0
-    int hovered_nav = 0;
     std::optional<ZoomDirection> hovered_zoom;
 
     std::vector<Item> items;

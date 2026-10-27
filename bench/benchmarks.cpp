@@ -326,7 +326,7 @@ struct RecomputeFixture {
         for (size_t i = 0; i < kNodes; i++) {
             nodes[i].type = kTypes[i % kTypes.size()];
             if (nodes[i].type == NodeType::Heading) {
-                nodes[i].set_heading_level(2);
+                nodes[i].heading_level = 2;
             }
         }
         cache = LayoutCache(kNodes);
@@ -401,12 +401,12 @@ struct DWriteLayout {
         measurer.SetFactory(factory.Get());
         ok = engine.Init(&measurer, theme);
         if (workers > 0) {
-            engine.SetLayoutScheduler(&scheduler);
+            measurer.SetScheduler(&scheduler);
         }
     }
     ~DWriteLayout()
     {
-        engine.SetLayoutScheduler(nullptr);
+        measurer.SetScheduler(nullptr);
         scheduler.Shutdown();
     }
 
@@ -543,7 +543,7 @@ void BM_GiantBlock(benchmark::State& state, GiantBlock kind, OpenPhase phase)
         }
         if (phase == OpenPhase::Rest) {
             s = SecondsOf([&] {
-                while (l.engine.ProcessDirtyBatch(nodes, cache, kWidth, kNoLayoutDeadline)) {
+                while (l.engine.ProcessDirtyBatch(nodes, cache, kWidth, kNoLayoutDeadline, YRange::All())) {
                 }
             });
         }
@@ -605,6 +605,43 @@ void BM_TokenizeCodeChunk(benchmark::State& state, bool continuation)
 }
 BENCHMARK_CAPTURE(BM_TokenizeCodeChunk, head, false)->Unit(benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(BM_TokenizeCodeChunk, continuation, true)->Unit(benchmark::kMicrosecond);
+
+// 文書を開いた直後 (layout を作ったのは見えている範囲だけ) の 1 回目の EvictTextLayouts。
+// 30 万ノードは 100MB 程度の文書。
+void BM_FirstEvictAfterOpen(benchmark::State& state)
+{
+    const auto n = static_cast<size_t>(state.range(0));
+    for (auto _ : state) {
+        LayoutCache cache(n);
+        state.SetIterationTime(SecondsOf([&] { cache.EvictTextLayouts(0, 100); }));
+    }
+}
+BENCHMARK(BM_FirstEvictAfterOpen)->Arg(10'000)->Arg(300'000)->Iterations(20)->UseManualTime()->Unit(benchmark::kMicrosecond);
+
+// C 系以外の字句解析。区切ったノードと同じ 16KB 程度になるまで snippet を繰り返す。
+void BM_TokenizeLanguage(benchmark::State& state, SyntaxLanguage language, std::string_view snippet)
+{
+    std::string text;
+    while (text.size() < kTextChunkTarget) {
+        text += snippet;
+    }
+    for (auto _ : state) {
+        benchmark::DoNotOptimize(Tokenize(text, language));
+    }
+    state.SetBytesProcessed(state.iterations() * static_cast<int64_t>(text.size()));
+}
+BENCHMARK_CAPTURE(BM_TokenizeLanguage, html, SyntaxLanguage::Html,
+                  "<div class=\"note\" id='a1'><p>text &amp; more <b>bold</b></p><img src=\"x.png\" alt=\"y\"/></div>\n")
+    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_TokenizeLanguage, elisp, SyntaxLanguage::EmacsLisp,
+                  "(defun my-cmd (arg)\n  \"Doc.\"\n  (interactive \"p\")\n  (let ((x 'sym) (y #'fn)) (message \"%d\" (+ arg 1))))\n")
+    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_TokenizeLanguage, yaml, SyntaxLanguage::Yaml,
+                  "key: value\nlist: [a, b, {c: d}]\nitems:\n  - name: one\n    count: 12\n  - &ref {x: 1, y: \"s\"}\n")
+    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_TokenizeLanguage, toml, SyntaxLanguage::Toml,
+                  "[server.http]\nhost = \"localhost\"\nport = 8080\nratio = 1.5e3\narr = [1, 2, 3]\nwhen = 1979-05-27T07:32:00Z\n")
+    ->Unit(benchmark::kMicrosecond);
 
 // 比較用: 同じノードを text_layout から作って計測する全体 (レイアウト作成・トークナイズ・装飾)。
 void BM_MeasureCodeChunk(benchmark::State& state, bool continuation)
@@ -966,7 +1003,7 @@ void BM_DirtyBatchDeadline(benchmark::State& state)
         LayoutCache cache(doc.GetNodes().size());
         l.engine.Reestimate(doc.GetNodes(), cache, 1200.0f);
         state.SetIterationTime(SecondsOf([&] {
-            while (l.engine.ProcessDirtyBatch(doc.GetNodes(), cache, 1200.0f, deadline())) {
+            while (l.engine.ProcessDirtyBatch(doc.GetNodes(), cache, 1200.0f, deadline(), YRange::All())) {
             }
         }));
     }

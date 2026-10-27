@@ -73,20 +73,8 @@ void App::ShowHelpResource()
 }
 
 namespace {
-// 100MB 級の文書はテキスト・runs・リンク URL を arena ごと捨てても、数十万ノードの走査と
-// 表等の解放で UI を十数 ms 止めるため worker で破棄する。
-constexpr size_t kDisposeMinNodes = 4096;
 // IDWriteTextLayout の解放は 1 個 2〜3µs かかる。
 constexpr size_t kDisposeMinLayouts = 256;
-
-// 渡すものは D2D の参照を持たないこと (確保元の既定 pmr リソースはスレッド安全)。
-template <class T>
-void DisposeOnWorkerIfLarge(TaskScheduler& scheduler, size_t count, size_t min_count, T&& obj)
-{
-    if (count >= min_count) {
-        scheduler.Post([o = std::forward<T>(obj)] {});
-    }
-}
 } // namespace
 
 void App::DisposeReleasedLayouts()
@@ -119,7 +107,7 @@ void App::BeginAsyncLoad(std::pmr::wstring path, bool show_animation, ReloadBase
     load_coordinator_.Start(scheduler_, std::move(path), theme_service_.GetTheme(), MdContentWidth(), std::move(reload_base));
 }
 
-// Defer* はエディタの保存途中 (truncate→rewrite の前半や書き込み中) を読んだ状態。
+// DeferPrefixShrink はエディタの保存途中 (truncate→rewrite の前半) を読んだ状態。
 // state_.document.doc を更新せず保持して、次のリロードで正確な差分を取り直す。
 App::ReloadFlow App::ApplyReloadDecisionEarly(const ReloadDecision& decision, bool has_parsed_doc)
 {
@@ -135,9 +123,6 @@ App::ReloadFlow App::ApplyReloadDecisionEarly(const ReloadDecision& decision, bo
             return ReloadFlow::Handled;
         }
         break;
-    case ReloadOp::DeferPartialWrite:
-        DeferReloadRetry();
-        return ReloadFlow::Handled;
     case ReloadOp::Replace:
         break;
     }
@@ -219,7 +204,7 @@ void App::OnParseComplete()
     MENDO_PROFILE("OnParseComplete");
 
     auto outcome = load_coordinator_.Take();
-    const auto plan = PlanParseComplete(outcome, load_coordinator_.IsActive(), state_.document.doc);
+    const auto plan = PlanParseComplete(outcome, state_.document.doc);
 
     if (plan.step == ParseCompleteStep::IgnoreStale) {
         MENDO_TRACE("OnParseComplete: stale message ignored (new load in progress)");
@@ -248,8 +233,7 @@ void App::OnParseComplete()
         MENDO_TRACE("OnParseComplete: no result (cancelled or load failed)");
         HandleLoadFailureFallback(plan.error);
         return;
-    case ParseCompleteStep::RetryDocumentChanged:
-    case ParseCompleteStep::RetryPartialWrite:
+    case ParseCompleteStep::Retry:
         // worker が作った推定済み LayoutCache は D2D 由来の参照を持たないので、文書ごと worker で捨てられる。
         if (result) {
             DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
@@ -385,6 +369,6 @@ void App::ReloadDocument(Document next, LayoutCache estimated, std::optional<Unc
 bool App::ApplyCachedHeights(VisibleRange nodes)
 {
     const bool mermaid_applied = resource_manager_.ApplyMermaidCacheHeightsForReload(nodes);
-    const bool image_applied = resource_manager_.ApplyCachedImagesForReload(nodes) > 0;
+    const bool image_applied = resource_manager_.ApplyCachedImagesForReload(nodes);
     return mermaid_applied || image_applied;
 }

@@ -81,6 +81,11 @@ void AsyncLoadCoordinator::ResetSinks() noexcept
         const std::lock_guard lock(mutex_);
         stale.swap(outcome_);
     }
+    // 推定済みの LayoutCache は D2D の参照を持たない。
+    if (stale && *stale && scheduler_) {
+        const size_t nodes = (*stale)->doc.GetNodes().size();
+        DisposeOnWorkerIfLarge(*scheduler_, nodes, kDisposeMinNodes, std::move(stale));
+    }
 }
 
 void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring path, Theme theme, float content_width, ReloadBase reload_base)
@@ -89,6 +94,7 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
     // request_stop 後の source は再使用できないので作り直す。
     stop_source_.request_stop();
     stop_source_ = std::stop_source{};
+    scheduler_ = &scheduler;
     ResetSinks();
     in_flight_ = true;
     loading_path_ = path;
@@ -157,14 +163,16 @@ void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::pmr::w
     if (reload_base.text) {
         // 無変更の保存や書き込み途中でも全文パース (100MB で ~0.6s) と
         // 新旧 Document の二重保持が起きないよう、パース前に判定する。
-        const bool still_growing = IsFileLargerThan(path.c_str(), file->byte_size);
-        const ReloadDecision decision = DecideReload(still_growing, *reload_base.text, file->text);
-        reload.emplace(ReloadCheck{ decision, reload_base.text, path });
+        // 書き込み途中なら差分も取らずに返し、読み直させる。
+        if (IsFileLargerThan(path.c_str(), file->byte_size)) {
+            Publish(stop_token, AsyncLoadResult{ .reload = ReloadCheck{ .base = reload_base.text, .path = path }, .still_growing = true });
+            return;
+        }
+        reload.emplace(ReloadCheck{ AnalyzeReloadDiff(*reload_base.text, file->text), reload_base.text, path });
         // 以降のパース中に UI が文書を差し替えても旧テキストを延命しない。
         reload_base.text.reset();
-        const auto op = reload->decision.op;
-        if (op != ReloadOp::Replace) {
-            Publish(stop_token, AsyncLoadResult{ .reload = std::move(reload), .still_growing = still_growing });
+        if (reload->decision.op != ReloadOp::Replace) {
+            Publish(stop_token, AsyncLoadResult{ .reload = std::move(reload) });
             return;
         }
     }

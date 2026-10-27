@@ -208,7 +208,7 @@ TEST(ViewportManagerTest, ClearSelection)
     vm.SetSelection(TextSelection::MakeOrdered(0, 0, 5, 20));
 
     vm.ClearSelection();
-    EXPECT_FALSE(vm.GetSelection().active);
+    EXPECT_FALSE(vm.GetSelection().active());
 }
 
 TEST(ViewportManagerTest, SelectAll)
@@ -221,7 +221,7 @@ TEST(ViewportManagerTest, SelectAll)
     ViewportManager vm;
     vm.SelectAll(nodes);
 
-    EXPECT_TRUE(vm.GetSelection().active);
+    EXPECT_TRUE(vm.GetSelection().active());
     EXPECT_EQ(vm.GetSelection().start_node, 0);
     EXPECT_EQ(vm.GetSelection().start_pos, 0u);
     EXPECT_EQ(vm.GetSelection().end_node, 2);
@@ -233,7 +233,7 @@ TEST(ViewportManagerTest, SelectAllEmpty)
     std::pmr::vector<Node> nodes;
     ViewportManager vm;
     vm.SelectAll(nodes);
-    EXPECT_FALSE(vm.GetSelection().active);
+    EXPECT_FALSE(vm.GetSelection().active());
 }
 
 // 最終ノードが Table のときも concat_text (= GetText) の末尾を終端にする。
@@ -246,7 +246,7 @@ TEST(ViewportManagerTest, SelectAllLastNodeIsTable)
     ViewportManager vm;
     vm.SelectAll(nodes);
 
-    EXPECT_TRUE(vm.GetSelection().active);
+    EXPECT_TRUE(vm.GetSelection().active());
     EXPECT_EQ(vm.GetSelection().start_node, 0);
     EXPECT_EQ(vm.GetSelection().start_pos, 0u);
     EXPECT_EQ(vm.GetSelection().end_node, 1);

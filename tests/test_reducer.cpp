@@ -52,7 +52,7 @@ protected:
         // PaneLayout のモック（ページサイズ用）
         PaneLayout pl{};
         pl.md_rect.height = 500.0f;
-        state.pane_layout_cache.Set(0.0f, pl);
+        state.pane_layout_cache.Set(pl);
         InitReducerState(state, theme);
         // 内容高 1000・表示高 500 で、500 までスクロールできる。パスは空 (未ロード扱い) にする。
         SetDocument(state, "Hello", L"", 1000.0f);
@@ -228,7 +228,7 @@ TEST_F(ReducerTest, SelectAll_WithNodes)
 
     auto effects = Reduce(state, SelectAllAction{});
 
-    EXPECT_TRUE(state.view.viewport.GetSelection().active);
+    EXPECT_TRUE(state.view.viewport.GetSelection().active());
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -241,7 +241,7 @@ TEST_F(ReducerTest, SelectWord_SelectsWordAndSetsAnchor)
     auto effects = Reduce(state, SelectWordAction{ 0, 7 });
 
     const auto& sel = state.view.viewport.GetSelection();
-    ASSERT_TRUE(sel.active);
+    ASSERT_TRUE(sel.active());
     EXPECT_EQ(sel.start_node, 0);
     EXPECT_EQ(sel.start_pos, 6u);
     EXPECT_EQ(sel.end_pos, 11u);
@@ -254,7 +254,7 @@ TEST_F(ReducerTest, SelectWord_InvalidNode_NoOp)
 
     auto effects = Reduce(state, SelectWordAction{ -1, 0 });
 
-    EXPECT_FALSE(state.view.viewport.GetSelection().active);
+    EXPECT_FALSE(state.view.viewport.GetSelection().active());
     EXPECT_TRUE(effects.empty());
 }
 
@@ -266,7 +266,7 @@ TEST_F(ReducerTest, ClearSelection_WhenNotVisible)
     state.view.viewport.SetSelection(TextSelection::MakeOrdered(0, 0, 0, 3));
     auto effects = Reduce(state, ClearSelectionAction{});
 
-    EXPECT_FALSE(state.view.viewport.GetSelection().active);
+    EXPECT_FALSE(state.view.viewport.GetSelection().active());
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -373,22 +373,22 @@ TEST_F(ReducerTest, EnterSizeMove_SetsFlag)
     EXPECT_TRUE(state.window.is_sizing);
 }
 
-TEST_F(ReducerTest, ExitSizeMove_MoveOnly_SkipsResizeEnd)
+TEST_F(ReducerTest, ExitSizeMove_MoveOnly_SkipsSettleViewport)
 {
     Reduce(state, EnterSizeMoveAction{});
     auto effects = Reduce(state, ExitSizeMoveAction{});
 
     EXPECT_FALSE(state.window.is_sizing);
-    EXPECT_FALSE(HasEffect<effect::PerformResizeEnd>(effects));
+    EXPECT_FALSE(HasEffect<effect::SettleViewport>(effects));
 }
 
-TEST_F(ReducerTest, ExitSizeMove_AfterResize_EmitsResizeEnd)
+TEST_F(ReducerTest, ExitSizeMove_AfterResize_SettlesViewport)
 {
     Reduce(state, EnterSizeMoveAction{});
     Reduce(state, ResizeAction{ 800, 600 });
     auto effects = Reduce(state, ExitSizeMoveAction{});
 
-    EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
+    EXPECT_TRUE(HasEffect<effect::SettleViewport>(effects));
 }
 
 // ライブリサイズ中は描画面を大きめに使い回し、終わったら実際の大きさに合わせ直させる。
@@ -406,23 +406,23 @@ TEST_F(ReducerTest, ExitSizeMove_AfterResize_FitsRendererToClient)
     EXPECT_FALSE(fit->live);
     EXPECT_EQ(fit->width, 800u);
     EXPECT_EQ(fit->height, 600u);
-    EXPECT_TRUE((HasEffectInOrder<effect::RendererResize, effect::PerformResizeEnd>(effects)));
+    EXPECT_TRUE((HasEffectInOrder<effect::RendererResize, effect::SettleViewport>(effects)));
 }
 
-TEST_F(ReducerTest, ExitSizeMove_AfterDpiChange_EmitsResizeEnd)
+TEST_F(ReducerTest, ExitSizeMove_AfterDpiChange_SettlesViewport)
 {
     Reduce(state, EnterSizeMoveAction{});
     Reduce(state, DpiChangedAction{ 144, RECT{ 0, 0, 800, 600 } });
     auto effects = Reduce(state, ExitSizeMoveAction{});
 
-    EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
+    EXPECT_TRUE(HasEffect<effect::SettleViewport>(effects));
 }
 
-TEST_F(ReducerTest, TogglePane_EmitsResizeEnd)
+TEST_F(ReducerTest, TogglePane_SettlesViewport)
 {
     auto effects = Reduce(state, TogglePaneAction{ PaneTarget::Toc });
 
-    EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
+    EXPECT_TRUE(HasEffect<effect::SettleViewport>(effects));
 }
 
 // ---- MouseLeaveAction テスト ----
@@ -559,7 +559,7 @@ TEST_F(ReducerTest, DocumentReloaded_ClearsNodeBoundState)
     state.view.hover.h_block = 3;
     state.view.hover.side_index[std::to_underlying(PaneTarget::Toc)] = 4;
     state.view.active_toc_index = 2;
-    state.view.viewport.SetSelection(TextSelection{ .start_node = 1, .end_node = 2, .end_pos = 3, .active = true });
+    state.view.viewport.SetSelection(TextSelection{ .start_node = 1, .end_node = 2, .end_pos = 3 });
     state.interaction.tooltip = kLinkTooltip;
 
     const auto effects = Reduce(state, DocumentReloadedAction{});
@@ -567,7 +567,7 @@ TEST_F(ReducerTest, DocumentReloaded_ClearsNodeBoundState)
     EXPECT_TRUE(state.view.block_scroll_x.empty());
     EXPECT_EQ(state.view.hover, HoverHighlights{});
     EXPECT_EQ(state.view.active_toc_index, -1);
-    EXPECT_FALSE(state.view.viewport.GetSelection().active);
+    EXPECT_FALSE(state.view.viewport.GetSelection().active());
     // ツールチップの対象も index で決まるので忘れ、出ていれば隠させる。
     EXPECT_TRUE(state.interaction.tooltip.IsEmpty());
     EXPECT_TRUE(HidesTooltip(effects));
@@ -723,13 +723,13 @@ TEST_F(ReducerTest, Resize_ZeroSize_NoEffects)
     EXPECT_TRUE(effects.empty());
 }
 
-TEST_F(ReducerTest, Resize_Normal_EmitsResizeEnd)
+TEST_F(ReducerTest, Resize_Normal_SettlesViewport)
 {
     state.window.cached_dpi_scale = 1.0f;
     auto effects = Reduce(state, ResizeAction{ 800, 600 });
 
     EXPECT_TRUE(HasEffect<effect::RendererResize>(effects));
-    EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
+    EXPECT_TRUE(HasEffect<effect::SettleViewport>(effects));
     EXPECT_FALSE(state.pane_layout_cache.IsValid());
 }
 
@@ -741,7 +741,7 @@ TEST_F(ReducerTest, Resize_Sizing_EmitsSizingUpdate)
 
     EXPECT_TRUE(HasEffect<effect::RendererResize>(effects));
     EXPECT_TRUE(HasEffect<effect::PerformSizingUpdate>(effects));
-    EXPECT_FALSE(HasEffect<effect::PerformResizeEnd>(effects));
+    EXPECT_FALSE(HasEffect<effect::SettleViewport>(effects));
 }
 
 // 最小化からの復元などで同じ大きさの WM_SIZE が来ても、描画面とレイアウトは作り直さない。
@@ -780,7 +780,7 @@ TEST_F(ReducerTest, DpiChanged_UpdatesScale)
 // 色だけの変更なのでペイン配置は作り直さない。
 TEST_F(ReducerTest, ToggleDarkMode_EmitsToggleDarkMode)
 {
-    state.pane_layout_cache.Set(0.0f, PaneLayout{});
+    state.pane_layout_cache.Set(PaneLayout{});
     auto effects = Reduce(state, ToggleDarkModeAction{});
 
     EXPECT_TRUE(HasEffect<effect::ToggleDarkMode>(effects));
@@ -791,7 +791,7 @@ TEST_F(ReducerTest, ToggleDarkMode_EmitsToggleDarkMode)
 // ペイン配置 (md_rect の位置と幅) も作り直さない。
 TEST_F(ReducerTest, ZoomIn_EmitsApplyZoom)
 {
-    state.pane_layout_cache.Set(1000.0f, PaneLayout{});
+    state.pane_layout_cache.Set(PaneLayout{});
     auto effects = Reduce(state, ZoomAction{ ZoomDirection::In });
 
     EXPECT_TRUE(HasEffect<effect::ApplyZoom>(effects));
@@ -1008,7 +1008,8 @@ TEST_F(ReducerTest, SplitterDragStarted_SetsTargetAndCaptures)
 TEST_F(ReducerTest, SplitterDragMoved_Splitter1_UpdatesWidthAndInvalidates)
 {
     theme.splitter_width = 4.0f;
-    state.pane_layout_cache.Set(1000.0f, PaneLayout{});
+    state.window.client_width = 1000;
+    state.pane_layout_cache.Set(PaneLayout{});
     state.view.drag = { .kind = LeftDrag::Splitter, .pane = PaneTarget::File };
     const float old_width = state.view.panes.GetSidePaneWidth(PaneTarget::File);
 
@@ -1022,7 +1023,8 @@ TEST_F(ReducerTest, SplitterDragMoved_Splitter1_UpdatesWidthAndInvalidates)
 TEST_F(ReducerTest, SplitterDragMoved_Splitter2_UpdatesTocWidthAndInvalidates)
 {
     theme.splitter_width = 4.0f;
-    state.pane_layout_cache.Set(1000.0f, PaneLayout{});
+    state.window.client_width = 1000;
+    state.pane_layout_cache.Set(PaneLayout{});
     state.view.drag = { .kind = LeftDrag::Splitter, .pane = PaneTarget::Toc };
 
     // 目次ペインのスプリッタは toc_left 基準で toc_width を変更する
@@ -1034,7 +1036,7 @@ TEST_F(ReducerTest, SplitterDragMoved_Splitter2_UpdatesTocWidthAndInvalidates)
 
 TEST_F(ReducerTest, SplitterDragMoved_InvalidTarget_NoOp)
 {
-    state.pane_layout_cache.Set(1000.0f, PaneLayout{});
+    state.pane_layout_cache.Set(PaneLayout{});
     state.view.drag = { .kind = LeftDrag::PaneScrollbar };
     auto effects = Reduce(state, SplitterDragMovedAction{ 300.0f });
 
@@ -1045,7 +1047,7 @@ TEST_F(ReducerTest, SplitterDragMoved_InvalidTarget_NoOp)
 TEST_F(ReducerTest, SplitterDragEnded_ReleasesAndRefreshes)
 {
     state.view.drag = { .kind = LeftDrag::Splitter, .pane = PaneTarget::File };
-    state.pane_layout_cache.Set(0.0f, PaneLayout{});
+    state.pane_layout_cache.Set(PaneLayout{});
 
     auto effects = Reduce(state, LeftDragEndedAction{});
 
@@ -1053,7 +1055,7 @@ TEST_F(ReducerTest, SplitterDragEnded_ReleasesAndRefreshes)
     EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
     EXPECT_TRUE(state.pane_layout_cache.IsValid());
     EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
-    EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
+    EXPECT_TRUE(HasEffect<effect::SettleViewport>(effects));
 }
 
 // ---- SearchInputDrag* テスト ----
@@ -1193,7 +1195,7 @@ TEST_F(ReducerTest, MdScrollbarDragEnded_ReleasesAndSchedulesResize)
 
     EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
     EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
-    EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
+    EXPECT_TRUE(HasEffect<effect::SettleViewport>(effects));
 }
 
 // ---- PaneScrollbarDrag* テスト（Toc ペイン経由）----
@@ -1212,7 +1214,7 @@ void SetupScrollableToc(AppState& state)
     state.document.doc = Document::FromMarkdown(std::pmr::string(md), L"test.md");
     PaneLayout pl{};
     pl.toc_rect = { 0.0f, 0.0f, 200.0f, 300.0f };
-    state.pane_layout_cache.Set(0.0f, pl);
+    state.pane_layout_cache.Set(pl);
     // item_height=28, header_height=32 → content_height=268, total=30*28=840 → scrollable
 }
 
@@ -1223,7 +1225,7 @@ TEST_F(ReducerTest, PaneScrollbarDragStarted_NotScrollable_NoOp)
     // エントリが少なく total_content <= content_height → スクロール不要で no-op
     PaneLayout pl{};
     pl.toc_rect = { 0.0f, 0.0f, 200.0f, 300.0f };
-    state.pane_layout_cache.Set(0.0f, pl);
+    state.pane_layout_cache.Set(pl);
     // 既定の Toc (エントリ 0) で総コンテンツ 0 → スクロール不要
     auto effects = Reduce(state, PaneScrollbarDragStartedAction{ PaneTarget::Toc, 100.0f });
     EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
@@ -1306,7 +1308,7 @@ TEST_F(ReducerTest, TextSelectionStarted_WithHit_SetsAnchorAndCaptures)
     EXPECT_EQ(state.view.drag.click_y, 20);
     EXPECT_EQ(state.view.drag.select_node, 0);
     EXPECT_EQ(state.view.drag.select_pos, 3u);
-    EXPECT_FALSE(state.view.viewport.GetSelection().active);
+    EXPECT_FALSE(state.view.viewport.GetSelection().active());
     EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
@@ -1326,7 +1328,7 @@ TEST_F(ReducerTest, TextSelectionMoved_NotDragging_NoOp)
 {
     state.document.doc = Document::FromMarkdown(std::pmr::string("Hello"), L"test.md");
     auto effects = Reduce(state, TextSelectionMovedAction{ 0, 3u });
-    EXPECT_FALSE(state.view.viewport.GetSelection().active);
+    EXPECT_FALSE(state.view.viewport.GetSelection().active());
     EXPECT_TRUE(effects.empty());
 }
 
@@ -1338,7 +1340,7 @@ TEST_F(ReducerTest, TextSelectionMoved_DraggingWithHit_UpdatesSelection)
     auto effects = Reduce(state, TextSelectionMovedAction{ 0, 7u });
 
     const auto& sel = state.view.viewport.GetSelection();
-    EXPECT_TRUE(sel.active);
+    EXPECT_TRUE(sel.active());
     EXPECT_EQ(sel.start_node, 0);
     EXPECT_EQ(sel.end_node, 0);
     EXPECT_EQ(sel.start_pos, 2u);
@@ -1352,7 +1354,7 @@ TEST_F(ReducerTest, TextSelectionMoved_NoHit_NoUpdate)
 
     auto effects = Reduce(state, TextSelectionMovedAction{ -1, 0u });
 
-    EXPECT_FALSE(state.view.viewport.GetSelection().active);
+    EXPECT_FALSE(state.view.viewport.GetSelection().active());
     EXPECT_TRUE(effects.empty());
 }
 
@@ -1370,7 +1372,7 @@ TEST_F(ReducerTest, TextSelectionEnded_WithHit_FinalizesSelection)
     auto effects = Reduce(state, TextSelectionEndedAction{ 0, 8u });
 
     const auto& sel = state.view.viewport.GetSelection();
-    EXPECT_TRUE(sel.active);
+    EXPECT_TRUE(sel.active());
     EXPECT_EQ(sel.start_pos, 2u);
     EXPECT_EQ(sel.end_pos, 8u);
     EXPECT_NE(state.view.drag.kind, LeftDrag::TextSelect);
@@ -1384,7 +1386,7 @@ TEST_F(ReducerTest, TextSelectionEnded_NoHit_ClearsDraggingOnly)
     auto effects = Reduce(state, TextSelectionEndedAction{ -1, 0u });
 
     EXPECT_NE(state.view.drag.kind, LeftDrag::TextSelect);
-    EXPECT_FALSE(state.view.viewport.GetSelection().active);
+    EXPECT_FALSE(state.view.viewport.GetSelection().active());
     EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
     // 見た目が変わらないので再描画しない
     EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
@@ -1520,7 +1522,7 @@ protected:
         PaneLayout pl{};
         pl.md_rect.height = 500.0f;
         pl.file_rect.height = theme.pane_header_height + 280.0f;
-        state.pane_layout_cache.Set(0.0f, pl);
+        state.pane_layout_cache.Set(pl);
     }
 
     // App::FinishLoadMarkdownFile と同じく現在ファイルも登録する。
@@ -1664,7 +1666,7 @@ void SetupTocFollow(AppState& state)
     PaneLayout pl{};
     pl.md_rect = { 400.0f, 0.0f, 800.0f, 400.0f };
     pl.toc_rect = { 0.0f, 0.0f, 200.0f, 300.0f };
-    state.pane_layout_cache.Set(1200.0f, pl);
+    state.pane_layout_cache.Set(pl);
     SetDocument(state, md, L"C:\\file.md", 400.0f);
     SyncActiveTocIndex(state);
 }
@@ -1746,8 +1748,8 @@ TEST_F(ReducerTest, PaneLayoutFollowsClientSizeAndDpi)
     EXPECT_FLOAT_EQ(EnsurePaneLayout(state).md_rect.width + EnsurePaneLayout(state).md_rect.x, 1000.0f);
 
     Reduce(state, DpiChangedAction{ 192, RECT{ 0, 0, 1000, 800 } });
-    EnsurePaneLayout(state);
-    EXPECT_FLOAT_EQ(state.pane_layout_cache.WindowWidth(), 500.0f);
+    EXPECT_FLOAT_EQ(state.window.WidthDip(), 500.0f);
+    EXPECT_FLOAT_EQ(EnsurePaneLayout(state).md_rect.width + EnsurePaneLayout(state).md_rect.x, 500.0f);
 
     EXPECT_TRUE(HasEffect<effect::RendererResize>(Reduce(state, ResizeAction{ 1000, 800 })));
     EXPECT_FALSE(HasEffect<effect::RendererResize>(Reduce(state, ResizeAction{ 1000, 800 })));

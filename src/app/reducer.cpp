@@ -61,10 +61,7 @@ const PaneLayout& EnsurePaneLayout(AppState& state) noexcept
     auto& cache = state.pane_layout_cache;
     // WM_NCHITTEST は Init 前にも届く。大きさが決まる (最初の WM_SIZE) までは空の配置のまま。
     if (!cache.IsValid() && state.theme && state.window.client_width > 0) {
-        const float scale = state.window.cached_dpi_scale;
-        const float width = PixelToDip(static_cast<float>(state.window.client_width), scale);
-        const float height = PixelToDip(static_cast<float>(state.window.client_height), scale);
-        cache.Set(width, state.view.panes.ComputeLayout(width, height, state.theme->splitter_width, state.window.titlebar.GetHeight()));
+        cache.Set(state.view.panes.ComputeLayout(state.window.WidthDip(), state.window.HeightDip(), state.theme->splitter_width, TitleBar::BASE_HEIGHT));
     }
     return cache.Get();
 }
@@ -378,6 +375,7 @@ void ReduceFilePaneRevealCurrentFile(AppState& state, SideEffectList& effects)
         return;
     }
     state.file_explorer.SetDirectory(state.document.doc.GetDirectory());
+    state.file_explorer.EnsureListed();
 
     const auto& entries = state.file_explorer.GetEntries();
     if (state.file_explorer.IsListing()) {
@@ -517,7 +515,7 @@ void ReduceSplitterDragMoved(AppState& state, SideEffectList& effects, const Spl
     const float splitter_w = state.theme->splitter_width;
     const float before_file = state.view.panes.GetSidePaneWidth(PaneTarget::File);
     const float before_toc = state.view.panes.GetSidePaneWidth(PaneTarget::Toc);
-    state.view.panes.DragSplitterTo(state.view.drag.pane, a.dip_x, state.pane_layout_cache.WindowWidth(), splitter_w);
+    state.view.panes.DragSplitterTo(state.view.drag.pane, a.dip_x, state.window.WidthDip(), splitter_w);
     if (state.view.panes.GetSidePaneWidth(PaneTarget::File) == before_file && state.view.panes.GetSidePaneWidth(PaneTarget::Toc) == before_toc) {
         return;
     }
@@ -533,7 +531,7 @@ void ReduceLeftDragEnded(AppState& state, SideEffectList& effects)
     }
     EndLeftDrag(state, effects);
     if (drag == LeftDrag::Splitter || drag == LeftDrag::MdScrollbar) {
-        PushEffect(effects, effect::PerformResizeEnd{});
+        PushEffect(effects, effect::SettleViewport{});
     }
     else if (drag == LeftDrag::BlockHScroll) {
         PushEffect(effects, effect::InvalidateWindow{});
@@ -611,7 +609,7 @@ void ReduceTextSelectionStarted(AppState& state, SideEffectList& effects, const 
         return;
     }
     auto& selection = state.view.viewport.GetSelection();
-    const bool had_selection = selection.active;
+    const bool had_selection = selection.active();
     selection.Clear();
     BeginLeftDrag(state, effects, { .kind = LeftDrag::TextSelect, .select_node = a.node_index, .select_pos = a.text_pos, .click_x = a.click_x, .click_y = a.click_y });
     if (had_selection) {
@@ -866,7 +864,7 @@ void ReduceTogglePane(AppState& state, SideEffectList& effects, const TogglePane
     state.view.hover.side_index[k] = -1;
     state.view.hover.side_button[k] = PaneHeaderButton::None;
     state.pane_layout_cache.Invalidate();
-    PushEffect(effects, effect::PerformResizeEnd{});
+    PushEffect(effects, effect::SettleViewport{});
 }
 
 void ReduceSelectAll(AppState& state, SideEffectList& effects)
@@ -897,7 +895,7 @@ void ReduceClearSelection(AppState& state, SideEffectList& effects)
     }
     auto& viewport = state.view.viewport;
     const bool dragging = state.view.drag.kind == LeftDrag::TextSelect;
-    const bool visible = viewport.GetSelection().active || dragging;
+    const bool visible = viewport.GetSelection().active() || dragging;
     // テキスト選択のドラッグ中なら LButtonUp を待たずに終える。
     if (dragging) {
         EndLeftDrag(state, effects);
@@ -911,7 +909,7 @@ void ReduceClearSelection(AppState& state, SideEffectList& effects)
 void ReduceCopyClipboard(const AppState& state, SideEffectList& effects)
 {
     const auto& sel = state.view.viewport.GetSelection();
-    if (!sel.active) {
+    if (!sel.active()) {
         return;
     }
     PushEffect(effects, effect::ClipboardWrite{ ExtractSelectedText(state.document.doc.GetNodes(), sel) });
@@ -920,7 +918,7 @@ void ReduceCopyClipboard(const AppState& state, SideEffectList& effects)
 void ReduceCopyFormattedClipboard(const AppState& state, SideEffectList& effects)
 {
     const auto& sel = state.view.viewport.GetSelection();
-    if (!sel.active) {
+    if (!sel.active()) {
         return;
     }
     const auto& nodes = state.document.doc.GetNodes();
@@ -1037,7 +1035,7 @@ void ReduceResize(AppState& state, SideEffectList& effects, const ResizeAction& 
         PushEffect(effects, effect::PerformSizingUpdate{});
     }
     else {
-        PushEffect(effects, effect::PerformResizeEnd{});
+        PushEffect(effects, effect::SettleViewport{});
     }
 }
 
@@ -1047,7 +1045,7 @@ void ReduceExitSizeMove(AppState& state, SideEffectList& effects)
     if (state.window.size_changed_in_sizing) {
         // ライブリサイズ中に大きめに取った描画面を、実際の大きさに合わせ直す。
         PushEffect(effects, effect::RendererResize{ state.window.client_width, state.window.client_height });
-        PushEffect(effects, effect::PerformResizeEnd{});
+        PushEffect(effects, effect::SettleViewport{});
     }
 }
 
@@ -1145,8 +1143,10 @@ SearchBarRenderState BuildSearchBarRenderState(const AppState& state)
         .caret_pos = sg.caret_pos,
         .selection_start = sg.selection_start,
         .visible = ss.IsVisible(),
+        .caret_visible = state.window.window_active,
         .case_sensitive = ss.IsCaseSensitive(),
         .highlight_enabled = ss.IsHighlightEnabled(),
+        .hovered = state.view.hover.search_bar,
     };
 }
 

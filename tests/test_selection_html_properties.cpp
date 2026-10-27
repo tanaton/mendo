@@ -160,7 +160,6 @@ void CheckSelectionRoundTrip(const std::pmr::vector<Node>& nodes, const TextSele
     std::string expected_full;
     for (int i = sel.start_node; i <= sel.end_node; ++i) {
         TextSelection one;
-        one.active = true;
         one.start_node = one.end_node = i;
         one.start_pos = (i == sel.start_node) ? sel.start_pos : 0;
         one.end_pos = (i == sel.end_node) ? sel.end_pos : std::numeric_limits<uint32_t>::max();
@@ -202,7 +201,6 @@ void CheckRandomSelections(const std::pmr::vector<Node>& nodes, uint32_t seed, i
     const int last = static_cast<int>(nodes.size()) - 1;
     for (int k = 0; k < count; ++k) {
         TextSelection sel;
-        sel.active = true;
         sel.start_node = pick(0, last);
         sel.end_node = std::min(last, sel.start_node + pick(0, 4));
         const auto pos_in = [&](int node) {

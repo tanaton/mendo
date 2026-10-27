@@ -67,7 +67,7 @@ struct ParseContext {
 
     std::pmr::vector<Node> nodes;
     // 原文をそのまま使えないテキストと、runs・リンク URL の置き場所。NodeStorage として Document に渡す。
-    std::unique_ptr<TextArena> arena;
+    TextArena arena;
     // Table ノードが指すテーブル本体。arena と同じく Document に渡す。
     std::pmr::vector<std::unique_ptr<NodeTableData>> tables;
 
@@ -189,14 +189,14 @@ struct ParseContext {
                 const bool matches_raw = !current_node_needs_copy && offset != kUnsetSourceOffset && CurrentTextMatchesRawSliceAt(offset);
                 const std::string_view text = matches_raw
                                                   ? markdown.substr(offset, current_text.size())
-                                                  : arena->CopyText(current_text);
+                                                  : arena.CopyText(current_text);
                 current_node->SetText(text);
             }
             if (!current_runs.empty()) {
-                current_node->SetRuns(arena->Copy(current_runs));
+                current_node->SetRuns(arena.Copy(current_runs));
             }
             if (!current_link_urls.empty()) {
-                current_node->SetLinkUrls(arena->Copy(current_link_urls));
+                current_node->SetLinkUrls(arena.Copy(current_link_urls));
             }
         }
         current_text.clear();
@@ -265,7 +265,7 @@ struct ParseContext {
         case NodeType::BlockQuote:
             return true;
         case NodeType::CodeBlock:
-            return !IsDiagramLanguage(current_node->code_language());
+            return !IsDiagramLanguage(current_node->code_language);
         default:
             return false;
         }
@@ -276,13 +276,13 @@ struct ParseContext {
     {
         const std::string_view link_url = OpenLinkUrl();
         const NodeType type = current_node->type;
-        const SyntaxLanguage language = current_node->code_language();
+        const SyntaxLanguage language = current_node->code_language;
         if (type == NodeType::CodeBlock && language != SyntaxLanguage::None && !current_node->continues_prev()) {
             split_code_runs.push_back(CurrentNodeIndex());
         }
         current_node->set_continues_next();
         BeginNode(type);
-        current_node->set_code_language(language);
+        current_node->code_language = language;
         current_node->set_continues_prev(newline_before);
         ResolveLinkUrlIndex(link_url);
     }
@@ -553,7 +553,7 @@ struct ParseContext {
     // 原文の外にあるものだけ arena へコピーする。
     std::string_view InternUrl(std::string_view url)
     {
-        return IsSubrangeOf(url, markdown) ? url : arena->CopyText(url);
+        return IsSubrangeOf(url, markdown) ? url : arena.CopyText(url);
     }
 
     // md4c は属性 (href / src / コードブロックの言語) の中の文字参照を解かずに MD_TEXT_ENTITY の部分として渡すので、ここで解く
@@ -677,7 +677,7 @@ bool TryPromoteParagraphToImage(ParseContext* ctx)
         return false;
     }
     const NodeImageData image{ ctx->image_src };
-    cn->set_image_data(ctx->arena->Copy(std::span{ &image, 1 }).data());
+    cn->set_image_data(ctx->arena.Copy(std::span{ &image, 1 }).data());
     cn->type = NodeType::Image;
     ctx->indices.image_indices.emplace_back(ctx->CurrentNodeIndex());
     return true;
@@ -702,9 +702,9 @@ void TryPromoteParagraphToDisplayMath(ParseContext* ctx)
     }
     assert(text.starts_with("$$") && text.ends_with("$$"));
     node->type = NodeType::Diagram;
-    node->set_code_language(SyntaxLanguage::LatexMath);
+    node->code_language = SyntaxLanguage::LatexMath;
     ctx->current_runs.clear();
-    node->SetText(ctx->arena->CopyText(text.substr(2, text.size() - 4)), 0);
+    node->SetText(ctx->arena.CopyText(text.substr(2, text.size() - 4)), 0);
     ctx->indices.diagram_indices.emplace_back(ctx->CurrentNodeIndex());
 }
 
@@ -736,25 +736,26 @@ void BeginTable(ParseContext* ctx, const MD_BLOCK_TABLE_DETAIL* detail)
     // md4c から正確なテーブルサイズが渡されるので、要素数が決まる配列は一度に reserve して
     // 余りを持たせない。セル本文の長さは分からないので concat_text は伸長に任せる。
     const size_t total_rows = static_cast<size_t>(detail->head_row_count) + detail->body_row_count;
-    tbl->col_count = static_cast<uint16_t>(std::min<unsigned>(detail->col_count, std::numeric_limits<uint16_t>::max()));
+    tbl->head_row_count = detail->head_row_count;
+    // md4c は列数を 16 bit で持ち、各行をちょうどその数のセルで出す。
+    tbl->col_count = static_cast<uint16_t>(detail->col_count);
     const size_t total_cells = total_rows * tbl->col_count;
     tbl->cell_text_starts.reserve(total_cells + 1);
     tbl->aligns.reserve(tbl->col_count);
-    tbl->is_header_row.reserve(total_rows);
 }
 
-void BeginTableCell(ParseContext* ctx, bool is_header, const MD_BLOCK_TD_DETAIL* detail)
+void BeginTableCell(ParseContext* ctx, const MD_BLOCK_TD_DETAIL* detail)
 {
     // セルの中身は行内要素だけなので、表の中では current_node は表ノードのまま。md4c は TH/TD を TR の中にしか置かない。
     auto* const cn = ctx->current_node;
     assert(cn && cn->type == NodeType::Table);
     auto* const tbl = cn->table_data();
     assert(tbl->row_count > 0);
-    // 行内セル数 (is_header_row エントリ数が現 row_count 未満なら未確定 = 行頭)。
-    const bool first_cell_in_row = (tbl->is_header_row.size() < tbl->row_count);
+    const size_t col = tbl->cell_text_starts.size() - static_cast<size_t>(tbl->row_count - 1) * tbl->col_count;
+    assert(col < tbl->col_count);
     const bool first_row = (tbl->row_count == 1);
     // 区切り: 行内 2 セル目以降は '\t'、行頭かつ 2 行目以降は '\n'。
-    if (!first_cell_in_row) {
+    if (col > 0) {
         tbl->concat_text.push_back('\t');
     }
     else if (!first_row) {
@@ -770,33 +771,15 @@ void BeginTableCell(ParseContext* ctx, bool is_header, const MD_BLOCK_TD_DETAIL*
     if (first_row) {
         tbl->aligns.push_back(detail ? static_cast<TableAlign>(detail->align) : TableAlign::Default);
     }
-    // md4c は TR 内で TH/TD を混在させないため、1 セル目で行の種別が確定する。
-    if (first_cell_in_row) {
-        tbl->is_header_row.push_back(is_header);
-    }
 }
 
-// offset テーブルを R*C+1 サイズに揃える。行内セル数が col_count に満たない行は空セル扱い
-// (offset は concat 末尾に詰めて padding)。
+// 番兵を積む。セルは md4c が全部出しているので、埋めるものは無い。
 void FinalizeTableOffsets(NodeTableData& tbl)
 {
-    const size_t expected_cells = static_cast<size_t>(tbl.row_count) * tbl.col_count;
-    const auto text_end = static_cast<uint32_t>(tbl.concat_text.size());
-    const auto run_end = static_cast<uint32_t>(tbl.all_runs.size());
-    // padding は extend のみ (md4c が誤ってセル超過した場合に切り詰めない)。
-    if (tbl.cell_text_starts.size() < expected_cells) {
-        tbl.cell_text_starts.resize(expected_cells, text_end);
-    }
-    tbl.cell_text_starts.push_back(text_end);
+    assert(tbl.cell_text_starts.size() == static_cast<size_t>(tbl.row_count) * tbl.col_count);
+    tbl.cell_text_starts.push_back(static_cast<uint32_t>(tbl.concat_text.size()));
     if (!tbl.cell_run_starts.empty()) {
-        tbl.cell_run_starts.resize(tbl.cell_text_starts.size() - 1, run_end);
-        tbl.cell_run_starts.push_back(run_end);
-    }
-    if (tbl.is_header_row.size() < tbl.row_count) {
-        tbl.is_header_row.resize(tbl.row_count, false);
-    }
-    if (tbl.aligns.size() < tbl.col_count) {
-        tbl.aligns.resize(tbl.col_count, TableAlign::Default);
+        tbl.cell_run_starts.push_back(static_cast<uint32_t>(tbl.all_runs.size()));
     }
 }
 
@@ -875,7 +858,7 @@ void LeaveCodeBlock(ParseContext* ctx)
         ctx->current_text.pop_back();
         cn->line_count--;
     }
-    if (IsDiagramLanguage(cn->code_language())) {
+    if (IsDiagramLanguage(cn->code_language)) {
         cn->type = NodeType::Diagram;
         ctx->indices.diagram_indices.emplace_back(ctx->CurrentNodeIndex());
     }
@@ -895,7 +878,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
     case MD_BLOCK_H: {
         auto* const h = static_cast<MD_BLOCK_H_DETAIL*>(detail);
         ctx->BeginNode(NodeType::Heading);
-        ctx->current_node->set_heading_level(static_cast<int8_t>(h->level));
+        ctx->current_node->heading_level = static_cast<int8_t>(h->level);
         break;
     }
 
@@ -909,7 +892,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         ctx->BeginNode(NodeType::CodeBlock);
         auto* const code_detail = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
         if (code_detail && code_detail->lang.text && code_detail->lang.size > 0) {
-            ctx->current_node->set_code_language(DetectLanguage(ctx->AttributeText(code_detail->lang)));
+            ctx->current_node->code_language = DetectLanguage(ctx->AttributeText(code_detail->lang));
         }
         break;
     }
@@ -958,7 +941,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 
     case MD_BLOCK_TH:
     case MD_BLOCK_TD:
-        BeginTableCell(ctx, type == MD_BLOCK_TH, static_cast<const MD_BLOCK_TD_DETAIL*>(detail));
+        BeginTableCell(ctx, static_cast<const MD_BLOCK_TD_DETAIL*>(detail));
         break;
 
     case MD_BLOCK_FOOTNOTE_DEF_SECTION:
@@ -1036,7 +1019,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
     case MD_BLOCK_H:
         // 見出しの中身は行内要素だけで、見出しは区切らないので current_node は見出しのまま。
         assert(ctx->current_node && ctx->current_node->type == NodeType::Heading);
-        ctx->indices.toc_entries.emplace_back(static_cast<int>(ctx->CurrentNodeIndex()), ctx->current_node->heading_level());
+        ctx->indices.toc_entries.emplace_back(static_cast<int>(ctx->CurrentNodeIndex()));
         ctx->EndNode();
         break;
 
@@ -1451,7 +1434,6 @@ constexpr size_t kScratchReserveMax = 64 * 1024;
 
 void ReserveForInput(ParseContext& ctx, size_t input_size)
 {
-    ctx.arena = std::make_unique<TextArena>();
     ctx.current_text.reserve(std::clamp(input_size / kScratchInputBytesPerByte, kScratchReserveMin, kScratchReserveMax));
     const size_t nodes_reserve = std::max(input_size / kInputBytesPerNode, 64uz);
     ctx.nodes.reserve(nodes_reserve);
@@ -1494,7 +1476,7 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         return {};
     }
 
-    AppendFootnoteBackrefs(ctx.nodes, *ctx.arena, ctx.indices.footnote_def_indices, ctx.footnote_ref_counts);
+    AppendFootnoteBackrefs(ctx.nodes, ctx.arena, ctx.indices.footnote_def_indices, ctx.footnote_ref_counts);
 
     for (const size_t first : ctx.split_code_runs) {
         const size_t last = ChunkRunLast(ctx.nodes, first);
@@ -1505,7 +1487,7 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         // BlockQuote ノードから GitHub Alerts を検出し、マーカー除去・ラベル挿入・グルーピングを行う。
         MENDO_PROFILE("DetectAlerts");
         for (const size_t i : ctx.blockquote_indices) {
-            DetectAlertAt(ctx.nodes, *ctx.arena, i);
+            DetectAlertAt(ctx.nodes, ctx.arena, i);
         }
     }
 

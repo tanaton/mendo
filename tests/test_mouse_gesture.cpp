@@ -220,10 +220,8 @@ TEST(GestureOverlay, Idle)
     MouseGesture gesture;
     SwipeDetector swipe;
     auto gs = ResolveGestureOverlay(gesture, swipe);
-    EXPECT_FALSE(gs.trail_active);
+    EXPECT_EQ(gs.trail, nullptr);
     EXPECT_EQ(gs.direction, NavDirection::None);
-    ASSERT_NE(gs.trail_points, nullptr);
-    EXPECT_TRUE(gs.trail_points->empty());
 }
 
 TEST(GestureOverlay, TrackingLeft)
@@ -234,7 +232,8 @@ TEST(GestureOverlay, TrackingLeft)
     gesture.OnMouseMove(20.0f, 100.0f); // 左に80px移動
 
     auto gs = ResolveGestureOverlay(gesture, swipe);
-    EXPECT_TRUE(gs.trail_active);
+    ASSERT_NE(gs.trail, nullptr);
+    EXPECT_FALSE(gs.trail->empty());
     EXPECT_EQ(gs.direction, NavDirection::Back);
 }
 
@@ -256,7 +255,7 @@ TEST(GestureOverlay, SwipeFallback_WhenGestureIdle)
     swipe.OnHWheel(500, 1000);
 
     auto gs = ResolveGestureOverlay(gesture, swipe);
-    EXPECT_FALSE(gs.trail_active);
+    EXPECT_EQ(gs.trail, nullptr);
     EXPECT_EQ(gs.direction, NavDirection::Back);
 }
 

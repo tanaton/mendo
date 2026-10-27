@@ -67,7 +67,8 @@ public:
         ++frame_;
     }
 
-    // テスト用: layout を作った文字列。見つからなければ空。
+#ifdef MENDO_TESTING
+    // layout を作った文字列。見つからなければ空。
     std::wstring_view TextOf(const IDWriteTextLayout* layout) const noexcept
     {
         const auto it = std::ranges::find(entries_, layout, [](const auto& kv) static noexcept { return kv.second.layout.Get(); });
@@ -76,6 +77,7 @@ public:
         }
         return it->first.text;
     }
+#endif
 
     static constexpr size_t kMaxEntries = 512;
 

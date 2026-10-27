@@ -287,7 +287,7 @@ TEST_F(HitTestTest, SaveButton_DiagramWithoutBitmapReturnsNegative)
     auto pr = ParseAndLayout("```mermaid\ngraph TD\n```");
     const int mermaid_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::Diagram);
     ASSERT_GE(mermaid_idx, 0);
-    ASSERT_TRUE(IsDiagramLanguage(pr.nodes[mermaid_idx].code_language()));
+    ASSERT_TRUE(IsDiagramLanguage(pr.nodes[mermaid_idx].code_language));
     const auto* diagram = pr.cache.FindDiagram(static_cast<size_t>(mermaid_idx));
     ASSERT_TRUE(diagram == nullptr || !diagram->bitmap);
 

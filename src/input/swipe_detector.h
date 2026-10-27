@@ -37,13 +37,6 @@ public:
         accumulated_delta_ = 0;
     }
 
-    constexpr void Reset() noexcept
-    {
-        accumulated_delta_ = 0;
-        last_hscroll_time_ = 0;
-        last_vscroll_time_ = 0;
-    }
-
     constexpr bool IsOverlayVisible() const noexcept
     {
         return GetOverlayDirection() != NavDirection::None;

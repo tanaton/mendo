@@ -23,7 +23,7 @@ enum class NodeType : uint8_t {
     Table,
     TaskListItem,
     Image,
-    // Mermaid / LaTeX 等、テキストではなくビットマップで描画するコードブロック。code_language() で描画器を選ぶ。
+    // Mermaid / LaTeX 等、テキストではなくビットマップで描画するコードブロック。code_language で描画器を選ぶ。
     Diagram
 };
 
@@ -54,18 +54,11 @@ enum class TableAlign : uint8_t {
     Right = 3,
 };
 
-// 区切り '\t'/'\n' は次セル開始時に挿入されるので concat 末尾に到達したセル
-// (= 最終セル / 末尾の padding セル群) は区切りを持たない。short row 等で座標判定が
-// 効かないため「end が concat 全体末尾と一致するか」で末尾セルを判定する。
-constexpr uint32_t CellLengthFromOffsets(uint32_t start, uint32_t end, uint32_t concat_size) noexcept
-{
-    return (end - start) - (end == concat_size ? 0u : 1u);
-}
-
 // テーブル専用データ（Tableノードのみ確保）。SoA レイアウトで全セルを 1 本の concat_text に連結保持し、
 // セルごとのアクセスは offset テーブル経由で O(1)。
 // 不変条件:
-//   cell_text_starts.size() == row_count * col_count + 1
+//   cell_text_starts.size() == row_count * col_count + 1 (md4c は短い行も列数ぶんのセルで出す)
+//   最後のセル以外は直後に区切り ('\t' / '\n') を 1 つ持つ
 //   cell_text_starts.back() == concat_text.size()
 //   all_runs が空なら cell_run_starts も空。そうでなければ
 //   cell_run_starts.size() == cell_text_starts.size() かつ cell_run_starts.back() == all_runs.size()
@@ -80,12 +73,12 @@ struct NodeTableData {
     std::pmr::vector<uint32_t> cell_run_starts;
     // 列単位の align (GitHub Markdown では align は列ごと)
     std::pmr::vector<TableAlign> aligns;
-    // 行単位の header フラグ (md4c は TR 内で TH/TD が混在しない契約)
-    std::pmr::vector<bool> is_header_row;
 
-    // row は数十万〜数百万行になりうるため uint32_t。col_count は parser 側で uint16 上限に
-    // クランプ済み (65535 列超は非現実的)。両者の積 (cell index) は CellIndex で size_t 昇格。
+    // row は数十万〜数百万行になりうるため uint32_t。col_count は md4c が 16 bit で持つ。
+    // 両者の積 (cell index) は CellIndex で size_t 昇格。
     uint32_t row_count = 0;
+    // 先頭からこの行数がヘッダ (md4c は先頭の 1 行だけをヘッダにする)。
+    uint32_t head_row_count = 0;
     uint16_t col_count = 0;
 
     constexpr size_t CellIndex(size_t r, size_t c) const noexcept
@@ -115,10 +108,14 @@ struct NodeTableData {
     constexpr std::string_view GetCellText(size_t r, size_t c) const noexcept
     {
         const size_t idx = CellIndex(r, c);
-        const auto start = cell_text_starts[idx];
-        const auto end = cell_text_starts[idx + 1];
-        const auto len = CellLengthFromOffsets(start, end, static_cast<uint32_t>(concat_text.size()));
-        return { concat_text.data() + start, len };
+        return { concat_text.data() + cell_text_starts[idx], CellLength(idx) };
+    }
+
+    // セル (CellIndex) の長さ。末尾の区切り文字を含まない。
+    constexpr uint32_t CellLength(size_t idx) const noexcept
+    {
+        const bool has_separator = idx + 2 < cell_text_starts.size();
+        return cell_text_starts[idx + 1] - cell_text_starts[idx] - (has_separator ? 1u : 0u);
     }
 
     constexpr std::span<const TextRun> GetCellRuns(size_t r, size_t c) const noexcept
@@ -134,7 +131,7 @@ struct NodeTableData {
 
     constexpr bool IsHeaderRow(size_t r) const noexcept
     {
-        return is_header_row[r];
+        return r < head_row_count;
     }
 
     constexpr TableAlign ColAlign(size_t c) const noexcept
@@ -198,9 +195,9 @@ struct Node {
     int8_t quote_depth = 0;                 // 現在の blockquote ネスト深さ（0 = 引用外, 1.. = ネストレベル）
     int8_t quote_outer_indent = 0;          // 最外側 blockquote が居る indent_level（バー位置の起点）
     int8_t indent_level = 0;                // リスト/引用のネスト深さ（int8_t の最大値で飽和）
-    // 該当しないノードでは既定値のまま。
-    int8_t heading_level_ = 0;
-    SyntaxLanguage code_language_ = SyntaxLanguage::None;
+    // 該当しないノード (見出し以外・コードブロック以外) では既定値のまま。
+    int8_t heading_level = 0;
+    SyntaxLanguage code_language = SyntaxLanguage::None;
     uint8_t flags_ = 0;
 
     constexpr bool HasSourceOffset() const noexcept
@@ -289,22 +286,6 @@ struct Node {
     }
 
     // 該当しないノードでは黙ってデフォルト値 (0 / false) を返す。
-    constexpr int8_t heading_level() const noexcept
-    {
-        return type == NodeType::Heading ? heading_level_ : static_cast<int8_t>(0);
-    }
-    constexpr SyntaxLanguage code_language() const noexcept
-    {
-        return code_language_;
-    }
-    constexpr void set_heading_level(int8_t level) noexcept
-    {
-        heading_level_ = level;
-    }
-    constexpr void set_code_language(SyntaxLanguage lang) noexcept
-    {
-        code_language_ = lang;
-    }
     constexpr bool has_child_blocks() const noexcept
     {
         return (flags_ & kHasChildBlocks) != 0;
@@ -471,8 +452,7 @@ constexpr bool IsEmptyListItemContainer(const Node& node) noexcept
     return IsListItem(node) && !node.HasText() && node.has_child_blocks();
 }
 
-// 目次は文書順の見出しの列 (パーサが見出しの終わりで積む)。
+// 目次は文書順の見出しの列 (パーサが見出しの終わりで積む)。段は見出しのノードから取る。
 struct TocEntry {
     int node_index = -1;
-    int heading_level = 1;
 };

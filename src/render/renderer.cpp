@@ -55,22 +55,16 @@ void Renderer::PrepareChrome(const TitleBarRenderState& titlebar, const SidePane
     EnsurePaneListFormats(PaneTarget::File, sp.Get(PaneTarget::File).zoom);
     EnsurePaneListFormats(PaneTarget::Toc, sp.Get(PaneTarget::Toc).zoom);
     chrome_cmds_.clear();
-    GenTitleBar(titlebar);
-
-    const auto gen_splitter = [&](const PaneRect& r) {
-        const float x = r.x + r.width;
-        chrome_cmds_.push_back(FillRectCmd{ .rect = D2D1::RectF(x, r.y, x + theme_->splitter_width, r.y + r.height), .brush_id = BrushId::Splitter });
+    chrome::EmitTitleBar(chrome_cmds_, text_layouts_, fmt_.ui_icon.Get(), fmt_.titlebar_text.Get(), app_icon_bitmap_.Get(), theme_->dark, titlebar);
+    const auto& file_fmt = pane_list_fmt_[std::to_underlying(PaneTarget::File)];
+    const auto& toc_fmt = pane_list_fmt_[std::to_underlying(PaneTarget::Toc)];
+    const chrome::SidePaneFormats fmts{
+        .header = fmt_.pane_header.Get(),
+        .header_icon = fmt_.pane_icon.Get(),
+        .item = { file_fmt.item.Get(), toc_fmt.item.Get() },
+        .file_icon = file_fmt.icon.Get(),
     };
-    const auto& fp = sp.Get(PaneTarget::File);
-    if (fp.show) {
-        GenFileExplorer(sp.file_entries, fp);
-        gen_splitter(fp.rect);
-    }
-    const auto& tp = sp.Get(PaneTarget::Toc);
-    if (tp.show) {
-        GenToc(sp, tp);
-        gen_splitter(tp.rect);
-    }
+    chrome::EmitSidePanes(chrome_cmds_, text_layouts_, fmts, *theme_, sp, toc_titles_);
 }
 
 std::optional<Renderer::FrameResult> Renderer::BeginFrame(const TitleBarRenderState& titlebar, const SidePaneState& side_panes)
@@ -125,13 +119,13 @@ void Renderer::GenOverlays(const RenderParams& p)
         if (p.can_go_back || p.can_go_forward) {
             overlay::EmitNavButtons(overlay_cmds_, text_layouts_, fmt_.nav_button.Get(), md_pane_rect, dark, p.can_go_back, p.can_go_forward, p.nav_hovered);
         }
-        if (p.gesture.trail_active && p.gesture.trail_points) {
-            GenGestureTrail(*p.gesture.trail_points);
+        if (p.gesture.trail) {
+            GenGestureTrail(*p.gesture.trail);
         }
     }
     // 読み込み中もジェスチャーとトーストは出す。
     overlay::EmitGestureOverlay(overlay_cmds_, text_layouts_, fmt_.gesture_overlay.Get(), md_pane_rect, dark, p.gesture.direction);
-    overlay::EmitToast(overlay_cmds_, text_layouts_, fmt_.toast_text.Get(), md_pane_rect, dark, p.toast.message);
+    overlay::EmitToast(overlay_cmds_, text_layouts_, fmt_.toast_text.Get(), md_pane_rect, dark, p.toast_message);
     if (p.loading_angle) {
         return;
     }
@@ -166,6 +160,10 @@ bool Renderer::CreateDevice()
     if (!backend_.CreateDevice()) {
         return false;
     }
+    // ブラシはデバイスに紐付くので、作り直しでは旧デバイスのものに SetColor せず作り直す。
+    for (auto& brush : brushes_) {
+        brush.Reset();
+    }
     RecreateBrushes();
     LoadAppIconBitmap();
     return true;
@@ -173,8 +171,6 @@ bool Renderer::CreateDevice()
 
 bool Renderer::RecreateDevice()
 {
-    // 旧レンダーターゲットに紐付いたブラシを捨てる
-    InvalidateBrushes();
     if (!CreateDevice()) {
         return false;
     }
@@ -182,62 +178,6 @@ bool Renderer::RecreateDevice()
         on_device_lost_(rt());
     }
     return true;
-}
-
-void Renderer::GenTitleBar(const TitleBarRenderState& tb)
-{
-    const TitleBar& bar = tb.bar;
-    // 完全不透明でガラス効果を隠す
-    chrome_cmds_.push_back(FillRectCmd{ .rect = D2D1::RectF(0.0f, 0.0f, tb.window_width, bar.GetHeight()), .brush_id = BrushId::TitleBarBg });
-
-    const float text_alpha = tb.window_active ? 1.0f : 0.5f;
-    const auto is_hovered = [&](TitleBarHitZone z) noexcept { return tb.hovered_zone == z; };
-
-    const auto gen_button = [&](const DipRect& dip_rect, wchar_t icon, bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
-        const D2D1_RECT_F rect = ToD2DRect(dip_rect);
-        if (show_bg) {
-            chrome_cmds_.push_back(FillRectCmd{ .rect = rect, .brush_id = bg_id });
-        }
-        text_layouts_.EmitCentered(chrome_cmds_, { &icon, 1 }, fmt_.ui_icon.Get(), rect, text_id, alpha);
-    };
-
-    const auto gen_plain = [&](TitleBarHitZone zone, wchar_t icon) {
-        gen_button(bar.GetButton(zone), icon, is_hovered(zone), BrushId::TitleBarButtonHover, BrushId::TitleBarText, text_alpha);
-    };
-    // active > hover の優先度
-    const auto gen_toggle = [&](TitleBarHitZone zone, wchar_t icon, bool active) {
-        gen_button(
-            bar.GetButton(zone),
-            icon,
-            active || is_hovered(zone),
-            active ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
-            BrushId::TitleBarText,
-            text_alpha);
-    };
-
-    gen_plain(TitleBarHitZone::OpenFile, L'\uE838');
-    gen_plain(TitleBarHitZone::Help, L'\uE897');
-    gen_plain(TitleBarHitZone::Settings, L'\uE713');
-    gen_plain(TitleBarHitZone::ThemeToggle, tb.is_dark_mode ? L'\uE706' : L'\uE708');
-    gen_toggle(TitleBarHitZone::Search, L'\uE721', tb.search_active);
-    gen_toggle(TitleBarHitZone::FileToggle, L'\uE8B7', tb.file_pane_visible);
-    gen_toggle(TitleBarHitZone::TocToggle, L'\uE8FD', tb.toc_pane_visible);
-    gen_plain(TitleBarHitZone::Minimize, L'\uE921');
-    gen_plain(TitleBarHitZone::Maximize, tb.is_maximized ? L'\uE923' : L'\uE922');
-    if (is_hovered(TitleBarHitZone::Close)) {
-        gen_button(bar.GetButton(TitleBarHitZone::Close), L'\uE8BB', true, BrushId::TitleBarCloseRed, BrushId::OverlayWhite, 1.0f);
-    }
-    else {
-        gen_plain(TitleBarHitZone::Close, L'\uE8BB');
-    }
-
-    if (app_icon_bitmap_) {
-        chrome_cmds_.push_back(DrawBitmapCmd{ .bitmap = app_icon_bitmap_.Get(), .dest = ToD2DRect(bar.GetIconRect()), .opacity = text_alpha });
-    }
-
-    if (!tb.title_text.empty()) {
-        text_layouts_.EmitCentered(chrome_cmds_, tb.title_text, fmt_.titlebar_text.Get(), ToD2DRect(bar.GetTitleTextRect()), BrushId::TitleBarText, text_alpha);
-    }
 }
 
 void Renderer::GenGestureTrail(const std::pmr::vector<GesturePoint>& points)

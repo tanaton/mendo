@@ -145,19 +145,6 @@ TEST_F(SwipeDetectorTest, OppositeDirectionsCancelOut)
     EXPECT_EQ(detector_.Commit(), NavDirection::None);
 }
 
-// ─── Reset() で全状態クリア ───
-
-TEST_F(SwipeDetectorTest, ResetClearsAllState)
-{
-    detector_.OnHWheel(200, now_);
-    detector_.NotifyVScroll(now_ + 10);
-    detector_.Reset();
-
-    // リセット後は軸ロックも解除されている
-    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_ + 20);
-    EXPECT_EQ(detector_.Commit(), NavDirection::Back);
-}
-
 // ─── 連続ナビゲーション: Commit後すぐに次のスワイプが可能 ───
 
 TEST_F(SwipeDetectorTest, ConsecutiveSwipes)
@@ -197,14 +184,5 @@ TEST_F(SwipeDetectorTest, OverlayDisappearsAfterVScroll)
     EXPECT_TRUE(detector_.IsOverlayVisible());
 
     detector_.NotifyVScroll(now_ + 50);
-    EXPECT_FALSE(detector_.IsOverlayVisible());
-}
-
-TEST_F(SwipeDetectorTest, OverlayDisappearsAfterReset)
-{
-    detector_.OnHWheel(SwipeDetector::TRIGGER_THRESHOLD, now_);
-    EXPECT_TRUE(detector_.IsOverlayVisible());
-
-    detector_.Reset();
     EXPECT_FALSE(detector_.IsOverlayVisible());
 }

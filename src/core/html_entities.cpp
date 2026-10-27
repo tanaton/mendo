@@ -1,8 +1,8 @@
 #include "parser.h"
 #include "html_entity_table.h"
-#include "ascii_util.h"
 #include "utf8_codec.h"
 #include <algorithm>
+#include <charconv>
 
 namespace {
 
@@ -43,9 +43,9 @@ std::optional<std::string_view> ResolveHtmlEntity(std::string_view entity, char 
         return std::nullopt;
     }
     uint32_t codepoint = 0;
-    const char* const stop = ascii_util::from_chars(digits.data(), digits.size(), codepoint, hex ? uint32_t{ 16 } : uint32_t{ 10 });
+    const auto [stop, ec] = std::from_chars(digits.data(), digits.data() + digits.size(), codepoint, hex ? 16 : 10);
     // "&#65x;" のように途中で停止した入力は不正として弾く。
-    if (stop != digits.data() + digits.size() || codepoint == 0) {
+    if (ec != std::errc{} || stop != digits.data() + digits.size() || codepoint == 0) {
         return std::nullopt;
     }
     // 範囲外/サロゲート判定は EncodeCp 内に集約 (戻り値 0 で不正)。

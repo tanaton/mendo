@@ -15,6 +15,7 @@
 #include <windows.h>
 #include <vector>
 #include "document_types.h"
+#include "image_loader.h"
 #include "layout_cache.h"
 #include "search_state.h"
 #include "side_effect.h"
@@ -84,10 +85,9 @@ inline Node MakeTableNode(std::initializer_list<std::initializer_list<std::strin
     tbl->row_count = static_cast<uint32_t>(rows.size());
     tbl->col_count = static_cast<uint16_t>(rows.begin()->size());
     for (const auto& row : rows) {
-        if (!tbl->is_header_row.empty()) {
+        if (!tbl->cell_text_starts.empty()) {
             tbl->concat_text.push_back('\n');
         }
-        tbl->is_header_row.push_back(false);
         for (size_t c = 0; c < row.size(); ++c) {
             if (c > 0) {
                 tbl->concat_text.push_back('\t');
@@ -119,6 +119,20 @@ inline LayoutCache MakeUniformCache(int count, float node_height = 100.0f)
     return cache;
 }
 
+// FindCachedImage の結果を DiagramEntry に写す (bitmap と、今の DPI での寸法)。
+inline bool GetCachedImage(ImageLoader& loader, const std::wstring& path, DiagramEntry& out)
+{
+    const auto* cached = loader.FindCachedImage(path);
+    if (!cached) {
+        return false;
+    }
+    out.bitmap = cached->bitmap;
+    const auto size = loader.DipSize(*cached);
+    out.width = size.width;
+    out.height = size.height;
+    return true;
+}
+
 inline size_t CountDirty(const LayoutCache& cache) noexcept
 {
     size_t n = 0;
@@ -140,7 +154,7 @@ inline Node MakeStressNode(size_t i, bool include_code_block)
 
     if (include_code_block && bucket < 2) {
         n.type = NodeType::CodeBlock;
-        n.set_code_language(SyntaxLanguage::Cpp);
+        n.code_language = SyntaxLanguage::Cpp;
         std::string text = "int v_" + std::to_string(i) + " = 0;";
         SetTestText(n, text, 0);
         return n;
@@ -158,7 +172,7 @@ inline Node MakeStressNode(size_t i, bool include_code_block)
     }
     if (bucket < 14) {
         n.type = NodeType::Heading;
-        n.set_heading_level(static_cast<int8_t>(1 + (i % 6)));
+        n.heading_level = static_cast<int8_t>(1 + (i % 6));
         std::string text = "Heading " + std::to_string(i);
         SetTestText(n, text, 0);
         return n;

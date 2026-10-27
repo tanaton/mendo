@@ -45,6 +45,12 @@ const ImageLoader::CachedImage* ImageLoader::FindCachedImage(const std::wstring&
     return cache_.Find(abs_path);
 }
 
+D2D1_SIZE_F ImageLoader::DipSize(const CachedImage& image) const noexcept
+{
+    const float scale = DpiScale();
+    return { PixelToDip(image.pixel_width, scale), PixelToDip(image.pixel_height, scale) };
+}
+
 float ImageLoader::DpiScale() const noexcept
 {
     float dpi_x = DEFAULT_DPI;
@@ -181,11 +187,7 @@ void ImageLoader::CacheBitmap(
     const std::wstring& path, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap,
     float pixel_width, float pixel_height, UINT sharp_width_px)
 {
-    const float scale = DpiScale();
-    const float width = PixelToDip(pixel_width, scale);
-    const float height = PixelToDip(pixel_height, scale);
-
-    cache_.Insert(path, CachedImage{ std::move(bitmap), width, height, sharp_width_px });
+    cache_.Insert(path, CachedImage{ std::move(bitmap), pixel_width, pixel_height, sharp_width_px });
     cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedImage& c) static { return BitmapBytes(c.bitmap.Get()); });
 }
 

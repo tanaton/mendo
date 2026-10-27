@@ -106,7 +106,7 @@ TEST_F(CopyButtonTest, LatexMathBlockReturnsNegative)
     auto pr = ParseAndLayout("$$E = mc^2$$");
     const int latex_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::Diagram);
     ASSERT_GE(latex_idx, 0);
-    ASSERT_EQ(pr.nodes[latex_idx].code_language(), SyntaxLanguage::LatexMath);
+    ASSERT_EQ(pr.nodes[latex_idx].code_language, SyntaxLanguage::LatexMath);
     auto [cx, cy] = CopyBtnCenter(pr, latex_idx);
     EXPECT_EQ(CopyNodeAt(pr, cx, cy), -1);
 }

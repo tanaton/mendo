@@ -15,21 +15,13 @@ TEST_F(ThemeServiceTest, InitiallyLightMode)
 
 TEST_F(ThemeServiceTest, ToggleDarkMode)
 {
-    bool result = service_.ToggleDarkMode(ZoomLevel{});
+    bool result = service_.ToggleDarkMode();
     EXPECT_TRUE(result);
     EXPECT_TRUE(service_.IsDarkMode());
 
-    result = service_.ToggleDarkMode(ZoomLevel{});
+    result = service_.ToggleDarkMode();
     EXPECT_FALSE(result);
     EXPECT_FALSE(service_.IsDarkMode());
-}
-
-// 毎回コピーせず、プロセス共有の定数テーマをそのまま返す。
-TEST_F(ThemeServiceTest, BaseThemeFollowsDarkMode)
-{
-    EXPECT_EQ(&service_.BaseTheme(), &GetLightTheme());
-    service_.ToggleDarkMode(ZoomLevel{});
-    EXPECT_EQ(&service_.BaseTheme(), &GetDarkTheme());
 }
 
 namespace {
@@ -55,7 +47,7 @@ TEST_F(ThemeServiceTest, CreateThemeWithZoom)
 
 TEST_F(ThemeServiceTest, CreateThemeDarkModeWithZoom)
 {
-    service_.ToggleDarkMode(ZoomLevel{});
+    service_.ToggleDarkMode();
     Theme theme = service_.CreateTheme(ZoomAt(12));
 
     Theme expected = GetDarkTheme();
@@ -75,7 +67,7 @@ TEST_F(ThemeServiceTest, LoadZoomLevelDefault)
 // 今のテーマはフォントを実在する候補に決め、ダークモードとズームの切り替えでも同じ場所を書き換える。
 TEST_F(ThemeServiceTest, CurrentThemeIsUpdatedInPlaceKeepingFonts)
 {
-    service_.Init(ZoomAt(12));
+    service_.Init(false, ZoomAt(12));
     const Theme* const current = &service_.GetTheme();
     const std::wstring mono = current->monospace_font;
     const std::wstring icon = current->icon_font;
@@ -83,7 +75,7 @@ TEST_F(ThemeServiceTest, CurrentThemeIsUpdatedInPlaceKeepingFonts)
     EXPECT_FALSE(mono.empty());
     EXPECT_FALSE(icon.empty());
 
-    service_.ToggleDarkMode(ZoomAt(12));
+    service_.ToggleDarkMode();
     EXPECT_EQ(&service_.GetTheme(), current);
     EXPECT_TRUE(current->dark);
     EXPECT_FLOAT_EQ(current->zoom, ZOOM_STEPS[12]);

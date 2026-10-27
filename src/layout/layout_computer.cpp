@@ -86,7 +86,7 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
     switch (node.type) {
     case NodeType::Heading:
         // h1/h2 は下線を描くため、下線と次行の余白を確保すべく大きめの値を返す。
-        return (node.heading_level() <= 2) ? theme.heading_spacing_below_h1h2 : theme.heading_spacing_below;
+        return (node.heading_level <= 2) ? theme.heading_spacing_below_h1h2 : theme.heading_spacing_below;
     case NodeType::CodeBlock:
     case NodeType::Diagram:
     case NodeType::Image:
@@ -105,25 +105,26 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
     std::unreachable();
 }
 
-void ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<float>& natural_widths, float available_width, size_t col_count)
+void ComputeColumnWidths(std::pmr::vector<float>& out, std::span<const float> natural_widths, float available_width)
 {
+    const size_t col_count = natural_widths.size();
     out.resize(col_count);
     if (col_count == 0) {
         return;
     }
     const float effective_available = std::max(available_width, static_cast<float>(col_count) * MIN_COLUMN_WIDTH);
 
-    const float total_natural = std::ranges::fold_left(natural_widths | std::views::take(col_count), 0.0f, std::plus{});
+    const float total_natural = std::ranges::fold_left(natural_widths, 0.0f, std::plus{});
 
     if (total_natural > 0 && total_natural > effective_available) {
         // 比例圧縮で最も狭い列が MIN_COLUMN_WIDTH を割る場合は、無理に押し込めず
         // 自然幅で出して横スクロールに任せる方が読みやすい。
-        const float smallest = *std::ranges::min_element(natural_widths | std::views::take(col_count));
+        const float smallest = *std::ranges::min_element(natural_widths);
         if (smallest * effective_available < MIN_COLUMN_WIDTH * total_natural) {
-            std::ranges::copy(natural_widths | std::views::take(col_count), out.begin());
+            std::ranges::copy(natural_widths, out.begin());
             return;
         }
-        for (auto [w, nw] : std::views::zip(out, natural_widths) | std::views::take(col_count)) {
+        for (auto [w, nw] : std::views::zip(out, natural_widths)) {
             w = effective_available * nw / total_natural;
         }
     }
@@ -131,7 +132,7 @@ void ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<fl
         // 一律 max(nw + pad, even) だと幅広列の超過分だけ合計が available を超え、
         // 自然幅なら収まる表まで横スクロールになる。
         // 幅広列に nw + pad を確保し、残りを他列で均等に分けて合計を available に揃える。
-        const auto columns = std::views::zip(out, natural_widths) | std::views::take(col_count);
+        const auto columns = std::views::zip(out, natural_widths);
         const float n = static_cast<float>(col_count);
         const float demand_total = total_natural + n * COLUMN_WIDTH_PADDING;
         if (demand_total > effective_available) {
@@ -148,7 +149,7 @@ void ComputeColumnWidths(std::pmr::vector<float>& out, const std::pmr::vector<fl
         for (;;) {
             float fixed_total = 0.0f;
             size_t next_flex = 0;
-            for (const float nw : natural_widths | std::views::take(col_count)) {
+            for (const float nw : natural_widths) {
                 if (nw + COLUMN_WIDTH_PADDING > level) {
                     fixed_total += nw + COLUMN_WIDTH_PADDING;
                 }
@@ -173,7 +174,7 @@ float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width)
     const float line_height = theme.font_size_body * BODY_LINE_HEIGHT_FACTOR;
     switch (node.type) {
     case NodeType::Heading:
-        return theme.GetHeadingSize(node.heading_level()) * 1.5f;
+        return theme.GetHeadingSize(node.heading_level) * 1.5f;
     case NodeType::CodeBlock:
     case NodeType::Diagram: {
         // 段落と同じく少なめに倒す。Cascadia Mono 14px の 1 行は実測 16.27 DIP (1.162 倍)、日本語を含むと 17.45。
@@ -380,7 +381,7 @@ int FindActiveTocIndex(std::span<const TocEntry> entries, const LayoutCache& cac
     // cache[entries[i].node_index].text_top <= scroll_y + margin を満たす最大の i を求める。
     const float threshold = scroll_y + margin;
     const auto it = std::ranges::partition_point(entries, [&](const TocEntry& e) noexcept {
-        return e.node_index >= 0 && cache.Top(static_cast<size_t>(e.node_index)) <= threshold;
+        return cache.Top(static_cast<size_t>(e.node_index)) <= threshold;
     });
     return (it != entries.begin()) ? static_cast<int>(std::prev(it) - entries.begin()) : -1;
 }

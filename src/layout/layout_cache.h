@@ -48,16 +48,13 @@ struct TableLayoutData {
     // col_cum_x[c] = base_x からの列 c の左端までの累積幅。サイズは col_count+1。
     std::pmr::vector<float> row_cum_y;
     std::pmr::vector<float> col_cum_x;
-    // FinalizeTableLayout に最後に渡された max_width。CELL_WIDTH_EPSILON 以内の
-    // 差分なら全体の再計算を完全スキップできる。負値 = 未設定。
-    float last_applied_max_width = -1.0f;
+    // 幾何を組んだ max_width (CommitGeometry)。GeometryValidAt で比べる。
+    float last_applied_max_width = 0.0f;
     size_t evicted_row_count = 0;
     // セル layout が生存しうる行範囲 [live_row_begin, live_row_end)。差分 evict の走査範囲で、
     // evict 済み行を毎回なめ直さないためのもの。
     size_t live_row_begin = 0;
     size_t live_row_end = 0;
-    // 全セルの自然幅と折り返さない高さを測り終えた (MeasureTableCells)。以後は列幅の当て直しだけで済む。
-    bool cells_measured = false;
 
     TableLayoutData() = default;
     // セル単位・行単位の配列を表の大きさで確保する (セル layout は空)。
@@ -117,7 +114,8 @@ struct TableLayoutData {
     // 座標はいずれもエントリ上端からのローカル系。row_cum_y が空なら [0, 0)。
     std::pair<size_t, size_t> VisibleRowRange(float local_top, float local_bottom) const noexcept;
 
-    // row_cum_y が積まれているか (未計測なら false)。InvalidateGeometry の後も行単位 evict の範囲計算のために残る。
+    // row_cum_y が積まれているか (未計測なら false)。積むのは全セルを測り終えた後 (MeasureTableCells → CommitGeometry) だけなので、
+    // 全セルの自然幅と折り返さない高さが揃っていることも表す。InvalidateGeometry の後も行単位 evict の範囲計算のために残る。
     bool HasRowGeometry() const noexcept
     {
         return !row_cum_y.empty();
@@ -127,6 +125,11 @@ struct TableLayoutData {
     constexpr bool HasGeometry() const noexcept
     {
         return geometry_valid;
+    }
+    // 幾何が揃っていて、max_width との差が CELL_WIDTH_EPSILON 未満 (組み直さなくてよい)。
+    bool GeometryValidAt(float max_width) const noexcept
+    {
+        return geometry_valid && std::abs(last_applied_max_width - max_width) < CELL_WIDTH_EPSILON;
     }
 
     // entry.height だけ推定値で伸ばしたときなど、列幅・行高さが entry と食い違う状態にする。
@@ -165,15 +168,6 @@ struct TableLayoutData {
     float TotalHeight() const noexcept
     {
         return row_cum_y[row_count] + TABLE_BORDER_WIDTH;
-    }
-
-    // 行幾何があれば VisibleRowRange、未確定なら全行 [0, row_count)。
-    std::pair<size_t, size_t> RowsInViewport(float local_top, float local_bottom) const noexcept
-    {
-        if (!HasRowGeometry()) {
-            return { 0, row_count };
-        }
-        return VisibleRowRange(local_top, local_bottom);
     }
 
     // local_y がヒットする行インデックスを返す。ヒットなしは -1。
@@ -261,11 +255,10 @@ struct SearchHlCache {
 // 選択ハイライト矩形のフレーム間キャッシュ。本文ノード（テーブル外）でのみ使用。
 // rects は選択範囲を LineWindow で切り詰めた [rects_begin_w, rects_end_w) の分だけを持ち、
 // 切り詰めた範囲が変わらない間は HitTestTextRange 再計算をスキップする。
-// (layout, start, length) は UTF-8 → UTF-16 変換の結果 [start_w, end_w) を使い回すためのキー。
-// text_layout 失効時は invalidate_selection_hl_cache() で unique_ptr ごと破棄する契約。
+// (start, length) は UTF-8 → UTF-16 変換の結果 [start_w, end_w) を使い回すためのキー。
+// text_layout 失効時は invalidate_selection_hl_cache() で unique_ptr ごと破棄する契約なので、layout はキーに含めない。
 struct SelectionHlCache {
     std::pmr::vector<D2D1_RECT_F> rects;
-    IDWriteTextLayout* layout_ptr = nullptr;
     uint32_t start = 0;
     uint32_t length = 0;
     uint32_t start_w = 0;
@@ -340,16 +333,6 @@ struct NodeLayoutEntry {
     {
         if (aux_ || layout) {
             ensure_aux().text_layout = std::move(layout);
-        }
-    }
-    // 1 行目の高さ・自然幅・トークンは text_layout と一緒に作るので一緒に捨てる。
-    void reset_text_layout() noexcept
-    {
-        if (aux_) {
-            aux_->text_layout.Reset();
-            aux_->first_line_height = 0.0f;
-            aux_->natural_code_width = 0.0f;
-            aux_->syntax_tokens = {};
         }
     }
 
@@ -775,8 +758,7 @@ public:
     }
 
 private:
-    // 全 text_layout を破棄する操作の後に呼ぶ。差分エビクトが「破棄済み」と誤認して
-    // 再生成済みの画面外レイアウトを取り逃がさないよう、追跡境界を初期化する。
+    // 全 text_layout を破棄する操作の後に呼ぶ。生存している範囲を空に戻し、以後に計測した範囲だけを追う。
     void ResetEvictionTracking() noexcept;
 
     // 計測で高さが変わるたびに後ろの全ノードをずらすと、数十万ノードの文書では 1 回で数百 µs かかる。

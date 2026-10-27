@@ -95,8 +95,7 @@ struct InteractionState {
 inline GestureRenderState ResolveGestureOverlay(const MouseGesture& gesture, const SwipeDetector& swipe) noexcept
 {
     GestureRenderState gs;
-    gs.trail_active = gesture.IsGestureActive();
-    gs.trail_points = &gesture.GetTrailPoints();
+    gs.trail = gesture.IsGestureActive() ? &gesture.GetTrailPoints() : nullptr;
     // マウスジェスチャーを優先する。None ならオーバーレイは出さない。
     gs.direction = gesture.IsOverlayVisible() ? gesture.GetDirection() : swipe.GetOverlayDirection();
     return gs;
@@ -128,6 +127,15 @@ struct WindowState {
     uint32_t client_height = 0;
     // DPI が変わった。次の WM_SIZE は同じピクセルサイズでも処理する。
     bool dpi_changed = false;
+
+    constexpr float WidthDip() const noexcept
+    {
+        return PixelToDip(static_cast<float>(client_width), cached_dpi_scale);
+    }
+    constexpr float HeightDip() const noexcept
+    {
+        return PixelToDip(static_cast<float>(client_height), cached_dpi_scale);
+    }
 };
 
 struct AppState {

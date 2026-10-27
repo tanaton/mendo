@@ -6,8 +6,6 @@
 #include <numbers>
 #include <optional>
 
-inline constexpr D2D1_COLOR_F SELECTION_COLOR = { 0.26f, 0.56f, 0.84f, 0.3f };
-
 inline constexpr float TWO_PI = std::numbers::pi_v<float> * 2.0f;
 
 // ローディングスピナーの定数
@@ -57,7 +55,7 @@ inline constexpr float TABLE_STRIPE_ALPHA_LIGHT = 0.02f;
 inline constexpr float HSCROLL_DIP_PER_NOTCH = 60.0f;
 
 // 縦スクロールバーの左端 X。right_edge はペイン右端 (ローカル/スクリーンどちらの系でも可)。
-// 描画 (renderer_pane) とヒットテスト (app_mouse_*) で同じ式を共有する。
+// 描画 (command_generator) とヒットテスト (app_mouse) で同じ式を共有する。
 constexpr float VScrollbarLeftX(float right_edge) noexcept
 {
     return right_edge - PANE_SCROLLBAR_WIDTH - PANE_SCROLLBAR_MARGIN;
@@ -136,8 +134,6 @@ inline constexpr float TABLE_ROW_HEIGHT_FACTOR = 1.4f;
 
 // DirectWriteメトリクス取得失敗時の代替値
 inline constexpr float FALLBACK_LINE_HEIGHT_FACTOR = 1.3f;
-
-inline constexpr UINT TOOLTIP_DELAY_MS = 500;
 
 // クリック判定距離の二乗（ドラッグ選択とクリックを区別するための閾値）
 inline constexpr int CLICK_DISTANCE_THRESHOLD_SQ = 25;
@@ -343,14 +339,6 @@ constexpr SearchBarHitZone HitTestSearchBar(const SearchBarLayout& sbl, float x,
     }
     return SearchBarHitZone::None;
 }
-
-// デフォルトウィンドウサイズ（ピクセル）
-inline constexpr int DEFAULT_WINDOW_WIDTH = 1600;
-inline constexpr int DEFAULT_WINDOW_HEIGHT = 900;
-
-// 検索ボックス IME コンポジションウィンドウのキャレット位置 X オフセット (px)。
-// EM_POSFROMCHAR が返す位置はキャレットの左端なので、フォント幅の半分強を足してキャレット直下に表示する。
-inline constexpr LONG IME_CARET_X_OFFSET = 8;
 
 // マークダウンペインの最小幅 (DIP)。スプリッタードラッグでこれ以上 md ペインを縮められない。
 // PaneController の表示幅の縮小とスプリッタードラッグの制約で共有する。

@@ -109,6 +109,24 @@ void EmitToast(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextF
                bool dark, std::wstring_view message);
 } // namespace overlay
 
+// タイトルバーとサイドペイン。デバイスに依存しないので、デバイスの作成前にも組み立てられる。
+namespace chrome {
+// app_icon が null ならアイコンを描かない。
+void EmitTitleBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextFormat* icon_fmt, IDWriteTextFormat* title_fmt,
+                  ID2D1Bitmap* app_icon, bool dark, const TitleBarRenderState& tb);
+// 一覧の書式はペインごとの倍率で作るので、PaneTarget で引く。
+struct SidePaneFormats {
+    IDWriteTextFormat* header = nullptr;
+    IDWriteTextFormat* header_icon = nullptr;
+    IDWriteTextFormat* item[2]{};
+    // ファイル一覧のアイコン。
+    IDWriteTextFormat* file_icon = nullptr;
+};
+// 表示中のサイドペインとスプリッタ。toc_titles は目次項目の UTF-16 で、描いた項目だけ作る。
+void EmitSidePanes(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePaneFormats& fmts, const Theme& theme,
+                   const SidePaneState& sp, std::pmr::vector<std::pmr::wstring>& toc_titles);
+} // namespace chrome
+
 // ドキュメントデータとビューポート状態から DrawCommandList を生成する。
 // 「何を描画するか」と「どう描画するか」（エグゼキュータ）を分離する。
 class CommandGenerator {
@@ -147,10 +165,10 @@ private:
         float content_width = 0.0f;
         float dpi_scale = 1.0f;
         float snapped_scroll_y = 0.0f;
-        // 可視 Y 範囲 [cull_top_, cull_bottom] (ペインローカル = 0 〜 pane_height)。entry_text_top も同じローカル Y 系で、
+        // 可視 Y 範囲 (ペインローカル = 0 〜 pane_height)。entry_text_top も同じローカル Y 系で、
         // ドキュメント Y が 10^7 オーダーで float32 が桁落ちする問題 (#216) を避ける。ノード・行・
         // ハイライト矩形・グリフランのカリングに共通で使う。
-        float cull_bottom = 0.0f;
+        YRange visible = YRange::None();
         // ブロック横スクロールの clip 内で平行移動を合成し、抜けたあと復元するための基底 Translation。
         D2D1::Matrix3x2F pane_transform;
         NodeOverhang overhang{};
@@ -197,7 +215,7 @@ private:
     void GenDiagramPlaceholder(float x, float y, float w, float h, std::wstring_view error = {});
     // 共有バッファへ HitTestTextRange を発行し、取得したメトリクスを返す。次回呼び出しまで有効。
     std::span<const DWRITE_HIT_TEST_METRICS> HitTestRange(IDWriteTextLayout* layout, uint32_t start, uint32_t length);
-    // 可視 Y 範囲 [cull_top_, cull_bottom] と重なる矩形だけ FillRectCmd を積む。
+    // 可視 Y 範囲と重なる矩形だけ FillRectCmd を積む。
     void EmitFillRectIfVisible(const D2D1_RECT_F& r, BrushId brush);
     // HitTestTextRange の結果をレイアウト原点相対の D2D1_RECT_F に変換し out へ append する。
     // SearchHlCache / SelectionHlCache の rebuild に共用する。
@@ -239,9 +257,6 @@ private:
 
     // 戻り値は同一スコープで ExecuteDrawCommands に渡されて消費されるので、毎フレーム clear して容量を使い回す。
     DrawCommandList cmds_;
-
-    // 可視 Y 範囲の上端。下端は FrameContext::cull_bottom。
-    static constexpr float cull_top_ = 0.0f;
 
     std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 

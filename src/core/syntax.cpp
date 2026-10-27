@@ -2,6 +2,8 @@
 #include "syntax_keywords.h"
 #include "ascii_util.h"
 #include <algorithm>
+#include <array>
+#include <cstdint>
 #include <type_traits>
 #include <utility>
 
@@ -15,6 +17,32 @@ using ascii_util::IsAsciiDigit;
 using ascii_util::IsAsciiUpper;
 
 constexpr auto npos = std::string_view::npos;
+
+// ASCII の文字集合。1 文字ごとの判定と連続のスキップを表引きにする。std::string_view の contains や
+// find_first_not_of は、ベクトル化した検索関数を呼び出すので 1 文字・短い連続に使うと呼び出しの分だけ遅い
+// (16KB のトークン化で C++ 50→45µs、HTML 34→27µs、Emacs Lisp 119→79µs、TOML 52→37µs)。
+class CharSet {
+public:
+    template <size_t N>
+    consteval CharSet(const char (&chars)[N]) noexcept : CharSet(std::string_view{ chars, N - 1 })
+    {
+    }
+    consteval CharSet(std::string_view chars) noexcept
+    {
+        for (const char c : chars) {
+            const auto u = static_cast<unsigned char>(c);
+            bits_[u >> 6] |= uint64_t{ 1 } << (u & 63);
+        }
+    }
+    constexpr bool contains(char c) const noexcept
+    {
+        const auto u = static_cast<unsigned char>(c);
+        return ((bits_[u >> 6] >> (u & 63)) & 1) != 0;
+    }
+
+private:
+    std::array<uint64_t, 4> bits_{};
+};
 
 template <class Pred>
 constexpr size_t SkipWhile(std::string_view text, size_t pos, size_t end, Pred pred) noexcept
@@ -61,10 +89,9 @@ constexpr size_t SkipToEol(std::string_view text, size_t pos) noexcept
 }
 
 // pos から chars に含まれない最初の文字位置を返す（無ければ text.size()）。
-constexpr size_t SkipChars(std::string_view text, size_t pos, std::string_view chars) noexcept
+constexpr size_t SkipChars(std::string_view text, size_t pos, CharSet chars) noexcept
 {
-    const auto p = text.find_first_not_of(chars, pos);
-    return p == npos ? text.size() : p;
+    return SkipWhile(text, pos, [chars](char c) { return chars.contains(c); });
 }
 
 // posから始まる文字列リテラルをスキャン（posは開始引用符を指す）。
@@ -178,13 +205,13 @@ constexpr size_t ScanCountedRawQuote(std::string_view text, size_t pos) noexcept
 // posから始まる数値リテラルをスキャン。桁区切りは C++ の ' と、Rust / Java / Python 等の _ を受け付ける。
 constexpr size_t ScanNumber(std::string_view text, size_t pos) noexcept
 {
-    constexpr auto kHexDigits = "0123456789abcdefABCDEF'_";
-    constexpr auto kBinDigits = "01'_";
-    constexpr auto kOctDigits = "01234567_";
-    constexpr auto kDecDigitsSep = "0123456789'_";
-    constexpr auto kDecDigits = "0123456789";
-    constexpr auto kIntSuffix = "uUlL";
-    constexpr auto kNumSuffix = "fFlLuUndDmM"; // 'n' は JS BigInt、'd' / 'm' は Java / C# の double / decimal
+    static constexpr CharSet kHexDigits{ "0123456789abcdefABCDEF'_" };
+    static constexpr CharSet kBinDigits{ "01'_" };
+    static constexpr CharSet kOctDigits{ "01234567_" };
+    static constexpr CharSet kDecDigitsSep{ "0123456789'_" };
+    static constexpr CharSet kDecDigits{ "0123456789" };
+    static constexpr CharSet kIntSuffix{ "uUlL" };
+    static constexpr CharSet kNumSuffix{ "fFlLuUndDmM" }; // 'n' は JS BigInt、'd' / 'm' は Java / C# の double / decimal
 
     size_t i = pos;
 
@@ -219,16 +246,16 @@ constexpr size_t ScanNumber(std::string_view text, size_t pos) noexcept
     return SkipChars(text, i, kNumSuffix);
 }
 
-// end の後に空白を挟んで '(' が続くか。
-constexpr bool IsFollowedByParen(std::string_view text, size_t end) noexcept
-{
-    const auto i = text.find_first_not_of(" \t", end);
-    return i != npos && text[i] == '(';
-}
-
 constexpr bool IsBlank(char c) noexcept
 {
     return c == ' ' || c == '\t';
+}
+
+// end の後に空白を挟んで '(' が続くか。たいていは空白が無いので、すぐ下の文字だけを見て終わる。
+constexpr bool IsFollowedByParen(std::string_view text, size_t end) noexcept
+{
+    const size_t i = SkipWhile(text, end, IsBlank);
+    return i < text.size() && text[i] == '(';
 }
 
 constexpr bool IsLineSpace(char c) noexcept
@@ -347,7 +374,7 @@ struct LexerConfig {
 // シェルの単語を区切る文字 (空白とメタ文字) か。
 constexpr bool IsShellWordBoundary(char c) noexcept
 {
-    return std::string_view{ " \t\n;&|()<>" }.contains(c);
+    return CharSet{ " \t\n;&|()<>" }.contains(c);
 }
 
 // LexerConfig を NTTP として渡すことで `if constexpr (Cfg.X)` で死分岐をコンパイル時に消し、
@@ -728,7 +755,7 @@ constexpr bool IsNumberWord(std::string_view w) noexcept
     if (w.empty() || !(IsAsciiDigit(w[0]) || lead_dot)) {
         return false;
     }
-    if (w.size() > 2 && w[0] == '0' && std::string_view{ "xXoObB" }.contains(w[1])) {
+    if (w.size() > 2 && w[0] == '0' && CharSet{ "xXoObB" }.contains(w[1])) {
         return SkipChars(w, 2, "0123456789abcdefABCDEF_") == w.size();
     }
     size_t i = SkipChars(w, 0, "0123456789_");
@@ -856,7 +883,7 @@ size_t ScanYamlKey(std::string_view text, size_t pos, size_t eol, std::pmr::vect
         EmitRange(tokens, pos, key_end, SyntaxTokenType::Type);
         return colon + 1;
     }
-    if (std::string_view{ "[]{},#&*!|>%@`" }.contains(c)) {
+    if (CharSet{ "[]{},#&*!|>%@`" }.contains(c)) {
         return pos;
     }
     for (size_t k = pos + 1; k < eol; k++) {
@@ -874,7 +901,7 @@ size_t ScanYamlKey(std::string_view text, size_t pos, size_t eol, std::pmr::vect
 // キーの後（またはシーケンス要素）の値を行末まで読む。ブロックスカラー（| / >）が始まるなら true。
 bool ScanYamlValue(std::string_view text, size_t i, size_t eol, std::pmr::vector<SyntaxToken>& tokens)
 {
-    constexpr std::string_view kFlowIndicators = ",[]{}";
+    static constexpr CharSet kFlowIndicators{ ",[]{}" };
     int flow_depth = 0;
     for (bool first = true;; first = false) {
         i = SkipBlanks(text, i, eol);
@@ -1121,7 +1148,7 @@ void TokenizeToml(std::string_view text, std::pmr::vector<SyntaxToken>& tokens)
             i++;
             continue;
         }
-        const size_t e = SkipWhile(text, i, [](char ch) { return IsIdentChar(ch) || std::string_view{ "+-.:" }.contains(ch); });
+        const size_t e = SkipWhile(text, i, [](char ch) { return IsIdentChar(ch) || CharSet{ "+-.:" }.contains(ch); });
         if (e == i) {
             i++;
             continue;
@@ -1475,7 +1502,7 @@ void TokenizeMarkup(std::string_view text, std::pmr::vector<SyntaxToken>& tokens
                 j = EmitRange(tokens, j, e, SyntaxTokenType::String);
                 continue;
             }
-            const size_t e = SkipWhile(text, j, [](char ch) { return !IsMarkupSpace(ch) && !std::string_view{ "=>/<\"'" }.contains(ch); });
+            const size_t e = SkipWhile(text, j, [](char ch) { return !IsMarkupSpace(ch) && !CharSet{ "=>/<\"'" }.contains(ch); });
             j = EmitRange(tokens, j, e, SyntaxTokenType::Type);
         }
         i = j;
@@ -1725,7 +1752,7 @@ constexpr size_t ScanNestedComment(std::string_view text, size_t pos, std::strin
 
 constexpr bool IsHaskellSymbolChar(char c) noexcept
 {
-    return std::string_view{ "!#$%&*+./<=>?@\\^|-~:" }.contains(c);
+    return CharSet{ "!#$%&*+./<=>?@\\^|-~:" }.contains(c);
 }
 
 // 文字リテラル 'a' / '\n' / '\'' の終端。' が識別子の一部 (foldl') や型レベルの昇格 ('True) なら npos。
@@ -1838,7 +1865,7 @@ struct LispDialect {
 
 constexpr bool IsLispDelimiter(char c) noexcept
 {
-    return IsMarkupSpace(c) || std::string_view{ "()[]{}\"';`," }.contains(c);
+    return IsMarkupSpace(c) || CharSet{ "()[]{}\"';`," }.contains(c);
 }
 
 constexpr size_t SkipLispSymbol(std::string_view text, size_t pos) noexcept
@@ -1863,14 +1890,14 @@ constexpr size_t ScanLispCharBody(std::string_view text, size_t pos) noexcept
 constexpr size_t ScanLispDatum(std::string_view text, size_t pos) noexcept
 {
     const size_t n = text.size();
-    pos = SkipWhile(text, pos, [](char c) { return IsMarkupSpace(c) || std::string_view{ "'`#@^~," }.contains(c); });
+    pos = SkipWhile(text, pos, [](char c) { return IsMarkupSpace(c) || CharSet{ "'`#@^~," }.contains(c); });
     if (pos >= n) {
         return n;
     }
     if (text[pos] == '"') {
         return ScanString(text, pos, '"', true);
     }
-    if (!std::string_view{ "([{" }.contains(text[pos])) {
+    if (!CharSet{ "([{" }.contains(text[pos])) {
         return SkipLispSymbol(text, pos);
     }
     int depth = 0;
@@ -1889,10 +1916,10 @@ constexpr size_t ScanLispDatum(std::string_view text, size_t pos) noexcept
             k = k + 1 < n ? NextCodePoint(text, k + 1) : n;
             continue;
         }
-        if (std::string_view{ "([{" }.contains(ch)) {
+        if (CharSet{ "([{" }.contains(ch)) {
             depth++;
         }
-        else if (std::string_view{ ")]}" }.contains(ch) && --depth == 0) {
+        else if (CharSet{ ")]}" }.contains(ch) && --depth == 0) {
             return k + 1;
         }
         k++;
@@ -1966,7 +1993,7 @@ size_t ScanLispDispatch(std::string_view text, size_t i, std::pmr::vector<Syntax
         if (std::ranges::any_of(kBooleans, [&](const auto& b) { return ascii_util::iequal(word, b); })) {
             type = SyntaxTokenType::Keyword;
         }
-        else if (word.size() > 1 && std::string_view{ "xXbBoOeEiIdD" }.contains(word[0]) &&
+        else if (word.size() > 1 && CharSet{ "xXbBoOeEiIdD" }.contains(word[0]) &&
                  word.find_first_not_of("0123456789abcdefABCDEF._/+-", 1) == npos) {
             type = SyntaxTokenType::Number; // #x1F / #b101 / #e1.5
         }
@@ -2131,7 +2158,7 @@ constexpr VimName ScanVimName(std::string_view text, size_t pos) noexcept
 {
     size_t i = pos;
     bool scoped = false;
-    if (pos + 2 < text.size() && std::string_view{ "gsablwtv" }.contains(text[pos]) && text[pos + 1] == ':' &&
+    if (pos + 2 < text.size() && CharSet{ "gsablwtv" }.contains(text[pos]) && text[pos + 1] == ':' &&
         (IsIdentStart(text[pos + 2]) || IsAsciiDigit(text[pos + 2]))) {
         i = pos + 2;
         scoped = true;
@@ -2147,7 +2174,7 @@ constexpr size_t ScanVimKeyNotation(std::string_view text, size_t pos) noexcept
         return npos;
     }
     const size_t limit = std::min(text.size(), pos + kMaxLength);
-    const size_t i = SkipWhile(text, pos + 2, limit, [](char c) { return !std::string_view{ " \t<>" }.contains(c); });
+    const size_t i = SkipWhile(text, pos + 2, limit, [](char c) { return !CharSet{ " \t<>" }.contains(c); });
     return i < limit && text[i] == '>' ? i + 1 : npos;
 }
 
@@ -2264,7 +2291,7 @@ VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bo
                 continue;
             }
             // Plug 'x' 等のユーザー定義コマンド
-            if (j > i && IsAsciiUpper(text[i]) && (j == eol || !std::string_view{ "(.:" }.contains(text[j]))) {
+            if (j > i && IsAsciiUpper(text[i]) && (j == eol || !CharSet{ "(.:" }.contains(text[j]))) {
                 EmitRange(tokens, i, j, SyntaxTokenType::Function);
                 i = j;
             }

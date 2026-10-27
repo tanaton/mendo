@@ -66,11 +66,9 @@ public:
         host_ = &host;
     }
 
-    // 可視範囲のみ走査し、未キャッシュは非同期ロード起動（通常描画用）。
-    int ApplyCachedImages();
-    // range のノードの画像を全部走査、未キャッシュは無視（リロード時のスクロール計算前用）。
+    // range のノードの画像を全部走査、未キャッシュは無視（リロード時のスクロール計算前用）。高さを変えたら true。
     // 読み込みは後続の RelayoutViewport (LoadImages) が起動する。
-    int ApplyCachedImagesForReload(VisibleRange range);
+    bool ApplyCachedImagesForReload(VisibleRange range);
     // リロード直後のスクロール位置計算用に、range のノードの図の推定高さをディスクキャッシュにある寸法で上書きする。
     // ビットマップは読まないので、描画は後続の RequestMermaidRenders に任せる。
     bool ApplyMermaidCacheHeightsForReload(VisibleRange range);
@@ -78,7 +76,7 @@ public:
     // 届いたデコード結果を取り込み、あれば適用して再レイアウトを 1 回行う。
     void OnImagesDecoded(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
 
-    int RequestMermaidRenders();
+    void RequestMermaidRenders();
     void CancelMermaidBatch();
     // レイアウトが落ち着いてから (次のタイマーで) 図を要求する。
     void ScheduleMermaidBatch();
@@ -91,20 +89,23 @@ public:
     void OnBitmapManageTimer();
 
 private:
-    // slices は走査する画像ノードの範囲の並び。start_loads なら未キャッシュの画像の読み込みを起動する。
-    int ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, bool start_loads);
-    // 再レイアウトはしない。高さが変わったノードは height_changed_ に溜まる。
-    int RequestVisibleDiagrams();
-    // 戻り値: その場で bitmap が確定したか。
-    bool RequestDiagramRender(size_t i, float content_width, bool dark_mode);
-    // 画像・図の寸法が確定したノードの高さを決める。
-    void ApplyBitmapHeight(size_t i, const DiagramEntry& bitmap, float node_width);
+    // 以下の適用と要求は再レイアウトしない。高さか表示が変わったノードは height_changed_ に溜まる。
+    // 可視範囲のみ走査し、未キャッシュは非同期ロード起動（通常描画用）。
+    void ApplyCachedImages();
+    // slices は走査する画像ノードの範囲の並び。start_loads なら未キャッシュの画像の読み込みを起動する。高さを変えたノードは changed に積む。
+    void ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, bool start_loads, layout::HeightChangeRange& changed);
+    void RequestVisibleDiagrams();
+    void RequestDiagramRender(size_t i, float content_width, bool dark_mode);
+    // 画像・図の寸法が確定したノードの高さを決め、changed に積む。
+    void ApplyBitmapHeight(size_t i, const DiagramEntry& bitmap, float node_width, layout::HeightChangeRange& changed);
     // 解決済みパスは src 単位でキャッシュする。開かない src も空文字列で覚え、毎回の解決を避ける。
     const std::wstring* ResolveImagePath(std::string_view src, const std::pmr::wstring& doc_dir);
     // 保持範囲 (±EVICT_BUFFER_SCREENS) を越えて移動していたら、旧位置で積んだ図の描画待ちと画像のデコード待ちを捨てる。
     // FIFO のままだと TOC ジャンプや Ctrl+End の後に、見えている図や画像が旧位置の分の後回しになる。
     void DropQueuesIfJumped();
     layout::HeightChangeRange TakeHeightChanges() noexcept;
+    // height_changed_ が空でなければ、その範囲で再レイアウトさせる。
+    void RecomputeChangedHeights();
 
     struct BufferedRange {
         float viewport_top;

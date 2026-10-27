@@ -180,7 +180,7 @@ TEST(Syntax, ParserExtractsLanguage)
             continue;
         }
         EXPECT_EQ(nodes[0].type, IsDiagramLanguage(c.expected) ? NodeType::Diagram : NodeType::CodeBlock);
-        EXPECT_EQ(nodes[0].code_language(), c.expected);
+        EXPECT_EQ(nodes[0].code_language, c.expected);
     }
 }
 

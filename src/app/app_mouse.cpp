@@ -183,7 +183,9 @@ std::optional<LinkHit> App::GetLinkAtHit(const HitResult& hit) const
     return FindLinkHitAtPosition(nodes[hit.node_index], hit.char_pos);
 }
 
-void App::OnLButtonDown(int px, int py)
+// CS_DBLCLKS により連続クリックの 2 回目は WM_LBUTTONDBLCLK で届く。ボタン・スクロールバー・スプリッタは
+// 1 回目と同じ判定で連打として扱い、2 回目の扱いが違うもの (本文の単語選択・一覧の項目) は各ゾーンで決める。
+void App::OnLButtonDown(int px, int py, bool is_double_click)
 {
     const auto dip = PixelToDip(px, py);
 
@@ -199,7 +201,7 @@ void App::OnLButtonDown(int px, int py)
         return;
     case PaneZone::FilePane:
     case PaneZone::TocPane:
-        HandleSidePaneClick(*ToPaneTarget(zone), dip.x, dip.y, pane_layout);
+        HandleSidePaneClick(*ToPaneTarget(zone), dip.x, dip.y, pane_layout, is_double_click);
         return;
     case PaneZone::Splitter1:
         Dispatch(SplitterDragStartedAction{ PaneTarget::File });
@@ -208,7 +210,7 @@ void App::OnLButtonDown(int px, int py)
         Dispatch(SplitterDragStartedAction{ PaneTarget::Toc });
         return;
     case PaneZone::MdPane:
-        HandleMdPaneClick(dip.x, dip.y, px, py, pane_layout);
+        HandleMdPaneClick(dip.x, dip.y, px, py, pane_layout, is_double_click);
         return;
     }
     std::unreachable();
@@ -229,32 +231,12 @@ void App::OnLButtonUp(int px, int py)
     const int dy = py - state_.view.drag.click_y;
     const bool small_click = (dx * dx + dy * dy) < CLICK_DISTANCE_THRESHOLD_SQ;
     Dispatch(TextSelectionEndedAction{ hit.node_index, hit.text_pos });
-    if (!small_click || state_.view.viewport.GetSelection().active) {
+    if (!small_click || state_.view.viewport.GetSelection().active()) {
         return;
     }
     if (const auto link = GetLinkAtHit(hit)) {
         HandleLinkClick(link->url);
     }
-}
-
-void App::OnLButtonDblClk(int px, int py)
-{
-    const auto dip = PixelToDip(px, py);
-    // CS_DBLCLKS により連続クリックの2回目は WM_LBUTTONDBLCLK になるため、
-    // タイトルバーボタンのクリックを先に処理する。
-    if (HandleTitleBarClick(dip.x, dip.y)) {
-        return;
-    }
-    if (PaneAtPoint(dip.x) != PaneZone::MdPane) {
-        return;
-    }
-    // 検索バーのボタンも連打として扱う (タイトルバーボタンと同じ理由)。
-    if (HandleSearchBarClick(dip.x, dip.y, GetPaneLayout(), true)) {
-        return;
-    }
-    const auto hit = HitTest(px, py);
-    // 単語はカーソル下の文字で決める。文字の上でない (行末より右等) ときは従来どおりキャレット位置で決める。
-    Dispatch(SelectWordAction{ hit.node_index, hit.char_pos != hit_test::HitResult::kNoChar ? hit.char_pos : hit.text_pos });
 }
 
 void App::OnMouseMove(int px, int py)
@@ -330,7 +312,7 @@ void App::OnRButtonMove(int px, int py)
 
 void App::HandleLinkClick(std::string_view url)
 {
-    auto result = ::HandleLinkClick(url);
+    auto result = ClassifyLinkClick(url);
     switch (result.type) {
     case LinkClickResult::Type::None:
         return;
@@ -349,7 +331,7 @@ void App::HandleLinkClick(std::string_view url)
 
 bool App::HandleTitleBarClick(float dip_x, float dip_y)
 {
-    if (dip_y >= state_.window.titlebar.GetHeight()) {
+    if (dip_y >= TitleBar::BASE_HEIGHT) {
         return false;
     }
 
@@ -391,47 +373,42 @@ bool App::HandleTitleBarClick(float dip_x, float dip_y)
     return true;
 }
 
-bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_layout, bool is_double_click)
+void App::HandleSearchBarClick(SearchBarHitZone zone, float dip_x, const PaneRect& md_rect, bool is_double_click)
 {
-    const auto bar = SearchBarLayoutAt(dip_y, pane_layout.md_rect);
-    if (!bar) {
-        return false;
-    }
-    const SearchBarLayout& sbl = *bar;
-    switch (HitTestSearchBar(sbl, dip_x, dip_y)) {
+    switch (zone) {
     case SearchBarHitZone::None:
         if (!is_double_click) {
-            Execute(effect::SearchFocus{});
+            window_.FocusSearchEdit(0, -1);
         }
-        return true;
+        return;
     case SearchBarHitZone::Up:
         Dispatch(SearchPrevAction{});
-        return true;
+        return;
     case SearchBarHitZone::Down:
         Dispatch(SearchNextAction{});
-        return true;
+        return;
     case SearchBarHitZone::CaseSensitive:
         Dispatch(ToggleCaseSensitiveAction{});
-        return true;
+        return;
     case SearchBarHitZone::Highlight:
         Dispatch(ToggleHighlightAction{});
-        return true;
+        return;
     case SearchBarHitZone::Close:
         Dispatch(CloseSearchBarAction{});
-        return true;
+        return;
     case SearchBarHitZone::Input: {
-        const int pos = HitTestSearchInputPos(sbl, dip_x);
+        const int pos = HitTestSearchInputPos(ComputeSearchBarLayoutForMd(md_rect), dip_x);
         if (!is_double_click) {
             Dispatch(SearchInputDragStartedAction{ pos });
-            return true;
+            return;
         }
         // 検索 EDIT は非表示で WM_LBUTTONDBLCLK を直接受けないため、
         // 自前で単語境界を計算して EM_SETSEL を発行する。
         const auto wb = FindWordBoundaries(std::wstring_view{ state_.search.query_wide }, static_cast<uint32_t>(pos));
         if (wb.found) {
-            Execute(effect::SearchFocus{ static_cast<int>(wb.start), static_cast<int>(wb.end) });
+            window_.FocusSearchEdit(static_cast<int>(wb.start), static_cast<int>(wb.end));
         }
-        return true;
+        return;
     }
     }
     std::unreachable();
@@ -474,13 +451,13 @@ bool App::TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x)
     return true;
 }
 
-void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout)
+void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& pane_layout, bool is_double_click)
 {
     const auto hit_ctx = BuildMdPaneHitContext(px, py, pane_layout);
     const auto target = ResolveMdPaneHit(dip_x, dip_y, hit_ctx, pane_layout);
     switch (target.kind) {
     case MdPaneHit::Kind::SearchBar:
-        HandleSearchBarClick(dip_x, dip_y, pane_layout, false);
+        HandleSearchBarClick(target.search_bar, dip_x, pane_layout.md_rect, is_double_click);
         return;
     case MdPaneHit::Kind::NavButton:
         if (target.nav == NavDirection::Back) {
@@ -502,6 +479,11 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const Pane
             return;
         }
         const auto hit = hit_test::HitTest(hit_ctx);
+        if (is_double_click) {
+            // 単語はカーソル下の文字で決める。文字の上でない (行末より右等) ときはキャレット位置で決める。
+            Dispatch(SelectWordAction{ hit.node_index, hit.char_pos != hit_test::HitResult::kNoChar ? hit.char_pos : hit.text_pos });
+            return;
+        }
         Dispatch(TextSelectionStartedAction{ hit.node_index, hit.text_pos, px, py });
         return;
     }
@@ -528,7 +510,7 @@ void App::HandleFileEntryClick(const FileEntry& entry)
     Dispatch(OpenPathAction{ entry.full_path });
 }
 
-void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout)
+void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout, bool is_double_click)
 {
     const auto& theme = theme_service_.GetTheme();
     const PaneRect& rect = layout.Get(target);
@@ -558,7 +540,8 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const
         return;
     }
     const int idx = SidePaneItemAt(state_, target, rect, dip_y);
-    if (idx < 0) {
+    // 1 回目のクリックで一覧が変わりうる (フォルダに入る) ので、2 回目を別の項目に当てない。
+    if (idx < 0 || is_double_click) {
         return;
     }
     if (target == PaneTarget::File) {
@@ -738,7 +721,7 @@ void App::RefreshHoverAtCursor()
         return;
     }
     // リサイズ枠やキャプションの上でカーソルを矢印に戻さない。
-    if (window_.HitTestNonClient(pt) != HTCLIENT) {
+    if (SendMessageW(hwnd_, WM_NCHITTEST, 0, MAKELPARAM(pt.x, pt.y)) != HTCLIENT) {
         return;
     }
     ScreenToClient(hwnd_, &pt);
@@ -751,7 +734,7 @@ void App::OnMouseHover(int px, int py)
     const auto dip = PixelToDip(px, py);
     PointerHover hover;
     HCURSOR cursor = cursors_.arrow;
-    if (dip.y < state_.window.titlebar.GetHeight()) {
+    if (dip.y < TitleBar::BASE_HEIGHT) {
         hover.titlebar = state_.window.titlebar.HitTest(dip.x, dip.y);
         const bool maximized = IsZoomed(hwnd_);
         // 最大化ボタンは状態で文言が変わるため key を分ける。

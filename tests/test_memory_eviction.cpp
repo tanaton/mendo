@@ -2,26 +2,9 @@
 #include "document_test_helpers.h"
 #include "image_loader.h"
 #include "mock_text_measurer.h"
+#include "test_helpers.h"
 #include <algorithm>
 #include <ranges>
-
-namespace {
-
-// FindCachedImage の結果を DiagramEntry に写す (旧 GetCachedImage と同じ形で検証するため)。
-bool GetCachedImage(ImageLoader& loader, const std::wstring& path, DiagramEntry& out)
-{
-    const auto* cached = loader.FindCachedImage(path);
-    if (!cached) {
-        return false;
-    }
-    out.bitmap = cached->bitmap;
-    out.width = cached->width;
-    out.height = cached->height;
-    return true;
-}
-
-} // namespace
-
 
 // ============================================================
 // ImageLoader キャッシュテスト
@@ -121,7 +104,7 @@ TEST_F(ProcessDirtyBatchViewportTest, SkipsFarOffscreenNodes)
     // 全ノードの layout_dirty を true に設定（eviction をシミュレート）
     for (size_t i = 0; i < nodes.size(); i++) {
         cache[i].layout_dirty = true;
-        cache[i].reset_text_layout();
+        cache[i].release_layout_state();
     }
 
     // ビューポートを先頭に設定（top=0, height=200）
@@ -148,11 +131,11 @@ TEST_F(ProcessDirtyBatchViewportTest, WithoutViewportLimitProcessesAll)
 
     for (size_t i = 0; i < nodes.size(); i++) {
         cache[i].layout_dirty = true;
-        cache[i].reset_text_layout();
+        cache[i].release_layout_state();
     }
 
     // ビューポート制限なし (clip 省略)
-    engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline);
+    engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All());
 
     // 全ノードが処理されるべき
     for (size_t i = 0; i < nodes.size(); i++) {
@@ -166,7 +149,7 @@ TEST_F(ProcessDirtyBatchViewportTest, HasDirtyNodesFalseAfterNearbyProcessed)
 
     for (size_t i = 0; i < nodes.size(); i++) {
         cache[i].layout_dirty = true;
-        cache[i].reset_text_layout();
+        cache[i].release_layout_state();
     }
 
     // ビューポート制限付きで全バッチ処理

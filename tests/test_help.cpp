@@ -2,6 +2,7 @@
 #include "document.h"
 #include "document_utils.h"
 #include "example_files.h"
+#include "file_io.h"
 #include "mock_text_measurer.h"
 #include "nav.h"
 
@@ -64,7 +65,7 @@ TEST(HelpDocumentTest, HelpDocumentHasToc)
 
 TEST(HelpDocumentTest, HelpPathIsNotMarkdownFile)
 {
-    EXPECT_FALSE(IsMarkdownFile(HELP_PATH));
+    EXPECT_FALSE(path_util::IsMarkdownFile(HELP_PATH));
 }
 
 // ═══════════════════════════════════════════════

@@ -67,14 +67,10 @@ enum class BrushId : uint8_t {
     None = 0xFF,
 };
 
-// Alert 種別 (AlertNote..AlertCaution) の数。document_types.h の ALERT_TYPE_COUNT と
-// 一致する必要があり、その検証は両方を見られる command_generator.cpp で static_assert する
-// (brush_id.h は core ヘッダへ依存させないため、ここでは ALERT_TYPE_COUNT を参照しない)。
-inline constexpr size_t ALERT_BRUSH_COUNT = 5;
-
-// Alert の文字色・背景色は AlertColorIndex の順に連番で並べてある。
-static_assert(std::to_underlying(BrushId::AlertCaution) - std::to_underlying(BrushId::AlertNote) + 1 == ALERT_BRUSH_COUNT);
-static_assert(std::to_underlying(BrushId::AlertCautionBg) - std::to_underlying(BrushId::AlertNoteBg) + 1 == ALERT_BRUSH_COUNT);
+// Alert の文字色・背景色は AlertColorIndex の順に連番で並べてある。種別の数 (ALERT_TYPE_COUNT) との一致は、
+// core ヘッダへ依存させないため両方を見られる command_generator.cpp で確かめる。
+static_assert(std::to_underlying(BrushId::AlertCaution) - std::to_underlying(BrushId::AlertNote) ==
+              std::to_underlying(BrushId::AlertCautionBg) - std::to_underlying(BrushId::AlertNoteBg));
 
 inline constexpr size_t BRUSH_COUNT = std::to_underlying(BrushId::Count);
 
@@ -84,7 +80,7 @@ constexpr BrushId BrushIdAt(BrushId first, size_t offset) noexcept
     return static_cast<BrushId>(std::to_underlying(first) + offset);
 }
 
-// Alert 種別インデックス (AlertColorIndex の 0..ALERT_BRUSH_COUNT-1) → 対応する固定ブラシ ID。
+// Alert 種別インデックス (AlertColorIndex) → 対応する固定ブラシ ID。
 constexpr BrushId AlertBrushIdFromIndex(size_t idx) noexcept
 {
     return BrushIdAt(BrushId::AlertNote, idx);

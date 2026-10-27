@@ -1,8 +1,6 @@
 #include "file_dialog_service.h"
 #include <commdlg.h>
 
-#pragma comment(lib, "comdlg32.lib")
-
 namespace {
 
 using FileDialogFn = BOOL(WINAPI*)(LPOPENFILENAMEW);

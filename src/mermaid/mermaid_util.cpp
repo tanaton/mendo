@@ -235,7 +235,7 @@ uint64_t mermaid_util::DiagramCodeHash(const Node& node) noexcept
     // LatexMath を Mermaid とキャッシュ衝突させないためのソルト（任意の定数）。
     constexpr uint64_t LATEX_MATH_HASH_SALT = 0xA1B2C3D4E5F60718ULL;
     uint64_t h = Fnv1a64(node.GetText());
-    if (node.code_language() == SyntaxLanguage::LatexMath) {
+    if (node.code_language == SyntaxLanguage::LatexMath) {
         h ^= LATEX_MATH_HASH_SALT;
     }
     return h;

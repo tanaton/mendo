@@ -1,6 +1,7 @@
 #include "nav.h"
 #include "ascii_util.h"
 #include <cassert>
+#include <charconv>
 #include <ranges>
 #include <utility>
 
@@ -102,7 +103,7 @@ std::pmr::string PercentDecode(std::string_view s)
     out.reserve(s.size());
     for (size_t i = 0; i < s.size(); ++i) {
         unsigned int byte = 0;
-        if (s[i] == '%' && i + 2 < s.size() && ascii_util::from_chars(s.data() + i + 1, 2, byte, 16u) == s.data() + i + 3) {
+        if (s[i] == '%' && i + 2 < s.size() && std::from_chars(s.data() + i + 1, s.data() + i + 3, byte, 16).ptr == s.data() + i + 3) {
             out += static_cast<char>(byte);
             i += 2;
             continue;
@@ -137,7 +138,7 @@ std::pmr::string EncodeShellUnsafeChars(std::string_view url)
 
 } // namespace
 
-LinkClickResult HandleLinkClick(std::string_view url)
+LinkClickResult ClassifyLinkClick(std::string_view url)
 {
     LinkClickResult result;
     if (url.empty()) {

@@ -1,10 +1,10 @@
-#include "lru_cache.h"
+#include "transposition_cache.h"
 #include <gtest/gtest.h>
 #include <string>
 
-TEST(LruCache, InsertAndFind)
+TEST(TranspositionCache, InsertAndFind)
 {
-    LruCache<int, std::string, 3> cache;
+    TranspositionCache<int, std::string, 3> cache;
     cache.Insert(1, "one");
     cache.Insert(2, "two");
     cache.Insert(3, "three");
@@ -16,9 +16,9 @@ TEST(LruCache, InsertAndFind)
     EXPECT_EQ(cache.Size(), 3u);
 }
 
-TEST(LruCache, EvictsLeastRecentlyInserted)
+TEST(TranspositionCache, EvictsLeastRecentlyInserted)
 {
-    LruCache<int, std::string, 3> cache;
+    TranspositionCache<int, std::string, 3> cache;
     cache.Insert(1, "one");
     cache.Insert(2, "two");
     cache.Insert(3, "three");
@@ -33,9 +33,9 @@ TEST(LruCache, EvictsLeastRecentlyInserted)
     EXPECT_NE(cache.Find(4), nullptr);
 }
 
-TEST(LruCache, FindPromotesAwayFromTail)
+TEST(TranspositionCache, FindPromotesAwayFromTail)
 {
-    LruCache<int, std::string, 3> cache;
+    TranspositionCache<int, std::string, 3> cache;
     cache.Insert(1, "one");
     cache.Insert(2, "two");
     cache.Insert(3, "three");
@@ -52,9 +52,9 @@ TEST(LruCache, FindPromotesAwayFromTail)
     EXPECT_NE(cache.Find(4), nullptr);
 }
 
-TEST(LruCache, InsertExistingKeyUpdatesValueAndPromotes)
+TEST(TranspositionCache, InsertExistingKeyUpdatesValueAndPromotes)
 {
-    LruCache<int, std::string, 3> cache;
+    TranspositionCache<int, std::string, 3> cache;
     cache.Insert(1, "one");
     cache.Insert(2, "two");
     cache.Insert(3, "three");
@@ -75,29 +75,19 @@ TEST(LruCache, InsertExistingKeyUpdatesValueAndPromotes)
     EXPECT_NE(cache.Find(4), nullptr);
 }
 
-TEST(LruCache, Clear)
+TEST(TranspositionCache, Clear)
 {
-    LruCache<int, std::string, 3> cache;
+    TranspositionCache<int, std::string, 3> cache;
     cache.Insert(1, "one");
     cache.Insert(2, "two");
 
     cache.Clear();
     EXPECT_EQ(cache.Size(), 0u);
-    EXPECT_TRUE(cache.Empty());
 }
 
-TEST(LruCache, Contains)
+TEST(TranspositionCache, ConstFind)
 {
-    LruCache<int, std::string, 3> cache;
-    cache.Insert(1, "one");
-
-    EXPECT_TRUE(cache.Contains(1));
-    EXPECT_FALSE(cache.Contains(2));
-}
-
-TEST(LruCache, ConstFind)
-{
-    LruCache<int, std::string, 3> cache;
+    TranspositionCache<int, std::string, 3> cache;
     cache.Insert(1, "one");
     cache.Insert(2, "two");
 
@@ -107,9 +97,9 @@ TEST(LruCache, ConstFind)
     EXPECT_EQ(*v, "two");
 }
 
-TEST(LruCache, ConstFindDoesNotChangeOrder)
+TEST(TranspositionCache, ConstFindDoesNotChangeOrder)
 {
-    LruCache<int, int, 3> cache;
+    TranspositionCache<int, int, 3> cache;
     cache.Insert(1, 10);
     cache.Insert(2, 20);
     cache.Insert(3, 30);
@@ -125,9 +115,9 @@ TEST(LruCache, ConstFindDoesNotChangeOrder)
     EXPECT_NE(cache.Find(4), nullptr);
 }
 
-TEST(LruCache, SizeOne)
+TEST(TranspositionCache, SizeOne)
 {
-    LruCache<int, int, 1> cache;
+    TranspositionCache<int, int, 1> cache;
     cache.Insert(1, 100);
     EXPECT_EQ(cache.Size(), 1u);
 
@@ -139,39 +129,15 @@ TEST(LruCache, SizeOne)
     EXPECT_EQ(*v, 200);
 }
 
-TEST(LruCache, MaxSize)
+TEST(TranspositionCache, EmptyAfterConstruction)
 {
-    LruCache<int, int, 5> cache;
-    EXPECT_EQ(cache.MaxSize(), 5u);
-}
-
-TEST(LruCache, EmptyAfterConstruction)
-{
-    LruCache<int, int, 10> cache;
-    EXPECT_TRUE(cache.Empty());
+    TranspositionCache<int, int, 10> cache;
     EXPECT_EQ(cache.Size(), 0u);
 }
 
-TEST(LruCache, ContainsDoesNotUpdateOrder)
+TEST(TranspositionCache, StressInsertManyKeepsLatest)
 {
-    LruCache<int, int, 2> cache;
-    cache.Insert(1, 10);
-    cache.Insert(2, 20);
-    // 内部 [2, 1]
-
-    // Contains は順序を変更しない
-    EXPECT_TRUE(cache.Contains(1));
-
-    // Insert(3) で末尾 (1) が捨てられる
-    cache.Insert(3, 30);
-    EXPECT_EQ(cache.Find(1), nullptr);
-    EXPECT_NE(cache.Find(2), nullptr);
-    EXPECT_NE(cache.Find(3), nullptr);
-}
-
-TEST(LruCache, StressInsertManyKeepsLatest)
-{
-    LruCache<int, int, 100> cache;
+    TranspositionCache<int, int, 100> cache;
     for (int i = 0; i < 1000; i++) {
         cache.Insert(i, i * 10);
     }
@@ -188,30 +154,30 @@ TEST(LruCache, StressInsertManyKeepsLatest)
     }
 }
 
-TEST(LruCache, ClearAndReuse)
+TEST(TranspositionCache, ClearAndReuse)
 {
-    LruCache<int, int, 3> cache;
+    TranspositionCache<int, int, 3> cache;
     cache.Insert(1, 10);
     cache.Insert(2, 20);
     cache.Clear();
 
     cache.Insert(3, 30);
     EXPECT_EQ(cache.Size(), 1u);
-    EXPECT_FALSE(cache.Contains(1));
-    EXPECT_FALSE(cache.Contains(2));
-    EXPECT_TRUE(cache.Contains(3));
+    EXPECT_EQ(cache.Find(1), nullptr);
+    EXPECT_EQ(cache.Find(2), nullptr);
+    EXPECT_NE(cache.Find(3), nullptr);
 }
 
-TEST(LruCache, FindMissingReturnsNull)
+TEST(TranspositionCache, FindMissingReturnsNull)
 {
-    LruCache<int, int, 5> cache;
+    TranspositionCache<int, int, 5> cache;
     cache.Insert(1, 10);
     EXPECT_EQ(cache.Find(999), nullptr);
 }
 
-TEST(LruCache, ModifyValueThroughFind)
+TEST(TranspositionCache, ModifyValueThroughFind)
 {
-    LruCache<int, std::string, 3> cache;
+    TranspositionCache<int, std::string, 3> cache;
     cache.Insert(1, "original");
     auto* v = cache.Find(1);
     ASSERT_NE(v, nullptr);
@@ -220,9 +186,9 @@ TEST(LruCache, ModifyValueThroughFind)
     EXPECT_EQ(*v2, "modified");
 }
 
-TEST(LruCache, RepeatedFindClimbsToFront)
+TEST(TranspositionCache, RepeatedFindClimbsToFront)
 {
-    LruCache<int, int, 5> cache;
+    TranspositionCache<int, int, 5> cache;
     cache.Insert(1, 10);
     cache.Insert(2, 20);
     cache.Insert(3, 30);
@@ -242,9 +208,9 @@ TEST(LruCache, RepeatedFindClimbsToFront)
     EXPECT_NE(cache.Find(5), nullptr);
 }
 
-TEST(LruCache, RepeatedInsertExistingKeyClimbsToFront)
+TEST(TranspositionCache, RepeatedInsertExistingKeyClimbsToFront)
 {
-    LruCache<int, int, 5> cache;
+    TranspositionCache<int, int, 5> cache;
     cache.Insert(1, 10);
     cache.Insert(2, 20);
     cache.Insert(3, 30);
@@ -265,9 +231,9 @@ TEST(LruCache, RepeatedInsertExistingKeyClimbsToFront)
     EXPECT_NE(cache.Find(5), nullptr);
 }
 
-TEST(LruCache, TrimToBudgetEvictsFromTail)
+TEST(TranspositionCache, TrimToBudgetEvictsFromTail)
 {
-    LruCache<int, int, 5> cache;
+    TranspositionCache<int, int, 5> cache;
     cache.Insert(1, 10);
     cache.Insert(2, 20);
     cache.Insert(3, 30);
@@ -284,9 +250,9 @@ TEST(LruCache, TrimToBudgetEvictsFromTail)
     EXPECT_EQ(cache.Size(), 3u);
 }
 
-TEST(LruCache, TrimToBudgetKeepsMostRecentEvenIfOverBudget)
+TEST(TranspositionCache, TrimToBudgetKeepsMostRecentEvenIfOverBudget)
 {
-    LruCache<int, int, 3> cache;
+    TranspositionCache<int, int, 3> cache;
     cache.Insert(1, 100);
     cache.Insert(2, 200);
 

@@ -60,19 +60,22 @@ std::wstring ResolveLocalImagePath(std::string_view src, const std::pmr::wstring
 
 } // namespace
 
-int ResourceManager::ApplyCachedImages()
+void ResourceManager::ApplyCachedImages()
 {
     DropQueuesIfJumped();
-    return ApplyCachedImagesIn(PrioritizedSlices(deps_.doc->GetImageNodeIndices(), PREFETCH_BUFFER_SCREENS), true);
+    ApplyCachedImagesIn(PrioritizedSlices(deps_.doc->GetImageNodeIndices(), PREFETCH_BUFFER_SCREENS), true, height_changed_);
 }
 
-int ResourceManager::ApplyCachedImagesForReload(VisibleRange range)
+bool ResourceManager::ApplyCachedImagesForReload(VisibleRange range)
 {
     // 読み込みを起動しないので、キャッシュが空なら何も適用できない (起動直後の復元など)。
     if (deps_.image_loader->CacheSize() == 0) {
-        return 0;
+        return false;
     }
-    return ApplyCachedImagesIn(std::array{ VisibleSlice(deps_.doc->GetImageNodeIndices(), range.first, range.last_plus_1) }, false);
+    // Y は呼び出し側が組み直すので、変えた範囲は height_changed_ に積まず、後の再レイアウトへ持ち越さない。
+    layout::HeightChangeRange changed;
+    ApplyCachedImagesIn(std::array{ VisibleSlice(deps_.doc->GetImageNodeIndices(), range.first, range.last_plus_1) }, false, changed);
+    return !changed.empty();
 }
 
 bool ResourceManager::ApplyMermaidCacheHeightsForReload(VisibleRange range)
@@ -104,9 +107,8 @@ bool ResourceManager::ApplyMermaidCacheHeightsForReload(VisibleRange range)
 
 void ResourceManager::LoadImages()
 {
-    if (ApplyCachedImages() > 0) {
-        host_->RecomputeLayout(TakeHeightChanges());
-    }
+    ApplyCachedImages();
+    RecomputeChangedHeights();
 }
 
 void ResourceManager::OnImagesDecoded(std::chrono::steady_clock::time_point deadline)
@@ -116,14 +118,11 @@ void ResourceManager::OnImagesDecoded(std::chrono::steady_clock::time_point dead
     }
 }
 
-int ResourceManager::RequestMermaidRenders()
+void ResourceManager::RequestMermaidRenders()
 {
     // 同期キャッシュヒットの度に再レイアウトせず、まとめて 1 回だけ行う。
-    const int applied = RequestVisibleDiagrams();
-    if (!height_changed_.empty()) {
-        host_->RecomputeLayout(TakeHeightChanges());
-    }
-    return applied;
+    RequestVisibleDiagrams();
+    RecomputeChangedHeights();
 }
 
 void ResourceManager::CancelMermaidBatch()
@@ -159,7 +158,7 @@ void ResourceManager::EvictOffscreenBitmaps()
     deps_.cache->EvictInvisibleTableRows(VisibleSlice(deps_.doc->GetTableNodeIndices(), lr.first, lr.last_plus_1), layout_keep->keep);
 
     // image/diagram bitmap も可視範囲外の分を捨てる。レンダ済みビットマップの
-    // 二次キャッシュ (mermaid 内 LRU, 128 件) は自前で上限管理されるため全消去しない。
+    // 二次キャッシュ (mermaid 内, 128 件) は自前で上限管理されるため全消去しない。
     // 全消去すると可視中の図まで捨てて WebView2 再レンダの cliff を生むため。
     deps_.cache->EvictDiagramBitmapsOutside(keep->range.first, keep->range.last_plus_1);
 }
@@ -171,14 +170,10 @@ void ResourceManager::FlushPendingResources()
     // last_flush_time_ を一元的に更新し、両経路でスロットリングが効くようにする。
     last_flush_time_ = std::chrono::steady_clock::now();
 
-    bool changed = (ApplyCachedImages() > 0);
-
-    // 図の再レイアウトも下の RecomputeLayout 1 回へ統合する。
-    changed |= (RequestVisibleDiagrams() > 0);
-
-    if (changed) {
-        host_->RecomputeLayout(TakeHeightChanges());
-    }
+    // 画像と図の再レイアウトを 1 回にまとめる。
+    ApplyCachedImages();
+    RequestVisibleDiagrams();
+    RecomputeChangedHeights();
 }
 
 void ResourceManager::ScheduleBitmapManage()
@@ -205,11 +200,11 @@ void ResourceManager::OnBitmapManageTimer()
     FlushPendingResources();
 }
 
-int ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, bool start_loads)
+void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, bool start_loads, layout::HeightChangeRange& changed)
 {
     const std::pmr::wstring& doc_dir = deps_.doc->GetDirectory();
     if (doc_dir.empty()) {
-        return 0;
+        return;
     }
     // 解決結果は src と文書フォルダだけで決まるので、同じフォルダでのリロードでは使い回す。
     if (doc_dir != resolved_dir_) {
@@ -218,13 +213,12 @@ int ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t>
     }
     const float content_width = host_->MdContentWidth();
     if (content_width <= 0.0f) {
-        return 0;
+        return;
     }
 
     const Theme& theme = host_->GetTheme();
     const auto& nodes = deps_.doc->GetNodes();
 
-    int applied = 0;
     for (const size_t i : slices | std::views::join) {
         const auto& node = nodes[i];
         const auto* const img = node.image_data();
@@ -246,7 +240,7 @@ int ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t>
         const auto* d = deps_.cache->FindDiagram(i);
         const auto* cached = deps_.image_loader->FindCachedImage(*abs_path);
         if (!cached) {
-            // LRU から落ちても表示中のビットマップはそのまま使う。
+            // キャッシュから落ちても表示中のビットマップはそのまま使う。
             if (!d || !d->bitmap) {
                 request();
             }
@@ -254,66 +248,63 @@ int ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t>
         }
 
         // DiagramEntry はキャッシュに当たった画像だけ確保する。寸法は再計測 (幅変更・ズーム) でも使う。
-        if (!d || !d->bitmap || d->bitmap != cached->bitmap) {
+        // DPI が変わると同じビットマップでも DIP の寸法が変わるので、寸法も比べる。
+        const auto size = deps_.image_loader->DipSize(*cached);
+        if (!d || !d->bitmap || d->bitmap != cached->bitmap || d->width != size.width || d->height != size.height) {
             auto& diagram = deps_.cache->EnsureDiagram(i);
             diagram.bitmap = cached->bitmap;
-            diagram.width = cached->width;
-            diagram.height = cached->height;
+            diagram.width = size.width;
+            diagram.height = size.height;
 
-            ApplyBitmapHeight(i, diagram, max_width);
-            ++applied;
+            ApplyBitmapHeight(i, diagram, max_width, changed);
         }
         // 表示幅が広がったら、今の解像度で描きながら高い解像度で読み直す。
         if (deps_.image_loader->NeedsSharperDecode(*cached, max_width)) {
             request();
         }
     }
-    return applied;
 }
 
-int ResourceManager::RequestVisibleDiagrams()
+void ResourceManager::RequestVisibleDiagrams()
 {
     const float content_width = host_->MdContentWidth();
     InvalidateMermaidForWidthChange(content_width);
 
     if (content_width <= 0.0f) {
-        return 0;
+        return;
     }
 
     DropQueuesIfJumped();
     const auto slices = PrioritizedSlices(deps_.doc->GetDiagramNodeIndices(), PREFETCH_BUFFER_SCREENS);
     const bool dark_mode = host_->GetTheme().dark;
-    int applied = 0;
     for (const size_t i : slices | std::views::join) {
-        applied += RequestDiagramRender(i, content_width, dark_mode) ? 1 : 0;
+        RequestDiagramRender(i, content_width, dark_mode);
     }
-    return applied;
 }
 
-bool ResourceManager::RequestDiagramRender(size_t i, float content_width, bool dark_mode)
+void ResourceManager::RequestDiagramRender(size_t i, float content_width, bool dark_mode)
 {
     auto& diagram = deps_.cache->EnsureDiagram(i);
     // エラー確定した図も NeedsRender()=false で弾き、失敗レンダの無限リトライを防ぐ。
     if (!diagram.NeedsRender()) {
-        return false;
+        return;
     }
     const Node& node = deps_.doc->GetNodes()[i];
     if (!deps_.mermaid->RequestRender(node, diagram, content_width, dark_mode)) {
-        return false;
+        return;
     }
     // 失敗 (エラー確定) でもプレースホルダーの文言が変わるので描き直す。
     if (!diagram.bitmap) {
         height_changed_.Add(i);
-        return false;
+        return;
     }
-    ApplyBitmapHeight(i, diagram, layout::NodeContentWidth(node, host_->GetTheme(), content_width));
-    return true;
+    ApplyBitmapHeight(i, diagram, layout::NodeContentWidth(node, host_->GetTheme(), content_width), height_changed_);
 }
 
-void ResourceManager::ApplyBitmapHeight(size_t i, const DiagramEntry& bitmap, float node_width)
+void ResourceManager::ApplyBitmapHeight(size_t i, const DiagramEntry& bitmap, float node_width, layout::HeightChangeRange& changed)
 {
     (*deps_.cache)[i].CommitMeasured(node_width, layout::BitmapDisplayHeight(bitmap.width, bitmap.height, node_width));
-    height_changed_.Add(i);
+    changed.Add(i);
 }
 
 const std::wstring* ResourceManager::ResolveImagePath(std::string_view src, const std::pmr::wstring& doc_dir)
@@ -339,6 +330,13 @@ void ResourceManager::DropQueuesIfJumped()
 layout::HeightChangeRange ResourceManager::TakeHeightChanges() noexcept
 {
     return std::exchange(height_changed_, {});
+}
+
+void ResourceManager::RecomputeChangedHeights()
+{
+    if (!height_changed_.empty()) {
+        host_->RecomputeLayout(TakeHeightChanges());
+    }
 }
 
 std::optional<ResourceManager::BufferedRange> ResourceManager::ComputeBufferedRange(float screens)

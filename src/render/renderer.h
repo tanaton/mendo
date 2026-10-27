@@ -69,10 +69,11 @@ public:
     {
         RecreateBrushes();
     }
-    // ズーム。書式を作り直す。
+    // ズーム。大きさがズームに従う書式 (本文・ジェスチャー) だけ作り直す。タイトルバーやサイドペインの書式は
+    // ズームしないので、それらで作ったレイアウトも残す (作り直すと 1 段ごとに 80 個ほどで約 2.7ms)。
     void OnThemeMetricsChanged()
     {
-        RecreateAllTextFormats();
+        CreateTextFormats(/*zoomed_only=*/true);
     }
     // UI の決まった文言の書式は選んだ言語のロケールで組むので作り直す。
     void OnLanguageChanged()
@@ -112,16 +113,8 @@ private:
     // overlay_cmds_ に積む。
     void GenOverlays(const RenderParams& p);
 
-    void GenTitleBar(const TitleBarRenderState& tb);
-    void GenFileExplorer(const std::pmr::vector<FileEntry>& entries, const SidePaneInstance& pane);
-    void GenToc(const SidePaneState& sp, const SidePaneInstance& pane);
-    template <typename GenItemFn>
-    void GenSidePane(const SidePaneInstance& pane, bool is_file_pane, size_t item_count, std::wstring_view header_text, GenItemFn gen_item);
-    void GenSidePaneHeader(const SidePaneInstance& pane, bool is_file_pane, std::wstring_view header_text);
     // 倍率が変わったら作り直す。
     void EnsurePaneListFormats(PaneTarget target, float zoom);
-    // NO_WRAP の左寄せテキスト。はみ出しは呼び出し側のクリップで切る。
-    void EmitLeftText(IDWriteTextFormat* fmt, std::wstring_view text, float x, float y, float height);
     void GenGestureTrail(const std::pmr::vector<GesturePoint>& points);
 
     D2DRenderBackend backend_;
@@ -133,9 +126,8 @@ private:
     FixedBrushArray brushes_;
 
     void RecreateBrushes();
-    void InvalidateBrushes() noexcept;
     void RecreateAllTextFormats();
-    void CreateTextFormats();
+    void CreateTextFormats(bool zoomed_only = false);
 
     FrameResult EndFrame();
     bool RecreateDevice();

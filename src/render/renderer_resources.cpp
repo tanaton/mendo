@@ -79,13 +79,6 @@ void Renderer::RecreateBrushes()
     }
 }
 
-void Renderer::InvalidateBrushes() noexcept
-{
-    for (auto& b : brushes_) {
-        b.Reset();
-    }
-}
-
 void Renderer::EnsurePaneListFormats(PaneTarget target, float zoom)
 {
     auto& f = pane_list_fmt_[std::to_underlying(target)];
@@ -115,7 +108,7 @@ void Renderer::RecreateAllTextFormats()
     search_input_.SetFormat(backend_.GetDWriteFactory(), fmt_.search_input.Get());
 }
 
-void Renderer::CreateTextFormats()
+void Renderer::CreateTextFormats(bool zoomed_only)
 {
     constexpr DWRITE_FONT_WEIGHT W = DWRITE_FONT_WEIGHT_NORMAL;
     constexpr DWRITE_FONT_WEIGHT SEMI = DWRITE_FONT_WEIGHT_SEMI_BOLD;
@@ -140,20 +133,22 @@ void Renderer::CreateTextFormats()
         Loc loc;
         // locale は loc から決める。
         TextFormatSpec spec;
+        // 大きさがズームに従う。
+        bool zoomed = false;
     };
 
     // clang-format off
     const FormatSpec specs[] = {
-        { fmt_.md.checkbox,          Loc::Doc,  { body_font, W,                       theme_->font_size_body,        nullptr, TA_LEAD, PA_TOP, false, BODY_LINE_HEIGHT_FACTOR } },
-        { fmt_.md.copy_btn_icon,     Loc::En,   { icon_font, W,                       theme_->font_size_body,        nullptr, TA_CTR,  PA_CTR, true  } },
-        { fmt_.md.list_number,       Loc::Doc,  { body_font, W,                       theme_->font_size_body,        nullptr, TA_TAIL, PA_TOP, true,  BODY_LINE_HEIGHT_FACTOR } },
-        { fmt_.md.placeholder_text,  Loc::Ui,   { body_font, W,                       theme_->font_size_body,        nullptr, TA_CTR,  PA_CTR, false } },
+        { fmt_.md.checkbox,          Loc::Doc,  { body_font, W,                       theme_->font_size_body,        nullptr, TA_LEAD, PA_TOP, false, BODY_LINE_HEIGHT_FACTOR }, true },
+        { fmt_.md.copy_btn_icon,     Loc::En,   { icon_font, W,                       theme_->font_size_body,        nullptr, TA_CTR,  PA_CTR, true  }, true },
+        { fmt_.md.list_number,       Loc::Doc,  { body_font, W,                       theme_->font_size_body,        nullptr, TA_TAIL, PA_TOP, true,  BODY_LINE_HEIGHT_FACTOR }, true },
+        { fmt_.md.placeholder_text,  Loc::Ui,   { body_font, W,                       theme_->font_size_body,        nullptr, TA_CTR,  PA_CTR, false }, true },
         { fmt_.titlebar_text,        Loc::Doc,  { body_font, W,                       TITLEBAR_TEXT_FONT_SIZE,       nullptr, TA_CTR,  PA_CTR, true  } },
         { fmt_.ui_icon,              Loc::En,   { icon_font, W,                       UI_ICON_FONT_SIZE,             nullptr, TA_CTR,  PA_CTR, true  } },
         { fmt_.pane_icon,            Loc::En,   { icon_font, W,                       theme_->pane_font_size,        nullptr, TA_CTR,  PA_CTR, true  } },
         { fmt_.pane_header,          Loc::Ui,   { body_font, SEMI,                    theme_->pane_font_size,        nullptr, TA_LEAD, PA_CTR, true  } },
         { fmt_.nav_button,           Loc::Doc,  { body_font, W,                       theme_->pane_font_size,        nullptr, TA_CTR,  PA_CTR, true  } },
-        { fmt_.gesture_overlay,      Loc::Ui,   { body_font, DWRITE_FONT_WEIGHT_BOLD, 32.0f * theme_->zoom,          nullptr, TA_CTR,  PA_CTR, false } },
+        { fmt_.gesture_overlay,      Loc::Ui,   { body_font, DWRITE_FONT_WEIGHT_BOLD, 32.0f * theme_->zoom,          nullptr, TA_CTR,  PA_CTR, false }, true },
         { fmt_.toast_text,           Loc::Ui,   { body_font, SEMI,                    theme_->pane_font_size * 1.1f, nullptr, TA_CTR,  PA_CTR, true  } },
         { fmt_.search_input,         Loc::Doc,  { body_font, W,                       SEARCH_INPUT_FONT_SIZE,        nullptr, TA_LEAD, PA_CTR, true  } },
         { fmt_.search_count,         Loc::Doc,  { body_font, W,                       SEARCH_COUNT_FONT_SIZE,        nullptr, TA_CTR,  PA_CTR, true  } },
@@ -173,6 +168,9 @@ void Renderer::CreateTextFormats()
     };
     auto* const dw = backend_.GetDWriteFactory();
     for (const auto& s : specs) {
+        if (zoomed_only && !s.zoomed) {
+            continue;
+        }
         auto spec = s.spec;
         spec.locale = locale_of(s.loc);
         s.target = CreateTextFormat(dw, spec);

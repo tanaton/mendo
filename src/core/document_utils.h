@@ -71,27 +71,11 @@ std::pmr::vector<SyntaxToken> TokenizeCodeNode(const Node& node);
 // 並び全体のトークンを一度に持たない。scheduler があれば区間に分けて並列に解析する (同じ worker 上から呼んでよい)。
 void AnnotateCodeChunkLeads(std::span<Node> run, TaskScheduler* scheduler = nullptr);
 
-// 最後のパス区切り以降。区切りで終わるパスでは空。
-constexpr std::wstring_view FilenameView(std::wstring_view path) noexcept
-{
-    const auto pos = path.find_last_of(L"\\/");
-    return pos == std::wstring_view::npos ? path : path.substr(pos + 1);
-}
-
-// 最後のパス区切り以降の "." を含む拡張子。無ければ空。
-std::wstring_view ExtensionView(std::wstring_view path) noexcept;
-
-// 拡張子の大文字小文字は区別しない。
-bool IsMarkdownFile(std::wstring_view path);
-
 inline constexpr std::wstring_view HELP_PATH = L"mendo://help";
 inline constexpr bool IsHelpPath(std::wstring_view path) noexcept
 {
     return path == HELP_PATH;
 }
-
-// 空パスや区切りを含まないパスでは空を返す。
-std::pmr::wstring ParentDirectory(std::wstring_view path);
 
 // zoom_percent: 0 または 100 はデフォルト（省略）、それ以外は "(125%)" 等として表示。
 std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent);
@@ -108,26 +92,16 @@ size_t FindFirstDifference(std::string_view old_text, std::string_view new_text)
 enum class ReloadOp : uint8_t {
     NoChange,          // 差分なし。リロード不要。
     DeferPrefixShrink, // prefix-only shrink。truncate→rewrite の前半として defer。
-    DeferPartialWrite, // 読み終えた後もファイルが伸びている (書き込み途中)。差分判定もパースもせず defer。
     Replace,           // 再パースした文書に差し替え、差分位置へスクロールする。
 };
 
 struct ReloadDecision {
     ReloadOp op;
-    size_t diff_pos; // NoChange と DeferPartialWrite のとき std::string_view::npos、それ以外は差分開始位置。
+    size_t diff_pos; // NoChange のとき std::string_view::npos、それ以外は差分開始位置。
 };
 
 // 旧/新コンテンツの UTF-8 テキストを比較し、リロード方針を決定する純粋関数。
 ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text) noexcept;
-
-// still_growing: 読み終えた後もファイルが伸びている。書き込み途中なので差分を取らずに defer する。
-inline ReloadDecision DecideReload(bool still_growing, std::string_view old_text, std::string_view new_text) noexcept
-{
-    if (still_growing) {
-        return { ReloadOp::DeferPartialWrite, std::string_view::npos };
-    }
-    return AnalyzeReloadDiff(old_text, new_text);
-}
 
 // 末尾を削っただけの保存は何度読み直しても prefix shrink になるため、defer 回数に上限を設け、
 // 超えたら縮んだ内容を確定版として受け入れる。

@@ -14,7 +14,8 @@ inline constexpr const wchar_t* kIconFontCandidates[]{ L"Segoe Fluent Icons", L"
 struct SharedColors {
     uint32_t code_bg;
     uint32_t code_text;
-    uint32_t table_border;
+    // 罫線 (水平線・見出しの下線・表の枠)。
+    uint32_t rule;
 
     // シンタックスハイライト色（ライトは VS Code Light 風、ダークは VS Code Dark+ 風）
     uint32_t syntax_keyword;
@@ -31,7 +32,7 @@ struct SharedColors {
 inline constexpr SharedColors kLight = {
     .code_bg = 0xf6f8fa,
     .code_text = 0x24292e,
-    .table_border = 0xd0d7de,
+    .rule = 0xd0d0d0,
     .syntax_keyword = 0xaf00db,
     .syntax_type = 0x267f99,
     .syntax_string = 0xa31515,
@@ -46,7 +47,7 @@ inline constexpr SharedColors kLight = {
 inline constexpr SharedColors kDark = {
     .code_bg = 0x2d2d2d,
     .code_text = 0xd4d4d4,
-    .table_border = 0x3c3c3c,
+    .rule = 0x404040,
     .syntax_keyword = 0xc586c0,
     .syntax_type = 0x4ec9b0,
     .syntax_string = 0xce9178,

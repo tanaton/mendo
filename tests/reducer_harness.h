@@ -70,7 +70,7 @@ public:
         layout_.file_rect = { 0.0f, 0.0f, 150.0f, opt.md_height };
         layout_.toc_rect = { 154.0f, 0.0f, 150.0f, 120.0f };
         layout_.md_rect = { 308.0f, 0.0f, kMdWidth, opt.md_height };
-        state.pane_layout_cache.Set(1000.0f, layout_);
+        state.pane_layout_cache.Set(layout_);
     }
 
     ReducerHarness(const ReducerHarness&) = delete;
@@ -80,7 +80,7 @@ public:
     SideEffectList Dispatch(const AppAction& action, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
     {
         if (!state.pane_layout_cache.IsValid()) {
-            state.pane_layout_cache.Set(1000.0f, layout_);
+            state.pane_layout_cache.Set(layout_);
         }
         return Reduce(state, action, resource);
     }
@@ -95,7 +95,7 @@ public:
     void ResizeMdPane(float md_height)
     {
         layout_.md_rect.height = md_height;
-        state.pane_layout_cache.Set(1000.0f, layout_);
+        state.pane_layout_cache.Set(layout_);
         ClampScrollToContent();
     }
 
