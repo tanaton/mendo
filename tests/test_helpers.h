@@ -395,9 +395,9 @@ public:
     TempFile(const TempFile&) = delete;
     TempFile& operator=(const TempFile&) = delete;
 
-    std::wstring PmrPath() const
+    const std::wstring& Path() const noexcept
     {
-        return std::wstring(path_.wstring());
+        return path_.native();
     }
 
 private:

@@ -444,11 +444,6 @@ ScrollbarDragGrip ComputeScrollbarDragGrip(float thumb_y, float thumb_height, fl
     return { thumb_height * 0.5f, false };
 }
 
-PaneScrollInfo MdScrollInfo(const AppState& state) noexcept
-{
-    return ComputeScrollInfo(state.pane_layout_cache.Get().md_rect, 0.0f, MdScrollableContentHeight(state));
-}
-
 // ツールチップ以外のホバー状態を反映し、見た目が変わったら再描画させる。
 void ApplyHoverHighlights(AppState& state, SideEffectList& effects, HoverHighlights h)
 {
@@ -556,7 +551,7 @@ void ReduceSearchInputDragMoved(AppState& state, SideEffectList& effects, const 
 
 void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, const MdScrollbarDragStartedAction& a)
 {
-    const auto info = MdScrollInfo(state);
+    const auto info = MdScrollInfo(state, state.pane_layout_cache.Get());
     auto& viewport = state.view.viewport;
     const auto grip = ComputeScrollbarDragGrip(ComputeThumbY(info, viewport.GetScrollY()), info.thumb_height, a.dip_y);
     BeginLeftDrag(state, effects, { .kind = LeftDrag::MdScrollbar, .grip_offset = grip.drag_offset });
@@ -572,7 +567,7 @@ void ReduceMdScrollbarDragMoved(AppState& state, const MdScrollbarDragMovedActio
         return;
     }
     const float new_thumb_y = a.dip_y - state.view.drag.grip_offset;
-    state.view.viewport.ScrollTo(ScrollFromThumbY(MdScrollInfo(state), new_thumb_y), MdMaxScroll(state));
+    state.view.viewport.ScrollTo(ScrollFromThumbY(MdScrollInfo(state, state.pane_layout_cache.Get()), new_thumb_y), MdMaxScroll(state));
 }
 
 void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, const PaneScrollbarDragStartedAction& a)

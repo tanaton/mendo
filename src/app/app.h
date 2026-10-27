@@ -1,4 +1,5 @@
 #pragma once
+#include "app_controller.h"
 #include "app_events.h"
 #include "app_state.h"
 #include "async_load_coordinator.h"
@@ -6,7 +7,6 @@
 #include "config_service.h"
 #include "context_menu.h"
 #include "file_watcher.h"
-#include "hit_test_service.h"
 #include "image_loader.h"
 #include "layout.h"
 #include "mermaid.h"
@@ -17,7 +17,6 @@
 #include "render_params.h"
 #include "renderer.h"
 #include "resource_manager.h"
-#include "selection_html.h"
 #include "settings_dialog.h"
 #include "side_effect.h"
 #include "task_scheduler.h"
@@ -243,8 +242,8 @@ private:
     const PaneLayout& GetPaneLayout();
     PaneZone PaneAtPoint(float dip_x);
 
-    SearchBarLayout ComputeSearchBarLayoutForMd(const PaneRect& md_rect) const;
-    int HitTestSearchInputPos(const SearchBarLayout& sbl, float dip_x) const;
+    // 検索の入力欄で dip_x にあるキャレット位置。
+    int SearchInputPosAt(float dip_x);
 
     // ---- クリック (判定は app_controller::Resolve*Hit) ----
     void HandleLinkClick(std::string_view url);
@@ -290,8 +289,6 @@ private:
     // 画像・図の高さが変わった範囲の Y を組み直し、スクロールを収めて描き直す。
     void RecomputeLayout(layout::HeightChangeRange changed) override;
     void EnsureNodeLayout(int node_index) override;
-    // スクロール上限/スクロールバー計算用のコンテンツ高さ。
-    float ScrollableContentHeight() const noexcept;
 
     // ---- ファイル読み込み ----
     // 表示中の言語のヘルプに差し替える。ヘルプを表示中でも読み直す (言語の切り替え)。

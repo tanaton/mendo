@@ -17,7 +17,7 @@
 #include <utility>
 #include <vector>
 
-// d3d11.h / dxgi1_2.h / d2d1_1.h / wincodec.h は renderer_device.cpp だけで読み、renderer.h から app.h を読む翻訳単位へ広げない。
+// d3d11.h / dxgi は renderer_device.cpp だけで読み、d2d1_1.h / wincodec.h も含めて renderer.h から app.h を読む翻訳単位へ広げない。
 struct ID2D1Factory1;
 struct ID2D1Device;
 struct ID2D1DeviceContext;

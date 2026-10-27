@@ -34,9 +34,9 @@ inline std::string_view AlertHeadText(AlertType type)
 
 inline std::string GenerateAnchorId(std::string_view text)
 {
-    std::pmr::string slug;
+    std::string slug;
     GenerateAnchorIdInto(text, slug);
-    return std::string(slug);
+    return slug;
 }
 
 // text_pos にあるリンクの URL。

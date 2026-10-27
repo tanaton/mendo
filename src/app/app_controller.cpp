@@ -1,8 +1,5 @@
-#include "app_events.h"
-#include "app_state.h"
-#include "hit_test_service.h"
+#include "app_controller.h"
 #include "i18n.h"
-#include "selection_html.h"
 #include "string_convert.h"
 #include "titlebar.h"
 #include "tooltip.h"
@@ -384,14 +381,14 @@ bool IsOverMdScrollbar(const AppState& state, const PaneLayout& layout, float di
     if (dip_y < md.y || dip_y > md.y + md.height) {
         return false;
     }
-    return IsOverPaneScrollbar(dip_x, md, ComputeScrollInfo(md, 0.0f, MdScrollableContentHeight(state)), state.document.layout_cache.HasDirtyNodes());
+    return IsOverPaneScrollbar(dip_x, md, MdScrollInfo(state, layout), state.document.layout_cache.HasDirtyNodes());
 }
 
 MdPaneHit ResolveMdPaneHit(const AppState& state, const MdPaneHitContext& hit_ctx, const PaneLayout& layout, float dip_x, float dip_y) noexcept
 {
     using Kind = MdPaneHit::Kind;
-    if (const auto& search = state.search.search_state; search.IsVisible()) {
-        if (const auto sbl = ComputeSearchBarLayout(layout.md_rect, !search.GetQuery().empty()); dip_y >= sbl.bar_top) {
+    if (state.search.search_state.IsVisible()) {
+        if (const auto sbl = SearchBarLayoutFor(state, layout.md_rect); dip_y >= sbl.bar_top) {
             return { .kind = Kind::SearchBar, .search_bar = HitTestSearchBar(sbl, dip_x, dip_y) };
         }
     }

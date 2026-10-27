@@ -165,7 +165,7 @@ void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::wstrin
         // 新旧 Document の二重保持が起きないよう、パース前に判定する。
         // 書き込み途中なら差分も取らずに返し、読み直させる。
         if (IsFileLargerThan(path.c_str(), file->byte_size)) {
-            Publish(stop_token, AsyncLoadResult{ .reload = ReloadCheck{ .base = reload_base.data }, .still_growing = true });
+            Publish(stop_token, AsyncLoadResult{ .reload = ReloadCheck{ .base = reload_base.data, .still_growing = true } });
             return;
         }
         reload.emplace(ReloadCheck{ AnalyzeReloadDiff(reload_base.data->raw, file->text, reload_base.accept_prefix_shrink), reload_base.data });
@@ -193,10 +193,15 @@ void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::wstrin
         return;
     }
 
-    // パースの間に伸びたのも捕まえるよう、結果を出す直前に確かめる。
-    const bool still_growing = reload && IsFileLargerThan(path.c_str(), file->byte_size);
-    FileWatchTarget watch = reload ? FileWatchTarget{} : OpenWatchTarget(path);
-    Publish(stop_token, AsyncLoadResult{ std::move(doc), std::move(cache), std::move(reload), still_growing, std::move(watch) });
+    FileWatchTarget watch;
+    if (reload) {
+        // パースの間に伸びたのも捕まえるよう、結果を出す直前に確かめる。
+        reload->still_growing = IsFileLargerThan(path.c_str(), file->byte_size);
+    }
+    else if (!stop_token.stop_requested()) {
+        watch = OpenWatchTarget(path);
+    }
+    Publish(stop_token, AsyncLoadResult{ std::move(doc), std::move(cache), std::move(reload), std::move(watch) });
 }
 
 void AsyncLoadCoordinator::Publish(const std::stop_token& stop_token, AsyncLoadOutcome outcome)

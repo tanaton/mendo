@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "app_events.h"
-#include "app_state.h"
+#include "app_controller.h"
+#include "document_test_helpers.h"
 #include "layout_computer.h"
 #include "reducer_harness.h"
 #include <optional>
@@ -116,13 +116,7 @@ protected:
     }
     int FirstCodeBlock() const
     {
-        const auto& nodes = h_.state.document.doc.GetNodes();
-        for (size_t i = 0; i < nodes.size(); ++i) {
-            if (nodes[i].type == NodeType::CodeBlock) {
-                return static_cast<int>(i);
-            }
-        }
-        return -1;
+        return FindFirstNodeIndexByType(h_.state.document.doc.GetNodes(), NodeType::CodeBlock);
     }
     // 本文のノード i の中ほど (画面の DIP)。scroll_y は 0。
     float NodeMidY(int i) const

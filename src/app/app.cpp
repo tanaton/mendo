@@ -12,7 +12,6 @@
 #include "profiler.h"
 #include "reload_flow.h"
 #include "resource.h"
-#include "selection_html.h"
 #include "string_convert.h"
 #include "titlebar.h"
 #include "tooltip.h"
@@ -565,7 +564,6 @@ void App::ShowHelpResource()
 
     StopLoadingAnimation();
     load_coordinator_.Cancel();
-    file_watcher_.StopWatching();
 
     std::string utf8(reinterpret_cast<const char*>(rc.data()), rc.size());
     Document help = Document::FromMarkdown(std::move(utf8), HELP_PATH);
@@ -694,12 +692,6 @@ void App::OnParseComplete()
 
     // ApplyReload / ReplaceWithResult のときだけ結果がある。
     AsyncLoadResult* const result = (outcome && *outcome) ? &**outcome : nullptr;
-    if (plan.reload) {
-        MENDO_TRACEF(
-            "OnParseComplete: reload node_count={} diff_pos={} new_size={} op={}",
-            result->doc.GetNodes().size(), plan.reload->diff_pos,
-            result->doc.GetRawText().size(), std::to_underlying(plan.reload->op));
-    }
 
     if (plan.step != ParseCompleteStep::ReplaceWithResult) {
         RequestDroppedResourcesAgain();
@@ -719,8 +711,11 @@ void App::OnParseComplete()
         }
         DeferReloadRetry();
         return;
-    case ParseCompleteStep::ApplyReload:
-        switch (plan.reload->op) {
+    case ParseCompleteStep::ApplyReload: {
+        const ReloadCheck& reload = *result->reload;
+        MENDO_TRACEF("OnParseComplete: reload node_count={} diff_pos={} new_size={} op={}", result->doc.GetNodes().size(),
+                     reload.decision.diff_pos, result->doc.GetRawText().size(), std::to_underlying(reload.decision.op));
+        switch (reload.decision.op) {
         case ReloadOp::NoChange:
             prefix_shrink_retry_.Reset();
             file_watcher_.ResumeWatching();
@@ -740,8 +735,9 @@ void App::OnParseComplete()
             DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
             return;
         }
-        ReloadDocument(std::move(result->doc), std::move(result->cache), result->reload->ends, plan.reload->diff_pos);
+        ReloadDocument(std::move(result->doc), std::move(result->cache), reload.ends, reload.decision.diff_pos);
         return;
+    }
     case ParseCompleteStep::ReplaceWithResult:
         OpenDocument(std::move(result->doc), std::move(result->cache), plan.follow_file_pane, std::move(result->watch));
         return;
@@ -1010,19 +1006,15 @@ void App::OnDestroy()
     }
 }
 
-SearchBarLayout App::ComputeSearchBarLayoutForMd(const PaneRect& md_rect) const
+int App::SearchInputPosAt(float dip_x)
 {
-    return ComputeSearchBarLayout(md_rect, !state_.search.search_state.GetQuery().empty());
-}
-
-int App::HitTestSearchInputPos(const SearchBarLayout& sbl, float dip_x) const
-{
+    const auto sbl = SearchBarLayoutFor(state_, GetPaneLayout().md_rect);
     return renderer_.HitTestSearchInput(state_.search.query_wide, dip_x - sbl.text_left(), sbl.text_width());
 }
 
 RECT App::GetSearchEditRect()
 {
-    const auto sbl = ComputeSearchBarLayoutForMd(GetPaneLayout().md_rect);
+    const auto sbl = SearchBarLayoutFor(state_, GetPaneLayout().md_rect);
     const float s = state_.window.cached_dpi_scale;
     return {
         DipToPixel(sbl.input_rect.left, s),
@@ -1133,11 +1125,9 @@ void App::OnMouseMove(int px, int py)
     switch (state_.view.drag.kind) {
     case LeftDrag::None:
         return;
-    case LeftDrag::SearchInput: {
-        const auto sbl = ComputeSearchBarLayoutForMd(GetPaneLayout().md_rect);
-        Dispatch(SearchInputDragMovedAction{ HitTestSearchInputPos(sbl, dip.x) });
+    case LeftDrag::SearchInput:
+        Dispatch(SearchInputDragMovedAction{ SearchInputPosAt(dip.x) });
         return;
-    }
     case LeftDrag::Splitter:
         Dispatch(SplitterDragMovedAction{ dip.x });
         return;
@@ -1284,7 +1274,7 @@ void App::HandleSearchBarClick(SearchBarHitZone zone, float dip_x, bool is_doubl
         Dispatch(CloseSearchBarAction{});
         return;
     case SearchBarHitZone::Input: {
-        const int pos = HitTestSearchInputPos(ComputeSearchBarLayoutForMd(GetPaneLayout().md_rect), dip_x);
+        const int pos = SearchInputPosAt(dip_x);
         if (!is_double_click) {
             Dispatch(SearchInputDragStartedAction{ pos });
             return;
@@ -1573,12 +1563,6 @@ float App::MdMaxScroll()
 void App::ClampScrollToContent()
 {
     state_.view.viewport.ClampScroll(MdMaxScroll());
-}
-
-float App::ScrollableContentHeight() const noexcept
-{
-    // WM_NCHITTEST は Init 前にも届く。
-    return state_.theme ? MdScrollableContentHeight(state_) : 0.0f;
 }
 
 // Mermaid のキャッシュキーに入るため、全経路でこの値を使う (ずれるとキャッシュを外す)。

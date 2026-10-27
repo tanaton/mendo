@@ -299,10 +299,3 @@ using AppAction = std::variant<
     ToggleHighlightAction,
     SearchSelectionAction,
     ImeCompositionAction>;
-
-// イベント→アクション変換。App が実行する。状態は呼び出し側が持って渡す。
-namespace app_controller {
-
-AppAction HandleKeyDown(const KeyDownEvent& event);
-
-} // namespace app_controller

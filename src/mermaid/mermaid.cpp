@@ -934,7 +934,7 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
 
     // リクエスト ID を postMessage に含め、C++ 側でコールバックとリクエストを照合する。
     // 描けなければ JS 側が投げるので、表示用も SVG 用も render-error で mermaid の文言を受け取る。
-    const auto js = PmrFormat(
+    const auto js = std::format(
         L"{}('{}', {})"
         L".then(function(r){{window.chrome.webview.postMessage('{}:{}:'+r);}})"
         L".catch(function(e){{window.chrome.webview.postMessage('render-error:{}:'+((e&&e.message)||String(e)));}})",
@@ -1049,7 +1049,7 @@ void MermaidRenderer::OnRenderResult(int worker_idx, const mermaid_util::RenderS
     ResizeWorkerView(w, DipToPixelCeil(dw, dpr), DipToPixelCeil(dh, dpr));
 
     // rAF 2 回で新サイズでの再描画を待ってから postMessage で通知する (Promise-await の問題を回避)。
-    const auto cap_js = PmrFormat(
+    const auto cap_js = std::format(
         L"requestAnimationFrame(function(){{requestAnimationFrame(function(){{"
         L"window.chrome.webview.postMessage('capture-ready:{}');}});}});",
         w.current_request.request_id);

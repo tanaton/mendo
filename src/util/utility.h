@@ -101,14 +101,6 @@ inline bool IsSubrangeOf(std::string_view inner, std::string_view outer) noexcep
     return p >= base && p + inner.size() <= base + outer.size();
 }
 
-template <typename... Args>
-inline std::wstring PmrFormat(std::wformat_string<Args...> fmt, Args&&... args)
-{
-    std::wstring result;
-    std::format_to(std::back_inserter(result), fmt, std::forward<Args>(args)...);
-    return result;
-}
-
 // スコープ離脱時にクリーンアップ関数を一度だけ実行する汎用 RAII ガード。
 // デストラクタのためだけの構造体をその場で定義する代わりに使う。
 // prvalue 初期化 (保証付きコピー省略) 専用のためコピー/ムーブは持たない。

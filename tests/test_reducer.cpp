@@ -32,7 +32,7 @@ constexpr TooltipTarget kLinkTooltip{ TooltipTarget::Zone::MdLink, 1 };
 // 文書を差し替え、各ノードを node_height ずつ縦に並べたレイアウトを持たせる。
 void SetDocument(AppState& state, std::string_view md, std::wstring_view path, float node_height = 100.0f)
 {
-    state.document.doc = Document::FromMarkdown(std::string(md), std::wstring(path));
+    state.document.doc = Document::FromMarkdown(std::string(md), path);
     state.document.layout_cache = MakeUniformCache(static_cast<int>(state.document.doc.GetNodes().size()), node_height);
 }
 

@@ -4,7 +4,6 @@
 #include "async_load_coordinator.h"
 #include "document.h"
 #include "file_io.h"
-#include "document_utils.h"
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -36,7 +35,7 @@ enum class ParseCompleteStep : uint8_t {
     // 読み直す。worker の差分判定の後に表示文書が差し替わって判定の前提が崩れたか、
     // エディタの書き込み途中を読んだ (読み込み後にファイルが伸びている)。
     Retry,
-    // 同一ファイルの再読込。op は reload に、変わらなかったノード数は AsyncLoadResult::reload に入る。
+    // 同一ファイルの再読込。判定は AsyncLoadResult::reload に入る。
     ApplyReload,
     // 別ファイルとして結果の文書を開く。
     ReplaceWithResult,
@@ -46,8 +45,6 @@ struct ParseCompletePlan {
     ParseCompleteStep step = ParseCompleteStep::IgnoreStale;
     // Fail のときのトースト表示用。キャンセル由来なら空。
     std::optional<FileLoadError> error;
-    // ApplyReload のときの差分判定。
-    std::optional<ReloadDecision> reload;
     // ReplaceWithResult のときのみ意味を持つ。
     bool follow_file_pane = false;
 };
@@ -67,12 +64,13 @@ struct ParseCompletePlan {
     if (result->reload) {
         // worker がパース前に差分判定を済ませている (NoChange 等と書き込み途中は doc が空)。
         const auto& rc = *result->reload;
-        // 解放済みの base は、文書が無い (ShareData が空) ときに一致と取り違えない。
-        const auto base = rc.base.lock();
-        if (result->still_growing || !base || base != current.ShareData()) {
+        // ポインタでなく所有者で比べる。解放済みの base も制御ブロックを持つので、文書が無い (ShareData が空) ときに一致しない。
+        const auto& data = current.ShareData();
+        const bool same_doc = !rc.base.owner_before(data) && !data.owner_before(rc.base);
+        if (rc.still_growing || !same_doc) {
             return { .step = ParseCompleteStep::Retry };
         }
-        return { .step = ParseCompleteStep::ApplyReload, .reload = rc.decision };
+        return { .step = ParseCompleteStep::ApplyReload };
     }
     return { .step = ParseCompleteStep::ReplaceWithResult,
              .follow_file_pane = FilePaneFollowsLoad(current.GetFilePath(), result->doc.GetFilePath()) };

@@ -96,7 +96,7 @@ TEST_F(AsyncLoadCoordinatorTest, SuccessfulLoadProducesResult)
     TempFile tmp(L"aload_ok", "# Title\n\nbody text\n");
 
     AsyncLoadCoordinator c;
-    c.Start(scheduler_, tmp.PmrPath(), GetLightTheme());
+    c.Start(scheduler_, tmp.Path(), GetLightTheme());
 
     auto outcome = WaitForOutcome(c);
     ASSERT_TRUE(outcome.has_value());
@@ -125,7 +125,7 @@ TEST_F(AsyncLoadCoordinatorTest, DestructorWaitsForRunningWorker)
     TempFile tmp(L"aload_dtor", "just text\n");
     {
         AsyncLoadCoordinator c;
-        c.Start(scheduler_, tmp.PmrPath(), GetLightTheme());
+        c.Start(scheduler_, tmp.Path(), GetLightTheme());
     }
     SUCCEED();
 }
@@ -138,7 +138,7 @@ std::optional<AsyncLoadResult> RunReload(TaskScheduler& scheduler, const TempFil
 {
     std::shared_ptr<const DocumentData> base = Document::FromMarkdown(std::string(old_text), L"old.md").ShareData();
     AsyncLoadCoordinator c;
-    c.Start(scheduler, tmp.PmrPath(), GetLightTheme(), 0.0f, ReloadBase{ base, accept_prefix_shrink });
+    c.Start(scheduler, tmp.Path(), GetLightTheme(), 0.0f, ReloadBase{ base, accept_prefix_shrink });
     auto outcome = WaitForOutcome(c);
     std::optional<AsyncLoadResult> result;
     if (outcome && outcome->has_value()) {
@@ -206,7 +206,7 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadWithChangeParsesAndCarriesDecision)
     EXPECT_FALSE(result->doc.IsEmpty());
     EXPECT_EQ(result->cache.size(), result->doc.GetNodes().size());
     EXPECT_GT(result->cache.Top(0), 0.0f);
-    EXPECT_FALSE(result->still_growing);
+    EXPECT_FALSE(result->reload->still_growing);
 }
 
 // 別のファイルを開くときは監視の準備 (短縮名と親フォルダ) も worker で済ませる。リロードは今の監視を続けるので作らない。
@@ -214,12 +214,12 @@ TEST_F(AsyncLoadCoordinatorTest, PreparesFileWatchOnlyForNewDocument)
 {
     TempFile tmp(L"aload_watch", "# Title\n\nbody\n");
     AsyncLoadCoordinator c;
-    c.Start(scheduler_, tmp.PmrPath(), GetLightTheme());
+    c.Start(scheduler_, tmp.Path(), GetLightTheme());
     const auto outcome = WaitForOutcome(c);
     ASSERT_TRUE(outcome.has_value());
     ASSERT_TRUE(outcome->has_value());
     EXPECT_TRUE((*outcome)->watch.dir);
-    EXPECT_EQ((*outcome)->watch.filename, path_util::FilenameView(tmp.PmrPath()));
+    EXPECT_EQ((*outcome)->watch.filename, path_util::FilenameView(tmp.Path()));
 
     auto reload = RunReload(scheduler_, tmp, "# Title\n\nold\n");
     ASSERT_TRUE(reload.has_value());
@@ -239,7 +239,7 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadCountsUnchangedNodesOnWorker)
             old_doc.reset();
         }
         AsyncLoadCoordinator c;
-        c.Start(scheduler_, tmp.PmrPath(), GetLightTheme(), 0.0f, std::move(base));
+        c.Start(scheduler_, tmp.Path(), GetLightTheme(), 0.0f, std::move(base));
         const auto outcome = WaitForOutcome(c);
         ASSERT_TRUE(outcome.has_value());
         ASSERT_TRUE(outcome->has_value());
@@ -267,29 +267,29 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadWhileFileStillGrowingSkipsParse)
     AsyncLoadCoordinator c([](const std::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
         return LoadedFileDoc{ std::string("# Title\n\nchanged\n"), 17 };
     });
-    c.Start(scheduler_, tmp.PmrPath(), GetLightTheme(), 0.0f, ReloadBase{ base });
+    c.Start(scheduler_, tmp.Path(), GetLightTheme(), 0.0f, ReloadBase{ base });
     const auto outcome = WaitForOutcome(c);
     ASSERT_TRUE(outcome.has_value());
     ASSERT_TRUE(outcome->has_value());
     const auto& result = **outcome;
     ASSERT_TRUE(result.reload.has_value());
-    EXPECT_TRUE(result.still_growing);
+    EXPECT_TRUE(result.reload->still_growing);
     EXPECT_EQ(result.reload->base.lock(), base);
     EXPECT_TRUE(result.doc.IsEmpty());
 }
 
-// 表示中でないファイルは伸びていても開くので、確かめない (ネットワーク上のファイルへの問い合わせを省く)。
-TEST_F(AsyncLoadCoordinatorTest, LoadWithoutBaseDoesNotCheckGrowth)
+// 表示中でないファイルは伸びていても開く (リロードの判定を付けない)。
+TEST_F(AsyncLoadCoordinatorTest, LoadWithoutBaseOpensEvenWhileGrowing)
 {
     TempFile tmp(L"aload_growing", std::string(256, 'x'));
     AsyncLoadCoordinator c([](const std::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
         return LoadedFileDoc{ std::string("# Title\n\nchanged\n"), 17 };
     });
-    c.Start(scheduler_, tmp.PmrPath(), GetLightTheme());
+    c.Start(scheduler_, tmp.Path(), GetLightTheme());
     const auto outcome = WaitForOutcome(c);
     ASSERT_TRUE(outcome.has_value());
     ASSERT_TRUE(outcome->has_value());
-    EXPECT_FALSE((*outcome)->still_growing);
+    EXPECT_FALSE((*outcome)->reload.has_value());
     EXPECT_FALSE((*outcome)->doc.IsEmpty());
 }
 
@@ -298,17 +298,17 @@ TEST_F(AsyncLoadCoordinatorTest, LoadWithoutBaseDoesNotCheckGrowth)
 TEST_F(AsyncLoadCoordinatorTest, ReopeningShownFileIsJudgedOnWorker)
 {
     TempFile tmp(L"aload_reopen", "# Title\n");
-    const Document current = Document::FromMarkdown(std::string("# Title\n\nbody\n"), tmp.PmrPath());
+    const Document current = Document::FromMarkdown(std::string("# Title\n\nbody\n"), tmp.Path());
     for (const bool accept : { false, true }) {
         SCOPED_TRACE(accept ? "accept" : "defer");
         AsyncLoadCoordinator c;
-        c.Start(scheduler_, tmp.PmrPath(), GetLightTheme(), 0.0f, ReloadBaseFor(current, tmp.PmrPath(), accept));
+        c.Start(scheduler_, tmp.Path(), GetLightTheme(), 0.0f, ReloadBaseFor(current, tmp.Path(), accept));
         const auto outcome = WaitForOutcome(c);
         const auto plan = PlanParseComplete(outcome, current);
         ASSERT_EQ(plan.step, ParseCompleteStep::ApplyReload);
-        ASSERT_TRUE(plan.reload.has_value());
-        EXPECT_EQ(plan.reload->op, accept ? ReloadOp::Replace : ReloadOp::DeferPrefixShrink);
-        EXPECT_EQ(plan.reload->diff_pos, 8u);
+        const auto& decision = (*outcome)->reload->decision;
+        EXPECT_EQ(decision.op, accept ? ReloadOp::Replace : ReloadOp::DeferPrefixShrink);
+        EXPECT_EQ(decision.diff_pos, 8u);
         EXPECT_EQ((*outcome)->doc.IsEmpty(), !accept);
         if (accept) {
             EXPECT_EQ((*outcome)->reload->ends.head, 1u);
@@ -318,7 +318,7 @@ TEST_F(AsyncLoadCoordinatorTest, ReopeningShownFileIsJudgedOnWorker)
     // 別のファイルはリロードとして扱わない。
     TempFile other(L"aload_reopen_other", "# Title\n");
     AsyncLoadCoordinator c;
-    c.Start(scheduler_, other.PmrPath(), GetLightTheme(), 0.0f, ReloadBaseFor(current, other.PmrPath(), false));
+    c.Start(scheduler_, other.Path(), GetLightTheme(), 0.0f, ReloadBaseFor(current, other.Path(), false));
     const auto plan = PlanParseComplete(WaitForOutcome(c), current);
     EXPECT_EQ(plan.step, ParseCompleteStep::ReplaceWithResult);
     EXPECT_TRUE(plan.follow_file_pane);
@@ -475,8 +475,8 @@ TEST_F(AsyncLoadCoordinatorTest, RestartWhileQueuedPublishesOnlySecondLoad)
     c.Attach(w.Get(), kParseCompleteMsg);
     {
         WorkerGate gate(scheduler_);
-        c.Start(scheduler_, tmp1.PmrPath(), GetLightTheme());
-        c.Start(scheduler_, tmp2.PmrPath(), GetLightTheme());
+        c.Start(scheduler_, tmp1.Path(), GetLightTheme());
+        c.Start(scheduler_, tmp2.Path(), GetLightTheme());
         EXPECT_TRUE(c.IsActive());
     }
     ASSERT_TRUE(DrainScheduler(scheduler_));
@@ -486,7 +486,7 @@ TEST_F(AsyncLoadCoordinatorTest, RestartWhileQueuedPublishesOnlySecondLoad)
     auto outcome = c.Take();
     ASSERT_TRUE(outcome.has_value());
     ASSERT_TRUE(outcome->has_value());
-    EXPECT_EQ(ResultPath(outcome), tmp2.PmrPath());
+    EXPECT_EQ(ResultPath(outcome), tmp2.Path());
     EXPECT_FALSE(c.Take().has_value());
     EXPECT_FALSE(c.IsActive());
 }
@@ -499,7 +499,7 @@ TEST_F(AsyncLoadCoordinatorTest, CancelWhileQueuedPublishesNothing)
     c.Attach(w.Get(), kParseCompleteMsg);
     {
         WorkerGate gate(scheduler_);
-        c.Start(scheduler_, tmp.PmrPath(), GetLightTheme());
+        c.Start(scheduler_, tmp.Path(), GetLightTheme());
         c.Cancel();
         EXPECT_FALSE(c.IsActive());
     }
@@ -541,7 +541,7 @@ TEST_F(AsyncLoadCoordinatorTest, RestartDuringLoadStopsPreviousWorkerAndDiscards
 
     c.Start(scheduler_, std::wstring(L"gated.md"), GetLightTheme());
     ASSERT_TRUE(gate.WaitForCalls(1));
-    c.Start(scheduler_, tmp2.PmrPath(), GetLightTheme());
+    c.Start(scheduler_, tmp2.Path(), GetLightTheme());
     // 前 worker の parse / Estimate を協調キャンセルできるよう、キャプチャ済み token に停止が届く。
     EXPECT_TRUE(gate.Token(0).stop_requested());
     gate.Open();
@@ -553,7 +553,7 @@ TEST_F(AsyncLoadCoordinatorTest, RestartDuringLoadStopsPreviousWorkerAndDiscards
     auto outcome = c.Take();
     ASSERT_TRUE(outcome.has_value());
     ASSERT_TRUE(outcome->has_value()) << "旧世代のエラーが漏れると App は失敗トーストを出す";
-    EXPECT_EQ(ResultPath(outcome), tmp2.PmrPath());
+    EXPECT_EQ(ResultPath(outcome), tmp2.Path());
 }
 
 // Start / Cancel のランダム列を worker 未着手のまま積み、最後の操作だけが観測されることを確かめる。
@@ -584,11 +584,11 @@ TEST_F(AsyncLoadCoordinatorTest, RandomStartCancelSequencesExposeOnlyLastLoad)
                     ops += ' ';
                     switch (op) {
                     case 0:
-                        c.Start(scheduler_, ok1.PmrPath(), GetLightTheme());
+                        c.Start(scheduler_, ok1.Path(), GetLightTheme());
                         expect = Expect::Ok1;
                         break;
                     case 1:
-                        c.Start(scheduler_, ok2.PmrPath(), GetLightTheme());
+                        c.Start(scheduler_, ok2.Path(), GetLightTheme());
                         expect = Expect::Ok2;
                         break;
                     case 2:
@@ -596,7 +596,7 @@ TEST_F(AsyncLoadCoordinatorTest, RandomStartCancelSequencesExposeOnlyLastLoad)
                         expect = Expect::Missing;
                         break;
                     case 3:
-                        c.Start(scheduler_, ok1.PmrPath(), GetLightTheme(), 0.0f, ReloadBase{ ok1_base });
+                        c.Start(scheduler_, ok1.Path(), GetLightTheme(), 0.0f, ReloadBase{ ok1_base });
                         expect = Expect::Ok1NoChange;
                         break;
                     default:
@@ -623,7 +623,7 @@ TEST_F(AsyncLoadCoordinatorTest, RandomStartCancelSequencesExposeOnlyLastLoad)
                 ASSERT_TRUE(outcome.has_value());
                 ASSERT_TRUE(outcome->has_value());
                 EXPECT_FALSE((*outcome)->reload.has_value());
-                EXPECT_EQ(ResultPath(outcome), (expect == Expect::Ok1 ? ok1 : ok2).PmrPath());
+                EXPECT_EQ(ResultPath(outcome), (expect == Expect::Ok1 ? ok1 : ok2).Path());
                 break;
             case Expect::Missing:
                 ASSERT_TRUE(outcome.has_value());
@@ -682,12 +682,12 @@ TEST_F(AsyncLoadCoordinatorTest, AttachWhenIdleNotifiesLaterStarts)
     MessageOnlyWindow w;
     AsyncLoadCoordinator c;
     ASSERT_FALSE(c.Attach(w.Get(), WM_USER + 1));
-    c.Start(scheduler_, tmp.PmrPath(), GetLightTheme());
-    EXPECT_EQ(c.LoadingPath(), tmp.PmrPath());
+    c.Start(scheduler_, tmp.Path(), GetLightTheme());
+    EXPECT_EQ(c.LoadingPath(), tmp.Path());
     ASSERT_TRUE(DrainScheduler(scheduler_));
 
     EXPECT_EQ(w.DrainMessages(WM_USER + 1), 1);
-    EXPECT_EQ(ResultPath(c.Take()), tmp.PmrPath());
+    EXPECT_EQ(ResultPath(c.Take()), tmp.Path());
 }
 
 // 起動時の結果が出ていても、取り込む前に次の読み込みを始めたらそちらの結果だけを返す。
@@ -698,16 +698,16 @@ TEST_F(AsyncLoadCoordinatorTest, StartAfterAttachReplacesPreloadResult)
     TempFile new_file(L"coord_newload", "# new doc\n");
     MessageOnlyWindow w;
     AsyncLoadCoordinator c;
-    c.Start(scheduler_, preload_file.PmrPath(), GetLightTheme());
+    c.Start(scheduler_, preload_file.Path(), GetLightTheme());
     ASSERT_TRUE(DrainScheduler(scheduler_));
     ASSERT_TRUE(c.Attach(w.Get(), WM_USER + 1));
 
-    c.Start(scheduler_, new_file.PmrPath(), GetLightTheme());
-    EXPECT_EQ(c.LoadingPath(), new_file.PmrPath());
+    c.Start(scheduler_, new_file.Path(), GetLightTheme());
+    EXPECT_EQ(c.LoadingPath(), new_file.Path());
     ASSERT_TRUE(DrainScheduler(scheduler_));
 
     EXPECT_EQ(w.DrainMessages(WM_USER + 1), 2);
-    EXPECT_EQ(ResultPath(c.Take()), new_file.PmrPath());
+    EXPECT_EQ(ResultPath(c.Take()), new_file.Path());
     EXPECT_FALSE(c.Take().has_value());
 }
 
@@ -717,7 +717,7 @@ TEST_F(AsyncLoadCoordinatorTest, AttachAfterOutcomeNotifiesAtOnce)
     TempFile tmp(L"coord_preload_sync", "# attach after done\n");
     MessageOnlyWindow w;
     AsyncLoadCoordinator c;
-    c.Start(scheduler_, tmp.PmrPath(), GetLightTheme());
+    c.Start(scheduler_, tmp.Path(), GetLightTheme());
     ASSERT_TRUE(DrainScheduler(scheduler_));
 
     EXPECT_TRUE(c.Attach(w.Get(), WM_USER + 1));
@@ -763,7 +763,7 @@ TEST_F(AsyncLoadCoordinatorTest, EstimatesWithGivenThemeZoom)
         Theme theme = GetLightTheme();
         theme.ApplyZoom(zoom);
         AsyncLoadCoordinator c;
-        c.Start(scheduler_, tmp.PmrPath(), theme);
+        c.Start(scheduler_, tmp.Path(), theme);
         EXPECT_TRUE(DrainScheduler(scheduler_));
         auto outcome = c.Take();
         const bool ok = outcome && outcome->has_value();
@@ -798,7 +798,7 @@ TEST_F(LoadFileTest, LoadsTextWithoutBomAndWithLfNewlines)
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.label);
         const auto path = WriteTempFile(L"test.md", c.content);
-        const auto result = LoadFile(std::wstring{ path.native() }, {});
+        const auto result = LoadFile(path.native(), {});
         ASSERT_TRUE(result.has_value());
         EXPECT_EQ(result->text, c.text);
         EXPECT_EQ(result->byte_size, c.content.size());
@@ -816,7 +816,7 @@ TEST_F(LoadFileTest, LargeFile)
 {
     const std::string large_content(1024 * 1024, 'A');
     const auto path = WriteTempFile(L"large.md", large_content);
-    const auto result = LoadFile(std::wstring{ path.native() }, {});
+    const auto result = LoadFile(path.native(), {});
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->text.size(), large_content.size());
     EXPECT_EQ(result->byte_size, large_content.size());

@@ -390,7 +390,7 @@ TEST(LayoutServiceTest, ViewportLayoutMeasuresAroundScrollTargetAfterReestimate)
     ViewportManager viewport;
     LayoutService service(engine, viewport);
 
-    auto doc = Document::FromMarkdown(std::string{ MakeParagraphs(400) }, L"t.md");
+    auto doc = Document::FromMarkdown(MakeParagraphs(400), L"t.md");
     measurer.base = doc.GetNodes().data();
     LayoutCache cache(doc.GetNodes().size());
     ComputeLayout(engine, doc.GetNodes(), cache, kWidth);
@@ -428,7 +428,7 @@ TEST(LayoutServiceTest, ProcessDirtyBatchWithZeroHeightStaysAtScrollPosition)
     ViewportManager viewport;
     LayoutService service(engine, viewport);
 
-    auto doc = Document::FromMarkdown(std::string{ MakeParagraphs(400) }, L"t.md");
+    auto doc = Document::FromMarkdown(MakeParagraphs(400), L"t.md");
     measurer.base = doc.GetNodes().data();
     LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme);
 

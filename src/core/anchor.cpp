@@ -102,7 +102,7 @@ constexpr bool IsAnchorSkippableSymbol(uint32_t cp) noexcept
 
 } // namespace
 
-void GenerateAnchorIdInto(std::string_view text, std::pmr::string& slug)
+void GenerateAnchorIdInto(std::string_view text, std::string& slug)
 {
     slug.clear();
     // 出力は入力サイズ以下で確定のため一括確保して書き出す。
@@ -175,7 +175,8 @@ std::string_view HeadingAnchorIndex::Add(std::string_view heading_text, int node
 {
     ++heading_count_;
     GenerateAnchorIdInto(heading_text, base_);
-    auto result = entries_.try_emplace(base_, Entry{ node_index });
+    // キーは索引の arena に置く。衝突 (同じ見出しの繰り返し) では捨てた分も arena に残るが、まれなので構わない。
+    auto result = entries_.try_emplace(std::pmr::string(base_, &arena_), Entry{ node_index });
     if (!result.second) {
         // unordered_map は再ハッシュでも要素の参照が変わらない。
         int& counter = result.first->second.counter;
@@ -185,7 +186,7 @@ std::string_view HeadingAnchorIndex::Add(std::string_view heading_text, int node
             candidate_.assign(base_);
             candidate_ += '-';
             candidate_.append(digits, end);
-            result = entries_.try_emplace(candidate_, Entry{ node_index });
+            result = entries_.try_emplace(std::pmr::string(candidate_, &arena_), Entry{ node_index });
         } while (!result.second);
     }
     return result.first->first;
