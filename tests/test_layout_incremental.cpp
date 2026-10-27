@@ -125,7 +125,7 @@ protected:
     }
     void TearDown() override
     {
-        engine_.SetLayoutScheduler(nullptr);
+        measurer_.SetScheduler(nullptr);
         scheduler_.Shutdown();
     }
 
@@ -179,7 +179,7 @@ protected:
     // 1 操作を適用し、再現用の説明を返す。Evict の keep 範囲は keep_out に返す。
     std::string Apply(std::mt19937& rng, Op op, VisibleRange& keep_out)
     {
-        engine_.SetLayoutScheduler(rng() % 2 == 0 ? &scheduler_ : nullptr);
+        measurer_.SetScheduler(rng() % 2 == 0 ? &scheduler_ : nullptr);
         switch (op) {
         case Op::Resize: {
             const float magnitude = static_cast<float>(1 + rng() % 50);
@@ -261,7 +261,7 @@ protected:
     // ProcessDirtyBatch が残り dirty なしを返すまで直列で処理し切る。
     void Settle()
     {
-        engine_.SetLayoutScheduler(nullptr);
+        measurer_.SetScheduler(nullptr);
         for (int guard = 0; guard < 10000; ++guard) {
             if (!engine_.ProcessDirtyBatch(nodes_, cache_, width_, kNoLayoutDeadline, YRange::All())) {
                 return;
@@ -393,7 +393,7 @@ TEST(LayoutServiceTest, ViewportLayoutMeasuresAroundScrollTargetAfterReestimate)
     viewport.ApplyScrollTarget(cache);
     const float measured_scroll_y = viewport.GetScrollY();
 
-    ASSERT_TRUE(engine.RecreateFormats());
+    ASSERT_TRUE(measurer.RecreateFormats());
     cache.InvalidateAllLayouts(doc.GetNodes());
     measurer.measured.clear();
     service.ViewportLayout(doc, cache, kWidth, kHeight);

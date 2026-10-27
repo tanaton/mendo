@@ -1,9 +1,8 @@
 #pragma once
 #include <gtest/gtest.h>
-#include "layout.h"
 #include "layout_computer.h"
 #include "parsed_layout.h"
-#include "text_measurer.h"
+#include "layout.h"
 #include "theme.h"
 #include "ui_constants.h"
 #include <algorithm>

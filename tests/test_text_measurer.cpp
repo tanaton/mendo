@@ -348,7 +348,7 @@ TEST_F(MockLayoutTest, InvalidateAllLayoutsForcesRemeasureAtSameWidth)
     ComputeLayout(engine_, nodes, cache, 800.0f);
     ASSERT_FLOAT_EQ(cache[0].height, h) << "幅不変かつ dirty なしなら再計測しない前提";
 
-    EXPECT_TRUE(engine_.RecreateFormats());
+    EXPECT_TRUE(mock_.RecreateFormats());
     cache.InvalidateAllLayouts(nodes);
     EXPECT_TRUE(cache.HasDirtyNodes());
     ComputeLayout(engine_, nodes, cache, 800.0f);

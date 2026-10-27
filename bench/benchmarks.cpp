@@ -401,12 +401,12 @@ struct DWriteLayout {
         measurer.SetFactory(factory.Get());
         ok = engine.Init(&measurer, theme);
         if (workers > 0) {
-            engine.SetLayoutScheduler(&scheduler);
+            measurer.SetScheduler(&scheduler);
         }
     }
     ~DWriteLayout()
     {
-        engine.SetLayoutScheduler(nullptr);
+        measurer.SetScheduler(nullptr);
         scheduler.Shutdown();
     }
 

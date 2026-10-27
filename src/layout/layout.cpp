@@ -77,11 +77,6 @@ bool LayoutEngine::Init(ITextMeasurer* measurer, const Theme& theme)
     return measurer_->RecreateFormats();
 }
 
-bool LayoutEngine::RecreateFormats()
-{
-    return measurer_ && measurer_->RecreateFormats();
-}
-
 bool LayoutEngine::Reestimate(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
 {
     MENDO_PROFILE("LayoutEngine::Reestimate");

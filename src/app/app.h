@@ -33,8 +33,6 @@
 #include <string_view>
 #include <utility>
 
-class App;
-
 // App が本体のウィンドウ (Win32Window) に頼むこと。ポップアップのモーダルループも回させる。
 // どれも呼び出し中に App::Dispatch へ入り直しうる (フォーカスの移動や入力欄の書き換えの通知)。
 class WindowHost : public ModalLoop {
@@ -48,24 +46,6 @@ public:
 
 protected:
     ~WindowHost() = default;
-};
-
-// ResourceManager と reducer が App に問い合わせる窓口。
-class AppHost final : public ResourceManagerHost, public NodeLayoutAccess {
-public:
-    explicit AppHost(App& app) noexcept : app_(app)
-    {}
-
-    void SetTimer(app_timer::Id id, UINT ms) override;
-    void KillTimer(app_timer::Id id) override;
-    float MdContentWidth() override;
-    float MdPaneHeight() override;
-    const Theme& GetTheme() override;
-    void RecomputeLayout(layout::HeightChangeRange changed) override;
-    void EnsureNodeLayout(int node_index) override;
-
-private:
-    App& app_;
 };
 
 struct SystemCursors {
@@ -83,9 +63,8 @@ struct SystemCursors {
     }
 };
 
-class App {
-    friend class AppHost;
-
+// ResourceManager と reducer が問い合わせる窓口も App が受ける。
+class App final : private ResourceManagerHost, private NodeLayoutAccess {
 public:
     App(ConfigService& config, WindowHost& window) noexcept : config_(config), window_(window)
     {}
@@ -212,11 +191,11 @@ private:
         }
     }
     void Execute(const SideEffect& effect);
-    void SetTimer(app_timer::Id id, UINT ms) noexcept
+    void SetTimer(app_timer::Id id, UINT ms) noexcept override
     {
         ::SetTimer(hwnd_, std::to_underlying(id), ms, nullptr);
     }
-    void KillTimer(app_timer::Id id) noexcept
+    void KillTimer(app_timer::Id id) noexcept override
     {
         ::KillTimer(hwnd_, std::to_underlying(id));
     }
@@ -324,7 +303,12 @@ private:
     void OnDeferredLayout();
     // 捨てたテキストレイアウトが多ければワーカーで解放する。
     void DisposeReleasedLayouts();
-    float MdContentWidth();
+    float MdContentWidth() override;
+    float MdPaneHeight() override;
+    const Theme& GetTheme() override;
+    // 画像・図の高さが変わった範囲の Y を組み直し、スクロールを収めて描き直す。
+    void RecomputeLayout(layout::HeightChangeRange changed) override;
+    void EnsureNodeLayout(int node_index) override;
     // スクロール上限/スクロールバー計算用のコンテンツ高さ。
     float ScrollableContentHeight() const noexcept;
 
@@ -430,6 +414,5 @@ private:
     DWriteTextMeasurer measurer_;
     LayoutEngine layout_engine_;
     LayoutService layout_service_{ layout_engine_, state_.view.viewport };
-    AppHost host_{ *this };
     ResourceManager resource_manager_;
 };

@@ -54,7 +54,7 @@ bool App::Init(HWND hwnd)
 
     // Mermaid 共有 scheduler_ と詰まり合わないよう独立して立ち上げる。
     layout_scheduler_.Init(LayoutWorkerCount(std::thread::hardware_concurrency()));
-    layout_engine_.SetLayoutScheduler(&layout_scheduler_);
+    measurer_.SetScheduler(&layout_scheduler_);
     // 最初の計測がフォントの読み込みを待たないよう、ワーカーとフォントを先に起こしておく。
     measurer_.WarmUp(layout_scheduler_);
 
@@ -77,7 +77,7 @@ bool App::Init(HWND hwnd)
             .mermaid = &mermaid_renderer_,
             .mermaid_file_cache = &file_cache_,
         },
-        host_);
+        *this);
 
     mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), file_cache_, scheduler_,
                            config_.GetConfigPath(L"WebView2Data"), [this]() {
@@ -410,7 +410,7 @@ void App::Dispatch(const AppAction& action)
     // 副作用が持つ文字列は既定のリソースのまま (variant は allocator を受け継がない) なので、領域より長生きしない。
     alignas(std::max_align_t) std::array<std::byte, 1024> buffer;
     std::pmr::monotonic_buffer_resource arena(buffer.data(), buffer.size());
-    auto effects = Reduce(state_, action, host_, &arena);
+    auto effects = Reduce(state_, action, *this, &arena);
     Execute(effects);
 }
 
@@ -663,7 +663,7 @@ void App::OnDestroy()
     mermaid_renderer_.Shutdown();
     // 走行中タスクが latch.wait 中の参照を保ったまま解放されないよう、
     // LayoutEngine の参照解除 → Shutdown (join) → ターゲット deinit の順を守る。
-    layout_engine_.SetLayoutScheduler(nullptr);
+    measurer_.SetScheduler(nullptr);
     layout_scheduler_.Shutdown();
     // Shutdown はキューを最後まで処理するので、結果を使わないタスクは先に空振りさせる。
     image_loader_.CancelPending();
@@ -727,7 +727,7 @@ void App::RestoreScrollPosition()
 void App::ApplyZoom()
 {
     theme_service_.ApplyZoom(state_.view.viewport.Zoom());
-    layout_engine_.RecreateFormats();
+    measurer_.RecreateFormats();
     renderer_.OnThemeMetricsChanged();
     RelayoutViewport(RelayoutResources::Diagrams);
     UpdateTitleBar();
@@ -973,42 +973,24 @@ void App::OnDeferredLayout()
     Invalidate();
 }
 
-void AppHost::SetTimer(app_timer::Id id, UINT ms)
+float App::MdPaneHeight()
 {
-    app_.SetTimer(id, ms);
+    return GetPaneLayout().md_rect.height;
 }
 
-void AppHost::KillTimer(app_timer::Id id)
+const Theme& App::GetTheme()
 {
-    app_.KillTimer(id);
+    return theme_service_.GetTheme();
 }
 
-float AppHost::MdContentWidth()
+void App::EnsureNodeLayout(int node_index)
 {
-    return app_.MdContentWidth();
+    layout_service_.EnsureNodeLayout(state_.document.doc, state_.document.layout_cache, GetPaneLayout().md_rect.width, node_index);
 }
 
-float AppHost::MdPaneHeight()
+void App::RecomputeLayout(layout::HeightChangeRange changed)
 {
-    return app_.GetPaneLayout().md_rect.height;
-}
-
-const Theme& AppHost::GetTheme()
-{
-    return app_.theme_service_.GetTheme();
-}
-
-void AppHost::EnsureNodeLayout(int node_index)
-{
-    app_.layout_service_.EnsureNodeLayout(app_.state_.document.doc, app_.state_.document.layout_cache, app_.GetPaneLayout().md_rect.width, node_index);
-}
-
-void AppHost::RecomputeLayout(layout::HeightChangeRange changed)
-{
-    app_.layout_service_.RecomputeAfterDiagram(
-        app_.state_.document.doc,
-        app_.state_.document.layout_cache,
-        changed);
-    app_.ClampScrollToContent();
-    app_.Invalidate();
+    layout_service_.RecomputeAfterDiagram(state_.document.doc, state_.document.layout_cache, changed);
+    ClampScrollToContent();
+    Invalidate();
 }
