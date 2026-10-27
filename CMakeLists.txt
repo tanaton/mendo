@@ -214,8 +214,6 @@ add_executable(mendo WIN32
     src/main.cpp
     src/window/window.cpp
     src/app/app.cpp
-    src/app/app_file.cpp
-    src/app/app_mouse.cpp
     src/render/renderer.cpp
     src/render/renderer_resources.cpp
     src/render/d2d_render_backend.cpp

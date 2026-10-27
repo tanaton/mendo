@@ -1,5 +1,10 @@
 #include <gtest/gtest.h>
 #include "app_events.h"
+#include "app_state.h"
+#include "layout_computer.h"
+#include "reducer_harness.h"
+#include <optional>
+#include <utility>
 #include <windows.h>
 
 namespace {
@@ -76,4 +81,165 @@ TEST(AppControllerTest, HandleKeyDown)
         SCOPED_TRACE(c.name);
         ExpectSameAction(app_controller::HandleKeyDown(c.ev), c.expected);
     }
+}
+
+// ============================================================
+// ポインタの判定 (ResolvePointerHover / Resolve*Hit)
+// ============================================================
+
+namespace {
+
+// 本番と同じく、タイトルバーの下にファイル・目次・本文の順で並べる。
+class PointerHitTest : public ::testing::Test {
+protected:
+    static constexpr float kTop = TitleBar::BASE_HEIGHT;
+    static constexpr float kPaneHeight = 400.0f;
+
+    PointerHitTest() : h_({ .markdown = md_, .md_height = kPaneHeight })
+    {
+        layout_.file_rect = { 0.0f, kTop, 150.0f, kPaneHeight };
+        layout_.toc_rect = { 154.0f, kTop, 150.0f, kPaneHeight };
+        layout_.md_rect = { 308.0f, kTop, ReducerHarness::kMdWidth, kPaneHeight };
+        layout_.show_file = true;
+        layout_.show_toc = true;
+        h_.state.pane_layout_cache.Set(layout_);
+    }
+
+    app_controller::PointerHoverResult Hover(float x, float y) const
+    {
+        return app_controller::ResolvePointerHover(h_.state, layout_, static_cast<int>(x), static_cast<int>(y), false);
+    }
+    app_controller::MdPaneHit ResolveMd(float x, float y) const
+    {
+        const auto ctx = app_controller::MakeMdPaneHitContext(h_.state, layout_, static_cast<int>(x), static_cast<int>(y));
+        return app_controller::ResolveMdPaneHit(h_.state, ctx, layout_, x, y);
+    }
+    int FirstCodeBlock() const
+    {
+        const auto& nodes = h_.state.document.doc.GetNodes();
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            if (nodes[i].type == NodeType::CodeBlock) {
+                return static_cast<int>(i);
+            }
+        }
+        return -1;
+    }
+    // 本文のノード i の中ほど (画面の DIP)。scroll_y は 0。
+    float NodeMidY(int i) const
+    {
+        return layout_.md_rect.y + h_.state.document.layout_cache.Top(static_cast<size_t>(i)) + ReducerHarness::kNodeHeight / 2.0f;
+    }
+
+    std::string md_ = MakeHarnessMarkdown(20);
+    ReducerHarness h_;
+    PaneLayout layout_{};
+};
+
+} // namespace
+
+TEST_F(PointerHitTest, SplittersShowResizeCursor)
+{
+    EXPECT_EQ(Hover(152.0f, 200.0f).cursor, app_controller::PointerCursor::SizeWE);
+    EXPECT_EQ(Hover(306.0f, 200.0f).cursor, app_controller::PointerCursor::SizeWE);
+}
+
+TEST_F(PointerHitTest, TocPaneHeaderButtonAndItem)
+{
+    const auto toc = std::to_underlying(PaneTarget::Toc);
+    const float header_h = h_.theme.pane_header_height;
+    const auto close = PaneCloseButtonRect(layout_.toc_rect.width, header_h);
+    const auto on_close = Hover(layout_.toc_rect.x + (close.left + close.right) / 2.0f, kTop + (close.top + close.bottom) / 2.0f);
+    EXPECT_EQ(on_close.hover.side_button[toc], PaneHeaderButton::Close);
+    EXPECT_EQ(on_close.cursor, app_controller::PointerCursor::Hand);
+    EXPECT_EQ(on_close.hover.tooltip.target.zone, TooltipTarget::Zone::TocPaneButton);
+
+    const auto on_item = Hover(layout_.toc_rect.x + 20.0f, kTop + header_h + h_.theme.pane_item_height * 1.5f);
+    EXPECT_EQ(on_item.hover.side_index[toc], 1);
+    EXPECT_EQ(on_item.hover.side_button[toc], PaneHeaderButton::None);
+    EXPECT_EQ(on_item.cursor, app_controller::PointerCursor::Arrow);
+    EXPECT_EQ(on_item.hover.tooltip.target, (TooltipTarget{ TooltipTarget::Zone::TocPaneItem, 1 }));
+    EXPECT_FALSE(on_item.hover.tooltip.text.empty());
+    // 他のペインのホバーは既定値のまま返して解除させる。
+    EXPECT_EQ(on_item.hover.side_index[std::to_underlying(PaneTarget::File)], -1);
+    EXPECT_EQ(on_item.hover.h_block, -1);
+}
+
+// クリックはヘッダー (ボタンの外も消費する)、スクロールバー、項目の順に見る。
+TEST_F(PointerHitTest, SidePaneClickSeesScrollbarBeforeItem)
+{
+    const float header_h = h_.theme.pane_header_height;
+    const float item_y = kTop + header_h + h_.theme.pane_item_height * 0.5f;
+    const float right = layout_.toc_rect.x + layout_.toc_rect.width;
+    ASSERT_TRUE(InVScrollbarHitX(right - 3.0f, right));
+
+    const auto on_bar = app_controller::ResolveSidePaneHit(h_.state, PaneTarget::Toc, layout_, right - 3.0f, item_y);
+    EXPECT_FALSE(on_bar.in_header);
+    EXPECT_TRUE(on_bar.scrollbar) << "目次は 20 項目以上でペインに収まらない";
+    EXPECT_EQ(on_bar.item, 0);
+
+    const auto in_header = app_controller::ResolveSidePaneHit(h_.state, PaneTarget::Toc, layout_, layout_.toc_rect.x + 5.0f, kTop + 2.0f);
+    EXPECT_TRUE(in_header.in_header);
+    EXPECT_EQ(in_header.button, PaneHeaderButton::None);
+    EXPECT_FALSE(in_header.scrollbar);
+}
+
+// 横スクロールのドラッグ中は、ホバーで別のブロックのバーを出さない (ドラッグ中のバーだけを描く)。
+TEST_F(PointerHitTest, BlockHScrollbarHiddenWhileDragging)
+{
+    const int code = FirstCodeBlock();
+    ASSERT_GE(code, 0);
+    const float x = layout_.md_rect.x + 100.0f;
+    EXPECT_EQ(Hover(x, NodeMidY(code)).hover.h_block, code);
+    EXPECT_EQ(Hover(x, NodeMidY(code)).cursor, app_controller::PointerCursor::IBeam);
+
+    h_.state.view.drag.kind = LeftDrag::BlockHScroll;
+    h_.state.view.drag.block_node = code;
+    EXPECT_EQ(Hover(x, NodeMidY(code)).hover.h_block, -1);
+}
+
+// 縮小表示で右の余白が狭いと、コピーボタンが本文のスクロールバーのヒット余白に掛かる。
+// ボタンを優先しないと、押せるように見えるボタンでスクロールバーのドラッグが始まる。
+TEST_F(PointerHitTest, OverlayButtonWinsOverScrollbarHitPadding)
+{
+    h_.theme.margin_right = 0.0f;
+    const int code = FirstCodeBlock();
+    ASSERT_GE(code, 0);
+    const auto& node = h_.state.document.doc.GetNodes()[code];
+    const auto& theme = h_.theme;
+    const float top = h_.state.document.layout_cache.Top(static_cast<size_t>(code));
+    D2D1_RECT_F button{};
+    layout::ForEachOverlayButton(node, nullptr, layout::NodeBlockX(node, theme), layout::NodeContentWidth(node, theme, theme.ContentWidth(layout_.md_rect.width)), top, theme,
+                                 [&](const D2D1_RECT_F& r, OverlayButton) { button = r; });
+    const float md_right = layout_.md_rect.x + layout_.md_rect.width;
+    // ボタンの中で、スクロールバーのヒット余白にも入る x。
+    std::optional<float> x;
+    for (float lx = button.left + 1.0f; lx < button.right; lx += 1.0f) {
+        if (InVScrollbarHitX(layout_.md_rect.x + lx, md_right)) {
+            x = layout_.md_rect.x + lx;
+            break;
+        }
+    }
+    ASSERT_TRUE(x.has_value()) << "ボタンがヒット余白に掛からない配置になっている";
+    const float button_y = layout_.md_rect.y + (button.top + button.bottom) / 2.0f;
+
+    EXPECT_EQ(ResolveMd(*x, button_y).kind, app_controller::MdPaneHit::Kind::OverlayButton);
+    const auto hover = Hover(*x, button_y);
+    EXPECT_EQ(hover.hover.overlay_button.kind, OverlayButton::CodeCopy);
+    EXPECT_EQ(hover.cursor, app_controller::PointerCursor::Hand);
+    EXPECT_EQ(hover.hover.tooltip.target.zone, TooltipTarget::Zone::OverlayButton);
+
+    // ボタンの外なら、同じ x はスクロールバー。
+    EXPECT_EQ(ResolveMd(*x, NodeMidY(code + 1)).kind, app_controller::MdPaneHit::Kind::Scrollbar);
+    EXPECT_EQ(Hover(*x, NodeMidY(code + 1)).cursor, app_controller::PointerCursor::Arrow);
+}
+
+TEST_F(PointerHitTest, NavButtonsComeBeforeContent)
+{
+    const auto back = NavBackButtonRect(layout_.md_rect);
+    const float x = (back.left + back.right) / 2.0f;
+    const float y = (back.top + back.bottom) / 2.0f;
+    EXPECT_EQ(ResolveMd(x, y).kind, app_controller::MdPaneHit::Kind::NavButton);
+    const auto hover = Hover(x, y);
+    EXPECT_EQ(hover.hover.nav, NavDirection::Back);
+    EXPECT_EQ(hover.cursor, app_controller::PointerCursor::Hand);
 }

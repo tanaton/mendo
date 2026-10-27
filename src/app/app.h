@@ -59,6 +59,20 @@ struct SystemCursors {
         ibeam = LoadCursorW(nullptr, IDC_IBEAM);
         size_we = LoadCursorW(nullptr, IDC_SIZEWE);
     }
+    HCURSOR Get(app_controller::PointerCursor cursor) const noexcept
+    {
+        switch (cursor) {
+        case app_controller::PointerCursor::Arrow:
+            return arrow;
+        case app_controller::PointerCursor::IBeam:
+            return ibeam;
+        case app_controller::PointerCursor::Hand:
+            return hand;
+        case app_controller::PointerCursor::SizeWE:
+            return size_we;
+        }
+        std::unreachable();
+    }
 };
 
 // ResourceManager と reducer が問い合わせる窓口も App が受ける。
@@ -226,55 +240,28 @@ private:
 
     using HitResult = hit_test::HitResult;
     HitResult HitTest(int px, int py);
-    std::optional<LinkHit> GetLinkAtHit(const HitResult& hit) const;
-    MdPaneHitContext BuildMdPaneHitContext(int px, int py, const PaneLayout& pane_layout) const noexcept;
 
     const PaneLayout& GetPaneLayout();
     PaneZone PaneAtPoint(float dip_x);
-    PaneZone ZoneAt(float dip_x, const PaneLayout& layout) const noexcept;
-    bool IsOverMdScrollbar(float dip_x, float dip_y, const PaneLayout& layout) const noexcept;
-
-    // MD ペインで点が指す領域。ホバーとクリックが同じ優先順位で判定するために共有する。
-    struct MdPaneHit {
-        enum class Kind : uint8_t {
-            SearchBar,
-            NavButton,
-            OverlayButton, // コピー / ダイアグラムコピー / 保存
-            Scrollbar,
-            Content,
-        };
-        Kind kind = Kind::Content;
-        SearchBarHitZone search_bar = SearchBarHitZone::None;
-        NavDirection nav = NavDirection::None;
-        OverlayButtonHit overlay_button{};
-    };
-    MdPaneHit ResolveMdPaneHit(float dip_x, float dip_y, const MdPaneHitContext& hit_ctx, const PaneLayout& layout) const;
 
     SearchBarLayout ComputeSearchBarLayoutForMd(const PaneRect& md_rect) const;
-    // 検索バーが表示中で dip_y がバーの上にあるときだけ、そのレイアウトを返す。
-    std::optional<SearchBarLayout> SearchBarLayoutAt(float dip_y, const PaneRect& md_rect) const;
     int HitTestSearchInputPos(const SearchBarLayout& sbl, float dip_x) const;
 
-    // ---- クリック (app_mouse.cpp) ----
+    // ---- クリック (判定は app_controller::Resolve*Hit) ----
     void HandleLinkClick(std::string_view url);
     bool HandleTitleBarClick(float dip_x, float dip_y);
-    void HandleSearchBarClick(SearchBarHitZone zone, float dip_x, const PaneRect& md_rect, bool is_double_click);
-    void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& layout, bool is_double_click);
+    void HandleSearchBarClick(SearchBarHitZone zone, float dip_x, bool is_double_click);
+    void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, bool is_double_click);
     void HandleOverlayButtonClick(const OverlayButtonHit& hit);
     // ホバー中ブロックの水平スクロールバー上ならドラッグを開始して true。
     bool TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x);
-    void HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout, bool is_double_click);
+    void HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, bool is_double_click);
     void HandleFileEntryClick(const FileEntry& entry);
     void RefreshFilePane();
 
-    // ---- ホバー (app_mouse.cpp) ----
+    // ---- ホバー (判定は app_controller::ResolvePointerHover) ----
     // カーソルがクライアント領域にあれば、その位置のホバーを引き直す。
     void RefreshHoverAtCursor();
-    // ゾーン内のホバーを hover に書き、表示するカーソルを返す。状態の反映は reducer が行う。
-    HCURSOR HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLayout& layout, PointerHover& hover) const;
-    HCURSOR HoverSidePane(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout, PointerHover& hover) const;
-    TooltipHover BuildSidePaneTooltip(PaneTarget target, PaneHeaderButton hit, int idx) const;
-    TooltipHover BuildMdContentTooltip(int hit_node, std::optional<LinkHit> link) const;
 
     // ---- レイアウト ----
     float MdMaxScroll();
@@ -307,7 +294,7 @@ private:
     // スクロール上限/スクロールバー計算用のコンテンツ高さ。
     float ScrollableContentHeight() const noexcept;
 
-    // ---- ファイル読み込み (app_file.cpp) ----
+    // ---- ファイル読み込み ----
     // 表示中の言語のヘルプに差し替える。ヘルプを表示中でも読み直す (言語の切り替え)。
     // ヘルプに留まる操作 (表示中に F1・履歴で同じヘルプへ) は reducer が LoadFile を出さずに済ませる。
     void ShowHelpResource();

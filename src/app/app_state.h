@@ -14,9 +14,12 @@
 #include "ui_types.h"
 #include "pane_layout.h"
 #include "render_params.h"
+#include "hit_test_service.h"
+#include "selection_html.h"
 #include "theme.h"
 #include <string>
 #include <memory_resource>
+#include <optional>
 #include <unordered_map>
 
 struct DocumentState {
@@ -184,6 +187,11 @@ inline float SidePaneItemHeight(const AppState& state, PaneTarget pane) noexcept
     return state.theme->pane_item_height * state.view.panes.SidePaneZoom(pane).Value();
 }
 
+inline PaneScrollInfo SidePaneScrollInfo(const AppState& state, PaneTarget pane, const PaneLayout& layout)
+{
+    return ComputeScrollInfo(layout.Get(pane), state.theme->pane_header_height, SidePaneContentHeight(SidePaneItemCount(state, pane), SidePaneItemHeight(state, pane)));
+}
+
 // サイドペイン (rect) で dip_y にある項目の番号。無ければ -1。
 inline int SidePaneItemAt(const AppState& state, PaneTarget pane, const PaneRect& rect, float dip_y)
 {
@@ -211,3 +219,56 @@ BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node
 float MdScrollableContentHeight(const AppState& state) noexcept;
 // pane_layout_cache が確定していること。
 float MdMaxScroll(const AppState& state) noexcept;
+
+// ---- ポインタの判定 (定義は app_controller.cpp) ----
+// ホバーとクリックが同じ優先順位で判定するよう、AppState と確定したペイン配置だけから求める。px, py はクライアント座標 (物理 px)。
+namespace app_controller {
+
+MdPaneHitContext MakeMdPaneHitContext(const AppState& state, const PaneLayout& layout, int px, int py) noexcept;
+std::optional<LinkHit> LinkAtHit(const AppState& state, const hit_test::HitResult& hit);
+bool IsOverMdScrollbar(const AppState& state, const PaneLayout& layout, float dip_x, float dip_y) noexcept;
+
+// MD ペインで点が指す領域。
+struct MdPaneHit {
+    enum class Kind : uint8_t {
+        SearchBar,
+        NavButton,
+        OverlayButton, // コピー / ダイアグラムコピー / 保存
+        Scrollbar,
+        Content,
+    };
+    Kind kind = Kind::Content;
+    SearchBarHitZone search_bar = SearchBarHitZone::None;
+    NavDirection nav = NavDirection::None;
+    OverlayButtonHit overlay_button{};
+};
+MdPaneHit ResolveMdPaneHit(const AppState& state, const MdPaneHitContext& hit_ctx, const PaneLayout& layout, float dip_x, float dip_y) noexcept;
+
+// サイドペインで点が指すもの。
+struct SidePaneHit {
+    // ヘッダーの上。ボタンの外でもクリックは消費する。
+    bool in_header = false;
+    PaneHeaderButton button = PaneHeaderButton::None;
+    // スクロールバーの上 (ヘッダーの外だけ見る)。項目より優先する。
+    bool scrollbar = false;
+    // 点の高さにある項目。無ければ -1。
+    int item = -1;
+};
+SidePaneHit ResolveSidePaneHit(const AppState& state, PaneTarget target, const PaneLayout& layout, float dip_x, float dip_y) noexcept;
+
+// App が HCURSOR に写す。
+enum class PointerCursor : uint8_t {
+    Arrow,
+    IBeam,
+    Hand,
+    SizeWE,
+};
+struct PointerHoverResult {
+    // 各ゾーンは自分のホバーだけを書き、それ以外は既定値 (ホバー無し) のまま返して reducer に解除させる。
+    PointerHover hover;
+    PointerCursor cursor = PointerCursor::Arrow;
+};
+// maximized は最大化ボタンの文言 (元に戻す) に使う。
+PointerHoverResult ResolvePointerHover(const AppState& state, const PaneLayout& layout, int px, int py, bool maximized);
+
+} // namespace app_controller

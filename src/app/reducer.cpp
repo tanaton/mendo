@@ -68,12 +68,9 @@ const PaneLayout& EnsurePaneLayout(AppState& state) noexcept
 
 SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
 {
-    const float item_h = SidePaneItemHeight(state, pane);
-    const float header_h = state.theme->pane_header_height;
-    const auto& layout = state.pane_layout_cache.Get();
     return {
-        ComputeScrollInfo(layout.Get(pane), header_h, SidePaneContentHeight(SidePaneItemCount(state, pane), item_h)),
-        item_h,
+        SidePaneScrollInfo(state, pane, state.pane_layout_cache.Get()),
+        SidePaneItemHeight(state, pane),
         state.view.panes.SidePaneScroll(pane),
     };
 }
