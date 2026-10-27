@@ -78,7 +78,7 @@ protected:
         p.env.dpi_scale = 1.0f;
         p.can_go_back = true;
         p.can_go_forward = true;
-        p.has_file = true;
+        p.can_edit_file = true;
         p.has_selection = true;
         p.show_file_items = show_file;
         return p;
@@ -132,7 +132,7 @@ TEST_F(ContextMenuTest, ItemFlagsFollowParams)
     };
     using Item = ContextMenu::Impl::Item;
     constexpr Case kCases[] = {
-        { "EditFileDisabledWhenNoFile", [](ContextMenuParams& p) static { p.has_file = false; }, IDM_EDIT_FILE, &Item::enabled, false },
+        { "EditFileDisabledWhenNoFile", [](ContextMenuParams& p) static { p.can_edit_file = false; }, IDM_EDIT_FILE, &Item::enabled, false },
         { "CopyDisabledWhenNoSelection", [](ContextMenuParams& p) static { p.has_selection = false; }, IDM_COPY, &Item::enabled, false },
         { "CopyFormattedDisabledWhenNoSelection", [](ContextMenuParams& p) static { p.has_selection = false; }, IDM_COPY_FORMATTED, &Item::enabled, false },
         { "DarkModeChecked", [](ContextMenuParams& p) static { p.dark_mode_checked = true; }, IDM_TOGGLE_DARK_MODE, &Item::checked, true },

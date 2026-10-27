@@ -1475,7 +1475,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
         .can_go_back = state_.view.nav_history.CanGoBack(),
         .can_go_forward = state_.view.nav_history.CanGoForward(),
         // ヘルプは埋め込みリソースで、エディタで開くファイルが無い。
-        .has_file = state_.document.doc.HasBackingFile(),
+        .can_edit_file = state_.document.doc.HasBackingFile() && IsEditableTextFile(state_.document.doc.GetFilePath()),
         .has_selection = selection.active() && selection.start_node >= 0,
         .dark_mode_checked = theme_service_.IsDarkMode(),
         .file_pane_checked = panes.IsSidePaneVisible(PaneTarget::File),
@@ -1493,6 +1493,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
         Dispatch(NavigateForwardAction{});
         break;
     case IDM_EDIT_FILE: {
+        // メニューを開いている間もメッセージは回り、文書が差し替わりうるので確かめ直す。
         const auto& file_path = state_.document.doc.GetFilePath();
         if (IsEditableTextFile(file_path)) {
             ShellOpenAsync(file_path);

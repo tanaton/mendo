@@ -13,6 +13,9 @@ namespace {
 
 class TableEvictionDWriteTest : public DWriteTestBase {
 protected:
+    ParsedLayout pl_;
+    int idx_ = -1; // pl_ の最初の表
+
     static std::string MakeBigTableMd(size_t row_count)
     {
         std::string md = "| A | B | C |\n|---|---|---|\n";
@@ -29,11 +32,47 @@ protected:
         return static_cast<size_t>(std::ranges::count_if(tl.cell_layouts, [](const auto& cl) static { return cl != nullptr; }));
     }
 
-    // テーブル全体を一旦 evict (viewport より遠い範囲) → 全セルが null になる。
-    static void EvictWholeTable(LayoutCache& cache, int idx)
+    // md を組んで最初の表を対象にする。表の幾何が作られていることも確かめる。
+    void LayoutTable(std::string_view md, float viewport_top = -YRange::kInf, float viewport_bottom = YRange::kInf)
     {
-        const float far_top = cache.Top(idx) - 10000.0f;
-        cache.EvictInvisibleTableRows(std::array{ static_cast<size_t>(idx) }, YRange{ far_top, far_top + 1000.0f });
+        pl_ = ParseAndLayout(md, 800.0f, viewport_top, viewport_bottom);
+        idx_ = FindFirstNodeIndexByType(pl_.nodes, NodeType::Table);
+        ASSERT_GE(idx_, 0);
+        ASSERT_NE(Entry().table_layout(), nullptr);
+    }
+
+    NodeLayoutEntry& Entry()
+    {
+        return pl_.cache[idx_];
+    }
+
+    const Node& TableNode() const
+    {
+        return pl_.nodes[idx_];
+    }
+
+    // テーブル全体を一旦 evict (viewport より遠い範囲) → 全セルが null になる。
+    void EvictWholeTable()
+    {
+        const float far_top = pl_.cache.Top(idx_) - 10000.0f;
+        pl_.cache.EvictInvisibleTableRows(std::array{ static_cast<size_t>(idx_) }, YRange{ far_top, far_top + 1000.0f });
+    }
+
+    TableRestoreResult Restore(YRange viewport, float width)
+    {
+        return RestoreEntryTableRows(measurer_, TableNode(), Entry(), width, viewport);
+    }
+
+    TableRestoreResult Restore(YRange viewport)
+    {
+        return Restore(viewport, ContentWidth());
+    }
+
+    // 書き込み先の entry を dirty にして、表を計測し直す。
+    void Measure(NodeLayoutEntry& entry, float width, YRange viewport = YRange::All())
+    {
+        entry.layout_dirty = true;
+        MeasureEntry(measurer_, TableNode(), entry, width, viewport, 0.0f, nullptr, theme_);
     }
 
     float ContentWidth() const
@@ -48,11 +87,8 @@ protected:
 // (dirty のままだと可視中に毎フレーム全行の再計測と effects 破棄が走る)。
 TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsCreatesNullCellsWithoutDirty)
 {
-    auto pl = ParseAndLayout(MakeBigTableMd(40));
-    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
-    ASSERT_GE(idx, 0);
-    auto& entry = pl.cache[idx];
-    ASSERT_NE(entry.table_layout(), nullptr);
+    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(40)));
+    auto& entry = Entry();
     auto& tl = *entry.table_layout();
 
     const size_t total_cells = tl.cell_layouts.size();
@@ -60,7 +96,7 @@ TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsCreatesNullCellsWithoutDirty)
     ASSERT_EQ(CountNonNullCells(tl), total_cells);
     ASSERT_FALSE(entry.layout_dirty);
 
-    pl.cache.EvictInvisibleTableRows(std::array{ static_cast<size_t>(idx) }, YRange{ pl.cache.Top(idx), pl.cache.Top(idx) + 80.0f });
+    pl_.cache.EvictInvisibleTableRows(std::array{ static_cast<size_t>(idx_) }, YRange{ pl_.cache.Top(idx_), pl_.cache.Top(idx_) + 80.0f });
 
     EXPECT_TRUE(tl.HasEvictedRows());
     EXPECT_FALSE(entry.layout_dirty);
@@ -71,15 +107,12 @@ TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsCreatesNullCellsWithoutDirty)
 // 全行が viewport 内なら evict は発生しない。
 TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsNoOpWhenAllVisible)
 {
-    auto pl = ParseAndLayout(MakeBigTableMd(5));
-    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
-    ASSERT_GE(idx, 0);
-    auto& entry = pl.cache[idx];
-    ASSERT_NE(entry.table_layout(), nullptr);
+    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(5)));
+    auto& entry = Entry();
     auto& tl = *entry.table_layout();
 
     const size_t total_cells = tl.cell_layouts.size();
-    pl.cache.EvictInvisibleTableRows(std::array{ static_cast<size_t>(idx) }, YRange{ pl.cache.Top(idx) - 150.0f, pl.cache.Bottom(idx) + 150.0f });
+    pl_.cache.EvictInvisibleTableRows(std::array{ static_cast<size_t>(idx_) }, YRange{ pl_.cache.Top(idx_) - 150.0f, pl_.cache.Bottom(idx_) + 150.0f });
 
     EXPECT_FALSE(tl.HasEvictedRows());
     EXPECT_FALSE(entry.layout_dirty);
@@ -89,18 +122,15 @@ TEST_F(TableEvictionDWriteTest, EvictInvisibleRowsNoOpWhenAllVisible)
 // 同じ幅での MeasureNode は幾何が不変なので超高速パスで抜け、全行を再計測しない。
 TEST_F(TableEvictionDWriteTest, SameWidthMeasureTakesFastPathAfterEviction)
 {
-    auto pl = ParseAndLayout(MakeBigTableMd(40));
-    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
-    ASSERT_GE(idx, 0);
-    auto& entry = pl.cache[idx];
+    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(40)));
+    auto& entry = Entry();
     auto& tl = *entry.table_layout();
     const float height_before = entry.height;
 
-    EvictWholeTable(pl.cache, idx);
+    EvictWholeTable();
     ASSERT_EQ(CountNonNullCells(tl), 0u);
 
-    entry.layout_dirty = true;
-    MeasureEntry(measurer_, pl.nodes[idx], entry, ContentWidth(), YRange::All(), 0.0f, nullptr, theme_);
+    Measure(entry, ContentWidth());
 
     EXPECT_FALSE(entry.layout_dirty);
     EXPECT_EQ(CountNonNullCells(tl), 0u) << "幅不変なら MeasureNode はセルを作り直さない";
@@ -111,20 +141,18 @@ TEST_F(TableEvictionDWriteTest, SameWidthMeasureTakesFastPathAfterEviction)
 // RestoreEvictedTableRows は viewport 内の evict 行だけ復元し、範囲外は null のまま残す。
 TEST_F(TableEvictionDWriteTest, RestoreRestoresOnlyVisibleRows)
 {
-    auto pl = ParseAndLayout(MakeBigTableMd(60));
-    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
-    ASSERT_GE(idx, 0);
-    auto& entry = pl.cache[idx];
+    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(60)));
+    auto& entry = Entry();
     auto& tl = *entry.table_layout();
     const size_t total_cells = tl.cell_layouts.size();
     const float height_before = entry.height;
 
-    EvictWholeTable(pl.cache, idx);
+    EvictWholeTable();
     const size_t after_evict = CountNonNullCells(tl);
     ASSERT_LT(after_evict, total_cells);
 
     const YRange vp{ 0.0f, 80.0f };
-    const auto result = RestoreEntryTableRows(measurer_, pl.nodes[idx], entry, ContentWidth(), vp);
+    const auto result = Restore(vp);
 
     EXPECT_TRUE(result.restored);
     EXPECT_FALSE(result.height.has_value());
@@ -140,15 +168,13 @@ TEST_F(TableEvictionDWriteTest, RestoreRestoresOnlyVisibleRows)
 // スクロールで行が復元されるたびに表全体のマッチを計算し直すのを防ぐ。
 TEST_F(TableEvictionDWriteTest, RestoreKeepsSearchHighlightCache)
 {
-    auto pl = ParseAndLayout(MakeBigTableMd(60));
-    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
-    ASSERT_GE(idx, 0);
-    auto& entry = pl.cache[idx];
+    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(60)));
+    auto& entry = Entry();
 
-    EvictWholeTable(pl.cache, idx);
+    EvictWholeTable();
     entry.ensure_search_hl_cache().gen = 7;
 
-    const auto result = RestoreEntryTableRows(measurer_, pl.nodes[idx], entry, ContentWidth(), YRange{ 0.0f, 80.0f });
+    const auto result = Restore(YRange{ 0.0f, 80.0f });
 
     ASSERT_TRUE(result.restored);
     EXPECT_EQ(entry.ensure_search_hl_cache().gen, 7u);
@@ -157,22 +183,20 @@ TEST_F(TableEvictionDWriteTest, RestoreKeepsSearchHighlightCache)
 // 部分復元 → 別 viewport で追加復元 → 最終的に全セルが揃い evict 行がなくなる。
 TEST_F(TableEvictionDWriteTest, ProgressivelyRestoresAcrossScrolls)
 {
-    auto pl = ParseAndLayout(MakeBigTableMd(60));
-    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
-    ASSERT_GE(idx, 0);
-    auto& entry = pl.cache[idx];
+    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(60)));
+    auto& entry = Entry();
     auto& tl = *entry.table_layout();
     const size_t total_cells = tl.cell_layouts.size();
 
-    EvictWholeTable(pl.cache, idx);
+    EvictWholeTable();
     ASSERT_LT(CountNonNullCells(tl), total_cells);
 
     const YRange vp1{ 0.0f, entry.height * 0.5f };
-    RestoreEntryTableRows(measurer_, pl.nodes[idx], entry, ContentWidth(), vp1);
+    Restore(vp1);
     EXPECT_TRUE(tl.HasEvictedRows());
 
     const YRange vp2{ 0.0f, entry.height };
-    RestoreEntryTableRows(measurer_, pl.nodes[idx], entry, ContentWidth(), vp2);
+    Restore(vp2);
 
     EXPECT_EQ(CountNonNullCells(tl), total_cells);
     EXPECT_FALSE(tl.HasEvictedRows());
@@ -181,38 +205,33 @@ TEST_F(TableEvictionDWriteTest, ProgressivelyRestoresAcrossScrolls)
 // 2 回目の evict は前回の生存範囲との差分だけを対象にし、復元済み行は再び evict できる。
 TEST_F(TableEvictionDWriteTest, EvictIsDifferentialAgainstLiveRange)
 {
-    auto pl = ParseAndLayout(MakeBigTableMd(60));
-    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
-    ASSERT_GE(idx, 0);
-    auto& entry = pl.cache[idx];
+    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(60)));
+    auto& entry = Entry();
     auto& tl = *entry.table_layout();
 
-    EvictWholeTable(pl.cache, idx);
+    EvictWholeTable();
     EXPECT_EQ(tl.live_row_begin, tl.live_row_end) << "全行 evict 後は生存範囲が空";
 
     const YRange vp{ 0.0f, 80.0f };
-    RestoreEntryTableRows(measurer_, pl.nodes[idx], entry, ContentWidth(), vp);
+    Restore(vp);
     const size_t restored_cells = CountNonNullCells(tl);
     ASSERT_GT(restored_cells, 0u);
     EXPECT_LT(tl.live_row_begin, tl.live_row_end);
 
-    EvictWholeTable(pl.cache, idx);
+    EvictWholeTable();
     EXPECT_EQ(CountNonNullCells(tl), 0u) << "復元済み行は生存範囲に入り、再 evict される";
 }
 
 // ノード単位 evict でもテーブルは列幅・行高さを残し、同じ幅なら再計測不要で戻れる。
 TEST_F(TableEvictionDWriteTest, NodeEvictionKeepsTableGeometry)
 {
-    auto pl = ParseAndLayout("para\n\n" + MakeBigTableMd(40));
-    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
-    ASSERT_GE(idx, 0);
-    auto& entry = pl.cache[idx];
-    ASSERT_NE(entry.table_layout(), nullptr);
+    ASSERT_NO_FATAL_FAILURE(LayoutTable("para\n\n" + MakeBigTableMd(40)));
+    auto& entry = Entry();
     const float height_before = entry.height;
     const auto col_widths_before = entry.table_layout()->col_widths;
 
     // keep 範囲を先頭ノードだけにしてテーブルを evict 対象にする。
-    pl.cache.EvictTextLayouts(0, 1);
+    pl_.cache.EvictTextLayouts(0, 1);
 
     ASSERT_NE(entry.table_layout(), nullptr) << "幾何ごと破棄すると再表示時に全セル再構築になる";
     auto& tl = *entry.table_layout();
@@ -222,7 +241,7 @@ TEST_F(TableEvictionDWriteTest, NodeEvictionKeepsTableGeometry)
     EXPECT_FALSE(entry.layout_dirty);
 
     const YRange vp{ 0.0f, entry.height };
-    const auto result = RestoreEntryTableRows(measurer_, pl.nodes[idx], entry, ContentWidth(), vp);
+    const auto result = Restore(vp);
     EXPECT_TRUE(result.restored);
     EXPECT_EQ(CountNonNullCells(tl), tl.cell_layouts.size());
     EXPECT_FLOAT_EQ(entry.height, height_before);
@@ -236,44 +255,39 @@ TEST_F(TableEvictionDWriteTest, RestoreAfterWidthChangeCorrectsRowHeights)
     for (int i = 0; i < 40; ++i) {
         md += "| long text that wraps when the column becomes narrow " + std::to_string(i) + " | another long text in the second column |\n";
     }
-    auto pl = ParseAndLayout(md);
-    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
-    ASSERT_GE(idx, 0);
-    auto& entry = pl.cache[idx];
+    ASSERT_NO_FATAL_FAILURE(LayoutTable(md));
+    auto& entry = Entry();
 
-    EvictWholeTable(pl.cache, idx);
+    EvictWholeTable();
 
     const float narrow = 200.0f;
     const YRange vp{ 0.0f, 60.0f };
-    entry.layout_dirty = true;
-    MeasureEntry(measurer_, pl.nodes[idx], entry, narrow, vp, 0.0f, nullptr, theme_);
+    Measure(entry, narrow, vp);
     EXPECT_FALSE(entry.layout_dirty);
     ASSERT_TRUE(entry.table_layout()->HasEvictedRows());
 
-    const auto result = RestoreEntryTableRows(measurer_, pl.nodes[idx], entry, narrow, YRange::All());
+    const auto result = Restore(YRange::All(), narrow);
     EXPECT_TRUE(result.restored);
     EXPECT_FALSE(entry.table_layout()->HasEvictedRows());
 
     auto fresh = ParseAndLayout(md);
-    auto& fresh_entry = fresh.cache[idx];
+    auto& fresh_entry = fresh.cache[idx_];
     fresh_entry.layout_dirty = true;
-    MeasureEntry(measurer_, fresh.nodes[idx], fresh_entry, narrow, YRange::All(), 0.0f, nullptr, theme_);
+    MeasureEntry(measurer_, fresh.nodes[idx_], fresh_entry, narrow, YRange::All(), 0.0f, nullptr, theme_);
     EXPECT_FLOAT_EQ(entry.height, fresh_entry.height);
 }
 
 // EnsureVisibleLayout は dirty でないテーブルの evict 行を可視分だけ復元する。
 TEST_F(TableEvictionDWriteTest, EnsureVisibleLayoutRestoresEvictedVisibleRows)
 {
-    auto pl = ParseAndLayout(MakeBigTableMd(60));
-    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
-    ASSERT_GE(idx, 0);
-    auto& entry = pl.cache[idx];
+    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(60)));
+    auto& entry = Entry();
     auto& tl = *entry.table_layout();
 
-    EvictWholeTable(pl.cache, idx);
+    EvictWholeTable();
     ASSERT_EQ(CountNonNullCells(tl), 0u);
 
-    const bool updated = engine_.EnsureVisibleLayout(pl.nodes, pl.cache, 800.0f, pl.cache.Top(idx), pl.cache.Top(idx) + 80.0f);
+    const bool updated = engine_.EnsureVisibleLayout(pl_.nodes, pl_.cache, 800.0f, pl_.cache.Top(idx_), pl_.cache.Top(idx_) + 80.0f);
 
     EXPECT_TRUE(updated);
     EXPECT_GT(CountNonNullCells(tl), 0u);
@@ -312,15 +326,13 @@ TEST_F(TableEvictionDWriteTest, ParallelRestoreMatchesSerial)
     }
     const float narrow = 200.0f;
     const auto restore = [&](TaskScheduler* scheduler) {
-        auto pl = ParseAndLayout(md);
-        const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
-        auto& entry = pl.cache[idx];
-        EvictWholeTable(pl.cache, idx);
+        LayoutTable(md);
+        auto& entry = Entry();
+        EvictWholeTable();
         // 狭い幅で行高さを見積もりのまま残し、復元で実測に揃わせる。
-        entry.layout_dirty = true;
-        MeasureEntry(measurer_, pl.nodes[idx], entry, narrow, YRange{ 0.0f, 60.0f }, 0.0f, nullptr, theme_);
+        Measure(entry, narrow, YRange{ 0.0f, 60.0f });
         measurer_.SetScheduler(scheduler);
-        const auto result = RestoreEntryTableRows(measurer_, pl.nodes[idx], entry, narrow, YRange::All());
+        const auto result = Restore(YRange::All(), narrow);
         measurer_.SetScheduler(nullptr);
         EXPECT_TRUE(result.restored);
         EXPECT_FALSE(entry.table_layout()->HasEvictedRows());
@@ -341,38 +353,34 @@ TEST_F(TableEvictionDWriteTest, ParallelRestoreMatchesSerial)
 // 捨てたセルや本文のレイアウトは、UI スレッドで解放せずに TakeReleasedLayouts で渡す。
 TEST_F(TableEvictionDWriteTest, EvictedLayoutsAreHandedOverForRelease)
 {
-    auto pl = ParseAndLayout("para\n\n" + MakeBigTableMd(40));
-    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
-    ASSERT_GE(idx, 0);
-    auto& tl = *pl.cache[idx].table_layout();
+    ASSERT_NO_FATAL_FAILURE(LayoutTable("para\n\n" + MakeBigTableMd(40)));
+    auto& tl = *Entry().table_layout();
     const size_t before = CountNonNullCells(tl);
-    ASSERT_TRUE(pl.cache.TakeReleasedLayouts().empty());
+    ASSERT_TRUE(pl_.cache.TakeReleasedLayouts().empty());
 
-    EvictWholeTable(pl.cache, idx);
-    EXPECT_EQ(pl.cache.TakeReleasedLayouts().size(), before);
+    EvictWholeTable();
+    EXPECT_EQ(pl_.cache.TakeReleasedLayouts().size(), before);
     EXPECT_EQ(CountNonNullCells(tl), 0u);
 
-    ASSERT_NE(pl.cache[0].text_layout(), nullptr);
-    pl.cache.InvalidateAllLayouts(pl.nodes);
-    EXPECT_EQ(pl.cache.TakeReleasedLayouts().size(), 1u) << "段落の text_layout だけが残っていた";
-    EXPECT_EQ(pl.cache[0].text_layout(), nullptr);
-    EXPECT_EQ(pl.cache[idx].table_layout(), nullptr) << "旧倍率の表の幾何を残さない";
+    ASSERT_NE(pl_.cache[0].text_layout(), nullptr);
+    pl_.cache.InvalidateAllLayouts(pl_.nodes);
+    EXPECT_EQ(pl_.cache.TakeReleasedLayouts().size(), 1u) << "段落の text_layout だけが残っていた";
+    EXPECT_EQ(pl_.cache[0].text_layout(), nullptr);
+    EXPECT_EQ(Entry().table_layout(), nullptr) << "旧倍率の表の幾何を残さない";
 }
 
 // 大きな表の初回計測はセル layout を残さず、全行を evict 済みにする (5 万行で 2GB になるのを防ぐ)。
 // 折り返さない表なら、行の高さは全セルを作ったときと同じになる。
 TEST_F(TableEvictionDWriteTest, LargeTableFirstMeasureKeepsNoCellLayouts)
 {
-    auto pl = ParseAndLayout(MakeBigTableMd(600));
-    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
-    ASSERT_GE(idx, 0);
-    const auto row_heights_built = pl.cache[idx].table_layout()->row_heights;
-    const float height_built = pl.cache[idx].height;
-    ASSERT_EQ(CountNonNullCells(*pl.cache[idx].table_layout()), pl.cache[idx].table_layout()->cell_layouts.size());
+    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(600)));
+    const auto& built = *Entry().table_layout();
+    const auto row_heights_built = built.row_heights;
+    const float height_built = Entry().height;
+    ASSERT_EQ(CountNonNullCells(built), built.cell_layouts.size());
 
     NodeLayoutEntry entry;
-    entry.layout_dirty = true;
-    MeasureEntry(measurer_, pl.nodes[idx], entry, ContentWidth(), YRange::All(), 0.0f, nullptr, theme_);
+    Measure(entry, ContentWidth());
 
     const auto& tl = *entry.table_layout();
     EXPECT_FALSE(entry.layout_dirty);
@@ -385,15 +393,13 @@ TEST_F(TableEvictionDWriteTest, LargeTableFirstMeasureKeepsNoCellLayouts)
 // 大きな表を可視範囲だけ計測すると、セル layout は可視行の分だけ作られる。
 TEST_F(TableEvictionDWriteTest, LargeTableBuildsOnlyVisibleRows)
 {
-    auto pl = ParseAndLayout(MakeBigTableMd(600), 800.0f, 0.0f, 600.0f);
-    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
-    ASSERT_GE(idx, 0);
-    const auto& tl = *pl.cache[idx].table_layout();
+    ASSERT_NO_FATAL_FAILURE(LayoutTable(MakeBigTableMd(600), 0.0f, 600.0f));
+    const auto& tl = *Entry().table_layout();
     const size_t built = CountNonNullCells(tl);
 
     EXPECT_GT(built, 0u);
     EXPECT_LT(built, tl.cell_layouts.size() / 10);
-    EXPECT_FALSE(pl.cache[idx].layout_dirty);
+    EXPECT_FALSE(Entry().layout_dirty);
 }
 
 // 大きな表の初回計測は、列の中で中身 (テキストと装飾) が同じセルを 1 回だけ測り、他は代表の値を使う。
@@ -405,15 +411,12 @@ TEST_F(TableEvictionDWriteTest, LargeTableMeasuresDuplicateCellsOnce)
         md += (i % 3 == 0) ? "| **ok** " : "| ok ";
         md += "| r" + std::to_string(i) + " | same text in every row |\n";
     }
-    auto pl = ParseAndLayout(md);
-    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
-    ASSERT_GE(idx, 0);
-    const auto& built = *pl.cache[idx].table_layout();
+    ASSERT_NO_FATAL_FAILURE(LayoutTable(md));
+    const auto& built = *Entry().table_layout();
     ASSERT_EQ(CountNonNullCells(built), built.cell_layouts.size());
 
     NodeLayoutEntry entry;
-    entry.layout_dirty = true;
-    MeasureEntry(measurer_, pl.nodes[idx], entry, ContentWidth(), YRange::All(), 0.0f, nullptr, theme_);
+    Measure(entry, ContentWidth());
     const auto& tl = *entry.table_layout();
 
     // 0 行目は見出し。1 行目 (i=0) が太字、2 行目 (i=1) が普通の "ok"。

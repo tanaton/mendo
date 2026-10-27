@@ -4,6 +4,7 @@
 #include "dwrite_test_base.h"
 #include "command_generator.h"
 #include "document_test_helpers.h"
+#include "draw_cmd_test_util.h"
 #include "draw_command.h"
 #include "i18n.h"
 #include "syntax.h"
@@ -27,17 +28,6 @@ protected:
         text_layouts_.SetFactory(dwrite_factory_.Get());
         gen_.Init(theme_, &formats_, &text_layouts_);
     }
-
-    // 生成コマンドから最初の文字列描画を返す (無ければ null)。
-    static const DrawTextLayoutCmd* FirstDrawText(const DrawCommandList& cmds)
-    {
-        for (const auto& c : cmds) {
-            if (auto* t = std::get_if<DrawTextLayoutCmd>(&c)) {
-                return t;
-            }
-        }
-        return nullptr;
-    }
 };
 
 } // namespace
@@ -50,8 +40,8 @@ TEST_F(DiagramPlaceholderTest, NoErrorShowsLoadingText)
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     auto& cmds = gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
 
-    const auto* text_cmd = FirstDrawText(cmds);
-    ASSERT_NE(text_cmd, nullptr);
+    const auto text_cmd = FindFirst<DrawTextLayoutCmd>(cmds);
+    ASSERT_TRUE(text_cmd.has_value());
     EXPECT_EQ(text_layouts_.TextOf(text_cmd->layout), i18n::S().loading);
 }
 
@@ -68,8 +58,8 @@ TEST_F(DiagramPlaceholderTest, ErrorShowsErrorMessageInCautionColor)
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     auto& cmds = gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
 
-    const auto* error_cmd = FirstDrawText(cmds);
-    ASSERT_NE(error_cmd, nullptr);
+    const auto error_cmd = FindFirst<DrawTextLayoutCmd>(cmds);
+    ASSERT_TRUE(error_cmd.has_value());
     EXPECT_EQ(text_layouts_.TextOf(error_cmd->layout), L"Parse error on line 1");
     EXPECT_EQ(error_cmd->brush_id, BrushId::AlertCaution);
 }
@@ -83,7 +73,7 @@ TEST_F(DiagramPlaceholderTest, LocalizedErrorFollowsLanguageSwitch)
     auto& error = pl.cache.EnsureDiagram(static_cast<size_t>(diagram_idx)).error;
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     const auto text_of = [&] {
-        const auto* cmd = FirstDrawText(gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f));
+        const auto cmd = FindFirst<DrawTextLayoutCmd>(gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f));
         return cmd ? std::wstring(text_layouts_.TextOf(cmd->layout)) : std::wstring();
     };
 

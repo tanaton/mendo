@@ -6,6 +6,7 @@
 // test_helpers.h に DWrite を含めると DWrite 不要のテストにも include コストが
 // 載るため、本ヘッダは独立させて使うテストだけが include する設計とする。
 #include "test_helpers.h"
+#include "d2d_util.h"
 #include "dwrite_measurer.h"
 #include "parsed_layout.h"
 #include "theme.h"
@@ -45,13 +46,7 @@ protected:
     // 本文フォントの標準スタイルの書式。作れなければ null。
     Microsoft::WRL::ComPtr<IDWriteTextFormat> CreateThemeFormat(float size) const
     {
-        Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt;
-        dwrite_factory_->CreateTextFormat(
-            theme_.font_family.c_str(), nullptr,
-            DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, size,
-            L"ja-jp", &fmt);
-        return fmt;
+        return CreateTextFormat(dwrite_factory_.Get(), { .family = theme_.font_family.c_str(), .size = size, .locale = L"ja-jp" });
     }
 
 private:

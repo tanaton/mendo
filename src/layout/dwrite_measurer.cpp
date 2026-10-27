@@ -105,9 +105,10 @@ constexpr size_t kMaxKeptTableCells = 1024;
 // 列ごとに、同じ中身 (テキストと装飾) のセルのうち最初のものを代表にし、[セル] = 代表のセルを返す。
 // 大きな表は状態や種別のような同じ値が列に並びやすく、代表だけ測れば CreateTextLayout が減る。
 // 見出し行 (書式が違う) と空のセル (測らない) は自分自身を代表にする。
-std::vector<size_t> FindRepresentativeCells(const NodeTableData& tbl, TaskScheduler* scheduler)
+// セル数は concat_text 内の uint32_t オフセットで数えられる範囲に収まるので、uint32_t で持って巨大表の一時メモリを半分にする。
+std::vector<uint32_t> FindRepresentativeCells(const NodeTableData& tbl, TaskScheduler* scheduler)
 {
-    std::vector<size_t> reps(static_cast<size_t>(tbl.row_count) * tbl.col_count);
+    std::vector<uint32_t> reps(static_cast<size_t>(tbl.row_count) * tbl.col_count);
     ParallelFor(scheduler, tbl.col_count, 1, [&](size_t col_begin, size_t col_end) {
         for (size_t c = col_begin; c < col_end; ++c) {
             std::pmr::monotonic_buffer_resource arena;
@@ -116,7 +117,7 @@ std::vector<size_t> FindRepresentativeCells(const NodeTableData& tbl, TaskSchedu
             first_rows.reserve(tbl.row_count);
             for (size_t r = 0; r < tbl.row_count; ++r) {
                 const size_t ci = tbl.CellIndex(r, c);
-                reps[ci] = ci;
+                reps[ci] = static_cast<uint32_t>(ci);
                 const auto text = tbl.GetCellText(r, c);
                 if (text.empty() || tbl.IsHeaderRow(r)) {
                     continue;
@@ -124,7 +125,7 @@ std::vector<size_t> FindRepresentativeCells(const NodeTableData& tbl, TaskSchedu
                 // 同じテキストで装飾が違うセルは、最初のものだけを代表にして自分で測る。
                 const auto [it, inserted] = first_rows.try_emplace(text, r);
                 if (!inserted && std::ranges::equal(tbl.GetCellRuns(r, c), tbl.GetCellRuns(it->second, c))) {
-                    reps[ci] = tbl.CellIndex(it->second, c);
+                    reps[ci] = static_cast<uint32_t>(tbl.CellIndex(it->second, c));
                 }
             }
         }
@@ -512,7 +513,7 @@ void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayout
     natural_widths.assign(col_count, 0.0f);
     const bool keep_layouts = tl.cell_layouts.size() <= kMaxKeptTableCells;
     // layout を残す小さい表は、全セルの layout が要るので代表を探さない (空のまま)。
-    const auto reps = keep_layouts ? std::vector<size_t>{} : FindRepresentativeCells(tbl, scheduler_);
+    const auto reps = keep_layouts ? std::vector<uint32_t>{} : FindRepresentativeCells(tbl, scheduler_);
 
     // 巨大テーブルは全セルの CreateTextLayout が秒単位になるため行チャンクで並列化する。
     // セルは chunk ごとに別 index へ書くので排他不要。残さない layout は worker 上で解放する。

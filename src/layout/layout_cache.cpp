@@ -95,6 +95,19 @@ std::pair<size_t, size_t> TableLayoutData::VisibleRowRange(float local_top, floa
     return { r_begin, r_end };
 }
 
+std::pair<size_t, size_t> TableLayoutData::VisibleColRange(float local_left, float local_right) const noexcept
+{
+    if (col_cum_x.empty()) {
+        return { 0, 0 };
+    }
+    // 列 c の右端は col_cum_x[c + 1]、左端は col_cum_x[c]。
+    const auto rights = std::ranges::subrange(col_cum_x.begin() + 1, col_cum_x.end());
+    const auto c_begin = static_cast<size_t>(std::ranges::lower_bound(rights, local_left) - rights.begin());
+    const auto lefts = std::ranges::subrange(col_cum_x.begin() + static_cast<ptrdiff_t>(c_begin), col_cum_x.end() - 1);
+    const auto c_end = static_cast<size_t>(std::ranges::upper_bound(lefts, local_right) - col_cum_x.begin());
+    return { c_begin, c_end };
+}
+
 void TableLayoutData::RebuildRowCumY(size_t first_row)
 {
     if (row_cum_y.empty()) {

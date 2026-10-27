@@ -10,6 +10,7 @@
 #include "block_h_scroll.h"
 #include "command_generator.h"
 #include "document_test_helpers.h"
+#include "draw_cmd_test_util.h"
 #include "dwrite_test_base.h"
 #include "parser.h"
 #include "test_helpers.h"
@@ -1208,14 +1209,10 @@ TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout)
     PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
     auto cmds = gen.GenerateMdPane({ .nodes = nodes, .cache = cache, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
 
-    for (const auto& cmd : cmds) {
-        if (auto* e = std::get_if<FillEllipseCmd>(&cmd)) {
-            EXPECT_NEAR(e->center.y, expected_y, 0.01f)
-                << "箇条書き記号は1行目の中央に配置されるべき";
-            return;
-        }
-    }
-    FAIL() << "FillEllipseCmd が見つからない";
+    const auto bullet = FindFirst<FillEllipseCmd>(cmds);
+    ASSERT_TRUE(bullet.has_value()) << "FillEllipseCmd が見つからない";
+    EXPECT_NEAR(bullet->center.y, expected_y, 0.01f)
+        << "箇条書き記号は1行目の中央に配置されるべき";
 }
 
 // issue#237: loose list の LI (空) と直下 Paragraph の text_top は一致すべき。
@@ -1323,15 +1320,9 @@ TEST_F(LayoutTest, LooseListBulletCenteredOnFollowingParagraphLine)
     auto cmds = gen.GenerateMdPane({ .nodes = nodes, .cache = cache, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
 
     const float expected_y = cache.Top(1) + lm.height * 0.5f;
-    bool found = false;
-    for (const auto& cmd : cmds) {
-        if (auto* e = std::get_if<FillEllipseCmd>(&cmd)) {
-            EXPECT_NEAR(e->center.y, expected_y, 3.0f);
-            found = true;
-            break;
-        }
-    }
-    EXPECT_TRUE(found) << "FillEllipseCmd が見つからない";
+    const auto bullet = FindFirst<FillEllipseCmd>(cmds);
+    ASSERT_TRUE(bullet.has_value()) << "FillEllipseCmd が見つからない";
+    EXPECT_NEAR(bullet->center.y, expected_y, 3.0f);
 }
 
 // 旧実装は checkbox 描画を GenNodeTextDecorations に置いており、loose の空 TaskListItem

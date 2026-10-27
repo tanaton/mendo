@@ -8,19 +8,6 @@
 #include "selection_html.h"
 #include "wic_util.h"
 
-namespace {
-
-const Node* ValidateNode(const Document& doc, int node_index, NodeType type) noexcept
-{
-    const auto& nodes = doc.GetNodes();
-    if (node_index < 0 || node_index >= static_cast<int>(nodes.size()) || nodes[node_index].type != type) {
-        return nullptr;
-    }
-    return &nodes[node_index];
-}
-
-} // namespace
-
 void ClipboardManager::Init(HWND hwnd, IMermaidRenderer* mermaid_renderer, IWICImagingFactory* wic, ToastCallback show_toast) noexcept
 {
     hwnd_ = hwnd;
@@ -31,7 +18,7 @@ void ClipboardManager::Init(HWND hwnd, IMermaidRenderer* mermaid_renderer, IWICI
 
 void ClipboardManager::CopyCodeBlock(const Document& doc, int node_index, bool dark) const
 {
-    const Node* node = ValidateNode(doc, node_index, NodeType::CodeBlock);
+    const Node* node = NodeOfType(doc.GetNodes(), node_index, NodeType::CodeBlock);
     if (!node) {
         return;
     }
@@ -45,7 +32,7 @@ void ClipboardManager::CopyCodeBlock(const Document& doc, int node_index, bool d
 
 void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, const PngBytes& png) const
 {
-    if (!ValidateNode(doc, node_index, NodeType::Diagram) || !png || png->empty()) {
+    if (!NodeOfType(doc.GetNodes(), node_index, NodeType::Diagram) || !png || png->empty()) {
         return;
     }
 
@@ -91,7 +78,7 @@ void ClipboardManager::EmitCopyResult(bool ok) const
 
 void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_index, PngBytes png, float md_width, bool dark)
 {
-    const Node* node_ptr = ValidateNode(doc, node_index, NodeType::Diagram);
+    const Node* node_ptr = NodeOfType(doc.GetNodes(), node_index, NodeType::Diagram);
     if (!node_ptr) {
         return;
     }

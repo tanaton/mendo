@@ -20,15 +20,13 @@ using layout::EstimateNodeHeights;
 
 namespace {
 
-class ParallelMeasureTest : public ::testing::Test {
+class ParallelMeasureTest : public MockLayoutTestBase {
 protected:
-    MockTextMeasurer mock_;
-    Theme theme_{};
     TaskScheduler task_scheduler_;
 
     void SetUp() override
     {
-        theme_ = GetLightTheme();
+        MockLayoutTestBase::SetUp();
         task_scheduler_.Init(2);
     }
     void TearDown() override
@@ -38,16 +36,7 @@ protected:
 };
 
 // scheduler なし (呼び出しスレッドで直列計測) の ProcessDirtyBatch 用。
-class DirtyBatchSerialTest : public ::testing::Test {
-protected:
-    MockTextMeasurer mock_;
-    Theme theme_{};
-
-    void SetUp() override
-    {
-        theme_ = GetLightTheme();
-    }
-};
+class DirtyBatchSerialTest : public MockLayoutTestBase {};
 
 class ThrowingMeasurer : public MockTextMeasurer {
 public:
@@ -68,6 +57,23 @@ public:
             throw std::runtime_error("measure failed");
         }
         return MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
+    }
+};
+
+// 計測に失敗するノードを指定できる計測器で、engine_ が MakeParagraphs の文書を組む。
+class ThrowingMeasureTest : public ParallelMeasureTest {
+protected:
+    ThrowingMeasurer measurer_;
+
+    void SetUp() override
+    {
+        ParallelMeasureTest::SetUp();
+        ASSERT_TRUE(engine_.Init(&measurer_, theme_));
+    }
+
+    ParsedLayout LayoutParagraphs(int count)
+    {
+        return ParseAndLayout(MakeParagraphs(count));
     }
 };
 
@@ -253,25 +259,21 @@ TEST_F(ParallelMeasureTest, ProcessDirtyBatchRetriesAfterChunkException)
 
 // 常に例外を投げるノードは kMaxMeasureAttempts 回で諦めて dirty を外し、ダーティ処理を止める。
 // 同じ chunk の他のノードは例外に巻き込まれず計測される。諦めた記録は全レイアウトの無効化で消え、再び試される。
-TEST_F(ParallelMeasureTest, AlwaysThrowingNodeStopsRetryingAfterMaxAttempts)
+TEST_F(ThrowingMeasureTest, AlwaysThrowingNodeStopsRetryingAfterMaxAttempts)
 {
     constexpr size_t kFirstDirty = 5;
     constexpr size_t kDirtyCount = 10;
     constexpr size_t kThrower = kFirstDirty + 3;
-    ThrowingMeasurer measurer;
-    LayoutEngine engine;
-    ASSERT_TRUE(engine.Init(&measurer, theme_));
-    LayoutSourceStore store;
-    auto [nodes, cache] = store.ParseAndLayout(engine, MakeParagraphs(60), 800.0f);
+    auto [nodes, cache] = LayoutParagraphs(60);
 
-    measurer.line_height *= 1.5f;
+    measurer_.line_height *= 1.5f;
     for (size_t k = 0; k < kDirtyCount; ++k) {
         cache[kFirstDirty + k].layout_dirty = true;
     }
-    measurer.throw_on = &nodes[kThrower];
+    measurer_.throw_on = &nodes[kThrower];
 
-    measurer.SetScheduler(&task_scheduler_);
-    ASSERT_TRUE(engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All()));
+    measurer_.SetScheduler(&task_scheduler_);
+    ASSERT_TRUE(engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All()));
     for (size_t k = 0; k < kDirtyCount; ++k) {
         const size_t i = kFirstDirty + k;
         if (i != kThrower) {
@@ -279,98 +281,86 @@ TEST_F(ParallelMeasureTest, AlwaysThrowingNodeStopsRetryingAfterMaxAttempts)
         }
     }
     // RecomputeYPositions は末尾シフト時に dirty 残りを保守的に true と返すため、諦めた後に 1 バッチ余分に回りうる。
-    EXPECT_LE(1 + DrainDirtyBatches(engine, nodes, cache), static_cast<int>(LayoutCache::kMaxMeasureAttempts) + 1);
-    EXPECT_EQ(measurer.attempts.load(), LayoutCache::kMaxMeasureAttempts);
+    EXPECT_LE(1 + DrainDirtyBatches(engine_, nodes, cache), static_cast<int>(LayoutCache::kMaxMeasureAttempts) + 1);
+    EXPECT_EQ(measurer_.attempts.load(), LayoutCache::kMaxMeasureAttempts);
     EXPECT_FALSE(cache.HasDirtyNodes()) << "諦めた後もダーティ処理が続いている";
     EXPECT_FALSE(cache[kThrower].layout_dirty);
     EXPECT_TRUE(YChainConsistent(nodes, cache, theme_));
 
     cache.InvalidateAllLayouts(nodes);
     cache[kThrower].layout_dirty = true;
-    DrainDirtyBatches(engine, nodes, cache);
-    measurer.SetScheduler(nullptr);
-    EXPECT_EQ(measurer.attempts.load(), 2 * LayoutCache::kMaxMeasureAttempts) << "無効化後は改めて上限回数まで試す";
+    DrainDirtyBatches(engine_, nodes, cache);
+    measurer_.SetScheduler(nullptr);
+    EXPECT_EQ(measurer_.attempts.load(), 2 * LayoutCache::kMaxMeasureAttempts) << "無効化後は改めて上限回数まで試す";
 }
 
 // 測れない (nullopt) ノードも例外と同じく kMaxMeasureAttempts 回で諦め、描画のたびに測り直し続けない。
-TEST_F(ParallelMeasureTest, UnmeasurableNodeStopsRetryingAfterMaxAttempts)
+TEST_F(ThrowingMeasureTest, UnmeasurableNodeStopsRetryingAfterMaxAttempts)
 {
     constexpr size_t kTarget = 8;
-    ThrowingMeasurer measurer;
-    measurer.fail_with_nullopt = true;
-    LayoutEngine engine;
-    ASSERT_TRUE(engine.Init(&measurer, theme_));
-    LayoutSourceStore store;
-    auto [nodes, cache] = store.ParseAndLayout(engine, MakeParagraphs(30), 800.0f);
+    measurer_.fail_with_nullopt = true;
+    auto [nodes, cache] = LayoutParagraphs(30);
 
     cache[kTarget].layout_dirty = true;
-    measurer.throw_on = &nodes[kTarget];
-    measurer.SetScheduler(&task_scheduler_);
-    DrainDirtyBatches(engine, nodes, cache);
-    measurer.SetScheduler(nullptr);
+    measurer_.throw_on = &nodes[kTarget];
+    measurer_.SetScheduler(&task_scheduler_);
+    DrainDirtyBatches(engine_, nodes, cache);
+    measurer_.SetScheduler(nullptr);
 
-    EXPECT_EQ(measurer.attempts.load(), LayoutCache::kMaxMeasureAttempts);
+    EXPECT_EQ(measurer_.attempts.load(), LayoutCache::kMaxMeasureAttempts);
     EXPECT_FALSE(cache[kTarget].layout_dirty);
     EXPECT_FALSE(cache.HasDirtyNodes());
     EXPECT_TRUE(YChainConsistent(nodes, cache, theme_));
 }
 
 // 一時的な失敗は再試行で計測され、上限に達する前に成功すれば諦めない。成功すると失敗の記録は消える。
-TEST_F(ParallelMeasureTest, TransientMeasureFailureIsRetriedUntilMeasured)
+TEST_F(ThrowingMeasureTest, TransientMeasureFailureIsRetriedUntilMeasured)
 {
     constexpr size_t kThrower = 7;
-    ThrowingMeasurer measurer;
-    LayoutEngine engine;
-    ASSERT_TRUE(engine.Init(&measurer, theme_));
-    LayoutSourceStore store;
-    auto [nodes, cache] = store.ParseAndLayout(engine, MakeParagraphs(30), 800.0f);
+    auto [nodes, cache] = LayoutParagraphs(30);
     const float measured_height = cache[kThrower].height;
 
     cache[kThrower].layout_dirty = true;
     cache[kThrower].height = 0.0f;
-    measurer.throw_on = &nodes[kThrower];
-    measurer.throw_times = LayoutCache::kMaxMeasureAttempts - 1;
+    measurer_.throw_on = &nodes[kThrower];
+    measurer_.throw_times = LayoutCache::kMaxMeasureAttempts - 1;
 
-    measurer.SetScheduler(&task_scheduler_);
-    DrainDirtyBatches(engine, nodes, cache);
-    EXPECT_EQ(measurer.attempts.load(), LayoutCache::kMaxMeasureAttempts);
+    measurer_.SetScheduler(&task_scheduler_);
+    DrainDirtyBatches(engine_, nodes, cache);
+    EXPECT_EQ(measurer_.attempts.load(), LayoutCache::kMaxMeasureAttempts);
     EXPECT_FALSE(cache[kThrower].layout_dirty);
     EXPECT_FLOAT_EQ(cache[kThrower].height, measured_height) << "最後の試行で計測できている";
     EXPECT_TRUE(YChainConsistent(nodes, cache, theme_));
 
     // 成功で失敗の記録が消えるので、後で失敗し始めても改めて上限回数まで試す。
-    measurer.throw_times = std::numeric_limits<int>::max();
-    const int before = measurer.attempts.load();
+    measurer_.throw_times = std::numeric_limits<int>::max();
+    const int before = measurer_.attempts.load();
     cache[kThrower].layout_dirty = true;
-    DrainDirtyBatches(engine, nodes, cache);
-    measurer.SetScheduler(nullptr);
-    EXPECT_EQ(measurer.attempts.load() - before, LayoutCache::kMaxMeasureAttempts);
+    DrainDirtyBatches(engine_, nodes, cache);
+    measurer_.SetScheduler(nullptr);
+    EXPECT_EQ(measurer_.attempts.load() - before, LayoutCache::kMaxMeasureAttempts);
 }
 
 // 失敗回数は MeasureEntry を通るどの経路で成功しても 0 に戻る (並列計測以外の成功で残ると、
 // 以後の一時的な失敗 1 回で諦めてしまう)。
-TEST_F(ParallelMeasureTest, MeasureSuccessOnAnyPathResetsFailureCount)
+TEST_F(ThrowingMeasureTest, MeasureSuccessOnAnyPathResetsFailureCount)
 {
     constexpr size_t kThrower = 7;
-    ThrowingMeasurer measurer;
-    LayoutEngine engine;
-    ASSERT_TRUE(engine.Init(&measurer, theme_));
-    LayoutSourceStore store;
-    auto [nodes, cache] = store.ParseAndLayout(engine, MakeParagraphs(30), 800.0f);
+    auto [nodes, cache] = LayoutParagraphs(30);
 
     cache[kThrower].layout_dirty = true;
-    measurer.throw_on = &nodes[kThrower];
-    measurer.throw_times = LayoutCache::kMaxMeasureAttempts - 1;
-    measurer.SetScheduler(&task_scheduler_);
+    measurer_.throw_on = &nodes[kThrower];
+    measurer_.throw_times = LayoutCache::kMaxMeasureAttempts - 1;
+    measurer_.SetScheduler(&task_scheduler_);
     for (int k = 0; k + 1 < LayoutCache::kMaxMeasureAttempts; ++k) {
-        engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All());
+        engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All());
     }
-    measurer.SetScheduler(nullptr);
+    measurer_.SetScheduler(nullptr);
     ASSERT_EQ(cache[kThrower].measure_failures, LayoutCache::kMaxMeasureAttempts - 1);
     ASSERT_TRUE(cache[kThrower].layout_dirty);
 
     // 幅変更の全レイアウトは ComputeLayout から直接計測する。
-    ComputeLayout(engine, nodes, cache, 700.0f);
+    ComputeLayout(engine_, nodes, cache, 700.0f);
     EXPECT_FALSE(cache[kThrower].layout_dirty);
     EXPECT_EQ(cache[kThrower].measure_failures, 0);
 }

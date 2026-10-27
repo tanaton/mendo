@@ -36,92 +36,48 @@ using Microsoft::WRL::ComPtr;
 // パーサーテスト: 画像ノードの生成
 // ============================================================
 
-TEST(ParserImage, ImageOnlyParagraphBecomesImageNode)
+TEST(ParserImage, SingleImageBecomesImageNode)
 {
-    auto nodes = ParseNodes("![alt text](image.png)");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, "image.png");
-    EXPECT_EQ(nodes[0].GetText(), "alt text");
-}
-
-TEST(ParserImage, ImageWithRelativePath)
-{
-    auto nodes = ParseNodes("![photo](./images/photo.jpg)");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, "./images/photo.jpg");
-}
-
-TEST(ParserImage, ImageWithAbsolutePath)
-{
-    auto nodes = ParseNodes("![img](C:/Users/test/pic.png)");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, "C:/Users/test/pic.png");
-}
-
-TEST(ParserImage, ImageWithHttpUrl)
-{
-    auto nodes = ParseNodes("![logo](https://example.com/logo.png)");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, "https://example.com/logo.png");
-}
-
-TEST(ParserImage, ImageWithEmptyAlt)
-{
-    auto nodes = ParseNodes("![](image.png)");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, "image.png");
-    EXPECT_TRUE(nodes[0].GetText().empty());
-}
-
-TEST(ParserImage, ImageWithTitle)
-{
-    auto nodes = ParseNodes("![alt](image.png \"My Title\")");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, "image.png");
-}
-
-TEST(ParserImage, ImageAltTextPreserved)
-{
-    auto nodes = ParseNodes("![Hello World](pic.png)");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].GetText(), "Hello World");
-}
-
-// ---- 画像が段落に混在するケース ----
-
-TEST(ParserImage, ImageWithSurroundingTextStillConverts)
-{
-    // 現在の実装では、画像を含む段落は全体がImageノードに変換される
-    auto nodes = ParseNodes("before ![alt](img.png) after");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, "img.png");
-}
-
-TEST(ParserImage, MultipleImagesLastOneWins)
-{
-    auto nodes = ParseNodes("![a](first.png) ![b](second.png)");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Image);
-    // OnLeaveSpanで最後のimage_srcがノードに設定される
-    EXPECT_EQ(nodes[0].image_data()->src, "second.png");
+    struct Case {
+        const char* md;
+        const char* src;
+        const char* alt;  // nullptr なら alt は確かめない
+    };
+    const Case cases[] = {
+        {"![alt text](image.png)", "image.png", "alt text"},
+        {"![photo](./images/photo.jpg)", "./images/photo.jpg", nullptr},
+        {"![img](C:/Users/test/pic.png)", "C:/Users/test/pic.png", nullptr},
+        {"![logo](https://example.com/logo.png)", "https://example.com/logo.png", nullptr},
+        {"![](image.png)", "image.png", ""},
+        {"![alt](image.png \"My Title\")", "image.png", nullptr},
+        // 現在の実装では、画像を含む段落は全体が Image ノードに変換される
+        {"before ![alt](img.png) after", "img.png", nullptr},
+        // OnLeaveSpan で最後の image_src がノードに設定される
+        {"![a](first.png) ![b](second.png)", "second.png", nullptr},
+        {"> ![alt](img.png)", "img.png", nullptr},
+        // CommonMark では画像説明内に画像記法を書ける。ノードの src は最外側を採用する
+        {"![outer ![inner](inner.png)](outer.png)", "outer.png", nullptr},
+        {"![alt](path%20with%20spaces/img.png)", "path%20with%20spaces/img.png", nullptr},
+        // エスケープを含む src は md4c が一時バッファで組み立てて渡すので、原文ではなく arena へ写す。
+        {"![alt](img\\_x.png)", "img_x.png", nullptr},
+        // 参照形式の画像の src は原文の参照定義から取る。
+        {"![alt][logo]\n\n[logo]: ref.png", "ref.png", nullptr},
+        {"![日本語のaltテキスト](img.png)", "img.png", "日本語のaltテキスト"},
+        {"![alt](画像/テスト.png)", "画像/テスト.png", nullptr},
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.md);
+        auto nodes = ParseNodes(c.md);
+        ASSERT_EQ(nodes.size(), 1u);
+        EXPECT_EQ(nodes[0].type, NodeType::Image);
+        EXPECT_EQ(nodes[0].image_data()->src, c.src);
+        if (c.alt) {
+            EXPECT_EQ(nodes[0].GetText(), c.alt);
+        }
+    }
 }
 
 // ---- ブロック要素内の画像 ----
-
-TEST(ParserImage, ImageInBlockquoteBecomesImageNode)
-{
-    auto nodes = ParseNodes("> ![alt](img.png)");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, "img.png");
-}
 
 TEST(ParserImage, ImageInTableCellDoesNotCorruptTable)
 {
@@ -143,15 +99,6 @@ TEST(ParserImage, ImageInHeadingKeepsHeadingLevel)
     EXPECT_EQ(nodes[0].type, NodeType::Heading);
     EXPECT_EQ(nodes[0].heading_level, 1);
     EXPECT_FALSE(nodes[0].has_image());
-}
-
-TEST(ParserImage, NestedImageUsesOutermostSrc)
-{
-    // CommonMark では画像説明内に画像記法を書ける。ノードの src は最外側を採用する
-    auto nodes = ParseNodes("![outer ![inner](inner.png)](outer.png)");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, "outer.png");
 }
 
 TEST(ParserImage, ImageInTightListStaysListItem)
@@ -245,49 +192,6 @@ TEST(ParserImage, MultipleImageParagraphs)
     EXPECT_EQ(nodes[0].image_data()->src, "a.png");
     EXPECT_EQ(nodes[1].image_data()->src, "b.png");
     EXPECT_EQ(nodes[2].image_data()->src, "c.png");
-}
-
-// ---- エッジケース ----
-
-TEST(ParserImage, ImageWithSpecialCharsInPath)
-{
-    auto nodes = ParseNodes("![alt](path%20with%20spaces/img.png)");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, "path%20with%20spaces/img.png");
-}
-
-// エスケープを含む src は md4c が一時バッファで組み立てて渡すので、原文ではなく arena へ写す。
-TEST(ParserImage, ImageWithEscapedPathIsCopied)
-{
-    auto nodes = ParseNodes("![alt](img\\_x.png)");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, "img_x.png");
-}
-
-// 参照形式の画像の src は原文の参照定義から取る。
-TEST(ParserImage, ReferenceStyleImage)
-{
-    auto nodes = ParseNodes("![alt][logo]\n\n[logo]: ref.png");
-    ASSERT_GE(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].image_data()->src, "ref.png");
-}
-
-TEST(ParserImage, ImageWithJapaneseAltText)
-{
-    auto nodes = ParseNodes("![日本語のaltテキスト](img.png)");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Image);
-    EXPECT_EQ(nodes[0].GetText(), "日本語のaltテキスト");
-}
-
-TEST(ParserImage, ImageWithJapanesePath)
-{
-    auto nodes = ParseNodes("![alt](画像/テスト.png)");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].image_data()->src, "画像/テスト.png");
 }
 
 // ============================================================

@@ -770,24 +770,19 @@ void ToggleSearchBar(AppState& state, SideEffectList& effects, NodeLayoutAccess&
     PushEffect(effects, effect::InvalidateWindow{});
 }
 
-void StepSearchMatch(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout, bool forward)
+void ReduceSearchStep(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout, bool forward)
 {
     auto& ss = state.search.search_state;
+    if (!ss.IsVisible()) {
+        ToggleSearchBar(state, effects, layout);
+        return;
+    }
     const bool wrapped = forward ? ss.NextMatch() : ss.PrevMatch();
     if (wrapped && ss.GetMatchCount() > 1) {
         PushEffect(effects, effect::Beep{});
     }
     ScrollToCurrentMatch(state, layout);
     PushEffect(effects, effect::InvalidateWindow{});
-}
-
-void ReduceSearchStep(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout, bool forward)
-{
-    if (!state.search.search_state.IsVisible()) {
-        ToggleSearchBar(state, effects, layout);
-        return;
-    }
-    StepSearchMatch(state, effects, layout, forward);
 }
 
 void ReduceSearchTextChanged(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout, std::wstring_view text)

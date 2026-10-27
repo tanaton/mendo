@@ -227,9 +227,10 @@ private:
     void OnCaptureComplete(int worker_idx, Microsoft::WRL::ComPtr<IStream> png_stream);
     void InsertCache(uint64_t hash, CachedResult result);
     const CachedResult* FindCached(uint64_t code_hash, uint64_t width_free_hash, float max_width);
+    // SVG の要求はキャッシュに入れないので、いつも描画させる。
     const CachedResult* FindCached(const RenderRequest& req)
     {
-        return FindCached(req.code_hash, req.width_free_hash, req.max_width);
+        return req.svg_only ? nullptr : FindCached(req.code_hash, req.width_free_hash, req.max_width);
     }
 
     HWND hwnd_ = nullptr;

@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 #include "dwrite_test_base.h"
 #include "command_generator.h"
+#include "draw_cmd_test_util.h"
 #include "ui_constants.h"
 #include <algorithm>
 #include <string>
@@ -44,10 +45,8 @@ protected:
         DrawCommandList cmds;
         overlay::EmitSearchBar(cmds, text_layouts_, nullptr, fmt_.Get(), kPane, sb, {});
         std::vector<std::wstring> texts;
-        for (const auto& c : cmds) {
-            if (const auto* t = std::get_if<DrawTextLayoutCmd>(&c)) {
-                texts.emplace_back(text_layouts_.TextOf(t->layout));
-            }
+        for (const auto& t : CollectCmds<DrawTextLayoutCmd>(cmds)) {
+            texts.emplace_back(text_layouts_.TextOf(t.layout));
         }
         return texts;
     }

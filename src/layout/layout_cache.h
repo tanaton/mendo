@@ -112,6 +112,9 @@ struct TableLayoutData {
     // [local_top, local_bottom] に重なる行帯 [r_begin, r_end) を二分探索で返す。
     // 座標はいずれもエントリ上端からのローカル系。row_cum_y が空なら [0, 0)。
     std::pair<size_t, size_t> VisibleRowRange(float local_top, float local_bottom) const noexcept;
+    // x は列順に単調なので、[local_left, local_right] に重なる列も連続した区間 [c_begin, c_end) になる。
+    // 座標は col_cum_x と同じ base_x からのローカル系。
+    std::pair<size_t, size_t> VisibleColRange(float local_left, float local_right) const noexcept;
 
     // row_cum_y が積まれているか (未計測なら false)。積むのは全セルを測り終えた後 (MeasureTableCells → CommitGeometry) だけなので、
     // 全セルの自然幅と折り返さない高さが揃っていることも表す。InvalidateGeometry の後も行単位 evict の範囲計算のために残る。
@@ -807,6 +810,16 @@ constexpr int FindFirstVisibleNodeIndex(const LayoutCache& cache, float viewport
     return static_cast<int>(it == indices.end() ? cache.size() : *it);
 }
 
+// [from, size) のうち上端が y を超える最初のノード。該当なしの場合は cache.size() を返す。
+constexpr size_t FindFirstNodeBelow(const LayoutCache& cache, float y, size_t from = 0) noexcept
+{
+    const auto rest = std::views::iota(from, cache.size());
+    const auto it = std::ranges::partition_point(rest, [&cache, y](size_t i) noexcept {
+        return cache.Top(i) <= y;
+    });
+    return it == rest.end() ? cache.size() : *it;
+}
+
 struct VisibleRange {
     size_t first;
     size_t last_plus_1;
@@ -818,11 +831,7 @@ struct VisibleRange {
 inline VisibleRange ComputeVisibleNodeRange(const LayoutCache& cache, float range_top, float range_bottom) noexcept
 {
     const size_t first = static_cast<size_t>(FindFirstVisibleNodeIndex(cache, range_top));
-    const auto rest = std::views::iota(first, cache.size());
-    const auto it = std::ranges::partition_point(rest, [&cache, range_bottom](size_t i) noexcept {
-        return cache.Top(i) <= range_bottom;
-    });
-    return { first, it == rest.end() ? cache.size() : *it };
+    return { first, FindFirstNodeBelow(cache, range_bottom, first) };
 }
 
 // (node, offset) → 絶対スクロール位置。

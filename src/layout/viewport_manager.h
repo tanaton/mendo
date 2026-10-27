@@ -167,11 +167,8 @@ public:
 
 private:
     // --- 4 バイトアライメント ---
-    // スクロール状態
     float scroll_y_ = 0.0f;
     ScrollTarget scroll_target_{}; // int(4) + float(4)
-
-    // 選択状態
     TextSelection selection_; // 20B
 
     // --- 1 バイトアライメント ---
