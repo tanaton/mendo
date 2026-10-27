@@ -160,7 +160,7 @@ inline ::testing::AssertionResult ParseInvariantsHold(std::string_view raw, cons
         if (node.continues_prev()) {
             const auto& prev = nodes[i - 1];
             if (prev.type != node.type || prev.indent_level != node.indent_level || prev.blockquote_group != node.blockquote_group ||
-                prev.code_language() != node.code_language()) {
+                prev.code_language != node.code_language) {
                 sink.Add("node {}: continuation differs from previous node in type or nesting", i);
             }
         }

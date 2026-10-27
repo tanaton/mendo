@@ -326,7 +326,7 @@ struct RecomputeFixture {
         for (size_t i = 0; i < kNodes; i++) {
             nodes[i].type = kTypes[i % kTypes.size()];
             if (nodes[i].type == NodeType::Heading) {
-                nodes[i].set_heading_level(2);
+                nodes[i].heading_level = 2;
             }
         }
         cache = LayoutCache(kNodes);

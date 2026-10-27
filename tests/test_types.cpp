@@ -56,7 +56,7 @@ TEST(NodeTest, DefaultState)
 {
     Node node;
     EXPECT_EQ(node.type, NodeType::Paragraph);
-    EXPECT_EQ(node.heading_level(), 0);
+    EXPECT_EQ(node.heading_level, 0);
     EXPECT_EQ(node.indent_level, 0);
     EXPECT_EQ(node.line_count, 0);
     EXPECT_EQ(node.list_number(), 0);
@@ -64,7 +64,7 @@ TEST(NodeTest, DefaultState)
     EXPECT_FALSE(node.HasText());
     EXPECT_TRUE(node.GetText().empty());
     EXPECT_TRUE(node.runs().empty());
-    EXPECT_EQ(node.code_language(), SyntaxLanguage::None);
+    EXPECT_EQ(node.code_language, SyntaxLanguage::None);
     EXPECT_FALSE(node.has_table());
 }
 
@@ -206,15 +206,6 @@ TEST(NodeTest, ImageDataRequiresImageType)
     EXPECT_EQ(node.image_data()->src, "a.png");
 }
 
-TEST(NodeTest, HeadingLevelRequiresHeadingType)
-{
-    Node node;
-    node.set_heading_level(3);
-    EXPECT_EQ(node.heading_level(), 0);
-    node.type = NodeType::Heading;
-    EXPECT_EQ(node.heading_level(), 3);
-}
-
 // テキストの置き場所は種別や言語に依存しない。
 TEST(NodeTest, TextStoredRegardlessOfType)
 {
@@ -233,10 +224,10 @@ TEST(NodeTest, TextStoredRegardlessOfType)
         SCOPED_TRACE(c.text);
         Node node;
         node.type = c.type;
-        node.set_code_language(c.language);
+        node.code_language = c.language;
         node.SetText(c.text, 0);
         EXPECT_EQ(node.GetText(), c.text);
-        EXPECT_EQ(node.code_language(), c.language);
+        EXPECT_EQ(node.code_language, c.language);
     }
 }
 

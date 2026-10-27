@@ -690,17 +690,17 @@ void EmitToc(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePane
     }
     IDWriteTextFormat* const item_fmt = fmts.item[std::to_underlying(PaneTarget::Toc)];
     EmitSidePane(out, text_layouts, fmts, header_h, pane, false, entries.size(), i18n::S().pane_header_toc, [&](int i, const D2D1_RECT_F& row) {
-        const auto& entry = entries[i];
+        const Node& heading = sp.nodes[entries[i].node_index];
 
         if (i == active_index || i == pane.hovered_index) {
             const auto bid = (i == active_index) ? BrushId::PaneItemActive : BrushId::PaneItemHover;
             out.push_back(FillRectCmd{ .rect = row, .brush_id = bid });
         }
 
-        const float text_left = row.left + (8.0f + (entry.heading_level - 1) * TOC_INDENT_PER_LEVEL) * pane.zoom;
+        const float text_left = row.left + (8.0f + (heading.heading_level - 1) * TOC_INDENT_PER_LEVEL) * pane.zoom;
         auto& title = toc_titles[i];
         if (title.empty()) {
-            DecodeForDWrite(TocItemText(sp.nodes[entry.node_index].GetText()), title);
+            DecodeForDWrite(TocItemText(heading.GetText()), title);
         }
         EmitLeftText(out, text_layouts, item_fmt, title, text_left, row.top, pane.item_height);
 
@@ -918,7 +918,7 @@ void CommandGenerator::GenerateNode(const Node& node, const NodeLayoutEntry& ent
         break;
 
     case NodeType::Heading: {
-        const int8_t lv = node.heading_level();
+        const int8_t lv = node.heading_level;
         if (lv <= 2) {
             const float line_y = entry_text_top + entry.height + HeadingUnderlineGap(*theme_);
             cmds_.emplace_back(DrawLineCmd{

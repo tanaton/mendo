@@ -265,7 +265,7 @@ struct ParseContext {
         case NodeType::BlockQuote:
             return true;
         case NodeType::CodeBlock:
-            return !IsDiagramLanguage(current_node->code_language());
+            return !IsDiagramLanguage(current_node->code_language);
         default:
             return false;
         }
@@ -276,13 +276,13 @@ struct ParseContext {
     {
         const std::string_view link_url = OpenLinkUrl();
         const NodeType type = current_node->type;
-        const SyntaxLanguage language = current_node->code_language();
+        const SyntaxLanguage language = current_node->code_language;
         if (type == NodeType::CodeBlock && language != SyntaxLanguage::None && !current_node->continues_prev()) {
             split_code_runs.push_back(CurrentNodeIndex());
         }
         current_node->set_continues_next();
         BeginNode(type);
-        current_node->set_code_language(language);
+        current_node->code_language = language;
         current_node->set_continues_prev(newline_before);
         ResolveLinkUrlIndex(link_url);
     }
@@ -702,7 +702,7 @@ void TryPromoteParagraphToDisplayMath(ParseContext* ctx)
     }
     assert(text.starts_with("$$") && text.ends_with("$$"));
     node->type = NodeType::Diagram;
-    node->set_code_language(SyntaxLanguage::LatexMath);
+    node->code_language = SyntaxLanguage::LatexMath;
     ctx->current_runs.clear();
     node->SetText(ctx->arena->CopyText(text.substr(2, text.size() - 4)), 0);
     ctx->indices.diagram_indices.emplace_back(ctx->CurrentNodeIndex());
@@ -858,7 +858,7 @@ void LeaveCodeBlock(ParseContext* ctx)
         ctx->current_text.pop_back();
         cn->line_count--;
     }
-    if (IsDiagramLanguage(cn->code_language())) {
+    if (IsDiagramLanguage(cn->code_language)) {
         cn->type = NodeType::Diagram;
         ctx->indices.diagram_indices.emplace_back(ctx->CurrentNodeIndex());
     }
@@ -878,7 +878,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
     case MD_BLOCK_H: {
         auto* const h = static_cast<MD_BLOCK_H_DETAIL*>(detail);
         ctx->BeginNode(NodeType::Heading);
-        ctx->current_node->set_heading_level(static_cast<int8_t>(h->level));
+        ctx->current_node->heading_level = static_cast<int8_t>(h->level);
         break;
     }
 
@@ -892,7 +892,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         ctx->BeginNode(NodeType::CodeBlock);
         auto* const code_detail = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
         if (code_detail && code_detail->lang.text && code_detail->lang.size > 0) {
-            ctx->current_node->set_code_language(DetectLanguage(ctx->AttributeText(code_detail->lang)));
+            ctx->current_node->code_language = DetectLanguage(ctx->AttributeText(code_detail->lang));
         }
         break;
     }
@@ -1019,7 +1019,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
     case MD_BLOCK_H:
         // 見出しの中身は行内要素だけで、見出しは区切らないので current_node は見出しのまま。
         assert(ctx->current_node && ctx->current_node->type == NodeType::Heading);
-        ctx->indices.toc_entries.emplace_back(static_cast<int>(ctx->CurrentNodeIndex()), ctx->current_node->heading_level());
+        ctx->indices.toc_entries.emplace_back(static_cast<int>(ctx->CurrentNodeIndex()));
         ctx->EndNode();
         break;
 

@@ -23,7 +23,7 @@ enum class NodeType : uint8_t {
     Table,
     TaskListItem,
     Image,
-    // Mermaid / LaTeX 等、テキストではなくビットマップで描画するコードブロック。code_language() で描画器を選ぶ。
+    // Mermaid / LaTeX 等、テキストではなくビットマップで描画するコードブロック。code_language で描画器を選ぶ。
     Diagram
 };
 
@@ -195,9 +195,9 @@ struct Node {
     int8_t quote_depth = 0;                 // 現在の blockquote ネスト深さ（0 = 引用外, 1.. = ネストレベル）
     int8_t quote_outer_indent = 0;          // 最外側 blockquote が居る indent_level（バー位置の起点）
     int8_t indent_level = 0;                // リスト/引用のネスト深さ（int8_t の最大値で飽和）
-    // 該当しないノードでは既定値のまま。
-    int8_t heading_level_ = 0;
-    SyntaxLanguage code_language_ = SyntaxLanguage::None;
+    // 該当しないノード (見出し以外・コードブロック以外) では既定値のまま。
+    int8_t heading_level = 0;
+    SyntaxLanguage code_language = SyntaxLanguage::None;
     uint8_t flags_ = 0;
 
     constexpr bool HasSourceOffset() const noexcept
@@ -286,22 +286,6 @@ struct Node {
     }
 
     // 該当しないノードでは黙ってデフォルト値 (0 / false) を返す。
-    constexpr int8_t heading_level() const noexcept
-    {
-        return type == NodeType::Heading ? heading_level_ : static_cast<int8_t>(0);
-    }
-    constexpr SyntaxLanguage code_language() const noexcept
-    {
-        return code_language_;
-    }
-    constexpr void set_heading_level(int8_t level) noexcept
-    {
-        heading_level_ = level;
-    }
-    constexpr void set_code_language(SyntaxLanguage lang) noexcept
-    {
-        code_language_ = lang;
-    }
     constexpr bool has_child_blocks() const noexcept
     {
         return (flags_ & kHasChildBlocks) != 0;
@@ -468,8 +452,7 @@ constexpr bool IsEmptyListItemContainer(const Node& node) noexcept
     return IsListItem(node) && !node.HasText() && node.has_child_blocks();
 }
 
-// 目次は文書順の見出しの列 (パーサが見出しの終わりで積む)。
+// 目次は文書順の見出しの列 (パーサが見出しの終わりで積む)。段は見出しのノードから取る。
 struct TocEntry {
     int node_index = -1;
-    int heading_level = 1;
 };

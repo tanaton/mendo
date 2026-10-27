@@ -353,7 +353,7 @@ IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const DWriteContext& ctx, c
         return ctx.code.Get();
     }
     if (node.type == NodeType::Heading) {
-        const int8_t lv = node.heading_level();
+        const int8_t lv = node.heading_level;
         if (lv >= 1 && lv <= 6) {
             return ctx.h[lv - 1].Get();
         }
@@ -479,7 +479,7 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(
 
     // 描画パスでのトークン化によるフレーム落ちを避けるため、ここで作る。
     // layout と一緒に捨てるので、画面外のコードブロックのトークンは残らない。
-    if (node.type == NodeType::CodeBlock && node.code_language() != SyntaxLanguage::None) {
+    if (node.type == NodeType::CodeBlock && node.code_language != SyntaxLanguage::None) {
         entry.set_syntax_tokens(ToWideMergedTokens(text, TokenizeCodeNode(node)));
     }
 

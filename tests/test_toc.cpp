@@ -43,7 +43,7 @@ std::vector<TocItem> TocItems(const ParsedToc& parsed)
 {
     std::vector<TocItem> items;
     for (const auto& entry : parsed.toc) {
-        items.push_back({ entry.heading_level, std::string{ parsed.nodes[entry.node_index].GetText() } });
+        items.push_back({ parsed.nodes[entry.node_index].heading_level, std::string{ parsed.nodes[entry.node_index].GetText() } });
     }
     return items;
 }

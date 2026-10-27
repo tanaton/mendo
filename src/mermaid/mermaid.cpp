@@ -725,7 +725,7 @@ bool MermaidRenderer::RequestRender(
     // ディスクから読めなかったときは描画し直すので、ディスクに当たってもコードを持たせる。
     RenderRequest req{
         .code = std::pmr::string{ node.GetText() },
-        .latex = node.code_language() == SyntaxLanguage::LatexMath,
+        .latex = node.code_language == SyntaxLanguage::LatexMath,
         .max_width = max_width,
         .dark_mode = dark_mode,
         .code_hash = hash,

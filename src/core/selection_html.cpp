@@ -706,7 +706,7 @@ std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, 
         };
         switch (node.type) {
         case NodeType::Heading: {
-            const int level = std::clamp(static_cast<int>(node.heading_level()), 1, 6);
+            const int level = std::clamp(static_cast<int>(node.heading_level), 1, 6);
             std::format_to(std::back_inserter(out), "<h{}>", level);
             AppendNodeInlineHtml(out, node, start, end);
             std::format_to(std::back_inserter(out), "</h{}>", level);

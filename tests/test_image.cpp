@@ -156,7 +156,7 @@ TEST(ParserImage, ImageInHeadingKeepsHeadingLevel)
     auto nodes = ParseNodes("# ![logo](l.png) Title");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Heading);
-    EXPECT_EQ(nodes[0].heading_level(), 1);
+    EXPECT_EQ(nodes[0].heading_level, 1);
     EXPECT_FALSE(nodes[0].has_image());
 }
 

@@ -44,7 +44,7 @@ std::pmr::vector<Node> MakeNodes(std::initializer_list<NodeSpec> specs)
             SetNodeTextCounted(n, spec.text);
         }
         if (spec.heading_level > 0) {
-            n.set_heading_level(spec.heading_level);
+            n.heading_level = spec.heading_level;
         }
         if (spec.table_rows > 0) {
             AttachTestTable(n)->row_count = spec.table_rows;

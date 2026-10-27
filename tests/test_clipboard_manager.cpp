@@ -145,7 +145,7 @@ TEST_F(ClipboardManagerTest, CopyDiagramToClipboardLatexMathCopiesImageWithoutRe
     // png 無しのため画像構築は失敗し、同期パスは結果トースト (失敗) を 1 回出す。
     const int cb_idx = Load("$$x^2$$\n");
     ASSERT_GE(cb_idx, 0);
-    ASSERT_EQ(doc_.GetNodes()[cb_idx].code_language(), SyntaxLanguage::LatexMath);
+    ASSERT_EQ(doc_.GetNodes()[cb_idx].code_language, SyntaxLanguage::LatexMath);
     CopyDiagram(cb_idx);
     EXPECT_EQ(renderer_.request_count, 0); // SVG レンダラには行かない
     EXPECT_EQ(toasts_.size(), 1u);         // 同期パスが結果を報告する (旧実装の no-op ではない)

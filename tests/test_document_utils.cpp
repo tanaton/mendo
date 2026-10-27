@@ -1913,7 +1913,7 @@ std::vector<std::vector<SyntaxToken>> TokenizeRunAtOnce(std::span<const Node> ru
         joined += run[i].GetText();
     }
     std::vector<std::vector<SyntaxToken>> out(run.size());
-    for (const auto& t : Tokenize(joined, run.front().code_language())) {
+    for (const auto& t : Tokenize(joined, run.front().code_language)) {
         for (size_t i = 0; i < run.size(); ++i) {
             const size_t b = begins[i];
             const size_t e = b + run[i].GetText().size();

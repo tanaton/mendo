@@ -542,7 +542,7 @@ TEST(SearchStateTest, BitmapNodesExcludedFromSearch)
     img.SetText("alt text with keyword", 0);
     Node mermaid;
     mermaid.type = NodeType::Diagram;
-    mermaid.set_code_language(SyntaxLanguage::Mermaid);
+    mermaid.code_language = SyntaxLanguage::Mermaid;
     mermaid.SetText("graph keyword TD; A-->B", 0);
 
     std::pmr::vector<Node> nodes;
@@ -558,7 +558,7 @@ TEST(SearchStateTest, NonMermaidCodeBlockIncludedInSearch)
 {
     Node code;
     code.type = NodeType::CodeBlock;
-    code.set_code_language(SyntaxLanguage::Cpp);
+    code.code_language = SyntaxLanguage::Cpp;
     code.SetText("int main()", 0);
     const auto s = Searched(Nodes(std::move(code)), "main");
     ASSERT_EQ(s.GetMatchCount(), 1);

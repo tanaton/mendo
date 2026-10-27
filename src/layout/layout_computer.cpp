@@ -86,7 +86,7 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
     switch (node.type) {
     case NodeType::Heading:
         // h1/h2 は下線を描くため、下線と次行の余白を確保すべく大きめの値を返す。
-        return (node.heading_level() <= 2) ? theme.heading_spacing_below_h1h2 : theme.heading_spacing_below;
+        return (node.heading_level <= 2) ? theme.heading_spacing_below_h1h2 : theme.heading_spacing_below;
     case NodeType::CodeBlock:
     case NodeType::Diagram:
     case NodeType::Image:
@@ -174,7 +174,7 @@ float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width)
     const float line_height = theme.font_size_body * BODY_LINE_HEIGHT_FACTOR;
     switch (node.type) {
     case NodeType::Heading:
-        return theme.GetHeadingSize(node.heading_level()) * 1.5f;
+        return theme.GetHeadingSize(node.heading_level) * 1.5f;
     case NodeType::CodeBlock:
     case NodeType::Diagram: {
         // 段落と同じく少なめに倒す。Cascadia Mono 14px の 1 行は実測 16.27 DIP (1.162 倍)、日本語を含むと 17.45。
@@ -381,7 +381,7 @@ int FindActiveTocIndex(std::span<const TocEntry> entries, const LayoutCache& cac
     // cache[entries[i].node_index].text_top <= scroll_y + margin を満たす最大の i を求める。
     const float threshold = scroll_y + margin;
     const auto it = std::ranges::partition_point(entries, [&](const TocEntry& e) noexcept {
-        return e.node_index >= 0 && cache.Top(static_cast<size_t>(e.node_index)) <= threshold;
+        return cache.Top(static_cast<size_t>(e.node_index)) <= threshold;
     });
     return (it != entries.begin()) ? static_cast<int>(std::prev(it) - entries.begin()) : -1;
 }

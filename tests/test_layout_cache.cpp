@@ -55,7 +55,7 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsResetsTextHeightsButKeepsBitmapNodes)
     std::pmr::vector<Node> nodes(3);
     nodes[1].type = NodeType::Image;
     nodes[2].type = NodeType::Diagram;
-    nodes[2].set_code_language(SyntaxLanguage::Mermaid);
+    nodes[2].code_language = SyntaxLanguage::Mermaid;
     for (size_t i = 0; i < 3; i++) {
         cache[i].height = 500.0f;
     }

@@ -504,7 +504,7 @@ TEST(ChromeCommandsTest, TocIndentsByLevelAndUnderlinesActive)
     const Theme theme = GetLightTheme();
     const auto nodes = ParseNodes("# A\n\n## B\n\n### C");
     const std::pmr::vector<FileEntry> files;
-    const std::pmr::vector<TocEntry> toc{ { 0, 1 }, { 1, 2 }, { 2, 3 } };
+    const std::pmr::vector<TocEntry> toc{ { 0 }, { 1 }, { 2 } };
     constexpr float kZoom = 1.5f;
     const SidePaneState sp{
         .panes = { {}, SidePaneInstance{ .rect = kSidePane, .hovered_index = 2, .show = true, .zoom = kZoom, .item_height = kItemHeight } },
