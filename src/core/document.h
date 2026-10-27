@@ -11,12 +11,21 @@
 #include <utility>
 #include <vector>
 
+// 原文と、それをパースした結果。ノードのテキストは raw か parsed.arena を指すので、1 つの共有で寿命をそろえる。
+// パース後は書き換えない。非同期リロードの worker が UI の差し替えと無関係に読めるよう共有で持つ。
+struct DocumentData {
+    // LF-only (LoadFile または 2 引数 FromMarkdown が正規化する)。バッファは relocate しないので、
+    // 原文をそのまま表示するノードのテキストが指し続けられる。
+    std::pmr::string raw;
+    // ノードと、原文をそのまま表示できないノードのテキスト・全ノードの runs・リンク URL・テーブル本体。
+    NodeStorage parsed;
+};
+
 class Document {
 public:
     constexpr Document() noexcept = default;
 
-    // move-only: ノードのテキストは raw_text_ のバッファか storage_ の arena を、テーブルは storage_ の要素を直接指す。
-    // どちらも共有で持つため、move しても relocate せず付け替えは不要。
+    // move-only: ノードのテキストとテーブルは data_ の中を直接指す。共有で持つため、move しても relocate せず付け替えは不要。
     Document(const Document&) = delete;
     Document& operator=(const Document&) = delete;
     Document(Document&& other) noexcept = default;
@@ -33,11 +42,6 @@ public:
     const std::pmr::vector<Node>& GetNodes() const noexcept
     {
         return Storage().nodes;
-    }
-    // 非同期リロードの worker が旧ノードと比べるための弱参照。ノードが指す原文は ShareRawText() で別に生かす。
-    std::weak_ptr<const NodeStorage> ShareNodes() const noexcept
-    {
-        return storage_;
     }
     constexpr const std::pmr::wstring& GetFilePath() const noexcept
     {
@@ -57,12 +61,12 @@ public:
     // (空行追加・末尾空白・改行種別変更等) も UTF-8 byte offset 精度で差分位置を求めるため、常時保持する。
     std::string_view GetRawText() const noexcept
     {
-        return raw_text_ ? std::string_view{ *raw_text_ } : std::string_view{};
+        return data_ ? std::string_view{ data_->raw } : std::string_view{};
     }
-    // 同一性 (ポインタ一致) で「同じテキストか」を判定できる共有参照。
-    const std::shared_ptr<const std::pmr::string>& ShareRawText() const noexcept
+    // 非同期リロードの worker が旧文書と比べるための共有参照。同一性 (ポインタ一致) で「同じ文書か」を判定できる。
+    const std::shared_ptr<const DocumentData>& ShareData() const noexcept
     {
-        return raw_text_;
+        return data_;
     }
     constexpr const std::pmr::wstring& GetDirectory() const noexcept
     {
@@ -88,17 +92,12 @@ private:
     const NodeStorage& Storage() const noexcept
     {
         static const NodeStorage kEmpty;
-        return storage_ ? *storage_ : kEmpty;
+        return data_ ? data_->parsed : kEmpty;
     }
 
-    // ノードと、原文をそのまま表示できないノードのテキスト・全ノードの runs・リンク URL・テーブル本体。
-    // パース後は書き換えない。非同期リロードの worker が UI の差し替えと無関係に読めるよう共有で持つ。
-    std::shared_ptr<const NodeStorage> storage_;
+    // 設定するのは FromMarkdown だけ。
+    std::shared_ptr<const DocumentData> data_;
     std::pmr::wstring file_path_;
-    // 設定するのは FromMarkdown だけ。常に LF-only (LoadFile または 2 引数 FromMarkdown が正規化する)。
-    // 共有で持つのは、非同期リロードの worker が Document の差し替えと無関係に旧テキストを読めるようにするため。
-    // バッファは relocate しないので、原文をそのまま表示するノードのテキストが指し続けられる。
-    std::shared_ptr<const std::pmr::string> raw_text_;
     std::pmr::wstring cached_directory_;
     // アンカーはリンクを辿るときにしか使わないので、パースでは作らず FindAnchorIndex で目次の先頭から
     // 見つかるまでだけ索引を延ばす。リンクを辿らない文書では確保しない。

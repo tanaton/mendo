@@ -35,8 +35,8 @@ NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, u
 std::pmr::string ToLowerAsciiCopy(std::string_view text);
 
 // CRLF / 旧式 CR を LF に正規化する (in-place)。
-// 改行を LF に揃えておくと、パーサ中の current_text と raw_text_ の memcmp 一致判定が成立し、
-// 大半の code block が raw_text_ をそのまま指せる (arena へのコピーが要らない)。
+// 改行を LF に揃えておくと、パーサ中の current_text と DocumentData::raw の memcmp 一致判定が成立し、
+// 大半の code block が DocumentData::raw をそのまま指せる (arena へのコピーが要らない)。
 // 複数行の paragraph は SOFTBR を空白に置き換えるため常に arena へコピーする。
 // CR まで一気にスキップし、その間は memmove でブロックコピーする (MSVC UCRT で SIMD)。
 // LF-only ファイルでは memchr 1 回で素通し。
@@ -84,7 +84,7 @@ std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent);
 // ノードへ写像する。OnParseComplete / DoReloadCurrentFile の分岐を揃えるために 1 か所に集める。
 
 // 新旧コンテンツの最初の差分 UTF-8 byte 位置を返す。同一の場合は npos。
-// 前提: 両テキストとも LF 正規化済みであること。old は raw_text_、new は LoadFile 由来で
+// 前提: 両テキストとも LF 正規化済みであること。old は DocumentData::raw、new は LoadFile 由来で
 // どちらも正規化済み (issue #273)。
 size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept;
 

@@ -66,7 +66,7 @@ void PrintTo(const Case& c, std::ostream* os)
 
 struct Fixture {
     Document current;
-    std::shared_ptr<const std::pmr::string> other_base;
+    std::shared_ptr<const DocumentData> other_base;
     std::optional<AsyncLoadOutcome> outcome;
 };
 
@@ -86,17 +86,17 @@ Fixture Build(const Case& c)
         f.outcome.emplace(AsyncLoadResult{ Document::FromMarkdown(std::pmr::string(c.result_text), c.result_path) });
         break;
     case ResultKind::Reload: {
-        std::weak_ptr<const std::pmr::string> base;
+        std::weak_ptr<const DocumentData> base;
         switch (c.base) {
         case BaseRef::Current:
-            base = f.current.ShareRawText();
+            base = f.current.ShareData();
             break;
         case BaseRef::Other:
-            f.other_base = std::make_shared<const std::pmr::string>(c.current_text);
+            f.other_base = Document::FromMarkdown(std::pmr::string(c.current_text), c.current_path).ShareData();
             base = f.other_base;
             break;
         case BaseRef::Expired:
-            base = std::make_shared<const std::pmr::string>(c.current_text);
+            base = Document::FromMarkdown(std::pmr::string(c.current_text), c.current_path).ShareData();
             break;
         }
         f.outcome.emplace(AsyncLoadResult{
@@ -122,7 +122,7 @@ TEST_P(PlanParseCompleteTest, ChoosesStep)
 {
     const Case& c = GetParam();
     Fixture f = Build(c);
-    ASSERT_EQ(f.current.ShareRawText() != nullptr, !c.current_text.empty());
+    ASSERT_EQ(f.current.ShareData() != nullptr, !c.current_path.empty() || !c.current_text.empty());
 
     const auto plan = PlanParseComplete(f.outcome, f.current);
 

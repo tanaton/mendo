@@ -90,7 +90,7 @@ struct ParseContext {
     // CommonMark で <a> はネスト禁止のため leave までこの値が安定する。
     int16_t current_link_url_index = -1;
 
-    // 現在ノード用のテキストと runs の蓄積スクラッチ (UTF-8)。FinalizeCurrentNode で raw_text_ を
+    // 現在ノード用のテキストと runs の蓄積スクラッチ (UTF-8)。FinalizeCurrentNode で DocumentData::raw を
     // 指すか arena へコピーされる。runs は伸長のたびに確保し直さないよう、ここに貯めて 1 回だけコピーする。
     std::pmr::string current_text;
     std::pmr::vector<TextRun> current_runs;
@@ -124,7 +124,7 @@ struct ParseContext {
     // nullptr のときは AppendDoc / FlushPendingRun は no-op。
     std::pmr::string* active_text_buffer = nullptr;
 
-    // 現在ノードのリンク URL。各 URL は raw_text_ か arena 上にあり、FinalizeCurrentNode で配列だけ arena へコピーする。
+    // 現在ノードのリンク URL。各 URL は DocumentData::raw か arena 上にあり、FinalizeCurrentNode で配列だけ arena へコピーする。
     std::pmr::vector<std::string_view> current_link_urls;
     // current_link_urls の URL -> インデックス索引。URL 数が kLinkUrlLinearScanMax を
     // 超えたノードでのみ構築する (テーブルは全セルで 1 ノードのため数万 URL になりうる)。
@@ -157,7 +157,7 @@ struct ParseContext {
     bool current_node_needs_copy = false;
 
     // current_text が source の (offset, current_text.size()) 範囲とバイト一致するか。
-    // 一致するノードは arena にコピーせず raw_text_ を指せる。
+    // 一致するノードは arena にコピーせず DocumentData::raw を指せる。
     // span マークアップ (** _ ` 等) や BR/SOFTBR/ENTITY 混在のノードは不一致で arena へのコピーに落ちる。
     // offset は呼び出し側で SourceOffset() から取り出した値を渡す (FinalizeCurrentNode で再利用するため)。
     bool CurrentTextMatchesRawSliceAt(size_t offset) const noexcept

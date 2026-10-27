@@ -309,7 +309,7 @@ void App::ReloadCurrentFile()
     // prefix shrink の defer が上限に達したら、縮んだ内容を受け入れるため worker の事前判定を省いてパースさせる。
     const auto& doc = state_.document.doc;
     BeginAsyncLoad(doc.GetFilePath(), /*show_animation=*/false,
-                   prefix_shrink_retry_.Exhausted() ? ReloadBase{} : ReloadBase{ doc.ShareRawText(), doc.ShareNodes() });
+                   prefix_shrink_retry_.Exhausted() ? ReloadBase{} : ReloadBase{ doc.ShareData() });
 }
 
 // FileWatcher は paused のまま残し、ドラッグの終わり (reducer の ClearDrag) で読み直させる。

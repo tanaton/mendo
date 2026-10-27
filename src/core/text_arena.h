@@ -42,7 +42,7 @@ public:
         return { p, text.size() };
     }
 
-    // TextRun や、raw_text_ / arena 上の文字列を指す string_view の配列を置く。
+    // TextRun や、DocumentData::raw / arena 上の文字列を指す string_view の配列を置く。
     template <std::ranges::contiguous_range R, class T = std::ranges::range_value_t<R>>
         requires std::ranges::sized_range<R> && std::is_trivially_copyable_v<T>
     std::span<const T> Copy(const R& items)

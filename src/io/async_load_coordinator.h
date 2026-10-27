@@ -30,11 +30,10 @@ struct LoadedFileDoc {
 // stop_token は AsyncLoadCoordinator::LoadFileFn に合わせて受けるだけで、読み込みの途中では止めない。
 std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::pmr::wstring& path, const std::stop_token& stop_token);
 
-// 同一ファイルのリロードで worker に渡す旧文書。text はパース前の差分判定に、nodes はパース後に
-// 変わらなかったノードを数えるのに使う。text が空ならリロードとして扱わない。
+// 同一ファイルのリロードで worker に渡す旧文書。原文はパース前の差分判定に、ノードはパース後に
+// 変わらなかったノードを数えるのに使う。空ならリロードとして扱わない。
 struct ReloadBase {
-    std::shared_ptr<const std::pmr::string> text;
-    std::weak_ptr<const NodeStorage> nodes;
+    std::shared_ptr<const DocumentData> data;
 };
 
 // 同一ファイルのリロードで、worker がパース前に差分判定まで済ませた結果。
@@ -46,9 +45,9 @@ inline constexpr size_t kDisposeMinNodes = 4096;
 struct ReloadCheck {
     // 書き込み途中 (AsyncLoadResult::still_growing) なら判定せず既定値のまま。
     ReloadDecision decision{ ReloadOp::NoChange, std::string_view::npos };
-    // 判定に使った旧テキスト。UI 側の文書がこれと同一のときだけ decision と ends を信用できる。
-    // 弱参照なので、判定後に UI が文書を差し替えれば旧テキストはその時点で解放される。
-    std::weak_ptr<const std::pmr::string> base;
+    // 判定に使った旧文書。UI 側の文書がこれと同一のときだけ decision と ends を信用できる。
+    // 弱参照なので、判定後に UI が文書を差し替えれば旧文書はその時点で解放される。
+    std::weak_ptr<const DocumentData> base;
     std::pmr::wstring path;
     // 旧文書のノードと比べて変わらなかった先頭と末尾のノード数 (Replace のとき)。大きな文書で UI を止めないよう worker で数える。
     // パース中に UI が旧文書を手放していれば空。
@@ -97,7 +96,7 @@ public:
 
     // path は worker capture コピーで安全に持ち回す。theme も値コピー: UI スレッドの SetTheme が
     // std::wstring メンバを非アトミックに書き換えるため、参照キャプチャだと EstimateNodeHeights と race。
-    // reload_base.text を渡すと同一ファイルのリロードとして扱い、パース前に旧テキストとの差分判定を行う。
+    // reload_base を渡すと同一ファイルのリロードとして扱い、パース前に旧テキストとの差分判定を行う。
     // 変更なし / 書き込み途中 (prefix shrink) ならパースを省いて判定結果だけ返す。
     // 結果を出したら Attach で渡した通知先へ送る。Attach の前なら送らない (起動時にウィンドウを作るのと並行して読み込む)。
     // content_width は推定に使う本文幅 (0 は幅を知らない)。

@@ -144,7 +144,7 @@ struct NodeTableData {
 
 // 読み込んだ画像の寸法はパース結果ではないので持たない (LayoutCache の DiagramEntry が持つ)。
 struct NodeImageData {
-    std::string_view src; // 画像ソースパス（Markdown内の記述）。raw_text_ か TextArena を指す
+    std::string_view src; // 画像ソースパス（Markdown内の記述）。DocumentData::raw か TextArena を指す
 };
 
 // Node::SourceOffset() が未設定のときに返す値。
@@ -157,7 +157,7 @@ inline constexpr size_t kMaxLinkUrls = std::numeric_limits<int16_t>::max();
 
 // 自分では何も所有しない、trivially copyable なビュー。ノード配列の伸長や詰め直しを memcpy で済ませる。
 struct Node {
-    // テキスト・runs・リンク URL・画像 src はノード自身では持たず、Document の raw_text_ (原文をそのまま使えるもの)
+    // テキスト・runs・リンク URL・画像 src はノード自身では持たず、DocumentData::raw (原文をそのまま使えるもの)
     // か TextArena (加工したテキスト・runs・URL の配列) を指す。テーブルは Document が所有する NodeTableData を指す。
     // どれも Document と寿命が同じ。長さと件数は 4 バイト領域にまとめて Node を 64B に収める。
     const char* text_ = nullptr;
@@ -205,7 +205,7 @@ struct Node {
         return source_offset_ != kUnsetSourceOffset;
     }
 
-    // Document::raw_text_ 起算の UTF-8 byte オフセット。未設定時は kUnsetSourceOffset。
+    // DocumentData::raw 起算の UTF-8 byte オフセット。未設定時は kUnsetSourceOffset。
     constexpr size_t SourceOffset() const noexcept
     {
         return source_offset_;
@@ -227,7 +227,7 @@ struct Node {
         return { text_, text_size_ };
     }
 
-    // text はノードより長く生きる領域 (raw_text_ / TextArena / テストでは静的文字列) を指すこと。
+    // text はノードより長く生きる領域 (DocumentData::raw / TextArena / テストでは静的文字列) を指すこと。
     // line_count は変えない (パーサがテキスト確定前に積算している)。
     constexpr void SetText(std::string_view text) noexcept
     {

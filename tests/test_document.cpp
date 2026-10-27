@@ -6,7 +6,7 @@
 #include <string_view>
 #include <utility>
 
-// リロード diff (AnalyzeReloadDiff) は raw_text_ と LoadFile の出力が同じ LF 正規化済みである
+// リロード diff (AnalyzeReloadDiff) は DocumentData::raw と LoadFile の出力が同じ LF 正規化済みである
 // 前提 (issue #273)。その正規化自体を担保する。
 TEST(NormalizeNewlines, CrlfAndLoneCrBecomeLf)
 {

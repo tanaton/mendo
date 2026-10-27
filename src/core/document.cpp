@@ -14,9 +14,9 @@ Document Document::FromNormalizedMarkdown(std::pmr::string text, std::wstring_vi
     Document doc;
     doc.file_path_ = path;
     doc.cached_directory_ = path_util::ParentDirectory(path);
-    doc.raw_text_ = std::make_shared<const std::pmr::string>(std::move(text));
-    // raw_text_ をパースした結果なのでノードのテキストは raw_text_ か arena を指しており rebase 不要。
-    doc.storage_ = std::make_shared<const NodeStorage>(ParseMarkdown(doc.GetRawText(), std::move(stop_token), scheduler));
+    auto data = std::make_shared<DocumentData>(std::move(text));
+    data->parsed = ParseMarkdown(data->raw, std::move(stop_token), scheduler);
+    doc.data_ = std::move(data);
     return doc;
 }
 

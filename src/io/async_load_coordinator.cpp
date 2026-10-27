@@ -160,17 +160,17 @@ void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::pmr::w
     }
 
     std::optional<ReloadCheck> reload;
-    if (reload_base.text) {
+    if (reload_base.data) {
         // 無変更の保存や書き込み途中でも全文パース (100MB で ~0.6s) と
         // 新旧 Document の二重保持が起きないよう、パース前に判定する。
         // 書き込み途中なら差分も取らずに返し、読み直させる。
         if (IsFileLargerThan(path.c_str(), file->byte_size)) {
-            Publish(stop_token, AsyncLoadResult{ .reload = ReloadCheck{ .base = reload_base.text, .path = path }, .still_growing = true });
+            Publish(stop_token, AsyncLoadResult{ .reload = ReloadCheck{ .base = reload_base.data, .path = path }, .still_growing = true });
             return;
         }
-        reload.emplace(ReloadCheck{ AnalyzeReloadDiff(*reload_base.text, file->text), reload_base.text, path });
-        // 以降のパース中に UI が文書を差し替えても旧テキストを延命しない。
-        reload_base.text.reset();
+        reload.emplace(ReloadCheck{ AnalyzeReloadDiff(reload_base.data->raw, file->text), reload_base.data, path });
+        // 以降のパース中に UI が文書を差し替えても旧文書を延命しない。
+        reload_base.data.reset();
         if (reload->decision.op != ReloadOp::Replace) {
             Publish(stop_token, AsyncLoadResult{ .reload = std::move(reload) });
             return;
@@ -182,10 +182,9 @@ void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::pmr::w
         return;
     }
     if (reload) {
-        // 旧ノードのテキストは旧原文を指すので、両方を生かしたまま比べる (100MB で約 20ms)。
-        const auto old_text = reload->base.lock();
-        if (const auto old_nodes = reload_base.nodes.lock(); old_text && old_nodes) {
-            reload->ends = FindUnchangedEnds(old_nodes->nodes, doc.GetNodes());
+        // 100MB で約 20ms。
+        if (const auto old = reload->base.lock()) {
+            reload->ends = FindUnchangedEnds(old->parsed.nodes, doc.GetNodes());
         }
     }
 
