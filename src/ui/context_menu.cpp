@@ -19,7 +19,7 @@ void ContextMenu::Impl::BuildItems(const ContextMenuParams& params)
 
     const auto& ls = i18n::S();
     if (params.show_file_items) {
-        items.emplace_back(ItemType::Text, IDM_EDIT_FILE, ls.menu_edit_file, params.has_file, false);
+        items.emplace_back(ItemType::Text, IDM_EDIT_FILE, ls.menu_edit_file, params.can_edit_file, false);
         items.emplace_back(ItemType::Text, IDM_COPY, ls.menu_copy, params.has_selection, false);
         items.emplace_back(ItemType::Text, IDM_COPY_FORMATTED, ls.menu_copy_formatted, params.has_selection, false);
         items.emplace_back(ItemType::Separator);

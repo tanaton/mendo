@@ -69,17 +69,12 @@ struct DirectHit {
 
 DirectHit FindDirectHit(const MdPaneHitContext& ctx, float dip_y) noexcept
 {
-    const auto indices = std::views::iota(size_t{ 0 }, ctx.cache.size());
-    const auto it = std::ranges::partition_point(indices, [&ctx, dip_y](size_t i) noexcept {
-        return ctx.cache.Top(i) <= dip_y;
-    });
-    const size_t first_above = (it == indices.end()) ? indices.size() : *it;
     DirectHit hit;
-    hit.candidate = static_cast<int>(first_above) - 1;
+    hit.candidate = static_cast<int>(FindFirstNodeBelow(ctx.cache, dip_y)) - 1;
     if (hit.candidate < 0) {
         return hit;
     }
-    // partition_point と同じ text_top を局所座標 (local_y) の基準にする。
+    // 探索と同じ text_top を局所座標 (local_y) の基準にする。
     const auto c = static_cast<size_t>(hit.candidate);
     hit.text_top = ctx.cache.Top(c);
     // 背景の下側はみ出し部分 (横スクロールバーを置きたい領域) もそのノードのヒットとして扱い、
@@ -214,7 +209,8 @@ OverlayButtonHit hit_test::OverlayButtonHitTest(const MdPaneHitContext& ctx) noe
 
 bool hit_test::DiagramImageHitTest(const MdPaneHitContext& ctx, int node_index) noexcept
 {
-    if (node_index < 0 || static_cast<size_t>(node_index) >= ctx.nodes.size() || ctx.nodes[node_index].type != NodeType::Diagram) {
+    const Node* node = NodeOfType(ctx.nodes, node_index, NodeType::Diagram);
+    if (!node) {
         return false;
     }
     // ボタンを出す条件 (layout::ForEachOverlayButton) と同じく、描けていて元の PNG がある図だけ。
@@ -222,10 +218,9 @@ bool hit_test::DiagramImageHitTest(const MdPaneHitContext& ctx, int node_index) 
     if (!diagram || !diagram->bitmap || !diagram->png) {
         return false;
     }
-    const auto& node = ctx.nodes[node_index];
     const auto [dip_x, dip_y] = ScreenToPaneDip(ctx);
-    const D2D1_RECT_F image = MermaidBitmapRect(diagram->width, diagram->height, NodeBlockX(node, ctx.theme),
-                                                NodeContentWidth(node, ctx.theme, ctx.content_width), ctx.cache.Top(static_cast<size_t>(node_index)));
+    const D2D1_RECT_F image = MermaidBitmapRect(diagram->width, diagram->height, NodeBlockX(*node, ctx.theme),
+                                                NodeContentWidth(*node, ctx.theme, ctx.content_width), ctx.cache.Top(static_cast<size_t>(node_index)));
     return PointInRectInclusive(dip_x, dip_y, image);
 }
 

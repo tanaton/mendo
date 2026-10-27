@@ -10,6 +10,7 @@
 #include "dwrite_test_base.h"
 #include "search_state.h"
 #include "text_types.h"
+#include "wic_util.h"
 #include <algorithm>
 #include <array>
 #include <initializer_list>
@@ -123,13 +124,7 @@ TEST_F(HighlightOrderTest, NoHighlightsWhenNeitherActive)
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     const auto& cmds = gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = pane }, 1.0f);
 
-    for (const auto& c : cmds) {
-        if (auto* fr = std::get_if<FillRectCmd>(&c)) {
-            EXPECT_FALSE(fr->brush_id == BrushId::SearchHighlight);
-            EXPECT_FALSE(fr->brush_id == BrushId::SearchHighlightCurrent);
-            EXPECT_FALSE(fr->brush_id == BrushId::Selection);
-        }
-    }
+    EXPECT_TRUE(CollectRectsByBrush(cmds, { BrushId::SearchHighlight, BrushId::SearchHighlightCurrent, BrushId::Selection }).empty());
 }
 
 // 現在マッチは search_highlight_current_color、それ以外は search_highlight_color
@@ -160,12 +155,8 @@ TEST_F(HighlightOrderTest, EmptySelectionProducesNoSelectionRect)
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     const auto& cmds = gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = pane }, 1.0f);
 
-    for (const auto& c : cmds) {
-        if (auto* fr = std::get_if<FillRectCmd>(&c)) {
-            EXPECT_FALSE(fr->brush_id == BrushId::Selection)
-                << "空選択で BrushId::Selection の FillRectCmd は出ない";
-        }
-    }
+    EXPECT_TRUE(CollectRectsByBrush(cmds, { BrushId::Selection }).empty())
+        << "空選択で BrushId::Selection の FillRectCmd は出ない";
 }
 
 // kinds 抽出ヘルパーが順序を正しく取り出すこと（ヘルパー自身のスモーク）。
@@ -423,9 +414,8 @@ TEST_F(HighlightOrderTest, DiagramOverlayButtonsAreGatedByDiagramHover)
     diagram.height = 80.0f;
     diagram.png = std::make_shared<const ByteBuffer>(std::vector<uint8_t>{ 0x89 });
 
-    Microsoft::WRL::ComPtr<IWICImagingFactory> wic;
-    ASSERT_HRESULT_SUCCEEDED(CoCreateInstance(
-        CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(wic.GetAddressOf())));
+    const auto wic = wic_util::CreateWicFactory("HighlightOrderTest");
+    ASSERT_NE(wic, nullptr);
     Microsoft::WRL::ComPtr<IWICBitmap> wic_bitmap;
     ASSERT_HRESULT_SUCCEEDED(wic->CreateBitmap(10, 10, GUID_WICPixelFormat32bppPBGRA,
                                                WICBitmapCacheOnLoad, wic_bitmap.GetAddressOf()));

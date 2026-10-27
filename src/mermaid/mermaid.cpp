@@ -860,12 +860,11 @@ void MermaidRenderer::ProcessQueue()
     }
 
     // 同一コードの図が複数あるとき、最初の1つのレンダリング完了後に
-    // 残りをキャッシュから即座に解決できる。SVG 専用リクエストは PNG ビットマップ
-    // キャッシュ対象外なので常にワーカー経由でレンダリングする。
+    // 残りをキャッシュから即座に解決できる。
     while (!pending_requests_.empty()) {
         auto& front = pending_requests_.front();
         // 結果を出した要求が通知済みなので、ここでは取り除くだけでよい。
-        if (!front.svg_only && FindCached(front)) {
+        if (FindCached(front)) {
             ReleaseInflight(front);
             pending_requests_.pop();
             continue;
@@ -903,7 +902,7 @@ void MermaidRenderer::FailWorkerRequest(Worker& worker, DiagramError::Kind kind,
 
 void MermaidRenderer::FinishWorkerRequest(Worker& worker)
 {
-    const bool resolved = !worker.current_request.svg_only && FindCached(worker.current_request);
+    const bool resolved = FindCached(worker.current_request);
     ReleaseInflight(worker.current_request);
     FreeWorker(worker);
     if (resolved) {

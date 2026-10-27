@@ -68,8 +68,11 @@ TEST(AppControllerTest, HandleKeyDown)
         { "Alt+Left", { .key = VK_LEFT, .alt = true }, NavigateBackAction{} },
         { "Alt+Right", { .key = VK_RIGHT, .alt = true }, NavigateForwardAction{} },
         { "Alt+Up", { .key = VK_UP, .alt = true }, NoOpAction{} },
-        // Ctrl+Alt ではナビゲーションを発動しない
+        // Ctrl+Alt (AltGr) には何も割り当てない
         { "Ctrl+Alt+Left", { .key = VK_LEFT, .ctrl = true, .alt = true }, NoOpAction{} },
+        { "AltGr+0", { .key = '0', .ctrl = true, .alt = true }, NoOpAction{} },
+        { "AltGr+Plus", { .key = VK_OEM_PLUS, .ctrl = true, .alt = true }, NoOpAction{} },
+        { "AltGr+F", { .key = 'F', .ctrl = true, .alt = true }, NoOpAction{} },
 
         { "F3", { .key = VK_F3 }, SearchNextAction{} },
         { "Shift+F3", { .key = VK_F3, .shift = true }, SearchPrevAction{} },
@@ -80,6 +83,50 @@ TEST(AppControllerTest, HandleKeyDown)
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);
         ExpectSameAction(app_controller::HandleKeyDown(c.ev), c.expected);
+    }
+}
+
+TEST(AppControllerTest, HandleSearchEditKeyDown)
+{
+    // NoOpAction は入力欄 (EDIT) に処理させるキー。
+    const KeyCase kCases[] = {
+        { "Enter", { .key = VK_RETURN }, SearchNextAction{} },
+        { "Shift+Enter", { .key = VK_RETURN, .shift = true }, SearchPrevAction{} },
+        { "Ctrl+A", { .key = 'A', .ctrl = true }, SearchSelectAllAction{} },
+
+        { "Left", { .key = VK_LEFT }, NoOpAction{} },
+        { "Shift+Right", { .key = VK_RIGHT, .shift = true }, NoOpAction{} },
+        { "Ctrl+Left", { .key = VK_LEFT, .ctrl = true }, NoOpAction{} },
+        { "Home", { .key = VK_HOME }, NoOpAction{} },
+        { "End", { .key = VK_END }, NoOpAction{} },
+        { "Backspace", { .key = VK_BACK }, NoOpAction{} },
+        { "Delete", { .key = VK_DELETE }, NoOpAction{} },
+        { "Shift+Insert", { .key = VK_INSERT, .shift = true }, NoOpAction{} },
+        { "Ctrl+C", { .key = 'C', .ctrl = true }, NoOpAction{} },
+        { "Ctrl+Shift+C", { .key = 'C', .ctrl = true, .shift = true }, NoOpAction{} },
+        { "Ctrl+V", { .key = 'V', .ctrl = true }, NoOpAction{} },
+        { "Ctrl+X", { .key = 'X', .ctrl = true }, NoOpAction{} },
+        { "Ctrl+Z", { .key = 'Z', .ctrl = true }, NoOpAction{} },
+        { "Letter", { .key = 'Z' }, NoOpAction{} },
+        { "IME", { .key = VK_PROCESSKEY }, NoOpAction{} },
+        { "AltGr+0", { .key = '0', .ctrl = true, .alt = true }, NoOpAction{} },
+        { "AltGr+Q", { .key = 'Q', .ctrl = true, .alt = true }, NoOpAction{} },
+
+        // 本体と同じ割り当て。
+        { "Escape", { .key = VK_ESCAPE }, ClearSelectionAction{} },
+        { "Ctrl+F", { .key = 'F', .ctrl = true }, OpenSearchBarAction{} },
+        { "F3", { .key = VK_F3 }, SearchNextAction{} },
+        { "Ctrl+Shift+G", { .key = 'G', .ctrl = true, .shift = true }, SearchPrevAction{} },
+        { "F5", { .key = VK_F5 }, ReloadFileAction{} },
+        { "Ctrl+O", { .key = 'O', .ctrl = true }, OpenFileAction{} },
+        { "Down", { .key = VK_DOWN }, KeyScrollAction{ ScrollType::LineDown } },
+        { "PageUp", { .key = VK_PRIOR }, KeyScrollAction{ ScrollType::PageUp } },
+        { "Alt+Left", { .key = VK_LEFT, .alt = true }, NavigateBackAction{} },
+        { "Alt+Right", { .key = VK_RIGHT, .alt = true }, NavigateForwardAction{} },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.name);
+        ExpectSameAction(app_controller::HandleSearchEditKeyDown(c.ev), c.expected);
     }
 }
 

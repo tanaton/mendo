@@ -66,7 +66,6 @@ endif()
 FetchContent_Declare(
     webview2
     URL https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.3967.48
-    DOWNLOAD_NO_EXTRACT FALSE
 )
 FetchContent_MakeAvailable(webview2)
 

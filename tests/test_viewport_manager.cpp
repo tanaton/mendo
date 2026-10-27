@@ -133,10 +133,7 @@ TEST(ViewportManagerTest, ScrollTargetAppliesNewYPosition)
     vm.SetScrollTarget(1, offset);
 
     // レイアウト変更をシミュレーション: ノード1を30下にシフト
-    cache.SetTop(1, 130.0f);
-    cache.SetTop(2, 230.0f);
-    cache.SetTop(3, 330.0f);
-    cache.SetTop(4, 430.0f);
+    cache.ShiftTops(1, 30.0f);
 
     vm.ApplyScrollTarget(cache);
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 130.0f);
@@ -489,9 +486,7 @@ TEST(ViewportManagerTest, ScrollRestoreTargetCompensationAfterHeightChange)
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 260.0f);
 
     // ノード2の高さが100増加（画像読み込み）→ ノード5が下にシフト
-    for (int i = 2; i < 10; ++i) {
-        cache.SetTop(i, cache.Top(i) + 100.0f);
-    }
+    cache.ShiftTops(2, 100.0f);
     cache[2].height = 150.0f;
 
     // target 再評価

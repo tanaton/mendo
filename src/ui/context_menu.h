@@ -9,7 +9,7 @@ struct ContextMenuParams {
     int screen_y = 0;
     bool can_go_back = false;
     bool can_go_forward = false;
-    bool has_file = false;
+    bool can_edit_file = false;
     bool has_selection = false;
     bool dark_mode_checked = false;
     bool file_pane_checked = false;

@@ -7,12 +7,28 @@
 #include <algorithm>
 #include <format>
 #include <limits>
+#include <optional>
 #include <ranges>
 #include <stop_token>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
+
+namespace {
+
+// 表のセル (row, col) にあるリンクの URL。リンクが無ければ nullopt。
+std::optional<std::string_view> CellLinkUrl(const Node& table, size_t row, size_t col)
+{
+    const auto runs = table.table_data()->GetCellRuns(row, col);
+    const auto it = std::ranges::find_if(runs, &TextRun::has_link);
+    if (it == runs.end()) {
+        return std::nullopt;
+    }
+    return table.view_link_urls()[it->link_url_index];
+}
+
+} // namespace
 
 // ---- 基本的なパース ----
 
@@ -787,11 +803,11 @@ TEST(Parser, PlainParagraphAndCodeBlockHaveNoRuns)
 
 TEST(Parser, NestedUnorderedList)
 {
-    auto nodes = ParseNodes("- a\n  - b\n    - c");
-    ASSERT_GE(nodes.size(), 3u);
-    // より深いアイテムはより高いインデントレベルを持つべき
-    EXPECT_LT(nodes[0].indent_level, nodes[1].indent_level);
-    EXPECT_LT(nodes[1].indent_level, nodes[2].indent_level);
+    auto nodes = ParseNodes("- a\n  - b\n    - c\n      - d");
+    ASSERT_GE(nodes.size(), 4u);
+    for (size_t i = 1; i < 4; ++i) {
+        EXPECT_LT(nodes[i - 1].indent_level, nodes[i].indent_level) << "i=" << i;
+    }
 }
 
 TEST(Parser, NestedOrderedList)
@@ -825,7 +841,6 @@ TEST(Parser, TableCellWithBold)
     const auto* tbl = nodes[0].table_data();
     ASSERT_GE(tbl->row_count, 1u);
     ASSERT_GE(tbl->col_count, 2u);
-    // 2番目のヘッダーセルは太字ランを持つべき
     EXPECT_TRUE(std::ranges::any_of(tbl->GetCellRuns(0, 1), &TextRun::bold));
 }
 
@@ -842,20 +857,8 @@ TEST(Parser, TableCellWithLink)
     ASSERT_GE(tbl->row_count, 2u);
     ASSERT_GE(tbl->col_count, 2u);
 
-    // リンクセルはランにlink_urlを持つべき
-    bool found_link = false;
-    for (const auto& run : tbl->GetCellRuns(1, 1)) {
-        if (run.has_link()) {
-            EXPECT_EQ(nodes[0].view_link_urls()[run.link_url_index], "https://example.com");
-            found_link = true;
-        }
-    }
-    EXPECT_TRUE(found_link);
-
-    // リンクでないセルはリンクを持たないべき
-    for (const auto& run : tbl->GetCellRuns(1, 0)) {
-        EXPECT_FALSE(run.has_link());
-    }
+    EXPECT_EQ(CellLinkUrl(nodes[0], 1, 1), "https://example.com");
+    EXPECT_EQ(CellLinkUrl(nodes[0], 1, 0), std::nullopt);
 }
 
 TEST(Parser, TableCellWithInternalLink)
@@ -868,14 +871,7 @@ TEST(Parser, TableCellWithInternalLink)
     const auto* tbl = nodes[0].table_data();
     ASSERT_GE(tbl->row_count, 2u);
 
-    bool found = false;
-    for (const auto& run : tbl->GetCellRuns(1, 0)) {
-        if (run.has_link()) {
-            EXPECT_EQ(nodes[0].view_link_urls()[run.link_url_index], "#introduction");
-            found = true;
-        }
-    }
-    EXPECT_TRUE(found);
+    EXPECT_EQ(CellLinkUrl(nodes[0], 1, 0), "#introduction");
 }
 
 TEST(Parser, TableCellWithBoldLink)
@@ -917,23 +913,6 @@ TEST(Parser, BoldLink)
     auto nodes = ParseNodes("[**bold link**](https://example.com)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_TRUE(std::ranges::any_of(nodes[0].runs(), [](const TextRun& run) static { return run.bold() && run.has_link(); }));
-}
-
-// ---- 深いネスト ----
-
-TEST(Parser, DeeplyNestedList)
-{
-    std::string md;
-    md += "- L1\n";
-    md += "  - L2\n";
-    md += "    - L3\n";
-    md += "      - L4\n";
-    auto nodes = ParseNodes(md);
-    ASSERT_GE(nodes.size(), 4u);
-    // より深いレベルはより高いindent_levelを持つべき
-    for (size_t i = 1; i < nodes.size(); i++) {
-        EXPECT_GE(nodes[i].indent_level, nodes[i - 1].indent_level);
-    }
 }
 
 // ---- 不揃いな列数のテーブル ----
@@ -1548,11 +1527,7 @@ TEST(Parser, NewlinesInTextAndLineCount)
 
 TEST(Parser, LineCountLargeCodeBlock)
 {
-    std::string md = "```\n";
-    for (int i = 0; i < 100; i++) {
-        md += "line " + std::to_string(i) + "\n";
-    }
-    md += "```";
+    const std::string md = MakeCodeBlockMd(100);
     auto nodes = ParseNodes(md);
     ASSERT_EQ(nodes.size(), 1u);
     // 100行 → 99個の改行（末尾の\nが除去される）

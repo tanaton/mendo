@@ -4,14 +4,11 @@
 // テストは別途 dwrite_test_base.h を使う。
 #include <gtest/gtest.h>
 #include "command_generator.h"
+#include "draw_cmd_test_util.h"
 #include "draw_command.h"
 #include "mock_text_measurer.h"
-#include <algorithm>
-#include <cstddef>
-#include <optional>
 #include <string_view>
 #include <utility>
-#include <variant>
 #include <vector>
 
 class CmdGenMockTestBase : public MockLayoutTestBase {
@@ -43,54 +40,3 @@ protected:
         return gen_.GenerateMdPane({ .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
     }
 };
-
-template <typename T>
-std::optional<T> FindFirst(const DrawCommandList& cmds)
-{
-    for (const auto& c : cmds) {
-        if (auto* p = std::get_if<T>(&c)) {
-            return *p;
-        }
-    }
-    return std::nullopt;
-}
-
-template <typename T, typename Pred>
-std::optional<T> FindFirst(const DrawCommandList& cmds, Pred pred)
-{
-    for (const auto& c : cmds) {
-        if (auto* p = std::get_if<T>(&c); p && pred(*p)) {
-            return *p;
-        }
-    }
-    return std::nullopt;
-}
-
-template <typename T>
-std::ptrdiff_t CountCmd(const DrawCommandList& cmds)
-{
-    return std::ranges::count_if(cmds, [](const DrawCommand& c) static {
-        return std::holds_alternative<T>(c);
-    });
-}
-
-template <typename T>
-std::vector<T> CollectCmds(const DrawCommandList& cmds)
-{
-    std::vector<T> out;
-    for (const auto& c : cmds) {
-        if (const auto* p = std::get_if<T>(&c)) {
-            out.push_back(*p);
-        }
-    }
-    return out;
-}
-
-template <typename T, typename Pred>
-std::ptrdiff_t CountCmd(const DrawCommandList& cmds, Pred pred)
-{
-    return std::ranges::count_if(cmds, [&pred](const DrawCommand& c) {
-        const auto* p = std::get_if<T>(&c);
-        return p && pred(*p);
-    });
-}

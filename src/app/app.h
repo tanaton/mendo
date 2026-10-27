@@ -105,7 +105,9 @@ public:
     void OnPaint();
     void OnMinimize();
     void OnMouseWheel(int px, int py, int delta, bool ctrl);
-    void OnKeyDown(WPARAM key);
+    // 割り当ての無いキーは false を返し、ウィンドウ側の既定の処理に回させる。
+    bool OnKeyDown(WPARAM key);
+    bool OnSearchEditKeyDown(WPARAM key);
     void OnDropFiles(HDROP hDrop);
 
     // is_double_click は WM_LBUTTONDBLCLK (連続クリックの 2 回目)。
@@ -197,6 +199,7 @@ private:
         }
     }
     void Execute(const SideEffect& effect);
+    bool DispatchKeyAction(const AppAction& action);
     void SetTimer(app_timer::Id id, UINT ms) noexcept override
     {
         ::SetTimer(hwnd_, std::to_underlying(id), ms, nullptr);

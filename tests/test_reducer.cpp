@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <format>
+#include <iterator>
 #include <memory_resource>
 #include <optional>
 #include <utility>
@@ -56,13 +57,6 @@ protected:
         InitReducerState(state, theme);
         // 内容高 1000・表示高 500 で、500 までスクロールできる。パスは空 (未ロード扱い) にする。
         SetDocument(state, "Hello", L"", 1000.0f);
-    }
-
-    // MD スクロールバー系テスト用: reducer が ComputeTotalContentHeight で導出する
-    // 総コンテンツ高が total になるよう doc と layout_cache を構築する (margin_bottom=0 前提)。
-    void SetupMdContentHeight(float total)
-    {
-        SetDocument(state, "Hello", L"test.md", total);
     }
 };
 
@@ -283,7 +277,6 @@ TEST_F(ReducerTest, ClearSelection_ClosesSearchBar)
 
     auto effects = Reduce(state, ClearSelectionAction{});
 
-    // 検索バーが閉じられる
     EXPECT_FALSE(state.search.search_state.IsVisible());
     EXPECT_TRUE(HasEffect<effect::SearchUnfocus>(effects));
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
@@ -359,7 +352,6 @@ TEST_F(ReducerTest, Activate_NoChangeWhenSame)
     state.window.window_active = true;
     auto effects = Reduce(state, ActivateAction{ true });
 
-    // 状態変化なし → 再描画なし
     EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
@@ -468,11 +460,39 @@ TEST_F(ReducerTest, PointerHover_NewTooltipEmitsSetTooltipWithText)
     EXPECT_TRUE(Reduce(state, PointerHoverAction{ PointerHover{ {}, { kLinkTooltip } } }).empty());
 }
 
-TEST_F(ReducerTest, PointerHover_NothingChanged_NoEffect)
+// ハイライトが変われば再描画し、同じなら何もしない。
+TEST_F(ReducerTest, PointerHover_RedrawsOnlyWhenHighlightChanges)
 {
-    // 初期状態はどこにもホバーしていないので、空のホバーは no-op
-    auto effects = Reduce(state, PointerHoverAction{});
-    EXPECT_TRUE(effects.empty());
+    struct Case {
+        const char* name;
+        HoverHighlights before;
+        HoverHighlights hover;
+        bool changed;
+    };
+    const Case cases[] = {
+        { "Nothing", {}, {}, false },
+        { "BlockHSame", { .h_block = 5 }, { .h_block = 5 }, false },
+        { "NavSame", { .nav = NavDirection::Forward }, { .nav = NavDirection::Forward }, false },
+        { "OverlaySame", { .overlay_button = { 4, OverlayButton::DiagramSave } }, { .overlay_button = { 4, OverlayButton::DiagramSave } }, false },
+        { "BlockHNew", {}, { .h_block = 5 }, true },
+        // ナビボタン上ではコピー/保存ボタンはホバーしていない
+        { "OverlayToNav", { .overlay_button = { 3, OverlayButton::CodeCopy } }, { .nav = NavDirection::Back }, true },
+        { "OverlayNew", {}, { .overlay_button = { 3, OverlayButton::CodeCopy } }, true },
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.name);
+        state.view.hover = c.before;
+
+        auto effects = Reduce(state, PointerHoverAction{ PointerHover{ c.hover } });
+
+        EXPECT_EQ(state.view.hover, c.hover);
+        if (c.changed) {
+            EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+        }
+        else {
+            EXPECT_TRUE(effects.empty());
+        }
+    }
 }
 
 TEST_F(ReducerTest, PointerHover_EmptyTooltipAfterPrevTarget_HidesTooltip)
@@ -521,22 +541,6 @@ TEST_F(ReducerTest, OpenFileAction_EmitsOpenFileDialog)
     auto effects = Reduce(state, OpenFileAction{});
     EXPECT_EQ(effects.size(), 1u);
     EXPECT_TRUE(HasEffect<effect::OpenFileDialog>(effects));
-}
-
-// ---- ブロック単位の横スクロール ----
-
-TEST_F(ReducerTest, BlockHHoverChanged_UpdatesAndInvalidates)
-{
-    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ { .h_block = 5 } } });
-    EXPECT_EQ(state.view.hover.h_block, 5);
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
-}
-
-TEST_F(ReducerTest, BlockHHoverChanged_SameValue_NoEffect)
-{
-    state.view.hover.h_block = 5;
-    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ { .h_block = 5 } } });
-    EXPECT_TRUE(effects.empty());
 }
 
 // 隠したペインを再び表示したとき、隠す前のホバー強調が残らない。
@@ -613,12 +617,34 @@ TEST_F(ReducerTest, DocumentOpened_ResetsViewForNewDocument)
     EXPECT_FLOAT_EQ(state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y, 0.0f);
 }
 
-TEST_F(ReducerTest, BlockHScrollDragEnded_ReleasesCapture)
+// 配置はドラッグ中の移動ごとに作り直し済みなので、終了では捨てない。
+// スプリッタとスクロールバーは終了時にビューポートを落ち着かせる。
+TEST_F(ReducerTest, LeftDragEnded_ClearsAndReleases)
 {
-    state.view.drag = { .kind = LeftDrag::BlockHScroll, .block_node = 4 };
-    auto effects = Reduce(state, LeftDragEndedAction{});
-    EXPECT_EQ(state.view.HDragNode(), -1);
-    EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
+    struct Case {
+        LeftDragState drag;
+        bool settles;
+    };
+    const Case cases[] = {
+        { { .kind = LeftDrag::Splitter, .pane = PaneTarget::File }, true },
+        { { .kind = LeftDrag::MdScrollbar }, true },
+        { { .kind = LeftDrag::PaneScrollbar, .pane = PaneTarget::Toc }, false },
+        { { .kind = LeftDrag::BlockHScroll, .block_node = 2, .start_x = 10.0f }, false },
+        { { .kind = LeftDrag::SearchInput, .search_anchor = 3 }, false },
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(static_cast<int>(c.drag.kind));
+        state.view.drag = c.drag;
+        state.pane_layout_cache.Set(PaneLayout{});
+
+        const auto effects = Reduce(state, LeftDragEndedAction{});
+
+        EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
+        EXPECT_EQ(state.view.HDragNode(), -1);
+        EXPECT_TRUE(state.pane_layout_cache.IsValid());
+        EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
+        EXPECT_EQ(HasEffect<effect::SettleViewport>(effects), c.settles);
+    }
 }
 
 // テキスト選択の終了は TextSelectionEndedAction が担う。
@@ -885,19 +911,39 @@ TEST_F(ReducerTest, VWheel_NoOverlay_NoEffect)
 
 TEST_F(ReducerTest, CaptureChanged_ResetsGesture)
 {
-    // ジェスチャーがアクティブでない場合、InvalidateWindow は出ない
+    // ジェスチャーもドラッグも無ければ再描画しない。
+    EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(Reduce(state, CaptureChangedAction{})));
+
+    Reduce(state, RightClickGestureStartedAction{ 100.0f, 200.0f });
+    ASSERT_NE(state.interaction.gesture.GetPhase(), GesturePhase::Idle);
+
     auto effects = Reduce(state, CaptureChangedAction{});
-    EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
+
+    EXPECT_EQ(state.interaction.gesture.GetPhase(), GesturePhase::Idle);
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
-TEST_F(ReducerTest, CaptureChanged_ResetsTextSelectionDrag)
+// キャプチャ喪失 (Alt+Tab 等) では WM_LBUTTONUP が来ないため、ここで解除しないと
+// テキスト選択ドラッグが残ってファイル自動リロードが永久延期される。
+// 右ボタンジェスチャの開始可否は drag.kind で決まるので、検索入力ドラッグも解除すること。
+TEST_F(ReducerTest, CaptureChanged_ResetsLeftDrag)
 {
-    // キャプチャ喪失 (Alt+Tab 等) では WM_LBUTTONUP が来ないため、ここで解除しないと
-    // テキスト選択ドラッグが残ってファイル自動リロードが永久延期される
-    state.view.drag = { .kind = LeftDrag::TextSelect };
-    auto effects = Reduce(state, CaptureChangedAction{});
-    EXPECT_NE(state.view.drag.kind, LeftDrag::TextSelect);
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+    const LeftDragState drags[] = {
+        { .kind = LeftDrag::TextSelect },
+        { .kind = LeftDrag::MdScrollbar },
+        { .kind = LeftDrag::BlockHScroll, .block_node = 3 },
+        { .kind = LeftDrag::SearchInput },
+    };
+    for (const auto& drag : drags) {
+        SCOPED_TRACE(static_cast<int>(drag.kind));
+        state.view.drag = drag;
+
+        auto effects = Reduce(state, CaptureChangedAction{});
+
+        EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
+        EXPECT_EQ(state.view.HDragNode(), -1);
+        EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+    }
 }
 
 namespace {
@@ -929,69 +975,6 @@ TEST_F(ReducerTest, CaptureChanged_SchedulesDeferredReload)
     EXPECT_FALSE(state.view.reload_after_drag);
 }
 
-TEST_F(ReducerTest, CaptureChanged_ResetsScrollbarDrag)
-{
-    state.view.drag = { .kind = LeftDrag::MdScrollbar };
-    auto effects = Reduce(state, CaptureChangedAction{});
-    EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
-}
-
-TEST_F(ReducerTest, CaptureChanged_ResetsBlockHScrollDrag)
-{
-    state.view.drag = { .kind = LeftDrag::BlockHScroll, .block_node = 3 };
-    auto effects = Reduce(state, CaptureChangedAction{});
-    EXPECT_EQ(state.view.HDragNode(), -1);
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
-}
-
-// ---- タイマーテスト（代表ケース） ----
-
-
-// ---- ナビ / コピーボタンのホバー ----
-
-TEST_F(ReducerTest, NavHover_NoneToBack_UpdatesStateAndInvalidates)
-{
-    using Hover = NavDirection;
-    state.view.hover.overlay_button = { 3, OverlayButton::CodeCopy };
-
-    // ナビボタン上ではコピー/保存ボタンはホバーしていない
-    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ { .nav = Hover::Back } } });
-
-    EXPECT_EQ(state.view.hover.nav, Hover::Back);
-    EXPECT_FALSE(state.view.hover.overlay_button.Any());
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
-}
-
-TEST_F(ReducerTest, NavHover_Unchanged_NoEffect)
-{
-    using Hover = NavDirection;
-    state.view.hover.nav = Hover::Forward;
-
-    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ { .nav = Hover::Forward } } });
-
-    EXPECT_EQ(state.view.hover.nav, Hover::Forward);
-    EXPECT_TRUE(effects.empty());
-}
-
-TEST_F(ReducerTest, ButtonHoverChanged_CopyUpdated_Invalidates)
-{
-    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ { .overlay_button = OverlayButtonHit{ 3, OverlayButton::CodeCopy } } } });
-
-    EXPECT_EQ(state.view.hover.overlay_button, (OverlayButtonHit{ 3, OverlayButton::CodeCopy }));
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
-}
-
-TEST_F(ReducerTest, ButtonHoverChanged_Unchanged_NoEffect)
-{
-    state.view.hover.overlay_button = { 4, OverlayButton::DiagramSave };
-
-    auto effects = Reduce(state, PointerHoverAction{ PointerHover{ { .overlay_button = OverlayButtonHit{ 4, OverlayButton::DiagramSave } } } });
-
-    EXPECT_EQ(state.view.hover.overlay_button, (OverlayButtonHit{ 4, OverlayButton::DiagramSave }));
-    EXPECT_TRUE(effects.empty());
-}
-
 // ---- SplitterDrag* テスト ----
 
 TEST_F(ReducerTest, SplitterDragStarted_SetsTargetAndCaptures)
@@ -1005,57 +988,52 @@ TEST_F(ReducerTest, SplitterDragStarted_SetsTargetAndCaptures)
     }
 }
 
-TEST_F(ReducerTest, SplitterDragMoved_Splitter1_UpdatesWidthAndInvalidates)
+// 目次ペインのスプリッタは toc_left 基準で toc_width を変更する
+TEST_F(ReducerTest, SplitterDragMoved_UpdatesWidthAndInvalidates)
 {
     theme.splitter_width = 4.0f;
     state.window.client_width = 1000;
-    state.pane_layout_cache.Set(PaneLayout{});
-    state.view.drag = { .kind = LeftDrag::Splitter, .pane = PaneTarget::File };
-    const float old_width = state.view.panes.GetSidePaneWidth(PaneTarget::File);
+    for (const auto [edge, x] : { std::pair{ PaneTarget::File, 300.0f }, std::pair{ PaneTarget::Toc, 600.0f } }) {
+        SCOPED_TRACE(static_cast<int>(edge));
+        state.pane_layout_cache.Set(PaneLayout{});
+        state.view.drag = { .kind = LeftDrag::Splitter, .pane = edge };
+        const float old_width = state.view.panes.GetSidePaneWidth(edge);
 
-    auto effects = Reduce(state, SplitterDragMovedAction{ 300.0f });
+        auto effects = Reduce(state, SplitterDragMovedAction{ x });
 
-    EXPECT_NE(state.view.panes.GetSidePaneWidth(PaneTarget::File), old_width);
-    EXPECT_FALSE(state.pane_layout_cache.IsValid());
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+        EXPECT_NE(state.view.panes.GetSidePaneWidth(edge), old_width);
+        EXPECT_FALSE(state.pane_layout_cache.IsValid());
+        EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
+    }
 }
 
-TEST_F(ReducerTest, SplitterDragMoved_Splitter2_UpdatesTocWidthAndInvalidates)
+// 該当するドラッグをしていなければ、移動や終了は何もしない。
+TEST_F(ReducerTest, DragActionsWithoutMatchingDrag_NoOp)
 {
-    theme.splitter_width = 4.0f;
-    state.window.client_width = 1000;
-    state.pane_layout_cache.Set(PaneLayout{});
-    state.view.drag = { .kind = LeftDrag::Splitter, .pane = PaneTarget::Toc };
+    struct Case {
+        const char* name;
+        AppAction action;
+        LeftDrag drag;
+    };
+    const Case cases[] = {
+        { "SplitterDragMoved", SplitterDragMovedAction{ 300.0f }, LeftDrag::PaneScrollbar },
+        { "PaneScrollbarDragMoved", PaneScrollbarDragMovedAction{ 200.0f }, LeftDrag::Splitter },
+        { "MdScrollbarDragMoved", MdScrollbarDragMovedAction{ 200.0f }, LeftDrag::None },
+        { "SearchInputDragMoved", SearchInputDragMovedAction{ 3 }, LeftDrag::None },
+        { "TextSelectionMoved", TextSelectionMovedAction{ 0, 3u }, LeftDrag::None },
+        { "TextSelectionEnded", TextSelectionEndedAction{ 0, 3u }, LeftDrag::None },
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.name);
+        state.view.drag = { .kind = c.drag };
+        state.pane_layout_cache.Set(PaneLayout{});
 
-    // 目次ペインのスプリッタは toc_left 基準で toc_width を変更する
-    auto effects = Reduce(state, SplitterDragMovedAction{ 600.0f });
+        auto effects = Reduce(state, c.action);
 
-    EXPECT_FALSE(state.pane_layout_cache.IsValid());
-    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
-}
-
-TEST_F(ReducerTest, SplitterDragMoved_InvalidTarget_NoOp)
-{
-    state.pane_layout_cache.Set(PaneLayout{});
-    state.view.drag = { .kind = LeftDrag::PaneScrollbar };
-    auto effects = Reduce(state, SplitterDragMovedAction{ 300.0f });
-
-    EXPECT_TRUE(state.pane_layout_cache.IsValid());
-    EXPECT_TRUE(effects.empty());
-}
-
-TEST_F(ReducerTest, SplitterDragEnded_ReleasesAndRefreshes)
-{
-    state.view.drag = { .kind = LeftDrag::Splitter, .pane = PaneTarget::File };
-    state.pane_layout_cache.Set(PaneLayout{});
-
-    auto effects = Reduce(state, LeftDragEndedAction{});
-
-    // 配置はドラッグ中の移動ごとに作り直し済みなので、終了では捨てない。
-    EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
-    EXPECT_TRUE(state.pane_layout_cache.IsValid());
-    EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
-    EXPECT_TRUE(HasEffect<effect::SettleViewport>(effects));
+        EXPECT_TRUE(effects.empty());
+        EXPECT_TRUE(state.pane_layout_cache.IsValid());
+        EXPECT_FALSE(state.view.viewport.GetSelection().active());
+    }
 }
 
 // ---- SearchInputDrag* テスト ----
@@ -1070,24 +1048,6 @@ TEST_F(ReducerTest, SearchInputDragStarted_BeginsDragAndCaptures)
     EXPECT_TRUE(HasEffect<effect::SearchFocus>(effects));
 }
 
-// 右ボタンジェスチャの開始可否は drag.kind で決まる (検索入力ドラッグも含めること)。
-TEST_F(ReducerTest, SearchInputDrag_IsLeftDrag)
-{
-    Reduce(state, SearchInputDragStartedAction{ 0 });
-    EXPECT_EQ(state.view.drag.kind, LeftDrag::SearchInput);
-    Reduce(state, CaptureChangedAction{});
-    EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
-}
-
-TEST_F(ReducerTest, LeftDragEnded_ClearsAndReleases)
-{
-    state.view.drag = { .kind = LeftDrag::BlockHScroll, .block_node = 2, .start_x = 10.0f };
-    const auto effects = Reduce(state, LeftDragEndedAction{});
-    EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
-    EXPECT_EQ(state.view.HDragNode(), -1);
-    EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
-}
-
 // 右ボタンのジェスチャーがキャプチャを使っている間は解放させない。
 TEST_F(ReducerTest, LeftDragEnded_KeepsCaptureDuringGesture)
 {
@@ -1099,10 +1059,13 @@ TEST_F(ReducerTest, LeftDragEnded_KeepsCaptureDuringGesture)
     EXPECT_FALSE(HasEffect<effect::ReleaseCapture>(effects));
 }
 
-TEST_F(ReducerTest, SearchInputDragMoved_NotDragging_NoOp)
+TEST_F(ReducerTest, SearchSelectAll_FocusesWholeInput)
 {
-    auto effects = Reduce(state, SearchInputDragMovedAction{ 3 });
-    EXPECT_TRUE(effects.empty());
+    const auto effects = Reduce(state, SearchSelectAllAction{});
+    const auto* focus = FindEffect<effect::SearchFocus>(effects);
+    ASSERT_NE(focus, nullptr);
+    EXPECT_EQ(focus->anchor, 0);
+    EXPECT_EQ(focus->caret, -1);
 }
 
 TEST_F(ReducerTest, SearchInputDragMoved_DraggingAndChanged_EmitsSearchFocus)
@@ -1115,20 +1078,10 @@ TEST_F(ReducerTest, SearchInputDragMoved_DraggingAndChanged_EmitsSearchFocus)
 TEST_F(ReducerTest, SearchInputDragMoved_Unchanged_NoEffect)
 {
     state.view.drag = { .kind = LeftDrag::SearchInput, .search_anchor = 5 };
-    // caret と selection_start を drag_anchor に合わせると変化なしで no-op
+    // caret と selection_start を search_anchor に合わせると変化なしで no-op
     Reduce(state, SearchSelectionAction{ 5, 5 });
     auto effects = Reduce(state, SearchInputDragMovedAction{ 5 });
     EXPECT_TRUE(effects.empty());
-}
-
-TEST_F(ReducerTest, SearchInputDragEnded_EndsDragAndReleases)
-{
-    state.view.drag = { .kind = LeftDrag::SearchInput, .search_anchor = 3 };
-
-    auto effects = Reduce(state, LeftDragEndedAction{});
-
-    EXPECT_NE(state.view.drag.kind, LeftDrag::SearchInput);
-    EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
 }
 
 // ---- MdScrollbarDrag* テスト ----
@@ -1137,8 +1090,6 @@ TEST_F(ReducerTest, MdScrollbarDragStarted_ThumbHit_StoresOffsetOnly)
 {
     // fixture で md_rect.height = 500, total_height = 1000 → content_height=500, max_scroll=500
     // thumb_height = max(24, 500 * 500/1000) = 250, scroll_y=0 → thumb_y = 0
-    SetupMdContentHeight(1000.0f);
-    state.view.viewport.ScrollTo(0.0f, MdMaxScroll(state));
     const float dip_y = 100.0f; // thumb 内（0〜250）
     const float old_scroll = state.view.viewport.GetScrollY();
 
@@ -1154,10 +1105,7 @@ TEST_F(ReducerTest, MdScrollbarDragStarted_ThumbHit_StoresOffsetOnly)
 
 TEST_F(ReducerTest, MdScrollbarDragStarted_ThumbMiss_JumpsAndEmitsInvalidate)
 {
-    // つまみ外クリック (thumb 領域外の dip_y=400)
-    SetupMdContentHeight(1000.0f);
-    state.view.viewport.ScrollTo(0.0f, MdMaxScroll(state));
-    const float dip_y = 400.0f;
+    const float dip_y = 400.0f; // thumb 外
 
     auto effects = Reduce(state, MdScrollbarDragStartedAction{ dip_y });
 
@@ -1170,9 +1118,7 @@ TEST_F(ReducerTest, MdScrollbarDragStarted_ThumbMiss_JumpsAndEmitsInvalidate)
 
 TEST_F(ReducerTest, MdScrollbarDragMoved_WhileDragging_UpdatesScroll)
 {
-    SetupMdContentHeight(1000.0f);
     state.view.drag = { .kind = LeftDrag::MdScrollbar };
-    state.view.viewport.ScrollTo(0.0f, MdMaxScroll(state));
 
     auto effects = Reduce(state, MdScrollbarDragMovedAction{ 200.0f });
 
@@ -1180,38 +1126,27 @@ TEST_F(ReducerTest, MdScrollbarDragMoved_WhileDragging_UpdatesScroll)
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
-TEST_F(ReducerTest, MdScrollbarDragMoved_NotDragging_NoOp)
-{
-    // drag_target が MdScrollbar でない → 何もしない
-    auto effects = Reduce(state, MdScrollbarDragMovedAction{ 200.0f });
-    EXPECT_TRUE(effects.empty());
-}
-
-TEST_F(ReducerTest, MdScrollbarDragEnded_ReleasesAndSchedulesResize)
-{
-    state.view.drag = { .kind = LeftDrag::MdScrollbar };
-
-    auto effects = Reduce(state, LeftDragEndedAction{});
-
-    EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
-    EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
-    EXPECT_TRUE(HasEffect<effect::SettleViewport>(effects));
-}
-
 // ---- PaneScrollbarDrag* テスト（Toc ペイン経由）----
 
 namespace {
 
+// "# Heading i" の見出しを count 個並べ、各見出しの後に "line" の段落を body_lines 個置く。
+std::string HeadingSectionsMd(int count, int body_lines = 0)
+{
+    std::string md;
+    for (int i = 0; i < count; ++i) {
+        std::format_to(std::back_inserter(md), "# Heading {}\n\n", i);
+        for (int k = 0; k < body_lines; ++k) {
+            md += "line\n\n";
+        }
+    }
+    return md;
+}
+
 // 目次 30 件を持つドキュメントをセットアップし、Toc ペインが縦にあふれる状態を作る。
 void SetupScrollableToc(AppState& state)
 {
-    std::string md;
-    for (int i = 0; i < 30; ++i) {
-        md += "# Heading ";
-        md += std::to_string(i);
-        md += "\n\n";
-    }
-    state.document.doc = Document::FromMarkdown(std::string(md), L"test.md");
+    state.document.doc = Document::FromMarkdown(HeadingSectionsMd(30), L"test.md");
     PaneLayout pl{};
     pl.toc_rect = { 0.0f, 0.0f, 200.0f, 300.0f };
     state.pane_layout_cache.Set(pl);
@@ -1237,8 +1172,6 @@ TEST_F(ReducerTest, PaneScrollbarDragStarted_TocScrollable_ThumbHit_StoresOffset
     SetupScrollableToc(state);
     // header_height=32 → content_top=32。scroll=0 の時 thumb_y = content_top = 32
     const float dip_y = 40.0f; // thumb 内を想定
-    auto& scroll = state.view.panes.SidePaneScroll(PaneTarget::Toc);
-    scroll.scroll_y = 0.0f;
 
     auto effects = Reduce(state, PaneScrollbarDragStartedAction{ PaneTarget::Toc, dip_y });
 
@@ -1254,7 +1187,6 @@ TEST_F(ReducerTest, PaneScrollbarDragStarted_TocScrollable_ThumbMiss_Jumps)
 {
     SetupScrollableToc(state);
     const float dip_y = 250.0f; // thumb 外（下側）
-    state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y = 0.0f;
 
     auto effects = Reduce(state, PaneScrollbarDragStartedAction{ PaneTarget::Toc, dip_y });
 
@@ -1268,29 +1200,11 @@ TEST_F(ReducerTest, PaneScrollbarDragMoved_WhileDragging_UpdatesScroll)
 {
     SetupScrollableToc(state);
     state.view.drag = { .kind = LeftDrag::PaneScrollbar, .pane = PaneTarget::Toc };
-    state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y = 0.0f;
 
     auto effects = Reduce(state, PaneScrollbarDragMovedAction{ 200.0f });
 
     EXPECT_GT(state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y, 0.0f);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
-}
-
-TEST_F(ReducerTest, PaneScrollbarDragMoved_NotDragging_NoOp)
-{
-    state.view.drag = { .kind = LeftDrag::Splitter };
-    auto effects = Reduce(state, PaneScrollbarDragMovedAction{ 200.0f });
-    EXPECT_TRUE(effects.empty());
-}
-
-TEST_F(ReducerTest, PaneScrollbarDragEnded_TocOrFile_Releases)
-{
-    state.view.drag = { .kind = LeftDrag::PaneScrollbar, .pane = PaneTarget::Toc };
-
-    auto effects = Reduce(state, LeftDragEndedAction{});
-
-    EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
-    EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
 }
 
 // ---- TextSelection* テスト ----
@@ -1324,14 +1238,6 @@ TEST_F(ReducerTest, TextSelectionStarted_NoHit_DoesNotStartDrag)
     EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
 }
 
-TEST_F(ReducerTest, TextSelectionMoved_NotDragging_NoOp)
-{
-    state.document.doc = Document::FromMarkdown(std::string("Hello"), L"test.md");
-    auto effects = Reduce(state, TextSelectionMovedAction{ 0, 3u });
-    EXPECT_FALSE(state.view.viewport.GetSelection().active());
-    EXPECT_TRUE(effects.empty());
-}
-
 TEST_F(ReducerTest, TextSelectionMoved_DraggingWithHit_UpdatesSelection)
 {
     state.document.doc = Document::FromMarkdown(std::string("Hello world"), L"test.md");
@@ -1358,12 +1264,6 @@ TEST_F(ReducerTest, TextSelectionMoved_NoHit_NoUpdate)
     EXPECT_TRUE(effects.empty());
 }
 
-TEST_F(ReducerTest, TextSelectionEnded_NotDragging_NoOp)
-{
-    auto effects = Reduce(state, TextSelectionEndedAction{ 0, 3u });
-    EXPECT_TRUE(effects.empty());
-}
-
 TEST_F(ReducerTest, TextSelectionEnded_WithHit_FinalizesSelection)
 {
     state.document.doc = Document::FromMarkdown(std::string("Hello world"), L"test.md");
@@ -1382,7 +1282,6 @@ TEST_F(ReducerTest, TextSelectionEnded_WithHit_FinalizesSelection)
 TEST_F(ReducerTest, TextSelectionEnded_NoHit_ClearsDraggingOnly)
 {
     state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = 0, .select_pos = 2u };
-    // 事前選択なし
     auto effects = Reduce(state, TextSelectionEndedAction{ -1, 0u });
 
     EXPECT_NE(state.view.drag.kind, LeftDrag::TextSelect);
@@ -1455,7 +1354,6 @@ TEST_F(ReducerTest, RightClickGestureCompleted_Pressed_ShowsContextMenu)
 
 TEST_F(ReducerTest, RightClickGestureCompleted_TrackingLeft_NavigatesBack)
 {
-    // 戻り先履歴を用意
     state.document.doc = Document::FromMarkdown(std::string("test"), L"C:\\current.md");
     state.view.nav_history.Push(NavEntry{ L"C:\\prev.md", 0, 0.0f });
 
@@ -1655,19 +1553,12 @@ namespace {
 // 見出し 30 件の文書を、目次ペインがあふれる大きさで表示する。最初の描画の同期を済ませた状態を返す。
 void SetupTocFollow(AppState& state)
 {
-    std::string md;
-    for (int i = 0; i < 30; ++i) {
-        md += std::format("# Heading {}\n\n", i);
-        for (int k = 0; k < 20; ++k) {
-            md += "line\n\n";
-        }
-    }
     state.view.panes.SetSidePaneVisible(PaneTarget::Toc, true);
     PaneLayout pl{};
     pl.md_rect = { 400.0f, 0.0f, 800.0f, 400.0f };
     pl.toc_rect = { 0.0f, 0.0f, 200.0f, 300.0f };
     state.pane_layout_cache.Set(pl);
-    SetDocument(state, md, L"C:\\file.md", 400.0f);
+    SetDocument(state, HeadingSectionsMd(30, 20), L"C:\\file.md", 400.0f);
     SyncActiveTocIndex(state);
 }
 
@@ -1770,7 +1661,7 @@ TEST_F(ReducerTest, DocumentOpened_HasPendingRestore_SetsScrollTarget)
     // ApplyScrollTarget 後は scroll_target が消費される実装になり得るため
     // ScrollY 側で検証する (cache.Top(1) + offset)。
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 107.0f);
-    EXPECT_FALSE(state.view.pending_restore.IsValid()); // 消費される
+    EXPECT_FALSE(state.view.pending_restore.IsValid());
 }
 
 TEST_F(ReducerTest, DocumentOpened_NoRestoreInfo_ScrollsToTop)
@@ -2065,7 +1956,6 @@ TEST_F(ReducerTest, ZoomIn_PreservesScrollAnchorOnVisibleNode)
 
     Reduce(state, ZoomAction{ ZoomDirection::In });
 
-    // ZoomIn 後、可視先頭ノードが scroll_target として保存されている
     ASSERT_TRUE(state.view.viewport.HasScrollTarget());
     EXPECT_EQ(state.view.viewport.GetScrollTarget().node, pre.node);
 }

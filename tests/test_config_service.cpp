@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 #include "config_service.h"
+#include "example_files.h"
 #include "test_helpers.h"
 #include <filesystem>
-#include <fstream>
 #include <string>
 
 class ConfigServiceTest : public TempDirTestBase {
@@ -138,9 +138,7 @@ TEST_F(ConfigServiceTest, FlushSkipsWriteWhenUnchanged)
     config_.SaveInt("Window", "X", 42);
     config_.Flush();
 
-    std::ifstream ifs(path, std::ios::binary);
-    const std::string content{ std::istreambuf_iterator<char>(ifs), {} };
-    EXPECT_EQ(content, original);
+    EXPECT_EQ(ReadFileBytes(path), original);
 }
 
 TEST_F(ConfigServiceTest, FlushWithoutAnySaveCreatesNoFile)

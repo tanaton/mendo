@@ -30,6 +30,11 @@ bool IsEditableTextFile(std::wstring_view path)
     return path_util::IsMarkdownFile(path) || ascii_util::iequal(path_util::ExtensionView(path), L".txt");
 }
 
+KeyDownEvent CurrentKeyDownEvent(WPARAM key) noexcept
+{
+    return { static_cast<int>(key), IsKeyDown(VK_CONTROL), IsKeyDown(VK_SHIFT), IsKeyDown(VK_MENU) };
+}
+
 // ズームの対象。ペインの指定が無ければ本文 (スプリッタの上も本文)。
 ZoomLevel& ZoomOf(AppState& state, std::optional<PaneTarget> pane) noexcept
 {
@@ -379,15 +384,23 @@ void App::OnFileListed()
     Invalidate();
 }
 
-void App::OnKeyDown(WPARAM key)
+bool App::OnKeyDown(WPARAM key)
 {
-    const KeyDownEvent event{
-        static_cast<int>(key),
-        IsKeyDown(VK_CONTROL),
-        IsKeyDown(VK_SHIFT),
-        IsKeyDown(VK_MENU)
-    };
-    Dispatch(app_controller::HandleKeyDown(event));
+    return DispatchKeyAction(app_controller::HandleKeyDown(CurrentKeyDownEvent(key)));
+}
+
+bool App::OnSearchEditKeyDown(WPARAM key)
+{
+    return DispatchKeyAction(app_controller::HandleSearchEditKeyDown(CurrentKeyDownEvent(key)));
+}
+
+bool App::DispatchKeyAction(const AppAction& action)
+{
+    if (std::holds_alternative<NoOpAction>(action)) {
+        return false;
+    }
+    Dispatch(action);
+    return true;
 }
 
 void App::Dispatch(const AppAction& action)
@@ -1475,7 +1488,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
         .can_go_back = state_.view.nav_history.CanGoBack(),
         .can_go_forward = state_.view.nav_history.CanGoForward(),
         // ヘルプは埋め込みリソースで、エディタで開くファイルが無い。
-        .has_file = state_.document.doc.HasBackingFile(),
+        .can_edit_file = state_.document.doc.HasBackingFile() && IsEditableTextFile(state_.document.doc.GetFilePath()),
         .has_selection = selection.active() && selection.start_node >= 0,
         .dark_mode_checked = theme_service_.IsDarkMode(),
         .file_pane_checked = panes.IsSidePaneVisible(PaneTarget::File),
@@ -1493,6 +1506,7 @@ void App::OnContextMenu(int screen_x, int screen_y)
         Dispatch(NavigateForwardAction{});
         break;
     case IDM_EDIT_FILE: {
+        // メニューを開いている間もメッセージは回り、文書が差し替わりうるので確かめ直す。
         const auto& file_path = state_.document.doc.GetFilePath();
         if (IsEditableTextFile(file_path)) {
             ShellOpenAsync(file_path);

@@ -57,6 +57,17 @@ std::string ReadOrSkip(benchmark::State& state, std::string_view path)
     return bytes;
 }
 
+// 最初の表ノード。無ければベンチをスキップにして null を返す。
+const Node* FirstTableOrSkip(benchmark::State& state, const Document& doc)
+{
+    const auto& tables = doc.GetTableNodeIndices();
+    if (tables.empty()) {
+        state.SkipWithError("table not parsed");
+        return nullptr;
+    }
+    return &doc.GetNodes()[tables.front()];
+}
+
 // example/test.md を copies 回、かつ min_bytes 以上になるまでつなげる。
 std::string RepeatTestMd(benchmark::State& state, size_t copies, size_t min_bytes = 0, std::string_view separator = {})
 {
@@ -752,9 +763,8 @@ void BM_TableSelectionHitTest(benchmark::State& state)
         std::format_to(std::back_inserter(md), "| 項目{0} | 状態{0} | 説明のテキスト {0} を少し長めに書く | {0} | {0}00 | 備考{0} |\n", r);
     }
     const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
-    const auto it = std::ranges::find(doc.GetNodes(), NodeType::Table, &Node::type);
-    if (it == doc.GetNodes().end()) {
-        state.SkipWithError("table not parsed");
+    const Node* table_node = FirstTableOrSkip(state, doc);
+    if (!table_node) {
         return;
     }
     DWriteLayout l(0);
@@ -762,9 +772,9 @@ void BM_TableSelectionHitTest(benchmark::State& state)
         return;
     }
     NodeLayoutEntry entry;
-    l.measurer.MeasureNode(*it, entry, 1200.0f, YRange::All());
+    l.measurer.MeasureNode(*table_node, entry, 1200.0f, YRange::All());
     const auto& tl = *entry.table_layout();
-    const auto& table = *it->table_data();
+    const auto& table = *table_node->table_data();
     std::vector<DWRITE_HIT_TEST_METRICS> buffer;
     for (auto _ : state) {
         for (size_t r = 0; r < table.row_count; ++r) {
@@ -802,14 +812,11 @@ public:
     void SetUp(benchmark::State& state) override
     {
         doc_.emplace(MakeBenchTableDoc());
-        const auto& nodes = doc_->GetNodes();
-        const auto it = std::ranges::find(nodes, NodeType::Table, &Node::type);
+        table_ = FirstTableOrSkip(state, *doc_);
         layout_.emplace(8);
-        if (it == nodes.end()) {
-            state.SkipWithError("table not parsed");
+        if (!table_) {
             return;
         }
-        table_ = &*it;
         layout_->SkipIfFailed(state);
     }
     void TearDown(benchmark::State&) override
@@ -903,9 +910,8 @@ void BM_TableResizeFastPath(benchmark::State& state)
         std::format_to(std::back_inserter(md), "| r{} | value {} | 東京都 | x | 12.5 |\n", i, i * 7);
     }
     const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
-    const auto it = std::ranges::find(doc.GetNodes(), NodeType::Table, &Node::type);
-    if (it == doc.GetNodes().end()) {
-        state.SkipWithError("table not parsed");
+    const Node* table_node = FirstTableOrSkip(state, doc);
+    if (!table_node) {
         return;
     }
     DWriteLayout l(0);
@@ -913,11 +919,11 @@ void BM_TableResizeFastPath(benchmark::State& state)
         return;
     }
     NodeLayoutEntry entry;
-    l.measurer.MeasureNode(*it, entry, 760.0f, YRange::All());
+    l.measurer.MeasureNode(*table_node, entry, 760.0f, YRange::All());
     constexpr std::array kWidths{ 700.0f, 760.0f };
     size_t k = 0;
     for (auto _ : state) {
-        state.SetIterationTime(SecondsOf([&] { l.measurer.MeasureNode(*it, entry, kWidths[k++ % kWidths.size()], YRange::All()); }));
+        state.SetIterationTime(SecondsOf([&] { l.measurer.MeasureNode(*table_node, entry, kWidths[k++ % kWidths.size()], YRange::All()); }));
     }
 }
 BENCHMARK(BM_TableResizeFastPath)->UseManualTime()->Iterations(10)->Unit(benchmark::kMillisecond);

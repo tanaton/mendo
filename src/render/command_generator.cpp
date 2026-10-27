@@ -1266,7 +1266,6 @@ void CommandGenerator::GenTable(const Node& node, const NodeLayoutEntry& entry,
     const float border = TABLE_BORDER_WIDTH;
     const auto& tl = *tl_ptr;
     const auto row_count = tbl->row_count;
-    const auto col_count = static_cast<size_t>(tbl->col_count);
 
     const float table_width = tl.TableWidth();
     // 横スクロール時は画面に映る範囲が h_scroll_x だけ右にずれる。
@@ -1282,11 +1281,7 @@ void CommandGenerator::GenTable(const Node& node, const NodeLayoutEntry& entry,
     const auto [r_begin, r_end] = tl.VisibleRowRange(local_visible.top, local_visible.bottom);
     float y = entry_text_top + tl.row_cum_y[r_begin];
 
-    // x は列順に単調なので、可視列は連続した区間 [c_begin, c_end) になる。
-    const auto cum_begin = tl.col_cum_x.begin();
-    const auto cum_cols_end = cum_begin + static_cast<ptrdiff_t>(col_count);
-    const size_t c_begin = static_cast<size_t>(std::lower_bound(cum_begin + 1, cum_cols_end + 1, cull_left - offset_x + border) - (cum_begin + 1));
-    const size_t c_end = static_cast<size_t>(std::upper_bound(cum_begin + static_cast<ptrdiff_t>(c_begin), cum_cols_end, cull_right - offset_x + border) - cum_begin);
+    const auto [c_begin, c_end] = tl.VisibleColRange(cull_left - offset_x + border, cull_right - offset_x + border);
 
     const auto search_nm = PrepareNodeSearchMatches(entry, node_index);
 

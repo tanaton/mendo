@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "ascii_util.h"
 #include "document.h"
 #include "document_test_helpers.h"
 #include "document_utils.h"
@@ -8,7 +9,6 @@
 #include "parser.h"
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <format>
 #include <map>
 #include <numeric>
@@ -78,11 +78,11 @@ std::map<std::string, WordKind> CollectWords(const std::vector<Node>& nodes)
     for (const auto& node : nodes) {
         const auto text = node.GetText();
         for (size_t i = 0; i < text.size(); ++i) {
-            if (text[i] != 'w' || (i > 0 && std::isalnum(static_cast<unsigned char>(text[i - 1])))) {
+            if (text[i] != 'w' || (i > 0 && ascii_util::IsAsciiAlnum(text[i - 1]))) {
                 continue;
             }
             size_t j = i + 1;
-            while (j < text.size() && std::isdigit(static_cast<unsigned char>(text[j]))) {
+            while (j < text.size() && ascii_util::IsAsciiDigit(text[j])) {
                 ++j;
             }
             if (j > i + 1) {

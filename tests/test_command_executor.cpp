@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
+#include "d2d_util.h"
 #include "draw_command.h"
 #include "test_helpers.h"
+#include "wic_util.h"
 #include <d2d1.h>
 #include <dwrite.h>
 #include <wincodec.h>
@@ -21,11 +23,8 @@ protected:
         ASSERT_HRESULT_SUCCEEDED(D2D1CreateFactory(
             D2D1_FACTORY_TYPE_SINGLE_THREADED,
             IID_PPV_ARGS(&d2d_factory_)));
-        ASSERT_HRESULT_SUCCEEDED(CoCreateInstance(
-            CLSID_WICImagingFactory,
-            nullptr,
-            CLSCTX_INPROC_SERVER,
-            IID_PPV_ARGS(&wic_factory_)));
+        wic_factory_ = wic_util::CreateWicFactory("CommandExecutorIntegrationTest");
+        ASSERT_NE(wic_factory_, nullptr);
 
         ASSERT_HRESULT_SUCCEEDED(CreateRenderTarget(rt_));
     }
@@ -88,8 +87,8 @@ protected:
         if (!dw_factory_) {
             EXPECT_HRESULT_SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), &dw_factory_));
         }
-        ComPtr<IDWriteTextFormat> fmt;
-        EXPECT_HRESULT_SUCCEEDED(dw_factory_->CreateTextFormat(family, nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 12.0f, locale, &fmt));
+        const auto fmt = CreateTextFormat(dw_factory_.Get(), { .family = family, .size = 12.0f, .locale = locale });
+        EXPECT_NE(fmt, nullptr);
         ComPtr<IDWriteTextLayout> layout;
         EXPECT_HRESULT_SUCCEEDED(dw_factory_->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), fmt.Get(), max_w, max_h, &layout));
         return layout;

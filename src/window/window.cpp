@@ -583,9 +583,8 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_SYSKEYDOWN:
-        // Alt+←/→ は WM_KEYDOWN ではなくこちらで届く。他は Alt+F4 等のシステム処理に回す。
-        if (wParam == VK_LEFT || wParam == VK_RIGHT) {
-            app_->OnKeyDown(wParam);
+        // Alt+←/→ は WM_KEYDOWN ではなくこちらで届く。割り当ての無いキーは Alt+F4 等のシステム処理に回す。
+        if (app_->OnKeyDown(wParam)) {
             return 0;
         }
         return DefWindowProcW(hwnd_, msg, wParam, lParam);
@@ -788,7 +787,8 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
         break;
 
     case WM_KEYDOWN:
-        return self->OnSearchEditKeyDown(hwnd, wParam, lParam);
+    case WM_SYSKEYDOWN: // Alt+←/→
+        return self->OnSearchEditKeyDown(hwnd, msg, wParam, lParam);
 
     case WM_IME_STARTCOMPOSITION:
         // 開いた後のペインの開閉やスプリッタのドラッグで入力欄は動くので、変換を始めるたびに置き直す。
@@ -816,54 +816,14 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
-LRESULT Win32Window::OnSearchEditKeyDown(HWND edit, WPARAM wParam, LPARAM lParam)
+LRESULT Win32Window::OnSearchEditKeyDown(HWND edit, UINT msg, WPARAM wParam, LPARAM lParam)
 {
-    const bool ctrl = IsKeyDown(VK_CONTROL);
-    // フォーカスは閉じる副作用 (UnfocusSearch) が本体へ戻す。
-    const auto close = [this] {
-        app_->Dispatch(CloseSearchBarAction{});
+    // 検索欄を閉じたときのフォーカスは、閉じる副作用 (UnfocusSearch) が本体へ戻す。
+    if (app_->OnSearchEditKeyDown(wParam)) {
         return 0;
-    };
-    const auto step = [this] {
-        if (IsKeyDown(VK_SHIFT)) {
-            app_->Dispatch(SearchPrevAction{});
-        }
-        else {
-            app_->Dispatch(SearchNextAction{});
-        }
-        return 0;
-    };
-
-    switch (wParam) {
-    case VK_ESCAPE:
-        return close();
-    case VK_RETURN:
-    case VK_F3:
-        return step();
-    case 'F':
-        if (ctrl) {
-            return close();
-        }
-        break;
-    case 'G':
-        if (ctrl) {
-            return step();
-        }
-        break;
-    case 'A':
-        if (ctrl) {
-            // EDIT 内の全選択に留め、メインウィンドウに伝播させない
-            SendMessageW(edit, EM_SETSEL, 0, -1);
-            SyncSearchCaretFromEdit();
-            return 0;
-        }
-        break;
-    default:
-        break;
     }
-
+    const LRESULT result = DefSubclassProc(edit, msg, wParam, lParam);
     // キャレットは D2D 側で描くので、EDIT が動かしたキャレット位置を描画用の状態へ写す。
-    const LRESULT result = DefSubclassProc(edit, WM_KEYDOWN, wParam, lParam);
     SyncSearchCaretFromEdit();
     return result;
 }

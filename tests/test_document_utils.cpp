@@ -4,6 +4,7 @@
 #include <iterator>
 #include <limits>
 #include <random>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -21,6 +22,7 @@
 #include "theme_palette.h"
 #include "utf8_fuzz_helpers.h"
 #include "test_nodes.h"
+#include "viewport_manager.h"
 
 using layout::CalcScrollYForDiff;
 
@@ -28,8 +30,9 @@ namespace {
 
 TextSelection SelectAll(const std::vector<Node>& nodes)
 {
-    const int last = static_cast<int>(nodes.size()) - 1;
-    return TextSelection::MakeOrdered(0, 0, last, static_cast<uint32_t>(nodes[last].GetText().size()));
+    ViewportManager viewport;
+    viewport.SelectAll(nodes);
+    return viewport.GetSelection();
 }
 
 std::string CopyAllAsHtml(std::string_view md, bool dark_mode = false)
@@ -1208,59 +1211,50 @@ TEST(AnalyzeReloadDiff, ClassifiesEdit)
 // FindNodeBySourceOffset
 // ============================================================
 
-TEST(FindNodeBySourceOffset, EmptyNodes)
+namespace {
+
+// offsets[i] をノード i の source_offset にする。kUnsetSourceOffset のノードは未設定のまま残す。
+std::vector<Node> NodesAt(std::initializer_list<size_t> offsets)
 {
-    std::vector<Node> nodes;
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 0), -1);
+    std::vector<Node> nodes(offsets.size());
+    for (const auto [node, offset] : std::views::zip(nodes, offsets)) {
+        if (offset != kUnsetSourceOffset) {
+            node.SetSourceOffset(offset);
+        }
+    }
+    return nodes;
 }
 
-TEST(FindNodeBySourceOffset, SingleNode)
-{
-    std::vector<Node> nodes(1);
-    nodes[0].SetSourceOffset(0);
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 0), 0);
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 100), 0);
-}
+} // namespace
 
-TEST(FindNodeBySourceOffset, OffsetBeforeAllNodes)
+TEST(FindNodeBySourceOffset, HandBuiltNodes)
 {
-    std::vector<Node> nodes(2);
-    nodes[0].SetSourceOffset(10);
-    nodes[1].SetSourceOffset(20);
-    // diff_offset=5 は最初のノード(offset=10)よりも前 → 該当なし
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 5), -1);
-}
-
-TEST(FindNodeBySourceOffset, ExactMatch)
-{
-    std::vector<Node> nodes(3);
-    nodes[0].SetSourceOffset(0);
-    nodes[1].SetSourceOffset(10);
-    nodes[2].SetSourceOffset(25);
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 10), 1);
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 25), 2);
-}
-
-TEST(FindNodeBySourceOffset, BetweenNodes)
-{
-    std::vector<Node> nodes(3);
-    nodes[0].SetSourceOffset(0);
-    nodes[1].SetSourceOffset(10);
-    nodes[2].SetSourceOffset(25);
-    // offset=15 はノード1(10)とノード2(25)の間 → ノード1を返す
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 15), 1);
-}
-
-TEST(FindNodeBySourceOffset, SkipsUnsetOffsets)
-{
-    std::vector<Node> nodes(3);
-    nodes[0].SetSourceOffset(0);
-    // nodes[1] は SetSourceOffset を呼ばないため未設定
-    nodes[2].SetSourceOffset(20);
-    // 未設定値は常に diff_offset 以上にならない（kUnsetSourceOffset <= diff_offset は通常 false）
-    // → ノード0を返す
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 10), 0);
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 20), 2);
+    constexpr size_t kUnset = kUnsetSourceOffset;
+    struct Case {
+        const char* name;
+        std::vector<Node> nodes;
+        size_t diff_offset;
+        int expected;
+    };
+    const Case cases[] = {
+        {"EmptyNodes", NodesAt({}), 0, -1},
+        {"SingleNode", NodesAt({0}), 0, 0},
+        {"SingleNodeLargeOffset", NodesAt({0}), 100, 0},
+        {"OffsetBeforeAllNodes", NodesAt({10, 20}), 5, -1},
+        {"ExactMatch1", NodesAt({0, 10, 25}), 10, 1},
+        {"ExactMatch2", NodesAt({0, 10, 25}), 25, 2},
+        {"BetweenNodes", NodesAt({0, 10, 25}), 15, 1},
+        // 未設定のノードは diff_offset 以下とみなさず飛ばす
+        {"SkipsUnsetBetween", NodesAt({0, kUnset, 20}), 10, 0},
+        {"SkipsUnsetExact", NodesAt({0, kUnset, 20}), 20, 2},
+        // ソース末尾を超えるオフセットは最後のノード
+        {"LastNodeForLargeOffset", NodesAt({0, 100, 200}), 999, 2},
+        {"AllUnsetOffsets", NodesAt({kUnset, kUnset, kUnset}), 50, -1},
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.name);
+        EXPECT_EQ(FindNodeBySourceOffset(c.nodes, c.diff_offset), c.expected);
+    }
 }
 
 TEST(FindNodeBySourceOffset, ParsedMarkdown)
@@ -1276,24 +1270,6 @@ TEST(FindNodeBySourceOffset, ParsedMarkdown)
     EXPECT_EQ(nodes[0].SourceOffset(), 2u);
     // "Paragraph" は "# Title\n\n" = 9バイト目から
     EXPECT_EQ(nodes[1].SourceOffset(), 9u);
-}
-
-TEST(FindNodeBySourceOffset, LastNodeForLargeOffset)
-{
-    std::vector<Node> nodes(3);
-    nodes[0].SetSourceOffset(0);
-    nodes[1].SetSourceOffset(100);
-    nodes[2].SetSourceOffset(200);
-    // ソース末尾を超えるオフセット → 最後のノードを返す
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 999), 2);
-}
-
-TEST(FindNodeBySourceOffset, AllUnsetOffsets)
-{
-    // 全ノードが未設定（テキストなし）→ 該当なし
-    std::vector<Node> nodes(3);
-    // 何も設定しないため未設定
-    EXPECT_EQ(FindNodeBySourceOffset(nodes, 50), -1);
 }
 
 TEST(FindNodeBySourceOffset, MixedWithHorizontalRules)
@@ -1317,174 +1293,112 @@ TEST(FindNodeBySourceOffset, MixedWithHorizontalRules)
 // 統合テスト: diff検出 → ノード特定
 // ============================================================
 
-// ヘルパー: old→new の編集をシミュレートし、変更箇所のノードを特定する。
-static int SimulateEditAndFindNode(std::string_view old_md, std::string_view new_md)
+namespace {
+
+struct EditedNode {
+    std::vector<Node> nodes; // new_md のパース結果
+    int index;               // 変更箇所のノード。差分なしなら -1
+};
+
+// old→new の編集で変更箇所のノードを特定する。
+EditedNode SimulateEditAndFindNode(std::string_view old_md, std::string_view new_md)
 {
-    size_t diff_pos = FindFirstDifference(old_md, new_md);
+    const size_t diff_pos = FindFirstDifference(old_md, new_md);
     if (diff_pos == std::string_view::npos) {
-        return -1;
+        return {{}, -1};
     }
     auto nodes = ParseNodes(new_md);
-    if (nodes.empty()) {
-        return -1;
+    const int index = FindNodeBySourceOffset(nodes, diff_pos);
+    return {std::move(nodes), index};
+}
+
+} // namespace
+
+TEST(DiffToNode, FindsEditedNodeIndex)
+{
+    struct Case {
+        const char* old_md;
+        const char* new_md;
+        int expected;
+    };
+    const Case cases[] = {
+        {"First\n\nSecond\n\nThird", "First\n\nModified\n\nThird", 1},
+        {"Hello\n\nWorld", "Changed\n\nWorld", 0},
+        {"First\n\nSecond\n\nThird", "First\n\nSecond\n\nChanged", 2},
+        {"# Old Title\n\nBody", "# New Title\n\nBody", 0},
+        {"# はじめに\n\n旧テキスト\n\nおわり", "# はじめに\n\n新テキスト\n\nおわり", 1},
+        {"Same content", "Same content", -1},
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.new_md);
+        EXPECT_EQ(SimulateEditAndFindNode(c.old_md, c.new_md).index, c.expected);
     }
-    return FindNodeBySourceOffset(nodes, diff_pos);
 }
 
-TEST(DiffToNode, EditMiddleParagraph)
+TEST(DiffToNode, EditedNodeHasExpectedText)
 {
-    // 2番目の段落を編集
-    std::string old_md = "First\n\nSecond\n\nThird";
-    std::string new_md = "First\n\nModified\n\nThird";
-    int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseNodes(new_md);
-    EXPECT_EQ(node, 1); // 2番目の段落
-    EXPECT_EQ(nodes[node].GetText(), "Modified");
-}
-
-TEST(DiffToNode, EditFirstParagraph)
-{
-    std::string old_md = "Hello\n\nWorld";
-    std::string new_md = "Changed\n\nWorld";
-    int node = SimulateEditAndFindNode(old_md, new_md);
-    EXPECT_EQ(node, 0);
-}
-
-TEST(DiffToNode, EditLastParagraph)
-{
-    std::string old_md = "First\n\nSecond\n\nThird";
-    std::string new_md = "First\n\nSecond\n\nChanged";
-    int node = SimulateEditAndFindNode(old_md, new_md);
-    EXPECT_EQ(node, 2); // 最後の段落
-}
-
-TEST(DiffToNode, InsertNewParagraph)
-{
-    // 段落を挿入
-    std::string old_md = "Before\n\nAfter";
-    std::string new_md = "Before\n\nInserted\n\nAfter";
-    int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseNodes(new_md);
-    ASSERT_GE(node, 0);
-    // 挿入位置のノード（"Inserted" または "Before"の次）
-    EXPECT_EQ(nodes[node].GetText(), "Inserted");
-}
-
-TEST(DiffToNode, DeleteParagraph)
-{
-    // 段落を削除
-    std::string old_md = "First\n\nRemoveMe\n\nLast";
-    std::string new_md = "First\n\nLast";
-    int node = SimulateEditAndFindNode(old_md, new_md);
-    ASSERT_GE(node, 0);
-    // diff_pos=7（"RemoveMe" vs "Last"の開始位置）→ "Last"(offset=7)か"First"
-    EXPECT_LE(node, 1); // "First" or "Last"
-}
-
-TEST(DiffToNode, AppendToEnd)
-{
-    std::string old_md = "Existing";
-    std::string new_md = "Existing\n\nAppended";
-    int node = SimulateEditAndFindNode(old_md, new_md);
-    ASSERT_GE(node, 0);
-    // diff_pos=8（old の末尾）→ "Existing"(offset=0)を返す
-    // "Appended" の offset=10 > 8 なので "Existing" がマッチ
-    EXPECT_LE(node, 1);
-}
-
-TEST(DiffToNode, EditInCodeBlock)
-{
-    // コードブロック内の編集
-    std::string old_md = "text\n\n```\nold code\n```\n\nend";
-    std::string new_md = "text\n\n```\nnew code\n```\n\nend";
-    int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseNodes(new_md);
-    ASSERT_GE(node, 0);
-    EXPECT_EQ(nodes[node].type, NodeType::CodeBlock);
-}
-
-TEST(DiffToNode, EditInListItem)
-{
-    // リストアイテムの編集
-    std::string old_md = "- first\n- second\n- third";
-    std::string new_md = "- first\n- changed\n- third";
-    int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseNodes(new_md);
-    ASSERT_GE(node, 0);
-    EXPECT_EQ(nodes[node].GetText(), "changed");
-}
-
-TEST(DiffToNode, EditHeading)
-{
-    // 見出しテキストの編集
-    std::string old_md = "# Old Title\n\nBody";
-    std::string new_md = "# New Title\n\nBody";
-    int node = SimulateEditAndFindNode(old_md, new_md);
-    EXPECT_EQ(node, 0); // 見出しノード
-}
-
-TEST(DiffToNode, NoChange)
-{
-    std::string md = "Same content";
-    EXPECT_EQ(SimulateEditAndFindNode(md, md), -1);
-}
-
-TEST(DiffToNode, EditInBlockQuote)
-{
-    std::string old_md = "normal\n\n> old quote\n\nafter";
-    std::string new_md = "normal\n\n> new quote\n\nafter";
-    int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseNodes(new_md);
-    ASSERT_GE(node, 0);
-    EXPECT_EQ(nodes[node].type, NodeType::BlockQuote);
-}
-
-TEST(DiffToNode, EditWithJapanese)
-{
-    // 日本語テキストの編集
-    std::string old_md = "# はじめに\n\n旧テキスト\n\nおわり";
-    std::string new_md = "# はじめに\n\n新テキスト\n\nおわり";
-    int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseNodes(new_md);
-    ASSERT_GE(node, 0);
-    // "# はじめに\n\n" = 2 + 15 + 2 = 19バイト
-    // diff_pos は "新" vs "旧" の位置
-    EXPECT_EQ(node, 1); // 2番目の段落
-}
-
-TEST(DiffToNode, EditInTable)
-{
-    std::string old_md =
-        "| A | B |\n"
-        "|---|---|\n"
-        "| 1 | 2 |";
-    std::string new_md =
-        "| A | B |\n"
-        "|---|---|\n"
-        "| X | 2 |";
-    int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseNodes(new_md);
-    ASSERT_GE(node, 0);
-    EXPECT_EQ(nodes[node].type, NodeType::Table);
-}
-
-TEST(DiffToNode, LargeDocumentMiddleEdit)
-{
-    // 多数のノードを持つ文書の中間を編集
-    std::string old_md, new_md;
-    for (int i = 0; i < 100; ++i) {
-        old_md += "Paragraph " + std::to_string(i) + "\n\n";
-        if (i == 50) {
-            new_md += "CHANGED paragraph 50\n\n";
-        }
-        else {
-            new_md += "Paragraph " + std::to_string(i) + "\n\n";
-        }
+    const std::string large_old = MakeParagraphs(100);
+    std::string large_new = large_old;
+    const std::string_view target = "Paragraph 50\n\n";
+    large_new.replace(large_new.find(target), target.size() - 2, "CHANGED paragraph 50");
+    struct Case {
+        std::string_view old_md;
+        std::string_view new_md;
+        std::string_view expected;
+    };
+    const Case cases[] = {
+        {"First\n\nSecond\n\nThird", "First\n\nModified\n\nThird", "Modified"},
+        {"Before\n\nAfter", "Before\n\nInserted\n\nAfter", "Inserted"},
+        {"- first\n- second\n- third", "- first\n- changed\n- third", "changed"},
+        {large_old, large_new, "CHANGED paragraph 50"},
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.expected);
+        const auto edited = SimulateEditAndFindNode(c.old_md, c.new_md);
+        ASSERT_GE(edited.index, 0);
+        EXPECT_EQ(edited.nodes[edited.index].GetText(), c.expected);
     }
-    int node = SimulateEditAndFindNode(old_md, new_md);
-    auto nodes = ParseNodes(new_md);
-    ASSERT_GE(node, 0);
-    EXPECT_EQ(nodes[node].GetText(), "CHANGED paragraph 50");
+}
+
+TEST(DiffToNode, EditedNodeHasExpectedType)
+{
+    struct Case {
+        const char* old_md;
+        const char* new_md;
+        NodeType expected;
+    };
+    const Case cases[] = {
+        {"text\n\n```\nold code\n```\n\nend", "text\n\n```\nnew code\n```\n\nend", NodeType::CodeBlock},
+        {"normal\n\n> old quote\n\nafter", "normal\n\n> new quote\n\nafter", NodeType::BlockQuote},
+        {"| A | B |\n|---|---|\n| 1 | 2 |", "| A | B |\n|---|---|\n| X | 2 |", NodeType::Table},
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.new_md);
+        const auto edited = SimulateEditAndFindNode(c.old_md, c.new_md);
+        ASSERT_GE(edited.index, 0);
+        EXPECT_EQ(edited.nodes[edited.index].type, c.expected);
+    }
+}
+
+// 差分の位置が段落の境目に落ちると、前後どちらの段落を返してもよい。
+TEST(DiffToNode, EditAtParagraphBoundary)
+{
+    struct Case {
+        const char* old_md;
+        const char* new_md;
+    };
+    const Case cases[] = {
+        // diff_pos=7 は "RemoveMe" と "Last" の開始位置
+        {"First\n\nRemoveMe\n\nLast", "First\n\nLast"},
+        // diff_pos=8 は old の末尾で、"Appended" (offset=10) より前
+        {"Existing", "Existing\n\nAppended"},
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.new_md);
+        const int index = SimulateEditAndFindNode(c.old_md, c.new_md).index;
+        ASSERT_GE(index, 0);
+        EXPECT_LE(index, 1);
+    }
 }
 
 // ============================================================

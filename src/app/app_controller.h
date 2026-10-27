@@ -14,6 +14,10 @@ namespace app_controller {
 
 AppAction HandleKeyDown(const KeyDownEvent& event);
 
+// 検索欄にフォーカスがあるときのキー。NoOpAction なら入力欄 (EDIT) に処理させる。
+// 検索欄は開いている間フォーカスを持ち続けるので、入力欄が編集に使うキーだけ欄に任せ、それ以外は本体と同じ割り当てにする。
+AppAction HandleSearchEditKeyDown(const KeyDownEvent& event);
+
 MdPaneHitContext MakeMdPaneHitContext(const AppState& state, const PaneLayout& layout, int px, int py) noexcept;
 std::optional<LinkHit> LinkAtHit(const AppState& state, const hit_test::HitResult& hit);
 bool IsOverMdScrollbar(const AppState& state, const PaneLayout& layout, float dip_x, float dip_y) noexcept;
