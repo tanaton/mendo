@@ -135,9 +135,6 @@ App::ReloadFlow App::ApplyReloadDecisionEarly(const ReloadDecision& decision, bo
             return ReloadFlow::Handled;
         }
         break;
-    case ReloadOp::DeferPartialWrite:
-        DeferReloadRetry();
-        return ReloadFlow::Handled;
     case ReloadOp::Replace:
         break;
     }
@@ -219,7 +216,7 @@ void App::OnParseComplete()
     MENDO_PROFILE("OnParseComplete");
 
     auto outcome = load_coordinator_.Take();
-    const auto plan = PlanParseComplete(outcome, load_coordinator_.IsActive(), state_.document.doc);
+    const auto plan = PlanParseComplete(outcome, state_.document.doc);
 
     if (plan.step == ParseCompleteStep::IgnoreStale) {
         MENDO_TRACE("OnParseComplete: stale message ignored (new load in progress)");
@@ -248,8 +245,7 @@ void App::OnParseComplete()
         MENDO_TRACE("OnParseComplete: no result (cancelled or load failed)");
         HandleLoadFailureFallback(plan.error);
         return;
-    case ParseCompleteStep::RetryDocumentChanged:
-    case ParseCompleteStep::RetryPartialWrite:
+    case ParseCompleteStep::Retry:
         // worker が作った推定済み LayoutCache は D2D 由来の参照を持たないので、文書ごと worker で捨てられる。
         if (result) {
             DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));

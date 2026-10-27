@@ -92,26 +92,16 @@ size_t FindFirstDifference(std::string_view old_text, std::string_view new_text)
 enum class ReloadOp : uint8_t {
     NoChange,          // 差分なし。リロード不要。
     DeferPrefixShrink, // prefix-only shrink。truncate→rewrite の前半として defer。
-    DeferPartialWrite, // 読み終えた後もファイルが伸びている (書き込み途中)。差分判定もパースもせず defer。
     Replace,           // 再パースした文書に差し替え、差分位置へスクロールする。
 };
 
 struct ReloadDecision {
     ReloadOp op;
-    size_t diff_pos; // NoChange と DeferPartialWrite のとき std::string_view::npos、それ以外は差分開始位置。
+    size_t diff_pos; // NoChange のとき std::string_view::npos、それ以外は差分開始位置。
 };
 
 // 旧/新コンテンツの UTF-8 テキストを比較し、リロード方針を決定する純粋関数。
 ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text) noexcept;
-
-// still_growing: 読み終えた後もファイルが伸びている。書き込み途中なので差分を取らずに defer する。
-inline ReloadDecision DecideReload(bool still_growing, std::string_view old_text, std::string_view new_text) noexcept
-{
-    if (still_growing) {
-        return { ReloadOp::DeferPartialWrite, std::string_view::npos };
-    }
-    return AnalyzeReloadDiff(old_text, new_text);
-}
 
 // 末尾を削っただけの保存は何度読み直しても prefix shrink になるため、defer 回数に上限を設け、
 // 超えたら縮んだ内容を確定版として受け入れる。

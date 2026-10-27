@@ -41,7 +41,6 @@ struct Case {
     // AsyncLoadCoordinator から取り出した値
     ResultKind kind = ResultKind::None;
     std::optional<FileLoadError> error;
-    bool another_load_active = false;
     // Doc
     std::wstring_view result_path = kPath;
     std::string_view result_text = kText;
@@ -125,7 +124,7 @@ TEST_P(PlanParseCompleteTest, ChoosesStep)
     Fixture f = Build(c);
     ASSERT_EQ(f.current.ShareRawText() != nullptr, !c.current_text.empty());
 
-    const auto plan = PlanParseComplete(f.outcome, c.another_load_active, f.current);
+    const auto plan = PlanParseComplete(f.outcome, f.current);
 
     EXPECT_EQ(plan.step, c.step);
     if (c.step == ParseCompleteStep::Fail) {
@@ -146,10 +145,9 @@ INSTANTIATE_TEST_SUITE_P(
     Table, PlanParseCompleteTest,
     ::testing::Values(
         // ---- 結果なし ----
-        Case{ .label = "StaleWhileAnotherLoadActive", .another_load_active = true, .step = ParseCompleteStep::IgnoreStale },
-        Case{ .label = "CancelledWithoutNewLoad", .step = ParseCompleteStep::Fail },
-        Case{ .label = "ErrorIsReportedEvenIfAnotherLoadActive", .error = FileLoadError::NotFound, .another_load_active = true,
-              .step = ParseCompleteStep::Fail },
+        // 次の読み込みで捨てた結果も、取り消した結果も、後始末は捨てた側が済ませている。
+        Case{ .label = "DroppedResultIsStale", .step = ParseCompleteStep::IgnoreStale },
+        Case{ .label = "ErrorNotFound", .error = FileLoadError::NotFound, .step = ParseCompleteStep::Fail },
         Case{ .label = "ErrorTooLarge", .error = FileLoadError::TooLarge, .step = ParseCompleteStep::Fail },
 
         // ---- worker 差分判定済みのリロード ----
@@ -162,20 +160,20 @@ INSTANTIATE_TEST_SUITE_P(
         Case{ .label = "ReloadPathCaseDiffersStillSameFile", .kind = ResultKind::Reload, .reload_op = ReloadOp::NoChange,
               .reload_path = kPathOtherCase, .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::NoChange },
         Case{ .label = "ReloadPartialWriteRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::Replace, .reload_diff_pos = 9,
-              .still_growing = true, .step = ParseCompleteStep::RetryPartialWrite },
-        // worker が書き込み途中を検出した判定も、そのまま App の Defer 処理へ渡す。
-        Case{ .label = "ReloadDeferPartialWrite", .kind = ResultKind::Reload, .reload_op = ReloadOp::DeferPartialWrite,
-              .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::DeferPartialWrite },
+              .still_growing = true, .step = ParseCompleteStep::Retry },
+        // worker が書き込み途中を検出したときは判定せずに返す (doc も空)。
+        Case{ .label = "ReloadPartialWriteWithoutDecisionRetries", .kind = ResultKind::Reload, .still_growing = true,
+              .step = ParseCompleteStep::Retry },
         Case{ .label = "ReloadBaseReplacedRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::NoChange, .base = BaseRef::Other,
-              .step = ParseCompleteStep::RetryDocumentChanged },
+              .step = ParseCompleteStep::Retry },
         Case{ .label = "ReloadBaseExpiredRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::Replace, .reload_diff_pos = 3,
-              .base = BaseRef::Expired, .step = ParseCompleteStep::RetryDocumentChanged },
+              .base = BaseRef::Expired, .step = ParseCompleteStep::Retry },
         // 同じテキストのまま別ファイルを開いた (base は一致するがパスが違う)。
         Case{ .label = "ReloadForOtherPathRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::NoChange, .reload_path = kOtherPath,
-              .step = ParseCompleteStep::RetryDocumentChanged },
+              .step = ParseCompleteStep::Retry },
         // 文書が空 (raw_text 共有なし) に差し替わった後に、旧テキストが解放済みの判定結果が届いた。
         Case{ .label = "ReloadAfterSwitchToEmptyDocRetries", .current_path = L"", .current_text = "", .kind = ResultKind::Reload,
-              .reload_op = ReloadOp::NoChange, .base = BaseRef::Expired, .step = ParseCompleteStep::RetryDocumentChanged },
+              .reload_op = ReloadOp::NoChange, .base = BaseRef::Expired, .step = ParseCompleteStep::Retry },
 
         // ---- 通常ロード結果が同一パス (UI 側で差分判定) ----
         Case{ .label = "SamePathUnchanged", .kind = ResultKind::Doc, .step = ParseCompleteStep::ApplyReload,
@@ -188,7 +186,7 @@ INSTANTIATE_TEST_SUITE_P(
               .result_text = "# Title\n\nBODY\n", .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::Replace,
               .expect_diff_pos = 9 },
         Case{ .label = "SamePathPartialWriteRetries", .kind = ResultKind::Doc, .result_text = "# Title\n\nchanged\n", .still_growing = true,
-              .step = ParseCompleteStep::RetryPartialWrite },
+              .step = ParseCompleteStep::Retry },
 
         // ---- 別ファイル ----
         Case{ .label = "OtherPathOpensNewDocumentAndFollowsPane", .kind = ResultKind::Doc, .result_path = kOtherPath,

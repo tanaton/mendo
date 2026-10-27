@@ -240,7 +240,6 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadWhileFileStillGrowingSkipsParse)
     ASSERT_TRUE(outcome->has_value());
     const auto& result = **outcome;
     ASSERT_TRUE(result.reload.has_value());
-    EXPECT_EQ(result.reload->decision.op, ReloadOp::DeferPartialWrite);
     EXPECT_TRUE(result.still_growing);
     EXPECT_EQ(result.reload->base.lock(), base);
     EXPECT_TRUE(result.doc.IsEmpty());
