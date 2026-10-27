@@ -172,7 +172,7 @@ public:
     }
     float GetTitleBarHeightDip() const noexcept
     {
-        return state_.window.titlebar.GetHeight();
+        return TitleBar::BASE_HEIGHT;
     }
     TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const noexcept
     {

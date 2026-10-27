@@ -344,7 +344,7 @@ void App::HandleLinkClick(std::string_view url)
 
 bool App::HandleTitleBarClick(float dip_x, float dip_y)
 {
-    if (dip_y >= state_.window.titlebar.GetHeight()) {
+    if (dip_y >= TitleBar::BASE_HEIGHT) {
         return false;
     }
 
@@ -746,7 +746,7 @@ void App::OnMouseHover(int px, int py)
     const auto dip = PixelToDip(px, py);
     PointerHover hover;
     HCURSOR cursor = cursors_.arrow;
-    if (dip.y < state_.window.titlebar.GetHeight()) {
+    if (dip.y < TitleBar::BASE_HEIGHT) {
         hover.titlebar = state_.window.titlebar.HitTest(dip.x, dip.y);
         const bool maximized = IsZoomed(hwnd_);
         // 最大化ボタンは状態で文言が変わるため key を分ける。

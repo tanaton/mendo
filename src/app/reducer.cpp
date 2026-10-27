@@ -63,7 +63,7 @@ const PaneLayout& EnsurePaneLayout(AppState& state) noexcept
     if (!cache.IsValid() && state.theme && state.window.client_width > 0) {
         const float width = state.window.WidthDip();
         const float height = PixelToDip(static_cast<float>(state.window.client_height), state.window.cached_dpi_scale);
-        cache.Set(state.view.panes.ComputeLayout(width, height, state.theme->splitter_width, state.window.titlebar.GetHeight()));
+        cache.Set(state.view.panes.ComputeLayout(width, height, state.theme->splitter_width, TitleBar::BASE_HEIGHT));
     }
     return cache.Get();
 }

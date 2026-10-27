@@ -4,9 +4,6 @@
 
 void TitleBar::UpdateLayout(float window_width_dip) noexcept
 {
-    const float icon_top = (BASE_HEIGHT - ICON_SIZE) / 2.0f;
-    icon_rect_ = DipRect{ ICON_LEFT_MARGIN, icon_top, ICON_LEFT_MARGIN + ICON_SIZE, icon_top + ICON_SIZE };
-
     float left = ICON_LEFT_MARGIN + ICON_SIZE + ICON_RIGHT_GAP;
     const auto take_left = [&left](float width) noexcept {
         const DipRect r{ left, 0.0f, left + width, BASE_HEIGHT };
@@ -61,7 +58,7 @@ TitleBarHitZone TitleBar::HitTest(float dip_x, float dip_y) const noexcept
         }
     }
     // アイコン領域（クリックしやすいようアイコン右のギャップまで含む）
-    if (dip_x < icon_rect_.right + ICON_RIGHT_GAP) {
+    if (dip_x < ICON_RECT.right + ICON_RIGHT_GAP) {
         return TitleBarHitZone::Icon;
     }
     return TitleBarHitZone::Caption;

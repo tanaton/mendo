@@ -45,15 +45,6 @@ protected:
 };
 
 // ═══════════════════════════════════════════════
-// 基本定数
-// ═══════════════════════════════════════════════
-
-TEST_F(TitleBarTest, HeightIsBaseHeight)
-{
-    EXPECT_FLOAT_EQ(tb_.GetHeight(), TitleBar::BASE_HEIGHT);
-}
-
-// ═══════════════════════════════════════════════
 // UpdateLayout — ボタン配置
 // ═══════════════════════════════════════════════
 
@@ -163,7 +154,10 @@ TEST_F(TitleBarTest, HitTestButtonEdgesAreHalfOpen)
 
 TEST_F(TitleBarTest, ButtonsDoNotOverlap)
 {
-    TitleBarButtons rects = tb_.GetButtons();
+    TitleBarButtons rects;
+    for (size_t i = 0; i < rects.size(); ++i) {
+        rects[i] = tb_.GetButton(static_cast<TitleBarHitZone>(std::to_underlying(TitleBarHitZone::OpenFile) + i));
+    }
     std::ranges::sort(rects, {}, &DipRect::left);
     for (size_t i = 1; i < rects.size(); ++i) {
         EXPECT_LE(rects[i - 1].right, rects[i].left)
