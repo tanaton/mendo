@@ -3,13 +3,13 @@
 #include "render_params.h"
 #include "theme.h"
 #include "command_generator.h"
-#include "d2d_render_backend.h"
 #include "text_layout_cache.h"
+#include "ui_constants.h"
+#include "win_handle.h"
 #include <d2d1.h>
 #include <dwrite.h>
+#include <windows.h>
 #include <wrl/client.h>
-
-struct IWICBitmap;
 #include <functional>
 #include <memory_resource>
 #include <optional>
@@ -18,14 +18,34 @@ struct IWICBitmap;
 #include <utility>
 #include <vector>
 
+// d3d11.h / dxgi1_2.h / d2d1_1.h / wincodec.h は renderer_device.cpp だけで読み、renderer.h から app.h を読む翻訳単位へ広げない。
+struct ID2D1Factory1;
+struct ID2D1Device;
+struct ID2D1DeviceContext;
+struct ID3D11Device;
+struct IDXGISwapChain1;
+struct IWICImagingFactory;
+struct IWICBitmap;
+
+// D3D デバイスの作成 (数十 ms) を起動処理と重ねるため、wWinMain の冒頭で呼ぶ。
+void PrefetchD3DDevice();
+// 先行作成が終わるとシグナルになる。先行作成していないか、受け取り済みなら nullptr。
+HANDLE D3DPrefetchDoneEvent() noexcept;
+
+// D2D/DirectWrite/WIC のファクトリ、D3D デバイス・スワップチェーンとロスト検知、ブラシとテキスト書式を持ち、1 フレームを描く。
+// デバイスとスワップチェーンを扱うメンバ関数は renderer_device.cpp で定義する (d3d11.h / dxgi を読む唯一の TU)。
 class Renderer {
 public:
     Renderer() noexcept;
     ~Renderer();
+    Renderer(const Renderer&) = delete;
+    Renderer& operator=(const Renderer&) = delete;
 
     // theme は ThemeService が持つ今のテーマ。中身を書き換えたら OnThemeColorsChanged / OnThemeMetricsChanged で知らせる。
+    // デバイスとスワップチェーンは作らない (CreateDevice で作る)。
     bool Init(HWND hwnd, const Theme& theme);
-    // D2DRenderBackend::Resize を参照。
+    // live: ライブリサイズ中。ResizeBuffers は GPU の同期と再確保を伴うので WM_SIZE ごとに呼ぶと重い。
+    // モニタ全体の大きさのバッファを使い回し、表示範囲 (source size) だけを変える。
     void Resize(UINT width, UINT height, bool live) noexcept;
 
     // 1 フレームの結果。再描画をいつ予約するかは呼び出し側が決める。
@@ -45,24 +65,23 @@ public:
     {
         toc_titles_ = {};
     }
-    // 最初の描画の前に呼ぶ (App::CreateRenderDevice 参照)。
+    // 最初の描画の前に呼ぶ (App::CreateRenderDevice 参照)。既存のデバイスがあれば捨てて作り直す。
     bool CreateDevice();
     ID2D1RenderTarget* GetRenderTarget() const noexcept;
+    // 描画面の DIP サイズ。デバイスが無い間も Resize に追従する。
     D2D1_SIZE_F GetSize() const noexcept
     {
-        return backend_.GetSize();
+        const float scale = DpiScaleFrom(dpi_);
+        return { PixelToDip(static_cast<float>(width_px_), scale), PixelToDip(static_cast<float>(height_px_), scale) };
     }
-    ID2D1Factory* GetD2DFactory() const noexcept
-    {
-        return backend_.GetD2DFactory();
-    }
+    ID2D1Factory* GetD2DFactory() const noexcept;
     IDWriteFactory* GetDWriteFactory() const noexcept
     {
-        return backend_.GetDWriteFactory();
+        return dwrite_factory_.Get();
     }
     IWICImagingFactory* GetWICFactory() const noexcept
     {
-        return backend_.GetWICFactory();
+        return wic_factory_.Get();
     }
     // ライト/ダーク切替。寸法とフォントは共通なのでテキストレイアウトを維持し、ブラシの色だけ差し替える。
     void OnThemeColorsChanged()
@@ -86,14 +105,17 @@ public:
         on_device_lost_ = std::move(cb);
     }
 
-    // D2DRenderBackend の同名関数を参照。
+    // フレーム待ちの上限。GPU が止まっても UI スレッドを永久にブロックしないよう、これを過ぎたら諦めて描く。
+    static constexpr DWORD kFrameWaitTimeoutMs = 1000;
+    // 次のフレームを描いてよくなるのを待つためのハンドル。取れている間とロスト中は nullptr。
     HANDLE FrameWaitHandle() const noexcept
     {
-        return backend_.FrameWaitHandle();
+        return (frame_acquired_ || device_lost_) ? nullptr : frame_latency_waitable_.get();
     }
+    // FrameWaitHandle の待ちが成立した (シグナルを消費した) ことを記録する。
     void MarkFrameAcquired() noexcept
     {
-        backend_.MarkFrameAcquired();
+        frame_acquired_ = true;
     }
 
     int HitTestSearchInput(std::wstring_view query, float local_x, float max_width) const
@@ -117,11 +139,46 @@ private:
     void EnsurePaneListFormats(PaneTarget target, float zoom);
     void GenGestureTrail(const std::pmr::vector<GesturePoint>& points);
 
-    D2DRenderBackend backend_;
+    // ---- デバイスとスワップチェーン (renderer_device.cpp) ----
+    bool CreateFactories(HWND hwnd);
+    bool CreateDeviceResources();
+    bool CreateSwapChainBitmap();
+    // 表示範囲を描画面の左上 width x height にする。対応していなければ false。
+    bool SetSourceSize(UINT width, UINT height) noexcept;
+    void ConfigureFrameLatency() noexcept;
+    // 次のフレームを描いてよいか (Frame Latency Waitable Object のシグナル) を最大 kFrameWaitTimeoutMs 待つ。
+    // GPU パイプラインの 1 フレーム遅れに同期し、CPU 側を Present の Vsync ブロックまで詰めずに済ませる。
+    // 取れたら Present するまで取れた扱いのままにして、描かずに終わったフレームの後で待ち直さない。
+    void AcquireFrame() noexcept;
+    // EndDraw 後に呼ぶ。デバイスロスト系の失敗は device_lost_ で知らせる。
+    void Present() noexcept;
+    // 最小化中に D2D の内部キャッシュとドライバ側の一時確保を手放す。
+    void TrimDevice() noexcept;
+
     ID2D1DeviceContext* rt() const noexcept
     {
-        return backend_.GetRenderTarget();
+        return device_context_.Get();
     }
+
+    HWND hwnd_ = nullptr;
+    float dpi_ = DEFAULT_DPI;
+    UINT width_px_ = 0;
+    UINT height_px_ = 0;
+    // スワップチェーンのバッファの大きさ。ライブリサイズ中は描画面 (width_px_ x height_px_) より大きい。
+    UINT buffer_width_ = 0;
+    UINT buffer_height_ = 0;
+    // Resize / Present が DXGI_ERROR_DEVICE_REMOVED/RESET 等を検知したか、CreateSwapChainBitmap が失敗した。
+    // 次フレームの BeginFrame で RecreateDevice を呼んで戻す。
+    bool device_lost_ = false;
+    bool frame_acquired_ = false;
+    Microsoft::WRL::ComPtr<ID2D1Factory1> d2d_factory_;
+    Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
+    Microsoft::WRL::ComPtr<ID2D1Device> d2d_device_;
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext> device_context_;
+    Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain_;
+    UniqueEventHandle frame_latency_waitable_;
+    Microsoft::WRL::ComPtr<IDWriteFactory> dwrite_factory_;
+    Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
 
     FixedBrushArray brushes_;
 

@@ -10,19 +10,16 @@
 
 using Microsoft::WRL::ComPtr;
 
-Renderer::Renderer() noexcept = default;
-Renderer::~Renderer() = default;
-
 ID2D1RenderTarget* Renderer::GetRenderTarget() const noexcept
 {
-    return backend_.GetRenderTarget();
+    return device_context_.Get();
 }
 
 bool Renderer::Init(HWND hwnd, const Theme& theme)
 {
     theme_ = &theme;
 
-    if (!backend_.Init(hwnd)) {
+    if (!CreateFactories(hwnd)) {
         return false;
     }
 
@@ -34,19 +31,9 @@ bool Renderer::Init(HWND hwnd, const Theme& theme)
     return true;
 }
 
-void Renderer::Resize(UINT width, UINT height, bool live) noexcept
-{
-    backend_.Resize(width, height, live);
-}
-
-void Renderer::SetDpi(float dpi) noexcept
-{
-    backend_.SetDpi(dpi);
-}
-
 void Renderer::TrimForMinimize() noexcept
 {
-    backend_.Trim();
+    TrimDevice();
     toc_titles_ = {};
 }
 
@@ -69,7 +56,7 @@ void Renderer::PrepareChrome(const TitleBarRenderState& titlebar, const SidePane
 
 std::optional<Renderer::FrameResult> Renderer::BeginFrame(const TitleBarRenderState& titlebar, const SidePaneState& side_panes)
 {
-    if (backend_.IsDeviceLost()) {
+    if (device_lost_) {
         return RecreateDeviceForFrame();
     }
     if (!rt()) {
@@ -79,7 +66,7 @@ std::optional<Renderer::FrameResult> Renderer::BeginFrame(const TitleBarRenderSt
     text_layouts_.BeginFrame();
     PrepareChrome(titlebar, side_panes);
     // メッセージループが取っていなければ (モーダルループや UpdateWindow からの描画) ここで待つ。
-    backend_.AcquireFrame();
+    AcquireFrame();
 
     rt()->BeginDraw();
     rt()->Clear(theme_->Color(BrushId::Background));
@@ -96,7 +83,7 @@ Renderer::FrameResult Renderer::Render(const RenderParams& p)
     }
 
     if (!p.loading_angle) {
-        const auto& cmds = cmd_generator_.GenerateMdPane(p.md, DpiScaleFrom(backend_.GetDpi()));
+        const auto& cmds = cmd_generator_.GenerateMdPane(p.md, DpiScaleFrom(dpi_));
         MENDO_PLOT("draw.command_count", static_cast<int64_t>(cmds.size()));
         ExecuteDrawCommands(cmds, rt(), brushes_);
     }
@@ -145,28 +132,14 @@ Renderer::FrameResult Renderer::EndFrame()
         return RecreateDeviceForFrame();
     }
     if (SUCCEEDED(hr)) {
-        backend_.Present();
-        // REMOVED/RESET/HUNG/DRIVER_INTERNAL_ERROR で backend が device_lost_ をセット済み。
+        Present();
+        // REMOVED/RESET/HUNG/DRIVER_INTERNAL_ERROR で device_lost_ をセット済み。
         // 次のフレームの BeginFrame で作り直す。
-        if (backend_.IsDeviceLost()) {
+        if (device_lost_) {
             return FrameResult::RedrawNow;
         }
     }
     return FrameResult::Done;
-}
-
-bool Renderer::CreateDevice()
-{
-    if (!backend_.CreateDevice()) {
-        return false;
-    }
-    // ブラシはデバイスに紐付くので、作り直しでは旧デバイスのものに SetColor せず作り直す。
-    for (auto& brush : brushes_) {
-        brush.Reset();
-    }
-    RecreateBrushes();
-    LoadAppIconBitmap();
-    return true;
 }
 
 bool Renderer::RecreateDevice()

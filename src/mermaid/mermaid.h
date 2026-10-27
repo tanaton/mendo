@@ -35,7 +35,7 @@ public:
     MermaidRenderer(const MermaidRenderer&) = delete;
     MermaidRenderer& operator=(const MermaidRenderer&) = delete;
 
-    // wic は D2DRenderBackend と共有する PNG デコード用。
+    // wic は Renderer と共有する PNG デコード用。
     // bg_scheduler はディスクキャッシュの読み込みと PNG デコードを UI スレッド外で行う先で、
     // 読み込み完了は app_msg::MERMAID_DISK_LOADED で hwnd に通知され、受信側が ProcessDiskLoads を呼ぶ。
     // user_data_folder は WebView2 のセッションデータの保存先（空なら WebView2 既定の場所）。

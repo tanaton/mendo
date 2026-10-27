@@ -56,7 +56,7 @@ Theme ThemeService::CreateTheme(ZoomLevel zoom) const
 void ThemeService::Init(bool dark, ZoomLevel zoom)
 {
     theme_ = MakeTheme(dark, zoom);
-    // 共有ファクトリはプロセスで 1 つなので、描画側 (D2DRenderBackend) が作るものと同じになる。
+    // 共有ファクトリはプロセスで 1 つなので、描画側 (Renderer) が作るものと同じになる。
     Microsoft::WRL::ComPtr<IDWriteFactory> dw;
     Microsoft::WRL::ComPtr<IDWriteFontCollection> collection;
     if (const HRESULT hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(dw.GetAddressOf()));

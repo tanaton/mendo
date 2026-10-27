@@ -22,7 +22,7 @@ void Renderer::DecodeAppIcon()
     }
     const auto icon_guard = ScopeGuard([hIcon] { DestroyIcon(hIcon); });
 
-    auto* wic = backend_.GetWICFactory();
+    auto* wic = wic_factory_.Get();
     if (!wic) {
         return;
     }
@@ -85,7 +85,7 @@ void Renderer::EnsurePaneListFormats(PaneTarget target, float zoom)
     if (f.zoom == zoom) {
         return;
     }
-    auto* const dw = backend_.GetDWriteFactory();
+    auto* const dw = dwrite_factory_.Get();
     const float size = theme_->pane_font_size * zoom;
     f.item = CreateTextFormat(dw, { .family = theme_->font_family.c_str(), .size = size, .locale = theme_->text_locale, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
     // アイコンはファイル一覧だけ。
@@ -104,8 +104,8 @@ void Renderer::RecreateAllTextFormats()
     }
 
     // 古い書式のレイアウトは二度と引かれないので、まとめて捨てる。
-    text_layouts_.SetFactory(backend_.GetDWriteFactory());
-    search_input_.SetFormat(backend_.GetDWriteFactory(), fmt_.search_input.Get());
+    text_layouts_.SetFactory(dwrite_factory_.Get());
+    search_input_.SetFormat(dwrite_factory_.Get(), fmt_.search_input.Get());
 }
 
 void Renderer::CreateTextFormats(bool zoomed_only)
@@ -166,7 +166,7 @@ void Renderer::CreateTextFormats(bool zoomed_only)
         }
         return L"en-us";
     };
-    auto* const dw = backend_.GetDWriteFactory();
+    auto* const dw = dwrite_factory_.Get();
     for (const auto& s : specs) {
         if (zoomed_only && !s.zoomed) {
             continue;

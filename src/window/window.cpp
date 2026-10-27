@@ -243,7 +243,7 @@ std::optional<int> Win32Window::PumpMessages(const bool& done)
         const DWORD wake_mask = frame_evt ? (QS_ALLINPUT & ~QS_PAINT) : QS_ALLINPUT;
         // 空き時間の仕事がある間は待たない。その間はフレーム待ちの期限を数えないが、仕事が尽きれば数え直す。
         const bool idle_work = app_->HasIdleWork();
-        const DWORD timeout = idle_work ? 0 : frame_evt ? D2DRenderBackend::kFrameWaitTimeoutMs
+        const DWORD timeout = idle_work ? 0 : frame_evt ? Renderer::kFrameWaitTimeoutMs
                                                         : INFINITE;
         const DWORD wait = MsgWaitForMultipleObjects(count, handles, FALSE, timeout, wake_mask);
 
