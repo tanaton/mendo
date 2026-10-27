@@ -1,9 +1,12 @@
 #include <gtest/gtest.h>
 #include "cmd_gen_mock_test_base.h"
 #include "d2d_util.h"
+#include "file_explorer.h"
 #include "hit_test_service.h"
 #include "pane_layout.h"
 #include "search_state.h"
+#include "test_nodes.h"
+#include "titlebar.h"
 #include <algorithm>
 #include <optional>
 #include <variant>
@@ -387,4 +390,141 @@ TEST(OverlayCommandsTest, SearchBarButtonsShowHoverAndToggleState)
                            { .query = L"a", .total_matches = 1, .visible = true, .hovered = SearchBarHitZone::CaseSensitive }, {});
     EXPECT_EQ(FillBrushAt(cmds, sbl.case_btn), BrushId::TitleBarButtonHover);
     EXPECT_EQ(FillBrushAt(cmds, sbl.highlight_btn), BrushId::TitleBarButtonActive);
+}
+
+// ═══════════════════════════════════════════════
+// タイトルバーとサイドペイン
+// ═══════════════════════════════════════════════
+
+namespace {
+
+std::optional<BrushId> FillRectBrushAt(const DrawCommandList& cmds, const D2D1_RECT_F& rect)
+{
+    const auto fill = FindFirst<FillRectCmd>(cmds, [&](const FillRectCmd& c) {
+        return c.rect.left == rect.left && c.rect.top == rect.top && c.rect.right == rect.right && c.rect.bottom == rect.bottom;
+    });
+    return fill ? std::optional(fill->brush_id) : std::nullopt;
+}
+
+// 一覧の行 (ペインの幅いっぱいで高さ item_h) を塗ったコマンドの上端と色。
+std::vector<std::pair<float, BrushId>> RowFills(const DrawCommandList& cmds, const PaneRect& rect, float item_h)
+{
+    std::vector<std::pair<float, BrushId>> rows;
+    for (const auto& c : CollectCmds<FillRectCmd>(cmds)) {
+        if (c.rect.left == rect.x && c.rect.right == rect.x + rect.width && c.rect.bottom - c.rect.top == item_h) {
+            rows.emplace_back(c.rect.top, c.brush_id);
+        }
+    }
+    return rows;
+}
+
+constexpr PaneRect kSidePane{ 0.0f, 32.0f, 200.0f, 400.0f };
+constexpr float kItemHeight = 20.0f;
+
+} // namespace
+
+// オンのトグルはホバーより優先して塗る。閉じるボタンのホバーだけ赤い。
+TEST(ChromeCommandsTest, TitleBarButtonBackgrounds)
+{
+    TitleBar bar;
+    bar.UpdateLayout(800.0f);
+    TextLayoutCache text_layouts;
+    DrawCommandList cmds;
+    TitleBarRenderState tb{ .bar = bar, .window_width = 800.0f, .hovered_zone = TitleBarHitZone::Search, .search_active = true };
+    chrome::EmitTitleBar(cmds, text_layouts, nullptr, nullptr, nullptr, false, tb);
+    EXPECT_EQ(FillRectBrushAt(cmds, ToD2DRect(bar.GetButton(TitleBarHitZone::Search))), BrushId::TitleBarButtonActive);
+    EXPECT_EQ(FillRectBrushAt(cmds, ToD2DRect(bar.GetButton(TitleBarHitZone::FileToggle))), std::nullopt);
+
+    cmds.clear();
+    tb.hovered_zone = TitleBarHitZone::FileToggle;
+    chrome::EmitTitleBar(cmds, text_layouts, nullptr, nullptr, nullptr, false, tb);
+    EXPECT_EQ(FillRectBrushAt(cmds, ToD2DRect(bar.GetButton(TitleBarHitZone::FileToggle))), BrushId::TitleBarButtonHover);
+
+    cmds.clear();
+    tb.hovered_zone = TitleBarHitZone::Close;
+    chrome::EmitTitleBar(cmds, text_layouts, nullptr, nullptr, nullptr, false, tb);
+    EXPECT_EQ(FillRectBrushAt(cmds, ToD2DRect(bar.GetButton(TitleBarHitZone::Close))), BrushId::TitleBarCloseRed);
+}
+
+// 見えている行だけを積む。現在のファイルとホバーも、見えている行の分だけ塗る。
+TEST(ChromeCommandsTest, FilePaneEmitsOnlyVisibleRows)
+{
+    const Theme theme = GetLightTheme();
+    std::pmr::vector<FileEntry> files(100);
+    files[11].is_current = true;
+    files[80].is_current = true;
+    const std::pmr::vector<TocEntry> toc;
+    const std::pmr::vector<Node> nodes;
+    constexpr float kScroll = 200.0f;
+    const SidePaneState sp{
+        .panes = { SidePaneInstance{ .rect = kSidePane, .scroll = { kScroll }, .hovered_index = 12, .show = true, .item_height = kItemHeight }, {} },
+        .file_entries = files,
+        .toc_entries = toc,
+        .nodes = nodes,
+        .active_toc_index = -1,
+    };
+    TextLayoutCache text_layouts;
+    DrawCommandList cmds;
+    std::pmr::vector<std::pmr::wstring> toc_titles;
+    chrome::EmitSidePanes(cmds, text_layouts, {}, theme, sp, toc_titles);
+
+    const float content_top = PaneContentTop(kSidePane, theme.pane_header_height);
+    const auto row_top = [&](int i) { return content_top + i * kItemHeight - kScroll; };
+    EXPECT_EQ(RowFills(cmds, kSidePane, kItemHeight),
+              (std::vector<std::pair<float, BrushId>>{ { row_top(11), BrushId::PaneItemActive }, { row_top(12), BrushId::PaneItemHover } }));
+}
+
+// 無効な「現在のファイルを表示」ボタンは、ホバーが残っていても塗らない。
+TEST(ChromeCommandsTest, DisabledPaneButtonIgnoresHover)
+{
+    const Theme theme = GetLightTheme();
+    const std::pmr::vector<FileEntry> files;
+    const std::pmr::vector<TocEntry> toc;
+    const std::pmr::vector<Node> nodes;
+    const auto reveal = OffsetRectF(PaneRevealButtonRect(kSidePane.width, theme.pane_header_height), kSidePane.x, kSidePane.y);
+    for (const bool enabled : { false, true }) {
+        const SidePaneState sp{
+            .panes = { SidePaneInstance{ .rect = kSidePane, .show = true, .hovered_button = PaneHeaderButton::Reveal, .reveal_enabled = enabled, .item_height = kItemHeight }, {} },
+            .file_entries = files,
+            .toc_entries = toc,
+            .nodes = nodes,
+            .active_toc_index = -1,
+        };
+        TextLayoutCache text_layouts;
+        DrawCommandList cmds;
+        std::pmr::vector<std::pmr::wstring> toc_titles;
+        chrome::EmitSidePanes(cmds, text_layouts, {}, theme, sp, toc_titles);
+        EXPECT_EQ(FillRectBrushAt(cmds, reveal), enabled ? std::optional(BrushId::PaneItemHover) : std::nullopt) << enabled;
+    }
+}
+
+// 目次は見出しの段で字下げし、アクティブな項目はホバーより優先して塗って下線を引く。見出しの文字は描いた項目だけ UTF-16 にする。
+TEST(ChromeCommandsTest, TocIndentsByLevelAndUnderlinesActive)
+{
+    const Theme theme = GetLightTheme();
+    const auto nodes = ParseNodes("# A\n\n## B\n\n### C");
+    const std::pmr::vector<FileEntry> files;
+    const std::pmr::vector<TocEntry> toc{ { 0, 1 }, { 1, 2 }, { 2, 3 } };
+    constexpr float kZoom = 1.5f;
+    const SidePaneState sp{
+        .panes = { {}, SidePaneInstance{ .rect = kSidePane, .hovered_index = 2, .show = true, .zoom = kZoom, .item_height = kItemHeight } },
+        .file_entries = files,
+        .toc_entries = toc,
+        .nodes = nodes,
+        .active_toc_index = 2,
+    };
+    TextLayoutCache text_layouts;
+    DrawCommandList cmds;
+    std::pmr::vector<std::pmr::wstring> toc_titles;
+    chrome::EmitSidePanes(cmds, text_layouts, {}, theme, sp, toc_titles);
+
+    const float content_top = PaneContentTop(kSidePane, theme.pane_header_height);
+    EXPECT_EQ(RowFills(cmds, kSidePane, kItemHeight), (std::vector<std::pair<float, BrushId>>{ { content_top + 2 * kItemHeight, BrushId::PaneItemActive } }));
+    const auto underline = FindFirst<DrawLineCmd>(cmds);
+    ASSERT_TRUE(underline);
+    EXPECT_FLOAT_EQ(underline->p0.x, kSidePane.x + (8.0f + 2 * TOC_INDENT_PER_LEVEL) * kZoom);
+    EXPECT_FLOAT_EQ(underline->p0.y, content_top + 3 * kItemHeight - 1.0f);
+    ASSERT_EQ(toc_titles.size(), 3u);
+    EXPECT_EQ(toc_titles[0], L"A");
+    EXPECT_EQ(toc_titles[2], L"C");
 }

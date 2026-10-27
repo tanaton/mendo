@@ -109,6 +109,23 @@ void EmitToast(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextF
                bool dark, std::wstring_view message);
 } // namespace overlay
 
+// タイトルバーとサイドペイン。デバイスに依存しないので、デバイスの作成前にも組み立てられる。
+namespace chrome {
+// app_icon が null ならアイコンを描かない。
+void EmitTitleBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextFormat* icon_fmt, IDWriteTextFormat* title_fmt,
+                  ID2D1Bitmap* app_icon, bool dark, const TitleBarRenderState& tb);
+// 一覧の書式はペインごとの倍率で作るので、PaneTarget で引く。
+struct SidePaneFormats {
+    IDWriteTextFormat* header = nullptr;
+    IDWriteTextFormat* header_icon = nullptr;
+    IDWriteTextFormat* item[2]{};
+    IDWriteTextFormat* item_icon[2]{};
+};
+// 表示中のサイドペインとスプリッタ。toc_titles は目次項目の UTF-16 で、描いた項目だけ作る。
+void EmitSidePanes(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePaneFormats& fmts, const Theme& theme,
+                   const SidePaneState& sp, std::pmr::vector<std::pmr::wstring>& toc_titles);
+} // namespace chrome
+
 // ドキュメントデータとビューポート状態から DrawCommandList を生成する。
 // 「何を描画するか」と「どう描画するか」（エグゼキュータ）を分離する。
 class CommandGenerator {

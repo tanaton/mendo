@@ -255,7 +255,6 @@ TitleBarRenderState App::BuildTitleBarRenderState() const
         .title_text = title_text_,
         .window_width = state_.pane_layout_cache.WindowWidth(),
         .hovered_zone = state_.view.hover.titlebar,
-        .is_dark_mode = theme_service_.IsDarkMode(),
         .search_active = state_.search.search_state.IsVisible(),
         .file_pane_visible = panes.IsSidePaneVisible(PaneTarget::File),
         .toc_pane_visible = panes.IsSidePaneVisible(PaneTarget::Toc),

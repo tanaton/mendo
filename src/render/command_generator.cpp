@@ -7,6 +7,7 @@
 #include "pane_layout.h"
 #include "profiler.h"
 #include "ui_constants.h"
+#include "utf8_codec.h"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -506,6 +507,235 @@ void EmitSearchBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteT
 }
 
 } // namespace overlay
+
+namespace chrome {
+
+void EmitTitleBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextFormat* icon_fmt, IDWriteTextFormat* title_fmt,
+                  ID2D1Bitmap* app_icon, bool dark, const TitleBarRenderState& tb)
+{
+    const TitleBar& bar = tb.bar;
+    // 完全不透明でガラス効果を隠す
+    out.push_back(FillRectCmd{ .rect = D2D1::RectF(0.0f, 0.0f, tb.window_width, bar.GetHeight()), .brush_id = BrushId::TitleBarBg });
+
+    const float text_alpha = tb.window_active ? 1.0f : 0.5f;
+    const auto is_hovered = [&](TitleBarHitZone z) noexcept { return tb.hovered_zone == z; };
+
+    const auto gen_button = [&](const DipRect& dip_rect, wchar_t icon, bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
+        const D2D1_RECT_F rect = ToD2DRect(dip_rect);
+        if (show_bg) {
+            out.push_back(FillRectCmd{ .rect = rect, .brush_id = bg_id });
+        }
+        text_layouts.EmitCentered(out, { &icon, 1 }, icon_fmt, rect, text_id, alpha);
+    };
+
+    const auto gen_plain = [&](TitleBarHitZone zone, wchar_t icon) {
+        gen_button(bar.GetButton(zone), icon, is_hovered(zone), BrushId::TitleBarButtonHover, BrushId::TitleBarText, text_alpha);
+    };
+    // active > hover の優先度
+    const auto gen_toggle = [&](TitleBarHitZone zone, wchar_t icon, bool active) {
+        gen_button(
+            bar.GetButton(zone),
+            icon,
+            active || is_hovered(zone),
+            active ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
+            BrushId::TitleBarText,
+            text_alpha);
+    };
+
+    gen_plain(TitleBarHitZone::OpenFile, L'');
+    gen_plain(TitleBarHitZone::Help, L'');
+    gen_plain(TitleBarHitZone::Settings, L'');
+    gen_plain(TitleBarHitZone::ThemeToggle, dark ? L'' : L'');
+    gen_toggle(TitleBarHitZone::Search, L'', tb.search_active);
+    gen_toggle(TitleBarHitZone::FileToggle, L'', tb.file_pane_visible);
+    gen_toggle(TitleBarHitZone::TocToggle, L'', tb.toc_pane_visible);
+    gen_plain(TitleBarHitZone::Minimize, L'');
+    gen_plain(TitleBarHitZone::Maximize, tb.is_maximized ? L'' : L'');
+    if (is_hovered(TitleBarHitZone::Close)) {
+        gen_button(bar.GetButton(TitleBarHitZone::Close), L'', true, BrushId::TitleBarCloseRed, BrushId::OverlayWhite, 1.0f);
+    }
+    else {
+        gen_plain(TitleBarHitZone::Close, L'');
+    }
+
+    if (app_icon) {
+        out.push_back(DrawBitmapCmd{ .bitmap = app_icon, .dest = ToD2DRect(bar.GetIconRect()), .opacity = text_alpha });
+    }
+
+    if (!tb.title_text.empty()) {
+        text_layouts.EmitCentered(out, tb.title_text, title_fmt, ToD2DRect(bar.GetTitleTextRect()), BrushId::TitleBarText, text_alpha);
+    }
+}
+
+namespace {
+
+// 目次の行は 1 行で狭い。極端に長い見出しでも毎フレーム全文を UTF-16 化・ハッシュしないよう先頭だけ使う。
+std::string_view TocItemText(std::string_view heading) noexcept
+{
+    constexpr uint32_t kMaxBytes = 512;
+    return heading.size() <= kMaxBytes ? heading : heading.substr(0, utf8_codec::SnapToCpStart(heading, kMaxBytes));
+}
+
+const wchar_t* FileEntryIcon(const FileEntry& entry) noexcept
+{
+    if (entry.is_parent) {
+        return L"";
+    }
+    if (entry.is_directory) {
+        return L"";
+    }
+    return L"";
+}
+
+// NO_WRAP の左寄せテキスト。はみ出しは呼び出し側のクリップで切る。
+void EmitLeftText(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextFormat* fmt, std::wstring_view text, float x, float y, float height)
+{
+    // 箱の幅で見た目が変わらないので、幅を固定してスプリッタのドラッグ中もレイアウトを使い回す。
+    constexpr float kLayoutWidth = 4096.0f;
+    text_layouts.Emit(out, text, fmt, D2D1::Point2F(x, y), D2D1::SizeF(kLayoutWidth, height), BrushId::Text, 1.0f);
+}
+
+void EmitSidePaneHeader(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePaneFormats& fmts, float header_h,
+                        const SidePaneInstance& pane, bool is_file_pane, std::wstring_view header_text)
+{
+    const PaneRect& r = pane.rect;
+    out.push_back(FillRectCmd{ .rect = D2D1::RectF(r.x, r.y, r.x + r.width, r.y + header_h), .brush_id = BrushId::Splitter });
+
+    // 無効なボタンはホバー状態が残っていても強調しない (ヘルプへ切替直後など)。
+    const auto gen_button = [&](const D2D1_RECT_F& local, std::wstring_view icon, PaneHeaderButton button, bool enabled = true) {
+        const D2D1_RECT_F rect = OffsetRectF(local, r.x, r.y);
+        if (enabled && pane.hovered_button == button) {
+            out.push_back(FillRectCmd{ .rect = rect, .brush_id = BrushId::PaneItemHover });
+        }
+        const auto box = D2D1::SizeF(local.right - local.left, local.bottom - local.top);
+        text_layouts.Emit(out, icon, fmts.header_icon, D2D1::Point2F(rect.left, rect.top), box, BrushId::Text, enabled ? 1.0f : DISABLED_UI_ALPHA);
+    };
+
+    gen_button(PaneCloseButtonRect(r.width, header_h), L"", PaneHeaderButton::Close);
+    if (is_file_pane) {
+        gen_button(PaneRefreshButtonRect(r.width, header_h), L"", PaneHeaderButton::Refresh);
+        gen_button(PaneRevealButtonRect(r.width, header_h), L"", PaneHeaderButton::Reveal, pane.reveal_enabled);
+    }
+
+    // ボタンに重ならないよう切る。
+    if (const auto text_rect = PaneHeaderTextRect(r.width, header_h, is_file_pane)) {
+        const D2D1_RECT_F clip = OffsetRectF(*text_rect, r.x, r.y);
+        out.push_back(PushClipCmd{ clip });
+        EmitLeftText(out, text_layouts, fmts.header, header_text, clip.left, clip.top, text_rect->bottom - text_rect->top);
+        out.push_back(PopClipCmd{});
+    }
+}
+
+// 項目のはみ出しは内容領域のクリップ 1 回で切り、項目ごとの Push/Pop を避ける。
+template <typename GenItemFn>
+void EmitSidePane(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePaneFormats& fmts, float header_h,
+                  const SidePaneInstance& pane, bool is_file_pane, size_t item_count, std::wstring_view header_text, GenItemFn gen_item)
+{
+    const PaneRect& r = pane.rect;
+    if (r.width <= 0 || r.height <= 0) {
+        return;
+    }
+    out.push_back(FillRectCmd{ .rect = ToD2DRect(r), .brush_id = BrushId::PaneBg });
+
+    EmitSidePaneHeader(out, text_layouts, fmts, header_h, pane, is_file_pane, header_text);
+
+    const float item_h = pane.item_height;
+    const float content_top = PaneContentTop(r, header_h);
+    const float scroll_y = pane.scroll.scroll_y;
+    out.push_back(PushClipCmd{ D2D1::RectF(r.x, content_top, r.x + r.width, r.y + r.height) });
+
+    const int first = std::max(0, static_cast<int>(scroll_y / item_h));
+    const int last = std::min(static_cast<int>(item_count) - 1, static_cast<int>((scroll_y + r.height - header_h) / item_h) + 1);
+    for (int i = first; i <= last; i++) {
+        const float item_y = content_top + SidePaneContentHeight(i, item_h) - scroll_y;
+        gen_item(i, D2D1::RectF(r.x, item_y, r.x + r.width, item_y + item_h));
+    }
+
+    out.push_back(PopClipCmd{});
+    if (const auto thumb = VScrollThumb(r, header_h, scroll_y, SidePaneContentHeight(item_count, item_h))) {
+        out.push_back(*thumb);
+    }
+}
+
+void EmitFileExplorer(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePaneFormats& fmts, float header_h,
+                      const std::pmr::vector<FileEntry>& entries, const SidePaneInstance& pane)
+{
+    const auto k = std::to_underlying(PaneTarget::File);
+    const float icon_col_width = 24.0f * pane.zoom;
+    const float pad = 4.0f * pane.zoom;
+    EmitSidePane(out, text_layouts, fmts, header_h, pane, true, entries.size(), i18n::S().pane_header_files, [&](int i, const D2D1_RECT_F& row) {
+        const auto& entry = entries[i];
+
+        if (entry.is_current) {
+            out.push_back(FillRectCmd{ .rect = row, .brush_id = BrushId::PaneItemActive });
+        }
+        else if (i == pane.hovered_index) {
+            out.push_back(FillRectCmd{ .rect = row, .brush_id = BrushId::PaneItemHover });
+        }
+
+        text_layouts.Emit(out, FileEntryIcon(entry), fmts.item_icon[k], D2D1::Point2F(row.left + pad, row.top), D2D1::SizeF(icon_col_width, pane.item_height), BrushId::Text, 1.0f);
+
+        EmitLeftText(out, text_layouts, fmts.item[k], entry.GetDisplayName(), row.left + pad + icon_col_width, row.top, pane.item_height);
+    });
+}
+
+void EmitToc(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePaneFormats& fmts, float header_h,
+             const SidePaneState& sp, const SidePaneInstance& pane, std::pmr::vector<std::pmr::wstring>& toc_titles)
+{
+    const auto& entries = sp.toc_entries;
+    const int active_index = sp.active_toc_index;
+    if (toc_titles.size() != entries.size()) {
+        toc_titles.assign(entries.size(), {});
+    }
+    IDWriteTextFormat* const item_fmt = fmts.item[std::to_underlying(PaneTarget::Toc)];
+    EmitSidePane(out, text_layouts, fmts, header_h, pane, false, entries.size(), i18n::S().pane_header_toc, [&](int i, const D2D1_RECT_F& row) {
+        const auto& entry = entries[i];
+
+        if (i == active_index || i == pane.hovered_index) {
+            const auto bid = (i == active_index) ? BrushId::PaneItemActive : BrushId::PaneItemHover;
+            out.push_back(FillRectCmd{ .rect = row, .brush_id = bid });
+        }
+
+        const float text_left = row.left + (8.0f + (entry.heading_level - 1) * TOC_INDENT_PER_LEVEL) * pane.zoom;
+        auto& title = toc_titles[i];
+        if (title.empty()) {
+            DecodeForDWrite(TocItemText(sp.nodes[entry.node_index].GetText()), title);
+        }
+        EmitLeftText(out, text_layouts, item_fmt, title, text_left, row.top, pane.item_height);
+
+        if (i == active_index) {
+            const float line_y = row.bottom - 1.0f;
+            out.push_back(DrawLineCmd{
+                .p0 = D2D1::Point2F(text_left, line_y),
+                .p1 = D2D1::Point2F(row.right - 4.0f, line_y),
+                .stroke_width = 1.5f,
+                .brush_id = BrushId::Text,
+            });
+        }
+    });
+}
+
+} // namespace
+
+void EmitSidePanes(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePaneFormats& fmts, const Theme& theme,
+                   const SidePaneState& sp, std::pmr::vector<std::pmr::wstring>& toc_titles)
+{
+    const float header_h = theme.pane_header_height;
+    const auto gen_splitter = [&](const PaneRect& r) {
+        const float x = r.x + r.width;
+        out.push_back(FillRectCmd{ .rect = D2D1::RectF(x, r.y, x + theme.splitter_width, r.y + r.height), .brush_id = BrushId::Splitter });
+    };
+    if (const auto& fp = sp.Get(PaneTarget::File); fp.show) {
+        EmitFileExplorer(out, text_layouts, fmts, header_h, sp.file_entries, fp);
+        gen_splitter(fp.rect);
+    }
+    if (const auto& tp = sp.Get(PaneTarget::Toc); tp.show) {
+        EmitToc(out, text_layouts, fmts, header_h, sp, tp, toc_titles);
+        gen_splitter(tp.rect);
+    }
+}
+
+} // namespace chrome
 
 void CommandGenerator::EmitText(std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, BrushId brush_id, float opacity)
 {
