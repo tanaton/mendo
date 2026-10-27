@@ -124,7 +124,7 @@ bool App::Init(HWND hwnd)
     });
     // 起動時に表示するなら、D3D デバイスの作成と並行して列挙を始めておく。
     if (state_.view.panes.IsSidePaneVisible(PaneTarget::File)) {
-        state_.file_explorer.GetEntries();
+        state_.file_explorer.EnsureListed();
     }
 
     tooltip_.Init(hwnd_);
@@ -215,10 +215,13 @@ PaneZone App::ZoneAt(float dip_x, const PaneLayout& layout) const noexcept
     return DetectPaneZone(dip_x, layout, theme_service_.GetTheme().splitter_width);
 }
 
-SidePaneState App::BuildSidePaneState(const PaneLayout& layout) const
+SidePaneState App::BuildSidePaneState(const PaneLayout& layout)
 {
     const auto& panes = state_.view.panes;
-    // GetEntries は未列挙なら列挙するため、非表示のファイルペインでは呼ばない。
+    const bool file_visible = panes.IsSidePaneVisible(PaneTarget::File);
+    if (file_visible) {
+        state_.file_explorer.EnsureListed();
+    }
     static const std::pmr::vector<FileEntry> kNoEntries;
     const auto make_side_pane = [this, &panes](PaneTarget t, PaneRect rect) {
         return SidePaneInstance{
@@ -237,7 +240,7 @@ SidePaneState App::BuildSidePaneState(const PaneLayout& layout) const
                   make_side_pane(PaneTarget::File, layout.file_rect),
                   make_side_pane(PaneTarget::Toc, layout.toc_rect),
                   },
-        .file_entries = panes.IsSidePaneVisible(PaneTarget::File) ? state_.file_explorer.GetEntries() : kNoEntries,
+        .file_entries = file_visible ? state_.file_explorer.GetEntries() : kNoEntries,
         .toc_entries = state_.document.doc.GetToc(),
         .nodes = state_.document.doc.GetNodes(),
         .active_toc_index = state_.view.active_toc_index,

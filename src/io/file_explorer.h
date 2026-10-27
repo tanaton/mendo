@@ -18,12 +18,12 @@ struct FileEntry {
     std::wstring_view GetDisplayName() const noexcept;
 };
 
-// 列挙は SetDirectory / Refresh 後の最初の GetEntries まで遅らせる。非表示のペインからは
-// 呼ばれないため、起動時やファイルを開くたびの UI スレッド I/O が起きない。
+// 列挙は SetDirectory / Refresh 後の最初の EnsureListed まで遅らせる。表示中のペインを描くときと
+// 一覧を見る操作だけが呼ぶので、ペインが非表示なら起動時やファイルを開くたびの I/O が起きない。
 class FileExplorer {
 public:
     // 列挙を別スレッドに任せる先。dir を List で列挙し、結果を request と一緒に ApplyListing へ渡させる。
-    // 設定すると GetEntries は列挙を待たずに今の一覧を返す。未設定なら GetEntries がその場で列挙する。
+    // 設定すると EnsureListed は列挙を待たずに戻り、一覧は届くまで前のまま。未設定なら EnsureListed がその場で列挙する。
     using AsyncLister = std::move_only_function<void(std::pmr::wstring dir, uint32_t request)>;
     void SetAsyncLister(AsyncLister lister)
     {
@@ -53,7 +53,12 @@ public:
     {
         stale_ = true;
     }
-    const std::pmr::vector<FileEntry>& GetEntries() const;
+    // SetDirectory / Refresh の後なら列挙を始める。
+    void EnsureListed();
+    constexpr const std::pmr::vector<FileEntry>& GetEntries() const noexcept
+    {
+        return entries_;
+    }
     // 列挙し直すたびに進む。項目 index と組にすれば一覧中の項目を識別できる。
     constexpr uint32_t GetGeneration() const noexcept
     {
@@ -67,18 +72,17 @@ public:
     }
 
 private:
-    void ApplyCurrentFile() const;
-    void ReplaceEntries(std::pmr::vector<FileEntry> entries) const;
+    void ApplyCurrentFile();
+    void ReplaceEntries(std::pmr::vector<FileEntry> entries);
 
     std::pmr::wstring directory_;
     std::pmr::wstring current_file_;
-    // GetEntries で遅延列挙するため mutable。
-    mutable std::pmr::vector<FileEntry> entries_;
-    mutable uint32_t generation_ = 0;
-    mutable bool stale_ = false;
+    std::pmr::vector<FileEntry> entries_;
+    uint32_t generation_ = 0;
+    bool stale_ = false;
     // 列挙を始めた回数。結果がどの要求のものかを見分ける。
-    mutable uint32_t request_ = 0;
-    mutable bool listing_ = false;
+    uint32_t request_ = 0;
+    bool listing_ = false;
     bool reveal_deferred_ = false;
-    mutable AsyncLister lister_;
+    AsyncLister lister_;
 };

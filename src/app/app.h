@@ -220,7 +220,8 @@ private:
 
     // ---- 描画 ----
     void UpdateTitleBar();
-    SidePaneState BuildSidePaneState(const PaneLayout& layout) const;
+    // ファイルペインが表示中なら、一覧の列挙も始める。
+    SidePaneState BuildSidePaneState(const PaneLayout& layout);
     TitleBarRenderState BuildTitleBarRenderState() const;
 
     // ---- 終了 ----

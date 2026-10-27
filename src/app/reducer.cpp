@@ -378,6 +378,7 @@ void ReduceFilePaneRevealCurrentFile(AppState& state, SideEffectList& effects)
         return;
     }
     state.file_explorer.SetDirectory(state.document.doc.GetDirectory());
+    state.file_explorer.EnsureListed();
 
     const auto& entries = state.file_explorer.GetEntries();
     if (state.file_explorer.IsListing()) {

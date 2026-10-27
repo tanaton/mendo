@@ -17,17 +17,24 @@ protected:
         fs::create_directories(temp_dir_ / name);
     }
 
-    const std::pmr::vector<FileEntry>& ListTempDir()
+    // 列挙を始めてから (lister が無ければその場で列挙して) 今の一覧を返す。
+    const std::pmr::vector<FileEntry>& Entries()
     {
-        explorer_.SetDirectory(temp_dir_.wstring());
+        explorer_.EnsureListed();
         return explorer_.GetEntries();
     }
 
+    const std::pmr::vector<FileEntry>& ListTempDir()
+    {
+        explorer_.SetDirectory(temp_dir_.wstring());
+        return Entries();
+    }
+
     // ".." を除いた表示名を並び順のまま返す。
-    std::vector<std::wstring> ListedNames() const
+    std::vector<std::wstring> ListedNames()
     {
         std::vector<std::wstring> names;
-        for (const auto& e : explorer_.GetEntries()) {
+        for (const auto& e : Entries()) {
             if (!e.is_parent) {
                 names.emplace_back(e.GetDisplayName());
             }
@@ -35,16 +42,16 @@ protected:
         return names;
     }
 
-    const FileEntry* FindEntry(std::wstring_view name) const
+    const FileEntry* FindEntry(std::wstring_view name)
     {
-        const auto& entries = explorer_.GetEntries();
+        const auto& entries = Entries();
         const auto it = std::ranges::find(entries, name, &FileEntry::GetDisplayName);
         return it != entries.end() ? &*it : nullptr;
     }
 
-    size_t CountCurrent() const
+    size_t CountCurrent()
     {
-        return static_cast<size_t>(std::ranges::count_if(explorer_.GetEntries(), &FileEntry::is_current));
+        return static_cast<size_t>(std::ranges::count_if(Entries(), &FileEntry::is_current));
     }
 
     FileExplorer explorer_;
@@ -83,14 +90,14 @@ TEST_F(FileExplorerTest, EmptyDirectoryHasParentOnly)
 
 // ---- 遅延列挙 ----
 
-TEST_F(FileExplorerTest, SetDirectoryDefersListingUntilGetEntries)
+TEST_F(FileExplorerTest, SetDirectoryDefersListingUntilEnsureListed)
 {
     explorer_.SetCurrentFile((temp_dir_ / L"a.md").wstring());
     explorer_.SetDirectory(temp_dir_.wstring());
     WriteTempFile(L"a.md");
 
-    ASSERT_EQ(explorer_.GetEntries().size(), 2u);
-    EXPECT_TRUE(explorer_.GetEntries()[1].is_current);
+    ASSERT_EQ(Entries().size(), 2u);
+    EXPECT_TRUE(Entries()[1].is_current);
 }
 
 // 列挙を別スレッドに任せると、結果が届くまで前の一覧のまま待つ。古い要求の結果は捨てる。
@@ -106,19 +113,19 @@ TEST_F(FileExplorerTest, AsyncListerKeepsPreviousEntriesUntilApplied)
     });
     WriteTempFile(L"b.md");
     explorer_.Refresh();
-    EXPECT_EQ(explorer_.GetEntries().size(), 2u) << "届くまで前の一覧を見せる";
-    explorer_.GetEntries();
+    EXPECT_EQ(Entries().size(), 2u) << "届くまで前の一覧を見せる";
+    Entries();
     ASSERT_EQ(requests.size(), 1u) << "待っている間は列挙し直さない";
     EXPECT_TRUE(explorer_.IsListing());
 
     explorer_.Refresh();
-    explorer_.GetEntries();
+    Entries();
     ASSERT_EQ(requests.size(), 2u);
     EXPECT_FALSE(explorer_.ApplyListing(requests[0].second, FileExplorer::List(requests[0].first)));
 
     EXPECT_TRUE(explorer_.ApplyListing(requests[1].second, FileExplorer::List(requests[1].first)));
     EXPECT_FALSE(explorer_.IsListing());
-    EXPECT_EQ(explorer_.GetEntries().size(), 3u);
+    EXPECT_EQ(Entries().size(), 3u);
     EXPECT_NE(explorer_.GetGeneration(), generation);
 }
 
@@ -131,7 +138,7 @@ TEST_F(FileExplorerTest, AsyncListerDropsResultAndRevealAfterDirectoryChange)
         requests.emplace_back(std::wstring{ dir }, request);
     });
     explorer_.SetDirectory(temp_dir_.wstring());
-    explorer_.GetEntries();
+    Entries();
     ASSERT_EQ(requests.size(), 1u);
     explorer_.DeferReveal();
 
@@ -139,7 +146,7 @@ TEST_F(FileExplorerTest, AsyncListerDropsResultAndRevealAfterDirectoryChange)
     EXPECT_FALSE(explorer_.ApplyListing(requests[0].second, FileExplorer::List(requests[0].first))) << "移動先を列挙し直す前に届いた前のフォルダの結果";
     EXPECT_FALSE(explorer_.TakeDeferredReveal());
 
-    explorer_.GetEntries();
+    Entries();
     ASSERT_EQ(requests.size(), 2u);
     EXPECT_TRUE(explorer_.ApplyListing(requests[1].second, FileExplorer::List(requests[1].first)));
 }
@@ -150,11 +157,11 @@ TEST_F(FileExplorerTest, ListedOnceUntilRefresh)
     const uint32_t generation = explorer_.GetGeneration();
 
     WriteTempFile(L"new.md");
-    EXPECT_EQ(explorer_.GetEntries().size(), 1u);
+    EXPECT_EQ(Entries().size(), 1u);
     EXPECT_EQ(explorer_.GetGeneration(), generation);
 
     explorer_.Refresh();
-    EXPECT_EQ(explorer_.GetEntries().size(), 2u);
+    EXPECT_EQ(Entries().size(), 2u);
     EXPECT_NE(explorer_.GetGeneration(), generation);
 }
 
@@ -173,7 +180,7 @@ TEST_F(FileExplorerTest, TrailingBackslashNormalized)
 
     const uint32_t generation = explorer_.GetGeneration();
     explorer_.SetDirectory(temp_dir_.wstring());
-    EXPECT_EQ(explorer_.GetEntries().size(), 2u);
+    EXPECT_EQ(Entries().size(), 2u);
     EXPECT_EQ(explorer_.GetGeneration(), generation);
 }
 
@@ -259,8 +266,8 @@ TEST_F(FileExplorerTest, SetDirectoryWithCurrentWorkingDirectory)
 
     EXPECT_FALSE(explorer_.GetDirectory().empty());
     // 少なくとも ".." エントリがあること
-    ASSERT_GE(explorer_.GetEntries().size(), 1u);
-    EXPECT_TRUE(explorer_.GetEntries()[0].is_parent);
+    ASSERT_GE(Entries().size(), 1u);
+    EXPECT_TRUE(Entries()[0].is_parent);
 }
 
 TEST_F(FileExplorerTest, SetDirectoryThenSetDirectoryAgainSwitches)
@@ -288,7 +295,7 @@ TEST_F(FileExplorerTest, RefreshPicksUpNewFiles)
     WriteTempFile(L"new.md");
     explorer_.Refresh();
 
-    EXPECT_EQ(explorer_.GetEntries().size(), before + 1);
+    EXPECT_EQ(Entries().size(), before + 1);
 }
 
 TEST_F(FileExplorerTest, FullPathIsCorrect)

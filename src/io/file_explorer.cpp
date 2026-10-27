@@ -39,21 +39,21 @@ void FileExplorer::SetDirectory(std::wstring_view dir_path)
     Refresh();
 }
 
-const std::pmr::vector<FileEntry>& FileExplorer::GetEntries() const
+void FileExplorer::EnsureListed()
 {
-    if (stale_) {
-        stale_ = false;
-        ++request_;
-        if (lister_ && !directory_.empty()) {
-            // ネットワークドライブや大きいフォルダでは数百 ms かかるので、終わるまで前の一覧を見せておく。
-            listing_ = true;
-            lister_(directory_, request_);
-        }
-        else {
-            ReplaceEntries(directory_.empty() ? std::pmr::vector<FileEntry>{} : List(directory_));
-        }
+    if (!stale_) {
+        return;
     }
-    return entries_;
+    stale_ = false;
+    ++request_;
+    if (lister_ && !directory_.empty()) {
+        // ネットワークドライブや大きいフォルダでは数百 ms かかるので、終わるまで前の一覧を見せておく。
+        listing_ = true;
+        lister_(directory_, request_);
+    }
+    else {
+        ReplaceEntries(directory_.empty() ? std::pmr::vector<FileEntry>{} : List(directory_));
+    }
 }
 
 bool FileExplorer::ApplyListing(uint32_t request, std::pmr::vector<FileEntry> entries)
@@ -66,7 +66,7 @@ bool FileExplorer::ApplyListing(uint32_t request, std::pmr::vector<FileEntry> en
     return true;
 }
 
-void FileExplorer::ReplaceEntries(std::pmr::vector<FileEntry> entries) const
+void FileExplorer::ReplaceEntries(std::pmr::vector<FileEntry> entries)
 {
     listing_ = false;
     ++generation_;
@@ -134,7 +134,7 @@ void FileExplorer::SetCurrentFile(std::wstring_view path)
     ApplyCurrentFile();
 }
 
-void FileExplorer::ApplyCurrentFile() const
+void FileExplorer::ApplyCurrentFile()
 {
     for (auto& entry : entries_) {
         entry.is_current = !entry.is_directory && path_util::iequal(entry.full_path, current_file_);
