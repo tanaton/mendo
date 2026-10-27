@@ -61,10 +61,9 @@ const PaneLayout& EnsurePaneLayout(AppState& state) noexcept
     auto& cache = state.pane_layout_cache;
     // WM_NCHITTEST は Init 前にも届く。大きさが決まる (最初の WM_SIZE) までは空の配置のまま。
     if (!cache.IsValid() && state.theme && state.window.client_width > 0) {
-        const float scale = state.window.cached_dpi_scale;
-        const float width = PixelToDip(static_cast<float>(state.window.client_width), scale);
-        const float height = PixelToDip(static_cast<float>(state.window.client_height), scale);
-        cache.Set(width, state.view.panes.ComputeLayout(width, height, state.theme->splitter_width, state.window.titlebar.GetHeight()));
+        const float width = state.window.WidthDip();
+        const float height = PixelToDip(static_cast<float>(state.window.client_height), state.window.cached_dpi_scale);
+        cache.Set(state.view.panes.ComputeLayout(width, height, state.theme->splitter_width, state.window.titlebar.GetHeight()));
     }
     return cache.Get();
 }
@@ -518,7 +517,7 @@ void ReduceSplitterDragMoved(AppState& state, SideEffectList& effects, const Spl
     const float splitter_w = state.theme->splitter_width;
     const float before_file = state.view.panes.GetSidePaneWidth(PaneTarget::File);
     const float before_toc = state.view.panes.GetSidePaneWidth(PaneTarget::Toc);
-    state.view.panes.DragSplitterTo(state.view.drag.pane, a.dip_x, state.pane_layout_cache.WindowWidth(), splitter_w);
+    state.view.panes.DragSplitterTo(state.view.drag.pane, a.dip_x, state.window.WidthDip(), splitter_w);
     if (state.view.panes.GetSidePaneWidth(PaneTarget::File) == before_file && state.view.panes.GetSidePaneWidth(PaneTarget::Toc) == before_toc) {
         return;
     }

@@ -57,6 +57,8 @@ void Theme::ApplyZoom(float new_zoom) noexcept
 }
 
 namespace {
+constexpr D2D1_COLOR_F SELECTION_COLOR = { 0.26f, 0.56f, 0.84f, 0.3f };
+
 void SetColor(Theme& t, BrushId id, D2D1_COLOR_F color) noexcept
 {
     t.colors[std::to_underlying(id)] = color;

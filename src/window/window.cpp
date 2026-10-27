@@ -14,8 +14,6 @@
 #include <optional>
 #include <utility>
 
-#pragma comment(lib, "dwmapi.lib")
-#pragma comment(lib, "imm32.lib")
 
 namespace {
 
@@ -33,6 +31,14 @@ constexpr auto kKeyWindowY = "Y"sv;
 constexpr auto kKeyWindowWidth = "Width"sv;
 constexpr auto kKeyWindowHeight = "Height"sv;
 constexpr auto kKeyWindowMaximized = "Maximized"sv;
+
+// デフォルトウィンドウサイズ（ピクセル）
+constexpr int DEFAULT_WINDOW_WIDTH = 1600;
+constexpr int DEFAULT_WINDOW_HEIGHT = 900;
+
+// 検索ボックス IME コンポジションウィンドウのキャレット位置 X オフセット (px)。
+// EM_POSFROMCHAR が返す位置はキャレットの左端なので、フォント幅の半分強を足してキャレット直下に表示する。
+constexpr LONG IME_CARET_X_OFFSET = 8;
 
 // IME 変換候補ウィンドウを入力フィールドの下、キャレット位置に合わせる。
 void PlaceImeWindowsBelowCaret(HWND edit)

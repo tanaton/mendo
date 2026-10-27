@@ -4,8 +4,6 @@
 #include <dwmapi.h>
 #include <uxtheme.h>
 
-#pragma comment(lib, "dwmapi.lib")
-#pragma comment(lib, "uxtheme.lib")
 
 namespace {
 constexpr UINT_PTR TOOL_ID = 1;

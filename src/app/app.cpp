@@ -19,7 +19,6 @@
 #include <thread>
 #include <utility>
 
-#pragma comment(lib, "shell32.lib")
 
 namespace {
 
@@ -253,7 +252,7 @@ TitleBarRenderState App::BuildTitleBarRenderState() const
     return TitleBarRenderState{
         .bar = state_.window.titlebar,
         .title_text = title_text_,
-        .window_width = state_.pane_layout_cache.WindowWidth(),
+        .window_width = state_.window.WidthDip(),
         .hovered_zone = state_.view.hover.titlebar,
         .search_active = state_.search.search_state.IsVisible(),
         .file_pane_visible = panes.IsSidePaneVisible(PaneTarget::File),
@@ -568,7 +567,7 @@ void App::Execute(const SideEffect& effect)
                 KillTimer(app_timer::Id::TOOLTIP);
             }
             else {
-                SetTimer(app_timer::Id::TOOLTIP, TOOLTIP_DELAY_MS);
+                SetTimer(app_timer::Id::TOOLTIP, app_timer::TOOLTIP_DELAY_MS);
             }
         },
         [this](const effect::ShowContextMenu& ev) {

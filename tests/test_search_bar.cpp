@@ -22,7 +22,7 @@ protected:
     {
         PaneLayout pl{};
         pl.md_rect.height = height;
-        state_.pane_layout_cache.Set(0.0f, pl);
+        state_.pane_layout_cache.Set(pl);
     }
 
     // markdown を文書にし、各ノードを node_height ずつ縦に並べる。

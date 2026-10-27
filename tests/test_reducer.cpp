@@ -52,7 +52,7 @@ protected:
         // PaneLayout のモック（ページサイズ用）
         PaneLayout pl{};
         pl.md_rect.height = 500.0f;
-        state.pane_layout_cache.Set(0.0f, pl);
+        state.pane_layout_cache.Set(pl);
         InitReducerState(state, theme);
         // 内容高 1000・表示高 500 で、500 までスクロールできる。パスは空 (未ロード扱い) にする。
         SetDocument(state, "Hello", L"", 1000.0f);
@@ -780,7 +780,7 @@ TEST_F(ReducerTest, DpiChanged_UpdatesScale)
 // 色だけの変更なのでペイン配置は作り直さない。
 TEST_F(ReducerTest, ToggleDarkMode_EmitsToggleDarkMode)
 {
-    state.pane_layout_cache.Set(0.0f, PaneLayout{});
+    state.pane_layout_cache.Set(PaneLayout{});
     auto effects = Reduce(state, ToggleDarkModeAction{});
 
     EXPECT_TRUE(HasEffect<effect::ToggleDarkMode>(effects));
@@ -791,7 +791,7 @@ TEST_F(ReducerTest, ToggleDarkMode_EmitsToggleDarkMode)
 // ペイン配置 (md_rect の位置と幅) も作り直さない。
 TEST_F(ReducerTest, ZoomIn_EmitsApplyZoom)
 {
-    state.pane_layout_cache.Set(1000.0f, PaneLayout{});
+    state.pane_layout_cache.Set(PaneLayout{});
     auto effects = Reduce(state, ZoomAction{ ZoomDirection::In });
 
     EXPECT_TRUE(HasEffect<effect::ApplyZoom>(effects));
@@ -1008,7 +1008,8 @@ TEST_F(ReducerTest, SplitterDragStarted_SetsTargetAndCaptures)
 TEST_F(ReducerTest, SplitterDragMoved_Splitter1_UpdatesWidthAndInvalidates)
 {
     theme.splitter_width = 4.0f;
-    state.pane_layout_cache.Set(1000.0f, PaneLayout{});
+    state.window.client_width = 1000;
+    state.pane_layout_cache.Set(PaneLayout{});
     state.view.drag = { .kind = LeftDrag::Splitter, .pane = PaneTarget::File };
     const float old_width = state.view.panes.GetSidePaneWidth(PaneTarget::File);
 
@@ -1022,7 +1023,8 @@ TEST_F(ReducerTest, SplitterDragMoved_Splitter1_UpdatesWidthAndInvalidates)
 TEST_F(ReducerTest, SplitterDragMoved_Splitter2_UpdatesTocWidthAndInvalidates)
 {
     theme.splitter_width = 4.0f;
-    state.pane_layout_cache.Set(1000.0f, PaneLayout{});
+    state.window.client_width = 1000;
+    state.pane_layout_cache.Set(PaneLayout{});
     state.view.drag = { .kind = LeftDrag::Splitter, .pane = PaneTarget::Toc };
 
     // 目次ペインのスプリッタは toc_left 基準で toc_width を変更する
@@ -1034,7 +1036,7 @@ TEST_F(ReducerTest, SplitterDragMoved_Splitter2_UpdatesTocWidthAndInvalidates)
 
 TEST_F(ReducerTest, SplitterDragMoved_InvalidTarget_NoOp)
 {
-    state.pane_layout_cache.Set(1000.0f, PaneLayout{});
+    state.pane_layout_cache.Set(PaneLayout{});
     state.view.drag = { .kind = LeftDrag::PaneScrollbar };
     auto effects = Reduce(state, SplitterDragMovedAction{ 300.0f });
 
@@ -1045,7 +1047,7 @@ TEST_F(ReducerTest, SplitterDragMoved_InvalidTarget_NoOp)
 TEST_F(ReducerTest, SplitterDragEnded_ReleasesAndRefreshes)
 {
     state.view.drag = { .kind = LeftDrag::Splitter, .pane = PaneTarget::File };
-    state.pane_layout_cache.Set(0.0f, PaneLayout{});
+    state.pane_layout_cache.Set(PaneLayout{});
 
     auto effects = Reduce(state, LeftDragEndedAction{});
 
@@ -1212,7 +1214,7 @@ void SetupScrollableToc(AppState& state)
     state.document.doc = Document::FromMarkdown(std::pmr::string(md), L"test.md");
     PaneLayout pl{};
     pl.toc_rect = { 0.0f, 0.0f, 200.0f, 300.0f };
-    state.pane_layout_cache.Set(0.0f, pl);
+    state.pane_layout_cache.Set(pl);
     // item_height=28, header_height=32 → content_height=268, total=30*28=840 → scrollable
 }
 
@@ -1223,7 +1225,7 @@ TEST_F(ReducerTest, PaneScrollbarDragStarted_NotScrollable_NoOp)
     // エントリが少なく total_content <= content_height → スクロール不要で no-op
     PaneLayout pl{};
     pl.toc_rect = { 0.0f, 0.0f, 200.0f, 300.0f };
-    state.pane_layout_cache.Set(0.0f, pl);
+    state.pane_layout_cache.Set(pl);
     // 既定の Toc (エントリ 0) で総コンテンツ 0 → スクロール不要
     auto effects = Reduce(state, PaneScrollbarDragStartedAction{ PaneTarget::Toc, 100.0f });
     EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
@@ -1520,7 +1522,7 @@ protected:
         PaneLayout pl{};
         pl.md_rect.height = 500.0f;
         pl.file_rect.height = theme.pane_header_height + 280.0f;
-        state.pane_layout_cache.Set(0.0f, pl);
+        state.pane_layout_cache.Set(pl);
     }
 
     // App::FinishLoadMarkdownFile と同じく現在ファイルも登録する。
@@ -1664,7 +1666,7 @@ void SetupTocFollow(AppState& state)
     PaneLayout pl{};
     pl.md_rect = { 400.0f, 0.0f, 800.0f, 400.0f };
     pl.toc_rect = { 0.0f, 0.0f, 200.0f, 300.0f };
-    state.pane_layout_cache.Set(1200.0f, pl);
+    state.pane_layout_cache.Set(pl);
     SetDocument(state, md, L"C:\\file.md", 400.0f);
     SyncActiveTocIndex(state);
 }
@@ -1746,8 +1748,8 @@ TEST_F(ReducerTest, PaneLayoutFollowsClientSizeAndDpi)
     EXPECT_FLOAT_EQ(EnsurePaneLayout(state).md_rect.width + EnsurePaneLayout(state).md_rect.x, 1000.0f);
 
     Reduce(state, DpiChangedAction{ 192, RECT{ 0, 0, 1000, 800 } });
-    EnsurePaneLayout(state);
-    EXPECT_FLOAT_EQ(state.pane_layout_cache.WindowWidth(), 500.0f);
+    EXPECT_FLOAT_EQ(state.window.WidthDip(), 500.0f);
+    EXPECT_FLOAT_EQ(EnsurePaneLayout(state).md_rect.width + EnsurePaneLayout(state).md_rect.x, 500.0f);
 
     EXPECT_TRUE(HasEffect<effect::RendererResize>(Reduce(state, ResizeAction{ 1000, 800 })));
     EXPECT_FALSE(HasEffect<effect::RendererResize>(Reduce(state, ResizeAction{ 1000, 800 })));

@@ -168,8 +168,10 @@ target_include_directories(mendo_core PUBLIC ${MENDO_SRC_DIRS})
 target_compile_definitions(mendo_core PUBLIC
     UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
 )
+# リンクする OS のライブラリはここにまとめる (ソースの #pragma comment(lib) は使わない)。
+# windowscodecs は DLL を静的に読まないが、WIC の GUID がこの lib にある。
 target_link_libraries(mendo_core PUBLIC
-    md4c d2d1 dwrite windowscodecs
+    md4c d2d1 dwrite windowscodecs dwmapi uxtheme ole32 shell32 comdlg32
 )
 if(MENDO_USE_TRACY)
     # MENDO_USE_TRACY: profiler.h のマクロを Tracy 呼び出しに展開するスイッチ。
@@ -221,7 +223,7 @@ add_executable(mendo WIN32
     res/mendo.rc
 )
 target_include_directories(mendo PRIVATE ${WEBVIEW2_INCLUDE} "${CMAKE_CURRENT_BINARY_DIR}/generated")
-target_link_libraries(mendo PRIVATE mendo_core comctl32 delayimp
+target_link_libraries(mendo PRIVATE mendo_core comctl32 d3d11 dxgi imm32 shcore delayimp
     "${WEBVIEW2_LIB_DIR}/WebView2LoaderStatic.lib"
 )
 # ファイルダイアログでしか使わないので、起動時にロードしない (約 1ms)。

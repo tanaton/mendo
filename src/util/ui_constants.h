@@ -6,8 +6,6 @@
 #include <numbers>
 #include <optional>
 
-inline constexpr D2D1_COLOR_F SELECTION_COLOR = { 0.26f, 0.56f, 0.84f, 0.3f };
-
 inline constexpr float TWO_PI = std::numbers::pi_v<float> * 2.0f;
 
 // ローディングスピナーの定数
@@ -136,8 +134,6 @@ inline constexpr float TABLE_ROW_HEIGHT_FACTOR = 1.4f;
 
 // DirectWriteメトリクス取得失敗時の代替値
 inline constexpr float FALLBACK_LINE_HEIGHT_FACTOR = 1.3f;
-
-inline constexpr UINT TOOLTIP_DELAY_MS = 500;
 
 // クリック判定距離の二乗（ドラッグ選択とクリックを区別するための閾値）
 inline constexpr int CLICK_DISTANCE_THRESHOLD_SQ = 25;
@@ -343,14 +339,6 @@ constexpr SearchBarHitZone HitTestSearchBar(const SearchBarLayout& sbl, float x,
     }
     return SearchBarHitZone::None;
 }
-
-// デフォルトウィンドウサイズ（ピクセル）
-inline constexpr int DEFAULT_WINDOW_WIDTH = 1600;
-inline constexpr int DEFAULT_WINDOW_HEIGHT = 900;
-
-// 検索ボックス IME コンポジションウィンドウのキャレット位置 X オフセット (px)。
-// EM_POSFROMCHAR が返す位置はキャレットの左端なので、フォント幅の半分強を足してキャレット直下に表示する。
-inline constexpr LONG IME_CARET_X_OFFSET = 8;
 
 // マークダウンペインの最小幅 (DIP)。スプリッタードラッグでこれ以上 md ペインを縮められない。
 // PaneController の表示幅の縮小とスプリッタードラッグの制約で共有する。

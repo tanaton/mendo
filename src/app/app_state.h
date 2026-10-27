@@ -127,6 +127,11 @@ struct WindowState {
     uint32_t client_height = 0;
     // DPI が変わった。次の WM_SIZE は同じピクセルサイズでも処理する。
     bool dpi_changed = false;
+
+    constexpr float WidthDip() const noexcept
+    {
+        return PixelToDip(static_cast<float>(client_width), cached_dpi_scale);
+    }
 };
 
 struct AppState {

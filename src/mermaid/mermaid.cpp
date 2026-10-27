@@ -22,8 +22,6 @@
 #include <limits>
 #include <utility>
 
-#pragma comment(lib, "shcore.lib")
-#pragma comment(lib, "windowscodecs.lib")
 
 namespace {
 
