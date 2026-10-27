@@ -1,5 +1,4 @@
 #pragma once
-#include <memory_resource>
 #include <string>
 #include <windows.h>
 
@@ -7,9 +6,9 @@
 namespace file_dialog_service {
 
 // キャンセル時は空文字列。
-[[nodiscard]] std::pmr::wstring OpenMarkdownFileDialog(HWND owner);
+[[nodiscard]] std::wstring OpenMarkdownFileDialog(HWND owner);
 
 // キャンセル時は空文字列。
-[[nodiscard]] std::pmr::wstring SavePngFileDialog(HWND owner, const wchar_t* default_filename);
+[[nodiscard]] std::wstring SavePngFileDialog(HWND owner, const wchar_t* default_filename);
 
 } // namespace file_dialog_service

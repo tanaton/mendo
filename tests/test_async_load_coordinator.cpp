@@ -67,7 +67,7 @@ TEST_F(AsyncLoadCoordinatorTest, ShutdownSchedulerCausesReadFailedError)
     local.Shutdown();
 
     AsyncLoadCoordinator c;
-    c.Start(local, std::pmr::wstring(L"unused.md"), GetLightTheme());
+    c.Start(local, std::wstring(L"unused.md"), GetLightTheme());
 
     EXPECT_FALSE(c.IsActive());
     auto outcome = c.Take();
@@ -80,10 +80,10 @@ TEST_F(AsyncLoadCoordinatorTest, ShutdownSchedulerCausesReadFailedError)
 // worker でメモリ確保に失敗しても terminate せず、大きすぎて読めなかった扱いで返す。
 TEST_F(AsyncLoadCoordinatorTest, BadAllocInWorkerProducesTooLargeError)
 {
-    AsyncLoadCoordinator c{ [](const std::pmr::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
+    AsyncLoadCoordinator c{ [](const std::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
         throw std::bad_alloc{};
     } };
-    c.Start(scheduler_, std::pmr::wstring(L"unused.md"), GetLightTheme());
+    c.Start(scheduler_, std::wstring(L"unused.md"), GetLightTheme());
 
     auto outcome = WaitForOutcome(c);
     ASSERT_TRUE(outcome.has_value());
@@ -111,7 +111,7 @@ TEST_F(AsyncLoadCoordinatorTest, SuccessfulLoadProducesResult)
 TEST_F(AsyncLoadCoordinatorTest, NotFoundFileProducesError)
 {
     AsyncLoadCoordinator c;
-    c.Start(scheduler_, std::pmr::wstring(L"C:\\__mendo_no_such_file__.md"), GetLightTheme());
+    c.Start(scheduler_, std::wstring(L"C:\\__mendo_no_such_file__.md"), GetLightTheme());
 
     auto outcome = WaitForOutcome(c);
     ASSERT_TRUE(outcome.has_value());
@@ -136,7 +136,7 @@ namespace {
 
 std::optional<AsyncLoadResult> RunReload(TaskScheduler& scheduler, const TempFile& tmp, std::string_view old_text, bool accept_prefix_shrink = false)
 {
-    std::shared_ptr<const DocumentData> base = Document::FromMarkdown(std::pmr::string(old_text), L"old.md").ShareData();
+    std::shared_ptr<const DocumentData> base = Document::FromMarkdown(std::string(old_text), L"old.md").ShareData();
     AsyncLoadCoordinator c;
     c.Start(scheduler, tmp.PmrPath(), GetLightTheme(), 0.0f, ReloadBase{ base, accept_prefix_shrink });
     auto outcome = WaitForOutcome(c);
@@ -232,7 +232,7 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadCountsUnchangedNodesOnWorker)
     TempFile tmp(L"aload_reload_ends", "# Title\n\nchanged\n\ntail\n");
     for (const bool keep_old : { true, false }) {
         SCOPED_TRACE(keep_old ? "keep_old" : "released");
-        auto old_doc = std::make_optional(Document::FromMarkdown(std::pmr::string("# Title\n\nbody\n\ntail\n"), L"old.md"));
+        auto old_doc = std::make_optional(Document::FromMarkdown(std::string("# Title\n\nbody\n\ntail\n"), L"old.md"));
         ReloadBase base{ old_doc->ShareData() };
         // worker は差分判定の後に旧文書を手放すので、残りの参照はこの old_doc だけになる。
         if (!keep_old) {
@@ -262,10 +262,10 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadCountsUnchangedNodesOnWorker)
 TEST_F(AsyncLoadCoordinatorTest, ReloadWhileFileStillGrowingSkipsParse)
 {
     TempFile tmp(L"aload_reload_growing", std::string(256, 'x'));
-    std::shared_ptr<const DocumentData> base = Document::FromMarkdown(std::pmr::string("# Title\n\nbody\n"), L"old.md").ShareData();
+    std::shared_ptr<const DocumentData> base = Document::FromMarkdown(std::string("# Title\n\nbody\n"), L"old.md").ShareData();
     // 実ファイルより短い先頭だけを読んだ状態を再現する。
-    AsyncLoadCoordinator c([](const std::pmr::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
-        return LoadedFileDoc{ std::pmr::string("# Title\n\nchanged\n"), 17 };
+    AsyncLoadCoordinator c([](const std::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
+        return LoadedFileDoc{ std::string("# Title\n\nchanged\n"), 17 };
     });
     c.Start(scheduler_, tmp.PmrPath(), GetLightTheme(), 0.0f, ReloadBase{ base });
     const auto outcome = WaitForOutcome(c);
@@ -282,8 +282,8 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadWhileFileStillGrowingSkipsParse)
 TEST_F(AsyncLoadCoordinatorTest, LoadWithoutBaseDoesNotCheckGrowth)
 {
     TempFile tmp(L"aload_growing", std::string(256, 'x'));
-    AsyncLoadCoordinator c([](const std::pmr::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
-        return LoadedFileDoc{ std::pmr::string("# Title\n\nchanged\n"), 17 };
+    AsyncLoadCoordinator c([](const std::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
+        return LoadedFileDoc{ std::string("# Title\n\nchanged\n"), 17 };
     });
     c.Start(scheduler_, tmp.PmrPath(), GetLightTheme());
     const auto outcome = WaitForOutcome(c);
@@ -298,7 +298,7 @@ TEST_F(AsyncLoadCoordinatorTest, LoadWithoutBaseDoesNotCheckGrowth)
 TEST_F(AsyncLoadCoordinatorTest, ReopeningShownFileIsJudgedOnWorker)
 {
     TempFile tmp(L"aload_reopen", "# Title\n");
-    const Document current = Document::FromMarkdown(std::pmr::string("# Title\n\nbody\n"), tmp.PmrPath());
+    const Document current = Document::FromMarkdown(std::string("# Title\n\nbody\n"), tmp.PmrPath());
     for (const bool accept : { false, true }) {
         SCOPED_TRACE(accept ? "accept" : "defer");
         AsyncLoadCoordinator c;
@@ -397,7 +397,7 @@ LoaderGateState& LoaderGate()
     return state;
 }
 
-std::expected<LoadedFileDoc, FileLoadError> GatedLoad(const std::pmr::wstring& path, const std::stop_token& stop_token)
+std::expected<LoadedFileDoc, FileLoadError> GatedLoad(const std::wstring& path, const std::stop_token& stop_token)
 {
     auto& g = LoaderGate();
     std::unique_lock lock(g.mutex);
@@ -518,7 +518,7 @@ TEST_F(AsyncLoadCoordinatorTest, CancelDuringLoadDiscardsLateError)
     ArmedLoaderGate gate{ std::unexpected(FileLoadError::NotFound) };
     c.Attach(w.Get(), kParseCompleteMsg);
 
-    c.Start(scheduler_, std::pmr::wstring(L"gated.md"), GetLightTheme());
+    c.Start(scheduler_, std::wstring(L"gated.md"), GetLightTheme());
     ASSERT_TRUE(gate.WaitForCalls(1));
     EXPECT_FALSE(gate.Token(0).stop_requested());
     c.Cancel();
@@ -539,7 +539,7 @@ TEST_F(AsyncLoadCoordinatorTest, RestartDuringLoadStopsPreviousWorkerAndDiscards
     ArmedLoaderGate gate{ std::unexpected(FileLoadError::ReadFailed) };
     c.Attach(w.Get(), kParseCompleteMsg);
 
-    c.Start(scheduler_, std::pmr::wstring(L"gated.md"), GetLightTheme());
+    c.Start(scheduler_, std::wstring(L"gated.md"), GetLightTheme());
     ASSERT_TRUE(gate.WaitForCalls(1));
     c.Start(scheduler_, tmp2.PmrPath(), GetLightTheme());
     // 前 worker の parse / Estimate を協調キャンセルできるよう、キャプチャ済み token に停止が届く。
@@ -561,8 +561,8 @@ TEST_F(AsyncLoadCoordinatorTest, RandomStartCancelSequencesExposeOnlyLastLoad)
 {
     TempFile ok1(L"aload_rand_one", "# one\n");
     TempFile ok2(L"aload_rand_two", "# two\n\nbody\n");
-    const std::pmr::wstring missing(L"C:\\__mendo_no_such_file_rand__.md");
-    const std::shared_ptr<const DocumentData> ok1_base = Document::FromMarkdown(std::pmr::string("# one\n"), L"old.md").ShareData();
+    const std::wstring missing(L"C:\\__mendo_no_such_file_rand__.md");
+    const std::shared_ptr<const DocumentData> ok1_base = Document::FromMarkdown(std::string("# one\n"), L"old.md").ShareData();
 
     enum class Expect : uint8_t { None, Ok1, Ok2, Missing, Ok1NoChange };
     constexpr std::string_view kOpNames[] = { "Start(ok1)", "Start(ok2)", "Start(missing)", "Start(ok1,reload)", "Cancel" };
@@ -651,11 +651,11 @@ TEST_F(AsyncLoadCoordinatorTest, BadAllocAfterCancelProducesNoOutcome)
     static std::shared_future<void> released;
     std::promise<void> release;
     released = release.get_future().share();
-    AsyncLoadCoordinator c{ [](const std::pmr::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
+    AsyncLoadCoordinator c{ [](const std::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
         released.wait();
         throw std::bad_alloc{};
     } };
-    c.Start(scheduler_, std::pmr::wstring(L"unused.md"), GetLightTheme());
+    c.Start(scheduler_, std::wstring(L"unused.md"), GetLightTheme());
     c.Cancel();
     release.set_value();
 
@@ -738,12 +738,12 @@ TEST_F(AsyncLoadCoordinatorTest, AttachBeforeOutcomeNotifiesLater)
     static std::shared_future<void> released;
     std::promise<void> release;
     released = release.get_future().share();
-    AsyncLoadCoordinator c{ [](const std::pmr::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
+    AsyncLoadCoordinator c{ [](const std::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
         released.wait();
-        return LoadedFileDoc{ .text = std::pmr::string{ "# late\n" }, .byte_size = 7 };
+        return LoadedFileDoc{ .text = std::string{ "# late\n" }, .byte_size = 7 };
     } };
     MessageOnlyWindow w;
-    c.Start(scheduler_, std::pmr::wstring(L"unused.md"), GetLightTheme());
+    c.Start(scheduler_, std::wstring(L"unused.md"), GetLightTheme());
     EXPECT_TRUE(c.Attach(w.Get(), WM_USER + 1));
     EXPECT_EQ(w.DrainMessages(WM_USER + 1), 0);
     release.set_value();
@@ -798,7 +798,7 @@ TEST_F(LoadFileTest, LoadsTextWithoutBomAndWithLfNewlines)
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.label);
         const auto path = WriteTempFile(L"test.md", c.content);
-        const auto result = LoadFile(std::pmr::wstring{ path.native() }, {});
+        const auto result = LoadFile(std::wstring{ path.native() }, {});
         ASSERT_TRUE(result.has_value());
         EXPECT_EQ(result->text, c.text);
         EXPECT_EQ(result->byte_size, c.content.size());
@@ -807,7 +807,7 @@ TEST_F(LoadFileTest, LoadsTextWithoutBomAndWithLfNewlines)
 
 TEST_F(LoadFileTest, NonExistentFileReturnsError)
 {
-    const auto result = LoadFile(std::pmr::wstring{ L"C:\\nonexistent_file_12345.md" }, {});
+    const auto result = LoadFile(std::wstring{ L"C:\\nonexistent_file_12345.md" }, {});
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error(), FileLoadError::NotFound);
 }
@@ -816,7 +816,7 @@ TEST_F(LoadFileTest, LargeFile)
 {
     const std::string large_content(1024 * 1024, 'A');
     const auto path = WriteTempFile(L"large.md", large_content);
-    const auto result = LoadFile(std::pmr::wstring{ path.native() }, {});
+    const auto result = LoadFile(std::wstring{ path.native() }, {});
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->text.size(), large_content.size());
     EXPECT_EQ(result->byte_size, large_content.size());

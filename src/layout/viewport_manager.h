@@ -3,7 +3,6 @@
 #include "layout_cache.h"
 #include "ui_types.h"
 #include <algorithm>
-#include <memory_resource>
 
 // スクロール位置の「目的地」を表す値型。
 // node が有効な間、レイアウトが変化するたびに scroll_y = text_top[node] + offset として再評価される。
@@ -144,7 +143,7 @@ public:
         selection_.Clear();
     }
 
-    constexpr void SelectAll(const std::pmr::vector<Node>& nodes) noexcept
+    constexpr void SelectAll(const std::vector<Node>& nodes) noexcept
     {
         if (nodes.empty()) {
             ClearSelection();

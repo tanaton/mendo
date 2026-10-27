@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#include <memory_resource>
 #include "viewport_manager.h"
 #include "pane_layout.h"
 #include "test_helpers.h"
@@ -213,7 +212,7 @@ TEST(ViewportManagerTest, ClearSelection)
 
 TEST(ViewportManagerTest, SelectAll)
 {
-    std::pmr::vector<Node> nodes(3);
+    std::vector<Node> nodes(3);
     nodes[0].SetText("hello", 0);
     nodes[1].SetText("world", 0);
     nodes[2].SetText("end", 0);
@@ -230,7 +229,7 @@ TEST(ViewportManagerTest, SelectAll)
 
 TEST(ViewportManagerTest, SelectAllEmpty)
 {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     ViewportManager vm;
     vm.SelectAll(nodes);
     EXPECT_FALSE(vm.GetSelection().active());
@@ -239,7 +238,7 @@ TEST(ViewportManagerTest, SelectAllEmpty)
 // 最終ノードが Table のときも concat_text (= GetText) の末尾を終端にする。
 TEST(ViewportManagerTest, SelectAllLastNodeIsTable)
 {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     nodes.push_back(MakeTextNode("hello"));
     nodes.push_back(MakeTableNode({ { "cell0", "cell1" } }));
 

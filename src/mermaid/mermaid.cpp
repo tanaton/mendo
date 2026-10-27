@@ -584,7 +584,7 @@ void MermaidRenderer::SetDiagramError(const RenderRequest& req, DiagramError::Ki
     });
 }
 
-void MermaidRenderer::InvokeSvgCallbackIfAny(RenderRequest& req, std::pmr::wstring svg, bool cancelled)
+void MermaidRenderer::InvokeSvgCallbackIfAny(RenderRequest& req, std::wstring svg, bool cancelled)
 {
     if (auto cb = std::move(req.svg_callback)) {
         cb(std::move(svg), cancelled);
@@ -625,7 +625,7 @@ void MermaidRenderer::DropQueued()
 {
     // 読み込み待ちのディスクキャッシュも取り消す。描画直後の PNG はディスクへ保存したいので取り消さない。
     disk_drop_gen_.fetch_add(1, std::memory_order_relaxed);
-    std::queue<RenderRequest, std::pmr::deque<RenderRequest>> kept;
+    std::queue<RenderRequest, std::deque<RenderRequest>> kept;
     while (!pending_requests_.empty()) {
         auto& req = pending_requests_.front();
         if (req.svg_only) {
@@ -716,7 +716,7 @@ bool MermaidRenderer::RequestRender(
 
     // ディスクから読めなかったときは描画し直すので、ディスクに当たってもコードを持たせる。
     RenderRequest req{
-        .code = std::pmr::string{ node.GetText() },
+        .code = std::string{ node.GetText() },
         .latex = node.code_language == SyntaxLanguage::LatexMath,
         .max_width = max_width,
         .dark_mode = dark_mode,
@@ -839,7 +839,7 @@ void MermaidRenderer::EnqueueWebRender(RenderRequest req)
 void MermaidRenderer::RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback)
 {
     pending_requests_.push(RenderRequest{
-        .code = std::pmr::string{ code },
+        .code = std::string{ code },
         .max_width = max_width,
         .dark_mode = dark_mode,
         .svg_only = true,
@@ -920,7 +920,7 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
     const auto& req = worker.current_request;
 
     // WebView2 / JsEscape は wstring 経路のため、ここで UTF-8 から変換する。
-    std::pmr::wstring code;
+    std::wstring code;
     string_convert::Utf8ToWide(req.code, code);
     if (req.latex) {
         code = mermaid_util::BuildLatexFlowchartCode(code);
@@ -1000,7 +1000,7 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
         return;
     case WebMessageKind::SvgResult:
         if (req_id_match && w.current_request.svg_only) {
-            InvokeSvgCallbackIfAny(w.current_request, std::pmr::wstring{ payload }, false);
+            InvokeSvgCallbackIfAny(w.current_request, std::wstring{ payload }, false);
             FinishWorkerRequest(w);
         }
         return;

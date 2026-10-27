@@ -8,7 +8,6 @@
 #include <cstdint>
 #include <expected>
 #include <memory>
-#include <memory_resource>
 #include <mutex>
 #include <optional>
 #include <stop_token>
@@ -21,7 +20,7 @@ class TaskScheduler;
 // LoadFile が返す UTF-8 ドキュメントテキスト (BOM 除去・LF 正規化済) + 元の UTF-8 バイト数 (BOM 込み)。
 // byte_size はリロード時の二段階保存検出 (IsFileLargerThan) や AnalyzeReloadDiff の参照用。
 struct LoadedFileDoc {
-    std::pmr::string text;
+    std::string text;
     size_t byte_size = 0;
 };
 
@@ -29,7 +28,7 @@ struct LoadedFileDoc {
 // Document とリロード diff はこの出力が LF-only であることを前提にする (issue #273)。
 // wstring 経由の二重変換 (UTF-8 → wstring → UTF-8) を行わないため巨大ファイルで高速。
 // stop_token は AsyncLoadCoordinator::LoadFileFn に合わせて受けるだけで、読み込みの途中では止めない。
-std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::pmr::wstring& path, const std::stop_token& stop_token);
+std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::wstring& path, const std::stop_token& stop_token);
 
 // 表示中のファイルを読み直すとき (開き直しを含む) に worker に渡す旧文書。原文はパース前の差分判定に、
 // ノードはパース後に変わらなかったノードを数えるのに使う。空ならリロードとして扱わない。
@@ -77,7 +76,7 @@ using AsyncLoadOutcome = std::expected<AsyncLoadResult, FileLoadError>;
 // Start と Cancel は必ず旧 source に request_stop するので、停止を要求された token を持つ worker が古い worker。
 class AsyncLoadCoordinator {
 public:
-    using LoadFileFn = std::expected<LoadedFileDoc, FileLoadError> (*)(const std::pmr::wstring& path, const std::stop_token& stop_token);
+    using LoadFileFn = std::expected<LoadedFileDoc, FileLoadError> (*)(const std::wstring& path, const std::stop_token& stop_token);
 
     AsyncLoadCoordinator() = default;
     // テストが worker を読み込み中で止め、Cancel / 再 Start との競合を決定的に再現するための差し替え口。
@@ -93,7 +92,7 @@ public:
         return in_flight_;
     }
     // 最後に Start したパス。IsActive の間だけ意味を持つ。
-    const std::pmr::wstring& LoadingPath() const noexcept
+    const std::wstring& LoadingPath() const noexcept
     {
         return loading_path_;
     }
@@ -104,7 +103,7 @@ public:
     // 変更なし / 書き込み途中 (prefix shrink) ならパースを省いて判定結果だけ返す。
     // 結果を出したら Attach で渡した通知先へ送る。Attach の前なら送らない (起動時にウィンドウを作るのと並行して読み込む)。
     // content_width は推定に使う本文幅 (0 は幅を知らない)。
-    void Start(TaskScheduler& scheduler, std::pmr::wstring path, Theme theme, float content_width = 0.0f, ReloadBase reload_base = {});
+    void Start(TaskScheduler& scheduler, std::wstring path, Theme theme, float content_width = 0.0f, ReloadBase reload_base = {});
 
     // 通知先を渡す。以後の Start の結果もここへ送る。読み込み中なら true で、結果が出ていればこの場で通知を送る。
     bool Attach(HWND hwnd, UINT msg_id);
@@ -124,7 +123,7 @@ public:
 
 private:
     // worker スレッド本体。I/O → リロード差分判定 → Parse → Estimate の各段で stop を確認する。
-    void RunWorker(TaskScheduler& scheduler, const std::pmr::wstring& path, const Theme& theme, float content_width,
+    void RunWorker(TaskScheduler& scheduler, const std::wstring& path, const Theme& theme, float content_width,
                    const std::stop_token& stop_token, ReloadBase reload_base);
     // sink 書き込みは Cancel との直列化のため lock 内で stop を再確認してから行う。
     void Publish(const std::stop_token& stop_token, AsyncLoadOutcome outcome);
@@ -136,7 +135,7 @@ private:
     // 最後に Start で渡された scheduler。worker の完了を待つ (latch_) ので coordinator より長く生きる。
     TaskScheduler* scheduler_ = nullptr;
     bool in_flight_ = false;
-    std::pmr::wstring loading_path_;
+    std::wstring loading_path_;
     std::mutex mutex_;
     std::optional<AsyncLoadOutcome> outcome_;
     // 結果の通知先。worker が Publish で読むので mutex_ で守る。

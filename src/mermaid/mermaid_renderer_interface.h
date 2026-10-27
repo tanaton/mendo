@@ -4,7 +4,6 @@
 #include <functional>
 #include <string>
 #include <string_view>
-#include <memory_resource>
 
 // mermaid.h は <WebView2.h> を transitively 引き込むため、mendo_core 入りの
 // モジュールは WebView2 依存を避けるべく本 interface を介する。
@@ -14,7 +13,7 @@ public:
     //   svg が非空      : 成功
     //   svg が空, cancelled=false : mermaid のレンダリング失敗
     //   svg が空, cancelled=true  : 終了時に破棄された
-    using SvgCallback = std::move_only_function<void(std::pmr::wstring svg, bool cancelled)>;
+    using SvgCallback = std::move_only_function<void(std::wstring svg, bool cancelled)>;
     virtual ~IMermaidRenderer() = default;
 
     // 結果 (ビットマップかエラー) が出ていれば diagram_entry に書いて true を返す。まだなら描画を始めて false

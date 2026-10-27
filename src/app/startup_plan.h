@@ -1,6 +1,5 @@
 #pragma once
 #include <cstdint>
-#include <memory_resource>
 #include <span>
 #include <string>
 #include <string_view>
@@ -27,9 +26,9 @@ struct StartupContext {
 
 struct StartupPlan {
     // 空ならヘルプを表示する。
-    std::pmr::wstring document_path;
+    std::wstring document_path;
     // 空ならファイルペインを設定しない。
-    std::pmr::wstring pane_directory;
+    std::wstring pane_directory;
     bool restore_scroll = false;
     // 引数のファイルが前回のファイルと表記違いの同一ファイルかもしれない (スラッシュ違いなど)。同じなら復元する。
     // 確かめるには 2 ファイルを開くので、呼び出し側がプリロードを始めてから調べる。

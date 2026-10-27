@@ -4,7 +4,6 @@
 #include "layout_cache.h"
 #include <chrono>
 #include <cstdint>
-#include <memory_resource>
 #include <span>
 #include <string>
 #include <string_view>
@@ -47,9 +46,9 @@ public:
         visible_ = false;
         StopSearch();
         ClearMatches();
-        std::pmr::vector<SearchMatch>().swap(matches_);
-        std::pmr::vector<SearchMatch>().swap(pending_);
-        std::pmr::vector<int>().swap(candidate_nodes_);
+        std::vector<SearchMatch>().swap(matches_);
+        std::vector<SearchMatch>().swap(pending_);
+        std::vector<int>().swap(candidate_nodes_);
     }
     void Reset() noexcept
     {
@@ -65,11 +64,11 @@ public:
         return generation_;
     }
 
-    constexpr const std::pmr::string& GetQuery() const noexcept
+    constexpr const std::string& GetQuery() const noexcept
     {
         return query_;
     }
-    constexpr const std::pmr::vector<SearchMatch>& GetMatches() const noexcept
+    constexpr const std::vector<SearchMatch>& GetMatches() const noexcept
     {
         return matches_;
     }
@@ -115,7 +114,7 @@ public:
     // (新しいクエリが現れるノードには前回のクエリも現れる)。文書を差し替えたら Reset するか、
     // KeepMatchesOfUnchangedNodes の後に同じクエリで調べ直すこと。
     void BeginSearch();
-    bool ContinueSearch(const std::pmr::vector<Node>& nodes, std::chrono::steady_clock::time_point deadline);
+    bool ContinueSearch(const std::vector<Node>& nodes, std::chrono::steady_clock::time_point deadline);
     // 検索を止め、前回の結果を残す。
     void StopSearch() noexcept
     {
@@ -164,16 +163,16 @@ private:
 
     // 検索に使うクエリ (fold 時は ASCII 小文字化済み) と比べ方。
     struct QueryKey {
-        std::pmr::string text;
+        std::string text;
         bool fold = false;
     };
 
-    std::pmr::string query_;
+    std::string query_;
     // 進行中の検索。query_ が途中で変わっても検索の中身は変えない。
     QueryKey active_;
     // 進行中 (または直前) の検索が調べるノード。narrowing_ なら candidate_nodes_ の番号、でなければ全ノード。
     bool narrowing_ = false;
-    std::pmr::vector<int> candidate_nodes_;
+    std::vector<int> candidate_nodes_;
     size_t next_node_ = 0;
     // 継ぎ目をまたいだマッチが使った、ノード skip_node_ の先頭のバイト数。
     int skip_node_ = -1;
@@ -184,8 +183,8 @@ private:
     bool completed_ = false;
     bool has_result_ = false;
     // 見せている結果。進行中の検索は pending_ に貯め、終わったら入れ替える。
-    std::pmr::vector<SearchMatch> matches_;
-    std::pmr::vector<SearchMatch> pending_;
+    std::vector<SearchMatch> matches_;
+    std::vector<SearchMatch> pending_;
     int current_match_ = -1;
     uint32_t generation_ = 1;
     bool visible_ = false;

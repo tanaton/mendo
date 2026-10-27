@@ -8,7 +8,6 @@
 #include <expected>
 #include <filesystem>
 #include <limits>
-#include <memory_resource>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -96,9 +95,9 @@ constexpr bool IsMarkdownFile(std::wstring_view path) noexcept
 }
 
 // 空パスや区切りを含まないパスでは空を返す。
-inline std::pmr::wstring ParentDirectory(std::wstring_view path)
+inline std::wstring ParentDirectory(std::wstring_view path)
 {
-    return std::pmr::wstring{ std::filesystem::path(path).parent_path().native() };
+    return std::wstring{ std::filesystem::path(path).parent_path().native() };
 }
 
 // C: か C:\ で始まるか。

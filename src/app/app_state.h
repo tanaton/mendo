@@ -18,7 +18,6 @@
 #include "selection_html.h"
 #include "theme.h"
 #include <string>
-#include <memory_resource>
 #include <optional>
 #include <unordered_map>
 
@@ -62,7 +61,7 @@ struct ViewState {
     // ブロック単位の横スクロール。キーは LayoutCache のノードインデックス。
     // ファイルロード/リロードでクリア (永続化しない)。スクロールバーはホバー中とドラッグ中の
     // 対象のみ描画するため、map サイズはユーザー操作分に限定される。
-    std::pmr::unordered_map<int, float> block_scroll_x;
+    std::unordered_map<int, float> block_scroll_x;
     HoverHighlights hover;
     // SyncActiveTocIndex が描画のたびに決め直す。
     int active_toc_index = -1;
@@ -111,9 +110,9 @@ struct SearchGroup {
     // EDIT の選択 [selection_start, caret_pos)。-1 はテキスト末尾。
     int caret_pos = -1;
     int selection_start = -1;
-    std::pmr::wstring ime_composition;
+    std::wstring ime_composition;
     // 入力欄に表示している検索クエリ。SearchState::GetQuery() の UTF-16 版。
-    std::pmr::wstring query_wide;
+    std::wstring query_wide;
     // 区切った検索が終わったら、見つけたマッチへスクロールする。
     bool scroll_after_search = false;
 };

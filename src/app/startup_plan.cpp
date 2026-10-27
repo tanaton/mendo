@@ -23,12 +23,12 @@ bool MaybeSameFile(std::wstring_view a, std::wstring_view b) noexcept
 
 // スタートメニュー等から起動されると cwd はユーザーの作業場所と無関係になるため、
 // その場合は前回ファイルのフォルダを優先する。
-std::pmr::wstring PaneDirectoryFromCwd(const StartupContext& ctx)
+std::wstring PaneDirectoryFromCwd(const StartupContext& ctx)
 {
     if (!ctx.last_file.empty() && (ctx.cwd.empty() || IsIgnoredCwd(ctx))) {
         return path_util::ParentDirectory(ctx.last_file);
     }
-    return std::pmr::wstring{ ctx.cwd };
+    return std::wstring{ ctx.cwd };
 }
 
 } // namespace

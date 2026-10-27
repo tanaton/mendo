@@ -6,7 +6,7 @@
 #include <limits>
 
 // MultiByteToWideChar は不正バイトの扱いが OS 依存なので、Utf16OffsetCursor と同じ規則の自前 decode に揃える。
-void DecodeForDWrite(std::string_view text, std::pmr::wstring& out)
+void DecodeForDWrite(std::string_view text, std::wstring& out)
 {
     out.clear();
     if (text.empty() || text.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
@@ -105,11 +105,11 @@ HRESULT CreateDocTextLayout(
     IDWriteTextLayout** out)
 {
     constexpr size_t kMaxRetainedChars = 8 * 1024;
-    thread_local std::pmr::wstring wide;
+    thread_local std::wstring wide;
     DecodeForDWrite(text, wide);
     const HRESULT hr = factory->CreateTextLayout(wide.data(), static_cast<UINT32>(wide.size()), fmt, max_w, max_h, out);
     if (wide.capacity() > kMaxRetainedChars) {
-        std::pmr::wstring().swap(wide);
+        std::wstring().swap(wide);
     }
     return hr;
 }

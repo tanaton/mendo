@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#include <memory_resource>
 #include <numeric>
 #include "document_types.h"
 #include "layout_cache.h"
@@ -13,9 +12,9 @@
 namespace {
 
 // 全ノードを MeasureIndicesParallel で計測し、計測できなかったノード数を返す。
-int MeasureAll(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, const ITextMeasurer& measurer, TaskScheduler* scheduler)
+int MeasureAll(std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, const ITextMeasurer& measurer, TaskScheduler* scheduler)
 {
-    std::pmr::vector<size_t> indices(nodes.size());
+    std::vector<size_t> indices(nodes.size());
     std::ranges::iota(indices, size_t{ 0 });
     return layout::MeasureIndicesParallel(nodes, cache, 800.0f, theme, measurer, indices, YRange::All(), scheduler, kNoLayoutDeadline);
 }

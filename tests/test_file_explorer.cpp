@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#include <memory_resource>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -18,13 +17,13 @@ protected:
     }
 
     // 列挙を始めてから (lister が無ければその場で列挙して) 今の一覧を返す。
-    const std::pmr::vector<FileEntry>& Entries()
+    const std::vector<FileEntry>& Entries()
     {
         explorer_.EnsureListed();
         return explorer_.GetEntries();
     }
 
-    const std::pmr::vector<FileEntry>& ListTempDir()
+    const std::vector<FileEntry>& ListTempDir()
     {
         explorer_.SetDirectory(temp_dir_.wstring());
         return Entries();
@@ -108,7 +107,7 @@ TEST_F(FileExplorerTest, AsyncListerKeepsPreviousEntriesUntilApplied)
     const uint32_t generation = explorer_.GetGeneration();
 
     std::vector<std::pair<std::wstring, uint32_t>> requests;
-    explorer_.SetAsyncLister([&requests](std::pmr::wstring dir, uint32_t request) {
+    explorer_.SetAsyncLister([&requests](std::wstring dir, uint32_t request) {
         requests.emplace_back(std::wstring{ dir }, request);
     });
     WriteTempFile(L"b.md");
@@ -134,7 +133,7 @@ TEST_F(FileExplorerTest, AsyncListerDropsResultAndRevealAfterDirectoryChange)
 {
     CreateDir(L"sub");
     std::vector<std::pair<std::wstring, uint32_t>> requests;
-    explorer_.SetAsyncLister([&requests](std::pmr::wstring dir, uint32_t request) {
+    explorer_.SetAsyncLister([&requests](std::wstring dir, uint32_t request) {
         requests.emplace_back(std::wstring{ dir }, request);
     });
     explorer_.SetDirectory(temp_dir_.wstring());

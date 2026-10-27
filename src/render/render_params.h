@@ -8,7 +8,6 @@
 #include "pane_layout.h"
 #include "ui_types.h"
 #include "search_state.h"
-#include <memory_resource>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -19,7 +18,7 @@ struct GesturePoint;
 // App がマウスジェスチャーとスワイプから作る (ResolveGestureOverlay)。
 struct GestureRenderState {
     // ジェスチャー中の軌跡。描かないときは null。
-    const std::pmr::vector<GesturePoint>* trail = nullptr;
+    const std::vector<GesturePoint>* trail = nullptr;
     NavDirection direction = NavDirection::None;
 };
 
@@ -51,9 +50,9 @@ struct SidePaneInstance {
 
 struct SidePaneState {
     SidePaneInstance panes[2];
-    const std::pmr::vector<FileEntry>& file_entries;
-    const std::pmr::vector<TocEntry>& toc_entries;
-    const std::pmr::vector<Node>& nodes; // TocEntryからのテキスト参照用
+    const std::vector<FileEntry>& file_entries;
+    const std::vector<TocEntry>& toc_entries;
+    const std::vector<Node>& nodes; // TocEntryからのテキスト参照用
     int active_toc_index;
 
     constexpr const SidePaneInstance& Get(PaneTarget t) const noexcept
@@ -79,7 +78,7 @@ struct SearchBarRenderState {
 
 // 本文ペインの描画コマンドを作る入力 (CommandGenerator::GenerateMdPane)。
 struct MdPaneParams {
-    const std::pmr::vector<Node>& nodes;
+    const std::vector<Node>& nodes;
     const LayoutCache& cache;
     const TextSelection& selection;
     PaneRect md_pane_rect;

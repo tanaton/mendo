@@ -103,7 +103,7 @@ TEST_F(HitTestDWriteTest, RightHalfOfCombiningClusterSkipsWholeCluster)
 // clamp しないと、収まるようになったブロックや末尾を越えた値でクリック位置がずれる。
 TEST_F(HitTestDWriteTest, BlockScrollXIsClampedBeforeHitTest)
 {
-    const auto hit_with = [&](const ParsedLayout& pl, const std::pmr::unordered_map<int, float>* scroll) {
+    const auto hit_with = [&](const ParsedLayout& pl, const std::unordered_map<int, float>* scroll) {
         auto ctx = Ctx(pl, { theme_.margin_left + 40.0f, pl.cache.Top(0) + pl.cache[0].height * 0.5f });
         ctx.block_scroll_x = scroll;
         return hit_test::HitTest(ctx);
@@ -112,7 +112,7 @@ TEST_F(HitTestDWriteTest, BlockScrollXIsClampedBeforeHitTest)
     auto narrow = ParseAndLayout("```\nabcdef\n```");
     ASSERT_EQ(narrow.nodes[0].type, NodeType::CodeBlock);
     ASSERT_FALSE(GetBlockHScrollGeometry(narrow.nodes, narrow.cache, 0, theme_, 800.0f).can_scroll());
-    const std::pmr::unordered_map<int, float> stale{ { 0, 500.0f } };
+    const std::unordered_map<int, float> stale{ { 0, 500.0f } };
     const auto unscrolled = hit_with(narrow, nullptr);
     const auto with_stale = hit_with(narrow, &stale);
     EXPECT_EQ(with_stale.text_pos, unscrolled.text_pos);
@@ -122,8 +122,8 @@ TEST_F(HitTestDWriteTest, BlockScrollXIsClampedBeforeHitTest)
     auto wide = ParseAndLayout(wide_md);
     const auto geom = GetBlockHScrollGeometry(wide.nodes, wide.cache, 0, theme_, 800.0f);
     ASSERT_TRUE(geom.can_scroll());
-    const std::pmr::unordered_map<int, float> at_max{ { 0, geom.scroll_max() } };
-    const std::pmr::unordered_map<int, float> beyond{ { 0, 1.0e6f } };
+    const std::unordered_map<int, float> at_max{ { 0, geom.scroll_max() } };
+    const std::unordered_map<int, float> beyond{ { 0, 1.0e6f } };
     const auto r_max = hit_with(wide, &at_max);
     const auto r_beyond = hit_with(wide, &beyond);
     EXPECT_GT(r_max.text_pos, hit_with(wide, nullptr).text_pos);

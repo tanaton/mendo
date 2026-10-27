@@ -46,7 +46,7 @@ float ApplyCellWidth(const TableLayoutData& tl, size_t ci, float cw, TableAlign 
 template <class Add>
 void ForEachInlineCodeBg(IDWriteTextLayout* layout, std::string_view text, std::span<const TextRun> runs, Add&& add)
 {
-    thread_local std::pmr::vector<DWRITE_HIT_TEST_METRICS> buffer;
+    thread_local std::vector<DWRITE_HIT_TEST_METRICS> buffer;
     Utf16OffsetCursor cursor{ text };
     for (const auto& run : runs) {
         if (!run.code() || run.length == 0) {
@@ -105,9 +105,9 @@ constexpr size_t kMaxKeptTableCells = 1024;
 // 列ごとに、同じ中身 (テキストと装飾) のセルのうち最初のものを代表にし、[セル] = 代表のセルを返す。
 // 大きな表は状態や種別のような同じ値が列に並びやすく、代表だけ測れば CreateTextLayout が減る。
 // 見出し行 (書式が違う) と空のセル (測らない) は自分自身を代表にする。
-std::pmr::vector<size_t> FindRepresentativeCells(const NodeTableData& tbl, TaskScheduler* scheduler)
+std::vector<size_t> FindRepresentativeCells(const NodeTableData& tbl, TaskScheduler* scheduler)
 {
-    std::pmr::vector<size_t> reps(static_cast<size_t>(tbl.row_count) * tbl.col_count);
+    std::vector<size_t> reps(static_cast<size_t>(tbl.row_count) * tbl.col_count);
     ParallelFor(scheduler, tbl.col_count, 1, [&](size_t col_begin, size_t col_end) {
         for (size_t c = col_begin; c < col_end; ++c) {
             std::pmr::monotonic_buffer_resource arena;
@@ -235,7 +235,7 @@ private:
 
 // 描画時に UTF-16 位置へ数え直さないよう、ワーカー上で UTF-16 単位にし、描画時のグリフラン分割を減らす。
 // 空白は色が見えないので、トークン間の空白だけの隙間は直前のトークンに含め、同種のトークンはまとめる。
-std::pmr::vector<SyntaxToken> ToWideMergedTokens(std::string_view text, std::pmr::vector<SyntaxToken> tokens)
+std::vector<SyntaxToken> ToWideMergedTokens(std::string_view text, std::vector<SyntaxToken> tokens)
 {
     Utf16OffsetCursor cursor{ text };
     size_t out = 0;
@@ -512,7 +512,7 @@ void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayout
     natural_widths.assign(col_count, 0.0f);
     const bool keep_layouts = tl.cell_layouts.size() <= kMaxKeptTableCells;
     // layout を残す小さい表は、全セルの layout が要るので代表を探さない (空のまま)。
-    const auto reps = keep_layouts ? std::pmr::vector<size_t>{} : FindRepresentativeCells(tbl, scheduler_);
+    const auto reps = keep_layouts ? std::vector<size_t>{} : FindRepresentativeCells(tbl, scheduler_);
 
     // 巨大テーブルは全セルの CreateTextLayout が秒単位になるため行チャンクで並列化する。
     // セルは chunk ごとに別 index へ書くので排他不要。残さない layout は worker 上で解放する。
@@ -555,12 +555,12 @@ void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayout
     }
 }
 
-std::pmr::vector<size_t> DWriteTextMeasurer::RestoreRowsInViewport(
-    const NodeTableData& tbl, TableLayoutData& tl, YRange viewport, std::pmr::vector<float>* row_heights) const
+std::vector<size_t> DWriteTextMeasurer::RestoreRowsInViewport(
+    const NodeTableData& tbl, TableLayoutData& tl, YRange viewport, std::vector<float>* row_heights) const
 {
     MENDO_PROFILE("RestoreRowsInViewport");
     const auto [r_begin, r_end] = tl.VisibleRowRange(viewport.top, viewport.bottom);
-    std::pmr::vector<size_t> rows;
+    std::vector<size_t> rows;
     for (size_t r = r_begin; r < r_end; r++) {
         if (tl.row_evicted[r]) {
             rows.push_back(r);
@@ -642,7 +642,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
         return result;
     }
 
-    std::pmr::vector<float> row_heights;
+    std::vector<float> row_heights;
     const auto rows = RestoreRowsInViewport(*tbl, tl, viewport, &row_heights);
     if (rows.empty()) {
         return result;

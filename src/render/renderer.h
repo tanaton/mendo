@@ -11,7 +11,6 @@
 #include <windows.h>
 #include <wrl/client.h>
 #include <functional>
-#include <memory_resource>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -137,7 +136,7 @@ private:
 
     // 倍率が変わったら作り直す。
     void EnsurePaneListFormats(PaneTarget target, float zoom);
-    void GenGestureTrail(const std::pmr::vector<GesturePoint>& points);
+    void GenGestureTrail(const std::vector<GesturePoint>& points);
 
     // ---- デバイスとスワップチェーン (renderer_device.cpp) ----
     bool CreateFactories(HWND hwnd);
@@ -228,7 +227,7 @@ private:
     // overlay_cmds_ が指すジェスチャーの軌跡。次のフレームまで持つ。
     Microsoft::WRL::ComPtr<ID2D1PathGeometry> gesture_trail_;
     // 目次項目の UTF-16。描いた項目だけ作り、ForgetDocumentText と最小化で捨てる。
-    std::pmr::vector<std::pmr::wstring> toc_titles_;
+    std::vector<std::wstring> toc_titles_;
 
     SearchInputLayout search_input_;
     // デバイスに依存しない PBGRA 変換済みのアイコン。デバイスロスト後もここから作り直す。

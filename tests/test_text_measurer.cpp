@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#include <memory_resource>
 #include "document_test_helpers.h"
 #include "mock_text_measurer.h"
 #include "test_helpers.h"
@@ -15,7 +14,7 @@ protected:
         return content_width + theme_.margin_left + theme_.margin_right;
     }
     // content 幅で全ノードを計測する。
-    void LayoutAll(std::pmr::vector<Node>& nodes, LayoutCache& cache, float content_width)
+    void LayoutAll(std::vector<Node>& nodes, LayoutCache& cache, float content_width)
     {
         ComputeLayout(engine_, nodes, cache, ViewportWidthFor(content_width));
     }
@@ -25,7 +24,7 @@ protected:
 
 TEST_F(MockLayoutTest, EmptyNodesGiveMarginHeight)
 {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     LayoutCache cache;
     ComputeLayout(engine_, nodes, cache, 800.0f);
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, theme_.margin_bottom), 0.0f);

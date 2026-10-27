@@ -2,7 +2,6 @@
 #include "ui_types.h"
 #include <cmath>
 #include <cstdint>
-#include <memory_resource>
 #include <vector>
 
 enum class GesturePhase : uint8_t {
@@ -112,7 +111,7 @@ public:
     {
         return phase_ == GesturePhase::Tracking && direction_ != NavDirection::None;
     }
-    constexpr const std::pmr::vector<GesturePoint>& GetTrailPoints() const noexcept
+    constexpr const std::vector<GesturePoint>& GetTrailPoints() const noexcept
     {
         return trail_points_;
     }
@@ -140,5 +139,5 @@ private:
     float start_x_ = 0.0f;
     float start_y_ = 0.0f;
     // clear で容量を残し、ジェスチャーごとの確保を避ける。
-    std::pmr::vector<GesturePoint> trail_points_;
+    std::vector<GesturePoint> trail_points_;
 };

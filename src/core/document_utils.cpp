@@ -11,9 +11,9 @@
 #include <iterator>
 #include <ranges>
 
-std::pmr::string ToLowerAsciiCopy(std::string_view text)
+std::string ToLowerAsciiCopy(std::string_view text)
 {
-    std::pmr::string result;
+    std::string result;
     result.resize_and_overwrite(text.size(), [&text](char* buf, size_t count) noexcept -> size_t {
         ascii_util::AsciiToLowerOnly(text.data(), buf, count);
         return count;
@@ -153,9 +153,9 @@ NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, u
     return r;
 }
 
-std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent)
+std::wstring BuildTitleString(std::wstring_view path, int zoom_percent)
 {
-    std::pmr::wstring title{ path_util::FilenameView(path) };
+    std::wstring title{ path_util::FilenameView(path) };
     title += title.empty() ? L"mendo" : L" - mendo";
     if (zoom_percent > 0 && zoom_percent != 100) {
         std::format_to(std::back_inserter(title), L" ({}%)", zoom_percent);
@@ -228,7 +228,7 @@ ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new
     return { ReloadOp::Replace, diff_pos };
 }
 
-int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, size_t diff_offset) noexcept
+int FindNodeBySourceOffset(const std::vector<Node>& nodes, size_t diff_offset) noexcept
 {
     // source_offset はパース順で基本的に単調増加するため二分探索を使用。
     // 未設定ノードに当たった場合は左に有効ノードを探してから判定する。
@@ -256,7 +256,7 @@ int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, size_t diff_offs
     return result;
 }
 
-std::pmr::vector<SyntaxToken> TokenizeCodeNode(const Node& node)
+std::vector<SyntaxToken> TokenizeCodeNode(const Node& node)
 {
     const std::string_view text = node.GetText();
     const auto lead = static_cast<uint32_t>(std::min<size_t>(node.code_lead_length(), text.size()));
@@ -266,7 +266,7 @@ std::pmr::vector<SyntaxToken> TokenizeCodeNode(const Node& node)
     // 前のノードをつないで字句解析し直すと、1 ノードしか遡れず (16KB を超えるコメントや文字列の 3 つ目以降のノードで崩れる)、
     // 解析も 2 倍かかる (syntax.cpp の 16KB ノードで 47 → 97µs)。続くトークンの後ろは、トークンの外から解析を始めたのと同じになる。
     const std::string_view rest = text.substr(lead);
-    std::pmr::vector<SyntaxToken> tokens;
+    std::vector<SyntaxToken> tokens;
     tokens.reserve(rest.size() / 32 + 1);
     tokens.push_back({ 0, lead, node.code_lead_type() });
     AppendTokens(rest, node.code_language, tokens);
@@ -294,7 +294,7 @@ struct AnnotateCursor {
 // 並びの [c.restart, ノード last - 1 の終わり) を 1 つの窓として字句解析し、続くトークンが決まった継ぎ目 (c.next から
 // last 未満) に書いて c を進める。窓の端 (並びの終わりでない) に届いたトークンは窓の先まで続くかもしれないので決めず、
 // その先頭から解析し直させる。
-void AnnotateWindow(std::span<Node> run, std::span<const size_t> begins, AnnotateCursor& c, size_t last, std::pmr::string& seg)
+void AnnotateWindow(std::span<Node> run, std::span<const size_t> begins, AnnotateCursor& c, size_t last, std::string& seg)
 {
     const size_t restart = c.restart;
     const size_t end = RunEnd(run, begins, last - 1);
@@ -336,7 +336,7 @@ void AnnotateCodeChunkLeads(std::span<Node> run, TaskScheduler* scheduler)
     if (n < 2) {
         return;
     }
-    std::pmr::vector<size_t> begins(n);
+    std::vector<size_t> begins(n);
     size_t pos = 0;
     for (size_t j = 0; j < n; ++j) {
         pos += j > 0 ? ChunkSeparator(run[j]).size() : 0;
@@ -350,10 +350,10 @@ void AnnotateCodeChunkLeads(std::span<Node> run, TaskScheduler* scheduler)
     constexpr size_t kSegmentNodes = 8;
     constexpr size_t kWindowNodes = 4;
     const size_t segment_count = (n + kSegmentNodes - 1) / kSegmentNodes;
-    std::pmr::vector<AnnotateCursor> spec(segment_count);
+    std::vector<AnnotateCursor> spec(segment_count);
     // 区間 s は自分の区間のノード (先頭を除く) にだけ書くので、区間どうしは同期しなくてよい。
     ParallelFor(scheduler, segment_count, 1, [&](size_t begin, size_t end) {
-        std::pmr::string seg;
+        std::string seg;
         for (size_t s = begin; s < end; ++s) {
             const size_t first = s * kSegmentNodes;
             spec[s] = { first + 1, begins[first] };
@@ -361,7 +361,7 @@ void AnnotateCodeChunkLeads(std::span<Node> run, TaskScheduler* scheduler)
         }
     });
 
-    std::pmr::string seg;
+    std::string seg;
     AnnotateCursor c = spec[0];
     size_t window = kWindowNodes;
     while (c.next < n) {
@@ -390,7 +390,7 @@ char* FindCr(char* p, size_t len) noexcept
 
 } // namespace
 
-void NormalizeNewlines(std::pmr::string& s)
+void NormalizeNewlines(std::string& s)
 {
     MENDO_PROFILE("NormalizeNewlines");
     const size_t n = s.size();

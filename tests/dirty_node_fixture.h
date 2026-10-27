@@ -3,11 +3,10 @@
 #include "layout_cache.h"
 #include "test_helpers.h"
 #include <initializer_list>
-#include <memory_resource>
 
 // ProcessDirtyBatch のテスト用。ノード i は Paragraph で text_top = i * 100、height = 80。
 struct DirtyNodeFixture {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     LayoutCache cache;
 
     void Build(size_t n, bool all_dirty)

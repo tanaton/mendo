@@ -13,7 +13,7 @@
 void GenerateAnchorIdInto(std::string_view text, std::pmr::string& slug);
 
 // リンク先のアンカーを GenerateAnchorIdInto と同じ規則で小文字にする。
-std::pmr::string ToLowerAnchorCopy(std::string_view text);
+std::string ToLowerAnchorCopy(std::string_view text);
 
 // 見出しのアンカー (GitHub と同じスラグ) と、それを付けた見出しのノード番号の索引。
 // 重複は github-slugger と同じく出現順に "-1", "-2", ... を付けるので、見出しは文書順に Add する。

@@ -8,7 +8,6 @@
 #include "mock_text_measurer.h"
 #include <algorithm>
 #include <cstddef>
-#include <memory_resource>
 #include <optional>
 #include <string_view>
 #include <utility>
@@ -19,7 +18,7 @@ class CmdGenMockTestBase : public MockLayoutTestBase {
 protected:
     CommandGenerator gen_;
     LayoutCache cache_;
-    std::pmr::vector<Node> nodes_;
+    std::vector<Node> nodes_;
 
     void SetUp() override
     {

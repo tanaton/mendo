@@ -73,7 +73,7 @@ Fixture Build(const Case& c)
 {
     Fixture f;
     if (!c.current_path.empty() || !c.current_text.empty()) {
-        f.current = Document::FromMarkdown(std::pmr::string(c.current_text), c.current_path);
+        f.current = Document::FromMarkdown(std::string(c.current_text), c.current_path);
     }
     switch (c.kind) {
     case ResultKind::None:
@@ -82,7 +82,7 @@ Fixture Build(const Case& c)
         }
         break;
     case ResultKind::Doc:
-        f.outcome.emplace(AsyncLoadResult{ Document::FromMarkdown(std::pmr::string(c.result_text), c.result_path) });
+        f.outcome.emplace(AsyncLoadResult{ Document::FromMarkdown(std::string(c.result_text), c.result_path) });
         break;
     case ResultKind::Reload: {
         std::weak_ptr<const DocumentData> base;
@@ -91,18 +91,18 @@ Fixture Build(const Case& c)
             base = f.current.ShareData();
             break;
         case BaseRef::Other:
-            f.other_base = Document::FromMarkdown(std::pmr::string(c.current_text), c.current_path).ShareData();
+            f.other_base = Document::FromMarkdown(std::string(c.current_text), c.current_path).ShareData();
             base = f.other_base;
             break;
         case BaseRef::Expired:
-            base = Document::FromMarkdown(std::pmr::string(c.current_text), c.current_path).ShareData();
+            base = Document::FromMarkdown(std::string(c.current_text), c.current_path).ShareData();
             break;
         }
         f.outcome.emplace(AsyncLoadResult{
             .reload = ReloadCheck{ ReloadDecision{ c.reload_op, c.reload_diff_pos }, base } });
         // worker は NoChange / DeferPrefixShrink 以外ならパース済みの文書を同じパスで返す。
         if (c.reload_op == ReloadOp::Replace) {
-            (*f.outcome)->doc = Document::FromMarkdown(std::pmr::string(c.result_text), c.current_path);
+            (*f.outcome)->doc = Document::FromMarkdown(std::string(c.result_text), c.current_path);
         }
         break;
     }
@@ -179,7 +179,7 @@ INSTANTIATE_TEST_SUITE_P(
 // 表示中のファイルは、ReloadCurrentFile でもダイアログや D&D での開き直しでも worker に差分を判定させる。
 TEST(ReloadBaseFor, OnlyForTheShownFile)
 {
-    const Document current = Document::FromMarkdown(std::pmr::string(kText), kPath);
+    const Document current = Document::FromMarkdown(std::string(kText), kPath);
     for (const bool accept : { false, true }) {
         const auto base = ReloadBaseFor(current, kPath, accept);
         EXPECT_EQ(base.data, current.ShareData());

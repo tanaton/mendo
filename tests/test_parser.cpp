@@ -593,7 +593,7 @@ TEST(Parser, TableCellRunStartsBackfilledAtFirstRun)
         EXPECT_TRUE(ParseInvariantsHold(md, nodes));
         const auto* tbl = nodes[0].table_data();
         ASSERT_NE(tbl, nullptr);
-        EXPECT_EQ(tbl->cell_run_starts, (std::pmr::vector<uint32_t>{ 0, 0, 0, 0, 1, 1, 1 }));
+        EXPECT_EQ(tbl->cell_run_starts, (std::vector<uint32_t>{ 0, 0, 0, 0, 1, 1, 1 }));
         for (size_t r = 0; r < tbl->row_count; ++r) {
             for (size_t c = 0; c < tbl->col_count; ++c) {
                 const auto runs = tbl->GetCellRuns(r, c);
@@ -1818,7 +1818,7 @@ namespace {
 constexpr size_t kChunkMax = kTextChunkTarget + kTextChunkWindow + 16;
 
 // first から始まる区切ったノードの並びを、区切る前のテキストに戻す。
-std::string JoinChunks(const std::pmr::vector<Node>& nodes, size_t first)
+std::string JoinChunks(const std::vector<Node>& nodes, size_t first)
 {
     std::string out{ nodes[first].GetText() };
     for (size_t i = first + 1; i < nodes.size() && nodes[i].continues_prev(); ++i) {

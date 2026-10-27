@@ -3,7 +3,6 @@
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <cstdint>
-#include <memory_resource>
 #include <span>
 #include <thread>
 
@@ -70,8 +69,8 @@ private:
     void MeasureTableCells(const NodeTableData& tbl, TableLayoutData& tl) const;
     // viewport (ローカル座標) 内の evict 行のセルを作り直して evict を解き、戻した行を昇順で返す。
     // row_heights を渡せば、今の列幅での行高さを戻した行の順に書く。
-    std::pmr::vector<size_t> RestoreRowsInViewport(const NodeTableData& tbl, TableLayoutData& tl, YRange viewport,
-                                                   std::pmr::vector<float>* row_heights) const;
+    std::vector<size_t> RestoreRowsInViewport(const NodeTableData& tbl, TableLayoutData& tl, YRange viewport,
+                                                   std::vector<float>* row_heights) const;
     // evict 行 r の null セルを再生成する。書くのは行 r のセルだけなので、別の行とは並列に呼べる。
     void BuildRowCells(const NodeTableData& tbl, TableLayoutData& tl, size_t r) const;
     // 戻り値はテーブル全体の高さ。

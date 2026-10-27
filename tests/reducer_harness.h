@@ -53,7 +53,7 @@ public:
         theme.heading_spacing_above = 8.0f;
         InitReducerState(state, theme);
 
-        state.document.doc = Document::FromMarkdown(std::pmr::string(opt.markdown), L"C:\\docs\\a.md");
+        state.document.doc = Document::FromMarkdown(std::string(opt.markdown), L"C:\\docs\\a.md");
         const auto& nodes = state.document.doc.GetNodes();
         auto& cache = state.document.layout_cache;
         cache = LayoutCache(nodes.size());

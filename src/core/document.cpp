@@ -6,7 +6,7 @@
 #include <cassert>
 #include <cstring>
 
-Document Document::FromNormalizedMarkdown(std::pmr::string text, std::wstring_view path, std::stop_token stop_token,
+Document Document::FromNormalizedMarkdown(std::string text, std::wstring_view path, std::stop_token stop_token,
                                           TaskScheduler* scheduler)
 {
     MENDO_PROFILE("Document::FromMarkdown");
@@ -20,7 +20,7 @@ Document Document::FromNormalizedMarkdown(std::pmr::string text, std::wstring_vi
     return doc;
 }
 
-Document Document::FromMarkdown(std::pmr::string utf8, std::wstring_view path)
+Document Document::FromMarkdown(std::string utf8, std::wstring_view path)
 {
     // 入力 (Help 埋め込みリソース / テスト文字列) は BOM 無しが保証されている。
     NormalizeNewlines(utf8);

@@ -2,7 +2,6 @@
 #include <algorithm>
 #include <vector>
 #include <deque>
-#include <memory_resource>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -76,7 +75,7 @@ private:
 
     size_t thread_count_ = 0;
     std::vector<std::thread> workers_;
-    std::pmr::deque<std::move_only_function<void()>> queue_;
+    std::deque<std::move_only_function<void()>> queue_;
     std::mutex mutex_;
     std::condition_variable cv_;
     // 読み書きはすべて mutex_ の下で行う。
@@ -84,7 +83,7 @@ private:
 };
 
 // count が min_count 以上なら obj を worker で破棄する。投函できなければ (Shutdown 後・確保の失敗) ここで破棄する。
-// 渡すものは D2D の参照を持たないこと (確保元の既定 pmr リソースはスレッド安全)。
+// 渡すものは D2D の参照を持たないこと (確保元のヒープはスレッド安全)。
 template <class T>
 void DisposeOnWorkerIfLarge(TaskScheduler& scheduler, size_t count, size_t min_count, T&& obj) noexcept
 {

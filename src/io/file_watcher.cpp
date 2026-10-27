@@ -41,9 +41,9 @@ FileWatcher::~FileWatcher()
     StopWatching();
 }
 
-FileWatchTarget OpenWatchTarget(const std::pmr::wstring& file_path)
+FileWatchTarget OpenWatchTarget(const std::wstring& file_path)
 {
-    FileWatchTarget target{ .filename = std::pmr::wstring(path_util::FilenameView(file_path)) };
+    FileWatchTarget target{ .filename = std::wstring(path_util::FilenameView(file_path)) };
     wchar_t short_buf[MAX_PATH];
     const DWORD short_len = GetShortPathNameW(file_path.c_str(), short_buf, MAX_PATH);
     if (short_len > 0 && short_len < MAX_PATH) {

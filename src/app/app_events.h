@@ -10,7 +10,6 @@
 #include <variant>
 #include <string>
 #include <cstdint>
-#include <memory_resource>
 
 struct KeyDownEvent {
     int key;
@@ -160,14 +159,14 @@ struct RightClickGestureCompletedAction {
     int screen_y;
 };
 struct FilePaneDirectoryClickedAction {
-    std::pmr::wstring full_path;
+    std::wstring full_path;
 };
 struct FilePaneRevealCurrentFileAction {};
 struct TocItemClickedAction {
     int node_index;
 };
 struct NavigateAnchorAction {
-    std::pmr::string anchor_id;
+    std::string anchor_id;
 };
 
 // 別の文書 (読み込み・ヘルプ) に差し替えた。番号に結び付いた一時状態・サイドペインのスクロール・検索を初めに戻し、
@@ -200,7 +199,7 @@ struct BlockHScrollDragMovedAction {
 };
 // D&D・ファイルペイン・ファイルダイアログから、履歴を積んでファイルを開く。
 struct OpenPathAction {
-    std::pmr::wstring path;
+    std::wstring path;
 };
 
 struct ResizeAction {
@@ -223,7 +222,7 @@ struct CaptureChangedAction {};
 struct SwipeOverlayTimeoutAction {};
 
 struct SearchTextChangedAction {
-    std::pmr::wstring text;
+    std::wstring text;
 };
 // 時間で区切った検索を、メッセージループの空き時間に 1 回分進める。
 struct SearchContinueAction {};
@@ -234,7 +233,7 @@ struct SearchSelectionAction {
     int sel_end;
 };
 struct ImeCompositionAction {
-    std::pmr::wstring text;
+    std::wstring text;
 };
 
 using AppAction = std::variant<

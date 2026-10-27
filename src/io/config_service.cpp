@@ -182,10 +182,10 @@ void ConfigService::SaveWString(std::string_view section, std::string_view key, 
     StoreValue(section, key, string_convert::WideToUtf8(value));
 }
 
-std::pmr::wstring ConfigService::LoadWString(std::string_view section, std::string_view key) const
+std::wstring ConfigService::LoadWString(std::string_view section, std::string_view key) const
 {
     const auto* val = FindValue(section, key);
-    return val ? string_convert::Utf8ToWide(*val) : std::pmr::wstring{};
+    return val ? string_convert::Utf8ToWide(*val) : std::wstring{};
 }
 
 void session::SaveLastFilePath(ConfigService& config, std::wstring_view path)
@@ -196,9 +196,9 @@ void session::SaveLastFilePath(ConfigService& config, std::wstring_view path)
     config.SaveWString(kSectionSession, kKeyLastFile, path);
 }
 
-std::pmr::wstring session::LoadLastFilePath(const ConfigService& config)
+std::wstring session::LoadLastFilePath(const ConfigService& config)
 {
-    std::pmr::wstring path = config.LoadWString(kSectionSession, kKeyLastFile);
+    std::wstring path = config.LoadWString(kSectionSession, kKeyLastFile);
     if (path.empty()) {
         return {};
     }
@@ -276,7 +276,7 @@ void session::SaveLanguage(ConfigService& config, std::wstring_view lang_key)
     config.SaveWString(kSectionGeneral, kKeyLanguage, lang_key);
 }
 
-std::pmr::wstring session::LoadLanguage(const ConfigService& config)
+std::wstring session::LoadLanguage(const ConfigService& config)
 {
     return config.LoadWString(kSectionGeneral, kKeyLanguage);
 }

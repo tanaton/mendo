@@ -32,7 +32,7 @@ constexpr TooltipTarget kLinkTooltip{ TooltipTarget::Zone::MdLink, 1 };
 // 文書を差し替え、各ノードを node_height ずつ縦に並べたレイアウトを持たせる。
 void SetDocument(AppState& state, std::string_view md, std::wstring_view path, float node_height = 100.0f)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string(md), std::pmr::wstring(path));
+    state.document.doc = Document::FromMarkdown(std::string(md), std::wstring(path));
     state.document.layout_cache = MakeUniformCache(static_cast<int>(state.document.doc.GetNodes().size()), node_height);
 }
 
@@ -224,7 +224,7 @@ TEST_F(ReducerTest, CtrlWheel_DropsRemainderOnReverse)
 
 TEST_F(ReducerTest, SelectAll_WithNodes)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("Hello world\n\nSecond paragraph"), L"test.md");
+    state.document.doc = Document::FromMarkdown(std::string("Hello world\n\nSecond paragraph"), L"test.md");
 
     auto effects = Reduce(state, SelectAllAction{});
 
@@ -236,7 +236,7 @@ TEST_F(ReducerTest, SelectAll_WithNodes)
 
 TEST_F(ReducerTest, SelectWord_SelectsWordAndSetsAnchor)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("Hello world"), L"test.md");
+    state.document.doc = Document::FromMarkdown(std::string("Hello world"), L"test.md");
 
     auto effects = Reduce(state, SelectWordAction{ 0, 7 });
 
@@ -250,7 +250,7 @@ TEST_F(ReducerTest, SelectWord_SelectsWordAndSetsAnchor)
 
 TEST_F(ReducerTest, SelectWord_InvalidNode_NoOp)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("Hello"), L"test.md");
+    state.document.doc = Document::FromMarkdown(std::string("Hello"), L"test.md");
 
     auto effects = Reduce(state, SelectWordAction{ -1, 0 });
 
@@ -311,7 +311,7 @@ TEST_F(ReducerTest, SearchJumpEmitsScrollEffects)
     state.search.search_state.Show();
     state.interaction.tooltip = kLinkTooltip;
 
-    auto effects = Reduce(state, SearchTextChangedAction{ std::pmr::wstring(L"target") });
+    auto effects = Reduce(state, SearchTextChangedAction{ std::wstring(L"target") });
 
     EXPECT_GT(state.view.viewport.GetScrollY(), 0.0f);
     EXPECT_TRUE(HidesTooltip(effects));
@@ -324,7 +324,7 @@ TEST_F(ReducerTest, SearchWithoutScrollEmitsNoScrollEffects)
     SetDocument(state, "target", L"test.md", 10.0f);
     state.search.search_state.Show();
 
-    auto effects = Reduce(state, SearchTextChangedAction{ std::pmr::wstring(L"target") });
+    auto effects = Reduce(state, SearchTextChangedAction{ std::wstring(L"target") });
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
     EXPECT_FALSE(HasEffect<effect::BitmapManage>(effects));
@@ -601,7 +601,7 @@ TEST_F(ReducerTest, DocumentReloaded_KeepsSplitterDrag)
 // 別の文書を開いたら、番号に結び付いた状態に加えてサイドペインのスクロールも先頭へ戻す。
 TEST_F(ReducerTest, DocumentOpened_ResetsViewForNewDocument)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("# A"), L"C:\\docs\\a.md");
+    state.document.doc = Document::FromMarkdown(std::string("# A"), L"C:\\docs\\a.md");
     state.view.hover.h_block = 3;
     state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y = 100.0f;
     state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y = 50.0f;
@@ -643,7 +643,7 @@ TEST_F(ReducerTest, NavigateBack_NoHistory_NoEffects)
 
 TEST_F(ReducerTest, NavigateBack_DifferentFile_EmitsLoadFile)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\current.md");
+    state.document.doc = Document::FromMarkdown(std::string("test"), L"C:\\current.md");
     state.view.nav_history.Push(NavEntry{ L"C:\\prev.md", 0, 50.0f });
 
     auto effects = Reduce(state, NavigateBackAction{});
@@ -691,9 +691,9 @@ TEST_F(ReducerTest, NavigateForward_NoHistory_NoEffects)
 
 TEST_F(ReducerTest, OpenPath_PushesHistoryAndLoads)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\current.md");
+    state.document.doc = Document::FromMarkdown(std::string("test"), L"C:\\current.md");
 
-    auto effects = Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\dropped.md") });
+    auto effects = Reduce(state, OpenPathAction{ std::wstring(L"C:\\dropped.md") });
     EXPECT_TRUE(HasEffect<effect::LoadFile>(effects));
     EXPECT_TRUE(state.view.nav_history.CanGoBack());
 }
@@ -701,14 +701,14 @@ TEST_F(ReducerTest, OpenPath_PushesHistoryAndLoads)
 TEST_F(ReducerTest, OpenPath_EmptyDoc_NoPush)
 {
     // ドキュメントが空ならナビゲーション履歴にプッシュしない
-    auto effects = Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\dropped.md") });
+    auto effects = Reduce(state, OpenPathAction{ std::wstring(L"C:\\dropped.md") });
     EXPECT_TRUE(HasEffect<effect::LoadFile>(effects));
     EXPECT_FALSE(state.view.nav_history.CanGoBack());
 }
 
 TEST_F(ReducerTest, ShowHelp_EmitsLoadFile)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\file.md");
+    state.document.doc = Document::FromMarkdown(std::string("test"), L"C:\\file.md");
 
     auto effects = Reduce(state, ShowHelpAction{});
     EXPECT_TRUE(HasEffect<effect::LoadFile>(effects));
@@ -1211,7 +1211,7 @@ void SetupScrollableToc(AppState& state)
         md += std::to_string(i);
         md += "\n\n";
     }
-    state.document.doc = Document::FromMarkdown(std::pmr::string(md), L"test.md");
+    state.document.doc = Document::FromMarkdown(std::string(md), L"test.md");
     PaneLayout pl{};
     pl.toc_rect = { 0.0f, 0.0f, 200.0f, 300.0f };
     state.pane_layout_cache.Set(pl);
@@ -1297,7 +1297,7 @@ TEST_F(ReducerTest, PaneScrollbarDragEnded_TocOrFile_Releases)
 
 TEST_F(ReducerTest, TextSelectionStarted_WithHit_SetsAnchorAndCaptures)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("Hello world"), L"test.md");
+    state.document.doc = Document::FromMarkdown(std::string("Hello world"), L"test.md");
     // 既存の選択を残しておき、クリア動作を検証
     state.view.viewport.SetSelection(TextSelection::MakeOrdered(0, 0, 0, 5));
 
@@ -1326,7 +1326,7 @@ TEST_F(ReducerTest, TextSelectionStarted_NoHit_DoesNotStartDrag)
 
 TEST_F(ReducerTest, TextSelectionMoved_NotDragging_NoOp)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("Hello"), L"test.md");
+    state.document.doc = Document::FromMarkdown(std::string("Hello"), L"test.md");
     auto effects = Reduce(state, TextSelectionMovedAction{ 0, 3u });
     EXPECT_FALSE(state.view.viewport.GetSelection().active());
     EXPECT_TRUE(effects.empty());
@@ -1334,7 +1334,7 @@ TEST_F(ReducerTest, TextSelectionMoved_NotDragging_NoOp)
 
 TEST_F(ReducerTest, TextSelectionMoved_DraggingWithHit_UpdatesSelection)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("Hello world"), L"test.md");
+    state.document.doc = Document::FromMarkdown(std::string("Hello world"), L"test.md");
     state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = 0, .select_pos = 2u };
 
     auto effects = Reduce(state, TextSelectionMovedAction{ 0, 7u });
@@ -1366,7 +1366,7 @@ TEST_F(ReducerTest, TextSelectionEnded_NotDragging_NoOp)
 
 TEST_F(ReducerTest, TextSelectionEnded_WithHit_FinalizesSelection)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("Hello world"), L"test.md");
+    state.document.doc = Document::FromMarkdown(std::string("Hello world"), L"test.md");
     state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = 0, .select_pos = 2u };
 
     auto effects = Reduce(state, TextSelectionEndedAction{ 0, 8u });
@@ -1456,7 +1456,7 @@ TEST_F(ReducerTest, RightClickGestureCompleted_Pressed_ShowsContextMenu)
 TEST_F(ReducerTest, RightClickGestureCompleted_TrackingLeft_NavigatesBack)
 {
     // 戻り先履歴を用意
-    state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\current.md");
+    state.document.doc = Document::FromMarkdown(std::string("test"), L"C:\\current.md");
     state.view.nav_history.Push(NavEntry{ L"C:\\prev.md", 0, 0.0f });
 
     state.interaction.gesture.OnRButtonDown(200.0f, 200.0f);
@@ -1477,7 +1477,7 @@ TEST_F(ReducerTest, RightClickGestureCompleted_TrackingRight_NavigatesForward)
     NavEntry tmp;
     state.view.nav_history.GoBack(NavEntry{ L"C:\\page2.md", 0, 0.0f }, tmp);
     // 現在ドキュメントを page1（後進結果）に合わせる
-    state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\page1.md");
+    state.document.doc = Document::FromMarkdown(std::string("test"), L"C:\\page1.md");
     ASSERT_TRUE(state.view.nav_history.CanGoForward());
 
     state.interaction.gesture.OnRButtonDown(100.0f, 200.0f);
@@ -1498,7 +1498,7 @@ TEST_F(ReducerTest, FilePaneDirectoryClicked_UpdatesDirAndInvalidates)
     // スクロール位置を設定してリセットされることを確認
     state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y = 100.0f;
 
-    auto effects = Reduce(state, FilePaneDirectoryClickedAction{ std::pmr::wstring(L"C:\\nonexistent_dir_for_test") });
+    auto effects = Reduce(state, FilePaneDirectoryClickedAction{ std::wstring(L"C:\\nonexistent_dir_for_test") });
 
     EXPECT_EQ(state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y, 0.0f);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
@@ -1528,7 +1528,7 @@ protected:
     // App::FinishLoadMarkdownFile と同じく現在ファイルも登録する。
     void OpenDocument(const wchar_t* name)
     {
-        state.document.doc = Document::FromMarkdown(std::pmr::string("x"), (dir_ / name).wstring());
+        state.document.doc = Document::FromMarkdown(std::string("x"), (dir_ / name).wstring());
         state.file_explorer.SetCurrentFile(state.document.doc.GetFilePath());
     }
 
@@ -1559,7 +1559,7 @@ TEST_F(FilePaneRevealTest, DefersRevealWhileListingAsync)
 {
     OpenDocument(L"f15.md");
     std::optional<uint32_t> request;
-    state.file_explorer.SetAsyncLister([&request](std::pmr::wstring, uint32_t r) { request = r; });
+    state.file_explorer.SetAsyncLister([&request](std::wstring, uint32_t r) { request = r; });
 
     Reduce(state, FilePaneRevealCurrentFileAction{});
     ASSERT_TRUE(request.has_value());
@@ -1593,7 +1593,7 @@ TEST_F(FilePaneRevealTest, SameDirectoryStillScrollsToCurrentFile)
 
 TEST_F(FilePaneRevealTest, HelpDocumentIsNoOp)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("help"), HELP_PATH);
+    state.document.doc = Document::FromMarkdown(std::string("help"), HELP_PATH);
     state.file_explorer.SetDirectory(dir_.wstring());
     state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y = 100.0f;
 
@@ -1615,7 +1615,7 @@ TEST_F(FilePaneRevealTest, NoDocumentIsNoOp)
 
 TEST_F(ReducerTest, TocItemClicked_InvalidIndex_PushesHistoryOnly)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\file.md");
+    state.document.doc = Document::FromMarkdown(std::string("test"), L"C:\\file.md");
 
     auto effects = Reduce(state, TocItemClickedAction{ -1 });
 
@@ -1685,7 +1685,7 @@ TEST_F(ReducerTest, SyncActiveToc_FollowsMdScroll)
     ASSERT_EQ(state.view.active_toc_index, 0);
     ASSERT_FLOAT_EQ(TocPaneScroll(state), 0.0f);
 
-    Reduce(state, NavigateAnchorAction{ std::pmr::string("heading-20") });
+    Reduce(state, NavigateAnchorAction{ std::string("heading-20") });
     SyncActiveTocIndex(state);
 
     EXPECT_EQ(state.view.active_toc_index, 20);
@@ -1703,7 +1703,7 @@ TEST_F(ReducerTest, SyncActiveToc_TocClickKeepsTocPaneOnce)
     EXPECT_EQ(state.view.active_toc_index, 20);
     EXPECT_FLOAT_EQ(TocPaneScroll(state), 0.0f);
 
-    Reduce(state, NavigateAnchorAction{ std::pmr::string("heading-25") });
+    Reduce(state, NavigateAnchorAction{ std::string("heading-25") });
     SyncActiveTocIndex(state);
     EXPECT_EQ(state.view.active_toc_index, 25);
     EXPECT_GT(TocPaneScroll(state), 0.0f);
@@ -1787,7 +1787,7 @@ TEST_F(ReducerTest, DocumentOpened_NoRestoreInfo_ScrollsToTop)
 // 履歴も戻る前に戻す (残すと、進むで今いるファイルへ「移動」するだけになる)。
 TEST_F(ReducerTest, LoadFailed_DropsPendingRestoreForNextDocument)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("# A\n\n# B\n\n# C"), L"C:\\current.md");
+    state.document.doc = Document::FromMarkdown(std::string("# A\n\n# B\n\n# C"), L"C:\\current.md");
     state.view.nav_history.Push(NavEntry{ L"C:\\deleted.md", 2, 30.0f });
     auto effects = Reduce(state, NavigateBackAction{});
     ASSERT_TRUE(HasEffect<effect::LoadFile>(effects));
@@ -1798,7 +1798,7 @@ TEST_F(ReducerTest, LoadFailed_DropsPendingRestoreForNextDocument)
     EXPECT_FALSE(state.view.nav_history.CanGoForward());
 
     // 続けてユーザーが別ファイルを開き、ロードに成功する。
-    Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\other.md") });
+    Reduce(state, OpenPathAction{ std::wstring(L"C:\\other.md") });
     SetDocument(state, "# X\n\n# Y\n\n# Z", L"C:\\other.md");
     Reduce(state, DocumentOpenedAction{});
 
@@ -1808,7 +1808,7 @@ TEST_F(ReducerTest, LoadFailed_DropsPendingRestoreForNextDocument)
 // 開けなかったファイルの分の履歴は取り消す。残すと戻る履歴に現在位置が重複し、進む履歴も消える。
 TEST_F(ReducerTest, LoadFailed_RollsBackHistoryPushedForOpen)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\current.md");
+    state.document.doc = Document::FromMarkdown(std::string("test"), L"C:\\current.md");
     state.view.nav_history.Push(NavEntry{ L"C:\\next.md", 0, 0.0f });
     NavEntry tmp;
     ASSERT_TRUE(state.view.nav_history.GoBack(NavEntry{ L"C:\\later.md", 0, 0.0f }, tmp));
@@ -1816,7 +1816,7 @@ TEST_F(ReducerTest, LoadFailed_RollsBackHistoryPushedForOpen)
     const size_t back = state.view.nav_history.BackSize();
     ASSERT_TRUE(state.view.nav_history.CanGoForward());
 
-    Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\too_big.md") });
+    Reduce(state, OpenPathAction{ std::wstring(L"C:\\too_big.md") });
     Reduce(state, LoadFailedAction{});
     EXPECT_EQ(state.view.nav_history.BackSize(), back);
     EXPECT_TRUE(state.view.nav_history.CanGoForward());
@@ -1826,8 +1826,8 @@ TEST_F(ReducerTest, LoadFailed_RollsBackHistoryPushedForOpen)
 // 仮のままだと、後の無関係なリロード失敗で取り消される。
 TEST_F(ReducerTest, LoadFailed_KeepsHistoryPushedForReopeningCurrentFile)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\Current.md");
-    Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\current.md") });
+    state.document.doc = Document::FromMarkdown(std::string("test"), L"C:\\Current.md");
+    Reduce(state, OpenPathAction{ std::wstring(L"C:\\current.md") });
     Reduce(state, LoadFailedAction{});
     EXPECT_TRUE(state.view.nav_history.CanGoBack());
 }
@@ -1835,7 +1835,7 @@ TEST_F(ReducerTest, LoadFailed_KeepsHistoryPushedForReopeningCurrentFile)
 // 同じファイル内の戻るはロードを伴わないので即確定し、後の無関係なロード失敗で取り消さない。
 TEST_F(ReducerTest, LoadFailed_KeepsSameFileNavigateBack)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("# A\n\n# B"), L"C:\\current.md");
+    state.document.doc = Document::FromMarkdown(std::string("# A\n\n# B"), L"C:\\current.md");
     state.view.nav_history.Push(NavEntry{ L"C:\\current.md", 0, 0.0f });
 
     auto effects = Reduce(state, NavigateBackAction{});
@@ -1849,9 +1849,9 @@ TEST_F(ReducerTest, LoadFailed_KeepsSameFileNavigateBack)
 // ロード成功後に別のロード (リロード等) が失敗しても、確定した履歴は取り消さない。
 TEST_F(ReducerTest, LoadFailed_KeepsHistoryAfterSuccessfulLoad)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("test"), L"C:\\current.md");
-    Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\next.md") });
-    state.document.doc = Document::FromMarkdown(std::pmr::string("next"), L"C:\\next.md");
+    state.document.doc = Document::FromMarkdown(std::string("test"), L"C:\\current.md");
+    Reduce(state, OpenPathAction{ std::wstring(L"C:\\next.md") });
+    state.document.doc = Document::FromMarkdown(std::string("next"), L"C:\\next.md");
     Reduce(state, DocumentOpenedAction{});
     Reduce(state, LoadFailedAction{});
     EXPECT_TRUE(state.view.nav_history.CanGoBack());
@@ -1860,12 +1860,12 @@ TEST_F(ReducerTest, LoadFailed_KeepsHistoryAfterSuccessfulLoad)
 // リンク切れのアンカーでは履歴を積まない (進む履歴が消えない)。
 TEST_F(ReducerTest, NavigateAnchor_MissingAnchorKeepsHistory)
 {
-    state.document.doc = Document::FromMarkdown(std::pmr::string("# First\n\n# Second"), L"C:\\file.md");
+    state.document.doc = Document::FromMarkdown(std::string("# First\n\n# Second"), L"C:\\file.md");
     state.view.nav_history.Push(NavEntry{ L"C:\\file.md", 0, 0.0f });
     NavEntry tmp;
     ASSERT_TRUE(state.view.nav_history.GoBack(NavEntry{ L"C:\\file.md", 1, 0.0f }, tmp));
 
-    auto effects = Reduce(state, NavigateAnchorAction{ std::pmr::string("typo") });
+    auto effects = Reduce(state, NavigateAnchorAction{ std::string("typo") });
 
     EXPECT_TRUE(effects.empty());
     EXPECT_FALSE(state.view.nav_history.CanGoBack());
@@ -1914,7 +1914,7 @@ TEST_F(ReducerTest, OpenWhileNavigateBackLoading_DoesNotCarryRestoreOver)
     ASSERT_TRUE(HasEffect<effect::LoadFile>(Reduce(state, NavigateBackAction{})));
     ASSERT_TRUE(state.view.pending_restore.IsValid());
 
-    Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\other.md") });
+    Reduce(state, OpenPathAction{ std::wstring(L"C:\\other.md") });
     CompleteLoad(state, L"C:\\other.md");
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
@@ -1945,8 +1945,8 @@ TEST_F(ReducerTest, ShowHelpWhileOnHelp_RollsBackPendingNavigation)
 TEST_F(ReducerTest, ReopenCurrentWhileOpenLoading_DoesNotDuplicateHistory)
 {
     ResetToDocument(state, L"C:\\docs\\a.md");
-    Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\docs\\big.md") });
-    Reduce(state, OpenPathAction{ std::pmr::wstring(L"c:\\docs\\A.md") });
+    Reduce(state, OpenPathAction{ std::wstring(L"C:\\docs\\big.md") });
+    Reduce(state, OpenPathAction{ std::wstring(L"c:\\docs\\A.md") });
     EXPECT_EQ(state.view.nav_history.BackSize(), 1u);
 }
 
@@ -1957,7 +1957,7 @@ TEST_F(ReducerTest, NavigateBackWithinFileWhileOpenLoading_CommitsAndCancelsLoad
     ResetToDocument(state, L"C:\\current.md");
     state.view.nav_history.Push(NavEntry{ L"C:\\current.md", 0, 0.0f });
     state.view.viewport.ScrollTo(250.0f, MdMaxScroll(state));
-    Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\big.md") });
+    Reduce(state, OpenPathAction{ std::wstring(L"C:\\big.md") });
 
     const auto effects = Reduce(state, NavigateBackAction{});
     EXPECT_FALSE(HasEffect<effect::LoadFile>(effects));
@@ -1980,7 +1980,7 @@ TEST_F(ReducerTest, NavigateBackToOtherFileWhileOpenLoading)
         ResetToDocument(state, L"C:\\current.md");
         state.view.nav_history.Push(NavEntry{ L"C:\\b.md", 2, 10.0f });
         state.view.viewport.ScrollTo(250.0f, MdMaxScroll(state));
-        Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\big.md") });
+        Reduce(state, OpenPathAction{ std::wstring(L"C:\\big.md") });
 
         const auto effects = Reduce(state, NavigateBackAction{});
         EXPECT_EQ(LoadedPath(effects), L"C:\\b.md");
@@ -2008,7 +2008,7 @@ TEST_F(ReducerTest, NavigateBackWithoutHistoryWhileOpenLoading_KeepsOpenEntry)
     for (const bool succeed : { false, true }) {
         SCOPED_TRACE(succeed);
         ResetToDocument(state, L"C:\\current.md");
-        Reduce(state, OpenPathAction{ std::pmr::wstring(L"C:\\big.md") });
+        Reduce(state, OpenPathAction{ std::wstring(L"C:\\big.md") });
 
         EXPECT_TRUE(Reduce(state, NavigateBackAction{}).empty());
         EXPECT_TRUE(state.view.nav_history.CanGoBack());

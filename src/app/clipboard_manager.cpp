@@ -131,7 +131,7 @@ void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_inde
         node.GetText(),
         md_width,
         dark,
-        [this, key, gen, dib = std::move(dib)](std::pmr::wstring svg, bool cancelled) mutable {
+        [this, key, gen, dib = std::move(dib)](std::wstring svg, bool cancelled) mutable {
             copy_in_flight_ = false;
             if (gen != copy_generation_) {
                 return;

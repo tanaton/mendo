@@ -26,7 +26,6 @@
 #include <shellapi.h>
 #include <cstdint>
 #include <memory>
-#include <memory_resource>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -95,7 +94,7 @@ public:
     // 起動時にウィンドウ生成と並列で I/O + パースを開始する。LoadInitialDocument で
     // hwnd が解禁されると、worker は ::PostMessageW(PARSE_COMPLETE) を発行し、
     // 通常の async load 経路に合流する。
-    void StartPreloadAsync(std::pmr::wstring path);
+    void StartPreloadAsync(std::wstring path);
 
     // LoadInitialDocument より前に呼ぶこと。起動時の読み込みの結果を取り込むときに復元情報を参照する。
     // 保存したスクロール位置を、文書を開いたときに戻す位置にする。
@@ -209,7 +208,7 @@ private:
     }
     void ShowToast(std::wstring_view message);
     // 関連付けの解決やブラウザの起動で数百 ms 止まりうるので、UI スレッドを待たせずに開く。
-    static void ShellOpenAsync(std::pmr::wstring target);
+    static void ShellOpenAsync(std::wstring target);
     // 変更通知はデバウンスしてから読み直す。
     void StartFileWatch(FileWatchTarget target);
     void OpenFileDialog();
@@ -311,7 +310,7 @@ private:
     void ReplaceDocument(Document next, LayoutCache estimated);
     void ReloadCurrentFile();
     // 表示中のファイルなら開き直しも含めてリロードとして読む (ReloadBaseFor)。
-    void BeginAsyncLoad(std::pmr::wstring path, bool show_animation);
+    void BeginAsyncLoad(std::wstring path, bool show_animation);
     void StartLoadingAnimation();
     // 読み込みが LOADING_SPINNER_DELAY_MS より長引いたらスピナーを出す。
     void ScheduleLoadingAnimation();
@@ -353,9 +352,9 @@ private:
     bool in_modal_loop_ = false;
     WindowHost& window_;
     // SetWindowTextW は変わったときだけ呼ぶ。
-    std::pmr::wstring title_text_ = L"mendo";
+    std::wstring title_text_ = L"mendo";
     // 空なら非表示。フェードは毎フレームの全画面再描画を伴うので、表示と消去の 2 回だけ描き直す。
-    std::pmr::wstring toast_message_;
+    std::wstring toast_message_;
     // 別のファイルを読み始めたときに旧文書の画像・図の待ちを捨てた。文書を差し替えたら外す。
     bool resources_dropped_for_load_ = false;
 
@@ -379,7 +378,7 @@ private:
     // 列挙スレッドの結果の受け渡し。スレッドは App より長生きしうるので共有で持たせる。
     struct FileListingSlot {
         std::mutex mutex;
-        std::optional<std::pair<uint32_t, std::pmr::vector<FileEntry>>> result;
+        std::optional<std::pair<uint32_t, std::vector<FileEntry>>> result;
     };
     std::shared_ptr<FileListingSlot> file_listing_ = std::make_shared<FileListingSlot>();
 

@@ -16,7 +16,7 @@ namespace {
 constexpr LONGLONG MAX_FILE_SIZE = static_cast<LONGLONG>(std::numeric_limits<int>::max());
 } // namespace
 
-std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::pmr::wstring& path, const std::stop_token& /*stop_token*/)
+std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::wstring& path, const std::stop_token& /*stop_token*/)
 {
     MENDO_PROFILE("LoadFile");
     // エディタがファイルを開いている間も読み取れるよう共有モードを許容。
@@ -88,7 +88,7 @@ void AsyncLoadCoordinator::ResetSinks() noexcept
     }
 }
 
-void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring path, Theme theme, float content_width, ReloadBase reload_base)
+void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::wstring path, Theme theme, float content_width, ReloadBase reload_base)
 {
     // Cancel() と同じく旧 worker の stop を先に要求してから sink を空にし、旧 worker の publish を確実に弾く。
     // request_stop 後の source は再使用できないので作り直す。
@@ -141,7 +141,7 @@ bool AsyncLoadCoordinator::Attach(HWND hwnd, UINT msg_id)
     return in_flight_;
 }
 
-void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::pmr::wstring& path, const Theme& theme, float content_width,
+void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::wstring& path, const Theme& theme, float content_width,
                                      const std::stop_token& stop_token, ReloadBase reload_base)
 {
     MENDO_PROFILE("AsyncLoadCoordinator::Start Posted Task");

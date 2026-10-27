@@ -143,9 +143,9 @@ void GenerateAnchorIdInto(std::string_view text, std::pmr::string& slug)
     });
 }
 
-std::pmr::string ToLowerAnchorCopy(std::string_view text)
+std::string ToLowerAnchorCopy(std::string_view text)
 {
-    std::pmr::string result;
+    std::string result;
     result.resize_and_overwrite(text.size(), [text](char* buf, size_t /*count*/) noexcept -> size_t {
         char* dst = buf;
         size_t pos = 0;

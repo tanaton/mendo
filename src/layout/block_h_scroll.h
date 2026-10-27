@@ -4,7 +4,6 @@
 #include "layout_computer.h"
 #include "theme.h"
 #include <algorithm>
-#include <memory_resource>
 #include <span>
 #include <unordered_map>
 
@@ -65,7 +64,7 @@ inline BlockHScrollGeometry GetBlockHScrollGeometry(
 
 // geom のブロックの横スクロール量。マップ未設定・未登録は 0。
 // 保存値は幅が縮んでも残るので、描画・ヒットテスト・入力が同じ値を使うよう読み出し時に必ず clamp する。
-inline float LookupBlockScrollX(const std::pmr::unordered_map<int, float>* scroll_x, const BlockHScrollGeometry& geom) noexcept
+inline float LookupBlockScrollX(const std::unordered_map<int, float>* scroll_x, const BlockHScrollGeometry& geom) noexcept
 {
     if (!scroll_x) {
         return 0.0f;
@@ -75,7 +74,7 @@ inline float LookupBlockScrollX(const std::pmr::unordered_map<int, float>* scrol
 }
 
 struct BlockHScrollContext {
-    const std::pmr::unordered_map<int, float>* scroll_x = nullptr;
+    const std::unordered_map<int, float>* scroll_x = nullptr;
     int hovered_block = -1;
     int drag_block = -1;
 };

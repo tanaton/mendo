@@ -269,7 +269,7 @@ void EvictEntryLayout(NodeLayoutEntry& e, LayoutCache::ReleasedLayouts& released
 
 // ---------- LayoutCache public ----------
 
-void LayoutCache::InvalidateAllLayouts(const std::pmr::vector<Node>& nodes) noexcept
+void LayoutCache::InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept
 {
     for (size_t i = 0; i < entries_.size(); i++) {
         auto& e = entries_[i];

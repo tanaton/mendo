@@ -5,7 +5,6 @@
 #include <d2d1.h>
 #include <filesystem>
 #include <fstream>
-#include <memory_resource>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -23,7 +22,7 @@
 #include "theme.h"
 
 // 検索を区切らずに最後まで進める。
-inline void RunSearchToEnd(SearchState& s, const std::pmr::vector<Node>& nodes)
+inline void RunSearchToEnd(SearchState& s, const std::vector<Node>& nodes)
 {
     s.BeginSearch();
     s.ContinueSearch(nodes, std::chrono::steady_clock::time_point::max());
@@ -56,9 +55,9 @@ inline Node MakeTextNode(const char* text)
     return n;
 }
 
-inline std::pmr::vector<Node> TextNodes(std::initializer_list<const char*> texts)
+inline std::vector<Node> TextNodes(std::initializer_list<const char*> texts)
 {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     for (const char* text : texts) {
         nodes.push_back(MakeTextNode(text));
     }
@@ -66,7 +65,7 @@ inline std::pmr::vector<Node> TextNodes(std::initializer_list<const char*> texts
 }
 
 // パーサが区切ったテキストノードの並び。newline_before なら継ぎ目に改行を挟む。
-inline std::pmr::vector<Node> ChunkedTextNodes(std::initializer_list<const char*> texts, bool newline_before = false)
+inline std::vector<Node> ChunkedTextNodes(std::initializer_list<const char*> texts, bool newline_before = false)
 {
     auto nodes = TextNodes(texts);
     for (size_t i = 0; i + 1 < nodes.size(); ++i) {
@@ -198,7 +197,7 @@ inline Node MakeStressNode(size_t i, bool include_code_block)
 }
 
 struct StressFixture {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     LayoutCache cache;
 
     void Build(size_t n, bool include_code_block)
@@ -396,9 +395,9 @@ public:
     TempFile(const TempFile&) = delete;
     TempFile& operator=(const TempFile&) = delete;
 
-    std::pmr::wstring PmrPath() const
+    std::wstring PmrPath() const
     {
-        return std::pmr::wstring(path_.wstring());
+        return std::wstring(path_.wstring());
     }
 
 private:

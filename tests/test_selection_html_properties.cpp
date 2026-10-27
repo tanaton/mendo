@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <format>
 #include <limits>
-#include <memory_resource>
 #include <optional>
 #include <random>
 #include <string>
@@ -152,7 +151,7 @@ size_t ExpectedTableRowCount(const Node& node, uint32_t start, uint32_t end)
 
 // ノードを単独で選んだときの HTML (タグ除去後) とプレーンテキストの一致を見る。
 // 複数ノード選択の HTML は単独 HTML の連結 (リスト枠を除く) と同じ本文になるはずなので、それも確かめる。
-void CheckSelectionRoundTrip(const std::pmr::vector<Node>& nodes, const TextSelection& sel, bool dark)
+void CheckSelectionRoundTrip(const std::vector<Node>& nodes, const TextSelection& sel, bool dark)
 {
     const auto full = StripHtml(ExtractSelectedTextAsHtml(nodes, sel, dark));
     ASSERT_EQ(full.error, "");
@@ -191,7 +190,7 @@ void CheckSelectionRoundTrip(const std::pmr::vector<Node>& nodes, const TextSele
     }
 }
 
-void CheckRandomSelections(const std::pmr::vector<Node>& nodes, uint32_t seed, int count)
+void CheckRandomSelections(const std::vector<Node>& nodes, uint32_t seed, int count)
 {
     if (nodes.empty()) {
         return;

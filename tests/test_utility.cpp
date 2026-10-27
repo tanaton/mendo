@@ -35,8 +35,8 @@ TEST(Utility, PmrFormatWideStringArgument)
 TEST(Utility, PmrFormatReturnsPmrString)
 {
     auto s = PmrFormat(L"x={}", 5);
-    static_assert(std::is_same_v<decltype(s), std::pmr::wstring>,
-        "PmrFormat must return std::pmr::wstring");
+    static_assert(std::is_same_v<decltype(s), std::wstring>,
+        "PmrFormat must return std::wstring");
     EXPECT_EQ(s.size(), 3u); // "x=5"
 }
 

@@ -30,7 +30,7 @@ void SearchState::BeginSearch()
     // ASCII 英字を含まないクエリは大文字小文字を無視しても通常一致と結果が同じなので、
     // 比較時の小文字化 (fold) を省く。文書の小文字コピーは持たず走査中に畳み込む。
     const bool fold = !case_sensitive_ && ascii_util::HasAsciiLetter(query_);
-    std::pmr::string active = fold ? ToLowerAsciiCopy(query_) : query_;
+    std::string active = fold ? ToLowerAsciiCopy(query_) : query_;
     // 比べ方 (fold) が同じなら、前回のクエリを伸ばしたクエリは前回マッチのあったノードにしか現れない。
     narrowing_ = completed_ && fold == matched_.fold &&
                  active.size() > matched_.text.size() && active.starts_with(matched_.text);
@@ -48,7 +48,7 @@ void SearchState::BeginSearch()
     searching_ = true;
 }
 
-bool SearchState::ContinueSearch(const std::pmr::vector<Node>& nodes, std::chrono::steady_clock::time_point deadline)
+bool SearchState::ContinueSearch(const std::vector<Node>& nodes, std::chrono::steady_clock::time_point deadline)
 {
     if (!searching_) {
         return true;
@@ -155,7 +155,7 @@ size_t SearchState::FindTextMatches(std::string_view text, std::string_view next
         return 0;
     }
     const std::string_view tail = text.substr(tail_begin);
-    std::pmr::string joined{ tail };
+    std::string joined{ tail };
     joined.append(next.substr(0, query_len - 1));
     const size_t at = FindNext(joined, query, fold, 0);
     if (at == ascii_util::npos || at >= tail.size()) {

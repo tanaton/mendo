@@ -153,7 +153,7 @@ bool Renderer::RecreateDevice()
     return true;
 }
 
-void Renderer::GenGestureTrail(const std::pmr::vector<GesturePoint>& points)
+void Renderer::GenGestureTrail(const std::vector<GesturePoint>& points)
 {
     auto* const factory = GetD2DFactory();
     if (points.size() < 2 || !factory) {

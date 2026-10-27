@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 #include <initializer_list>
-#include <memory_resource>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -15,8 +14,8 @@ using layout::FindActiveTocIndex;
 namespace {
 
 struct ParsedToc {
-    std::pmr::vector<Node> nodes;
-    std::pmr::vector<TocEntry> toc;
+    std::vector<Node> nodes;
+    std::vector<TocEntry> toc;
 };
 
 // パーサが見出しの終わりで積んだ目次をそのまま使う。
@@ -115,7 +114,7 @@ TEST(Toc, ManyHeadings)
 
 TEST(Toc, FindActiveIndexEmpty)
 {
-    std::pmr::vector<TocEntry> toc;
+    std::vector<TocEntry> toc;
     LayoutCache cache;
     EXPECT_EQ(FindActiveTocIndex(toc, cache, 0.0f, 0.0f), -1);
 }

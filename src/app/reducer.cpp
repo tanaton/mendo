@@ -343,7 +343,7 @@ void NavigateHistory(AppState& state, SideEffectList& effects, bool forward)
 }
 
 // 現在位置を履歴に積んでから別ファイルを開く。
-void OpenFileWithHistory(AppState& state, SideEffectList& effects, const std::pmr::wstring& path)
+void OpenFileWithHistory(AppState& state, SideEffectList& effects, const std::wstring& path)
 {
     PushCurrentNavEntry(state, path);
     PushEffect(effects, effect::LoadFile{ path });
@@ -427,7 +427,7 @@ void ReduceShowHelp(AppState& state, SideEffectList& effects)
         return;
     }
     PushCurrentNavEntry(state, HELP_PATH);
-    PushEffect(effects, effect::LoadFile{ std::pmr::wstring(HELP_PATH) });
+    PushEffect(effects, effect::LoadFile{ std::wstring(HELP_PATH) });
 }
 
 // つまみ上クリック → 位置維持 (オフセットのみ記録)、つまみ外 → 中心へジャンプ。
@@ -805,7 +805,7 @@ void ReduceSearchTextChanged(AppState& state, SideEffectList& effects, NodeLayou
     // 検索バー入力は IME 経由で wstring。表示とヒットテストにはこのまま使い、
     // SearchState は Document テキスト (UTF-8) と比較するため変換して渡す。
     sg.query_wide.assign(text);
-    std::pmr::string text_utf8;
+    std::string text_utf8;
     string_convert::WideToUtf8(text, text_utf8);
     sg.search_state.SetQuery(text_utf8);
     if (text.empty()) {

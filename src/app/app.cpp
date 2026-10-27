@@ -112,7 +112,7 @@ bool App::Init(HWND hwnd)
 
     // フォルダの列挙はネットワークドライブなどで数百 ms かかるので、描画を待たせずに別スレッドで行う。
     // 共有 scheduler の画像デコード待ちの後ろに並ばないよう専用スレッドにする。
-    state_.file_explorer.SetAsyncLister([hwnd = hwnd_, slot = file_listing_](std::pmr::wstring dir, uint32_t request) {
+    state_.file_explorer.SetAsyncLister([hwnd = hwnd_, slot = file_listing_](std::wstring dir, uint32_t request) {
         std::thread([hwnd, slot, dir = std::move(dir), request] {
             auto entries = FileExplorer::List(dir);
             {
@@ -211,7 +211,7 @@ SidePaneState App::BuildSidePaneState(const PaneLayout& layout)
     if (file_visible) {
         state_.file_explorer.EnsureListed();
     }
-    static const std::pmr::vector<FileEntry> kNoEntries;
+    static const std::vector<FileEntry> kNoEntries;
     const auto make_side_pane = [this, &panes](PaneTarget t, PaneRect rect) {
         return SidePaneInstance{
             .rect = rect,
@@ -366,7 +366,7 @@ void App::OnMermaidDiskLoaded()
 
 void App::OnFileListed()
 {
-    std::optional<std::pair<uint32_t, std::pmr::vector<FileEntry>>> listed;
+    std::optional<std::pair<uint32_t, std::vector<FileEntry>>> listed;
     {
         const std::lock_guard lock(file_listing_->mutex);
         listed.swap(file_listing_->result);
@@ -395,7 +395,7 @@ void App::Dispatch(const AppAction& action)
 {
     // マウスの移動・ホイール・ドラッグは 1 イベントごとに副作用を積む。一覧の確保と解放は Reduce の 3〜4 割を
     // 占めていた (BM_ReduceEvents) ので、呼び出しごとのスタックの領域から取る。入れ子の Dispatch も自分の領域を持つ。
-    // 副作用が持つ文字列は既定のリソースのまま (variant は allocator を受け継がない) なので、領域より長生きしない。
+    // 副作用が持つ文字列はヒープから取る (variant は allocator を受け継がない) ので、領域より長生きしない。
     alignas(std::max_align_t) std::array<std::byte, 1024> buffer;
     std::pmr::monotonic_buffer_resource arena(buffer.data(), buffer.size());
     auto effects = Reduce(state_, action, *this, &arena);
@@ -406,7 +406,7 @@ void App::OnDropFiles(HDROP hDrop)
 {
     const UINT required = DragQueryFileW(hDrop, 0, nullptr, 0);
     if (required > 0) {
-        std::pmr::wstring path(required, L'\0');
+        std::wstring path(required, L'\0');
         if (DragQueryFileW(hDrop, 0, path.data(), required + 1)) {
             Dispatch(OpenPathAction{ std::move(path) });
         }
@@ -493,7 +493,7 @@ void App::ShowToast(std::wstring_view message)
     Invalidate();
 }
 
-void App::ShellOpenAsync(std::pmr::wstring target)
+void App::ShellOpenAsync(std::wstring target)
 {
     // シェル拡張が COM で動くので STA に入る。共有 scheduler の worker は MTA なので専用スレッドで開く。
     std::thread([target = std::move(target)] {
@@ -567,7 +567,7 @@ void App::ShowHelpResource()
     load_coordinator_.Cancel();
     file_watcher_.StopWatching();
 
-    std::pmr::string utf8(reinterpret_cast<const char*>(rc.data()), rc.size());
+    std::string utf8(reinterpret_cast<const char*>(rc.data()), rc.size());
     Document help = Document::FromMarkdown(std::move(utf8), HELP_PATH);
     LayoutCache estimated = layout::MakeEstimatedLayoutCache(help.GetNodes(), theme_service_.GetTheme(), MdContentWidth());
     OpenDocument(std::move(help), std::move(estimated), /*follow_file_pane=*/false, {});
@@ -598,7 +598,7 @@ void App::ReplaceDocument(Document next, LayoutCache estimated)
     DisposeOnWorkerIfLarge(scheduler_, old.GetNodes().size(), kDisposeMinNodes, std::move(old));
 }
 
-void App::BeginAsyncLoad(std::pmr::wstring path, bool show_animation)
+void App::BeginAsyncLoad(std::wstring path, bool show_animation)
 {
     MENDO_PROFILE("App::BeginAsyncLoad");
     if (show_animation) {
@@ -638,7 +638,7 @@ void App::LoadMarkdownFile(std::wstring_view path)
         CancelPendingResources();
         resources_dropped_for_load_ = true;
     }
-    BeginAsyncLoad(std::pmr::wstring{ path }, /*show_animation=*/true);
+    BeginAsyncLoad(std::wstring{ path }, /*show_animation=*/true);
 }
 
 // 同じファイルの再読み込みは FileWatcher を paused にしたまま進んでいるので止めない。
@@ -656,7 +656,7 @@ void App::CancelOtherFileLoad()
 
 // Init (RestoreTheme) 前に呼ばれるため、推定用のテーマは設定から直接作る。
 // 推定に使う寸法はライト/ダーク共通でズームだけに依存するので、ダークモード未読込でも結果は同じ。
-void App::StartPreloadAsync(std::pmr::wstring path)
+void App::StartPreloadAsync(std::wstring path)
 {
     InitSharedScheduler();
     load_coordinator_.Start(scheduler_, std::move(path), theme_service_.CreateTheme(theme_service_.LoadZoomLevel()));
@@ -1207,7 +1207,7 @@ void App::HandleLinkClick(std::string_view url)
         Dispatch(NavigateAnchorAction{ std::move(result.target) });
         return;
     case LinkClickResult::Type::ExternalUrl: {
-        std::pmr::wstring url_wide;
+        std::wstring url_wide;
         string_convert::Utf8ToWide(result.target, url_wide);
         ShellOpenAsync(std::move(url_wide));
         return;

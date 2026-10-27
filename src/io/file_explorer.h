@@ -5,10 +5,9 @@
 #include <string_view>
 #include <utility>
 #include <vector>
-#include <memory_resource>
 
 struct FileEntry {
-    std::pmr::wstring full_path;
+    std::wstring full_path;
     bool is_current = false;
     bool is_directory = false;
     // ".." (親ディレクトリ) の項目。
@@ -24,15 +23,15 @@ class FileExplorer {
 public:
     // 列挙を別スレッドに任せる先。dir を List で列挙し、結果を request と一緒に ApplyListing へ渡させる。
     // 設定すると EnsureListed は列挙を待たずに戻り、一覧は届くまで前のまま。未設定なら EnsureListed がその場で列挙する。
-    using AsyncLister = std::move_only_function<void(std::pmr::wstring dir, uint32_t request)>;
+    using AsyncLister = std::move_only_function<void(std::wstring dir, uint32_t request)>;
     void SetAsyncLister(AsyncLister lister)
     {
         lister_ = std::move(lister);
     }
     // スレッド安全。".." を先頭に、ディレクトリ → Markdown ファイルの順に並べた一覧。
-    static std::pmr::vector<FileEntry> List(std::wstring_view dir);
+    static std::vector<FileEntry> List(std::wstring_view dir);
     // 最新の要求の結果なら一覧を差し替えて true。古い要求の結果や、その後に Refresh / SetDirectory された結果は捨てる。
-    bool ApplyListing(uint32_t request, std::pmr::vector<FileEntry> entries);
+    bool ApplyListing(uint32_t request, std::vector<FileEntry> entries);
     // 別スレッドの列挙を待っている。GetEntries は前の一覧のまま。
     constexpr bool IsListing() const noexcept
     {
@@ -55,7 +54,7 @@ public:
     }
     // SetDirectory / Refresh の後なら列挙を始める。
     void EnsureListed();
-    constexpr const std::pmr::vector<FileEntry>& GetEntries() const noexcept
+    constexpr const std::vector<FileEntry>& GetEntries() const noexcept
     {
         return entries_;
     }
@@ -66,18 +65,18 @@ public:
     }
     // 以降の SetDirectory / Refresh でも強調表示が維持される。
     void SetCurrentFile(std::wstring_view path);
-    constexpr const std::pmr::wstring& GetDirectory() const noexcept
+    constexpr const std::wstring& GetDirectory() const noexcept
     {
         return directory_;
     }
 
 private:
     void ApplyCurrentFile();
-    void ReplaceEntries(std::pmr::vector<FileEntry> entries);
+    void ReplaceEntries(std::vector<FileEntry> entries);
 
-    std::pmr::wstring directory_;
-    std::pmr::wstring current_file_;
-    std::pmr::vector<FileEntry> entries_;
+    std::wstring directory_;
+    std::wstring current_file_;
+    std::vector<FileEntry> entries_;
     uint32_t generation_ = 0;
     bool stale_ = false;
     // 列挙を始めた回数。結果がどの要求のものかを見分ける。

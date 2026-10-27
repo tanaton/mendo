@@ -28,11 +28,11 @@ protected:
     // markdown を文書にし、各ノードを node_height ずつ縦に並べる。
     void SetDocument(std::string_view md, float node_height = 100.0f)
     {
-        state_.document.doc = Document::FromMarkdown(std::pmr::string(md), L"C:\\docs\\a.md");
+        state_.document.doc = Document::FromMarkdown(std::string(md), L"C:\\docs\\a.md");
         state_.document.layout_cache = MakeUniformCache(static_cast<int>(Nodes().size()), node_height);
     }
 
-    const std::pmr::vector<Node>& Nodes() const noexcept
+    const std::vector<Node>& Nodes() const noexcept
     {
         return state_.document.doc.GetNodes();
     }

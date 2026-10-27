@@ -78,13 +78,13 @@ void SetCloaked(HWND hwnd, BOOL cloaked)
 }
 
 // 確定前のコンポジション文字列 (D2D 描画用)。取得できなければ空。
-std::pmr::wstring GetImeCompositionString(HIMC himc)
+std::wstring GetImeCompositionString(HIMC himc)
 {
     const LONG bytes = ImmGetCompositionStringW(himc, GCS_COMPSTR, nullptr, 0);
     if (bytes <= 0) {
         return {};
     }
-    std::pmr::wstring comp(static_cast<size_t>(bytes) / sizeof(wchar_t), L'\0');
+    std::wstring comp(static_cast<size_t>(bytes) / sizeof(wchar_t), L'\0');
     ImmGetCompositionStringW(himc, GCS_COMPSTR, comp.data(), static_cast<DWORD>(bytes));
     return comp;
 }
@@ -871,7 +871,7 @@ LRESULT Win32Window::OnSearchEditKeyDown(HWND edit, WPARAM wParam, LPARAM lParam
 void Win32Window::OnSearchEditChanged()
 {
     const int text_len = GetWindowTextLengthW(search_edit_);
-    SearchTextChangedAction changed{ std::pmr::wstring(static_cast<size_t>(std::max(text_len, 0)), L'\0') };
+    SearchTextChangedAction changed{ std::wstring(static_cast<size_t>(std::max(text_len, 0)), L'\0') };
     const int copied = GetWindowTextW(search_edit_, changed.text.data(), text_len + 1);
     changed.text.resize(static_cast<size_t>(std::max(copied, 0)));
     app_->Dispatch(changed);

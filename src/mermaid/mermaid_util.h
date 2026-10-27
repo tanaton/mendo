@@ -8,7 +8,7 @@ struct Node;
 namespace mermaid_util {
 
 // style でノードの枠と背景を非表示にし、数式のみが見えるようにする。
-std::pmr::wstring BuildLatexFlowchartCode(std::wstring_view latex);
+std::wstring BuildLatexFlowchartCode(std::wstring_view latex);
 
 // 言語種別ソルトで同テキストの Mermaid / LatexMath がキー衝突しない。
 uint64_t NodeDiagramHash(const Node& node, float max_width, bool dark_mode) noexcept;
@@ -26,7 +26,7 @@ constexpr bool IsWidthFree(float css_width, float max_width) noexcept
     return css_width + 1.0f < max_width;
 }
 
-std::pmr::wstring JsEscape(std::wstring_view input);
+std::wstring JsEscape(std::wstring_view input);
 
 int QuantizeWidth(float max_width) noexcept;
 
@@ -42,7 +42,7 @@ bool FitsCaptureLimit(float css_width, float css_height, float dpr, unsigned max
 
 // エラーメッセージの表示用整形: 空白・改行・制御文字の連続を空白1個に潰し、max_len で
 // 切り詰める (DrawTextCmd の 255 文字上限内に収める)。切り詰め時は末尾に U+2026 を付ける。
-std::pmr::wstring SanitizeErrorMessage(std::wstring_view msg, size_t max_len);
+std::wstring SanitizeErrorMessage(std::wstring_view msg, size_t max_len);
 
 struct RequestPrefix {
     unsigned int id = 0;

@@ -3,12 +3,11 @@
 #include <limits>
 #include <string>
 #include <string_view>
-#include <memory_resource>
 #include <windows.h>
 
 namespace string_convert {
 
-inline void Utf8ToWide(std::string_view utf8, std::pmr::wstring& out)
+inline void Utf8ToWide(std::string_view utf8, std::wstring& out)
 {
     MENDO_PROFILE("Utf8ToWide");
     if (utf8.empty()) {
@@ -28,14 +27,14 @@ inline void Utf8ToWide(std::string_view utf8, std::pmr::wstring& out)
     MENDO_STATF("Utf8ToWide(utf8): utf8={} wide.size={} wide.cap={}", utf8.size(), out.size(), out.capacity());
 }
 
-inline std::pmr::wstring Utf8ToWide(std::string_view utf8)
+inline std::wstring Utf8ToWide(std::string_view utf8)
 {
-    std::pmr::wstring result;
+    std::wstring result;
     Utf8ToWide(utf8, result);
     return result;
 }
 
-// std::string / std::pmr::string 両対応の WideToUtf8。
+// std::string / std::string 両対応の WideToUtf8。
 template <typename Alloc>
 inline void WideToUtf8(std::wstring_view wide, std::basic_string<char, std::char_traits<char>, Alloc>& out)
 {

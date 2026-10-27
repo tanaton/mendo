@@ -1,5 +1,5 @@
 #pragma once
-// パーサ出力 (std::pmr::vector<Node>) の構造不変条件チェッカ。
+// パーサ出力 (std::vector<Node>) の構造不変条件チェッカ。
 // レイアウト / 描画 / 選択 / リロードの各層がここに挙げる性質を前提に添字アクセスするため、
 // 任意入力のパース結果に対して一括検査できるようにしておく。
 #include <gtest/gtest.h>
@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <cstddef>
 #include <format>
-#include <memory_resource>
 #include <span>
 #include <string>
 #include <string_view>
@@ -127,7 +126,7 @@ inline void CheckTable(ViolationSink& sink, size_t i, const Node& node)
 } // namespace parse_invariants_detail
 
 // raw はパース入力 (= ノードのテキストが直接指しうるバッファ)。違反が無ければ success。
-inline ::testing::AssertionResult ParseInvariantsHold(std::string_view raw, const std::pmr::vector<Node>& nodes)
+inline ::testing::AssertionResult ParseInvariantsHold(std::string_view raw, const std::vector<Node>& nodes)
 {
     using namespace parse_invariants_detail;
     ViolationSink sink;

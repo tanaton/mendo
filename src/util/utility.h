@@ -7,7 +7,6 @@
 #include <functional>
 #include <iterator>
 #include <memory>
-#include <memory_resource>
 #include <span>
 #include <string>
 #include <string_view>
@@ -103,9 +102,9 @@ inline bool IsSubrangeOf(std::string_view inner, std::string_view outer) noexcep
 }
 
 template <typename... Args>
-inline std::pmr::wstring PmrFormat(std::wformat_string<Args...> fmt, Args&&... args)
+inline std::wstring PmrFormat(std::wformat_string<Args...> fmt, Args&&... args)
 {
-    std::pmr::wstring result;
+    std::wstring result;
     std::format_to(std::back_inserter(result), fmt, std::forward<Args>(args)...);
     return result;
 }

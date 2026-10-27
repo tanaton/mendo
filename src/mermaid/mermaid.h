@@ -15,7 +15,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
-#include <memory_resource>
 #include <queue>
 #include <span>
 #include <string>
@@ -69,7 +68,7 @@ private:
     struct RenderRequest {
         // UTF-8 の原文。呼び出し側の文字列の寿命から切り離して持つ。WebView2 向けの変換は描く直前に行い、
         // 待ちの間 (準備前・ディスク読み込み中・キュー待ち) は原文の大きさのままにする。
-        std::pmr::string code;
+        std::string code;
         // LaTeX 数式。flowchart で包んで描く。
         bool latex = false;
         float max_width = 0.0f;
@@ -158,7 +157,7 @@ private:
     static constexpr size_t MAX_CACHE_BYTES = 64u * 1024 * 1024;
 
     // SVG 専用リクエストならコールバックを呼んで svg_callback をクリアする (cancel / render-error / svg-result 共通)。
-    static void InvokeSvgCallbackIfAny(RenderRequest& req, std::pmr::wstring svg, bool cancelled);
+    static void InvokeSvgCallbackIfAny(RenderRequest& req, std::wstring svg, bool cancelled);
     // 表示用リクエストのエラーを kind で確定させる (issue #271)。msg は Render のときの Mermaid の文言で、空なら汎用の文言を出す。
     void SetDiagramError(const RenderRequest& req, DiagramError::Kind kind, std::wstring_view msg = {});
     static void ApplyResult(DiagramEntry& diagram_entry, const CachedResult& result);
@@ -237,7 +236,7 @@ private:
     ID2D1RenderTarget* render_target_ = nullptr;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     Microsoft::WRL::ComPtr<ICoreWebView2Environment> webview_env_;
-    std::pmr::wstring user_data_folder_;
+    std::wstring user_data_folder_;
     int env_retry_count_ = 0;
 
     Worker workers_[MAX_WORKERS];
@@ -248,10 +247,10 @@ private:
     // 準備完了 (アイドル解放後の再初期化を含む) と結果が出たときに呼ぶ。準備前の描画要求は捨てているため再要求させる。
     std::move_only_function<void()> on_update_;
 
-    std::queue<RenderRequest, std::pmr::deque<RenderRequest>> pending_requests_;
+    std::queue<RenderRequest, std::deque<RenderRequest>> pending_requests_;
     // 待機中・読み込み中・描画中の表示用リクエストのコードハッシュ。未完了の図はスクロールのたびに
     // 再要求されるため、ここで重複を弾く (二重描画・キュー肥大の防止)。
-    std::pmr::unordered_set<uint64_t> inflight_;
+    std::unordered_set<uint64_t> inflight_;
 
     // code_hash -> CachedResult (挙動は src/util/transposition_cache.h 参照)。
     TranspositionCache<uint64_t, CachedResult, MAX_CACHE_ENTRIES> cache_;

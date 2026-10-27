@@ -2,7 +2,6 @@
 #include "utility.h"
 #include "worker_latch.h"
 #include <cstdint>
-#include <memory_resource>
 #include <mutex>
 #include <optional>
 #include <filesystem>
@@ -94,7 +93,7 @@ private:
 
     // 追い出しは満杯時だけなので、順序構造を持たず last_used の線形走査で最古を探す。
     struct IndexState {
-        using Map = std::pmr::unordered_map<uint64_t, IndexEntry>;
+        using Map = std::unordered_map<uint64_t, IndexEntry>;
         Map entries;
         uint64_t total_size = 0;
         // last_used に積む単調増加シーケンス。ms 時刻だと連続 Lookup で衝突して順序が付かない。
@@ -148,7 +147,7 @@ private:
 
     mutable std::mutex pending_mutex_;
     // 書き込み中のキー → 書き込み中に追い出されたか (true なら worker が書き込み後に PNG を消す)。
-    std::pmr::unordered_map<uint64_t, bool> pending_writes_;
+    std::unordered_map<uint64_t, bool> pending_writes_;
 
     // Shutdown / dtor で worker 完了を待つ。scheduler_ 共有 worker から self を参照する race を排除する。
     WorkerLatch latch_;

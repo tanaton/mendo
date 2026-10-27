@@ -57,7 +57,7 @@ TEST(StringConvert, ConvertsBothDirections)
         EXPECT_EQ(WideToUtf8(c.wide), c.utf8);
 
         // 出力引数版は既存内容を上書きする
-        std::pmr::wstring wide_out = L"old";
+        std::wstring wide_out = L"old";
         Utf8ToWide(c.utf8, wide_out);
         EXPECT_EQ(wide_out, c.wide);
         std::string utf8_out = "old";
@@ -72,7 +72,7 @@ TEST(StringConvert, LongAsciiRoundTrip)
         SCOPED_TRACE(size);
         const std::string utf8(size, 'A');
         const auto wide = Utf8ToWide(utf8);
-        EXPECT_EQ(wide, std::pmr::wstring(size, L'A'));
+        EXPECT_EQ(wide, std::wstring(size, L'A'));
         EXPECT_EQ(WideToUtf8(wide), utf8);
     }
 }
@@ -80,7 +80,7 @@ TEST(StringConvert, LongAsciiRoundTrip)
 TEST(StringConvert, Utf8ToWideAlternatingAsciiCjk)
 {
     std::string utf8;
-    std::pmr::wstring expected;
+    std::wstring expected;
     for (int i = 0; i < 50; ++i) {
         utf8 += "Hello world! ";
         utf8 += "\xE3\x81\x93\xE3\x82\x93\xE3\x81\xAB\xE3\x81\xA1\xE3\x81\xAF ";

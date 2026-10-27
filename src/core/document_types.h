@@ -7,7 +7,6 @@
 #include <vector>
 #include <cstdint>
 #include <limits>
-#include <memory_resource>
 #include <type_traits>
 #include <utility>
 #include "syntax.h"
@@ -64,15 +63,15 @@ enum class TableAlign : uint8_t {
 //   cell_run_starts.size() == cell_text_starts.size() かつ cell_run_starts.back() == all_runs.size()
 struct NodeTableData {
     // 全セルテキストを linearized 形式で連結 ("cell\tcell\ncell\tcell")。
-    std::pmr::string concat_text;
+    std::string concat_text;
     // 全セルの TextRun を連結。run.start は cell-local offset (layout は cell スライス単位で作成されるため)。
-    std::pmr::vector<TextRun> all_runs;
+    std::vector<TextRun> all_runs;
     // 各セルの concat_text 内開始 offset。番兵末尾 = concat_text.size()。
-    std::pmr::vector<uint32_t> cell_text_starts;
+    std::vector<uint32_t> cell_text_starts;
     // 各セルの all_runs 内開始 offset。番兵末尾 = all_runs.size()。run の無い表では空。
-    std::pmr::vector<uint32_t> cell_run_starts;
+    std::vector<uint32_t> cell_run_starts;
     // 列単位の align (GitHub Markdown では align は列ごと)
-    std::pmr::vector<TableAlign> aligns;
+    std::vector<TableAlign> aligns;
 
     // row は数十万〜数百万行になりうるため uint32_t。col_count は md4c が 16 bit で持つ。
     // 両者の積 (cell index) は CellIndex で size_t 昇格。

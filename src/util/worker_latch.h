@@ -3,7 +3,6 @@
 #include <condition_variable>
 #include <cstddef>
 #include <iterator>
-#include <memory_resource>
 #include <mutex>
 #include <utility>
 #include <vector>
@@ -24,9 +23,9 @@ public:
     // UI スレッドから呼ぶ。先頭から deadline まで apply し、処理した分を返す。必ず進むよう 1 件目は期限を見ない。
     // 残りは先頭へ戻し、HasLeftover が真になる。
     template <class Apply>
-    std::pmr::vector<T> Drain(std::chrono::steady_clock::time_point deadline, Apply&& apply)
+    std::vector<T> Drain(std::chrono::steady_clock::time_point deadline, Apply&& apply)
     {
-        std::pmr::vector<T> items;
+        std::vector<T> items;
         {
             const std::lock_guard lock(mutex_);
             items.swap(items_);
@@ -49,9 +48,9 @@ public:
     }
 
     // 未回収の結果を捨てる。解放は lock の外 (戻り値の破棄) で行う。UI スレッド専用。
-    std::pmr::vector<T> TakeAll()
+    std::vector<T> TakeAll()
     {
-        std::pmr::vector<T> items;
+        std::vector<T> items;
         {
             const std::lock_guard lock(mutex_);
             items.swap(items_);
@@ -68,7 +67,7 @@ public:
 
 private:
     std::mutex mutex_;
-    std::pmr::vector<T> items_;
+    std::vector<T> items_;
     bool leftover_ = false;
 };
 

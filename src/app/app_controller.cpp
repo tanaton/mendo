@@ -236,7 +236,7 @@ TooltipHover BuildMdContentTooltip(const AppState& state, int hit_node, std::opt
     const auto node_index = static_cast<uint32_t>(hit_node);
     if (link) {
         const uint64_t key = PackTooltipKey(node_index, link->index);
-        return MakeTooltip(current, TooltipTarget::Zone::MdLink, key, [&](std::pmr::wstring& text) {
+        return MakeTooltip(current, TooltipTarget::Zone::MdLink, key, [&](std::wstring& text) {
             string_convert::Utf8ToWide(link->url, text);
         });
     }
@@ -245,12 +245,12 @@ TooltipHover BuildMdContentTooltip(const AppState& state, int hit_node, std::opt
         return {};
     }
     const std::string_view alt = node.GetText();
-    return MakeTooltip(current, TooltipTarget::Zone::MdImage, node_index, [&](std::pmr::wstring& text) {
+    return MakeTooltip(current, TooltipTarget::Zone::MdImage, node_index, [&](std::wstring& text) {
         if (!alt.empty()) {
             string_convert::Utf8ToWide(alt, text);
             text += L"\n";
         }
-        std::pmr::wstring src_wide;
+        std::wstring src_wide;
         string_convert::Utf8ToWide(img->src, src_wide);
         text += src_wide;
     });
@@ -275,7 +275,7 @@ TooltipHover BuildSidePaneTooltip(const AppState& state, PaneTarget target, Pane
         }
         // 一覧は列挙し直すと並びが変わるため世代を含める。
         const uint64_t key = PackTooltipKey(state.file_explorer.GetGeneration(), item);
-        return MakeTooltip(current, TooltipTarget::Zone::FilePaneItem, key, [&](std::pmr::wstring& text) {
+        return MakeTooltip(current, TooltipTarget::Zone::FilePaneItem, key, [&](std::wstring& text) {
             text = entries[item].full_path;
         });
     }
@@ -283,7 +283,7 @@ TooltipHover BuildSidePaneTooltip(const AppState& state, PaneTarget target, Pane
     if (item >= toc_entries.size()) {
         return {};
     }
-    return MakeTooltip(current, TooltipTarget::Zone::TocPaneItem, item, [&](std::pmr::wstring& text) {
+    return MakeTooltip(current, TooltipTarget::Zone::TocPaneItem, item, [&](std::wstring& text) {
         string_convert::Utf8ToWide(state.document.doc.GetNodes()[toc_entries[item].node_index].GetText(), text);
     });
 }

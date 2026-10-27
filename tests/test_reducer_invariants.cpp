@@ -20,9 +20,9 @@ struct LabeledAction {
     AppAction action;
 };
 
-std::vector<std::pmr::string> CollectHeadingAnchors(const ReducerHarness& h)
+std::vector<std::string> CollectHeadingAnchors(const ReducerHarness& h)
 {
-    std::vector<std::pmr::string> anchors;
+    std::vector<std::string> anchors;
     for (const auto& anchor : HeadingAnchors(h.state.document.doc.GetNodes())) {
         if (!anchor.empty()) {
             anchors.emplace_back(anchor);
@@ -82,7 +82,7 @@ void PrintTo(const ScrollLayoutCase& c, std::ostream* os)
     *os << c.name;
 }
 
-LabeledAction GenerateSingleScrollAction(std::mt19937& rng, const ReducerHarness& h, const std::vector<std::pmr::string>& anchors, uint64_t& tick)
+LabeledAction GenerateSingleScrollAction(std::mt19937& rng, const ReducerHarness& h, const std::vector<std::string>& anchors, uint64_t& tick)
 {
     auto pick = [&](int lo, int hi) {
         return std::uniform_int_distribution<int>(lo, hi)(rng);
@@ -126,7 +126,7 @@ LabeledAction GenerateSingleScrollAction(std::mt19937& rng, const ReducerHarness
     case 10: {
         switch (pick(0, 3)) {
         case 0:
-            return { "SearchTextChanged(alpha)", SearchTextChangedAction{ std::pmr::wstring(L"alpha") } };
+            return { "SearchTextChanged(alpha)", SearchTextChangedAction{ std::wstring(L"alpha") } };
         case 1:
             return { "SearchNext", SearchNextAction{} };
         case 2:
@@ -146,7 +146,7 @@ LabeledAction GenerateSingleScrollAction(std::mt19937& rng, const ReducerHarness
     }
 }
 
-std::vector<LabeledAction> GenerateScrollActions(std::mt19937& rng, const ReducerHarness& h, const std::vector<std::pmr::string>& anchors, uint64_t& tick)
+std::vector<LabeledAction> GenerateScrollActions(std::mt19937& rng, const ReducerHarness& h, const std::vector<std::string>& anchors, uint64_t& tick)
 {
     // 右ジェスチャは Started → 横移動 → Completed の一連でしか Back/Forward にならない。
     if (std::uniform_int_distribution<int>(0, 13)(rng) == 13) {
@@ -477,7 +477,7 @@ private:
             model_.Dispatch(NavigateBackAction{});
             return "Key:AltLeft";
         case 6:
-            model_.Dispatch(SearchTextChangedAction{ std::pmr::wstring(L"alpha") });
+            model_.Dispatch(SearchTextChangedAction{ std::wstring(L"alpha") });
             return "Key:SearchInput";
         default:
             model_.Dispatch(TocItemClickedAction{ Pick(0, h_.NodeCount() - 1) });

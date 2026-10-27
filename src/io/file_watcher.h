@@ -2,7 +2,6 @@
 #include "win_handle.h"
 #include <functional>
 #include <cstddef>
-#include <memory_resource>
 #include <span>
 #include <string>
 #include <string_view>
@@ -17,13 +16,13 @@
 // ネットワーク上のファイルではパスの要素ごとに往復が入る (ループバックの SMB でもローカルの約 5 倍、約 1ms) ので、
 // 読み込みの worker で作り (OpenWatchTarget)、UI スレッドの StartWatching に渡す。
 struct FileWatchTarget {
-    std::pmr::wstring filename;
+    std::wstring filename;
     // 通知は 8.3 短縮名で来ることがある (未規定)。長い名前と一致しない場合のみ持つ。
-    std::pmr::wstring short_filename;
+    std::wstring short_filename;
     // 親フォルダ。開けなければ無効で、監視しない。
     UniqueHandle dir;
 };
-[[nodiscard]] FileWatchTarget OpenWatchTarget(const std::pmr::wstring& file_path);
+[[nodiscard]] FileWatchTarget OpenWatchTarget(const std::wstring& file_path);
 
 class FileWatcher {
 public:
@@ -62,8 +61,8 @@ private:
     // 通知後は ResumeWatching まで paused_ で後続通知を pending_change_ に溜める。
     void FireChange();
 
-    std::pmr::wstring watch_filename_;
-    std::pmr::wstring watch_filename_short_;
+    std::wstring watch_filename_;
+    std::wstring watch_filename_short_;
     ChangeCallback on_change_;
 
     UniqueHandle dir_handle_;

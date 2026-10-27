@@ -39,7 +39,7 @@ TEST(TooltipTarget, MakeTooltipBuildsTextOnlyWhenTargetChanges)
     EXPECT_EQ(current.text, L"back");
 
     int fills = 0;
-    const auto same = MakeTooltip(current.target, TooltipTarget::Zone::NavButton, 1, [&](std::pmr::wstring&) { ++fills; });
+    const auto same = MakeTooltip(current.target, TooltipTarget::Zone::NavButton, 1, [&](std::wstring&) { ++fills; });
     EXPECT_EQ(fills, 0);
     EXPECT_EQ(same.target, current.target);
     EXPECT_TRUE(same.text.empty());

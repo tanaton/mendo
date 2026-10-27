@@ -4,7 +4,6 @@
 #include "parser.h"
 #include <cstddef>
 #include <memory>
-#include <memory_resource>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -16,7 +15,7 @@
 struct DocumentData {
     // LF-only (LoadFile または 2 引数 FromMarkdown が正規化する)。バッファは relocate しないので、
     // 原文をそのまま表示するノードのテキストが指し続けられる。
-    std::pmr::string raw;
+    std::string raw;
     // ノードと、原文をそのまま表示できないノードのテキスト・全ノードの runs・リンク URL・テーブル本体。
     NodeStorage parsed;
 };
@@ -35,21 +34,21 @@ public:
     // text は LF 正規化済み (LoadFile の出力) であること。
     // 既定の stop_token ではキャンセルしない。scheduler はパースの一部を並列にする先 (ParseMarkdown)。
     static Document FromNormalizedMarkdown(
-        std::pmr::string text, std::wstring_view path, std::stop_token stop_token = {}, TaskScheduler* scheduler = nullptr);
+        std::string text, std::wstring_view path, std::stop_token stop_token = {}, TaskScheduler* scheduler = nullptr);
     // LF 正規化を内蔵した便利ラッパー (テスト / Help リソース経路、入力は BOM 無し前提)。
-    static Document FromMarkdown(std::pmr::string utf8, std::wstring_view path);
+    static Document FromMarkdown(std::string utf8, std::wstring_view path);
 
-    const std::pmr::vector<Node>& GetNodes() const noexcept
+    const std::vector<Node>& GetNodes() const noexcept
     {
         return Storage().nodes;
     }
-    constexpr const std::pmr::wstring& GetFilePath() const noexcept
+    constexpr const std::wstring& GetFilePath() const noexcept
     {
         return file_path_;
     }
     // ディスク上の実ファイルに対応するか。空パスとヘルプの仮想パスは false。
     bool HasBackingFile() const noexcept;
-    const std::pmr::vector<TocEntry>& GetToc() const noexcept
+    const std::vector<TocEntry>& GetToc() const noexcept
     {
         return Storage().indices.toc_entries;
     }
@@ -68,22 +67,22 @@ public:
     {
         return data_;
     }
-    constexpr const std::pmr::wstring& GetDirectory() const noexcept
+    constexpr const std::wstring& GetDirectory() const noexcept
     {
         return cached_directory_;
     }
 
     // anchor (大文字小文字は ASCII のみ無視) を付けた見出し、または脚注の定義 / 参照のノード番号。無ければ -1。
     int FindAnchorIndex(std::string_view anchor);
-    const std::pmr::vector<size_t>& GetImageNodeIndices() const noexcept
+    const std::vector<size_t>& GetImageNodeIndices() const noexcept
     {
         return Storage().indices.image_indices;
     }
-    const std::pmr::vector<size_t>& GetDiagramNodeIndices() const noexcept
+    const std::vector<size_t>& GetDiagramNodeIndices() const noexcept
     {
         return Storage().indices.diagram_indices;
     }
-    const std::pmr::vector<size_t>& GetTableNodeIndices() const noexcept
+    const std::vector<size_t>& GetTableNodeIndices() const noexcept
     {
         return Storage().indices.table_indices;
     }
@@ -97,8 +96,8 @@ private:
 
     // 設定するのは FromMarkdown だけ。
     std::shared_ptr<const DocumentData> data_;
-    std::pmr::wstring file_path_;
-    std::pmr::wstring cached_directory_;
+    std::wstring file_path_;
+    std::wstring cached_directory_;
     // アンカーはリンクを辿るときにしか使わないので、パースでは作らず FindAnchorIndex で目次の先頭から
     // 見つかるまでだけ索引を延ばす。リンクを辿らない文書では確保しない。
     std::unique_ptr<HeadingAnchorIndex> anchor_index_;
