@@ -385,6 +385,6 @@ void App::ReloadDocument(Document next, LayoutCache estimated, std::optional<Unc
 bool App::ApplyCachedHeights(VisibleRange nodes)
 {
     const bool mermaid_applied = resource_manager_.ApplyMermaidCacheHeightsForReload(nodes);
-    const bool image_applied = resource_manager_.ApplyCachedImagesForReload(nodes) > 0;
+    const bool image_applied = resource_manager_.ApplyCachedImagesForReload(nodes);
     return mermaid_applied || image_applied;
 }
