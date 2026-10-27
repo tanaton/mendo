@@ -18,7 +18,6 @@
 #include <iterator>
 #include <limits>
 #include <memory>
-#include <memory_resource>
 #include <mutex>
 #include <optional>
 #include <ranges>

@@ -78,13 +78,13 @@ void SetCloaked(HWND hwnd, BOOL cloaked)
 }
 
 // 確定前のコンポジション文字列 (D2D 描画用)。取得できなければ空。
-std::pmr::wstring GetImeCompositionString(HIMC himc)
+std::wstring GetImeCompositionString(HIMC himc)
 {
     const LONG bytes = ImmGetCompositionStringW(himc, GCS_COMPSTR, nullptr, 0);
     if (bytes <= 0) {
         return {};
     }
-    std::pmr::wstring comp(static_cast<size_t>(bytes) / sizeof(wchar_t), L'\0');
+    std::wstring comp(static_cast<size_t>(bytes) / sizeof(wchar_t), L'\0');
     ImmGetCompositionStringW(himc, GCS_COMPSTR, comp.data(), static_cast<DWORD>(bytes));
     return comp;
 }
@@ -170,17 +170,18 @@ void Win32Window::AwaitInitialParseBeforeDevice()
 {
     // 読み込みが D3D デバイスの作成より先に終われば、可視範囲の計測を join 前 (作成の裏) で済ませる。
     // 作成が先に終わったら待たずに進み、結果は従来どおり最初のフレームの直前に取り込む。
-    const HANDLE device_ready = D3DPrefetchDoneEvent();
-    if (!device_ready || !app_->IsLoadingInitialDocument()) {
+    if (!app_->IsLoadingInitialDocument()) {
         return;
     }
+    const HANDLE device_ready = D3DPrefetchDoneEvent();
     for (;;) {
+        // 先行作成が無くても、Attach の時点で出ていた結果はここで取り込む。
         if (MSG msg; PeekMessageW(&msg, hwnd_, app_msg::PARSE_COMPLETE, app_msg::PARSE_COMPLETE, PM_REMOVE)) {
             app_->OnParseComplete();
             return;
         }
         // 確かめた後に届いたポストだけで起きる。他の通知 (画像の完了など) で起きたら確かめ直す。
-        if (MsgWaitForMultipleObjects(1, &device_ready, FALSE, INFINITE, QS_POSTMESSAGE) != WAIT_OBJECT_0 + 1) {
+        if (!device_ready || MsgWaitForMultipleObjects(1, &device_ready, FALSE, INFINITE, QS_POSTMESSAGE) != WAIT_OBJECT_0 + 1) {
             return;
         }
     }
@@ -242,7 +243,7 @@ std::optional<int> Win32Window::PumpMessages(const bool& done)
         const DWORD wake_mask = frame_evt ? (QS_ALLINPUT & ~QS_PAINT) : QS_ALLINPUT;
         // 空き時間の仕事がある間は待たない。その間はフレーム待ちの期限を数えないが、仕事が尽きれば数え直す。
         const bool idle_work = app_->HasIdleWork();
-        const DWORD timeout = idle_work ? 0 : frame_evt ? D2DRenderBackend::kFrameWaitTimeoutMs
+        const DWORD timeout = idle_work ? 0 : frame_evt ? Renderer::kFrameWaitTimeoutMs
                                                         : INFINITE;
         const DWORD wait = MsgWaitForMultipleObjects(count, handles, FALSE, timeout, wake_mask);
 
@@ -870,7 +871,7 @@ LRESULT Win32Window::OnSearchEditKeyDown(HWND edit, WPARAM wParam, LPARAM lParam
 void Win32Window::OnSearchEditChanged()
 {
     const int text_len = GetWindowTextLengthW(search_edit_);
-    SearchTextChangedAction changed{ std::pmr::wstring(static_cast<size_t>(std::max(text_len, 0)), L'\0') };
+    SearchTextChangedAction changed{ std::wstring(static_cast<size_t>(std::max(text_len, 0)), L'\0') };
     const int copied = GetWindowTextW(search_edit_, changed.text.data(), text_len + 1);
     changed.text.resize(static_cast<size_t>(std::max(copied, 0)));
     app_->Dispatch(changed);

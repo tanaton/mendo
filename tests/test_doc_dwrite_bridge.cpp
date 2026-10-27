@@ -13,9 +13,9 @@ uint32_t ByteAt(std::string_view text, uint32_t wide)
     return Utf16OffsetCursor{ text }.ByteAt(wide);
 }
 
-std::pmr::wstring Decode(std::string_view text)
+std::wstring Decode(std::string_view text)
 {
-    std::pmr::wstring out;
+    std::wstring out;
     DecodeForDWrite(text, out);
     return out;
 }
@@ -203,7 +203,7 @@ TEST(DecodeForDWrite, InvalidBytesBecomeReplacementChar)
 // 使い回すバッファに前回の内容は残らない。
 TEST(DecodeForDWrite, ReplacesPreviousContent)
 {
-    std::pmr::wstring out;
+    std::wstring out;
     DecodeForDWrite("longer text", out);
     DecodeForDWrite("ab", out);
     EXPECT_EQ(out, L"ab");

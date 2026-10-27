@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <cmath>
 #include <deque>
-#include <memory_resource>
 #include <random>
 #include <string>
 #include "document.h"
@@ -112,7 +111,7 @@ protected:
     Theme theme_{};
     LayoutEngine engine_;
     TaskScheduler scheduler_;
-    std::pmr::vector<Node> nodes_;
+    std::vector<Node> nodes_;
     LayoutCache cache_;
     float width_ = 800.0f;
     float scroll_ = 0.0f;
@@ -391,7 +390,7 @@ TEST(LayoutServiceTest, ViewportLayoutMeasuresAroundScrollTargetAfterReestimate)
     ViewportManager viewport;
     LayoutService service(engine, viewport);
 
-    auto doc = Document::FromMarkdown(std::pmr::string{ MakeParagraphs(400) }, L"t.md");
+    auto doc = Document::FromMarkdown(MakeParagraphs(400), L"t.md");
     measurer.base = doc.GetNodes().data();
     LayoutCache cache(doc.GetNodes().size());
     ComputeLayout(engine, doc.GetNodes(), cache, kWidth);
@@ -429,7 +428,7 @@ TEST(LayoutServiceTest, ProcessDirtyBatchWithZeroHeightStaysAtScrollPosition)
     ViewportManager viewport;
     LayoutService service(engine, viewport);
 
-    auto doc = Document::FromMarkdown(std::pmr::string{ MakeParagraphs(400) }, L"t.md");
+    auto doc = Document::FromMarkdown(MakeParagraphs(400), L"t.md");
     measurer.base = doc.GetNodes().data();
     LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme);
 
@@ -454,7 +453,7 @@ TEST(LayoutServiceTest, ViewportLayoutReestimatesWorkerEstimateWithWidth)
     for (int i = 0; i < 200; ++i) {
         md += std::string(2000, 'a') + "\n\n";
     }
-    auto doc = Document::FromMarkdown(std::pmr::string{ md }, L"t.md");
+    auto doc = Document::FromMarkdown(std::string{ md }, L"t.md");
     LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme);
     const size_t last = doc.GetNodes().size() - 1;
     const float width_free = cache[last].height;
@@ -479,7 +478,7 @@ TEST(LayoutServiceTest, WidthAwareWorkerEstimateMatchesReestimate)
     for (int i = 0; i < 50; ++i) {
         md += "# H\n\n" + std::string(static_cast<size_t>(100 + i * 40), 'a') + "\n\n```\ncode\n```\n\n";
     }
-    auto doc = Document::FromMarkdown(std::pmr::string{ md }, L"t.md");
+    auto doc = Document::FromMarkdown(std::string{ md }, L"t.md");
     LayoutCache reestimated = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme);
     engine.Reestimate(doc.GetNodes(), reestimated, kWidth);
     LayoutCache width_aware = layout::MakeEstimatedLayoutCache(doc.GetNodes(), theme, theme.ContentWidth(kWidth));

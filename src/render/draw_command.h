@@ -8,7 +8,6 @@
 #include <limits>
 #include <variant>
 #include <vector>
-#include <memory_resource>
 #include <span>
 #include <cstdint>
 #include <utility>
@@ -105,7 +104,7 @@ using DrawCommand = std::variant<
     PopClipCmd,
     SetTransformCmd>;
 
-using DrawCommandList = std::pmr::vector<DrawCommand>;
+using DrawCommandList = std::vector<DrawCommand>;
 
 using FixedBrushArray = std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>, BRUSH_COUNT>;
 

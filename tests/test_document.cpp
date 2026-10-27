@@ -6,7 +6,7 @@
 #include <string_view>
 #include <utility>
 
-// リロード diff (AnalyzeReloadDiff) は raw_text_ と LoadFile の出力が同じ LF 正規化済みである
+// リロード diff (AnalyzeReloadDiff) は DocumentData::raw と LoadFile の出力が同じ LF 正規化済みである
 // 前提 (issue #273)。その正規化自体を担保する。
 TEST(NormalizeNewlines, CrlfAndLoneCrBecomeLf)
 {
@@ -23,7 +23,7 @@ TEST(NormalizeNewlines, CrlfAndLoneCrBecomeLf)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(c.in));
-        std::pmr::string s{ c.in };
+        std::string s{ c.in };
         NormalizeNewlines(s);
         EXPECT_EQ(s, c.expected);
     }
@@ -81,7 +81,7 @@ TEST(DocumentTest, GetRawTextKeepsInput)
 {
     for (const std::string_view md : { std::string_view{ "# Hello\nworld" }, std::string_view{ "" }, std::string_view{ "# 日本語テスト\n\nこんにちは" } }) {
         SCOPED_TRACE(md);
-        auto doc = Document::FromMarkdown(std::pmr::string{ md }, L"test.md");
+        auto doc = Document::FromMarkdown(std::string{ md }, L"test.md");
         EXPECT_EQ(doc.GetRawText(), md);
     }
 }
@@ -115,7 +115,7 @@ TEST(DocumentTest, SourceOffsetSurvivesEmbeddedNullInCodeBlock)
 {
     // 埋め込み NUL は md4c が外部リテラルポインタで OnText に渡すため、
     // 範囲ガードが無いと source_offset に巨大値が入り raw のサイズを超えるリグレッションを検知する。
-    std::pmr::string md;
+    std::string md;
     md.append("```\n", 4);
     md.push_back('\0');
     md.append("body\n```\n", 9);
@@ -311,7 +311,7 @@ TEST(DocumentTest, FindAnchorIndexAfterDocumentMove)
 TEST(DocumentTest, FindAnchorIndexLargeHeadingSet)
 {
     // 1000 見出しの合成 Markdown で全 anchor が hit すること（string_view 化のスケール耐性検証）。
-    std::pmr::string md;
+    std::string md;
     md.reserve(40 * 1000);
     for (int i = 0; i < 1000; ++i) {
         md += "# Heading-";

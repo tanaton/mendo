@@ -1,4 +1,4 @@
-#include "d2d_render_backend.h"
+#include "renderer.h"
 #include "ui_constants.h"
 #include "wic_util.h"
 #include "win32_util.h"
@@ -57,7 +57,7 @@ HANDLE D3DPrefetchDoneEvent() noexcept
     return g_prefetch_thread.joinable() ? g_prefetch_thread.native_handle() : nullptr;
 }
 
-void D2DRenderBackend::ConfigureFrameLatency() noexcept
+void Renderer::ConfigureFrameLatency() noexcept
 {
     frame_latency_waitable_.reset();
     if (!swap_chain_) {
@@ -76,15 +76,16 @@ void D2DRenderBackend::ConfigureFrameLatency() noexcept
     frame_latency_waitable_.reset(sc2->GetFrameLatencyWaitableObject());
 }
 
-D2DRenderBackend::D2DRenderBackend() noexcept = default;
-D2DRenderBackend::~D2DRenderBackend() = default;
+// d3d11 / dxgi の型の ComPtr を作って壊すので、それらを読むこの TU で定義する。
+Renderer::Renderer() noexcept = default;
+Renderer::~Renderer() = default;
 
-ID2D1Factory* D2DRenderBackend::GetD2DFactory() const noexcept
+ID2D1Factory* Renderer::GetD2DFactory() const noexcept
 {
     return d2d_factory_.Get();
 }
 
-bool D2DRenderBackend::Init(HWND hwnd)
+bool Renderer::CreateFactories(HWND hwnd)
 {
     hwnd_ = hwnd;
 
@@ -123,7 +124,7 @@ bool D2DRenderBackend::Init(HWND hwnd)
     return wic_factory_ != nullptr;
 }
 
-bool D2DRenderBackend::CreateDeviceResources()
+bool Renderer::CreateDeviceResources()
 {
     if (g_prefetch_thread.joinable()) {
         g_prefetch_thread.join();
@@ -202,7 +203,7 @@ bool D2DRenderBackend::CreateDeviceResources()
     return CreateSwapChainBitmap();
 }
 
-bool D2DRenderBackend::CreateSwapChainBitmap()
+bool Renderer::CreateSwapChainBitmap()
 {
     ComPtr<IDXGISurface> surface;
     HRESULT hr = swap_chain_->GetBuffer(0, IID_PPV_ARGS(&surface));
@@ -229,13 +230,13 @@ bool D2DRenderBackend::CreateSwapChainBitmap()
     return true;
 }
 
-bool D2DRenderBackend::SetSourceSize(UINT width, UINT height) noexcept
+bool Renderer::SetSourceSize(UINT width, UINT height) noexcept
 {
     ComPtr<IDXGISwapChain2> sc2;
     return SUCCEEDED(swap_chain_.As(&sc2)) && SUCCEEDED(sc2->SetSourceSize(width, height));
 }
 
-void D2DRenderBackend::Resize(UINT width, UINT height, bool live) noexcept
+void Renderer::Resize(UINT width, UINT height, bool live) noexcept
 {
     if (width == 0 || height == 0) {
         return;
@@ -287,7 +288,7 @@ void D2DRenderBackend::Resize(UINT width, UINT height, bool live) noexcept
     }
 }
 
-void D2DRenderBackend::SetDpi(float dpi) noexcept
+void Renderer::SetDpi(float dpi) noexcept
 {
     dpi_ = dpi;
     if (device_context_) {
@@ -295,7 +296,7 @@ void D2DRenderBackend::SetDpi(float dpi) noexcept
     }
 }
 
-void D2DRenderBackend::Trim() noexcept
+void Renderer::TrimDevice() noexcept
 {
     if (!d2d_device_) {
         return;
@@ -311,7 +312,7 @@ void D2DRenderBackend::Trim() noexcept
     }
 }
 
-void D2DRenderBackend::AcquireFrame() noexcept
+void Renderer::AcquireFrame() noexcept
 {
     // ロスト中は描画側が作り直すので待たせない。
     if (frame_acquired_ || device_lost_ || !frame_latency_waitable_) {
@@ -321,7 +322,7 @@ void D2DRenderBackend::AcquireFrame() noexcept
     frame_acquired_ = WaitForSingleObjectEx(frame_latency_waitable_.get(), kFrameWaitTimeoutMs, FALSE) == WAIT_OBJECT_0;
 }
 
-void D2DRenderBackend::Present() noexcept
+void Renderer::Present() noexcept
 {
     if (!swap_chain_) {
         return;
@@ -339,7 +340,7 @@ void D2DRenderBackend::Present() noexcept
     }
 }
 
-bool D2DRenderBackend::CreateDevice()
+bool Renderer::CreateDevice()
 {
     // 作り直しに失敗したら次の描画で再試行させるため、成功するまでロスト扱いにする。
     device_lost_ = true;
@@ -354,5 +355,11 @@ bool D2DRenderBackend::CreateDevice()
         return false;
     }
     device_lost_ = false;
+    // ブラシはデバイスに紐付くので、作り直しでは旧デバイスのものに SetColor せず作り直す。
+    for (auto& brush : brushes_) {
+        brush.Reset();
+    }
+    RecreateBrushes();
+    LoadAppIconBitmap();
     return true;
 }

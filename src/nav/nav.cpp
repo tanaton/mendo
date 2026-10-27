@@ -5,7 +5,7 @@
 #include <ranges>
 #include <utility>
 
-std::optional<NavEntry> NavHistory::PushCapped(std::pmr::deque<NavEntry>& stack, NavEntry e)
+std::optional<NavEntry> NavHistory::PushCapped(std::deque<NavEntry>& stack, NavEntry e)
 {
     stack.push_back(std::move(e));
     if (stack.size() <= max_history_) {
@@ -49,7 +49,7 @@ void NavHistory::RollbackPending()
     }
 }
 
-bool NavHistory::Transfer(std::pmr::deque<NavEntry>& from, std::pmr::deque<NavEntry>& to, NavEntry current, NavEntry& out)
+bool NavHistory::Transfer(std::deque<NavEntry>& from, std::deque<NavEntry>& to, NavEntry current, NavEntry& out)
 {
     // 表示中の文書は確定前の移動先へまだ切り替わっていないので、続けて移動するときは移動先を起点にする。
     // current のまま積むと表示中の位置が履歴に重複する。
@@ -97,9 +97,9 @@ bool IsSafeUrlScheme(std::string_view url) noexcept
     return ascii_util::istarts_with(url, "http://") || ascii_util::istarts_with(url, "https://") || ascii_util::istarts_with(url, "mailto:");
 }
 
-std::pmr::string PercentDecode(std::string_view s)
+std::string PercentDecode(std::string_view s)
 {
-    std::pmr::string out;
+    std::string out;
     out.reserve(s.size());
     for (size_t i = 0; i < s.size(); ++i) {
         unsigned int byte = 0;
@@ -117,10 +117,10 @@ namespace {
 
 // ShellExecuteW は関連付けのコマンド ("%1" を引用符で囲むだけの形式も多い) に URL を差し込むので、
 // 引用符を閉じて引数を足せる " と、区切りになる空白・制御文字を %XX にする。URL としての意味は変わらない。
-std::pmr::string EncodeShellUnsafeChars(std::string_view url)
+std::string EncodeShellUnsafeChars(std::string_view url)
 {
     constexpr char kHex[] = "0123456789ABCDEF";
-    std::pmr::string out;
+    std::string out;
     out.reserve(url.size());
     for (const char ch : url) {
         const auto c = static_cast<unsigned char>(ch);

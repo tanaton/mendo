@@ -51,11 +51,11 @@ void FileExplorer::EnsureListed()
         lister_(directory_, request_);
     }
     else {
-        ReplaceEntries(directory_.empty() ? std::pmr::vector<FileEntry>{} : List(directory_));
+        ReplaceEntries(directory_.empty() ? std::vector<FileEntry>{} : List(directory_));
     }
 }
 
-bool FileExplorer::ApplyListing(uint32_t request, std::pmr::vector<FileEntry> entries)
+bool FileExplorer::ApplyListing(uint32_t request, std::vector<FileEntry> entries)
 {
     // 列挙し直しを待っている間 (フォルダの移動直後など) は、届いた結果も古い。
     if (request != request_ || !listing_ || stale_) {
@@ -65,7 +65,7 @@ bool FileExplorer::ApplyListing(uint32_t request, std::pmr::vector<FileEntry> en
     return true;
 }
 
-void FileExplorer::ReplaceEntries(std::pmr::vector<FileEntry> entries)
+void FileExplorer::ReplaceEntries(std::vector<FileEntry> entries)
 {
     listing_ = false;
     ++generation_;
@@ -73,9 +73,9 @@ void FileExplorer::ReplaceEntries(std::pmr::vector<FileEntry> entries)
     ApplyCurrentFile();
 }
 
-std::pmr::vector<FileEntry> FileExplorer::List(std::wstring_view dir)
+std::vector<FileEntry> FileExplorer::List(std::wstring_view dir)
 {
-    std::pmr::vector<FileEntry> entries;
+    std::vector<FileEntry> entries;
     const std::filesystem::path dir_base{ dir };
     // ルートでは ".." を出さない
     if (auto parent = dir_base.parent_path(); parent != dir_base) {

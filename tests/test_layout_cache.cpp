@@ -7,7 +7,7 @@
 TEST(LayoutCacheTest, InvalidateAllLayouts)
 {
     LayoutCache cache(3);
-    const std::pmr::vector<Node> nodes(3);
+    const std::vector<Node> nodes(3);
 
     // レイアウトが設定された状態をシミュレート
     cache[0].ensure_inline_code_bgs().emplace_back(0.0f, 0.0f, 10.0f, 10.0f);
@@ -29,7 +29,7 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsForgetsMeasuredSize)
     cache[0].cached_width = 600.0f;
     cache[0].cached_height = 120.0f;
 
-    cache.InvalidateAllLayouts(std::pmr::vector<Node>(1));
+    cache.InvalidateAllLayouts(std::vector<Node>(1));
 
     EXPECT_FALSE(cache[0].is_measured());
     EXPECT_FLOAT_EQ(cache[0].cached_height, 0.0f);
@@ -41,7 +41,7 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesPositions)
     cache.SetTop(0, 100.0f);
     cache.SetTop(1, 150.0f);
 
-    cache.InvalidateAllLayouts(std::pmr::vector<Node>(2));
+    cache.InvalidateAllLayouts(std::vector<Node>(2));
 
     // 位置は次のレイアウトで組み直すまで保持されること
     EXPECT_FLOAT_EQ(cache.Top(0), 100.0f);
@@ -52,7 +52,7 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesPositions)
 TEST(LayoutCacheTest, InvalidateAllLayoutsResetsTextHeightsButKeepsBitmapNodes)
 {
     LayoutCache cache(3);
-    std::pmr::vector<Node> nodes(3);
+    std::vector<Node> nodes(3);
     nodes[1].type = NodeType::Image;
     nodes[2].type = NodeType::Diagram;
     nodes[2].code_language = SyntaxLanguage::Mermaid;
@@ -71,7 +71,7 @@ TEST(LayoutComputerTest, EstimateAfterInvalidateAllLayoutsCanShrink)
 {
     const Theme theme = MakeLayoutTestTheme();
     LayoutCache cache(1);
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     nodes.push_back(MakeTextNode("short"));
     cache[0].height = 5000.0f;
 
@@ -117,7 +117,7 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesDiagramEntries)
     cache.EnsureDiagram(1).width = 500.0f;
     cache.EnsureDiagram(1).height = 250.0f;
 
-    cache.InvalidateAllLayouts(std::pmr::vector<Node>(2));
+    cache.InvalidateAllLayouts(std::vector<Node>(2));
 
     // ダイアグラムの幅・高さは保持されること
     EXPECT_FLOAT_EQ(cache.FindDiagram(0)->width, 400.0f);
@@ -180,7 +180,7 @@ TEST(LayoutCacheTest, RecomputeYPositionsEarlyExitKeepsTextTop)
 
     const Theme theme = MakeLayoutTestTheme();
 
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     nodes.resize(8);
     for (auto& n : nodes) {
         n.type = NodeType::Paragraph;

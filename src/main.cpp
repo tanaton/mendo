@@ -1,6 +1,6 @@
 #include "window.h"
 #include "config_service.h"
-#include "d2d_render_backend.h"
+#include "renderer.h"
 #include "file_io.h"
 #include "i18n.h"
 #include "profiler.h"
@@ -121,7 +121,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     const std::wstring_view arg{ (__wargv && __argc > 1) ? __wargv[1] : L"" };
 
     // session::LoadLastFilePath は UNC/デバイスパスや実在しないパスを除外する (ネットワークドライブは確かめない)。
-    const std::pmr::wstring last_file = session::LoadLastFilePath(config);
+    const std::wstring last_file = session::LoadLastFilePath(config);
     StartupPlan plan = PlanStartup(arg, last_file);
 
     Win32Window window(config);

@@ -4,7 +4,6 @@
 #include "utility.h"
 #include <array>
 #include <chrono>
-#include <memory_resource>
 #include <optional>
 #include <span>
 #include <string>
@@ -99,7 +98,7 @@ private:
     // 画像・図の寸法が確定したノードの高さを決め、changed に積む。
     void ApplyBitmapHeight(size_t i, const DiagramEntry& bitmap, float node_width, layout::HeightChangeRange& changed);
     // 解決済みパスは src 単位でキャッシュする。開かない src も空文字列で覚え、毎回の解決を避ける。
-    const std::wstring* ResolveImagePath(std::string_view src, const std::pmr::wstring& doc_dir);
+    const std::wstring* ResolveImagePath(std::string_view src, const std::wstring& doc_dir);
     // 保持範囲 (±EVICT_BUFFER_SCREENS) を越えて移動していたら、旧位置で積んだ図の描画待ちと画像のデコード待ちを捨てる。
     // FIFO のままだと TOC ジャンプや Ctrl+End の後に、見えている図や画像が旧位置の分の後回しになる。
     void DropQueuesIfJumped();
@@ -127,7 +126,7 @@ private:
     float last_mermaid_content_width_ = 0.0f;
     float last_request_scroll_ = 0.0f;
     std::unordered_map<std::string, std::wstring, StringTransparentHash, std::equal_to<>> resolved_image_paths_;
-    std::pmr::wstring resolved_dir_;
+    std::wstring resolved_dir_;
     std::chrono::steady_clock::time_point last_flush_time_{};
     // 画像/図の適用で高さを更新したノード範囲。Y 再計算をこの範囲に限定する。
     layout::HeightChangeRange height_changed_ = {};

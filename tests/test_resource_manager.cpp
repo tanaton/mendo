@@ -120,7 +120,7 @@ public:
     void RequestSvg(std::string_view /*code*/, float /*max_width*/, bool /*dark_mode*/, SvgCallback callback) override
     {
         if (callback) {
-            callback(std::pmr::wstring{}, false);
+            callback(std::wstring{}, false);
         }
     }
 
@@ -207,7 +207,7 @@ protected:
     // ResourceManager を初期化する。テストごとに 1 度だけ呼ぶ。
     void LoadMarkdown(std::string_view md, float block_height = 100.0f, const wchar_t* doc_path = kTestDocPath)
     {
-        std::pmr::string utf8(md);
+        std::string utf8(md);
         doc_ = Document::FromMarkdown(std::move(utf8), doc_path);
         cache_ = SeedLayoutCache(doc_.GetNodes().size(), block_height);
         rm_.Init(
@@ -620,7 +620,7 @@ TEST_F(ResourceManagerTest, CarryOverUnchangedKeepsEditedDiagramAsStale)
     cache_.EnsureDiagram(old_index).png = std::make_shared<const ByteBuffer>(std::vector<uint8_t>(4, uint8_t{ 1 }));
     cache_[old_index].height = 321.0f;
 
-    auto next = Document::FromMarkdown(std::pmr::string{ "# t\n\n```mermaid\ngraph TD;A-->C\n```\n\ntail\n" }, kTestDocPath);
+    auto next = Document::FromMarkdown(std::string{ "# t\n\n```mermaid\ngraph TD;A-->C\n```\n\ntail\n" }, kTestDocPath);
     auto next_cache = layout::MakeEstimatedLayoutCache(next.GetNodes(), tracker_.theme);
     const size_t new_index = next.GetDiagramNodeIndices()[0];
 
@@ -641,7 +641,7 @@ TEST_F(ResourceManagerTest, CarryOverUnchangedSkipsDiagramsWhenCountChanges)
     mock_mermaid_.sync_apply_bitmap = true;
     rm_.RequestMermaidRenders();
 
-    auto next = Document::FromMarkdown(std::pmr::string{ "# t\n\n```mermaid\ngraph TD;X-->Y\n```\n\n```mermaid\ngraph TD;A-->C\n```\n\ntail\n" }, kTestDocPath);
+    auto next = Document::FromMarkdown(std::string{ "# t\n\n```mermaid\ngraph TD;X-->Y\n```\n\n```mermaid\ngraph TD;A-->C\n```\n\ntail\n" }, kTestDocPath);
     auto next_cache = layout::MakeEstimatedLayoutCache(next.GetNodes(), tracker_.theme);
 
     layout::CarryOverUnchanged(doc_.GetNodes(), cache_, next.GetNodes(), next_cache, FindUnchangedEnds(doc_.GetNodes(), next.GetNodes()));

@@ -7,14 +7,13 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
-#include <memory_resource>
 #include <ranges>
 #include <utility>
 
 namespace layout {
 
 int MeasureIndicesParallel(
-    const std::pmr::vector<Node>& nodes,
+    const std::vector<Node>& nodes,
     LayoutCache& cache,
     float content_width,
     const Theme& theme,
@@ -77,7 +76,7 @@ bool LayoutEngine::Init(ITextMeasurer* measurer, const Theme& theme)
     return measurer_->RecreateFormats();
 }
 
-bool LayoutEngine::Reestimate(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
+bool LayoutEngine::Reestimate(const std::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
 {
     MENDO_PROFILE("LayoutEngine::Reestimate");
     assert(cache.size() == nodes.size());
@@ -99,7 +98,7 @@ bool LayoutEngine::Reestimate(const std::pmr::vector<Node>& nodes, LayoutCache& 
 }
 
 LayoutEngine::PassResult LayoutEngine::MeasurePass(
-    const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width, YRange range, LayoutDeadline deadline)
+    const std::vector<Node>& nodes, LayoutCache& cache, float viewport_width, YRange range, LayoutDeadline deadline)
 {
     MENDO_PROFILE("LayoutEngine::MeasurePass");
     const Theme& theme = GetTheme();
@@ -113,7 +112,7 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
     // height_changed のときだけ意味を持つ。
     size_t last_measured = lo;
 
-    std::pmr::vector<size_t> dirty_indices;
+    std::vector<size_t> dirty_indices;
     for (size_t i = lo; i < node_count; i++) {
         auto& entry = cache[i];
         const float entry_top = cache.Top(i);
@@ -152,7 +151,7 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
     return result;
 }
 
-bool LayoutEngine::EnsureVisibleLayout(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width, float viewport_top, float viewport_bottom)
+bool LayoutEngine::EnsureVisibleLayout(const std::vector<Node>& nodes, LayoutCache& cache, float viewport_width, float viewport_top, float viewport_bottom)
 {
     MENDO_PROFILE("LayoutEngine::EnsureVisibleLayout");
     const YRange range{ viewport_top, viewport_bottom };
@@ -181,7 +180,7 @@ bool LayoutEngine::EnsureVisibleLayout(const std::pmr::vector<Node>& nodes, Layo
 }
 
 bool LayoutEngine::ProcessDirtyBatch(
-    const std::pmr::vector<Node>& nodes, LayoutCache& cache,
+    const std::vector<Node>& nodes, LayoutCache& cache,
     float viewport_width, LayoutDeadline deadline,
     YRange range)
 {

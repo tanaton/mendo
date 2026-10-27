@@ -111,13 +111,13 @@ struct PopupWindow {
     void DrawLabel(std::wstring_view text, IDWriteTextFormat* fmt, const DipRect& rect, ID2D1Brush* brush)
     {
         if (fmt && !text.empty()) {
-            rt->DrawText(text.data(), static_cast<UINT32>(text.size()), fmt, ToD2DRect(rect), brush);
+            rt->DrawText(text.data(), static_cast<UINT32>(text.size()), fmt, rect, brush);
         }
     }
 
     void FillHover(const DipRect& rect)
     {
-        rt->FillRoundedRectangle({ ToD2DRect(rect), POPUP_HOVER_CORNER, POPUP_HOVER_CORNER }, brushes.hover.Get());
+        rt->FillRoundedRectangle({ rect, POPUP_HOVER_CORNER, POPUP_HOVER_CORNER }, brushes.hover.Get());
     }
 
     void DrawCheck(const DipRect& rect)

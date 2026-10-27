@@ -3,7 +3,6 @@
 #include <format>
 #include <iterator>
 #include <limits>
-#include <memory_resource>
 #include <random>
 #include <span>
 #include <string>
@@ -27,13 +26,13 @@ using layout::CalcScrollYForDiff;
 
 namespace {
 
-TextSelection SelectAll(const std::pmr::vector<Node>& nodes)
+TextSelection SelectAll(const std::vector<Node>& nodes)
 {
     const int last = static_cast<int>(nodes.size()) - 1;
     return TextSelection::MakeOrdered(0, 0, last, static_cast<uint32_t>(nodes[last].GetText().size()));
 }
 
-std::pmr::string CopyAllAsHtml(std::string_view md, bool dark_mode = false)
+std::string CopyAllAsHtml(std::string_view md, bool dark_mode = false)
 {
     const auto nodes = ParseNodes(md);
     return ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), dark_mode);
@@ -57,7 +56,7 @@ TextRun MakeRun(uint32_t start, uint32_t length, int16_t link_url_index = -1)
 // 全選択で倍々成長の再確保をしないよう、正確な長さで 1 回だけ確保する。
 TEST(ExtractSelectedText, ReservesExactLength)
 {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     nodes.push_back(MakeTextNode("first paragraph"));
     nodes.push_back(MakeTextNode("second"));
     nodes.push_back(MakeTextNode("third one"));
@@ -122,7 +121,7 @@ TEST(ExtractSelectedText, MultipleNodesJoinedWithCrlf)
 
 TEST(ExtractSelectedText, EmptyNodes)
 {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     auto sel = TextSelection::MakeOrdered(0, 0, 0, 5);
     // 範囲外のノード - クラッシュしないこと
     EXPECT_TRUE(ExtractSelectedText(nodes, sel).empty());
@@ -170,7 +169,7 @@ TEST(ExtractSelectedTextAsHtml, InlineCode)
 
 TEST(ExtractSelectedTextAsHtml, EscapesSpecialChars)
 {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     nodes.emplace_back(MakeTextNode("a<b&c>d\"e'f"));
     EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false), "<p>a&lt;b&amp;c&gt;d&quot;e&#39;f</p>");
 }
@@ -347,7 +346,7 @@ TEST(ExtractSelectedTextAsHtml, TableFullSelectionKeepsEmptyHeaderRow)
 // 列数 0 の表 (md4c が TABLE detail を渡さない場合) でも範囲外を読まない。
 TEST(ExtractSelectedTextAsHtml, TableWithoutColumnsDoesNotReadOutOfRange)
 {
-    std::pmr::vector<Node> nodes(1);
+    std::vector<Node> nodes(1);
     nodes[0].type = NodeType::Table;
     auto* tbl = AttachTestTable(nodes[0]);
     tbl->row_count = 1;
@@ -376,7 +375,7 @@ TEST(ExtractSelectedTextAsHtml, TableWithoutDataFallsBackToPre)
     Node n;
     n.type = NodeType::Table;
     n.SetText("fallback", 0);
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     nodes.emplace_back(std::move(n));
     auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
     EXPECT_FALSE(html.contains("<table"));
@@ -896,7 +895,7 @@ TEST(ExtractSelectedText, SelectionSpanningTableNode)
     table_node.type = NodeType::Table;
     table_node.SetText("A\tB\n1\t2", 1);
 
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     nodes.emplace_back(std::move(table_node));
     EXPECT_EQ(ExtractSelectedText(nodes, TextSelection::MakeOrdered(0, 0, 0, 3)), "A\tB");
 }
@@ -937,7 +936,7 @@ TEST(ExtractSelectedText, ParsedTableFullSelectionPreservesSeparators)
 // 範囲外のノード番号は飛ばし、範囲内のノードだけを出す。
 TEST(ExtractSelectedText, NodeIndexOutOfRange)
 {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     nodes.push_back(MakeTextNode("hello"));
     EXPECT_EQ(ExtractSelectedText(nodes, { .start_node = -5, .start_pos = 0, .end_node = 0, .end_pos = 5 }), "hello");
     EXPECT_TRUE(ExtractSelectedText(nodes, { .start_node = 0, .start_pos = 0, .end_node = 100, .end_pos = 5 }).starts_with("hello"));
@@ -1150,14 +1149,24 @@ TEST(PrefixShrinkRetry, StopsDeferringAfterLimit)
     PrefixShrinkRetry retry;
     for (int i = 0; i < PrefixShrinkRetry::kMaxDefers; ++i) {
         EXPECT_FALSE(retry.Exhausted());
-        EXPECT_TRUE(retry.TryDefer());
+        retry.CountDefer();
     }
     EXPECT_TRUE(retry.Exhausted());
-    EXPECT_FALSE(retry.TryDefer());
+    retry.CountDefer();
+    EXPECT_TRUE(retry.Exhausted());
 
     retry.Reset();
     EXPECT_FALSE(retry.Exhausted());
-    EXPECT_TRUE(retry.TryDefer());
+}
+
+// 上限後は prefix shrink を受け入れ、縮んだ位置へ差し替える。それ以外の判定は変わらない。
+TEST(AnalyzeReloadDiff, AcceptPrefixShrinkReplaces)
+{
+    EXPECT_EQ(AnalyzeReloadDiff("abcdef", "abc", true).op, ReloadOp::Replace);
+    EXPECT_EQ(AnalyzeReloadDiff("abcdef", "abc", true).diff_pos, 3u);
+    EXPECT_EQ(AnalyzeReloadDiff("old content", "", true).op, ReloadOp::Replace);
+    EXPECT_EQ(AnalyzeReloadDiff("abc", "abc", true).op, ReloadOp::NoChange);
+    EXPECT_EQ(AnalyzeReloadDiff("abc", "abcdef", true).op, ReloadOp::Replace);
 }
 
 // ============================================================
@@ -1201,13 +1210,13 @@ TEST(AnalyzeReloadDiff, ClassifiesEdit)
 
 TEST(FindNodeBySourceOffset, EmptyNodes)
 {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     EXPECT_EQ(FindNodeBySourceOffset(nodes, 0), -1);
 }
 
 TEST(FindNodeBySourceOffset, SingleNode)
 {
-    std::pmr::vector<Node> nodes(1);
+    std::vector<Node> nodes(1);
     nodes[0].SetSourceOffset(0);
     EXPECT_EQ(FindNodeBySourceOffset(nodes, 0), 0);
     EXPECT_EQ(FindNodeBySourceOffset(nodes, 100), 0);
@@ -1215,7 +1224,7 @@ TEST(FindNodeBySourceOffset, SingleNode)
 
 TEST(FindNodeBySourceOffset, OffsetBeforeAllNodes)
 {
-    std::pmr::vector<Node> nodes(2);
+    std::vector<Node> nodes(2);
     nodes[0].SetSourceOffset(10);
     nodes[1].SetSourceOffset(20);
     // diff_offset=5 は最初のノード(offset=10)よりも前 → 該当なし
@@ -1224,7 +1233,7 @@ TEST(FindNodeBySourceOffset, OffsetBeforeAllNodes)
 
 TEST(FindNodeBySourceOffset, ExactMatch)
 {
-    std::pmr::vector<Node> nodes(3);
+    std::vector<Node> nodes(3);
     nodes[0].SetSourceOffset(0);
     nodes[1].SetSourceOffset(10);
     nodes[2].SetSourceOffset(25);
@@ -1234,7 +1243,7 @@ TEST(FindNodeBySourceOffset, ExactMatch)
 
 TEST(FindNodeBySourceOffset, BetweenNodes)
 {
-    std::pmr::vector<Node> nodes(3);
+    std::vector<Node> nodes(3);
     nodes[0].SetSourceOffset(0);
     nodes[1].SetSourceOffset(10);
     nodes[2].SetSourceOffset(25);
@@ -1244,7 +1253,7 @@ TEST(FindNodeBySourceOffset, BetweenNodes)
 
 TEST(FindNodeBySourceOffset, SkipsUnsetOffsets)
 {
-    std::pmr::vector<Node> nodes(3);
+    std::vector<Node> nodes(3);
     nodes[0].SetSourceOffset(0);
     // nodes[1] は SetSourceOffset を呼ばないため未設定
     nodes[2].SetSourceOffset(20);
@@ -1271,7 +1280,7 @@ TEST(FindNodeBySourceOffset, ParsedMarkdown)
 
 TEST(FindNodeBySourceOffset, LastNodeForLargeOffset)
 {
-    std::pmr::vector<Node> nodes(3);
+    std::vector<Node> nodes(3);
     nodes[0].SetSourceOffset(0);
     nodes[1].SetSourceOffset(100);
     nodes[2].SetSourceOffset(200);
@@ -1282,7 +1291,7 @@ TEST(FindNodeBySourceOffset, LastNodeForLargeOffset)
 TEST(FindNodeBySourceOffset, AllUnsetOffsets)
 {
     // 全ノードが未設定（テキストなし）→ 該当なし
-    std::pmr::vector<Node> nodes(3);
+    std::vector<Node> nodes(3);
     // 何も設定しないため未設定
     EXPECT_EQ(FindNodeBySourceOffset(nodes, 50), -1);
 }
@@ -1483,9 +1492,9 @@ TEST(DiffToNode, LargeDocumentMiddleEdit)
 // ============================================================
 
 // ヘルパー: source_offset を等間隔に設定したノード列を構築する。
-static std::pmr::vector<Node> MakeNodes(int count, size_t offset_step = 100)
+static std::vector<Node> MakeNodes(int count, size_t offset_step = 100)
 {
-    std::pmr::vector<Node> nodes(count);
+    std::vector<Node> nodes(count);
     for (int i = 0; i < count; ++i) {
         nodes[i].SetSourceOffset(i * offset_step);
     }
@@ -1494,7 +1503,7 @@ static std::pmr::vector<Node> MakeNodes(int count, size_t offset_step = 100)
 
 TEST(CalcScrollYForDiff, FallbackWhenNoNodes)
 {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     LayoutCache cache;
     EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, "content", 0, 500.0f, 42.0f), 42.0f);
 }
@@ -1572,7 +1581,7 @@ TEST(CalcScrollYForDiff, SkipsUnsetSourceOffsets)
 {
     // ノード1の source_offset が未設定の場合、ノード2を next_start として使う
     std::string content(300, 'x');
-    std::pmr::vector<Node> nodes(3);
+    std::vector<Node> nodes(3);
     nodes[0].SetSourceOffset(0);
     // nodes[1] は未設定（HorizontalRule等）
     nodes[2].SetSourceOffset(200);
@@ -1741,7 +1750,7 @@ TEST(ExtractSelectedTextAsHtml, EachLfBecomesBr)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::string_view{ c.text }));
-        std::pmr::vector<Node> nodes;
+        std::vector<Node> nodes;
         nodes.push_back(MakeTextNode(c.text));
         EXPECT_EQ(ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false), c.expected);
     }
@@ -1837,7 +1846,7 @@ TEST(ChunkCopy, SplitCodeCopiesAsOneBlock)
     for (const char c : std::string_view{ code }.substr(0, code.size() - 1)) {
         expected += c == '\n' ? std::string_view{ "\r\n" } : std::string_view{ &c, 1 };
     }
-    EXPECT_EQ(ExtractSelectedText(nodes, SelectAll(nodes)), std::pmr::string{ expected });
+    EXPECT_EQ(ExtractSelectedText(nodes, SelectAll(nodes)), std::string{ expected });
 
     const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
     EXPECT_EQ(CountOccurrences(html, "<pre "), 1u);
@@ -1854,7 +1863,7 @@ TEST(ChunkCopy, SplitParagraphCopiesAsOneParagraph)
 
     std::string expected = md.substr(0, md.size() - 1);
     std::ranges::replace(expected, '\n', ' ');
-    EXPECT_EQ(ExtractSelectedText(nodes, SelectAll(nodes)), std::pmr::string{ expected });
+    EXPECT_EQ(ExtractSelectedText(nodes, SelectAll(nodes)), std::string{ expected });
 
     const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
     EXPECT_EQ(CountOccurrences(html, "<p>"), 1u);
@@ -1924,7 +1933,7 @@ std::vector<std::vector<SyntaxToken>> TokenizeRunAtOnce(std::span<const Node> ru
     return out;
 }
 
-void ExpectChunkTokensMatchRunTokenizedAtOnce(const std::pmr::vector<Node>& nodes)
+void ExpectChunkTokensMatchRunTokenizedAtOnce(const std::vector<Node>& nodes)
 {
     const auto expected = TokenizeRunAtOnce(nodes);
     for (size_t i = 0; i < nodes.size(); ++i) {

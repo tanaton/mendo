@@ -69,7 +69,7 @@ namespace {
 
 // ノード 1 つの文書と、その計測結果。
 struct OneNodeDoc {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     LayoutCache cache;
 
     explicit OneNodeDoc(NodeType type, int8_t indent_level = 0)

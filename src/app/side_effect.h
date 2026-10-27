@@ -17,15 +17,15 @@ struct ReleaseCapture {};
 struct ClipboardWrite {
     // text は Document テキスト由来の UTF-8 string。
     // 書き込み側で CF_UNICODETEXT 用に wstring 変換する。
-    std::pmr::string text;
+    std::string text;
 };
 struct ClipboardWriteHtml {
-    std::pmr::string html;
-    std::pmr::string plain;
+    std::string html;
+    std::string plain;
 };
 // 出ているツールチップを隠し、text を表示待ちにする (遅れて出す)。空なら隠すだけ。
 struct SetTooltip {
-    std::pmr::wstring text;
+    std::wstring text;
 };
 struct ShowContextMenu {
     int screen_x;
@@ -62,7 +62,7 @@ struct RendererSetDpi {
 };
 
 struct LoadFile {
-    std::pmr::wstring path;
+    std::wstring path;
 };
 struct ReloadFile {};
 struct OpenFileDialog {};

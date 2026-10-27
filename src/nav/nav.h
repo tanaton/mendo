@@ -1,7 +1,6 @@
 #pragma once
 #include <cstdint>
 #include <deque>
-#include <memory_resource>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -9,7 +8,7 @@
 
 // ファイルが編集されて絶対 y 座標が変わっても、同じノードの相対位置に戻れる。
 struct NavEntry {
-    std::pmr::wstring file_path;
+    std::wstring file_path;
     int node = -1;
     float offset = 0.0f;
 
@@ -64,22 +63,22 @@ public:
 
 private:
     // GoBack/GoForward の対称処理を集約する。
-    bool Transfer(std::pmr::deque<NavEntry>& from, std::pmr::deque<NavEntry>& to, NavEntry current, NavEntry& out);
+    bool Transfer(std::deque<NavEntry>& from, std::deque<NavEntry>& to, NavEntry current, NavEntry& out);
     // 上限で押し出した最古のエントリを返す。
-    std::optional<NavEntry> PushCapped(std::pmr::deque<NavEntry>& stack, NavEntry e);
+    std::optional<NavEntry> PushCapped(std::deque<NavEntry>& stack, NavEntry e);
 
     // taken: PushPending では進む履歴全体、Transfer では移動先の 1 件。dropped: PushPending が上限で押し出した分。
     struct PendingOp {
         bool to_back = false;
         bool transfer = false;
-        std::pmr::deque<NavEntry> taken;
+        std::deque<NavEntry> taken;
         std::optional<NavEntry> dropped;
     };
 
-    std::pmr::deque<NavEntry> back_stack_;
-    std::pmr::deque<NavEntry> forward_stack_;
+    std::deque<NavEntry> back_stack_;
+    std::deque<NavEntry> forward_stack_;
     // 確定待ちの操作を古い順に持つ。
-    std::pmr::vector<PendingOp> pending_;
+    std::vector<PendingOp> pending_;
     size_t max_history_ = MAX_HISTORY;
 };
 
@@ -93,11 +92,11 @@ struct LinkClickResult {
     // Anchor: アンカー名 (UTF-8、先頭 '#' を除きパーセントデコード済み)。NavigateAnchorAction にそのまま渡せる。
     // ブラウザのアドレスバーなどからコピーしたリンクはエンコードされている。
     // ExternalUrl: URL (UTF-8)。ShellOpen に渡す直前で wstring 化する。
-    std::pmr::string target;
+    std::string target;
 };
 
 LinkClickResult ClassifyLinkClick(std::string_view url);
 bool IsSafeUrlScheme(std::string_view url) noexcept;
 // md4c は URL をエンコードされたまま渡すので、ファイルパスやアンカーとして引く前に通す。
 // 16 進 2 桁が続かない % はそのまま残す。
-std::pmr::string PercentDecode(std::string_view s);
+std::string PercentDecode(std::string_view s);

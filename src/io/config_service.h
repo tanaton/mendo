@@ -4,7 +4,6 @@
 #include <string>
 #include <string_view>
 #include <filesystem>
-#include <memory_resource>
 
 // 設定 (settings.ini) のメモリ上マップとディスク永続化を保持する。
 // インスタンスごとに独立した状態を持つので、テストでは新しいインスタンスを使えば良い。
@@ -31,7 +30,7 @@ public:
     void SaveZoomLevel(std::string_view section, std::string_view key, ZoomLevel zoom);
 
     void SaveWString(std::string_view section, std::string_view key, std::wstring_view value);
-    std::pmr::wstring LoadWString(std::string_view section, std::string_view key) const;
+    std::wstring LoadWString(std::string_view section, std::string_view key) const;
 
 private:
     [[nodiscard]] const std::string* FindValue(std::string_view section, std::string_view key) const;
@@ -54,7 +53,7 @@ class PaneController;
 namespace session {
 
 void SaveLastFilePath(ConfigService& config, std::wstring_view path);
-std::pmr::wstring LoadLastFilePath(const ConfigService& config);
+std::wstring LoadLastFilePath(const ConfigService& config);
 
 // 表示・幅・倍率を保存・復元する。幅はズーム倍率を含まない DIP 値として扱う。
 void SavePanes(ConfigService& config, const PaneController& panes);
@@ -69,6 +68,6 @@ ScrollPosition LoadScrollPosition(const ConfigService& config);
 
 // 選んだ言語 (i18n::ConfigLangKey)。空は OS に合わせる。
 void SaveLanguage(ConfigService& config, std::wstring_view lang_key);
-std::pmr::wstring LoadLanguage(const ConfigService& config);
+std::wstring LoadLanguage(const ConfigService& config);
 
 } // namespace session

@@ -1,18 +1,17 @@
 #pragma once
 #include <filesystem>
 #include <fstream>
-#include <memory_resource>
 #include <string>
 #include <string_view>
 
 // 開けなければ空文字列を返す (呼び出し側で GTEST_SKIP / ASSERT する)。
-inline std::pmr::string ReadFileBytes(const std::filesystem::path& full)
+inline std::string ReadFileBytes(const std::filesystem::path& full)
 {
     std::ifstream file(full, std::ios::binary | std::ios::ate);
     if (!file) {
         return {};
     }
-    std::pmr::string bytes(static_cast<size_t>(file.tellg()), '\0');
+    std::string bytes(static_cast<size_t>(file.tellg()), '\0');
     file.seekg(0);
     file.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
     return bytes;
@@ -21,7 +20,7 @@ inline std::pmr::string ReadFileBytes(const std::filesystem::path& full)
 // "example/xxx.md" 形式の相対パスを、cwd に依存せずソースツリーの example/ から開く。
 // MENDO_EXAMPLE_DIR (CMake が u8 リテラルで渡す絶対パス) を基準に解決し、日本語を含む
 // UTF-8 パスも std::filesystem::path 経由で正しく扱う。define が無い場合は cwd 相対で開く。
-inline std::pmr::string ReadExampleFileBytes(std::string_view path)
+inline std::string ReadExampleFileBytes(std::string_view path)
 {
 #ifdef MENDO_EXAMPLE_DIR
     std::string_view rel = path;

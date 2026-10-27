@@ -3,7 +3,6 @@
 #include <string_view>
 #include <vector>
 #include <cstdint>
-#include <memory_resource>
 
 enum class SyntaxLanguage : uint8_t {
     None,
@@ -80,7 +79,7 @@ struct SyntaxToken {
 
 SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept;
 
-std::pmr::vector<SyntaxToken> Tokenize(std::string_view text, SyntaxLanguage language);
+std::vector<SyntaxToken> Tokenize(std::string_view text, SyntaxLanguage language);
 
 // Tokenize と同じトークンを tokens の後ろに足す。位置は text の先頭から数える。
-void AppendTokens(std::string_view text, SyntaxLanguage language, std::pmr::vector<SyntaxToken>& tokens);
+void AppendTokens(std::string_view text, SyntaxLanguage language, std::vector<SyntaxToken>& tokens);

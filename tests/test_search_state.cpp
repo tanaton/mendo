@@ -2,28 +2,27 @@
 #include "search_state.h"
 #include "test_helpers.h"
 #include <initializer_list>
-#include <memory_resource>
 #include <utility>
 
 namespace {
 
-std::pmr::vector<Node> RepeatedTextNodes(const char* text, int count)
+std::vector<Node> RepeatedTextNodes(const char* text, int count)
 {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     for (int i = 0; i < count; ++i) {
         nodes.push_back(MakeTextNode(text));
     }
     return nodes;
 }
 
-std::pmr::vector<Node> Nodes(Node node)
+std::vector<Node> Nodes(Node node)
 {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     nodes.push_back(std::move(node));
     return nodes;
 }
 
-SearchState Searched(const std::pmr::vector<Node>& nodes, std::string_view query, bool case_sensitive = false)
+SearchState Searched(const std::vector<Node>& nodes, std::string_view query, bool case_sensitive = false)
 {
     SearchState s;
     // 既定値のまま検索する経路も通すため、false のときは切り替えない。
@@ -545,7 +544,7 @@ TEST(SearchStateTest, BitmapNodesExcludedFromSearch)
     mermaid.code_language = SyntaxLanguage::Mermaid;
     mermaid.SetText("graph keyword TD; A-->B", 0);
 
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     nodes.push_back(std::move(img));
     nodes.push_back(std::move(mermaid));
     nodes.push_back(MakeTextNode("keyword in paragraph"));
@@ -623,7 +622,7 @@ bool SameMatches(const SearchState& a, const SearchState& b)
 // "aa" の貪欲なマッチは重なる位置を飛ばすので、マッチ位置ではなくノード単位で絞る必要がある。
 TEST(SearchStateTest, ExtendingQueryMatchesFullSearch)
 {
-    std::pmr::vector<Node> nodes = TextNodes({ "aaab", "xyz", "Aab aab", "b" });
+    std::vector<Node> nodes = TextNodes({ "aaab", "xyz", "Aab aab", "b" });
     nodes.push_back(MakeTableNode({ { "aab", "q" }, { "aa", "aaB" } }));
     for (const bool case_sensitive : { false, true }) {
         SCOPED_TRACE(case_sensitive);

@@ -7,7 +7,6 @@
 #include <vector>
 #include <cstdint>
 #include <limits>
-#include <memory_resource>
 #include <type_traits>
 #include <utility>
 #include "syntax.h"
@@ -64,15 +63,15 @@ enum class TableAlign : uint8_t {
 //   cell_run_starts.size() == cell_text_starts.size() かつ cell_run_starts.back() == all_runs.size()
 struct NodeTableData {
     // 全セルテキストを linearized 形式で連結 ("cell\tcell\ncell\tcell")。
-    std::pmr::string concat_text;
+    std::string concat_text;
     // 全セルの TextRun を連結。run.start は cell-local offset (layout は cell スライス単位で作成されるため)。
-    std::pmr::vector<TextRun> all_runs;
+    std::vector<TextRun> all_runs;
     // 各セルの concat_text 内開始 offset。番兵末尾 = concat_text.size()。
-    std::pmr::vector<uint32_t> cell_text_starts;
+    std::vector<uint32_t> cell_text_starts;
     // 各セルの all_runs 内開始 offset。番兵末尾 = all_runs.size()。run の無い表では空。
-    std::pmr::vector<uint32_t> cell_run_starts;
+    std::vector<uint32_t> cell_run_starts;
     // 列単位の align (GitHub Markdown では align は列ごと)
-    std::pmr::vector<TableAlign> aligns;
+    std::vector<TableAlign> aligns;
 
     // row は数十万〜数百万行になりうるため uint32_t。col_count は md4c が 16 bit で持つ。
     // 両者の積 (cell index) は CellIndex で size_t 昇格。
@@ -144,7 +143,7 @@ struct NodeTableData {
 
 // 読み込んだ画像の寸法はパース結果ではないので持たない (LayoutCache の DiagramEntry が持つ)。
 struct NodeImageData {
-    std::string_view src; // 画像ソースパス（Markdown内の記述）。raw_text_ か TextArena を指す
+    std::string_view src; // 画像ソースパス（Markdown内の記述）。DocumentData::raw か TextArena を指す
 };
 
 // Node::SourceOffset() が未設定のときに返す値。
@@ -157,7 +156,7 @@ inline constexpr size_t kMaxLinkUrls = std::numeric_limits<int16_t>::max();
 
 // 自分では何も所有しない、trivially copyable なビュー。ノード配列の伸長や詰め直しを memcpy で済ませる。
 struct Node {
-    // テキスト・runs・リンク URL・画像 src はノード自身では持たず、Document の raw_text_ (原文をそのまま使えるもの)
+    // テキスト・runs・リンク URL・画像 src はノード自身では持たず、DocumentData::raw (原文をそのまま使えるもの)
     // か TextArena (加工したテキスト・runs・URL の配列) を指す。テーブルは Document が所有する NodeTableData を指す。
     // どれも Document と寿命が同じ。長さと件数は 4 バイト領域にまとめて Node を 64B に収める。
     const char* text_ = nullptr;
@@ -205,7 +204,7 @@ struct Node {
         return source_offset_ != kUnsetSourceOffset;
     }
 
-    // Document::raw_text_ 起算の UTF-8 byte オフセット。未設定時は kUnsetSourceOffset。
+    // DocumentData::raw 起算の UTF-8 byte オフセット。未設定時は kUnsetSourceOffset。
     constexpr size_t SourceOffset() const noexcept
     {
         return source_offset_;
@@ -227,7 +226,7 @@ struct Node {
         return { text_, text_size_ };
     }
 
-    // text はノードより長く生きる領域 (raw_text_ / TextArena / テストでは静的文字列) を指すこと。
+    // text はノードより長く生きる領域 (DocumentData::raw / TextArena / テストでは静的文字列) を指すこと。
     // line_count は変えない (パーサがテキスト確定前に積算している)。
     constexpr void SetText(std::string_view text) noexcept
     {

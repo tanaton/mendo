@@ -48,7 +48,7 @@ double SecondsOf(F&& f)
 }
 
 // example/ 基準の相対パスで読む。読めなければベンチをスキップにして空を返す。
-std::pmr::string ReadOrSkip(benchmark::State& state, std::string_view path)
+std::string ReadOrSkip(benchmark::State& state, std::string_view path)
 {
     auto bytes = ReadExampleFileBytes(path);
     if (bytes.empty()) {
@@ -58,10 +58,10 @@ std::pmr::string ReadOrSkip(benchmark::State& state, std::string_view path)
 }
 
 // example/test.md を copies 回、かつ min_bytes 以上になるまでつなげる。
-std::pmr::string RepeatTestMd(benchmark::State& state, size_t copies, size_t min_bytes = 0, std::string_view separator = {})
+std::string RepeatTestMd(benchmark::State& state, size_t copies, size_t min_bytes = 0, std::string_view separator = {})
 {
     const auto unit = ReadOrSkip(state, "example/test.md");
-    std::pmr::string md;
+    std::string md;
     if (unit.empty()) {
         return md;
     }
@@ -74,9 +74,9 @@ std::pmr::string RepeatTestMd(benchmark::State& state, size_t copies, size_t min
 }
 
 // ログのように空行のない n 行。
-std::pmr::string LogLines(size_t n, std::string_view prefix = {}, std::string_view suffix = {})
+std::string LogLines(size_t n, std::string_view prefix = {}, std::string_view suffix = {})
 {
-    std::pmr::string md{ prefix };
+    std::string md{ prefix };
     for (size_t i = 0; i < n; ++i) {
         std::format_to(std::back_inserter(md), "line {} of the log, value={} status=ok 日本語のテキストも少し含む\n", i, i * 7);
     }
@@ -95,10 +95,10 @@ PROCESS_MEMORY_COUNTERS_EX MemoryCounters()
 // ===== パース =====
 
 // 反復ごとにコピーしてパースする。コピーと破棄は測らない。scheduler はパースの一部を並列にする先。
-void RunParse(benchmark::State& state, const std::pmr::string& src, TaskScheduler* scheduler = nullptr)
+void RunParse(benchmark::State& state, const std::string& src, TaskScheduler* scheduler = nullptr)
 {
     for (auto _ : state) {
-        std::pmr::string copy = src;
+        std::string copy = src;
         std::optional<Document> doc;
         state.SetIterationTime(SecondsOf([&] {
             NormalizeNewlines(copy);
@@ -112,13 +112,13 @@ void RunParse(benchmark::State& state, const std::pmr::string& src, TaskSchedule
 // リポジトリは eol=lf で checkout されるので、CRLF 版はここで作る。
 void BM_FromMarkdown(benchmark::State& state, bool crlf)
 {
-    std::pmr::string src = RepeatTestMd(state, 1);
+    std::string src = RepeatTestMd(state, 1);
     if (state.skipped()) {
         return;
     }
     std::erase(src, '\r');
     if (crlf) {
-        std::pmr::string converted;
+        std::string converted;
         converted.reserve(src.size() + static_cast<size_t>(std::ranges::count(src, '\n')));
         for (const char c : src) {
             if (c == '\n') {
@@ -135,12 +135,12 @@ BENCHMARK_CAPTURE(BM_FromMarkdown, lf, false)->UseManualTime()->Unit(benchmark::
 
 // 時間はパースだけ。破棄の時間とパースで増えたメモリはカウンタに出す。
 // メモリは最初の反復だけ測る (2 回目以降は解放済み領域の再利用で小さく出る)。
-void RunLargeDocument(benchmark::State& state, const std::pmr::string& src)
+void RunLargeDocument(benchmark::State& state, const std::string& src)
 {
     double destroy_s = 0.0;
     bool first = true;
     for (auto _ : state) {
-        std::pmr::string copy = src;
+        std::string copy = src;
         const auto before = MemoryCounters();
         std::optional<Document> doc;
         state.SetIterationTime(SecondsOf([&] { doc.emplace(Document::FromMarkdown(std::move(copy), L"bench.md")); }));
@@ -169,7 +169,7 @@ BENCHMARK(BM_LargeDocument)->UseManualTime()->Iterations(3)->Unit(benchmark::kMi
 // リンク集のように全行がリンクを持つ文書。
 void BM_LargeLinkDocument(benchmark::State& state)
 {
-    std::pmr::string src;
+    std::string src;
     src.reserve(kLargeBytes + 256);
     for (size_t i = 0; src.size() < kLargeBytes; ++i) {
         std::format_to(std::back_inserter(src),
@@ -187,7 +187,7 @@ BENCHMARK(BM_LargeLinkDocument)->UseManualTime()->Iterations(3)->Unit(benchmark:
 void BM_LargeInlineDocument(benchmark::State& state)
 {
     constexpr size_t kBytes = 80 * 1024 * 1024;
-    std::pmr::string src;
+    std::string src;
     src.reserve(kBytes + 256);
     for (size_t i = 0; src.size() < kBytes; ++i) {
         if (i % 50 == 0) {
@@ -209,7 +209,7 @@ BENCHMARK(BM_ParseGiantText)->UseManualTime()->Unit(benchmark::kMillisecond);
 // 改行も空白も無い 16MB の 1 行の段落。区切る位置を探す窓 (前後 2KB) を毎回調べ切る最悪の場合。
 void BM_ParseLongLine(benchmark::State& state, std::string_view unit)
 {
-    std::pmr::string md;
+    std::string md;
     md.reserve(16 * 1024 * 1024 + unit.size());
     while (md.size() < 16 * 1024 * 1024) {
         md += unit;
@@ -236,13 +236,13 @@ BENCHMARK_CAPTURE(BM_ParseGiantCode, workers4, 4)->UseManualTime()->Unit(benchma
 
 void BM_NormalizeNewlines(benchmark::State& state)
 {
-    std::pmr::string src;
+    std::string src;
     src.reserve(kLargeBytes + 64);
     while (src.size() < kLargeBytes) {
         src += "The quick brown fox jumps over the lazy dog 1234\r\n";
     }
     for (auto _ : state) {
-        std::pmr::string s = src;
+        std::string s = src;
         state.SetIterationTime(SecondsOf([&] { NormalizeNewlines(s); }));
     }
     state.SetBytesProcessed(state.iterations() * static_cast<int64_t>(src.size()));
@@ -252,11 +252,11 @@ BENCHMARK(BM_NormalizeNewlines)->UseManualTime()->Unit(benchmark::kMillisecond);
 // 1 ノードぶん (区切りの目安 16KB) を DirectWrite に渡す UTF-16 へ変換する。英文と和文混じり。
 void BM_DecodeForDWrite(benchmark::State& state, std::string_view unit)
 {
-    std::pmr::string src;
+    std::string src;
     while (src.size() < 16 * 1024) {
         src += unit;
     }
-    std::pmr::wstring out;
+    std::wstring out;
     for (auto _ : state) {
         DecodeForDWrite(src, out);
         benchmark::DoNotOptimize(out.data());
@@ -291,7 +291,7 @@ void BM_MeasureIndicesParallel(benchmark::State& state, bool parallel)
     const Theme& theme = GetLightTheme();
     TaskScheduler ts;
     ts.Init(4);
-    std::pmr::vector<size_t> indices(n);
+    std::vector<size_t> indices(n);
     std::ranges::iota(indices, size_t{ 0 });
     for (auto _ : state) {
         StressFixture f;
@@ -315,7 +315,7 @@ BENCHMARK_CAPTURE(BM_MeasureIndicesParallel, parallel, true)->Apply(NodeCounts);
 
 struct RecomputeFixture {
     static constexpr size_t kNodes = 22000;
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     Theme theme = MakeLayoutTestTheme();
     LayoutCache cache;
 
@@ -362,7 +362,7 @@ BENCHMARK(BM_RecomputeYPositionsTailShift)->Unit(benchmark::kNanosecond);
 // 100MB の単一コードブロック (区切ったノードの並び) の横スクロール幅。並び全体を走査する。
 void BM_CodeRunHScroll(benchmark::State& state)
 {
-    std::pmr::string md = "```cpp\n";
+    std::string md = "```cpp\n";
     md.reserve(kLargeBytes + 256);
     while (md.size() < kLargeBytes) {
         md += "    int value = compute(argument_one, argument_two, argument_three); // comment\n";
@@ -504,7 +504,7 @@ BENCHMARK_CAPTURE(BM_ResizeRemeasure, readme, "../README.md")->Unit(benchmark::k
 enum class GiantBlock { Paragraph, Code, Table5k, Table50k };
 
 // 巨大な 1 ブロックだけの文書。段落とコードは 5 万行。
-std::pmr::string GiantBlockMd(GiantBlock kind)
+std::string GiantBlockMd(GiantBlock kind)
 {
     if (kind == GiantBlock::Paragraph) {
         return LogLines(50000);
@@ -513,7 +513,7 @@ std::pmr::string GiantBlockMd(GiantBlock kind)
         return LogLines(50000, "```cpp\n", "```\n");
     }
     const size_t rows = kind == GiantBlock::Table5k ? 5000 : 50000;
-    std::pmr::string md = "| a | b | c | d | e | f |\n|---|---|---|---|---|---|\n";
+    std::string md = "| a | b | c | d | e | f |\n|---|---|---|---|---|---|\n";
     for (size_t i = 0; i < rows; ++i) {
         std::format_to(std::back_inserter(md), "| {} | name{} | `code` | 値{} | some longer text here | {} |\n", i, i, i * 3, i % 17);
     }
@@ -575,7 +575,7 @@ const Node* CodeChunkOrSkip(benchmark::State& state, std::optional<Document>& do
     if (state.skipped()) {
         return nullptr;
     }
-    std::pmr::string md = "```cpp\n";
+    std::string md = "```cpp\n";
     md += src;
     md += "```\n";
     doc = Document::FromMarkdown(std::move(md), L"bench.md");
@@ -747,7 +747,7 @@ BENCHMARK(BM_FindActiveTocIndex)->Unit(benchmark::kNanosecond);
 // 40 行の表の全セルの選択矩形 (1 フレーム分)。
 void BM_TableSelectionHitTest(benchmark::State& state)
 {
-    std::pmr::string md = "| 名前 | 状態 | 説明 | 数量 | 単価 | 備考 |\n|---|---|---|--:|--:|:-:|\n";
+    std::string md = "| 名前 | 状態 | 説明 | 数量 | 単価 | 備考 |\n|---|---|---|--:|--:|:-:|\n";
     for (size_t r = 0; r < 40; ++r) {
         std::format_to(std::back_inserter(md), "| 項目{0} | 状態{0} | 説明のテキスト {0} を少し長めに書く | {0} | {0}00 | 備考{0} |\n", r);
     }
@@ -765,7 +765,7 @@ void BM_TableSelectionHitTest(benchmark::State& state)
     l.measurer.MeasureNode(*it, entry, 1200.0f, YRange::All());
     const auto& tl = *entry.table_layout();
     const auto& table = *it->table_data();
-    std::pmr::vector<DWRITE_HIT_TEST_METRICS> buffer;
+    std::vector<DWRITE_HIT_TEST_METRICS> buffer;
     for (auto _ : state) {
         for (size_t r = 0; r < table.row_count; ++r) {
             for (size_t c = 0; c < table.col_count; ++c) {
@@ -787,7 +787,7 @@ BENCHMARK(BM_TableSelectionHitTest)->Unit(benchmark::kMicrosecond);
 // 2 万行 6 列の表。日本語・右揃え・中央揃えを含み、中身はほぼ行ごとに違う。
 Document MakeBenchTableDoc()
 {
-    std::pmr::string md = "| 名前 | 状態 | 説明 | 数量 | 単価 | 備考 |\n|---|---|---|--:|--:|:-:|\n";
+    std::string md = "| 名前 | 状態 | 説明 | 数量 | 単価 | 備考 |\n|---|---|---|--:|--:|:-:|\n";
     for (size_t r = 0; r < 20000; ++r) {
         const auto n = std::to_string(r);
         md += "| 項目" + n + " | 状態" + std::to_string(r % 97) + " | 説明のテキスト " + n + " を少し長めに書く | " + n + " | " +
@@ -898,7 +898,7 @@ BENCHMARK_REGISTER_F(TableMeasure, ResizeViewport)
 // 列の幅が変わらない狭い表 (2 万行 5 列) で幅を変えたときの、表全体の計測。セルを組み直さない高速経路を通る。
 void BM_TableResizeFastPath(benchmark::State& state)
 {
-    std::pmr::string md = "| A | B | C | D | E |\n|---|---|---|---|---|\n";
+    std::string md = "| A | B | C | D | E |\n|---|---|---|---|---|\n";
     for (size_t i = 0; i < 20000; ++i) {
         std::format_to(std::back_inserter(md), "| r{} | value {} | 東京都 | x | 12.5 |\n", i, i * 7);
     }
@@ -939,7 +939,7 @@ Document MakeInlineCodeTableDoc()
         }
         return s;
     };
-    std::pmr::string md = "# 大きなテーブル\n\n| ID | 呼び出し | 説明 | オプション | 数値 | 備考 |\n|---|---|---|---|---:|---|\n";
+    std::string md = "# 大きなテーブル\n\n| ID | 呼び出し | 説明 | オプション | 数値 | 備考 |\n|---|---|---|---|---:|---|\n";
     for (size_t i = 0; i < 5000; ++i) {
         std::format_to(std::back_inserter(md), "| {0} | `get_value({0})` を呼ぶ | {1} | `--flag={0}` と `-v` | {2} | {3} |\n",
                        i, words(i, 6), i * 7 % 1000, words(i + 1, 3));

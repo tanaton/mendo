@@ -23,7 +23,7 @@ constexpr float COLUMN_WIDTH_PADDING = 4.0f;
 constexpr float Y_POSITION_EPSILON = 0.01f;
 
 // nodes[index] の spacing_above を足す前の Y (直前ノードの下端 + spacing_below)。index == 0 は margin_top。
-float NodeStartY(const std::pmr::vector<Node>& nodes, const LayoutCache& cache, const Theme& theme, size_t index) noexcept
+float NodeStartY(const std::vector<Node>& nodes, const LayoutCache& cache, const Theme& theme, size_t index) noexcept
 {
     if (index == 0) {
         return theme.margin_top;
@@ -34,7 +34,7 @@ float NodeStartY(const std::pmr::vector<Node>& nodes, const LayoutCache& cache, 
 // nodes[from, end) の高さを height_fn(i) で決めながら Top を積む。y は nodes[from] の spacing_above を足す前の Y で、
 // 戻ると nodes[end] の手前の Y になる。height_fn は高さを書き換えてよい。
 template <class HeightFn>
-void AccumulateTops(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, size_t from, size_t end, float& y, HeightFn&& height_fn)
+void AccumulateTops(const std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, size_t from, size_t end, float& y, HeightFn&& height_fn)
 {
     for (size_t i = from; i < end; i++) {
         const float h = height_fn(i);
@@ -46,7 +46,7 @@ void AccumulateTops(const std::pmr::vector<Node>& nodes, LayoutCache& cache, con
 // 途中に offset 無しノード (HR や空のルーズリスト等) が連続しても取り逃さないよう探索するが、
 // 末尾まで線形走査すると大規模ファイルのリロードが重くなるため上限を設ける
 // (通常は最初の有効 offset で見つかるため上限には届かない)。
-size_t NextSourceOffset(const std::pmr::vector<Node>& nodes, int node_index, size_t node_start, size_t fallback) noexcept
+size_t NextSourceOffset(const std::vector<Node>& nodes, int node_index, size_t node_start, size_t fallback) noexcept
 {
     constexpr int kMaxOffsetProbe = 4096;
     const auto probe = nodes | std::views::drop(node_index + 1) | std::views::take(kMaxOffsetProbe);
@@ -105,7 +105,7 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
     std::unreachable();
 }
 
-void ComputeColumnWidths(std::pmr::vector<float>& out, std::span<const float> natural_widths, float available_width)
+void ComputeColumnWidths(std::vector<float>& out, std::span<const float> natural_widths, float available_width)
 {
     const size_t col_count = natural_widths.size();
     out.resize(col_count);
@@ -210,7 +210,7 @@ float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width)
     std::unreachable();
 }
 
-void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, float content_width, std::stop_token stop_token)
+void EstimateNodeHeights(const std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, float content_width, std::stop_token stop_token)
 {
     MENDO_PROFILE("EstimateNodeHeights");
     // ノードの種類に応じた既定の高さを割り当て、Y座標を累積計算する。
@@ -233,7 +233,7 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
     }
 }
 
-void ReestimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, float content_width)
+void ReestimateNodeHeights(const std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, float content_width)
 {
     MENDO_PROFILE("ReestimateNodeHeights");
     assert(cache.size() == nodes.size());
@@ -247,8 +247,8 @@ void ReestimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cac
 }
 
 CarryOverResult CarryOverUnchanged(
-    const std::pmr::vector<Node>& old_nodes, LayoutCache& old_cache,
-    const std::pmr::vector<Node>& new_nodes, LayoutCache& new_cache, const UnchangedEnds& ends)
+    const std::vector<Node>& old_nodes, LayoutCache& old_cache,
+    const std::vector<Node>& new_nodes, LayoutCache& new_cache, const UnchangedEnds& ends)
 {
     MENDO_PROFILE("layout::CarryOverUnchanged");
     assert(old_cache.size() == old_nodes.size() && new_cache.size() == new_nodes.size());
@@ -258,8 +258,8 @@ CarryOverResult CarryOverUnchanged(
 
     // 図のコードを書き換えて保存すると、描き直しの間プレースホルダに戻って下の文章が 2 回跳ねる。
     // 変わった範囲の図の数が新旧で同じなら、出現順に旧結果を仮表示として引き継ぐ。
-    const auto diagrams_in = [](const std::pmr::vector<Node>& nodes, size_t begin, size_t end) {
-        std::pmr::vector<size_t> indices;
+    const auto diagrams_in = [](const std::vector<Node>& nodes, size_t begin, size_t end) {
+        std::vector<size_t> indices;
         for (size_t i = begin; i < end; ++i) {
             if (nodes[i].type == NodeType::Diagram) {
                 indices.push_back(i);
@@ -278,7 +278,7 @@ CarryOverResult CarryOverUnchanged(
     return { .ends = ends, .carried = ends.head + ends.tail + stale };
 }
 
-LayoutCache MakeEstimatedLayoutCache(const std::pmr::vector<Node>& nodes, const Theme& theme, float content_width, std::stop_token stop_token)
+LayoutCache MakeEstimatedLayoutCache(const std::vector<Node>& nodes, const Theme& theme, float content_width, std::stop_token stop_token)
 {
     LayoutCache cache(nodes.size());
     EstimateNodeHeights(nodes, cache, theme, content_width, std::move(stop_token));
@@ -317,7 +317,7 @@ bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
 }
 
 void RecomputeYPositions(
-    const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
+    const std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
     size_t from_index, size_t safe_exit_after) noexcept
 {
     MENDO_PROFILE("RecomputeYPositions");
@@ -341,7 +341,7 @@ void RecomputeYPositions(
 }
 
 float CalcScrollYForDiff(
-    const std::pmr::vector<Node>& nodes,
+    const std::vector<Node>& nodes,
     const LayoutCache& cache,
     std::string_view content,
     size_t diff_pos,

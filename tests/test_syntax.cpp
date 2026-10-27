@@ -2,7 +2,6 @@
 #include <algorithm>
 #include <format>
 #include <iterator>
-#include <memory_resource>
 #include <random>
 #include <string>
 #include <string_view>
@@ -16,7 +15,7 @@
 namespace {
 
 // 描画と HTML 化はトークンを start 昇順・非重複として隙間を Plain で埋める。Plain 自体は出力しない。
-testing::AssertionResult TokensWellFormed(const std::pmr::vector<SyntaxToken>& tokens, size_t text_length)
+testing::AssertionResult TokensWellFormed(const std::vector<SyntaxToken>& tokens, size_t text_length)
 {
     uint64_t prev_end = 0;
     for (size_t i = 0; i < tokens.size(); i++) {
@@ -38,18 +37,18 @@ testing::AssertionResult TokensWellFormed(const std::pmr::vector<SyntaxToken>& t
     return testing::AssertionSuccess();
 }
 
-void AssertTokensWellFormed(const std::pmr::vector<SyntaxToken>& tokens, size_t text_length)
+void AssertTokensWellFormed(const std::vector<SyntaxToken>& tokens, size_t text_length)
 {
     EXPECT_TRUE(TokensWellFormed(tokens, text_length));
 }
 
-const SyntaxToken* FindToken(const std::pmr::vector<SyntaxToken>& tokens, SyntaxTokenType type)
+const SyntaxToken* FindToken(const std::vector<SyntaxToken>& tokens, SyntaxTokenType type)
 {
     const auto it = std::ranges::find(tokens, type, &SyntaxToken::type);
     return it != tokens.end() ? &*it : nullptr;
 }
 
-int CountTokens(const std::pmr::vector<SyntaxToken>& tokens, SyntaxTokenType type)
+int CountTokens(const std::vector<SyntaxToken>& tokens, SyntaxTokenType type)
 {
     return static_cast<int>(std::ranges::count(tokens, type, &SyntaxToken::type));
 }
@@ -59,7 +58,7 @@ std::string_view GetTokenText(std::string_view text, const SyntaxToken& token)
     return text.substr(token.start, token.length);
 }
 
-const SyntaxToken* FindTokenByText(std::string_view code, const std::pmr::vector<SyntaxToken>& tokens,
+const SyntaxToken* FindTokenByText(std::string_view code, const std::vector<SyntaxToken>& tokens,
                                    std::string_view text)
 {
     const auto it = std::ranges::find(tokens, text, [code](const SyntaxToken& t) { return GetTokenText(code, t); });
@@ -1019,7 +1018,7 @@ constexpr std::string_view kSyntaxFuzzPieces[] = {
 
 // 境界は前方 decode の区切りで判定する。描画側 (Utf16OffsetCursor) は文字途中の境界を
 // 文字先頭に丸めるため、区切り以外に境界があると色付け範囲が 1 文字ずれる。
-testing::AssertionResult TokensAlignToCpBoundaries(std::string_view text, const std::pmr::vector<SyntaxToken>& tokens)
+testing::AssertionResult TokensAlignToCpBoundaries(std::string_view text, const std::vector<SyntaxToken>& tokens)
 {
     if (auto r = TokensWellFormed(tokens, text.size()); !r) {
         return r;

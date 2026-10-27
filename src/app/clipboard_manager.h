@@ -7,7 +7,6 @@
 #include <wincodec.h>
 #include <cstdint>
 #include <functional>
-#include <memory_resource>
 #include <string_view>
 
 class Document;
@@ -45,7 +44,7 @@ private:
     ToastCallback show_toast_ = [](std::wstring_view) static {};
 
     static constexpr size_t MAX_SVG_CACHE_ENTRIES = 128;
-    TranspositionCache<uint64_t, std::pmr::wstring, MAX_SVG_CACHE_ENTRIES> svg_cache_;
+    TranspositionCache<uint64_t, std::wstring, MAX_SVG_CACHE_ENTRIES> svg_cache_;
     bool copy_in_flight_ = false;
     // 書き込みを行う(または開始する)コピーごとに増やす世代。保留中の非同期 SVG コールバックが
     // 後発コピーを上書きしないよう、コールバックは捕捉した世代と現在値が一致する時のみ書き込む。

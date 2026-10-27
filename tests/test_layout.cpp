@@ -3,7 +3,6 @@
 #include <format>
 #include <functional>
 #include <initializer_list>
-#include <memory_resource>
 #include <random>
 #include <ranges>
 #include <string>
@@ -34,9 +33,9 @@ struct NodeSpec {
     uint32_t table_rows = 0;
 };
 
-std::pmr::vector<Node> MakeNodes(std::initializer_list<NodeSpec> specs)
+std::vector<Node> MakeNodes(std::initializer_list<NodeSpec> specs)
 {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     for (const auto& spec : specs) {
         Node& n = nodes.emplace_back();
         n.type = spec.type;
@@ -65,7 +64,7 @@ LayoutCache MakeMeasuredCache(std::initializer_list<float> heights)
     return cache;
 }
 
-LayoutCache EstimateHeights(const std::pmr::vector<Node>& nodes, const Theme& theme)
+LayoutCache EstimateHeights(const std::vector<Node>& nodes, const Theme& theme)
 {
     LayoutCache cache(nodes.size());
     EstimateNodeHeights(nodes, cache, theme, 0.0f, {});
@@ -81,7 +80,7 @@ float GapAfter(const LayoutCache& cache, size_t i)
 
 TEST_F(LayoutTest, EmptyNodesProduceZeroHeight)
 {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     LayoutCache cache;
     ComputeLayout(engine_, nodes, cache, 800.0f);
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, theme_.margin_bottom), 0.0f);
@@ -284,7 +283,7 @@ TEST_F(LayoutTest, EmptyTableMinimalHeight)
     node.type = NodeType::Table;
     AttachTestTable(node);
     // 0 行 0 列の空テーブル (新方式は row_count/col_count 既定で 0)
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     nodes.emplace_back(std::move(node));
     LayoutCache cache(nodes.size());
 
@@ -362,8 +361,8 @@ TEST_F(LayoutTest, HeadingHasSpacingAboveAndBelow)
 TEST(ComputeColumnWidthsTest, ProportionalDistributionWhenTooWide)
 {
     // 自然幅の合計300、利用可能幅150のみ -> 比例配分
-    std::pmr::vector<float> natural = { 100.0f, 100.0f, 100.0f };
-    std::pmr::vector<float> widths;
+    std::vector<float> natural = { 100.0f, 100.0f, 100.0f };
+    std::vector<float> widths;
     ComputeColumnWidths(widths, natural, 150.0f);
     ASSERT_EQ(widths.size(), 3u);
     // 自然幅が等しいため、すべての列が均等な幅を得ること
@@ -377,8 +376,8 @@ TEST(ComputeColumnWidthsTest, ProportionalDistributionWhenTooWide)
 TEST(ComputeColumnWidthsTest, EvenDistributionWhenFits)
 {
     // 自然幅の合計30、利用可能幅300 -> 均等配分
-    std::pmr::vector<float> natural = { 10.0f, 10.0f, 10.0f };
-    std::pmr::vector<float> widths;
+    std::vector<float> natural = { 10.0f, 10.0f, 10.0f };
+    std::vector<float> widths;
     ComputeColumnWidths(widths, natural, 300.0f);
     ASSERT_EQ(widths.size(), 3u);
     // 均等配分: 各列は少なくとも100であること
@@ -391,8 +390,8 @@ TEST(ComputeColumnWidthsTest, EvenDistributionWhenFits)
 TEST(ComputeColumnWidthsTest, MinimumWidthEnforced)
 {
     // 非常に小さな利用可能スペース
-    std::pmr::vector<float> natural = { 200.0f, 200.0f };
-    std::pmr::vector<float> widths;
+    std::vector<float> natural = { 200.0f, 200.0f };
+    std::vector<float> widths;
     ComputeColumnWidths(widths, natural, 40.0f);
     ASSERT_EQ(widths.size(), 2u);
     // 最小幅は30
@@ -404,8 +403,8 @@ TEST(ComputeColumnWidthsTest, MinimumWidthEnforced)
 TEST(ComputeColumnWidthsTest, UnequalNaturalWidths)
 {
     // 列Aは列Bよりはるかに広い
-    std::pmr::vector<float> natural = { 300.0f, 100.0f };
-    std::pmr::vector<float> widths;
+    std::vector<float> natural = { 300.0f, 100.0f };
+    std::vector<float> widths;
     ComputeColumnWidths(widths, natural, 200.0f);
     ASSERT_EQ(widths.size(), 2u);
     // 列Aは列Bよりも大きな割合を得ること
@@ -414,8 +413,8 @@ TEST(ComputeColumnWidthsTest, UnequalNaturalWidths)
 
 TEST(ComputeColumnWidthsTest, SingleColumn)
 {
-    std::pmr::vector<float> natural = { 50.0f };
-    std::pmr::vector<float> widths;
+    std::vector<float> natural = { 50.0f };
+    std::vector<float> widths;
     ComputeColumnWidths(widths, natural, 200.0f);
     ASSERT_EQ(widths.size(), 1u);
     EXPECT_GE(widths[0], 50.0f);
@@ -423,8 +422,8 @@ TEST(ComputeColumnWidthsTest, SingleColumn)
 
 TEST(ComputeColumnWidthsTest, ZeroNaturalWidths)
 {
-    std::pmr::vector<float> natural = { 0.0f, 0.0f };
-    std::pmr::vector<float> widths;
+    std::vector<float> natural = { 0.0f, 0.0f };
+    std::vector<float> widths;
     ComputeColumnWidths(widths, natural, 200.0f);
     ASSERT_EQ(widths.size(), 2u);
     // それでも有効な幅を生成すること
@@ -449,12 +448,12 @@ TEST(ComputeColumnWidthsTest, TotalFitsAvailableUnlessLeftAtNaturalForScroll)
         std::bernoulli_distribution pick_narrow(0.5);
         for (int step = 0; step < 2000; ++step) {
             const size_t n = col_dist(rng);
-            std::pmr::vector<float> natural(n);
+            std::vector<float> natural(n);
             for (auto& w : natural) {
                 w = pick_narrow(rng) ? narrow_dist(rng) : wide_dist(rng);
             }
             const float available = avail_dist(rng);
-            std::pmr::vector<float> out;
+            std::vector<float> out;
             ComputeColumnWidths(out, natural, available);
 
             // 失敗時だけ評価されるメッセージで使い、成功ケースで文字列を組み立てない。
@@ -555,7 +554,7 @@ TEST_F(LayoutTest, CodeBlockHScrollShowsLongestLineWithRightPadding)
 
 TEST(RecomputeYPositionsTest, EmptyNodes)
 {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     LayoutCache cache;
     const Theme& theme = GetLightTheme();
     RecomputeYPositions(nodes, cache, theme);
@@ -1004,7 +1003,7 @@ TEST_F(LayoutTest, InlineCodeInHeadingUsesMonospaceFont)
 
 TEST(EstimateNodeHeightsTest, EmptyNodes)
 {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     LayoutCache cache;
     const Theme& theme = GetLightTheme();
     EstimateNodeHeights(nodes, cache, theme, 0.0f, {});

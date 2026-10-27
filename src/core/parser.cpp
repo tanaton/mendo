@@ -65,16 +65,16 @@ struct ParseContext {
         return cancel_requested;
     }
 
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     // 原文をそのまま使えないテキストと、runs・リンク URL の置き場所。NodeStorage として Document に渡す。
     TextArena arena;
     // Table ノードが指すテーブル本体。arena と同じく Document に渡す。
-    std::pmr::vector<std::unique_ptr<NodeTableData>> tables;
+    std::vector<std::unique_ptr<NodeTableData>> tables;
 
     NodeIndices indices;
-    std::pmr::vector<size_t> blockquote_indices;
+    std::vector<size_t> blockquote_indices;
     // [id - 1] が脚注 id への参照数。md4c の ref_id はテーブル行の判定でも数えられて飛ぶので自前で数える。
-    std::pmr::vector<uint32_t> footnote_ref_counts;
+    std::vector<uint32_t> footnote_ref_counts;
     // 最後に記録したソース位置。RecordSourceOffset がこれより前の位置を記録しないために持つ。
     size_t last_source_offset = 0;
 
@@ -90,12 +90,12 @@ struct ParseContext {
     // CommonMark で <a> はネスト禁止のため leave までこの値が安定する。
     int16_t current_link_url_index = -1;
 
-    // 現在ノード用のテキストと runs の蓄積スクラッチ (UTF-8)。FinalizeCurrentNode で raw_text_ を
+    // 現在ノード用のテキストと runs の蓄積スクラッチ (UTF-8)。FinalizeCurrentNode で DocumentData::raw を
     // 指すか arena へコピーされる。runs は伸長のたびに確保し直さないよう、ここに貯めて 1 回だけコピーする。
-    std::pmr::string current_text;
-    std::pmr::vector<TextRun> current_runs;
+    std::string current_text;
+    std::vector<TextRun> current_runs;
     // 文字参照を解いた href / src (AttributeText)。
-    std::pmr::string attr_scratch;
+    std::string attr_scratch;
 
     // current_text 内の「未確定 TextRun」の開始位置 (UTF-8 byte unit)。
     // 同じ span 状態で連続する AppendDoc は 1 つの TextRun に統合される。
@@ -113,7 +113,7 @@ struct ParseContext {
 
     // リスト追跡: 順序なしリストは -1、順序ありリストは次の番号 (0 以上)。
     // スタックアダプタを挟まず vector を直接扱う (back/push_back/pop_back)。
-    std::pmr::vector<int> list_counter;
+    std::vector<int> list_counter;
 
     Node* current_node = nullptr;
 
@@ -122,14 +122,14 @@ struct ParseContext {
     // 状態遷移点 (BeginNode / TD/TH 進入退出 / current_node clear) で更新したポインタを直接使う。
     // &current_text 以外を指すのはテーブルセル内 (NodeTableData::concat_text) のときだけ。
     // nullptr のときは AppendDoc / FlushPendingRun は no-op。
-    std::pmr::string* active_text_buffer = nullptr;
+    std::string* active_text_buffer = nullptr;
 
-    // 現在ノードのリンク URL。各 URL は raw_text_ か arena 上にあり、FinalizeCurrentNode で配列だけ arena へコピーする。
-    std::pmr::vector<std::string_view> current_link_urls;
+    // 現在ノードのリンク URL。各 URL は DocumentData::raw か arena 上にあり、FinalizeCurrentNode で配列だけ arena へコピーする。
+    std::vector<std::string_view> current_link_urls;
     // current_link_urls の URL -> インデックス索引。URL 数が kLinkUrlLinearScanMax を
     // 超えたノードでのみ構築する (テーブルは全セルで 1 ノードのため数万 URL になりうる)。
     static constexpr size_t kLinkUrlLinearScanMax = 8;
-    std::pmr::unordered_map<std::string_view, int16_t> link_url_lookup;
+    std::unordered_map<std::string_view, int16_t> link_url_lookup;
 
     // ネスト画像 (![a ![b](inner)](outer)) では最外側の src を採用するため深度を追跡する。
     int image_span_depth = 0;
@@ -149,7 +149,7 @@ struct ParseContext {
     uint32_t pending_newlines = 0;
     bool pending_joined = false;
     // 区切った (色分けする) コードブロックの並びの先頭。パースを終えてから AnnotateCodeChunkLeads に渡す。
-    std::pmr::vector<size_t> split_code_runs;
+    std::vector<size_t> split_code_runs;
 
     // 現在ノードのテキストを arena へコピーすることが確定しているか。span markup (** _ ` 等) の存在や、
     // entity 解決 / BR / SOFTBR で text を置換するケースは current_text と raw_slice が
@@ -157,7 +157,7 @@ struct ParseContext {
     bool current_node_needs_copy = false;
 
     // current_text が source の (offset, current_text.size()) 範囲とバイト一致するか。
-    // 一致するノードは arena にコピーせず raw_text_ を指せる。
+    // 一致するノードは arena にコピーせず DocumentData::raw を指せる。
     // span マークアップ (** _ ` 等) や BR/SOFTBR/ENTITY 混在のノードは不一致で arena へのコピーに落ちる。
     // offset は呼び出し側で SourceOffset() から取り出した値を渡す (FinalizeCurrentNode で再利用するため)。
     bool CurrentTextMatchesRawSliceAt(size_t offset) const noexcept
@@ -375,7 +375,7 @@ struct ParseContext {
         }
         // 区切る処理は 1 か所にまとめる。コードの区切りを別の関数にして区切りの補助関数を呼ぶと、段落の長い 1 行の
         // 区切りが 16MB で 1ms (8%) 遅くなる (呼ばない関数として置くだけなら変わらないので、展開のされ方による)。
-        std::pmr::string indent;
+        std::string indent;
         while (current_text.size() + chunk.size() > kTextChunkTarget + kTextChunkWindow && CanSplitCurrentNode()) {
             const size_t line_begin = CodeLineBeginToMove(chunk);
             const bool move_line = line_begin != std::string_view::npos;
@@ -590,7 +590,7 @@ struct ParseContext {
     // バッファサイズベースで、FlushPendingRun が現在セルの開始 offset を引いて cell-local にする。
     constexpr void AppendDoc(std::string_view text)
     {
-        std::pmr::string* const target = active_text_buffer;
+        std::string* const target = active_text_buffer;
         if (!target) {
             return;
         }
@@ -623,7 +623,7 @@ struct ParseContext {
     constexpr void FlushPendingRun()
     {
         if (has_pending_run) {
-            std::pmr::string* const buf = active_text_buffer;
+            std::string* const buf = active_text_buffer;
             if (buf && buf->size() > pending_run_start) {
                 const uint32_t length = static_cast<uint32_t>(buf->size() - pending_run_start);
                 const bool plain = current_run_flags == 0 && current_link_url_index < 0;
@@ -812,11 +812,11 @@ void BeginFootnoteDef(ParseContext* ctx, const MD_BLOCK_FOOTNOTE_DEF_DETAIL* def
 
 // GitHub と同じく、定義の末尾に参照へ戻るリンク "↩" (2 回目以降は "↩2" ...) を参照の数だけ付ける。
 // 後の定義の中の参照は前の定義を閉じた後に届くので、パースを終えてからまとめて付ける。
-void AppendFootnoteBackrefs(std::pmr::vector<Node>& nodes, TextArena& arena, std::span<const int32_t> def_indices, std::span<const uint32_t> ref_counts)
+void AppendFootnoteBackrefs(std::vector<Node>& nodes, TextArena& arena, std::span<const int32_t> def_indices, std::span<const uint32_t> ref_counts)
 {
-    std::pmr::string text;
-    std::pmr::vector<TextRun> runs;
-    std::pmr::vector<std::string_view> urls;
+    std::string text;
+    std::vector<TextRun> runs;
+    std::vector<std::string_view> urls;
     for (size_t i = 0; i < def_indices.size() && i < ref_counts.size(); ++i) {
         const auto id = static_cast<uint32_t>(i + 1);
         auto& node = nodes[static_cast<size_t>(def_indices[i])];
@@ -1135,7 +1135,7 @@ void TransformAlertNode(Node& node, TextArena& arena, const AlertInfo& info, siz
         new_text.append(current_text.substr(marker_end));
     }
 
-    std::pmr::vector<TextRun> new_runs;
+    std::vector<TextRun> new_runs;
     new_runs.reserve(node.runs().size() + 1);
     // アイコン絵文字は太字にしない (スペース + ラベルテキストのみ太字)。
     TextRun label_run;
@@ -1174,7 +1174,7 @@ void TransformAlertNode(Node& node, TextArena& arena, const AlertInfo& info, siz
 // nodes[i] が Alert マーカーを持ちうる位置 (最外側 blockquote の先頭段落) か。
 // GitHub 仕様: Alert は最外側 blockquote (quote_depth==1) でのみ認識し、ネスト内 (`> > [!NOTE]`) は通常の引用。
 // マーカーは blockquote の先頭でのみ有効で、"> intro" の後に続く段落の [!NOTE] は通常の引用。
-bool IsAlertHeadCandidate(const std::pmr::vector<Node>& nodes, size_t i) noexcept
+bool IsAlertHeadCandidate(const std::vector<Node>& nodes, size_t i) noexcept
 {
     const auto& node = nodes[i];
     return node.type == NodeType::BlockQuote && node.quote_depth == 1 &&
@@ -1184,7 +1184,7 @@ bool IsAlertHeadCandidate(const std::pmr::vector<Node>& nodes, size_t i) noexcep
 // 単一の BlockQuote ノードに対して Alert マーカーを検出・適用し、
 // 同一 blockquote_group の後続ノードに alert_type を伝播する。
 // 伝播先は先頭候補にならないので、先頭候補が既に alert_type を持つことはない。
-void DetectAlertAt(std::pmr::vector<Node>& nodes, TextArena& arena, size_t i)
+void DetectAlertAt(std::vector<Node>& nodes, TextArena& arena, size_t i)
 {
     if (!IsAlertHeadCandidate(nodes, i)) {
         return;

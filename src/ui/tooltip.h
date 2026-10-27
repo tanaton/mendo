@@ -1,9 +1,9 @@
 #pragma once
 #include <concepts>
 #include <cstdint>
-#include <memory_resource>
 #include <string>
 #include <string_view>
+#include <windows.h>
 
 // ツールチップの対象。同一判定は zone と key だけで行い、表示文字列の内容には依らない。
 struct TooltipTarget {
@@ -35,12 +35,12 @@ struct TooltipTarget {
 // ポインタの下で求めたツールチップ。text は対象が変わった時だけ作る (ホバー移動のたびに確保・UTF-8 変換しない)。
 struct TooltipHover {
     TooltipTarget target;
-    std::pmr::wstring text;
+    std::wstring text;
 };
 
 // current (表示中か表示待ちの対象) と同じ対象なら表示文字列の生成を省く。
 template <class Fill>
-    requires std::invocable<Fill&, std::pmr::wstring&>
+    requires std::invocable<Fill&, std::wstring&>
 TooltipHover MakeTooltip(const TooltipTarget& current, TooltipTarget::Zone zone, uint64_t key, Fill&& fill)
 {
     TooltipHover t{ { zone, key } };
@@ -56,13 +56,8 @@ inline TooltipHover MakeTooltip(const TooltipTarget& current, TooltipTarget::Zon
     if (text.empty()) {
         return {};
     }
-    return MakeTooltip(current, zone, key, [text](std::pmr::wstring& out) { out = text; });
+    return MakeTooltip(current, zone, key, [text](std::wstring& out) { out = text; });
 }
-
-// <windows.h> を巻き込まずに HWND を扱うための前方宣言（Windows SDK の
-// DECLARE_HANDLE(HWND) と ABI 互換）。
-struct HWND__;
-using HWND = HWND__*;
 
 // メインウィンドウとツールチップの両方に使う。<dwmapi.h> / <uxtheme.h> をヘッダに漏らさないため実装は tooltip.cpp。
 void ApplyDarkModeToWindow(HWND hwnd, bool dark);
@@ -86,7 +81,7 @@ private:
 
     HWND hwnd_ = nullptr;
     HWND parent_ = nullptr;
-    std::pmr::wstring text_;
+    std::wstring text_;
     bool visible_ = false;
     bool dark_ = false;
 };

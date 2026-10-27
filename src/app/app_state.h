@@ -16,7 +16,6 @@
 #include "render_params.h"
 #include "theme.h"
 #include <string>
-#include <memory_resource>
 #include <unordered_map>
 
 struct DocumentState {
@@ -59,7 +58,7 @@ struct ViewState {
     // ブロック単位の横スクロール。キーは LayoutCache のノードインデックス。
     // ファイルロード/リロードでクリア (永続化しない)。スクロールバーはホバー中とドラッグ中の
     // 対象のみ描画するため、map サイズはユーザー操作分に限定される。
-    std::pmr::unordered_map<int, float> block_scroll_x;
+    std::unordered_map<int, float> block_scroll_x;
     HoverHighlights hover;
     // SyncActiveTocIndex が描画のたびに決め直す。
     int active_toc_index = -1;
@@ -108,9 +107,9 @@ struct SearchGroup {
     // EDIT の選択 [selection_start, caret_pos)。-1 はテキスト末尾。
     int caret_pos = -1;
     int selection_start = -1;
-    std::pmr::wstring ime_composition;
+    std::wstring ime_composition;
     // 入力欄に表示している検索クエリ。SearchState::GetQuery() の UTF-16 版。
-    std::pmr::wstring query_wide;
+    std::wstring query_wide;
     // 区切った検索が終わったら、見つけたマッチへスクロールする。
     bool scroll_after_search = false;
 };
@@ -184,6 +183,11 @@ inline float SidePaneItemHeight(const AppState& state, PaneTarget pane) noexcept
     return state.theme->pane_item_height * state.view.panes.SidePaneZoom(pane).Value();
 }
 
+inline PaneScrollInfo SidePaneScrollInfo(const AppState& state, PaneTarget pane, const PaneLayout& layout)
+{
+    return ComputeScrollInfo(layout.Get(pane), state.theme->pane_header_height, SidePaneContentHeight(SidePaneItemCount(state, pane), SidePaneItemHeight(state, pane)));
+}
+
 // サイドペイン (rect) で dip_y にある項目の番号。無ければ -1。
 inline int SidePaneItemAt(const AppState& state, PaneTarget pane, const PaneRect& rect, float dip_y)
 {
@@ -209,5 +213,13 @@ inline SidePaneHeaderButtons SidePaneHeaderButtonsFor(const AppState& state, Pan
 const PaneLayout& EnsurePaneLayout(AppState& state) noexcept;
 BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node_index) noexcept;
 float MdScrollableContentHeight(const AppState& state) noexcept;
+inline PaneScrollInfo MdScrollInfo(const AppState& state, const PaneLayout& layout) noexcept
+{
+    return ComputeScrollInfo(layout.md_rect, 0.0f, MdScrollableContentHeight(state));
+}
+inline SearchBarLayout SearchBarLayoutFor(const AppState& state, const PaneRect& md_rect) noexcept
+{
+    return ComputeSearchBarLayout(md_rect, !state.search.search_state.GetQuery().empty());
+}
 // pane_layout_cache が確定していること。
 float MdMaxScroll(const AppState& state) noexcept;

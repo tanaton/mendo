@@ -425,29 +425,29 @@ TEST(ChromeCommandsTest, TitleBarButtonBackgrounds)
     DrawCommandList cmds;
     TitleBarRenderState tb{ .bar = bar, .window_width = 800.0f, .hovered_zone = TitleBarHitZone::Search, .search_active = true };
     chrome::EmitTitleBar(cmds, text_layouts, nullptr, nullptr, nullptr, false, tb);
-    EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, ToD2DRect(bar.GetButton(TitleBarHitZone::Search))), BrushId::TitleBarButtonActive);
-    EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, ToD2DRect(bar.GetButton(TitleBarHitZone::FileToggle))), std::nullopt);
+    EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, bar.GetButton(TitleBarHitZone::Search)), BrushId::TitleBarButtonActive);
+    EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, bar.GetButton(TitleBarHitZone::FileToggle)), std::nullopt);
 
     cmds.clear();
     tb.hovered_zone = TitleBarHitZone::FileToggle;
     chrome::EmitTitleBar(cmds, text_layouts, nullptr, nullptr, nullptr, false, tb);
-    EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, ToD2DRect(bar.GetButton(TitleBarHitZone::FileToggle))), BrushId::TitleBarButtonHover);
+    EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, bar.GetButton(TitleBarHitZone::FileToggle)), BrushId::TitleBarButtonHover);
 
     cmds.clear();
     tb.hovered_zone = TitleBarHitZone::Close;
     chrome::EmitTitleBar(cmds, text_layouts, nullptr, nullptr, nullptr, false, tb);
-    EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, ToD2DRect(bar.GetButton(TitleBarHitZone::Close))), BrushId::TitleBarCloseRed);
+    EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, bar.GetButton(TitleBarHitZone::Close)), BrushId::TitleBarCloseRed);
 }
 
 // 見えている行だけを積む。現在のファイルとホバーも、見えている行の分だけ塗る。
 TEST(ChromeCommandsTest, FilePaneEmitsOnlyVisibleRows)
 {
     const Theme theme = GetLightTheme();
-    std::pmr::vector<FileEntry> files(100);
+    std::vector<FileEntry> files(100);
     files[11].is_current = true;
     files[80].is_current = true;
-    const std::pmr::vector<TocEntry> toc;
-    const std::pmr::vector<Node> nodes;
+    const std::vector<TocEntry> toc;
+    const std::vector<Node> nodes;
     constexpr float kScroll = 200.0f;
     const SidePaneState sp{
         .panes = { SidePaneInstance{ .rect = kSidePane, .scroll = { kScroll }, .hovered_index = 12, .show = true, .item_height = kItemHeight }, {} },
@@ -458,7 +458,7 @@ TEST(ChromeCommandsTest, FilePaneEmitsOnlyVisibleRows)
     };
     TextLayoutCache text_layouts;
     DrawCommandList cmds;
-    std::pmr::vector<std::pmr::wstring> toc_titles;
+    std::vector<std::wstring> toc_titles;
     chrome::EmitSidePanes(cmds, text_layouts, {}, theme, sp, toc_titles);
 
     const float content_top = PaneContentTop(kSidePane, theme.pane_header_height);
@@ -471,9 +471,9 @@ TEST(ChromeCommandsTest, FilePaneEmitsOnlyVisibleRows)
 TEST(ChromeCommandsTest, DisabledPaneButtonIgnoresHover)
 {
     const Theme theme = GetLightTheme();
-    const std::pmr::vector<FileEntry> files;
-    const std::pmr::vector<TocEntry> toc;
-    const std::pmr::vector<Node> nodes;
+    const std::vector<FileEntry> files;
+    const std::vector<TocEntry> toc;
+    const std::vector<Node> nodes;
     const auto reveal = OffsetRectF(PaneRevealButtonRect(kSidePane.width, theme.pane_header_height), kSidePane.x, kSidePane.y);
     for (const bool enabled : { false, true }) {
         const SidePaneState sp{
@@ -485,7 +485,7 @@ TEST(ChromeCommandsTest, DisabledPaneButtonIgnoresHover)
         };
         TextLayoutCache text_layouts;
         DrawCommandList cmds;
-        std::pmr::vector<std::pmr::wstring> toc_titles;
+        std::vector<std::wstring> toc_titles;
         chrome::EmitSidePanes(cmds, text_layouts, {}, theme, sp, toc_titles);
         EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, reveal), enabled ? std::optional(BrushId::PaneItemHover) : std::nullopt) << enabled;
     }
@@ -496,8 +496,8 @@ TEST(ChromeCommandsTest, TocIndentsByLevelAndUnderlinesActive)
 {
     const Theme theme = GetLightTheme();
     const auto nodes = ParseNodes("# A\n\n## B\n\n### C");
-    const std::pmr::vector<FileEntry> files;
-    const std::pmr::vector<TocEntry> toc{ { 0 }, { 1 }, { 2 } };
+    const std::vector<FileEntry> files;
+    const std::vector<TocEntry> toc{ { 0 }, { 1 }, { 2 } };
     constexpr float kZoom = 1.5f;
     const SidePaneState sp{
         .panes = { {}, SidePaneInstance{ .rect = kSidePane, .hovered_index = 2, .show = true, .zoom = kZoom, .item_height = kItemHeight } },
@@ -508,7 +508,7 @@ TEST(ChromeCommandsTest, TocIndentsByLevelAndUnderlinesActive)
     };
     TextLayoutCache text_layouts;
     DrawCommandList cmds;
-    std::pmr::vector<std::pmr::wstring> toc_titles;
+    std::vector<std::wstring> toc_titles;
     chrome::EmitSidePanes(cmds, text_layouts, {}, theme, sp, toc_titles);
 
     const float content_top = PaneContentTop(kSidePane, theme.pane_header_height);

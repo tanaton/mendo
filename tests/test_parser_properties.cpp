@@ -72,7 +72,7 @@ WordKind KindOf(const Node& node)
 }
 
 // "w<数字>" トークンを種別ごとに集める。生成側は各語を 1 回だけ置くので、2 回目の出現は失敗にする。
-std::map<std::string, WordKind> CollectWords(const std::pmr::vector<Node>& nodes)
+std::map<std::string, WordKind> CollectWords(const std::vector<Node>& nodes)
 {
     std::map<std::string, WordKind> words;
     for (const auto& node : nodes) {
@@ -214,7 +214,7 @@ TEST(ParserProperty, HeadingAnchorsMatchGithubSluggerAndResolveToTheirHeading)
             expected.push_back(std::move(slug));
         }
         SCOPED_TRACE(std::format("seed={} md=\n{}", seed, md));
-        auto doc = Document::FromMarkdown(std::pmr::string{ md }, L"");
+        auto doc = Document::FromMarkdown(std::string{ md }, L"");
         ASSERT_EQ(doc.GetNodes().size(), static_cast<size_t>(n));
         // 索引は引いた見出しまでしか延ばさないので、引く順を混ぜて続きからの延長も検査する。
         std::vector<size_t> order(expected.size());

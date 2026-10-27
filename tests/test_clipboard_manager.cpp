@@ -3,7 +3,6 @@
 #include "document.h"
 #include "document_test_helpers.h"
 #include "mermaid_renderer_interface.h"
-#include <memory_resource>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -27,7 +26,7 @@ public:
         last_callback = std::move(cb);
     }
 
-    void FireCallback(std::pmr::wstring svg, bool cancelled)
+    void FireCallback(std::wstring svg, bool cancelled)
     {
         if (last_callback) {
             // SvgCallback は move_only_function なので 1 回実行後は破棄。
@@ -38,7 +37,7 @@ public:
     }
 
     int request_count = 0;
-    std::pmr::string last_code;
+    std::string last_code;
     float last_width = 0.0f;
     bool last_dark = false;
     SvgCallback last_callback;
@@ -69,7 +68,7 @@ protected:
     // 文書を差し替え、最初の type ノードの index を返す。
     int Load(std::string_view md, NodeType type = NodeType::Diagram)
     {
-        doc_ = Document::FromMarkdown(std::pmr::string(md), L"t.md");
+        doc_ = Document::FromMarkdown(std::string(md), L"t.md");
         return FindFirstNodeIndexByType(doc_.GetNodes(), type);
     }
 

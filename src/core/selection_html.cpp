@@ -11,7 +11,6 @@
 #include <cstdint>
 #include <cstring>
 #include <format>
-#include <memory_resource>
 #include <iterator>
 #include <optional>
 #include <ranges>
@@ -22,7 +21,7 @@ namespace {
 
 // 範囲外の node index を飛ばしながら選択範囲内のノードを走査する。
 template <class Fn>
-void ForEachSelectedNode(const std::pmr::vector<Node>& nodes, const TextSelection& selection, Fn&& fn)
+void ForEachSelectedNode(const std::vector<Node>& nodes, const TextSelection& selection, Fn&& fn)
 {
     const int first = std::max(selection.start_node, 0);
     const int last = std::min(selection.end_node, static_cast<int>(nodes.size()) - 1);
@@ -37,7 +36,7 @@ constexpr const theme_palette::SharedColors& PaletteFor(bool dark_mode) noexcept
 }
 
 // i と次のノードの間に改行を置くか。区切ったテキストの続きとは、区切るときに改行を取り除いたときだけ置く。
-constexpr bool LineBreakAfter(const std::pmr::vector<Node>& nodes, int i) noexcept
+constexpr bool LineBreakAfter(const std::vector<Node>& nodes, int i) noexcept
 {
     const auto next = static_cast<size_t>(i) + 1;
     return next >= nodes.size() || !JoinsPrevInline(nodes[next]);
@@ -64,7 +63,7 @@ constexpr std::string_view HtmlEscapeOf(char c) noexcept
 }
 
 // エスケープ不要な区間をまとめて append する。数文字の find_first_of は STL がベクトル化している。
-constexpr void AppendHtmlEscaped(std::pmr::string& out, std::string_view text)
+constexpr void AppendHtmlEscaped(std::string& out, std::string_view text)
 {
     for (size_t p; (p = text.find_first_of(kHtmlEscapeChars)) != std::string_view::npos; text.remove_prefix(p + 1)) {
         out.append(text.substr(0, p));
@@ -95,7 +94,7 @@ constexpr InlineTag kInlineTags[]{
 // 例外で抜けると書きかけの out は捨てられるので、閉じるのは正常に書き終えたときだけでよい。
 class InlineTagStack {
 public:
-    constexpr explicit InlineTagStack(std::pmr::string& out) noexcept : out_(out)
+    constexpr explicit InlineTagStack(std::string& out) noexcept : out_(out)
     {}
 
     // 開く順: <a> → kInlineTags の順 (<strong> → <em> → <s> → <code>。code は最内側)。
@@ -140,7 +139,7 @@ private:
         close_stack_[count_++] = close_tag;
     }
 
-    std::pmr::string& out_;
+    std::string& out_;
     std::array<std::string_view, 5> close_stack_{};
     size_t count_ = 0;
 };
@@ -181,7 +180,7 @@ InlineState InlineStateOf(const TextRun& r, std::span<const std::string_view> li
 // runs は start 昇順・非重複で並ぶ前提。run 境界単位で処理することで
 // 同一 state 区間の比較を run あたり 1 回に抑える。
 constexpr void AppendInlineHtml(
-    std::pmr::string& out,
+    std::string& out,
     std::string_view text,
     std::span<const TextRun> runs,
     std::span<const std::string_view> link_urls,
@@ -247,12 +246,12 @@ constexpr void AppendInlineHtml(
     tags.CloseAll();
 }
 
-void AppendNodeInlineHtml(std::pmr::string& out, const Node& node, uint32_t start, uint32_t end)
+void AppendNodeInlineHtml(std::string& out, const Node& node, uint32_t start, uint32_t end)
 {
     AppendInlineHtml(out, node.GetText(), node.runs(), node.view_link_urls(), start, end);
 }
 
-constexpr void AppendHexColor(std::pmr::string& out, uint32_t rgb)
+constexpr void AppendHexColor(std::string& out, uint32_t rgb)
 {
     constexpr char kDigits[] = "0123456789abcdef";
     out.push_back('#');
@@ -290,7 +289,7 @@ constexpr std::optional<uint32_t> SyntaxTokenColor(SyntaxTokenType type, const t
 
 // Plain は span を付けずにエスケープのみ行う。
 constexpr void AppendSyntaxHighlightedSpan(
-    std::pmr::string& out, std::string_view chunk, SyntaxTokenType type, const theme_palette::SharedColors& palette)
+    std::string& out, std::string_view chunk, SyntaxTokenType type, const theme_palette::SharedColors& palette)
 {
     const auto color = SyntaxTokenColor(type, palette);
     if (!color) {
@@ -306,7 +305,7 @@ constexpr void AppendSyntaxHighlightedSpan(
 
 // tokens は start 昇順・非重複の前提。トークンの隙間は Plain として出力する。
 void AppendHighlightedCode(
-    std::pmr::string& out,
+    std::string& out,
     std::string_view text,
     std::span<const SyntaxToken> tokens,
     uint32_t start, uint32_t end,
@@ -364,7 +363,7 @@ constexpr auto kCodeBlockStyleTailBuf = [] {
     return buf;
 }();
 constexpr std::string_view kCodeBlockStyleTail(kCodeBlockStyleTailBuf.data(), kCodeBlockStyleTailBuf.size());
-void AppendCodeBlockOpen(std::pmr::string& out, bool dark_mode)
+void AppendCodeBlockOpen(std::string& out, bool dark_mode)
 {
     const auto& palette = PaletteFor(dark_mode);
     out.append("<pre style=\"background-color:");
@@ -377,7 +376,7 @@ void AppendCodeBlockOpen(std::pmr::string& out, bool dark_mode)
     out.append(kCodeBlockStyleTail);
 }
 
-constexpr void AppendTableCellStyle(std::pmr::string& out, TableAlign align, bool dark_mode)
+constexpr void AppendTableCellStyle(std::string& out, TableAlign align, bool dark_mode)
 {
     out.append(" style=\"border:1px solid ");
     AppendHexColor(out, PaletteFor(dark_mode).rule);
@@ -397,7 +396,7 @@ constexpr void AppendTableCellStyle(std::pmr::string& out, TableAlign align, boo
 
 // start / end は concat_text の offset。プレーンテキスト版と同じく読み順の範囲で切り取り、
 // 範囲にかかる最初の行から最後の行までを出す。範囲外のセルは表の形を保つため空セルにする。
-void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, uint32_t end, bool dark_mode)
+void AppendTableHtml(std::string& out, const Node& node, uint32_t start, uint32_t end, bool dark_mode)
 {
     const auto* tbl = node.table_data();
     if (!tbl || tbl->row_count == 0 || tbl->col_count == 0) {
@@ -447,7 +446,7 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
     }
 
     // セルの開きタグは列と見出し行かどうかだけで決まるので、表ごとに 1 回だけ組み立てる。
-    std::pmr::vector<std::pmr::string> open_tags(col_count * 2);
+    std::vector<std::string> open_tags(col_count * 2);
     for (size_t c = 0; c < col_count; c++) {
         for (const bool header : { false, true }) {
             auto& tag = open_tags[c * 2 + header];
@@ -487,7 +486,7 @@ void AppendTableHtml(std::pmr::string& out, const Node& node, uint32_t start, ui
 // loose list の本文や項目内のコードブロック・入れ子のリスト (LI の後ろに別ノードで並ぶ) を同じ <li> に入れる。
 class HtmlListStack {
 public:
-    explicit HtmlListStack(std::pmr::string& out) noexcept : out_(out)
+    explicit HtmlListStack(std::string& out) noexcept : out_(out)
     {}
 
     // node を含まない段を閉じ、node が項目なら <li> を開く (同じリストの続きなら前の </li> を閉じる)。
@@ -552,13 +551,13 @@ private:
         levels_.pop_back();
     }
 
-    std::pmr::string& out_;
-    std::pmr::vector<Level> levels_;
+    std::string& out_;
+    std::vector<Level> levels_;
 };
 
 // src は Markdown 記述値をそのまま使う (相対パスは貼付先で解決不能だが仕様上の限界)。
 // alt は選択範囲内のノード線形化テキスト。[start, end) は呼び出し側でテキスト長にクランプ済み。
-void AppendImageHtml(std::pmr::string& out, const Node& node, uint32_t start, uint32_t end)
+void AppendImageHtml(std::string& out, const Node& node, uint32_t start, uint32_t end)
 {
     out.append("<img");
     if (const auto* img = node.image_data(); img && IsSafeImageSrc(img->src)) {
@@ -616,7 +615,7 @@ CellRunsHit FindTableCellRuns(const Node& node, uint32_t text_pos)
 
 } // namespace
 
-std::pmr::string ExtractSelectedText(const std::pmr::vector<Node>& nodes, const TextSelection& selection)
+std::string ExtractSelectedText(const std::vector<Node>& nodes, const TextSelection& selection)
 {
     if (!selection.active()) {
         return {};
@@ -640,7 +639,7 @@ std::pmr::string ExtractSelectedText(const std::pmr::vector<Node>& nodes, const 
     for_each_selected([&total](std::string_view s, bool separated) {
         total += s.size() + static_cast<size_t>(std::ranges::count(s, '\n')) + (separated ? kCrlf.size() : 0);
     });
-    std::pmr::string result;
+    std::string result;
     // 短い行が数百万続くと append ごとの容量確認が効くので、確保済みの領域へ直接書く。
     result.resize_and_overwrite(total, [&](char* const out, size_t) {
         char* p = out;
@@ -664,13 +663,13 @@ std::pmr::string ExtractSelectedText(const std::pmr::vector<Node>& nodes, const 
     return result;
 }
 
-std::pmr::string ExtractSelectedTextAsHtml(const std::pmr::vector<Node>& nodes, const TextSelection& selection, bool dark_mode)
+std::string ExtractSelectedTextAsHtml(const std::vector<Node>& nodes, const TextSelection& selection, bool dark_mode)
 {
     if (!selection.active()) {
         return {};
     }
 
-    std::pmr::string out;
+    std::string out;
     size_t estimated = 0;
     // ノード全体ではなく選択範囲で見積もる (巨大な表の数セルだけのコピーでノード全体分を確保しない)。
     ForEachSelectedNode(nodes, selection, [&](int i, const Node& node) {

@@ -14,7 +14,6 @@
 #include <array>
 #include <initializer_list>
 #include <memory>
-#include <memory_resource>
 #include <optional>
 #include <ranges>
 #include <string>
@@ -77,7 +76,7 @@ TEST_F(HighlightOrderTest, SearchThenSelectionThenText)
     // node 0 の "Hello" を検索マッチに、"World" を選択範囲に設定する。
     // 範囲が重ならないことで、ハイライト矩形が独立に発行されることを保証する。
     // ASCII のみの本文なので UTF-16 の位置は byte の位置と同じ。
-    std::pmr::vector<SearchMatch> matches;
+    std::vector<SearchMatch> matches;
     matches.push_back({ 0, -1, -1, 0, 5 });
 
     TextSelection sel = TextSelection::MakeOrdered(0, 6, 0, 11);
@@ -139,7 +138,7 @@ TEST_F(HighlightOrderTest, NoHighlightsWhenNeitherActive)
 TEST_F(HighlightOrderTest, CurrentMatchUsesCurrentColor)
 {
     auto pl = ParseAndLayout("Hello Hello");
-    std::pmr::vector<SearchMatch> matches;
+    std::vector<SearchMatch> matches;
     matches.push_back({ 0, -1, -1, 0, 5 });
     matches.push_back({ 0, -1, -1, 6, 5 });
 
@@ -190,7 +189,7 @@ TEST_F(HighlightOrderTest, SearchHighlightHandlesUtf8MultibyteOffset)
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
 
     auto pl1 = ParseAndLayout("abc");
-    std::pmr::vector<SearchMatch> matches1;
+    std::vector<SearchMatch> matches1;
     matches1.push_back({ 0, -1, -1, 0, 3 });
     const auto& cmds1 = gen_.GenerateMdPane({ .nodes = pl1.nodes, .cache = pl1.cache, .selection = TextSelection{}, .md_pane_rect = pane, .search_matches = matches1, .current_match_index = 0, .search_generation = 1 }, 1.0f);
     const auto rect1 = FindFirstFillRectByBrush(cmds1,
@@ -199,7 +198,7 @@ TEST_F(HighlightOrderTest, SearchHighlightHandlesUtf8MultibyteOffset)
 
     // "あいう" は UTF-8 で 9 byte / UTF-16 で 3 code unit。
     auto pl2 = ParseAndLayout("\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86" "abc");
-    std::pmr::vector<SearchMatch> matches2;
+    std::vector<SearchMatch> matches2;
     matches2.push_back({ 0, -1, -1, 3, 3 });
     const auto& cmds2 = gen_.GenerateMdPane({ .nodes = pl2.nodes, .cache = pl2.cache, .selection = TextSelection{}, .md_pane_rect = pane, .search_matches = matches2, .current_match_index = 0, .search_generation = 1 }, 1.0f);
     const auto rect2 = FindFirstFillRectByBrush(cmds2,
@@ -266,7 +265,7 @@ protected:
         ASSERT_TRUE(text_cmd.has_value());
 
         std::vector<D2D1_RECT_F> expected;
-        std::pmr::vector<DWRITE_HIT_TEST_METRICS> buf;
+        std::vector<DWRITE_HIT_TEST_METRICS> buf;
         for (const auto& m : search_.GetMatches()) {
             const UINT32 n = FetchHitTestMetrics(layout, m.start_w, m.length_w, buf);
             for (UINT32 k = 0; k < n; ++k) {

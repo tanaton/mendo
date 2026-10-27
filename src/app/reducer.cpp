@@ -68,12 +68,9 @@ const PaneLayout& EnsurePaneLayout(AppState& state) noexcept
 
 SidePaneContext GetSidePaneContext(AppState& state, PaneTarget pane)
 {
-    const float item_h = SidePaneItemHeight(state, pane);
-    const float header_h = state.theme->pane_header_height;
-    const auto& layout = state.pane_layout_cache.Get();
     return {
-        ComputeScrollInfo(layout.Get(pane), header_h, SidePaneContentHeight(SidePaneItemCount(state, pane), item_h)),
-        item_h,
+        SidePaneScrollInfo(state, pane, state.pane_layout_cache.Get()),
+        SidePaneItemHeight(state, pane),
         state.view.panes.SidePaneScroll(pane),
     };
 }
@@ -346,7 +343,7 @@ void NavigateHistory(AppState& state, SideEffectList& effects, bool forward)
 }
 
 // 現在位置を履歴に積んでから別ファイルを開く。
-void OpenFileWithHistory(AppState& state, SideEffectList& effects, const std::pmr::wstring& path)
+void OpenFileWithHistory(AppState& state, SideEffectList& effects, const std::wstring& path)
 {
     PushCurrentNavEntry(state, path);
     PushEffect(effects, effect::LoadFile{ path });
@@ -430,7 +427,7 @@ void ReduceShowHelp(AppState& state, SideEffectList& effects)
         return;
     }
     PushCurrentNavEntry(state, HELP_PATH);
-    PushEffect(effects, effect::LoadFile{ std::pmr::wstring(HELP_PATH) });
+    PushEffect(effects, effect::LoadFile{ std::wstring(HELP_PATH) });
 }
 
 // つまみ上クリック → 位置維持 (オフセットのみ記録)、つまみ外 → 中心へジャンプ。
@@ -445,11 +442,6 @@ ScrollbarDragGrip ComputeScrollbarDragGrip(float thumb_y, float thumb_height, fl
         return { click_y - thumb_y, true };
     }
     return { thumb_height * 0.5f, false };
-}
-
-PaneScrollInfo MdScrollInfo(const AppState& state) noexcept
-{
-    return ComputeScrollInfo(state.pane_layout_cache.Get().md_rect, 0.0f, MdScrollableContentHeight(state));
 }
 
 // ツールチップ以外のホバー状態を反映し、見た目が変わったら再描画させる。
@@ -559,7 +551,7 @@ void ReduceSearchInputDragMoved(AppState& state, SideEffectList& effects, const 
 
 void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, const MdScrollbarDragStartedAction& a)
 {
-    const auto info = MdScrollInfo(state);
+    const auto info = MdScrollInfo(state, state.pane_layout_cache.Get());
     auto& viewport = state.view.viewport;
     const auto grip = ComputeScrollbarDragGrip(ComputeThumbY(info, viewport.GetScrollY()), info.thumb_height, a.dip_y);
     BeginLeftDrag(state, effects, { .kind = LeftDrag::MdScrollbar, .grip_offset = grip.drag_offset });
@@ -575,7 +567,7 @@ void ReduceMdScrollbarDragMoved(AppState& state, const MdScrollbarDragMovedActio
         return;
     }
     const float new_thumb_y = a.dip_y - state.view.drag.grip_offset;
-    state.view.viewport.ScrollTo(ScrollFromThumbY(MdScrollInfo(state), new_thumb_y), MdMaxScroll(state));
+    state.view.viewport.ScrollTo(ScrollFromThumbY(MdScrollInfo(state, state.pane_layout_cache.Get()), new_thumb_y), MdMaxScroll(state));
 }
 
 void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, const PaneScrollbarDragStartedAction& a)
@@ -808,7 +800,7 @@ void ReduceSearchTextChanged(AppState& state, SideEffectList& effects, NodeLayou
     // 検索バー入力は IME 経由で wstring。表示とヒットテストにはこのまま使い、
     // SearchState は Document テキスト (UTF-8) と比較するため変換して渡す。
     sg.query_wide.assign(text);
-    std::pmr::string text_utf8;
+    std::string text_utf8;
     string_convert::WideToUtf8(text, text_utf8);
     sg.search_state.SetQuery(text_utf8);
     if (text.empty()) {

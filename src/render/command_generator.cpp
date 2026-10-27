@@ -521,8 +521,7 @@ void EmitTitleBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTe
     const float text_alpha = tb.window_active ? 1.0f : 0.5f;
     const auto is_hovered = [&](TitleBarHitZone z) noexcept { return tb.hovered_zone == z; };
 
-    const auto gen_button = [&](const DipRect& dip_rect, wchar_t icon, bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
-        const D2D1_RECT_F rect = ToD2DRect(dip_rect);
+    const auto gen_button = [&](const D2D1_RECT_F& rect, wchar_t icon, bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
         if (show_bg) {
             out.push_back(FillRectCmd{ .rect = rect, .brush_id = bg_id });
         }
@@ -560,11 +559,11 @@ void EmitTitleBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTe
     }
 
     if (app_icon) {
-        out.push_back(DrawBitmapCmd{ .bitmap = app_icon, .dest = ToD2DRect(TitleBar::ICON_RECT), .opacity = text_alpha });
+        out.push_back(DrawBitmapCmd{ .bitmap = app_icon, .dest = TitleBar::ICON_RECT, .opacity = text_alpha });
     }
 
     if (!tb.title_text.empty()) {
-        text_layouts.EmitCentered(out, tb.title_text, title_fmt, ToD2DRect(bar.GetTitleTextRect()), BrushId::TitleBarText, text_alpha);
+        text_layouts.EmitCentered(out, tb.title_text, title_fmt, bar.GetTitleTextRect(), BrushId::TitleBarText, text_alpha);
     }
 }
 
@@ -659,7 +658,7 @@ void EmitSidePane(DrawCommandList& out, TextLayoutCache& text_layouts, const Sid
 }
 
 void EmitFileExplorer(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePaneFormats& fmts, float header_h,
-                      const std::pmr::vector<FileEntry>& entries, const SidePaneInstance& pane)
+                      const std::vector<FileEntry>& entries, const SidePaneInstance& pane)
 {
     const auto k = std::to_underlying(PaneTarget::File);
     const float icon_col_width = 24.0f * pane.zoom;
@@ -681,7 +680,7 @@ void EmitFileExplorer(DrawCommandList& out, TextLayoutCache& text_layouts, const
 }
 
 void EmitToc(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePaneFormats& fmts, float header_h,
-             const SidePaneState& sp, const SidePaneInstance& pane, std::pmr::vector<std::pmr::wstring>& toc_titles)
+             const SidePaneState& sp, const SidePaneInstance& pane, std::vector<std::wstring>& toc_titles)
 {
     const auto& entries = sp.toc_entries;
     const int active_index = sp.active_toc_index;
@@ -719,7 +718,7 @@ void EmitToc(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePane
 } // namespace
 
 void EmitSidePanes(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePaneFormats& fmts, const Theme& theme,
-                   const SidePaneState& sp, std::pmr::vector<std::pmr::wstring>& toc_titles)
+                   const SidePaneState& sp, std::vector<std::wstring>& toc_titles)
 {
     const float header_h = theme.pane_header_height;
     const auto gen_splitter = [&](const PaneRect& r) {
@@ -1354,7 +1353,7 @@ void CommandGenerator::EmitFillRectIfVisible(const D2D1_RECT_F& r, BrushId brush
     }
 }
 
-void CommandGenerator::CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::pmr::vector<D2D1_RECT_F>& out)
+void CommandGenerator::CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::vector<D2D1_RECT_F>& out)
 {
     // 少しずつ追記されるので reserve はしない (要求ぴったりの再確保が毎回走る)。
     for (const auto& m : HitTestRange(layout, start, length)) {

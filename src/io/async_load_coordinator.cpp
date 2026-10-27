@@ -16,7 +16,7 @@ namespace {
 constexpr LONGLONG MAX_FILE_SIZE = static_cast<LONGLONG>(std::numeric_limits<int>::max());
 } // namespace
 
-std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::pmr::wstring& path, const std::stop_token& /*stop_token*/)
+std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::wstring& path, const std::stop_token& /*stop_token*/)
 {
     MENDO_PROFILE("LoadFile");
     // エディタがファイルを開いている間も読み取れるよう共有モードを許容。
@@ -88,7 +88,7 @@ void AsyncLoadCoordinator::ResetSinks() noexcept
     }
 }
 
-void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring path, Theme theme, float content_width, ReloadBase reload_base)
+void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::wstring path, Theme theme, float content_width, ReloadBase reload_base)
 {
     // Cancel() と同じく旧 worker の stop を先に要求してから sink を空にし、旧 worker の publish を確実に弾く。
     // request_stop 後の source は再使用できないので作り直す。
@@ -128,20 +128,20 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
     }
 }
 
-AsyncLoadCoordinator::AttachResult AsyncLoadCoordinator::Attach(HWND hwnd, UINT msg_id)
+bool AsyncLoadCoordinator::Attach(HWND hwnd, UINT msg_id)
 {
     // Publish と同じ mutex で、結果の有無の確認と通知先の設定をまとめる。
-    // 出ている結果はもう通知されないので、ここで通知先を設定しても二重には届かない。
+    // 出ている結果は Publish が通知していないので、ここで送っても二重には届かない。
     const std::lock_guard lock(mutex_);
     notify_hwnd_ = hwnd;
     notify_msg_ = msg_id;
-    if (!in_flight_) {
-        return AttachResult::None;
+    if (outcome_) {
+        ::PostMessageW(hwnd, msg_id, 0, 0);
     }
-    return outcome_ ? AttachResult::AppliedSync : AttachResult::AttachedAsync;
+    return in_flight_;
 }
 
-void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::pmr::wstring& path, const Theme& theme, float content_width,
+void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::wstring& path, const Theme& theme, float content_width,
                                      const std::stop_token& stop_token, ReloadBase reload_base)
 {
     MENDO_PROFILE("AsyncLoadCoordinator::Start Posted Task");
@@ -160,17 +160,17 @@ void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::pmr::w
     }
 
     std::optional<ReloadCheck> reload;
-    if (reload_base.text) {
+    if (reload_base.data) {
         // 無変更の保存や書き込み途中でも全文パース (100MB で ~0.6s) と
         // 新旧 Document の二重保持が起きないよう、パース前に判定する。
         // 書き込み途中なら差分も取らずに返し、読み直させる。
         if (IsFileLargerThan(path.c_str(), file->byte_size)) {
-            Publish(stop_token, AsyncLoadResult{ .reload = ReloadCheck{ .base = reload_base.text, .path = path }, .still_growing = true });
+            Publish(stop_token, AsyncLoadResult{ .reload = ReloadCheck{ .base = reload_base.data, .still_growing = true } });
             return;
         }
-        reload.emplace(ReloadCheck{ AnalyzeReloadDiff(*reload_base.text, file->text), reload_base.text, path });
-        // 以降のパース中に UI が文書を差し替えても旧テキストを延命しない。
-        reload_base.text.reset();
+        reload.emplace(ReloadCheck{ AnalyzeReloadDiff(reload_base.data->raw, file->text, reload_base.accept_prefix_shrink), reload_base.data });
+        // 以降のパース中に UI が文書を差し替えても旧文書を延命しない。
+        reload_base.data.reset();
         if (reload->decision.op != ReloadOp::Replace) {
             Publish(stop_token, AsyncLoadResult{ .reload = std::move(reload) });
             return;
@@ -182,10 +182,9 @@ void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::pmr::w
         return;
     }
     if (reload) {
-        // 旧ノードのテキストは旧原文を指すので、両方を生かしたまま比べる (100MB で約 20ms)。
-        const auto old_text = reload->base.lock();
-        if (const auto old_nodes = reload_base.nodes.lock(); old_text && old_nodes) {
-            reload->ends = FindUnchangedEnds(old_nodes->nodes, doc.GetNodes());
+        // 100MB で約 20ms。
+        if (const auto old = reload->base.lock()) {
+            reload->ends = FindUnchangedEnds(old->parsed.nodes, doc.GetNodes());
         }
     }
 
@@ -194,9 +193,15 @@ void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::pmr::w
         return;
     }
 
-    // パースの間に伸びたのも捕まえるよう、結果を出す直前に確かめる。
-    const bool still_growing = IsFileLargerThan(path.c_str(), file->byte_size);
-    Publish(stop_token, AsyncLoadResult{ std::move(doc), std::move(cache), std::move(reload), still_growing });
+    FileWatchTarget watch;
+    if (reload) {
+        // パースの間に伸びたのも捕まえるよう、結果を出す直前に確かめる。
+        reload->still_growing = IsFileLargerThan(path.c_str(), file->byte_size);
+    }
+    else if (!stop_token.stop_requested()) {
+        watch = OpenWatchTarget(path);
+    }
+    Publish(stop_token, AsyncLoadResult{ std::move(doc), std::move(cache), std::move(reload), std::move(watch) });
 }
 
 void AsyncLoadCoordinator::Publish(const std::stop_token& stop_token, AsyncLoadOutcome outcome)

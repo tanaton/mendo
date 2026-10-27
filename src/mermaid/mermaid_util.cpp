@@ -12,9 +12,9 @@
 
 using namespace std::literals;
 
-std::pmr::wstring mermaid_util::JsEscape(std::wstring_view input)
+std::wstring mermaid_util::JsEscape(std::wstring_view input)
 {
-    std::pmr::wstring result;
+    std::wstring result;
     result.reserve(input.size() + input.size() / 4);
     for (wchar_t c : input) {
         switch (c) {
@@ -66,13 +66,13 @@ int mermaid_util::QuantizeWidth(float max_width) noexcept
     return static_cast<int>(std::ceil(max_width / static_cast<float>(kQuantum))) * kQuantum;
 }
 
-std::pmr::wstring mermaid_util::BuildLatexFlowchartCode(std::wstring_view latex)
+std::wstring mermaid_util::BuildLatexFlowchartCode(std::wstring_view latex)
 {
     // mermaid ラベル内で特殊文字をエスケープする:
     //   "  → #quot;  (ラベル終端の " と衝突)
     //   ]  → #93;    (ラベル終端の ] と衝突)
     //   \r, \n → 空白 (ラベル構文上改行不可)
-    std::pmr::wstring result;
+    std::wstring result;
     result.reserve(latex.size() + 80);
     result.append(L"flowchart LR\n    A[\"$$");
     for (const wchar_t c : latex) {
@@ -196,9 +196,9 @@ mermaid_util::RenderSize mermaid_util::ParseRenderSize(std::wstring_view payload
     return { values[0], values[1], values[2] };
 }
 
-std::pmr::wstring mermaid_util::SanitizeErrorMessage(std::wstring_view msg, size_t max_len)
+std::wstring mermaid_util::SanitizeErrorMessage(std::wstring_view msg, size_t max_len)
 {
-    std::pmr::wstring result;
+    std::wstring result;
     result.reserve(std::min(msg.size(), max_len));
     bool prev_space = true; // 先頭の空白は落とす
     bool truncated = false;

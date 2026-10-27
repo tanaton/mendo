@@ -4,7 +4,6 @@
 #include "layout_computer.h"
 #include "theme.h"
 #include <chrono>
-#include <memory_resource>
 #include <optional>
 #include <span>
 
@@ -108,7 +107,7 @@ namespace layout {
 // indices のノードを scheduler の worker で並列計測する。scheduler が null なら呼び出しスレッドで直列に計測する。
 // 戻り値は dirty のまま残したノード数 (例外で計測できなかったか、期限を過ぎて手を付けなかった)。
 int MeasureIndicesParallel(
-    const std::pmr::vector<Node>& nodes,
+    const std::vector<Node>& nodes,
     LayoutCache& cache,
     float content_width,
     const Theme& theme,
@@ -129,16 +128,16 @@ public:
     bool Init(ITextMeasurer* measurer, const Theme& theme);
     // 本文幅かズームがキャッシュの推定時 (EstimateBasis) から変わったら、全ノードを dirty にして推定値で Y を組み直す
     // (DirectWrite は呼ばない)。戻り値は全ノードを dirty にしたか。
-    bool Reestimate(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width);
+    bool Reestimate(const std::vector<Node>& nodes, LayoutCache& cache, float viewport_width);
     // [viewport_top, viewport_bottom] に入る dirty を計測し、退避したテーブル行を戻す。
     // 計測で高さが変わると範囲に入るノードも変わるため、範囲内の dirty が無くなるまで繰り返す。
     // 戻り値は高さ・位置・テーブル行のいずれかが変わったか。
     bool EnsureVisibleLayout(
-        const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
+        const std::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
         float viewport_top, float viewport_bottom);
     // range (文書座標) 内の dirty を deadline まで計測する。range 内に dirty が残れば true。
     bool ProcessDirtyBatch(
-        const std::pmr::vector<Node>& nodes, LayoutCache& cache,
+        const std::vector<Node>& nodes, LayoutCache& cache,
         float viewport_width, LayoutDeadline deadline, YRange range);
     const Theme& GetTheme() const noexcept
     {
@@ -153,7 +152,7 @@ private:
     };
     // 範囲内の dirty を deadline まで計測し、退避したテーブル行を戻して Y を組み直す。
     PassResult MeasurePass(
-        const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
+        const std::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
         YRange range, LayoutDeadline deadline);
 
     // Init は UI スレッドからのみ呼び、

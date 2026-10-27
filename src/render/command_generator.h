@@ -10,7 +10,6 @@
 #include "ui_constants.h"
 #include "search_state.h"
 #include "text_layout_cache.h"
-#include <memory_resource>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -85,8 +84,8 @@ private:
     IDWriteFactory* factory_ = nullptr;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_;
     Microsoft::WRL::ComPtr<IDWriteTextLayout> layout_;
-    std::pmr::wstring text_;
-    std::pmr::wstring scratch_;
+    std::wstring text_;
+    std::wstring scratch_;
     float width_ = -1.0f;
     DWRITE_TEXT_RANGE underline_{};
 };
@@ -124,7 +123,7 @@ struct SidePaneFormats {
 };
 // 表示中のサイドペインとスプリッタ。toc_titles は目次項目の UTF-16 で、描いた項目だけ作る。
 void EmitSidePanes(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePaneFormats& fmts, const Theme& theme,
-                   const SidePaneState& sp, std::pmr::vector<std::pmr::wstring>& toc_titles);
+                   const SidePaneState& sp, std::vector<std::wstring>& toc_titles);
 } // namespace chrome
 
 // ドキュメントデータとビューポート状態から DrawCommandList を生成する。
@@ -219,7 +218,7 @@ private:
     void EmitFillRectIfVisible(const D2D1_RECT_F& r, BrushId brush);
     // HitTestTextRange の結果をレイアウト原点相対の D2D1_RECT_F に変換し out へ append する。
     // SearchHlCache / SelectionHlCache の rebuild に共用する。
-    void CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::pmr::vector<D2D1_RECT_F>& out);
+    void CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::vector<D2D1_RECT_F>& out);
     // 本文ノード（テーブル外）専用の選択ハイライト発行。
     // (layout, doc_start, doc_length) 一致でフレーム間キャッシュをヒットさせ
     // HitTestTextRange と UTF-8→UTF-16 decode の両方を省く。doc_start / doc_length は UTF-8 byte 単位。
@@ -258,7 +257,7 @@ private:
     // 戻り値は同一スコープで ExecuteDrawCommands に渡されて消費されるので、毎フレーム clear して容量を使い回す。
     DrawCommandList cmds_;
 
-    std::pmr::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
+    std::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
 
     // 前フレームの選択ノード範囲。範囲外に出たノードの selection_hl_cache を
     // 解放するために使う。-1/-1 は「前フレームは非アクティブ」を示す。

@@ -7,7 +7,6 @@
 #include <functional>
 #include <iterator>
 #include <memory>
-#include <memory_resource>
 #include <span>
 #include <string>
 #include <string_view>
@@ -100,14 +99,6 @@ inline bool IsSubrangeOf(std::string_view inner, std::string_view outer) noexcep
     const auto p = reinterpret_cast<uintptr_t>(inner.data());
     const auto base = reinterpret_cast<uintptr_t>(outer.data());
     return p >= base && p + inner.size() <= base + outer.size();
-}
-
-template <typename... Args>
-inline std::pmr::wstring PmrFormat(std::wformat_string<Args...> fmt, Args&&... args)
-{
-    std::pmr::wstring result;
-    std::format_to(std::back_inserter(result), fmt, std::forward<Args>(args)...);
-    return result;
 }
 
 // スコープ離脱時にクリーンアップ関数を一度だけ実行する汎用 RAII ガード。

@@ -2,13 +2,10 @@
 #include <algorithm>
 #include <cstdint>
 #include <iterator>
-
-// include 連鎖を浅く保つため 1 か所に集約。
+#include <d2d1.h>
+#include <dwrite.h>
 
 struct Theme;
-// 実体は <d2d1.h> / <dwrite.h> のものと ABI 互換。
-struct ID2D1Factory;
-struct IDWriteFactory;
 
 // ポップアップのモーダルループを本体のメッセージループと同じ待ち方 (ファイル監視・空き時間の仕事・フレーム待ち) で回す。
 // メッセージだけを待つと、本体のループが待っているイベントと空き時間の仕事が閉じるまで止まる。
@@ -35,24 +32,18 @@ struct DipPoint {
     float y = 0.0f;
 };
 
-// <d2d1.h> を巻き込まずに矩形を扱う。
-struct DipRect {
-    float left = 0.0f;
-    float top = 0.0f;
-    float right = 0.0f;
-    float bottom = 0.0f;
-};
+// DIP の矩形。<d2d1.h> は PCH (pch.h) で全 TU に入るので、別の型にせずそのまま使う。
+// メンバに既定値が無いので、宣言では {} で 0 にすること。
+using DipRect = D2D1_RECT_F;
 
 // D2D 規約に合わせ右辺・下辺は排他的。
-template <class Rect>
-constexpr bool PointInRect(float x, float y, const Rect& r) noexcept
+constexpr bool PointInRect(float x, float y, const DipRect& r) noexcept
 {
     return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
 }
 
 // 右辺・下辺を含む inclusive 版。
-template <class Rect>
-constexpr bool PointInRectInclusive(float x, float y, const Rect& r) noexcept
+constexpr bool PointInRectInclusive(float x, float y, const DipRect& r) noexcept
 {
     return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
 }

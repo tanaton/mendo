@@ -7,7 +7,6 @@
 #include <limits>
 #include <vector>
 #include <memory>
-#include <memory_resource>
 #include <wrl/client.h>
 #include <d2d1.h>
 #include <dwrite.h>
@@ -34,20 +33,20 @@ inline constexpr float CELL_WIDTH_EPSILON = 0.5f;
 struct TableLayoutData {
     const size_t row_count = 0;
     const size_t col_count = 0;                                               // cell_layouts のストライド
-    std::pmr::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>> cell_layouts; // フラット配列 [行 * col_count + 列]
+    std::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>> cell_layouts; // フラット配列 [行 * col_count + 列]
     // 行ごとのインラインコード背景。インラインコードを含むテーブルだけ row_count 分確保し、行の計測で作り直す。
-    std::pmr::vector<std::pmr::vector<CellInlineCodeBg>> row_code_bgs;
-    std::pmr::vector<float> col_widths;
-    std::pmr::vector<float> row_heights;
-    std::pmr::vector<float> natural_col_widths;  // リサイズ高速パス用キャッシュ
-    std::pmr::vector<float> cell_natural_widths; // 各セルの折り返さない幅。テキストは変わらないので evict しても残す
-    std::pmr::vector<float> cell_nowrap_heights; // 各セルの折り返さないときの高さ。evict 中の行の高さを出すのに使う
-    std::pmr::vector<uint8_t> row_evicted;       // 行単位 evict でセル layout を捨てた行
+    std::vector<std::vector<CellInlineCodeBg>> row_code_bgs;
+    std::vector<float> col_widths;
+    std::vector<float> row_heights;
+    std::vector<float> natural_col_widths;  // リサイズ高速パス用キャッシュ
+    std::vector<float> cell_natural_widths; // 各セルの折り返さない幅。テキストは変わらないので evict しても残す
+    std::vector<float> cell_nowrap_heights; // 各セルの折り返さないときの高さ。evict 中の行の高さを出すのに使う
+    std::vector<uint8_t> row_evicted;       // 行単位 evict でセル layout を捨てた行
     // ヒットテスト高速化用の累積オフセット。最初の FinalizeTableLayout までは空。
     // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ。サイズは row_count+1。
     // col_cum_x[c] = base_x からの列 c の左端までの累積幅。サイズは col_count+1。
-    std::pmr::vector<float> row_cum_y;
-    std::pmr::vector<float> col_cum_x;
+    std::vector<float> row_cum_y;
+    std::vector<float> col_cum_x;
     // 幾何を組んだ max_width (CommitGeometry)。GeometryValidAt で比べる。
     float last_applied_max_width = 0.0f;
     size_t evicted_row_count = 0;
@@ -247,8 +246,8 @@ struct SearchHlCache {
         uint32_t begin = 0;
         uint32_t count = NOT_COMPUTED;
     };
-    std::pmr::vector<D2D1_RECT_F> rects;
-    std::pmr::vector<Span> spans;
+    std::vector<D2D1_RECT_F> rects;
+    std::vector<Span> spans;
     uint32_t gen = 0;
 };
 
@@ -258,7 +257,7 @@ struct SearchHlCache {
 // (start, length) は UTF-8 → UTF-16 変換の結果 [start_w, end_w) を使い回すためのキー。
 // text_layout 失効時は invalidate_selection_hl_cache() で unique_ptr ごと破棄する契約なので、layout はキーに含めない。
 struct SelectionHlCache {
-    std::pmr::vector<D2D1_RECT_F> rects;
+    std::vector<D2D1_RECT_F> rects;
     uint32_t start = 0;
     uint32_t length = 0;
     uint32_t start_w = 0;
@@ -342,7 +341,7 @@ struct NodeLayoutEntry {
     {
         return aux_ ? std::span<const SyntaxToken>{ aux_->syntax_tokens } : std::span<const SyntaxToken>{};
     }
-    void set_syntax_tokens(std::pmr::vector<SyntaxToken> tokens)
+    void set_syntax_tokens(std::vector<SyntaxToken> tokens)
     {
         if (aux_ || !tokens.empty()) {
             ensure_aux().syntax_tokens = std::move(tokens);
@@ -422,7 +421,7 @@ struct NodeLayoutEntry {
         return *table;
     }
 
-    constexpr std::pmr::vector<InlineCodeBg>& ensure_inline_code_bgs()
+    constexpr std::vector<InlineCodeBg>& ensure_inline_code_bgs()
     {
         return ensure_aux().inline_code_bgs;
     }
@@ -468,8 +467,8 @@ private:
         // CodeBlock 以外では 0 のまま。
         float natural_code_width = 0.0f;
         // 計測のたびに作り直すので、確保し直さないよう Aux に直接持つ。
-        std::pmr::vector<InlineCodeBg> inline_code_bgs;
-        std::pmr::vector<SyntaxToken> syntax_tokens;
+        std::vector<InlineCodeBg> inline_code_bgs;
+        std::vector<SyntaxToken> syntax_tokens;
         // テーブルノードでしか使わないので別に確保する。
         std::unique_ptr<TableLayoutData> table_layout;
         // ハイライト系の 3 つは unique_ptr で持つ。Aux に直に持つと、リロードで全エントリを移す TakeEntries が
@@ -518,7 +517,7 @@ struct DiagramError {
     };
     Kind kind = Kind::None;
     // Mermaid が返した文言 (表示用に整形済み)。Mermaid の文言は訳さないのでそのまま持つ。
-    std::pmr::wstring message;
+    std::wstring message;
 
     bool empty() const noexcept
     {
@@ -665,7 +664,7 @@ public:
 
     // すべてのテキストレイアウトを無効化し、全ノードを dirty にして次の Reestimate に推定し直させる（ズーム変更時）。
     // ダイアグラム/Mermaid キャッシュの処理は呼び出し側で別途行うこと。
-    void InvalidateAllLayouts(const std::pmr::vector<Node>& nodes) noexcept;
+    void InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept;
 
     // デバイスロスト時用。旧デバイス上のビットマップは新 RT で描画できず、
     // 残すと EndDraw が D2DERR_WRONG_RESOURCE_DOMAIN で失敗し続ける。
@@ -728,7 +727,7 @@ public:
     }
     // 捨てたテキストレイアウト。1 個の解放に数 µs かかり、ズームや巨大な表の evict では数千〜数十万個になるので、
     // UI スレッドで解放せず、呼び出し側が受け取ってワーカーで解放する。
-    using ReleasedLayouts = std::pmr::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>>;
+    using ReleasedLayouts = std::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>>;
     bool HasReleasedLayouts() const noexcept
     {
         return !released_layouts_.empty();
@@ -766,10 +765,10 @@ private:
     // 同じブロックの残りとブロック数ぶんの書き換えで済ませる。
     static constexpr size_t kTopBlockShift = 12;
 
-    std::pmr::vector<NodeLayoutEntry> entries_;
-    std::pmr::vector<float> tops_;
-    std::pmr::vector<float> top_block_offsets_;
-    std::pmr::unordered_map<size_t, DiagramEntry> diagrams_;
+    std::vector<NodeLayoutEntry> entries_;
+    std::vector<float> tops_;
+    std::vector<float> top_block_offsets_;
+    std::unordered_map<size_t, DiagramEntry> diagrams_;
     ReleasedLayouts released_layouts_;
     bool has_dirty_nodes_ = true;
     EstimateBasis estimate_basis_;

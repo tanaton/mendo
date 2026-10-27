@@ -1,4 +1,5 @@
 #pragma once
+#include "app_controller.h"
 #include "app_events.h"
 #include "app_state.h"
 #include "async_load_coordinator.h"
@@ -6,7 +7,6 @@
 #include "config_service.h"
 #include "context_menu.h"
 #include "file_watcher.h"
-#include "hit_test_service.h"
 #include "image_loader.h"
 #include "layout.h"
 #include "mermaid.h"
@@ -17,7 +17,6 @@
 #include "render_params.h"
 #include "renderer.h"
 #include "resource_manager.h"
-#include "selection_html.h"
 #include "settings_dialog.h"
 #include "side_effect.h"
 #include "task_scheduler.h"
@@ -26,7 +25,6 @@
 #include <shellapi.h>
 #include <cstdint>
 #include <memory>
-#include <memory_resource>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -59,6 +57,20 @@ struct SystemCursors {
         ibeam = LoadCursorW(nullptr, IDC_IBEAM);
         size_we = LoadCursorW(nullptr, IDC_SIZEWE);
     }
+    HCURSOR Get(app_controller::PointerCursor cursor) const noexcept
+    {
+        switch (cursor) {
+        case app_controller::PointerCursor::Arrow:
+            return arrow;
+        case app_controller::PointerCursor::IBeam:
+            return ibeam;
+        case app_controller::PointerCursor::Hand:
+            return hand;
+        case app_controller::PointerCursor::SizeWE:
+            return size_we;
+        }
+        std::unreachable();
+    }
 };
 
 // ResourceManager と reducer が問い合わせる窓口も App が受ける。
@@ -81,9 +93,9 @@ public:
     // 起動時にウィンドウ生成と並列で I/O + パースを開始する。LoadInitialDocument で
     // hwnd が解禁されると、worker は ::PostMessageW(PARSE_COMPLETE) を発行し、
     // 通常の async load 経路に合流する。
-    void StartPreloadAsync(std::pmr::wstring path);
+    void StartPreloadAsync(std::wstring path);
 
-    // LoadInitialDocument より前に呼ぶこと。preload 即時完了パスはそこで復元情報を参照する。
+    // LoadInitialDocument より前に呼ぶこと。起動時の読み込みの結果を取り込むときに復元情報を参照する。
     // 保存したスクロール位置を、文書を開いたときに戻す位置にする。
     void RestoreScrollPosition();
 
@@ -146,7 +158,7 @@ public:
     // 発火せず仕事の合間が空くので、メッセージループが入力と描画を配り終えた空き時間に RunIdleWork で進める。
     bool HasIdleWork();
     void RunIdleWork();
-    // 起動時の読み込みを LoadInitialDocument で取り込めず、結果を待っている。
+    // 起動時の読み込みの結果をまだ取り込んでいない。
     bool IsLoadingInitialDocument() const noexcept
     {
         return load_coordinator_.IsActive();
@@ -195,9 +207,9 @@ private:
     }
     void ShowToast(std::wstring_view message);
     // 関連付けの解決やブラウザの起動で数百 ms 止まりうるので、UI スレッドを待たせずに開く。
-    static void ShellOpenAsync(std::pmr::wstring target);
+    static void ShellOpenAsync(std::wstring target);
     // 変更通知はデバウンスしてから読み直す。
-    void StartFileWatch(const std::pmr::wstring& path);
+    void StartFileWatch(FileWatchTarget target);
     void OpenFileDialog();
 
     bool IsRenderReady() const noexcept
@@ -226,55 +238,28 @@ private:
 
     using HitResult = hit_test::HitResult;
     HitResult HitTest(int px, int py);
-    std::optional<LinkHit> GetLinkAtHit(const HitResult& hit) const;
-    MdPaneHitContext BuildMdPaneHitContext(int px, int py, const PaneLayout& pane_layout) const noexcept;
 
     const PaneLayout& GetPaneLayout();
     PaneZone PaneAtPoint(float dip_x);
-    PaneZone ZoneAt(float dip_x, const PaneLayout& layout) const noexcept;
-    bool IsOverMdScrollbar(float dip_x, float dip_y, const PaneLayout& layout) const noexcept;
 
-    // MD ペインで点が指す領域。ホバーとクリックが同じ優先順位で判定するために共有する。
-    struct MdPaneHit {
-        enum class Kind : uint8_t {
-            SearchBar,
-            NavButton,
-            OverlayButton, // コピー / ダイアグラムコピー / 保存
-            Scrollbar,
-            Content,
-        };
-        Kind kind = Kind::Content;
-        SearchBarHitZone search_bar = SearchBarHitZone::None;
-        NavDirection nav = NavDirection::None;
-        OverlayButtonHit overlay_button{};
-    };
-    MdPaneHit ResolveMdPaneHit(float dip_x, float dip_y, const MdPaneHitContext& hit_ctx, const PaneLayout& layout) const;
+    // 検索の入力欄で dip_x にあるキャレット位置。
+    int SearchInputPosAt(float dip_x);
 
-    SearchBarLayout ComputeSearchBarLayoutForMd(const PaneRect& md_rect) const;
-    // 検索バーが表示中で dip_y がバーの上にあるときだけ、そのレイアウトを返す。
-    std::optional<SearchBarLayout> SearchBarLayoutAt(float dip_y, const PaneRect& md_rect) const;
-    int HitTestSearchInputPos(const SearchBarLayout& sbl, float dip_x) const;
-
-    // ---- クリック (app_mouse.cpp) ----
+    // ---- クリック (判定は app_controller::Resolve*Hit) ----
     void HandleLinkClick(std::string_view url);
     bool HandleTitleBarClick(float dip_x, float dip_y);
-    void HandleSearchBarClick(SearchBarHitZone zone, float dip_x, const PaneRect& md_rect, bool is_double_click);
-    void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, const PaneLayout& layout, bool is_double_click);
+    void HandleSearchBarClick(SearchBarHitZone zone, float dip_x, bool is_double_click);
+    void HandleMdPaneClick(float dip_x, float dip_y, int px, int py, bool is_double_click);
     void HandleOverlayButtonClick(const OverlayButtonHit& hit);
     // ホバー中ブロックの水平スクロールバー上ならドラッグを開始して true。
     bool TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x);
-    void HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout, bool is_double_click);
+    void HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, bool is_double_click);
     void HandleFileEntryClick(const FileEntry& entry);
     void RefreshFilePane();
 
-    // ---- ホバー (app_mouse.cpp) ----
+    // ---- ホバー (判定は app_controller::ResolvePointerHover) ----
     // カーソルがクライアント領域にあれば、その位置のホバーを引き直す。
     void RefreshHoverAtCursor();
-    // ゾーン内のホバーを hover に書き、表示するカーソルを返す。状態の反映は reducer が行う。
-    HCURSOR HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLayout& layout, PointerHover& hover) const;
-    HCURSOR HoverSidePane(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout, PointerHover& hover) const;
-    TooltipHover BuildSidePaneTooltip(PaneTarget target, PaneHeaderButton hit, int idx) const;
-    TooltipHover BuildMdContentTooltip(int hit_node, std::optional<LinkHit> link) const;
 
     // ---- レイアウト ----
     float MdMaxScroll();
@@ -304,10 +289,8 @@ private:
     // 画像・図の高さが変わった範囲の Y を組み直し、スクロールを収めて描き直す。
     void RecomputeLayout(layout::HeightChangeRange changed) override;
     void EnsureNodeLayout(int node_index) override;
-    // スクロール上限/スクロールバー計算用のコンテンツ高さ。
-    float ScrollableContentHeight() const noexcept;
 
-    // ---- ファイル読み込み (app_file.cpp) ----
+    // ---- ファイル読み込み ----
     // 表示中の言語のヘルプに差し替える。ヘルプを表示中でも読み直す (言語の切り替え)。
     // ヘルプに留まる操作 (表示中に F1・履歴で同じヘルプへ) は reducer が LoadFile を出さずに済ませる。
     void ShowHelpResource();
@@ -315,15 +298,16 @@ private:
     void CancelOtherFileLoad();
     // 別の文書を表示する。estimated は next 向けに推定済みのキャッシュ (worker が MakeEstimatedLayoutCache で作ったもの)。
     // ビュー状態の後始末は DocumentOpenedAction で reducer に任せる。
-    void OpenDocument(Document next, LayoutCache estimated, bool follow_file_pane);
+    // watch は next の変更の監視 (worker が OpenWatchTarget で作ったもの)。ヘルプは空で、監視をやめる。
+    void OpenDocument(Document next, LayoutCache estimated, bool follow_file_pane, FileWatchTarget watch);
     // 同じ文書の新しい版に差し替える。中身が変わらないノードの計測結果を引き継ぎ、diff_pos の近くが見えるようにスクロールする。
-    // ends は worker が数えた変わらなかったノード数。無ければここで数える。後始末は DocumentReloadedAction / ReloadSettledAction で reducer に任せる。
-    void ReloadDocument(Document next, LayoutCache estimated, std::optional<UnchangedEnds> ends, size_t diff_pos);
+    // ends は worker が数えた変わらなかったノード数。後始末は DocumentReloadedAction / ReloadSettledAction で reducer に任せる。
+    void ReloadDocument(Document next, LayoutCache estimated, const UnchangedEnds& ends, size_t diff_pos);
     // 表示文書とレイアウトキャッシュを一緒に差し替え、旧文書の破棄を worker に回す。OpenDocument / ReloadDocument の中だけで使う。
     void ReplaceDocument(Document next, LayoutCache estimated);
     void ReloadCurrentFile();
-    // reload_base は同一ファイルのリロード時の現在の文書 (worker で差分判定させる)。
-    void BeginAsyncLoad(std::pmr::wstring path, bool show_animation, ReloadBase reload_base = {});
+    // 表示中のファイルなら開き直しも含めてリロードとして読む (ReloadBaseFor)。
+    void BeginAsyncLoad(std::wstring path, bool show_animation);
     void StartLoadingAnimation();
     // 読み込みが LOADING_SPINNER_DELAY_MS より長引いたらスピナーを出す。
     void ScheduleLoadingAnimation();
@@ -335,14 +319,6 @@ private:
     // nodes の範囲の推定高さを、図と画像のキャッシュにある実測の寸法で上書きする。変えたら true (Y は組み直さない)。
     // 呼び出し前にノード高さの初期化 (EstimateNodeHeights) は完了していること。
     bool ApplyCachedHeights(VisibleRange nodes);
-
-    enum class ReloadFlow : uint8_t {
-        Handled,            // ResumeWatching / DeferReloadRetry 済み、呼び出し元は return
-        ContinueWithReload, // Replace を呼び出し元で実行する
-    };
-    // NoChange / DeferPrefixShrink をここで処理し、Replace は呼び出し元に任せる。
-    // has_parsed_doc は新しい内容のパース済み文書が手元にあるか (prefix shrink を受け入れられるか)。
-    ReloadFlow ApplyReloadDecisionEarly(const ReloadDecision& decision, bool has_parsed_doc);
 
     // 短縮リトライで再リロードを予約する。エディタの truncate→rewrite 中や
     // partial-read を検出した時に共通で使う。
@@ -373,9 +349,9 @@ private:
     bool in_modal_loop_ = false;
     WindowHost& window_;
     // SetWindowTextW は変わったときだけ呼ぶ。
-    std::pmr::wstring title_text_ = L"mendo";
+    std::wstring title_text_ = L"mendo";
     // 空なら非表示。フェードは毎フレームの全画面再描画を伴うので、表示と消去の 2 回だけ描き直す。
-    std::pmr::wstring toast_message_;
+    std::wstring toast_message_;
     // 別のファイルを読み始めたときに旧文書の画像・図の待ちを捨てた。文書を差し替えたら外す。
     bool resources_dropped_for_load_ = false;
 
@@ -399,7 +375,7 @@ private:
     // 列挙スレッドの結果の受け渡し。スレッドは App より長生きしうるので共有で持たせる。
     struct FileListingSlot {
         std::mutex mutex;
-        std::optional<std::pair<uint32_t, std::pmr::vector<FileEntry>>> result;
+        std::optional<std::pair<uint32_t, std::vector<FileEntry>>> result;
     };
     std::shared_ptr<FileListingSlot> file_listing_ = std::make_shared<FileListingSlot>();
 

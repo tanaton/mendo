@@ -10,7 +10,6 @@
 #include <string_view>
 #include <type_traits>
 #include <vector>
-#include <memory_resource>
 
 class TaskScheduler;
 
@@ -25,21 +24,21 @@ inline constexpr size_t kTextChunkWindow = kTextChunkTarget / 8;
 
 // パース後の全ノード走査を避けるため、パース中に構築する特殊ノードのインデックス。
 struct NodeIndices {
-    std::pmr::vector<TocEntry> toc_entries;
-    std::pmr::vector<size_t> image_indices;
-    std::pmr::vector<size_t> diagram_indices;
-    std::pmr::vector<size_t> table_indices;
+    std::vector<TocEntry> toc_entries;
+    std::vector<size_t> image_indices;
+    std::vector<size_t> diagram_indices;
+    std::vector<size_t> table_indices;
     // 脚注番号順の定義ノード。脚注は文書末尾に参照順で並ぶ。
-    std::pmr::vector<int32_t> footnote_def_indices;
-    std::pmr::vector<FootnoteRef> footnote_refs;
+    std::vector<int32_t> footnote_def_indices;
+    std::vector<FootnoteRef> footnote_refs;
 };
 
 // パーサーの出力。ノードと、ノードが指すもの (テキスト・runs・リンク URL を置いた arena とテーブル) と特殊ノードのインデックス。
 // ノードは arena を指すので、nodes だけを取り出すときは arena ごと持ち続けること。
 struct NodeStorage {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     TextArena arena;
-    std::pmr::vector<std::unique_ptr<NodeTableData>> tables;
+    std::vector<std::unique_ptr<NodeTableData>> tables;
     NodeIndices indices;
 };
 
@@ -51,7 +50,7 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
 // ノードは入力テキストを参照するため、一時文字列を渡すと戻り値が即座にダングリングする。
 template <class S>
     requires(!std::is_lvalue_reference_v<S> &&
-             (std::same_as<std::remove_cv_t<S>, std::string> || std::same_as<std::remove_cv_t<S>, std::pmr::string>))
+             std::same_as<std::remove_cv_t<S>, std::string>)
 NodeStorage ParseMarkdown(S&& markdown_text, std::stop_token stop_token = {}, TaskScheduler* scheduler = nullptr) = delete;
 
 // HTML エンティティ (例: "&amp;", "&#x1F600;") を解決する。

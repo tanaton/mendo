@@ -42,7 +42,7 @@ template <class Pred>
 void RemoveEntriesIf(const std::filesystem::path& dir, Pred pred)
 {
     // 走査中に消すと列挙が飛ぶことがあるので、集めてから消す。
-    std::pmr::vector<std::filesystem::path> targets;
+    std::vector<std::filesystem::path> targets;
     std::error_code ec;
     for (auto it = std::filesystem::directory_iterator(dir, ec); !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
         if (pred(it->path())) {

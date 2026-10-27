@@ -2,7 +2,6 @@
 #include "document_types.h"
 #include <cstddef>
 #include <cstdint>
-#include <memory_resource>
 #include <span>
 #include <string>
 #include <string_view>
@@ -32,15 +31,15 @@ struct NodeWordRange {
 };
 NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, uint32_t pos) noexcept;
 
-std::pmr::string ToLowerAsciiCopy(std::string_view text);
+std::string ToLowerAsciiCopy(std::string_view text);
 
 // CRLF / 旧式 CR を LF に正規化する (in-place)。
-// 改行を LF に揃えておくと、パーサ中の current_text と raw_text_ の memcmp 一致判定が成立し、
-// 大半の code block が raw_text_ をそのまま指せる (arena へのコピーが要らない)。
+// 改行を LF に揃えておくと、パーサ中の current_text と DocumentData::raw の memcmp 一致判定が成立し、
+// 大半の code block が DocumentData::raw をそのまま指せる (arena へのコピーが要らない)。
 // 複数行の paragraph は SOFTBR を空白に置き換えるため常に arena へコピーする。
 // CR まで一気にスキップし、その間は memmove でブロックコピーする (MSVC UCRT で SIMD)。
 // LF-only ファイルでは memchr 1 回で素通し。
-void NormalizeNewlines(std::pmr::string& s);
+void NormalizeNewlines(std::string& s);
 
 // リロードで新旧のノード列の先頭 head 個と末尾 tail 個が、表示に効く中身で一致した範囲 (両者は重ならない)。
 // ソース位置と引用グループ番号は比べない。
@@ -64,7 +63,7 @@ UnchangedEnds FindUnchangedEnds(std::span<const Node> old_nodes, std::span<const
 
 // コードブロックのトークン。区切ったコードの続きは、前のノードから続くトークン (code_lead_length) を先頭に置き、
 // その後ろからトークン化する (ブロックコメントや複数行の文字列の途中から始まっても色が崩れないように)。
-std::pmr::vector<SyntaxToken> TokenizeCodeNode(const Node& node);
+std::vector<SyntaxToken> TokenizeCodeNode(const Node& node);
 
 // 区切ったコードブロックの並び (先頭から末尾まで) の続きのノードに、前のノードから続くトークンを記録する。
 // 並びをつないだテキストを数ノードずつの窓で字句解析し、窓の端で切れたトークンはその先頭から次の窓で解析し直す。
@@ -78,13 +77,13 @@ inline constexpr bool IsHelpPath(std::wstring_view path) noexcept
 }
 
 // zoom_percent: 0 または 100 はデフォルト（省略）、それ以外は "(125%)" 等として表示。
-std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent);
+std::wstring BuildTitleString(std::wstring_view path, int zoom_percent);
 
 // 以下は同一ファイルのリロード判定。旧/新の UTF-8 テキストを比べてリロード方針を決め、差分位置 (UTF-8 byte オフセット) を
 // ノードへ写像する。OnParseComplete / DoReloadCurrentFile の分岐を揃えるために 1 か所に集める。
 
 // 新旧コンテンツの最初の差分 UTF-8 byte 位置を返す。同一の場合は npos。
-// 前提: 両テキストとも LF 正規化済みであること。old は raw_text_、new は LoadFile 由来で
+// 前提: 両テキストとも LF 正規化済みであること。old は DocumentData::raw、new は LoadFile 由来で
 // どちらも正規化済み (issue #273)。
 size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept;
 
@@ -101,7 +100,8 @@ struct ReloadDecision {
 };
 
 // 旧/新コンテンツの UTF-8 テキストを比較し、リロード方針を決定する純粋関数。
-ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text) noexcept;
+// accept_prefix_shrink なら prefix shrink も defer せず Replace にする (PrefixShrinkRetry の上限後)。
+ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text, bool accept_prefix_shrink = false) noexcept;
 
 // 末尾を削っただけの保存は何度読み直しても prefix shrink になるため、defer 回数に上限を設け、
 // 超えたら縮んだ内容を確定版として受け入れる。
@@ -109,14 +109,11 @@ class PrefixShrinkRetry {
 public:
     static constexpr uint8_t kMaxDefers = 10;
 
-    // true なら defer を続ける (回数を 1 つ消費する)。
-    bool TryDefer() noexcept
+    void CountDefer() noexcept
     {
-        if (Exhausted()) {
-            return false;
+        if (!Exhausted()) {
+            ++count_;
         }
-        ++count_;
-        return true;
     }
     bool Exhausted() const noexcept
     {
@@ -132,4 +129,4 @@ private:
 };
 
 // source_offset が diff_offset 以下の最後のノードを返す。該当なしの場合は -1。
-[[nodiscard]] int FindNodeBySourceOffset(const std::pmr::vector<Node>& nodes, size_t diff_offset) noexcept;
+[[nodiscard]] int FindNodeBySourceOffset(const std::vector<Node>& nodes, size_t diff_offset) noexcept;

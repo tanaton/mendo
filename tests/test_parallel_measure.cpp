@@ -2,7 +2,6 @@
 #include <atomic>
 #include <chrono>
 #include <limits>
-#include <memory_resource>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -90,7 +89,7 @@ BatchRun RunBatch(DirtyNodeFixture& f, const Theme& theme, MockTextMeasurer& mea
 }
 
 // ProcessDirtyBatch を残り dirty なしまで回し、回したバッチ数を返す。収束しなければ失敗にする。
-int DrainDirtyBatches(LayoutEngine& engine, const std::pmr::vector<Node>& nodes, LayoutCache& cache)
+int DrainDirtyBatches(LayoutEngine& engine, const std::vector<Node>& nodes, LayoutCache& cache)
 {
     constexpr int kMaxBatches = 20;
     for (int batches = 1; batches <= kMaxBatches; ++batches) {
@@ -181,7 +180,7 @@ TEST_F(ParallelMeasureTest, EnsureVisibleLayoutParallelMatchesSerial)
     for (int i = 0; i < 300; i++) {
         md += "Paragraph " + std::to_string(i) + " " + std::string(static_cast<size_t>(i % 50), 'w') + "\n\n";
     }
-    const auto build = [&](LayoutEngine& engine, std::pmr::vector<Node>& nodes, LayoutCache& cache) {
+    const auto build = [&](LayoutEngine& engine, std::vector<Node>& nodes, LayoutCache& cache) {
         nodes = ParseNodes(md);
         cache = LayoutCache(nodes.size());
         EstimateNodeHeights(nodes, cache, theme_, 0.0f, {});
@@ -190,14 +189,14 @@ TEST_F(ParallelMeasureTest, EnsureVisibleLayoutParallelMatchesSerial)
 
     LayoutEngine serial;
     ASSERT_TRUE(serial.Init(&mock_, theme_));
-    std::pmr::vector<Node> s_nodes;
+    std::vector<Node> s_nodes;
     LayoutCache s_cache;
     build(serial, s_nodes, s_cache);
 
     LayoutEngine parallel;
     ASSERT_TRUE(parallel.Init(&mock_, theme_));
     mock_.SetScheduler(&task_scheduler_);
-    std::pmr::vector<Node> p_nodes;
+    std::vector<Node> p_nodes;
     LayoutCache p_cache;
     build(parallel, p_nodes, p_cache);
     mock_.SetScheduler(nullptr);

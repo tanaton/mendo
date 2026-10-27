@@ -7,7 +7,6 @@
 #include "ui_constants.h"
 #include <algorithm>
 #include <cmath>
-#include <memory_resource>
 #include <string_view>
 
 // DirectWriteなしでLayoutEngineをテストするためのモックテキスト計測器。

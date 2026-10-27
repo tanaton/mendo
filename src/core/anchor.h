@@ -10,10 +10,10 @@
 #include <unordered_map>
 
 // GitHub スタイル: 小文字化、空白→'-'、CJK 保持、句読点スキップ。結果を slug に書く。
-void GenerateAnchorIdInto(std::string_view text, std::pmr::string& slug);
+void GenerateAnchorIdInto(std::string_view text, std::string& slug);
 
 // リンク先のアンカーを GenerateAnchorIdInto と同じ規則で小文字にする。
-std::pmr::string ToLowerAnchorCopy(std::string_view text);
+std::string ToLowerAnchorCopy(std::string_view text);
 
 // 見出しのアンカー (GitHub と同じスラグ) と、それを付けた見出しのノード番号の索引。
 // 重複は github-slugger と同じく出現順に "-1", "-2", ... を付けるので、見出しは文書順に Add する。
@@ -49,8 +49,8 @@ private:
     // 採用した連番付きスラグも登録し、同じ文字列の見出しが後に来たら衝突として扱う。
     std::pmr::unordered_map<std::pmr::string, Entry, StringTransparentHash, std::equal_to<>> entries_{ &arena_ };
     size_t heading_count_ = 0;
-    std::pmr::string base_;
-    std::pmr::string candidate_;
+    std::string base_;
+    std::string candidate_;
 };
 
 // 脚注参照の位置。id は脚注番号、ref_id は同じ脚注への何回目の参照か (どちらも 1 始まり)。

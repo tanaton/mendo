@@ -73,7 +73,7 @@ constexpr bool IsIdentChar(char c) noexcept
 
 // [start, end) を type のトークンとして出し、end を返す (呼び出し側はそのまま走査位置にする)。
 // Plain は描画・HTML 化ともトークン間の隙間と同じ扱いなので出力しない (出すとトークンの大半を占める)。
-constexpr size_t EmitRange(std::pmr::vector<SyntaxToken>& tokens, size_t start, size_t end, SyntaxTokenType type)
+constexpr size_t EmitRange(std::vector<SyntaxToken>& tokens, size_t start, size_t end, SyntaxTokenType type)
 {
     if (end > start && type != SyntaxTokenType::Plain) {
         tokens.emplace_back(static_cast<uint32_t>(start), static_cast<uint32_t>(end - start), type);
@@ -386,7 +386,7 @@ void TokenizeRange(
     size_t begin,
     kw::KeywordTable keywords,
     kw::KeywordTable types,
-    std::pmr::vector<SyntaxToken>& tokens)
+    std::vector<SyntaxToken>& tokens)
 {
     // 行頭判定が必要な言語のみフラグを保持する。それ以外では at_line_start の維持コストを払わない。
     constexpr bool kNeedAtLineStart = Cfg.preprocessor || Cfg.double_colon_comment || Cfg.rem_comment || Cfg.ruby_block_comment;
@@ -736,7 +736,7 @@ constexpr size_t SkipBlanks(std::string_view text, size_t pos, size_t end) noexc
     return SkipWhile(text, pos, end, IsBlank);
 }
 
-void TokenizeShellRange(std::string_view text, size_t begin, size_t end, std::pmr::vector<SyntaxToken>& tokens)
+void TokenizeShellRange(std::string_view text, size_t begin, size_t end, std::vector<SyntaxToken>& tokens)
 {
     TokenizeRange<BASH_LEXER_CONFIG>(text.substr(0, end), begin, kw::BASH_KEYWORDS, kw::BASH_TYPES, tokens);
 }
@@ -826,7 +826,7 @@ SyntaxTokenType DiffLineType(std::string_view line) noexcept
     }
 }
 
-void TokenizeDiff(std::string_view text, std::pmr::vector<SyntaxToken>& tokens)
+void TokenizeDiff(std::string_view text, std::vector<SyntaxToken>& tokens)
 {
     const auto starts_with_at = [text](size_t pos, std::string_view prefix) {
         return pos < text.size() && text.substr(pos).starts_with(prefix);
@@ -868,7 +868,7 @@ constexpr size_t ScanYamlQuoted(std::string_view text, size_t pos) noexcept
 }
 
 // 行頭のキーを Type として出し、':' の次の位置を返す。キーでなければ pos のまま。
-size_t ScanYamlKey(std::string_view text, size_t pos, size_t eol, std::pmr::vector<SyntaxToken>& tokens)
+size_t ScanYamlKey(std::string_view text, size_t pos, size_t eol, std::vector<SyntaxToken>& tokens)
 {
     if (pos >= eol) {
         return pos;
@@ -899,7 +899,7 @@ size_t ScanYamlKey(std::string_view text, size_t pos, size_t eol, std::pmr::vect
 }
 
 // キーの後（またはシーケンス要素）の値を行末まで読む。ブロックスカラー（| / >）が始まるなら true。
-bool ScanYamlValue(std::string_view text, size_t i, size_t eol, std::pmr::vector<SyntaxToken>& tokens)
+bool ScanYamlValue(std::string_view text, size_t i, size_t eol, std::vector<SyntaxToken>& tokens)
 {
     static constexpr CharSet kFlowIndicators{ ",[]{}" };
     int flow_depth = 0;
@@ -964,7 +964,7 @@ bool ScanYamlValue(std::string_view text, size_t i, size_t eol, std::pmr::vector
 }
 
 // インデントが parent_indent より深い行（と空行）をブロックスカラーの本文として String にする。返り値は本文直後の行頭。
-size_t ScanYamlBlockScalar(std::string_view text, size_t pos, size_t parent_indent, std::pmr::vector<SyntaxToken>& tokens)
+size_t ScanYamlBlockScalar(std::string_view text, size_t pos, size_t parent_indent, std::vector<SyntaxToken>& tokens)
 {
     while (pos < text.size()) {
         const size_t eol = SkipToEol(text, pos);
@@ -981,7 +981,7 @@ size_t ScanYamlBlockScalar(std::string_view text, size_t pos, size_t parent_inde
     return pos;
 }
 
-void TokenizeYaml(std::string_view text, std::pmr::vector<SyntaxToken>& tokens)
+void TokenizeYaml(std::string_view text, std::vector<SyntaxToken>& tokens)
 {
     size_t pos = 0;
     while (pos < text.size()) {
@@ -1079,7 +1079,7 @@ struct DepthFlags {
     }
 };
 
-void TokenizeToml(std::string_view text, std::pmr::vector<SyntaxToken>& tokens)
+void TokenizeToml(std::string_view text, std::vector<SyntaxToken>& tokens)
 {
     // 括弧の深さごとに '{' (インラインテーブル) か '[' (配列) かを覚える。キーはテーブル直下でのみ現れる。
     DepthFlags inline_tables;
@@ -1160,7 +1160,7 @@ void TokenizeToml(std::string_view text, std::pmr::vector<SyntaxToken>& tokens)
 
 // ---------- INI ----------
 
-void TokenizeIni(std::string_view text, std::pmr::vector<SyntaxToken>& tokens)
+void TokenizeIni(std::string_view text, std::vector<SyntaxToken>& tokens)
 {
     for (size_t pos = 0; pos < text.size();) {
         const size_t eol = SkipToEol(text, pos);
@@ -1216,7 +1216,7 @@ constexpr size_t ScanCssNumber(std::string_view text, size_t pos) noexcept
 }
 
 // セレクタの 1 トークンを読み、次の位置を返す。タグ名は Keyword、.class / #id は Function、疑似クラスと属性名は Type。
-size_t ScanCssSelectorToken(std::string_view text, size_t i, std::pmr::vector<SyntaxToken>& tokens)
+size_t ScanCssSelectorToken(std::string_view text, size_t i, std::vector<SyntaxToken>& tokens)
 {
     const char c = text[i];
     const char next = i + 1 < text.size() ? text[i + 1] : '\0';
@@ -1249,7 +1249,7 @@ size_t ScanCssSelectorToken(std::string_view text, size_t i, std::pmr::vector<Sy
 
 // 宣言の値かアットルールの引数の 1 トークンを読み、次の位置を返す。
 template <bool kScss>
-size_t ScanCssValueToken(std::string_view text, size_t i, bool at_rule, std::pmr::vector<SyntaxToken>& tokens)
+size_t ScanCssValueToken(std::string_view text, size_t i, bool at_rule, std::vector<SyntaxToken>& tokens)
 {
     const size_t n = text.size();
     const char c = text[i];
@@ -1296,7 +1296,7 @@ size_t ScanCssValueToken(std::string_view text, size_t i, bool at_rule, std::pmr
 
 // [begin, text.size()) を CSS として走査する。HTML の <style> 内もここを通す。
 template <bool kScss>
-void TokenizeCssRange(std::string_view text, size_t begin, std::pmr::vector<SyntaxToken>& tokens)
+void TokenizeCssRange(std::string_view text, size_t begin, std::vector<SyntaxToken>& tokens)
 {
     enum class Mode : uint8_t {
         Selector,
@@ -1424,7 +1424,7 @@ constexpr size_t FindClosingTag(std::string_view text, size_t pos, ascii_util::D
 // タグ名は Keyword、属性名は Type、属性値は String、文字参照は Number。
 // HTML では <script> / <style> の中身を JS / CSS として色付けする。
 template <bool kHtml>
-void TokenizeMarkup(std::string_view text, std::pmr::vector<SyntaxToken>& tokens)
+void TokenizeMarkup(std::string_view text, std::vector<SyntaxToken>& tokens)
 {
     const size_t n = text.size();
     size_t i = 0;
@@ -1526,7 +1526,7 @@ void TokenizeMarkup(std::string_view text, std::pmr::vector<SyntaxToken>& tokens
 // ---------- Dockerfile ----------
 
 // 行頭の命令を Keyword とし、引数は継続行も含めてシェルとして色付けする。
-void TokenizeDockerfile(std::string_view text, std::pmr::vector<SyntaxToken>& tokens)
+void TokenizeDockerfile(std::string_view text, std::vector<SyntaxToken>& tokens)
 {
     size_t pos = 0;
     while (pos < text.size()) {
@@ -1590,7 +1590,7 @@ constexpr size_t ScanMakeVarRef(std::string_view text, size_t pos, size_t end) n
 }
 
 // [begin, end) の変数参照を Type、'#' 以降を Comment、残りを type として出す。
-void TokenizeMakeText(std::string_view text, size_t begin, size_t end, SyntaxTokenType type, std::pmr::vector<SyntaxToken>& tokens)
+void TokenizeMakeText(std::string_view text, size_t begin, size_t end, SyntaxTokenType type, std::vector<SyntaxToken>& tokens)
 {
     size_t seg = begin;
     size_t i = begin;
@@ -1621,7 +1621,7 @@ void TokenizeMakeText(std::string_view text, size_t begin, size_t end, SyntaxTok
 }
 
 // レシピ行はシェルとして色付けし、make の変数参照だけを Type で上書きする。
-void TokenizeMakeRecipe(std::string_view text, size_t begin, size_t end, std::pmr::vector<SyntaxToken>& tokens)
+void TokenizeMakeRecipe(std::string_view text, size_t begin, size_t end, std::vector<SyntaxToken>& tokens)
 {
     size_t seg = begin;
     const auto line = text.substr(0, end);
@@ -1664,7 +1664,7 @@ constexpr size_t FindMakeOperator(std::string_view text, size_t pos, size_t end)
     return npos;
 }
 
-void TokenizeMakefile(std::string_view text, std::pmr::vector<SyntaxToken>& tokens)
+void TokenizeMakefile(std::string_view text, std::vector<SyntaxToken>& tokens)
 {
     // md4c はコードブロック行頭のタブをスペースに展開して渡すので、タブではなく
     // 「ルール行に続くインデント行」をレシピとみなす。
@@ -1776,7 +1776,7 @@ constexpr size_t ScanHaskellChar(std::string_view text, size_t pos) noexcept
 }
 
 // 大文字始まりの識別子は型・コンストラクタ、行頭の小文字始まりは定義名 (関数の型注釈と本体) とする。
-void TokenizeHaskell(std::string_view text, std::pmr::vector<SyntaxToken>& tokens)
+void TokenizeHaskell(std::string_view text, std::vector<SyntaxToken>& tokens)
 {
     const size_t n = text.size();
     size_t i = 0;
@@ -1945,7 +1945,7 @@ bool LispContains(const LispDialect& d, kw::KeywordTable table, std::string_view
 }
 
 // # で始まるディスパッチ記法を読み、次の位置を返す。
-size_t ScanLispDispatch(std::string_view text, size_t i, std::pmr::vector<SyntaxToken>& tokens)
+size_t ScanLispDispatch(std::string_view text, size_t i, std::vector<SyntaxToken>& tokens)
 {
     const size_t n = text.size();
     const char next = i + 1 < n ? text[i + 1] : '\0';
@@ -2010,7 +2010,7 @@ size_t ScanLispDispatch(std::string_view text, size_t i, std::pmr::vector<Syntax
 
 // リストの先頭 (呼び出し位置) のシンボルを Function、特殊形式を Keyword とする。
 // 定義名 (defun foo の foo) は Function、引数リストと let の束縛リストは呼び出しと見ない。
-void TokenizeLisp(std::string_view text, const LispDialect& d, std::pmr::vector<SyntaxToken>& tokens)
+void TokenizeLisp(std::string_view text, const LispDialect& d, std::vector<SyntaxToken>& tokens)
 {
     const size_t n = text.size();
     // 深さごとに「直下のリストは呼び出しではない」を覚える (let の束縛リスト、cond の節の親)
@@ -2225,7 +2225,7 @@ constexpr VimHeredoc ParseVimHeredoc(std::string_view text, size_t pos, VimHered
 
 // 行頭 (と | の後) をコマンド位置として読み、コマンド名を Keyword、引数を式として色付けする。
 // text は行末で切ってある。
-VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bool vim9, std::pmr::vector<SyntaxToken>& tokens)
+VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bool vim9, std::vector<SyntaxToken>& tokens)
 {
     const size_t eol = text.size();
     while (i < eol) {
@@ -2397,7 +2397,7 @@ constexpr bool StartsWithVim9Script(std::string_view text) noexcept
     return false;
 }
 
-void TokenizeVim(std::string_view text, bool vim9, std::pmr::vector<SyntaxToken>& tokens)
+void TokenizeVim(std::string_view text, bool vim9, std::vector<SyntaxToken>& tokens)
 {
     vim9 = vim9 || StartsWithVim9Script(text);
     size_t pos = 0;
@@ -2573,7 +2573,7 @@ SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept
     return it != std::end(kAliases) ? it->language : SyntaxLanguage::None;
 }
 
-void AppendTokens(std::string_view text, SyntaxLanguage language, std::pmr::vector<SyntaxToken>& tokens)
+void AppendTokens(std::string_view text, SyntaxLanguage language, std::vector<SyntaxToken>& tokens)
 {
     switch (language) {
     case SyntaxLanguage::Cpp:
@@ -2656,9 +2656,9 @@ void AppendTokens(std::string_view text, SyntaxLanguage language, std::pmr::vect
     std::unreachable();
 }
 
-std::pmr::vector<SyntaxToken> Tokenize(std::string_view text, SyntaxLanguage language)
+std::vector<SyntaxToken> Tokenize(std::string_view text, SyntaxLanguage language)
 {
-    std::pmr::vector<SyntaxToken> tokens;
+    std::vector<SyntaxToken> tokens;
     if (text.empty() || language == SyntaxLanguage::None || IsDiagramLanguage(language)) {
         return tokens;
     }

@@ -27,7 +27,7 @@ constexpr std::span<const size_t> VisibleSlice(std::span<const size_t> sorted_in
 }
 
 // 開かない src (リモート・UNC・解決失敗) は空文字列。
-std::wstring ResolveLocalImagePath(std::string_view src, const std::pmr::wstring& doc_dir)
+std::wstring ResolveLocalImagePath(std::string_view src, const std::wstring& doc_dir)
 {
     if (src.contains("://")) {
         return {};
@@ -202,7 +202,7 @@ void ResourceManager::OnBitmapManageTimer()
 
 void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, bool start_loads, layout::HeightChangeRange& changed)
 {
-    const std::pmr::wstring& doc_dir = deps_.doc->GetDirectory();
+    const std::wstring& doc_dir = deps_.doc->GetDirectory();
     if (doc_dir.empty()) {
         return;
     }
@@ -307,7 +307,7 @@ void ResourceManager::ApplyBitmapHeight(size_t i, const DiagramEntry& bitmap, fl
     changed.Add(i);
 }
 
-const std::wstring* ResourceManager::ResolveImagePath(std::string_view src, const std::pmr::wstring& doc_dir)
+const std::wstring* ResourceManager::ResolveImagePath(std::string_view src, const std::wstring& doc_dir)
 {
     auto it = resolved_image_paths_.find(src);
     if (it == resolved_image_paths_.end()) {

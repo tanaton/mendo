@@ -6,7 +6,6 @@
 #include "ui_constants.h"
 #include <algorithm>
 #include <limits>
-#include <memory_resource>
 #include <span>
 #include <stop_token>
 #include <string_view>
@@ -133,17 +132,17 @@ inline float AdvanceNodeY(float& y, float spacing_above, float height, float spa
     return text_top;
 }
 
-void ComputeColumnWidths(std::pmr::vector<float>& out, std::span<const float> natural_widths, float available_width);
+void ComputeColumnWidths(std::vector<float>& out, std::span<const float> natural_widths, float available_width);
 
 // node_width > 0 なら、折り返す段落の行数を文字数から見積もる。0 は幅を知らないときの推定 (起動時の先読み)。
 float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width) noexcept;
 
 // content_width > 0 なら折り返しを見積もる。stop_token が stop_requested になると途中 return する (cache は中間状態のまま)。
-void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
+void EstimateNodeHeights(const std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
                          float content_width, std::stop_token stop_token);
 
 // 全ノードを dirty にして高さを推定値で更新し (EstimateInvisibleNodeHeight)、Y を組み直す。
-void ReestimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, float content_width);
+void ReestimateNodeHeights(const std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, float content_width);
 
 // リロードで、中身が変わらないノード (FindUnchangedEnds) の計測結果を旧キャッシュから新キャッシュへ移す。
 // 変わった範囲の図は、新しい結果が届くまで旧結果を仮表示として引き継ぐ。
@@ -154,13 +153,13 @@ struct CarryOverResult {
 };
 // ends は FindUnchangedEnds(old_nodes, new_nodes) の結果。
 CarryOverResult CarryOverUnchanged(
-    const std::pmr::vector<Node>& old_nodes, LayoutCache& old_cache,
-    const std::pmr::vector<Node>& new_nodes, LayoutCache& new_cache, const UnchangedEnds& ends);
+    const std::vector<Node>& old_nodes, LayoutCache& old_cache,
+    const std::vector<Node>& new_nodes, LayoutCache& new_cache, const UnchangedEnds& ends);
 
 // 新文書用の LayoutCache。未計測のまま位置が全て 0 だと可視範囲の判定が効かないため、
 // 文書を表示に載せる経路はすべてこれで作る。stop 時は中間状態なので呼び出し側で破棄する。
 // 表示する本文幅を渡せば、UI スレッドで推定し直さずに済む (0 は幅を知らない)。
-LayoutCache MakeEstimatedLayoutCache(const std::pmr::vector<Node>& nodes, const Theme& theme,
+LayoutCache MakeEstimatedLayoutCache(const std::vector<Node>& nodes, const Theme& theme,
                                      float content_width = 0.0f, std::stop_token stop_token = {});
 
 // 不可視ノードに対し、現在の高さを下回らない範囲で推定値で更新する。
@@ -190,7 +189,7 @@ struct HeightChangeRange {
 };
 
 void RecomputeYPositions(
-    const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
+    const std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
     size_t from_index = 0, size_t safe_exit_after = std::numeric_limits<size_t>::max()) noexcept;
 
 // scroll_y + margin の位置にある見出し (目次の項目番号)。無ければ -1。
@@ -201,7 +200,7 @@ int FindActiveTocIndex(std::span<const TocEntry> entries, const LayoutCache& cac
 // diff_pos が npos (差分位置なし = スクロール維持) またはノードが見つからない場合は
 // fallback_scroll を返す。
 float CalcScrollYForDiff(
-    const std::pmr::vector<Node>& nodes,
+    const std::vector<Node>& nodes,
     const LayoutCache& cache,
     std::string_view content,
     size_t diff_pos,

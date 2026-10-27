@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits>
-#include <memory_resource>
 #include <ranges>
 #include <unordered_map>
 
@@ -63,7 +62,7 @@ inline TableColHit FindTableCol(const TableLayoutData& tl, float local_x) noexce
 }
 
 struct MdPaneHitContext {
-    const std::pmr::vector<Node>& nodes;
+    const std::vector<Node>& nodes;
     const LayoutCache& cache;
     const Theme& theme;
     float scroll_y;
@@ -74,7 +73,7 @@ struct MdPaneHitContext {
     // ボタン位置とブロック横スクロールの clamp に使う。
     float content_width = 0.0f;
     // ブロック単位の横スクロール状態。null なら全 0 扱い。
-    const std::pmr::unordered_map<int, float>* block_scroll_x = nullptr;
+    const std::unordered_map<int, float>* block_scroll_x = nullptr;
 };
 
 // MD ペインのヒットテスト。状態を持たない純粋関数群。

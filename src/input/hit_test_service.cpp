@@ -40,7 +40,7 @@ void ResolveTextHit(hit_test::HitResult& result, IDWriteTextLayout* layout, floa
 
 // ノード高さ範囲外 (ノード間の余白等) のヒットを最寄りの非空ノードにクランプする。
 // 文書全体の末尾へ飛ばすと、余白クリックからのドラッグで巨大選択になる。
-hit_test::HitResult ClampToNearestTextNode(const std::pmr::vector<Node>& nodes, int candidate) noexcept
+hit_test::HitResult ClampToNearestTextNode(const std::vector<Node>& nodes, int candidate) noexcept
 {
     for (int i = candidate; i >= 0; --i) {
         if (const auto text = nodes[static_cast<size_t>(i)].GetText(); !text.empty()) {

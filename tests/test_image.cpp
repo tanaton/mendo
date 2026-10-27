@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#include <memory_resource>
 #include <filesystem>
 #include "parser.h"
 #include "layout.h"
@@ -304,13 +303,13 @@ protected:
         d.width = width;
         d.height = height;
     }
-    LayoutCache Layout(std::pmr::vector<Node>& nodes, float viewport_w = 800.0f)
+    LayoutCache Layout(std::vector<Node>& nodes, float viewport_w = 800.0f)
     {
         LayoutCache cache(nodes.size());
         ComputeLayout(engine_, nodes, cache, viewport_w);
         return cache;
     }
-    void Layout(std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_w = 800.0f)
+    void Layout(std::vector<Node>& nodes, LayoutCache& cache, float viewport_w = 800.0f)
     {
         ComputeLayout(engine_, nodes, cache, viewport_w);
     }
