@@ -71,27 +71,11 @@ std::pmr::vector<SyntaxToken> TokenizeCodeNode(const Node& node);
 // 並び全体のトークンを一度に持たない。scheduler があれば区間に分けて並列に解析する (同じ worker 上から呼んでよい)。
 void AnnotateCodeChunkLeads(std::span<Node> run, TaskScheduler* scheduler = nullptr);
 
-// 最後のパス区切り以降。区切りで終わるパスでは空。
-constexpr std::wstring_view FilenameView(std::wstring_view path) noexcept
-{
-    const auto pos = path.find_last_of(L"\\/");
-    return pos == std::wstring_view::npos ? path : path.substr(pos + 1);
-}
-
-// 最後のパス区切り以降の "." を含む拡張子。無ければ空。
-std::wstring_view ExtensionView(std::wstring_view path) noexcept;
-
-// 拡張子の大文字小文字は区別しない。
-bool IsMarkdownFile(std::wstring_view path);
-
 inline constexpr std::wstring_view HELP_PATH = L"mendo://help";
 inline constexpr bool IsHelpPath(std::wstring_view path) noexcept
 {
     return path == HELP_PATH;
 }
-
-// 空パスや区切りを含まないパスでは空を返す。
-std::pmr::wstring ParentDirectory(std::wstring_view path);
 
 // zoom_percent: 0 または 100 はデフォルト（省略）、それ以外は "(125%)" 等として表示。
 std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent);

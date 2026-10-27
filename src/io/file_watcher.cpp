@@ -47,18 +47,18 @@ void FileWatcher::StartWatching(const std::pmr::wstring& file_path, ChangeCallba
     StopWatching();
     on_change_ = std::move(callback);
 
-    watch_filename_ = FilenameView(file_path);
+    watch_filename_ = path_util::FilenameView(file_path);
 
     watch_filename_short_.clear();
     wchar_t short_buf[MAX_PATH];
     const DWORD short_len = GetShortPathNameW(file_path.c_str(), short_buf, MAX_PATH);
     if (short_len > 0 && short_len < MAX_PATH) {
-        if (const auto short_name = FilenameView({ short_buf, short_len }); !path_util::iequal(short_name, watch_filename_)) {
+        if (const auto short_name = path_util::FilenameView({ short_buf, short_len }); !path_util::iequal(short_name, watch_filename_)) {
             watch_filename_short_ = short_name;
         }
     }
 
-    const auto dir = ParentDirectory(file_path);
+    const auto dir = path_util::ParentDirectory(file_path);
     if (dir.empty()) {
         return;
     }

@@ -18,13 +18,13 @@ bool ShouldListEntry(const WIN32_FIND_DATAW& fd) noexcept
     if (name == L"." || name == L".." || (fd.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM) != 0) {
         return false;
     }
-    return IsDirectory(fd) || IsMarkdownFile(fd.cFileName);
+    return IsDirectory(fd) || path_util::IsMarkdownFile(fd.cFileName);
 }
 } // namespace
 
 std::wstring_view FileEntry::GetDisplayName() const noexcept
 {
-    return is_parent ? std::wstring_view{ L".." } : FilenameView(full_path);
+    return is_parent ? std::wstring_view{ L".." } : path_util::FilenameView(full_path);
 }
 
 void FileExplorer::SetDirectory(std::wstring_view dir_path)

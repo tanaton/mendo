@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <algorithm>
+#include "file_io.h"
 #include <format>
 #include <iterator>
 #include <limits>
@@ -857,7 +858,7 @@ TEST(FilenameView, ReturnsLastPathComponent)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
-        EXPECT_EQ(FilenameView(c.path), c.expected);
+        EXPECT_EQ(path_util::FilenameView(c.path), c.expected);
     }
 }
 
@@ -1716,7 +1717,7 @@ TEST(IsMarkdownFile, MatchesMarkdownExtensionsCaseInsensitively)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
-        EXPECT_EQ(IsMarkdownFile(c.path), c.expected);
+        EXPECT_EQ(path_util::IsMarkdownFile(c.path), c.expected);
     }
 }
 
@@ -1770,7 +1771,7 @@ TEST(ExtensionView, ReturnsDotExtensionOfLastComponent)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
-        EXPECT_EQ(ExtensionView(c.path), c.expected);
+        EXPECT_EQ(path_util::ExtensionView(c.path), c.expected);
     }
 }
 
@@ -1790,7 +1791,7 @@ TEST(ParentDirectory, ReturnsDirectoryPart)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
-        EXPECT_EQ(ParentDirectory(c.path), c.expected);
+        EXPECT_EQ(path_util::ParentDirectory(c.path), c.expected);
     }
 }
 

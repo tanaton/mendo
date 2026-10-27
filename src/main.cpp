@@ -30,7 +30,7 @@ std::wstring ExeDirectory()
     if (len == 0 || len >= MAX_PATH) {
         return {};
     }
-    return std::wstring{ ParentDirectory({ buf, len }) };
+    return std::wstring{ path_util::ParentDirectory({ buf, len }) };
 }
 
 // "." や相対パスを FileExplorer / 前回ファイル比較でそのまま扱えるよう絶対パス化する。

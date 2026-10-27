@@ -1,12 +1,12 @@
 #include "document_utils.h"
 #include "ascii_util.h"
+#include "file_io.h"
 #include "parallel_for.h"
 #include "profiler.h"
 #include "utf8_codec.h"
 #include <algorithm>
 #include <cstring>
 #include <cstdint>
-#include <filesystem>
 #include <format>
 #include <iterator>
 #include <ranges>
@@ -153,34 +153,9 @@ NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, u
     return r;
 }
 
-std::wstring_view ExtensionView(std::wstring_view path) noexcept
-{
-    const auto name = FilenameView(path);
-    const auto dot_pos = name.rfind(L'.');
-    return dot_pos == std::wstring_view::npos ? std::wstring_view{} : name.substr(dot_pos);
-}
-
-bool IsMarkdownFile(std::wstring_view path)
-{
-    static constexpr ascii_util::LowercaseAsciiLiteral kMarkdownExts[]{
-        L".md",
-        L".markdown",
-        L".mkd",
-    };
-    const auto ext = ExtensionView(path);
-    return std::ranges::any_of(kMarkdownExts, [&](const auto& e) noexcept {
-        return ascii_util::iequal(ext, e);
-    });
-}
-
-std::pmr::wstring ParentDirectory(std::wstring_view path)
-{
-    return std::pmr::wstring{ std::filesystem::path(path).parent_path().native() };
-}
-
 std::pmr::wstring BuildTitleString(std::wstring_view path, int zoom_percent)
 {
-    std::pmr::wstring title{ FilenameView(path) };
+    std::pmr::wstring title{ path_util::FilenameView(path) };
     title += title.empty() ? L"mendo" : L" - mendo";
     if (zoom_percent > 0 && zoom_percent != 100) {
         std::format_to(std::back_inserter(title), L" ({}%)", zoom_percent);

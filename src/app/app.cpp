@@ -1,4 +1,5 @@
 #include "app.h"
+#include "file_io.h"
 #include "app_constants.h"
 #include "ascii_util.h"
 #include "clipboard_util.h"
@@ -24,7 +25,7 @@ namespace {
 
 bool IsEditableTextFile(std::wstring_view path)
 {
-    return IsMarkdownFile(path) || ascii_util::iequal(ExtensionView(path), L".txt");
+    return path_util::IsMarkdownFile(path) || ascii_util::iequal(path_util::ExtensionView(path), L".txt");
 }
 
 // ズームの対象。ペインの指定が無ければ本文 (スプリッタの上も本文)。
