@@ -68,8 +68,11 @@ TEST(AppControllerTest, HandleKeyDown)
         { "Alt+Left", { .key = VK_LEFT, .alt = true }, NavigateBackAction{} },
         { "Alt+Right", { .key = VK_RIGHT, .alt = true }, NavigateForwardAction{} },
         { "Alt+Up", { .key = VK_UP, .alt = true }, NoOpAction{} },
-        // Ctrl+Alt ではナビゲーションを発動しない
+        // Ctrl+Alt (AltGr) には何も割り当てない
         { "Ctrl+Alt+Left", { .key = VK_LEFT, .ctrl = true, .alt = true }, NoOpAction{} },
+        { "AltGr+0", { .key = '0', .ctrl = true, .alt = true }, NoOpAction{} },
+        { "AltGr+Plus", { .key = VK_OEM_PLUS, .ctrl = true, .alt = true }, NoOpAction{} },
+        { "AltGr+F", { .key = 'F', .ctrl = true, .alt = true }, NoOpAction{} },
 
         { "F3", { .key = VK_F3 }, SearchNextAction{} },
         { "Shift+F3", { .key = VK_F3, .shift = true }, SearchPrevAction{} },
@@ -106,6 +109,8 @@ TEST(AppControllerTest, HandleSearchEditKeyDown)
         { "Ctrl+Z", { .key = 'Z', .ctrl = true }, NoOpAction{} },
         { "Letter", { .key = 'Z' }, NoOpAction{} },
         { "IME", { .key = VK_PROCESSKEY }, NoOpAction{} },
+        { "AltGr+0", { .key = '0', .ctrl = true, .alt = true }, NoOpAction{} },
+        { "AltGr+Q", { .key = 'Q', .ctrl = true, .alt = true }, NoOpAction{} },
 
         // 本体と同じ割り当て。
         { "Escape", { .key = VK_ESCAPE }, ClearSelectionAction{} },

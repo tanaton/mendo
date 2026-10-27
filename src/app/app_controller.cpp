@@ -51,7 +51,12 @@ constexpr bool IsSearchEditOwnKey(const KeyDownEvent& event) noexcept
 
 AppAction HandleKeyDown(const KeyDownEvent& event)
 {
-    if (event.alt && !event.ctrl) {
+    // AltGr は Ctrl+Alt として届く。ドイツ語配列の AltGr+0 (}) などを検索欄で打つとズームが動くので、
+    // Ctrl+Alt にはショートカットを割り当てない。
+    if (event.ctrl && event.alt) {
+        return NoOpAction{};
+    }
+    if (event.alt) {
         switch (event.key) {
         case VK_LEFT:
             return NavigateBackAction{};
