@@ -485,6 +485,38 @@ TEST(Parser, ListIndentLevel)
     EXPECT_GT(nodes[0].indent_level, 0);
 }
 
+// 記号と番号の書式はリストの段で決まる。番号付きと順序なしは混ぜて数え、引用は数えない (issue#365)。
+TEST(Parser, ListDepthCountsOnlyListNesting)
+{
+    struct Case {
+        std::string_view md;
+        std::vector<int> depths;
+    };
+    const Case kCases[] = {
+        { "- a\n  - b\n    - c\n      - d", { 1, 2, 3, 4 } },
+        { "1. a\n   - b\n     1. c", { 1, 2, 3 } },
+        { "> - a\n>   - b", { 1, 2 } },
+        { "- a\n\n  > - b", { 1, 2 } },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(c.md);
+        std::vector<int> depths;
+        for (const auto& node : ParseNodes(c.md)) {
+            if (node.type == NodeType::ListItem) {
+                depths.push_back(node.list_depth());
+            }
+        }
+        EXPECT_EQ(depths, c.depths);
+    }
+}
+
+TEST(Parser, FootnoteDefIsOutermostList)
+{
+    const auto result = ParseMarkdown("text[^1]\n\n[^1]: note");
+    ASSERT_EQ(result.indices.footnote_def_indices.size(), 1u);
+    EXPECT_EQ(result.nodes[result.indices.footnote_def_indices[0]].list_depth(), 1);
+}
+
 // ---- タスクリスト ----
 
 TEST(Parser, TaskListItem)

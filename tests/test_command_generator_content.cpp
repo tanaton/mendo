@@ -7,10 +7,15 @@
 #include "cmd_gen_mock_test_base.h"
 #include "test_helpers.h"
 #include "ui_constants.h"
+#include <array>
 #include <cmath>
+#include <format>
+#include <limits>
 #include <map>
 #include <optional>
 #include <set>
+#include <string_view>
+#include <vector>
 
 namespace {
 
@@ -315,6 +320,77 @@ TEST_F(CmdGenContentTest, NestedListBulletCenteredOnFirstLine)
         }
     }
     EXPECT_EQ(idx, 2) << "親と子の箇条書き記号が1つずつ存在するべき";
+}
+
+// ● ○ ■ を段ごとに繰り返す (issue#365)。
+TEST_F(CmdGenContentTest, BulletShapeCyclesByListDepth)
+{
+    const auto cmds = Generate("- 1\n  - 2\n    - 3\n      - 4");
+    std::vector<char> shapes;
+    for (const auto& cmd : cmds) {
+        if (std::holds_alternative<FillEllipseCmd>(cmd)) {
+            shapes.push_back('F');
+        }
+        else if (std::holds_alternative<DrawEllipseCmd>(cmd)) {
+            shapes.push_back('O');
+        }
+        else if (const auto* r = std::get_if<FillRectCmd>(&cmd); r && r->brush_id == BrushId::Text) {
+            shapes.push_back('S');
+        }
+    }
+    EXPECT_EQ(shapes, (std::vector<char>{ 'F', 'O', 'S', 'F' }));
+}
+
+// 四角は円と同じ中心に置き、円より大きくしない。
+TEST_F(CmdGenContentTest, SquareBulletCenteredOnFirstLine)
+{
+    const auto square = FindFirst<FillRectCmd>(Generate("- a\n  - b\n    - c"), [](const FillRectCmd& r) static { return r.brush_id == BrushId::Text; });
+    ASSERT_TRUE(square.has_value());
+    EXPECT_NEAR((square->rect.top + square->rect.bottom) * 0.5f, ExpectedBulletY(2), 0.01f);
+    EXPECT_NEAR(square->rect.right - square->rect.left, square->rect.bottom - square->rect.top, 0.01f);
+    EXPECT_LE(square->rect.bottom - square->rect.top, theme_.list_bullet_radius * 2.0f);
+}
+
+// 引用の中でもリストの最外側は ● (引用で 1 段深く数えていた)。
+TEST_F(CmdGenContentTest, ListInBlockQuoteStartsWithDisc)
+{
+    const auto cmds = Generate("> - a\n>   - b");
+    EXPECT_EQ(CountCmd<FillEllipseCmd>(cmds), 1);
+    EXPECT_EQ(CountCmd<DrawEllipseCmd>(cmds), 1);
+}
+
+TEST(FormatListNumberTest, StyleCyclesByDepth)
+{
+    struct Case {
+        int32_t number;
+        int depth;
+        std::wstring_view expected;
+    };
+    constexpr Case kCases[] = {
+        { 3,    1, L"3."               },
+        { 3,    2, L"iii."             },
+        { 3,    3, L"c."               },
+        { 3,    4, L"3."               },
+        { 3,    0, L"3."               }, // 段を持たないノード
+        { 4,    2, L"iv."              },
+        { 1994, 2, L"mcmxciv."         },
+        { 3888, 2, L"mmmdccclxxxviii." },
+        { 26,   3, L"z."               },
+        { 27,   3, L"aa."              },
+        { 702,  3, L"zz."              },
+        { 703,  3, L"aaa."             },
+        // ローマ数字・アルファベットで表せない番号は 10 進。
+        { 0,    2, L"0."               },
+        { 4000, 2, L"4000."            },
+        { 0,    3, L"0."               },
+        { std::numeric_limits<int32_t>::max(), 3, L"fxshrxw." },
+        { std::numeric_limits<int32_t>::min(), 1, L"-2147483648." },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(std::format("number={} depth={}", c.number, c.depth));
+        std::array<wchar_t, kListNumberMaxLen> buf;
+        EXPECT_EQ(FormatListNumber(buf, c.number, c.depth), c.expected);
+    }
 }
 
 // OverlayButtonHit パラメータが GenerateMdPane に渡せることの検証

@@ -317,6 +317,12 @@ struct Node {
     {
         return list_ordered() ? payload_.list_number : 0;
     }
+    // ListItem / TaskListItem が居るリストの段 (1 = 最外側)。indent_level を上げるのはリスト・引用・脚注の節で、
+    // 引用の分を引けばリストの段になる。脚注の定義は脚注の節の分で 1 段目 (GitHub でも節が最外側の ol)。
+    constexpr int list_depth() const noexcept
+    {
+        return indent_level - quote_depth;
+    }
     constexpr bool list_ordered() const noexcept
     {
         return (flags_ & kListOrdered) != 0;

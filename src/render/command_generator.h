@@ -38,6 +38,12 @@ struct MdPaneFormats {
 std::optional<FillRoundedRectCmd> VScrollThumb(const PaneRect& pane, float header_height, float scroll_y, float total_content_height,
                                                bool may_grow = false) noexcept;
 
+// 番号付きリストの番号の文字列 ("3." / "iii." / "c.")。段ごとに 10 進・小文字ローマ数字・小文字アルファベットの順で、
+// 4 段目からは繰り返す (箇条書きの記号と同じ)。
+// ローマ数字は 1〜3999、アルファベットは 1 以上しか表せないので、それ以外の番号は CSS と同じく 10 進にする。
+inline constexpr size_t kListNumberMaxLen = 16; // 最長は 3888 のローマ数字 "mmmdccclxxxviii."
+std::wstring_view FormatListNumber(std::span<wchar_t, kListNumberMaxLen> buf, int32_t number, int list_depth) noexcept;
+
 // 検索欄の文字列を測った結果。x は文字列の左端から測る。
 struct SearchInputMetrics {
     IDWriteTextLayout* layout = nullptr; // null なら文字列も選択範囲も描かない
