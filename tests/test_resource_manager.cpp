@@ -75,6 +75,13 @@ public:
     }
 };
 
+// AddRef/Release が何もしないので static のまま共用する。
+StubD2D1Bitmap& SharedStubBitmap() noexcept
+{
+    static StubD2D1Bitmap instance;
+    return instance;
+}
+
 // IMermaidRenderer のテスト用 mock。各メソッドの呼び出し回数と最後の引数を記録する。
 class MockMermaidRenderer : public IMermaidRenderer {
 public:
@@ -122,13 +129,6 @@ public:
         drop_queued_count++;
     }
     int drop_queued_count = 0;
-
-private:
-    static StubD2D1Bitmap& SharedStubBitmap() noexcept
-    {
-        static StubD2D1Bitmap instance;
-        return instance;
-    }
 };
 
 // ResourceManagerHost の各呼び出しを観測するための counter。
@@ -294,7 +294,7 @@ TEST_F(ResourceManagerTest, LoadImagesPassesChangedNodeRangeToRecompute)
 // DPI が変わると同じビットマップでも DIP の寸法が変わる。前の DPI で決めた寸法のまま残さない。
 TEST_F(ResourceManagerTest, LoadImagesUpdatesSizeOfSameBitmap)
 {
-    static StubD2D1Bitmap bitmap;
+    auto& bitmap = SharedStubBitmap();
     LoadMarkdown("![a](one.png)\n");
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f, &bitmap);
     const size_t img_idx = doc_.GetImageNodeIndices()[0];
@@ -427,7 +427,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesAllForReloadAppliesNothingWhenCache
 TEST_F(ResourceManagerTest, ApplyCachedImagesAllForReloadAppliesBeyondVisibleRange)
 {
     // issue #148 の本質: 可視範囲外の画像も全件走査して height を更新する。
-    // 画像を 2 個配置し、2 個目を viewport から大きく外して ApplyCachedImages との差を出す。
+    // 画像を 2 個配置し、2 個目を viewport から大きく外して LoadImages との差を出す。
     LoadMarkdown("![one](one.png)\n\n![two](two.png)\n", /*block_height=*/3000.0f);
 
     const auto& image_indices = doc_.GetImageNodeIndices();
@@ -446,7 +446,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesAllForReloadAppliesBeyondVisibleRan
     EXPECT_FLOAT_EQ(cache_[image_indices[1]].height, 3000.0f);
 
     // ApplyCachedImagesForReload は可視範囲に縛られないので残りの 1 件も適用する。
-    // 1 個目は ApplyCachedImages で diagram.bitmap がセットされていないのでもう一度適用される。
+    // 1 個目は LoadImages で diagram.bitmap がセットされていないのでもう一度適用される。
     EXPECT_TRUE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
     EXPECT_FLOAT_EQ(cache_[image_indices[1]].height, 250.0f);
     EXPECT_FALSE(cache_[image_indices[1]].layout_dirty);

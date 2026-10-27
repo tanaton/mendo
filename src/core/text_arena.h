@@ -20,9 +20,8 @@ public:
     TextArena() = default;
     // チャンクはヒープにあるので、移しても配ったポインタは有効なまま。移し元は空に戻し、移し先のチャンクに書かせない。
     TextArena(TextArena&& other) noexcept
-        : chunks_(std::move(other.chunks_)), cur_(std::exchange(other.cur_, nullptr)), end_(std::exchange(other.end_, nullptr)),
-          next_chunk_size_(std::exchange(other.next_chunk_size_, kMinChunkSize))
     {
+        *this = std::move(other);
     }
     TextArena& operator=(TextArena&& other) noexcept
     {

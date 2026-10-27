@@ -61,9 +61,7 @@ const PaneLayout& EnsurePaneLayout(AppState& state) noexcept
     auto& cache = state.pane_layout_cache;
     // WM_NCHITTEST は Init 前にも届く。大きさが決まる (最初の WM_SIZE) までは空の配置のまま。
     if (!cache.IsValid() && state.theme && state.window.client_width > 0) {
-        const float width = state.window.WidthDip();
-        const float height = PixelToDip(static_cast<float>(state.window.client_height), state.window.cached_dpi_scale);
-        cache.Set(state.view.panes.ComputeLayout(width, height, state.theme->splitter_width, TitleBar::BASE_HEIGHT));
+        cache.Set(state.view.panes.ComputeLayout(state.window.WidthDip(), state.window.HeightDip(), state.theme->splitter_width, TitleBar::BASE_HEIGHT));
     }
     return cache.Get();
 }

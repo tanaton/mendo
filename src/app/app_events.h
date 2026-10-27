@@ -107,7 +107,7 @@ struct MouseLeaveAction {};
 struct SplitterDragStartedAction {
     PaneTarget edge;
 };
-// ドラッグ中のスプリッタは ViewState::drag、ウィンドウ幅は pane_layout_cache から読む。
+// ドラッグ中のスプリッタは ViewState::drag、ウィンドウ幅は WindowState から読む。
 struct SplitterDragMovedAction {
     float dip_x;
 };

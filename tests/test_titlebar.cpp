@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <span>
 #include <string>
+#include <vector>
 #include "titlebar.h"
 
 namespace {
@@ -154,10 +155,13 @@ TEST_F(TitleBarTest, HitTestButtonEdgesAreHalfOpen)
 
 TEST_F(TitleBarTest, ButtonsDoNotOverlap)
 {
-    TitleBarButtons rects;
-    for (size_t i = 0; i < rects.size(); ++i) {
-        rects[i] = tb_.GetButton(static_cast<TitleBarHitZone>(std::to_underlying(TitleBarHitZone::OpenFile) + i));
+    std::vector<DipRect> rects;
+    for (const auto zone : { TitleBarHitZone::OpenFile, TitleBarHitZone::Settings, TitleBarHitZone::Help, TitleBarHitZone::ThemeToggle,
+                             TitleBarHitZone::Search, TitleBarHitZone::FileToggle, TitleBarHitZone::TocToggle, TitleBarHitZone::Minimize,
+                             TitleBarHitZone::Maximize, TitleBarHitZone::Close }) {
+        rects.push_back(tb_.GetButton(zone));
     }
+    ASSERT_EQ(rects.size(), kTitleBarButtonCount);
     std::ranges::sort(rects, {}, &DipRect::left);
     for (size_t i = 1; i < rects.size(); ++i) {
         EXPECT_LE(rects[i - 1].right, rects[i].left)

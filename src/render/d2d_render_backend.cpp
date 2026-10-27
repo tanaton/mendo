@@ -12,7 +12,6 @@
 
 using Microsoft::WRL::ComPtr;
 
-
 namespace {
 
 ComPtr<ID3D11Device> CreateD3DDevice() noexcept

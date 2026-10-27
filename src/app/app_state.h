@@ -132,6 +132,10 @@ struct WindowState {
     {
         return PixelToDip(static_cast<float>(client_width), cached_dpi_scale);
     }
+    constexpr float HeightDip() const noexcept
+    {
+        return PixelToDip(static_cast<float>(client_height), cached_dpi_scale);
+    }
 };
 
 struct AppState {

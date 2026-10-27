@@ -59,10 +59,7 @@ struct ParseCompletePlan {
     if (result->reload) {
         // worker がパース前に差分判定を済ませている (NoChange 等と書き込み途中は doc が空)。
         const auto& rc = *result->reload;
-        if (rc.base.lock() != current.ShareRawText() || !path_util::iequal(rc.path, current.GetFilePath())) {
-            return { .step = ParseCompleteStep::Retry };
-        }
-        if (result->still_growing) {
+        if (result->still_growing || rc.base.lock() != current.ShareRawText() || !path_util::iequal(rc.path, current.GetFilePath())) {
             return { .step = ParseCompleteStep::Retry };
         }
         decision = rc.decision;

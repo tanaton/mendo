@@ -183,7 +183,9 @@ std::optional<LinkHit> App::GetLinkAtHit(const HitResult& hit) const
     return FindLinkHitAtPosition(nodes[hit.node_index], hit.char_pos);
 }
 
-void App::OnLButtonDown(int px, int py)
+// CS_DBLCLKS により連続クリックの 2 回目は WM_LBUTTONDBLCLK で届く。ボタン・スクロールバー・スプリッタは
+// 1 回目と同じ判定で連打として扱い、2 回目の扱いが違うもの (本文の単語選択・一覧の項目) は各ゾーンで決める。
+void App::OnLButtonDown(int px, int py, bool is_double_click)
 {
     const auto dip = PixelToDip(px, py);
 
@@ -199,7 +201,7 @@ void App::OnLButtonDown(int px, int py)
         return;
     case PaneZone::FilePane:
     case PaneZone::TocPane:
-        HandleSidePaneClick(*ToPaneTarget(zone), dip.x, dip.y, pane_layout);
+        HandleSidePaneClick(*ToPaneTarget(zone), dip.x, dip.y, pane_layout, is_double_click);
         return;
     case PaneZone::Splitter1:
         Dispatch(SplitterDragStartedAction{ PaneTarget::File });
@@ -208,7 +210,7 @@ void App::OnLButtonDown(int px, int py)
         Dispatch(SplitterDragStartedAction{ PaneTarget::Toc });
         return;
     case PaneZone::MdPane:
-        HandleMdPaneClick(dip.x, dip.y, px, py, pane_layout, false);
+        HandleMdPaneClick(dip.x, dip.y, px, py, pane_layout, is_double_click);
         return;
     }
     std::unreachable();
@@ -234,21 +236,6 @@ void App::OnLButtonUp(int px, int py)
     }
     if (const auto link = GetLinkAtHit(hit)) {
         HandleLinkClick(link->url);
-    }
-}
-
-void App::OnLButtonDblClk(int px, int py)
-{
-    const auto dip = PixelToDip(px, py);
-    // CS_DBLCLKS により連続クリックの2回目は WM_LBUTTONDBLCLK になるため、ボタンやスクロールバーは
-    // 1 回目と同じ判定で連打として扱い、本文の上でだけ単語を選ぶ。
-    if (HandleTitleBarClick(dip.x, dip.y)) {
-        return;
-    }
-    // サイドペインは 1 回目のクリックで一覧が変わりうる (フォルダに入る) ので、2 回目を別の項目に当てない。
-    const auto pane_layout = GetPaneLayout();
-    if (ZoneAt(dip.x, pane_layout) == PaneZone::MdPane) {
-        HandleMdPaneClick(dip.x, dip.y, px, py, pane_layout, true);
     }
 }
 
@@ -523,7 +510,7 @@ void App::HandleFileEntryClick(const FileEntry& entry)
     Dispatch(OpenPathAction{ entry.full_path });
 }
 
-void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout)
+void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout, bool is_double_click)
 {
     const auto& theme = theme_service_.GetTheme();
     const PaneRect& rect = layout.Get(target);
@@ -553,7 +540,8 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const
         return;
     }
     const int idx = SidePaneItemAt(state_, target, rect, dip_y);
-    if (idx < 0) {
+    // 1 回目のクリックで一覧が変わりうる (フォルダに入る) ので、2 回目を別の項目に当てない。
+    if (idx < 0 || is_double_click) {
         return;
     }
     if (target == PaneTarget::File) {

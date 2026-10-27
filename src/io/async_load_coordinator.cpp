@@ -81,13 +81,10 @@ void AsyncLoadCoordinator::ResetSinks() noexcept
         const std::lock_guard lock(mutex_);
         stale.swap(outcome_);
     }
-    // 投函できなければ (Shutdown 後・確保の失敗) ここで捨てる。推定済みの LayoutCache は D2D の参照を持たない。
+    // 推定済みの LayoutCache は D2D の参照を持たない。
     if (stale && *stale && scheduler_) {
-        try {
-            scheduler_->Post([s = std::move(stale)] {});
-        } catch (...) {
-            MENDO_TRACE("ResetSinks: Post threw exception");
-        }
+        const size_t nodes = (*stale)->doc.GetNodes().size();
+        DisposeOnWorkerIfLarge(*scheduler_, nodes, kDisposeMinNodes, std::move(stale));
     }
 }
 

@@ -63,7 +63,7 @@ std::wstring ResolveLocalImagePath(std::string_view src, const std::pmr::wstring
 void ResourceManager::ApplyCachedImages()
 {
     DropQueuesIfJumped();
-    ApplyCachedImagesIn(PrioritizedSlices(deps_.doc->GetImageNodeIndices(), PREFETCH_BUFFER_SCREENS), true);
+    ApplyCachedImagesIn(PrioritizedSlices(deps_.doc->GetImageNodeIndices(), PREFETCH_BUFFER_SCREENS), true, height_changed_);
 }
 
 bool ResourceManager::ApplyCachedImagesForReload(VisibleRange range)
@@ -72,9 +72,10 @@ bool ResourceManager::ApplyCachedImagesForReload(VisibleRange range)
     if (deps_.image_loader->CacheSize() == 0) {
         return false;
     }
-    ApplyCachedImagesIn(std::array{ VisibleSlice(deps_.doc->GetImageNodeIndices(), range.first, range.last_plus_1) }, false);
-    // Y は呼び出し側が組み直すので、変えた範囲は後の再レイアウトへ持ち越さない。
-    return !TakeHeightChanges().empty();
+    // Y は呼び出し側が組み直すので、変えた範囲は height_changed_ に積まず、後の再レイアウトへ持ち越さない。
+    layout::HeightChangeRange changed;
+    ApplyCachedImagesIn(std::array{ VisibleSlice(deps_.doc->GetImageNodeIndices(), range.first, range.last_plus_1) }, false, changed);
+    return !changed.empty();
 }
 
 bool ResourceManager::ApplyMermaidCacheHeightsForReload(VisibleRange range)
@@ -199,7 +200,7 @@ void ResourceManager::OnBitmapManageTimer()
     FlushPendingResources();
 }
 
-void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, bool start_loads)
+void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, bool start_loads, layout::HeightChangeRange& changed)
 {
     const std::pmr::wstring& doc_dir = deps_.doc->GetDirectory();
     if (doc_dir.empty()) {
@@ -255,7 +256,7 @@ void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t
             diagram.width = size.width;
             diagram.height = size.height;
 
-            ApplyBitmapHeight(i, diagram, max_width);
+            ApplyBitmapHeight(i, diagram, max_width, changed);
         }
         // 表示幅が広がったら、今の解像度で描きながら高い解像度で読み直す。
         if (deps_.image_loader->NeedsSharperDecode(*cached, max_width)) {
@@ -297,13 +298,13 @@ void ResourceManager::RequestDiagramRender(size_t i, float content_width, bool d
         height_changed_.Add(i);
         return;
     }
-    ApplyBitmapHeight(i, diagram, layout::NodeContentWidth(node, host_->GetTheme(), content_width));
+    ApplyBitmapHeight(i, diagram, layout::NodeContentWidth(node, host_->GetTheme(), content_width), height_changed_);
 }
 
-void ResourceManager::ApplyBitmapHeight(size_t i, const DiagramEntry& bitmap, float node_width)
+void ResourceManager::ApplyBitmapHeight(size_t i, const DiagramEntry& bitmap, float node_width, layout::HeightChangeRange& changed)
 {
     (*deps_.cache)[i].CommitMeasured(node_width, layout::BitmapDisplayHeight(bitmap.width, bitmap.height, node_width));
-    height_changed_.Add(i);
+    changed.Add(i);
 }
 
 const std::wstring* ResourceManager::ResolveImagePath(std::string_view src, const std::pmr::wstring& doc_dir)

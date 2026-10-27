@@ -373,7 +373,7 @@ TEST_F(ReducerTest, EnterSizeMove_SetsFlag)
     EXPECT_TRUE(state.window.is_sizing);
 }
 
-TEST_F(ReducerTest, ExitSizeMove_MoveOnly_SkipsResizeEnd)
+TEST_F(ReducerTest, ExitSizeMove_MoveOnly_SkipsSettleViewport)
 {
     Reduce(state, EnterSizeMoveAction{});
     auto effects = Reduce(state, ExitSizeMoveAction{});
@@ -382,7 +382,7 @@ TEST_F(ReducerTest, ExitSizeMove_MoveOnly_SkipsResizeEnd)
     EXPECT_FALSE(HasEffect<effect::SettleViewport>(effects));
 }
 
-TEST_F(ReducerTest, ExitSizeMove_AfterResize_EmitsResizeEnd)
+TEST_F(ReducerTest, ExitSizeMove_AfterResize_SettlesViewport)
 {
     Reduce(state, EnterSizeMoveAction{});
     Reduce(state, ResizeAction{ 800, 600 });
@@ -409,7 +409,7 @@ TEST_F(ReducerTest, ExitSizeMove_AfterResize_FitsRendererToClient)
     EXPECT_TRUE((HasEffectInOrder<effect::RendererResize, effect::SettleViewport>(effects)));
 }
 
-TEST_F(ReducerTest, ExitSizeMove_AfterDpiChange_EmitsResizeEnd)
+TEST_F(ReducerTest, ExitSizeMove_AfterDpiChange_SettlesViewport)
 {
     Reduce(state, EnterSizeMoveAction{});
     Reduce(state, DpiChangedAction{ 144, RECT{ 0, 0, 800, 600 } });
@@ -418,7 +418,7 @@ TEST_F(ReducerTest, ExitSizeMove_AfterDpiChange_EmitsResizeEnd)
     EXPECT_TRUE(HasEffect<effect::SettleViewport>(effects));
 }
 
-TEST_F(ReducerTest, TogglePane_EmitsResizeEnd)
+TEST_F(ReducerTest, TogglePane_SettlesViewport)
 {
     auto effects = Reduce(state, TogglePaneAction{ PaneTarget::Toc });
 
@@ -723,7 +723,7 @@ TEST_F(ReducerTest, Resize_ZeroSize_NoEffects)
     EXPECT_TRUE(effects.empty());
 }
 
-TEST_F(ReducerTest, Resize_Normal_EmitsResizeEnd)
+TEST_F(ReducerTest, Resize_Normal_SettlesViewport)
 {
     state.window.cached_dpi_scale = 1.0f;
     auto effects = Reduce(state, ResizeAction{ 800, 600 });

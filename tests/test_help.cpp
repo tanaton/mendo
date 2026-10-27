@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 #include "document.h"
-#include "file_io.h"
 #include "document_utils.h"
 #include "example_files.h"
+#include "file_io.h"
 #include "mock_text_measurer.h"
 #include "nav.h"
 

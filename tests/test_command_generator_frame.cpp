@@ -286,10 +286,11 @@ TEST(ScrollThumbTest, TracksScrollWithinContentArea)
 
 namespace {
 
-// rect と同じ位置に塗った角丸矩形のブラシ。無ければ nullopt。
+// rect と同じ位置に塗った矩形 (Cmd は角丸か四角) のブラシ。無ければ nullopt。
+template <class Cmd = FillRoundedRectCmd>
 std::optional<BrushId> FillBrushAt(const DrawCommandList& cmds, const D2D1_RECT_F& rect)
 {
-    const auto fill = FindFirst<FillRoundedRectCmd>(cmds, [&](const FillRoundedRectCmd& c) {
+    const auto fill = FindFirst<Cmd>(cmds, [&](const Cmd& c) {
         return c.rect.left == rect.left && c.rect.top == rect.top && c.rect.right == rect.right && c.rect.bottom == rect.bottom;
     });
     return fill ? std::optional(fill->brush_id) : std::nullopt;
@@ -398,14 +399,6 @@ TEST(OverlayCommandsTest, SearchBarButtonsShowHoverAndToggleState)
 
 namespace {
 
-std::optional<BrushId> FillRectBrushAt(const DrawCommandList& cmds, const D2D1_RECT_F& rect)
-{
-    const auto fill = FindFirst<FillRectCmd>(cmds, [&](const FillRectCmd& c) {
-        return c.rect.left == rect.left && c.rect.top == rect.top && c.rect.right == rect.right && c.rect.bottom == rect.bottom;
-    });
-    return fill ? std::optional(fill->brush_id) : std::nullopt;
-}
-
 // 一覧の行 (ペインの幅いっぱいで高さ item_h) を塗ったコマンドの上端と色。
 std::vector<std::pair<float, BrushId>> RowFills(const DrawCommandList& cmds, const PaneRect& rect, float item_h)
 {
@@ -432,18 +425,18 @@ TEST(ChromeCommandsTest, TitleBarButtonBackgrounds)
     DrawCommandList cmds;
     TitleBarRenderState tb{ .bar = bar, .window_width = 800.0f, .hovered_zone = TitleBarHitZone::Search, .search_active = true };
     chrome::EmitTitleBar(cmds, text_layouts, nullptr, nullptr, nullptr, false, tb);
-    EXPECT_EQ(FillRectBrushAt(cmds, ToD2DRect(bar.GetButton(TitleBarHitZone::Search))), BrushId::TitleBarButtonActive);
-    EXPECT_EQ(FillRectBrushAt(cmds, ToD2DRect(bar.GetButton(TitleBarHitZone::FileToggle))), std::nullopt);
+    EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, ToD2DRect(bar.GetButton(TitleBarHitZone::Search))), BrushId::TitleBarButtonActive);
+    EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, ToD2DRect(bar.GetButton(TitleBarHitZone::FileToggle))), std::nullopt);
 
     cmds.clear();
     tb.hovered_zone = TitleBarHitZone::FileToggle;
     chrome::EmitTitleBar(cmds, text_layouts, nullptr, nullptr, nullptr, false, tb);
-    EXPECT_EQ(FillRectBrushAt(cmds, ToD2DRect(bar.GetButton(TitleBarHitZone::FileToggle))), BrushId::TitleBarButtonHover);
+    EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, ToD2DRect(bar.GetButton(TitleBarHitZone::FileToggle))), BrushId::TitleBarButtonHover);
 
     cmds.clear();
     tb.hovered_zone = TitleBarHitZone::Close;
     chrome::EmitTitleBar(cmds, text_layouts, nullptr, nullptr, nullptr, false, tb);
-    EXPECT_EQ(FillRectBrushAt(cmds, ToD2DRect(bar.GetButton(TitleBarHitZone::Close))), BrushId::TitleBarCloseRed);
+    EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, ToD2DRect(bar.GetButton(TitleBarHitZone::Close))), BrushId::TitleBarCloseRed);
 }
 
 // 見えている行だけを積む。現在のファイルとホバーも、見えている行の分だけ塗る。
@@ -494,7 +487,7 @@ TEST(ChromeCommandsTest, DisabledPaneButtonIgnoresHover)
         DrawCommandList cmds;
         std::pmr::vector<std::pmr::wstring> toc_titles;
         chrome::EmitSidePanes(cmds, text_layouts, {}, theme, sp, toc_titles);
-        EXPECT_EQ(FillRectBrushAt(cmds, reveal), enabled ? std::optional(BrushId::PaneItemHover) : std::nullopt) << enabled;
+        EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, reveal), enabled ? std::optional(BrushId::PaneItemHover) : std::nullopt) << enabled;
     }
 }
 

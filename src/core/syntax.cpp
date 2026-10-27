@@ -91,10 +91,7 @@ constexpr size_t SkipToEol(std::string_view text, size_t pos) noexcept
 // pos から chars に含まれない最初の文字位置を返す（無ければ text.size()）。
 constexpr size_t SkipChars(std::string_view text, size_t pos, CharSet chars) noexcept
 {
-    while (pos < text.size() && chars.contains(text[pos])) {
-        ++pos;
-    }
-    return pos;
+    return SkipWhile(text, pos, [chars](char c) { return chars.contains(c); });
 }
 
 // posから始まる文字列リテラルをスキャン（posは開始引用符を指す）。
@@ -208,13 +205,13 @@ constexpr size_t ScanCountedRawQuote(std::string_view text, size_t pos) noexcept
 // posから始まる数値リテラルをスキャン。桁区切りは C++ の ' と、Rust / Java / Python 等の _ を受け付ける。
 constexpr size_t ScanNumber(std::string_view text, size_t pos) noexcept
 {
-    constexpr CharSet kHexDigits{ "0123456789abcdefABCDEF'_" };
-    constexpr CharSet kBinDigits{ "01'_" };
-    constexpr CharSet kOctDigits{ "01234567_" };
-    constexpr CharSet kDecDigitsSep{ "0123456789'_" };
-    constexpr CharSet kDecDigits{ "0123456789" };
-    constexpr CharSet kIntSuffix{ "uUlL" };
-    constexpr CharSet kNumSuffix{ "fFlLuUndDmM" }; // 'n' は JS BigInt、'd' / 'm' は Java / C# の double / decimal
+    static constexpr CharSet kHexDigits{ "0123456789abcdefABCDEF'_" };
+    static constexpr CharSet kBinDigits{ "01'_" };
+    static constexpr CharSet kOctDigits{ "01234567_" };
+    static constexpr CharSet kDecDigitsSep{ "0123456789'_" };
+    static constexpr CharSet kDecDigits{ "0123456789" };
+    static constexpr CharSet kIntSuffix{ "uUlL" };
+    static constexpr CharSet kNumSuffix{ "fFlLuUndDmM" }; // 'n' は JS BigInt、'd' / 'm' は Java / C# の double / decimal
 
     size_t i = pos;
 
@@ -257,10 +254,8 @@ constexpr bool IsBlank(char c) noexcept
 // end の後に空白を挟んで '(' が続くか。たいていは空白が無いので、すぐ下の文字だけを見て終わる。
 constexpr bool IsFollowedByParen(std::string_view text, size_t end) noexcept
 {
-    while (end < text.size() && IsBlank(text[end])) {
-        ++end;
-    }
-    return end < text.size() && text[end] == '(';
+    const size_t i = SkipWhile(text, end, IsBlank);
+    return i < text.size() && text[i] == '(';
 }
 
 constexpr bool IsLineSpace(char c) noexcept
@@ -906,7 +901,7 @@ size_t ScanYamlKey(std::string_view text, size_t pos, size_t eol, std::pmr::vect
 // キーの後（またはシーケンス要素）の値を行末まで読む。ブロックスカラー（| / >）が始まるなら true。
 bool ScanYamlValue(std::string_view text, size_t i, size_t eol, std::pmr::vector<SyntaxToken>& tokens)
 {
-    constexpr CharSet kFlowIndicators{ ",[]{}" };
+    static constexpr CharSet kFlowIndicators{ ",[]{}" };
     int flow_depth = 0;
     for (bool first = true;; first = false) {
         i = SkipBlanks(text, i, eol);

@@ -71,8 +71,8 @@ constexpr bool IsLocalPath(std::wstring_view path) noexcept
 // 最後のパス区切り以降。区切りで終わるパスでは空。
 constexpr std::wstring_view FilenameView(std::wstring_view path) noexcept
 {
-    const auto pos = path.find_last_of(L"\\/");
-    return pos == std::wstring_view::npos ? path : path.substr(pos + 1);
+    const auto last_slash = std::ranges::find_last_if(path, IsPathSlash);
+    return last_slash.empty() ? path : std::wstring_view{ last_slash.begin() + 1, path.end() };
 }
 
 // 最後のパス区切り以降の "." を含む拡張子。無ければ空。

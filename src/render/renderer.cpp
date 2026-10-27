@@ -62,7 +62,7 @@ void Renderer::PrepareChrome(const TitleBarRenderState& titlebar, const SidePane
         .header = fmt_.pane_header.Get(),
         .header_icon = fmt_.pane_icon.Get(),
         .item = { file_fmt.item.Get(), toc_fmt.item.Get() },
-        .item_icon = { file_fmt.icon.Get(), toc_fmt.icon.Get() },
+        .file_icon = file_fmt.icon.Get(),
     };
     chrome::EmitSidePanes(chrome_cmds_, text_layouts_, fmts, *theme_, sp, toc_titles_);
 }

@@ -14,7 +14,6 @@
 #include <optional>
 #include <utility>
 
-
 namespace {
 
 constexpr wchar_t WINDOW_CLASS[] = L"mendoWindow";
@@ -372,7 +371,7 @@ LRESULT Win32Window::HitTestResizeFrame(POINT pt) const noexcept
 LRESULT Win32Window::HitTestTitleBar(POINT pt) const noexcept
 {
     const auto [dip_x, dip_y] = PixelToDip(pt.x, pt.y, app_->GetDpiScale());
-    if (dip_y >= app_->GetTitleBarHeightDip()) {
+    if (dip_y >= TitleBar::BASE_HEIGHT) {
         return HTCLIENT;
     }
 
@@ -403,7 +402,8 @@ std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wPara
     }
 
     case WM_LBUTTONDOWN:
-        app_->OnLButtonDown(x, y);
+    case WM_LBUTTONDBLCLK:
+        app_->OnLButtonDown(x, y, msg == WM_LBUTTONDBLCLK);
         return 0;
 
     case WM_LBUTTONUP:
@@ -440,10 +440,6 @@ std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wPara
             return TRUE;
         }
         return DefWindowProcW(hwnd_, msg, wParam, lParam);
-
-    case WM_LBUTTONDBLCLK:
-        app_->OnLButtonDblClk(x, y);
-        return 0;
 
     case WM_MOUSEWHEEL: {
         const short wheel_delta = GET_WHEEL_DELTA_WPARAM(wParam);
@@ -508,7 +504,7 @@ void Win32Window::OnContextMenu(int screen_x, int screen_y)
     }
     POINT pt = { screen_x, screen_y };
     ScreenToClient(hwnd_, &pt);
-    if (PixelToDip(static_cast<float>(pt.y), app_->GetDpiScale()) < app_->GetTitleBarHeightDip()) {
+    if (PixelToDip(static_cast<float>(pt.y), app_->GetDpiScale()) < TitleBar::BASE_HEIGHT) {
         return;
     }
     app_->OnContextMenu(screen_x, screen_y);

@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 #include <algorithm>
-#include "file_io.h"
 #include <format>
 #include <iterator>
 #include <limits>
@@ -12,6 +11,7 @@
 #include <vector>
 #include "document_utils.h"
 #include "document_test_helpers.h"
+#include "file_io.h"
 #include "layout_computer.h"
 #include "test_helpers.h"
 #include "parser.h"

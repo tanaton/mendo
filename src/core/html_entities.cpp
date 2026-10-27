@@ -1,6 +1,5 @@
 #include "parser.h"
 #include "html_entity_table.h"
-#include "ascii_util.h"
 #include "utf8_codec.h"
 #include <algorithm>
 #include <charconv>

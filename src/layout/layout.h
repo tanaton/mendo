@@ -125,8 +125,7 @@ public:
     // 小刻みな WM_SIZE で全ノード再レイアウトが頻発するのを防ぐ幅変化の閾値。
     static constexpr float kWidthChangeThreshold = 2.0f;
 
-    // theme は measurer に渡し、以後は measurer が持つものを使う。scheduler と書式の作り直し (ズーム) は
-    // measurer に直接頼む。ズームで全ノードに付ける dirty は呼び出し側の InvalidateAllLayouts が付ける。
+    // theme は measurer に渡し、以後は measurer が持つものを使う。
     bool Init(ITextMeasurer* measurer, const Theme& theme);
     // 本文幅かズームがキャッシュの推定時 (EstimateBasis) から変わったら、全ノードを dirty にして推定値で Y を組み直す
     // (DirectWrite は呼ばない)。戻り値は全ノードを dirty にしたか。

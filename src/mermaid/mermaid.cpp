@@ -22,7 +22,6 @@
 #include <limits>
 #include <utility>
 
-
 namespace {
 
 bool SeekToBegin(IStream* stream) noexcept

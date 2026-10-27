@@ -92,12 +92,12 @@ private:
     // 以下の適用と要求は再レイアウトしない。高さか表示が変わったノードは height_changed_ に溜まる。
     // 可視範囲のみ走査し、未キャッシュは非同期ロード起動（通常描画用）。
     void ApplyCachedImages();
-    // slices は走査する画像ノードの範囲の並び。start_loads なら未キャッシュの画像の読み込みを起動する。
-    void ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, bool start_loads);
+    // slices は走査する画像ノードの範囲の並び。start_loads なら未キャッシュの画像の読み込みを起動する。高さを変えたノードは changed に積む。
+    void ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, bool start_loads, layout::HeightChangeRange& changed);
     void RequestVisibleDiagrams();
     void RequestDiagramRender(size_t i, float content_width, bool dark_mode);
-    // 画像・図の寸法が確定したノードの高さを決める。
-    void ApplyBitmapHeight(size_t i, const DiagramEntry& bitmap, float node_width);
+    // 画像・図の寸法が確定したノードの高さを決め、changed に積む。
+    void ApplyBitmapHeight(size_t i, const DiagramEntry& bitmap, float node_width, layout::HeightChangeRange& changed);
     // 解決済みパスは src 単位でキャッシュする。開かない src も空文字列で覚え、毎回の解決を避ける。
     const std::wstring* ResolveImagePath(std::string_view src, const std::pmr::wstring& doc_dir);
     // 保持範囲 (±EVICT_BUFFER_SCREENS) を越えて移動していたら、旧位置で積んだ図の描画待ちと画像のデコード待ちを捨てる。

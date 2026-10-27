@@ -674,7 +674,7 @@ void EmitFileExplorer(DrawCommandList& out, TextLayoutCache& text_layouts, const
             out.push_back(FillRectCmd{ .rect = row, .brush_id = BrushId::PaneItemHover });
         }
 
-        text_layouts.Emit(out, FileEntryIcon(entry), fmts.item_icon[k], D2D1::Point2F(row.left + pad, row.top), D2D1::SizeF(icon_col_width, pane.item_height), BrushId::Text, 1.0f);
+        text_layouts.Emit(out, FileEntryIcon(entry), fmts.file_icon, D2D1::Point2F(row.left + pad, row.top), D2D1::SizeF(icon_col_width, pane.item_height), BrushId::Text, 1.0f);
 
         EmitLeftText(out, text_layouts, fmts.item[k], entry.GetDisplayName(), row.left + pad + icon_col_width, row.top, pane.item_height);
     });

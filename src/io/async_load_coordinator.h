@@ -38,7 +38,11 @@ struct ReloadBase {
 };
 
 // 同一ファイルのリロードで、worker がパース前に差分判定まで済ませた結果。
-// NoChange / Defer* はパースせずに返す (doc は空)。
+// NoChange / DeferPrefixShrink と書き込み途中はパースせずに返す (doc は空)。
+// 100MB 級の文書はテキスト・runs・リンク URL を arena ごと捨てても、数十万ノードの走査と
+// 表等の解放で UI を十数 ms 止めるため、これ以上のノード数なら worker で破棄する (DisposeOnWorkerIfLarge)。
+inline constexpr size_t kDisposeMinNodes = 4096;
+
 struct ReloadCheck {
     // 書き込み途中 (AsyncLoadResult::still_growing) なら判定せず既定値のまま。
     ReloadDecision decision{ ReloadOp::NoChange, std::string_view::npos };
@@ -127,8 +131,7 @@ private:
     // sink 書き込みは Cancel との直列化のため lock 内で stop を再確認してから行う。
     void Publish(const std::stop_token& stop_token, AsyncLoadOutcome outcome);
 
-    // sink を swap-out して破棄する。100MB 級の Document/LayoutCache の破棄は UI を十数 ms 止めるので、
-    // mutex の外で、最後に Start した scheduler の worker に回す。
+    // sink を swap-out して mutex の外で破棄する。大きな文書は最後に Start した scheduler の worker に回す。
     void ResetSinks() noexcept;
 
     LoadFileFn load_file_ = &LoadFile;

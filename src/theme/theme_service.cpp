@@ -14,6 +14,11 @@ constexpr auto kSectionView = "View"sv;
 constexpr auto kKeyDarkMode = "DarkMode"sv;
 constexpr auto kKeyZoomLevel = "ZoomLevel"sv;
 
+const Theme& BaseTheme(bool dark)
+{
+    return dark ? GetDarkTheme() : GetLightTheme();
+}
+
 std::wstring ResolveFontFamily(IDWriteFontCollection* collection, std::span<const wchar_t* const> candidates)
 {
     if (collection) {
@@ -36,7 +41,7 @@ ThemeService::ThemeService(ConfigService& config) noexcept
 
 Theme ThemeService::MakeTheme(bool dark, ZoomLevel zoom)
 {
-    Theme theme = dark ? GetDarkTheme() : GetLightTheme();
+    Theme theme = BaseTheme(dark);
     if (!zoom.IsDefault()) {
         theme.ApplyZoom(zoom.Value());
     }
@@ -69,7 +74,7 @@ void ThemeService::Init(bool dark, ZoomLevel zoom)
 bool ThemeService::ToggleDarkMode()
 {
     const bool dark = !theme_.dark;
-    theme_.colors = (dark ? GetDarkTheme() : GetLightTheme()).colors;
+    theme_.colors = BaseTheme(dark).colors;
     theme_.dark = dark;
     return dark;
 }

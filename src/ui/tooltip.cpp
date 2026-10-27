@@ -4,7 +4,6 @@
 #include <dwmapi.h>
 #include <uxtheme.h>
 
-
 namespace {
 constexpr UINT_PTR TOOL_ID = 1;
 

@@ -119,7 +119,8 @@ struct SidePaneFormats {
     IDWriteTextFormat* header = nullptr;
     IDWriteTextFormat* header_icon = nullptr;
     IDWriteTextFormat* item[2]{};
-    IDWriteTextFormat* item_icon[2]{};
+    // ファイル一覧のアイコン。
+    IDWriteTextFormat* file_icon = nullptr;
 };
 // 表示中のサイドペインとスプリッタ。toc_titles は目次項目の UTF-16 で、描いた項目だけ作る。
 void EmitSidePanes(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePaneFormats& fmts, const Theme& theme,

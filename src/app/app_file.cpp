@@ -73,20 +73,8 @@ void App::ShowHelpResource()
 }
 
 namespace {
-// 100MB 級の文書はテキスト・runs・リンク URL を arena ごと捨てても、数十万ノードの走査と
-// 表等の解放で UI を十数 ms 止めるため worker で破棄する。
-constexpr size_t kDisposeMinNodes = 4096;
 // IDWriteTextLayout の解放は 1 個 2〜3µs かかる。
 constexpr size_t kDisposeMinLayouts = 256;
-
-// 渡すものは D2D の参照を持たないこと (確保元の既定 pmr リソースはスレッド安全)。
-template <class T>
-void DisposeOnWorkerIfLarge(TaskScheduler& scheduler, size_t count, size_t min_count, T&& obj)
-{
-    if (count >= min_count) {
-        scheduler.Post([o = std::forward<T>(obj)] {});
-    }
-}
 } // namespace
 
 void App::DisposeReleasedLayouts()
@@ -119,7 +107,7 @@ void App::BeginAsyncLoad(std::pmr::wstring path, bool show_animation, ReloadBase
     load_coordinator_.Start(scheduler_, std::move(path), theme_service_.GetTheme(), MdContentWidth(), std::move(reload_base));
 }
 
-// Defer* はエディタの保存途中 (truncate→rewrite の前半や書き込み中) を読んだ状態。
+// DeferPrefixShrink はエディタの保存途中 (truncate→rewrite の前半) を読んだ状態。
 // state_.document.doc を更新せず保持して、次のリロードで正確な差分を取り直す。
 App::ReloadFlow App::ApplyReloadDecisionEarly(const ReloadDecision& decision, bool has_parsed_doc)
 {

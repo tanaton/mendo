@@ -96,10 +96,10 @@ public:
     void OnKeyDown(WPARAM key);
     void OnDropFiles(HDROP hDrop);
 
-    void OnLButtonDown(int px, int py);
+    // is_double_click は WM_LBUTTONDBLCLK (連続クリックの 2 回目)。
+    void OnLButtonDown(int px, int py, bool is_double_click);
     void OnLButtonUp(int px, int py);
     void OnMouseMove(int px, int py);
-    void OnLButtonDblClk(int px, int py);
     void OnContextMenu(int screen_x, int screen_y);
     bool OnRButtonDown(int px, int py);
     bool OnRButtonUp(int px, int py);
@@ -169,10 +169,6 @@ public:
     constexpr float GetDpiScale() const noexcept
     {
         return state_.window.cached_dpi_scale;
-    }
-    float GetTitleBarHeightDip() const noexcept
-    {
-        return TitleBar::BASE_HEIGHT;
     }
     TitleBarHitZone TitleBarHitTest(float dip_x, float dip_y) const noexcept
     {
@@ -267,7 +263,7 @@ private:
     void HandleOverlayButtonClick(const OverlayButtonHit& hit);
     // ホバー中ブロックの水平スクロールバー上ならドラッグを開始して true。
     bool TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x);
-    void HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout);
+    void HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout, bool is_double_click);
     void HandleFileEntryClick(const FileEntry& entry);
     void RefreshFilePane();
 
@@ -344,7 +340,7 @@ private:
         Handled,            // ResumeWatching / DeferReloadRetry 済み、呼び出し元は return
         ContinueWithReload, // Replace を呼び出し元で実行する
     };
-    // NoChange / Defer* をここで処理し、Replace は呼び出し元に任せる。
+    // NoChange / DeferPrefixShrink をここで処理し、Replace は呼び出し元に任せる。
     // has_parsed_doc は新しい内容のパース済み文書が手元にあるか (prefix shrink を受け入れられるか)。
     ReloadFlow ApplyReloadDecisionEarly(const ReloadDecision& decision, bool has_parsed_doc);
 
