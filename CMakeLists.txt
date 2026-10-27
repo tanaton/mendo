@@ -217,7 +217,6 @@ add_executable(mendo WIN32
     src/render/renderer.cpp
     src/render/renderer_resources.cpp
     src/render/renderer_pane.cpp
-    src/render/renderer_search.cpp
     src/render/d2d_render_backend.cpp
     src/mermaid/mermaid.cpp
     res/mendo.rc

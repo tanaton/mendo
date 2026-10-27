@@ -95,7 +95,10 @@ public:
         backend_.MarkFrameAcquired();
     }
 
-    int HitTestSearchInput(std::wstring_view query, float local_x, float max_width) const;
+    int HitTestSearchInput(std::wstring_view query, float local_x, float max_width) const
+    {
+        return search_input_.HitTest(query, local_x, max_width);
+    }
 
     // タイトルバーとサイドペインの描画コマンドを組み立てる。デバイスに依存しないので、
     // デバイスの作成前に呼ぶと最初のフレームの文字レイアウトを先に作れる。
@@ -120,10 +123,6 @@ private:
     // NO_WRAP の左寄せテキスト。はみ出しは呼び出し側のクリップで切る。
     void EmitLeftText(IDWriteTextFormat* fmt, std::wstring_view text, float x, float y, float height);
     void GenGestureTrail(const std::pmr::vector<GesturePoint>& points);
-    // 入力欄の文字列のレイアウトを用意し、選択範囲とキャレットの位置を測る。
-    overlay::SearchInputText MeasureSearchInput(const SearchBarRenderState& sb, const SearchBarLayout& sbl);
-    // 入力が前フレームと同じなら search_input_ のレイアウトを返し、違えば作り直す。
-    IDWriteTextLayout* AcquireSearchInputLayout(const SearchBarRenderState& sb, int comp_start, float width, float height);
 
     D2DRenderBackend backend_;
     ID2D1DeviceContext* rt() const noexcept
@@ -182,15 +181,7 @@ private:
     // 目次項目の UTF-16。描いた項目だけ作り、ForgetDocumentText と最小化で捨てる。
     std::pmr::vector<std::pmr::wstring> toc_titles_;
 
-    // 検索バーの入力欄のレイアウト。height は定数なのでキーに含めない。
-    struct SearchInputLayout {
-        Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
-        std::pmr::wstring text; // IME の合成中テキストを挿入した表示テキスト
-        float width = -1.0f;
-        DWRITE_TEXT_RANGE underline{}; // IME の合成範囲
-    };
     SearchInputLayout search_input_;
-    std::pmr::wstring search_text_scratch_;
     // デバイスに依存しない PBGRA 変換済みのアイコン。デバイスロスト後もここから作り直す。
     Microsoft::WRL::ComPtr<IWICBitmap> app_icon_wic_;
     Microsoft::WRL::ComPtr<ID2D1Bitmap> app_icon_bitmap_;

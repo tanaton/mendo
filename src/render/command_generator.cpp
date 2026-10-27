@@ -188,6 +188,102 @@ std::optional<FillRoundedRectCmd> VScrollThumb(const PaneRect& pane, float heade
     };
 }
 
+SearchInputMetrics SearchInputLayout::Measure(const SearchBarRenderState& sb, float width)
+{
+    const bool has_comp = !sb.ime_composition.empty();
+    if (!factory_ || !fmt_ || (sb.query.empty() && !has_comp)) {
+        return {};
+    }
+
+    const int comp_len = static_cast<int>(sb.ime_composition.size());
+    int comp_start = 0;
+    if (has_comp) {
+        const int qlen = static_cast<int>(sb.query.size());
+        comp_start = sb.caret_pos;
+        if (comp_start < 0 || comp_start > qlen) {
+            comp_start = qlen;
+        }
+    }
+
+    // IMEコンポジション中は確定済みテキストのキャレット位置に変換中テキストを挿入して表示する。
+    // 下線はレイアウト生成時にだけ付けるので、合成範囲もキーに含める。
+    scratch_.assign(sb.query);
+    scratch_.insert(static_cast<size_t>(comp_start), sb.ime_composition);
+    const DWRITE_TEXT_RANGE underline{ static_cast<UINT32>(comp_start), static_cast<UINT32>(comp_len) };
+    if (!Holds(scratch_, underline, width)) {
+        layout_ = Create(scratch_, width);
+        if (!layout_) {
+            Forget();
+            return {};
+        }
+        if (underline.length > 0) {
+            layout_->SetUnderline(TRUE, underline);
+        }
+        text_.swap(scratch_);
+        width_ = width;
+        underline_ = underline;
+    }
+    SearchInputMetrics m{ .layout = layout_.Get() };
+
+    const int text_len = static_cast<int>(text_.size());
+    const bool has_selection = !has_comp && sb.selection_start >= 0 && sb.caret_pos >= 0 && sb.selection_start != sb.caret_pos;
+    if (has_selection) {
+        const int sel_min = std::clamp(std::min(sb.selection_start, sb.caret_pos), 0, text_len);
+        const int sel_max = std::clamp(std::max(sb.selection_start, sb.caret_pos), 0, text_len);
+        if (sel_min < sel_max) {
+            // 単一行テキストなのでメトリクスは1つで十分
+            DWRITE_HIT_TEST_METRICS htm_sel{};
+            UINT32 actual = 0;
+            layout_->HitTestTextRange(static_cast<UINT32>(sel_min), static_cast<UINT32>(sel_max - sel_min), 0.0f, 0.0f, &htm_sel, 1, &actual);
+            if (actual > 0) {
+                m.selection_x = htm_sel.left;
+                m.selection_width = htm_sel.width;
+            }
+        }
+    }
+
+    // コンポジション中はその末尾、それ以外は通常のキャレット位置
+    int effective_pos = has_comp ? comp_start + comp_len : sb.caret_pos;
+    if (!has_comp && (effective_pos < 0 || effective_pos > text_len)) {
+        effective_pos = text_len;
+    }
+    FLOAT px, py;
+    DWRITE_HIT_TEST_METRICS htm{};
+    layout_->HitTestTextPosition(static_cast<UINT32>(effective_pos), false, &px, &py, &htm);
+    m.caret_x = px;
+    return m;
+}
+
+int SearchInputLayout::HitTest(std::wstring_view query, float local_x, float width) const
+{
+    if (query.empty() || !factory_ || !fmt_) {
+        return 0;
+    }
+    // IME 合成中は表示テキストが query と異なるので作り直す。
+    const auto layout = Holds(query, {}, width) ? layout_ : Create(query, width);
+    if (!layout) {
+        return 0;
+    }
+    // HitTestPoint が失敗時に out 引数未書込みでも未初期化値を読まないようにする。
+    BOOL is_trailing = FALSE;
+    BOOL is_inside = FALSE;
+    DWRITE_HIT_TEST_METRICS htm{};
+    if (FAILED(layout->HitTestPoint(local_x, 0.0f, &is_trailing, &is_inside, &htm))) {
+        return 0;
+    }
+    // 結合文字やサロゲートペアの途中に置かないよう、クラスタの長さ分進める。
+    return static_cast<int>(htm.textPosition + (is_trailing ? htm.length : 0));
+}
+
+Microsoft::WRL::ComPtr<IDWriteTextLayout> SearchInputLayout::Create(std::wstring_view text, float width) const
+{
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+    if (FAILED(factory_->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), fmt_.Get(), width, SEARCH_INPUT_HEIGHT, &layout))) {
+        return nullptr;
+    }
+    return layout;
+}
+
 namespace overlay {
 
 void EmitLoadingSpinner(DrawCommandList& out, float angle, const PaneRect& md_pane_rect)
@@ -272,49 +368,8 @@ void EmitToast(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextF
               TOAST_OVERLAY_CORNER, dark ? 0.85f : 0.7f, dark, message);
 }
 
-namespace {
-void EmitSearchBarButtons(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextFormat* icon_fmt, IDWriteTextFormat* count_fmt,
-                          const SearchBarLayout& sbl, const SearchBarRenderState& sb)
-{
-    const auto draw_icon_btn = [&](const D2D1_RECT_F& r, const wchar_t* icon, bool hovered, float alpha = 1.0f) {
-        if (hovered) {
-            out.push_back(FillRoundedRectCmd{ .rect = r, .rx = SEARCH_BAR_CORNER, .ry = SEARCH_BAR_CORNER, .brush_id = BrushId::TitleBarButtonHover });
-        }
-        text_layouts.EmitCentered(out, icon, icon_fmt, r, BrushId::SearchInputText, alpha);
-    };
-
-    const auto draw_toggle_btn = [&](const D2D1_RECT_F& r, std::wstring_view label, IDWriteTextFormat* fmt, bool checked, bool hovered) {
-        if (hovered || checked) {
-            out.push_back(FillRoundedRectCmd{
-                .rect = r, .rx = SEARCH_BAR_CORNER, .ry = SEARCH_BAR_CORNER, .brush_id = checked ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover });
-        }
-        text_layouts.EmitCentered(out, label, fmt, r, BrushId::SearchInputText, checked ? 1.0f : 0.5f);
-    };
-
-    const float nav_alpha = sb.total_matches > 0 ? 1.0f : 0.3f;
-    draw_icon_btn(sbl.up_btn, L"\uE70E", sb.hovered == SearchBarHitZone::Up, nav_alpha);
-    draw_icon_btn(sbl.down_btn, L"\uE70D", sb.hovered == SearchBarHitZone::Down, nav_alpha);
-
-    if (count_fmt && !sb.query.empty() && sb.total_matches >= 0) {
-        // 「N / M」形式で表示。M は実用上 4-5 桁に収まる (md 内 hit 数) ので
-        // 32 wchar_t は十分な余裕。format_to_n で先端から書き、長さを返してもらう。
-        constexpr size_t kCountBufLen = 32;
-        wchar_t count_text[kCountBufLen];
-        const auto r = (sb.total_matches == 0)
-                           ? std::format_to_n(count_text, kCountBufLen - 1, L"0")
-                           : std::format_to_n(count_text, kCountBufLen - 1, L"{} / {}", sb.current_match + 1, sb.total_matches);
-        const auto written = static_cast<size_t>(r.out - count_text);
-        text_layouts.EmitCentered(out, { count_text, written }, count_fmt, sbl.count_rect, BrushId::SearchInputText, 0.7f);
-    }
-
-    draw_toggle_btn(sbl.case_btn, L"Aa", count_fmt, sb.case_sensitive, sb.hovered == SearchBarHitZone::CaseSensitive);
-    draw_toggle_btn(sbl.highlight_btn, L"\uE7E6", icon_fmt, sb.highlight_enabled, sb.hovered == SearchBarHitZone::Highlight);
-    draw_icon_btn(sbl.close_btn, L"\uE8BB", sb.hovered == SearchBarHitZone::Close);
-}
-} // namespace
-
 void EmitSearchBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextFormat* icon_fmt, IDWriteTextFormat* count_fmt,
-                   const PaneRect& md_pane_rect, const SearchBarRenderState& sb, const SearchInputText& input)
+                   const PaneRect& md_pane_rect, const SearchBarRenderState& sb, const SearchInputMetrics& input)
 {
     const auto sbl = ComputeSearchBarLayout(md_pane_rect, !sb.query.empty());
 
@@ -364,7 +419,40 @@ void EmitSearchBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteT
         });
     }
 
-    EmitSearchBarButtons(out, text_layouts, icon_fmt, count_fmt, sbl, sb);
+    const auto draw_icon_btn = [&](const D2D1_RECT_F& r, const wchar_t* icon, bool hovered, float alpha = 1.0f) {
+        if (hovered) {
+            out.push_back(FillRoundedRectCmd{ .rect = r, .rx = SEARCH_BAR_CORNER, .ry = SEARCH_BAR_CORNER, .brush_id = BrushId::TitleBarButtonHover });
+        }
+        text_layouts.EmitCentered(out, icon, icon_fmt, r, BrushId::SearchInputText, alpha);
+    };
+
+    const auto draw_toggle_btn = [&](const D2D1_RECT_F& r, std::wstring_view label, IDWriteTextFormat* fmt, bool checked, bool hovered) {
+        if (hovered || checked) {
+            out.push_back(FillRoundedRectCmd{
+                .rect = r, .rx = SEARCH_BAR_CORNER, .ry = SEARCH_BAR_CORNER, .brush_id = checked ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover });
+        }
+        text_layouts.EmitCentered(out, label, fmt, r, BrushId::SearchInputText, checked ? 1.0f : 0.5f);
+    };
+
+    const float nav_alpha = sb.total_matches > 0 ? 1.0f : 0.3f;
+    draw_icon_btn(sbl.up_btn, L"\uE70E", sb.hovered == SearchBarHitZone::Up, nav_alpha);
+    draw_icon_btn(sbl.down_btn, L"\uE70D", sb.hovered == SearchBarHitZone::Down, nav_alpha);
+
+    if (count_fmt && !sb.query.empty() && sb.total_matches >= 0) {
+        // 「N / M」形式で表示。M は実用上 4-5 桁に収まる (md 内 hit 数) ので
+        // 32 wchar_t は十分な余裕。format_to_n で先端から書き、長さを返してもらう。
+        constexpr size_t kCountBufLen = 32;
+        wchar_t count_text[kCountBufLen];
+        const auto r = (sb.total_matches == 0)
+                           ? std::format_to_n(count_text, kCountBufLen - 1, L"0")
+                           : std::format_to_n(count_text, kCountBufLen - 1, L"{} / {}", sb.current_match + 1, sb.total_matches);
+        const auto written = static_cast<size_t>(r.out - count_text);
+        text_layouts.EmitCentered(out, { count_text, written }, count_fmt, sbl.count_rect, BrushId::SearchInputText, 0.7f);
+    }
+
+    draw_toggle_btn(sbl.case_btn, L"Aa", count_fmt, sb.case_sensitive, sb.hovered == SearchBarHitZone::CaseSensitive);
+    draw_toggle_btn(sbl.highlight_btn, L"\uE7E6", icon_fmt, sb.highlight_enabled, sb.hovered == SearchBarHitZone::Highlight);
+    draw_icon_btn(sbl.close_btn, L"\uE8BB", sb.hovered == SearchBarHitZone::Close);
 }
 
 } // namespace overlay

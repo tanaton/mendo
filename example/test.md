@@ -1177,7 +1177,6 @@ public:
 | `renderer.cpp` | フレームの開始・終了（`BeginFrame` / `EndFrame`）とデバイスロスト復旧、Markdown ペイン描画統括、タイトルバーのコマンド生成、本文に重ねるコマンドの組み立て（`GenOverlays`、ジェスチャーの軌跡） |
 | `renderer_resources.cpp` | 固定ブラシ・ペイン用フォーマット管理、アプリアイコン |
 | `renderer_pane.cpp` | ファイル/TOC ペインのコマンド生成 |
-| `renderer_search.cpp` | 検索入力欄の文字列のレイアウトと計測（`MeasureSearchInput`）、ヒットテスト |
 
 #### 3.8.5 描画順（`Renderer::Render`）
 
@@ -1204,13 +1203,13 @@ public:
 
 読み込み中（`RenderParams::loading_angle` がある）は 3 の代わりに 5 のスピナー（`overlay::EmitLoadingSpinner`）を積み、7・8（ジェスチャオーバーレイ・トースト）だけを重ねる。コンテキストメニューはこのシーケンスとは別経路で描画される。
 
-`Renderer` はすべてをコマンドにして `ExecuteDrawCommands` で描き、レンダーターゲットへ直接描くのは `BeginDraw` / `Clear` / `EndDraw` だけである。半透明は各コマンドの `opacity`、未作成のブラシは executor がまとめて扱う。スピナー・ナビボタン・ジェスチャー・トースト・検索バーの組み立ては `command_generator.h` の `overlay` 名前空間の関数に、スクロールバーのつまみは `VScrollThumb` にあり、デバイス無しでテストできる。検索欄の文字列は DirectWrite でレイアウトを作って選択範囲とキャレットの位置を測る必要があるので、`Renderer::MeasureSearchInput` が測った結果（`overlay::SearchInputText`）を `overlay::EmitSearchBar` に渡す。ジェスチャーの軌跡は D2D のジオメトリを作るので `Renderer` に残る。タイトルバーとサイドペインはデバイスに依存しないコマンド列なので、デバイスの作成前に `PrepareChrome` を呼んで最初のフレームの文字レイアウトを先に作れる（`App::CreateRenderDevice`）。
+`Renderer` はすべてをコマンドにして `ExecuteDrawCommands` で描き、レンダーターゲットへ直接描くのは `BeginDraw` / `Clear` / `EndDraw` だけである。半透明は各コマンドの `opacity`、未作成のブラシは executor がまとめて扱う。スピナー・ナビボタン・ジェスチャー・トースト・検索バーの組み立ては `command_generator.h` の `overlay` 名前空間の関数に、スクロールバーのつまみは `VScrollThumb` にあり、デバイス無しでテストできる。検索欄の文字列は `SearchInputLayout`（`command_generator.h`。DirectWrite のファクトリと書式だけを使い、デバイスに依存しない）がレイアウトを作って選択範囲とキャレットの位置を測り、その結果（`SearchInputMetrics`）を `overlay::EmitSearchBar` に渡す。入力欄のクリックとドラッグの文字位置も同じクラスの `HitTest` が求める。ジェスチャーの軌跡は D2D のジオメトリを作るので `Renderer` に残る。タイトルバーとサイドペインはデバイスに依存しないコマンド列なので、デバイスの作成前に `PrepareChrome` を呼んで最初のフレームの文字レイアウトを先に作れる（`App::CreateRenderDevice`）。
 
 描画コストを抑えるためのキャッシュ:
 
 - **サイドペインの項目テキスト**: 可視項目は数十個なのでオフスクリーンに溜めず毎フレームコマンドに積む。左寄せ NO_WRAP の項目名・見出しはレイアウト幅を固定して `TextLayoutCache` に載せ、はみ出しはクリップで切るため、スプリッタのドラッグ中もレイアウトを作り直さない。
 - **短い文字列**: `DrawText` は呼び出しごとに内部でテキストレイアウトを作るため使わない。アイコン・リスト番号・プレースホルダ・タイトル・ナビボタン・ジェスチャー・トースト・検索バーのラベルや件数は、(書式, 文字列, 箱の大きさ) ごとに `TextLayoutCache`（`text_layouts_`、`CommandGenerator` と共有）に作り置き、文字列と書式が同じ間は使い回す。中央に置くものは中央揃え書式のレイアウトを幅/高さ 0 で作って矩形中心に置き（`TextLayoutCache::EmitCentered`）、固定サイズの箱が必要なものは箱サイズで作って左上に置く（`TextLayoutCache::Emit`）。`Renderer`、`CommandGenerator::EmitText`、`overlay` の関数がこれで積む。項目数が `kMaxEntries`（512）を超えたら `BeginFrame` で直前のフレームに使わなかったものを捨て、書式を作り直す `RecreateAllTextFormats` でまとめて破棄する。
-- **検索入力欄**: IME の合成中テキストを挿入した表示テキストと幅が前フレームと同じ間は `search_input_` のレイアウトを使い回す。
+- **検索入力欄**: IME の合成中テキストを挿入した表示テキストと幅が前フレームと同じ間は `SearchInputLayout` のレイアウトを使い回す。ドラッグ選択中のヒットテストも、文字列と幅が同じならこのレイアウトを引く。
 
 ---
 
@@ -3511,7 +3510,6 @@ src/
 │   ├── renderer.h / renderer.cpp  # Direct2D 描画統括 + タイトルバー / オーバーレイ描画
 │   ├── renderer_resources.cpp     # ブラシ・フォーマット
 │   ├── renderer_pane.cpp          # ペイン描画
-│   ├── renderer_search.cpp        # 検索入力欄の計測
 │   ├── d2d_render_backend.h / .cpp # D2DRenderBackend (D3D11 デバイス / スワップチェーン / フレーム待ち)
 │   ├── render_params.h            # レンダリングパラメータ (MdPaneParams / RenderParams 等)
 │   ├── draw_command.h             # DrawCommand variant + DrawCommandList (pmr::vector) + FixedBrushArray / ExecuteDrawCommands 宣言

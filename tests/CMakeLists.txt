@@ -59,6 +59,7 @@ add_executable(mendo_tests
     test_command_generator_culling.cpp
     test_diagram_placeholder.cpp
     test_text_layout_cache.cpp
+    test_search_input.cpp
     test_measurer_parity.cpp
     test_dwrite_measurer.cpp
     test_command_executor.cpp

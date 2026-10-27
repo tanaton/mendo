@@ -33,23 +33,63 @@ struct MdPaneFormats {
     Microsoft::WRL::ComPtr<IDWriteTextFormat> placeholder_text;
 };
 
-// ペインの縦スクロールバーのつまみ。出さないときは nullopt。サイドペインと本文で使う。
+// ペインの縦スクロールバーのつまみ。出さないときは nullopt。
 // ドラッグ処理 (ScrollFromThumbY) と同じ計算を共有し、見た目と挙動のズレを防ぐ。
 std::optional<FillRoundedRectCmd> VScrollThumb(const PaneRect& pane, float header_height, float scroll_y, float total_content_height,
                                                bool may_grow = false) noexcept;
 
-// 本文ペインに重ねるもの (変換は恒等、クリップ無しで描く)。文字列は text_layouts に作り置き、fmt が null なら描かない。
-namespace overlay {
-// 検索欄の文字列。作るのも位置を測るのも DirectWrite が要るので Renderer が用意する。x は文字列の左端から測る。
-struct SearchInputText {
+// 検索欄の文字列を測った結果。x は文字列の左端から測る。
+struct SearchInputMetrics {
     IDWriteTextLayout* layout = nullptr; // null なら文字列も選択範囲も描かない
     float caret_x = 0.0f;
     float selection_x = 0.0f;
     float selection_width = 0.0f; // 0 なら選択なし
 };
+
+// 検索欄の文字列のレイアウト。表示テキスト (IME の合成中テキストを挿入したもの) と幅が前回と同じ間は使い回す。
+// ドラッグ選択中は WM_MOUSEMOVE ごとに HitTest が来るので、描画と同じレイアウトを引く。
+class SearchInputLayout {
+public:
+    // 書式を作り直したら呼ぶ。前の書式のレイアウトは捨てる。
+    void SetFormat(IDWriteFactory* factory, IDWriteTextFormat* fmt) noexcept
+    {
+        factory_ = factory;
+        fmt_ = fmt;
+        Forget();
+    }
+    // レイアウトを用意して選択範囲とキャレットの位置を測る。返す layout は次の Measure / SetFormat まで有効。
+    SearchInputMetrics Measure(const SearchBarRenderState& sb, float width);
+    // 文字列の左端から local_x の位置に置くキャレットの文字位置。表示用のレイアウトが同じ文字列・幅なら使い回す。
+    int HitTest(std::wstring_view query, float local_x, float width) const;
+
+private:
+    bool Holds(std::wstring_view text, DWRITE_TEXT_RANGE underline, float width) const noexcept
+    {
+        return layout_ && width_ == width && underline_.startPosition == underline.startPosition && underline_.length == underline.length && text_ == text;
+    }
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> Create(std::wstring_view text, float width) const;
+    void Forget() noexcept
+    {
+        layout_.Reset();
+        text_.clear();
+        width_ = -1.0f;
+        underline_ = {};
+    }
+
+    IDWriteFactory* factory_ = nullptr;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_;
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout_;
+    std::pmr::wstring text_;
+    std::pmr::wstring scratch_;
+    float width_ = -1.0f;
+    DWRITE_TEXT_RANGE underline_{};
+};
+
+// 本文ペインに重ねるもの (変換は恒等、クリップ無しで描く)。文字列は text_layouts に作り置き、fmt が null なら描かない。
+namespace overlay {
 // 検索バー。ペインの下端に置く。
 void EmitSearchBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextFormat* icon_fmt, IDWriteTextFormat* count_fmt,
-                   const PaneRect& md_pane_rect, const SearchBarRenderState& sb, const SearchInputText& input);
+                   const PaneRect& md_pane_rect, const SearchBarRenderState& sb, const SearchInputMetrics& input);
 // 読み込み中のスピナー。ペインの中央に点を回して並べ、後ろの点ほど薄くする。
 void EmitLoadingSpinner(DrawCommandList& out, float angle, const PaneRect& md_pane_rect);
 // 戻る/進むのボタン。押せないボタンも薄く描く。

@@ -112,7 +112,7 @@ void Renderer::RecreateAllTextFormats()
 
     // 古い書式のレイアウトは二度と引かれないので、まとめて捨てる。
     text_layouts_.SetFactory(backend_.GetDWriteFactory());
-    search_input_ = {};
+    search_input_.SetFormat(backend_.GetDWriteFactory(), fmt_.search_input.Get());
 }
 
 void Renderer::CreateTextFormats()

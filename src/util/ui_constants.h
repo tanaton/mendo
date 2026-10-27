@@ -256,7 +256,7 @@ struct SearchBarLayout {
     float bar_top = 0.0f;
     float bar_bottom = 0.0f;
 
-    // 検索入力のテキスト描画領域。描画(renderer_search)とヒットテスト(app)で共有する。
+    // 検索入力のテキスト描画領域。描画(EmitSearchBar)とヒットテスト(app)で共有する。
     constexpr float text_left() const noexcept
     {
         return input_rect.left + SEARCH_INPUT_TEXT_PAD_LEFT;

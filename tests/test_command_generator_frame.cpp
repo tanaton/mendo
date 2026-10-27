@@ -4,11 +4,8 @@
 #include "hit_test_service.h"
 #include "pane_layout.h"
 #include "search_state.h"
-#include <dwrite.h>
-#include <wrl/client.h>
 #include <algorithm>
 #include <optional>
-#include <string>
 #include <variant>
 
 namespace {
@@ -243,16 +240,19 @@ TEST(OverlayCommandsTest, ToastSitsAboveNavButtons)
     EXPECT_FLOAT_EQ(panels[0].rect.bottom - panels[0].rect.top, TOAST_OVERLAY_HEIGHT);
 }
 
-// つまみは内容が収まれば出さない。計測待ちで伸びうる間は、ちょうど収まっていても出す。
-TEST(OverlayCommandsTest, VScrollThumbHiddenWhenContentFits)
+// ═══════════════════════════════════════════════
+// スクロールバーのつまみ
+// ═══════════════════════════════════════════════
+
+// 出すかどうかは ShowsVScrollbar に任せる (計測待ちの may_grow もそのまま渡す)。
+TEST(ScrollThumbTest, VisibilityFollowsShowsVScrollbar)
 {
     EXPECT_FALSE(VScrollThumb(kOverlayPane, 0.0f, 0.0f, kOverlayPane.height));
     EXPECT_TRUE(VScrollThumb(kOverlayPane, 0.0f, 0.0f, kOverlayPane.height, /*may_grow=*/true));
-    EXPECT_FALSE(VScrollThumb(kOverlayPane, 0.0f, 0.0f, kOverlayPane.height - 1.0f, /*may_grow=*/true));
 }
 
 // つまみはヘッダの下から右端に寄せて置き、ドラッグ (ScrollFromThumbY) で同じスクロール位置に戻る。
-TEST(OverlayCommandsTest, VScrollThumbTracksScrollWithinContentArea)
+TEST(ScrollThumbTest, TracksScrollWithinContentArea)
 {
     constexpr float header = 30.0f;
     constexpr float total = 1480.0f;
@@ -277,14 +277,19 @@ TEST(OverlayCommandsTest, VScrollThumbTracksScrollWithinContentArea)
     EXPECT_NEAR(ScrollFromThumbY(info, mid->rect.top), mid_scroll, 1e-2f);
 }
 
+// ═══════════════════════════════════════════════
+// 検索バー (文字列は test_search_input.cpp)
+// ═══════════════════════════════════════════════
+
 namespace {
 
-// 塗りの角丸矩形のうち、rect と同じ位置のもの。
-std::optional<FillRoundedRectCmd> FillAt(const DrawCommandList& cmds, const D2D1_RECT_F& rect)
+// rect と同じ位置に塗った角丸矩形のブラシ。無ければ nullopt。
+std::optional<BrushId> FillBrushAt(const DrawCommandList& cmds, const D2D1_RECT_F& rect)
 {
-    return FindFirst<FillRoundedRectCmd>(cmds, [&](const FillRoundedRectCmd& c) {
+    const auto fill = FindFirst<FillRoundedRectCmd>(cmds, [&](const FillRoundedRectCmd& c) {
         return c.rect.left == rect.left && c.rect.top == rect.top && c.rect.right == rect.right && c.rect.bottom == rect.bottom;
     });
+    return fill ? std::optional(fill->brush_id) : std::nullopt;
 }
 
 } // namespace
@@ -294,8 +299,7 @@ TEST(OverlayCommandsTest, SearchBarDocksAtPaneBottom)
 {
     TextLayoutCache text_layouts;
     DrawCommandList cmds;
-    const SearchBarRenderState sb{ .visible = true };
-    overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, kOverlayPane, sb, {});
+    overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, kOverlayPane, { .visible = true }, {});
     const auto sbl = ComputeSearchBarLayout(kOverlayPane, false);
 
     const auto bar = FindFirst<FillRectCmd>(cmds);
@@ -311,9 +315,7 @@ TEST(OverlayCommandsTest, SearchBarDocksAtPaneBottom)
     EXPECT_EQ(border->brush_id, BrushId::SearchBarBorder);
     EXPECT_FLOAT_EQ(border->p0.y, sbl.bar_top);
 
-    const auto input_bg = FillAt(cmds, sbl.input_rect);
-    ASSERT_TRUE(input_bg);
-    EXPECT_EQ(input_bg->brush_id, BrushId::SearchInputBg);
+    EXPECT_EQ(FillBrushAt(cmds, sbl.input_rect), BrushId::SearchInputBg);
     const auto frame = FindFirst<DrawRoundedRectCmd>(cmds);
     ASSERT_TRUE(frame);
     EXPECT_EQ(frame->brush_id, BrushId::Link);
@@ -324,19 +326,18 @@ TEST(OverlayCommandsTest, SearchBarDocksAtPaneBottom)
     EXPECT_FALSE(FindFirst<FillRectCmd>(cmds, [](const FillRectCmd& c) { return c.brush_id == BrushId::Selection; }));
 }
 
-// 1 件も見つからなければ入力欄の背景を変える。調べる前 (クエリが空) は変えない。
+// 1 件も見つからなければ入力欄の背景を変える。
 TEST(OverlayCommandsTest, SearchBarInputTurnsRedOnNoMatch)
 {
+    const auto input_rect = ComputeSearchBarLayout(kOverlayPane, true).input_rect;
     TextLayoutCache text_layouts;
     DrawCommandList cmds;
     overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, kOverlayPane, { .query = L"abc", .total_matches = 0, .visible = true }, {});
-    const auto input_bg = FillAt(cmds, ComputeSearchBarLayout(kOverlayPane, true).input_rect);
-    ASSERT_TRUE(input_bg);
-    EXPECT_EQ(input_bg->brush_id, BrushId::SearchNoMatchBg);
+    EXPECT_EQ(FillBrushAt(cmds, input_rect), BrushId::SearchNoMatchBg);
 
     cmds.clear();
     overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, kOverlayPane, { .query = L"abc", .total_matches = 3, .visible = true }, {});
-    EXPECT_EQ(FillAt(cmds, ComputeSearchBarLayout(kOverlayPane, true).input_rect)->brush_id, BrushId::SearchInputBg);
+    EXPECT_EQ(FillBrushAt(cmds, input_rect), BrushId::SearchInputBg);
 }
 
 // キャレットは文字列の左端から caret_x の位置に引き、入力欄の右端を越えない。IME の合成中と非表示のときは引かない。
@@ -375,101 +376,15 @@ TEST(OverlayCommandsTest, SearchBarButtonsShowHoverAndToggleState)
     DrawCommandList cmds;
     overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, kOverlayPane,
                            { .query = L"a", .total_matches = 1, .visible = true, .case_sensitive = true, .highlight_enabled = false, .hovered = SearchBarHitZone::Up }, {});
-    ASSERT_TRUE(FillAt(cmds, sbl.up_btn));
-    EXPECT_EQ(FillAt(cmds, sbl.up_btn)->brush_id, BrushId::TitleBarButtonHover);
-    ASSERT_TRUE(FillAt(cmds, sbl.case_btn));
-    EXPECT_EQ(FillAt(cmds, sbl.case_btn)->brush_id, BrushId::TitleBarButtonActive);
-    EXPECT_FALSE(FillAt(cmds, sbl.down_btn));
-    EXPECT_FALSE(FillAt(cmds, sbl.highlight_btn));
-    EXPECT_FALSE(FillAt(cmds, sbl.close_btn));
+    EXPECT_EQ(FillBrushAt(cmds, sbl.up_btn), BrushId::TitleBarButtonHover);
+    EXPECT_EQ(FillBrushAt(cmds, sbl.case_btn), BrushId::TitleBarButtonActive);
+    EXPECT_EQ(FillBrushAt(cmds, sbl.down_btn), std::nullopt);
+    EXPECT_EQ(FillBrushAt(cmds, sbl.highlight_btn), std::nullopt);
+    EXPECT_EQ(FillBrushAt(cmds, sbl.close_btn), std::nullopt);
 
     cmds.clear();
     overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, kOverlayPane,
                            { .query = L"a", .total_matches = 1, .visible = true, .hovered = SearchBarHitZone::CaseSensitive }, {});
-    ASSERT_TRUE(FillAt(cmds, sbl.case_btn));
-    EXPECT_EQ(FillAt(cmds, sbl.case_btn)->brush_id, BrushId::TitleBarButtonHover);
-    ASSERT_TRUE(FillAt(cmds, sbl.highlight_btn));
-    EXPECT_EQ(FillAt(cmds, sbl.highlight_btn)->brush_id, BrushId::TitleBarButtonActive);
-}
-
-namespace {
-
-// 件数の文字列と入力欄の文字列は実 DirectWrite のレイアウトで確かめる。
-class SearchBarDWriteTest : public ::testing::Test {
-protected:
-    Microsoft::WRL::ComPtr<IDWriteFactory> factory_;
-    Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_;
-    TextLayoutCache text_layouts_;
-
-    void SetUp() override
-    {
-        ASSERT_HRESULT_SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(factory_.GetAddressOf())));
-        ASSERT_HRESULT_SUCCEEDED(factory_->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-                                                            DWRITE_FONT_STRETCH_NORMAL, 12.0f, L"en-us", &fmt_));
-        text_layouts_.SetFactory(factory_.Get());
-    }
-
-    // 件数の欄に置いた文字列。無ければ空。
-    std::wstring CountText(const SearchBarRenderState& sb)
-    {
-        DrawCommandList cmds;
-        overlay::EmitSearchBar(cmds, text_layouts_, nullptr, fmt_.Get(), kOverlayPane, sb, {});
-        const auto count_rect = ComputeSearchBarLayout(kOverlayPane, !sb.query.empty()).count_rect;
-        const auto cmd = FindFirst<DrawTextLayoutCmd>(cmds, [&](const DrawTextLayoutCmd& c) {
-            return c.origin.x == (count_rect.left + count_rect.right) * 0.5f && c.origin.y == (count_rect.top + count_rect.bottom) * 0.5f;
-        });
-        return cmd ? std::wstring(text_layouts_.TextOf(cmd->layout)) : std::wstring();
-    }
-};
-
-} // namespace
-
-// 件数は「今の番号 / 全件」、見つからなければ 0。初めての検索の途中 (-1) とクエリが空のときは出さない。
-TEST_F(SearchBarDWriteTest, MatchCountShowsCurrentOfTotal)
-{
-    EXPECT_EQ(CountText({ .query = L"a", .current_match = 1, .total_matches = 5, .visible = true }), L"2 / 5");
-    EXPECT_EQ(CountText({ .query = L"a", .total_matches = 0, .visible = true }), L"0");
-    EXPECT_EQ(CountText({ .query = L"a", .total_matches = -1, .visible = true }), L"");
-    EXPECT_EQ(CountText({ .total_matches = 5, .visible = true }), L"");
-}
-
-// 選択範囲は文字列の左端から測った位置に、文字列より先に塗る。文字列は入力欄の文字の左端に置く。
-TEST_F(SearchBarDWriteTest, InputSelectionIsPaintedBeforeText)
-{
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
-    ASSERT_HRESULT_SUCCEEDED(factory_->CreateTextLayout(L"abc", 3, fmt_.Get(), 100.0f, SEARCH_INPUT_HEIGHT, &layout));
-    const SearchBarRenderState sb{ .query = L"abc", .total_matches = 1, .visible = true };
-    const auto sbl = ComputeSearchBarLayout(kOverlayPane, true);
-
-    DrawCommandList cmds;
-    overlay::EmitSearchBar(cmds, text_layouts_, nullptr, nullptr, kOverlayPane, sb, { .layout = layout.Get(), .selection_x = 5.0f, .selection_width = 12.0f });
-
-    const auto is_selection = [](const DrawCommand& c) {
-        const auto* f = std::get_if<FillRectCmd>(&c);
-        return f && f->brush_id == BrushId::Selection;
-    };
-    const auto is_input_text = [&](const DrawCommand& c) {
-        const auto* t = std::get_if<DrawTextLayoutCmd>(&c);
-        return t && t->layout == layout.Get();
-    };
-    const auto sel = std::ranges::find_if(cmds, is_selection);
-    const auto text = std::ranges::find_if(cmds, is_input_text);
-    ASSERT_NE(sel, cmds.end());
-    ASSERT_NE(text, cmds.end());
-    EXPECT_LT(sel, text);
-
-    const auto& sel_rect = std::get<FillRectCmd>(*sel).rect;
-    EXPECT_FLOAT_EQ(sel_rect.left, sbl.text_left() + 5.0f);
-    EXPECT_FLOAT_EQ(sel_rect.right, sbl.text_left() + 17.0f);
-    EXPECT_GT(sel_rect.top, sbl.input_rect.top);
-    EXPECT_LT(sel_rect.bottom, sbl.input_rect.bottom);
-    const auto& text_cmd = std::get<DrawTextLayoutCmd>(*text);
-    EXPECT_FLOAT_EQ(text_cmd.origin.x, sbl.text_left());
-    EXPECT_FLOAT_EQ(text_cmd.origin.y, sbl.input_rect.top);
-
-    // 選択が無ければ塗らない。
-    cmds.clear();
-    overlay::EmitSearchBar(cmds, text_layouts_, nullptr, nullptr, kOverlayPane, sb, { .layout = layout.Get() });
-    EXPECT_EQ(std::ranges::find_if(cmds, is_selection), cmds.end());
-    EXPECT_NE(std::ranges::find_if(cmds, is_input_text), cmds.end());
+    EXPECT_EQ(FillBrushAt(cmds, sbl.case_btn), BrushId::TitleBarButtonHover);
+    EXPECT_EQ(FillBrushAt(cmds, sbl.highlight_btn), BrushId::TitleBarButtonActive);
 }
