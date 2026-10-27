@@ -30,10 +30,12 @@ struct LoadedFileDoc {
 // stop_token は AsyncLoadCoordinator::LoadFileFn に合わせて受けるだけで、読み込みの途中では止めない。
 std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::pmr::wstring& path, const std::stop_token& stop_token);
 
-// 同一ファイルのリロードで worker に渡す旧文書。原文はパース前の差分判定に、ノードはパース後に
-// 変わらなかったノードを数えるのに使う。空ならリロードとして扱わない。
+// 表示中のファイルを読み直すとき (開き直しを含む) に worker に渡す旧文書。原文はパース前の差分判定に、
+// ノードはパース後に変わらなかったノードを数えるのに使う。空ならリロードとして扱わない。
 struct ReloadBase {
     std::shared_ptr<const DocumentData> data;
+    // prefix shrink も defer せずにパースする (PrefixShrinkRetry の上限後)。
+    bool accept_prefix_shrink = false;
 };
 
 // 同一ファイルのリロードで、worker がパース前に差分判定まで済ませた結果。
@@ -45,13 +47,12 @@ inline constexpr size_t kDisposeMinNodes = 4096;
 struct ReloadCheck {
     // 書き込み途中 (AsyncLoadResult::still_growing) なら判定せず既定値のまま。
     ReloadDecision decision{ ReloadOp::NoChange, std::string_view::npos };
-    // 判定に使った旧文書。UI 側の文書がこれと同一のときだけ decision と ends を信用できる。
+    // 判定に使った旧文書。UI 側の文書がこれと同一のときだけ decision と ends を信用できる (同一ならパスも同じ)。
     // 弱参照なので、判定後に UI が文書を差し替えれば旧文書はその時点で解放される。
     std::weak_ptr<const DocumentData> base;
-    std::pmr::wstring path;
     // 旧文書のノードと比べて変わらなかった先頭と末尾のノード数 (Replace のとき)。大きな文書で UI を止めないよう worker で数える。
-    // パース中に UI が旧文書を手放していれば空。
-    std::optional<UnchangedEnds> ends;
+    // 数えられないのはパース中に UI が旧文書を手放したときだけなので、base が UI の文書と同一なら必ず数えてある。
+    UnchangedEnds ends;
 };
 
 // ワーカースレッドでのパース結果。cache は doc 向けに EstimateNodeHeights 済み。
@@ -59,7 +60,7 @@ struct AsyncLoadResult {
     Document doc;
     LayoutCache cache;
     std::optional<ReloadCheck> reload;
-    // 読み終えた後もファイルが伸びている (エディタの書き込み途中)。同じパスを読み直したときだけ見る。
+    // 読み終えた後もファイルが伸びている (エディタの書き込み途中)。リロードのときだけ確かめる。
     // UI スレッドはファイルに触れない (ネットワーク上のファイルで止まる) ので、結果を出す直前に worker で確かめる。
     bool still_growing = false;
 };

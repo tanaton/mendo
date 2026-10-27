@@ -97,37 +97,15 @@ void App::ReplaceDocument(Document next, LayoutCache estimated)
     DisposeOnWorkerIfLarge(scheduler_, old.GetNodes().size(), kDisposeMinNodes, std::move(old));
 }
 
-void App::BeginAsyncLoad(std::pmr::wstring path, bool show_animation, ReloadBase reload_base)
+void App::BeginAsyncLoad(std::pmr::wstring path, bool show_animation)
 {
     MENDO_PROFILE("App::BeginAsyncLoad");
     if (show_animation) {
         ScheduleLoadingAnimation();
     }
+    ReloadBase reload_base = ReloadBaseFor(state_.document.doc, path, prefix_shrink_retry_.Exhausted());
     // 進行中の読み込み (preload を含む) は置き換える。
     load_coordinator_.Start(scheduler_, std::move(path), theme_service_.GetTheme(), MdContentWidth(), std::move(reload_base));
-}
-
-// DeferPrefixShrink はエディタの保存途中 (truncate→rewrite の前半) を読んだ状態。
-// state_.document.doc を更新せず保持して、次のリロードで正確な差分を取り直す。
-App::ReloadFlow App::ApplyReloadDecisionEarly(const ReloadDecision& decision, bool has_parsed_doc)
-{
-    switch (decision.op) {
-    case ReloadOp::NoChange:
-        prefix_shrink_retry_.Reset();
-        file_watcher_.ResumeWatching();
-        return ReloadFlow::Handled;
-    case ReloadOp::DeferPrefixShrink:
-        // 上限後は ReloadCurrentFile がパース込みで読み直すので、文書が無い結果は defer のまま流す。
-        if (prefix_shrink_retry_.TryDefer() || !has_parsed_doc) {
-            DeferReloadRetry();
-            return ReloadFlow::Handled;
-        }
-        break;
-    case ReloadOp::Replace:
-        break;
-    }
-    prefix_shrink_retry_.Reset();
-    return ReloadFlow::ContinueWithReload;
 }
 
 void App::DeferReloadRetry()
@@ -217,8 +195,8 @@ void App::OnParseComplete()
     AsyncLoadResult* const result = (outcome && *outcome) ? &**outcome : nullptr;
     if (plan.reload) {
         MENDO_TRACEF(
-            "OnParseComplete: reload worker_diff={} node_count={} diff_pos={} new_size={} op={}",
-            result->reload.has_value(), result->doc.GetNodes().size(), plan.reload->diff_pos,
+            "OnParseComplete: reload node_count={} diff_pos={} new_size={} op={}",
+            result->doc.GetNodes().size(), plan.reload->diff_pos,
             result->doc.GetRawText().size(), std::to_underlying(plan.reload->op));
     }
 
@@ -241,15 +219,27 @@ void App::OnParseComplete()
         DeferReloadRetry();
         return;
     case ParseCompleteStep::ApplyReload:
-        if (ApplyReloadDecisionEarly(*plan.reload, !result->reload.has_value()) == ReloadFlow::Handled) {
+        switch (plan.reload->op) {
+        case ReloadOp::NoChange:
+            prefix_shrink_retry_.Reset();
+            file_watcher_.ResumeWatching();
             return;
+        case ReloadOp::DeferPrefixShrink:
+            // エディタの保存途中 (truncate→rewrite の前半) を読んだ。文書はそのままにして読み直し、正確な差分を取り直す。
+            // 上限に達したら、次の読み直しで worker が縮んだ内容を受け入れる (BeginAsyncLoad)。
+            prefix_shrink_retry_.CountDefer();
+            DeferReloadRetry();
+            return;
+        case ReloadOp::Replace:
+            break;
         }
+        prefix_shrink_retry_.Reset();
         // 読み始めた後にテキスト選択のドラッグが始まった。読み直しはドラッグの終わりに回す。
         if (DeferReloadWhileSelecting()) {
             DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
             return;
         }
-        ReloadDocument(std::move(result->doc), std::move(result->cache), result->reload ? result->reload->ends : std::nullopt, plan.reload->diff_pos);
+        ReloadDocument(std::move(result->doc), std::move(result->cache), result->reload->ends, plan.reload->diff_pos);
         return;
     case ParseCompleteStep::ReplaceWithResult:
         OpenDocument(std::move(result->doc), std::move(result->cache), plan.follow_file_pane);
@@ -306,10 +296,7 @@ void App::ReloadCurrentFile()
     file_watcher_.DiscardPendingChange();
 
     // 編集中の差分リロードでスピナーが点滅すると見づらいため、旧コンテンツを表示したまま差し替える。
-    // prefix shrink の defer が上限に達したら、縮んだ内容を受け入れるため worker の事前判定を省いてパースさせる。
-    const auto& doc = state_.document.doc;
-    BeginAsyncLoad(doc.GetFilePath(), /*show_animation=*/false,
-                   prefix_shrink_retry_.Exhausted() ? ReloadBase{} : ReloadBase{ doc.ShareData() });
+    BeginAsyncLoad(state_.document.doc.GetFilePath(), /*show_animation=*/false);
 }
 
 // FileWatcher は paused のまま残し、ドラッグの終わり (reducer の ClearDrag) で読み直させる。
@@ -322,13 +309,12 @@ bool App::DeferReloadWhileSelecting()
     return true;
 }
 
-void App::ReloadDocument(Document next, LayoutCache estimated, std::optional<UnchangedEnds> ends, size_t diff_pos)
+void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEnds& ends, size_t diff_pos)
 {
     MENDO_PROFILE("ReloadDocument");
 
     // 保存のたびに可視範囲を作り直さず、実測の高さも推定値に戻さない (スクロール位置の計算と表示の跳ねを防ぐ)。
-    const auto carry = layout::CarryOverUnchanged(state_.document.doc.GetNodes(), state_.document.layout_cache, next.GetNodes(), estimated,
-                                                  ends ? *ends : FindUnchangedEnds(state_.document.doc.GetNodes(), next.GetNodes()));
+    const auto carry = layout::CarryOverUnchanged(state_.document.doc.GetNodes(), state_.document.layout_cache, next.GetNodes(), estimated, ends);
     ReplaceDocument(std::move(next), std::move(estimated));
 
     // 図と画像はコードやパスがキーなので、描画・デコード待ちも結果もそのまま使える。

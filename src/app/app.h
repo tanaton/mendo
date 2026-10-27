@@ -317,13 +317,13 @@ private:
     // ビュー状態の後始末は DocumentOpenedAction で reducer に任せる。
     void OpenDocument(Document next, LayoutCache estimated, bool follow_file_pane);
     // 同じ文書の新しい版に差し替える。中身が変わらないノードの計測結果を引き継ぎ、diff_pos の近くが見えるようにスクロールする。
-    // ends は worker が数えた変わらなかったノード数。無ければここで数える。後始末は DocumentReloadedAction / ReloadSettledAction で reducer に任せる。
-    void ReloadDocument(Document next, LayoutCache estimated, std::optional<UnchangedEnds> ends, size_t diff_pos);
+    // ends は worker が数えた変わらなかったノード数。後始末は DocumentReloadedAction / ReloadSettledAction で reducer に任せる。
+    void ReloadDocument(Document next, LayoutCache estimated, const UnchangedEnds& ends, size_t diff_pos);
     // 表示文書とレイアウトキャッシュを一緒に差し替え、旧文書の破棄を worker に回す。OpenDocument / ReloadDocument の中だけで使う。
     void ReplaceDocument(Document next, LayoutCache estimated);
     void ReloadCurrentFile();
-    // reload_base は同一ファイルのリロード時の現在の文書 (worker で差分判定させる)。
-    void BeginAsyncLoad(std::pmr::wstring path, bool show_animation, ReloadBase reload_base = {});
+    // 表示中のファイルなら開き直しも含めてリロードとして読む (ReloadBaseFor)。
+    void BeginAsyncLoad(std::pmr::wstring path, bool show_animation);
     void StartLoadingAnimation();
     // 読み込みが LOADING_SPINNER_DELAY_MS より長引いたらスピナーを出す。
     void ScheduleLoadingAnimation();
@@ -335,14 +335,6 @@ private:
     // nodes の範囲の推定高さを、図と画像のキャッシュにある実測の寸法で上書きする。変えたら true (Y は組み直さない)。
     // 呼び出し前にノード高さの初期化 (EstimateNodeHeights) は完了していること。
     bool ApplyCachedHeights(VisibleRange nodes);
-
-    enum class ReloadFlow : uint8_t {
-        Handled,            // ResumeWatching / DeferReloadRetry 済み、呼び出し元は return
-        ContinueWithReload, // Replace を呼び出し元で実行する
-    };
-    // NoChange / DeferPrefixShrink をここで処理し、Replace は呼び出し元に任せる。
-    // has_parsed_doc は新しい内容のパース済み文書が手元にあるか (prefix shrink を受け入れられるか)。
-    ReloadFlow ApplyReloadDecisionEarly(const ReloadDecision& decision, bool has_parsed_doc);
 
     // 短縮リトライで再リロードを予約する。エディタの truncate→rewrite 中や
     // partial-read を検出した時に共通で使う。

@@ -215,14 +215,14 @@ size_t FindFirstDifference(std::string_view old_text, std::string_view new_text)
     return pos;
 }
 
-ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text) noexcept
+ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text, bool accept_prefix_shrink) noexcept
 {
     const size_t diff_pos = FindFirstDifference(old_text, new_text);
     if (diff_pos == std::string_view::npos) {
         return { ReloadOp::NoChange, std::string_view::npos };
     }
     // 新しい方が古い方の prefix (エディタの truncate→rewrite の途中)。
-    if (diff_pos == new_text.size()) {
+    if (diff_pos == new_text.size() && !accept_prefix_shrink) {
         return { ReloadOp::DeferPrefixShrink, diff_pos };
     }
     return { ReloadOp::Replace, diff_pos };

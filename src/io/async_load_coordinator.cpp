@@ -165,10 +165,10 @@ void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::pmr::w
         // 新旧 Document の二重保持が起きないよう、パース前に判定する。
         // 書き込み途中なら差分も取らずに返し、読み直させる。
         if (IsFileLargerThan(path.c_str(), file->byte_size)) {
-            Publish(stop_token, AsyncLoadResult{ .reload = ReloadCheck{ .base = reload_base.data, .path = path }, .still_growing = true });
+            Publish(stop_token, AsyncLoadResult{ .reload = ReloadCheck{ .base = reload_base.data }, .still_growing = true });
             return;
         }
-        reload.emplace(ReloadCheck{ AnalyzeReloadDiff(reload_base.data->raw, file->text), reload_base.data, path });
+        reload.emplace(ReloadCheck{ AnalyzeReloadDiff(reload_base.data->raw, file->text, reload_base.accept_prefix_shrink), reload_base.data });
         // 以降のパース中に UI が文書を差し替えても旧文書を延命しない。
         reload_base.data.reset();
         if (reload->decision.op != ReloadOp::Replace) {
@@ -194,7 +194,7 @@ void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::pmr::w
     }
 
     // パースの間に伸びたのも捕まえるよう、結果を出す直前に確かめる。
-    const bool still_growing = IsFileLargerThan(path.c_str(), file->byte_size);
+    const bool still_growing = reload && IsFileLargerThan(path.c_str(), file->byte_size);
     Publish(stop_token, AsyncLoadResult{ std::move(doc), std::move(cache), std::move(reload), still_growing });
 }
 

@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "async_load_coordinator.h"
+#include "reload_flow.h"
 #include "task_scheduler.h"
 #include "test_helpers.h"
 #include "theme.h"
@@ -133,11 +134,11 @@ TEST_F(AsyncLoadCoordinatorTest, DestructorWaitsForRunningWorker)
 
 namespace {
 
-std::optional<AsyncLoadResult> RunReload(TaskScheduler& scheduler, const TempFile& tmp, std::string_view old_text)
+std::optional<AsyncLoadResult> RunReload(TaskScheduler& scheduler, const TempFile& tmp, std::string_view old_text, bool accept_prefix_shrink = false)
 {
     std::shared_ptr<const DocumentData> base = Document::FromMarkdown(std::pmr::string(old_text), L"old.md").ShareData();
     AsyncLoadCoordinator c;
-    c.Start(scheduler, tmp.PmrPath(), GetLightTheme(), 0.0f, ReloadBase{ base });
+    c.Start(scheduler, tmp.PmrPath(), GetLightTheme(), 0.0f, ReloadBase{ base, accept_prefix_shrink });
     auto outcome = WaitForOutcome(c);
     std::optional<AsyncLoadResult> result;
     if (outcome && outcome->has_value()) {
@@ -181,6 +182,19 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadPrefixShrinkSkipsParse)
     EXPECT_TRUE(result->doc.IsEmpty());
 }
 
+// defer の上限後は、縮んだ内容をパースして差し替える。
+TEST_F(AsyncLoadCoordinatorTest, ReloadAcceptingPrefixShrinkParses)
+{
+    TempFile tmp(L"aload_reload_accept_shrink", "# Title\n");
+    auto result = RunReload(scheduler_, tmp, "# Title\n\nbody\n", /*accept_prefix_shrink=*/true);
+    ASSERT_TRUE(result.has_value());
+    ASSERT_TRUE(result->reload.has_value());
+    EXPECT_EQ(result->reload->decision.op, ReloadOp::Replace);
+    EXPECT_EQ(result->reload->decision.diff_pos, 8u);
+    EXPECT_EQ(result->doc.GetNodes().size(), 1u);
+    EXPECT_EQ(result->reload->ends.head, 1u);
+}
+
 TEST_F(AsyncLoadCoordinatorTest, ReloadWithChangeParsesAndCarriesDecision)
 {
     TempFile tmp(L"aload_reload_change", "# Title\n\nchanged\n");
@@ -216,12 +230,13 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadCountsUnchangedNodesOnWorker)
         ASSERT_TRUE(reload.has_value());
         ASSERT_EQ(reload->decision.op, ReloadOp::Replace);
         if (keep_old) {
-            ASSERT_TRUE(reload->ends.has_value());
-            EXPECT_EQ(reload->ends->head, 1u);
-            EXPECT_EQ(reload->ends->tail, 1u);
+            EXPECT_EQ(reload->ends.head, 1u);
+            EXPECT_EQ(reload->ends.tail, 1u);
         }
         else {
-            EXPECT_FALSE(reload->ends.has_value());
+            // 数えていない。旧文書が無いので UI は判定ごと捨てて読み直す (PlanParseComplete の Retry)。
+            EXPECT_EQ(reload->ends.new_count, 0u);
+            EXPECT_TRUE(reload->base.expired());
         }
     }
 }
@@ -246,8 +261,8 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadWhileFileStillGrowingSkipsParse)
     EXPECT_TRUE(result.doc.IsEmpty());
 }
 
-// 開いている文書を開き直したとき (reload_base なし) も、UI が書き込み途中と分かるよう worker で確かめて返す。
-TEST_F(AsyncLoadCoordinatorTest, LoadWhileFileStillGrowingReportsIt)
+// 表示中でないファイルは伸びていても開くので、確かめない (ネットワーク上のファイルへの問い合わせを省く)。
+TEST_F(AsyncLoadCoordinatorTest, LoadWithoutBaseDoesNotCheckGrowth)
 {
     TempFile tmp(L"aload_growing", std::string(256, 'x'));
     AsyncLoadCoordinator c([](const std::pmr::wstring&, const std::stop_token&) static -> std::expected<LoadedFileDoc, FileLoadError> {
@@ -257,8 +272,39 @@ TEST_F(AsyncLoadCoordinatorTest, LoadWhileFileStillGrowingReportsIt)
     const auto outcome = WaitForOutcome(c);
     ASSERT_TRUE(outcome.has_value());
     ASSERT_TRUE(outcome->has_value());
-    EXPECT_TRUE((*outcome)->still_growing);
+    EXPECT_FALSE((*outcome)->still_growing);
     EXPECT_FALSE((*outcome)->doc.IsEmpty());
+}
+
+// 表示中のファイルを開き直すと (ReloadBaseFor)、worker の差分判定を UI がそのまま使う。
+// prefix shrink は defer し、上限後の読み直しでは縮んだ内容に差し替える。
+TEST_F(AsyncLoadCoordinatorTest, ReopeningShownFileIsJudgedOnWorker)
+{
+    TempFile tmp(L"aload_reopen", "# Title\n");
+    const Document current = Document::FromMarkdown(std::pmr::string("# Title\n\nbody\n"), tmp.PmrPath());
+    for (const bool accept : { false, true }) {
+        SCOPED_TRACE(accept ? "accept" : "defer");
+        AsyncLoadCoordinator c;
+        c.Start(scheduler_, tmp.PmrPath(), GetLightTheme(), 0.0f, ReloadBaseFor(current, tmp.PmrPath(), accept));
+        const auto outcome = WaitForOutcome(c);
+        const auto plan = PlanParseComplete(outcome, current);
+        ASSERT_EQ(plan.step, ParseCompleteStep::ApplyReload);
+        ASSERT_TRUE(plan.reload.has_value());
+        EXPECT_EQ(plan.reload->op, accept ? ReloadOp::Replace : ReloadOp::DeferPrefixShrink);
+        EXPECT_EQ(plan.reload->diff_pos, 8u);
+        EXPECT_EQ((*outcome)->doc.IsEmpty(), !accept);
+        if (accept) {
+            EXPECT_EQ((*outcome)->reload->ends.head, 1u);
+            EXPECT_EQ((*outcome)->reload->ends.old_count, 2u);
+        }
+    }
+    // 別のファイルはリロードとして扱わない。
+    TempFile other(L"aload_reopen_other", "# Title\n");
+    AsyncLoadCoordinator c;
+    c.Start(scheduler_, other.PmrPath(), GetLightTheme(), 0.0f, ReloadBaseFor(current, other.PmrPath(), false));
+    const auto plan = PlanParseComplete(WaitForOutcome(c), current);
+    EXPECT_EQ(plan.step, ParseCompleteStep::ReplaceWithResult);
+    EXPECT_TRUE(plan.follow_file_pane);
 }
 
 // ---- 世代 / キャンセルの決定的検証 ----
@@ -572,7 +618,7 @@ TEST_F(AsyncLoadCoordinatorTest, RandomStartCancelSequencesExposeOnlyLastLoad)
                 ASSERT_TRUE(outcome->has_value());
                 ASSERT_TRUE((*outcome)->reload.has_value());
                 EXPECT_EQ((*outcome)->reload->decision.op, ReloadOp::NoChange);
-                EXPECT_EQ((*outcome)->reload->path, ok1.PmrPath());
+                EXPECT_EQ((*outcome)->reload->base.lock(), ok1_base);
                 break;
             }
             EXPECT_FALSE(c.IsActive());

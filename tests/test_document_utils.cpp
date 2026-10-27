@@ -1150,14 +1150,24 @@ TEST(PrefixShrinkRetry, StopsDeferringAfterLimit)
     PrefixShrinkRetry retry;
     for (int i = 0; i < PrefixShrinkRetry::kMaxDefers; ++i) {
         EXPECT_FALSE(retry.Exhausted());
-        EXPECT_TRUE(retry.TryDefer());
+        retry.CountDefer();
     }
     EXPECT_TRUE(retry.Exhausted());
-    EXPECT_FALSE(retry.TryDefer());
+    retry.CountDefer();
+    EXPECT_TRUE(retry.Exhausted());
 
     retry.Reset();
     EXPECT_FALSE(retry.Exhausted());
-    EXPECT_TRUE(retry.TryDefer());
+}
+
+// 上限後は prefix shrink を受け入れ、縮んだ位置へ差し替える。それ以外の判定は変わらない。
+TEST(AnalyzeReloadDiff, AcceptPrefixShrinkReplaces)
+{
+    EXPECT_EQ(AnalyzeReloadDiff("abcdef", "abc", true).op, ReloadOp::Replace);
+    EXPECT_EQ(AnalyzeReloadDiff("abcdef", "abc", true).diff_pos, 3u);
+    EXPECT_EQ(AnalyzeReloadDiff("old content", "", true).op, ReloadOp::Replace);
+    EXPECT_EQ(AnalyzeReloadDiff("abc", "abc", true).op, ReloadOp::NoChange);
+    EXPECT_EQ(AnalyzeReloadDiff("abc", "abcdef", true).op, ReloadOp::Replace);
 }
 
 // ============================================================
