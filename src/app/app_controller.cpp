@@ -1,6 +1,4 @@
 #include "app_events.h"
-#include "ui_constants.h"
-#include <cstdlib>
 #include <windows.h>
 
 namespace app_controller {
@@ -79,31 +77,6 @@ AppAction HandleKeyDown(const KeyDownEvent& event)
     }
 
     return NoOpAction{};
-}
-
-AppAction HandleMouseWheel(const MouseWheelEvent& event, int& zoom_accum)
-{
-    if (event.ctrl) {
-        // 向きが反転したら逆向きの端数は持ち越さない。
-        if ((zoom_accum < 0) != (event.delta < 0)) {
-            zoom_accum = 0;
-        }
-        zoom_accum += event.delta;
-        const int steps = std::abs(zoom_accum) / WHEEL_DELTA;
-        if (steps == 0) {
-            return NoOpAction{};
-        }
-        zoom_accum = 0;
-        // ポインタの下の領域だけをズームする。
-        return ZoomAction{ event.delta > 0 ? ZoomDirection::In : ZoomDirection::Out, steps, ToPaneTarget(event.zone) };
-    }
-
-    const float scroll_amount = -event.delta * MOUSE_WHEEL_SCROLL_MULTIPLIER;
-
-    if (const auto pane = ToPaneTarget(event.zone)) {
-        return ScrollPaneAction{ *pane, scroll_amount, event.tick };
-    }
-    return DirectScrollByAction{ scroll_amount, event.tick };
 }
 
 } // namespace app_controller

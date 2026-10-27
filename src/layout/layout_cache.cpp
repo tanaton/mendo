@@ -32,7 +32,7 @@ std::optional<LineHit> HitLineAt(IDWriteTextLayout* layout, float y) noexcept
 
 // ローカル Y 範囲にかかる行のテキスト位置を、隣の行の位置で挟んだ [first, second) で返す。
 // 行のテキスト範囲は論理順に並ぶので、隣の行ならどの x で引いても境界になる (RTL の行でも成り立つ)。
-std::pair<uint32_t, uint32_t> TextRangeOfLines(IDWriteTextLayout* layout, const LocalYRange& y) noexcept
+std::pair<uint32_t, uint32_t> TextRangeOfLines(IDWriteTextLayout* layout, const YRange& y) noexcept
 {
     uint32_t begin = 0;
     uint32_t end = UINT32_MAX;
@@ -55,7 +55,7 @@ std::pair<uint32_t, uint32_t> TextRangeOfLines(IDWriteTextLayout* layout, const 
 
 } // namespace
 
-const LineWindow& EnsureLineWindow(const NodeLayoutEntry& entry, LocalYRange view)
+const LineWindow& EnsureLineWindow(const NodeLayoutEntry& entry, YRange view)
 {
     auto& window = entry.ensure_line_window();
     if (!window.y.Contains(view)) {
@@ -78,10 +78,9 @@ const LineWindow& EnsureLineWindow(const NodeLayoutEntry& entry, LocalYRange vie
 
 std::pair<size_t, size_t> TableLayoutData::VisibleRowRange(float local_top, float local_bottom) const noexcept
 {
-    if (row_cum_y.empty()) {
+    if (!HasRowGeometry()) {
         return { 0, 0 };
     }
-    const size_t row_count = row_cum_y.size() - 1;
     size_t r_begin = 0;
     size_t r_end = row_count;
     const auto upper = std::ranges::upper_bound(row_cum_y, local_top);
@@ -96,9 +95,9 @@ std::pair<size_t, size_t> TableLayoutData::VisibleRowRange(float local_top, floa
     return { r_begin, r_end };
 }
 
-void TableLayoutData::RebuildRowCumY(size_t row_count, size_t first_row)
+void TableLayoutData::RebuildRowCumY(size_t first_row)
 {
-    if (row_cum_y.size() != row_count + 1) {
+    if (row_cum_y.empty()) {
         first_row = 0;
         row_cum_y.resize(row_count + 1);
     }
@@ -125,10 +124,9 @@ void TableLayoutData::RebuildColCumX()
 
 int TableLayoutData::RowIndexAt(float local_y) const noexcept
 {
-    if (row_cum_y.empty()) {
+    if (!HasRowGeometry()) {
         return -1;
     }
-    const size_t row_count = row_cum_y.size() - 1;
     const auto it = std::ranges::upper_bound(row_cum_y, local_y);
     if (it == row_cum_y.begin()) {
         return -1;
@@ -151,11 +149,11 @@ std::pair<float, float> NodeLayoutEntry::GetMatchYRange(
 
     if (const auto* tl = table_layout(); table_row >= 0 && tl) {
         const auto row = static_cast<size_t>(table_row);
-        if (row < tl->row_heights.size() && row < tl->row_cum_y.size()) {
+        if (row < tl->row_count && tl->HasRowGeometry()) {
             base_y = entry_text_top + tl->row_cum_y[row];
             fallback_h = tl->row_heights[row];
         }
-        if (table_col >= 0) {
+        if (row < tl->row_count && table_col >= 0 && static_cast<size_t>(table_col) < tl->col_count) {
             layout = tl->GetCellLayout(row, static_cast<size_t>(table_col));
         }
         if (layout != nullptr) {
@@ -179,14 +177,10 @@ std::pair<float, float> NodeLayoutEntry::GetMatchYRange(
 
 namespace {
 
-// 行単位 evict できる状態 (幾何と管理配列が揃っている) か。管理配列は MeasureTable が確保する。
+// 行単位 evict できる状態 (全セルを測り終えて行の幾何がある) か。
 bool HasRowTracking(const TableLayoutData& tl) noexcept
 {
-    if (tl.cell_layouts.empty() || tl.col_count == 0 || tl.row_cum_y.empty()) {
-        return false;
-    }
-    const size_t row_count = tl.row_cum_y.size() - 1;
-    return row_count * tl.col_count == tl.cell_layouts.size() && tl.row_evicted.size() == row_count;
+    return tl.cells_measured && tl.HasRowGeometry();
 }
 
 // 確保に失敗したらその場で解放する。
@@ -211,7 +205,7 @@ void BuryCells(TableLayoutData& tl, LayoutCache::ReleasedLayouts& released) noex
 
 // 1 行分の cell_layouts を捨てる。
 // 行/列の幾何 (row_cum_y, col_cum_x, row_heights, col_widths) は維持する。
-// HasRowTracking を満たすテーブルの row_index < 行数 でのみ呼ぶ (セル単位の配列は AllocateCells が揃えている)。
+// HasRowTracking を満たすテーブルの row_index < 行数 でのみ呼ぶ。
 void EvictTableRow(TableLayoutData& tl, size_t row_index, LayoutCache::ReleasedLayouts& released) noexcept
 {
     const size_t base = tl.CellIndex(row_index, 0);
@@ -250,6 +244,16 @@ void EvictTableRowsOutside(TableLayoutData& tl, size_t keep_begin, size_t keep_e
     }
 }
 
+// テキストとセルのレイアウトを released へ移し、計測・描画で作った状態をテーブル幾何も含めて捨てる。
+void ReleaseEntryLayouts(NodeLayoutEntry& e, LayoutCache::ReleasedLayouts& released) noexcept
+{
+    if (auto* tl = e.table_layout()) {
+        BuryCells(*tl, released);
+    }
+    Bury(released, e.take_text_layout());
+    e.release_layout_state();
+}
+
 void EvictEntryLayout(NodeLayoutEntry& e, LayoutCache::ReleasedLayouts& released) noexcept
 {
     // テーブルは列幅・行高さを残してセル layout だけ捨てる。幾何ごと捨てると再表示時に
@@ -261,57 +265,24 @@ void EvictEntryLayout(NodeLayoutEntry& e, LayoutCache::ReleasedLayouts& released
     }
     // レイアウトを持たないノード (HR / 画像 / 空テキスト) は計測済みのまま残す。
     const bool had_layout = e.text_layout() || e.table_layout();
-    if (auto* tl = e.table_layout()) {
-        BuryCells(*tl, released);
-    }
-    Bury(released, e.take_text_layout());
-    e.release_layout_state();
+    ReleaseEntryLayouts(e, released);
     if (had_layout) {
         e.layout_dirty = true;
     }
-}
-
-// セルのレイアウトと計測値、列幅の適用状態を捨てる。行/列の幾何は次の計測で作り直される。
-void ResetTableCellCaches(TableLayoutData& tl, LayoutCache::ReleasedLayouts& released) noexcept
-{
-    tl.row_code_bgs.clear();
-    BuryCells(tl, released);
-    tl.cell_layouts.clear();
-    tl.ResetRowEviction(0);
-    tl.natural_col_widths.clear();
-    tl.cell_natural_widths.clear();
-    tl.cell_nowrap_heights.clear();
-    tl.col_count = 0;
-    tl.last_applied_max_width = -1.0f;
 }
 
 } // namespace
 
 // ---------- LayoutCache public ----------
 
-void LayoutCache::Resize(size_t node_count)
-{
-    if (entries_.size() != node_count) {
-        // ブロックの区切りが変わるので、オフセットを畳み込んでから大きさを変える。
-        for (size_t i = 0; i < tops_.size(); ++i) {
-            tops_[i] = Top(i);
-        }
-        entries_.resize(node_count);
-        tops_.resize(node_count);
-        top_block_offsets_.assign((node_count >> kTopBlockShift) + 1, 0.0f);
-        std::erase_if(diagrams_, [node_count](const auto& kv) { return kv.first >= node_count; });
-        ResetEvictionTracking();
-        has_dirty_nodes_ = true;
-    }
-}
-
 void LayoutCache::InvalidateAllLayouts(const std::pmr::vector<Node>& nodes) noexcept
 {
     for (size_t i = 0; i < entries_.size(); i++) {
         auto& e = entries_[i];
-        Bury(released_layouts_, e.take_text_layout());
-        e.reset_layout_state();
+        // 表の幾何も旧倍率のものなので残さない (計測で全部作り直す)。
+        ReleaseEntryLayouts(e, released_layouts_);
         // ズーム変更で計測条件が変わるので、諦めたノードも改めて試す。旧倍率の実測値も推定に使わせない。
+        e.layout_dirty = true;
         e.measure_failures = 0;
         e.cached_width = NodeLayoutEntry::kUnmeasuredWidth;
         e.cached_height = 0.0f;
@@ -321,11 +292,11 @@ void LayoutCache::InvalidateAllLayouts(const std::pmr::vector<Node>& nodes) noex
         if (i < nodes.size() && !IsBitmapDrawNode(nodes[i])) {
             e.height = 0.0f;
         }
-        if (auto* tl = e.table_layout()) {
-            ResetTableCellCaches(*tl, released_layouts_);
-        }
     }
     ResetEvictionTracking();
+    has_dirty_nodes_ = true;
+    // 高さを 0 にした分の Y は、次の Reestimate に推定から組み直させる。
+    estimate_basis_ = {};
 }
 
 void LayoutCache::InvalidateAllDiagramBitmaps() noexcept
@@ -381,12 +352,8 @@ void LayoutCache::ResetEvictionTracking() noexcept
     materialized_end_ = 0;
 }
 
-void LayoutCache::EvictInvisibleTableRows(
-    std::span<const size_t> table_indices,
-    float viewport_top, float viewport_bottom, float buffer_screens_height) noexcept
+void LayoutCache::EvictInvisibleTableRows(std::span<const size_t> table_indices, YRange keep) noexcept
 {
-    const float keep_top = viewport_top - buffer_screens_height;
-    const float keep_bottom = viewport_bottom + buffer_screens_height;
     for (const size_t idx : table_indices) {
         if (idx >= entries_.size()) {
             continue;
@@ -396,15 +363,9 @@ void LayoutCache::EvictInvisibleTableRows(
             continue;
         }
         // 再可視化は dirty を経由せず LayoutEngine::MeasurePass の行復元で行う。
-        const auto [keep_begin, keep_end] = tl->VisibleRowRange(keep_top - Top(idx), keep_bottom - Top(idx));
+        const auto local = keep.ToLocal(Top(idx));
+        const auto [keep_begin, keep_end] = tl->VisibleRowRange(local.top, local.bottom);
         EvictTableRowsOutside(*tl, keep_begin, keep_end, released_layouts_);
-    }
-}
-
-void LayoutCache::NotifyDpiChanged() noexcept
-{
-    for (auto& e : entries_) {
-        e.invalidate_per_frame_hl_caches();
     }
 }
 

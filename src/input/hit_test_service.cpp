@@ -156,8 +156,7 @@ hit_test::HitResult hit_test::HitTestTable(
     const float base_x = NodeBlockX(node, theme) - h_scroll_x;
 
     const auto* tbl = node.table_data();
-    const size_t row_count = tbl ? tbl->row_count : 0;
-    const auto [hit_row, row_top] = FindTableRow(tl, row_count, dip_y - entry_text_top);
+    const auto [hit_row, row_top] = FindTableRow(tl, dip_y - entry_text_top);
     if (hit_row < 0) {
         result.text_pos = static_cast<uint32_t>(node.GetText().size());
         return result;

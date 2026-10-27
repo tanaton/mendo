@@ -9,6 +9,12 @@
 #include <string_view>
 #include <unordered_map>
 
+// GitHub スタイル: 小文字化、空白→'-'、CJK 保持、句読点スキップ。結果を slug に書く。
+void GenerateAnchorIdInto(std::string_view text, std::pmr::string& slug);
+
+// リンク先のアンカーを GenerateAnchorIdInto と同じ規則で小文字にする。
+std::pmr::string ToLowerAnchorCopy(std::string_view text);
+
 // 見出しのアンカー (GitHub と同じスラグ) と、それを付けた見出しのノード番号の索引。
 // 重複は github-slugger と同じく出現順に "-1", "-2", ... を付けるので、見出しは文書順に Add する。
 class HeadingAnchorIndex {

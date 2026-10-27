@@ -82,29 +82,31 @@ TEST(TextRun, DefaultState)
     EXPECT_FALSE(run.has_link());
 }
 
-// 各フラグの設定と解除は他のフラグに影響しない。
+// 各フラグのビットは自分の getter にだけ映る。
 TEST(TextRun, FlagsAreIndependent)
 {
     struct Flag {
         const char* name;
-        void (TextRun::*set)(bool) noexcept;
+        uint8_t bit;
         bool (TextRun::*get)() const noexcept;
     };
     constexpr Flag kFlags[] = {
-        { "bold", &TextRun::set_bold, &TextRun::bold },
-        { "italic", &TextRun::set_italic, &TextRun::italic },
-        { "code", &TextRun::set_code, &TextRun::code },
-        { "strikethrough", &TextRun::set_strikethrough, &TextRun::strikethrough },
+        { "bold", TextRun::kBold, &TextRun::bold },
+        { "italic", TextRun::kItalic, &TextRun::italic },
+        { "code", TextRun::kCode, &TextRun::code },
+        { "strikethrough", TextRun::kStrikethrough, &TextRun::strikethrough },
     };
+    uint8_t all = 0;
+    for (const auto& f : kFlags) {
+        all |= f.bit;
+    }
     for (const auto& target : kFlags) {
         SCOPED_TRACE(target.name);
         TextRun only;
-        (only.*target.set)(true);
+        only.set_raw_flags(target.bit);
         TextRun all_but;
-        for (const auto& f : kFlags) {
-            (all_but.*f.set)(true);
-        }
-        (all_but.*target.set)(false);
+        all_but.set_raw_flags(static_cast<uint8_t>(all & ~target.bit));
+        EXPECT_EQ(only.raw_flags(), target.bit);
         for (const auto& f : kFlags) {
             const bool is_target = &f == &target;
             EXPECT_EQ((only.*f.get)(), is_target) << f.name;
@@ -157,7 +159,7 @@ TEST(NodeTest, SetTextAndRunsDoNotCopy)
     static constexpr std::string_view text = "bold text";
     TextRun run;
     run.length = 4;
-    run.set_bold(true);
+    run.set_raw_flags(TextRun::kBold);
     const TextRun runs[]{ run };
 
     Node node;
@@ -238,7 +240,7 @@ TEST(NodeTest, TextStoredRegardlessOfType)
     }
 }
 
-// alert_type は伝播ロジック (parser_alerts.cpp:DetectAlertAt) のため payload と別に持つ。
+// alert_type は伝播ロジック (parser.cpp の DetectAlertAt) のため payload と別に持つ。
 // BlockQuote 本体は両方を持ち、伝播先ノードは alert_type のみでラベル長は 0 のはず。
 TEST(NodeTest, AlertTypeAndLabelLengthAreIndependent)
 {

@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "render_params.h"
+#include "app_state.h"
 #include "mouse_gesture.h"
 #include "swipe_detector.h"
 

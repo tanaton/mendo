@@ -31,6 +31,17 @@ float NodeStartY(const std::pmr::vector<Node>& nodes, const LayoutCache& cache, 
     return cache.Bottom(index - 1) + GetSpacingBelow(nodes[index - 1], theme);
 }
 
+// nodes[from, end) の高さを height_fn(i) で決めながら Top を積む。y は nodes[from] の spacing_above を足す前の Y で、
+// 戻ると nodes[end] の手前の Y になる。height_fn は高さを書き換えてよい。
+template <class HeightFn>
+void AccumulateTops(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, size_t from, size_t end, float& y, HeightFn&& height_fn)
+{
+    for (size_t i = from; i < end; i++) {
+        const float h = height_fn(i);
+        cache.SetTop(i, AdvanceNodeY(y, GetSpacingAbove(nodes[i], theme), h, GetSpacingBelow(nodes[i], theme)));
+    }
+}
+
 // node_index より後ろで node_start を超える最初の source offset。見つからなければ fallback。
 // 途中に offset 無しノード (HR や空のルーズリスト等) が連続しても取り逃さないよう探索するが、
 // 末尾まで線形走査すると大規模ファイルのリロードが重くなるため上限を設ける
@@ -208,19 +219,30 @@ void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache
     const auto node_count = nodes.size();
     MENDO_PLOT("layout.estimate.node_count", static_cast<int64_t>(node_count));
 
+    constexpr size_t kStopCheckInterval = 4096;
     float y = theme.margin_top;
-    for (size_t i = 0; i < node_count; i++) {
-        if ((i & 0xFFFu) == 0u && stop_token.stop_requested()) {
+    for (size_t from = 0; from < node_count; from += kStopCheckInterval) {
+        if (stop_token.stop_requested()) {
             return;
         }
-        const auto& node = nodes[i];
-        const float h = EstimateNodeHeight(node, theme, content_width > 0.0f ? NodeContentWidth(node, theme, content_width) : 0.0f);
-        const float sa = GetSpacingAbove(node, theme);
-        const float sb = GetSpacingBelow(node, theme);
-
-        cache[i].height = h;
-        cache.SetTop(i, AdvanceNodeY(y, sa, h, sb));
+        AccumulateTops(nodes, cache, theme, from, std::min(from + kStopCheckInterval, node_count), y, [&](size_t i) {
+            const auto& node = nodes[i];
+            return cache[i].height = EstimateNodeHeight(node, theme, content_width > 0.0f ? NodeContentWidth(node, theme, content_width) : 0.0f);
+        });
     }
+}
+
+void ReestimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, float content_width)
+{
+    MENDO_PROFILE("ReestimateNodeHeights");
+    assert(cache.size() == nodes.size());
+    float y = theme.margin_top;
+    AccumulateTops(nodes, cache, theme, 0, nodes.size(), y, [&](size_t i) {
+        auto& entry = cache[i];
+        entry.layout_dirty = true;
+        EstimateInvisibleNodeHeight(nodes[i], entry, theme, NodeContentWidth(nodes[i], theme, content_width));
+        return entry.height;
+    });
 }
 
 CarryOverResult CarryOverUnchanged(
@@ -257,8 +279,7 @@ CarryOverResult CarryOverUnchanged(
 
 LayoutCache MakeEstimatedLayoutCache(const std::pmr::vector<Node>& nodes, const Theme& theme, float content_width, std::stop_token stop_token)
 {
-    LayoutCache cache;
-    cache.Resize(nodes.size());
+    LayoutCache cache(nodes.size());
     EstimateNodeHeights(nodes, cache, theme, content_width, std::move(stop_token));
     if (content_width > 0.0f) {
         cache.SetEstimateBasis({ content_width, theme.zoom });
@@ -306,11 +327,7 @@ void RecomputeYPositions(
     // text_top は一定 delta のシフトで済む。size_t 飽和は node_count にクランプ。
     const size_t tail_start = (safe_exit_after < node_count) ? safe_exit_after + 1 : node_count;
 
-    for (size_t i = from_index; i < tail_start; i++) {
-        const float sa = GetSpacingAbove(nodes[i], theme);
-        const float sb = GetSpacingBelow(nodes[i], theme);
-        cache.SetTop(i, AdvanceNodeY(y, sa, cache[i].height, sb));
-    }
+    AccumulateTops(nodes, cache, theme, from_index, tail_start, y, [&cache](size_t i) noexcept { return cache[i].height; });
 
     if (tail_start < node_count) {
         const float new_text_top = y + GetSpacingAbove(nodes[tail_start], theme);

@@ -2,6 +2,7 @@
 #include "resource_manager.h"
 #include "app_constants.h"
 #include "document.h"
+#include "file_io.h"
 #include "layout_cache.h"
 #include "viewport_manager.h"
 #include "image_loader.h"
@@ -138,7 +139,6 @@ struct CallbackTracker {
     float viewport_height = 600.0f;
     Theme theme = [] static noexcept {
         Theme t;
-        t.bg_color = GetLightTheme().bg_color;
         t.indent_width = 20.0f;
         return t;
     }();
@@ -555,7 +555,7 @@ TEST_F(ResourceManagerTest, CarryOverUnchangedKeepsEditedDiagramAsStale)
     mock_mermaid_.sync_apply_bitmap = true;
     rm_.RequestMermaidRenders();
     ASSERT_TRUE(cache_.FindDiagram(old_index)->bitmap);
-    cache_.EnsureDiagram(old_index).png = std::make_shared<const std::pmr::vector<uint8_t>>(4, uint8_t{ 1 });
+    cache_.EnsureDiagram(old_index).png = std::make_shared<const ByteBuffer>(std::vector<uint8_t>(4, uint8_t{ 1 }));
     cache_[old_index].height = 321.0f;
 
     auto next = Document::FromMarkdown(std::pmr::string{ "# t\n\n```mermaid\ngraph TD;A-->C\n```\n\ntail\n" }, kTestDocPath);
@@ -591,8 +591,7 @@ TEST_F(ResourceManagerTest, CarryOverUnchangedSkipsDiagramsWhenCountChanges)
 TEST_F(ResourceManagerTest, RequestMermaidRendersUsesDarkModeFromTheme)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
-    tracker_.theme.bg_color = GetDarkTheme().bg_color;
-    ASSERT_TRUE(tracker_.theme.IsDark());
+    tracker_.theme.dark = true;
 
     rm_.RequestMermaidRenders();
     EXPECT_TRUE(mock_mermaid_.last_dark_mode);
@@ -757,7 +756,7 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsNoOpsWhenViewportHeightIsZero)
     const auto& indices = doc_.GetDiagramNodeIndices();
     ASSERT_GE(indices.size(), 2u);
     for (const size_t i : indices) {
-        cache_.EnsureDiagram(i).png = std::make_shared<const std::pmr::vector<uint8_t>>(4, uint8_t{ 1 });
+        cache_.EnsureDiagram(i).png = std::make_shared<const ByteBuffer>(std::vector<uint8_t>(4, uint8_t{ 1 }));
     }
     tracker_.viewport_height = 0.0f;
     viewport_.SetScrollY(0.0f);
@@ -799,7 +798,7 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsReleasesDiagramPngButKeepsSize)
     ASSERT_GE(indices.size(), 2u);
     for (const size_t i : indices) {
         auto& d = cache_.EnsureDiagram(i);
-        d.png = std::make_shared<const std::pmr::vector<uint8_t>>(4, uint8_t{ 1 });
+        d.png = std::make_shared<const ByteBuffer>(std::vector<uint8_t>(4, uint8_t{ 1 }));
         d.width = 320.0f;
         d.height = 240.0f;
     }
@@ -833,12 +832,30 @@ TEST_F(ResourceManagerTest, OnBitmapManageTimerSkipsRecomputeWhenNothingApplied)
     EXPECT_EQ(tracker_.recompute_layout, 0);
 }
 
-TEST_F(ResourceManagerTest, FlushPendingResourcesIsNoopWhenNotPending)
+// 届いていた画像と同期で決まった図を 1 回の再レイアウトでまとめて反映する。
+TEST_F(ResourceManagerTest, FlushPendingResourcesRecomputesOnceForImagesAndDiagrams)
 {
-    LoadMarkdown("# heading\n");
+    LoadMarkdown("![a](one.png)\n\n![b](two.png)\n\n```mermaid\ngraph TD;A-->B\n```\n");
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\two.png", 400.0f, 250.0f);
+    mock_mermaid_.sync_apply_bitmap = true;
+
     rm_.FlushPendingResources();
-    // pending_flush_ が立っていないので recompute_layout は呼ばれない
+
+    EXPECT_EQ(tracker_.recompute_layout, 1);
+    EXPECT_EQ(mock_mermaid_.request_render_count, 1);
+}
+
+// 取り込んだデコード結果が無ければ、キャッシュにある画像も適用し直さない。
+TEST_F(ResourceManagerTest, OnImagesDecodedSkipsWhenNothingDecoded)
+{
+    LoadMarkdown("![a](one.png)\n");
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f);
+
+    rm_.OnImagesDecoded();
+
     EXPECT_EQ(tracker_.recompute_layout, 0);
+    EXPECT_EQ(rm_.ApplyCachedImages(), 1);
 }
 
 // ---- ファイル切替時クリーンアップ ----

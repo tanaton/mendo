@@ -1,6 +1,5 @@
 #pragma once
 #include "app_constants.h"
-#include "tooltip.h"
 #include <memory_resource>
 #include <string>
 #include <utility>
@@ -24,17 +23,17 @@ struct ClipboardWriteHtml {
     std::pmr::string html;
     std::pmr::string plain;
 };
-struct ShowTooltip {
-    TooltipTarget target;
+// 出ているツールチップを隠し、text を表示待ちにする (遅れて出す)。空なら隠すだけ。
+struct SetTooltip {
+    std::pmr::wstring text;
 };
-struct ClearTooltip {};
 struct ShowContextMenu {
     int screen_x;
     int screen_y;
 };
 struct Beep {};
 
-// EM_SETSEL の [anchor, caret)。既定値は全選択。
+// 検索の入力欄にフォーカスを移す。EM_SETSEL の [anchor, caret)。既定値は全選択。
 struct SearchFocus {
     int anchor = 0;
     int caret = -1;
@@ -42,11 +41,9 @@ struct SearchFocus {
 struct SearchUnfocus {
     bool clear_text = false; // ファイル切替時に true。検索ボックスのテキストを消去する。
 };
+// ウィンドウを rect (スクリーン座標) へ動かす。
 struct SetWindowPosition {
-    int x;
-    int y;
-    int cx;
-    int cy;
+    RECT rect;
 };
 struct ApplyZoom {};
 struct ToggleDarkMode {};
@@ -91,8 +88,7 @@ using SideEffect = std::variant<
     effect::ReleaseCapture,
     effect::ClipboardWrite,
     effect::ClipboardWriteHtml,
-    effect::ShowTooltip,
-    effect::ClearTooltip,
+    effect::SetTooltip,
     effect::ShowContextMenu,
     effect::Beep,
     // Window
@@ -121,7 +117,8 @@ using SideEffectList = std::pmr::vector<SideEffect>;
 template <typename T>
 void PushEffect(SideEffectList& effects, T&& e)
 {
-    // スクロール等は 1 回で数件積むので、最初の 1 件で多めに確保して伸長ごとの再確保を避ける。
+    // スクロール等は 1 回で数件積むので、最初の 1 件で多めに確保して伸長ごとの再確保を避ける
+    // (App::Dispatch の領域は解放しないので、伸長のたびに使い捨てる)。
     if (effects.capacity() == 0) {
         effects.reserve(4);
     }

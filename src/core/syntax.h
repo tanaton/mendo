@@ -81,3 +81,6 @@ struct SyntaxToken {
 SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept;
 
 std::pmr::vector<SyntaxToken> Tokenize(std::string_view text, SyntaxLanguage language);
+
+// Tokenize と同じトークンを tokens の後ろに足す。位置は text の先頭から数える。
+void AppendTokens(std::string_view text, SyntaxLanguage language, std::pmr::vector<SyntaxToken>& tokens);

@@ -1,5 +1,4 @@
 #include "window.h"
-#include "app.h"
 #include "app_constants.h"
 #include "config_service.h"
 #include "i18n.h"
@@ -92,15 +91,6 @@ Win32Window::Win32Window(ConfigService& config)
 {
 }
 Win32Window::~Win32Window() = default;
-
-void Win32Window::SetInitialDirectory(std::wstring_view dir_path)
-{
-    app_->SetInitialDirectory(dir_path);
-}
-void Win32Window::StartPreloadAsync(std::pmr::wstring path)
-{
-    app_->StartPreloadAsync(std::move(path));
-}
 
 bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
 {
@@ -324,9 +314,8 @@ LRESULT Win32Window::OnNcCalcSize(WPARAM wParam, LPARAM lParam)
     return 0;
 }
 
-LRESULT Win32Window::OnNcHitTest(LPARAM lParam)
+LRESULT Win32Window::HitTestNonClient(POINT pt)
 {
-    POINT pt{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
     ScreenToClient(hwnd_, &pt);
 
     if (const LRESULT frame_hit = HitTestResizeFrame(pt); frame_hit != HTNOWHERE) {
@@ -400,7 +389,7 @@ std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wPara
     switch (msg) {
     case WM_RBUTTONDOWN:
     case WM_RBUTTONUP: {
-        if (in_sys_menu_) {
+        if (app_->IsInModalLoop()) {
             return 0;
         }
         const bool handled = (msg == WM_RBUTTONDOWN) ? app_->OnRButtonDown(x, y) : app_->OnRButtonUp(x, y);
@@ -437,7 +426,7 @@ std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wPara
 
     case WM_MOUSELEAVE:
         tracking_mouse_ = false;
-        app_->OnMouseLeave();
+        app_->Dispatch(MouseLeaveAction{});
         return 0;
 
     case WM_SETCURSOR:
@@ -467,7 +456,7 @@ std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wPara
         }
         else if (keys & MK_SHIFT) {
             // Shift+Wheel は横スクロール扱い。Web ブラウザの慣習に合わせ wheel-down を右スクロールに反転する。
-            app_->OnMouseHWheel(static_cast<short>(-wheel_delta));
+            app_->Dispatch(HWheelAction{ static_cast<short>(-wheel_delta), GetTickCount64() });
         }
         else {
             app_->OnMouseWheel(pt.x, pt.y, wheel_delta, false);
@@ -476,7 +465,7 @@ std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wPara
     }
 
     case WM_MOUSEHWHEEL:
-        app_->OnMouseHWheel(GET_WHEEL_DELTA_WPARAM(wParam));
+        app_->Dispatch(HWheelAction{ GET_WHEEL_DELTA_WPARAM(wParam), GetTickCount64() });
         return 0;
 
     case WM_CONTEXTMENU:
@@ -486,10 +475,10 @@ std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wPara
     case WM_XBUTTONDOWN: {
         const WORD button = GET_XBUTTON_WPARAM(wParam);
         if (button == XBUTTON1) {
-            app_->OnXButtonBack();
+            app_->Dispatch(NavigateBackAction{});
         }
         else if (button == XBUTTON2) {
-            app_->OnXButtonForward();
+            app_->Dispatch(NavigateForwardAction{});
         }
         return TRUE;
     }
@@ -501,8 +490,8 @@ std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wPara
 
 void Win32Window::OnContextMenu(int screen_x, int screen_y)
 {
-    // システムメニューのモーダルループ中に WM_CONTEXTMENU が届いても、独自メニューを重ねて開かない。
-    if (in_sys_menu_) {
+    // システムメニューやポップアップのモーダルループ中に WM_CONTEXTMENU が届いても、独自メニューを重ねて開かない。
+    if (app_->IsInModalLoop()) {
         return;
     }
     // キーボード起動 (VK_APPS / Shift+F10) は lParam が座標を持たない
@@ -556,17 +545,6 @@ LRESULT Win32Window::HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lPara
         app_->OnFileListed();
         return 0;
 
-    case app_msg::SEARCH_FOCUS:
-        FocusSearchEdit(lParam);
-        return 0;
-
-    case app_msg::SEARCH_UNFOCUS:
-        SetFocus(hwnd_);
-        if (wParam == app_param::SEARCH_UNFOCUS_FILE_SWITCH && search_edit_) {
-            SetWindowTextW(search_edit_, L"");
-        }
-        return 0;
-
     default:
         break;
     }
@@ -588,7 +566,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return OnNcCalcSize(wParam, lParam);
 
     case WM_NCHITTEST:
-        return OnNcHitTest(lParam);
+        return HitTestNonClient({ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) });
 
     case WM_PAINT:
         app_->OnPaint();
@@ -599,26 +577,16 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_ACTIVATE:
-        app_->OnActivate(LOWORD(wParam) != WA_INACTIVE);
+        app_->Dispatch(ActivateAction{ LOWORD(wParam) != WA_INACTIVE });
         return DefWindowProcW(hwnd_, msg, wParam, lParam);
 
     case WM_ENTERSIZEMOVE:
-        app_->OnEnterSizeMove();
+        app_->Dispatch(EnterSizeMoveAction{});
         return 0;
 
     case WM_EXITSIZEMOVE:
-        app_->OnExitSizeMove();
+        app_->Dispatch(ExitSizeMoveAction{});
         return 0;
-
-    case WM_NCLBUTTONDOWN:
-        // システムメニュー表示時はフラグを立て、モーダルループ中の右クリック競合を防ぐ
-        if (wParam == HTSYSMENU) {
-            in_sys_menu_ = true;
-            const auto r = DefWindowProcW(hwnd_, msg, wParam, lParam);
-            in_sys_menu_ = false;
-            return r;
-        }
-        return DefWindowProcW(hwnd_, msg, wParam, lParam);
 
     case WM_KEYDOWN:
         app_->OnKeyDown(wParam);
@@ -644,7 +612,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_DPICHANGED:
-        app_->OnDpiChanged(HIWORD(wParam), reinterpret_cast<const RECT*>(lParam));
+        app_->Dispatch(DpiChangedAction{ HIWORD(wParam), *reinterpret_cast<const RECT*>(lParam) });
         UpdateDwmFrame();
         UpdateDpiMetricsCache();
         return 0;
@@ -675,7 +643,7 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_CAPTURECHANGED:
         // 自分自身への SetCapture (ドラッグ開始) でも届くため、喪失時のみ処理する
         if (reinterpret_cast<HWND>(lParam) != hwnd_) {
-            app_->OnCaptureChanged();
+            app_->Dispatch(CaptureChangedAction{});
         }
         return 0;
 
@@ -725,7 +693,7 @@ void Win32Window::OnSize(WPARAM wParam, LPARAM lParam)
         app_->OnMinimize();
         return;
     }
-    app_->OnResize(LOWORD(lParam), HIWORD(lParam));
+    app_->Dispatch(ResizeAction{ LOWORD(lParam), HIWORD(lParam) });
     RepositionSearchEdit();
     // ResizeBuffers直後のバックバッファは未定義。DWMが復元アニメーション中に
     // その未定義フレームを合成してしまう前に、同期的にWM_PAINTを走らせて
@@ -817,11 +785,6 @@ bool Win32Window::RestoreWindowPlacement(int nCmdShow)
     return true;
 }
 
-void Win32Window::RestoreScrollPosition()
-{
-    app_->RestoreScrollPosition();
-}
-
 LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR /*uIdSubclass*/, DWORD_PTR dwRefData)
 {
     auto* self = reinterpret_cast<Win32Window*>(dwRefData);
@@ -838,6 +801,8 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
         return self->OnSearchEditKeyDown(hwnd, wParam, lParam);
 
     case WM_IME_STARTCOMPOSITION:
+        // 開いた後のペインの開閉やスプリッタのドラッグで入力欄は動くので、変換を始めるたびに置き直す。
+        self->RepositionSearchEdit();
         PlaceImeWindowsBelowCaret(hwnd);
         // DefSubclassProcに渡すと非表示EDITのデフォルト処理で位置が上書きされるため、ここでreturn
         return 0;
@@ -845,14 +810,14 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
     case WM_IME_COMPOSITION:
         if (lParam & GCS_COMPSTR) {
             if (const HIMC himc = ImmGetContext(hwnd)) {
-                self->app_->SetImeComposition(GetImeCompositionString(himc));
+                self->app_->Dispatch(ImeCompositionAction{ GetImeCompositionString(himc) });
                 ImmReleaseContext(hwnd, himc);
             }
         }
         break;
 
     case WM_IME_ENDCOMPOSITION:
-        self->app_->SetImeComposition(L"");
+        self->app_->Dispatch(ImeCompositionAction{});
         break;
 
     default:
@@ -864,17 +829,17 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
 LRESULT Win32Window::OnSearchEditKeyDown(HWND edit, WPARAM wParam, LPARAM lParam)
 {
     const bool ctrl = IsKeyDown(VK_CONTROL);
+    // フォーカスは閉じる副作用 (UnfocusSearch) が本体へ戻す。
     const auto close = [this] {
-        app_->OnSearchClose();
-        SetFocus(hwnd_);
+        app_->Dispatch(CloseSearchBarAction{});
         return 0;
     };
     const auto step = [this] {
         if (IsKeyDown(VK_SHIFT)) {
-            app_->OnSearchPrev();
+            app_->Dispatch(SearchPrevAction{});
         }
         else {
-            app_->OnSearchNext();
+            app_->Dispatch(SearchNextAction{});
         }
         return 0;
     };
@@ -916,10 +881,10 @@ LRESULT Win32Window::OnSearchEditKeyDown(HWND edit, WPARAM wParam, LPARAM lParam
 void Win32Window::OnSearchEditChanged()
 {
     const int text_len = GetWindowTextLengthW(search_edit_);
-    search_text_buf_.assign(static_cast<size_t>(std::max(text_len, 0)), L'\0');
-    const int copied = GetWindowTextW(search_edit_, search_text_buf_.data(), text_len + 1);
-    search_text_buf_.resize(static_cast<size_t>(std::max(copied, 0)));
-    app_->OnSearchTextChanged(search_text_buf_);
+    SearchTextChangedAction changed{ std::pmr::wstring(static_cast<size_t>(std::max(text_len, 0)), L'\0') };
+    const int copied = GetWindowTextW(search_edit_, changed.text.data(), text_len + 1);
+    changed.text.resize(static_cast<size_t>(std::max(copied, 0)));
+    app_->Dispatch(changed);
     SyncSearchCaretFromEdit();
 }
 
@@ -936,16 +901,27 @@ bool Win32Window::EnsureSearchEdit()
     return search_edit_ != nullptr;
 }
 
-void Win32Window::FocusSearchEdit(LPARAM selection)
+void Win32Window::FocusSearchEdit(int anchor, int caret)
 {
     if (!EnsureSearchEdit()) {
         return;
     }
-    RepositionSearchEdit();
-    SetFocus(search_edit_);
-    const auto [anchor, caret] = app_param::UnpackSearchSelectionLParam(selection);
+    // 入力欄のドラッグ選択ではマウスが動くたびに呼ばれるので、フォーカス済みなら選択を変えるだけにする。
+    if (GetFocus() != search_edit_) {
+        RepositionSearchEdit();
+        SetFocus(search_edit_);
+    }
     SendMessageW(search_edit_, EM_SETSEL, anchor, caret);
     SyncSearchCaretFromEdit();
+}
+
+void Win32Window::UnfocusSearch(bool clear_text)
+{
+    SetFocus(hwnd_);
+    // 呼び出し側が先に検索を空にしているので、EN_CHANGE の SearchTextChangedAction は何もせず終わる。
+    if (clear_text && search_edit_) {
+        SetWindowTextW(search_edit_, L"");
+    }
 }
 
 void Win32Window::RepositionSearchEdit()
@@ -965,5 +941,5 @@ void Win32Window::SyncSearchCaretFromEdit()
     DWORD sel_start = 0;
     DWORD sel_end = 0;
     SendMessageW(search_edit_, EM_GETSEL, reinterpret_cast<WPARAM>(&sel_start), reinterpret_cast<LPARAM>(&sel_end));
-    app_->SetSearchSelection(static_cast<int>(sel_start), static_cast<int>(sel_end));
+    app_->Dispatch(SearchSelectionAction{ static_cast<int>(sel_start), static_cast<int>(sel_end) });
 }

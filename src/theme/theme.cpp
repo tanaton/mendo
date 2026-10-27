@@ -57,20 +57,44 @@ void Theme::ApplyZoom(float new_zoom) noexcept
 }
 
 namespace {
+void SetColor(Theme& t, BrushId id, D2D1_COLOR_F color) noexcept
+{
+    t.colors[std::to_underlying(id)] = color;
+}
+
 // selection_html (HTML コピー) と共有するコード/シンタックス色。
 void ApplySharedColors(Theme& t, const theme_palette::SharedColors& p)
 {
-    t.code_bg_color = D2D1::ColorF(p.code_bg);
-    t.code_text_color = D2D1::ColorF(p.code_text);
-    t.syntax_keyword = D2D1::ColorF(p.syntax_keyword);
-    t.syntax_type = D2D1::ColorF(p.syntax_type);
-    t.syntax_string = D2D1::ColorF(p.syntax_string);
-    t.syntax_number = D2D1::ColorF(p.syntax_number);
-    t.syntax_comment = D2D1::ColorF(p.syntax_comment);
-    t.syntax_preprocessor = D2D1::ColorF(p.syntax_preprocessor);
-    t.syntax_function = D2D1::ColorF(p.syntax_function);
-    t.syntax_inserted = D2D1::ColorF(p.syntax_inserted);
-    t.syntax_deleted = D2D1::ColorF(p.syntax_deleted);
+    SetColor(t, BrushId::CodeBg, D2D1::ColorF(p.code_bg));
+    SetColor(t, BrushId::CodeText, D2D1::ColorF(p.code_text));
+    SetColor(t, BrushId::SyntaxKeyword, D2D1::ColorF(p.syntax_keyword));
+    SetColor(t, BrushId::SyntaxType, D2D1::ColorF(p.syntax_type));
+    SetColor(t, BrushId::SyntaxString, D2D1::ColorF(p.syntax_string));
+    SetColor(t, BrushId::SyntaxNumber, D2D1::ColorF(p.syntax_number));
+    SetColor(t, BrushId::SyntaxComment, D2D1::ColorF(p.syntax_comment));
+    SetColor(t, BrushId::SyntaxPreprocessor, D2D1::ColorF(p.syntax_preprocessor));
+    SetColor(t, BrushId::SyntaxFunction, D2D1::ColorF(p.syntax_function));
+    SetColor(t, BrushId::SyntaxInserted, D2D1::ColorF(p.syntax_inserted));
+    SetColor(t, BrushId::SyntaxDeleted, D2D1::ColorF(p.syntax_deleted));
+}
+
+// 白 (ダーク) か黒 (ライト) を alpha で重ねる色。
+D2D1_COLOR_F MonochromeOverlay(bool dark, float alpha) noexcept
+{
+    return dark ? D2D1::ColorF(1.0f, 1.0f, 1.0f, alpha) : D2D1::ColorF(0.0f, 0.0f, 0.0f, alpha);
+}
+
+// 両テーマで同じ色と、t.dark から決まる重ね色。
+void ApplyCommonColors(Theme& t)
+{
+    SetColor(t, BrushId::Selection, SELECTION_COLOR);
+    SetColor(t, BrushId::TableStripe, MonochromeOverlay(t.dark, t.dark ? TABLE_STRIPE_ALPHA_DARK : TABLE_STRIPE_ALPHA_LIGHT));
+    SetColor(t, BrushId::ScrollbarThumb, MonochromeOverlay(t.dark, t.dark ? 0.4f : 0.25f));
+    SetColor(t, BrushId::TitleBarCloseRed, D2D1::ColorF(0xE81123));
+    SetColor(t, BrushId::OverlayWhite, D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
+    SetColor(t, BrushId::OverlayBlack, D2D1::ColorF(0.0f, 0.0f, 0.0f, 1.0f));
+    SetColor(t, BrushId::OverlayGestureBg, D2D1::ColorF(0.2f, 0.2f, 0.2f, 1.0f));
+    SetColor(t, BrushId::GestureTrail, D2D1::ColorF(0.9f, 0.2f, 0.2f, 1.0f));
 }
 
 // ライトテーマとダークテーマで共有するフォントとレイアウト定数。
@@ -119,23 +143,24 @@ void ApplyCommonLayout(Theme& t)
 
 void SetAlertColors(Theme& t, AlertType type, D2D1_COLOR_F bar, D2D1_COLOR_F bg)
 {
-    t.alert_color[AlertColorIndex(type)] = bar;
-    t.alert_bg_color[AlertColorIndex(type)] = bg;
+    SetColor(t, AlertBrushIdFromIndex(AlertColorIndex(type)), bar);
+    SetColor(t, AlertBgBrushIdFromIndex(AlertColorIndex(type)), bg);
 }
 
 Theme BuildLightTheme()
 {
     Theme t{};
+    t.dark = false;
 
-    t.bg_color = D2D1::ColorF(0xFFFFFF);
+    SetColor(t, BrushId::Background, D2D1::ColorF(0xFFFFFF));
     // GitHub のインラインコード背景 rgba(129,139,152,0.12) を白地に重ねた色。
-    t.inline_code_bg_color = D2D1::ColorF(0xf0f1f2);
-    t.text_color = D2D1::ColorF(0x24292e);
-    t.heading_color = D2D1::ColorF(0x1a1a1a);
-    t.link_color = D2D1::ColorF(0x0366d6);
-    t.hr_color = D2D1::ColorF(0xd0d0d0);
-    t.blockquote_bar_color = D2D1::ColorF(0xdfe2e5);
-    t.blockquote_text_color = D2D1::ColorF(0x6a737d);
+    SetColor(t, BrushId::InlineCodeBg, D2D1::ColorF(0xf0f1f2));
+    SetColor(t, BrushId::Text, D2D1::ColorF(0x24292e));
+    SetColor(t, BrushId::Heading, D2D1::ColorF(0x1a1a1a));
+    SetColor(t, BrushId::Link, D2D1::ColorF(0x0366d6));
+    SetColor(t, BrushId::Hr, D2D1::ColorF(0xd0d0d0));
+    SetColor(t, BrushId::BlockquoteBar, D2D1::ColorF(0xdfe2e5));
+    SetColor(t, BrushId::BlockquoteText, D2D1::ColorF(0x6a737d));
 
     // GitHub Alerts（ライト）
     SetAlertColors(t, AlertType::Note, D2D1::ColorF(0x0969da), D2D1::ColorF(0xddf4ff, 0.4f));
@@ -145,29 +170,31 @@ Theme BuildLightTheme()
     SetAlertColors(t, AlertType::Caution, D2D1::ColorF(0xcf222e), D2D1::ColorF(0xffebe9, 0.4f));
 
     ApplySharedColors(t, theme_palette::kLight);
+    ApplyCommonColors(t);
 
     ApplyCommonLayout(t);
 
     // タイトルバー
-    t.titlebar_bg_color = D2D1::ColorF(0xf0f0f0);
-    t.titlebar_text_color = D2D1::ColorF(0x333333);
-    t.titlebar_button_hover_color = D2D1::ColorF(0xe0e0e0);
-    t.titlebar_button_active_color = D2D1::ColorF(0xd0d0d0);
+    SetColor(t, BrushId::TitleBarBg, D2D1::ColorF(0xf0f0f0));
+    SetColor(t, BrushId::TitleBarText, D2D1::ColorF(0x333333));
+    SetColor(t, BrushId::TitleBarButtonHover, D2D1::ColorF(0xe0e0e0));
+    SetColor(t, BrushId::TitleBarButtonActive, D2D1::ColorF(0xd0d0d0));
 
     // ペインレイアウト
-    t.pane_bg_color = D2D1::ColorF(0xf5f5f5);
-    t.splitter_color = D2D1::ColorF(0xe0e0e0);
-    t.pane_item_hover_color = D2D1::ColorF(0xe8e8e8);
-    t.pane_item_active_color = D2D1::ColorF(0xd0e0f0);
+    SetColor(t, BrushId::PaneBg, D2D1::ColorF(0xf5f5f5));
+    SetColor(t, BrushId::Splitter, D2D1::ColorF(0xe0e0e0));
+    SetColor(t, BrushId::PaneItemHover, D2D1::ColorF(0xe8e8e8));
+    SetColor(t, BrushId::PaneItemActive, D2D1::ColorF(0xd0e0f0));
 
     // 検索
-    t.search_bar_bg_color = D2D1::ColorF(0xf0f0f0);
-    t.search_bar_border_color = D2D1::ColorF(0xcccccc);
-    t.search_input_bg_color = D2D1::ColorF(0xffffff);
-    t.search_input_text_color = D2D1::ColorF(0x1a1a1a);
-    t.search_highlight_color = D2D1::ColorF(1.0f, 0.92f, 0.0f, 0.4f);
-    t.search_highlight_current_color = D2D1::ColorF(1.0f, 0.55f, 0.0f, 0.6f);
-    t.search_no_match_bg_color = D2D1::ColorF(1.0f, 0.8f, 0.8f, 1.0f);
+    SetColor(t, BrushId::SearchBarBg, D2D1::ColorF(0xf0f0f0));
+    SetColor(t, BrushId::SearchBarBorder, D2D1::ColorF(0xcccccc));
+    SetColor(t, BrushId::SearchInputBg, D2D1::ColorF(0xffffff));
+    SetColor(t, BrushId::SearchInputText, D2D1::ColorF(0x1a1a1a));
+    // 全マッチは黄色系、現在のマッチはオレンジ系の半透明。
+    SetColor(t, BrushId::SearchHighlight, D2D1::ColorF(1.0f, 0.92f, 0.0f, 0.4f));
+    SetColor(t, BrushId::SearchHighlightCurrent, D2D1::ColorF(1.0f, 0.55f, 0.0f, 0.6f));
+    SetColor(t, BrushId::SearchNoMatchBg, D2D1::ColorF(1.0f, 0.8f, 0.8f, 1.0f));
 
     return t;
 }
@@ -175,16 +202,17 @@ Theme BuildLightTheme()
 Theme BuildDarkTheme()
 {
     Theme t{};
+    t.dark = true;
 
-    t.bg_color = D2D1::ColorF(0x1e1e1e);
-    // GitHub のインラインコード背景 rgba(101,108,118,0.2) を bg_color に重ねた色。
-    t.inline_code_bg_color = D2D1::ColorF(0x2c2e30);
-    t.text_color = D2D1::ColorF(0xd4d4d4);
-    t.heading_color = D2D1::ColorF(0xe0e0e0);
-    t.link_color = D2D1::ColorF(0x569cd6);
-    t.hr_color = D2D1::ColorF(0x404040);
-    t.blockquote_bar_color = D2D1::ColorF(0x505050);
-    t.blockquote_text_color = D2D1::ColorF(0x9e9e9e);
+    SetColor(t, BrushId::Background, D2D1::ColorF(0x1e1e1e));
+    // GitHub のインラインコード背景 rgba(101,108,118,0.2) を背景色に重ねた色。
+    SetColor(t, BrushId::InlineCodeBg, D2D1::ColorF(0x2c2e30));
+    SetColor(t, BrushId::Text, D2D1::ColorF(0xd4d4d4));
+    SetColor(t, BrushId::Heading, D2D1::ColorF(0xe0e0e0));
+    SetColor(t, BrushId::Link, D2D1::ColorF(0x569cd6));
+    SetColor(t, BrushId::Hr, D2D1::ColorF(0x404040));
+    SetColor(t, BrushId::BlockquoteBar, D2D1::ColorF(0x505050));
+    SetColor(t, BrushId::BlockquoteText, D2D1::ColorF(0x9e9e9e));
 
     // GitHub Alerts（ダーク）
     SetAlertColors(t, AlertType::Note, D2D1::ColorF(0x4493f8), D2D1::ColorF(0x0d1d31, 0.5f));
@@ -194,29 +222,30 @@ Theme BuildDarkTheme()
     SetAlertColors(t, AlertType::Caution, D2D1::ColorF(0xf85149), D2D1::ColorF(0x2e0b0d, 0.5f));
 
     ApplySharedColors(t, theme_palette::kDark);
+    ApplyCommonColors(t);
 
     ApplyCommonLayout(t);
 
     // タイトルバー
-    t.titlebar_bg_color = D2D1::ColorF(0x272727);
-    t.titlebar_text_color = D2D1::ColorF(0xcccccc);
-    t.titlebar_button_hover_color = D2D1::ColorF(0x383838);
-    t.titlebar_button_active_color = D2D1::ColorF(0x444444);
+    SetColor(t, BrushId::TitleBarBg, D2D1::ColorF(0x272727));
+    SetColor(t, BrushId::TitleBarText, D2D1::ColorF(0xcccccc));
+    SetColor(t, BrushId::TitleBarButtonHover, D2D1::ColorF(0x383838));
+    SetColor(t, BrushId::TitleBarButtonActive, D2D1::ColorF(0x444444));
 
     // ペインレイアウト
-    t.pane_bg_color = D2D1::ColorF(0x252526);
-    t.splitter_color = D2D1::ColorF(0x3c3c3c);
-    t.pane_item_hover_color = D2D1::ColorF(0x2a2d2e);
-    t.pane_item_active_color = D2D1::ColorF(0x094771);
+    SetColor(t, BrushId::PaneBg, D2D1::ColorF(0x252526));
+    SetColor(t, BrushId::Splitter, D2D1::ColorF(0x3c3c3c));
+    SetColor(t, BrushId::PaneItemHover, D2D1::ColorF(0x2a2d2e));
+    SetColor(t, BrushId::PaneItemActive, D2D1::ColorF(0x094771));
 
     // 検索
-    t.search_bar_bg_color = D2D1::ColorF(0x2d2d2d);
-    t.search_bar_border_color = D2D1::ColorF(0x444444);
-    t.search_input_bg_color = D2D1::ColorF(0x3c3c3c);
-    t.search_input_text_color = D2D1::ColorF(0xd4d4d4);
-    t.search_highlight_color = D2D1::ColorF(0.8f, 0.7f, 0.0f, 0.35f);
-    t.search_highlight_current_color = D2D1::ColorF(1.0f, 0.5f, 0.0f, 0.55f);
-    t.search_no_match_bg_color = D2D1::ColorF(0.5f, 0.15f, 0.15f, 1.0f);
+    SetColor(t, BrushId::SearchBarBg, D2D1::ColorF(0x2d2d2d));
+    SetColor(t, BrushId::SearchBarBorder, D2D1::ColorF(0x444444));
+    SetColor(t, BrushId::SearchInputBg, D2D1::ColorF(0x3c3c3c));
+    SetColor(t, BrushId::SearchInputText, D2D1::ColorF(0xd4d4d4));
+    SetColor(t, BrushId::SearchHighlight, D2D1::ColorF(0.8f, 0.7f, 0.0f, 0.35f));
+    SetColor(t, BrushId::SearchHighlightCurrent, D2D1::ColorF(1.0f, 0.5f, 0.0f, 0.55f));
+    SetColor(t, BrushId::SearchNoMatchBg, D2D1::ColorF(0.5f, 0.15f, 0.15f, 1.0f));
 
     return t;
 }

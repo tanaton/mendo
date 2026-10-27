@@ -29,13 +29,6 @@ constexpr bool IsWidthFree(float css_width, float max_width) noexcept
 std::pmr::wstring JsEscape(std::wstring_view input);
 
 int QuantizeWidth(float max_width) noexcept;
-// 有限でない値 (nan / inf) は 0。
-float ParseJsonNumber(std::wstring_view json, std::wstring_view key) noexcept;
-bool ParseJsonTrueFlag(std::wstring_view json, std::wstring_view key) noexcept;
-
-// JSON 文字列値を取り出し、エスケープ (\" \\ \/ \n \r \t \b \f \uXXXX) を復元する。
-// キーが無い・値が文字列でない・閉じ引用符が無い場合は空を返す。
-std::pmr::wstring ParseJsonString(std::wstring_view json, std::wstring_view key);
 
 // ページから届く値は、mermaid.js に XSS があれば任意に偽れる。描画とキャッシュに使う前に確かめる。
 constexpr bool IsPlausibleDpr(float dpr) noexcept
@@ -62,7 +55,7 @@ RequestPrefix ParseRequestPrefix(std::wstring_view body) noexcept;
 enum class WebMessageKind : uint8_t {
     Unknown,
     Ready,         // "mermaid-ready:<dpr>"
-    RenderResult,  // "render-result:<id>:<payload>"
+    RenderResult,  // "render-result:<id>:<width>:<height>:<dpr>"
     CaptureReady,  // "capture-ready:<id>"
     SvgResult,     // "svg-result:<id>:<payload>"
     RenderError,   // "render-error:<id>:<message>"
@@ -80,6 +73,14 @@ struct ParsedWebMessage {
 };
 
 ParsedWebMessage ParseWebMessage(std::wstring_view msg) noexcept;
+
+// RenderResult の payload ("<width>:<height>:<dpr>")。欠けた値と有限でない値 (nan / inf) は 0。
+struct RenderSize {
+    float width = 0.0f;
+    float height = 0.0f;
+    float dpr = 0.0f;
+};
+RenderSize ParseRenderSize(std::wstring_view payload) noexcept;
 
 // FindResourceW は "#123" を数値 ID と読むので、# で始まる名前で引かせない。
 constexpr bool IsModulePath(std::wstring_view path) noexcept

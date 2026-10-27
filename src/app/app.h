@@ -1,21 +1,22 @@
 #pragma once
 #include "app_events.h"
 #include "app_state.h"
+#include "async_load_coordinator.h"
 #include "clipboard_manager.h"
 #include "config_service.h"
 #include "context_menu.h"
-#include "file_load_service.h"
 #include "file_watcher.h"
 #include "hit_test_service.h"
 #include "image_loader.h"
 #include "layout.h"
 #include "mermaid.h"
 #include "mermaid_file_cache.h"
+#include "reducer.h"
 #include "document_utils.h"
+#include "dwrite_measurer.h"
 #include "render_params.h"
 #include "renderer.h"
 #include "resource_manager.h"
-#include "search_bar_controller.h"
 #include "selection_html.h"
 #include "settings_dialog.h"
 #include "side_effect.h"
@@ -34,8 +35,23 @@
 
 class App;
 
-// ResourceManager と SearchBarController が App に問い合わせる窓口。
-class AppHost final : public ResourceManagerHost, public SearchBarHost {
+// App が本体のウィンドウ (Win32Window) に頼むこと。ポップアップのモーダルループも回させる。
+// どれも呼び出し中に App::Dispatch へ入り直しうる (フォーカスの移動や入力欄の書き換えの通知)。
+class WindowHost : public ModalLoop {
+public:
+    // 検索の入力欄 (非表示の EDIT) にフォーカスを移し、[anchor, caret) を選択する。caret が -1 なら末尾まで。
+    virtual void FocusSearchEdit(int anchor, int caret) = 0;
+    // 本体にフォーカスを戻す。clear_text なら入力欄を空にする (文書の切り替え)。
+    virtual void UnfocusSearch(bool clear_text) = 0;
+    // スクリーン座標 pt での WM_NCHITTEST の結果。
+    virtual LRESULT HitTestNonClient(POINT pt) = 0;
+
+protected:
+    ~WindowHost() = default;
+};
+
+// ResourceManager と reducer が App に問い合わせる窓口。
+class AppHost final : public ResourceManagerHost, public NodeLayoutAccess {
 public:
     explicit AppHost(App& app) noexcept : app_(app)
     {}
@@ -44,7 +60,6 @@ public:
     void KillTimer(app_timer::Id id) override;
     float MdContentWidth() override;
     float MdPaneHeight() override;
-    float MdMaxScroll() override;
     const Theme& GetTheme() override;
     void RecomputeLayout(layout::HeightChangeRange changed) override;
     void EnsureNodeLayout(int node_index) override;
@@ -72,8 +87,7 @@ class App {
     friend class AppHost;
 
 public:
-    // modal_loop はポップアップを本体のメッセージループで回させる先。
-    App(ConfigService& config, ModalLoop& modal_loop) noexcept : config_(config), modal_loop_(modal_loop)
+    App(ConfigService& config, WindowHost& window) noexcept : config_(config), window_(window)
     {}
     bool Init(HWND hwnd);
 
@@ -96,14 +110,14 @@ public:
     // 保存したスクロール位置を、文書を開いたときに戻す位置にする。
     void RestoreScrollPosition();
 
+    // 状態を変えるだけの Win32 メッセージは、Win32Window がアクションにしてここへ直接渡す。
+    void Dispatch(const AppAction& action);
+
     void OnPaint();
-    void OnResize(UINT width, UINT height);
     void OnMinimize();
     void OnMouseWheel(int px, int py, int delta, bool ctrl);
-    void OnMouseHWheel(short delta);
     void OnKeyDown(WPARAM key);
     void OnDropFiles(HDROP hDrop);
-    void OnDpiChanged(UINT dpi, const RECT* suggested);
 
     void OnLButtonDown(int px, int py);
     void OnLButtonUp(int px, int py);
@@ -115,28 +129,21 @@ public:
     void OnRButtonMove(int px, int py);
 
     void OnMouseHover(int px, int py);
-    void OnMouseLeave()
-    {
-        Dispatch(MouseLeaveAction{});
-    }
-    // ポップアップ (PopupWindow) やシステムメニューのモーダルループに入った・出た (WM_ENTERMENULOOP / WM_EXITMENULOOP)。
+    // ポップアップ (PopupWindow) やシステムメニュー (アイコンのクリック・Alt+Space・キャプションの右クリック) の
+    // モーダルループに入った・出た (WM_ENTERMENULOOP / WM_EXITMENULOOP)。
     // 開いている間は本体に入力が来ないので、先にホバーとツールチップを消し、裏で本体を描き直しても出さない
     // (RefreshHoverAtCursor)。
     void OnModalLoop(bool entered)
     {
         in_modal_loop_ = entered;
         if (entered) {
-            OnMouseLeave();
+            Dispatch(MouseLeaveAction{});
         }
     }
-
-    void OnXButtonBack()
+    // 開いている間に届いた右クリックで、ジェスチャーや右クリックメニューを重ねて始めない。
+    constexpr bool IsInModalLoop() const noexcept
     {
-        Dispatch(NavigateBackAction{});
-    }
-    void OnXButtonForward()
-    {
-        Dispatch(NavigateForwardAction{});
+        return in_modal_loop_;
     }
 
     HANDLE GetFileWatchEvent() const noexcept
@@ -165,7 +172,7 @@ public:
     // 起動時の読み込みを LoadInitialDocument で取り込めず、結果を待っている。
     bool IsLoadingInitialDocument() const noexcept
     {
-        return file_load_service_.IsAsyncLoading();
+        return load_coordinator_.IsActive();
     }
     // 前のフレームの表示を待つ間に呼ぶ。次の WM_PAINT で同期計測するはずの可視範囲を先に計測し、
     // 計測時間を vblank 待ちに隠す。
@@ -174,51 +181,13 @@ public:
     void OnParseComplete();
     void OnMermaidDiskLoaded();
     void OnFileListed();
-    void OnCaptureChanged();
     void OnDestroy();
 
-    void OnSearchTextChanged(const std::pmr::wstring& text)
-    {
-        Dispatch(SearchTextChangedAction{ text });
-    }
-    void OnSearchClose()
-    {
-        Dispatch(CloseSearchBarAction{});
-    }
-    void OnSearchNext()
-    {
-        Dispatch(SearchNextAction{});
-    }
-    void OnSearchPrev()
-    {
-        Dispatch(SearchPrevAction{});
-    }
     constexpr bool IsSearchBarVisible() const noexcept
     {
         return state_.search.search_state.IsVisible();
     }
-    void SetSearchSelection(int sel_start, int sel_end)
-    {
-        Dispatch(SearchSelectionAction{ sel_start, sel_end });
-    }
-    void SetImeComposition(std::pmr::wstring comp)
-    {
-        Dispatch(ImeCompositionAction{ std::move(comp) });
-    }
     RECT GetSearchEditRect();
-
-    void OnEnterSizeMove()
-    {
-        Dispatch(EnterSizeMoveAction{});
-    }
-    void OnExitSizeMove()
-    {
-        Dispatch(ExitSizeMoveAction{});
-    }
-    void OnActivate(bool active)
-    {
-        Dispatch(ActivateAction{ active });
-    }
 
     constexpr float GetDpiScale() const noexcept
     {
@@ -235,8 +204,6 @@ public:
     bool IsOverMdScrollbar(float dip_x, float dip_y);
 
 private:
-    void Dispatch(const AppAction& action);
-
     // reducer が返した副作用を実行する。
     void Execute(const SideEffectList& effects)
     {
@@ -271,13 +238,11 @@ private:
 
     // ---- 初期化 ----
     void RestoreTheme();
-    void RestorePaneState();
 
     // ---- 描画 ----
     void UpdateTitleBar();
     SidePaneState BuildSidePaneState(const PaneLayout& layout) const;
     TitleBarRenderState BuildTitleBarRenderState() const;
-    void SyncRendererSearchMatches();
 
     // ---- 終了 ----
     void SaveSession();
@@ -334,8 +299,8 @@ private:
     // ゾーン内のホバーを hover に書き、表示するカーソルを返す。状態の反映は reducer が行う。
     HCURSOR HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLayout& layout, PointerHover& hover) const;
     HCURSOR HoverSidePane(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout, PointerHover& hover) const;
-    TooltipTarget BuildSidePaneTooltip(PaneTarget target, PaneHeaderButton hit, int idx) const;
-    TooltipTarget BuildMdContentTooltip(int hit_node, std::optional<LinkHit> link) const;
+    TooltipHover BuildSidePaneTooltip(PaneTarget target, PaneHeaderButton hit, int idx) const;
+    TooltipHover BuildMdContentTooltip(int hit_node, std::optional<LinkHit> link) const;
 
     // ---- レイアウト ----
     float MdMaxScroll();
@@ -364,15 +329,19 @@ private:
     float ScrollableContentHeight() const noexcept;
 
     // ---- ファイル読み込み (app_file.cpp) ----
-    void LoadHelpDocument();
-    // 表示中の言語のヘルプに差し替える。
+    // 表示中の言語のヘルプに差し替える。ヘルプを表示中でも読み直す (言語の切り替え)。
+    // ヘルプに留まる操作 (表示中に F1・履歴で同じヘルプへ) は reducer が LoadFile を出さずに済ませる。
     void ShowHelpResource();
     void LoadMarkdownFile(std::wstring_view path);
     void CancelOtherFileLoad();
-    // 表示文書とレイアウトキャッシュを一緒に差し替え、旧文書の破棄を worker に回す。
-    // estimated は worker が MakeEstimatedLayoutCache で作ったもの。省略時は UI スレッドで推定する。
+    // 別の文書を表示する。estimated は next 向けに推定済みのキャッシュ (worker が MakeEstimatedLayoutCache で作ったもの)。
+    // ビュー状態の後始末は DocumentOpenedAction で reducer に任せる。
+    void OpenDocument(Document next, LayoutCache estimated, bool follow_file_pane);
+    // 同じ文書の新しい版に差し替える。中身が変わらないノードの計測結果を引き継ぎ、diff_pos の近くが見えるようにスクロールする。
+    // ends は worker が数えた変わらなかったノード数。無ければここで数える。後始末は DocumentReloadedAction / ReloadSettledAction で reducer に任せる。
+    void ReloadDocument(Document next, LayoutCache estimated, std::optional<UnchangedEnds> ends, size_t diff_pos);
+    // 表示文書とレイアウトキャッシュを一緒に差し替え、旧文書の破棄を worker に回す。OpenDocument / ReloadDocument の中だけで使う。
     void ReplaceDocument(Document next, LayoutCache estimated);
-    void ReplaceDocument(Document next);
     void ReloadCurrentFile();
     // reload_base は同一ファイルのリロード時の現在の文書 (worker で差分判定させる)。
     void BeginAsyncLoad(std::pmr::wstring path, bool show_animation, ReloadBase reload_base = {});
@@ -382,15 +351,11 @@ private:
     void StopLoadingAnimation();
     // StartPreloadAsync が Init より前に呼ぶことがある。2 回目は何もしない。
     void InitSharedScheduler();
-    void FinishLoadMarkdownFile(bool follow_file_pane);
     // error があればトーストで知らせる。
     void HandleLoadFailureFallback(std::optional<FileLoadError> error);
     // nodes の範囲の推定高さを、図と画像のキャッシュにある実測の寸法で上書きする。変えたら true (Y は組み直さない)。
     // 呼び出し前にノード高さの初期化 (EstimateNodeHeights) は完了していること。
     bool ApplyCachedHeights(VisibleRange nodes);
-
-    // carry は ReloadDocument の結果。
-    void FinishReload(size_t diff_pos, const layout::CarryOverResult& carry);
 
     enum class ReloadFlow : uint8_t {
         Handled,            // ResumeWatching / DeferReloadRetry 済み、呼び出し元は return
@@ -410,11 +375,6 @@ private:
     // 読み込みの開始時に捨てた画像・図の待ちを、文書を差し替えずに終わったら (失敗・取り消し・開き直し・
     // 読み直しの見送り) 表示を続ける文書のぶんだけ要求し直す。
     void RequestDroppedResourcesAgain();
-    // リロード用。中身が変わらないノードの計測結果を引き継いでから差し替える。
-    // ends は worker が数えた変わらなかったノード数。無ければここで数える。Y の組み直しは FinishReload に任せる。
-    layout::CarryOverResult ReloadDocument(Document next, LayoutCache estimated, std::optional<UnchangedEnds> ends);
-    void ResetViewForNewDocument();
-    void EndDocumentBoundDrag();
 
     // ---- テーマ ----
     void ApplyZoom();
@@ -432,7 +392,11 @@ private:
     SystemCursors cursors_;
     Tooltip tooltip_;
     bool in_modal_loop_ = false;
-    ModalLoop& modal_loop_;
+    WindowHost& window_;
+    // SetWindowTextW は変わったときだけ呼ぶ。
+    std::pmr::wstring title_text_ = L"mendo";
+    // 空なら非表示。フェードは毎フレームの全画面再描画を伴うので、表示と消去の 2 回だけ描き直す。
+    std::pmr::wstring toast_message_;
     // 別のファイルを読み始めたときに旧文書の画像・図の待ちを捨てた。文書を差し替えたら外す。
     bool resources_dropped_for_load_ = false;
 
@@ -446,8 +410,11 @@ private:
     FileWatcher file_watcher_;
     ConfigService& config_;
     ThemeService theme_service_{ config_ };
-    SessionService session_{ config_ };
-    FileLoadService file_load_service_;
+    // 起動時の読み込み (preload) も Init より前にここで始め、通知先は LoadInitialDocument の Attach で渡す。
+    AsyncLoadCoordinator load_coordinator_;
+    // スピナーは読み込みが長引いたときだけ出し、出ている間はタイマーごとに回す。
+    bool spinner_shown_ = false;
+    float spinner_angle_ = 0.0f;
     PrefixShrinkRetry prefix_shrink_retry_;
     bool deferred_layout_pending_ = false;
     // 列挙スレッドの結果の受け渡し。スレッドは App より長生きしうるので共有で持たせる。
@@ -459,7 +426,10 @@ private:
 
     AppState state_;
 
-    LayoutService layout_service_{ renderer_.GetLayout(), state_.view.viewport };
+    // テーマは theme_service_ のものを参照する。
+    DWriteTextMeasurer measurer_;
+    LayoutEngine layout_engine_;
+    LayoutService layout_service_{ layout_engine_, state_.view.viewport };
     AppHost host_{ *this };
     ResourceManager resource_manager_;
 };

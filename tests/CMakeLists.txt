@@ -3,7 +3,7 @@ add_executable(mendo_tests
     test_parser.cpp
     test_types.cpp
     test_theme.cpp
-    test_file_loader.cpp
+    test_file_watcher.cpp
     test_file_watcher_notify.cpp
     test_file_explorer.cpp
     test_toc.cpp
@@ -19,13 +19,11 @@ add_executable(mendo_tests
     test_viewport_manager.cpp
     test_text_measurer.cpp
     test_app_controller.cpp
-    test_pane_controller.cpp
     test_nav_history.cpp
     test_navigation_service.cpp
     test_nav_button_format.cpp
     test_mouse_gesture.cpp
     test_theme_service.cpp
-    test_file_load_service.cpp
     test_layout_cache.cpp
     test_layout_incremental.cpp
     test_copy_button.cpp
@@ -44,7 +42,7 @@ add_executable(mendo_tests
     test_locale.cpp
     test_memory_eviction.cpp
     test_lru_cache.cpp
-    test_search_bar_controller.cpp
+    test_search_bar.cpp
     test_session_service.cpp
     test_reducer.cpp
     test_reducer_invariants.cpp

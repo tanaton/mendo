@@ -37,11 +37,11 @@ public:
 
     // wic は D2DRenderBackend と共有する PNG デコード用。
     // bg_scheduler はディスクキャッシュの読み込みと PNG デコードを UI スレッド外で行う先で、
-    // 読み込み完了は disk_loaded_msg で hwnd に通知され、受信側が ProcessDiskLoads を呼ぶ。
+    // 読み込み完了は app_msg::MERMAID_DISK_LOADED で hwnd に通知され、受信側が ProcessDiskLoads を呼ぶ。
     // user_data_folder は WebView2 のセッションデータの保存先（空なら WebView2 既定の場所）。
     // on_update は準備完了と結果が出たときに呼ぶ。準備前の要求と、結果を待つ図を要求し直させる。
     void Init(HWND hwnd, IWICImagingFactory* wic, MermaidFileCache& file_cache,
-              TaskScheduler& bg_scheduler, UINT disk_loaded_msg,
+              TaskScheduler& bg_scheduler,
               const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_update);
 
     bool RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode) override;
@@ -197,6 +197,8 @@ private:
     void EnqueueWebRender(RenderRequest req);
     // 要求の結果 (ビットマップかエラー) がキャッシュに入っていれば、通知して要求し直させる。
     void FinishWorkerRequest(Worker& worker);
+    // 要求を inflight_ に残したまま、ワーカーを次の要求に回す。
+    void FreeWorker(Worker& worker);
     void ReleaseInflight(const RenderRequest& req) noexcept
     {
         if (!req.svg_only) {
@@ -219,7 +221,7 @@ private:
 
     void DispatchWebMessage(int index, const mermaid_util::ParsedWebMessage& parsed);
     void OnWorkerReady(Worker& worker, float dpr);
-    void OnRenderResult(int worker_idx, std::wstring_view json);
+    void OnRenderResult(int worker_idx, const mermaid_util::RenderSize& size);
     void DoCapturePreview(int worker_idx);
     void OnCaptureComplete(int worker_idx, Microsoft::WRL::ComPtr<IStream> png_stream);
     void InsertCache(uint64_t hash, CachedResult result);
@@ -254,7 +256,6 @@ private:
     MermaidFileCache* file_cache_ = nullptr;
 
     TaskScheduler* bg_scheduler_ = nullptr;
-    UINT disk_loaded_msg_ = 0;
     bool editing_diagrams_ = false;
     PostedInbox<DiskLoad> disk_results_;
     // DropQueued / CancelPending で進め、投入済みのディスクキャッシュの読み込みを取り消す (ImageLoader の drop_gen_ と同じ)。

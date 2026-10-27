@@ -17,14 +17,14 @@ int MeasureAll(std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& t
 {
     std::pmr::vector<size_t> indices(nodes.size());
     std::ranges::iota(indices, size_t{ 0 });
-    return layout::MeasureIndicesParallel(nodes, cache, 800.0f, theme, measurer, indices, {}, scheduler, kNoLayoutDeadline);
+    return layout::MeasureIndicesParallel(nodes, cache, 800.0f, theme, measurer, indices, YRange::All(), scheduler, kNoLayoutDeadline);
 }
 
 // CodeBlock の syntax_tokens を書く派生 mock。並列経路では worker から entry へ直接書かれる。
 class MockTextMeasurerWithTokens : public MockTextMeasurer {
 public:
     std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
-                                     MeasureViewportRange viewport = {}) const override
+                                     YRange viewport = YRange::All()) const override
     {
         const auto height = MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
 

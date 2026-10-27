@@ -323,7 +323,7 @@ TEST(SearchBarHitTestTest, GapBetweenHighlightAndCloseHitsNone)
 // PaneHeaderTextRect
 // ═══════════════════════════════════════════════
 
-// サイド幅はウィンドウ縮小で PANE_MIN_WIDTH 未満にもなる (ComputePaneLayout の比例縮小)。
+// サイド幅はウィンドウ縮小で PANE_MIN_WIDTH 未満にもなる (PaneController::ComputeLayout の比例縮小)。
 // どの幅でも見出し矩形は反転せず、ボタンと重ならない (bb25241 の回帰)。
 TEST(PaneHeaderTextRectTest, NeverInvertedNorOverlapsButtonsAtAnyWidth)
 {

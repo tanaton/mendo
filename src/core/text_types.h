@@ -34,23 +34,10 @@ struct TextRun {
         return link_url_index >= 0;
     }
 
-    constexpr void set_bold(bool v) noexcept
+    constexpr uint8_t raw_flags() const noexcept
     {
-        set_flag(kBold, v);
+        return flags;
     }
-    constexpr void set_italic(bool v) noexcept
-    {
-        set_flag(kItalic, v);
-    }
-    constexpr void set_code(bool v) noexcept
-    {
-        set_flag(kCode, v);
-    }
-    constexpr void set_strikethrough(bool v) noexcept
-    {
-        set_flag(kStrikethrough, v);
-    }
-
     constexpr void set_raw_flags(uint8_t f) noexcept
     {
         flags = f;
@@ -59,11 +46,6 @@ struct TextRun {
     bool operator==(const TextRun&) const = default;
 
 private:
-    constexpr void set_flag(uint8_t mask, bool v) noexcept
-    {
-        flags = v ? (flags | mask) : static_cast<uint8_t>(flags & ~mask);
-    }
-
     uint8_t flags = 0;
 };
 

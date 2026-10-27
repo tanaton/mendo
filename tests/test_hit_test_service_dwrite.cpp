@@ -164,7 +164,7 @@ TEST_F(HitTestDWriteTest, RightHalfOfLastLinkCharInTableCellHitsLink)
     const auto& node = pl.nodes[static_cast<size_t>(idx)];
     const auto* tl = pl.cache[idx].table_layout();
     ASSERT_NE(tl, nullptr);
-    ASSERT_TRUE(tl->HasRowGeometry(node.table_data()->row_count));
+    ASSERT_TRUE(tl->HasRowGeometry());
     IDWriteTextLayout* cell = tl->GetCellLayout(1, 0);
     ASSERT_NE(cell, nullptr);
     FLOAT x = 0.0f, y = 0.0f;
@@ -273,7 +273,7 @@ protected:
         ASSERT_NE(pl_.cache[idx].table_layout(), nullptr);
         const auto& tl = *pl_.cache[idx].table_layout();
         t_ = { &tl, pl_.nodes[idx].table_data()->row_count, pl_.cache[idx].height, pl_.cache.Top(static_cast<size_t>(idx)) };
-        ASSERT_TRUE(tl.HasGeometry(t_.row_count, tl.col_count));
+        ASSERT_TRUE(tl.HasGeometry());
     }
 };
 
@@ -284,9 +284,8 @@ TEST_F(FindTableCellTest, BordersAttributedLikeDrawing)
     ASSERT_GE(col_count, 2u);
 
     CommandGenerator gen;
-    gen.SetTheme(&theme_);
-    gen.SetFormats({});
-    const auto& cmds = gen.GenerateMdPane(pl_.nodes, pl_.cache, PaneRect{ 0.0f, 0.0f, 4000.0f, 2000.0f }, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
+    gen.Init(theme_);
+    const auto& cmds = gen.GenerateMdPane({ .nodes = pl_.nodes, .cache = pl_.cache, .selection = TextSelection{}, .md_pane_rect = PaneRect{ 0.0f, 0.0f, 4000.0f, 2000.0f } }, 1.0f);
 
     std::vector<float> col_lines;
     std::vector<float> row_lines;
@@ -318,7 +317,7 @@ TEST_F(FindTableCellTest, BordersAttributedLikeDrawing)
         }
     }
     for (size_t r = 0; r < t_.row_count; r++) {
-        EXPECT_EQ(FindTableRow(tl, t_.row_count, row_lines[r]).row, static_cast<int>(r)) << "row line " << r;
-        EXPECT_EQ(FindTableRow(tl, t_.row_count, row_lines[r] - 0.25f).row, static_cast<int>(r) - 1) << "row line " << r;
+        EXPECT_EQ(FindTableRow(tl, row_lines[r]).row, static_cast<int>(r)) << "row line " << r;
+        EXPECT_EQ(FindTableRow(tl, row_lines[r] - 0.25f).row, static_cast<int>(r) - 1) << "row line " << r;
     }
 }

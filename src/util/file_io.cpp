@@ -1,48 +1,42 @@
 #include "file_io.h"
 #include <new>
 
-OpenedFile OpenFileForReadShared(const wchar_t* path, DWORD share_mode, LONGLONG max_size, DWORD* out_error) noexcept
+std::expected<OpenedFile, FileLoadError> OpenFileForReadShared(const wchar_t* path, DWORD share_mode, LONGLONG max_size, DWORD* out_error) noexcept
 {
     if (out_error) {
         *out_error = 0;
     }
-    OpenedFile r;
     UniqueHandle hFile(CreateFileW(path, GENERIC_READ, share_mode, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
     if (!hFile) {
         if (out_error) {
             *out_error = GetLastError();
         }
-        r.error = OpenFileError::NotFound;
-        return r;
+        return std::unexpected(FileLoadError::NotFound);
     }
     LARGE_INTEGER file_size;
     if (!GetFileSizeEx(hFile.get(), &file_size) || file_size.QuadPart < 0) {
-        r.error = OpenFileError::SizeQueryFailed;
-        return r;
+        return std::unexpected(FileLoadError::ReadFailed);
     }
     if (file_size.QuadPart > max_size) {
-        r.error = OpenFileError::TooLarge;
-        return r;
+        return std::unexpected(FileLoadError::TooLarge);
     }
-    r.handle = std::move(hFile);
-    r.size = static_cast<size_t>(file_size.QuadPart);
-    return r;
+    return OpenedFile{ std::move(hFile), static_cast<size_t>(file_size.QuadPart) };
 }
 
-std::pmr::vector<uint8_t> ReadAllBytes(const wchar_t* path, DWORD* out_error, DWORD share_mode, LONGLONG max_size)
+ByteBuffer ReadAllBytes(const wchar_t* path, DWORD* out_error, DWORD share_mode, LONGLONG max_size)
 {
     auto r = OpenFileForReadShared(path, share_mode, max_size, out_error);
-    if (r.error != OpenFileError::None || r.size == 0) {
+    if (!r || r->size == 0) {
         return {};
     }
     // worker からも呼ぶので、巨大ファイルで確保に失敗しても例外を外へ出さず失敗扱いにする。
-    std::pmr::vector<uint8_t> buf;
+    ByteBuffer buf;
     try {
-        buf.resize(r.size);
+        buf = ByteBuffer(r->size);
     } catch (const std::bad_alloc&) {
         return {};
     }
-    if (!ReadExact(r.handle.get(), buf.data(), r.size)) {
+    if (!ReadExact(r->handle.get(), buf.data(), r->size)) {
         return {};
     }
     return buf;

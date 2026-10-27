@@ -111,36 +111,37 @@ TEST(BuildLatexFlowchartCode, PreservesBackslashForKaTeX)
 }
 
 // ============================================================
-// ParseJson* テスト
+// ParseRenderSize テスト
 // ============================================================
 
-TEST(ParseJsonNumber, ParsesValueAfterKey)
+TEST(ParseRenderSize, ParsesWidthHeightAndDpr)
 {
     struct Case {
-        std::wstring_view json;
-        std::wstring_view key;
-        float expected;
+        std::wstring_view payload;
+        float width;
+        float height;
+        float dpr;
     };
-    constexpr auto kMulti = L"{\"width\":100,\"height\":200,\"dpr\":2}"sv;
     constexpr Case kCases[] = {
-        { L"{\"ok\":true}"sv, L"\"width\""sv, 0.0f },
-        { L""sv, L"\"width\""sv, 0.0f },
-        { L"{\"width\":400}"sv, L"\"width\""sv, 400.0f },
-        { L"{\"width\": 400}"sv, L"\"width\""sv, 400.0f },
-        { L"{\"dpr\":1.5}"sv, L"\"dpr\""sv, 1.5f },
-        { kMulti, L"\"width\""sv, 100.0f },
-        { kMulti, L"\"height\""sv, 200.0f },
-        { kMulti, L"\"dpr\""sv, 2.0f },
-        // key だけで値が無ければ 0
-        { L"\"width\":"sv, L"\"width\""sv, 0.0f },
-        // ページが偽った有限でない値は 0 (寸法は <= 0 判定で弾かれる)
-        { L"{\"width\":nan}"sv, L"\"width\""sv, 0.0f },
-        { L"{\"width\":inf}"sv, L"\"width\""sv, 0.0f },
-        { L"{\"width\":1e39}"sv, L"\"width\""sv, 0.0f },
+        { L"400:300:1.5"sv, 400.0f, 300.0f, 1.5f },
+        { L"120:80:2"sv, 120.0f, 80.0f, 2.0f },
+        // 欠けた値は 0 (寸法は <= 0 判定で弾かれ、DPR は既定に倒れる)
+        { L""sv, 0.0f, 0.0f, 0.0f },
+        { L"400"sv, 400.0f, 0.0f, 0.0f },
+        { L"400:300"sv, 400.0f, 300.0f, 0.0f },
+        { L"400::1"sv, 400.0f, 0.0f, 1.0f },
+        // ページが偽った有限でない値は 0
+        { L"nan:300:1"sv, 0.0f, 300.0f, 1.0f },
+        { L"inf:1e39:1"sv, 0.0f, 0.0f, 1.0f },
+        // 4 つ目以降は読まない
+        { L"1:2:3:4"sv, 1.0f, 2.0f, 3.0f },
     };
     for (const auto& c : kCases) {
-        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.json }) + " key=" + ::testing::PrintToString(std::wstring{ c.key }));
-        EXPECT_EQ(mermaid_util::ParseJsonNumber(c.json, c.key), c.expected);
+        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.payload }));
+        const auto size = mermaid_util::ParseRenderSize(c.payload);
+        EXPECT_EQ(size.width, c.width);
+        EXPECT_EQ(size.height, c.height);
+        EXPECT_EQ(size.dpr, c.dpr);
     }
 }
 
@@ -177,53 +178,6 @@ TEST(FitsCaptureLimit, BoundariesAreInclusiveAndRoundUp)
     EXPECT_FALSE(mermaid_util::FitsCaptureLimit(std::numeric_limits<float>::infinity(), 100.0f, 1.0f, 16384));
 }
 
-TEST(ParseJsonTrueFlag, TrueOnlyForExplicitTrue)
-{
-    struct Case {
-        std::wstring_view json;
-        bool expected;
-    };
-    constexpr Case kCases[] = {
-        { L"{\"width\":100}"sv, false },
-        { L"{\"ok\":true}"sv, true },
-        { L"{\"ok\": true}"sv, true },
-        { L"{\"ok\":false}"sv, false },
-        { L""sv, false },
-        // キー直後にコロンが来ない異常形式
-        { L"\"ok\" true"sv, false },
-    };
-    for (const auto& c : kCases) {
-        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.json }));
-        EXPECT_EQ(mermaid_util::ParseJsonTrueFlag(c.json, L"\"ok\""), c.expected);
-    }
-}
-
-TEST(ParseJsonString, ExtractsAndUnescapes)
-{
-    struct Case {
-        std::wstring_view json;
-        std::wstring_view expected;
-    };
-    constexpr Case kCases[] = {
-        { L"{\"ok\":false}"sv, L""sv },
-        { L""sv, L""sv },
-        { L"{\"ok\":false,\"error\":\"boom\"}"sv, L"boom"sv },
-        { L"{\"error\": \"boom\"}"sv, L"boom"sv },
-        { L"{\"error\":123}"sv, L""sv },
-        { L"{\"error\":\"boom"sv, L""sv },
-        { L"{\"error\":\"a\\nb\\t\\\"c\\\"\\\\d\"}"sv, L"a\nb\t\"c\"\\d"sv },
-        { L"{\"error\":\"\\u0041\\u3042\"}"sv, L"Aあ"sv },
-        { L"{\"error\":\"\\uZZZZ\"}"sv, L""sv },
-        // JSON.stringify が生成する実際の mermaid エラー形式
-        { L"{\"ok\":false,\"error\":\"Parse error on line 2:\\n...graph TD\\n----^\\nExpecting 'SEMI'\"}"sv,
-          L"Parse error on line 2:\n...graph TD\n----^\nExpecting 'SEMI'"sv },
-    };
-    for (const auto& c : kCases) {
-        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.json }));
-        EXPECT_EQ(mermaid_util::ParseJsonString(c.json, L"\"error\""), c.expected);
-    }
-}
-
 // ============================================================
 // SanitizeErrorMessage テスト
 // ============================================================
@@ -239,7 +193,7 @@ TEST(SanitizeErrorMessage, CollapsesTrimsAndTruncates)
         { L""sv, 100, L""sv },
         { L"simple error"sv, 100, L"simple error"sv },
         { L"Parse error on line 2:\n\n----^\t got 'X'"sv, 100, L"Parse error on line 2: ----^ got 'X'"sv },
-        // JSON の \u00XX から復元された制御文字も豆腐表示にせず空白に潰す
+        // ページから届いた制御文字も豆腐表示にせず空白に潰す
         { L"got\x0b\x1bhere"sv, 100, L"got here"sv },
         { L"  \n boom \n "sv, 100, L"boom"sv },
         { L" \n\t "sv, 100, L""sv },
@@ -306,7 +260,8 @@ TEST(ParseWebMessage, ClassifiesMessagesAndParsesRequest)
         std::wstring_view payload;
     };
     constexpr Case kCases[] = {
-        { L"render-result:12:{\"ok\":true}"sv, Kind::RenderResult, true, 12, L"{\"ok\":true}"sv },
+        { L"render-result:12:400:300:1.5"sv, Kind::RenderResult, true, 12, L"400:300:1.5"sv },
+        { L"render-error:9:Parse error on line 2"sv, Kind::RenderError, true, 9, L"Parse error on line 2"sv },
         { L"svg-result:3:<svg/>"sv, Kind::SvgResult, true, 3, L"<svg/>"sv },
         { L"capture-ready:5"sv, Kind::CaptureReady, true, 5, L""sv },
         { L"render-error:9"sv, Kind::RenderError, true, 9, L""sv },

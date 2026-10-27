@@ -8,12 +8,13 @@
 #include "layout_computer.h"
 #include "pane_layout.h"
 #include "profiler.h"
-#include "reducer.h"
 #include "resource.h"
-#include "search_bar_controller.h"
 #include "tooltip.h"
 #include "ui_constants.h"
 #include "win32_util.h"
+#include <array>
+#include <cstddef>
+#include <memory_resource>
 #include <thread>
 #include <utility>
 
@@ -41,15 +42,23 @@ bool App::Init(HWND hwnd)
     // 書式とブラシを 1 回で作るため、保存済みテーマ/ズームを Renderer 初期化前に読む。
     theme_service_.LoadDarkMode();
     state_.view.viewport.Zoom() = theme_service_.LoadZoomLevel();
-    if (!renderer_.Init(hwnd_, theme_service_.CreateTheme(state_.view.viewport.Zoom()))) {
+    theme_service_.Init(state_.view.viewport.Zoom());
+    const Theme& theme = theme_service_.GetTheme();
+    if (!renderer_.Init(hwnd_, theme)) {
+        return false;
+    }
+    measurer_.SetFactory(renderer_.GetDWriteFactory());
+    if (!layout_engine_.Init(&measurer_, theme)) {
         return false;
     }
 
     // Mermaid 共有 scheduler_ と詰まり合わないよう独立して立ち上げる。
     layout_scheduler_.Init(LayoutWorkerCount(std::thread::hardware_concurrency()));
-    renderer_.SetLayoutScheduler(&layout_scheduler_);
+    layout_engine_.SetLayoutScheduler(&layout_scheduler_);
+    // 最初の計測がフォントの読み込みを待たないよう、ワーカーとフォントを先に起こしておく。
+    measurer_.WarmUp(layout_scheduler_);
 
-    // PixelToDip 用に DPI スケールをキャッシュ（OnDpiChanged でも更新する）。
+    // PixelToDip 用に DPI スケールをキャッシュ（DpiChangedAction でも更新する）。
     state_.window.cached_dpi_scale = DpiScaleFrom(static_cast<float>(GetDpiForWindow(hwnd_)));
 
     InitSharedScheduler();
@@ -70,16 +79,15 @@ bool App::Init(HWND hwnd)
         },
         host_);
 
-    mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), file_cache_, scheduler_, app_msg::MERMAID_DISK_LOADED,
+    mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), file_cache_, scheduler_,
                            config_.GetConfigPath(L"WebView2Data"), [this]() {
         // 結果を待っていた図を要求し直して反映する。
         resource_manager_.RequestMermaidRenders();
     });
 
-    if (!image_loader_.Init(renderer_.GetWICFactory())) {
+    if (!image_loader_.Init(renderer_.GetWICFactory(), hwnd_, app_msg::IMAGE_LOADED, scheduler_)) {
         MENDO_TRACE("ImageLoader::Init failed (WIC factory unavailable). Image rendering disabled.");
     }
-    image_loader_.InitAsync(hwnd_, app_msg::IMAGE_LOADED, scheduler_);
 
     // D2D デバイスロストでレンダーターゲットが再作成されたら、各ローダーへ伝搬する。
     renderer_.SetDeviceLostCallback([this](ID2D1RenderTarget* new_rt) {
@@ -97,7 +105,7 @@ bool App::Init(HWND hwnd)
 
     state_.window.titlebar.UpdateLayout(renderer_.GetSize().width);
 
-    RestorePaneState();
+    session::LoadPanes(config_, state_.view.panes);
 
     // フォルダの列挙はネットワークドライブなどで数百 ms かかるので、描画を待たせずに別スレッドで行う。
     // 共有 scheduler の画像デコード待ちの後ろに並ばないよう専用スレッドにする。
@@ -122,7 +130,6 @@ bool App::Init(HWND hwnd)
     tooltip_.Init(hwnd_);
     tooltip_.ApplyDarkMode(theme_service_.IsDarkMode());
 
-    state_.search.search_bar_ctrl.Init(state_.search.search_state, state_.view.viewport, state_.document.layout_cache, host_);
     return true;
 }
 
@@ -144,37 +151,25 @@ bool App::CreateRenderDevice()
     // デバイスを待つ間に終わった読み込みを、完了通知を待たずに最初のフレームへ入れる。
     // 届いた後で入ると高さが変わって表示が跳ねるので、時間予算で切らずに全部入れる。
     constexpr auto kNoDeadline = std::chrono::steady_clock::time_point::max();
-    image_loader_.ProcessCompletedDecodes(kNoDeadline);
+    resource_manager_.OnImagesDecoded(kNoDeadline);
     mermaid_renderer_.ProcessDiskLoads(kNoDeadline);
     return true;
 }
 
 void App::RestoreTheme()
 {
-    state_.theme = &renderer_.GetTheme();
+    state_.theme = &theme_service_.GetTheme();
     if (theme_service_.IsDarkMode()) {
         ApplyDarkModeToWindow(hwnd_, true);
     }
-}
-
-void App::RestorePaneState()
-{
-    const auto s = session_.LoadPaneState();
-    auto& panes = state_.view.panes;
-    panes.SetSidePaneVisible(PaneTarget::File, s.show_file);
-    panes.SetSidePaneVisible(PaneTarget::Toc, s.show_toc);
-    panes.SetSidePaneWidth(PaneTarget::File, s.file_width);
-    panes.SetSidePaneWidth(PaneTarget::Toc, s.toc_width);
-    panes.SidePaneZoom(PaneTarget::File) = s.file_zoom;
-    panes.SidePaneZoom(PaneTarget::Toc) = s.toc_zoom;
 }
 
 void App::LoadInitialDocument()
 {
     // small file は preload がここまでに完了している場合が多い。直後の UpdateWindow が
     // 同期 WM_PAINT を発行するため、ここで取り込んでおかないと初回フレームが空になる。
-    using PreloadAttachResult = FileLoadService::PreloadAttachResult;
-    switch (file_load_service_.AttachPreload(hwnd_, app_msg::PARSE_COMPLETE)) {
+    using PreloadAttachResult = AsyncLoadCoordinator::AttachResult;
+    switch (load_coordinator_.Attach(hwnd_, app_msg::PARSE_COMPLETE)) {
     case PreloadAttachResult::AppliedSync:
         OnParseComplete();
         return;
@@ -182,7 +177,7 @@ void App::LoadInitialDocument()
         ScheduleLoadingAnimation();
         return;
     case PreloadAttachResult::None:
-        LoadHelpDocument();
+        ShowHelpResource();
         return;
     }
     std::unreachable();
@@ -201,11 +196,11 @@ const PaneLayout& App::GetPaneLayout()
 void App::UpdateTitleBar()
 {
     auto title = BuildTitleString(state_.document.doc.GetFilePath(), state_.view.viewport.Zoom().Percent());
-    if (title == state_.cached_title_text) {
+    if (title == title_text_) {
         return;
     }
     SetWindowTextW(hwnd_, title.c_str());
-    state_.cached_title_text = std::move(title);
+    title_text_ = std::move(title);
     Invalidate();
 }
 
@@ -217,12 +212,7 @@ PaneZone App::PaneAtPoint(float dip_x)
 // ホバー/ホイール/クリック系のゾーン判定を 1 箇所に揃え、食い違わないようにする。
 PaneZone App::ZoneAt(float dip_x, const PaneLayout& layout) const noexcept
 {
-    return DetectPaneZone(
-        dip_x,
-        layout,
-        renderer_.GetTheme().splitter_width,
-        state_.view.panes.IsSidePaneVisible(PaneTarget::File),
-        state_.view.panes.IsSidePaneVisible(PaneTarget::Toc));
+    return DetectPaneZone(dip_x, layout, theme_service_.GetTheme().splitter_width);
 }
 
 SidePaneState App::BuildSidePaneState(const PaneLayout& layout) const
@@ -259,7 +249,7 @@ TitleBarRenderState App::BuildTitleBarRenderState() const
     const auto& panes = state_.view.panes;
     return TitleBarRenderState{
         .bar = state_.window.titlebar,
-        .title_text = state_.cached_title_text,
+        .title_text = title_text_,
         .window_width = state_.pane_layout_cache.WindowWidth(),
         .hovered_zone = state_.view.hover.titlebar,
         .is_dark_mode = theme_service_.IsDarkMode(),
@@ -269,17 +259,6 @@ TitleBarRenderState App::BuildTitleBarRenderState() const
         .is_maximized = IsZoomed(hwnd_) != FALSE,
         .window_active = state_.window.window_active,
     };
-}
-
-void App::SyncRendererSearchMatches()
-{
-    const auto& ss = state_.search.search_state;
-    if (ss.IsVisible() && ss.IsHighlightEnabled() && !ss.GetMatches().empty()) {
-        renderer_.SetSearchMatches(&ss.GetMatches(), ss.GetCurrentMatchIndex(), ss.GetGeneration());
-    }
-    else {
-        renderer_.SetSearchMatches(nullptr, -1, 0);
-    }
 }
 
 void App::OnPaint()
@@ -296,7 +275,7 @@ void App::OnPaint()
     }
 
     const auto& layout = GetPaneLayout();
-    const bool show_loading = file_load_service_.IsLoading();
+    const bool show_loading = spinner_shown_;
     if (!show_loading) {
         EnsureFrameLayout(layout);
         // 計測で見出しの Y が決まった後、目次ペインを組む前に決め直す。
@@ -306,43 +285,43 @@ void App::OnPaint()
     const auto gs = ResolveGestureOverlay(state_.interaction.gesture, state_.interaction.swipe_detector);
     const SidePaneState sp = BuildSidePaneState(layout);
     const TitleBarRenderState tb = BuildTitleBarRenderState();
-    const ToastRenderState ts{ .message = state_.interaction.toast_message };
+    const ToastRenderState ts{ .message = toast_message_ };
 
+    const auto& ss = state_.search.search_state;
+    const bool highlight = ss.IsVisible() && ss.IsHighlightEnabled();
+    auto sb = BuildSearchBarRenderState(state_);
+    sb.hovered = state_.view.hover.search_bar;
+    sb.caret_visible = state_.window.window_active;
+    const BlockHScrollContext h_scroll{
+        .scroll_x = &state_.view.block_scroll_x,
+        .hovered_block = state_.view.hover.h_block,
+        .drag_block = state_.view.HDragNode(),
+    };
     using FrameResult = Renderer::FrameResult;
-    FrameResult result = FrameResult::Done;
-    if (show_loading) {
-        result = renderer_.DrawLoading(file_load_service_.GetLoadingAngle(), layout.md_rect, sp, tb, gs, ts);
-    }
-    else {
-        SyncRendererSearchMatches();
-
-        auto sb = state_.search.search_bar_ctrl.BuildRenderState();
-        sb.hovered = state_.view.hover.search_bar;
-        sb.caret_visible = state_.window.window_active;
-        const BlockHScrollContext h_scroll{
-            .scroll_x = &state_.view.block_scroll_x,
-            .hovered_block = state_.view.hover.h_block,
-            .drag_block = state_.view.HDragNode(),
-        };
-        result = renderer_.Render({
+    const FrameResult result = renderer_.Render({
+        .md = {
             .nodes = state_.document.doc.GetNodes(),
             .cache = state_.document.layout_cache,
             .selection = state_.view.viewport.GetSelection(),
             .md_pane_rect = layout.md_rect,
-            .side_panes = sp,
-            .titlebar = tb,
-            .gesture = gs,
-            .toast = ts,
-            .search_bar = sb,
             .scroll_y = state_.view.viewport.GetScrollY(),
-            .nav_hovered = state_.view.hover.nav,
             .hovered = state_.view.hover.overlay_button,
             .hovered_diagram = state_.view.hover.diagram,
-            .can_go_back = state_.view.nav_history.CanGoBack(),
-            .can_go_forward = state_.view.nav_history.CanGoForward(),
             .block_h_scroll = h_scroll,
-        });
-    }
+            .search_matches = highlight ? std::span<const SearchMatch>{ ss.GetMatches() } : std::span<const SearchMatch>{},
+            .current_match_index = highlight ? ss.GetCurrentMatchIndex() : -1,
+            .search_generation = highlight ? ss.GetGeneration() : 0,
+        },
+        .side_panes = sp,
+        .titlebar = tb,
+        .gesture = gs,
+        .toast = ts,
+        .search_bar = sb,
+        .nav_hovered = state_.view.hover.nav,
+        .can_go_back = state_.view.nav_history.CanGoBack(),
+        .can_go_forward = state_.view.nav_history.CanGoForward(),
+        .loading_angle = show_loading ? std::optional{ spinner_angle_ } : std::nullopt,
+    });
 
     EndPaint(hwnd_, &ps);
     // スクロール・リフロー・ズーム・ペイン開閉などで、止まったカーソルの下の内容が変わる。
@@ -376,15 +355,10 @@ void App::EnsureFrameLayout(const PaneLayout& layout)
 
 void App::PrepareFrame()
 {
-    if (!IsRenderReady() || IsIconic(hwnd_) || file_load_service_.IsLoading()) {
+    if (!IsRenderReady() || IsIconic(hwnd_) || spinner_shown_) {
         return;
     }
     EnsureFrameLayout(GetPaneLayout());
-}
-
-void App::OnResize(UINT width, UINT height)
-{
-    Dispatch(ResizeAction{ width, height });
 }
 
 void App::OnMinimize()
@@ -392,21 +366,9 @@ void App::OnMinimize()
     renderer_.TrimForMinimize();
 }
 
-void App::OnDpiChanged(UINT dpi, const RECT* suggested)
-{
-    // reducer をプラットフォーム非依存に保つため、Win32 の RECT を PixelRect に詰め替える。
-    const PixelRect rc{
-        static_cast<int32_t>(suggested->left),
-        static_cast<int32_t>(suggested->top),
-        static_cast<int32_t>(suggested->right),
-        static_cast<int32_t>(suggested->bottom),
-    };
-    Dispatch(DpiChangedAction{ static_cast<uint32_t>(dpi), rc });
-}
-
 void App::OnAppImageLoaded()
 {
-    image_loader_.ProcessCompletedDecodes();
+    resource_manager_.OnImagesDecoded();
 }
 
 void App::OnMermaidDiskLoaded()
@@ -443,7 +405,12 @@ void App::OnKeyDown(WPARAM key)
 
 void App::Dispatch(const AppAction& action)
 {
-    auto effects = Reduce(state_, action);
+    // マウスの移動・ホイール・ドラッグは 1 イベントごとに副作用を積む。一覧の確保と解放は Reduce の 3〜4 割を
+    // 占めていた (BM_ReduceEvents) ので、呼び出しごとのスタックの領域から取る。入れ子の Dispatch も自分の領域を持つ。
+    // 副作用が持つ文字列は既定のリソースのまま (variant は allocator を受け継がない) なので、領域より長生きしない。
+    alignas(std::max_align_t) std::array<std::byte, 1024> buffer;
+    std::pmr::monotonic_buffer_resource arena(buffer.data(), buffer.size());
+    auto effects = Reduce(state_, action, host_, &arena);
     Execute(effects);
 }
 
@@ -477,7 +444,9 @@ void App::HandleTimer(UINT_PTR timer_id)
         Dispatch(SwipeOverlayTimeoutAction{});
         return;
     case TOAST:
-        Dispatch(ToastExpiredAction{});
+        KillTimer(id);
+        toast_message_.clear();
+        Invalidate();
         return;
     case TOOLTIP:
         KillTimer(id);
@@ -485,8 +454,8 @@ void App::HandleTimer(UINT_PTR timer_id)
         return;
     case LOADING_ANIM:
         // 最初の 1 回は ScheduleLoadingAnimation の遅延の後に届く。
-        if (!file_load_service_.IsLoading()) {
-            if (file_load_service_.IsAsyncLoading()) {
+        if (!spinner_shown_) {
+            if (load_coordinator_.IsActive()) {
                 StartLoadingAnimation();
             }
             else {
@@ -494,7 +463,10 @@ void App::HandleTimer(UINT_PTR timer_id)
             }
             return;
         }
-        file_load_service_.TickLoadingAnimation();
+        spinner_angle_ += spinner::ROTATION_INCREMENT;
+        if (spinner_angle_ > TWO_PI) {
+            spinner_angle_ -= TWO_PI;
+        }
         Invalidate();
         return;
     case MERMAID_BATCH:
@@ -523,17 +495,12 @@ void App::HandleTimer(UINT_PTR timer_id)
     std::unreachable();
 }
 
-void App::OnCaptureChanged()
-{
-    Dispatch(CaptureChangedAction{});
-}
-
 void App::ShowToast(std::wstring_view message)
 {
     if (message.empty()) {
         return;
     }
-    state_.interaction.toast_message = message;
+    toast_message_ = message;
     SetTimer(app_timer::Id::TOAST, app_timer::TOAST_DURATION_MS);
     Invalidate();
 }
@@ -596,17 +563,14 @@ void App::Execute(const SideEffect& effect)
         [this](const effect::ClipboardWriteHtml& ev) {
             WriteClipboardHtml(hwnd_, ev.html, ev.plain);
         },
-        [this](const effect::ShowTooltip& ev) {
-            if (tooltip_.Update(ev.target)) {
-                SetTimer(app_timer::Id::TOOLTIP, TOOLTIP_DELAY_MS);
-            }
-            else if (ev.target.IsEmpty()) {
+        [this](const effect::SetTooltip& ev) {
+            tooltip_.SetText(ev.text);
+            if (ev.text.empty()) {
                 KillTimer(app_timer::Id::TOOLTIP);
             }
-        },
-        [this](const effect::ClearTooltip&) {
-            tooltip_.Clear();
-            KillTimer(app_timer::Id::TOOLTIP);
+            else {
+                SetTimer(app_timer::Id::TOOLTIP, TOOLTIP_DELAY_MS);
+            }
         },
         [this](const effect::ShowContextMenu& ev) {
             OnContextMenu(ev.screen_x, ev.screen_y);
@@ -616,14 +580,14 @@ void App::Execute(const SideEffect& effect)
         },
         // ---- Window ----
         [this](const effect::SearchFocus& ev) {
-            PostMessageW(hwnd_, app_msg::SEARCH_FOCUS, 0, app_param::MakeSearchSelectionLParam(ev.anchor, ev.caret));
+            window_.FocusSearchEdit(ev.anchor, ev.caret);
         },
         [this](const effect::SearchUnfocus& ev) {
-            const WPARAM wp = ev.clear_text ? app_param::SEARCH_UNFOCUS_FILE_SWITCH : app_param::SEARCH_UNFOCUS_CLOSE;
-            PostMessageW(hwnd_, app_msg::SEARCH_UNFOCUS, wp, 0);
+            window_.UnfocusSearch(ev.clear_text);
         },
         [this](const effect::SetWindowPosition& ev) {
-            SetWindowPos(hwnd_, nullptr, ev.x, ev.y, ev.cx, ev.cy, SWP_NOZORDER | SWP_NOACTIVATE);
+            const RECT& r = ev.rect;
+            SetWindowPos(hwnd_, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
         },
         [this](const effect::ApplyZoom&) {
             ApplyZoom();
@@ -678,23 +642,14 @@ void App::SaveSession()
     // 前回 LastFilePath に Help の node index が紐付き、次回起動時に誤位置へジャンプする。
     const auto& doc = state_.document.doc;
     if (doc.HasBackingFile()) {
-        session_.SaveLastFilePath(doc.GetFilePath());
+        session::SaveLastFilePath(config_, doc.GetFilePath());
         if (const auto t = SnapshotVisibleTarget(state_); t.IsValid()) {
-            session_.SaveScrollPosition(t.node, t.offset);
+            session::SaveScrollPosition(config_, t.node, t.offset);
         }
     }
 
-    const auto& panes = state_.view.panes;
-    session_.SavePaneState({
-        .show_file = panes.IsSidePaneVisible(PaneTarget::File),
-        .show_toc = panes.IsSidePaneVisible(PaneTarget::Toc),
-        .file_width = panes.GetSidePaneWidth(PaneTarget::File),
-        .toc_width = panes.GetSidePaneWidth(PaneTarget::Toc),
-        .file_zoom = panes.SidePaneZoom(PaneTarget::File),
-        .toc_zoom = panes.SidePaneZoom(PaneTarget::Toc),
-    });
-
-    session_.SaveLanguage(i18n::ConfigLangKey());
+    session::SavePanes(config_, state_.view.panes);
+    session::SaveLanguage(config_, i18n::ConfigLangKey());
     // 個別 Save 呼び出しでは write が遅延されるため、終了前に明示 flush で
     // すべての設定値を 1 度のディスク書き込みにまとめる。
     config_.Flush();
@@ -708,11 +663,11 @@ void App::OnDestroy()
     mermaid_renderer_.Shutdown();
     // 走行中タスクが latch.wait 中の参照を保ったまま解放されないよう、
     // LayoutEngine の参照解除 → Shutdown (join) → ターゲット deinit の順を守る。
-    renderer_.SetLayoutScheduler(nullptr);
+    layout_engine_.SetLayoutScheduler(nullptr);
     layout_scheduler_.Shutdown();
     // Shutdown はキューを最後まで処理するので、結果を使わないタスクは先に空振りさせる。
     image_loader_.CancelPending();
-    file_load_service_.CancelAsyncLoad();
+    load_coordinator_.Cancel();
     scheduler_.Shutdown();
     file_cache_.Shutdown();
     file_cache_.SaveIndex();
@@ -741,7 +696,7 @@ std::optional<SearchBarLayout> App::SearchBarLayoutAt(float dip_y, const PaneRec
 
 int App::HitTestSearchInputPos(const SearchBarLayout& sbl, float dip_x) const
 {
-    return renderer_.HitTestSearchInput(state_.search.search_bar_ctrl.GetQueryWide(), dip_x - sbl.text_left(), sbl.text_width());
+    return renderer_.HitTestSearchInput(state_.search.query_wide, dip_x - sbl.text_left(), sbl.text_width());
 }
 
 RECT App::GetSearchEditRect()
@@ -763,7 +718,7 @@ void App::SetInitialDirectory(std::wstring_view dir_path)
 
 void App::RestoreScrollPosition()
 {
-    const auto pos = session_.LoadScrollPosition();
+    const auto pos = session::LoadScrollPosition(config_);
     if (pos.node >= 0) {
         state_.view.pending_restore = { pos.node, static_cast<float>(pos.offset) };
     }
@@ -771,7 +726,9 @@ void App::RestoreScrollPosition()
 
 void App::ApplyZoom()
 {
-    renderer_.ApplyZoom(theme_service_.CreateTheme(state_.view.viewport.Zoom()));
+    theme_service_.ApplyZoom(state_.view.viewport.Zoom());
+    layout_engine_.RecreateFormats();
+    renderer_.OnThemeMetricsChanged();
     RelayoutViewport(RelayoutResources::Diagrams);
     UpdateTitleBar();
     theme_service_.SaveZoomLevel(state_.view.viewport.Zoom());
@@ -779,8 +736,8 @@ void App::ApplyZoom()
 
 void App::ToggleDarkMode()
 {
-    const bool dark = theme_service_.ToggleDarkMode();
-    renderer_.SetTheme(theme_service_.CreateTheme(state_.view.viewport.Zoom()));
+    const bool dark = theme_service_.ToggleDarkMode(state_.view.viewport.Zoom());
+    renderer_.OnThemeColorsChanged();
     ApplyDarkModeToWindow(hwnd_, dark);
     tooltip_.ApplyDarkMode(dark);
     // メモリキャッシュはキーにダークモードを含むので消さず、往復時に再利用する。描画待ちは旧テーマの分なので捨てる。
@@ -855,9 +812,9 @@ PopupEnv App::MakePopupEnv() const noexcept
     return {
         .d2d_factory = renderer_.GetD2DFactory(),
         .dwrite_factory = renderer_.GetDWriteFactory(),
-        .theme = &renderer_.GetTheme(),
+        .theme = &theme_service_.GetTheme(),
         .dpi_scale = state_.window.cached_dpi_scale,
-        .modal_loop = &modal_loop_,
+        .modal_loop = &window_,
     };
 }
 
@@ -878,6 +835,7 @@ void App::ApplyLanguage(const i18n::Strings* chosen)
     if (!i18n::SetLanguage(chosen)) {
         return;
     }
+    renderer_.OnLanguageChanged();
     if (IsHelpPath(state_.document.doc.GetFilePath())) {
         ShowHelpResource();
     }
@@ -904,7 +862,7 @@ float App::ScrollableContentHeight() const noexcept
 // Mermaid のキャッシュキーに入るため、全経路でこの値を使う (ずれるとキャッシュを外す)。
 float App::MdContentWidth()
 {
-    return renderer_.GetTheme().ContentWidth(GetPaneLayout().md_rect.width);
+    return theme_service_.GetTheme().ContentWidth(GetPaneLayout().md_rect.width);
 }
 
 bool App::RequestDeferredLayout()
@@ -930,7 +888,7 @@ void App::RunIdleWork()
     if (image_loader_.HasLeftoverUploads() || mermaid_renderer_.HasLeftoverDiskLoads()) {
         // 両方で 1 回分の持ち時間を分け合う。
         const auto deadline = std::chrono::steady_clock::now() + kUploadSliceBudget;
-        image_loader_.ProcessCompletedDecodes(deadline);
+        resource_manager_.OnImagesDecoded(deadline);
         mermaid_renderer_.ProcessDiskLoads(deadline);
         return;
     }
@@ -997,7 +955,7 @@ void App::OnDeferredLayout()
     const PaneRect md = GetPaneLayout().md_rect;
     const bool more = layout_service_.ProcessDirtyBatch(
         state_.document.doc, state_.document.layout_cache, md.width, std::chrono::steady_clock::now() + kDeferredLayoutBudget,
-        LayoutService::ViewportLimit{ md.height, ResourceManager::EVICT_BUFFER_SCREENS });
+        md.height, ResourceManager::EVICT_BUFFER_SCREENS);
 
     // 中間バッチではクランプしない (ClampScrollToContent の注記)。スクロールバーのドラッグは
     // 移動のたびにその時点の上限で位置を決めるので、ここで合わせる必要はない。
@@ -1035,14 +993,14 @@ float AppHost::MdPaneHeight()
     return app_.GetPaneLayout().md_rect.height;
 }
 
-float AppHost::MdMaxScroll()
-{
-    return app_.MdMaxScroll();
-}
-
 const Theme& AppHost::GetTheme()
 {
-    return app_.renderer_.GetTheme();
+    return app_.theme_service_.GetTheme();
+}
+
+void AppHost::EnsureNodeLayout(int node_index)
+{
+    app_.layout_service_.EnsureNodeLayout(app_.state_.document.doc, app_.state_.document.layout_cache, app_.GetPaneLayout().md_rect.width, node_index);
 }
 
 void AppHost::RecomputeLayout(layout::HeightChangeRange changed)
@@ -1050,15 +1008,7 @@ void AppHost::RecomputeLayout(layout::HeightChangeRange changed)
     app_.layout_service_.RecomputeAfterDiagram(
         app_.state_.document.doc,
         app_.state_.document.layout_cache,
-        app_.renderer_.GetTheme(),
         changed);
     app_.ClampScrollToContent();
     app_.Invalidate();
-}
-
-void AppHost::EnsureNodeLayout(int node_index)
-{
-    app_.layout_service_.EnsureNodeLayout(
-        app_.state_.document.doc, app_.state_.document.layout_cache,
-        app_.GetPaneLayout().md_rect.width, node_index);
 }

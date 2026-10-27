@@ -56,28 +56,6 @@ TEST(WorkerLatch, MultipleGuardsTracked)
     EXPECT_TRUE(wait_returned.load());
 }
 
-TEST(WorkerLatch, MoveAssignReleasesPreviousGuard)
-{
-    WorkerLatch latch;
-    auto g1 = latch.Acquire();
-    auto g2 = latch.Acquire();
-    // g1 = std::move(g2) は g1 の参照を release してから g2 の参照を引き取る
-    g1 = std::move(g2);
-    // この時点で in_flight_ は 1
-    std::atomic<bool> wait_returned{ false };
-    std::thread waiter([&] {
-        latch.Wait();
-        wait_returned = true;
-    });
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    EXPECT_FALSE(wait_returned.load());
-    {
-        auto _ = std::move(g1);
-    }
-    waiter.join();
-    EXPECT_TRUE(wait_returned.load());
-}
-
 TEST(WorkerLatch, WorkerThreadCompletionUnblocksWait)
 {
     WorkerLatch latch;

@@ -2,8 +2,11 @@
 #include "ui_constants.h"
 #include "wic_util.h"
 #include "win32_util.h"
-// IDXGISwapChain2 / SetMaximumFrameLatency / GetFrameLatencyWaitableObject 用。
+#include <d2d1_1.h>
+#include <d3d11.h>
+// IDXGISwapChain2 / SetMaximumFrameLatency / GetFrameLatencyWaitableObject 用。dxgi1_2.h も読む。
 #include <dxgi1_3.h>
+#include <wincodec.h>
 #include <algorithm>
 #include <thread>
 
@@ -76,6 +79,14 @@ void D2DRenderBackend::ConfigureFrameLatency() noexcept
         return;
     }
     frame_latency_waitable_.reset(sc2->GetFrameLatencyWaitableObject());
+}
+
+D2DRenderBackend::D2DRenderBackend() noexcept = default;
+D2DRenderBackend::~D2DRenderBackend() = default;
+
+ID2D1Factory* D2DRenderBackend::GetD2DFactory() const noexcept
+{
+    return d2d_factory_.Get();
 }
 
 bool D2DRenderBackend::Init(HWND hwnd)

@@ -5,9 +5,11 @@
 #include <cstdint>
 #include <utility>
 
-// 描画系で使う固定色ブラシの ID。ExecuteDrawCommands は brushes[BrushId::*] を
-// O(1) で配列ルックアップする。
+// 描画系で使う固定色ブラシの ID。色は Theme::colors に同じ添字で持ち、ExecuteDrawCommands は
+// brushes[BrushId::*] を O(1) で配列ルックアップする。
 enum class BrushId : uint8_t {
+    // 描画面を Clear する色。
+    Background,
     Text,
     Heading,
     CodeBg,
@@ -19,6 +21,7 @@ enum class BrushId : uint8_t {
     BlockquoteText,
     Selection,
     TableStripe,
+    // SyntaxTokenType の Keyword 以降と同じ順 (SyntaxBrushId)。
     SyntaxKeyword,
     SyntaxType,
     SyntaxString,
@@ -73,16 +76,23 @@ inline constexpr size_t ALERT_BRUSH_COUNT = 5;
 static_assert(std::to_underlying(BrushId::AlertCaution) - std::to_underlying(BrushId::AlertNote) + 1 == ALERT_BRUSH_COUNT);
 static_assert(std::to_underlying(BrushId::AlertCautionBg) - std::to_underlying(BrushId::AlertNoteBg) + 1 == ALERT_BRUSH_COUNT);
 
+inline constexpr size_t BRUSH_COUNT = std::to_underlying(BrushId::Count);
+
+// 連番で並べた ID の並び (first から offset 番目)。範囲内は呼び出し側で保証すること。
+constexpr BrushId BrushIdAt(BrushId first, size_t offset) noexcept
+{
+    return static_cast<BrushId>(std::to_underlying(first) + offset);
+}
+
 // Alert 種別インデックス (AlertColorIndex の 0..ALERT_BRUSH_COUNT-1) → 対応する固定ブラシ ID。
-// idx は呼び出し側で範囲内を保証すること。
 constexpr BrushId AlertBrushIdFromIndex(size_t idx) noexcept
 {
-    return static_cast<BrushId>(std::to_underlying(BrushId::AlertNote) + idx);
+    return BrushIdAt(BrushId::AlertNote, idx);
 }
 
 constexpr BrushId AlertBgBrushIdFromIndex(size_t idx) noexcept
 {
-    return static_cast<BrushId>(std::to_underlying(BrushId::AlertNoteBg) + idx);
+    return BrushIdAt(BrushId::AlertNoteBg, idx);
 }
 
 // 白黒のオーバーレイ (ナビ・コピー等のボタン) に使うブラシ。不透明度は描画側で掛ける。
@@ -99,7 +109,7 @@ public:
     static BrushEffect* For(BrushId id) noexcept
     {
         static auto effects = []() static {
-            std::array<BrushEffect, std::to_underlying(BrushId::Count)> a{};
+            std::array<BrushEffect, BRUSH_COUNT> a{};
             for (size_t i = 0; i < a.size(); i++) {
                 a[i].id_ = static_cast<BrushId>(i);
             }

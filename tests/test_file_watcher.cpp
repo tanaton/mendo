@@ -1,10 +1,8 @@
 #include <gtest/gtest.h>
-#include "file_loader.h"
 #include "file_watcher.h"
-#include "i18n.h"
 #include "test_helpers.h"
 
-class FileLoaderTest : public TempDirTestBase {
+class FileWatcherTest : public TempDirTestBase {
 protected:
     // イベントハンドルで変更通知を待ってから CheckForChanges する。通知が届いたら true。
     bool WaitForEvent(FileWatcher& watcher, int timeout_ms = 2000)
@@ -24,44 +22,7 @@ protected:
     }
 };
 
-// BOM を除き改行を LF に揃える。byte_size は BOM 込み・正規化前のディスク上サイズのまま
-// (部分書き込みの検出に使うため)。
-TEST_F(FileLoaderTest, LoadsTextWithoutBomAndWithLfNewlines)
-{
-    struct Case {
-        const char* label;
-        std::string_view content;
-        std::string_view text;
-    };
-    constexpr Case kCases[] = {
-        { "Ascii", "Hello, World!", "Hello, World!" },
-        { "Multiline", "line1\nline2\nline3", "line1\nline2\nline3" },
-        { "CrlfAndCr", "line1\r\nline2\rline3\r\n", "line1\nline2\nline3\n" },
-        { "Bom", "\xEF\xBB\xBF" "Hello", "Hello" },
-        { "BomOnly", "\xEF\xBB\xBF", "" },
-        { "Empty", "", "" },
-        { "Japanese", "日本語テスト", "日本語テスト" },
-    };
-    for (const auto& c : kCases) {
-        SCOPED_TRACE(c.label);
-        const auto path = WriteTempFile(L"test.md", c.content);
-        const auto result = FileLoader::LoadFile(path.native().c_str());
-        ASSERT_TRUE(result.has_value());
-        EXPECT_EQ(result->text, c.text);
-        EXPECT_EQ(result->byte_size, c.content.size());
-    }
-}
-
-TEST_F(FileLoaderTest, NonExistentFileReturnsError)
-{
-    auto result = FileLoader::LoadFile(L"C:\\nonexistent_file_12345.md");
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error(), FileLoadError::NotFound);
-}
-
-// ---- ファイル監視テスト ----
-
-TEST_F(FileLoaderTest, WatcherDetectsChange)
+TEST_F(FileWatcherTest, WatcherDetectsChange)
 {
     auto path = WriteTempFile(L"watch.md", "original");
 
@@ -73,7 +34,7 @@ TEST_F(FileLoaderTest, WatcherDetectsChange)
     EXPECT_TRUE(changed);
 }
 
-TEST_F(FileLoaderTest, WatcherDoesNotFireWithoutChange)
+TEST_F(FileWatcherTest, WatcherDoesNotFireWithoutChange)
 {
     auto path = WriteTempFile(L"nochange.md", "content");
 
@@ -87,7 +48,7 @@ TEST_F(FileLoaderTest, WatcherDoesNotFireWithoutChange)
     EXPECT_FALSE(changed);
 }
 
-TEST_F(FileLoaderTest, StopWatchingPreventsCallback)
+TEST_F(FileWatcherTest, StopWatchingPreventsCallback)
 {
     auto path = WriteTempFile(L"stop.md", "content");
 
@@ -102,20 +63,7 @@ TEST_F(FileLoaderTest, StopWatchingPreventsCallback)
     EXPECT_FALSE(changed);
 }
 
-// ---- 追加のエッジケース ----
-
-TEST_F(FileLoaderTest, LargeFile)
-{
-    // 1MBのファイルを作成
-    std::string large_content(1024 * 1024, 'A');
-    auto path = WriteTempFile(L"large.md", large_content);
-    auto result = FileLoader::LoadFile(path.native().c_str());
-    ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(result->text.size(), large_content.size());
-    EXPECT_EQ(result->byte_size, large_content.size());
-}
-
-TEST_F(FileLoaderTest, WatcherRestartOnNewFile)
+TEST_F(FileWatcherTest, WatcherRestartOnNewFile)
 {
     auto path1 = WriteTempFile(L"watch1.md", "content1");
     auto path2 = WriteTempFile(L"watch2.md", "content2");
@@ -144,7 +92,7 @@ TEST_F(FileLoaderTest, WatcherRestartOnNewFile)
     EXPECT_EQ(new_count, 1);
 }
 
-TEST_F(FileLoaderTest, WatcherDestructorDoesNotCrash)
+TEST_F(FileWatcherTest, WatcherDestructorDoesNotCrash)
 {
     auto path = WriteTempFile(L"destructor.md", "content");
     {
@@ -156,14 +104,14 @@ TEST_F(FileLoaderTest, WatcherDestructorDoesNotCrash)
 
 // ---- 監視一時停止 / ResumeWatching テスト ----
 
-TEST_F(FileLoaderTest, ResumeWatchingWithoutWatching)
+TEST_F(FileWatcherTest, ResumeWatchingWithoutWatching)
 {
     // 監視未開始でも安全に呼べること
     FileWatcher watcher;
     watcher.ResumeWatching();
 }
 
-TEST_F(FileLoaderTest, WatchPausedAfterChangeDetected)
+TEST_F(FileWatcherTest, WatchPausedAfterChangeDetected)
 {
     auto path = WriteTempFile(L"pause.md", "original");
 
@@ -184,7 +132,7 @@ TEST_F(FileLoaderTest, WatchPausedAfterChangeDetected)
 }
 
 // 読み直しの直前に捨てた通知は、Resume で再発火しない (同じ保存を二度読まない)。
-TEST_F(FileLoaderTest, DiscardPendingChangeSkipsRefireOnResume)
+TEST_F(FileWatcherTest, DiscardPendingChangeSkipsRefireOnResume)
 {
     auto path = WriteTempFile(L"discard.md", "original");
 
@@ -204,7 +152,7 @@ TEST_F(FileLoaderTest, DiscardPendingChangeSkipsRefireOnResume)
 
 // 別ファイルのロード中に届いた表示中ファイルの変更は、読まずに取りやめても Resume で通知し直す。
 // 取りこぼすと、別ファイルのロード失敗後に表示中ファイルの保存が反映されないまま監視が止まる。
-TEST_F(FileLoaderTest, RequeueIfPausedRefiresOnResume)
+TEST_F(FileWatcherTest, RequeueIfPausedRefiresOnResume)
 {
     auto path = WriteTempFile(L"requeue.md", "original");
 
@@ -227,7 +175,7 @@ TEST_F(FileLoaderTest, RequeueIfPausedRefiresOnResume)
     EXPECT_EQ(change_count, 2);
 }
 
-TEST_F(FileLoaderTest, ResumeWatchingReenablesDetection)
+TEST_F(FileWatcherTest, ResumeWatchingReenablesDetection)
 {
     auto path = WriteTempFile(L"resume.md", "original");
 
@@ -247,13 +195,13 @@ TEST_F(FileLoaderTest, ResumeWatchingReenablesDetection)
 
 // ---- GetEventHandle テスト ----
 
-TEST_F(FileLoaderTest, GetEventHandleNullWhenNotWatching)
+TEST_F(FileWatcherTest, GetEventHandleNullWhenNotWatching)
 {
     FileWatcher watcher;
     EXPECT_EQ(watcher.GetEventHandle(), nullptr);
 }
 
-TEST_F(FileLoaderTest, GetEventHandleValidWhileWatching)
+TEST_F(FileWatcherTest, GetEventHandleValidWhileWatching)
 {
     auto path = WriteTempFile(L"evthandle.md", "content");
     FileWatcher watcher;
@@ -261,7 +209,7 @@ TEST_F(FileLoaderTest, GetEventHandleValidWhileWatching)
     EXPECT_NE(watcher.GetEventHandle(), nullptr);
 }
 
-TEST_F(FileLoaderTest, GetEventHandleNullAfterStopWatching)
+TEST_F(FileWatcherTest, GetEventHandleNullAfterStopWatching)
 {
     auto path = WriteTempFile(L"evtstop.md", "content");
     FileWatcher watcher;
@@ -269,14 +217,4 @@ TEST_F(FileLoaderTest, GetEventHandleNullAfterStopWatching)
     EXPECT_NE(watcher.GetEventHandle(), nullptr);
     watcher.StopWatching();
     EXPECT_EQ(watcher.GetEventHandle(), nullptr);
-}
-
-// ---- FileLoadErrorMessage ----
-
-TEST(FileLoadErrorMessageTest, MapsEachErrorToToastText)
-{
-    const auto& s = i18n::kJa;
-    EXPECT_EQ(FileLoadErrorMessage(FileLoadError::NotFound, s), s.toast_file_not_found);
-    EXPECT_EQ(FileLoadErrorMessage(FileLoadError::TooLarge, s), s.toast_file_too_large);
-    EXPECT_EQ(FileLoadErrorMessage(FileLoadError::ReadFailed, s), s.toast_file_read_failed);
 }

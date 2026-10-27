@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -7,14 +8,58 @@
 #include <iterator>
 #include <memory>
 #include <memory_resource>
+#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
+// 確保した後で書き込んで埋めるバイト列 (ファイルの読み込み・WebView2 の出力)。std::vector と違い確保時に 0 で埋めない。
+// 埋める分は読み込みの 2 割弱にあたる (温まったキャッシュから 50MB を読んで約 2.5ms / 15ms)。
+class ByteBuffer {
+public:
+    ByteBuffer() noexcept = default;
+    // 中身は未初期化。呼び出し側が size バイトを書き込む。
+    explicit ByteBuffer(size_t size) : data_(std::make_unique_for_overwrite<uint8_t[]>(size)), size_(size)
+    {}
+    ByteBuffer(std::span<const uint8_t> bytes) : ByteBuffer(bytes.size())
+    {
+        std::ranges::copy(bytes, data_.get());
+    }
+
+    uint8_t* data() noexcept
+    {
+        return data_.get();
+    }
+    const uint8_t* data() const noexcept
+    {
+        return data_.get();
+    }
+    size_t size() const noexcept
+    {
+        return size_;
+    }
+    bool empty() const noexcept
+    {
+        return size_ == 0;
+    }
+    const uint8_t* begin() const noexcept
+    {
+        return data_.get();
+    }
+    const uint8_t* end() const noexcept
+    {
+        return data_.get() + size_;
+    }
+
+private:
+    std::unique_ptr<uint8_t[]> data_;
+    size_t size_ = 0;
+};
+
 // エンコード済み PNG。図のビットマップ・ディスクキャッシュ・クリップボードで共有する。
-using PngBytes = std::shared_ptr<const std::pmr::vector<uint8_t>>;
+using PngBytes = std::shared_ptr<const ByteBuffer>;
 
 // UI スレッドで溜まった結果を GPU へ転送する 1 回の持ち時間。1 件で数 ms かかるので、まとめて届くと 1 フレームを押し出す。
 inline constexpr std::chrono::microseconds kUploadSliceBudget{ 4000 };

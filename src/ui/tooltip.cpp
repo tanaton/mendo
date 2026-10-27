@@ -78,29 +78,24 @@ bool Tooltip::EnsureWindow()
     return true;
 }
 
-bool Tooltip::Update(const TooltipTarget& target)
+void Tooltip::SetText(std::wstring_view text)
 {
-    if (target.SameTarget(current_)) {
-        return false;
-    }
-
     Hide();
-    current_ = target;
-    return !current_.IsEmpty();
+    text_ = text;
 }
 
 void Tooltip::Show()
 {
-    if (current_.IsEmpty() || !EnsureWindow()) {
+    if (text_.empty() || !EnsureWindow()) {
         return;
     }
 
     TOOLINFOW ti = MakeToolInfo(parent_);
-    ti.lpszText = const_cast<LPWSTR>(current_.text.c_str());
+    ti.lpszText = const_cast<LPWSTR>(text_.c_str());
     SendMessageW(hwnd_, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&ti));
 
     // 表示時点の実カーソル位置を使う。タイマー待機中に同一ターゲット内でカーソルが
-    // 動いても最新位置で表示するため (同一ターゲットでは reducer 側で抑止され Update は
+    // 動いても最新位置で表示するため (同一ターゲットでは reducer 側で抑止され SetText は
     // 呼ばれないので、保存した位置では陳腐化する)。
     POINT pt{};
     GetCursorPos(&pt);
@@ -128,10 +123,4 @@ void Tooltip::ApplyDarkMode(bool dark)
     if (hwnd_) {
         ApplyDarkModeToWindow(hwnd_, dark);
     }
-}
-
-void Tooltip::Clear()
-{
-    Hide();
-    current_ = {};
 }

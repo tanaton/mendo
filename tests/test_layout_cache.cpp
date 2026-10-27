@@ -6,8 +6,7 @@
 
 TEST(LayoutCacheTest, InvalidateAllLayouts)
 {
-    LayoutCache cache;
-    cache.Resize(3);
+    LayoutCache cache(3);
     const std::pmr::vector<Node> nodes(3);
 
     // レイアウトが設定された状態をシミュレート
@@ -26,8 +25,7 @@ TEST(LayoutCacheTest, InvalidateAllLayouts)
 // ズームで旧倍率の実測値が推定に使われると、画面外のコードブロック等の高さが古いまま残る。
 TEST(LayoutCacheTest, InvalidateAllLayoutsForgetsMeasuredSize)
 {
-    LayoutCache cache;
-    cache.Resize(1);
+    LayoutCache cache(1);
     cache[0].cached_width = 600.0f;
     cache[0].cached_height = 120.0f;
 
@@ -39,8 +37,7 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsForgetsMeasuredSize)
 
 TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesPositions)
 {
-    LayoutCache cache;
-    cache.Resize(2);
+    LayoutCache cache(2);
     cache.SetTop(0, 100.0f);
     cache.SetTop(1, 150.0f);
 
@@ -54,8 +51,7 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesPositions)
 // ズームアウト後に旧倍率の高さが残ると、推定は縮めないので総高さが過大なままになる。
 TEST(LayoutCacheTest, InvalidateAllLayoutsResetsTextHeightsButKeepsBitmapNodes)
 {
-    LayoutCache cache;
-    cache.Resize(3);
+    LayoutCache cache(3);
     std::pmr::vector<Node> nodes(3);
     nodes[1].type = NodeType::Image;
     nodes[2].type = NodeType::Diagram;
@@ -74,8 +70,7 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsResetsTextHeightsButKeepsBitmapNodes)
 TEST(LayoutComputerTest, EstimateAfterInvalidateAllLayoutsCanShrink)
 {
     const Theme theme = MakeLayoutTestTheme();
-    LayoutCache cache;
-    cache.Resize(1);
+    LayoutCache cache(1);
     std::pmr::vector<Node> nodes;
     nodes.push_back(MakeTextNode("short"));
     cache[0].height = 5000.0f;
@@ -104,8 +99,7 @@ TEST(LayoutComputerTest, EstimateNodeHeightWrapsLongParagraphByWidth)
 
 TEST(LayoutCacheTest, InvalidateEmptyCache)
 {
-    LayoutCache cache;
-    cache.Resize(0);
+    LayoutCache cache(0);
 
     // クラッシュしないこと
     cache.InvalidateAllLayouts({});
@@ -115,8 +109,7 @@ TEST(LayoutCacheTest, InvalidateEmptyCache)
 // 保持することを検証する（ズーム→復帰でMermaid図が消える問題の再発防止）。
 TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesDiagramEntries)
 {
-    LayoutCache cache;
-    cache.Resize(2);
+    LayoutCache cache(2);
 
     // ダイアグラムエントリにサイズを設定（ビットマップは設定できないが、サイズで確認）
     cache.EnsureDiagram(0).width = 400.0f;
@@ -136,8 +129,7 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesDiagramEntries)
 // FindDiagram は確保しない。読み取り・破棄経路で未ロードのノード分を確保させないため。
 TEST(LayoutCacheTest, FindDiagramDoesNotAllocate)
 {
-    LayoutCache cache;
-    cache.Resize(2);
+    LayoutCache cache(2);
 
     EXPECT_EQ(cache.FindDiagram(0), nullptr);
 
@@ -145,29 +137,13 @@ TEST(LayoutCacheTest, FindDiagramDoesNotAllocate)
     ASSERT_NE(cache.FindDiagram(1), nullptr);
     EXPECT_FLOAT_EQ(cache.FindDiagram(1)->width, 10.0f);
     EXPECT_EQ(cache.FindDiagram(0), nullptr);
-}
-
-// ノード数が減ったら範囲外のダイアグラムを捨てる。残すと別文書の同じ番号のノードに旧ビットマップが付く。
-TEST(LayoutCacheTest, ResizeDropsDiagramsBeyondNodeCount)
-{
-    LayoutCache cache;
-    cache.Resize(4);
-    cache.EnsureDiagram(1).width = 10.0f;
-    cache.EnsureDiagram(3).width = 30.0f;
-
-    cache.Resize(2);
-
-    ASSERT_NE(cache.FindDiagram(1), nullptr);
-    EXPECT_FLOAT_EQ(cache.FindDiagram(1)->width, 10.0f);
-    EXPECT_EQ(cache.FindDiagram(3), nullptr);
 }
 
 // テーマ変更等の全ダイアグラム無効化でエラー状態もクリアされ、
 // 再試行の契機になることを検証する (issue #271)。
 TEST(LayoutCacheTest, InvalidateAllDiagramBitmapsClearsError)
 {
-    LayoutCache cache;
-    cache.Resize(2);
+    LayoutCache cache(2);
 
     cache.EnsureDiagram(0).error = { DiagramError::Kind::Render, L"Parse error on line 1" };
     cache.EnsureDiagram(1).error = { DiagramError::Kind::Render, L"Parse error on line 3" };
@@ -181,8 +157,7 @@ TEST(LayoutCacheTest, InvalidateAllDiagramBitmapsClearsError)
 // デバイスロストでビットマップを捨てても、寸法は再計測が表示高さに使うので残す。
 TEST(LayoutCacheTest, InvalidateAllDiagramBitmapsKeepsSize)
 {
-    LayoutCache cache;
-    cache.Resize(2);
+    LayoutCache cache(2);
     for (size_t i = 0; i < 2; i++) {
         auto& d = cache.EnsureDiagram(i);
         d.width = 400.0f;
@@ -201,8 +176,7 @@ TEST(LayoutCacheTest, InvalidateAllDiagramBitmapsKeepsSize)
 // 残りノードの text_top がフル計算と一致することを検証する。
 TEST(LayoutCacheTest, RecomputeYPositionsEarlyExitKeepsTextTop)
 {
-    LayoutCache cache;
-    cache.Resize(8);
+    LayoutCache cache(8);
 
     const Theme theme = MakeLayoutTestTheme();
 
@@ -277,7 +251,7 @@ namespace {
 // 高さ 10 の行が 3 行 ([0,10) [10,20) [20,30))。
 TableLayoutData MakeThreeRowTable()
 {
-    TableLayoutData tl;
+    TableLayoutData tl(3, 1, false);
     tl.row_cum_y = { 0.0f, 10.0f, 20.0f, 30.0f };
     return tl;
 }
@@ -305,12 +279,13 @@ TEST(TableRowRangeTest, VisibleRowRangeBelowTableIsEmpty)
     EXPECT_GE(begin, end);
 }
 
-// 行幾何が行数と揃わない (未計測・evict 直後) ときは全行を対象にする。
+// 行幾何が未計測のときは全行を対象にする。
 TEST(TableRowRangeTest, RowsInViewportFallsBackToAllRowsWithoutGeometry)
 {
+    const TableLayoutData unmeasured(5, 1, false);
+    EXPECT_EQ(unmeasured.RowsInViewport(15.0f, 25.0f), (std::pair<size_t, size_t>{ 0, 5 }));
     const auto tl = MakeThreeRowTable();
-    EXPECT_EQ(tl.RowsInViewport(5, 15.0f, 25.0f), (std::pair<size_t, size_t>{ 0, 5 }));
-    EXPECT_EQ(tl.RowsInViewport(3, 15.0f, 25.0f), (std::pair<size_t, size_t>{ 1, 3 }));
+    EXPECT_EQ(tl.RowsInViewport(15.0f, 25.0f), (std::pair<size_t, size_t>{ 1, 3 }));
 }
 
 TEST(TableRowRangeTest, RowIndexAtBoundaries)
@@ -343,21 +318,17 @@ TEST(LayoutCacheTest, SyntaxTokensReleasedWithTextLayout)
 // dirty の有無はキャッシュと一緒に動く。差し替え用の新しいキャッシュは計測前なので dirty ありとして始まる。
 TEST(LayoutCacheTest, HasDirtyNodesTravelsWithCache)
 {
-    LayoutCache cache;
-    cache.Resize(3);
+    LayoutCache cache(3);
     EXPECT_TRUE(cache.HasDirtyNodes());
     cache.SetHasDirtyNodes(false);
     LayoutCache moved = std::move(cache);
     EXPECT_FALSE(moved.HasDirtyNodes());
-    moved.Resize(5);
-    EXPECT_TRUE(moved.HasDirtyNodes()) << "増えたノードは計測前";
 }
 
-// Top はブロックごとのオフセットに分けて持つ。ブロックをまたいでずらしても、大きさを変えても位置は変わらない。
-TEST(LayoutCacheTops, ShiftAcrossBlocksAndResizeKeepPositions)
+// Top はブロックごとのオフセットに分けて持つ。ブロックをまたいでずらしても位置は変わらない。
+TEST(LayoutCacheTops, ShiftAcrossBlocksKeepsPositions)
 {
-    LayoutCache cache;
-    cache.Resize(10000);
+    LayoutCache cache(10000);
     for (size_t i = 0; i < cache.size(); ++i) {
         cache.SetTop(i, static_cast<float>(i) * 2.0f);
     }
@@ -369,11 +340,4 @@ TEST(LayoutCacheTops, ShiftAcrossBlocksAndResizeKeepPositions)
     for (const size_t i : { 0uz, 2999uz, 3000uz, 4095uz, 4096uz, 7999uz, 8000uz, 8191uz, 8192uz, 9999uz }) {
         EXPECT_FLOAT_EQ(cache.Top(i), expected(i)) << "i=" << i;
     }
-
-    cache.Resize(12000);
-    for (const size_t i : { 0uz, 3000uz, 9999uz }) {
-        EXPECT_FLOAT_EQ(cache.Top(i), expected(i)) << "i=" << i;
-    }
-    cache.SetTop(11999, 1.0f);
-    EXPECT_FLOAT_EQ(cache.Top(11999), 1.0f);
 }

@@ -22,11 +22,11 @@ struct ParsedToc {
 // パーサが見出しの終わりで積んだ目次をそのまま使う。
 ParsedToc ParseToc(std::string_view markdown)
 {
-    auto result = ParseMarkdown(markdown);
-    auto storage = result.TakeNodes();
+    auto storage = ParseMarkdown(markdown);
     auto nodes = std::move(storage.nodes);
+    auto toc = std::move(storage.indices.toc_entries);
     test_nodes_detail::KeepAlive(std::move(storage));
-    return { std::move(nodes), std::move(result.indices.toc_entries) };
+    return { std::move(nodes), std::move(toc) };
 }
 
 struct TocItem {
@@ -51,8 +51,7 @@ std::vector<TocItem> TocItems(const ParsedToc& parsed)
 // 目次の i 番目の見出しノードを tops[i] に置き、高さを height にした LayoutCache。
 LayoutCache MakeHeadingCache(const ParsedToc& parsed, std::initializer_list<float> tops, float height = 30.0f)
 {
-    LayoutCache cache;
-    cache.Resize(parsed.nodes.size());
+    LayoutCache cache(parsed.nodes.size());
     size_t i = 0;
     for (const float top : tops) {
         const int node_index = parsed.toc[i++].node_index;

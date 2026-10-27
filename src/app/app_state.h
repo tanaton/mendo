@@ -4,9 +4,7 @@
 #include "document.h"
 #include "layout_cache.h"
 #include "viewport_manager.h"
-#include "pane_controller.h"
 #include "search_state.h"
-#include "search_bar_controller.h"
 #include "nav.h"
 #include "file_explorer.h"
 #include "mouse_gesture.h"
@@ -15,6 +13,7 @@
 #include "tooltip.h"
 #include "ui_types.h"
 #include "pane_layout.h"
+#include "render_params.h"
 #include "theme.h"
 #include <string>
 #include <memory_resource>
@@ -81,32 +80,40 @@ struct ViewState {
     {
         return LookupBlockScrollX(&block_scroll_x, geom);
     }
-
-    // ノード/見出し index に結び付く一時状態。文書を差し替えると別の要素を指すのでクリアする。
-    // ドラッグはキャプチャの解放を伴うので呼び出し側が EndLeftDrag で終える。
-    // ホバーは描画後に引き直される (App::RefreshHoverAtCursor)。
-    void ResetPerNodeTransientState()
-    {
-        viewport.ClearSelection();
-        block_scroll_x.clear();
-        hover = {};
-        active_toc_index = -1;
-    }
 };
 
 struct InteractionState {
     MouseGesture gesture;
     SwipeDetector swipe_detector;
-    // 表示中か表示待ちのツールチップの対象。ウィンドウ (Tooltip) は App が持つ。
+    // 表示中か表示待ちのツールチップの対象。文言とウィンドウ (Tooltip) は App が持つ。
     TooltipTarget tooltip;
-    // 空なら非表示。フェードは毎フレームの全画面再描画を伴うので、表示と消去の 2 回だけ描き直す。
-    std::pmr::wstring toast_message;
+    // Ctrl+ホイールの delta の端数。ピンチや高分解能ホイールは WHEEL_DELTA 未満を連発するため、
+    // 1 ノッチ分たまるごとに 1 段だけズームする。
     int zoom_wheel_accum = 0;
 };
 
+inline GestureRenderState ResolveGestureOverlay(const MouseGesture& gesture, const SwipeDetector& swipe) noexcept
+{
+    GestureRenderState gs;
+    gs.trail_active = gesture.IsGestureActive();
+    gs.trail_points = &gesture.GetTrailPoints();
+    // マウスジェスチャーを優先する。None ならオーバーレイは出さない。
+    gs.direction = gesture.IsOverlayVisible() ? gesture.GetDirection() : swipe.GetOverlayDirection();
+    return gs;
+}
+
+// 検索バー。検索そのものは SearchState、入力欄の表示に要るもの (キャレット・選択・IME 変換中の文字列) はここに持つ。
+// 入力は非表示の EDIT (Win32Window) で受け、変わるたびにアクションで写してくる。
 struct SearchGroup {
     SearchState search_state;
-    SearchBarController search_bar_ctrl;
+    // EDIT の選択 [selection_start, caret_pos)。-1 はテキスト末尾。
+    int caret_pos = -1;
+    int selection_start = -1;
+    std::pmr::wstring ime_composition;
+    // 入力欄に表示している検索クエリ。SearchState::GetQuery() の UTF-16 版。
+    std::pmr::wstring query_wide;
+    // 区切った検索が終わったら、見つけたマッチへスクロールする。
+    bool scroll_after_search = false;
 };
 
 struct WindowState {
@@ -130,14 +137,13 @@ struct AppState {
     SearchGroup search;
     WindowState window;
 
-    // Renderer が所有する Theme への非所有参照。App::Init で設定され、
-    // Theme 変更時 (renderer_.SetTheme 経由) は内部値が in-place 更新されるためポインタは
+    // ThemeService が所有する Theme への非所有参照。App::Init で設定され、
+    // ダークモードとズームの切り替えは内部値を in-place で書き換えるためポインタは
     // 安定。reducer 系が Y 位置計算に必要な spacing_above 等を参照するために使う。
     const Theme* theme = nullptr;
 
     FileExplorer file_explorer;
 
-    std::pmr::wstring cached_title_text = L"mendo";
     PaneLayoutCache pane_layout_cache;
 };
 

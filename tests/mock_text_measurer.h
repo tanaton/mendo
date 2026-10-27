@@ -24,13 +24,9 @@ public:
     {
         return true;
     }
-    void UpdateTheme(const Theme& theme) noexcept override
-    {
-        theme_ = &theme;
-    }
 
     std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
-                                     MeasureViewportRange /*viewport*/) const override
+                                     YRange /*viewport*/) const override
     {
         if (node.type == NodeType::HorizontalRule) {
             return 10.0f;
@@ -65,8 +61,6 @@ public:
     }
 
 private:
-    const Theme* theme_ = nullptr;
-
     float MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width) const
     {
         const auto* tbl = node.table_data();
@@ -79,22 +73,19 @@ private:
             return entry.height;
         }
 
-        auto& tl = entry.ensure_table_layout();
         const auto row_count = tbl->row_count;
+        auto& tl = entry.ensure_table_layout(row_count, col_count);
         // 列幅は max_width/col_count の均等割り近似。実装 (dwrite_measurer の内容依存
         // ComputeColumnWidths) とは異なるため、TableWidth() / col_widths の絶対値は
         // 検証に使わないこと。行数・列数への依存形と border の入り方だけ実装に揃える。
         const float col_w = max_width / static_cast<float>(col_count);
         tl.col_widths.assign(col_count, col_w);
         tl.row_heights.assign(row_count, table_row_height);
-        tl.col_count = col_count;
-        tl.cell_layouts.resize(row_count * col_count);
 
         // 描画・ヒットテストは累積位置を参照するので、実装と同じ関数で積む。
-        tl.RebuildRowCumY(row_count);
-        tl.RebuildColCumX();
+        tl.CommitGeometry(max_width);
 
-        return tl.TotalHeight(row_count);
+        return tl.TotalHeight();
     }
 };
 
@@ -113,7 +104,7 @@ protected:
 
     // 範囲は ComputeLayout と同じ。省略すると全ノードを計測する。
     ParsedLayout ParseAndLayout(std::string_view md, float viewport_w = 800.0f,
-                                float viewport_top = -MeasureViewportRange::kInf, float viewport_bottom = MeasureViewportRange::kInf)
+                                float viewport_top = -YRange::kInf, float viewport_bottom = YRange::kInf)
     {
         return sources_.ParseAndLayout(engine_, md, viewport_w, viewport_top, viewport_bottom);
     }

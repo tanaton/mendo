@@ -4,6 +4,7 @@
 #include "task_scheduler.h"
 #include "mermaid_util.h"
 #include "test_helpers.h"
+#include <algorithm>
 #include <filesystem>
 #include <future>
 #include <initializer_list>
@@ -18,16 +19,38 @@ static PngBytes MakeDummyPng(size_t size = 1024)
     for (size_t i = 0; i < size; ++i) {
         data[i] = static_cast<uint8_t>(i & 0xFF);
     }
-    return std::make_shared<const std::pmr::vector<uint8_t>>(std::move(data));
+    return std::make_shared<const ByteBuffer>(data);
 }
 
-using PngBlob = std::pmr::vector<uint8_t>;
+using PngBlob = ByteBuffer;
+
+// 1 つのキーだけを引く。LRU は更新しない。
+static bool LookupDimensions(MermaidFileCache& cache, uint64_t key, MermaidFileCache::CacheEntry& entry)
+{
+    const auto hit = cache.Find(key, key, 0.0f, /*touch=*/false);
+    if (hit) {
+        entry = hit->entry;
+    }
+    return hit.has_value();
+}
+
+// 製品側 (MermaidRenderer::RequestRender) と同じく LRU を更新して PNG のパスを得る。
+static bool LookupPath(MermaidFileCache& cache, uint64_t key, MermaidFileCache::CacheEntry& entry, std::filesystem::path& path)
+{
+    const auto hit = cache.Find(key, key, 0.0f, /*touch=*/true);
+    if (!hit) {
+        return false;
+    }
+    entry = hit->entry;
+    path = cache.PngPath(hit->key);
+    return !path.empty();
+}
 
 // 製品側は LookupPath の後の読み込みを worker で行う。テストでは同期的に読む。
 static bool LookupAndRead(MermaidFileCache& cache, uint64_t key, MermaidFileCache::CacheEntry& entry, PngBlob& png)
 {
     std::filesystem::path path;
-    if (!cache.LookupPath(key, entry, path)) {
+    if (!LookupPath(cache, key, entry, path)) {
         return false;
     }
     DWORD read_error = 0;
@@ -171,7 +194,7 @@ TEST_F(MermaidFileCacheTest, StoreAndLookupRoundTrip)
     EXPECT_TRUE(LookupAndRead(cache_, key, entry, out));
     EXPECT_EQ(entry.css_width, 400.0f);
     EXPECT_EQ(entry.css_height, 300.0f);
-    EXPECT_EQ(out, *png);
+    EXPECT_TRUE(std::ranges::equal(out, *png));
 }
 
 TEST_F(MermaidFileCacheTest, LookupMissReturnsFalse)
@@ -243,7 +266,7 @@ TEST_F(MermaidFileCacheTest, LookupCleansUpStaleIndexEntry)
     EXPECT_EQ(cache_.EntryCount(), 0u);
 }
 
-// LookupPath はファイルを読まずにパスと寸法を返し、読み込み失敗は OnReadFailed で反映する。
+// Find と PngPath はファイルを読まずに寸法とパスを返し、読み込み失敗は OnReadFailed で反映する。
 TEST_F(MermaidFileCacheTest, LookupPathAndOnReadFailed)
 {
     InitCache();
@@ -252,7 +275,7 @@ TEST_F(MermaidFileCacheTest, LookupPathAndOnReadFailed)
 
     MermaidFileCache::CacheEntry entry;
     std::filesystem::path path;
-    ASSERT_TRUE(cache_.LookupPath(42, entry, path));
+    ASSERT_TRUE(LookupPath(cache_, 42, entry, path));
     EXPECT_FLOAT_EQ(entry.css_width, 100.0f);
     EXPECT_FLOAT_EQ(entry.css_height, 50.0f);
     EXPECT_TRUE(std::filesystem::exists(path));
@@ -263,7 +286,7 @@ TEST_F(MermaidFileCacheTest, LookupPathAndOnReadFailed)
 
     cache_.OnReadFailed(42, ERROR_FILE_NOT_FOUND);
     EXPECT_EQ(cache_.EntryCount(), 0u);
-    EXPECT_FALSE(cache_.LookupPath(42, entry, path));
+    EXPECT_FALSE(LookupPath(cache_, 42, entry, path));
 }
 
 // ═══════════════════════════════════════════════
@@ -411,7 +434,7 @@ TEST_F(MermaidFileCacheTest, SaveIndexSkipsWriteWhenUnchanged)
     const auto index_path = temp_dir_ / L"index.bin";
     ASSERT_TRUE(std::filesystem::remove(index_path));
     MermaidFileCache::CacheEntry entry;
-    EXPECT_TRUE(cache_.LookupDimensions(100, entry));
+    EXPECT_TRUE(LookupDimensions(cache_, 100, entry));
     cache_.SaveIndex();
     EXPECT_FALSE(std::filesystem::exists(index_path));
 }
@@ -529,7 +552,7 @@ TEST_F(MermaidFileCacheTest, LookupRefreshesTimestamp)
 }
 
 // ═══════════════════════════════════════════════
-// LookupDimensions — ディスクI/O無しのサイズ取得
+// Find — ディスクI/O無しのサイズ取得
 // ═══════════════════════════════════════════════
 
 TEST_F(MermaidFileCacheTest, LookupDimensionsReturnsStoredSize)
@@ -539,7 +562,7 @@ TEST_F(MermaidFileCacheTest, LookupDimensionsReturnsStoredSize)
     cache_.StoreAsync(1, 400.0f, 300.0f, MakeDummyPng(256));
 
     MermaidFileCache::CacheEntry entry;
-    EXPECT_TRUE(cache_.LookupDimensions(1, entry));
+    EXPECT_TRUE(LookupDimensions(cache_, 1, entry));
     EXPECT_EQ(entry.css_width, 400.0f);
     EXPECT_EQ(entry.css_height, 300.0f);
 }
@@ -549,7 +572,7 @@ TEST_F(MermaidFileCacheTest, LookupDimensionsMissReturnsFalse)
     InitCache();
 
     MermaidFileCache::CacheEntry entry;
-    EXPECT_FALSE(cache_.LookupDimensions(99999, entry));
+    EXPECT_FALSE(LookupDimensions(cache_, 99999, entry));
 }
 
 TEST_F(MermaidFileCacheTest, LookupDimensionsSurvivesPersistence)
@@ -560,7 +583,7 @@ TEST_F(MermaidFileCacheTest, LookupDimensionsSurvivesPersistence)
     FlushAndReopen();
 
     MermaidFileCache::CacheEntry entry;
-    EXPECT_TRUE(cache_.LookupDimensions(42, entry));
+    EXPECT_TRUE(LookupDimensions(cache_, 42, entry));
     EXPECT_EQ(entry.css_width, 800.0f);
     EXPECT_EQ(entry.css_height, 600.0f);
 }
@@ -578,15 +601,60 @@ TEST_F(MermaidFileCacheTest, LookupDimensionsDoesNotUpdateLru)
 
     // key=1をLookupDimensionsで参照（LRUは更新されないはず）
     MermaidFileCache::CacheEntry entry;
-    EXPECT_TRUE(cache_.LookupDimensions(1, entry));
+    EXPECT_TRUE(LookupDimensions(cache_, 1, entry));
 
     // key=3を追加 → LRU未更新のkey=1が最古として削除されるはず
     cache_.StoreAsync(3, 300.0f, 150.0f, MakeDummyPng(100));
     EXPECT_EQ(cache_.EntryCount(), 2u);
 
-    EXPECT_FALSE(cache_.LookupDimensions(1, entry));
-    EXPECT_TRUE(cache_.LookupDimensions(2, entry));
-    EXPECT_TRUE(cache_.LookupDimensions(3, entry));
+    EXPECT_FALSE(LookupDimensions(cache_, 1, entry));
+    EXPECT_TRUE(LookupDimensions(cache_, 2, entry));
+    EXPECT_TRUE(LookupDimensions(cache_, 3, entry));
+}
+
+// 幅なしの結果は max_width より狭いときだけ使い、使えなければ幅つきを引く。
+TEST_F(MermaidFileCacheTest, FindPrefersWidthFreeOnlyWhenNarrower)
+{
+    constexpr uint64_t kFree = 10;
+    constexpr uint64_t kSized = 20;
+    InitCache();
+    cache_.StoreAsync(kFree, 300.0f, 100.0f, MakeDummyPng(64));
+
+    auto hit = cache_.Find(kFree, kSized, 600.0f, /*touch=*/false);
+    ASSERT_TRUE(hit.has_value());
+    EXPECT_EQ(hit->key, kFree);
+    EXPECT_EQ(hit->entry.css_width, 300.0f);
+
+    // 幅なしの図が上限いっぱいなら使わない。幅つきが無ければ外れ。
+    EXPECT_FALSE(cache_.Find(kFree, kSized, 300.0f, /*touch=*/false).has_value());
+
+    cache_.StoreAsync(kSized, 280.0f, 120.0f, MakeDummyPng(64));
+    hit = cache_.Find(kFree, kSized, 300.0f, /*touch=*/false);
+    ASSERT_TRUE(hit.has_value());
+    EXPECT_EQ(hit->key, kSized);
+    EXPECT_EQ(hit->entry.css_height, 120.0f);
+    EXPECT_EQ(cache_.PngPath(hit->key), PngPathOf(kSized));
+}
+
+// touch は当たった項目だけ LRU を更新し、使えなかった幅なしの項目は更新しない。
+TEST_F(MermaidFileCacheTest, FindTouchUpdatesOnlyTheHit)
+{
+    constexpr uint64_t kFree = 1;
+    constexpr uint64_t kSized = 2;
+    cache_.SetLimits(2, kNoSizeLimit);
+    InitCache();
+    cache_.StoreAsync(kFree, 500.0f, 50.0f, MakeDummyPng(100));
+    cache_.StoreAsync(kSized, 300.0f, 50.0f, MakeDummyPng(100));
+
+    // 幅なしは上限より広いので幅つきが当たり、幅つきだけ使用順が新しくなる。
+    const auto hit = cache_.Find(kFree, kSized, 400.0f, /*touch=*/true);
+    ASSERT_TRUE(hit.has_value());
+    EXPECT_EQ(hit->key, kSized);
+
+    cache_.StoreAsync(3, 100.0f, 50.0f, MakeDummyPng(100));
+    MermaidFileCache::CacheEntry entry;
+    EXPECT_FALSE(LookupDimensions(cache_, kFree, entry));
+    EXPECT_TRUE(LookupDimensions(cache_, kSized, entry));
 }
 
 // ═══════════════════════════════════════════════
@@ -618,7 +686,7 @@ TEST_F(MermaidFileCacheTest, LookupDuringPendingWriteKeepsIndex)
 
     // 書き込み in-flight 中なら index は残されているべき。
     // タスクが先行して完了した場合は LookupDimensions も成功する。
-    EXPECT_TRUE(cache_.LookupDimensions(key, entry))
+    EXPECT_TRUE(LookupDimensions(cache_, key, entry))
         << "pending write 中に index が消されている（orphan PNG の温床）";
 }
 
@@ -733,7 +801,7 @@ TEST_F(MermaidFileCacheTest, StoreAfterClearPersists)
     MermaidFileCache::CacheEntry entry;
     PngBlob out;
     EXPECT_TRUE(LookupAndRead(*fresh, 2, entry, out));
-    EXPECT_FALSE(fresh->LookupDimensions(1, entry));
+    EXPECT_FALSE(LookupDimensions(*fresh, 1, entry));
 }
 
 // 図の解像度は描画するワーカーの DPR で決まるので、キーもその DPR に追従する。
@@ -744,13 +812,13 @@ TEST_F(MermaidFileCacheTest, SetDprSwitchesKeySpace)
     cache_.StoreAsync(42, 400.0f, 300.0f, MakeDummyPng(64));
     const uint64_t key_at_1x = cache_.InternalKeyForTest(42);
     MermaidFileCache::CacheEntry entry;
-    ASSERT_TRUE(cache_.LookupDimensions(42, entry));
+    ASSERT_TRUE(LookupDimensions(cache_, 42, entry));
 
     cache_.SetDpr(2.0f);
     EXPECT_NE(cache_.InternalKeyForTest(42), key_at_1x);
-    EXPECT_FALSE(cache_.LookupDimensions(42, entry));
+    EXPECT_FALSE(LookupDimensions(cache_, 42, entry));
 
     cache_.SetDpr(1.0f);
     EXPECT_EQ(cache_.InternalKeyForTest(42), key_at_1x);
-    EXPECT_TRUE(cache_.LookupDimensions(42, entry));
+    EXPECT_TRUE(LookupDimensions(cache_, 42, entry));
 }

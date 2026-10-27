@@ -11,7 +11,7 @@
 namespace {
 // ドラッグ処理 (ScrollFromThumbY) と同じ計算を共有し、見た目と挙動のズレを防ぐ。
 // つまみはペイン右端から VScrollbarLeftX で内側に寄せる。
-std::optional<D2D1_ROUNDED_RECT> VScrollThumb(const PaneRect& pane, float header_height, float scroll_y, float total_content_height, bool may_grow = false) noexcept
+std::optional<FillRoundedRectCmd> VScrollThumb(const PaneRect& pane, float header_height, float scroll_y, float total_content_height, bool may_grow = false) noexcept
 {
     const PaneScrollInfo info = ComputeScrollInfo(pane, header_height, total_content_height);
     if (!ShowsVScrollbar(info, may_grow)) {
@@ -20,7 +20,8 @@ std::optional<D2D1_ROUNDED_RECT> VScrollThumb(const PaneRect& pane, float header
     const float x = VScrollbarLeftX(pane.x + pane.width);
     const float thumb_y = ComputeThumbY(info, scroll_y);
     constexpr float radius = PANE_SCROLLBAR_WIDTH / 2.0f;
-    return D2D1_ROUNDED_RECT{ D2D1::RectF(x, thumb_y, x + PANE_SCROLLBAR_WIDTH, thumb_y + info.thumb_height), radius, radius };
+    return FillRoundedRectCmd{
+        .rect = D2D1::RectF(x, thumb_y, x + PANE_SCROLLBAR_WIDTH, thumb_y + info.thumb_height), .rx = radius, .ry = radius, .brush_id = BrushId::ScrollbarThumb };
 }
 
 // 目次の行は 1 行で狭い。極端に長い見出しでも毎フレーム全文を UTF-16 化・ハッシュしないよう先頭だけ使う。
@@ -35,13 +36,13 @@ void Renderer::EmitLeftText(IDWriteTextFormat* fmt, std::wstring_view text, floa
 {
     // 箱の幅で見た目が変わらないので、幅を固定してスプリッタのドラッグ中もレイアウトを使い回す。
     constexpr float kLayoutWidth = 4096.0f;
-    EmitChromeText(text, fmt, D2D1::Point2F(x, y), D2D1::SizeF(kLayoutWidth, height), BrushId::Text, 1.0f);
+    text_layouts_.Emit(chrome_cmds_, text, fmt, D2D1::Point2F(x, y), D2D1::SizeF(kLayoutWidth, height), BrushId::Text, 1.0f);
 }
 
 void Renderer::GenSidePaneHeader(const SidePaneInstance& pane, bool is_file_pane, std::wstring_view header_text)
 {
     const PaneRect& r = pane.rect;
-    const float header_h = theme_.pane_header_height;
+    const float header_h = theme_->pane_header_height;
     chrome_cmds_.push_back(FillRectCmd{ .rect = D2D1::RectF(r.x, r.y, r.x + r.width, r.y + header_h), .brush_id = BrushId::Splitter });
 
     // 無効なボタンはホバー状態が残っていても強調しない (ヘルプへ切替直後など)。
@@ -51,7 +52,7 @@ void Renderer::GenSidePaneHeader(const SidePaneInstance& pane, bool is_file_pane
             chrome_cmds_.push_back(FillRectCmd{ .rect = rect, .brush_id = BrushId::PaneItemHover });
         }
         const auto box = D2D1::SizeF(local.right - local.left, local.bottom - local.top);
-        EmitChromeText(icon, fmt_.pane_icon.Get(), D2D1::Point2F(rect.left, rect.top), box, BrushId::Text, enabled ? 1.0f : DISABLED_UI_ALPHA);
+        text_layouts_.Emit(chrome_cmds_, icon, fmt_.pane_icon.Get(), D2D1::Point2F(rect.left, rect.top), box, BrushId::Text, enabled ? 1.0f : DISABLED_UI_ALPHA);
     };
 
     gen_button(PaneCloseButtonRect(r.width, header_h), L"\uE8BB", PaneHeaderButton::Close);
@@ -82,7 +83,7 @@ void Renderer::GenSidePane(const SidePaneInstance& pane, bool is_file_pane, size
     GenSidePaneHeader(pane, is_file_pane, header_text);
 
     const float item_h = pane.item_height;
-    const float header_h = theme_.pane_header_height;
+    const float header_h = theme_->pane_header_height;
     const float content_top = PaneContentTop(r, header_h);
     const float scroll_y = pane.scroll.scroll_y;
     chrome_cmds_.push_back(PushClipCmd{ D2D1::RectF(r.x, content_top, r.x + r.width, r.y + r.height) });
@@ -96,7 +97,7 @@ void Renderer::GenSidePane(const SidePaneInstance& pane, bool is_file_pane, size
 
     chrome_cmds_.push_back(PopClipCmd{});
     if (const auto thumb = VScrollThumb(r, header_h, scroll_y, SidePaneContentHeight(item_count, item_h))) {
-        chrome_cmds_.push_back(FillRoundedRectCmd{ .rect = thumb->rect, .rx = thumb->radiusX, .ry = thumb->radiusY, .brush_id = BrushId::ScrollbarThumb });
+        chrome_cmds_.push_back(*thumb);
     }
 }
 
@@ -128,7 +129,7 @@ void Renderer::GenFileExplorer(const std::pmr::vector<FileEntry>& entries, const
             chrome_cmds_.push_back(FillRectCmd{ .rect = row, .brush_id = BrushId::PaneItemHover });
         }
 
-        EmitChromeText(FileEntryIcon(entry), fmt.icon.Get(), D2D1::Point2F(row.left + pad, row.top), D2D1::SizeF(icon_col_width, pane.item_height), BrushId::Text, 1.0f);
+        text_layouts_.Emit(chrome_cmds_, FileEntryIcon(entry), fmt.icon.Get(), D2D1::Point2F(row.left + pad, row.top), D2D1::SizeF(icon_col_width, pane.item_height), BrushId::Text, 1.0f);
 
         EmitLeftText(fmt.item.Get(), entry.GetDisplayName(), row.left + pad + icon_col_width, row.top, pane.item_height);
     });
@@ -169,9 +170,9 @@ void Renderer::GenToc(const SidePaneState& sp, const SidePaneInstance& pane)
     });
 }
 
-void Renderer::DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, const LayoutCache& cache)
+void Renderer::GenMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, const LayoutCache& cache)
 {
-    if (const auto thumb = VScrollThumb(md_pane_rect, 0.0f, scroll_y, ComputeTotalContentHeight(cache, theme_.margin_bottom), cache.HasDirtyNodes())) {
-        rt()->FillRoundedRectangle(*thumb, Brush(BrushId::ScrollbarThumb));
+    if (const auto thumb = VScrollThumb(md_pane_rect, 0.0f, scroll_y, ComputeTotalContentHeight(cache, theme_->margin_bottom), cache.HasDirtyNodes())) {
+        overlay_cmds_.push_back(*thumb);
     }
 }

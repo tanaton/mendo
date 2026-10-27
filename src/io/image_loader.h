@@ -1,5 +1,4 @@
 #pragma once
-#include "d2d_util.h"
 #include "utility.h"
 #include "lru_cache.h"
 #include "worker_latch.h"
@@ -11,7 +10,6 @@
 #include <chrono>
 #include <climits>
 #include <cstdint>
-#include <functional>
 #include <map>
 #include <mutex>
 #include <string>
@@ -22,26 +20,16 @@ class TaskScheduler;
 
 class ImageLoader {
 public:
-    using Callback = std::move_only_function<void()>;
-
+    ImageLoader() noexcept;
     ~ImageLoader();
 
-    // 失敗時 false; 以降の RequestLoadAsync はデコードせず失敗扱いになる。
-    bool Init(IWICImagingFactory* wic = nullptr);
+    // デコード結果が届いたら hwnd へ msg_id を投げる (hwnd が null なら投げない)。
+    // wic が null なら false を返し、以降の RequestLoadAsync はデコードせず失敗扱いになる。
+    bool Init(IWICImagingFactory* wic, HWND hwnd, UINT msg_id, TaskScheduler& scheduler);
     // **UI スレッドからのみ呼び出すこと** (worker が読むのは max_bitmap_dim_ だけ)。
     // デバイスロストでの差し替えでは、旧 rt 向けのデコードとビットマップを捨てる。
     // 最初の設定では、デバイス作成前に始めたデコード (WIC ビットマップ) をそのまま新しい rt で使う。
-    void SetRenderTarget(ID2D1RenderTarget* rt)
-    {
-        if (render_target_) {
-            CancelPending();
-            ClearCache();
-        }
-        render_target_ = rt;
-        max_bitmap_dim_.store(MaxBitmapDim(rt));
-    }
-
-    void InitAsync(HWND hwnd, UINT msg_id, TaskScheduler& scheduler);
+    void SetRenderTarget(ID2D1RenderTarget* rt);
 
     struct CachedImage {
         Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
@@ -53,14 +41,14 @@ public:
     // ヒットしたら LRU を更新する。次の挿入・Clear まで有効。
     const CachedImage* FindCachedImage(const std::wstring& abs_path);
     // max_width_dip: 表示幅。これを量子化した物理 px まで縮小してデコードする。0 は原寸。
-    void RequestLoadAsync(const std::wstring& abs_path, Callback on_complete, float max_width_dip);
+    void RequestLoadAsync(const std::wstring& abs_path, float max_width_dip);
     // 表示幅が広がり、キャッシュの解像度では足りなくなったか。
     bool NeedsSharperDecode(const CachedImage& image, float max_width_dip) const noexcept
     {
         return DecodeWidthPx(max_width_dip) > image.sharp_width_px;
     }
-    // deadline を過ぎた分は残し、HasLeftoverUploads が真になる。
-    void ProcessCompletedDecodes(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
+    // deadline を過ぎた分は残し、HasLeftoverUploads が真になる。戻り値: 結果を 1 件以上取り込んだか (失敗も含む)。
+    bool ProcessCompletedDecodes(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
     // 新しい結果は投函で知らせるので、続きが要るのは時間切れで残したときだけ。UI スレッド専用。
     bool HasLeftoverUploads() const noexcept
     {
@@ -105,7 +93,6 @@ private:
         float width = 0.0f;
         float height = 0.0f;
         UINT sharp_width_px = UINT_MAX;
-        Callback on_complete;
     };
 
     float DpiScale() const noexcept;
@@ -126,7 +113,7 @@ private:
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
     ID2D1RenderTarget* render_target_ = nullptr;
     // worker が縮小サイズ計算に使う。render_target_ は worker から触れないので値で持つ。
-    std::atomic<UINT> max_bitmap_dim_{ MaxBitmapDim(nullptr) };
+    std::atomic<UINT> max_bitmap_dim_;
     LruCache<std::wstring, CachedImage, MAX_CACHE_ENTRIES> cache_;
 
     HWND hwnd_ = nullptr;

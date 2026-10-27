@@ -37,7 +37,7 @@ protected:
 
     // 範囲は ComputeLayout と同じ。省略すると全ノードを計測する。
     ParsedLayout ParseAndLayout(std::string_view md, float viewport_w = 800.0f,
-                                float viewport_top = -MeasureViewportRange::kInf, float viewport_bottom = MeasureViewportRange::kInf)
+                                float viewport_top = -YRange::kInf, float viewport_bottom = YRange::kInf)
     {
         return sources_.ParseAndLayout(engine_, md, viewport_w, viewport_top, viewport_bottom);
     }

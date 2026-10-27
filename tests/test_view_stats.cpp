@@ -179,7 +179,7 @@ TEST(ViewStats, CodeBlockWithIndentedFirstLineIsViewed)
         ASSERT_NE(it, doc.GetNodes().end()) << md;
         EXPECT_EQ(TextPointsIntoRaw(*it, doc.GetRawText()), viewed) << md;
         if (viewed) {
-            EXPECT_EQ(std::string_view{ doc.GetRawText() }.substr(it->SourceOffset(), it->GetText().size()), it->GetText()) << md;
+            EXPECT_EQ(doc.GetRawText().substr(it->SourceOffset(), it->GetText().size()), it->GetText()) << md;
         }
     }
 }
@@ -191,7 +191,7 @@ TEST(ViewStats, DISABLED_DumpFirstOwnedCodeBlocks)
         GTEST_SKIP() << "example/test.md not found";
     }
     auto doc = Document::FromMarkdown(std::move(bytes), L"test.md");
-    const auto& raw = doc.GetRawText();
+    const std::string_view raw = doc.GetRawText();
     int dumped = 0;
     for (const auto& n : doc.GetNodes()) {
         if (n.type != NodeType::CodeBlock || !n.HasText()) {

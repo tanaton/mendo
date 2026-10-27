@@ -216,27 +216,6 @@ void MermaidFileCache::SaveIndex()
     }
 }
 
-bool MermaidFileCache::LookupPath(uint64_t key, CacheEntry& entry, std::filesystem::path& png_path)
-{
-    auto& index = Index();
-    key = InternalKey(key);
-    auto it = index.entries.find(key);
-    if (it == index.entries.end()) {
-        return false;
-    }
-
-    png_path = GetPngPath(key);
-    if (png_path.empty()) {
-        return false;
-    }
-
-    entry.css_width = it->second.css_width;
-    entry.css_height = it->second.css_height;
-
-    index.Touch(it);
-    return true;
-}
-
 void MermaidFileCache::OnReadFailed(uint64_t key, DWORD read_error)
 {
     if (read_error != ERROR_FILE_NOT_FOUND && read_error != ERROR_PATH_NOT_FOUND) {
@@ -259,28 +238,22 @@ void MermaidFileCache::OnReadFailed(uint64_t key, DWORD read_error)
     index.Remove(it);
 }
 
-std::optional<uint64_t> MermaidFileCache::LookupDiagram(uint64_t code_hash, float max_width, bool dark_mode, CacheEntry& entry)
+std::optional<MermaidFileCache::Hit> MermaidFileCache::Find(uint64_t width_free_key, uint64_t sized_key, float max_width, bool touch)
 {
-    if (const uint64_t key = mermaid_util::DiagramWidthFreeHash(code_hash, dark_mode); LookupDimensions(key, entry) && mermaid_util::IsWidthFree(entry.css_width, max_width)) {
-        return key;
+    auto& index = Index();
+    uint64_t key = width_free_key;
+    auto it = index.entries.find(InternalKey(key));
+    if (it == index.entries.end() || !mermaid_util::IsWidthFree(it->second.css_width, max_width)) {
+        key = sized_key;
+        it = index.entries.find(InternalKey(key));
+        if (it == index.entries.end()) {
+            return std::nullopt;
+        }
     }
-    if (const uint64_t key = mermaid_util::DiagramRequestHash(code_hash, max_width, dark_mode); LookupDimensions(key, entry)) {
-        return key;
+    if (touch) {
+        index.Touch(it);
     }
-    return std::nullopt;
-}
-
-bool MermaidFileCache::LookupDimensions(uint64_t key, CacheEntry& entry)
-{
-    const auto& index = Index();
-    key = InternalKey(key);
-    const auto it = index.entries.find(key);
-    if (it == index.entries.end()) {
-        return false;
-    }
-    entry.css_width = it->second.css_width;
-    entry.css_height = it->second.css_height;
-    return true;
+    return Hit{ key, { it->second.css_width, it->second.css_height } };
 }
 
 void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_height, PngBytes png_data)
@@ -319,9 +292,8 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
         }
     }
 
-    const uint32_t gen = write_gen_.load();
     auto path = GetPngPath(key);
-    const bool posted = scheduler_->Post([this, key, path = std::move(path), data = std::move(png_data), gen, latch_guard = latch_.Acquire()] {
+    const bool posted = scheduler_->Post([this, key, path = std::move(path), data = std::move(png_data), latch_guard = latch_.Acquire()] {
         // タスク完遂・キャンセルどちらの場合も pending を必ず解除する
         auto guard = ScopeGuard([this, key, &path] {
             bool evicted = false;
@@ -336,10 +308,6 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
                 std::filesystem::remove(path, ec);
             }
         });
-
-        if (write_gen_.load() != gen) {
-            return;
-        }
 
         if (path.empty()) {
             return;
@@ -426,9 +394,8 @@ void MermaidFileCache::RemoveDoomedDirsAsync()
 
 void MermaidFileCache::Shutdown()
 {
-    // write_gen_ を進めて以後の worker は早期 return するが、走り始めた worker は self
-    // メンバ (pending_mutex_, write_gen_) を触り続けるため完了まで待つ。
-    write_gen_.fetch_add(1);
+    // 書き込み中の worker は self のメンバ (pending_mutex_) を触るので完了まで待つ。
+    // 待ちの書き込みも索引に載っているので取り消さない (App は先に scheduler を Shutdown して書き終えている)。
     latch_.Wait();
     scheduler_ = nullptr;
 }

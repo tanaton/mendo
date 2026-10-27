@@ -98,16 +98,6 @@ std::pmr::wstring mermaid_util::BuildLatexFlowchartCode(std::wstring_view latex)
 
 namespace {
 
-// key の直後の ':' と空白を読み飛ばした値の先頭位置。見つからなければ npos。
-size_t FindJsonValueStart(std::wstring_view json, std::wstring_view key) noexcept
-{
-    const auto pos = json.find(key);
-    if (pos == std::wstring_view::npos) {
-        return std::wstring_view::npos;
-    }
-    return json.find_first_not_of(L": "sv, pos + key.size());
-}
-
 // wstring_view は null 終端が保証されないため、数値部分を切り出してから wcstof に渡す。
 float ParseFloatPrefix(std::wstring_view s) noexcept
 {
@@ -120,15 +110,6 @@ float ParseFloatPrefix(std::wstring_view s) noexcept
 }
 
 } // namespace
-
-float mermaid_util::ParseJsonNumber(std::wstring_view json, std::wstring_view key) noexcept
-{
-    const auto pos = FindJsonValueStart(json, key);
-    if (pos == std::wstring_view::npos) {
-        return 0.0f;
-    }
-    return ParseFloatPrefix(json.substr(pos));
-}
 
 bool mermaid_util::FitsCaptureLimit(float css_width, float css_height, float dpr, unsigned max_side_px) noexcept
 {
@@ -201,79 +182,18 @@ mermaid_util::ParsedWebMessage mermaid_util::ParseWebMessage(std::wstring_view m
     return out;
 }
 
-bool mermaid_util::ParseJsonTrueFlag(std::wstring_view json, std::wstring_view key) noexcept
+mermaid_util::RenderSize mermaid_util::ParseRenderSize(std::wstring_view payload) noexcept
 {
-    // 生成側が "ok":true / "ok": true の両形式を出す可能性があるため両方許容。
-    auto pos = json.find(key);
-    if (pos == std::wstring_view::npos) {
-        return false;
-    }
-    pos += key.size();
-    if (pos >= json.size() || json[pos] != L':') {
-        return false;
-    }
-    ++pos;
-    if (pos < json.size() && json[pos] == L' ') {
-        ++pos;
-    }
-    return json.substr(pos).starts_with(L"true");
-}
-
-std::pmr::wstring mermaid_util::ParseJsonString(std::wstring_view json, std::wstring_view key)
-{
-    auto pos = FindJsonValueStart(json, key);
-    if (pos == std::wstring_view::npos || json[pos] != L'"') {
-        return {};
-    }
-    ++pos;
-
-    std::pmr::wstring buf;
-    while (pos < json.size()) {
-        const wchar_t c = json[pos++];
-        if (c == L'"') {
-            return buf;
-        }
-        if (c != L'\\') {
-            buf += c;
-            continue;
-        }
-        if (pos >= json.size()) {
+    float values[3]{};
+    for (float& v : values) {
+        const auto colon = payload.find(L':');
+        v = ParseFloatPrefix(payload.substr(0, colon));
+        if (colon == std::wstring_view::npos) {
             break;
         }
-        const wchar_t esc = json[pos++];
-        switch (esc) {
-        case L'n':
-            buf += L'\n';
-            break;
-        case L'r':
-            buf += L'\r';
-            break;
-        case L't':
-            buf += L'\t';
-            break;
-        case L'b':
-            buf += L'\b';
-            break;
-        case L'f':
-            buf += L'\f';
-            break;
-        case L'u': {
-            unsigned int cp = 0;
-            if (json.size() - pos < 4 || ascii_util::from_chars(json.data() + pos, 4, cp, 16u) != json.data() + pos + 4) {
-                return {};
-            }
-            pos += 4;
-            // サロゲートペアもそのまま格納する (wchar_t は UTF-16)。
-            buf += static_cast<wchar_t>(cp);
-            break;
-        }
-        default:
-            // \" \\ \/ およびその他は文字そのまま。
-            buf += esc;
-            break;
-        }
+        payload.remove_prefix(colon + 1);
     }
-    return {};
+    return { values[0], values[1], values[2] };
 }
 
 std::pmr::wstring mermaid_util::SanitizeErrorMessage(std::wstring_view msg, size_t max_len)
@@ -284,7 +204,7 @@ std::pmr::wstring mermaid_util::SanitizeErrorMessage(std::wstring_view msg, size
     bool truncated = false;
     for (size_t i = 0; i < msg.size(); ++i) {
         const wchar_t c = msg[i];
-        // 改行・タブに加え、JSON の \u00XX から復元された制御文字 (豆腐表示になる) も空白に潰す。
+        // 改行・タブに加え、ページから届いた制御文字 (豆腐表示になる) も空白に潰す。
         if (c <= L' ') {
             if (!prev_space) {
                 result += L' ';

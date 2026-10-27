@@ -1,10 +1,9 @@
 #pragma once
 // 非同期ロード完了 (PARSE_COMPLETE) 時の分岐判定。App::OnParseComplete は Win32/描画に依存して
 // 単体テストできないため、どの処理を取るかの決定だけを純粋関数に切り出し、App は計画を実行するだけにする。
-#include "async_load_result.h"
+#include "async_load_coordinator.h"
 #include "document.h"
 #include "file_io.h"
-#include "file_loader.h"
 #include "document_utils.h"
 #include <cstdint>
 #include <optional>
@@ -44,12 +43,10 @@ struct ParseCompletePlan {
     bool follow_file_pane = false;
 };
 
-// outcome は FileLoadService::TakeAsync の戻り値。another_load_active は取り出し後の IsAsyncLoading()。
-// is_partial_write(path, read_size) は同一パスの再読込のときだけ呼ばれる (ファイルサイズを問い合わせる I/O)。
-template <class IsPartialWrite>
-[[nodiscard]] ParseCompletePlan PlanParseComplete(const std::optional<AsyncLoadOutcome>& outcome,
-                                                  bool another_load_active, const Document& current,
-                                                  IsPartialWrite&& is_partial_write)
+// outcome は AsyncLoadCoordinator::Take の戻り値。another_load_active は取り出し後の IsActive()。
+// 書き込み途中 (still_growing) は同一パスの再読込のときだけ見る。
+[[nodiscard]] inline ParseCompletePlan PlanParseComplete(const std::optional<AsyncLoadOutcome>& outcome, bool another_load_active,
+                                                         const Document& current)
 {
     if (!outcome) {
         return { .step = another_load_active ? ParseCompleteStep::IgnoreStale : ParseCompleteStep::Fail };
@@ -65,16 +62,16 @@ template <class IsPartialWrite>
     if (result->reload) {
         // worker がパース前に差分判定を済ませている (NoChange 等は doc が空)。
         const auto& rc = *result->reload;
-        if (rc.base.lock() != current.GetRawText().Share() || !path_util::iequal(rc.path, current.GetFilePath())) {
+        if (rc.base.lock() != current.ShareRawText() || !path_util::iequal(rc.path, current.GetFilePath())) {
             return { .step = ParseCompleteStep::RetryDocumentChanged };
         }
-        if (is_partial_write(rc.path, rc.loaded_byte_size)) {
+        if (result->still_growing) {
             return { .step = ParseCompleteStep::RetryPartialWrite };
         }
         decision = rc.decision;
     }
     else if (path_util::iequal(result->doc.GetFilePath(), current.GetFilePath())) {
-        if (is_partial_write(result->doc.GetFilePath(), result->doc.GetLoadedByteSize())) {
+        if (result->still_growing) {
             return { .step = ParseCompleteStep::RetryPartialWrite };
         }
         decision = AnalyzeReloadDiff(std::string_view(current.GetRawText()), std::string_view(result->doc.GetRawText()));

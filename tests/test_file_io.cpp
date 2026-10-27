@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "file_io.h"
+#include "i18n.h"
 #include "test_helpers.h"
 #include <algorithm>
 #include <filesystem>
@@ -293,4 +294,12 @@ TEST(TrimTrailingSeparatorsTest, RemovesTrailingSeparatorsButKeepsDriveRoot)
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
         EXPECT_EQ(path_util::TrimTrailingSeparators(c.path), c.expected);
     }
+}
+
+TEST(FileLoadErrorMessageTest, MapsEachErrorToToastText)
+{
+    const auto& s = i18n::kJa;
+    EXPECT_EQ(FileLoadErrorMessage(FileLoadError::NotFound, s), s.toast_file_not_found);
+    EXPECT_EQ(FileLoadErrorMessage(FileLoadError::TooLarge, s), s.toast_file_too_large);
+    EXPECT_EQ(FileLoadErrorMessage(FileLoadError::ReadFailed, s), s.toast_file_read_failed);
 }

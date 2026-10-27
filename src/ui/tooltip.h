@@ -5,6 +5,7 @@
 #include <string>
 #include <string_view>
 
+// ツールチップの対象。同一判定は zone と key だけで行い、表示文字列の内容には依らない。
 struct TooltipTarget {
     enum class Zone : uint8_t {
         None,
@@ -21,40 +22,36 @@ struct TooltipTarget {
     };
 
     Zone zone = Zone::None;
-    // zone 内で対象を識別する値 (項目 index・ボタン種別など)。表示文字列の内容には依らない。
+    // zone 内で対象を識別する値 (項目 index・ボタン種別など)。
     uint64_t key = 0;
-    // 対象が変わった時だけ設定すればよい。
-    std::pmr::wstring text;
 
-    constexpr TooltipTarget() = default;
-    TooltipTarget(Zone z, uint64_t k) noexcept : zone(z), key(k)
-    {}
-
-    // text は比較しない。ホバー移動のたびに text を作らずに同一判定するため。
-    constexpr bool SameTarget(const TooltipTarget& o) const noexcept
-    {
-        return zone == o.zone && key == o.key;
-    }
+    constexpr bool operator==(const TooltipTarget&) const noexcept = default;
     constexpr bool IsEmpty() const noexcept
     {
         return zone == Zone::None;
     }
 };
 
-// current と同じ対象なら表示文字列の生成 (確保・UTF-8 変換) を省く。
+// ポインタの下で求めたツールチップ。text は対象が変わった時だけ作る (ホバー移動のたびに確保・UTF-8 変換しない)。
+struct TooltipHover {
+    TooltipTarget target;
+    std::pmr::wstring text;
+};
+
+// current (表示中か表示待ちの対象) と同じ対象なら表示文字列の生成を省く。
 template <class Fill>
     requires std::invocable<Fill&, std::pmr::wstring&>
-TooltipTarget MakeTooltip(const TooltipTarget& current, TooltipTarget::Zone zone, uint64_t key, Fill&& fill)
+TooltipHover MakeTooltip(const TooltipTarget& current, TooltipTarget::Zone zone, uint64_t key, Fill&& fill)
 {
-    TooltipTarget t{ zone, key };
-    if (!t.SameTarget(current)) {
+    TooltipHover t{ { zone, key } };
+    if (t.target != current) {
         fill(t.text);
     }
     return t;
 }
 
 // text が空 (該当ボタンなし) なら空のターゲットを返す。
-inline TooltipTarget MakeTooltip(const TooltipTarget& current, TooltipTarget::Zone zone, uint64_t key, std::wstring_view text)
+inline TooltipHover MakeTooltip(const TooltipTarget& current, TooltipTarget::Zone zone, uint64_t key, std::wstring_view text)
 {
     if (text.empty()) {
         return {};
@@ -78,11 +75,10 @@ public:
     Tooltip& operator=(const Tooltip&) = delete;
 
     void Init(HWND parent_hwnd);
-    bool Update(const TooltipTarget& target);
+    // 隠して、次の Show で出す文言にする。空なら Show しても出さない。
+    void SetText(std::wstring_view text);
     void Show();
     void ApplyDarkMode(bool dark);
-    // 隠して対象も忘れる。次のホバーで同じ対象に戻っても表示し直す。
-    void Clear();
 
 private:
     void Hide();
@@ -90,7 +86,7 @@ private:
 
     HWND hwnd_ = nullptr;
     HWND parent_ = nullptr;
-    TooltipTarget current_;
+    std::pmr::wstring text_;
     bool visible_ = false;
     bool dark_ = false;
 };

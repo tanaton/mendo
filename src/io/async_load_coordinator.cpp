@@ -3,8 +3,70 @@
 #include "layout_computer.h"
 #include "profiler.h"
 #include "task_scheduler.h"
+#include "utf8_codec.h"
+#include <algorithm>
+#include <cstring>
+#include <limits>
 #include <new>
+#include <string_view>
 #include <utility>
+
+namespace {
+// md4c が長さを int で取るため ~2GB-1 が実効上限。
+constexpr LONGLONG MAX_FILE_SIZE = static_cast<LONGLONG>(std::numeric_limits<int>::max());
+} // namespace
+
+std::expected<LoadedFileDoc, FileLoadError> LoadFile(const std::pmr::wstring& path, const std::stop_token& /*stop_token*/)
+{
+    MENDO_PROFILE("LoadFile");
+    // エディタがファイルを開いている間も読み取れるよう共有モードを許容。
+    auto opened = OpenFileForReadShared(path.c_str(), path_util::kFileShareRWDelete, MAX_FILE_SIZE);
+    if (!opened) {
+        return std::unexpected(opened.error());
+    }
+    auto& r = *opened;
+
+    if (r.size == 0) {
+        return LoadedFileDoc{};
+    }
+
+    // 先頭 3 バイトを覗いて UTF-8 BOM (EF BB BF) ならスキップ、なければ string 先頭へ転記する。
+    // 一括読み + erase(0,3) と違い BOM ありファイルでも全体スケールの memmove を発生させない。
+    char prefix[3];
+    const size_t prefix_read = std::min<size_t>(r.size, sizeof(prefix));
+    if (!ReadExact(r.handle.get(), prefix, prefix_read)) {
+        return std::unexpected(FileLoadError::ReadFailed);
+    }
+
+    const bool has_bom = std::string_view{ prefix, prefix_read } == utf8_codec::kBom;
+    const size_t carry = has_bom ? 0u : prefix_read;
+    const size_t remaining = r.size - prefix_read;
+    const size_t out_size = carry + remaining;
+
+    LoadedFileDoc result;
+    result.byte_size = r.size;
+    try {
+        result.text.resize_and_overwrite(out_size, [&](char* buf, size_t /*cap*/) noexcept -> size_t {
+            if (carry > 0) {
+                std::memcpy(buf, prefix, carry);
+            }
+            if (remaining == 0) {
+                return carry;
+            }
+            if (!ReadExact(r.handle.get(), buf + carry, remaining)) {
+                return 0;
+            }
+            return carry + remaining;
+        });
+    } catch (const std::bad_alloc&) {
+        return std::unexpected(FileLoadError::TooLarge);
+    }
+    if (result.text.size() != out_size) {
+        return std::unexpected(FileLoadError::ReadFailed);
+    }
+    NormalizeNewlines(result.text);
+    return result;
+}
 
 AsyncLoadCoordinator::~AsyncLoadCoordinator()
 {
@@ -21,29 +83,23 @@ void AsyncLoadCoordinator::ResetSinks() noexcept
     }
 }
 
-void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring path, HWND hwnd, UINT msg_id, Theme theme, float content_width,
-                                 ReloadBase reload_base)
+void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring path, Theme theme, float content_width, ReloadBase reload_base)
 {
-    // Cancel() と同じく gen を最初に進めて、旧 worker の publish を確実に弾く。
-    const uint32_t gen = gen_.fetch_add(1, std::memory_order_relaxed) + 1;
-    ResetSinks();
-    {
-        const std::lock_guard lock(mutex_);
-        notify_hwnd_ = hwnd;
-        notify_msg_ = msg_id;
-    }
-    in_flight_ = true;
-    // 前 worker がキャプチャ済みの stop_token を協調キャンセルしてから、再使用不可の source を作り直す。
+    // Cancel() と同じく旧 worker の stop を先に要求してから sink を空にし、旧 worker の publish を確実に弾く。
+    // request_stop 後の source は再使用できないので作り直す。
     stop_source_.request_stop();
     stop_source_ = std::stop_source{};
+    ResetSinks();
+    in_flight_ = true;
+    loading_path_ = path;
 
     // 画像のデコードや図の読み込みが溜まっていても待たせない。リロードは旧文書の表示を続けるので、それらの待ちを捨てられない。
-    const bool posted = scheduler.PostFront([this, &scheduler, path = std::move(path), gen, theme = std::move(theme), content_width, stop_token = stop_source_.get_token(), reload_base = std::move(reload_base), guard = latch_.Acquire()]() mutable {
+    const bool posted = scheduler.PostFront([this, &scheduler, path = std::move(path), theme = std::move(theme), content_width, stop_token = stop_source_.get_token(), reload_base = std::move(reload_base), guard = latch_.Acquire()]() mutable {
         try {
-            RunWorker(scheduler, path, gen, theme, content_width, stop_token, std::move(reload_base));
+            RunWorker(scheduler, path, theme, content_width, stop_token, std::move(reload_base));
         } catch (const std::bad_alloc&) {
             // 空の表の行補完などは入力の百倍以上を確保させられる。worker で投げると terminate するので失敗として返す。
-            Publish(gen, std::unexpected(FileLoadError::TooLarge));
+            Publish(stop_token, std::unexpected(FileLoadError::TooLarge));
         }
     });
 
@@ -51,10 +107,14 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
         // Shutdown 後。lambda が走らないので latch::Guard は capture 内で
         // destruct され自動的に Release される。in_flight_/outcome_ を整えて UI に通知することで
         // 以降のリロードを再開可能にする。
+        HWND hwnd = nullptr;
+        UINT msg_id = 0;
         {
             const std::lock_guard lock(mutex_);
             outcome_.emplace(std::unexpected(FileLoadError::ReadFailed));
             in_flight_ = false;
+            hwnd = notify_hwnd_;
+            msg_id = notify_msg_;
         }
         if (hwnd) {
             ::PostMessageW(hwnd, msg_id, 0, 0);
@@ -64,35 +124,29 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::pmr::wstring pat
 
 AsyncLoadCoordinator::AttachResult AsyncLoadCoordinator::Attach(HWND hwnd, UINT msg_id)
 {
+    // Publish と同じ mutex で、結果の有無の確認と通知先の設定をまとめる。
+    // 出ている結果はもう通知されないので、ここで通知先を設定しても二重には届かない。
+    const std::lock_guard lock(mutex_);
+    notify_hwnd_ = hwnd;
+    notify_msg_ = msg_id;
     if (!in_flight_) {
         return AttachResult::None;
     }
-    // Publish と同じ mutex で、結果の有無の確認と通知先の設定をまとめる。
-    const std::lock_guard lock(mutex_);
-    if (outcome_) {
-        return AttachResult::AppliedSync;
-    }
-    notify_hwnd_ = hwnd;
-    notify_msg_ = msg_id;
-    return AttachResult::AttachedAsync;
+    return outcome_ ? AttachResult::AppliedSync : AttachResult::AttachedAsync;
 }
 
-void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::pmr::wstring& path, uint32_t gen, const Theme& theme, float content_width,
+void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::pmr::wstring& path, const Theme& theme, float content_width,
                                      const std::stop_token& stop_token, ReloadBase reload_base)
 {
     MENDO_PROFILE("AsyncLoadCoordinator::Start Posted Task");
-    // 各段の前の gen/stop check は重い処理を skip するための short-circuit。
-    const auto publish = [this, gen](AsyncLoadOutcome outcome) {
-        Publish(gen, std::move(outcome));
-    };
-
-    if (IsStale(gen) || stop_token.stop_requested()) {
+    // 各段の前の stop check は重い処理を skip するための short-circuit。
+    if (stop_token.stop_requested()) {
         return;
     }
 
     auto file = load_file_(path, stop_token);
     if (!file) {
-        publish(std::unexpected(file.error()));
+        Publish(stop_token, std::unexpected(file.error()));
         return;
     }
     if (stop_token.stop_requested()) {
@@ -103,19 +157,20 @@ void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::pmr::w
     if (reload_base.text) {
         // 無変更の保存や書き込み途中でも全文パース (100MB で ~0.6s) と
         // 新旧 Document の二重保持が起きないよう、パース前に判定する。
-        const ReloadDecision decision = DecideReload(IsFileLargerThan(path.c_str(), file->byte_size), *reload_base.text, file->text);
-        reload.emplace(ReloadCheck{ decision, reload_base.text, path, file->byte_size });
+        const bool still_growing = IsFileLargerThan(path.c_str(), file->byte_size);
+        const ReloadDecision decision = DecideReload(still_growing, *reload_base.text, file->text);
+        reload.emplace(ReloadCheck{ decision, reload_base.text, path });
         // 以降のパース中に UI が文書を差し替えても旧テキストを延命しない。
         reload_base.text.reset();
         const auto op = reload->decision.op;
         if (op != ReloadOp::Replace) {
-            publish(AsyncLoadResult{ .reload = std::move(reload) });
+            Publish(stop_token, AsyncLoadResult{ .reload = std::move(reload), .still_growing = still_growing });
             return;
         }
     }
 
-    Document doc = Document::FromMarkdown(std::move(file->text), file->byte_size, path, stop_token, &scheduler);
-    if (stop_token.stop_requested() || IsStale(gen)) {
+    Document doc = Document::FromNormalizedMarkdown(std::move(file->text), path, stop_token, &scheduler);
+    if (stop_token.stop_requested()) {
         return;
     }
     if (reload) {
@@ -131,16 +186,18 @@ void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::pmr::w
         return;
     }
 
-    publish(AsyncLoadResult{ std::move(doc), std::move(cache), std::move(reload) });
+    // パースの間に伸びたのも捕まえるよう、結果を出す直前に確かめる。
+    const bool still_growing = IsFileLargerThan(path.c_str(), file->byte_size);
+    Publish(stop_token, AsyncLoadResult{ std::move(doc), std::move(cache), std::move(reload), still_growing });
 }
 
-void AsyncLoadCoordinator::Publish(uint32_t gen, AsyncLoadOutcome outcome)
+void AsyncLoadCoordinator::Publish(const std::stop_token& stop_token, AsyncLoadOutcome outcome)
 {
     HWND hwnd = nullptr;
     UINT msg_id = 0;
     {
         const std::lock_guard lock(mutex_);
-        if (IsStale(gen)) {
+        if (stop_token.stop_requested()) {
             return;
         }
         outcome_.emplace(std::move(outcome));

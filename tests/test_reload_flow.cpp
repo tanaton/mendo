@@ -38,7 +38,7 @@ struct Case {
     // 表示中の文書
     std::wstring_view current_path = kPath;
     std::string_view current_text = kText;
-    // FileLoadService から取り出した値
+    // AsyncLoadCoordinator から取り出した値
     ResultKind kind = ResultKind::None;
     std::optional<FileLoadError> error;
     bool another_load_active = false;
@@ -50,24 +50,20 @@ struct Case {
     size_t reload_diff_pos = std::string_view::npos;
     BaseRef base = BaseRef::Current;
     std::wstring_view reload_path = kPath;
-    // 書き込み途中判定の戻り値
-    bool partial_write = false;
+    // worker が結果を出す直前に、ファイルがまだ伸びていた
+    bool still_growing = false;
 
     // 期待値
     ParseCompleteStep step;
     std::optional<ReloadOp> expect_op = std::nullopt;
     size_t expect_diff_pos = std::string_view::npos;
     bool expect_follow = false;
-    // 書き込み途中判定が呼ばれるべきか (呼ばれるなら引数はケースから導出して検査する)
-    bool expect_probe = false;
 };
 
 void PrintTo(const Case& c, std::ostream* os)
 {
     *os << c.label;
 }
-
-constexpr size_t kReloadByteSize = 4242;
 
 struct Fixture {
     Document current;
@@ -94,7 +90,7 @@ Fixture Build(const Case& c)
         std::weak_ptr<const std::pmr::string> base;
         switch (c.base) {
         case BaseRef::Current:
-            base = f.current.GetRawText().Share();
+            base = f.current.ShareRawText();
             break;
         case BaseRef::Other:
             f.other_base = std::make_shared<const std::pmr::string>(c.current_text);
@@ -105,13 +101,16 @@ Fixture Build(const Case& c)
             break;
         }
         f.outcome.emplace(AsyncLoadResult{
-            .reload = ReloadCheck{ ReloadDecision{ c.reload_op, c.reload_diff_pos }, base, std::pmr::wstring(c.reload_path), kReloadByteSize } });
+            .reload = ReloadCheck{ ReloadDecision{ c.reload_op, c.reload_diff_pos }, base, std::pmr::wstring(c.reload_path) } });
         // worker は NoChange / DeferPrefixShrink 以外ならパース済みの文書を同じパスで返す。
         if (c.reload_op == ReloadOp::Replace) {
             (*f.outcome)->doc = Document::FromMarkdown(std::pmr::string(c.result_text), c.reload_path);
         }
         break;
     }
+    }
+    if (f.outcome && f.outcome->has_value()) {
+        (*f.outcome)->still_growing = c.still_growing;
     }
     return f;
 }
@@ -124,14 +123,9 @@ TEST_P(PlanParseCompleteTest, ChoosesStep)
 {
     const Case& c = GetParam();
     Fixture f = Build(c);
-    ASSERT_EQ(f.current.GetRawText().Share() != nullptr, !c.current_text.empty());
+    ASSERT_EQ(f.current.ShareRawText() != nullptr, !c.current_text.empty());
 
-    std::vector<std::pair<std::wstring, size_t>> probes;
-    const auto plan = PlanParseComplete(f.outcome, c.another_load_active, f.current,
-                                        [&](const std::pmr::wstring& path, size_t read_size) {
-                                            probes.emplace_back(std::wstring(std::wstring_view(path)), read_size);
-                                            return c.partial_write;
-                                        });
+    const auto plan = PlanParseComplete(f.outcome, c.another_load_active, f.current);
 
     EXPECT_EQ(plan.step, c.step);
     if (c.step == ParseCompleteStep::Fail) {
@@ -146,22 +140,6 @@ TEST_P(PlanParseCompleteTest, ChoosesStep)
         EXPECT_EQ(plan.reload->diff_pos, c.expect_diff_pos);
     }
     EXPECT_EQ(plan.follow_file_pane, c.expect_follow);
-
-    if (!c.expect_probe) {
-        EXPECT_TRUE(probes.empty()) << "同一パスの再読込以外でファイルサイズを問い合わせない";
-    }
-    else {
-        ASSERT_EQ(probes.size(), 1u);
-        // 判定に使ったのと同じ読み込みのパスとバイト数で問い合わせる。
-        if (c.kind == ResultKind::Reload) {
-            EXPECT_EQ(probes[0].first, c.reload_path);
-            EXPECT_EQ(probes[0].second, kReloadByteSize);
-        }
-        else {
-            EXPECT_EQ(probes[0].first, c.result_path);
-            EXPECT_EQ(probes[0].second, (*f.outcome)->doc.GetLoadedByteSize());
-        }
-    }
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -176,21 +154,18 @@ INSTANTIATE_TEST_SUITE_P(
 
         // ---- worker 差分判定済みのリロード ----
         Case{ .label = "ReloadNoChange", .kind = ResultKind::Reload, .reload_op = ReloadOp::NoChange,
-              .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::NoChange, .expect_probe = true },
+              .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::NoChange },
         Case{ .label = "ReloadDeferPrefixShrink", .kind = ResultKind::Reload, .reload_op = ReloadOp::DeferPrefixShrink, .reload_diff_pos = 7,
-              .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::DeferPrefixShrink, .expect_diff_pos = 7,
-              .expect_probe = true },
+              .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::DeferPrefixShrink, .expect_diff_pos = 7 },
         Case{ .label = "ReloadReplace", .kind = ResultKind::Reload, .reload_op = ReloadOp::Replace, .reload_diff_pos = 9,
-              .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::Replace, .expect_diff_pos = 9,
-              .expect_probe = true },
+              .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::Replace, .expect_diff_pos = 9 },
         Case{ .label = "ReloadPathCaseDiffersStillSameFile", .kind = ResultKind::Reload, .reload_op = ReloadOp::NoChange,
-              .reload_path = kPathOtherCase, .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::NoChange,
-              .expect_probe = true },
+              .reload_path = kPathOtherCase, .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::NoChange },
         Case{ .label = "ReloadPartialWriteRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::Replace, .reload_diff_pos = 9,
-              .partial_write = true, .step = ParseCompleteStep::RetryPartialWrite, .expect_probe = true },
+              .still_growing = true, .step = ParseCompleteStep::RetryPartialWrite },
         // worker が書き込み途中を検出した判定も、そのまま App の Defer 処理へ渡す。
         Case{ .label = "ReloadDeferPartialWrite", .kind = ResultKind::Reload, .reload_op = ReloadOp::DeferPartialWrite,
-              .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::DeferPartialWrite, .expect_probe = true },
+              .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::DeferPartialWrite },
         Case{ .label = "ReloadBaseReplacedRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::NoChange, .base = BaseRef::Other,
               .step = ParseCompleteStep::RetryDocumentChanged },
         Case{ .label = "ReloadBaseExpiredRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::Replace, .reload_diff_pos = 3,
@@ -204,24 +179,22 @@ INSTANTIATE_TEST_SUITE_P(
 
         // ---- 通常ロード結果が同一パス (UI 側で差分判定) ----
         Case{ .label = "SamePathUnchanged", .kind = ResultKind::Doc, .step = ParseCompleteStep::ApplyReload,
-              .expect_op = ReloadOp::NoChange, .expect_probe = true },
+              .expect_op = ReloadOp::NoChange },
         Case{ .label = "SamePathPrefixGrowth", .kind = ResultKind::Doc, .result_text = "# Title\n\nbody\nmore\n",
-              .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::Replace, .expect_diff_pos = kText.size(),
-              .expect_probe = true },
+              .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::Replace, .expect_diff_pos = kText.size() },
         Case{ .label = "SamePathPrefixShrinkDefers", .kind = ResultKind::Doc, .result_text = "# Title\n",
-              .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::DeferPrefixShrink, .expect_diff_pos = 8,
-              .expect_probe = true },
+              .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::DeferPrefixShrink, .expect_diff_pos = 8 },
         Case{ .label = "SamePathOtherCaseReplace", .kind = ResultKind::Doc, .result_path = kPathOtherCase,
               .result_text = "# Title\n\nBODY\n", .step = ParseCompleteStep::ApplyReload, .expect_op = ReloadOp::Replace,
-              .expect_diff_pos = 9, .expect_probe = true },
-        Case{ .label = "SamePathPartialWriteRetries", .kind = ResultKind::Doc, .result_text = "# Title\n\nchanged\n", .partial_write = true,
-              .step = ParseCompleteStep::RetryPartialWrite, .expect_probe = true },
+              .expect_diff_pos = 9 },
+        Case{ .label = "SamePathPartialWriteRetries", .kind = ResultKind::Doc, .result_text = "# Title\n\nchanged\n", .still_growing = true,
+              .step = ParseCompleteStep::RetryPartialWrite },
 
         // ---- 別ファイル ----
         Case{ .label = "OtherPathOpensNewDocumentAndFollowsPane", .kind = ResultKind::Doc, .result_path = kOtherPath,
               .step = ParseCompleteStep::ReplaceWithResult, .expect_follow = true },
-        // 別ファイルなら書き込み途中判定は不要 (同一パスの再読込に限る)。
-        Case{ .label = "OtherPathIgnoresPartialWrite", .kind = ResultKind::Doc, .result_path = kOtherPath, .partial_write = true,
+        // 別ファイルなら書き込み途中でも開く (同一パスの再読込に限る)。
+        Case{ .label = "OtherPathIgnoresPartialWrite", .kind = ResultKind::Doc, .result_path = kOtherPath, .still_growing = true,
               .step = ParseCompleteStep::ReplaceWithResult, .expect_follow = true },
         Case{ .label = "FirstDocumentDoesNotFollowPane", .current_path = L"", .current_text = "", .kind = ResultKind::Doc,
               .step = ParseCompleteStep::ReplaceWithResult, .expect_follow = false }),

@@ -5,8 +5,9 @@
 #include <format>
 #include <wrl/client.h>
 
-void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_pane_rect)
+void Renderer::GenSearchBar(const SearchBarRenderState& sb, const PaneRect& md_pane_rect)
 {
+    auto& out = overlay_cmds_;
     const auto sbl = ComputeSearchBarLayout(md_pane_rect, !sb.query.empty());
 
     const D2D1_RECT_F bar_rect = D2D1::RectF(
@@ -14,34 +15,32 @@ void Renderer::DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_
         sbl.bar_top,
         md_pane_rect.x + md_pane_rect.width,
         sbl.bar_bottom);
-    rt()->FillRectangle(bar_rect, Brush(BrushId::SearchBarBg));
+    out.push_back(FillRectCmd{ .rect = bar_rect, .brush_id = BrushId::SearchBarBg });
+    out.push_back(DrawLineCmd{
+        .p0 = D2D1::Point2F(bar_rect.left, sbl.bar_top), .p1 = D2D1::Point2F(bar_rect.right, sbl.bar_top), .stroke_width = 1.0f, .brush_id = BrushId::SearchBarBorder });
 
-    rt()->DrawLine(D2D1::Point2F(bar_rect.left, sbl.bar_top), D2D1::Point2F(bar_rect.right, sbl.bar_top), Brush(BrushId::SearchBarBorder), 1.0f);
+    text_layouts_.EmitCentered(out, L"\uE721", fmt_.ui_icon.Get(), sbl.icon_rect, BrushId::SearchInputText, 0.6f);
 
-    DrawCenteredText(L"\uE721", fmt_.ui_icon.Get(), sbl.icon_rect, BrushId::SearchInputText, 0.6f);
-
-    const D2D1_ROUNDED_RECT input_rrect = D2D1::RoundedRect(sbl.input_rect, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER);
     const bool no_match = !sb.query.empty() && sb.total_matches == 0;
-    rt()->FillRoundedRectangle(input_rrect, Brush(no_match ? BrushId::SearchNoMatchBg : BrushId::SearchInputBg));
-
+    out.push_back(FillRoundedRectCmd{
+        .rect = sbl.input_rect, .rx = SEARCH_BAR_CORNER, .ry = SEARCH_BAR_CORNER, .brush_id = no_match ? BrushId::SearchNoMatchBg : BrushId::SearchInputBg });
     // 表示中は入力欄が常にフォーカスを持つので、フォーカス枠で描く。
-    if (auto* focus_brush = Brush(BrushId::Link)) {
-        rt()->DrawRoundedRectangle(input_rrect, focus_brush, 1.5f);
-    }
+    out.push_back(DrawRoundedRectCmd{ .rect = sbl.input_rect, .rx = SEARCH_BAR_CORNER, .ry = SEARCH_BAR_CORNER, .stroke_width = 1.5f, .brush_id = BrushId::Link });
 
-    const float caret_x = DrawSearchInputText(sb, sbl);
+    const float caret_x = GenSearchInputText(sb, sbl);
 
     // コンポジション中はIME側がキャレットを表示するため非表示
     if (sb.caret_visible && sb.ime_composition.empty()) {
         const float x = std::min(caret_x + 1.0f, sbl.text_right());
-        rt()->DrawLine(
-            D2D1::Point2F(x, sbl.input_rect.top + 3.0f),
-            D2D1::Point2F(x, sbl.input_rect.bottom - 3.0f),
-            Brush(BrushId::SearchInputText),
-            1.0f);
+        out.push_back(DrawLineCmd{
+            .p0 = D2D1::Point2F(x, sbl.input_rect.top + 3.0f),
+            .p1 = D2D1::Point2F(x, sbl.input_rect.bottom - 3.0f),
+            .stroke_width = 1.0f,
+            .brush_id = BrushId::SearchInputText,
+        });
     }
 
-    DrawSearchBarButtons(sb, sbl);
+    GenSearchBarButtons(sb, sbl);
 }
 
 IDWriteTextLayout* Renderer::AcquireSearchInputLayout(const SearchBarRenderState& sb, int comp_start, float width, float height)
@@ -72,7 +71,7 @@ IDWriteTextLayout* Renderer::AcquireSearchInputLayout(const SearchBarRenderState
     return c.layout.Get();
 }
 
-float Renderer::DrawSearchInputText(const SearchBarRenderState& sb, const SearchBarLayout& sbl)
+float Renderer::GenSearchInputText(const SearchBarRenderState& sb, const SearchBarLayout& sbl)
 {
     const float text_left = sbl.text_left();
     const bool has_comp = !sb.ime_composition.empty();
@@ -118,15 +117,17 @@ float Renderer::DrawSearchInputText(const SearchBarRenderState& sb, const Search
                     sbl.input_rect.top + 2.0f,
                     htm_sel.left + htm_sel.width,
                     sbl.input_rect.bottom - 2.0f);
-                rt()->FillRectangle(sel_rect, Brush(BrushId::Selection));
+                overlay_cmds_.push_back(FillRectCmd{ .rect = sel_rect, .brush_id = BrushId::Selection });
             }
         }
     }
 
-    rt()->DrawTextLayout(
-        D2D1::Point2F(text_left, sbl.input_rect.top),
-        text_layout,
-        Brush(BrushId::SearchInputText));
+    // IME の合成範囲の下線は executor (VisibleRunRenderer::DrawUnderline) が同じブラシで描く。
+    overlay_cmds_.push_back(DrawTextLayoutCmd{
+        .origin = D2D1::Point2F(text_left, sbl.input_rect.top),
+        .layout = text_layout,
+        .brush_id = BrushId::SearchInputText,
+    });
 
     // コンポジション中はその末尾、それ以外は通常のキャレット位置
     int effective_pos = has_comp ? comp_start + comp_len : sb.caret_pos;
@@ -139,22 +140,22 @@ float Renderer::DrawSearchInputText(const SearchBarRenderState& sb, const Search
     return text_left + px;
 }
 
-void Renderer::DrawSearchBarButtons(const SearchBarRenderState& sb, const SearchBarLayout& sbl)
+void Renderer::GenSearchBarButtons(const SearchBarRenderState& sb, const SearchBarLayout& sbl)
 {
+    auto& out = overlay_cmds_;
     const auto draw_icon_btn = [&](const D2D1_RECT_F& r, const wchar_t* icon, bool hovered, float alpha = 1.0f) {
         if (hovered) {
-            rt()->FillRoundedRectangle(D2D1::RoundedRect(r, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER), Brush(BrushId::TitleBarButtonHover));
+            out.push_back(FillRoundedRectCmd{ .rect = r, .rx = SEARCH_BAR_CORNER, .ry = SEARCH_BAR_CORNER, .brush_id = BrushId::TitleBarButtonHover });
         }
-        DrawCenteredText(icon, fmt_.ui_icon.Get(), r, BrushId::SearchInputText, alpha);
+        text_layouts_.EmitCentered(out, icon, fmt_.ui_icon.Get(), r, BrushId::SearchInputText, alpha);
     };
 
     const auto draw_toggle_btn = [&](const D2D1_RECT_F& r, std::wstring_view label, IDWriteTextFormat* fmt, bool checked, bool hovered) {
         if (hovered || checked) {
-            rt()->FillRoundedRectangle(
-                D2D1::RoundedRect(r, SEARCH_BAR_CORNER, SEARCH_BAR_CORNER),
-                Brush(checked ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover));
+            out.push_back(FillRoundedRectCmd{
+                .rect = r, .rx = SEARCH_BAR_CORNER, .ry = SEARCH_BAR_CORNER, .brush_id = checked ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover });
         }
-        DrawCenteredText(label, fmt, r, BrushId::SearchInputText, checked ? 1.0f : 0.5f);
+        text_layouts_.EmitCentered(out, label, fmt, r, BrushId::SearchInputText, checked ? 1.0f : 0.5f);
     };
 
     const float nav_alpha = sb.total_matches > 0 ? 1.0f : 0.3f;
@@ -170,7 +171,7 @@ void Renderer::DrawSearchBarButtons(const SearchBarRenderState& sb, const Search
                            ? std::format_to_n(count_text, kCountBufLen - 1, L"0")
                            : std::format_to_n(count_text, kCountBufLen - 1, L"{} / {}", sb.current_match + 1, sb.total_matches);
         const auto written = static_cast<size_t>(r.out - count_text);
-        DrawCenteredText({ count_text, written }, fmt_.search_count.Get(), sbl.count_rect, BrushId::SearchInputText, 0.7f);
+        text_layouts_.EmitCentered(out, { count_text, written }, fmt_.search_count.Get(), sbl.count_rect, BrushId::SearchInputText, 0.7f);
     }
 
     draw_toggle_btn(sbl.case_btn, L"Aa", fmt_.search_count.Get(), sb.case_sensitive, sb.hovered == SearchBarHitZone::CaseSensitive);

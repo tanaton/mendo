@@ -7,27 +7,21 @@
 #include "titlebar.h"
 #include "pane_layout.h"
 #include "ui_types.h"
-#include "mouse_gesture.h"
-#include "swipe_detector.h"
+#include "search_state.h"
 #include <memory_resource>
+#include <optional>
+#include <span>
 #include <string_view>
 #include <utility>
 
+struct GesturePoint;
+
+// App がマウスジェスチャーとスワイプから作る (ResolveGestureOverlay)。
 struct GestureRenderState {
     const std::pmr::vector<GesturePoint>* trail_points = nullptr;
     NavDirection direction = NavDirection::None;
     bool trail_active = false;
 };
-
-inline GestureRenderState ResolveGestureOverlay(const MouseGesture& gesture, const SwipeDetector& swipe) noexcept
-{
-    GestureRenderState gs;
-    gs.trail_active = gesture.IsGestureActive();
-    gs.trail_points = &gesture.GetTrailPoints();
-    // マウスジェスチャーを優先する。None ならオーバーレイは出さない。
-    gs.direction = gesture.IsOverlayVisible() ? gesture.GetDirection() : swipe.GetOverlayDirection();
-    return gs;
-}
 
 // message が空なら非表示。
 struct ToastRenderState {
@@ -89,22 +83,34 @@ struct SearchBarRenderState {
     SearchBarHitZone hovered = SearchBarHitZone::None;
 };
 
-struct RenderParams {
+// 本文ペインの描画コマンドを作る入力 (CommandGenerator::GenerateMdPane)。
+struct MdPaneParams {
     const std::pmr::vector<Node>& nodes;
     const LayoutCache& cache;
     const TextSelection& selection;
-    const PaneRect& md_pane_rect;
+    PaneRect md_pane_rect;
+    float scroll_y = 0.0f;
+    OverlayButtonHit hovered;
+    int hovered_diagram = -1;
+    // ブロック単位の横スクロール。値で持ち、ポインタで AppState 側 map を参照する。
+    BlockHScrollContext block_h_scroll;
+    // 検索のハイライト。空なら描かない。
+    std::span<const SearchMatch> search_matches;
+    int current_match_index = -1;
+    // マッチを引き直すたびに変わる。ノードが持つハイライト矩形のキャッシュをこれで捨てる。
+    uint32_t search_generation = 0;
+};
+
+struct RenderParams {
+    MdPaneParams md;
     const SidePaneState& side_panes;
     const TitleBarRenderState& titlebar;
     const GestureRenderState& gesture;
     const ToastRenderState& toast;
     const SearchBarRenderState& search_bar;
-    float scroll_y = 0.0f;
     NavDirection nav_hovered = NavDirection::None;
-    OverlayButtonHit hovered;
-    int hovered_diagram = -1;
     bool can_go_back = false;
     bool can_go_forward = false;
-    // ブロック単位の横スクロール。値で持ち、ポインタで AppState 側 map を参照する。
-    BlockHScrollContext block_h_scroll;
+    // 読み込み中のスピナーの角度。あれば本文ペイン・ナビボタン・検索バー・スクロールバーの代わりにスピナーを描く。
+    std::optional<float> loading_angle;
 };

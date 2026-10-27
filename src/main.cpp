@@ -112,18 +112,17 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     });
 
     ConfigService config;
-    SessionService session{ config };
     {
         MENDO_PROFILE("wWinMain - config");
         config.Load();
-        i18n::Init(session.LoadLanguage());
+        i18n::Init(session::LoadLanguage(config));
     }
 
     // 引数は CRT がスタートアップで分解済み。
     const std::wstring_view arg{ (__wargv && __argc > 1) ? __wargv[1] : L"" };
 
-    // SessionService::LoadLastFilePath は UNC/デバイスパスや実在しないパスを除外する (ネットワークドライブは確かめない)。
-    const std::pmr::wstring last_file = session.LoadLastFilePath();
+    // session::LoadLastFilePath は UNC/デバイスパスや実在しないパスを除外する (ネットワークドライブは確かめない)。
+    const std::pmr::wstring last_file = session::LoadLastFilePath(config);
     StartupPlan plan = PlanStartup(arg, last_file);
 
     Win32Window window(config);
@@ -133,17 +132,17 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR /*lpCmdLine*/, int nC
     // ::PostMessageW(PARSE_COMPLETE) を発行、メッセージループ内で OnParseComplete に合流する。
     // preload が無ければ Create 末尾でヘルプを開く。
     if (!plan.document_path.empty()) {
-        window.StartPreloadAsync(std::move(plan.document_path));
+        window.app().StartPreloadAsync(std::move(plan.document_path));
     }
 
     // preload が Create 内で同期完了するパスに備え、復元情報を先にセット。
     std::error_code ec;
     if (plan.restore_scroll || (plan.restore_scroll_if_same_file && std::filesystem::equivalent(arg, last_file, ec))) {
-        window.RestoreScrollPosition();
+        window.app().RestoreScrollPosition();
     }
     // Create 末尾の初回描画に間に合わせる。
     if (!plan.pane_directory.empty()) {
-        window.SetInitialDirectory(plan.pane_directory);
+        window.app().SetInitialDirectory(plan.pane_directory);
     }
 
     // COM を使うのは Create (App::Init の D2D / DWrite / WIC) 以降だけなので、

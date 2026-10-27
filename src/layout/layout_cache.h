@@ -2,6 +2,7 @@
 #include "document_types.h"
 #include "ui_constants.h"
 #include "utility.h"
+#include <cassert>
 #include <cstdint>
 #include <limits>
 #include <vector>
@@ -28,19 +29,21 @@ struct CellInlineCodeBg {
 // 表の幅の差がこれ未満なら、前回の計測 (セル高さ・列幅) を再利用する。
 inline constexpr float CELL_WIDTH_EPSILON = 0.5f;
 
-// テーブル専用のレイアウトデータ（テーブルノードのみ確保してメモリを節約）
+// テーブル専用のレイアウトデータ（テーブルノードのみ確保してメモリを節約）。
+// エントリは中身の同じノードの間でしか移らない (TakeEntries) ので、行数・列数は作ったときに決まり変わらない。
 struct TableLayoutData {
+    const size_t row_count = 0;
+    const size_t col_count = 0;                                               // cell_layouts のストライド
     std::pmr::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>> cell_layouts; // フラット配列 [行 * col_count + 列]
     // 行ごとのインラインコード背景。インラインコードを含むテーブルだけ row_count 分確保し、行の計測で作り直す。
     std::pmr::vector<std::pmr::vector<CellInlineCodeBg>> row_code_bgs;
-    size_t col_count = 0;                                                     // cell_layoutsのストライド
     std::pmr::vector<float> col_widths;
     std::pmr::vector<float> row_heights;
     std::pmr::vector<float> natural_col_widths;  // リサイズ高速パス用キャッシュ
     std::pmr::vector<float> cell_natural_widths; // 各セルの折り返さない幅。テキストは変わらないので evict しても残す
     std::pmr::vector<float> cell_nowrap_heights; // 各セルの折り返さないときの高さ。evict 中の行の高さを出すのに使う
     std::pmr::vector<uint8_t> row_evicted;       // 行単位 evict でセル layout を捨てた行
-    // ヒットテスト高速化用の累積オフセット。
+    // ヒットテスト高速化用の累積オフセット。最初の FinalizeTableLayout までは空。
     // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ。サイズは row_count+1。
     // col_cum_x[c] = base_x からの列 c の左端までの累積幅。サイズは col_count+1。
     std::pmr::vector<float> row_cum_y;
@@ -53,32 +56,30 @@ struct TableLayoutData {
     // evict 済み行を毎回なめ直さないためのもの。
     size_t live_row_begin = 0;
     size_t live_row_end = 0;
+    // 全セルの自然幅と折り返さない高さを測り終えた (MeasureTableCells)。以後は列幅の当て直しだけで済む。
+    bool cells_measured = false;
+
+    TableLayoutData() = default;
+    // セル単位・行単位の配列を表の大きさで確保する (セル layout は空)。
+    TableLayoutData(size_t rows, size_t cols, bool has_inline_code)
+        : row_count(rows), col_count(cols), cell_layouts(rows * cols), row_code_bgs(has_inline_code ? rows : 0),
+          row_heights(rows), natural_col_widths(cols), cell_natural_widths(rows * cols), cell_nowrap_heights(rows * cols),
+          row_evicted(rows), live_row_end(rows)
+    {
+    }
 
     constexpr bool HasEvictedRows() const noexcept
     {
         return evicted_row_count > 0;
     }
-    // evicted なら全行がセル layout を持たない状態にする。行は可視になったときに LayoutEngine::MeasurePass の行復元が作る。
-    void ResetRowEviction(size_t row_count, bool evicted = false)
+    // 全行がセル layout を持たない状態にする。行は可視になったときに LayoutEngine::MeasurePass の行復元が作る。
+    void MarkAllRowsEvicted() noexcept
     {
-        row_evicted.assign(row_count, evicted ? 1 : 0);
-        evicted_row_count = evicted ? row_count : 0;
+        std::ranges::fill(row_evicted, uint8_t{ 1 });
+        evicted_row_count = row_count;
         live_row_begin = 0;
-        live_row_end = evicted ? 0 : row_count;
+        live_row_end = 0;
     }
-    // セル単位の配列と row_evicted を row_count x col_count に揃えて確保し直す (セル layout は空)。
-    // cell_layouts を最後に確保するので、途中で例外になっても「cell_layouts が非空なら
-    // セル単位の配列と row_evicted のサイズが揃っている」ことは崩れない。
-    void AllocateCells(size_t row_count, size_t new_col_count)
-    {
-        const size_t cell_count = row_count * new_col_count;
-        cell_natural_widths.assign(cell_count, 0.0f);
-        cell_nowrap_heights.assign(cell_count, 0.0f);
-        ResetRowEviction(row_count);
-        col_count = new_col_count;
-        cell_layouts.assign(cell_count, {});
-    }
-    // r が row_evicted の範囲内であることは呼び出し側が保証する。
     // 背景は幅が変わらない限り有効なので残す (復元時の行の計測で作り直す)。
     constexpr void MarkRowEvicted(size_t r) noexcept
     {
@@ -109,42 +110,42 @@ struct TableLayoutData {
 
     IDWriteTextLayout* GetCellLayout(size_t row, size_t col) const noexcept
     {
-        const size_t idx = CellIndex(row, col);
-        return (idx < cell_layouts.size()) ? cell_layouts[idx].Get() : nullptr;
+        return cell_layouts[CellIndex(row, col)].Get();
     }
 
     // [local_top, local_bottom] に重なる行帯 [r_begin, r_end) を二分探索で返す。
     // 座標はいずれもエントリ上端からのローカル系。row_cum_y が空なら [0, 0)。
     std::pair<size_t, size_t> VisibleRowRange(float local_top, float local_bottom) const noexcept;
 
-    // row_cum_y が row_count 行分確定しているか (未計測なら false)。
-    bool HasRowGeometry(size_t row_count) const noexcept
+    // row_cum_y が積まれているか (未計測なら false)。InvalidateGeometry の後も行単位 evict の範囲計算のために残る。
+    bool HasRowGeometry() const noexcept
     {
-        return row_cum_y.size() == row_count + 1;
+        return !row_cum_y.empty();
     }
 
-    // 列幅と col_cum_x が揃っているか。InvalidateGeometry の後は false。
-    bool HasColGeometry() const noexcept
+    // 描画に要る行・列の幾何がすべて揃っているか。
+    constexpr bool HasGeometry() const noexcept
     {
-        return !col_widths.empty() && col_cum_x.size() == col_widths.size() + 1;
-    }
-
-    // 描画に要る行・列の幾何がすべて揃っているか。FinalizeTableLayout で揃い、
-    // 以後サイズは変わらないので、false になるのは InvalidateGeometry の後か計測が一度も完了していないときだけ。
-    bool HasGeometry(size_t row_count, size_t expected_col_count) const noexcept
-    {
-        return expected_col_count > 0 && col_widths.size() == expected_col_count && HasColGeometry() &&
-               row_heights.size() == row_count && HasRowGeometry(row_count);
+        return geometry_valid;
     }
 
     // entry.height だけ推定値で伸ばしたときなど、列幅・行高さが entry と食い違う状態にする。
     // 次の計測で FinalizeTableLayout が作り直す。row_cum_y は行単位 evict の範囲計算に使うので残す。
-    void InvalidateGeometry() noexcept
+    constexpr void InvalidateGeometry() noexcept
     {
-        col_widths.clear();
+        geometry_valid = false;
     }
 
-    // 列幅 + パディング + 罫線の合計。HasColGeometry() が前提。
+    // row_heights / col_widths から累積位置を積み、max_width で組んだ幾何として確定させる。
+    void CommitGeometry(float max_width)
+    {
+        RebuildRowCumY(0);
+        RebuildColCumX();
+        last_applied_max_width = max_width;
+        geometry_valid = true;
+    }
+
+    // 列幅 + パディング + 罫線の合計。HasGeometry() が前提。
     float TableWidth() const noexcept
     {
         return col_cum_x.back();
@@ -156,21 +157,20 @@ struct TableLayoutData {
         return col_widths[c] + TABLE_CELL_PADDING * 2.0f + TABLE_BORDER_WIDTH;
     }
 
-    // row_heights (先頭 row_count 行) / col_widths から罫線込みの累積位置を積み直す。
-    // first_row より前の row_cum_y は有効なものとして使い回す (大きさが合わなければ全行)。
-    void RebuildRowCumY(size_t row_count, size_t first_row = 0);
-    void RebuildColCumX();
+    // row_heights から罫線込みの累積位置を積み直す。
+    // first_row より前の row_cum_y は有効なものとして使い回す (まだ積んでいなければ全行)。
+    void RebuildRowCumY(size_t first_row);
 
-    // 最下行の下罫線まで含めた表の高さ (= entry.height)。row_cum_y が row_count 行分揃っていること。
-    float TotalHeight(size_t row_count) const noexcept
+    // 最下行の下罫線まで含めた表の高さ (= entry.height)。HasRowGeometry() が前提。
+    float TotalHeight() const noexcept
     {
         return row_cum_y[row_count] + TABLE_BORDER_WIDTH;
     }
 
-    // 行幾何が row_count と揃っていれば VisibleRowRange、未確定なら全行 [0, row_count)。
-    std::pair<size_t, size_t> RowsInViewport(size_t row_count, float local_top, float local_bottom) const noexcept
+    // 行幾何があれば VisibleRowRange、未確定なら全行 [0, row_count)。
+    std::pair<size_t, size_t> RowsInViewport(float local_top, float local_bottom) const noexcept
     {
-        if (!HasRowGeometry(row_count)) {
+        if (!HasRowGeometry()) {
             return { 0, row_count };
         }
         return VisibleRowRange(local_top, local_bottom);
@@ -179,6 +179,12 @@ struct TableLayoutData {
     // local_y がヒットする行インデックスを返す。ヒットなしは -1。
     // 座標はエントリ上端からのローカル系。row_cum_y が空でもヒットなし扱い。
     int RowIndexAt(float local_y) const noexcept;
+
+private:
+    void RebuildColCumX();
+
+    // 列幅・行高さ・累積位置が entry.height と揃っている。CommitGeometry で立ち、InvalidateGeometry で落ちる。
+    bool geometry_valid = false;
 };
 
 // セル枠の左端 (左罫線の右) と行上端 (上罫線の位置) から、セル本文の描画原点を求める。
@@ -188,21 +194,52 @@ constexpr D2D1_POINT_2F TableCellTextOrigin(float cell_left, float row_top) noex
     return { cell_left + TABLE_CELL_PADDING, row_top + TABLE_CELL_PADDING };
 }
 
-// レイアウトローカル Y の範囲 [top, bottom]。既定値はどの範囲も含まない空範囲。
-struct LocalYRange {
-    float top = std::numeric_limits<float>::infinity();
-    float bottom = -std::numeric_limits<float>::infinity();
+// Y の閉区間 [top, bottom]。文書座標でも、エントリ上端からのローカル座標でも使う。
+// 「全部」と「空」のどちらにもなりうるので既定値は持たせず、All() / None() で明示する。
+struct YRange {
+    static constexpr float kInf = std::numeric_limits<float>::infinity();
+    float top;
+    float bottom;
 
-    constexpr bool Contains(const LocalYRange& r) const noexcept
+    constexpr YRange(float t, float b) noexcept : top(t), bottom(b)
+    {
+    }
+    // どの Y も含む。帯の二分探索・下端 break がすべて素通りになる。
+    static constexpr YRange All() noexcept
+    {
+        return { -kInf, kInf };
+    }
+    // どの範囲も含まない。
+    static constexpr YRange None() noexcept
+    {
+        return { kInf, -kInf };
+    }
+
+    constexpr bool Contains(const YRange& r) const noexcept
     {
         return top <= r.top && r.bottom <= bottom;
     }
+    constexpr YRange ToLocal(float entry_top) const noexcept
+    {
+        return { top - entry_top, bottom - entry_top };
+    }
 };
+
+namespace layout {
+
+// scroll_y から height の可視範囲に、上下 height * screens ずつ足した範囲。
+constexpr YRange BufferedRange(float scroll_y, float height, float screens) noexcept
+{
+    const float buffer = height * screens;
+    return { scroll_y - buffer, scroll_y + height + buffer };
+}
+
+} // namespace layout
 
 // 本文 text_layout のうち、ローカル Y 範囲 y にかかる行のテキスト範囲 [text_begin, text_end) (UTF-16)。
 // 検索・選択ハイライトが共有し、可視範囲が y に収まる間は引き直さない。
 struct LineWindow {
-    LocalYRange y;
+    YRange y = YRange::None();
     uint32_t text_begin = 0;
     uint32_t text_end = 0;
 };
@@ -391,9 +428,15 @@ struct NodeLayoutEntry {
     {
         return aux_ ? aux_->table_layout.get() : nullptr;
     }
-    constexpr TableLayoutData& ensure_table_layout()
+    // 表の大きさは最初に確保したときに決まる。has_inline_code は確保するときだけ見る。
+    TableLayoutData& ensure_table_layout(size_t row_count, size_t col_count, bool has_inline_code = false)
     {
-        return layout::detail::EnsureUnique(ensure_aux().table_layout);
+        auto& table = ensure_aux().table_layout;
+        if (!table) {
+            table = std::make_unique<TableLayoutData>(row_count, col_count, has_inline_code);
+        }
+        assert(table->row_count == row_count && table->col_count == col_count);
+        return *table;
     }
 
     constexpr std::pmr::vector<InlineCodeBg>& ensure_inline_code_bgs()
@@ -413,20 +456,6 @@ struct NodeLayoutEntry {
         return aux_ ? std::span<const InlineCodeBg>{ aux_->inline_code_bgs } : std::span<const InlineCodeBg>{};
     }
 
-    // テーブル幾何だけ残して、計測・描画で作った状態を捨てる。テーブル幾何も無ければ aux_ ごと解放する。
-    void reset_layout_state() noexcept
-    {
-        if (!aux_) {
-            return;
-        }
-        if (auto table = std::move(aux_->table_layout)) {
-            *aux_ = Aux{};
-            aux_->table_layout = std::move(table);
-        }
-        else {
-            aux_.reset();
-        }
-    }
     // 計測・描画で作った状態をテーブル幾何も含めて捨てる。
     constexpr void release_layout_state() noexcept
     {
@@ -458,8 +487,10 @@ private:
         // 計測のたびに作り直すので、確保し直さないよう Aux に直接持つ。
         std::pmr::vector<InlineCodeBg> inline_code_bgs;
         std::pmr::vector<SyntaxToken> syntax_tokens;
-        // evict しても列幅・行高さを残すため、Aux を作り直しても引き継げるよう別に確保する。
+        // テーブルノードでしか使わないので別に確保する。
         std::unique_ptr<TableLayoutData> table_layout;
+        // ハイライト系の 3 つは unique_ptr で持つ。Aux に直に持つと、リロードで全エントリを移す TakeEntries が
+        // どのエントリも Aux を持たない文書でも遅くなった (Reload/CarryOverUnchanged 700→1100µs)。
         std::unique_ptr<SearchHlCache> search_hl_cache;
         std::unique_ptr<SelectionHlCache> selection_hl_cache;
         std::unique_ptr<LineWindow> line_window;
@@ -492,7 +523,7 @@ static_assert(sizeof(NodeLayoutEntry) <= 24, "NodeLayoutEntry size regression: m
 
 // 本文 text_layout の、view (layout ローカル Y) の上下に 1 画面ずつ足した行のテキスト範囲。
 // 同じフレームの検索・選択ハイライトが共有し、view が窓に収まる間は引き直さない。
-const LineWindow& EnsureLineWindow(const NodeLayoutEntry& entry, LocalYRange view);
+const LineWindow& EnsureLineWindow(const NodeLayoutEntry& entry, YRange view);
 
 // 図を描けなかった理由。言語で変わる文言は描くときに引き、言語を切り替えても前の言語の文言を残さない。
 struct DiagramError {
@@ -583,7 +614,12 @@ struct DiagramEntry {
 
 class LayoutCache {
 public:
-    void Resize(size_t node_count);
+    LayoutCache() = default;
+    // node_count 個の未計測 (dirty・位置 0) のエントリを持つ。文書を表示に載せる経路は MakeEstimatedLayoutCache で作る。
+    explicit LayoutCache(size_t node_count)
+        : entries_(node_count), tops_(node_count), top_block_offsets_((node_count >> kTopBlockShift) + 1, 0.0f)
+    {
+    }
 
     constexpr size_t size() const noexcept
     {
@@ -599,8 +635,8 @@ public:
         return entries_[i];
     }
 
-    // ノード Y 位置の唯一の真実。WRITE 経路は RecomputeYPositions / EstimateNodeHeights /
-    // LayoutEngine::EstimateDirtyHeights のみ。MeasureNode は触らない (= 中間状態は古い値のまま)。
+    // ノード Y 位置の唯一の真実。WRITE 経路は layout_computer の RecomputeYPositions / EstimateNodeHeights /
+    // ReestimateNodeHeights のみ。MeasureNode は触らない (= 中間状態は古い値のまま)。
     // 高さ変化時の後続ノード一括シフトが AoS のエントリを全件なめないよう、
     // 連続 float 配列として entries_ とは別に持つ。
     constexpr float Top(size_t i) const noexcept
@@ -644,7 +680,7 @@ public:
         return it != self.diagrams_.end() ? &it->second : nullptr;
     }
 
-    // すべてのテキストレイアウトを無効化する（ズーム変更時）。
+    // すべてのテキストレイアウトを無効化し、全ノードを dirty にして次の Reestimate に推定し直させる（ズーム変更時）。
     // ダイアグラム/Mermaid キャッシュの処理は呼び出し側で別途行うこと。
     void InvalidateAllLayouts(const std::pmr::vector<Node>& nodes) noexcept;
 
@@ -683,15 +719,11 @@ public:
     // 超えたら dirty を外して諦め、遅延レイアウトが同じノードを毎回計測し続けるのを止める。
     static constexpr uint8_t kMaxMeasureAttempts = 3;
 
-    // 可視範囲をまたぐテーブルの可視外行で cell_layouts を Reset する。
+    // keep (文書座標) の外にあるテーブル行の cell_layouts を Reset する。
     // 再表示時は LayoutEngine::MeasurePass の行復元で CreateTextLayout を再発行する。
-    // viewport は文書グローバル座標で渡す (entry ローカル座標ではない)。
     // table_indices は Document::GetTableNodeIndices() のうち keep 範囲と交差するもの。全エントリ走査だと 100MB 級
     // 文書でスクロール休止のたびに ~100万エントリを読むため、index リストで絞る。
-    void EvictInvisibleTableRows(std::span<const size_t> table_indices, float viewport_top, float viewport_bottom, float buffer_screens_height) noexcept;
-
-    // DPI 変更時の最小リセット。IDWriteTextLayout は DIP 単位なので不変、ピクセルに依存するハイライト矩形だけ捨てる。
-    void NotifyDpiChanged() noexcept;
+    void EvictInvisibleTableRows(std::span<const size_t> table_indices, YRange keep) noexcept;
 
     // src のノード [from, from + count) の計測結果 (高さ・テキストレイアウト・図) を、中身が同じノード
     // [to, to + count) へ移す。ハイライト系のキャッシュは選択や検索の位置に依るので捨てる。Y 位置は呼び出し側が組み直す。

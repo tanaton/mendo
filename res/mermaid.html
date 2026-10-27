@@ -32,49 +32,38 @@
     }
   }
 
+  // 描けなければ投げる。呼び出し側 (C++ が送るスクリプト) の catch が render-error でメッセージを返す。
+  // 戻り値は "幅:高さ:devicePixelRatio"。
   async function renderMermaid(code, isDark) {
-    try {
-      if (!mermaidReady()) {
-        return JSON.stringify({ ok: false, error: 'mermaid not loaded' });
-      }
-      document.body.className = isDark ? 'dark' : '';
-      ensureInitialized(isDark, true);
-      const container = document.getElementById('container');
-      container.innerHTML = '';
-      renderCount++;
-      const id = 'mmd-' + renderCount;
-      const { svg } = await mermaid.render(id, code);
-      container.innerHTML = svg;
-      // getBoundingClientRect が同期レイアウトを強制するので描画フレームを待つ必要はない
-      const svgEl = container.querySelector('svg');
-      if (svgEl) {
-        const rect = svgEl.getBoundingClientRect();
-        return JSON.stringify({
-          width: Math.ceil(rect.width),
-          height: Math.ceil(rect.height),
-          dpr: window.devicePixelRatio || 1,
-          ok: true
-        });
-      }
-      return JSON.stringify({ ok: false, error: 'SVG not found' });
-    } catch (e) {
-      return JSON.stringify({ ok: false, error: e.message || String(e) });
+    if (!mermaidReady()) {
+      throw new Error('mermaid not loaded');
     }
+    document.body.className = isDark ? 'dark' : '';
+    ensureInitialized(isDark, true);
+    const container = document.getElementById('container');
+    container.innerHTML = '';
+    renderCount++;
+    const id = 'mmd-' + renderCount;
+    const { svg } = await mermaid.render(id, code);
+    container.innerHTML = svg;
+    // getBoundingClientRect が同期レイアウトを強制するので描画フレームを待つ必要はない
+    const svgEl = container.querySelector('svg');
+    if (!svgEl) {
+      throw new Error('SVG not found');
+    }
+    const rect = svgEl.getBoundingClientRect();
+    return Math.ceil(rect.width) + ':' + Math.ceil(rect.height) + ':' + (window.devicePixelRatio || 1);
   }
 
-  // 表示用 container を触らず SVG 文字列のみ返す。PNG キャプチャ無し。
+  // 表示用 container を触らず SVG 文字列のみ返す。PNG キャプチャ無し。描けなければ投げる。
   async function renderMermaidSvg(code, isDark) {
-    try {
-      if (!mermaidReady()) {
-        return null;
-      }
-      ensureInitialized(isDark, false);
-      renderCount++;
-      const { svg } = await mermaid.render('mmd-svg-' + renderCount, code);
-      return svg;
-    } catch (e) {
-      return null;
+    if (!mermaidReady()) {
+      throw new Error('mermaid not loaded');
     }
+    ensureInitialized(isDark, false);
+    renderCount++;
+    const { svg } = await mermaid.render('mmd-svg-' + renderCount, code);
+    return svg;
   }
 
   (async function() {

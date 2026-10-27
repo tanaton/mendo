@@ -35,11 +35,8 @@ struct TableRowHit {
 };
 
 // 行幾何が未確定ならヒットなし。
-inline TableRowHit FindTableRow(const TableLayoutData& tl, size_t row_count, float local_y) noexcept
+inline TableRowHit FindTableRow(const TableLayoutData& tl, float local_y) noexcept
 {
-    if (row_count == 0 || local_y < 0.0f || !tl.HasRowGeometry(row_count)) {
-        return {};
-    }
     const int idx = tl.RowIndexAt(local_y);
     if (idx < 0) {
         return {};
@@ -55,10 +52,10 @@ struct TableColHit {
 // テーブル左右の外側は端の列にクランプする。列幾何が無効 (InvalidateGeometry 後) なら先頭列。
 inline TableColHit FindTableCol(const TableLayoutData& tl, float local_x) noexcept
 {
-    if (!tl.HasColGeometry()) {
+    if (!tl.HasGeometry()) {
         return {};
     }
-    const size_t col_count = tl.col_widths.size();
+    const size_t col_count = tl.col_count;
     const auto it = std::ranges::upper_bound(tl.col_cum_x, local_x + TABLE_BORDER_WIDTH);
     const auto pos = static_cast<size_t>(std::ranges::distance(tl.col_cum_x.begin(), it));
     const size_t idx = std::clamp(pos, size_t{ 1 }, col_count) - 1;

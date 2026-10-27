@@ -2,7 +2,6 @@
 #include "document_test_helpers.h"
 #include "parse_invariants.h"
 #include "parser.h"
-#include "parser_alerts.h"
 #include "test_nodes.h"
 #include "utility.h"
 #include <algorithm>
@@ -541,7 +540,7 @@ TEST(Parser, TableConcatStructure)
     EXPECT_EQ(tbl->cell_text_starts[2], 4u);
     EXPECT_EQ(tbl->cell_text_starts[3], 6u);
     EXPECT_EQ(tbl->cell_text_starts[4], 7u);
-    ASSERT_EQ(tbl->cell_run_starts.size(), 5u);
+    EXPECT_TRUE(tbl->cell_run_starts.empty()) << "装飾の無い表は持たない";
     ASSERT_EQ(tbl->is_header_row.size(), 2u);
     EXPECT_TRUE(tbl->is_header_row[0]);
     EXPECT_FALSE(tbl->is_header_row[1]);
@@ -550,6 +549,31 @@ TEST(Parser, TableConcatStructure)
     EXPECT_EQ(tbl->GetCellText(0, 1), "B");
     EXPECT_EQ(tbl->GetCellText(1, 0), "1");
     EXPECT_EQ(tbl->GetCellText(1, 1), "2");
+}
+
+// 最初の装飾が途中のセルに来ても、それより前のセルの run の開始位置を埋めてセルごとの run を引ける。
+// 足りない行のセルも run の無いセルとして埋まる。
+TEST(Parser, TableCellRunStartsBackfilledAtFirstRun)
+{
+    for (const std::string_view md : { std::string_view{ "| a | b |\n|---|---|\n| c | **d** |\n| e | f |" },
+                                       std::string_view{ "| a | b |\n|---|---|\n| c | **d** |\n| e |" } }) {
+        SCOPED_TRACE(md);
+        const auto nodes = ParseNodes(md);
+        ASSERT_EQ(nodes.size(), 1u);
+        EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+        const auto* tbl = nodes[0].table_data();
+        ASSERT_NE(tbl, nullptr);
+        EXPECT_EQ(tbl->cell_run_starts, (std::pmr::vector<uint32_t>{ 0, 0, 0, 0, 1, 1, 1 }));
+        for (size_t r = 0; r < tbl->row_count; ++r) {
+            for (size_t c = 0; c < tbl->col_count; ++c) {
+                const auto runs = tbl->GetCellRuns(r, c);
+                ASSERT_EQ(runs.size(), r == 1 && c == 1 ? 1u : 0u) << r << "," << c;
+                if (!runs.empty()) {
+                    EXPECT_TRUE(runs[0].bold());
+                }
+            }
+        }
+    }
 }
 
 TEST(Parser, TableHeaderCells)
@@ -868,10 +892,10 @@ TEST(Parser, MermaidCodeBlock)
 TEST(Parser, LatexDisplayMathSingleLinePromotedToDiagram)
 {
     auto result = ParseMarkdown("$$E = mc^2$$");
-    ASSERT_EQ(result.nodes().size(), 1u);
-    EXPECT_EQ(result.nodes()[0].type, NodeType::Diagram);
-    EXPECT_EQ(result.nodes()[0].code_language(), SyntaxLanguage::LatexMath);
-    EXPECT_EQ(result.nodes()[0].GetText(), "E = mc^2");
+    ASSERT_EQ(result.nodes.size(), 1u);
+    EXPECT_EQ(result.nodes[0].type, NodeType::Diagram);
+    EXPECT_EQ(result.nodes[0].code_language(), SyntaxLanguage::LatexMath);
+    EXPECT_EQ(result.nodes[0].GetText(), "E = mc^2");
     // diagram_indices に登録される（描画パイプラインに流すため）
     ASSERT_EQ(result.indices.diagram_indices.size(), 1u);
     EXPECT_EQ(result.indices.diagram_indices[0], 0u);
@@ -894,6 +918,43 @@ TEST(Parser, LatexMultipleDisplayMathInOneParagraphFallsBackToText)
     auto nodes = ParseNodes("$$a$$ $$b$$");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
+}
+
+// 数式以外のテキストの種別ごとに、$$..$$ だけの段落かを判定する。HTML は表示しないので数えない。
+TEST(Parser, LatexDisplayMathPromotionDependsOnOtherTextType)
+{
+    struct Case {
+        std::string_view md;
+        bool promoted;
+    };
+    for (const auto& c : {
+             Case{ "$$x$$ &amp;", false },
+             Case{ "$$x$$&amp;", false },
+             Case{ "$$x$$  \nnext", false },
+             Case{ "$$x$$\nnext", false },
+             Case{ "$$x$$ `c`", false },
+             Case{ "$$x$$<!-- c -->", true },
+         }) {
+        SCOPED_TRACE(c.md);
+        auto nodes = ParseNodes(c.md);
+        ASSERT_FALSE(nodes.empty());
+        EXPECT_EQ(nodes[0].type == NodeType::Diagram, c.promoted);
+    }
+}
+
+// 長くて区切った $$..$$ は昇格させず、本文のまま続きのノードに並べる。
+TEST(Parser, LatexDisplayMathSplitIntoChunksNotPromoted)
+{
+    std::string md = "$$";
+    while (md.size() < kTextChunkTarget * 2) {
+        md += "x + ";
+    }
+    md += "y$$";
+    auto nodes = ParseNodes(md);
+    ASSERT_GT(nodes.size(), 1u);
+    for (const auto& n : nodes) {
+        EXPECT_EQ(n.type, NodeType::Paragraph);
+    }
 }
 
 TEST(Parser, LatexInlineMathRemainsAsText)
@@ -931,11 +992,11 @@ TEST(Parser, LatexDisplayMathMultiline)
 {
     // 複数行にわたる $$...$$ でも昇格される（中身はパーサがそのまま保持）
     auto result = ParseMarkdown("$$\nE = mc^2\n$$");
-    ASSERT_EQ(result.nodes().size(), 1u);
-    EXPECT_EQ(result.nodes()[0].type, NodeType::Diagram);
-    EXPECT_EQ(result.nodes()[0].code_language(), SyntaxLanguage::LatexMath);
+    ASSERT_EQ(result.nodes.size(), 1u);
+    EXPECT_EQ(result.nodes[0].type, NodeType::Diagram);
+    EXPECT_EQ(result.nodes[0].code_language(), SyntaxLanguage::LatexMath);
     // 中身に 'E = mc^2' が含まれること（md4c の改行扱いに依存するが、式本体は保持される）
-    const auto& body = result.nodes()[0].GetText();
+    const auto& body = result.nodes[0].GetText();
     EXPECT_TRUE(body.contains("E = mc^2"));
 }
 
@@ -951,12 +1012,12 @@ TEST(Parser, LatexDisplayMathLineCountMatchesNewlines)
     for (const auto src : sources) {
         SCOPED_TRACE(std::string{ src });
         auto result = ParseMarkdown(src);
-        ASSERT_EQ(result.nodes().size(), 1u);
-        ASSERT_EQ(result.nodes()[0].type, NodeType::Diagram);
-        ASSERT_EQ(result.nodes()[0].code_language(), SyntaxLanguage::LatexMath);
-        const auto text = result.nodes()[0].GetText();
+        ASSERT_EQ(result.nodes.size(), 1u);
+        ASSERT_EQ(result.nodes[0].type, NodeType::Diagram);
+        ASSERT_EQ(result.nodes[0].code_language(), SyntaxLanguage::LatexMath);
+        const auto text = result.nodes[0].GetText();
         const auto expected = static_cast<int>(std::ranges::count(text, '\n'));
-        EXPECT_EQ(result.nodes()[0].line_count, expected);
+        EXPECT_EQ(result.nodes[0].line_count, expected);
     }
 }
 
@@ -964,12 +1025,12 @@ TEST(Parser, LatexDisplayMathSurroundingParagraphs)
 {
     // 前後に通常段落がある場合も、純粋な $$...$$ 段落のみ昇格される
     auto result = ParseMarkdown("before\n\n$$E=mc^2$$\n\nafter");
-    ASSERT_EQ(result.nodes().size(), 3u);
-    EXPECT_EQ(result.nodes()[0].type, NodeType::Paragraph);
-    EXPECT_EQ(result.nodes()[1].type, NodeType::Diagram);
-    EXPECT_EQ(result.nodes()[1].code_language(), SyntaxLanguage::LatexMath);
-    EXPECT_EQ(result.nodes()[1].GetText(), "E=mc^2");
-    EXPECT_EQ(result.nodes()[2].type, NodeType::Paragraph);
+    ASSERT_EQ(result.nodes.size(), 3u);
+    EXPECT_EQ(result.nodes[0].type, NodeType::Paragraph);
+    EXPECT_EQ(result.nodes[1].type, NodeType::Diagram);
+    EXPECT_EQ(result.nodes[1].code_language(), SyntaxLanguage::LatexMath);
+    EXPECT_EQ(result.nodes[1].GetText(), "E=mc^2");
+    EXPECT_EQ(result.nodes[2].type, NodeType::Paragraph);
     ASSERT_EQ(result.indices.diagram_indices.size(), 1u);
     EXPECT_EQ(result.indices.diagram_indices[0], 1u);
 }
@@ -978,10 +1039,10 @@ TEST(Parser, MathFencedCodeBlockIsLatexDiagram)
 {
     // GitHub / GitLab 互換の ```math も $$...$$ と同じく図として描画する
     auto result = ParseMarkdown("before\n\n```math\n\\frac{a}{b}\n\\sqrt{x}\n```");
-    ASSERT_EQ(result.nodes().size(), 2u);
-    EXPECT_EQ(result.nodes()[1].type, NodeType::Diagram);
-    EXPECT_EQ(result.nodes()[1].code_language(), SyntaxLanguage::LatexMath);
-    EXPECT_EQ(result.nodes()[1].GetText(), "\\frac{a}{b}\n\\sqrt{x}");
+    ASSERT_EQ(result.nodes.size(), 2u);
+    EXPECT_EQ(result.nodes[1].type, NodeType::Diagram);
+    EXPECT_EQ(result.nodes[1].code_language(), SyntaxLanguage::LatexMath);
+    EXPECT_EQ(result.nodes[1].GetText(), "\\frac{a}{b}\n\\sqrt{x}");
     ASSERT_EQ(result.indices.diagram_indices.size(), 1u);
     EXPECT_EQ(result.indices.diagram_indices[0], 1u);
 }
@@ -1025,7 +1086,7 @@ TEST(Parser, AlertMarkerBecomesLabelLine)
         ASSERT_EQ(nodes.size(), 1u);
         EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
         EXPECT_EQ(nodes[0].alert_type, c.type);
-        const auto label = std::string{ GetAlertIcon(c.type) } + " " + std::string{ GetAlertLabel(c.type) };
+        const std::string label{ AlertHeadText(c.type) };
         EXPECT_EQ(nodes[0].GetText(), label + "\n" + std::string{ c.body });
         EXPECT_EQ(nodes[0].alert_label_length(), label.size());
     }
@@ -1051,8 +1112,7 @@ TEST(Parser, AlertMarkerFollowedByTrailingSpacesIsAlert)
         const auto nodes = ParseNodes(md);
         ASSERT_EQ(nodes.size(), 1u);
         EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
-        const auto label = std::string{ GetAlertIcon(AlertType::Note) } + " " + std::string{ GetAlertLabel(AlertType::Note) };
-        EXPECT_EQ(nodes[0].GetText(), label + "\nbody");
+        EXPECT_EQ(nodes[0].GetText(), std::string{ AlertHeadText(AlertType::Note) } + "\nbody");
         EXPECT_TRUE(ParseInvariantsHold(md, nodes));
     }
 }
@@ -1073,7 +1133,7 @@ TEST(Parser, AlertLabelIsBold)
     ASSERT_GE(nodes.size(), 1u);
     ASSERT_GE(nodes[0].runs().size(), 1u);
     // 最初のランはラベル部分で太字、アイコン絵文字は含まない
-    const auto icon_len = static_cast<uint32_t>(GetAlertIcon(AlertType::Note).size());
+    const auto icon_len = static_cast<uint32_t>(AlertHeadText(AlertType::Note).find(' '));
     EXPECT_TRUE(nodes[0].runs()[0].bold());
     EXPECT_EQ(nodes[0].runs()[0].start, icon_len);
     EXPECT_EQ(nodes[0].runs()[0].start + nodes[0].runs()[0].length, nodes[0].alert_label_length());
@@ -1113,17 +1173,16 @@ TEST(Parser, AlertRunsShiftExactlyPastLabelLine)
     ASSERT_EQ(node.alert_type, AlertType::Note);
     EXPECT_TRUE(ParseInvariantsHold(md, nodes));
 
-    const auto icon = GetAlertIcon(AlertType::Note);
-    const auto label = GetAlertLabel(AlertType::Note);
-    const auto head = std::string(icon) + " " + std::string(label);
+    const std::string head{ AlertHeadText(AlertType::Note) };
+    const size_t icon_size = head.find(' ');
     EXPECT_EQ(node.GetText(), head + "\nb l");
     EXPECT_EQ(node.line_count, 1);
     EXPECT_EQ(node.alert_label_length(), head.size());
 
     const auto runs = node.runs();
     ASSERT_EQ(runs.size(), 3u);
-    EXPECT_EQ(runs[0].start, icon.size());
-    EXPECT_EQ(runs[0].length, 1 + label.size());
+    EXPECT_EQ(runs[0].start, icon_size);
+    EXPECT_EQ(runs[0].length, head.size() - icon_size);
     EXPECT_TRUE(runs[0].bold());
     EXPECT_EQ(runs[1].start, head.size() + 1);
     EXPECT_EQ(runs[1].length, 1u);
@@ -1165,8 +1224,7 @@ TEST(Parser, AlertMarkerOnlyNoContent)
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
     // マーカーだけの場合、アイコン + スペース + ラベルのみ残る
-    std::string expected = std::string(GetAlertIcon(AlertType::Note)) + " Note";
-    EXPECT_EQ(nodes[0].GetText(), expected);
+    EXPECT_EQ(nodes[0].GetText(), AlertHeadText(AlertType::Note));
 }
 
 TEST(Parser, AlertFollowedByRegularBlockquote)
@@ -1202,8 +1260,7 @@ TEST(Parser, AlertMarkerFollowedByImageStaysAlert)
         ASSERT_EQ(nodes.size(), 2u);
         EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
         EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
-        const auto label = std::string{ GetAlertIcon(AlertType::Note) } + " " + std::string{ GetAlertLabel(AlertType::Note) };
-        EXPECT_EQ(nodes[0].GetText(), label);
+        EXPECT_EQ(nodes[0].GetText(), AlertHeadText(AlertType::Note));
         ASSERT_EQ(nodes[1].type, NodeType::Image);
         ASSERT_NE(nodes[1].image_data(), nullptr);
         EXPECT_EQ(nodes[1].image_data()->src, "p.png");
@@ -1304,23 +1361,6 @@ TEST(Parser, AlertUnknownTypeIgnored)
     EXPECT_TRUE(nodes[0].GetText().contains("UNKNOWN"));
 }
 
-TEST(Parser, AlertLabelContents)
-{
-    // 各AlertTypeのラベル文字列を確認
-    EXPECT_EQ(GetAlertLabel(AlertType::Note), "Note");
-    EXPECT_EQ(GetAlertLabel(AlertType::Tip), "Tip");
-    EXPECT_EQ(GetAlertLabel(AlertType::Important), "Important");
-    EXPECT_EQ(GetAlertLabel(AlertType::Warning), "Warning");
-    EXPECT_EQ(GetAlertLabel(AlertType::Caution), "Caution");
-    EXPECT_EQ(GetAlertLabel(AlertType::None), "");
-}
-
-// ノードは ParseResult の arena を指すので、一時オブジェクトからノードだけを参照できないこと。
-template <class R>
-concept HasNodes = requires(R&& r) { std::forward<R>(r).nodes(); };
-static_assert(HasNodes<ParseResult&>);
-static_assert(!HasNodes<ParseResult>);
-
 // ノードが細かい文書でも粗い文書でも、パース後のノード配列に大きな余りを残さない。
 TEST(Parser, NodeCapacityStaysNearSize)
 {
@@ -1333,18 +1373,10 @@ TEST(Parser, NodeCapacityStaysNearSize)
     sparse += "\n```\n";
     for (const std::string& md : { dense, sparse }) {
         auto result = ParseMarkdown(md);
-        const auto& nodes = result.nodes();
+        const auto& nodes = result.nodes;
         ASSERT_FALSE(nodes.empty());
         EXPECT_LE(nodes.capacity(), nodes.size() + nodes.size() / 4) << "size=" << nodes.size();
     }
-}
-
-TEST(Parser, DetectAlertsOnEmptyVector)
-{
-    std::pmr::vector<Node> nodes;
-    TextArena arena;
-    DetectAlerts(nodes, arena, {}); // クラッシュしないべき
-    EXPECT_TRUE(nodes.empty());
 }
 
 TEST(Parser, AlertWithInlineFormatting)
@@ -1479,54 +1511,58 @@ TEST(Parser, ParseMarkdownStopTokenAlreadyRequestedAbortsEarly)
 
     auto result = ParseMarkdown(markdown, ss.get_token());
     // 初回 OnEnterBlock で abort されるためノード列は空。
-    EXPECT_TRUE(result.nodes().empty());
+    EXPECT_TRUE(result.nodes.empty());
 }
 
 TEST(Parser, ParseMarkdownDefaultStopTokenWorksAsUsual)
 {
     // default-constructed の stop_token は never stop_requested。従来動作を維持。
     auto result = ParseMarkdown("# Title\n\nBody");
-    EXPECT_FALSE(result.nodes().empty());
+    EXPECT_FALSE(result.nodes.empty());
 }
 
-// ---- Alert マーカー判定の補助関数 ----
+// ---- Alert マーカーの判定 ----
 
-// マーカーと直後の区切り 1 文字だけなら true。
-TEST(Parser, IsAlertMarkerOnly)
+// 先頭行がマーカーだけなら Alert になり、ソフト改行は改行のまま残る。そうでなければ空白になる。
+TEST(Parser, AlertMarkerOnlyFirstLine)
 {
     struct Case {
-        std::string_view text;
-        bool expected;
+        std::string_view marker;
+        AlertType type;
     };
     constexpr Case kCases[] = {
-        { "[!NOTE]", true },
-        { "[!note]", true },
-        { "[!WARNING] ", false },
-        { "[!TIP]\n", true },
-        { "", false },
-        { "[!NOTE] body", false },
-        { "[!NOTE]  ", false },
-        { "[!FOO]", false },
-        { "[!]", false },
-        { "[NOTE]", false },
-        { " [!NOTE]", false },
+        { "[!NOTE]", AlertType::Note },
+        { "[!note]", AlertType::Note },
+        { "[!TIP]", AlertType::Tip },
+        { "[!NOTE] x", AlertType::None },
+        { "[!FOO]", AlertType::None },
+        { "[!]", AlertType::None },
+        { "[NOTE]", AlertType::None },
     };
     for (const auto& c : kCases) {
-        SCOPED_TRACE(::testing::PrintToString(c.text));
-        EXPECT_EQ(IsAlertMarkerOnly(c.text), c.expected);
+        SCOPED_TRACE(c.marker);
+        const std::string md = std::format("> {}\n> body", c.marker);
+        const auto nodes = ParseNodes(md);
+        ASSERT_EQ(nodes.size(), 1u);
+        EXPECT_EQ(nodes[0].alert_type, c.type);
+        const std::string expected = c.type == AlertType::None ? std::format("{} body", c.marker)
+                                                               : std::format("{}\nbody", AlertHeadText(c.type));
+        EXPECT_EQ(nodes[0].GetText(), expected);
     }
 }
 
-// 最外側 blockquote グループの先頭ノードだけが候補。
-TEST(Parser, IsAlertHeadCandidateOnlyForFirstNodeOfOuterQuote)
+// マーカーは最外側の引用グループの先頭段落でだけ効く。
+TEST(Parser, AlertMarkerOnlyAtHeadOfOuterQuote)
 {
-    const auto nodes = ParseNodes("> first\n>\n> second\n\npara\n\n> other\n\n> > nested");
+    const auto nodes = ParseNodes("> [!NOTE]\n>\n> [!TIP]\n\n[!NOTE]\n\n> [!TIP]\n\n> > [!NOTE]");
     ASSERT_EQ(nodes.size(), 5u);
-    EXPECT_TRUE(IsAlertHeadCandidate(nodes, 0));
-    EXPECT_FALSE(IsAlertHeadCandidate(nodes, 1)) << "同じ引用の 2 段落目";
-    EXPECT_FALSE(IsAlertHeadCandidate(nodes, 2)) << "引用外の段落";
-    EXPECT_TRUE(IsAlertHeadCandidate(nodes, 3)) << "別の引用グループの先頭";
-    EXPECT_FALSE(IsAlertHeadCandidate(nodes, 4)) << "ネストした引用";
+    EXPECT_EQ(nodes[0].GetText(), AlertHeadText(AlertType::Note));
+    EXPECT_EQ(nodes[1].GetText(), "[!TIP]") << "同じ引用の 2 段落目";
+    EXPECT_EQ(nodes[1].alert_type, AlertType::Note);
+    EXPECT_EQ(nodes[2].alert_type, AlertType::None) << "引用外の段落";
+    EXPECT_EQ(nodes[3].GetText(), AlertHeadText(AlertType::Tip)) << "別の引用グループの先頭";
+    EXPECT_EQ(nodes[4].alert_type, AlertType::None) << "ネストした引用";
+    EXPECT_EQ(nodes[4].GetText(), "[!NOTE]");
 }
 
 // ---- 脚注 ----
@@ -1554,7 +1590,7 @@ TEST(Parser, FootnoteRefBecomesNumberedLinkAndDefinitionMovesToEnd)
 {
     const std::string md = "Text[^1].\n\n[^1]: Note **here**.\n\nAfter.";
     const auto result = ParseMarkdown(md);
-    const auto& nodes = result.nodes();
+    const auto& nodes = result.nodes;
     ASSERT_EQ(nodes.size(), 4u);
     EXPECT_EQ(nodes[0].GetText(), "Text[1].");
     EXPECT_EQ(LinkUrlAt(nodes[0], "[1]"), "#user-content-fn-1");
@@ -1576,7 +1612,7 @@ TEST(Parser, FootnoteRefBecomesNumberedLinkAndDefinitionMovesToEnd)
 TEST(Parser, FootnotesAreNumberedInReferenceOrder)
 {
     const auto result = ParseMarkdown("A[^b] B[^a]\n\n[^a]: first\n[^b]: second");
-    const auto& nodes = result.nodes();
+    const auto& nodes = result.nodes;
     ASSERT_EQ(nodes.size(), 4u);
     EXPECT_EQ(nodes[0].GetText(), "A[1] B[2]");
     EXPECT_EQ(nodes[2].GetText(), "second ↩");
@@ -1588,7 +1624,7 @@ TEST(Parser, FootnotesAreNumberedInReferenceOrder)
 TEST(Parser, FootnoteWithMultipleRefsGetsNumberedBackrefs)
 {
     const auto result = ParseMarkdown("x[^1] y[^1]\n\n[^1]: n");
-    const auto& nodes = result.nodes();
+    const auto& nodes = result.nodes;
     ASSERT_EQ(nodes.size(), 3u);
     EXPECT_EQ(nodes[2].GetText(), "n ↩ ↩2");
     EXPECT_EQ(LinkUrlAt(nodes[2], "↩2"), "#user-content-fnref-1-2");
@@ -1601,7 +1637,7 @@ TEST(Parser, FootnoteRefInTableIsCountedOnce)
 {
     const std::string md = "| h |\n|---|\n| c[^1] |\n\nz[^1]\n\n[^1]: n";
     const auto result = ParseMarkdown(md);
-    const auto& nodes = result.nodes();
+    const auto& nodes = result.nodes;
     ASSERT_EQ(nodes.size(), 4u);
     EXPECT_EQ(nodes[0].table_data()->GetCellText(1, 0), "c[1]");
     EXPECT_EQ(nodes[3].GetText(), "n ↩ ↩2");
@@ -1614,7 +1650,7 @@ TEST(Parser, FootnoteRefInTableIsCountedOnce)
 TEST(Parser, FootnoteRefInsideLaterDefinitionGetsBackref)
 {
     const auto result = ParseMarkdown("a[^1] b[^2]\n\n[^1]: one\n[^2]: two[^1]");
-    const auto& nodes = result.nodes();
+    const auto& nodes = result.nodes;
     ASSERT_EQ(nodes.size(), 4u);
     EXPECT_EQ(nodes[2].GetText(), "one ↩ ↩2");
     EXPECT_EQ(nodes[3].GetText(), "two[1] ↩");
@@ -1625,8 +1661,8 @@ TEST(Parser, FootnoteRefInsideLaterDefinitionGetsBackref)
 TEST(Parser, UndefinedFootnoteRefStaysPlainText)
 {
     const auto result = ParseMarkdown("[^x] text");
-    ASSERT_EQ(result.nodes().size(), 1u);
-    EXPECT_EQ(result.nodes()[0].GetText(), "[^x] text");
+    ASSERT_EQ(result.nodes.size(), 1u);
+    EXPECT_EQ(result.nodes[0].GetText(), "[^x] text");
     EXPECT_TRUE(result.indices.footnote_refs.empty());
 }
 
@@ -1634,8 +1670,8 @@ TEST(Parser, UndefinedFootnoteRefStaysPlainText)
 TEST(Parser, UnreferencedFootnoteDefinitionIsHidden)
 {
     const auto result = ParseMarkdown("Text\n\n[^1]: unused");
-    ASSERT_EQ(result.nodes().size(), 1u);
-    EXPECT_EQ(result.nodes()[0].GetText(), "Text");
+    ASSERT_EQ(result.nodes.size(), 1u);
+    EXPECT_EQ(result.nodes[0].GetText(), "Text");
     EXPECT_TRUE(result.indices.footnote_def_indices.empty());
 }
 

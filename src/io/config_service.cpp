@@ -1,12 +1,11 @@
 #include "config_service.h"
-#include "string_convert.h"
 #include "file_io.h"
+#include "pane_layout.h"
+#include "string_convert.h"
 #include "utf8_codec.h"
 #include "win_handle.h"
-#include <algorithm>
 #include <charconv>
 #include <cmath>
-#include <ranges>
 #include <shlobj.h>
 #include <windows.h>
 
@@ -72,23 +71,8 @@ const std::filesystem::path& ConfigService::GetConfigDir() const
 
 std::filesystem::path ConfigService::GetConfigPath(std::wstring_view filename) const
 {
-    if (filename.empty()) {
-        return {};
-    }
-    if (std::ranges::any_of(filename, [](wchar_t c) static noexcept {
-        return path_util::IsPathSlash(c) || c == L':';
-    })) {
-        return {};
-    }
-    // `..` の substring 判定だと `foo...bar.txt` も誤弾きするので equality で判定する。
-    if (filename == L".." || filename == L".") {
-        return {};
-    }
     const auto& dir = GetConfigDir();
-    if (dir.empty()) {
-        return {};
-    }
-    return dir / filename;
+    return dir.empty() ? std::filesystem::path{} : dir / filename;
 }
 
 void ConfigService::Load()
@@ -207,17 +191,17 @@ std::pmr::wstring ConfigService::LoadWString(std::string_view section, std::stri
     return val ? string_convert::Utf8ToWide(*val) : std::pmr::wstring{};
 }
 
-void SessionService::SaveLastFilePath(std::wstring_view path)
+void session::SaveLastFilePath(ConfigService& config, std::wstring_view path)
 {
     if (path.empty()) {
         return;
     }
-    config_.SaveWString(kSectionSession, kKeyLastFile, path);
+    config.SaveWString(kSectionSession, kKeyLastFile, path);
 }
 
-std::pmr::wstring SessionService::LoadLastFilePath() const
+std::pmr::wstring session::LoadLastFilePath(const ConfigService& config)
 {
-    std::pmr::wstring path = config_.LoadWString(kSectionSession, kKeyLastFile);
+    std::pmr::wstring path = config.LoadWString(kSectionSession, kKeyLastFile);
     if (path.empty()) {
         return {};
     }
@@ -238,59 +222,64 @@ std::pmr::wstring SessionService::LoadLastFilePath() const
     return path;
 }
 
-void SessionService::SavePaneState(const PaneState& state)
+namespace {
+struct PaneKeys {
+    PaneTarget target;
+    std::string_view show;
+    std::string_view width;
+    std::string_view zoom;
+};
+constexpr PaneKeys kPaneKeys[] = {
+    { PaneTarget::File, kKeyShowFile, kKeyFileWidth, kKeyFileZoomLevel },
+    { PaneTarget::Toc, kKeyShowToc, kKeyTocWidth, kKeyTocZoomLevel },
+};
+} // namespace
+
+void session::SavePanes(ConfigService& config, const PaneController& panes)
 {
-    config_.SaveBool(kSectionPane, kKeyShowFile, state.show_file);
-    config_.SaveBool(kSectionPane, kKeyShowToc, state.show_toc);
-    config_.SaveInt(kSectionPane, kKeyFileWidth, static_cast<int>(std::lround(state.file_width)));
-    config_.SaveInt(kSectionPane, kKeyTocWidth, static_cast<int>(std::lround(state.toc_width)));
-    config_.SaveZoomLevel(kSectionPane, kKeyFileZoomLevel, state.file_zoom);
-    config_.SaveZoomLevel(kSectionPane, kKeyTocZoomLevel, state.toc_zoom);
+    for (const auto& k : kPaneKeys) {
+        config.SaveBool(kSectionPane, k.show, panes.IsSidePaneVisible(k.target));
+        config.SaveInt(kSectionPane, k.width, static_cast<int>(std::lround(panes.GetSidePaneWidth(k.target))));
+        config.SaveZoomLevel(kSectionPane, k.zoom, panes.SidePaneZoom(k.target));
+    }
 }
 
-SessionService::PaneState SessionService::LoadPaneState() const
+void session::LoadPanes(const ConfigService& config, PaneController& panes)
 {
-    PaneState s;
-    s.show_file = config_.LoadBool(kSectionPane, kKeyShowFile, true);
-    s.show_toc = config_.LoadBool(kSectionPane, kKeyShowToc, true);
-
     constexpr int default_int = static_cast<int>(SIDE_PANE_DEFAULT_WIDTH);
     constexpr int min_int = static_cast<int>(SIDE_PANE_MIN_WIDTH);
-
-    // 過剰幅の表示制限は ComputePaneLayout 側 (side 幅を表示時に clamp して MD ペインと
+    // 過剰幅の表示制限は PaneController::ComputeLayout 側 (side 幅を表示時に clamp して MD ペインと
     // スプリッタを画面内に保つ。論理幅は不変) に委ね、ここでは下限のみ保証する。
     // ウィンドウ幅で上限 clamp すると狭いウィンドウ起動時に保存値が min へ潰れ、
     // 終了時の再保存で恒久喪失するため。破損 INI 対策に実用上限のみ設ける。
     constexpr int kPaneWidthLoadMax = 10000;
-    const int file_w = config_.LoadInt(kSectionPane, kKeyFileWidth, default_int, min_int, kPaneWidthLoadMax);
-    const int toc_w = config_.LoadInt(kSectionPane, kKeyTocWidth, default_int, min_int, kPaneWidthLoadMax);
-    s.file_width = static_cast<float>(file_w);
-    s.toc_width = static_cast<float>(toc_w);
-    s.file_zoom = config_.LoadZoomLevel(kSectionPane, kKeyFileZoomLevel);
-    s.toc_zoom = config_.LoadZoomLevel(kSectionPane, kKeyTocZoomLevel);
-    return s;
+    for (const auto& k : kPaneKeys) {
+        panes.SetSidePaneVisible(k.target, config.LoadBool(kSectionPane, k.show, true));
+        panes.SetSidePaneWidth(k.target, static_cast<float>(config.LoadInt(kSectionPane, k.width, default_int, min_int, kPaneWidthLoadMax)));
+        panes.SidePaneZoom(k.target) = config.LoadZoomLevel(kSectionPane, k.zoom);
+    }
 }
 
-void SessionService::SaveScrollPosition(int node, float offset)
+void session::SaveScrollPosition(ConfigService& config, int node, float offset)
 {
-    config_.SaveInt(kSectionSession, kKeyScrollNode, node);
-    config_.SaveInt(kSectionSession, kKeyScrollOffset, static_cast<int>(std::lround(offset)));
+    config.SaveInt(kSectionSession, kKeyScrollNode, node);
+    config.SaveInt(kSectionSession, kKeyScrollOffset, static_cast<int>(std::lround(offset)));
 }
 
-SessionService::ScrollPosition SessionService::LoadScrollPosition() const
+session::ScrollPosition session::LoadScrollPosition(const ConfigService& config)
 {
     return {
-        .node = config_.LoadInt(kSectionSession, kKeyScrollNode, -1, -1, 1000000),
-        .offset = config_.LoadInt(kSectionSession, kKeyScrollOffset, 0, -1000000, 1000000),
+        .node = config.LoadInt(kSectionSession, kKeyScrollNode, -1, -1, 1000000),
+        .offset = config.LoadInt(kSectionSession, kKeyScrollOffset, 0, -1000000, 1000000),
     };
 }
 
-void SessionService::SaveLanguage(std::wstring_view lang_key)
+void session::SaveLanguage(ConfigService& config, std::wstring_view lang_key)
 {
-    config_.SaveWString(kSectionGeneral, kKeyLanguage, lang_key);
+    config.SaveWString(kSectionGeneral, kKeyLanguage, lang_key);
 }
 
-std::pmr::wstring SessionService::LoadLanguage() const
+std::pmr::wstring session::LoadLanguage(const ConfigService& config)
 {
-    return config_.LoadWString(kSectionGeneral, kKeyLanguage);
+    return config.LoadWString(kSectionGeneral, kKeyLanguage);
 }

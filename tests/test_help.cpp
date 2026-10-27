@@ -68,7 +68,7 @@ TEST(HelpDocumentTest, HelpPathIsNotMarkdownFile)
 }
 
 // ═══════════════════════════════════════════════
-// ヘルプを開いたときのレイアウト (App::LoadHelpDocument と同じ手順)
+// ヘルプを開いたときのレイアウト (App::ShowHelpResource と同じ手順)
 // ═══════════════════════════════════════════════
 
 class HelpLayoutTest : public MockLayoutTestBase {};
@@ -85,8 +85,7 @@ TEST_F(HelpLayoutTest, OpeningHelpAfterAnotherDocumentMeasuresVisibleContent)
         ASSERT_FALSE(text.empty());
 
         auto prev = Document::FromMarkdown("# Sample\n\nhello", L"C:/docs/sample.md");
-        LayoutCache cache;
-        cache.Resize(prev.GetNodes().size());
+        LayoutCache cache(prev.GetNodes().size());
         ComputeLayout(engine_, prev.GetNodes(), cache, kWidth, 0.0f, kViewportBottom);
 
         auto help = Document::FromMarkdown(std::move(text), HELP_PATH);

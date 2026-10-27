@@ -3,19 +3,9 @@
 #include "layout_cache.h"
 #include "layout_computer.h"
 #include "theme.h"
-#include <limits>
 #include <optional>
 
-// 計測バックエンドに渡すときはエントリ上端からのローカル座標 (ToLocal 済み)。
-struct MeasureViewportRange {
-    static constexpr float kInf = std::numeric_limits<float>::infinity();
-    float top = -kInf;
-    float bottom = kInf;
-    constexpr MeasureViewportRange ToLocal(float entry_top) const noexcept
-    {
-        return { top - entry_top, bottom - entry_top };
-    }
-};
+class TaskScheduler;
 
 struct TableRestoreResult {
     bool restored = false;
@@ -25,31 +15,54 @@ struct TableRestoreResult {
 
 // IDWriteFactory はスレッドセーフで IDWriteTextLayout は per-call 生成のため、
 // 同一インスタンスを複数ワーカーから const 経由で叩いて良い。
-// lifecycle 系 (RecreateFormats / UpdateTheme) は non-const で UI スレッドからのみ呼ぶ。
+// lifecycle 系 (RecreateFormats / SetTheme / SetScheduler) は non-const で UI スレッドからのみ呼ぶ。
 // 並列計測には const 参照で渡すので、計測中に lifecycle 系は呼べない。
 class ITextMeasurer {
 public:
     virtual ~ITextMeasurer() = default;
 
     virtual bool RecreateFormats() = 0;
-    virtual void UpdateTheme(const Theme& theme) noexcept = 0;
+
+    // 計測に使うテーマ。ズームや色の切り替えは同じ Theme を書き換えるので、渡すのは 1 回でよい。
+    void SetTheme(const Theme& theme) noexcept
+    {
+        theme_ = &theme;
+    }
+    const Theme& GetTheme() const noexcept
+    {
+        return *theme_;
+    }
+    // 並列計測 (ノード単位 / 巨大テーブルのセル単位) に使う scheduler。nullptr なら呼び出しスレッドで直列に計測する。
+    // scheduler の Shutdown より前に nullptr へ戻して参照を切る契約。
+    void SetScheduler(TaskScheduler* scheduler) noexcept
+    {
+        scheduler_ = scheduler;
+    }
+    TaskScheduler* Scheduler() const noexcept
+    {
+        return scheduler_;
+    }
 
     // 測った高さを返す。測れなければ nullopt で、エントリは dirty のまま再試行を待つ (例外と同じく上限で諦める)。
     // entry にはレイアウトなどの計測の産物だけを書き、高さと dirty の確定は MeasureEntry (CommitMeasured) に任せる。
     // 並列計測では worker ごとに別ノード・別 entry を渡す。
-    // viewport はテーブルで行単位の部分復元判定に用いる。
+    // viewport (エントリ上端からのローカル座標) はテーブルで行単位の部分復元判定に用いる。
     // ビットマップを描くノード (IsBitmapDrawNode) は渡さない。高さは MeasureEntry が BitmapNodeHeight で決める。
     virtual std::optional<float> MeasureNode(
         const Node& node, NodeLayoutEntry& entry, float max_width,
-        MeasureViewportRange viewport) const = 0;
+        YRange viewport) const = 0;
     // 幅不変のまま行単位 evict されたテーブルの、viewport 内の evict 行だけセルを再生成する。
     // layout_dirty を経由しないため、可視中に毎フレーム全行を再計測することがない。
     // 高さが変わったときの確定は呼び出し側 (CommitMeasured) に任せる。
     virtual TableRestoreResult RestoreEvictedTableRows(const Node& /*node*/, NodeLayoutEntry& /*entry*/, float /*max_width*/,
-                                                       MeasureViewportRange /*viewport*/) const
+                                                       YRange /*viewport*/) const
     {
         return {};
     }
+
+protected:
+    const Theme* theme_ = nullptr;
+    TaskScheduler* scheduler_ = nullptr;
 };
 
 // 測れたら組んだ幅 (NodeLayoutWidth) と実測値を cached_width/height に残し、同じ幅へ戻った際に
@@ -59,7 +72,7 @@ public:
 // bitmap は画像/図ノードの DiagramEntry (無ければ nullptr)。戻り値は測れたか。
 inline bool MeasureEntry(
     const ITextMeasurer& measurer, const Node& node, NodeLayoutEntry& entry, float node_width,
-    MeasureViewportRange viewport, float entry_top, const DiagramEntry* bitmap, const Theme& theme)
+    YRange viewport, float entry_top, const DiagramEntry* bitmap, const Theme& theme)
 {
     const std::optional<float> height = IsBitmapDrawNode(node)
                                             ? layout::BitmapNodeHeight(bitmap, node_width, entry.height, theme)
@@ -72,7 +85,7 @@ inline bool MeasureEntry(
 
 // RestoreEvictedTableRows で可視の evict 行を戻し、行の実測で高さが変わったら確定する。viewport はローカル座標。
 inline TableRestoreResult RestoreEntryTableRows(
-    const ITextMeasurer& measurer, const Node& node, NodeLayoutEntry& entry, float node_width, MeasureViewportRange viewport)
+    const ITextMeasurer& measurer, const Node& node, NodeLayoutEntry& entry, float node_width, YRange viewport)
 {
     const TableRestoreResult result = measurer.RestoreEvictedTableRows(node, entry, node_width, viewport);
     if (result.height) {

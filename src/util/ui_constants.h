@@ -351,7 +351,7 @@ inline constexpr int DEFAULT_WINDOW_HEIGHT = 900;
 inline constexpr LONG IME_CARET_X_OFFSET = 8;
 
 // マークダウンペインの最小幅 (DIP)。スプリッタードラッグでこれ以上 md ペインを縮められない。
-// ComputePaneLayout と PaneController の最小幅判定で共有する。
+// PaneController の表示幅の縮小とスプリッタードラッグの制約で共有する。
 inline constexpr float MD_PANE_MIN_WIDTH = 200.0f;
 
 // キーボードスクロール量（DIP）

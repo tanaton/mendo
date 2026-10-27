@@ -112,25 +112,41 @@ TEST(Theme, FontFamilyNotEmpty)
 TEST(Theme, LightThemeIsDarkTextOnWhite)
 {
     const Theme& t = GetLightTheme();
-    EXPECT_FLOAT_EQ(t.bg_color.r, 1.0f);
-    EXPECT_FLOAT_EQ(t.bg_color.g, 1.0f);
-    EXPECT_FLOAT_EQ(t.bg_color.b, 1.0f);
-    EXPECT_LT(t.text_color.r, 0.3f);
-    EXPECT_LT(t.text_color.g, 0.3f);
-    EXPECT_LT(t.text_color.b, 0.3f);
-    EXPECT_FALSE(t.IsDark());
+    const auto bg = t.Color(BrushId::Background);
+    const auto text = t.Color(BrushId::Text);
+    EXPECT_FLOAT_EQ(bg.r, 1.0f);
+    EXPECT_FLOAT_EQ(bg.g, 1.0f);
+    EXPECT_FLOAT_EQ(bg.b, 1.0f);
+    EXPECT_LT(text.r, 0.3f);
+    EXPECT_LT(text.g, 0.3f);
+    EXPECT_LT(text.b, 0.3f);
+    EXPECT_FALSE(t.dark);
 }
 
 TEST(Theme, DarkThemeIsLightTextOnDark)
 {
     const Theme& t = GetDarkTheme();
-    EXPECT_LT(t.bg_color.r, 0.3f);
-    EXPECT_LT(t.bg_color.g, 0.3f);
-    EXPECT_LT(t.bg_color.b, 0.3f);
-    EXPECT_GT(t.text_color.r, 0.7f);
-    EXPECT_GT(t.text_color.g, 0.7f);
-    EXPECT_GT(t.text_color.b, 0.7f);
-    EXPECT_TRUE(t.IsDark());
+    const auto bg = t.Color(BrushId::Background);
+    const auto text = t.Color(BrushId::Text);
+    EXPECT_LT(bg.r, 0.3f);
+    EXPECT_LT(bg.g, 0.3f);
+    EXPECT_LT(bg.b, 0.3f);
+    EXPECT_GT(text.r, 0.7f);
+    EXPECT_GT(text.g, 0.7f);
+    EXPECT_GT(text.b, 0.7f);
+    EXPECT_TRUE(t.dark);
+}
+
+// テーマを作るときに全ブラシの色を決める (未設定の色は透明の黒のまま残る)。
+TEST(Theme, EveryBrushHasColor)
+{
+    for (const auto& [name, get] : kBothThemes) {
+        SCOPED_TRACE(name);
+        const Theme& t = get();
+        for (size_t i = 0; i < BRUSH_COUNT; ++i) {
+            EXPECT_GT(t.colors[i].a, 0.0f) << "BrushId " << i;
+        }
+    }
 }
 
 // ApplyCommonLayout を両テーマで共有している契約。
@@ -155,8 +171,8 @@ TEST(Theme, DarkAndLightDifferentColors)
 {
     const Theme& light = GetLightTheme();
     const Theme& dark = GetDarkTheme();
-    EXPECT_NE(light.bg_color.r, dark.bg_color.r);
-    EXPECT_NE(light.text_color.r, dark.text_color.r);
+    EXPECT_NE(light.Color(BrushId::Background).r, dark.Color(BrushId::Background).r);
+    EXPECT_NE(light.Color(BrushId::Text).r, dark.Color(BrushId::Text).r);
 }
 
 // ---- ApplyZoom ----
@@ -259,9 +275,9 @@ TEST(Theme, AlertColorsAreOpaqueAndNonBlack)
         SCOPED_TRACE(name);
         const Theme& t = get();
         for (size_t i = 0; i < ALERT_TYPE_COUNT; ++i) {
-            const float sum = t.alert_color[i].r + t.alert_color[i].g + t.alert_color[i].b;
-            EXPECT_GT(sum, 0.0f) << "alert_color[" << i << "]";
-            EXPECT_FLOAT_EQ(t.alert_color[i].a, 1.0f) << "alert_color[" << i << "]";
+            const auto c = t.Color(AlertBrushIdFromIndex(i));
+            EXPECT_GT(c.r + c.g + c.b, 0.0f) << "alert " << i;
+            EXPECT_FLOAT_EQ(c.a, 1.0f) << "alert " << i;
         }
     }
 }
@@ -272,8 +288,9 @@ TEST(Theme, AlertBgColorsAreTranslucent)
         SCOPED_TRACE(name);
         const Theme& t = get();
         for (size_t i = 0; i < ALERT_TYPE_COUNT; ++i) {
-            EXPECT_GT(t.alert_bg_color[i].a, 0.0f) << "alert_bg_color[" << i << "]";
-            EXPECT_LT(t.alert_bg_color[i].a, 1.0f) << "alert_bg_color[" << i << "]";
+            const auto c = t.Color(AlertBgBrushIdFromIndex(i));
+            EXPECT_GT(c.a, 0.0f) << "alert bg " << i;
+            EXPECT_LT(c.a, 1.0f) << "alert bg " << i;
         }
     }
 }
@@ -283,7 +300,7 @@ TEST(Theme, LightAndDarkAlertColorsDiffer)
     const Theme& light = GetLightTheme();
     const Theme& dark = GetDarkTheme();
     for (size_t i = 0; i < ALERT_TYPE_COUNT; ++i) {
-        EXPECT_FALSE(SameRgb(light.alert_color[i], dark.alert_color[i])) << "alert_color[" << i << "]";
+        EXPECT_FALSE(SameRgb(light.Color(AlertBrushIdFromIndex(i)), dark.Color(AlertBrushIdFromIndex(i)))) << "alert " << i;
     }
 }
 
@@ -292,7 +309,7 @@ TEST(Theme, AlertColorsAreDistinct)
     const Theme& t = GetLightTheme();
     for (size_t i = 0; i < ALERT_TYPE_COUNT; ++i) {
         for (size_t j = i + 1; j < ALERT_TYPE_COUNT; ++j) {
-            EXPECT_FALSE(SameRgb(t.alert_color[i], t.alert_color[j])) << "alert_color[" << i << "] と [" << j << "]";
+            EXPECT_FALSE(SameRgb(t.Color(AlertBrushIdFromIndex(i)), t.Color(AlertBrushIdFromIndex(j)))) << "alert " << i << " と " << j;
         }
     }
 }

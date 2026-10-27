@@ -21,21 +21,17 @@ class TaskScheduler;
 class DWriteTextMeasurer : public ITextMeasurer {
 public:
     bool RecreateFormats() override;
-    void UpdateTheme(const Theme& theme) noexcept override
-    {
-        theme_ = &theme;
-    }
 
     std::optional<float> MeasureNode(
         const Node& node,
         NodeLayoutEntry& entry,
         float max_width,
-        MeasureViewportRange viewport) const override;
+        YRange viewport) const override;
     TableRestoreResult RestoreEvictedTableRows(
         const Node& node,
         NodeLayoutEntry& entry,
         float max_width,
-        MeasureViewportRange viewport) const override;
+        YRange viewport) const override;
 
     // scheduler のワーカーを起こし、各書式で日本語を含む小さなレイアウトを作って捨てる。
     // 最初の計測がフォントの読み込みとフォールバックの解決を待たないよう、起動中の他の処理と重ねる。
@@ -46,12 +42,6 @@ public:
     void SetFactory(IDWriteFactory* factory) noexcept
     {
         ctx_.factory = factory;
-    }
-    // 巨大テーブルのセル生成を並列化する先。nullptr なら直列。LayoutEngine と同じ契約で
-    // scheduler の Shutdown より前に nullptr へ戻すこと。
-    void SetScheduler(TaskScheduler* scheduler) noexcept
-    {
-        scheduler_ = scheduler;
     }
 
 private:
@@ -71,7 +61,7 @@ private:
     static const DWriteContext* ThreadContext(const Theme& theme, uint64_t generation);
     static IDWriteTextFormat* GetTextFormat(const DWriteContext& ctx, const Node& node) noexcept;
     static IDWriteTextFormat* GetTableRowFormat(const DWriteContext& ctx, const NodeTableData& tbl, size_t r) noexcept;
-    std::optional<float> MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width, MeasureViewportRange viewport) const;
+    std::optional<float> MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width, YRange viewport) const;
     // apply_code_size=false はインラインコードを縮小しない (見出し用)。CodeBlock は run を持たない。
     void ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, bool apply_code_size) const;
     // MeasureTableCells / BuildRowCells 共通のセル生成処理。空セルは null。
@@ -79,14 +69,15 @@ private:
     // 全セルの自然幅と折り返さない高さを測り、列ごとの自然幅を tl.natural_col_widths に集計する。
     // 大きな表はセル layout を残さず、全行を evict 済みにする。
     void MeasureTableCells(const NodeTableData& tbl, TableLayoutData& tl) const;
-    void RestoreNullCellLayouts(const NodeTableData& tbl, TableLayoutData& tl, MeasureViewportRange viewport) const;
+    // viewport (ローカル座標) 内の evict 行のセルを作り直して evict を解き、戻した行を昇順で返す。
+    // row_heights を渡せば、今の列幅での行高さを戻した行の順に書く。
+    std::pmr::vector<size_t> RestoreRowsInViewport(const NodeTableData& tbl, TableLayoutData& tl, YRange viewport,
+                                                   std::pmr::vector<float>* row_heights) const;
     // evict 行 r の null セルを再生成する。書くのは行 r のセルだけなので、別の行とは並列に呼べる。
     void BuildRowCells(const NodeTableData& tbl, TableLayoutData& tl, size_t r) const;
     // 戻り値はテーブル全体の高さ。
     float FinalizeTableLayout(const NodeTableData& tbl, TableLayoutData& tl, float max_width) const;
 
-    const Theme* theme_ = nullptr;
-    TaskScheduler* scheduler_ = nullptr;
     DWriteContext ctx_;
     // RecreateFormats を呼んだスレッド。並列計測中には変わらない (RecreateFormats と同じ契約)。
     std::thread::id owner_thread_;

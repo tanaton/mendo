@@ -1,42 +1,28 @@
 #pragma once
 #include <d2d1.h>
+#include <array>
 #include <string>
+#include <utility>
+#include "brush_id.h"
 #include "document_types.h"
 #include "ui_constants.h"
 
 struct Theme {
-    // 色
-    D2D1_COLOR_F bg_color;
-    D2D1_COLOR_F text_color;
-    D2D1_COLOR_F heading_color;
-    D2D1_COLOR_F code_bg_color;
-    D2D1_COLOR_F inline_code_bg_color;
-    D2D1_COLOR_F code_text_color;
-    D2D1_COLOR_F link_color;
-    D2D1_COLOR_F hr_color;
-    D2D1_COLOR_F blockquote_bar_color;
-    D2D1_COLOR_F blockquote_text_color;
+    // 固定ブラシ (BrushId) ごとの色。半透明の重ね色や固定色も含め、テーマを作るときに全部決める。
+    std::array<D2D1_COLOR_F, BRUSH_COUNT> colors{};
+    // テーマを作るときに決める (背景の明るさからは推さない)。
+    bool dark = false;
 
-    // GitHub Alerts: AlertColorIndex() でインデックス
-    D2D1_COLOR_F alert_color[ALERT_TYPE_COUNT];    // バー・ラベル色
-    D2D1_COLOR_F alert_bg_color[ALERT_TYPE_COUNT];
-
-    // シンタックスハイライトの色
-    D2D1_COLOR_F syntax_keyword;
-    D2D1_COLOR_F syntax_type;
-    D2D1_COLOR_F syntax_string;
-    D2D1_COLOR_F syntax_number;
-    D2D1_COLOR_F syntax_comment;
-    D2D1_COLOR_F syntax_preprocessor;
-    D2D1_COLOR_F syntax_function;
-    D2D1_COLOR_F syntax_inserted;
-    D2D1_COLOR_F syntax_deleted;
+    constexpr const D2D1_COLOR_F& Color(BrushId id) const noexcept
+    {
+        return colors[std::to_underlying(id)];
+    }
 
     // フォント
     std::wstring font_family;
     // 本文の書式に渡すロケール (i18n::TextLocale)。
     const wchar_t* text_locale = L"ja-jp";
-    // 解決前は候補の先頭、Renderer::ResolveThemeFonts の後は実在する候補。
+    // 解決前は候補の先頭、ThemeService::Init の後は実在する候補。
     std::wstring monospace_font;
     std::wstring icon_font;
 
@@ -64,30 +50,11 @@ struct Theme {
     float hr_thickness;
     float h2_underline_thickness;
 
-    // タイトルバー
-    D2D1_COLOR_F titlebar_bg_color;
-    D2D1_COLOR_F titlebar_text_color;
-    D2D1_COLOR_F titlebar_button_hover_color;
-    D2D1_COLOR_F titlebar_button_active_color;
-
     // ペインレイアウト
-    D2D1_COLOR_F pane_bg_color;
-    D2D1_COLOR_F splitter_color;
-    D2D1_COLOR_F pane_item_hover_color;
-    D2D1_COLOR_F pane_item_active_color;
     float pane_item_height;
     float pane_header_height;
     float splitter_width;
     float pane_font_size;
-
-    // 検索
-    D2D1_COLOR_F search_bar_bg_color;
-    D2D1_COLOR_F search_bar_border_color;
-    D2D1_COLOR_F search_input_bg_color;
-    D2D1_COLOR_F search_input_text_color;
-    D2D1_COLOR_F search_highlight_color;         // 全マッチ（黄色系半透明）
-    D2D1_COLOR_F search_highlight_current_color; // 現在マッチ（オレンジ系）
-    D2D1_COLOR_F search_no_match_bg_color;       // マッチなし時の入力背景
 
     // ズーム（1.0 = 100%）
     float zoom = 1.0f;
@@ -102,11 +69,6 @@ struct Theme {
     {
         return (level == 2) ? h2_underline_thickness : hr_thickness;
     }
-    constexpr bool IsDark() const noexcept
-    {
-        return (bg_color.r + bg_color.g + bg_color.b) < 1.5f;
-    }
-
     void ApplyZoom(float new_zoom) noexcept;
 };
 
