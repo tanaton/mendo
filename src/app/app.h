@@ -197,7 +197,7 @@ private:
     // 関連付けの解決やブラウザの起動で数百 ms 止まりうるので、UI スレッドを待たせずに開く。
     static void ShellOpenAsync(std::pmr::wstring target);
     // 変更通知はデバウンスしてから読み直す。
-    void StartFileWatch(const std::pmr::wstring& path);
+    void StartFileWatch(FileWatchTarget target);
     void OpenFileDialog();
 
     bool IsRenderReady() const noexcept
@@ -315,7 +315,8 @@ private:
     void CancelOtherFileLoad();
     // 別の文書を表示する。estimated は next 向けに推定済みのキャッシュ (worker が MakeEstimatedLayoutCache で作ったもの)。
     // ビュー状態の後始末は DocumentOpenedAction で reducer に任せる。
-    void OpenDocument(Document next, LayoutCache estimated, bool follow_file_pane);
+    // watch は next の変更の監視 (worker が OpenWatchTarget で作ったもの)。ヘルプは空で、監視をやめる。
+    void OpenDocument(Document next, LayoutCache estimated, bool follow_file_pane, FileWatchTarget watch);
     // 同じ文書の新しい版に差し替える。中身が変わらないノードの計測結果を引き継ぎ、diff_pos の近くが見えるようにスクロールする。
     // ends は worker が数えた変わらなかったノード数。後始末は DocumentReloadedAction / ReloadSettledAction で reducer に任せる。
     void ReloadDocument(Document next, LayoutCache estimated, const UnchangedEnds& ends, size_t diff_pos);

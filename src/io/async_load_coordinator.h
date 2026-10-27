@@ -2,6 +2,7 @@
 #include "document.h"
 #include "document_utils.h"
 #include "file_io.h"
+#include "file_watcher.h"
 #include "layout_cache.h"
 #include "worker_latch.h"
 #include <cstdint>
@@ -63,6 +64,8 @@ struct AsyncLoadResult {
     // 読み終えた後もファイルが伸びている (エディタの書き込み途中)。リロードのときだけ確かめる。
     // UI スレッドはファイルに触れない (ネットワーク上のファイルで止まる) ので、結果を出す直前に worker で確かめる。
     bool still_growing = false;
+    // 開いた文書の変更の監視に使う。リロードは今の監視を続けるので作らない。
+    FileWatchTarget watch;
 };
 
 // 非同期ロード 1 回分の結果。成功時は AsyncLoadResult、失敗時はその理由。

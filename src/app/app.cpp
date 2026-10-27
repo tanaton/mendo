@@ -514,9 +514,9 @@ void App::ShellOpenAsync(std::pmr::wstring target)
     }).detach();
 }
 
-void App::StartFileWatch(const std::pmr::wstring& path)
+void App::StartFileWatch(FileWatchTarget target)
 {
-    file_watcher_.StartWatching(path, [this] {
+    file_watcher_.StartWatching(std::move(target), [this] {
         // 同じ ID の SetTimer は動いているタイマーを置き換えるので、通知のたびに待ち直しになる。
         SetTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_DEBOUNCE_MS);
     });

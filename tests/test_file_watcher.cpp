@@ -28,7 +28,7 @@ TEST_F(FileWatcherTest, WatcherDetectsChange)
 
     FileWatcher watcher;
     bool changed = false;
-    watcher.StartWatching(path.native().c_str(), [&]() { changed = true; });
+    watcher.StartWatching(OpenWatchTarget(std::pmr::wstring(path.native())), [&]() { changed = true; });
 
     ModifyAndWait(watcher, L"watch.md", "modified");
     EXPECT_TRUE(changed);
@@ -40,7 +40,7 @@ TEST_F(FileWatcherTest, WatcherDoesNotFireWithoutChange)
 
     FileWatcher watcher;
     bool changed = false;
-    watcher.StartWatching(path.native().c_str(), [&]() { changed = true; });
+    watcher.StartWatching(OpenWatchTarget(std::pmr::wstring(path.native())), [&]() { changed = true; });
 
     // 少し待ってからチェック（変更なしなので発火しないはず）
     Sleep(100);
@@ -54,7 +54,7 @@ TEST_F(FileWatcherTest, StopWatchingPreventsCallback)
 
     FileWatcher watcher;
     bool changed = false;
-    watcher.StartWatching(path.native().c_str(), [&]() { changed = true; });
+    watcher.StartWatching(OpenWatchTarget(std::pmr::wstring(path.native())), [&]() { changed = true; });
     watcher.StopWatching();
 
     WriteTempFile(L"stop.md", "modified");
@@ -71,10 +71,10 @@ TEST_F(FileWatcherTest, WatcherRestartOnNewFile)
     FileWatcher watcher;
     int old_count = 0;
     int new_count = 0;
-    watcher.StartWatching(path1.native().c_str(), [&]() { old_count++; });
+    watcher.StartWatching(OpenWatchTarget(std::pmr::wstring(path1.native())), [&]() { old_count++; });
 
     // 別のファイルの監視に切り替え
-    watcher.StartWatching(path2.native().c_str(), [&]() { new_count++; });
+    watcher.StartWatching(OpenWatchTarget(std::pmr::wstring(path2.native())), [&]() { new_count++; });
 
     // 元のファイルを変更 - ディレクトリ通知は届くが、ファイル名フィルタでコールバックが発火しないこと。
     // 誤って発火すると一時停止に入り後続の通知を握りつぶすため、最終回数ではなくここで検証する。
@@ -97,7 +97,7 @@ TEST_F(FileWatcherTest, WatcherDestructorDoesNotCrash)
     auto path = WriteTempFile(L"destructor.md", "content");
     {
         FileWatcher watcher;
-        watcher.StartWatching(path.native().c_str(), []() static {});
+        watcher.StartWatching(OpenWatchTarget(std::pmr::wstring(path.native())), []() static {});
         // デストラクタで安全に監視が停止されること
     }
 }
@@ -117,7 +117,7 @@ TEST_F(FileWatcherTest, WatchPausedAfterChangeDetected)
 
     FileWatcher watcher;
     int change_count = 0;
-    watcher.StartWatching(path.native().c_str(), [&]() { change_count++; });
+    watcher.StartWatching(OpenWatchTarget(std::pmr::wstring(path.native())), [&]() { change_count++; });
 
     ModifyAndWait(watcher, L"pause.md", "modified1");
     ASSERT_EQ(change_count, 1);
@@ -138,7 +138,7 @@ TEST_F(FileWatcherTest, DiscardPendingChangeSkipsRefireOnResume)
 
     FileWatcher watcher;
     int change_count = 0;
-    watcher.StartWatching(path.native().c_str(), [&]() { change_count++; });
+    watcher.StartWatching(OpenWatchTarget(std::pmr::wstring(path.native())), [&]() { change_count++; });
 
     ModifyAndWait(watcher, L"discard.md", "modified1");
     ASSERT_EQ(change_count, 1);
@@ -158,7 +158,7 @@ TEST_F(FileWatcherTest, RequeueIfPausedRefiresOnResume)
 
     FileWatcher watcher;
     int change_count = 0;
-    watcher.StartWatching(path.native().c_str(), [&]() { change_count++; });
+    watcher.StartWatching(OpenWatchTarget(std::pmr::wstring(path.native())), [&]() { change_count++; });
 
     ModifyAndWait(watcher, L"requeue.md", "modified1");
     ASSERT_EQ(change_count, 1);
@@ -181,7 +181,7 @@ TEST_F(FileWatcherTest, ResumeWatchingReenablesDetection)
 
     FileWatcher watcher;
     int change_count = 0;
-    watcher.StartWatching(path.native().c_str(), [&]() { change_count++; });
+    watcher.StartWatching(OpenWatchTarget(std::pmr::wstring(path.native())), [&]() { change_count++; });
 
     ModifyAndWait(watcher, L"resume.md", "modified1");
     ASSERT_EQ(change_count, 1);
@@ -205,7 +205,7 @@ TEST_F(FileWatcherTest, GetEventHandleValidWhileWatching)
 {
     auto path = WriteTempFile(L"evthandle.md", "content");
     FileWatcher watcher;
-    watcher.StartWatching(path.native().c_str(), []() static {});
+    watcher.StartWatching(OpenWatchTarget(std::pmr::wstring(path.native())), []() static {});
     EXPECT_NE(watcher.GetEventHandle(), nullptr);
 }
 
@@ -213,8 +213,24 @@ TEST_F(FileWatcherTest, GetEventHandleNullAfterStopWatching)
 {
     auto path = WriteTempFile(L"evtstop.md", "content");
     FileWatcher watcher;
-    watcher.StartWatching(path.native().c_str(), []() static {});
+    watcher.StartWatching(OpenWatchTarget(std::pmr::wstring(path.native())), []() static {});
     EXPECT_NE(watcher.GetEventHandle(), nullptr);
     watcher.StopWatching();
+    EXPECT_EQ(watcher.GetEventHandle(), nullptr);
+}
+
+// 親フォルダを開けなかった (worker の OpenWatchTarget が失敗した) ときは監視しない。今の監視もやめる。
+TEST_F(FileWatcherTest, StartWatchingWithoutFolderStopsWatching)
+{
+    auto path = WriteTempFile(L"nofolder.md", "content");
+    FileWatcher watcher;
+    watcher.StartWatching(OpenWatchTarget(std::pmr::wstring(path.native())), []() static {});
+    ASSERT_NE(watcher.GetEventHandle(), nullptr);
+
+    const std::pmr::wstring missing_path(L"C:\\__mendo_no_such_dir__\\a.md");
+    auto missing = OpenWatchTarget(missing_path);
+    EXPECT_FALSE(missing.dir);
+    EXPECT_EQ(missing.filename, L"a.md");
+    watcher.StartWatching(std::move(missing), []() static {});
     EXPECT_EQ(watcher.GetEventHandle(), nullptr);
 }

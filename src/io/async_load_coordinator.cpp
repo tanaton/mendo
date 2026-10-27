@@ -195,7 +195,8 @@ void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::pmr::w
 
     // パースの間に伸びたのも捕まえるよう、結果を出す直前に確かめる。
     const bool still_growing = reload && IsFileLargerThan(path.c_str(), file->byte_size);
-    Publish(stop_token, AsyncLoadResult{ std::move(doc), std::move(cache), std::move(reload), still_growing });
+    FileWatchTarget watch = reload ? FileWatchTarget{} : OpenWatchTarget(path);
+    Publish(stop_token, AsyncLoadResult{ std::move(doc), std::move(cache), std::move(reload), still_growing, std::move(watch) });
 }
 
 void AsyncLoadCoordinator::Publish(const std::stop_token& stop_token, AsyncLoadOutcome outcome)

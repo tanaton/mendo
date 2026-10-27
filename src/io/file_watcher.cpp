@@ -41,45 +41,43 @@ FileWatcher::~FileWatcher()
     StopWatching();
 }
 
-void FileWatcher::StartWatching(const std::pmr::wstring& file_path, ChangeCallback callback)
+FileWatchTarget OpenWatchTarget(const std::pmr::wstring& file_path)
 {
-    StopWatching();
-    on_change_ = std::move(callback);
-
-    watch_filename_ = path_util::FilenameView(file_path);
-
-    watch_filename_short_.clear();
+    FileWatchTarget target{ .filename = std::pmr::wstring(path_util::FilenameView(file_path)) };
     wchar_t short_buf[MAX_PATH];
     const DWORD short_len = GetShortPathNameW(file_path.c_str(), short_buf, MAX_PATH);
     if (short_len > 0 && short_len < MAX_PATH) {
-        if (const auto short_name = path_util::FilenameView({ short_buf, short_len }); !path_util::iequal(short_name, watch_filename_)) {
-            watch_filename_short_ = short_name;
+        if (const auto short_name = path_util::FilenameView({ short_buf, short_len }); !path_util::iequal(short_name, target.filename)) {
+            target.short_filename = short_name;
         }
     }
+    if (const auto dir = path_util::ParentDirectory(file_path); !dir.empty()) {
+        target.dir.reset(CreateFileW(
+            dir.c_str(),
+            FILE_LIST_DIRECTORY,
+            path_util::kFileShareRWDelete,
+            nullptr,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
+            nullptr));
+    }
+    return target;
+}
 
-    const auto dir = path_util::ParentDirectory(file_path);
-    if (dir.empty()) {
+void FileWatcher::StartWatching(FileWatchTarget target, ChangeCallback callback)
+{
+    StopWatching();
+    if (!target.dir) {
         return;
     }
-
-    dir_handle_.reset(CreateFileW(
-        dir.c_str(),
-        FILE_LIST_DIRECTORY,
-        path_util::kFileShareRWDelete,
-        nullptr,
-        OPEN_EXISTING,
-        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
-        nullptr));
-
-    if (!dir_handle_) {
-        return;
-    }
-
     event_.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
     if (!event_) {
-        dir_handle_.reset();
         return;
     }
+    on_change_ = std::move(callback);
+    watch_filename_ = std::move(target.filename);
+    watch_filename_short_ = std::move(target.short_filename);
+    dir_handle_ = std::move(target.dir);
 
     overlapped_ = {};
     overlapped_.hEvent = event_.get();

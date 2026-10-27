@@ -209,6 +209,23 @@ TEST_F(AsyncLoadCoordinatorTest, ReloadWithChangeParsesAndCarriesDecision)
     EXPECT_FALSE(result->still_growing);
 }
 
+// 別のファイルを開くときは監視の準備 (短縮名と親フォルダ) も worker で済ませる。リロードは今の監視を続けるので作らない。
+TEST_F(AsyncLoadCoordinatorTest, PreparesFileWatchOnlyForNewDocument)
+{
+    TempFile tmp(L"aload_watch", "# Title\n\nbody\n");
+    AsyncLoadCoordinator c;
+    c.Start(scheduler_, tmp.PmrPath(), GetLightTheme());
+    const auto outcome = WaitForOutcome(c);
+    ASSERT_TRUE(outcome.has_value());
+    ASSERT_TRUE(outcome->has_value());
+    EXPECT_TRUE((*outcome)->watch.dir);
+    EXPECT_EQ((*outcome)->watch.filename, path_util::FilenameView(tmp.PmrPath()));
+
+    auto reload = RunReload(scheduler_, tmp, "# Title\n\nold\n");
+    ASSERT_TRUE(reload.has_value());
+    EXPECT_FALSE(reload->watch.dir);
+}
+
 // 旧文書のノードを渡すと、変わらなかったノードを worker で数えて返す。UI が旧文書を手放していれば数えない。
 TEST_F(AsyncLoadCoordinatorTest, ReloadCountsUnchangedNodesOnWorker)
 {

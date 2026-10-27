@@ -69,7 +69,7 @@ void App::ShowHelpResource()
     std::pmr::string utf8(reinterpret_cast<const char*>(rc.data()), rc.size());
     Document help = Document::FromMarkdown(std::move(utf8), HELP_PATH);
     LayoutCache estimated = layout::MakeEstimatedLayoutCache(help.GetNodes(), theme_service_.GetTheme(), MdContentWidth());
-    OpenDocument(std::move(help), std::move(estimated), /*follow_file_pane=*/false);
+    OpenDocument(std::move(help), std::move(estimated), /*follow_file_pane=*/false, {});
 }
 
 namespace {
@@ -242,13 +242,13 @@ void App::OnParseComplete()
         ReloadDocument(std::move(result->doc), std::move(result->cache), result->reload->ends, plan.reload->diff_pos);
         return;
     case ParseCompleteStep::ReplaceWithResult:
-        OpenDocument(std::move(result->doc), std::move(result->cache), plan.follow_file_pane);
+        OpenDocument(std::move(result->doc), std::move(result->cache), plan.follow_file_pane, std::move(result->watch));
         return;
     }
     std::unreachable();
 }
 
-void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pane)
+void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pane, FileWatchTarget watch)
 {
     MENDO_PROFILE("OpenDocument");
 
@@ -269,9 +269,7 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
     MENDO_TRACEF("FinishLoad: scroll_y={:.1f} max_scroll={:.1f}", state_.view.viewport.GetScrollY(), MdMaxScroll());
 
     UpdateTitleBar();
-    if (state_.document.doc.HasBackingFile()) {
-        StartFileWatch(state_.document.doc.GetFilePath());
-    }
+    StartFileWatch(std::move(watch));
     // 開いただけの文書は読むだけかもしれないので、変更の通知で読み直すまでは短く閉じる。
     mermaid_renderer_.SetEditingDiagrams(false);
 }

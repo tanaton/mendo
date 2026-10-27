@@ -13,6 +13,18 @@
 // 切り詰め・破損したエントリに当たったらそこで打ち切り、buf の外は読まない。
 [[nodiscard]] bool NotifyBufferHasTargetChange(std::span<const std::byte> buf, std::wstring_view name, std::wstring_view short_name) noexcept;
 
+// 監視を始めるのに要るファイルシステムへの問い合わせ (短縮名と親フォルダを開くこと) の結果。
+// ネットワーク上のファイルではパスの要素ごとに往復が入る (ループバックの SMB でもローカルの約 5 倍、約 1ms) ので、
+// 読み込みの worker で作り (OpenWatchTarget)、UI スレッドの StartWatching に渡す。
+struct FileWatchTarget {
+    std::pmr::wstring filename;
+    // 通知は 8.3 短縮名で来ることがある (未規定)。長い名前と一致しない場合のみ持つ。
+    std::pmr::wstring short_filename;
+    // 親フォルダ。開けなければ無効で、監視しない。
+    UniqueHandle dir;
+};
+[[nodiscard]] FileWatchTarget OpenWatchTarget(const std::pmr::wstring& file_path);
+
 class FileWatcher {
 public:
     FileWatcher() = default;
@@ -22,7 +34,8 @@ public:
     FileWatcher& operator=(const FileWatcher&) = delete;
 
     using ChangeCallback = std::move_only_function<void()>;
-    void StartWatching(const std::pmr::wstring& file_path, ChangeCallback callback);
+    // 今の監視をやめ、target を監視する。target.dir が無効なら監視しない。
+    void StartWatching(FileWatchTarget target, ChangeCallback callback);
     void StopWatching() noexcept;
     void CheckForChanges();
 
@@ -50,7 +63,6 @@ private:
     void FireChange();
 
     std::pmr::wstring watch_filename_;
-    // 通知は 8.3 短縮名で来ることがある (未規定)。長い名前と一致しない場合のみ保持。
     std::pmr::wstring watch_filename_short_;
     ChangeCallback on_change_;
 
