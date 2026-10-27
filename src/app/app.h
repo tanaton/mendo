@@ -298,7 +298,7 @@ private:
     };
     // 可視範囲を計測し直し、スクロール上限・図と画像・遅延レイアウト・目次を追従させる。
     void RelayoutViewport(RelayoutResources resources);
-    void OnResizeEnd();
+    void SettleViewport();
     void OnDeferredLayout();
     // 捨てたテキストレイアウトが多ければワーカーで解放する。
     void DisposeReleasedLayouts();

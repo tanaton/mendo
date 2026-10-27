@@ -100,7 +100,7 @@ public:
     }
 
     // scroll_target が未設定なら、現在の可視先頭ノードから合成する。
-    // レイアウト変化を挟む処理（OnPaint/OnResizeEnd/OnDeferredLayout 等）の直前に呼んで、
+    // レイアウト変化を挟む処理（OnPaint/SettleViewport/OnDeferredLayout 等）の直前に呼んで、
     // 「見ている位置を保つ」挙動を target ベースで表現する。
     constexpr void EnsureScrollTarget(const LayoutCache& cache) noexcept
     {

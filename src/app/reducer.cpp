@@ -533,7 +533,7 @@ void ReduceLeftDragEnded(AppState& state, SideEffectList& effects)
     }
     EndLeftDrag(state, effects);
     if (drag == LeftDrag::Splitter || drag == LeftDrag::MdScrollbar) {
-        PushEffect(effects, effect::PerformResizeEnd{});
+        PushEffect(effects, effect::SettleViewport{});
     }
     else if (drag == LeftDrag::BlockHScroll) {
         PushEffect(effects, effect::InvalidateWindow{});
@@ -866,7 +866,7 @@ void ReduceTogglePane(AppState& state, SideEffectList& effects, const TogglePane
     state.view.hover.side_index[k] = -1;
     state.view.hover.side_button[k] = PaneHeaderButton::None;
     state.pane_layout_cache.Invalidate();
-    PushEffect(effects, effect::PerformResizeEnd{});
+    PushEffect(effects, effect::SettleViewport{});
 }
 
 void ReduceSelectAll(AppState& state, SideEffectList& effects)
@@ -1037,7 +1037,7 @@ void ReduceResize(AppState& state, SideEffectList& effects, const ResizeAction& 
         PushEffect(effects, effect::PerformSizingUpdate{});
     }
     else {
-        PushEffect(effects, effect::PerformResizeEnd{});
+        PushEffect(effects, effect::SettleViewport{});
     }
 }
 
@@ -1047,7 +1047,7 @@ void ReduceExitSizeMove(AppState& state, SideEffectList& effects)
     if (state.window.size_changed_in_sizing) {
         // ライブリサイズ中に大きめに取った描画面を、実際の大きさに合わせ直す。
         PushEffect(effects, effect::RendererResize{ state.window.client_width, state.window.client_height });
-        PushEffect(effects, effect::PerformResizeEnd{});
+        PushEffect(effects, effect::SettleViewport{});
     }
 }
 

@@ -325,7 +325,7 @@ void App::OnRButtonMove(int px, int py)
 
 void App::HandleLinkClick(std::string_view url)
 {
-    auto result = ::HandleLinkClick(url);
+    auto result = ClassifyLinkClick(url);
     switch (result.type) {
     case LinkClickResult::Type::None:
         return;

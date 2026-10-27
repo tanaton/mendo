@@ -36,7 +36,6 @@ private:
     LRESULT HitTestTitleBar(POINT pt) const noexcept;
     // マウス系のメッセージでなければ nullopt。
     std::optional<LRESULT> TryHandleMouseMessage(UINT msg, WPARAM wParam, LPARAM lParam);
-    LRESULT HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lParam);
     void OnContextMenu(int screen_x, int screen_y);
     POINT KeyboardContextMenuPoint() const;
     void OnSize(WPARAM wParam, LPARAM lParam);

@@ -462,7 +462,7 @@ std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wPara
         }
         else if (keys & MK_SHIFT) {
             // Shift+Wheel は横スクロール扱い。Web ブラウザの慣習に合わせ wheel-down を右スクロールに反転する。
-            app_->Dispatch(HWheelAction{ static_cast<short>(-wheel_delta), GetTickCount64() });
+            app_->Dispatch(HWheelAction{ -wheel_delta, GetTickCount64() });
         }
         else {
             app_->OnMouseWheel(pt.x, pt.y, wheel_delta, false);
@@ -532,8 +532,12 @@ POINT Win32Window::KeyboardContextMenuPoint() const
     return pt;
 }
 
-LRESULT Win32Window::HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lParam)
+LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
+    if (const auto result = TryHandleMouseMessage(msg, wParam, lParam)) {
+        return *result;
+    }
+
     switch (msg) {
     case app_msg::IMAGE_LOADED:
         app_->OnAppImageLoaded();
@@ -551,23 +555,6 @@ LRESULT Win32Window::HandleAppNotification(UINT msg, WPARAM wParam, LPARAM lPara
         app_->OnFileListed();
         return 0;
 
-    default:
-        break;
-    }
-    return DefWindowProcW(hwnd_, msg, wParam, lParam);
-}
-
-LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
-{
-    if (const auto result = TryHandleMouseMessage(msg, wParam, lParam)) {
-        return *result;
-    }
-
-    if (msg >= WM_APP && msg < app_msg::END) {
-        return HandleAppNotification(msg, wParam, lParam);
-    }
-
-    switch (msg) {
     case WM_NCCALCSIZE:
         return OnNcCalcSize(wParam, lParam);
 

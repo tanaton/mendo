@@ -138,7 +138,7 @@ std::pmr::string EncodeShellUnsafeChars(std::string_view url)
 
 } // namespace
 
-LinkClickResult HandleLinkClick(std::string_view url)
+LinkClickResult ClassifyLinkClick(std::string_view url)
 {
     LinkClickResult result;
     if (url.empty()) {

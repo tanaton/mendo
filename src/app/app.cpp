@@ -526,7 +526,7 @@ void App::ShellOpenAsync(std::pmr::wstring target)
 void App::StartFileWatch(const std::pmr::wstring& path)
 {
     file_watcher_.StartWatching(path, [this] {
-        KillTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE);
+        // 同じ ID の SetTimer は動いているタイマーを置き換えるので、通知のたびに待ち直しになる。
         SetTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_DEBOUNCE_MS);
     });
 }
@@ -593,8 +593,8 @@ void App::Execute(const SideEffect& effect)
         [this](const effect::ToggleDarkMode&) {
             ToggleDarkMode();
         },
-        [this](const effect::PerformResizeEnd&) {
-            OnResizeEnd();
+        [this](const effect::SettleViewport&) {
+            SettleViewport();
         },
         [this](const effect::PerformSizingUpdate&) {
             ClampScrollToContent();
@@ -932,9 +932,9 @@ void App::RelayoutViewport(RelayoutResources resources)
     SettleLayout();
 }
 
-void App::OnResizeEnd()
+void App::SettleViewport()
 {
-    MENDO_PROFILE("OnResizeEnd");
+    MENDO_PROFILE("SettleViewport");
 
     deferred_layout_pending_ = false;
     state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);

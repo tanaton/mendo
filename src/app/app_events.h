@@ -187,7 +187,7 @@ struct ReloadSettledAction {};
 // ファイルロードが失敗した (DocumentOpenedAction が来ない) ことの通知。
 struct LoadFailedAction {};
 struct HWheelAction {
-    short delta;
+    int delta; // 生の WHEEL_DELTA 単位
     uint64_t tick;
 };
 

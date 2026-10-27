@@ -47,8 +47,9 @@ struct SetWindowPosition {
 };
 struct ApplyZoom {};
 struct ToggleDarkMode {};
-// OnResizeEnd (RelayoutViewport) が BitmapManage (または遅延レイアウト) も出すので、併せて積まない。
-struct PerformResizeEnd {};
+// リサイズ・スプリッタやスクロールバーのドラッグの終わり・ペインの開閉の後に、表示位置を落ち着かせる。
+// App::SettleViewport (RelayoutViewport) が BitmapManage (または遅延レイアウト) も出すので、併せて積まない。
+struct SettleViewport {};
 struct PerformSizingUpdate {};
 struct RendererResize {
     UINT width;
@@ -97,7 +98,7 @@ using SideEffect = std::variant<
     effect::SetWindowPosition,
     effect::ApplyZoom,
     effect::ToggleDarkMode,
-    effect::PerformResizeEnd,
+    effect::SettleViewport,
     effect::PerformSizingUpdate,
     effect::RendererResize,
     effect::RendererSetDpi,

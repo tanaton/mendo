@@ -379,7 +379,7 @@ TEST_F(ReducerTest, ExitSizeMove_MoveOnly_SkipsResizeEnd)
     auto effects = Reduce(state, ExitSizeMoveAction{});
 
     EXPECT_FALSE(state.window.is_sizing);
-    EXPECT_FALSE(HasEffect<effect::PerformResizeEnd>(effects));
+    EXPECT_FALSE(HasEffect<effect::SettleViewport>(effects));
 }
 
 TEST_F(ReducerTest, ExitSizeMove_AfterResize_EmitsResizeEnd)
@@ -388,7 +388,7 @@ TEST_F(ReducerTest, ExitSizeMove_AfterResize_EmitsResizeEnd)
     Reduce(state, ResizeAction{ 800, 600 });
     auto effects = Reduce(state, ExitSizeMoveAction{});
 
-    EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
+    EXPECT_TRUE(HasEffect<effect::SettleViewport>(effects));
 }
 
 // ライブリサイズ中は描画面を大きめに使い回し、終わったら実際の大きさに合わせ直させる。
@@ -406,7 +406,7 @@ TEST_F(ReducerTest, ExitSizeMove_AfterResize_FitsRendererToClient)
     EXPECT_FALSE(fit->live);
     EXPECT_EQ(fit->width, 800u);
     EXPECT_EQ(fit->height, 600u);
-    EXPECT_TRUE((HasEffectInOrder<effect::RendererResize, effect::PerformResizeEnd>(effects)));
+    EXPECT_TRUE((HasEffectInOrder<effect::RendererResize, effect::SettleViewport>(effects)));
 }
 
 TEST_F(ReducerTest, ExitSizeMove_AfterDpiChange_EmitsResizeEnd)
@@ -415,14 +415,14 @@ TEST_F(ReducerTest, ExitSizeMove_AfterDpiChange_EmitsResizeEnd)
     Reduce(state, DpiChangedAction{ 144, RECT{ 0, 0, 800, 600 } });
     auto effects = Reduce(state, ExitSizeMoveAction{});
 
-    EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
+    EXPECT_TRUE(HasEffect<effect::SettleViewport>(effects));
 }
 
 TEST_F(ReducerTest, TogglePane_EmitsResizeEnd)
 {
     auto effects = Reduce(state, TogglePaneAction{ PaneTarget::Toc });
 
-    EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
+    EXPECT_TRUE(HasEffect<effect::SettleViewport>(effects));
 }
 
 // ---- MouseLeaveAction テスト ----
@@ -729,7 +729,7 @@ TEST_F(ReducerTest, Resize_Normal_EmitsResizeEnd)
     auto effects = Reduce(state, ResizeAction{ 800, 600 });
 
     EXPECT_TRUE(HasEffect<effect::RendererResize>(effects));
-    EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
+    EXPECT_TRUE(HasEffect<effect::SettleViewport>(effects));
     EXPECT_FALSE(state.pane_layout_cache.IsValid());
 }
 
@@ -741,7 +741,7 @@ TEST_F(ReducerTest, Resize_Sizing_EmitsSizingUpdate)
 
     EXPECT_TRUE(HasEffect<effect::RendererResize>(effects));
     EXPECT_TRUE(HasEffect<effect::PerformSizingUpdate>(effects));
-    EXPECT_FALSE(HasEffect<effect::PerformResizeEnd>(effects));
+    EXPECT_FALSE(HasEffect<effect::SettleViewport>(effects));
 }
 
 // 最小化からの復元などで同じ大きさの WM_SIZE が来ても、描画面とレイアウトは作り直さない。
@@ -1055,7 +1055,7 @@ TEST_F(ReducerTest, SplitterDragEnded_ReleasesAndRefreshes)
     EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
     EXPECT_TRUE(state.pane_layout_cache.IsValid());
     EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
-    EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
+    EXPECT_TRUE(HasEffect<effect::SettleViewport>(effects));
 }
 
 // ---- SearchInputDrag* テスト ----
@@ -1195,7 +1195,7 @@ TEST_F(ReducerTest, MdScrollbarDragEnded_ReleasesAndSchedulesResize)
 
     EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
     EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
-    EXPECT_TRUE(HasEffect<effect::PerformResizeEnd>(effects));
+    EXPECT_TRUE(HasEffect<effect::SettleViewport>(effects));
 }
 
 // ---- PaneScrollbarDrag* テスト（Toc ペイン経由）----

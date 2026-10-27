@@ -197,6 +197,8 @@ private:
     void EnqueueWebRender(RenderRequest req);
     // 要求の結果 (ビットマップかエラー) がキャッシュに入っていれば、通知して要求し直させる。
     void FinishWorkerRequest(Worker& worker);
+    // 要求をエラーで終える (SVG の要求なら失敗を知らせる)。
+    void FailWorkerRequest(Worker& worker, DiagramError::Kind kind, std::wstring_view msg = {});
     // 要求を inflight_ に残したまま、ワーカーを次の要求に回す。
     void FreeWorker(Worker& worker);
     void ReleaseInflight(const RenderRequest& req) noexcept
