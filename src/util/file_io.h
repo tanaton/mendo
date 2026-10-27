@@ -1,15 +1,18 @@
 #pragma once
 #include "ascii_util.h"
+#include "utility.h"
 #include "win_handle.h"
 #include <windows.h>
 #include <algorithm>
 #include <cstdint>
+#include <expected>
 #include <filesystem>
 #include <limits>
 #include <memory_resource>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace path_util {
@@ -92,31 +95,40 @@ inline std::optional<std::wstring> ToWin32Path(std::wstring_view path)
 
 } // namespace path_util
 
-// OpenFileForReadShared の失敗区分。
-enum class OpenFileError : uint8_t {
-    None,
-    NotFound,        // CreateFileW 失敗（存在しない/アクセス拒否など）
-    SizeQueryFailed, // GetFileSizeEx 失敗 or 負のサイズ
-    TooLarge,        // max_size を超過
+enum class FileLoadError : uint8_t {
+    NotFound,   // ファイルが見つからない、またはアクセス拒否 (CreateFileW の失敗)
+    TooLarge,   // ファイルサイズが上限を超過
+    ReadFailed, // サイズの取得や読み込み中のI/Oエラー
 };
 
-// CreateFileW + GetFileSizeEx + サイズ上限チェックを束ねた共通ヘルパーの結果。
-// 失敗時は handle が空で、error に区分が入る。
+inline std::wstring_view FileLoadErrorMessage(FileLoadError e, const auto& strings) noexcept
+{
+    switch (e) {
+    case FileLoadError::NotFound:
+        return strings.toast_file_not_found;
+    case FileLoadError::TooLarge:
+        return strings.toast_file_too_large;
+    case FileLoadError::ReadFailed:
+        return strings.toast_file_read_failed;
+    }
+    std::unreachable();
+}
+
 struct OpenedFile {
     UniqueHandle handle;
     size_t size = 0;
-    OpenFileError error = OpenFileError::None;
 };
 
-// 共有モードと最大サイズは呼び出し側で指定する。
+// CreateFileW + GetFileSizeEx + サイズ上限チェックを束ねる。共有モードと最大サイズは呼び出し側で指定する。
 // out_error は CreateFileW 失敗時のみ GetLastError() を格納する。
 // 読み取り系は wstring から filesystem::path を作るヒープ確保を避けるため、NUL 終端文字列で受ける。
-[[nodiscard]] OpenedFile OpenFileForReadShared(const wchar_t* path, DWORD share_mode, LONGLONG max_size, DWORD* out_error = nullptr) noexcept;
+[[nodiscard]] std::expected<OpenedFile, FileLoadError> OpenFileForReadShared(const wchar_t* path, DWORD share_mode, LONGLONG max_size,
+                                                                             DWORD* out_error = nullptr) noexcept;
 
 // 失敗時と空ファイルは空を返す。out_error が非 null の場合、CreateFileW 失敗時の GetLastError() を格納する。
-[[nodiscard]] std::pmr::vector<uint8_t> ReadAllBytes(const wchar_t* path, DWORD* out_error = nullptr,
-                                                     DWORD share_mode = FILE_SHARE_READ,
-                                                     LONGLONG max_size = static_cast<LONGLONG>(path_util::MAX_READABLE_FILE_SIZE));
+[[nodiscard]] ByteBuffer ReadAllBytes(const wchar_t* path, DWORD* out_error = nullptr,
+                                    DWORD share_mode = FILE_SHARE_READ,
+                                    LONGLONG max_size = static_cast<LONGLONG>(path_util::MAX_READABLE_FILE_SIZE));
 
 // 指定バイト数を ReadFile の DWORD 上限でチャンク分割して読み切る。
 // EOF・パイプ切断 (bytes_read == 0) は失敗として false を返す。

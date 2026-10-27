@@ -56,8 +56,7 @@ std::pmr::vector<Node> MakeNodes(std::initializer_list<NodeSpec> specs)
 // 計測済み (layout_dirty=false) の高さだけを持つ cache。RecomputeYPositions の入力用。
 LayoutCache MakeMeasuredCache(std::initializer_list<float> heights)
 {
-    LayoutCache cache;
-    cache.Resize(heights.size());
+    LayoutCache cache(heights.size());
     for (const auto [i, h] : std::views::enumerate(heights)) {
         auto& entry = cache[static_cast<size_t>(i)];
         entry.height = h;
@@ -68,8 +67,7 @@ LayoutCache MakeMeasuredCache(std::initializer_list<float> heights)
 
 LayoutCache EstimateHeights(const std::pmr::vector<Node>& nodes, const Theme& theme)
 {
-    LayoutCache cache;
-    cache.Resize(nodes.size());
+    LayoutCache cache(nodes.size());
     EstimateNodeHeights(nodes, cache, theme, 0.0f, {});
     return cache;
 }
@@ -137,8 +135,7 @@ TEST_F(LayoutTest, NarrowViewportWrapsText)
 TEST_F(LayoutTest, LayoutDirtyFlagCleared)
 {
     auto nodes = ParseNodes("Test");
-    LayoutCache cache;
-    cache.Resize(nodes.size());
+    LayoutCache cache(nodes.size());
     EXPECT_TRUE(cache[0].layout_dirty);
     ComputeLayout(engine_, nodes, cache, 800.0f);
     EXPECT_FALSE(cache[0].layout_dirty);
@@ -254,7 +251,7 @@ TEST_F(LayoutTest, ProcessDirtyBatchCleansNodes)
 
     // ダーティなノードがあれば処理する
     if (cache.HasDirtyNodes()) {
-        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, {});
+        bool more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline);
         // 十分に処理した後、ダーティなノードがなくなること
         EXPECT_FALSE(more);
     }
@@ -289,8 +286,7 @@ TEST_F(LayoutTest, EmptyTableMinimalHeight)
     // 0 行 0 列の空テーブル (新方式は row_count/col_count 既定で 0)
     std::pmr::vector<Node> nodes;
     nodes.emplace_back(std::move(node));
-    LayoutCache cache;
-    cache.Resize(nodes.size());
+    LayoutCache cache(nodes.size());
 
     ComputeLayout(engine_, nodes, cache, 800.0f);
     // 空のテーブルはクラッシュせず、何らかの高さを持つこと
@@ -577,8 +573,7 @@ TEST(ComputeTotalContentHeightTest, EmptyNodesReturnsZero)
 
 TEST(ComputeTotalContentHeightTest, SingleNode)
 {
-    LayoutCache cache;
-    cache.Resize(1);
+    LayoutCache cache(1);
     cache.SetTop(0, 15.0f);
     cache[0].height = 50.0f;
     EXPECT_FLOAT_EQ(ComputeTotalContentHeight(cache, 15.0f), 80.0f);
@@ -586,8 +581,7 @@ TEST(ComputeTotalContentHeightTest, SingleNode)
 
 TEST(ComputeTotalContentHeightTest, MultipleNodes)
 {
-    LayoutCache cache;
-    cache.Resize(3);
+    LayoutCache cache(3);
     cache.SetTop(0, 10.0f);
     cache[0].height = 20.0f;
     cache.SetTop(1, 40.0f);
@@ -878,8 +872,7 @@ TEST(FindFirstVisibleNodeIndex, LastNodeVisible)
 // 作った直後 (全ノードの位置・高さが 0) も該当なし扱い。
 TEST(FindFirstVisibleNodeIndex, FreshCacheReturnsNodeCount)
 {
-    LayoutCache cache;
-    cache.Resize(5);
+    LayoutCache cache(5);
     EXPECT_EQ(FindFirstVisibleNodeIndex(cache, 0.0f), 5);
 }
 
@@ -1123,8 +1116,7 @@ TEST(EstimateNodeHeightsTest, LayoutDirtyNotChanged)
 {
     const Theme theme = GetLightTheme();
     const auto nodes = MakeNodes({ { .text = "test" } });
-    LayoutCache cache;
-    cache.Resize(nodes.size());
+    LayoutCache cache(nodes.size());
 
     // layout_dirty はデフォルトで true
     ASSERT_TRUE(cache[0].layout_dirty);
@@ -1133,6 +1125,28 @@ TEST(EstimateNodeHeightsTest, LayoutDirtyNotChanged)
 
     // EstimateNodeHeights は layout_dirty を変更しないこと
     EXPECT_TRUE(cache[0].layout_dirty);
+}
+
+// 停止の確認で区切っても Y は続けて積む。区切りをまたぐ文書で、高さから一度に積み直した位置と一致する。
+TEST(EstimateNodeHeightsTest, PositionsContinueAcrossStopChecks)
+{
+    const Theme theme = GetLightTheme();
+    static const std::string md = [] {
+        std::string s;
+        for (int i = 0; i < 5000; ++i) {
+            s += (i % 7 == 0) ? "# h\n\n" : "p\n\n";
+        }
+        return s;
+    }();
+    const auto nodes = ParseNodes(md);
+    ASSERT_GT(nodes.size(), 4096u);
+    const auto estimated = EstimateHeights(nodes, theme);
+    auto recomputed = EstimateHeights(nodes, theme);
+    RecomputeYPositions(nodes, recomputed, theme);
+    const auto mismatch = std::ranges::find_if(std::views::iota(size_t{ 0 }, nodes.size()), [&](size_t i) {
+        return estimated.Top(i) != recomputed.Top(i);
+    });
+    EXPECT_EQ(*mismatch, nodes.size());
 }
 
 TEST(EstimateNodeHeightsTest, AllNodeTypesProducePositiveHeight)
@@ -1160,11 +1174,9 @@ TEST_F(LayoutTest, EstimateVsActualHeightReasonableRange)
 {
     // 推定値がDirectWrite実測値と比べて極端に乖離しないことを確認する
     auto nodes = ParseNodes("# Heading\n\nParagraph text\n\n```\ncode\n```\n\n---");
-    LayoutCache est_cache;
-    est_cache.Resize(nodes.size());
+    LayoutCache est_cache(nodes.size());
 
-    LayoutCache actual_cache;
-    actual_cache.Resize(nodes.size());
+    LayoutCache actual_cache(nodes.size());
 
     EstimateNodeHeights(nodes, est_cache, theme_, 0.0f, {});
     ComputeLayout(engine_, nodes, actual_cache, 800.0f);
@@ -1193,10 +1205,9 @@ TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout)
     float expected_y = SnapToPhysicalPixel(cache.Top(0) + lm.height * 0.5f, 1.0f);
 
     CommandGenerator gen;
-    gen.SetTheme(&theme_);
-    gen.SetFormats({ nullptr, nullptr, nullptr });
+    gen.Init(theme_);
     PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
-    auto cmds = gen.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
+    auto cmds = gen.GenerateMdPane({ .nodes = nodes, .cache = cache, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
 
     for (const auto& cmd : cmds) {
         if (auto* e = std::get_if<FillEllipseCmd>(&cmd)) {
@@ -1308,10 +1319,9 @@ TEST_F(LayoutTest, LooseListBulletCenteredOnFollowingParagraphLine)
     ASSERT_GT(lc, 0u);
 
     CommandGenerator gen;
-    gen.SetTheme(&theme_);
-    gen.SetFormats({ nullptr, nullptr, nullptr });
+    gen.Init(theme_);
     PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
-    auto cmds = gen.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
+    auto cmds = gen.GenerateMdPane({ .nodes = nodes, .cache = cache, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
 
     const float expected_y = cache.Top(1) + lm.height * 0.5f;
     bool found = false;
@@ -1347,11 +1357,10 @@ TEST_F(LayoutTest, LooseTaskListCheckboxIsEmitted)
     TextLayoutCache text_layouts;
     text_layouts.SetFactory(dwrite_factory_.Get());
     CommandGenerator gen;
-    gen.SetTheme(&theme_);
-    gen.SetFormats({ nullptr, icon_fmt.Get(), nullptr, nullptr });
-    gen.SetTextLayoutCache(&text_layouts);
+    const MdPaneFormats formats{ .checkbox = icon_fmt };
+    gen.Init(theme_, &formats, &text_layouts);
     PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
-    auto cmds = gen.GenerateMdPane(nodes, cache, md_pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
+    auto cmds = gen.GenerateMdPane({ .nodes = nodes, .cache = cache, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
 
     int unchecked = 0;
     int checked = 0;

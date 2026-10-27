@@ -65,9 +65,10 @@ constexpr uint32_t CellLengthFromOffsets(uint32_t start, uint32_t end, uint32_t 
 // テーブル専用データ（Tableノードのみ確保）。SoA レイアウトで全セルを 1 本の concat_text に連結保持し、
 // セルごとのアクセスは offset テーブル経由で O(1)。
 // 不変条件:
-//   cell_text_starts.size() == cell_run_starts.size() == row_count * col_count + 1
+//   cell_text_starts.size() == row_count * col_count + 1
 //   cell_text_starts.back() == concat_text.size()
-//   cell_run_starts.back() == all_runs.size()
+//   all_runs が空なら cell_run_starts も空。そうでなければ
+//   cell_run_starts.size() == cell_text_starts.size() かつ cell_run_starts.back() == all_runs.size()
 struct NodeTableData {
     // 全セルテキストを linearized 形式で連結 ("cell\tcell\ncell\tcell")。
     std::pmr::string concat_text;
@@ -75,7 +76,7 @@ struct NodeTableData {
     std::pmr::vector<TextRun> all_runs;
     // 各セルの concat_text 内開始 offset。番兵末尾 = concat_text.size()。
     std::pmr::vector<uint32_t> cell_text_starts;
-    // 各セルの all_runs 内開始 offset。番兵末尾 = all_runs.size()。
+    // 各セルの all_runs 内開始 offset。番兵末尾 = all_runs.size()。run の無い表では空。
     std::pmr::vector<uint32_t> cell_run_starts;
     // 列単位の align (GitHub Markdown では align は列ごと)
     std::pmr::vector<TableAlign> aligns;
@@ -122,6 +123,9 @@ struct NodeTableData {
 
     constexpr std::span<const TextRun> GetCellRuns(size_t r, size_t c) const noexcept
     {
+        if (all_runs.empty()) {
+            return {};
+        }
         const size_t idx = CellIndex(r, c);
         const auto start = cell_run_starts[idx];
         const auto end = cell_run_starts[idx + 1];

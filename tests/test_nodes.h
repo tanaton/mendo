@@ -14,7 +14,7 @@
 #include <vector>
 
 // テストで作るノードのテキスト・runs と、ParseNodes が受け取った arena はテストプロセスの終了まで残す。
-// ノードを ParseResult やテスト用の文字列より長く持つテストでも寿命を気にせず使える。
+// ノードを NodeStorage やテスト用の文字列より長く持つテストでも寿命を気にせず使える。
 namespace test_nodes_detail {
 
 inline std::mutex& Mutex()
@@ -39,11 +39,11 @@ inline void KeepAlive(NodeStorage storage)
 
 } // namespace test_nodes_detail
 
-// ParseMarkdown の nodes だけを使うテスト向け。ParseResult の arena とテーブルは手放しても解放されない。
+// ParseMarkdown の nodes だけを使うテスト向け。NodeStorage の arena とテーブルは手放しても解放されない。
 // 原文を指すノードがあるので、markdown_text はノードより長く生きること (ParseMarkdown と同じ)。
 inline std::pmr::vector<Node> ParseNodes(std::string_view markdown_text, TaskScheduler* scheduler = nullptr)
 {
-    auto storage = ParseMarkdown(markdown_text, {}, scheduler).TakeNodes();
+    auto storage = ParseMarkdown(markdown_text, {}, scheduler);
     auto nodes = std::move(storage.nodes);
     test_nodes_detail::KeepAlive(std::move(storage));
     return nodes;

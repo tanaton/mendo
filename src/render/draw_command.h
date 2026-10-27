@@ -26,6 +26,13 @@ struct FillRoundedRectCmd {
     float opacity = 1.0f;
 };
 
+struct DrawRoundedRectCmd {
+    D2D1_RECT_F rect;
+    float rx, ry;
+    float stroke_width;
+    BrushId brush_id;
+};
+
 struct DrawLineCmd {
     D2D1_POINT_2F p0, p1;
     float stroke_width;
@@ -55,6 +62,7 @@ struct FillEllipseCmd {
     D2D1_POINT_2F center;
     float rx, ry;
     BrushId brush_id;
+    float opacity = 1.0f;
 };
 
 struct DrawEllipseCmd {
@@ -62,6 +70,15 @@ struct DrawEllipseCmd {
     float rx, ry;
     float stroke_width;
     BrushId brush_id;
+};
+
+// 一筆描きの線 (マウスジェスチャーの軌跡)。継ぎ目でアルファが重ならない。
+struct DrawGeometryCmd {
+    ID2D1Geometry* geometry;       // 非所有; Renderer がそのフレームの間持つ。
+    ID2D1StrokeStyle* stroke_style; // 非所有; null なら既定。
+    float stroke_width;
+    BrushId brush_id;
+    float opacity = 1.0f;
 };
 
 struct PushClipCmd {
@@ -77,18 +94,33 @@ struct SetTransformCmd {
 using DrawCommand = std::variant<
     FillRectCmd,
     FillRoundedRectCmd,
+    DrawRoundedRectCmd,
     DrawLineCmd,
     DrawTextLayoutCmd,
     DrawBitmapCmd,
     FillEllipseCmd,
     DrawEllipseCmd,
+    DrawGeometryCmd,
     PushClipCmd,
     PopClipCmd,
     SetTransformCmd>;
 
 using DrawCommandList = std::pmr::vector<DrawCommand>;
 
-using FixedBrushArray = std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>, std::to_underlying(BrushId::Count)>;
+using FixedBrushArray = std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>, BRUSH_COUNT>;
 
-// brushes が null、または該当ブラシが未作成のコマンドは描かない。
-void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray* brushes);
+// 構文トークンの色。Plain はトークンにならないので BrushId::None。
+constexpr BrushId SyntaxBrushId(SyntaxTokenType type) noexcept
+{
+    static_assert(std::to_underlying(BrushId::SyntaxDeleted) - std::to_underlying(BrushId::SyntaxKeyword) ==
+                  std::to_underlying(SyntaxTokenType::Deleted) - std::to_underlying(SyntaxTokenType::Keyword));
+    static_assert(std::to_underlying(BrushId::SyntaxFunction) - std::to_underlying(BrushId::SyntaxKeyword) ==
+                  std::to_underlying(SyntaxTokenType::Function) - std::to_underlying(SyntaxTokenType::Keyword));
+    if (type < SyntaxTokenType::Keyword || type > SyntaxTokenType::Deleted) {
+        return BrushId::None;
+    }
+    return BrushIdAt(BrushId::SyntaxKeyword, std::to_underlying(type) - std::to_underlying(SyntaxTokenType::Keyword));
+}
+
+// 該当ブラシが未作成のコマンドは描かない。rt は null にしない。
+void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes);

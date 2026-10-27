@@ -14,7 +14,7 @@ public:
 
     void SetConfigDirOverride(const std::filesystem::path& dir);
     const std::filesystem::path& GetConfigDir() const;
-    // 区切り文字や ".." を含む名前は拒否する。
+    // filename は固定の名前だけを渡す (検証しない)。設定ディレクトリが無ければ空。
     std::filesystem::path GetConfigPath(std::wstring_view filename) const;
 
     void Load();
@@ -47,40 +47,28 @@ private:
     bool dirty_ = false;
 };
 
-// セッション状態（最後に開いたファイル、ペイン構成、スクロール位置、言語）の永続化を担当する。
-// ConfigService のセクション "Session" / "Pane" / "General" を排他的に扱う薄いラッパ。
-class SessionService {
-public:
-    explicit SessionService(ConfigService& config) noexcept : config_(config)
-    {}
+class PaneController;
 
-    void SaveLastFilePath(std::wstring_view path);
-    std::pmr::wstring LoadLastFilePath() const;
+// セッション状態（最後に開いたファイル、ペイン構成、スクロール位置、言語）の永続化。
+// ConfigService のセクション "Session" / "Pane" / "General" を排他的に扱う。
+namespace session {
 
-    // PaneController との変換は呼び出し側が担う。
-    struct PaneState {
-        bool show_file = true;
-        bool show_toc = true;
-        float file_width = SIDE_PANE_DEFAULT_WIDTH;
-        float toc_width = SIDE_PANE_DEFAULT_WIDTH;
-        ZoomLevel file_zoom;
-        ZoomLevel toc_zoom;
-    };
-    void SavePaneState(const PaneState& state);
-    // 幅はズーム倍率を含まない DIP 値として保存・復元する。
-    PaneState LoadPaneState() const;
+void SaveLastFilePath(ConfigService& config, std::wstring_view path);
+std::pmr::wstring LoadLastFilePath(const ConfigService& config);
 
-    struct ScrollPosition {
-        int node = -1;
-        int offset = 0;
-    };
-    void SaveScrollPosition(int node, float offset);
-    ScrollPosition LoadScrollPosition() const;
+// 表示・幅・倍率を保存・復元する。幅はズーム倍率を含まない DIP 値として扱う。
+void SavePanes(ConfigService& config, const PaneController& panes);
+void LoadPanes(const ConfigService& config, PaneController& panes);
 
-    // 選んだ言語 (i18n::ConfigLangKey)。空は OS に合わせる。
-    void SaveLanguage(std::wstring_view lang_key);
-    std::pmr::wstring LoadLanguage() const;
-
-private:
-    ConfigService& config_;
+struct ScrollPosition {
+    int node = -1;
+    int offset = 0;
 };
+void SaveScrollPosition(ConfigService& config, int node, float offset);
+ScrollPosition LoadScrollPosition(const ConfigService& config);
+
+// 選んだ言語 (i18n::ConfigLangKey)。空は OS に合わせる。
+void SaveLanguage(ConfigService& config, std::wstring_view lang_key);
+std::pmr::wstring LoadLanguage(const ConfigService& config);
+
+} // namespace session

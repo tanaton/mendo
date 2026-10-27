@@ -5,10 +5,13 @@
 #include "file_io.h"
 #include "layout_computer.h"
 #include "selection_html.h"
+#include "string_convert.h"
 #include "ui_constants.h"
 #include "utility.h"
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <utility>
 
 namespace {
@@ -42,7 +45,7 @@ void PushCurrentNavEntry(AppState& state, std::wstring_view load_path = {})
     }
     // 新しいロードはロード中の別ファイルを取り消す。
     DiscardPendingLoad(state);
-    // 同じファイルの開き直しはリロードとして終わり、確定 (RestoreScrollAfterLoadAction) が来ない。
+    // 同じファイルの開き直しはリロードとして終わり、確定 (DocumentOpenedAction) が来ない。
     if (path_util::iequal(load_path, current_path)) {
         state.view.nav_history.Push(std::move(entry));
     }
@@ -139,17 +142,28 @@ void ClearDrag(AppState& state, SideEffectList& effects)
     }
 }
 
+// 進行中の左ドラッグを終え、キャプチャを解放させる (右ボタンのジェスチャーが使っている間は持ち続ける)。
+void EndLeftDrag(AppState& state, SideEffectList& effects)
+{
+    ClearDrag(state, effects);
+    if (state.interaction.gesture.GetPhase() == GesturePhase::Idle) {
+        PushEffect(effects, effect::ReleaseCapture{});
+    }
+}
+
 void BeginLeftDrag(AppState& state, SideEffectList& effects, const LeftDragState& drag)
 {
     state.view.drag = drag;
     PushEffect(effects, effect::SetCapture{});
 }
 
-// 対象も忘れるので、次のホバーで同じ対象に戻っても表示し直す。
+// 対象も忘れるので、次のホバーで同じ対象に戻っても表示し直す。対象が無ければ隠れているので何もしない。
 void ClearTooltip(AppState& state, SideEffectList& effects)
 {
-    state.interaction.tooltip = {};
-    PushEffect(effects, effect::ClearTooltip{});
+    if (std::exchange(state.interaction.tooltip, {}).IsEmpty()) {
+        return;
+    }
+    PushEffect(effects, effect::SetTooltip{});
 }
 
 // スクロール位置が変わった時の副作用列。Reduce が前後の scroll_y を比べて 1 回だけ積む。
@@ -231,17 +245,17 @@ void NotifyVWheel(AppState& state, SideEffectList& effects, uint64_t tick)
     }
 }
 
-void ReduceDirectScrollBy(AppState& state, SideEffectList& effects, const DirectScrollByAction& a)
+void ReduceWheelScroll(AppState& state, SideEffectList& effects, const MouseWheelAction& a)
 {
     NotifyVWheel(state, effects, a.tick);
-    state.view.viewport.DirectScrollBy(a.delta, MdMaxScroll(state));
-}
-
-void ReduceScrollPane(AppState& state, SideEffectList& effects, const ScrollPaneAction& a)
-{
-    NotifyVWheel(state, effects, a.tick);
-    const auto ctx = GetSidePaneContext(state, a.pane);
-    if (state.view.panes.ScrollSidePaneBy(a.pane, a.delta, ctx.info.max_scroll)) {
+    const float amount = -static_cast<float>(a.delta) * MOUSE_WHEEL_SCROLL_MULTIPLIER;
+    const auto pane = ToPaneTarget(a.zone);
+    if (!pane) {
+        state.view.viewport.DirectScrollBy(amount, MdMaxScroll(state));
+        return;
+    }
+    const auto ctx = GetSidePaneContext(state, *pane);
+    if (state.view.panes.ScrollSidePaneBy(*pane, amount, ctx.info.max_scroll)) {
         PushEffect(effects, effect::InvalidateWindow{});
     }
 }
@@ -396,7 +410,7 @@ void ReduceNavigateAnchor(AppState& state, const NavigateAnchorAction& a)
     ScrollToHeading(state, node_index);
 }
 
-void ReduceRestoreScrollAfterLoad(AppState& state)
+void RestoreScrollAfterLoad(AppState& state)
 {
     state.view.nav_history.CommitPending();
     auto& viewport = state.view.viewport;
@@ -459,9 +473,9 @@ void ApplyHoverHighlights(AppState& state, SideEffectList& effects, HoverHighlig
 void ReducePointerHover(AppState& state, SideEffectList& effects, const PointerHover& hover)
 {
     ApplyHoverHighlights(state, effects, hover);
-    if (!hover.tooltip.SameTarget(state.interaction.tooltip)) {
-        state.interaction.tooltip = hover.tooltip;
-        PushEffect(effects, effect::ShowTooltip{ hover.tooltip });
+    if (hover.tooltip.target != state.interaction.tooltip) {
+        state.interaction.tooltip = hover.tooltip.target;
+        PushEffect(effects, effect::SetTooltip{ hover.tooltip.text });
     }
 }
 
@@ -537,9 +551,9 @@ void ReduceSearchInputDragMoved(AppState& state, SideEffectList& effects, const 
     if (state.view.drag.kind != LeftDrag::SearchInput) {
         return;
     }
-    const auto& ctrl = state.search.search_bar_ctrl;
+    const auto& sg = state.search;
     const int anchor = state.view.drag.search_anchor;
-    if (a.caret_pos == ctrl.GetCaretPos() && anchor == ctrl.GetSelectionStart()) {
+    if (a.caret_pos == sg.caret_pos && anchor == sg.selection_start) {
         return;
     }
     PushEffect(effects, effect::SearchFocus{ anchor, a.caret_pos });
@@ -673,18 +687,174 @@ void ReduceRightClickGestureCompleted(AppState& state, SideEffectList& effects, 
     PushEffect(effects, effect::InvalidateWindow{});
 }
 
-void ReduceSearchStep(AppState& state, SideEffectList& effects, bool forward)
+// ---- 検索バー ----
+
+// 1 回でこれを超える分は、メッセージループが入力と描画を配った後の空き時間 (SearchContinueAction) へ回す。
+constexpr auto kSearchSliceBudget = std::chrono::milliseconds(8);
+
+constexpr void ResetSearchCaret(SearchGroup& sg) noexcept
 {
-    auto& ss = state.search;
-    if (!ss.search_state.IsVisible()) {
-        ss.search_bar_ctrl.OnOpen(effects, state.document.doc.GetNodes());
+    sg.caret_pos = -1;
+    sg.selection_start = -1;
+}
+
+void ScrollToCurrentMatch(AppState& state, NodeLayoutAccess& layout)
+{
+    const auto& ss = state.search.search_state;
+    const int idx = ss.GetCurrentMatchIndex();
+    if (idx < 0 || idx >= ss.GetMatchCount()) {
         return;
     }
-    if (forward) {
-        ss.search_bar_ctrl.OnNext(effects);
+    const auto& match = ss.GetMatches()[idx];
+    const auto& cache = state.document.layout_cache;
+    if (match.node_index < 0 || match.node_index >= static_cast<int>(cache.size())) {
+        return;
     }
-    else {
-        ss.search_bar_ctrl.OnPrev(effects);
+
+    // 未計測や evict 済みのノードは text_layout が無く、行の Y を引けずにノード先頭へ寄ってしまう。
+    layout.EnsureNodeLayout(match.node_index);
+    const PaneRect& md = state.pane_layout_cache.Get().md_rect;
+    const auto& entry = cache[match.node_index];
+    // Why: ブロック先頭/行先頭に丸めると、長い段落内の複数マッチ間で同じ Y に集約され
+    //      「次へ」を押してもスクロールしない。start_w で行単位の Y を出す。
+    const auto [match_y, match_h] = entry.GetMatchYRange(match.table_row, match.table_col, match.start_w, cache.Top(static_cast<size_t>(match.node_index)));
+    const float visible_height = md.height - (ss.IsVisible() ? SEARCH_BAR_HEIGHT : 0.0f);
+    auto& viewport = state.view.viewport;
+    const float scroll_y = viewport.GetScrollY();
+    const float effective_bottom = scroll_y + visible_height;
+
+    if (match_y < scroll_y || match_y + match_h > effective_bottom) {
+        viewport.ScrollTo(match_y - visible_height / 3.0f, MdMaxScroll(state));
+    }
+}
+
+void ContinueSearch(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout, bool force_invalidate = false)
+{
+    auto& ss = state.search.search_state;
+    const bool done = ss.ContinueSearch(state.document.doc.GetNodes(), std::chrono::steady_clock::now() + kSearchSliceBudget);
+    // 結果は終わったときにまとめて差し替わるので、続きの区切りでは描き直さない。
+    if (force_invalidate || done) {
+        PushEffect(effects, effect::InvalidateWindow{});
+    }
+    if (!done) {
+        return;
+    }
+    // 差し替えで選択は外れている。途中で前回の結果を辿っていても、見ている位置の近くで選び直す。
+    ss.SetCurrentMatchNear(state.view.viewport.GetScrollY(), state.document.layout_cache);
+    if (state.search.scroll_after_search) {
+        ScrollToCurrentMatch(state, layout);
+    }
+}
+
+// 今のクエリで検索し直す。終わった時点で見ている位置の近くのマッチを選び、scroll_to_match ならそこへスクロールする。
+void RunSearchAndLocate(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout, bool scroll_to_match = false)
+{
+    state.search.search_state.BeginSearch();
+    state.search.scroll_after_search = scroll_to_match;
+    // クエリや前のマッチの消去を描画に出すため、始めの区切りは必ず描き直す。
+    ContinueSearch(state, effects, layout, true);
+}
+
+void CloseSearchBar(AppState& state, SideEffectList& effects)
+{
+    state.search.search_state.Hide();
+    state.search.ime_composition.clear();
+    PushEffect(effects, effect::SearchUnfocus{});
+    PushEffect(effects, effect::InvalidateWindow{});
+}
+
+// 開いていれば閉じる。
+void ToggleSearchBar(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout)
+{
+    auto& sg = state.search;
+    if (sg.search_state.IsVisible()) {
+        CloseSearchBar(state, effects);
+        return;
+    }
+    sg.search_state.Show();
+    ResetSearchCaret(sg);
+    if (!sg.search_state.GetQuery().empty()) {
+        RunSearchAndLocate(state, effects, layout);
+    }
+    PushEffect(effects, effect::SearchFocus{});
+    PushEffect(effects, effect::InvalidateWindow{});
+}
+
+void StepSearchMatch(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout, bool forward)
+{
+    auto& ss = state.search.search_state;
+    const bool wrapped = forward ? ss.NextMatch() : ss.PrevMatch();
+    if (wrapped && ss.GetMatchCount() > 1) {
+        PushEffect(effects, effect::Beep{});
+    }
+    ScrollToCurrentMatch(state, layout);
+    PushEffect(effects, effect::InvalidateWindow{});
+}
+
+void ReduceSearchStep(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout, bool forward)
+{
+    if (!state.search.search_state.IsVisible()) {
+        ToggleSearchBar(state, effects, layout);
+        return;
+    }
+    StepSearchMatch(state, effects, layout, forward);
+}
+
+void ReduceSearchTextChanged(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout, std::wstring_view text)
+{
+    auto& sg = state.search;
+    // 文書の切り替えで入力欄を空にしたときなど、中身が変わらない通知は検索も再描画もしない。
+    if (text == sg.query_wide) {
+        return;
+    }
+    // 検索バー入力は IME 経由で wstring。表示とヒットテストにはこのまま使い、
+    // SearchState は Document テキスト (UTF-8) と比較するため変換して渡す。
+    sg.query_wide.assign(text);
+    std::pmr::string text_utf8;
+    string_convert::WideToUtf8(text, text_utf8);
+    sg.search_state.SetQuery(text_utf8);
+    if (text.empty()) {
+        sg.search_state.BeginSearch();
+        PushEffect(effects, effect::InvalidateWindow{});
+        return;
+    }
+    // 検索は時間で区切って進むので、大きな文書でも入力を待たせずにすぐ始める。
+    RunSearchAndLocate(state, effects, layout, true);
+}
+
+void ReduceToggleCaseSensitive(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout)
+{
+    auto& ss = state.search.search_state;
+    ss.ToggleCaseSensitive();
+    if (!ss.GetQuery().empty()) {
+        RunSearchAndLocate(state, effects, layout);
+    }
+    PushEffect(effects, effect::InvalidateWindow{});
+}
+
+// 表示中は常に入力欄がフォーカスを持つので、表示中だけ描き直す。
+void ReduceSearchSelection(AppState& state, SideEffectList& effects, const SearchSelectionAction& a)
+{
+    auto& sg = state.search;
+    if (sg.caret_pos == a.sel_end && sg.selection_start == a.sel_start) {
+        return;
+    }
+    sg.caret_pos = a.sel_end;
+    sg.selection_start = a.sel_start;
+    if (sg.search_state.IsVisible()) {
+        PushEffect(effects, effect::InvalidateWindow{});
+    }
+}
+
+void ReduceImeComposition(AppState& state, SideEffectList& effects, std::wstring_view comp)
+{
+    auto& sg = state.search;
+    if (sg.ime_composition == comp) {
+        return;
+    }
+    sg.ime_composition = comp;
+    if (sg.search_state.IsVisible()) {
+        PushEffect(effects, effect::InvalidateWindow{});
     }
 }
 
@@ -722,7 +892,7 @@ void ReduceSelectWord(AppState& state, SideEffectList& effects, const SelectWord
 void ReduceClearSelection(AppState& state, SideEffectList& effects)
 {
     if (state.search.search_state.IsVisible()) {
-        state.search.search_bar_ctrl.OnClose(effects);
+        CloseSearchBar(state, effects);
         return;
     }
     auto& viewport = state.view.viewport;
@@ -754,7 +924,7 @@ void ReduceCopyFormattedClipboard(const AppState& state, SideEffectList& effects
         return;
     }
     const auto& nodes = state.document.doc.GetNodes();
-    PushEffect(effects, effect::ClipboardWriteHtml{ ExtractSelectedTextAsHtml(nodes, sel, state.theme->IsDark()), ExtractSelectedText(nodes, sel) });
+    PushEffect(effects, effect::ClipboardWriteHtml{ ExtractSelectedTextAsHtml(nodes, sel, state.theme->dark), ExtractSelectedText(nodes, sel) });
 }
 
 // 戻り値: 段が動いたか。
@@ -803,6 +973,23 @@ void ReduceZoom(AppState& state, SideEffectList& effects, const ZoomAction& a)
         state.view.viewport.SetScrollTarget(anchor.node, anchor.offset * zoom_ratio);
     }
     PushEffect(effects, effect::ApplyZoom{});
+}
+
+// ポインタの下の領域だけをズームする。
+void ReduceWheelZoom(AppState& state, SideEffectList& effects, const MouseWheelAction& a)
+{
+    auto& accum = state.interaction.zoom_wheel_accum;
+    // 向きが反転したら逆向きの端数は持ち越さない。
+    if ((accum < 0) != (a.delta < 0)) {
+        accum = 0;
+    }
+    accum += a.delta;
+    const int steps = std::abs(accum) / WHEEL_DELTA;
+    if (steps == 0) {
+        return;
+    }
+    accum = 0;
+    ReduceZoom(state, effects, ZoomAction{ a.delta > 0 ? ZoomDirection::In : ZoomDirection::Out, steps, ToPaneTarget(a.zone) });
 }
 
 void ReduceToggleDarkMode(AppState& state, SideEffectList& effects)
@@ -872,18 +1059,8 @@ void ReduceDpiChanged(AppState& state, SideEffectList& effects, const DpiChanged
     state.window.size_changed_in_sizing = true;
     state.window.dpi_changed = true;
     state.pane_layout_cache.Invalidate();
-    // DPI 変更では IDWriteTextLayout (DIP 単位) は不変。
-    state.document.layout_cache.NotifyDpiChanged();
     PushEffect(effects, effect::RendererSetDpi{ static_cast<float>(a.dpi) });
-    const auto& rc = a.suggested;
-    PushEffect(effects, effect::SetWindowPosition{ rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top });
-}
-
-void ReduceToastExpired(AppState& state, SideEffectList& effects)
-{
-    state.interaction.toast_message.clear();
-    PushEffect(effects, effect::KillTimer{ app_timer::Id::TOAST });
-    PushEffect(effects, effect::InvalidateWindow{});
+    PushEffect(effects, effect::SetWindowPosition{ a.suggested });
 }
 
 void ReduceSwipeOverlayTimeout(AppState& state, SideEffectList& effects)
@@ -896,23 +1073,90 @@ void ReduceSwipeOverlayTimeout(AppState& state, SideEffectList& effects)
     }
 }
 
-} // namespace
-
-void EndLeftDrag(AppState& state, SideEffectList& effects)
+// ノード/見出し index に結び付く一時状態 (選択・横スクロール・ホバー・目次の現在位置・ツールチップの対象・
+// 文書を対象にするドラッグ・ドラッグの後に回したリロード) を消す。文書を差し替えると別の要素を指すので、
+// ロードとリロードの両方で消す。ホバーは描画後に引き直される (App::RefreshHoverAtCursor)。
+void ResetPerNodeTransientState(AppState& state, SideEffectList& effects)
 {
-    ClearDrag(state, effects);
-    if (state.interaction.gesture.GetPhase() == GesturePhase::Idle) {
-        PushEffect(effects, effect::ReleaseCapture{});
+    auto& view = state.view;
+    view.viewport.ClearSelection();
+    view.block_scroll_x.clear();
+    view.hover = {};
+    view.active_toc_index = -1;
+    // ツールチップの同一判定は node / TOC の index で行う。
+    ClearTooltip(state, effects);
+    // 待たせていたリロードは旧文書のもの。先に外し、ドラッグの終わりで読み直させない。
+    view.reload_after_drag = false;
+    if (IsDocumentBoundDrag(view.drag.kind)) {
+        EndLeftDrag(state, effects);
     }
 }
 
-SideEffectList Reduce(AppState& state, const AppAction& action)
+void ReduceDocumentOpened(AppState& state, SideEffectList& effects, const DocumentOpenedAction& a)
 {
-    SideEffectList effects;
+    ResetPerNodeTransientState(state, effects);
+    // 同一文書の再パースと違い、サイドペインのスクロールも先頭へ戻す。
+    state.view.panes.ResetScrollStates();
+    // 旧文書のマッチ位置が新 nodes に対して誤用されるのを防ぐ。入力欄を空にしたときの EN_CHANGE は、
+    // ここでクエリを先に空にしておくので何もせず終わる。
+    auto& sg = state.search;
+    sg.search_state.Reset();
+    sg.query_wide.clear();
+    sg.ime_composition.clear();
+    ResetSearchCaret(sg);
+    PushEffect(effects, effect::SearchUnfocus{ /*clear_text=*/true });
+
+    const auto& doc = state.document.doc;
+    if (a.follow_file_pane && !doc.GetDirectory().empty()) {
+        state.file_explorer.SetDirectory(doc.GetDirectory());
+    }
+    state.file_explorer.SetCurrentFile(doc.GetFilePath());
+    RestoreScrollAfterLoad(state);
+}
+
+void ReduceDocumentReloaded(AppState& state, SideEffectList& effects, const DocumentReloadedAction& a)
+{
+    // ReloadSettledAction の検索し直しが終わるまで、変わらなかったノードのハイライトと件数を残す。
+    state.search.search_state.KeepMatchesOfUnchangedNodes(a.unchanged);
+    ResetPerNodeTransientState(state, effects);
+    // 直前の移動先 (ノード基準) は旧文書のもの。捨ててピクセル位置で固定する。
+    state.view.viewport.SetScrollY(a.scroll_y);
+}
+
+void ReduceReloadSettled(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout)
+{
+    const auto& ss = state.search.search_state;
+    if (ss.IsVisible() && !ss.GetQuery().empty()) {
+        RunSearchAndLocate(state, effects, layout);
+    }
+}
+
+} // namespace
+
+SearchBarRenderState BuildSearchBarRenderState(const AppState& state)
+{
+    const auto& sg = state.search;
+    const auto& ss = sg.search_state;
+    return {
+        .query = sg.query_wide,
+        .ime_composition = sg.ime_composition,
+        .current_match = ss.GetCurrentMatchIndex(),
+        .total_matches = ss.HasResult() ? ss.GetMatchCount() : -1,
+        .caret_pos = sg.caret_pos,
+        .selection_start = sg.selection_start,
+        .visible = ss.IsVisible(),
+        .case_sensitive = ss.IsCaseSensitive(),
+        .highlight_enabled = ss.IsHighlightEnabled(),
+    };
+}
+
+SideEffectList Reduce(AppState& state, const AppAction& action, NodeLayoutAccess& layout, std::pmr::memory_resource* resource)
+{
+    SideEffectList effects(resource);
     EnsurePaneLayout(state);
     // viewport を動かす経路 (キー・ホイール・スクロールバー・履歴・検索のマッチ移動など) を問わず、
     // 前後の scroll_y を比べてスクロールの副作用を 1 回だけ積む。
-    // ロード後の復元では積まない。直後の App::RelayoutViewport が計測してから描き直させる。
+    // 文書を差し替えた後 (読み込みの復元・リロード) では積まない。直後の App::RelayoutViewport が計測してから描き直させる。
     bool emit_scroll_effects = true;
     const float old_scroll = state.view.viewport.GetScrollY();
 
@@ -922,8 +1166,14 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
 
         // ---- スクロール ----
         [&](const KeyScrollAction& a) { ReduceKeyScroll(state, a); },
-        [&](const DirectScrollByAction& a) { ReduceDirectScrollBy(state, effects, a); },
-        [&](const ScrollPaneAction& a) { ReduceScrollPane(state, effects, a); },
+        [&](const MouseWheelAction& a) {
+            if (a.ctrl) {
+                ReduceWheelZoom(state, effects, a);
+            }
+            else {
+                ReduceWheelScroll(state, effects, a);
+            }
+        },
 
         // ---- ペイン・選択・クリップボード ----
         [&](const TogglePaneAction& a) { ReduceTogglePane(state, effects, a); },
@@ -951,16 +1201,23 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const BlockHScrollDragMovedAction& a) { ReduceBlockHScrollDragMoved(state, effects, a); },
 
         // ---- 検索 ----
-        [&](const OpenSearchBarAction&) { state.search.search_bar_ctrl.OnOpen(effects, state.document.doc.GetNodes()); },
-        [&](const CloseSearchBarAction&) { state.search.search_bar_ctrl.OnClose(effects); },
-        [&](const SearchNextAction&) { ReduceSearchStep(state, effects, true); },
-        [&](const SearchPrevAction&) { ReduceSearchStep(state, effects, false); },
-        [&](const SearchTextChangedAction& a) { state.search.search_bar_ctrl.OnTextChanged(effects, a.text, state.document.doc.GetNodes()); },
-        [&](const SearchContinueAction&) { state.search.search_bar_ctrl.OnContinue(effects, state.document.doc.GetNodes()); },
-        [&](const ToggleCaseSensitiveAction&) { state.search.search_bar_ctrl.OnToggleCaseSensitive(effects, state.document.doc.GetNodes()); },
-        [&](const ToggleHighlightAction&) { state.search.search_bar_ctrl.OnToggleHighlight(effects); },
-        [&](const SearchSelectionAction& a) { state.search.search_bar_ctrl.SetSelection(effects, a.sel_start, a.sel_end); },
-        [&](const ImeCompositionAction& a) { state.search.search_bar_ctrl.SetImeComposition(effects, a.text); },
+        [&](const OpenSearchBarAction&) { ToggleSearchBar(state, effects, layout); },
+        [&](const CloseSearchBarAction&) { CloseSearchBar(state, effects); },
+        [&](const SearchNextAction&) { ReduceSearchStep(state, effects, layout, true); },
+        [&](const SearchPrevAction&) { ReduceSearchStep(state, effects, layout, false); },
+        [&](const SearchTextChangedAction& a) { ReduceSearchTextChanged(state, effects, layout, a.text); },
+        [&](const SearchContinueAction&) {
+            if (state.search.search_state.IsSearching()) {
+                ContinueSearch(state, effects, layout);
+            }
+        },
+        [&](const ToggleCaseSensitiveAction&) { ReduceToggleCaseSensitive(state, effects, layout); },
+        [&](const ToggleHighlightAction&) {
+            state.search.search_state.ToggleHighlightEnabled();
+            PushEffect(effects, effect::InvalidateWindow{});
+        },
+        [&](const SearchSelectionAction& a) { ReduceSearchSelection(state, effects, a); },
+        [&](const ImeCompositionAction& a) { ReduceImeComposition(state, effects, a.text); },
 
         // ---- マウス関連 ----
         [&](const MouseLeaveAction&) { ReduceMouseLeave(state, effects); },
@@ -985,12 +1242,16 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const FilePaneRevealCurrentFileAction&) { ReduceFilePaneRevealCurrentFile(state, effects); },
         [&](const TocItemClickedAction& a) { ReduceTocItemClicked(state, a); },
         [&](const NavigateAnchorAction& a) { ReduceNavigateAnchor(state, a); },
-        [&](const RestoreScrollAfterLoadAction&) {
-            ReduceRestoreScrollAfterLoad(state);
+        [&](const DocumentOpenedAction& a) {
+            ReduceDocumentOpened(state, effects, a);
             emit_scroll_effects = false;
         },
+        [&](const DocumentReloadedAction& a) {
+            ReduceDocumentReloaded(state, effects, a);
+            emit_scroll_effects = false;
+        },
+        [&](const ReloadSettledAction&) { ReduceReloadSettled(state, effects, layout); },
         [&](const LoadFailedAction&) { DiscardPendingLoad(state); },
-        [&](const ClearTooltipAction&) { ClearTooltip(state, effects); },
 
         // ---- ナビゲーション ----
         [&](const NavigateBackAction&) { NavigateHistory(state, effects, /*forward=*/false); },
@@ -1003,7 +1264,6 @@ SideEffectList Reduce(AppState& state, const AppAction& action)
         [&](const ReloadFileAction&) { PushEffect(effects, effect::ReloadFile{}); },
 
         // ---- 非同期・タイマー ----
-        [&](const ToastExpiredAction&) { ReduceToastExpired(state, effects); },
         [&](const SwipeOverlayTimeoutAction&) { ReduceSwipeOverlayTimeout(state, effects); },
     }, action);
     // clang-format on

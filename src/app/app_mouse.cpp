@@ -159,7 +159,7 @@ App::HitResult App::HitTest(int px, int py)
 
 MdPaneHitContext App::BuildMdPaneHitContext(int px, int py, const PaneLayout& pane_layout) const noexcept
 {
-    const auto& theme = renderer_.GetTheme();
+    const auto& theme = theme_service_.GetTheme();
     return MdPaneHitContext{
         .nodes = state_.document.doc.GetNodes(),
         .cache = state_.document.layout_cache,
@@ -292,14 +292,8 @@ void App::OnMouseMove(int px, int py)
 
 void App::OnMouseWheel(int px, int py, int delta, bool ctrl)
 {
-    auto& zoom_accum = state_.interaction.zoom_wheel_accum;
     const auto dip = PixelToDip(px, py);
-    Dispatch(app_controller::HandleMouseWheel(MouseWheelEvent{ delta, ctrl, PaneAtPoint(dip.x), GetTickCount64() }, zoom_accum));
-}
-
-void App::OnMouseHWheel(short delta)
-{
-    Dispatch(HWheelAction{ delta, GetTickCount64() });
+    Dispatch(MouseWheelAction{ delta, ctrl, PaneAtPoint(dip.x), GetTickCount64() });
 }
 
 bool App::OnRButtonDown(int px, int py)
@@ -433,7 +427,7 @@ bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_
         }
         // 検索 EDIT は非表示で WM_LBUTTONDBLCLK を直接受けないため、
         // 自前で単語境界を計算して EM_SETSEL を発行する。
-        const auto wb = FindWordBoundaries(std::wstring_view{ state_.search.search_bar_ctrl.GetQueryWide() }, static_cast<uint32_t>(pos));
+        const auto wb = FindWordBoundaries(std::wstring_view{ state_.search.query_wide }, static_cast<uint32_t>(pos));
         if (wb.found) {
             Execute(effect::SearchFocus{ static_cast<int>(wb.start), static_cast<int>(wb.end) });
         }
@@ -445,7 +439,7 @@ bool App::HandleSearchBarClick(float dip_x, float dip_y, const PaneLayout& pane_
 
 void App::HandleOverlayButtonClick(const OverlayButtonHit& hit)
 {
-    const bool dark = renderer_.GetTheme().IsDark();
+    const bool dark = theme_service_.GetTheme().dark;
     switch (hit.kind) {
     case OverlayButton::CodeCopy:
         clipboard_manager_.CopyCodeBlock(state_.document.doc, hit.node, dark);
@@ -536,7 +530,7 @@ void App::HandleFileEntryClick(const FileEntry& entry)
 
 void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, const PaneLayout& layout)
 {
-    const auto& theme = renderer_.GetTheme();
+    const auto& theme = theme_service_.GetTheme();
     const PaneRect& rect = layout.Get(target);
 
     // ヘッダー領域内のクリックはボタン外でも消費する。
@@ -589,7 +583,7 @@ bool App::IsOverMdScrollbar(float dip_x, float dip_y)
     return IsOverMdScrollbar(dip_x, dip_y, GetPaneLayout());
 }
 
-TooltipTarget App::BuildMdContentTooltip(int hit_node, std::optional<LinkHit> link) const
+TooltipHover App::BuildMdContentTooltip(int hit_node, std::optional<LinkHit> link) const
 {
     if (hit_node < 0) {
         return {};
@@ -685,7 +679,7 @@ HCURSOR App::HoverMdPane(float dip_x, float dip_y, int px, int py, const PaneLay
     return link ? cursors_.hand : cursors_.ibeam;
 }
 
-TooltipTarget App::BuildSidePaneTooltip(PaneTarget target, PaneHeaderButton hit, int idx) const
+TooltipHover App::BuildSidePaneTooltip(PaneTarget target, PaneHeaderButton hit, int idx) const
 {
     const bool is_file = target == PaneTarget::File;
     const auto& current = state_.interaction.tooltip;
@@ -719,7 +713,7 @@ TooltipTarget App::BuildSidePaneTooltip(PaneTarget target, PaneHeaderButton hit,
 
 HCURSOR App::HoverSidePane(PaneTarget target, float dip_x, float dip_y, const PaneLayout& pane_layout, PointerHover& hover) const
 {
-    const auto& theme = renderer_.GetTheme();
+    const auto& theme = theme_service_.GetTheme();
     const PaneRect& rect = pane_layout.Get(target);
     const auto k = std::to_underlying(target);
     const auto button = HitSidePaneHeaderButton(
@@ -744,7 +738,7 @@ void App::RefreshHoverAtCursor()
         return;
     }
     // リサイズ枠やキャプションの上でカーソルを矢印に戻さない。
-    if (SendMessageW(hwnd_, WM_NCHITTEST, 0, MAKELPARAM(pt.x, pt.y)) != HTCLIENT) {
+    if (window_.HitTestNonClient(pt) != HTCLIENT) {
         return;
     }
     ScreenToClient(hwnd_, &pt);

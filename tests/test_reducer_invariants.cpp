@@ -95,8 +95,8 @@ LabeledAction GenerateSingleScrollAction(std::mt19937& rng, const ReducerHarness
         return { std::format("KeyScroll({})", static_cast<int>(t)), KeyScrollAction{ t } };
     }
     case 2: {
-        const float d = static_cast<float>(pick(-3000, 3000));
-        return { std::format("DirectScrollBy({})", d), DirectScrollByAction{ d } };
+        const int d = pick(-3750, 3750);
+        return { std::format("MouseWheel({})", d), MouseWheelAction{ .delta = d } };
     }
     case 3: {
         const float y = static_cast<float>(pick(-100, 2500));
@@ -298,17 +298,12 @@ public:
         case 6:
             return Key();
         case 7: {
-            switch (Pick(0, 2)) {
-            case 0:
+            if (Pick(0, 1) == 0) {
                 model_.Dispatch(SearchContinueAction{});
                 return "SearchContinue";
-            case 1:
-                model_.Dispatch(SwipeOverlayTimeoutAction{});
-                return "Timer(SWIPE_OVERLAY)";
-            default:
-                model_.Dispatch(ToastExpiredAction{});
-                return "Timer(TOAST)";
             }
+            model_.Dispatch(SwipeOverlayTimeoutAction{});
+            return "Timer(SWIPE_OVERLAY)";
         }
         case 8: {
             tick_ += 20;

@@ -23,13 +23,6 @@ class TaskScheduler;
 inline constexpr size_t kTextChunkTarget = 16 * 1024;
 inline constexpr size_t kTextChunkWindow = kTextChunkTarget / 8;
 
-// ノードと、ノードが指すもの (テキスト・runs・リンク URL を置いた arena とテーブル) の組。
-struct NodeStorage {
-    std::pmr::vector<Node> nodes;
-    std::unique_ptr<TextArena> arena;
-    std::pmr::vector<std::unique_ptr<NodeTableData>> tables;
-};
-
 // パース後の全ノード走査を避けるため、パース中に構築する特殊ノードのインデックス。
 struct NodeIndices {
     std::pmr::vector<TocEntry> toc_entries;
@@ -41,44 +34,25 @@ struct NodeIndices {
     std::pmr::vector<FootnoteRef> footnote_refs;
 };
 
-// パーサーの出力: ノード本体と、パース中に構築された特殊ノードインデックス
-struct ParseResult {
-    ParseResult() = default;
-    explicit ParseResult(NodeStorage storage) noexcept : storage_(std::move(storage)) {}
-
-    // ノードは arena を指すため、一時オブジェクトからノードだけを参照する書き方
-    // (ParseMarkdown(md).nodes()) はコンパイルエラーにする。取り出すときは TakeNodes で arena ごと受け取る。
-    std::pmr::vector<Node>& nodes() & noexcept
-    {
-        return storage_.nodes;
-    }
-    const std::pmr::vector<Node>& nodes() const& noexcept
-    {
-        return storage_.nodes;
-    }
-    void nodes() const&& = delete;
-
-    NodeStorage TakeNodes() noexcept
-    {
-        return std::move(storage_);
-    }
-
+// パーサーの出力。ノードと、ノードが指すもの (テキスト・runs・リンク URL を置いた arena とテーブル) と特殊ノードのインデックス。
+// ノードは arena を指すので、nodes だけを取り出すときは arena ごと持ち続けること。
+struct NodeStorage {
+    std::pmr::vector<Node> nodes;
+    std::unique_ptr<TextArena> arena;
+    std::pmr::vector<std::unique_ptr<NodeTableData>> tables;
     NodeIndices indices;
-
-private:
-    NodeStorage storage_;
 };
 
 // 本物の Markdown パーサ。md4c を UTF-8 モード (MD_CHAR=char) で起動するため入力は char 列。
 // stop_token を渡すと md4c コールバックから途中で abort できる。既定の stop_token では最後まで走る。
 // scheduler は区切ったコードブロックの字句解析 (AnnotateCodeChunkLeads) を並列にする先。
-ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token = {}, TaskScheduler* scheduler = nullptr);
+NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token = {}, TaskScheduler* scheduler = nullptr);
 
 // ノードは入力テキストを参照するため、一時文字列を渡すと戻り値が即座にダングリングする。
 template <class S>
     requires(!std::is_lvalue_reference_v<S> &&
              (std::same_as<std::remove_cv_t<S>, std::string> || std::same_as<std::remove_cv_t<S>, std::pmr::string>))
-ParseResult ParseMarkdown(S&& markdown_text, std::stop_token stop_token = {}, TaskScheduler* scheduler = nullptr) = delete;
+NodeStorage ParseMarkdown(S&& markdown_text, std::stop_token stop_token = {}, TaskScheduler* scheduler = nullptr) = delete;
 
 // HTML エンティティ (例: "&amp;", "&#x1F600;") を解決する。
 // view が指す領域は (a) static なリテラル または (b) 呼び出し側が渡した buffer のいずれか。

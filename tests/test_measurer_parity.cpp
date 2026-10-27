@@ -13,7 +13,7 @@ protected:
     void SetUp() override
     {
         DWriteTestBase::SetUp();
-        mock_.UpdateTheme(theme_);
+        mock_.SetTheme(theme_);
     }
 
     struct Heights {
@@ -28,8 +28,8 @@ protected:
         Node dw_node = CloneNode(node);
         NodeLayoutEntry mock_entry{};
         NodeLayoutEntry dwrite_entry{};
-        MeasureEntry(mock_, mock_node, mock_entry, max_width, {}, 0.0f, nullptr, theme_);
-        MeasureEntry(measurer_, dw_node, dwrite_entry, max_width, {}, 0.0f, nullptr, theme_);
+        MeasureEntry(mock_, mock_node, mock_entry, max_width, YRange::All(), 0.0f, nullptr, theme_);
+        MeasureEntry(measurer_, dw_node, dwrite_entry, max_width, YRange::All(), 0.0f, nullptr, theme_);
         return { mock_entry.height, dwrite_entry.height };
     }
 

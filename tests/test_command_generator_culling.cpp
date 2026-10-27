@@ -171,6 +171,7 @@ std::string DiffBoxes(const std::vector<Box>& expected, std::vector<Box> actual)
 class CullingParityTest : public DWriteTestBase {
 protected:
     Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_;
+    MdPaneFormats formats_;
     CommandGenerator gen_;
 
     void SetUp() override
@@ -180,13 +181,13 @@ protected:
         ASSERT_TRUE(SUCCEEDED(dwrite_factory_->CreateTextFormat(
             L"Segoe UI Symbol", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, theme_.font_size_body, L"", &fmt_)));
-        gen_.SetTheme(&theme_);
-        gen_.SetFormats({ fmt_.Get(), fmt_.Get(), fmt_.Get(), fmt_.Get() });
+        formats_ = { fmt_, fmt_, fmt_, fmt_ };
+        gen_.Init(theme_, &formats_);
     }
 
     const DrawCommandList& Generate(const ParsedLayout& pl, float scroll_y, float pane_h, const BlockHScrollContext& h_scroll, float pane_y = 0.0f)
     {
-        return gen_.GenerateMdPane(pl.nodes, pl.cache, PaneRect{ 0.0f, pane_y, PANE_W, pane_h }, scroll_y, TextSelection{}, OverlayButtonHit{}, 1.0f, h_scroll, -1);
+        return gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = PaneRect{ 0.0f, pane_y, PANE_W, pane_h }, .scroll_y = scroll_y, .block_h_scroll = h_scroll }, 1.0f);
     }
 
     // ペイン原点 (先頭の SetTransform) の Y。

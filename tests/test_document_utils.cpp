@@ -159,6 +159,13 @@ TEST(ExtractSelectedTextAsHtml, BoldAndItalic)
     EXPECT_TRUE(html.contains("<em>italic</em>"));
 }
 
+// 重なった装飾は外側から <a> <strong> <em> <s> <code> の順に開き、逆順に閉じる。
+TEST(ExtractSelectedTextAsHtml, NestedInlineTagsOpenInFixedOrder)
+{
+    EXPECT_EQ(CopyAllAsHtml("[***~~`x`~~***](https://a.com)"),
+              "<p><a href=\"https://a.com\"><strong><em><s><code>x</code></s></em></strong></a></p>");
+}
+
 TEST(ExtractSelectedTextAsHtml, InlineCode)
 {
     EXPECT_TRUE(CopyAllAsHtml("text `code` more").contains("<code>code</code>"));
@@ -974,7 +981,7 @@ TEST(FindLinkHitAtPosition, BinarySearchBoundaries)
     const int16_t l2 = AddTestLinkUrl(node, "https://c.com");
     const auto run = [](uint32_t start, uint32_t length, int16_t link) static {
         TextRun r = MakeRun(start, length, link);
-        r.set_bold(link < 0);
+        r.set_raw_flags(link < 0 ? TextRun::kBold : 0);
         return r;
     };
     const TextRun runs[]{ run(0, 2, l0), run(2, 1, -1), run(3, 2, l1), run(5, 1, l2) };

@@ -324,11 +324,10 @@ TEST(SearchStateTest, SetCurrentMatchNearUsesTableRowY)
     ASSERT_EQ(s.GetMatchCount(), 3);
 
     // ブロックは y=0, 各行は高さ 100 → 行Y = 0, 100, 200
-    LayoutCache cache;
-    cache.Resize(1);
+    LayoutCache cache(1);
     cache.SetTop(0, 0.0f);
     cache[0].height = 300.0f;
-    auto& tl = cache[0].ensure_table_layout();
+    auto& tl = cache[0].ensure_table_layout(3, 1);
     tl.row_heights = { 100.0f, 100.0f, 100.0f };
     tl.row_cum_y = { 0.0f, 100.0f, 200.0f, 300.0f };
 

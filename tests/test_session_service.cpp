@@ -1,124 +1,150 @@
 #include <gtest/gtest.h>
 #include "config_service.h"
-#include "pane_controller.h"
+#include "pane_layout.h"
 #include "test_helpers.h"
 
-class SessionServiceTest : public TempDirTestBase {
+class SessionTest : public TempDirTestBase {
 protected:
     ConfigService config_;
-    SessionService session_{ config_ };
+
+    PaneController LoadPanes() const
+    {
+        PaneController panes;
+        session::LoadPanes(config_, panes);
+        return panes;
+    }
 };
 
-// ---- SavePaneState / LoadPaneState ----
+// ---- SavePanes / LoadPanes ----
 
-TEST_F(SessionServiceTest, SaveAndLoadPaneState)
+TEST_F(SessionTest, SaveAndLoadPanes)
 {
-    SessionService::PaneState saved{
-        .show_file = false,
-        .show_toc = true,
-        .file_width = 180.0f,
-        .toc_width = 250.0f,
-    };
-    session_.SavePaneState(saved);
+    PaneController saved;
+    saved.SetSidePaneVisible(PaneTarget::File, false);
+    saved.SetSidePaneWidth(PaneTarget::File, 180.0f);
+    saved.SetSidePaneWidth(PaneTarget::Toc, 250.0f);
+    session::SavePanes(config_, saved);
 
-    const auto loaded = session_.LoadPaneState();
+    const auto loaded = LoadPanes();
 
-    EXPECT_FALSE(loaded.show_file);
-    EXPECT_TRUE(loaded.show_toc);
-    EXPECT_FLOAT_EQ(loaded.file_width, 180.0f);
-    EXPECT_FLOAT_EQ(loaded.toc_width, 250.0f);
+    EXPECT_FALSE(loaded.IsSidePaneVisible(PaneTarget::File));
+    EXPECT_TRUE(loaded.IsSidePaneVisible(PaneTarget::Toc));
+    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::File), 180.0f);
+    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::Toc), 250.0f);
 }
 
-TEST_F(SessionServiceTest, LoadPaneStateKeepsSavedWidthWithoutWindowClamp)
+// 読み込み先の今の状態は残さない。
+TEST_F(SessionTest, LoadPanesOverwritesCurrentState)
+{
+    PaneController saved;
+    saved.SetSidePaneVisible(PaneTarget::Toc, false);
+    session::SavePanes(config_, saved);
+
+    PaneController panes;
+    panes.SetSidePaneVisible(PaneTarget::File, false);
+    panes.SetSidePaneWidth(PaneTarget::File, 400.0f);
+    session::LoadPanes(config_, panes);
+
+    EXPECT_TRUE(panes.IsSidePaneVisible(PaneTarget::File));
+    EXPECT_FALSE(panes.IsSidePaneVisible(PaneTarget::Toc));
+    EXPECT_FLOAT_EQ(panes.GetSidePaneWidth(PaneTarget::File), SIDE_PANE_DEFAULT_WIDTH);
+}
+
+TEST_F(SessionTest, LoadPanesKeepsSavedWidthWithoutWindowClamp)
 {
     // 過剰幅の制限はレイアウト側 (md_width = max(md_min_width, total_width - x) で MD ペイン
-    // 下限を保証) に委ねるため、LoadPaneState はウィンドウ幅に基づく上限 clamp を行わず、
-    // 保存値をそのまま返す。これにより狭いウィンドウ起動時に保存値が min へ潰れて
+    // 下限を保証) に委ねるため、LoadPanes はウィンドウ幅に基づく上限 clamp を行わず、
+    // 保存値をそのまま使う。これにより狭いウィンドウ起動時に保存値が min へ潰れて
     // 終了時の再保存で恒久喪失するのを防ぐ。
     config_.SaveInt("Pane", "FileWidth", 500);
     config_.SaveInt("Pane", "TocWidth", 500);
 
-    const auto loaded = session_.LoadPaneState();
+    const auto loaded = LoadPanes();
 
-    EXPECT_FLOAT_EQ(loaded.file_width, 500.0f);
-    EXPECT_FLOAT_EQ(loaded.toc_width, 500.0f);
+    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::File), 500.0f);
+    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::Toc), 500.0f);
 }
 
-TEST_F(SessionServiceTest, LoadPaneStateUsesDefaultWhenWindowFitsIt)
+TEST_F(SessionTest, LoadPanesUsesDefaultWhenNothingSaved)
 {
-    // 通常幅のウィンドウでは、欠落値は DEFAULT_WIDTH のまま使われる
-    const auto loaded = session_.LoadPaneState();
+    const auto loaded = LoadPanes();
 
-    EXPECT_FLOAT_EQ(loaded.file_width, SIDE_PANE_DEFAULT_WIDTH);
-    EXPECT_FLOAT_EQ(loaded.toc_width, SIDE_PANE_DEFAULT_WIDTH);
+    EXPECT_TRUE(loaded.IsSidePaneVisible(PaneTarget::File));
+    EXPECT_TRUE(loaded.IsSidePaneVisible(PaneTarget::Toc));
+    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::File), SIDE_PANE_DEFAULT_WIDTH);
+    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::Toc), SIDE_PANE_DEFAULT_WIDTH);
 }
 
 // 幅はズームを含まない DIP 値として往復する。読み側は倍率を掛けない。
-TEST_F(SessionServiceTest, SavedWidthRoundTripsAsDip)
+TEST_F(SessionTest, SavedWidthRoundTripsAsDip)
 {
-    session_.SavePaneState({ .show_file = true, .show_toc = true, .file_width = 300.0f, .toc_width = 260.0f });
+    PaneController saved;
+    saved.SetSidePaneWidth(PaneTarget::File, 300.0f);
+    saved.SetSidePaneWidth(PaneTarget::Toc, 260.0f);
+    saved.SidePaneZoom(PaneTarget::File).SetIndex(ZOOM_DEFAULT_INDEX + 2);
+    session::SavePanes(config_, saved);
 
-    const auto loaded = session_.LoadPaneState();
+    const auto loaded = LoadPanes();
 
-    EXPECT_FLOAT_EQ(loaded.file_width, 300.0f);
-    EXPECT_FLOAT_EQ(loaded.toc_width, 260.0f);
+    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::File), 300.0f);
+    EXPECT_FLOAT_EQ(loaded.GetSidePaneWidth(PaneTarget::Toc), 260.0f);
 }
 
 // ペインの倍率はペインごとに往復する。
-TEST_F(SessionServiceTest, PaneZoomRoundTrips)
+TEST_F(SessionTest, PaneZoomRoundTrips)
 {
-    SessionService::PaneState saved;
-    saved.file_zoom.SetIndex(ZOOM_DEFAULT_INDEX + 2);
-    saved.toc_zoom.SetIndex(ZOOM_DEFAULT_INDEX - 1);
-    session_.SavePaneState(saved);
+    PaneController saved;
+    saved.SidePaneZoom(PaneTarget::File).SetIndex(ZOOM_DEFAULT_INDEX + 2);
+    saved.SidePaneZoom(PaneTarget::Toc).SetIndex(ZOOM_DEFAULT_INDEX - 1);
+    session::SavePanes(config_, saved);
 
-    const auto loaded = session_.LoadPaneState();
+    const auto loaded = LoadPanes();
 
-    EXPECT_EQ(loaded.file_zoom.Index(), ZOOM_DEFAULT_INDEX + 2);
-    EXPECT_EQ(loaded.toc_zoom.Index(), ZOOM_DEFAULT_INDEX - 1);
+    EXPECT_EQ(loaded.SidePaneZoom(PaneTarget::File).Index(), ZOOM_DEFAULT_INDEX + 2);
+    EXPECT_EQ(loaded.SidePaneZoom(PaneTarget::Toc).Index(), ZOOM_DEFAULT_INDEX - 1);
 }
 
 // 保存が無ければ等倍。
-TEST_F(SessionServiceTest, PaneZoomDefaultsToActualSize)
+TEST_F(SessionTest, PaneZoomDefaultsToActualSize)
 {
-    const auto loaded = session_.LoadPaneState();
+    const auto loaded = LoadPanes();
 
-    EXPECT_TRUE(loaded.file_zoom.IsDefault());
-    EXPECT_TRUE(loaded.toc_zoom.IsDefault());
+    EXPECT_TRUE(loaded.SidePaneZoom(PaneTarget::File).IsDefault());
+    EXPECT_TRUE(loaded.SidePaneZoom(PaneTarget::Toc).IsDefault());
 }
 
 // ---- SaveScrollPosition / LoadScrollPosition ----
 
-TEST_F(SessionServiceTest, SaveAndLoadScrollPosition)
+TEST_F(SessionTest, SaveAndLoadScrollPosition)
 {
-    session_.SaveScrollPosition(5, 49.6f);
+    session::SaveScrollPosition(config_, 5, 49.6f);
 
-    const auto pos = session_.LoadScrollPosition();
+    const auto pos = session::LoadScrollPosition(config_);
     EXPECT_EQ(pos.node, 5);
     EXPECT_EQ(pos.offset, 50); // lround(49.6)
 }
 
 // ---- SaveLastFilePath / LoadLastFilePath ----
 
-TEST_F(SessionServiceTest, SaveLastFilePathStoresPath)
+TEST_F(SessionTest, SaveLastFilePathStoresPath)
 {
     // LoadLastFilePath は実在しないパスを弾くため、実ファイルを作って往復させる。
     const auto file = WriteTempFile(L"last.md", "# last").wstring();
-    session_.SaveLastFilePath(file);
-    EXPECT_EQ(session_.LoadLastFilePath(), std::wstring_view{ file });
+    session::SaveLastFilePath(config_, file);
+    EXPECT_EQ(session::LoadLastFilePath(config_), std::wstring_view{ file });
 }
 
-TEST_F(SessionServiceTest, SaveLastFilePathSkipsEmpty)
+TEST_F(SessionTest, SaveLastFilePathSkipsEmpty)
 {
     // 空パスで既存の保存値を上書きしない。
     const auto file = WriteTempFile(L"last.md", "# last").wstring();
-    session_.SaveLastFilePath(file);
-    session_.SaveLastFilePath(L"");
-    EXPECT_EQ(session_.LoadLastFilePath(), std::wstring_view{ file });
+    session::SaveLastFilePath(config_, file);
+    session::SaveLastFilePath(config_, L"");
+    EXPECT_EQ(session::LoadLastFilePath(config_), std::wstring_view{ file });
 }
 
 // UNC (\\host)・拡張パス (\\?\)・デバイスパス (\\.\) と、存在しないファイルは返さない。
-TEST_F(SessionServiceTest, LoadLastFilePathRejectsRemoteDeviceAndMissingPaths)
+TEST_F(SessionTest, LoadLastFilePathRejectsRemoteDeviceAndMissingPaths)
 {
     // 存在しないファイルは temp_dir_ 配下の作らない名前にし、絶対パスへのフレークを避ける。
     const std::wstring kPaths[] = {
@@ -130,52 +156,52 @@ TEST_F(SessionServiceTest, LoadLastFilePathRejectsRemoteDeviceAndMissingPaths)
     for (const auto& saved : kPaths) {
         SCOPED_TRACE(::testing::PrintToString(saved));
         config_.SaveWString("Session", "LastFile", saved);
-        EXPECT_TRUE(session_.LoadLastFilePath().empty());
+        EXPECT_TRUE(session::LoadLastFilePath(config_).empty());
     }
 }
 
 // 実在するファイルを指すデバイスパスも弾く。存在しないパスでは存在確認で空になり、判定を外しても通ってしまう。
-TEST_F(SessionServiceTest, LoadLastFilePathRejectsDeviceFormsOfExistingFile)
+TEST_F(SessionTest, LoadLastFilePathRejectsDeviceFormsOfExistingFile)
 {
     const auto file = WriteTempFile(L"last.md", "# last").wstring();
     for (const std::wstring& prefixed : { L"\\\\?\\" + file, L"\\\\.\\" + file, L"//./" + file, L"\\??\\" + file }) {
         SCOPED_TRACE(::testing::PrintToString(prefixed));
         ASSERT_NE(::GetFileAttributesW(prefixed.c_str()), INVALID_FILE_ATTRIBUTES) << "前提: このパスでファイルを開けること";
         config_.SaveWString("Session", "LastFile", prefixed);
-        EXPECT_TRUE(session_.LoadLastFilePath().empty());
+        EXPECT_TRUE(session::LoadLastFilePath(config_).empty());
     }
 }
 
-TEST_F(SessionServiceTest, LoadLastFilePathReturnsEmptyWhenNothingSaved)
+TEST_F(SessionTest, LoadLastFilePathReturnsEmptyWhenNothingSaved)
 {
-    auto path = session_.LoadLastFilePath();
+    auto path = session::LoadLastFilePath(config_);
     EXPECT_TRUE(path.empty());
 }
 
 // ---- SaveScrollPosition / LoadScrollPosition の境界 ----
 
-TEST_F(SessionServiceTest, SaveScrollPosition_NegativeOffsetRoundtrips)
+TEST_F(SessionTest, SaveScrollPosition_NegativeOffsetRoundtrips)
 {
     // ノード先頭より上を見ている (scroll_y < node_y) と offset は負になる。
-    session_.SaveScrollPosition(3, -150.0f);
-    const auto pos = session_.LoadScrollPosition();
+    session::SaveScrollPosition(config_, 3, -150.0f);
+    const auto pos = session::LoadScrollPosition(config_);
     EXPECT_EQ(pos.node, 3);
     EXPECT_EQ(pos.offset, -150);
 }
 
-TEST_F(SessionServiceTest, LoadScrollPosition_DefaultsWhenNothingSaved)
+TEST_F(SessionTest, LoadScrollPosition_DefaultsWhenNothingSaved)
 {
-    const auto pos = session_.LoadScrollPosition();
+    const auto pos = session::LoadScrollPosition(config_);
     EXPECT_EQ(pos.node, -1);
     EXPECT_EQ(pos.offset, 0);
 }
 
 // node は [-1, 1000000]、offset は ±1000000 を外れると既定値 (-1 / 0) に倒す。
-TEST_F(SessionServiceTest, LoadScrollPosition_OutOfRangeFallsBackToDefault)
+TEST_F(SessionTest, LoadScrollPosition_OutOfRangeFallsBackToDefault)
 {
     config_.SaveInt("Session", "ScrollNode", 10000000);
     config_.SaveInt("Session", "ScrollOffset", 99999999);
-    const auto pos = session_.LoadScrollPosition();
+    const auto pos = session::LoadScrollPosition(config_);
     EXPECT_EQ(pos.node, -1);
     EXPECT_EQ(pos.offset, 0);
 }

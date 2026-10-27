@@ -1,29 +1,37 @@
 #include "image_loader.h"
+#include "d2d_util.h"
 #include "file_io.h"
 #include "task_scheduler.h"
 #include "ui_constants.h"
 #include "wic_util.h"
+
+ImageLoader::ImageLoader() noexcept
+    : max_bitmap_dim_(MaxBitmapDim(nullptr))
+{
+}
 
 ImageLoader::~ImageLoader()
 {
     Shutdown();
 }
 
-bool ImageLoader::Init(IWICImagingFactory* wic)
+bool ImageLoader::Init(IWICImagingFactory* wic, HWND hwnd, UINT msg_id, TaskScheduler& scheduler)
 {
-    if (wic) {
-        wic_factory_ = wic;
-        return true;
-    }
-    wic_factory_ = wic_util::CreateWicFactory("ImageLoader CoCreateInstance(WIC)");
-    return wic_factory_ != nullptr;
-}
-
-void ImageLoader::InitAsync(HWND hwnd, UINT msg_id, TaskScheduler& scheduler)
-{
+    wic_factory_ = wic;
     hwnd_ = hwnd;
     msg_id_ = msg_id;
     scheduler_ = &scheduler;
+    return wic_factory_ != nullptr;
+}
+
+void ImageLoader::SetRenderTarget(ID2D1RenderTarget* rt)
+{
+    if (render_target_) {
+        CancelPending();
+        ClearCache();
+    }
+    render_target_ = rt;
+    max_bitmap_dim_.store(MaxBitmapDim(rt));
 }
 
 void ImageLoader::Shutdown()
@@ -61,7 +69,7 @@ UINT ImageLoader::DecodeWidthPx(float width_dip) const noexcept
     return (px + kQuantumPx - 1) / kQuantumPx * kQuantumPx;
 }
 
-void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_complete, float max_width_dip)
+void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, float max_width_dip)
 {
     if (!scheduler_) {
         return;
@@ -81,7 +89,7 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
 
     const uint32_t gen = cancel_gen_.load();
     const UINT max_width_px = DecodeWidthPx(max_width_dip);
-    const bool posted = scheduler_->Post([this, path = abs_path, on_complete = std::move(on_complete), gen, drop_gen, max_width_px, guard = latch_.Acquire()]() mutable {
+    const bool posted = scheduler_->Post([this, path = abs_path, gen, drop_gen, max_width_px, guard = latch_.Acquire()]() mutable {
         {
             const std::lock_guard lock(pending_mutex_);
             // 捨てられた要求の項目は消えている。同じパスで要求し直した別の項目があっても触らない。
@@ -93,7 +101,7 @@ void ImageLoader::RequestLoadAsync(const std::wstring& abs_path, Callback on_com
             }
         }
 
-        DecodeResult result{ .on_complete = std::move(on_complete) };
+        DecodeResult result;
         DecodeForDisplay(path, max_width_px, result);
         result.path = std::move(path);
 
@@ -134,9 +142,8 @@ void ImageLoader::DecodeForDisplay(const std::wstring& path, UINT max_width_px, 
     result.sharp_width_px = width_limited ? target.width : UINT_MAX;
 }
 
-void ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point deadline)
+bool ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point deadline)
 {
-    Callback last_cb;
     const auto results = completed_.Drain(deadline, [&](DecodeResult& r) {
         // GPU に載せられなかった画像もデコード失敗と同じく数える。数えないと完了通知のたびに読み直し続ける。
         bool failed = !r.bitmap;
@@ -154,11 +161,9 @@ void ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point 
         if (failed) {
             r.bitmap.Reset();
         }
-        // 全 on_complete は同一の invalidate シグナルなので最後の 1 つだけ呼ぶ。
-        last_cb = std::move(r.on_complete);
     });
     if (results.empty()) {
-        return;
+        return false;
     }
     {
         const std::lock_guard lock(pending_mutex_);
@@ -169,10 +174,7 @@ void ImageLoader::ProcessCompletedDecodes(std::chrono::steady_clock::time_point 
             }
         }
     }
-
-    if (last_cb) {
-        last_cb();
-    }
+    return true;
 }
 
 void ImageLoader::CacheBitmap(

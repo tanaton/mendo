@@ -9,25 +9,10 @@
 
 namespace {
 
-// SyntaxTokenType の順。Plain はトークンにならない (添字合わせ)。
-constexpr BrushId SYNTAX_BRUSHES[]{
-    BrushId::None,
-    BrushId::SyntaxKeyword,
-    BrushId::SyntaxType,
-    BrushId::SyntaxString,
-    BrushId::SyntaxNumber,
-    BrushId::SyntaxComment,
-    BrushId::SyntaxPreprocessor,
-    BrushId::SyntaxFunction,
-    BrushId::SyntaxInserted,
-    BrushId::SyntaxDeleted,
-};
-static_assert(std::size(SYNTAX_BRUSHES) == std::to_underlying(SyntaxTokenType::Deleted) + 1);
-
-// brushes が無いか、id がブラシ無し・未作成なら nullptr。
-ID2D1SolidColorBrush* FixedBrush(const FixedBrushArray* brushes, BrushId id) noexcept
+// id がブラシ無し・未作成なら nullptr。
+ID2D1SolidColorBrush* FixedBrush(const FixedBrushArray& brushes, BrushId id) noexcept
 {
-    return brushes && id != BrushId::None ? (*brushes)[std::to_underlying(id)].Get() : nullptr;
+    return id != BrushId::None ? brushes[std::to_underlying(id)].Get() : nullptr;
 }
 
 // 文書のテキストレイアウトを描く。描画効果は計測時に付けた BrushEffect で、固定ブラシへ置き換える。
@@ -38,7 +23,7 @@ ID2D1SolidColorBrush* FixedBrush(const FixedBrushArray* brushes, BrushId id) noe
 class VisibleRunRenderer final : public IDWriteTextRenderer {
 public:
     VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, float cull_top, float cull_bottom,
-        std::span<const SyntaxToken> tokens, const FixedBrushArray* brushes) noexcept
+        std::span<const SyntaxToken> tokens, const FixedBrushArray& brushes) noexcept
         : rt_(rt), default_brush_(default_brush), cull_top_(cull_top), cull_bottom_(cull_bottom), tokens_(tokens), brushes_(brushes)
     {
         rt->GetTransform(&transform_);
@@ -121,8 +106,7 @@ private:
     }
     ID2D1Brush* TokenBrush(SyntaxTokenType type) const noexcept
     {
-        const auto idx = std::to_underlying(type);
-        auto* brush = idx < std::size(SYNTAX_BRUSHES) ? FixedBrush(brushes_, SYNTAX_BRUSHES[idx]) : nullptr;
+        auto* brush = FixedBrush(brushes_, SyntaxBrushId(type));
         return brush ? brush : default_brush_;
     }
 
@@ -178,17 +162,14 @@ private:
     D2D1_MATRIX_3X2_F transform_{};
     float pixels_per_dip_ = 1.0f;
     std::span<const SyntaxToken> tokens_;
-    const FixedBrushArray* brushes_;
+    const FixedBrushArray& brushes_;
 };
 
 } // namespace
 
-void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray* brushes)
+void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes)
 {
     MENDO_PROFILE("ExecuteDrawCommands");
-    if (!rt) {
-        return;
-    }
 
     const auto draw = overloaded{
         [&](const FillRectCmd& c) {
@@ -200,6 +181,11 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
                 const OpacityScope opacity{ c.opacity != 1.0f ? b : nullptr, c.opacity };
                 rt->FillRoundedRectangle(D2D1_ROUNDED_RECT{ c.rect, c.rx, c.ry }, b);
+            }
+        },
+        [&](const DrawRoundedRectCmd& c) {
+            if (auto* b = FixedBrush(brushes, c.brush_id)) {
+                rt->DrawRoundedRectangle(D2D1_ROUNDED_RECT{ c.rect, c.rx, c.ry }, b, c.stroke_width);
             }
         },
         [&](const DrawLineCmd& c) {
@@ -225,12 +211,22 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
         },
         [&](const FillEllipseCmd& c) {
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
+                const OpacityScope opacity{ c.opacity != 1.0f ? b : nullptr, c.opacity };
                 rt->FillEllipse(D2D1::Ellipse(c.center, c.rx, c.ry), b);
             }
         },
         [&](const DrawEllipseCmd& c) {
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
                 rt->DrawEllipse(D2D1::Ellipse(c.center, c.rx, c.ry), b, c.stroke_width);
+            }
+        },
+        [&](const DrawGeometryCmd& c) {
+            if (!c.geometry) {
+                return;
+            }
+            if (auto* b = FixedBrush(brushes, c.brush_id)) {
+                const OpacityScope opacity{ c.opacity != 1.0f ? b : nullptr, c.opacity };
+                rt->DrawGeometry(c.geometry, b, c.stroke_width, c.stroke_style);
             }
         },
         [&](const PushClipCmd& c) {

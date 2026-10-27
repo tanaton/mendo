@@ -390,13 +390,13 @@ private:
             c.a = a;
             return c;
         };
-        CreateSolidColorBrushOrFallback(rt.Get(), with_alpha(theme->text_color, POPUP_FRAME_ALPHA), brushes.frame);
-        CreateSolidColorBrushOrFallback(rt.Get(), theme->splitter_color, brushes.border);
-        CreateSolidColorBrushOrFallback(rt.Get(), theme->text_color, brushes.text);
-        CreateSolidColorBrushOrFallback(rt.Get(), with_alpha(theme->text_color, POPUP_SUB_TEXT_ALPHA), brushes.sub);
-        CreateSolidColorBrushOrFallback(rt.Get(), with_alpha(theme->text_color, DISABLED_UI_ALPHA), brushes.gray);
-        CreateSolidColorBrushOrFallback(rt.Get(), theme->pane_item_hover_color, brushes.hover);
-        CreateSolidColorBrushOrFallback(rt.Get(), theme->link_color, brushes.check);
+        CreateSolidColorBrushOrFallback(rt.Get(), with_alpha(theme->Color(BrushId::Text), POPUP_FRAME_ALPHA), brushes.frame);
+        CreateSolidColorBrushOrFallback(rt.Get(), theme->Color(BrushId::Splitter), brushes.border);
+        CreateSolidColorBrushOrFallback(rt.Get(), theme->Color(BrushId::Text), brushes.text);
+        CreateSolidColorBrushOrFallback(rt.Get(), with_alpha(theme->Color(BrushId::Text), POPUP_SUB_TEXT_ALPHA), brushes.sub);
+        CreateSolidColorBrushOrFallback(rt.Get(), with_alpha(theme->Color(BrushId::Text), DISABLED_UI_ALPHA), brushes.gray);
+        CreateSolidColorBrushOrFallback(rt.Get(), theme->Color(BrushId::PaneItemHover), brushes.hover);
+        CreateSolidColorBrushOrFallback(rt.Get(), theme->Color(BrushId::Link), brushes.check);
         return true;
     }
 
@@ -407,7 +407,7 @@ private:
             return;
         }
         rt->BeginDraw();
-        rt->Clear(theme->pane_bg_color);
+        rt->Clear(theme->Color(BrushId::PaneBg));
         constexpr float half = POPUP_FRAME_WIDTH * 0.5f;
         rt->DrawRoundedRectangle({
                                      { half, half, width - half, height - half },

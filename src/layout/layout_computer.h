@@ -145,6 +145,9 @@ float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width)
 void EstimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme,
                          float content_width, std::stop_token stop_token);
 
+// 全ノードを dirty にして高さを推定値で更新し (EstimateInvisibleNodeHeight)、Y を組み直す。
+void ReestimateNodeHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, float content_width);
+
 // リロードで、中身が変わらないノード (FindUnchangedEnds) の計測結果を旧キャッシュから新キャッシュへ移す。
 // 変わった範囲の図は、新しい結果が届くまで旧結果を仮表示として引き継ぐ。
 // Y 位置は呼び出し側が組み直す。

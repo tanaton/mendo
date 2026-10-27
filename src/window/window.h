@@ -1,16 +1,12 @@
 #pragma once
-#include "ui_types.h"
+#include "app.h"
 #include <windows.h>
-#include <string>
-#include <string_view>
 #include <memory>
-#include <memory_resource>
 #include <optional>
 
-class App;
 class ConfigService;
 
-class Win32Window final : public ModalLoop {
+class Win32Window final : public WindowHost {
 public:
     explicit Win32Window(ConfigService& config);
     ~Win32Window();
@@ -18,12 +14,15 @@ public:
     bool Create(HINSTANCE hInstance, int nCmdShow);
     int RunMessageLoop();
     void RunUntil(const bool& done) override;
+    void FocusSearchEdit(int anchor, int caret) override;
+    void UnfocusSearch(bool clear_text) override;
+    LRESULT HitTestNonClient(POINT pt) override;
 
-    void SetInitialDirectory(std::wstring_view dir_path);
-    void StartPreloadAsync(std::pmr::wstring path);
-
-    // App::LoadInitialDocument が FileLoadService::AttachPreload で同期復元するパスに備えて、Create より前に呼ぶ。
-    void RestoreScrollPosition();
+    // 起動時の準備 (preload・スクロール位置・ファイルペインのフォルダ) は Create より前に App へ直接頼む。
+    App& app() noexcept
+    {
+        return *app_;
+    }
 
 private:
     // WM_QUIT を受けたら終了コードを、done が立ったら nullopt を返す。
@@ -31,7 +30,6 @@ private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT OnNcCalcSize(WPARAM wParam, LPARAM lParam);
-    LRESULT OnNcHitTest(LPARAM lParam);
     // 最大化時は HTNOWHERE を返す。
     LRESULT HitTestResizeFrame(POINT pt) const noexcept;
     LRESULT HitTestTitleBar(POINT pt) const noexcept;
@@ -51,8 +49,7 @@ private:
     LRESULT OnSearchEditKeyDown(HWND edit, WPARAM wParam, LPARAM lParam);
     void OnSearchEditChanged();
     bool EnsureSearchEdit();
-    // selection は app_param::MakeSearchSelectionLParam で詰めた [anchor, caret)。
-    void FocusSearchEdit(LPARAM selection);
+    // EDIT は見えないので、置き場所は IME の変換窓の位置にしか効かない。
     void RepositionSearchEdit();
     void SyncSearchCaretFromEdit();
 
@@ -61,11 +58,8 @@ private:
 
     HWND hwnd_ = nullptr;
     HWND search_edit_ = nullptr;
-    bool in_sys_menu_ = false;
     bool tracking_mouse_ = false; // TME_LEAVE は WM_MOUSELEAVE を 1 回送ると解除されるので、再登録の要否を覚える
     bool was_minimized_ = false;  // 直前が最小化状態だったかのフラグ（復元時の同期描画ガード用）
-
-    std::pmr::wstring search_text_buf_;
 
     // WM_DPICHANGED 時に更新。
     int cached_nchit_border_ = 4;

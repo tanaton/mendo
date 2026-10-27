@@ -88,8 +88,14 @@ inline void CheckTable(ViolationSink& sink, size_t i, const Node& node)
         sink.Add("node {}: Table has node-level runs ({})", i, node.runs().size());
     }
     const size_t cells = static_cast<size_t>(tbl->row_count) * tbl->col_count;
-    if (tbl->cell_text_starts.size() != cells + 1 || tbl->cell_run_starts.size() != cells + 1) {
-        sink.Add("node {}: offset tables {}/{} != R*C+1 = {}", i, tbl->cell_text_starts.size(), tbl->cell_run_starts.size(), cells + 1);
+    if (tbl->cell_text_starts.size() != cells + 1) {
+        sink.Add("node {}: cell_text_starts {} != R*C+1 = {}", i, tbl->cell_text_starts.size(), cells + 1);
+        return;
+    }
+    // run の無い表は cell_run_starts を持たない。
+    if (tbl->all_runs.empty() != tbl->cell_run_starts.empty() ||
+        (!tbl->cell_run_starts.empty() && tbl->cell_run_starts.size() != cells + 1)) {
+        sink.Add("node {}: cell_run_starts {} (all_runs {}) vs R*C+1 = {}", i, tbl->cell_run_starts.size(), tbl->all_runs.size(), cells + 1);
         return;
     }
     // 末尾オフセットが格納先のサイズとずれていると、以降のセル走査が範囲外を読む。
@@ -97,7 +103,7 @@ inline void CheckTable(ViolationSink& sink, size_t i, const Node& node)
         sink.Add("node {}: cell_text_starts.back() {} != concat size {}", i, tbl->cell_text_starts.back(), tbl->concat_text.size());
         return;
     }
-    if (tbl->cell_run_starts.back() != tbl->all_runs.size()) {
+    if (!tbl->cell_run_starts.empty() && tbl->cell_run_starts.back() != tbl->all_runs.size()) {
         sink.Add("node {}: cell_run_starts.back() {} != all_runs size {}", i, tbl->cell_run_starts.back(), tbl->all_runs.size());
         return;
     }

@@ -401,8 +401,7 @@ TEST(ViewportManagerTest, ScrollRestoreResilientToHeightChange)
     EXPECT_FLOAT_EQ(saved_offset, 0.0f);
 
     // レイアウト変更: ノード1の高さが200に増加（画像読み込みシミュレーション）
-    LayoutCache new_cache;
-    new_cache.Resize(10);
+    LayoutCache new_cache(10);
     float y = 0.0f;
     for (int i = 0; i < 10; ++i) {
         new_cache.SetTop(i, y);
@@ -520,8 +519,7 @@ TEST(ViewportManagerTest, ClampAndDetachClampsAndClearsTarget)
 // 作った直後のキャッシュから見ている位置を合成すると誤ったノードへ飛ぶので、合成しない。
 TEST(ViewportManagerTest, EnsureScrollTargetSkipsFreshCache)
 {
-    LayoutCache cache;
-    cache.Resize(5);
+    LayoutCache cache(5);
     ViewportManager vm;
 
     EXPECT_EQ(vm.FindFirstVisibleNode(cache), -1);

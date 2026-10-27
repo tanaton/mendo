@@ -6,7 +6,7 @@
 #include <string_view>
 #include <utility>
 
-// リロード diff (AnalyzeReloadDiff) は raw_text_ と FileLoader 出力が同じ LF 正規化済みである
+// リロード diff (AnalyzeReloadDiff) は raw_text_ と LoadFile の出力が同じ LF 正規化済みである
 // 前提 (issue #273)。その正規化自体を担保する。
 TEST(NormalizeNewlines, CrlfAndLoneCrBecomeLf)
 {
@@ -38,7 +38,6 @@ TEST(DocumentTest, DefaultIsEmpty)
     EXPECT_TRUE(doc.GetNodes().empty());
     EXPECT_TRUE(doc.GetToc().empty());
     EXPECT_TRUE(doc.GetRawText().empty());
-    EXPECT_EQ(doc.GetLoadedByteSize(), 0u);
 }
 
 TEST(DocumentTest, FromMarkdownBasic)
@@ -76,16 +75,14 @@ TEST(DocumentTest, GetDirectory)
     }
 }
 
-// ---- GetRawText / GetLoadedByteSize ----
+// ---- GetRawText ----
 
-// 原文はそのまま保持し、読み込みサイズは UTF-8 の byte 数。
-TEST(DocumentTest, GetRawTextKeepsInputAndByteSize)
+TEST(DocumentTest, GetRawTextKeepsInput)
 {
     for (const std::string_view md : { std::string_view{ "# Hello\nworld" }, std::string_view{ "" }, std::string_view{ "# 日本語テスト\n\nこんにちは" } }) {
         SCOPED_TRACE(md);
         auto doc = Document::FromMarkdown(std::pmr::string{ md }, L"test.md");
         EXPECT_EQ(doc.GetRawText(), md);
-        EXPECT_EQ(doc.GetLoadedByteSize(), md.size());
     }
 }
 
@@ -124,7 +121,7 @@ TEST(DocumentTest, SourceOffsetSurvivesEmbeddedNullInCodeBlock)
     md.append("body\n```\n", 9);
     auto doc = Document::FromMarkdown(md, L"test.md");
     const auto& nodes = doc.GetNodes();
-    const auto& raw = doc.GetRawText();
+    const std::string_view raw = doc.GetRawText();
     ASSERT_FALSE(nodes.empty());
 
     bool checked_any = false;

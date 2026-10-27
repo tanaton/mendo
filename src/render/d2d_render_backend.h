@@ -1,13 +1,18 @@
 #pragma once
 #include "ui_constants.h"
 #include "win_handle.h"
-#include <d2d1_1.h>
-#include <d3d11.h>
+#include <d2d1.h>
 #include <dwrite.h>
-#include <dxgi1_2.h>
-#include <wincodec.h>
 #include <windows.h>
 #include <wrl/client.h>
+
+// d3d11.h / dxgi1_2.h / d2d1_1.h / wincodec.h は .cpp だけで読み、renderer.h から app.h を読む翻訳単位へ広げない。
+struct ID2D1Factory1;
+struct ID2D1Device;
+struct ID2D1DeviceContext;
+struct ID3D11Device;
+struct IDXGISwapChain1;
+struct IWICImagingFactory;
 
 // D3D デバイスの作成 (数十 ms) を起動処理と重ねるため、wWinMain の冒頭で呼ぶ。
 void PrefetchD3DDevice();
@@ -18,6 +23,11 @@ HANDLE D3DPrefetchDoneEvent() noexcept;
 // ブラシとテキストフォーマットは Renderer 側で管理する。
 class D2DRenderBackend final {
 public:
+    D2DRenderBackend() noexcept;
+    ~D2DRenderBackend();
+    D2DRenderBackend(const D2DRenderBackend&) = delete;
+    D2DRenderBackend& operator=(const D2DRenderBackend&) = delete;
+
     // デバイスとスワップチェーンは作らない (CreateDevice で作る)。
     bool Init(HWND hwnd);
     // live: ライブリサイズ中。ResizeBuffers は GPU の同期と再確保を伴うので WM_SIZE ごとに呼ぶと重い。
@@ -68,10 +78,7 @@ public:
         return device_lost_;
     }
 
-    ID2D1Factory* GetD2DFactory() const noexcept
-    {
-        return d2d_factory_.Get();
-    }
+    ID2D1Factory* GetD2DFactory() const noexcept;
     ID2D1DeviceContext* GetRenderTarget() const noexcept
     {
         return device_context_.Get();

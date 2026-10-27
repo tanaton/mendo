@@ -7,7 +7,6 @@
 #include <optional>
 #include <filesystem>
 #include <unordered_map>
-#include <atomic>
 #include <windows.h>
 
 class TaskScheduler;
@@ -38,15 +37,21 @@ public:
     {
         current_dpr_ = dpr;
     }
-    // インデックスにあれば PNG のパスと寸法を返し LRU を更新する。読み込み (ReadAllBytes) は
-    // 呼び出し側が任意のスレッドで行い、失敗したら OnReadFailed で UI スレッドに戻して反映する。
-    bool LookupPath(uint64_t key, CacheEntry& entry, std::filesystem::path& png_path);
+    struct Hit {
+        uint64_t key = 0;
+        CacheEntry entry;
+    };
+    // 図の寸法を、幅に縛られない結果 (max_width より狭いときだけ使える) を先に、無ければ幅つきで引き、当たったキーと寸法を返す。
+    // touch なら当たった項目の LRU を更新する (使えない幅なしの項目では更新しない)。寸法だけ見るときは更新しない。
+    std::optional<Hit> Find(uint64_t width_free_key, uint64_t sized_key, float max_width, bool touch);
+    // PNG の読み込み (ReadAllBytes) は呼び出し側が任意のスレッドで行い、失敗したら OnReadFailed で UI スレッドに戻して反映する。
+    // キャッシュのディレクトリが無ければ空。
+    std::filesystem::path PngPath(uint64_t key) const
+    {
+        return GetPngPath(InternalKey(key));
+    }
     // ファイルが確実に存在しない場合のみインデックスから除く (共有違反などの一時エラーは保持)。
     void OnReadFailed(uint64_t key, DWORD read_error);
-    bool LookupDimensions(uint64_t key, CacheEntry& entry);
-    // 図の寸法を、幅に縛られない結果 (max_width より狭いときだけ使える) を先に、無ければ幅つきで引き、当たったキーを返す。
-    // LRU は更新しない (使えない幅なしの項目で更新しないため)。
-    std::optional<uint64_t> LookupDiagram(uint64_t code_hash, float max_width, bool dark_mode, CacheEntry& entry);
     // png_data は表示側 (メモリキャッシュ / DiagramEntry) と共有し、書き込み用にコピーしない。
     void StoreAsync(uint64_t key, float css_width, float css_height, PngBytes png_data);
     void SaveIndex();
@@ -140,7 +145,6 @@ private:
     uint64_t max_total_size_ = DEFAULT_MAX_TOTAL_SIZE;
 
     TaskScheduler* scheduler_ = nullptr;
-    std::atomic<uint32_t> write_gen_{ 0 };
 
     mutable std::mutex pending_mutex_;
     // 書き込み中のキー → 書き込み中に追い出されたか (true なら worker が書き込み後に PNG を消す)。

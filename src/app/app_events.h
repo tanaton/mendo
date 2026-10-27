@@ -1,5 +1,6 @@
 #pragma once
 #include "app_constants.h"
+#include "document_utils.h"
 #include "pane_layout.h"
 #include "ui_types.h"
 #include "titlebar.h"
@@ -11,26 +12,11 @@
 #include <cstdint>
 #include <memory_resource>
 
-// DPI 変更時に Win32 RECT から詰め替えて reducer に渡す。
-struct PixelRect {
-    int32_t left;
-    int32_t top;
-    int32_t right;
-    int32_t bottom;
-};
-
 struct KeyDownEvent {
     int key;
     bool ctrl = false;
     bool shift = false;
     bool alt = false;
-};
-
-struct MouseWheelEvent {
-    int delta; // 生のWHEEL_DELTA単位
-    bool ctrl = false;
-    PaneZone zone = PaneZone::MdPane;
-    uint64_t tick = 0;
 };
 
 enum class ScrollType : uint8_t {
@@ -46,15 +32,12 @@ struct KeyScrollAction {
     ScrollType type;
 };
 
-// 縦ホイールのスクロール。tick でスワイプ検出の軸ロックを更新する。
-struct DirectScrollByAction {
-    float delta;
-    uint64_t tick = 0;
-};
-
-struct ScrollPaneAction {
-    PaneTarget pane;
-    float delta;
+// 縦ホイール。zone はポインタの下の領域で、Ctrl ならそこをズームし、そうでなければスクロールする
+// (スプリッタの上は本文)。tick でスワイプ検出の軸ロックを更新する。
+struct MouseWheelAction {
+    int delta; // 生の WHEEL_DELTA 単位
+    bool ctrl = false;
+    PaneZone zone = PaneZone::MdPane;
     uint64_t tick = 0;
 };
 
@@ -113,7 +96,7 @@ struct HoverHighlights {
 
 // App がヒットテストで求めたホバー状態。reducer がまとめて状態へ反映する。
 struct PointerHover : HoverHighlights {
-    TooltipTarget tooltip;
+    TooltipHover tooltip;
 };
 struct PointerHoverAction {
     PointerHover hover;
@@ -187,9 +170,21 @@ struct NavigateAnchorAction {
     std::pmr::string anchor_id;
 };
 
-// pending_restore があればそこへ、なければ先頭へスクロールする。
-struct RestoreScrollAfterLoadAction {};
-// ファイルロードが失敗した (RestoreScrollAfterLoadAction が来ない) ことの通知。
+// 別の文書 (読み込み・ヘルプ) に差し替えた。番号に結び付いた一時状態・サイドペインのスクロール・検索を初めに戻し、
+// ファイル一覧を合わせ、pending_restore があればそこへ、なければ先頭へスクロールする。
+// App は推定高さを図と画像のキャッシュの実測値で補正してから送る (復元先の Y をずらさない)。
+struct DocumentOpenedAction {
+    bool follow_file_pane = false;
+};
+// 同じ文書の新しい版に差し替えた (リロード)。番号に結び付いた一時状態を消し、変わらなかったノードの検索マッチは残し、
+// scroll_y (変更箇所が見える位置。App が実測の高さで求める) へスクロールする。
+struct DocumentReloadedAction {
+    UnchangedEnds unchanged;
+    float scroll_y = 0.0f;
+};
+// リロード後のスクロール位置と見えている範囲のレイアウトが決まった。検索中なら新しい文書で検索し直す。
+struct ReloadSettledAction {};
+// ファイルロードが失敗した (DocumentOpenedAction が来ない) ことの通知。
 struct LoadFailedAction {};
 struct HWheelAction {
     short delta;
@@ -208,16 +203,14 @@ struct OpenPathAction {
     std::pmr::wstring path;
 };
 
-// ツールチップの同一判定は node / TOC の index で行うため、文書を差し替えたら対象を忘れる。
-struct ClearTooltipAction {};
-
 struct ResizeAction {
     uint32_t width;
     uint32_t height;
 };
+// suggested は WM_DPICHANGED が勧める新しいウィンドウ矩形 (スクリーン座標)。
 struct DpiChangedAction {
     uint32_t dpi;
-    PixelRect suggested;
+    RECT suggested;
 };
 struct ActivateAction {
     bool active;
@@ -227,7 +220,6 @@ struct ExitSizeMoveAction {};
 struct CaptureChangedAction {};
 
 // AppState を変えるタイマーだけをアクションにする。サービスを進めるだけのものは App::HandleTimer が直接処理する。
-struct ToastExpiredAction {};
 struct SwipeOverlayTimeoutAction {};
 
 struct SearchTextChangedAction {
@@ -248,8 +240,7 @@ struct ImeCompositionAction {
 using AppAction = std::variant<
     NoOpAction,
     KeyScrollAction,
-    DirectScrollByAction,
-    ScrollPaneAction,
+    MouseWheelAction,
     CopyClipboardAction,
     CopyFormattedClipboardAction,
     SelectAllAction,
@@ -288,20 +279,20 @@ using AppAction = std::variant<
     FilePaneRevealCurrentFileAction,
     TocItemClickedAction,
     NavigateAnchorAction,
-    RestoreScrollAfterLoadAction,
+    DocumentOpenedAction,
+    DocumentReloadedAction,
+    ReloadSettledAction,
     LoadFailedAction,
     HWheelAction,
     BlockHScrollDragStartedAction,
     BlockHScrollDragMovedAction,
     OpenPathAction,
-    ClearTooltipAction,
     ResizeAction,
     DpiChangedAction,
     ActivateAction,
     EnterSizeMoveAction,
     ExitSizeMoveAction,
     CaptureChangedAction,
-    ToastExpiredAction,
     SwipeOverlayTimeoutAction,
     SearchTextChangedAction,
     SearchContinueAction,
@@ -314,8 +305,5 @@ using AppAction = std::variant<
 namespace app_controller {
 
 AppAction HandleKeyDown(const KeyDownEvent& event);
-// zoom_accum は Ctrl+ホイールの delta の端数。ピンチや高分解能ホイールは WHEEL_DELTA 未満を
-// 連発するため、1 ノッチ分たまるごとに 1 段だけズームする。
-AppAction HandleMouseWheel(const MouseWheelEvent& event, int& zoom_accum);
 
 } // namespace app_controller

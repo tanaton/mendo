@@ -1,45 +1,37 @@
 #include "renderer.h"
 #include "d2d_util.h"
-#include "hit_test_service.h"
-#include "i18n.h"
+#include "mouse_gesture.h"
+#include <d2d1_1.h>
+#include <wincodec.h>
 #include "ui_constants.h"
 #include "profiler.h"
-#include <array>
-#include <cassert>
-#include <cmath>
 #include <utility>
 #include <wrl/client.h>
 
 using Microsoft::WRL::ComPtr;
 
-bool Renderer::Init(HWND hwnd, Theme theme)
+Renderer::Renderer() noexcept = default;
+Renderer::~Renderer() = default;
+
+ID2D1RenderTarget* Renderer::GetRenderTarget() const noexcept
 {
-    theme_ = std::move(theme);
+    return backend_.GetRenderTarget();
+}
+
+bool Renderer::Init(HWND hwnd, const Theme& theme)
+{
+    theme_ = &theme;
 
     if (!backend_.Init(hwnd)) {
         return false;
     }
 
-    ResolveThemeFonts();
     RecreateAllTextFormats();
     DecodeAppIcon();
 
-    measurer_.SetFactory(backend_.GetDWriteFactory());
-    if (!layout_.Init(&measurer_, theme_)) {
-        return false;
-    }
-
-    cmd_generator_.SetTheme(&theme_);
-    cmd_generator_.SetTextLayoutCache(&text_layouts_);
+    cmd_generator_.Init(theme, &fmt_.md, &text_layouts_);
 
     return true;
-}
-
-void Renderer::SetTheme(Theme theme)
-{
-    assert(theme.zoom == theme_.zoom && theme.font_size_body == theme_.font_size_body);
-    AdoptThemeKeepingFonts(std::move(theme));
-    RecreateBrushes();
 }
 
 void Renderer::Resize(UINT width, UINT height, bool live) noexcept
@@ -58,18 +50,8 @@ void Renderer::TrimForMinimize() noexcept
     toc_titles_ = {};
 }
 
-void Renderer::ApplyZoom(Theme zoomed_theme)
-{
-    AdoptThemeKeepingFonts(std::move(zoomed_theme));
-    layout_.RecreateFormats();
-    RecreateAllTextFormats();
-}
-
 void Renderer::PrepareChrome(const TitleBarRenderState& titlebar, const SidePaneState& sp)
 {
-    if (ui_fmt_locale_ != i18n::S().lang_locale) {
-        CreateTextFormats(/*ui_only=*/true);
-    }
     EnsurePaneListFormats(PaneTarget::File, sp.Get(PaneTarget::File).zoom);
     EnsurePaneListFormats(PaneTarget::Toc, sp.Get(PaneTarget::Toc).zoom);
     chrome_cmds_.clear();
@@ -77,7 +59,7 @@ void Renderer::PrepareChrome(const TitleBarRenderState& titlebar, const SidePane
 
     const auto gen_splitter = [&](const PaneRect& r) {
         const float x = r.x + r.width;
-        chrome_cmds_.push_back(FillRectCmd{ .rect = D2D1::RectF(x, r.y, x + theme_.splitter_width, r.y + r.height), .brush_id = BrushId::Splitter });
+        chrome_cmds_.push_back(FillRectCmd{ .rect = D2D1::RectF(x, r.y, x + theme_->splitter_width, r.y + r.height), .brush_id = BrushId::Splitter });
     };
     const auto& fp = sp.Get(PaneTarget::File);
     if (fp.show) {
@@ -106,65 +88,9 @@ std::optional<Renderer::FrameResult> Renderer::BeginFrame(const TitleBarRenderSt
     backend_.AcquireFrame();
 
     rt()->BeginDraw();
-    rt()->Clear(theme_.bg_color);
-    ExecuteDrawCommands(chrome_cmds_, rt(), &brushes_);
+    rt()->Clear(theme_->Color(BrushId::Background));
+    ExecuteDrawCommands(chrome_cmds_, rt(), brushes_);
     return std::nullopt;
-}
-
-void Renderer::DrawLoadingSpinner(float angle, const PaneRect& md_pane_rect)
-{
-    auto* const text_brush = Brush(BrushId::Text);
-    if (!text_brush) {
-        return;
-    }
-    // alpha はドットインデックスのみに依存するためコンパイル時に決定する。
-    static constexpr auto kSpinnerAlphas = []() static noexcept {
-        std::array<float, spinner::DOT_COUNT> a{};
-        for (int i = 0; i < spinner::DOT_COUNT; ++i) {
-            a[i] = 1.0f - i * (spinner::DOT_FADE_FACTOR / spinner::DOT_COUNT);
-        }
-        return a;
-    }();
-    const float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
-    const float cy = md_pane_rect.y + md_pane_rect.height / 2.0f;
-    // ループ内で毎回 SetOpacity を上書きする。guard は scope 終了時の 1.0f 復帰のみ担う。
-    OpacityScope guard{ text_brush, 1.0f };
-    for (int i = 0; i < spinner::DOT_COUNT; i++) {
-        const float a = angle - i * (TWO_PI / spinner::DOT_COUNT);
-        const float dx = cx + spinner::RADIUS * std::cos(a);
-        const float dy = cy + spinner::RADIUS * std::sin(a);
-
-        const D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(dx, dy), spinner::DOT_RADIUS, spinner::DOT_RADIUS);
-        text_brush->SetOpacity(kSpinnerAlphas[i]);
-        rt()->FillEllipse(ellipse, text_brush);
-    }
-}
-
-Renderer::FrameResult Renderer::DrawLoading(
-    float angle,
-    const PaneRect& md_pane_rect,
-    const SidePaneState& sp,
-    const TitleBarRenderState& titlebar,
-    const GestureRenderState& gesture,
-    const ToastRenderState& toast)
-{
-    if (const auto early = BeginFrame(titlebar, sp)) {
-        return *early;
-    }
-
-    DrawLoadingSpinner(angle, md_pane_rect);
-    // ローディング中もジェスチャーとトーストは表示する
-    DrawTransientOverlays(gesture, toast, md_pane_rect);
-
-    return EndFrame();
-}
-
-void Renderer::DrawTransientOverlays(const GestureRenderState& gesture, const ToastRenderState& toast, const PaneRect& md_pane_rect)
-{
-    DrawGestureOverlay(gesture.direction, md_pane_rect);
-    if (!toast.message.empty()) {
-        DrawToastOverlay(toast, md_pane_rect);
-    }
 }
 
 Renderer::FrameResult Renderer::Render(const RenderParams& p)
@@ -175,30 +101,47 @@ Renderer::FrameResult Renderer::Render(const RenderParams& p)
         return *early;
     }
 
-    {
-        const float dpi_scale = DpiScaleFrom(backend_.GetDpi());
-        const auto& cmds = cmd_generator_.GenerateMdPane(p.nodes, p.cache, p.md_pane_rect, p.scroll_y, p.selection, p.hovered, dpi_scale, p.block_h_scroll, p.hovered_diagram);
+    if (!p.loading_angle) {
+        const auto& cmds = cmd_generator_.GenerateMdPane(p.md, DpiScaleFrom(backend_.GetDpi()));
         MENDO_PLOT("draw.command_count", static_cast<int64_t>(cmds.size()));
-        ExecuteDrawCommands(cmds, rt(), &brushes_);
+        ExecuteDrawCommands(cmds, rt(), brushes_);
     }
-
-    if (p.can_go_back || p.can_go_forward) {
-        DrawNavOverlay(p.md_pane_rect, p.can_go_back, p.can_go_forward, p.nav_hovered);
-    }
-
-    if (p.gesture.trail_active && p.gesture.trail_points) {
-        DrawGestureTrail(*p.gesture.trail_points);
-    }
-
-    DrawTransientOverlays(p.gesture, p.toast, p.md_pane_rect);
-
-    if (p.search_bar.visible) {
-        DrawSearchBar(p.search_bar, p.md_pane_rect);
-    }
-
-    DrawMdScrollbar(p.md_pane_rect, p.scroll_y, p.cache);
+    GenOverlays(p);
+    ExecuteDrawCommands(overlay_cmds_, rt(), brushes_);
 
     return EndFrame();
+}
+
+void Renderer::GenOverlays(const RenderParams& p)
+{
+    overlay_cmds_.clear();
+    gesture_trail_.Reset();
+    const PaneRect& md_pane_rect = p.md.md_pane_rect;
+    const bool dark = theme_->dark;
+    if (p.loading_angle) {
+        overlay::EmitLoadingSpinner(overlay_cmds_, *p.loading_angle, md_pane_rect);
+    }
+    else {
+        if (p.can_go_back || p.can_go_forward) {
+            overlay::EmitNavButtons(overlay_cmds_, text_layouts_, fmt_.nav_button.Get(), md_pane_rect, dark, p.can_go_back, p.can_go_forward, p.nav_hovered);
+        }
+        if (p.gesture.trail_active && p.gesture.trail_points) {
+            GenGestureTrail(*p.gesture.trail_points);
+        }
+    }
+    // 読み込み中もジェスチャーとトーストは出す。
+    overlay::EmitGestureOverlay(overlay_cmds_, text_layouts_, fmt_.gesture_overlay.Get(), md_pane_rect, dark, p.gesture.direction);
+    overlay::EmitToast(overlay_cmds_, text_layouts_, fmt_.toast_text.Get(), md_pane_rect, dark, p.toast.message);
+    if (p.loading_angle) {
+        return;
+    }
+    if (p.search_bar.visible) {
+        const auto input = search_input_.Measure(p.search_bar, ComputeSearchBarLayout(md_pane_rect, !p.search_bar.query.empty()).text_width());
+        overlay::EmitSearchBar(overlay_cmds_, text_layouts_, fmt_.ui_icon.Get(), fmt_.search_count.Get(), md_pane_rect, p.search_bar, input);
+    }
+    if (const auto thumb = VScrollThumb(md_pane_rect, 0.0f, p.md.scroll_y, ComputeTotalContentHeight(p.md.cache, theme_->margin_bottom), p.md.cache.HasDirtyNodes())) {
+        overlay_cmds_.push_back(*thumb);
+    }
 }
 
 Renderer::FrameResult Renderer::EndFrame()
@@ -255,7 +198,7 @@ void Renderer::GenTitleBar(const TitleBarRenderState& tb)
         if (show_bg) {
             chrome_cmds_.push_back(FillRectCmd{ .rect = rect, .brush_id = bg_id });
         }
-        EmitCenteredChromeText({ &icon, 1 }, fmt_.ui_icon.Get(), rect, text_id, alpha);
+        text_layouts_.EmitCentered(chrome_cmds_, { &icon, 1 }, fmt_.ui_icon.Get(), rect, text_id, alpha);
     };
 
     const auto gen_plain = [&](TitleBarHitZone zone, wchar_t icon) {
@@ -293,108 +236,29 @@ void Renderer::GenTitleBar(const TitleBarRenderState& tb)
     }
 
     if (!tb.title_text.empty()) {
-        EmitCenteredChromeText(tb.title_text, fmt_.titlebar_text.Get(), ToD2DRect(bar.GetTitleTextRect()), BrushId::TitleBarText, text_alpha);
+        text_layouts_.EmitCentered(chrome_cmds_, tb.title_text, fmt_.titlebar_text.Get(), ToD2DRect(bar.GetTitleTextRect()), BrushId::TitleBarText, text_alpha);
     }
 }
 
-void Renderer::EmitChromeText(std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, BrushId brush_id, float opacity)
+void Renderer::GenGestureTrail(const std::pmr::vector<GesturePoint>& points)
 {
-    text_layouts_.Emit(chrome_cmds_, text, fmt, origin, box, brush_id, opacity);
-}
-
-void Renderer::EmitCenteredChromeText(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float opacity)
-{
-    EmitChromeText(text, fmt, TextLayoutCache::Origin(rect, {}), {}, brush_id, opacity);
-}
-
-void Renderer::DrawCenteredText(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box)
-{
-    auto* const brush = Brush(brush_id);
-    auto* const layout = text_layouts_.Get(fmt, text, box);
-    if (!brush || !layout) {
-        return;
-    }
-    OpacityScope guard{ brush, alpha };
-    rt()->DrawTextLayout(TextLayoutCache::Origin(rect, box), layout, brush);
-}
-
-void Renderer::DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool can_forward, NavDirection hovered)
-{
-    const bool is_dark = theme_.IsDark();
-
-    // SetColor は SetOpacity より重いため、固定色ブラシを is_dark で選んで
-    // 透明度のみ切り替える。
-    const BrushId overlay_id = OverlayBrushId(is_dark);
-    ID2D1SolidColorBrush* const overlay_brush = Brush(overlay_id);
-
-    if (!overlay_brush) {
-        return;
-    }
-
-    const auto draw_button = [&](const D2D1_RECT_F& rect, bool enabled, bool is_hovered, std::wstring_view arrow) {
-        float bg_alpha;
-        if (!enabled) {
-            bg_alpha = is_dark ? 0.08f : 0.05f;
-        }
-        else if (is_hovered) {
-            bg_alpha = is_dark ? 0.35f : 0.25f;
-        }
-        else {
-            bg_alpha = is_dark ? 0.15f : 0.10f;
-        }
-
-        {
-            OpacityScope guard{ overlay_brush, bg_alpha };
-            const D2D1_ROUNDED_RECT rrect = D2D1::RoundedRect(rect, NAV_BTN_CORNER, NAV_BTN_CORNER);
-            rt()->FillRoundedRectangle(rrect, overlay_brush);
-        }
-
-        float text_alpha;
-        if (!enabled) {
-            text_alpha = is_dark ? 0.2f : 0.15f;
-        }
-        else if (is_hovered) {
-            text_alpha = 1.0f;
-        }
-        else {
-            text_alpha = is_dark ? 0.6f : 0.5f;
-        }
-        DrawCenteredText(arrow, fmt_.nav_button.Get(), rect, overlay_id, text_alpha, D2D1::SizeF(NAV_BTN_SIZE, NAV_BTN_SIZE));
-    };
-
-    // クリック判定 (NavButtonHitTest) と同じ矩形 API を使い、描画とヒットのズレを防ぐ
-    draw_button(NavBackButtonRect(md_pane_rect), can_back, hovered == NavDirection::Back, L"\x25C0");
-    draw_button(NavForwardButtonRect(md_pane_rect), can_forward, hovered == NavDirection::Forward, L"\x25B6");
-}
-
-void Renderer::DrawGestureTrail(const std::pmr::vector<GesturePoint>& points)
-{
-    if (points.size() < 2) {
-        return;
-    }
-    auto* const trail_brush = Brush(BrushId::GestureTrail);
     auto* const factory = GetD2DFactory();
-    if (!trail_brush || !factory) {
+    if (points.size() < 2 || !factory) {
         return;
     }
-
     // パスジオメトリで一筆描きすることで、結合部のアルファ蓄積（節）を防ぐ
-    ComPtr<ID2D1PathGeometry> path;
-    if (FAILED(factory->CreatePathGeometry(&path))) {
-        return;
-    }
-
     ComPtr<ID2D1GeometrySink> sink;
-    if (FAILED(path->Open(&sink))) {
+    if (FAILED(factory->CreatePathGeometry(&gesture_trail_)) || FAILED(gesture_trail_->Open(&sink))) {
+        gesture_trail_.Reset();
         return;
     }
-
     sink->BeginFigure(D2D1::Point2F(points[0].x, points[0].y), D2D1_FIGURE_BEGIN_HOLLOW);
     for (size_t i = 1; i < points.size(); i++) {
         sink->AddLine(D2D1::Point2F(points[i].x, points[i].y));
     }
     sink->EndFigure(D2D1_FIGURE_END_OPEN);
     if (FAILED(sink->Close())) {
+        gesture_trail_.Reset();
         return;
     }
 
@@ -403,47 +267,11 @@ void Renderer::DrawGestureTrail(const std::pmr::vector<GesturePoint>& points)
         const D2D1_STROKE_STYLE_PROPERTIES ssp = D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND);
         factory->CreateStrokeStyle(ssp, nullptr, 0, &gesture_stroke_style_);
     }
-    OpacityScope guard{ trail_brush, 0.5f };
-    rt()->DrawGeometry(path.Get(), trail_brush, GESTURE_TRAIL_STROKE_WIDTH, gesture_stroke_style_.Get());
-}
-
-void Renderer::DrawGestureOverlay(NavDirection direction, const PaneRect& md_pane_rect)
-{
-    if (direction == NavDirection::None) {
-        return;
-    }
-
-    const float rect_w = GESTURE_OVERLAY_WIDTH;
-    const float rect_h = GESTURE_OVERLAY_HEIGHT;
-    const float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
-    const float cy = md_pane_rect.y + md_pane_rect.height / 2.0f;
-    const D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, cy - rect_h / 2, cx + rect_w / 2, cy + rect_h / 2);
-    FillOverlayPanel(rect, GESTURE_OVERLAY_CORNER, theme_.IsDark() ? 0.8f : 0.6f);
-
-    DrawCenteredText((direction == NavDirection::Back) ? i18n::S().gesture_back : i18n::S().gesture_forward, fmt_.gesture_overlay.Get(), rect, BrushId::OverlayWhite, 1.0f, D2D1::SizeF(rect_w, rect_h));
-}
-
-void Renderer::FillOverlayPanel(const D2D1_RECT_F& rect, float corner, float alpha)
-{
-    // dark テーマは灰色 (0.2,0.2,0.2)、light テーマは純黒 (0,0,0) で背景。
-    // 専用色ブラシ + OpacityScope で毎フレーム SetColor を回避する。
-    auto* const bg_brush{ Brush(theme_.IsDark() ? BrushId::OverlayGestureBg : BrushId::OverlayBlack) };
-    if (!bg_brush) {
-        return;
-    }
-    OpacityScope guard{ bg_brush, alpha };
-    rt()->FillRoundedRectangle(D2D1::RoundedRect(rect, corner, corner), bg_brush);
-}
-
-void Renderer::DrawToastOverlay(const ToastRenderState& toast, const PaneRect& md_pane_rect)
-{
-    const float rect_w = TOAST_OVERLAY_WIDTH;
-    const float rect_h = TOAST_OVERLAY_HEIGHT;
-    const float cx = md_pane_rect.x + md_pane_rect.width / 2.0f;
-    const float bottom_y = md_pane_rect.y + md_pane_rect.height - NAV_BTN_MARGIN - NAV_BTN_SIZE - TOAST_OVERLAY_BOTTOM_OFFSET;
-    const D2D1_RECT_F rect = D2D1::RectF(cx - rect_w / 2, bottom_y - rect_h, cx + rect_w / 2, bottom_y);
-
-    FillOverlayPanel(rect, TOAST_OVERLAY_CORNER, theme_.IsDark() ? 0.85f : 0.7f);
-
-    DrawCenteredText(toast.message, fmt_.toast_text.Get(), rect, BrushId::OverlayWhite, 1.0f, D2D1::SizeF(rect_w, rect_h));
+    overlay_cmds_.push_back(DrawGeometryCmd{
+        .geometry = gesture_trail_.Get(),
+        .stroke_style = gesture_stroke_style_.Get(),
+        .stroke_width = GESTURE_TRAIL_STROKE_WIDTH,
+        .brush_id = BrushId::GestureTrail,
+        .opacity = 0.5f,
+    });
 }

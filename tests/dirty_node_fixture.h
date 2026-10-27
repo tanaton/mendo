@@ -15,7 +15,7 @@ struct DirtyNodeFixture {
         for (size_t i = 0; i < n; ++i) {
             nodes.push_back(MakeTextNode("x"));
         }
-        cache.Resize(n);
+        cache = LayoutCache(n);
         for (size_t i = 0; i < n; ++i) {
             cache.SetTop(i, static_cast<float>(i) * 100.0f);
             cache[i].height = 80.0f;

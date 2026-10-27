@@ -43,20 +43,14 @@ constexpr bool IsIdentChar(char c) noexcept
     return IsIdentStart(c) || IsAsciiDigit(c);
 }
 
+// [start, end) を type のトークンとして出し、end を返す (呼び出し側はそのまま走査位置にする)。
 // Plain は描画・HTML 化ともトークン間の隙間と同じ扱いなので出力しない (出すとトークンの大半を占める)。
-constexpr void EmitToken(std::pmr::vector<SyntaxToken>& tokens, uint32_t start, uint32_t length, SyntaxTokenType type)
+constexpr size_t EmitRange(std::pmr::vector<SyntaxToken>& tokens, size_t start, size_t end, SyntaxTokenType type)
 {
-    if (length > 0 && type != SyntaxTokenType::Plain) {
-        tokens.emplace_back(start, length, type);
+    if (end > start && type != SyntaxTokenType::Plain) {
+        tokens.emplace_back(static_cast<uint32_t>(start), static_cast<uint32_t>(end - start), type);
     }
-}
-
-// lexer 共通の出力先。
-std::pmr::vector<SyntaxToken> MakeTokenBuffer(std::string_view text)
-{
-    std::pmr::vector<SyntaxToken> tokens;
-    tokens.reserve(text.size() / 32);
-    return tokens;
+    return end;
 }
 
 // pos から最初の '\n' まで（または末尾まで）一気に進める。返り値は '\n' の位置（未消費）または text.size()。
@@ -377,7 +371,7 @@ void TokenizeRange(
 
     // [start, i) を確定する。スキャン済みトークンは非空白で終わる (改行は未消費) ため行頭状態も解除する。
     const auto emit_from = [&](size_t start, SyntaxTokenType type) {
-        EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(i - start), type);
+        EmitRange(tokens, start, i, type);
         at_line_start = false;
     };
 
@@ -598,17 +592,6 @@ void TokenizeRange(
     }
 }
 
-template <LexerConfig Cfg>
-std::pmr::vector<SyntaxToken> TokenizeImpl(
-    std::string_view text,
-    kw::KeywordTable keywords,
-    kw::KeywordTable types)
-{
-    auto tokens = MakeTokenBuffer(text);
-    TokenizeRange<Cfg>(text, 0, keywords, types, tokens);
-    return tokens;
-}
-
 inline constexpr LexerConfig CPP_LEXER_CONFIG{
     .line_comment_slash = true,
     .block_comment = true,
@@ -726,15 +709,6 @@ constexpr size_t SkipBlanks(std::string_view text, size_t pos, size_t end) noexc
     return SkipWhile(text, pos, end, IsBlank);
 }
 
-// [start, end) を type のトークンとして出し、end を返す (呼び出し側はそのまま走査位置にする)。
-constexpr size_t EmitRange(std::pmr::vector<SyntaxToken>& tokens, size_t start, size_t end, SyntaxTokenType type)
-{
-    if (end > start) {
-        EmitToken(tokens, static_cast<uint32_t>(start), static_cast<uint32_t>(end - start), type);
-    }
-    return end;
-}
-
 void TokenizeShellRange(std::string_view text, size_t begin, size_t end, std::pmr::vector<SyntaxToken>& tokens)
 {
     TokenizeRange<BASH_LEXER_CONFIG>(text.substr(0, end), begin, kw::BASH_KEYWORDS, kw::BASH_TYPES, tokens);
@@ -825,9 +799,8 @@ SyntaxTokenType DiffLineType(std::string_view line) noexcept
     }
 }
 
-std::pmr::vector<SyntaxToken> TokenizeDiff(std::string_view text)
+void TokenizeDiff(std::string_view text, std::pmr::vector<SyntaxToken>& tokens)
 {
-    auto tokens = MakeTokenBuffer(text);
     const auto starts_with_at = [text](size_t pos, std::string_view prefix) {
         return pos < text.size() && text.substr(pos).starts_with(prefix);
     };
@@ -852,7 +825,6 @@ std::pmr::vector<SyntaxToken> TokenizeDiff(std::string_view text)
         EmitRange(tokens, pos, eol, type);
         pos = eol + 1;
     }
-    return tokens;
 }
 
 // ---------- YAML ----------
@@ -982,9 +954,8 @@ size_t ScanYamlBlockScalar(std::string_view text, size_t pos, size_t parent_inde
     return pos;
 }
 
-std::pmr::vector<SyntaxToken> TokenizeYaml(std::string_view text)
+void TokenizeYaml(std::string_view text, std::pmr::vector<SyntaxToken>& tokens)
 {
-    auto tokens = MakeTokenBuffer(text);
     size_t pos = 0;
     while (pos < text.size()) {
         const size_t eol = SkipToEol(text, pos);
@@ -1020,7 +991,6 @@ std::pmr::vector<SyntaxToken> TokenizeYaml(std::string_view text)
             pos = ScanYamlBlockScalar(text, pos, indent, tokens);
         }
     }
-    return tokens;
 }
 
 // ---------- TOML ----------
@@ -1082,9 +1052,8 @@ struct DepthFlags {
     }
 };
 
-std::pmr::vector<SyntaxToken> TokenizeToml(std::string_view text)
+void TokenizeToml(std::string_view text, std::pmr::vector<SyntaxToken>& tokens)
 {
-    auto tokens = MakeTokenBuffer(text);
     // 括弧の深さごとに '{' (インラインテーブル) か '[' (配列) かを覚える。キーはテーブル直下でのみ現れる。
     DepthFlags inline_tables;
     int depth = 0;
@@ -1160,14 +1129,12 @@ std::pmr::vector<SyntaxToken> TokenizeToml(std::string_view text)
         EmitRange(tokens, i, e, ClassifyScalar(text.substr(i, e - i)));
         i = e;
     }
-    return tokens;
 }
 
 // ---------- INI ----------
 
-std::pmr::vector<SyntaxToken> TokenizeIni(std::string_view text)
+void TokenizeIni(std::string_view text, std::pmr::vector<SyntaxToken>& tokens)
 {
-    auto tokens = MakeTokenBuffer(text);
     for (size_t pos = 0; pos < text.size();) {
         const size_t eol = SkipToEol(text, pos);
         const size_t i = SkipBlanks(text, pos, eol);
@@ -1201,7 +1168,6 @@ std::pmr::vector<SyntaxToken> TokenizeIni(std::string_view text)
             EmitRange(tokens, v, end, ClassifyScalar(text.substr(v, end - v)));
         }
     }
-    return tokens;
 }
 
 // ---------- CSS / SCSS ----------
@@ -1395,14 +1361,6 @@ void TokenizeCssRange(std::string_view text, size_t begin, std::pmr::vector<Synt
     }
 }
 
-template <bool kScss>
-std::pmr::vector<SyntaxToken> TokenizeCss(std::string_view text)
-{
-    auto tokens = MakeTokenBuffer(text);
-    TokenizeCssRange<kScss>(text, 0, tokens);
-    return tokens;
-}
-
 // ---------- HTML / XML ----------
 
 // 文字参照 &name; / &#123; / &#x1F; の終端（';' の次）。参照でなければ npos。
@@ -1439,9 +1397,8 @@ constexpr size_t FindClosingTag(std::string_view text, size_t pos, ascii_util::D
 // タグ名は Keyword、属性名は Type、属性値は String、文字参照は Number。
 // HTML では <script> / <style> の中身を JS / CSS として色付けする。
 template <bool kHtml>
-std::pmr::vector<SyntaxToken> TokenizeMarkup(std::string_view text)
+void TokenizeMarkup(std::string_view text, std::pmr::vector<SyntaxToken>& tokens)
 {
-    auto tokens = MakeTokenBuffer(text);
     const size_t n = text.size();
     size_t i = 0;
     while (i < n) {
@@ -1537,15 +1494,13 @@ std::pmr::vector<SyntaxToken> TokenizeMarkup(std::string_view text)
             }
         }
     }
-    return tokens;
 }
 
 // ---------- Dockerfile ----------
 
 // 行頭の命令を Keyword とし、引数は継続行も含めてシェルとして色付けする。
-std::pmr::vector<SyntaxToken> TokenizeDockerfile(std::string_view text)
+void TokenizeDockerfile(std::string_view text, std::pmr::vector<SyntaxToken>& tokens)
 {
-    auto tokens = MakeTokenBuffer(text);
     size_t pos = 0;
     while (pos < text.size()) {
         const size_t i = SkipBlanks(text, pos, text.size());
@@ -1579,7 +1534,6 @@ std::pmr::vector<SyntaxToken> TokenizeDockerfile(std::string_view text)
         TokenizeShellRange(text, rest, end, tokens);
         pos = end + 1;
     }
-    return tokens;
 }
 
 // ---------- Makefile ----------
@@ -1683,9 +1637,8 @@ constexpr size_t FindMakeOperator(std::string_view text, size_t pos, size_t end)
     return npos;
 }
 
-std::pmr::vector<SyntaxToken> TokenizeMakefile(std::string_view text)
+void TokenizeMakefile(std::string_view text, std::pmr::vector<SyntaxToken>& tokens)
 {
-    auto tokens = MakeTokenBuffer(text);
     // md4c はコードブロック行頭のタブをスペースに展開して渡すので、タブではなく
     // 「ルール行に続くインデント行」をレシピとみなす。
     bool in_rule = false;
@@ -1732,7 +1685,6 @@ std::pmr::vector<SyntaxToken> TokenizeMakefile(std::string_view text)
         }
         pos = end + 1;
     }
-    return tokens;
 }
 
 // ---------- Haskell / Lisp 共通 ----------
@@ -1797,9 +1749,8 @@ constexpr size_t ScanHaskellChar(std::string_view text, size_t pos) noexcept
 }
 
 // 大文字始まりの識別子は型・コンストラクタ、行頭の小文字始まりは定義名 (関数の型注釈と本体) とする。
-std::pmr::vector<SyntaxToken> TokenizeHaskell(std::string_view text)
+void TokenizeHaskell(std::string_view text, std::pmr::vector<SyntaxToken>& tokens)
 {
-    auto tokens = MakeTokenBuffer(text);
     const size_t n = text.size();
     size_t i = 0;
     while (i < n) {
@@ -1872,7 +1823,6 @@ std::pmr::vector<SyntaxToken> TokenizeHaskell(std::string_view text)
         }
         i++;
     }
-    return tokens;
 }
 
 // ---------- Lisp 系 (Common Lisp / Emacs Lisp / Scheme・Racket / Clojure) ----------
@@ -2033,9 +1983,8 @@ size_t ScanLispDispatch(std::string_view text, size_t i, std::pmr::vector<Syntax
 
 // リストの先頭 (呼び出し位置) のシンボルを Function、特殊形式を Keyword とする。
 // 定義名 (defun foo の foo) は Function、引数リストと let の束縛リストは呼び出しと見ない。
-std::pmr::vector<SyntaxToken> TokenizeLisp(std::string_view text, const LispDialect& d)
+void TokenizeLisp(std::string_view text, const LispDialect& d, std::pmr::vector<SyntaxToken>& tokens)
 {
-    auto tokens = MakeTokenBuffer(text);
     const size_t n = text.size();
     // 深さごとに「直下のリストは呼び出しではない」を覚える (let の束縛リスト、cond の節の親)
     DepthFlags plain_children;
@@ -2134,7 +2083,6 @@ std::pmr::vector<SyntaxToken> TokenizeLisp(std::string_view text, const LispDial
         EmitRange(tokens, i, e, type);
         i = std::max(e, i + 1);
     }
-    return tokens;
 }
 
 inline constexpr LispDialect COMMON_LISP_DIALECT{
@@ -2422,9 +2370,8 @@ constexpr bool StartsWithVim9Script(std::string_view text) noexcept
     return false;
 }
 
-std::pmr::vector<SyntaxToken> TokenizeVim(std::string_view text, bool vim9)
+void TokenizeVim(std::string_view text, bool vim9, std::pmr::vector<SyntaxToken>& tokens)
 {
-    auto tokens = MakeTokenBuffer(text);
     vim9 = vim9 || StartsWithVim9Script(text);
     size_t pos = 0;
     while (pos < text.size()) {
@@ -2463,7 +2410,6 @@ std::pmr::vector<SyntaxToken> TokenizeVim(std::string_view text, bool vim9)
         }
         pos = resume;
     }
-    return tokens;
 }
 
 } // namespace
@@ -2600,88 +2546,96 @@ SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept
     return it != std::end(kAliases) ? it->language : SyntaxLanguage::None;
 }
 
-std::pmr::vector<SyntaxToken> Tokenize(std::string_view text, SyntaxLanguage language)
+void AppendTokens(std::string_view text, SyntaxLanguage language, std::pmr::vector<SyntaxToken>& tokens)
 {
-    if (text.empty()) {
-        return {};
-    }
     switch (language) {
     case SyntaxLanguage::Cpp:
-        return TokenizeImpl<CPP_LEXER_CONFIG>(text, kw::CPP_KEYWORDS, kw::CPP_TYPES);
+        return TokenizeRange<CPP_LEXER_CONFIG>(text, 0, kw::CPP_KEYWORDS, kw::CPP_TYPES, tokens);
     case SyntaxLanguage::Python:
-        return TokenizeImpl<PYTHON_LEXER_CONFIG>(text, kw::PYTHON_KEYWORDS, kw::PYTHON_TYPES);
+        return TokenizeRange<PYTHON_LEXER_CONFIG>(text, 0, kw::PYTHON_KEYWORDS, kw::PYTHON_TYPES, tokens);
     case SyntaxLanguage::JavaScript:
-        return TokenizeImpl<JS_LEXER_CONFIG>(text, kw::JS_KEYWORDS, kw::JS_TYPES);
+        return TokenizeRange<JS_LEXER_CONFIG>(text, 0, kw::JS_KEYWORDS, kw::JS_TYPES, tokens);
     case SyntaxLanguage::Go:
-        return TokenizeImpl<GO_LEXER_CONFIG>(text, kw::GO_KEYWORDS, kw::GO_TYPES);
+        return TokenizeRange<GO_LEXER_CONFIG>(text, 0, kw::GO_KEYWORDS, kw::GO_TYPES, tokens);
     case SyntaxLanguage::Rust:
-        return TokenizeImpl<RUST_LEXER_CONFIG>(text, kw::RUST_KEYWORDS, kw::RUST_TYPES);
+        return TokenizeRange<RUST_LEXER_CONFIG>(text, 0, kw::RUST_KEYWORDS, kw::RUST_TYPES, tokens);
     case SyntaxLanguage::TypeScript:
-        return TokenizeImpl<JS_LEXER_CONFIG>(text, kw::TS_KEYWORDS, kw::TS_TYPES);
+        return TokenizeRange<JS_LEXER_CONFIG>(text, 0, kw::TS_KEYWORDS, kw::TS_TYPES, tokens);
     case SyntaxLanguage::Bash:
-        return TokenizeImpl<BASH_LEXER_CONFIG>(text, kw::BASH_KEYWORDS, kw::BASH_TYPES);
+        return TokenizeRange<BASH_LEXER_CONFIG>(text, 0, kw::BASH_KEYWORDS, kw::BASH_TYPES, tokens);
     case SyntaxLanguage::PowerShell:
-        return TokenizeImpl<PWSH_LEXER_CONFIG>(text, kw::PWSH_KEYWORDS, kw::PWSH_TYPES);
+        return TokenizeRange<PWSH_LEXER_CONFIG>(text, 0, kw::PWSH_KEYWORDS, kw::PWSH_TYPES, tokens);
     case SyntaxLanguage::Cmd:
-        return TokenizeImpl<CMD_LEXER_CONFIG>(text, kw::CMD_KEYWORDS, kw::CMD_TYPES);
+        return TokenizeRange<CMD_LEXER_CONFIG>(text, 0, kw::CMD_KEYWORDS, kw::CMD_TYPES, tokens);
     case SyntaxLanguage::Json:
-        return TokenizeImpl<JSON_LEXER_CONFIG>(text, kw::JSON_KEYWORDS, kw::KeywordTable{});
+        return TokenizeRange<JSON_LEXER_CONFIG>(text, 0, kw::JSON_KEYWORDS, kw::KeywordTable{}, tokens);
     case SyntaxLanguage::Java:
-        return TokenizeImpl<JAVA_LEXER_CONFIG>(text, kw::JAVA_KEYWORDS, kw::JAVA_TYPES);
+        return TokenizeRange<JAVA_LEXER_CONFIG>(text, 0, kw::JAVA_KEYWORDS, kw::JAVA_TYPES, tokens);
     case SyntaxLanguage::CSharp:
-        return TokenizeImpl<CSHARP_LEXER_CONFIG>(text, kw::CSHARP_KEYWORDS, kw::CSHARP_TYPES);
+        return TokenizeRange<CSHARP_LEXER_CONFIG>(text, 0, kw::CSHARP_KEYWORDS, kw::CSHARP_TYPES, tokens);
     case SyntaxLanguage::Kotlin:
-        return TokenizeImpl<KOTLIN_LEXER_CONFIG>(text, kw::KOTLIN_KEYWORDS, kw::KOTLIN_TYPES);
+        return TokenizeRange<KOTLIN_LEXER_CONFIG>(text, 0, kw::KOTLIN_KEYWORDS, kw::KOTLIN_TYPES, tokens);
     case SyntaxLanguage::Swift:
-        return TokenizeImpl<SWIFT_LEXER_CONFIG>(text, kw::SWIFT_KEYWORDS, kw::SWIFT_TYPES);
+        return TokenizeRange<SWIFT_LEXER_CONFIG>(text, 0, kw::SWIFT_KEYWORDS, kw::SWIFT_TYPES, tokens);
     case SyntaxLanguage::Php:
-        return TokenizeImpl<PHP_LEXER_CONFIG>(text, kw::PHP_KEYWORDS, kw::PHP_TYPES);
+        return TokenizeRange<PHP_LEXER_CONFIG>(text, 0, kw::PHP_KEYWORDS, kw::PHP_TYPES, tokens);
     case SyntaxLanguage::Ruby:
-        return TokenizeImpl<RUBY_LEXER_CONFIG>(text, kw::RUBY_KEYWORDS, kw::RUBY_TYPES);
+        return TokenizeRange<RUBY_LEXER_CONFIG>(text, 0, kw::RUBY_KEYWORDS, kw::RUBY_TYPES, tokens);
     case SyntaxLanguage::Sql:
-        return TokenizeImpl<SQL_LEXER_CONFIG>(text, kw::SQL_KEYWORDS, kw::SQL_TYPES);
+        return TokenizeRange<SQL_LEXER_CONFIG>(text, 0, kw::SQL_KEYWORDS, kw::SQL_TYPES, tokens);
     case SyntaxLanguage::Yaml:
-        return TokenizeYaml(text);
+        return TokenizeYaml(text, tokens);
     case SyntaxLanguage::Toml:
-        return TokenizeToml(text);
+        return TokenizeToml(text, tokens);
     case SyntaxLanguage::Ini:
-        return TokenizeIni(text);
+        return TokenizeIni(text, tokens);
     case SyntaxLanguage::Html:
-        return TokenizeMarkup<true>(text);
+        return TokenizeMarkup<true>(text, tokens);
     case SyntaxLanguage::Xml:
-        return TokenizeMarkup<false>(text);
+        return TokenizeMarkup<false>(text, tokens);
     case SyntaxLanguage::Css:
-        return TokenizeCss<false>(text);
+        return TokenizeCssRange<false>(text, 0, tokens);
     case SyntaxLanguage::Scss:
-        return TokenizeCss<true>(text);
+        return TokenizeCssRange<true>(text, 0, tokens);
     case SyntaxLanguage::Diff:
-        return TokenizeDiff(text);
+        return TokenizeDiff(text, tokens);
     case SyntaxLanguage::Dockerfile:
-        return TokenizeDockerfile(text);
+        return TokenizeDockerfile(text, tokens);
     case SyntaxLanguage::Makefile:
-        return TokenizeMakefile(text);
+        return TokenizeMakefile(text, tokens);
     case SyntaxLanguage::Zig:
-        return TokenizeImpl<ZIG_LEXER_CONFIG>(text, kw::ZIG_KEYWORDS, kw::ZIG_TYPES);
+        return TokenizeRange<ZIG_LEXER_CONFIG>(text, 0, kw::ZIG_KEYWORDS, kw::ZIG_TYPES, tokens);
     case SyntaxLanguage::Haskell:
-        return TokenizeHaskell(text);
+        return TokenizeHaskell(text, tokens);
     case SyntaxLanguage::Clojure:
-        return TokenizeLisp(text, CLOJURE_DIALECT);
+        return TokenizeLisp(text, CLOJURE_DIALECT, tokens);
     case SyntaxLanguage::EmacsLisp:
-        return TokenizeLisp(text, EMACS_LISP_DIALECT);
+        return TokenizeLisp(text, EMACS_LISP_DIALECT, tokens);
     case SyntaxLanguage::CommonLisp:
-        return TokenizeLisp(text, COMMON_LISP_DIALECT);
+        return TokenizeLisp(text, COMMON_LISP_DIALECT, tokens);
     case SyntaxLanguage::Scheme:
-        return TokenizeLisp(text, SCHEME_DIALECT);
+        return TokenizeLisp(text, SCHEME_DIALECT, tokens);
     case SyntaxLanguage::Lua:
-        return TokenizeImpl<LUA_LEXER_CONFIG>(text, kw::LUA_KEYWORDS, kw::LUA_TYPES);
+        return TokenizeRange<LUA_LEXER_CONFIG>(text, 0, kw::LUA_KEYWORDS, kw::LUA_TYPES, tokens);
     case SyntaxLanguage::Vim:
-        return TokenizeVim(text, false);
+        return TokenizeVim(text, false, tokens);
     case SyntaxLanguage::Vim9:
-        return TokenizeVim(text, true);
+        return TokenizeVim(text, true, tokens);
     case SyntaxLanguage::None:
     case SyntaxLanguage::Mermaid:
     case SyntaxLanguage::LatexMath:
-        return {};
+        return;
     }
     std::unreachable();
+}
+
+std::pmr::vector<SyntaxToken> Tokenize(std::string_view text, SyntaxLanguage language)
+{
+    std::pmr::vector<SyntaxToken> tokens;
+    if (text.empty() || language == SyntaxLanguage::None || IsDiagramLanguage(language)) {
+        return tokens;
+    }
+    tokens.reserve(text.size() / 32);
+    AppendTokens(text, language, tokens);
+    return tokens;
 }

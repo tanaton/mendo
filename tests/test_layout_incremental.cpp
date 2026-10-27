@@ -32,10 +32,10 @@ constexpr float kWidthHysteresis = LayoutEngine::kWidthChangeThreshold;
 class MarkingMeasurer : public MockTextMeasurer {
 public:
     std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
-                                     MeasureViewportRange viewport = {}) const override
+                                     YRange viewport = YRange::All()) const override
     {
         const auto height = MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
-        entry.ensure_table_layout();
+        entry.ensure_table_layout(0, 0);
         return height;
     }
 };
@@ -197,7 +197,7 @@ protected:
                 desc += " w=" + std::to_string(width_);
                 switch (rng() % 3) {
                 case 0:
-                    engine_.ProcessDirtyBatch(nodes_, cache_, width_, kNoLayoutDeadline, { scroll_, kViewportHeight, 1.0f });
+                    engine_.ProcessDirtyBatch(nodes_, cache_, width_, kNoLayoutDeadline, layout::BufferedRange(scroll_, kViewportHeight, 1.0f));
                     desc += "+batch";
                     break;
                 case 1:
@@ -223,10 +223,10 @@ protected:
             const std::string desc = std::string("ProcessDirtyBatch ") + (expired ? "expired" : "unlimited");
             if (rng() % 2 == 0) {
                 const float buffer = static_cast<float>(rng() % 3);
-                engine_.ProcessDirtyBatch(nodes_, cache_, width_, deadline, { scroll_, kViewportHeight, buffer });
+                engine_.ProcessDirtyBatch(nodes_, cache_, width_, deadline, layout::BufferedRange(scroll_, kViewportHeight, buffer));
                 return desc + " clip buffer=" + std::to_string(buffer);
             }
-            engine_.ProcessDirtyBatch(nodes_, cache_, width_, deadline, {});
+            engine_.ProcessDirtyBatch(nodes_, cache_, width_, deadline);
             return desc + " noclip";
         }
         case Op::MarkDirty: {
@@ -263,7 +263,7 @@ protected:
     {
         engine_.SetLayoutScheduler(nullptr);
         for (int guard = 0; guard < 10000; ++guard) {
-            if (!engine_.ProcessDirtyBatch(nodes_, cache_, width_, kNoLayoutDeadline, {})) {
+            if (!engine_.ProcessDirtyBatch(nodes_, cache_, width_, kNoLayoutDeadline)) {
                 return;
             }
         }
@@ -331,7 +331,7 @@ TEST_F(IncrementalLayoutTest, MatchesFullLayoutAfterRandomOperations)
             ASSERT_FALSE(cache_[i].layout_dirty) << "i=" << i;
             NodeLayoutEntry remeasured{};
             remeasured.height = cache_[i].height;
-            MeasureEntry(measurer_, nodes_[i], remeasured, cache_[i].cached_width, {}, 0.0f, cache_.FindDiagram(i), theme_);
+            MeasureEntry(measurer_, nodes_[i], remeasured, cache_[i].cached_width, YRange::All(), 0.0f, cache_.FindDiagram(i), theme_);
             ASSERT_FLOAT_EQ(cache_[i].height, remeasured.height) << "i=" << i;
         }
 
@@ -342,8 +342,7 @@ TEST_F(IncrementalLayoutTest, MatchesFullLayoutAfterRandomOperations)
 
         LayoutEngine ref_engine;
         ASSERT_TRUE(ref_engine.Init(&measurer_, theme_));
-        LayoutCache ref;
-        ref.Resize(nodes_.size());
+        LayoutCache ref(nodes_.size());
         EstimateNodeHeights(nodes_, ref, theme_, 0.0f, {});
         ComputeLayout(ref_engine, nodes_, ref, width_);
         for (size_t i = 0; i < nodes_.size(); ++i) {
@@ -362,7 +361,7 @@ public:
     mutable std::vector<size_t> measured;
 
     std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
-                                     MeasureViewportRange viewport = {}) const override
+                                     YRange viewport = YRange::All()) const override
     {
         measured.push_back(static_cast<size_t>(&node - base));
         return MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
@@ -388,7 +387,7 @@ TEST(LayoutServiceTest, ViewportLayoutMeasuresAroundScrollTargetAfterReestimate)
 
     auto doc = Document::FromMarkdown(std::pmr::string{ MakeParagraphs(400) }, L"t.md");
     measurer.base = doc.GetNodes().data();
-    LayoutCache cache;
+    LayoutCache cache(doc.GetNodes().size());
     ComputeLayout(engine, doc.GetNodes(), cache, kWidth);
     viewport.SetScrollTarget(kTarget, 0.0f);
     viewport.ApplyScrollTarget(cache);

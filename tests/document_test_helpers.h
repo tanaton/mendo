@@ -14,6 +14,25 @@
 #include <string_view>
 #include <vector>
 
+// Alert の先頭に置くアイコンとラベル。GitHub と同じ表記を、パーサの表とは別に書いて照合する。
+inline std::string_view AlertHeadText(AlertType type)
+{
+    switch (type) {
+    case AlertType::Note:
+        return "ℹ Note";
+    case AlertType::Tip:
+        return "\xF0\x9F\x92\xA1 Tip";
+    case AlertType::Important:
+        return "❗ Important";
+    case AlertType::Warning:
+        return "⚠ Warning";
+    case AlertType::Caution:
+        return "⛔ Caution";
+    default:
+        return "";
+    }
+}
+
 inline std::pmr::string GenerateAnchorId(std::string_view text)
 {
     std::pmr::string slug;

@@ -13,6 +13,7 @@
 #include <string_view>
 #include <utility>
 #include <variant>
+#include <vector>
 
 class CmdGenMockTestBase : public MockLayoutTestBase {
 protected:
@@ -23,8 +24,7 @@ protected:
     void SetUp() override
     {
         ASSERT_NO_FATAL_FAILURE(MockLayoutTestBase::SetUp());
-        gen_.SetTheme(&theme_);
-        gen_.SetFormats({ nullptr, nullptr, nullptr, nullptr });
+        gen_.Init(theme_);
     }
 
     static constexpr float kViewportW = 800.0f;
@@ -41,7 +41,7 @@ protected:
     {
         Parse(md);
         const PaneRect md_pane{ 0, 0, kViewportW, 2000.0f };
-        return gen_.GenerateMdPane(nodes_, cache_, md_pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
+        return gen_.GenerateMdPane({ .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
     }
 };
 
@@ -73,6 +73,18 @@ std::ptrdiff_t CountCmd(const DrawCommandList& cmds)
     return std::ranges::count_if(cmds, [](const DrawCommand& c) static {
         return std::holds_alternative<T>(c);
     });
+}
+
+template <typename T>
+std::vector<T> CollectCmds(const DrawCommandList& cmds)
+{
+    std::vector<T> out;
+    for (const auto& c : cmds) {
+        if (const auto* p = std::get_if<T>(&c)) {
+            out.push_back(*p);
+        }
+    }
+    return out;
 }
 
 template <typename T, typename Pred>

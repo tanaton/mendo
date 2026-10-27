@@ -19,25 +19,11 @@ void ExpectSameAction(const AppAction& actual, const AppAction& expected)
         EXPECT_EQ(std::get<ZoomAction>(actual).steps, zoom->steps);
         EXPECT_EQ(std::get<ZoomAction>(actual).pane, zoom->pane);
     }
-    if (const auto* direct = std::get_if<DirectScrollByAction>(&expected)) {
-        EXPECT_FLOAT_EQ(std::get<DirectScrollByAction>(actual).delta, direct->delta);
-    }
-    if (const auto* pane = std::get_if<ScrollPaneAction>(&expected)) {
-        const auto& a = std::get<ScrollPaneAction>(actual);
-        EXPECT_EQ(a.pane, pane->pane);
-        EXPECT_FLOAT_EQ(a.delta, pane->delta);
-    }
 }
 
 struct KeyCase {
     const char* name;
     KeyDownEvent ev;
-    AppAction expected;
-};
-
-struct WheelCase {
-    const char* name;
-    MouseWheelEvent ev;
     AppAction expected;
 };
 
@@ -90,52 +76,4 @@ TEST(AppControllerTest, HandleKeyDown)
         SCOPED_TRACE(c.name);
         ExpectSameAction(app_controller::HandleKeyDown(c.ev), c.expected);
     }
-}
-
-TEST(AppControllerTest, HandleMouseWheel)
-{
-    const WheelCase kCases[] = {
-        { "Up in MdPane", { .delta = 120 }, DirectScrollByAction{ -120.0f * 0.8f } },
-        { "Down in MdPane", { .delta = -120 }, DirectScrollByAction{ 120.0f * 0.8f } },
-        { "FilePane", { .delta = 120, .zone = PaneZone::FilePane }, ScrollPaneAction{ PaneTarget::File, -120.0f * 0.8f } },
-        { "TocPane", { .delta = -120, .zone = PaneZone::TocPane }, ScrollPaneAction{ PaneTarget::Toc, 120.0f * 0.8f } },
-        { "Splitter scrolls MdPane", { .delta = 120, .zone = PaneZone::Splitter1 }, DirectScrollByAction{ -120.0f * 0.8f } },
-        { "Ctrl+Up", { .delta = 120, .ctrl = true }, ZoomAction{ ZoomDirection::In } },
-        { "Ctrl+Down", { .delta = -120, .ctrl = true }, ZoomAction{ ZoomDirection::Out } },
-        // Ctrl+ホイールはポインタの下の領域だけをズームする。スプリッタの上は本文。
-        { "Ctrl+Up in FilePane", { .delta = 120, .ctrl = true, .zone = PaneZone::FilePane }, ZoomAction{ ZoomDirection::In, 1, PaneTarget::File } },
-        { "Ctrl+Down in TocPane", { .delta = -120, .ctrl = true, .zone = PaneZone::TocPane }, ZoomAction{ ZoomDirection::Out, 1, PaneTarget::Toc } },
-        { "Ctrl+Up on Splitter", { .delta = 120, .ctrl = true, .zone = PaneZone::Splitter1 }, ZoomAction{ ZoomDirection::In } },
-    };
-    for (const auto& c : kCases) {
-        SCOPED_TRACE(c.name);
-        int zoom_accum = 0;
-        ExpectSameAction(app_controller::HandleMouseWheel(c.ev, zoom_accum), c.expected);
-    }
-}
-
-// ピンチや高分解能ホイールの細かい delta は 1 ノッチ分たまるごとに 1 段だけズームする。
-TEST(AppControllerTest, CtrlWheelZoomsOncePerNotch)
-{
-    const auto wheel = [](int delta, int& accum) static {
-        return app_controller::HandleMouseWheel(MouseWheelEvent{ .delta = delta, .ctrl = true }, accum);
-    };
-    int accum = 0;
-    ExpectSameAction(wheel(40, accum), NoOpAction{});
-    ExpectSameAction(wheel(40, accum), NoOpAction{});
-    ExpectSameAction(wheel(40, accum), ZoomAction{ ZoomDirection::In });
-    EXPECT_EQ(accum, 0);
-    ExpectSameAction(wheel(-120, accum), ZoomAction{ ZoomDirection::Out });
-    // まとめて届いたノッチは段数として渡す。
-    ExpectSameAction(wheel(240, accum), ZoomAction{ ZoomDirection::In, 2 });
-}
-
-// 向きが反転したら逆向きの端数は持ち越さない。
-TEST(AppControllerTest, CtrlWheelDropsRemainderOnReverse)
-{
-    int accum = 0;
-    ExpectSameAction(app_controller::HandleMouseWheel(MouseWheelEvent{ .delta = 100, .ctrl = true }, accum), NoOpAction{});
-    ExpectSameAction(app_controller::HandleMouseWheel(MouseWheelEvent{ .delta = -100, .ctrl = true }, accum), NoOpAction{});
-    EXPECT_EQ(accum, -100);
-    ExpectSameAction(app_controller::HandleMouseWheel(MouseWheelEvent{ .delta = -20, .ctrl = true }, accum), ZoomAction{ ZoomDirection::Out });
 }

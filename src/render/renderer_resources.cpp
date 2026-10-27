@@ -2,13 +2,12 @@
 #include "d2d_util.h"
 #include "i18n.h"
 #include "resource.h"
-#include "theme_palette.h"
 #include "ui_constants.h"
 #include "utility.h"
 #include "wic_util.h"
 #include "win32_util.h"
 #include "profiler.h"
-#include <span>
+#include <d2d1_1.h>
 #include <utility>
 
 using Microsoft::WRL::ComPtr;
@@ -67,73 +66,16 @@ void Renderer::RecreateBrushes()
         return;
     }
 
-    const bool is_dark = theme_.IsDark();
-    const float thumb_alpha = is_dark ? 0.4f : 0.25f;
-
-    struct BrushSpec {
-        BrushId id;
-        D2D1_COLOR_F color;
-    };
-    const BrushSpec specs[] = {
-        { BrushId::Text, theme_.text_color },
-        { BrushId::Heading, theme_.heading_color },
-        { BrushId::CodeBg, theme_.code_bg_color },
-        { BrushId::InlineCodeBg, theme_.inline_code_bg_color },
-        { BrushId::CodeText, theme_.code_text_color },
-        { BrushId::Link, theme_.link_color },
-        { BrushId::Hr, theme_.hr_color },
-        { BrushId::BlockquoteBar, theme_.blockquote_bar_color },
-        { BrushId::BlockquoteText, theme_.blockquote_text_color },
-        { BrushId::Selection, SELECTION_COLOR },
-        { BrushId::TableStripe, TableStripeColor(is_dark) },
-        { BrushId::SyntaxKeyword, theme_.syntax_keyword },
-        { BrushId::SyntaxType, theme_.syntax_type },
-        { BrushId::SyntaxString, theme_.syntax_string },
-        { BrushId::SyntaxNumber, theme_.syntax_number },
-        { BrushId::SyntaxComment, theme_.syntax_comment },
-        { BrushId::SyntaxPreprocessor, theme_.syntax_preprocessor },
-        { BrushId::SyntaxFunction, theme_.syntax_function },
-        { BrushId::SyntaxInserted, theme_.syntax_inserted },
-        { BrushId::SyntaxDeleted, theme_.syntax_deleted },
-        { BrushId::TitleBarBg, theme_.titlebar_bg_color },
-        { BrushId::TitleBarText, theme_.titlebar_text_color },
-        { BrushId::TitleBarButtonHover, theme_.titlebar_button_hover_color },
-        { BrushId::TitleBarButtonActive, theme_.titlebar_button_active_color },
-        { BrushId::TitleBarCloseRed, D2D1::ColorF(0xE81123) },
-        { BrushId::Splitter, theme_.splitter_color },
-        { BrushId::PaneBg, theme_.pane_bg_color },
-        { BrushId::PaneItemHover, theme_.pane_item_hover_color },
-        { BrushId::PaneItemActive, theme_.pane_item_active_color },
-        { BrushId::ScrollbarThumb, MonochromeOverlay(is_dark, thumb_alpha) },
-        { BrushId::OverlayWhite, D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f) },
-        { BrushId::OverlayBlack, D2D1::ColorF(0.0f, 0.0f, 0.0f, 1.0f) },
-        { BrushId::OverlayGestureBg, D2D1::ColorF(0.2f, 0.2f, 0.2f, 1.0f) },
-        { BrushId::GestureTrail, D2D1::ColorF(0.9f, 0.2f, 0.2f, 1.0f) },
-        { BrushId::SearchBarBg, theme_.search_bar_bg_color },
-        { BrushId::SearchBarBorder, theme_.search_bar_border_color },
-        { BrushId::SearchInputBg, theme_.search_input_bg_color },
-        { BrushId::SearchInputText, theme_.search_input_text_color },
-        { BrushId::SearchHighlight, theme_.search_highlight_color },
-        { BrushId::SearchHighlightCurrent, theme_.search_highlight_current_color },
-        { BrushId::SearchNoMatchBg, theme_.search_no_match_bg_color },
-    };
-
     // 既存ブラシには SetColor のみ、未生成のものだけ CreateSolidColorBrush。
-    // テーマ切替時の 40+ 個の COM オブジェクト再生成を回避する。
-    const auto apply = [&](BrushId id, D2D1_COLOR_F color) {
-        auto& brush = brushes_[std::to_underlying(id)];
+    // テーマ切替時の 50 個ほどの COM オブジェクト再生成を回避する。
+    for (size_t i = 0; i < brushes_.size(); ++i) {
+        auto& brush = brushes_[i];
         if (brush) {
-            brush->SetColor(color);
-            return;
+            brush->SetColor(theme_->colors[i]);
         }
-        CreateSolidColorBrushOrFallback(target, color, brush);
-    };
-    for (const auto& s : specs) {
-        apply(s.id, s.color);
-    }
-    for (size_t i = 0; i < ALERT_BRUSH_COUNT; ++i) {
-        apply(AlertBrushIdFromIndex(i), theme_.alert_color[i]);
-        apply(AlertBgBrushIdFromIndex(i), theme_.alert_bg_color[i]);
+        else {
+            CreateSolidColorBrushOrFallback(target, theme_->colors[i], brush);
+        }
     }
 }
 
@@ -144,40 +86,6 @@ void Renderer::InvalidateBrushes() noexcept
     }
 }
 
-namespace {
-std::wstring ResolveFontFamily(IDWriteFontCollection* collection, std::span<const wchar_t* const> candidates)
-{
-    if (collection) {
-        for (const wchar_t* name : candidates) {
-            UINT32 index = 0;
-            BOOL exists = FALSE;
-            if (SUCCEEDED(collection->FindFamilyName(name, &index, &exists)) && exists) {
-                return name;
-            }
-        }
-    }
-    return candidates.back();
-}
-} // namespace
-
-void Renderer::ResolveThemeFonts()
-{
-    auto* dw = backend_.GetDWriteFactory();
-    ComPtr<IDWriteFontCollection> collection;
-    if (dw) {
-        dw->GetSystemFontCollection(&collection, FALSE);
-    }
-    theme_.monospace_font = ResolveFontFamily(collection.Get(), theme_palette::kMonospaceFontCandidates);
-    theme_.icon_font = ResolveFontFamily(collection.Get(), theme_palette::kIconFontCandidates);
-}
-
-void Renderer::AdoptThemeKeepingFonts(Theme theme)
-{
-    theme.monospace_font = std::move(theme_.monospace_font);
-    theme.icon_font = std::move(theme_.icon_font);
-    theme_ = std::move(theme);
-}
-
 void Renderer::EnsurePaneListFormats(PaneTarget target, float zoom)
 {
     auto& f = pane_list_fmt_[std::to_underlying(target)];
@@ -185,18 +93,18 @@ void Renderer::EnsurePaneListFormats(PaneTarget target, float zoom)
         return;
     }
     auto* const dw = backend_.GetDWriteFactory();
-    const float size = theme_.pane_font_size * zoom;
-    f.item = CreateTextFormat(dw, { .family = theme_.font_family.c_str(), .size = size, .locale = theme_.text_locale, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
+    const float size = theme_->pane_font_size * zoom;
+    f.item = CreateTextFormat(dw, { .family = theme_->font_family.c_str(), .size = size, .locale = theme_->text_locale, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
     // アイコンはファイル一覧だけ。
     if (target == PaneTarget::File) {
-        f.icon = CreateTextFormat(dw, { .family = theme_.icon_font.c_str(), .size = size, .text_align = DWRITE_TEXT_ALIGNMENT_CENTER, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
+        f.icon = CreateTextFormat(dw, { .family = theme_->icon_font.c_str(), .size = size, .text_align = DWRITE_TEXT_ALIGNMENT_CENTER, .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER, .no_wrap = true });
     }
     f.zoom = zoom;
 }
 
 void Renderer::RecreateAllTextFormats()
 {
-    CreateTextFormats(/*ui_only=*/false);
+    CreateTextFormats();
 
     for (auto& f : pane_list_fmt_) {
         f = {};
@@ -204,10 +112,10 @@ void Renderer::RecreateAllTextFormats()
 
     // 古い書式のレイアウトは二度と引かれないので、まとめて捨てる。
     text_layouts_.SetFactory(backend_.GetDWriteFactory());
-    search_input_ = {};
+    search_input_.SetFormat(backend_.GetDWriteFactory(), fmt_.search_input.Get());
 }
 
-void Renderer::CreateTextFormats(bool ui_only)
+void Renderer::CreateTextFormats()
 {
     constexpr DWRITE_FONT_WEIGHT W = DWRITE_FONT_WEIGHT_NORMAL;
     constexpr DWRITE_FONT_WEIGHT SEMI = DWRITE_FONT_WEIGHT_SEMI_BOLD;
@@ -217,8 +125,8 @@ void Renderer::CreateTextFormats(bool ui_only)
     constexpr DWRITE_PARAGRAPH_ALIGNMENT PA_TOP = DWRITE_PARAGRAPH_ALIGNMENT_NEAR;
     constexpr DWRITE_PARAGRAPH_ALIGNMENT PA_CTR = DWRITE_PARAGRAPH_ALIGNMENT_CENTER;
 
-    const wchar_t* const body_font = theme_.font_family.c_str();
-    const wchar_t* const icon_font = theme_.icon_font.c_str();
+    const wchar_t* const body_font = theme_->font_family.c_str();
+    const wchar_t* const icon_font = theme_->icon_font.c_str();
 
     // i18n::TextLocale の文書から来る文字は Doc、UI の決まった文言は Ui のロケールで組む。アイコンは En。
     enum class Loc : uint8_t {
@@ -227,7 +135,7 @@ void Renderer::CreateTextFormats(bool ui_only)
         En,
     };
     struct FormatSpec {
-        // ComPtr の & は中身を解放するので、参照で持つ (ui_only のとき作り直さない書式まで消える)。
+        // ComPtr の & は中身を解放するので、参照で持つ。
         ComPtr<IDWriteTextFormat>& target;
         Loc loc;
         // locale は loc から決める。
@@ -236,29 +144,28 @@ void Renderer::CreateTextFormats(bool ui_only)
 
     // clang-format off
     const FormatSpec specs[] = {
-        { fmt_.checkbox,          Loc::Doc,  { body_font, W,                       theme_.font_size_body,        nullptr, TA_LEAD, PA_TOP, false, BODY_LINE_HEIGHT_FACTOR } },
-        { fmt_.copy_btn_icon,     Loc::En,   { icon_font, W,                       theme_.font_size_body,        nullptr, TA_CTR,  PA_CTR, true  } },
-        { fmt_.list_number,       Loc::Doc,  { body_font, W,                       theme_.font_size_body,        nullptr, TA_TAIL, PA_TOP, false, BODY_LINE_HEIGHT_FACTOR } },
-        { fmt_.placeholder_text,  Loc::Ui,   { body_font, W,                       theme_.font_size_body,        nullptr, TA_CTR,  PA_CTR, false } },
-        { fmt_.titlebar_text,     Loc::Doc,  { body_font, W,                       TITLEBAR_TEXT_FONT_SIZE,      nullptr, TA_CTR,  PA_CTR, true  } },
-        { fmt_.ui_icon,           Loc::En,   { icon_font, W,                       UI_ICON_FONT_SIZE,            nullptr, TA_CTR,  PA_CTR, true  } },
-        { fmt_.pane_icon,         Loc::En,   { icon_font, W,                       theme_.pane_font_size,        nullptr, TA_CTR,  PA_CTR, true  } },
-        { fmt_.pane_header,       Loc::Ui,   { body_font, SEMI,                    theme_.pane_font_size,        nullptr, TA_LEAD, PA_CTR, true  } },
-        { fmt_.nav_button,        Loc::Doc,  { body_font, W,                       theme_.pane_font_size,        nullptr, TA_CTR,  PA_CTR, true  } },
-        { fmt_.gesture_overlay,   Loc::Ui,   { body_font, DWRITE_FONT_WEIGHT_BOLD, 32.0f * theme_.zoom,          nullptr, TA_CTR,  PA_CTR, false } },
-        { fmt_.toast_text,        Loc::Ui,   { body_font, SEMI,                    theme_.pane_font_size * 1.1f, nullptr, TA_CTR,  PA_CTR, true  } },
-        { fmt_.search_input,      Loc::Doc,  { body_font, W,                       SEARCH_INPUT_FONT_SIZE,       nullptr, TA_LEAD, PA_CTR, true  } },
-        { fmt_.search_count,      Loc::Doc,  { body_font, W,                       SEARCH_COUNT_FONT_SIZE,       nullptr, TA_CTR,  PA_CTR, true  } },
+        { fmt_.md.checkbox,          Loc::Doc,  { body_font, W,                       theme_->font_size_body,        nullptr, TA_LEAD, PA_TOP, false, BODY_LINE_HEIGHT_FACTOR } },
+        { fmt_.md.copy_btn_icon,     Loc::En,   { icon_font, W,                       theme_->font_size_body,        nullptr, TA_CTR,  PA_CTR, true  } },
+        { fmt_.md.list_number,       Loc::Doc,  { body_font, W,                       theme_->font_size_body,        nullptr, TA_TAIL, PA_TOP, false, BODY_LINE_HEIGHT_FACTOR } },
+        { fmt_.md.placeholder_text,  Loc::Ui,   { body_font, W,                       theme_->font_size_body,        nullptr, TA_CTR,  PA_CTR, false } },
+        { fmt_.titlebar_text,        Loc::Doc,  { body_font, W,                       TITLEBAR_TEXT_FONT_SIZE,       nullptr, TA_CTR,  PA_CTR, true  } },
+        { fmt_.ui_icon,              Loc::En,   { icon_font, W,                       UI_ICON_FONT_SIZE,             nullptr, TA_CTR,  PA_CTR, true  } },
+        { fmt_.pane_icon,            Loc::En,   { icon_font, W,                       theme_->pane_font_size,        nullptr, TA_CTR,  PA_CTR, true  } },
+        { fmt_.pane_header,          Loc::Ui,   { body_font, SEMI,                    theme_->pane_font_size,        nullptr, TA_LEAD, PA_CTR, true  } },
+        { fmt_.nav_button,           Loc::Doc,  { body_font, W,                       theme_->pane_font_size,        nullptr, TA_CTR,  PA_CTR, true  } },
+        { fmt_.gesture_overlay,      Loc::Ui,   { body_font, DWRITE_FONT_WEIGHT_BOLD, 32.0f * theme_->zoom,          nullptr, TA_CTR,  PA_CTR, false } },
+        { fmt_.toast_text,           Loc::Ui,   { body_font, SEMI,                    theme_->pane_font_size * 1.1f, nullptr, TA_CTR,  PA_CTR, true  } },
+        { fmt_.search_input,         Loc::Doc,  { body_font, W,                       SEARCH_INPUT_FONT_SIZE,        nullptr, TA_LEAD, PA_CTR, true  } },
+        { fmt_.search_count,         Loc::Doc,  { body_font, W,                       SEARCH_COUNT_FONT_SIZE,        nullptr, TA_CTR,  PA_CTR, true  } },
     };
     // clang-format on
 
-    ui_fmt_locale_ = i18n::S().lang_locale;
     const auto locale_of = [this](Loc loc) noexcept {
         switch (loc) {
         case Loc::Doc:
-            return theme_.text_locale;
+            return theme_->text_locale;
         case Loc::Ui:
-            return ui_fmt_locale_;
+            return i18n::S().lang_locale;
         case Loc::En:
             break;
         }
@@ -266,13 +173,8 @@ void Renderer::CreateTextFormats(bool ui_only)
     };
     auto* const dw = backend_.GetDWriteFactory();
     for (const auto& s : specs) {
-        if (ui_only && s.loc != Loc::Ui) {
-            continue;
-        }
         auto spec = s.spec;
         spec.locale = locale_of(s.loc);
         s.target = CreateTextFormat(dw, spec);
     }
-
-    cmd_generator_.SetFormats({ fmt_.list_number.Get(), fmt_.checkbox.Get(), fmt_.copy_btn_icon.Get(), fmt_.placeholder_text.Get() });
 }

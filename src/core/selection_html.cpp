@@ -2,7 +2,6 @@
 #include "ascii_util.h"
 #include "document_utils.h"
 #include "nav.h"
-#include "profiler.h"
 #include "syntax.h"
 #include "theme_palette.h"
 #include <algorithm>
@@ -75,33 +74,31 @@ constexpr void AppendHtmlEscaped(std::pmr::string& out, std::string_view text)
 }
 
 struct InlineState {
-    bool bold = false;
-    bool italic = false;
-    bool code = false;
-    bool strike = false;
+    uint8_t flags = 0;
     int16_t link_url_index = -1;
     bool operator==(const InlineState&) const = default;
 };
 
-// 開いたインラインタグを入れ子順に管理し、閉じ忘れを防ぐスコープヘルパー。
-// 最大深さは <a><strong><em><s><code> の 5 段で、ヒープ割り当てなし。
-class InlineTagScope {
-public:
-    constexpr explicit InlineTagScope(std::pmr::string& out) noexcept : out_(out)
-    {}
-    InlineTagScope(const InlineTagScope&) = delete;
-    InlineTagScope& operator=(const InlineTagScope&) = delete;
-    // CloseAll() は bad_alloc を投げ得るが、例外の巻き戻し中に投げると terminate するので握りつぶす。
-    ~InlineTagScope() noexcept
-    {
-        try {
-            CloseAll();
-        } catch (...) {
-            MENDO_TRACE("InlineTagScope::~ - CloseAll bad_alloc");
-        }
-    }
+struct InlineTag {
+    uint8_t flag;
+    std::string_view open;
+    std::string_view close;
+};
+constexpr InlineTag kInlineTags[]{
+    { TextRun::kBold, "<strong>", "</strong>" },
+    { TextRun::kItalic, "<em>", "</em>" },
+    { TextRun::kStrikethrough, "<s>", "</s>" },
+    { TextRun::kCode, "<code>", "</code>" },
+};
 
-    // 開く順: <a> → <strong> → <em> → <s> → <code>（code は最内側）。
+// 開いたインラインタグを入れ子順に管理する。最大深さは <a><strong><em><s><code> の 5 段で、ヒープ割り当てなし。
+// 例外で抜けると書きかけの out は捨てられるので、閉じるのは正常に書き終えたときだけでよい。
+class InlineTagStack {
+public:
+    constexpr explicit InlineTagStack(std::pmr::string& out) noexcept : out_(out)
+    {}
+
+    // 開く順: <a> → kInlineTags の順 (<strong> → <em> → <s> → <code>。code は最内側)。
     // 開いたタグと対の閉じタグをスタックにペアで積むため、フィールドと閉じ文字列のズレが起きない。
     constexpr void Open(const InlineState& s, std::span<const std::string_view> link_urls)
     {
@@ -111,17 +108,10 @@ public:
             out_.append("\">");
             Push("</a>");
         }
-        if (s.bold) {
-            OpenTag("<strong>", "</strong>");
-        }
-        if (s.italic) {
-            OpenTag("<em>", "</em>");
-        }
-        if (s.strike) {
-            OpenTag("<s>", "</s>");
-        }
-        if (s.code) {
-            OpenTag("<code>", "</code>");
+        for (const auto& tag : kInlineTags) {
+            if (s.flags & tag.flag) {
+                OpenTag(tag.open, tag.close);
+            }
         }
     }
 
@@ -178,7 +168,7 @@ bool IsSafeImageSrc(std::string_view src)
 // 危険なスキームのリンクは外す。
 InlineState InlineStateOf(const TextRun& r, std::span<const std::string_view> link_urls)
 {
-    InlineState s{ r.bold(), r.italic(), r.code(), r.strikethrough(), r.link_url_index };
+    InlineState s{ r.raw_flags(), r.link_url_index };
     if (s.link_url_index < 0 || static_cast<size_t>(s.link_url_index) >= link_urls.size()) {
         return s;
     }
@@ -202,7 +192,7 @@ constexpr void AppendInlineHtml(
         return;
     }
 
-    InlineTagScope scope(out);
+    InlineTagStack tags(out);
     InlineState current;
     size_t run_idx = 0;
     uint32_t pos = start;
@@ -224,9 +214,9 @@ constexpr void AppendInlineHtml(
         }
 
         if (s != current) {
-            scope.CloseAll();
+            tags.CloseAll();
             current = s;
-            scope.Open(current, link_urls);
+            tags.Open(current, link_urls);
         }
 
         // LF の位置で区切り、連続する非 LF 区間をまとめて AppendHtmlEscaped に渡す。
@@ -237,14 +227,14 @@ constexpr void AppendInlineHtml(
             const uint32_t lf_pos = lf_ptr ? static_cast<uint32_t>(lf_ptr - text.data()) : segment_end;
 
             if (batch < lf_pos) {
-                if (!scope.IsApplied()) {
-                    scope.Open(current, link_urls);
+                if (!tags.IsApplied()) {
+                    tags.Open(current, link_urls);
                 }
                 AppendHtmlEscaped(out, text.substr(batch, lf_pos - batch));
             }
 
             if (lf_ptr) {
-                scope.CloseAll();
+                tags.CloseAll();
                 out.append("<br>");
                 batch = lf_pos + 1;
             }
@@ -254,6 +244,7 @@ constexpr void AppendInlineHtml(
         }
         pos = segment_end;
     }
+    tags.CloseAll();
 }
 
 void AppendNodeInlineHtml(std::pmr::string& out, const Node& node, uint32_t start, uint32_t end)

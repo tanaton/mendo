@@ -130,8 +130,7 @@ TEST_F(ProcessDirtyBatchViewportTest, SkipsFarOffscreenNodes)
     const float viewport_height = 200.0f;
 
     // ビューポート制限付きで ProcessDirtyBatch を実行
-    engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline,
-                              { viewport_top, viewport_height, 5.0f });
+    engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, layout::BufferedRange(viewport_top, viewport_height, 5.0f));
 
     // ビューポート付近のノードはダーティでなくなっているはず
     EXPECT_FALSE(cache[0].layout_dirty) << "ビューポート内のノードは処理されるべき";
@@ -153,7 +152,7 @@ TEST_F(ProcessDirtyBatchViewportTest, WithoutViewportLimitProcessesAll)
     }
 
     // ビューポート制限なし (clip 省略)
-    engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, {});
+    engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline);
 
     // 全ノードが処理されるべき
     for (size_t i = 0; i < nodes.size(); i++) {
@@ -174,7 +173,7 @@ TEST_F(ProcessDirtyBatchViewportTest, HasDirtyNodesFalseAfterNearbyProcessed)
     bool more = true;
     int iterations = 0;
     while (more && iterations < 100) {
-        more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, { 0.0f, 200.0f, 5.0f });
+        more = engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, layout::BufferedRange(0.0f, 200.0f, 5.0f));
         iterations++;
     }
 

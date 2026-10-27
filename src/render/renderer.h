@@ -2,14 +2,14 @@
 #include "brush_id.h"
 #include "render_params.h"
 #include "theme.h"
-#include "layout.h"
-#include "dwrite_measurer.h"
 #include "command_generator.h"
 #include "d2d_render_backend.h"
 #include "text_layout_cache.h"
 #include <d2d1.h>
 #include <dwrite.h>
 #include <wrl/client.h>
+
+struct IWICBitmap;
 #include <functional>
 #include <memory_resource>
 #include <optional>
@@ -20,7 +20,11 @@
 
 class Renderer {
 public:
-    bool Init(HWND hwnd, Theme theme);
+    Renderer() noexcept;
+    ~Renderer();
+
+    // theme は ThemeService が持つ今のテーマ。中身を書き換えたら OnThemeColorsChanged / OnThemeMetricsChanged で知らせる。
+    bool Init(HWND hwnd, const Theme& theme);
     // D2DRenderBackend::Resize を参照。
     void Resize(UINT width, UINT height, bool live) noexcept;
 
@@ -32,6 +36,7 @@ public:
         // デバイスを作り直せなかった。すぐ描き直すと失敗を繰り返して UI スレッドを占有するので間を置く。
         RetryLater,
     };
+    // params.loading_angle があれば、本文ペイン・検索バー・スクロールバーの代わりにスピナーを描く。
     FrameResult Render(const RenderParams& params);
     void SetDpi(float dpi) noexcept;
     void TrimForMinimize() noexcept;
@@ -40,20 +45,9 @@ public:
     {
         toc_titles_ = {};
     }
-    FrameResult DrawLoading(
-        float angle,
-        const PaneRect& md_pane_rect,
-        const SidePaneState& side_panes,
-        const TitleBarRenderState& titlebar,
-        const GestureRenderState& gesture,
-        const ToastRenderState& toast);
-
     // 最初の描画の前に呼ぶ (App::CreateRenderDevice 参照)。
     bool CreateDevice();
-    ID2D1RenderTarget* GetRenderTarget() const noexcept
-    {
-        return backend_.GetRenderTarget();
-    }
+    ID2D1RenderTarget* GetRenderTarget() const noexcept;
     D2D1_SIZE_F GetSize() const noexcept
     {
         return backend_.GetSize();
@@ -70,29 +64,21 @@ public:
     {
         return backend_.GetWICFactory();
     }
-    constexpr LayoutEngine& GetLayout() noexcept
+    // ライト/ダーク切替。寸法とフォントは共通なのでテキストレイアウトを維持し、ブラシの色だけ差し替える。
+    void OnThemeColorsChanged()
     {
-        return layout_;
+        RecreateBrushes();
     }
-    // 並列計測 (ノード単位 / 巨大テーブルのセル単位) に使う scheduler。Shutdown 前に nullptr へ戻す契約。
-    // 設定したらワーカーとフォントを先に起こしておく (DWriteTextMeasurer::WarmUp)。
-    void SetLayoutScheduler(TaskScheduler* scheduler) noexcept
+    // ズーム。書式を作り直す。
+    void OnThemeMetricsChanged()
     {
-        layout_.SetLayoutScheduler(scheduler);
-        measurer_.SetScheduler(scheduler);
-        if (scheduler) {
-            measurer_.WarmUp(*scheduler);
-        }
+        RecreateAllTextFormats();
     }
-    constexpr const Theme& GetTheme() const noexcept
+    // UI の決まった文言の書式は選んだ言語のロケールで組むので作り直す。
+    void OnLanguageChanged()
     {
-        return theme_;
+        RecreateAllTextFormats();
     }
-    // ライト/ダーク切替用。寸法とフォントは共通なのでテキストレイアウトを維持し、色だけ差し替える。
-    void SetTheme(Theme theme);
-    // 倍率を変えたテーマに差し替えて書式を作り直す。累積適用による誤差蓄積を避けるため、
-    // base theme (zoom=1.0) から作ったもの (ThemeService::CreateTheme) を渡す。
-    void ApplyZoom(Theme zoomed_theme);
 
     void SetDeviceLostCallback(std::move_only_function<void(ID2D1RenderTarget*)> cb)
     {
@@ -109,10 +95,9 @@ public:
         backend_.MarkFrameAcquired();
     }
 
-    int HitTestSearchInput(std::wstring_view query, float local_x, float max_width) const;
-    void SetSearchMatches(const std::pmr::vector<SearchMatch>* matches, int current_index, uint32_t generation) noexcept
+    int HitTestSearchInput(std::wstring_view query, float local_x, float max_width) const
     {
-        cmd_generator_.SetSearchMatches(matches, current_index, generation);
+        return search_input_.HitTest(query, local_x, max_width);
     }
 
     // タイトルバーとサイドペインの描画コマンドを組み立てる。デバイスに依存しないので、
@@ -123,8 +108,9 @@ private:
     // フレーム共通の前処理 (デバイスロスト復旧・BeginDraw・タイトルバー・サイドペイン)。
     // 描画できない場合はそのフレームの結果を返し、その場合 BeginDraw は呼ばれていない。
     std::optional<FrameResult> BeginFrame(const TitleBarRenderState& titlebar, const SidePaneState& side_panes);
-    void DrawLoadingSpinner(float angle, const PaneRect& md_pane_rect);
-
+    // 本文ペインに重ねるもの (ナビボタン・ジェスチャー・トースト・検索バー・スクロールバー、読み込み中はスピナー) を
+    // overlay_cmds_ に積む。
+    void GenOverlays(const RenderParams& p);
 
     void GenTitleBar(const TitleBarRenderState& tb);
     void GenFileExplorer(const std::pmr::vector<FileEntry>& entries, const SidePaneInstance& pane);
@@ -134,32 +120,9 @@ private:
     void GenSidePaneHeader(const SidePaneInstance& pane, bool is_file_pane, std::wstring_view header_text);
     // 倍率が変わったら作り直す。
     void EnsurePaneListFormats(PaneTarget target, float zoom);
-    // box の大きさで組んで origin (左上) に置く。box はずらした矩形の差ではなく元の寸法から渡す
-    // (差では丸めで値が揺れ、文字レイアウトのキャッシュが外れる)。
-    void EmitChromeText(std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, BrushId brush_id, float opacity);
-    // 中央揃え書式で組んで rect の中央に置く。
-    void EmitCenteredChromeText(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float opacity);
     // NO_WRAP の左寄せテキスト。はみ出しは呼び出し側のクリップで切る。
     void EmitLeftText(IDWriteTextFormat* fmt, std::wstring_view text, float x, float y, float height);
-    void DrawMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, const LayoutCache& cache);
-    void DrawNavOverlay(const PaneRect& md_pane_rect, bool can_back, bool can_forward, NavDirection hovered);
-    void DrawGestureTrail(const std::pmr::vector<GesturePoint>& points);
-    void DrawTransientOverlays(const GestureRenderState& gesture, const ToastRenderState& toast, const PaneRect& md_pane_rect);
-    void DrawGestureOverlay(NavDirection direction, const PaneRect& md_pane_rect);
-    void DrawToastOverlay(const ToastRenderState& toast, const PaneRect& md_pane_rect);
-    void DrawSearchBar(const SearchBarRenderState& sb, const PaneRect& md_pane_rect);
-    // 入力欄のテキスト・選択範囲を描画し、キャレットの x 座標を返す。
-    float DrawSearchInputText(const SearchBarRenderState& sb, const SearchBarLayout& sbl);
-    // 入力が前フレームと同じなら search_input_ のレイアウトを返し、違えば作り直す。
-    IDWriteTextLayout* AcquireSearchInputLayout(const SearchBarRenderState& sb, int comp_start, float width, float height);
-    void DrawSearchBarButtons(const SearchBarRenderState& sb, const SearchBarLayout& sbl);
-    // ジェスチャー/トーストの背景パネル。テーマに応じた単色ブラシを alpha で塗る。
-    void FillOverlayPanel(const D2D1_RECT_F& rect, float corner, float alpha);
-    // DrawText は呼び出しごとに内部でテキストレイアウトを作るため、中央揃え書式のレイアウトを幅/高さ 0 で
-    // 作って矩形中心に描く。矩形サイズに依存しないので、文字列と書式が同じ間は text_layouts_ で使い回せる。
-    // box 指定時 (固定サイズのオーバーレイ) はその大きさで作って矩形左上に描く。
-    // fmt または brush が無い場合は何もしない。
-    void DrawCenteredText(std::wstring_view text, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, BrushId brush_id, float alpha, D2D1_SIZE_F box = {});
+    void GenGestureTrail(const std::pmr::vector<GesturePoint>& points);
 
     D2DRenderBackend backend_;
     ID2D1DeviceContext* rt() const noexcept
@@ -169,21 +132,10 @@ private:
 
     FixedBrushArray brushes_;
 
-    ID2D1SolidColorBrush* Brush(BrushId id) const noexcept
-    {
-        return brushes_[std::to_underlying(id)].Get();
-    }
-
     void RecreateBrushes();
     void InvalidateBrushes() noexcept;
-    // 候補のうち実在するフォントに決める。テーマ間で共通なので Init で 1 回だけ解決し、
-    // 以後は AdoptThemeKeepingFonts で引き継ぐ。
-    void ResolveThemeFonts();
-    void AdoptThemeKeepingFonts(Theme theme);
     void RecreateAllTextFormats();
-    // ui_only は言語を切り替えたとき。UI の決まった文言の書式だけを作り直し、文字レイアウトのキャッシュは捨てない
-    // (キャッシュは書式を参照で持つので、古い書式の分は使われずに上限で追い出される)。
-    void CreateTextFormats(bool ui_only);
+    void CreateTextFormats();
 
     FrameResult EndFrame();
     bool RecreateDevice();
@@ -193,10 +145,8 @@ private:
     }
 
     struct TextFormats {
-        Microsoft::WRL::ComPtr<IDWriteTextFormat> checkbox;
-        Microsoft::WRL::ComPtr<IDWriteTextFormat> copy_btn_icon;
-        Microsoft::WRL::ComPtr<IDWriteTextFormat> list_number;
-        Microsoft::WRL::ComPtr<IDWriteTextFormat> placeholder_text;
+        // CommandGenerator が参照する。
+        MdPaneFormats md;
         Microsoft::WRL::ComPtr<IDWriteTextFormat> titlebar_text;
         // タイトルバーと検索バーのアイコン。
         Microsoft::WRL::ComPtr<IDWriteTextFormat> ui_icon;
@@ -218,27 +168,20 @@ private:
         float zoom = 0.0f;
     };
     PaneListFormats pane_list_fmt_[2];
-    // UI の決まった文言の書式を作ったときの i18n::Strings::lang_locale。
-    const wchar_t* ui_fmt_locale_ = nullptr;
 
     // CommandGenerator と共有する。
     TextLayoutCache text_layouts_;
     // タイトルバーとサイドペインの描画コマンド。本文 (cmd_generator_) より先に実行する。
-    // 最初のフレームで文字を出す部分だけをコマンドにし、デバイス作成前に組み立てられるようにしている。
-    // 起動直後には出ないオーバーレイ (トースト・検索バー等) は即時描画のまま。
+    // デバイスに依存しないので、作成前に組み立てて最初のフレームの文字レイアウトを先に作れる。
     DrawCommandList chrome_cmds_;
+    // 本文の上に重ねるもの。本文の後に実行する。
+    DrawCommandList overlay_cmds_;
+    // overlay_cmds_ が指すジェスチャーの軌跡。次のフレームまで持つ。
+    Microsoft::WRL::ComPtr<ID2D1PathGeometry> gesture_trail_;
     // 目次項目の UTF-16。描いた項目だけ作り、ForgetDocumentText と最小化で捨てる。
     std::pmr::vector<std::pmr::wstring> toc_titles_;
 
-    // 検索バーの入力欄のレイアウト。height は定数なのでキーに含めない。
-    struct SearchInputLayout {
-        Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
-        std::pmr::wstring text; // IME の合成中テキストを挿入した表示テキスト
-        float width = -1.0f;
-        DWRITE_TEXT_RANGE underline{}; // IME の合成範囲
-    };
     SearchInputLayout search_input_;
-    std::pmr::wstring search_text_scratch_;
     // デバイスに依存しない PBGRA 変換済みのアイコン。デバイスロスト後もここから作り直す。
     Microsoft::WRL::ComPtr<IWICBitmap> app_icon_wic_;
     Microsoft::WRL::ComPtr<ID2D1Bitmap> app_icon_bitmap_;
@@ -246,9 +189,7 @@ private:
     void LoadAppIconBitmap();
     Microsoft::WRL::ComPtr<ID2D1StrokeStyle> gesture_stroke_style_;
 
-    Theme theme_;
-    DWriteTextMeasurer measurer_;
-    LayoutEngine layout_;
+    const Theme* theme_ = nullptr;
     CommandGenerator cmd_generator_;
     std::move_only_function<void(ID2D1RenderTarget*)> on_device_lost_;
 };

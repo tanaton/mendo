@@ -13,44 +13,6 @@
 
 namespace layout {
 
-namespace {
-
-// 戻り値は計測できず (例外か、書式やレイアウトを作れなかった) dirty のまま再試行を待つノード数。
-// skip が真を返したノードには手を付けない (dirty のまま)。
-int MeasureChunk(
-    const std::pmr::vector<Node>& nodes,
-    LayoutCache& cache,
-    float content_width,
-    const Theme& theme,
-    const ITextMeasurer& backend,
-    std::span<const size_t> chunk_indices,
-    MeasureViewportRange viewport,
-    auto&& skip)
-{
-    // 例外はノード単位で捕まえる。chunk 単位だと失敗ノードを特定できず、同じ chunk の残りも計測されない。
-    // 失敗回数は worker が担当する自エントリにだけ書くので同期は要らない。
-    // DiagramEntry は計測中に追加・削除されないので、worker から読むだけなら同期は要らない。
-    int failed = 0;
-    for (const size_t i : chunk_indices) {
-        if (skip()) {
-            continue;
-        }
-        auto& entry = cache[i];
-        const DiagramEntry* bitmap = IsBitmapDrawNode(nodes[i]) ? cache.FindDiagram(i) : nullptr;
-        bool measured = false;
-        try {
-            measured = MeasureEntry(backend, nodes[i], entry, NodeContentWidth(nodes[i], theme, content_width), viewport, cache.Top(i), bitmap, theme);
-        } catch (...) {
-        }
-        if (!measured && entry.RecordMeasureFailure(LayoutCache::kMaxMeasureAttempts)) {
-            ++failed;
-        }
-    }
-    return failed;
-}
-
-} // namespace
-
 int MeasureIndicesParallel(
     const std::pmr::vector<Node>& nodes,
     LayoutCache& cache,
@@ -58,7 +20,7 @@ int MeasureIndicesParallel(
     const Theme& theme,
     const ITextMeasurer& backend,
     std::span<const size_t> indices,
-    MeasureViewportRange viewport,
+    YRange viewport,
     TaskScheduler* scheduler,
     LayoutDeadline deadline)
 {
@@ -66,110 +28,87 @@ int MeasureIndicesParallel(
         const auto [lo, hi] = std::ranges::minmax(indices);
         cache.NoteMaterialized(lo, hi);
     }
-    std::atomic<int> failed_node_count{ 0 };
-    std::atomic<int> skipped_node_count{ 0 };
     std::atomic<size_t> taken{ 0 };
-    const auto skip = [&] {
-        if (deadline == kNoLayoutDeadline || taken.fetch_add(1, std::memory_order_relaxed) == 0 ||
-            std::chrono::steady_clock::now() < deadline) {
-            return false;
+    const auto past_deadline = [&] {
+        return deadline != kNoLayoutDeadline && taken.fetch_add(1, std::memory_order_relaxed) > 0 &&
+               std::chrono::steady_clock::now() >= deadline;
+    };
+    // ノード i を計測し、dirty のまま残したら true (期限を過ぎて手を付けなかったか、測れず再試行を待つ)。
+    // 例外はノード単位で捕まえ、同じ chunk の残りも計測する。失敗回数は worker が担当する自エントリにだけ書くので同期は要らない。
+    // DiagramEntry は計測中に追加・削除されないので、worker から読むだけなら同期は要らない。
+    const auto measure = [&](size_t i) {
+        if (past_deadline()) {
+            return true;
         }
-        skipped_node_count.fetch_add(1, std::memory_order_relaxed);
-        return true;
+        auto& entry = cache[i];
+        const DiagramEntry* bitmap = IsBitmapDrawNode(nodes[i]) ? cache.FindDiagram(i) : nullptr;
+        bool measured = false;
+        try {
+            measured = MeasureEntry(backend, nodes[i], entry, NodeContentWidth(nodes[i], theme, content_width), viewport, cache.Top(i), bitmap, theme);
+        } catch (...) {
+            MENDO_TRACE("MeasureIndicesParallel: node measure threw exception");
+        }
+        return !measured && entry.RecordMeasureFailure(LayoutCache::kMaxMeasureAttempts);
     };
     // 1 ノードの計測 (数十 µs) に比べ chunk 取得の fetch_add は無視できるので、1 ノード単位で配って
-    // 1 画面分 (数十ノード) の dirty でも全 worker に行き渡らせる。
+    // 1 画面分 (数十ノード) の dirty でも全 worker に行き渡らせる。scheduler が無ければ全体が 1 chunk になる。
+    std::atomic<int> left{ 0 };
     ParallelFor(scheduler, indices.size(), 1, [&](size_t begin, size_t end) {
         MENDO_PROFILE("MeasureNode.chunk");
-        const int failed_in_chunk = MeasureChunk(nodes, cache, content_width, theme, backend, indices.subspan(begin, end - begin), viewport, skip);
-        if (failed_in_chunk > 0) {
-            failed_node_count.fetch_add(failed_in_chunk, std::memory_order_relaxed);
+        for (const size_t i : indices.subspan(begin, end - begin)) {
+            if (measure(i)) {
+                left.fetch_add(1, std::memory_order_relaxed);
+            }
         }
     });
-    const int failed = failed_node_count.load(std::memory_order_relaxed);
-    if (failed > 0) {
-        MENDO_TRACE("MeasureIndicesParallel: node measure threw exception");
-    }
-    MENDO_PLOT("layout.parallel.error_count", static_cast<int64_t>(failed));
-    return failed + skipped_node_count.load(std::memory_order_relaxed);
+    MENDO_PLOT("layout.parallel.left_count", static_cast<int64_t>(left.load(std::memory_order_relaxed)));
+    return left.load(std::memory_order_relaxed);
 }
 
 } // namespace layout
 
-using layout::AdvanceNodeY;
-using layout::EstimateInvisibleNodeHeight;
-using layout::GetSpacingAbove;
-using layout::GetSpacingBelow;
 using layout::NodeContentWidth;
 using layout::RecomputeYPositions;
 
 bool LayoutEngine::Init(ITextMeasurer* measurer, const Theme& theme)
 {
     measurer_ = measurer;
-    theme_ = &theme;
-    measurer_->UpdateTheme(theme);
+    measurer_->SetTheme(theme);
     return measurer_->RecreateFormats();
 }
 
 bool LayoutEngine::RecreateFormats()
 {
-    if (!measurer_) {
-        return false;
-    }
-    formats_changed_ = last_viewport_width_.has_value();
-    return measurer_->RecreateFormats();
+    return measurer_ && measurer_->RecreateFormats();
 }
 
 bool LayoutEngine::Reestimate(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width)
 {
     MENDO_PROFILE("LayoutEngine::Reestimate");
-    const auto node_count = nodes.size();
-    cache.Resize(node_count);
+    assert(cache.size() == nodes.size());
 
-    // 初回は幅を覚えるだけ。計測済みのノードがまだ無いので、全ノードを dirty にし直す必要はない。
-    const bool width_changed = std::exchange(formats_changed_, false) ||
-                               (last_viewport_width_ && std::abs(viewport_width - *last_viewport_width_) > kWidthChangeThreshold);
-    if (width_changed || !last_viewport_width_) {
-        last_viewport_width_ = viewport_width;
-    }
-    // 未推定のキャッシュ (位置が全て 0) では可視範囲が決まらないので、幅変更と同じく組み直す。
-    const bool unpositioned = node_count > 0 && cache.Bottom(node_count - 1) <= 0.0f;
     // 別の幅やズームでの推定は折り返しの行数が合わず、最初の画面で実際と違う数のノードを計測してしまう。
-    const float content_width = theme_->ContentWidth(viewport_width);
+    // 幅を知らずに推定したキャッシュ (EstimateBasis が 0) も、ここで表示幅に合わせて推定し直す。
+    const Theme& theme = GetTheme();
+    const float content_width = theme.ContentWidth(viewport_width);
     const auto basis = cache.GetEstimateBasis();
-    const bool basis_changed = basis.zoom != theme_->zoom || std::abs(basis.content_width - content_width) > kWidthChangeThreshold;
-    if (width_changed || unpositioned || basis_changed) {
-        EstimateDirtyHeights(nodes, cache, content_width, width_changed);
+    const bool basis_changed = basis.zoom != theme.zoom || std::abs(basis.content_width - content_width) > kWidthChangeThreshold;
+    if (basis_changed) {
+        layout::ReestimateNodeHeights(nodes, cache, theme, content_width);
         cache.SetHasDirtyNodes(true);
-        cache.SetEstimateBasis({ content_width, theme_->zoom });
+        cache.SetEstimateBasis({ content_width, theme.zoom });
     }
-    MENDO_PLOT("layout.compute.width_changed", static_cast<int64_t>(width_changed));
-    MENDO_PLOT("layout.compute.node_count", static_cast<int64_t>(node_count));
-    return width_changed;
-}
-
-void LayoutEngine::EstimateDirtyHeights(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float content_width, bool mark_all_dirty)
-{
-    MENDO_PROFILE("LayoutEngine::EstimateDirtyHeights");
-    float y = theme_->margin_top;
-    for (size_t i = 0; i < nodes.size(); i++) {
-        const auto& node = nodes[i];
-        auto& entry = cache[i];
-        if (mark_all_dirty) {
-            entry.layout_dirty = true;
-        }
-        if (entry.layout_dirty) {
-            EstimateInvisibleNodeHeight(node, entry, *theme_, NodeContentWidth(node, *theme_, content_width));
-        }
-        cache.SetTop(i, AdvanceNodeY(y, GetSpacingAbove(node, *theme_), entry.height, GetSpacingBelow(node, *theme_)));
-    }
+    MENDO_PLOT("layout.compute.width_changed", static_cast<int64_t>(basis_changed));
+    MENDO_PLOT("layout.compute.node_count", static_cast<int64_t>(nodes.size()));
+    return basis_changed;
 }
 
 LayoutEngine::PassResult LayoutEngine::MeasurePass(
-    const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width, MeasureViewportRange range, LayoutDeadline deadline)
+    const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width, YRange range, LayoutDeadline deadline)
 {
     MENDO_PROFILE("LayoutEngine::MeasurePass");
-    const float content_width = theme_->ContentWidth(viewport_width);
+    const Theme& theme = GetTheme();
+    const float content_width = theme.ContentWidth(viewport_width);
     PassResult result;
     bool height_changed = false;
 
@@ -192,7 +131,7 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
         }
         else if (const auto* tl = entry.table_layout(); tl && tl->HasEvictedRows()) {
             cache.NoteMaterialized(i, i);
-            const auto restored = RestoreEntryTableRows(*measurer_, nodes[i], entry, NodeContentWidth(nodes[i], *theme_, content_width), range.ToLocal(entry_top));
+            const auto restored = RestoreEntryTableRows(*measurer_, nodes[i], entry, NodeContentWidth(nodes[i], theme, content_width), range.ToLocal(entry_top));
             result.updated |= restored.restored;
             if (restored.height) {
                 height_changed = true;
@@ -204,14 +143,14 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
     if (!dirty_indices.empty()) {
         // 未計測領域へのジャンプやスクロールバードラッグでは 1 画面分 (数十〜百ノード) を
         // 毎フレーム計測するため、scheduler があれば並列化する。
-        const int left = layout::MeasureIndicesParallel(nodes, cache, content_width, *theme_, *measurer_, dirty_indices, range, layout_scheduler_, deadline);
+        const int left = layout::MeasureIndicesParallel(nodes, cache, content_width, theme, *measurer_, dirty_indices, range, measurer_->Scheduler(), deadline);
         // 計測できなかったノードと期限で残したノードは、次の呼び出しで計測させる。
         result.remaining |= left > 0;
         height_changed = true;
     }
 
     if (height_changed) {
-        RecomputeYPositions(nodes, cache, *theme_, lo, last_measured);
+        RecomputeYPositions(nodes, cache, theme, lo, last_measured);
         result.updated = true;
     }
     MENDO_PLOT("layout.pass.dirty_count", static_cast<int64_t>(dirty_indices.size()));
@@ -221,7 +160,7 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
 bool LayoutEngine::EnsureVisibleLayout(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width, float viewport_top, float viewport_bottom)
 {
     MENDO_PROFILE("LayoutEngine::EnsureVisibleLayout");
-    const MeasureViewportRange range{ viewport_top, viewport_bottom };
+    const YRange range{ viewport_top, viewport_bottom };
     // 計測に失敗し続けるノードがあっても止まるよう回数に上限を設ける。
     constexpr int kMaxMeasurePasses = 8;
     bool updated = false;
@@ -249,15 +188,24 @@ bool LayoutEngine::EnsureVisibleLayout(const std::pmr::vector<Node>& nodes, Layo
 bool LayoutEngine::ProcessDirtyBatch(
     const std::pmr::vector<Node>& nodes, LayoutCache& cache,
     float viewport_width, LayoutDeadline deadline,
-    layout::ViewportClip clip)
+    YRange range)
 {
     MENDO_PROFILE("LayoutEngine::ProcessDirtyBatch");
     // 遠方の dirty はスクロール時に EnsureVisibleLayout で計測する。
-    // last_viewport_width_ は Reestimate が再計測を決めた幅のまま据え置く。ここで進めると
+    // 推定の幅 (EstimateBasis) は Reestimate が再計測を決めた幅のまま据え置く。ここで進めると
     // 2px 未満のリサイズとダーティ処理が交互に続いたとき、可視ノードが古い幅のまま取り残される。
-    const bool remaining = MeasurePass(nodes, cache, viewport_width, clip.Range(), deadline).remaining;
+    const bool remaining = MeasurePass(nodes, cache, viewport_width, range, deadline).remaining;
     cache.SetHasDirtyNodes(remaining);
     return remaining;
+}
+
+template <class Op>
+bool LayoutService::KeepingAnchor(LayoutCache& cache, Op&& op)
+{
+    viewport_.EnsureScrollTarget(cache);
+    const bool result = op();
+    viewport_.ApplyScrollTarget(cache);
+    return result;
 }
 
 void LayoutService::ViewportLayout(const Document& doc, LayoutCache& cache, float width, float height)
@@ -270,27 +218,23 @@ void LayoutService::ViewportLayout(const Document& doc, LayoutCache& cache, floa
     if (width_changed) {
         // 幅が変わると、残っている表の行 (上下 8 画面分) は全部組み直しになる。画面の外の行は捨てて、見えたときに作らせる
         // (2 万行 6 列の表の中で幅を変えたときの可視範囲のレイアウトが 3.7ms → 0.55ms)。
-        cache.EvictInvisibleTableRows(doc.GetTableNodeIndices(), scroll_y, scroll_y + height, 0.0f);
+        cache.EvictInvisibleTableRows(doc.GetTableNodeIndices(), layout::BufferedRange(scroll_y, height, 0.0f));
     }
     engine_.EnsureVisibleLayout(doc.GetNodes(), cache, width, scroll_y, scroll_y + height);
     viewport_.ApplyScrollTarget(cache);
 }
 
-bool LayoutService::ProcessDirtyBatch(const Document& doc, LayoutCache& cache, float width, LayoutDeadline deadline, ViewportLimit viewport)
+bool LayoutService::ProcessDirtyBatch(const Document& doc, LayoutCache& cache, float width, LayoutDeadline deadline, float height, float buffer_screens)
 {
-    viewport_.EnsureScrollTarget(cache);
-    // height <= 0 なら ViewportClip::active() が false になりクリップは無効。
-    const bool more = engine_.ProcessDirtyBatch(doc.GetNodes(), cache, width, deadline, { viewport_.GetScrollY(), viewport.height, viewport.buffer_screens });
-    viewport_.ApplyScrollTarget(cache);
-    return more;
+    return KeepingAnchor(cache, [&] {
+        const YRange range = height > 0.0f ? layout::BufferedRange(viewport_.GetScrollY(), height, buffer_screens) : YRange::All();
+        return engine_.ProcessDirtyBatch(doc.GetNodes(), cache, width, deadline, range);
+    });
 }
 
 bool LayoutService::EnsureRangeLayout(const Document& doc, LayoutCache& cache, float width, float top, float bottom)
 {
-    viewport_.EnsureScrollTarget(cache);
-    const bool updated = engine_.EnsureVisibleLayout(doc.GetNodes(), cache, width, top, bottom);
-    viewport_.ApplyScrollTarget(cache);
-    return updated;
+    return KeepingAnchor(cache, [&] { return engine_.EnsureVisibleLayout(doc.GetNodes(), cache, width, top, bottom); });
 }
 
 bool LayoutService::EnsureVisibleLayout(const Document& doc, LayoutCache& cache, float width, float height)
@@ -308,13 +252,14 @@ bool LayoutService::EnsureNodeLayout(const Document& doc, LayoutCache& cache, fl
     return EnsureRangeLayout(doc, cache, width, top, top);
 }
 
-void LayoutService::RecomputeAfterDiagram(const Document& doc, LayoutCache& cache, const Theme& theme,
-                                          layout::HeightChangeRange changed) noexcept
+void LayoutService::RecomputeAfterDiagram(const Document& doc, LayoutCache& cache, layout::HeightChangeRange changed) noexcept
 {
     // 画面より上の画像・図の高さが変わっても、見ている内容が動かないようにする。
-    viewport_.EnsureScrollTarget(cache);
-    if (!changed.empty()) {
-        RecomputeYPositions(doc.GetNodes(), cache, theme, changed.first, changed.last);
-    }
-    viewport_.ApplyScrollTarget(cache);
+    KeepingAnchor(cache, [&] {
+        if (changed.empty()) {
+            return false;
+        }
+        RecomputeYPositions(doc.GetNodes(), cache, engine_.GetTheme(), changed.first, changed.last);
+        return true;
+    });
 }

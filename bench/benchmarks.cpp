@@ -24,6 +24,7 @@
 #include "layout_computer.h"
 #include "mock_text_measurer.h"
 #include "parsed_layout.h"
+#include "reducer_harness.h"
 #include "task_scheduler.h"
 #include "test_helpers.h"
 #include "theme.h"
@@ -100,9 +101,8 @@ void RunParse(benchmark::State& state, const std::pmr::string& src, TaskSchedule
         std::pmr::string copy = src;
         std::optional<Document> doc;
         state.SetIterationTime(SecondsOf([&] {
-            const size_t size = copy.size();
             NormalizeNewlines(copy);
-            doc.emplace(Document::FromMarkdown(std::move(copy), size, L"bench.md", {}, scheduler));
+            doc.emplace(Document::FromNormalizedMarkdown(std::move(copy), L"bench.md", {}, scheduler));
         }));
     }
     state.SetBytesProcessed(state.iterations() * static_cast<int64_t>(src.size()));
@@ -275,7 +275,7 @@ public:
     static constexpr auto kSpin = std::chrono::microseconds(100);
 
     std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
-                                     MeasureViewportRange viewport = {}) const override
+                                     YRange viewport = YRange::All()) const override
     {
         const auto deadline = std::chrono::steady_clock::now() + kSpin;
         while (std::chrono::steady_clock::now() < deadline) {
@@ -297,7 +297,7 @@ void BM_MeasureIndicesParallel(benchmark::State& state, bool parallel)
         StressFixture f;
         f.Build(n, /*include_code_block=*/false);
         state.SetIterationTime(SecondsOf([&] {
-            layout::MeasureIndicesParallel(f.nodes, f.cache, 800.0f, theme, mock, indices, {}, parallel ? &ts : nullptr, kNoLayoutDeadline);
+            layout::MeasureIndicesParallel(f.nodes, f.cache, 800.0f, theme, mock, indices, YRange::All(), parallel ? &ts : nullptr, kNoLayoutDeadline);
         }));
     }
     ts.Shutdown();
@@ -329,7 +329,7 @@ struct RecomputeFixture {
                 nodes[i].set_heading_level(2);
             }
         }
-        cache.Resize(kNodes);
+        cache = LayoutCache(kNodes);
         layout::EstimateNodeHeights(nodes, cache, theme, 0.0f, {});
     }
 };
@@ -370,8 +370,7 @@ void BM_CodeRunHScroll(benchmark::State& state)
     md += "```\n";
     const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
     const auto& nodes = doc.GetNodes();
-    LayoutCache cache;
-    cache.Resize(nodes.size());
+    LayoutCache cache(nodes.size());
     for (size_t i = 0; i < std::min<size_t>(100, nodes.size()); ++i) {
         cache[i].set_natural_code_width(500.0f + static_cast<float>(i));
     }
@@ -402,14 +401,12 @@ struct DWriteLayout {
         measurer.SetFactory(factory.Get());
         ok = engine.Init(&measurer, theme);
         if (workers > 0) {
-            measurer.SetScheduler(&scheduler);
             engine.SetLayoutScheduler(&scheduler);
         }
     }
     ~DWriteLayout()
     {
         engine.SetLayoutScheduler(nullptr);
-        measurer.SetScheduler(nullptr);
         scheduler.Shutdown();
     }
 
@@ -443,8 +440,12 @@ void BM_ComputeLayoutCold(benchmark::State& state)
         if (l.SkipIfFailed(state)) {
             break;
         }
+        // 文書の大きさのキャッシュを確保するところから測る。
         LayoutCache cache;
-        state.SetIterationTime(SecondsOf([&] { ComputeLayout(l.engine, doc.GetNodes(), cache, 1200.0f); }));
+        state.SetIterationTime(SecondsOf([&] {
+            cache = LayoutCache(doc.GetNodes().size());
+            ComputeLayout(l.engine, doc.GetNodes(), cache, 1200.0f);
+        }));
     }
     state.counters["nodes"] = static_cast<double>(doc.GetNodes().size());
 }
@@ -463,12 +464,16 @@ void BM_ComputeLayoutWarm(benchmark::State& state)
         return;
     }
     {
-        LayoutCache warmup;
+        LayoutCache warmup(doc.GetNodes().size());
         ComputeLayout(l.engine, doc.GetNodes(), warmup, 1200.0f);
     }
     for (auto _ : state) {
+        // 文書の大きさのキャッシュを確保するところから測る。
         LayoutCache cache;
-        state.SetIterationTime(SecondsOf([&] { ComputeLayout(l.engine, doc.GetNodes(), cache, 1200.0f); }));
+        state.SetIterationTime(SecondsOf([&] {
+            cache = LayoutCache(doc.GetNodes().size());
+            ComputeLayout(l.engine, doc.GetNodes(), cache, 1200.0f);
+        }));
     }
 }
 BENCHMARK(BM_ComputeLayoutWarm)->Apply(WorkerCounts)->Iterations(3);
@@ -485,7 +490,7 @@ void BM_ResizeRemeasure(benchmark::State& state, const char* path)
     if (l.SkipIfFailed(state)) {
         return;
     }
-    LayoutCache cache;
+    LayoutCache cache(doc.GetNodes().size());
     ComputeLayout(l.engine, doc.GetNodes(), cache, 1200.0f);
     constexpr std::array kWidths{ 1100.0f, 1000.0f, 1300.0f };
     size_t k = 0;
@@ -538,7 +543,7 @@ void BM_GiantBlock(benchmark::State& state, GiantBlock kind, OpenPhase phase)
         }
         if (phase == OpenPhase::Rest) {
             s = SecondsOf([&] {
-                while (l.engine.ProcessDirtyBatch(nodes, cache, kWidth, kNoLayoutDeadline, {})) {
+                while (l.engine.ProcessDirtyBatch(nodes, cache, kWidth, kNoLayoutDeadline)) {
                 }
             });
         }
@@ -615,7 +620,7 @@ void BM_MeasureCodeChunk(benchmark::State& state, bool continuation)
     }
     for (auto _ : state) {
         NodeLayoutEntry entry;
-        benchmark::DoNotOptimize(l.measurer.MeasureNode(*node, entry, 1200.0f, {}));
+        benchmark::DoNotOptimize(l.measurer.MeasureNode(*node, entry, 1200.0f, YRange::All()));
     }
 }
 BENCHMARK_CAPTURE(BM_MeasureCodeChunk, head, false)->Unit(benchmark::kMicrosecond);
@@ -643,7 +648,7 @@ void BM_ViewportOpen(benchmark::State& state, bool prefetch)
         LayoutService service(l.engine, viewport);
         double s = SecondsOf([&] { service.ViewportLayout(doc, cache, kViewWidth, kViewHeight); });
         if (prefetch) {
-            s = SecondsOf([&] { service.ProcessDirtyBatch(doc, cache, kViewWidth, kNoLayoutDeadline, { kViewHeight, 2.0f }); });
+            s = SecondsOf([&] { service.ProcessDirtyBatch(doc, cache, kViewWidth, kNoLayoutDeadline, kViewHeight, 2.0f); });
         }
         state.SetIterationTime(s);
     }
@@ -667,7 +672,7 @@ void BM_ViewportJump(benchmark::State& state)
     ViewportManager viewport;
     LayoutService service(l.engine, viewport);
     service.ViewportLayout(doc, cache, kViewWidth, kViewHeight);
-    service.ProcessDirtyBatch(doc, cache, kViewWidth, kNoLayoutDeadline, { kViewHeight, 2.0f });
+    service.ProcessDirtyBatch(doc, cache, kViewWidth, kNoLayoutDeadline, kViewHeight, 2.0f);
     const auto n = static_cast<int64_t>(doc.GetNodes().size());
     int64_t k = 0;
     for (auto _ : state) {
@@ -720,7 +725,7 @@ void BM_TableSelectionHitTest(benchmark::State& state)
         return;
     }
     NodeLayoutEntry entry;
-    l.measurer.MeasureNode(*it, entry, 1200.0f, {});
+    l.measurer.MeasureNode(*it, entry, 1200.0f, YRange::All());
     const auto& tl = *entry.table_layout();
     const auto& table = *it->table_data();
     std::pmr::vector<DWRITE_HIT_TEST_METRICS> buffer;
@@ -782,7 +787,7 @@ public:
 protected:
     void MeasureInitial(NodeLayoutEntry& entry)
     {
-        MeasureEntry(layout_->measurer, *table_, entry, 1200.0f, {}, 0.0f, nullptr, layout_->theme);
+        MeasureEntry(layout_->measurer, *table_, entry, 1200.0f, YRange::All(), 0.0f, nullptr, layout_->theme);
     }
     void RestoreScreen(NodeLayoutEntry& entry, int k)
     {
@@ -842,7 +847,7 @@ BENCHMARK_DEFINE_F(TableMeasure, ResizeViewport)(benchmark::State& state)
     ViewportManager viewport;
     LayoutService service(layout_->engine, viewport);
     for (auto _ : state) {
-        LayoutCache cache;
+        LayoutCache cache(doc_->GetNodes().size());
         ComputeLayout(layout_->engine, doc_->GetNodes(), cache, 1300.0f, 0.0f, kScreen);
         const float mid = cache.Bottom(cache.size() - 1) / 2.0f;
         layout_->engine.EnsureVisibleLayout(doc_->GetNodes(), cache, 1300.0f, mid - 8.0f * kScreen, mid + 9.0f * kScreen);
@@ -871,11 +876,11 @@ void BM_TableResizeFastPath(benchmark::State& state)
         return;
     }
     NodeLayoutEntry entry;
-    l.measurer.MeasureNode(*it, entry, 760.0f, {});
+    l.measurer.MeasureNode(*it, entry, 760.0f, YRange::All());
     constexpr std::array kWidths{ 700.0f, 760.0f };
     size_t k = 0;
     for (auto _ : state) {
-        state.SetIterationTime(SecondsOf([&] { l.measurer.MeasureNode(*it, entry, kWidths[k++ % kWidths.size()], {}); }));
+        state.SetIterationTime(SecondsOf([&] { l.measurer.MeasureNode(*it, entry, kWidths[k++ % kWidths.size()], YRange::All()); }));
     }
 }
 BENCHMARK(BM_TableResizeFastPath)->UseManualTime()->Iterations(10)->Unit(benchmark::kMillisecond);
@@ -911,8 +916,7 @@ constexpr float kTableViewHeight = 900.0f;
 // 表を開いて最初の画面を組んだキャッシュ。
 LayoutCache OpenTable(const Document& doc, LayoutEngine& engine)
 {
-    LayoutCache cache;
-    cache.Resize(doc.GetNodes().size());
+    LayoutCache cache(doc.GetNodes().size());
     engine.Reestimate(doc.GetNodes(), cache, kTableViewWidth);
     engine.EnsureVisibleLayout(doc.GetNodes(), cache, kTableViewWidth, 0.0f, kTableViewHeight);
     return cache;
@@ -934,7 +938,7 @@ void BM_TableScroll(benchmark::State& state, bool time_evict)
     for (auto _ : state) {
         top += kTableViewHeight;
         const double restore = SecondsOf([&] { l.engine.EnsureVisibleLayout(nodes, cache, kTableViewWidth, top, top + kTableViewHeight); });
-        const double evict = SecondsOf([&] { cache.EvictInvisibleTableRows(tables, top, top + kTableViewHeight, 2.0f * kTableViewHeight); });
+        const double evict = SecondsOf([&] { cache.EvictInvisibleTableRows(tables, layout::BufferedRange(top, kTableViewHeight, 2.0f)); });
         state.SetIterationTime(time_evict ? evict : restore);
         cache.TakeReleasedLayouts();
     }
@@ -959,10 +963,10 @@ void BM_DirtyBatchDeadline(benchmark::State& state)
         return budget.count() > 0 ? std::chrono::steady_clock::now() + budget : kNoLayoutDeadline;
     };
     for (auto _ : state) {
-        LayoutCache cache;
+        LayoutCache cache(doc.GetNodes().size());
         l.engine.Reestimate(doc.GetNodes(), cache, 1200.0f);
         state.SetIterationTime(SecondsOf([&] {
-            while (l.engine.ProcessDirtyBatch(doc.GetNodes(), cache, 1200.0f, deadline(), {})) {
+            while (l.engine.ProcessDirtyBatch(doc.GetNodes(), cache, 1200.0f, deadline())) {
             }
         }));
     }
@@ -1051,5 +1055,109 @@ BENCHMARK_DEFINE_F(Reload, RecomputeYPositions)(benchmark::State& state)
     }
 }
 BENCHMARK_REGISTER_F(Reload, RecomputeYPositions)->Iterations(500)->Unit(benchmark::kMicrosecond);
+
+// ===== reducer =====
+
+// 既定のリソースからの確保を数える。Reduce は副作用の一覧を既定のリソースから取る。
+class CountingResource final : public std::pmr::memory_resource {
+public:
+    explicit CountingResource(std::pmr::memory_resource* upstream) noexcept : upstream_(upstream)
+    {}
+    size_t allocations = 0;
+
+private:
+    void* do_allocate(size_t bytes, size_t align) override
+    {
+        ++allocations;
+        return upstream_->allocate(bytes, align);
+    }
+    void do_deallocate(void* p, size_t bytes, size_t align) override
+    {
+        upstream_->deallocate(p, bytes, align);
+    }
+    bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override
+    {
+        return this == &other;
+    }
+    std::pmr::memory_resource* upstream_;
+};
+
+// マウスの移動・ホイール・ドラッグで 1 イベントごとに Reduce が受けるアクション。どれも毎回見た目が変わる (副作用を積む)。
+enum class ReduceEvent : uint8_t {
+    Hover,         // ホバー強調が変わる (InvalidateWindow)
+    HoverSame,     // 同じ対象の上を動く (副作用なし)
+    Wheel,         // 本文のスクロール (InvalidateWindow + BitmapManage)
+    SelectDrag,    // テキスト選択のドラッグ (InvalidateWindow)
+    ScrollbarDrag, // スクロールバーのドラッグ (InvalidateWindow + BitmapManage)
+};
+
+AppAction MakeReduceEvent(ReduceEvent kind, int i)
+{
+    const bool odd = (i & 1) != 0;
+    switch (kind) {
+    case ReduceEvent::Hover:
+        return PointerHoverAction{ PointerHover{ { .h_block = odd ? 3 : -1 } } };
+    case ReduceEvent::HoverSame:
+        return PointerHoverAction{ PointerHover{ { .h_block = 3 } } };
+    case ReduceEvent::Wheel:
+        return MouseWheelAction{ .delta = odd ? WHEEL_DELTA : -WHEEL_DELTA, .tick = static_cast<uint64_t>(i) };
+    case ReduceEvent::SelectDrag:
+        return TextSelectionMovedAction{ odd ? 7 : 8, 2 };
+    case ReduceEvent::ScrollbarDrag:
+        return MdScrollbarDragMovedAction{ odd ? 100.0f : 200.0f };
+    }
+    std::unreachable();
+}
+
+// stack: App::Dispatch と同じく、副作用の一覧をイベントごとのスタックの領域から取る。
+// 外すとテストと同じく既定のリソースから確保する (allocs/event がその回数)。
+void BM_ReduceEvents(benchmark::State& state, ReduceEvent kind, bool stack)
+{
+    constexpr int kEvents = 10000;
+    ReducerHarness h({ .markdown = MakeHarnessMarkdown(200) });
+    h.state.view.viewport.ScrollTo(5000.0f, MdMaxScroll(h.state));
+    if (kind == ReduceEvent::SelectDrag) {
+        h.state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = 5 };
+    }
+    else if (kind == ReduceEvent::ScrollbarDrag) {
+        h.state.view.drag = { .kind = LeftDrag::MdScrollbar };
+    }
+    std::vector<AppAction> events;
+    events.reserve(kEvents);
+    for (int i = 0; i < kEvents; ++i) {
+        events.push_back(MakeReduceEvent(kind, i));
+    }
+
+    CountingResource counter(std::pmr::new_delete_resource());
+    std::pmr::memory_resource* const previous = std::pmr::set_default_resource(&counter);
+    size_t effects = 0;
+    size_t duplicate_invalidates = 0;
+    for (auto _ : state) {
+        for (const auto& e : events) {
+            alignas(std::max_align_t) std::array<std::byte, 1024> buffer;
+            std::pmr::monotonic_buffer_resource arena(buffer.data(), buffer.size());
+            const auto list = h.Dispatch(e, stack ? static_cast<std::pmr::memory_resource*>(&arena) : &counter);
+            effects += list.size();
+            const auto invalidates = std::ranges::count_if(list, [](const SideEffect& se) static { return std::holds_alternative<effect::InvalidateWindow>(se); });
+            duplicate_invalidates += invalidates > 1 ? static_cast<size_t>(invalidates - 1) : 0;
+            benchmark::DoNotOptimize(list.data());
+        }
+    }
+    std::pmr::set_default_resource(previous);
+    const auto total = static_cast<double>(state.iterations()) * kEvents;
+    state.counters["allocs/event"] = static_cast<double>(counter.allocations) / total;
+    state.counters["effects/event"] = static_cast<double>(effects) / total;
+    state.counters["dup_invalidate/event"] = static_cast<double>(duplicate_invalidates) / total;
+    state.SetItemsProcessed(state.iterations() * kEvents);
+}
+BENCHMARK_CAPTURE(BM_ReduceEvents, hover, ReduceEvent::Hover, false)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_ReduceEvents, hover_stack, ReduceEvent::Hover, true)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_ReduceEvents, hover_same, ReduceEvent::HoverSame, false)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_ReduceEvents, wheel, ReduceEvent::Wheel, false)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_ReduceEvents, wheel_stack, ReduceEvent::Wheel, true)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_ReduceEvents, select_drag, ReduceEvent::SelectDrag, false)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_ReduceEvents, select_drag_stack, ReduceEvent::SelectDrag, true)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_ReduceEvents, scrollbar_drag, ReduceEvent::ScrollbarDrag, false)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_ReduceEvents, scrollbar_drag_stack, ReduceEvent::ScrollbarDrag, true)->Unit(benchmark::kMicrosecond);
 
 } // namespace

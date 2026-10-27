@@ -96,14 +96,13 @@ TEST_F(SearchMatchYTest, MatchYRangeAgreesWithDrawnHighlight)
     Doc d;
     Load(d, MakeDoc(1, 1));
     CommandGenerator gen;
-    gen.SetTheme(&theme_);
-    gen.SetFormats({});
+    gen.Init(theme_);
 
     const auto& matches = d.search.GetMatches();
     for (int i = 0; i < static_cast<int>(matches.size()); i++) {
         SCOPED_TRACE(i);
-        gen.SetSearchMatches(&matches, i, d.search.GetGeneration());
-        const auto& cmds = gen.GenerateMdPane(d.pl.nodes, d.pl.cache, PaneRect{ 0.0f, 0.0f, 4000.0f, 4000.0f }, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
+        const auto& cmds = gen.GenerateMdPane({ .nodes = d.pl.nodes, .cache = d.pl.cache, .selection = TextSelection{}, .md_pane_rect = PaneRect{ 0.0f, 0.0f, 4000.0f, 4000.0f },
+                                                .search_matches = matches, .current_match_index = i, .search_generation = d.search.GetGeneration() }, 1.0f);
         std::optional<float> drawn_top;
         for (const auto& c : cmds) {
             if (const auto* r = std::get_if<FillRectCmd>(&c); r && r->brush_id == BrushId::SearchHighlightCurrent) {

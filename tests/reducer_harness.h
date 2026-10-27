@@ -7,43 +7,30 @@
 #include <string>
 #include <string_view>
 
-// App 相当の問い合わせ先。計測はしない (テストのキャッシュは計測済みとして組む)。
-struct ReducerTestSearchBarHost final : SearchBarHost {
-    explicit ReducerTestSearchBarHost(const AppState& s) noexcept : state(&s)
-    {}
-    const AppState* state;
-
-    float MdPaneHeight() override
-    {
-        return state->pane_layout_cache.Get().md_rect.height;
-    }
-    float MdMaxScroll() override
-    {
-        return ::MdMaxScroll(*state);
-    }
-    void EnsureNodeLayout(int) override
-    {}
-};
-
-// reducer が読む Theme の非ゼロ値を設定し、SearchBarController を Init する (未呼び出しだと nullptr deref)。
+// reducer が読む Theme の非ゼロ値を設定する。
 // theme は value-init ({}) 済みであること: Theme は zoom 以外に default member initializer を持たない集約。
-inline void InitReducerState(AppState& state, Theme& theme, SearchBarHost& host)
+inline void InitReducerState(AppState& state, Theme& theme)
 {
     theme.pane_item_height = 28.0f;
     theme.pane_header_height = 32.0f;
     theme.splitter_width = 4.0f;
     theme.zoom = 1.0f;
     state.theme = &theme;
-    state.search.search_bar_ctrl.Init(
-        state.search.search_state,
-        state.view.viewport,
-        state.document.layout_cache,
-        host);
+}
+
+// 計測を頼まれても何もしない Reduce。テストのキャッシュは計測済みとして組む。
+inline SideEffectList Reduce(AppState& state, const AppAction& action, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
+{
+    struct NoLayout final : NodeLayoutAccess {
+        void EnsureNodeLayout(int) override {}
+    };
+    static NoLayout no_layout;
+    return Reduce(state, action, no_layout, resource);
 }
 
 // reducer を App 相当の前提 (Theme 設定済み・レイアウト確定済み) で
 // 駆動するテスト用ハーネス。ランダム列テストで同じ初期状態を何度も組み立てるために使う。
-// SearchBarController が AppState 内部へのポインタを持つため、生成後は移動・コピーしない。
+// state が theme を指すため、生成後は移動・コピーしない。
 class ReducerHarness {
 public:
     static constexpr float kNodeHeight = 60.0f;
@@ -64,12 +51,12 @@ public:
         theme.margin_left = 20.0f;
         theme.margin_right = 20.0f;
         theme.heading_spacing_above = 8.0f;
-        InitReducerState(state, theme, search_host_);
+        InitReducerState(state, theme);
 
         state.document.doc = Document::FromMarkdown(std::pmr::string(opt.markdown), L"C:\\docs\\a.md");
         const auto& nodes = state.document.doc.GetNodes();
         auto& cache = state.document.layout_cache;
-        cache.Resize(nodes.size());
+        cache = LayoutCache(nodes.size());
         float y = kFirstTop;
         for (size_t i = 0; i < nodes.size(); ++i) {
             cache.SetTop(i, y);
@@ -90,12 +77,12 @@ public:
     ReducerHarness& operator=(const ReducerHarness&) = delete;
 
     // App::Dispatch と同じく、無効化されたペインレイアウトを確定させてから Reduce する。
-    SideEffectList Dispatch(const AppAction& action)
+    SideEffectList Dispatch(const AppAction& action, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
     {
         if (!state.pane_layout_cache.IsValid()) {
             state.pane_layout_cache.Set(1000.0f, layout_);
         }
-        return Reduce(state, action);
+        return Reduce(state, action, resource);
     }
 
     // App::ClampScrollToContent 相当。
@@ -121,7 +108,6 @@ public:
     AppState state;
 
 private:
-    ReducerTestSearchBarHost search_host_{ state };
     PaneLayout layout_{};
 };
 

@@ -17,17 +17,15 @@ class DiagramPlaceholderTest : public DWriteTestBase {
 protected:
     CommandGenerator gen_;
     TextLayoutCache text_layouts_;
-    ComPtr<IDWriteTextFormat> placeholder_fmt_;
+    MdPaneFormats formats_;
 
     void SetUp() override
     {
         DWriteTestBase::SetUp();
-        placeholder_fmt_ = CreateThemeFormat(theme_.font_size_body);
-        ASSERT_NE(placeholder_fmt_, nullptr);
-        gen_.SetTheme(&theme_);
+        formats_.placeholder_text = CreateThemeFormat(theme_.font_size_body);
+        ASSERT_NE(formats_.placeholder_text, nullptr);
         text_layouts_.SetFactory(dwrite_factory_.Get());
-        gen_.SetFormats({ nullptr, nullptr, nullptr, placeholder_fmt_.Get() });
-        gen_.SetTextLayoutCache(&text_layouts_);
+        gen_.Init(theme_, &formats_, &text_layouts_);
     }
 
     // 生成コマンドから最初の文字列描画を返す (無ければ null)。
@@ -50,7 +48,7 @@ TEST_F(DiagramPlaceholderTest, NoErrorShowsLoadingText)
     ASSERT_FALSE(pl.nodes.empty());
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
+    auto& cmds = gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
 
     const auto* text_cmd = FirstDrawText(cmds);
     ASSERT_NE(text_cmd, nullptr);
@@ -68,7 +66,7 @@ TEST_F(DiagramPlaceholderTest, ErrorShowsErrorMessageInCautionColor)
     pl.cache.EnsureDiagram(static_cast<size_t>(diagram_idx)).error = { DiagramError::Kind::Render, L"Parse error on line 1" };
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    auto& cmds = gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1);
+    auto& cmds = gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
 
     const auto* error_cmd = FirstDrawText(cmds);
     ASSERT_NE(error_cmd, nullptr);
@@ -85,7 +83,7 @@ TEST_F(DiagramPlaceholderTest, LocalizedErrorFollowsLanguageSwitch)
     auto& error = pl.cache.EnsureDiagram(static_cast<size_t>(diagram_idx)).error;
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     const auto text_of = [&] {
-        const auto* cmd = FirstDrawText(gen_.GenerateMdPane(pl.nodes, pl.cache, pane, 0.0f, TextSelection{}, {}, 1.0f, {}, -1));
+        const auto* cmd = FirstDrawText(gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f));
         return cmd ? std::wstring(text_layouts_.TextOf(cmd->layout)) : std::wstring();
     };
 

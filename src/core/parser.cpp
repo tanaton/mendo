@@ -1,5 +1,5 @@
 #include "parser.h"
-#include "parser_alerts.h"
+#include "ascii_util.h"
 #include "document_utils.h"
 #include "syntax.h"
 #include "profiler.h"
@@ -9,14 +9,35 @@
 #include <cassert>
 #include <unordered_map>
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <format>
+#include <iterator>
 #include <limits>
+#include <ranges>
 #include <stop_token>
 #include <string>
 #include <string_view>
 #include <utility>
 
 namespace {
+
+// 装飾 span が付ける TextRun のフラグ。装飾でない span は 0。
+constexpr uint8_t RunFlagOf(MD_SPANTYPE type) noexcept
+{
+    switch (type) {
+    case MD_SPAN_STRONG:
+        return TextRun::kBold;
+    case MD_SPAN_EM:
+        return TextRun::kItalic;
+    case MD_SPAN_CODE:
+        return TextRun::kCode;
+    case MD_SPAN_DEL:
+        return TextRun::kStrikethrough;
+    default:
+        return 0;
+    }
+}
 
 // Node の深さ系フィールドは int8_t なので、極端に深い入れ子は最大値で頭打ちにする。
 constexpr int8_t SaturateToInt8(int value) noexcept
@@ -45,7 +66,7 @@ struct ParseContext {
     }
 
     std::pmr::vector<Node> nodes;
-    // 原文をそのまま使えないテキストと、runs・リンク URL の置き場所。ParseResult 経由で Document に渡す。
+    // 原文をそのまま使えないテキストと、runs・リンク URL の置き場所。NodeStorage として Document に渡す。
     std::unique_ptr<TextArena> arena;
     // Table ノードが指すテーブル本体。arena と同じく Document に渡す。
     std::pmr::vector<std::unique_ptr<NodeTableData>> tables;
@@ -57,16 +78,13 @@ struct ParseContext {
     // 最後に記録したソース位置。RecordSourceOffset がこれより前の位置を記録しないために持つ。
     size_t last_source_offset = 0;
 
-    // span ネスト追跡は md4c 推奨のカウンタ方式。enter で +1, leave で -1。
-    // counter > 0 の間その属性が有効。CommonMark で link はネスト禁止のため
+    // 装飾 span のネスト追跡は md4c 推奨のカウンタ方式。enter で +1, leave で -1。
+    // [std::countr_zero(RunFlagOf(type))] が span の種別ごとの深さ。CommonMark で link はネスト禁止のため
     // link_url_index のみ単純フィールド (-1 = リンク外)。
-    uint8_t bold_count = 0;
-    uint8_t italic_count = 0;
-    uint8_t code_count = 0;
-    uint8_t strikethrough_count = 0;
-    // 上記カウンタを TextRun のフラグビットに射影したキャッシュ。MakeRun のたびに 4 回
+    std::array<uint8_t, 4> span_depths{};
+    // span_depths を TextRun のフラグビットに射影したキャッシュ。MakeRun のたびに 4 回
     // ビット操作するのではなく、span enter/leave のときだけ 1 回ビット OR/AND を更新する。
-    // 不変式: bit X が立っている <=> 対応する *_count > 0。
+    // 不変式: bit X が立っている <=> 対応する span_depths > 0。
     uint8_t current_run_flags = 0;
     // 現在の <a> span に対応する current_link_urls のインデックス。-1 = リンク外。
     // CommonMark で <a> はネスト禁止のため leave までこの値が安定する。
@@ -90,8 +108,7 @@ struct ParseContext {
 
     int indent_level = 0;
     int blockquote_depth = 0;
-    int blockquote_group_counter = 0;
-    int current_blockquote_group = -1; // 最外側 blockquote の group ID（ネスト中は共有）
+    int blockquote_group_counter = 0;  // 最外側 blockquote に入るたびに進める group ID（ネスト中は共有）
     int outermost_quote_indent = 0;    // 最外側 blockquote 進入時の indent_level（描画時のバー起点）
 
     // リスト追跡: 順序なしリストは -1、順序ありリストは次の番号 (0 以上)。
@@ -212,13 +229,6 @@ struct ParseContext {
         nodes.reserve(std::clamp(projected + projected / 8, size + size / 2, size * 4));
     }
 
-    void LeaveIndent() noexcept
-    {
-        if (indent_level > 0) {
-            indent_level--;
-        }
-    }
-
     void BeginNode(NodeType type)
     {
         // UL/OL/QUOTE の進入はノードを閉じないので、LI の中の最初の子ブロックが始まる時点ではまだ LI が開いている。
@@ -236,7 +246,7 @@ struct ParseContext {
         current_node->type = type;
         current_node->indent_level = SaturateToInt8(indent_level);
         if (blockquote_depth > 0) {
-            current_node->blockquote_group = current_blockquote_group;
+            current_node->blockquote_group = blockquote_group_counter;
             current_node->quote_depth = SaturateToInt8(blockquote_depth);
             current_node->quote_outer_indent = SaturateToInt8(outermost_quote_indent);
         }
@@ -274,8 +284,6 @@ struct ParseContext {
         BeginNode(type);
         current_node->set_code_language(language);
         current_node->set_continues_prev(newline_before);
-        // 区切った段落は $$..$$ だけの段落ではないので、ブロック数式に昇格させない。
-        paragraph_has_other_content = true;
         ResolveLinkUrlIndex(link_url);
     }
 
@@ -628,6 +636,9 @@ struct ParseContext {
                 else if (!plain) {
                     // セル内: cell_text_starts / cell_run_starts の back() は TD/TH 進入時に積んだ現在セルの開始位置。
                     auto* const tbl = current_node->table_data();
+                    if (tbl->cell_run_starts.empty()) {
+                        StartCellRunStarts(*tbl);
+                    }
                     if (tbl->all_runs.size() - tbl->cell_run_starts.back() < kMaxRunsPerText) {
                         tbl->all_runs.push_back(MakeRun(pending_run_start - tbl->cell_text_starts.back(), length));
                     }
@@ -636,6 +647,16 @@ struct ParseContext {
         }
         has_pending_run = false;
         pending_run_newlines = 0;
+    }
+
+    // 装飾もリンクも無い表は cell_run_starts を持たない。セルごとに 4 byte で、短いセルが 1100 万個の 60MB の表では
+    // commit が 242MB から 198MB に、private working set が 219MB から 175MB に減る (どちらも約 18%)。
+    // 最初の run を積むときに、ここまでのセル (run は無い) の開始位置を埋める。
+    // 以後はセルに入るたびに積むので、表のセル数分を cell_text_starts と同じだけ確保しておく。
+    static void StartCellRunStarts(NodeTableData& tbl)
+    {
+        tbl.cell_run_starts.reserve(tbl.cell_text_starts.capacity());
+        tbl.cell_run_starts.resize(tbl.cell_text_starts.size(), 0);
     }
 };
 
@@ -671,9 +692,11 @@ void TryPromoteParagraphToDisplayMath(ParseContext* ctx)
         return;
     }
     // 昇格できる段落のテキストは "$$" + 数式 + "$$" だけ。md4c は数式内の改行を空白にして渡すので改行は無い。
+    // 区切った段落は $$..$$ だけの段落ではないので昇格させない。
     const std::string_view text = ctx->current_text;
     if (ctx->paragraph_display_math_count != 1 ||
         ctx->paragraph_has_other_content ||
+        node->continues_prev() ||
         text.size() <= 4) {
         return;
     }
@@ -692,8 +715,9 @@ void BeginListItem(ParseContext* ctx, const MD_BLOCK_LI_DETAIL* li)
     if (is_task && (li->task_mark == 'x' || li->task_mark == 'X')) {
         ctx->current_node->set_task_checked();
     }
-    // OL は start>=0、UL は番兵 -1
-    if (!ctx->list_counter.empty() && ctx->list_counter.back() >= 0) {
+    // OL は start>=0、UL は番兵 -1。md4c は LI を UL/OL の直下にしか置かない。
+    assert(!ctx->list_counter.empty());
+    if (ctx->list_counter.back() >= 0) {
         ctx->current_node->set_list_number(ctx->list_counter.back()++);
     }
 }
@@ -715,21 +739,17 @@ void BeginTable(ParseContext* ctx, const MD_BLOCK_TABLE_DETAIL* detail)
     tbl->col_count = static_cast<uint16_t>(std::min<unsigned>(detail->col_count, std::numeric_limits<uint16_t>::max()));
     const size_t total_cells = total_rows * tbl->col_count;
     tbl->cell_text_starts.reserve(total_cells + 1);
-    tbl->cell_run_starts.reserve(total_cells + 1);
     tbl->aligns.reserve(tbl->col_count);
     tbl->is_header_row.reserve(total_rows);
 }
 
 void BeginTableCell(ParseContext* ctx, bool is_header, const MD_BLOCK_TD_DETAIL* detail)
 {
+    // セルの中身は行内要素だけなので、表の中では current_node は表ノードのまま。md4c は TH/TD を TR の中にしか置かない。
     auto* const cn = ctx->current_node;
-    if (!cn || cn->type != NodeType::Table) {
-        return;
-    }
+    assert(cn && cn->type == NodeType::Table);
     auto* const tbl = cn->table_data();
-    if (tbl->row_count == 0) {
-        return;
-    }
+    assert(tbl->row_count > 0);
     // 行内セル数 (is_header_row エントリ数が現 row_count 未満なら未確定 = 行頭)。
     const bool first_cell_in_row = (tbl->is_header_row.size() < tbl->row_count);
     const bool first_row = (tbl->row_count == 1);
@@ -741,7 +761,9 @@ void BeginTableCell(ParseContext* ctx, bool is_header, const MD_BLOCK_TD_DETAIL*
         tbl->concat_text.push_back('\n');
     }
     tbl->cell_text_starts.push_back(static_cast<uint32_t>(tbl->concat_text.size()));
-    tbl->cell_run_starts.push_back(static_cast<uint32_t>(tbl->all_runs.size()));
+    if (!tbl->cell_run_starts.empty()) {
+        tbl->cell_run_starts.push_back(static_cast<uint32_t>(tbl->all_runs.size()));
+    }
     ctx->active_text_buffer = &tbl->concat_text;
 
     // 列単位の align は header 行 (1 行目) で決まる。col_count は BeginTable で確定済み。
@@ -764,10 +786,12 @@ void FinalizeTableOffsets(NodeTableData& tbl)
     // padding は extend のみ (md4c が誤ってセル超過した場合に切り詰めない)。
     if (tbl.cell_text_starts.size() < expected_cells) {
         tbl.cell_text_starts.resize(expected_cells, text_end);
-        tbl.cell_run_starts.resize(expected_cells, run_end);
     }
     tbl.cell_text_starts.push_back(text_end);
-    tbl.cell_run_starts.push_back(run_end);
+    if (!tbl.cell_run_starts.empty()) {
+        tbl.cell_run_starts.resize(tbl.cell_text_starts.size() - 1, run_end);
+        tbl.cell_run_starts.push_back(run_end);
+    }
     if (tbl.is_header_row.size() < tbl.row_count) {
         tbl.is_header_row.resize(tbl.row_count, false);
     }
@@ -840,9 +864,7 @@ void AppendFootnoteBackrefs(std::pmr::vector<Node>& nodes, TextArena& arena, std
 void LeaveCodeBlock(ParseContext* ctx)
 {
     auto* const cn = ctx->current_node;
-    if (!cn) {
-        return;
-    }
+    assert(cn && cn->type == NodeType::CodeBlock);
     // md4c はコード各行を改行付きで渡すため、最終行の改行を表示テキストから落とす。
     // コード内には装飾もリンクも付かないので run は無く、調整は要らない。
     // 区切りを待って取り除いていた改行は戻してから落とす。
@@ -894,7 +916,7 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 
     case MD_BLOCK_QUOTE:
         if (ctx->blockquote_depth == 0) {
-            ctx->current_blockquote_group = ++ctx->blockquote_group_counter;
+            ++ctx->blockquote_group_counter;
             ctx->outermost_quote_indent = ctx->indent_level + 1;
         }
         ctx->blockquote_depth++;
@@ -930,9 +952,8 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
         break;
 
     case MD_BLOCK_TR:
-        if (auto* cn = ctx->current_node; cn && cn->type == NodeType::Table) {
-            ++cn->table_data()->row_count;
-        }
+        assert(ctx->current_node && ctx->current_node->type == NodeType::Table);
+        ++ctx->current_node->table_data()->row_count;
         break;
 
     case MD_BLOCK_TH:
@@ -960,6 +981,8 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
     return 0;
 }
 
+// md4c は enter/leave が常にバランスするので、enter で積んだ深さやスタックは無条件に戻す。
+// キャンセル後は enter も leave も何もしないので、途中で止めても釣り合いは崩れない。
 int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 {
     auto* const ctx = static_cast<ParseContext*>(userdata);
@@ -978,28 +1001,25 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         break;
 
     case MD_BLOCK_QUOTE:
-        if (ctx->blockquote_depth > 0) {
-            ctx->blockquote_depth--;
-        }
-        ctx->LeaveIndent();
+        --ctx->blockquote_depth;
+        --ctx->indent_level;
         break;
 
     case MD_BLOCK_UL:
     case MD_BLOCK_OL:
-        if (!ctx->list_counter.empty()) {
-            ctx->list_counter.pop_back();
-        }
-        ctx->LeaveIndent();
+        ctx->list_counter.pop_back();
+        --ctx->indent_level;
         break;
 
-    case MD_BLOCK_TABLE:
-        if (auto* const cn = ctx->current_node; cn && cn->has_table()) {
-            FinalizeTableOffsets(*cn->table_data());
-            // 以後 concat_text は伸縮しないので、本文として直接指す。
-            cn->SetText(cn->table_data()->concat_text);
-        }
+    case MD_BLOCK_TABLE: {
+        auto* const cn = ctx->current_node;
+        assert(cn && cn->has_table());
+        FinalizeTableOffsets(*cn->table_data());
+        // 以後 concat_text は伸縮しないので、本文として直接指す。
+        cn->SetText(cn->table_data()->concat_text);
         ctx->EndNode();
         break;
+    }
 
     case MD_BLOCK_THEAD:
     case MD_BLOCK_TBODY:
@@ -1014,9 +1034,9 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         break;
 
     case MD_BLOCK_H:
-        if (auto* const cn = ctx->current_node; cn && cn->type == NodeType::Heading) {
-            ctx->indices.toc_entries.emplace_back(static_cast<int>(ctx->CurrentNodeIndex()), cn->heading_level());
-        }
+        // 見出しの中身は行内要素だけで、見出しは区切らないので current_node は見出しのまま。
+        assert(ctx->current_node && ctx->current_node->type == NodeType::Heading);
+        ctx->indices.toc_entries.emplace_back(static_cast<int>(ctx->CurrentNodeIndex()), ctx->current_node->heading_level());
         ctx->EndNode();
         break;
 
@@ -1034,7 +1054,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         break;
 
     case MD_BLOCK_FOOTNOTE_DEF_SECTION:
-        ctx->LeaveIndent();
+        --ctx->indent_level;
         break;
 
     case MD_BLOCK_DOC:
@@ -1048,9 +1068,169 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
     return 0;
 }
 
+struct AlertInfo {
+    ascii_util::DocLowercaseLiteral name; // [!TYPE] マーカー名 (GitHub 仕様で ASCII 固定)
+    AlertType type;
+    std::string_view label;
+    std::string_view icon;
+};
+
+// AlertColorIndex 順。
+inline constexpr AlertInfo kAlerts[]{
+    { "note",      AlertType::Note,      "Note",      "ℹ"                },
+    { "tip",       AlertType::Tip,       "Tip",       "\xF0\x9F\x92\xA1" }, // U+1F4A1 (BMP 外)
+    { "important", AlertType::Important, "Important", "❗"               },
+    { "warning",   AlertType::Warning,   "Warning",   "⚠"                },
+    { "caution",   AlertType::Caution,   "Caution",   "⛔"               },
+};
+static_assert(std::size(kAlerts) == ALERT_TYPE_COUNT);
+static_assert(std::ranges::all_of(std::views::iota(size_t{ 0 }, ALERT_TYPE_COUNT), [](size_t i) static {
+    return AlertColorIndex(kAlerts[i].type) == i;
+}));
+
+// "[!" + 最長の名前 + "]"。マーカー判定はソフト改行ごとに走るので、']' を段落全体から探さない。
+constexpr size_t kMaxMarkerLength = 3 + std::ranges::max(kAlerts | std::views::transform([](const AlertInfo& e) static { return e.name.value.size(); }));
+
+struct AlertMarker {
+    const AlertInfo* info = nullptr; // マーカーでなければ null
+    size_t end = 0;                  // マーカー直後の改行を含む終端位置
+};
+
+// テキスト先頭の [!TYPE] パターンを検出する。
+// Alert マーカーは GitHub 仕様で ASCII 固定なので大小無視 ASCII 比較でよい。
+AlertMarker DetectAlertMarker(std::string_view text)
+{
+    if (text.size() < 3 || text[0] != '[' || text[1] != '!') {
+        return {};
+    }
+    const auto close = text.substr(0, kMaxMarkerLength).find(']');
+    if (close == std::string_view::npos || close <= 2) {
+        return {};
+    }
+
+    const auto type_str = text.substr(2, close - 2);
+    const auto it = std::ranges::find_if(kAlerts, [type_str](const AlertInfo& e) noexcept {
+        return ascii_util::iequal(type_str, e.name);
+    });
+    if (it == std::end(kAlerts)) {
+        return {};
+    }
+
+    // GitHub に合わせ、マーカーと本文や画像が同じ行にある "[!NOTE] 本文" は Alert にしない
+    // (fe1ae552 で同じ行の画像を Alert にし、db6320d7 で戻した)。表示を GitHub と食い違わせない。
+    // 行末の空白は md4c が落とすので、マーカー直後は改行か終端だけを見ればよい。
+    const size_t end = close + 1;
+    if (end == text.size()) {
+        return { &*it, end };
+    }
+    if (text[end] == '\n') {
+        return { &*it, end + 1 };
+    }
+    return {};
+}
+
+// マーカーを除去しアイコン+ラベルを挿入する。TextRunも調整する。
+// テキスト構造: "[icon] Label" (コンテンツなし) または "[icon] Label\n[content]" (コンテンツあり)
+void TransformAlertNode(Node& node, TextArena& arena, const AlertInfo& info, size_t marker_end)
+{
+    const std::string_view label = info.label;
+    const std::string_view icon = info.icon;
+    const std::string_view current_text = node.GetText();
+    const bool has_content = (marker_end < current_text.size());
+
+    const size_t full_label_len = icon.size() + 1 + label.size(); // "icon Label"
+    std::string new_text;
+    new_text.reserve(full_label_len + 4 + (has_content ? current_text.size() - marker_end : 0));
+    new_text.append(icon);
+    new_text += ' ';
+    new_text.append(label);
+
+    size_t new_content_start = full_label_len;
+    if (has_content) {
+        new_text += '\n';
+        new_content_start = full_label_len + 1;
+        new_text.append(current_text.substr(marker_end));
+    }
+
+    std::pmr::vector<TextRun> new_runs;
+    new_runs.reserve(node.runs().size() + 1);
+    // アイコン絵文字は太字にしない (スペース + ラベルテキストのみ太字)。
+    TextRun label_run;
+    label_run.start = static_cast<uint32_t>(icon.size());
+    label_run.length = static_cast<uint32_t>(full_label_len - icon.size());
+    label_run.set_raw_flags(TextRun::kBold);
+    new_runs.emplace_back(label_run);
+
+    // マーカー部分を除外し、残りを新しい本文開始位置へ平行移動する。
+    const auto marker = static_cast<uint32_t>(marker_end);
+    const auto content_start = static_cast<uint32_t>(new_content_start);
+    for (TextRun adjusted : node.runs()) {
+        const uint32_t run_end = adjusted.start + adjusted.length;
+        if (run_end <= marker) {
+            continue;
+        }
+        if (adjusted.start < marker) {
+            adjusted.start = marker;
+            adjusted.length = run_end - marker;
+        }
+        adjusted.start = content_start + (adjusted.start - marker);
+        new_runs.emplace_back(adjusted);
+    }
+
+    // 全文走査で改行を数え直すと O(text) かかるため、ここで差分計算する。
+    // マーカー [!TYPE] 本体には改行が入らず、DetectAlertMarker が直後の改行を含めたときだけ
+    // 改行 1 個。marker_end 直前の 1 文字だけを見ればよい。
+    const int32_t marker_newlines = (marker_end > 0 && current_text[marker_end - 1] == '\n');
+    const int32_t new_line_count = node.line_count - marker_newlines + has_content;
+    node.SetText(arena.CopyText(new_text), new_line_count);
+    node.SetRuns(arena.Copy(new_runs));
+    node.alert_type = info.type;
+    node.set_alert_label_length(static_cast<uint32_t>(full_label_len));
+}
+
+// nodes[i] が Alert マーカーを持ちうる位置 (最外側 blockquote の先頭段落) か。
+// GitHub 仕様: Alert は最外側 blockquote (quote_depth==1) でのみ認識し、ネスト内 (`> > [!NOTE]`) は通常の引用。
+// マーカーは blockquote の先頭でのみ有効で、"> intro" の後に続く段落の [!NOTE] は通常の引用。
+bool IsAlertHeadCandidate(const std::pmr::vector<Node>& nodes, size_t i) noexcept
+{
+    const auto& node = nodes[i];
+    return node.type == NodeType::BlockQuote && node.quote_depth == 1 &&
+           (i == 0 || nodes[i - 1].blockquote_group != node.blockquote_group);
+}
+
+// 単一の BlockQuote ノードに対して Alert マーカーを検出・適用し、
+// 同一 blockquote_group の後続ノードに alert_type を伝播する。
+// 伝播先は先頭候補にならないので、先頭候補が既に alert_type を持つことはない。
+void DetectAlertAt(std::pmr::vector<Node>& nodes, TextArena& arena, size_t i)
+{
+    if (!IsAlertHeadCandidate(nodes, i)) {
+        return;
+    }
+    auto& node = nodes[i];
+    const auto [info, marker_end] = DetectAlertMarker(node.GetText());
+    if (!info) {
+        return;
+    }
+    const int group = node.blockquote_group;
+    TransformAlertNode(node, arena, *info, marker_end);
+
+    // ノード種別に依存せず、グループIDで判定する（リスト等も含む）。
+    for (size_t j = i + 1; j < nodes.size(); j++) {
+        if (nodes[j].blockquote_group != group) {
+            break;
+        }
+        nodes[j].alert_type = info->type;
+    }
+}
+
+// 今の段落が Alert の先頭候補で、テキストが Alert マーカー ([!TYPE] と直後の改行) だけからなるか。
 bool IsAlertMarkerOnlyHead(const ParseContext* ctx)
 {
-    return ctx->current_node && IsAlertHeadCandidate(ctx->nodes, ctx->CurrentNodeIndex()) && IsAlertMarkerOnly(ctx->current_text);
+    if (!ctx->current_node || !IsAlertHeadCandidate(ctx->nodes, ctx->CurrentNodeIndex())) {
+        return false;
+    }
+    const auto [info, end] = DetectAlertMarker(ctx->current_text);
+    return info && end == ctx->current_text.size();
 }
 
 // "> [!NOTE]\n> ![img](p.png)" は md4c では 1 段落になり、画像段落として丸ごと Image に昇格すると
@@ -1094,23 +1274,11 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         ctx->paragraph_has_other_content = true;
     }
 
-    const auto enter_span_flag = [ctx](uint8_t& counter, uint8_t flag) {
-        ++counter;
+    if (const uint8_t flag = RunFlagOf(type); flag != 0) {
+        ++ctx->span_depths[std::countr_zero(flag)];
         ctx->current_run_flags |= flag;
-    };
+    }
     switch (type) {
-    case MD_SPAN_STRONG:
-        enter_span_flag(ctx->bold_count, TextRun::kBold);
-        break;
-    case MD_SPAN_EM:
-        enter_span_flag(ctx->italic_count, TextRun::kItalic);
-        break;
-    case MD_SPAN_CODE:
-        enter_span_flag(ctx->code_count, TextRun::kCode);
-        break;
-    case MD_SPAN_DEL:
-        enter_span_flag(ctx->strikethrough_count, TextRun::kStrikethrough);
-        break;
     case MD_SPAN_A: {
         auto* const a = static_cast<MD_SPAN_A_DETAIL*>(detail);
         ctx->ResolveLinkUrlIndex(ctx->AttributeText(a->href));
@@ -1130,6 +1298,10 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     case MD_SPAN_FOOTNOTE_REF:
         AppendFootnoteRef(ctx, static_cast<const MD_SPAN_FOOTNOTE_REF_DETAIL*>(detail));
         break;
+    case MD_SPAN_STRONG:
+    case MD_SPAN_EM:
+    case MD_SPAN_CODE:
+    case MD_SPAN_DEL:
     case MD_SPAN_WIKILINK:
     case MD_SPAN_U:
         break;
@@ -1161,24 +1333,10 @@ int OnLeaveSpan(MD_SPANTYPE type, void* detail, void* userdata)
     ctx->FlushPendingRun();
 
     // md4c は enter/leave が常にバランスする契約なのでアンダーフローは起きない。
-    const auto leave_span_flag = [ctx](uint8_t& counter, uint8_t flag) {
-        if (--counter == 0) {
-            ctx->current_run_flags &= static_cast<uint8_t>(~flag);
-        }
-    };
+    if (const uint8_t flag = RunFlagOf(type); flag != 0 && --ctx->span_depths[std::countr_zero(flag)] == 0) {
+        ctx->current_run_flags &= static_cast<uint8_t>(~flag);
+    }
     switch (type) {
-    case MD_SPAN_STRONG:
-        leave_span_flag(ctx->bold_count, TextRun::kBold);
-        break;
-    case MD_SPAN_EM:
-        leave_span_flag(ctx->italic_count, TextRun::kItalic);
-        break;
-    case MD_SPAN_CODE:
-        leave_span_flag(ctx->code_count, TextRun::kCode);
-        break;
-    case MD_SPAN_DEL:
-        leave_span_flag(ctx->strikethrough_count, TextRun::kStrikethrough);
-        break;
     case MD_SPAN_A:
         ctx->current_link_url_index = -1;
         break;
@@ -1192,6 +1350,10 @@ int OnLeaveSpan(MD_SPANTYPE type, void* detail, void* userdata)
     case MD_SPAN_LATEXMATH:
         ctx->AppendDoc("$");
         break;
+    case MD_SPAN_STRONG:
+    case MD_SPAN_EM:
+    case MD_SPAN_CODE:
+    case MD_SPAN_DEL:
     case MD_SPAN_FOOTNOTE_REF:
     case MD_SPAN_WIKILINK:
     case MD_SPAN_U:
@@ -1216,6 +1378,9 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         }
     }
 
+    // 数式の中身・HTML・NUL 以外のテキストがあれば、$$..$$ だけの段落ではない。
+    ctx->paragraph_has_other_content |= type != MD_TEXT_LATEXMATH && type != MD_TEXT_HTML && type != MD_TEXT_NULLCHAR;
+
     const std::string_view chunk{ text, static_cast<size_t>(size) };
 
     if (!ctx->current_node->HasSourceOffset()) [[unlikely]] {
@@ -1225,7 +1390,6 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     switch (type) {
     case MD_TEXT_NORMAL:
     case MD_TEXT_CODE:
-        ctx->paragraph_has_other_content = true;
         // コードの行末は単独の "\n" で届く。
         if (type == MD_TEXT_CODE && chunk == "\n") {
             ctx->AppendLineBreak(chunk);
@@ -1240,7 +1404,6 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         break;
 
     case MD_TEXT_ENTITY: {
-        ctx->paragraph_has_other_content = true;
         // entity (`&amp;` 等) は現状文字に解決される。原文 (`&amp;`) と current_text (`&`) が
         // 不一致になり arena へのコピーが確定。memcmp スキップフラグを立てる。
         ctx->current_node_needs_copy = true;
@@ -1250,14 +1413,12 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
     }
 
     case MD_TEXT_BR:
-        ctx->paragraph_has_other_content = true;
         // BR / SOFTBR は原文の `<br>` や 2 個の半角空白+改行を `\n`/` ` に置換するため raw_slice 不一致。
         ctx->current_node_needs_copy = true;
         ctx->AppendLineBreak("\n");
         break;
 
     case MD_TEXT_SOFTBR:
-        ctx->paragraph_has_other_content = true;
         ctx->current_node_needs_copy = true;
         // Alert マーカーだけの先頭行の後ろは改行のまま残す。空白にすると、GitHub が Alert にしない
         // 同じ行の "[!NOTE] 本文" と区別できない。
@@ -1300,7 +1461,7 @@ void ReserveForInput(ParseContext& ctx, size_t input_size)
 
 } // namespace
 
-ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token, TaskScheduler* scheduler)
+NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token, TaskScheduler* scheduler)
 {
     MENDO_PROFILE("ParseMarkdown");
     const size_t input_size = markdown_text.size();
@@ -1328,7 +1489,7 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     }
 
     // キャンセル時は中途半端な nodes の後処理 (脚注の戻りリンク・Alert 検出・詰め) を飛ばし、
-    // 呼び出し側がチェックしやすいよう空 ParseResult を返す。
+    // 呼び出し側がチェックしやすいよう空の NodeStorage を返す。
     if (ctx.cancel_requested) {
         return {};
     }
@@ -1341,8 +1502,11 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     }
 
     {
+        // BlockQuote ノードから GitHub Alerts を検出し、マーカー除去・ラベル挿入・グルーピングを行う。
         MENDO_PROFILE("DetectAlerts");
-        DetectAlerts(ctx.nodes, *ctx.arena, ctx.blockquote_indices);
+        for (const size_t i : ctx.blockquote_indices) {
+            DetectAlertAt(ctx.nodes, *ctx.arena, i);
+        }
     }
 
     // 予約や見積もりの余りを文書の寿命の間持ち続けないよう、大きく余ったときだけ詰める。
@@ -1353,9 +1517,5 @@ ParseResult ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         ctx.nodes.shrink_to_fit();
     }
 
-    ParseResult result{
-        NodeStorage{ std::move(ctx.nodes), std::move(ctx.arena), std::move(ctx.tables) }
-    };
-    result.indices = std::move(ctx.indices);
-    return result;
+    return NodeStorage{ std::move(ctx.nodes), std::move(ctx.arena), std::move(ctx.tables), std::move(ctx.indices) };
 }

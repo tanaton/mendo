@@ -117,7 +117,6 @@ add_library(mendo_core STATIC
     src/core/document_utils.cpp
     src/core/anchor.cpp
     src/core/parser.cpp
-    src/core/parser_alerts.cpp
     src/core/html_entities.cpp
     src/core/selection_html.cpp
     src/core/syntax.cpp
@@ -134,7 +133,6 @@ add_library(mendo_core STATIC
     src/app/clipboard_manager.cpp
     # ui - UIコンポーネント
     src/ui/context_menu.cpp
-    src/ui/pane_controller.cpp
     src/ui/search_state.cpp
     src/ui/settings_dialog.cpp
     src/ui/titlebar.cpp
@@ -142,10 +140,8 @@ add_library(mendo_core STATIC
     # input - 入力処理
     src/input/hit_test_service.cpp
     # io - ファイルI/O・永続化
-    src/io/file_loader.cpp
     src/io/file_dialog_service.cpp
     src/io/file_explorer.cpp
-    src/io/file_load_service.cpp
     src/io/async_load_coordinator.cpp
     src/io/config_service.cpp
     src/io/image_loader.cpp
@@ -161,6 +157,7 @@ add_library(mendo_core STATIC
     # app - アプリケーション制御
     src/app/app_controller.cpp
     src/app/reducer.cpp
+    src/app/resource_manager.cpp
     src/app/startup_plan.cpp
     # util - ユーティリティ
     src/util/file_io.cpp
@@ -220,7 +217,6 @@ add_executable(mendo WIN32
     src/render/renderer.cpp
     src/render/renderer_resources.cpp
     src/render/renderer_pane.cpp
-    src/render/renderer_search.cpp
     src/render/d2d_render_backend.cpp
     src/mermaid/mermaid.cpp
     res/mendo.rc

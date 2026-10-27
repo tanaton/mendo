@@ -78,7 +78,7 @@ struct OneNodeDoc {
         node.type = type;
         node.indent_level = indent_level;
         nodes.push_back(node);
-        cache.Resize(1);
+        cache = LayoutCache(1);
     }
     NodeLayoutEntry& entry()
     {
@@ -111,9 +111,9 @@ TEST(GetBlockHScrollGeometry, TableUsesLaidOutTableWidth)
 {
     const Theme theme = GetLightTheme();
     OneNodeDoc doc{ NodeType::Table };
-    auto& tl = doc.entry().ensure_table_layout();
+    auto& tl = doc.entry().ensure_table_layout(0, 2);
     tl.col_widths = { 1000.0f, 1000.0f };
-    tl.RebuildColCumX();
+    tl.CommitGeometry(2000.0f);
 
     const auto g = doc.Geometry(theme, 800.0f);
     EXPECT_FLOAT_EQ(g.block_width, tl.TableWidth());
@@ -185,8 +185,7 @@ TEST(GetBlockHScrollGeometry, SplitCodeBlockSharesKeyAndWidestChunk)
     const std::string md = MakeCodeBlockMd(5000);
     const auto nodes = ParseNodes(md);
     ASSERT_GT(nodes.size(), 2u);
-    LayoutCache cache;
-    cache.Resize(nodes.size());
+    LayoutCache cache(nodes.size());
     for (size_t i = 0; i < nodes.size(); ++i) {
         cache[i].set_natural_code_width(i == 1 ? 500.0f : 100.0f);
     }

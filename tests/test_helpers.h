@@ -109,8 +109,7 @@ inline Node MakeTableNode(std::initializer_list<std::initializer_list<std::strin
 // spacing_above = spacing_below = 0 を仮定する。
 inline LayoutCache MakeUniformCache(int count, float node_height = 100.0f)
 {
-    LayoutCache cache;
-    cache.Resize(count);
+    LayoutCache cache(count);
     float y = 0.0f;
     for (int i = 0; i < count; ++i) {
         cache.SetTop(i, y);
