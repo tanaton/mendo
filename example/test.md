@@ -1176,8 +1176,8 @@ public:
 |:---------|:-----|
 | `renderer.cpp` | フレームの開始・終了（`BeginFrame` / `EndFrame`）とデバイスロスト復旧、Markdown ペイン描画統括、タイトルバーのコマンド生成、本文に重ねるコマンドの組み立て（`GenOverlays`、ジェスチャーの軌跡） |
 | `renderer_resources.cpp` | 固定ブラシ・ペイン用フォーマット管理、アプリアイコン |
-| `renderer_pane.cpp` | ファイル/TOC ペインのコマンド生成、Markdown ペインのスクロールバー |
-| `renderer_search.cpp` | 検索バーのコマンド生成、検索入力欄のヒットテスト |
+| `renderer_pane.cpp` | ファイル/TOC ペインのコマンド生成 |
+| `renderer_search.cpp` | 検索入力欄の文字列のレイアウトと計測（`MeasureSearchInput`）、ヒットテスト |
 
 #### 3.8.5 描画順（`Renderer::Render`）
 
@@ -1197,14 +1197,14 @@ public:
 6. マウスジェスチャトレイル（`GenGestureTrail`、`DrawGeometryCmd`）
 7. スワイプオーバーレイ（`overlay::EmitGestureOverlay`）
 8. トースト通知（`overlay::EmitToast`）
-9. 検索バー（下部ドッキング、`GenSearchBar`）
-10. Markdownペインのスクロールバー（`GenMdScrollbar`）
+9. 検索バー（下部ドッキング、`overlay::EmitSearchBar`）
+10. Markdownペインのスクロールバーのつまみ（`VScrollThumb`。サイドペインのつまみも同じ関数で作る）
 
 オーバーレイボタン（コピー / 保存）はホバーの有無にかかわらず描き、ホバー中だけ濃くする。矩形は `layout::ForEachOverlayButton` が列挙し、描画とヒットテストで同じ矩形を使う。
 
 読み込み中（`RenderParams::loading_angle` がある）は 3 の代わりに 5 のスピナー（`overlay::EmitLoadingSpinner`）を積み、7・8（ジェスチャオーバーレイ・トースト）だけを重ねる。コンテキストメニューはこのシーケンスとは別経路で描画される。
 
-`Renderer` はすべてをコマンドにして `ExecuteDrawCommands` で描き、レンダーターゲットへ直接描くのは `BeginDraw` / `Clear` / `EndDraw` だけである。半透明は各コマンドの `opacity`、未作成のブラシは executor がまとめて扱う。スピナー・ナビボタン・ジェスチャー・トーストの組み立ては `command_generator.h` の `overlay` 名前空間の関数にあり、デバイス無しでテストできる。タイトルバーとサイドペインはデバイスに依存しないコマンド列なので、デバイスの作成前に `PrepareChrome` を呼んで最初のフレームの文字レイアウトを先に作れる（`App::CreateRenderDevice`）。
+`Renderer` はすべてをコマンドにして `ExecuteDrawCommands` で描き、レンダーターゲットへ直接描くのは `BeginDraw` / `Clear` / `EndDraw` だけである。半透明は各コマンドの `opacity`、未作成のブラシは executor がまとめて扱う。スピナー・ナビボタン・ジェスチャー・トースト・検索バーの組み立ては `command_generator.h` の `overlay` 名前空間の関数に、スクロールバーのつまみは `VScrollThumb` にあり、デバイス無しでテストできる。検索欄の文字列は DirectWrite でレイアウトを作って選択範囲とキャレットの位置を測る必要があるので、`Renderer::MeasureSearchInput` が測った結果（`overlay::SearchInputText`）を `overlay::EmitSearchBar` に渡す。ジェスチャーの軌跡は D2D のジオメトリを作るので `Renderer` に残る。タイトルバーとサイドペインはデバイスに依存しないコマンド列なので、デバイスの作成前に `PrepareChrome` を呼んで最初のフレームの文字レイアウトを先に作れる（`App::CreateRenderDevice`）。
 
 描画コストを抑えるためのキャッシュ:
 
@@ -3511,7 +3511,7 @@ src/
 │   ├── renderer.h / renderer.cpp  # Direct2D 描画統括 + タイトルバー / オーバーレイ描画
 │   ├── renderer_resources.cpp     # ブラシ・フォーマット
 │   ├── renderer_pane.cpp          # ペイン描画
-│   ├── renderer_search.cpp        # 検索バー描画
+│   ├── renderer_search.cpp        # 検索入力欄の計測
 │   ├── d2d_render_backend.h / .cpp # D2DRenderBackend (D3D11 デバイス / スワップチェーン / フレーム待ち)
 │   ├── render_params.h            # レンダリングパラメータ (MdPaneParams / RenderParams 等)
 │   ├── draw_command.h             # DrawCommand variant + DrawCommandList (pmr::vector) + FixedBrushArray / ExecuteDrawCommands 宣言

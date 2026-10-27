@@ -119,14 +119,11 @@ private:
     void EnsurePaneListFormats(PaneTarget target, float zoom);
     // NO_WRAP の左寄せテキスト。はみ出しは呼び出し側のクリップで切る。
     void EmitLeftText(IDWriteTextFormat* fmt, std::wstring_view text, float x, float y, float height);
-    void GenMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, const LayoutCache& cache);
     void GenGestureTrail(const std::pmr::vector<GesturePoint>& points);
-    void GenSearchBar(const SearchBarRenderState& sb, const PaneRect& md_pane_rect);
-    // 入力欄のテキスト・選択範囲を積み、キャレットの x 座標を返す。
-    float GenSearchInputText(const SearchBarRenderState& sb, const SearchBarLayout& sbl);
+    // 入力欄の文字列のレイアウトを用意し、選択範囲とキャレットの位置を測る。
+    overlay::SearchInputText MeasureSearchInput(const SearchBarRenderState& sb, const SearchBarLayout& sbl);
     // 入力が前フレームと同じなら search_input_ のレイアウトを返し、違えば作り直す。
     IDWriteTextLayout* AcquireSearchInputLayout(const SearchBarRenderState& sb, int comp_start, float width, float height);
-    void GenSearchBarButtons(const SearchBarRenderState& sb, const SearchBarLayout& sbl);
 
     D2DRenderBackend backend_;
     ID2D1DeviceContext* rt() const noexcept

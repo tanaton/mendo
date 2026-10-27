@@ -136,9 +136,12 @@ void Renderer::GenOverlays(const RenderParams& p)
         return;
     }
     if (p.search_bar.visible) {
-        GenSearchBar(p.search_bar, md_pane_rect);
+        const auto input = MeasureSearchInput(p.search_bar, ComputeSearchBarLayout(md_pane_rect, !p.search_bar.query.empty()));
+        overlay::EmitSearchBar(overlay_cmds_, text_layouts_, fmt_.ui_icon.Get(), fmt_.search_count.Get(), md_pane_rect, p.search_bar, input);
     }
-    GenMdScrollbar(md_pane_rect, p.md.scroll_y, p.md.cache);
+    if (const auto thumb = VScrollThumb(md_pane_rect, 0.0f, p.md.scroll_y, ComputeTotalContentHeight(p.md.cache, theme_->margin_bottom), p.md.cache.HasDirtyNodes())) {
+        overlay_cmds_.push_back(*thumb);
+    }
 }
 
 Renderer::FrameResult Renderer::EndFrame()

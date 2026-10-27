@@ -6,24 +6,8 @@
 #include "ui_constants.h"
 #include "utf8_codec.h"
 #include <algorithm>
-#include <optional>
 
 namespace {
-// ドラッグ処理 (ScrollFromThumbY) と同じ計算を共有し、見た目と挙動のズレを防ぐ。
-// つまみはペイン右端から VScrollbarLeftX で内側に寄せる。
-std::optional<FillRoundedRectCmd> VScrollThumb(const PaneRect& pane, float header_height, float scroll_y, float total_content_height, bool may_grow = false) noexcept
-{
-    const PaneScrollInfo info = ComputeScrollInfo(pane, header_height, total_content_height);
-    if (!ShowsVScrollbar(info, may_grow)) {
-        return std::nullopt;
-    }
-    const float x = VScrollbarLeftX(pane.x + pane.width);
-    const float thumb_y = ComputeThumbY(info, scroll_y);
-    constexpr float radius = PANE_SCROLLBAR_WIDTH / 2.0f;
-    return FillRoundedRectCmd{
-        .rect = D2D1::RectF(x, thumb_y, x + PANE_SCROLLBAR_WIDTH, thumb_y + info.thumb_height), .rx = radius, .ry = radius, .brush_id = BrushId::ScrollbarThumb };
-}
-
 // 目次の行は 1 行で狭い。極端に長い見出しでも毎フレーム全文を UTF-16 化・ハッシュしないよう先頭だけ使う。
 std::string_view TocItemText(std::string_view heading) noexcept
 {
@@ -168,11 +152,4 @@ void Renderer::GenToc(const SidePaneState& sp, const SidePaneInstance& pane)
             });
         }
     });
-}
-
-void Renderer::GenMdScrollbar(const PaneRect& md_pane_rect, float scroll_y, const LayoutCache& cache)
-{
-    if (const auto thumb = VScrollThumb(md_pane_rect, 0.0f, scroll_y, ComputeTotalContentHeight(cache, theme_->margin_bottom), cache.HasDirtyNodes())) {
-        overlay_cmds_.push_back(*thumb);
-    }
 }

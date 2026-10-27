@@ -4,6 +4,7 @@
 #include "hit_test_service.h"
 #include "i18n.h"
 #include "layout_computer.h"
+#include "pane_layout.h"
 #include "profiler.h"
 #include "ui_constants.h"
 #include <algorithm>
@@ -172,6 +173,21 @@ std::wstring_view DiagramErrorText(const DiagramError& error) noexcept
 
 } // namespace
 
+// つまみはペイン右端から VScrollbarLeftX で内側に寄せる。
+std::optional<FillRoundedRectCmd> VScrollThumb(const PaneRect& pane, float header_height, float scroll_y, float total_content_height, bool may_grow) noexcept
+{
+    const PaneScrollInfo info = ComputeScrollInfo(pane, header_height, total_content_height);
+    if (!ShowsVScrollbar(info, may_grow)) {
+        return std::nullopt;
+    }
+    const float x = VScrollbarLeftX(pane.x + pane.width);
+    const float thumb_y = ComputeThumbY(info, scroll_y);
+    constexpr float radius = PANE_SCROLLBAR_WIDTH / 2.0f;
+    return FillRoundedRectCmd{
+        .rect = D2D1::RectF(x, thumb_y, x + PANE_SCROLLBAR_WIDTH, thumb_y + info.thumb_height), .rx = radius, .ry = radius, .brush_id = BrushId::ScrollbarThumb
+    };
+}
+
 namespace overlay {
 
 void EmitLoadingSpinner(DrawCommandList& out, float angle, const PaneRect& md_pane_rect)
@@ -254,6 +270,101 @@ void EmitToast(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextF
     const float bottom_y = NavBackButtonRect(md_pane_rect).top - TOAST_OVERLAY_BOTTOM_OFFSET;
     EmitPanel(out, text_layouts, fmt, D2D1::RectF(cx - w / 2, bottom_y - h, cx + w / 2, bottom_y), D2D1::SizeF(w, h),
               TOAST_OVERLAY_CORNER, dark ? 0.85f : 0.7f, dark, message);
+}
+
+namespace {
+void EmitSearchBarButtons(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextFormat* icon_fmt, IDWriteTextFormat* count_fmt,
+                          const SearchBarLayout& sbl, const SearchBarRenderState& sb)
+{
+    const auto draw_icon_btn = [&](const D2D1_RECT_F& r, const wchar_t* icon, bool hovered, float alpha = 1.0f) {
+        if (hovered) {
+            out.push_back(FillRoundedRectCmd{ .rect = r, .rx = SEARCH_BAR_CORNER, .ry = SEARCH_BAR_CORNER, .brush_id = BrushId::TitleBarButtonHover });
+        }
+        text_layouts.EmitCentered(out, icon, icon_fmt, r, BrushId::SearchInputText, alpha);
+    };
+
+    const auto draw_toggle_btn = [&](const D2D1_RECT_F& r, std::wstring_view label, IDWriteTextFormat* fmt, bool checked, bool hovered) {
+        if (hovered || checked) {
+            out.push_back(FillRoundedRectCmd{
+                .rect = r, .rx = SEARCH_BAR_CORNER, .ry = SEARCH_BAR_CORNER, .brush_id = checked ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover });
+        }
+        text_layouts.EmitCentered(out, label, fmt, r, BrushId::SearchInputText, checked ? 1.0f : 0.5f);
+    };
+
+    const float nav_alpha = sb.total_matches > 0 ? 1.0f : 0.3f;
+    draw_icon_btn(sbl.up_btn, L"\uE70E", sb.hovered == SearchBarHitZone::Up, nav_alpha);
+    draw_icon_btn(sbl.down_btn, L"\uE70D", sb.hovered == SearchBarHitZone::Down, nav_alpha);
+
+    if (count_fmt && !sb.query.empty() && sb.total_matches >= 0) {
+        // 「N / M」形式で表示。M は実用上 4-5 桁に収まる (md 内 hit 数) ので
+        // 32 wchar_t は十分な余裕。format_to_n で先端から書き、長さを返してもらう。
+        constexpr size_t kCountBufLen = 32;
+        wchar_t count_text[kCountBufLen];
+        const auto r = (sb.total_matches == 0)
+                           ? std::format_to_n(count_text, kCountBufLen - 1, L"0")
+                           : std::format_to_n(count_text, kCountBufLen - 1, L"{} / {}", sb.current_match + 1, sb.total_matches);
+        const auto written = static_cast<size_t>(r.out - count_text);
+        text_layouts.EmitCentered(out, { count_text, written }, count_fmt, sbl.count_rect, BrushId::SearchInputText, 0.7f);
+    }
+
+    draw_toggle_btn(sbl.case_btn, L"Aa", count_fmt, sb.case_sensitive, sb.hovered == SearchBarHitZone::CaseSensitive);
+    draw_toggle_btn(sbl.highlight_btn, L"\uE7E6", icon_fmt, sb.highlight_enabled, sb.hovered == SearchBarHitZone::Highlight);
+    draw_icon_btn(sbl.close_btn, L"\uE8BB", sb.hovered == SearchBarHitZone::Close);
+}
+} // namespace
+
+void EmitSearchBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextFormat* icon_fmt, IDWriteTextFormat* count_fmt,
+                   const PaneRect& md_pane_rect, const SearchBarRenderState& sb, const SearchInputText& input)
+{
+    const auto sbl = ComputeSearchBarLayout(md_pane_rect, !sb.query.empty());
+
+    const D2D1_RECT_F bar_rect = D2D1::RectF(
+        md_pane_rect.x,
+        sbl.bar_top,
+        md_pane_rect.x + md_pane_rect.width,
+        sbl.bar_bottom);
+    out.push_back(FillRectCmd{ .rect = bar_rect, .brush_id = BrushId::SearchBarBg });
+    out.push_back(DrawLineCmd{
+        .p0 = D2D1::Point2F(bar_rect.left, sbl.bar_top), .p1 = D2D1::Point2F(bar_rect.right, sbl.bar_top), .stroke_width = 1.0f, .brush_id = BrushId::SearchBarBorder });
+
+    text_layouts.EmitCentered(out, L"\uE721", icon_fmt, sbl.icon_rect, BrushId::SearchInputText, 0.6f);
+
+    const bool no_match = !sb.query.empty() && sb.total_matches == 0;
+    out.push_back(FillRoundedRectCmd{
+        .rect = sbl.input_rect, .rx = SEARCH_BAR_CORNER, .ry = SEARCH_BAR_CORNER, .brush_id = no_match ? BrushId::SearchNoMatchBg : BrushId::SearchInputBg });
+    // 表示中は入力欄が常にフォーカスを持つので、フォーカス枠で描く。
+    out.push_back(DrawRoundedRectCmd{ .rect = sbl.input_rect, .rx = SEARCH_BAR_CORNER, .ry = SEARCH_BAR_CORNER, .stroke_width = 1.5f, .brush_id = BrushId::Link });
+
+    const float text_left = sbl.text_left();
+    if (input.layout) {
+        // 文字を隠さないよう、選択範囲はテキストより先に塗る。
+        if (input.selection_width > 0.0f) {
+            const float sel_left = text_left + input.selection_x;
+            out.push_back(FillRectCmd{
+                .rect = D2D1::RectF(sel_left, sbl.input_rect.top + 2.0f, sel_left + input.selection_width, sbl.input_rect.bottom - 2.0f),
+                .brush_id = BrushId::Selection,
+            });
+        }
+        // IME の合成範囲の下線は executor (VisibleRunRenderer::DrawUnderline) が同じブラシで描く。
+        out.push_back(DrawTextLayoutCmd{
+            .origin = D2D1::Point2F(text_left, sbl.input_rect.top),
+            .layout = input.layout,
+            .brush_id = BrushId::SearchInputText,
+        });
+    }
+
+    // コンポジション中はIME側がキャレットを表示するため非表示
+    if (sb.caret_visible && sb.ime_composition.empty()) {
+        const float x = std::min(text_left + input.caret_x + 1.0f, sbl.text_right());
+        out.push_back(DrawLineCmd{
+            .p0 = D2D1::Point2F(x, sbl.input_rect.top + 3.0f),
+            .p1 = D2D1::Point2F(x, sbl.input_rect.bottom - 3.0f),
+            .stroke_width = 1.0f,
+            .brush_id = BrushId::SearchInputText,
+        });
+    }
+
+    EmitSearchBarButtons(out, text_layouts, icon_fmt, count_fmt, sbl, sb);
 }
 
 } // namespace overlay

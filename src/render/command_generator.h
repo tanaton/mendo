@@ -11,6 +11,7 @@
 #include "search_state.h"
 #include "text_layout_cache.h"
 #include <memory_resource>
+#include <optional>
 #include <span>
 #include <string_view>
 
@@ -32,8 +33,23 @@ struct MdPaneFormats {
     Microsoft::WRL::ComPtr<IDWriteTextFormat> placeholder_text;
 };
 
+// ペインの縦スクロールバーのつまみ。出さないときは nullopt。サイドペインと本文で使う。
+// ドラッグ処理 (ScrollFromThumbY) と同じ計算を共有し、見た目と挙動のズレを防ぐ。
+std::optional<FillRoundedRectCmd> VScrollThumb(const PaneRect& pane, float header_height, float scroll_y, float total_content_height,
+                                               bool may_grow = false) noexcept;
+
 // 本文ペインに重ねるもの (変換は恒等、クリップ無しで描く)。文字列は text_layouts に作り置き、fmt が null なら描かない。
 namespace overlay {
+// 検索欄の文字列。作るのも位置を測るのも DirectWrite が要るので Renderer が用意する。x は文字列の左端から測る。
+struct SearchInputText {
+    IDWriteTextLayout* layout = nullptr; // null なら文字列も選択範囲も描かない
+    float caret_x = 0.0f;
+    float selection_x = 0.0f;
+    float selection_width = 0.0f; // 0 なら選択なし
+};
+// 検索バー。ペインの下端に置く。
+void EmitSearchBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextFormat* icon_fmt, IDWriteTextFormat* count_fmt,
+                   const PaneRect& md_pane_rect, const SearchBarRenderState& sb, const SearchInputText& input);
 // 読み込み中のスピナー。ペインの中央に点を回して並べ、後ろの点ほど薄くする。
 void EmitLoadingSpinner(DrawCommandList& out, float angle, const PaneRect& md_pane_rect);
 // 戻る/進むのボタン。押せないボタンも薄く描く。
