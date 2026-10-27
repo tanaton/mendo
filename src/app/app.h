@@ -106,6 +106,8 @@ public:
     void OnMinimize();
     void OnMouseWheel(int px, int py, int delta, bool ctrl);
     void OnKeyDown(WPARAM key);
+    // 本体のアクションにしたキーは処理し、入力欄で処理させるキーはその行き先を返す。
+    SearchEditKey OnSearchEditKeyDown(WPARAM key);
     void OnDropFiles(HDROP hDrop);
 
     // is_double_click は WM_LBUTTONDBLCLK (連続クリックの 2 回目)。

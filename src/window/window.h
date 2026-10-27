@@ -46,7 +46,7 @@ private:
     bool RestoreWindowPlacement(int nCmdShow);
 
     static LRESULT CALLBACK SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
-    LRESULT OnSearchEditKeyDown(HWND edit, WPARAM wParam, LPARAM lParam);
+    LRESULT OnSearchEditKeyDown(HWND edit, UINT msg, WPARAM wParam, LPARAM lParam);
     void OnSearchEditChanged();
     bool EnsureSearchEdit();
     // EDIT は見えないので、置き場所は IME の変換窓の位置にしか効かない。

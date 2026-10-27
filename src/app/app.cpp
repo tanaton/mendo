@@ -30,6 +30,11 @@ bool IsEditableTextFile(std::wstring_view path)
     return path_util::IsMarkdownFile(path) || ascii_util::iequal(path_util::ExtensionView(path), L".txt");
 }
 
+KeyDownEvent CurrentKeyDownEvent(WPARAM key) noexcept
+{
+    return { static_cast<int>(key), IsKeyDown(VK_CONTROL), IsKeyDown(VK_SHIFT), IsKeyDown(VK_MENU) };
+}
+
 // ズームの対象。ペインの指定が無ければ本文 (スプリッタの上も本文)。
 ZoomLevel& ZoomOf(AppState& state, std::optional<PaneTarget> pane) noexcept
 {
@@ -381,13 +386,16 @@ void App::OnFileListed()
 
 void App::OnKeyDown(WPARAM key)
 {
-    const KeyDownEvent event{
-        static_cast<int>(key),
-        IsKeyDown(VK_CONTROL),
-        IsKeyDown(VK_SHIFT),
-        IsKeyDown(VK_MENU)
-    };
-    Dispatch(app_controller::HandleKeyDown(event));
+    Dispatch(app_controller::HandleKeyDown(CurrentKeyDownEvent(key)));
+}
+
+SearchEditKey App::OnSearchEditKeyDown(WPARAM key)
+{
+    const auto [target, action] = app_controller::HandleSearchEditKeyDown(CurrentKeyDownEvent(key));
+    if (target == SearchEditKey::App) {
+        Dispatch(action);
+    }
+    return target;
 }
 
 void App::Dispatch(const AppAction& action)

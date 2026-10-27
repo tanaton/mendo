@@ -18,6 +18,13 @@ struct KeyDownEvent {
     bool alt = false;
 };
 
+// 検索欄で押されたキーの行き先。
+enum class SearchEditKey : uint8_t {
+    Edit,      // 入力欄の既定の処理 (EDIT コントロール)
+    SelectAll, // 入力欄の中の全選択
+    App,       // 本体のアクション
+};
+
 enum class ScrollType : uint8_t {
     LineUp,
     LineDown,

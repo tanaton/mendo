@@ -89,6 +89,55 @@ AppAction HandleKeyDown(const KeyDownEvent& event)
 
 namespace {
 
+// 入力欄が編集に使うキー: キャレット移動・削除と、Ctrl を付けたコピー・貼り付け・切り取り・元に戻す。
+// 単行 EDIT の ↑↓ は ←→ と同じ動きしかしないので、本体のスクロールに回す。
+constexpr bool IsSearchEditOwnKey(const KeyDownEvent& event) noexcept
+{
+    if (event.alt) {
+        return false;
+    }
+    switch (event.key) {
+    case VK_LEFT:
+    case VK_RIGHT:
+    case VK_HOME:
+    case VK_END:
+    case VK_BACK:
+    case VK_DELETE:
+    case VK_INSERT:
+        return true;
+    case 'C':
+    case 'V':
+    case 'X':
+    case 'Z':
+    case 'Y':
+        return event.ctrl;
+    }
+    return false;
+}
+
+} // namespace
+
+SearchEditKeyResult HandleSearchEditKeyDown(const KeyDownEvent& event)
+{
+    if (!event.ctrl && !event.alt && event.key == VK_RETURN) {
+        return { SearchEditKey::App, event.shift ? AppAction{ SearchPrevAction{} } : AppAction{ SearchNextAction{} } };
+    }
+    if (event.ctrl && !event.alt && event.key == 'A') {
+        return { SearchEditKey::SelectAll };
+    }
+    if (IsSearchEditOwnKey(event)) {
+        return { SearchEditKey::Edit };
+    }
+    // Esc と Ctrl+F は、本体の割り当てでも検索欄が開いていれば閉じる。
+    AppAction action = HandleKeyDown(event);
+    if (std::holds_alternative<NoOpAction>(action)) {
+        return { SearchEditKey::Edit };
+    }
+    return { SearchEditKey::App, std::move(action) };
+}
+
+namespace {
+
 // button はペイン左上を原点とする矩形。
 constexpr bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_height, const D2D1_RECT_F& button)
 {
