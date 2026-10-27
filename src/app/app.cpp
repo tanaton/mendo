@@ -384,18 +384,23 @@ void App::OnFileListed()
     Invalidate();
 }
 
-void App::OnKeyDown(WPARAM key)
+bool App::OnKeyDown(WPARAM key)
 {
-    Dispatch(app_controller::HandleKeyDown(CurrentKeyDownEvent(key)));
+    return DispatchKeyAction(app_controller::HandleKeyDown(CurrentKeyDownEvent(key)));
 }
 
-SearchEditKey App::OnSearchEditKeyDown(WPARAM key)
+bool App::OnSearchEditKeyDown(WPARAM key)
 {
-    const auto [target, action] = app_controller::HandleSearchEditKeyDown(CurrentKeyDownEvent(key));
-    if (target == SearchEditKey::App) {
-        Dispatch(action);
+    return DispatchKeyAction(app_controller::HandleSearchEditKeyDown(CurrentKeyDownEvent(key)));
+}
+
+bool App::DispatchKeyAction(const AppAction& action)
+{
+    if (std::holds_alternative<NoOpAction>(action)) {
+        return false;
     }
-    return target;
+    Dispatch(action);
+    return true;
 }
 
 void App::Dispatch(const AppAction& action)

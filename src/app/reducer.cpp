@@ -1192,6 +1192,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action, NodeLayoutAccess
         [&](const CloseSearchBarAction&) { CloseSearchBar(state, effects); },
         [&](const SearchNextAction&) { ReduceSearchStep(state, effects, layout, true); },
         [&](const SearchPrevAction&) { ReduceSearchStep(state, effects, layout, false); },
+        [&](const SearchSelectAllAction&) { PushEffect(effects, effect::SearchFocus{}); },
         [&](const SearchTextChangedAction& a) { ReduceSearchTextChanged(state, effects, layout, a.text); },
         [&](const SearchContinueAction&) {
             if (state.search.search_state.IsSearching()) {

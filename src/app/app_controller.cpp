@@ -11,6 +11,44 @@
 
 namespace app_controller {
 
+namespace {
+
+AppAction SearchStep(bool shift) noexcept
+{
+    if (shift) {
+        return SearchPrevAction{};
+    }
+    return SearchNextAction{};
+}
+
+// 入力欄が編集に使うキー: キャレット移動・削除と、Ctrl を付けたコピー・貼り付け・切り取り・元に戻す。
+// 単行 EDIT の ↑↓ は ←→ と同じ動きしかしないので、本体のスクロールに回す。
+constexpr bool IsSearchEditOwnKey(const KeyDownEvent& event) noexcept
+{
+    if (event.alt) {
+        return false;
+    }
+    switch (event.key) {
+    case VK_LEFT:
+    case VK_RIGHT:
+    case VK_HOME:
+    case VK_END:
+    case VK_BACK:
+    case VK_DELETE:
+    case VK_INSERT:
+        return true;
+    case 'C':
+    case 'V':
+    case 'X':
+    case 'Z':
+    case 'Y':
+        return event.ctrl;
+    }
+    return false;
+}
+
+} // namespace
+
 AppAction HandleKeyDown(const KeyDownEvent& event)
 {
     if (event.alt && !event.ctrl) {
@@ -37,10 +75,7 @@ AppAction HandleKeyDown(const KeyDownEvent& event)
         case 'F':
             return OpenSearchBarAction{};
         case 'G':
-            if (event.shift) {
-                return SearchPrevAction{};
-            }
-            return SearchNextAction{};
+            return SearchStep(event.shift);
         case '1':
             return TogglePaneAction{ PaneTarget::File };
         case '2':
@@ -74,10 +109,7 @@ AppAction HandleKeyDown(const KeyDownEvent& event)
     case VK_F1:
         return ShowHelpAction{};
     case VK_F3:
-        if (event.shift) {
-            return SearchPrevAction{};
-        }
-        return SearchNextAction{};
+        return SearchStep(event.shift);
     case VK_F5:
         return ReloadFileAction{};
     case VK_ESCAPE:
@@ -87,53 +119,19 @@ AppAction HandleKeyDown(const KeyDownEvent& event)
     return NoOpAction{};
 }
 
-namespace {
-
-// 入力欄が編集に使うキー: キャレット移動・削除と、Ctrl を付けたコピー・貼り付け・切り取り・元に戻す。
-// 単行 EDIT の ↑↓ は ←→ と同じ動きしかしないので、本体のスクロールに回す。
-constexpr bool IsSearchEditOwnKey(const KeyDownEvent& event) noexcept
-{
-    if (event.alt) {
-        return false;
-    }
-    switch (event.key) {
-    case VK_LEFT:
-    case VK_RIGHT:
-    case VK_HOME:
-    case VK_END:
-    case VK_BACK:
-    case VK_DELETE:
-    case VK_INSERT:
-        return true;
-    case 'C':
-    case 'V':
-    case 'X':
-    case 'Z':
-    case 'Y':
-        return event.ctrl;
-    }
-    return false;
-}
-
-} // namespace
-
-SearchEditKeyResult HandleSearchEditKeyDown(const KeyDownEvent& event)
+AppAction HandleSearchEditKeyDown(const KeyDownEvent& event)
 {
     if (!event.ctrl && !event.alt && event.key == VK_RETURN) {
-        return { SearchEditKey::App, event.shift ? AppAction{ SearchPrevAction{} } : AppAction{ SearchNextAction{} } };
+        return SearchStep(event.shift);
     }
     if (event.ctrl && !event.alt && event.key == 'A') {
-        return { SearchEditKey::SelectAll };
+        return SearchSelectAllAction{};
     }
     if (IsSearchEditOwnKey(event)) {
-        return { SearchEditKey::Edit };
+        return NoOpAction{};
     }
     // Esc と Ctrl+F は、本体の割り当てでも検索欄が開いていれば閉じる。
-    AppAction action = HandleKeyDown(event);
-    if (std::holds_alternative<NoOpAction>(action)) {
-        return { SearchEditKey::Edit };
-    }
-    return { SearchEditKey::App, std::move(action) };
+    return HandleKeyDown(event);
 }
 
 namespace {

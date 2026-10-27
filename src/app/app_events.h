@@ -18,13 +18,6 @@ struct KeyDownEvent {
     bool alt = false;
 };
 
-// 検索欄で押されたキーの行き先。
-enum class SearchEditKey : uint8_t {
-    Edit,      // 入力欄の既定の処理 (EDIT コントロール)
-    SelectAll, // 入力欄の中の全選択
-    App,       // 本体のアクション
-};
-
 enum class ScrollType : uint8_t {
     LineUp,
     LineDown,
@@ -79,6 +72,8 @@ struct OpenSearchBarAction {};
 struct CloseSearchBarAction {};
 struct SearchNextAction {};
 struct SearchPrevAction {};
+// 検索の入力欄の中の全選択 (検索欄で Ctrl+A)。
+struct SearchSelectAllAction {};
 struct NoOpAction {};
 
 // マウス位置でのホバー強調の全体。ViewState::hover が持ち、描画はここから読む。
@@ -264,6 +259,7 @@ using AppAction = std::variant<
     CloseSearchBarAction,
     SearchNextAction,
     SearchPrevAction,
+    SearchSelectAllAction,
     PointerHoverAction,
     MouseLeaveAction,
     SplitterDragStartedAction,

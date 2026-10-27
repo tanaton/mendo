@@ -1059,6 +1059,15 @@ TEST_F(ReducerTest, LeftDragEnded_KeepsCaptureDuringGesture)
     EXPECT_FALSE(HasEffect<effect::ReleaseCapture>(effects));
 }
 
+TEST_F(ReducerTest, SearchSelectAll_FocusesWholeInput)
+{
+    const auto effects = Reduce(state, SearchSelectAllAction{});
+    const auto* focus = FindEffect<effect::SearchFocus>(effects);
+    ASSERT_NE(focus, nullptr);
+    EXPECT_EQ(focus->anchor, 0);
+    EXPECT_EQ(focus->caret, -1);
+}
+
 TEST_F(ReducerTest, SearchInputDragMoved_DraggingAndChanged_EmitsSearchFocus)
 {
     state.view.drag = { .kind = LeftDrag::SearchInput, .search_anchor = 3 };

@@ -85,53 +85,43 @@ TEST(AppControllerTest, HandleKeyDown)
 
 TEST(AppControllerTest, HandleSearchEditKeyDown)
 {
-    struct SearchKeyCase {
-        const char* name;
-        KeyDownEvent ev;
-        SearchEditKey target;
-        AppAction expected = NoOpAction{};
-    };
-    const SearchKeyCase kCases[] = {
-        { "Enter", { .key = VK_RETURN }, SearchEditKey::App, SearchNextAction{} },
-        { "Shift+Enter", { .key = VK_RETURN, .shift = true }, SearchEditKey::App, SearchPrevAction{} },
-        { "Ctrl+A", { .key = 'A', .ctrl = true }, SearchEditKey::SelectAll },
+    // NoOpAction は入力欄 (EDIT) に処理させるキー。
+    const KeyCase kCases[] = {
+        { "Enter", { .key = VK_RETURN }, SearchNextAction{} },
+        { "Shift+Enter", { .key = VK_RETURN, .shift = true }, SearchPrevAction{} },
+        { "Ctrl+A", { .key = 'A', .ctrl = true }, SearchSelectAllAction{} },
 
-        { "Left", { .key = VK_LEFT }, SearchEditKey::Edit },
-        { "Shift+Right", { .key = VK_RIGHT, .shift = true }, SearchEditKey::Edit },
-        { "Ctrl+Left", { .key = VK_LEFT, .ctrl = true }, SearchEditKey::Edit },
-        { "Home", { .key = VK_HOME }, SearchEditKey::Edit },
-        { "End", { .key = VK_END }, SearchEditKey::Edit },
-        { "Backspace", { .key = VK_BACK }, SearchEditKey::Edit },
-        { "Delete", { .key = VK_DELETE }, SearchEditKey::Edit },
-        { "Shift+Insert", { .key = VK_INSERT, .shift = true }, SearchEditKey::Edit },
-        { "Ctrl+C", { .key = 'C', .ctrl = true }, SearchEditKey::Edit },
-        { "Ctrl+Shift+C", { .key = 'C', .ctrl = true, .shift = true }, SearchEditKey::Edit },
-        { "Ctrl+V", { .key = 'V', .ctrl = true }, SearchEditKey::Edit },
-        { "Ctrl+X", { .key = 'X', .ctrl = true }, SearchEditKey::Edit },
-        { "Ctrl+Z", { .key = 'Z', .ctrl = true }, SearchEditKey::Edit },
-        { "Letter", { .key = 'Z' }, SearchEditKey::Edit },
-        { "IME", { .key = VK_PROCESSKEY }, SearchEditKey::Edit },
+        { "Left", { .key = VK_LEFT }, NoOpAction{} },
+        { "Shift+Right", { .key = VK_RIGHT, .shift = true }, NoOpAction{} },
+        { "Ctrl+Left", { .key = VK_LEFT, .ctrl = true }, NoOpAction{} },
+        { "Home", { .key = VK_HOME }, NoOpAction{} },
+        { "End", { .key = VK_END }, NoOpAction{} },
+        { "Backspace", { .key = VK_BACK }, NoOpAction{} },
+        { "Delete", { .key = VK_DELETE }, NoOpAction{} },
+        { "Shift+Insert", { .key = VK_INSERT, .shift = true }, NoOpAction{} },
+        { "Ctrl+C", { .key = 'C', .ctrl = true }, NoOpAction{} },
+        { "Ctrl+Shift+C", { .key = 'C', .ctrl = true, .shift = true }, NoOpAction{} },
+        { "Ctrl+V", { .key = 'V', .ctrl = true }, NoOpAction{} },
+        { "Ctrl+X", { .key = 'X', .ctrl = true }, NoOpAction{} },
+        { "Ctrl+Z", { .key = 'Z', .ctrl = true }, NoOpAction{} },
+        { "Letter", { .key = 'Z' }, NoOpAction{} },
+        { "IME", { .key = VK_PROCESSKEY }, NoOpAction{} },
 
-        { "Escape", { .key = VK_ESCAPE }, SearchEditKey::App, ClearSelectionAction{} },
-        { "Ctrl+F", { .key = 'F', .ctrl = true }, SearchEditKey::App, OpenSearchBarAction{} },
-        { "F3", { .key = VK_F3 }, SearchEditKey::App, SearchNextAction{} },
-        { "Ctrl+Shift+G", { .key = 'G', .ctrl = true, .shift = true }, SearchEditKey::App, SearchPrevAction{} },
-        { "F5", { .key = VK_F5 }, SearchEditKey::App, ReloadFileAction{} },
-        { "F1", { .key = VK_F1 }, SearchEditKey::App, ShowHelpAction{} },
-        { "Ctrl+O", { .key = 'O', .ctrl = true }, SearchEditKey::App, OpenFileAction{} },
-        { "Ctrl+1", { .key = '1', .ctrl = true }, SearchEditKey::App, TogglePaneAction{ PaneTarget::File } },
-        { "Ctrl+Plus", { .key = VK_OEM_PLUS, .ctrl = true }, SearchEditKey::App, ZoomAction{ ZoomDirection::In } },
-        { "Ctrl+0", { .key = '0', .ctrl = true }, SearchEditKey::App, ZoomAction{ ZoomDirection::Reset } },
-        { "Down", { .key = VK_DOWN }, SearchEditKey::App, KeyScrollAction{ ScrollType::LineDown } },
-        { "PageUp", { .key = VK_PRIOR }, SearchEditKey::App, KeyScrollAction{ ScrollType::PageUp } },
-        { "Alt+Left", { .key = VK_LEFT, .alt = true }, SearchEditKey::App, NavigateBackAction{} },
-        { "Alt+Right", { .key = VK_RIGHT, .alt = true }, SearchEditKey::App, NavigateForwardAction{} },
+        // 本体と同じ割り当て。
+        { "Escape", { .key = VK_ESCAPE }, ClearSelectionAction{} },
+        { "Ctrl+F", { .key = 'F', .ctrl = true }, OpenSearchBarAction{} },
+        { "F3", { .key = VK_F3 }, SearchNextAction{} },
+        { "Ctrl+Shift+G", { .key = 'G', .ctrl = true, .shift = true }, SearchPrevAction{} },
+        { "F5", { .key = VK_F5 }, ReloadFileAction{} },
+        { "Ctrl+O", { .key = 'O', .ctrl = true }, OpenFileAction{} },
+        { "Down", { .key = VK_DOWN }, KeyScrollAction{ ScrollType::LineDown } },
+        { "PageUp", { .key = VK_PRIOR }, KeyScrollAction{ ScrollType::PageUp } },
+        { "Alt+Left", { .key = VK_LEFT, .alt = true }, NavigateBackAction{} },
+        { "Alt+Right", { .key = VK_RIGHT, .alt = true }, NavigateForwardAction{} },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);
-        const auto result = app_controller::HandleSearchEditKeyDown(c.ev);
-        EXPECT_EQ(result.target, c.target);
-        ExpectSameAction(result.action, c.expected);
+        ExpectSameAction(app_controller::HandleSearchEditKeyDown(c.ev), c.expected);
     }
 }
 

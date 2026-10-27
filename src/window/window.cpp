@@ -583,9 +583,8 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_SYSKEYDOWN:
-        // Alt+←/→ は WM_KEYDOWN ではなくこちらで届く。他は Alt+F4 等のシステム処理に回す。
-        if (wParam == VK_LEFT || wParam == VK_RIGHT) {
-            app_->OnKeyDown(wParam);
+        // Alt+←/→ は WM_KEYDOWN ではなくこちらで届く。割り当ての無いキーは Alt+F4 等のシステム処理に回す。
+        if (app_->OnKeyDown(wParam)) {
             return 0;
         }
         return DefWindowProcW(hwnd_, msg, wParam, lParam);
@@ -819,18 +818,11 @@ LRESULT CALLBACK Win32Window::SearchEditProc(HWND hwnd, UINT msg, WPARAM wParam,
 
 LRESULT Win32Window::OnSearchEditKeyDown(HWND edit, UINT msg, WPARAM wParam, LPARAM lParam)
 {
-    LRESULT result = 0;
-    switch (app_->OnSearchEditKeyDown(wParam)) {
-    case SearchEditKey::App:
-        // 検索欄を閉じたときのフォーカスは、閉じる副作用 (UnfocusSearch) が本体へ戻す。
+    // 検索欄を閉じたときのフォーカスは、閉じる副作用 (UnfocusSearch) が本体へ戻す。
+    if (app_->OnSearchEditKeyDown(wParam)) {
         return 0;
-    case SearchEditKey::SelectAll:
-        SendMessageW(edit, EM_SETSEL, 0, -1);
-        break;
-    case SearchEditKey::Edit:
-        result = DefSubclassProc(edit, msg, wParam, lParam);
-        break;
     }
+    const LRESULT result = DefSubclassProc(edit, msg, wParam, lParam);
     // キャレットは D2D 側で描くので、EDIT が動かしたキャレット位置を描画用の状態へ写す。
     SyncSearchCaretFromEdit();
     return result;
