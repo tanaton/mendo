@@ -33,13 +33,16 @@ public:
 
     struct CachedImage {
         Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-        float width = 0.0f;
-        float height = 0.0f;
+        // 縮小前の原寸 (物理 px)。表示の DIP は DPI で変わるので DipSize で求める。
+        float pixel_width = 0.0f;
+        float pixel_height = 0.0f;
         // この幅 (物理 px) までは縮小によるぼけ無しで描ける。原寸でデコードしていれば上限なし。
         UINT sharp_width_px = UINT_MAX;
     };
     // ヒットしたら LRU を更新する。次の挿入・Clear まで有効。
     const CachedImage* FindCachedImage(const std::wstring& abs_path);
+    // 今の DPI での表示寸法 (画像の 1 px を物理 1 px で描く)。
+    D2D1_SIZE_F DipSize(const CachedImage& image) const noexcept;
     // max_width_dip: 表示幅。これを量子化した物理 px まで縮小してデコードする。0 は原寸。
     void RequestLoadAsync(const std::wstring& abs_path, float max_width_dip);
     // 表示幅が広がり、キャッシュの解像度では足りなくなったか。
@@ -78,10 +81,10 @@ public:
     void Shutdown();
 
 #ifdef MENDO_TESTING
-    // bitmap を持たない寸法だけの項目を入れる。キャッシュ動作のテスト専用。
-    void InsertCacheEntryForTest(const std::wstring& path, float width, float height)
+    // 寸法 (と任意の bitmap) だけの項目を入れる。キャッシュ動作のテスト専用。
+    void InsertCacheEntryForTest(const std::wstring& path, float pixel_width, float pixel_height, ID2D1Bitmap* bitmap = nullptr)
     {
-        cache_.Insert(path, CachedImage{ .width = width, .height = height });
+        cache_.Insert(path, CachedImage{ .bitmap = bitmap, .pixel_width = pixel_width, .pixel_height = pixel_height });
     }
 #endif
 
@@ -100,7 +103,6 @@ private:
     UINT DecodeWidthPx(float width_dip) const noexcept;
     // worker で呼ぶ。失敗時は result.bitmap を null のまま残す。
     void DecodeForDisplay(const std::wstring& path, UINT max_width_px, DecodeResult& result) const;
-    // 物理 px を DIP に換算してキャッシュする。
     void CacheBitmap(const std::wstring& path, Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap, float pixel_width, float pixel_height, UINT sharp_width_px);
 
     static constexpr size_t MAX_CACHE_ENTRIES = 128;

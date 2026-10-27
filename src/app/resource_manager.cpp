@@ -247,11 +247,13 @@ void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t
         }
 
         // DiagramEntry はキャッシュに当たった画像だけ確保する。寸法は再計測 (幅変更・ズーム) でも使う。
-        if (!d || !d->bitmap || d->bitmap != cached->bitmap) {
+        // DPI が変わると同じビットマップでも DIP の寸法が変わるので、寸法も比べる。
+        const auto size = deps_.image_loader->DipSize(*cached);
+        if (!d || !d->bitmap || d->bitmap != cached->bitmap || d->width != size.width || d->height != size.height) {
             auto& diagram = deps_.cache->EnsureDiagram(i);
             diagram.bitmap = cached->bitmap;
-            diagram.width = cached->width;
-            diagram.height = cached->height;
+            diagram.width = size.width;
+            diagram.height = size.height;
 
             ApplyBitmapHeight(i, diagram, max_width);
         }

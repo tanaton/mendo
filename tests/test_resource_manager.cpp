@@ -291,6 +291,30 @@ TEST_F(ResourceManagerTest, LoadImagesPassesChangedNodeRangeToRecompute)
     EXPECT_EQ(tracker_.last_change.last, img_idx);
 }
 
+// DPI が変わると同じビットマップでも DIP の寸法が変わる。前の DPI で決めた寸法のまま残さない。
+TEST_F(ResourceManagerTest, LoadImagesUpdatesSizeOfSameBitmap)
+{
+    static StubD2D1Bitmap bitmap;
+    LoadMarkdown("![a](one.png)\n");
+    image_loader_.InsertCacheEntryForTest(L"C:\\dir\\one.png", 400.0f, 300.0f, &bitmap);
+    const size_t img_idx = doc_.GetImageNodeIndices()[0];
+    rm_.LoadImages();
+    auto* diagram = cache_.FindDiagram(img_idx);
+    ASSERT_NE(diagram, nullptr);
+    ASSERT_EQ(diagram->bitmap.Get(), &bitmap);
+
+    // 200% のときに入れた寸法。
+    diagram->width = 200.0f;
+    diagram->height = 150.0f;
+    rm_.LoadImages();
+    EXPECT_FLOAT_EQ(diagram->width, 400.0f);
+    EXPECT_FLOAT_EQ(cache_[img_idx].height, 300.0f);
+    EXPECT_EQ(tracker_.recompute_layout, 2);
+
+    rm_.LoadImages();
+    EXPECT_EQ(tracker_.recompute_layout, 2) << "寸法が同じなら適用し直さない";
+}
+
 TEST_F(ResourceManagerTest, ApplyCachedImagesAllForReloadKeepsHeightWhenWithinContentWidth)
 {
     LoadMarkdown("![alt](small.png)\n");

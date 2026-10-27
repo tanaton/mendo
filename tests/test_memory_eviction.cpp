@@ -15,8 +15,9 @@ bool GetCachedImage(ImageLoader& loader, const std::wstring& path, DiagramEntry&
         return false;
     }
     out.bitmap = cached->bitmap;
-    out.width = cached->width;
-    out.height = cached->height;
+    const auto size = loader.DipSize(*cached);
+    out.width = size.width;
+    out.height = size.height;
     return true;
 }
 

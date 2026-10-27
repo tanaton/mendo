@@ -29,8 +29,9 @@ bool GetCachedImage(ImageLoader& loader, const std::wstring& path, DiagramEntry&
         return false;
     }
     out.bitmap = cached->bitmap;
-    out.width = cached->width;
-    out.height = cached->height;
+    const auto size = loader.DipSize(*cached);
+    out.width = size.width;
+    out.height = size.height;
     return true;
 }
 
@@ -1309,8 +1310,8 @@ TEST_F(ImageLoaderAsyncTest, DecodesUpToQuantizedDisplayWidth)
     ASSERT_TRUE(cached->bitmap);
     EXPECT_EQ(cached->bitmap->GetPixelSize().width, 512u);
     // レイアウトは原寸基準のまま。
-    EXPECT_FLOAT_EQ(cached->width, 1000.0f);
-    EXPECT_FLOAT_EQ(cached->height, 500.0f);
+    EXPECT_FLOAT_EQ(cached->pixel_width, 1000.0f);
+    EXPECT_FLOAT_EQ(cached->pixel_height, 500.0f);
     EXPECT_EQ(cached->sharp_width_px, 512u);
     EXPECT_FALSE(loader_.NeedsSharperDecode(*cached, 500.0f));
     EXPECT_TRUE(loader_.NeedsSharperDecode(*cached, 600.0f));
