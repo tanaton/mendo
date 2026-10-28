@@ -287,6 +287,8 @@ private:
     void OnInlineMathRendered(InlineMathBatchResult result);
     // 描いた数式の型と寸法を捨てる。全レイアウトを組み直すとき (ズーム・別の文書) に呼ぶ。
     void ForgetInlineMath();
+    // 文書か文字の大きさが変わったら作り直す。
+    void RebuildInlineMathPlan();
     void SettleViewport();
     void OnDeferredLayout();
     // 捨てたテキストレイアウトが多ければワーカーで解放する。
@@ -370,6 +372,9 @@ private:
     ClipboardManager clipboard_manager_; // mermaid_renderer_ より先に宣言する（~MermaidRenderer の CancelPending が in-flight コールバック経由で clipboard_manager_ に触るため、後に破棄させる）
     // インライン数式の寸法表。計測ワーカーが引き、描画の結果を OnInlineMathRendered で書く。
     InlineMathTable inline_math_;
+    // 文書の数式の組。組ごとに描いてディスクキャッシュに置く。
+    InlineMathPlan inline_math_plan_;
+    std::vector<uint8_t> inline_math_chunk_requested_;
     MermaidRenderer mermaid_renderer_;
     ImageLoader image_loader_;
     FileWatcher file_watcher_;

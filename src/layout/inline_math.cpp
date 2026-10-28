@@ -1,13 +1,96 @@
 #include "inline_math.h"
+#include "document_types.h"
+#include "theme.h"
 #include "utility.h"
 #include <atomic>
 #include <cmath>
+#include <unordered_set>
 
 uint64_t InlineMathKey(std::string_view tex, float font_size) noexcept
 {
     // 1/8 DIP 単位に丸め、浮動小数の誤差で同じ大きさが別のキーにならないようにする。
     const auto size_term = static_cast<uint64_t>(std::lround(font_size * 8.0f));
     return Fnv1a64(tex) ^ (size_term * 0x9E3779B97F4A7C15ULL);
+}
+
+void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
+{
+    // 平均してこの数ごとに区切る。上限 (kMaxInlineMathPerChunk) で区切ると、数式の増減でその後ろの区切りも
+    // 次にキーで区切るまでずれるので、上限に届くことが少ないよう (約 4%) 平均を上限の 1/3 ほどにする。
+    constexpr uint64_t kAverageChunk = 64;
+    // 描き方を変えたら値も変え、ディスクキャッシュに残った古い描き方のページを引かせない。
+    constexpr uint64_t kChunkKeySalt = 0x3C6EF372FE94F82BULL;
+
+    chunks_.clear();
+    chunk_of_.clear();
+    std::unordered_set<uint64_t> seen;
+    InlineMathChunk current;
+    const auto close = [&] {
+        if (current.items.empty()) {
+            return;
+        }
+        uint64_t key = kChunkKeySalt;
+        for (const auto& item : current.items) {
+            key = (key ^ item.key) * kFnv1a64Prime;
+        }
+        current.key = key;
+        chunks_.push_back(std::move(current));
+        current = {};
+    };
+    const auto add_runs = [&](std::string_view text, std::span<const TextRun> runs, float font_size) {
+        for (const auto& r : runs) {
+            if (!r.math() || r.length < 2) {
+                continue;
+            }
+            const std::string_view tex = text.substr(r.start + 1, r.length - 2);
+            const uint64_t key = InlineMathKey(tex, font_size);
+            if (!seen.insert(key).second) {
+                continue;
+            }
+            chunk_of_.emplace(key, static_cast<uint32_t>(chunks_.size()));
+            current.items.push_back({ key, std::string{ tex }, font_size });
+            // 前後の数式に依らず区切るので、数式を足しても消しても区切りはその数式の前後でしか変わらない。
+            // FNV-1a は似た短い TeX ("1101x" と "1102x" など) で偏るので、かき混ぜてから決める (splitmix64 の仕上げ)。
+            uint64_t mixed = key;
+            mixed = (mixed ^ (mixed >> 30)) * 0xBF58476D1CE4E5B9ULL;
+            mixed = (mixed ^ (mixed >> 27)) * 0x94D049BB133111EBULL;
+            mixed ^= mixed >> 31;
+            if (mixed % kAverageChunk == 0 || current.items.size() >= kMaxInlineMathPerChunk) {
+                close();
+            }
+        }
+    };
+    for (const auto& node : nodes) {
+        if (const auto* tbl = node.table_data()) {
+            for (size_t r = 0; r < tbl->row_count; ++r) {
+                const float size = tbl->IsHeaderRow(r) ? theme.font_size_h[3] : theme.font_size_body;
+                for (size_t c = 0; c < tbl->col_count; ++c) {
+                    add_runs(tbl->GetCellText(r, c), tbl->GetCellRuns(r, c), size);
+                }
+            }
+            continue;
+        }
+        const bool heading = node.type == NodeType::Heading && node.heading_level >= 1 && node.heading_level <= 6;
+        add_runs(node.GetText(), node.runs(), heading ? theme.font_size_h[node.heading_level - 1] : theme.font_size_body);
+    }
+    close();
+}
+
+std::optional<size_t> InlineMathPlan::ChunkOf(uint64_t key) const noexcept
+{
+    const auto it = chunk_of_.find(key);
+    return it != chunk_of_.end() ? std::optional<size_t>{ it->second } : std::nullopt;
+}
+
+void InlineMathTable::MarkRequested(std::span<const InlineMathItem> items)
+{
+    const std::lock_guard lock(mutex_);
+    for (const auto& item : items) {
+        if (const auto [it, inserted] = entries_.try_emplace(item.key); inserted) {
+            it->second.tex = item.tex;
+            it->second.font_size = item.font_size;
+        }
+    }
 }
 
 void InlineMathTable::SetWake(std::move_only_function<void()> wake)

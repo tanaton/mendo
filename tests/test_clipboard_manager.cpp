@@ -26,7 +26,7 @@ public:
         last_callback = std::move(cb);
     }
 
-    void RequestMathBatch(std::vector<InlineMathItem>, MathBatchCallback cb) override
+    void RequestMathBatch(std::vector<InlineMathItem>, uint64_t, MathBatchCallback cb) override
     {
         cb(InlineMathBatchResult{ .cancelled = true });
     }

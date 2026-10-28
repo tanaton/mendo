@@ -1,5 +1,6 @@
 #pragma once
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -97,6 +98,12 @@ struct MathBatchLayout {
 // MathResult の payload ("<w>:<h>:<dpr>|<x>,<y>,<w>,<h>,<baseline>;..."、描けなかった数式は "e")。
 // 数が expected と違うか、ページの外を指す箱があれば nullopt。
 std::optional<MathBatchLayout> ParseMathBatch(std::wstring_view payload, size_t expected);
+
+// まとめ描きのページはディスクキャッシュに図と同じく PNG 1 枚で置き、箱の一覧は PNG の独自チャンク (mdMB) に埋める。
+// PNG でなければ空を返す。
+std::vector<uint8_t> AppendMathBoxesChunk(std::span<const uint8_t> png, const MathBatchLayout& layout);
+// チャンクが無い・壊れている・数が expected と違う・ページの外を指す箱があれば nullopt。
+std::optional<MathBatchLayout> ReadMathBoxesChunk(std::span<const uint8_t> png, size_t expected);
 
 // FindResourceW は "#123" を数値 ID と読むので、# で始まる名前で引かせない。
 constexpr bool IsModulePath(std::wstring_view path) noexcept

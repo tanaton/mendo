@@ -45,7 +45,7 @@ public:
 
     bool RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode) override;
     void RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback) override;
-    void RequestMathBatch(std::vector<InlineMathItem> items, MathBatchCallback callback) override;
+    void RequestMathBatch(std::vector<InlineMathItem> items, uint64_t cache_key, MathBatchCallback callback) override;
     void SetRenderTarget(ID2D1RenderTarget* render_target);
     // ワーカーは画面外に置くため、PNG は本体ウィンドウではなくその位置のモニタの DPR で描かれる。
     // ワーカーを起動する前にディスクキャッシュを引くときの DPR に使う。
@@ -98,9 +98,12 @@ private:
         // キャッシュに入れず、結果は math_callback で返す。
         std::vector<InlineMathItem> math_items;
         MathBatchCallback math_callback;
-        // ページの中の各数式の箱。描画結果 (math-result) で受け取り、キャプチャの切り出しに使う。
+        // 0 ならディスクキャッシュに置かない。
+        uint64_t math_cache_key = 0;
+        // ページの大きさと各数式の箱。描画結果 (math-result) かディスクキャッシュの PNG のチャンクから受け取り、
+        // キャプチャの切り出しに使う。
+        mermaid_util::RenderSize math_page;
         std::vector<mermaid_util::MathBox> math_boxes;
-        float math_dpr = 1.0f;
 
         bool is_math() const noexcept
         {
@@ -189,9 +192,12 @@ private:
     void OnMathResult(int worker_idx, std::wstring_view payload);
     // ビューのリサイズが描画に反映されたら capture-ready を返させる。
     void ScheduleCapture(Worker& w);
-    // worker で呼ぶ。キャプチャの PNG からアルファだけを取り出す。
+    // worker で呼ぶ。キャプチャかディスクキャッシュの PNG からアルファだけを取り出す。ディスクキャッシュなら箱の一覧も読み、
+    // キャプチャならディスクキャッシュに置く PNG に箱の一覧を埋める。
     void LoadMathJob(DiskLoad& job);
     void ApplyMathLoad(DiskLoad& r);
+    // WebView2 で描く待ちに積む。図と違い、準備前でも捨てない (準備完了の通知で頼み直す仕組みが無い)。
+    void EnqueueMath(RenderRequest req);
     // 表示用リクエストのエラーを kind で確定させる (issue #271)。msg は Render のときの Mermaid の文言で、空なら汎用の文言を出す。
     void SetDiagramError(const RenderRequest& req, DiagramError::Kind kind, std::wstring_view msg = {});
     static void ApplyResult(DiagramEntry& diagram_entry, const CachedResult& result);

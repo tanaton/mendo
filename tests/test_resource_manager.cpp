@@ -124,7 +124,7 @@ public:
         }
     }
 
-    void RequestMathBatch(std::vector<InlineMathItem> /*items*/, MathBatchCallback callback) override
+    void RequestMathBatch(std::vector<InlineMathItem> /*items*/, uint64_t /*cache_key*/, MathBatchCallback callback) override
     {
         callback(InlineMathBatchResult{ .cancelled = true });
     }

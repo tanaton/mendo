@@ -3,6 +3,12 @@
 #include "inline_math.h"
 #include "syntax.h"
 #include <algorithm>
+#include <format>
+#include <iterator>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
 
 class DWriteMeasurerTest : public DWriteTestBase {};
 
@@ -175,6 +181,92 @@ TEST(InlineMathTable, RequestsOnceAndWakesWhenQueueStarts)
     EXPECT_FLOAT_EQ(found->width, 10.0f);
     table.Forget(1);
     EXPECT_TRUE(table.FindOrRequest(1, "a", 16.0f)) << "描けた数式は Forget で消さない";
+}
+
+namespace {
+
+std::vector<uint64_t> ChunkKeys(const InlineMathPlan& plan)
+{
+    std::vector<uint64_t> keys;
+    for (const auto& c : plan.Chunks()) {
+        keys.push_back(c.key);
+    }
+    return keys;
+}
+
+} // namespace
+
+// 文書の順に重複を除いて並べ、文字の大きさは計測と同じ規則で決める。同じ文書なら毎回同じ組になる。
+TEST(InlineMathPlan, OrdersDedupesAndUsesLayoutFontSizes)
+{
+    const Theme theme = GetLightTheme();
+    const auto nodes = ParseNodes("# $h$\n\n$a$ $b$ $a$\n\n| $t$ |\n|---|\n| $c$ |\n");
+    InlineMathPlan plan;
+    plan.Build(nodes, theme);
+    std::vector<std::pair<std::string, float>> items;
+    for (const auto& c : plan.Chunks()) {
+        for (const auto& item : c.items) {
+            items.emplace_back(item.tex, item.font_size);
+            EXPECT_EQ(item.key, InlineMathKey(item.tex, item.font_size));
+            EXPECT_EQ(plan.ChunkOf(item.key), std::optional<size_t>{ static_cast<size_t>(&c - plan.Chunks().data()) });
+        }
+    }
+    const std::vector<std::pair<std::string, float>> expected{
+        { "h", theme.font_size_h[0] }, { "a", theme.font_size_body }, { "b", theme.font_size_body },
+        { "t", theme.font_size_h[3] }, { "c", theme.font_size_body },
+    };
+    EXPECT_EQ(items, expected);
+    EXPECT_FALSE(plan.ChunkOf(InlineMathKey("zzz", theme.font_size_body)));
+
+    InlineMathPlan again;
+    again.Build(nodes, theme);
+    EXPECT_EQ(ChunkKeys(again), ChunkKeys(plan));
+}
+
+// 数式を 1 つ足しても、変わる組はその前後だけで、残りの組はディスクキャッシュに当たり続ける。組は上限を超えない。
+TEST(InlineMathPlan, InsertingFormulaChangesOnlyNearbyChunks)
+{
+    const Theme theme = GetLightTheme();
+    std::string before;
+    std::string after;
+    for (int i = 0; i < 3000; ++i) {
+        const auto formula = std::format("${}x$ ", i);
+        before += formula;
+        after += formula;
+        if (i == 1500) {
+            after += "$inserted$ ";
+        }
+    }
+    InlineMathPlan a;
+    InlineMathPlan b;
+    a.Build(ParseNodes(before), theme);
+    b.Build(ParseNodes(after), theme);
+    ASSERT_GT(a.Chunks().size(), 10u);
+    for (const auto& c : b.Chunks()) {
+        EXPECT_LE(c.items.size(), kMaxInlineMathPerChunk);
+    }
+    auto ka = ChunkKeys(a);
+    auto kb = ChunkKeys(b);
+    std::ranges::sort(ka);
+    std::ranges::sort(kb);
+    std::vector<uint64_t> changed;
+    std::ranges::set_symmetric_difference(ka, kb, std::back_inserter(changed));
+    EXPECT_LE(changed.size(), 4u);
+}
+
+// 組ごと描くとき、まだ測っていない数式も頼んだことにして、計測から二重に頼ませない。描けた数式は上書きしない。
+TEST(InlineMathTable, MarkRequestedSuppressesRequestsFromMeasuring)
+{
+    InlineMathTable table;
+    table.FindOrRequest(1, "a", 16.0f);
+    table.Resolve(1, { 10.0f, 5.0f, 4.0f });
+    table.TakeRequests();
+    const InlineMathItem items[]{ { 1, "a", 16.0f }, { 2, "b", 16.0f } };
+    table.MarkRequested(items);
+    EXPECT_TRUE(table.FindOrRequest(1, "a", 16.0f));
+    EXPECT_FALSE(table.FindOrRequest(2, "b", 16.0f));
+    EXPECT_TRUE(table.TakeRequests().empty());
+    EXPECT_TRUE(table.Resolve(2, { 10.0f, 5.0f, 4.0f }));
 }
 
 // Clear の前に頼んだ結果が後から届いても表に戻さず、呼び出し側に型を置かせない。

@@ -48,11 +48,9 @@ public:
     virtual void RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback) = 0;
     // インライン数式を 1 ページに並べて描き、1 回のキャプチャで型を取る。図と同じワーカー枠を使う。
     // 1 つずつ描くとキャプチャの待ちで 1 個 66ms かかるが、まとめれば 1 個 0.5ms ほどで済む。
-    // items は kMaxMathPerBatch 個までにする。
-    virtual void RequestMathBatch(std::vector<InlineMathItem> items, MathBatchCallback callback) = 0;
-    // キャプチャは面積に比例して時間とメモリを使い、2000 個を 1 枚にすると WebView2 の commit が
-    // 一時的に 250MB 増える (200 個なら 31MB、1 個あたりの時間はほぼ同じ)。
-    static constexpr size_t kMaxMathPerBatch = 200;
+    // items は kMaxInlineMathPerChunk 個までにする。cache_key (InlineMathChunk::key) があれば、ページを図と同じ
+    // ディスクキャッシュに置き、次からは WebView2 を起動せずに読む。0 ならキャッシュしない。
+    virtual void RequestMathBatch(std::vector<InlineMathItem> items, uint64_t cache_key, MathBatchCallback callback) = 0;
     // 描画待ちの表示用要求だけを捨てる (描画中と SVG 要求は維持)。大きく移動した後や幅・テーマの変更後に、
     // 不要になった図が先に描かれて可視の図が待たされるのを防ぐ。捨てた図は再要求される。
     virtual void DropQueued()

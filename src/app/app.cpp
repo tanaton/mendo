@@ -374,13 +374,34 @@ void App::OnMermaidDiskLoaded()
 
 void App::OnInlineMathRequested()
 {
-    auto items = inline_math_.TakeRequests();
-    for (size_t begin = 0; begin < items.size(); begin += IMermaidRenderer::kMaxMathPerBatch) {
-        const auto first = items.begin() + static_cast<std::ptrdiff_t>(begin);
-        const auto last = first + static_cast<std::ptrdiff_t>(std::min(IMermaidRenderer::kMaxMathPerBatch, items.size() - begin));
-        mermaid_renderer_.RequestMathBatch({ std::make_move_iterator(first), std::make_move_iterator(last) },
-                                           [this](InlineMathBatchResult result) { OnInlineMathRendered(std::move(result)); });
+    const auto on_rendered = [this](InlineMathBatchResult result) { OnInlineMathRendered(std::move(result)); };
+    std::vector<InlineMathItem> unplanned;
+    for (auto& item : inline_math_.TakeRequests()) {
+        const auto chunk = inline_math_plan_.ChunkOf(item.key);
+        if (!chunk) {
+            unplanned.push_back(std::move(item));
+            continue;
+        }
+        // 組の残りの数式もまとめて描く (見えていない数式も、次にスクロールしたときには描けている)。
+        if (std::exchange(inline_math_chunk_requested_[*chunk], uint8_t{ 1 })) {
+            continue;
+        }
+        const auto& c = inline_math_plan_.Chunks()[*chunk];
+        inline_math_.MarkRequested(c.items);
+        mermaid_renderer_.RequestMathBatch(c.items, c.key, on_rendered);
     }
+    // 計画と違う大きさで組んだ数式 (計画を作り直す前に測った数式など) は、キャッシュせずに描く。
+    for (size_t begin = 0; begin < unplanned.size(); begin += kMaxInlineMathPerChunk) {
+        const auto first = unplanned.begin() + static_cast<std::ptrdiff_t>(begin);
+        const auto last = first + static_cast<std::ptrdiff_t>(std::min(kMaxInlineMathPerChunk, unplanned.size() - begin));
+        mermaid_renderer_.RequestMathBatch({ std::make_move_iterator(first), std::make_move_iterator(last) }, 0, on_rendered);
+    }
+}
+
+void App::RebuildInlineMathPlan()
+{
+    inline_math_plan_.Build(state_.document.doc.GetNodes(), theme_service_.GetTheme());
+    inline_math_chunk_requested_.assign(inline_math_plan_.Chunks().size(), 0);
 }
 
 void App::OnInlineMathRendered(InlineMathBatchResult result)
@@ -400,6 +421,10 @@ void App::OnInlineMathRendered(InlineMathBatchResult result)
     }
     if (page_used) {
         masks.pages.push_back(std::move(result.page));
+        // 読み直しで同じ数式を別の組で描き直すと、前のページを指す型が無くなる。
+        std::erase_if(masks.pages, [&masks](const auto& page) {
+            return std::ranges::none_of(masks.masks, [p = page.Get()](const auto& m) { return m.second.page == p; });
+        });
     }
     auto& cache = state_.document.layout_cache;
     // 数式の大きさで見ている段落の高さが変わっても、見ている位置を動かさない。
@@ -817,6 +842,7 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
     // 前の文書の数式を描いた型は、新しい文書ではほとんど使わない。同じファイルの読み直しは組んだレイアウトを
     // 引き継ぐので残す (ReloadDocument)。
     ForgetInlineMath();
+    RebuildInlineMathPlan();
 
     // スクロール復元先の Y がずれないよう、推定高さを Mermaid/画像キャッシュの実測値で補正してから reducer に渡す。
     if (state_.view.pending_restore.IsValid()) {
@@ -877,6 +903,8 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
     // 保存のたびに可視範囲を作り直さず、実測の高さも推定値に戻さない (スクロール位置の計算と表示の跳ねを防ぐ)。
     const auto carry = layout::CarryOverUnchanged(state_.document.doc.GetNodes(), state_.document.layout_cache, next.GetNodes(), estimated, ends);
     ReplaceDocument(std::move(next), std::move(estimated));
+    // 描いた数式は残し、変わった数式を含む組だけが描き直しになる。
+    RebuildInlineMathPlan();
 
     // 図と画像はコードやパスがキーなので、描画・デコード待ちも結果もそのまま使える。
     // 編集で画像が置かれた可能性があるので失敗記録は消す。
@@ -1110,6 +1138,7 @@ void App::ApplyZoom()
     renderer_.OnThemeMetricsChanged();
     // 数式は文字の大きさごとに描くので、前の倍率の型は残しても使わない。新しい倍率で描き直させる。
     ForgetInlineMath();
+    RebuildInlineMathPlan();
     RelayoutViewport(RelayoutResources::Diagrams);
     UpdateTitleBar();
     theme_service_.SaveZoomLevel(state_.view.viewport.Zoom());

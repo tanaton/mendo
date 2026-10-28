@@ -769,7 +769,8 @@ void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path png
                   .drop_gen = disk_drop_gen_.load(std::memory_order_relaxed) };
     // ファイル読み込みと PNG デコードは worker で行う (UI では時間予算なしに積み上がる)。
     const bool posted = bg_scheduler_->Post([this, job = std::move(job), path = std::move(png_path), guard = latch_.Acquire()]() mutable {
-        job.dropped = !job.captured && job.drop_gen != disk_drop_gen_.load(std::memory_order_relaxed);
+        // インライン数式は取り消すと頼み直す契機が無いので、移動しても読む (DropQueued でも待ちに残す)。
+        job.dropped = !job.captured && job.req.is_display() && job.drop_gen != disk_drop_gen_.load(std::memory_order_relaxed);
         if (!job.dropped) {
             LoadDiskJob(job, path);
         }
@@ -812,17 +813,35 @@ void MermaidRenderer::LoadDiskJob(DiskLoad& job, const std::filesystem::path& pa
 
 void MermaidRenderer::LoadMathJob(DiskLoad& job)
 {
+    auto& req = job.req;
+    if (!job.captured) {
+        auto layout = mermaid_util::ReadMathBoxesChunk({ job.png->data(), job.png->size() }, req.math_items.size());
+        if (!layout) {
+            job.png.reset();
+            return;
+        }
+        req.math_page = layout->size;
+        req.math_boxes = std::move(layout->boxes);
+    }
     // 透明な背景のキャプチャは BGRA の straight alpha で、黒で描いた数式の形はアルファにだけある。
     // デコーダは CopyPixels のときに job.png を読むので、それまで手放さない。
     const auto decoded = wic_util::DecodeFromMemory(wic_factory_.Get(), *job.png, GUID_ContainerFormatPng, GUID_WICPixelFormat32bppBGRA);
     if (!decoded || decoded->pixel_width == 0 || decoded->pixel_height == 0) {
+        job.png.reset();
         return;
     }
     const UINT w = decoded->pixel_width;
     const UINT h = decoded->pixel_height;
     std::vector<uint8_t> bgra(size_t{ w } * h * 4);
     const HRESULT hr = decoded->converter->CopyPixels(nullptr, w * 4, static_cast<UINT>(bgra.size()), bgra.data());
-    job.png.reset();
+    // 描いたばかりのページは、箱の一覧を埋めてディスクキャッシュに置く。
+    if (SUCCEEDED(hr) && job.captured && req.math_cache_key != 0) {
+        auto with_boxes = mermaid_util::AppendMathBoxesChunk({ job.png->data(), job.png->size() }, { req.math_page, req.math_boxes });
+        job.png = with_boxes.empty() ? nullptr : std::make_shared<const ByteBuffer>(with_boxes);
+    }
+    else {
+        job.png.reset();
+    }
     if (FAILED(hr)) {
         return;
     }
@@ -836,6 +855,12 @@ void MermaidRenderer::LoadMathJob(DiskLoad& job)
 
 void MermaidRenderer::ApplyMathLoad(DiskLoad& r)
 {
+    // ディスクキャッシュから読めなかった (消えていた・壊れていた) ので描き直す。描き直したページで上書きする。
+    if (r.alpha.empty() && !r.captured) {
+        file_cache_->OnReadFailed(r.req.math_cache_key, r.read_error);
+        EnqueueMath(std::move(r.req));
+        return;
+    }
     auto cb = std::move(r.req.math_callback);
     if (!cb) {
         return;
@@ -850,9 +875,13 @@ void MermaidRenderer::ApplyMathLoad(DiskLoad& r)
         FailMathCallbackIfAny(r.req, false);
         return;
     }
+    // エラーの数式も箱の一覧に残るので、次からは描き直さずに原文で表示できる。
+    if (r.captured && r.png) {
+        file_cache_->StoreAsync(r.req.math_cache_key, r.req.math_page.width, r.req.math_page.height, std::move(r.png));
+    }
     // 箱の外に少しはみ出すインク (積分記号の端など) も含めて切り出す。ページでは数式の間を 2px 空けてある。
     constexpr float kInkMargin = 1.0f;
-    const float dpr = r.req.math_dpr;
+    const float dpr = r.req.math_page.dpr;
     const float page_w = static_cast<float>(r.alpha_width);
     const float page_h = static_cast<float>(r.alpha_height);
     InlineMathBatchResult result{ .page = std::move(page) };
@@ -950,13 +979,27 @@ void MermaidRenderer::RequestSvg(std::string_view code, float max_width, bool da
     ProcessQueue();
 }
 
-void MermaidRenderer::RequestMathBatch(std::vector<InlineMathItem> items, MathBatchCallback callback)
+void MermaidRenderer::RequestMathBatch(std::vector<InlineMathItem> items, uint64_t cache_key, MathBatchCallback callback)
 {
-    RenderRequest req{ .math_items = std::move(items), .math_callback = std::move(callback) };
+    RenderRequest req{ .math_items = std::move(items), .math_callback = std::move(callback), .math_cache_key = cache_key };
     if (!req.is_math()) {
         FailMathCallbackIfAny(req, false);
         return;
     }
+    // 当たれば WebView2 を起動しない。幅に依らないので、幅なしのキーとして引く。
+    if (cache_key != 0) {
+        if (const auto hit = file_cache_->Find(cache_key, cache_key, std::numeric_limits<float>::infinity(), /*touch=*/true)) {
+            if (auto png_path = file_cache_->PngPath(hit->key); !png_path.empty()) {
+                StartDiskLoad(std::move(req), std::move(png_path));
+                return;
+            }
+        }
+    }
+    EnqueueMath(std::move(req));
+}
+
+void MermaidRenderer::EnqueueMath(RenderRequest req)
+{
     pending_requests_.push(std::move(req));
     if (!ready_) {
         EnsureInitialized();
@@ -1089,7 +1132,7 @@ void MermaidRenderer::OnMathResult(int worker_idx, std::wstring_view payload)
         return;
     }
     w.current_request.math_boxes = std::move(layout->boxes);
-    w.current_request.math_dpr = dpr;
+    w.current_request.math_page = { layout->size.width, layout->size.height, dpr };
     ResizeWorkerView(w, DipToPixelCeil(layout->size.width, dpr), DipToPixelCeil(layout->size.height, dpr));
     ScheduleCapture(w);
 }
