@@ -69,7 +69,7 @@ private:
         // UTF-8 の原文。呼び出し側の文字列の寿命から切り離して持つ。WebView2 向けの変換は描く直前に行い、
         // 待ちの間 (準備前・ディスク読み込み中・キュー待ち) は原文の大きさのままにする。
         std::string code;
-        // LaTeX 数式。flowchart で包んで描く。
+        // LaTeX 数式。mermaid を通さず KaTeX で描く。
         bool latex = false;
         float max_width = 0.0f;
         bool dark_mode = false;

@@ -89,7 +89,7 @@ void ClipboardManager::CopyDiagramToClipboard(const Document& doc, int node_inde
     // 進行中リクエストのコールバックを誤って stale 化しない。同期コピー(LaTeX / SVG キャッシュ
     // ヒット)は保留中の非同期コールバックの上書きを防ぐため世代を進める。
 
-    // LaTeX は flowchart ラッパなので SVG は意味を成さない。画像 (CF_DIB) のみを同期コピーする。
+    // LaTeX は SVG を作れないので、画像 (CF_DIB) のみを同期コピーする。
     if (!IsSvgExportable(node.code_language)) {
         ++copy_generation_;
         EmitCopyResult(WriteClipboardDiagram(hwnd_, BuildDib(png), {}));

@@ -7,9 +7,6 @@ struct Node;
 
 namespace mermaid_util {
 
-// style でノードの枠と背景を非表示にし、数式のみが見えるようにする。
-std::wstring BuildLatexFlowchartCode(std::wstring_view latex);
-
 // 言語種別ソルトで同テキストの Mermaid / LatexMath がキー衝突しない。
 uint64_t NodeDiagramHash(const Node& node, float max_width, bool dark_mode) noexcept;
 // NodeDiagramHash のうちノードのテキストと言語だけで決まる部分。幅とテーマは DiagramRequestHash で混ぜる。

@@ -66,32 +66,6 @@ int mermaid_util::QuantizeWidth(float max_width) noexcept
     return static_cast<int>(std::ceil(max_width / static_cast<float>(kQuantum))) * kQuantum;
 }
 
-std::wstring mermaid_util::BuildLatexFlowchartCode(std::wstring_view latex)
-{
-    // mermaid の #xx; は KaTeX に渡った後で &xx; に戻るため、数式の中では使えない。
-    // ラベルは "..." で囲むので ] はそのまま通る。" は素のままだとラベルが閉じてしまうので、
-    // KaTeX エラーになる #quot; で妥協する。改行はラベル構文上書けないので空白にする。
-    std::wstring result;
-    result.reserve(latex.size() + 80);
-    result.append(L"flowchart LR\n    A[\"$$");
-    for (const wchar_t c : latex) {
-        switch (c) {
-        case L'"':
-            result.append(L"#quot;");
-            break;
-        case L'\r': // fallthrough
-        case L'\n':
-            result.push_back(L' ');
-            break;
-        default:
-            result.push_back(c);
-            break;
-        }
-    }
-    result.append(L"$$\"]\n    style A fill:none,stroke:none");
-    return result;
-}
-
 namespace {
 
 // wstring_view は null 終端が保証されないため、数値部分を切り出してから wcstof に渡す。
@@ -229,7 +203,9 @@ std::wstring mermaid_util::SanitizeErrorMessage(std::wstring_view msg, size_t ma
 uint64_t mermaid_util::DiagramCodeHash(const Node& node) noexcept
 {
     // LatexMath を Mermaid とキャッシュ衝突させないためのソルト（任意の定数）。
-    constexpr uint64_t LATEX_MATH_HASH_SALT = 0xA1B2C3D4E5F60718ULL;
+    // 描き方を変えたら値も変え、ディスクキャッシュに残った古い描き方の PNG を引かせない
+    // (flowchart で包んでいた頃は 0xA1B2C3D4E5F60718)。
+    constexpr uint64_t LATEX_MATH_HASH_SALT = 0x5C8E1F3A7B2D9064ULL;
     uint64_t h = Fnv1a64(node.GetText());
     if (node.code_language == SyntaxLanguage::LatexMath) {
         h ^= LATEX_MATH_HASH_SALT;

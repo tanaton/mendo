@@ -207,6 +207,19 @@ endforeach()
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/mermaid_esm.rc" CONTENT "${_mendo_mermaid_rc}")
 unset(_mendo_mermaid_files)
 unset(_mendo_mermaid_rc)
+# 数式は mermaid 同梱の KaTeX を直接呼ぶ。チャンク名には mermaid の版ごとに変わるハッシュが付くので、
+# 実名をヘッダに書き出し、ページからは固定の別名で読ませる。
+file(GLOB _mendo_katex_chunk CONFIGURE_DEPENDS
+    RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mermaid"
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mermaid/chunks/mermaid.esm.min/katex-*.mjs")
+list(LENGTH _mendo_katex_chunk _mendo_katex_count)
+if(NOT _mendo_katex_count EQUAL 1)
+    message(FATAL_ERROR "mendo: expected exactly one KaTeX chunk in third_party/mermaid, found '${_mendo_katex_chunk}'.")
+endif()
+file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/katex_chunk.h"
+    CONTENT "#pragma once\ninline constexpr wchar_t KATEX_CHUNK_RESOURCE[] = L\"${_mendo_katex_chunk}\";\n")
+unset(_mendo_katex_chunk)
+unset(_mendo_katex_count)
 
 # ---- メイン実行ファイル ----
 add_executable(mendo WIN32

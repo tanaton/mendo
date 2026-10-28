@@ -7,6 +7,9 @@
   body { background: white; }
   body.dark { background: #1e1e1e; }
   #container { display: block; }
+  /* 数式の文字色は本文 (theme.cpp の Text) に揃える。インク (積分記号など) が箱から少しはみ出すので余白を取る。 */
+  .math { display: inline-block; padding: 4px 8px; font-size: 16px; color: #24292e; }
+  body.dark .math { color: #d4d4d4; }
 </style>
 <script>
   let currentInitKey = null;
@@ -52,6 +55,25 @@
       throw new Error('SVG not found');
     }
     const rect = svgEl.getBoundingClientRect();
+    return Math.ceil(rect.width) + ':' + Math.ceil(rect.height) + ':' + (window.devicePixelRatio || 1);
+  }
+
+  // KaTeX のチャンク名は版ごとに変わるので、C++ が固定の別名で配信する (mermaid.cpp の KATEX_ALIAS_PATH)。
+  let katexPromise = null;
+  function loadKatex() {
+    katexPromise ??= import('https://app.local/chunks/mermaid.esm.min/katex.mjs');
+    return katexPromise;
+  }
+
+  // flowchart で包むと " を渡せず、ラベルの #xx; エスケープも KaTeX に届いてしまうので、KaTeX を直接呼ぶ。
+  // MathML で出すのは mermaid と同じで、KaTeX の CSS とフォントを持たずに済むため。
+  async function renderMath(tex, isDark) {
+    const katex = await loadKatex();
+    document.body.className = isDark ? 'dark' : '';
+    const container = document.getElementById('container');
+    container.innerHTML = '<div class="math">' +
+      katex.renderToString(tex, { throwOnError: true, displayMode: true, output: 'mathml' }) + '</div>';
+    const rect = container.firstChild.getBoundingClientRect();
     return Math.ceil(rect.width) + ':' + Math.ceil(rect.height) + ':' + (window.devicePixelRatio || 1);
   }
 

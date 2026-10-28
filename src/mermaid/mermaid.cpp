@@ -2,6 +2,7 @@
 #include "app_constants.h"
 #include "d2d_util.h"
 #include "file_io.h"
+#include "katex_chunk.h"
 #include "mermaid_file_cache.h"
 #include "resource.h"
 #include "string_convert.h"
@@ -54,6 +55,8 @@ constexpr std::wstring_view MERMAID_HOST_CLASS = L"mendo_MermaidHost";
 
 constexpr std::wstring_view APP_LOCAL_ORIGIN_PREFIX = L"https://app.local/";
 constexpr wchar_t APP_LOCAL_INDEX_URL[] = L"https://app.local/index.html";
+// mermaid.html が KaTeX を読む名前。チャンクの相対 import が解決するよう、実物と同じフォルダに置く。
+constexpr std::wstring_view KATEX_ALIAS_PATH = L"chunks/mermaid.esm.min/katex.mjs";
 // mermaid.js に XSS があっても外へ通信させない。WebResourceRequested では WebSocket や Worker 発の
 // 通信を捕まえられないので、ページの CSP で止める。eval は mermaid の依存が使いうるので許す。
 constexpr wchar_t HTML_RESPONSE_HEADERS[] =
@@ -533,6 +536,7 @@ void MermaidRenderer::OnWebResourceRequested(ICoreWebView2WebResourceRequestedEv
     const bool is_html = url == APP_LOCAL_INDEX_URL;
     const std::wstring_view path = url.substr(APP_LOCAL_ORIGIN_PREFIX.size());
     const auto body = is_html                            ? LoadRcData(IDR_MERMAID_HTML)
+                      : path == KATEX_ALIAS_PATH         ? LoadRcData(KATEX_CHUNK_RESOURCE)
                       : mermaid_util::IsModulePath(path) ? LoadRcData(path.data())
                                                          : std::span<const std::byte>{};
     Microsoft::WRL::ComPtr<IStream> stream;
@@ -921,9 +925,6 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
     // WebView2 / JsEscape は wstring 経路のため、ここで UTF-8 から変換する。
     std::wstring code;
     string_convert::Utf8ToWide(req.code, code);
-    if (req.latex) {
-        code = mermaid_util::BuildLatexFlowchartCode(code);
-    }
 
     // CSS ビューポートが max_width (DIP) と等しくなるよう境界を物理ピクセルで設定する
     // (WebView2 は内部で devicePixelRatio で除算する)。SVG 出力 (折返し等) も CSS 幅に
@@ -932,12 +933,12 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
     ResizeWorkerView(worker, vp_phys, HOST_SIZE);
 
     // リクエスト ID を postMessage に含め、C++ 側でコールバックとリクエストを照合する。
-    // 描けなければ JS 側が投げるので、表示用も SVG 用も render-error で mermaid の文言を受け取る。
+    // 描けなければ JS 側が投げるので、表示用も SVG 用も render-error で mermaid / KaTeX の文言を受け取る。
     const auto js = std::format(
         L"{}('{}', {})"
         L".then(function(r){{window.chrome.webview.postMessage('{}:{}:'+r);}})"
         L".catch(function(e){{window.chrome.webview.postMessage('render-error:{}:'+((e&&e.message)||String(e)));}})",
-        req.svg_only ? L"renderMermaidSvg" : L"renderMermaid",
+        req.svg_only ? L"renderMermaidSvg" : req.latex ? L"renderMath" : L"renderMermaid",
         mermaid_util::JsEscape(code),
         req.dark_mode ? L"true" : L"false",
         req.svg_only ? L"svg-result" : L"render-result",
