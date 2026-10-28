@@ -60,7 +60,7 @@ inline void CheckRuns(ViolationSink& sink, size_t node_index, std::string_view w
         if (r.length == 0) {
             sink.Add("node {} {} run {}: zero length at {}", node_index, where, k, r.start);
         }
-        if (!(r.bold() || r.italic() || r.code() || r.strikethrough() || r.has_link())) {
+        if (r.raw_flags() == 0 && !r.has_link()) {
             sink.Add("node {} {} run {}: plain run [{}, {})", node_index, where, k, r.start, end);
         }
         if (r.start < prev_end) {

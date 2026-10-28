@@ -1971,6 +1971,23 @@ TEST(FindNodeWordBoundaries, DoesNotExtendAcrossNewlineOrCategoryChange)
     EXPECT_EQ(b.end, 3u);
 }
 
+// インライン数式はどこを指しても $...$ 全体を選ぶ (開きの $ は記号なので、語としては何も選ばれない)。
+TEST(FindNodeWordBoundaries, SelectsWholeInlineMath)
+{
+    const auto nodes = ParseNodes("see $x + y$ now");
+    ASSERT_EQ(nodes.size(), 1u);
+    for (const uint32_t pos : { 4u, 6u, 10u }) {
+        SCOPED_TRACE(pos);
+        const auto r = FindNodeWordBoundaries(nodes, 0, pos);
+        ASSERT_TRUE(r.found);
+        EXPECT_EQ(r.start, 4u);
+        EXPECT_EQ(r.end, 11u);
+    }
+    const auto word = FindNodeWordBoundaries(nodes, 0, 12);
+    EXPECT_EQ(word.start, 12u);
+    EXPECT_EQ(word.end, 15u);
+}
+
 // 区間を worker に配って並列に解析しても、順に解析したのと同じになる。区間の境目をまたぐコメントや文字列も含める。
 TEST(ChunkCopy, ParallelCodeChunkLeadsMatchSerial)
 {

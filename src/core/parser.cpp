@@ -34,6 +34,8 @@ constexpr uint8_t RunFlagOf(MD_SPANTYPE type) noexcept
         return TextRun::kCode;
     case MD_SPAN_DEL:
         return TextRun::kStrikethrough;
+    case MD_SPAN_LATEXMATH:
+        return TextRun::kMath;
     default:
         return 0;
     }
@@ -81,8 +83,8 @@ struct ParseContext {
     // 装飾 span のネスト追跡は md4c 推奨のカウンタ方式。enter で +1, leave で -1。
     // [std::countr_zero(RunFlagOf(type))] が span の種別ごとの深さ。CommonMark で link はネスト禁止のため
     // link_url_index のみ単純フィールド (-1 = リンク外)。
-    std::array<uint8_t, 4> span_depths{};
-    // span_depths を TextRun のフラグビットに射影したキャッシュ。MakeRun のたびに 4 回
+    std::array<uint8_t, 5> span_depths{};
+    // span_depths を TextRun のフラグビットに射影したキャッシュ。MakeRun のたびに 5 回
     // ビット操作するのではなく、span enter/leave のときだけ 1 回ビット OR/AND を更新する。
     // 不変式: bit X が立っている <=> 対応する span_depths > 0。
     uint8_t current_run_flags = 0;
@@ -1275,7 +1277,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         ctx->AppendDoc("$$");
         break;
     case MD_SPAN_LATEXMATH:
-        // インライン $...$ は昇格対象外。元の "$" を復元してテキストとして残す
+        // 元の "$" を戻して kMath の run に含める。選択・コピー・検索は原文の $...$ のまま扱う。
         ctx->AppendDoc("$");
         break;
     case MD_SPAN_FOOTNOTE_REF:
@@ -1313,6 +1315,10 @@ int OnLeaveSpan(MD_SPANTYPE type, void* detail, void* userdata)
         return 1;
     }
 
+    // 閉じの "$" も kMath の run に含めるため、run を確定する前に足す。
+    if (type == MD_SPAN_LATEXMATH) {
+        ctx->AppendDoc("$");
+    }
     ctx->FlushPendingRun();
 
     // md4c は enter/leave が常にバランスする契約なのでアンダーフローは起きない。
@@ -1331,8 +1337,6 @@ int OnLeaveSpan(MD_SPANTYPE type, void* detail, void* userdata)
         ctx->paragraph_display_math_count++;
         break;
     case MD_SPAN_LATEXMATH:
-        ctx->AppendDoc("$");
-        break;
     case MD_SPAN_STRONG:
     case MD_SPAN_EM:
     case MD_SPAN_CODE:
@@ -1383,7 +1387,13 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         break;
 
     case MD_TEXT_LATEXMATH:
-        ctx->AppendSplittable(chunk);
+        // インライン数式は 1 つのノードに収める。区切ると $ が片側にしかない数式ができる。
+        if (ctx->current_run_flags & TextRun::kMath) {
+            ctx->AppendDoc(chunk);
+        }
+        else {
+            ctx->AppendSplittable(chunk);
+        }
         break;
 
     case MD_TEXT_ENTITY: {

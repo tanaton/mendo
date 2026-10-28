@@ -8,6 +8,8 @@ struct TextRun {
     static constexpr uint8_t kItalic = 0x02;
     static constexpr uint8_t kCode = 0x04;
     static constexpr uint8_t kStrikethrough = 0x08;
+    // インライン数式。範囲は前後の "$" を含み、テキストは原文のまま残してレイアウトでだけ数式に置き換える。
+    static constexpr uint8_t kMath = 0x10;
 
     uint32_t start = 0;
     uint32_t length = 0;
@@ -28,6 +30,10 @@ struct TextRun {
     constexpr bool strikethrough() const noexcept
     {
         return flags & kStrikethrough;
+    }
+    constexpr bool math() const noexcept
+    {
+        return flags & kMath;
     }
     constexpr bool has_link() const noexcept
     {

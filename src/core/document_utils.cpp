@@ -126,6 +126,12 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept
 
 NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, uint32_t pos) noexcept
 {
+    // インライン数式は 1 つの塊として描くので、どこを指しても $...$ 全体を選ぶ。
+    const auto runs = nodes[node].runs();
+    if (const auto it = std::ranges::find_if(runs, [pos](const TextRun& r) { return r.math() && pos - r.start < r.length; });
+        it != runs.end()) {
+        return { node, it->start, node, it->start + it->length, true };
+    }
     const std::string_view text = nodes[node].GetText();
     const auto wb = FindWordBoundaries(text, pos);
     if (!wb.found) {
