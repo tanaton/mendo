@@ -26,7 +26,7 @@ winget install tanaton.mendo
 - **離線運作** — 不需要網路連線即可使用。
 - **語法醒目提示** — 為多種程式語言、設定檔格式等的程式碼區塊上色。
 - **圖片顯示** — 顯示本機的 PNG、JPEG、BMP 等圖片。
-- **LaTeX** — 使用 KaTeX 繪製 `$$...$$` 區塊公式、` ```math ` 程式碼區塊和行內 `$...$` 公式。（`$$...$$` 僅在段落只由 `$$...$$` 構成時繪製，與其他文字混排的段落以一般文字顯示。）
+- **LaTeX** — 使用 KaTeX 繪製 `$$...$$` 區塊公式、` ```math ` 程式碼區塊和行內 `$...$` 公式。（只由 `$$...$$` 構成的段落繪製為置中的區塊公式，內文或引用中的 `$$...$$` 以展示樣式在行內繪製。）
 - **瀏覽記錄** — 支援滑鼠側鍵、滑鼠手勢、觸控板滑動等瀏覽器式的上一頁 / 下一頁，並還原捲動位置。
 - **拖放** — 將 Markdown 檔案拖放到視窗中即可開啟。
 - **檔案內搜尋** — 透過標題列的搜尋按鈕或 `Ctrl+F` 在檔案內搜尋。
@@ -45,7 +45,7 @@ winget install tanaton.mendo
 | 程式碼區塊（圍欄） | ✅ 附語法醒目提示。支援的語言：C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd（批次檔）, Dockerfile, Makefile, diff |
 | 圖片 (PNG / JPEG / BMP) | ✅ 非同步載入 |
 | Mermaid 圖表 | ✅ 使用 WebView2 繪製 |
-| LaTeX 公式 (`$...$` / `$$...$$` / ` ```math `) | ✅ `$...$` 以內文顏色在行內繪製（`\color` 無效）。`$$...$$` 在段落只由 `$$...$$` 構成時繪製，與其他文字混排的段落以文字顯示 |
+| LaTeX 公式 (`$...$` / `$$...$$` / ` ```math `) | ✅ `$...$` 以內文顏色在行內繪製（`\color` 無效）。只由 `$$...$$` 構成的段落繪製為區塊公式，內文或引用中的 `$$...$$` 以展示樣式在行內繪製 |
 | GitHub Alerts | ✅ Note / Tip / Important / Warning / Caution |
 | 註腳 (`[^1]`) | ✅ 依編號顯示在文件結尾，參照與定義互相連結 |
 | 連結（外部 / 頁內錨點） | ✅ |

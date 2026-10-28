@@ -1089,10 +1089,32 @@ TEST(Parser, LatexInlineMathNotSplitAcrossChunks)
 
 TEST(Parser, LatexDisplayMathInBlockquoteNotPromoted)
 {
-    // blockquote 内の $$...$$ は引用文脈維持のため昇格しない
+    // blockquote 内の $$...$$ は引用文脈維持のため昇格せず、本文の中に描く数式の run にする
     auto nodes = ParseNodes("> $$y=x$$");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
+    EXPECT_EQ(MathRunTexts(nodes[0]), (std::vector<std::string_view>{ "$$y=x$$" }));
+    EXPECT_TRUE(nodes[0].runs()[0].display_math());
+}
+
+// 本文と混ざった $$...$$ は昇格せず、前後の $$ を含む範囲に kMathDisplay の run を付ける。
+TEST(Parser, LatexDisplayMathInTextMarksDisplayRun)
+{
+    auto nodes = ParseNodes("a $$x+y$$ b $z$");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
+    EXPECT_EQ(MathRunTexts(nodes[0]), (std::vector<std::string_view>{ "$$x+y$$", "$z$" }));
+    EXPECT_TRUE(nodes[0].runs()[0].display_math());
+    EXPECT_FALSE(nodes[0].runs()[1].display_math());
+}
+
+// $$...$$ だけの段落は今までどおり図にし、数式の run は残さない。
+TEST(Parser, PromotedDisplayMathHasNoRuns)
+{
+    auto nodes = ParseNodes("$$x$$");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::Diagram);
+    EXPECT_TRUE(nodes[0].runs().empty());
 }
 
 TEST(Parser, PlainDollarSignsNotMisdetectedAsMath)

@@ -158,6 +158,53 @@ TEST_F(DWriteInlineMathTest, ExpandToClustersCoversWholeFormula)
     EXPECT_FLOAT_EQ(RangeWidth(layout, inside.startPosition, inside.length), 60.0f);
 }
 
+// 引用の中の $$..$$ はディスプレイ形式で頼み、それだけの段落はブロック数式と同じく中央に置く。文中の $$..$$ は左揃えのまま。
+TEST_F(DWriteInlineMathTest, DisplayMathInQuoteIsDisplayStyleAndCentered)
+{
+    auto [nodes, cache] = ParseAndLayout("> $$y=x$$\n\na $$z$$ b\n");
+    ASSERT_EQ(nodes.size(), 2u);
+    auto requests = table_.TakeRequests();
+    std::ranges::sort(requests, {}, &InlineMathItem::tex);
+    ASSERT_EQ(requests.size(), 2u);
+    EXPECT_EQ(requests[0].tex, R"(\displaystyle y=x)");
+    EXPECT_EQ(requests[1].tex, R"(\displaystyle z)");
+    EXPECT_EQ(cache[0].text_layout()->GetTextAlignment(), DWRITE_TEXT_ALIGNMENT_CENTER);
+    EXPECT_EQ(cache[1].text_layout()->GetTextAlignment(), DWRITE_TEXT_ALIGNMENT_LEADING);
+}
+
+// 区切りのそろった run だけを数式にする。長い本文を区切って片側の $$ が無い run は原文のまま組む。
+TEST(InlineMathTex, ExtractsTexAndRejectsUnbalancedRuns)
+{
+    const auto make = [](uint32_t start, uint32_t length, uint8_t flags) {
+        TextRun r;
+        r.start = start;
+        r.length = length;
+        r.set_raw_flags(flags);
+        return r;
+    };
+    EXPECT_EQ(InlineMathTex("a $x$ b", make(2, 3, TextRun::kMath)), std::optional<std::string>{ "x" });
+    EXPECT_EQ(InlineMathTex("$$x+y$$", make(0, 7, TextRun::kMathDisplay)), std::optional<std::string>{ R"(\displaystyle x+y)" });
+    EXPECT_FALSE(InlineMathTex("$$x+y", make(0, 5, TextRun::kMathDisplay)));
+    EXPECT_FALSE(InlineMathTex("x+y$$", make(0, 5, TextRun::kMathDisplay)));
+    EXPECT_FALSE(InlineMathTex("$$$$", make(0, 4, TextRun::kMathDisplay)));
+}
+
+// 長くて区切った $$..$$ は数式にしない (どのノードも原文のまま)。
+TEST_F(DWriteInlineMathTest, SplitDisplayMathStaysAsText)
+{
+    std::string md = "a $$";
+    while (md.size() < kTextChunkTarget * 2) {
+        md += "x + ";
+    }
+    md += "y$$ b";
+    auto [nodes, cache] = ParseAndLayout(md);
+    ASSERT_GT(nodes.size(), 1u);
+    EXPECT_TRUE(table_.TakeRequests().empty());
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        EXPECT_FALSE(cache[i].pending_math);
+    }
+}
+
 // 描けなかった数式は待たずに原文のまま組む。
 TEST_F(DWriteInlineMathTest, FailedMathStaysAsText)
 {

@@ -36,6 +36,8 @@ constexpr uint8_t RunFlagOf(MD_SPANTYPE type) noexcept
         return TextRun::kStrikethrough;
     case MD_SPAN_LATEXMATH:
         return TextRun::kMath;
+    case MD_SPAN_LATEXMATH_DISPLAY:
+        return TextRun::kMathDisplay;
     default:
         return 0;
     }
@@ -83,8 +85,8 @@ struct ParseContext {
     // 装飾 span のネスト追跡は md4c 推奨のカウンタ方式。enter で +1, leave で -1。
     // [std::countr_zero(RunFlagOf(type))] が span の種別ごとの深さ。CommonMark で link はネスト禁止のため
     // link_url_index のみ単純フィールド (-1 = リンク外)。
-    std::array<uint8_t, 5> span_depths{};
-    // span_depths を TextRun のフラグビットに射影したキャッシュ。MakeRun のたびに 5 回
+    std::array<uint8_t, 6> span_depths{};
+    // span_depths を TextRun のフラグビットに射影したキャッシュ。MakeRun のたびに 6 回
     // ビット操作するのではなく、span enter/leave のときだけ 1 回ビット OR/AND を更新する。
     // 不変式: bit X が立っている <=> 対応する span_depths > 0。
     uint8_t current_run_flags = 0;
@@ -686,7 +688,8 @@ bool TryPromoteParagraphToImage(ParseContext* ctx)
 }
 
 // MD_BLOCK_P 終了時、$$..$$ ブロック数式が単独の段落を LaTeX CodeBlock へ昇格させる。
-// blockquote 内は引用文脈を保ちたいため Paragraph のみ昇格対象。
+// blockquote 内は引用文脈を保ちたいため Paragraph のみ昇格対象。blockquote 内や本文の中の $$..$$ は
+// kMathDisplay の run として本文の中に描く。
 void TryPromoteParagraphToDisplayMath(ParseContext* ctx)
 {
     auto* const node = ctx->current_node;
@@ -1273,7 +1276,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         ++ctx->image_span_depth;
         break;
     case MD_SPAN_LATEXMATH_DISPLAY:
-        // "$$" は昇格しなかったときのフォールバックテキスト用。
+        // 元の "$$" を戻して kMathDisplay の run に含める。$$..$$ だけの段落は図に昇格するときに外す。
         ctx->AppendDoc("$$");
         break;
     case MD_SPAN_LATEXMATH:
@@ -1315,9 +1318,13 @@ int OnLeaveSpan(MD_SPANTYPE type, void* detail, void* userdata)
         return 1;
     }
 
-    // 閉じの "$" も kMath の run に含めるため、run を確定する前に足す。
+    // 閉じの "$" / "$$" も数式の run に含めるため、run を確定する前に足す。
     if (type == MD_SPAN_LATEXMATH) {
         ctx->AppendDoc("$");
+    }
+    else if (type == MD_SPAN_LATEXMATH_DISPLAY) {
+        ctx->AppendDoc("$$");
+        ctx->paragraph_display_math_count++;
     }
     ctx->FlushPendingRun();
 
@@ -1333,9 +1340,6 @@ int OnLeaveSpan(MD_SPANTYPE type, void* detail, void* userdata)
         LeaveImageSpan(ctx, static_cast<const MD_SPAN_IMG_DETAIL*>(detail));
         break;
     case MD_SPAN_LATEXMATH_DISPLAY:
-        ctx->AppendDoc("$$");
-        ctx->paragraph_display_math_count++;
-        break;
     case MD_SPAN_LATEXMATH:
     case MD_SPAN_STRONG:
     case MD_SPAN_EM:
@@ -1388,6 +1392,8 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 
     case MD_TEXT_LATEXMATH:
         // インライン数式は 1 つのノードに収める。区切ると $ が片側にしかない数式ができる。
+        // $$..$$ は今までどおり区切る (長い $$..$$ だけの段落は昇格させず本文にする)。区切れた $$..$$ は
+        // 片側に $$ が無いので、計測では原文のまま組む (InlineMathTex)。
         if (ctx->current_run_flags & TextRun::kMath) {
             ctx->AppendDoc(chunk);
         }

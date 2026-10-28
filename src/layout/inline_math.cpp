@@ -6,6 +6,17 @@
 #include <cmath>
 #include <unordered_set>
 
+std::optional<std::string> InlineMathTex(std::string_view text, const TextRun& run)
+{
+    const std::string_view delim = run.display_math() ? "$$" : "$";
+    const std::string_view whole = text.substr(run.start, run.length);
+    if (whole.size() <= delim.size() * 2 || !whole.starts_with(delim) || !whole.ends_with(delim)) {
+        return std::nullopt;
+    }
+    const std::string_view tex = whole.substr(delim.size(), whole.size() - delim.size() * 2);
+    return run.display_math() ? std::string{ "\\displaystyle " }.append(tex) : std::string{ tex };
+}
+
 uint64_t InlineMathKey(std::string_view tex, float font_size) noexcept
 {
     // 1/8 DIP 単位に丸め、浮動小数の誤差で同じ大きさが別のキーにならないようにする。
@@ -39,16 +50,19 @@ void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
     };
     const auto add_runs = [&](std::string_view text, std::span<const TextRun> runs, float font_size) {
         for (const auto& r : runs) {
-            if (!r.math() || r.length < 2) {
+            if (!r.math()) {
                 continue;
             }
-            const std::string_view tex = text.substr(r.start + 1, r.length - 2);
-            const uint64_t key = InlineMathKey(tex, font_size);
+            auto tex = InlineMathTex(text, r);
+            if (!tex) {
+                continue;
+            }
+            const uint64_t key = InlineMathKey(*tex, font_size);
             if (!seen.insert(key).second) {
                 continue;
             }
             chunk_of_.emplace(key, static_cast<uint32_t>(chunks_.size()));
-            current.items.push_back({ key, std::string{ tex }, font_size });
+            current.items.push_back({ key, std::move(*tex), font_size });
             // 前後の数式に依らず区切るので、数式を足しても消しても区切りはその数式の前後でしか変わらない。
             // FNV-1a は似た短い TeX ("1101x" と "1102x" など) で偏るので、かき混ぜてから決める (splitmix64 の仕上げ)。
             uint64_t mixed = key;

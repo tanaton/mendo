@@ -437,7 +437,11 @@ bool DWriteTextMeasurer::ApplyInlineMath(IDWriteTextLayout* layout, std::span<co
     // 隣り合う数式も別のオブジェクトにするので、AttrRangeBuilder でまとめずに run ごとに掛ける。
     Utf16OffsetCursor cursor{ text };
     for (const auto& r : runs) {
-        if (!r.math() || r.length < 2) {
+        if (!r.math()) {
+            continue;
+        }
+        const auto tex = InlineMathTex(text, r);
+        if (!tex) {
             continue;
         }
         const DWRITE_TEXT_RANGE wr = cursor.WideRange(r.start, r.length);
@@ -445,9 +449,8 @@ bool DWriteTextMeasurer::ApplyInlineMath(IDWriteTextLayout* layout, std::span<co
         if (FAILED(layout->GetFontSize(wr.startPosition, &font_size)) || font_size <= 0.0f) {
             continue;
         }
-        const std::string_view tex = text.substr(r.start + 1, r.length - 2);
-        const uint64_t key = InlineMathKey(tex, font_size);
-        if (const auto metrics = inline_math_->FindOrRequest(key, tex, font_size)) {
+        const uint64_t key = InlineMathKey(*tex, font_size);
+        if (const auto metrics = inline_math_->FindOrRequest(key, *tex, font_size)) {
             if (metrics->ok()) {
                 layout->SetInlineObject(MakeInlineMathObject(key, *metrics).Get(), wr);
             }
@@ -480,12 +483,13 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(
         return entry.cached_height;
     }
     if (entry.text_layout()) {
-        // 改行でしか折れておらず最も長い行が新しい幅に収まるなら、組み直しても行は同じ。左揃えなので幅は付け替えない
+        // 改行でしか折れておらず最も長い行が新しい幅に収まるなら、組み直しても行は同じ。左揃えなら幅は付け替えない
         // (SetMaxWidth の後の GetMetrics は作り直しとほぼ同じだけかかる)。GetMetrics は前回の結果を返すだけ。
         // 幅を変えたときの全ノードの計測し直しが test.md で 174ms → 143ms、README で 6.0ms → 3.1ms。
         DWRITE_TEXT_METRICS metrics{};
         entry.text_layout()->GetMetrics(&metrics);
-        if (metrics.lineCount == static_cast<UINT32>(node.line_count) + 1 && metrics.width <= layout_width) {
+        if (metrics.lineCount == static_cast<UINT32>(node.line_count) + 1 && metrics.width <= layout_width &&
+            entry.text_layout()->GetTextAlignment() == DWRITE_TEXT_ALIGNMENT_LEADING) {
             return metrics.height;
         }
         if (const auto height = RemeasureExistingLayout(node, entry, layout_width, *theme_)) {
@@ -501,6 +505,10 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(
     }
 
     entry.pending_math = ApplyRunFormatting(layout.Get(), node.runs(), text, /*apply_code_size=*/node.type != NodeType::Heading);
+    // 引用やリストの中の $$..$$ だけの段落は図にしないので、ブロック数式と同じく中央に置く (GitHub と同じ)。
+    if (const auto runs = node.runs(); runs.size() == 1 && runs[0].display_math() && runs[0].start == 0 && runs[0].length == text.size()) {
+        layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    }
     if (node.type == NodeType::BlockQuote && node.alert_label_length() > 0) {
         if (const auto idx = AlertColorIndex(node.alert_type); idx < ALERT_TYPE_COUNT) {
             Utf16OffsetCursor cursor{ text };

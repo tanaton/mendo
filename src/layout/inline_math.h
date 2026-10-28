@@ -1,4 +1,5 @@
 #pragma once
+#include "text_types.h"
 #include <dwrite.h>
 #include <wrl/client.h>
 #include <cstdint>
@@ -33,6 +34,10 @@ struct InlineMathItem {
     std::string tex;
     float font_size = 0.0f;
 };
+
+// 数式の run (TextRun::math) から描く TeX を取り出す。$$..$$ はディスプレイ形式 (\displaystyle) で本文の中に置く。
+// 長い本文を区切ったときに途中で分かれた $$..$$ のように、前後の区切りがそろっていない run は nullopt で、原文のまま組む。
+std::optional<std::string> InlineMathTex(std::string_view text, const TextRun& run);
 
 // 数式は文字の大きさごとに描くので、キーに大きさも混ぜる。
 uint64_t InlineMathKey(std::string_view tex, float font_size) noexcept;
