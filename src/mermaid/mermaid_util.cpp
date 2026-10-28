@@ -68,10 +68,9 @@ int mermaid_util::QuantizeWidth(float max_width) noexcept
 
 std::wstring mermaid_util::BuildLatexFlowchartCode(std::wstring_view latex)
 {
-    // mermaid ラベル内で特殊文字をエスケープする:
-    //   "  → #quot;  (ラベル終端の " と衝突)
-    //   ]  → #93;    (ラベル終端の ] と衝突)
-    //   \r, \n → 空白 (ラベル構文上改行不可)
+    // mermaid の #xx; は KaTeX に渡った後で &xx; に戻るため、数式の中では使えない。
+    // ラベルは "..." で囲むので ] はそのまま通る。" は素のままだとラベルが閉じてしまうので、
+    // KaTeX エラーになる #quot; で妥協する。改行はラベル構文上書けないので空白にする。
     std::wstring result;
     result.reserve(latex.size() + 80);
     result.append(L"flowchart LR\n    A[\"$$");
@@ -79,9 +78,6 @@ std::wstring mermaid_util::BuildLatexFlowchartCode(std::wstring_view latex)
         switch (c) {
         case L'"':
             result.append(L"#quot;");
-            break;
-        case L']':
-            result.append(L"#93;");
             break;
         case L'\r': // fallthrough
         case L'\n':

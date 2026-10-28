@@ -89,11 +89,11 @@ TEST(BuildLatexFlowchartCode, EscapesDoubleQuote)
     EXPECT_FALSE(code.contains(L"a\"b"));
 }
 
-TEST(BuildLatexFlowchartCode, EscapesClosingBracket)
+TEST(BuildLatexFlowchartCode, KeepsBracketsForKaTeX)
 {
-    // ] も mermaid ラベル終端を避けるため #93; に置換される
-    auto code = mermaid_util::BuildLatexFlowchartCode(L"a]b");
-    EXPECT_TRUE(code.contains(L"a#93;b"));
+    // #93; にすると KaTeX には &#93; が届いてエラーになる。"..." で囲んだラベル内なら ] はそのまま通る。
+    auto code = mermaid_util::BuildLatexFlowchartCode(L"\\sqrt[3]{x} + \\mathbb{E}[X]");
+    EXPECT_TRUE(code.contains(L"$$\\sqrt[3]{x} + \\mathbb{E}[X]$$"));
 }
 
 TEST(BuildLatexFlowchartCode, ReplacesNewlinesWithSpace)
