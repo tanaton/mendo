@@ -100,14 +100,16 @@ const InlineMathChunk* InlineMathPlan::TakeChunk(size_t chunk, bool wanted) noex
     return nullptr;
 }
 
-bool InlineMathPlan::FinishChunk(size_t chunk, uint64_t key, bool failed) noexcept
+bool InlineMathPlan::IsWanted(size_t chunk, uint64_t key) const noexcept
 {
-    if (chunk >= chunks_.size() || chunks_[chunk].key != key) {
-        return false;
+    return IsCurrent(chunk, key) && states_[chunk] == State::Wanted;
+}
+
+void InlineMathPlan::FinishChunk(size_t chunk, uint64_t key, bool failed) noexcept
+{
+    if (IsCurrent(chunk, key)) {
+        states_[chunk] = failed ? State::Failed : State::Idle;
     }
-    const bool wanted = states_[chunk] == State::Wanted;
-    states_[chunk] = failed ? State::Failed : State::Idle;
-    return wanted;
 }
 
 std::optional<size_t> InlineMathPlan::ChunkOf(uint64_t key) const noexcept
@@ -116,15 +118,21 @@ std::optional<size_t> InlineMathPlan::ChunkOf(uint64_t key) const noexcept
     return it != chunk_of_.end() ? std::optional<size_t>{ it->second } : std::nullopt;
 }
 
+std::pair<InlineMathTable::Entry&, bool> InlineMathTable::Add(uint64_t key, std::string_view tex, float font_size)
+{
+    const auto [it, inserted] = entries_.try_emplace(key);
+    if (inserted) {
+        it->second.item = { key, std::string{ tex }, font_size };
+        ++unresolved_;
+    }
+    return { it->second, inserted };
+}
+
 void InlineMathTable::MarkRequested(std::span<const InlineMathItem> items)
 {
     const std::lock_guard lock(mutex_);
     for (const auto& item : items) {
-        if (const auto [it, inserted] = entries_.try_emplace(item.key); inserted) {
-            it->second.tex = item.tex;
-            it->second.font_size = item.font_size;
-            ++unresolved_;
-        }
+        Add(item.key, item.tex, item.font_size);
     }
 }
 
@@ -134,10 +142,10 @@ void InlineMathTable::SetWake(std::move_only_function<void()> wake)
     wake_ = std::move(wake);
 }
 
-void InlineMathTable::PushRequest(uint64_t key, const Entry& e)
+void InlineMathTable::PushRequest(const InlineMathItem& item)
 {
     const bool was_empty = requests_.empty();
-    requests_.push_back({ key, e.tex, e.font_size });
+    requests_.push_back(item);
     if (was_empty && wake_) {
         wake_();
     }
@@ -146,15 +154,11 @@ void InlineMathTable::PushRequest(uint64_t key, const Entry& e)
 std::optional<InlineMathMetrics> InlineMathTable::FindOrRequest(uint64_t key, std::string_view tex, float font_size)
 {
     const std::lock_guard lock(mutex_);
-    const auto [it, inserted] = entries_.try_emplace(key);
-    if (!inserted) {
-        return it->second.resolved ? std::optional{ it->second.metrics } : std::nullopt;
+    const auto [e, added] = Add(key, tex, font_size);
+    if (added) {
+        PushRequest(e.item);
     }
-    it->second.tex = tex;
-    it->second.font_size = font_size;
-    ++unresolved_;
-    PushRequest(key, it->second);
-    return std::nullopt;
+    return e.metrics;
 }
 
 std::vector<InlineMathItem> InlineMathTable::TakeRequests()
@@ -170,10 +174,10 @@ bool InlineMathTable::Resolve(uint64_t key, InlineMathMetrics metrics)
     if (it == entries_.end()) {
         return false;
     }
-    it->second.metrics = metrics;
-    if (!std::exchange(it->second.resolved, true)) {
+    if (!it->second.metrics) {
         --unresolved_;
     }
+    it->second.metrics = metrics;
     return true;
 }
 
@@ -181,7 +185,7 @@ std::optional<InlineMathMetrics> InlineMathTable::Find(uint64_t key)
 {
     const std::lock_guard lock(mutex_);
     const auto it = entries_.find(key);
-    return it != entries_.end() && it->second.resolved ? std::optional{ it->second.metrics } : std::nullopt;
+    return it != entries_.end() ? it->second.metrics : std::nullopt;
 }
 
 bool InlineMathTable::HasUnresolved()
@@ -202,8 +206,8 @@ void InlineMathTable::RequestAllAgain(const std::function<bool(uint64_t)>& again
 {
     const std::lock_guard lock(mutex_);
     for (const auto& [key, e] : entries_) {
-        if (e.resolved && e.metrics.ok() && again(key)) {
-            PushRequest(key, e);
+        if (e.metrics && e.metrics->ok() && again(key)) {
+            PushRequest(e.item);
         }
     }
 }

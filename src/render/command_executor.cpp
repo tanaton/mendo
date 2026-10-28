@@ -7,7 +7,6 @@
 #include <dwrite.h>
 #include <algorithm>
 #include <bit>
-#include <unordered_set>
 
 namespace {
 
@@ -38,7 +37,7 @@ ID2D1SolidColorBrush* FixedBrush(const FixedBrushArray& brushes, BrushId id) noe
 class VisibleRunRenderer final : public IDWriteTextRenderer {
 public:
     VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, float cull_top, float cull_bottom,
-        std::span<const SyntaxToken> tokens, const FixedBrushArray& brushes, const InlineMathMasks* math) noexcept
+        std::span<const SyntaxToken> tokens, const FixedBrushArray& brushes, InlineMathMasks* math) noexcept
         : rt_(rt), default_brush_(default_brush), cull_top_(cull_top), cull_bottom_(cull_bottom), tokens_(tokens), brushes_(brushes), math_(math)
     {
         rt->GetTransform(&transform_);
@@ -108,7 +107,8 @@ public:
         FillLine(x, y + st->offset, st->width, st->thickness, effect);
         return S_OK;
     }
-    // インラインオブジェクトはインライン数式だけ。型が無ければ (捨てたページ・デバイスロストで描き直し中) 何も描かない。
+    // インラインオブジェクトはインライン数式だけ。型が無ければ (受け取らなかったページ・捨てたページ・デバイスロストで
+    // 読み直し中) 何も描かない。
     HRESULT STDMETHODCALLTYPE DrawInlineObject(void*, FLOAT x, FLOAT y, IDWriteInlineObject* object, BOOL, BOOL, IUnknown* effect) noexcept override
     {
         if (!math_ || !object) {
@@ -200,23 +200,16 @@ private:
     float pixels_per_dip_ = 1.0f;
     std::span<const SyntaxToken> tokens_;
     const FixedBrushArray& brushes_;
-    const InlineMathMasks* math_;
+    InlineMathMasks* math_;
 };
 
 } // namespace
 
-size_t InlineMathMasks::PageBytes(ID2D1Bitmap* bitmap) noexcept
-{
-    const auto size = bitmap->GetPixelSize();
-    return size_t{ size.width } * size.height;
-}
-
 InlineMathPage& InlineMathMasks::AddPage(Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap, bool reloadable)
 {
-    const size_t bytes = PageBytes(bitmap.Get());
     auto& page = *pages.emplace_back(std::make_unique<InlineMathPage>(InlineMathPage{
-        .bitmap = std::move(bitmap), .bytes = bytes, .reloadable = reloadable, .last_drawn = frame }));
-    page_bytes += page.bytes;
+        .bitmap = std::move(bitmap), .reloadable = reloadable, .last_drawn = frame }));
+    page_bytes += BitmapBytes(page.bitmap.Get());
     return page;
 }
 
@@ -229,7 +222,7 @@ void InlineMathMasks::Assign(uint64_t key, const InlineMathMask& mask)
     }
     InlineMathPage* const old = std::exchange(it->second, mask).page;
     if (--old->masks == 0) {
-        page_bytes -= old->bytes;
+        page_bytes -= BitmapBytes(old->bitmap.Get());
         std::erase_if(pages, [old](const auto& p) { return p.get() == old; });
     }
 }
@@ -245,20 +238,23 @@ void InlineMathMasks::EvictPages(size_t budget)
             order.push_back(p.get());
         }
     }
+    if (order.empty()) {
+        return;
+    }
     std::ranges::sort(order, {}, &InlineMathPage::last_drawn);
-    std::unordered_set<const InlineMathPage*> victims;
     for (auto* p : order) {
         if (page_bytes <= budget) {
             break;
         }
-        page_bytes -= p->bytes;
-        victims.insert(p);
+        page_bytes -= BitmapBytes(p->bitmap.Get());
+        // ビットマップを手放したページを捨てる印にする。
+        p->bitmap.Reset();
     }
-    std::erase_if(masks, [&](const auto& m) { return victims.contains(m.second.page); });
-    std::erase_if(pages, [&](const auto& p) { return victims.contains(p.get()); });
+    std::erase_if(masks, [](const auto& m) { return !m.second.page->bitmap; });
+    std::erase_if(pages, [](const auto& p) { return !p->bitmap; });
 }
 
-void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, const InlineMathMasks* math)
+void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, InlineMathMasks* math)
 {
     MENDO_PROFILE("ExecuteDrawCommands");
 

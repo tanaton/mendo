@@ -30,18 +30,26 @@ struct InlineMathBatchResult {
         uint64_t key = 0;
         // 描けなかった数式 (KaTeX のエラー) は空。
         InlineMathMetrics metrics;
+        // page があるときだけ使う。
         D2D1_RECT_F src{};  // page の中の位置 (ピクセル)
         D2D1_RECT_F dest{}; // 数式の箱の左上を原点とする描画先 (DIP)
     };
-    // 数式の形をアルファに持つ A8 のビットマップ。まとめて描けなかったときは null で、items の metrics はすべて空。
+    // 数式の形をアルファに持つ A8 のビットマップ。描けなかったときと、受け取らない (MathPageGate) と答えたときは null。
     Microsoft::WRL::ComPtr<ID2D1Bitmap> page;
     // 要求と同じ順。
     std::vector<Item> items;
+    // MathPageGate が受け取ると答えたページのバイト数。答えていなければ 0。呼び出し側が取り置いた分を戻すのに使う。
+    size_t reserved_bytes = 0;
+    // まとめて描けなかった。items の metrics はすべて空。
+    bool failed = false;
     // 描く前に取り消した (終了・文書の差し替え)。数式のエラーではないので、後で頼み直してよい。
     bool cancelled = false;
 };
 // 描けたとき・失敗したとき・取り消したときのどれでも 1 回だけ呼ぶ。
 using MathBatchCallback = std::move_only_function<void(InlineMathBatchResult result)>;
+// ページを型として受け取るか。ページの大きさ (A8 のバイト数) が分かったときに UI スレッドで 1 回だけ呼ぶ。
+// false ならページをデコードも GPU へ転送もせず、寸法だけを返す。
+using MathPageGate = std::move_only_function<bool(size_t page_bytes)>;
 
 // オフスクリーンWebView2を使ってMermaidダイアグラムコードをID2D1Bitmapにレンダリングする。
 // 複数のWebView2インスタンスを並行稼働させ、複数の図を同時にレンダリングできる。
@@ -69,7 +77,8 @@ public:
     // 1 つずつ描くとキャプチャの待ちで 1 個 66ms かかるが、まとめれば 1 個 0.5ms ほどで済む。
     // items は kMaxInlineMathPerChunk 個までにする。cache_key (InlineMathChunk::key) があれば、ページを図と同じ
     // ディスクキャッシュに置き、次からは WebView2 を起動せずに読む。0 ならキャッシュしない。
-    void RequestMathBatch(std::vector<InlineMathItem> items, uint64_t cache_key, MathBatchCallback callback);
+    // want_page が無ければページをいつも返す。
+    void RequestMathBatch(std::vector<InlineMathItem> items, uint64_t cache_key, MathBatchCallback callback, MathPageGate want_page = {});
     void SetRenderTarget(ID2D1RenderTarget* render_target);
     // ワーカーは画面外に置くため、PNG は本体ウィンドウではなくその位置のモニタの DPR で描かれる。
     // ワーカーを起動する前にディスクキャッシュを引くときの DPR に使う。
@@ -126,6 +135,11 @@ private:
         MathBatchCallback math_callback;
         // 0 ならディスクキャッシュに置かない。
         uint64_t math_cache_key = 0;
+        // 呼んだら空にして、答えを math_page に持つ (DecideMathPage)。
+        MathPageGate math_want_page;
+        bool math_page = true;
+        // InlineMathBatchResult::reserved_bytes。
+        size_t math_reserved_bytes = 0;
         // ページの大きさと各数式の箱。描画結果 (math-result) かディスクキャッシュの PNG のチャンクから受け取り、
         // キャプチャの切り出しに使う。
         mermaid_util::MathBatchLayout math_layout;
@@ -220,15 +234,18 @@ private:
         FailMathCallbackIfAny(req, cancelled);
     }
     void RenderMathInWorker(Worker& worker);
+    // call (Promise を返す JS の式) の結果を "<result_kind>:<id>:<結果>"、投げたら render-error で返させる。
+    static void ExecuteRenderScript(Worker& worker, std::wstring call, std::wstring_view result_kind, const char* log_name);
     void OnMathResult(int worker_idx, std::wstring_view payload);
-    // ビューのリサイズが描画に反映されたら capture-ready を返させる。
-    void ScheduleCapture(Worker& w);
-    // worker で呼ぶ。キャプチャかディスクキャッシュの PNG からアルファだけを取り出す。ディスクキャッシュなら箱の一覧も読み、
-    // キャプチャならディスクキャッシュに置く PNG に箱の一覧を埋める。
+    // ビューを描いたものの大きさ (DIP) に合わせ、リサイズが描画に反映されたら capture-ready を返させる。
+    void ScheduleCapture(Worker& w, const mermaid_util::RenderSize& size);
+    // ページの大きさが分かったら、デコードする前に math_want_page に聞く。ディスクキャッシュから読めずに描き直すときは
+    // 前の答えを使う。
+    static void DecideMathPage(RenderRequest& req, const mermaid_util::RenderSize& page);
+    // worker で呼ぶ。キャプチャかディスクキャッシュの PNG からアルファだけを取り出す (受け取らないページはデコードしない)。
+    // ディスクキャッシュなら箱の一覧も読み、キャプチャならディスクキャッシュに置く PNG に箱の一覧を埋める。
     void LoadMathJob(DiskLoad& job);
     void ApplyMathLoad(DiskLoad& r);
-    // WebView2 で描く待ちに積む。SVG とインライン数式の要求は図と違い、準備前でも捨てない (準備完了の通知で頼み直す仕組みが無い)。
-    void EnqueueKept(RenderRequest req);
     // 描画待ちから drop が true を返した要求を除く。drop は除く要求の後始末もする。
     void DropPendingIf(const std::function<bool(RenderRequest&)>& drop);
     // 表示用リクエストのエラーを kind で確定させる (issue #271)。msg は Render のときの Mermaid の文言で、空なら汎用の文言を出す。
@@ -265,7 +282,7 @@ private:
     void ProcessQueue();
     void DrainPendingRequests(bool cancelled);
     void RenderInWorker(Worker& worker);
-    // WebView2 ワーカーでの描画待ちキューに積む (初期化前なら初期化だけ起動して戻る)。
+    // WebView2 ワーカーでの描画待ちキューに積む。初期化前なら初期化を起動し、図の要求は捨てる。
     void EnqueueWebRender(RenderRequest req);
     // 要求の結果 (ビットマップかエラー) がキャッシュに入っていれば、通知して要求し直させる。
     void FinishWorkerRequest(Worker& worker);

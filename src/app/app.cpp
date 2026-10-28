@@ -399,23 +399,35 @@ bool App::RequestInlineMathChunk(uint64_t key, bool wanted)
     // 組の残りの数式もまとめて描く (見えていない数式も、次にスクロールしたときには描けている)。
     if (const auto* c = inline_math_plan_.TakeChunk(*chunk, wanted)) {
         inline_math_.MarkRequested(c->items);
-        mermaid_renderer_.RequestMathBatch(c->items, c->key, [this, index = *chunk, chunk_key = c->key](InlineMathBatchResult result) {
-            OnInlineMathRendered(std::move(result), index, chunk_key);
-        });
+        const size_t index = *chunk;
+        const uint64_t chunk_key = c->key;
+        mermaid_renderer_.RequestMathBatch(
+            c->items, chunk_key, [this, index, chunk_key](InlineMathBatchResult result) { OnInlineMathRendered(std::move(result), index, chunk_key); },
+            [this, index, chunk_key](size_t bytes) { return ReserveInlineMathPage(index, chunk_key, bytes); });
     }
+    return true;
+}
+
+bool App::ReserveInlineMathPage(size_t chunk, uint64_t chunk_key, size_t bytes)
+{
+    // 見えている数式のために頼んだ組でなければ、上限に収まるページだけを受け取る。収まらなければ寸法だけ使い、
+    // 見えたときに読み直す。表全体を測ると全部の組が届き、5000 行の表 (数式 10000 個) ではページが約 38MB になる。
+    // デコードと GPU への転送の前に決めるので、この表を 2 回目に開くとデコードが 151 枚 → 20 枚になり、全部の寸法が
+    // 揃うまでが約 160ms → 約 122ms。組はまとめて頼むので、受け取ると答えてまだ届いていない分も数える。
+    if (!inline_math_plan_.IsWanted(chunk, chunk_key) &&
+        renderer_.InlineMath().page_bytes + reserved_math_page_bytes_ + bytes > kInlineMathPageBudget) {
+        return false;
+    }
+    reserved_math_page_bytes_ += bytes;
     return true;
 }
 
 void App::ManageInlineMathPages()
 {
     auto& math = renderer_.InlineMath();
-    // 型を失った (捨てたページ・デバイスロスト) 数式が見えたら、組をディスクキャッシュから読み直す。
-    // 同じ数式は 1 フレームに何度も出てくるので、まとめてから引く。
-    auto missing = std::exchange(math.missing, {});
-    std::ranges::sort(missing);
-    const auto duplicates = std::ranges::unique(missing);
-    missing.erase(duplicates.begin(), duplicates.end());
-    for (const uint64_t key : missing) {
+    // 型の無い (受け取らなかったページ・捨てたページ・デバイスロスト) 数式が見えたら、組をディスクキャッシュから読み直す。
+    // 同じ組を頼むのは結果を待つ間 1 回だけなので、同じ数式が何度出てきてもよい。
+    for (const uint64_t key : std::exchange(math.missing, {})) {
         RequestInlineMathChunk(key, true);
     }
     math.EvictPages(kInlineMathPageBudget);
@@ -429,17 +441,16 @@ void App::RebuildInlineMathPlan()
 
 void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t chunk_key)
 {
+    reserved_math_page_bytes_ -= result.reserved_bytes;
     // 取り消すのは終了するときと ForgetInlineMath のときだけで、どちらも結果を使わない。
     if (result.cancelled) {
         return;
     }
     const bool planned = chunk_key != 0;
-    const bool wanted = planned && inline_math_plan_.FinishChunk(chunk, chunk_key, !result.page);
+    if (planned) {
+        inline_math_plan_.FinishChunk(chunk, chunk_key, result.failed);
+    }
     auto& math = renderer_.InlineMath();
-    // 見えている数式のために頼んだのでなければ、上限に収まるページだけを持つ。収まらなければ寸法だけ使い、
-    // 見えたときに読み直す。表全体を測ると全部の組が届き、5000 行の表 (数式 10000 個) ではページが約 38MB になる。
-    const bool keep_page = result.page && (!planned || wanted ||
-                                           math.page_bytes + InlineMathMasks::PageBytes(result.page.Get()) <= kInlineMathPageBudget);
     InlineMathPage* page = nullptr;
     bool lost = false;
     for (const auto& item : result.items) {
@@ -448,7 +459,7 @@ void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint6
             lost |= before && before->ok();
         }
         // ForgetInlineMath の前に頼んだ数式は、もう誰も使わない。
-        if (!inline_math_.Resolve(item.key, item.metrics) || !item.metrics.ok() || !keep_page) {
+        if (!inline_math_.Resolve(item.key, item.metrics) || !item.metrics.ok() || !result.page) {
             continue;
         }
         if (!page) {

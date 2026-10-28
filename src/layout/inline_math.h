@@ -10,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 struct Node;
@@ -66,15 +67,23 @@ public:
     // key の数式を含む組の番号。計画に無い (計画と違う大きさで組んだ) ときは nullopt。
     std::optional<size_t> ChunkOf(uint64_t key) const noexcept;
     // 組を描くために取り出す。結果を待っている組と描けなかった組は nullptr。描けた組はまた取り出せる (型を捨てた後や
-    // デバイスロストの後に、見えた数式の組を読み直す)。wanted は見えている数式のために頼むときで、届いたページを上限を
-    // 超えても持たせる (FinishChunk)。
+    // デバイスロストの後に、見えた数式の組を読み直す)。wanted は見えている数式のために頼むときで、ページを上限を
+    // 超えても受け取らせる (IsWanted)。
     const InlineMathChunk* TakeChunk(size_t chunk, bool wanted) noexcept;
-    // TakeChunk した組の結果が届いた。戻り値はその組を wanted で頼んだか。計画を作り直す前に頼んだ組 (番号と key が
-    // 合わない) は何もせず false。描けなかった組は計画を作り直すまで取り出させない (描き直しても同じく失敗する)。
-    bool FinishChunk(size_t chunk, uint64_t key, bool failed) noexcept;
+    // TakeChunk した組を、結果を待つまでの間に wanted で頼んだか。計画を作り直す前に頼んだ組 (番号と key が合わない) は false。
+    bool IsWanted(size_t chunk, uint64_t key) const noexcept;
+    // TakeChunk した組の結果が届いた。計画を作り直す前に頼んだ組は何もしない。描けなかった組は計画を作り直すまで
+    // 取り出させない (描き直しても同じく失敗する)。
+    void FinishChunk(size_t chunk, uint64_t key, bool failed) noexcept;
 
 private:
     enum class State : uint8_t { Idle, Requested, Wanted, Failed };
+
+    // 計画を作り直す前に頼んだ組は、番号と key が合わない。
+    bool IsCurrent(size_t chunk, uint64_t key) const noexcept
+    {
+        return chunk < chunks_.size() && chunks_[chunk].key == key;
+    }
 
     std::vector<InlineMathChunk> chunks_;
     std::unordered_map<uint64_t, uint32_t> chunk_of_;
@@ -106,18 +115,18 @@ public:
 
 private:
     struct Entry {
-        InlineMathMetrics metrics;
-        std::string tex;
-        float font_size = 0.0f;
-        // false の間は描画を頼んで待っている。
-        bool resolved = false;
+        InlineMathItem item;
+        // nullopt の間は描画を頼んで待っている。
+        std::optional<InlineMathMetrics> metrics;
     };
 
-    void PushRequest(uint64_t key, const Entry& e);
+    // key が無ければ待ちとして足す。second は足したか。
+    std::pair<Entry&, bool> Add(uint64_t key, std::string_view tex, float font_size);
+    void PushRequest(const InlineMathItem& item);
 
     std::mutex mutex_;
     std::unordered_map<uint64_t, Entry> entries_;
-    // entries_ のうち resolved でないものの数。
+    // entries_ のうち metrics の無いものの数。
     size_t unresolved_ = 0;
     std::vector<InlineMathItem> requests_;
     std::move_only_function<void()> wake_;

@@ -195,6 +195,12 @@ constexpr uint8_t kMathBoxesChunkType[4]{ 'm', 'd', 'M', 'B' };
 constexpr uint32_t kMathBoxesChunkVersion = 1;
 constexpr uint8_t kPngSignature[8]{ 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n' };
 
+// mdMB のデータ。版・ページの幅・高さ・DPR・箱の数と、箱ごとに x・y・幅・高さ・ベースライン (どれも 4 バイト)。
+constexpr size_t MathBoxesDataSize(size_t count) noexcept
+{
+    return 20 + count * 20;
+}
+
 uint32_t Crc32(std::span<const uint8_t> bytes) noexcept
 {
     uint32_t crc = 0xFFFFFFFFu;
@@ -230,7 +236,7 @@ ByteBuffer mermaid_util::AppendMathBoxesChunk(std::span<const uint8_t> png, cons
         return {};
     }
     // 長さ (4) + 種類 (4) + データ + CRC (4)。CRC は種類とデータに掛ける。
-    const uint32_t data_size = static_cast<uint32_t>(20 + layout.boxes.size() * 20);
+    const auto data_size = static_cast<uint32_t>(MathBoxesDataSize(layout.boxes.size()));
     std::vector<uint8_t> chunk;
     chunk.reserve(data_size + 12);
     PutBe32(chunk, data_size);
@@ -269,7 +275,7 @@ std::optional<mermaid_util::MathBatchLayout> mermaid_util::ReadMathBoxesChunk(st
             continue;
         }
         const auto data = png.subspan(pos + 8, length);
-        if (GetBe32(&png[pos + 8 + length]) != Crc32(png.subspan(pos + 4, 4 + length)) || data.size() != 20 + expected * 20) {
+        if (GetBe32(&png[pos + 8 + length]) != Crc32(png.subspan(pos + 4, 4 + length)) || data.size() != MathBoxesDataSize(expected)) {
             return std::nullopt;
         }
         const auto get_float = [&data](size_t i) { return std::bit_cast<float>(GetBe32(&data[i * 4])); };

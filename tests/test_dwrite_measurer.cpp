@@ -240,6 +240,25 @@ TEST_F(DWriteInlineMathTest, RequestsPerFontSizeAndMarksTableCells)
     EXPECT_TRUE(cache[2].layout_dirty);
 }
 
+// 計画は文字の大きさの規則を計測と別に持つ。ずれると計測が頼んだ数式が計画に無く、ディスクキャッシュも追い出しも効かない。
+TEST_F(DWriteInlineMathTest, PlanCoversEveryMeasuredMath)
+{
+    auto [nodes, cache] = ParseAndLayout("# $a$\n\n## $a$\n\n### $a$\n\n#### $a$\n\n##### $a$\n\n###### $a$\n\n"
+                                         "$a$ **$b$** `c` $$d$$\n\n> $e$\n\n- $f$\n\n| $g$ |\n|---|\n| $h$ |\n");
+    const auto requests = table_.TakeRequests();
+    InlineMathPlan plan;
+    plan.Build(nodes, theme_);
+    size_t planned = 0;
+    for (const auto& c : plan.Chunks()) {
+        planned += c.items.size();
+    }
+    EXPECT_EQ(requests.size(), planned);
+    for (const auto& r : requests) {
+        SCOPED_TRACE(std::format("{} {}", r.tex, r.font_size));
+        EXPECT_TRUE(plan.ChunkOf(r.key));
+    }
+}
+
 // 同じ数式は結果が出るまで 1 回だけ頼み、溜まり始めたときだけ知らせる。
 TEST(InlineMathTable, RequestsOnceAndWakesWhenQueueStarts)
 {
@@ -311,12 +330,15 @@ TEST(InlineMathPlan, TakesChunkAgainAfterFinished)
     const uint64_t key = plan.Chunks()[0].key;
     EXPECT_EQ(plan.TakeChunk(0, false), plan.Chunks().data());
     EXPECT_EQ(plan.TakeChunk(0, false), nullptr);
-    EXPECT_FALSE(plan.FinishChunk(0, key, false));
+    EXPECT_FALSE(plan.IsWanted(0, key));
+    plan.FinishChunk(0, key, false);
     EXPECT_EQ(plan.TakeChunk(0, true), plan.Chunks().data());
-    EXPECT_TRUE(plan.FinishChunk(0, key, false));
+    EXPECT_TRUE(plan.IsWanted(0, key));
+    plan.FinishChunk(0, key, false);
+    EXPECT_FALSE(plan.IsWanted(0, key));
 }
 
-// 待っている間に見えた組は、結果が届いたときに見えている数式のために頼んだことになる。
+// 待っている間に見えた組は、見えている数式のために頼んだことになる (ページを上限を超えても受け取る)。
 TEST(InlineMathPlan, WantedWhileRequested)
 {
     InlineMathPlan plan;
@@ -324,7 +346,7 @@ TEST(InlineMathPlan, WantedWhileRequested)
     const uint64_t key = plan.Chunks()[0].key;
     ASSERT_NE(plan.TakeChunk(0, false), nullptr);
     EXPECT_EQ(plan.TakeChunk(0, true), nullptr);
-    EXPECT_TRUE(plan.FinishChunk(0, key, false));
+    EXPECT_TRUE(plan.IsWanted(0, key));
 }
 
 // 描けなかった組は、計画を作り直すまで取り出させない。作り直す前に頼んだ組の結果は状態を変えない。
@@ -335,15 +357,18 @@ TEST(InlineMathPlan, FailedAndStaleChunks)
     plan.Build(nodes, GetLightTheme());
     const uint64_t key = plan.Chunks()[0].key;
     ASSERT_NE(plan.TakeChunk(0, true), nullptr);
-    EXPECT_TRUE(plan.FinishChunk(0, key, true));
+    plan.FinishChunk(0, key, true);
     EXPECT_EQ(plan.TakeChunk(0, true), nullptr);
 
     plan.Build(nodes, GetLightTheme());
-    ASSERT_NE(plan.TakeChunk(0, false), nullptr);
-    EXPECT_FALSE(plan.FinishChunk(0, key + 1, true));
-    EXPECT_FALSE(plan.FinishChunk(1, key, true));
+    ASSERT_NE(plan.TakeChunk(0, true), nullptr);
+    EXPECT_TRUE(plan.IsWanted(0, key));
+    EXPECT_FALSE(plan.IsWanted(0, key + 1));
+    EXPECT_FALSE(plan.IsWanted(1, key));
+    plan.FinishChunk(0, key + 1, true);
+    plan.FinishChunk(1, key, true);
     EXPECT_EQ(plan.TakeChunk(0, false), nullptr) << "まだ待っている";
-    EXPECT_FALSE(plan.FinishChunk(0, key, false));
+    plan.FinishChunk(0, key, false);
     EXPECT_NE(plan.TakeChunk(0, false), nullptr);
 }
 

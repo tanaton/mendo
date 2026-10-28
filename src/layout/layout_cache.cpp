@@ -310,8 +310,7 @@ bool LayoutCache::InvalidatePendingMathLayouts(bool tables) noexcept
 {
     bool any = false;
     for (auto& e : entries_) {
-        const auto* tl = e.table_layout();
-        if (!e.pending_math && !(tables && tl && tl->pending_math)) {
+        if (!e.pending_math && !(tables && e.table_layout() && e.table_layout()->pending_math)) {
             continue;
         }
         // 数式の寸法で折り返しと行の高さが変わるので、表なら列幅と行の高さも含めて組み直す。

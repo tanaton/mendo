@@ -36,6 +36,11 @@ public:
     {
         current_dpr_ = dpr;
     }
+    // 当たった PNG はこの DPR で描いたもの。
+    float Dpr() const noexcept
+    {
+        return current_dpr_;
+    }
     struct Hit {
         uint64_t key = 0;
         CacheEntry entry;

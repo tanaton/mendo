@@ -113,7 +113,6 @@ using FixedBrushArray = std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>,
 // まとめて描いたインライン数式のページ 1 枚 (A8)。
 struct InlineMathPage {
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-    size_t bytes = 0;
     // このページを指す型の数。読み直しで型がすべて別のページへ移ったら捨てる。
     size_t masks = 0;
     // 組ごと描いてディスクキャッシュに置いたページ。計画に無い数式のページは読み直せないので捨てない。
@@ -130,8 +129,9 @@ struct InlineMathMask {
     D2D1_RECT_F dest;     // 数式の箱の左上を原点とする描画先 (DIP)。箱からはみ出すインクの分だけ広い
 };
 
-// キーは InlineMathKey。ページは GPU のメモリに置かれ、数式 10000 個で約 38MB になるので、上限を超えたら
-// 長く描いていないページから捨てる (EvictPages)。捨てたページの数式は、見えたときに組ごと読み直す (missing)。
+// キーは InlineMathKey。ページは GPU のメモリに置かれ、数式 10000 個で約 38MB になるので、上限に収まる分だけ受け取り
+// (App::ReserveInlineMathPage)、上限を超えたら長く描いていないページから捨てる (EvictPages)。型の無い数式は、
+// 見えたときに組ごと読み直す (missing)。
 struct InlineMathMasks {
     std::vector<std::unique_ptr<InlineMathPage>> pages;
     std::unordered_map<uint64_t, InlineMathMask> masks;
@@ -139,14 +139,13 @@ struct InlineMathMasks {
     // 描いたフレームの番号。Renderer が描くたびに進める。
     uint64_t frame = 0;
     // 見える位置にあるのに型が無かった数式。描いた後で呼び出し側が組を頼み直す。
-    mutable std::vector<uint64_t> missing;
+    std::vector<uint64_t> missing;
 
     const InlineMathMask* Find(uint64_t key) const noexcept
     {
         const auto it = masks.find(key);
         return it != masks.end() ? &it->second : nullptr;
     }
-    static size_t PageBytes(ID2D1Bitmap* bitmap) noexcept;
     InlineMathPage& AddPage(Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap, bool reloadable);
     // key の型を置き換える。前の型のページを指す型が無くなったら、そのページを捨てる。
     void Assign(uint64_t key, const InlineMathMask& mask);
@@ -155,5 +154,6 @@ struct InlineMathMasks {
 };
 
 // 該当ブラシが未作成のコマンドは描かない。rt は null にしない。math が無ければインライン数式は描かない。
+// math には描いたページの last_drawn と、型の無かった数式 (missing) を書く。
 void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes,
-                         const InlineMathMasks* math = nullptr);
+                         InlineMathMasks* math = nullptr);

@@ -286,7 +286,9 @@ private:
     void RelayoutViewport(RelayoutResources resources);
     // key の数式を含む組を描かせる (結果を待つ間は 1 回)。計画に無い数式なら false。wanted は InlineMathPlan::TakeChunk。
     bool RequestInlineMathChunk(uint64_t key, bool wanted);
-    // 描いた後に呼ぶ。捨てたページの数式が見えていれば読み直させ、ページが上限を超えていれば捨てる。
+    // 組のページ (A8、bytes バイト) を受け取るか (MathPageGate)。受け取るなら届くまで取り置く。
+    bool ReserveInlineMathPage(size_t chunk, uint64_t chunk_key, size_t bytes);
+    // 描いた後に呼ぶ。型の無い数式が見えていれば読み直させ、ページが上限を超えていれば捨てる。
     void ManageInlineMathPages();
     // 型を描画側に渡し、寸法を待って原文のまま組んだ段落を組み直す。chunk と chunk_key は頼んだ組で、計画に無い数式は 0。
     void OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t chunk_key);
@@ -385,6 +387,8 @@ private:
     static constexpr std::chrono::milliseconds kMathTableRelayoutInterval{ 1000 };
     // インライン数式のページ (A8) を持つ上限。数式 1 個あたり約 3.8KB で、約 2000 個分。
     static constexpr size_t kInlineMathPageBudget = 8u * 1024 * 1024;
+    // 受け取ると答えて、まだ届いていないページのバイト数。結果は必ず 1 回届くので、届いたときに戻す。
+    size_t reserved_math_page_bytes_ = 0;
     std::chrono::steady_clock::time_point last_math_table_relayout_{};
     MermaidRenderer mermaid_renderer_;
     ImageLoader image_loader_;
