@@ -20,6 +20,7 @@ enum class Id : UINT_PTR {
     FILE_RELOAD_DEBOUNCE,
     MERMAID_IDLE,
     DEVICE_RECREATE_RETRY,
+    INLINE_MATH_TABLES,
     END, // 番兵。タイマーとしては使わない。新規タイマーはこの直前に追加する。
 };
 

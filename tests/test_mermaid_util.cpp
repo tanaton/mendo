@@ -153,13 +153,14 @@ TEST(MathBoxesChunk, RejectsMissingCorruptOrMismatched)
     const auto png = MinimalPng();
     EXPECT_FALSE(mermaid_util::ReadMathBoxesChunk(png, 3)) << "チャンクが無い";
     auto with_boxes = mermaid_util::AppendMathBoxesChunk(png, SampleLayout());
-    EXPECT_FALSE(mermaid_util::ReadMathBoxesChunk(with_boxes, 2)) << "数が違う";
-    with_boxes[with_boxes.size() - 20] ^= 0xFF;
-    EXPECT_FALSE(mermaid_util::ReadMathBoxesChunk(with_boxes, 3)) << "CRC が合わない";
+    EXPECT_FALSE(mermaid_util::ReadMathBoxesChunk(std::as_const(with_boxes), 2)) << "数が違う";
+    with_boxes.data()[with_boxes.size() - 20] ^= 0xFF;
+    EXPECT_FALSE(mermaid_util::ReadMathBoxesChunk(std::as_const(with_boxes), 3)) << "CRC が合わない";
 
     auto outside = SampleLayout();
     outside.boxes[2].x = 1020.0f;
-    EXPECT_FALSE(mermaid_util::ReadMathBoxesChunk(mermaid_util::AppendMathBoxesChunk(png, outside), 3)) << "ページの外を指す";
+    const auto outside_png = mermaid_util::AppendMathBoxesChunk(png, outside);
+    EXPECT_FALSE(mermaid_util::ReadMathBoxesChunk(outside_png, 3)) << "ページの外を指す";
 
     const std::vector<uint8_t> not_png(64, 0);
     EXPECT_TRUE(mermaid_util::AppendMathBoxesChunk(not_png, SampleLayout()).empty());

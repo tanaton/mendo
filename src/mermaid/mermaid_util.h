@@ -1,4 +1,5 @@
 #pragma once
+#include "utility.h"
 #include <optional>
 #include <span>
 #include <string>
@@ -101,7 +102,7 @@ std::optional<MathBatchLayout> ParseMathBatch(std::wstring_view payload, size_t 
 
 // まとめ描きのページはディスクキャッシュに図と同じく PNG 1 枚で置き、箱の一覧は PNG の独自チャンク (mdMB) に埋める。
 // PNG でなければ空を返す。
-std::vector<uint8_t> AppendMathBoxesChunk(std::span<const uint8_t> png, const MathBatchLayout& layout);
+ByteBuffer AppendMathBoxesChunk(std::span<const uint8_t> png, const MathBatchLayout& layout);
 // チャンクが無い・壊れている・数が expected と違う・ページの外を指す箱があれば nullopt。
 std::optional<MathBatchLayout> ReadMathBoxesChunk(std::span<const uint8_t> png, size_t expected);
 

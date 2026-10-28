@@ -65,10 +65,20 @@ public:
     }
     // key の数式を含む組の番号。計画に無い (計画と違う大きさで組んだ) ときは nullopt。
     std::optional<size_t> ChunkOf(uint64_t key) const noexcept;
+    // 組を描くために取り出す。結果を待っている組と描けなかった組は nullptr。描けた組はまた取り出せる (型を捨てた後や
+    // デバイスロストの後に、見えた数式の組を読み直す)。wanted は見えている数式のために頼むときで、届いたページを上限を
+    // 超えても持たせる (FinishChunk)。
+    const InlineMathChunk* TakeChunk(size_t chunk, bool wanted) noexcept;
+    // TakeChunk した組の結果が届いた。戻り値はその組を wanted で頼んだか。計画を作り直す前に頼んだ組 (番号と key が
+    // 合わない) は何もせず false。描けなかった組は計画を作り直すまで取り出させない (描き直しても同じく失敗する)。
+    bool FinishChunk(size_t chunk, uint64_t key, bool failed) noexcept;
 
 private:
+    enum class State : uint8_t { Idle, Requested, Wanted, Failed };
+
     std::vector<InlineMathChunk> chunks_;
     std::unordered_map<uint64_t, uint32_t> chunk_of_;
+    std::vector<State> states_;
 };
 
 // 数式の寸法表。計測ワーカーが引き、まだ無ければ描画を頼む。描画の結果は UI スレッドが書く。
@@ -85,10 +95,12 @@ public:
 
     // 戻り値: key が表にある。Clear の前に頼んだ結果が後から届いたら false。
     bool Resolve(uint64_t key, InlineMathMetrics metrics);
-    // 描かれずに終わった (取り消し・失敗)。次に計測したときに頼み直させる。
-    void Forget(uint64_t key);
-    // 描いた型を失った (デバイスロスト) ので、寸法は残したまま描けた数式をすべて頼み直す。
-    void RequestAllAgain();
+    // 分かっている寸法。FindOrRequest と違い、無くても頼まない。
+    std::optional<InlineMathMetrics> Find(uint64_t key);
+    // 頼んで結果を待っている数式がある。
+    bool HasUnresolved();
+    // 描いた型を失った (デバイスロスト) ので、寸法は残したまま、描けた数式のうち again が true のものを頼み直す。
+    void RequestAllAgain(const std::function<bool(uint64_t)>& again);
     // すべて忘れる。表を引いて組んだレイアウトも捨てて、組み直させること。
     void Clear();
 
@@ -105,6 +117,8 @@ private:
 
     std::mutex mutex_;
     std::unordered_map<uint64_t, Entry> entries_;
+    // entries_ のうち resolved でないものの数。
+    size_t unresolved_ = 0;
     std::vector<InlineMathItem> requests_;
     std::move_only_function<void()> wake_;
 };

@@ -2,9 +2,8 @@
 #include "document_types.h"
 #include "theme.h"
 #include "utility.h"
-#include <atomic>
+#include <wrl/implements.h>
 #include <cmath>
-#include <unordered_set>
 
 std::optional<std::string> InlineMathTex(std::string_view text, const TextRun& run)
 {
@@ -34,7 +33,6 @@ void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
 
     chunks_.clear();
     chunk_of_.clear();
-    std::unordered_set<uint64_t> seen;
     InlineMathChunk current;
     const auto close = [&] {
         if (current.items.empty()) {
@@ -58,10 +56,9 @@ void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
                 continue;
             }
             const uint64_t key = InlineMathKey(*tex, font_size);
-            if (!seen.insert(key).second) {
+            if (!chunk_of_.try_emplace(key, static_cast<uint32_t>(chunks_.size())).second) {
                 continue;
             }
-            chunk_of_.emplace(key, static_cast<uint32_t>(chunks_.size()));
             current.items.push_back({ key, std::move(*tex), font_size });
             // 前後の数式に依らず区切るので、数式を足しても消しても区切りはその数式の前後でしか変わらない。
             // FNV-1a は似た短い TeX ("1101x" と "1102x" など) で偏るので、かき混ぜてから決める (splitmix64 の仕上げ)。
@@ -84,10 +81,33 @@ void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
             }
             continue;
         }
-        const bool heading = node.type == NodeType::Heading && node.heading_level >= 1 && node.heading_level <= 6;
-        add_runs(node.GetText(), node.runs(), heading ? theme.font_size_h[node.heading_level - 1] : theme.font_size_body);
+        add_runs(node.GetText(), node.runs(), node.type == NodeType::Heading ? theme.GetHeadingSize(node.heading_level) : theme.font_size_body);
     }
     close();
+    states_.assign(chunks_.size(), State::Idle);
+}
+
+const InlineMathChunk* InlineMathPlan::TakeChunk(size_t chunk, bool wanted) noexcept
+{
+    auto& state = states_[chunk];
+    if (state == State::Idle) {
+        state = wanted ? State::Wanted : State::Requested;
+        return &chunks_[chunk];
+    }
+    if (wanted && state == State::Requested) {
+        state = State::Wanted;
+    }
+    return nullptr;
+}
+
+bool InlineMathPlan::FinishChunk(size_t chunk, uint64_t key, bool failed) noexcept
+{
+    if (chunk >= chunks_.size() || chunks_[chunk].key != key) {
+        return false;
+    }
+    const bool wanted = states_[chunk] == State::Wanted;
+    states_[chunk] = failed ? State::Failed : State::Idle;
+    return wanted;
 }
 
 std::optional<size_t> InlineMathPlan::ChunkOf(uint64_t key) const noexcept
@@ -103,6 +123,7 @@ void InlineMathTable::MarkRequested(std::span<const InlineMathItem> items)
         if (const auto [it, inserted] = entries_.try_emplace(item.key); inserted) {
             it->second.tex = item.tex;
             it->second.font_size = item.font_size;
+            ++unresolved_;
         }
     }
 }
@@ -131,6 +152,7 @@ std::optional<InlineMathMetrics> InlineMathTable::FindOrRequest(uint64_t key, st
     }
     it->second.tex = tex;
     it->second.font_size = font_size;
+    ++unresolved_;
     PushRequest(key, it->second);
     return std::nullopt;
 }
@@ -149,30 +171,38 @@ bool InlineMathTable::Resolve(uint64_t key, InlineMathMetrics metrics)
         return false;
     }
     it->second.metrics = metrics;
-    it->second.resolved = true;
+    if (!std::exchange(it->second.resolved, true)) {
+        --unresolved_;
+    }
     return true;
+}
+
+std::optional<InlineMathMetrics> InlineMathTable::Find(uint64_t key)
+{
+    const std::lock_guard lock(mutex_);
+    const auto it = entries_.find(key);
+    return it != entries_.end() && it->second.resolved ? std::optional{ it->second.metrics } : std::nullopt;
+}
+
+bool InlineMathTable::HasUnresolved()
+{
+    const std::lock_guard lock(mutex_);
+    return unresolved_ > 0;
 }
 
 void InlineMathTable::Clear()
 {
     const std::lock_guard lock(mutex_);
     entries_.clear();
+    unresolved_ = 0;
     requests_.clear();
 }
 
-void InlineMathTable::Forget(uint64_t key)
-{
-    const std::lock_guard lock(mutex_);
-    if (const auto it = entries_.find(key); it != entries_.end() && !it->second.resolved) {
-        entries_.erase(it);
-    }
-}
-
-void InlineMathTable::RequestAllAgain()
+void InlineMathTable::RequestAllAgain(const std::function<bool(uint64_t)>& again)
 {
     const std::lock_guard lock(mutex_);
     for (const auto& [key, e] : entries_) {
-        if (e.resolved && e.metrics.ok()) {
+        if (e.resolved && e.metrics.ok() && again(key)) {
             PushRequest(key, e);
         }
     }
@@ -180,8 +210,9 @@ void InlineMathTable::RequestAllAgain()
 
 namespace {
 
-// 寸法と key を持つだけで描かない。計測ワーカーで作って UI スレッドで描くので、参照カウントは atomic にする。
-class InlineMathObject final : public IDWriteInlineObject {
+// 寸法と key を持つだけで描かない。計測ワーカーで作って UI スレッドで描くので、参照カウントはスレッド安全なものを使う。
+class InlineMathObject final
+    : public Microsoft::WRL::RuntimeClass<Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>, IDWriteInlineObject> {
 public:
     InlineMathObject(uint64_t key, const InlineMathMetrics& metrics) noexcept : key_(key), metrics_(metrics)
     {
@@ -190,29 +221,6 @@ public:
     uint64_t key() const noexcept
     {
         return key_;
-    }
-
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** out) noexcept override
-    {
-        if (riid == __uuidof(IUnknown) || riid == __uuidof(IDWriteInlineObject)) {
-            AddRef();
-            *out = static_cast<IDWriteInlineObject*>(this);
-            return S_OK;
-        }
-        *out = nullptr;
-        return E_NOINTERFACE;
-    }
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override
-    {
-        return refs_.fetch_add(1, std::memory_order_relaxed) + 1;
-    }
-    ULONG STDMETHODCALLTYPE Release() noexcept override
-    {
-        const ULONG left = refs_.fetch_sub(1, std::memory_order_acq_rel) - 1;
-        if (left == 0) {
-            delete this;
-        }
-        return left;
     }
 
     HRESULT STDMETHODCALLTYPE Draw(void*, IDWriteTextRenderer*, FLOAT, FLOAT, BOOL, BOOL, IUnknown*) noexcept override
@@ -238,7 +246,6 @@ public:
     }
 
 private:
-    std::atomic<ULONG> refs_{ 1 };
     uint64_t key_;
     InlineMathMetrics metrics_;
 };
@@ -247,9 +254,7 @@ private:
 
 Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeInlineMathObject(uint64_t key, const InlineMathMetrics& metrics)
 {
-    Microsoft::WRL::ComPtr<IDWriteInlineObject> object;
-    object.Attach(new InlineMathObject(key, metrics));
-    return object;
+    return Microsoft::WRL::Make<InlineMathObject>(key, metrics);
 }
 
 uint64_t InlineMathObjectKey(IDWriteInlineObject* object) noexcept

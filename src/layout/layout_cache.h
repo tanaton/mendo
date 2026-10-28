@@ -55,7 +55,7 @@ struct TableLayoutData {
     size_t live_row_begin = 0;
     size_t live_row_end = 0;
     // NodeLayoutEntry::pending_math のセル版。セルは並列に作るので std::atomic_ref で書く。
-    bool math_pending = false;
+    bool pending_math = false;
 
     TableLayoutData() = default;
     // セル単位・行単位の配列を表の大きさで確保する (セル layout は空)。
@@ -674,7 +674,8 @@ public:
     void InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept;
 
     // インライン数式の寸法を待って原文のまま組んだノードを dirty に戻し、組み直させる。1 つでもあれば true。
-    bool InvalidatePendingMathLayouts() noexcept;
+    // tables が false なら表は待たせたままにする (表は全セルを組み直すので重い)。
+    bool InvalidatePendingMathLayouts(bool tables) noexcept;
 
     // デバイスロスト時用。旧デバイス上のビットマップは新 RT で描画できず、
     // 残すと EndDraw が D2DERR_WRONG_RESOURCE_DOMAIN で失敗し続ける。

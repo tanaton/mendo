@@ -7,6 +7,7 @@
 #include <dwrite.h>
 #include <algorithm>
 #include <bit>
+#include <unordered_set>
 
 namespace {
 
@@ -107,21 +108,29 @@ public:
         FillLine(x, y + st->offset, st->width, st->thickness, effect);
         return S_OK;
     }
-    // インラインオブジェクトはインライン数式だけ。型がまだ無ければ (デバイスロストで描き直し中) 何も描かない。
+    // インラインオブジェクトはインライン数式だけ。型が無ければ (捨てたページ・デバイスロストで描き直し中) 何も描かない。
     HRESULT STDMETHODCALLTYPE DrawInlineObject(void*, FLOAT x, FLOAT y, IDWriteInlineObject* object, BOOL, BOOL, IUnknown* effect) noexcept override
     {
-        const auto* mask = math_ && object ? math_->Find(InlineMathObjectKey(object)) : nullptr;
-        if (!mask) {
+        if (!math_ || !object) {
             return S_OK;
         }
-        const D2D1_RECT_F dest{ x + mask->dest.left, y + mask->dest.top, x + mask->dest.right, y + mask->dest.bottom };
+        const uint64_t key = InlineMathObjectKey(object);
+        const auto* mask = math_->Find(key);
+        if (!mask) {
+            if (DWRITE_INLINE_OBJECT_METRICS m{}; SUCCEEDED(object->GetMetrics(&m)) && y + m.height >= cull_top_ && y <= cull_bottom_) {
+                math_->missing.push_back(key);
+            }
+            return S_OK;
+        }
+        const D2D1_RECT_F dest = OffsetRectF(mask->dest, x, y);
         if (dest.bottom < cull_top_ || dest.top > cull_bottom_) {
             return S_OK;
         }
+        mask->page->last_drawn = math_->frame;
         // FillOpacityMask は ALIASED のときしか描かない。
         const D2D1_ANTIALIAS_MODE mode = rt_->GetAntialiasMode();
         rt_->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
-        rt_->FillOpacityMask(mask->page, BrushFor(effect), D2D1_OPACITY_MASK_CONTENT_GRAPHICS, &dest, &mask->src);
+        rt_->FillOpacityMask(mask->page->bitmap.Get(), BrushFor(effect), D2D1_OPACITY_MASK_CONTENT_GRAPHICS, &dest, &mask->src);
         rt_->SetAntialiasMode(mode);
         return S_OK;
     }
@@ -195,6 +204,59 @@ private:
 };
 
 } // namespace
+
+size_t InlineMathMasks::PageBytes(ID2D1Bitmap* bitmap) noexcept
+{
+    const auto size = bitmap->GetPixelSize();
+    return size_t{ size.width } * size.height;
+}
+
+InlineMathPage& InlineMathMasks::AddPage(Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap, bool reloadable)
+{
+    const size_t bytes = PageBytes(bitmap.Get());
+    auto& page = *pages.emplace_back(std::make_unique<InlineMathPage>(InlineMathPage{
+        .bitmap = std::move(bitmap), .bytes = bytes, .reloadable = reloadable, .last_drawn = frame }));
+    page_bytes += page.bytes;
+    return page;
+}
+
+void InlineMathMasks::Assign(uint64_t key, const InlineMathMask& mask)
+{
+    ++mask.page->masks;
+    const auto [it, inserted] = masks.try_emplace(key, mask);
+    if (inserted) {
+        return;
+    }
+    InlineMathPage* const old = std::exchange(it->second, mask).page;
+    if (--old->masks == 0) {
+        page_bytes -= old->bytes;
+        std::erase_if(pages, [old](const auto& p) { return p.get() == old; });
+    }
+}
+
+void InlineMathMasks::EvictPages(size_t budget)
+{
+    if (page_bytes <= budget) {
+        return;
+    }
+    std::vector<InlineMathPage*> order;
+    for (const auto& p : pages) {
+        if (p->reloadable && p->last_drawn != frame) {
+            order.push_back(p.get());
+        }
+    }
+    std::ranges::sort(order, {}, &InlineMathPage::last_drawn);
+    std::unordered_set<const InlineMathPage*> victims;
+    for (auto* p : order) {
+        if (page_bytes <= budget) {
+            break;
+        }
+        page_bytes -= p->bytes;
+        victims.insert(p);
+    }
+    std::erase_if(masks, [&](const auto& m) { return victims.contains(m.second.page); });
+    std::erase_if(pages, [&](const auto& p) { return victims.contains(p.get()); });
+}
 
 void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, const InlineMathMasks* math)
 {

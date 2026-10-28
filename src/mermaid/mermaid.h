@@ -1,5 +1,6 @@
 #pragma once
 #include "document_types.h"
+#include "inline_math.h"
 #include "layout_cache.h"
 #include "transposition_cache.h"
 #include "mermaid_renderer_interface.h"
@@ -23,6 +24,25 @@
 class MermaidFileCache;
 class TaskScheduler;
 
+// インライン数式をまとめて描いた結果。
+struct InlineMathBatchResult {
+    struct Item {
+        uint64_t key = 0;
+        // 描けなかった数式 (KaTeX のエラー) は空。
+        InlineMathMetrics metrics;
+        D2D1_RECT_F src{};  // page の中の位置 (ピクセル)
+        D2D1_RECT_F dest{}; // 数式の箱の左上を原点とする描画先 (DIP)
+    };
+    // 数式の形をアルファに持つ A8 のビットマップ。まとめて描けなかったときは null で、items の metrics はすべて空。
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> page;
+    // 要求と同じ順。
+    std::vector<Item> items;
+    // 描く前に取り消した (終了・文書の差し替え)。数式のエラーではないので、後で頼み直してよい。
+    bool cancelled = false;
+};
+// 描けたとき・失敗したとき・取り消したときのどれでも 1 回だけ呼ぶ。
+using MathBatchCallback = std::move_only_function<void(InlineMathBatchResult result)>;
+
 // オフスクリーンWebView2を使ってMermaidダイアグラムコードをID2D1Bitmapにレンダリングする。
 // 複数のWebView2インスタンスを並行稼働させ、複数の図を同時にレンダリングできる。
 // すべてのパブリックメソッドはUIスレッドから呼び出す必要がある。
@@ -45,7 +65,11 @@ public:
 
     bool RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode) override;
     void RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback) override;
-    void RequestMathBatch(std::vector<InlineMathItem> items, uint64_t cache_key, MathBatchCallback callback) override;
+    // インライン数式を 1 ページに並べて描き、1 回のキャプチャで型を取る。図と同じワーカー枠を使う。
+    // 1 つずつ描くとキャプチャの待ちで 1 個 66ms かかるが、まとめれば 1 個 0.5ms ほどで済む。
+    // items は kMaxInlineMathPerChunk 個までにする。cache_key (InlineMathChunk::key) があれば、ページを図と同じ
+    // ディスクキャッシュに置き、次からは WebView2 を起動せずに読む。0 ならキャッシュしない。
+    void RequestMathBatch(std::vector<InlineMathItem> items, uint64_t cache_key, MathBatchCallback callback);
     void SetRenderTarget(ID2D1RenderTarget* render_target);
     // ワーカーは画面外に置くため、PNG は本体ウィンドウではなくその位置のモニタの DPR で描かれる。
     // ワーカーを起動する前にディスクキャッシュを引くときの DPR に使う。
@@ -59,6 +83,8 @@ public:
     }
     void Shutdown();
     void DropQueued() override;
+    // 描画待ちのインライン数式の要求を取り消す (cancelled で返す)。数式の寸法表を捨てたときに、もう使わない組を描かせない。
+    void DropQueuedMath();
     void OnInitRetryTimer();
     // 一定時間描画要求が無ければ WebView2 を環境ごと閉じる (browser/renderer/GPU プロセスのメモリ解放)。
     void OnIdleTimer();
@@ -102,8 +128,7 @@ private:
         uint64_t math_cache_key = 0;
         // ページの大きさと各数式の箱。描画結果 (math-result) かディスクキャッシュの PNG のチャンクから受け取り、
         // キャプチャの切り出しに使う。
-        mermaid_util::RenderSize math_page;
-        std::vector<mermaid_util::MathBox> math_boxes;
+        mermaid_util::MathBatchLayout math_layout;
 
         bool is_math() const noexcept
         {
@@ -188,6 +213,12 @@ private:
     static void InvokeSvgCallbackIfAny(RenderRequest& req, std::wstring svg, bool cancelled);
     // インライン数式の要求なら、描けなかったことを知らせて math_callback をクリアする。
     static void FailMathCallbackIfAny(RenderRequest& req, bool cancelled);
+    // 結果を返さずに終える要求のコールバック (SVG・インライン数式) を失敗か取り消しで呼ぶ。成功した要求は呼び済みで何もしない。
+    static void FailCallbacksIfAny(RenderRequest& req, bool cancelled)
+    {
+        InvokeSvgCallbackIfAny(req, {}, cancelled);
+        FailMathCallbackIfAny(req, cancelled);
+    }
     void RenderMathInWorker(Worker& worker);
     void OnMathResult(int worker_idx, std::wstring_view payload);
     // ビューのリサイズが描画に反映されたら capture-ready を返させる。
@@ -196,8 +227,10 @@ private:
     // キャプチャならディスクキャッシュに置く PNG に箱の一覧を埋める。
     void LoadMathJob(DiskLoad& job);
     void ApplyMathLoad(DiskLoad& r);
-    // WebView2 で描く待ちに積む。図と違い、準備前でも捨てない (準備完了の通知で頼み直す仕組みが無い)。
-    void EnqueueMath(RenderRequest req);
+    // WebView2 で描く待ちに積む。SVG とインライン数式の要求は図と違い、準備前でも捨てない (準備完了の通知で頼み直す仕組みが無い)。
+    void EnqueueKept(RenderRequest req);
+    // 描画待ちから drop が true を返した要求を除く。drop は除く要求の後始末もする。
+    void DropPendingIf(const std::function<bool(RenderRequest&)>& drop);
     // 表示用リクエストのエラーを kind で確定させる (issue #271)。msg は Render のときの Mermaid の文言で、空なら汎用の文言を出す。
     void SetDiagramError(const RenderRequest& req, DiagramError::Kind kind, std::wstring_view msg = {});
     static void ApplyResult(DiagramEntry& diagram_entry, const CachedResult& result);

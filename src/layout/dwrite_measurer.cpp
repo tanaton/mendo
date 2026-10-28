@@ -434,7 +434,10 @@ bool DWriteTextMeasurer::ApplyInlineMath(IDWriteTextLayout* layout, std::span<co
         return false;
     }
     bool pending = false;
-    // 隣り合う数式も別のオブジェクトにするので、AttrRangeBuilder でまとめずに run ごとに掛ける。
+    // 数式ごとに TeX の文字列とインラインオブジェクトを作る。数式 1 個あたり約 135ns で、数式 12000 個の文書を組む時間
+    // (直列 113ms) の約 1.4% にとどまる (BM_InlineMathLayout)。オブジェクトは表に持たせて使い回さない。同じオブジェクトを
+    // 隣り合う範囲 (*$x$*$x$ など) に掛けると、DirectWrite が 1 つの範囲にまとめて数式 1 個分の幅にする。
+    // 同じ理由で、AttrRangeBuilder でまとめずに run ごとに掛ける。
     Utf16OffsetCursor cursor{ text };
     for (const auto& r : runs) {
         if (!r.math()) {
@@ -535,7 +538,7 @@ ComPtr<IDWriteTextLayout> DWriteTextMeasurer::CreateCellLayout(const DWriteConte
     const auto text = tbl.GetCellText(r, c);
     if (!text.empty() && SUCCEEDED(CreateDocTextLayout(ctx.factory.Get(), text, GetTableRowFormat(ctx, tbl, r), layout::kNoWrapLayoutWidth, layout::kNoWrapLayoutWidth, &cell_layout))) {
         if (ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, /*apply_code_size=*/true)) {
-            std::atomic_ref{ tl.math_pending }.store(true, std::memory_order_relaxed);
+            std::atomic_ref{ tl.pending_math }.store(true, std::memory_order_relaxed);
         }
         // 揃えは折り返さない幅に影響しないので、自然幅の計測前に付けてよい。
         if (const TableAlign align = tbl.ColAlign(c); align == TableAlign::Center) {

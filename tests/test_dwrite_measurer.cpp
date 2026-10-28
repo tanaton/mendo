@@ -94,9 +94,8 @@ protected:
     // [start, start+length) の文字を覆う矩形の幅の合計。
     static float RangeWidth(IDWriteTextLayout* layout, UINT32 start, UINT32 length)
     {
-        DWRITE_HIT_TEST_METRICS m[8]{};
-        UINT32 count = 0;
-        layout->HitTestTextRange(start, length, 0.0f, 0.0f, m, 8, &count);
+        std::vector<DWRITE_HIT_TEST_METRICS> m;
+        const UINT32 count = FetchHitTestMetrics(layout, start, length, m);
         float width = 0.0f;
         for (UINT32 i = 0; i < count; ++i) {
             width += m[i].width;
@@ -120,8 +119,8 @@ TEST_F(DWriteInlineMathTest, WaitsForMetricsThenReplacesRangeWithObject)
     EXPECT_EQ(requests[0].key, InlineMathKey("x^2", theme_.font_size_body));
 
     table_.Resolve(requests[0].key, { 123.0f, 30.0f, 20.0f });
-    EXPECT_TRUE(cache.InvalidatePendingMathLayouts());
-    EXPECT_FALSE(cache.InvalidatePendingMathLayouts()) << "印は 1 回で外す";
+    EXPECT_TRUE(cache.InvalidatePendingMathLayouts(true));
+    EXPECT_FALSE(cache.InvalidatePendingMathLayouts(true)) << "印は 1 回で外す";
     ComputeLayout(engine_, nodes, cache, 800.0f);
     EXPECT_FALSE(cache[0].pending_math);
     EXPECT_TRUE(table_.TakeRequests().empty());
@@ -136,7 +135,7 @@ TEST_F(DWriteInlineMathTest, ExpandToClustersCoversWholeFormula)
     auto requests = table_.TakeRequests();
     ASSERT_EQ(requests.size(), 1u);
     table_.Resolve(requests[0].key, { 60.0f, 24.0f, 18.0f });
-    cache.InvalidatePendingMathLayouts();
+    cache.InvalidatePendingMathLayouts(true);
     ComputeLayout(engine_, nodes, cache, 800.0f);
     auto* layout = cache[0].text_layout();
     ASSERT_NE(layout, nullptr);
@@ -232,13 +231,16 @@ TEST_F(DWriteInlineMathTest, RequestsPerFontSizeAndMarksTableCells)
     EXPECT_NE(requests[0].key, InlineMathKey("x", theme_.font_size_body));
     const auto* tl = cache[2].table_layout();
     ASSERT_NE(tl, nullptr);
-    EXPECT_TRUE(tl->math_pending);
-    EXPECT_TRUE(cache.InvalidatePendingMathLayouts());
+    EXPECT_TRUE(tl->pending_math);
+    // 表を待たせても、段落は組み直す。
+    EXPECT_TRUE(cache.InvalidatePendingMathLayouts(false));
+    EXPECT_EQ(cache[2].table_layout(), tl);
+    EXPECT_TRUE(cache.InvalidatePendingMathLayouts(true));
     EXPECT_EQ(cache[2].table_layout(), nullptr);
     EXPECT_TRUE(cache[2].layout_dirty);
 }
 
-// 同じ数式は結果が出るまで 1 回だけ頼み、溜まり始めたときだけ知らせる。取り消したら頼み直せる。
+// 同じ数式は結果が出るまで 1 回だけ頼み、溜まり始めたときだけ知らせる。
 TEST(InlineMathTable, RequestsOnceAndWakesWhenQueueStarts)
 {
     InlineMathTable table;
@@ -250,15 +252,14 @@ TEST(InlineMathTable, RequestsOnceAndWakesWhenQueueStarts)
     EXPECT_EQ(wakes, 1);
     EXPECT_EQ(table.TakeRequests().size(), 2u);
 
-    table.Forget(1);
-    EXPECT_FALSE(table.FindOrRequest(1, "a", 16.0f));
-    EXPECT_EQ(wakes, 2);
+    EXPECT_TRUE(table.HasUnresolved());
     table.Resolve(1, { 10.0f, 5.0f, 4.0f });
     const auto found = table.FindOrRequest(1, "a", 16.0f);
     ASSERT_TRUE(found);
     EXPECT_FLOAT_EQ(found->width, 10.0f);
-    table.Forget(1);
-    EXPECT_TRUE(table.FindOrRequest(1, "a", 16.0f)) << "描けた数式は Forget で消さない";
+    EXPECT_TRUE(table.HasUnresolved());
+    table.Resolve(2, {});
+    EXPECT_FALSE(table.HasUnresolved()) << "描けなかった数式も結果が出たら待ちから外す";
 }
 
 namespace {
@@ -299,6 +300,51 @@ TEST(InlineMathPlan, OrdersDedupesAndUsesLayoutFontSizes)
     InlineMathPlan again;
     again.Build(nodes, theme);
     EXPECT_EQ(ChunkKeys(again), ChunkKeys(plan));
+}
+
+// 組は結果を待つ間は取り出せず、描けたらまた取り出せる (型を捨てた後に読み直す)。
+TEST(InlineMathPlan, TakesChunkAgainAfterFinished)
+{
+    InlineMathPlan plan;
+    plan.Build(ParseNodes("$a$ $b$\n"), GetLightTheme());
+    ASSERT_EQ(plan.Chunks().size(), 1u);
+    const uint64_t key = plan.Chunks()[0].key;
+    EXPECT_EQ(plan.TakeChunk(0, false), plan.Chunks().data());
+    EXPECT_EQ(plan.TakeChunk(0, false), nullptr);
+    EXPECT_FALSE(plan.FinishChunk(0, key, false));
+    EXPECT_EQ(plan.TakeChunk(0, true), plan.Chunks().data());
+    EXPECT_TRUE(plan.FinishChunk(0, key, false));
+}
+
+// 待っている間に見えた組は、結果が届いたときに見えている数式のために頼んだことになる。
+TEST(InlineMathPlan, WantedWhileRequested)
+{
+    InlineMathPlan plan;
+    plan.Build(ParseNodes("$a$\n"), GetLightTheme());
+    const uint64_t key = plan.Chunks()[0].key;
+    ASSERT_NE(plan.TakeChunk(0, false), nullptr);
+    EXPECT_EQ(plan.TakeChunk(0, true), nullptr);
+    EXPECT_TRUE(plan.FinishChunk(0, key, false));
+}
+
+// 描けなかった組は、計画を作り直すまで取り出させない。作り直す前に頼んだ組の結果は状態を変えない。
+TEST(InlineMathPlan, FailedAndStaleChunks)
+{
+    InlineMathPlan plan;
+    const auto nodes = ParseNodes("$a$\n");
+    plan.Build(nodes, GetLightTheme());
+    const uint64_t key = plan.Chunks()[0].key;
+    ASSERT_NE(plan.TakeChunk(0, true), nullptr);
+    EXPECT_TRUE(plan.FinishChunk(0, key, true));
+    EXPECT_EQ(plan.TakeChunk(0, true), nullptr);
+
+    plan.Build(nodes, GetLightTheme());
+    ASSERT_NE(plan.TakeChunk(0, false), nullptr);
+    EXPECT_FALSE(plan.FinishChunk(0, key + 1, true));
+    EXPECT_FALSE(plan.FinishChunk(1, key, true));
+    EXPECT_EQ(plan.TakeChunk(0, false), nullptr) << "まだ待っている";
+    EXPECT_FALSE(plan.FinishChunk(0, key, false));
+    EXPECT_NE(plan.TakeChunk(0, false), nullptr);
 }
 
 // 数式を 1 つ足しても、変わる組はその前後だけで、残りの組はディスクキャッシュに当たり続ける。組は上限を超えない。
@@ -366,13 +412,29 @@ TEST(InlineMathTable, RequestAllAgainKeepsMetrics)
     table.FindOrRequest(1, "a", 16.0f);
     table.FindOrRequest(2, "b", 16.0f);
     table.FindOrRequest(3, "c", 16.0f);
+    table.FindOrRequest(4, "d", 16.0f);
     table.TakeRequests();
     table.Resolve(1, { 10.0f, 5.0f, 4.0f });
     table.Resolve(2, {});
-    table.RequestAllAgain();
+    table.Resolve(4, { 10.0f, 5.0f, 4.0f });
+    table.RequestAllAgain([](uint64_t key) { return key != 4; });
     const auto again = table.TakeRequests();
     ASSERT_EQ(again.size(), 1u);
     EXPECT_EQ(again[0].key, 1u);
     EXPECT_EQ(again[0].tex, "a");
     EXPECT_TRUE(table.FindOrRequest(1, "a", 16.0f));
+}
+
+// Find は分かっている寸法だけを返し、無くても頼まない。
+TEST(InlineMathTable, FindDoesNotRequest)
+{
+    InlineMathTable table;
+    EXPECT_FALSE(table.Find(1));
+    table.FindOrRequest(1, "a", 16.0f);
+    table.TakeRequests();
+    EXPECT_FALSE(table.Find(1)) << "待っている";
+    table.Resolve(1, { 10.0f, 5.0f, 4.0f });
+    ASSERT_TRUE(table.Find(1));
+    EXPECT_FLOAT_EQ(table.Find(1)->width, 10.0f);
+    EXPECT_TRUE(table.TakeRequests().empty());
 }

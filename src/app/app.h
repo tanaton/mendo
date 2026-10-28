@@ -23,6 +23,7 @@
 #include "theme_service.h"
 #include <windows.h>
 #include <shellapi.h>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -283,9 +284,15 @@ private:
     };
     // 可視範囲を計測し直し、スクロール上限・図と画像・遅延レイアウト・目次を追従させる。
     void RelayoutViewport(RelayoutResources resources);
-    // 型を描画側に渡し、寸法を待って原文のまま組んだ段落を組み直す。
-    void OnInlineMathRendered(InlineMathBatchResult result);
-    // 描いた数式の型と寸法を捨てる。全レイアウトを組み直すとき (ズーム・別の文書) に呼ぶ。
+    // key の数式を含む組を描かせる (結果を待つ間は 1 回)。計画に無い数式なら false。wanted は InlineMathPlan::TakeChunk。
+    bool RequestInlineMathChunk(uint64_t key, bool wanted);
+    // 描いた後に呼ぶ。捨てたページの数式が見えていれば読み直させ、ページが上限を超えていれば捨てる。
+    void ManageInlineMathPages();
+    // 型を描画側に渡し、寸法を待って原文のまま組んだ段落を組み直す。chunk と chunk_key は頼んだ組で、計画に無い数式は 0。
+    void OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t chunk_key);
+    // 寸法を待って原文のまま組んだ段落を組み直す。tables が false なら表は待たせたままにする。
+    void RelayoutPendingInlineMath(bool tables);
+    // 描いた数式の型と寸法を捨て、計画を作り直す。全レイアウトを組み直すとき (ズーム・別の文書) に呼ぶ。
     void ForgetInlineMath();
     // 文書か文字の大きさが変わったら作り直す。
     void RebuildInlineMathPlan();
@@ -374,7 +381,11 @@ private:
     InlineMathTable inline_math_;
     // 文書の数式の組。組ごとに描いてディスクキャッシュに置く。
     InlineMathPlan inline_math_plan_;
-    std::vector<uint8_t> inline_math_chunk_requested_;
+    // 数式を待つ表を組み直した時刻と、その間隔 (OnInlineMathRendered)。
+    static constexpr std::chrono::milliseconds kMathTableRelayoutInterval{ 1000 };
+    // インライン数式のページ (A8) を持つ上限。数式 1 個あたり約 3.8KB で、約 2000 個分。
+    static constexpr size_t kInlineMathPageBudget = 8u * 1024 * 1024;
+    std::chrono::steady_clock::time_point last_math_table_relayout_{};
     MermaidRenderer mermaid_renderer_;
     ImageLoader image_loader_;
     FileWatcher file_watcher_;

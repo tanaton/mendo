@@ -194,6 +194,7 @@ private:
         float text_y = 0.0f;
         float height = 0.0f;
         uint32_t flat_offset = 0;
+        std::span<const TextRun> runs;
         TextSelection::NodeRange selection{ 0, 0 };
         bool is_header = false;
     };

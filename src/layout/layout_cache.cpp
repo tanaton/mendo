@@ -306,12 +306,12 @@ void LayoutCache::InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept
     estimate_basis_ = {};
 }
 
-bool LayoutCache::InvalidatePendingMathLayouts() noexcept
+bool LayoutCache::InvalidatePendingMathLayouts(bool tables) noexcept
 {
     bool any = false;
     for (auto& e : entries_) {
         const auto* tl = e.table_layout();
-        if (!e.pending_math && !(tl && tl->math_pending)) {
+        if (!e.pending_math && !(tables && tl && tl->pending_math)) {
             continue;
         }
         // 数式の寸法で折り返しと行の高さが変わるので、表なら列幅と行の高さも含めて組み直す。

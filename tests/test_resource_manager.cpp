@@ -124,11 +124,6 @@ public:
         }
     }
 
-    void RequestMathBatch(std::vector<InlineMathItem> /*items*/, uint64_t /*cache_key*/, MathBatchCallback callback) override
-    {
-        callback(InlineMathBatchResult{ .cancelled = true });
-    }
-
     void DropQueued() override
     {
         drop_queued_count++;

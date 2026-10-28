@@ -574,43 +574,12 @@ void AppendImageHtml(std::string& out, const Node& node, uint32_t start, uint32_
 
 std::optional<LinkHit> FindLinkInRuns(std::span<const TextRun> runs, std::span<const std::string_view> link_urls, uint32_t pos)
 {
-    // runs は start 昇順で重ならないので、pos を含みうるのは start <= pos の最後の run だけ。
-    const auto it = std::ranges::upper_bound(runs, pos, {}, &TextRun::start);
-    if (it == runs.begin()) {
+    const TextRun* run = FindRunAt(runs, pos);
+    if (!run || !run->has_link() || static_cast<size_t>(run->link_url_index) >= link_urls.size()) {
         return std::nullopt;
     }
-    const TextRun& run = *std::prev(it);
-    if (!run.has_link() || pos >= run.start + run.length || static_cast<size_t>(run.link_url_index) >= link_urls.size()) {
-        return std::nullopt;
-    }
-    const auto index = static_cast<uint32_t>(run.link_url_index);
+    const auto index = static_cast<uint32_t>(run->link_url_index);
     return LinkHit{ link_urls[index], index };
-}
-
-struct CellRunsHit {
-    std::span<const TextRun> runs;
-    uint32_t local_pos = 0;
-};
-
-// text_pos は linearized 形式 (concat_text) の offset。セル外 (区切り文字・padding) なら runs は空。
-CellRunsHit FindTableCellRuns(const Node& node, uint32_t text_pos)
-{
-    const auto* tbl = node.table_data();
-    if (!tbl || tbl->row_count == 0 || tbl->col_count == 0) {
-        return {};
-    }
-    const size_t idx = tbl->CellIndexAt(text_pos);
-    const size_t col_count = tbl->col_count;
-    const size_t r = idx / col_count;
-    const size_t c = idx % col_count;
-    if (r >= tbl->row_count) {
-        return {};
-    }
-    // 末尾区切りを除いたセル長で in-range 判定。padding セルは長さ 0 で必ず外れる。
-    if (text_pos >= tbl->CellTextEnd(r, c)) {
-        return {};
-    }
-    return { tbl->GetCellRuns(r, c), text_pos - tbl->CellTextStart(r, c) };
 }
 
 } // namespace
@@ -755,9 +724,6 @@ std::string ExtractSelectedTextAsHtml(const std::vector<Node>& nodes, const Text
 
 std::optional<LinkHit> FindLinkHitAtPosition(const Node& node, uint32_t text_pos)
 {
-    if (node.type == NodeType::Table) {
-        const auto [runs, local_pos] = FindTableCellRuns(node, text_pos);
-        return runs.empty() ? std::nullopt : FindLinkInRuns(runs, node.view_link_urls(), local_pos);
-    }
-    return FindLinkInRuns(node.runs(), node.view_link_urls(), text_pos);
+    const auto [runs, local_pos] = FindRunsAt(node, text_pos);
+    return FindLinkInRuns(runs, node.view_link_urls(), local_pos);
 }

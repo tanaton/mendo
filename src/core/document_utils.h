@@ -31,6 +31,17 @@ struct NodeWordRange {
 };
 NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, uint32_t pos) noexcept;
 
+// pos を含む run。runs は start 昇順で重ならない。無ければ null。
+const TextRun* FindRunAt(std::span<const TextRun> runs, uint32_t pos) noexcept;
+
+// node の pos にある run の並びと、その中での位置。表はセルごとに run を持ち、pos は linearized 形式 (concat_text) の
+// offset。セル外 (区切り文字・padding) なら runs は空。
+struct NodeRunsAt {
+    std::span<const TextRun> runs;
+    uint32_t local_pos = 0;
+};
+NodeRunsAt FindRunsAt(const Node& node, uint32_t pos) noexcept;
+
 std::string ToLowerAsciiCopy(std::string_view text);
 
 // CRLF / 旧式 CR を LF に正規化する (in-place)。

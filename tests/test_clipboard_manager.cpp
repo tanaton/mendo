@@ -26,11 +26,6 @@ public:
         last_callback = std::move(cb);
     }
 
-    void RequestMathBatch(std::vector<InlineMathItem>, uint64_t, MathBatchCallback cb) override
-    {
-        cb(InlineMathBatchResult{ .cancelled = true });
-    }
-
     void FireCallback(std::wstring svg, bool cancelled)
     {
         if (last_callback) {

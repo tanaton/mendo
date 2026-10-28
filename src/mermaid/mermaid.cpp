@@ -616,8 +616,7 @@ void MermaidRenderer::DrainPendingRequests(bool cancelled)
     // 待機中の SVG・インライン数式のリクエストを完了させ、呼び出し元の in-flight フラグ固着を防ぐ。
     while (!pending_requests_.empty()) {
         auto& req = pending_requests_.front();
-        InvokeSvgCallbackIfAny(req, {}, cancelled);
-        FailMathCallbackIfAny(req, cancelled);
+        FailCallbacksIfAny(req, cancelled);
         ReleaseInflight(req);
         pending_requests_.pop();
     }
@@ -633,8 +632,7 @@ void MermaidRenderer::CancelPending()
     // SVG コールバックの再入で worker_count_ が変わり得るため毎回読み直す。
     for (int i = 0; i < worker_count_; i++) {
         auto& w = workers_[i];
-        InvokeSvgCallbackIfAny(w.current_request, {}, true);
-        FailMathCallbackIfAny(w.current_request, true);
+        FailCallbacksIfAny(w.current_request, true);
         w.current_request = {};
     }
     inflight_.clear();
@@ -647,15 +645,33 @@ void MermaidRenderer::DropQueued()
 {
     // 読み込み待ちのディスクキャッシュも取り消す。描画直後の PNG はディスクへ保存したいので取り消さない。
     disk_drop_gen_.fetch_add(1, std::memory_order_relaxed);
+    // インライン数式は幅にもテーマにも依らないので、移動しても描く価値が残る。
+    DropPendingIf([this](RenderRequest& req) {
+        if (!req.is_display()) {
+            return false;
+        }
+        ReleaseInflight(req);
+        return true;
+    });
+}
+
+void MermaidRenderer::DropQueuedMath()
+{
+    DropPendingIf([](RenderRequest& req) {
+        if (!req.is_math()) {
+            return false;
+        }
+        FailMathCallbackIfAny(req, true);
+        return true;
+    });
+}
+
+void MermaidRenderer::DropPendingIf(const std::function<bool(RenderRequest&)>& drop)
+{
     std::queue<RenderRequest, std::deque<RenderRequest>> kept;
     while (!pending_requests_.empty()) {
-        auto& req = pending_requests_.front();
-        // インライン数式は幅にもテーマにも依らないので、移動しても描く価値が残る。
-        if (!req.is_display()) {
+        if (auto& req = pending_requests_.front(); !drop(req)) {
             kept.push(std::move(req));
-        }
-        else {
-            ReleaseInflight(req);
         }
         pending_requests_.pop();
     }
@@ -820,34 +836,31 @@ void MermaidRenderer::LoadMathJob(DiskLoad& job)
             job.png.reset();
             return;
         }
-        req.math_page = layout->size;
-        req.math_boxes = std::move(layout->boxes);
+        req.math_layout = std::move(*layout);
     }
     // 透明な背景のキャプチャは BGRA の straight alpha で、黒で描いた数式の形はアルファにだけある。
-    // デコーダは CopyPixels のときに job.png を読むので、それまで手放さない。
-    const auto decoded = wic_util::DecodeFromMemory(wic_factory_.Get(), *job.png, GUID_ContainerFormatPng, GUID_WICPixelFormat32bppBGRA);
+    // WIC にアルファだけを取り出させる (BGRA で受けて抜き出すより、1536x618 のページで 2.65ms → 1.85ms、
+    // 一時バッファ 3.8MB が要らない。結果は同じ)。デコーダは CopyPixels のときに job.png を読むので、それまで手放さない。
+    const auto decoded = wic_util::DecodeFromMemory(wic_factory_.Get(), *job.png, GUID_ContainerFormatPng, GUID_WICPixelFormat8bppAlpha);
     if (!decoded || decoded->pixel_width == 0 || decoded->pixel_height == 0) {
         job.png.reset();
         return;
     }
     const UINT w = decoded->pixel_width;
     const UINT h = decoded->pixel_height;
-    std::vector<uint8_t> bgra(size_t{ w } * h * 4);
-    const HRESULT hr = decoded->converter->CopyPixels(nullptr, w * 4, static_cast<UINT>(bgra.size()), bgra.data());
+    job.alpha.resize(size_t{ w } * h);
+    const HRESULT hr = decoded->converter->CopyPixels(nullptr, w, static_cast<UINT>(job.alpha.size()), job.alpha.data());
     // 描いたばかりのページは、箱の一覧を埋めてディスクキャッシュに置く。
     if (SUCCEEDED(hr) && job.captured && req.math_cache_key != 0) {
-        auto with_boxes = mermaid_util::AppendMathBoxesChunk({ job.png->data(), job.png->size() }, { req.math_page, req.math_boxes });
-        job.png = with_boxes.empty() ? nullptr : std::make_shared<const ByteBuffer>(with_boxes);
+        auto with_boxes = mermaid_util::AppendMathBoxesChunk({ job.png->data(), job.png->size() }, req.math_layout);
+        job.png = with_boxes.empty() ? nullptr : std::make_shared<const ByteBuffer>(std::move(with_boxes));
     }
     else {
         job.png.reset();
     }
     if (FAILED(hr)) {
+        job.alpha.clear();
         return;
-    }
-    job.alpha.resize(size_t{ w } * h);
-    for (size_t i = 0; i < job.alpha.size(); ++i) {
-        job.alpha[i] = bgra[i * 4 + 3];
     }
     job.alpha_width = w;
     job.alpha_height = h;
@@ -858,7 +871,7 @@ void MermaidRenderer::ApplyMathLoad(DiskLoad& r)
     // ディスクキャッシュから読めなかった (消えていた・壊れていた) ので描き直す。描き直したページで上書きする。
     if (r.alpha.empty() && !r.captured) {
         file_cache_->OnReadFailed(r.req.math_cache_key, r.read_error);
-        EnqueueMath(std::move(r.req));
+        EnqueueKept(std::move(r.req));
         return;
     }
     auto cb = std::move(r.req.math_callback);
@@ -877,17 +890,17 @@ void MermaidRenderer::ApplyMathLoad(DiskLoad& r)
     }
     // エラーの数式も箱の一覧に残るので、次からは描き直さずに原文で表示できる。
     if (r.captured && r.png) {
-        file_cache_->StoreAsync(r.req.math_cache_key, r.req.math_page.width, r.req.math_page.height, std::move(r.png));
+        file_cache_->StoreAsync(r.req.math_cache_key, r.req.math_layout.size.width, r.req.math_layout.size.height, std::move(r.png));
     }
     // 箱の外に少しはみ出すインク (積分記号の端など) も含めて切り出す。ページでは数式の間を 2px 空けてある。
     constexpr float kInkMargin = 1.0f;
-    const float dpr = r.req.math_page.dpr;
+    const float dpr = r.req.math_layout.size.dpr;
     const float page_w = static_cast<float>(r.alpha_width);
     const float page_h = static_cast<float>(r.alpha_height);
     InlineMathBatchResult result{ .page = std::move(page) };
     result.items.reserve(r.req.math_items.size());
     for (size_t i = 0; i < r.req.math_items.size(); ++i) {
-        const auto& box = r.req.math_boxes[i];
+        const auto& box = r.req.math_layout.boxes[i];
         InlineMathBatchResult::Item item{ .key = r.req.math_items[i].key };
         if (box.width > 0.0f) {
             item.metrics = { box.width, box.height, box.baseline };
@@ -964,19 +977,13 @@ void MermaidRenderer::EnqueueWebRender(RenderRequest req)
 
 void MermaidRenderer::RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback)
 {
-    pending_requests_.push(RenderRequest{
+    EnqueueKept(RenderRequest{
         .code = std::string{ code },
         .max_width = max_width,
         .dark_mode = dark_mode,
         .svg_only = true,
         .svg_callback = std::move(callback),
     });
-
-    if (!ready_) {
-        EnsureInitialized();
-        return;
-    }
-    ProcessQueue();
 }
 
 void MermaidRenderer::RequestMathBatch(std::vector<InlineMathItem> items, uint64_t cache_key, MathBatchCallback callback)
@@ -995,10 +1002,10 @@ void MermaidRenderer::RequestMathBatch(std::vector<InlineMathItem> items, uint64
             }
         }
     }
-    EnqueueMath(std::move(req));
+    EnqueueKept(std::move(req));
 }
 
-void MermaidRenderer::EnqueueMath(RenderRequest req)
+void MermaidRenderer::EnqueueKept(RenderRequest req)
 {
     pending_requests_.push(std::move(req));
     if (!ready_) {
@@ -1051,14 +1058,13 @@ void MermaidRenderer::FreeWorker(Worker& worker)
 void MermaidRenderer::FailWorkerRequest(Worker& worker, DiagramError::Kind kind, std::wstring_view msg)
 {
     SetDiagramError(worker.current_request, kind, msg);
-    InvokeSvgCallbackIfAny(worker.current_request, {}, false);
     FinishWorkerRequest(worker);
 }
 
 void MermaidRenderer::FinishWorkerRequest(Worker& worker)
 {
-    // 描けたインライン数式は要求を StartDiskLoad へ移してから FreeWorker するので、ここに来るのは失敗だけ。
-    FailMathCallbackIfAny(worker.current_request, false);
+    // SVG は成功ならコールバックを呼び済みで、描けたインライン数式は要求を StartDiskLoad へ移してから FreeWorker する。
+    FailCallbacksIfAny(worker.current_request, false);
     const bool resolved = FindCached(worker.current_request);
     ReleaseInflight(worker.current_request);
     FreeWorker(worker);
@@ -1131,9 +1137,10 @@ void MermaidRenderer::OnMathResult(int worker_idx, std::wstring_view payload)
         FinishWorkerRequest(w);
         return;
     }
-    w.current_request.math_boxes = std::move(layout->boxes);
-    w.current_request.math_page = { layout->size.width, layout->size.height, dpr };
-    ResizeWorkerView(w, DipToPixelCeil(layout->size.width, dpr), DipToPixelCeil(layout->size.height, dpr));
+    layout->size.dpr = dpr;
+    w.current_request.math_layout = std::move(*layout);
+    const auto& page = w.current_request.math_layout.size;
+    ResizeWorkerView(w, DipToPixelCeil(page.width, dpr), DipToPixelCeil(page.height, dpr));
     ScheduleCapture(w);
 }
 

@@ -1242,7 +1242,11 @@ void CommandGenerator::GenTableCellContent(std::string_view cell_text, const Cel
         if (ov_end > ov_start) {
             // sel_start/sel_end は UTF-8 byte offset。HitTestTextRange 用に UTF-16 へ変換する。
             Utf16OffsetCursor cursor{ cell_text };
-            const auto range = cursor.WideRange(ov_start - ctx.flat_offset, ov_end - ov_start);
+            auto range = cursor.WideRange(ov_start - ctx.flat_offset, ov_end - ov_start);
+            // セルの選択は毎フレーム引くので、広げる (HitTestTextPosition 2 回) のは数式のあるセルだけにする。
+            if (std::ranges::any_of(ctx.runs, &TextRun::math)) {
+                range = ExpandToClusters(ctx.layout, range.startPosition, range.length);
+            }
             if (range.length > 0) {
                 for (const auto& m : HitTestRange(ctx.layout, range.startPosition, range.length)) {
                     EmitFillRectIfVisible(RectFromHitTest(m, ctx.text_x, ctx.text_y), BrushId::Selection);
@@ -1313,6 +1317,7 @@ void CommandGenerator::GenTable(const Node& node, const NodeLayoutEntry& entry,
                 .text_y = text_y,
                 .height = row_h,
                 .flat_offset = tbl->CellTextStart(r, c),
+                .runs = tbl->GetCellRuns(r, c),
                 .selection = selection,
                 .is_header = is_header_row,
             });
@@ -1350,7 +1355,7 @@ void CommandGenerator::EmitFillRectIfVisible(const D2D1_RECT_F& r, BrushId brush
 
 void CommandGenerator::CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::vector<D2D1_RECT_F>& out)
 {
-    // 数式の一部に当たった検索ヒットも、数式全体を塗る。
+    // 数式の一部に当たった検索ヒットや選択も、数式全体を塗る。引いた箱はキャッシュするので、数式の無い段落でも広げる。
     const auto range = ExpandToClusters(layout, start, length);
     // 少しずつ追記されるので reserve はしない (要求ぴったりの再確保が毎回走る)。
     for (const auto& m : HitTestRange(layout, range.startPosition, range.length)) {

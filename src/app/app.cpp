@@ -20,6 +20,7 @@
 #include <array>
 #include <cstddef>
 #include <memory_resource>
+#include <ranges>
 #include <thread>
 #include <utility>
 
@@ -106,8 +107,9 @@ bool App::Init(HWND hwnd)
         // bitmap 残存ノードをスキップするため、LoadImages の前に破棄する必要がある。
         state_.document.layout_cache.InvalidateAllDiagramBitmaps();
         resource_manager_.LoadImages();
-        // インライン数式の型も新しいデバイスで作り直す。寸法は同じなのでレイアウトはそのまま。
-        inline_math_.RequestAllAgain();
+        // インライン数式の型も新しいデバイスで作り直す。寸法は同じなのでレイアウトはそのまま。組ごとに描いた数式は
+        // 見えたときに組を読み直す (ManageInlineMathPages) ので、全部の組は読まない。ここで頼み直すのは計画に無い数式だけ。
+        inline_math_.RequestAllAgain([this](uint64_t key) { return !inline_math_plan_.ChunkOf(key); });
     });
 
     RestoreTheme();
@@ -320,6 +322,7 @@ void App::OnPaint()
     });
 
     EndPaint(hwnd_, &ps);
+    ManageInlineMathPages();
     // スクロール・リフロー・ズーム・ペイン開閉などで、止まったカーソルの下の内容が変わる。
     // 経路ごとに引き直しを要求させず、描いた後に毎回引き直す。変化が無ければ reducer が何もしない。
     // ロード中は旧文書に対して引くことになるので、終わった後の描画に任せる。
@@ -374,62 +377,117 @@ void App::OnMermaidDiskLoaded()
 
 void App::OnInlineMathRequested()
 {
-    const auto on_rendered = [this](InlineMathBatchResult result) { OnInlineMathRendered(std::move(result)); };
     std::vector<InlineMathItem> unplanned;
     for (auto& item : inline_math_.TakeRequests()) {
-        const auto chunk = inline_math_plan_.ChunkOf(item.key);
-        if (!chunk) {
+        if (!RequestInlineMathChunk(item.key, false)) {
             unplanned.push_back(std::move(item));
-            continue;
         }
-        // 組の残りの数式もまとめて描く (見えていない数式も、次にスクロールしたときには描けている)。
-        if (std::exchange(inline_math_chunk_requested_[*chunk], uint8_t{ 1 })) {
-            continue;
-        }
-        const auto& c = inline_math_plan_.Chunks()[*chunk];
-        inline_math_.MarkRequested(c.items);
-        mermaid_renderer_.RequestMathBatch(c.items, c.key, on_rendered);
     }
     // 計画と違う大きさで組んだ数式 (計画を作り直す前に測った数式など) は、キャッシュせずに描く。
-    for (size_t begin = 0; begin < unplanned.size(); begin += kMaxInlineMathPerChunk) {
-        const auto first = unplanned.begin() + static_cast<std::ptrdiff_t>(begin);
-        const auto last = first + static_cast<std::ptrdiff_t>(std::min(kMaxInlineMathPerChunk, unplanned.size() - begin));
-        mermaid_renderer_.RequestMathBatch({ std::make_move_iterator(first), std::make_move_iterator(last) }, 0, on_rendered);
+    for (auto&& part : unplanned | std::views::chunk(kMaxInlineMathPerChunk)) {
+        mermaid_renderer_.RequestMathBatch({ std::make_move_iterator(part.begin()), std::make_move_iterator(part.end()) }, 0,
+                                           [this](InlineMathBatchResult result) { OnInlineMathRendered(std::move(result), 0, 0); });
     }
+}
+
+bool App::RequestInlineMathChunk(uint64_t key, bool wanted)
+{
+    const auto chunk = inline_math_plan_.ChunkOf(key);
+    if (!chunk) {
+        return false;
+    }
+    // 組の残りの数式もまとめて描く (見えていない数式も、次にスクロールしたときには描けている)。
+    if (const auto* c = inline_math_plan_.TakeChunk(*chunk, wanted)) {
+        inline_math_.MarkRequested(c->items);
+        mermaid_renderer_.RequestMathBatch(c->items, c->key, [this, index = *chunk, chunk_key = c->key](InlineMathBatchResult result) {
+            OnInlineMathRendered(std::move(result), index, chunk_key);
+        });
+    }
+    return true;
+}
+
+void App::ManageInlineMathPages()
+{
+    auto& math = renderer_.InlineMath();
+    // 型を失った (捨てたページ・デバイスロスト) 数式が見えたら、組をディスクキャッシュから読み直す。
+    // 同じ数式は 1 フレームに何度も出てくるので、まとめてから引く。
+    auto missing = std::exchange(math.missing, {});
+    std::ranges::sort(missing);
+    const auto duplicates = std::ranges::unique(missing);
+    missing.erase(duplicates.begin(), duplicates.end());
+    for (const uint64_t key : missing) {
+        RequestInlineMathChunk(key, true);
+    }
+    math.EvictPages(kInlineMathPageBudget);
 }
 
 void App::RebuildInlineMathPlan()
 {
+    // 数式の無い文書でも省かない。test.md x8 (6922 ノード) で 66µs、数式 12000 個で 2.6ms (BM_InlineMathPlanBuild)。
     inline_math_plan_.Build(state_.document.doc.GetNodes(), theme_service_.GetTheme());
-    inline_math_chunk_requested_.assign(inline_math_plan_.Chunks().size(), 0);
 }
 
-void App::OnInlineMathRendered(InlineMathBatchResult result)
+void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t chunk_key)
 {
-    // 取り消しは終了するときだけ。
+    // 取り消すのは終了するときと ForgetInlineMath のときだけで、どちらも結果を使わない。
     if (result.cancelled) {
         return;
     }
-    auto& masks = renderer_.InlineMath();
-    bool page_used = false;
+    const bool planned = chunk_key != 0;
+    const bool wanted = planned && inline_math_plan_.FinishChunk(chunk, chunk_key, !result.page);
+    auto& math = renderer_.InlineMath();
+    // 見えている数式のために頼んだのでなければ、上限に収まるページだけを持つ。収まらなければ寸法だけ使い、
+    // 見えたときに読み直す。表全体を測ると全部の組が届き、5000 行の表 (数式 10000 個) ではページが約 38MB になる。
+    const bool keep_page = result.page && (!planned || wanted ||
+                                           math.page_bytes + InlineMathMasks::PageBytes(result.page.Get()) <= kInlineMathPageBudget);
+    InlineMathPage* page = nullptr;
+    bool lost = false;
     for (const auto& item : result.items) {
-        // ForgetInlineMath の前に頼んだ数式は、もう誰も使わない。
-        if (inline_math_.Resolve(item.key, item.metrics) && result.page && item.metrics.ok()) {
-            masks.masks.insert_or_assign(item.key, InlineMathMask{ result.page.Get(), item.src, item.dest });
-            page_used = true;
+        if (!item.metrics.ok()) {
+            const auto before = inline_math_.Find(item.key);
+            lost |= before && before->ok();
         }
-    }
-    if (page_used) {
-        masks.pages.push_back(std::move(result.page));
-        // 読み直しで同じ数式を別の組で描き直すと、前のページを指す型が無くなる。
-        std::erase_if(masks.pages, [&masks](const auto& page) {
-            return std::ranges::none_of(masks.masks, [p = page.Get()](const auto& m) { return m.second.page == p; });
-        });
+        // ForgetInlineMath の前に頼んだ数式は、もう誰も使わない。
+        if (!inline_math_.Resolve(item.key, item.metrics) || !item.metrics.ok() || !keep_page) {
+            continue;
+        }
+        if (!page) {
+            page = &math.AddPage(result.page, planned);
+        }
+        math.Assign(item.key, InlineMathMask{ page, item.src, item.dest });
     }
     auto& cache = state_.document.layout_cache;
     // 数式の大きさで見ている段落の高さが変わっても、見ている位置を動かさない。
     state_.view.viewport.EnsureScrollTarget(cache);
-    if (cache.InvalidatePendingMathLayouts()) {
+    // 型を失って読み直した数式が描けなかった (ディスクキャッシュが消えていて、WebView2 でも描けなかった)。
+    // 組んだレイアウトはその数式の幅を空けたままなので、原文で組み直す。数式からノードは引けないので全部組み直す。
+    if (lost) {
+        cache.InvalidateAllLayouts(state_.document.doc.GetNodes());
+        RelayoutViewport(RelayoutResources::DiagramsBatched);
+        return;
+    }
+    // 段落は組の結果が続けて届いても、まとめずに結果ごとに組み直す。数式 2940 個の文書を最小倍率・1600x1400 で開いても、
+    // 1 件あたり 1ms 以下、全部で約 4ms (ディスクキャッシュから 12 件が続けて届く場合)。
+    // 表は全セルを組み直すので、頼んだ数式が揃ったときか、前に表を組み直してから一定時間たったときだけにする。
+    // 5000 行の表 (数式 10000 個) で、結果ごとだと 1 件あたり約 35ms、結果 165 件で計 5.5 秒かかっていた。
+    // 間引くと初回 8 回で計 0.31 秒、ディスクキャッシュから読む 2 回目は 2 回で計 0.09 秒。
+    // 間引いた表は、次の結果が届かなくても間隔の後で組み直す。
+    const auto since = std::chrono::steady_clock::now() - last_math_table_relayout_;
+    const bool tables = !inline_math_.HasUnresolved() || since >= kMathTableRelayoutInterval;
+    if (!tables) {
+        SetTimer(app_timer::Id::INLINE_MATH_TABLES,
+                 static_cast<UINT>(std::chrono::ceil<std::chrono::milliseconds>(kMathTableRelayoutInterval - since).count()));
+    }
+    RelayoutPendingInlineMath(tables);
+}
+
+void App::RelayoutPendingInlineMath(bool tables)
+{
+    if (tables) {
+        KillTimer(app_timer::Id::INLINE_MATH_TABLES);
+        last_math_table_relayout_ = std::chrono::steady_clock::now();
+    }
+    if (state_.document.layout_cache.InvalidatePendingMathLayouts(tables)) {
         RelayoutViewport(RelayoutResources::DiagramsBatched);
     }
     else {
@@ -441,6 +499,9 @@ void App::ForgetInlineMath()
 {
     inline_math_.Clear();
     renderer_.InlineMath() = {};
+    mermaid_renderer_.DropQueuedMath();
+    // 組の待ちの印も戻す。表を捨てたので、計測が頼み直した数式を組ごとに描かせる。
+    RebuildInlineMathPlan();
 }
 
 void App::OnFileListed()
@@ -559,6 +620,9 @@ void App::HandleTimer(UINT_PTR timer_id)
     case DEVICE_RECREATE_RETRY:
         KillTimer(id);
         Invalidate();
+        return;
+    case INLINE_MATH_TABLES:
+        RelayoutPendingInlineMath(true);
         return;
     case FILE_RELOAD_DEBOUNCE:
         KillTimer(id);
@@ -842,7 +906,6 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
     // 前の文書の数式を描いた型は、新しい文書ではほとんど使わない。同じファイルの読み直しは組んだレイアウトを
     // 引き継ぐので残す (ReloadDocument)。
     ForgetInlineMath();
-    RebuildInlineMathPlan();
 
     // スクロール復元先の Y がずれないよう、推定高さを Mermaid/画像キャッシュの実測値で補正してから reducer に渡す。
     if (state_.view.pending_restore.IsValid()) {
@@ -1138,7 +1201,6 @@ void App::ApplyZoom()
     renderer_.OnThemeMetricsChanged();
     // 数式は文字の大きさごとに描くので、前の倍率の型は残しても使わない。新しい倍率で描き直させる。
     ForgetInlineMath();
-    RebuildInlineMathPlan();
     RelayoutViewport(RelayoutResources::Diagrams);
     UpdateTitleBar();
     theme_service_.SaveZoomLevel(state_.view.viewport.Zoom());

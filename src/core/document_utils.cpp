@@ -124,13 +124,47 @@ WordBoundary FindWordBoundaries(std::wstring_view text, uint32_t pos) noexcept
     return FindWordBoundariesImpl(text, pos);
 }
 
+const TextRun* FindRunAt(std::span<const TextRun> runs, uint32_t pos) noexcept
+{
+    // pos を含みうるのは start <= pos の最後の run だけ。
+    const auto it = std::ranges::upper_bound(runs, pos, {}, &TextRun::start);
+    if (it == runs.begin()) {
+        return nullptr;
+    }
+    const TextRun& run = *std::prev(it);
+    return pos < run.start + run.length ? &run : nullptr;
+}
+
+NodeRunsAt FindRunsAt(const Node& node, uint32_t pos) noexcept
+{
+    if (node.type != NodeType::Table) {
+        return { node.runs(), pos };
+    }
+    const auto* tbl = node.table_data();
+    if (!tbl || tbl->row_count == 0 || tbl->col_count == 0) {
+        return {};
+    }
+    const size_t idx = tbl->CellIndexAt(pos);
+    const size_t col_count = tbl->col_count;
+    const size_t r = idx / col_count;
+    const size_t c = idx % col_count;
+    if (r >= tbl->row_count) {
+        return {};
+    }
+    // 末尾区切りを除いたセル長で in-range 判定。padding セルは長さ 0 で必ず外れる。
+    if (pos >= tbl->CellTextEnd(r, c)) {
+        return {};
+    }
+    return { tbl->GetCellRuns(r, c), pos - tbl->CellTextStart(r, c) };
+}
+
 NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, uint32_t pos) noexcept
 {
     // インライン数式は 1 つの塊として描くので、どこを指しても $...$ 全体を選ぶ。
-    const auto runs = nodes[node].runs();
-    if (const auto it = std::ranges::find_if(runs, [pos](const TextRun& r) { return r.math() && pos - r.start < r.length; });
-        it != runs.end()) {
-        return { node, it->start, node, it->start + it->length, true };
+    const auto [runs, local_pos] = FindRunsAt(nodes[node], pos);
+    if (const auto* run = FindRunAt(runs, local_pos); run && run->math()) {
+        const uint32_t start = pos - local_pos + run->start;
+        return { node, start, node, start + run->length, true };
     }
     const std::string_view text = nodes[node].GetText();
     const auto wb = FindWordBoundaries(text, pos);

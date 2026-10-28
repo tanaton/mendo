@@ -25,7 +25,7 @@
     return typeof mermaid !== 'undefined' && typeof mermaid.render === 'function';
   }
 
-  // 表示用 (PNG キャプチャ経由) は htmlLabels:true で LaTeX(KaTeX) を描画させる。
+  // 表示用 (PNG キャプチャ経由) は htmlLabels:true でラベルの中の数式 (KaTeX) を描画させる。
   // SVG コピー用は htmlLabels:false で <foreignObject> を避け Office/Inkscape 互換にする。
   function ensureInitialized(isDark, htmlLabels) {
     const wantTheme = isDark ? 'dark' : 'default';
@@ -41,8 +41,13 @@
     }
   }
 
+  // C++ の ParseRenderSize が読む "幅:高さ:devicePixelRatio"。
+  function sizeString(width, height) {
+    return Math.ceil(width) + ':' + Math.ceil(height) + ':' + (window.devicePixelRatio || 1);
+  }
+
   // 描けなければ投げる。呼び出し側 (C++ が送るスクリプト) の catch が render-error でメッセージを返す。
-  // 戻り値は "幅:高さ:devicePixelRatio"。
+  // 戻り値は sizeString。
   async function renderMermaid(code, isDark) {
     if (!mermaidReady()) {
       throw new Error('mermaid not loaded');
@@ -61,13 +66,17 @@
       throw new Error('SVG not found');
     }
     const rect = svgEl.getBoundingClientRect();
-    return Math.ceil(rect.width) + ':' + Math.ceil(rect.height) + ':' + (window.devicePixelRatio || 1);
+    return sizeString(rect.width, rect.height);
   }
 
   // KaTeX のチャンク名は版ごとに変わるので、C++ が固定の別名で配信する (mermaid.cpp の KATEX_ALIAS_PATH)。
   let katexPromise = null;
   function loadKatex() {
-    katexPromise ??= import('https://app.local/chunks/mermaid.esm.min/katex.mjs');
+    // 失敗は覚えず、次に使うときに読み直す (起動時の先読みが一度失敗しただけで、このワーカーの数式が描けなくなる)。
+    katexPromise ??= import('https://app.local/chunks/mermaid.esm.min/katex.mjs').catch(e => {
+      katexPromise = null;
+      throw e;
+    });
     return katexPromise;
   }
 
@@ -80,7 +89,7 @@
     container.innerHTML = '<div class="math">' +
       katex.renderToString(tex, { throwOnError: true, displayMode: true, output: 'mathml' }) + '</div>';
     const rect = container.firstChild.getBoundingClientRect();
-    return Math.ceil(rect.width) + ':' + Math.ceil(rect.height) + ':' + (window.devicePixelRatio || 1);
+    return sizeString(rect.width, rect.height);
   }
 
   // items は [TeX, 文字の大きさ (px)] の並び。全部を幅 pageWidth のページに並べ、ページの大きさと各数式の箱
@@ -118,7 +127,7 @@
       bottom = Math.max(bottom, r.bottom - o.top);
       boxes.push([r.left - o.left, r.top - o.top, r.width, r.height, baseline].map(v => v.toFixed(2)).join(','));
     }
-    return Math.ceil(right) + ':' + Math.ceil(bottom) + ':' + (window.devicePixelRatio || 1) + '|' + boxes.join(';');
+    return sizeString(right, bottom) + '|' + boxes.join(';');
   }
 
   // 表示用 container を触らず SVG 文字列のみ返す。PNG キャプチャ無し。描けなければ投げる。
@@ -133,6 +142,10 @@
   }
 
   (async function() {
+    // 数式の要求は mermaid の準備完了の後に来るので、KaTeX を mermaid と並べて読み始める。準備完了から最初の数式の
+    // 結果までが約 42ms → 30ms。図だけの文書でも WebView2 のメモリ (約 135MB) に差は見えない。
+    // 失敗したら使うときに読み直すので、ここでは握りつぶす。
+    loadKatex().catch(() => {});
     try {
       // 図の種類ごとのチャンクは、mermaid が描くときに必要な分だけ読み込む
       window.mermaid = (await import('https://app.local/mermaid.esm.min.mjs')).default;
