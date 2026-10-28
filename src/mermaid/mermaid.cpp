@@ -455,6 +455,10 @@ void MermaidRenderer::OnControllerCreated(int index, ICoreWebView2Controller* co
     }
 
     controller->put_Bounds(RECT{ 0, 0, HOST_SIZE, HOST_SIZE });
+    // インライン数式の型をアルファ付きでキャプチャするため。図はページの body が背景を塗る。
+    if (Microsoft::WRL::ComPtr<ICoreWebView2Controller2> controller2; SUCCEEDED(controller->QueryInterface(IID_PPV_ARGS(&controller2)))) {
+        LogHrFailure("put_DefaultBackgroundColor", controller2->put_DefaultBackgroundColor(COREWEBVIEW2_COLOR{ 0, 0, 0, 0 }));
+    }
     DisableWebViewChrome(w.webview.Get());
     RestrictWebView(w.webview.Get());
     RegisterWebViewHandlers(index);
@@ -578,7 +582,7 @@ const MermaidRenderer::CachedResult* MermaidRenderer::FindCached(uint64_t code_h
 
 void MermaidRenderer::SetDiagramError(const RenderRequest& req, DiagramError::Kind kind, std::wstring_view msg)
 {
-    if (req.svg_only) {
+    if (!req.is_display()) {
         return;
     }
     // DrawTextCmd の 255 文字上限とプレースホルダ高さ (約3行) に収まる長さ。
@@ -595,12 +599,25 @@ void MermaidRenderer::InvokeSvgCallbackIfAny(RenderRequest& req, std::wstring sv
     }
 }
 
+void MermaidRenderer::FailMathCallbackIfAny(RenderRequest& req, bool cancelled)
+{
+    if (auto cb = std::move(req.math_callback)) {
+        InlineMathBatchResult result{ .cancelled = cancelled };
+        result.items.reserve(req.math_items.size());
+        for (const auto& item : req.math_items) {
+            result.items.push_back({ .key = item.key });
+        }
+        cb(std::move(result));
+    }
+}
+
 void MermaidRenderer::DrainPendingRequests(bool cancelled)
 {
-    // 待機中の SVG リクエストを完了させ、呼び出し元の in-flight フラグ固着を防ぐ。
+    // 待機中の SVG・インライン数式のリクエストを完了させ、呼び出し元の in-flight フラグ固着を防ぐ。
     while (!pending_requests_.empty()) {
         auto& req = pending_requests_.front();
         InvokeSvgCallbackIfAny(req, {}, cancelled);
+        FailMathCallbackIfAny(req, cancelled);
         ReleaseInflight(req);
         pending_requests_.pop();
     }
@@ -617,6 +634,7 @@ void MermaidRenderer::CancelPending()
     for (int i = 0; i < worker_count_; i++) {
         auto& w = workers_[i];
         InvokeSvgCallbackIfAny(w.current_request, {}, true);
+        FailMathCallbackIfAny(w.current_request, true);
         w.current_request = {};
     }
     inflight_.clear();
@@ -632,7 +650,8 @@ void MermaidRenderer::DropQueued()
     std::queue<RenderRequest, std::deque<RenderRequest>> kept;
     while (!pending_requests_.empty()) {
         auto& req = pending_requests_.front();
-        if (req.svg_only) {
+        // インライン数式は幅にもテーマにも依らないので、移動しても描く価値が残る。
+        if (!req.is_display()) {
             kept.push(std::move(req));
         }
         else {
@@ -660,6 +679,7 @@ void MermaidRenderer::RecoverWorker(int index)
             // リトライ済みの再クラッシュ。エラー確定にしないと Loading 固着かつ
             // 完了通知も出ないため、汎用エラーを設定して再描画させる。
             SetDiagramError(w.current_request, DiagramError::Kind::Render);
+            FailMathCallbackIfAny(w.current_request, false);
             ReleaseInflight(w.current_request);
             failed = true;
         }
@@ -780,14 +800,87 @@ void MermaidRenderer::LoadDiskJob(DiskLoad& job, const std::filesystem::path& pa
         job.png = std::make_shared<const ByteBuffer>(std::move(data));
     }
     TaskScheduler::EnsureWorkerCom();
+    if (job.req.is_math()) {
+        LoadMathJob(job);
+        return;
+    }
     // job.png はデコード完了まで生きているので、コピーせずに参照して読む。
     if (const auto decoded = wic_util::DecodeFromMemory(wic_factory_.Get(), *job.png, GUID_ContainerFormatPng)) {
         job.bitmap = wic_util::DecodeToWicBitmap(wic_factory_.Get(), *decoded, { decoded->pixel_width, decoded->pixel_height });
     }
 }
 
+void MermaidRenderer::LoadMathJob(DiskLoad& job)
+{
+    // 透明な背景のキャプチャは BGRA の straight alpha で、黒で描いた数式の形はアルファにだけある。
+    // デコーダは CopyPixels のときに job.png を読むので、それまで手放さない。
+    const auto decoded = wic_util::DecodeFromMemory(wic_factory_.Get(), *job.png, GUID_ContainerFormatPng, GUID_WICPixelFormat32bppBGRA);
+    if (!decoded || decoded->pixel_width == 0 || decoded->pixel_height == 0) {
+        return;
+    }
+    const UINT w = decoded->pixel_width;
+    const UINT h = decoded->pixel_height;
+    std::vector<uint8_t> bgra(size_t{ w } * h * 4);
+    const HRESULT hr = decoded->converter->CopyPixels(nullptr, w * 4, static_cast<UINT>(bgra.size()), bgra.data());
+    job.png.reset();
+    if (FAILED(hr)) {
+        return;
+    }
+    job.alpha.resize(size_t{ w } * h);
+    for (size_t i = 0; i < job.alpha.size(); ++i) {
+        job.alpha[i] = bgra[i * 4 + 3];
+    }
+    job.alpha_width = w;
+    job.alpha_height = h;
+}
+
+void MermaidRenderer::ApplyMathLoad(DiskLoad& r)
+{
+    auto cb = std::move(r.req.math_callback);
+    if (!cb) {
+        return;
+    }
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> page;
+    if (!r.alpha.empty() && render_target_) {
+        // FillOpacityMask の切り出し位置はビットマップの DIP で指すので、96 DPI にしてピクセルと揃える。
+        const auto props = D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), DEFAULT_DPI, DEFAULT_DPI);
+        render_target_->CreateBitmap(D2D1::SizeU(r.alpha_width, r.alpha_height), r.alpha.data(), r.alpha_width, props, &page);
+    }
+    if (!page) {
+        FailMathCallbackIfAny(r.req, false);
+        return;
+    }
+    // 箱の外に少しはみ出すインク (積分記号の端など) も含めて切り出す。ページでは数式の間を 2px 空けてある。
+    constexpr float kInkMargin = 1.0f;
+    const float dpr = r.req.math_dpr;
+    const float page_w = static_cast<float>(r.alpha_width);
+    const float page_h = static_cast<float>(r.alpha_height);
+    InlineMathBatchResult result{ .page = std::move(page) };
+    result.items.reserve(r.req.math_items.size());
+    for (size_t i = 0; i < r.req.math_items.size(); ++i) {
+        const auto& box = r.req.math_boxes[i];
+        InlineMathBatchResult::Item item{ .key = r.req.math_items[i].key };
+        if (box.width > 0.0f) {
+            item.metrics = { box.width, box.height, box.baseline };
+            const float left = std::max(0.0f, std::floor((box.x - kInkMargin) * dpr));
+            const float top = std::max(0.0f, std::floor((box.y - kInkMargin) * dpr));
+            const float right = std::min(page_w, std::ceil((box.x + box.width + kInkMargin) * dpr));
+            const float bottom = std::min(page_h, std::ceil((box.y + box.height + kInkMargin) * dpr));
+            item.src = { left, top, right, bottom };
+            item.dest = { left / dpr - box.x, top / dpr - box.y, right / dpr - box.x, bottom / dpr - box.y };
+        }
+        result.items.push_back(item);
+    }
+    cb(std::move(result));
+}
+
 bool MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
 {
+    // 結果は呼び出し側に直接渡し、図のキャッシュには入れない。
+    if (r.req.is_math()) {
+        ApplyMathLoad(r);
+        return false;
+    }
     // 表示に要るなら要求し直される。
     if (r.dropped) {
         ReleaseInflight(r.req);
@@ -857,6 +950,21 @@ void MermaidRenderer::RequestSvg(std::string_view code, float max_width, bool da
     ProcessQueue();
 }
 
+void MermaidRenderer::RequestMathBatch(std::vector<InlineMathItem> items, MathBatchCallback callback)
+{
+    RenderRequest req{ .math_items = std::move(items), .math_callback = std::move(callback) };
+    if (!req.is_math()) {
+        FailMathCallbackIfAny(req, false);
+        return;
+    }
+    pending_requests_.push(std::move(req));
+    if (!ready_) {
+        EnsureInitialized();
+        return;
+    }
+    ProcessQueue();
+}
+
 void MermaidRenderer::ProcessQueue()
 {
     if (!ready_) {
@@ -906,6 +1014,8 @@ void MermaidRenderer::FailWorkerRequest(Worker& worker, DiagramError::Kind kind,
 
 void MermaidRenderer::FinishWorkerRequest(Worker& worker)
 {
+    // 描けたインライン数式は要求を StartDiskLoad へ移してから FreeWorker するので、ここに来るのは失敗だけ。
+    FailMathCallbackIfAny(worker.current_request, false);
     const bool resolved = FindCached(worker.current_request);
     ReleaseInflight(worker.current_request);
     FreeWorker(worker);
@@ -921,6 +1031,10 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
         return;
     }
     const auto& req = worker.current_request;
+    if (req.is_math()) {
+        RenderMathInWorker(worker);
+        return;
+    }
 
     // WebView2 / JsEscape は wstring 経路のため、ここで UTF-8 から変換する。
     std::wstring code;
@@ -944,6 +1058,50 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
         req.svg_only ? L"svg-result" : L"render-result",
         req.request_id, req.request_id);
     LogHrFailure(req.svg_only ? "ExecuteScript(svg)" : "ExecuteScript(render)", worker.webview->ExecuteScript(js.c_str(), nullptr));
+}
+
+void MermaidRenderer::RenderMathInWorker(Worker& worker)
+{
+    const auto& req = worker.current_request;
+    ResizeWorkerView(worker, std::max(1, DipToPixelCeil(MATH_PAGE_WIDTH, worker.dpr)), HOST_SIZE);
+    std::wstring items;
+    std::wstring tex;
+    for (const auto& item : req.math_items) {
+        tex.clear();
+        string_convert::Utf8ToWide(item.tex, tex);
+        std::format_to(std::back_inserter(items), L"['{}',{:.3f}],", mermaid_util::JsEscape(tex), item.font_size);
+    }
+    const auto js = std::format(
+        L"renderMathBatch([{}], {})"
+        L".then(function(r){{window.chrome.webview.postMessage('math-result:{}:'+r);}})"
+        L".catch(function(e){{window.chrome.webview.postMessage('render-error:{}:'+((e&&e.message)||String(e)));}})",
+        items, MATH_PAGE_WIDTH, req.request_id, req.request_id);
+    LogHrFailure("ExecuteScript(math)", worker.webview->ExecuteScript(js.c_str(), nullptr));
+}
+
+void MermaidRenderer::OnMathResult(int worker_idx, std::wstring_view payload)
+{
+    auto& w = workers_[worker_idx];
+    auto layout = mermaid_util::ParseMathBatch(payload, w.current_request.math_items.size());
+    const float dpr = layout && mermaid_util::IsPlausibleDpr(layout->size.dpr) ? layout->size.dpr : 1.0f;
+    if (!layout || !mermaid_util::FitsCaptureLimit(layout->size.width, layout->size.height, dpr, MaxBitmapDim(render_target_))) {
+        FinishWorkerRequest(w);
+        return;
+    }
+    w.current_request.math_boxes = std::move(layout->boxes);
+    w.current_request.math_dpr = dpr;
+    ResizeWorkerView(w, DipToPixelCeil(layout->size.width, dpr), DipToPixelCeil(layout->size.height, dpr));
+    ScheduleCapture(w);
+}
+
+void MermaidRenderer::ScheduleCapture(Worker& w)
+{
+    // rAF 2 回で新サイズでの再描画を待ってから postMessage で通知する (Promise-await の問題を回避)。
+    const auto cap_js = std::format(
+        L"requestAnimationFrame(function(){{requestAnimationFrame(function(){{"
+        L"window.chrome.webview.postMessage('capture-ready:{}');}});}});",
+        w.current_request.request_id);
+    LogHrFailure("ExecuteScript(capture)", w.webview->ExecuteScript(cap_js.c_str(), nullptr));
 }
 
 float MermaidRenderer::EstimateWorkerDpr() noexcept
@@ -1009,6 +1167,11 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
             FailWorkerRequest(w, DiagramError::Kind::Render, payload);
         }
         return;
+    case WebMessageKind::MathResult:
+        if (req_id_match && w.current_request.is_math()) {
+            OnMathResult(index, payload);
+        }
+        return;
     case WebMessageKind::Failed:
         // mermaid.jsの読み込みに失敗した場合、ページを再読み込みして再試行する
         if (w.init_retries < MAX_WORKER_RETRIES && w.webview) {
@@ -1047,13 +1210,7 @@ void MermaidRenderer::OnRenderResult(int worker_idx, const mermaid_util::RenderS
 
     // キャプチャ用に WebView をダイアグラムの正確な物理ピクセルサイズにリサイズする。
     ResizeWorkerView(w, DipToPixelCeil(dw, dpr), DipToPixelCeil(dh, dpr));
-
-    // rAF 2 回で新サイズでの再描画を待ってから postMessage で通知する (Promise-await の問題を回避)。
-    const auto cap_js = std::format(
-        L"requestAnimationFrame(function(){{requestAnimationFrame(function(){{"
-        L"window.chrome.webview.postMessage('capture-ready:{}');}});}});",
-        w.current_request.request_id);
-    LogHrFailure("ExecuteScript(capture)", w.webview->ExecuteScript(cap_js.c_str(), nullptr));
+    ScheduleCapture(w);
 }
 
 void MermaidRenderer::DoCapturePreview(int worker_idx)

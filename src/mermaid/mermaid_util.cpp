@@ -141,6 +141,7 @@ mermaid_util::ParsedWebMessage mermaid_util::ParseWebMessage(std::wstring_view m
         { L"capture-ready:"sv, WebMessageKind::CaptureReady },
         { L"svg-result:"sv,    WebMessageKind::SvgResult    },
         { L"render-error:"sv,  WebMessageKind::RenderError  },
+        { L"math-result:"sv,   WebMessageKind::MathResult   },
     };
     for (const auto& e : kEntries) {
         if (msg.starts_with(e.prefix)) {
@@ -164,6 +165,54 @@ mermaid_util::RenderSize mermaid_util::ParseRenderSize(std::wstring_view payload
         payload.remove_prefix(colon + 1);
     }
     return { values[0], values[1], values[2] };
+}
+
+std::optional<mermaid_util::MathBatchLayout> mermaid_util::ParseMathBatch(std::wstring_view payload, size_t expected)
+{
+    const auto bar = payload.find(L'|');
+    if (bar == std::wstring_view::npos) {
+        return std::nullopt;
+    }
+    MathBatchLayout out{ .size = ParseRenderSize(payload.substr(0, bar)) };
+    if (out.size.width <= 0.0f || out.size.height <= 0.0f) {
+        return std::nullopt;
+    }
+    out.boxes.reserve(expected);
+    std::wstring_view rest = payload.substr(bar + 1);
+    while (true) {
+        // 要求より多い。
+        if (out.boxes.size() == expected) {
+            return std::nullopt;
+        }
+        const auto semi = rest.find(L';');
+        const auto item = rest.substr(0, semi);
+        MathBox box{};
+        if (item != L"e"sv) {
+            float* const fields[]{ &box.x, &box.y, &box.width, &box.height, &box.baseline };
+            std::wstring_view f = item;
+            for (float* v : fields) {
+                const auto comma = f.find(L',');
+                *v = ParseFloatPrefix(f.substr(0, comma));
+                f = comma == std::wstring_view::npos ? std::wstring_view{} : f.substr(comma + 1);
+            }
+            // ページの外を指す箱で、型の外のメモリを読ませない。
+            const bool inside = box.x >= 0.0f && box.y >= 0.0f && box.width > 0.0f && box.height > 0.0f &&
+                                box.x + box.width <= out.size.width + 1.0f && box.y + box.height <= out.size.height + 1.0f &&
+                                box.baseline >= 0.0f && box.baseline <= box.height + 1.0f;
+            if (!inside) {
+                return std::nullopt;
+            }
+        }
+        out.boxes.push_back(box);
+        if (semi == std::wstring_view::npos) {
+            break;
+        }
+        rest.remove_prefix(semi + 1);
+    }
+    if (out.boxes.size() != expected) {
+        return std::nullopt;
+    }
+    return out;
 }
 
 std::wstring mermaid_util::SanitizeErrorMessage(std::wstring_view msg, size_t max_len)

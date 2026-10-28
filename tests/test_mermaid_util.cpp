@@ -72,6 +72,49 @@ TEST(QuantizeWidth, ZeroAndNegativeReturnMinimum)
 // ParseRenderSize テスト
 // ============================================================
 
+// ============================================================
+// ParseMathBatch
+// ============================================================
+
+TEST(ParseMathBatch, ParsesBoxesAndFailedItems)
+{
+    const auto layout = mermaid_util::ParseMathBatch(L"1024:40:1.5|2,2,30.5,20,15;e;40,2,10,24,18", 3);
+    ASSERT_TRUE(layout);
+    EXPECT_FLOAT_EQ(layout->size.width, 1024.0f);
+    EXPECT_FLOAT_EQ(layout->size.dpr, 1.5f);
+    ASSERT_EQ(layout->boxes.size(), 3u);
+    EXPECT_FLOAT_EQ(layout->boxes[0].width, 30.5f);
+    EXPECT_FLOAT_EQ(layout->boxes[0].baseline, 15.0f);
+    EXPECT_FLOAT_EQ(layout->boxes[1].width, 0.0f);
+    EXPECT_FLOAT_EQ(layout->boxes[2].x, 40.0f);
+}
+
+// 数が合わない結果や、ページの外を指す箱は使わない (型の外を切り出させない)。
+TEST(ParseMathBatch, RejectsMismatchedCountAndOutOfPageBoxes)
+{
+    for (const auto* payload : {
+             L"100:40:1|2,2,10,10,8",
+             L"100:40:1|2,2,10,10,8;2,2,10,10,8;2,2,10,10,8",
+             L"100:40:1|95,2,10,10,8;2,2,10,10,8",
+             L"100:40:1|2,35,10,10,8;2,2,10,10,8",
+             L"100:40:1|-1,2,10,10,8;2,2,10,10,8",
+             L"100:40:1|2,2,10,10,30;2,2,10,10,8",
+             L"0:40:1|e;e",
+             L"100:40:1",
+         }) {
+        SCOPED_TRACE(testing::PrintToString(std::wstring{ payload }));
+        EXPECT_FALSE(mermaid_util::ParseMathBatch(payload, 2));
+    }
+}
+
+TEST(ParseWebMessage, RecognizesMathResult)
+{
+    const auto parsed = mermaid_util::ParseWebMessage(L"math-result:7:100:40:1|e");
+    EXPECT_EQ(parsed.kind, mermaid_util::WebMessageKind::MathResult);
+    EXPECT_EQ(parsed.request.id, 7u);
+    EXPECT_EQ(parsed.request.payload, L"100:40:1|e");
+}
+
 TEST(ParseRenderSize, ParsesWidthHeightAndDpr)
 {
     struct Case {

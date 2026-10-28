@@ -6,6 +6,7 @@
 #include <wrl/client.h>
 #include <array>
 #include <limits>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 #include <span>
@@ -108,5 +109,26 @@ using DrawCommandList = std::vector<DrawCommand>;
 
 using FixedBrushArray = std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>, BRUSH_COUNT>;
 
-// 該当ブラシが未作成のコマンドは描かない。rt は null にしない。
-void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes);
+// インライン数式の型。黒で描いた数式のアルファだけを持ち、描くときに周りの文字の色で塗る
+// (ダークモードやリンクの色で描き直さずに済む。数式の中の \color は効かない)。
+struct InlineMathMask {
+    ID2D1Bitmap* page; // 非所有; InlineMathMasks::pages が持つ A8 のビットマップ
+    D2D1_RECT_F src;   // page の中の位置 (ピクセル)
+    D2D1_RECT_F dest;  // 数式の箱の左上を原点とする描画先 (DIP)。箱からはみ出すインクの分だけ広い
+};
+
+// キーは InlineMathKey。
+struct InlineMathMasks {
+    std::vector<Microsoft::WRL::ComPtr<ID2D1Bitmap>> pages;
+    std::unordered_map<uint64_t, InlineMathMask> masks;
+
+    const InlineMathMask* Find(uint64_t key) const noexcept
+    {
+        const auto it = masks.find(key);
+        return it != masks.end() ? &it->second : nullptr;
+    }
+};
+
+// 該当ブラシが未作成のコマンドは描かない。rt は null にしない。math が無ければインライン数式は描かない。
+void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes,
+                         const InlineMathMasks* math = nullptr);

@@ -1,6 +1,8 @@
 #pragma once
+#include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 #include <cstdint>
 
 struct Node;
@@ -56,6 +58,7 @@ enum class WebMessageKind : uint8_t {
     CaptureReady,  // "capture-ready:<id>"
     SvgResult,     // "svg-result:<id>:<payload>"
     RenderError,   // "render-error:<id>:<message>"
+    MathResult,    // "math-result:<id>:<payload>" (ParseMathBatch)
     Failed,        // "mermaid-failed"
 };
 
@@ -78,6 +81,22 @@ struct RenderSize {
     float dpr = 0.0f;
 };
 RenderSize ParseRenderSize(std::wstring_view payload) noexcept;
+
+// まとめて描いたインライン数式 1 つの箱 (CSS px、ページの左上が原点)。baseline は箱の上端から。幅 0 は描けなかった数式。
+struct MathBox {
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+    float baseline = 0.0f;
+};
+struct MathBatchLayout {
+    RenderSize size; // ページ全体
+    std::vector<MathBox> boxes;
+};
+// MathResult の payload ("<w>:<h>:<dpr>|<x>,<y>,<w>,<h>,<baseline>;..."、描けなかった数式は "e")。
+// 数が expected と違うか、ページの外を指す箱があれば nullopt。
+std::optional<MathBatchLayout> ParseMathBatch(std::wstring_view payload, size_t expected);
 
 // FindResourceW は "#123" を数値 ID と読むので、# で始まる名前で引かせない。
 constexpr bool IsModulePath(std::wstring_view path) noexcept

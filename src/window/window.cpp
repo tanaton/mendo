@@ -552,6 +552,10 @@ LRESULT Win32Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         app_->OnFileListed();
         return 0;
 
+    case app_msg::INLINE_MATH_REQUESTED:
+        app_->OnInlineMathRequested();
+        return 0;
+
     case WM_NCCALCSIZE:
         return OnNcCalcSize(wParam, lParam);
 

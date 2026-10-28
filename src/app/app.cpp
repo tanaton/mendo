@@ -55,6 +55,8 @@ bool App::Init(HWND hwnd)
         return false;
     }
     measurer_.SetFactory(renderer_.GetDWriteFactory());
+    measurer_.SetInlineMath(&inline_math_);
+    inline_math_.SetWake([hwnd = hwnd_] { ::PostMessageW(hwnd, app_msg::INLINE_MATH_REQUESTED, 0, 0); });
     if (!layout_engine_.Init(&measurer_, theme)) {
         return false;
     }
@@ -104,6 +106,8 @@ bool App::Init(HWND hwnd)
         // bitmap 残存ノードをスキップするため、LoadImages の前に破棄する必要がある。
         state_.document.layout_cache.InvalidateAllDiagramBitmaps();
         resource_manager_.LoadImages();
+        // インライン数式の型も新しいデバイスで作り直す。寸法は同じなのでレイアウトはそのまま。
+        inline_math_.RequestAllAgain();
     });
 
     RestoreTheme();
@@ -366,6 +370,44 @@ void App::OnAppImageLoaded()
 void App::OnMermaidDiskLoaded()
 {
     mermaid_renderer_.ProcessDiskLoads();
+}
+
+void App::OnInlineMathRequested()
+{
+    auto items = inline_math_.TakeRequests();
+    for (size_t begin = 0; begin < items.size(); begin += IMermaidRenderer::kMaxMathPerBatch) {
+        const auto first = items.begin() + static_cast<std::ptrdiff_t>(begin);
+        const auto last = first + static_cast<std::ptrdiff_t>(std::min(IMermaidRenderer::kMaxMathPerBatch, items.size() - begin));
+        mermaid_renderer_.RequestMathBatch({ std::make_move_iterator(first), std::make_move_iterator(last) },
+                                           [this](InlineMathBatchResult result) { OnInlineMathRendered(std::move(result)); });
+    }
+}
+
+void App::OnInlineMathRendered(InlineMathBatchResult result)
+{
+    // 取り消しは終了するときだけ。
+    if (result.cancelled) {
+        return;
+    }
+    auto& masks = renderer_.InlineMath();
+    for (const auto& item : result.items) {
+        inline_math_.Resolve(item.key, item.metrics);
+        if (result.page && item.metrics.ok()) {
+            masks.masks.insert_or_assign(item.key, InlineMathMask{ result.page.Get(), item.src, item.dest });
+        }
+    }
+    if (result.page) {
+        masks.pages.push_back(std::move(result.page));
+    }
+    auto& cache = state_.document.layout_cache;
+    // 数式の大きさで見ている段落の高さが変わっても、見ている位置を動かさない。
+    state_.view.viewport.EnsureScrollTarget(cache);
+    if (cache.InvalidatePendingMathLayouts()) {
+        RelayoutViewport(RelayoutResources::DiagramsBatched);
+    }
+    else {
+        Invalidate();
+    }
 }
 
 void App::OnFileListed()

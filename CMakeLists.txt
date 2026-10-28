@@ -124,6 +124,7 @@ add_library(mendo_core STATIC
     src/layout/layout.cpp
     src/layout/layout_computer.cpp
     src/layout/dwrite_measurer.cpp
+    src/layout/inline_math.cpp
     src/layout/doc_dwrite_bridge.cpp
     # render - 描画パイプライン
     src/render/command_generator.cpp

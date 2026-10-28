@@ -45,6 +45,7 @@ public:
 
     bool RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode) override;
     void RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback) override;
+    void RequestMathBatch(std::vector<InlineMathItem> items, MathBatchCallback callback) override;
     void SetRenderTarget(ID2D1RenderTarget* render_target);
     // ワーカーは画面外に置くため、PNG は本体ウィンドウではなくその位置のモニタの DPR で描かれる。
     // ワーカーを起動する前にディスクキャッシュを引くときの DPR に使う。
@@ -92,6 +93,24 @@ private:
         // SVG文字列を svg_callback で返す。
         bool svg_only = false;
         SvgCallback svg_callback;
+
+        // インライン数式をまとめて描く要求 (RequestMathBatch)。空でなければこの種類で、code などは使わない。
+        // キャッシュに入れず、結果は math_callback で返す。
+        std::vector<InlineMathItem> math_items;
+        MathBatchCallback math_callback;
+        // ページの中の各数式の箱。描画結果 (math-result) で受け取り、キャプチャの切り出しに使う。
+        std::vector<mermaid_util::MathBox> math_boxes;
+        float math_dpr = 1.0f;
+
+        bool is_math() const noexcept
+        {
+            return !math_items.empty();
+        }
+        // 図の結果をキャッシュに持つ要求か。
+        bool is_display() const noexcept
+        {
+            return !svg_only && !is_math();
+        }
     };
 
     // 各ワーカーが独立したWebView2インスタンスを持ち、1つのダイアグラムを非同期レンダリングする。
@@ -130,6 +149,10 @@ private:
         RenderRequest req;
         // worker でデコード確定済み。失敗時は null で read_error に理由が入る。
         Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
+        // インライン数式の要求では bitmap の代わりに、キャプチャのアルファだけを取り出す (幅 x 高さ、1 行 alpha_width バイト)。
+        std::vector<uint8_t> alpha;
+        UINT alpha_width = 0;
+        UINT alpha_height = 0;
         PngBytes png;
         // WebView2 の CapturePreview 出力。worker で png へ読み出したら解放する。
         Microsoft::WRL::ComPtr<IStream> captured_stream;
@@ -141,6 +164,8 @@ private:
         bool dropped = false;
     };
 
+    // インライン数式を並べるページの幅 (CSS px)。ページは数式の数に応じて縦に伸びる。
+    static constexpr int MATH_PAGE_WIDTH = 1024;
     // 1 つ増やすごとにレンダラープロセスの起動と mermaid.js のロードが要り、数十 MB 常駐する。
     // 2 回目以降はディスクキャッシュで済むので、並列度は控えめにする。
     static constexpr int MAX_WORKERS = 2;
@@ -158,6 +183,15 @@ private:
 
     // SVG 専用リクエストならコールバックを呼んで svg_callback をクリアする (cancel / render-error / svg-result 共通)。
     static void InvokeSvgCallbackIfAny(RenderRequest& req, std::wstring svg, bool cancelled);
+    // インライン数式の要求なら、描けなかったことを知らせて math_callback をクリアする。
+    static void FailMathCallbackIfAny(RenderRequest& req, bool cancelled);
+    void RenderMathInWorker(Worker& worker);
+    void OnMathResult(int worker_idx, std::wstring_view payload);
+    // ビューのリサイズが描画に反映されたら capture-ready を返させる。
+    void ScheduleCapture(Worker& w);
+    // worker で呼ぶ。キャプチャの PNG からアルファだけを取り出す。
+    void LoadMathJob(DiskLoad& job);
+    void ApplyMathLoad(DiskLoad& r);
     // 表示用リクエストのエラーを kind で確定させる (issue #271)。msg は Render のときの Mermaid の文言で、空なら汎用の文言を出す。
     void SetDiagramError(const RenderRequest& req, DiagramError::Kind kind, std::wstring_view msg = {});
     static void ApplyResult(DiagramEntry& diagram_entry, const CachedResult& result);
@@ -202,7 +236,7 @@ private:
     void FreeWorker(Worker& worker);
     void ReleaseInflight(const RenderRequest& req) noexcept
     {
-        if (!req.svg_only) {
+        if (req.is_display()) {
             inflight_.erase(req.code_hash);
         }
     }
@@ -227,10 +261,10 @@ private:
     void OnCaptureComplete(int worker_idx, Microsoft::WRL::ComPtr<IStream> png_stream);
     void InsertCache(uint64_t hash, CachedResult result);
     const CachedResult* FindCached(uint64_t code_hash, uint64_t width_free_hash, float max_width);
-    // SVG の要求はキャッシュに入れないので、いつも描画させる。
+    // SVG とインライン数式の要求はキャッシュに入れないので、いつも描画させる。
     const CachedResult* FindCached(const RenderRequest& req)
     {
-        return req.svg_only ? nullptr : FindCached(req.code_hash, req.width_free_hash, req.max_width);
+        return req.is_display() ? FindCached(req.code_hash, req.width_free_hash, req.max_width) : nullptr;
     }
 
     HWND hwnd_ = nullptr;

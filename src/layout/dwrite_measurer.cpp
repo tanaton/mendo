@@ -3,6 +3,7 @@
 #include "d2d_util.h"
 #include "doc_dwrite_bridge.h"
 #include "document_utils.h"
+#include "inline_math.h"
 #include "layout_computer.h"
 #include "parallel_for.h"
 #include "profiler.h"
@@ -367,10 +368,10 @@ IDWriteTextFormat* DWriteTextMeasurer::GetTableRowFormat(const DWriteContext& ct
     return tbl.IsHeaderRow(r) ? ctx.h[3].Get() : ctx.body.Get();
 }
 
-void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, bool apply_code_size) const
+bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, bool apply_code_size) const
 {
     if (runs.empty()) {
-        return;
+        return false;
     }
 
     AttrRangeBuilder bold{ [layout](DWRITE_TEXT_RANGE r) noexcept {
@@ -424,6 +425,38 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     code.Flush();
     strike.Flush();
     link.Flush();
+    return ApplyInlineMath(layout, runs, text);
+}
+
+bool DWriteTextMeasurer::ApplyInlineMath(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text) const
+{
+    if (!inline_math_) {
+        return false;
+    }
+    bool pending = false;
+    // 隣り合う数式も別のオブジェクトにするので、AttrRangeBuilder でまとめずに run ごとに掛ける。
+    Utf16OffsetCursor cursor{ text };
+    for (const auto& r : runs) {
+        if (!r.math() || r.length < 2) {
+            continue;
+        }
+        const DWRITE_TEXT_RANGE wr = cursor.WideRange(r.start, r.length);
+        FLOAT font_size = 0.0f;
+        if (FAILED(layout->GetFontSize(wr.startPosition, &font_size)) || font_size <= 0.0f) {
+            continue;
+        }
+        const std::string_view tex = text.substr(r.start + 1, r.length - 2);
+        const uint64_t key = InlineMathKey(tex, font_size);
+        if (const auto metrics = inline_math_->FindOrRequest(key, tex, font_size)) {
+            if (metrics->ok()) {
+                layout->SetInlineObject(MakeInlineMathObject(key, *metrics).Get(), wr);
+            }
+        }
+        else {
+            pending = true;
+        }
+    }
+    return pending;
 }
 
 std::optional<float> DWriteTextMeasurer::MeasureNode(
@@ -467,7 +500,7 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(
         return std::nullopt;
     }
 
-    ApplyRunFormatting(layout.Get(), node.runs(), text, /*apply_code_size=*/node.type != NodeType::Heading);
+    entry.pending_math = ApplyRunFormatting(layout.Get(), node.runs(), text, /*apply_code_size=*/node.type != NodeType::Heading);
     if (node.type == NodeType::BlockQuote && node.alert_label_length() > 0) {
         if (const auto idx = AlertColorIndex(node.alert_type); idx < ALERT_TYPE_COUNT) {
             Utf16OffsetCursor cursor{ text };
@@ -488,12 +521,14 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(
     return FinishTextMeasure(node, entry, metrics, *theme_);
 }
 
-ComPtr<IDWriteTextLayout> DWriteTextMeasurer::CreateCellLayout(const DWriteContext& ctx, const NodeTableData& tbl, size_t r, size_t c) const
+ComPtr<IDWriteTextLayout> DWriteTextMeasurer::CreateCellLayout(const DWriteContext& ctx, const NodeTableData& tbl, TableLayoutData& tl, size_t r, size_t c) const
 {
     ComPtr<IDWriteTextLayout> cell_layout;
     const auto text = tbl.GetCellText(r, c);
     if (!text.empty() && SUCCEEDED(CreateDocTextLayout(ctx.factory.Get(), text, GetTableRowFormat(ctx, tbl, r), layout::kNoWrapLayoutWidth, layout::kNoWrapLayoutWidth, &cell_layout))) {
-        ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, /*apply_code_size=*/true);
+        if (ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, /*apply_code_size=*/true)) {
+            std::atomic_ref{ tl.math_pending }.store(true, std::memory_order_relaxed);
+        }
         // 揃えは折り返さない幅に影響しないので、自然幅の計測前に付けてよい。
         if (const TableAlign align = tbl.ColAlign(c); align == TableAlign::Center) {
             cell_layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
@@ -525,7 +560,7 @@ void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayout
                 if (!reps.empty() && reps[ci] != ci) {
                     continue;
                 }
-                auto cell_layout = CreateCellLayout(ctx, tbl, r, c);
+                auto cell_layout = CreateCellLayout(ctx, tbl, tl, r, c);
                 if (!cell_layout) {
                     continue;
                 }
@@ -596,7 +631,7 @@ void DWriteTextMeasurer::BuildRowCells(const NodeTableData& tbl, TableLayoutData
     for (size_t c = 0; c < tbl.col_count; c++) {
         const size_t ci = tl.CellIndex(r, c);
         if (!tl.cell_layouts[ci]) {
-            tl.cell_layouts[ci] = CreateCellLayout(ctx, tbl, r, c);
+            tl.cell_layouts[ci] = CreateCellLayout(ctx, tbl, tl, r, c);
         }
     }
 }

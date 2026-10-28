@@ -171,6 +171,7 @@ public:
     void OnAppImageLoaded();
     void OnParseComplete();
     void OnMermaidDiskLoaded();
+    void OnInlineMathRequested();
     void OnFileListed();
     void OnDestroy();
 
@@ -282,6 +283,8 @@ private:
     };
     // 可視範囲を計測し直し、スクロール上限・図と画像・遅延レイアウト・目次を追従させる。
     void RelayoutViewport(RelayoutResources resources);
+    // 型を描画側に渡し、寸法を待って原文のまま組んだ段落を組み直す。
+    void OnInlineMathRendered(InlineMathBatchResult result);
     void SettleViewport();
     void OnDeferredLayout();
     // 捨てたテキストレイアウトが多ければワーカーで解放する。
@@ -363,6 +366,8 @@ private:
     TaskScheduler layout_scheduler_;
     MermaidFileCache file_cache_; // mermaid_renderer_ より先に宣言する（mermaid_renderer_ は破棄時に file_cache_ を参照する）
     ClipboardManager clipboard_manager_; // mermaid_renderer_ より先に宣言する（~MermaidRenderer の CancelPending が in-flight コールバック経由で clipboard_manager_ に触るため、後に破棄させる）
+    // インライン数式の寸法表。計測ワーカーが引き、描画の結果を OnInlineMathRendered で書く。
+    InlineMathTable inline_math_;
     MermaidRenderer mermaid_renderer_;
     ImageLoader image_loader_;
     FileWatcher file_watcher_;

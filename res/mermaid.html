@@ -10,6 +10,12 @@
   /* 数式の文字色は本文 (theme.cpp の Text) に揃える。インク (積分記号など) が箱から少しはみ出すので余白を取る。 */
   .math { display: inline-block; padding: 4px 8px; font-size: 16px; color: #24292e; }
   body.dark .math { color: #d4d4d4; }
+  /* インライン数式の型は黒で描いてアルファだけを使う (本文の色で塗る) ので、背景は透明にする。
+     行の高さを詰めるため上揃えで並べ、ベースラインは幅 0 の目印 (.bl) の位置で測る。 */
+  body.atlas-page { background: transparent; }
+  .math-atlas { color: #000; }
+  .math-atlas .m { display: inline-block; vertical-align: top; margin: 2px; }
+  .math-atlas .bl { display: inline-block; width: 0; height: 0; }
 </style>
 <script>
   let currentInitKey = null;
@@ -75,6 +81,44 @@
       katex.renderToString(tex, { throwOnError: true, displayMode: true, output: 'mathml' }) + '</div>';
     const rect = container.firstChild.getBoundingClientRect();
     return Math.ceil(rect.width) + ':' + Math.ceil(rect.height) + ':' + (window.devicePixelRatio || 1);
+  }
+
+  // items は [TeX, 文字の大きさ (px)] の並び。全部を幅 pageWidth のページに並べ、ページの大きさと各数式の箱
+  // (x,y,w,h,ベースライン。描けなかった数式は "e") を返す。C++ はこの後ページ全体を 1 回キャプチャして切り出す。
+  // キャプチャの前にビューをページの大きさに合わせるので、ページの幅はビューに依らず固定して並びを変えない。
+  async function renderMathBatch(items, pageWidth) {
+    const katex = await loadKatex();
+    document.body.className = 'atlas-page';
+    let html = '';
+    for (const [tex, px] of items) {
+      let math = null;
+      try {
+        math = katex.renderToString(tex, { throwOnError: true, displayMode: false, output: 'mathml' });
+      } catch (e) {
+      }
+      html += math === null ? '<span class="m err"></span>'
+                            : '<span class="m" style="font-size:' + px + 'px"><span class="bl"></span>' + math + '</span>';
+    }
+    const container = document.getElementById('container');
+    container.innerHTML = '<div class="math-atlas" style="width:' + pageWidth + 'px">' + html + '</div>';
+    const atlas = container.firstChild;
+    const o = atlas.getBoundingClientRect();
+    // ページより幅の広い数式は右へはみ出すので、ページの大きさははみ出した分まで含める。
+    let right = o.width;
+    let bottom = o.height;
+    const boxes = [];
+    for (const m of atlas.children) {
+      if (m.classList.contains('err')) {
+        boxes.push('e');
+        continue;
+      }
+      const r = m.getBoundingClientRect();
+      const baseline = m.firstChild.getBoundingClientRect().top - r.top;
+      right = Math.max(right, r.right - o.left);
+      bottom = Math.max(bottom, r.bottom - o.top);
+      boxes.push([r.left - o.left, r.top - o.top, r.width, r.height, baseline].map(v => v.toFixed(2)).join(','));
+    }
+    return Math.ceil(right) + ':' + Math.ceil(bottom) + ':' + (window.devicePixelRatio || 1) + '|' + boxes.join(';');
   }
 
   // 表示用 container を触らず SVG 文字列のみ返す。PNG キャプチャ無し。描けなければ投げる。

@@ -306,6 +306,24 @@ void LayoutCache::InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept
     estimate_basis_ = {};
 }
 
+bool LayoutCache::InvalidatePendingMathLayouts() noexcept
+{
+    bool any = false;
+    for (auto& e : entries_) {
+        const auto* tl = e.table_layout();
+        if (!e.pending_math && !(tl && tl->math_pending)) {
+            continue;
+        }
+        // 数式の寸法で折り返しと行の高さが変わるので、表なら列幅と行の高さも含めて組み直す。
+        ReleaseEntryLayouts(e, released_layouts_);
+        e.pending_math = false;
+        e.layout_dirty = true;
+        any = true;
+    }
+    has_dirty_nodes_ |= any;
+    return any;
+}
+
 void LayoutCache::InvalidateAllDiagramBitmaps() noexcept
 {
     for (auto& d : diagrams_ | std::views::values) {

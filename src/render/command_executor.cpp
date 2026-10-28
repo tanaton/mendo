@@ -1,5 +1,6 @@
 #include "draw_command.h"
 #include "d2d_util.h"
+#include "inline_math.h"
 #include "profiler.h"
 #include "ui_constants.h"
 #include "utility.h"
@@ -36,8 +37,8 @@ ID2D1SolidColorBrush* FixedBrush(const FixedBrushArray& brushes, BrushId id) noe
 class VisibleRunRenderer final : public IDWriteTextRenderer {
 public:
     VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, float cull_top, float cull_bottom,
-        std::span<const SyntaxToken> tokens, const FixedBrushArray& brushes) noexcept
-        : rt_(rt), default_brush_(default_brush), cull_top_(cull_top), cull_bottom_(cull_bottom), tokens_(tokens), brushes_(brushes)
+        std::span<const SyntaxToken> tokens, const FixedBrushArray& brushes, const InlineMathMasks* math) noexcept
+        : rt_(rt), default_brush_(default_brush), cull_top_(cull_top), cull_bottom_(cull_bottom), tokens_(tokens), brushes_(brushes), math_(math)
     {
         rt->GetTransform(&transform_);
         float dpi_x = DEFAULT_DPI;
@@ -106,8 +107,22 @@ public:
         FillLine(x, y + st->offset, st->width, st->thickness, effect);
         return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE DrawInlineObject(void*, FLOAT, FLOAT, IDWriteInlineObject*, BOOL, BOOL, IUnknown*) noexcept override
+    // インラインオブジェクトはインライン数式だけ。型がまだ無ければ (デバイスロストで描き直し中) 何も描かない。
+    HRESULT STDMETHODCALLTYPE DrawInlineObject(void*, FLOAT x, FLOAT y, IDWriteInlineObject* object, BOOL, BOOL, IUnknown* effect) noexcept override
     {
+        const auto* mask = math_ && object ? math_->Find(InlineMathObjectKey(object)) : nullptr;
+        if (!mask) {
+            return S_OK;
+        }
+        const D2D1_RECT_F dest{ x + mask->dest.left, y + mask->dest.top, x + mask->dest.right, y + mask->dest.bottom };
+        if (dest.bottom < cull_top_ || dest.top > cull_bottom_) {
+            return S_OK;
+        }
+        // FillOpacityMask は ALIASED のときしか描かない。
+        const D2D1_ANTIALIAS_MODE mode = rt_->GetAntialiasMode();
+        rt_->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
+        rt_->FillOpacityMask(mask->page, BrushFor(effect), D2D1_OPACITY_MASK_CONTENT_GRAPHICS, &dest, &mask->src);
+        rt_->SetAntialiasMode(mode);
         return S_OK;
     }
 
@@ -176,11 +191,12 @@ private:
     float pixels_per_dip_ = 1.0f;
     std::span<const SyntaxToken> tokens_;
     const FixedBrushArray& brushes_;
+    const InlineMathMasks* math_;
 };
 
 } // namespace
 
-void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes)
+void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, const InlineMathMasks* math)
 {
     MENDO_PROFILE("ExecuteDrawCommands");
 
@@ -213,7 +229,7 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
                 const OpacityScope opacity{ c.opacity != 1.0f ? b : nullptr, c.opacity };
                 // 描画効果を BrushEffect から置き換えるため、D2D の DrawTextLayout ではなく自前のレンダラで描く。
-                VisibleRunRenderer renderer{ rt, b, c.cull_top, c.cull_bottom, c.syntax_tokens, brushes };
+                VisibleRunRenderer renderer{ rt, b, c.cull_top, c.cull_bottom, c.syntax_tokens, brushes, math };
                 c.layout->Draw(nullptr, &renderer, c.origin.x, c.origin.y);
             }
         },
