@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <dwrite.h>
@@ -70,6 +71,26 @@ inline UINT32 FetchHitTestMetrics(IDWriteTextLayout* layout, UINT32 start, UINT3
         layout->HitTestTextRange(start, length, 0, 0, buffer.data(), count, &count);
     }
     return count;
+}
+
+// [start, start+length) を、両端を含むクラスタの境目まで広げる。インライン数式は 1 つのクラスタで、途中だけを指す範囲
+// (数式の中の検索ヒット) は HitTestTextRange が幅 0 の箱を返し、頭だけを含む範囲では数式を除いた箱を返す。
+inline DWRITE_TEXT_RANGE ExpandToClusters(IDWriteTextLayout* layout, UINT32 start, UINT32 length)
+{
+    if (length == 0) {
+        return { start, length };
+    }
+    FLOAT x = 0.0f;
+    FLOAT y = 0.0f;
+    DWRITE_HIT_TEST_METRICS first{};
+    DWRITE_HIT_TEST_METRICS last{};
+    if (FAILED(layout->HitTestTextPosition(start, FALSE, &x, &y, &first)) ||
+        FAILED(layout->HitTestTextPosition(start + length - 1, FALSE, &x, &y, &last))) {
+        return { start, length };
+    }
+    const UINT32 begin = std::min(start, first.textPosition);
+    const UINT32 end = std::max(start + length, last.textPosition + last.length);
+    return { begin, end - begin };
 }
 
 // pos を含む行全体の箱。行間を足した layout では HitTestPoint / HitTestTextPosition の箱は

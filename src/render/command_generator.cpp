@@ -1350,8 +1350,10 @@ void CommandGenerator::EmitFillRectIfVisible(const D2D1_RECT_F& r, BrushId brush
 
 void CommandGenerator::CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::vector<D2D1_RECT_F>& out)
 {
+    // 数式の一部に当たった検索ヒットも、数式全体を塗る。
+    const auto range = ExpandToClusters(layout, start, length);
     // 少しずつ追記されるので reserve はしない (要求ぴったりの再確保が毎回走る)。
-    for (const auto& m : HitTestRange(layout, start, length)) {
+    for (const auto& m : HitTestRange(layout, range.startPosition, range.length)) {
         out.emplace_back(RectFromHitTest(m));
     }
 }

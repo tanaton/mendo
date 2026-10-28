@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "dwrite_test_base.h"
+#include "doc_dwrite_bridge.h"
 #include "inline_math.h"
 #include "syntax.h"
 #include <algorithm>
@@ -125,6 +126,36 @@ TEST_F(DWriteInlineMathTest, WaitsForMetricsThenReplacesRangeWithObject)
     EXPECT_FALSE(cache[0].pending_math);
     EXPECT_TRUE(table_.TakeRequests().empty());
     EXPECT_FLOAT_EQ(RangeWidth(cache[0].text_layout(), 2, 5), 123.0f);
+}
+
+// 数式の途中や頭だけを指す範囲 (数式の中の検索ヒット) も、数式全体を含む範囲に広げてから箱を引く。
+// 広げないと HitTestTextRange は幅 0 の箱や、数式を除いた箱を返す。
+TEST_F(DWriteInlineMathTest, ExpandToClustersCoversWholeFormula)
+{
+    auto [nodes, cache] = ParseAndLayout("a $E = mc^2$ b");
+    auto requests = table_.TakeRequests();
+    ASSERT_EQ(requests.size(), 1u);
+    table_.Resolve(requests[0].key, { 60.0f, 24.0f, 18.0f });
+    cache.InvalidatePendingMathLayouts();
+    ComputeLayout(engine_, nodes, cache, 800.0f);
+    auto* layout = cache[0].text_layout();
+    ASSERT_NE(layout, nullptr);
+    EXPECT_FLOAT_EQ(RangeWidth(layout, 7, 2), 0.0f) << "広げないと幅 0";
+
+    struct Case {
+        UINT32 start;
+        UINT32 length;
+        UINT32 expanded_start;
+        UINT32 expanded_end;
+    };
+    for (const auto& c : { Case{ 7, 2, 2, 12 }, Case{ 1, 3, 1, 12 }, Case{ 10, 4, 2, 14 }, Case{ 0, 1, 0, 1 } }) {
+        SCOPED_TRACE(std::format("{}+{}", c.start, c.length));
+        const auto r = ExpandToClusters(layout, c.start, c.length);
+        EXPECT_EQ(r.startPosition, c.expanded_start);
+        EXPECT_EQ(r.startPosition + r.length, c.expanded_end);
+    }
+    const auto inside = ExpandToClusters(layout, 7, 2);
+    EXPECT_FLOAT_EQ(RangeWidth(layout, inside.startPosition, inside.length), 60.0f);
 }
 
 // 描けなかった数式は待たずに原文のまま組む。
