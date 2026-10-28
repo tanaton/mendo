@@ -44,13 +44,23 @@ std::vector<InlineMathItem> InlineMathTable::TakeRequests()
     return std::exchange(requests_, {});
 }
 
-void InlineMathTable::Resolve(uint64_t key, InlineMathMetrics metrics)
+bool InlineMathTable::Resolve(uint64_t key, InlineMathMetrics metrics)
 {
     const std::lock_guard lock(mutex_);
-    if (const auto it = entries_.find(key); it != entries_.end()) {
-        it->second.metrics = metrics;
-        it->second.resolved = true;
+    const auto it = entries_.find(key);
+    if (it == entries_.end()) {
+        return false;
     }
+    it->second.metrics = metrics;
+    it->second.resolved = true;
+    return true;
+}
+
+void InlineMathTable::Clear()
+{
+    const std::lock_guard lock(mutex_);
+    entries_.clear();
+    requests_.clear();
 }
 
 void InlineMathTable::Forget(uint64_t key)

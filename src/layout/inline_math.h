@@ -43,11 +43,14 @@ public:
     std::optional<InlineMathMetrics> FindOrRequest(uint64_t key, std::string_view tex, float font_size);
     std::vector<InlineMathItem> TakeRequests();
 
-    void Resolve(uint64_t key, InlineMathMetrics metrics);
+    // 戻り値: key が表にある。Clear の前に頼んだ結果が後から届いたら false。
+    bool Resolve(uint64_t key, InlineMathMetrics metrics);
     // 描かれずに終わった (取り消し・失敗)。次に計測したときに頼み直させる。
     void Forget(uint64_t key);
     // 描いた型を失った (デバイスロスト) ので、寸法は残したまま描けた数式をすべて頼み直す。
     void RequestAllAgain();
+    // すべて忘れる。表を引いて組んだレイアウトも捨てて、組み直させること。
+    void Clear();
 
 private:
     struct Entry {

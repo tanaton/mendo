@@ -285,6 +285,8 @@ private:
     void RelayoutViewport(RelayoutResources resources);
     // 型を描画側に渡し、寸法を待って原文のまま組んだ段落を組み直す。
     void OnInlineMathRendered(InlineMathBatchResult result);
+    // 描いた数式の型と寸法を捨てる。全レイアウトを組み直すとき (ズーム・別の文書) に呼ぶ。
+    void ForgetInlineMath();
     void SettleViewport();
     void OnDeferredLayout();
     // 捨てたテキストレイアウトが多ければワーカーで解放する。

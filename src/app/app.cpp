@@ -390,13 +390,15 @@ void App::OnInlineMathRendered(InlineMathBatchResult result)
         return;
     }
     auto& masks = renderer_.InlineMath();
+    bool page_used = false;
     for (const auto& item : result.items) {
-        inline_math_.Resolve(item.key, item.metrics);
-        if (result.page && item.metrics.ok()) {
+        // ForgetInlineMath の前に頼んだ数式は、もう誰も使わない。
+        if (inline_math_.Resolve(item.key, item.metrics) && result.page && item.metrics.ok()) {
             masks.masks.insert_or_assign(item.key, InlineMathMask{ result.page.Get(), item.src, item.dest });
+            page_used = true;
         }
     }
-    if (result.page) {
+    if (page_used) {
         masks.pages.push_back(std::move(result.page));
     }
     auto& cache = state_.document.layout_cache;
@@ -408,6 +410,12 @@ void App::OnInlineMathRendered(InlineMathBatchResult result)
     else {
         Invalidate();
     }
+}
+
+void App::ForgetInlineMath()
+{
+    inline_math_.Clear();
+    renderer_.InlineMath() = {};
 }
 
 void App::OnFileListed()
@@ -806,6 +814,9 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
 
     ReplaceDocument(std::move(next), std::move(estimated));
     CancelPendingResources();
+    // 前の文書の数式を描いた型は、新しい文書ではほとんど使わない。同じファイルの読み直しは組んだレイアウトを
+    // 引き継ぐので残す (ReloadDocument)。
+    ForgetInlineMath();
 
     // スクロール復元先の Y がずれないよう、推定高さを Mermaid/画像キャッシュの実測値で補正してから reducer に渡す。
     if (state_.view.pending_restore.IsValid()) {
@@ -1097,6 +1108,8 @@ void App::ApplyZoom()
     theme_service_.ApplyZoom(state_.view.viewport.Zoom());
     measurer_.RecreateFormats();
     renderer_.OnThemeMetricsChanged();
+    // 数式は文字の大きさごとに描くので、前の倍率の型は残しても使わない。新しい倍率で描き直させる。
+    ForgetInlineMath();
     RelayoutViewport(RelayoutResources::Diagrams);
     UpdateTitleBar();
     theme_service_.SaveZoomLevel(state_.view.viewport.Zoom());

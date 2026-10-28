@@ -177,6 +177,18 @@ TEST(InlineMathTable, RequestsOnceAndWakesWhenQueueStarts)
     EXPECT_TRUE(table.FindOrRequest(1, "a", 16.0f)) << "描けた数式は Forget で消さない";
 }
 
+// Clear の前に頼んだ結果が後から届いても表に戻さず、呼び出し側に型を置かせない。
+TEST(InlineMathTable, ResolveAfterClearIsIgnored)
+{
+    InlineMathTable table;
+    table.FindOrRequest(1, "a", 16.0f);
+    table.Clear();
+    EXPECT_TRUE(table.TakeRequests().empty());
+    EXPECT_FALSE(table.Resolve(1, { 10.0f, 5.0f, 4.0f }));
+    EXPECT_FALSE(table.FindOrRequest(1, "a", 16.0f)) << "忘れたので頼み直す";
+    EXPECT_TRUE(table.Resolve(1, { 10.0f, 5.0f, 4.0f }));
+}
+
 // デバイスロストでは寸法を残したまま、描けた数式だけを頼み直す。
 TEST(InlineMathTable, RequestAllAgainKeepsMetrics)
 {
