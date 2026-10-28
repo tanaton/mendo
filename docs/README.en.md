@@ -26,7 +26,7 @@ Type `mendo` into the File Explorer address bar and press Enter.
 - **Offline** — Works without a network connection.
 - **Syntax highlighting** — Colors code blocks in many programming languages, configuration file formats, and more.
 - **Images** — Displays local PNG, JPEG, BMP, and other images.
-- **LaTeX** — Renders `$$...$$` block equations and ` ```math ` code blocks with KaTeX. (For `$$...$$`, only paragraphs consisting solely of `$$...$$` are rendered; paragraphs mixing math with other text are shown as plain text.)
+- **LaTeX** — Renders `$$...$$` block equations, ` ```math ` code blocks, and inline `$...$` math with KaTeX. (A paragraph consisting solely of `$$...$$` is rendered as a centered block equation; `$$...$$` inside text or blockquotes is rendered inline in display style.)
 - **Navigation history** — Browser-style back/forward via mouse side buttons, mouse gestures, touchpad swipe, and more, with scroll position restored.
 - **Drag & Drop** — Drop a Markdown file onto the window to open it.
 - **In-file search** — Search within the file from the title bar search button or `Ctrl+F`.
@@ -45,7 +45,7 @@ Type `mendo` into the File Explorer address bar and press Enter.
 | Fenced code blocks | Supported (with syntax highlighting). Languages: C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd (batch), Dockerfile, Makefile, diff |
 | Images (PNG / JPEG / BMP) | Supported (async loading) |
 | Mermaid diagrams | Supported (WebView2 rendering) |
-| LaTeX math (`$$...$$` / ` ```math `) | Supported for block equations only. `$$...$$` is rendered when the paragraph consists solely of a `$$...$$` block; mixed paragraphs fall back to plain text. |
+| LaTeX math (`$...$` / `$$...$$` / ` ```math `) | ✅ `$...$` is rendered inline in the surrounding text color (`\color` has no effect). A paragraph consisting solely of `$$...$$` is rendered as a block equation; `$$...$$` inside text or blockquotes is rendered inline in display style. |
 | GitHub Alerts | Supported (Note / Tip / Important / Warning / Caution) |
 | Footnotes (`[^1]`) | Supported (listed at the end of the document, with links between references and definitions) |
 | Links (external / page anchors) | Supported |
@@ -187,7 +187,7 @@ If there is no last opened file, open a file with `Ctrl+O` or drag & drop.
 | 2D rendering | Direct2D (`ID2D1DeviceContext`) |
 | Text rendering | DirectWrite (`IDWriteTextLayout`) |
 | Diagrams | WebView2 + [Mermaid.js](https://mermaid.js.org/) |
-| Math | [KaTeX](https://katex.org/) (via Mermaid) |
+| Math | [KaTeX](https://katex.org/) (bundled with Mermaid) |
 | Markdown parser | [md4c](https://github.com/mity/md4c) (SAX-style callbacks) |
 | Tests | Google Test v1.18.0 |
 | Benchmarks | Google Benchmark v1.10.0 |

@@ -104,6 +104,12 @@ public:
         on_device_lost_ = std::move(cb);
     }
 
+    // インライン数式の型。デバイスを作り直すと空になるので、呼び出し側が描き直させる。
+    InlineMathMasks& InlineMath() noexcept
+    {
+        return inline_math_;
+    }
+
     // フレーム待ちの上限。GPU が止まっても UI スレッドを永久にブロックしないよう、これを過ぎたら諦めて描く。
     static constexpr DWORD kFrameWaitTimeoutMs = 1000;
     // 次のフレームを描いてよくなるのを待つためのハンドル。取れている間とロスト中は nullptr。
@@ -180,6 +186,7 @@ private:
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
 
     FixedBrushArray brushes_;
+    InlineMathMasks inline_math_;
 
     void RecreateBrushes();
     void RecreateAllTextFormats();

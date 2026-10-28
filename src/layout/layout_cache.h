@@ -54,6 +54,8 @@ struct TableLayoutData {
     // evict 済み行を毎回なめ直さないためのもの。
     size_t live_row_begin = 0;
     size_t live_row_end = 0;
+    // NodeLayoutEntry::pending_math のセル版。セルは並列に作るので std::atomic_ref で書く。
+    bool pending_math = false;
 
     TableLayoutData() = default;
     // セル単位・行単位の配列を表の大きさで確保する (セル layout は空)。
@@ -300,6 +302,8 @@ struct NodeLayoutEntry {
     bool layout_dirty = true;
     // 計測に失敗した (例外か、測れなかった) 連続回数 (成功で 0 に戻る)。
     uint8_t measure_failures = 0;
+    // 寸法がまだ無いインライン数式を原文のまま組んだ。描画の結果が出たら組み直す (LayoutCache::InvalidatePendingMathLayouts)。
+    bool pending_math = false;
 
     // 計測した高さを確定する。height・layout_dirty・cached_*・measure_failures を計測の結果として書くのは
     // ここと RecordMeasureFailure だけ。layout_width は組んだ幅 (NodeLayoutWidth)。
@@ -668,6 +672,10 @@ public:
     // すべてのテキストレイアウトを無効化し、全ノードを dirty にして次の Reestimate に推定し直させる（ズーム変更時）。
     // ダイアグラム/Mermaid キャッシュの処理は呼び出し側で別途行うこと。
     void InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept;
+
+    // インライン数式の寸法を待って原文のまま組んだノードを dirty に戻し、組み直させる。1 つでもあれば true。
+    // tables が false なら表は待たせたままにする (表は全セルを組み直すので重い)。
+    bool InvalidatePendingMathLayouts(bool tables) noexcept;
 
     // デバイスロスト時用。旧デバイス上のビットマップは新 RT で描画できず、
     // 残すと EndDraw が D2DERR_WRONG_RESOURCE_DOMAIN で失敗し続ける。

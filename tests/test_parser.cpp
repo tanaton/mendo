@@ -1009,22 +1009,112 @@ TEST(Parser, LatexDisplayMathSplitIntoChunksNotPromoted)
     }
 }
 
-TEST(Parser, LatexInlineMathRemainsAsText)
+namespace {
+
+std::vector<std::string_view> MathRunTexts(std::string_view text, std::span<const TextRun> runs)
 {
-    // インライン $...$ は昇格対象外。$ 記号を含む元のテキストとして扱う
-    auto nodes = ParseNodes("value is $x$ here");
+    std::vector<std::string_view> out;
+    for (const auto& r : runs) {
+        if (r.math()) {
+            out.push_back(text.substr(r.start, r.length));
+        }
+    }
+    return out;
+}
+
+std::vector<std::string_view> MathRunTexts(const Node& node)
+{
+    return MathRunTexts(node.GetText(), node.runs());
+}
+
+} // namespace
+
+// テキストは $ 付きの原文のまま残し、前後の $ を含む範囲に kMath の run を付ける。
+TEST(Parser, LatexInlineMathKeepsTextAndMarksRun)
+{
+    auto nodes = ParseNodes("value is $x^2$ here");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
-    EXPECT_NE(nodes[0].code_language, SyntaxLanguage::LatexMath);
-    EXPECT_TRUE(nodes[0].GetText().contains("$x$"));
+    EXPECT_EQ(nodes[0].GetText(), "value is $x^2$ here");
+    EXPECT_EQ(MathRunTexts(nodes[0]), (std::vector<std::string_view>{ "$x^2$" }));
+}
+
+TEST(Parser, LatexInlineMathRunsCombineWithDecorationAndStaySeparate)
+{
+    auto nodes = ParseNodes("**a $x$ b** $y$ [$z$](https://example.com)");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(MathRunTexts(nodes[0]), (std::vector<std::string_view>{ "$x$", "$y$", "$z$" }));
+    for (const auto& r : nodes[0].runs()) {
+        if (r.math() && nodes[0].GetText().substr(r.start, r.length) == "$x$") {
+            EXPECT_TRUE(r.bold());
+        }
+        if (r.math() && nodes[0].GetText().substr(r.start, r.length) == "$z$") {
+            EXPECT_TRUE(r.has_link());
+        }
+    }
+}
+
+TEST(Parser, LatexInlineMathInTableCellMarksCellRun)
+{
+    auto nodes = ParseNodes("| a | b |\n|---|---|\n| $x$ | c |");
+    ASSERT_EQ(nodes.size(), 1u);
+    const auto* tbl = nodes[0].table_data();
+    ASSERT_NE(tbl, nullptr);
+    EXPECT_EQ(MathRunTexts(tbl->GetCellText(1, 0), tbl->GetCellRuns(1, 0)), (std::vector<std::string_view>{ "$x$" }));
+}
+
+// 長い本文の途中で区切っても、インライン数式は 1 つのノードに収め、$ が片側だけの数式を作らない。
+TEST(Parser, LatexInlineMathNotSplitAcrossChunks)
+{
+    std::string md;
+    while (md.size() < kTextChunkTarget + kTextChunkWindow - 64) {
+        md += "word ";
+    }
+    md += "$";
+    while (md.size() < kTextChunkTarget + kTextChunkWindow * 3) {
+        md += "x + ";
+    }
+    md += "y$ tail";
+    auto nodes = ParseNodes(md);
+    ASSERT_GT(nodes.size(), 1u);
+    size_t math_count = 0;
+    for (const auto& n : nodes) {
+        for (const auto m : MathRunTexts(n)) {
+            EXPECT_TRUE(m.starts_with('$') && m.ends_with('$')) << m;
+            ++math_count;
+        }
+    }
+    EXPECT_EQ(math_count, 1u);
 }
 
 TEST(Parser, LatexDisplayMathInBlockquoteNotPromoted)
 {
-    // blockquote 内の $$...$$ は引用文脈維持のため昇格しない
+    // blockquote 内の $$...$$ は引用文脈維持のため昇格せず、本文の中に描く数式の run にする
     auto nodes = ParseNodes("> $$y=x$$");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
+    EXPECT_EQ(MathRunTexts(nodes[0]), (std::vector<std::string_view>{ "$$y=x$$" }));
+    EXPECT_TRUE(nodes[0].runs()[0].display_math());
+}
+
+// 本文と混ざった $$...$$ は昇格せず、前後の $$ を含む範囲に kMathDisplay の run を付ける。
+TEST(Parser, LatexDisplayMathInTextMarksDisplayRun)
+{
+    auto nodes = ParseNodes("a $$x+y$$ b $z$");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
+    EXPECT_EQ(MathRunTexts(nodes[0]), (std::vector<std::string_view>{ "$$x+y$$", "$z$" }));
+    EXPECT_TRUE(nodes[0].runs()[0].display_math());
+    EXPECT_FALSE(nodes[0].runs()[1].display_math());
+}
+
+// $$...$$ だけの段落は今までどおり図にし、数式の run は残さない。
+TEST(Parser, PromotedDisplayMathHasNoRuns)
+{
+    auto nodes = ParseNodes("$$x$$");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::Diagram);
+    EXPECT_TRUE(nodes[0].runs().empty());
 }
 
 TEST(Parser, PlainDollarSignsNotMisdetectedAsMath)
@@ -1036,6 +1126,7 @@ TEST(Parser, PlainDollarSignsNotMisdetectedAsMath)
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
     EXPECT_NE(nodes[0].code_language, SyntaxLanguage::LatexMath);
+    EXPECT_TRUE(MathRunTexts(nodes[0]).empty());
     EXPECT_TRUE(nodes[0].GetText().contains("$5"));
     EXPECT_TRUE(nodes[0].GetText().contains("$10"));
 }

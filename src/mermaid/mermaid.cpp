@@ -2,6 +2,7 @@
 #include "app_constants.h"
 #include "d2d_util.h"
 #include "file_io.h"
+#include "katex_chunk.h"
 #include "mermaid_file_cache.h"
 #include "resource.h"
 #include "string_convert.h"
@@ -54,6 +55,8 @@ constexpr std::wstring_view MERMAID_HOST_CLASS = L"mendo_MermaidHost";
 
 constexpr std::wstring_view APP_LOCAL_ORIGIN_PREFIX = L"https://app.local/";
 constexpr wchar_t APP_LOCAL_INDEX_URL[] = L"https://app.local/index.html";
+// mermaid.html が KaTeX を読む名前。チャンクの相対 import が解決するよう、実物と同じフォルダに置く。
+constexpr std::wstring_view KATEX_ALIAS_PATH = L"chunks/mermaid.esm.min/katex.mjs";
 // mermaid.js に XSS があっても外へ通信させない。WebResourceRequested では WebSocket や Worker 発の
 // 通信を捕まえられないので、ページの CSP で止める。eval は mermaid の依存が使いうるので許す。
 constexpr wchar_t HTML_RESPONSE_HEADERS[] =
@@ -452,6 +455,10 @@ void MermaidRenderer::OnControllerCreated(int index, ICoreWebView2Controller* co
     }
 
     controller->put_Bounds(RECT{ 0, 0, HOST_SIZE, HOST_SIZE });
+    // インライン数式の型をアルファ付きでキャプチャするため。図はページの body が背景を塗る。
+    if (Microsoft::WRL::ComPtr<ICoreWebView2Controller2> controller2; SUCCEEDED(controller->QueryInterface(IID_PPV_ARGS(&controller2)))) {
+        LogHrFailure("put_DefaultBackgroundColor", controller2->put_DefaultBackgroundColor(COREWEBVIEW2_COLOR{ 0, 0, 0, 0 }));
+    }
     DisableWebViewChrome(w.webview.Get());
     RestrictWebView(w.webview.Get());
     RegisterWebViewHandlers(index);
@@ -533,6 +540,7 @@ void MermaidRenderer::OnWebResourceRequested(ICoreWebView2WebResourceRequestedEv
     const bool is_html = url == APP_LOCAL_INDEX_URL;
     const std::wstring_view path = url.substr(APP_LOCAL_ORIGIN_PREFIX.size());
     const auto body = is_html                            ? LoadRcData(IDR_MERMAID_HTML)
+                      : path == KATEX_ALIAS_PATH         ? LoadRcData(KATEX_CHUNK_RESOURCE)
                       : mermaid_util::IsModulePath(path) ? LoadRcData(path.data())
                                                          : std::span<const std::byte>{};
     Microsoft::WRL::ComPtr<IStream> stream;
@@ -574,7 +582,7 @@ const MermaidRenderer::CachedResult* MermaidRenderer::FindCached(uint64_t code_h
 
 void MermaidRenderer::SetDiagramError(const RenderRequest& req, DiagramError::Kind kind, std::wstring_view msg)
 {
-    if (req.svg_only) {
+    if (!req.is_display()) {
         return;
     }
     // DrawTextCmd の 255 文字上限とプレースホルダ高さ (約3行) に収まる長さ。
@@ -591,12 +599,24 @@ void MermaidRenderer::InvokeSvgCallbackIfAny(RenderRequest& req, std::wstring sv
     }
 }
 
+void MermaidRenderer::FailMathCallbackIfAny(RenderRequest& req, bool cancelled)
+{
+    if (auto cb = std::move(req.math_callback)) {
+        InlineMathBatchResult result{ .reserved_bytes = req.math_reserved_bytes, .failed = !cancelled, .cancelled = cancelled };
+        result.items.reserve(req.math_items.size());
+        for (const auto& item : req.math_items) {
+            result.items.push_back({ .key = item.key });
+        }
+        cb(std::move(result));
+    }
+}
+
 void MermaidRenderer::DrainPendingRequests(bool cancelled)
 {
-    // 待機中の SVG リクエストを完了させ、呼び出し元の in-flight フラグ固着を防ぐ。
+    // 待機中の SVG・インライン数式のリクエストを完了させ、呼び出し元の in-flight フラグ固着を防ぐ。
     while (!pending_requests_.empty()) {
         auto& req = pending_requests_.front();
-        InvokeSvgCallbackIfAny(req, {}, cancelled);
+        FailCallbacksIfAny(req, cancelled);
         ReleaseInflight(req);
         pending_requests_.pop();
     }
@@ -612,7 +632,7 @@ void MermaidRenderer::CancelPending()
     // SVG コールバックの再入で worker_count_ が変わり得るため毎回読み直す。
     for (int i = 0; i < worker_count_; i++) {
         auto& w = workers_[i];
-        InvokeSvgCallbackIfAny(w.current_request, {}, true);
+        FailCallbacksIfAny(w.current_request, true);
         w.current_request = {};
     }
     inflight_.clear();
@@ -625,14 +645,33 @@ void MermaidRenderer::DropQueued()
 {
     // 読み込み待ちのディスクキャッシュも取り消す。描画直後の PNG はディスクへ保存したいので取り消さない。
     disk_drop_gen_.fetch_add(1, std::memory_order_relaxed);
+    // インライン数式は幅にもテーマにも依らないので、移動しても描く価値が残る。
+    DropPendingIf([this](RenderRequest& req) {
+        if (!req.is_display()) {
+            return false;
+        }
+        ReleaseInflight(req);
+        return true;
+    });
+}
+
+void MermaidRenderer::DropQueuedMath()
+{
+    DropPendingIf([](RenderRequest& req) {
+        if (!req.is_math()) {
+            return false;
+        }
+        FailMathCallbackIfAny(req, true);
+        return true;
+    });
+}
+
+void MermaidRenderer::DropPendingIf(const std::function<bool(RenderRequest&)>& drop)
+{
     std::queue<RenderRequest, std::deque<RenderRequest>> kept;
     while (!pending_requests_.empty()) {
-        auto& req = pending_requests_.front();
-        if (req.svg_only) {
+        if (auto& req = pending_requests_.front(); !drop(req)) {
             kept.push(std::move(req));
-        }
-        else {
-            ReleaseInflight(req);
         }
         pending_requests_.pop();
     }
@@ -656,6 +695,7 @@ void MermaidRenderer::RecoverWorker(int index)
             // リトライ済みの再クラッシュ。エラー確定にしないと Loading 固着かつ
             // 完了通知も出ないため、汎用エラーを設定して再描画させる。
             SetDiagramError(w.current_request, DiagramError::Kind::Render);
+            FailMathCallbackIfAny(w.current_request, false);
             ReleaseInflight(w.current_request);
             failed = true;
         }
@@ -745,7 +785,8 @@ void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path png
                   .drop_gen = disk_drop_gen_.load(std::memory_order_relaxed) };
     // ファイル読み込みと PNG デコードは worker で行う (UI では時間予算なしに積み上がる)。
     const bool posted = bg_scheduler_->Post([this, job = std::move(job), path = std::move(png_path), guard = latch_.Acquire()]() mutable {
-        job.dropped = !job.captured && job.drop_gen != disk_drop_gen_.load(std::memory_order_relaxed);
+        // インライン数式は取り消すと頼み直す契機が無いので、移動しても読む (DropQueued でも待ちに残す)。
+        job.dropped = !job.captured && job.req.is_display() && job.drop_gen != disk_drop_gen_.load(std::memory_order_relaxed);
         if (!job.dropped) {
             LoadDiskJob(job, path);
         }
@@ -776,14 +817,125 @@ void MermaidRenderer::LoadDiskJob(DiskLoad& job, const std::filesystem::path& pa
         job.png = std::make_shared<const ByteBuffer>(std::move(data));
     }
     TaskScheduler::EnsureWorkerCom();
+    if (job.req.is_math()) {
+        LoadMathJob(job);
+        return;
+    }
     // job.png はデコード完了まで生きているので、コピーせずに参照して読む。
     if (const auto decoded = wic_util::DecodeFromMemory(wic_factory_.Get(), *job.png, GUID_ContainerFormatPng)) {
         job.bitmap = wic_util::DecodeToWicBitmap(wic_factory_.Get(), *decoded, { decoded->pixel_width, decoded->pixel_height });
     }
 }
 
+void MermaidRenderer::DecideMathPage(RenderRequest& req, const mermaid_util::RenderSize& page)
+{
+    if (auto want_page = std::exchange(req.math_want_page, {})) {
+        const size_t bytes = static_cast<size_t>(DipToPixelCeil(page.width, page.dpr)) * DipToPixelCeil(page.height, page.dpr);
+        req.math_page = want_page(bytes);
+        req.math_reserved_bytes = req.math_page ? bytes : 0;
+    }
+}
+
+void MermaidRenderer::LoadMathJob(DiskLoad& job)
+{
+    auto& req = job.req;
+    // デコーダは CopyPixels のときに PNG を読むので、それまで手放さない。
+    const PngBytes source = std::move(job.png);
+    if (!job.captured) {
+        auto layout = mermaid_util::ReadMathBoxesChunk({ source->data(), source->size() }, req.math_items.size());
+        if (!layout) {
+            return;
+        }
+        req.math_layout = std::move(*layout);
+    }
+    else if (req.math_cache_key != 0) {
+        if (auto with_boxes = mermaid_util::AppendMathBoxesChunk({ source->data(), source->size() }, req.math_layout); !with_boxes.empty()) {
+            job.png = std::make_shared<const ByteBuffer>(std::move(with_boxes));
+        }
+    }
+    if (!req.math_page) {
+        return;
+    }
+    // 透明な背景のキャプチャは BGRA の straight alpha で、黒で描いた数式の形はアルファにだけある。
+    // WIC にアルファだけを取り出させる (BGRA で受けて抜き出すより、1536x618 のページで 2.65ms → 1.85ms、
+    // 一時バッファ 3.8MB が要らない。結果は同じ)。
+    const auto decoded = wic_util::DecodeFromMemory(wic_factory_.Get(), *source, GUID_ContainerFormatPng, GUID_WICPixelFormat8bppAlpha);
+    if (!decoded || decoded->pixel_width == 0 || decoded->pixel_height == 0) {
+        return;
+    }
+    const UINT w = decoded->pixel_width;
+    const UINT h = decoded->pixel_height;
+    job.alpha.resize(size_t{ w } * h);
+    if (FAILED(decoded->converter->CopyPixels(nullptr, w, static_cast<UINT>(job.alpha.size()), job.alpha.data()))) {
+        job.alpha.clear();
+        return;
+    }
+    job.alpha_width = w;
+    job.alpha_height = h;
+}
+
+void MermaidRenderer::ApplyMathLoad(DiskLoad& r)
+{
+    auto& req = r.req;
+    // 箱の一覧が揃い、受け取るページならアルファも取り出せた。
+    const bool loaded = !req.math_layout.boxes.empty() && (!req.math_page || !r.alpha.empty());
+    // ディスクキャッシュから読めなかった (消えていた・壊れていた) ので描き直す。描き直したページで上書きする。
+    if (!loaded && !r.captured) {
+        file_cache_->OnReadFailed(req.math_cache_key, r.read_error);
+        EnqueueWebRender(std::move(req));
+        return;
+    }
+    if (!req.math_callback) {
+        return;
+    }
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> page;
+    if (!r.alpha.empty() && render_target_) {
+        // FillOpacityMask の切り出し位置はビットマップの DIP で指すので、96 DPI にしてピクセルと揃える。
+        const auto props = D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), DEFAULT_DPI, DEFAULT_DPI);
+        render_target_->CreateBitmap(D2D1::SizeU(r.alpha_width, r.alpha_height), r.alpha.data(), r.alpha_width, props, &page);
+    }
+    if (!loaded || (req.math_page && !page)) {
+        FailMathCallbackIfAny(req, false);
+        return;
+    }
+    // エラーの数式も箱の一覧に残るので、次からは描き直さずに原文で表示できる。
+    if (r.captured && r.png) {
+        file_cache_->StoreAsync(req.math_cache_key, req.math_layout.size.width, req.math_layout.size.height, std::move(r.png));
+    }
+    // 箱の外に少しはみ出すインク (積分記号の端など) も含めて切り出す。ページでは数式の間を 2px 空けてある。
+    constexpr float kInkMargin = 1.0f;
+    const float dpr = req.math_layout.size.dpr;
+    const float page_w = static_cast<float>(r.alpha_width);
+    const float page_h = static_cast<float>(r.alpha_height);
+    InlineMathBatchResult result{ .page = std::move(page), .reserved_bytes = req.math_reserved_bytes };
+    result.items.reserve(req.math_items.size());
+    for (size_t i = 0; i < req.math_items.size(); ++i) {
+        const auto& box = req.math_layout.boxes[i];
+        InlineMathBatchResult::Item item{ .key = req.math_items[i].key };
+        if (box.width > 0.0f) {
+            item.metrics = { box.width, box.height, box.baseline };
+            if (result.page) {
+                const float left = std::max(0.0f, std::floor((box.x - kInkMargin) * dpr));
+                const float top = std::max(0.0f, std::floor((box.y - kInkMargin) * dpr));
+                const float right = std::min(page_w, std::ceil((box.x + box.width + kInkMargin) * dpr));
+                const float bottom = std::min(page_h, std::ceil((box.y + box.height + kInkMargin) * dpr));
+                item.src = { left, top, right, bottom };
+                item.dest = { left / dpr - box.x, top / dpr - box.y, right / dpr - box.x, bottom / dpr - box.y };
+            }
+        }
+        result.items.push_back(item);
+    }
+    auto cb = std::exchange(req.math_callback, {});
+    cb(std::move(result));
+}
+
 bool MermaidRenderer::ApplyDiskLoad(DiskLoad& r)
 {
+    // 結果は呼び出し側に直接渡し、図のキャッシュには入れない。
+    if (r.req.is_math()) {
+        ApplyMathLoad(r);
+        return false;
+    }
     // 表示に要るなら要求し直される。
     if (r.dropped) {
         ReleaseInflight(r.req);
@@ -824,33 +976,50 @@ void MermaidRenderer::ProcessDiskLoads(std::chrono::steady_clock::time_point dea
 
 void MermaidRenderer::EnqueueWebRender(RenderRequest req)
 {
-    if (!ready_) {
-        // 準備完了の通知で要求し直させる。
+    // 図は準備完了の通知で要求し直させる。SVG とインライン数式の要求は頼み直す仕組みが無いので、準備前でも捨てない。
+    if (!ready_ && req.is_display()) {
         ReleaseInflight(req);
         EnsureInitialized();
         return;
     }
-
     pending_requests_.push(std::move(req));
-
+    if (!ready_) {
+        EnsureInitialized();
+        return;
+    }
     ProcessQueue();
 }
 
 void MermaidRenderer::RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback)
 {
-    pending_requests_.push(RenderRequest{
+    EnqueueWebRender(RenderRequest{
         .code = std::string{ code },
         .max_width = max_width,
         .dark_mode = dark_mode,
         .svg_only = true,
         .svg_callback = std::move(callback),
     });
+}
 
-    if (!ready_) {
-        EnsureInitialized();
+void MermaidRenderer::RequestMathBatch(std::vector<InlineMathItem> items, uint64_t cache_key, MathBatchCallback callback, MathPageGate want_page)
+{
+    RenderRequest req{ .math_items = std::move(items), .math_callback = std::move(callback), .math_cache_key = cache_key,
+                       .math_want_page = std::move(want_page) };
+    if (!req.is_math()) {
+        FailMathCallbackIfAny(req, false);
         return;
     }
-    ProcessQueue();
+    // 当たれば WebView2 を起動しない。幅に依らないので、幅なしのキーとして引く。
+    if (cache_key != 0) {
+        if (const auto hit = file_cache_->Find(cache_key, cache_key, std::numeric_limits<float>::infinity(), /*touch=*/true)) {
+            if (auto png_path = file_cache_->PngPath(hit->key); !png_path.empty()) {
+                DecideMathPage(req, { hit->entry.css_width, hit->entry.css_height, file_cache_->Dpr() });
+                StartDiskLoad(std::move(req), std::move(png_path));
+                return;
+            }
+        }
+    }
+    EnqueueWebRender(std::move(req));
 }
 
 void MermaidRenderer::ProcessQueue()
@@ -896,12 +1065,13 @@ void MermaidRenderer::FreeWorker(Worker& worker)
 void MermaidRenderer::FailWorkerRequest(Worker& worker, DiagramError::Kind kind, std::wstring_view msg)
 {
     SetDiagramError(worker.current_request, kind, msg);
-    InvokeSvgCallbackIfAny(worker.current_request, {}, false);
     FinishWorkerRequest(worker);
 }
 
 void MermaidRenderer::FinishWorkerRequest(Worker& worker)
 {
+    // SVG は成功ならコールバックを呼び済みで、描けたインライン数式は要求を StartDiskLoad へ移してから FreeWorker する。
+    FailCallbacksIfAny(worker.current_request, false);
     const bool resolved = FindCached(worker.current_request);
     ReleaseInflight(worker.current_request);
     FreeWorker(worker);
@@ -917,13 +1087,14 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
         return;
     }
     const auto& req = worker.current_request;
+    if (req.is_math()) {
+        RenderMathInWorker(worker);
+        return;
+    }
 
     // WebView2 / JsEscape は wstring 経路のため、ここで UTF-8 から変換する。
     std::wstring code;
     string_convert::Utf8ToWide(req.code, code);
-    if (req.latex) {
-        code = mermaid_util::BuildLatexFlowchartCode(code);
-    }
 
     // CSS ビューポートが max_width (DIP) と等しくなるよう境界を物理ピクセルで設定する
     // (WebView2 は内部で devicePixelRatio で除算する)。SVG 出力 (折返し等) も CSS 幅に
@@ -931,18 +1102,61 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
     const int vp_phys = std::max(1, DipToPixelCeil(req.max_width, worker.dpr));
     ResizeWorkerView(worker, vp_phys, HOST_SIZE);
 
+    ExecuteRenderScript(worker,
+                        std::format(L"{}('{}', {})", req.svg_only ? L"renderMermaidSvg" : req.latex ? L"renderMath" : L"renderMermaid",
+                                    mermaid_util::JsEscape(code), req.dark_mode ? L"true" : L"false"),
+                        req.svg_only ? L"svg-result" : L"render-result", req.svg_only ? "ExecuteScript(svg)" : "ExecuteScript(render)");
+}
+
+void MermaidRenderer::RenderMathInWorker(Worker& worker)
+{
+    ResizeWorkerView(worker, DipToPixelCeil(MATH_PAGE_WIDTH, worker.dpr), HOST_SIZE);
+    std::wstring call = L"renderMathBatch([";
+    std::wstring tex;
+    for (const auto& item : worker.current_request.math_items) {
+        tex.clear();
+        string_convert::Utf8ToWide(item.tex, tex);
+        std::format_to(std::back_inserter(call), L"['{}',{:.3f}],", mermaid_util::JsEscape(tex), item.font_size);
+    }
+    std::format_to(std::back_inserter(call), L"], {})", MATH_PAGE_WIDTH);
+    ExecuteRenderScript(worker, std::move(call), L"math-result", "ExecuteScript(math)");
+}
+
+void MermaidRenderer::ExecuteRenderScript(Worker& worker, std::wstring call, std::wstring_view result_kind, const char* log_name)
+{
     // リクエスト ID を postMessage に含め、C++ 側でコールバックとリクエストを照合する。
-    // 描けなければ JS 側が投げるので、表示用も SVG 用も render-error で mermaid の文言を受け取る。
-    const auto js = std::format(
-        L"{}('{}', {})"
-        L".then(function(r){{window.chrome.webview.postMessage('{}:{}:'+r);}})"
-        L".catch(function(e){{window.chrome.webview.postMessage('render-error:{}:'+((e&&e.message)||String(e)));}})",
-        req.svg_only ? L"renderMermaidSvg" : L"renderMermaid",
-        mermaid_util::JsEscape(code),
-        req.dark_mode ? L"true" : L"false",
-        req.svg_only ? L"svg-result" : L"render-result",
-        req.request_id, req.request_id);
-    LogHrFailure(req.svg_only ? "ExecuteScript(svg)" : "ExecuteScript(render)", worker.webview->ExecuteScript(js.c_str(), nullptr));
+    // 描けなければ JS 側が投げるので、どの要求も render-error で mermaid / KaTeX の文言を受け取る。
+    const auto id = worker.current_request.request_id;
+    std::format_to(std::back_inserter(call),
+                   L".then(function(r){{window.chrome.webview.postMessage('{}:{}:'+r);}})"
+                   L".catch(function(e){{window.chrome.webview.postMessage('render-error:{}:'+((e&&e.message)||String(e)));}})",
+                   result_kind, id, id);
+    LogHrFailure(log_name, worker.webview->ExecuteScript(call.c_str(), nullptr));
+}
+
+void MermaidRenderer::OnMathResult(int worker_idx, std::wstring_view payload)
+{
+    auto& w = workers_[worker_idx];
+    auto layout = mermaid_util::ParseMathBatch(payload, w.current_request.math_items.size());
+    const float dpr = layout && mermaid_util::IsPlausibleDpr(layout->size.dpr) ? layout->size.dpr : 1.0f;
+    if (!layout || !mermaid_util::FitsCaptureLimit(layout->size.width, layout->size.height, dpr, MaxBitmapDim(render_target_))) {
+        FinishWorkerRequest(w);
+        return;
+    }
+    layout->size.dpr = dpr;
+    w.current_request.math_layout = std::move(*layout);
+    ScheduleCapture(w, w.current_request.math_layout.size);
+}
+
+void MermaidRenderer::ScheduleCapture(Worker& w, const mermaid_util::RenderSize& size)
+{
+    ResizeWorkerView(w, DipToPixelCeil(size.width, size.dpr), DipToPixelCeil(size.height, size.dpr));
+    // rAF 2 回で新サイズでの再描画を待ってから postMessage で通知する (Promise-await の問題を回避)。
+    const auto cap_js = std::format(
+        L"requestAnimationFrame(function(){{requestAnimationFrame(function(){{"
+        L"window.chrome.webview.postMessage('capture-ready:{}');}});}});",
+        w.current_request.request_id);
+    LogHrFailure("ExecuteScript(capture)", w.webview->ExecuteScript(cap_js.c_str(), nullptr));
 }
 
 float MermaidRenderer::EstimateWorkerDpr() noexcept
@@ -1008,6 +1222,11 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
             FailWorkerRequest(w, DiagramError::Kind::Render, payload);
         }
         return;
+    case WebMessageKind::MathResult:
+        if (req_id_match && w.current_request.is_math()) {
+            OnMathResult(index, payload);
+        }
+        return;
     case WebMessageKind::Failed:
         // mermaid.jsの読み込みに失敗した場合、ページを再読み込みして再試行する
         if (w.init_retries < MAX_WORKER_RETRIES && w.webview) {
@@ -1044,15 +1263,7 @@ void MermaidRenderer::OnRenderResult(int worker_idx, const mermaid_util::RenderS
     w.current_request.css_width = dw;
     w.current_request.css_height = dh;
 
-    // キャプチャ用に WebView をダイアグラムの正確な物理ピクセルサイズにリサイズする。
-    ResizeWorkerView(w, DipToPixelCeil(dw, dpr), DipToPixelCeil(dh, dpr));
-
-    // rAF 2 回で新サイズでの再描画を待ってから postMessage で通知する (Promise-await の問題を回避)。
-    const auto cap_js = std::format(
-        L"requestAnimationFrame(function(){{requestAnimationFrame(function(){{"
-        L"window.chrome.webview.postMessage('capture-ready:{}');}});}});",
-        w.current_request.request_id);
-    LogHrFailure("ExecuteScript(capture)", w.webview->ExecuteScript(cap_js.c_str(), nullptr));
+    ScheduleCapture(w, { dw, dh, dpr });
 }
 
 void MermaidRenderer::DoCapturePreview(int worker_idx)
@@ -1104,5 +1315,8 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, Microsoft::WRL::ComPtr<I
     // 読み出しが終わるまで要求は inflight_ に残す。
     auto req = std::move(w.current_request);
     FreeWorker(w);
+    if (req.is_math()) {
+        DecideMathPage(req, req.math_layout.size);
+    }
     StartDiskLoad(std::move(req), {}, std::move(png_stream));
 }

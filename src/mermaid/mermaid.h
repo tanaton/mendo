@@ -1,5 +1,6 @@
 #pragma once
 #include "document_types.h"
+#include "inline_math.h"
 #include "layout_cache.h"
 #include "transposition_cache.h"
 #include "mermaid_renderer_interface.h"
@@ -23,6 +24,33 @@
 class MermaidFileCache;
 class TaskScheduler;
 
+// インライン数式をまとめて描いた結果。
+struct InlineMathBatchResult {
+    struct Item {
+        uint64_t key = 0;
+        // 描けなかった数式 (KaTeX のエラー) は空。
+        InlineMathMetrics metrics;
+        // page があるときだけ使う。
+        D2D1_RECT_F src{};  // page の中の位置 (ピクセル)
+        D2D1_RECT_F dest{}; // 数式の箱の左上を原点とする描画先 (DIP)
+    };
+    // 数式の形をアルファに持つ A8 のビットマップ。描けなかったときと、受け取らない (MathPageGate) と答えたときは null。
+    Microsoft::WRL::ComPtr<ID2D1Bitmap> page;
+    // 要求と同じ順。
+    std::vector<Item> items;
+    // MathPageGate が受け取ると答えたページのバイト数。答えていなければ 0。呼び出し側が取り置いた分を戻すのに使う。
+    size_t reserved_bytes = 0;
+    // まとめて描けなかった。items の metrics はすべて空。
+    bool failed = false;
+    // 描く前に取り消した (終了・文書の差し替え)。数式のエラーではないので、後で頼み直してよい。
+    bool cancelled = false;
+};
+// 描けたとき・失敗したとき・取り消したときのどれでも 1 回だけ呼ぶ。
+using MathBatchCallback = std::move_only_function<void(InlineMathBatchResult result)>;
+// ページを型として受け取るか。ページの大きさ (A8 のバイト数) が分かったときに UI スレッドで 1 回だけ呼ぶ。
+// false ならページをデコードも GPU へ転送もせず、寸法だけを返す。
+using MathPageGate = std::move_only_function<bool(size_t page_bytes)>;
+
 // オフスクリーンWebView2を使ってMermaidダイアグラムコードをID2D1Bitmapにレンダリングする。
 // 複数のWebView2インスタンスを並行稼働させ、複数の図を同時にレンダリングできる。
 // すべてのパブリックメソッドはUIスレッドから呼び出す必要がある。
@@ -45,6 +73,12 @@ public:
 
     bool RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode) override;
     void RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback) override;
+    // インライン数式を 1 ページに並べて描き、1 回のキャプチャで型を取る。図と同じワーカー枠を使う。
+    // 1 つずつ描くとキャプチャの待ちで 1 個 66ms かかるが、まとめれば 1 個 0.5ms ほどで済む。
+    // items は kMaxInlineMathPerChunk 個までにする。cache_key (InlineMathChunk::key) があれば、ページを図と同じ
+    // ディスクキャッシュに置き、次からは WebView2 を起動せずに読む。0 ならキャッシュしない。
+    // want_page が無ければページをいつも返す。
+    void RequestMathBatch(std::vector<InlineMathItem> items, uint64_t cache_key, MathBatchCallback callback, MathPageGate want_page = {});
     void SetRenderTarget(ID2D1RenderTarget* render_target);
     // ワーカーは画面外に置くため、PNG は本体ウィンドウではなくその位置のモニタの DPR で描かれる。
     // ワーカーを起動する前にディスクキャッシュを引くときの DPR に使う。
@@ -58,6 +92,8 @@ public:
     }
     void Shutdown();
     void DropQueued() override;
+    // 描画待ちのインライン数式の要求を取り消す (cancelled で返す)。数式の寸法表を捨てたときに、もう使わない組を描かせない。
+    void DropQueuedMath();
     void OnInitRetryTimer();
     // 一定時間描画要求が無ければ WebView2 を環境ごと閉じる (browser/renderer/GPU プロセスのメモリ解放)。
     void OnIdleTimer();
@@ -69,7 +105,7 @@ private:
         // UTF-8 の原文。呼び出し側の文字列の寿命から切り離して持つ。WebView2 向けの変換は描く直前に行い、
         // 待ちの間 (準備前・ディスク読み込み中・キュー待ち) は原文の大きさのままにする。
         std::string code;
-        // LaTeX 数式。flowchart で包んで描く。
+        // LaTeX 数式。mermaid を通さず KaTeX で描く。
         bool latex = false;
         float max_width = 0.0f;
         bool dark_mode = false;
@@ -92,6 +128,31 @@ private:
         // SVG文字列を svg_callback で返す。
         bool svg_only = false;
         SvgCallback svg_callback;
+
+        // インライン数式をまとめて描く要求 (RequestMathBatch)。空でなければこの種類で、code などは使わない。
+        // キャッシュに入れず、結果は math_callback で返す。
+        std::vector<InlineMathItem> math_items;
+        MathBatchCallback math_callback;
+        // 0 ならディスクキャッシュに置かない。
+        uint64_t math_cache_key = 0;
+        // 呼んだら空にして、答えを math_page に持つ (DecideMathPage)。
+        MathPageGate math_want_page;
+        bool math_page = true;
+        // InlineMathBatchResult::reserved_bytes。
+        size_t math_reserved_bytes = 0;
+        // ページの大きさと各数式の箱。描画結果 (math-result) かディスクキャッシュの PNG のチャンクから受け取り、
+        // キャプチャの切り出しに使う。
+        mermaid_util::MathBatchLayout math_layout;
+
+        bool is_math() const noexcept
+        {
+            return !math_items.empty();
+        }
+        // 図の結果をキャッシュに持つ要求か。
+        bool is_display() const noexcept
+        {
+            return !svg_only && !is_math();
+        }
     };
 
     // 各ワーカーが独立したWebView2インスタンスを持ち、1つのダイアグラムを非同期レンダリングする。
@@ -130,6 +191,10 @@ private:
         RenderRequest req;
         // worker でデコード確定済み。失敗時は null で read_error に理由が入る。
         Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
+        // インライン数式の要求では bitmap の代わりに、キャプチャのアルファだけを取り出す (幅 x 高さ、1 行 alpha_width バイト)。
+        std::vector<uint8_t> alpha;
+        UINT alpha_width = 0;
+        UINT alpha_height = 0;
         PngBytes png;
         // WebView2 の CapturePreview 出力。worker で png へ読み出したら解放する。
         Microsoft::WRL::ComPtr<IStream> captured_stream;
@@ -141,6 +206,8 @@ private:
         bool dropped = false;
     };
 
+    // インライン数式を並べるページの幅 (CSS px)。ページは数式の数に応じて縦に伸びる。
+    static constexpr int MATH_PAGE_WIDTH = 1024;
     // 1 つ増やすごとにレンダラープロセスの起動と mermaid.js のロードが要り、数十 MB 常駐する。
     // 2 回目以降はディスクキャッシュで済むので、並列度は控えめにする。
     static constexpr int MAX_WORKERS = 2;
@@ -158,6 +225,29 @@ private:
 
     // SVG 専用リクエストならコールバックを呼んで svg_callback をクリアする (cancel / render-error / svg-result 共通)。
     static void InvokeSvgCallbackIfAny(RenderRequest& req, std::wstring svg, bool cancelled);
+    // インライン数式の要求なら、描けなかったことを知らせて math_callback をクリアする。
+    static void FailMathCallbackIfAny(RenderRequest& req, bool cancelled);
+    // 結果を返さずに終える要求のコールバック (SVG・インライン数式) を失敗か取り消しで呼ぶ。成功した要求は呼び済みで何もしない。
+    static void FailCallbacksIfAny(RenderRequest& req, bool cancelled)
+    {
+        InvokeSvgCallbackIfAny(req, {}, cancelled);
+        FailMathCallbackIfAny(req, cancelled);
+    }
+    void RenderMathInWorker(Worker& worker);
+    // call (Promise を返す JS の式) の結果を "<result_kind>:<id>:<結果>"、投げたら render-error で返させる。
+    static void ExecuteRenderScript(Worker& worker, std::wstring call, std::wstring_view result_kind, const char* log_name);
+    void OnMathResult(int worker_idx, std::wstring_view payload);
+    // ビューを描いたものの大きさ (DIP) に合わせ、リサイズが描画に反映されたら capture-ready を返させる。
+    void ScheduleCapture(Worker& w, const mermaid_util::RenderSize& size);
+    // ページの大きさが分かったら、デコードする前に math_want_page に聞く。ディスクキャッシュから読めずに描き直すときは
+    // 前の答えを使う。
+    static void DecideMathPage(RenderRequest& req, const mermaid_util::RenderSize& page);
+    // worker で呼ぶ。キャプチャかディスクキャッシュの PNG からアルファだけを取り出す (受け取らないページはデコードしない)。
+    // ディスクキャッシュなら箱の一覧も読み、キャプチャならディスクキャッシュに置く PNG に箱の一覧を埋める。
+    void LoadMathJob(DiskLoad& job);
+    void ApplyMathLoad(DiskLoad& r);
+    // 描画待ちから drop が true を返した要求を除く。drop は除く要求の後始末もする。
+    void DropPendingIf(const std::function<bool(RenderRequest&)>& drop);
     // 表示用リクエストのエラーを kind で確定させる (issue #271)。msg は Render のときの Mermaid の文言で、空なら汎用の文言を出す。
     void SetDiagramError(const RenderRequest& req, DiagramError::Kind kind, std::wstring_view msg = {});
     static void ApplyResult(DiagramEntry& diagram_entry, const CachedResult& result);
@@ -192,7 +282,7 @@ private:
     void ProcessQueue();
     void DrainPendingRequests(bool cancelled);
     void RenderInWorker(Worker& worker);
-    // WebView2 ワーカーでの描画待ちキューに積む (初期化前なら初期化だけ起動して戻る)。
+    // WebView2 ワーカーでの描画待ちキューに積む。初期化前なら初期化を起動し、図の要求は捨てる。
     void EnqueueWebRender(RenderRequest req);
     // 要求の結果 (ビットマップかエラー) がキャッシュに入っていれば、通知して要求し直させる。
     void FinishWorkerRequest(Worker& worker);
@@ -202,7 +292,7 @@ private:
     void FreeWorker(Worker& worker);
     void ReleaseInflight(const RenderRequest& req) noexcept
     {
-        if (!req.svg_only) {
+        if (req.is_display()) {
             inflight_.erase(req.code_hash);
         }
     }
@@ -227,10 +317,10 @@ private:
     void OnCaptureComplete(int worker_idx, Microsoft::WRL::ComPtr<IStream> png_stream);
     void InsertCache(uint64_t hash, CachedResult result);
     const CachedResult* FindCached(uint64_t code_hash, uint64_t width_free_hash, float max_width);
-    // SVG の要求はキャッシュに入れないので、いつも描画させる。
+    // SVG とインライン数式の要求はキャッシュに入れないので、いつも描画させる。
     const CachedResult* FindCached(const RenderRequest& req)
     {
-        return req.svg_only ? nullptr : FindCached(req.code_hash, req.width_free_hash, req.max_width);
+        return req.is_display() ? FindCached(req.code_hash, req.width_free_hash, req.max_width) : nullptr;
     }
 
     HWND hwnd_ = nullptr;

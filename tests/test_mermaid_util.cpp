@@ -3,6 +3,9 @@
 #include "parser.h"
 #include "test_nodes.h"
 #include "utility.h"
+#include <algorithm>
+#include <span>
+#include <vector>
 
 using namespace std::literals;
 
@@ -68,51 +71,108 @@ TEST(QuantizeWidth, ZeroAndNegativeReturnMinimum)
     EXPECT_EQ(mermaid_util::QuantizeWidth(-100.0f), 32);
 }
 
-// ═══════════════════════════════════════════════
-// BuildLatexFlowchartCode
-// ═══════════════════════════════════════════════
-
-TEST(BuildLatexFlowchartCode, WrapsInFlowchartNode)
-{
-    auto code = mermaid_util::BuildLatexFlowchartCode(L"E=mc^2");
-    // 基本構造: flowchart LR ヘッダ + $$...$$ ラベル + style 透明化
-    EXPECT_TRUE(code.contains(L"flowchart LR"));
-    EXPECT_TRUE(code.contains(L"$$E=mc^2$$"));
-    EXPECT_TRUE(code.contains(L"style A fill:none,stroke:none"));
-}
-
-TEST(BuildLatexFlowchartCode, EscapesDoubleQuote)
-{
-    // LaTeX 内の " は mermaid ラベルを閉じてしまうため #quot; に置換される
-    auto code = mermaid_util::BuildLatexFlowchartCode(L"a\"b");
-    EXPECT_TRUE(code.contains(L"a#quot;b"));
-    EXPECT_FALSE(code.contains(L"a\"b"));
-}
-
-TEST(BuildLatexFlowchartCode, EscapesClosingBracket)
-{
-    // ] も mermaid ラベル終端を避けるため #93; に置換される
-    auto code = mermaid_util::BuildLatexFlowchartCode(L"a]b");
-    EXPECT_TRUE(code.contains(L"a#93;b"));
-}
-
-TEST(BuildLatexFlowchartCode, ReplacesNewlinesWithSpace)
-{
-    auto code = mermaid_util::BuildLatexFlowchartCode(L"a\nb\rc");
-    // 改行がラベル内に残っていないこと（空白に置換）
-    EXPECT_TRUE(code.contains(L"$$a b c$$"));
-}
-
-TEST(BuildLatexFlowchartCode, PreservesBackslashForKaTeX)
-{
-    // LaTeX コマンドのバックスラッシュは KaTeX に渡すためそのまま保持する
-    auto code = mermaid_util::BuildLatexFlowchartCode(L"\\frac{a}{b}");
-    EXPECT_TRUE(code.contains(L"$$\\frac{a}{b}$$"));
-}
-
 // ============================================================
 // ParseRenderSize テスト
 // ============================================================
+
+// ============================================================
+// ParseMathBatch
+// ============================================================
+
+TEST(ParseMathBatch, ParsesBoxesAndFailedItems)
+{
+    const auto layout = mermaid_util::ParseMathBatch(L"1024:40:1.5|2,2,30.5,20,15;e;40,2,10,24,18", 3);
+    ASSERT_TRUE(layout);
+    EXPECT_FLOAT_EQ(layout->size.width, 1024.0f);
+    EXPECT_FLOAT_EQ(layout->size.dpr, 1.5f);
+    ASSERT_EQ(layout->boxes.size(), 3u);
+    EXPECT_FLOAT_EQ(layout->boxes[0].width, 30.5f);
+    EXPECT_FLOAT_EQ(layout->boxes[0].baseline, 15.0f);
+    EXPECT_FLOAT_EQ(layout->boxes[1].width, 0.0f);
+    EXPECT_FLOAT_EQ(layout->boxes[2].x, 40.0f);
+}
+
+// 数が合わない結果や、ページの外を指す箱は使わない (型の外を切り出させない)。
+TEST(ParseMathBatch, RejectsMismatchedCountAndOutOfPageBoxes)
+{
+    for (const auto* payload : {
+             L"100:40:1|2,2,10,10,8",
+             L"100:40:1|2,2,10,10,8;2,2,10,10,8;2,2,10,10,8",
+             L"100:40:1|95,2,10,10,8;2,2,10,10,8",
+             L"100:40:1|2,35,10,10,8;2,2,10,10,8",
+             L"100:40:1|-1,2,10,10,8;2,2,10,10,8",
+             L"100:40:1|2,2,10,10,30;2,2,10,10,8",
+             L"0:40:1|e;e",
+             L"100:40:1",
+         }) {
+        SCOPED_TRACE(testing::PrintToString(std::wstring{ payload }));
+        EXPECT_FALSE(mermaid_util::ParseMathBatch(payload, 2));
+    }
+}
+
+namespace {
+
+// 箱のチャンクの読み書きだけを確かめる PNG の形。IHDR の中身と CRC は読まないので適当でよい。
+std::vector<uint8_t> MinimalPng()
+{
+    std::vector<uint8_t> png{ 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n' };
+    const uint8_t ihdr[]{ 0, 0, 0, 13, 'I', 'H', 'D', 'R', 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 0, 0, 0, 0 };
+    const uint8_t iend[]{ 0, 0, 0, 0, 'I', 'E', 'N', 'D', 0xAE, 0x42, 0x60, 0x82 };
+    png.insert(png.end(), std::begin(ihdr), std::end(ihdr));
+    png.insert(png.end(), std::begin(iend), std::end(iend));
+    return png;
+}
+
+mermaid_util::MathBatchLayout SampleLayout()
+{
+    return { .size = { 1024.0f, 40.0f, 1.5f }, .boxes = { { 2.0f, 2.0f, 30.5f, 20.0f, 15.0f }, {}, { 40.0f, 2.0f, 10.0f, 24.0f, 18.0f } } };
+}
+
+} // namespace
+
+// ディスクキャッシュのページは PNG のまま置き、箱の一覧 (描けなかった数式を含む) を IEND の前のチャンクに埋める。
+TEST(MathBoxesChunk, RoundTripsBeforeIend)
+{
+    const auto png = MinimalPng();
+    const auto with_boxes = mermaid_util::AppendMathBoxesChunk(png, SampleLayout());
+    ASSERT_GT(with_boxes.size(), png.size());
+    EXPECT_TRUE(std::ranges::equal(std::span{ with_boxes }.last(12), std::span{ png }.last(12)));
+    const auto read = mermaid_util::ReadMathBoxesChunk(with_boxes, 3);
+    ASSERT_TRUE(read);
+    EXPECT_FLOAT_EQ(read->size.width, 1024.0f);
+    EXPECT_FLOAT_EQ(read->size.dpr, 1.5f);
+    ASSERT_EQ(read->boxes.size(), 3u);
+    EXPECT_FLOAT_EQ(read->boxes[0].baseline, 15.0f);
+    EXPECT_FLOAT_EQ(read->boxes[1].width, 0.0f);
+    EXPECT_FLOAT_EQ(read->boxes[2].x, 40.0f);
+}
+
+// 壊れたファイルや別の組のファイルは使わず、描き直させる。
+TEST(MathBoxesChunk, RejectsMissingCorruptOrMismatched)
+{
+    const auto png = MinimalPng();
+    EXPECT_FALSE(mermaid_util::ReadMathBoxesChunk(png, 3)) << "チャンクが無い";
+    auto with_boxes = mermaid_util::AppendMathBoxesChunk(png, SampleLayout());
+    EXPECT_FALSE(mermaid_util::ReadMathBoxesChunk(std::as_const(with_boxes), 2)) << "数が違う";
+    with_boxes.data()[with_boxes.size() - 20] ^= 0xFF;
+    EXPECT_FALSE(mermaid_util::ReadMathBoxesChunk(std::as_const(with_boxes), 3)) << "CRC が合わない";
+
+    auto outside = SampleLayout();
+    outside.boxes[2].x = 1020.0f;
+    const auto outside_png = mermaid_util::AppendMathBoxesChunk(png, outside);
+    EXPECT_FALSE(mermaid_util::ReadMathBoxesChunk(outside_png, 3)) << "ページの外を指す";
+
+    const std::vector<uint8_t> not_png(64, 0);
+    EXPECT_TRUE(mermaid_util::AppendMathBoxesChunk(not_png, SampleLayout()).empty());
+}
+
+TEST(ParseWebMessage, RecognizesMathResult)
+{
+    const auto parsed = mermaid_util::ParseWebMessage(L"math-result:7:100:40:1|e");
+    EXPECT_EQ(parsed.kind, mermaid_util::WebMessageKind::MathResult);
+    EXPECT_EQ(parsed.request.id, 7u);
+    EXPECT_EQ(parsed.request.payload, L"100:40:1|e");
+}
 
 TEST(ParseRenderSize, ParsesWidthHeightAndDpr)
 {

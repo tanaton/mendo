@@ -4,6 +4,7 @@
 #include "syntax.h"
 #include "ascii_util.h"
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cwchar>
 #include <format>
@@ -64,36 +65,6 @@ int mermaid_util::QuantizeWidth(float max_width) noexcept
         return kQuantum;
     }
     return static_cast<int>(std::ceil(max_width / static_cast<float>(kQuantum))) * kQuantum;
-}
-
-std::wstring mermaid_util::BuildLatexFlowchartCode(std::wstring_view latex)
-{
-    // mermaid ラベル内で特殊文字をエスケープする:
-    //   "  → #quot;  (ラベル終端の " と衝突)
-    //   ]  → #93;    (ラベル終端の ] と衝突)
-    //   \r, \n → 空白 (ラベル構文上改行不可)
-    std::wstring result;
-    result.reserve(latex.size() + 80);
-    result.append(L"flowchart LR\n    A[\"$$");
-    for (const wchar_t c : latex) {
-        switch (c) {
-        case L'"':
-            result.append(L"#quot;");
-            break;
-        case L']':
-            result.append(L"#93;");
-            break;
-        case L'\r': // fallthrough
-        case L'\n':
-            result.push_back(L' ');
-            break;
-        default:
-            result.push_back(c);
-            break;
-        }
-    }
-    result.append(L"$$\"]\n    style A fill:none,stroke:none");
-    return result;
 }
 
 namespace {
@@ -171,6 +142,7 @@ mermaid_util::ParsedWebMessage mermaid_util::ParseWebMessage(std::wstring_view m
         { L"capture-ready:"sv, WebMessageKind::CaptureReady },
         { L"svg-result:"sv,    WebMessageKind::SvgResult    },
         { L"render-error:"sv,  WebMessageKind::RenderError  },
+        { L"math-result:"sv,   WebMessageKind::MathResult   },
     };
     for (const auto& e : kEntries) {
         if (msg.starts_with(e.prefix)) {
@@ -182,18 +154,190 @@ mermaid_util::ParsedWebMessage mermaid_util::ParseWebMessage(std::wstring_view m
     return out;
 }
 
+namespace {
+
+// sep で区切った数を先頭から out に読む。足りない分は 0 のまま。
+void ParseFloatList(std::wstring_view s, wchar_t sep, std::span<float> out) noexcept
+{
+    for (float& v : out) {
+        const auto pos = s.find(sep);
+        v = ParseFloatPrefix(s.substr(0, pos));
+        if (pos == std::wstring_view::npos) {
+            break;
+        }
+        s.remove_prefix(pos + 1);
+    }
+}
+
+} // namespace
+
 mermaid_util::RenderSize mermaid_util::ParseRenderSize(std::wstring_view payload) noexcept
 {
     float values[3]{};
-    for (float& v : values) {
-        const auto colon = payload.find(L':');
-        v = ParseFloatPrefix(payload.substr(0, colon));
-        if (colon == std::wstring_view::npos) {
+    ParseFloatList(payload, L':', values);
+    return { values[0], values[1], values[2] };
+}
+
+namespace {
+
+// ページの外を指す箱で、型の外のメモリを読ませない。幅 0 は描けなかった数式。
+bool IsValidMathBox(const mermaid_util::MathBox& box, const mermaid_util::RenderSize& page) noexcept
+{
+    if (box.width == 0.0f) {
+        return box.x == 0.0f && box.y == 0.0f && box.height == 0.0f && box.baseline == 0.0f;
+    }
+    return box.x >= 0.0f && box.y >= 0.0f && box.width > 0.0f && box.height > 0.0f &&
+           box.x + box.width <= page.width + 1.0f && box.y + box.height <= page.height + 1.0f &&
+           box.baseline >= 0.0f && box.baseline <= box.height + 1.0f;
+}
+
+constexpr uint8_t kMathBoxesChunkType[4]{ 'm', 'd', 'M', 'B' };
+constexpr uint32_t kMathBoxesChunkVersion = 1;
+constexpr uint8_t kPngSignature[8]{ 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n' };
+
+// mdMB のデータ。版・ページの幅・高さ・DPR・箱の数と、箱ごとに x・y・幅・高さ・ベースライン (どれも 4 バイト)。
+constexpr size_t MathBoxesDataSize(size_t count) noexcept
+{
+    return 20 + count * 20;
+}
+
+uint32_t Crc32(std::span<const uint8_t> bytes) noexcept
+{
+    uint32_t crc = 0xFFFFFFFFu;
+    for (const uint8_t byte : bytes) {
+        crc ^= byte;
+        for (int k = 0; k < 8; ++k) {
+            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+        }
+    }
+    return ~crc;
+}
+
+void PutBe32(std::vector<uint8_t>& out, uint32_t v)
+{
+    for (int shift = 24; shift >= 0; shift -= 8) {
+        out.push_back(static_cast<uint8_t>(v >> shift));
+    }
+}
+
+uint32_t GetBe32(const uint8_t* p) noexcept
+{
+    return (uint32_t{ p[0] } << 24) | (uint32_t{ p[1] } << 16) | (uint32_t{ p[2] } << 8) | p[3];
+}
+
+} // namespace
+
+ByteBuffer mermaid_util::AppendMathBoxesChunk(std::span<const uint8_t> png, const MathBatchLayout& layout)
+{
+    // IEND (長さ 0 + 種類 + CRC の 12 バイト) の直前に差し込む。
+    constexpr size_t kIendSize = 12;
+    if (png.size() < sizeof(kPngSignature) + kIendSize || !std::ranges::equal(png.first(sizeof(kPngSignature)), kPngSignature) ||
+        !std::ranges::equal(png.last(kIendSize).subspan(4, 4), std::span<const uint8_t>{ reinterpret_cast<const uint8_t*>("IEND"), 4 })) {
+        return {};
+    }
+    // 長さ (4) + 種類 (4) + データ + CRC (4)。CRC は種類とデータに掛ける。
+    const auto data_size = static_cast<uint32_t>(MathBoxesDataSize(layout.boxes.size()));
+    std::vector<uint8_t> chunk;
+    chunk.reserve(data_size + 12);
+    PutBe32(chunk, data_size);
+    chunk.insert(chunk.end(), std::begin(kMathBoxesChunkType), std::end(kMathBoxesChunkType));
+    PutBe32(chunk, kMathBoxesChunkVersion);
+    const auto put_float = [&chunk](float v) { PutBe32(chunk, std::bit_cast<uint32_t>(v)); };
+    put_float(layout.size.width);
+    put_float(layout.size.height);
+    put_float(layout.size.dpr);
+    PutBe32(chunk, static_cast<uint32_t>(layout.boxes.size()));
+    for (const auto& b : layout.boxes) {
+        for (const float v : { b.x, b.y, b.width, b.height, b.baseline }) {
+            put_float(v);
+        }
+    }
+    PutBe32(chunk, Crc32(std::span{ chunk }.subspan(4)));
+    ByteBuffer out(png.size() + chunk.size());
+    auto* p = std::ranges::copy(png.first(png.size() - kIendSize), out.data()).out;
+    p = std::ranges::copy(chunk, p).out;
+    std::ranges::copy(png.last(kIendSize), p);
+    return out;
+}
+
+std::optional<mermaid_util::MathBatchLayout> mermaid_util::ReadMathBoxesChunk(std::span<const uint8_t> png, size_t expected)
+{
+    if (png.size() < sizeof(kPngSignature) || !std::ranges::equal(png.first(sizeof(kPngSignature)), kPngSignature)) {
+        return std::nullopt;
+    }
+    for (size_t pos = sizeof(kPngSignature); pos + 12 <= png.size();) {
+        const uint32_t length = GetBe32(&png[pos]);
+        if (length > png.size() - pos - 12) {
+            return std::nullopt;
+        }
+        if (!std::ranges::equal(png.subspan(pos + 4, 4), kMathBoxesChunkType)) {
+            pos += size_t{ 12 } + length;
+            continue;
+        }
+        const auto data = png.subspan(pos + 8, length);
+        if (GetBe32(&png[pos + 8 + length]) != Crc32(png.subspan(pos + 4, 4 + length)) || data.size() != MathBoxesDataSize(expected)) {
+            return std::nullopt;
+        }
+        const auto get_float = [&data](size_t i) { return std::bit_cast<float>(GetBe32(&data[i * 4])); };
+        if (GetBe32(&data[0]) != kMathBoxesChunkVersion || GetBe32(&data[16]) != expected) {
+            return std::nullopt;
+        }
+        MathBatchLayout out{ .size = { get_float(1), get_float(2), get_float(3) } };
+        if (!(out.size.width > 0.0f && out.size.height > 0.0f && IsPlausibleDpr(out.size.dpr))) {
+            return std::nullopt;
+        }
+        out.boxes.reserve(expected);
+        for (size_t i = 0; i < expected; ++i) {
+            const size_t f = 5 + i * 5;
+            const MathBox box{ get_float(f), get_float(f + 1), get_float(f + 2), get_float(f + 3), get_float(f + 4) };
+            if (!IsValidMathBox(box, out.size)) {
+                return std::nullopt;
+            }
+            out.boxes.push_back(box);
+        }
+        return out;
+    }
+    return std::nullopt;
+}
+
+std::optional<mermaid_util::MathBatchLayout> mermaid_util::ParseMathBatch(std::wstring_view payload, size_t expected)
+{
+    const auto bar = payload.find(L'|');
+    if (bar == std::wstring_view::npos) {
+        return std::nullopt;
+    }
+    MathBatchLayout out{ .size = ParseRenderSize(payload.substr(0, bar)) };
+    if (out.size.width <= 0.0f || out.size.height <= 0.0f) {
+        return std::nullopt;
+    }
+    out.boxes.reserve(expected);
+    std::wstring_view rest = payload.substr(bar + 1);
+    while (true) {
+        // 要求より多い。
+        if (out.boxes.size() == expected) {
+            return std::nullopt;
+        }
+        const auto semi = rest.find(L';');
+        const auto item = rest.substr(0, semi);
+        MathBox box{};
+        if (item != L"e"sv) {
+            float v[5]{};
+            ParseFloatList(item, L',', v);
+            box = { v[0], v[1], v[2], v[3], v[4] };
+            if (box.width <= 0.0f || !IsValidMathBox(box, out.size)) {
+                return std::nullopt;
+            }
+        }
+        out.boxes.push_back(box);
+        if (semi == std::wstring_view::npos) {
             break;
         }
-        payload.remove_prefix(colon + 1);
+        rest.remove_prefix(semi + 1);
     }
-    return { values[0], values[1], values[2] };
+    if (out.boxes.size() != expected) {
+        return std::nullopt;
+    }
+    return out;
 }
 
 std::wstring mermaid_util::SanitizeErrorMessage(std::wstring_view msg, size_t max_len)
@@ -233,7 +377,8 @@ std::wstring mermaid_util::SanitizeErrorMessage(std::wstring_view msg, size_t ma
 uint64_t mermaid_util::DiagramCodeHash(const Node& node) noexcept
 {
     // LatexMath を Mermaid とキャッシュ衝突させないためのソルト（任意の定数）。
-    constexpr uint64_t LATEX_MATH_HASH_SALT = 0xA1B2C3D4E5F60718ULL;
+    // 描き方を変えたら値も変え、ディスクキャッシュに残った古い描き方の PNG を引かせない。
+    constexpr uint64_t LATEX_MATH_HASH_SALT = 0x5C8E1F3A7B2D9064ULL;
     uint64_t h = Fnv1a64(node.GetText());
     if (node.code_language == SyntaxLanguage::LatexMath) {
         h ^= LATEX_MATH_HASH_SALT;

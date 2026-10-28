@@ -3,6 +3,7 @@
 #include "d2d_util.h"
 #include "doc_dwrite_bridge.h"
 #include "document_utils.h"
+#include "inline_math.h"
 #include "layout_computer.h"
 #include "parallel_for.h"
 #include "profiler.h"
@@ -367,10 +368,10 @@ IDWriteTextFormat* DWriteTextMeasurer::GetTableRowFormat(const DWriteContext& ct
     return tbl.IsHeaderRow(r) ? ctx.h[3].Get() : ctx.body.Get();
 }
 
-void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, bool apply_code_size) const
+bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, bool apply_code_size) const
 {
     if (runs.empty()) {
-        return;
+        return false;
     }
 
     AttrRangeBuilder bold{ [layout](DWRITE_TEXT_RANGE r) noexcept {
@@ -424,6 +425,44 @@ void DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     code.Flush();
     strike.Flush();
     link.Flush();
+    return ApplyInlineMath(layout, runs, text);
+}
+
+bool DWriteTextMeasurer::ApplyInlineMath(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text) const
+{
+    if (!inline_math_) {
+        return false;
+    }
+    bool pending = false;
+    // 数式ごとに TeX の文字列とインラインオブジェクトを作る。数式 1 個あたり約 135ns で、数式 12000 個の文書を組む時間
+    // (直列 113ms) の約 1.4% にとどまる (BM_InlineMathLayout)。オブジェクトは表に持たせて使い回さない。同じオブジェクトを
+    // 隣り合う範囲 (*$x$*$x$ など) に掛けると、DirectWrite が 1 つの範囲にまとめて数式 1 個分の幅にする。
+    // 同じ理由で、AttrRangeBuilder でまとめずに run ごとに掛ける。
+    Utf16OffsetCursor cursor{ text };
+    for (const auto& r : runs) {
+        if (!r.math()) {
+            continue;
+        }
+        const auto tex = InlineMathTex(text, r);
+        if (!tex) {
+            continue;
+        }
+        const DWRITE_TEXT_RANGE wr = cursor.WideRange(r.start, r.length);
+        FLOAT font_size = 0.0f;
+        if (FAILED(layout->GetFontSize(wr.startPosition, &font_size)) || font_size <= 0.0f) {
+            continue;
+        }
+        const uint64_t key = InlineMathKey(*tex, font_size);
+        if (const auto metrics = inline_math_->FindOrRequest(key, *tex, font_size)) {
+            if (metrics->ok()) {
+                layout->SetInlineObject(MakeInlineMathObject(key, *metrics).Get(), wr);
+            }
+        }
+        else {
+            pending = true;
+        }
+    }
+    return pending;
 }
 
 std::optional<float> DWriteTextMeasurer::MeasureNode(
@@ -447,12 +486,13 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(
         return entry.cached_height;
     }
     if (entry.text_layout()) {
-        // 改行でしか折れておらず最も長い行が新しい幅に収まるなら、組み直しても行は同じ。左揃えなので幅は付け替えない
+        // 改行でしか折れておらず最も長い行が新しい幅に収まるなら、組み直しても行は同じ。左揃えなら幅は付け替えない
         // (SetMaxWidth の後の GetMetrics は作り直しとほぼ同じだけかかる)。GetMetrics は前回の結果を返すだけ。
         // 幅を変えたときの全ノードの計測し直しが test.md で 174ms → 143ms、README で 6.0ms → 3.1ms。
         DWRITE_TEXT_METRICS metrics{};
         entry.text_layout()->GetMetrics(&metrics);
-        if (metrics.lineCount == static_cast<UINT32>(node.line_count) + 1 && metrics.width <= layout_width) {
+        if (metrics.lineCount == static_cast<UINT32>(node.line_count) + 1 && metrics.width <= layout_width &&
+            entry.text_layout()->GetTextAlignment() == DWRITE_TEXT_ALIGNMENT_LEADING) {
             return metrics.height;
         }
         if (const auto height = RemeasureExistingLayout(node, entry, layout_width, *theme_)) {
@@ -467,7 +507,11 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(
         return std::nullopt;
     }
 
-    ApplyRunFormatting(layout.Get(), node.runs(), text, /*apply_code_size=*/node.type != NodeType::Heading);
+    entry.pending_math = ApplyRunFormatting(layout.Get(), node.runs(), text, /*apply_code_size=*/node.type != NodeType::Heading);
+    // 引用やリストの中の $$..$$ だけの段落は図にしないので、ブロック数式と同じく中央に置く (GitHub と同じ)。
+    if (const auto runs = node.runs(); runs.size() == 1 && runs[0].display_math() && runs[0].start == 0 && runs[0].length == text.size()) {
+        layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    }
     if (node.type == NodeType::BlockQuote && node.alert_label_length() > 0) {
         if (const auto idx = AlertColorIndex(node.alert_type); idx < ALERT_TYPE_COUNT) {
             Utf16OffsetCursor cursor{ text };
@@ -488,12 +532,14 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(
     return FinishTextMeasure(node, entry, metrics, *theme_);
 }
 
-ComPtr<IDWriteTextLayout> DWriteTextMeasurer::CreateCellLayout(const DWriteContext& ctx, const NodeTableData& tbl, size_t r, size_t c) const
+ComPtr<IDWriteTextLayout> DWriteTextMeasurer::CreateCellLayout(const DWriteContext& ctx, const NodeTableData& tbl, TableLayoutData& tl, size_t r, size_t c) const
 {
     ComPtr<IDWriteTextLayout> cell_layout;
     const auto text = tbl.GetCellText(r, c);
     if (!text.empty() && SUCCEEDED(CreateDocTextLayout(ctx.factory.Get(), text, GetTableRowFormat(ctx, tbl, r), layout::kNoWrapLayoutWidth, layout::kNoWrapLayoutWidth, &cell_layout))) {
-        ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, /*apply_code_size=*/true);
+        if (ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, /*apply_code_size=*/true)) {
+            std::atomic_ref{ tl.pending_math }.store(true, std::memory_order_relaxed);
+        }
         // 揃えは折り返さない幅に影響しないので、自然幅の計測前に付けてよい。
         if (const TableAlign align = tbl.ColAlign(c); align == TableAlign::Center) {
             cell_layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
@@ -525,7 +571,7 @@ void DWriteTextMeasurer::MeasureTableCells(const NodeTableData& tbl, TableLayout
                 if (!reps.empty() && reps[ci] != ci) {
                     continue;
                 }
-                auto cell_layout = CreateCellLayout(ctx, tbl, r, c);
+                auto cell_layout = CreateCellLayout(ctx, tbl, tl, r, c);
                 if (!cell_layout) {
                     continue;
                 }
@@ -596,7 +642,7 @@ void DWriteTextMeasurer::BuildRowCells(const NodeTableData& tbl, TableLayoutData
     for (size_t c = 0; c < tbl.col_count; c++) {
         const size_t ci = tl.CellIndex(r, c);
         if (!tl.cell_layouts[ci]) {
-            tl.cell_layouts[ci] = CreateCellLayout(ctx, tbl, r, c);
+            tl.cell_layouts[ci] = CreateCellLayout(ctx, tbl, tl, r, c);
         }
     }
 }

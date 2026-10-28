@@ -7,6 +7,15 @@
   body { background: white; }
   body.dark { background: #1e1e1e; }
   #container { display: block; }
+  /* 数式の文字色は本文 (theme.cpp の Text) に揃える。インク (積分記号など) が箱から少しはみ出すので余白を取る。 */
+  .math { display: inline-block; padding: 4px 8px; font-size: 16px; color: #24292e; }
+  body.dark .math { color: #d4d4d4; }
+  /* インライン数式の型は黒で描いてアルファだけを使う (本文の色で塗る) ので、背景は透明にする。
+     行の高さを詰めるため上揃えで並べ、ベースラインは幅 0 の目印 (.bl) の位置で測る。 */
+  body.atlas-page { background: transparent; }
+  .math-atlas { color: #000; }
+  .math-atlas .m { display: inline-block; vertical-align: top; margin: 2px; }
+  .math-atlas .bl { display: inline-block; width: 0; height: 0; }
 </style>
 <script>
   let currentInitKey = null;
@@ -16,7 +25,7 @@
     return typeof mermaid !== 'undefined' && typeof mermaid.render === 'function';
   }
 
-  // 表示用 (PNG キャプチャ経由) は htmlLabels:true で LaTeX(KaTeX) を描画させる。
+  // 表示用 (PNG キャプチャ経由) は htmlLabels:true でラベルの中の数式 (KaTeX) を描画させる。
   // SVG コピー用は htmlLabels:false で <foreignObject> を避け Office/Inkscape 互換にする。
   function ensureInitialized(isDark, htmlLabels) {
     const wantTheme = isDark ? 'dark' : 'default';
@@ -32,8 +41,13 @@
     }
   }
 
+  // C++ の ParseRenderSize が読む "幅:高さ:devicePixelRatio"。
+  function sizeString(width, height) {
+    return Math.ceil(width) + ':' + Math.ceil(height) + ':' + (window.devicePixelRatio || 1);
+  }
+
   // 描けなければ投げる。呼び出し側 (C++ が送るスクリプト) の catch が render-error でメッセージを返す。
-  // 戻り値は "幅:高さ:devicePixelRatio"。
+  // 戻り値は sizeString。
   async function renderMermaid(code, isDark) {
     if (!mermaidReady()) {
       throw new Error('mermaid not loaded');
@@ -52,7 +66,68 @@
       throw new Error('SVG not found');
     }
     const rect = svgEl.getBoundingClientRect();
-    return Math.ceil(rect.width) + ':' + Math.ceil(rect.height) + ':' + (window.devicePixelRatio || 1);
+    return sizeString(rect.width, rect.height);
+  }
+
+  // KaTeX のチャンク名は版ごとに変わるので、C++ が固定の別名で配信する (mermaid.cpp の KATEX_ALIAS_PATH)。
+  let katexPromise = null;
+  function loadKatex() {
+    // 失敗は覚えず、次に使うときに読み直す (起動時の先読みが一度失敗しただけで、このワーカーの数式が描けなくなる)。
+    katexPromise ??= import('https://app.local/chunks/mermaid.esm.min/katex.mjs').catch(e => {
+      katexPromise = null;
+      throw e;
+    });
+    return katexPromise;
+  }
+
+  // flowchart で包むと " を渡せず、ラベルの #xx; エスケープも KaTeX に届いてしまうので、KaTeX を直接呼ぶ。
+  // MathML で出すのは mermaid と同じで、KaTeX の CSS とフォントを持たずに済むため。
+  async function renderMath(tex, isDark) {
+    const katex = await loadKatex();
+    document.body.className = isDark ? 'dark' : '';
+    const container = document.getElementById('container');
+    container.innerHTML = '<div class="math">' +
+      katex.renderToString(tex, { throwOnError: true, displayMode: true, output: 'mathml' }) + '</div>';
+    const rect = container.firstChild.getBoundingClientRect();
+    return sizeString(rect.width, rect.height);
+  }
+
+  // items は [TeX, 文字の大きさ (px)] の並び。全部を幅 pageWidth のページに並べ、ページの大きさと各数式の箱
+  // (x,y,w,h,ベースライン。描けなかった数式は "e") を返す。C++ はこの後ページ全体を 1 回キャプチャして切り出す。
+  // キャプチャの前にビューをページの大きさに合わせるので、ページの幅はビューに依らず固定して並びを変えない。
+  async function renderMathBatch(items, pageWidth) {
+    const katex = await loadKatex();
+    document.body.className = 'atlas-page';
+    let html = '';
+    for (const [tex, px] of items) {
+      let math = null;
+      try {
+        math = katex.renderToString(tex, { throwOnError: true, displayMode: false, output: 'mathml' });
+      } catch (e) {
+      }
+      html += math === null ? '<span class="m err"></span>'
+                            : '<span class="m" style="font-size:' + px + 'px"><span class="bl"></span>' + math + '</span>';
+    }
+    const container = document.getElementById('container');
+    container.innerHTML = '<div class="math-atlas" style="width:' + pageWidth + 'px">' + html + '</div>';
+    const atlas = container.firstChild;
+    const o = atlas.getBoundingClientRect();
+    // ページより幅の広い数式は右へはみ出すので、ページの大きさははみ出した分まで含める。
+    let right = o.width;
+    let bottom = o.height;
+    const boxes = [];
+    for (const m of atlas.children) {
+      if (m.classList.contains('err')) {
+        boxes.push('e');
+        continue;
+      }
+      const r = m.getBoundingClientRect();
+      const baseline = m.firstChild.getBoundingClientRect().top - r.top;
+      right = Math.max(right, r.right - o.left);
+      bottom = Math.max(bottom, r.bottom - o.top);
+      boxes.push([r.left - o.left, r.top - o.top, r.width, r.height, baseline].map(v => v.toFixed(2)).join(','));
+    }
+    return sizeString(right, bottom) + '|' + boxes.join(';');
   }
 
   // 表示用 container を触らず SVG 文字列のみ返す。PNG キャプチャ無し。描けなければ投げる。
@@ -67,6 +142,10 @@
   }
 
   (async function() {
+    // 数式の要求は mermaid の準備完了の後に来るので、KaTeX を mermaid と並べて読み始める。準備完了から最初の数式の
+    // 結果までが約 42ms → 30ms。図だけの文書でも WebView2 のメモリ (約 135MB) に差は見えない。
+    // 失敗したら使うときに読み直すので、ここでは握りつぶす。
+    loadKatex().catch(() => {});
     try {
       // 図の種類ごとのチャンクは、mermaid が描くときに必要な分だけ読み込む
       window.mermaid = (await import('https://app.local/mermaid.esm.min.mjs')).default;

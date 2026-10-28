@@ -19,6 +19,7 @@
 #include "document_utils.h"
 #include "dwrite_measurer.h"
 #include "example_files.h"
+#include "inline_math.h"
 #include "layout.h"
 #include "layout_cache.h"
 #include "layout_computer.h"
@@ -488,6 +489,67 @@ void BM_ComputeLayoutWarm(benchmark::State& state)
     }
 }
 BENCHMARK(BM_ComputeLayoutWarm)->Apply(WorkerCounts)->Iterations(3);
+
+// 段落ごとに $...$ を 5 個と $$...$$ を 1 個。数式はどれも別の TeX。
+std::string InlineMathMd(int paragraphs)
+{
+    std::string md;
+    for (int i = 0; i < paragraphs; ++i) {
+        for (int k = 0; k < 5; ++k) {
+            std::format_to(std::back_inserter(md), "Some text about $\\frac{{a_{{{}}}}}{{b}}$ which relates to ", i * 5 + k);
+        }
+        std::format_to(std::back_inserter(md), "$$\\sum_{{k=0}}^{{{}}} k^2$$ the end.\n\n", i);
+    }
+    return md;
+}
+
+// 寸法の分かったインライン数式を、インラインオブジェクトに置き換えながら全ノードを組む。
+void BM_InlineMathLayout(benchmark::State& state)
+{
+    const auto doc = Document::FromMarkdown(InlineMathMd(2000), L"bench.md");
+    DWriteLayout l(static_cast<int>(state.range(0)));
+    if (l.SkipIfFailed(state)) {
+        return;
+    }
+    InlineMathTable table;
+    l.measurer.SetInlineMath(&table);
+    {
+        LayoutCache warmup(doc.GetNodes().size());
+        ComputeLayout(l.engine, doc.GetNodes(), warmup, 1200.0f);
+        for (const auto& item : table.TakeRequests()) {
+            table.Resolve(item.key, { 40.0f, 18.0f, 13.0f });
+        }
+    }
+    for (auto _ : state) {
+        LayoutCache cache;
+        state.SetIterationTime(SecondsOf([&] {
+            cache = LayoutCache(doc.GetNodes().size());
+            ComputeLayout(l.engine, doc.GetNodes(), cache, 1200.0f);
+        }));
+    }
+    l.measurer.SetInlineMath(nullptr);
+}
+BENCHMARK(BM_InlineMathLayout)->Arg(0)->Arg(8)->ArgName("workers")->UseManualTime()->Iterations(5)->Unit(benchmark::kMillisecond);
+
+// 文書を開く・読み直す・ズームのたびに UI スレッドで作る、インライン数式の組。
+void BM_InlineMathPlanBuild(benchmark::State& state, bool math)
+{
+    auto md = math ? InlineMathMd(2000) : RepeatTestMd(state, 8);
+    if (state.skipped()) {
+        return;
+    }
+    const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
+    const Theme theme = GetLightTheme();
+    InlineMathPlan plan;
+    for (auto _ : state) {
+        plan.Build(doc.GetNodes(), theme);
+        benchmark::DoNotOptimize(plan.Chunks().data());
+    }
+    state.counters["nodes"] = static_cast<double>(doc.GetNodes().size());
+    state.counters["chunks"] = static_cast<double>(plan.Chunks().size());
+}
+BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, test_md_x8, false)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_InlineMathPlanBuild, math_12000, true)->Unit(benchmark::kMicrosecond);
 
 // 全ノードを計測したあと幅を変えたときの再計測 (直列)。反復ごとに幅を変える。
 void BM_ResizeRemeasure(benchmark::State& state, const char* path)

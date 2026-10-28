@@ -25,7 +25,7 @@ public:
     // code (UTF-8) は内部でコピーされるため呼び出し後に解放してよい。
     // max_width は CSS ビューポート幅（DIP）。表示中の図と同じ折返し結果を得るため、PNG と同じ値を渡す。
     virtual void RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback) = 0;
-    // 描画待ちの表示用要求だけを捨てる (描画中と SVG 要求は維持)。大きく移動した後や幅・テーマの変更後に、
+    // 描画待ちの表示用要求だけを捨てる (描画中と、SVG・インライン数式の要求は維持)。大きく移動した後や幅・テーマの変更後に、
     // 不要になった図が先に描かれて可視の図が待たされるのを防ぐ。捨てた図は再要求される。
     virtual void DropQueued()
     {}

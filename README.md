@@ -26,7 +26,7 @@ winget install tanaton.mendo
 - **オフライン動作** — ネットワーク接続無しで動作します。
 - **シンタックスハイライト** — 複数のプログラミング言語や設定ファイル等のコードブロックを色分け表示します。
 - **画像表示** — ローカルにあるPNG, JPEG, BMP等の画像を表示します。
-- **LaTeX** — `$$...$$` のブロック数式と ` ```math ` コードブロックを KaTeX で描画して表示します。（`$$...$$` は `$$...$$` のみからなる段落が対象。テキストと混在する段落は通常テキスト表示）
+- **LaTeX** — `$$...$$` のブロック数式、` ```math ` コードブロック、文中の `$...$` を KaTeX で描画して表示します。（`$$...$$` のみからなる段落はブロック数式として中央に、文中や引用の中の `$$...$$` は本文の中にディスプレイ形式で描画）
 - **ナビゲーション履歴** — マウスサイドボタン / マウスジェスチャー / タッチパッドスワイプ等でブラウザスタイルの戻る/進むが動作し、スクロール位置も復元します。
 - **ドラッグ&ドロップ** — Markdownファイルをウィンドウにドロップして開けます。
 - **ファイル内検索** — タイトルバーの検索ボタンや `Ctrl+F` でファイル内を検索できます。
@@ -45,7 +45,7 @@ winget install tanaton.mendo
 | コードブロック (フェンス) | ✅ シンタックスハイライト付き。対応言語: C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd (バッチ), Dockerfile, Makefile, diff |
 | 画像 (PNG / JPEG / BMP) | ✅ 非同期読み込み |
 | Mermaidダイアグラム | ✅ WebView2でレンダリング |
-| LaTeX数式 (`$$...$$` / ` ```math `) | ✅ ブロック数式のみ。`$$...$$` は段落が `$$...$$` のみで構成される場合に描画、他のテキストと混在する段落はテキスト表示 |
+| LaTeX数式 (`$...$` / `$$...$$` / ` ```math `) | ✅ `$...$` は文中に本文の色で描画 (`\color` は無効)。`$$...$$` のみの段落はブロック数式、文中や引用の中の `$$...$$` は本文の中にディスプレイ形式で描画 |
 | GitHub Alerts | ✅ Note / Tip / Important / Warning / Caution |
 | 脚注 (`[^1]`) | ✅ 文書末尾に番号順で表示、参照と定義を相互にリンク |
 | リンク (外部 / ページ内アンカー) | ✅ |
@@ -187,7 +187,7 @@ mendo.exe [ファイルパス | フォルダパス]
 | 2D描画 | Direct2D (`ID2D1DeviceContext`) |
 | テキスト描画 | DirectWrite (`IDWriteTextLayout`) |
 | ダイアグラム | WebView2 + [Mermaid.js](https://mermaid.js.org/) |
-| 数式 | [KaTeX](https://katex.org/) (Mermaid経由) |
+| 数式 | [KaTeX](https://katex.org/) (Mermaid同梱) |
 | Markdownパーサ | [md4c](https://github.com/mity/md4c) (SAX型コールバック) |
 | テスト | Google Test v1.18.0 |
 | ベンチマーク | Google Benchmark v1.10.0 |

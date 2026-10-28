@@ -1971,6 +1971,41 @@ TEST(FindNodeWordBoundaries, DoesNotExtendAcrossNewlineOrCategoryChange)
     EXPECT_EQ(b.end, 3u);
 }
 
+// インライン数式はどこを指しても $...$ 全体を選ぶ (開きの $ は記号なので、語としては何も選ばれない)。
+TEST(FindNodeWordBoundaries, SelectsWholeInlineMath)
+{
+    const auto nodes = ParseNodes("see $x + y$ now");
+    ASSERT_EQ(nodes.size(), 1u);
+    for (const uint32_t pos : { 4u, 6u, 10u }) {
+        SCOPED_TRACE(pos);
+        const auto r = FindNodeWordBoundaries(nodes, 0, pos);
+        ASSERT_TRUE(r.found);
+        EXPECT_EQ(r.start, 4u);
+        EXPECT_EQ(r.end, 11u);
+    }
+    const auto word = FindNodeWordBoundaries(nodes, 0, 12);
+    EXPECT_EQ(word.start, 12u);
+    EXPECT_EQ(word.end, 15u);
+}
+
+// 表のセルの数式も、どこを指しても $...$ 全体を選ぶ。表の位置は linearized 形式 (セルを区切りでつないだ文字列) の offset。
+TEST(FindNodeWordBoundaries, SelectsWholeInlineMathInTableCell)
+{
+    const auto nodes = ParseNodes("| a | b |\n|---|---|\n| q | $x + y$ |\n");
+    ASSERT_EQ(nodes.size(), 1u);
+    ASSERT_EQ(nodes[0].type, NodeType::Table);
+    const size_t found = nodes[0].GetText().find("$x + y$");
+    ASSERT_NE(found, std::string_view::npos);
+    const auto math = static_cast<uint32_t>(found);
+    for (const uint32_t offset : { 0u, 2u, 6u }) {
+        SCOPED_TRACE(offset);
+        const auto r = FindNodeWordBoundaries(nodes, 0, math + offset);
+        ASSERT_TRUE(r.found);
+        EXPECT_EQ(r.start, math);
+        EXPECT_EQ(r.end, math + 7u);
+    }
+}
+
 // 区間を worker に配って並列に解析しても、順に解析したのと同じになる。区間の境目をまたぐコメントや文字列も含める。
 TEST(ChunkCopy, ParallelCodeChunkLeadsMatchSerial)
 {

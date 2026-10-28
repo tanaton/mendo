@@ -23,6 +23,7 @@
 #include "theme_service.h"
 #include <windows.h>
 #include <shellapi.h>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -171,6 +172,7 @@ public:
     void OnAppImageLoaded();
     void OnParseComplete();
     void OnMermaidDiskLoaded();
+    void OnInlineMathRequested();
     void OnFileListed();
     void OnDestroy();
 
@@ -282,6 +284,20 @@ private:
     };
     // 可視範囲を計測し直し、スクロール上限・図と画像・遅延レイアウト・目次を追従させる。
     void RelayoutViewport(RelayoutResources resources);
+    // key の数式を含む組を描かせる (結果を待つ間は 1 回)。計画に無い数式なら false。wanted は InlineMathPlan::TakeChunk。
+    bool RequestInlineMathChunk(uint64_t key, bool wanted);
+    // 組のページ (A8、bytes バイト) を受け取るか (MathPageGate)。受け取るなら届くまで取り置く。
+    bool ReserveInlineMathPage(size_t chunk, uint64_t chunk_key, size_t bytes);
+    // 描いた後に呼ぶ。型の無い数式が見えていれば読み直させ、ページが上限を超えていれば捨てる。
+    void ManageInlineMathPages();
+    // 型を描画側に渡し、寸法を待って原文のまま組んだ段落を組み直す。chunk と chunk_key は頼んだ組で、計画に無い数式は 0。
+    void OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t chunk_key);
+    // 寸法を待って原文のまま組んだ段落を組み直す。tables が false なら表は待たせたままにする。
+    void RelayoutPendingInlineMath(bool tables);
+    // 描いた数式の型と寸法を捨て、計画を作り直す。全レイアウトを組み直すとき (ズーム・別の文書) に呼ぶ。
+    void ForgetInlineMath();
+    // 文書か文字の大きさが変わったら作り直す。
+    void RebuildInlineMathPlan();
     void SettleViewport();
     void OnDeferredLayout();
     // 捨てたテキストレイアウトが多ければワーカーで解放する。
@@ -363,6 +379,17 @@ private:
     TaskScheduler layout_scheduler_;
     MermaidFileCache file_cache_; // mermaid_renderer_ より先に宣言する（mermaid_renderer_ は破棄時に file_cache_ を参照する）
     ClipboardManager clipboard_manager_; // mermaid_renderer_ より先に宣言する（~MermaidRenderer の CancelPending が in-flight コールバック経由で clipboard_manager_ に触るため、後に破棄させる）
+    // インライン数式の寸法表。計測ワーカーが引き、描画の結果を OnInlineMathRendered で書く。
+    InlineMathTable inline_math_;
+    // 文書の数式の組。組ごとに描いてディスクキャッシュに置く。
+    InlineMathPlan inline_math_plan_;
+    // 数式を待つ表を組み直した時刻と、その間隔 (OnInlineMathRendered)。
+    static constexpr std::chrono::milliseconds kMathTableRelayoutInterval{ 1000 };
+    // インライン数式のページ (A8) を持つ上限。数式 1 個あたり約 3.8KB で、約 2000 個分。
+    static constexpr size_t kInlineMathPageBudget = 8u * 1024 * 1024;
+    // 受け取ると答えて、まだ届いていないページのバイト数。結果は必ず 1 回届くので、届いたときに戻す。
+    size_t reserved_math_page_bytes_ = 0;
+    std::chrono::steady_clock::time_point last_math_table_relayout_{};
     MermaidRenderer mermaid_renderer_;
     ImageLoader image_loader_;
     FileWatcher file_watcher_;
