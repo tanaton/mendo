@@ -1,6 +1,8 @@
 #include "theme.h"
 #include "theme_palette.h"
 #include "i18n.h"
+#include <cassert>
+#include <span>
 
 namespace {
 // Theme 内の「ズームでスケールする float メンバ」を一元管理する。
@@ -41,18 +43,13 @@ float Theme::GetHeadingSize(int level) const noexcept
 
 void Theme::ApplyZoom(float new_zoom) noexcept
 {
-    // ZOOM_STEPS は正値のみだが、ゼロ除算と inf/NaN の伝染を防ぐ。
-    if (new_zoom <= 0.0f || zoom <= 0.0f) {
-        return;
-    }
-    const float ratio = new_zoom / zoom;
+    assert(zoom == 1.0f && new_zoom > 0.0f);
     zoom = new_zoom;
-
     for (float Theme::* field : kScalableThemeFields) {
-        this->*field *= ratio;
+        this->*field *= new_zoom;
     }
     for (auto& f : font_size_h) {
-        f *= ratio;
+        f *= new_zoom;
     }
 }
 
@@ -94,9 +91,8 @@ void ApplyCommonColors(Theme& t)
     SetColor(t, BrushId::TableStripe, MonochromeOverlay(t.dark, t.dark ? TABLE_STRIPE_ALPHA_DARK : TABLE_STRIPE_ALPHA_LIGHT));
     SetColor(t, BrushId::ScrollbarThumb, MonochromeOverlay(t.dark, t.dark ? 0.4f : 0.25f));
     SetColor(t, BrushId::TitleBarCloseRed, D2D1::ColorF(0xE81123));
-    SetColor(t, BrushId::OverlayWhite, D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
-    SetColor(t, BrushId::OverlayBlack, D2D1::ColorF(0.0f, 0.0f, 0.0f, 1.0f));
-    SetColor(t, BrushId::OverlayGestureBg, D2D1::ColorF(0.2f, 0.2f, 0.2f, 1.0f));
+    SetColor(t, BrushId::OverlayWhite, D2D1::ColorF(D2D1::ColorF::White));
+    SetColor(t, BrushId::Overlay, MonochromeOverlay(t.dark, 1.0f));
     SetColor(t, BrushId::GestureTrail, D2D1::ColorF(0.9f, 0.2f, 0.2f, 1.0f));
 }
 
@@ -144,110 +140,76 @@ void ApplyCommonLayout(Theme& t)
     t.pane_font_size = 13.0f;
 }
 
-void SetAlertColors(Theme& t, AlertType type, D2D1_COLOR_F bar, D2D1_COLOR_F bg)
+// テーマごとに違う色。ライトとダークを同じ行に並べて見比べられるようにする。
+struct ThemeColor {
+    BrushId id;
+    D2D1_COLOR_F light;
+    D2D1_COLOR_F dark;
+};
+
+// D2D1::ColorF は constexpr でないので、初めて使うときに作る。
+std::span<const ThemeColor> ThemeColors()
 {
-    SetColor(t, AlertBrushIdFromIndex(AlertColorIndex(type)), bar);
-    SetColor(t, AlertBgBrushIdFromIndex(AlertColorIndex(type)), bg);
+    using D2D1::ColorF;
+    static const ThemeColor kColors[]{
+        { BrushId::Background, ColorF(0xFFFFFF), ColorF(0x1e1e1e) },
+        // GitHub のインラインコード背景 (ライトは rgba(129,139,152,0.12)、ダークは rgba(101,108,118,0.2)) を背景色に重ねた色。
+        { BrushId::InlineCodeBg, ColorF(0xf0f1f2), ColorF(0x2c2e30) },
+        { BrushId::Text, ColorF(0x24292e), ColorF(0xd4d4d4) },
+        { BrushId::Heading, ColorF(0x1a1a1a), ColorF(0xe0e0e0) },
+        { BrushId::Link, ColorF(0x0366d6), ColorF(0x569cd6) },
+        { BrushId::BlockquoteBar, ColorF(0xdfe2e5), ColorF(0x505050) },
+        { BrushId::BlockquoteText, ColorF(0x6a737d), ColorF(0x9e9e9e) },
+
+        // GitHub Alerts
+        { BrushId::AlertNote, ColorF(0x0969da), ColorF(0x4493f8) },
+        { BrushId::AlertTip, ColorF(0x1a7f37), ColorF(0x3fb950) },
+        { BrushId::AlertImportant, ColorF(0x8250df), ColorF(0xa371f7) },
+        { BrushId::AlertWarning, ColorF(0x9a6700), ColorF(0xd29922) },
+        { BrushId::AlertCaution, ColorF(0xcf222e), ColorF(0xf85149) },
+        { BrushId::AlertNoteBg, ColorF(0xddf4ff, 0.4f), ColorF(0x0d1d31, 0.5f) },
+        { BrushId::AlertTipBg, ColorF(0xdafbe1, 0.4f), ColorF(0x0b2212, 0.5f) },
+        { BrushId::AlertImportantBg, ColorF(0xfbefff, 0.4f), ColorF(0x1e0f35, 0.5f) },
+        { BrushId::AlertWarningBg, ColorF(0xfff8c5, 0.4f), ColorF(0x2a1e02, 0.5f) },
+        { BrushId::AlertCautionBg, ColorF(0xffebe9, 0.4f), ColorF(0x2e0b0d, 0.5f) },
+
+        // タイトルバー
+        { BrushId::TitleBarBg, ColorF(0xf0f0f0), ColorF(0x272727) },
+        { BrushId::TitleBarText, ColorF(0x333333), ColorF(0xcccccc) },
+        { BrushId::TitleBarButtonHover, ColorF(0xe0e0e0), ColorF(0x383838) },
+        { BrushId::TitleBarButtonActive, ColorF(0xd0d0d0), ColorF(0x444444) },
+
+        // ペインレイアウト
+        { BrushId::PaneBg, ColorF(0xf5f5f5), ColorF(0x252526) },
+        { BrushId::Splitter, ColorF(0xe0e0e0), ColorF(0x3c3c3c) },
+        { BrushId::PaneItemHover, ColorF(0xe8e8e8), ColorF(0x2a2d2e) },
+        { BrushId::PaneItemActive, ColorF(0xd0e0f0), ColorF(0x094771) },
+
+        // 検索。全マッチは黄色系、現在のマッチはオレンジ系の半透明。
+        { BrushId::SearchBarBg, ColorF(0xf0f0f0), ColorF(0x2d2d2d) },
+        { BrushId::SearchBarBorder, ColorF(0xcccccc), ColorF(0x444444) },
+        { BrushId::SearchInputBg, ColorF(0xffffff), ColorF(0x3c3c3c) },
+        { BrushId::SearchInputText, ColorF(0x1a1a1a), ColorF(0xd4d4d4) },
+        { BrushId::SearchHighlight, ColorF(1.0f, 0.92f, 0.0f, 0.4f), ColorF(0.8f, 0.7f, 0.0f, 0.35f) },
+        { BrushId::SearchHighlightCurrent, ColorF(1.0f, 0.55f, 0.0f, 0.6f), ColorF(1.0f, 0.5f, 0.0f, 0.55f) },
+        { BrushId::SearchNoMatchBg, ColorF(1.0f, 0.8f, 0.8f, 1.0f), ColorF(0.5f, 0.15f, 0.15f, 1.0f) },
+
+        // ジェスチャー/トーストの背景パネル。ダークは灰色、ライトは黒を alpha で塗る。
+        { BrushId::OverlayGestureBg, ColorF(ColorF::Black), ColorF(0.2f, 0.2f, 0.2f) },
+    };
+    return kColors;
 }
 
-Theme BuildLightTheme()
+Theme BuildTheme(bool dark)
 {
     Theme t{};
-    t.dark = false;
-
-    SetColor(t, BrushId::Background, D2D1::ColorF(0xFFFFFF));
-    // GitHub のインラインコード背景 rgba(129,139,152,0.12) を白地に重ねた色。
-    SetColor(t, BrushId::InlineCodeBg, D2D1::ColorF(0xf0f1f2));
-    SetColor(t, BrushId::Text, D2D1::ColorF(0x24292e));
-    SetColor(t, BrushId::Heading, D2D1::ColorF(0x1a1a1a));
-    SetColor(t, BrushId::Link, D2D1::ColorF(0x0366d6));
-    SetColor(t, BrushId::BlockquoteBar, D2D1::ColorF(0xdfe2e5));
-    SetColor(t, BrushId::BlockquoteText, D2D1::ColorF(0x6a737d));
-
-    // GitHub Alerts（ライト）
-    SetAlertColors(t, AlertType::Note, D2D1::ColorF(0x0969da), D2D1::ColorF(0xddf4ff, 0.4f));
-    SetAlertColors(t, AlertType::Tip, D2D1::ColorF(0x1a7f37), D2D1::ColorF(0xdafbe1, 0.4f));
-    SetAlertColors(t, AlertType::Important, D2D1::ColorF(0x8250df), D2D1::ColorF(0xfbefff, 0.4f));
-    SetAlertColors(t, AlertType::Warning, D2D1::ColorF(0x9a6700), D2D1::ColorF(0xfff8c5, 0.4f));
-    SetAlertColors(t, AlertType::Caution, D2D1::ColorF(0xcf222e), D2D1::ColorF(0xffebe9, 0.4f));
-
-    ApplySharedColors(t, theme_palette::kLight);
+    t.dark = dark;
+    for (const auto& c : ThemeColors()) {
+        SetColor(t, c.id, dark ? c.dark : c.light);
+    }
+    ApplySharedColors(t, dark ? theme_palette::kDark : theme_palette::kLight);
     ApplyCommonColors(t);
-
     ApplyCommonLayout(t);
-
-    // タイトルバー
-    SetColor(t, BrushId::TitleBarBg, D2D1::ColorF(0xf0f0f0));
-    SetColor(t, BrushId::TitleBarText, D2D1::ColorF(0x333333));
-    SetColor(t, BrushId::TitleBarButtonHover, D2D1::ColorF(0xe0e0e0));
-    SetColor(t, BrushId::TitleBarButtonActive, D2D1::ColorF(0xd0d0d0));
-
-    // ペインレイアウト
-    SetColor(t, BrushId::PaneBg, D2D1::ColorF(0xf5f5f5));
-    SetColor(t, BrushId::Splitter, D2D1::ColorF(0xe0e0e0));
-    SetColor(t, BrushId::PaneItemHover, D2D1::ColorF(0xe8e8e8));
-    SetColor(t, BrushId::PaneItemActive, D2D1::ColorF(0xd0e0f0));
-
-    // 検索
-    SetColor(t, BrushId::SearchBarBg, D2D1::ColorF(0xf0f0f0));
-    SetColor(t, BrushId::SearchBarBorder, D2D1::ColorF(0xcccccc));
-    SetColor(t, BrushId::SearchInputBg, D2D1::ColorF(0xffffff));
-    SetColor(t, BrushId::SearchInputText, D2D1::ColorF(0x1a1a1a));
-    // 全マッチは黄色系、現在のマッチはオレンジ系の半透明。
-    SetColor(t, BrushId::SearchHighlight, D2D1::ColorF(1.0f, 0.92f, 0.0f, 0.4f));
-    SetColor(t, BrushId::SearchHighlightCurrent, D2D1::ColorF(1.0f, 0.55f, 0.0f, 0.6f));
-    SetColor(t, BrushId::SearchNoMatchBg, D2D1::ColorF(1.0f, 0.8f, 0.8f, 1.0f));
-
-    return t;
-}
-
-Theme BuildDarkTheme()
-{
-    Theme t{};
-    t.dark = true;
-
-    SetColor(t, BrushId::Background, D2D1::ColorF(0x1e1e1e));
-    // GitHub のインラインコード背景 rgba(101,108,118,0.2) を背景色に重ねた色。
-    SetColor(t, BrushId::InlineCodeBg, D2D1::ColorF(0x2c2e30));
-    SetColor(t, BrushId::Text, D2D1::ColorF(0xd4d4d4));
-    SetColor(t, BrushId::Heading, D2D1::ColorF(0xe0e0e0));
-    SetColor(t, BrushId::Link, D2D1::ColorF(0x569cd6));
-    SetColor(t, BrushId::BlockquoteBar, D2D1::ColorF(0x505050));
-    SetColor(t, BrushId::BlockquoteText, D2D1::ColorF(0x9e9e9e));
-
-    // GitHub Alerts（ダーク）
-    SetAlertColors(t, AlertType::Note, D2D1::ColorF(0x4493f8), D2D1::ColorF(0x0d1d31, 0.5f));
-    SetAlertColors(t, AlertType::Tip, D2D1::ColorF(0x3fb950), D2D1::ColorF(0x0b2212, 0.5f));
-    SetAlertColors(t, AlertType::Important, D2D1::ColorF(0xa371f7), D2D1::ColorF(0x1e0f35, 0.5f));
-    SetAlertColors(t, AlertType::Warning, D2D1::ColorF(0xd29922), D2D1::ColorF(0x2a1e02, 0.5f));
-    SetAlertColors(t, AlertType::Caution, D2D1::ColorF(0xf85149), D2D1::ColorF(0x2e0b0d, 0.5f));
-
-    ApplySharedColors(t, theme_palette::kDark);
-    ApplyCommonColors(t);
-
-    ApplyCommonLayout(t);
-
-    // タイトルバー
-    SetColor(t, BrushId::TitleBarBg, D2D1::ColorF(0x272727));
-    SetColor(t, BrushId::TitleBarText, D2D1::ColorF(0xcccccc));
-    SetColor(t, BrushId::TitleBarButtonHover, D2D1::ColorF(0x383838));
-    SetColor(t, BrushId::TitleBarButtonActive, D2D1::ColorF(0x444444));
-
-    // ペインレイアウト
-    SetColor(t, BrushId::PaneBg, D2D1::ColorF(0x252526));
-    SetColor(t, BrushId::Splitter, D2D1::ColorF(0x3c3c3c));
-    SetColor(t, BrushId::PaneItemHover, D2D1::ColorF(0x2a2d2e));
-    SetColor(t, BrushId::PaneItemActive, D2D1::ColorF(0x094771));
-
-    // 検索
-    SetColor(t, BrushId::SearchBarBg, D2D1::ColorF(0x2d2d2d));
-    SetColor(t, BrushId::SearchBarBorder, D2D1::ColorF(0x444444));
-    SetColor(t, BrushId::SearchInputBg, D2D1::ColorF(0x3c3c3c));
-    SetColor(t, BrushId::SearchInputText, D2D1::ColorF(0xd4d4d4));
-    SetColor(t, BrushId::SearchHighlight, D2D1::ColorF(0.8f, 0.7f, 0.0f, 0.35f));
-    SetColor(t, BrushId::SearchHighlightCurrent, D2D1::ColorF(1.0f, 0.5f, 0.0f, 0.55f));
-    SetColor(t, BrushId::SearchNoMatchBg, D2D1::ColorF(0.5f, 0.15f, 0.15f, 1.0f));
-
     return t;
 }
 } // namespace
@@ -256,12 +218,12 @@ Theme BuildDarkTheme()
 // 呼び出しごとの atomic ロードのみで、ホットパスでもほぼ無視できる。
 const Theme& GetLightTheme()
 {
-    static const Theme kLight = BuildLightTheme();
+    static const Theme kLight = BuildTheme(false);
     return kLight;
 }
 
 const Theme& GetDarkTheme()
 {
-    static const Theme kDark = BuildDarkTheme();
+    static const Theme kDark = BuildTheme(true);
     return kDark;
 }

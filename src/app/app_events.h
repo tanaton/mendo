@@ -40,8 +40,10 @@ struct MouseWheelAction {
     uint64_t tick = 0;
 };
 
-struct CopyClipboardAction {};
-struct CopyFormattedClipboardAction {};
+// 選択範囲をコピーする。formatted なら HTML (書式付き) も載せる。
+struct CopyAction {
+    bool formatted = false;
+};
 struct SelectAllAction {};
 // ダブルクリック位置の単語を選択する。
 struct SelectWordAction {
@@ -65,16 +67,19 @@ struct ZoomAction {
 struct ReloadFileAction {};
 struct OpenFileAction {};
 struct ToggleDarkModeAction {};
-struct NavigateBackAction {};
-struct NavigateForwardAction {};
+// 履歴を戻る (forward が false) か進む。
+struct NavigateHistoryAction {
+    bool forward = false;
+};
 struct ShowHelpAction {};
 struct OpenSearchBarAction {};
 struct CloseSearchBarAction {};
-struct SearchNextAction {};
-struct SearchPrevAction {};
+// 次 (forward) か前のマッチへ移る。
+struct SearchStepAction {
+    bool forward = true;
+};
 // 検索の入力欄の中の全選択 (検索欄で Ctrl+A)。
 struct SearchSelectAllAction {};
-struct NoOpAction {};
 
 // マウス位置でのホバー強調の全体。ViewState::hover が持ち、描画はここから読む。
 // 既定値はどこにもホバーしていない状態。
@@ -108,30 +113,28 @@ struct MouseLeaveAction {};
 struct SplitterDragStartedAction {
     PaneTarget edge;
 };
-// ドラッグ中のスプリッタは ViewState::drag、ウィンドウ幅は WindowState から読む。
-struct SplitterDragMovedAction {
-    float dip_x;
+// 左ドラッグ中の移動。どの値を使うかはドラッグの種類 (ViewState::drag) で決まる。
+// search_caret は検索の入力欄 (SearchInput)、node_index / text_pos はテキスト選択 (TextSelect) のときだけ App が詰める。
+struct LeftDragMovedAction {
+    float dip_x = 0.0f;
+    float dip_y = 0.0f;
+    int search_caret = 0;
+    int node_index = -1;
+    uint32_t text_pos = 0;
 };
-// テキスト選択以外の左ドラッグの終了。テキスト選択は終点で選択を確定する TextSelectionEndedAction。
-struct LeftDragEndedAction {};
+// 左ドラッグの終わり。テキスト選択なら node_index / text_pos の終点で選択を確定する (-1 なら選択を変えない)。
+struct LeftDragEndedAction {
+    int node_index = -1;
+    uint32_t text_pos = 0;
+};
 struct SearchInputDragStartedAction {
-    int caret_pos;
-};
-struct SearchInputDragMovedAction {
     int caret_pos;
 };
 struct MdScrollbarDragStartedAction {
     float dip_y;
 };
-struct MdScrollbarDragMovedAction {
-    float dip_y;
-};
 struct PaneScrollbarDragStartedAction {
     PaneTarget pane;
-    float dip_y;
-};
-// ドラッグ中のペインは ViewState::drag から読む。
-struct PaneScrollbarDragMovedAction {
     float dip_y;
 };
 struct TextSelectionStartedAction {
@@ -139,14 +142,6 @@ struct TextSelectionStartedAction {
     uint32_t text_pos;
     int click_x;
     int click_y;
-};
-struct TextSelectionMovedAction {
-    int node_index;
-    uint32_t text_pos;
-};
-struct TextSelectionEndedAction {
-    int end_node_index;
-    uint32_t end_text_pos;
 };
 struct RightClickGestureStartedAction {
     float dip_x;
@@ -196,9 +191,6 @@ struct BlockHScrollDragStartedAction {
     int node_index;
     float dip_x;
 };
-struct BlockHScrollDragMovedAction {
-    float dip_x;
-};
 // D&D・ファイルペイン・ファイルダイアログから、履歴を積んでファイルを開く。
 struct OpenPathAction {
     std::wstring path;
@@ -239,11 +231,9 @@ struct ImeCompositionAction {
 };
 
 using AppAction = std::variant<
-    NoOpAction,
     KeyScrollAction,
     MouseWheelAction,
-    CopyClipboardAction,
-    CopyFormattedClipboardAction,
+    CopyAction,
     SelectAllAction,
     SelectWordAction,
     ClearSelectionAction,
@@ -252,28 +242,21 @@ using AppAction = std::variant<
     ReloadFileAction,
     OpenFileAction,
     ToggleDarkModeAction,
-    NavigateBackAction,
-    NavigateForwardAction,
+    NavigateHistoryAction,
     ShowHelpAction,
     OpenSearchBarAction,
     CloseSearchBarAction,
-    SearchNextAction,
-    SearchPrevAction,
+    SearchStepAction,
     SearchSelectAllAction,
     PointerHoverAction,
     MouseLeaveAction,
     SplitterDragStartedAction,
-    SplitterDragMovedAction,
+    LeftDragMovedAction,
     LeftDragEndedAction,
     SearchInputDragStartedAction,
-    SearchInputDragMovedAction,
     MdScrollbarDragStartedAction,
-    MdScrollbarDragMovedAction,
     PaneScrollbarDragStartedAction,
-    PaneScrollbarDragMovedAction,
     TextSelectionStartedAction,
-    TextSelectionMovedAction,
-    TextSelectionEndedAction,
     RightClickGestureStartedAction,
     RightClickGestureMovedAction,
     RightClickGestureCompletedAction,
@@ -287,7 +270,6 @@ using AppAction = std::variant<
     LoadFailedAction,
     HWheelAction,
     BlockHScrollDragStartedAction,
-    BlockHScrollDragMovedAction,
     OpenPathAction,
     ResizeAction,
     DpiChangedAction,

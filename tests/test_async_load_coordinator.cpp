@@ -305,7 +305,7 @@ TEST_F(AsyncLoadCoordinatorTest, ReopeningShownFileIsJudgedOnWorker)
         c.Start(scheduler_, tmp.Path(), GetLightTheme(), 0.0f, ReloadBaseFor(current, tmp.Path(), accept));
         const auto outcome = WaitForOutcome(c);
         const auto plan = PlanParseComplete(outcome, current);
-        ASSERT_EQ(plan.step, ParseCompleteStep::ApplyReload);
+        ASSERT_EQ(plan.step, accept ? ParseCompleteStep::ApplyReload : ParseCompleteStep::DeferPrefixShrink);
         const auto& decision = (*outcome)->reload->decision;
         EXPECT_EQ(decision.op, accept ? ReloadOp::Replace : ReloadOp::DeferPrefixShrink);
         EXPECT_EQ(decision.diff_pos, 8u);

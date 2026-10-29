@@ -2,6 +2,8 @@
 #include "ui_types.h"
 #include <array>
 #include <cassert>
+#include <string>
+#include <string_view>
 #include <utility>
 
 // OpenFile..Close はボタン。連続した値であることを TitleBarButtonIndex が前提にする。
@@ -35,14 +37,6 @@ constexpr size_t TitleBarButtonIndex(TitleBarHitZone zone) noexcept
     return std::to_underlying(zone) - std::to_underlying(TitleBarHitZone::OpenFile);
 }
 
-// TitleBarButtonIndex で引くボタン矩形。
-using TitleBarButtons = std::array<DipRect, kTitleBarButtonCount>;
-
-constexpr auto& TitleBarButtonRect(auto& buttons, TitleBarHitZone zone) noexcept
-{
-    return buttons[TitleBarButtonIndex(zone)];
-}
-
 class TitleBar {
 public:
     static constexpr float BASE_HEIGHT = 32.0f;
@@ -62,7 +56,7 @@ public:
 
     constexpr const DipRect& GetButton(TitleBarHitZone zone) const noexcept
     {
-        return TitleBarButtonRect(buttons_, zone);
+        return buttons_[TitleBarButtonIndex(zone)];
     }
     constexpr const DipRect& GetTitleTextRect() const noexcept
     {
@@ -72,9 +66,13 @@ public:
 private:
     constexpr DipRect& Button(TitleBarHitZone zone) noexcept
     {
-        return TitleBarButtonRect(buttons_, zone);
+        return buttons_[TitleBarButtonIndex(zone)];
     }
 
-    TitleBarButtons buttons_{};
+    // TitleBarButtonIndex の順。
+    std::array<DipRect, kTitleBarButtonCount> buttons_{};
     DipRect title_text_rect_{};
 };
+
+// ウィンドウのタイトル。zoom_percent が 0 か 100 なら倍率を省き、それ以外は "(125%)" 等を付ける。
+std::wstring BuildTitleString(std::wstring_view path, int zoom_percent);

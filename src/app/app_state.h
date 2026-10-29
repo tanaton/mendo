@@ -144,14 +144,12 @@ struct AppState {
     SearchGroup search;
     WindowState window;
 
-    // ThemeService が所有する Theme への非所有参照。App::Init で設定され、
+    // ThemeService が所有する Theme への非所有参照。App の構築時に設定し、null にはならない。
     // ダークモードとズームの切り替えは内部値を in-place で書き換えるためポインタは
     // 安定。reducer 系が Y 位置計算に必要な spacing_above 等を参照するために使う。
     const Theme* theme = nullptr;
 
     FileExplorer file_explorer;
-
-    PaneLayoutCache pane_layout_cache;
 };
 
 inline ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
@@ -209,9 +207,14 @@ inline SidePaneHeaderButtons SidePaneHeaderButtonsFor(const AppState& state, Pan
     return { .has_file_buttons = is_file, .reveal_enabled = is_file && state.document.doc.HasBackingFile() };
 }
 
-// 無効なら window の寸法・ペイン・テーマから組み直す。Reduce は入口で必ず呼ぶ。
-const PaneLayout& EnsurePaneLayout(AppState& state) noexcept;
-BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node_index) noexcept;
+// window の寸法・ペイン・テーマから組む。数十回の浮動小数演算なので持たずに毎回求める。
+PaneLayout ComputePaneLayout(const AppState& state) noexcept;
+// md_width は本文ペインの幅。配置を求め済みならその幅を渡す。
+BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node_index, float md_width) noexcept;
+inline BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node_index) noexcept
+{
+    return ResolveBlockHScrollGeometry(state, node_index, ComputePaneLayout(state).md_rect.width);
+}
 float MdScrollableContentHeight(const AppState& state) noexcept;
 inline PaneScrollInfo MdScrollInfo(const AppState& state, const PaneLayout& layout) noexcept
 {
@@ -221,5 +224,4 @@ inline SearchBarLayout SearchBarLayoutFor(const AppState& state, const PaneRect&
 {
     return ComputeSearchBarLayout(md_rect, !state.search.search_state.GetQuery().empty());
 }
-// pane_layout_cache が確定していること。
 float MdMaxScroll(const AppState& state) noexcept;

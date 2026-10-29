@@ -14,14 +14,11 @@ namespace effect {
 struct InvalidateWindow {};
 struct SetCapture {};
 struct ReleaseCapture {};
+// text は Document テキスト由来の UTF-8。書き込み側で CF_UNICODETEXT 用に wstring 変換する。
+// html があれば CF_HTML にも載せる。
 struct ClipboardWrite {
-    // text は Document テキスト由来の UTF-8 string。
-    // 書き込み側で CF_UNICODETEXT 用に wstring 変換する。
     std::string text;
-};
-struct ClipboardWriteHtml {
     std::string html;
-    std::string plain;
 };
 // 出ているツールチップを隠し、text を表示待ちにする (遅れて出す)。空なら隠すだけ。
 struct SetTooltip {
@@ -41,9 +38,10 @@ struct SearchFocus {
 struct SearchUnfocus {
     bool clear_text = false; // ファイル切替時に true。検索ボックスのテキストを消去する。
 };
-// ウィンドウを rect (スクリーン座標) へ動かす。
-struct SetWindowPosition {
-    RECT rect;
+// 描画の DPI を変え、ウィンドウを WM_DPICHANGED が勧める矩形 (スクリーン座標) へ動かす。
+struct ApplyDpi {
+    float dpi;
+    RECT suggested;
 };
 struct ApplyZoom {};
 struct ToggleDarkMode {};
@@ -56,9 +54,6 @@ struct RendererResize {
     UINT height;
     // ライブリサイズ中。描画面を作り直さずに済むよう大きめのバッファを使い回す。
     bool live = false;
-};
-struct RendererSetDpi {
-    float dpi;
 };
 
 struct LoadFile {
@@ -88,20 +83,18 @@ using SideEffect = std::variant<
     effect::SetCapture,
     effect::ReleaseCapture,
     effect::ClipboardWrite,
-    effect::ClipboardWriteHtml,
     effect::SetTooltip,
     effect::ShowContextMenu,
     effect::Beep,
     // Window
     effect::SearchFocus,
     effect::SearchUnfocus,
-    effect::SetWindowPosition,
     effect::ApplyZoom,
     effect::ToggleDarkMode,
     effect::SettleViewport,
     effect::PerformSizingUpdate,
     effect::RendererResize,
-    effect::RendererSetDpi,
+    effect::ApplyDpi,
     // Navigation
     effect::LoadFile,
     effect::ReloadFile,

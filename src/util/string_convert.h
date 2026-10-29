@@ -34,9 +34,7 @@ inline std::wstring Utf8ToWide(std::string_view utf8)
     return result;
 }
 
-// std::string / std::string 両対応の WideToUtf8。
-template <typename Alloc>
-inline void WideToUtf8(std::wstring_view wide, std::basic_string<char, std::char_traits<char>, Alloc>& out)
+inline void WideToUtf8(std::wstring_view wide, std::string& out)
 {
     if (wide.empty()) {
         out.clear();

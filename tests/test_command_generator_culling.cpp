@@ -16,6 +16,7 @@
 #include <optional>
 #include <ranges>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <variant>
 #include <vector>
@@ -173,6 +174,7 @@ protected:
     Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_;
     MdPaneFormats formats_;
     CommandGenerator gen_;
+    DrawCommandList cmds_;
 
     void SetUp() override
     {
@@ -185,9 +187,12 @@ protected:
         gen_.Init(theme_, &formats_);
     }
 
+    // 次の呼び出しまで有効。
     const DrawCommandList& Generate(const ParsedLayout& pl, float scroll_y, float pane_h, const BlockHScrollContext& h_scroll, float pane_y = 0.0f)
     {
-        return gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = PaneRect{ 0.0f, pane_y, PANE_W, pane_h }, .scroll_y = scroll_y, .block_h_scroll = h_scroll }, 1.0f);
+        cmds_.clear();
+        gen_.GenerateMdPane(cmds_, { .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = PaneRect{ 0.0f, pane_y, PANE_W, pane_h }, .scroll_y = scroll_y, .block_h_scroll = h_scroll }, 1.0f);
+        return cmds_;
     }
 
     // ペイン原点 (先頭の SetTransform) の Y。
@@ -245,6 +250,49 @@ TEST_F(CullingParityTest, ViewportCullingMatchesUnculledRendering)
     ASSERT_GE(code_idx, 0);
     // コードブロックの横スクロールバーはホバー中だけ描かれる。
     ExpectCullingParity(pl, BlockHScrollContext{ .hovered_block = code_idx });
+}
+
+// 横スクロールする表は clip [表の左端, 左端 + 本文幅] に映る列だけを描く。端で一部だけ見える列は描く。
+TEST_F(CullingParityTest, WideTableDrawsOnlyColumnsInsideClip)
+{
+    std::string header = "|";
+    std::string sep = "|";
+    std::string row = "|";
+    for (int c = 0; c < 24; ++c) {
+        header += std::format(" head_{:02} |", c);
+        sep += "---|";
+        row += std::format(" cell_{:02}_wide |", c);
+    }
+    const auto pl = ParseAndLayout(header + "\n" + sep + "\n" + row + "\n", PANE_W);
+    const int idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Table);
+    ASSERT_GE(idx, 0);
+    const auto& tl = *pl.cache[idx].table_layout();
+    const auto geom = GetBlockHScrollGeometry(pl.nodes, pl.cache, static_cast<size_t>(idx), theme_, PANE_W);
+    ASSERT_TRUE(geom.can_scroll());
+    const float clip_w = geom.visible_width;
+
+    for (const float scroll_x : { 0.0f, 37.0f, geom.scroll_max() * 0.5f, geom.scroll_max() }) {
+        SCOPED_TRACE(scroll_x);
+        std::unordered_map<int, float> scroll_map{ { geom.scroll_key, scroll_x } };
+        const auto& cmds = Generate(pl, 0.0f, PANE_H, BlockHScrollContext{ .scroll_x = &scroll_map });
+        const auto drawn = [&](size_t c) {
+            const IDWriteTextLayout* cell = tl.GetCellLayout(0, c);
+            return std::ranges::any_of(cmds, [cell](const DrawCommand& cmd) {
+                const auto* t = std::get_if<DrawTextLayoutCmd>(&cmd);
+                return t && t->layout == cell;
+            });
+        };
+        for (size_t c = 0; c < tl.col_count; ++c) {
+            const float left = tl.col_cum_x[c];
+            const float right = tl.col_cum_x[c + 1];
+            if (left >= scroll_x && right <= scroll_x + clip_w) {
+                EXPECT_TRUE(drawn(c)) << "clip の中の列 " << c;
+            }
+            if (right + TABLE_BORDER_WIDTH < scroll_x || left > scroll_x + clip_w + TABLE_BORDER_WIDTH * 2.0f) {
+                EXPECT_FALSE(drawn(c)) << "clip の外の列 " << c;
+            }
+        }
+    }
 }
 
 // コピーボタンはズームに依らない固定サイズなので、縮小表示の空コードブロックではノードの box より

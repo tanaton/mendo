@@ -48,7 +48,7 @@ struct TableColHit {
     float cell_left = TABLE_BORDER_WIDTH;
 };
 
-// テーブル左右の外側は端の列にクランプする。列幾何が無効 (InvalidateGeometry 後) なら先頭列。
+// テーブル左右の外側は端の列にクランプする。列幾何が無ければ先頭列。
 inline TableColHit FindTableCol(const TableLayoutData& tl, float local_x) noexcept
 {
     if (!tl.HasGeometry()) {

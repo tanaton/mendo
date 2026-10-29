@@ -609,7 +609,7 @@ std::vector<size_t> DWriteTextMeasurer::RestoreRowsInViewport(
     const auto [r_begin, r_end] = tl.VisibleRowRange(viewport.top, viewport.bottom);
     std::vector<size_t> rows;
     for (size_t r = r_begin; r < r_end; r++) {
-        if (tl.row_evicted[r]) {
+        if (tl.IsRowEvicted(r)) {
             rows.push_back(r);
         }
     }
@@ -684,7 +684,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
     }
     auto& tl = *tl_ptr;
     const size_t row_count = tbl->row_count;
-    // 幾何が無効 (InvalidateGeometry 後) か幅が変わっていれば dirty 経由の MeasureTable (Finalize) が担当する。
+    // 幅が変わっていれば dirty 経由の MeasureTable (Finalize) が担当する。
     if (!tl.GeometryValidAt(max_width)) {
         return result;
     }
@@ -727,14 +727,13 @@ std::optional<float> DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayo
     const size_t col_count = tbl->col_count;
 
     // 超高速パス: 前回と max_width がほぼ一致し幾何が揃っていれば、
-    // セル幅・行高さ・累積位置・行オフセットすべて変化しないため、今の高さのまま確定させる。
+    // セル幅・行高さ・累積位置・行オフセットすべて変化しないため、幾何の高さのまま確定させる。
+    // entry.height は返さない。別の幅で推定が伸ばした高さが残っていることがある (A → B → A と幅を戻したとき)。
     // 検索ハイライト矩形・inline_code_bgs もテキスト位置に依存するので保持できる。
     // evict 済み行のセルは RestoreEvictedTableRows が可視になった時点で再生成する。
-    // 幾何が無効 (EstimateInvisibleNodeHeight が InvalidateGeometry 済み) のまま通すと
-    // GenTable が空テーブルを描画し続ける。
     auto* tl_existing = entry.table_layout();
     if (tl_existing && tl_existing->GeometryValidAt(max_width)) {
-        return entry.height;
+        return tl_existing->TotalHeight();
     }
 
     // セル layout の再作成 or SetMaxWidth で metrics が変わるため、ハイライト矩形の
@@ -751,7 +750,7 @@ std::optional<float> DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayo
 
     // 全セルを測り終えていれば、テキストレイアウトの作成をスキップして列幅の再計算だけ行う。
     // 自然幅はセルのテキストだけで決まり、evict しても残る。
-    if (tl.HasRowGeometry()) {
+    if (tl.HasGeometry()) {
         // 行高さは FinalizeTableLayout が新しい列幅で全行測る。
         RestoreRowsInViewport(*tbl, tl, viewport, nullptr);
     }

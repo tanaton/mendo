@@ -1,6 +1,7 @@
 #include "parser.h"
 #include "ascii_util.h"
 #include "document_utils.h"
+#include "parallel_for.h"
 #include "syntax.h"
 #include "profiler.h"
 #include "utility.h"
@@ -49,7 +50,8 @@ constexpr int8_t SaturateToInt8(int value) noexcept
     return static_cast<int8_t>(std::min(value, int{ std::numeric_limits<int8_t>::max() }));
 }
 
-struct ParseContext {
+// nodes・arena・tables・indices (NodeStorage) は、そのまま Document に渡す。
+struct ParseContext : NodeStorage {
     std::stop_token stop_token;
     // md4c コールバックは 100MB 入力で 50 万回以上呼ばれるため、毎回 atomic load せず
     // 1024 callbacks ごとに stop_requested() を確認する間引きカウンタ。
@@ -69,13 +71,6 @@ struct ParseContext {
         return cancel_requested;
     }
 
-    std::vector<Node> nodes;
-    // 原文をそのまま使えないテキストと、runs・リンク URL の置き場所。NodeStorage として Document に渡す。
-    TextArena arena;
-    // Table ノードが指すテーブル本体。arena と同じく Document に渡す。
-    std::vector<std::unique_ptr<NodeTableData>> tables;
-
-    NodeIndices indices;
     std::vector<size_t> blockquote_indices;
     // [id - 1] が脚注 id への参照数。md4c の ref_id はテーブル行の判定でも数えられて飛ぶので自前で数える。
     std::vector<uint32_t> footnote_ref_counts;
@@ -680,8 +675,7 @@ bool TryPromoteParagraphToImage(ParseContext* ctx)
     if (!cn || !IsImagePromotionCandidate(*cn) || ctx->image_src.empty() || cn->continues_prev()) {
         return false;
     }
-    const NodeImageData image{ ctx->image_src };
-    cn->set_image_data(ctx->arena.Copy(std::span{ &image, 1 }).data());
+    cn->set_image_src(ctx->arena.Copy(std::span{ &ctx->image_src, 1 }).data());
     cn->type = NodeType::Image;
     ctx->indices.image_indices.emplace_back(ctx->CurrentNodeIndex());
     return true;
@@ -1059,17 +1053,15 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
 struct AlertInfo {
     ascii_util::DocLowercaseLiteral name; // [!TYPE] マーカー名 (GitHub 仕様で ASCII 固定)
     AlertType type;
-    std::string_view label;
-    std::string_view icon;
 };
 
 // AlertColorIndex 順。
 inline constexpr AlertInfo kAlerts[]{
-    { "note",      AlertType::Note,      "Note",      "ℹ"                },
-    { "tip",       AlertType::Tip,       "Tip",       "\xF0\x9F\x92\xA1" }, // U+1F4A1 (BMP 外)
-    { "important", AlertType::Important, "Important", "❗"               },
-    { "warning",   AlertType::Warning,   "Warning",   "⚠"                },
-    { "caution",   AlertType::Caution,   "Caution",   "⛔"               },
+    { "note",      AlertType::Note      },
+    { "tip",       AlertType::Tip       },
+    { "important", AlertType::Important },
+    { "warning",   AlertType::Warning   },
+    { "caution",   AlertType::Caution   },
 };
 static_assert(std::size(kAlerts) == ALERT_TYPE_COUNT);
 static_assert(std::ranges::all_of(std::views::iota(size_t{ 0 }, ALERT_TYPE_COUNT), [](size_t i) static {
@@ -1121,12 +1113,11 @@ AlertMarker DetectAlertMarker(std::string_view text)
 // テキスト構造: "[icon] Label" (コンテンツなし) または "[icon] Label\n[content]" (コンテンツあり)
 void TransformAlertNode(Node& node, TextArena& arena, const AlertInfo& info, size_t marker_end)
 {
-    const std::string_view label = info.label;
-    const std::string_view icon = info.icon;
+    const auto [icon, label] = kAlertLabels[AlertColorIndex(info.type)];
     const std::string_view current_text = node.GetText();
     const bool has_content = (marker_end < current_text.size());
 
-    const size_t full_label_len = icon.size() + 1 + label.size(); // "icon Label"
+    const size_t full_label_len = AlertLabelLength(info.type); // "icon Label"
     std::string new_text;
     new_text.reserve(full_label_len + 4 + (has_content ? current_text.size() - marker_end : 0));
     new_text.append(icon);
@@ -1173,7 +1164,7 @@ void TransformAlertNode(Node& node, TextArena& arena, const AlertInfo& info, siz
     node.SetText(arena.CopyText(new_text), new_line_count);
     node.SetRuns(arena.Copy(new_runs));
     node.alert_type = info.type;
-    node.set_alert_label_length(static_cast<uint32_t>(full_label_len));
+    node.set_has_alert_label();
 }
 
 // nodes[i] が Alert マーカーを持ちうる位置 (最外側 blockquote の先頭段落) か。
@@ -1494,10 +1485,14 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
 
     AppendFootnoteBackrefs(ctx.nodes, ctx.arena, ctx.indices.footnote_def_indices, ctx.footnote_ref_counts);
 
-    for (const size_t first : ctx.split_code_runs) {
-        const size_t last = ChunkRunLast(ctx.nodes, first);
-        AnnotateCodeChunkLeads(std::span{ ctx.nodes }.subspan(first, last - first + 1), scheduler);
-    }
+    // 並びどうしは書くノードが重ならないので、並びごとにも worker に配る。40KB 程度のブロックは区間 1 つに収まり、
+    // 並びの中だけでは並列にならない (BM_ParseManyCodeBlocks/workers4)。
+    ParallelFor(scheduler, ctx.split_code_runs.size(), 1, [&](size_t begin, size_t end) {
+        for (const size_t first : std::span{ ctx.split_code_runs }.subspan(begin, end - begin)) {
+            const size_t last = ChunkRunLast(ctx.nodes, first);
+            AnnotateCodeChunkLeads(std::span{ ctx.nodes }.subspan(first, last - first + 1), scheduler);
+        }
+    });
 
     {
         // BlockQuote ノードから GitHub Alerts を検出し、マーカー除去・ラベル挿入・グルーピングを行う。
@@ -1515,5 +1510,5 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         ctx.nodes.shrink_to_fit();
     }
 
-    return NodeStorage{ std::move(ctx.nodes), std::move(ctx.arena), std::move(ctx.tables), std::move(ctx.indices) };
+    return std::move(static_cast<NodeStorage&>(ctx));
 }

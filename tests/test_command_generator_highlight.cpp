@@ -56,6 +56,7 @@ std::optional<D2D1_RECT_F> FindFirstFillRectByBrush(const DrawCommandList& cmds,
 class HighlightOrderTest : public DWriteTestBase {
 protected:
     CommandGenerator gen_;
+    DrawCommandList cmds_;
 
     void SetUp() override
     {
@@ -83,7 +84,8 @@ TEST_F(HighlightOrderTest, SearchThenSelectionThenText)
     TextSelection sel = TextSelection::MakeOrdered(0, 6, 0, 11);
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const auto& cmds = gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = pane, .search_matches = matches, .current_match_index = 0, .search_generation = 1 }, 1.0f);
+    DrawCommandList cmds;
+    gen_.GenerateMdPane(cmds, { .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = pane, .search_matches = matches, .current_match_index = 0, .search_generation = 1 }, 1.0f);
 
     // 検索色・選択色・本文 の各最小 index を見つける。
     std::optional<size_t> first_search;
@@ -122,7 +124,8 @@ TEST_F(HighlightOrderTest, NoHighlightsWhenNeitherActive)
     auto pl = ParseAndLayout("Hello World");
     const TextSelection sel{};
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const auto& cmds = gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = pane }, 1.0f);
+    DrawCommandList cmds;
+    gen_.GenerateMdPane(cmds, { .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = pane }, 1.0f);
 
     EXPECT_TRUE(CollectRectsByBrush(cmds, { BrushId::SearchHighlight, BrushId::SearchHighlightCurrent, BrushId::Selection }).empty());
 }
@@ -139,7 +142,8 @@ TEST_F(HighlightOrderTest, CurrentMatchUsesCurrentColor)
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     // 2 番目を current にする
-    const auto& cmds = gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane, .search_matches = matches, .current_match_index = 1, .search_generation = 1 }, 1.0f);
+    DrawCommandList cmds;
+    gen_.GenerateMdPane(cmds, { .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane, .search_matches = matches, .current_match_index = 1, .search_generation = 1 }, 1.0f);
 
     EXPECT_GE(CollectRectsByBrush(cmds, { BrushId::SearchHighlight }).size(), 1u) << "非カレントの検索マッチが少なくとも 1 つあるはず";
     EXPECT_GE(CollectRectsByBrush(cmds, { BrushId::SearchHighlightCurrent }).size(), 1u) << "カレントマッチが 1 つあるはず";
@@ -153,7 +157,8 @@ TEST_F(HighlightOrderTest, EmptySelectionProducesNoSelectionRect)
     TextSelection sel = TextSelection::MakeOrdered(0, 5, 0, 5);
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const auto& cmds = gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = pane }, 1.0f);
+    DrawCommandList cmds;
+    gen_.GenerateMdPane(cmds, { .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = pane }, 1.0f);
 
     EXPECT_TRUE(CollectRectsByBrush(cmds, { BrushId::Selection }).empty())
         << "空選択で BrushId::Selection の FillRectCmd は出ない";
@@ -164,7 +169,8 @@ TEST_F(HighlightOrderTest, ExtractCmdKindsIsOrdered)
 {
     auto pl = ParseAndLayout("Hello");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    const auto& cmds = gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
+    DrawCommandList cmds;
+    gen_.GenerateMdPane(cmds, { .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
     const auto kinds = ExtractCmdKinds(cmds);
     ASSERT_EQ(kinds.size(), cmds.size());
     for (size_t i = 0; i < cmds.size(); ++i) {
@@ -182,7 +188,8 @@ TEST_F(HighlightOrderTest, SearchHighlightHandlesUtf8MultibyteOffset)
     auto pl1 = ParseAndLayout("abc");
     std::vector<SearchMatch> matches1;
     matches1.push_back({ 0, -1, -1, 0, 3 });
-    const auto& cmds1 = gen_.GenerateMdPane({ .nodes = pl1.nodes, .cache = pl1.cache, .selection = TextSelection{}, .md_pane_rect = pane, .search_matches = matches1, .current_match_index = 0, .search_generation = 1 }, 1.0f);
+    DrawCommandList cmds1;
+    gen_.GenerateMdPane(cmds1, { .nodes = pl1.nodes, .cache = pl1.cache, .selection = TextSelection{}, .md_pane_rect = pane, .search_matches = matches1, .current_match_index = 0, .search_generation = 1 }, 1.0f);
     const auto rect1 = FindFirstFillRectByBrush(cmds1,
         { BrushId::SearchHighlight, BrushId::SearchHighlightCurrent });
     ASSERT_TRUE(rect1.has_value());
@@ -191,7 +198,8 @@ TEST_F(HighlightOrderTest, SearchHighlightHandlesUtf8MultibyteOffset)
     auto pl2 = ParseAndLayout("\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86" "abc");
     std::vector<SearchMatch> matches2;
     matches2.push_back({ 0, -1, -1, 3, 3 });
-    const auto& cmds2 = gen_.GenerateMdPane({ .nodes = pl2.nodes, .cache = pl2.cache, .selection = TextSelection{}, .md_pane_rect = pane, .search_matches = matches2, .current_match_index = 0, .search_generation = 1 }, 1.0f);
+    DrawCommandList cmds2;
+    gen_.GenerateMdPane(cmds2, { .nodes = pl2.nodes, .cache = pl2.cache, .selection = TextSelection{}, .md_pane_rect = pane, .search_matches = matches2, .current_match_index = 0, .search_generation = 1 }, 1.0f);
     const auto rect2 = FindFirstFillRectByBrush(cmds2,
         { BrushId::SearchHighlight, BrushId::SearchHighlightCurrent });
     ASSERT_TRUE(rect2.has_value()) << "非 ASCII オフセット後の ASCII マッチが描画されるべき";
@@ -207,13 +215,15 @@ TEST_F(HighlightOrderTest, SelectionHighlightHandlesUtf8MultibyteOffset)
 
     auto pl1 = ParseAndLayout("abc");
     TextSelection sel1 = TextSelection::MakeOrdered(0, 0, 0, 3);
-    const auto& cmds1 = gen_.GenerateMdPane({ .nodes = pl1.nodes, .cache = pl1.cache, .selection = sel1, .md_pane_rect = pane }, 1.0f);
+    DrawCommandList cmds1;
+    gen_.GenerateMdPane(cmds1, { .nodes = pl1.nodes, .cache = pl1.cache, .selection = sel1, .md_pane_rect = pane }, 1.0f);
     const auto rect1 = FindFirstFillRectByBrush(cmds1, { BrushId::Selection });
     ASSERT_TRUE(rect1.has_value());
 
     auto pl2 = ParseAndLayout("\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86" "abc");
     TextSelection sel2 = TextSelection::MakeOrdered(0, 9, 0, 12);
-    const auto& cmds2 = gen_.GenerateMdPane({ .nodes = pl2.nodes, .cache = pl2.cache, .selection = sel2, .md_pane_rect = pane }, 1.0f);
+    DrawCommandList cmds2;
+    gen_.GenerateMdPane(cmds2, { .nodes = pl2.nodes, .cache = pl2.cache, .selection = sel2, .md_pane_rect = pane }, 1.0f);
     const auto rect2 = FindFirstFillRectByBrush(cmds2, { BrushId::Selection });
     ASSERT_TRUE(rect2.has_value());
     EXPECT_NEAR(rect2->right - rect2->left, rect1->right - rect1->left, 2.0f);
@@ -240,10 +250,13 @@ protected:
         RunSearchToEnd(search_, pl.nodes);
     }
 
+    // 次の呼び出しまで有効。
     const DrawCommandList& Generate(const ParsedLayout& pl, float scroll_y, const TextSelection& sel = {})
     {
-        return gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = PANE, .scroll_y = scroll_y,
+        cmds_.clear();
+        gen_.GenerateMdPane(cmds_, { .nodes = pl.nodes, .cache = pl.cache, .selection = sel, .md_pane_rect = PANE, .scroll_y = scroll_y,
                                      .search_matches = search_.GetMatches(), .current_match_index = current_match_, .search_generation = search_.GetGeneration() }, 1.0f);
+        return cmds_;
     }
 
     // ノード 0 の全マッチを HitTestTextRange して可視判定した結果と、描かれた検索ハイライトを突き合わせる。
@@ -435,14 +448,16 @@ TEST_F(HighlightOrderTest, DiagramOverlayButtonsAreGatedByDiagramHover)
     const auto count_overlay_fills = [](const DrawCommandList& cmds) {
         return std::ranges::count_if(cmds, [](const DrawCommand& c) {
             const auto* fill = std::get_if<FillRoundedRectCmd>(&c);
-            return fill && fill->brush_id == OverlayBrushId(false);
+            return fill && fill->brush_id == BrushId::Overlay;
         });
     };
 
-    const auto& hidden = gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
+    DrawCommandList hidden;
+    gen_.GenerateMdPane(hidden, { .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
     EXPECT_EQ(count_overlay_fills(hidden), 0);
 
-    const auto& shown = gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane, .hovered_diagram = idx }, 1.0f);
+    DrawCommandList shown;
+    gen_.GenerateMdPane(shown, { .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane, .hovered_diagram = idx }, 1.0f);
     EXPECT_EQ(count_overlay_fills(shown), 2);
 }
 

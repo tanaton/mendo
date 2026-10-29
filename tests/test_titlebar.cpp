@@ -181,3 +181,20 @@ TEST_F(TitleBarTest, NarrowWindowTitleTextDoesNotGoNegativeWidth)
     // タイトルテキスト幅は0以上であるべき
     EXPECT_GE(rect.right, rect.left);
 }
+
+TEST(BuildTitleString, PrefixesFilenameToAppName)
+{
+    struct Case {
+        std::wstring_view path;
+        std::wstring_view expected;
+    };
+    constexpr Case kCases[] = {
+        { L"", L"mendo" },
+        { L"C:\\dir\\test.md", L"test.md - mendo" },
+        { L"readme.md", L"readme.md - mendo" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
+        EXPECT_EQ(BuildTitleString(c.path, 0), c.expected);
+    }
+}

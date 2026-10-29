@@ -27,7 +27,23 @@ constexpr bool IsWidthFree(float css_width, float max_width) noexcept
     return css_width + 1.0f < max_width;
 }
 
-std::wstring JsEscape(std::wstring_view input);
+// mermaid.html の message の受け口に送る要求。"<種類>:<要求 ID>:..." の形で、図のコードと TeX はエスケープせずに送る。
+// 図は "<種類>:<ID>:<ダーク 0/1>:<コード>" とコードを末尾に置く。
+enum class PageRequest : uint8_t {
+    Mermaid, // 表示用の図 (render-result で大きさを返す)
+    Svg,     // クリップボード用の SVG (svg-result)
+    Tex,     // ブロック数式 (render-result)
+};
+std::wstring PageRenderMessage(PageRequest kind, unsigned id, bool dark, std::string_view code_utf8);
+// インライン数式のまとめ描きは "math:<ID>:<ページの幅>:" に、数式ごとに "<文字の大きさ>:" と AppendPageTex を続ける。
+std::wstring PageMathBatchMessage(unsigned id, int page_width);
+void AppendPageMathItem(std::wstring& msg, std::string_view tex_utf8, float font_size);
+// ブロック数式のまとめ描きは "blocks:<ID>:<ダーク 0/1>:" に、数式ごとに AppendPageTex を続ける。
+std::wstring PageBlocksMessage(unsigned id, bool dark);
+// "<TeX の長さ (UTF-16)>:<TeX>" を足す。
+void AppendPageTex(std::wstring& msg, std::string_view tex_utf8);
+// 新しい大きさで描き直したら capture-ready を返させる。
+std::wstring PageCaptureMessage(unsigned id);
 
 int QuantizeWidth(float max_width) noexcept;
 
@@ -42,7 +58,7 @@ constexpr bool IsPlausibleDpr(float dpr) noexcept
 bool FitsCaptureLimit(float css_width, float css_height, float dpr, unsigned max_side_px) noexcept;
 
 // エラーメッセージの表示用整形: 空白・改行・制御文字の連続を空白1個に潰し、max_len で
-// 切り詰める (DrawTextCmd の 255 文字上限内に収める)。切り詰め時は末尾に U+2026 を付ける。
+// 切り詰める。切り詰め時は末尾に U+2026 を付ける。
 std::wstring SanitizeErrorMessage(std::wstring_view msg, size_t max_len);
 
 struct RequestPrefix {
@@ -61,6 +77,7 @@ enum class WebMessageKind : uint8_t {
     SvgResult,     // "svg-result:<id>:<payload>"
     RenderError,   // "render-error:<id>:<message>"
     MathResult,    // "math-result:<id>:<payload>" (ParseMathBatch)
+    BlocksResult,  // "blocks-result:<id>:<payload>" (ParseMathBlocks)
     Failed,        // "mermaid-failed"
 };
 
@@ -76,7 +93,7 @@ struct ParsedWebMessage {
 
 ParsedWebMessage ParseWebMessage(std::wstring_view msg) noexcept;
 
-// RenderResult の payload ("<width>:<height>:<dpr>")。欠けた値と有限でない値 (nan / inf) は 0。
+// RenderResult の payload ("<width>:<height>:<dpr>")。欠けた寸法と有限でない寸法 (nan / inf) は 0、ありえない dpr は 1。
 struct RenderSize {
     float width = 0.0f;
     float height = 0.0f;
@@ -99,6 +116,23 @@ struct MathBatchLayout {
 // MathResult の payload ("<w>:<h>:<dpr>|<x>,<y>,<w>,<h>,<baseline>;..."、描けなかった数式は "e")。
 // 数が expected と違うか、ページの外を指す箱があれば nullopt。
 std::optional<MathBatchLayout> ParseMathBatch(std::wstring_view payload, size_t expected);
+
+// まとめて描いたブロック数式 1 つ。箱は CSS px でページの左上が原点。描けなかった数式は failed で、message は KaTeX の文言。
+struct MathBlock {
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+    bool failed = false;
+    std::wstring message;
+};
+struct MathBlocksLayout {
+    RenderSize size; // ページ全体
+    std::vector<MathBlock> blocks;
+};
+// BlocksResult の payload ("<w>:<h>:<dpr>|" の後に、数式ごとに "b<x>,<y>,<w>,<h>;" か "e<文言の長さ (UTF-16)>:<文言>")。
+// 数が expected と違うか、ページの外を指す箱があれば nullopt。
+std::optional<MathBlocksLayout> ParseMathBlocks(std::wstring_view payload, size_t expected);
 
 // まとめ描きのページはディスクキャッシュに図と同じく PNG 1 枚で置き、箱の一覧は PNG の独自チャンク (mdMB) に埋める。
 // PNG でなければ空を返す。

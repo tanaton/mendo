@@ -21,6 +21,8 @@ struct TextFormatSpec {
     bool no_wrap = false;
     // 0 より大きければ、主フォントの行の高さを size のこの倍にする。増減分は行の上下に半分ずつ配る。
     float line_height_factor = 0.0f;
+    // 箱に収まらない行を省き、見えている最後の行の末尾を省略記号にする。箱の外には描かない。
+    bool ellipsis = false;
 };
 
 // 比率指定の行間にして、フォールバックで高くなる行は既定と同じく高いまま、主フォントの行を line_height にする。
@@ -65,6 +67,13 @@ inline Microsoft::WRL::ComPtr<IDWriteTextFormat> CreateTextFormat(IDWriteFactory
     }
     if (s.para_align != DWRITE_PARAGRAPH_ALIGNMENT_NEAR) {
         fmt->SetParagraphAlignment(s.para_align);
+    }
+    if (s.ellipsis) {
+        Microsoft::WRL::ComPtr<IDWriteInlineObject> sign;
+        if (SUCCEEDED(dw->CreateEllipsisTrimmingSign(fmt.Get(), &sign))) {
+            const DWRITE_TRIMMING trimming{ .granularity = DWRITE_TRIMMING_GRANULARITY_CHARACTER };
+            fmt->SetTrimming(&trimming, sign.Get());
+        }
     }
     return fmt;
 }

@@ -141,9 +141,9 @@ INSTANTIATE_TEST_SUITE_P(
 
         // ---- worker 差分判定済みのリロード ----
         Case{ .label = "ReloadNoChange", .kind = ResultKind::Reload, .reload_op = ReloadOp::NoChange,
-              .step = ParseCompleteStep::ApplyReload },
+              .step = ParseCompleteStep::ReloadUnchanged },
         Case{ .label = "ReloadDeferPrefixShrink", .kind = ResultKind::Reload, .reload_op = ReloadOp::DeferPrefixShrink, .reload_diff_pos = 7,
-              .step = ParseCompleteStep::ApplyReload },
+              .step = ParseCompleteStep::DeferPrefixShrink },
         Case{ .label = "ReloadReplace", .kind = ResultKind::Reload, .reload_op = ReloadOp::Replace, .reload_diff_pos = 9,
               .step = ParseCompleteStep::ApplyReload },
         Case{ .label = "ReloadPartialWriteRetries", .kind = ResultKind::Reload, .reload_op = ReloadOp::Replace, .reload_diff_pos = 9,

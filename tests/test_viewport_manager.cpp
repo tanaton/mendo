@@ -32,7 +32,7 @@ TEST(ViewportManagerTest, ClampScrollClampsExistingScroll)
     // コンテンツを縮小して最大値が現在のスクロール以下になるようにする
     vm.ClampScroll(MaxScroll(500.0f, 200.0f));
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 300.0f);
-    EXPECT_TRUE(vm.HasScrollTarget());
+    EXPECT_TRUE(vm.GetScrollTarget().IsValid());
 }
 
 TEST(ViewportManagerTest, MaxScrollNoNegative)
@@ -147,7 +147,7 @@ TEST(ViewportManagerTest, ApplyScrollTargetIsNoOpWhenInvalid)
     vm.ScrollTo(50.0f, max_scroll);
     float before = vm.GetScrollY();
     // target 未設定なので何もしない
-    EXPECT_FALSE(vm.HasScrollTarget());
+    EXPECT_FALSE(vm.GetScrollTarget().IsValid());
     vm.ApplyScrollTarget(cache);
     EXPECT_FLOAT_EQ(vm.GetScrollY(), before);
 }
@@ -156,9 +156,9 @@ TEST(ViewportManagerTest, ScrollToInvalidatesScrollTarget)
 {
     ViewportManager vm;
     vm.SetScrollTarget(2, 10.0f);
-    EXPECT_TRUE(vm.HasScrollTarget());
+    EXPECT_TRUE(vm.GetScrollTarget().IsValid());
     vm.ScrollTo(100.0f, 0.0f);
-    EXPECT_FALSE(vm.HasScrollTarget());
+    EXPECT_FALSE(vm.GetScrollTarget().IsValid());
 }
 
 TEST(ViewportManagerTest, DirectScrollByInvalidatesScrollTarget)
@@ -167,7 +167,7 @@ TEST(ViewportManagerTest, DirectScrollByInvalidatesScrollTarget)
     const float max_scroll = MaxScroll(1000.0f, 200.0f);
     vm.SetScrollTarget(2, 10.0f);
     vm.DirectScrollBy(50.0f, max_scroll);
-    EXPECT_FALSE(vm.HasScrollTarget());
+    EXPECT_FALSE(vm.GetScrollTarget().IsValid());
 }
 
 TEST(ViewportManagerTest, EnsureScrollTargetSynthesizesFromVisibleAnchor)
@@ -178,7 +178,7 @@ TEST(ViewportManagerTest, EnsureScrollTargetSynthesizesFromVisibleAnchor)
     vm.ScrollTo(150.0f, max_scroll); // ノード1の途中（scroll_y=150, cache[1].y=100）
 
     vm.EnsureScrollTarget(cache);
-    ASSERT_TRUE(vm.HasScrollTarget());
+    ASSERT_TRUE(vm.GetScrollTarget().IsValid());
     EXPECT_EQ(vm.GetScrollTarget().node, 1);
     EXPECT_FLOAT_EQ(vm.GetScrollTarget().offset, 50.0f);
 }
@@ -507,7 +507,7 @@ TEST(ViewportManagerTest, ClampAndDetachClampsAndClearsTarget)
     vm.ClampAndDetach(max_scroll);
 
     EXPECT_FLOAT_EQ(vm.GetScrollY(), 500.0f);
-    EXPECT_FALSE(vm.HasScrollTarget());
+    EXPECT_FALSE(vm.GetScrollTarget().IsValid());
 }
 
 // 作った直後のキャッシュから見ている位置を合成すると誤ったノードへ飛ぶので、合成しない。
@@ -518,7 +518,7 @@ TEST(ViewportManagerTest, EnsureScrollTargetSkipsFreshCache)
 
     EXPECT_EQ(vm.FindFirstVisibleNode(cache), -1);
     vm.EnsureScrollTarget(cache);
-    EXPECT_FALSE(vm.HasScrollTarget());
+    EXPECT_FALSE(vm.GetScrollTarget().IsValid());
 }
 
 // Step は向きごとの操作と同じで、CanStep は段が動くかと一致する。

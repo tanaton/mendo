@@ -211,60 +211,15 @@ TEST(Theme, ApplyZoomKeepsSidePaneMetrics)
     }
 }
 
-TEST(Theme, ApplyZoomTwiceIsMultiplicative)
+// 白黒の重ね色はテーマが決める。ライトは黒、ダークは白 (ジェスチャーの背景は灰色)。
+TEST(Theme, OverlayColorsFollowDarkMode)
 {
-    Theme t = GetLightTheme();
-    const float original_body = t.font_size_body;
-
-    t.ApplyZoom(2.0f);
-    t.ApplyZoom(3.0f);
-
-    EXPECT_NEAR(t.font_size_body, original_body * 3.0f, 0.01f);
-    EXPECT_FLOAT_EQ(t.zoom, 3.0f);
-}
-
-TEST(Theme, ApplyZoomResetToOne)
-{
-    Theme t = GetLightTheme();
-    const float original_body = t.font_size_body;
-
-    t.ApplyZoom(2.0f);
-    t.ApplyZoom(1.0f);
-
-    EXPECT_NEAR(t.font_size_body, original_body, 0.01f);
-}
-
-// バグ #12: ゼロ除算と inf/NaN の伝染を防ぐ。
-TEST(Theme, ApplyZoomNonPositiveIsNoOp)
-{
-    for (const float zoom : { 0.0f, -1.0f }) {
-        SCOPED_TRACE(zoom);
-        Theme t = GetLightTheme();
-        const float original_body = t.font_size_body;
-        const float original_zoom = t.zoom;
-
-        t.ApplyZoom(zoom);
-
-        EXPECT_FLOAT_EQ(t.font_size_body, original_body);
-        EXPECT_FLOAT_EQ(t.zoom, original_zoom);
-    }
-}
-
-// バグ #20: 増分のズームを繰り返すと誤差は出るが、inf/NaN にはならない。
-TEST(Theme, ApplyZoomRepeatedRoundTripsStayFinite)
-{
-    Theme t = GetLightTheme();
-    const float original_body = t.font_size_body;
-
-    for (int i = 0; i < 100; ++i) {
-        t.ApplyZoom(1.5f);
-        t.ApplyZoom(1.0f);
-    }
-
-    EXPECT_GT(t.font_size_body, 0.0f);
-    EXPECT_LT(t.font_size_body, original_body * 2.0f);
-    EXPECT_FALSE(std::isnan(t.font_size_body));
-    EXPECT_FALSE(std::isinf(t.font_size_body));
+    const Theme& light = GetLightTheme();
+    const Theme& dark = GetDarkTheme();
+    EXPECT_FLOAT_EQ(light.Color(BrushId::Overlay).r, 0.0f);
+    EXPECT_FLOAT_EQ(dark.Color(BrushId::Overlay).r, 1.0f);
+    EXPECT_FLOAT_EQ(light.Color(BrushId::OverlayGestureBg).r, 0.0f);
+    EXPECT_FLOAT_EQ(dark.Color(BrushId::OverlayGestureBg).r, 0.2f);
 }
 
 // ---- GitHub Alerts ----

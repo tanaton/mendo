@@ -80,13 +80,11 @@ public:
 
     void Shutdown();
 
-#ifdef MENDO_TESTING
     // 寸法 (と任意の bitmap) だけの項目を入れる。キャッシュ動作のテスト専用。
     void InsertCacheEntryForTest(const std::wstring& path, float pixel_width, float pixel_height, ID2D1Bitmap* bitmap = nullptr)
     {
         cache_.Insert(path, CachedImage{ .bitmap = bitmap, .pixel_width = pixel_width, .pixel_height = pixel_height });
     }
-#endif
 
 private:
     struct DecodeResult {

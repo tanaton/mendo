@@ -50,11 +50,9 @@ protected:
 
     void SetUp() override
     {
-        // PaneLayout のモック（ページサイズ用）
-        PaneLayout pl{};
-        pl.md_rect.height = 500.0f;
-        state.pane_layout_cache.Set(pl);
         InitReducerState(state, theme);
+        // 既定の幅 220 のサイドペイン 2 枚の右に、幅 600・高さ 500 の本文。
+        SetWindowSize(state, 1048.0f, 500.0f);
         // 内容高 1000・表示高 500 で、500 までスクロールできる。パスは空 (未ロード扱い) にする。
         SetDocument(state, "Hello", L"", 1000.0f);
     }
@@ -321,17 +319,6 @@ TEST_F(ReducerTest, SearchWithoutScrollEmitsNoScrollEffects)
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
     EXPECT_FALSE(HasEffect<effect::BitmapManage>(effects));
-}
-
-// ---- NoOpAction テスト ----
-
-TEST_F(ReducerTest, NoOp_NoStateChange)
-{
-    const float scroll = state.view.viewport.GetScrollY();
-    auto effects = Reduce(state, NoOpAction{});
-
-    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), scroll);
-    EXPECT_TRUE(effects.empty());
 }
 
 // ---- ActivateAction テスト ----
@@ -617,7 +604,6 @@ TEST_F(ReducerTest, DocumentOpened_ResetsViewForNewDocument)
     EXPECT_FLOAT_EQ(state.view.panes.SidePaneScroll(PaneTarget::File).scroll_y, 0.0f);
 }
 
-// 配置はドラッグ中の移動ごとに作り直し済みなので、終了では捨てない。
 // スプリッタとスクロールバーは終了時にビューポートを落ち着かせる。
 TEST_F(ReducerTest, LeftDragEnded_ClearsAndReleases)
 {
@@ -635,35 +621,32 @@ TEST_F(ReducerTest, LeftDragEnded_ClearsAndReleases)
     for (const auto& c : cases) {
         SCOPED_TRACE(static_cast<int>(c.drag.kind));
         state.view.drag = c.drag;
-        state.pane_layout_cache.Set(PaneLayout{});
 
         const auto effects = Reduce(state, LeftDragEndedAction{});
 
         EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
         EXPECT_EQ(state.view.HDragNode(), -1);
-        EXPECT_TRUE(state.pane_layout_cache.IsValid());
         EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
         EXPECT_EQ(HasEffect<effect::SettleViewport>(effects), c.settles);
     }
 }
 
-// テキスト選択の終了は TextSelectionEndedAction が担う。
-TEST_F(ReducerTest, LeftDragEnded_NoLeftDragOrTextSelect_NoEffect)
+// テキスト選択も終点が無ければ選択を変えずにドラッグを終える (再描画しない)。
+TEST_F(ReducerTest, LeftDragEnded_TextSelectWithoutEnd_KeepsSelection)
 {
-    for (const LeftDrag kind : { LeftDrag::None, LeftDrag::TextSelect }) {
-        SCOPED_TRACE(static_cast<int>(kind));
-        state.view.drag = { .kind = kind };
-        auto effects = Reduce(state, LeftDragEndedAction{});
-        EXPECT_EQ(state.view.drag.kind, kind);
-        EXPECT_TRUE(effects.empty());
-    }
+    state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = 0 };
+    auto effects = Reduce(state, LeftDragEndedAction{});
+    EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
+    EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
+    EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
+    EXPECT_FALSE(state.view.viewport.GetSelection().active());
 }
 
 // ---- ナビゲーションテスト ----
 
 TEST_F(ReducerTest, NavigateBack_NoHistory_NoEffects)
 {
-    auto effects = Reduce(state, NavigateBackAction{});
+    auto effects = Reduce(state, NavigateHistoryAction{ .forward = false });
     EXPECT_TRUE(effects.empty());
 }
 
@@ -672,7 +655,7 @@ TEST_F(ReducerTest, NavigateBack_DifferentFile_EmitsLoadFile)
     state.document.doc = Document::FromMarkdown(std::string("test"), L"C:\\current.md");
     state.view.nav_history.Push(NavEntry{ L"C:\\prev.md", 0, 50.0f });
 
-    auto effects = Reduce(state, NavigateBackAction{});
+    auto effects = Reduce(state, NavigateHistoryAction{ .forward = false });
     EXPECT_TRUE(HasEffect<effect::LoadFile>(effects));
 }
 
@@ -683,7 +666,7 @@ TEST_F(ReducerTest, NavigateBack_SameFile_ScrollsAndInvalidates)
     state.view.nav_history.Push(NavEntry{ L"C:\\file.md", 0, 50.0f });
     state.view.viewport.ScrollTo(200.0f, MdMaxScroll(state));
 
-    auto effects = Reduce(state, NavigateBackAction{});
+    auto effects = Reduce(state, NavigateHistoryAction{ .forward = false });
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 50.0f);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
     EXPECT_TRUE(HasEffect<effect::BitmapManage>(effects));
@@ -695,11 +678,11 @@ TEST_F(ReducerTest, NavigateBackThenForwardWhileLoading_CancelsOtherFileLoad)
     SetDocument(state, "test", L"C:\\current.md");
     state.view.nav_history.Push(NavEntry{ L"C:\\prev.md", 0, 0.0f });
 
-    auto back = Reduce(state, NavigateBackAction{});
+    auto back = Reduce(state, NavigateHistoryAction{ .forward = false });
     ASSERT_TRUE(HasEffect<effect::LoadFile>(back));
     EXPECT_FALSE(HasEffect<effect::CancelOtherFileLoad>(back));
 
-    auto forward = Reduce(state, NavigateForwardAction{});
+    auto forward = Reduce(state, NavigateHistoryAction{ .forward = true });
     EXPECT_FALSE(HasEffect<effect::LoadFile>(forward));
     EXPECT_TRUE(HasEffect<effect::CancelOtherFileLoad>(forward));
     EXPECT_FALSE(state.view.pending_restore.IsValid());
@@ -709,7 +692,7 @@ TEST_F(ReducerTest, NavigateBackThenForwardWhileLoading_CancelsOtherFileLoad)
 
 TEST_F(ReducerTest, NavigateForward_NoHistory_NoEffects)
 {
-    auto effects = Reduce(state, NavigateForwardAction{});
+    auto effects = Reduce(state, NavigateHistoryAction{ .forward = true });
     EXPECT_TRUE(effects.empty());
 }
 
@@ -756,7 +739,6 @@ TEST_F(ReducerTest, Resize_Normal_SettlesViewport)
 
     EXPECT_TRUE(HasEffect<effect::RendererResize>(effects));
     EXPECT_TRUE(HasEffect<effect::SettleViewport>(effects));
-    EXPECT_FALSE(state.pane_layout_cache.IsValid());
 }
 
 TEST_F(ReducerTest, Resize_Sizing_EmitsSizingUpdate)
@@ -794,34 +776,27 @@ TEST_F(ReducerTest, DpiChanged_UpdatesScale)
     });
 
     EXPECT_FLOAT_EQ(state.window.cached_dpi_scale, 2.0f);
-    EXPECT_TRUE(HasEffect<effect::RendererSetDpi>(effects));
-    const auto* pos = FindEffect<effect::SetWindowPosition>(effects);
-    ASSERT_NE(pos, nullptr);
-    EXPECT_EQ(pos->rect.right, 800);
-    EXPECT_EQ(pos->rect.bottom, 600);
+    const auto* dpi = FindEffect<effect::ApplyDpi>(effects);
+    ASSERT_NE(dpi, nullptr);
+    EXPECT_FLOAT_EQ(dpi->dpi, 192.0f);
+    EXPECT_EQ(dpi->suggested.right, 800);
+    EXPECT_EQ(dpi->suggested.bottom, 600);
 }
 
 // ---- テーマ / ズームテスト ----
 
-// 色だけの変更なのでペイン配置は作り直さない。
 TEST_F(ReducerTest, ToggleDarkMode_EmitsToggleDarkMode)
 {
-    state.pane_layout_cache.Set(PaneLayout{});
     auto effects = Reduce(state, ToggleDarkModeAction{});
 
     EXPECT_TRUE(HasEffect<effect::ToggleDarkMode>(effects));
-    EXPECT_TRUE(state.pane_layout_cache.IsValid());
 }
 
-// ズームは本文だけに掛かる。サイドペインの幅・スプリッタ幅は変わらないので、
-// ペイン配置 (md_rect の位置と幅) も作り直さない。
 TEST_F(ReducerTest, ZoomIn_EmitsApplyZoom)
 {
-    state.pane_layout_cache.Set(PaneLayout{});
     auto effects = Reduce(state, ZoomAction{ ZoomDirection::In });
 
     EXPECT_TRUE(HasEffect<effect::ApplyZoom>(effects));
-    EXPECT_TRUE(state.pane_layout_cache.IsValid());
 }
 
 // まとめて届いたノッチは段数ぶん進めるが、組み直しの要求は 1 回だけ出す。
@@ -850,8 +825,11 @@ TEST_F(ReducerTest, SidePaneZoomChangesOnlyThatPane)
 // 先頭に見えていた項目が先頭に残るよう、スクロール位置を倍率の比で動かす。
 TEST_F(ReducerTest, SidePaneZoomScalesScrollPosition)
 {
-    // 配置が無ければ上限で切らない (項目が無いので切ると 0 になる)。
-    state.pane_layout_cache.Invalidate();
+    std::string md;
+    for (int i = 0; i < 30; ++i) {
+        md += std::format("# h{}\n\n", i);
+    }
+    SetDocument(state, md, L"");
     state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y = 100.0f;
     Reduce(state, ZoomAction{ ZoomDirection::In, 1, PaneTarget::Toc });
 
@@ -959,12 +937,12 @@ TEST_F(ReducerTest, TextSelectionDragEnd_SchedulesDeferredReload)
 {
     state.view.drag = { .kind = LeftDrag::TextSelect };
     state.view.reload_after_drag = true;
-    auto effects = Reduce(state, TextSelectionEndedAction{ -1, 0 });
+    auto effects = Reduce(state, LeftDragEndedAction{ -1, 0 });
     EXPECT_TRUE(HasReloadTimer(effects));
     EXPECT_FALSE(state.view.reload_after_drag);
 
     state.view.drag = { .kind = LeftDrag::TextSelect };
-    EXPECT_FALSE(HasReloadTimer(Reduce(state, TextSelectionEndedAction{ -1, 0 })));
+    EXPECT_FALSE(HasReloadTimer(Reduce(state, LeftDragEndedAction{ -1, 0 })));
 }
 
 TEST_F(ReducerTest, CaptureChanged_SchedulesDeferredReload)
@@ -995,43 +973,30 @@ TEST_F(ReducerTest, SplitterDragMoved_UpdatesWidthAndInvalidates)
     state.window.client_width = 1000;
     for (const auto [edge, x] : { std::pair{ PaneTarget::File, 300.0f }, std::pair{ PaneTarget::Toc, 600.0f } }) {
         SCOPED_TRACE(static_cast<int>(edge));
-        state.pane_layout_cache.Set(PaneLayout{});
         state.view.drag = { .kind = LeftDrag::Splitter, .pane = edge };
         const float old_width = state.view.panes.GetSidePaneWidth(edge);
 
-        auto effects = Reduce(state, SplitterDragMovedAction{ x });
+        auto effects = Reduce(state, LeftDragMovedAction{ .dip_x = x });
 
         EXPECT_NE(state.view.panes.GetSidePaneWidth(edge), old_width);
-        EXPECT_FALSE(state.pane_layout_cache.IsValid());
         EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
     }
 }
 
-// 該当するドラッグをしていなければ、移動や終了は何もしない。
-TEST_F(ReducerTest, DragActionsWithoutMatchingDrag_NoOp)
+// ドラッグしていなければ、移動や終了は何もしない。
+TEST_F(ReducerTest, DragActionsWithoutDrag_NoOp)
 {
-    struct Case {
-        const char* name;
-        AppAction action;
-        LeftDrag drag;
+    const AppAction actions[] = {
+        LeftDragMovedAction{ .dip_x = 300.0f, .dip_y = 200.0f, .search_caret = 3, .node_index = 0, .text_pos = 3u },
+        LeftDragEndedAction{ 0, 3u },
     };
-    const Case cases[] = {
-        { "SplitterDragMoved", SplitterDragMovedAction{ 300.0f }, LeftDrag::PaneScrollbar },
-        { "PaneScrollbarDragMoved", PaneScrollbarDragMovedAction{ 200.0f }, LeftDrag::Splitter },
-        { "MdScrollbarDragMoved", MdScrollbarDragMovedAction{ 200.0f }, LeftDrag::None },
-        { "SearchInputDragMoved", SearchInputDragMovedAction{ 3 }, LeftDrag::None },
-        { "TextSelectionMoved", TextSelectionMovedAction{ 0, 3u }, LeftDrag::None },
-        { "TextSelectionEnded", TextSelectionEndedAction{ 0, 3u }, LeftDrag::None },
-    };
-    for (const auto& c : cases) {
-        SCOPED_TRACE(c.name);
-        state.view.drag = { .kind = c.drag };
-        state.pane_layout_cache.Set(PaneLayout{});
+    for (const auto& action : actions) {
+        SCOPED_TRACE(action.index());
+        state.view.drag = {};
 
-        auto effects = Reduce(state, c.action);
+        auto effects = Reduce(state, action);
 
         EXPECT_TRUE(effects.empty());
-        EXPECT_TRUE(state.pane_layout_cache.IsValid());
         EXPECT_FALSE(state.view.viewport.GetSelection().active());
     }
 }
@@ -1071,7 +1036,7 @@ TEST_F(ReducerTest, SearchSelectAll_FocusesWholeInput)
 TEST_F(ReducerTest, SearchInputDragMoved_DraggingAndChanged_EmitsSearchFocus)
 {
     state.view.drag = { .kind = LeftDrag::SearchInput, .search_anchor = 3 };
-    auto effects = Reduce(state, SearchInputDragMovedAction{ 7 });
+    auto effects = Reduce(state, LeftDragMovedAction{ .search_caret = 7 });
     EXPECT_TRUE(HasEffect<effect::SearchFocus>(effects));
 }
 
@@ -1080,7 +1045,7 @@ TEST_F(ReducerTest, SearchInputDragMoved_Unchanged_NoEffect)
     state.view.drag = { .kind = LeftDrag::SearchInput, .search_anchor = 5 };
     // caret と selection_start を search_anchor に合わせると変化なしで no-op
     Reduce(state, SearchSelectionAction{ 5, 5 });
-    auto effects = Reduce(state, SearchInputDragMovedAction{ 5 });
+    auto effects = Reduce(state, LeftDragMovedAction{ .search_caret = 5 });
     EXPECT_TRUE(effects.empty());
 }
 
@@ -1088,16 +1053,16 @@ TEST_F(ReducerTest, SearchInputDragMoved_Unchanged_NoEffect)
 
 TEST_F(ReducerTest, MdScrollbarDragStarted_ThumbHit_StoresOffsetOnly)
 {
-    // fixture で md_rect.height = 500, total_height = 1000 → content_height=500, max_scroll=500
-    // thumb_height = max(24, 500 * 500/1000) = 250, scroll_y=0 → thumb_y = 0
-    const float dip_y = 100.0f; // thumb 内（0〜250）
+    // fixture で md_rect = { y 32, 高さ 500 }, total_height = 1000 → content_height=500, max_scroll=500
+    // thumb_height = max(24, 500 * 500/1000) = 250, scroll_y=0 → thumb_y = 32
+    const float dip_y = 132.0f; // thumb 内（32〜282）
     const float old_scroll = state.view.viewport.GetScrollY();
 
     auto effects = Reduce(state, MdScrollbarDragStartedAction{ dip_y });
 
     EXPECT_EQ(state.view.drag.kind, LeftDrag::MdScrollbar);
     EXPECT_TRUE(HasEffect<effect::SetCapture>(effects));
-    EXPECT_FLOAT_EQ(state.view.drag.grip_offset, dip_y);
+    EXPECT_FLOAT_EQ(state.view.drag.grip_offset, 100.0f);
     // つまみ上クリックではスクロール位置は変化しない
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), old_scroll);
     EXPECT_FALSE(HasEffect<effect::InvalidateWindow>(effects));
@@ -1120,7 +1085,7 @@ TEST_F(ReducerTest, MdScrollbarDragMoved_WhileDragging_UpdatesScroll)
 {
     state.view.drag = { .kind = LeftDrag::MdScrollbar };
 
-    auto effects = Reduce(state, MdScrollbarDragMovedAction{ 200.0f });
+    auto effects = Reduce(state, LeftDragMovedAction{ .dip_y = 200.0f });
 
     EXPECT_GT(state.view.viewport.GetScrollY(), 0.0f);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
@@ -1147,9 +1112,7 @@ std::string HeadingSectionsMd(int count, int body_lines = 0)
 void SetupScrollableToc(AppState& state)
 {
     state.document.doc = Document::FromMarkdown(HeadingSectionsMd(30), L"test.md");
-    PaneLayout pl{};
-    pl.toc_rect = { 0.0f, 0.0f, 200.0f, 300.0f };
-    state.pane_layout_cache.Set(pl);
+    SetWindowSize(state, 1048.0f, 300.0f);
     // item_height=28, header_height=32 → content_height=268, total=30*28=840 → scrollable
 }
 
@@ -1158,9 +1121,6 @@ void SetupScrollableToc(AppState& state)
 TEST_F(ReducerTest, PaneScrollbarDragStarted_NotScrollable_NoOp)
 {
     // エントリが少なく total_content <= content_height → スクロール不要で no-op
-    PaneLayout pl{};
-    pl.toc_rect = { 0.0f, 0.0f, 200.0f, 300.0f };
-    state.pane_layout_cache.Set(pl);
     // 既定の Toc (エントリ 0) で総コンテンツ 0 → スクロール不要
     auto effects = Reduce(state, PaneScrollbarDragStartedAction{ PaneTarget::Toc, 100.0f });
     EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
@@ -1170,8 +1130,8 @@ TEST_F(ReducerTest, PaneScrollbarDragStarted_NotScrollable_NoOp)
 TEST_F(ReducerTest, PaneScrollbarDragStarted_TocScrollable_ThumbHit_StoresOffset)
 {
     SetupScrollableToc(state);
-    // header_height=32 → content_top=32。scroll=0 の時 thumb_y = content_top = 32
-    const float dip_y = 40.0f; // thumb 内を想定
+    // タイトルバー 32 + header_height 32 → content_top=64。scroll=0 の時 thumb_y = content_top = 64
+    const float dip_y = 72.0f; // thumb 内を想定
 
     auto effects = Reduce(state, PaneScrollbarDragStartedAction{ PaneTarget::Toc, dip_y });
 
@@ -1201,7 +1161,7 @@ TEST_F(ReducerTest, PaneScrollbarDragMoved_WhileDragging_UpdatesScroll)
     SetupScrollableToc(state);
     state.view.drag = { .kind = LeftDrag::PaneScrollbar, .pane = PaneTarget::Toc };
 
-    auto effects = Reduce(state, PaneScrollbarDragMovedAction{ 200.0f });
+    auto effects = Reduce(state, LeftDragMovedAction{ .dip_y = 200.0f });
 
     EXPECT_GT(state.view.panes.SidePaneScroll(PaneTarget::Toc).scroll_y, 0.0f);
     EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
@@ -1243,7 +1203,7 @@ TEST_F(ReducerTest, TextSelectionMoved_DraggingWithHit_UpdatesSelection)
     state.document.doc = Document::FromMarkdown(std::string("Hello world"), L"test.md");
     state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = 0, .select_pos = 2u };
 
-    auto effects = Reduce(state, TextSelectionMovedAction{ 0, 7u });
+    auto effects = Reduce(state, LeftDragMovedAction{ .node_index = 0, .text_pos = 7u });
 
     const auto& sel = state.view.viewport.GetSelection();
     EXPECT_TRUE(sel.active());
@@ -1258,7 +1218,7 @@ TEST_F(ReducerTest, TextSelectionMoved_NoHit_NoUpdate)
 {
     state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = 0, .select_pos = 2u };
 
-    auto effects = Reduce(state, TextSelectionMovedAction{ -1, 0u });
+    auto effects = Reduce(state, LeftDragMovedAction{ .node_index = -1, .text_pos = 0u });
 
     EXPECT_FALSE(state.view.viewport.GetSelection().active());
     EXPECT_TRUE(effects.empty());
@@ -1269,7 +1229,7 @@ TEST_F(ReducerTest, TextSelectionEnded_WithHit_FinalizesSelection)
     state.document.doc = Document::FromMarkdown(std::string("Hello world"), L"test.md");
     state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = 0, .select_pos = 2u };
 
-    auto effects = Reduce(state, TextSelectionEndedAction{ 0, 8u });
+    auto effects = Reduce(state, LeftDragEndedAction{ 0, 8u });
 
     const auto& sel = state.view.viewport.GetSelection();
     EXPECT_TRUE(sel.active());
@@ -1282,7 +1242,7 @@ TEST_F(ReducerTest, TextSelectionEnded_WithHit_FinalizesSelection)
 TEST_F(ReducerTest, TextSelectionEnded_NoHit_ClearsDraggingOnly)
 {
     state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = 0, .select_pos = 2u };
-    auto effects = Reduce(state, TextSelectionEndedAction{ -1, 0u });
+    auto effects = Reduce(state, LeftDragEndedAction{ -1, 0u });
 
     EXPECT_NE(state.view.drag.kind, LeftDrag::TextSelect);
     EXPECT_FALSE(state.view.viewport.GetSelection().active());
@@ -1417,10 +1377,7 @@ protected:
             temp_dir_.Write(std::format(L"f{:02}.md", i), "x");
         }
         // ファイルペインの内容領域は 10 項目分 (280 DIP)
-        PaneLayout pl{};
-        pl.md_rect.height = 500.0f;
-        pl.file_rect.height = theme.pane_header_height + 280.0f;
-        state.pane_layout_cache.Set(pl);
+        SetWindowSize(state, 1048.0f, theme.pane_header_height + 280.0f);
     }
 
     // App::FinishLoadMarkdownFile と同じく現在ファイルも登録する。
@@ -1545,7 +1502,7 @@ TEST_F(ReducerTest, TocItemClicked_TailSection_ClampsToMaxScroll)
     Reduce(state, TocItemClickedAction{ tail });
 
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), MdMaxScroll(state));
-    EXPECT_FALSE(state.view.viewport.HasScrollTarget());
+    EXPECT_FALSE(state.view.viewport.GetScrollTarget().IsValid());
 }
 
 namespace {
@@ -1554,10 +1511,7 @@ namespace {
 void SetupTocFollow(AppState& state)
 {
     state.view.panes.SetSidePaneVisible(PaneTarget::Toc, true);
-    PaneLayout pl{};
-    pl.md_rect = { 400.0f, 0.0f, 800.0f, 400.0f };
-    pl.toc_rect = { 0.0f, 0.0f, 200.0f, 300.0f };
-    state.pane_layout_cache.Set(pl);
+    SetWindowSize(state, 1048.0f, 300.0f);
     SetDocument(state, HeadingSectionsMd(30, 20), L"C:\\file.md", 400.0f);
     SyncActiveTocIndex(state);
 }
@@ -1636,11 +1590,11 @@ TEST_F(ReducerTest, Resize_EmitsRendererResizeBeforeSizingUpdate)
 TEST_F(ReducerTest, PaneLayoutFollowsClientSizeAndDpi)
 {
     Reduce(state, ResizeAction{ 1000, 800 });
-    EXPECT_FLOAT_EQ(EnsurePaneLayout(state).md_rect.width + EnsurePaneLayout(state).md_rect.x, 1000.0f);
+    EXPECT_FLOAT_EQ(ComputePaneLayout(state).md_rect.width + ComputePaneLayout(state).md_rect.x, 1000.0f);
 
     Reduce(state, DpiChangedAction{ 192, RECT{ 0, 0, 1000, 800 } });
     EXPECT_FLOAT_EQ(state.window.WidthDip(), 500.0f);
-    EXPECT_FLOAT_EQ(EnsurePaneLayout(state).md_rect.width + EnsurePaneLayout(state).md_rect.x, 500.0f);
+    EXPECT_FLOAT_EQ(ComputePaneLayout(state).md_rect.width + ComputePaneLayout(state).md_rect.x, 500.0f);
 
     EXPECT_TRUE(HasEffect<effect::RendererResize>(Reduce(state, ResizeAction{ 1000, 800 })));
     EXPECT_FALSE(HasEffect<effect::RendererResize>(Reduce(state, ResizeAction{ 1000, 800 })));
@@ -1680,7 +1634,7 @@ TEST_F(ReducerTest, LoadFailed_DropsPendingRestoreForNextDocument)
 {
     state.document.doc = Document::FromMarkdown(std::string("# A\n\n# B\n\n# C"), L"C:\\current.md");
     state.view.nav_history.Push(NavEntry{ L"C:\\deleted.md", 2, 30.0f });
-    auto effects = Reduce(state, NavigateBackAction{});
+    auto effects = Reduce(state, NavigateHistoryAction{ .forward = false });
     ASSERT_TRUE(HasEffect<effect::LoadFile>(effects));
     ASSERT_TRUE(state.view.pending_restore.IsValid());
 
@@ -1729,7 +1683,7 @@ TEST_F(ReducerTest, LoadFailed_KeepsSameFileNavigateBack)
     state.document.doc = Document::FromMarkdown(std::string("# A\n\n# B"), L"C:\\current.md");
     state.view.nav_history.Push(NavEntry{ L"C:\\current.md", 0, 0.0f });
 
-    auto effects = Reduce(state, NavigateBackAction{});
+    auto effects = Reduce(state, NavigateHistoryAction{ .forward = false });
     ASSERT_FALSE(HasEffect<effect::LoadFile>(effects));
     Reduce(state, LoadFailedAction{});
 
@@ -1802,7 +1756,7 @@ TEST_F(ReducerTest, OpenWhileNavigateBackLoading_DoesNotCarryRestoreOver)
 {
     ResetToDocument(state, L"C:\\current.md");
     state.view.nav_history.Push(NavEntry{ L"C:\\b.md", 2, 30.0f });
-    ASSERT_TRUE(HasEffect<effect::LoadFile>(Reduce(state, NavigateBackAction{})));
+    ASSERT_TRUE(HasEffect<effect::LoadFile>(Reduce(state, NavigateHistoryAction{ .forward = false })));
     ASSERT_TRUE(state.view.pending_restore.IsValid());
 
     Reduce(state, OpenPathAction{ std::wstring(L"C:\\other.md") });
@@ -1820,7 +1774,7 @@ TEST_F(ReducerTest, ShowHelpWhileOnHelp_RollsBackPendingNavigation)
 {
     ResetToDocument(state, HELP_PATH);
     state.view.nav_history.Push(NavEntry{ L"C:\\b.md", 3, 0.0f });
-    ASSERT_TRUE(HasEffect<effect::LoadFile>(Reduce(state, NavigateBackAction{})));
+    ASSERT_TRUE(HasEffect<effect::LoadFile>(Reduce(state, NavigateHistoryAction{ .forward = false })));
 
     const auto effects = Reduce(state, ShowHelpAction{});
 
@@ -1850,7 +1804,7 @@ TEST_F(ReducerTest, NavigateBackWithinFileWhileOpenLoading_CommitsAndCancelsLoad
     state.view.viewport.ScrollTo(250.0f, MdMaxScroll(state));
     Reduce(state, OpenPathAction{ std::wstring(L"C:\\big.md") });
 
-    const auto effects = Reduce(state, NavigateBackAction{});
+    const auto effects = Reduce(state, NavigateHistoryAction{ .forward = false });
     EXPECT_FALSE(HasEffect<effect::LoadFile>(effects));
     EXPECT_TRUE(HasEffect<effect::CancelOtherFileLoad>(effects));
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 0.0f);
@@ -1858,7 +1812,7 @@ TEST_F(ReducerTest, NavigateBackWithinFileWhileOpenLoading_CommitsAndCancelsLoad
     Reduce(state, LoadFailedAction{});
     EXPECT_EQ(state.view.nav_history.BackSize(), 0u);
     EXPECT_EQ(state.view.nav_history.ForwardSize(), 1u);
-    Reduce(state, NavigateForwardAction{});
+    Reduce(state, NavigateHistoryAction{ .forward = true });
     EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), 250.0f);
 }
 
@@ -1873,7 +1827,7 @@ TEST_F(ReducerTest, NavigateBackToOtherFileWhileOpenLoading)
         state.view.viewport.ScrollTo(250.0f, MdMaxScroll(state));
         Reduce(state, OpenPathAction{ std::wstring(L"C:\\big.md") });
 
-        const auto effects = Reduce(state, NavigateBackAction{});
+        const auto effects = Reduce(state, NavigateHistoryAction{ .forward = false });
         EXPECT_EQ(LoadedPath(effects), L"C:\\b.md");
         EXPECT_FALSE(HasEffect<effect::CancelOtherFileLoad>(effects));
 
@@ -1888,7 +1842,7 @@ TEST_F(ReducerTest, NavigateBackToOtherFileWhileOpenLoading)
         EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), state.document.layout_cache.Top(2) + 10.0f);
         EXPECT_EQ(state.view.nav_history.BackSize(), 0u);
         EXPECT_EQ(state.view.nav_history.ForwardSize(), 1u);
-        EXPECT_EQ(LoadedPath(Reduce(state, NavigateForwardAction{})), L"C:\\current.md");
+        EXPECT_EQ(LoadedPath(Reduce(state, NavigateHistoryAction{ .forward = true })), L"C:\\current.md");
     }
 }
 
@@ -1901,7 +1855,7 @@ TEST_F(ReducerTest, NavigateBackWithoutHistoryWhileOpenLoading_KeepsOpenEntry)
         ResetToDocument(state, L"C:\\current.md");
         Reduce(state, OpenPathAction{ std::wstring(L"C:\\big.md") });
 
-        EXPECT_TRUE(Reduce(state, NavigateBackAction{}).empty());
+        EXPECT_TRUE(Reduce(state, NavigateHistoryAction{ .forward = false }).empty());
         EXPECT_TRUE(state.view.nav_history.CanGoBack());
 
         if (!succeed) {
@@ -1910,7 +1864,7 @@ TEST_F(ReducerTest, NavigateBackWithoutHistoryWhileOpenLoading_KeepsOpenEntry)
             continue;
         }
         CompleteLoad(state, L"C:\\big.md");
-        EXPECT_EQ(LoadedPath(Reduce(state, NavigateBackAction{})), L"C:\\current.md");
+        EXPECT_EQ(LoadedPath(Reduce(state, NavigateHistoryAction{ .forward = false })), L"C:\\current.md");
     }
 }
 
@@ -1924,9 +1878,9 @@ TEST_F(ReducerTest, ConsecutiveNavigateBackAcrossFiles)
         state.view.nav_history.Push(NavEntry{ L"C:\\c.md", 2, 0.0f });
         state.view.nav_history.Push(NavEntry{ L"C:\\b.md", 3, 10.0f });
 
-        ASSERT_TRUE(HasEffect<effect::LoadFile>(Reduce(state, NavigateBackAction{})));
-        EXPECT_EQ(LoadedPath(Reduce(state, NavigateBackAction{})), L"C:\\c.md");
-        EXPECT_EQ(LoadedPath(Reduce(state, NavigateForwardAction{})), L"C:\\b.md");
+        ASSERT_TRUE(HasEffect<effect::LoadFile>(Reduce(state, NavigateHistoryAction{ .forward = false })));
+        EXPECT_EQ(LoadedPath(Reduce(state, NavigateHistoryAction{ .forward = false })), L"C:\\c.md");
+        EXPECT_EQ(LoadedPath(Reduce(state, NavigateHistoryAction{ .forward = true })), L"C:\\b.md");
 
         if (!succeed) {
             Reduce(state, LoadFailedAction{});
@@ -1956,7 +1910,7 @@ TEST_F(ReducerTest, ZoomIn_PreservesScrollAnchorOnVisibleNode)
 
     Reduce(state, ZoomAction{ ZoomDirection::In });
 
-    ASSERT_TRUE(state.view.viewport.HasScrollTarget());
+    ASSERT_TRUE(state.view.viewport.GetScrollTarget().IsValid());
     EXPECT_EQ(state.view.viewport.GetScrollTarget().node, pre.node);
 }
 
@@ -1977,6 +1931,6 @@ TEST_F(ReducerTest, ToggleDarkMode_PreservesScrollAnchorOnVisibleNode)
 
     Reduce(state, ToggleDarkModeAction{});
 
-    ASSERT_TRUE(state.view.viewport.HasScrollTarget());
+    ASSERT_TRUE(state.view.viewport.GetScrollTarget().IsValid());
     EXPECT_EQ(state.view.viewport.GetScrollTarget().node, pre.node);
 }

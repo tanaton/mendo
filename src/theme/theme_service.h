@@ -38,5 +38,6 @@ private:
     static Theme MakeTheme(bool dark, ZoomLevel zoom);
 
     ConfigService& config_;
-    Theme theme_;
+    // Init より前に読まれても (WM_NCHITTEST など) 不定値にならないよう値初期化する。
+    Theme theme_{};
 };

@@ -301,7 +301,7 @@ TEST_F(IncrementalLayoutTest, EvictReleasesEverythingOutsideKeep)
                     continue;
                 }
                 // 行の幾何を持つ表は、作り直しを避けるため幾何だけ残してセルの layout を捨てる。
-                if (const auto* tl = cache_[i].table_layout(); tl && tl->HasRowGeometry()) {
+                if (const auto* tl = cache_[i].table_layout(); tl && tl->HasGeometry()) {
                     ASSERT_TRUE(std::ranges::none_of(tl->cell_layouts, [](const auto& cell) { return cell != nullptr; }))
                         << "keep 範囲外 i=" << i << " のセルの layout が残っている";
                     continue;
@@ -336,7 +336,7 @@ TEST_F(IncrementalLayoutTest, MatchesFullLayoutAfterRandomOperations)
             ASSERT_FALSE(cache_[i].layout_dirty) << "i=" << i;
             NodeLayoutEntry remeasured{};
             remeasured.height = cache_[i].height;
-            MeasureEntry(measurer_, nodes_[i], remeasured, cache_[i].cached_width, YRange::All(), 0.0f, cache_.FindDiagram(i), theme_);
+            MeasureEntry(measurer_, nodes_[i], remeasured, cache_[i].cached_width, YRange::All(), 0.0f, cache_.FindDiagram(i));
             ASSERT_FLOAT_EQ(cache_[i].height, remeasured.height) << "i=" << i;
         }
 

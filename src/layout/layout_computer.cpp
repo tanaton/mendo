@@ -288,12 +288,12 @@ LayoutCache MakeEstimatedLayoutCache(const std::vector<Node>& nodes, const Theme
     return cache;
 }
 
-bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const Theme& theme, float node_width) noexcept
+void EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const Theme& theme, float node_width) noexcept
 {
     // 画像・図の高さは寸法が届いた時点で BitmapNodeHeight が決める。推定で上書きすると
     // 描画時にビットマップが後続ノードへはみ出すため既存値を維持する。
     if (IsBitmapDrawNode(node)) {
-        return false;
+        return;
     }
     // 同じ幅での実測キャッシュがあればそれを使い、無ければ推定値で成長させる。
     constexpr float kCachedWidthEpsilon = 0.5f;
@@ -304,16 +304,8 @@ bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
     const float fallback = cache_hit ? entry.cached_height : EstimateNodeHeight(node, theme, node_width);
     // テーブルや折り返しが多い段落では推定値が実測値を大きく下回るため、
     // シュリンク方向の更新は後続ノードと重なる原因になる。よって既存値より小さくはしない。
-    if (entry.height >= fallback) {
-        return false;
-    }
-    entry.height = fallback;
-    // 推定で成長させた場合、テーブル幾何 (row_heights/col_widths) は旧値のままなので
-    // 無効にして MeasureNode の lazy 復元経路を通させる。
-    if (auto* tl = entry.table_layout(); node.type == NodeType::Table && tl && !cache_hit) {
-        tl->InvalidateGeometry();
-    }
-    return true;
+    // 表の幾何は推定で伸ばした高さと食い違うが、計測が幾何の高さ (TotalHeight) で確定し直す。
+    entry.height = std::max(entry.height, fallback);
 }
 
 void RecomputeYPositions(

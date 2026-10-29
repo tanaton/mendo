@@ -4,6 +4,7 @@
 #include <cstring>
 #include <emmintrin.h>
 #include <intrin.h>
+#include <string>
 #include <string_view>
 #include <type_traits>
 
@@ -97,18 +98,15 @@ inline void AsciiToLowerOnly(const char* src, char* dst, size_t n) noexcept
     }
 }
 
-// UTF-8 continuation byte (>= 0x80) は signed では負値で AsciiUpperRangeMask が必ず弾く。
-inline bool HasAsciiUpper(const char* s, size_t n) noexcept
+// ASCII の英字だけを小文字にした写し。
+inline std::string ToLowerAsciiCopy(std::string_view text)
 {
-    size_t i = 0;
-    while (i + detail::kSimdStep <= n) {
-        const __m128i c = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s + i));
-        if (_mm_movemask_epi8(detail::AsciiUpperRangeMask(c)) != 0) {
-            return true;
-        }
-        i += detail::kSimdStep;
-    }
-    return std::ranges::any_of(s + i, s + n, IsAsciiUpper<char>);
+    std::string result;
+    result.resize_and_overwrite(text.size(), [&text](char* buf, size_t count) noexcept -> size_t {
+        AsciiToLowerOnly(text.data(), buf, count);
+        return count;
+    });
+    return result;
 }
 
 namespace detail {

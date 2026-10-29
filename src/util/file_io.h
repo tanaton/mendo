@@ -197,3 +197,14 @@ bool IsFileLargerThan(const wchar_t* path, size_t reference_size, size_t toleran
 // durable=false は flush と write-through を省く。電源断で中身が壊れても読む側で検証して捨てられる
 // キャッシュ向け (同期書き込みで終了が遅れないようにする)。
 bool AtomicWriteAllBytes(const std::filesystem::path& path, const void* data, size_t size, bool durable = true);
+
+// ファイル選択ダイアログ。`<commdlg.h>` は file_io.cpp だけが読む。
+namespace file_dialog {
+
+// キャンセル時は空文字列。
+[[nodiscard]] std::wstring OpenMarkdownFile(HWND owner);
+
+// キャンセル時は空文字列。
+[[nodiscard]] std::wstring SavePngFile(HWND owner, const wchar_t* default_filename);
+
+} // namespace file_dialog

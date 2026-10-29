@@ -55,8 +55,7 @@ TEST(EstimateInvisibleNodeHeight, DiagramLanguageSkipped)
     auto node = MakeCodeBlockNode(SyntaxLanguage::Mermaid);
     auto entry = MakeEntry(/*height=*/5.0f);
     const auto& theme = GetLightTheme();
-    const bool changed = EstimateInvisibleNodeHeight(node, entry, theme, 200.0f);
-    EXPECT_FALSE(changed);
+    EstimateInvisibleNodeHeight(node, entry, theme, 200.0f);
     EXPECT_FLOAT_EQ(entry.height, 5.0f); // 触らない
 }
 
@@ -65,8 +64,7 @@ TEST(EstimateInvisibleNodeHeight, DoesNotShrinkBelowExisting)
     auto node = MakeParagraphNode(/*line_count=*/0);
     auto entry = MakeEntry(/*height=*/9999.0f);
     const auto& theme = GetLightTheme();
-    const bool changed = EstimateInvisibleNodeHeight(node, entry, theme, 400.0f);
-    EXPECT_FALSE(changed);
+    EstimateInvisibleNodeHeight(node, entry, theme, 400.0f);
     EXPECT_FLOAT_EQ(entry.height, 9999.0f);
 }
 
@@ -76,8 +74,7 @@ TEST(EstimateInvisibleNodeHeight, GrowsToEstimateWhenSmaller)
     auto entry = MakeEntry(/*height=*/1.0f);
     const auto& theme = GetLightTheme();
     const float estimated = EstimateNodeHeight(node, theme, 0.0f);
-    const bool changed = EstimateInvisibleNodeHeight(node, entry, theme, 400.0f);
-    EXPECT_TRUE(changed);
+    EstimateInvisibleNodeHeight(node, entry, theme, 400.0f);
     EXPECT_FLOAT_EQ(entry.height, estimated);
 }
 
@@ -89,8 +86,7 @@ TEST(EstimateInvisibleNodeHeight, UsesCachedHeightWhenWidthMatches)
     entry.cached_width = 200.0f;
     entry.cached_height = 77.0f; // 推定値より大きい
     const auto& theme = GetLightTheme();
-    const bool changed = EstimateInvisibleNodeHeight(node, entry, theme, 200.0f);
-    EXPECT_TRUE(changed);
+    EstimateInvisibleNodeHeight(node, entry, theme, 200.0f);
     EXPECT_FLOAT_EQ(entry.height, 77.0f);
 }
 
@@ -104,24 +100,8 @@ TEST(EstimateInvisibleNodeHeight, FallsBackToEstimateWhenWidthDiffers)
     const auto& theme = GetLightTheme();
     const float estimated = EstimateNodeHeight(node, theme, 0.0f);
     // node_width が cached_width と離れているので fallback は EstimateNodeHeight
-    const bool changed = EstimateInvisibleNodeHeight(node, entry, theme, 800.0f);
-    EXPECT_TRUE(changed);
+    EstimateInvisibleNodeHeight(node, entry, theme, 800.0f);
     EXPECT_FLOAT_EQ(entry.height, estimated);
-}
-
-TEST(EstimateInvisibleNodeHeight, TableEstimateClearsTableLayoutCache)
-{
-    auto node = MakeTableNode();
-    NodeLayoutEntry entry;
-    entry.height = 1.0f;
-    auto& tl = entry.ensure_table_layout(0, 2);
-    tl.col_widths = { 50.0f, 50.0f };
-    tl.CommitGeometry(100.0f);
-    const auto& theme = GetLightTheme();
-    // cache_hit = false 経路 (cached_width 未設定) → 推定で成長 + table_layout を invalidate
-    const bool changed = EstimateInvisibleNodeHeight(node, entry, theme, 300.0f);
-    EXPECT_TRUE(changed);
-    EXPECT_FALSE(tl.HasGeometry());
 }
 
 TEST(EstimateInvisibleNodeHeight, TableCacheHitPreservesTableLayout)
@@ -136,8 +116,7 @@ TEST(EstimateInvisibleNodeHeight, TableCacheHitPreservesTableLayout)
     tl.CommitGeometry(300.0f);
     const auto& theme = GetLightTheme();
     // cache_hit = true 経路 → table_layout を保持
-    const bool changed = EstimateInvisibleNodeHeight(node, entry, theme, 300.0f);
-    EXPECT_TRUE(changed);
+    EstimateInvisibleNodeHeight(node, entry, theme, 300.0f);
     EXPECT_FLOAT_EQ(entry.height, 200.0f);
     EXPECT_TRUE(tl.HasGeometry());
 }
@@ -148,8 +127,7 @@ TEST(EstimateInvisibleNodeHeight, NonDiagramCodeBlockGrowsNormally)
     auto entry = MakeEntry(/*height=*/0.0f);
     const auto& theme = GetLightTheme();
     const float estimated = EstimateNodeHeight(node, theme, 0.0f);
-    const bool changed = EstimateInvisibleNodeHeight(node, entry, theme, 400.0f);
-    EXPECT_TRUE(changed);
+    EstimateInvisibleNodeHeight(node, entry, theme, 400.0f);
     EXPECT_FLOAT_EQ(entry.height, estimated);
 }
 
@@ -169,4 +147,16 @@ TEST(BitmapNodeHeight, ScalesKeepsOrFallsBack)
 
     EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(nullptr, 600.0f, 50.0f, theme), 50.0f);
     EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(nullptr, 600.0f, 0.0f, theme), layout::PlaceholderHeight(theme));
+}
+
+// 描けなかった図は、推定が 1 行ぶんでも文言を数行見せる高さにする。高い推定はそのまま保つ。
+TEST(BitmapNodeHeight, ErrorKeepsAtLeastErrorPlaceholder)
+{
+    const auto& theme = GetLightTheme();
+    DiagramEntry failed;
+    failed.error = { DiagramError::Kind::Render, L"KaTeX parse error" };
+    const float error_height = layout::ErrorPlaceholderHeight(theme);
+    EXPECT_GT(error_height, layout::PlaceholderHeight(theme));
+    EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(&failed, 600.0f, 24.0f, theme), error_height);
+    EXPECT_FLOAT_EQ(layout::BitmapNodeHeight(&failed, 600.0f, error_height + 50.0f, theme), error_height + 50.0f);
 }

@@ -198,16 +198,14 @@ TEST(NodeTest, TableDataRequiresTableType)
     EXPECT_EQ(std::as_const(node).table_data(), &table);
 }
 
-TEST(NodeTest, ImageDataRequiresImageType)
+TEST(NodeTest, ImageSrcRequiresImageType)
 {
-    static constexpr NodeImageData kImage{ "a.png" };
+    static constexpr std::string_view kSrc = "a.png";
     Node node;
-    node.set_image_data(&kImage);
-    EXPECT_FALSE(node.has_image());
-    EXPECT_EQ(node.image_data(), nullptr);
+    node.set_image_src(&kSrc);
+    EXPECT_TRUE(node.image_src().empty());
     node.type = NodeType::Image;
-    EXPECT_TRUE(node.has_image());
-    EXPECT_EQ(node.image_data()->src, "a.png");
+    EXPECT_EQ(node.image_src(), "a.png");
 }
 
 // テキストの置き場所は種別や言語に依存しない。
@@ -235,16 +233,16 @@ TEST(NodeTest, TextStoredRegardlessOfType)
     }
 }
 
-// alert_type は伝播ロジック (parser.cpp の DetectAlertAt) のため payload と別に持つ。
-// BlockQuote 本体は両方を持ち、伝播先ノードは alert_type のみでラベル長は 0 のはず。
-TEST(NodeTest, AlertTypeAndLabelLengthAreIndependent)
+// alert_type は伝播ロジック (parser.cpp の DetectAlertAt) で後続ノードにも付く。
+// ラベル長は先頭のノードだけが持ち、伝播先ノードは 0 のはず。
+TEST(NodeTest, AlertLabelLengthOnlyOnHead)
 {
     Node body;
     body.type = NodeType::BlockQuote;
     body.alert_type = AlertType::Warning;
-    body.set_alert_label_length(8u);
+    body.set_has_alert_label();
     EXPECT_EQ(body.alert_type, AlertType::Warning);
-    EXPECT_EQ(body.alert_label_length(), 8u);
+    EXPECT_EQ(body.alert_label_length(), 11u); // ⚠ 3 + ' ' 1 + "Warning" 7
 
     Node propagated;
     propagated.type = NodeType::Paragraph;

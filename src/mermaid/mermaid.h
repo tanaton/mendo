@@ -16,7 +16,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
-#include <queue>
+#include <deque>
 #include <span>
 #include <string>
 #include <unordered_set>
@@ -118,7 +118,8 @@ private:
         {
             return width_free ? width_free_hash : code_hash;
         }
-        float css_width = 0.0f; // JSから取得したCSSピクセル寸法（DIP）
+        // 表示の大きさ (DIP)。描いた結果は切り出す画素数を dpr で割った値 (SetCaptureBox)、ディスクキャッシュからは索引の値。
+        float css_width = 0.0f;
         float css_height = 0.0f;
         unsigned int request_id = 0; // リクエスト固有のID（JS側のpostMessageと照合）
         // プロセス障害からの requeue 済みフラグ。クラッシュ誘発入力での再起動ループを防ぐ。
@@ -144,14 +145,29 @@ private:
         // キャプチャの切り出しに使う。
         mermaid_util::MathBatchLayout math_layout;
 
+        // ブロック数式をまとめて描く要求 (ProcessQueue が描画待ちから集める)。空でなければこの種類で、code などは使わず、
+        // 描いた後に要素ごとに、1 つずつ描いたのと同じ表示用の要求の結果を出す。
+        std::vector<RenderRequest> blocks;
+        // まとめずに描く (まとめ描きを終えられなかった)。
+        bool no_batch = false;
+        // キャプチャから切り出す範囲 (物理 px)。1 つずつ描くときは撮るビューの大きさ、まとめ描きの要素はページの中の箱。
+        WICRect page_rect{};
+        // 切り出す範囲を決め、表示の大きさをその画素数から決める。CSS px の実測値で描くと、css x dpr が整数でないとき
+        // ビットマップを 1px 未満だけ縮めて描くことになる。
+        void SetCaptureBox(const WICRect& rect, float dpr) noexcept;
+
         bool is_math() const noexcept
         {
             return !math_items.empty();
         }
+        bool is_blocks() const noexcept
+        {
+            return !blocks.empty();
+        }
         // 図の結果をキャッシュに持つ要求か。
         bool is_display() const noexcept
         {
-            return !svg_only && !is_math();
+            return !svg_only && !is_math() && !is_blocks();
         }
     };
 
@@ -208,6 +224,8 @@ private:
 
     // インライン数式を並べるページの幅 (CSS px)。ページは数式の数に応じて縦に伸びる。
     static constexpr int MATH_PAGE_WIDTH = 1024;
+    // 1 枚のページにまとめて描くブロック数式の上限。キャプチャはページの面積に比例して時間とメモリを使う。
+    static constexpr size_t MAX_BLOCKS_PER_PAGE = 16;
     // 1 つ増やすごとにレンダラープロセスの起動と mermaid.js のロードが要り、数十 MB 常駐する。
     // 2 回目以降はディスクキャッシュで済むので、並列度は控えめにする。
     static constexpr int MAX_WORKERS = 2;
@@ -234,11 +252,20 @@ private:
         FailMathCallbackIfAny(req, cancelled);
     }
     void RenderMathInWorker(Worker& worker);
-    // call (Promise を返す JS の式) の結果を "<result_kind>:<id>:<結果>"、投げたら render-error で返させる。
-    static void ExecuteRenderScript(Worker& worker, std::wstring call, std::wstring_view result_kind, const char* log_name);
+    // req がまとめずに描くブロック数式でなければ、描画待ちから同じテーマ・同じ幅のブロック数式を集めて、まとめ描きの要求にする。
+    void TakeBlocksBatch(RenderRequest& req);
+    // まとめ描きを終えられなかったブロック数式を、1 つずつ描くよう描画待ちに戻す。
+    void RequeueBlocks(RenderRequest& req);
+    void OnBlocksResult(int worker_idx, std::wstring_view payload);
+    // worker でページを数式ごとに切り出し、1 つずつ描いたキャプチャと同じ結果 (ビットマップと PNG) にして返す。
+    void StartBlocksLoad(RenderRequest req, Microsoft::WRL::ComPtr<IStream> page_stream);
+    // ページに要求 (mermaid_util::Page*Message) を送る。結果と失敗はページが postMessage で返す。
+    static void PostToPage(Worker& worker, const std::wstring& msg);
     void OnMathResult(int worker_idx, std::wstring_view payload);
-    // ビューを描いたものの大きさ (DIP) に合わせ、リサイズが描画に反映されたら capture-ready を返させる。
+    // ビューを描いたものの大きさ (PageRect) に合わせ、リサイズが描画に反映されたら capture-ready を返させる。
     void ScheduleCapture(Worker& w, const mermaid_util::RenderSize& size);
+    // 描けない大きさのままキャプチャすると、毎回ビットマップ作成に失敗して描き直しを繰り返す。
+    bool FitsCapture(const mermaid_util::RenderSize& size) const noexcept;
     // ページの大きさが分かったら、デコードする前に math_want_page に聞く。ディスクキャッシュから読めずに描き直すときは
     // 前の答えを使う。
     static void DecideMathPage(RenderRequest& req, const mermaid_util::RenderSize& page);
@@ -246,8 +273,9 @@ private:
     // ディスクキャッシュなら箱の一覧も読み、キャプチャならディスクキャッシュに置く PNG に箱の一覧を埋める。
     void LoadMathJob(DiskLoad& job);
     void ApplyMathLoad(DiskLoad& r);
-    // 描画待ちから drop が true を返した要求を除く。drop は除く要求の後始末もする。
-    void DropPendingIf(const std::function<bool(RenderRequest&)>& drop);
+    // 描画待ちから kind (is_display / is_math) に当たる要求を順を保って取り出す。後始末は呼び出し側が取り出した後で行う
+    // (コールバックから描画待ちに積み直しても壊れない)。
+    std::vector<RenderRequest> TakePending(bool (RenderRequest::*kind)() const noexcept);
     // 表示用リクエストのエラーを kind で確定させる (issue #271)。msg は Render のときの Mermaid の文言で、空なら汎用の文言を出す。
     void SetDiagramError(const RenderRequest& req, DiagramError::Kind kind, std::wstring_view msg = {});
     static void ApplyResult(DiagramEntry& diagram_entry, const CachedResult& result);
@@ -338,7 +366,7 @@ private:
     // 準備完了 (アイドル解放後の再初期化を含む) と結果が出たときに呼ぶ。準備前の描画要求は捨てているため再要求させる。
     std::move_only_function<void()> on_update_;
 
-    std::queue<RenderRequest, std::deque<RenderRequest>> pending_requests_;
+    std::deque<RenderRequest> pending_requests_;
     // 待機中・読み込み中・描画中の表示用リクエストのコードハッシュ。未完了の図はスクロールのたびに
     // 再要求されるため、ここで重複を弾く (二重描画・キュー肥大の防止)。
     std::unordered_set<uint64_t> inflight_;

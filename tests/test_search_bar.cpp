@@ -20,9 +20,7 @@ protected:
 
     void SetPaneHeight(float height)
     {
-        PaneLayout pl{};
-        pl.md_rect.height = height;
-        state_.pane_layout_cache.Set(pl);
+        SetWindowSize(state_, 1048.0f, height);
     }
 
     // markdown を文書にし、各ノードを node_height ずつ縦に並べる。
@@ -358,13 +356,13 @@ TEST_F(SearchBarTest, ScrollToMatchClearsScrollTarget)
 
     auto& viewport = state_.view.viewport;
     viewport.SetScrollTarget(0, 0.0f);
-    EXPECT_TRUE(viewport.HasScrollTarget());
+    EXPECT_TRUE(viewport.GetScrollTarget().IsValid());
 
     Dispatch(OpenSearchBarAction{});
     Dispatch(SearchTextChangedAction{ L"hello" });
-    Dispatch(SearchNextAction{});
+    Dispatch(SearchStepAction{ .forward = true });
 
-    EXPECT_FALSE(viewport.HasScrollTarget());
+    EXPECT_FALSE(viewport.GetScrollTarget().IsValid());
 }
 
 // 同一ノード内でテーブル複数行のマッチを連続で「次へ」したとき、行ごとに scroll_y が進むこと。
@@ -386,7 +384,7 @@ TEST_F(SearchBarTest, NextMatchAcrossTableRowsAdvancesScroll)
     float prev_scroll = state_.view.viewport.GetScrollY();
     int advanced = 0;
     for (int i = 0; i < 4; i++) {
-        Dispatch(SearchNextAction{});
+        Dispatch(SearchStepAction{ .forward = true });
         const float now = state_.view.viewport.GetScrollY();
         if (now > prev_scroll) {
             advanced++;
@@ -433,7 +431,7 @@ TEST_F(SearchBarTest, ScrollToMatchNoOpWhenAlreadyVisible)
     Dispatch(SearchTextChangedAction{ L"hello" });
 
     const float before = state_.view.viewport.GetScrollY();
-    const auto effects = Dispatch(SearchNextAction{});
+    const auto effects = Dispatch(SearchStepAction{ .forward = true });
     EXPECT_FLOAT_EQ(state_.view.viewport.GetScrollY(), before);
     EXPECT_FALSE(HasEffect<effect::BitmapManage>(effects));
 }

@@ -12,11 +12,12 @@
 // px, py はクライアント座標 (物理 px)。
 namespace app_controller {
 
-AppAction HandleKeyDown(const KeyDownEvent& event);
+// 割り当ての無いキーは nullopt。
+std::optional<AppAction> HandleKeyDown(const KeyDownEvent& event);
 
-// 検索欄にフォーカスがあるときのキー。NoOpAction なら入力欄 (EDIT) に処理させる。
+// 検索欄にフォーカスがあるときのキー。nullopt なら入力欄 (EDIT) に処理させる。
 // 検索欄は開いている間フォーカスを持ち続けるので、入力欄が編集に使うキーだけ欄に任せ、それ以外は本体と同じ割り当てにする。
-AppAction HandleSearchEditKeyDown(const KeyDownEvent& event);
+std::optional<AppAction> HandleSearchEditKeyDown(const KeyDownEvent& event);
 
 MdPaneHitContext MakeMdPaneHitContext(const AppState& state, const PaneLayout& layout, int px, int py) noexcept;
 std::optional<LinkHit> LinkAtHit(const AppState& state, const hit_test::HitResult& hit);

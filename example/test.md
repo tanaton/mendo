@@ -65,8 +65,7 @@ graph TB
     subgraph 描画パイプライン
         CG[CommandGenerator<br>描画コマンド生成]
         CE[ExecuteDrawCommands<br>描画コマンド実行]
-        REN[Renderer<br>D2D高水準API]
-        RB[D2DRenderBackend<br>D2D/DWriteファクトリ]
+        REN[Renderer<br>D2D/DWriteファクトリ・デバイス・描画]
     end
 
     subgraph "外部・OS"
@@ -87,8 +86,7 @@ graph TB
     APP --> REN
     REN --> CG
     CG --> CE
-    REN --> RB
-    CE & RB --> D2D_OS
+    CE & REN --> D2D_OS
     APP --> FLS & LS & NH & TS & SS_SVC & RM & HT
     FLS --> MD
     RM --> WV
@@ -123,7 +121,7 @@ flowchart LR
 | **副作用の実行の一元化** | `App::Execute`（`src/app/app.cpp`） |
 | **DirectWrite 計測の抽象化** | `ITextMeasurer`（`src/layout/layout.h`） |
 | **WebView2 依存の隔離** | `IMermaidRenderer`（`src/mermaid/mermaid_renderer_interface.h`） |
-| **D2D ファクトリ・デバイスの集約** | `D2DRenderBackend`（`src/render/d2d_render_backend.h`） |
+| **D2D ファクトリ・デバイスの集約** | `Renderer`（`src/render/renderer.h`。デバイスとスワップチェーンは `renderer_device.cpp`） |
 | **ロジックとUI層の分離** | `mendo_core`（テスト可能）vs `mendo`（Win32/D2D 具象） |
 
 ---
@@ -137,7 +135,7 @@ flowchart LR
 `Win32Window` はWin32 APIの薄いラッパーとして、以下を担当する。
 
 1. **ウィンドウ生成** — `WNDCLASSEXW` の登録、`CreateWindowExW` によるウィンドウ作成
-2. **メッセージループ** — `MsgWaitForMultipleObjects` でメッセージ・ファイル監視イベント・フレーム待ちの waitable（`App::GetFrameWaitHandle`）を待ち、`PeekMessageW` / `TranslateMessage` / `DispatchMessageW` で配る。前フレームの表示待ちの間は `WM_PAINT` を取り出さずに入力を先に配り、waitable の成立または期限（`D2DRenderBackend::kFrameWaitTimeoutMs` = 1000ms）で `App::OnFrameReady` を呼ぶ。時間で区切った仕事（`App::HasIdleWork`）が残っていれば待たずに戻り、配るメッセージが無ければ `App::RunIdleWork` で 1 回分進める
+2. **メッセージループ** — `MsgWaitForMultipleObjects` でメッセージ・ファイル監視イベント・フレーム待ちの waitable（`App::GetFrameWaitHandle`）を待ち、`PeekMessageW` / `TranslateMessage` / `DispatchMessageW` で配る。前フレームの表示待ちの間は `WM_PAINT` を取り出さずに入力を先に配り、waitable の成立または期限（`Renderer::kFrameWaitTimeoutMs` = 1000ms）で `App::OnFrameReady` を呼ぶ。時間で区切った仕事（`App::HasIdleWork`）が残っていれば待たずに戻り、配るメッセージが無ければ `App::RunIdleWork` で 1 回分進める
 3. **メッセージルーティング** — Win32メッセージを `App` のイベントハンドラに委譲
 4. **NC領域処理** — `WM_NCCALCSIZE` / `WM_NCHITTEST` でカスタムタイトルバーを実装
 
@@ -188,6 +186,10 @@ private:
     void RepositionSearchEdit();   // 開くとき・WM_SIZE・IME の変換開始で置き直す
     void SyncSearchCaretFromEdit();
     void UpdateDpiMetricsCache();
+    // 起動時の読み込みが D3D デバイスの先行作成より先に終われば、可視範囲の計測を作成の裏で済ませる
+    void AwaitInitialParseBeforeDevice();
+    // 起動時のデバイスに依存しない通知 (FILE_LISTED / INLINE_MATH_REQUESTED) を最初のフレームより前に取り込む
+    void TakeStartupMessages();
 
     HWND hwnd_ = nullptr;
     HWND search_edit_ = nullptr;
@@ -202,7 +204,7 @@ private:
 };
 ```
 
-`Win32Window` は `ConfigService` の参照を受け取り、内部で `App` を `unique_ptr` で保持する。`Create` は `App::Init` の後、ウィンドウを DWM でクロークしたまま配置の復元 → `App::LoadInitialDocument` → `App::CreateRenderDevice` と進め、デバイス作成を待つ間に届いた `PARSE_COMPLETE` があれば取り込んでから初回描画（`UpdateWindow`）し、クロークを解く。検索バーの実体は Win32 の Edit コントロール（`search_edit_`）で、サブクラス化（`SearchEditProc`）して IME・キャレット同期を行う。Edit は comctl32 を読み込ませるので、起動時には作らず、初めて検索欄にフォーカスするときに `EnsureSearchEdit` で作る。
+`Win32Window` は `ConfigService` の参照を受け取り、内部で `App` を `unique_ptr` で保持する。`Create` は `App::Init` の後、ウィンドウを DWM でクロークしたまま配置の復元 → `App::LoadInitialDocument` → `App::CreateRenderDevice` と進め、デバイス作成を待つ間に届いた `PARSE_COMPLETE` があれば取り込んでから初回描画（`UpdateWindow`）し、クロークを解く。デバイスに依存しない起動時の通知（ファイルペインの列挙完了 `FILE_LISTED`・インライン数式の描画の依頼 `INLINE_MATH_REQUESTED`）は、デバイスの作成を待つ前と後の `TakeStartupMessages` で取り込む（一覧の行の文字レイアウトとディスクキャッシュにある数式の読み込みを、デバイスの作成と並行して進める）。検索バーの実体は Win32 の Edit コントロール（`search_edit_`）で、サブクラス化（`SearchEditProc`）して IME・キャレット同期を行う。Edit は comctl32 を読み込ませるので、起動時には作らず、初めて検索欄にフォーカスするときに `EnsureSearchEdit` で作る。
 
 `App` は `Win32Window` を `WindowHost` として受け取り、検索欄のフォーカス（`effect::SearchFocus` / `SearchUnfocus`）をその場で頼む（メッセージを投げて後で処理させない）。描画後にホバーを引き直すときの非クライアント判定は、`WM_NCHITTEST` を送って引く。フォーカスの移動や入力欄の書き換えは `EN_CHANGE`・`WM_IME_ENDCOMPOSITION`・選択の同期を通じて `App::Dispatch` に入り直すが、`Dispatch` は副作用の一覧を呼び出しごとに持つので、外側の `Execute` の途中でも壊れない。文書の切り替えでは `DocumentOpenedAction` の reducer が先にクエリを空にしているので、入力欄を空にした `EN_CHANGE` は何もせず終わる。入力欄のドラッグ選択ではマウスが動くたびに `SearchFocus` が来るので、既にフォーカスがあれば選択（`EM_SETSEL`）を変えるだけにする。見えない Edit の置き場所は IME の変換窓の位置にしか効かないので、開くとき・`WM_SIZE`・変換の開始（`WM_IME_STARTCOMPOSITION`）で置き直す。
 
@@ -228,7 +230,7 @@ public:
 
     // 起動時に main から (Win32Window::app() で) 呼ばれる
     void SetInitialDirectory(std::wstring_view dir_path);   // Init 前
-    void StartPreloadAsync(std::pmr::wstring path);         // Init 前
+    void StartPreloadAsync(std::wstring path);              // Init 前
     void RestoreScrollPosition();                           // 保存したスクロール位置を戻す位置にする
     void LoadInitialDocument();   // preload を取り込む。無ければヘルプを開く
     bool CreateRenderDevice();    // LoadInitialDocument の後、初回描画の前
@@ -241,7 +243,7 @@ public:
     void OnPaint();
     void OnMinimize();
     void OnMouseWheel(int px, int py, int delta, bool ctrl);
-    void OnKeyDown(WPARAM key);
+    bool OnKeyDown(WPARAM key);   // 割り当ての無いキーは false (ウィンドウ側の既定の処理に回す)
     void OnDropFiles(HDROP hDrop);
 
     void OnLButtonDown(int px, int py, bool is_double_click);   // is_double_click は WM_LBUTTONDBLCLK
@@ -327,15 +329,13 @@ private:
 
 | ファイル | 担当 |
 |:---------|:-----|
-| `app.h / app.cpp` | `App`（`ResourceManagerHost` と `NodeLayoutAccess` を private 継承し、タイマー操作・ペイン寸法・テーマ・再レイアウト・ノードの計測の問い合わせを自分で受ける）。`.cpp` はコアロジック（`Init`, `CreateRenderDevice`, `LoadInitialDocument`, `Dispatch`, `Execute`, `OnPaint`, `HandleTimer`, `OnDestroy`）、レイアウト・スクロール関連ヘルパー（`EnsureScrollTarget`, `RelayoutViewport`, `RequestDeferredLayout`, `OnDeferredLayout` 等）、空き時間の仕事（`HasIdleWork` / `RunIdleWork`）、テーマ・ズーム変更の適用（`ApplyZoom` / `ToggleDarkMode`）、カスタムコンテキストメニュー処理 |
-| `app_file.cpp` | `LoadMarkdownFile`, `StartPreloadAsync`, `BeginAsyncLoad`, `OnParseComplete`、文書の表示（`OpenDocument`）とリロードでの差し替え（`ReloadDocument`。どちらも中で `ReplaceDocument` を使い、後始末は reducer のアクションに任せる）、リロードの開始（`ReloadCurrentFile`）、`ShowHelpResource` |
-| `app_mouse.cpp` | マウス入力ハンドラ（`OnMouseMove`, `OnMouseWheel`, `OnRButton*`, ドラッグ系統括）、クリック処理（`OnLButtonDown/Up`, `HandleMdPaneClick`, `HandleLinkClick` 等）、ホバー処理（`OnMouseHover`, `HoverMdPane`, `ResolveMdPaneHit`） |
+| `app.h / app.cpp` | `App`（`ResourceManagerHost` と `NodeLayoutAccess` を private 継承し、タイマー操作・ペイン寸法・テーマ・再レイアウト・ノードの計測の問い合わせを自分で受ける）。`.cpp` はコアロジック（`Init`, `CreateRenderDevice`, `LoadInitialDocument`, `Dispatch`, `Execute`, `OnPaint`, `HandleTimer`, `OnDestroy`）、レイアウト・スクロール関連ヘルパー（`RelayoutViewport`, `SettleLayout`, `OnDeferredLayout` 等）、空き時間の仕事（`HasIdleWork` / `RunIdleWork`）、テーマ・ズーム変更の適用（`ApplyZoom` / `ToggleDarkMode`）、カスタムコンテキストメニュー処理、ファイル読み込み（`LoadMarkdownFile`, `StartPreloadAsync`, `BeginAsyncLoad`, `OnParseComplete`、文書の表示 `OpenDocument` とリロードでの差し替え `ReloadDocument`。どちらも中で `ReplaceDocument` を使い、後始末は reducer のアクションに任せる。リロードの開始 `ReloadCurrentFile`、`ShowHelpResource`）、マウス入力ハンドラ（`OnMouseMove`, `OnMouseWheel`, `OnRButton*`, `OnLButtonDown/Up`, `HandleMdPaneClick`, `HandleLinkClick`, `OnMouseHover` 等。点が指すものの判定は `app_controller` に任せる） |
 | `clipboard_manager.h / .cpp` | `ClipboardManager`（コピー/PNG 保存/SVG コピーを集約。 SVG のキャッシュを内包） |
-| `app_controller.cpp` | `app_controller::HandleKeyDown`（宣言は `app_events.h`） |
+| `app_controller.h / .cpp` | `app_controller::HandleKeyDown` / `HandleSearchEditKeyDown`（キー → アクション）と、AppState とペイン配置だけから点が指すものを求める判定（`MakeMdPaneHitContext`, `ResolveMdPaneHit`, `ResolveSidePaneHit`, `ResolvePointerHover`, `IsOverMdScrollbar`） |
 | `reducer.h / .cpp` | `Reduce(state, action, layout)`（in-place 更新、副作用リストを返す。計測は `NodeLayoutAccess` で App に頼む）と、ドメイン別の `Reduce*` 関数（スクロール・入力・ナビゲーション・検索・UI・システム）。`Reduce*` と、左ドラッグの終了とキャプチャ解放をまとめた `EndLeftDrag` は無名名前空間に置く |
 | `side_effect.h` | `SideEffect`（`effect::*` の variant）と `SideEffectList`。実行は `App::Execute` |
 | `resource_manager.h` / `.cpp` | 画像・図（Mermaid / LaTeX）・ビットマップ管理と、App に頼むことの抽象インターフェース `ResourceManagerHost` |
-| `reload_flow.h` | `PlanParseComplete`（非同期ロード完了時の分岐判定。純粋関数） |
+| `reload_flow.h` | `PlanParseComplete`（非同期ロード完了時の分岐判定。リロードの判定（変わらない `ReloadUnchanged`・保存途中 `DeferPrefixShrink`・差し替え `ApplyReload`）まで決める純粋関数） |
 | `startup_plan.h / .cpp` | `DecideStartupPlan`（起動引数・前回ファイル・カレントディレクトリから初期表示を決める） |
 | `app_constants.h` | タイマー ID・カスタムメッセージ・閾値定数 |
 
@@ -354,7 +354,7 @@ flowchart TD
     W -->|WM_LBUTTONDOWN/UP/DBLCLK| L[App::OnLButton...]
     W -->|WM_MOUSEMOVE| MV[App::OnMouseMove / OnRButtonMove / OnMouseHover]
     W -->|WM_RBUTTONDOWN/UP| R[App::OnRButton...]
-    W -->|WM_XBUTTONDOWN| XBTN[NavigateBack/ForwardAction]
+    W -->|WM_XBUTTONDOWN| XBTN[NavigateHistoryAction]
     W -->|WM_DROPFILES| DROP[App::OnDropFiles]
     W -->|WM_DPICHANGED| DPI[DpiChangedAction]
     W -->|WM_TIMER| TIMER[App::HandleTimer]
@@ -389,25 +389,25 @@ flowchart TD
 | キー | アクション | 備考 |
 |:-----|:-----------|:-----|
 | `F1` | `ShowHelpAction` | 内蔵ヘルプ表示 |
-| `F3` | `SearchNextAction` | 次の検索結果 |
-| `Shift+F3` | `SearchPrevAction` | 前の検索結果 |
+| `F3` | `SearchStepAction{ forward = true }` | 次の検索結果 |
+| `Shift+F3` | `SearchStepAction{ forward = false }` | 前の検索結果 |
 | `F5` | `ReloadFileAction` | 再読み込み |
 | `Esc` | `ClearSelectionAction` | 選択解除（検索バー表示中は検索バーを閉じる） |
 | `Ctrl+O` | `OpenFileAction` | OpenFileDialog |
 | `Ctrl+A` | `SelectAllAction` | 全選択 |
-| `Ctrl+C` | `CopyClipboardAction` | プレーンテキストコピー |
-| `Ctrl+Shift+C` | `CopyFormattedClipboardAction` | 書式付きコピー (HTML) |
+| `Ctrl+C` | `CopyAction{ formatted = false }` | プレーンテキストコピー |
+| `Ctrl+Shift+C` | `CopyAction{ formatted = true }` | 書式付きコピー (HTML) |
 | `Ctrl+F` | `OpenSearchBarAction` | 検索バー表示 |
-| `Ctrl+G` | `SearchNextAction` | 次の検索結果 |
-| `Ctrl+Shift+G` | `SearchPrevAction` | 前の検索結果 |
+| `Ctrl+G` | `SearchStepAction{ forward = true }` | 次の検索結果 |
+| `Ctrl+Shift+G` | `SearchStepAction{ forward = false }` | 前の検索結果 |
 | `Ctrl+1` | `TogglePaneAction(File)` | ファイルペイン切替 |
 | `Ctrl+2` | `TogglePaneAction(Toc)` | TOCペイン切替 |
 | `Ctrl++` / `Ctrl+=` | `ZoomAction(In)` | ズームイン（テンキーの `+` も可） |
 | `Ctrl+-` | `ZoomAction(Out)` | ズームアウト（テンキーの `-` も可） |
 | `Ctrl+0` | `ZoomAction(Reset)` | ズーム100%（テンキーの `0` も可） |
 | `Ctrl+ホイール` | `ZoomAction(In/Out)` | ポインタの下の領域（本文・ファイルペイン・目次ペイン）をホイール方向で増減（端数の扱いは 3.2.7） |
-| `Alt+←` | `NavigateBackAction` | 戻る（`WM_SYSKEYDOWN` で届く） |
-| `Alt+→` | `NavigateForwardAction` | 進む（同上） |
+| `Alt+←` | `NavigateHistoryAction{ forward = false }` | 戻る（`WM_SYSKEYDOWN` で届く） |
+| `Alt+→` | `NavigateHistoryAction{ forward = true }` | 進む（同上） |
 | `↑` / `↓` | `KeyScrollAction(LineUp/Down)` | 1行スクロール |
 | `Home` / `End` | `KeyScrollAction(Home/End)` | 先頭/末尾 |
 | `PageUp` / `PageDown` | `KeyScrollAction(PageUp/Down)` | 1ページ |
@@ -425,7 +425,7 @@ flowchart TD
 
 #### 3.2.7 app_controller — イベント→アクション変換
 
-`app_controller` はステートレスなマッパー（namespace + 自由関数）である。宣言は `app_events.h`、実装は `app_controller.cpp` に置く。必要な状態は呼び出し側が持って渡す。Win32 / D2D 依存なし、完全にテスト可能。
+`app_controller` はステートレスなマッパー（namespace + 自由関数）である。宣言は `app_controller.h`、実装は `app_controller.cpp` に置く（受け渡すイベントとアクションの型は `app_events.h`）。必要な状態は呼び出し側が持って渡す。Win32 / D2D 依存なし、完全にテスト可能。
 
 ```cpp
 struct KeyDownEvent {
@@ -436,7 +436,8 @@ struct KeyDownEvent {
 };
 
 namespace app_controller {
-    AppAction HandleKeyDown(const KeyDownEvent& event);
+    // 割り当ての無いキーは nullopt。
+    std::optional<AppAction> HandleKeyDown(const KeyDownEvent& event);
 }
 ```
 
@@ -465,27 +466,34 @@ struct LeftDragState {
     float start_x       = 0.0f;
     float start_scroll  = 0.0f;
     int   search_anchor = 0;         // SearchInput: 選択の起点 (キャレット位置)
+    int      select_node = -1;       // TextSelect: 選択の起点と、押した位置 (px。小さいクリックの判定に使う)
+    uint32_t select_pos  = 0;
+    int      click_x     = 0;
+    int      click_y     = 0;
+
+    constexpr TextSelection SelectionTo(int node, uint32_t pos) const noexcept;
 };
 
 struct ViewState {
-    ViewportManager   viewport;
-    PaneController    panes;
-    ScrollRestoration scroll_restore;
-    NavHistory        nav_history;
+    ViewportManager viewport;
+    PaneController  panes;
+    ScrollTarget    pending_restore;   // 次に開き終えた文書で復元するスクロール位置
+    NavHistory      nav_history;
 
     // ブロック単位の横スクロール。キーは BlockHScrollGeometry::scroll_key (ノードインデックス。
     // 区切ったコードブロックは並びの先頭)。
     // 永続化しない (ファイルロード/リロードでクリア)。スクロールバー本体は
     // 「ホバー中とドラッグ中のブロック」だけ描画するので、map のサイズは
     // ユーザー操作実績分に限定される。
-    std::pmr::unordered_map<int, float> block_scroll_x;
+    std::unordered_map<int, float> block_scroll_x;
     HoverHighlights hover;             // マウス位置でのホバー強調の全体。描画はここから読む
-    int             active_toc_index = -1;
+    int             active_toc_index = -1;     // SyncActiveTocIndex が描画のたびに決め直す
+    bool            keep_toc_pane_once = false; // 目次クリック直後の同期 1 回だけ、目次ペインを追従スクロールさせない
     LeftDragState   drag;
+    bool            reload_after_drag = false;  // テキスト選択のドラッグ中に届いたリロード。ドラッグの終わりまで待たせる
 
     constexpr int HDragNode() const noexcept;  // 横スクロールをドラッグ中のブロック。無ければ -1
     float GetBlockScrollX(const BlockHScrollGeometry& geom) const noexcept;  // geom.scroll_key のスクロール量
-    void  ResetForNewDocument();          // 別文書への切替時。サイドペインのスクロールも先頭へ戻す
 };
 
 // ViewState::hover の型 (app_events.h)。既定値はどこにもホバーしていない状態。
@@ -494,6 +502,7 @@ struct HoverHighlights {
     SearchBarHitZone search_bar = SearchBarHitZone::None;
     NavDirection     nav        = NavDirection::None;
     OverlayButtonHit overlay_button{};             // コピー / 保存ボタン
+    int              diagram = -1;                 // ポインタが図の画像の上にあるノード。図の保存/コピーはこの間だけ描く
     int              h_block = -1;                 // 横スクロールバーを出すブロック
     std::array<int, 2>              side_index{ -1, -1 };  // PaneTarget 順 (File, Toc)
     std::array<PaneHeaderButton, 2> side_button{};
@@ -502,18 +511,17 @@ struct HoverHighlights {
 struct InteractionState {
     MouseGesture   gesture;
     SwipeDetector  swipe_detector;
-    LastHoverPos   last_hover_pos;
     TooltipTarget  tooltip;   // 表示中か表示待ちの対象 (zone と key だけ)。文言とウィンドウ (Tooltip) は App が持つ
     int            zoom_wheel_accum = 0;   // Ctrl+ホイールの delta の端数。変えるのは reducer (MouseWheelAction) だけ
 };
 
 struct SearchGroup {
-    SearchState       search_state;
-    int               caret_pos = -1;
-    int               selection_start = -1;
-    std::pmr::wstring ime_composition;
-    std::pmr::wstring query_wide;
-    bool              scroll_after_search = false;
+    SearchState  search_state;
+    int          caret_pos = -1;
+    int          selection_start = -1;
+    std::wstring ime_composition;
+    std::wstring query_wide;
+    bool         scroll_after_search = false;
 };
 
 struct WindowState {
@@ -523,33 +531,37 @@ struct WindowState {
     bool           size_changed_in_sizing = false;
     bool           window_active = true;
     float          cached_dpi_scale = 1.0f;
-    // 直近の WM_SIZE のクライアント領域 (物理 px)。同じ大きさの WM_SIZE を無視するために使う。
+    // 直近の WM_SIZE のクライアント領域 (物理 px)。ペイン配置の元になり、同じ大きさの WM_SIZE を無視するのにも使う。
     uint32_t       client_width  = 0;
     uint32_t       client_height = 0;
+    bool           dpi_changed = false;   // 次の WM_SIZE は同じピクセルサイズでも処理する
+
+    constexpr float WidthDip() const noexcept;
+    constexpr float HeightDip() const noexcept;
 };
 
 struct AppState {
     DocumentState    document;     // ドキュメント + LayoutCache
-    ViewState        view;         // ViewportManager + PaneController + ScrollRestoration + NavHistory + ホバー + 左ドラッグ + 横スクロール
+    ViewState        view;         // ViewportManager + PaneController + 復元するスクロール位置 + NavHistory + ホバー + 左ドラッグ + 横スクロール
     InteractionState interaction;  // MouseGesture + SwipeDetector + TooltipTarget + Ctrl+ホイールの端数
     SearchGroup      search;       // SearchState + 入力欄の表示状態 (3.21.2)
     WindowState      window;       // TitleBar + DPI
 
-    // ThemeService 所有 Theme への非所有参照。App::Init (RestoreTheme) で設定され、
+    // ThemeService 所有 Theme への非所有参照。App の構築時に設定し、null にはならない。
     // ダークモードとズームの切り替えは同じ Theme を書き換えるのでポインタは安定。
     // reducer が spacing_above 等を参照するのに使う。
     const Theme*     theme = nullptr;
 
     FileExplorer     file_explorer;
-    ContextMenu      ctx_menu;
-
-    // ペインレイアウトのキャッシュ。 `Invalidate()` で次回再計算を強制する。
-    PaneLayoutCache   pane_layout_cache;
 };
 
 // AppState 関連のフリー関数
 // ViewportManager::CurrentTarget の薄いラッパ (inline)
 ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept;
+// window の寸法・ペイン・テーマから組む。数十回の浮動小数演算なので持たずに毎回求める (定義は reducer.cpp)。
+// 大きさが決まる (最初の WM_SIZE) までは空の配置
+PaneLayout ComputePaneLayout(const AppState& state) noexcept;
+float      MdMaxScroll(const AppState& state) noexcept;
 ```
 
 履歴の積み込み（`CurrentNavEntry` / `PushCurrentNavEntry`）は reducer だけが使うので、`reducer.cpp` の無名名前空間に置く。`PushCurrentNavEntry` は `load_path` が現在と別のファイルなら、ロード失敗（`LoadFailedAction`）で取り消す仮の履歴にする。
@@ -567,7 +579,6 @@ classDiagram
         +SearchGroup search
         +WindowState window
         +FileExplorer file_explorer
-        +ContextMenu ctx_menu
     }
 
     class DocumentState {
@@ -578,9 +589,9 @@ classDiagram
     class ViewState {
         +ViewportManager viewport
         +PaneController panes
-        +ScrollRestoration scroll_restore
+        +ScrollTarget pending_restore
         +NavHistory nav_history
-        +pmr::unordered_map~int,float~ block_scroll_x
+        +unordered_map~int,float~ block_scroll_x
         +HoverHighlights hover
         +int active_toc_index
         +LeftDragState drag
@@ -589,7 +600,6 @@ classDiagram
     class InteractionState {
         +MouseGesture gesture
         +SwipeDetector swipe_detector
-        +LastHoverPos last_hover_pos
         +TooltipTarget tooltip
         +int zoom_wheel_accum
     }
@@ -639,40 +649,40 @@ SideEffectList Reduce(AppState& state, const AppAction& action, NodeLayoutAccess
 
 `AppState` はデータだけを持ち、reducer が App の機能を使うのは `NodeLayoutAccess` の計測だけである（検索マッチへスクロールする前に、そのノードの行の位置を引けるようにする）。窓口は `Reduce` の引数で渡すので、渡し忘れはコンパイルで分かる。本番は App 自身（ResourceManager の窓口と同じく private 継承した受け口）が `LayoutService::EnsureNodeLayout` へ渡し、テストは計測を頼まれても何もしない `Reduce(state, action)`（`reducer_harness.h`）か、計測の結果を差し込むものを渡す。
 
-`Reducer` は `AppState` を **in-place で変更** し、実行すべき副作用の `SideEffectList` を返す。テーマ定数は `AppState::theme`（`ThemeService` 所有 `Theme` への安定ポインタ）経由で参照する。ペインレイアウトは `AppState::pane_layout_cache`（`PaneLayoutCache`）にキャッシュされ、値が古くなったら `pane_layout_cache.Invalidate()` で次回再計算を強制する。
+`Reducer` は `AppState` を **in-place で変更** し、実行すべき副作用の `SideEffectList` を返す。テーマ定数は `AppState::theme`（`ThemeService` 所有 `Theme` への安定ポインタ）経由で参照する。ペイン配置は持たず、`ComputePaneLayout(state)`（宣言は `app_state.h`、定義は `reducer.cpp`）がウィンドウの寸法・ペイン・テーマから呼ぶたびに求める（数十回の浮動小数演算で済むため、キャッシュと無効化の漏れを抱えない）。最初の `WM_SIZE` までは空の配置を返す。
 
-> **Note**: 関数型「純粋関数」スタイル（新 state を返す）ではなく in-place 更新スタイルを採用するのは、`AppState` 内部の `std::pmr::vector<Node>` や `std::pmr::deque` などの大型コンテナを毎回コピーすると性能上のオーバーヘッドが大きいためである。`SideEffectList` のみが新規 vector として生成される。
+> **Note**: 関数型「純粋関数」スタイル（新 state を返す）ではなく in-place 更新スタイルを採用するのは、`AppState` 内部のノード配列（`Document` の `std::vector<Node>`）や履歴（`NavHistory` の `std::deque<NavEntry>`）などの大型コンテナを毎回コピーすると性能上のオーバーヘッドが大きいためである。`SideEffectList` のみが新規 vector として生成される（領域は `Reduce` に渡した `memory_resource` から取る。3.4.3）。
 
 #### 3.4.2 AppAction
 
-`AppAction` は `std::variant` で 62 種類のアクションを保持する（コマンド系、マウス・ドラッグ系、システム、タイマー、検索の 5 グループ）。ファイル変更通知・画像読み込み完了・パース完了は Reducer を通さず、`App` が直接処理する。文書の読み込みと差し替えは `App` が持ち、差し替えた後のビュー状態の後始末（番号に結び付いた一時状態・検索・ペインのスクロール・ファイル一覧・スクロールの復元）は `DocumentOpenedAction` / `DocumentReloadedAction` / `ReloadSettledAction` で reducer に任せる。
+`AppAction` は `std::variant` で 53 種類のアクションを保持する（コマンド系、マウス・ドラッグ系、システム、タイマー、検索の 5 グループ）。ファイル変更通知・画像読み込み完了・パース完了は Reducer を通さず、`App` が直接処理する。文書の読み込みと差し替えは `App` が持ち、差し替えた後のビュー状態の後始末（番号に結び付いた一時状態・検索・ペインのスクロール・ファイル一覧・スクロールの復元）は `DocumentOpenedAction` / `DocumentReloadedAction` / `ReloadSettledAction` で reducer に任せる。
 
 ```cpp
 using AppAction = std::variant<
     // コマンド系
-    NoOpAction, KeyScrollAction, MouseWheelAction,
-    CopyClipboardAction, CopyFormattedClipboardAction,
+    KeyScrollAction, MouseWheelAction,
+    CopyAction,                         // formatted なら書式付き (HTML)
     SelectAllAction, SelectWordAction, ClearSelectionAction,
     TogglePaneAction, ZoomAction,
     ReloadFileAction, OpenFileAction, ToggleDarkModeAction,
-    NavigateBackAction, NavigateForwardAction,
+    NavigateHistoryAction,              // forward で戻る / 進む
     ShowHelpAction,
     OpenSearchBarAction, CloseSearchBarAction,
-    SearchNextAction, SearchPrevAction,
+    SearchStepAction,                   // forward で次 / 前のマッチ
+    SearchSelectAllAction,
     // マウス・ドラッグ系
     PointerHoverAction, MouseLeaveAction,
-    SplitterDragStartedAction, SplitterDragMovedAction, LeftDragEndedAction,
-    SearchInputDragStartedAction, SearchInputDragMovedAction,
-    MdScrollbarDragStartedAction, MdScrollbarDragMovedAction,
-    PaneScrollbarDragStartedAction, PaneScrollbarDragMovedAction,
-    TextSelectionStartedAction, TextSelectionMovedAction, TextSelectionEndedAction,
+    SplitterDragStartedAction, LeftDragMovedAction, LeftDragEndedAction,
+    SearchInputDragStartedAction,
+    MdScrollbarDragStartedAction,
+    PaneScrollbarDragStartedAction,
+    TextSelectionStartedAction,
     RightClickGestureStartedAction, RightClickGestureMovedAction, RightClickGestureCompletedAction,
     FilePaneDirectoryClickedAction, FilePaneRevealCurrentFileAction,
     TocItemClickedAction, NavigateAnchorAction,
     DocumentOpenedAction, DocumentReloadedAction, ReloadSettledAction, LoadFailedAction, HWheelAction,
-    BlockHScrollDragStartedAction, BlockHScrollDragMovedAction,
+    BlockHScrollDragStartedAction,
     OpenPathAction,
-    InvalidateHoverAction,
     // システム
     ResizeAction, DpiChangedAction, ActivateAction,
     EnterSizeMoveAction, ExitSizeMoveAction, CaptureChangedAction,
@@ -683,11 +693,11 @@ using AppAction = std::variant<
     SearchSelectionAction, ImeCompositionAction>;
 ```
 
-`SplitterDragMovedAction` / `PaneScrollbarDragMovedAction` が運ぶのはマウスの `dip_x` / `dip_y` だけである。どのペインのスプリッタ・スクロールバーをドラッグ中かは `ViewState::drag`（`kind` と `pane`）、ウィンドウ幅は `WindowState::WidthDip` から Reducer が読む。ドラッグの開始は `BeginLeftDrag` が `drag` を設定して `SetCapture` を積む。
+左ドラッグの移動は種類を問わず `LeftDragMovedAction` 1 つで、マウスの `dip_x` / `dip_y` と、検索の入力欄ならキャレット位置（`search_caret`）、テキスト選択なら文字の位置（`node_index` / `text_pos`）を App が詰めて運ぶ。どのドラッグか・どのペインのスプリッタ・スクロールバーをドラッグ中かは `ViewState::drag`（`kind` と `pane`）、ウィンドウ幅は `WindowState::WidthDip` から Reducer が読み、`drag.kind` で処理を分ける。ドラッグの開始は `BeginLeftDrag` が `drag` を設定して `SetCapture` を積む。
 
 `OpenPathAction` は D&D・ファイルペインのクリック・ファイルダイアログに共通で、履歴を積んでからファイルを開く。縦ホイールは `MouseWheelAction`（生の delta・Ctrl・ポインタの下の領域・`tick`）1 つで、Ctrl ならその領域（スプリッタの上は本文）をズームし、そうでなければスクロールする。Ctrl+ホイールは高分解能ホイールやピンチが `WHEEL_DELTA` 未満の delta を連発しても `InteractionState::zoom_wheel_accum` に 1 ノッチ分たまるまでズームせず、向きが反転したら端数を捨てる。スクロールは同時に `tick` で `SwipeDetector` の軸ロックを更新する（表示中のスワイプオーバーレイは消す）。`SearchContinueAction` は時間で区切った検索を、メッセージループの空き時間に 1 回分進める。
 
-ドラッグの終了は、テキスト選択以外は種類を問わず `LeftDragEndedAction` 1 つである。Reducer が `drag.kind` を見て後処理（スプリッタと Markdown スクロールバーなら `SettleViewport`、ブロック横スクロールなら再描画）を分け、`EndLeftDrag` で終える。テキスト選択の終了は、終点で選択を確定する `TextSelectionEndedAction` が担う。
+ドラッグの終了も種類を問わず `LeftDragEndedAction` 1 つである。Reducer が `drag.kind` を見て後処理（スプリッタと Markdown スクロールバーなら `SettleViewport`、ブロック横スクロールなら再描画、テキスト選択なら `node_index` / `text_pos` の終点で選択を確定）を分け、`EndLeftDrag` で終える。
 
 #### 3.4.3 SideEffect — 単一variant
 
@@ -698,14 +708,14 @@ using SideEffect = std::variant<
     // Ui
     effect::InvalidateWindow,
     effect::SetCapture, effect::ReleaseCapture,
-    effect::ClipboardWrite, effect::ClipboardWriteHtml,
+    effect::ClipboardWrite,   // { text, html }。html があれば CF_HTML にも載せる
     effect::SetTooltip,
     effect::ShowContextMenu, effect::Beep,
     // Window
     effect::SearchFocus, effect::SearchUnfocus,
-    effect::SetWindowPosition, effect::ApplyZoom, effect::ToggleDarkMode,
+    effect::ApplyZoom, effect::ToggleDarkMode,
     effect::SettleViewport, effect::PerformSizingUpdate,
-    effect::RendererResize, effect::RendererSetDpi,
+    effect::RendererResize, effect::ApplyDpi,   // ApplyDpi は { dpi, suggested }
     // Navigation
     effect::LoadFile, effect::ReloadFile, effect::OpenFileDialog,
     effect::CancelOtherFileLoad,
@@ -731,7 +741,7 @@ void App::Dispatch(const AppAction& action)
     // 副作用の一覧は呼び出しごとのスタックの領域から取る (入れ子の Dispatch も自分の領域を持つ)
     alignas(std::max_align_t) std::array<std::byte, 1024> buffer;
     std::pmr::monotonic_buffer_resource arena(buffer.data(), buffer.size());
-    auto effects = Reduce(state_, action, *this, &arena);   // 入口で pane_layout_cache を確定させる。計測は App (NodeLayoutAccess) に頼む
+    auto effects = Reduce(state_, action, *this, &arena);   // 計測は App (NodeLayoutAccess) に頼む
     Execute(effects);   // 各要素を Execute(const SideEffect&) へ
 }
 ```
@@ -739,15 +749,15 @@ void App::Dispatch(const AppAction& action)
 | グループ | effect | 実行内容 |
 |:--|:--|:--|
 | Ui | `InvalidateWindow` / `SetCapture` / `ReleaseCapture` | `InvalidateRect(hwnd_, nullptr, FALSE)` / `::SetCapture(hwnd_)` / `::ReleaseCapture()` |
-| | `ClipboardWrite` / `ClipboardWriteHtml` | `WriteClipboardText` / `WriteClipboardHtml`（`clipboard_util.h`。CF_UNICODETEXT 用の UTF-16 変換もここで行う） |
+| | `ClipboardWrite` | `WriteClipboardHtml`（`clipboard_util.h`。`html` が空なら CF_UNICODETEXT だけを書く。UTF-16 変換もここで行う） |
 | | `SetTooltip` | `tooltip_.SetText` で出ているものを隠して文言を差し替え、文言があれば `TOOLTIP` タイマーを張る / 空ならタイマーを止める |
 | | `ShowContextMenu` | `App::OnContextMenu` |
 | | `Beep` | `MessageBeep(MB_OK)`（検索の折り返し） |
 | Window | `SearchFocus` / `SearchUnfocus` | `WindowHost::FocusSearchEdit` / `UnfocusSearch` をその場で呼ぶ（`Win32Window` が検索ボックスを操作する） |
-| | `SetWindowPosition` | `SetWindowPos` |
 | | `ApplyZoom` / `ToggleDarkMode` | `App::ApplyZoom` / `App::ToggleDarkMode` |
 | | `SettleViewport` / `PerformSizingUpdate` | `App::SettleViewport` / `ClampScrollToContent` と再描画 |
-| | `RendererResize` / `RendererSetDpi` | `Renderer::Resize(width, height, live)` / `Renderer::SetDpi` |
+| | `RendererResize` | `Renderer::Resize(width, height, live)` |
+| | `ApplyDpi` | `Renderer::SetDpi(dpi)` と、WM_DPICHANGED が勧める矩形 `suggested` への `SetWindowPos` |
 | Navigation | `LoadFile` / `ReloadFile` / `OpenFileDialog` / `CancelOtherFileLoad` | `App::LoadMarkdownFile` / `ReloadCurrentFile` / `OpenFileDialog` / `CancelOtherFileLoad` |
 | Layout | `BitmapManage` | `ResourceManager::ScheduleBitmapManage` |
 | Timer | `SetTimer` / `KillTimer` | `::SetTimer` / `::KillTimer`（ID は `app_timer::Id`） |
@@ -756,9 +766,9 @@ void App::Dispatch(const AppAction& action)
 
 ### 3.5 レンダーステート構築
 
-各レンダーステート（`SidePaneState`, `TitleBarRenderState`, `SearchBarRenderState`, `GestureRenderState`）は `src/render/render_params.h` に定義される値型で、`App::OnPaint`（`src/app/app.cpp`）が毎フレーム組み立て、`RenderParams` にまとめて `Renderer::Render` に渡す。`SidePaneState` / `TitleBarRenderState` は `App::BuildSidePaneState` / `App::BuildTitleBarRenderState`、`GestureRenderState` は `ResolveGestureOverlay`（`app_state.h`）、`SearchBarRenderState` は `BuildSearchBarRenderState`（`reducer.h`）が作る。トーストの文言は `RenderParams::toast_message` にそのまま入れる。ホバー強調はどれも `ViewState::hover` から詰める。本文ペインの入力（ノード・レイアウト・選択・スクロール位置・ホバー・ブロックの横スクロール・検索マッチと現在のマッチ・検索の世代）は `MdPaneParams` にまとめて `RenderParams::md` に入れ、`Renderer` はそれをそのまま `CommandGenerator::GenerateMdPane` に渡す。ロード中は `RenderParams::loading_angle` にスピナーの角度を入れ、`Renderer::Render` が Markdown ペインの代わりにスピナーを描く。
+各レンダーステート（`SidePaneState`, `TitleBarRenderState`, `SearchBarRenderState`, `GestureRenderState`）は `src/render/render_params.h` に定義される値型で、`App::OnPaint`（`src/app/app.cpp`）が毎フレーム組み立て、`RenderParams` にまとめて `Renderer::Render` に渡す。`SidePaneState` / `TitleBarRenderState` は `App::BuildSidePaneState` / `App::BuildTitleBarRenderState`、`GestureRenderState` は `ResolveGestureOverlay`（`app_state.h`）、`SearchBarRenderState` は `BuildSearchBarRenderState`（`reducer.h`）が作る。トーストの文言は `RenderParams::toast_message` にそのまま入れる。ホバー強調はどれも `ViewState::hover` から詰める。本文ペインの入力（ノード・レイアウト・選択・スクロール位置・ホバー・ブロックの横スクロール・検索マッチと現在のマッチ・検索の世代・`App` が持つインライン数式の型 `InlineMathMasks`）は `MdPaneParams` にまとめて `RenderParams::md` に入れ、`Renderer` はそれをそのまま `CommandGenerator::GenerateMdPane` に渡す。ロード中は `RenderParams::loading_angle` にスピナーの角度を入れ、`Renderer::Render` が Markdown ペインの代わりにスピナーを描く。
 
-Markdown ペインの描画コマンドは `Renderer`（具象、`renderer.cpp`）が `CommandGenerator` を直接呼んで作り（テーマ・本文の文字列の書式 `MdPaneFormats`・`TextLayoutCache` は `Init` で 1 回だけ渡し、`Renderer` が持つものを参照させる。1 回の `GenerateMdPane` の間に使う値は `FrameContext` のメンバに置く）、自由関数 `ExecuteDrawCommands`（宣言は `draw_command.h`、実装は `command_executor.cpp`）で描く。タイトルバーとサイドペインのコマンドは `Renderer::PrepareChrome` が別リスト（`chrome_cmds_`）に作る。組み立て自体は `command_generator.h` の自由関数 `chrome::EmitTitleBar` / `chrome::EmitSidePanes` が行い（重ね描きの `overlay::` と同じく HWND やデバイスなしでテストできる）、`Renderer` は書式とキャッシュを渡すだけである。
+Markdown ペインの描画コマンドは `Renderer`（具象、`renderer.cpp`）が `CommandGenerator` を直接呼んで作り（テーマ・本文の文字列の書式 `MdPaneFormats`・`TextLayoutCache` は `Init` で 1 回だけ渡し、`Renderer` が持つものを参照させる。1 回の `GenerateMdPane` の間に使う値は `FrameContext` のメンバに置く）、自由関数 `ExecuteDrawCommands`（宣言は `draw_command.h`、実装は `command_executor.cpp`）で描く。1 フレームのコマンドは `Renderer` の 1 本の列（`frame_cmds_`）に、タイトルバーとサイドペイン（`Renderer::PrepareChrome`）→ 本文（`GenerateMdPane` が列の後ろに積む）→ 本文に重ねるもの（`GenOverlays`）の順に積み、`BeginDraw` の後に 1 回だけ実行する。タイトルバーとサイドペインの組み立て自体は `command_generator.h` の自由関数 `chrome::EmitTitleBar` / `chrome::EmitSidePanes` が行い（重ね描きの `overlay::` と同じく HWND やデバイスなしでテストできる）、`Renderer` は書式とキャッシュを渡すだけである。
 
 ```mermaid
 sequenceDiagram
@@ -770,16 +780,15 @@ sequenceDiagram
 
     APP->>APP: 各レンダーステートを構築
     APP->>R: Render(RenderParams)
-    R->>R: BeginFrame: PrepareChrome (タイトルバー・サイドペイン) / AcquireFrame
+    R->>R: BeginFrame: PrepareChrome (タイトルバー・サイドペイン → frame_cmds_)
+    R->>CG: GenerateMdPane(frame_cmds_, params.md, dpi_scale)
+    CG-->>R: frame_cmds_ の後ろに積む
+    R->>R: GenOverlays (ナビボタン・ジェスチャー・トースト・検索バー・スクロールバー → frame_cmds_)
+    R->>R: AcquireFrame
     R->>RT: BeginDraw / Clear
-    R->>CE: ExecuteDrawCommands(chrome_cmds_, rt, brushes)
-    R->>CG: GenerateMdPane(params.md, dpi_scale)
-    CG-->>R: DrawCommandList
-    R->>CE: ExecuteDrawCommands(cmds, rt, brushes)
-    R->>R: GenOverlays (ナビボタン・ジェスチャー・トースト・検索バー・スクロールバー → overlay_cmds_)
-    R->>CE: ExecuteDrawCommands(overlay_cmds_, rt, brushes)
+    R->>CE: ExecuteDrawCommands(frame_cmds_, rt, brushes, params.md.inline_math)
     R->>RT: EndDraw
-    R->>R: D2DRenderBackend::Present (スワップチェーン)
+    R->>R: Present (スワップチェーン)
 ```
 
 ---
@@ -795,7 +804,7 @@ sequenceDiagram
     participant MD as md4c (UTF-8)
     participant N as Node[]
 
-    DOC->>P: ParseMarkdown(raw_text_)
+    DOC->>P: ParseMarkdown(DocumentData::raw)
     P->>MD: md_parse(text, callbacks)
     loop SAX コールバック
         MD->>P: enter_block(type, detail)
@@ -812,36 +821,36 @@ sequenceDiagram
     P->>P: AppendFootnoteBackrefs (脚注定義に ↩ リンクを付与)
     P->>P: DetectAlerts (BlockQuote → Alert に変換)
     P-->>DOC: NodeStorage { nodes, arena, tables, indices (toc_entries, image_indices, diagram_indices, table_indices, footnote_def_indices, footnote_refs) }
-    DOC->>DOC: NodeStorage を共有で持つ
+    DOC->>DOC: 原文と NodeStorage を DocumentData にまとめて共有で持つ
 ```
 
 ```cpp
 // パース中に作る特殊ノードの索引。
 struct NodeIndices {
-    std::pmr::vector<TocEntry> toc_entries;    // 見出し (文書順)。そのまま目次になる
-    std::pmr::vector<size_t> image_indices;
-    std::pmr::vector<size_t> diagram_indices;
-    std::pmr::vector<size_t> table_indices;
-    std::pmr::vector<int32_t>     footnote_def_indices; // [id - 1] が脚注 id の定義ノード
-    std::pmr::vector<FootnoteRef> footnote_refs;        // 脚注参照の位置 (文書順)
+    std::vector<TocEntry> toc_entries;    // 見出し (文書順)。そのまま目次になる
+    std::vector<size_t> image_indices;
+    std::vector<size_t> diagram_indices;
+    std::vector<size_t> table_indices;
+    std::vector<int32_t>     footnote_def_indices; // [id - 1] が脚注 id の定義ノード
+    std::vector<FootnoteRef> footnote_refs;        // 脚注参照の位置 (文書順)
 };
 
 // パーサーの出力。ノードと、ノードが指すもの (テキスト・runs・リンク URL を置いた arena とテーブル) と索引。
 // ノードは arena を指すので、nodes だけを取り出すときは arena ごと持ち続ける。
 struct NodeStorage {
-    std::pmr::vector<Node> nodes;
+    std::vector<Node> nodes;
     TextArena arena;
-    std::pmr::vector<std::unique_ptr<NodeTableData>> tables;
+    std::vector<std::unique_ptr<NodeTableData>> tables;
     NodeIndices indices;
 };
 
 NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token = {}, TaskScheduler* scheduler = nullptr);
-// ノードは入力テキストを参照するため、一時文字列 (std::string / std::pmr::string の右辺値) を渡す版は delete。
+// ノードは入力テキストを参照するため、一時文字列 (std::string の右辺値) を渡す版は delete。
 ```
 
-md4c は **UTF-8 モード** (`MD_CHAR=char`) で起動するため、入力は UTF-8 byte 列。ワーカーの `LoadFile` が UTF-8 のまま読み込んで `Document::FromNormalizedMarkdown(text, path, stop_token, scheduler)` に渡す経路と、埋め込みリソース（ヘルプ）から 2 引数版 `Document::FromMarkdown(utf8, path)` で直接渡す経路がある。ノードのテキストは原文と一致すれば原文（`raw_text_`）をそのまま指し、装飾や文字参照で一致しないものだけ `TextArena` にコピーする。リンクの `href`・画像の `src`・コードブロックの言語指定は md4c が属性として渡すので、`AttributeText` が文字参照（`&amp;` 等）を解いてから使う。
+md4c は **UTF-8 モード** (`MD_CHAR=char`) で起動するため、入力は UTF-8 byte 列。ワーカーの `LoadFile` が UTF-8 のまま読み込んで `Document::FromNormalizedMarkdown(text, path, stop_token, scheduler)` に渡す経路と、埋め込みリソース（ヘルプ）から 2 引数版 `Document::FromMarkdown(utf8, path)` で直接渡す経路がある。ノードのテキストは原文と一致すれば原文（`DocumentData::raw`）をそのまま指し、装飾や文字参照で一致しないものだけ `TextArena` にコピーする。リンクの `href`・画像の `src`・コードブロックの言語指定は md4c が属性として渡すので、`AttributeText` が文字参照（`&amp;` 等）を解いてから使う。
 
-パース中のスクラッチ文字列・リンク URL の索引・リスト番号スタックなどはパーサ専用の arena / pool を持たず、既定リソース（`new_delete_resource`）から確保する。ノード配列などは `ReserveForInput` が入力サイズから容量を予約し、ノード数は `kInputBytesPerNode = 128`（実測 246〜283 byte/ノードの文書が予約内に収まる）で見積もる。予約を使い切ったら `GrowNodes` が読み終えた入力の割合から最終的なノード数を見積もって 1 回で広げる。パース後は、ノード配列の容量が要素数の 1.25 倍を超えて余っているときだけ `shrink_to_fit` で詰める。`TextArena` はチャンクを積み足すので予約しない。
+パース中のスクラッチ文字列・リンク URL の索引・リスト番号スタックなどはパーサ専用の arena / pool を持たず、通常の `std::string` / `std::vector` / `std::unordered_map` として既定のアロケータで確保する。ノード配列などは `ReserveForInput` が入力サイズから容量を予約し、ノード数は `kInputBytesPerNode = 128`（実測 246〜283 byte/ノードの文書が予約内に収まる）で見積もる。予約を使い切ったら `GrowNodes` が読み終えた入力の割合から最終的なノード数を見積もって 1 回で広げる。パース後は、ノード配列の容量が要素数の 1.25 倍を超えて余っているときだけ `shrink_to_fit` で詰める。`TextArena` はチャンクを積み足すので予約しない。
 
 #### 3.6.2 対応する Markdown 要素
 
@@ -890,7 +899,7 @@ md4c は **UTF-8 モード** (`MD_CHAR=char`) で起動するため、入力は 
 
 #### 3.6.4 GitHub Alerts記法
 
-引用ブロック先頭の `[!NOTE]` `[!TIP]` `[!IMPORTANT]` `[!WARNING]` `[!CAUTION]` を検出し、マーカーをアイコンとラベルに置き換え、`alert_type` を設定したうえで `set_alert_label_length` でラベル部分の長さを記録する（描画エフェクト適用範囲に使う）。同じ引用グループの後続ノードには `alert_type` だけを伝播する（ラベル長は 0）。`ParseMarkdown` の最後に、集めた BlockQuote ノード（`blockquote_indices`）ごとに `parser.cpp` 内部の `DetectAlertAt` が処理する。書き換えたテキストと runs は `TextArena` に置く。
+引用ブロック先頭の `[!NOTE]` `[!TIP]` `[!IMPORTANT]` `[!WARNING]` `[!CAUTION]` を検出し、マーカーをアイコンとラベルに置き換え、`alert_type` を設定したうえで `set_has_alert_label` でラベルを持つ印を立てる。ラベル部分の長さ（描画エフェクト適用範囲に使う）はノードに持たず、`AlertType` から `AlertLabelLength`（`document_types.h` の `kAlertLabels` の "アイコン ラベル" の長さ）で求める。同じ引用グループの後続ノードには `alert_type` だけを伝播する（ラベル長は 0）。`ParseMarkdown` の最後に、集めた BlockQuote ノード（`blockquote_indices`）ごとに `parser.cpp` 内部の `DetectAlertAt` が処理する。書き換えたテキストと runs は `TextArena` に置く。
 
 #### 3.6.5 脚注
 
@@ -925,7 +934,7 @@ md4c の `MD_FLAG_FOOTNOTES`（v0.6.0 で `MD_DIALECT_GITHUB` に追加）を有
 | コードブロックの背景 | `NodeBoxPadTop` / `NodeBoxPadBottom` は継ぎ目ではみ出さず、`GenCodeBlockBg` は継ぎ目の側の角を丸めない |
 | コピーボタン | 先頭のノードにだけ置き、`ClipboardManager::CopyCodeBlock` が並び全体をコピーする |
 | 横スクロール | `GetBlockHScrollGeometry` が並びの先頭を `scroll_key` として返し、幅は並びのうち計測済みの部分の最大にする |
-| 構文の色分け | パーサが並びを前から字句解析し（`AnnotateCodeChunkLeads`）、続きのノードの先頭を占める前からのトークンの長さと種類を `Node::code_lead_length` / `code_lead_type` に残す。`TokenizeCodeNode` はそれを先頭に置き、その後ろからトークン化する（ブロックコメントや文字列が何ノードにまたがっても色が崩れない）。区間に分けて worker で並列に解析し、区間の境目をトークンがまたいだ所だけ順に解析し直す |
+| 構文の色分け | パーサが並びを前から字句解析し（`AnnotateCodeChunkLeads`）、続きのノードの先頭を占める前からのトークンの長さと種類を `Node::code_lead_length` / `code_lead_type` に残す。`TokenizeCodeNode` はそれを先頭に置き、その後ろからトークン化する（ブロックコメントや文字列が何ノードにまたがっても色が崩れない）。区間に分けて worker で並列に解析し、区間の境目をトークンがまたいだ所だけ順に解析し直す。並びどうしも書くノードが重ならないので、並びごとに worker へ配る |
 | 検索 | 改行を挟まない継ぎ目をまたぐマッチは前のノードに置き、続きのノードへはみ出す長さを `SearchMatch::next_length_w` に持つ。ハイライトは両方のノードに描く |
 | 語の選択 | `FindNodeWordBoundaries` が、改行を挟まない継ぎ目で切れた語を並びの続く限り隣のノードへ伸ばす |
 | コピー | `ExtractSelectedText` は継ぎ目に元の改行だけを戻し、`ExtractSelectedTextAsHtml` は並びを 1 つの `<p>` / `<pre>` にまとめる |
@@ -967,10 +976,10 @@ public:
                                                        float max_width, YRange viewport) const;
 };
 
-// 計測結果を entry に確定させ、測れたかを返す。画像・図ノードは BitmapNodeHeight で高さを決める。
+// 計測結果を entry に確定させ、測れたかを返す。画像・図ノードは BitmapNodeHeight で高さを決める (テーマは measurer のもの)。
 bool MeasureEntry(const ITextMeasurer& measurer, const Node& node, NodeLayoutEntry& entry,
                   float node_width, YRange viewport, float entry_top,
-                  const DiagramEntry* bitmap, const Theme& theme);
+                  const DiagramEntry* bitmap);
 
 class LayoutEngine {
 public:
@@ -980,10 +989,10 @@ public:
     bool Init(ITextMeasurer* measurer, const Theme& theme);
 
     // 本文幅かズームが推定時から変わって全ノードを dirty にしたら true。
-    bool Reestimate(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width);
-    bool EnsureVisibleLayout(const std::pmr::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
+    bool Reestimate(const std::vector<Node>& nodes, LayoutCache& cache, float viewport_width);
+    bool EnsureVisibleLayout(const std::vector<Node>& nodes, LayoutCache& cache, float viewport_width,
                              float viewport_top, float viewport_bottom);
-    bool ProcessDirtyBatch(const std::pmr::vector<Node>& nodes, LayoutCache& cache,
+    bool ProcessDirtyBatch(const std::vector<Node>& nodes, LayoutCache& cache,
                            float viewport_width, LayoutDeadline deadline, YRange range);
 };
 
@@ -1002,7 +1011,7 @@ public:
 };
 ```
 
-本番実装は `DWriteTextMeasurer`（DirectWrite を使用）。書式は `SetFactory` の後に `RecreateFormats` で作る。計測に使うテーマと scheduler は `ITextMeasurer` が 1 か所で持ち、`LayoutEngine` はそれを読む（テーマは `LayoutEngine::Init`、scheduler は `ITextMeasurer::SetScheduler` で渡す）。テーマは `ThemeService` が持つ今のテーマで、ズームと色の切り替えは同じ場所を書き換えるので渡し直さない。テスト時はモックに差し替えられる。`RecreateFormats` を呼んだスレッド（UI スレッド）は共有ファクトリで、それ以外の計測ワーカーはスレッドごとの ISOLATED ファクトリと書式（`thread_local`、`RecreateFormats` の世代番号が変わったら作り直す）で測る。共有ファクトリを全スレッドで使うと、ファクトリ内部の競合で 4 本を超えると遅くなるため（`test.md` x8 の全計測で、共有は 8 本 705ms・16 本 1480ms、分けると 410ms・260ms）。`RecomputeYPositions` / `EstimateNodeHeight` / `EstimateNodeHeights` / `MakeEstimatedLayoutCache` などのフリー関数（`layout_computer.h` の `layout` 名前空間）で Y 座標再計算と高さ推定（DirectWrite 計測前の暫定値）を提供する。リロードでは `CarryOverUnchanged` が、先頭・末尾から中身の一致する範囲（`FindUnchangedEnds` の結果。非同期リロードでは worker が数えて渡す）の計測結果を、旧キャッシュから区間ごとに引き継ぐ（`LayoutCache::TakeEntries`）。グローバル名前空間への `using` エイリアスは置かず、使う側の .cpp が必要な名前だけを `using layout::X;` で取り込む。
+本番実装は `DWriteTextMeasurer`（DirectWrite を使用）。書式は `SetFactory` の後に `RecreateFormats` で作る。計測に使うテーマと scheduler は `ITextMeasurer` が 1 か所で持ち、`LayoutEngine`・`MeasureEntry`・`MeasureIndicesParallel` はそれを読む（別の引数では受けない。テーマは `LayoutEngine::Init`、scheduler は `ITextMeasurer::SetScheduler` で渡す）。テーマは `ThemeService` が持つ今のテーマで、ズームと色の切り替えは同じ場所を書き換えるので渡し直さない。テスト時はモックに差し替えられる。`RecreateFormats` を呼んだスレッド（UI スレッド）は共有ファクトリで、それ以外の計測ワーカーはスレッドごとの ISOLATED ファクトリと書式（`thread_local`、`RecreateFormats` の世代番号が変わったら作り直す）で測る。共有ファクトリを全スレッドで使うと、ファクトリ内部の競合で 4 本を超えると遅くなるため（`test.md` x8 の全計測で、共有は 8 本 705ms・16 本 1480ms、分けると 410ms・260ms）。`RecomputeYPositions` / `EstimateNodeHeight` / `EstimateNodeHeights` / `MakeEstimatedLayoutCache` などのフリー関数（`layout_computer.h` の `layout` 名前空間）で Y 座標再計算と高さ推定（DirectWrite 計測前の暫定値）を提供する。リロードでは `CarryOverUnchanged` が、先頭・末尾から中身の一致する範囲（`FindUnchangedEnds` の結果。非同期リロードでは worker が数えて渡す）の計測結果を、旧キャッシュから区間ごとに引き継ぐ（`LayoutCache::TakeEntries`）。グローバル名前空間への `using` エイリアスは置かず、使う側の .cpp が必要な名前だけを `using layout::X;` で取り込む。
 
 計測用の scheduler は Mermaid 等の共有 scheduler とは別に立て、ワーカー数は `LayoutWorkerCount`（コア数 − 1 を 2〜8 本に収める。16 本はさらに速いがファクトリの分だけ commit が約 11% 増える）で決める。`App::Init` は scheduler を渡した後に `DWriteTextMeasurer::WarmUp` で、各ワーカーにファクトリと書式を作らせ、本文・コード・見出し 1 つの書式の小さなレイアウトを作って捨てる。最初の計測がフォントの読み込みとフォールバックの解決を待たないようにするためで、作り終えたワーカーは全員がそろうまで待ち、1 本に 1 つずつ行き渡らせる。
 
@@ -1072,22 +1081,19 @@ sequenceDiagram
     participant R as Renderer
     participant CG as CommandGenerator
     participant CE as ExecuteDrawCommands
-    participant BE as D2DRenderBackend
     participant RT as ID2D1DeviceContext
 
     APP->>R: Render(params)
-    R->>R: PrepareChrome (タイトルバー・サイドペイン)
-    R->>BE: AcquireFrame (フレーム待ち)
+    R->>R: PrepareChrome (タイトルバー・サイドペイン → frame_cmds_)
+    R->>CG: GenerateMdPane(frame_cmds_, params.md, dpi_scale)
+    CG-->>R: frame_cmds_ の後ろに積む
+    R->>R: GenOverlays (frame_cmds_ の後ろに積む)
+    R->>R: AcquireFrame (フレーム待ち)
     R->>RT: BeginDraw / Clear
-    R->>CE: ExecuteDrawCommands(chrome_cmds_, rt, brushes_)
-    R->>CG: GenerateMdPane(params.md, dpi_scale)
-    CG-->>R: DrawCommandList
-    R->>CE: ExecuteDrawCommands(cmds, rt, brushes_)
+    R->>CE: ExecuteDrawCommands(frame_cmds_, rt, brushes_, params.md.inline_math)
     CE->>RT: 各描画コマンド実行
-    R->>R: GenOverlays (overlay_cmds_)
-    R->>CE: ExecuteDrawCommands(overlay_cmds_, rt, brushes_)
     R->>RT: EndDraw
-    R->>BE: Present (スワップチェーン)
+    R->>R: Present (スワップチェーン)
 ```
 
 #### 3.8.2 DrawCommand 型
@@ -1108,17 +1114,19 @@ using DrawCommand = std::variant<
     SetTransformCmd
 >;
 
-using DrawCommandList = std::pmr::vector<DrawCommand>;
+using DrawCommandList = std::vector<DrawCommand>;
 
 using FixedBrushArray = std::array<Microsoft::WRL::ComPtr<ID2D1SolidColorBrush>, std::to_underlying(BrushId::Count)>;
 
 // 該当ブラシが未作成のコマンドは描かない。rt は null にしない (実装は command_executor.cpp)。
-void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes);
+// math が無ければインライン数式は描かない。math には描いたページの last_drawn と、型の無かった数式 (missing) を書く。
+void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes,
+                         InlineMathMasks* math = nullptr);
 ```
 
-`DrawCommandList` は `DrawCommand` variant の単一 `std::pmr::vector` である。毎フレーム構築して 1 回読むだけのリストなので、型別ベクタや発行順テーブルは持たない。`CommandGenerator` は毎フレーム `cmds_` を clear して容量を使い回し、自由関数 `ExecuteDrawCommands` は先頭から `std::visit` で順に実行する。
+`DrawCommandList` は `DrawCommand` variant の単一 `std::vector` である。毎フレーム構築して 1 回読むだけのリストなので、型別ベクタや発行順テーブルは持たない。`Renderer` は毎フレーム `frame_cmds_` を clear して容量を使い回し（`CommandGenerator::GenerateMdPane` は渡された列の後ろに積む）、自由関数 `ExecuteDrawCommands` は先頭から `std::visit` で順に実行する。第 4 引数のインライン数式の型（`App` が持つ `InlineMathMasks`）は、`Renderer::Render` が `MdPaneParams::inline_math` をそのまま渡す。
 
-各コマンドは値型で、`IDWriteTextLayout*` や `ID2D1Bitmap*` などのポインタは **非所有**（ライフタイムは `LayoutCache` / `TextLayoutCache` / `Renderer` が管理）。色はすべて `BrushId`（`brush_id.h`）で固定ブラシを指し、`Renderer` が保持する `FixedBrushArray` を `ExecuteDrawCommands` が配列ルックアップで引く。半透明は `opacity` で掛ける。アラートの背景も固定ブラシ（`AlertNoteBg` 〜 `AlertCautionBg`）、オーバーレイボタンは白黒の固定ブラシ（`OverlayBrushId`）に不透明度を掛けて描くので、コマンドが任意の色を持つことはない。ブラシが未作成のコマンドは描かない。
+各コマンドは値型で、`IDWriteTextLayout*` や `ID2D1Bitmap*` などのポインタは **非所有**（ライフタイムは `LayoutCache` / `TextLayoutCache` / `Renderer` が管理）。色はすべて `BrushId`（`brush_id.h`）で固定ブラシを指し、`Renderer` が保持する `FixedBrushArray` を `ExecuteDrawCommands` が配列ルックアップで引く。半透明は `opacity` で掛ける。アラートの背景も固定ブラシ（`AlertNoteBg` 〜 `AlertCautionBg`）、オーバーレイボタンはテーマが白（ダーク）か黒（ライト）に決めた固定ブラシ（`BrushId::Overlay`）に不透明度を掛けて描くので、コマンドが任意の色を持つことはない。ブラシが未作成のコマンドは描かない。
 
 `DrawTextLayoutCmd` はすべて `ID2D1RenderTarget::DrawTextLayout` ではなく、自前の `IDWriteTextRenderer`（`VisibleRunRenderer`）を渡した `IDWriteTextLayout::Draw` で描く。テキストレイアウトに付く描画効果は計測ワーカーが `SetDrawingEffect` で付けた `BrushEffect`（リンク色・アラートラベル色）で、デバイスに依存しない印なので、デバイスを作り直しても付け直さずに済む。描画時に `BrushEffect::IdOf` で固定ブラシへ置き換える。
 
@@ -1126,54 +1134,60 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
 
 コードブロックの構文色も描画時に付ける。`DrawTextLayoutCmd::syntax_tokens`（同じ `NodeLayoutEntry` が持つ UTF-16 位置のトークン、非所有）があれば、`VisibleRunRenderer` はグリフランを `clusterMap` でトークン境界に分け、種別ごとの固定ブラシ（`SyntaxKeyword` 〜 `SyntaxDeleted`）で描く。右から左のランも分割し、境界がクラスタ（合字等）の途中にあればそのクラスタは後ろのトークンの色になる。`SetDrawingEffect` は 1 回ごとに既存の範囲数に比例して重くなり、巨大なコードブロックで O(n²) になるため構文色には使わない。トークンは計測ワーカーが text_layout と一緒に作り、トークン間の空白だけの隙間は直前のトークンに含めて同種をまとめ、グリフランの分割を減らしておく。
 
-#### 3.8.3 D2DRenderBackend
+インラインオブジェクトは `DrawInlineObject` に届く。見えない行のものは、見分ける前に寸法（`GetMetrics`）で飛ばす。インライン数式（`MakeInlineMathObject` で作ったもの。`InlineMathObjectKey` が QueryInterface で見分ける）は `InlineMathMasks` の型を本文の色で塗り、それ以外は書式の省略記号なのでオブジェクト自身に描かせる。省略記号は `TextFormatSpec::ellipsis` で書式に付け、今は描けなかった図の文言（`placeholder_text`）だけが使う。その枠の高さは文言の長さによらない（推定か本文 3 行ぶんの高さ。3.26）ので、収まらない行を省いて最後に見える行の末尾を省略記号にし、前後のブロックに重ならないようにする。
 
-D3D11 デバイス + DXGI フリップモデルのスワップチェーン上の `ID2D1DeviceContext`、D2D / DirectWrite / WIC ファクトリ、DPI を保持する（`src/render/d2d_render_backend.h`）。抽象インターフェースは持たず、`Renderer` がメンバとして持つ。ブラシとテキストフォーマットは `Renderer` 側で管理する。ヘッダは D3D11 / DXGI / D2D 1.1 / WIC の型を前方宣言だけで持ち（デストラクタと型変換の要る取得関数は .cpp）、`d3d11.h` / `dxgi1_2.h` / `d2d1_1.h` / `wincodec.h` は `d2d_render_backend.cpp` と、デバイスコンテキストを直接使う `renderer.cpp` / `renderer_resources.cpp` だけが読む。`renderer.h` を通して `app.h` を読む翻訳単位（`app*.cpp`・`window.cpp`）へ D3D11 のヘッダを広げないため。
+#### 3.8.3 Renderer のデバイスとスワップチェーン
+
+D3D11 デバイス + DXGI フリップモデルのスワップチェーン上の `ID2D1DeviceContext`、D2D / DirectWrite / WIC ファクトリ、DPI は `Renderer` が直接持つ（抽象インターフェースや別のクラスは挟まない）。ブラシとテキストフォーマットも `Renderer` が管理する。デバイスとスワップチェーンを扱うメンバ関数は `renderer_device.cpp` で定義する。`renderer.h` は D3D11 / DXGI / D2D 1.1 / WIC の型を前方宣言だけで持ち（型変換の要る取得関数は .cpp）、`d3d11.h` / DXGI のヘッダは `renderer_device.cpp` だけが読み、`d2d1_1.h` / `wincodec.h` も含めて `renderer.h` から `app.h` を読む翻訳単位（`app*.cpp`・`window.cpp`）へ広げない。
 
 ```cpp
-class D2DRenderBackend final {
+// デバイスとスワップチェーンを扱うメンバ関数は renderer_device.cpp で定義する。
+class Renderer {
 public:
     // デバイスとスワップチェーンは作らない (CreateDevice で作る)。
-    bool Init(HWND hwnd);
+    bool Init(HWND hwnd, const Theme& theme);
+    // 既存のデバイスがあれば捨てて作り直す。
     bool CreateDevice();
-    void Resize(UINT width, UINT height, bool live = false) noexcept;
+    void Resize(UINT width, UINT height, bool live) noexcept;
     void SetDpi(float dpi) noexcept;
-    float GetDpi() const noexcept;
     D2D1_SIZE_F GetSize() const noexcept;
+    void TrimForMinimize() noexcept;
 
-    void AcquireFrame() noexcept;
     static constexpr DWORD kFrameWaitTimeoutMs = 1000;
-    HANDLE FrameWaitHandle() const noexcept;
+    HANDLE FrameWaitHandle() const noexcept;   // 取れている間とロスト中は nullptr
     void MarkFrameAcquired() noexcept;
-    void Present() noexcept;
-    void Trim() noexcept;
-    bool IsDeviceLost() const noexcept;
 
     ID2D1Factory* GetD2DFactory() const noexcept;
-    ID2D1DeviceContext* GetRenderTarget() const noexcept;
+    ID2D1RenderTarget* GetRenderTarget() const noexcept;
     IDWriteFactory* GetDWriteFactory() const noexcept;
     IWICImagingFactory* GetWICFactory() const noexcept;
+
+private:
+    void AcquireFrame() noexcept;
+    void Present() noexcept;
+    void TrimDevice() noexcept;
+    bool device_lost_ = false;
 };
 ```
 
-- **デバイス作成**: D3D デバイスの作成（数十 ms）は `PrefetchD3DDevice` で wWinMain の冒頭から起動処理と重ね、`Renderer::CreateDevice` → `D2DRenderBackend::CreateDevice` で受け取る。作り直しに失敗している間はロスト扱いのままにする。
-- **フレーム待ち**: Frame Latency Waitable Object のシグナルで次のフレームを描いてよいかを判断する。メッセージループが `FrameWaitHandle` を待って `MarkFrameAcquired` で記録し、取れていなければ `Renderer::BeginFrame` から `AcquireFrame` が最大 `kFrameWaitTimeoutMs`（1 秒）待つ。取れたら Present するまで取れた扱いのままにし、表示されなかったフレームの後で待ち直さない。
+- **デバイス作成**: D3D デバイスの作成（数十 ms）は `PrefetchD3DDevice` で wWinMain の冒頭から起動処理と重ね、`Renderer::CreateDevice` で受け取る。作り直しに失敗している間はロスト扱いのままにする。
+- **フレーム待ち**: Frame Latency Waitable Object のシグナルで次のフレームを描いてよいかを判断する。メッセージループが `FrameWaitHandle` を待って `MarkFrameAcquired` で記録し、取れていなければ `Renderer::Render` がコマンドを組み立てた後、`BeginDraw` の前の `AcquireFrame` で最大 `kFrameWaitTimeoutMs`（1 秒）待つ。取れたら Present するまで取れた扱いのままにし、表示されなかったフレームの後で待ち直さない。
 - **リサイズ**: ライブリサイズ中（`live`）は `ResizeBuffers` をせず、モニタ全体の大きさのバッファを使い回して表示範囲（source size）だけを変える。
-- **デバイスロスト**: `Present` が `DXGI_ERROR_DEVICE_REMOVED` / `RESET` / `HUNG` / `DRIVER_INTERNAL_ERROR` を返すと `IsDeviceLost` が true になり、`Renderer` が次フレーム冒頭の `HandleDeviceLost` で作り直す。
-- **最小化**: `Trim` で D2D の内部キャッシュとドライバ側の一時確保を手放す（`Renderer::TrimForMinimize`）。
+- **デバイスロスト**: `Present` が `DXGI_ERROR_DEVICE_REMOVED` / `RESET` / `HUNG` / `DRIVER_INTERNAL_ERROR` を返すと `device_lost_` が立ち、次フレーム冒頭の `BeginFrame` が `RecreateDevice` で作り直す。
+- **最小化**: `TrimDevice` で D2D の内部キャッシュとドライバ側の一時確保を手放す（`Renderer::TrimForMinimize` から呼ぶ）。
 
 #### 3.8.4 Renderer ファイル構成
 
 | ファイル | 担当 |
 |:---------|:-----|
-| `renderer.cpp` | フレームの開始・終了（`BeginFrame` / `EndFrame`）とデバイスロスト復旧、Markdown ペイン描画統括、タイトルバーとサイドペインのコマンド（`PrepareChrome` が `chrome::` を呼ぶ）、本文に重ねるコマンドの組み立て（`GenOverlays`、ジェスチャーの軌跡） |
-| `renderer_resources.cpp` | 固定ブラシ・ペイン用フォーマット管理、アプリアイコン |
+| `renderer.cpp` | フレームの開始・終了（`BeginFrame` / `EndFrame`）とデバイスロスト復旧、Markdown ペイン描画統括、タイトルバーとサイドペインのコマンド（`PrepareChrome` が `chrome::` を呼ぶ）、本文に重ねるコマンドの組み立て（`GenOverlays`、ジェスチャーの軌跡）、固定ブラシ・ペイン用フォーマット管理、アプリアイコン |
+| `renderer_device.cpp` | D3D デバイスの先行作成（`PrefetchD3DDevice`）、ファクトリ・デバイス・スワップチェーンの作成、リサイズ、フレーム待ち（`AcquireFrame`）、`Present` とデバイスロストの検知、`TrimDevice`（`d3d11.h` / DXGI を読む唯一の翻訳単位） |
 
 #### 3.8.5 描画順（`Renderer::Render`）
 
 1. 背景クリア
-2. カスタムタイトルバー・ファイルペイン / TOCペイン・スプリッタ（`PrepareChrome` が `chrome_cmds_` に積み、`ExecuteDrawCommands` で実行）
-3. Markdownコンテンツ（`GenerateMdPane` → `ExecuteDrawCommands`）
+2. カスタムタイトルバー・ファイルペイン / TOCペイン・スプリッタ（`PrepareChrome` が `frame_cmds_` の先頭に積む。以下も同じ列に積み、`BeginDraw` の後に `ExecuteDrawCommands` で 1 回だけ実行する）
+3. Markdownコンテンツ（`GenerateMdPane` が続けて積む）
    - 引用ブロックのバー・背景（`GenBlockQuoteGroupDecorations`、グループ単位でノードより先に描く）
    - 以下、ノードごとに文書順（`GenerateNode`）
    - コードブロック背景 → テキスト（構文色は描画時に付ける）→ コピーボタン
@@ -1182,7 +1196,7 @@ public:
    - 画像・Mermaidダイアグラムビットマップ → 保存 / コピーボタン
    - テキストを持つノードはインラインコード背景 → 検索ハイライト → テキスト選択ハイライト → テキストの順
    - テーブル・コードブロックの横スクロールバー（ホバー中・ドラッグ中のブロックのみ）
-4. 以下は `GenOverlays` が本文の後に実行する別リスト（`overlay_cmds_`）に積む
+4. 以下は `GenOverlays` が本文の後ろに積む
 5. ナビゲーションボタン（戻る/進むオーバーレイ、`overlay::EmitNavButtons`）
 6. マウスジェスチャトレイル（`GenGestureTrail`、`DrawGeometryCmd`）
 7. スワイプオーバーレイ（`overlay::EmitGestureOverlay`）
@@ -1190,16 +1204,16 @@ public:
 9. 検索バー（下部ドッキング、`overlay::EmitSearchBar`）
 10. Markdownペインのスクロールバーのつまみ（`VScrollThumb`。サイドペインのつまみも同じ関数で作る）
 
-オーバーレイボタン（コピー / 保存）はホバーの有無にかかわらず描き、ホバー中だけ濃くする。矩形は `layout::ForEachOverlayButton` が列挙し、描画とヒットテストで同じ矩形を使う。
+オーバーレイボタンのうち、コードブロックのコピーは常に描き、図の保存 / コピーはマウスが図の画像領域にある間（`MdPaneParams::hovered_diagram`）だけ描く。どれもボタンにホバー中だけ濃くする。矩形は `layout::ForEachOverlayButton` が列挙し、描画とヒットテストで同じ矩形を使う。
 
 読み込み中（`RenderParams::loading_angle` がある）は 3 の代わりに 5 のスピナー（`overlay::EmitLoadingSpinner`）を積み、7・8（ジェスチャオーバーレイ・トースト）だけを重ねる。コンテキストメニューはこのシーケンスとは別経路で描画される。
 
-`Renderer` はすべてをコマンドにして `ExecuteDrawCommands` で描き、レンダーターゲットへ直接描くのは `BeginDraw` / `Clear` / `EndDraw` だけである。半透明は各コマンドの `opacity`、未作成のブラシは executor がまとめて扱う。スピナー・ナビボタン・ジェスチャー・トースト・検索バーの組み立ては `command_generator.h` の `overlay` 名前空間の関数に、スクロールバーのつまみは `VScrollThumb` にあり、デバイス無しでテストできる。検索欄の文字列は `SearchInputLayout`（`command_generator.h`。DirectWrite のファクトリと書式だけを使い、デバイスに依存しない）がレイアウトを作って選択範囲とキャレットの位置を測り、その結果（`SearchInputMetrics`）を `overlay::EmitSearchBar` に渡す。入力欄のクリックとドラッグの文字位置も同じクラスの `HitTest` が求める。ジェスチャーの軌跡は D2D のジオメトリを作るので `Renderer` に残る。タイトルバーとサイドペインはデバイスに依存しないコマンド列なので、デバイスの作成前に `PrepareChrome` を呼んで最初のフレームの文字レイアウトを先に作れる（`App::CreateRenderDevice`）。
+`Renderer` はすべてをコマンドにして `ExecuteDrawCommands` で描き、レンダーターゲットへ直接描くのは `BeginDraw` / `Clear` / `EndDraw` だけである。半透明は各コマンドの `opacity`、未作成のブラシは executor がまとめて扱う。スピナー・ナビボタン・ジェスチャー・トースト・検索バーの組み立ては `command_generator.h` の `overlay` 名前空間の関数に、スクロールバーのつまみは `VScrollThumb` にあり、デバイス無しでテストできる。検索バーの配置は `Renderer::GenOverlays` が 1 フレームに 1 回だけ `ComputeSearchBarLayout` で組み（`SearchBarLayout`。バー全体の矩形 `bar_rect` も持つ）、入力欄の幅を測るのにも `overlay::EmitSearchBar` にもそれを渡す。検索欄の文字列は `SearchInputLayout`（`command_generator.h`。DirectWrite のファクトリと書式だけを使い、デバイスに依存しない）がレイアウトを作って選択範囲とキャレットの位置を測り、その結果（`SearchInputMetrics`）を `overlay::EmitSearchBar` に渡す。入力欄のクリックとドラッグの文字位置も同じクラスの `HitTest` が求める。ジェスチャーの軌跡は D2D のジオメトリを作るので `Renderer` に残る。タイトルバーとサイドペインはデバイスに依存しないコマンド列なので、デバイスの作成前に `PrepareChrome` を呼んで最初のフレームの文字レイアウトを先に作れる（`App::CreateRenderDevice`）。
 
 描画コストを抑えるためのキャッシュ:
 
 - **サイドペインの項目テキスト**: 可視項目は数十個なのでオフスクリーンに溜めず毎フレームコマンドに積む。左寄せ NO_WRAP の項目名・見出しはレイアウト幅を固定して `TextLayoutCache` に載せ、はみ出しはクリップで切るため、スプリッタのドラッグ中もレイアウトを作り直さない。
-- **短い文字列**: `DrawText` は呼び出しごとに内部でテキストレイアウトを作るため使わない。アイコン・リスト番号・プレースホルダ・タイトル・ナビボタン・ジェスチャー・トースト・検索バーのラベルや件数は、(書式, 文字列, 箱の大きさ) ごとに `TextLayoutCache`（`text_layouts_`、`CommandGenerator` と共有）に作り置き、文字列と書式が同じ間は使い回す。中央に置くものは中央揃え書式のレイアウトを幅/高さ 0 で作って矩形中心に置き（`TextLayoutCache::EmitCentered`）、固定サイズの箱が必要なものは箱サイズで作って左上に置く（`TextLayoutCache::Emit`）。`Renderer`、`CommandGenerator::EmitText`、`overlay` の関数がこれで積む。項目数が `kMaxEntries`（512）を超えたら `BeginFrame` で直前のフレームに使わなかったものを捨てる。言語の切り替えで書式を全部作り直す `RecreateAllTextFormats` はまとめて破棄する。ズームでは大きさがズームに従う書式（本文とジェスチャー）だけを作り直し、キャッシュは残す（キーが書式を参照で持つので、古い書式のレイアウトを引くことはなく、上限で捨てられる）。タイトルバーやサイドペインのレイアウトを作り直さずに済む（80 個ほどで約 2.7ms）。
+- **短い文字列**: `DrawText` は呼び出しごとに内部でテキストレイアウトを作るため使わない。アイコン・リスト番号・プレースホルダ・タイトル・ナビボタン・ジェスチャー・トースト・検索バーのラベルや件数は、(書式, 文字列, 箱の大きさ) ごとに `TextLayoutCache`（`command_generator.h`。`text_layouts_`、`CommandGenerator` と共有）に作り置き、文字列と書式が同じ間は使い回す。中央に置くものは中央揃え書式のレイアウトを幅/高さ 0 で作って矩形中心に置き（`TextLayoutCache::EmitCentered`）、固定サイズの箱が必要なものは箱サイズで作って左上に置く（`TextLayoutCache::Emit`）。`Renderer`、`CommandGenerator::EmitText`、`overlay` の関数がこれで積む。項目数が `kMaxEntries`（512）を超えたら `BeginFrame` で直前のフレームに使わなかったものを捨てる。言語の切り替えで書式を全部作り直す `RecreateAllTextFormats` はまとめて破棄する。ズームでは大きさがズームに従う書式（本文とジェスチャー）だけを作り直し、キャッシュは残す（キーが書式を参照で持つので、古い書式のレイアウトを引くことはなく、上限で捨てられる）。タイトルバーやサイドペインのレイアウトを作り直さずに済む（80 個ほどで約 2.7ms）。
 - **検索入力欄**: IME の合成中テキストを挿入した表示テキストと幅が前フレームと同じ間は `SearchInputLayout` のレイアウトを使い回す。ドラッグ選択中のヒットテストも、文字列と幅が同じならこのレイアウトを引く。
 
 ---
@@ -1248,11 +1262,12 @@ struct Theme {
     constexpr float ContentWidth(float viewport_width) const noexcept;
     float GetHeadingSize(int level) const noexcept;
     constexpr float GetHeadingUnderlineThickness(int level) const noexcept;
+    // 倍率 1 のテーマにだけ掛ける (倍率を変えるたびにベーステーマから作り直す)。
     void ApplyZoom(float new_zoom) noexcept;
 };
 ```
 
-色は描画の固定ブラシと同じ添字の `colors` 1 つに持つ。`BuildLightTheme` / `BuildDarkTheme` が `dark` を決め、背景（`BrushId::Background`、`Clear` に使う）・本文・見出し・コード・アラート（`AlertBrushIdFromIndex` / `AlertBgBrushIdFromIndex` の連番）・シンタックス（`SyntaxTokenType` の Keyword 以降と同じ順に並べ、`SyntaxBrushId` が差で引く）・タイトルバー・ペイン・検索の色に加えて、両テーマ共通の固定色（選択・閉じるボタンの赤・オーバーレイの白黒・ジェスチャーの背景と軌跡）と、`dark` で決まる重ね色（表のストライプ・スクロールバーのつまみ）もここで入れる。`Renderer::RecreateBrushes` は `colors` を添字順に 1 回なめてブラシに写すだけ。ポップアップ（コンテキストメニュー・設定ダイアログ）も `Color(BrushId::Text)` などから自前のブラシを作る。
+色は描画の固定ブラシと同じ添字の `colors` 1 つに持つ。`BuildTheme(dark)`（`theme.cpp` 内部）が `dark` を決め、テーマごとに違う色はライトとダークを 1 行に並べた 1 つの表（`ThemeColors()`）から写す。背景（`BrushId::Background`、`Clear` に使う）・本文・見出し・コード・アラート（`AlertBrushIdFromIndex` / `AlertBgBrushIdFromIndex` の連番）・シンタックス（`SyntaxTokenType` の Keyword 以降と同じ順に並べ、`SyntaxBrushId` が差で引く）・タイトルバー・ペイン・検索・ジェスチャーとトーストの背景（`OverlayGestureBg`）の色に加えて、両テーマ共通の固定色（選択・閉じるボタンの赤・オーバーレイの白 `OverlayWhite`・ジェスチャーの軌跡）と、`dark` で決まる重ね色（表のストライプ・スクロールバーのつまみ・ボタンのオーバーレイ `Overlay`（ダークは白、ライトは黒））もここで入れる。`Renderer::RecreateBrushes` は `colors` を添字順に 1 回なめてブラシに写すだけ。ポップアップ（コンテキストメニュー・設定ダイアログ）も `Color(BrushId::Text)` などから自前のブラシを作る。
 
 Reducer は `AppState::theme`（`ThemeService` 所有 `Theme` への非所有ポインタ）経由で寸法を直接参照する。
 
@@ -1280,7 +1295,7 @@ public:
 
 今のテーマは `ThemeService` が 1 つだけ持ち、`Renderer`（`const Theme*`）・`DWriteTextMeasurer` / `LayoutEngine`・`AppState::theme`・ポップアップ（`PopupEnv::theme`）はそれを参照する。切り替えは同じ場所を書き換え、ベーステーマから作り直すので倍率の累積誤差は溜まらない。起動時は `App::Init` が `LoadDarkMode` / `LoadZoomLevel` の値で `ThemeService::Init` を呼び、テーマを作ってフォントを決めてから `Renderer::Init(hwnd, theme)` に渡す。書式とブラシは 1 回の生成で済み、ライトテーマで作ってから作り直す二重生成を避ける。フォントの解決は DirectWrite の共有ファクトリだけを使い、D3D デバイスを待つより前に済む。
 
-ライト/ダークの切替はフォントと寸法が共通なので色だけの変更として扱う。`ThemeService::ToggleDarkMode` の後の `Renderer::OnThemeColorsChanged` は書式やテキストレイアウトを作り直さず、固定ブラシの色を `SetColor` で差し替えるだけである（ズーム変更は `ThemeService::ApplyZoom` の後に計測側の `RecreateFormats` と `Renderer::OnThemeMetricsChanged` で書式を作り直す。描画側が作り直すのは本文とジェスチャーの書式だけ）。テキストレイアウトに付けた描画効果はブラシ ID の印（`BrushEffect`）なので付け直しも要らない。Reducer 側（`ReduceToggleDarkMode`）もテキストレイアウトと描画エフェクトを維持し、テーマ色を焼き込んだ Mermaid ビットマップだけを `LayoutCache::InvalidateDiagramBitmaps` で破棄する。
+ライト/ダークの切替はフォントと寸法が共通なので色だけの変更として扱う。`ThemeService::ToggleDarkMode` の後の `Renderer::OnThemeColorsChanged` は書式やテキストレイアウトを作り直さず、固定ブラシの色を `SetColor` で差し替えるだけである（ズーム変更は `ThemeService::ApplyZoom` の後に計測側の `RecreateFormats` と `Renderer::OnThemeMetricsChanged` で書式を作り直す。描画側が作り直すのは本文とジェスチャーの書式だけ）。テキストレイアウトに付けた描画効果はブラシ ID の印（`BrushEffect`）なので付け直しも要らない。`App::ToggleDarkMode` もテキストレイアウトと描画エフェクトを維持し、テーマ色を焼き込んだ Mermaid ビットマップだけを `LayoutCache::InvalidateDiagramBitmaps` で破棄する（reducer の `ReduceToggleDarkMode` は見ていた位置を scroll target に置くだけで、文書には書かない）。
 
 #### 3.9.3 ズームシステム
 
@@ -1300,9 +1315,9 @@ public:
 
 `ZOOM_DEFAULT_INDEX = 7`、`ZOOM_STEP_COUNT = 17`。
 
-ズーム変更では `ReduceZoom` が可視先頭のノードとノード内オフセット（ズーム比でスケール）を scroll target に置いて全ノードのレイアウトを無効化し、`ThemeService::ApplyZoom` が zoom=1.0 の基準テーマから倍率を掛けて今のテーマを作り直し（累積適用による誤差を避ける）、`App::ApplyZoom` が計測と描画の書式を作り直す。続く `App::RelayoutViewport(RelayoutResources::Diagrams)` の `LayoutService::ViewportLayout` が推定し直した Y で見ていた位置を当て直してから可視範囲を計測する（3.7.1）。
+ズーム変更では `ReduceZoom` が可視先頭のノードとノード内オフセット（段を変える前後の倍率の比でスケール）を scroll target に置き、`App::ApplyZoom` が全ノードのレイアウトを無効化して（`LayoutCache::InvalidateAllLayouts`。reducer は文書に書かない）、`ThemeService::ApplyZoom` が zoom=1.0 の基準テーマから倍率を掛けて今のテーマを作り直し（累積適用による誤差を避ける）、計測と描画の書式を作り直す。続く `App::RelayoutViewport(RelayoutResources::Diagrams)` の `LayoutService::ViewportLayout` が推定し直した Y で見ていた位置を当て直してから可視範囲を計測する（3.7.1）。
 
-本文のズームは Markdown 本文だけに掛かる。`Theme::ApplyZoom` は本文のフォントサイズと余白のみを倍し、サイドペインの `pane_item_height` / `pane_header_height` / `splitter_width` / `pane_font_size` は据え置く。ペイン幅もズーム倍率でスケールせず、`ReduceZoom` は `pane_layout_cache` を無効化しない。保存するペイン幅はズームを含まない DIP 値である。
+本文のズームは Markdown 本文だけに掛かる。`Theme::ApplyZoom` は本文のフォントサイズと余白のみを倍し、サイドペインの `pane_item_height` / `pane_header_height` / `splitter_width` / `pane_font_size` は据え置く。ペイン幅もズーム倍率でスケールしないので、本文のズームでペイン配置（`ComputePaneLayout`）は変わらない。保存するペイン幅はズームを含まない DIP 値である。
 
 サイドペインはペインごとの倍率で一覧の項目（行の高さ `SidePaneItemHeight`・文字・アイコン・目次の字下げ）だけを拡大する。ヘッダーとペイン幅は変えない。`ZoomAction::pane` があれば `ReduceSidePaneZoom` がそのペインの段を動かし、先頭に見えていた項目が残るようスクロール位置を倍率の比で動かす。本文は組み直さない。Renderer はペインごとの一覧の書式（`pane_list_fmt_`）を描画時の倍率で作り直す。`TextLayoutCache` はキーで書式を参照して持つので、書式を作り直してもキャッシュを捨てる必要はない（解放したアドレスが新しい書式に使い回されない）。図の保存・コピーのボタンは、ポインタが画像の矩形の上にあるとき（`hit_test::DiagramImageHitTest`）だけ出す。Ctrl+ホイールはポインタの下の領域を、右クリックメニューの「ズーム」の行（ブラウザのメニューと同じ − / 倍率 / + / 元に戻す）は右クリックした領域をズームする。ズームの行のボタンはメニューを閉じず、`ContextMenuParams::on_zoom` で `ZoomAction` を流す。メニューと設定ダイアログのモーダルループは本体のメッセージループ（`ModalLoop`、`Win32Window` が実装）で回すので、開いている間も本体の描画・タイマー・通知・ファイル監視・空き時間の仕事が進む（保存すれば裏で読み直される）。倍率の表示と押せるかは開いている間に変わるので、`ZoomLevel` から都度求める。
 
@@ -1406,7 +1421,7 @@ Lua は汎用 lexer に長括弧（`[[ ]]` / `[==[ ]==]` の文字列と `--[[ ]
 
 ```mermaid
 flowchart LR
-    OPEN[CreateFileW<br>GENERIC_READ<br>FILE_SHARE_*] --> READ[ReadFile<br>pmr::string バッファへ直接読込]
+    OPEN[CreateFileW<br>GENERIC_READ<br>FILE_SHARE_*] --> READ[ReadFile<br>string バッファへ直接読込]
     READ --> BOM[UTF-8 BOM 検出・除去]
     BOM --> LF[改行を LF に正規化]
     LF --> OUT["LoadedFileDoc { text UTF-8, byte_size }"]
@@ -1420,32 +1435,41 @@ enum class FileLoadError : uint8_t {
 };
 
 struct LoadedFileDoc {
-    std::pmr::string text;           // UTF-8 (BOM 除去・LF 正規化済み)
-    size_t           byte_size = 0;  // BOM 込みのファイルバイト数
+    std::string text;           // UTF-8 (BOM 除去・LF 正規化済み)
+    size_t      byte_size = 0;  // BOM 込みのファイルバイト数
 };
 
 // ワーカーだけが呼ぶ自由関数 (async_load_coordinator.h)。stop_token は差し替え口の型に合わせて受けるだけ。
 std::expected<LoadedFileDoc, FileLoadError>
-    LoadFile(const std::pmr::wstring& path, const std::stop_token& stop_token);
+    LoadFile(const std::wstring& path, const std::stop_token& stop_token);
 ```
 
 - 共有モード: `FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE`
 - 他プロセスが編集中でも読み取り可能
-- `ReadFile` で `std::pmr::string` バッファへ直接読み込み、UTF-16 変換は行わず **UTF-8 のまま** 返す（md4c も UTF-8 モードで動くため変換不要）
+- `ReadFile` で `std::string` バッファへ直接読み込み、UTF-16 変換は行わず **UTF-8 のまま** 返す（md4c も UTF-8 モードで動くため変換不要）
 - 改行は LF に正規化して返す。`Document` とリロード差分はこの出力が LF のみであることを前提にする
 - 上限は ~2GB-1（md4c が `int` を取るため、`INT_MAX` 超は `TooLarge` として弾く）
-- ファイル選択ダイアログは `FileDialogService`（`src/io/file_dialog_service.h`）に分離されている
+- ファイル選択ダイアログは `file_dialog::OpenMarkdownFile` / `SavePngFile`（`src/util/file_io.h`。`<commdlg.h>` は `file_io.cpp` だけが読む）に分離されている
 
 #### 3.11.2 FileWatcher — ファイル変更監視
 
 `ReadDirectoryChangesW` による非同期ディレクトリ監視。対象ファイルの親ディレクトリを監視し、ファイル名一致（大小無視。通知が 8.3 短縮名で来る場合に備えて短縮名とも照合）で変更を検出する。
 
 ```cpp
+// 監視を始めるのに要る問い合わせ (短縮名と親フォルダを開くこと) の結果。ネットワーク上のファイルでは往復が入るので、
+// 読み込みの worker で作り (OpenWatchTarget)、UI スレッドの StartWatching に渡す。
+struct FileWatchTarget {
+    std::wstring filename;
+    std::wstring short_filename;   // 長い名前と一致しない場合のみ
+    UniqueHandle dir;              // 開けなければ無効で、監視しない
+};
+FileWatchTarget OpenWatchTarget(const std::wstring& file_path);
+
 class FileWatcher {
 public:
     using ChangeCallback = std::move_only_function<void()>;
 
-    void StartWatching(const std::pmr::wstring& file_path, ChangeCallback callback);
+    void StartWatching(FileWatchTarget target, ChangeCallback callback);
     void StopWatching() noexcept;
     void CheckForChanges();
     void ResumeWatching();
@@ -1471,21 +1495,32 @@ ReadDirectoryChangesW の通知バッファは 64KB 確保（バッファ溢れ�
 #### 3.11.3 AsyncLoadCoordinator — 非同期ロード制御
 
 ```cpp
-// ワーカースレッドでのパース結果。cache は doc 向けに EstimateNodeHeights 済み。
-struct AsyncLoadResult {
-    Document    doc;
-    LayoutCache cache;
-    // 同一ファイルのリロードで、worker がパース前に差分判定まで済ませた結果。
-    // 旧文書のノードと比べて変わらなかった先頭と末尾のノード数 (ends) も worker で数えて持つ。
-    std::optional<ReloadCheck> reload;
+// 表示中のファイルを読み直すとき (開き直しを含む) に worker に渡す旧文書 (reload_flow.h の ReloadBaseFor が作る)。
+// 原文はパース前の差分判定に、ノードはパース後に変わらなかったノードを数えるのに使う。空ならリロードとして扱わない。
+struct ReloadBase {
+    std::shared_ptr<const DocumentData> data;   // Document::ShareData
+    bool accept_prefix_shrink = false;          // prefix shrink も defer せずにパースする (PrefixShrinkRetry の上限後)
+};
+
+// 同一ファイルのリロードで、worker がパース前に差分判定まで済ませた結果。
+// NoChange / DeferPrefixShrink と書き込み途中はパースせずに返す (doc は空)。
+struct ReloadCheck {
+    ReloadDecision decision{ ReloadOp::NoChange, std::string_view::npos };
+    // 判定に使った旧文書。UI 側の文書がこれと同一のときだけ decision と ends を信用できる。
+    // 弱参照なので、判定後に UI が文書を差し替えれば旧文書はその時点で解放される。
+    std::weak_ptr<const DocumentData> base;
+    // 旧文書のノードと比べて変わらなかった先頭と末尾のノード数 (Replace のとき)。worker で数える。
+    UnchangedEnds ends;
     // 読み終えた後もファイルが伸びている (エディタの書き込み途中)。worker が結果を出す直前に確かめる。
     bool still_growing = false;
 };
 
-// 同一ファイルのリロードで worker に渡す旧文書。text はパース前の差分判定、nodes はパース後の比較に使う。
-struct ReloadBase {
-    std::shared_ptr<const std::pmr::string> text;
-    std::weak_ptr<const NodeStorage> nodes;
+// ワーカースレッドでのパース結果。cache は doc 向けに EstimateNodeHeights 済み。
+struct AsyncLoadResult {
+    Document    doc;
+    LayoutCache cache;
+    std::optional<ReloadCheck> reload;
+    FileWatchTarget watch;   // 開いた文書の変更の監視に使う。リロードは今の監視を続けるので作らない
 };
 
 // 非同期ロード 1 回分の結果。成功時は AsyncLoadResult、失敗時はその理由。
@@ -1495,25 +1530,30 @@ using AsyncLoadOutcome = std::expected<AsyncLoadResult, FileLoadError>;
 class AsyncLoadCoordinator {
 public:
     bool IsActive() const noexcept;
-    const std::pmr::wstring& LoadingPath() const noexcept;  // IsActive の間だけ意味を持つ
+    const std::wstring& LoadingPath() const noexcept;  // IsActive の間だけ意味を持つ
 
     // 進行中の読み込み (preload を含む) の stop_source に request_stop してから新しく始める。
-    void Start(TaskScheduler& scheduler, std::pmr::wstring path, Theme theme,
+    // 結果は Attach で渡した通知先へ送る。Attach の前なら送らない。
+    void Start(TaskScheduler& scheduler, std::wstring path, Theme theme,
                float content_width = 0.0f, ReloadBase reload_base = {});
 
-    enum class AttachResult { None, AppliedSync, AttachedAsync };
-    AttachResult Attach(HWND hwnd, UINT msg_id);  // 通知先を渡す。以後の Start の結果もここへ送る
+    // 通知先を渡す。以後の Start の結果もここへ送る。読み込み中なら true で、結果が出ていればこの場で通知を送る。
+    bool Attach(HWND hwnd, UINT msg_id);
 
     std::optional<AsyncLoadOutcome> Take() noexcept;
     void Cancel() noexcept;
+
+private:
+    // Cancel と直列化するため、lock 内で stop を確かめてから outcome_ に書く。
+    void Publish(const std::stop_token& stop_token, AsyncLoadOutcome outcome);
 };
 ```
 
 ファイルの読み込みとパースは大きさによらず（ヘルプを除いて）ワーカーで行い、UI スレッドはファイルに触れない（ネットワーク上のファイルで止まらない）。スピナーの状態（`spinner_shown_` / `spinner_angle_`）は `App` が持つ。スピナーは、読み込みが `LOADING_SPINNER_DELAY_MS`（150ms）より長引いたときだけ出す（`App::ScheduleLoadingAnimation` が `LOADING_ANIM` タイマーを遅延付きで張り、最初の発火でスピナーを始める）。すぐ終わる読み込みでちらつかせないためである。読み込みのタスクは `TaskScheduler::PostFront` で、画像のデコードや図の読み込みの待ちより先に実行させる（リロードは旧文書の表示を続けるので、それらの待ちを捨てられない）。
 
-非同期ロードはワーカースレッドで Document を構築し、推定高さまで埋めた `LayoutCache` を返す。同一ファイルのリロードでは、パース後に旧文書のノード（`Document::ShareNodes` の弱参照）と比べ、変わらなかった先頭と末尾のノード数（`UnchangedEnds`）も worker で数える（100MB で約 20ms を UI スレッドから外す）。パース中に UI が旧文書を手放していれば数えず、`App::ReloadDocument` が数え直す。ワーカーは自分の `stop_token` の確認と mutex 保護の `outcome_` への書き込みだけを行う。`Start` と `Cancel` は必ず旧 `stop_source` に `request_stop` するので、停止を要求された token を持つ worker が古い worker であり、`Publish` は lock 内で stop を確かめてから書く。成功と失敗は `AsyncLoadOutcome`（`std::expected`）1 つで運ぶので、結果とエラーが両方入っている状態や、片方だけ取り残される状態は起きない。UI スレッドは `App::OnParseComplete` で `Take` を 1 回呼んで受け取る。
+非同期ロードはワーカースレッドで Document を構築し、推定高さまで埋めた `LayoutCache` を返す。同一ファイルのリロードでは、worker が旧文書（`ReloadBase::data`）の原文とパース前に差分を判定し、判定後は弱参照（`ReloadCheck::base`）だけを残してパース中に旧文書を延命しない。パース後は旧文書のノードと比べ、変わらなかった先頭と末尾のノード数（`UnchangedEnds`）も worker で数える（100MB で約 20ms を UI スレッドから外す）。パース中に UI が旧文書を手放していれば数えないが、そのときは UI の文書が `base` と別物なので、`PlanParseComplete` が結果を使わずに読み直させる（`Retry`）。ワーカーは自分の `stop_token` の確認と mutex 保護の `outcome_` への書き込みだけを行う。`Start` と `Cancel` は必ず旧 `stop_source` に `request_stop` するので、停止を要求された token を持つ worker が古い worker であり、`Publish` は lock 内で stop を確かめてから書く。成功と失敗は `AsyncLoadOutcome`（`std::expected`）1 つで運ぶので、結果とエラーが両方入っている状態や、片方だけ取り残される状態は起きない。UI スレッドは `App::OnParseComplete` で `Take` を 1 回呼んで受け取る。
 
-起動時の読み込みは、ウィンドウを作る前に `App::StartPreloadAsync` が通知先なしで `Start` する。ウィンドウ作成後の `App::LoadInitialDocument` が `Attach` で通知先を渡し、結果がもう出ていれば `AppliedSync` を返してその場で `OnParseComplete` を呼び（直後の同期 `WM_PAINT` で初回フレームが空にならないように）、まだなら `AttachedAsync` で完了時に `PARSE_COMPLETE` を送らせる。読み込んでいなければ `None` でヘルプを表示する。
+起動時の読み込みは、ウィンドウを作る前に `App::StartPreloadAsync` が通知先なしで `Start` する。ウィンドウ作成後の `App::LoadInitialDocument` が `Attach` で通知先を渡す。結果がもう出ていれば `Attach` がその場で `PARSE_COMPLETE` を送り（通知先が無い間の `Publish` は送っていないので二重には届かない）、まだなら完了時に `Publish` が送る。どちらも `Win32Window::Create` が最初のフレームより前に取り込む（D3D デバイスの先行作成を待つ間に届けば `AwaitInitialParseBeforeDevice`、作成の後なら `PeekMessageW` で）ので、初回フレームは空にならない。`Attach` が false（読み込んでいない）ならヘルプを表示する。
 
 #### 3.11.4 対応ファイル形式
 
@@ -1543,15 +1583,15 @@ sequenceDiagram
     alt メモリキャッシュヒット (ビットマップかエラー)
         MR-->>RM: 結果を DiagramEntry へ書いて true（高さは RM が寸法から決める）
     else ディスクキャッシュヒット
-        MR->>FC: LookupPath(hash)（初回のみ索引を読み込む）
-        FC-->>MR: PNG パス + CSS 寸法
+        MR->>FC: Find(width_free_hash, hash, max_width)（初回のみ索引を読み込む）
+        FC-->>MR: 当たったキー + CSS 寸法（PngPath でパス）
         MR->>WIC: worker で PNG 読み込み + デコード (IWICBitmap)
         WIC-->>APP: WM_APP+7 MERMAID_DISK_LOADED
         APP->>MR: ProcessDiskLoads → ID2D1Bitmap 化してメモリキャッシュへ (UI スレッド)
         MR-->>RM: on_update → RequestMermaidRenders（要求し直してメモリキャッシュから受け取る）
     else キャッシュミス
         MR->>MR: EnsureInitialized（ワーカーが無ければ WebView2 環境を生成）
-        MR->>WV: ExecuteScript(render)
+        MR->>WV: PostWebMessageAsString (要求 PageRenderMessage)
         WV->>JS: mermaid.render(code)
         JS-->>WV: SVG文字列
         WV-->>MR: 寸法 (WebMessage)
@@ -1571,7 +1611,7 @@ sequenceDiagram
 class IMermaidRenderer {
 public:
     // svg 非空: 成功 / 空かつ cancelled=false: レンダリング失敗 / 空かつ cancelled=true: 終了時に破棄
-    using SvgCallback = std::move_only_function<void(std::pmr::wstring svg, bool cancelled)>;
+    using SvgCallback = std::move_only_function<void(std::wstring svg, bool cancelled)>;
 
     virtual ~IMermaidRenderer() = default;
 
@@ -1590,9 +1630,11 @@ public:
 
 `ResourceManager` は描画タイマー（`MERMAID_BATCH`）・`FlushPendingResources`・結果の通知（`on_update` から `RequestMermaidRenders`）から、再レイアウトしない `RequestVisibleDiagrams` で可視範囲 → 下 → 上の順に図を走査し、1 図ずつ `RequestDiagramRender` で要求する。その場で結果が出た図の高さは `height_changed_` に溜め、呼び出し側が再レイアウトを 1 回にまとめる（`RequestMermaidRenders` は直後に、`FlushPendingResources` は画像の適用とあわせて）。大きく移動したとき・幅やテーマが変わったとき・文書を切り替えたときは `DropQueued` で不要になった描画待ちを捨てる。
 
-要求と結果のキーは、ノードのテキストと言語で決まる `DiagramCodeHash` に量子化幅とテーマを混ぜた `DiagramRequestHash`（`NodeDiagramHash` と同じ値で、ディスクキャッシュのキーにもなる）。mermaid は既定で `useMaxWidth` なので、幅の上限より狭く描けた図（`IsWidthFree`）はどの幅でも同じ結果になる。その結果は幅を混ぜない `DiagramWidthFreeHash` で持ち、メモリ（`FindCached`）でもディスク（`MermaidFileCache::LookupDiagram`）でも先に引いて、いまの幅の上限より狭いときだけ使う。ウィンドウやペインの幅を変えて開き直しても、描き直すのは幅に縛られる図（gantt など）とエラーだけになる。コード部分は `DiagramEntry::code_hash` に覚え、幅・テーマの変更で結果を捨てても残すので、要求し直すたびにテキストを読み直さない。結果はビットマップかエラーの `CachedResult` 1 型で、`TranspositionCache`（`MAX_CACHE_ENTRIES` = 128 件、`MAX_CACHE_BYTES` = 64MB）1 つに持つ。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。待ち・読み込み中・描画中の要求は `inflight_`（ハッシュの集合）で重複を弾く。要求はコードを UTF-8 のまま持ち、UTF-16 への変換と LaTeX の flowchart への包みは `RenderInWorker` で描く直前に行う。
+要求と結果のキーは、ノードのテキストと言語で決まる `DiagramCodeHash` に量子化幅とテーマを混ぜた `DiagramRequestHash`（`NodeDiagramHash` と同じ値で、ディスクキャッシュのキーにもなる）。mermaid は既定で `useMaxWidth` なので、幅の上限より狭く描けた図（`IsWidthFree`）はどの幅でも同じ結果になる。その結果は幅を混ぜない `DiagramWidthFreeHash` で持ち、メモリ（`FindCached`）でもディスク（`MermaidFileCache::Find`）でも先に引いて、いまの幅の上限より狭いときだけ使う。ウィンドウやペインの幅を変えて開き直しても、描き直すのは幅に縛られる図（gantt など）とエラーだけになる。コード部分は `DiagramEntry::code_hash` に覚え、幅・テーマの変更で結果を捨てても残すので、要求し直すたびにテキストを読み直さない。結果はビットマップかエラーの `CachedResult` 1 型で、`TranspositionCache`（`MAX_CACHE_ENTRIES` = 128 件、`MAX_CACHE_BYTES` = 64MB）1 つに持つ。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。待ち・読み込み中・描画中の要求は `inflight_`（ハッシュの集合）で重複を弾く。要求はコードを UTF-8 のまま持ち、UTF-16 への変換は描く直前にページへの要求を組むとき（`mermaid_util::PageRenderMessage`）に行う。
 
 `mendo_core` には `IMermaidRenderer` 抽象のみが入り、WebView2 を呼び出す具象 `MermaidRenderer` は `mendo` 実行ファイル側に分離されている。`MermaidRenderer` は最大 2 ワーカー（`MAX_WORKERS`、独立した WebView2 インスタンス）を並行稼働させ、PNG/SVG を同時にレンダリングできる。ワーカーは最初 1 つだけ起動し、全ワーカーが描画中で待ちが溜まったときに `MaybeGrowWorkers` で増やす。
+
+ページへの要求はスクリプトに埋め込まず、`"<種類>:<要求 ID>:..."` の文字列（`mermaid_util::Page*Message`）を `PostWebMessageAsString` で送り、`mermaid.html` の `message` の受け口が振り分けて結果を `postMessage` で返す。図のコードは末尾に置き、まとめ描きの数式は UTF-16 の長さを前に置いて区切るので、エスケープは要らない。描画待ちのブロック数式は、1 つずつ描くとキャプチャの待ちで 1 個 50ms 以上かかるため、`ProcessQueue` が同じテーマ・同じ幅のものを最大 `MAX_BLOCKS_PER_PAGE`（16）個集め（`TakeBlocksBatch`）、ページの `renderMathBlocks` が 1 ページに縦に並べて描いて `blocks-result` で箱を返す。1 回のキャプチャを worker で数式ごとに切り出し（`CropToPng`。並列にしても開いてから描き終えるまでは変わらないので直列）、1 つずつ描いたときと同じ結果（ビットマップ・PNG・ディスクキャッシュ）にする。WebView2 はビューの画素数が CSS px で割り切れないとき（dpr 1.5 など）ビューより 1px 広く撮るので、1 つずつ描いたキャプチャも、撮るビューの大きさ（`RenderRequest::page_rect`）に切り出す（`DecodeCapture`。デコーダから範囲だけを確定させ、大きさが合えば撮った PNG をそのまま使う）。インライン数式のページも、アルファを取り出すときに同じ大きさ（`PageRect`）に切り出す。ディスクキャッシュには撮ったままの PNG を置き、読むときも切り出す。ページは大きさを、まとめ描きの箱と同じく CSS px で切り上げて返し、物理 px への切り上げも同じ `CaptureRect` で行うので、同じ数式は 1 つずつ描いてもまとめて描いても同じ PNG になる。表示の大きさ（`css_width` / `css_height`）は、切り出す画素数を dpr で割って決め（`RenderRequest::SetCaptureBox`）、ビットマップを縮めずに描く。まとめ描きを終えられなければ 1 つずつ描き直す（`RequeueBlocks`）。キャプチャの前は、ページが新しい大きさのフレームを描き始めるまで `requestAnimationFrame` を 1 回だけ待つ。
 
 PNG のデコードは UI スレッドで行わない。ディスクキャッシュから読む場合も、WebView2 の `CapturePreview` で描画した直後の PNG も同じ `DiskLoad` 経路に流し、バックグラウンド `TaskScheduler` でファイル読み込み（キャプチャ時は不要）と WIC デコードを済ませた `IWICBitmap` を作る。完了は `app_msg::MERMAID_DISK_LOADED` で通知され、UI スレッドの `ProcessDiskLoads` が `CreateBitmapFromWicBitmap` で `ID2D1Bitmap` 化してメモリキャッシュに入れ、結果が出たものがあれば `on_update_` をまとめて 1 回呼ぶ。1 回の転送は `kUploadSliceBudget`（4ms）までで、残した分は `HasLeftoverDiskLoads` が真になり、メッセージループの空き時間（`App::RunIdleWork`）で続ける。キャプチャ由来の PNG はこのときディスクキャッシュへ `StoreAsync` される。ディスクから読めなかった・デコードできなかった図は WebView2 での描画に回し、キャプチャ直後の PNG がデコードできなければエラーとして確定させる。ディスクキャッシュの読み込みは `DropQueued` / `CancelPending` で世代（`disk_drop_gen_`）を進めて取り消す（ImageLoader の `drop_gen_` と同じ）。worker は世代が変わっていれば読まずに返し、UI は要求中の印だけを外す。描画直後の PNG はディスクへ保存したいので取り消さない。
 
@@ -1614,15 +1656,23 @@ public:
     void Init(float current_dpr, TaskScheduler& scheduler);
     // 以降の参照・保存のキーに混ぜる DPR を差し替える。別の DPR のエントリは LRU で淘汰させる。
     void SetDpr(float dpr) noexcept;
-    // PNG のパスと寸法を返し LRU を更新する。読み込みは呼び出し側 (worker) が行う。
-    bool LookupPath(uint64_t key, CacheEntry& entry, std::filesystem::path& png_path);
+    float Dpr() const noexcept;   // 当たった PNG はこの DPR で描いたもの
+    struct Hit {
+        uint64_t   key = 0;
+        CacheEntry entry;
+    };
+    // 幅に縛られない結果 (max_width より狭いときだけ使える) を先に、無ければ幅つきで引き、当たったキーと寸法を返す。
+    // touch なら当たった項目の LRU を更新する (寸法だけ見るときは更新しない)。
+    std::optional<Hit> Find(uint64_t width_free_key, uint64_t sized_key, float max_width, bool touch);
+    // 読み込みは呼び出し側 (worker) が行う。キャッシュのディレクトリが無ければ空。
+    std::filesystem::path PngPath(uint64_t key) const;
     // ファイルが確実に存在しない場合のみ索引から除く。
     void OnReadFailed(uint64_t key, DWORD read_error);
-    bool LookupDimensions(uint64_t key, CacheEntry& entry);
     // png_data は表示側 (メモリキャッシュ / DiagramEntry) と共有し、書き込み用にコピーしない。
-    // PngBytes は utility.h の std::shared_ptr<const std::pmr::vector<uint8_t>>。
+    // PngBytes は utility.h の std::shared_ptr<const ByteBuffer> (確保時に 0 で埋めないバイト列)。
     void StoreAsync(uint64_t key, float css_width, float css_height, PngBytes png_data);
     void SaveIndex();   // 索引に変更が無ければ書かない
+    void Clear();       // 索引と PNG をすべて消す (設定ダイアログ)。書き込み中の PNG は着地後に worker が消す
     void SetCacheDir(const std::filesystem::path& dir);
     void SetLimits(size_t max_entries, uint64_t max_total_size);
     void Shutdown();
@@ -1631,9 +1681,10 @@ public:
     size_t   EntryCount();
     uint64_t TotalSize();
 
+    static constexpr uint32_t MAGIC   = 0x4D454D43u;  // "MEMC"。index.bin はヘッダ (magic, version, 件数) 12 バイト + レコード 28 バイト
+    static constexpr uint32_t VERSION = 2;   // 索引の書式か PNG の描き方を変えたら上げる
+
 private:
-    static constexpr uint32_t MAGIC   = 0x4D454D43u;  // "MEMC"
-    static constexpr uint32_t VERSION = 1;
     static constexpr size_t   DEFAULT_MAX_ENTRIES    = 4096;
     static constexpr uint64_t DEFAULT_MAX_TOTAL_SIZE = 1ULL * 1024 * 1024 * 1024; // 1GB
 };
@@ -1641,7 +1692,7 @@ private:
 
 外部キーは内部で DPR 量子化値（1/100 単位、典型値 100/125/150/175/200）に定数 `0x9E3779B97F4A7C15` を乗じた値と XOR して内部キーに変換し、DPR ごとに独立したエントリとして保存する。これにより DPI 変更/モニタ切替時に全消去を発生させない。DPR は `Init` 時には画面外のワーカー位置のモニタから推定し（`MermaidRenderer::EstimateWorkerDpr`）、ワーカーの準備完了で実際に描く DPR が届いたら `SetDpr` で差し替える。書き込みは `TaskScheduler` のワーカースレッドで非同期実行される。`pending_writes_`（書き込み中のキー → 書き込み中に追い出されたか）で同じキーの 2 本目の書き込みを出さず、書き込み中に追い出されたエントリの PNG は着地後にワーカーが消すので、索引に無いファイルは残らない。書き込み中のキーは読み込みに失敗しても `OnReadFailed` で索引から除かない。
 
-索引（`index.bin`）は `Init` では読まず、`LookupPath` / `LookupDimensions` / `StoreAsync` などの初回利用時に、唯一の入口 `Index()` で読み込む。図を含まない文書の起動ではディスクに触れない。索引・合計サイズ・LRU シーケンス・変更フラグは `IndexState` にまとめ、`std::optional<IndexState>`（未読み込みは `nullopt`）で持つ。変更系の操作（`Add` / `Remove` / `Touch`）は `IndexState` 自身が `dirty` を立てる。索引本体は `std::pmr::unordered_map<uint64_t, IndexEntry>` 1 本で、各エントリが `last_used`（単調増加シーケンス）を持つ。追い出しは満杯時にしか起きないため、LRU 順の補助構造は持たず `last_used` の線形走査で最古を探す。終了時の `SaveIndex` は未読み込み（`nullopt`）か変更が無ければ書き戻さないので、空の索引でディスクを上書きすることは構造上起きない。
+索引（`index.bin`）は `Init` では読まず、`Find` / `StoreAsync` などの初回利用時に、唯一の入口 `Index()` で読み込む。図を含まない文書の起動ではディスクに触れない。索引・合計サイズ・LRU シーケンス・変更フラグは `IndexState` にまとめ、`std::optional<IndexState>`（未読み込みは `nullopt`）で持つ。変更系の操作（`Add` / `Remove` / `Touch`）は `IndexState` 自身が `dirty` を立てる。索引本体は `std::unordered_map<uint64_t, IndexEntry>` 1 本で、各エントリが `last_used`（単調増加シーケンス）を持つ。追い出しは満杯時にしか起きないため、LRU 順の補助構造は持たず `last_used` の線形走査で最古を探す。終了時の `SaveIndex` は未読み込み（`nullopt`）か変更が無ければ書き戻さないので、空の索引でディスクを上書きすることは構造上起きない。違う版の索引かヘッダの壊れた索引を読んだら（`LoadIndex` が `nullopt`）、引けない PNG を索引に載らないまま残さないよう、`Clear` でフォルダごと捨てる。`Clear` はフォルダを別名へ移して worker で消す。中のファイル（書き込み中の PNG など）を開かれていて移せなければ、消すファイルの名前を控えて（`doomed_files_`）worker で消す。PNG の書き込み（worker）と `SaveIndex` は書く前に `KeepFile` で名前を控えから外し、書いた後に消されない。控えは専用のロックで守り、消す間はそれを持つので、UI の `StoreAsync` は待たない。索引が無い・ヘッダより短いときは空の索引から始める（別のインスタンスが書き込み中のフォルダを消さない）。
 
 #### 3.12.4 初期化
 
@@ -1662,12 +1713,12 @@ WebView2 は起動時には作らず、最初の描画要求（`RequestRender` /
 
 ```cpp
 struct NavEntry {
-    std::pmr::wstring file_path;
+    std::wstring file_path;
     int   node   = -1;     // ノードインデックス（位置の安定基準）
     float offset = 0.0f;   // ノード先頭からのピクセルオフセット
 
     NavEntry() = default;
-    NavEntry(std::wstring_view fp, int n = -1, float off = 0.0f);
+    NavEntry(std::wstring_view fp, int n, float off);
 };
 
 class NavHistory {
@@ -1689,36 +1740,37 @@ public:
     bool   CanGoForward() const noexcept;
     size_t BackSize() const noexcept;
     size_t ForwardSize() const noexcept;
-    void   Clear() noexcept;
 
 private:
-    std::pmr::deque<NavEntry> back_stack_;
-    std::pmr::deque<NavEntry> forward_stack_;
-    std::pmr::vector<PendingOp> pending_;   // 確定待ちの操作 (古い順)
+    std::deque<NavEntry> back_stack_;
+    std::deque<NavEntry> forward_stack_;
+    // 確定待ちの最初の操作の直前の両スタック。取り消しでそのまま戻す (上限で押し出した分も戻る)。
+    std::optional<std::pair<std::deque<NavEntry>, std::deque<NavEntry>>> saved_;
+    std::optional<NavEntry> chained_from_;   // 確定待ちの戻る/進むの移動先。続く戻る/進むの起点
     size_t max_history_ = MAX_HISTORY;
 };
 ```
 
-戻る/進むスタックは `NavEntry` をそのまま `std::pmr::deque` に積み、各エントリがファイルパスを持つ（履歴は最大 1024 件程度なので、パスのインターン化は行わない）。容量を超えたら最古のエントリを捨てる。位置はノード単位で表現するため、ファイルが編集されて絶対 y 座標が変わっても同一ノードに戻れる。
+戻る/進むスタックは `NavEntry` をそのまま `std::deque` に積み、各エントリがファイルパスを持つ（履歴は最大 1024 件程度なので、パスのインターン化は行わない）。容量を超えたら最古のエントリを捨てる。位置はノード単位で表現するため、ファイルが編集されて絶対 y 座標が変わっても同一ノードに戻れる。
 
-別ファイルへの移動（`PushPending` と、別ファイルへの `GoBack` / `GoForward`）は確定待ちの操作として `pending_` に残し、ロードが終わったら `DocumentOpenedAction` で `CommitPending`、取り消し・失敗（`LoadFailedAction` や次のロードの開始）なら `RollbackPending` で元に戻す。開けなかったファイルの分だけ履歴が重複したり、戻る/進むの位置がずれたりしないためである。ロード中に次の操作が来たら、ロード中の文書はまだ表示されていないので、`PushPending` は前の仮の操作を取り消してから積み直し、戻る/進むの連続はロード中の移動先を起点に続ける（続けた操作は `RollbackPending` でまとめて取り消す）。表示中のファイル内への戻る/進むはロードを伴わないので、その場で `CommitPending` する。`Push` や `Clear` は確定待ちを捨てる。同じファイルの開き直しはリロードとして終わり確定が来ないので、`PushPending` ではなく `Push` で積む。
+別ファイルへの移動（`PushPending` と、別ファイルへの `GoBack` / `GoForward`）は確定待ちにし、その最初の操作の直前の戻る/進むの両スタックを丸ごと `saved_` に写しておく。ロードが終わったら `DocumentOpenedAction` で `CommitPending`、取り消し・失敗（`LoadFailedAction` や次のロードの開始）なら `RollbackPending` で写しをそのまま戻す（上限で押し出した分も戻る）。開けなかったファイルの分だけ履歴が重複したり、戻る/進むの位置がずれたりしないためである。ロード中に次の操作が来たら、ロード中の文書はまだ表示されていないので、`PushPending` は前の仮の操作を取り消してから積み直し、戻る/進むの連続はロード中の移動先（`chained_from_`）を起点に続ける（続けた操作は `RollbackPending` でまとめて取り消す）。表示中のファイル内への戻る/進むはロードを伴わないので、その場で `CommitPending` する。`Push` は確定待ちを確定させるので、その後の `RollbackPending` は何もしない。同じファイルの開き直しはリロードとして終わり確定が来ないので、`PushPending` ではなく `Push` で積む。
 
 #### 3.13.2 リンク解決
 
-リンククリックは `nav.h` のフリー関数 `ClassifyLinkClick(url)` で解析し、結果に応じて `App::HandleLinkClick` がアンカーへのスクロール（`NavigateAnchorAction`）と外部 URL を `ShellExecuteW` で開く処理を分岐する。`#` で始まる URL がアンカー、`http://` / `https://` / `mailto:` で始まる URL（`IsSafeUrlScheme`）が外部 URL で、それ以外（相対パスや `file://` を含む）は何もしない。外部 URL は関連付けのコマンドに差し込まれるので、`"` と空白・制御文字を `%XX` にしてから渡す。リンクから別ファイルへは遷移しない。別ファイルへの遷移（履歴の戻る/進む、ファイルペイン・ダイアログ・D&D で開く操作）は Markdown ファイルパスを `LoadFile` 副作用として発行する。
+リンククリックは `nav.h` のフリー関数 `ClassifyLinkClick(url)` で解析し、結果に応じて `App::HandleLinkClick` がアンカーへのスクロール（`NavigateAnchorAction`）と外部 URL を `ShellExecuteExW` で開く処理（`App::ShellOpenAsync`。UI スレッドを待たせないよう専用スレッドで開く）を分岐する。`#` で始まる URL がアンカー、`http://` / `https://` / `mailto:` で始まる URL（`IsSafeUrlScheme`）が外部 URL で、それ以外（相対パスや `file://` を含む）は何もしない。外部 URL は関連付けのコマンドに差し込まれるので、`"` と空白・制御文字を `%XX` にしてから渡す。リンクから別ファイルへは遷移しない。別ファイルへの遷移（履歴の戻る/進む、ファイルペイン・ダイアログ・D&D で開く操作）は Markdown ファイルパスを `LoadFile` 副作用として発行する。
 
 ```cpp
 struct LinkClickResult {
     enum class Type : uint8_t { None, Anchor, ExternalUrl };
-    Type             type = Type::None;
-    std::pmr::string target;   // Anchor: アンカー名 (UTF-8、先頭 '#' を除きパーセントデコード済み)
-                               // ExternalUrl: URL (UTF-8)。ShellExecuteW に渡す直前で wstring 化する。
+    Type        type = Type::None;
+    std::string target;   // Anchor: アンカー名 (UTF-8、先頭 '#' を除きパーセントデコード済み)
+                          // ExternalUrl: URL (UTF-8)。ShellExecuteExW に渡す直前で wstring 化する。
 };
 
-LinkClickResult  ClassifyLinkClick(std::string_view url);
-bool             IsSafeUrlScheme(std::string_view url) noexcept;
+LinkClickResult ClassifyLinkClick(std::string_view url);
+bool            IsSafeUrlScheme(std::string_view url) noexcept;
 // md4c は URL をエンコードされたまま渡すので、ファイルパスやアンカーとして引く前に通す。
-std::pmr::string PercentDecode(std::string_view s);
+std::string     PercentDecode(std::string_view s);
 ```
 
 リンク切れのアンカーでは履歴を積まない（進む履歴が消えて、戻っても同じ位置になるため）。
@@ -1734,10 +1786,10 @@ flowchart TD
     LINK[リンククリック] --> APP[App::HandleLinkClick]
     APP --> KIND{解決結果}
     KIND -->|Anchor| ANCHOR[NavigateAnchorAction<br>Document::FindAnchorIndex<br>脚注 → 見出しの順に引く]
-    KIND -->|ExternalUrl| SHELL[ShellExecuteW]
+    KIND -->|ExternalUrl| SHELL[App::ShellOpenAsync<br>ShellExecuteExW]
     KIND -->|None| NOP[何もしない]
     ANCHOR -->|見つかった| PUSH[NavHistory::Push → ScrollTarget 設定]
-    HIST[ジェスチャ / スワイプ / Alt+矢印 / Xボタン / メニュー] --> NAV[NavigateBack/ForwardAction<br>NavHistory::GoBack / GoForward]
+    HIST[ジェスチャ / スワイプ / Alt+矢印 / Xボタン / メニュー] --> NAV[NavigateHistoryAction<br>NavHistory::GoBack / GoForward]
     NAV --> SAME{移動先は表示中のファイル?}
     SAME -->|はい| COMMIT[CommitPending → ScrollTarget 設定]
     SAME -->|いいえ| LOAD[復元位置を記録 → effect::LoadFile]
@@ -1837,15 +1889,14 @@ public:
 
     // ScrollTarget — ノード相対位置によるスクロール復元
     constexpr void SetScrollTarget(int node, float offset) noexcept;
-    constexpr bool HasScrollTarget() const noexcept;
-    constexpr const ScrollTarget& GetScrollTarget() const noexcept;
+    constexpr const ScrollTarget& GetScrollTarget() const noexcept;   // 有無は IsValid() で見る
     constexpr void ApplyScrollTarget(const LayoutCache& cache) noexcept;
     constexpr void EnsureScrollTarget(const LayoutCache& cache) noexcept;
 
     // 選択 (deducing this で const/非 const を1本に集約)
     constexpr auto& GetSelection(this auto& self) noexcept;
     constexpr void SetSelection(const TextSelection& sel) noexcept;
-    constexpr void SelectAll(const std::pmr::vector<Node>& nodes) noexcept;
+    constexpr void SelectAll(const std::vector<Node>& nodes) noexcept;
     constexpr void ClearSelection() noexcept;
 
     // ズーム — 段 (SetIndex は [0, ZOOM_STEP_COUNT) に必ず clamp、Step / CanStep / Percent) は ZoomLevel が持つ
@@ -1928,9 +1979,9 @@ graph LR
 
 ```cpp
 struct MdPaneHitContext {
-    const std::pmr::vector<Node>& nodes;
-    const LayoutCache&            cache;
-    const Theme&                  theme;
+    const std::vector<Node>& nodes;
+    const LayoutCache&       cache;
+    const Theme&             theme;
     float    scroll_y;
     PaneRect md_rect;
     float    dpi_scale;
@@ -1939,7 +1990,7 @@ struct MdPaneHitContext {
     // ボタン位置とブロック横スクロールの clamp に使う
     float content_width = 0.0f;
     // ブロック単位の横スクロール量。null は全ノード 0 として扱う。
-    const std::pmr::unordered_map<int, float>* block_scroll_x = nullptr;
+    const std::unordered_map<int, float>* block_scroll_x = nullptr;
 };
 
 // MD ペインのヒットテスト。状態を持たない純粋関数群 (src/input/hit_test_service.h)。
@@ -1960,12 +2011,14 @@ HitResult HitTest(const MdPaneHitContext& ctx) noexcept;
 int HitNode(const MdPaneHitContext& ctx) noexcept;
 HitResult HitTestTable(const Node& node, const NodeLayoutEntry& entry,
                        float entry_text_top, int node_index, const Theme& theme,
-                       float dip_x, float dip_y, float h_scroll_x = 0.0f) noexcept;
+                       float dip_x, float dip_y, float h_scroll_x) noexcept;
 
 NavDirection NavButtonHitTest(float dip_x, float dip_y, const PaneRect& md_rect) noexcept;
 
 // 可視ノードのオーバーレイボタン (コードのコピー / 図の保存・コピー) のうちマウス位置にあるもの。
 OverlayButtonHit OverlayButtonHitTest(const MdPaneHitContext& ctx) noexcept;
+// マウスが node_index の図の画像の上にあり、その図に保存・コピーのボタンを出せるか。
+bool DiagramImageHitTest(const MdPaneHitContext& ctx, int node_index) noexcept;
 bool BlockHScrollbarHitTest(const MdPaneHitContext& ctx, int node_index, float visible_width) noexcept;
 
 } // namespace hit_test
@@ -1984,13 +2037,13 @@ struct OverlayButtonHit {
 
 オーバーレイボタンの矩形は `layout::ForEachOverlayButton`（`layout/layout_computer.h`）が `fn(rect, kind)` で列挙し、描画（`CommandGenerator::GenOverlayButtons`）と `OverlayButtonHitTest` が同じ矩形を使う。コードブロックはコピー 1 つ、ビットマップを持つ図（`NodeType::Diagram`）は保存とコピーの 2 つを並べる。
 
-テーブルの行・列の判定（`FindTableRow` / `FindTableCol`）は `TableLayoutData` の累積配列（`row_cum_y` / `col_cum_x`）だけを二分探索する。幾何が揃っていない（未計測、または `InvalidateGeometry` の後）ときはヒットなしとして扱い、行高さを推定し直して線形に探す経路は持たない。セル本文の原点は描画と同じ `TableCellTextOrigin` で求める。
+テーブルの行・列の判定（`FindTableRow` / `FindTableCol`）は `TableLayoutData` の累積配列（`row_cum_y` / `col_cum_x`）だけを二分探索する。幾何が揃っていない（未計測）ときはヒットなしとして扱い、行高さを推定し直して線形に探す経路は持たない。セル本文の原点は描画と同じ `TableCellTextOrigin` で求める。
 
 本文はペイン基準の座標（ペイン原点 `md_rect.x/y` は描画変換に乗る）で描くので、マウス座標は `ScreenToPaneDip` で一度だけ「ペイン左端基準の X とドキュメント Y」に変換し、ノードやボタン、ブロック横スクロールバーの矩形はドキュメント座標のまま比べる。可視範囲はどこでも `[scroll_y, scroll_y + md_rect.height]` で一致する。
 
 `hit_test` は状態を持たず、ヒット結果のキャッシュもしない。呼ばれるたびに判定する（`HitTestPoint` は 1 万行のコードブロックでも数〜十数 µs で済むため）。ホバー中のナビボタンは、ジェスチャやスワイプが示す履歴移動の向きと同じ `NavDirection`（`util/ui_types.h`、`{ None, Back, Forward }`）で表す。
 
-ホバーとクリックは同じ `App::ResolveMdPaneHit` で「点が MD ペインのどの領域を指すか」を決める。優先順位は 検索バー → ナビボタン → オーバーレイボタン（コピー / ダイアグラムコピー / 保存）→ スクロールバー → 本文 で、縮小表示でボタンがスクロールバーのヒット余白に掛かってもボタンが勝つ。結果は `App::MdPaneHit`（`kind` と、検索バーのゾーン・ナビボタン・`OverlayButtonHit`）で返す。ホバー表示（カーソルとツールチップ）とクリックの結果は常に一致する。ホバーでは判定結果を `PointerHover` に書いて `PointerHoverAction` で reducer に渡し、reducer が `ViewState::hover` に反映する。
+ホバーとクリックは同じ `app_controller::ResolveMdPaneHit`（`AppState` とペイン配置だけから求める純粋関数）で「点が MD ペインのどの領域を指すか」を決める。優先順位は 検索バー → ナビボタン → オーバーレイボタン（コピー / ダイアグラムコピー / 保存）→ スクロールバー → 本文 で、縮小表示でボタンがスクロールバーのヒット余白に掛かってもボタンが勝つ。結果は `app_controller::MdPaneHit`（`kind` と、検索バーのゾーン・ナビボタン・`OverlayButtonHit`）で返す。ホバー表示（カーソルとツールチップ）とクリックの結果は常に一致する。ホバーでは判定結果を `PointerHover` に書いて `PointerHoverAction` で reducer に渡し、reducer が `ViewState::hover` に反映する。
 
 リンクは `FindLinkHitAtPosition`（`core/selection_html.h`）で URL とその添字（`node.view_link_urls()` の位置）を一度に求める。ツールチップはこの添字で対象を識別し、URL 文字列から添字を探し直さない。
 
@@ -2004,13 +2057,13 @@ struct OverlayButtonHit {
 %LOCALAPPDATA%\mendo\settings.ini
 ```
 
-`IniParser` で読み書きし、セクション+キーの2階層でアクセスする。書き込みは `*.tmp` → `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` の原子的差し替え。書き出しはアプリ終了時 (WM_DESTROY) に集約し、読み込み後に値が変わっていなければ書かない。ログオフ・シャットダウンでは WM_DESTROY が来ないため、WM_ENDSESSION で `DestroyWindow` を呼んで同じ終了処理を通す。
+`ini::Parse` / `ini::Serialize`（3.28.4）で読み書きし、セクション+キーの2階層でアクセスする。書き込みは `*.tmp` → `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` の原子的差し替え。書き出しはアプリ終了時 (WM_DESTROY) に集約し、読み込み後に値が変わっていなければ書かない。ログオフ・シャットダウンでは WM_DESTROY が来ないため、WM_ENDSESSION で `DestroyWindow` を呼んで同じ終了処理を通す。
 
 #### 3.19.2 保存項目
 
 | セクション | キー | 型 | 既定値 | 説明 |
 |:-----------|:-----|:---|:------|:-----|
-| `General` | `Language` | `wstring` | （OS自動判定） | UI言語 (`ja` / `en` / `zh`) |
+| `General` | `Language` | `wstring` | （OS自動判定） | UI言語 (`ja` / `en` / `zh` / `zh-hant` / `ko`) |
 | `View` | `DarkMode` | `bool` | `false` | ダークモード |
 | `View` | `ZoomLevel` | `int` | `7` (1.00x) | ズームインデックス |
 | `Window` | `X` / `Y` | `int` | `0` | 通常表示時のウィンドウ位置 |
@@ -2038,7 +2091,7 @@ public:
     // 設定ディレクトリ
     void SetConfigDirOverride(const std::filesystem::path& dir);    // テスト用
     const std::filesystem::path& GetConfigDir() const;
-    // 区切り文字や ".." を含む名前は拒否する。
+    // filename は固定の名前だけを渡す (検証しない)。設定ディレクトリが無ければ空。
     std::filesystem::path GetConfigPath(std::wstring_view filename) const;
 
     // ディスク永続化
@@ -2047,13 +2100,16 @@ public:
 
     // 型付きアクセサ
     void SaveBool(std::string_view section, std::string_view key, bool value);
-    bool LoadBool(std::string_view section, std::string_view key, bool default_value = false) const;
+    bool LoadBool(std::string_view section, std::string_view key, bool default_value) const;
 
     void SaveInt(std::string_view section, std::string_view key, int value);
     int  LoadInt(std::string_view section, std::string_view key, int def, int min_v, int max_v) const;
+    // 無い・不正・範囲外なら等倍
+    ZoomLevel LoadZoomLevel(std::string_view section, std::string_view key) const;
+    void      SaveZoomLevel(std::string_view section, std::string_view key, ZoomLevel zoom);
 
-    void              SaveWString(std::string_view section, std::string_view key, std::wstring_view value);
-    std::pmr::wstring LoadWString(std::string_view section, std::string_view key) const;
+    void         SaveWString(std::string_view section, std::string_view key, std::wstring_view value);
+    std::wstring LoadWString(std::string_view section, std::string_view key) const;
 };
 ```
 
@@ -2067,9 +2123,9 @@ LocalAppData は環境変数 `LOCALAPPDATA` を優先し（`SHGetKnownFolderPath
 
 ```cpp
 namespace session {
-void              SaveLastFilePath(ConfigService& config, std::wstring_view path);
+void         SaveLastFilePath(ConfigService& config, std::wstring_view path);
 // UNC・デバイスパスと実在しないパスは空。ネットワークドライブは切断時に止まらないよう存在を確かめない。
-std::pmr::wstring LoadLastFilePath(const ConfigService& config);
+std::wstring LoadLastFilePath(const ConfigService& config);
 
 // 表示・幅・倍率を PaneController と直接やり取りする。幅はズーム倍率を含まない DIP 値 (SIDE_PANE_MIN_WIDTH 以上)。
 void SavePanes(ConfigService& config, const PaneController& panes);
@@ -2082,8 +2138,8 @@ struct ScrollPosition {
 void           SaveScrollPosition(ConfigService& config, int node, float offset);
 ScrollPosition LoadScrollPosition(const ConfigService& config);
 
-void              SaveLanguage(ConfigService& config, std::wstring_view lang_key);   // 空は OS に合わせる
-std::pmr::wstring LoadLanguage(const ConfigService& config);
+void         SaveLanguage(ConfigService& config, std::wstring_view lang_key);   // 空は OS に合わせる
+std::wstring LoadLanguage(const ConfigService& config);
 }
 ```
 
@@ -2095,13 +2151,13 @@ std::pmr::wstring LoadLanguage(const ConfigService& config);
 
 #### 3.20.1 概要
 
-Win32 標準タイトルバーを `WM_NCCALCSIZE` で非表示にし、Direct2D で自前描画したカスタムタイトルバーに置き換える。ファイルを開く・検索・テーマ切替・ヘルプ・ファイル/目次ペイン切替・最小化/最大化/閉じるボタンを含む。
+Win32 標準タイトルバーを `WM_NCCALCSIZE` で非表示にし、Direct2D で自前描画したカスタムタイトルバーに置き換える。ファイルを開く・検索・テーマ切替・設定・ヘルプ・ファイル/目次ペイン切替・最小化/最大化/閉じるボタンを含む。
 
 ```cpp
 // OpenFile..Close はボタン。連続した値であることを TitleBarButtonIndex が前提にする。
 enum class TitleBarHitZone : uint8_t {
     None, Caption, Icon,
-    OpenFile, Help, ThemeToggle, Search,
+    OpenFile, Settings, Help, ThemeToggle, Search,
     FileToggle, TocToggle,
     Minimize, Maximize, Close,
 };
@@ -2109,10 +2165,6 @@ enum class TitleBarHitZone : uint8_t {
 constexpr bool IsTitleBarButton(TitleBarHitZone zone) noexcept;   // OpenFile..Close か
 inline constexpr size_t kTitleBarButtonCount = /* OpenFile..Close の個数 */;
 constexpr size_t TitleBarButtonIndex(TitleBarHitZone zone) noexcept;  // zone - OpenFile
-
-// TitleBarButtonIndex で引くボタン矩形。
-using TitleBarButtons = std::array<DipRect, kTitleBarButtonCount>;
-constexpr auto& TitleBarButtonRect(auto& buttons, TitleBarHitZone zone) noexcept;
 
 class TitleBar {
 public:
@@ -2132,23 +2184,26 @@ public:
 
     constexpr const DipRect& GetButton(TitleBarHitZone zone) const noexcept;
     constexpr const DipRect& GetTitleTextRect() const noexcept;
+
+private:
+    std::array<DipRect, kTitleBarButtonCount> buttons_{};   // TitleBarButtonIndex の順
 };
 ```
 
-ボタン矩形はボタンごとのメンバではなく `TitleBarButtons` 配列 1 つで持ち、`TitleBarHitZone` から `TitleBarButtonIndex` で引く。ヒットテストと描画（`TitleBarRenderState::buttons` と `Button(zone)`）は同じ配列を使い、`WM_NCHITTEST` は `IsTitleBarButton` でボタンかどうかを判定する。狭幅でボタン同士が重なったときは、`HitTest` がキャプションボタン（閉じる・最大化・最小化）を優先する。
+ボタン矩形はボタンごとのメンバではなく配列 `buttons_` 1 つで持ち、`TitleBarHitZone` から `TitleBarButtonIndex` で直接引く（`GetButton`）。ヒットテストと描画（`TitleBarRenderState::bar` の `GetButton(zone)`）は同じ配列を使い、`WM_NCHITTEST` は `IsTitleBarButton` でボタンかどうかを判定する。狭幅でボタン同士が重なったときは、`HitTest` がキャプションボタン（閉じる・最大化・最小化）を優先する。
 
 `TitleBar` はホバー状態を持たない。ホバー中のゾーンは `ViewState::hover.titlebar` が持ち、`TitleBarRenderState::hovered_zone` で描画に渡す。
 
 #### 3.20.2 ボタン配置
 
 ```
-┌────────────────────────────────────────────────────────────────────┐
-│ [Icon] [Open] [Search] [Theme] [Help] ←タイトル→ [File] [TOC] [─][□][×]│
-│  左側グループ                                        右側グループ        │
-└────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────────────┐
+│ [Icon] [Open] [Search] [Theme] [Settings] [Help] ←タイトル→ [File] [TOC] [─][□][×]│
+│  左側グループ                                                      右側グループ   │
+└───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **左側**（アイコンの右から）: OpenFile → Search → ThemeToggle → Help
+- **左側**（アイコンの右から）: OpenFile → Search → ThemeToggle → Settings → Help
 - **右側**（右端から）: Close ← Maximize ← Minimize ← TocToggle ← FileToggle
 - **タイトルテキスト**: 左側グループの右端から FileToggle の左端まで
 
@@ -2159,38 +2214,45 @@ public:
 #### 3.21.1 SearchState（ドメインロジック）
 
 ```cpp
+// start_w / length_w はノード (表ならセル) 内の UTF-16 code unit 位置で、HitTestTextRange にそのまま渡せる。
 struct SearchMatch {
     int      node_index;
-    uint32_t start;          // node.text（またはセル.text）内の UTF-8 byte オフセット
-    uint32_t length;         // UTF-8 byte 長
     int      table_row = -1; // テーブルセル用（-1 なら通常ノード）
     int      table_col = -1;
-    uint32_t start_w  = 0;   // UTF-16 code unit 範囲（描画ハイライト用）
+    uint32_t start_w  = 0;
     uint32_t length_w = 0;
+    // 区切ったノードの継ぎ目をまたぐマッチ (前のノードに置く) の、続きのノードの先頭からの長さ
+    uint32_t next_length_w = 0;
 };
 
 class SearchState {
 public:
     constexpr bool IsVisible() const noexcept;
     constexpr void Show() noexcept;
-    void Hide() noexcept;       // visible_ = false + ClearMatches
+    void Hide() noexcept;       // visible_ = false。検索を止め、結果も確保ごと捨てる
     void Reset() noexcept;      // Hide + クエリも空にする
 
     constexpr uint32_t GetGeneration() const noexcept;  // 描画側のハイライトキャッシュ判定用
 
-    constexpr const std::pmr::string&              GetQuery() const noexcept;  // UTF-8
-    constexpr const std::pmr::vector<SearchMatch>& GetMatches() const noexcept;
+    constexpr const std::string&              GetQuery() const noexcept;  // UTF-8
+    constexpr const std::vector<SearchMatch>& GetMatches() const noexcept;
     constexpr int GetCurrentMatchIndex() const noexcept;
     constexpr int GetMatchCount() const noexcept;
+    constexpr bool HasResult() const noexcept;   // 初めての検索を調べ終えるまで false
 
     constexpr bool IsCaseSensitive() const noexcept;
-    constexpr void SetCaseSensitive(bool v) noexcept;
     constexpr void ToggleCaseSensitive() noexcept;
     constexpr bool IsHighlightEnabled() const noexcept;
     constexpr void ToggleHighlightEnabled() noexcept;
 
     void SetQuery(std::string_view query);
-    void ExecuteSearch(const std::pmr::vector<Node>& nodes);
+    // BeginSearch で始め、ContinueSearch で deadline まで (少なくとも 1 ノード) 進める。終わったら true
+    void BeginSearch();
+    bool ContinueSearch(const std::vector<Node>& nodes, std::chrono::steady_clock::time_point deadline);
+    void StopSearch() noexcept;   // 前回の結果を残す
+    constexpr bool IsSearching() const noexcept;
+    // リロードで中身の変わらなかったノードのマッチだけを新しいノード番号で残す
+    void KeepMatchesOfUnchangedNodes(const UnchangedEnds& ends) noexcept;
     bool NextMatch() noexcept;  // ラップ時 true
     bool PrevMatch() noexcept;  // ラップ時 true
     void SetCurrentMatchNear(float scroll_y, const LayoutCache& cache) noexcept;
@@ -2199,7 +2261,7 @@ public:
 
 一致件数の上限は private 定数 `MAX_MATCHES = 10000`。
 
-`generation_` は `ExecuteSearch / Hide / Reset` のたびにインクリメントされる世代カウンタ。0 は未初期化センチネルとして扱い、32-bit ラップアラウンドで 0 に戻ったときは 1 へ補正する。
+`generation_` はマッチ列が変わるたび（検索を調べ終えたとき・`KeepMatchesOfUnchangedNodes`・`Hide` / `Reset`）にインクリメントされる世代カウンタ。0 は未初期化センチネルとして扱い、32-bit ラップアラウンドで 0 に戻ったときは 1 へ補正する。
 
 大文字小文字を無視する検索でも文書の小文字コピーは持たない。クエリだけを ASCII 小文字にし、`ascii_util::FindAsciiCaseInsensitive` が走査しながら文書側を畳み込む（畳み込むのは ASCII 英字だけ）。クエリに ASCII 英字が無ければ通常一致と結果が同じなので、畳み込みを省いて `ascii_util::Find` を使う。テーブルは `concat_text` を 1 回だけ走査し、セル区切りをまたぐヒットを除いてセル単位のマッチに振り分ける。UTF-16 位置（`start_w` / `length_w`）は `Utf16OffsetCursor` が最初のヒットから前方へ数えて求め、ノード全文を UTF-16 に変換しない。パーサが改行を挟まずに区切った継ぎ目では、前のノードの末尾とクエリ長 − 1 バイトの続きだけをつないで探し、またぐマッチを前のノードに置く（3.6.6）。
 
@@ -2207,15 +2269,15 @@ public:
 
 検索バーの UI 状態（キャレット、選択範囲、IME 組成文字列、入力欄の UTF-16 クエリ）は `SearchGroup`（`app_state.h`）がデータとして持ち、変えるのは reducer だけ（`reducer.cpp` の検索バーの関数群）。再描画・フォーカス・ビープは `effect::InvalidateWindow` / `SearchFocus` / `SearchUnfocus` / `Beep` として積み、`App::Execute` に任せる。表示中は常に入力欄がフォーカスを持つ。ホバーは `ViewState::hover.search_bar`（`App` が `SearchBarRenderState::hovered` に詰める）、入力欄のドラッグ選択は `ViewState::drag`（`LeftDrag::SearchInput`、起点は `search_anchor`）が持つ（3.3）。
 
-マッチへスクロールするときの MD ペイン高さとスクロール上限は `AppState` から求める（`pane_layout_cache` の `md_rect.height` と `MdMaxScroll(state)`）。App に頼むのはマッチのノードの計測だけで、`Reduce` の引数 `NodeLayoutAccess&` で頼む（3.4.1）。タイマーは持たない。キャレットは点滅させず、フォーカス中かつウィンドウがアクティブな間は常時表示する（点滅タイマーが約 530ms ごとに全画面再描画を起こしていたため廃止した）。`SearchBarRenderState::caret_visible` は `BuildSearchBarRenderState` が `WindowState::window_active` から詰める。
+マッチへスクロールするときの MD ペイン高さとスクロール上限は `AppState` から求める（`MdScrollInfo(state, ComputePaneLayout(state))` の `content_height` と `max_scroll`）。App に頼むのはマッチのノードの計測だけで、`Reduce` の引数 `NodeLayoutAccess&` で頼む（3.4.1）。タイマーは持たない。キャレットは点滅させず、フォーカス中かつウィンドウがアクティブな間は常時表示する（点滅タイマーが約 530ms ごとに全画面再描画を起こしていたため廃止した）。`SearchBarRenderState::caret_visible` は `BuildSearchBarRenderState` が `WindowState::window_active` から詰める。
 
 ```cpp
 struct SearchGroup {
     SearchState search_state;
     int caret_pos = -1;          // EDIT の選択 [selection_start, caret_pos)。-1 はテキスト末尾
     int selection_start = -1;
-    std::pmr::wstring ime_composition;
-    std::pmr::wstring query_wide;   // SearchState::GetQuery() の UTF-16 版
+    std::wstring ime_composition;
+    std::wstring query_wide;   // SearchState::GetQuery() の UTF-16 版
     bool scroll_after_search = false;
 };
 
@@ -2346,10 +2408,8 @@ public:
     size_t CacheSize() const noexcept;
     void Shutdown();
 
-#ifdef MENDO_TESTING
-    // bitmap を持たない寸法だけの項目を入れる。キャッシュ動作のテスト専用。
-    void InsertCacheEntryForTest(const std::wstring& path, float width, float height);
-#endif
+    // 寸法 (と任意の bitmap) だけの項目を入れる。キャッシュ動作のテスト専用。
+    void InsertCacheEntryForTest(const std::wstring& path, float pixel_width, float pixel_height, ID2D1Bitmap* bitmap = nullptr);
 };
 ```
 
@@ -2402,8 +2462,8 @@ struct TooltipTarget {
 
 // ポインタの下で求めたツールチップ (PointerHover::tooltip)。text は対象が変わった時だけ作る
 struct TooltipHover {
-    TooltipTarget     target;
-    std::pmr::wstring text;
+    TooltipTarget target;
+    std::wstring  text;
 };
 
 // current と同じ対象なら fill / text を使わず、表示文字列を作らない
@@ -2426,17 +2486,17 @@ private:
     void Hide();
     bool EnsureWindow();   // 最初の表示までウィンドウを作らない
 
-    HWND              hwnd_   = nullptr;
-    HWND              parent_ = nullptr;
-    std::pmr::wstring text_;
-    bool              visible_ = false;
-    bool          dark_    = false;
+    HWND         hwnd_    = nullptr;
+    HWND         parent_  = nullptr;
+    std::wstring text_;
+    bool         visible_ = false;
+    bool         dark_    = false;
 };
 ```
 
-`Tooltip`（ウィンドウと表示する文言）は `App::tooltip_` が持ち、`AppState` は表示中か表示待ちの対象（`InteractionState::tooltip`、`TooltipTarget` の `zone` と `key`）だけを持つ。Win32 の `TOOLTIPS_CLASS` を `TTF_TRACK` モードでラップし、最大幅 600px、カーソルから 20px 下にオフセット、DPI スケーリング対応。`HWND` はヘッダで `<windows.h>` を巻き込まないよう前方宣言（`struct HWND__; using HWND = HWND__*;`）で扱う。
+`Tooltip`（ウィンドウと表示する文言）は `App::tooltip_` が持ち、`AppState` は表示中か表示待ちの対象（`InteractionState::tooltip`、`TooltipTarget` の `zone` と `key`）だけを持つ。Win32 の `TOOLTIPS_CLASS` を `TTF_TRACK` モードでラップし、最大幅 600px、カーソルから 20px 下にオフセット、DPI スケーリング対応。メインウィンドウと共用の `ApplyDarkModeToWindow` も `tooltip.h` に置き、`<dwmapi.h>` / `<uxtheme.h>` をヘッダに漏らさないよう実装は `tooltip.cpp` に置く。
 
-`TooltipTarget` の同一判定は `zone` と `key` だけで行う。`key` は表示文字列の内容ではなく対象の番号で、リンクは「ノード番号とリンクの添字」、画像はノード番号、ファイルペインの項目は「`FileExplorer` の世代と項目 index」、目次の項目は index、各ボタンはボタン種別から作る。ホバー処理（`App::BuildMdContentTooltip` / `BuildSidePaneTooltip` など）は現在の対象と異なるときだけ `text` を組み立てる（確保と UTF-8→UTF-16 変換をマウス移動のたびに行わない）。番号は文書が変わると別の対象を指すので、文書を差し替えると `DocumentOpenedAction` / `DocumentReloadedAction` の reducer（`ResetPerNodeTransientState`）が現在の対象を捨ててツールチップを隠させる。
+`TooltipTarget` の同一判定は `zone` と `key` だけで行う。`key` は表示文字列の内容ではなく対象の番号で、リンクは「ノード番号とリンクの添字」、画像はノード番号、ファイルペインの項目は「`FileExplorer` の世代と項目 index」、目次の項目は index、各ボタンはボタン種別から作る。ホバー処理（`app_controller.cpp` の `BuildMdContentTooltip` / `BuildSidePaneTooltip` など）は現在の対象と異なるときだけ `text` を組み立てる（確保と UTF-8→UTF-16 変換をマウス移動のたびに行わない）。番号は文書が変わると別の対象を指すので、文書を差し替えると `DocumentOpenedAction` / `DocumentReloadedAction` の reducer（`ResetPerNodeTransientState`）が現在の対象を捨ててツールチップを隠させる。
 
 ホバーの結果が別の対象なら reducer が `InteractionState::tooltip` を書き換えて `effect::SetTooltip{ text }` を出す。消すとき（スクロール・ウィンドウ外へ出た・非アクティブ化・文書の差し替え）は空の `SetTooltip` で、対象が無ければ隠れているので出さない。`App::Execute` は `tooltip_.SetText` で出ているものを隠して文言を差し替え、文言があれば `app_timer::Id::TOOLTIP`（`TOOLTIP_DELAY_MS` = 500ms）を仕掛け、`App::HandleTimer` がタイマーを止めて `tooltip_.Show()` する（reducer を通さない）。`Show` は保存した座標ではなく表示時点の `GetCursorPos` を使うので、待つ間に同じ対象の中でカーソルが動いても最新の位置に出る。
 
@@ -2507,7 +2567,7 @@ private:
     // 前回の要求位置から EVICT_BUFFER_SCREENS 画面を越えて移動していたら、図と画像の待ちを捨てる。
     void DropQueuesIfJumped();
     // 解決結果は src 単位で覚える。開かない src も空文字列で覚える。
-    const std::wstring* ResolveImagePath(std::string_view src, const std::pmr::wstring& doc_dir);
+    const std::wstring* ResolveImagePath(std::string_view src, const std::wstring& doc_dir);
 };
 ```
 
@@ -2517,7 +2577,7 @@ private:
 
 画像と図は `PrioritizedSlices` で、先読み範囲（可視範囲 ± `PREFETCH_BUFFER_SCREENS` 画面）を見えている分 → 下側 → 上側の順に要求する。要求キューは FIFO なので、スクロール位置の復元やジャンプの直後に画面より上の分が先に処理されないようにするためである。前回の要求位置から `EVICT_BUFFER_SCREENS` 画面を越えて移動していたら（TOC ジャンプや Ctrl+End）、`DropQueuesIfJumped` が図の描画待ち（`IMermaidRenderer::DropQueued`）と画像のデコード待ち（`ImageLoader::DropQueued`）を捨てる。
 
-図は `IMermaidRenderer::RequestRender` で要求する。結果（ビットマップかエラー）が出ていればその場で `DiagramEntry` に書かれ、高さを決める。まだなら描画が始まり、結果が出ると `MermaidRenderer` が初期化時に渡された通知で `RequestMermaidRenders` を呼び、待っていた図を要求し直させる。要求と結果はコードのハッシュで引くので、リロード・幅・テーマの変更でも出来上がった結果を使い回す（3.12）。`RequestVisibleDiagrams` 自体は再レイアウトせず、高さの変化を `height_changed_` に溜める。`RequestMermaidRenders` はその後に見ている位置を保つ再レイアウト（`ResourceManagerHost::RecomputeLayout`）を 1 回だけ行い、`FlushPendingResources` は画像の適用と合わせて再レイアウトを 1 回にまとめる。量子化した本文幅が変わると、`InvalidateMermaidForWidthChange` が新旧どちらの幅にも収まる図以外を作り直し対象にし、旧幅の描画待ちを捨てる。
+図は `IMermaidRenderer::RequestRender` で要求する。結果（ビットマップかエラー）が出ていればその場で `DiagramEntry` に書かれ、`ApplyBitmapHeight` が `BitmapNodeHeight` で高さを決める。描けなかった図の枠は、文言を省略記号で切るので、推定（コードの行数）が 1 行ぶんの短い数式でも数行見せるよう、本文 3 行ぶん（`ErrorPlaceholderHeight`）以上にする。まだなら描画が始まり、結果が出ると `MermaidRenderer` が初期化時に渡された通知で `RequestMermaidRenders` を呼び、待っていた図を要求し直させる。要求と結果はコードのハッシュで引くので、リロード・幅・テーマの変更でも出来上がった結果を使い回す（3.12）。`RequestVisibleDiagrams` 自体は再レイアウトせず、高さの変化を `height_changed_` に溜める。`RequestMermaidRenders` はその後に見ている位置を保つ再レイアウト（`ResourceManagerHost::RecomputeLayout`）を 1 回だけ行い、`FlushPendingResources` は画像の適用と合わせて再レイアウトを 1 回にまとめる。量子化した本文幅が変わると、`InvalidateMermaidForWidthChange` が新旧どちらの幅にも収まる図以外を作り直し対象にし、旧幅の描画待ちを捨てる。
 
 可視範囲外のビットマップは解放する（前後 `EVICT_BUFFER_SCREENS` = 2 画面分は保持、`PREFETCH_BUFFER_SCREENS` = 2 画面分は先読み）。先読み範囲は evict 範囲を超えない（超えると evict 直後の flush で範囲外の画像/図を毎回読み直す）。`EVICT_BUFFER_SCREENS` は遅延レイアウトの計測範囲も兼ね、範囲外へのスクロールは `EnsureVisibleLayout` が同期計測で拾う。text_layout と表のセルは、文書の大きさによらず前後 `LAYOUT_EVICT_BUFFER_SCREENS`（8 画面）の外で捨てる。2 画面と比べてメモリに差が出ず、少し戻るだけで作り直しになるのを避けられる。小さい文書で全部残すと、1MB の文書を読み終えたときに物理メモリが約 4 割増えたため、全部残す扱いは持たない。`ScheduleBitmapManage` は前回の flush から 50ms 以上経っていれば、スクロールの停止を待たずに evict と flush を行い、`BITMAP_MANAGE` タイマー（150ms）を仕掛け直す。スクロール停止後の `OnBitmapManageTimer` は evict → flush を行い、flush でリソースを適用してレイアウトが変わったときだけ再描画を要求する（evict 対象は可視範囲外なので見た目は変わらない）。タイマー ID は `app_constants.h` の `app_timer::Id` enum で集約管理される。
 
@@ -2527,20 +2587,14 @@ private:
 
 ### 3.27 補助コンポーネント
 
-#### 3.27.1 ScrollRestoration — スクロール位置復元
+#### 3.27.1 pending_restore — スクロール位置復元
 
 ```cpp
-struct ScrollRestoration {
-    int   pending_restore_node    = -1;
-    int   pending_restore_offset  = 0;
-
-    constexpr bool HasNodeRestore() const noexcept;
-    constexpr void SetNodeRestore(int node, int offset) noexcept;
-    constexpr void ClearNodeRestore() noexcept;
-};
+// ViewState (app_state.h)。次に開き終えた文書で復元するスクロール位置。
+ScrollTarget pending_restore;
 ```
 
-セッション復元・ファイル切替時のスクロール復元情報を保持する（`src/util/ui_types.h`、`ViewState::scroll_restore`）。
+セッション復元（`App::RestoreScrollPosition` が保存したノードとオフセットを入れる）と、別ファイルへの戻る/進む（reducer の `ApplyNavResult` が移動先の位置を入れる）で、開き終えたときに戻す位置を持つ。専用の型は持たず `ScrollTarget`（3.16）をそのまま使う。開き終えると `DocumentOpenedAction` の reducer（`RestoreScrollAfterLoad`）が取り出してスクロール target にし、無ければ先頭へスクロールする。ロードの取り消し・失敗（`DiscardPendingLoad`）や表示中の文書への戻る/進むでは捨て、次に開く別ファイルへ持ち越さない。
 
 #### 3.27.2 SystemCursors — カーソルハンドルキャッシュ
 
@@ -2557,21 +2611,9 @@ struct SystemCursors {
 
 `LoadCursorW` の呼び出しを初期化時に一度だけ行う（`src/app/app.h`、`App::cursors_`）。
 
-#### 3.27.3 LastHoverPos — 同一座標ホバーの抑止
+#### 3.27.3 ホバーの引き直し
 
-```cpp
-struct LastHoverPos {
-    static constexpr POINT kUnsetPos{ LONG_MIN, LONG_MIN };  // sentinel
-
-    POINT pos = kUnsetPos;
-
-    constexpr void Reset() noexcept;
-    // 完全同一座標の連続ディスパッチを抑止
-    constexpr bool IsRepeat(int px, int py) noexcept;
-};
-```
-
-OS は同一座標の `WM_MOUSEMOVE` を繰り返し送ることがあるため、直前と完全に同じ座標のホバー処理だけを捨てる前段フィルタである。距離・時間による間引きやヒットテスト結果のキャッシュは行わない（`HitTestPoint` は 1 万行のコードブロックでも数〜十数 µs で、間引きはカーソル形状やリンク状態の更新を遅らせるだけだったため）。スクロール、リフローや文書の差し替え（`InvalidateHitPositions`）、ウィンドウ外への移動で reducer の `InvalidateHover` が `Reset()` し、同じ座標でも次のマウス移動で再評価される。`src/ui/last_hover_pos.h` に置き、`InteractionState::last_hover_pos` が持つ。
+ホバーは `WM_MOUSEMOVE`（`App::OnMouseHover`）のたびと、描画の後（`App::OnPaint` の末尾の `RefreshHoverAtCursor`。ロード中は除く）にカーソル位置で引き直す。スクロール・リフロー・ズーム・ペインの開閉などで止まったカーソルの下の内容が変わっても、経路ごとに引き直しを要求させずに済む。結果が前と同じなら reducer は何も積まないので、同じ座標の `WM_MOUSEMOVE` を捨てる前段のフィルタや、距離・時間による間引き、ヒットテスト結果のキャッシュは持たない（`HitTestPoint` は 1 万行のコードブロックでも数〜十数 µs で、間引きはカーソル形状やリンク状態の更新を遅らせるだけだったため）。ボタンを押している間・モーダルループ中・カーソルが別のウィンドウや非クライアント領域にあるときは、`RefreshHoverAtCursor` は引き直さない。
 
 ---
 
@@ -2630,8 +2672,7 @@ UniqueGlobalMem AllocGlobalFilled(size_t size, Fill&& fill);
 - `BuildGlobalWideFromUtf8(utf8)`: UTF-8 を GlobalAlloc 先へ直接 UTF-16 変換する（巨大な全選択コピーで中間 wstring を持たない）
 - `BuildGlobalCfHtml(fragment_utf8)`: CF_HTML 形式のペイロードを GlobalAlloc 先に直接組み立てる
 - `CommitClipboardGlobal(format, mem)`: `SetClipboardData` に成功したら所有権を手放す
-- `WriteClipboardText(hwnd, text_utf8)`: `CF_UNICODETEXT` 書き込み
-- `WriteClipboardHtml(hwnd, fragment_utf8, plain_text_utf8)`: CF_HTML + CF_UNICODETEXT を同時書き込み
+- `WriteClipboardHtml(hwnd, fragment_utf8, plain_text_utf8)`: CF_HTML + CF_UNICODETEXT を同時書き込み（`fragment_utf8` が空なら CF_UNICODETEXT だけ）
 - `WriteClipboardDiagram(hwnd, dib, svg_text)`: `image/svg+xml` + `CF_DIB` + `CF_UNICODETEXT` を同時書き込み（Office や Inkscape がベクタ画像として認識）。`DibTotalBytes` / `WriteDibHeader` で 32bpp トップダウンの DIB を組む
 
 #### 3.28.3 TaskScheduler — ワーカースレッドプール
@@ -2661,9 +2702,9 @@ public:
 
 ワーカーは初回 `Post` で指定数をまとめて起動する。レイアウト用は `App::Init` が scheduler を渡した後の `DWriteTextMeasurer::WarmUp`（各ワーカーにファクトリと書式を作らせ、本文・コード・見出し 1 つの書式で小さなテキストレイアウトを作る）を `Post` するので、起動直後にワーカーとフォントが温まる。バックグラウンド用は起動時の読み込みや画像・Mermaid の要求が来るまで起動しない。各ワーカースレッドは `CoInitializeEx(COINIT_MULTITHREADED)` を自動呼び出しする。バックグラウンド用は `MermaidFileCache` の非同期書き込み、`AsyncLoadCoordinator` のバックグラウンドロードなどに使用される。
 
-#### 3.28.4 IniParser — INIファイルパーサ
+#### 3.28.4 ini:: — INIファイルパーサ
 
-ヘッダオンリーの軽量パーサ。`[Section]` と `Key=Value` 形式をサポートし、`;` / `#` コメントを無視する。
+軽量パーサ。型と宣言は `config_service.h`、本体は `config_service.cpp` に置く（使うのは `ConfigService` とテストだけ）。`[Section]` と `Key=Value` 形式をサポートし、`;` / `#` コメントを無視する。
 
 ```cpp
 namespace ini {
@@ -2678,20 +2719,22 @@ namespace ini {
 
 #### 3.28.5 i18n — 国際化
 
-UI文字列のローカライズ。日本語 (`ja`) / 英語 (`en`) / 簡体字中国語 (`zh`) の3言語をサポート。
+UI文字列のローカライズ。日本語 (`ja`) / 英語 (`en`) / 簡体字中国語 (`zh`) / 繁体字中国語 (`zh-hant`) / 韓国語 (`ko`) の5言語をサポート。
 
 ```cpp
 namespace i18n {
     struct Strings { /* 文字列フィールド多数 */ };
 
     void Init(std::wstring_view config_lang) noexcept;
+    bool SetLanguage(const Strings* chosen) noexcept;  // nullptr は OS の表示言語に合わせる。表示が変われば true
+    const Strings* ChosenLanguage() noexcept;          // 設定で選んだ言語。OS に合わせるときは nullptr
     const Strings& S() noexcept;
-    std::wstring_view GetLangKey() noexcept;
-    const wchar_t* TextLocale() noexcept;  // 本文の書式に渡すロケール
+    std::wstring_view ConfigLangKey() noexcept;        // 設定ファイルに保存する値。OS に合わせるときは空
+    const wchar_t* TextLocale() noexcept;              // 本文の書式に渡すロケール
 }
 ```
 
-言語は `Strings` 定義済みインスタンス（`kAllStrings` = `kJa` / `kEn` / `kZh`）へのポインタで選択し、`std::atomic<const Strings*>` で保持する。`config_lang` がいずれかの `Strings::lang_key`（`"ja"` / `"en"` / `"zh"`）なら直接選択、空または未知の場合は `GetUserDefaultUILanguage()` から自動判定する（日本語 → `kJa`、簡体字の地域 → `kZh`、それ以外 → `kEn`）。繁体字の文言は持たないので、繁体字の地域は英語になる。
+言語は `Strings` 定義済みインスタンス（`kAllStrings` = `kJa` / `kEn` / `kZh` / `kZhHant` / `kKo`。設定ダイアログの一覧の並び）へのポインタで選択し、表示中の文言と設定で選んだ言語をそれぞれ `std::atomic<const Strings*>` で保持する。`config_lang` がいずれかの `Strings::lang_key`（`"ja"` / `"en"` / `"zh"` / `"zh-hant"` / `"ko"`）なら直接選択、空または未知の場合は `GetUserDefaultUILanguage()` から自動判定する（`StringsForUiLanguage`。日本語 → `kJa`、韓国語 → `kKo`、台湾・香港・マカオと地域なしの zh-Hant → `kZhHant`、残りの中国語 → `kZh`、それ以外 → `kEn`）。設定ダイアログで言語を変えると `SetLanguage` が表示中の文言をすぐ切り替える（文言は使うたびに `S()` から引く）。
 
 `TextLocale()` は UI の言語設定とは別に OS の表示言語から決める。`Theme::text_locale` がこれを持ち、本文と同じ書体を使う書式（本文・見出し・コード・ペイン・メニュー）に渡す。
 
@@ -2701,11 +2744,9 @@ UTF-8 ↔ ワイド文字変換のヘッダオンリーユーティリティ。
 
 ```cpp
 namespace string_convert {
-    void Utf8ToWide(std::string_view utf8, std::pmr::wstring& out);
-    std::pmr::wstring Utf8ToWide(std::string_view utf8);
-    // std::string / std::pmr::string の両方に書ける
-    template <typename Alloc>
-    void WideToUtf8(std::wstring_view wide, std::basic_string<char, std::char_traits<char>, Alloc>& out);
+    void Utf8ToWide(std::string_view utf8, std::wstring& out);
+    std::wstring Utf8ToWide(std::string_view utf8);
+    void WideToUtf8(std::wstring_view wide, std::string& out);
     std::string WideToUtf8(std::wstring_view wide);
 }
 ```
@@ -2740,19 +2781,16 @@ Tracy プロファイラベースの計測マクロ（`src/util/profiler.h`）�
 #### 3.29.2 DipRect
 
 ```cpp
-struct DipRect {
-    float left = 0.0f, top = 0.0f, right = 0.0f, bottom = 0.0f;
-};
+// メンバに既定値が無いので、宣言では {} で 0 にする
+using DipRect = D2D1_RECT_F;
 
-// 点包含判定はフリー関数 (任意の Rect 型に使えるテンプレート)。D2D に合わせ右辺・下辺は含まない
-template <class Rect>
-constexpr bool PointInRect(float x, float y, const Rect& r) noexcept;
+// D2D に合わせ右辺・下辺は含まない
+constexpr bool PointInRect(float x, float y, const DipRect& r) noexcept;
 // 右辺・下辺を含む版
-template <class Rect>
-constexpr bool PointInRectInclusive(float x, float y, const Rect& r) noexcept;
+constexpr bool PointInRectInclusive(float x, float y, const DipRect& r) noexcept;
 ```
 
-タイトルバーボタンやコンテキストメニューなど、`<d2d1.h>` を取り込まずに DIP 単位の矩形を扱う箇所で使用する（`src/util/ui_types.h`）。
+タイトルバーボタンやコンテキストメニューなど、DIP 単位の矩形を扱う箇所で使用する（`src/util/ui_types.h`）。`<d2d1.h>` は PCH で全 TU に入るので、別の型にせず `D2D1_RECT_F` をそのまま使う。
 
 ---
 
@@ -2780,31 +2818,32 @@ classDiagram
         +int8_t quote_depth
         +int8_t quote_outer_indent
         +int8_t indent_level
-        -int8_t heading_level_
-        -SyntaxLanguage code_language_
+        +int8_t heading_level
+        +SyntaxLanguage code_language
         -uint8_t flags_
     }
 
     class Payload {
         <<union>>
         +NodeTableData* table
-        +const NodeImageData* image
+        +const string_view* image_src
         +int32_t list_number
-        +uint32_t alert_label_length
+        +CodeLead code_lead
+    }
+
+    class CodeLead {
+        +uint32_t length
+        +SyntaxTokenType type
     }
 
     class NodeTableData {
-        +pmr::string concat_text (SoA)
-        +pmr::vector~TextRun~ all_runs
-        +pmr::vector~uint32_t~ cell_text_starts / cell_run_starts (run の無い表では空)
-        +pmr::vector~TableAlign~ aligns
+        +string concat_text (SoA)
+        +vector~TextRun~ all_runs
+        +vector~uint32_t~ cell_text_starts / cell_run_starts (run の無い表では空)
+        +vector~TableAlign~ aligns
         +uint32_t head_row_count
         +uint32_t row_count
         +uint16_t col_count
-    }
-
-    class NodeImageData {
-        +string_view src (UTF-8)
     }
 
     class TextRun {
@@ -2817,38 +2856,39 @@ classDiagram
     Node "1" --> "*" TextRun
     Node "1" *-- "1" Payload
     Payload --> "0..1" NodeTableData : Table
-    Payload --> "0..1" NodeImageData : Image
+    Payload *-- CodeLead : 区切ったコードの続き
 ```
 
-`NodeImageData` が持つのは Markdown に書かれた `src` だけである。読み込んだ画像の幅・高さはパース結果ではないので `Node` には置かず、`LayoutCache` の `DiagramEntry` が持つ（[4.2](#42-layoutcache)）。
+画像ノードが持つのは Markdown に書かれた `src`（`Node::image_src()`。画像でなければ空）だけである。読み込んだ画像の幅・高さはパース結果ではないので `Node` には置かず、`LayoutCache` の `DiagramEntry` が持つ（[4.2](#42-layoutcache)）。
 
-`Node` は自分では何も所有しない trivially copyable なビューで、`static_assert(sizeof(Node) == 64)` と `static_assert(std::is_trivially_copyable_v<Node>)` で退行を検出する。ノード種別ごとのデータは 8B の union `payload_` に 1 つだけ置き、どれを読むかは `type` で決まる（`list_number` と `alert_label_length` は `flags_` の `kListOrdered` / `kHasAlertLabel` で判定する）。Table は `Document` が `unique_ptr` で所有する `NodeTableData` を、Image は `TextArena` に置いた `NodeImageData` を指す。`heading_level` / `code_language` / `flags_` は末尾の 1 バイト領域に置く。`heading_level` と `code_language` は不変条件を持たない素のフィールドで、設定するのは見出し (`heading_level`) と CodeBlock・Diagram (`code_language`) だけなので、ほかのノードでは既定値の 0 / `SyntaxLanguage::None` のまま。`flags_` は `kListOrdered`・`kTaskChecked`・`kHasChildBlocks`（loose list の LI が中身を子ブロックに持つ）・`kHasAlertLabel` と、長いテキストを区切ったノードの並びを表す `kContinuesPrev`・`kContinuesNext`・`kNewlineBeforeChunk`（3.6.6）を持つ。
+`Node` は自分では何も所有しない trivially copyable なビューで、`static_assert(sizeof(Node) == 64)` と `static_assert(std::is_trivially_copyable_v<Node>)` で退行を検出する。ノード種別ごとのデータは 8B の union `payload_` に 1 つだけ置き、どれを読むかは `type` で決まる（`list_number` は `flags_` の `kListOrdered`、`code_lead` は `kHasCodeLead` で判定する）。Table は `Document` が `unique_ptr` で所有する `NodeTableData` を、Image は `TextArena` に置いた `src` の `string_view` を指し、区切ったコードブロックの続きは前のノードから続くトークンの長さと種類（`code_lead`）を持つ。Alert のラベル長は payload に持たず、`kHasAlertLabel` が立っていれば `AlertType` から `AlertLabelLength` で求める（3.6.4）。`heading_level` / `code_language` / `flags_` は末尾の 1 バイト領域に置く。`heading_level` と `code_language` は不変条件を持たない素のフィールドで、設定するのは見出し (`heading_level`) と CodeBlock・Diagram (`code_language`) だけなので、ほかのノードでは既定値の 0 / `SyntaxLanguage::None` のまま。`flags_` は `kListOrdered`・`kTaskChecked`・`kHasChildBlocks`（loose list の LI が中身を子ブロックに持つ）・`kHasAlertLabel` と、長いテキストを区切ったノードの並びを表す `kContinuesPrev`・`kContinuesNext`・`kNewlineBeforeChunk`（3.6.6）、`code_lead` を持つかの `kHasCodeLead` を持つ。
 
 > **Why**: ノード配列の伸長やパース後の詰め直しを memcpy で済ませるため、ノードには所有するメンバを置かない。`TextArena` のチャンク化と合わせて、100MB の文書でパース後のコミットが 162MB → 82MB に減った。
 
-テキスト・`runs`・リンク URL はノード自身では持たず、「先頭ポインタ + 長さ / 件数」で外部の領域を指す（長さと件数は 4B / 2B 領域にまとめて 64B に収める）。原文をそのまま表示できるノードは `Document` の `raw_text_` を、加工が要るノード（SOFTBR の空白化、HTML entity、Alert など）のテキストと全ノードの `runs`・URL 配列は `Document` が持つ `TextArena` を指す。Table ノードのテキストは `NodeTableData::concat_text` 全体を指すので、表の本文も `GetText()` で取れる。`TextArena` はチャンクを積み足すだけのバンプアロケータで、個別には解放しない。チャンクは 4KB から倍々に広げて 1MB で頭打ちにし、256KB を超える要求は専用に確保する（小さな文書で大きく確保せず、使い残しを末尾のチャンク 1 個分程度に抑えるため）。URL 配列の要素と画像の `src` は `string_view` で、md4c の href / src が原文を指していればそのまま、参照定義の展開や脚注 URL のように原文の外にあるものだけ arena へコピーする。パース中はテキスト・`runs`・URL を `ParseContext` のスクラッチに貯め、ノード確定時に arena へ 1 回だけコピーするので、ノードごとの確保・解放がほぼ無く、旧文書の破棄も arena の塊を返すだけで済む。ソース位置は `uint32_t source_offset_` に明示的に持ち、`SourceOffset()` で取り出す。`TextRun` の装飾は個別 bool ではなく `uint8_t flags` に packbit され、`bold()` / `italic()` / `code()` / `strikethrough()` アクセサで判定する。
+テキスト・`runs`・リンク URL はノード自身では持たず、「先頭ポインタ + 長さ / 件数」で外部の領域を指す（長さと件数は 4B / 2B 領域にまとめて 64B に収める）。原文をそのまま表示できるノードは `DocumentData::raw` を、加工が要るノード（SOFTBR の空白化、HTML entity、Alert など）のテキストと全ノードの `runs`・URL 配列は `DocumentData::parsed`（`NodeStorage`）の `TextArena` を指す。Table ノードのテキストは `NodeTableData::concat_text` 全体を指すので、表の本文も `GetText()` で取れる。`TextArena` はチャンクを積み足すだけのバンプアロケータで、個別には解放しない。チャンクは 4KB から倍々に広げて 1MB で頭打ちにし、256KB を超える要求は専用に確保する（小さな文書で大きく確保せず、使い残しを末尾のチャンク 1 個分程度に抑えるため）。URL 配列の要素と画像の `src` は `string_view` で、md4c の href / src が原文を指していればそのまま、参照定義の展開や脚注 URL のように原文の外にあるものだけ arena へコピーする。パース中はテキスト・`runs`・URL を `ParseContext` のスクラッチに貯め、ノード確定時に arena へ 1 回だけコピーするので、ノードごとの確保・解放がほぼ無く、旧文書の破棄も arena の塊を返すだけで済む。ソース位置は `uint32_t source_offset_` に明示的に持ち、`SourceOffset()` で取り出す。`TextRun` の装飾は個別 bool ではなく `uint8_t flags` に packbit され、`bold()` / `italic()` / `code()` / `strikethrough()` アクセサで判定する。
 
 アクセサは `payload_` と `flags_` への薄いラッパーとして提供される:
 
 ```cpp
 NodeTableData* table_data() noexcept;            // Table 以外・未設定は nullptr (const 版は const を返す)
-const NodeImageData* image_data() const noexcept;
 bool has_table() const noexcept;
-bool has_image() const noexcept;
+std::string_view image_src() const noexcept;     // 画像の記述どおりのパス。画像でなければ空
 int8_t heading_level = 0;                        // 素のフィールド。Heading 以外は 0
 SyntaxLanguage code_language = SyntaxLanguage::None;   // 素のフィールド。未設定は None
 int32_t list_number() const noexcept;            // 順序なしリストは 0
 bool list_ordered() const noexcept;
 bool task_checked() const noexcept;
 bool has_child_blocks() const noexcept;
-uint32_t alert_label_length() const noexcept;    // ラベルを持たない (Alert の伝播先) ノードは 0
+uint32_t alert_label_length() const noexcept;    // AlertLabelLength(alert_type)。ラベルを持たない (Alert の伝播先) ノードは 0
 bool continues_prev() const noexcept;            // 区切ったテキストの続き (前のノードと同じブロック)
 bool continues_next() const noexcept;            // 次のノードが続き
 bool newline_before_chunk() const noexcept;      // 前のノードとの間の改行を、区切るときに取り除いた
 uint32_t code_lead_length() const noexcept;      // 区切ったコードの続きで、前から続くトークンが先頭から占める長さ (無ければ 0)
 SyntaxTokenType code_lead_type() const noexcept; // その種類 (kHasCodeLead が立っていなければ Plain)
+void set_code_lead(uint32_t length, SyntaxTokenType type) noexcept;  // payload に書いて kHasCodeLead を立てる。0 か Plain なら下ろす
 void set_list_number(int32_t number) noexcept;   // payload に書いて kListOrdered を立てる
-void set_alert_label_length(uint32_t length) noexcept;
+void set_image_src(const std::string_view* src) noexcept;
+void set_has_alert_label() noexcept;             // kHasAlertLabel を立てる。alert_type を先に決める
 ```
 
 リロードで中身が同じノードの計測結果を引き継ぐときの照合（`FindUnchangedEnds`、`document_utils.h`。比較本体は `document_utils.cpp` 内部の `NodeContentEquals`）は、ノードが指す先の内容（テキスト・`runs`・URL・画像の `src`・表）と `flags_`、区切ったコードの続きの先頭のトークン（`code_lead_*`）を比べる。表は `NodeTableData` の既定の `operator==` で比べる。
@@ -2874,7 +2914,7 @@ classDiagram
         +TakeReleasedLayouts() ReleasedLayouts
         +GetEstimateBasis() EstimateBasis
         +HasDirtyNodes() bool
-        -pmr::vector~float~ tops_
+        -vector~float~ tops_
     }
 
     class NodeLayoutEntry {
@@ -2891,8 +2931,8 @@ classDiagram
     class Aux {
         +ComPtr~IDWriteTextLayout~ text_layout
         +float first_line_height / natural_code_width
-        +pmr::vector~InlineCodeBg~ inline_code_bgs
-        +pmr::vector~SyntaxToken~ syntax_tokens
+        +vector~InlineCodeBg~ inline_code_bgs
+        +vector~SyntaxToken~ syntax_tokens
         +unique_ptr~TableLayoutData~ table_layout
         +unique_ptr~SearchHlCache~ search_hl_cache
         +unique_ptr~SelectionHlCache~ selection_hl_cache
@@ -2900,19 +2940,18 @@ classDiagram
     }
 
     class TableLayoutData {
-        +pmr::vector~ComPtr~IDWriteTextLayout~~ cell_layouts (flat)
-        +pmr::vector~pmr::vector~CellInlineCodeBg~~ row_code_bgs
+        +vector~ComPtr~IDWriteTextLayout~~ cell_layouts (flat)
+        +vector~vector~CellInlineCodeBg~~ row_code_bgs
         +const size_t row_count / col_count
-        +pmr::vector~float~ col_widths / row_heights
-        +pmr::vector~float~ row_cum_y / col_cum_x
-        +pmr::vector~float~ natural_col_widths / cell_natural_widths / cell_nowrap_heights
-        +pmr::vector~uint8_t~ row_evicted
+        +vector~float~ col_widths / row_heights
+        +vector~float~ row_cum_y / col_cum_x
+        +vector~float~ natural_col_widths / cell_natural_widths / cell_nowrap_heights
+        -vector~uint8_t~ row_evicted_
         +float last_applied_max_width
-        +size_t live_row_begin / live_row_end
-        +bool geometry_valid
+        -size_t live_row_begin_ / live_row_end_
         +HasGeometry() bool
         +CommitGeometry(max_width)
-        +InvalidateGeometry()
+        +EvictRowsOutside(keep_begin, keep_end, released)
         +TableWidth() float
         +ColumnStep(c) float
     }
@@ -2922,8 +2961,9 @@ classDiagram
         +float width (画像・図の実寸)
         +float height
         +PngBytes png
-        +pmr::wstring error
+        +DiagramError error
         +uint64_t code_hash
+        +bool stale
     }
 
     LayoutCache "1" --> "*" NodeLayoutEntry
@@ -2936,13 +2976,20 @@ classDiagram
 
 遅延レイアウトで計測する dirty が残っているかは `LayoutCache` 自身が `HasDirtyNodes()` として持ち、`LayoutEngine` が計測のたびに決め直す。キャッシュと一緒に動くので、推定直後（true）のキャッシュを文書ごと差し替えても遅延レイアウトが拾う。
 
-`TableLayoutData` は `unique_ptr` でテーブルノードのみ確保される。セルレイアウトはフラット配列 `[row * col_count + col]` で持ち、`natural_col_widths` / `cell_natural_widths` などをまとめて管理する。セルのレイアウトは自然幅を測るために無限幅で作り（列の揃えは作るときに付ける）、左揃えで列幅に収まるセルはそのまま使う（`ApplyCellWidth`。折り返さないので行組みは同じで、列幅を付けると組み直しになる）。幅が変わったかはレイアウト自身の `GetMaxWidth` で判定し、変わらなければ `GetMetrics` が計測済みの高さを返すだけなので、セルごとの高さや適用幅は持たない。エントリは中身の同じノードの間でしか移らないので、行数と列数は確保したときに決まり、セル単位・行単位の配列もそのときに表の大きさで確保する。全セルを測り終えたかは行の累積位置があるか（`HasRowGeometry`。積むのは全セルを測った後の `CommitGeometry` だけ）で分かる。描画とヒットテストに要る幾何（`col_widths` / `row_heights` / `col_cum_x` / `row_cum_y`）が揃っているか（`HasGeometry`、幅も合っているかは `GeometryValidAt`）はフラグで持つ。幾何は計測完了時（`FinalizeTableLayout` の `CommitGeometry`）に揃い、`entry.height` だけを推定値で伸ばしたときなどは `InvalidateGeometry` で無効にして次の計測で作り直す。揃っていないテーブルは描かず、ヒットテストもしない（推定の行高さで描く線形のフォールバックは持たない）。表の総幅は `TableWidth`（`col_cum_x` の末尾）、列の刻み幅は `ColumnStep`、セル本文の原点は `TableCellTextOrigin` で求め、描画とヒットテストが同じ式を使う。インラインコードの背景は行ごとの配列 `row_code_bgs`（各行は列の昇順）で持ち、インラインコードを含むテーブルだけ `row_count` 分確保して行の計測で作り直す。描画は行の背景を列の昇順に読み進め、セルごとに行の全件を見ない。行単位 evict（`EvictInvisibleTableRows`）はセルレイアウトが生存しうる行範囲 `[live_row_begin, live_row_end)` のうち keep 範囲外の差分だけを捨て、背景は幅が変わらない限り有効なので残す。初回の計測（`MeasureTableCells`）は列幅を決めるために全セルを測るが、`kMaxKeptTableCells`（1024）を超える表はセルの自然幅と折り返さない高さ（`cell_nowrap_heights`）だけを残してレイアウトを捨て、全行を evict 済みにする（セルのレイアウトは 1 個 7KB ほどあり、5 万行 6 列の表で 2GB になる）。このとき列ごとに中身（テキストと装飾）が同じセルは最初の 1 つだけを測り、残りはその値を使う（`FindRepresentativeCells`。状態や種別のような同じ値が並ぶ表では計測が 4 割ほど縮む）。見出し行は書式が違うので対象にしない。evict 中の行の高さは、列幅に収まるセルは折り返さない高さそのもの、収まらないセルは折り返しの行数を見積もった値で、行が可視になって `RestoreEvictedTableRows` が作り直したときに実測へ揃える。
+`TableLayoutData` は `unique_ptr` でテーブルノードのみ確保される。セルレイアウトはフラット配列 `[row * col_count + col]` で持ち、`natural_col_widths` / `cell_natural_widths` などをまとめて管理する。セルのレイアウトは自然幅を測るために無限幅で作り（列の揃えは作るときに付ける）、左揃えで列幅に収まるセルはそのまま使う（`ApplyCellWidth`。折り返さないので行組みは同じで、列幅を付けると組み直しになる）。幅が変わったかはレイアウト自身の `GetMaxWidth` で判定し、変わらなければ `GetMetrics` が計測済みの高さを返すだけなので、セルごとの高さや適用幅は持たない。エントリは中身の同じノードの間でしか移らないので、行数と列数は確保したときに決まり、セル単位・行単位の配列もそのときに表の大きさで確保する。全セルを測り終えたかと、描画とヒットテストに要る幾何（`col_widths` / `row_heights` / `col_cum_x` / `row_cum_y`）が揃っているかは、フラグを持たず行の累積位置があるか（`HasGeometry` は `row_cum_y` が空でないか。積むのは全セルを測った後の `FinalizeTableLayout` の `CommitGeometry` だけ。幅も合っているかは `GeometryValidAt`）で分かる。幅が変わっても組み直すまでは前の幅の幾何のまま残り（見えている表は描く前に組み直す）、推定が `entry.height` だけを伸ばしても、同じ幅の早道は幾何の高さ（`TotalHeight`）で確定し直す。揃っていないテーブルは描かず、ヒットテストもしない（推定の行高さで描く線形のフォールバックは持たない）。表の総幅は `TableWidth`（`col_cum_x` の末尾）、列の刻み幅は `ColumnStep`、セル本文の原点は `TableCellTextOrigin` で求め、描画とヒットテストが同じ式を使う。インラインコードの背景は行ごとの配列 `row_code_bgs`（各行は列の昇順）で持ち、インラインコードを含むテーブルだけ `row_count` 分確保して行の計測で作り直す。描画は行の背景を列の昇順に読み進め、セルごとに行の全件を見ない。行単位 evict（`EvictInvisibleTableRows` が呼ぶ `TableLayoutData::EvictRowsOutside`）はセルレイアウトが生存しうる行範囲 `[live_row_begin_, live_row_end_)` のうち keep 範囲外の差分だけを捨て、背景は幅が変わらない限り有効なので残す。evict 済みの行の印（`row_evicted_`）・その数・生存範囲は互いに揃っている必要があるので private にし、`TableLayoutData` のメンバ（`EvictRowsOutside` / `MarkRowRestored` / `MarkAllRowsEvicted`）だけが書き換える。初回の計測（`MeasureTableCells`）は列幅を決めるために全セルを測るが、`kMaxKeptTableCells`（1024）を超える表はセルの自然幅と折り返さない高さ（`cell_nowrap_heights`）だけを残してレイアウトを捨て、全行を evict 済みにする（セルのレイアウトは 1 個 7KB ほどあり、5 万行 6 列の表で 2GB になる）。このとき列ごとに中身（テキストと装飾）が同じセルは最初の 1 つだけを測り、残りはその値を使う（`FindRepresentativeCells`。状態や種別のような同じ値が並ぶ表では計測が 4 割ほど縮む）。見出し行は書式が違うので対象にしない。evict 中の行の高さは、列幅に収まるセルは折り返さない高さそのもの、収まらないセルは折り返しの行数を見積もった値で、行が可視になって `RestoreEvictedTableRows` が作り直したときに実測へ揃える。
 
-`DiagramEntry` の `width` / `height` は読み込んだ画像・描画した図の実寸で、再計測（幅変更・ズーム）でも表示高さの計算に使う。デバイスロスト時の `InvalidateAllDiagramBitmaps()` はビットマップを捨てても画像の寸法は残す。`png` はクリップボードコピー用の元 PNG データ（`PngBytes` = `shared_ptr<const pmr::vector<uint8_t>>`）。`error` は描画失敗時の表示用メッセージで、空でなければ再要求しない（リロード・幅変更・テーマ変更・デバイスロストで消えて再試行の契機になる）。`code_hash` は図のコード部分のハッシュで、結果を捨てても残し、要求し直すたびにテキストを読み直さない。`DiagramEntry` は画像/図のノードでしか使わないため、`diagrams_` は全ノード分の枠を持たず、ノード番号をキーにした `std::pmr::unordered_map<size_t, DiagramEntry>` として持つ。要素の位置はほかの要素の追加で動かないので、Mermaid の処理待ちが持つポインタも有効なまま。確保は結果を書き込む `EnsureDiagram(i)` だけが行い、読み取り・描画・破棄は未確保なら `nullptr` を返す `FindDiagram(i)` を使うので、表示していない画像/図ノードには確保しない。検索ヒットがあるノードでのみ `search_hl_cache` が確保される（フレーム間キャッシュ、`SearchState::generation_` と一致する間は HitTestTextRange を再計算しない）。検索・選択ハイライトは、本文 `text_layout` のうち可視範囲の上下に 1 画面ずつ足した行のテキスト範囲（`line_window`）を共有し、可視範囲がその窓に収まる間は引き直さない。
+`DiagramEntry` の `width` / `height` は読み込んだ画像・描画した図の実寸で、再計測（幅変更・ズーム）でも表示高さの計算に使う。デバイスロスト時の `InvalidateAllDiagramBitmaps()` はビットマップを捨てても画像の寸法は残す。`png` はクリップボードコピー・保存用の元 PNG データ（`PngBytes` = `shared_ptr<const ByteBuffer>`）。`error`（`DiagramError`。失敗の種類と、Mermaid が返した文言）は描画失敗の理由で、空でなければ再要求しない（リロード・幅変更・テーマ変更・デバイスロストで消えて再試行の契機になる）。言語で変わる文言は持たずに描くときに引くので、言語を切り替えても前の言語の文言は残らない。`stale` は幅・テーマ・コードの変更で描き直す間、前の結果を仮に表示している印（`MarkStale`）で、プレースホルダへ戻って高さが 2 回変わるのを避ける。`code_hash` は図のコード部分のハッシュで、結果を捨てても残し、要求し直すたびにテキストを読み直さない。`DiagramEntry` は画像/図のノードでしか使わないため、`diagrams_` は全ノード分の枠を持たず、ノード番号をキーにした `std::unordered_map<size_t, DiagramEntry>` として持つ。要素の位置はほかの要素の追加で動かないので、Mermaid の処理待ちが持つポインタも有効なまま。確保は結果を書き込む `EnsureDiagram(i)` だけが行い、読み取り・描画・破棄は未確保なら `nullptr` を返す `FindDiagram(i)` を使うので、表示していない画像/図ノードには確保しない。検索ヒットがあるノードでのみ `search_hl_cache` が確保される（フレーム間キャッシュ、`SearchState::generation_` と一致する間は HitTestTextRange を再計算しない）。検索・選択ハイライトは、本文 `text_layout` のうち可視範囲の上下に 1 画面ずつ足した行のテキスト範囲（`line_window`）を共有し、可視範囲がその窓に収まる間は引き直さない。
 
 ### 4.3 Document
 
 ```cpp
+// 原文と、それをパースした結果。ノードのテキストは raw か parsed.arena を指すので、1 つの共有で寿命をそろえる。
+// パース後は書き換えない。
+struct DocumentData {
+    std::string raw;      // パース入力 (LF 正規化済み)。relocate しないので、原文をそのまま表示するノードが指し続けられる
+    NodeStorage parsed;   // ノードと、加工したテキスト・全ノードの runs・URL・画像の src を置く arena、テーブル本体、索引
+};
+
 class Document {
 public:
     constexpr Document() noexcept = default;
@@ -2950,45 +2997,42 @@ public:
     Document& operator=(Document&&) noexcept = default;
 
     // text は LF 正規化済みの UTF-8 (LoadFile の出力)。scheduler はパースの一部を並列にする先
-    static Document FromNormalizedMarkdown(std::pmr::string text, std::wstring_view path,
+    static Document FromNormalizedMarkdown(std::string text, std::wstring_view path,
                                            std::stop_token stop_token = {}, TaskScheduler* scheduler = nullptr);
     // LF 正規化を内蔵した版 (ヘルプの埋め込みリソース / テスト用)
-    static Document FromMarkdown(std::pmr::string utf8, std::wstring_view path);
+    static Document FromMarkdown(std::string utf8, std::wstring_view path);
 
-    const std::pmr::vector<Node>&           GetNodes() const noexcept;  // 書き換え用のアクセサは持たない
-    // 非同期リロードの worker が旧ノードと比べるための弱参照
-    std::weak_ptr<const NodeStorage>        ShareNodes() const noexcept;
-    constexpr const std::pmr::wstring&      GetFilePath() const noexcept;
-    bool                                    HasBackingFile() const noexcept;    // 空パスとヘルプの仮想パスは false
-    const std::pmr::vector<TocEntry>&       GetToc() const noexcept;    // 文書順の見出し
-    bool                                    IsEmpty() const noexcept;
-    std::string_view                        GetRawText() const noexcept;        // リロード差分比較用 (UTF-8)
-    // 同一性 (ポインタ一致) で同じテキストかを判定できる共有参照
-    const std::shared_ptr<const std::pmr::string>& ShareRawText() const noexcept;
-    constexpr const std::pmr::wstring&      GetDirectory() const noexcept;      // キャッシュ済み参照
+    const std::vector<Node>&      GetNodes() const noexcept;  // 書き換え用のアクセサは持たない
+    constexpr const std::wstring& GetFilePath() const noexcept;
+    bool                          HasBackingFile() const noexcept;    // 空パスとヘルプの仮想パスは false
+    const std::vector<TocEntry>&  GetToc() const noexcept;    // 文書順の見出し
+    bool                          IsEmpty() const noexcept;
+    std::string_view              GetRawText() const noexcept;        // リロード差分比較用 (UTF-8)
+    // 非同期リロードの worker に旧文書を渡す共有参照。同一性で「同じ文書か」を判定できる
+    const std::shared_ptr<const DocumentData>& ShareData() const noexcept;
+    constexpr const std::wstring& GetDirectory() const noexcept;      // キャッシュ済み参照
 
     // アンカー (ASCII 大文字小文字は無視) を付けた見出し、または脚注の定義 / 参照のノード番号。見つからなければ -1。
     int FindAnchorIndex(std::string_view anchor);
-    const std::pmr::vector<size_t>& GetImageNodeIndices() const noexcept;
-    const std::pmr::vector<size_t>& GetDiagramNodeIndices() const noexcept;
-    const std::pmr::vector<size_t>& GetTableNodeIndices() const noexcept;
+    const std::vector<size_t>& GetImageNodeIndices() const noexcept;
+    const std::vector<size_t>& GetDiagramNodeIndices() const noexcept;
+    const std::vector<size_t>& GetTableNodeIndices() const noexcept;
 
 private:
-    // ノードと、加工したテキスト・全ノードの runs・URL・画像の src を置く arena、Table ノードが指すテーブル本体、
-    // TOC・各種ノード番号の索引・脚注
-    std::shared_ptr<const NodeStorage> storage_;
-    std::shared_ptr<const std::pmr::string> raw_text_;         // パース入力 (LF 正規化済み)
-    // ... アンカー索引など
+    std::shared_ptr<const DocumentData> data_;   // 設定するのは FromMarkdown だけ
+    std::wstring file_path_;
+    std::wstring cached_directory_;
+    std::unique_ptr<HeadingAnchorIndex> anchor_index_;   // リンクを辿るときに見つかるまでだけ延ばす
 };
 ```
 
-`Document` は `FromMarkdown` で作ったら中身を変えない。別の内容を表示するときは新しい `Document` を作り、`App::ReplaceDocument` が推定高さ入りの `LayoutCache` と一緒に丸ごと差し替える。このときノード数とキャッシュのエントリ数が等しいことを assert で確かめ、以降の描画・ヒットテスト・スクロール計算はこの一致を前提にする。`Document` は move-only で、ノードは `raw_text_` と `storage_` の arena・テーブルを直接指すが、どちらも共有で持つので move で位置が変わらず、ポインタの付け替えは要らない。`storage_` を共有で持つのは、非同期リロードの worker が UI の文書の差し替えと無関係に旧ノードを読めるようにするためでもある（3.11.3）。
+`Document` は `FromMarkdown` で作ったら中身を変えない。別の内容を表示するときは新しい `Document` を作り、`App::ReplaceDocument` が推定高さ入りの `LayoutCache` と一緒に丸ごと差し替える。このときノード数とキャッシュのエントリ数が等しいことを assert で確かめ、以降の描画・ヒットテスト・スクロール計算はこの一致を前提にする。`Document` は move-only で、ノードは `DocumentData` の `raw` と `parsed` の arena・テーブルを直接指すが、`DocumentData` を共有で持つので move で位置が変わらず、ポインタの付け替えは要らない。原文とパース結果を 1 つの共有にまとめて持つのは、両者の寿命をそろえるためと、非同期リロードの worker が UI の文書の差し替えと無関係に旧文書の原文とノードを読めるようにするためである（3.11.3）。
 
 アンカーは文書内リンクのクリック時にしか使わないため、パースでは作らない。`FindAnchorIndex` はクエリを ASCII 小文字に畳み、`HeadingAnchorIndex`（アンカー → ノード番号のハッシュ索引）を引く。無ければ TOC の続きから見出しのスラグを作って github-slugger と同じ規則で連番を付け、見つかるまでだけ索引を延ばす。索引はリンクを辿った文書にだけ作られ、内容を差し替えると捨てる。115MB・見出し 14 万件の文書では、パースが約 65ms 短くなる代わりに、存在しないアンカーを初めて引いたときだけ約 50ms・+19MB かかる。
 
 脚注のアンカー (`user-content-fn-N` / `user-content-fnref-N[-M]`) は、パース時に作った `footnote_def_indices`（脚注番号 → 定義ノード）と `footnote_refs`（参照の位置）を引く。見出しの索引より先に照合するので、脚注のアンカーと同じスラグの見出しがあっても脚注が優先される。
 
-`raw_text_` はパース入力の UTF-8 テキストを常時保持する。これはリロード時の差分比較（`AnalyzeReloadDiff`、差分位置からのスクロール量は `layout_computer.h` の `layout::CalcScrollYForDiff`）用で、ノードレベルでは検出できない編集（空行追加・末尾空白等）も UTF-8 byte オフセット精度で差分位置を求めるため。`raw_text_` は不変の共有文字列で持ち、非同期リロードのワーカーは `ShareRawText()` で旧テキストを受け取って、パースの前に差分を判定する。`raw_text_` は常に LF 正規化済み（`LoadFile` か `FromMarkdown` が `NormalizeNewlines` を通す）なので、リロード diff の新テキストも `LoadFile` で同じ正規化を通してから比較する。これによりファイル全体の改行コードを変換して保存するエディタ（issue #273）でも差分位置が編集行を正しく指し、改行コード変換のみの保存は NoChange としてスクロール位置が維持される。
+`DocumentData::raw` はパース入力の UTF-8 テキストを常時保持する。これはリロード時の差分比較（`AnalyzeReloadDiff`、差分位置からのスクロール量は `layout_computer.h` の `layout::CalcScrollYForDiff`）用で、ノードレベルでは検出できない編集（空行追加・末尾空白等）も UTF-8 byte オフセット精度で差分位置を求めるため。非同期リロードのワーカーは `ShareData()` で旧文書を受け取り（`ReloadBase`）、パースの前に差分を判定する。`raw` は常に LF 正規化済み（`LoadFile` か `FromMarkdown` が `NormalizeNewlines` を通す）なので、リロード diff の新テキストも `LoadFile` で同じ正規化を通してから比較する。これによりファイル全体の改行コードを変換して保存するエディタ（issue #273）でも差分位置が編集行を正しく指し、改行コード変換のみの保存は NoChange としてスクロール位置が維持される。
 
 ### 4.4 NodeType / AlertType
 
@@ -3059,18 +3103,17 @@ flowchart TD
     LSCHED --> SCHED[InitSharedScheduler<br>スレッド数の記録のみ、初回 Post で起動]
     SCHED --> FCACHE[MermaidFileCache::Init<br>索引は初回利用まで読まない]
     FCACHE --> MERM[MermaidRenderer::Init<br>WebView2 は初回描画要求で起動]
-    MERM --> PANES[RestorePaneState<br>session::LoadPanes]
+    MERM --> PANES[session::LoadPanes<br>ペインの表示・幅・倍率]
     PANES --> SHOWW[DWMWA_CLOAK で隠したまま<br>RestoreWindowPlacement / ShowWindow]
-    SHOWW --> ATTACH{LoadInitialDocument<br>AttachPreload}
+    SHOWW --> ATTACH{LoadInitialDocument<br>Attach で通知先を渡す}
 
-    ATTACH -->|AppliedSync| APPLY[OnParseComplete]
-    ATTACH -->|AttachedAsync| WAIT[完了は PARSE_COMPLETE で合流<br>長引けばスピナー]
-    ATTACH -->|None| HELP[ShowHelpResource]
+    ATTACH -->|読み込み中| AWAIT[AwaitInitialParseBeforeDevice<br>D3D デバイスの先行作成を待つ間に<br>PARSE_COMPLETE が届けば OnParseComplete<br>長引けばスピナー]
+    ATTACH -->|読み込んでいない| HELP[ShowHelpResource]
 
-    APPLY --> DEV[App::CreateRenderDevice<br>先行作成した D3D デバイスで D2D デバイス + Brushes]
-    WAIT --> DEV
-    HELP --> DEV
-    DEV --> PEEK[PARSE_COMPLETE が届いていれば<br>OnParseComplete]
+    AWAIT --> TAKE[TakeStartupMessages<br>FILE_LISTED / INLINE_MATH_REQUESTED を<br>デバイスを待つ前に取り込む]
+    HELP --> TAKE
+    TAKE --> DEV[App::CreateRenderDevice<br>先行作成した D3D デバイスで D2D デバイス + Brushes]
+    DEV --> PEEK[PARSE_COMPLETE が届いていれば<br>OnParseComplete + TakeStartupMessages]
     PEEK --> SHOW[UpdateWindow → cloak 解除]
     SHOW --> LOOP[RunMessageLoop]
     LOOP --> DESTROY[Win32Window破棄<br>COMオブジェクト解放]
@@ -3078,7 +3121,7 @@ flowchart TD
     EXIT --> END[終了]
 ```
 
-`DecideStartupPlan` は、ファイル引数ならそのファイル、フォルダ引数・引数なしなら前回ファイルを `document_path` にし、実在しないパスの引数では前回ファイルを復元せずヘルプを出す。ファイルペインのフォルダは、ファイル引数ならその親、フォルダ引数ならそのフォルダ、それ以外は cwd（cwd がシステムフォルダや exe のフォルダなら前回ファイルのフォルダ）にする。ファイル引数が前回ファイルと同じ表記（大文字小文字は区別しない）ならスクロール位置を復元する（`restore_scroll`）。表記が違えば `restore_scroll_if_same_file` を立て、2 ファイルを開く `std::filesystem::equivalent` での確認はプリロードを始めた後に `wWinMain` が行う。描画デバイスの作成（`CreateRenderDevice`）は起動時の読み込みの取り込みより後に置き、デバイスを待つ間に終わった読み込みや画像デコードは最初のフレームに入れる。
+`DecideStartupPlan` は、ファイル引数ならそのファイル、フォルダ引数・引数なしなら前回ファイルを `document_path` にし、実在しないパスの引数では前回ファイルを復元せずヘルプを出す。ファイルペインのフォルダは、ファイル引数ならその親、フォルダ引数ならそのフォルダ、それ以外は cwd（cwd がシステムフォルダや exe のフォルダなら前回ファイルのフォルダ）にする。ファイル引数が前回ファイルと同じ表記（大文字小文字は区別しない）ならスクロール位置を復元する（`restore_scroll`）。表記が違えば `restore_scroll_if_same_file` を立て、2 ファイルを開く `std::filesystem::equivalent` での確認はプリロードを始めた後に `wWinMain` が行う。描画デバイスの作成（`CreateRenderDevice`）は起動時の読み込みの取り込みより後に置き、デバイスを待つ間に終わった読み込みや画像デコードは最初のフレームに入れる。ファイルペインの列挙完了とインライン数式の描画の依頼もデバイスに依存しないので、デバイスの作成を待つ前に取り込む（`Win32Window::TakeStartupMessages`）。
 
 ### 5.2 ファイル読み込みから描画まで
 
@@ -3088,7 +3131,7 @@ flowchart TD
     LMF --> ASYNC[BeginAsyncLoad<br>150ms を超えたらローディングアニメーション]
     ASYNC --> WORKER[AsyncLoadCoordinator のワーカー<br>PostFront で先に実行<br>LoadFile → Document::FromNormalizedMarkdown<br>→ MakeEstimatedLayoutCache]
     WORKER --> POST[WM_APP+6 PARSE_COMPLETE ポスト]
-    POST --> OPC[App::OnParseComplete<br>TakeAsync]
+    POST --> OPC[App::OnParseComplete<br>AsyncLoadCoordinator::Take]
 
     OPC --> REPL[App::OpenDocument<br>ReplaceDocument で Document と推定済み LayoutCache を差し替え]
     REPL --> FIN[画像・図の待ちを捨てる<br>復元するなら推定高さを実測値で補正]
@@ -3106,7 +3149,6 @@ sequenceDiagram
     participant ML as メッセージループ
     participant APP as App
     participant R as Renderer
-    participant BE as D2DRenderBackend
     participant CG as CommandGenerator
     participant RT as ID2D1DeviceContext
 
@@ -3115,21 +3157,19 @@ sequenceDiagram
     Note right of APP: 最小化中は描かずに戻る
     APP->>APP: EnsureFrameLayout + SyncActiveTocIndex (ロード中以外)
     APP->>R: Render(RenderParams)
-    R->>R: PrepareChrome (タイトルバー / サイドペインのコマンド生成)
-    R->>BE: AcquireFrame (ループで取れていなければ待つ)
-    R->>RT: BeginDraw / Clear
-    R->>RT: ExecuteDrawCommands(chrome_cmds_, rt, brushes)
-    R->>CG: GenerateMdPane(params.md, dpi_scale)
-    CG-->>R: DrawCommandList
-    R->>RT: ExecuteDrawCommands(cmds, rt, brushes)
-    R->>R: GenOverlays (ナビボタン / ジェスチャー / トースト / 検索バー / スクロールバー)
-    R->>RT: ExecuteDrawCommands(overlay_cmds_, rt, brushes)
+    R->>R: PrepareChrome (タイトルバー / サイドペインのコマンド → frame_cmds_)
+    R->>CG: GenerateMdPane(frame_cmds_, params.md, dpi_scale)
+    CG-->>R: frame_cmds_ の後ろに積む
+    R->>R: GenOverlays (ナビボタン / ジェスチャー / トースト / 検索バー / スクロールバー → frame_cmds_)
     Note right of R: ローディング中は本文の代わりにスピナーを積む。ContextMenu は別経路で描画
+    R->>R: AcquireFrame (ループで取れていなければ待つ)
+    R->>RT: BeginDraw / Clear
+    R->>RT: ExecuteDrawCommands(frame_cmds_, rt, brushes, params.md.inline_math)
     R->>RT: EndDraw()
-    R->>BE: Present (スワップチェーン)
+    R->>R: Present (スワップチェーン)
 ```
 
-スワップチェーンは `SetMaximumFrameLatency(1)` で、Frame Latency Waitable Object がシグナルするまで次のフレームを描かない。メッセージループはこのハンドルも `MsgWaitForMultipleObjects` で待ち、待つ間は `QS_PAINT` を外して `WM_PAINT` を取り出さず、入力などを先に配る（待つ間の入力を反映して描ける）。期限は `D2DRenderBackend::kFrameWaitTimeoutMs`（1000ms）で、GPU が止まっても抜けられる。モーダルループや `UpdateWindow` からの描画のようにループが待っていない経路では、`Renderer::BeginFrame` の `AcquireFrame` が同じ期限で待つ。
+スワップチェーンは `SetMaximumFrameLatency(1)` で、Frame Latency Waitable Object がシグナルするまで次のフレームを描かない。メッセージループはこのハンドルも `MsgWaitForMultipleObjects` で待ち、待つ間は `QS_PAINT` を外して `WM_PAINT` を取り出さず、入力などを先に配る（待つ間の入力を反映して描ける）。期限は `Renderer::kFrameWaitTimeoutMs`（1000ms）で、GPU が止まっても抜けられる。モーダルループや `UpdateWindow` からの描画のようにループが待っていない経路では、`Renderer::Render` がコマンドを組み立てた後の `AcquireFrame` で同じ期限まで待つ（組み立ての時間は待ちに隠れる）。
 
 ---
 
@@ -3196,7 +3236,7 @@ build/tests/Release/mendo_tests.exe --gtest_brief=1
 | `mendo` | 実行ファイル (WIN32) | メインアプリケーション |
 | `mendo_tests` | テスト | 全テストを含む単一バイナリ |
 
-`mendo_core` には **DirectWrite / WebView2 抽象化越し** のサービスが入る — `ITextMeasurer` / `IMermaidRenderer` を通して使い、`MermaidRenderer`（WebView2）と `Renderer` / `D2DRenderBackend`（Direct2D）、`App` / `Win32Window` は `mendo` 実行ファイル側に置く。`DWriteTextMeasurer` は `mendo_core` に含まれ、`dwrite.lib` への依存を持つ。
+`mendo_core` には **DirectWrite / WebView2 抽象化越し** のサービスが入る — `ITextMeasurer` / `IMermaidRenderer` を通して使い、`MermaidRenderer`（WebView2）と `Renderer`（Direct2D）、`App` / `Win32Window` は `mendo` 実行ファイル側に置く。`DWriteTextMeasurer` は `mendo_core` に含まれ、`dwrite.lib` への依存を持つ。
 
 ### 6.4 mermaid の埋め込み
 
@@ -3223,7 +3263,7 @@ mermaid は ESM 版（本体の `mermaid.esm.min.mjs` と、図の種類ごと�
 ### 7.1 テストフレームワーク
 
 - **Google Test** v1.18.0（FetchContentで自動取得）
-- 単一テストバイナリ `mendo_tests` に全テストをリンク（CTest への個別ケース登録は行っていない）
+- 単一テストバイナリ `mendo_tests` に全テストをリンク（`tests/CMakeLists.txt` が `test_*.cpp` を `GLOB CONFIGURE_DEPENDS` で集める。CTest への個別ケース登録は行っていない）
 
 ### 7.2 テスト対象範囲
 
@@ -3233,7 +3273,7 @@ pie title テストカバレッジ（ファイル数ベース）
     "UIコード（テスト対象外）" : 13
 ```
 
-> **テスト対象外**: `main.cpp`, `window/window.cpp`, `app/app.cpp` / `app_file.cpp` / `app_mouse.cpp`（Win32/D2D ハンドラ実装・副作用の実行）, `render/renderer*.cpp`, `render/d2d_render_backend.cpp`, `mermaid/mermaid.cpp`, `ui/context_menu.cpp`（D2D 描画部分） は Win32 / Direct2D / WebView2 依存のためユニットテスト対象外。Mermaid 描画とテキスト計測はインターフェース（`IMermaidRenderer` / `ITextMeasurer`）越しに mendo_core 側でテストされ、描画コマンドは WIC ビットマップのレンダーターゲットで実行して確かめる。
+> **テスト対象外**: `main.cpp`, `window/window.cpp`, `app/app.cpp`（Win32/D2D ハンドラ実装・副作用の実行）, `render/renderer*.cpp`, `mermaid/mermaid.cpp`, `ui/context_menu.cpp`（D2D 描画部分） は Win32 / Direct2D / WebView2 依存のためユニットテスト対象外。Mermaid 描画とテキスト計測はインターフェース（`IMermaidRenderer` / `ITextMeasurer`）越しに mendo_core 側でテストされ、描画コマンドは WIC ビットマップのレンダーターゲットで実行して確かめる。
 
 ### 7.3 テストソース一覧（抜粋）
 
@@ -3257,14 +3297,12 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_file_explorer.cpp` | FileExplorer |
 | `test_session_service.cpp` | session:: |
 | `test_config_service.cpp` | ConfigService（設定永続化） |
-| `test_ini_parser.cpp` | IniParser |
+| `test_ini_parser.cpp` | INI の読み書き（`config_service.h` の `ini::Parse` / `Serialize`） |
 | `test_locale.cpp` | i18n ロケール |
 | `test_string_convert.cpp` | UTF-8 ↔ Wide 変換 |
 | `test_pane_layout.cpp` | ペインレイアウト計算・PaneController |
 | `test_viewport_manager.cpp` | ViewportManager |
-| `test_scroll_restoration.cpp` | ScrollRestoration |
 | `test_hit_test_service.cpp` | hit_test |
-| `test_last_hover_pos.cpp` | LastHoverPos |
 | `test_mouse_gesture.cpp` | MouseGesture・ジェスチャ / スワイプのオーバーレイ状態 |
 | `test_swipe_detector.cpp` | SwipeDetector |
 | `test_nav_history.cpp` | NavHistory |
@@ -3272,6 +3310,7 @@ pie title テストカバレッジ（ファイル数ベース）
 | `test_nav_button_format.cpp` | ナビゲーションボタン定数 |
 | `test_titlebar.cpp` | TitleBar |
 | `test_context_menu.cpp` | ContextMenu |
+| `test_settings_dialog.cpp` | SettingsDialog |
 | `test_search_state.cpp` | SearchState |
 | `test_search_bar.cpp` | 検索バー (検索バーのアクションの Reduce) |
 | `test_tooltip_target.cpp` | TooltipTarget |
@@ -3406,6 +3445,7 @@ enum class Id : UINT_PTR {
     FILE_RELOAD_DEBOUNCE,  // 8
     MERMAID_IDLE,          // 9
     DEVICE_RECREATE_RETRY, // 10
+    INLINE_MATH_TABLES,    // 11 寸法を待つ表の組み直しを、前回から App::kMathTableRelayoutInterval (1 秒) 空けて行う
     END,  // 番兵。新規タイマーはこの直前に追加する。
 };
 
@@ -3415,6 +3455,7 @@ inline constexpr UINT FILE_RELOAD_DEBOUNCE_MS   = 200;  // ファイル変更通
 inline constexpr UINT FILE_RELOAD_RETRY_MS      = 50;   // truncate→rewrite 検出後の短縮リトライ
 inline constexpr UINT BITMAP_MANAGE_DELAY_MS    = 150;  // スクロール停止後のビットマップ解放/再構築
 inline constexpr UINT TOAST_DURATION_MS         = 1300; // トースト表示時間
+inline constexpr UINT TOOLTIP_DELAY_MS          = 500;  // ツールチップを出すまでの待ち
 inline constexpr UINT DEVICE_RECREATE_RETRY_MS  = 500;  // 描画デバイスの作り直しに失敗した後の再試行間隔
 
 // [kFirstTimer, kLastTimer] の範囲判定に使う
@@ -3433,7 +3474,7 @@ inline constexpr UINT IMAGE_LOADED   = WM_APP + 2;  // +1, +3〜+5 は欠番
 inline constexpr UINT PARSE_COMPLETE = WM_APP + 6;
 inline constexpr UINT MERMAID_DISK_LOADED = WM_APP + 7;  // Mermaid PNG の worker デコード完了
 inline constexpr UINT FILE_LISTED    = WM_APP + 8;  // ファイルペインの列挙完了
-inline constexpr UINT END            = WM_APP + 9;  // 上限（この値未満が有効範囲）
+inline constexpr UINT INLINE_MATH_REQUESTED = WM_APP + 9;  // 計測ワーカーがインライン数式の描画を頼んだ
 }
 ```
 
@@ -3474,30 +3515,26 @@ src/
 ├── main.cpp                       # エントリポイント (wWinMain)
 ├── pch.h                          # プリコンパイル済みヘッダ
 ├── app/                           # アプリケーション層
-│   ├── app.h / app.cpp            # App 統括（Init / Dispatch / 副作用の実行 Execute / OnPaint / レイアウト / テーマ適用 / コンテキストメニュー）+ SystemCursors + WindowHost
-│   ├── app_file.cpp               # LoadMarkdownFile / BeginAsyncLoad / OnParseComplete
-│   ├── app_mouse.cpp              # マウス入力ハンドラ (クリック / ホバー / ドラッグ)
+│   ├── app.h / app.cpp            # App 統括（Init / Dispatch / 副作用の実行 Execute / OnPaint / レイアウト / テーマ適用 / コンテキストメニュー・設定ダイアログ / ファイル読み込み / マウス入力 / インライン数式の描画の依頼）+ SystemCursors + WindowHost
 │   ├── clipboard_manager.h / .cpp # ClipboardManager (コピー/PNG 保存/SVG コピー)
-│   ├── app_state.h                # AppState (全状態集約) + reducer と App が導出するペイン/ブロック情報 + ResolveGestureOverlay
+│   ├── app_state.h                # AppState (全状態集約) + reducer と App が導出するペイン/ブロック情報 (ComputePaneLayout 等) + ResolveGestureOverlay
 │   ├── reload_flow.h              # 非同期ロード完了時の分岐判定 (純粋関数)
 │   ├── startup_plan.h / .cpp      # 起動時の初期表示の決定
-│   ├── app_events.h               # AppAction variant + app_controller の宣言
-│   ├── app_constants.h            # タイマーID / WM_APP+N / WPARAM 定義
-│   ├── app_controller.cpp         # app_controller (Event→Action)
+│   ├── app_events.h               # AppAction variant と各アクション + KeyDownEvent + HoverHighlights / PointerHover
+│   ├── app_constants.h            # タイマーID / WM_APP+N 定義
+│   ├── app_controller.h / .cpp    # app_controller (キー→Action、ホバーとクリックの判定 Resolve*Hit / ResolvePointerHover)
 │   ├── reducer.h / reducer.cpp    # Reducer (Action+State→Effects, in-place) + ドメイン別 Reduce*
 │   ├── side_effect.h              # SideEffect 単一variant + PushEffect
 │   └── resource_manager.h/.cpp    # ResourceManager + ResourceManagerHost
 ├── window/                        # ウィンドウ層
 │   └── window.h / window.cpp      # Win32Window
 ├── render/                        # 描画層
-│   ├── renderer.h / renderer.cpp  # Direct2D 描画統括 (タイトルバー・サイドペイン・オーバーレイのコマンドは command_generator の chrome:: / overlay::)
-│   ├── renderer_resources.cpp     # ブラシ・フォーマット
-│   ├── d2d_render_backend.h / .cpp # D2DRenderBackend (D3D11 デバイス / スワップチェーン / フレーム待ち)
+│   ├── renderer.h / renderer.cpp  # Direct2D 描画統括 + ブラシ・フォーマット (タイトルバー・サイドペイン・オーバーレイのコマンドは command_generator の chrome:: / overlay::)
+│   ├── renderer_device.cpp        # Renderer のデバイス部分 (D3D11 デバイス / スワップチェーン / フレーム待ち)
 │   ├── render_params.h            # レンダリングパラメータ (MdPaneParams / RenderParams 等)
-│   ├── draw_command.h             # DrawCommand variant + DrawCommandList (pmr::vector) + FixedBrushArray / ExecuteDrawCommands 宣言
+│   ├── draw_command.h             # DrawCommand variant + DrawCommandList (vector) + FixedBrushArray + インライン数式の型 (InlineMathMasks) / ExecuteDrawCommands 宣言
 │   ├── brush_id.h                 # ブラシ ID 定義
-│   ├── text_layout_cache.h        # 繰り返し描く短い文字列のテキストレイアウト作り置き
-│   ├── command_generator.h / .cpp # 描画コマンド生成 (テーブル / ハイライトを含む)
+│   ├── command_generator.h / .cpp # 描画コマンド生成 (テーブル / ハイライトを含む) + TextLayoutCache (繰り返し描く短い文字列のテキストレイアウト作り置き)
 │   └── command_executor.cpp       # 描画コマンド実行 (固定ブラシ・可視グリフランの描画と構文色付け)
 ├── core/                          # コアドメイン
 │   ├── document_types.h           # Node (64B), AlertType, NodeType, NodeTableData, TocEntry etc.
@@ -3508,8 +3545,8 @@ src/
 │   ├── html_entities.cpp          # HTML エンティティ解決
 │   ├── html_entity_table.h        # HTML5 名前付き文字参照表 (生成コード)
 │   ├── unicode_lower_table.h      # 非 ASCII の単純小文字化表 (生成コード)
-│   ├── document.h / document.cpp  # Document (ノード一式とパース入力 UTF-8 の保持)
-│   ├── document_utils.h / .cpp    # テキスト操作 + 改行の正規化 (NormalizeNewlines) + リロード判定 (AnalyzeReloadDiff / FindNodeBySourceOffset)
+│   ├── document.h / document.cpp  # Document (ノード一式とパース入力 UTF-8 の保持) + ヘルプの仮想パス (HELP_PATH / IsHelpPath)
+│   ├── document_utils.h / .cpp    # テキスト操作 + 改行の正規化 (NormalizeNewlines) + リロードのノード照合 (FindUnchangedEnds / FindNodeBySourceOffset)
 │   ├── selection_html.h / .cpp    # 選択範囲の HTML 生成
 │   ├── syntax.h / syntax.cpp      # シンタックスハイライト
 │   └── syntax_keywords.h          # 言語別キーワード辞書
@@ -3520,6 +3557,7 @@ src/
 │   ├── viewport_manager.h         # ViewportManager + ScrollTarget
 │   ├── block_h_scroll.h           # ブロック横スクロール幾何計算 + 描画コンテキスト
 │   ├── doc_dwrite_bridge.h / .cpp # Document⇔DirectWrite 計測ブリッジ
+│   ├── inline_math.h / .cpp       # インライン数式 ($...$) の寸法表 (InlineMathTable)・組 (InlineMathPlan)・インラインオブジェクト
 │   └── dwrite_measurer.h / .cpp   # DirectWrite 実装
 ├── theme/                         # テーマ層
 │   ├── theme.h / theme.cpp        # Theme + theme_palette
@@ -3532,34 +3570,34 @@ src/
 │   ├── mouse_gesture.h            # MouseGesture (ヘッダオンリー)
 │   └── swipe_detector.h           # SwipeDetector (ヘッダオンリー)
 ├── io/                            # I/O層
-│   ├── file_dialog_service.h / .cpp # OpenFileDialog 等
 │   ├── file_watcher.h / .cpp      # ReadDirectoryChangesW 監視
 │   ├── file_explorer.h / .cpp     # ディレクトリブラウザ
 │   ├── image_loader.h / .cpp      # 非同期画像読み込み
-│   ├── async_load_coordinator.h / .cpp # LoadFile・非同期ロード調停 (stop_token・起動時の先行読み込み)・AsyncLoadResult
-│   ├── ini_parser.h               # IniParser (ヘッダオンリー)
-│   └── config_service.h / .cpp    # ConfigService + session::
+│   ├── async_load_coordinator.h / .cpp # LoadFile・非同期ロード調停 (stop_token・起動時の先行読み込み)・AsyncLoadResult・リロード判定 (AnalyzeReloadDiff / PrefixShrinkRetry)
+│   └── config_service.h / .cpp    # ConfigService + session:: + INI の読み書き (ini::Parse / Serialize)
 ├── mermaid/                       # Mermaid層
 │   ├── mermaid.h / mermaid.cpp    # MermaidRenderer (WebView2)
 │   ├── mermaid_renderer_interface.h # IMermaidRenderer
 │   ├── mermaid_util.h / .cpp      # ヘルパー
 │   └── mermaid_file_cache.h / .cpp # 永続キャッシュ (MEMC v1)
 ├── ui/                            # UI層 (Win32/D2D 依存ありの可視層)
-│   ├── titlebar.h / titlebar.cpp  # TitleBar
+│   ├── titlebar.h / titlebar.cpp  # TitleBar + ウィンドウのタイトル (BuildTitleString)
 │   ├── context_menu.h / .cpp      # ContextMenu (D2D描画)
 │   ├── context_menu_impl.h        # 内部実装
+│   ├── settings_dialog.h / .cpp   # SettingsDialog (言語の選択・図のキャッシュの消去、D2D描画)
+│   ├── settings_dialog_impl.h     # 内部実装 (テストも読む)
+│   ├── popup_window.h             # 自前描画のポップアップ (コンテキストメニュー・設定ダイアログ) の共通の土台 PopupWindow
 │   ├── tooltip.h / tooltip.cpp    # Tooltip + TooltipTarget + ApplyDarkModeToWindow
-│   ├── search_state.h / .cpp      # SearchState
-│   └── last_hover_pos.h           # LastHoverPos (ヘッダオンリー)
+│   └── search_state.h / .cpp      # SearchState
 └── util/                          # ユーティリティ層 (Win32 依存最小、テスト容易)
-    ├── utility.h                  # 汎用ユーティリティ (ScopeGuard / FNV-1a / PngBytes / PmrFormat / overloaded)
+    ├── utility.h                  # 汎用ユーティリティ (ScopeGuard / FNV-1a / ByteBuffer / PngBytes / overloaded)
     ├── win32_util.h               # Win32 小物 (IsKeyDown / LoadRcData / BindWindowInstance / LogHrFailure)
     ├── string_convert.h           # UTF-8 ↔ Wide 変換 (ヘッダオンリー)
     ├── utf8_codec.h               # UTF-8 低レベルコーデック
-    ├── file_io.h / .cpp           # ファイルI/Oヘルパー
+    ├── file_io.h / .cpp           # ファイルI/Oヘルパー + ファイル選択ダイアログ (file_dialog::)
     ├── wic_util.h                 # WIC ヘルパー
     ├── d2d_util.h                 # Direct2D ヘルパー
-    ├── ascii_util.h               # ASCII 操作
+    ├── ascii_util.h               # ASCII 操作 (ToLowerAsciiCopy を含む)
     ├── transposition_cache.h      # TranspositionCache (固定長、transposition rule)
     ├── worker_latch.h             # ワーカー完了同期ラッチ
     ├── parallel_for.h             # scheduler 上の chunk 分割並列実行
@@ -3568,8 +3606,8 @@ src/
     ├── i18n.h                     # 国際化
     ├── resource.h                 # リソースID
     ├── ui_constants.h             # UI 定数 + DIP⇔ピクセル変換・ボタン矩形・SearchBarLayout
-    ├── ui_types.h                 # DipPoint / DipRect / PaneRect / ScrollState / ScrollRestoration / OverlayButton / LeftDrag / NavDirection
-    ├── pane_layout.h / .cpp       # PaneZone / PaneLayout / PaneController / PaneScrollInfo / PaneLayoutCache
+    ├── ui_types.h                 # DipPoint / DipRect / PaneRect / ScrollState / OverlayButton / LeftDrag / NavDirection / ZoomLevel / ModalLoop / PopupEnv
+    ├── pane_layout.h / .cpp       # PaneZone / PaneLayout / PaneController / PaneScrollInfo
     ├── task_scheduler.h / .cpp    # TaskScheduler + ワーカー数 (SharedWorkerCount / LayoutWorkerCount)
     └── profiler.h                 # パフォーマンス計測
 ```
@@ -4910,9 +4948,9 @@ nnoremap <silent> <leader>m <ScriptCmd>OpenInMendo()<CR>
 | # | コンポーネント | 主要ファイル | 配置 | テスト |
 |:--|:--------------|:------------|:-----|:------|
 | 1 | Win32Window | window.h/cpp | mendo | なし |
-| 2 | App | app.h + app_*.cpp | mendo | 部分 |
+| 2 | App | app.h/cpp | mendo | 部分 |
 | 3 | AppState | app_state.h | mendo_core | あり (各サブgrp) |
-| 4 | app_controller | app_events.h + app_controller.cpp | mendo_core | あり |
+| 4 | app_controller | app_controller.h/cpp | mendo_core | あり |
 | 5 | Reducer | reducer.h/cpp | mendo_core | あり |
 | 6 | SideEffect + App::Execute | side_effect.h + app.cpp | mendo_core (型) / mendo (実行) | Reducer 経由 |
 | 7 | Renderer | renderer*.cpp | mendo | なし |
@@ -4948,12 +4986,12 @@ nnoremap <silent> <leader>m <ScriptCmd>OpenInMendo()<CR>
 | 37 | ImageLoader | image_loader.h/cpp | mendo_core | あり |
 | 38 | ResourceManager | resource_manager.h/cpp + app.h/cpp (ResourceManagerHost の実装) | mendo_core / mendo (App) | あり |
 | 39 | i18n | i18n.h | mendo_core | あり |
-| 40 | IniParser | ini_parser.h | mendo_core | あり |
+| 40 | ini::Parse / Serialize | config_service.h/cpp | mendo_core | あり |
 | 41 | TaskScheduler | task_scheduler.h/cpp | mendo_core | あり |
 | 42 | TranspositionCache | transposition_cache.h | mendo_core | あり |
 | 43 | UniqueResource + Clipboard utils | win_handle.h + clipboard_util.h | mendo_core | なし |
-| 44 | LastHoverPos | last_hover_pos.h | mendo_core | あり |
-| 45 | ScrollRestoration | ui_types.h 内 | mendo_core | あり |
+| 44 | SettingsDialog + PopupWindow | settings_dialog.h/cpp + popup_window.h | mendo_core | あり |
+| 45 | InlineMath | inline_math.h/cpp | mendo_core | あり |
 | 46 | SystemCursors | app.h 内 | mendo_core | なし |
 | 47 | UIConstants | ui_constants.h | mendo_core | あり |
 | 48 | StringConvert | string_convert.h | mendo_core | あり |

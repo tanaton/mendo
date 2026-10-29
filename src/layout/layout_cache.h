@@ -28,6 +28,10 @@ struct CellInlineCodeBg {
 // 表の幅の差がこれ未満なら、前回の計測 (セル高さ・列幅) を再利用する。
 inline constexpr float CELL_WIDTH_EPSILON = 0.5f;
 
+// 捨てたテキストレイアウト。1 個の解放に数 µs かかり、ズームや巨大な表の evict では数千〜数十万個になるので、
+// UI スレッドで解放せず、呼び出し側が受け取ってワーカーで解放する。
+using ReleasedLayouts = std::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>>;
+
 // テーブル専用のレイアウトデータ（テーブルノードのみ確保してメモリを節約）。
 // エントリは中身の同じノードの間でしか移らない (TakeEntries) ので、行数・列数は作ったときに決まり変わらない。
 struct TableLayoutData {
@@ -41,7 +45,6 @@ struct TableLayoutData {
     std::vector<float> natural_col_widths;  // リサイズ高速パス用キャッシュ
     std::vector<float> cell_natural_widths; // 各セルの折り返さない幅。テキストは変わらないので evict しても残す
     std::vector<float> cell_nowrap_heights; // 各セルの折り返さないときの高さ。evict 中の行の高さを出すのに使う
-    std::vector<uint8_t> row_evicted;       // 行単位 evict でセル layout を捨てた行
     // ヒットテスト高速化用の累積オフセット。最初の FinalizeTableLayout までは空。
     // row_cum_y[r] = エントリ上端からの行 r の上端までの累積高さ。サイズは row_count+1。
     // col_cum_x[c] = base_x からの列 c の左端までの累積幅。サイズは col_count+1。
@@ -49,11 +52,6 @@ struct TableLayoutData {
     std::vector<float> col_cum_x;
     // 幾何を組んだ max_width (CommitGeometry)。GeometryValidAt で比べる。
     float last_applied_max_width = 0.0f;
-    size_t evicted_row_count = 0;
-    // セル layout が生存しうる行範囲 [live_row_begin, live_row_end)。差分 evict の走査範囲で、
-    // evict 済み行を毎回なめ直さないためのもの。
-    size_t live_row_begin = 0;
-    size_t live_row_end = 0;
     // NodeLayoutEntry::pending_math のセル版。セルは並列に作るので std::atomic_ref で書く。
     bool pending_math = false;
 
@@ -62,45 +60,53 @@ struct TableLayoutData {
     TableLayoutData(size_t rows, size_t cols, bool has_inline_code)
         : row_count(rows), col_count(cols), cell_layouts(rows * cols), row_code_bgs(has_inline_code ? rows : 0),
           row_heights(rows), natural_col_widths(cols), cell_natural_widths(rows * cols), cell_nowrap_heights(rows * cols),
-          row_evicted(rows), live_row_end(rows)
+          row_evicted_(rows), live_row_end_(rows)
     {
     }
 
     constexpr bool HasEvictedRows() const noexcept
     {
-        return evicted_row_count > 0;
+        return evicted_row_count_ > 0;
+    }
+    constexpr size_t EvictedRowCount() const noexcept
+    {
+        return evicted_row_count_;
+    }
+    constexpr bool IsRowEvicted(size_t r) const noexcept
+    {
+        return row_evicted_[r] != 0;
+    }
+    // セル layout を持ちうる行があるか。
+    constexpr bool HasLiveRows() const noexcept
+    {
+        return live_row_begin_ < live_row_end_;
     }
     // 全行がセル layout を持たない状態にする。行は可視になったときに LayoutEngine::MeasurePass の行復元が作る。
     void MarkAllRowsEvicted() noexcept
     {
-        std::ranges::fill(row_evicted, uint8_t{ 1 });
-        evicted_row_count = row_count;
-        live_row_begin = 0;
-        live_row_end = 0;
-    }
-    // 背景は幅が変わらない限り有効なので残す (復元時の行の計測で作り直す)。
-    constexpr void MarkRowEvicted(size_t r) noexcept
-    {
-        if (!row_evicted[r]) {
-            row_evicted[r] = 1;
-            ++evicted_row_count;
-        }
+        std::ranges::fill(row_evicted_, uint8_t{ 1 });
+        evicted_row_count_ = row_count;
+        live_row_begin_ = 0;
+        live_row_end_ = 0;
     }
     constexpr void MarkRowRestored(size_t r) noexcept
     {
-        if (row_evicted[r]) {
-            row_evicted[r] = 0;
-            --evicted_row_count;
+        if (row_evicted_[r]) {
+            row_evicted_[r] = 0;
+            --evicted_row_count_;
         }
-        if (live_row_begin >= live_row_end) {
-            live_row_begin = r;
-            live_row_end = r + 1;
+        if (!HasLiveRows()) {
+            live_row_begin_ = r;
+            live_row_end_ = r + 1;
         }
         else {
-            live_row_begin = std::min(live_row_begin, r);
-            live_row_end = std::max(live_row_end, r + 1);
+            live_row_begin_ = std::min(live_row_begin_, r);
+            live_row_end_ = std::max(live_row_end_, r + 1);
         }
     }
+    // 生存範囲のうち [keep_begin, keep_end) の外の行のセル layout を released へ移し、生存範囲を keep との重なりに縮める。
+    // evict 済みの行はなめ直さない。行・列の幾何は残す。HasGeometry() のときだけ呼ぶ。
+    void EvictRowsOutside(size_t keep_begin, size_t keep_end, ReleasedLayouts& released) noexcept;
     constexpr size_t CellIndex(size_t row, size_t col) const noexcept
     {
         return row * col_count + col;
@@ -118,29 +124,17 @@ struct TableLayoutData {
     // 座標は col_cum_x と同じ base_x からのローカル系。
     std::pair<size_t, size_t> VisibleColRange(float local_left, float local_right) const noexcept;
 
-    // row_cum_y が積まれているか (未計測なら false)。積むのは全セルを測り終えた後 (MeasureTableCells → CommitGeometry) だけなので、
-    // 全セルの自然幅と折り返さない高さが揃っていることも表す。InvalidateGeometry の後も行単位 evict の範囲計算のために残る。
-    bool HasRowGeometry() const noexcept
+    // 行・列の幾何 (row_cum_y・col_cum_x) が積まれているか (未計測なら false)。積むのは全セルを測り終えた後
+    // (MeasureTableCells → CommitGeometry) だけなので、全セルの自然幅と折り返さない高さが揃っていることも表す。
+    // 幅が変わっても次に組み直すまでは前の幅の幾何のまま残る (見えている表は描く前に組み直す)。
+    bool HasGeometry() const noexcept
     {
         return !row_cum_y.empty();
-    }
-
-    // 描画に要る行・列の幾何がすべて揃っているか。
-    constexpr bool HasGeometry() const noexcept
-    {
-        return geometry_valid;
     }
     // 幾何が揃っていて、max_width との差が CELL_WIDTH_EPSILON 未満 (組み直さなくてよい)。
     bool GeometryValidAt(float max_width) const noexcept
     {
-        return geometry_valid && std::abs(last_applied_max_width - max_width) < CELL_WIDTH_EPSILON;
-    }
-
-    // entry.height だけ推定値で伸ばしたときなど、列幅・行高さが entry と食い違う状態にする。
-    // 次の計測で FinalizeTableLayout が作り直す。row_cum_y は行単位 evict の範囲計算に使うので残す。
-    constexpr void InvalidateGeometry() noexcept
-    {
-        geometry_valid = false;
+        return HasGeometry() && std::abs(last_applied_max_width - max_width) < CELL_WIDTH_EPSILON;
     }
 
     // row_heights / col_widths から累積位置を積み、max_width で組んだ幾何として確定させる。
@@ -149,7 +143,6 @@ struct TableLayoutData {
         RebuildRowCumY(0);
         RebuildColCumX();
         last_applied_max_width = max_width;
-        geometry_valid = true;
     }
 
     // 列幅 + パディング + 罫線の合計。HasGeometry() が前提。
@@ -168,7 +161,7 @@ struct TableLayoutData {
     // first_row より前の row_cum_y は有効なものとして使い回す (まだ積んでいなければ全行)。
     void RebuildRowCumY(size_t first_row);
 
-    // 最下行の下罫線まで含めた表の高さ (= entry.height)。HasRowGeometry() が前提。
+    // 最下行の下罫線まで含めた表の高さ (計測で entry.height に確定する値)。HasGeometry() が前提。
     float TotalHeight() const noexcept
     {
         return row_cum_y[row_count] + TABLE_BORDER_WIDTH;
@@ -180,9 +173,15 @@ struct TableLayoutData {
 
 private:
     void RebuildColCumX();
+    // 背景は幅が変わらない限り有効なので残す (復元時の行の計測で作り直す)。
+    void EvictRow(size_t r, ReleasedLayouts& released) noexcept;
 
-    // 列幅・行高さ・累積位置が entry.height と揃っている。CommitGeometry で立ち、InvalidateGeometry で落ちる。
-    bool geometry_valid = false;
+    std::vector<uint8_t> row_evicted_; // 行単位 evict でセル layout を捨てた行
+    size_t evicted_row_count_ = 0;
+    // セル layout が生存しうる行範囲 [live_row_begin_, live_row_end_)。差分 evict の走査範囲で、
+    // evict 済み行を毎回なめ直さないためのもの。
+    size_t live_row_begin_ = 0;
+    size_t live_row_end_ = 0;
 };
 
 // セル枠の左端 (左罫線の右) と行上端 (上罫線の位置) から、セル本文の描画原点を求める。
@@ -736,9 +735,6 @@ public:
     {
         has_dirty_nodes_ = v;
     }
-    // 捨てたテキストレイアウト。1 個の解放に数 µs かかり、ズームや巨大な表の evict では数千〜数十万個になるので、
-    // UI スレッドで解放せず、呼び出し側が受け取ってワーカーで解放する。
-    using ReleasedLayouts = std::vector<Microsoft::WRL::ComPtr<IDWriteTextLayout>>;
     bool HasReleasedLayouts() const noexcept
     {
         return !released_layouts_.empty();

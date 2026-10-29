@@ -375,13 +375,12 @@ TEST(MeasureEntryTest, UnmeasurableNodeCommitsNothing)
             return std::nullopt;
         }
     } measurer;
-    const Theme theme = GetLightTheme();
     const auto nodes = ParseNodes("text");
     NodeLayoutEntry entry;
     entry.height = 42.0f;
     entry.measure_failures = 1;
 
-    MeasureEntry(measurer, nodes[0], entry, 300.0f, YRange::All(), 0.0f, nullptr, theme);
+    MeasureEntry(measurer, nodes[0], entry, 300.0f, YRange::All(), 0.0f, nullptr);
 
     EXPECT_TRUE(entry.layout_dirty);
     EXPECT_FALSE(entry.is_measured());

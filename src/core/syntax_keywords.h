@@ -42,11 +42,11 @@ struct KeywordTable {
     [[nodiscard]] bool contains_ignore_case(std::string_view word) const noexcept;
 };
 
-// 小文字で格納したテーブルを引くためのキー。大文字を含めば buf に小文字化する。
+// 小文字で格納したテーブルを引くためのキー。大文字が無くても buf に写す (先に有無を調べても同じ長さを走査する)。
 // KEYWORD_MAX_LEN を超える語はどのテーブルにも一致しないので元のまま返す。
 inline std::string_view ToLowerLookupKey(std::string_view word, char (&buf)[KEYWORD_MAX_LEN]) noexcept
 {
-    if (word.size() > KEYWORD_MAX_LEN || !ascii_util::HasAsciiUpper(word.data(), word.size())) {
+    if (word.size() > KEYWORD_MAX_LEN) {
         return word;
     }
     ascii_util::AsciiToLowerOnly(word.data(), buf, word.size());

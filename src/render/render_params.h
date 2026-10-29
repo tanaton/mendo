@@ -13,6 +13,8 @@
 #include <string_view>
 #include <utility>
 
+struct InlineMathMasks;
+
 struct GesturePoint;
 
 // App がマウスジェスチャーとスワイプから作る (ResolveGestureOverlay)。
@@ -92,6 +94,8 @@ struct MdPaneParams {
     int current_match_index = -1;
     // マッチを引き直すたびに変わる。ノードが持つハイライト矩形のキャッシュをこれで捨てる。
     uint32_t search_generation = 0;
+    // インライン数式の型。無ければ数式を描かない。描いたフレームの番号と、型の無かった数式 (missing) を書く。
+    InlineMathMasks* inline_math = nullptr;
 };
 
 struct RenderParams {

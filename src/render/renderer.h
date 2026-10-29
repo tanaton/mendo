@@ -3,7 +3,6 @@
 #include "render_params.h"
 #include "theme.h"
 #include "command_generator.h"
-#include "text_layout_cache.h"
 #include "ui_constants.h"
 #include "win_handle.h"
 #include <d2d1.h>
@@ -99,15 +98,10 @@ public:
         RecreateAllTextFormats();
     }
 
+    // デバイスを作り直したときに呼ぶ。旧デバイスで作ったビットマップ (インライン数式の型を含む) は呼び出し側が捨てる。
     void SetDeviceLostCallback(std::move_only_function<void(ID2D1RenderTarget*)> cb)
     {
         on_device_lost_ = std::move(cb);
-    }
-
-    // インライン数式の型。デバイスを作り直すと空になるので、呼び出し側が描き直させる。
-    InlineMathMasks& InlineMath() noexcept
-    {
-        return inline_math_;
     }
 
     // フレーム待ちの上限。GPU が止まっても UI スレッドを永久にブロックしないよう、これを過ぎたら諦めて描く。
@@ -133,11 +127,11 @@ public:
     void PrepareChrome(const TitleBarRenderState& titlebar, const SidePaneState& side_panes);
 
 private:
-    // フレーム共通の前処理 (デバイスロスト復旧・BeginDraw・タイトルバー・サイドペイン)。
-    // 描画できない場合はそのフレームの結果を返し、その場合 BeginDraw は呼ばれていない。
+    // フレーム共通の前処理 (デバイスロスト復旧・タイトルバー・サイドペイン)。
+    // 描画できない場合はそのフレームの結果を返す。
     std::optional<FrameResult> BeginFrame(const TitleBarRenderState& titlebar, const SidePaneState& side_panes);
     // 本文ペインに重ねるもの (ナビボタン・ジェスチャー・トースト・検索バー・スクロールバー、読み込み中はスピナー) を
-    // overlay_cmds_ に積む。
+    // frame_cmds_ に積む。
     void GenOverlays(const RenderParams& p);
 
     // 倍率が変わったら作り直す。
@@ -186,7 +180,6 @@ private:
     Microsoft::WRL::ComPtr<IWICImagingFactory> wic_factory_;
 
     FixedBrushArray brushes_;
-    InlineMathMasks inline_math_;
 
     void RecreateBrushes();
     void RecreateAllTextFormats();
@@ -226,12 +219,10 @@ private:
 
     // CommandGenerator と共有する。
     TextLayoutCache text_layouts_;
-    // タイトルバーとサイドペインの描画コマンド。本文 (cmd_generator_) より先に実行する。
-    // デバイスに依存しないので、作成前に組み立てて最初のフレームの文字レイアウトを先に作れる。
-    DrawCommandList chrome_cmds_;
-    // 本文の上に重ねるもの。本文の後に実行する。
-    DrawCommandList overlay_cmds_;
-    // overlay_cmds_ が指すジェスチャーの軌跡。次のフレームまで持つ。
+    // 1 フレームの描画コマンド。タイトルバーとサイドペイン・本文・本文に重ねるものの順に積み、まとめて実行する。
+    // タイトルバーとサイドペインはデバイスに依存しないので、作成前に組み立てて最初のフレームの文字レイアウトを先に作れる。
+    DrawCommandList frame_cmds_;
+    // frame_cmds_ が指すジェスチャーの軌跡。次のフレームまで持つ。
     Microsoft::WRL::ComPtr<ID2D1PathGeometry> gesture_trail_;
     // 目次項目の UTF-16。描いた項目だけ作り、ForgetDocumentText と最小化で捨てる。
     std::vector<std::wstring> toc_titles_;

@@ -258,15 +258,10 @@ constexpr bool IsFollowedByParen(std::string_view text, size_t end) noexcept
     return i < text.size() && text[i] == '(';
 }
 
-constexpr bool IsLineSpace(char c) noexcept
-{
-    return IsBlank(c) || c == '\r';
-}
-
-// [begin, end) の末尾のスペース・タブ・'\r' を除いた終端。
+// [begin, end) の末尾のスペース・タブを除いた終端。
 constexpr size_t TrimEnd(std::string_view text, size_t begin, size_t end) noexcept
 {
-    while (end > begin && IsLineSpace(text[end - 1])) {
+    while (end > begin && IsBlank(text[end - 1])) {
         end--;
     }
     return end;
@@ -727,7 +722,7 @@ inline constexpr LexerConfig SQL_LEXER_CONFIG{
 
 constexpr bool IsMarkupSpace(char c) noexcept
 {
-    return IsLineSpace(c) || c == '\n';
+    return IsBlank(c) || c == '\n';
 }
 
 // [pos, end) の先頭のスペース・タブを飛ばした位置。
@@ -858,7 +853,7 @@ void TokenizeDiff(std::string_view text, std::vector<SyntaxToken>& tokens)
 
 constexpr bool IsYamlMappingColon(std::string_view text, size_t pos, size_t eol) noexcept
 {
-    return pos < eol && text[pos] == ':' && (pos + 1 == eol || IsLineSpace(text[pos + 1]));
+    return pos < eol && text[pos] == ':' && (pos + 1 == eol || IsBlank(text[pos + 1]));
 }
 
 // "..." は \ エスケープ、'...' は '' の二重化だけを持つ。
@@ -919,13 +914,13 @@ bool ScanYamlValue(std::string_view text, size_t i, size_t eol, std::vector<Synt
         }
         // アンカー &a・エイリアス *a・タグ !!str
         if (c == '&' || c == '*' || c == '!') {
-            const size_t e = SkipWhile(text, i + 1, eol, [&](char ch) { return !IsLineSpace(ch) && !kFlowIndicators.contains(ch); });
+            const size_t e = SkipWhile(text, i + 1, eol, [&](char ch) { return !IsBlank(ch) && !kFlowIndicators.contains(ch); });
             i = EmitRange(tokens, i, e, SyntaxTokenType::Preprocessor);
             continue;
         }
         if (first && (c == '|' || c == '>')) {
             const size_t e = SkipBlanks(text, std::min(SkipChars(text, i + 1, "+-0123456789"), eol), eol);
-            if (e == eol || text[e] == '#' || text[e] == '\r') {
+            if (e == eol || text[e] == '#') {
                 if (e < eol && text[e] == '#') {
                     EmitRange(tokens, e, eol, SyntaxTokenType::Comment);
                 }
@@ -993,7 +988,7 @@ void TokenizeYaml(std::string_view text, std::vector<SyntaxToken>& tokens)
         // ブロックスカラーの本文はこの桁より深い行。行内で最後に現れた "-" かキーの桁が親になる。
         size_t indent = indent_end - pos;
         size_t i = indent_end;
-        if ((line.starts_with("---") || line.starts_with("...")) && (line.size() == 3 || IsLineSpace(line[3]))) {
+        if ((line.starts_with("---") || line.starts_with("...")) && (line.size() == 3 || IsBlank(line[3]))) {
             EmitRange(tokens, pos, pos + 3, SyntaxTokenType::Keyword);
             i = pos + 3;
         }
@@ -1002,7 +997,7 @@ void TokenizeYaml(std::string_view text, std::vector<SyntaxToken>& tokens)
             i = eol;
         }
         else {
-            while (i < eol && text[i] == '-' && (i + 1 == eol || IsLineSpace(text[i + 1]))) {
+            while (i < eol && text[i] == '-' && (i + 1 == eol || IsBlank(text[i + 1]))) {
                 indent = i - pos;
                 i = SkipBlanks(text, i + 1, eol);
             }
@@ -1095,7 +1090,7 @@ void TokenizeToml(std::string_view text, std::vector<SyntaxToken>& tokens)
             expect_key = expect_key || depth == 0;
             continue;
         }
-        if (IsLineSpace(c)) {
+        if (IsBlank(c)) {
             i++;
             continue;
         }
@@ -1680,7 +1675,7 @@ void TokenizeMakefile(std::string_view text, std::vector<SyntaxToken>& tokens)
         }
         const size_t j = SkipWhile(text, i, end, IsDashedIdentChar);
         const auto word = text.substr(i, j - i);
-        if (kw::MAKE_KEYWORDS.contains(word) && (j == end || IsLineSpace(text[j]) || text[j] == '(')) {
+        if (kw::MAKE_KEYWORDS.contains(word) && (j == end || IsBlank(text[j]) || text[j] == '(')) {
             EmitRange(tokens, i, j, SyntaxTokenType::Keyword);
             i = SkipBlanks(text, j, end);
             // export / override / private の後には代入が続く。それ以外の指令の引数は条件式やファイル名。
@@ -2183,7 +2178,7 @@ constexpr size_t ScanVimKeyNotation(std::string_view text, size_t pos) noexcept
 constexpr size_t SkipVimAutocmdHead(std::string_view text, size_t pos) noexcept
 {
     const auto skip_word = [&](size_t p) {
-        return SkipBlanks(text, SkipWhile(text, p, [](char c) { return !IsLineSpace(c); }), text.size());
+        return SkipBlanks(text, SkipWhile(text, p, [](char c) { return !IsBlank(c); }), text.size());
     };
     size_t i = SkipBlanks(text, pos, text.size());
     bool event = false;
@@ -2230,7 +2225,7 @@ VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bo
     const size_t eol = text.size();
     while (i < eol) {
         if (command_pos) {
-            i = SkipWhile(text, i, eol, [](char c) { return c == ':' || IsLineSpace(c); });
+            i = SkipWhile(text, i, eol, [](char c) { return c == ':' || IsBlank(c); });
             if (i >= eol) {
                 break;
             }
@@ -2258,7 +2253,7 @@ VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bo
                 static constexpr std::string_view kFunctionCommands[]{ "fu", "fun", "func", "function", "def" };
                 if (std::ranges::contains(kFunctionCommands, word)) {
                     const size_t name = SkipBlanks(text, i, eol);
-                    const size_t e = SkipWhile(text, name, eol, [](char c) { return !IsLineSpace(c) && c != '('; });
+                    const size_t e = SkipWhile(text, name, eol, [](char c) { return !IsBlank(c) && c != '('; });
                     i = EmitRange(tokens, name, e, SyntaxTokenType::Function);
                     continue;
                 }
@@ -2299,7 +2294,7 @@ VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bo
         }
         const char c = text[i];
         const char next = i + 1 < eol ? text[i + 1] : '\0';
-        if (IsLineSpace(c)) {
+        if (IsBlank(c)) {
             i++;
             continue;
         }
@@ -2389,7 +2384,7 @@ constexpr bool StartsWithVim9Script(std::string_view text) noexcept
     while (pos < text.size()) {
         const size_t eol = SkipToEol(text, pos);
         const size_t i = SkipBlanks(text, pos, eol);
-        if (i < eol && text[i] != '"' && text[i] != '#' && text[i] != '\r') {
+        if (i < eol && text[i] != '"' && text[i] != '#') {
             return text.substr(i, eol - i).starts_with("vim9script");
         }
         pos = eol + 1;

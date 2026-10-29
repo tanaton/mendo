@@ -45,6 +45,26 @@ constexpr size_t AlertColorIndex(AlertType t) noexcept
     return static_cast<size_t>(std::to_underlying(t)) - 1;
 }
 
+// Alert の先頭でマーカーの代わりに置く "アイコン ラベル"。AlertColorIndex 順。
+struct AlertLabel {
+    std::string_view icon;
+    std::string_view label;
+};
+inline constexpr AlertLabel kAlertLabels[ALERT_TYPE_COUNT]{
+    { "ℹ",                "Note"      },
+    { "\xF0\x9F\x92\xA1", "Tip"       }, // U+1F4A1 (BMP 外)
+    { "❗",               "Important" },
+    { "⚠",                "Warning"   },
+    { "⛔",               "Caution"   },
+};
+
+// "アイコン ラベル" の UTF-8 byte 数。None なら 0。
+constexpr uint32_t AlertLabelLength(AlertType t) noexcept
+{
+    const size_t i = AlertColorIndex(t);
+    return i < ALERT_TYPE_COUNT ? static_cast<uint32_t>(kAlertLabels[i].icon.size() + 1 + kAlertLabels[i].label.size()) : 0u;
+}
+
 // md4c の MD_ALIGN と値を一致させる（0=DEFAULT, 1=LEFT, 2=CENTER, 3=RIGHT）
 enum class TableAlign : uint8_t {
     Default = 0,
@@ -141,11 +161,6 @@ struct NodeTableData {
     bool operator==(const NodeTableData&) const = default;
 };
 
-// 読み込んだ画像の寸法はパース結果ではないので持たない (LayoutCache の DiagramEntry が持つ)。
-struct NodeImageData {
-    std::string_view src; // 画像ソースパス（Markdown内の記述）。DocumentData::raw か TextArena を指す
-};
-
 // Node::SourceOffset() が未設定のときに返す値。
 // HorizontalRule のようなテキストを持たないノードはオフセットを持たない。
 // 入力は md4c の制約で 2GB 未満なので、Node が 32bit で持つ値と同じにしておく。
@@ -164,12 +179,11 @@ struct Node {
     // `runs()` の link_url_index で引く URL の配列。
     const std::string_view* link_urls_ = nullptr;
 
-    // ノード種別ごとのデータ。どれを使うかは type (list_number と alert_label_length は flags_) で決まる。
+    // ノード種別ごとのデータ。どれを使うかは type (list_number は flags_) で決まる。
     union Payload {
-        NodeTableData* table = nullptr; // Table
-        const NodeImageData* image;     // Image
-        int32_t list_number;            // 順序付きの ListItem / TaskListItem (0 始まりも可)
-        uint32_t alert_label_length;    // Alert の BlockQuote 本体
+        NodeTableData* table = nullptr;    // Table
+        const std::string_view* image_src; // Image
+        int32_t list_number;               // 順序付きの ListItem / TaskListItem (0 始まりも可)
         struct CodeLead {
             uint32_t length;
             SyntaxTokenType type;
@@ -261,27 +275,25 @@ struct Node {
         using T = std::conditional_t<std::is_const_v<Self>, const NodeTableData, NodeTableData>;
         return self.has_table() ? static_cast<T*>(self.payload_.table) : nullptr;
     }
-    constexpr const NodeImageData* image_data() const noexcept
-    {
-        return has_image() ? payload_.image : nullptr;
-    }
     constexpr bool has_table() const noexcept
     {
         return type == NodeType::Table && payload_.table != nullptr;
     }
-    constexpr bool has_image() const noexcept
+    // 画像の記述どおりのパス。画像でなければ空 (パーサは src が空の段落を画像にしない)。
+    // 読み込んだ画像の寸法はパース結果ではないので持たない (LayoutCache の DiagramEntry が持つ)。
+    constexpr std::string_view image_src() const noexcept
     {
-        return type == NodeType::Image && payload_.image != nullptr;
+        return type == NodeType::Image && payload_.image_src ? *payload_.image_src : std::string_view{};
     }
 
-    // table / image はノードより長く生きる領域を指すこと。
+    // table / src はノードより長く生きる領域を指すこと。src の文字列も同じ。
     constexpr void set_table_data(NodeTableData* table) noexcept
     {
         payload_.table = table;
     }
-    constexpr void set_image_data(const NodeImageData* image) noexcept
+    constexpr void set_image_src(const std::string_view* src) noexcept
     {
-        payload_.image = image;
+        payload_.image_src = src;
     }
 
     // 該当しないノードでは黙ってデフォルト値 (0 / false) を返す。
@@ -321,14 +333,14 @@ struct Node {
     {
         flags_ |= kTaskChecked;
     }
-    // Alert の伝播先 (後続ノード) は alert_type だけを持ち、ラベル長は 0。
+    // テキストの先頭に置いた "アイコン ラベル" の長さ。Alert の伝播先 (後続ノード) は alert_type だけを持ち、0。
     constexpr uint32_t alert_label_length() const noexcept
     {
-        return (flags_ & kHasAlertLabel) != 0 ? payload_.alert_label_length : 0u;
+        return (flags_ & kHasAlertLabel) != 0 ? AlertLabelLength(alert_type) : 0u;
     }
-    constexpr void set_alert_label_length(uint32_t length) noexcept
+    // Alert の先頭のノードにする。alert_type を先に決めること。
+    constexpr void set_has_alert_label() noexcept
     {
-        payload_.alert_label_length = length;
         flags_ |= kHasAlertLabel;
     }
 

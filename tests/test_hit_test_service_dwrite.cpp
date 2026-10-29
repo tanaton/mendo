@@ -164,7 +164,7 @@ TEST_F(HitTestDWriteTest, RightHalfOfLastLinkCharInTableCellHitsLink)
     const auto& node = pl.nodes[static_cast<size_t>(idx)];
     const auto* tl = pl.cache[idx].table_layout();
     ASSERT_NE(tl, nullptr);
-    ASSERT_TRUE(tl->HasRowGeometry());
+    ASSERT_TRUE(tl->HasGeometry());
     IDWriteTextLayout* cell = tl->GetCellLayout(1, 0);
     ASSERT_NE(cell, nullptr);
     FLOAT x = 0.0f, y = 0.0f;
@@ -285,7 +285,8 @@ TEST_F(FindTableCellTest, BordersAttributedLikeDrawing)
 
     CommandGenerator gen;
     gen.Init(theme_);
-    const auto& cmds = gen.GenerateMdPane({ .nodes = pl_.nodes, .cache = pl_.cache, .selection = TextSelection{}, .md_pane_rect = PaneRect{ 0.0f, 0.0f, 4000.0f, 2000.0f } }, 1.0f);
+    DrawCommandList cmds;
+    gen.GenerateMdPane(cmds, { .nodes = pl_.nodes, .cache = pl_.cache, .selection = TextSelection{}, .md_pane_rect = PaneRect{ 0.0f, 0.0f, 4000.0f, 2000.0f } }, 1.0f);
 
     std::vector<float> col_lines;
     std::vector<float> row_lines;

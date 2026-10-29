@@ -11,6 +11,29 @@
 #include <string_view>
 #include <utility>
 
+size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept
+{
+    // MSVC STL の mismatch は 1 バイト要素をベクトル化する。
+    const size_t pos = static_cast<size_t>(std::ranges::mismatch(old_text, new_text).in1 - old_text.begin());
+    if (pos == old_text.size() && pos == new_text.size()) {
+        return std::string_view::npos;
+    }
+    return pos;
+}
+
+ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text, bool accept_prefix_shrink) noexcept
+{
+    const size_t diff_pos = FindFirstDifference(old_text, new_text);
+    if (diff_pos == std::string_view::npos) {
+        return { ReloadOp::NoChange, std::string_view::npos };
+    }
+    // 新しい方が古い方の prefix (エディタの truncate→rewrite の途中)。
+    if (diff_pos == new_text.size() && !accept_prefix_shrink) {
+        return { ReloadOp::DeferPrefixShrink, diff_pos };
+    }
+    return { ReloadOp::Replace, diff_pos };
+}
+
 namespace {
 // md4c が長さを int で取るため ~2GB-1 が実効上限。
 constexpr LONGLONG MAX_FILE_SIZE = static_cast<LONGLONG>(std::numeric_limits<int>::max());

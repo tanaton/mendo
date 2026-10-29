@@ -2,23 +2,20 @@
 #include "ascii_util.h"
 #include <cassert>
 #include <charconv>
-#include <ranges>
+#include <tuple>
 #include <utility>
 
-std::optional<NavEntry> NavHistory::PushCapped(std::deque<NavEntry>& stack, NavEntry e)
+void NavHistory::PushCapped(std::deque<NavEntry>& stack, NavEntry e)
 {
     stack.push_back(std::move(e));
-    if (stack.size() <= max_history_) {
-        return std::nullopt;
+    if (stack.size() > max_history_) {
+        stack.pop_front();
     }
-    std::optional<NavEntry> dropped{ std::move(stack.front()) };
-    stack.pop_front();
-    return dropped;
 }
 
 void NavHistory::Push(NavEntry current)
 {
-    pending_.clear();
+    CommitPending();
     PushCapped(back_stack_, std::move(current));
     forward_stack_.clear();
 }
@@ -26,58 +23,50 @@ void NavHistory::Push(NavEntry current)
 void NavHistory::PushPending(NavEntry current)
 {
     RollbackPending();
-    PendingOp& op = pending_.emplace_back(PendingOp{ .to_back = true, .taken = std::exchange(forward_stack_, {}) });
-    op.dropped = PushCapped(back_stack_, std::move(current));
+    saved_.emplace(back_stack_, forward_stack_);
+    PushCapped(back_stack_, std::move(current));
+    forward_stack_.clear();
 }
 
 void NavHistory::CommitPending() noexcept
 {
-    pending_.clear();
+    saved_.reset();
+    chained_from_.reset();
 }
 
 void NavHistory::RollbackPending()
 {
-    for (; !pending_.empty(); pending_.pop_back()) {
-        PendingOp& op = pending_.back();
-        auto& to = op.to_back ? back_stack_ : forward_stack_;
-        auto& from = op.to_back ? forward_stack_ : back_stack_;
-        to.pop_back();
-        if (op.dropped) {
-            to.push_front(std::move(*op.dropped));
-        }
-        from.append_range(op.taken | std::views::as_rvalue);
+    if (saved_) {
+        std::tie(back_stack_, forward_stack_) = std::move(*std::exchange(saved_, std::nullopt));
     }
+    chained_from_.reset();
 }
 
 bool NavHistory::Transfer(std::deque<NavEntry>& from, std::deque<NavEntry>& to, NavEntry current, NavEntry& out)
 {
-    // 表示中の文書は確定前の移動先へまだ切り替わっていないので、続けて移動するときは移動先を起点にする。
-    // current のまま積むと表示中の位置が履歴に重複する。
-    if (!pending_.empty()) {
-        if (pending_.back().transfer) {
-            current = pending_.back().taken.back();
-        }
-        else {
-            // 開きかけのファイルは取り消し、表示中の文書から移動し直す。移動できなければ元に戻す。
-            NavEntry pushed = std::move(back_stack_.back());
-            RollbackPending();
-            if (from.empty()) {
-                PushPending(std::move(pushed));
-                return false;
-            }
+    // 開きかけのファイルは取り消し、表示中の文書から移動し直す。移動できなければ元に戻す。
+    if (saved_ && !chained_from_) {
+        NavEntry pushed = back_stack_.back();
+        RollbackPending();
+        if (from.empty()) {
+            PushPending(std::move(pushed));
+            return false;
         }
     }
     if (from.empty()) {
         return false;
     }
-
+    if (!saved_) {
+        saved_.emplace(back_stack_, forward_stack_);
+    }
     // Push は進む履歴を空にして積むので back + forward は上限を超えず、移動で押し出しは起きない。
     assert(back_stack_.size() + forward_stack_.size() <= max_history_);
-    PendingOp& op = pending_.emplace_back(PendingOp{ .to_back = &to == &back_stack_, .transfer = true });
-    to.push_back(std::move(current));
+    // 表示中の文書は確定前の移動先へまだ切り替わっていないので、続けて移動するときは移動先を起点にする。
+    // current のまま積むと表示中の位置が履歴に重複する。
+    to.push_back(chained_from_ ? std::move(*chained_from_) : std::move(current));
     out = std::move(from.back());
     from.pop_back();
-    op.taken.push_back(out);
+    chained_from_ = out;
     return true;
 }
 

@@ -30,7 +30,7 @@ void SearchState::BeginSearch()
     // ASCII 英字を含まないクエリは大文字小文字を無視しても通常一致と結果が同じなので、
     // 比較時の小文字化 (fold) を省く。文書の小文字コピーは持たず走査中に畳み込む。
     const bool fold = !case_sensitive_ && ascii_util::HasAsciiLetter(query_);
-    std::string active = fold ? ToLowerAsciiCopy(query_) : query_;
+    std::string active = fold ? ascii_util::ToLowerAsciiCopy(query_) : query_;
     // 比べ方 (fold) が同じなら、前回のクエリを伸ばしたクエリは前回マッチのあったノードにしか現れない。
     narrowing_ = completed_ && fold == matched_.fold &&
                  active.size() > matched_.text.size() && active.starts_with(matched_.text);
@@ -63,7 +63,7 @@ bool SearchState::ContinueSearch(const std::vector<Node>& nodes, std::chrono::st
     while (next_node_ < end && pending_.size() < MAX_MATCHES) {
         const int i = narrowing_ ? candidate_nodes_[next_node_++] : static_cast<int>(next_node_++);
         const auto& node = nodes[i];
-        if (node.type == NodeType::Table && node.has_table()) {
+        if (node.has_table()) {
             FindTableMatches(*node.table_data(), query, active_.fold, i);
             scanned_bytes += node.table_data()->concat_text.size();
         }

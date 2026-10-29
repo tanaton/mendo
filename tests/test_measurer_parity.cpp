@@ -28,8 +28,8 @@ protected:
         Node dw_node = CloneNode(node);
         NodeLayoutEntry mock_entry{};
         NodeLayoutEntry dwrite_entry{};
-        MeasureEntry(mock_, mock_node, mock_entry, max_width, YRange::All(), 0.0f, nullptr, theme_);
-        MeasureEntry(measurer_, dw_node, dwrite_entry, max_width, YRange::All(), 0.0f, nullptr, theme_);
+        MeasureEntry(mock_, mock_node, mock_entry, max_width, YRange::All(), 0.0f, nullptr);
+        MeasureEntry(measurer_, dw_node, dwrite_entry, max_width, YRange::All(), 0.0f, nullptr);
         return { mock_entry.height, dwrite_entry.height };
     }
 
@@ -44,7 +44,7 @@ private:
         n.code_language = src.code_language;
         n.SetText(src.GetText(), src.line_count);
         n.SetRuns(src.runs());
-        n.set_image_data(src.image_data());
+        n.payload_ = src.payload_;
         return n;
     }
 };

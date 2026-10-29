@@ -251,8 +251,8 @@ struct SearchBarLayout {
     D2D1_RECT_F highlight_btn{};
     D2D1_RECT_F close_btn{};
     D2D1_RECT_F icon_rect{};
-    float bar_top = 0.0f;
-    float bar_bottom = 0.0f;
+    // バー全体。ペインの下端に幅いっぱいに敷く。
+    D2D1_RECT_F bar_rect{};
 
     // 検索入力のテキスト描画領域。描画(EmitSearchBar)とヒットテスト(app)で共有する。
     constexpr float text_left() const noexcept
@@ -274,10 +274,11 @@ inline SearchBarLayout ComputeSearchBarLayout(const PaneRect& md_rect, bool has_
     SearchBarLayout l;
     const float bar_left = md_rect.x;
     const float bar_right = md_rect.x + md_rect.width;
-    l.bar_bottom = md_rect.y + md_rect.height;
-    l.bar_top = l.bar_bottom - SEARCH_BAR_HEIGHT;
+    const float bar_bottom = md_rect.y + md_rect.height;
+    const float bar_top = bar_bottom - SEARCH_BAR_HEIGHT;
+    l.bar_rect = D2D1::RectF(bar_left, bar_top, bar_right, bar_bottom);
 
-    const float center_y = l.bar_top + (SEARCH_BAR_HEIGHT - SEARCH_INPUT_HEIGHT) / 2.0f;
+    const float center_y = bar_top + (SEARCH_BAR_HEIGHT - SEARCH_INPUT_HEIGHT) / 2.0f;
     const float center_bottom = center_y + SEARCH_INPUT_HEIGHT;
 
     // 左から順に幅 w の要素を詰めて置く。
@@ -289,12 +290,12 @@ inline SearchBarLayout ComputeSearchBarLayout(const PaneRect& md_rect, bool has_
     };
     const auto place_btn = [&] { return place(SEARCH_BTN_SIZE, center_y, center_bottom); };
 
-    l.icon_rect = place(SEARCH_BTN_SIZE, l.bar_top, l.bar_bottom);
+    l.icon_rect = place(SEARCH_BTN_SIZE, bar_top, bar_bottom);
     l.input_rect = place(std::min(SEARCH_INPUT_MAX_WIDTH, (bar_right - bar_left) * 0.5f), center_y, center_bottom);
     l.up_btn = place_btn();
     l.down_btn = place_btn();
     if (has_query) {
-        l.count_rect = place(SEARCH_MATCH_COUNT_WIDTH, l.bar_top, l.bar_bottom);
+        l.count_rect = place(SEARCH_MATCH_COUNT_WIDTH, bar_top, bar_bottom);
     }
     l.case_btn = place_btn();
     l.highlight_btn = place_btn();
@@ -318,7 +319,7 @@ enum class SearchBarHitZone : uint8_t {
 
 constexpr SearchBarHitZone HitTestSearchBar(const SearchBarLayout& sbl, float x, float y) noexcept
 {
-    if (y < sbl.bar_top) {
+    if (y < sbl.bar_rect.top) {
         return SearchBarHitZone::None;
     }
     const struct {

@@ -11,12 +11,16 @@
 
 namespace {
 
-// 全ノードを MeasureIndicesParallel で計測し、計測できなかったノード数を返す。
-int MeasureAll(std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, const ITextMeasurer& measurer, TaskScheduler* scheduler)
+// 全ノードを MeasureIndicesParallel で計測し、計測できなかったノード数を返す。scheduler が null なら直列に計測する。
+int MeasureAll(std::vector<Node>& nodes, LayoutCache& cache, const Theme& theme, ITextMeasurer& measurer, TaskScheduler* scheduler)
 {
     std::vector<size_t> indices(nodes.size());
     std::ranges::iota(indices, size_t{ 0 });
-    return layout::MeasureIndicesParallel(nodes, cache, 800.0f, theme, measurer, indices, YRange::All(), scheduler, kNoLayoutDeadline);
+    measurer.SetTheme(theme);
+    measurer.SetScheduler(scheduler);
+    const int left = layout::MeasureIndicesParallel(nodes, cache, 800.0f, measurer, indices, YRange::All(), kNoLayoutDeadline);
+    measurer.SetScheduler(nullptr);
+    return left;
 }
 
 // CodeBlock の syntax_tokens を書く派生 mock。並列経路では worker から entry へ直接書かれる。

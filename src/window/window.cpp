@@ -149,6 +149,7 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
     }
     app_->LoadInitialDocument();
     AwaitInitialParseBeforeDevice();
+    TakeStartupMessages();
     if (!app_->CreateRenderDevice()) {
         return destroy();
     }
@@ -156,10 +157,7 @@ bool Win32Window::Create(HINSTANCE hInstance, int nCmdShow)
     if (MSG msg; PeekMessageW(&msg, hwnd_, app_msg::PARSE_COMPLETE, app_msg::PARSE_COMPLETE, PM_REMOVE)) {
         app_->OnParseComplete();
     }
-    // ファイルペインの列挙もデバイスの作成と並行して済んでいれば、空の一覧を出さずに最初のフレームへ入れる。
-    if (MSG msg; PeekMessageW(&msg, hwnd_, app_msg::FILE_LISTED, app_msg::FILE_LISTED, PM_REMOVE)) {
-        app_->OnFileListed();
-    }
+    TakeStartupMessages();
     UpdateWindow(hwnd_);
     SetCloaked(hwnd_, FALSE);
 
@@ -180,10 +178,21 @@ void Win32Window::AwaitInitialParseBeforeDevice()
             app_->OnParseComplete();
             return;
         }
+        TakeStartupMessages();
         // 確かめた後に届いたポストだけで起きる。他の通知 (画像の完了など) で起きたら確かめ直す。
         if (!device_ready || MsgWaitForMultipleObjects(1, &device_ready, FALSE, INFINITE, QS_POSTMESSAGE) != WAIT_OBJECT_0 + 1) {
             return;
         }
+    }
+}
+
+void Win32Window::TakeStartupMessages()
+{
+    if (MSG msg; PeekMessageW(&msg, hwnd_, app_msg::FILE_LISTED, app_msg::FILE_LISTED, PM_REMOVE)) {
+        app_->OnFileListed();
+    }
+    if (MSG msg; PeekMessageW(&msg, hwnd_, app_msg::INLINE_MATH_REQUESTED, app_msg::INLINE_MATH_REQUESTED, PM_REMOVE)) {
+        app_->OnInlineMathRequested();
     }
 }
 
@@ -478,10 +487,10 @@ std::optional<LRESULT> Win32Window::TryHandleMouseMessage(UINT msg, WPARAM wPara
     case WM_XBUTTONDOWN: {
         const WORD button = GET_XBUTTON_WPARAM(wParam);
         if (button == XBUTTON1) {
-            app_->Dispatch(NavigateBackAction{});
+            app_->Dispatch(NavigateHistoryAction{ .forward = false });
         }
         else if (button == XBUTTON2) {
-            app_->Dispatch(NavigateForwardAction{});
+            app_->Dispatch(NavigateHistoryAction{ .forward = true });
         }
         return TRUE;
     }

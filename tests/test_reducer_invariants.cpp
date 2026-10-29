@@ -104,7 +104,7 @@ LabeledAction GenerateSingleScrollAction(std::mt19937& rng, const ReducerHarness
     }
     case 4: {
         const float y = static_cast<float>(pick(-500, 3000));
-        return { std::format("MdScrollbarDragMoved({})", y), MdScrollbarDragMovedAction{ y } };
+        return { std::format("MdScrollbarDragMoved({})", y), LeftDragMovedAction{ .dip_y = y } };
     }
     case 5:
         return { "MdScrollbarDragEnded", LeftDragEndedAction{} };
@@ -114,23 +114,23 @@ LabeledAction GenerateSingleScrollAction(std::mt19937& rng, const ReducerHarness
     }
     case 7: {
         if (anchors.empty()) {
-            return { "NoOp", NoOpAction{} };
+            return { "TocItemClicked(-1)", TocItemClickedAction{ -1 } };
         }
         const auto& a = anchors[static_cast<size_t>(pick(0, static_cast<int>(anchors.size()) - 1))];
         return { std::format("NavigateAnchor({})", a), NavigateAnchorAction{ a } };
     }
     case 8:
-        return { "NavigateBack", NavigateBackAction{} };
+        return { "NavigateBack", NavigateHistoryAction{ .forward = false } };
     case 9:
-        return { "NavigateForward", NavigateForwardAction{} };
+        return { "NavigateForward", NavigateHistoryAction{ .forward = true } };
     case 10: {
         switch (pick(0, 3)) {
         case 0:
             return { "SearchTextChanged(alpha)", SearchTextChangedAction{ std::wstring(L"alpha") } };
         case 1:
-            return { "SearchNext", SearchNextAction{} };
+            return { "SearchNext", SearchStepAction{ .forward = true } };
         case 2:
-            return { "SearchPrev", SearchPrevAction{} };
+            return { "SearchPrev", SearchStepAction{ .forward = false } };
         default:
             return { "OpenSearchBar", OpenSearchBarAction{} };
         }
@@ -389,22 +389,22 @@ private:
         case LeftDrag::None:
             return "LMove:Nothing";
         case LeftDrag::SearchInput:
-            model_.Dispatch(SearchInputDragMovedAction{ Pick(0, 5) });
+            model_.Dispatch(LeftDragMovedAction{ .search_caret = Pick(0, 5) });
             return "LMove:SearchInput";
         case LeftDrag::Splitter:
-            model_.Dispatch(SplitterDragMovedAction{ PickF(50, 900) });
+            model_.Dispatch(LeftDragMovedAction{ .dip_x = PickF(50, 900) });
             return "LMove:Splitter";
         case LeftDrag::PaneScrollbar:
-            model_.Dispatch(PaneScrollbarDragMovedAction{ PickF(0, 400) });
+            model_.Dispatch(LeftDragMovedAction{ .dip_y = PickF(0, 400) });
             return "LMove:PaneScrollbar";
         case LeftDrag::MdScrollbar:
-            model_.Dispatch(MdScrollbarDragMovedAction{ PickF(0, 400) });
+            model_.Dispatch(LeftDragMovedAction{ .dip_y = PickF(0, 400) });
             return "LMove:MdScrollbar";
         case LeftDrag::BlockHScroll:
-            model_.Dispatch(BlockHScrollDragMovedAction{ PickF(300, 900) });
+            model_.Dispatch(LeftDragMovedAction{ .dip_x = PickF(300, 900) });
             return "LMove:BlockHScroll";
         case LeftDrag::TextSelect:
-            model_.Dispatch(TextSelectionMovedAction{ Pick(0, h_.NodeCount() - 1), static_cast<uint32_t>(Pick(0, 5)) });
+            model_.Dispatch(LeftDragMovedAction{ .node_index = Pick(0, h_.NodeCount() - 1), .text_pos = static_cast<uint32_t>(Pick(0, 5)) });
             return "LMove:TextSelection";
         }
         std::unreachable();
@@ -418,7 +418,7 @@ private:
         case LeftDrag::None:
             return "LUp:Nothing";
         case LeftDrag::TextSelect:
-            model_.Dispatch(TextSelectionEndedAction{ Pick(-1, h_.NodeCount() - 1), 0 });
+            model_.Dispatch(LeftDragEndedAction{ Pick(-1, h_.NodeCount() - 1), 0 });
             return "LUp:TextSelection";
         default:
             model_.Dispatch(LeftDragEndedAction{});
@@ -474,7 +474,7 @@ private:
             model_.Dispatch(KeyScrollAction{ static_cast<ScrollType>(Pick(0, 5)) });
             return "Key:Scroll";
         case 5:
-            model_.Dispatch(NavigateBackAction{});
+            model_.Dispatch(NavigateHistoryAction{ .forward = false });
             return "Key:AltLeft";
         case 6:
             model_.Dispatch(SearchTextChangedAction{ std::wstring(L"alpha") });
@@ -540,7 +540,7 @@ struct HWheelCase {
     int hover;
     int drag;
     bool code_fits;
-    bool pane_layout_invalid;
+    bool window_unsized;
     bool expect_swipe;
     bool expect_block_scroll;
 };
@@ -591,25 +591,20 @@ TEST_P(ReducerHWheelSwipeTest, BlockAbsorbsHorizontalWheel)
     const int target = s.view.HDragNode() >= 0 ? s.view.HDragNode() : s.view.hover.h_block;
     const float block_x_before = BlockScrollX(h, target);
 
-    // App::Dispatch は必ずペインレイアウトを確定させるため、無効ケースは Reduce を直接呼ぶ。
-    auto dispatch = [&](const AppAction& a) {
-        if (c.pane_layout_invalid) {
-            s.pane_layout_cache.Invalidate();
-            return Reduce(s, a);
-        }
-        return h.Dispatch(a);
-    };
+    if (c.window_unsized) {
+        s.window.client_width = 0;
+    }
 
     bool timer_scheduled = false;
     bool overlay_shown = false;
     // 右スワイプ 4 ノッチ = 閾値 (400) 超え → 戻る。
     for (uint64_t i = 0; i < 4; ++i) {
-        const auto effects = dispatch(HWheelAction{ 120, 1000 + i * 10 });
+        const auto effects = h.Dispatch(HWheelAction{ 120, 1000 + i * 10 });
         const auto* t = FindEffect<effect::SetTimer>(effects);
         timer_scheduled |= (t && t->id == app_timer::Id::SWIPE_OVERLAY);
         overlay_shown |= s.interaction.swipe_detector.IsOverlayVisible();
     }
-    const auto commit = dispatch(SwipeOverlayTimeoutAction{});
+    const auto commit = h.Dispatch(SwipeOverlayTimeoutAction{});
     const bool navigated = HasEffect<effect::LoadFile>(commit);
 
     EXPECT_EQ(timer_scheduled, c.expect_swipe);
@@ -628,8 +623,8 @@ INSTANTIATE_TEST_SUITE_P(
         HWheelCase{ "HoverCodeThatFits", kCodeBlock, kNone, true, false, false, false },
         HWheelCase{ "HoverParagraph", kParagraph, kNone, false, false, false, false },
         HWheelCase{ "HoverOutOfRangeNode", kOutOfRange, kNone, false, false, false, false },
-        HWheelCase{ "HoverWithInvalidPaneLayout", kCodeBlock, kNone, false, true, false, false },
+        HWheelCase{ "HoverBeforeWindowSized", kCodeBlock, kNone, false, true, false, false },
         HWheelCase{ "DraggingScrollableCode_Scrolls", kNone, kCodeBlock, false, false, false, true },
         HWheelCase{ "DraggingCodeThatFits", kNone, kCodeBlock, true, false, false, false },
-        HWheelCase{ "DraggingWithInvalidPaneLayout", kNone, kCodeBlock, false, true, false, false }),
+        HWheelCase{ "DraggingBeforeWindowSized", kNone, kCodeBlock, false, true, false, false }),
     [](const auto& info) static { return std::string(info.param.name); });

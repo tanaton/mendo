@@ -52,7 +52,8 @@ enum class BrushId : uint8_t {
     PaneItemActive,
     ScrollbarThumb,
     OverlayWhite,
-    OverlayBlack,
+    // 白黒のオーバーレイ (ナビ・コピー等のボタン)。ダークは白、ライトは黒。不透明度は描画側で掛ける。
+    Overlay,
     OverlayGestureBg,
     GestureTrail,
     SearchBarBg,
@@ -89,12 +90,6 @@ constexpr BrushId AlertBrushIdFromIndex(size_t idx) noexcept
 constexpr BrushId AlertBgBrushIdFromIndex(size_t idx) noexcept
 {
     return BrushIdAt(BrushId::AlertNoteBg, idx);
-}
-
-// 白黒のオーバーレイ (ナビ・コピー等のボタン) に使うブラシ。不透明度は描画側で掛ける。
-constexpr BrushId OverlayBrushId(bool is_dark) noexcept
-{
-    return is_dark ? BrushId::OverlayWhite : BrushId::OverlayBlack;
 }
 
 // IDWriteTextLayout::SetDrawingEffect に渡す描画色の印。ブラシと違ってデバイスに依存しないので、

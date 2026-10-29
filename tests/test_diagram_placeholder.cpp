@@ -23,7 +23,16 @@ protected:
     void SetUp() override
     {
         DWriteTestBase::SetUp();
-        formats_.placeholder_text = CreateThemeFormat(theme_.font_size_body);
+        // Renderer::CreateTextFormats の placeholder_text と同じ設定。
+        const TextFormatSpec spec{
+            .family = theme_.font_family.c_str(),
+            .size = theme_.font_size_body,
+            .locale = L"ja-jp",
+            .text_align = DWRITE_TEXT_ALIGNMENT_CENTER,
+            .para_align = DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+            .ellipsis = true,
+        };
+        formats_.placeholder_text = CreateTextFormat(dwrite_factory_.Get(), spec);
         ASSERT_NE(formats_.placeholder_text, nullptr);
         text_layouts_.SetFactory(dwrite_factory_.Get());
         gen_.Init(theme_, &formats_, &text_layouts_);
@@ -38,7 +47,8 @@ TEST_F(DiagramPlaceholderTest, NoErrorShowsLoadingText)
     ASSERT_FALSE(pl.nodes.empty());
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    auto& cmds = gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
+    DrawCommandList cmds;
+    gen_.GenerateMdPane(cmds, { .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
 
     const auto text_cmd = FindFirst<DrawTextLayoutCmd>(cmds);
     ASSERT_TRUE(text_cmd.has_value());
@@ -56,7 +66,8 @@ TEST_F(DiagramPlaceholderTest, ErrorShowsErrorMessageInCautionColor)
     pl.cache.EnsureDiagram(static_cast<size_t>(diagram_idx)).error = { DiagramError::Kind::Render, L"Parse error on line 1" };
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    auto& cmds = gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
+    DrawCommandList cmds;
+    gen_.GenerateMdPane(cmds, { .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
 
     const auto error_cmd = FindFirst<DrawTextLayoutCmd>(cmds);
     ASSERT_TRUE(error_cmd.has_value());
@@ -73,7 +84,9 @@ TEST_F(DiagramPlaceholderTest, LocalizedErrorFollowsLanguageSwitch)
     auto& error = pl.cache.EnsureDiagram(static_cast<size_t>(diagram_idx)).error;
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     const auto text_of = [&] {
-        const auto cmd = FindFirst<DrawTextLayoutCmd>(gen_.GenerateMdPane({ .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f));
+        DrawCommandList cmds;
+        gen_.GenerateMdPane(cmds, { .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
+        const auto cmd = FindFirst<DrawTextLayoutCmd>(cmds);
         return cmd ? std::wstring(text_layouts_.TextOf(cmd->layout)) : std::wstring();
     };
 
@@ -86,4 +99,28 @@ TEST_F(DiagramPlaceholderTest, LocalizedErrorFollowsLanguageSwitch)
         EXPECT_EQ(text_of(), language->diagram_error);
     }
     i18n::SetLanguage(&i18n::kJa);
+}
+
+// mermaid の構文エラーは数行に折り返され、高さが本文 3 行ぶんの枠に収まらない。枠の外 (前後のブロックの上) には描かない。
+TEST_F(DiagramPlaceholderTest, LongErrorStaysInsideBox)
+{
+    auto pl = ParseAndLayout("```mermaid\ngraph TD;A-->B\n```\n");
+    const int diagram_idx = FindFirstNodeIndexByType(pl.nodes, NodeType::Diagram);
+    ASSERT_GE(diagram_idx, 0);
+    std::wstring message = L"Parse error on line 3:";
+    for (int i = 0; i < 20; ++i) {
+        message += L" Expecting 'SQE', 'DOUBLECIRCLEEND', 'PE', got 'NEWLINE'";
+    }
+    pl.cache.EnsureDiagram(static_cast<size_t>(diagram_idx)).error = { DiagramError::Kind::Render, message };
+
+    const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
+    DrawCommandList cmds;
+    gen_.GenerateMdPane(cmds, { .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
+
+    const auto cmd = FindFirst<DrawTextLayoutCmd>(cmds);
+    ASSERT_TRUE(cmd.has_value());
+    DWRITE_TEXT_METRICS metrics{};
+    ASSERT_TRUE(SUCCEEDED(cmd->layout->GetMetrics(&metrics)));
+    EXPECT_GE(metrics.top, 0.0f);
+    EXPECT_LE(metrics.top + metrics.height, metrics.layoutHeight);
 }

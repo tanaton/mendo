@@ -14,6 +14,54 @@
 #include <string>
 #include <windows.h>
 
+// 同一ファイルのリロード判定。旧/新の UTF-8 テキストを比べてリロード方針と差分位置 (UTF-8 byte オフセット) を決める。
+
+// 新旧コンテンツの最初の差分 UTF-8 byte 位置を返す。同一の場合は npos。
+// 前提: 両テキストとも LF 正規化済みであること。old は DocumentData::raw、new は LoadFile 由来で
+// どちらも正規化済み (issue #273)。
+size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept;
+
+// 同一ファイルのリロード時に取るべき操作を示す。
+enum class ReloadOp : uint8_t {
+    NoChange,          // 差分なし。リロード不要。
+    DeferPrefixShrink, // prefix-only shrink。truncate→rewrite の前半として defer。
+    Replace,           // 再パースした文書に差し替え、差分位置へスクロールする。
+};
+
+struct ReloadDecision {
+    ReloadOp op;
+    size_t diff_pos; // NoChange のとき std::string_view::npos、それ以外は差分開始位置。
+};
+
+// 旧/新コンテンツの UTF-8 テキストを比較し、リロード方針を決定する純粋関数。
+// accept_prefix_shrink なら prefix shrink も defer せず Replace にする (PrefixShrinkRetry の上限後)。
+ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text, bool accept_prefix_shrink = false) noexcept;
+
+// 末尾を削っただけの保存は何度読み直しても prefix shrink になるため、defer 回数に上限を設け、
+// 超えたら縮んだ内容を確定版として受け入れる。
+class PrefixShrinkRetry {
+public:
+    static constexpr uint8_t kMaxDefers = 10;
+
+    void CountDefer() noexcept
+    {
+        if (!Exhausted()) {
+            ++count_;
+        }
+    }
+    bool Exhausted() const noexcept
+    {
+        return count_ >= kMaxDefers;
+    }
+    void Reset() noexcept
+    {
+        count_ = 0;
+    }
+
+private:
+    uint8_t count_ = 0;
+};
+
 struct Theme;
 class TaskScheduler;
 

@@ -1,85 +1,7 @@
-add_executable(mendo_tests
-    test_document.cpp
-    test_parser.cpp
-    test_types.cpp
-    test_theme.cpp
-    test_file_watcher.cpp
-    test_file_watcher_notify.cpp
-    test_file_explorer.cpp
-    test_toc.cpp
-    test_layout.cpp
-    test_anchor.cpp
-    test_syntax.cpp
-    test_document_utils.cpp
-    test_pane_layout.cpp
-    test_mermaid_util.cpp
-    test_mermaid_file_cache.cpp
-    test_ini_parser.cpp
-    test_config_service.cpp
-    test_viewport_manager.cpp
-    test_text_measurer.cpp
-    test_app_controller.cpp
-    test_nav_history.cpp
-    test_navigation_service.cpp
-    test_nav_button_format.cpp
-    test_mouse_gesture.cpp
-    test_theme_service.cpp
-    test_layout_cache.cpp
-    test_layout_incremental.cpp
-    test_copy_button.cpp
-    test_hit_test_service.cpp
-    test_hit_test_service_dwrite.cpp
-    test_table_eviction_dwrite.cpp
-    test_swipe_detector.cpp
-    test_titlebar.cpp
-    test_ui_constants.cpp
-    test_context_menu.cpp
-    test_settings_dialog.cpp
-    test_image.cpp
-    test_help.cpp
-    test_search_state.cpp
-    test_search_state_dwrite.cpp
-    test_locale.cpp
-    test_memory_eviction.cpp
-    test_transposition_cache.cpp
-    test_search_bar.cpp
-    test_session_service.cpp
-    test_reducer.cpp
-    test_reducer_invariants.cpp
-    test_reload_flow.cpp
-    test_startup_plan.cpp
-    test_string_convert.cpp
-    test_file_io.cpp
-    test_utility.cpp
-    test_tooltip_target.cpp
-    test_task_scheduler.cpp
-    test_command_generator_frame.cpp
-    test_command_generator_content.cpp
-    test_command_generator_highlight.cpp
-    test_command_generator_culling.cpp
-    test_diagram_placeholder.cpp
-    test_text_layout_cache.cpp
-    test_search_input.cpp
-    test_measurer_parity.cpp
-    test_dwrite_measurer.cpp
-    test_command_executor.cpp
-    test_resource_manager.cpp
-    test_ascii_util.cpp
-    test_html_entity.cpp
-    test_parallel_measure.cpp
-    test_parallel_measure_stress.cpp
-    test_view_stats.cpp
-    test_doc_dwrite_bridge.cpp
-    test_utf8_codec.cpp
-    test_worker_latch.cpp
-    test_async_load_coordinator.cpp
-    test_layout_computer_invisible.cpp
-    test_clipboard_util.cpp
-    test_clipboard_manager.cpp
-    test_block_h_scroll.cpp
-    test_parser_properties.cpp
-    test_selection_html_properties.cpp
-)
+# tests/ の test_*.cpp をすべて入れる。足したファイルも cmake をやり直さずにビルドへ入る (CONFIGURE_DEPENDS)。
+file(GLOB _mendo_test_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/test_*.cpp")
+add_executable(mendo_tests ${_mendo_test_sources})
+unset(_mendo_test_sources)
 
 # tests/ のヘルパーを使うターゲット (mendo_tests / mendo_bench) 共通の設定。
 add_library(mendo_test_support INTERFACE)
@@ -94,7 +16,6 @@ target_link_libraries(mendo_tests PRIVATE
     GTest::gtest_main
     shlwapi
 )
-target_compile_definitions(mendo_tests PRIVATE MENDO_TESTING)
 # test_help が埋め込みヘルプ (res/help_*.md) の実物を読むため。
 target_compile_definitions(mendo_tests PRIVATE "MENDO_RES_DIR=u8\"${CMAKE_SOURCE_DIR}/res\"")
 

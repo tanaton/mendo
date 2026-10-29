@@ -168,8 +168,7 @@ TEST(DocumentTest, ArenaBackedFieldsSurviveMove)
         EXPECT_TRUE(runs[0].bold());
         ASSERT_TRUE(runs[1].has_link());
         EXPECT_EQ(nodes[0].view_link_urls()[runs[1].link_url_index], "u_x");
-        ASSERT_NE(nodes[1].image_data(), nullptr);
-        EXPECT_EQ(nodes[1].image_data()->src, "i_x.png");
+        EXPECT_EQ(nodes[1].image_src(), "i_x.png");
     };
     auto src = Document::FromMarkdown("**b** [l](u\\_x)\nm\n\n![a](i\\_x.png)", L"t.md");
     check(src);

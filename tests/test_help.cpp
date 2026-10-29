@@ -5,6 +5,7 @@
 #include "file_io.h"
 #include "mock_text_measurer.h"
 #include "nav.h"
+#include "titlebar.h"
 
 // ═══════════════════════════════════════════════
 // IsHelpPath

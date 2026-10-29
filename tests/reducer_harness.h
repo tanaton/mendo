@@ -18,6 +18,13 @@ inline void InitReducerState(AppState& state, Theme& theme)
     state.theme = &theme;
 }
 
+// 配置は App と同じく window の寸法から組まれる (dpi 1.0)。どのペインもタイトルバーの下に並び、高さは pane_height。
+inline void SetWindowSize(AppState& state, float width, float pane_height)
+{
+    state.window.client_width = static_cast<uint32_t>(width);
+    state.window.client_height = static_cast<uint32_t>(pane_height + TitleBar::BASE_HEIGHT);
+}
+
 // 計測を頼まれても何もしない Reduce。テストのキャッシュは計測済みとして組む。
 inline SideEffectList Reduce(AppState& state, const AppAction& action, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
 {
@@ -28,7 +35,7 @@ inline SideEffectList Reduce(AppState& state, const AppAction& action, std::pmr:
     return Reduce(state, action, no_layout, resource);
 }
 
-// reducer を App 相当の前提 (Theme 設定済み・レイアウト確定済み) で
+// reducer を App 相当の前提 (Theme 設定済み・ウィンドウの大きさ確定済み) で
 // 駆動するテスト用ハーネス。ランダム列テストで同じ初期状態を何度も組み立てるために使う。
 // state が theme を指すため、生成後は移動・コピーしない。
 class ReducerHarness {
@@ -36,6 +43,7 @@ public:
     static constexpr float kNodeHeight = 60.0f;
     // 先頭ノードの Top。本番でも margin_top + spacing_above で常に正になる。
     static constexpr float kFirstTop = 20.0f;
+    static constexpr float kSideWidth = 150.0f;
     static constexpr float kMdWidth = 600.0f;
 
     struct Options {
@@ -67,21 +75,16 @@ public:
             y += kNodeHeight;
         }
 
-        layout_.file_rect = { 0.0f, 0.0f, 150.0f, opt.md_height };
-        layout_.toc_rect = { 154.0f, 0.0f, 150.0f, 120.0f };
-        layout_.md_rect = { 308.0f, 0.0f, kMdWidth, opt.md_height };
-        state.pane_layout_cache.Set(layout_);
+        state.view.panes.SetSidePaneWidth(PaneTarget::File, kSideWidth);
+        state.view.panes.SetSidePaneWidth(PaneTarget::Toc, kSideWidth);
+        SetWindowSize(state, 2.0f * (kSideWidth + theme.splitter_width) + kMdWidth, opt.md_height);
     }
 
     ReducerHarness(const ReducerHarness&) = delete;
     ReducerHarness& operator=(const ReducerHarness&) = delete;
 
-    // App::Dispatch と同じく、無効化されたペインレイアウトを確定させてから Reduce する。
     SideEffectList Dispatch(const AppAction& action, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
     {
-        if (!state.pane_layout_cache.IsValid()) {
-            state.pane_layout_cache.Set(layout_);
-        }
         return Reduce(state, action, resource);
     }
 
@@ -94,8 +97,7 @@ public:
     // ウィンドウリサイズ相当: md ペイン高を変えて scroll_y を上限に収める。
     void ResizeMdPane(float md_height)
     {
-        layout_.md_rect.height = md_height;
-        state.pane_layout_cache.Set(layout_);
+        SetWindowSize(state, static_cast<float>(state.window.client_width), md_height);
         ClampScrollToContent();
     }
 
@@ -106,9 +108,6 @@ public:
 
     Theme theme{};
     AppState state;
-
-private:
-    PaneLayout layout_{};
 };
 
 // 見出し・段落・横スクロール可能なコードブロックを含む標準文書。

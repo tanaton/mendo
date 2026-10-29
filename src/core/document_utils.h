@@ -42,8 +42,6 @@ struct NodeRunsAt {
 };
 NodeRunsAt FindRunsAt(const Node& node, uint32_t pos) noexcept;
 
-std::string ToLowerAsciiCopy(std::string_view text);
-
 // CRLF / 旧式 CR を LF に正規化する (in-place)。
 // 改行を LF に揃えておくと、パーサ中の current_text と DocumentData::raw の memcmp 一致判定が成立し、
 // 大半の code block が DocumentData::raw をそのまま指せる (arena へのコピーが要らない)。
@@ -80,64 +78,6 @@ std::vector<SyntaxToken> TokenizeCodeNode(const Node& node);
 // 並びをつないだテキストを数ノードずつの窓で字句解析し、窓の端で切れたトークンはその先頭から次の窓で解析し直す。
 // 並び全体のトークンを一度に持たない。scheduler があれば区間に分けて並列に解析する (同じ worker 上から呼んでよい)。
 void AnnotateCodeChunkLeads(std::span<Node> run, TaskScheduler* scheduler = nullptr);
-
-inline constexpr std::wstring_view HELP_PATH = L"mendo://help";
-inline constexpr bool IsHelpPath(std::wstring_view path) noexcept
-{
-    return path == HELP_PATH;
-}
-
-// zoom_percent: 0 または 100 はデフォルト（省略）、それ以外は "(125%)" 等として表示。
-std::wstring BuildTitleString(std::wstring_view path, int zoom_percent);
-
-// 以下は同一ファイルのリロード判定。旧/新の UTF-8 テキストを比べてリロード方針を決め、差分位置 (UTF-8 byte オフセット) を
-// ノードへ写像する。OnParseComplete / DoReloadCurrentFile の分岐を揃えるために 1 か所に集める。
-
-// 新旧コンテンツの最初の差分 UTF-8 byte 位置を返す。同一の場合は npos。
-// 前提: 両テキストとも LF 正規化済みであること。old は DocumentData::raw、new は LoadFile 由来で
-// どちらも正規化済み (issue #273)。
-size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept;
-
-// 同一ファイルのリロード時に取るべき操作を示す。
-enum class ReloadOp : uint8_t {
-    NoChange,          // 差分なし。リロード不要。
-    DeferPrefixShrink, // prefix-only shrink。truncate→rewrite の前半として defer。
-    Replace,           // 再パースした文書に差し替え、差分位置へスクロールする。
-};
-
-struct ReloadDecision {
-    ReloadOp op;
-    size_t diff_pos; // NoChange のとき std::string_view::npos、それ以外は差分開始位置。
-};
-
-// 旧/新コンテンツの UTF-8 テキストを比較し、リロード方針を決定する純粋関数。
-// accept_prefix_shrink なら prefix shrink も defer せず Replace にする (PrefixShrinkRetry の上限後)。
-ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text, bool accept_prefix_shrink = false) noexcept;
-
-// 末尾を削っただけの保存は何度読み直しても prefix shrink になるため、defer 回数に上限を設け、
-// 超えたら縮んだ内容を確定版として受け入れる。
-class PrefixShrinkRetry {
-public:
-    static constexpr uint8_t kMaxDefers = 10;
-
-    void CountDefer() noexcept
-    {
-        if (!Exhausted()) {
-            ++count_;
-        }
-    }
-    bool Exhausted() const noexcept
-    {
-        return count_ >= kMaxDefers;
-    }
-    void Reset() noexcept
-    {
-        count_ = 0;
-    }
-
-private:
-    uint8_t count_ = 0;
-};
 
 // source_offset が diff_offset 以下の最後のノードを返す。該当なしの場合は -1。
 [[nodiscard]] int FindNodeBySourceOffset(const std::vector<Node>& nodes, size_t diff_offset) noexcept;

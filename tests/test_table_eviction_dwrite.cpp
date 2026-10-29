@@ -72,7 +72,7 @@ protected:
     void Measure(NodeLayoutEntry& entry, float width, YRange viewport = YRange::All())
     {
         entry.layout_dirty = true;
-        MeasureEntry(measurer_, TableNode(), entry, width, viewport, 0.0f, nullptr, theme_);
+        MeasureEntry(measurer_, TableNode(), entry, width, viewport, 0.0f, nullptr);
     }
 
     float ContentWidth() const
@@ -136,6 +136,22 @@ TEST_F(TableEvictionDWriteTest, SameWidthMeasureTakesFastPathAfterEviction)
     EXPECT_EQ(CountNonNullCells(tl), 0u) << "幅不変なら MeasureNode はセルを作り直さない";
     EXPECT_TRUE(tl.HasEvictedRows());
     EXPECT_FLOAT_EQ(entry.height, height_before);
+}
+
+// 別の幅で推定が entry.height を伸ばした後に元の幅へ戻すと、表は前の幾何のまま測り直さずに済むが、
+// 高さは伸びた値ではなく幾何の高さに戻す (issue #158: entry.height と行の高さの合計を食い違わせない)。
+TEST_F(TableEvictionDWriteTest, HeightReturnsToGeometryAfterEstimateGrowth)
+{
+    ASSERT_NO_FATAL_FAILURE(LayoutTable("# head\n\n" + MakeBigTableMd(40)));
+    const float measured = Entry().height;
+    ASSERT_FLOAT_EQ(measured, Entry().table_layout()->TotalHeight());
+
+    // 表を viewport の外 (先頭余白の中だけを見る) に置いたまま別の幅で推定させ、推定が実測より大きく伸ばした状態にする。
+    ComputeLayout(engine_, pl_.nodes, pl_.cache, 600.0f, 0.0f, theme_.margin_top * 0.5f);
+    Entry().height = measured + 100.0f;
+
+    ComputeLayout(engine_, pl_.nodes, pl_.cache, 800.0f);
+    EXPECT_FLOAT_EQ(Entry().height, measured);
 }
 
 // RestoreEvictedTableRows は viewport 内の evict 行だけ復元し、範囲外は null のまま残す。
@@ -210,13 +226,13 @@ TEST_F(TableEvictionDWriteTest, EvictIsDifferentialAgainstLiveRange)
     auto& tl = *entry.table_layout();
 
     EvictWholeTable();
-    EXPECT_EQ(tl.live_row_begin, tl.live_row_end) << "全行 evict 後は生存範囲が空";
+    EXPECT_FALSE(tl.HasLiveRows()) << "全行 evict 後は生存範囲が空";
 
     const YRange vp{ 0.0f, 80.0f };
     Restore(vp);
     const size_t restored_cells = CountNonNullCells(tl);
     ASSERT_GT(restored_cells, 0u);
-    EXPECT_LT(tl.live_row_begin, tl.live_row_end);
+    EXPECT_TRUE(tl.HasLiveRows());
 
     EvictWholeTable();
     EXPECT_EQ(CountNonNullCells(tl), 0u) << "復元済み行は生存範囲に入り、再 evict される";
@@ -273,7 +289,7 @@ TEST_F(TableEvictionDWriteTest, RestoreAfterWidthChangeCorrectsRowHeights)
     auto fresh = ParseAndLayout(md);
     auto& fresh_entry = fresh.cache[idx_];
     fresh_entry.layout_dirty = true;
-    MeasureEntry(measurer_, fresh.nodes[idx_], fresh_entry, narrow, YRange::All(), 0.0f, nullptr, theme_);
+    MeasureEntry(measurer_, fresh.nodes[idx_], fresh_entry, narrow, YRange::All(), 0.0f, nullptr);
     EXPECT_FLOAT_EQ(entry.height, fresh_entry.height);
 }
 
@@ -385,7 +401,7 @@ TEST_F(TableEvictionDWriteTest, LargeTableFirstMeasureKeepsNoCellLayouts)
     const auto& tl = *entry.table_layout();
     EXPECT_FALSE(entry.layout_dirty);
     EXPECT_EQ(CountNonNullCells(tl), 0u);
-    EXPECT_EQ(tl.evicted_row_count, tl.row_heights.size());
+    EXPECT_EQ(tl.EvictedRowCount(), tl.row_heights.size());
     EXPECT_EQ(tl.row_heights, row_heights_built);
     EXPECT_FLOAT_EQ(entry.height, height_built);
 }

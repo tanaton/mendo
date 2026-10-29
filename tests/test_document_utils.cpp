@@ -9,6 +9,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include "async_load_coordinator.h"
 #include "document_utils.h"
 #include "document_test_helpers.h"
 #include "file_io.h"
@@ -865,27 +866,6 @@ TEST(FilenameView, ReturnsLastPathComponent)
 }
 
 // ============================================================
-// BuildTitleString
-// ============================================================
-
-TEST(BuildTitleString, PrefixesFilenameToAppName)
-{
-    struct Case {
-        std::wstring_view path;
-        std::wstring_view expected;
-    };
-    constexpr Case kCases[] = {
-        { L"", L"mendo" },
-        { L"C:\\dir\\test.md", L"test.md - mendo" },
-        { L"readme.md", L"readme.md - mendo" },
-    };
-    for (const auto& c : kCases) {
-        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.path }));
-        EXPECT_EQ(BuildTitleString(c.path, 0), c.expected);
-    }
-}
-
-// ============================================================
 // 追加のエッジケース
 // ============================================================
 
@@ -1588,32 +1568,6 @@ TEST(CalcScrollYForDiff, PrefixGrowthScrollsTowardAppendedTail)
 }
 
 // ============================================================
-// ToLowerAsciiCopy
-// ============================================================
-
-TEST(ToLowerAsciiCopy, LowersOnlyAsciiLetters)
-{
-    struct Case {
-        std::string_view in;
-        std::string_view expected;
-    };
-    constexpr Case kCases[] = {
-        { "", "" },
-        { "HELLO", "hello" },
-        { "hello", "hello" },
-        { "HeLLo WoRLd", "hello world" },
-        { "日本語", "日本語" },
-        { "ABC-123_XYZ", "abc-123_xyz" },
-        // A(0x41) の直前 @(0x40) と Z(0x5A) の直後 [(0x5B) は変換しない
-        { "@A[Z", "@a[z" },
-    };
-    for (const auto& c : kCases) {
-        SCOPED_TRACE(::testing::PrintToString(c.in));
-        EXPECT_EQ(ToLowerAsciiCopy(c.in), c.expected);
-    }
-}
-
-// ============================================================
 // IsMarkdownFile
 // ============================================================
 
@@ -1924,6 +1878,20 @@ TEST(FindUnchangedEnds, ContinuedCodeWithChangedLeadIsChanged)
     ASSERT_EQ(old_nodes.size(), new_nodes.size());
     ASSERT_GE(new_nodes.size(), 3u);
     EXPECT_EQ(FindUnchangedEnds(old_nodes, new_nodes).tail, 0u);
+}
+
+// 表の本文は NodeTableData の比較だけで見る。セルの文字が変われば変わったノードに数える。
+TEST(FindUnchangedEnds, TableCellTextChangeIsChanged)
+{
+    const auto old_nodes = ParseNodes("# a\n\n| x | y |\n|---|---|\n| 1 | 2 |\n\nend\n");
+    const auto same_nodes = ParseNodes("# a\n\n| x | y |\n|---|---|\n| 1 | 2 |\n\nend\n");
+    const auto new_nodes = ParseNodes("# a\n\n| x | y |\n|---|---|\n| 1 | 3 |\n\nend\n");
+    ASSERT_EQ(old_nodes.size(), 3u);
+    ASSERT_EQ(new_nodes.size(), 3u);
+    EXPECT_EQ(FindUnchangedEnds(old_nodes, same_nodes).head, 3u);
+    const auto ends = FindUnchangedEnds(old_nodes, new_nodes);
+    EXPECT_EQ(ends.head, 1u);
+    EXPECT_EQ(ends.tail, 1u);
 }
 
 // 改行を挟まない継ぎ目で切れた語は、どちらのノードから選んでも隣のノードへ伸ばす。

@@ -78,10 +78,6 @@ public:
         scroll_target_ = { node, offset };
     }
 
-    constexpr bool HasScrollTarget() const noexcept
-    {
-        return scroll_target_.IsValid();
-    }
     constexpr const ScrollTarget& GetScrollTarget() const noexcept
     {
         return scroll_target_;
