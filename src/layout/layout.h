@@ -76,10 +76,10 @@ protected:
 // bitmap は画像/図ノードの DiagramEntry (無ければ nullptr)。戻り値は測れたか。
 inline bool MeasureEntry(
     const ITextMeasurer& measurer, const Node& node, NodeLayoutEntry& entry, float node_width,
-    YRange viewport, float entry_top, const DiagramEntry* bitmap, const Theme& theme)
+    YRange viewport, float entry_top, const DiagramEntry* bitmap)
 {
     const std::optional<float> height = IsBitmapDrawNode(node)
-                                            ? layout::BitmapNodeHeight(bitmap, node_width, entry.height, theme)
+                                            ? layout::BitmapNodeHeight(bitmap, node_width, entry.height, measurer.GetTheme())
                                             : measurer.MeasureNode(node, entry, node_width, viewport.ToLocal(entry_top));
     if (height) {
         entry.CommitMeasured(layout::NodeLayoutWidth(node, node_width), *height);
@@ -104,17 +104,15 @@ inline constexpr LayoutDeadline kNoLayoutDeadline = LayoutDeadline::max();
 
 namespace layout {
 
-// indices のノードを scheduler の worker で並列計測する。scheduler が null なら呼び出しスレッドで直列に計測する。
+// indices のノードを backend の scheduler の worker で並列計測する。scheduler が null なら呼び出しスレッドで直列に計測する。
 // 戻り値は dirty のまま残したノード数 (例外で計測できなかったか、期限を過ぎて手を付けなかった)。
 int MeasureIndicesParallel(
     const std::vector<Node>& nodes,
     LayoutCache& cache,
     float content_width,
-    const Theme& theme,
     const ITextMeasurer& backend,
     std::span<const size_t> indices,
     YRange viewport,
-    TaskScheduler* scheduler,
     LayoutDeadline deadline);
 
 } // namespace layout

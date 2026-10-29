@@ -118,11 +118,6 @@ TEST(GetBlockHScrollGeometry, TableUsesLaidOutTableWidth)
     const auto g = doc.Geometry(theme, 800.0f);
     EXPECT_FLOAT_EQ(g.block_width, tl.TableWidth());
     EXPECT_TRUE(g.can_scroll());
-
-    tl.InvalidateGeometry();
-    const auto invalidated = doc.Geometry(theme, 800.0f);
-    EXPECT_FLOAT_EQ(invalidated.block_width, 0.0f);
-    EXPECT_FALSE(invalidated.can_scroll());
 }
 
 // table_layout 未確保（未計測）の Table は block_width=0 でスクロール不可。

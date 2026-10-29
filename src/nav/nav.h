@@ -4,7 +4,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <vector>
+#include <utility>
 
 // ファイルが編集されて絶対 y 座標が変わっても、同じノードの相対位置に戻れる。
 struct NavEntry {
@@ -33,7 +33,7 @@ public:
     void Push(NavEntry current);
     // PushPending と GoBack/GoForward は、ロード結果で確定 (Commit) か取り消し (Rollback) をする。
     // 開けなかったファイルの分だけ履歴が重複したり、戻る/進むの位置がずれたりするのを防ぐ。
-    // Push や Clear が挟まった後の Rollback は何もしない。
+    // Push が挟まった後の Rollback は何もしない。
     // ロード中に次の操作が来たら、ロード中の文書はまだ表示されていないので、
     // PushPending は前の仮の操作を取り消してから積み直し、戻る/進むの連続はロード中の移動先を起点に続ける。
     // 続けた操作は Rollback でまとめて取り消す。
@@ -64,21 +64,15 @@ public:
 private:
     // GoBack/GoForward の対称処理を集約する。
     bool Transfer(std::deque<NavEntry>& from, std::deque<NavEntry>& to, NavEntry current, NavEntry& out);
-    // 上限で押し出した最古のエントリを返す。
-    std::optional<NavEntry> PushCapped(std::deque<NavEntry>& stack, NavEntry e);
-
-    // taken: PushPending では進む履歴全体、Transfer では移動先の 1 件。dropped: PushPending が上限で押し出した分。
-    struct PendingOp {
-        bool to_back = false;
-        bool transfer = false;
-        std::deque<NavEntry> taken;
-        std::optional<NavEntry> dropped;
-    };
+    // 上限を超えたら最古のエントリを捨てる。
+    void PushCapped(std::deque<NavEntry>& stack, NavEntry e);
 
     std::deque<NavEntry> back_stack_;
     std::deque<NavEntry> forward_stack_;
-    // 確定待ちの操作を古い順に持つ。
-    std::vector<PendingOp> pending_;
+    // 確定待ちの最初の操作の直前の両スタック。取り消しでそのまま戻す (上限で押し出した分も戻る)。
+    std::optional<std::pair<std::deque<NavEntry>, std::deque<NavEntry>>> saved_;
+    // 確定待ちの戻る/進むの移動先。続く戻る/進むの起点になる。
+    std::optional<NavEntry> chained_from_;
     size_t max_history_ = MAX_HISTORY;
 };
 

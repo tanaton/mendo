@@ -27,6 +27,8 @@
 
   // 表示用 (PNG キャプチャ経由) は htmlLabels:true でラベルの中の数式 (KaTeX) を描画させる。
   // SVG コピー用は htmlLabels:false で <foreignObject> を避け Office/Inkscape 互換にする。
+  // 構文エラーだと、既定ではエラー図を body に残したまま投げ (12.2.0)、同じワーカーが後で撮る図や数式の下端に写る。
+  // エラーは C++ 側が文言で出すので、エラー図は描かせずに片付けさせる。
   function ensureInitialized(isDark, htmlLabels) {
     const wantTheme = isDark ? 'dark' : 'default';
     const key = wantTheme + ':' + (htmlLabels ? '1' : '0');
@@ -35,18 +37,20 @@
         startOnLoad: false,
         theme: wantTheme,
         securityLevel: 'strict',
-        htmlLabels: htmlLabels
+        htmlLabels: htmlLabels,
+        suppressErrorRendering: true
       });
       currentInitKey = key;
     }
   }
 
-  // C++ の ParseRenderSize が読む "幅:高さ:devicePixelRatio"。
+  // C++ の ParseRenderSize が読む "幅:高さ:devicePixelRatio"。まとめ描きの箱と同じく CSS px で切り上げ、
+  // 1 つずつ描いてもまとめて描いても同じ大きさに切り出させる。
   function sizeString(width, height) {
     return Math.ceil(width) + ':' + Math.ceil(height) + ':' + (window.devicePixelRatio || 1);
   }
 
-  // 描けなければ投げる。呼び出し側 (C++ が送るスクリプト) の catch が render-error でメッセージを返す。
+  // 描けなければ投げる。呼び出し側 (message の受け口) の catch が render-error でメッセージを返す。
   // 戻り値は sizeString。
   async function renderMermaid(code, isDark) {
     if (!mermaidReady()) {
@@ -80,16 +84,69 @@
     return katexPromise;
   }
 
+  function errorText(e) {
+    return (e && e.message) || String(e);
+  }
+
   // flowchart で包むと " を渡せず、ラベルの #xx; エスケープも KaTeX に届いてしまうので、KaTeX を直接呼ぶ。
-  // MathML で出すのは mermaid と同じで、KaTeX の CSS とフォントを持たずに済むため。
+  // MathML で出すのは mermaid と同じで、KaTeX の CSS とフォントを持たずに済むため。描けなければ投げる。
+  // 1 つずつ描くときもまとめて描くときもこれで組み、切り出しの画素を揃える。
+  function blockMathHtml(katex, tex) {
+    return '<div class="math">' + katex.renderToString(tex, { throwOnError: true, displayMode: true, output: 'mathml' }) + '</div>';
+  }
+
   async function renderMath(tex, isDark) {
     const katex = await loadKatex();
     document.body.className = isDark ? 'dark' : '';
     const container = document.getElementById('container');
-    container.innerHTML = '<div class="math">' +
-      katex.renderToString(tex, { throwOnError: true, displayMode: true, output: 'mathml' }) + '</div>';
+    container.innerHTML = blockMathHtml(katex, tex);
     const rect = container.firstChild.getBoundingClientRect();
     return sizeString(rect.width, rect.height);
+  }
+
+  // ブロック数式をまとめて 1 ページに縦に並べて描く。行は renderMath の #container と同じ形で、
+  // 上端を CSS px でも物理ピクセルでも整数の位置に置くので、切り出しは 1 つずつ描いたキャプチャと画素が一致する。
+  // 戻り値は C++ の ParseMathBlocks が読む形 ("<w>:<h>:<dpr>|" の後に "b<x>,<y>,<w>,<h>;" か "e<文言の長さ>:<文言>")。
+  async function renderMathBlocks(texList, isDark) {
+    const katex = await loadKatex();
+    document.body.className = isDark ? 'dark' : '';
+    const results = texList.map(tex => {
+      try {
+        return { html: blockMathHtml(katex, tex) };
+      } catch (e) {
+        return { error: errorText(e) };
+      }
+    });
+    const container = document.getElementById('container');
+    container.innerHTML = results.filter(r => r.error === undefined).map(r => '<div>' + r.html + '</div>').join('');
+    const rows = container.children;
+    const rects = Array.from(rows, row => row.firstChild.getBoundingClientRect());
+    const dpr = window.devicePixelRatio || 1;
+    // 行の上端の刻み。dpr を掛けて整数になる最小の CSS px (1.5 なら 2、1.25 なら 4)。
+    let grid = 1;
+    while (grid < 8 && Math.abs(grid * dpr - Math.round(grid * dpr)) > 1e-6) {
+      grid++;
+    }
+    let items = '';
+    let right = 1;
+    let y = 0;
+    let i = 0;
+    for (const r of results) {
+      if (r.error !== undefined) {
+        items += 'e' + r.error.length + ':' + r.error;
+        continue;
+      }
+      const w = Math.ceil(rects[i].width);
+      const h = Math.ceil(rects[i].height);
+      // 切り出す高さより 1px 以上空けて、次の行の上端も刻みにそろえる。
+      const step = Math.ceil((h + 1) / grid) * grid;
+      rows[i].style.height = step + 'px';
+      items += 'b0,' + y + ',' + w + ',' + h + ';';
+      right = Math.max(right, w);
+      y += step;
+      i++;
+    }
+    return sizeString(right, Math.max(y, 1)) + '|' + items;
   }
 
   // items は [TeX, 文字の大きさ (px)] の並び。全部を幅 pageWidth のページに並べ、ページの大きさと各数式の箱
@@ -140,6 +197,76 @@
     const { svg } = await mermaid.render('mmd-svg-' + renderCount, code);
     return svg;
   }
+
+  // C++ (mermaid_util::Page*Message) からの要求。"<種類>:<要求 ID>:..." の形で、図のコードは末尾に置き、
+  // まとめて描く数式は "<文字の大きさ>:<TeX の長さ>:<TeX>" (ブロック数式は "<TeX の長さ>:<TeX>") を並べてある。
+  // 結果は "<結果の種類>:<要求 ID>:<中身>" で、描けなければ "render-error:<要求 ID>:<文言>" で返す。
+  function readField(msg, pos) {
+    const end = msg.indexOf(':', pos);
+    return [msg.slice(pos, end), end + 1];
+  }
+  // "<長さ>:<本文>" を読む。
+  function readText(msg, pos) {
+    let len;
+    [len, pos] = readField(msg, pos);
+    return [msg.substr(pos, +len), pos + +len];
+  }
+  window.chrome.webview.addEventListener('message', function(e) {
+    const msg = e.data;
+    let [kind, pos] = readField(msg, 0);
+    let id;
+    [id, pos] = readField(msg, pos);
+    if (kind === 'capture') {
+      // 新しい大きさのフレームを描き始めてから知らせる (Promise-await の問題を回避)。rAF 2 回待っていたが、1 回でも
+      // 写した PNG は同じで (図・ブロック数式・まとめ描き 20 枚 x 3 巡)、1 回のキャプチャの中央値が図とブロック数式で
+      // 65.7 → 56.0ms、まとめ描きで 63.6 → 39.1ms。待たずに頼んでも CapturePreview が次のフレームを待つので縮まない (63.2ms)。
+      requestAnimationFrame(() => window.chrome.webview.postMessage('capture-ready:' + id));
+      return;
+    }
+    let result;
+    let task;
+    if (kind === 'math') {
+      let width;
+      [width, pos] = readField(msg, pos);
+      const items = [];
+      while (pos < msg.length) {
+        let px, tex;
+        [px, pos] = readField(msg, pos);
+        [tex, pos] = readText(msg, pos);
+        items.push([tex, +px]);
+      }
+      result = 'math-result';
+      task = renderMathBatch(items, +width);
+    }
+    else if (kind === 'blocks') {
+      let dark;
+      [dark, pos] = readField(msg, pos);
+      const texList = [];
+      while (pos < msg.length) {
+        let tex;
+        [tex, pos] = readText(msg, pos);
+        texList.push(tex);
+      }
+      result = 'blocks-result';
+      task = renderMathBlocks(texList, dark === '1');
+    }
+    else {
+      let dark;
+      [dark, pos] = readField(msg, pos);
+      const code = msg.slice(pos);
+      const isDark = dark === '1';
+      if (kind === 'svg') {
+        result = 'svg-result';
+        task = renderMermaidSvg(code, isDark);
+      }
+      else {
+        result = 'render-result';
+        task = kind === 'tex' ? renderMath(code, isDark) : renderMermaid(code, isDark);
+      }
+    }
+    task.then(r => result + ':' + id + ':' + r, err => 'render-error:' + id + ':' + errorText(err))
+        .then(reply => window.chrome.webview.postMessage(reply));
+  });
 
   (async function() {
     // 数式の要求は mermaid の準備完了の後に来るので、KaTeX を mermaid と並べて読み始める。準備完了から最初の数式の

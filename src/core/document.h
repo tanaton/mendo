@@ -20,6 +20,13 @@ struct DocumentData {
     NodeStorage parsed;
 };
 
+// 埋め込みのヘルプを表す仮想パス。ファイルとしては読めない。
+inline constexpr std::wstring_view HELP_PATH = L"mendo://help";
+inline constexpr bool IsHelpPath(std::wstring_view path) noexcept
+{
+    return path == HELP_PATH;
+}
+
 class Document {
 public:
     constexpr Document() noexcept = default;

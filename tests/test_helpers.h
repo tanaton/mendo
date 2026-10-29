@@ -186,9 +186,9 @@ inline Node MakeStressNode(size_t i, bool include_code_block)
         return table;
     }
     if (bucket < 19) {
-        static constexpr NodeImageData kImage{ "img.png" };
+        static constexpr std::string_view kImageSrc = "img.png";
         n.type = NodeType::Image;
-        n.set_image_data(&kImage);
+        n.set_image_src(&kImageSrc);
         return n;
     }
     n.type = NodeType::Paragraph;

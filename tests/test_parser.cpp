@@ -1405,8 +1405,7 @@ TEST(Parser, AlertMarkerFollowedByImageStaysAlert)
         EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
         EXPECT_EQ(nodes[0].GetText(), AlertHeadText(AlertType::Note));
         ASSERT_EQ(nodes[1].type, NodeType::Image);
-        ASSERT_NE(nodes[1].image_data(), nullptr);
-        EXPECT_EQ(nodes[1].image_data()->src, "p.png");
+        EXPECT_EQ(nodes[1].image_src(), "p.png");
         EXPECT_EQ(nodes[1].alert_type, AlertType::Note);
         EXPECT_EQ(nodes[1].blockquote_group, nodes[0].blockquote_group);
         EXPECT_TRUE(ParseInvariantsHold(md, nodes));
@@ -1872,8 +1871,7 @@ TEST(Parser, ImageSrcResolvesCharacterReferences)
 {
     const auto nodes = ParseNodes("![a](img/a&amp;b.png)");
     ASSERT_EQ(nodes.size(), 1u);
-    ASSERT_NE(nodes[0].image_data(), nullptr);
-    EXPECT_EQ(nodes[0].image_data()->src, "img/a&b.png");
+    EXPECT_EQ(nodes[0].image_src(), "img/a&b.png");
 }
 
 // ---- 長いテキストの区切り ----

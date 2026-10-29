@@ -107,25 +107,30 @@ public:
         FillLine(x, y + st->offset, st->width, st->thickness, effect);
         return S_OK;
     }
-    // インラインオブジェクトはインライン数式だけ。型が無ければ (受け取らなかったページ・捨てたページ・デバイスロストで
-    // 読み直し中) 何も描かない。
-    HRESULT STDMETHODCALLTYPE DrawInlineObject(void*, FLOAT x, FLOAT y, IDWriteInlineObject* object, BOOL, BOOL, IUnknown* effect) noexcept override
+    // インライン数式は型を塗る。型が無ければ (受け取らなかったページ・捨てたページ・デバイスロストで読み直し中) 何も描かない。
+    // ほかのインラインオブジェクト (書式の省略記号) は自分で描かせる。
+    HRESULT STDMETHODCALLTYPE DrawInlineObject(void* context, FLOAT x, FLOAT y, IDWriteInlineObject* object, BOOL sideways, BOOL rtl, IUnknown* effect) noexcept override
     {
-        if (!math_ || !object) {
+        // 見えない行のものは数式か見分ける (QueryInterface の参照カウントの往復) 前に飛ばす。型は箱よりインクの幅と
+        // 物理 px への丸め (1px 未満) の分だけ広く切り出してあるので、その分広く見る。
+        constexpr float kInkPad = INLINE_MATH_INK_MARGIN + 1.0f;
+        DWRITE_INLINE_OBJECT_METRICS m{};
+        if (!object || FAILED(object->GetMetrics(&m)) || y + m.height + kInkPad < cull_top_ || y - kInkPad > cull_bottom_) {
             return S_OK;
         }
-        const uint64_t key = InlineMathObjectKey(object);
-        const auto* mask = math_->Find(key);
+        const auto key = InlineMathObjectKey(object);
+        if (!key) {
+            return object->Draw(context, this, x, y, sideways, rtl, effect);
+        }
+        if (!math_) {
+            return S_OK;
+        }
+        const auto* mask = math_->Find(*key);
         if (!mask) {
-            if (DWRITE_INLINE_OBJECT_METRICS m{}; SUCCEEDED(object->GetMetrics(&m)) && y + m.height >= cull_top_ && y <= cull_bottom_) {
-                math_->missing.push_back(key);
-            }
+            math_->missing.push_back(*key);
             return S_OK;
         }
         const D2D1_RECT_F dest = OffsetRectF(mask->dest, x, y);
-        if (dest.bottom < cull_top_ || dest.top > cull_bottom_) {
-            return S_OK;
-        }
         mask->page->last_drawn = math_->frame;
         // FillOpacityMask は ALIASED のときしか描かない。
         const D2D1_ANTIALIAS_MODE mode = rt_->GetAntialiasMode();

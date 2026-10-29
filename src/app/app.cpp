@@ -3,7 +3,6 @@
 #include "ascii_util.h"
 #include "clipboard_util.h"
 #include "document_utils.h"
-#include "file_dialog_service.h"
 #include "file_io.h"
 #include "i18n.h"
 #include "layout_computer.h"
@@ -107,8 +106,9 @@ bool App::Init(HWND hwnd)
         // bitmap 残存ノードをスキップするため、LoadImages の前に破棄する必要がある。
         state_.document.layout_cache.InvalidateAllDiagramBitmaps();
         resource_manager_.LoadImages();
-        // インライン数式の型も新しいデバイスで作り直す。寸法は同じなのでレイアウトはそのまま。組ごとに描いた数式は
+        // インライン数式の型は旧デバイスのビットマップなので捨て、新しいデバイスで作り直す。寸法は同じなのでレイアウトはそのまま。組ごとに描いた数式は
         // 見えたときに組を読み直す (ManageInlineMathPages) ので、全部の組は読まない。ここで頼み直すのは計画に無い数式だけ。
+        math_masks_ = {};
         inline_math_.RequestAllAgain([this](uint64_t key) { return !inline_math_plan_.ChunkOf(key); });
     });
 
@@ -153,7 +153,7 @@ void App::InitSharedScheduler()
 
 bool App::CreateRenderDevice()
 {
-    renderer_.PrepareChrome(BuildTitleBarRenderState(), BuildSidePaneState(GetPaneLayout()));
+    renderer_.PrepareChrome(BuildTitleBarRenderState(), BuildSidePaneState(ComputePaneLayout(state_)));
     if (!renderer_.CreateDevice()) {
         return false;
     }
@@ -171,7 +171,6 @@ bool App::CreateRenderDevice()
 
 void App::RestoreTheme()
 {
-    state_.theme = &theme_service_.GetTheme();
     if (theme_service_.IsDarkMode()) {
         ApplyDarkModeToWindow(hwnd_, true);
     }
@@ -193,11 +192,6 @@ DipPoint App::PixelToDip(int px, int py) const noexcept
     return ::PixelToDip(px, py, state_.window.cached_dpi_scale);
 }
 
-const PaneLayout& App::GetPaneLayout()
-{
-    return EnsurePaneLayout(state_);
-}
-
 void App::UpdateTitleBar()
 {
     auto title = BuildTitleString(state_.document.doc.GetFilePath(), state_.view.viewport.Zoom().Percent());
@@ -211,7 +205,7 @@ void App::UpdateTitleBar()
 
 PaneZone App::PaneAtPoint(float dip_x)
 {
-    return DetectPaneZone(dip_x, GetPaneLayout(), theme_service_.GetTheme().splitter_width);
+    return DetectPaneZone(dip_x, ComputePaneLayout(state_), theme_service_.GetTheme().splitter_width);
 }
 
 SidePaneState App::BuildSidePaneState(const PaneLayout& layout)
@@ -275,7 +269,7 @@ void App::OnPaint()
         return;
     }
 
-    const auto& layout = GetPaneLayout();
+    const auto layout = ComputePaneLayout(state_);
     const bool show_loading = spinner_shown_;
     if (!show_loading) {
         EnsureFrameLayout(layout);
@@ -309,6 +303,7 @@ void App::OnPaint()
             .search_matches = highlight ? std::span<const SearchMatch>{ ss.GetMatches() } : std::span<const SearchMatch>{},
             .current_match_index = highlight ? ss.GetCurrentMatchIndex() : -1,
             .search_generation = highlight ? ss.GetGeneration() : 0,
+            .inline_math = &math_masks_,
         },
         .side_panes = sp,
         .titlebar = tb,
@@ -347,8 +342,7 @@ void App::EnsureFrameLayout(const PaneLayout& layout)
     const bool updated = layout_service_.EnsureVisibleLayout(state_.document.doc, state_.document.layout_cache, layout.md_rect.width, layout.md_rect.height);
     if (updated) {
         ClampScrollToContent();
-        // 未計測領域に入った。スクロール先を先読み計測させ、以降のフレームでの同期計測を減らす。
-        RequestDeferredLayout();
+        SettleLayout();
     }
 }
 
@@ -357,7 +351,7 @@ void App::PrepareFrame()
     if (!IsRenderReady() || IsIconic(hwnd_) || spinner_shown_) {
         return;
     }
-    EnsureFrameLayout(GetPaneLayout());
+    EnsureFrameLayout(ComputePaneLayout(state_));
 }
 
 void App::OnMinimize()
@@ -415,7 +409,7 @@ bool App::ReserveInlineMathPage(size_t chunk, uint64_t chunk_key, size_t bytes)
     // デコードと GPU への転送の前に決めるので、この表を 2 回目に開くとデコードが 151 枚 → 20 枚になり、全部の寸法が
     // 揃うまでが約 160ms → 約 122ms。組はまとめて頼むので、受け取ると答えてまだ届いていない分も数える。
     if (!inline_math_plan_.IsWanted(chunk, chunk_key) &&
-        renderer_.InlineMath().page_bytes + reserved_math_page_bytes_ + bytes > kInlineMathPageBudget) {
+        math_masks_.page_bytes + reserved_math_page_bytes_ + bytes > kInlineMathPageBudget) {
         return false;
     }
     reserved_math_page_bytes_ += bytes;
@@ -424,13 +418,12 @@ bool App::ReserveInlineMathPage(size_t chunk, uint64_t chunk_key, size_t bytes)
 
 void App::ManageInlineMathPages()
 {
-    auto& math = renderer_.InlineMath();
     // 型の無い (受け取らなかったページ・捨てたページ・デバイスロスト) 数式が見えたら、組をディスクキャッシュから読み直す。
     // 同じ組を頼むのは結果を待つ間 1 回だけなので、同じ数式が何度出てきてもよい。
-    for (const uint64_t key : std::exchange(math.missing, {})) {
+    for (const uint64_t key : std::exchange(math_masks_.missing, {})) {
         RequestInlineMathChunk(key, true);
     }
-    math.EvictPages(kInlineMathPageBudget);
+    math_masks_.EvictPages(kInlineMathPageBudget);
 }
 
 void App::RebuildInlineMathPlan()
@@ -450,7 +443,6 @@ void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint6
     if (planned) {
         inline_math_plan_.FinishChunk(chunk, chunk_key, result.failed);
     }
-    auto& math = renderer_.InlineMath();
     InlineMathPage* page = nullptr;
     bool lost = false;
     for (const auto& item : result.items) {
@@ -463,9 +455,9 @@ void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint6
             continue;
         }
         if (!page) {
-            page = &math.AddPage(result.page, planned);
+            page = &math_masks_.AddPage(result.page, planned);
         }
-        math.Assign(item.key, InlineMathMask{ page, item.src, item.dest });
+        math_masks_.Assign(item.key, InlineMathMask{ page, item.src, item.dest });
     }
     auto& cache = state_.document.layout_cache;
     // 数式の大きさで見ている段落の高さが変わっても、見ている位置を動かさない。
@@ -509,7 +501,7 @@ void App::RelayoutPendingInlineMath(bool tables)
 void App::ForgetInlineMath()
 {
     inline_math_.Clear();
-    renderer_.InlineMath() = {};
+    math_masks_ = {};
     mermaid_renderer_.DropQueuedMath();
     // 組の待ちの印も戻す。表を捨てたので、計測が頼み直した数式を組ごとに描かせる。
     RebuildInlineMathPlan();
@@ -541,12 +533,12 @@ bool App::OnSearchEditKeyDown(WPARAM key)
     return DispatchKeyAction(app_controller::HandleSearchEditKeyDown(CurrentKeyDownEvent(key)));
 }
 
-bool App::DispatchKeyAction(const AppAction& action)
+bool App::DispatchKeyAction(const std::optional<AppAction>& action)
 {
-    if (std::holds_alternative<NoOpAction>(action)) {
+    if (!action) {
         return false;
     }
-    Dispatch(action);
+    Dispatch(*action);
     return true;
 }
 
@@ -874,24 +866,19 @@ void App::OnParseComplete()
         }
         DeferReloadRetry();
         return;
+    case ParseCompleteStep::ReloadUnchanged:
+        prefix_shrink_retry_.Reset();
+        file_watcher_.ResumeWatching();
+        return;
+    case ParseCompleteStep::DeferPrefixShrink:
+        // 正確な差分を取り直す。上限に達したら、次の読み直しで worker が縮んだ内容を受け入れる (BeginAsyncLoad)。
+        prefix_shrink_retry_.CountDefer();
+        DeferReloadRetry();
+        return;
     case ParseCompleteStep::ApplyReload: {
         const ReloadCheck& reload = *result->reload;
-        MENDO_TRACEF("OnParseComplete: reload node_count={} diff_pos={} new_size={} op={}", result->doc.GetNodes().size(),
-                     reload.decision.diff_pos, result->doc.GetRawText().size(), std::to_underlying(reload.decision.op));
-        switch (reload.decision.op) {
-        case ReloadOp::NoChange:
-            prefix_shrink_retry_.Reset();
-            file_watcher_.ResumeWatching();
-            return;
-        case ReloadOp::DeferPrefixShrink:
-            // エディタの保存途中 (truncate→rewrite の前半) を読んだ。文書はそのままにして読み直し、正確な差分を取り直す。
-            // 上限に達したら、次の読み直しで worker が縮んだ内容を受け入れる (BeginAsyncLoad)。
-            prefix_shrink_retry_.CountDefer();
-            DeferReloadRetry();
-            return;
-        case ReloadOp::Replace:
-            break;
-        }
+        MENDO_TRACEF("OnParseComplete: reload node_count={} diff_pos={} new_size={}", result->doc.GetNodes().size(),
+                     reload.decision.diff_pos, result->doc.GetRawText().size());
         prefix_shrink_retry_.Reset();
         // 読み始めた後にテキスト選択のドラッグが始まった。読み直しはドラッグの終わりに回す。
         if (DeferReloadWhileSelecting()) {
@@ -929,7 +916,7 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
 
     RelayoutViewport(RelayoutResources::ImagesAndDiagrams);
 
-    MENDO_TRACEF("FinishLoad: scroll_y={:.1f} max_scroll={:.1f}", state_.view.viewport.GetScrollY(), MdMaxScroll());
+    MENDO_TRACEF("FinishLoad: scroll_y={:.1f} max_scroll={:.1f}", state_.view.viewport.GetScrollY(), MdMaxScroll(state_));
 
     UpdateTitleBar();
     StartFileWatch(std::move(watch));
@@ -985,7 +972,7 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
     resource_manager_.CancelMermaidBatch();
     image_loader_.ResetFailedPaths();
 
-    const PaneRect md = GetPaneLayout().md_rect;
+    const PaneRect md = ComputePaneLayout(state_).md_rect;
 
     // Mermaid/LaTeX 図と通常画像の推定高さを実測値 (file_cache_ / image_loader メモリキャッシュ) で
     // 上書きし、CalcScrollYForDiff の Y 計算がずれないようにする。引き継いだノードは実測の高さを持っているので、
@@ -1007,7 +994,7 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
 
     RelayoutViewport(RelayoutResources::ImagesAndDiagrams);
 
-    MENDO_TRACEF("ReloadDocument: after-relayout scroll_y={:.1f} max_scroll={:.1f}", state_.view.viewport.GetScrollY(), MdMaxScroll());
+    MENDO_TRACEF("ReloadDocument: after-relayout scroll_y={:.1f} max_scroll={:.1f}", state_.view.viewport.GetScrollY(), MdMaxScroll(state_));
 
     Dispatch(ReloadSettledAction{});
 
@@ -1032,7 +1019,7 @@ void App::StartFileWatch(FileWatchTarget target)
 
 void App::OpenFileDialog()
 {
-    if (auto path = file_dialog_service::OpenMarkdownFileDialog(hwnd_); !path.empty()) {
+    if (auto path = file_dialog::OpenMarkdownFile(hwnd_); !path.empty()) {
         Dispatch(OpenPathAction{ std::move(path) });
     }
 }
@@ -1054,12 +1041,7 @@ void App::Execute(const SideEffect& effect)
                 ::ReleaseCapture();
             }
         },
-        [this](const effect::ClipboardWrite& ev) {
-            WriteClipboardText(hwnd_, ev.text);
-        },
-        [this](const effect::ClipboardWriteHtml& ev) {
-            WriteClipboardHtml(hwnd_, ev.html, ev.plain);
-        },
+        [this](const effect::ClipboardWrite& ev) { WriteClipboardHtml(hwnd_, ev.html, ev.text); },
         [this](const effect::SetTooltip& ev) {
             tooltip_.SetText(ev.text);
             if (ev.text.empty()) {
@@ -1082,8 +1064,9 @@ void App::Execute(const SideEffect& effect)
         [this](const effect::SearchUnfocus& ev) {
             window_.UnfocusSearch(ev.clear_text);
         },
-        [this](const effect::SetWindowPosition& ev) {
-            const RECT& r = ev.rect;
+        [this](const effect::ApplyDpi& ev) {
+            renderer_.SetDpi(ev.dpi);
+            const RECT& r = ev.suggested;
             SetWindowPos(hwnd_, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
         },
         [this](const effect::ApplyZoom&) {
@@ -1101,9 +1084,6 @@ void App::Execute(const SideEffect& effect)
         },
         [this](const effect::RendererResize& ev) {
             renderer_.Resize(ev.width, ev.height, ev.live);
-        },
-        [this](const effect::RendererSetDpi& ev) {
-            renderer_.SetDpi(ev.dpi);
         },
         // ---- Navigation ----
         [this](const effect::LoadFile& ev) {
@@ -1176,13 +1156,13 @@ void App::OnDestroy()
 
 int App::SearchInputPosAt(float dip_x)
 {
-    const auto sbl = SearchBarLayoutFor(state_, GetPaneLayout().md_rect);
+    const auto sbl = SearchBarLayoutFor(state_, ComputePaneLayout(state_).md_rect);
     return renderer_.HitTestSearchInput(state_.search.query_wide, dip_x - sbl.text_left(), sbl.text_width());
 }
 
 RECT App::GetSearchEditRect()
 {
-    const auto sbl = SearchBarLayoutFor(state_, GetPaneLayout().md_rect);
+    const auto sbl = SearchBarLayoutFor(state_, ComputePaneLayout(state_).md_rect);
     const float s = state_.window.cached_dpi_scale;
     return {
         DipToPixel(sbl.input_rect.left, s),
@@ -1207,6 +1187,7 @@ void App::RestoreScrollPosition()
 
 void App::ApplyZoom()
 {
+    state_.document.layout_cache.InvalidateAllLayouts(state_.document.doc.GetNodes());
     theme_service_.ApplyZoom(state_.view.viewport.Zoom());
     measurer_.RecreateFormats();
     renderer_.OnThemeMetricsChanged();
@@ -1219,6 +1200,9 @@ void App::ApplyZoom()
 
 void App::ToggleDarkMode()
 {
+    // 色のみの変更なのでテキストレイアウトは維持する。描画エフェクトの固定ブラシは SetColor で
+    // 色だけ差し替わるので再適用不要で、テーマ色を焼き込んだ Mermaid bitmap のみ破棄する。
+    state_.document.layout_cache.InvalidateDiagramBitmaps(state_.document.doc.GetDiagramNodeIndices());
     const bool dark = theme_service_.ToggleDarkMode();
     renderer_.OnThemeColorsChanged();
     ApplyDarkModeToWindow(hwnd_, dark);
@@ -1231,7 +1215,7 @@ void App::ToggleDarkMode()
 
 App::HitResult App::HitTest(int px, int py)
 {
-    return hit_test::HitTest(app_controller::MakeMdPaneHitContext(state_, GetPaneLayout(), px, py));
+    return hit_test::HitTest(app_controller::MakeMdPaneHitContext(state_, ComputePaneLayout(state_), px, py));
 }
 
 // CS_DBLCLKS により連続クリックの 2 回目は WM_LBUTTONDBLCLK で届く。ボタン・スクロールバー・スプリッタは
@@ -1279,7 +1263,7 @@ void App::OnLButtonUp(int px, int py)
     const int dx = px - state_.view.drag.click_x;
     const int dy = py - state_.view.drag.click_y;
     const bool small_click = (dx * dx + dy * dy) < CLICK_DISTANCE_THRESHOLD_SQ;
-    Dispatch(TextSelectionEndedAction{ hit.node_index, hit.text_pos });
+    Dispatch(LeftDragEndedAction{ hit.node_index, hit.text_pos });
     if (!small_click || state_.view.viewport.GetSelection().active()) {
         return;
     }
@@ -1291,32 +1275,27 @@ void App::OnLButtonUp(int px, int py)
 void App::OnMouseMove(int px, int py)
 {
     const auto dip = PixelToDip(px, py);
-
+    LeftDragMovedAction action{ .dip_x = dip.x, .dip_y = dip.y };
+    // 入力欄とテキスト選択だけは、ポインタの位置を文字の位置に直して渡す。
     switch (state_.view.drag.kind) {
     case LeftDrag::None:
         return;
     case LeftDrag::SearchInput:
-        Dispatch(SearchInputDragMovedAction{ SearchInputPosAt(dip.x) });
-        return;
-    case LeftDrag::Splitter:
-        Dispatch(SplitterDragMovedAction{ dip.x });
-        return;
-    case LeftDrag::PaneScrollbar:
-        Dispatch(PaneScrollbarDragMovedAction{ dip.y });
-        return;
-    case LeftDrag::MdScrollbar:
-        Dispatch(MdScrollbarDragMovedAction{ dip.y });
-        return;
-    case LeftDrag::BlockHScroll:
-        Dispatch(BlockHScrollDragMovedAction{ dip.x });
-        return;
-    case LeftDrag::TextSelect:
-        if (const auto hit = HitTest(px, py); hit.node_index >= 0) {
-            Dispatch(TextSelectionMovedAction{ hit.node_index, hit.text_pos });
-        }
-        return;
+        action.search_caret = SearchInputPosAt(dip.x);
+        break;
+    case LeftDrag::TextSelect: {
+        const auto hit = HitTest(px, py);
+        action.node_index = hit.node_index;
+        action.text_pos = hit.text_pos;
+        break;
     }
-    std::unreachable();
+    case LeftDrag::Splitter:
+    case LeftDrag::PaneScrollbar:
+    case LeftDrag::MdScrollbar:
+    case LeftDrag::BlockHScroll:
+        break;
+    }
+    Dispatch(action);
 }
 
 void App::OnMouseWheel(int px, int py, int delta, bool ctrl)
@@ -1429,10 +1408,10 @@ void App::HandleSearchBarClick(SearchBarHitZone zone, float dip_x, bool is_doubl
         }
         return;
     case SearchBarHitZone::Up:
-        Dispatch(SearchPrevAction{});
+        Dispatch(SearchStepAction{ .forward = false });
         return;
     case SearchBarHitZone::Down:
-        Dispatch(SearchNextAction{});
+        Dispatch(SearchStepAction{ .forward = true });
         return;
     case SearchBarHitZone::CaseSensitive:
         Dispatch(ToggleCaseSensitiveAction{});
@@ -1490,7 +1469,7 @@ void App::HandleOverlayButtonClick(const OverlayButtonHit& hit)
 bool App::TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x)
 {
     const int hover = state_.view.hover.h_block;
-    const auto geom = ResolveBlockHScrollGeometry(state_, hover);
+    const auto geom = ResolveBlockHScrollGeometry(state_, hover, hit_ctx.md_rect.width);
     if (!geom.can_scroll() || !hit_test::BlockHScrollbarHitTest(hit_ctx, hover, geom.visible_width)) {
         return false;
     }
@@ -1501,7 +1480,7 @@ bool App::TryStartBlockHScrollDrag(const MdPaneHitContext& hit_ctx, float dip_x)
 void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, bool is_double_click)
 {
     using Kind = app_controller::MdPaneHit::Kind;
-    const auto& layout = GetPaneLayout();
+    const auto layout = ComputePaneLayout(state_);
     const auto hit_ctx = app_controller::MakeMdPaneHitContext(state_, layout, px, py);
     const auto target = app_controller::ResolveMdPaneHit(state_, hit_ctx, layout, dip_x, dip_y);
     switch (target.kind) {
@@ -1509,12 +1488,7 @@ void App::HandleMdPaneClick(float dip_x, float dip_y, int px, int py, bool is_do
         HandleSearchBarClick(target.search_bar, dip_x, is_double_click);
         return;
     case Kind::NavButton:
-        if (target.nav == NavDirection::Back) {
-            Dispatch(NavigateBackAction{});
-        }
-        else {
-            Dispatch(NavigateForwardAction{});
-        }
+        Dispatch(NavigateHistoryAction{ .forward = target.nav == NavDirection::Forward });
         return;
     case Kind::OverlayButton:
         HandleOverlayButtonClick(target.overlay_button);
@@ -1561,7 +1535,7 @@ void App::HandleFileEntryClick(const FileEntry& entry)
 
 void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, bool is_double_click)
 {
-    const auto hit = app_controller::ResolveSidePaneHit(state_, target, GetPaneLayout(), dip_x, dip_y);
+    const auto hit = app_controller::ResolveSidePaneHit(state_, target, ComputePaneLayout(state_), dip_x, dip_y);
     if (hit.in_header) {
         switch (hit.button) {
         case PaneHeaderButton::None:
@@ -1596,8 +1570,7 @@ void App::HandleSidePaneClick(PaneTarget target, float dip_x, float dip_y, bool 
 
 bool App::IsOverMdScrollbar(float dip_x, float dip_y)
 {
-    // WM_NCHITTEST は Init 前にも届く。
-    return state_.theme && app_controller::IsOverMdScrollbar(state_, GetPaneLayout(), dip_x, dip_y);
+    return app_controller::IsOverMdScrollbar(state_, ComputePaneLayout(state_), dip_x, dip_y);
 }
 
 void App::RefreshHoverAtCursor()
@@ -1623,7 +1596,7 @@ void App::RefreshHoverAtCursor()
 
 void App::OnMouseHover(int px, int py)
 {
-    auto [hover, cursor] = app_controller::ResolvePointerHover(state_, GetPaneLayout(), px, py, IsZoomed(hwnd_));
+    auto [hover, cursor] = app_controller::ResolvePointerHover(state_, ComputePaneLayout(state_), px, py, IsZoomed(hwnd_));
     SetCursor(cursors_.Get(cursor));
     Dispatch(PointerHoverAction{ std::move(hover) });
 }
@@ -1655,12 +1628,10 @@ void App::OnContextMenu(int screen_x, int screen_y)
         .on_zoom = [this, zoom_pane](ZoomDirection direction) { Dispatch(ZoomAction{ direction, 1, zoom_pane }); },
     };
 
-    switch (ContextMenu::Show(hwnd_, params)) {
+    switch (const int cmd = ContextMenu::Show(hwnd_, params); cmd) {
     case IDM_NAV_BACK:
-        Dispatch(NavigateBackAction{});
-        break;
     case IDM_NAV_FORWARD:
-        Dispatch(NavigateForwardAction{});
+        Dispatch(NavigateHistoryAction{ .forward = cmd == IDM_NAV_FORWARD });
         break;
     case IDM_EDIT_FILE: {
         // メニューを開いている間もメッセージは回り、文書が差し替わりうるので確かめ直す。
@@ -1671,10 +1642,8 @@ void App::OnContextMenu(int screen_x, int screen_y)
         break;
     }
     case IDM_COPY:
-        Dispatch(CopyClipboardAction{});
-        break;
     case IDM_COPY_FORMATTED:
-        Dispatch(CopyFormattedClipboardAction{});
+        Dispatch(CopyAction{ .formatted = cmd == IDM_COPY_FORMATTED });
         break;
     case IDM_TOGGLE_DARK_MODE:
         Dispatch(ToggleDarkModeAction{});
@@ -1725,35 +1694,20 @@ void App::ApplyLanguage(const i18n::Strings* chosen)
     Invalidate();
 }
 
-float App::MdMaxScroll()
-{
-    EnsurePaneLayout(state_);
-    return ::MdMaxScroll(state_);
-}
-
 void App::ClampScrollToContent()
 {
-    state_.view.viewport.ClampScroll(MdMaxScroll());
+    state_.view.viewport.ClampScroll(MdMaxScroll(state_));
 }
 
 // Mermaid のキャッシュキーに入るため、全経路でこの値を使う (ずれるとキャッシュを外す)。
 float App::MdContentWidth()
 {
-    return theme_service_.GetTheme().ContentWidth(GetPaneLayout().md_rect.width);
-}
-
-bool App::RequestDeferredLayout()
-{
-    if (!state_.document.layout_cache.HasDirtyNodes()) {
-        return false;
-    }
-    deferred_layout_pending_ = true;
-    return true;
+    return theme_service_.GetTheme().ContentWidth(ComputePaneLayout(state_).md_rect.width);
 }
 
 bool App::HasIdleWork()
 {
-    return deferred_layout_pending_ || state_.search.search_state.IsSearching() || state_.document.layout_cache.HasReleasedLayouts() ||
+    return state_.document.layout_cache.HasDirtyNodes() || state_.search.search_state.IsSearching() || state_.document.layout_cache.HasReleasedLayouts() ||
            image_loader_.HasLeftoverUploads() || mermaid_renderer_.HasLeftoverDiskLoads();
 }
 
@@ -1773,7 +1727,7 @@ void App::RunIdleWork()
         Dispatch(SearchContinueAction{});
         return;
     }
-    if (deferred_layout_pending_) {
+    if (state_.document.layout_cache.HasDirtyNodes()) {
         OnDeferredLayout();
     }
 }
@@ -1783,7 +1737,7 @@ void App::RunIdleWork()
 // 遅延レイアウトが残っていれば、その完了時 (OnDeferredLayout) に出す。
 void App::SettleLayout()
 {
-    if (!RequestDeferredLayout()) {
+    if (!state_.document.layout_cache.HasDirtyNodes()) {
         resource_manager_.ScheduleBitmapManage();
     }
 }
@@ -1791,7 +1745,7 @@ void App::SettleLayout()
 void App::RelayoutViewport(RelayoutResources resources)
 {
     MENDO_PROFILE("RelayoutViewport");
-    const PaneRect md = GetPaneLayout().md_rect;
+    const PaneRect md = ComputePaneLayout(state_).md_rect;
     // 可視範囲を即時計測し、scroll_target があれば scroll_y を再評価する。
     layout_service_.ViewportLayout(state_.document.doc, state_.document.layout_cache, md.width, md.height);
     ClampScrollToContent();
@@ -1815,7 +1769,6 @@ void App::SettleViewport()
 {
     MENDO_PROFILE("SettleViewport");
 
-    deferred_layout_pending_ = false;
     state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
     RelayoutViewport(RelayoutResources::DiagramsBatched);
 }
@@ -1829,7 +1782,7 @@ void App::OnDeferredLayout()
     // (test.md x4 の全計測で、32 件ずつだと一度に測る 165ms が 290ms になった)。
     constexpr auto kDeferredLayoutBudget = std::chrono::milliseconds(4);
 
-    const PaneRect md = GetPaneLayout().md_rect;
+    const PaneRect md = ComputePaneLayout(state_).md_rect;
     const bool more = layout_service_.ProcessDirtyBatch(
         state_.document.doc, state_.document.layout_cache, md.width, std::chrono::steady_clock::now() + kDeferredLayoutBudget,
         md.height, ResourceManager::EVICT_BUFFER_SCREENS);
@@ -1839,7 +1792,6 @@ void App::OnDeferredLayout()
     if (more) {
         return;
     }
-    deferred_layout_pending_ = false;
 
     // 同期ディスク I/O + PNG デコードで UI スレッドを長時間ブロックしないよう、
     // Mermaid ファイルキャッシュの読み込みは時間予算付きバッチに回す。
@@ -1852,7 +1804,7 @@ void App::OnDeferredLayout()
 
 float App::MdPaneHeight()
 {
-    return GetPaneLayout().md_rect.height;
+    return ComputePaneLayout(state_).md_rect.height;
 }
 
 const Theme& App::GetTheme()
@@ -1862,7 +1814,7 @@ const Theme& App::GetTheme()
 
 void App::EnsureNodeLayout(int node_index)
 {
-    layout_service_.EnsureNodeLayout(state_.document.doc, state_.document.layout_cache, GetPaneLayout().md_rect.width, node_index);
+    layout_service_.EnsureNodeLayout(state_.document.doc, state_.document.layout_cache, ComputePaneLayout(state_).md_rect.width, node_index);
 }
 
 void App::RecomputeLayout(layout::HeightChangeRange changed)

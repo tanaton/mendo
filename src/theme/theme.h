@@ -69,6 +69,8 @@ struct Theme {
     {
         return (level == 2) ? h2_underline_thickness : hr_thickness;
     }
+    // 倍率 1 のテーマ (BaseTheme や GetLightTheme の写し) に倍率を掛ける。誤差を溜めないよう、倍率を変えるたびに
+    // ベーステーマから作り直す (ThemeService::ApplyZoom)。
     void ApplyZoom(float new_zoom) noexcept;
 };
 

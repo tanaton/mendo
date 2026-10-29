@@ -3,6 +3,7 @@
 #include "utility.h"
 #include "syntax.h"
 #include "ascii_util.h"
+#include "string_convert.h"
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -13,48 +14,40 @@
 
 using namespace std::literals;
 
-std::wstring mermaid_util::JsEscape(std::wstring_view input)
+std::wstring mermaid_util::PageRenderMessage(PageRequest kind, unsigned id, bool dark, std::string_view code_utf8)
 {
-    std::wstring result;
-    result.reserve(input.size() + input.size() / 4);
-    for (wchar_t c : input) {
-        switch (c) {
-        case L'\\':
-            result += L"\\\\";
-            break;
-        case L'\'':
-            result += L"\\'";
-            break;
-        case L'"':
-            result += L"\\\"";
-            break;
-        case L'\n':
-            result += L"\\n";
-            break;
-        case L'\r':
-            result += L"\\r";
-            break;
-        case L'\t':
-            result += L"\\t";
-            break;
-        case L'`':
-            result += L"\\`";
-            break;
-        case L'$':
-            result += L"\\$";
-            break;
-        default:
-            if (c < 0x20 || c == 0x2028 || c == 0x2029) {
-                // 制御文字およびJS文字列リテラルで特殊なU+2028/U+2029をエスケープ
-                std::format_to(std::back_inserter(result), L"\\u{:04x}", static_cast<unsigned>(c));
-            }
-            else {
-                result += c;
-            }
-            break;
-        }
-    }
-    return result;
+    static constexpr std::wstring_view kKinds[]{ L"mermaid", L"svg", L"tex" };
+    std::wstring msg = std::format(L"{}:{}:{}:", kKinds[std::to_underlying(kind)], id, dark ? 1 : 0);
+    msg += string_convert::Utf8ToWide(code_utf8);
+    return msg;
+}
+
+std::wstring mermaid_util::PageMathBatchMessage(unsigned id, int page_width)
+{
+    return std::format(L"math:{}:{}:", id, page_width);
+}
+
+void mermaid_util::AppendPageMathItem(std::wstring& msg, std::string_view tex_utf8, float font_size)
+{
+    std::format_to(std::back_inserter(msg), L"{:.3f}:", font_size);
+    AppendPageTex(msg, tex_utf8);
+}
+
+std::wstring mermaid_util::PageBlocksMessage(unsigned id, bool dark)
+{
+    return std::format(L"blocks:{}:{}:", id, dark ? 1 : 0);
+}
+
+void mermaid_util::AppendPageTex(std::wstring& msg, std::string_view tex_utf8)
+{
+    const std::wstring tex = string_convert::Utf8ToWide(tex_utf8);
+    std::format_to(std::back_inserter(msg), L"{}:", tex.size());
+    msg += tex;
+}
+
+std::wstring mermaid_util::PageCaptureMessage(unsigned id)
+{
+    return std::format(L"capture:{}:", id);
 }
 
 int mermaid_util::QuantizeWidth(float max_width) noexcept
@@ -143,6 +136,7 @@ mermaid_util::ParsedWebMessage mermaid_util::ParseWebMessage(std::wstring_view m
         { L"svg-result:"sv,    WebMessageKind::SvgResult    },
         { L"render-error:"sv,  WebMessageKind::RenderError  },
         { L"math-result:"sv,   WebMessageKind::MathResult   },
+        { L"blocks-result:"sv, WebMessageKind::BlocksResult },
     };
     for (const auto& e : kEntries) {
         if (msg.starts_with(e.prefix)) {
@@ -155,6 +149,20 @@ mermaid_util::ParsedWebMessage mermaid_util::ParseWebMessage(std::wstring_view m
 }
 
 namespace {
+
+// まとめ描きの payload の "<w>:<h>:<dpr>|" を読み、ページの大きさと残りを返す。大きさが正でなければ nullopt。
+std::optional<std::pair<mermaid_util::RenderSize, std::wstring_view>> SplitPagePayload(std::wstring_view payload) noexcept
+{
+    const auto bar = payload.find(L'|');
+    if (bar == std::wstring_view::npos) {
+        return std::nullopt;
+    }
+    const auto size = mermaid_util::ParseRenderSize(payload.substr(0, bar));
+    if (size.width <= 0.0f || size.height <= 0.0f) {
+        return std::nullopt;
+    }
+    return std::pair{ size, payload.substr(bar + 1) };
+}
 
 // sep で区切った数を先頭から out に読む。足りない分は 0 のまま。
 void ParseFloatList(std::wstring_view s, wchar_t sep, std::span<float> out) noexcept
@@ -175,7 +183,7 @@ mermaid_util::RenderSize mermaid_util::ParseRenderSize(std::wstring_view payload
 {
     float values[3]{};
     ParseFloatList(payload, L':', values);
-    return { values[0], values[1], values[2] };
+    return { values[0], values[1], IsPlausibleDpr(values[2]) ? values[2] : 1.0f };
 }
 
 namespace {
@@ -302,16 +310,13 @@ std::optional<mermaid_util::MathBatchLayout> mermaid_util::ReadMathBoxesChunk(st
 
 std::optional<mermaid_util::MathBatchLayout> mermaid_util::ParseMathBatch(std::wstring_view payload, size_t expected)
 {
-    const auto bar = payload.find(L'|');
-    if (bar == std::wstring_view::npos) {
+    const auto page = SplitPagePayload(payload);
+    if (!page) {
         return std::nullopt;
     }
-    MathBatchLayout out{ .size = ParseRenderSize(payload.substr(0, bar)) };
-    if (out.size.width <= 0.0f || out.size.height <= 0.0f) {
-        return std::nullopt;
-    }
+    MathBatchLayout out{ .size = page->first };
     out.boxes.reserve(expected);
-    std::wstring_view rest = payload.substr(bar + 1);
+    std::wstring_view rest = page->second;
     while (true) {
         // 要求より多い。
         if (out.boxes.size() == expected) {
@@ -335,6 +340,50 @@ std::optional<mermaid_util::MathBatchLayout> mermaid_util::ParseMathBatch(std::w
         rest.remove_prefix(semi + 1);
     }
     if (out.boxes.size() != expected) {
+        return std::nullopt;
+    }
+    return out;
+}
+
+std::optional<mermaid_util::MathBlocksLayout> mermaid_util::ParseMathBlocks(std::wstring_view payload, size_t expected)
+{
+    const auto page = SplitPagePayload(payload);
+    if (!page) {
+        return std::nullopt;
+    }
+    MathBlocksLayout out{ .size = page->first };
+    out.blocks.reserve(expected);
+    std::wstring_view rest = page->second;
+    while (!rest.empty() && out.blocks.size() < expected) {
+        MathBlock block;
+        if (rest[0] == L'b') {
+            const auto semi = rest.find(L';');
+            if (semi == std::wstring_view::npos) {
+                return std::nullopt;
+            }
+            float v[4]{};
+            ParseFloatList(rest.substr(1, semi - 1), L',', v);
+            block = { .x = v[0], .y = v[1], .width = v[2], .height = v[3] };
+            if (block.width <= 0.0f || !IsValidMathBox({ block.x, block.y, block.width, block.height, 0.0f }, out.size)) {
+                return std::nullopt;
+            }
+            rest.remove_prefix(semi + 1);
+        }
+        else if (rest[0] == L'e') {
+            // "<長さ>:<文言>" は要求 ID と同じ "<数>:<続き>" の形。
+            const auto len = ParseRequestPrefix(rest.substr(1));
+            if (!len.has_payload || len.id > len.payload.size()) {
+                return std::nullopt;
+            }
+            block = { .failed = true, .message = std::wstring{ len.payload.substr(0, len.id) } };
+            rest = len.payload.substr(len.id);
+        }
+        else {
+            return std::nullopt;
+        }
+        out.blocks.push_back(std::move(block));
+    }
+    if (!rest.empty() || out.blocks.size() != expected) {
         return std::nullopt;
     }
     return out;
@@ -377,7 +426,7 @@ std::wstring mermaid_util::SanitizeErrorMessage(std::wstring_view msg, size_t ma
 uint64_t mermaid_util::DiagramCodeHash(const Node& node) noexcept
 {
     // LatexMath を Mermaid とキャッシュ衝突させないためのソルト（任意の定数）。
-    // 描き方を変えたら値も変え、ディスクキャッシュに残った古い描き方の PNG を引かせない。
+    // 描き方を変えたときは MermaidFileCache::VERSION を上げ、古い描き方の PNG をフォルダごと捨てる。
     constexpr uint64_t LATEX_MATH_HASH_SALT = 0x5C8E1F3A7B2D9064ULL;
     uint64_t h = Fnv1a64(node.GetText());
     if (node.code_language == SyntaxLanguage::LatexMath) {

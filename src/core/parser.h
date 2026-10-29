@@ -37,7 +37,9 @@ struct NodeIndices {
 // ノードは arena を指すので、nodes だけを取り出すときは arena ごと持ち続けること。
 struct NodeStorage {
     std::vector<Node> nodes;
+    // 原文をそのまま使えないテキストと、runs・リンク URL の置き場所。
     TextArena arena;
+    // Table ノードが指すテーブル本体。
     std::vector<std::unique_ptr<NodeTableData>> tables;
     NodeIndices indices;
 };

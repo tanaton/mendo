@@ -5,7 +5,9 @@
 #include <mutex>
 #include <optional>
 #include <filesystem>
+#include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <windows.h>
 
 class TaskScheduler;
@@ -18,6 +20,13 @@ class TaskScheduler;
 // （StoreAsyncのタスク投入のみスレッドセーフ）。
 class MermaidFileCache {
 public:
+    // index.bin の先頭。
+    static constexpr uint32_t MAGIC = 0x4D454D43u; // "MEMC"
+    // 索引の書式か PNG の描き方を変えたら上げる。違う版のキャッシュはフォルダごと捨てる。
+    // 2: 1 つずつ描いた図と数式も、WebView2 が 1px 広く撮った分を切り落とす。表示の大きさは切り出した画素数から決める。
+    //    ヘッダの読まれない dpr を消す。
+    static constexpr uint32_t VERSION = 2;
+
     MermaidFileCache() = default;
     ~MermaidFileCache();
 
@@ -74,18 +83,7 @@ public:
         return Index().total_size;
     }
 
-#ifdef MENDO_TESTING
-    // テスト用: 外部キーから実ファイル名（PNG）を導く。
-    // 内部で DPR を mix した内部キーを使うため。
-    constexpr uint64_t InternalKeyForTest(uint64_t external_key) const noexcept
-    {
-        return InternalKey(external_key);
-    }
-#endif
-
 private:
-    static constexpr uint32_t MAGIC = 0x4D454D43u; // "MEMC"
-    static constexpr uint32_t VERSION = 1;
     static constexpr size_t DEFAULT_MAX_ENTRIES = 4096;
     static constexpr uint64_t DEFAULT_MAX_TOTAL_SIZE = 1ULL * 1024 * 1024 * 1024; // 1GB
 
@@ -124,11 +122,17 @@ private:
     std::filesystem::path GetIndexPath() const;
     // 初回呼び出しで index.bin を読み込む唯一の入口。
     IndexState& Index();
-    IndexState LoadIndex() const;
+    // 違う版か、ヘッダの壊れた索引なら nullopt。索引が無い・短いときは空の索引 (別のインスタンスが書き込み中でもよい)。
+    std::optional<IndexState> LoadIndex() const;
     void EvictIfNeeded(IndexState& index, uint32_t new_png_size);
     // Clear が別名にして消すフォルダ (<cache_dir_>.deleting-*) を worker ですべて消す。
     // 消している途中で終了したり、中のファイルを開かれていて消し損ねたりしたものも拾う。
     void RemoveDoomedDirsAsync();
+    // path に書く前に呼び、Clear が消すよう控えた同じ名前を控えから外す (書いた後に消されない)。どのスレッドからでも呼べる。
+    void KeepFile(const std::filesystem::path& path);
+    // doomed_files_ を worker で消す。投げられなければその場で消す。
+    void RemoveDoomedFilesAsync();
+    void RemoveDoomedFiles();
 
     // current_dpr_ を mix した内部キーを返す。DPR ごとにエントリを分離して
     // DPI 変更/モニタ切替時の全消去を避ける。
@@ -153,6 +157,10 @@ private:
     mutable std::mutex pending_mutex_;
     // 書き込み中のキー → 書き込み中に追い出されたか (true なら worker が書き込み後に PNG を消す)。
     std::unordered_map<uint64_t, bool> pending_writes_;
+    // Clear が移せなかったフォルダで、worker がまだ消していないファイル名。消す間はロックを持つので、
+    // pending_mutex_ (UI の StoreAsync も取る) とは分ける。
+    std::mutex doomed_mutex_;
+    std::unordered_set<std::wstring> doomed_files_;
 
     // Shutdown / dtor で worker 完了を待つ。scheduler_ 共有 worker から self を参照する race を排除する。
     WorkerLatch latch_;

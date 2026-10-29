@@ -78,7 +78,7 @@ const LineWindow& EnsureLineWindow(const NodeLayoutEntry& entry, YRange view)
 
 std::pair<size_t, size_t> TableLayoutData::VisibleRowRange(float local_top, float local_bottom) const noexcept
 {
-    if (!HasRowGeometry()) {
+    if (!HasGeometry()) {
         return { 0, 0 };
     }
     size_t r_begin = 0;
@@ -137,7 +137,7 @@ void TableLayoutData::RebuildColCumX()
 
 int TableLayoutData::RowIndexAt(float local_y) const noexcept
 {
-    if (!HasRowGeometry()) {
+    if (!HasGeometry()) {
         return -1;
     }
     const auto it = std::ranges::upper_bound(row_cum_y, local_y);
@@ -162,7 +162,7 @@ std::pair<float, float> NodeLayoutEntry::GetMatchYRange(
 
     if (const auto* tl = table_layout(); table_row >= 0 && tl) {
         const auto row = static_cast<size_t>(table_row);
-        if (row < tl->row_count && tl->HasRowGeometry()) {
+        if (row < tl->row_count && tl->HasGeometry()) {
             base_y = entry_text_top + tl->row_cum_y[row];
             fallback_h = tl->row_heights[row];
         }
@@ -191,7 +191,7 @@ std::pair<float, float> NodeLayoutEntry::GetMatchYRange(
 namespace {
 
 // 確保に失敗したらその場で解放する。
-void Bury(LayoutCache::ReleasedLayouts& released, Microsoft::WRL::ComPtr<IDWriteTextLayout>&& layout) noexcept
+void Bury(ReleasedLayouts& released, Microsoft::WRL::ComPtr<IDWriteTextLayout>&& layout) noexcept
 {
     if (!layout) {
         return;
@@ -203,24 +203,10 @@ void Bury(LayoutCache::ReleasedLayouts& released, Microsoft::WRL::ComPtr<IDWrite
     }
 }
 
-void BuryCells(TableLayoutData& tl, LayoutCache::ReleasedLayouts& released) noexcept
+void BuryCells(TableLayoutData& tl, ReleasedLayouts& released) noexcept
 {
     for (auto& cell : tl.cell_layouts) {
         Bury(released, std::move(cell));
-    }
-}
-
-// 1 行分の cell_layouts を捨てる。
-// 行/列の幾何 (row_cum_y, col_cum_x, row_heights, col_widths) は維持する。
-// 行の幾何 (HasRowGeometry) があるテーブルの row_index < 行数 でのみ呼ぶ。
-void EvictTableRow(TableLayoutData& tl, size_t row_index, LayoutCache::ReleasedLayouts& released) noexcept
-{
-    const size_t base = tl.CellIndex(row_index, 0);
-    for (size_t ci = base; ci < base + tl.col_count; ++ci) {
-        if (tl.cell_layouts[ci]) {
-            Bury(released, std::move(tl.cell_layouts[ci]));
-            tl.MarkRowEvicted(row_index);
-        }
     }
 }
 
@@ -236,38 +222,56 @@ void ForEachOutsideKeep(size_t begin, size_t end, size_t keep_begin, size_t keep
     }
 }
 
-// 生存範囲のうち [keep_begin, keep_end) の外の行を evict し、生存範囲を keep との重なりに縮める。
-// evict 済みの行はなめ直さない。行の幾何 (HasRowGeometry) があるテーブルでのみ呼ぶ。
-void EvictTableRowsOutside(TableLayoutData& tl, size_t keep_begin, size_t keep_end, LayoutCache::ReleasedLayouts& released) noexcept
+} // namespace
+
+void TableLayoutData::EvictRow(size_t r, ReleasedLayouts& released) noexcept
 {
-    const size_t live_begin = tl.live_row_begin;
-    const size_t live_end = tl.live_row_end;
-    ForEachOutsideKeep(live_begin, live_end, keep_begin, keep_end, [&](size_t r) noexcept { EvictTableRow(tl, r, released); });
-    tl.live_row_begin = std::max(live_begin, keep_begin);
-    tl.live_row_end = std::min(live_end, keep_end);
-    if (tl.live_row_begin >= tl.live_row_end) {
-        tl.live_row_begin = 0;
-        tl.live_row_end = 0;
+    const size_t base = CellIndex(r, 0);
+    for (size_t ci = base; ci < base + col_count; ++ci) {
+        if (cell_layouts[ci]) {
+            Bury(released, std::move(cell_layouts[ci]));
+            if (!row_evicted_[r]) {
+                row_evicted_[r] = 1;
+                ++evicted_row_count_;
+            }
+        }
     }
 }
 
+void TableLayoutData::EvictRowsOutside(size_t keep_begin, size_t keep_end, ReleasedLayouts& released) noexcept
+{
+    const size_t live_begin = live_row_begin_;
+    const size_t live_end = live_row_end_;
+    ForEachOutsideKeep(live_begin, live_end, keep_begin, keep_end, [&](size_t r) noexcept { EvictRow(r, released); });
+    live_row_begin_ = std::max(live_begin, keep_begin);
+    live_row_end_ = std::min(live_end, keep_end);
+    if (!HasLiveRows()) {
+        live_row_begin_ = 0;
+        live_row_end_ = 0;
+    }
+}
+
+namespace {
+
 // テキストとセルのレイアウトを released へ移し、計測・描画で作った状態をテーブル幾何も含めて捨てる。
-void ReleaseEntryLayouts(NodeLayoutEntry& e, LayoutCache::ReleasedLayouts& released) noexcept
+void ReleaseEntryLayouts(NodeLayoutEntry& e, ReleasedLayouts& released) noexcept
 {
     if (auto* tl = e.table_layout()) {
         BuryCells(*tl, released);
     }
     Bury(released, e.take_text_layout());
     e.release_layout_state();
+    // 原文のまま組んだのは捨てた layout なので、組み直しを待つ印も下ろす (残すと数式が届くたびに再レイアウトが空振りする)。
+    e.pending_math = false;
 }
 
-void EvictEntryLayout(NodeLayoutEntry& e, LayoutCache::ReleasedLayouts& released) noexcept
+void EvictEntryLayout(NodeLayoutEntry& e, ReleasedLayouts& released) noexcept
 {
     // テーブルは列幅・行高さを残してセル layout だけ捨てる。幾何ごと捨てると再表示時に
     // 全セルの CreateTextLayout (巨大テーブルで秒単位) をやり直すことになる。
-    if (auto* tl = e.table_layout(); tl && tl->HasRowGeometry()) {
+    if (auto* tl = e.table_layout(); tl && tl->HasGeometry()) {
         e.invalidate_per_frame_hl_caches();
-        EvictTableRowsOutside(*tl, 0, 0, released);
+        tl->EvictRowsOutside(0, 0, released);
         return;
     }
     // レイアウトを持たないノード (HR / 画像 / 空テキスト) は計測済みのまま残す。
@@ -315,7 +319,6 @@ bool LayoutCache::InvalidatePendingMathLayouts(bool tables) noexcept
         }
         // 数式の寸法で折り返しと行の高さが変わるので、表なら列幅と行の高さも含めて組み直す。
         ReleaseEntryLayouts(e, released_layouts_);
-        e.pending_math = false;
         e.layout_dirty = true;
         any = true;
     }
@@ -384,13 +387,13 @@ void LayoutCache::EvictInvisibleTableRows(std::span<const size_t> table_indices,
             continue;
         }
         auto* tl = entries_[idx].table_layout();
-        if (!tl || !tl->HasRowGeometry()) {
+        if (!tl || !tl->HasGeometry()) {
             continue;
         }
         // 再可視化は dirty を経由せず LayoutEngine::MeasurePass の行復元で行う。
         const auto local = keep.ToLocal(Top(idx));
         const auto [keep_begin, keep_end] = tl->VisibleRowRange(local.top, local.bottom);
-        EvictTableRowsOutside(*tl, keep_begin, keep_end, released_layouts_);
+        tl->EvictRowsOutside(keep_begin, keep_end, released_layouts_);
     }
 }
 
@@ -408,8 +411,16 @@ void LayoutCache::TakeEntries(LayoutCache& src, size_t from, size_t to, size_t c
             diagrams_.insert_or_assign(index - from + to, std::move(diagram));
         }
     }
-    // 次の evict で keep 範囲外に移った分も拾わせる。
-    NoteMaterialized(to, to + count - 1);
+    // 次の evict で keep 範囲外に移った分も拾わせる。src で layout を持ちうるのは前回の keep の範囲と
+    // その後に計測した範囲だけなので、移した範囲と重なる分だけ記録する。丸ごと記録すると保存のたびに次の evict が
+    // 全エントリをなめる (30 万ノードの文書で 1.2ms、BM Reload/FirstEvictAfterCarryOver)。
+    for (const auto [begin, end] : { std::pair{ src.last_evict_fk_, src.last_evict_lk_ }, std::pair{ src.materialized_begin_, src.materialized_end_ } }) {
+        const size_t lo = std::max(begin, from);
+        const size_t hi = std::min(end, from + count);
+        if (lo < hi) {
+            NoteMaterialized(lo - from + to, hi - 1 - from + to);
+        }
+    }
 }
 
 bool LayoutCache::TakeDiagramAsStale(LayoutCache& src, size_t from, size_t to)

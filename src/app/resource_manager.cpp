@@ -221,12 +221,12 @@ void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t
 
     for (const size_t i : slices | std::views::join) {
         const auto& node = nodes[i];
-        const auto* const img = node.image_data();
-        if (!img) {
+        const std::string_view src = node.image_src();
+        if (src.empty()) {
             continue;
         }
 
-        const std::wstring* abs_path = ResolveImagePath(img->src, doc_dir);
+        const std::wstring* abs_path = ResolveImagePath(src, doc_dir);
         if (!abs_path) {
             continue;
         }
@@ -293,17 +293,14 @@ void ResourceManager::RequestDiagramRender(size_t i, float content_width, bool d
     if (!deps_.mermaid->RequestRender(node, diagram, content_width, dark_mode)) {
         return;
     }
-    // 失敗 (エラー確定) でもプレースホルダーの文言が変わるので描き直す。
-    if (!diagram.bitmap) {
-        height_changed_.Add(i);
-        return;
-    }
+    // 失敗 (エラー確定) でも、プレースホルダーの文言と、文言を見せる高さが変わる。
     ApplyBitmapHeight(i, diagram, layout::NodeContentWidth(node, host_->GetTheme(), content_width), height_changed_);
 }
 
 void ResourceManager::ApplyBitmapHeight(size_t i, const DiagramEntry& bitmap, float node_width, layout::HeightChangeRange& changed)
 {
-    (*deps_.cache)[i].CommitMeasured(node_width, layout::BitmapDisplayHeight(bitmap.width, bitmap.height, node_width));
+    auto& entry = (*deps_.cache)[i];
+    entry.CommitMeasured(node_width, layout::BitmapNodeHeight(&bitmap, node_width, entry.height, host_->GetTheme()));
     changed.Add(i);
 }
 

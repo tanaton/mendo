@@ -37,6 +37,8 @@ protected:
     {
         Parse(md);
         const PaneRect md_pane{ 0, 0, kViewportW, 2000.0f };
-        return gen_.GenerateMdPane({ .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
+        DrawCommandList cmds;
+        gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
+        return cmds;
     }
 };

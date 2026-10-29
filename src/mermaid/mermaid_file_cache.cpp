@@ -19,7 +19,6 @@ namespace {
 struct IndexHeader {
     uint32_t magic;
     uint32_t version;
-    float dpr;
     uint32_t count;
 };
 
@@ -32,34 +31,33 @@ struct IndexRecord {
 };
 #pragma pack(pop)
 
-static_assert(sizeof(IndexHeader) == 16);
+static_assert(sizeof(IndexHeader) == 12);
 static_assert(sizeof(IndexRecord) == 28);
 
 constexpr std::wstring_view kDoomedSuffix = L".deleting-";
+constexpr std::wstring_view kIndexFileName = L"index.bin";
 
-// dir の直下で pred に合うものを消す (フォルダは中身ごと)。消せないものは残す。
-template <class Pred>
-void RemoveEntriesIf(const std::filesystem::path& dir, Pred pred)
+std::vector<std::filesystem::path> ListEntries(const std::filesystem::path& dir)
 {
-    // 走査中に消すと列挙が飛ぶことがあるので、集めてから消す。
-    std::vector<std::filesystem::path> targets;
+    std::vector<std::filesystem::path> entries;
     std::error_code ec;
     for (auto it = std::filesystem::directory_iterator(dir, ec); !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
-        if (pred(it->path())) {
-            targets.push_back(it->path());
-        }
+        entries.push_back(it->path());
     }
-    for (const auto& path : targets) {
-        std::error_code remove_ec;
-        std::filesystem::remove_all(path, remove_ec);
-    }
+    return entries;
 }
 
+// 走査中に消すと列挙が飛ぶことがあるので、集めてから消す。消せないものは残す。
 void RemoveDoomedDirs(const std::filesystem::path& cache_dir)
 {
     std::wstring prefix = cache_dir.filename().native();
     prefix += kDoomedSuffix;
-    RemoveEntriesIf(cache_dir.parent_path(), [&prefix](const std::filesystem::path& path) { return path.filename().native().starts_with(prefix); });
+    for (const auto& path : ListEntries(cache_dir.parent_path())) {
+        if (path.filename().native().starts_with(prefix)) {
+            std::error_code ec;
+            std::filesystem::remove_all(path, ec);
+        }
+    }
 }
 
 } // namespace
@@ -95,7 +93,7 @@ std::filesystem::path MermaidFileCache::GetIndexPath() const
     if (cache_dir_.empty()) {
         return {};
     }
-    return cache_dir_ / L"index.bin";
+    return cache_dir_ / kIndexFileName;
 }
 
 void MermaidFileCache::Init(float current_dpr, TaskScheduler& scheduler)
@@ -110,16 +108,22 @@ void MermaidFileCache::Init(float current_dpr, TaskScheduler& scheduler)
 MermaidFileCache::IndexState& MermaidFileCache::Index()
 {
     if (!index_) {
-        index_ = LoadIndex();
-        // 消し損ねたフォルダは図のキャッシュを初めて使うときに掃除する。起動を塞がないよう worker があるときだけ。
-        if (scheduler_) {
-            RemoveDoomedDirsAsync();
+        if (auto loaded = LoadIndex()) {
+            index_ = std::move(*loaded);
+            // 消し損ねたフォルダは図のキャッシュを初めて使うときに掃除する。起動を塞がないよう worker があるときだけ。
+            if (scheduler_) {
+                RemoveDoomedDirsAsync();
+            }
+        }
+        else {
+            // 違う版 (古い描き方) や壊れた索引の PNG は引けないので、索引に載らないまま残さない。
+            Clear();
         }
     }
     return *index_;
 }
 
-MermaidFileCache::IndexState MermaidFileCache::LoadIndex() const
+std::optional<MermaidFileCache::IndexState> MermaidFileCache::LoadIndex() const
 {
     IndexState index;
     const auto path = GetIndexPath();
@@ -138,11 +142,8 @@ MermaidFileCache::IndexState MermaidFileCache::LoadIndex() const
     std::memcpy(&header, p, sizeof(header));
     p += sizeof(header);
 
-    if (header.magic != MAGIC || header.version != VERSION) {
-        return index;
-    }
-    if (header.count > DEFAULT_MAX_ENTRIES * 2) {
-        return index;
+    if (header.magic != MAGIC || header.version != VERSION || header.count > DEFAULT_MAX_ENTRIES * 2) {
+        return std::nullopt;
     }
 
     index.entries.reserve(header.count);
@@ -193,6 +194,7 @@ void MermaidFileCache::SaveIndex()
 
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
+    KeepFile(path);
 
     const uint32_t count = static_cast<uint32_t>(index_->entries.size());
 
@@ -200,7 +202,7 @@ void MermaidFileCache::SaveIndex()
     auto buf = std::make_unique_for_overwrite<uint8_t[]>(buf_size);
     uint8_t* p = buf.get();
 
-    IndexHeader header{ MAGIC, VERSION, current_dpr_, count };
+    IndexHeader header{ MAGIC, VERSION, count };
     std::memcpy(p, &header, sizeof(header));
     p += sizeof(header);
 
@@ -315,6 +317,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
 
         std::error_code ec;
         std::filesystem::create_directories(path.parent_path(), ec);
+        KeepFile(path);
 
         // 書き込み失敗時はキャッシュ未保存のままになるが、再生成可能なので致命的ではない
         (void)WriteAllBytes(path, data->data(), data->size());
@@ -372,13 +375,49 @@ void MermaidFileCache::Clear()
     std::error_code ec;
     std::filesystem::rename(cache_dir_, doomed, ec);
     if (ec) {
-        // 中のファイルを誰かが開いていると移せない。消せるものだけその場で消す。
-        RemoveEntriesIf(cache_dir_, [index_path = GetIndexPath()](const std::filesystem::path& path) {
-            return path.extension() == L".png" || path == index_path;
-        });
+        // 中のファイル (書き込み中の PNG など) を開かれていると移せない。消せるものだけ、移せたときと同じく worker で消す。
+        std::unordered_set<std::wstring> names;
+        for (const auto& path : ListEntries(cache_dir_)) {
+            auto name = path.filename().native();
+            if (name.ends_with(L".png") || name == kIndexFileName) {
+                names.insert(std::move(name));
+            }
+        }
+        {
+            const std::lock_guard lock(doomed_mutex_);
+            doomed_files_.merge(names);
+        }
+        RemoveDoomedFilesAsync();
         return;
     }
     RemoveDoomedDirsAsync();
+}
+
+void MermaidFileCache::KeepFile(const std::filesystem::path& path)
+{
+    const std::lock_guard lock(doomed_mutex_);
+    doomed_files_.erase(path.filename().native());
+}
+
+void MermaidFileCache::RemoveDoomedFilesAsync()
+{
+    if (!scheduler_ || !scheduler_->Post([this, guard = latch_.Acquire()] { RemoveDoomedFiles(); })) {
+        RemoveDoomedFiles();
+    }
+}
+
+void MermaidFileCache::RemoveDoomedFiles()
+{
+    while (true) {
+        // 消し終えるまでロックを持ち、KeepFile で外してから書く PNG と入れ違わない。
+        const std::lock_guard lock(doomed_mutex_);
+        if (doomed_files_.empty()) {
+            return;
+        }
+        const auto name = doomed_files_.extract(doomed_files_.begin());
+        std::error_code ec;
+        std::filesystem::remove(cache_dir_ / name.value(), ec);
+    }
 }
 
 void MermaidFileCache::RemoveDoomedDirsAsync()

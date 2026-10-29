@@ -10,36 +10,58 @@
 using namespace std::literals;
 
 // ============================================================
-// JsEscape テスト
+// ページへの要求
 // ============================================================
 
-TEST(JsEscape, EscapesJsStringLiteralSpecials)
+// 図のコードはエスケープせずに末尾へ置く。区切りの ':' や引用符・改行を含んでもそのまま届く。
+TEST(PageMessage, RenderMessagePutsRawCodeLast)
 {
-    struct Case {
-        std::wstring_view input;
-        std::wstring_view expected;
-    };
-    constexpr Case kCases[] = {
-        { L""sv, L""sv },
-        { L"hello world"sv, L"hello world"sv },
-        { L"a\\b"sv, L"a\\\\b"sv },
-        { L"it's"sv, L"it\\'s"sv },
-        { L"a\"b"sv, L"a\\\"b"sv },
-        { L"a\nb"sv, L"a\\nb"sv },
-        { L"a\rb"sv, L"a\\rb"sv },
-        { L"a\tb"sv, L"a\\tb"sv },
-        { L"a`b"sv, L"a\\`b"sv },
-        { L"a$b"sv, L"a\\$b"sv },
-        { L"\\\'\"\n\r\t`$"sv, L"\\\\\\'\\\"\\n\\r\\t\\`\\$"sv },
-        { L"\x07"sv, L"\\u0007"sv },
-        { L"\x2028"sv, L"\\u2028"sv },
-        { L"\x2029"sv, L"\\u2029"sv },
-        { L"graph TD;\n  A-->B;\n  B-->C;"sv, L"graph TD;\\n  A-->B;\\n  B-->C;"sv },
-    };
-    for (const auto& c : kCases) {
-        SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.input }));
-        EXPECT_EQ(mermaid_util::JsEscape(c.input), c.expected);
-    }
+    EXPECT_EQ(mermaid_util::PageRenderMessage(mermaid_util::PageRequest::Mermaid, 7, false, "graph TD;\n  A[\"a:b\"]-->B;"),
+              L"mermaid:7:0:graph TD;\n  A[\"a:b\"]-->B;");
+    EXPECT_EQ(mermaid_util::PageRenderMessage(mermaid_util::PageRequest::Svg, 8, true, "x"), L"svg:8:1:x");
+    EXPECT_EQ(mermaid_util::PageRenderMessage(mermaid_util::PageRequest::Tex, 9, false, "\\frac{a}{b}"), L"tex:9:0:\\frac{a}{b}");
+}
+
+// まとめ描きの数式は UTF-16 の長さで区切るので、TeX に ':' や BMP 外の文字 (サロゲートペア) があっても切り出せる。
+TEST(PageMessage, MathBatchPrefixesUtf16Length)
+{
+    auto msg = mermaid_util::PageMathBatchMessage(3, 1024);
+    mermaid_util::AppendPageMathItem(msg, "a:b", 16.0f);
+    mermaid_util::AppendPageMathItem(msg, "\xF0\x9D\x91\xA5", 13.5f); // U+1D465 (UTF-16 で 2)
+    EXPECT_EQ(msg, L"math:3:1024:16.000:3:a:b13.500:2:\U0001D465");
+}
+
+TEST(PageMessage, BlocksPrefixesUtf16Length)
+{
+    auto msg = mermaid_util::PageBlocksMessage(4, true);
+    mermaid_util::AppendPageTex(msg, "x:y");
+    mermaid_util::AppendPageTex(msg, "\\frac{1}{2}");
+    EXPECT_EQ(msg, L"blocks:4:1:3:x:y11:\\frac{1}{2}");
+}
+
+// ブロック数式のまとめ描きの結果。描けなかった数式の文言は長さで区切るので、'|' ';' ':' を含んでもよい。
+TEST(ParseMathBlocks, ParsesBoxesAndErrorMessages)
+{
+    const auto layout = mermaid_util::ParseMathBlocks(L"300:120:1.5|b0,0,120.5,40;e9:a|b;c:d eb0,42,200,60;", 3);
+    ASSERT_TRUE(layout.has_value());
+    EXPECT_FLOAT_EQ(layout->size.dpr, 1.5f);
+    ASSERT_EQ(layout->blocks.size(), 3u);
+    EXPECT_FALSE(layout->blocks[0].failed);
+    EXPECT_FLOAT_EQ(layout->blocks[0].width, 120.5f);
+    EXPECT_TRUE(layout->blocks[1].failed);
+    EXPECT_EQ(layout->blocks[1].message, L"a|b;c:d e");
+    EXPECT_FLOAT_EQ(layout->blocks[2].y, 42.0f);
+    EXPECT_FLOAT_EQ(layout->blocks[2].height, 60.0f);
+}
+
+TEST(ParseMathBlocks, RejectsMismatchedCountAndBrokenItems)
+{
+    EXPECT_FALSE(mermaid_util::ParseMathBlocks(L"300:120:1|b0,0,10,10;", 2).has_value()) << "足りない";
+    EXPECT_FALSE(mermaid_util::ParseMathBlocks(L"300:120:1|b0,0,10,10;b0,0,10,10;", 1).has_value()) << "多い";
+    EXPECT_FALSE(mermaid_util::ParseMathBlocks(L"300:120:1|b0,0,400,10;", 1).has_value()) << "ページの外";
+    EXPECT_FALSE(mermaid_util::ParseMathBlocks(L"300:120:1|e99:short", 1).has_value()) << "文言の長さが足りない";
+    EXPECT_FALSE(mermaid_util::ParseMathBlocks(L"300:120:1|x", 1).has_value());
+    EXPECT_FALSE(mermaid_util::ParseMathBlocks(L"0:0:1|b0,0,10,10;", 1).has_value());
 }
 
 // ═══════════════════════════════════════════════
@@ -184,17 +206,18 @@ TEST(ParseRenderSize, ParsesWidthHeightAndDpr)
     };
     constexpr Case kCases[] = {
         { L"400:300:1.5"sv, 400.0f, 300.0f, 1.5f },
-        { L"120:80:2"sv, 120.0f, 80.0f, 2.0f },
-        // 欠けた値は 0 (寸法は <= 0 判定で弾かれ、DPR は既定に倒れる)
-        { L""sv, 0.0f, 0.0f, 0.0f },
-        { L"400"sv, 400.0f, 0.0f, 0.0f },
-        { L"400:300"sv, 400.0f, 300.0f, 0.0f },
-        { L"400::1"sv, 400.0f, 0.0f, 1.0f },
+        { L"120:80:2"sv,    120.0f, 80.0f,  2.0f },
+        // 欠けた寸法は 0 (<= 0 判定で弾かれる)。DPR は欠けてもありえない値でも 1
+        { L""sv,            0.0f,   0.0f,   1.0f },
+        { L"400"sv,         400.0f, 0.0f,   1.0f },
+        { L"400:300"sv,     400.0f, 300.0f, 1.0f },
+        { L"400::1"sv,      400.0f, 0.0f,   1.0f },
+        { L"400:300:100"sv, 400.0f, 300.0f, 1.0f },
         // ページが偽った有限でない値は 0
-        { L"nan:300:1"sv, 0.0f, 300.0f, 1.0f },
-        { L"inf:1e39:1"sv, 0.0f, 0.0f, 1.0f },
+        { L"nan:300:1"sv,   0.0f,   300.0f, 1.0f },
+        { L"inf:1e39:1"sv,  0.0f,   0.0f,   1.0f },
         // 4 つ目以降は読まない
-        { L"1:2:3:4"sv, 1.0f, 2.0f, 3.0f },
+        { L"1:2:3:4"sv,     1.0f,   2.0f,   3.0f },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(std::wstring{ c.payload }));

@@ -13,14 +13,6 @@ namespace app_controller {
 
 namespace {
 
-AppAction SearchStep(bool shift) noexcept
-{
-    if (shift) {
-        return SearchPrevAction{};
-    }
-    return SearchNextAction{};
-}
-
 // 入力欄が編集に使うキー: キャレット移動・削除と、Ctrl を付けたコピー・貼り付け・切り取り・元に戻す。
 // 単行 EDIT の ↑↓ は ←→ と同じ動きしかしないので、本体のスクロールに回す。
 constexpr bool IsSearchEditOwnKey(const KeyDownEvent& event) noexcept
@@ -49,30 +41,27 @@ constexpr bool IsSearchEditOwnKey(const KeyDownEvent& event) noexcept
 
 } // namespace
 
-AppAction HandleKeyDown(const KeyDownEvent& event)
+std::optional<AppAction> HandleKeyDown(const KeyDownEvent& event)
 {
     // AltGr は Ctrl+Alt として届く。ドイツ語配列の AltGr+0 (}) などを検索欄で打つとズームが動くので、
     // Ctrl+Alt にはショートカットを割り当てない。
     if (event.ctrl && event.alt) {
-        return NoOpAction{};
+        return std::nullopt;
     }
     if (event.alt) {
         switch (event.key) {
         case VK_LEFT:
-            return NavigateBackAction{};
+            return NavigateHistoryAction{ .forward = false };
         case VK_RIGHT:
-            return NavigateForwardAction{};
+            return NavigateHistoryAction{ .forward = true };
         }
-        return NoOpAction{};
+        return std::nullopt;
     }
 
     if (event.ctrl) {
         switch (event.key) {
         case 'C':
-            if (event.shift) {
-                return CopyFormattedClipboardAction{};
-            }
-            return CopyClipboardAction{};
+            return CopyAction{ .formatted = event.shift };
         case 'A':
             return SelectAllAction{};
         case 'O':
@@ -80,7 +69,7 @@ AppAction HandleKeyDown(const KeyDownEvent& event)
         case 'F':
             return OpenSearchBarAction{};
         case 'G':
-            return SearchStep(event.shift);
+            return SearchStepAction{ .forward = !event.shift };
         case '1':
             return TogglePaneAction{ PaneTarget::File };
         case '2':
@@ -95,7 +84,7 @@ AppAction HandleKeyDown(const KeyDownEvent& event)
         case VK_NUMPAD0:
             return ZoomAction{ ZoomDirection::Reset };
         }
-        return NoOpAction{};
+        return std::nullopt;
     }
 
     switch (event.key) {
@@ -114,26 +103,26 @@ AppAction HandleKeyDown(const KeyDownEvent& event)
     case VK_F1:
         return ShowHelpAction{};
     case VK_F3:
-        return SearchStep(event.shift);
+        return SearchStepAction{ .forward = !event.shift };
     case VK_F5:
         return ReloadFileAction{};
     case VK_ESCAPE:
         return ClearSelectionAction{};
     }
 
-    return NoOpAction{};
+    return std::nullopt;
 }
 
-AppAction HandleSearchEditKeyDown(const KeyDownEvent& event)
+std::optional<AppAction> HandleSearchEditKeyDown(const KeyDownEvent& event)
 {
     if (!event.ctrl && !event.alt && event.key == VK_RETURN) {
-        return SearchStep(event.shift);
+        return SearchStepAction{ .forward = !event.shift };
     }
     if (event.ctrl && !event.alt && event.key == 'A') {
         return SearchSelectAllAction{};
     }
     if (IsSearchEditOwnKey(event)) {
-        return NoOpAction{};
+        return std::nullopt;
     }
     // Esc と Ctrl+F は、本体の割り当てでも検索欄が開いていれば閉じる。
     return HandleKeyDown(event);
@@ -289,8 +278,8 @@ TooltipHover BuildMdContentTooltip(const AppState& state, int hit_node, std::opt
             string_convert::Utf8ToWide(link->url, text);
         });
     }
-    auto* const img = node.image_data();
-    if (!img || node.type != NodeType::Image) {
+    const std::string_view src = node.image_src();
+    if (src.empty()) {
         return {};
     }
     const std::string_view alt = node.GetText();
@@ -300,7 +289,7 @@ TooltipHover BuildMdContentTooltip(const AppState& state, int hit_node, std::opt
             text += L"\n";
         }
         std::wstring src_wide;
-        string_convert::Utf8ToWide(img->src, src_wide);
+        string_convert::Utf8ToWide(src, src_wide);
         text += src_wide;
     });
 }
@@ -378,7 +367,7 @@ void HoverMdPane(const AppState& state, const PaneLayout& layout, float dip_x, f
         hover.diagram = node_index;
     }
     // 横スクロールできるブロック (Table / CodeBlock) だけバーを出す。
-    if (state.view.HDragNode() < 0 && ResolveBlockHScrollGeometry(state, node_index).can_scroll()) {
+    if (state.view.HDragNode() < 0 && ResolveBlockHScrollGeometry(state, node_index, layout.md_rect.width).can_scroll()) {
         hover.h_block = node_index;
     }
 
@@ -440,7 +429,7 @@ MdPaneHit ResolveMdPaneHit(const AppState& state, const MdPaneHitContext& hit_ct
 {
     using Kind = MdPaneHit::Kind;
     if (state.search.search_state.IsVisible()) {
-        if (const auto sbl = SearchBarLayoutFor(state, layout.md_rect); dip_y >= sbl.bar_top) {
+        if (const auto sbl = SearchBarLayoutFor(state, layout.md_rect); dip_y >= sbl.bar_rect.top) {
             return { .kind = Kind::SearchBar, .search_bar = HitTestSearchBar(sbl, dip_x, dip_y) };
         }
     }

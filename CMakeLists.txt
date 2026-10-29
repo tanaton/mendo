@@ -37,9 +37,6 @@ endif()
 option(MENDO_USE_TRACY "Build with Tracy profiler client" OFF)
 
 include(FetchContent)
-# URL 取得の展開ファイルを展開時刻にする。アーカイブの時刻のままだと
-# 版更新時に既存のオブジェクトが再ビルドされず新旧が混在する。
-cmake_policy(SET CMP0135 NEW)
 if(MENDO_USE_TRACY)
     # Tracy v0.14.1 のソース取得（add_subdirectory 相当）。
     # TRACY_ENABLE はクライアント側計装の有効化スイッチで、Tracy の CMakeLists
@@ -140,7 +137,6 @@ add_library(mendo_core STATIC
     # input - 入力処理
     src/input/hit_test_service.cpp
     # io - ファイルI/O・永続化
-    src/io/file_dialog_service.cpp
     src/io/file_explorer.cpp
     src/io/async_load_coordinator.cpp
     src/io/config_service.cpp
@@ -174,9 +170,8 @@ target_link_libraries(mendo_core PUBLIC
     md4c d2d1 dwrite windowscodecs dwmapi uxtheme ole32 shell32 comdlg32
 )
 if(MENDO_USE_TRACY)
-    # MENDO_USE_TRACY: profiler.h のマクロを Tracy 呼び出しに展開するスイッチ。
-    # TRACY_ENABLE   : Tracy ヘッダ側の計測コード生成を有効化（Tracy 自体の規約）。
-    target_compile_definitions(mendo_core PUBLIC MENDO_USE_TRACY TRACY_ENABLE)
+    # profiler.h のマクロを Tracy 呼び出しに展開するスイッチ。TRACY_ENABLE は TracyClient から伝わる。
+    target_compile_definitions(mendo_core PUBLIC MENDO_USE_TRACY)
     target_link_libraries(mendo_core PUBLIC Tracy::TracyClient)
 endif()
 if(MSVC)
@@ -228,7 +223,6 @@ add_executable(mendo WIN32
     src/window/window.cpp
     src/app/app.cpp
     src/render/renderer.cpp
-    src/render/renderer_resources.cpp
     src/render/renderer_device.cpp
     src/mermaid/mermaid.cpp
     res/mendo.rc
@@ -273,8 +267,7 @@ if(MENDO_BUILD_TESTS)
         googletest
         URL https://github.com/google/googletest/archive/refs/tags/v1.18.0.zip
     )
-    # GoogleTestがCRT設定を上書きするのを防止
-    set(gtest_force_shared_crt OFF CACHE BOOL "" FORCE)
+    # CRT は CMAKE_MSVC_RUNTIME_LIBRARY を定義してあるので、gtest も静的リンク (/MT) で組まれる。
     FetchContent_MakeAvailable(googletest)
 
     enable_testing()

@@ -78,6 +78,33 @@ TEST_F(DWriteMeasurerTest, FittingLeftAlignedCellKeepsNaturalWidthLayout)
     EXPECT_FLOAT_EQ(height(left), wide_height);
 }
 
+// リロードで引き継いだ layout は、旧キャッシュで持ちうる範囲 (前回の keep・その後の計測) だけを新しいキャッシュに記録する。
+// 記録した範囲は新しいキャッシュの最初の evict で keep の外なら捨て、記録しなかった範囲はなめない。
+TEST_F(DWriteMeasurerTest, CarriedLayoutsAreEvictedOnFirstEvict)
+{
+    std::string md;
+    for (int i = 0; i < 10; ++i) {
+        md += std::format("para {}\n\n", i);
+    }
+    auto [old_nodes, old_cache] = ParseAndLayout(md);
+    ASSERT_EQ(old_nodes.size(), 10u);
+    // 旧キャッシュは [6, 10) を keep にして evict 済み。layout は 6〜9 だけに残る。
+    old_cache.EvictTextLayouts(6, 10);
+    ASSERT_EQ(old_cache[5].text_layout(), nullptr);
+    ASSERT_NE(old_cache[6].text_layout(), nullptr);
+
+    auto [new_nodes, new_cache] = ParseAndLayout(md, 800.0f, 0.0f, 0.0f);
+    new_cache = layout::MakeEstimatedLayoutCache(new_nodes, theme_, 800.0f);
+    layout::CarryOverUnchanged(old_nodes, old_cache, new_nodes, new_cache, FindUnchangedEnds(old_nodes, new_nodes));
+    ASSERT_NE(new_cache[6].text_layout(), nullptr);
+
+    new_cache.EvictTextLayouts(8, 10);
+    EXPECT_EQ(new_cache[6].text_layout(), nullptr);
+    EXPECT_EQ(new_cache[7].text_layout(), nullptr);
+    EXPECT_NE(new_cache[8].text_layout(), nullptr);
+    EXPECT_NE(new_cache[9].text_layout(), nullptr);
+}
+
 class DWriteInlineMathTest : public DWriteMeasurerTest {
 protected:
     void SetUp() override
@@ -125,6 +152,18 @@ TEST_F(DWriteInlineMathTest, WaitsForMetricsThenReplacesRangeWithObject)
     EXPECT_FALSE(cache[0].pending_math);
     EXPECT_TRUE(table_.TakeRequests().empty());
     EXPECT_FLOAT_EQ(RangeWidth(cache[0].text_layout(), 2, 5), 123.0f);
+}
+
+// 画面外の evict で layout を捨てたら、組み直しを待つ印も外す。寸法が届いても組み直す相手が無い。
+TEST_F(DWriteInlineMathTest, EvictingLayoutClearsPendingMath)
+{
+    auto [nodes, cache] = ParseAndLayout("a $x^2$ b");
+    ASSERT_TRUE(cache[0].pending_math);
+    cache.NoteMaterialized(0, 0);
+    cache.EvictTextLayouts(1, 1);
+    EXPECT_EQ(cache[0].text_layout(), nullptr);
+    EXPECT_FALSE(cache[0].pending_math);
+    EXPECT_FALSE(cache.InvalidatePendingMathLayouts(true));
 }
 
 // 数式の途中や頭だけを指す範囲 (数式の中の検索ヒット) も、数式全体を含む範囲に広げてから箱を引く。

@@ -2,7 +2,9 @@
 #include "win_handle.h"
 #include "string_convert.h"
 #include <windows.h>
-#include <cstdio>
+#include <algorithm>
+#include <cassert>
+#include <format>
 #include <limits>
 #include <string>
 #include <string_view>
@@ -88,20 +90,11 @@ inline UniqueGlobalMem BuildGlobalWideFromUtf8(std::string_view utf8) noexcept
 // ヘッダ内の各オフセットは UTF-8 バイト位置で 10 桁ゼロ埋め。
 namespace cf_html_detail {
 
-inline constexpr std::string_view kBeforeStartHtml = "Version:0.9\r\nStartHTML:";
-inline constexpr std::string_view kBeforeEndHtml = "\r\nEndHTML:";
-inline constexpr std::string_view kBeforeStartFragment = "\r\nStartFragment:";
-inline constexpr std::string_view kBeforeEndFragment = "\r\nEndFragment:";
-inline constexpr std::string_view kHeaderSuffix = "\r\n";
-inline constexpr std::string_view kDigitPlaceholder = "0000000000";
+inline constexpr std::string_view kHeaderFormat = "Version:0.9\r\nStartHTML:{:010}\r\nEndHTML:{:010}\r\nStartFragment:{:010}\r\nEndFragment:{:010}\r\n";
+// 4 つの {:010} はどれも 10 桁になるので、ヘッダの長さは値によらず一定。
+inline constexpr size_t kHeaderSize = kHeaderFormat.size() + 4 * (10 - std::string_view("{:010}").size());
 inline constexpr std::string_view kHtmlPrefix = "<html>\r\n<body>\r\n<!--StartFragment-->";
 inline constexpr std::string_view kHtmlSuffix = "<!--EndFragment-->\r\n</body>\r\n</html>";
-
-inline constexpr size_t kStartHtmlDigits = kBeforeStartHtml.size();
-inline constexpr size_t kEndHtmlDigits = kStartHtmlDigits + kDigitPlaceholder.size() + kBeforeEndHtml.size();
-inline constexpr size_t kStartFragmentDigits = kEndHtmlDigits + kDigitPlaceholder.size() + kBeforeStartFragment.size();
-inline constexpr size_t kEndFragmentDigits = kStartFragmentDigits + kDigitPlaceholder.size() + kBeforeEndFragment.size();
-inline constexpr size_t kHeaderSize = kEndFragmentDigits + kDigitPlaceholder.size() + kHeaderSuffix.size();
 
 } // namespace cf_html_detail
 
@@ -115,37 +108,15 @@ constexpr size_t CfHtmlPayloadSize(size_t fragment_size) noexcept
 inline void WriteCfHtmlPayload(char* dst, std::string_view fragment_utf8) noexcept
 {
     using namespace cf_html_detail;
-    char* p = dst;
-    const auto put = [&p](std::string_view s) noexcept {
-        std::char_traits<char>::copy(p, s.data(), s.size());
-        p += s.size();
-    };
-    put(kBeforeStartHtml);
-    put(kDigitPlaceholder);
-    put(kBeforeEndHtml);
-    put(kDigitPlaceholder);
-    put(kBeforeStartFragment);
-    put(kDigitPlaceholder);
-    put(kBeforeEndFragment);
-    put(kDigitPlaceholder);
-    put(kHeaderSuffix);
-    const size_t start_html = static_cast<size_t>(p - dst);
-    put(kHtmlPrefix);
-    const size_t start_fragment = static_cast<size_t>(p - dst);
-    put(fragment_utf8);
-    const size_t end_fragment = static_cast<size_t>(p - dst);
-    put(kHtmlSuffix);
-    const size_t end_html = static_cast<size_t>(p - dst);
-
-    const auto write_offset = [dst](size_t digit_offset, size_t value) noexcept {
-        char buf[11];
-        std::snprintf(buf, sizeof(buf), "%010zu", value);
-        std::char_traits<char>::copy(dst + digit_offset, buf, 10);
-    };
-    write_offset(kStartHtmlDigits, start_html);
-    write_offset(kEndHtmlDigits, end_html);
-    write_offset(kStartFragmentDigits, start_fragment);
-    write_offset(kEndFragmentDigits, end_fragment);
+    const size_t start_html = kHeaderSize;
+    const size_t start_fragment = start_html + kHtmlPrefix.size();
+    const size_t end_fragment = start_fragment + fragment_utf8.size();
+    const size_t end_html = end_fragment + kHtmlSuffix.size();
+    char* p = std::format_to(dst, kHeaderFormat, start_html, end_html, start_fragment, end_fragment);
+    assert(p == dst + kHeaderSize);
+    p = std::ranges::copy(kHtmlPrefix, p).out;
+    p = std::ranges::copy(fragment_utf8, p).out;
+    std::ranges::copy(kHtmlSuffix, p);
 }
 
 // CF_HTML ペイロードを GlobalAlloc 先に直接組み立てる (中間 std::string のコピーを持たない)。
@@ -254,9 +225,4 @@ inline void WriteClipboardHtml(HWND hwnd, std::string_view fragment_utf8, std::s
     if (plain) {
         CommitClipboardGlobal(CF_UNICODETEXT, std::move(plain));
     }
-}
-
-inline void WriteClipboardText(HWND hwnd, std::string_view text_utf8) noexcept
-{
-    WriteClipboardHtml(hwnd, {}, text_utf8);
 }

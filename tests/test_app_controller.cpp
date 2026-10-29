@@ -9,10 +9,25 @@
 
 namespace {
 
-// 同じ alternative であることに加え、payload を持つものは中身まで比較する。
-void ExpectSameAction(const AppAction& actual, const AppAction& expected)
+// 同じ alternative であることに加え、payload を持つものは中身まで比較する。nullopt は割り当ての無いキー。
+void ExpectSameAction(const std::optional<AppAction>& actual_opt, const std::optional<AppAction>& expected_opt)
 {
+    ASSERT_EQ(actual_opt.has_value(), expected_opt.has_value());
+    if (!expected_opt) {
+        return;
+    }
+    const AppAction& actual = *actual_opt;
+    const AppAction& expected = *expected_opt;
     ASSERT_EQ(actual.index(), expected.index());
+    if (const auto* step = std::get_if<SearchStepAction>(&expected)) {
+        EXPECT_EQ(std::get<SearchStepAction>(actual).forward, step->forward);
+    }
+    if (const auto* nav = std::get_if<NavigateHistoryAction>(&expected)) {
+        EXPECT_EQ(std::get<NavigateHistoryAction>(actual).forward, nav->forward);
+    }
+    if (const auto* copy = std::get_if<CopyAction>(&expected)) {
+        EXPECT_EQ(std::get<CopyAction>(actual).formatted, copy->formatted);
+    }
     if (const auto* scroll = std::get_if<KeyScrollAction>(&expected)) {
         EXPECT_EQ(std::get<KeyScrollAction>(actual).type, scroll->type);
     }
@@ -29,7 +44,7 @@ void ExpectSameAction(const AppAction& actual, const AppAction& expected)
 struct KeyCase {
     const char* name;
     KeyDownEvent ev;
-    AppAction expected;
+    std::optional<AppAction> expected;
 };
 
 } // namespace
@@ -48,8 +63,8 @@ TEST(AppControllerTest, HandleKeyDown)
         { "F5", { .key = VK_F5 }, ReloadFileAction{} },
         { "Escape", { .key = VK_ESCAPE }, ClearSelectionAction{} },
 
-        { "Ctrl+C", { .key = 'C', .ctrl = true }, CopyClipboardAction{} },
-        { "Ctrl+Shift+C", { .key = 'C', .ctrl = true, .shift = true }, CopyFormattedClipboardAction{} },
+        { "Ctrl+C", { .key = 'C', .ctrl = true }, CopyAction{} },
+        { "Ctrl+Shift+C", { .key = 'C', .ctrl = true, .shift = true }, CopyAction{ .formatted = true } },
         { "Ctrl+A", { .key = 'A', .ctrl = true }, SelectAllAction{} },
         { "Ctrl+O", { .key = 'O', .ctrl = true }, OpenFileAction{} },
         { "Ctrl+1", { .key = '1', .ctrl = true }, TogglePaneAction{ PaneTarget::File } },
@@ -61,24 +76,24 @@ TEST(AppControllerTest, HandleKeyDown)
         { "Ctrl+0", { .key = '0', .ctrl = true }, ZoomAction{ ZoomDirection::Reset } },
         { "Ctrl+Numpad0", { .key = VK_NUMPAD0, .ctrl = true }, ZoomAction{ ZoomDirection::Reset } },
 
-        { "Z", { .key = 'Z' }, NoOpAction{} },
-        { "C without Ctrl", { .key = 'C' }, NoOpAction{} },
-        { "Ctrl+Z", { .key = 'Z', .ctrl = true }, NoOpAction{} },
+        { "Z", { .key = 'Z' }, std::nullopt },
+        { "C without Ctrl", { .key = 'C' }, std::nullopt },
+        { "Ctrl+Z", { .key = 'Z', .ctrl = true }, std::nullopt },
 
-        { "Alt+Left", { .key = VK_LEFT, .alt = true }, NavigateBackAction{} },
-        { "Alt+Right", { .key = VK_RIGHT, .alt = true }, NavigateForwardAction{} },
-        { "Alt+Up", { .key = VK_UP, .alt = true }, NoOpAction{} },
+        { "Alt+Left", { .key = VK_LEFT, .alt = true }, NavigateHistoryAction{ .forward = false } },
+        { "Alt+Right", { .key = VK_RIGHT, .alt = true }, NavigateHistoryAction{ .forward = true } },
+        { "Alt+Up", { .key = VK_UP, .alt = true }, std::nullopt },
         // Ctrl+Alt (AltGr) には何も割り当てない
-        { "Ctrl+Alt+Left", { .key = VK_LEFT, .ctrl = true, .alt = true }, NoOpAction{} },
-        { "AltGr+0", { .key = '0', .ctrl = true, .alt = true }, NoOpAction{} },
-        { "AltGr+Plus", { .key = VK_OEM_PLUS, .ctrl = true, .alt = true }, NoOpAction{} },
-        { "AltGr+F", { .key = 'F', .ctrl = true, .alt = true }, NoOpAction{} },
+        { "Ctrl+Alt+Left", { .key = VK_LEFT, .ctrl = true, .alt = true }, std::nullopt },
+        { "AltGr+0", { .key = '0', .ctrl = true, .alt = true }, std::nullopt },
+        { "AltGr+Plus", { .key = VK_OEM_PLUS, .ctrl = true, .alt = true }, std::nullopt },
+        { "AltGr+F", { .key = 'F', .ctrl = true, .alt = true }, std::nullopt },
 
-        { "F3", { .key = VK_F3 }, SearchNextAction{} },
-        { "Shift+F3", { .key = VK_F3, .shift = true }, SearchPrevAction{} },
+        { "F3", { .key = VK_F3 }, SearchStepAction{ .forward = true } },
+        { "Shift+F3", { .key = VK_F3, .shift = true }, SearchStepAction{ .forward = false } },
         { "Ctrl+F", { .key = 'F', .ctrl = true }, OpenSearchBarAction{} },
-        { "Ctrl+G", { .key = 'G', .ctrl = true }, SearchNextAction{} },
-        { "Ctrl+Shift+G", { .key = 'G', .ctrl = true, .shift = true }, SearchPrevAction{} },
+        { "Ctrl+G", { .key = 'G', .ctrl = true }, SearchStepAction{ .forward = true } },
+        { "Ctrl+Shift+G", { .key = 'G', .ctrl = true, .shift = true }, SearchStepAction{ .forward = false } },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);
@@ -88,41 +103,41 @@ TEST(AppControllerTest, HandleKeyDown)
 
 TEST(AppControllerTest, HandleSearchEditKeyDown)
 {
-    // NoOpAction は入力欄 (EDIT) に処理させるキー。
+    // nullopt は入力欄 (EDIT) に処理させるキー。
     const KeyCase kCases[] = {
-        { "Enter", { .key = VK_RETURN }, SearchNextAction{} },
-        { "Shift+Enter", { .key = VK_RETURN, .shift = true }, SearchPrevAction{} },
+        { "Enter", { .key = VK_RETURN }, SearchStepAction{ .forward = true } },
+        { "Shift+Enter", { .key = VK_RETURN, .shift = true }, SearchStepAction{ .forward = false } },
         { "Ctrl+A", { .key = 'A', .ctrl = true }, SearchSelectAllAction{} },
 
-        { "Left", { .key = VK_LEFT }, NoOpAction{} },
-        { "Shift+Right", { .key = VK_RIGHT, .shift = true }, NoOpAction{} },
-        { "Ctrl+Left", { .key = VK_LEFT, .ctrl = true }, NoOpAction{} },
-        { "Home", { .key = VK_HOME }, NoOpAction{} },
-        { "End", { .key = VK_END }, NoOpAction{} },
-        { "Backspace", { .key = VK_BACK }, NoOpAction{} },
-        { "Delete", { .key = VK_DELETE }, NoOpAction{} },
-        { "Shift+Insert", { .key = VK_INSERT, .shift = true }, NoOpAction{} },
-        { "Ctrl+C", { .key = 'C', .ctrl = true }, NoOpAction{} },
-        { "Ctrl+Shift+C", { .key = 'C', .ctrl = true, .shift = true }, NoOpAction{} },
-        { "Ctrl+V", { .key = 'V', .ctrl = true }, NoOpAction{} },
-        { "Ctrl+X", { .key = 'X', .ctrl = true }, NoOpAction{} },
-        { "Ctrl+Z", { .key = 'Z', .ctrl = true }, NoOpAction{} },
-        { "Letter", { .key = 'Z' }, NoOpAction{} },
-        { "IME", { .key = VK_PROCESSKEY }, NoOpAction{} },
-        { "AltGr+0", { .key = '0', .ctrl = true, .alt = true }, NoOpAction{} },
-        { "AltGr+Q", { .key = 'Q', .ctrl = true, .alt = true }, NoOpAction{} },
+        { "Left", { .key = VK_LEFT }, std::nullopt },
+        { "Shift+Right", { .key = VK_RIGHT, .shift = true }, std::nullopt },
+        { "Ctrl+Left", { .key = VK_LEFT, .ctrl = true }, std::nullopt },
+        { "Home", { .key = VK_HOME }, std::nullopt },
+        { "End", { .key = VK_END }, std::nullopt },
+        { "Backspace", { .key = VK_BACK }, std::nullopt },
+        { "Delete", { .key = VK_DELETE }, std::nullopt },
+        { "Shift+Insert", { .key = VK_INSERT, .shift = true }, std::nullopt },
+        { "Ctrl+C", { .key = 'C', .ctrl = true }, std::nullopt },
+        { "Ctrl+Shift+C", { .key = 'C', .ctrl = true, .shift = true }, std::nullopt },
+        { "Ctrl+V", { .key = 'V', .ctrl = true }, std::nullopt },
+        { "Ctrl+X", { .key = 'X', .ctrl = true }, std::nullopt },
+        { "Ctrl+Z", { .key = 'Z', .ctrl = true }, std::nullopt },
+        { "Letter", { .key = 'Z' }, std::nullopt },
+        { "IME", { .key = VK_PROCESSKEY }, std::nullopt },
+        { "AltGr+0", { .key = '0', .ctrl = true, .alt = true }, std::nullopt },
+        { "AltGr+Q", { .key = 'Q', .ctrl = true, .alt = true }, std::nullopt },
 
         // 本体と同じ割り当て。
         { "Escape", { .key = VK_ESCAPE }, ClearSelectionAction{} },
         { "Ctrl+F", { .key = 'F', .ctrl = true }, OpenSearchBarAction{} },
-        { "F3", { .key = VK_F3 }, SearchNextAction{} },
-        { "Ctrl+Shift+G", { .key = 'G', .ctrl = true, .shift = true }, SearchPrevAction{} },
+        { "F3", { .key = VK_F3 }, SearchStepAction{ .forward = true } },
+        { "Ctrl+Shift+G", { .key = 'G', .ctrl = true, .shift = true }, SearchStepAction{ .forward = false } },
         { "F5", { .key = VK_F5 }, ReloadFileAction{} },
         { "Ctrl+O", { .key = 'O', .ctrl = true }, OpenFileAction{} },
         { "Down", { .key = VK_DOWN }, KeyScrollAction{ ScrollType::LineDown } },
         { "PageUp", { .key = VK_PRIOR }, KeyScrollAction{ ScrollType::PageUp } },
-        { "Alt+Left", { .key = VK_LEFT, .alt = true }, NavigateBackAction{} },
-        { "Alt+Right", { .key = VK_RIGHT, .alt = true }, NavigateForwardAction{} },
+        { "Alt+Left", { .key = VK_LEFT, .alt = true }, NavigateHistoryAction{ .forward = false } },
+        { "Alt+Right", { .key = VK_RIGHT, .alt = true }, NavigateHistoryAction{ .forward = true } },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(c.name);
@@ -142,15 +157,7 @@ protected:
     static constexpr float kTop = TitleBar::BASE_HEIGHT;
     static constexpr float kPaneHeight = 400.0f;
 
-    PointerHitTest() : h_({ .markdown = md_, .md_height = kPaneHeight })
-    {
-        layout_.file_rect = { 0.0f, kTop, 150.0f, kPaneHeight };
-        layout_.toc_rect = { 154.0f, kTop, 150.0f, kPaneHeight };
-        layout_.md_rect = { 308.0f, kTop, ReducerHarness::kMdWidth, kPaneHeight };
-        layout_.show_file = true;
-        layout_.show_toc = true;
-        h_.state.pane_layout_cache.Set(layout_);
-    }
+    PointerHitTest() : h_({ .markdown = md_, .md_height = kPaneHeight }), layout_(ComputePaneLayout(h_.state)) {}
 
     app_controller::PointerHoverResult Hover(float x, float y) const
     {
@@ -173,7 +180,7 @@ protected:
 
     std::string md_ = MakeHarnessMarkdown(20);
     ReducerHarness h_;
-    PaneLayout layout_{};
+    PaneLayout layout_;
 };
 
 } // namespace

@@ -25,7 +25,8 @@ TEST_F(CmdGenFrameTest, PushClipMatchesPaneRect)
 {
     Parse("Hello");
     const PaneRect pane{ 100.0f, 50.0f, 600.0f, 400.0f };
-    auto& cmds = gen_.GenerateMdPane({ .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
+    DrawCommandList cmds;
+    gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
 
     const auto clip = FindFirst<PushClipCmd>(cmds);
     ASSERT_TRUE(clip.has_value());
@@ -42,7 +43,8 @@ TEST_F(CmdGenFrameTest, TransformTranslatesByPaneOriginOnly)
     constexpr float origin_x = 120.0f;
     constexpr float scroll_y = 40.0f;
     const PaneRect pane{ origin_x, 0.0f, 600.0f, 400.0f };
-    auto& cmds = gen_.GenerateMdPane({ .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane, .scroll_y = scroll_y }, 1.0f);
+    DrawCommandList cmds;
+    gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane, .scroll_y = scroll_y }, 1.0f);
 
     const auto first_xform = FindFirst<SetTransformCmd>(cmds);
     ASSERT_TRUE(first_xform.has_value());
@@ -64,7 +66,8 @@ TEST_F(CmdGenFrameTest, ScrollSnapsToPixelWithDpi)
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
     const float scroll_y = 0.3f;
     const float dpi = 2.0f;
-    auto& cmds = gen_.GenerateMdPane({ .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane, .scroll_y = scroll_y }, dpi);
+    DrawCommandList cmds;
+    gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane, .scroll_y = scroll_y }, dpi);
 
     const auto xform = FindFirst<SetTransformCmd>(cmds);
     ASSERT_TRUE(xform.has_value());
@@ -87,7 +90,8 @@ TEST_F(CmdGenFrameTest, ScrolledBeyondBottomProducesOnlyFrameCommands)
     Parse("---\n\n---\n\n---");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 100.0f };
     // 全ノードより下にスクロール → DrawLineCmd なし
-    auto& cmds = gen_.GenerateMdPane({ .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane, .scroll_y = 10000.0f }, 1.0f);
+    DrawCommandList cmds;
+    gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane, .scroll_y = 10000.0f }, 1.0f);
 
     EXPECT_EQ(CountCmd<DrawLineCmd>(cmds), 0) << "すべてのノードがビューポート上ならDrawLineCmdは生成されない";
     // PushClip + SetTransform×2 + PopClip のみ
@@ -99,7 +103,8 @@ TEST_F(CmdGenFrameTest, EmptyNodesListEmitsOnlyFrameScaffolding)
     nodes_.clear();
     cache_ = LayoutCache(0);
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
-    auto& cmds = gen_.GenerateMdPane({ .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
+    DrawCommandList cmds;
+    gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
 
     ASSERT_EQ(cmds.size(), 4u);
     EXPECT_TRUE(std::holds_alternative<PushClipCmd>(cmds[0]));
@@ -116,7 +121,8 @@ TEST_F(CmdGenFrameTest, EmptySearchMatchesProduceNoHighlight)
 {
     Parse("Hello world");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
-    auto& cmds = gen_.GenerateMdPane({ .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane, .search_generation = 1 }, 1.0f);
+    DrawCommandList cmds;
+    gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane, .search_generation = 1 }, 1.0f);
     // マッチ空のため FillRectCmd は選択ハイライト経路以外は生成されない
     // (paragraph text_layout=null なので選択経路も走らない)
     EXPECT_EQ(CountCmd<FillRectCmd>(cmds), 0);
@@ -130,7 +136,8 @@ TEST_F(CmdGenFrameTest, TableStripeUsesStripeBrush)
 {
     Parse("| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |");
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 400.0f };
-    const auto& cmds = gen_.GenerateMdPane({ .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
+    DrawCommandList cmds;
+    gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = pane }, 1.0f);
     EXPECT_TRUE(std::ranges::any_of(cmds, [](const DrawCommand& c) static {
         const auto* fr = std::get_if<FillRectCmd>(&c);
         return fr && fr->brush_id == BrushId::TableStripe;
@@ -188,7 +195,7 @@ TEST(OverlayCommandsTest, NavButtonsUseHitTestRectsAndStateOpacity)
     overlay::EmitNavButtons(cmds, text_layouts, nullptr, kOverlayPane, /*dark=*/false, /*can_back=*/true, /*can_forward=*/false, NavDirection::Back);
     const auto bgs = CollectCmds<FillRoundedRectCmd>(cmds);
     ASSERT_EQ(bgs.size(), 2u);
-    EXPECT_EQ(bgs[0].brush_id, BrushId::OverlayBlack);
+    EXPECT_EQ(bgs[0].brush_id, BrushId::Overlay);
     EXPECT_FLOAT_EQ(bgs[0].rect.left, NavBackButtonRect(kOverlayPane).left);
     EXPECT_FLOAT_EQ(bgs[1].rect.left, NavForwardButtonRect(kOverlayPane).left);
     EXPECT_FLOAT_EQ(bgs[0].opacity, 0.25f) << "ホバー中";
@@ -198,12 +205,12 @@ TEST(OverlayCommandsTest, NavButtonsUseHitTestRectsAndStateOpacity)
     overlay::EmitNavButtons(cmds, text_layouts, nullptr, kOverlayPane, /*dark=*/true, true, true, NavDirection::None);
     const auto dark_bgs = CollectCmds<FillRoundedRectCmd>(cmds);
     ASSERT_EQ(dark_bgs.size(), 2u);
-    EXPECT_EQ(dark_bgs[0].brush_id, BrushId::OverlayWhite);
+    EXPECT_EQ(dark_bgs[0].brush_id, BrushId::Overlay);
     EXPECT_FLOAT_EQ(dark_bgs[0].opacity, 0.15f);
     EXPECT_FLOAT_EQ(dark_bgs[1].opacity, 0.15f);
 }
 
-// ジェスチャーの方向が無ければ何も積まない。パネルはダークで灰色、ライトで黒。
+// ジェスチャーの方向が無ければ何も積まない。パネルの色はテーマの OverlayGestureBg で、不透明度だけテーマで変わる。
 TEST(OverlayCommandsTest, GestureOverlayPanelFollowsTheme)
 {
     TextLayoutCache text_layouts;
@@ -214,7 +221,7 @@ TEST(OverlayCommandsTest, GestureOverlayPanelFollowsTheme)
     overlay::EmitGestureOverlay(cmds, text_layouts, nullptr, kOverlayPane, false, NavDirection::Back);
     auto panels = CollectCmds<FillRoundedRectCmd>(cmds);
     ASSERT_EQ(panels.size(), 1u);
-    EXPECT_EQ(panels[0].brush_id, BrushId::OverlayBlack);
+    EXPECT_EQ(panels[0].brush_id, BrushId::OverlayGestureBg);
     EXPECT_FLOAT_EQ(panels[0].opacity, 0.6f);
     EXPECT_FLOAT_EQ((panels[0].rect.left + panels[0].rect.right) * 0.5f, 400.0f);
     EXPECT_FLOAT_EQ(panels[0].rect.right - panels[0].rect.left, GESTURE_OVERLAY_WIDTH);
@@ -303,8 +310,8 @@ TEST(OverlayCommandsTest, SearchBarDocksAtPaneBottom)
 {
     TextLayoutCache text_layouts;
     DrawCommandList cmds;
-    overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, kOverlayPane, { .visible = true }, {});
     const auto sbl = ComputeSearchBarLayout(kOverlayPane, false);
+    overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, sbl, { .visible = true }, {});
 
     const auto bar = FindFirst<FillRectCmd>(cmds);
     ASSERT_TRUE(bar);
@@ -317,7 +324,7 @@ TEST(OverlayCommandsTest, SearchBarDocksAtPaneBottom)
     const auto border = FindFirst<DrawLineCmd>(cmds);
     ASSERT_TRUE(border);
     EXPECT_EQ(border->brush_id, BrushId::SearchBarBorder);
-    EXPECT_FLOAT_EQ(border->p0.y, sbl.bar_top);
+    EXPECT_FLOAT_EQ(border->p0.y, sbl.bar_rect.top);
 
     EXPECT_EQ(FillBrushAt(cmds, sbl.input_rect), BrushId::SearchInputBg);
     const auto frame = FindFirst<DrawRoundedRectCmd>(cmds);
@@ -333,15 +340,15 @@ TEST(OverlayCommandsTest, SearchBarDocksAtPaneBottom)
 // 1 件も見つからなければ入力欄の背景を変える。
 TEST(OverlayCommandsTest, SearchBarInputTurnsRedOnNoMatch)
 {
-    const auto input_rect = ComputeSearchBarLayout(kOverlayPane, true).input_rect;
+    const auto sbl = ComputeSearchBarLayout(kOverlayPane, true);
     TextLayoutCache text_layouts;
     DrawCommandList cmds;
-    overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, kOverlayPane, { .query = L"abc", .total_matches = 0, .visible = true }, {});
-    EXPECT_EQ(FillBrushAt(cmds, input_rect), BrushId::SearchNoMatchBg);
+    overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, sbl, { .query = L"abc", .total_matches = 0, .visible = true }, {});
+    EXPECT_EQ(FillBrushAt(cmds, sbl.input_rect), BrushId::SearchNoMatchBg);
 
     cmds.clear();
-    overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, kOverlayPane, { .query = L"abc", .total_matches = 3, .visible = true }, {});
-    EXPECT_EQ(FillBrushAt(cmds, input_rect), BrushId::SearchInputBg);
+    overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, sbl, { .query = L"abc", .total_matches = 3, .visible = true }, {});
+    EXPECT_EQ(FillBrushAt(cmds, sbl.input_rect), BrushId::SearchInputBg);
 }
 
 // キャレットは文字列の左端から caret_x の位置に引き、入力欄の右端を越えない。IME の合成中と非表示のときは引かない。
@@ -351,7 +358,7 @@ TEST(OverlayCommandsTest, SearchBarCaretFollowsMeasuredPosition)
     const auto caret_x = [&](const SearchBarRenderState& sb, float measured) -> std::optional<float> {
         TextLayoutCache text_layouts;
         DrawCommandList cmds;
-        overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, kOverlayPane, sb, { .caret_x = measured });
+        overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, sbl, sb, { .caret_x = measured });
         const auto lines = CollectCmds<DrawLineCmd>(cmds);
         if (lines.size() < 2) {
             return std::nullopt;
@@ -378,7 +385,7 @@ TEST(OverlayCommandsTest, SearchBarButtonsShowHoverAndToggleState)
     const auto sbl = ComputeSearchBarLayout(kOverlayPane, true);
     TextLayoutCache text_layouts;
     DrawCommandList cmds;
-    overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, kOverlayPane,
+    overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, sbl,
                            { .query = L"a", .total_matches = 1, .visible = true, .case_sensitive = true, .highlight_enabled = false, .hovered = SearchBarHitZone::Up }, {});
     EXPECT_EQ(FillBrushAt(cmds, sbl.up_btn), BrushId::TitleBarButtonHover);
     EXPECT_EQ(FillBrushAt(cmds, sbl.case_btn), BrushId::TitleBarButtonActive);
@@ -387,7 +394,7 @@ TEST(OverlayCommandsTest, SearchBarButtonsShowHoverAndToggleState)
     EXPECT_EQ(FillBrushAt(cmds, sbl.close_btn), std::nullopt);
 
     cmds.clear();
-    overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, kOverlayPane,
+    overlay::EmitSearchBar(cmds, text_layouts, nullptr, nullptr, sbl,
                            { .query = L"a", .total_matches = 1, .visible = true, .hovered = SearchBarHitZone::CaseSensitive }, {});
     EXPECT_EQ(FillBrushAt(cmds, sbl.case_btn), BrushId::TitleBarButtonHover);
     EXPECT_EQ(FillBrushAt(cmds, sbl.highlight_btn), BrushId::TitleBarButtonActive);

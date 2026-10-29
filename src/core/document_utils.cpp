@@ -7,19 +7,8 @@
 #include <algorithm>
 #include <cstring>
 #include <cstdint>
-#include <format>
 #include <iterator>
 #include <ranges>
-
-std::string ToLowerAsciiCopy(std::string_view text)
-{
-    std::string result;
-    result.resize_and_overwrite(text.size(), [&text](char* buf, size_t count) noexcept -> size_t {
-        ascii_util::AsciiToLowerOnly(text.data(), buf, count);
-        return count;
-    });
-    return result;
-}
 
 namespace {
 
@@ -193,16 +182,6 @@ NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, u
     return r;
 }
 
-std::wstring BuildTitleString(std::wstring_view path, int zoom_percent)
-{
-    std::wstring title{ path_util::FilenameView(path) };
-    title += title.empty() ? L"mendo" : L" - mendo";
-    if (zoom_percent > 0 && zoom_percent != 100) {
-        std::format_to(std::back_inserter(title), L" ({}%)", zoom_percent);
-    }
-    return title;
-}
-
 namespace {
 
 bool NodeContentEquals(const Node& a, const Node& b) noexcept
@@ -211,22 +190,22 @@ bool NodeContentEquals(const Node& a, const Node& b) noexcept
     if (a.type != b.type || a.alert_type != b.alert_type || a.quote_depth != b.quote_depth ||
         a.quote_outer_indent != b.quote_outer_indent || a.indent_level != b.indent_level || a.line_count != b.line_count ||
         a.heading_level != b.heading_level || a.code_language != b.code_language || a.flags_ != b.flags_ ||
-        a.list_number() != b.list_number() || a.alert_label_length() != b.alert_label_length() ||
+        a.list_number() != b.list_number() ||
         a.code_lead_length() != b.code_lead_length() || a.code_lead_type() != b.code_lead_type()) {
-        return false;
-    }
-    // 参照定義が後ろで変わると、前のノードはテキストが同じでもリンク先が変わる。
-    if (a.GetText() != b.GetText() || !std::ranges::equal(a.runs(), b.runs()) || !std::ranges::equal(a.view_link_urls(), b.view_link_urls())) {
-        return false;
-    }
-    const auto* ai = a.image_data();
-    const auto* bi = b.image_data();
-    if ((ai == nullptr) != (bi == nullptr) || (ai && ai->src != bi->src)) {
         return false;
     }
     const auto* at = a.table_data();
     const auto* bt = b.table_data();
-    return (at == nullptr) == (bt == nullptr) && (!at || *at == *bt);
+    if ((at == nullptr) != (bt == nullptr)) {
+        return false;
+    }
+    // 表のテキストは concat_text そのものなので、NodeTableData の比較に任せて 2 回比べない。
+    // 参照定義が後ろで変わると、前のノードはテキストが同じでもリンク先が変わる。
+    if ((!at && a.GetText() != b.GetText()) || !std::ranges::equal(a.runs(), b.runs()) ||
+        !std::ranges::equal(a.view_link_urls(), b.view_link_urls())) {
+        return false;
+    }
+    return a.image_src() == b.image_src() && (!at || *at == *bt);
 }
 
 } // namespace
@@ -243,29 +222,6 @@ UnchangedEnds FindUnchangedEnds(std::span<const Node> old_nodes, std::span<const
         ++ends.tail;
     }
     return ends;
-}
-
-size_t FindFirstDifference(std::string_view old_text, std::string_view new_text) noexcept
-{
-    // MSVC STL の mismatch は 1 バイト要素をベクトル化する。
-    const size_t pos = static_cast<size_t>(std::ranges::mismatch(old_text, new_text).in1 - old_text.begin());
-    if (pos == old_text.size() && pos == new_text.size()) {
-        return std::string_view::npos;
-    }
-    return pos;
-}
-
-ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text, bool accept_prefix_shrink) noexcept
-{
-    const size_t diff_pos = FindFirstDifference(old_text, new_text);
-    if (diff_pos == std::string_view::npos) {
-        return { ReloadOp::NoChange, std::string_view::npos };
-    }
-    // 新しい方が古い方の prefix (エディタの truncate→rewrite の途中)。
-    if (diff_pos == new_text.size() && !accept_prefix_shrink) {
-        return { ReloadOp::DeferPrefixShrink, diff_pos };
-    }
-    return { ReloadOp::Replace, diff_pos };
 }
 
 int FindNodeBySourceOffset(const std::vector<Node>& nodes, size_t diff_offset) noexcept

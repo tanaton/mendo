@@ -70,7 +70,7 @@ TEST(ParserImage, SingleImageBecomesImageNode)
         auto nodes = ParseNodes(c.md);
         ASSERT_EQ(nodes.size(), 1u);
         EXPECT_EQ(nodes[0].type, NodeType::Image);
-        EXPECT_EQ(nodes[0].image_data()->src, c.src);
+        EXPECT_EQ(nodes[0].image_src(), c.src);
         if (c.alt) {
             EXPECT_EQ(nodes[0].GetText(), c.alt);
         }
@@ -88,7 +88,7 @@ TEST(ParserImage, ImageInTableCellDoesNotCorruptTable)
     EXPECT_EQ(nodes[0].type, NodeType::Table);
     ASSERT_NE(nodes[0].table_data(), nullptr);
     EXPECT_EQ(nodes[0].table_data()->row_count, 2u);
-    EXPECT_FALSE(nodes[0].has_image());
+    EXPECT_TRUE(nodes[0].image_src().empty());
 }
 
 TEST(ParserImage, ImageInHeadingKeepsHeadingLevel)
@@ -98,7 +98,7 @@ TEST(ParserImage, ImageInHeadingKeepsHeadingLevel)
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Heading);
     EXPECT_EQ(nodes[0].heading_level, 1);
-    EXPECT_FALSE(nodes[0].has_image());
+    EXPECT_TRUE(nodes[0].image_src().empty());
 }
 
 TEST(ParserImage, ImageInTightListStaysListItem)
@@ -107,7 +107,7 @@ TEST(ParserImage, ImageInTightListStaysListItem)
     auto nodes = ParseNodes("- ![alt](img.png)");
     ASSERT_GE(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::ListItem);
-    EXPECT_FALSE(nodes[0].has_image());
+    EXPECT_TRUE(nodes[0].image_src().empty());
 }
 
 // issue#298: リスト項目の番号が画像 src で上書きされないこと
@@ -138,7 +138,7 @@ TEST(ParserImage, ImageInTightListDoesNotLeakToNextParagraph)
     for (const auto& node : nodes) {
         if (node.type == NodeType::Paragraph) {
             found_para = true;
-            EXPECT_TRUE(!node.has_image() || node.image_data()->src.empty())
+            EXPECT_TRUE(node.image_src().empty())
                 << "後続の段落にimage_srcがリークしていないこと";
         }
     }
@@ -160,7 +160,7 @@ TEST(ParserImage, ParagraphWithoutImageStaysParagraph)
     auto nodes = ParseNodes("Just text");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
-    EXPECT_FALSE(nodes[0].has_image());
+    EXPECT_TRUE(nodes[0].image_src().empty());
 }
 
 TEST(ParserImage, LinkDoesNotTriggerImage)
@@ -168,7 +168,7 @@ TEST(ParserImage, LinkDoesNotTriggerImage)
     auto nodes = ParseNodes("[link text](https://example.com)");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
-    EXPECT_FALSE(nodes[0].has_image());
+    EXPECT_TRUE(nodes[0].image_src().empty());
 }
 
 // ---- 複数ノード内の画像 ----
@@ -189,9 +189,9 @@ TEST(ParserImage, MultipleImageParagraphs)
     for (size_t i = 0; i < 3; i++) {
         EXPECT_EQ(nodes[i].type, NodeType::Image) << "ノード " << i;
     }
-    EXPECT_EQ(nodes[0].image_data()->src, "a.png");
-    EXPECT_EQ(nodes[1].image_data()->src, "b.png");
-    EXPECT_EQ(nodes[2].image_data()->src, "c.png");
+    EXPECT_EQ(nodes[0].image_src(), "a.png");
+    EXPECT_EQ(nodes[1].image_src(), "b.png");
+    EXPECT_EQ(nodes[2].image_src(), "c.png");
 }
 
 // ============================================================

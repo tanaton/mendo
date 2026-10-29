@@ -201,7 +201,7 @@ private:
         }
     }
     void Execute(const SideEffect& effect);
-    bool DispatchKeyAction(const AppAction& action);
+    bool DispatchKeyAction(const std::optional<AppAction>& action);
     void SetTimer(app_timer::Id id, UINT ms) noexcept override
     {
         ::SetTimer(hwnd_, std::to_underlying(id), ms, nullptr);
@@ -244,7 +244,6 @@ private:
     using HitResult = hit_test::HitResult;
     HitResult HitTest(int px, int py);
 
-    const PaneLayout& GetPaneLayout();
     PaneZone PaneAtPoint(float dip_x);
 
     // 検索の入力欄で dip_x にあるキャレット位置。
@@ -267,14 +266,13 @@ private:
     void RefreshHoverAtCursor();
 
     // ---- レイアウト ----
-    float MdMaxScroll();
     // 計測や図の確定で内容が縮んだら、scroll_y を上限に収める。遅延レイアウトの途中では呼ばない
     // (後続の計測で戻る中間的な上限で、見ている位置を引き下げないため)。
     void ClampScrollToContent();
-    // 可視範囲を計測し、変わればスクロール上限と遅延レイアウトを追従させる。
+    // 可視範囲を計測し、変わればスクロール上限と画像・図の整理 (SettleLayout) を追従させる。
     void EnsureFrameLayout(const PaneLayout& layout);
-    // dirty が残っていれば、空き時間の遅延レイアウトに回して true。
-    bool RequestDeferredLayout();
+    // dirty が残っていれば空き時間の遅延レイアウト (HasIdleWork) が拾い、その完了時に画像と図を整理する。
+    // 残っていなければ今整理させる。
     void SettleLayout();
     // 可視範囲の図と画像の取りに行き方。
     enum class RelayoutResources : uint8_t {
@@ -381,6 +379,8 @@ private:
     ClipboardManager clipboard_manager_; // mermaid_renderer_ より先に宣言する（~MermaidRenderer の CancelPending が in-flight コールバック経由で clipboard_manager_ に触るため、後に破棄させる）
     // インライン数式の寸法表。計測ワーカーが引き、描画の結果を OnInlineMathRendered で書く。
     InlineMathTable inline_math_;
+    // インライン数式の型 (A8 のページと、数式ごとの切り出し)。描画が読み、描いたフレームと型の無い数式を書く。
+    InlineMathMasks math_masks_;
     // 文書の数式の組。組ごとに描いてディスクキャッシュに置く。
     InlineMathPlan inline_math_plan_;
     // 数式を待つ表を組み直した時刻と、その間隔 (OnInlineMathRendered)。
@@ -401,7 +401,6 @@ private:
     bool spinner_shown_ = false;
     float spinner_angle_ = 0.0f;
     PrefixShrinkRetry prefix_shrink_retry_;
-    bool deferred_layout_pending_ = false;
     // 列挙スレッドの結果の受け渡し。スレッドは App より長生きしうるので共有で持たせる。
     struct FileListingSlot {
         std::mutex mutex;
@@ -409,7 +408,7 @@ private:
     };
     std::shared_ptr<FileListingSlot> file_listing_ = std::make_shared<FileListingSlot>();
 
-    AppState state_;
+    AppState state_{ .theme = &theme_service_.GetTheme() };
 
     // テーマは theme_service_ のものを参照する。
     DWriteTextMeasurer measurer_;

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "d2d_util.h"
 #include "draw_command.h"
+#include "inline_math.h"
 #include "test_helpers.h"
 #include "wic_util.h"
 #include <d2d1.h>
@@ -82,12 +83,12 @@ protected:
         return pixels;
     }
 
-    ComPtr<IDWriteTextLayout> CreateTextLayout(std::wstring_view text, const wchar_t* family, const wchar_t* locale, float max_w, float max_h)
+    ComPtr<IDWriteTextLayout> CreateTextLayout(std::wstring_view text, const wchar_t* family, const wchar_t* locale, float max_w, float max_h, bool ellipsis = false)
     {
         if (!dw_factory_) {
             EXPECT_HRESULT_SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), &dw_factory_));
         }
-        const auto fmt = CreateTextFormat(dw_factory_.Get(), { .family = family, .size = 12.0f, .locale = locale });
+        const auto fmt = CreateTextFormat(dw_factory_.Get(), { .family = family, .size = 12.0f, .locale = locale, .ellipsis = ellipsis });
         EXPECT_NE(fmt, nullptr);
         ComPtr<IDWriteTextLayout> layout;
         EXPECT_HRESULT_SUCCEEDED(dw_factory_->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), fmt.Get(), max_w, max_h, &layout));
@@ -188,10 +189,10 @@ TEST_F(CommandExecutorIntegrationTest, FixedBrushesDrawWithOwnColor)
 // opacity は描いた後にブラシへ残らない。
 TEST_F(CommandExecutorIntegrationTest, RoundedRectOpacityIsRestored)
 {
-    const auto brushes = MakeBrushes(rt_.Get(), { { BrushId::OverlayBlack, D2D1::ColorF(D2D1::ColorF::Black) } });
+    const auto brushes = MakeBrushes(rt_.Get(), { { BrushId::Overlay, D2D1::ColorF(D2D1::ColorF::Black) } });
     DrawCommandList cmds;
-    cmds.emplace_back(FillRoundedRectCmd{ D2D1::RectF(0, 0, 8, 8), 0.0f, 0.0f, BrushId::OverlayBlack, 0.5f });
-    cmds.emplace_back(FillRectCmd{ D2D1::RectF(8, 0, 16, 8), BrushId::OverlayBlack });
+    cmds.emplace_back(FillRoundedRectCmd{ D2D1::RectF(0, 0, 8, 8), 0.0f, 0.0f, BrushId::Overlay, 0.5f });
+    cmds.emplace_back(FillRectCmd{ D2D1::RectF(8, 0, 16, 8), BrushId::Overlay });
 
     rt_->BeginDraw();
     rt_->Clear(D2D1::ColorF(D2D1::ColorF::White));
@@ -225,7 +226,7 @@ TEST_F(CommandExecutorIntegrationTest, AllShapeCommandsExecuteWithoutError)
 // 半透明の楕円と線のジオメトリも、描いた後にブラシへ不透明度を残さない。
 TEST_F(CommandExecutorIntegrationTest, EllipseAndGeometryOpacityIsRestored)
 {
-    const auto brushes = MakeBrushes(rt_.Get(), { { BrushId::OverlayBlack, D2D1::ColorF(D2D1::ColorF::Black) } });
+    const auto brushes = MakeBrushes(rt_.Get(), { { BrushId::Overlay, D2D1::ColorF(D2D1::ColorF::Black) } });
     ComPtr<ID2D1PathGeometry> path;
     ASSERT_HRESULT_SUCCEEDED(d2d_factory_->CreatePathGeometry(&path));
     {
@@ -237,9 +238,9 @@ TEST_F(CommandExecutorIntegrationTest, EllipseAndGeometryOpacityIsRestored)
         ASSERT_HRESULT_SUCCEEDED(sink->Close());
     }
     DrawCommandList cmds;
-    cmds.emplace_back(FillEllipseCmd{ .center = D2D1::Point2F(4, 4), .rx = 4.0f, .ry = 4.0f, .brush_id = BrushId::OverlayBlack, .opacity = 0.5f });
-    cmds.emplace_back(DrawGeometryCmd{ .geometry = path.Get(), .stroke_style = nullptr, .stroke_width = 4.0f, .brush_id = BrushId::OverlayBlack, .opacity = 0.5f });
-    cmds.emplace_back(FillRectCmd{ D2D1::RectF(24, 0, 32, 8), BrushId::OverlayBlack });
+    cmds.emplace_back(FillEllipseCmd{ .center = D2D1::Point2F(4, 4), .rx = 4.0f, .ry = 4.0f, .brush_id = BrushId::Overlay, .opacity = 0.5f });
+    cmds.emplace_back(DrawGeometryCmd{ .geometry = path.Get(), .stroke_style = nullptr, .stroke_width = 4.0f, .brush_id = BrushId::Overlay, .opacity = 0.5f });
+    cmds.emplace_back(FillRectCmd{ D2D1::RectF(24, 0, 32, 8), BrushId::Overlay });
 
     rt_->BeginDraw();
     rt_->Clear(D2D1::ColorF(D2D1::ColorF::White));
@@ -308,6 +309,60 @@ TEST_F(CommandExecutorIntegrationTest, TallTextLayoutMatchesDrawTextLayout)
     const auto actual = render(true);
     EXPECT_NE(std::ranges::count(expected, 0xFFFFFFFFu), static_cast<std::ptrdiff_t>(expected.size())) << "何も描かれていない";
     EXPECT_EQ(actual, expected);
+}
+
+// 書式の省略記号はインラインオブジェクトとして DrawInlineObject に届く。数式と取り違えずに描き、
+// D2D の DrawTextLayout と同じ画素になること。
+TEST_F(CommandExecutorIntegrationTest, TrimmingSignMatchesDrawTextLayout)
+{
+    const auto layout = CreateTextLayout(L"Wg Wg Wg Wg Wg Wg Wg Wg", L"Segoe UI", L"en-us", 30.0f, 20.0f, true);
+    ASSERT_TRUE(layout);
+    const auto render = [&](bool via_executor) {
+        ComPtr<ID2D1RenderTarget> rt;
+        EXPECT_HRESULT_SUCCEEDED(CreateRenderTarget(rt));
+        const auto brushes = MakeBrushes(rt.Get(), { { BrushId::Text, D2D1::ColorF(D2D1::ColorF::Black) } });
+        rt->BeginDraw();
+        rt->Clear(D2D1::ColorF(D2D1::ColorF::White));
+        if (via_executor) {
+            DrawCommandList cmds;
+            cmds.emplace_back(DrawTextLayoutCmd{ .origin = D2D1::Point2F(1.0f, 2.0f), .layout = layout.Get(), .brush_id = BrushId::Text });
+            InlineMathMasks math;
+            ExecuteDrawCommands(cmds, rt.Get(), brushes, &math);
+        }
+        else {
+            rt->DrawTextLayout(D2D1::Point2F(1.0f, 2.0f), layout.Get(), brushes[std::to_underlying(BrushId::Text)].Get());
+        }
+        EXPECT_HRESULT_SUCCEEDED(rt->EndDraw());
+        return ReadAllPixels();
+    };
+    const auto expected = render(false);
+    EXPECT_NE(std::ranges::count(expected, 0xFFFFFFFFu), static_cast<std::ptrdiff_t>(expected.size())) << "何も描かれていない";
+    EXPECT_EQ(render(true), expected);
+}
+
+// 間引き範囲より下の行の数式は、型が無くても描き直しを頼まない (数式か見分ける前に飛ばす)。
+TEST_F(CommandExecutorIntegrationTest, InlineMathBelowCullIsNotRequested)
+{
+    constexpr UINT32 kCount = 20;
+    std::wstring text;
+    for (UINT32 i = 0; i < kCount; i++) {
+        text += L"￼\n";
+    }
+    const auto layout = CreateTextLayout(text, L"Segoe UI", L"en-us", 100.0f, 1000.0f);
+    ASSERT_TRUE(layout);
+    for (UINT32 i = 0; i < kCount; i++) {
+        ASSERT_HRESULT_SUCCEEDED(layout->SetInlineObject(MakeInlineMathObject(i, { 10.0f, 10.0f, 8.0f }).Get(), DWRITE_TEXT_RANGE{ i * 2, 1 }));
+    }
+    DrawCommandList cmds;
+    cmds.emplace_back(DrawTextLayoutCmd{ .origin = D2D1::Point2F(0.0f, 0.0f), .layout = layout.Get(), .brush_id = BrushId::Text, .cull_top = 0.0f, .cull_bottom = 32.0f });
+    const auto brushes = MakeBrushes(rt_.Get(), { { BrushId::Text, D2D1::ColorF(D2D1::ColorF::Black) } });
+    InlineMathMasks math;
+    rt_->BeginDraw();
+    ExecuteDrawCommands(cmds, rt_.Get(), brushes, &math);
+    EXPECT_HRESULT_SUCCEEDED(rt_->EndDraw());
+
+    EXPECT_NE(std::ranges::find(math.missing, 0u), math.missing.end()) << "見える行の数式を頼んでいない";
+    EXPECT_TRUE(std::ranges::all_of(math.missing, [](uint64_t key) static { return key < kCount / 2; })) << "見えない行の数式を頼んだ";
 }
 
 // 構文トークン付きのレイアウトはグリフランを分けて色を付ける。SetDrawingEffect で色を付けた

@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "ini_parser.h"
+#include "config_service.h"
 #include <string_view>
 
 // ---- Parse テスト ----

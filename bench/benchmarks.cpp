@@ -246,6 +246,23 @@ void BM_ParseGiantCode(benchmark::State& state, int workers)
 BENCHMARK_CAPTURE(BM_ParseGiantCode, serial, 0)->UseManualTime()->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_ParseGiantCode, workers4, 4)->UseManualTime()->Unit(benchmark::kMillisecond);
 
+// 40KB 程度 (区切ったノード 3 つ前後) のコードブロックが 16MB 分並ぶ。並びは字句解析の区間 (8 ノード) 1 つに収まる。
+void BM_ParseManyCodeBlocks(benchmark::State& state, int workers)
+{
+    TaskScheduler scheduler;
+    if (workers > 0) {
+        scheduler.Init(workers);
+    }
+    const std::string block = LogLines(500, "```cpp\n", "```\n\n");
+    std::string md;
+    while (md.size() < 16 * 1024 * 1024) {
+        md += block;
+    }
+    RunParse(state, md, workers > 0 ? &scheduler : nullptr);
+}
+BENCHMARK_CAPTURE(BM_ParseManyCodeBlocks, serial, 0)->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_ParseManyCodeBlocks, workers4, 4)->UseManualTime()->Unit(benchmark::kMillisecond);
+
 void BM_NormalizeNewlines(benchmark::State& state)
 {
     std::string src;
@@ -300,18 +317,20 @@ void BM_MeasureIndicesParallel(benchmark::State& state, bool parallel)
 {
     const auto n = static_cast<size_t>(state.range(0));
     SlowMockMeasurer mock;
-    const Theme& theme = GetLightTheme();
     TaskScheduler ts;
     ts.Init(4);
+    mock.SetTheme(GetLightTheme());
+    mock.SetScheduler(parallel ? &ts : nullptr);
     std::vector<size_t> indices(n);
     std::ranges::iota(indices, size_t{ 0 });
     for (auto _ : state) {
         StressFixture f;
         f.Build(n, /*include_code_block=*/false);
         state.SetIterationTime(SecondsOf([&] {
-            layout::MeasureIndicesParallel(f.nodes, f.cache, 800.0f, theme, mock, indices, YRange::All(), parallel ? &ts : nullptr, kNoLayoutDeadline);
+            layout::MeasureIndicesParallel(f.nodes, f.cache, 800.0f, mock, indices, YRange::All(), kNoLayoutDeadline);
         }));
     }
+    mock.SetScheduler(nullptr);
     ts.Shutdown();
 }
 // 所要時間はほぼ kSpin × ノード数で決まるので、短い計測時間で足りる。
@@ -893,7 +912,7 @@ public:
 protected:
     void MeasureInitial(NodeLayoutEntry& entry)
     {
-        MeasureEntry(layout_->measurer, *table_, entry, 1200.0f, YRange::All(), 0.0f, nullptr, layout_->theme);
+        MeasureEntry(layout_->measurer, *table_, entry, 1200.0f, YRange::All(), 0.0f, nullptr);
     }
     void RestoreScreen(NodeLayoutEntry& entry, int k)
     {
@@ -940,7 +959,7 @@ BENCHMARK_DEFINE_F(TableMeasure, Resize)(benchmark::State& state)
             RestoreScreen(entry, k);
         }
         entry.layout_dirty = true;
-        state.SetIterationTime(SecondsOf([&] { MeasureEntry(layout_->measurer, *table_, entry, 1000.0f, { 0.0f, 1000.0f }, 0.0f, nullptr, layout_->theme); }));
+        state.SetIterationTime(SecondsOf([&] { MeasureEntry(layout_->measurer, *table_, entry, 1000.0f, { 0.0f, 1000.0f }, 0.0f, nullptr); }));
     }
 }
 BENCHMARK_REGISTER_F(TableMeasure, Resize)->UseManualTime()->Iterations(3)->Unit(benchmark::kMicrosecond);
@@ -1140,6 +1159,20 @@ BENCHMARK_DEFINE_F(Reload, CarryOverUnchanged)(benchmark::State& state)
 }
 BENCHMARK_REGISTER_F(Reload, CarryOverUnchanged)->UseManualTime()->Iterations(3)->Unit(benchmark::kMicrosecond);
 
+// 保存した直後の 1 回目の EvictTextLayouts。旧キャッシュで layout を持っていたのは末尾近く (編集している所) だけ。
+BENCHMARK_DEFINE_F(Reload, FirstEvictAfterCarryOver)(benchmark::State& state)
+{
+    const size_t n = new_doc_->GetNodes().size();
+    const size_t keep_begin = n - std::min<size_t>(n, 200);
+    for (auto _ : state) {
+        ResetCaches();
+        old_cache_.EvictTextLayouts(keep_begin, old_cache_.size());
+        layout::CarryOverUnchanged(old_doc_->GetNodes(), old_cache_, new_doc_->GetNodes(), new_cache_, ends_);
+        state.SetIterationTime(SecondsOf([&] { new_cache_.EvictTextLayouts(keep_begin, n); }));
+    }
+}
+BENCHMARK_REGISTER_F(Reload, FirstEvictAfterCarryOver)->UseManualTime()->Iterations(10)->Unit(benchmark::kMicrosecond);
+
 BENCHMARK_DEFINE_F(Reload, MakeEstimatedLayoutCache)(benchmark::State& state)
 {
     for (auto _ : state) {
@@ -1207,9 +1240,9 @@ AppAction MakeReduceEvent(ReduceEvent kind, int i)
     case ReduceEvent::Wheel:
         return MouseWheelAction{ .delta = odd ? WHEEL_DELTA : -WHEEL_DELTA, .tick = static_cast<uint64_t>(i) };
     case ReduceEvent::SelectDrag:
-        return TextSelectionMovedAction{ odd ? 7 : 8, 2 };
+        return LeftDragMovedAction{ .node_index = odd ? 7 : 8, .text_pos = 2 };
     case ReduceEvent::ScrollbarDrag:
-        return MdScrollbarDragMovedAction{ odd ? 100.0f : 200.0f };
+        return LeftDragMovedAction{ .dip_y = odd ? 100.0f : 200.0f };
     }
     std::unreachable();
 }

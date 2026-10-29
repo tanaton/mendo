@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 
 // 起動直後の最初の文書はペインのフォルダを起動引数から決めているため追従しない。
 // 同じ文書の再読み込みも、ユーザーがペインで移動した先を保つため追従しない。
@@ -35,7 +36,11 @@ enum class ParseCompleteStep : uint8_t {
     // 読み直す。worker の差分判定の後に表示文書が差し替わって判定の前提が崩れたか、
     // エディタの書き込み途中を読んだ (読み込み後にファイルが伸びている)。
     Retry,
-    // 同一ファイルの再読込。判定は AsyncLoadResult::reload に入る。
+    // 同一ファイルを読み直したが中身が変わっていなかった。
+    ReloadUnchanged,
+    // エディタの保存途中 (truncate→rewrite の前半) を読んだ。文書はそのままにして読み直す。
+    DeferPrefixShrink,
+    // 同一ファイルの新しい版に差し替える。判定は AsyncLoadResult::reload に入る。
     ApplyReload,
     // 別ファイルとして結果の文書を開く。
     ReplaceWithResult,
@@ -70,7 +75,15 @@ struct ParseCompletePlan {
         if (rc.still_growing || !same_doc) {
             return { .step = ParseCompleteStep::Retry };
         }
-        return { .step = ParseCompleteStep::ApplyReload };
+        switch (rc.decision.op) {
+        case ReloadOp::NoChange:
+            return { .step = ParseCompleteStep::ReloadUnchanged };
+        case ReloadOp::DeferPrefixShrink:
+            return { .step = ParseCompleteStep::DeferPrefixShrink };
+        case ReloadOp::Replace:
+            return { .step = ParseCompleteStep::ApplyReload };
+        }
+        std::unreachable();
     }
     return { .step = ParseCompleteStep::ReplaceWithResult,
              .follow_file_pane = FilePaneFollowsLoad(current.GetFilePath(), result->doc.GetFilePath()) };

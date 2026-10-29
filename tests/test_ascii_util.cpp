@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 #include "ascii_util.h"
-#include "document_utils.h"
 #include <string>
 #include <string_view>
 
@@ -44,33 +43,20 @@ TEST(SimdAsciiAsciiToLowerOnlyTest, VariousLengths)
     }
 }
 
-// ── HasAsciiUpper ──────────────────────────────────────────────
-
-TEST(SimdAsciiHasAsciiUpperTest, DetectsOnlyAsciiUppercase)
+TEST(SimdAsciiAsciiToLowerOnlyTest, KeepsBytesOutsideUppercase)
 {
-    struct Case {
-        const char* name;
-        std::string_view text;
-        bool expected;
-    };
-    constexpr Case kCases[] = {
-        { "AllLower", "abcdefghijklmnop_xyz", false },
-        // 先頭 16 byte の SIMD ブロック内
-        { "OneUpperInSimdRange", "abcdeQghijklmnopqrstuvwx", true },
-        // SIMD 1 回 + 残り 1 byte
-        { "OneUpperInTail", "abcdefghijklmnopX", true },
+    constexpr std::string_view kCases[] = {
         // 「あいうえお一二三四」の UTF-8 (27 byte)。continuation byte を大文字と誤判定しない
-        { "NonAsciiOnly", "\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86\xE3\x81\x88\xE3\x81\x8A"
-                          "\xE4\xB8\x80\xE4\xBA\x8C\xE4\xB8\x89\xE5\x9B\x9B",
-          false },
+        "\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86\xE3\x81\x88\xE3\x81\x8A"
+        "\xE4\xB8\x80\xE4\xBA\x8C\xE4\xB8\x89\xE5\x9B\x9B",
         // 'A' の直前の '@' (0x40) と 'Z' の直後の '[' (0x5B) は範囲外
-        { "BracketsOutsideRange", "[]@`{|}~[]@`{|}~[]@", false },
+        "[]@`{|}~[]@`{|}~[]@",
     };
-    for (const auto& c : kCases) {
-        SCOPED_TRACE(c.name);
-        EXPECT_EQ(ascii_util::HasAsciiUpper(c.text.data(), c.text.size()), c.expected);
+    for (const std::string_view src : kCases) {
+        std::string dst(src.size(), '\0');
+        ascii_util::AsciiToLowerOnly(src.data(), dst.data(), src.size());
+        EXPECT_EQ(dst, src);
     }
-    EXPECT_FALSE(ascii_util::HasAsciiUpper(nullptr, 0));
 }
 
 // ── Find ──────────────────────────────────────────────────────
@@ -149,8 +135,8 @@ namespace {
 // 各開始位置から参照実装 (std::string_view::find) と一致するかを総当たりで確かめる。
 void ExpectFindMatchesReference(std::string_view text, std::string_view query)
 {
-    const auto lower_text = ToLowerAsciiCopy(text);
-    const auto lower_query = ToLowerAsciiCopy(query);
+    const auto lower_text = ascii_util::ToLowerAsciiCopy(text);
+    const auto lower_query = ascii_util::ToLowerAsciiCopy(query);
     for (size_t start = 0; start <= text.size(); ++start) {
         const size_t expected = text.find(query, start);
         EXPECT_EQ(ascii_util::Find(text, query, start), expected == std::string_view::npos ? ascii_util::npos : expected)
@@ -194,4 +180,26 @@ TEST(AsciiUtilFind, HasAsciiLetter)
     EXPECT_TRUE(ascii_util::HasAsciiLetter("1Z2"));
     EXPECT_FALSE(ascii_util::HasAsciiLetter("123 -_"));
     EXPECT_FALSE(ascii_util::HasAsciiLetter("\xE3\x83\x86\xE3\x82\xB9\xE3\x83\x88"));
+}
+
+TEST(ToLowerAsciiCopy, LowersOnlyAsciiLetters)
+{
+    struct Case {
+        std::string_view in;
+        std::string_view expected;
+    };
+    constexpr Case kCases[] = {
+        { "", "" },
+        { "HELLO", "hello" },
+        { "hello", "hello" },
+        { "HeLLo WoRLd", "hello world" },
+        { "日本語", "日本語" },
+        { "ABC-123_XYZ", "abc-123_xyz" },
+        // A(0x41) の直前 @(0x40) と Z(0x5A) の直後 [(0x5B) は変換しない
+        { "@A[Z", "@a[z" },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::PrintToString(c.in));
+        EXPECT_EQ(ascii_util::ToLowerAsciiCopy(c.in), c.expected);
+    }
 }

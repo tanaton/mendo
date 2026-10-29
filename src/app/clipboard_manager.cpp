@@ -1,7 +1,6 @@
 #include "clipboard_manager.h"
 #include "clipboard_util.h"
 #include "document.h"
-#include "file_dialog_service.h"
 #include "file_io.h"
 #include "i18n.h"
 #include "mermaid_util.h"
@@ -36,7 +35,7 @@ void ClipboardManager::SaveDiagramAsPng(const Document& doc, int node_index, con
         return;
     }
 
-    const auto filename = file_dialog_service::SavePngFileDialog(hwnd_, L"diagram.png");
+    const auto filename = file_dialog::SavePngFile(hwnd_, L"diagram.png");
     if (filename.empty()) {
         return;
     }

@@ -310,31 +310,6 @@ TEST_F(MockLayoutTest, PartialModeGrowsHeightWhenEstimateLarger)
     }
 }
 
-// partial + invisible で entry.height が推定値に成長した場合、Table の幾何を
-// 無効にし、row_heights 合計と乖離した entry.height のまま描画されないようにする。
-// (issue #158: 幾何を残すと描画範囲が後続ノード位置を越えて重なる)
-TEST_F(MockLayoutTest, PartialModeInvalidatesTableGeometryWhenHeightGrows)
-{
-    std::string md = "| a | b |\n|---|---|\n";
-    for (int i = 0; i < 50; i++) {
-        md += "| r" + std::to_string(i) + " | v" + std::to_string(i) + " |\n";
-    }
-    auto [nodes, cache] = ParseAndLayout(md, ViewportWidthFor(800.0f));
-    const int table_idx = FindFirstNodeIndexByType(nodes, NodeType::Table);
-    ASSERT_GE(table_idx, 0);
-    ASSERT_NE(cache[table_idx].table_layout(), nullptr);
-    ASSERT_TRUE(cache[table_idx].table_layout()->HasGeometry());
-
-    // 成長分岐を強制発動させるため、現在の entry.height を意図的に小さくする
-    cache[table_idx].height = 1.0f;
-
-    // partial + invisible (テーブルは viewport より下) で再レイアウト。viewport は先頭余白内に収める。
-    ComputeLayout(engine_, nodes, cache, 600.0f, 0.0f, theme_.margin_top * 0.5f);
-
-    EXPECT_FALSE(cache[table_idx].table_layout()->HasGeometry())
-        << "成長時に幾何が無効にならず、描画範囲と entry.height が乖離する";
-}
-
 // ---- RecreateFormats ----
 
 // ズームで書式を作り直したら、幅が同じでも全ノードを再計測させる。

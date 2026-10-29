@@ -55,6 +55,10 @@ private:
 
     void UpdateDpiMetricsCache();
     void AwaitInitialParseBeforeDevice();
+    // 起動時の、デバイスに依存しない通知を最初のフレームより前に取り込む。デバイスの作成を待つ前に呼ぶと、
+    // ファイルペインの一覧の行の文字レイアウト (CreateRenderDevice の PrepareChrome) と、ディスクキャッシュにある
+    // インライン数式の読み込みを作成と並行して進められる。待つ間に届いた分のため、作成の後にも呼ぶ。
+    void TakeStartupMessages();
 
     HWND hwnd_ = nullptr;
     HWND search_edit_ = nullptr;

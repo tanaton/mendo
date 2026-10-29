@@ -29,6 +29,10 @@ struct InlineMathMetrics {
     }
 };
 
+// 型を切り出すとき箱の外に含める幅 (DIP)。積分記号の端など、箱から少しはみ出すインクも含める。
+// ページでは数式の間を 2px 空けてある。
+inline constexpr float INLINE_MATH_INK_MARGIN = 1.0f;
+
 // 描く数式 1 つ。font_size は数式を置く場所の文字の大きさ (DIP)。
 struct InlineMathItem {
     uint64_t key = 0;
@@ -135,5 +139,5 @@ private:
 // $...$ の範囲に IDWriteTextLayout::SetInlineObject で掛ける。描くのは IDWriteTextRenderer::DrawInlineObject で、
 // InlineMathObjectKey で引いた型を本文の色で塗る。
 Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeInlineMathObject(uint64_t key, const InlineMathMetrics& metrics);
-// 文書のレイアウトに掛けるインラインオブジェクトは MakeInlineMathObject で作ったものだけ。
-uint64_t InlineMathObjectKey(IDWriteInlineObject* object) noexcept;
+// MakeInlineMathObject で作ったものなら key。書式の省略記号 (CreateEllipsisTrimmingSign) などは nullopt。
+std::optional<uint64_t> InlineMathObjectKey(IDWriteInlineObject* object) noexcept;

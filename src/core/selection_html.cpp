@@ -99,9 +99,10 @@ public:
 
     // 開く順: <a> → kInlineTags の順 (<strong> → <em> → <s> → <code>。code は最内側)。
     // 開いたタグと対の閉じタグをスタックにペアで積むため、フィールドと閉じ文字列のズレが起きない。
+    // s.link_url_index は InlineStateOf が link_urls の範囲に収めたもの。
     constexpr void Open(const InlineState& s, std::span<const std::string_view> link_urls)
     {
-        if (s.link_url_index >= 0 && static_cast<size_t>(s.link_url_index) < link_urls.size()) {
+        if (s.link_url_index >= 0) {
             out_.append("<a href=\"");
             AppendHtmlEscaped(out_, link_urls[static_cast<size_t>(s.link_url_index)]);
             out_.append("\">");
@@ -164,14 +165,12 @@ bool IsSafeImageSrc(std::string_view src)
     return p == std::string::npos || s[p] != ':';
 }
 
-// 危険なスキームのリンクは外す。
+// 範囲外の番号と危険なスキームのリンクは外す。
 InlineState InlineStateOf(const TextRun& r, std::span<const std::string_view> link_urls)
 {
     InlineState s{ r.raw_flags(), r.link_url_index };
-    if (s.link_url_index < 0 || static_cast<size_t>(s.link_url_index) >= link_urls.size()) {
-        return s;
-    }
-    if (!IsSafeUrlScheme(link_urls[static_cast<size_t>(s.link_url_index)])) {
+    if (s.link_url_index >= 0 &&
+        (static_cast<size_t>(s.link_url_index) >= link_urls.size() || !IsSafeUrlScheme(link_urls[static_cast<size_t>(s.link_url_index)]))) {
         s.link_url_index = -1;
     }
     return s;
@@ -560,9 +559,9 @@ private:
 void AppendImageHtml(std::string& out, const Node& node, uint32_t start, uint32_t end)
 {
     out.append("<img");
-    if (const auto* img = node.image_data(); img && IsSafeImageSrc(img->src)) {
+    if (const auto src = node.image_src(); IsSafeImageSrc(src)) {
         out.append(" src=\"");
-        AppendHtmlEscaped(out, img->src);
+        AppendHtmlEscaped(out, src);
         out.append("\"");
     }
     out.append(" alt=\"");
@@ -570,16 +569,6 @@ void AppendImageHtml(std::string& out, const Node& node, uint32_t start, uint32_
         AppendHtmlEscaped(out, node.GetText().substr(start, end - start));
     }
     out.append("\">");
-}
-
-std::optional<LinkHit> FindLinkInRuns(std::span<const TextRun> runs, std::span<const std::string_view> link_urls, uint32_t pos)
-{
-    const TextRun* run = FindRunAt(runs, pos);
-    if (!run || !run->has_link() || static_cast<size_t>(run->link_url_index) >= link_urls.size()) {
-        return std::nullopt;
-    }
-    const auto index = static_cast<uint32_t>(run->link_url_index);
-    return LinkHit{ link_urls[index], index };
 }
 
 } // namespace
@@ -725,5 +714,11 @@ std::string ExtractSelectedTextAsHtml(const std::vector<Node>& nodes, const Text
 std::optional<LinkHit> FindLinkHitAtPosition(const Node& node, uint32_t text_pos)
 {
     const auto [runs, local_pos] = FindRunsAt(node, text_pos);
-    return FindLinkInRuns(runs, node.view_link_urls(), local_pos);
+    const auto link_urls = node.view_link_urls();
+    const TextRun* run = FindRunAt(runs, local_pos);
+    if (!run || !run->has_link() || static_cast<size_t>(run->link_url_index) >= link_urls.size()) {
+        return std::nullopt;
+    }
+    const auto index = static_cast<uint32_t>(run->link_url_index);
+    return LinkHit{ link_urls[index], index };
 }

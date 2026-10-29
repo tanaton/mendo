@@ -82,30 +82,6 @@ constexpr bool ShowsVScrollbar(const PaneScrollInfo& info, bool may_grow) noexce
     return info.thumb_height < info.content_height;
 }
 
-class PaneLayoutCache {
-public:
-    constexpr void Invalidate() noexcept
-    {
-        valid_ = false;
-    }
-    constexpr void Set(const PaneLayout& layout) noexcept
-    {
-        layout_ = layout;
-        valid_ = true;
-    }
-    constexpr bool IsValid() const noexcept
-    {
-        return valid_;
-    }
-    constexpr const PaneLayout& Get() const noexcept
-    {
-        return layout_;
-    }
-private:
-    PaneLayout layout_{};
-    bool valid_ = false;
-};
-
 // サイドペイン (ファイル/TOC) の総コンテンツ高。スクロール計算・描画・自動スクロールの
 // 全層がこの式を共有する (項目の可変高等を導入する際はここだけ変える)。
 constexpr float SidePaneContentHeight(size_t item_count, float pane_item_height) noexcept

@@ -1,5 +1,7 @@
 #include "titlebar.h"
+#include "file_io.h"
 #include <algorithm>
+#include <format>
 #include <iterator>
 
 void TitleBar::UpdateLayout(float window_width_dip) noexcept
@@ -64,3 +66,12 @@ TitleBarHitZone TitleBar::HitTest(float dip_x, float dip_y) const noexcept
     return TitleBarHitZone::Caption;
 }
 
+std::wstring BuildTitleString(std::wstring_view path, int zoom_percent)
+{
+    std::wstring title{ path_util::FilenameView(path) };
+    title += title.empty() ? L"mendo" : L" - mendo";
+    if (zoom_percent > 0 && zoom_percent != 100) {
+        std::format_to(std::back_inserter(title), L" ({}%)", zoom_percent);
+    }
+    return title;
+}

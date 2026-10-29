@@ -43,7 +43,7 @@ protected:
     std::vector<std::wstring> BarTexts(const SearchBarRenderState& sb)
     {
         DrawCommandList cmds;
-        overlay::EmitSearchBar(cmds, text_layouts_, nullptr, fmt_.Get(), kPane, sb, {});
+        overlay::EmitSearchBar(cmds, text_layouts_, nullptr, fmt_.Get(), ComputeSearchBarLayout(kPane, !sb.query.empty()), sb, {});
         std::vector<std::wstring> texts;
         for (const auto& t : CollectCmds<DrawTextLayoutCmd>(cmds)) {
             texts.emplace_back(text_layouts_.TextOf(t.layout));
@@ -150,7 +150,7 @@ TEST_F(SearchInputTest, SelectionIsPaintedBeforeText)
     ASSERT_GT(m.selection_width, 0.0f);
 
     DrawCommandList cmds;
-    overlay::EmitSearchBar(cmds, text_layouts_, nullptr, nullptr, kPane, sb, m);
+    overlay::EmitSearchBar(cmds, text_layouts_, nullptr, nullptr, sbl, sb, m);
     const auto sel = std::ranges::find_if(cmds, [](const DrawCommand& c) {
         const auto* f = std::get_if<FillRectCmd>(&c);
         return f && f->brush_id == BrushId::Selection;

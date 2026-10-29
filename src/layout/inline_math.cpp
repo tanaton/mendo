@@ -214,15 +214,22 @@ void InlineMathTable::RequestAllAgain(const std::function<bool(uint64_t)>& again
 
 namespace {
 
+// 描画に届いたインラインオブジェクトが数式かを QueryInterface で見分ける。
+MIDL_INTERFACE("5b3f8c1e-9d47-4a26-8e1b-7c2d4f60a913")
+IInlineMathKey : public IUnknown
+{
+    virtual uint64_t STDMETHODCALLTYPE Key() const noexcept = 0;
+};
+
 // 寸法と key を持つだけで描かない。計測ワーカーで作って UI スレッドで描くので、参照カウントはスレッド安全なものを使う。
 class InlineMathObject final
-    : public Microsoft::WRL::RuntimeClass<Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>, IDWriteInlineObject> {
+    : public Microsoft::WRL::RuntimeClass<Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>, IDWriteInlineObject, IInlineMathKey> {
 public:
     InlineMathObject(uint64_t key, const InlineMathMetrics& metrics) noexcept : key_(key), metrics_(metrics)
     {
     }
 
-    uint64_t key() const noexcept
+    uint64_t STDMETHODCALLTYPE Key() const noexcept override
     {
         return key_;
     }
@@ -261,7 +268,11 @@ Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeInlineMathObject(uint64_t key, c
     return Microsoft::WRL::Make<InlineMathObject>(key, metrics);
 }
 
-uint64_t InlineMathObjectKey(IDWriteInlineObject* object) noexcept
+std::optional<uint64_t> InlineMathObjectKey(IDWriteInlineObject* object) noexcept
 {
-    return static_cast<InlineMathObject*>(object)->key();
+    Microsoft::WRL::ComPtr<IInlineMathKey> math;
+    if (FAILED(object->QueryInterface(IID_PPV_ARGS(&math)))) {
+        return std::nullopt;
+    }
+    return math->Key();
 }

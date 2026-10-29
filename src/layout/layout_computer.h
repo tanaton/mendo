@@ -63,6 +63,13 @@ inline float PlaceholderHeight(const Theme& theme) noexcept
     return std::max(MIN_DIAGRAM_PLACEHOLDER_HEIGHT, theme.font_size_body * 3.0f);
 }
 
+// 描けなかった図の枠の最低の高さ。文言は枠に収まらない分を省略記号で切るので、推定が 1 行ぶんの短い数式でも
+// 本文 3 行ぶんは見せる (KaTeX の文言は 2〜3 行。プレースホルダーの高さでは 2 行で切れる)。
+inline float ErrorPlaceholderHeight(const Theme& theme) noexcept
+{
+    return theme.font_size_body * BODY_LINE_HEIGHT_FACTOR * 3.0f;
+}
+
 // 子ブロックも無い空 LI は bullet / checkbox だけの 1 行。
 inline float EmptyListItemHeight(const Theme& theme) noexcept
 {
@@ -110,10 +117,14 @@ void ForEachOverlayButton(const Node& node, const DiagramEntry* diagram, float x
 }
 
 // ビットマップを描くノードの高さ。寸法が届くまでは現在値 (推定・前回値) を保ち、それも無ければプレースホルダー。
+// 描けなかった図は ErrorPlaceholderHeight 以上にする。
 inline float BitmapNodeHeight(const DiagramEntry* bitmap, float node_width, float current_height, const Theme& theme) noexcept
 {
     if (bitmap && bitmap->width > 0 && bitmap->height > 0) {
         return BitmapDisplayHeight(bitmap->width, bitmap->height, node_width);
+    }
+    if (bitmap && !bitmap->error.empty()) {
+        return std::max(current_height, ErrorPlaceholderHeight(theme));
     }
     return current_height > 0 ? current_height : PlaceholderHeight(theme);
 }
@@ -162,10 +173,8 @@ CarryOverResult CarryOverUnchanged(
 LayoutCache MakeEstimatedLayoutCache(const std::vector<Node>& nodes, const Theme& theme,
                                      float content_width = 0.0f, std::stop_token stop_token = {});
 
-// 不可視ノードに対し、現在の高さを下回らない範囲で推定値で更新する。
-// 型別の touch/no-touch ポリシー (Diagram は触らない、Table は推定で成長させた場合のみ
-// table_layout を invalidate) を内部に閉じ込める。戻り値: 高さが更新されたら true。
-bool EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const Theme& theme, float node_width) noexcept;
+// 不可視ノードに対し、現在の高さを下回らない範囲で推定値で更新する。画像・図は触らない。
+void EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const Theme& theme, float node_width) noexcept;
 
 // 高さが変わったノードの閉区間 [first, last]。以降のノードは一定量のシフトで済むため、
 // 再計算を先頭からの全件ではなくこの範囲に限定できる。既定値は空。

@@ -16,13 +16,12 @@ int MeasureIndicesParallel(
     const std::vector<Node>& nodes,
     LayoutCache& cache,
     float content_width,
-    const Theme& theme,
     const ITextMeasurer& backend,
     std::span<const size_t> indices,
     YRange viewport,
-    TaskScheduler* scheduler,
     LayoutDeadline deadline)
 {
+    const Theme& theme = backend.GetTheme();
     if (!indices.empty()) {
         const auto [lo, hi] = std::ranges::minmax(indices);
         cache.NoteMaterialized(lo, hi);
@@ -43,7 +42,7 @@ int MeasureIndicesParallel(
         const DiagramEntry* bitmap = IsBitmapDrawNode(nodes[i]) ? cache.FindDiagram(i) : nullptr;
         bool measured = false;
         try {
-            measured = MeasureEntry(backend, nodes[i], entry, NodeContentWidth(nodes[i], theme, content_width), viewport, cache.Top(i), bitmap, theme);
+            measured = MeasureEntry(backend, nodes[i], entry, NodeContentWidth(nodes[i], theme, content_width), viewport, cache.Top(i), bitmap);
         } catch (...) {
             MENDO_TRACE("MeasureIndicesParallel: node measure threw exception");
         }
@@ -52,7 +51,7 @@ int MeasureIndicesParallel(
     // 1 ノードの計測 (数十 µs) に比べ chunk 取得の fetch_add は無視できるので、1 ノード単位で配って
     // 1 画面分 (数十ノード) の dirty でも全 worker に行き渡らせる。scheduler が無ければ全体が 1 chunk になる。
     std::atomic<int> left{ 0 };
-    ParallelFor(scheduler, indices.size(), 1, [&](size_t begin, size_t end) {
+    ParallelFor(backend.Scheduler(), indices.size(), 1, [&](size_t begin, size_t end) {
         MENDO_PROFILE("MeasureNode.chunk");
         for (const size_t i : indices.subspan(begin, end - begin)) {
             if (measure(i)) {
@@ -137,7 +136,7 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
     if (!dirty_indices.empty()) {
         // 未計測領域へのジャンプやスクロールバードラッグでは 1 画面分 (数十〜百ノード) を
         // 毎フレーム計測するため、scheduler があれば並列化する。
-        const int left = layout::MeasureIndicesParallel(nodes, cache, content_width, theme, *measurer_, dirty_indices, range, measurer_->Scheduler(), deadline);
+        const int left = layout::MeasureIndicesParallel(nodes, cache, content_width, *measurer_, dirty_indices, range, deadline);
         // 計測できなかったノードと期限で残したノードは、次の呼び出しで計測させる。
         result.remaining |= left > 0;
         height_changed = true;

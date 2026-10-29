@@ -1207,7 +1207,8 @@ TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout)
     CommandGenerator gen;
     gen.Init(theme_);
     PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
-    auto cmds = gen.GenerateMdPane({ .nodes = nodes, .cache = cache, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
+    DrawCommandList cmds;
+    gen.GenerateMdPane(cmds, { .nodes = nodes, .cache = cache, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
 
     const auto bullet = FindFirst<FillEllipseCmd>(cmds);
     ASSERT_TRUE(bullet.has_value()) << "FillEllipseCmd が見つからない";
@@ -1317,7 +1318,8 @@ TEST_F(LayoutTest, LooseListBulletCenteredOnFollowingParagraphLine)
     CommandGenerator gen;
     gen.Init(theme_);
     PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
-    auto cmds = gen.GenerateMdPane({ .nodes = nodes, .cache = cache, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
+    DrawCommandList cmds;
+    gen.GenerateMdPane(cmds, { .nodes = nodes, .cache = cache, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
 
     const float expected_y = cache.Top(1) + lm.height * 0.5f;
     const auto bullet = FindFirst<FillEllipseCmd>(cmds);
@@ -1350,7 +1352,8 @@ TEST_F(LayoutTest, LooseTaskListCheckboxIsEmitted)
     const MdPaneFormats formats{ .checkbox = icon_fmt };
     gen.Init(theme_, &formats, &text_layouts);
     PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
-    auto cmds = gen.GenerateMdPane({ .nodes = nodes, .cache = cache, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
+    DrawCommandList cmds;
+    gen.GenerateMdPane(cmds, { .nodes = nodes, .cache = cache, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
 
     int unchecked = 0;
     int checked = 0;

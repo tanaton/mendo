@@ -1,9 +1,19 @@
 #pragma once
-#include "ini_parser.h"
 #include "ui_types.h"
+#include <filesystem>
+#include <map>
 #include <string>
 #include <string_view>
-#include <filesystem>
+
+namespace ini {
+
+using IniData = std::map<std::string, std::map<std::string, std::string, std::less<>>, std::less<>>;
+
+// セクション外のキーは空文字列セクションに格納。
+IniData Parse(std::string_view text);
+std::string Serialize(const IniData& data);
+
+} // namespace ini
 
 // 設定 (settings.ini) のメモリ上マップとディスク永続化を保持する。
 // インスタンスごとに独立した状態を持つので、テストでは新しいインスタンスを使えば良い。

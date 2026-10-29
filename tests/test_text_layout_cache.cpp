@@ -1,7 +1,7 @@
 // TextLayoutCache の上限超過時の整理。実 DirectWrite でレイアウトを作るため DWriteTestBase を使う。
 #include <gtest/gtest.h>
 #include "dwrite_test_base.h"
-#include "text_layout_cache.h"
+#include "command_generator.h"
 #include <format>
 #include <string>
 #include <vector>
