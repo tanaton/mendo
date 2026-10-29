@@ -137,19 +137,6 @@ TEST_F(ClipboardManagerTest, CopyDiagramToClipboardNoOpForOutOfRangeIndex)
     EXPECT_TRUE(toasts_.empty());
 }
 
-TEST_F(ClipboardManagerTest, CopyDiagramToClipboardLatexMathCopiesImageWithoutRenderer)
-{
-    // LatexMath は IsSvgExportable=false。画像 (CF_DIB) のみを同期コピーし、SVG レンダラは呼ばない。
-    // LatexMath は $$..$$ 段落の昇格でのみ生成される (parser.cpp)。
-    // png 無しのため画像構築は失敗し、同期パスは結果トースト (失敗) を 1 回出す。
-    const int cb_idx = Load("$$x^2$$\n");
-    ASSERT_GE(cb_idx, 0);
-    ASSERT_EQ(doc_.GetNodes()[cb_idx].code_language, SyntaxLanguage::LatexMath);
-    CopyDiagram(cb_idx);
-    EXPECT_EQ(renderer_.request_count, 0); // SVG レンダラには行かない
-    EXPECT_EQ(toasts_.size(), 1u);         // 同期パスが結果を報告する (旧実装の no-op ではない)
-}
-
 TEST_F(ClipboardManagerTest, CopyDiagramToClipboardNoOpWhenRendererNullptr)
 {
     InitManager(nullptr);

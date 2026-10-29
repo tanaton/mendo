@@ -351,7 +351,7 @@ TEST_F(CommandExecutorIntegrationTest, InlineMathBelowCullIsNotRequested)
     const auto layout = CreateTextLayout(text, L"Segoe UI", L"en-us", 100.0f, 1000.0f);
     ASSERT_TRUE(layout);
     for (UINT32 i = 0; i < kCount; i++) {
-        ASSERT_HRESULT_SUCCEEDED(layout->SetInlineObject(MakeInlineMathObject(i, { 10.0f, 10.0f, 8.0f }).Get(), DWRITE_TEXT_RANGE{ i * 2, 1 }));
+        ASSERT_HRESULT_SUCCEEDED(layout->SetInlineObject(MakeInlineMathObject(i, { 10.0f, 10.0f, 8.0f }, 1.0f).Get(), DWRITE_TEXT_RANGE{ i * 2, 1 }));
     }
     DrawCommandList cmds;
     cmds.emplace_back(DrawTextLayoutCmd{ .origin = D2D1::Point2F(0.0f, 0.0f), .layout = layout.Get(), .brush_id = BrushId::Text, .cull_top = 0.0f, .cull_bottom = 32.0f });

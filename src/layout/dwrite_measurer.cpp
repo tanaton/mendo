@@ -368,7 +368,7 @@ IDWriteTextFormat* DWriteTextMeasurer::GetTableRowFormat(const DWriteContext& ct
     return tbl.IsHeaderRow(r) ? ctx.h[3].Get() : ctx.body.Get();
 }
 
-bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, bool apply_code_size) const
+bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, bool apply_code_size, float fit_width) const
 {
     if (runs.empty()) {
         return false;
@@ -425,10 +425,10 @@ bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     code.Flush();
     strike.Flush();
     link.Flush();
-    return ApplyInlineMath(layout, runs, text);
+    return ApplyInlineMath(layout, runs, text, fit_width);
 }
 
-bool DWriteTextMeasurer::ApplyInlineMath(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text) const
+bool DWriteTextMeasurer::ApplyInlineMath(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, float fit_width) const
 {
     if (!inline_math_) {
         return false;
@@ -455,7 +455,8 @@ bool DWriteTextMeasurer::ApplyInlineMath(IDWriteTextLayout* layout, std::span<co
         const uint64_t key = InlineMathKey(*tex, font_size);
         if (const auto metrics = inline_math_->FindOrRequest(key, *tex, font_size)) {
             if (metrics->ok()) {
-                layout->SetInlineObject(MakeInlineMathObject(key, *metrics).Get(), wr);
+                const float scale = fit_width > 0.0f && metrics->width > fit_width ? fit_width / metrics->width : 1.0f;
+                layout->SetInlineObject(MakeInlineMathObject(key, *metrics, scale).Get(), wr);
             }
         }
         else {
@@ -485,6 +486,8 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(
     if (entry.text_layout() && entry.cached_height > 0.0f && entry.cached_width == layout_width) {
         return entry.cached_height;
     }
+    // ブロック数式は図と同じく、幅に収まらなければ縮めて中央に置く (GitHub と同じ)。
+    const bool block_math = IsBlockMath(node);
     if (entry.text_layout()) {
         // 改行でしか折れておらず最も長い行が新しい幅に収まるなら、組み直しても行は同じ。左揃えなら幅は付け替えない
         // (SetMaxWidth の後の GetMetrics は作り直しとほぼ同じだけかかる)。GetMetrics は前回の結果を返すだけ。
@@ -495,8 +498,12 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(
             entry.text_layout()->GetTextAlignment() == DWRITE_TEXT_ALIGNMENT_LEADING) {
             return metrics.height;
         }
-        if (const auto height = RemeasureExistingLayout(node, entry, layout_width, *theme_)) {
-            return height;
+        // 縮める倍率は幅で変わるので、縮めて組んだか新しい幅に収まらないブロック数式は組み直す。
+        const bool rescale = block_math && !(metrics.width < entry.text_layout()->GetMaxWidth() && metrics.width <= layout_width);
+        if (!rescale) {
+            if (const auto height = RemeasureExistingLayout(node, entry, layout_width, *theme_)) {
+                return height;
+            }
         }
     }
 
@@ -507,9 +514,9 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(
         return std::nullopt;
     }
 
-    entry.pending_math = ApplyRunFormatting(layout.Get(), node.runs(), text, /*apply_code_size=*/node.type != NodeType::Heading);
-    // 引用やリストの中の $$..$$ だけの段落は図にしないので、ブロック数式と同じく中央に置く (GitHub と同じ)。
-    if (const auto runs = node.runs(); runs.size() == 1 && runs[0].display_math() && runs[0].start == 0 && runs[0].length == text.size()) {
+    entry.pending_math = ApplyRunFormatting(layout.Get(), node.runs(), text, /*apply_code_size=*/node.type != NodeType::Heading,
+                                            block_math ? layout_width : 0.0f);
+    if (block_math) {
         layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     }
     if (node.type == NodeType::BlockQuote && node.alert_label_length() > 0) {
@@ -537,7 +544,7 @@ ComPtr<IDWriteTextLayout> DWriteTextMeasurer::CreateCellLayout(const DWriteConte
     ComPtr<IDWriteTextLayout> cell_layout;
     const auto text = tbl.GetCellText(r, c);
     if (!text.empty() && SUCCEEDED(CreateDocTextLayout(ctx.factory.Get(), text, GetTableRowFormat(ctx, tbl, r), layout::kNoWrapLayoutWidth, layout::kNoWrapLayoutWidth, &cell_layout))) {
-        if (ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, /*apply_code_size=*/true)) {
+        if (ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, /*apply_code_size=*/true, /*fit_width=*/0.0f)) {
             std::atomic_ref{ tl.pending_math }.store(true, std::memory_order_relaxed);
         }
         // 揃えは折り返さない幅に影響しないので、自然幅の計測前に付けてよい。

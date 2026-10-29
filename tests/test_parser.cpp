@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "document_test_helpers.h"
+#include "document_utils.h"
 #include "parse_invariants.h"
 #include "parser.h"
 #include "test_nodes.h"
@@ -941,43 +942,43 @@ TEST(Parser, MermaidCodeBlock)
 
 // ---- LaTeX display math ($$...$$) ----
 
-TEST(Parser, LatexDisplayMathSingleLinePromotedToDiagram)
+// $$...$$ だけの段落は図にせず、段落いっぱいの kMathDisplay の run を持つブロック数式にする。
+TEST(Parser, LatexDisplayMathOnlyParagraphIsBlockMath)
 {
     auto result = ParseMarkdown("$$E = mc^2$$");
     ASSERT_EQ(result.nodes.size(), 1u);
-    EXPECT_EQ(result.nodes[0].type, NodeType::Diagram);
-    EXPECT_EQ(result.nodes[0].code_language, SyntaxLanguage::LatexMath);
-    EXPECT_EQ(result.nodes[0].GetText(), "E = mc^2");
-    // diagram_indices に登録される（描画パイプラインに流すため）
-    ASSERT_EQ(result.indices.diagram_indices.size(), 1u);
-    EXPECT_EQ(result.indices.diagram_indices[0], 0u);
+    const auto& node = result.nodes[0];
+    EXPECT_EQ(node.type, NodeType::Paragraph);
+    EXPECT_EQ(node.GetText(), "$$E = mc^2$$");
+    ASSERT_EQ(node.runs().size(), 1u);
+    EXPECT_TRUE(node.runs()[0].display_math());
+    EXPECT_TRUE(IsBlockMath(node));
+    EXPECT_TRUE(result.indices.diagram_indices.empty());
 }
 
-TEST(Parser, LatexDisplayMathWithOtherContentFallsBackToText)
+TEST(Parser, LatexDisplayMathWithOtherContentIsNotBlockMath)
 {
-    // 段落内に数式以外の内容があるときは昇格せず、テキストとして残す
     auto nodes = ParseNodes("before $$x+y$$ after");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
-    EXPECT_NE(nodes[0].code_language, SyntaxLanguage::LatexMath);
-    // フォールバック時は $$ 区切りが復元されていること
     EXPECT_TRUE(nodes[0].GetText().contains("$$x+y$$"));
+    EXPECT_FALSE(IsBlockMath(nodes[0]));
 }
 
-TEST(Parser, LatexMultipleDisplayMathInOneParagraphFallsBackToText)
+TEST(Parser, LatexMultipleDisplayMathInOneParagraphIsNotBlockMath)
 {
-    // 1段落に2つ以上の $$...$$ があるときは昇格しない
     auto nodes = ParseNodes("$$a$$ $$b$$");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
+    EXPECT_FALSE(IsBlockMath(nodes[0]));
 }
 
 // 数式以外のテキストの種別ごとに、$$..$$ だけの段落かを判定する。HTML は表示しないので数えない。
-TEST(Parser, LatexDisplayMathPromotionDependsOnOtherTextType)
+TEST(Parser, LatexBlockMathDependsOnOtherTextType)
 {
     struct Case {
         std::string_view md;
-        bool promoted;
+        bool block;
     };
     for (const auto& c : {
              Case{ "$$x$$ &amp;", false },
@@ -990,12 +991,12 @@ TEST(Parser, LatexDisplayMathPromotionDependsOnOtherTextType)
         SCOPED_TRACE(c.md);
         auto nodes = ParseNodes(c.md);
         ASSERT_FALSE(nodes.empty());
-        EXPECT_EQ(nodes[0].type == NodeType::Diagram, c.promoted);
+        EXPECT_EQ(IsBlockMath(nodes[0]), c.block);
     }
 }
 
-// 長くて区切った $$..$$ は昇格させず、本文のまま続きのノードに並べる。
-TEST(Parser, LatexDisplayMathSplitIntoChunksNotPromoted)
+// 長くて区切った $$..$$ はブロック数式にせず、本文のまま続きのノードに並べる。
+TEST(Parser, LatexDisplayMathSplitIntoChunksIsNotBlockMath)
 {
     std::string md = "$$";
     while (md.size() < kTextChunkTarget * 2) {
@@ -1006,6 +1007,7 @@ TEST(Parser, LatexDisplayMathSplitIntoChunksNotPromoted)
     ASSERT_GT(nodes.size(), 1u);
     for (const auto& n : nodes) {
         EXPECT_EQ(n.type, NodeType::Paragraph);
+        EXPECT_FALSE(IsBlockMath(n));
     }
 }
 
@@ -1087,17 +1089,16 @@ TEST(Parser, LatexInlineMathNotSplitAcrossChunks)
     EXPECT_EQ(math_count, 1u);
 }
 
-TEST(Parser, LatexDisplayMathInBlockquoteNotPromoted)
+TEST(Parser, LatexDisplayMathInBlockquoteIsBlockMath)
 {
-    // blockquote 内の $$...$$ は引用文脈維持のため昇格せず、本文の中に描く数式の run にする
     auto nodes = ParseNodes("> $$y=x$$");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
     EXPECT_EQ(MathRunTexts(nodes[0]), (std::vector<std::string_view>{ "$$y=x$$" }));
-    EXPECT_TRUE(nodes[0].runs()[0].display_math());
+    EXPECT_TRUE(IsBlockMath(nodes[0]));
 }
 
-// 本文と混ざった $$...$$ は昇格せず、前後の $$ を含む範囲に kMathDisplay の run を付ける。
+// 本文と混ざった $$...$$ は、前後の $$ を含む範囲に kMathDisplay の run を付ける。
 TEST(Parser, LatexDisplayMathInTextMarksDisplayRun)
 {
     auto nodes = ParseNodes("a $$x+y$$ b $z$");
@@ -1108,15 +1109,6 @@ TEST(Parser, LatexDisplayMathInTextMarksDisplayRun)
     EXPECT_FALSE(nodes[0].runs()[1].display_math());
 }
 
-// $$...$$ だけの段落は今までどおり図にし、数式の run は残さない。
-TEST(Parser, PromotedDisplayMathHasNoRuns)
-{
-    auto nodes = ParseNodes("$$x$$");
-    ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::Diagram);
-    EXPECT_TRUE(nodes[0].runs().empty());
-}
-
 TEST(Parser, PlainDollarSignsNotMisdetectedAsMath)
 {
     // "The price is $5 or $10." のような金額表記は LaTeX ではなくテキストとして扱う。
@@ -1125,69 +1117,75 @@ TEST(Parser, PlainDollarSignsNotMisdetectedAsMath)
     auto nodes = ParseNodes("The price is $5 or $10.");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
-    EXPECT_NE(nodes[0].code_language, SyntaxLanguage::LatexMath);
     EXPECT_TRUE(MathRunTexts(nodes[0]).empty());
     EXPECT_TRUE(nodes[0].GetText().contains("$5"));
     EXPECT_TRUE(nodes[0].GetText().contains("$10"));
 }
 
-TEST(Parser, LatexDisplayMathMultiline)
+TEST(Parser, LatexDisplayMathMultilineIsBlockMath)
 {
-    // 複数行にわたる $$...$$ でも昇格される（中身はパーサがそのまま保持）
-    auto result = ParseMarkdown("$$\nE = mc^2\n$$");
-    ASSERT_EQ(result.nodes.size(), 1u);
-    EXPECT_EQ(result.nodes[0].type, NodeType::Diagram);
-    EXPECT_EQ(result.nodes[0].code_language, SyntaxLanguage::LatexMath);
-    // 中身に 'E = mc^2' が含まれること（md4c の改行扱いに依存するが、式本体は保持される）
-    const auto& body = result.nodes[0].GetText();
-    EXPECT_TRUE(body.contains("E = mc^2"));
+    auto nodes = ParseNodes("$$\nE = mc^2\n$$");
+    ASSERT_EQ(nodes.size(), 1u);
+    EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
+    EXPECT_TRUE(IsBlockMath(nodes[0]));
+    EXPECT_TRUE(nodes[0].GetText().contains("E = mc^2"));
 }
 
-TEST(Parser, LatexDisplayMathLineCountMatchesNewlines)
+TEST(Parser, LatexBlockMathLineCountMatchesNewlines)
 {
-    // OnText で事前集計した display_math_newlines を line_count に流用しているため、
-    // 旧実装 (current_text 全走査の std::ranges::count) と同じ値を保つことを回帰テストする。
     const std::string_view sources[] = {
         "$$E = mc^2$$",
         "$$\nE = mc^2\n$$",
         "$$\na\nb\nc\n$$",
+        "```math\na\nb\n```",
     };
     for (const auto src : sources) {
         SCOPED_TRACE(std::string{ src });
-        auto result = ParseMarkdown(src);
-        ASSERT_EQ(result.nodes.size(), 1u);
-        ASSERT_EQ(result.nodes[0].type, NodeType::Diagram);
-        ASSERT_EQ(result.nodes[0].code_language, SyntaxLanguage::LatexMath);
-        const auto text = result.nodes[0].GetText();
-        const auto expected = static_cast<int>(std::ranges::count(text, '\n'));
-        EXPECT_EQ(result.nodes[0].line_count, expected);
+        auto nodes = ParseNodes(src);
+        ASSERT_EQ(nodes.size(), 1u);
+        ASSERT_TRUE(IsBlockMath(nodes[0]));
+        const auto text = nodes[0].GetText();
+        EXPECT_EQ(nodes[0].line_count, static_cast<int>(std::ranges::count(text, '\n')));
     }
 }
 
 TEST(Parser, LatexDisplayMathSurroundingParagraphs)
 {
-    // 前後に通常段落がある場合も、純粋な $$...$$ 段落のみ昇格される
     auto result = ParseMarkdown("before\n\n$$E=mc^2$$\n\nafter");
     ASSERT_EQ(result.nodes.size(), 3u);
-    EXPECT_EQ(result.nodes[0].type, NodeType::Paragraph);
-    EXPECT_EQ(result.nodes[1].type, NodeType::Diagram);
-    EXPECT_EQ(result.nodes[1].code_language, SyntaxLanguage::LatexMath);
-    EXPECT_EQ(result.nodes[1].GetText(), "E=mc^2");
-    EXPECT_EQ(result.nodes[2].type, NodeType::Paragraph);
-    ASSERT_EQ(result.indices.diagram_indices.size(), 1u);
-    EXPECT_EQ(result.indices.diagram_indices[0], 1u);
+    EXPECT_FALSE(IsBlockMath(result.nodes[0]));
+    EXPECT_TRUE(IsBlockMath(result.nodes[1]));
+    EXPECT_EQ(result.nodes[1].GetText(), "$$E=mc^2$$");
+    EXPECT_FALSE(IsBlockMath(result.nodes[2]));
+    EXPECT_TRUE(result.indices.diagram_indices.empty());
 }
 
-TEST(Parser, MathFencedCodeBlockIsLatexDiagram)
+// GitHub / GitLab 互換の ```math も $$...$$ だけの段落と同じブロック数式にする。中身の改行は保ち、前後を $$ で囲む。
+TEST(Parser, MathFencedCodeBlockIsBlockMath)
 {
-    // GitHub / GitLab 互換の ```math も $$...$$ と同じく図として描画する
     auto result = ParseMarkdown("before\n\n```math\n\\frac{a}{b}\n\\sqrt{x}\n```");
     ASSERT_EQ(result.nodes.size(), 2u);
-    EXPECT_EQ(result.nodes[1].type, NodeType::Diagram);
-    EXPECT_EQ(result.nodes[1].code_language, SyntaxLanguage::LatexMath);
-    EXPECT_EQ(result.nodes[1].GetText(), "\\frac{a}{b}\n\\sqrt{x}");
-    ASSERT_EQ(result.indices.diagram_indices.size(), 1u);
-    EXPECT_EQ(result.indices.diagram_indices[0], 1u);
+    const auto& node = result.nodes[1];
+    EXPECT_EQ(node.type, NodeType::Paragraph);
+    EXPECT_EQ(node.code_language, SyntaxLanguage::None);
+    EXPECT_EQ(node.GetText(), "$$\\frac{a}{b}\n\\sqrt{x}$$");
+    EXPECT_EQ(node.line_count, 1);
+    EXPECT_TRUE(IsBlockMath(node));
+    EXPECT_TRUE(result.indices.diagram_indices.empty());
+}
+
+// 引用の中の ```math は引用の段落 (BlockQuote) と同じ種別にする。空の ```math は数式が無いのでコードブロックのまま。
+TEST(Parser, MathFencedCodeBlockInQuoteAndEmpty)
+{
+    auto quoted = ParseNodes("> ```math\n> x\n> ```");
+    ASSERT_EQ(quoted.size(), 1u);
+    EXPECT_EQ(quoted[0].type, NodeType::BlockQuote);
+    EXPECT_TRUE(IsBlockMath(quoted[0]));
+
+    auto empty = ParseNodes("```math\n```");
+    ASSERT_EQ(empty.size(), 1u);
+    EXPECT_EQ(empty[0].type, NodeType::CodeBlock);
+    EXPECT_TRUE(empty[0].runs().empty());
 }
 
 // ---- 空の見出し ----

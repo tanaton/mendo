@@ -196,18 +196,41 @@ TEST_F(DWriteInlineMathTest, ExpandToClustersCoversWholeFormula)
     EXPECT_FLOAT_EQ(RangeWidth(layout, inside.startPosition, inside.length), 60.0f);
 }
 
-// 引用の中の $$..$$ はディスプレイ形式で頼み、それだけの段落はブロック数式と同じく中央に置く。文中の $$..$$ は左揃えのまま。
-TEST_F(DWriteInlineMathTest, DisplayMathInQuoteIsDisplayStyleAndCentered)
+// $$..$$ はディスプレイ形式で頼み、それだけの段落 (引用の中も、```math も) は中央に置く。文中の $$..$$ は左揃えのまま。
+TEST_F(DWriteInlineMathTest, DisplayMathIsDisplayStyleAndBlockMathCentered)
 {
-    auto [nodes, cache] = ParseAndLayout("> $$y=x$$\n\na $$z$$ b\n");
-    ASSERT_EQ(nodes.size(), 2u);
+    auto [nodes, cache] = ParseAndLayout("$$w$$\n\n> $$y=x$$\n\na $$z$$ b\n\n```math\na\nb\n```\n");
+    ASSERT_EQ(nodes.size(), 4u);
     auto requests = table_.TakeRequests();
     std::ranges::sort(requests, {}, &InlineMathItem::tex);
-    ASSERT_EQ(requests.size(), 2u);
-    EXPECT_EQ(requests[0].tex, R"(\displaystyle y=x)");
-    EXPECT_EQ(requests[1].tex, R"(\displaystyle z)");
+    ASSERT_EQ(requests.size(), 4u);
+    EXPECT_EQ(requests[0].tex, "\\displaystyle a\nb");
+    EXPECT_EQ(requests[1].tex, R"(\displaystyle w)");
+    EXPECT_EQ(requests[2].tex, R"(\displaystyle y=x)");
+    EXPECT_EQ(requests[3].tex, R"(\displaystyle z)");
     EXPECT_EQ(cache[0].text_layout()->GetTextAlignment(), DWRITE_TEXT_ALIGNMENT_CENTER);
-    EXPECT_EQ(cache[1].text_layout()->GetTextAlignment(), DWRITE_TEXT_ALIGNMENT_LEADING);
+    EXPECT_EQ(cache[1].text_layout()->GetTextAlignment(), DWRITE_TEXT_ALIGNMENT_CENTER);
+    EXPECT_EQ(cache[2].text_layout()->GetTextAlignment(), DWRITE_TEXT_ALIGNMENT_LEADING);
+    EXPECT_EQ(cache[3].text_layout()->GetTextAlignment(), DWRITE_TEXT_ALIGNMENT_CENTER);
+}
+
+// ブロック数式は幅に収まらなければ幅いっぱいに縮め、幅が変わったら組み直して倍率も変える。文中の数式は縮めない。
+TEST_F(DWriteInlineMathTest, WideBlockMathShrinksToWidth)
+{
+    auto [nodes, cache] = ParseAndLayout("$$x$$\n\na $$x$$ b\n");
+    ASSERT_EQ(nodes.size(), 2u);
+    auto requests = table_.TakeRequests();
+    ASSERT_EQ(requests.size(), 1u);
+    table_.Resolve(requests[0].key, { 2000.0f, 40.0f, 30.0f });
+    cache.InvalidatePendingMathLayouts(true);
+    for (const float viewport : { 800.0f, 600.0f }) {
+        SCOPED_TRACE(viewport);
+        ComputeLayout(engine_, nodes, cache, viewport);
+        auto* block = cache[0].text_layout();
+        ASSERT_NE(block, nullptr);
+        EXPECT_NEAR(RangeWidth(block, 0, 5), block->GetMaxWidth(), 0.01f);
+        EXPECT_FLOAT_EQ(RangeWidth(cache[1].text_layout(), 2, 5), 2000.0f);
+    }
 }
 
 // 区切りのそろった run だけを数式にする。長い本文を区切って片側の $$ が無い run は原文のまま組む。

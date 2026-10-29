@@ -10,7 +10,7 @@ struct TextRun {
     static constexpr uint8_t kStrikethrough = 0x08;
     // インライン数式。範囲は前後の "$" を含み、テキストは原文のまま残してレイアウトでだけ数式に置き換える。
     static constexpr uint8_t kMath = 0x10;
-    // 本文や引用の中の $$...$$。範囲は前後の "$$" を含み、ディスプレイ形式で本文の中に置く ($$..$$ だけの段落は図にする)。
+    // $$...$$ と ```math。範囲は前後の "$$" を含み、ディスプレイ形式で本文の中に置く (```math はパーサが "$$" で囲む)。
     static constexpr uint8_t kMathDisplay = 0x20;
 
     uint32_t start = 0;

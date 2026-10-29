@@ -218,7 +218,6 @@ TEST(NodeTest, TextStoredRegardlessOfType)
     };
     constexpr Case kCases[] = {
         { NodeType::Diagram, SyntaxLanguage::Mermaid, "graph TD;A-->B" },
-        { NodeType::Diagram, SyntaxLanguage::LatexMath, "E = mc^2" },
         { NodeType::CodeBlock, SyntaxLanguage::Cpp, "int main() { return 0; }" },
         { NodeType::Paragraph, SyntaxLanguage::None, "paragraph content" },
     };

@@ -123,6 +123,49 @@ TEST(ExtractSelectedText, MultipleNodesJoinedWithCrlf)
     EXPECT_EQ(ExtractSelectedText(nodes, TextSelection::MakeOrdered(0, 2, 2, 3)), "rst\r\nSecond\r\nThi");
 }
 
+// 数式は区切り ($ / $$) を除いた TeX だけを返す。区切りの途中から選んでも区切りは出さない。
+TEST(ExtractSelectedText, MathCopiesTexOnly)
+{
+    struct Case {
+        std::string_view md;
+        uint32_t start;
+        uint32_t end;
+        std::string_view expected;
+    };
+    constexpr Case kCases[] = {
+        { "a $x^2$ b", 0, 1000, "a x^2 b" },
+        { "a $x^2$ b", 2, 4, "x" },
+        { "a $x^2$ b", 4, 7, "^2" },
+        { "$$E=mc^2$$", 0, 1000, "E=mc^2" },
+        { "a $$y$$ b $z$", 0, 1000, "a y b z" },
+        { "```math\na\nb\n```", 0, 1000, "a\r\nb" },
+        { "| $x$ | $$y$$ |\n|---|---|\n| $z$ | w |", 0, 1000, "x\ty\r\nz\tw" },
+        { "| $x$ | $$y$$ |\n|---|---|\n| $z$ | w |", 5, 1000, "y\r\nz\tw" },
+        { "The price is $5 or $10.", 0, 1000, "The price is $5 or $10." },
+    };
+    for (const auto& c : kCases) {
+        SCOPED_TRACE(::testing::Message() << c.md << " [" << c.start << ", " << c.end << ")");
+        const auto nodes = ParseNodes(c.md);
+        ASSERT_EQ(nodes.size(), 1u);
+        EXPECT_EQ(ExtractSelectedText(nodes, TextSelection::MakeOrdered(0, c.start, 0, c.end)), c.expected);
+    }
+}
+
+// 長くて区切った $$..$$ は数式として描かず原文のまま出すので、コピーも原文のまま返す。
+TEST(ExtractSelectedText, SplitDisplayMathKeepsDelimiters)
+{
+    std::string md = "$$";
+    while (md.size() < kTextChunkTarget * 2) {
+        md += "x + ";
+    }
+    md += "y$$";
+    const auto nodes = ParseNodes(md);
+    ASSERT_GT(nodes.size(), 1u);
+    const auto text = ExtractSelectedText(nodes, SelectAll(nodes));
+    EXPECT_TRUE(text.starts_with("$$x + ")) << text.substr(0, 16);
+    EXPECT_TRUE(text.ends_with("y$$"));
+}
+
 TEST(ExtractSelectedText, EmptyNodes)
 {
     std::vector<Node> nodes;
@@ -522,18 +565,24 @@ TEST(ExtractSelectedTextAsHtml, PartialCodeBlockSelectionSplitsToken)
     EXPECT_FALSE(html.contains("42")) << html;
 }
 
-// 図 (Mermaid / LaTeX) は書式付きコピーでは元のコードを <pre> で出す。項目内の図はその <li> に入る。
+// HTML でも数式は区切りを除いた TeX だけを出す。
+TEST(ExtractSelectedTextAsHtml, MathCopiesTexOnly)
+{
+    EXPECT_EQ(CopyAllAsHtml("a $x<y$ **$z$**"), "<p>a x&lt;y <strong>z</strong></p>");
+    EXPECT_EQ(CopyAllAsHtml("$$E=mc^2$$"), "<p>E=mc^2</p>");
+    EXPECT_EQ(CopyAllAsHtml("```math\na\nb\n```"), "<p>a<br>b</p>");
+    const auto table = CopyAllAsHtml("| $x$ |\n|---|\n| $$y$$ |");
+    EXPECT_TRUE(table.contains(">x</th>")) << table;
+    EXPECT_TRUE(table.contains(">y</td>")) << table;
+    EXPECT_EQ(CopyAllAsHtml("![a $x$ b](p.png)"), "<img src=\"p.png\" alt=\"a x b\">");
+}
+
+// Mermaid の図は書式付きコピーでは元のコードを <pre> で出す。項目内の図はその <li> に入る。
 TEST(ExtractSelectedTextAsHtml, DiagramCopiesSourceAsPre)
 {
-    for (const std::string_view md : { std::string_view{ "$$x^2$$" }, std::string_view{ "```mermaid\ngraph TD\n```" } }) {
-        SCOPED_TRACE(md);
-        auto nodes = ParseNodes(md);
-        ASSERT_EQ(nodes.size(), 1u);
-        ASSERT_EQ(nodes[0].type, NodeType::Diagram);
-        const auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
-        EXPECT_TRUE(html.starts_with("<pre")) << html;
-        EXPECT_TRUE(html.contains(std::string(nodes[0].GetText()) + "</code></pre>")) << html;
-    }
+    const auto single = CopyAllAsHtml("```mermaid\ngraph TD\n```");
+    EXPECT_TRUE(single.starts_with("<pre")) << single;
+    EXPECT_TRUE(single.contains("graph TD</code></pre>")) << single;
     const auto html = CopyAllAsHtml("- a\n\n  ```mermaid\n  g\n  ```\n- b");
     EXPECT_TRUE(html.starts_with("<ul><li><p>a</p><pre")) << html;
     EXPECT_TRUE(html.contains("g</code></pre></li><li>")) << html;

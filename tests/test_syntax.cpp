@@ -168,7 +168,6 @@ TEST(Syntax, ParserExtractsLanguage)
         { "```\nplain code\n```", None },
         { "```java\nclass Main {}\n```", Java },
         { "```yaml\nkey: 1\n```", Yaml },
-        { "```math\nx^2\n```", LatexMath },
         { "```text\nplain\n```", None },
     };
     for (const auto& c : kCases) {

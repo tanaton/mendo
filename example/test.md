@@ -859,7 +859,7 @@ md4c は **UTF-8 モード** (`MD_CHAR=char`) で起動するため、入力は 
 - **見出し** (`# H1` 〜 `###### H6`) — 6段階、アンカーID自動生成
 - **段落** — 通常テキスト
 - **コードブロック** — フェンス記法 (```), 言語指定対応
-- **図** — ` ```mermaid ` / ` ```math ` のコードブロックと `$$...$$` だけの段落は `NodeType::Diagram` として図で表示
+- **図** — ` ```mermaid ` のコードブロックは `NodeType::Diagram` として図で表示。` ```math ` と `$$...$$` だけの段落は段落の中に中央揃えの数式として表示
 - **引用** (`>`) — ネスト対応、GitHub Alerts記法対応
 - **水平線** (`---`, `***`, `___`)
 - **順序付きリスト** (`1.`, `2.`, ...)
@@ -1134,7 +1134,7 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
 
 コードブロックの構文色も描画時に付ける。`DrawTextLayoutCmd::syntax_tokens`（同じ `NodeLayoutEntry` が持つ UTF-16 位置のトークン、非所有）があれば、`VisibleRunRenderer` はグリフランを `clusterMap` でトークン境界に分け、種別ごとの固定ブラシ（`SyntaxKeyword` 〜 `SyntaxDeleted`）で描く。右から左のランも分割し、境界がクラスタ（合字等）の途中にあればそのクラスタは後ろのトークンの色になる。`SetDrawingEffect` は 1 回ごとに既存の範囲数に比例して重くなり、巨大なコードブロックで O(n²) になるため構文色には使わない。トークンは計測ワーカーが text_layout と一緒に作り、トークン間の空白だけの隙間は直前のトークンに含めて同種をまとめ、グリフランの分割を減らしておく。
 
-インラインオブジェクトは `DrawInlineObject` に届く。見えない行のものは、見分ける前に寸法（`GetMetrics`）で飛ばす。インライン数式（`MakeInlineMathObject` で作ったもの。`InlineMathObjectKey` が QueryInterface で見分ける）は `InlineMathMasks` の型を本文の色で塗り、それ以外は書式の省略記号なのでオブジェクト自身に描かせる。省略記号は `TextFormatSpec::ellipsis` で書式に付け、今は描けなかった図の文言（`placeholder_text`）だけが使う。その枠の高さは文言の長さによらない（推定か本文 3 行ぶんの高さ。3.26）ので、収まらない行を省いて最後に見える行の末尾を省略記号にし、前後のブロックに重ならないようにする。
+インラインオブジェクトは `DrawInlineObject` に届く。見えない行のものは、見分ける前に寸法（`GetMetrics`）で飛ばす。インライン数式（`MakeInlineMathObject` で作ったもの。`InlineMathObjectOf` が QueryInterface で見分け、key と倍率を返す）は `InlineMathMasks` の型を本文の色で塗り（幅に収まらないブロック数式は倍率で縮める）、それ以外は書式の省略記号なのでオブジェクト自身に描かせる。省略記号は `TextFormatSpec::ellipsis` で書式に付け、今は描けなかった図の文言（`placeholder_text`）だけが使う。その枠の高さは文言の長さによらない（推定か本文 3 行ぶんの高さ。3.26）ので、収まらない行を省いて最後に見える行の末尾を省略記号にし、前後のブロックに重ならないようにする。
 
 #### 3.8.3 Renderer のデバイスとスワップチェーン
 
@@ -1411,7 +1411,7 @@ Zig は汎用 lexer に `\\` の行文字列と `@import` 等の組み込み関�
 
 Lua は汎用 lexer に長括弧（`[[ ]]` / `[==[ ]==]` の文字列と `--[[ ]]` のコメント）のフラグを足して扱う。Vim script は専用 lexer で、行頭と `|` の後をコマンド位置として読み、コマンド名（省略形を含む）を Keyword、`g:` / `s:` / `a:` 等のスコープ付き変数と `&option` / `$ENV` / `@r` を Type、`<CR>` 等のキー表記を Preprocessor にする。`"` は行頭ならコメント、式の中では同じ行に閉じの `"` があれば文字列、無ければ行末コメントとみなす。マッピングコマンドの引数はキー列なのでキー表記だけを色付けし、`lua << EOF` の本文は Lua として、`let x =<< END` の本文は文字列として色付けする。`<<` はコマンド（`let` は代入の `=`）の直後に来たときだけ本文の始まりとみなし、行の途中のシフト演算子や文字列中の `<<` では始めない。先頭のコマンドが `vim9script` の文書（と ` ```vim9 `）は Vim9 script として `#` をコメント、`"` を文字列とする。
 
-キーワードリストは `syntax_keywords.h` に集約され、長さでバケット分けしたソート済み配列（`BucketedTable<N>`）で持つ。判定は `word.size()` で該当バケットへ直接ジャンプし、バケット内を `std::ranges::binary_search` で二分探索する。なお `SyntaxLanguage` には図形言語として `Mermaid` に加え `LatexMath`（数式、トークン化対象外）もある。`LatexMath` になるのは ` ```math ` コードブロックと、`$$...$$` だけの段落である。どちらの言語のブロックもパーサが `NodeType::Diagram` のノードにする。
+キーワードリストは `syntax_keywords.h` に集約され、長さでバケット分けしたソート済み配列（`BucketedTable<N>`）で持つ。判定は `word.size()` で該当バケットへ直接ジャンプし、バケット内を `std::ranges::binary_search` で二分探索する。なお `SyntaxLanguage` には図形言語の `Mermaid` と、` ```math ` の `LatexMath`（トークン化対象外）もある。`Mermaid` のブロックはパーサが `NodeType::Diagram` のノードにする。` ```math ` はパーサが中身を `$$` で囲んだ段落にし、`$$...$$` だけの段落と同じく段落いっぱいの `kMathDisplay` の run（`IsBlockMath`）としてインライン数式の仕組みで描く。
 
 ---
 
@@ -1634,7 +1634,7 @@ public:
 
 `mendo_core` には `IMermaidRenderer` 抽象のみが入り、WebView2 を呼び出す具象 `MermaidRenderer` は `mendo` 実行ファイル側に分離されている。`MermaidRenderer` は最大 2 ワーカー（`MAX_WORKERS`、独立した WebView2 インスタンス）を並行稼働させ、PNG/SVG を同時にレンダリングできる。ワーカーは最初 1 つだけ起動し、全ワーカーが描画中で待ちが溜まったときに `MaybeGrowWorkers` で増やす。
 
-ページへの要求はスクリプトに埋め込まず、`"<種類>:<要求 ID>:..."` の文字列（`mermaid_util::Page*Message`）を `PostWebMessageAsString` で送り、`mermaid.html` の `message` の受け口が振り分けて結果を `postMessage` で返す。図のコードは末尾に置き、まとめ描きの数式は UTF-16 の長さを前に置いて区切るので、エスケープは要らない。描画待ちのブロック数式は、1 つずつ描くとキャプチャの待ちで 1 個 50ms 以上かかるため、`ProcessQueue` が同じテーマ・同じ幅のものを最大 `MAX_BLOCKS_PER_PAGE`（16）個集め（`TakeBlocksBatch`）、ページの `renderMathBlocks` が 1 ページに縦に並べて描いて `blocks-result` で箱を返す。1 回のキャプチャを worker で数式ごとに切り出し（`CropToPng`。並列にしても開いてから描き終えるまでは変わらないので直列）、1 つずつ描いたときと同じ結果（ビットマップ・PNG・ディスクキャッシュ）にする。WebView2 はビューの画素数が CSS px で割り切れないとき（dpr 1.5 など）ビューより 1px 広く撮るので、1 つずつ描いたキャプチャも、撮るビューの大きさ（`RenderRequest::page_rect`）に切り出す（`DecodeCapture`。デコーダから範囲だけを確定させ、大きさが合えば撮った PNG をそのまま使う）。インライン数式のページも、アルファを取り出すときに同じ大きさ（`PageRect`）に切り出す。ディスクキャッシュには撮ったままの PNG を置き、読むときも切り出す。ページは大きさを、まとめ描きの箱と同じく CSS px で切り上げて返し、物理 px への切り上げも同じ `CaptureRect` で行うので、同じ数式は 1 つずつ描いてもまとめて描いても同じ PNG になる。表示の大きさ（`css_width` / `css_height`）は、切り出す画素数を dpr で割って決め（`RenderRequest::SetCaptureBox`）、ビットマップを縮めずに描く。まとめ描きを終えられなければ 1 つずつ描き直す（`RequeueBlocks`）。キャプチャの前は、ページが新しい大きさのフレームを描き始めるまで `requestAnimationFrame` を 1 回だけ待つ。
+ページへの要求はスクリプトに埋め込まず、`"<種類>:<要求 ID>:..."` の文字列（`mermaid_util::Page*Message`）を `PostWebMessageAsString` で送り、`mermaid.html` の `message` の受け口が振り分けて結果を `postMessage` で返す。図のコードは末尾に置き、まとめ描きの数式は UTF-16 の長さを前に置いて区切るので、エスケープは要らない。WebView2 はビューの画素数が CSS px で割り切れないとき（dpr 1.5 など）ビューより 1px 広く撮るので、図のキャプチャは撮るビューの大きさ（`RenderRequest::page_rect`）に切り出す（`DecodeCapture`。デコーダから範囲だけを確定させ、大きさが合えば撮った PNG をそのまま使う）。インライン数式のページも、アルファを取り出すときに同じ大きさ（`PageRect`）に切り出す。ディスクキャッシュには撮ったままの PNG を置き、読むときも切り出す。ページは大きさを CSS px で切り上げて返し、`PageRect` が物理 px へ切り上げる。表示の大きさ（`css_width` / `css_height`）は、切り出す画素数を dpr で割って決め（`RenderRequest::SetCaptureBox`）、ビットマップを縮めずに描く。キャプチャの前は、ページが新しい大きさのフレームを描き始めるまで `requestAnimationFrame` を 1 回だけ待つ。
 
 PNG のデコードは UI スレッドで行わない。ディスクキャッシュから読む場合も、WebView2 の `CapturePreview` で描画した直後の PNG も同じ `DiskLoad` 経路に流し、バックグラウンド `TaskScheduler` でファイル読み込み（キャプチャ時は不要）と WIC デコードを済ませた `IWICBitmap` を作る。完了は `app_msg::MERMAID_DISK_LOADED` で通知され、UI スレッドの `ProcessDiskLoads` が `CreateBitmapFromWicBitmap` で `ID2D1Bitmap` 化してメモリキャッシュに入れ、結果が出たものがあれば `on_update_` をまとめて 1 回呼ぶ。1 回の転送は `kUploadSliceBudget`（4ms）までで、残した分は `HasLeftoverDiskLoads` が真になり、メッセージループの空き時間（`App::RunIdleWork`）で続ける。キャプチャ由来の PNG はこのときディスクキャッシュへ `StoreAsync` される。ディスクから読めなかった・デコードできなかった図は WebView2 での描画に回し、キャプチャ直後の PNG がデコードできなければエラーとして確定させる。ディスクキャッシュの読み込みは `DropQueued` / `CancelPending` で世代（`disk_drop_gen_`）を進めて取り消す（ImageLoader の `drop_gen_` と同じ）。worker は世代が変わっていれば読まずに返し、UI は要求中の印だけを外す。描画直後の PNG はディスクへ保存したいので取り消さない。
 
@@ -2577,7 +2577,7 @@ private:
 
 画像と図は `PrioritizedSlices` で、先読み範囲（可視範囲 ± `PREFETCH_BUFFER_SCREENS` 画面）を見えている分 → 下側 → 上側の順に要求する。要求キューは FIFO なので、スクロール位置の復元やジャンプの直後に画面より上の分が先に処理されないようにするためである。前回の要求位置から `EVICT_BUFFER_SCREENS` 画面を越えて移動していたら（TOC ジャンプや Ctrl+End）、`DropQueuesIfJumped` が図の描画待ち（`IMermaidRenderer::DropQueued`）と画像のデコード待ち（`ImageLoader::DropQueued`）を捨てる。
 
-図は `IMermaidRenderer::RequestRender` で要求する。結果（ビットマップかエラー）が出ていればその場で `DiagramEntry` に書かれ、`ApplyBitmapHeight` が `BitmapNodeHeight` で高さを決める。描けなかった図の枠は、文言を省略記号で切るので、推定（コードの行数）が 1 行ぶんの短い数式でも数行見せるよう、本文 3 行ぶん（`ErrorPlaceholderHeight`）以上にする。まだなら描画が始まり、結果が出ると `MermaidRenderer` が初期化時に渡された通知で `RequestMermaidRenders` を呼び、待っていた図を要求し直させる。要求と結果はコードのハッシュで引くので、リロード・幅・テーマの変更でも出来上がった結果を使い回す（3.12）。`RequestVisibleDiagrams` 自体は再レイアウトせず、高さの変化を `height_changed_` に溜める。`RequestMermaidRenders` はその後に見ている位置を保つ再レイアウト（`ResourceManagerHost::RecomputeLayout`）を 1 回だけ行い、`FlushPendingResources` は画像の適用と合わせて再レイアウトを 1 回にまとめる。量子化した本文幅が変わると、`InvalidateMermaidForWidthChange` が新旧どちらの幅にも収まる図以外を作り直し対象にし、旧幅の描画待ちを捨てる。
+図は `IMermaidRenderer::RequestRender` で要求する。結果（ビットマップかエラー）が出ていればその場で `DiagramEntry` に書かれ、`ApplyBitmapHeight` が `BitmapNodeHeight` で高さを決める。描けなかった図の枠は、文言を省略記号で切るので、推定（コードの行数）が 1 行ぶんの短い図でも数行見せるよう、本文 3 行ぶん（`ErrorPlaceholderHeight`）以上にする。まだなら描画が始まり、結果が出ると `MermaidRenderer` が初期化時に渡された通知で `RequestMermaidRenders` を呼び、待っていた図を要求し直させる。要求と結果はコードのハッシュで引くので、リロード・幅・テーマの変更でも出来上がった結果を使い回す（3.12）。`RequestVisibleDiagrams` 自体は再レイアウトせず、高さの変化を `height_changed_` に溜める。`RequestMermaidRenders` はその後に見ている位置を保つ再レイアウト（`ResourceManagerHost::RecomputeLayout`）を 1 回だけ行い、`FlushPendingResources` は画像の適用と合わせて再レイアウトを 1 回にまとめる。量子化した本文幅が変わると、`InvalidateMermaidForWidthChange` が新旧どちらの幅にも収まる図以外を作り直し対象にし、旧幅の描画待ちを捨てる。
 
 可視範囲外のビットマップは解放する（前後 `EVICT_BUFFER_SCREENS` = 2 画面分は保持、`PREFETCH_BUFFER_SCREENS` = 2 画面分は先読み）。先読み範囲は evict 範囲を超えない（超えると evict 直後の flush で範囲外の画像/図を毎回読み直す）。`EVICT_BUFFER_SCREENS` は遅延レイアウトの計測範囲も兼ね、範囲外へのスクロールは `EnsureVisibleLayout` が同期計測で拾う。text_layout と表のセルは、文書の大きさによらず前後 `LAYOUT_EVICT_BUFFER_SCREENS`（8 画面）の外で捨てる。2 画面と比べてメモリに差が出ず、少し戻るだけで作り直しになるのを避けられる。小さい文書で全部残すと、1MB の文書を読み終えたときに物理メモリが約 4 割増えたため、全部残す扱いは持たない。`ScheduleBitmapManage` は前回の flush から 50ms 以上経っていれば、スクロールの停止を待たずに evict と flush を行い、`BITMAP_MANAGE` タイマー（150ms）を仕掛け直す。スクロール停止後の `OnBitmapManageTimer` は evict → flush を行い、flush でリソースを適用してレイアウトが変わったときだけ再描画を要求する（evict 対象は可視範囲外なので見た目は変わらない）。タイマー ID は `app_constants.h` の `app_timer::Id` enum で集約管理される。
 
@@ -3350,7 +3350,7 @@ pie title テストカバレッジ（ファイル数ベース）
 - [x] テーブル（アライメント）
 - [x] 引用ブロック / GitHub Alerts
 - [x] 水平線
-- [x] Mermaid / LaTeX ブロックの検出（`NodeType::Diagram`）
+- [x] Mermaid ブロックの検出（`NodeType::Diagram`）
 - [x] リンク URL・画像 src の文字参照の解決
 - [x] 装飾 run 数の上限（4096 個、表はセルごと）
 

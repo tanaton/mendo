@@ -208,52 +208,27 @@ PngBytes EncodePng(IWICImagingFactory* wic, IWICBitmapSource* source)
     return ReadHGlobalStream(stream.Get());
 }
 
-// CSS px の箱を、撮るビューと切り出しの物理 px にする。1 つずつ描くときもまとめ描きの箱もこれで決める。
-WICRect CaptureRect(float x, float y, float width, float height, float dpr) noexcept
-{
-    return { static_cast<INT>(std::lround(x * dpr)), static_cast<INT>(std::lround(y * dpr)), DipToPixelCeil(width, dpr), DipToPixelCeil(height, dpr) };
-}
-
-// ページを撮るビューの大きさ (物理 px)。
+// ページを撮るビューの大きさ (物理 px)。CSS px を切り上げる。
 WICRect PageRect(const mermaid_util::RenderSize& size) noexcept
 {
-    return CaptureRect(0.0f, 0.0f, size.width, size.height, size.dpr);
+    return { 0, 0, DipToPixelCeil(size.width, size.dpr), DipToPixelCeil(size.height, size.dpr) };
 }
 
-// rect を width x height (物理 px) の内側に切り詰める。切り出せなければ nullopt。
+// 左上を原点とする rect を width x height (物理 px) の内側に切り詰める。切り出せなければ nullopt。
 // WebView2 は dpr 1.5 などでビューの画素数が CSS px で割り切れないとき、ビューより 1px 広く撮り、背景が右と下に
 // 1 列余る。描いたものの大きさちょうどに切り出し、描くときに余りの分だけ縮めない (重なる部分は画素一致する)。
 std::optional<WICRect> ClipToCapture(WICRect rect, UINT width, UINT height) noexcept
 {
-    rect.Width = std::min(rect.Width, static_cast<INT>(width) - rect.X);
-    rect.Height = std::min(rect.Height, static_cast<INT>(height) - rect.Y);
-    if (rect.X < 0 || rect.Y < 0 || rect.Width <= 0 || rect.Height <= 0) {
+    rect.Width = std::min(rect.Width, static_cast<INT>(width));
+    rect.Height = std::min(rect.Height, static_cast<INT>(height));
+    if (rect.Width <= 0 || rect.Height <= 0) {
         return std::nullopt;
     }
     return rect;
 }
 
-// source から rect (外は切り詰める) を写し、このスレッドで画素を確定させたビットマップとその PNG にする。
-// source はデコーダのままでもよく、そのときは rect だけを確定させる。切り出せなければビットマップは null。
-std::pair<Microsoft::WRL::ComPtr<IWICBitmap>, PngBytes> CropToPng(IWICImagingFactory* wic, IWICBitmapSource* source, const WICRect& rect)
-{
-    UINT width = 0;
-    UINT height = 0;
-    if (FAILED(source->GetSize(&width, &height))) {
-        return {};
-    }
-    const auto clip = ClipToCapture(rect, width, height);
-    Microsoft::WRL::ComPtr<IWICBitmapClipper> clipper;
-    Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
-    if (!clip || FAILED(wic->CreateBitmapClipper(&clipper)) || FAILED(clipper->Initialize(source, &*clip)) ||
-        FAILED(wic->CreateBitmapFromSource(clipper.Get(), WICBitmapCacheOnLoad, &bitmap))) {
-        return {};
-    }
-    auto png = EncodePng(wic, bitmap.Get());
-    return { std::move(bitmap), std::move(png) };
-}
-
-// 1 つずつ描いたキャプチャ png を rect に切り出す (CropToPng)。rect がキャプチャ全体ならエンコードし直さずに png を使う。
+// キャプチャ png を rect に切り出し、このスレッドで画素を確定させたビットマップとその PNG にする。rect がキャプチャ全体なら
+// エンコードし直さずに png を使う。切り出せなければビットマップは null。
 // 図 27 個の文書で描いた 7 個のうち切り出しが要るのは 1〜2 個で、1 回約 4ms (worker)。開いてから描き終えるまでは
 // 1408 → 1436ms (2 個切り出したとき。5 巡交互の中央値、ばらつき 1254〜1459ms の内)。
 // 切り出すときはデコーダから rect だけを確定させる。全体を確定させてから写すのと比べて 1 回 4.34 → 4.25ms
@@ -266,10 +241,18 @@ std::pair<Microsoft::WRL::ComPtr<IWICBitmap>, PngBytes> DecodeCapture(IWICImagin
     }
     const UINT width = decoded->pixel_width;
     const UINT height = decoded->pixel_height;
-    if (rect.X == 0 && rect.Y == 0 && std::cmp_greater_equal(rect.Width, width) && std::cmp_greater_equal(rect.Height, height)) {
+    if (std::cmp_greater_equal(rect.Width, width) && std::cmp_greater_equal(rect.Height, height)) {
         return { wic_util::DecodeToWicBitmap(wic, *decoded, { width, height }), png };
     }
-    return CropToPng(wic, decoded->converter.Get(), rect);
+    const auto clip = ClipToCapture(rect, width, height);
+    Microsoft::WRL::ComPtr<IWICBitmapClipper> clipper;
+    Microsoft::WRL::ComPtr<IWICBitmap> bitmap;
+    if (!clip || FAILED(wic->CreateBitmapClipper(&clipper)) || FAILED(clipper->Initialize(decoded->converter.Get(), &*clip)) ||
+        FAILED(wic->CreateBitmapFromSource(clipper.Get(), WICBitmapCacheOnLoad, &bitmap))) {
+        return {};
+    }
+    auto encoded = EncodePng(wic, bitmap.Get());
+    return { std::move(bitmap), std::move(encoded) };
 }
 
 // 画面外でも表示中のトップレベルなので、外部ツールが本体の代わりにこれを閉じに来る (CloseMainWindow など)。
@@ -767,11 +750,7 @@ void MermaidRenderer::RecoverWorker(int index)
     // 入力での再起動ループは retried で 1 回に打ち切る。
     InvokeSvgCallbackIfAny(w.current_request, {}, false);
     bool failed = false;
-    if (w.current_request.is_blocks()) {
-        // どの数式で落ちたか分からないので 1 つずつ描き直す (落とす数式だけが retried で打ち切られる)。
-        RequeueBlocks(w.current_request);
-    }
-    else if (w.IsRendering() && !w.current_request.svg_only) {
+    if (w.IsRendering() && !w.current_request.svg_only) {
         if (!w.current_request.retried) {
             w.current_request.retried = true;
             pending_requests_.push_back(std::move(w.current_request));
@@ -842,7 +821,6 @@ bool MermaidRenderer::RequestRender(
     // ディスクから読めなかったときは描画し直すので、ディスクに当たってもコードを持たせる。
     RenderRequest req{
         .code = std::string{ node.GetText() },
-        .latex = node.code_language == SyntaxLanguage::LatexMath,
         .max_width = max_width,
         .dark_mode = dark_mode,
         .code_hash = hash,
@@ -1139,7 +1117,6 @@ void MermaidRenderer::ProcessQueue()
 
         idle->current_request = std::move(front);
         pending_requests_.pop_front();
-        TakeBlocksBatch(idle->current_request);
         idle->current_request.request_id = ++request_counter_;
         RenderInWorker(*idle);
     }
@@ -1147,46 +1124,6 @@ void MermaidRenderer::ProcessQueue()
     // 待ちが残っている間はアイドル扱いしない。描画中なら OnIdleTimer が見送り、完了時にここで張り直す。
     if (pending_requests_.empty()) {
         ScheduleIdleShutdown();
-    }
-}
-
-// 1 つずつ描くとキャプチャの待ちで 1 個 50ms 以上かかるが、1 枚に並べて描けば 1 回のキャプチャで済む。
-// 最初に頼まれた分は待たずに 1 つずつ描き始め、その間に描画待ちに溜まった分をまとめる。
-// 開いてから描き終えるまで (dpr 1.5、キャッシュ無し): 20 個で 675→214ms、32 個で 1022→216ms。
-void MermaidRenderer::TakeBlocksBatch(RenderRequest& req)
-{
-    const auto batchable = [dark = req.dark_mode, width = req.max_width](const RenderRequest& r) {
-        return r.latex && r.is_display() && !r.no_batch && r.dark_mode == dark && r.max_width == width;
-    };
-    if (!batchable(req)) {
-        return;
-    }
-    std::vector<RenderRequest> blocks;
-    for (auto it = pending_requests_.begin(); it != pending_requests_.end() && blocks.size() + 1 < MAX_BLOCKS_PER_PAGE;) {
-        if (!batchable(*it)) {
-            ++it;
-            continue;
-        }
-        if (!FindCached(*it)) {
-            blocks.push_back(std::move(*it));
-        }
-        else {
-            ReleaseInflight(*it);
-        }
-        it = pending_requests_.erase(it);
-    }
-    if (blocks.empty()) {
-        return;
-    }
-    blocks.insert(blocks.begin(), std::move(req));
-    req = RenderRequest{ .max_width = blocks.front().max_width, .dark_mode = blocks.front().dark_mode, .blocks = std::move(blocks) };
-}
-
-void MermaidRenderer::RequeueBlocks(RenderRequest& req)
-{
-    for (auto& block : std::exchange(req.blocks, {})) {
-        block.no_batch = true;
-        pending_requests_.push_back(std::move(block));
     }
 }
 
@@ -1208,7 +1145,6 @@ void MermaidRenderer::FinishWorkerRequest(Worker& worker)
     FailCallbacksIfAny(worker.current_request, false);
     const bool resolved = FindCached(worker.current_request);
     ReleaseInflight(worker.current_request);
-    RequeueBlocks(worker.current_request);
     FreeWorker(worker);
     if (resolved) {
         NotifyUpdate();
@@ -1233,16 +1169,8 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
     const int vp_phys = std::max(1, DipToPixelCeil(req.max_width, worker.dpr));
     ResizeWorkerView(worker, vp_phys, HOST_SIZE);
 
-    if (req.is_blocks()) {
-        auto msg = mermaid_util::PageBlocksMessage(req.request_id, req.dark_mode);
-        for (const auto& block : req.blocks) {
-            mermaid_util::AppendPageTex(msg, block.code);
-        }
-        PostToPage(worker, msg);
-        return;
-    }
     using mermaid_util::PageRequest;
-    const PageRequest kind = req.svg_only ? PageRequest::Svg : req.latex ? PageRequest::Tex : PageRequest::Mermaid;
+    const PageRequest kind = req.svg_only ? PageRequest::Svg : PageRequest::Mermaid;
     PostToPage(worker, mermaid_util::PageRenderMessage(kind, req.request_id, req.dark_mode, req.code));
 }
 
@@ -1272,80 +1200,6 @@ void MermaidRenderer::OnMathResult(int worker_idx, std::wstring_view payload)
     }
     w.current_request.math_layout = std::move(*layout);
     ScheduleCapture(w, w.current_request.math_layout.size);
-}
-
-void MermaidRenderer::OnBlocksResult(int worker_idx, std::wstring_view payload)
-{
-    auto& w = workers_[worker_idx];
-    auto& req = w.current_request;
-    const auto layout = mermaid_util::ParseMathBlocks(payload, req.blocks.size());
-    if (!layout || !FitsCapture(layout->size)) {
-        FinishWorkerRequest(w);
-        return;
-    }
-    const float dpr = layout->size.dpr;
-    // 描けなかった数式は 1 つずつ描いたときと同じくエラーを確定させ、残りをページから切り出す。
-    // 箱はページの内側にあるので、ページが上限に収まれば箱も収まる。
-    bool resolved = false;
-    std::vector<RenderRequest> drawn;
-    for (size_t i = 0; i < req.blocks.size(); ++i) {
-        auto& block = req.blocks[i];
-        const auto& box = layout->blocks[i];
-        if (box.failed) {
-            SetDiagramError(block, DiagramError::Kind::Render, box.message);
-            ReleaseInflight(block);
-            resolved = true;
-            continue;
-        }
-        block.SetCaptureBox(CaptureRect(box.x, box.y, box.width, box.height, dpr), dpr);
-        drawn.push_back(std::move(block));
-    }
-    req.blocks = std::move(drawn);
-    if (req.blocks.empty()) {
-        FinishWorkerRequest(w);
-    }
-    else {
-        ScheduleCapture(w, layout->size);
-    }
-    // ワーカーの状態を決めてから呼び、再入 (recompute → RequestRender) を安全にする。
-    if (resolved) {
-        NotifyUpdate();
-    }
-}
-
-void MermaidRenderer::StartBlocksLoad(RenderRequest req, Microsoft::WRL::ComPtr<IStream> page_stream)
-{
-    std::vector<uint64_t> hashes;
-    for (const auto& block : req.blocks) {
-        hashes.push_back(block.code_hash);
-    }
-    const bool posted = bg_scheduler_->Post([this, req = std::move(req), stream = std::move(page_stream), guard = latch_.Acquire()]() mutable {
-        TaskScheduler::EnsureWorkerCom();
-        // デコーダは CopyPixels のときに PNG を読むので、ページのビットマップを作り終えるまで手放さない。
-        const PngBytes png = ReadHGlobalStream(stream.Get());
-        stream.Reset();
-        const auto page = png ? DecodePngToWicBitmap(wic_factory_.Get(), *png) : nullptr;
-        // 数式ごとの切り出しとエンコードを worker で並列にすると、16 個のページで 10.1 → 4.4ms になるが、次のページを
-        // 描いている間に済むので、60 個の文書を開いてから描き終えるまでは 640 → 638ms で変わらない (5 巡交互の中央値)。
-        bool notify = false;
-        for (auto& block : req.blocks) {
-            // 切り出せなければ、1 つずつ描いたキャプチャが壊れていたときと同じくエラーになる (ApplyDiskLoad)。
-            DiskLoad job{ .req = std::move(block), .captured = true };
-            if (page) {
-                std::tie(job.bitmap, job.png) = CropToPng(wic_factory_.Get(), page.Get(), job.req.page_rect);
-            }
-            notify |= disk_results_.Push(std::move(job));
-        }
-        if (notify) {
-            ::PostMessageW(hwnd_, app_msg::MERMAID_DISK_LOADED, 0, 0);
-        }
-    });
-    if (!posted) {
-        // 図は NeedsRender のまま残り次の走査で再要求される。
-        for (const uint64_t hash : hashes) {
-            inflight_.erase(hash);
-        }
-    }
 }
 
 void MermaidRenderer::ScheduleCapture(Worker& w, const mermaid_util::RenderSize& size)
@@ -1428,11 +1282,6 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
     case WebMessageKind::MathResult:
         if (req_id_match && w.current_request.is_math()) {
             OnMathResult(index, payload);
-        }
-        return;
-    case WebMessageKind::BlocksResult:
-        if (req_id_match && w.current_request.is_blocks()) {
-            OnBlocksResult(index, payload);
         }
         return;
     case WebMessageKind::Failed:
@@ -1518,10 +1367,6 @@ void MermaidRenderer::OnCaptureComplete(int worker_idx, Microsoft::WRL::ComPtr<I
     // 読み出しが終わるまで要求は inflight_ に残す。
     auto req = std::move(w.current_request);
     FreeWorker(w);
-    if (req.is_blocks()) {
-        StartBlocksLoad(std::move(req), std::move(png_stream));
-        return;
-    }
     if (req.is_math()) {
         DecideMathPage(req, req.math_layout.size);
     }

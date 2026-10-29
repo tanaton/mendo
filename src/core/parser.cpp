@@ -135,10 +135,6 @@ struct ParseContext : NodeStorage {
     // 現在ノードの最後の画像の src。段落の終わりで Image ノードへ昇格するときに Node へ移す。
     std::string_view image_src;
 
-    // display math スパンが 1 個だけで他の内容が無い段落を LatexMath コードブロックに昇格する状態
-    int paragraph_display_math_count = 0;
-    bool paragraph_has_other_content = false;
-
     // md_parse() に渡した入力バッファ。source_offset 計算と、md4c が渡すポインタが原文を指すかの判定に使う。
     std::string_view markdown;
 
@@ -252,8 +248,8 @@ struct ParseContext : NodeStorage {
         current_node_needs_copy = false;
     }
 
-    // 区切るのは段落・引用・コードブロック (図を除く) だけ。見出しやリスト項目は区切ると記号や下線が増え、
-    // 図は 1 つのコードから描く。
+    // 区切るのは段落・引用・コードブロック (図と ```math を除く) だけ。見出しやリスト項目は区切ると記号や下線が増え、
+    // 図と数式は 1 つのコードから描く。
     bool CanSplitCurrentNode() const noexcept
     {
         if (active_text_buffer != &current_text) {
@@ -264,7 +260,7 @@ struct ParseContext : NodeStorage {
         case NodeType::BlockQuote:
             return true;
         case NodeType::CodeBlock:
-            return !IsDiagramLanguage(current_node->code_language);
+            return current_node->code_language != SyntaxLanguage::Mermaid && current_node->code_language != SyntaxLanguage::LatexMath;
         default:
             return false;
         }
@@ -472,9 +468,15 @@ struct ParseContext : NodeStorage {
     // 引用内の段落は BlockQuote ノードとして作り、Alert 検出対象に登録する。
     void BeginParagraphNode()
     {
-        const auto node_type = (blockquote_depth > 0) ? NodeType::BlockQuote : NodeType::Paragraph;
-        BeginNode(node_type);
-        if (node_type == NodeType::BlockQuote) {
+        BeginNode(NodeType::Paragraph);
+        MakeCurrentParagraph();
+    }
+
+    // 今のノードを段落にする。引用の中なら引用の段落 (BlockQuote) にして、Alert の検出に回す。
+    void MakeCurrentParagraph()
+    {
+        current_node->type = (blockquote_depth > 0) ? NodeType::BlockQuote : NodeType::Paragraph;
+        if (current_node->type == NodeType::BlockQuote) {
             blockquote_indices.emplace_back(CurrentNodeIndex());
         }
     }
@@ -667,44 +669,16 @@ constexpr bool IsImagePromotionCandidate(const Node& node) noexcept
 }
 
 // MD_BLOCK_P 終了時、画像 span を含む段落 / 引用ブロックを Image ノードへ昇格させる。
-// 戻り値 true なら他の昇格処理はスキップしてよい。
-bool TryPromoteParagraphToImage(ParseContext* ctx)
+void TryPromoteParagraphToImage(ParseContext* ctx)
 {
     auto* const cn = ctx->current_node;
     // 区切った段落の続きを画像にすると、前の部分だけが本文として残る。
     if (!cn || !IsImagePromotionCandidate(*cn) || ctx->image_src.empty() || cn->continues_prev()) {
-        return false;
+        return;
     }
     cn->set_image_src(ctx->arena.Copy(std::span{ &ctx->image_src, 1 }).data());
     cn->type = NodeType::Image;
     ctx->indices.image_indices.emplace_back(ctx->CurrentNodeIndex());
-    return true;
-}
-
-// MD_BLOCK_P 終了時、$$..$$ ブロック数式が単独の段落を LaTeX CodeBlock へ昇格させる。
-// blockquote 内は引用文脈を保ちたいため Paragraph のみ昇格対象。blockquote 内や本文の中の $$..$$ は
-// kMathDisplay の run として本文の中に描く。
-void TryPromoteParagraphToDisplayMath(ParseContext* ctx)
-{
-    auto* const node = ctx->current_node;
-    if (!node || node->type != NodeType::Paragraph) {
-        return;
-    }
-    // 昇格できる段落のテキストは "$$" + 数式 + "$$" だけ。md4c は数式内の改行を空白にして渡すので改行は無い。
-    // 区切った段落は $$..$$ だけの段落ではないので昇格させない。
-    const std::string_view text = ctx->current_text;
-    if (ctx->paragraph_display_math_count != 1 ||
-        ctx->paragraph_has_other_content ||
-        node->continues_prev() ||
-        text.size() <= 4) {
-        return;
-    }
-    assert(text.starts_with("$$") && text.ends_with("$$"));
-    node->type = NodeType::Diagram;
-    node->code_language = SyntaxLanguage::LatexMath;
-    ctx->current_runs.clear();
-    node->SetText(ctx->arena.CopyText(text.substr(2, text.size() - 4)), 0);
-    ctx->indices.diagram_indices.emplace_back(ctx->CurrentNodeIndex());
 }
 
 void BeginListItem(ParseContext* ctx, const MD_BLOCK_LI_DETAIL* li)
@@ -857,7 +831,20 @@ void LeaveCodeBlock(ParseContext* ctx)
         ctx->current_text.pop_back();
         cn->line_count--;
     }
-    if (IsDiagramLanguage(cn->code_language)) {
+    // ```math は $$..$$ だけの段落と同じく、段落の中にディスプレイ形式の数式として描く。テキストを $$ で囲んで
+    // kMathDisplay の run にし、選択・コピー・検索も段落の数式と同じに扱う。
+    if (cn->code_language == SyntaxLanguage::LatexMath && !ctx->current_text.empty()) {
+        ctx->current_text.insert(0, "$$");
+        ctx->current_text.append("$$");
+        ctx->current_node_needs_copy = true;
+        TextRun run;
+        run.length = static_cast<uint32_t>(ctx->current_text.size());
+        run.set_raw_flags(TextRun::kMathDisplay);
+        ctx->current_runs.push_back(run);
+        ctx->MakeCurrentParagraph();
+        cn->code_language = SyntaxLanguage::None;
+    }
+    else if (IsDiagramLanguage(cn->code_language)) {
         cn->type = NodeType::Diagram;
         ctx->indices.diagram_indices.emplace_back(ctx->CurrentNodeIndex());
     }
@@ -883,8 +870,6 @@ int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
 
     case MD_BLOCK_P:
         ctx->BeginParagraphNode();
-        ctx->paragraph_display_math_count = 0;
-        ctx->paragraph_has_other_content = false;
         break;
 
     case MD_BLOCK_CODE: {
@@ -1023,9 +1008,7 @@ int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
         break;
 
     case MD_BLOCK_P:
-        if (!TryPromoteParagraphToImage(ctx)) {
-            TryPromoteParagraphToDisplayMath(ctx);
-        }
+        TryPromoteParagraphToImage(ctx);
         ctx->EndNode();
         break;
 
@@ -1248,11 +1231,6 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     // どの span でも原文と一致しなくなる。FinalizeCurrentNode の memcmp をスキップさせる。
     ctx->current_node_needs_copy = true;
 
-    // display math は個数 (paragraph_display_math_count) で昇格を判定するので、ここで立てるのは他の span 全種類。
-    if (type != MD_SPAN_LATEXMATH_DISPLAY) {
-        ctx->paragraph_has_other_content = true;
-    }
-
     if (const uint8_t flag = RunFlagOf(type); flag != 0) {
         ++ctx->span_depths[std::countr_zero(flag)];
         ctx->current_run_flags |= flag;
@@ -1267,11 +1245,11 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         ++ctx->image_span_depth;
         break;
     case MD_SPAN_LATEXMATH_DISPLAY:
-        // 元の "$$" を戻して kMathDisplay の run に含める。$$..$$ だけの段落は図に昇格するときに外す。
+        // 元の "$$" を戻して kMathDisplay の run に含める。描画待ちの間は原文を出し、コピーでは外す (MathDelimiterLength)。
         ctx->AppendDoc("$$");
         break;
     case MD_SPAN_LATEXMATH:
-        // 元の "$" を戻して kMath の run に含める。選択・コピー・検索は原文の $...$ のまま扱う。
+        // 元の "$" を戻して kMath の run に含める。
         ctx->AppendDoc("$");
         break;
     case MD_SPAN_FOOTNOTE_REF:
@@ -1315,7 +1293,6 @@ int OnLeaveSpan(MD_SPANTYPE type, void* detail, void* userdata)
     }
     else if (type == MD_SPAN_LATEXMATH_DISPLAY) {
         ctx->AppendDoc("$$");
-        ctx->paragraph_display_math_count++;
     }
     ctx->FlushPendingRun();
 
@@ -1360,9 +1337,6 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         }
     }
 
-    // 数式の中身・HTML・NUL 以外のテキストがあれば、$$..$$ だけの段落ではない。
-    ctx->paragraph_has_other_content |= type != MD_TEXT_LATEXMATH && type != MD_TEXT_HTML && type != MD_TEXT_NULLCHAR;
-
     const std::string_view chunk{ text, static_cast<size_t>(size) };
 
     if (!ctx->current_node->HasSourceOffset()) [[unlikely]] {
@@ -1383,8 +1357,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 
     case MD_TEXT_LATEXMATH:
         // インライン数式は 1 つのノードに収める。区切ると $ が片側にしかない数式ができる。
-        // $$..$$ は今までどおり区切る (長い $$..$$ だけの段落は昇格させず本文にする)。区切れた $$..$$ は
-        // 片側に $$ が無いので、計測では原文のまま組む (InlineMathTex)。
+        // $$..$$ は今までどおり区切る。区切れた $$..$$ は片側に $$ が無いので、原文のまま組む (MathDelimiterLength)。
         if (ctx->current_run_flags & TextRun::kMath) {
             ctx->AppendDoc(chunk);
         }

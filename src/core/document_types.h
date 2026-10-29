@@ -22,7 +22,7 @@ enum class NodeType : uint8_t {
     Table,
     TaskListItem,
     Image,
-    // Mermaid / LaTeX 等、テキストではなくビットマップで描画するコードブロック。code_language で描画器を選ぶ。
+    // Mermaid の図。テキストではなくビットマップで描画するコードブロック。
     Diagram
 };
 
