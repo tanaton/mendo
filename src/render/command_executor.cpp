@@ -118,19 +118,20 @@ public:
         if (!object || FAILED(object->GetMetrics(&m)) || y + m.height + kInkPad < cull_top_ || y - kInkPad > cull_bottom_) {
             return S_OK;
         }
-        const auto key = InlineMathObjectKey(object);
-        if (!key) {
+        const auto math = InlineMathObjectOf(object);
+        if (!math) {
             return object->Draw(context, this, x, y, sideways, rtl, effect);
         }
         if (!math_) {
             return S_OK;
         }
-        const auto* mask = math_->Find(*key);
+        const auto* mask = math_->Find(math->key);
         if (!mask) {
-            math_->missing.push_back(*key);
+            math_->missing.push_back(math->key);
             return S_OK;
         }
-        const D2D1_RECT_F dest = OffsetRectF(mask->dest, x, y);
+        const float s = math->scale;
+        const D2D1_RECT_F dest = D2D1::RectF(x + mask->dest.left * s, y + mask->dest.top * s, x + mask->dest.right * s, y + mask->dest.bottom * s);
         mask->page->last_drawn = math_->frame;
         // FillOpacityMask は ALIASED のときしか描かない。
         const D2D1_ANTIALIAS_MODE mode = rt_->GetAntialiasMode();

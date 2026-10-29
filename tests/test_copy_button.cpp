@@ -100,17 +100,6 @@ TEST_F(CopyButtonTest, MermaidBlockReturnsNegative)
     EXPECT_EQ(CopyNodeAt(pr, cx, cy), -1);
 }
 
-TEST_F(CopyButtonTest, LatexMathBlockReturnsNegative)
-{
-    // LatexMath も Mermaid 同様、テキスト用コピーボタン(CodeCopy)は付かない (専用のダイアグラムコピーボタンは別)
-    auto pr = ParseAndLayout("$$E = mc^2$$");
-    const int latex_idx = FindFirstNodeIndexByType(pr.nodes, NodeType::Diagram);
-    ASSERT_GE(latex_idx, 0);
-    ASSERT_EQ(pr.nodes[latex_idx].code_language, SyntaxLanguage::LatexMath);
-    auto [cx, cy] = CopyBtnCenter(pr, latex_idx);
-    EXPECT_EQ(CopyNodeAt(pr, cx, cy), -1);
-}
-
 TEST_F(CopyButtonTest, MultipleCodeBlocksHitCorrectOne)
 {
     auto pr = ParseAndLayout("```\nfirst\n```\n\n```\nsecond\n```");

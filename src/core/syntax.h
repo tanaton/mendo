@@ -48,13 +48,6 @@ enum class SyntaxLanguage : uint8_t {
 
 constexpr bool IsDiagramLanguage(SyntaxLanguage lang) noexcept
 {
-    return lang == SyntaxLanguage::Mermaid || lang == SyntaxLanguage::LatexMath;
-}
-
-// クリップボードコピー時に SVG も載せる対象。LatexMath は KaTeX の MathML で描くので
-// SVG を作れず、画像 (CF_DIB) のみコピーする。
-constexpr bool IsSvgExportable(SyntaxLanguage lang) noexcept
-{
     return lang == SyntaxLanguage::Mermaid;
 }
 

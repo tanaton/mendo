@@ -19,7 +19,6 @@ TEST(PageMessage, RenderMessagePutsRawCodeLast)
     EXPECT_EQ(mermaid_util::PageRenderMessage(mermaid_util::PageRequest::Mermaid, 7, false, "graph TD;\n  A[\"a:b\"]-->B;"),
               L"mermaid:7:0:graph TD;\n  A[\"a:b\"]-->B;");
     EXPECT_EQ(mermaid_util::PageRenderMessage(mermaid_util::PageRequest::Svg, 8, true, "x"), L"svg:8:1:x");
-    EXPECT_EQ(mermaid_util::PageRenderMessage(mermaid_util::PageRequest::Tex, 9, false, "\\frac{a}{b}"), L"tex:9:0:\\frac{a}{b}");
 }
 
 // まとめ描きの数式は UTF-16 の長さで区切るので、TeX に ':' や BMP 外の文字 (サロゲートペア) があっても切り出せる。
@@ -29,39 +28,6 @@ TEST(PageMessage, MathBatchPrefixesUtf16Length)
     mermaid_util::AppendPageMathItem(msg, "a:b", 16.0f);
     mermaid_util::AppendPageMathItem(msg, "\xF0\x9D\x91\xA5", 13.5f); // U+1D465 (UTF-16 で 2)
     EXPECT_EQ(msg, L"math:3:1024:16.000:3:a:b13.500:2:\U0001D465");
-}
-
-TEST(PageMessage, BlocksPrefixesUtf16Length)
-{
-    auto msg = mermaid_util::PageBlocksMessage(4, true);
-    mermaid_util::AppendPageTex(msg, "x:y");
-    mermaid_util::AppendPageTex(msg, "\\frac{1}{2}");
-    EXPECT_EQ(msg, L"blocks:4:1:3:x:y11:\\frac{1}{2}");
-}
-
-// ブロック数式のまとめ描きの結果。描けなかった数式の文言は長さで区切るので、'|' ';' ':' を含んでもよい。
-TEST(ParseMathBlocks, ParsesBoxesAndErrorMessages)
-{
-    const auto layout = mermaid_util::ParseMathBlocks(L"300:120:1.5|b0,0,120.5,40;e9:a|b;c:d eb0,42,200,60;", 3);
-    ASSERT_TRUE(layout.has_value());
-    EXPECT_FLOAT_EQ(layout->size.dpr, 1.5f);
-    ASSERT_EQ(layout->blocks.size(), 3u);
-    EXPECT_FALSE(layout->blocks[0].failed);
-    EXPECT_FLOAT_EQ(layout->blocks[0].width, 120.5f);
-    EXPECT_TRUE(layout->blocks[1].failed);
-    EXPECT_EQ(layout->blocks[1].message, L"a|b;c:d e");
-    EXPECT_FLOAT_EQ(layout->blocks[2].y, 42.0f);
-    EXPECT_FLOAT_EQ(layout->blocks[2].height, 60.0f);
-}
-
-TEST(ParseMathBlocks, RejectsMismatchedCountAndBrokenItems)
-{
-    EXPECT_FALSE(mermaid_util::ParseMathBlocks(L"300:120:1|b0,0,10,10;", 2).has_value()) << "足りない";
-    EXPECT_FALSE(mermaid_util::ParseMathBlocks(L"300:120:1|b0,0,10,10;b0,0,10,10;", 1).has_value()) << "多い";
-    EXPECT_FALSE(mermaid_util::ParseMathBlocks(L"300:120:1|b0,0,400,10;", 1).has_value()) << "ページの外";
-    EXPECT_FALSE(mermaid_util::ParseMathBlocks(L"300:120:1|e99:short", 1).has_value()) << "文言の長さが足りない";
-    EXPECT_FALSE(mermaid_util::ParseMathBlocks(L"300:120:1|x", 1).has_value());
-    EXPECT_FALSE(mermaid_util::ParseMathBlocks(L"0:0:1|b0,0,10,10;", 1).has_value());
 }
 
 // ═══════════════════════════════════════════════
@@ -406,16 +372,6 @@ TEST(NodeDiagramHash, SameWidthBucketSharesHash)
     const auto a = ParseSingleCodeBlock("```mermaid\ngraph TD; A-->B\n```");
     ASSERT_EQ(mermaid_util::QuantizeWidth(590.0f), mermaid_util::QuantizeWidth(605.0f));
     EXPECT_EQ(mermaid_util::NodeDiagramHash(a, 590.0f, false), mermaid_util::NodeDiagramHash(a, 605.0f, false));
-}
-
-// 同じ本文でも LaTeX 数式と Mermaid はレンダ結果が異なるのでキャッシュを共有しない。
-TEST(NodeDiagramHash, LatexMathDoesNotCollideWithMermaid)
-{
-    const auto mermaid = ParseSingleCodeBlock("```mermaid\nx^2\n```");
-    auto math = ParseSingleCodeBlock("```mermaid\nx^2\n```");
-    math.code_language = SyntaxLanguage::LatexMath;
-
-    EXPECT_NE(mermaid_util::NodeDiagramHash(mermaid, 600.0f, false), mermaid_util::NodeDiagramHash(math, 600.0f, false));
 }
 
 // ディスクキャッシュのファイル名になるので式を変えない。変えると既存のキャッシュを引けなくなる。

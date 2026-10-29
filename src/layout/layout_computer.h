@@ -63,8 +63,8 @@ inline float PlaceholderHeight(const Theme& theme) noexcept
     return std::max(MIN_DIAGRAM_PLACEHOLDER_HEIGHT, theme.font_size_body * 3.0f);
 }
 
-// 描けなかった図の枠の最低の高さ。文言は枠に収まらない分を省略記号で切るので、推定が 1 行ぶんの短い数式でも
-// 本文 3 行ぶんは見せる (KaTeX の文言は 2〜3 行。プレースホルダーの高さでは 2 行で切れる)。
+// 描けなかった図の枠の最低の高さ。文言は枠に収まらない分を省略記号で切るので、推定が 1 行ぶんの短い図でも
+// 本文 3 行ぶんは見せる (プレースホルダーの高さでは 2 行で切れる)。
 inline float ErrorPlaceholderHeight(const Theme& theme) noexcept
 {
     return theme.font_size_body * BODY_LINE_HEIGHT_FACTOR * 3.0f;

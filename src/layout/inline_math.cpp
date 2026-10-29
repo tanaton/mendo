@@ -1,5 +1,6 @@
 #include "inline_math.h"
 #include "document_types.h"
+#include "document_utils.h"
 #include "theme.h"
 #include "utility.h"
 #include <wrl/implements.h>
@@ -7,12 +8,11 @@
 
 std::optional<std::string> InlineMathTex(std::string_view text, const TextRun& run)
 {
-    const std::string_view delim = run.display_math() ? "$$" : "$";
-    const std::string_view whole = text.substr(run.start, run.length);
-    if (whole.size() <= delim.size() * 2 || !whole.starts_with(delim) || !whole.ends_with(delim)) {
+    const uint32_t delim = MathDelimiterLength(text, run);
+    if (delim == 0) {
         return std::nullopt;
     }
-    const std::string_view tex = whole.substr(delim.size(), whole.size() - delim.size() * 2);
+    const std::string_view tex = text.substr(run.start + delim, run.length - delim * 2);
     return run.display_math() ? std::string{ "\\displaystyle " }.append(tex) : std::string{ tex };
 }
 
@@ -216,22 +216,23 @@ namespace {
 
 // 描画に届いたインラインオブジェクトが数式かを QueryInterface で見分ける。
 MIDL_INTERFACE("5b3f8c1e-9d47-4a26-8e1b-7c2d4f60a913")
-IInlineMathKey : public IUnknown
+IInlineMathRef : public IUnknown
 {
-    virtual uint64_t STDMETHODCALLTYPE Key() const noexcept = 0;
+    virtual InlineMathObjectRef STDMETHODCALLTYPE Ref() const noexcept = 0;
 };
 
 // 寸法と key を持つだけで描かない。計測ワーカーで作って UI スレッドで描くので、参照カウントはスレッド安全なものを使う。
 class InlineMathObject final
-    : public Microsoft::WRL::RuntimeClass<Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>, IDWriteInlineObject, IInlineMathKey> {
+    : public Microsoft::WRL::RuntimeClass<Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>, IDWriteInlineObject, IInlineMathRef> {
 public:
-    InlineMathObject(uint64_t key, const InlineMathMetrics& metrics) noexcept : key_(key), metrics_(metrics)
+    InlineMathObject(uint64_t key, const InlineMathMetrics& metrics, float scale) noexcept
+        : ref_{ key, scale }, metrics_{ metrics.width * scale, metrics.height * scale, metrics.baseline * scale }
     {
     }
 
-    uint64_t STDMETHODCALLTYPE Key() const noexcept override
+    InlineMathObjectRef STDMETHODCALLTYPE Ref() const noexcept override
     {
-        return key_;
+        return ref_;
     }
 
     HRESULT STDMETHODCALLTYPE Draw(void*, IDWriteTextRenderer*, FLOAT, FLOAT, BOOL, BOOL, IUnknown*) noexcept override
@@ -257,22 +258,22 @@ public:
     }
 
 private:
-    uint64_t key_;
+    InlineMathObjectRef ref_;
     InlineMathMetrics metrics_;
 };
 
 } // namespace
 
-Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeInlineMathObject(uint64_t key, const InlineMathMetrics& metrics)
+Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeInlineMathObject(uint64_t key, const InlineMathMetrics& metrics, float scale)
 {
-    return Microsoft::WRL::Make<InlineMathObject>(key, metrics);
+    return Microsoft::WRL::Make<InlineMathObject>(key, metrics, scale);
 }
 
-std::optional<uint64_t> InlineMathObjectKey(IDWriteInlineObject* object) noexcept
+std::optional<InlineMathObjectRef> InlineMathObjectOf(IDWriteInlineObject* object) noexcept
 {
-    Microsoft::WRL::ComPtr<IInlineMathKey> math;
+    Microsoft::WRL::ComPtr<IInlineMathRef> math;
     if (FAILED(object->QueryInterface(IID_PPV_ARGS(&math)))) {
         return std::nullopt;
     }
-    return math->Key();
+    return math->Ref();
 }

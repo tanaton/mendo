@@ -202,13 +202,20 @@ constexpr void AppendInlineHtml(
 
         InlineState s;
         uint32_t segment_end;
+        // 数式は区切り ($ / $$) を除いた TeX だけを出す。
+        uint32_t text_begin = pos;
+        uint32_t text_end;
         if (run_idx >= runs.size() || pos < runs[run_idx].start) {
             segment_end = (run_idx < runs.size()) ? std::min(end, runs[run_idx].start) : end;
+            text_end = segment_end;
         }
         else {
             const auto& r = runs[run_idx];
             s = InlineStateOf(r, link_urls);
             segment_end = std::min(end, r.start + r.length);
+            const uint32_t delim = MathDelimiterLength(text, r);
+            text_begin = std::max(pos, r.start + delim);
+            text_end = std::min(segment_end, r.start + r.length - delim);
         }
 
         if (s != current) {
@@ -218,11 +225,11 @@ constexpr void AppendInlineHtml(
         }
 
         // LF の位置で区切り、連続する非 LF 区間をまとめて AppendHtmlEscaped に渡す。
-        uint32_t batch = pos;
-        while (batch < segment_end) {
+        uint32_t batch = text_begin;
+        while (batch < text_end) {
             const auto* lf_ptr = static_cast<const char*>(
-                std::memchr(text.data() + batch, '\n', segment_end - batch));
-            const uint32_t lf_pos = lf_ptr ? static_cast<uint32_t>(lf_ptr - text.data()) : segment_end;
+                std::memchr(text.data() + batch, '\n', text_end - batch));
+            const uint32_t lf_pos = lf_ptr ? static_cast<uint32_t>(lf_ptr - text.data()) : text_end;
 
             if (batch < lf_pos) {
                 if (!tags.IsApplied()) {
@@ -237,7 +244,7 @@ constexpr void AppendInlineHtml(
                 batch = lf_pos + 1;
             }
             else {
-                batch = segment_end;
+                batch = text_end;
             }
         }
         pos = segment_end;
@@ -554,6 +561,59 @@ private:
     std::vector<Level> levels_;
 };
 
+// node の [start, end) を、数式の区切り ($ / $$) を除いた断片に分けて順に fn へ渡す。
+template <class Fn>
+void ForEachCopiedSlice(const Node& node, uint32_t start, uint32_t end, Fn&& fn)
+{
+    const std::string_view text = node.GetText();
+    uint32_t pos = start;
+    // run は start 昇順で、表のセルも読み順に見るので、飛ばす範囲は前から順に来る。
+    const auto skip = [&](uint32_t from, uint32_t to) {
+        from = std::max(from, pos);
+        to = std::min(to, end);
+        if (from >= to) {
+            return;
+        }
+        if (pos < from) {
+            fn(text.substr(pos, from - pos));
+        }
+        pos = to;
+    };
+    // base は runs の位置を node のテキストの位置に直す差 (表のセルの開始位置)。
+    const auto skip_delimiters = [&](std::string_view local, std::span<const TextRun> runs, uint32_t base) {
+        for (const auto& r : runs) {
+            const uint32_t run_start = base + r.start;
+            if (run_start >= end) {
+                break;
+            }
+            if (const uint32_t delim = MathDelimiterLength(local, r); delim > 0) {
+                skip(run_start, run_start + delim);
+                skip(run_start + r.length - delim, run_start + r.length);
+            }
+        }
+    };
+    if (const auto* tbl = node.table_data()) {
+        // 数式の無い表 (大半) はセルを回らない。run はセルより桁違いに少ない。
+        if (std::ranges::any_of(tbl->all_runs, &TextRun::math)) {
+            const size_t cells = static_cast<size_t>(tbl->row_count) * tbl->col_count;
+            for (size_t idx = tbl->CellIndexAt(start); idx < cells && tbl->cell_text_starts[idx] < end; ++idx) {
+                if (tbl->cell_run_starts[idx] == tbl->cell_run_starts[idx + 1]) {
+                    continue;
+                }
+                const size_t r = idx / tbl->col_count;
+                const size_t c = idx % tbl->col_count;
+                skip_delimiters(tbl->GetCellText(r, c), tbl->GetCellRuns(r, c), tbl->CellTextStart(r, c));
+            }
+        }
+    }
+    else {
+        skip_delimiters(text, node.runs(), 0);
+    }
+    if (pos < end) {
+        fn(text.substr(pos, end - pos));
+    }
+}
+
 // src は Markdown 記述値をそのまま使う (相対パスは貼付先で解決不能だが仕様上の限界)。
 // alt は選択範囲内のノード線形化テキスト。[start, end) は呼び出し側でテキスト長にクランプ済み。
 void AppendImageHtml(std::string& out, const Node& node, uint32_t start, uint32_t end)
@@ -566,7 +626,7 @@ void AppendImageHtml(std::string& out, const Node& node, uint32_t start, uint32_
     }
     out.append(" alt=\"");
     if (start < end) {
-        AppendHtmlEscaped(out, node.GetText().substr(start, end - start));
+        ForEachCopiedSlice(node, start, end, [&out](std::string_view slice) { AppendHtmlEscaped(out, slice); });
     }
     out.append("\">");
 }
@@ -586,10 +646,13 @@ std::string ExtractSelectedText(const std::vector<Node>& nodes, const TextSelect
     static constexpr std::string_view kCrlf = "\r\n";
     const auto for_each_selected = [&](auto&& fn) {
         ForEachSelectedNode(nodes, selection, [&](int i, const Node& node) {
-            const std::string_view text = node.GetText();
-            const auto [start, end] = selection.ClampedRange(i, text.size());
-            const bool separated = i < selection.end_node && LineBreakAfter(nodes, i);
-            fn(start < end ? text.substr(start, end - start) : std::string_view{}, separated);
+            const auto [start, end] = selection.ClampedRange(i, node.GetText().size());
+            if (start < end) {
+                ForEachCopiedSlice(node, start, end, [&](std::string_view s) { fn(s, false); });
+            }
+            if (i < selection.end_node && LineBreakAfter(nodes, i)) {
+                fn({}, true);
+            }
         });
     };
     // 数えるだけなら行に分けず、LF 1 個につき CR 1 個増えるとして足す (count はベクトル化される)。

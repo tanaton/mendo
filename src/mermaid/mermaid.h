@@ -105,8 +105,6 @@ private:
         // UTF-8 の原文。呼び出し側の文字列の寿命から切り離して持つ。WebView2 向けの変換は描く直前に行い、
         // 待ちの間 (準備前・ディスク読み込み中・キュー待ち) は原文の大きさのままにする。
         std::string code;
-        // LaTeX 数式。mermaid を通さず KaTeX で描く。
-        bool latex = false;
         float max_width = 0.0f;
         bool dark_mode = false;
         // 幅つきのキー。要求中の判定とエラー結果はこちらで持つ。
@@ -145,12 +143,7 @@ private:
         // キャプチャの切り出しに使う。
         mermaid_util::MathBatchLayout math_layout;
 
-        // ブロック数式をまとめて描く要求 (ProcessQueue が描画待ちから集める)。空でなければこの種類で、code などは使わず、
-        // 描いた後に要素ごとに、1 つずつ描いたのと同じ表示用の要求の結果を出す。
-        std::vector<RenderRequest> blocks;
-        // まとめずに描く (まとめ描きを終えられなかった)。
-        bool no_batch = false;
-        // キャプチャから切り出す範囲 (物理 px)。1 つずつ描くときは撮るビューの大きさ、まとめ描きの要素はページの中の箱。
+        // キャプチャから切り出す範囲 (物理 px)。撮るビューの大きさ。
         WICRect page_rect{};
         // 切り出す範囲を決め、表示の大きさをその画素数から決める。CSS px の実測値で描くと、css x dpr が整数でないとき
         // ビットマップを 1px 未満だけ縮めて描くことになる。
@@ -160,14 +153,10 @@ private:
         {
             return !math_items.empty();
         }
-        bool is_blocks() const noexcept
-        {
-            return !blocks.empty();
-        }
         // 図の結果をキャッシュに持つ要求か。
         bool is_display() const noexcept
         {
-            return !svg_only && !is_math() && !is_blocks();
+            return !svg_only && !is_math();
         }
     };
 
@@ -224,8 +213,6 @@ private:
 
     // インライン数式を並べるページの幅 (CSS px)。ページは数式の数に応じて縦に伸びる。
     static constexpr int MATH_PAGE_WIDTH = 1024;
-    // 1 枚のページにまとめて描くブロック数式の上限。キャプチャはページの面積に比例して時間とメモリを使う。
-    static constexpr size_t MAX_BLOCKS_PER_PAGE = 16;
     // 1 つ増やすごとにレンダラープロセスの起動と mermaid.js のロードが要り、数十 MB 常駐する。
     // 2 回目以降はディスクキャッシュで済むので、並列度は控えめにする。
     static constexpr int MAX_WORKERS = 2;
@@ -252,13 +239,6 @@ private:
         FailMathCallbackIfAny(req, cancelled);
     }
     void RenderMathInWorker(Worker& worker);
-    // req がまとめずに描くブロック数式でなければ、描画待ちから同じテーマ・同じ幅のブロック数式を集めて、まとめ描きの要求にする。
-    void TakeBlocksBatch(RenderRequest& req);
-    // まとめ描きを終えられなかったブロック数式を、1 つずつ描くよう描画待ちに戻す。
-    void RequeueBlocks(RenderRequest& req);
-    void OnBlocksResult(int worker_idx, std::wstring_view payload);
-    // worker でページを数式ごとに切り出し、1 つずつ描いたキャプチャと同じ結果 (ビットマップと PNG) にして返す。
-    void StartBlocksLoad(RenderRequest req, Microsoft::WRL::ComPtr<IStream> page_stream);
     // ページに要求 (mermaid_util::Page*Message) を送る。結果と失敗はページが postMessage で返す。
     static void PostToPage(Worker& worker, const std::wstring& msg);
     void OnMathResult(int worker_idx, std::wstring_view payload);

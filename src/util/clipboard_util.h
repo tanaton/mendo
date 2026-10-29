@@ -161,12 +161,12 @@ inline void WriteDibHeader(void* dst, UINT width, UINT height) noexcept
     bih->biSizeImage = static_cast<DWORD>(static_cast<size_t>(width) * 4 * height);
 }
 
-// ダイアグラム (Mermaid/LaTeX) をクリップボードへコピーする統合書き込み。
-// "image/svg+xml": Office 2016+ や Inkscape がベクタ画像として認識 (Mermaid のみ svg 非空)。
-// CF_DIB:          画像。Paint / チャット / Office などへの貼り付け用。両ダイアグラム共通の基本形式。
+// ダイアグラム (Mermaid) をクリップボードへコピーする統合書き込み。
+// "image/svg+xml": Office 2016+ や Inkscape がベクタ画像として認識 (SVG を取得できたときだけ)。
+// CF_DIB:          画像。Paint / チャット / Office などへの貼り付け用。基本形式。
 // CF_UNICODETEXT:  SVG マークアップ原文のテキストフォールバック。
 // 並び順 = 優先度。ベクタを優先する貼り付け先のため SVG を先頭に積む。
-// 戻り値: 画像 (CF_DIB) が載れば true。画像は両ダイアグラムが約束する基本形式なので、
+// 戻り値: 画像 (CF_DIB) が載れば true。画像は必ず載せる基本形式なので、
 //         成功判定はこれで行う (svg/テキストはベストエフォートの付加形式)。
 // WideToUtf8 が確保失敗で送出し得るため noexcept にはしない。
 inline bool WriteClipboardDiagram(HWND hwnd, UniqueGlobalMem dib, std::wstring_view svg_text)

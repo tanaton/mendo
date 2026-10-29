@@ -34,6 +34,29 @@ NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, u
 // pos を含む run。runs は start 昇順で重ならない。無ければ null。
 const TextRun* FindRunAt(std::span<const TextRun> runs, uint32_t pos) noexcept;
 
+// 数式の run の前後にある区切り ($ か $$) の長さ。数式は区切りの内側 (TeX) だけを描いてコピーする。
+// 数式でない run と、区切りがそろっていない run (長い本文を区切って片側の $$ が無いもの) は 0 で、原文のまま扱う。
+constexpr uint32_t MathDelimiterLength(std::string_view text, const TextRun& run) noexcept
+{
+    if (!run.math()) {
+        return 0;
+    }
+    const std::string_view delim = run.display_math() ? "$$" : "$";
+    const std::string_view whole = text.substr(run.start, run.length);
+    const bool balanced = whole.size() > delim.size() * 2 && whole.starts_with(delim) && whole.ends_with(delim);
+    return balanced ? static_cast<uint32_t>(delim.size()) : 0;
+}
+
+// $$..$$ だけの段落と ```math (パーサが $$ で囲む)。段落いっぱいの数式を 1 つだけ持つ。
+// 長い $$..$$ を区切った途中のノードも run が段落いっぱいになるが、区切りがそろわないので数式ではない。
+constexpr bool IsBlockMath(const Node& node) noexcept
+{
+    const auto runs = node.runs();
+    const std::string_view text = node.GetText();
+    return runs.size() == 1 && runs[0].display_math() && runs[0].start == 0 && runs[0].length == text.size() &&
+           MathDelimiterLength(text, runs[0]) > 0;
+}
+
 // node の pos にある run の並びと、その中での位置。表はセルごとに run を持ち、pos は linearized 形式 (concat_text) の
 // offset。セル外 (区切り文字・padding) なら runs は空。
 struct NodeRunsAt {

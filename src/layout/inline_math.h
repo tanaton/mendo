@@ -137,7 +137,11 @@ private:
 };
 
 // $...$ の範囲に IDWriteTextLayout::SetInlineObject で掛ける。描くのは IDWriteTextRenderer::DrawInlineObject で、
-// InlineMathObjectKey で引いた型を本文の色で塗る。
-Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeInlineMathObject(uint64_t key, const InlineMathMetrics& metrics);
-// MakeInlineMathObject で作ったものなら key。書式の省略記号 (CreateEllipsisTrimmingSign) などは nullopt。
-std::optional<uint64_t> InlineMathObjectKey(IDWriteInlineObject* object) noexcept;
+// InlineMathObjectOf で引いた型を本文の色で塗る。scale は寸法と型に掛ける倍率 (幅に収まらないブロック数式を縮める)。
+Microsoft::WRL::ComPtr<IDWriteInlineObject> MakeInlineMathObject(uint64_t key, const InlineMathMetrics& metrics, float scale);
+struct InlineMathObjectRef {
+    uint64_t key = 0;
+    float scale = 1.0f;
+};
+// MakeInlineMathObject で作ったものなら key と倍率。書式の省略記号 (CreateEllipsisTrimmingSign) などは nullopt。
+std::optional<InlineMathObjectRef> InlineMathObjectOf(IDWriteInlineObject* object) noexcept;

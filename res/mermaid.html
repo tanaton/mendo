@@ -7,9 +7,6 @@
   body { background: white; }
   body.dark { background: #1e1e1e; }
   #container { display: block; }
-  /* 数式の文字色は本文 (theme.cpp の Text) に揃える。インク (積分記号など) が箱から少しはみ出すので余白を取る。 */
-  .math { display: inline-block; padding: 4px 8px; font-size: 16px; color: #24292e; }
-  body.dark .math { color: #d4d4d4; }
   /* インライン数式の型は黒で描いてアルファだけを使う (本文の色で塗る) ので、背景は透明にする。
      行の高さを詰めるため上揃えで並べ、ベースラインは幅 0 の目印 (.bl) の位置で測る。 */
   body.atlas-page { background: transparent; }
@@ -88,70 +85,10 @@
     return (e && e.message) || String(e);
   }
 
-  // flowchart で包むと " を渡せず、ラベルの #xx; エスケープも KaTeX に届いてしまうので、KaTeX を直接呼ぶ。
-  // MathML で出すのは mermaid と同じで、KaTeX の CSS とフォントを持たずに済むため。描けなければ投げる。
-  // 1 つずつ描くときもまとめて描くときもこれで組み、切り出しの画素を揃える。
-  function blockMathHtml(katex, tex) {
-    return '<div class="math">' + katex.renderToString(tex, { throwOnError: true, displayMode: true, output: 'mathml' }) + '</div>';
-  }
-
-  async function renderMath(tex, isDark) {
-    const katex = await loadKatex();
-    document.body.className = isDark ? 'dark' : '';
-    const container = document.getElementById('container');
-    container.innerHTML = blockMathHtml(katex, tex);
-    const rect = container.firstChild.getBoundingClientRect();
-    return sizeString(rect.width, rect.height);
-  }
-
-  // ブロック数式をまとめて 1 ページに縦に並べて描く。行は renderMath の #container と同じ形で、
-  // 上端を CSS px でも物理ピクセルでも整数の位置に置くので、切り出しは 1 つずつ描いたキャプチャと画素が一致する。
-  // 戻り値は C++ の ParseMathBlocks が読む形 ("<w>:<h>:<dpr>|" の後に "b<x>,<y>,<w>,<h>;" か "e<文言の長さ>:<文言>")。
-  async function renderMathBlocks(texList, isDark) {
-    const katex = await loadKatex();
-    document.body.className = isDark ? 'dark' : '';
-    const results = texList.map(tex => {
-      try {
-        return { html: blockMathHtml(katex, tex) };
-      } catch (e) {
-        return { error: errorText(e) };
-      }
-    });
-    const container = document.getElementById('container');
-    container.innerHTML = results.filter(r => r.error === undefined).map(r => '<div>' + r.html + '</div>').join('');
-    const rows = container.children;
-    const rects = Array.from(rows, row => row.firstChild.getBoundingClientRect());
-    const dpr = window.devicePixelRatio || 1;
-    // 行の上端の刻み。dpr を掛けて整数になる最小の CSS px (1.5 なら 2、1.25 なら 4)。
-    let grid = 1;
-    while (grid < 8 && Math.abs(grid * dpr - Math.round(grid * dpr)) > 1e-6) {
-      grid++;
-    }
-    let items = '';
-    let right = 1;
-    let y = 0;
-    let i = 0;
-    for (const r of results) {
-      if (r.error !== undefined) {
-        items += 'e' + r.error.length + ':' + r.error;
-        continue;
-      }
-      const w = Math.ceil(rects[i].width);
-      const h = Math.ceil(rects[i].height);
-      // 切り出す高さより 1px 以上空けて、次の行の上端も刻みにそろえる。
-      const step = Math.ceil((h + 1) / grid) * grid;
-      rows[i].style.height = step + 'px';
-      items += 'b0,' + y + ',' + w + ',' + h + ';';
-      right = Math.max(right, w);
-      y += step;
-      i++;
-    }
-    return sizeString(right, Math.max(y, 1)) + '|' + items;
-  }
-
   // items は [TeX, 文字の大きさ (px)] の並び。全部を幅 pageWidth のページに並べ、ページの大きさと各数式の箱
   // (x,y,w,h,ベースライン。描けなかった数式は "e") を返す。C++ はこの後ページ全体を 1 回キャプチャして切り出す。
   // キャプチャの前にビューをページの大きさに合わせるので、ページの幅はビューに依らず固定して並びを変えない。
+  // MathML で出すのは mermaid と同じで、KaTeX の CSS とフォントを持たずに済むため。
   async function renderMathBatch(items, pageWidth) {
     const katex = await loadKatex();
     document.body.className = 'atlas-page';
@@ -199,7 +136,7 @@
   }
 
   // C++ (mermaid_util::Page*Message) からの要求。"<種類>:<要求 ID>:..." の形で、図のコードは末尾に置き、
-  // まとめて描く数式は "<文字の大きさ>:<TeX の長さ>:<TeX>" (ブロック数式は "<TeX の長さ>:<TeX>") を並べてある。
+  // まとめて描く数式は "<文字の大きさ>:<TeX の長さ>:<TeX>" を並べてある。
   // 結果は "<結果の種類>:<要求 ID>:<中身>" で、描けなければ "render-error:<要求 ID>:<文言>" で返す。
   function readField(msg, pos) {
     const end = msg.indexOf(':', pos);
@@ -238,18 +175,6 @@
       result = 'math-result';
       task = renderMathBatch(items, +width);
     }
-    else if (kind === 'blocks') {
-      let dark;
-      [dark, pos] = readField(msg, pos);
-      const texList = [];
-      while (pos < msg.length) {
-        let tex;
-        [tex, pos] = readText(msg, pos);
-        texList.push(tex);
-      }
-      result = 'blocks-result';
-      task = renderMathBlocks(texList, dark === '1');
-    }
     else {
       let dark;
       [dark, pos] = readField(msg, pos);
@@ -261,7 +186,7 @@
       }
       else {
         result = 'render-result';
-        task = kind === 'tex' ? renderMath(code, isDark) : renderMermaid(code, isDark);
+        task = renderMermaid(code, isDark);
       }
     }
     task.then(r => result + ':' + id + ':' + r, err => 'render-error:' + id + ':' + errorText(err))
