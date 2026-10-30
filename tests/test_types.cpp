@@ -98,7 +98,7 @@ TEST(TextRun, FlagsAreIndependent)
         { "italic", TextRun::kItalic, &TextRun::italic },
         { "code", TextRun::kCode, &TextRun::code },
         { "strikethrough", TextRun::kStrikethrough, &TextRun::strikethrough },
-        { "display_math", TextRun::kMathDisplay, &TextRun::display_math },
+        { "double_dollar_math", TextRun::kMathDoubleDollar, &TextRun::double_dollar_math },
     };
     uint8_t all = 0;
     for (const auto& f : kFlags) {

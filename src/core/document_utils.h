@@ -41,7 +41,7 @@ constexpr uint32_t MathDelimiterLength(std::string_view text, const TextRun& run
     if (!run.math()) {
         return 0;
     }
-    const std::string_view delim = run.display_math() ? "$$" : "$";
+    const std::string_view delim = run.double_dollar_math() ? "$$" : "$";
     const std::string_view whole = text.substr(run.start, run.length);
     const bool balanced = whole.size() > delim.size() * 2 && whole.starts_with(delim) && whole.ends_with(delim);
     return balanced ? static_cast<uint32_t>(delim.size()) : 0;
@@ -53,7 +53,7 @@ constexpr bool IsBlockMath(const Node& node) noexcept
 {
     const auto runs = node.runs();
     const std::string_view text = node.GetText();
-    return runs.size() == 1 && runs[0].display_math() && runs[0].start == 0 && runs[0].length == text.size() &&
+    return runs.size() == 1 && runs[0].double_dollar_math() && runs[0].start == 0 && runs[0].length == text.size() &&
            MathDelimiterLength(text, runs[0]) > 0;
 }
 

@@ -1411,7 +1411,7 @@ Zig は汎用 lexer に `\\` の行文字列と `@import` 等の組み込み関�
 
 Lua は汎用 lexer に長括弧（`[[ ]]` / `[==[ ]==]` の文字列と `--[[ ]]` のコメント）のフラグを足して扱う。Vim script は専用 lexer で、行頭と `|` の後をコマンド位置として読み、コマンド名（省略形を含む）を Keyword、`g:` / `s:` / `a:` 等のスコープ付き変数と `&option` / `$ENV` / `@r` を Type、`<CR>` 等のキー表記を Preprocessor にする。`"` は行頭ならコメント、式の中では同じ行に閉じの `"` があれば文字列、無ければ行末コメントとみなす。マッピングコマンドの引数はキー列なのでキー表記だけを色付けし、`lua << EOF` の本文は Lua として、`let x =<< END` の本文は文字列として色付けする。`<<` はコマンド（`let` は代入の `=`）の直後に来たときだけ本文の始まりとみなし、行の途中のシフト演算子や文字列中の `<<` では始めない。先頭のコマンドが `vim9script` の文書（と ` ```vim9 `）は Vim9 script として `#` をコメント、`"` を文字列とする。
 
-キーワードリストは `syntax_keywords.h` に集約され、長さでバケット分けしたソート済み配列（`BucketedTable<N>`）で持つ。判定は `word.size()` で該当バケットへ直接ジャンプし、バケット内を `std::ranges::binary_search` で二分探索する。なお `SyntaxLanguage` には図形言語の `Mermaid` と、` ```math ` の `LatexMath`（トークン化対象外）もある。`Mermaid` のブロックはパーサが `NodeType::Diagram` のノードにする。` ```math ` はパーサが中身を `$$` で囲んだ段落にし、`$$...$$` だけの段落と同じく段落いっぱいの `kMathDisplay` の run（`IsBlockMath`）としてインライン数式の仕組みで描く。
+キーワードリストは `syntax_keywords.h` に集約され、長さでバケット分けしたソート済み配列（`BucketedTable<N>`）で持つ。判定は `word.size()` で該当バケットへ直接ジャンプし、バケット内を `std::ranges::binary_search` で二分探索する。なお `SyntaxLanguage` には図形言語の `Mermaid` と、` ```math ` の `LatexMath`（トークン化対象外）もある。`Mermaid` のブロックはパーサが `NodeType::Diagram` のノードにする。` ```math ` はパーサが中身を `$$` で囲んだ段落にし、`$$...$$` だけの段落と同じく段落いっぱいの `kMathDoubleDollar` の run（`IsBlockMath`）としてインライン数式の仕組みで描く。
 
 ---
 

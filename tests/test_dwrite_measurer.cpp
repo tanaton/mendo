@@ -256,10 +256,10 @@ TEST(InlineMathTex, ExtractsTexAndRejectsUnbalancedRuns)
         return r;
     };
     EXPECT_EQ(InlineMathTex("a $x$ b", make(2, 3, TextRun::kMath)), std::optional<std::string_view>{ "x" });
-    EXPECT_EQ(InlineMathTex("$$x+y$$", make(0, 7, TextRun::kMathDisplay)), std::optional<std::string_view>{ "x+y" });
-    EXPECT_FALSE(InlineMathTex("$$x+y", make(0, 5, TextRun::kMathDisplay)));
-    EXPECT_FALSE(InlineMathTex("x+y$$", make(0, 5, TextRun::kMathDisplay)));
-    EXPECT_FALSE(InlineMathTex("$$$$", make(0, 4, TextRun::kMathDisplay)));
+    EXPECT_EQ(InlineMathTex("$$x+y$$", make(0, 7, TextRun::kMathDoubleDollar)), std::optional<std::string_view>{ "x+y" });
+    EXPECT_FALSE(InlineMathTex("$$x+y", make(0, 5, TextRun::kMathDoubleDollar)));
+    EXPECT_FALSE(InlineMathTex("x+y$$", make(0, 5, TextRun::kMathDoubleDollar)));
+    EXPECT_FALSE(InlineMathTex("$$$$", make(0, 4, TextRun::kMathDoubleDollar)));
 }
 
 // 長くて区切った $$..$$ は数式にしない (どのノードも原文のまま)。

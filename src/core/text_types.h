@@ -11,7 +11,7 @@ struct TextRun {
     // インライン数式。範囲は前後の "$" を含み、テキストは原文のまま残してレイアウトでだけ数式に置き換える。
     static constexpr uint8_t kMath = 0x10;
     // $$...$$ と ```math。範囲は前後の "$$" を含む (```math はパーサが "$$" で囲む)。
-    static constexpr uint8_t kMathDisplay = 0x20;
+    static constexpr uint8_t kMathDoubleDollar = 0x20;
 
     uint32_t start = 0;
     uint32_t length = 0;
@@ -36,11 +36,11 @@ struct TextRun {
     // $...$ か $$...$$。
     constexpr bool math() const noexcept
     {
-        return flags & (kMath | kMathDisplay);
+        return flags & (kMath | kMathDoubleDollar);
     }
-    constexpr bool display_math() const noexcept
+    constexpr bool double_dollar_math() const noexcept
     {
-        return flags & kMathDisplay;
+        return flags & kMathDoubleDollar;
     }
     constexpr bool has_link() const noexcept
     {
