@@ -6,14 +6,13 @@
 #include <wrl/implements.h>
 #include <cmath>
 
-std::optional<std::string> InlineMathTex(std::string_view text, const TextRun& run)
+std::optional<std::string_view> InlineMathTex(std::string_view text, const TextRun& run)
 {
     const uint32_t delim = MathDelimiterLength(text, run);
     if (delim == 0) {
         return std::nullopt;
     }
-    const std::string_view tex = text.substr(run.start + delim, run.length - delim * 2);
-    return run.display_math() ? std::string{ "\\displaystyle " }.append(tex) : std::string{ tex };
+    return text.substr(run.start + delim, run.length - delim * 2);
 }
 
 uint64_t InlineMathKey(std::string_view tex, float font_size) noexcept
@@ -29,7 +28,7 @@ void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
     // 次にキーで区切るまでずれるので、上限に届くことが少ないよう (約 4%) 平均を上限の 1/3 ほどにする。
     constexpr uint64_t kAverageChunk = 64;
     // 描き方を変えたら値も変え、ディスクキャッシュに残った古い描き方のページを引かせない。
-    constexpr uint64_t kChunkKeySalt = 0x3C6EF372FE94F82BULL;
+    constexpr uint64_t kChunkKeySalt = 0xA54FF53A5F1D36F1ULL;
 
     chunks_.clear();
     chunk_of_.clear();
@@ -51,7 +50,7 @@ void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
             if (!r.math()) {
                 continue;
             }
-            auto tex = InlineMathTex(text, r);
+            const auto tex = InlineMathTex(text, r);
             if (!tex) {
                 continue;
             }
@@ -59,7 +58,7 @@ void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
             if (!chunk_of_.try_emplace(key, static_cast<uint32_t>(chunks_.size())).second) {
                 continue;
             }
-            current.items.push_back({ key, std::move(*tex), font_size });
+            current.items.push_back({ key, std::string{ *tex }, font_size });
             // 前後の数式に依らず区切るので、数式を足しても消しても区切りはその数式の前後でしか変わらない。
             // FNV-1a は似た短い TeX ("1101x" と "1102x" など) で偏るので、かき混ぜてから決める (splitmix64 の仕上げ)。
             uint64_t mixed = key;

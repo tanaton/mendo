@@ -942,7 +942,7 @@ TEST(Parser, MermaidCodeBlock)
 
 // ---- LaTeX display math ($$...$$) ----
 
-// $$...$$ だけの段落は図にせず、段落いっぱいの kMathDisplay の run を持つブロック数式にする。
+// $$...$$ だけの段落は図にせず、段落いっぱいの kMathDoubleDollar の run を持つブロック数式にする。
 TEST(Parser, LatexDisplayMathOnlyParagraphIsBlockMath)
 {
     auto result = ParseMarkdown("$$E = mc^2$$");
@@ -951,7 +951,7 @@ TEST(Parser, LatexDisplayMathOnlyParagraphIsBlockMath)
     EXPECT_EQ(node.type, NodeType::Paragraph);
     EXPECT_EQ(node.GetText(), "$$E = mc^2$$");
     ASSERT_EQ(node.runs().size(), 1u);
-    EXPECT_TRUE(node.runs()[0].display_math());
+    EXPECT_TRUE(node.runs()[0].double_dollar_math());
     EXPECT_TRUE(IsBlockMath(node));
     EXPECT_TRUE(result.indices.diagram_indices.empty());
 }
@@ -1098,15 +1098,15 @@ TEST(Parser, LatexDisplayMathInBlockquoteIsBlockMath)
     EXPECT_TRUE(IsBlockMath(nodes[0]));
 }
 
-// 本文と混ざった $$...$$ は、前後の $$ を含む範囲に kMathDisplay の run を付ける。
+// 本文と混ざった $$...$$ は、前後の $$ を含む範囲に kMathDoubleDollar の run を付ける。
 TEST(Parser, LatexDisplayMathInTextMarksDisplayRun)
 {
     auto nodes = ParseNodes("a $$x+y$$ b $z$");
     ASSERT_EQ(nodes.size(), 1u);
     EXPECT_EQ(nodes[0].type, NodeType::Paragraph);
     EXPECT_EQ(MathRunTexts(nodes[0]), (std::vector<std::string_view>{ "$$x+y$$", "$z$" }));
-    EXPECT_TRUE(nodes[0].runs()[0].display_math());
-    EXPECT_FALSE(nodes[0].runs()[1].display_math());
+    EXPECT_TRUE(nodes[0].runs()[0].double_dollar_math());
+    EXPECT_FALSE(nodes[0].runs()[1].double_dollar_math());
 }
 
 TEST(Parser, PlainDollarSignsNotMisdetectedAsMath)

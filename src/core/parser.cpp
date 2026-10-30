@@ -38,7 +38,7 @@ constexpr uint8_t RunFlagOf(MD_SPANTYPE type) noexcept
     case MD_SPAN_LATEXMATH:
         return TextRun::kMath;
     case MD_SPAN_LATEXMATH_DISPLAY:
-        return TextRun::kMathDisplay;
+        return TextRun::kMathDoubleDollar;
     default:
         return 0;
     }
@@ -177,9 +177,7 @@ struct ParseContext : NodeStorage {
         CancelPendingSplit();
         FlushPendingRun();
         if (current_node) {
-            // 昇格処理 (TryPromoteParagraphToDisplayMath 等) がテキストを直接設定済みのノードは、
-            // current_text で上書きすると line_count ごと巻き戻るのでスキップする。
-            if (!current_text.empty() && !current_node->HasText()) {
+            if (!current_text.empty()) {
                 const auto offset = current_node->SourceOffset();
                 const bool matches_raw = !current_node_needs_copy && offset != kUnsetSourceOffset && CurrentTextMatchesRawSliceAt(offset);
                 const std::string_view text = matches_raw
@@ -832,14 +830,14 @@ void LeaveCodeBlock(ParseContext* ctx)
         cn->line_count--;
     }
     // ```math は $$..$$ だけの段落と同じく、段落の中にディスプレイ形式の数式として描く。テキストを $$ で囲んで
-    // kMathDisplay の run にし、選択・コピー・検索も段落の数式と同じに扱う。
+    // kMathDoubleDollar の run にし、選択・コピー・検索も段落の数式と同じに扱う。
     if (cn->code_language == SyntaxLanguage::LatexMath && !ctx->current_text.empty()) {
         ctx->current_text.insert(0, "$$");
         ctx->current_text.append("$$");
         ctx->current_node_needs_copy = true;
         TextRun run;
         run.length = static_cast<uint32_t>(ctx->current_text.size());
-        run.set_raw_flags(TextRun::kMathDisplay);
+        run.set_raw_flags(TextRun::kMathDoubleDollar);
         ctx->current_runs.push_back(run);
         ctx->MakeCurrentParagraph();
         cn->code_language = SyntaxLanguage::None;
@@ -1245,7 +1243,7 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
         ++ctx->image_span_depth;
         break;
     case MD_SPAN_LATEXMATH_DISPLAY:
-        // 元の "$$" を戻して kMathDisplay の run に含める。描画待ちの間は原文を出し、コピーでは外す (MathDelimiterLength)。
+        // 元の "$$" を戻して kMathDoubleDollar の run に含める。描画待ちの間は原文を出し、コピーでは外す (MathDelimiterLength)。
         ctx->AppendDoc("$$");
         break;
     case MD_SPAN_LATEXMATH:

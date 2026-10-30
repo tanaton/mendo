@@ -26,7 +26,7 @@ winget install tanaton.mendo
 - **离线运行** — 无需网络连接即可使用。
 - **语法高亮** — 为多种编程语言、配置文件格式等的代码块着色。
 - **图像显示** — 显示本地的 PNG、JPEG、BMP 等图像。
-- **LaTeX** — 使用 KaTeX 渲染 `$$...$$` 块级公式、` ```math ` 代码块和行内 `$...$` 公式。（只由 `$$...$$` 构成的段落和 ` ```math ` 渲染为居中的块级公式，正文中的 `$$...$$` 以展示样式在行内渲染。选中公式复制时得到去掉 `$` 的 LaTeX 文本。）
+- **LaTeX** — 使用 KaTeX 渲染 `$$...$$` 块级公式、` ```math ` 代码块和行内 `$...$` 公式。（只由 `$$...$$` 构成的段落和 ` ```math ` 渲染为居中的块级公式。选中公式复制时得到去掉 `$` 的 LaTeX 文本。）
 - **导航历史** — 支持鼠标侧键、鼠标手势、触摸板滑动等浏览器式的后退 / 前进，并恢复滚动位置。
 - **拖放** — 将 Markdown 文件拖放到窗口中即可打开。
 - **文件内搜索** — 通过标题栏的搜索按钮或 `Ctrl+F` 在文件内搜索。
@@ -45,7 +45,7 @@ winget install tanaton.mendo
 | 代码块（围栏） | ✅ 带语法高亮。支持的语言：C/C++, C#, Java, Kotlin, Swift, Python, JavaScript, TypeScript, Go, Rust, Zig, Haskell, Clojure, Emacs Lisp, Common Lisp, Scheme/Racket, Lua, Vim script, PHP, Ruby, SQL, HTML, XML, CSS, SCSS, JSON, YAML, TOML, INI, Bash, PowerShell, cmd（批处理）, Dockerfile, Makefile, diff |
 | 图像 (PNG / JPEG / BMP) | ✅ 异步加载 |
 | Mermaid 图表 | ✅ 使用 WebView2 渲染 |
-| LaTeX 公式 (`$...$` / `$$...$$` / ` ```math `) | ✅ 以正文颜色渲染（`\color` 无效）。只由 `$$...$$` 构成的段落和 ` ```math ` 渲染为块级公式，正文中的 `$$...$$` 以展示样式在行内渲染 |
+| LaTeX 公式 (`$...$` / `$$...$$` / ` ```math `) | ✅ 以正文颜色渲染（`\color` 无效）。全部以展示样式渲染，只由 `$$...$$` 构成的段落和 ` ```math ` 渲染为块级公式 |
 | GitHub Alerts | ✅ Note / Tip / Important / Warning / Caution |
 | 脚注 (`[^1]`) | ✅ 按编号显示在文档末尾，引用与定义相互链接 |
 | 链接（外部 / 页内锚点） | ✅ |
