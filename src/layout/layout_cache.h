@@ -77,6 +77,11 @@ struct TableLayoutData {
         return row_evicted_[r] != 0;
     }
     // セル layout を持ちうる行があるか。
+    // セル layout が生存しうる行範囲 [begin, end)。外の行は layout を持たない。
+    constexpr std::pair<size_t, size_t> LiveRowRange() const noexcept
+    {
+        return { live_row_begin_, live_row_end_ };
+    }
     constexpr bool HasLiveRows() const noexcept
     {
         return live_row_begin_ < live_row_end_;

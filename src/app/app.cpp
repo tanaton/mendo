@@ -61,11 +61,9 @@ bool App::Init(HWND hwnd)
         return false;
     }
 
-    // Mermaid 共有 scheduler_ と詰まり合わないよう独立して立ち上げる。
+    // Mermaid 共有 scheduler_ と詰まり合わないよう分ける。
     layout_scheduler_.Init(LayoutWorkerCount(std::thread::hardware_concurrency()));
     measurer_.SetScheduler(&layout_scheduler_);
-    // 最初の計測がフォントの読み込みを待たないよう、ワーカーとフォントを先に起こしておく。
-    measurer_.WarmUp(layout_scheduler_);
 
     // PixelToDip 用に DPI スケールをキャッシュ（DpiChangedAction でも更新する）。
     state_.window.cached_dpi_scale = DpiScaleFrom(static_cast<float>(GetDpiForWindow(hwnd_)));
@@ -1138,7 +1136,7 @@ void App::OnDestroy()
     SaveSession();
 
     mermaid_renderer_.Shutdown();
-    // 走行中タスクが latch.wait 中の参照を保ったまま解放されないよう、
+    // 走行中タスクの参照が解放されないよう、
     // LayoutEngine の参照解除 → Shutdown (join) → ターゲット deinit の順を守る。
     measurer_.SetScheduler(nullptr);
     layout_scheduler_.Shutdown();
