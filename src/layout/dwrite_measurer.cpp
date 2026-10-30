@@ -8,15 +8,12 @@
 #include "parallel_for.h"
 #include "profiler.h"
 #include "syntax.h"
-#include "task_scheduler.h"
 #include "ui_constants.h"
 #include "utf8_codec.h"
 #include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <cmath>
-#include <latch>
-#include <memory>
 #include <memory_resource>
 #include <ranges>
 #include <string_view>
@@ -134,13 +131,18 @@ std::vector<uint32_t> FindRepresentativeCells(const NodeTableData& tbl, TaskSche
     return reps;
 }
 
-// 巨大テーブルを行チャンクで並列処理するときの 1 チャンクの行数。1 画面分の行の復元 (数百セル) も
-// ワーカーに行き渡る細かさにする (2 万行 6 列で 256 セルだと復元 4.7ms、32 セルで 1.2ms。初回計測は変わらない)。
+// テーブルを行チャンクで並列処理するときの 1 チャンクの行数。数十セルの小さな表も、1 画面分の行の復元も
+// ワーカーに行き渡る細かさにする。32 セルから 8 セルで、test.md を開いて先読みするまでが 2.6 → 1.9ms、
+// 2 万行 6 列の表の復元が 2.9 → 2.0ms に縮む。
 constexpr size_t TableRowsPerChunk(size_t col_count) noexcept
 {
-    constexpr size_t kCellsPerChunk = 32;
-    return std::max<size_t>(1, kCellsPerChunk / std::max<size_t>(col_count, 1));
+    constexpr size_t kCellsPerChunk = 8;
+    return kCellsPerChunk / std::max<size_t>(col_count, 1);
 }
+
+// セル layout の無い行は高さを見積もるだけで、chunk の取得のほうが重いので粗く分ける。行チャンクのままだと
+// 2 万行 6 列の幅の変更が 1.0ms かかる (分けて 0.48ms)。直列にすると表が大きいときに遅れる。
+constexpr size_t kEstimatedRowsPerChunk = 256;
 
 // 1 行目の高さを取得し entry にキャッシュする。layout 自体は変えない。
 void CacheFirstLineHeight(IDWriteTextLayout* layout, NodeLayoutEntry& entry) noexcept
@@ -263,43 +265,6 @@ std::vector<SyntaxToken> ToWideMergedTokens(std::string_view text, std::vector<S
 
 } // namespace
 
-void DWriteTextMeasurer::WarmUp(TaskScheduler& scheduler) const
-{
-    if (!ctx_.body) {
-        return;
-    }
-    // 各書式で日本語を含む小さなレイアウトを測り、フォントの読み込みとフォールバックの解決を済ませる。
-    // 見出しはサイズしか違わず、フォントの読み込みとフォールバックの解決は 1 つで済む。
-    static constexpr auto warm = [](const DWriteContext& ctx) {
-        MENDO_PROFILE("DWriteTextMeasurer::WarmUp");
-        constexpr std::wstring_view kSample = L"Aa1 日本語のテキスト";
-        for (IDWriteTextFormat* fmt : { ctx.body.Get(), ctx.code.Get(), ctx.h[0].Get() }) {
-            ComPtr<IDWriteTextLayout> layout;
-            if (fmt && SUCCEEDED(ctx.factory->CreateTextLayout(kSample.data(), static_cast<UINT32>(kSample.size()), fmt, layout::kNoWrapLayoutWidth, layout::kNoWrapLayoutWidth, &layout))) {
-                DWRITE_TEXT_METRICS metrics{};
-                layout->GetMetrics(&metrics);
-            }
-        }
-    };
-    // ワーカーの組はタスクを取ったワーカーで作られる。作り終えたワーカーは全員がそろうまで待ち、1 本に 1 つずつ行き渡らせる。
-    // 計測と違って UI スレッドを待たせないので、その間にズームなどで書き換わるテーマと ctx_ は読まず、今の値を渡す。
-    const auto workers = static_cast<std::ptrdiff_t>(scheduler.WorkerCount());
-    const auto arrived = std::make_shared<std::latch>(workers);
-    const auto theme = std::make_shared<const Theme>(*theme_);
-    for (std::ptrdiff_t i = 0; i < workers; ++i) {
-        if (!scheduler.Post([theme, generation = ctx_.generation, arrived] {
-            if (const auto* ctx = ThreadContext(*theme, generation)) {
-                warm(*ctx);
-            }
-            arrived->arrive_and_wait();
-        })) {
-            arrived->count_down();
-        }
-    }
-    // 共有ファクトリ (UI スレッドの計測用) は書式の参照を持って渡し、UI スレッドが作り直しても途中で解放されないようにする。
-    scheduler.Post([ctx = ctx_] { warm(ctx); });
-}
-
 bool DWriteTextMeasurer::CreateFormats(const Theme& theme, DWriteContext& ctx)
 {
     // 描画側と同じ作り方にし、無効なフォント名でも描画と同じフォールバックで測る。
@@ -324,29 +289,23 @@ bool DWriteTextMeasurer::RecreateFormats()
     return CreateFormats(*theme_, ctx_);
 }
 
-const DWriteTextMeasurer::DWriteContext* DWriteTextMeasurer::ThreadContext(const Theme& theme, uint64_t generation)
-{
-    thread_local DWriteContext t_ctx;
-    if (t_ctx.generation != generation) {
-        if (!t_ctx.factory) {
-            DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(t_ctx.factory.GetAddressOf()));
-        }
-        if (!t_ctx.factory || !CreateFormats(theme, t_ctx)) {
-            return nullptr;
-        }
-        t_ctx.generation = generation;
-    }
-    return &t_ctx;
-}
-
 const DWriteTextMeasurer::DWriteContext& DWriteTextMeasurer::Context() const
 {
     if (std::this_thread::get_id() == owner_thread_) {
         return ctx_;
     }
-    // 作れなければ共有ファクトリで測る (競合で遅いだけで結果は同じ)。
-    const auto* ctx = ThreadContext(*theme_, ctx_.generation);
-    return ctx ? *ctx : ctx_;
+    thread_local DWriteContext t_ctx;
+    if (t_ctx.generation != ctx_.generation) {
+        if (!t_ctx.factory) {
+            DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(t_ctx.factory.GetAddressOf()));
+        }
+        // 作れなければ共有ファクトリで測る (競合で遅いだけで結果は同じ)。
+        if (!t_ctx.factory || !CreateFormats(*theme_, t_ctx)) {
+            return ctx_;
+        }
+        t_ctx.generation = ctx_.generation;
+    }
+    return t_ctx;
 }
 
 IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const DWriteContext& ctx, const Node& node) noexcept
@@ -665,11 +624,20 @@ float DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, TableLay
 
     layout::ComputeColumnWidths(tl.col_widths, tl.natural_col_widths, max_width - borders_width - paddings_width);
 
-    // 幅の適用 (SetMaxWidth + GetMetrics) は全セル分かかる。行ごとの書き込み先
+    // 幅の適用 (SetMaxWidth + GetMetrics) は layout のあるセル分かかる。行ごとの書き込み先
     // (row_heights[r] と行内セルの幅・高さキャッシュ) は重ならないので行チャンクで並列化する。
+    // layout のある行と見積もるだけの行は 1 行の重さが桁で違うので、別の細かさで分ける。
     const float base_row_height = layout::TableBaseRowHeight(*theme_);
-    ParallelFor(scheduler_, tbl.row_count, TableRowsPerChunk(col_count), [&](size_t row_begin, size_t row_end) {
-        for (size_t r = row_begin; r < row_end; r++) {
+    const auto [live_begin, live_end] = tl.LiveRowRange();
+    const size_t live_count = live_end - live_begin;
+    ParallelFor(scheduler_, live_count, TableRowsPerChunk(col_count), [&](size_t begin, size_t end) {
+        for (size_t r = live_begin + begin; r < live_begin + end; r++) {
+            tl.row_heights[r] = MeasureRowHeight(tl, tbl, r, base_row_height);
+        }
+    });
+    ParallelFor(scheduler_, tbl.row_count - live_count, kEstimatedRowsPerChunk, [&](size_t begin, size_t end) {
+        for (size_t k = begin; k < end; k++) {
+            const size_t r = k < live_begin ? k : k + live_count;
             tl.row_heights[r] = MeasureRowHeight(tl, tbl, r, base_row_height);
         }
     });

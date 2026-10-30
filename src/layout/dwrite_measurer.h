@@ -9,7 +9,6 @@
 struct NodeTableData;
 struct TableLayoutData;
 class InlineMathTable;
-class TaskScheduler;
 
 // ITextMeasurer の DirectWrite 実装。IDWriteTextFormat (重い再利用可能オブジェクト) を
 // theme ごとに所有し、計測のたびに per-call で IDWriteTextLayout を生成する分業構造。
@@ -31,11 +30,6 @@ public:
         NodeLayoutEntry& entry,
         float max_width,
         YRange viewport) const override;
-
-    // scheduler のワーカーを起こし、各書式で日本語を含む小さなレイアウトを作って捨てる。
-    // 最初の計測がフォントの読み込みとフォールバックの解決を待たないよう、起動中の他の処理と重ねる。
-    // ワーカーごとのファクトリと書式もここで作る。
-    void WarmUp(TaskScheduler& scheduler) const;
 
     // 外部のIDWriteFactoryで初期化する（RecreateFormats の前に呼び出す必要がある）。
     void SetFactory(IDWriteFactory* factory) noexcept
@@ -59,10 +53,10 @@ private:
     };
 
     static bool CreateFormats(const Theme& theme, DWriteContext& ctx);
-    // 呼び出しスレッドで使うファクトリと書式。書式を作ったスレッドは ctx_ (共有ファクトリ)。
+    // 呼び出しスレッドで使うファクトリと書式。書式を作ったスレッドは ctx_ (共有ファクトリ)、ワーカーは専用のものを最初の呼び出しで作る。
+    // 起動時に全ワーカーへ先に作らせない。最初の計測は D3D デバイスの作成の裏で終わるので速くならず、
+    // 作成と競合して最初のフレームが 1〜5ms 遅れ、使わないワーカーの分だけ private も 1〜3MB 増える。
     const DWriteContext& Context() const;
-    // 呼び出しスレッド専用のファクトリと書式。generation が変わったら theme で作り直す。作れなければ nullptr。
-    static const DWriteContext* ThreadContext(const Theme& theme, uint64_t generation);
     static IDWriteTextFormat* GetTextFormat(const DWriteContext& ctx, const Node& node) noexcept;
     static IDWriteTextFormat* GetTableRowFormat(const DWriteContext& ctx, const NodeTableData& tbl, size_t r) noexcept;
     std::optional<float> MeasureTable(const Node& node, NodeLayoutEntry& entry, float max_width, YRange viewport) const;

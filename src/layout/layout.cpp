@@ -48,7 +48,7 @@ int MeasureIndicesParallel(
         }
         return !measured && entry.RecordMeasureFailure(LayoutCache::kMaxMeasureAttempts);
     };
-    // 1 ノードの計測 (数十 µs) に比べ chunk 取得の fetch_add は無視できるので、1 ノード単位で配って
+    // 1 ノードの計測 (数百 µs) に比べ worker を起こす手間 (8 本で約 30µs) と chunk の取得は小さいので、1 ノード単位で配って
     // 1 画面分 (数十ノード) の dirty でも全 worker に行き渡らせる。scheduler が無ければ全体が 1 chunk になる。
     std::atomic<int> left{ 0 };
     ParallelFor(backend.Scheduler(), indices.size(), 1, [&](size_t begin, size_t end) {
