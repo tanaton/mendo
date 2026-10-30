@@ -198,18 +198,28 @@ TEST_F(DWriteInlineMathTest, ExpandToClustersCoversWholeFormula)
     EXPECT_FLOAT_EQ(RangeWidth(layout, inside.startPosition, inside.length), 60.0f);
 }
 
-// $$..$$ はディスプレイ形式で頼み、それだけの段落 (引用の中も、```math も) は中央に置く。文中の $$..$$ は左揃えのまま。
-TEST_F(DWriteInlineMathTest, DisplayMathIsDisplayStyleAndBlockMathCentered)
+// $x$ と文中の $$x$$ は同じ形式で描くので、同じ数式として 1 回だけ頼む。
+TEST_F(DWriteInlineMathTest, InlineAndDisplayMathShareRendering)
+{
+    auto [nodes, cache] = ParseAndLayout("a $x$ b $$x$$ c\n");
+    ASSERT_EQ(nodes.size(), 1u);
+    const auto requests = table_.TakeRequests();
+    ASSERT_EQ(requests.size(), 1u);
+    EXPECT_EQ(requests[0].tex, "x");
+}
+
+// $$..$$ だけの段落 (引用の中も、```math も) は中央に置く。文中の $$..$$ は左揃えのまま。
+TEST_F(DWriteInlineMathTest, BlockMathIsCentered)
 {
     auto [nodes, cache] = ParseAndLayout("$$w$$\n\n> $$y=x$$\n\na $$z$$ b\n\n```math\na\nb\n```\n");
     ASSERT_EQ(nodes.size(), 4u);
     auto requests = table_.TakeRequests();
     std::ranges::sort(requests, {}, &InlineMathItem::tex);
     ASSERT_EQ(requests.size(), 4u);
-    EXPECT_EQ(requests[0].tex, "\\displaystyle a\nb");
-    EXPECT_EQ(requests[1].tex, R"(\displaystyle w)");
-    EXPECT_EQ(requests[2].tex, R"(\displaystyle y=x)");
-    EXPECT_EQ(requests[3].tex, R"(\displaystyle z)");
+    EXPECT_EQ(requests[0].tex, "a\nb");
+    EXPECT_EQ(requests[1].tex, "w");
+    EXPECT_EQ(requests[2].tex, "y=x");
+    EXPECT_EQ(requests[3].tex, "z");
     EXPECT_EQ(cache[0].text_layout()->GetTextAlignment(), DWRITE_TEXT_ALIGNMENT_CENTER);
     EXPECT_EQ(cache[1].text_layout()->GetTextAlignment(), DWRITE_TEXT_ALIGNMENT_CENTER);
     EXPECT_EQ(cache[2].text_layout()->GetTextAlignment(), DWRITE_TEXT_ALIGNMENT_LEADING);
@@ -245,8 +255,8 @@ TEST(InlineMathTex, ExtractsTexAndRejectsUnbalancedRuns)
         r.set_raw_flags(flags);
         return r;
     };
-    EXPECT_EQ(InlineMathTex("a $x$ b", make(2, 3, TextRun::kMath)), std::optional<std::string>{ "x" });
-    EXPECT_EQ(InlineMathTex("$$x+y$$", make(0, 7, TextRun::kMathDisplay)), std::optional<std::string>{ R"(\displaystyle x+y)" });
+    EXPECT_EQ(InlineMathTex("a $x$ b", make(2, 3, TextRun::kMath)), std::optional<std::string_view>{ "x" });
+    EXPECT_EQ(InlineMathTex("$$x+y$$", make(0, 7, TextRun::kMathDisplay)), std::optional<std::string_view>{ "x+y" });
     EXPECT_FALSE(InlineMathTex("$$x+y", make(0, 5, TextRun::kMathDisplay)));
     EXPECT_FALSE(InlineMathTex("x+y$$", make(0, 5, TextRun::kMathDisplay)));
     EXPECT_FALSE(InlineMathTex("$$$$", make(0, 4, TextRun::kMathDisplay)));

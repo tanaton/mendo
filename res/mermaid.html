@@ -13,6 +13,8 @@
   .math-atlas { color: #000; }
   .math-atlas .m { display: inline-block; vertical-align: top; margin: 2px; }
   .math-atlas .bl { display: inline-block; width: 0; height: 0; }
+  /* displayMode の math はブロックになり、箱とベースラインが変わる。 */
+  .math-atlas math { display: inline math; }
 </style>
 <script>
   let currentInitKey = null;
@@ -89,6 +91,8 @@
   // (x,y,w,h,ベースライン。描けなかった数式は "e") を返す。C++ はこの後ページ全体を 1 回キャプチャして切り出す。
   // キャプチャの前にビューをページの大きさに合わせるので、ページの幅はビューに依らず固定して並びを変えない。
   // MathML で出すのは mermaid と同じで、KaTeX の CSS とフォントを持たずに済むため。
+  // $...$ も文中の $$...$$ も displayMode で描く。GitHub は文中の数式をどちらも小さい形式で描くが、分数の中が本文の
+  // 7 割になって読みにくいので、行が高くなっても大きい方にそろえる。\displaystyle を前に付ける方法だと align や \tag が描けない。
   async function renderMathBatch(items, pageWidth) {
     const katex = await loadKatex();
     document.body.className = 'atlas-page';
@@ -96,7 +100,7 @@
     for (const [tex, px] of items) {
       let math = null;
       try {
-        math = katex.renderToString(tex, { throwOnError: true, displayMode: false, output: 'mathml' });
+        math = katex.renderToString(tex, { throwOnError: true, displayMode: true, output: 'mathml' });
       } catch (e) {
       }
       html += math === null ? '<span class="m err"></span>'
