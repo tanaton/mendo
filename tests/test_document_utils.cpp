@@ -18,7 +18,6 @@
 #include "parser.h"
 #include "selection_html.h"
 #include "syntax.h"
-#include "task_scheduler.h"
 #include "theme.h"
 #include "theme_palette.h"
 #include "utf8_fuzz_helpers.h"
@@ -2023,8 +2022,8 @@ TEST(FindNodeWordBoundaries, SelectsWholeInlineMathInTableCell)
     }
 }
 
-// 区間を worker に配って並列に解析しても、順に解析したのと同じになる。区間の境目をまたぐコメントや文字列も含める。
-TEST(ChunkCopy, ParallelCodeChunkLeadsMatchSerial)
+// 窓の境目をまたぐコメントや文字列があっても、1 度にトークン化したのと同じ色分けになる。
+TEST(ChunkCopy, CodeChunkLeadsMatchAcrossWindows)
 {
     std::string code;
     for (int i = 0; i < 6000; ++i) {
@@ -2037,18 +2036,7 @@ TEST(ChunkCopy, ParallelCodeChunkLeadsMatchSerial)
         }
     }
     const std::string md = "```cpp\n" + code + "```\n";
-    const auto serial = ParseNodes(md);
-    ASSERT_GE(serial.size(), 24u);
-
-    TaskScheduler scheduler;
-    scheduler.Init(4);
-    const auto parallel = ParseNodes(md, &scheduler);
-    scheduler.Shutdown();
-    ASSERT_EQ(parallel.size(), serial.size());
-    for (size_t i = 0; i < serial.size(); ++i) {
-        SCOPED_TRACE(i);
-        EXPECT_EQ(parallel[i].code_lead_length(), serial[i].code_lead_length());
-        EXPECT_EQ(parallel[i].code_lead_type(), serial[i].code_lead_type());
-    }
-    ExpectChunkTokensMatchRunTokenizedAtOnce(serial);
+    const auto nodes = ParseNodes(md);
+    ASSERT_GE(nodes.size(), 24u);
+    ExpectChunkTokensMatchRunTokenizedAtOnce(nodes);
 }

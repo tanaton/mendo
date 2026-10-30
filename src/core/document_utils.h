@@ -7,8 +7,6 @@
 #include <string_view>
 #include <vector>
 
-class TaskScheduler;
-
 struct WordBoundary {
     uint32_t start = 0;
     uint32_t end = 0;
@@ -99,8 +97,8 @@ std::vector<SyntaxToken> TokenizeCodeNode(const Node& node);
 
 // 区切ったコードブロックの並び (先頭から末尾まで) の続きのノードに、前のノードから続くトークンを記録する。
 // 並びをつないだテキストを数ノードずつの窓で字句解析し、窓の端で切れたトークンはその先頭から次の窓で解析し直す。
-// 並び全体のトークンを一度に持たない。scheduler があれば区間に分けて並列に解析する (同じ worker 上から呼んでよい)。
-void AnnotateCodeChunkLeads(std::span<Node> run, TaskScheduler* scheduler = nullptr);
+// 並び全体のトークンを一度に持たない。
+void AnnotateCodeChunkLeads(std::span<Node> run);
 
 // source_offset が diff_offset 以下の最後のノードを返す。該当なしの場合は -1。
 [[nodiscard]] int FindNodeBySourceOffset(const std::vector<Node>& nodes, size_t diff_offset) noexcept;

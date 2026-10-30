@@ -3,7 +3,9 @@
 #include "ascii_util.h"
 #include <algorithm>
 #include <array>
+#include <concepts>
 #include <cstdint>
+#include <iterator>
 #include <type_traits>
 #include <utility>
 
@@ -32,6 +34,15 @@ public:
         for (const char c : chars) {
             const auto u = static_cast<unsigned char>(c);
             bits_[u >> 6] |= uint64_t{ 1 } << (u & 63);
+        }
+    }
+    template <std::predicate<char> Pred>
+    consteval explicit CharSet(Pred pred) noexcept
+    {
+        for (size_t u = 0; u < 256; ++u) {
+            if (pred(static_cast<char>(u))) {
+                bits_[u >> 6] |= uint64_t{ 1 } << (u & 63);
+            }
         }
     }
     constexpr bool contains(char c) const noexcept
@@ -66,14 +77,17 @@ constexpr bool IsIdentStart(char c) noexcept
     return IsAsciiAlpha(c) || c == '_' || static_cast<std::make_unsigned_t<char>>(c) >= 0x80;
 }
 
+inline constexpr CharSet kIdentChars{ [](char c) { return IsIdentStart(c) || IsAsciiDigit(c); } };
+
 constexpr bool IsIdentChar(char c) noexcept
 {
-    return IsIdentStart(c) || IsAsciiDigit(c);
+    return kIdentChars.contains(c);
 }
 
 // [start, end) を type のトークンとして出し、end を返す (呼び出し側はそのまま走査位置にする)。
 // Plain は描画・HTML 化ともトークン間の隙間と同じ扱いなので出力しない (出すとトークンの大半を占める)。
-constexpr size_t EmitRange(std::vector<SyntaxToken>& tokens, size_t start, size_t end, SyntaxTokenType type)
+template <class Tokens>
+constexpr size_t EmitRange(Tokens& tokens, size_t start, size_t end, SyntaxTokenType type)
 {
     if (end > start && type != SyntaxTokenType::Plain) {
         tokens.emplace_back(static_cast<uint32_t>(start), static_cast<uint32_t>(end - start), type);
@@ -251,6 +265,11 @@ constexpr bool IsBlank(char c) noexcept
     return c == ' ' || c == '\t';
 }
 
+constexpr bool IsMarkupSpace(char c) noexcept
+{
+    return IsBlank(c) || c == '\n';
+}
+
 // end の後に空白を挟んで '(' が続くか。たいていは空白が無いので、すぐ下の文字だけを見て終わる。
 constexpr bool IsFollowedByParen(std::string_view text, size_t end) noexcept
 {
@@ -366,6 +385,115 @@ struct LexerConfig {
     bool lua_long_bracket = false;     // [[ ]] / [==[ ]==] の長文字列と --[[ ]] の長コメント（Lua）
 };
 
+// Cfg の言語で、識別子と数値以外のトークンを始める文字。rem は語だが、語として飛ばさないように頭文字を入れる。
+// TokenizeRange の分岐に開始文字を足したらここにも足す。漏れると kPlainChars でその分岐に届かない。Tokenize と TokensCrossing が
+// 同じように壊れて突き合わせでは分からないので、SyntaxSequence.TokenStartCharsReachTheirBranches にも足す。
+template <LexerConfig Cfg>
+inline constexpr auto kTokenStartStorage = [] {
+    constexpr std::pair<bool, char> rules[] = {
+        { true, '"' },
+        { !Cfg.skip_single_quote || Cfg.triple_quote != TripleQuote::None, '\'' },
+        { Cfg.line_comment_slash || Cfg.block_comment, '/' },
+        { Cfg.hash_comment || Cfg.preprocessor, '#' },
+        { Cfg.angle_block_comment, '<' },
+        { Cfg.lua_long_bracket, '[' },
+        { Cfg.lua_long_bracket || Cfg.dash_dash_comment, '-' },
+        { Cfg.double_colon_comment, ':' },
+        { Cfg.verbatim_at_string || Cfg.at_builtin, '@' },
+        { Cfg.backslash_line_string, '\\' },
+        { Cfg.backtick_string, '`' },
+        { Cfg.ruby_block_comment, '=' },
+        { Cfg.rem_comment, 'r' },
+        { Cfg.rem_comment, 'R' },
+    };
+    struct {
+        std::array<char, std::size(rules)> chars{};
+        size_t size = 0;
+    } r;
+    for (const auto& [enabled, c] : rules) {
+        if (enabled) {
+            r.chars[r.size++] = c;
+        }
+    }
+    return r;
+}();
+
+template <LexerConfig Cfg>
+inline constexpr std::string_view kTokenStarts{ kTokenStartStorage<Cfg>.chars.data(), kTokenStartStorage<Cfg>.size };
+
+template <LexerConfig Cfg>
+inline constexpr CharSet kTokenStartSet{ kTokenStarts<Cfg> };
+
+// Cfg の言語でどのトークンも始めない文字。IsIdentChar の表引きと合わせて、16KB の C++ のトークン化が 46→39µs になる。
+template <LexerConfig Cfg>
+inline constexpr CharSet kPlainChars{ [](char c) { return !IsIdentChar(c) && c != '.' && !kTokenStartSet<Cfg>.contains(c); } };
+
+// TokensCrossing の出力先。区切りをまたぐか末尾に届くトークンだけを残す。トークンは位置の順に届く。
+class CrossingTokens {
+public:
+    CrossingTokens(size_t text_size, std::span<const size_t> boundaries) noexcept : text_size_(text_size), boundaries_(boundaries)
+    {}
+
+    bool Wants(size_t start, size_t end) noexcept
+    {
+        return end == text_size_ || NextBoundary(start) < end;
+    }
+    void emplace_back(uint32_t start, uint32_t length, SyntaxTokenType type)
+    {
+        if (Wants(start, size_t{ start } + length)) {
+            tokens_.emplace_back(start, length, type);
+        }
+    }
+    // i から、コメントや文字列が始まりうる文字の手前の空白まで語をまとめて飛ばす。飛ばす区間にコメントも文字列も無いので、
+    // 空白はトークンの外にある。区切りをまたぐ語は分類が要るので、区切りの手前の空白までしか飛ばさない。
+    // 飛ばせないと分かった所は探し直さない (探し直すと、空白の無い 16MB の JSON の配列のパースが 69ms から 30 秒になる)。
+    template <LexerConfig Cfg>
+    size_t SkipWords(std::string_view text, size_t i)
+    {
+        if (i < searched_until_) {
+            return i;
+        }
+        if (token_start_ < i) {
+            token_start_ = FindTokenStart<Cfg>(text, i);
+        }
+        searched_until_ = std::min(token_start_, NextBoundary(i));
+        size_t space = searched_until_;
+        while (space > i && !IsMarkupSpace(text[space - 1])) {
+            --space;
+        }
+        return space > i ? space - 1 : i;
+    }
+    std::vector<SyntaxToken> Take() noexcept
+    {
+        return std::move(tokens_);
+    }
+
+private:
+    // pos より後ろの最初の区切り。無ければ text の大きさ。
+    size_t NextBoundary(size_t pos) noexcept
+    {
+        while (next_ < boundaries_.size() && boundaries_[next_] <= pos) {
+            ++next_;
+        }
+        return next_ < boundaries_.size() ? boundaries_[next_] : text_size_;
+    }
+    // すぐ先に見つかることが多いので、CharSet の先頭の注意書きのとおり、ベクトル化した検索を呼ぶ前に数バイト見る。
+    template <LexerConfig Cfg>
+    static size_t FindTokenStart(std::string_view text, size_t pos) noexcept
+    {
+        const size_t nearby = std::min(pos + 16, text.size());
+        const size_t found = SkipWhile(text, pos, nearby, [](char c) { return !kTokenStartSet<Cfg>.contains(c); });
+        return found < nearby ? found : std::min(text.find_first_of(kTokenStarts<Cfg>, found), text.size());
+    }
+
+    size_t text_size_ = 0;
+    std::span<const size_t> boundaries_;
+    size_t next_ = 0;
+    size_t token_start_ = 0;
+    size_t searched_until_ = 0;
+    std::vector<SyntaxToken> tokens_;
+};
+
 // シェルの単語を区切る文字 (空白とメタ文字) か。
 constexpr bool IsShellWordBoundary(char c) noexcept
 {
@@ -375,13 +503,13 @@ constexpr bool IsShellWordBoundary(char c) noexcept
 // LexerConfig を NTTP として渡すことで `if constexpr (Cfg.X)` で死分岐をコンパイル時に消し、
 // 各言語の lexer は不要なチェックを含まない最小コードにインスタンス化される。
 // [begin, text.size()) を走査して tokens に追記する。埋め込み言語の範囲は呼び出し側が text を範囲末尾で切って渡す。
-template <LexerConfig Cfg>
+template <LexerConfig Cfg, class Tokens>
 void TokenizeRange(
     std::string_view text,
     size_t begin,
     kw::KeywordTable keywords,
     kw::KeywordTable types,
-    std::vector<SyntaxToken>& tokens)
+    Tokens& tokens)
 {
     // 行頭判定が必要な言語のみフラグを保持する。それ以外では at_line_start の維持コストを払わない。
     constexpr bool kNeedAtLineStart = Cfg.preprocessor || Cfg.double_colon_comment || Cfg.rem_comment || Cfg.ruby_block_comment;
@@ -404,8 +532,38 @@ void TokenizeRange(
         emit_from(start, type);
     };
 
+    const auto step_plain = [&]([[maybe_unused]] char c) {
+        // 行頭判定を読む言語のみフラグを更新する。それ以外は per-char ストアを丸ごと省略。
+        if constexpr (kNeedAtLineStart) {
+            if (c == '\n') {
+                at_line_start = true;
+            }
+            else if (!IsBlank(c)) {
+                at_line_start = false;
+            }
+        }
+        i++;
+    };
+
+    constexpr bool kCrossing = std::is_same_v<Tokens, CrossingTokens>;
+
     while (i < text.size()) {
+        if constexpr (kCrossing) {
+            if (const size_t skipped = tokens.template SkipWords<Cfg>(text, i); skipped != i) {
+                i = skipped;
+                if constexpr (kNeedAtLineStart) {
+                    const size_t line = TrimEnd(text, 0, i);
+                    at_line_start = line == 0 || text[line - 1] == '\n';
+                }
+            }
+        }
+
         const char c = text[i];
+
+        if (kPlainChars<Cfg>.contains(c)) {
+            step_plain(c);
+            continue;
+        }
 
         // 1. 行コメント: //
         if constexpr (Cfg.line_comment_slash) {
@@ -579,6 +737,14 @@ void TokenizeRange(
                 }
             }
 
+            // 結果を使わない語ではキーワードの表を引かない。
+            if constexpr (kCrossing) {
+                if (!tokens.Wants(start, i)) {
+                    emit_from(start, SyntaxTokenType::Plain);
+                    continue;
+                }
+            }
+
             std::string_view lookup_word = word;
             [[maybe_unused]] char lower_buf[kw::KEYWORD_MAX_LEN];
             if constexpr (Cfg.case_insensitive) {
@@ -601,16 +767,7 @@ void TokenizeRange(
         }
 
         // 9. その他: Plain なのでトークンにしない
-        // 行頭判定を読む言語のみフラグを更新する。それ以外は per-char ストアを丸ごと省略。
-        if constexpr (kNeedAtLineStart) {
-            if (c == '\n') {
-                at_line_start = true;
-            }
-            else if (c != ' ' && c != '\t') {
-                at_line_start = false;
-            }
-        }
-        i++;
+        step_plain(c);
     }
 }
 
@@ -719,11 +876,6 @@ inline constexpr LexerConfig SQL_LEXER_CONFIG{
 // ============================================================
 // 行や宣言の構造で色が決まる言語の専用 lexer
 // ============================================================
-
-constexpr bool IsMarkupSpace(char c) noexcept
-{
-    return IsBlank(c) || c == '\n';
-}
 
 // [pos, end) の先頭のスペース・タブを飛ばした位置。
 constexpr size_t SkipBlanks(std::string_view text, size_t pos, size_t end) noexcept
@@ -2568,43 +2720,79 @@ SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept
     return it != std::end(kAliases) ? it->language : SyntaxLanguage::None;
 }
 
-void AppendTokens(std::string_view text, SyntaxLanguage language, std::vector<SyntaxToken>& tokens)
+// TokenizeRange で解析する言語なら解析して true を返す。
+template <class Tokens>
+bool TokenizeByLexerConfig(std::string_view text, SyntaxLanguage language, Tokens& tokens)
 {
     switch (language) {
     case SyntaxLanguage::Cpp:
-        return TokenizeRange<CPP_LEXER_CONFIG>(text, 0, kw::CPP_KEYWORDS, kw::CPP_TYPES, tokens);
+        TokenizeRange<CPP_LEXER_CONFIG>(text, 0, kw::CPP_KEYWORDS, kw::CPP_TYPES, tokens);
+        return true;
     case SyntaxLanguage::Python:
-        return TokenizeRange<PYTHON_LEXER_CONFIG>(text, 0, kw::PYTHON_KEYWORDS, kw::PYTHON_TYPES, tokens);
+        TokenizeRange<PYTHON_LEXER_CONFIG>(text, 0, kw::PYTHON_KEYWORDS, kw::PYTHON_TYPES, tokens);
+        return true;
     case SyntaxLanguage::JavaScript:
-        return TokenizeRange<JS_LEXER_CONFIG>(text, 0, kw::JS_KEYWORDS, kw::JS_TYPES, tokens);
+        TokenizeRange<JS_LEXER_CONFIG>(text, 0, kw::JS_KEYWORDS, kw::JS_TYPES, tokens);
+        return true;
     case SyntaxLanguage::Go:
-        return TokenizeRange<GO_LEXER_CONFIG>(text, 0, kw::GO_KEYWORDS, kw::GO_TYPES, tokens);
+        TokenizeRange<GO_LEXER_CONFIG>(text, 0, kw::GO_KEYWORDS, kw::GO_TYPES, tokens);
+        return true;
     case SyntaxLanguage::Rust:
-        return TokenizeRange<RUST_LEXER_CONFIG>(text, 0, kw::RUST_KEYWORDS, kw::RUST_TYPES, tokens);
+        TokenizeRange<RUST_LEXER_CONFIG>(text, 0, kw::RUST_KEYWORDS, kw::RUST_TYPES, tokens);
+        return true;
     case SyntaxLanguage::TypeScript:
-        return TokenizeRange<JS_LEXER_CONFIG>(text, 0, kw::TS_KEYWORDS, kw::TS_TYPES, tokens);
+        TokenizeRange<JS_LEXER_CONFIG>(text, 0, kw::TS_KEYWORDS, kw::TS_TYPES, tokens);
+        return true;
     case SyntaxLanguage::Bash:
-        return TokenizeRange<BASH_LEXER_CONFIG>(text, 0, kw::BASH_KEYWORDS, kw::BASH_TYPES, tokens);
+        TokenizeRange<BASH_LEXER_CONFIG>(text, 0, kw::BASH_KEYWORDS, kw::BASH_TYPES, tokens);
+        return true;
     case SyntaxLanguage::PowerShell:
-        return TokenizeRange<PWSH_LEXER_CONFIG>(text, 0, kw::PWSH_KEYWORDS, kw::PWSH_TYPES, tokens);
+        TokenizeRange<PWSH_LEXER_CONFIG>(text, 0, kw::PWSH_KEYWORDS, kw::PWSH_TYPES, tokens);
+        return true;
     case SyntaxLanguage::Cmd:
-        return TokenizeRange<CMD_LEXER_CONFIG>(text, 0, kw::CMD_KEYWORDS, kw::CMD_TYPES, tokens);
+        TokenizeRange<CMD_LEXER_CONFIG>(text, 0, kw::CMD_KEYWORDS, kw::CMD_TYPES, tokens);
+        return true;
     case SyntaxLanguage::Json:
-        return TokenizeRange<JSON_LEXER_CONFIG>(text, 0, kw::JSON_KEYWORDS, kw::KeywordTable{}, tokens);
+        TokenizeRange<JSON_LEXER_CONFIG>(text, 0, kw::JSON_KEYWORDS, kw::KeywordTable{}, tokens);
+        return true;
     case SyntaxLanguage::Java:
-        return TokenizeRange<JAVA_LEXER_CONFIG>(text, 0, kw::JAVA_KEYWORDS, kw::JAVA_TYPES, tokens);
+        TokenizeRange<JAVA_LEXER_CONFIG>(text, 0, kw::JAVA_KEYWORDS, kw::JAVA_TYPES, tokens);
+        return true;
     case SyntaxLanguage::CSharp:
-        return TokenizeRange<CSHARP_LEXER_CONFIG>(text, 0, kw::CSHARP_KEYWORDS, kw::CSHARP_TYPES, tokens);
+        TokenizeRange<CSHARP_LEXER_CONFIG>(text, 0, kw::CSHARP_KEYWORDS, kw::CSHARP_TYPES, tokens);
+        return true;
     case SyntaxLanguage::Kotlin:
-        return TokenizeRange<KOTLIN_LEXER_CONFIG>(text, 0, kw::KOTLIN_KEYWORDS, kw::KOTLIN_TYPES, tokens);
+        TokenizeRange<KOTLIN_LEXER_CONFIG>(text, 0, kw::KOTLIN_KEYWORDS, kw::KOTLIN_TYPES, tokens);
+        return true;
     case SyntaxLanguage::Swift:
-        return TokenizeRange<SWIFT_LEXER_CONFIG>(text, 0, kw::SWIFT_KEYWORDS, kw::SWIFT_TYPES, tokens);
+        TokenizeRange<SWIFT_LEXER_CONFIG>(text, 0, kw::SWIFT_KEYWORDS, kw::SWIFT_TYPES, tokens);
+        return true;
     case SyntaxLanguage::Php:
-        return TokenizeRange<PHP_LEXER_CONFIG>(text, 0, kw::PHP_KEYWORDS, kw::PHP_TYPES, tokens);
+        TokenizeRange<PHP_LEXER_CONFIG>(text, 0, kw::PHP_KEYWORDS, kw::PHP_TYPES, tokens);
+        return true;
     case SyntaxLanguage::Ruby:
-        return TokenizeRange<RUBY_LEXER_CONFIG>(text, 0, kw::RUBY_KEYWORDS, kw::RUBY_TYPES, tokens);
+        TokenizeRange<RUBY_LEXER_CONFIG>(text, 0, kw::RUBY_KEYWORDS, kw::RUBY_TYPES, tokens);
+        return true;
     case SyntaxLanguage::Sql:
-        return TokenizeRange<SQL_LEXER_CONFIG>(text, 0, kw::SQL_KEYWORDS, kw::SQL_TYPES, tokens);
+        TokenizeRange<SQL_LEXER_CONFIG>(text, 0, kw::SQL_KEYWORDS, kw::SQL_TYPES, tokens);
+        return true;
+    case SyntaxLanguage::Zig:
+        TokenizeRange<ZIG_LEXER_CONFIG>(text, 0, kw::ZIG_KEYWORDS, kw::ZIG_TYPES, tokens);
+        return true;
+    case SyntaxLanguage::Lua:
+        TokenizeRange<LUA_LEXER_CONFIG>(text, 0, kw::LUA_KEYWORDS, kw::LUA_TYPES, tokens);
+        return true;
+    default:
+        return false;
+    }
+}
+
+void AppendTokens(std::string_view text, SyntaxLanguage language, std::vector<SyntaxToken>& tokens)
+{
+    if (TokenizeByLexerConfig(text, language, tokens)) {
+        return;
+    }
+    switch (language) {
     case SyntaxLanguage::Yaml:
         return TokenizeYaml(text, tokens);
     case SyntaxLanguage::Toml:
@@ -2625,8 +2813,6 @@ void AppendTokens(std::string_view text, SyntaxLanguage language, std::vector<Sy
         return TokenizeDockerfile(text, tokens);
     case SyntaxLanguage::Makefile:
         return TokenizeMakefile(text, tokens);
-    case SyntaxLanguage::Zig:
-        return TokenizeRange<ZIG_LEXER_CONFIG>(text, 0, kw::ZIG_KEYWORDS, kw::ZIG_TYPES, tokens);
     case SyntaxLanguage::Haskell:
         return TokenizeHaskell(text, tokens);
     case SyntaxLanguage::Clojure:
@@ -2637,18 +2823,19 @@ void AppendTokens(std::string_view text, SyntaxLanguage language, std::vector<Sy
         return TokenizeLisp(text, COMMON_LISP_DIALECT, tokens);
     case SyntaxLanguage::Scheme:
         return TokenizeLisp(text, SCHEME_DIALECT, tokens);
-    case SyntaxLanguage::Lua:
-        return TokenizeRange<LUA_LEXER_CONFIG>(text, 0, kw::LUA_KEYWORDS, kw::LUA_TYPES, tokens);
     case SyntaxLanguage::Vim:
         return TokenizeVim(text, false, tokens);
     case SyntaxLanguage::Vim9:
         return TokenizeVim(text, true, tokens);
-    case SyntaxLanguage::None:
-    case SyntaxLanguage::Mermaid:
-    case SyntaxLanguage::LatexMath:
+    default:
         return;
     }
-    std::unreachable();
+}
+
+std::vector<SyntaxToken> TokensCrossing(std::string_view text, SyntaxLanguage language, std::span<const size_t> boundaries)
+{
+    CrossingTokens tokens(text.size(), boundaries);
+    return TokenizeByLexerConfig(text, language, tokens) ? tokens.Take() : Tokenize(text, language);
 }
 
 std::vector<SyntaxToken> Tokenize(std::string_view text, SyntaxLanguage language)

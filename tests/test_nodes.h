@@ -41,9 +41,9 @@ inline void KeepAlive(NodeStorage storage)
 
 // ParseMarkdown の nodes だけを使うテスト向け。NodeStorage の arena とテーブルは手放しても解放されない。
 // 原文を指すノードがあるので、markdown_text はノードより長く生きること (ParseMarkdown と同じ)。
-inline std::vector<Node> ParseNodes(std::string_view markdown_text, TaskScheduler* scheduler = nullptr)
+inline std::vector<Node> ParseNodes(std::string_view markdown_text)
 {
-    auto storage = ParseMarkdown(markdown_text, {}, scheduler);
+    auto storage = ParseMarkdown(markdown_text);
     auto nodes = std::move(storage.nodes);
     test_nodes_detail::KeepAlive(std::move(storage));
     return nodes;
@@ -52,7 +52,7 @@ inline std::vector<Node> ParseNodes(std::string_view markdown_text, TaskSchedule
 template <class S>
     requires(!std::is_lvalue_reference_v<S> &&
              std::same_as<std::remove_cv_t<S>, std::string>)
-std::vector<Node> ParseNodes(S&& markdown_text, TaskScheduler* scheduler = nullptr) = delete;
+std::vector<Node> ParseNodes(S&& markdown_text) = delete;
 
 // ノードのテキストが raw (パース入力) を直接指しているか。false なら arena にコピーされている。
 inline bool TextPointsIntoRaw(const Node& n, std::string_view raw) noexcept

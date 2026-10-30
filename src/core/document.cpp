@@ -6,8 +6,7 @@
 #include <cassert>
 #include <cstring>
 
-Document Document::FromNormalizedMarkdown(std::string text, std::wstring_view path, std::stop_token stop_token,
-                                          TaskScheduler* scheduler)
+Document Document::FromNormalizedMarkdown(std::string text, std::wstring_view path, std::stop_token stop_token)
 {
     MENDO_PROFILE("Document::FromMarkdown");
     assert(std::memchr(text.data(), '\r', text.size()) == nullptr);
@@ -15,7 +14,7 @@ Document Document::FromNormalizedMarkdown(std::string text, std::wstring_view pa
     doc.file_path_ = path;
     doc.cached_directory_ = path_util::ParentDirectory(path);
     auto data = std::make_shared<DocumentData>(std::move(text));
-    data->parsed = ParseMarkdown(data->raw, std::move(stop_token), scheduler);
+    data->parsed = ParseMarkdown(data->raw, std::move(stop_token));
     doc.data_ = std::move(data);
     return doc;
 }

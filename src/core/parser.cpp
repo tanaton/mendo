@@ -1,7 +1,6 @@
 #include "parser.h"
 #include "ascii_util.h"
 #include "document_utils.h"
-#include "parallel_for.h"
 #include "syntax.h"
 #include "profiler.h"
 #include "utility.h"
@@ -1421,7 +1420,7 @@ void ReserveForInput(ParseContext& ctx, size_t input_size)
 
 } // namespace
 
-NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token, TaskScheduler* scheduler)
+NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token)
 {
     MENDO_PROFILE("ParseMarkdown");
     const size_t input_size = markdown_text.size();
@@ -1456,14 +1455,10 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
 
     AppendFootnoteBackrefs(ctx.nodes, ctx.arena, ctx.indices.footnote_def_indices, ctx.footnote_ref_counts);
 
-    // 並びどうしは書くノードが重ならないので、並びごとにも worker に配る。40KB 程度のブロックは区間 1 つに収まり、
-    // 並びの中だけでは並列にならない (BM_ParseManyCodeBlocks/workers4)。
-    ParallelFor(scheduler, ctx.split_code_runs.size(), 1, [&](size_t begin, size_t end) {
-        for (const size_t first : std::span{ ctx.split_code_runs }.subspan(begin, end - begin)) {
-            const size_t last = ChunkRunLast(ctx.nodes, first);
-            AnnotateCodeChunkLeads(std::span{ ctx.nodes }.subspan(first, last - first + 1), scheduler);
-        }
-    });
+    for (const size_t first : ctx.split_code_runs) {
+        const size_t last = ChunkRunLast(ctx.nodes, first);
+        AnnotateCodeChunkLeads(std::span{ ctx.nodes }.subspan(first, last - first + 1));
+    }
 
     {
         // BlockQuote ノードから GitHub Alerts を検出し、マーカー除去・ラベル挿入・グルーピングを行う。
