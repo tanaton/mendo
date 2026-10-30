@@ -7,7 +7,9 @@
 #include <format>
 #include <iterator>
 #include <optional>
+#include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -354,6 +356,72 @@ std::vector<uint64_t> ChunkKeys(const InlineMathPlan& plan)
     return keys;
 }
 
+// before から消えた組の数と、after に現れた組の数。
+std::pair<size_t, size_t> DiffChunks(const InlineMathPlan& before, const InlineMathPlan& after)
+{
+    auto a = ChunkKeys(before);
+    auto b = ChunkKeys(after);
+    std::ranges::sort(a);
+    std::ranges::sort(b);
+    std::vector<uint64_t> removed;
+    std::vector<uint64_t> added;
+    std::ranges::set_difference(a, b, std::back_inserter(removed));
+    std::ranges::set_difference(b, a, std::back_inserter(added));
+    return { removed.size(), added.size() };
+}
+
+// 長い段落の区切りに左右されないよう、数式を 1 つずつ段落にする。
+InlineMathPlan BuildFormulaPlan(const std::vector<std::string>& formulas, const Theme& theme)
+{
+    std::string text;
+    for (const auto& f : formulas) {
+        text += std::format("${}$\n\n", f);
+    }
+    InlineMathPlan plan;
+    plan.Build(ParseNodes(text), theme);
+    return plan;
+}
+
+// 区切りはキーで決まるので、組を作って確かめる。
+bool EndsChunk(const std::string& formula, const Theme& theme)
+{
+    return BuildFormulaPlan({ formula, "tail" }, theme).Chunks()[0].items.size() == 1;
+}
+
+// prefix に番号を付けた数式のうち、後ろで組が区切られるかが ends_chunk と一致するものを count 個。
+std::vector<std::string> FormulasEndingChunk(std::string_view prefix, bool ends_chunk, size_t count, const Theme& theme)
+{
+    std::vector<std::string> formulas;
+    for (int i = 0; formulas.size() < count; ++i) {
+        auto formula = std::format("{}{}", prefix, i);
+        if (EndsChunk(formula, theme) == ends_chunk) {
+            formulas.push_back(std::move(formula));
+        }
+    }
+    return formulas;
+}
+
+// "{番号}x" を count 個。
+std::vector<std::string> NumberedFormulas(int count)
+{
+    std::vector<std::string> formulas;
+    for (int i = 0; i < count; ++i) {
+        formulas.push_back(std::format("{}x", i));
+    }
+    return formulas;
+}
+
+// start 以降で、数式を 2 つ以上持ち、次の組と合わさっても上限に届かない組の番号。最後の組は区切りで終わらないので除く。
+size_t FindEditableChunk(std::span<const InlineMathChunk> chunks, size_t start)
+{
+    size_t i = start;
+    while (i + 2 < chunks.size() &&
+           (chunks[i].items.size() < 2 || chunks[i].items.size() + chunks[i + 1].items.size() >= kMaxInlineMathPerChunk)) {
+        ++i;
+    }
+    return i;
+}
+
 } // namespace
 
 // 文書の順に重複を除いて並べ、文字の大きさは計測と同じ規則で決める。同じ文書なら毎回同じ組になる。
@@ -456,13 +524,85 @@ TEST(InlineMathPlan, InsertingFormulaChangesOnlyNearbyChunks)
     for (const auto& c : b.Chunks()) {
         EXPECT_LE(c.items.size(), kMaxInlineMathPerChunk);
     }
-    auto ka = ChunkKeys(a);
-    auto kb = ChunkKeys(b);
-    std::ranges::sort(ka);
-    std::ranges::sort(kb);
-    std::vector<uint64_t> changed;
-    std::ranges::set_symmetric_difference(ka, kb, std::back_inserter(changed));
-    EXPECT_LE(changed.size(), 4u);
+    const auto [removed, added] = DiffChunks(a, b);
+    EXPECT_LE(removed + added, 4u);
+}
+
+// 数式を 1 つ直しても、変わるのはその数式の組と、区切りが変わったときの隣の組だけ。後ろの組はそのまま。
+TEST(InlineMathPlan, EditingFormulaChangesOnlyItsChunks)
+{
+    const Theme theme = GetLightTheme();
+    const auto formulas = NumberedFormulas(3000);
+    const auto plan = BuildFormulaPlan(formulas, theme);
+    const auto chunks = plan.Chunks();
+    const size_t target = FindEditableChunk(chunks, chunks.size() / 2);
+    ASSERT_LT(target + 2, chunks.size());
+    // 上限で閉じた組ではないので、組の最後の数式が区切りで、それより前の数式は区切りではない。
+    const std::string& inner = chunks[target].items.front().tex;
+    const std::string& last = chunks[target].items.back().tex;
+    const auto plain = FormulasEndingChunk("p", false, 1, theme)[0];
+    const auto cut = FormulasEndingChunk("c", true, 1, theme)[0];
+
+    const struct {
+        const char* name;
+        const std::string& from;
+        const std::string& to;
+        std::pair<size_t, size_t> expected;
+    } cases[]{
+        { "区切りでない数式を区切りでない数式に", inner, plain, { 1, 1 } },
+        { "区切りを区切りでない数式に (次の組と合わさる)", last, plain, { 2, 1 } },
+        { "区切りでない数式を区切りに (組が分かれる)", inner, cut, { 1, 2 } },
+        { "区切りを区切りに", last, cut, { 1, 1 } },
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.name);
+        auto edited = formulas;
+        edited[std::stoul(c.from)] = c.to;
+        EXPECT_EQ(DiffChunks(plan, BuildFormulaPlan(edited, theme)), c.expected);
+    }
+}
+
+// 重複した数式の最初の 1 つを直すと、次の出現が組に入るので、離れた組も変わる。変わるのはその 2 組だけ。
+TEST(InlineMathPlan, EditingFirstDuplicateChangesChunkOfNextOccurrence)
+{
+    const Theme theme = GetLightTheme();
+    auto formulas = NumberedFormulas(3000);
+    const auto base = BuildFormulaPlan(formulas, theme);
+    const auto chunks = base.Chunks();
+    const size_t first = FindEditableChunk(chunks, chunks.size() / 4);
+    const size_t second = FindEditableChunk(chunks, chunks.size() * 3 / 4);
+    ASSERT_LT(first + 1, second);
+    ASSERT_LT(second + 2, chunks.size());
+
+    const size_t first_pos = std::stoul(chunks[first].items.front().tex);
+    const auto dup = FormulasEndingChunk("dup", false, 1, theme)[0];
+    formulas[first_pos] = dup;
+    formulas[std::stoul(chunks[second].items.front().tex)] = dup;
+    auto edited = formulas;
+    edited[first_pos] = FormulasEndingChunk("p", false, 1, theme)[0];
+
+    EXPECT_EQ(DiffChunks(BuildFormulaPlan(formulas, theme), BuildFormulaPlan(edited, theme)), (std::pair<size_t, size_t>{ 2, 2 }));
+}
+
+// 上限で閉じた組の境目は数式の数で決まるので、手前に区切りが増えるとずれる。ずれは次の数式の区切りで止まる。
+TEST(InlineMathPlan, EditingFormulaMovesForcedCutsUntilNextBoundary)
+{
+    const Theme theme = GetLightTheme();
+    auto formulas = FormulasEndingChunk("p", false, kMaxInlineMathPerChunk * 2 + 100, theme);
+    formulas.push_back(FormulasEndingChunk("c", true, 1, theme)[0]);
+    formulas.append_range(FormulasEndingChunk("q", false, 50, theme));
+    auto edited = formulas;
+    edited[10] = FormulasEndingChunk("d", true, 1, theme)[0];
+
+    const auto before = BuildFormulaPlan(formulas, theme);
+    const auto after = BuildFormulaPlan(edited, theme);
+    ASSERT_EQ(before.Chunks().size(), 4u);
+    ASSERT_EQ(after.Chunks().size(), 5u);
+    for (const auto& c : after.Chunks()) {
+        EXPECT_LE(c.items.size(), kMaxInlineMathPerChunk);
+    }
+    EXPECT_EQ(after.Chunks().back().key, before.Chunks().back().key);
+    EXPECT_EQ(DiffChunks(before, after), (std::pair<size_t, size_t>{ 3, 4 }));
 }
 
 // 組ごと描くとき、まだ測っていない数式も頼んだことにして、計測から二重に頼ませない。描けた数式は上書きしない。
