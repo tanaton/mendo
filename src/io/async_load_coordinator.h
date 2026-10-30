@@ -171,7 +171,7 @@ public:
 
 private:
     // worker スレッド本体。I/O → リロード差分判定 → Parse → Estimate の各段で stop を確認する。
-    void RunWorker(TaskScheduler& scheduler, const std::wstring& path, const Theme& theme, float content_width,
+    void RunWorker(const std::wstring& path, const Theme& theme, float content_width,
                    const std::stop_token& stop_token, ReloadBase reload_base);
     // sink 書き込みは Cancel との直列化のため lock 内で stop を再確認してから行う。
     void Publish(const std::stop_token& stop_token, AsyncLoadOutcome outcome);

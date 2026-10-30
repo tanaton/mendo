@@ -39,9 +39,9 @@ public:
     ~Document() = default;
 
     // text は LF 正規化済み (LoadFile の出力) であること。
-    // 既定の stop_token ではキャンセルしない。scheduler はパースの一部を並列にする先 (ParseMarkdown)。
+    // 既定の stop_token ではキャンセルしない。
     static Document FromNormalizedMarkdown(
-        std::string text, std::wstring_view path, std::stop_token stop_token = {}, TaskScheduler* scheduler = nullptr);
+        std::string text, std::wstring_view path, std::stop_token stop_token = {});
     // LF 正規化を内蔵した便利ラッパー (テスト / Help リソース経路、入力は BOM 無し前提)。
     static Document FromMarkdown(std::string utf8, std::wstring_view path);
 

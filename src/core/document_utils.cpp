@@ -1,7 +1,6 @@
 #include "document_utils.h"
 #include "ascii_util.h"
 #include "file_io.h"
-#include "parallel_for.h"
 #include "profiler.h"
 #include "utf8_codec.h"
 #include <algorithm>
@@ -280,52 +279,9 @@ size_t RunEnd(std::span<const Node> run, std::span<const size_t> begins, size_t 
     return begins[k] + run[k].GetText().size();
 }
 
-// 解析の進み具合。next は続くトークンがまだ決まっていない最初のノード、restart は次に解析を始められる位置
-// (トークンの先頭か、どのトークンにも入らない位置)。
-struct AnnotateCursor {
-    size_t next = 0;
-    size_t restart = 0;
-};
-
-// 並びの [c.restart, ノード last - 1 の終わり) を 1 つの窓として字句解析し、続くトークンが決まった継ぎ目 (c.next から
-// last 未満) に書いて c を進める。窓の端 (並びの終わりでない) に届いたトークンは窓の先まで続くかもしれないので決めず、
-// その先頭から解析し直させる。
-void AnnotateWindow(std::span<Node> run, std::span<const size_t> begins, AnnotateCursor& c, size_t last, std::string& seg)
-{
-    const size_t restart = c.restart;
-    const size_t end = RunEnd(run, begins, last - 1);
-    size_t j = static_cast<size_t>(std::ranges::upper_bound(begins, restart) - begins.begin()) - 1;
-    const std::string_view head = run[j].GetText();
-    seg.reserve(end - restart);
-    seg.assign(head.substr(std::min(restart - begins[j], head.size())));
-    for (++j; j < last; ++j) {
-        seg.append(ChunkSeparator(run[j])).append(run[j].GetText());
-    }
-    const auto tokens = Tokenize(seg, run.front().code_language);
-    size_t limit = end;
-    if (last < run.size() && !tokens.empty() && restart + tokens.back().start + tokens.back().length == end) {
-        limit = restart + tokens.back().start;
-    }
-    size_t t = 0;
-    for (; c.next < last && begins[c.next] <= limit; ++c.next) {
-        const size_t b = begins[c.next];
-        while (t < tokens.size() && restart + tokens[t].start + tokens[t].length <= b) {
-            ++t;
-        }
-        if (t < tokens.size() && restart + tokens[t].start < b) {
-            const size_t token_end = restart + tokens[t].start + tokens[t].length;
-            run[c.next].set_code_lead(static_cast<uint32_t>(std::min(token_end, RunEnd(run, begins, c.next)) - b), tokens[t].type);
-        }
-        else {
-            run[c.next].set_code_lead(0, SyntaxTokenType::Plain);
-        }
-    }
-    c.restart = limit;
-}
-
 } // namespace
 
-void AnnotateCodeChunkLeads(std::span<Node> run, TaskScheduler* scheduler)
+void AnnotateCodeChunkLeads(std::span<Node> run)
 {
     MENDO_PROFILE("AnnotateCodeChunkLeads");
     const size_t n = run.size();
@@ -340,38 +296,53 @@ void AnnotateCodeChunkLeads(std::span<Node> run, TaskScheduler* scheduler)
         pos += run[j].GetText().size();
     }
 
-    // 並びを前から順に解析すると、16MB のコードでパースが 18ms から 80ms になる (区間に分けて worker 4 本に配ると 32ms)。
-    // 区間ごとに先頭がトークンの外から始まると仮定して並列に解析しておき、前の区間の解析が区間の終わりをトークンの外で
-    // 迎えたら (ほとんどの区間) そのまま使い、外れた所だけ順に解析し直す。区間は並列に配れる数を、窓は解析し直しの短さを優先した大きさ。
-    constexpr size_t kSegmentNodes = 8;
-    constexpr size_t kWindowNodes = 4;
-    const size_t segment_count = (n + kSegmentNodes - 1) / kSegmentNodes;
-    std::vector<AnnotateCursor> spec(segment_count);
-    // 区間 s は自分の区間のノード (先頭を除く) にだけ書くので、区間どうしは同期しなくてよい。
-    ParallelFor(scheduler, segment_count, 1, [&](size_t begin, size_t end) {
-        std::string seg;
-        for (size_t s = begin; s < end; ++s) {
-            const size_t first = s * kSegmentNodes;
-            spec[s] = { first + 1, begins[first] };
-            AnnotateWindow(run, begins, spec[s], std::min(n, first + kSegmentNodes), seg);
-        }
-    });
-
+    // 全トークンを作ると 16MB のコードでパースが 18ms から 65ms になり、worker 4 本に配っても 27ms かかる。
+    // TokensCrossing は語を飛ばすので直列で約 20ms (実際の C++ で 107ms が約 40ms) で済み、worker に配っても 1〜2ms しか縮まない。
+    // 語を飛ばせない言語は全トークンを作るので、16MB で HTML 45ms、YAML 100ms、Lisp 130ms ほどかかるが、並列にするほど現れない。
+    constexpr size_t kWindowNodes = 8;
     std::string seg;
-    AnnotateCursor c = spec[0];
+    // next は続くトークンがまだ決まっていない最初のノード、restart は次に解析を始められる位置
+    // (トークンの先頭か、どのトークンにも入らない位置)。
+    size_t next = 1;
+    size_t restart = 0;
     size_t window = kWindowNodes;
-    while (c.next < n) {
-        // 区間の先頭のノードは先読みでも書かないので、作ったときのまま (続くトークン無し) でよい。
-        if (c.next % kSegmentNodes == 0 && c.restart == RunEnd(run, begins, c.next - 1)) {
-            c = spec[c.next / kSegmentNodes];
-            continue;
+    while (next < n) {
+        const size_t last = std::min(n, next + window);
+        const size_t end = RunEnd(run, begins, last - 1);
+        const std::string_view head = run[next - 1].GetText();
+        seg.reserve(end - restart);
+        seg.assign(head.substr(std::min(restart - begins[next - 1], head.size())));
+        for (size_t j = next; j < last; ++j) {
+            seg.append(ChunkSeparator(run[j])).append(run[j].GetText());
         }
-        // 区間の終わりで窓を閉じ、トークンの外で終われば次の区間から先読みの結果に戻る。
+        std::vector<size_t> boundaries;
+        for (size_t k = next; k < last; ++k) {
+            boundaries.push_back(begins[k] - restart);
+        }
+        const auto tokens = TokensCrossing(seg, run.front().code_language, boundaries);
+
+        // 窓の端 (並びの終わりでない) に届いたトークンは窓の先まで続くかもしれないので決めず、その先頭から解析し直す。
+        size_t limit = end;
+        if (last < n && !tokens.empty() && restart + tokens.back().start + tokens.back().length == end) {
+            limit = restart + tokens.back().start;
+        }
+        size_t t = 0;
+        for (; next < last && begins[next] <= limit; ++next) {
+            const size_t b = begins[next];
+            while (t < tokens.size() && restart + tokens[t].start + tokens[t].length <= b) {
+                ++t;
+            }
+            if (t < tokens.size() && restart + tokens[t].start < b) {
+                const size_t token_end = restart + tokens[t].start + tokens[t].length;
+                run[next].set_code_lead(static_cast<uint32_t>(std::min(token_end, RunEnd(run, begins, next)) - b), tokens[t].type);
+            }
+            else {
+                run[next].set_code_lead(0, SyntaxTokenType::Plain);
+            }
+        }
         // 1 つのトークンが窓を越えて解析を始める位置が進まないときは、終わりが見つかるまで窓を広げる。
-        const size_t last = std::min(n, (c.next + window + kSegmentNodes - 1) / kSegmentNodes * kSegmentNodes);
-        const size_t before = c.restart;
-        AnnotateWindow(run, begins, c, last, seg);
-        window = last < n && c.restart == before ? window * 2 : kWindowNodes;
+        window = limit == restart ? window * 2 : kWindowNodes;
+        restart = limit;
     }
 }
 

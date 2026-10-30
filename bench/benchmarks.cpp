@@ -106,15 +106,15 @@ PROCESS_MEMORY_COUNTERS_EX MemoryCounters()
 
 // ===== パース =====
 
-// 反復ごとにコピーしてパースする。コピーと破棄は測らない。scheduler はパースの一部を並列にする先。
-void RunParse(benchmark::State& state, const std::string& src, TaskScheduler* scheduler = nullptr)
+// 反復ごとにコピーしてパースする。コピーと破棄は測らない。
+void RunParse(benchmark::State& state, const std::string& src)
 {
     for (auto _ : state) {
         std::string copy = src;
         std::optional<Document> doc;
         state.SetIterationTime(SecondsOf([&] {
             NormalizeNewlines(copy);
-            doc.emplace(Document::FromNormalizedMarkdown(std::move(copy), L"bench.md", {}, scheduler));
+            doc.emplace(Document::FromNormalizedMarkdown(std::move(copy), L"bench.md"));
         }));
     }
     state.SetBytesProcessed(state.iterations() * static_cast<int64_t>(src.size()));
@@ -234,34 +234,63 @@ BENCHMARK_CAPTURE(BM_ParseLongLine, cjk, std::string_view{ "あいうえおか�
 BENCHMARK_CAPTURE(BM_ParseLongLine, cjk_punct, std::string_view{ "日本語の文章です、続きます。" })->UseManualTime()->Unit(benchmark::kMillisecond);
 
 // 同じ 20 万行の 1 つのコードブロック。区切ったコードの続きのノードに、前から続くトークンを付ける字句解析も通る。
-// workers が 0 でなければ、アプリと同じくその字句解析を worker に配る (読み込みに使う scheduler は最大 4 本)。
-void BM_ParseGiantCode(benchmark::State& state, int workers)
+void BM_ParseGiantCode(benchmark::State& state)
 {
-    TaskScheduler scheduler;
-    if (workers > 0) {
-        scheduler.Init(workers);
-    }
-    RunParse(state, LogLines(200000, "```cpp\n", "```\n"), workers > 0 ? &scheduler : nullptr);
+    RunParse(state, LogLines(200000, "```cpp\n", "```\n"));
 }
-BENCHMARK_CAPTURE(BM_ParseGiantCode, serial, 0)->UseManualTime()->Unit(benchmark::kMillisecond);
-BENCHMARK_CAPTURE(BM_ParseGiantCode, workers4, 4)->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_ParseGiantCode)->UseManualTime()->Unit(benchmark::kMillisecond);
 
-// 40KB 程度 (区切ったノード 3 つ前後) のコードブロックが 16MB 分並ぶ。並びは字句解析の区間 (8 ノード) 1 つに収まる。
-void BM_ParseManyCodeBlocks(benchmark::State& state, int workers)
+// 40KB 程度 (区切ったノード 3 つ前後) のコードブロックが 16MB 分並ぶ。
+void BM_ParseManyCodeBlocks(benchmark::State& state)
 {
-    TaskScheduler scheduler;
-    if (workers > 0) {
-        scheduler.Init(workers);
-    }
     const std::string block = LogLines(500, "```cpp\n", "```\n\n");
     std::string md;
     while (md.size() < 16 * 1024 * 1024) {
         md += block;
     }
-    RunParse(state, md, workers > 0 ? &scheduler : nullptr);
+    RunParse(state, md);
 }
-BENCHMARK_CAPTURE(BM_ParseManyCodeBlocks, serial, 0)->UseManualTime()->Unit(benchmark::kMillisecond);
-BENCHMARK_CAPTURE(BM_ParseManyCodeBlocks, workers4, 4)->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_ParseManyCodeBlocks)->UseManualTime()->Unit(benchmark::kMillisecond);
+
+// unit を 16MB まで繰り返した 1 つのコードブロック。
+std::string RepeatedCodeBlock(std::string_view language, std::string_view unit)
+{
+    std::string md = std::format("```{}\n", language);
+    while (md.size() < 16 * 1024 * 1024) {
+        md += unit;
+    }
+    md += "\n```\n";
+    return md;
+}
+
+// 実際の C++ ソース (syntax.cpp)。ログより識別子とコメントが多い。
+void BM_ParseRealCode(benchmark::State& state)
+{
+    const auto unit = ReadOrSkip(state, "../src/core/syntax.cpp");
+    if (!state.skipped()) {
+        RunParse(state, RepeatedCodeBlock("cpp", unit));
+    }
+}
+BENCHMARK(BM_ParseRealCode)->UseManualTime()->Unit(benchmark::kMillisecond);
+
+// 語を飛ばしにくいコード。空白の無い 1 行、コメントや文字列が始まりうる文字が密な場合、語を飛ばせない言語。
+void BM_ParseCodeBlock(benchmark::State& state, std::string_view language, std::string_view unit)
+{
+    RunParse(state, RepeatedCodeBlock(language, unit));
+}
+BENCHMARK_CAPTURE(BM_ParseCodeBlock, json_numbers, "json", "1,22,333,")->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_ParseCodeBlock, json_strings, "json", "\"k\":\"v\",")->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_ParseCodeBlock, json_lines, "json", "\"k\": \"v\",\n")->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_ParseCodeBlock, js_calls, "js", "a.b(c,d);")->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_ParseCodeBlock, html, "html",
+                  "<div class=\"note\" id='a1'><p>text &amp; more <b>bold</b></p><img src=\"x.png\" alt=\"y\"/></div>\n")
+    ->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_ParseCodeBlock, yaml, "yaml",
+                  "key: value\nlist: [a, b, {c: d}]\nitems:\n  - name: one\n    count: 12\n  - &ref {x: 1, y: \"s\"}\n")
+    ->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(BM_ParseCodeBlock, elisp, "elisp",
+                  "(defun my-cmd (arg)\n  \"Doc.\"\n  (interactive \"p\")\n  (let ((x 'sym) (y #'fn)) (message \"%d\" (+ arg 1))))\n")
+    ->UseManualTime()->Unit(benchmark::kMillisecond);
 
 void BM_NormalizeNewlines(benchmark::State& state)
 {

@@ -11,8 +11,6 @@
 #include <type_traits>
 #include <vector>
 
-class TaskScheduler;
-
 // 段落・引用・コードブロックのテキストをこの長さ前後で区切り、続きのノードの並びにする。DirectWrite の計測は
 // 1 つのテキストレイアウトの長さに対して二乗に近く遅くなり (空行の無い 4MB のテキストで 28 秒)、NO_WRAP にしても
 // レイアウト内を改行で分けても変わらない。1 ノードのままだと並列に計測できず、見えている間は解放もできない。
@@ -46,14 +44,13 @@ struct NodeStorage {
 
 // 本物の Markdown パーサ。md4c を UTF-8 モード (MD_CHAR=char) で起動するため入力は char 列。
 // stop_token を渡すと md4c コールバックから途中で abort できる。既定の stop_token では最後まで走る。
-// scheduler は区切ったコードブロックの字句解析 (AnnotateCodeChunkLeads) を並列にする先。
-NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token = {}, TaskScheduler* scheduler = nullptr);
+NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_token = {});
 
 // ノードは入力テキストを参照するため、一時文字列を渡すと戻り値が即座にダングリングする。
 template <class S>
     requires(!std::is_lvalue_reference_v<S> &&
              std::same_as<std::remove_cv_t<S>, std::string>)
-NodeStorage ParseMarkdown(S&& markdown_text, std::stop_token stop_token = {}, TaskScheduler* scheduler = nullptr) = delete;
+NodeStorage ParseMarkdown(S&& markdown_text, std::stop_token stop_token = {}) = delete;
 
 // HTML エンティティ (例: "&amp;", "&#x1F600;") を解決する。
 // view が指す領域は (a) static なリテラル または (b) 呼び出し側が渡した buffer のいずれか。

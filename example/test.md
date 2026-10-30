@@ -934,7 +934,7 @@ md4c の `MD_FLAG_FOOTNOTES`（v0.6.0 で `MD_DIALECT_GITHUB` に追加）を有
 | コードブロックの背景 | `NodeBoxPadTop` / `NodeBoxPadBottom` は継ぎ目ではみ出さず、`GenCodeBlockBg` は継ぎ目の側の角を丸めない |
 | コピーボタン | 先頭のノードにだけ置き、`ClipboardManager::CopyCodeBlock` が並び全体をコピーする |
 | 横スクロール | `GetBlockHScrollGeometry` が並びの先頭を `scroll_key` として返し、幅は並びのうち計測済みの部分の最大にする |
-| 構文の色分け | パーサが並びを前から字句解析し（`AnnotateCodeChunkLeads`）、続きのノードの先頭を占める前からのトークンの長さと種類を `Node::code_lead_length` / `code_lead_type` に残す。`TokenizeCodeNode` はそれを先頭に置き、その後ろからトークン化する（ブロックコメントや文字列が何ノードにまたがっても色が崩れない）。区間に分けて worker で並列に解析し、区間の境目をトークンがまたいだ所だけ順に解析し直す。並びどうしも書くノードが重ならないので、並びごとに worker へ配る |
+| 構文の色分け | パーサが並びを前から字句解析し（`AnnotateCodeChunkLeads`）、続きのノードの先頭を占める前からのトークンの長さと種類を `Node::code_lead_length` / `code_lead_type` に残す。`TokenizeCodeNode` はそれを先頭に置き、その後ろからトークン化する（ブロックコメントや文字列が何ノードにまたがっても色が崩れない）。このときトークンは作らず（`TokensCrossing`）、コメントや文字列が始まりうる文字まで語を飛ばす。数ノードずつの窓で順に解析し、窓の端で切れたトークンはその先頭から解析し直す |
 | 検索 | 改行を挟まない継ぎ目をまたぐマッチは前のノードに置き、続きのノードへはみ出す長さを `SearchMatch::next_length_w` に持つ。ハイライトは両方のノードに描く |
 | 語の選択 | `FindNodeWordBoundaries` が、改行を挟まない継ぎ目で切れた語を並びの続く限り隣のノードへ伸ばす |
 | コピー | `ExtractSelectedText` は継ぎ目に元の改行だけを戻し、`ExtractSelectedTextAsHtml` は並びを 1 つの `<p>` / `<pre>` にまとめる |
@@ -2996,9 +2996,9 @@ public:
     Document(Document&&) noexcept = default;   // move-only
     Document& operator=(Document&&) noexcept = default;
 
-    // text は LF 正規化済みの UTF-8 (LoadFile の出力)。scheduler はパースの一部を並列にする先
+    // text は LF 正規化済みの UTF-8 (LoadFile の出力)
     static Document FromNormalizedMarkdown(std::string text, std::wstring_view path,
-                                           std::stop_token stop_token = {}, TaskScheduler* scheduler = nullptr);
+                                           std::stop_token stop_token = {});
     // LF 正規化を内蔵した版 (ヘルプの埋め込みリソース / テスト用)
     static Document FromMarkdown(std::string utf8, std::wstring_view path);
 

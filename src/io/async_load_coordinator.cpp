@@ -123,9 +123,9 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::wstring path, Th
     loading_path_ = path;
 
     // 画像のデコードや図の読み込みが溜まっていても待たせない。リロードは旧文書の表示を続けるので、それらの待ちを捨てられない。
-    const bool posted = scheduler.PostFront([this, &scheduler, path = std::move(path), theme = std::move(theme), content_width, stop_token = stop_source_.get_token(), reload_base = std::move(reload_base), guard = latch_.Acquire()]() mutable {
+    const bool posted = scheduler.PostFront([this, path = std::move(path), theme = std::move(theme), content_width, stop_token = stop_source_.get_token(), reload_base = std::move(reload_base), guard = latch_.Acquire()]() mutable {
         try {
-            RunWorker(scheduler, path, theme, content_width, stop_token, std::move(reload_base));
+            RunWorker(path, theme, content_width, stop_token, std::move(reload_base));
         } catch (const std::bad_alloc&) {
             // 空の表の行補完などは入力の百倍以上を確保させられる。worker で投げると terminate するので失敗として返す。
             Publish(stop_token, std::unexpected(FileLoadError::TooLarge));
@@ -164,7 +164,7 @@ bool AsyncLoadCoordinator::Attach(HWND hwnd, UINT msg_id)
     return in_flight_;
 }
 
-void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::wstring& path, const Theme& theme, float content_width,
+void AsyncLoadCoordinator::RunWorker(const std::wstring& path, const Theme& theme, float content_width,
                                      const std::stop_token& stop_token, ReloadBase reload_base)
 {
     MENDO_PROFILE("AsyncLoadCoordinator::Start Posted Task");
@@ -200,7 +200,7 @@ void AsyncLoadCoordinator::RunWorker(TaskScheduler& scheduler, const std::wstrin
         }
     }
 
-    Document doc = Document::FromNormalizedMarkdown(std::move(file->text), path, stop_token, &scheduler);
+    Document doc = Document::FromNormalizedMarkdown(std::move(file->text), path, stop_token);
     if (stop_token.stop_requested()) {
         return;
     }
