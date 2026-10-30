@@ -177,9 +177,7 @@ struct ParseContext : NodeStorage {
         CancelPendingSplit();
         FlushPendingRun();
         if (current_node) {
-            // 昇格処理 (TryPromoteParagraphToDisplayMath 等) がテキストを直接設定済みのノードは、
-            // current_text で上書きすると line_count ごと巻き戻るのでスキップする。
-            if (!current_text.empty() && !current_node->HasText()) {
+            if (!current_text.empty()) {
                 const auto offset = current_node->SourceOffset();
                 const bool matches_raw = !current_node_needs_copy && offset != kUnsetSourceOffset && CurrentTextMatchesRawSliceAt(offset);
                 const std::string_view text = matches_raw
