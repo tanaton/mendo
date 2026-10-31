@@ -386,7 +386,7 @@ private:
         if (FAILED(d2d_factory->CreateHwndRenderTarget(props, D2D1::HwndRenderTargetProperties(hwnd, size), &rt))) {
             return false;
         }
-        const auto with_alpha = [](D2D1_COLOR_F c, float a) noexcept {
+        const auto with_alpha = [](D2D1_COLOR_F c, float a) static noexcept {
             c.a = a;
             return c;
         };
@@ -409,11 +409,17 @@ private:
         rt->BeginDraw();
         rt->Clear(theme->Color(BrushId::PaneBg));
         constexpr float half = POPUP_FRAME_WIDTH * 0.5f;
-        rt->DrawRoundedRectangle({
-                                     { half, half, width - half, height - half },
-                                     POPUP_CORNER, POPUP_CORNER
-        },
-                                 brushes.frame.Get(), POPUP_FRAME_WIDTH);
+        // clang-format off
+        rt->DrawRoundedRectangle(
+            {
+                { half, half, width - half, height - half },
+                POPUP_CORNER,
+                POPUP_CORNER
+            },
+            brushes.frame.Get(),
+            POPUP_FRAME_WIDTH
+        );
+        // clang-format on
         derived().PaintContent();
         if (rt->EndDraw() == D2DERR_RECREATE_TARGET) {
             rt.Reset();

@@ -38,7 +38,7 @@ ID2D1SolidColorBrush* FixedBrush(const FixedBrushArray& brushes, BrushId id) noe
 class VisibleRunRenderer final : public UncountedCom<IDWriteTextRenderer> {
 public:
     VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, float cull_top, float cull_bottom,
-        std::span<const SyntaxToken> tokens, const FixedBrushArray& brushes, InlineMathMasks* math) noexcept
+                       std::span<const SyntaxToken> tokens, const FixedBrushArray& brushes, InlineMathMasks* math) noexcept
         : rt_(rt), default_brush_(default_brush), cull_top_(cull_top), cull_bottom_(cull_bottom), tokens_(tokens), brushes_(brushes), math_(math)
     {
         rt->GetTransform(&transform_);
@@ -248,14 +248,15 @@ void InlineMathMasks::EvictPages(size_t budget)
         // ビットマップを手放したページを捨てる印にする。
         p->bitmap.Reset();
     }
-    std::erase_if(masks, [](const auto& m) { return !m.second.page->bitmap; });
-    std::erase_if(pages, [](const auto& p) { return !p->bitmap; });
+    std::erase_if(masks, [](const auto& m) static { return !m.second.page->bitmap; });
+    std::erase_if(pages, [](const auto& p) static { return !p->bitmap; });
 }
 
 void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, const FixedBrushArray& brushes, InlineMathMasks* math)
 {
     MENDO_PROFILE("ExecuteDrawCommands");
 
+    // clang-format off
     const auto draw = overloaded{
         [&](const FillRectCmd& c) {
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
@@ -324,6 +325,7 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
             rt->SetTransform(c.transform);
         },
     };
+    // clang-format on
     for (const auto& c : cmds) {
         std::visit(draw, c);
     }

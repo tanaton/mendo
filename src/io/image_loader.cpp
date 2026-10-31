@@ -188,14 +188,14 @@ void ImageLoader::CacheBitmap(
     float pixel_width, float pixel_height, UINT sharp_width_px)
 {
     cache_.Insert(path, CachedImage{ std::move(bitmap), pixel_width, pixel_height, sharp_width_px });
-    cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedImage& c) static { return BitmapBytes(c.bitmap.Get()); });
+    cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedImage& c) static noexcept { return BitmapBytes(c.bitmap.Get()); });
 }
 
 void ImageLoader::DropQueued()
 {
     const std::lock_guard lock(pending_mutex_);
     ++drop_gen_;
-    std::erase_if(pending_paths_, [](const auto& kv) static { return !kv.second; });
+    std::erase_if(pending_paths_, [](const auto& kv) static noexcept { return !kv.second; });
 }
 
 void ImageLoader::CancelPending()

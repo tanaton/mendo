@@ -172,11 +172,11 @@ TEST_F(CmdGenContentTest, BlocksWithBackgroundGenerateRoundedRect)
         const char* md;
     };
     constexpr Case cases[] = {
-        { "CodeBlock", "```\ncode\n```" },
-        { "CodeBlockWithLanguage", "```cpp\nint x = 42;\n```" },
-        { "Alert", "> [!WARNING]\n> Be careful" },
-        { "ImageWithoutBitmap", "![alt](image.png)" },
-        { "MermaidWithoutBitmap", "```mermaid\ngraph TD\n  A-->B\n```" },
+        { "CodeBlock",             "```\ncode\n```"                     },
+        { "CodeBlockWithLanguage", "```cpp\nint x = 42;\n```"           },
+        { "Alert",                 "> [!WARNING]\n> Be careful"         },
+        { "ImageWithoutBitmap",    "![alt](image.png)"                  },
+        { "MermaidWithoutBitmap",  "```mermaid\ngraph TD\n  A-->B\n```" },
     };
     for (const auto& c : cases) {
         SCOPED_TRACE(c.name);
@@ -369,24 +369,24 @@ TEST(FormatListNumberTest, StyleCyclesByDepth)
         std::wstring_view expected;
     };
     constexpr Case kCases[] = {
-        { 3,    1, L"3."               },
-        { 3,    2, L"iii."             },
-        { 3,    3, L"c."               },
-        { 3,    4, L"3."               },
-        { 3,    0, L"3."               }, // 段を持たないノード
-        { 4,    2, L"iv."              },
-        { 1994, 2, L"mcmxciv."         },
-        { 3888, 2, L"mmmdccclxxxviii." },
-        { 26,   3, L"z."               },
-        { 27,   3, L"aa."              },
-        { 702,  3, L"zz."              },
-        { 703,  3, L"aaa."             },
+        { 3,                                   1, L"3."               },
+        { 3,                                   2, L"iii."             },
+        { 3,                                   3, L"c."               },
+        { 3,                                   4, L"3."               },
+        { 3,                                   0, L"3."               }, // 段を持たないノード
+        { 4,                                   2, L"iv."              },
+        { 1994,                                2, L"mcmxciv."         },
+        { 3888,                                2, L"mmmdccclxxxviii." },
+        { 26,                                  3, L"z."               },
+        { 27,                                  3, L"aa."              },
+        { 702,                                 3, L"zz."              },
+        { 703,                                 3, L"aaa."             },
         // ローマ数字・アルファベットで表せない番号は 10 進。
-        { 0,    2, L"0."               },
-        { 4000, 2, L"4000."            },
-        { 0,    3, L"0."               },
-        { std::numeric_limits<int32_t>::max(), 3, L"fxshrxw." },
-        { std::numeric_limits<int32_t>::min(), 1, L"-2147483648." },
+        { 0,                                   2, L"0."               },
+        { 4000,                                2, L"4000."            },
+        { 0,                                   3, L"0."               },
+        { std::numeric_limits<int32_t>::max(), 3, L"fxshrxw."         },
+        { std::numeric_limits<int32_t>::min(), 1, L"-2147483648."     },
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(std::format("number={} depth={}", c.number, c.depth));
@@ -402,7 +402,16 @@ TEST_F(CmdGenContentTest, CodeBlockWithHoveredCopyNodeAccepted)
     const PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
     // ノード 0 のコピーボタンのホバーを渡してもクラッシュしない
     DrawCommandList cmds;
-    gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = md_pane, .hovered = OverlayButtonHit{ 0, OverlayButton::CodeCopy } }, 1.0f);
+    // clang-format off
+    gen_.GenerateMdPane(
+        cmds,
+        {
+            .nodes = nodes_, .cache = cache_, .selection = TextSelection{},
+            .md_pane_rect = md_pane, .hovered = OverlayButtonHit{ 0, OverlayButton::CodeCopy }
+        },
+        1.0f
+    );
+    // clang-format on
     EXPECT_TRUE(std::holds_alternative<PushClipCmd>(cmds.front()));
     EXPECT_TRUE(std::holds_alternative<PopClipCmd>(cmds.back()));
 }
@@ -430,10 +439,20 @@ TEST_F(CmdGenContentTest, SplitCodeBlockDrawsContinuousBackground)
     // 1 つ目と 2 つ目の継ぎ目を画面の y=200 に置く。
     const float seam = cache_.Top(1);
     DrawCommandList cmds;
-    gen_.GenerateMdPane(cmds, { .nodes = nodes_, .cache = cache_, .selection = TextSelection{}, .md_pane_rect = PaneRect{ 0, 0, kViewportW, 400.0f }, .scroll_y = seam - 200.0f }, 1.0f);
+    // clang-format off
+    gen_.GenerateMdPane(
+        cmds,
+        {
+            .nodes = nodes_, .cache = cache_, .selection = TextSelection{},
+            .md_pane_rect = PaneRect{ 0, 0, kViewportW, 400.0f },
+            .scroll_y = seam - 200.0f
+        },
+        1.0f
+    );
+    // clang-format on
     const auto code_bg_edge = [&](auto edge) {
         return CountCmd<FillRectCmd>(cmds, [&](const FillRectCmd& c) { return c.brush_id == BrushId::CodeBg && std::abs(edge(c.rect) - 200.0f) < 0.01f; });
     };
-    EXPECT_GE(code_bg_edge([](const D2D1_RECT_F& r) { return r.bottom; }), 1);
-    EXPECT_GE(code_bg_edge([](const D2D1_RECT_F& r) { return r.top; }), 1);
+    EXPECT_GE(code_bg_edge([](const D2D1_RECT_F& r) static noexcept { return r.bottom; }), 1);
+    EXPECT_GE(code_bg_edge([](const D2D1_RECT_F& r) static noexcept { return r.top; }), 1);
 }

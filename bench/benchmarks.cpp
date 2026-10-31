@@ -282,15 +282,21 @@ BENCHMARK_CAPTURE(BM_ParseCodeBlock, json_numbers, "json", "1,22,333,")->UseManu
 BENCHMARK_CAPTURE(BM_ParseCodeBlock, json_strings, "json", "\"k\":\"v\",")->UseManualTime()->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_ParseCodeBlock, json_lines, "json", "\"k\": \"v\",\n")->UseManualTime()->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_ParseCodeBlock, js_calls, "js", "a.b(c,d);")->UseManualTime()->Unit(benchmark::kMillisecond);
-BENCHMARK_CAPTURE(BM_ParseCodeBlock, html, "html",
-                  "<div class=\"note\" id='a1'><p>text &amp; more <b>bold</b></p><img src=\"x.png\" alt=\"y\"/></div>\n")
-    ->UseManualTime()->Unit(benchmark::kMillisecond);
-BENCHMARK_CAPTURE(BM_ParseCodeBlock, yaml, "yaml",
-                  "key: value\nlist: [a, b, {c: d}]\nitems:\n  - name: one\n    count: 12\n  - &ref {x: 1, y: \"s\"}\n")
-    ->UseManualTime()->Unit(benchmark::kMillisecond);
-BENCHMARK_CAPTURE(BM_ParseCodeBlock, elisp, "elisp",
-                  "(defun my-cmd (arg)\n  \"Doc.\"\n  (interactive \"p\")\n  (let ((x 'sym) (y #'fn)) (message \"%d\" (+ arg 1))))\n")
-    ->UseManualTime()->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(
+    BM_ParseCodeBlock, html, "html",
+    "<div class=\"note\" id='a1'><p>text &amp; more <b>bold</b></p><img src=\"x.png\" alt=\"y\"/></div>\n")
+    ->UseManualTime()
+    ->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(
+    BM_ParseCodeBlock, yaml, "yaml",
+    "key: value\nlist: [a, b, {c: d}]\nitems:\n  - name: one\n    count: 12\n  - &ref {x: 1, y: \"s\"}\n")
+    ->UseManualTime()
+    ->Unit(benchmark::kMillisecond);
+BENCHMARK_CAPTURE(
+    BM_ParseCodeBlock, elisp, "elisp",
+    "(defun my-cmd (arg)\n  \"Doc.\"\n  (interactive \"p\")\n  (let ((x 'sym) (y #'fn)) (message \"%d\" (+ arg 1))))\n")
+    ->UseManualTime()
+    ->Unit(benchmark::kMillisecond);
 
 void BM_NormalizeNewlines(benchmark::State& state)
 {
@@ -622,7 +628,12 @@ void BM_ResizeRemeasure(benchmark::State& state, const char* path)
 BENCHMARK_CAPTURE(BM_ResizeRemeasure, test_md, "example/test.md")->Unit(benchmark::kMillisecond);
 BENCHMARK_CAPTURE(BM_ResizeRemeasure, readme, "../README.md")->Unit(benchmark::kMicrosecond);
 
-enum class GiantBlock { Paragraph, Code, Table5k, Table50k };
+enum class GiantBlock {
+    Paragraph,
+    Code,
+    Table5k,
+    Table50k
+};
 
 // 巨大な 1 ブロックだけの文書。段落とコードは 5 万行。
 std::string GiantBlockMd(GiantBlock kind)
@@ -641,7 +652,11 @@ std::string GiantBlockMd(GiantBlock kind)
     return md;
 }
 
-enum class OpenPhase { FirstScreen, Jump, Rest };
+enum class OpenPhase {
+    FirstScreen,
+    Jump,
+    Rest
+};
 
 // アプリで開くときと同じ順 (推定 → 最初の画面 → 中央へのジャンプ → 残り全部) に進め、phase だけを測る。ワーカー 8 本。
 void BM_GiantBlock(benchmark::State& state, GiantBlock kind, OpenPhase phase)
@@ -1010,7 +1025,14 @@ BENCHMARK_DEFINE_F(TableMeasure, ResizeViewport)(benchmark::State& state)
     }
 }
 BENCHMARK_REGISTER_F(TableMeasure, ResizeViewport)
-    ->ArgName("width")->Arg(1100)->Arg(1000)->Arg(1200)->Arg(900)->UseManualTime()->Iterations(3)->Unit(benchmark::kMicrosecond);
+    ->ArgName("width")
+    ->Arg(1100)
+    ->Arg(1000)
+    ->Arg(1200)
+    ->Arg(900)
+    ->UseManualTime()
+    ->Iterations(3)
+    ->Unit(benchmark::kMicrosecond);
 
 // 列の幅が変わらない狭い表 (2 万行 5 列) で幅を変えたときの、表全体の計測。セルを組み直さない高速経路を通る。
 void BM_TableResizeFastPath(benchmark::State& state)
@@ -1042,10 +1064,23 @@ BENCHMARK(BM_TableResizeFastPath)->UseManualTime()->Iterations(10)->Unit(benchma
 Document MakeInlineCodeTableDoc()
 {
     static constexpr std::array<std::string_view, 15> kWords{
-        "設定", "値を", "読み込み", "表示する", "ときに", "使う", "関数で", "fallback",
-        "cache", "の挙動", "を確認", "した結果", "render", "layout", "が変わる",
+        "設定",
+        "値を",
+        "読み込み",
+        "表示する",
+        "ときに",
+        "使う",
+        "関数で",
+        "fallback",
+        "cache",
+        "の挙動",
+        "を確認",
+        "した結果",
+        "render",
+        "layout",
+        "が変わる",
     };
-    const auto words = [](size_t seed, size_t count) {
+    const auto words = [](size_t seed, size_t count) static noexcept {
         std::string s;
         for (size_t k = 0; k < count; ++k) {
             if (k > 0) {
@@ -1305,7 +1340,7 @@ void BM_ReduceEvents(benchmark::State& state, ReduceEvent kind, bool stack)
             std::pmr::monotonic_buffer_resource arena(buffer.data(), buffer.size());
             const auto list = h.Dispatch(e, stack ? static_cast<std::pmr::memory_resource*>(&arena) : &counter);
             effects += list.size();
-            const auto invalidates = std::ranges::count_if(list, [](const SideEffect& se) static { return std::holds_alternative<effect::InvalidateWindow>(se); });
+            const auto invalidates = std::ranges::count_if(list, [](const SideEffect& se) static noexcept { return std::holds_alternative<effect::InvalidateWindow>(se); });
             duplicate_invalidates += invalidates > 1 ? static_cast<size_t>(invalidates - 1) : 0;
             benchmark::DoNotOptimize(list.data());
         }

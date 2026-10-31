@@ -265,7 +265,9 @@ std::optional<mermaid_util::MathBatchLayout> mermaid_util::ReadMathBoxesChunk(st
         if (GetBe32(&data[0]) != kMathBoxesChunkVersion || GetBe32(&data[16]) != expected) {
             return std::nullopt;
         }
-        MathBatchLayout out{ .size = { get_float(1), get_float(2), get_float(3) } };
+        MathBatchLayout out{
+            .size = { get_float(1), get_float(2), get_float(3) }
+        };
         if (!(out.size.width > 0.0f && out.size.height > 0.0f && IsPlausibleDpr(out.size.dpr))) {
             return std::nullopt;
         }
@@ -345,7 +347,7 @@ std::wstring mermaid_util::SanitizeErrorMessage(std::wstring_view msg, size_t ma
         if (result.size() >= max_len) {
             // 残りが空白のみなら実質切り詰め無しなので省略記号を付けない。
             const auto rest = msg.substr(i + 1);
-            truncated = std::ranges::any_of(rest, [](wchar_t r) static { return r > L' '; });
+            truncated = std::ranges::any_of(rest, [](wchar_t r) static noexcept { return r > L' '; });
             break;
         }
     }

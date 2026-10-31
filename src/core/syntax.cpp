@@ -77,7 +77,7 @@ constexpr bool IsIdentStart(char c) noexcept
     return IsAsciiAlpha(c) || c == '_' || static_cast<std::make_unsigned_t<char>>(c) >= 0x80;
 }
 
-inline constexpr CharSet kIdentChars{ [](char c) { return IsIdentStart(c) || IsAsciiDigit(c); } };
+inline constexpr CharSet kIdentChars{ [](char c) static noexcept { return IsIdentStart(c) || IsAsciiDigit(c); } };
 
 constexpr bool IsIdentChar(char c) noexcept
 {
@@ -310,7 +310,7 @@ constexpr size_t ScanLuaLongBracket(std::string_view text, size_t pos) noexcept
     const size_t level = i - level_start;
     for (size_t k = text.find(']', i + 1); k != npos; k = text.find(']', k + 1)) {
         const size_t close_start = k + 1;
-        const size_t j = SkipWhile(text, close_start, std::min(text.size(), close_start + level), [](char c) { return c == '='; });
+        const size_t j = SkipWhile(text, close_start, std::min(text.size(), close_start + level), [](char c) static noexcept { return c == '='; });
         if (j - close_start == level && j < text.size() && text[j] == ']') {
             return j + 1;
         }
@@ -351,28 +351,28 @@ enum class TripleQuote : uint8_t {
 };
 
 struct LexerConfig {
-    bool line_comment_slash = false;   // //
-    bool block_comment = false;        // /* */
-    bool hash_comment = false;         // #
-    bool hash_comment_word_start = false; // # が単語の先頭にあるときだけコメント (Bash の $# や ${#a} を除く)
-    bool preprocessor = false;         // 行頭の#
+    bool line_comment_slash = false;              // //
+    bool block_comment = false;                   // /* */
+    bool hash_comment = false;                    // #
+    bool hash_comment_word_start = false;         // # が単語の先頭にあるときだけコメント (Bash の $# や ${#a} を除く)
+    bool preprocessor = false;                    // 行頭の#
     TripleQuote triple_quote = TripleQuote::None; // """ '''
-    bool raw_string = false;           // C++ R"(...)"
-    bool backtick_string = false;      // `
-    bool angle_block_comment = false;  // <# #>
-    bool double_colon_comment = false; // ::
-    bool rem_comment = false;          // REM
-    bool case_insensitive = false;     // 大文字小文字を区別しないキーワードマッチング
-    bool skip_single_quote = false;    // 'を文字列デリミタとして扱わない
-    bool raw_backtick = false;         // エスケープなしのバッククォート文字列（Go）
-    bool dash_dash_comment = false;    // --
-    bool verbatim_at_string = false;   // C# の @"..." と @$"..."（\ はエスケープでなく "" が引用符）
-    bool hash_attribute_bracket = false; // #[ はコメントでなく属性（PHP 8）
-    bool dollar_variable = false;      // $class や $list は変数名なのでキーワードにしない（PHP）
-    bool ruby_block_comment = false;   // 行頭の =begin ... =end
-    bool backslash_line_string = false; // \\ から行末までの複数行文字列の 1 行（Zig）
-    bool at_builtin = false;           // @import 等の組み込み関数（Zig）
-    bool lua_long_bracket = false;     // [[ ]] / [==[ ]==] の長文字列と --[[ ]] の長コメント（Lua）
+    bool raw_string = false;                      // C++ R"(...)"
+    bool backtick_string = false;                 // `
+    bool angle_block_comment = false;             // <# #>
+    bool double_colon_comment = false;            // ::
+    bool rem_comment = false;                     // REM
+    bool case_insensitive = false;                // 大文字小文字を区別しないキーワードマッチング
+    bool skip_single_quote = false;               // 'を文字列デリミタとして扱わない
+    bool raw_backtick = false;                    // エスケープなしのバッククォート文字列（Go）
+    bool dash_dash_comment = false;               // --
+    bool verbatim_at_string = false;              // C# の @"..." と @$"..."（\ はエスケープでなく "" が引用符）
+    bool hash_attribute_bracket = false;          // #[ はコメントでなく属性（PHP 8）
+    bool dollar_variable = false;                 // $class や $list は変数名なのでキーワードにしない（PHP）
+    bool ruby_block_comment = false;              // 行頭の =begin ... =end
+    bool backslash_line_string = false;           // \\ から行末までの複数行文字列の 1 行（Zig）
+    bool at_builtin = false;                      // @import 等の組み込み関数（Zig）
+    bool lua_long_bracket = false;                // [[ ]] / [==[ ]==] の長文字列と --[[ ]] の長コメント（Lua）
 };
 
 // Cfg の言語で、識別子と数値以外のトークンを始める文字。rem は語だが、語として飛ばさないように頭文字を入れる。
@@ -381,20 +381,20 @@ struct LexerConfig {
 template <LexerConfig Cfg>
 inline constexpr auto kTokenStartStorage = [] {
     constexpr std::pair<bool, char> rules[] = {
-        { true, '"' },
+        { true,                                                            '"'  },
         { !Cfg.skip_single_quote || Cfg.triple_quote != TripleQuote::None, '\'' },
-        { Cfg.line_comment_slash || Cfg.block_comment, '/' },
-        { Cfg.hash_comment || Cfg.preprocessor, '#' },
-        { Cfg.angle_block_comment, '<' },
-        { Cfg.lua_long_bracket, '[' },
-        { Cfg.lua_long_bracket || Cfg.dash_dash_comment, '-' },
-        { Cfg.double_colon_comment, ':' },
-        { Cfg.verbatim_at_string || Cfg.at_builtin, '@' },
-        { Cfg.backslash_line_string, '\\' },
-        { Cfg.backtick_string, '`' },
-        { Cfg.ruby_block_comment, '=' },
-        { Cfg.rem_comment, 'r' },
-        { Cfg.rem_comment, 'R' },
+        { Cfg.line_comment_slash || Cfg.block_comment,                     '/'  },
+        { Cfg.hash_comment || Cfg.preprocessor,                            '#'  },
+        { Cfg.angle_block_comment,                                         '<'  },
+        { Cfg.lua_long_bracket,                                            '['  },
+        { Cfg.lua_long_bracket || Cfg.dash_dash_comment,                   '-'  },
+        { Cfg.double_colon_comment,                                        ':'  },
+        { Cfg.verbatim_at_string || Cfg.at_builtin,                        '@'  },
+        { Cfg.backslash_line_string,                                       '\\' },
+        { Cfg.backtick_string,                                             '`'  },
+        { Cfg.ruby_block_comment,                                          '='  },
+        { Cfg.rem_comment,                                                 'r'  },
+        { Cfg.rem_comment,                                                 'R'  },
     };
     struct {
         std::array<char, std::size(rules)> chars{};
@@ -416,7 +416,7 @@ inline constexpr CharSet kTokenStartSet{ kTokenStarts<Cfg> };
 
 // Cfg の言語でどのトークンも始めない文字。IsIdentChar の表引きと合わせて、16KB の C++ のトークン化が 46→39µs になる。
 template <LexerConfig Cfg>
-inline constexpr CharSet kPlainChars{ [](char c) { return !IsIdentChar(c) && c != '.' && !kTokenStartSet<Cfg>.contains(c); } };
+inline constexpr CharSet kPlainChars{ [](char c) static noexcept { return !IsIdentChar(c) && c != '.' && !kTokenStartSet<Cfg>.contains(c); } };
 
 // TokensCrossing の出力先。区切りをまたぐか末尾に届くトークンだけを残す。トークンは位置の順に届く。
 class CrossingTokens {
@@ -472,7 +472,7 @@ private:
     static size_t FindTokenStart(std::string_view text, size_t pos) noexcept
     {
         const size_t nearby = std::min(pos + 16, text.size());
-        const size_t found = SkipWhile(text, pos, nearby, [](char c) { return !kTokenStartSet<Cfg>.contains(c); });
+        const size_t found = SkipWhile(text, pos, nearby, [](char c) static noexcept { return !kTokenStartSet<Cfg>.contains(c); });
         return found < nearby ? found : std::min(text.find_first_of(kTokenStarts<Cfg>, found), text.size());
     }
 
@@ -940,8 +940,20 @@ SyntaxTokenType ClassifyScalar(std::string_view w) noexcept
 SyntaxTokenType DiffLineType(std::string_view line) noexcept
 {
     static constexpr std::string_view kHeaders[]{
-        "diff ", "index ", "--- ", "+++ ", "new file mode", "deleted file mode", "old mode", "new mode",
-        "similarity index", "rename from", "rename to", "Binary files", "Index: ", "===",
+        "diff ",
+        "index ",
+        "--- ",
+        "+++ ",
+        "new file mode",
+        "deleted file mode",
+        "old mode",
+        "new mode",
+        "similarity index",
+        "rename from",
+        "rename to",
+        "Binary files",
+        "Index: ",
+        "===",
     };
     if (std::ranges::any_of(kHeaders, [&](std::string_view h) { return line.starts_with(h); })) {
         return SyntaxTokenType::Keyword;
@@ -1280,7 +1292,7 @@ void TokenizeToml(std::string_view text, std::vector<SyntaxToken>& tokens)
             i++;
             continue;
         }
-        const size_t e = SkipWhile(text, i, [](char ch) { return IsIdentChar(ch) || CharSet{ "+-.:" }.contains(ch); });
+        const size_t e = SkipWhile(text, i, [](char ch) static noexcept { return IsIdentChar(ch) || CharSet{ "+-.:" }.contains(ch); });
         if (e == i) {
             i++;
             continue;
@@ -1343,7 +1355,7 @@ constexpr size_t SkipCssIdent(std::string_view text, size_t pos) noexcept
 // 数値と単位（10px / 1.5em / 50% / -2）の終端。
 constexpr size_t ScanCssNumber(std::string_view text, size_t pos) noexcept
 {
-    return SkipWhile(text, SkipChars(text, pos + 1, "0123456789."), [](char c) { return IsAsciiAlpha(c) || c == '%'; });
+    return SkipWhile(text, SkipChars(text, pos + 1, "0123456789."), [](char c) static noexcept { return IsAsciiAlpha(c) || c == '%'; });
 }
 
 // セレクタの 1 トークンを読み、次の位置を返す。タグ名は Keyword、.class / #id は Function、疑似クラスと属性名は Type。
@@ -1628,11 +1640,11 @@ void TokenizeMarkup(std::string_view text, std::vector<SyntaxToken>& tokens)
                 j = SkipWhile(text, j + 1, IsMarkupSpace);
                 const size_t e = j < n && (text[j] == '"' || text[j] == '\'')
                                      ? ScanString(text, j, text[j], true, false)
-                                     : SkipWhile(text, j, [](char ch) { return !IsMarkupSpace(ch) && ch != '>' && ch != '<'; });
+                                     : SkipWhile(text, j, [](char ch) static noexcept { return !IsMarkupSpace(ch) && ch != '>' && ch != '<'; });
                 j = EmitRange(tokens, j, e, SyntaxTokenType::String);
                 continue;
             }
-            const size_t e = SkipWhile(text, j, [](char ch) { return !IsMarkupSpace(ch) && !CharSet{ "=>/<\"'" }.contains(ch); });
+            const size_t e = SkipWhile(text, j, [](char ch) static noexcept { return !IsMarkupSpace(ch) && !CharSet{ "=>/<\"'" }.contains(ch); });
             j = EmitRange(tokens, j, e, SyntaxTokenType::Type);
         }
         i = j;
@@ -1676,7 +1688,7 @@ void TokenizeDockerfile(std::string_view text, std::vector<SyntaxToken>& tokens)
             // FROM image AS stage の AS
             if (ascii_util::iequal(word, "from")) {
                 for (size_t k = SkipBlanks(text, j, end); k < end; k = SkipBlanks(text, k, end)) {
-                    const size_t e = SkipWhile(text, k, end, [](char ch) { return !IsMarkupSpace(ch); });
+                    const size_t e = SkipWhile(text, k, end, [](char ch) static noexcept { return !IsMarkupSpace(ch); });
                     if (ascii_util::iequal(text.substr(k, e - k), "as")) {
                         TokenizeShellRange(text, rest, k, tokens);
                         rest = EmitRange(tokens, k, e, SyntaxTokenType::Keyword);
@@ -1845,7 +1857,7 @@ void TokenizeMakefile(std::string_view text, std::vector<SyntaxToken>& tokens)
 // UTF-8 の 1 コードポイント分進めた位置（後続バイトを読み飛ばす）。pos < text.size() であること。
 constexpr size_t NextCodePoint(std::string_view text, size_t pos) noexcept
 {
-    return SkipWhile(text, pos + 1, [](char c) { return (static_cast<unsigned char>(c) & 0xC0) == 0x80; });
+    return SkipWhile(text, pos + 1, [](char c) static noexcept { return (static_cast<unsigned char>(c) & 0xC0) == 0x80; });
 }
 
 // {- -} や #| |# の入れ子を数えて、最外の閉じの直後を返す。未終端なら text.size()。
@@ -1953,7 +1965,7 @@ void TokenizeHaskell(std::string_view text, std::vector<SyntaxToken>& tokens)
             continue;
         }
         if (IsIdentStart(c)) {
-            const size_t e = SkipWhile(text, i + 1, [](char ch) { return IsIdentChar(ch) || ch == '\''; });
+            const size_t e = SkipWhile(text, i + 1, [](char ch) static noexcept { return IsIdentChar(ch) || ch == '\''; });
             SyntaxTokenType type = SyntaxTokenType::Plain;
             if (IsAsciiUpper(c)) {
                 type = SyntaxTokenType::Type;
@@ -1974,8 +1986,8 @@ void TokenizeHaskell(std::string_view text, std::vector<SyntaxToken>& tokens)
 // ---------- Lisp 系 (Common Lisp / Emacs Lisp / Scheme・Racket / Clojure) ----------
 
 struct LispDialect {
-    kw::KeywordTable special;   // 呼び出し位置で Keyword にする特殊形式・マクロ
-    kw::KeywordTable constants; // nil / t / true 等
+    kw::KeywordTable special;      // 呼び出し位置で Keyword にする特殊形式・マクロ
+    kw::KeywordTable constants;    // nil / t / true 等
     bool case_insensitive = false; // Common Lisp のシンボルは大文字小文字を区別しない
     bool cond_clauses = true;      // (cond (test body) ...) の節を呼び出しと見ない。Clojure の cond は節を持たない
     bool elisp_char = false;       // ?a / ?\n
@@ -1989,7 +2001,7 @@ constexpr bool IsLispDelimiter(char c) noexcept
 
 constexpr size_t SkipLispSymbol(std::string_view text, size_t pos) noexcept
 {
-    return SkipWhile(text, pos, [](char c) { return !IsLispDelimiter(c); });
+    return SkipWhile(text, pos, [](char c) static noexcept { return !IsLispDelimiter(c); });
 }
 
 // 文字リテラル (#\a / \newline / ?\C-x) の本体の終端。英字で始まれば名前付き文字として英数字と - を続けて読む。
@@ -2002,14 +2014,14 @@ constexpr size_t ScanLispCharBody(std::string_view text, size_t pos) noexcept
     if (!IsAsciiAlpha(text[pos])) {
         return e;
     }
-    return SkipWhile(text, e, [](char c) { return IsAsciiAlnum(c) || c == '-'; });
+    return SkipWhile(text, e, [](char c) static noexcept { return IsAsciiAlnum(c) || c == '-'; });
 }
 
 // #_ / #; が読み飛ばす次の 1 データの終端。リストは括弧の対応を数える。
 constexpr size_t ScanLispDatum(std::string_view text, size_t pos) noexcept
 {
     const size_t n = text.size();
-    pos = SkipWhile(text, pos, [](char c) { return IsMarkupSpace(c) || CharSet{ "'`#@^~," }.contains(c); });
+    pos = SkipWhile(text, pos, [](char c) static noexcept { return IsMarkupSpace(c) || CharSet{ "'`#@^~," }.contains(c); });
     if (pos >= n) {
         return n;
     }
@@ -2282,7 +2294,7 @@ constexpr VimName ScanVimName(std::string_view text, size_t pos) noexcept
         i = pos + 2;
         scoped = true;
     }
-    return { SkipWhile(text, i, [](char c) { return IsIdentChar(c) || c == '#'; }), scoped };
+    return { SkipWhile(text, i, [](char c) static noexcept { return IsIdentChar(c) || c == '#'; }), scoped };
 }
 
 // <CR> / <leader> / <C-w> / <C-]> 等のキー表記の終端。キー表記でなければ npos。
@@ -2293,7 +2305,7 @@ constexpr size_t ScanVimKeyNotation(std::string_view text, size_t pos) noexcept
         return npos;
     }
     const size_t limit = std::min(text.size(), pos + kMaxLength);
-    const size_t i = SkipWhile(text, pos + 2, limit, [](char c) { return !CharSet{ " \t<>" }.contains(c); });
+    const size_t i = SkipWhile(text, pos + 2, limit, [](char c) static noexcept { return !CharSet{ " \t<>" }.contains(c); });
     return i < limit && text[i] == '>' ? i + 1 : npos;
 }
 
@@ -2302,7 +2314,7 @@ constexpr size_t ScanVimKeyNotation(std::string_view text, size_t pos) noexcept
 constexpr size_t SkipVimAutocmdHead(std::string_view text, size_t pos) noexcept
 {
     const auto skip_word = [&](size_t p) {
-        return SkipBlanks(text, SkipWhile(text, p, [](char c) { return !IsBlank(c); }), text.size());
+        return SkipBlanks(text, SkipWhile(text, p, [](char c) static noexcept { return !IsBlank(c); }), text.size());
     };
     size_t i = SkipBlanks(text, pos, text.size());
     bool event = false;
@@ -2349,7 +2361,7 @@ VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bo
     const size_t eol = text.size();
     while (i < eol) {
         if (command_pos) {
-            i = SkipWhile(text, i, eol, [](char c) { return c == ':' || IsBlank(c); });
+            i = SkipWhile(text, i, eol, [](char c) static noexcept { return c == ':' || IsBlank(c); });
             if (i >= eol) {
                 break;
             }
@@ -2383,7 +2395,7 @@ VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bo
             static constexpr std::string_view kFunctionCommands[]{ "fu", "fun", "func", "function", "def" };
             if (std::ranges::contains(kFunctionCommands, word)) {
                 const size_t name = SkipBlanks(text, i, eol);
-                const size_t e = SkipWhile(text, name, eol, [](char c) { return !IsBlank(c) && c != '('; });
+                const size_t e = SkipWhile(text, name, eol, [](char c) static noexcept { return !IsBlank(c) && c != '('; });
                 i = EmitRange(tokens, name, e, SyntaxTokenType::Function);
                 continue;
             }
@@ -2456,7 +2468,7 @@ VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bo
         }
         // オプション &tabstop / &l:sw、環境変数 $HOME、レジスタ @a
         if ((c == '&' && IsAsciiAlpha(next)) || (c == '$' && IsIdentStart(next))) {
-            const size_t e = SkipWhile(text, i + 1, eol, [](char ch) { return IsIdentChar(ch) || ch == ':'; });
+            const size_t e = SkipWhile(text, i + 1, eol, [](char ch) static noexcept { return IsIdentChar(ch) || ch == ':'; });
             i = EmitRange(tokens, i, e, SyntaxTokenType::Type);
             continue;
         }
@@ -2563,118 +2575,118 @@ SyntaxLanguage DetectLanguage(std::string_view info_string) noexcept
         SyntaxLanguage language;
     };
     static constexpr Alias kAliases[]{
-        { "c", SyntaxLanguage::Cpp },
-        { "h", SyntaxLanguage::Cpp },
-        { "cc", SyntaxLanguage::Cpp },
-        { "cpp", SyntaxLanguage::Cpp },
-        { "c++", SyntaxLanguage::Cpp },
-        { "cxx", SyntaxLanguage::Cpp },
-        { "hpp", SyntaxLanguage::Cpp },
-        { "hxx", SyntaxLanguage::Cpp },
-        { "js", SyntaxLanguage::JavaScript },
-        { "jsx", SyntaxLanguage::JavaScript },
-        { "javascript", SyntaxLanguage::JavaScript },
-        { "ts", SyntaxLanguage::TypeScript },
-        { "tsx", SyntaxLanguage::TypeScript },
-        { "typescript", SyntaxLanguage::TypeScript },
-        { "py", SyntaxLanguage::Python },
-        { "python", SyntaxLanguage::Python },
-        { "go", SyntaxLanguage::Go },
-        { "golang", SyntaxLanguage::Go },
-        { "rs", SyntaxLanguage::Rust },
-        { "rust", SyntaxLanguage::Rust },
-        { "sh", SyntaxLanguage::Bash },
-        { "zsh", SyntaxLanguage::Bash },
-        { "bash", SyntaxLanguage::Bash },
-        { "shell", SyntaxLanguage::Bash },
-        { "json", SyntaxLanguage::Json },
-        { "jsonc", SyntaxLanguage::Json },
-        { "json5", SyntaxLanguage::Json },
-        { "cmd", SyntaxLanguage::Cmd },
-        { "bat", SyntaxLanguage::Cmd },
-        { "batch", SyntaxLanguage::Cmd },
-        { "dosbatch", SyntaxLanguage::Cmd },
-        { "ps1", SyntaxLanguage::PowerShell },
-        { "pwsh", SyntaxLanguage::PowerShell },
-        { "powershell", SyntaxLanguage::PowerShell },
-        { "mermaid", SyntaxLanguage::Mermaid },
-        { "java", SyntaxLanguage::Java },
-        { "cs", SyntaxLanguage::CSharp },
-        { "c#", SyntaxLanguage::CSharp },
-        { "csharp", SyntaxLanguage::CSharp },
-        { "kt", SyntaxLanguage::Kotlin },
-        { "kts", SyntaxLanguage::Kotlin },
-        { "kotlin", SyntaxLanguage::Kotlin },
-        { "swift", SyntaxLanguage::Swift },
-        { "php", SyntaxLanguage::Php },
-        { "rb", SyntaxLanguage::Ruby },
-        { "ruby", SyntaxLanguage::Ruby },
-        { "sql", SyntaxLanguage::Sql },
-        { "mysql", SyntaxLanguage::Sql },
-        { "sqlite", SyntaxLanguage::Sql },
-        { "postgres", SyntaxLanguage::Sql },
-        { "postgresql", SyntaxLanguage::Sql },
-        { "psql", SyntaxLanguage::Sql },
-        { "plsql", SyntaxLanguage::Sql },
-        { "tsql", SyntaxLanguage::Sql },
-        { "yml", SyntaxLanguage::Yaml },
-        { "yaml", SyntaxLanguage::Yaml },
-        { "toml", SyntaxLanguage::Toml },
-        { "ini", SyntaxLanguage::Ini },
-        { "cfg", SyntaxLanguage::Ini },
-        { "conf", SyntaxLanguage::Ini },
-        { "dosini", SyntaxLanguage::Ini },
-        { "properties", SyntaxLanguage::Ini },
-        { "editorconfig", SyntaxLanguage::Ini },
-        { "gitconfig", SyntaxLanguage::Ini },
-        { "htm", SyntaxLanguage::Html },
-        { "html", SyntaxLanguage::Html },
-        { "xhtml", SyntaxLanguage::Html },
-        { "xml", SyntaxLanguage::Xml },
-        { "svg", SyntaxLanguage::Xml },
-        { "xsl", SyntaxLanguage::Xml },
-        { "xslt", SyntaxLanguage::Xml },
-        { "xaml", SyntaxLanguage::Xml },
-        { "plist", SyntaxLanguage::Xml },
-        { "rss", SyntaxLanguage::Xml },
-        { "css", SyntaxLanguage::Css },
-        { "scss", SyntaxLanguage::Scss },
-        { "less", SyntaxLanguage::Scss },
-        { "diff", SyntaxLanguage::Diff },
-        { "patch", SyntaxLanguage::Diff },
-        { "docker", SyntaxLanguage::Dockerfile },
-        { "dockerfile", SyntaxLanguage::Dockerfile },
+        { "c",             SyntaxLanguage::Cpp        },
+        { "h",             SyntaxLanguage::Cpp        },
+        { "cc",            SyntaxLanguage::Cpp        },
+        { "cpp",           SyntaxLanguage::Cpp        },
+        { "c++",           SyntaxLanguage::Cpp        },
+        { "cxx",           SyntaxLanguage::Cpp        },
+        { "hpp",           SyntaxLanguage::Cpp        },
+        { "hxx",           SyntaxLanguage::Cpp        },
+        { "js",            SyntaxLanguage::JavaScript },
+        { "jsx",           SyntaxLanguage::JavaScript },
+        { "javascript",    SyntaxLanguage::JavaScript },
+        { "ts",            SyntaxLanguage::TypeScript },
+        { "tsx",           SyntaxLanguage::TypeScript },
+        { "typescript",    SyntaxLanguage::TypeScript },
+        { "py",            SyntaxLanguage::Python     },
+        { "python",        SyntaxLanguage::Python     },
+        { "go",            SyntaxLanguage::Go         },
+        { "golang",        SyntaxLanguage::Go         },
+        { "rs",            SyntaxLanguage::Rust       },
+        { "rust",          SyntaxLanguage::Rust       },
+        { "sh",            SyntaxLanguage::Bash       },
+        { "zsh",           SyntaxLanguage::Bash       },
+        { "bash",          SyntaxLanguage::Bash       },
+        { "shell",         SyntaxLanguage::Bash       },
+        { "json",          SyntaxLanguage::Json       },
+        { "jsonc",         SyntaxLanguage::Json       },
+        { "json5",         SyntaxLanguage::Json       },
+        { "cmd",           SyntaxLanguage::Cmd        },
+        { "bat",           SyntaxLanguage::Cmd        },
+        { "batch",         SyntaxLanguage::Cmd        },
+        { "dosbatch",      SyntaxLanguage::Cmd        },
+        { "ps1",           SyntaxLanguage::PowerShell },
+        { "pwsh",          SyntaxLanguage::PowerShell },
+        { "powershell",    SyntaxLanguage::PowerShell },
+        { "mermaid",       SyntaxLanguage::Mermaid    },
+        { "java",          SyntaxLanguage::Java       },
+        { "cs",            SyntaxLanguage::CSharp     },
+        { "c#",            SyntaxLanguage::CSharp     },
+        { "csharp",        SyntaxLanguage::CSharp     },
+        { "kt",            SyntaxLanguage::Kotlin     },
+        { "kts",           SyntaxLanguage::Kotlin     },
+        { "kotlin",        SyntaxLanguage::Kotlin     },
+        { "swift",         SyntaxLanguage::Swift      },
+        { "php",           SyntaxLanguage::Php        },
+        { "rb",            SyntaxLanguage::Ruby       },
+        { "ruby",          SyntaxLanguage::Ruby       },
+        { "sql",           SyntaxLanguage::Sql        },
+        { "mysql",         SyntaxLanguage::Sql        },
+        { "sqlite",        SyntaxLanguage::Sql        },
+        { "postgres",      SyntaxLanguage::Sql        },
+        { "postgresql",    SyntaxLanguage::Sql        },
+        { "psql",          SyntaxLanguage::Sql        },
+        { "plsql",         SyntaxLanguage::Sql        },
+        { "tsql",          SyntaxLanguage::Sql        },
+        { "yml",           SyntaxLanguage::Yaml       },
+        { "yaml",          SyntaxLanguage::Yaml       },
+        { "toml",          SyntaxLanguage::Toml       },
+        { "ini",           SyntaxLanguage::Ini        },
+        { "cfg",           SyntaxLanguage::Ini        },
+        { "conf",          SyntaxLanguage::Ini        },
+        { "dosini",        SyntaxLanguage::Ini        },
+        { "properties",    SyntaxLanguage::Ini        },
+        { "editorconfig",  SyntaxLanguage::Ini        },
+        { "gitconfig",     SyntaxLanguage::Ini        },
+        { "htm",           SyntaxLanguage::Html       },
+        { "html",          SyntaxLanguage::Html       },
+        { "xhtml",         SyntaxLanguage::Html       },
+        { "xml",           SyntaxLanguage::Xml        },
+        { "svg",           SyntaxLanguage::Xml        },
+        { "xsl",           SyntaxLanguage::Xml        },
+        { "xslt",          SyntaxLanguage::Xml        },
+        { "xaml",          SyntaxLanguage::Xml        },
+        { "plist",         SyntaxLanguage::Xml        },
+        { "rss",           SyntaxLanguage::Xml        },
+        { "css",           SyntaxLanguage::Css        },
+        { "scss",          SyntaxLanguage::Scss       },
+        { "less",          SyntaxLanguage::Scss       },
+        { "diff",          SyntaxLanguage::Diff       },
+        { "patch",         SyntaxLanguage::Diff       },
+        { "docker",        SyntaxLanguage::Dockerfile },
+        { "dockerfile",    SyntaxLanguage::Dockerfile },
         { "containerfile", SyntaxLanguage::Dockerfile },
-        { "mk", SyntaxLanguage::Makefile },
-        { "mak", SyntaxLanguage::Makefile },
-        { "make", SyntaxLanguage::Makefile },
-        { "makefile", SyntaxLanguage::Makefile },
-        { "math", SyntaxLanguage::LatexMath },
-        { "zig", SyntaxLanguage::Zig },
-        { "hs", SyntaxLanguage::Haskell },
-        { "haskell", SyntaxLanguage::Haskell },
-        { "clj", SyntaxLanguage::Clojure },
-        { "cljs", SyntaxLanguage::Clojure },
-        { "cljc", SyntaxLanguage::Clojure },
-        { "edn", SyntaxLanguage::Clojure },
-        { "clojure", SyntaxLanguage::Clojure },
-        { "el", SyntaxLanguage::EmacsLisp },
-        { "elisp", SyntaxLanguage::EmacsLisp },
-        { "emacs-lisp", SyntaxLanguage::EmacsLisp },
-        { "cl", SyntaxLanguage::CommonLisp },
-        { "lisp", SyntaxLanguage::CommonLisp },
-        { "common-lisp", SyntaxLanguage::CommonLisp },
-        { "commonlisp", SyntaxLanguage::CommonLisp },
-        { "scm", SyntaxLanguage::Scheme },
-        { "scheme", SyntaxLanguage::Scheme },
-        { "rkt", SyntaxLanguage::Scheme },
-        { "racket", SyntaxLanguage::Scheme },
-        { "lua", SyntaxLanguage::Lua },
-        { "vim", SyntaxLanguage::Vim },
-        { "viml", SyntaxLanguage::Vim },
-        { "vimscript", SyntaxLanguage::Vim },
-        { "vim9", SyntaxLanguage::Vim9 },
-        { "vim9script", SyntaxLanguage::Vim9 },
+        { "mk",            SyntaxLanguage::Makefile   },
+        { "mak",           SyntaxLanguage::Makefile   },
+        { "make",          SyntaxLanguage::Makefile   },
+        { "makefile",      SyntaxLanguage::Makefile   },
+        { "math",          SyntaxLanguage::LatexMath  },
+        { "zig",           SyntaxLanguage::Zig        },
+        { "hs",            SyntaxLanguage::Haskell    },
+        { "haskell",       SyntaxLanguage::Haskell    },
+        { "clj",           SyntaxLanguage::Clojure    },
+        { "cljs",          SyntaxLanguage::Clojure    },
+        { "cljc",          SyntaxLanguage::Clojure    },
+        { "edn",           SyntaxLanguage::Clojure    },
+        { "clojure",       SyntaxLanguage::Clojure    },
+        { "el",            SyntaxLanguage::EmacsLisp  },
+        { "elisp",         SyntaxLanguage::EmacsLisp  },
+        { "emacs-lisp",    SyntaxLanguage::EmacsLisp  },
+        { "cl",            SyntaxLanguage::CommonLisp },
+        { "lisp",          SyntaxLanguage::CommonLisp },
+        { "common-lisp",   SyntaxLanguage::CommonLisp },
+        { "commonlisp",    SyntaxLanguage::CommonLisp },
+        { "scm",           SyntaxLanguage::Scheme     },
+        { "scheme",        SyntaxLanguage::Scheme     },
+        { "rkt",           SyntaxLanguage::Scheme     },
+        { "racket",        SyntaxLanguage::Scheme     },
+        { "lua",           SyntaxLanguage::Lua        },
+        { "vim",           SyntaxLanguage::Vim        },
+        { "viml",          SyntaxLanguage::Vim        },
+        { "vimscript",     SyntaxLanguage::Vim        },
+        { "vim9",          SyntaxLanguage::Vim9       },
+        { "vim9script",    SyntaxLanguage::Vim9       },
     };
     // コードブロック 1 個につき 1 回しか呼ばれないので線形探索で十分 (iequal は長さ不一致で即 false)。
     const auto it = std::ranges::find_if(kAliases, [&](const Alias& a) noexcept {

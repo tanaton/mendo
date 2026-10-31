@@ -327,7 +327,7 @@ struct PaneKeys {
 };
 constexpr PaneKeys kPaneKeys[] = {
     { PaneTarget::File, kKeyShowFile, kKeyFileWidth, kKeyFileZoomLevel },
-    { PaneTarget::Toc, kKeyShowToc, kKeyTocWidth, kKeyTocZoomLevel },
+    { PaneTarget::Toc,  kKeyShowToc,  kKeyTocWidth,  kKeyTocZoomLevel  },
 };
 } // namespace
 

@@ -275,7 +275,7 @@ bool DWriteTextMeasurer::CreateFormats(const Theme& theme, DWriteContext& ctx)
         ctx.h[i] = CreateTextFormat(factory, { .family = family, .weight = DWRITE_FONT_WEIGHT_BOLD, .size = theme.font_size_h[i], .locale = theme.text_locale });
     }
     ctx.code = CreateTextFormat(factory, { .family = theme.monospace_font.c_str(), .size = theme.font_size_code, .locale = theme.text_locale, .no_wrap = true });
-    return ctx.body && ctx.code && std::ranges::all_of(ctx.h, [](const auto& f) static { return f != nullptr; });
+    return ctx.body && ctx.code && std::ranges::all_of(ctx.h, [](const auto& f) static noexcept { return f != nullptr; });
 }
 
 bool DWriteTextMeasurer::RecreateFormats()
@@ -716,9 +716,9 @@ std::optional<float> DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayo
 
     // インラインコードの背景は行の計測 (MeasureRowHeight) で作る。持たないテーブルには確保しない。
     auto& tl = tl_existing ? *tl_existing
-                           : entry.ensure_table_layout(row_count, col_count, std::ranges::any_of(tbl->all_runs, [](const TextRun& r) static {
-                                 return r.code() && r.length > 0;
-                             }));
+                           : entry.ensure_table_layout(row_count, col_count, std::ranges::any_of(tbl->all_runs, [](const TextRun& r) static noexcept {
+        return r.code() && r.length > 0;
+    }));
     assert(tl.row_count == row_count && tl.col_count == col_count);
 
     // 全セルを測り終えていれば、テキストレイアウトの作成をスキップして列幅の再計算だけ行う。

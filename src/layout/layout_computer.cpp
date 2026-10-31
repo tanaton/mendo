@@ -258,7 +258,7 @@ CarryOverResult CarryOverUnchanged(
 
     // 図のコードを書き換えて保存すると、描き直しの間プレースホルダに戻って下の文章が 2 回跳ねる。
     // 変わった範囲の図の数が新旧で同じなら、出現順に旧結果を仮表示として引き継ぐ。
-    const auto diagrams_in = [](const std::vector<Node>& nodes, size_t begin, size_t end) {
+    const auto diagrams_in = [](const std::vector<Node>& nodes, size_t begin, size_t end) static {
         std::vector<size_t> indices;
         for (size_t i = begin; i < end; ++i) {
             if (nodes[i].type == NodeType::Diagram) {
