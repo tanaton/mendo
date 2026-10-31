@@ -33,7 +33,7 @@ std::optional<T> FindFirst(const DrawCommandList& cmds, Pred pred)
 template <typename T>
 std::ptrdiff_t CountCmd(const DrawCommandList& cmds)
 {
-    return std::ranges::count_if(cmds, [](const DrawCommand& c) static {
+    return std::ranges::count_if(cmds, [](const DrawCommand& c) static noexcept {
         return std::holds_alternative<T>(c);
     });
 }

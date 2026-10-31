@@ -380,7 +380,7 @@ void MermaidRenderer::MaybeGrowWorkers()
     if (!webview_env_ || worker_count_ >= MAX_WORKERS || pending_requests_.empty()) {
         return;
     }
-    if (!std::ranges::all_of(ActiveWorkers(), [](const Worker& w) static { return w.ready && w.IsRendering(); })) {
+    if (!std::ranges::all_of(ActiveWorkers(), [](const Worker& w) static noexcept { return w.ready && w.IsRendering(); })) {
         return;
     }
     const int index = worker_count_;
@@ -641,7 +641,7 @@ void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target)
 void MermaidRenderer::InsertCache(uint64_t hash, CachedResult result)
 {
     cache_.Insert(hash, std::move(result));
-    cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedResult& c) static {
+    cache_.TrimToBudget(MAX_CACHE_BYTES, [](const CachedResult& c) static noexcept {
         return (c.png ? c.png->size() : 0) + BitmapBytes(c.bitmap.Get());
     });
 }
@@ -836,8 +836,7 @@ void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path png
 {
     const bool captured = captured_stream != nullptr;
     const uint64_t hash = req.code_hash;
-    DiskLoad job{ .req = std::move(req), .captured_stream = std::move(captured_stream), .captured = captured,
-                  .drop_gen = disk_drop_gen_.load(std::memory_order_relaxed) };
+    DiskLoad job{ .req = std::move(req), .captured_stream = std::move(captured_stream), .captured = captured, .drop_gen = disk_drop_gen_.load(std::memory_order_relaxed) };
     // ファイル読み込みと PNG デコードは worker で行う (UI では時間予算なしに積み上がる)。
     const bool posted = bg_scheduler_->Post([this, job = std::move(job), path = std::move(png_path), guard = latch_.Acquire()]() mutable {
         // インライン数式は取り消すと頼み直す契機が無いので、移動しても読む (DropQueued でも待ちに残す)。
@@ -1066,8 +1065,7 @@ void MermaidRenderer::RequestSvg(std::string_view code, float max_width, bool da
 
 void MermaidRenderer::RequestMathBatch(std::vector<InlineMathItem> items, uint64_t cache_key, MathBatchCallback callback, MathPageGate want_page)
 {
-    RenderRequest req{ .math_items = std::move(items), .math_callback = std::move(callback), .math_cache_key = cache_key,
-                       .math_want_page = std::move(want_page) };
+    RenderRequest req{ .math_items = std::move(items), .math_callback = std::move(callback), .math_cache_key = cache_key, .math_want_page = std::move(want_page) };
     if (!req.is_math()) {
         FailMathCallbackIfAny(req, false);
         return;

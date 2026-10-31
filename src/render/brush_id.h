@@ -112,7 +112,7 @@ class BrushEffect final : public UncountedCom<IUnknown> {
 public:
     static BrushEffect* For(BrushId id) noexcept
     {
-        static auto effects = []() static {
+        static auto effects = []() static noexcept {
             std::array<BrushEffect, BRUSH_COUNT> a{};
             for (size_t i = 0; i < a.size(); i++) {
                 a[i].id_ = static_cast<BrushId>(i);
