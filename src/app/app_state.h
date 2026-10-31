@@ -23,7 +23,7 @@ struct DocumentState {
     LayoutCache layout_cache;
 };
 
-// 進行中の左ボタンドラッグ。マウスキャプチャはこれが None でない間だけ持つ (右ボタンのジェスチャーを除く)。
+// 進行中の左ボタンドラッグ。
 struct LeftDragState {
     LeftDrag kind = LeftDrag::None;
     // Splitter / PaneScrollbar: 対象のサイドペイン。
@@ -151,6 +151,12 @@ struct AppState {
 
     FileExplorer file_explorer;
 };
+
+// マウスキャプチャを持つ条件。Reduce が前後を比べて取得と解放を決めるので、個々の処理では指示しない。
+inline bool CaptureRequired(const AppState& state) noexcept
+{
+    return state.view.drag.kind != LeftDrag::None || state.interaction.gesture.GetPhase() != GesturePhase::Idle;
+}
 
 inline ScrollTarget SnapshotVisibleTarget(const AppState& state) noexcept
 {

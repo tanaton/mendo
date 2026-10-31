@@ -30,6 +30,8 @@ struct Theme {
     float font_size_body;
     float font_size_h[6];
     float font_size_code;
+    // 表の見出し行の段。計測の書式と数式のキー (InlineMathKey) の大きさはこれで揃える。
+    static constexpr int kTableHeaderLevel = 4;
 
     // マージンとパディング（DIP単位）
     float margin_left;

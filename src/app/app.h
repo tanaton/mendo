@@ -226,9 +226,6 @@ private:
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
 
-    // ---- 初期化 ----
-    void RestoreTheme();
-
     // ---- 描画 ----
     void UpdateTitleBar();
     // ファイルペインが表示中なら、一覧の列挙も始める。

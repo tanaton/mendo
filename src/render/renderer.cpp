@@ -1,7 +1,6 @@
 #include "renderer.h"
 #include "d2d_util.h"
 #include "i18n.h"
-#include "mouse_gesture.h"
 #include "profiler.h"
 #include "resource.h"
 #include "ui_constants.h"
@@ -159,7 +158,7 @@ bool Renderer::RecreateDevice()
     return true;
 }
 
-void Renderer::GenGestureTrail(const std::vector<GesturePoint>& points)
+void Renderer::GenGestureTrail(const std::vector<DipPoint>& points)
 {
     auto* const factory = GetD2DFactory();
     if (points.size() < 2 || !factory) {

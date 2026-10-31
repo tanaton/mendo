@@ -1,4 +1,5 @@
 #pragma once
+#include "ui_constants.h"
 #include "ui_types.h"
 #include <algorithm>
 #include <optional>
@@ -30,6 +31,17 @@ enum class PaneHeaderButton : uint8_t {
     Refresh, // ファイルペインのみ
     Reveal,  // ファイルペインのみ
 };
+
+// 描画とヒット判定でボタンの並びと有効かどうかを共有する。矩形はペインローカル座標。
+template <typename Fn>
+void ForEachPaneHeaderButton(float pane_width, float header_height, bool is_file_pane, bool reveal_enabled, Fn&& fn)
+{
+    fn(PaneCloseButtonRect(pane_width, header_height), PaneHeaderButton::Close, true);
+    if (is_file_pane) {
+        fn(PaneRefreshButtonRect(pane_width, header_height), PaneHeaderButton::Refresh, true);
+        fn(PaneRevealButtonRect(pane_width, header_height), PaneHeaderButton::Reveal, reveal_enabled);
+    }
+}
 
 constexpr std::optional<PaneTarget> ToPaneTarget(PaneZone zone) noexcept
 {

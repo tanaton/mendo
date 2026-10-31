@@ -431,13 +431,17 @@ constexpr size_t ChunkRunLast(std::span<const Node> nodes, size_t i) noexcept
     return i;
 }
 
+// 範囲外は nullptr。
+constexpr const Node* NodeAt(std::span<const Node> nodes, int i) noexcept
+{
+    return i >= 0 && static_cast<size_t>(i) < nodes.size() ? &nodes[i] : nullptr;
+}
+
 // 範囲内で種別が type のノード。それ以外は nullptr。
 constexpr const Node* NodeOfType(std::span<const Node> nodes, int i, NodeType type) noexcept
 {
-    if (i < 0 || static_cast<size_t>(i) >= nodes.size() || nodes[i].type != type) {
-        return nullptr;
-    }
-    return &nodes[i];
+    const Node* node = NodeAt(nodes, i);
+    return node && node->type == type ? node : nullptr;
 }
 
 // 区切ったノードの間に戻す文字。next は続きのノード。
@@ -450,6 +454,10 @@ constexpr std::string_view ChunkSeparator(const Node& next) noexcept
 constexpr bool JoinsPrevInline(const Node& next) noexcept
 {
     return next.continues_prev() && !next.newline_before_chunk();
+}
+constexpr bool JoinsNextInline(std::span<const Node> nodes, size_t i) noexcept
+{
+    return i + 1 < nodes.size() && JoinsPrevInline(nodes[i + 1]);
 }
 
 // テキストではなくビットマップを描くノード。

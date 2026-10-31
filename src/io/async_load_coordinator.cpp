@@ -136,18 +136,10 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::wstring path, Th
         // Shutdown 後。lambda が走らないので latch::Guard は capture 内で
         // destruct され自動的に Release される。in_flight_/outcome_ を整えて UI に通知することで
         // 以降のリロードを再開可能にする。
-        HWND hwnd = nullptr;
-        UINT msg_id = 0;
-        {
-            const std::lock_guard lock(mutex_);
-            outcome_.emplace(std::unexpected(FileLoadError::ReadFailed));
-            in_flight_ = false;
-            hwnd = notify_hwnd_;
-            msg_id = notify_msg_;
-        }
-        if (hwnd) {
-            ::PostMessageW(hwnd, msg_id, 0, 0);
-        }
+        const std::lock_guard lock(mutex_);
+        outcome_.emplace(std::unexpected(FileLoadError::ReadFailed));
+        in_flight_ = false;
+        NotifyLocked();
     }
 }
 
@@ -159,7 +151,7 @@ bool AsyncLoadCoordinator::Attach(HWND hwnd, UINT msg_id)
     notify_hwnd_ = hwnd;
     notify_msg_ = msg_id;
     if (outcome_) {
-        ::PostMessageW(hwnd, msg_id, 0, 0);
+        NotifyLocked();
     }
     return in_flight_;
 }
@@ -229,19 +221,18 @@ void AsyncLoadCoordinator::RunWorker(const std::wstring& path, const Theme& them
 
 void AsyncLoadCoordinator::Publish(const std::stop_token& stop_token, AsyncLoadOutcome outcome)
 {
-    HWND hwnd = nullptr;
-    UINT msg_id = 0;
-    {
-        const std::lock_guard lock(mutex_);
-        if (stop_token.stop_requested()) {
-            return;
-        }
-        outcome_.emplace(std::move(outcome));
-        hwnd = notify_hwnd_;
-        msg_id = notify_msg_;
+    const std::lock_guard lock(mutex_);
+    if (stop_token.stop_requested()) {
+        return;
     }
-    if (hwnd) {
-        ::PostMessageW(hwnd, msg_id, 0, 0);
+    outcome_.emplace(std::move(outcome));
+    NotifyLocked();
+}
+
+void AsyncLoadCoordinator::NotifyLocked() const noexcept
+{
+    if (notify_hwnd_) {
+        ::PostMessageW(notify_hwnd_, notify_msg_, 0, 0);
     }
 }
 

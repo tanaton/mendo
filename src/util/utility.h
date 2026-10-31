@@ -70,6 +70,8 @@ struct overloaded : Ts... {
 
 inline constexpr std::uint64_t kFnv1a64OffsetBasis = 14695981039346656037ULL;
 inline constexpr std::uint64_t kFnv1a64Prime = 1099511628211ULL;
+// 2^64 / 黄金比。ハッシュに別の値を混ぜる定数。ディスクキャッシュのキーに入るので変えない。
+inline constexpr std::uint64_t kGoldenRatio64 = 0x9E3779B97F4A7C15ULL;
 
 // 短い文字列に対して衝突分布が良好な 64bit ハッシュ。
 // N=10^4 規模で衝突確率 ~10^-12 と実質ゼロ。

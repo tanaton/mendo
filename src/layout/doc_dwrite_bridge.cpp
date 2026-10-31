@@ -65,7 +65,7 @@ bool Utf16OffsetCursor::SkipAscii16() noexcept
 
 void Utf16OffsetCursor::Advance(const utf8_codec::DecodedCp& decoded) noexcept
 {
-    wide_ += (decoded.cp > 0xFFFF) ? 2u : 1u;
+    wide_ += utf8_codec::Utf16Units(decoded.cp);
     byte_ += decoded.len;
 }
 

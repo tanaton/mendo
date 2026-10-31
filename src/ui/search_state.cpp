@@ -69,7 +69,7 @@ bool SearchState::ContinueSearch(const std::vector<Node>& nodes, std::chrono::st
         }
         else if (const auto& text = node.GetText(); !text.empty() && !IsBitmapDrawNode(node)) {
             // 検索欄は 1 行なので、改行を挟む継ぎ目はまたがない。
-            const bool joined = static_cast<size_t>(i) + 1 < nodes.size() && JoinsPrevInline(nodes[i + 1]);
+            const bool joined = JoinsNextInline(nodes, static_cast<size_t>(i));
             const size_t from = i == skip_node_ ? skip_bytes_ : 0;
             skip_bytes_ = FindTextMatches(text, joined ? nodes[i + 1].GetText() : std::string_view{}, from, query, active_.fold, i);
             skip_node_ = i + 1;
@@ -235,12 +235,7 @@ bool SearchState::PrevMatch() noexcept
         return false;
     }
     const bool wrapped = current_match_ <= 0;
-    if (wrapped) {
-        current_match_ = static_cast<int>(matches_.size()) - 1;
-    }
-    else {
-        current_match_--;
-    }
+    current_match_ = wrapped ? static_cast<int>(matches_.size()) - 1 : current_match_ - 1;
     return wrapped;
 }
 

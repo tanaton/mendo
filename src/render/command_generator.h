@@ -113,7 +113,7 @@ private:
         static size_t operator()(const KeyView& k) noexcept
         {
             size_t h = std::hash<std::wstring_view>{}(k.text);
-            const auto mix = [&h](size_t v) noexcept { h ^= v + 0x9E3779B97F4A7C15ull + (h << 6) + (h >> 2); };
+            const auto mix = [&h](size_t v) noexcept { h ^= v + kGoldenRatio64 + (h << 6) + (h >> 2); };
             mix(std::hash<const void*>{}(k.fmt));
             mix(std::bit_cast<uint32_t>(k.width));
             mix(std::bit_cast<uint32_t>(k.height));

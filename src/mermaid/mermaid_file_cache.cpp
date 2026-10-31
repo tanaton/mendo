@@ -192,9 +192,7 @@ void MermaidFileCache::SaveIndex()
         return;
     }
 
-    std::error_code ec;
-    std::filesystem::create_directories(path.parent_path(), ec);
-    KeepFile(path);
+    PrepareWrite(path);
 
     const uint32_t count = static_cast<uint32_t>(index_->entries.size());
 
@@ -315,9 +313,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
             return;
         }
 
-        std::error_code ec;
-        std::filesystem::create_directories(path.parent_path(), ec);
-        KeepFile(path);
+        PrepareWrite(path);
 
         // 書き込み失敗時はキャッシュ未保存のままになるが、再生成可能なので致命的ではない
         (void)WriteAllBytes(path, data->data(), data->size());
@@ -393,8 +389,10 @@ void MermaidFileCache::Clear()
     RemoveDoomedDirsAsync();
 }
 
-void MermaidFileCache::KeepFile(const std::filesystem::path& path)
+void MermaidFileCache::PrepareWrite(const std::filesystem::path& path)
 {
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
     const std::lock_guard lock(doomed_mutex_);
     doomed_files_.erase(path.filename().native());
 }
@@ -409,7 +407,7 @@ void MermaidFileCache::RemoveDoomedFilesAsync()
 void MermaidFileCache::RemoveDoomedFiles()
 {
     while (true) {
-        // 消し終えるまでロックを持ち、KeepFile で外してから書く PNG と入れ違わない。
+        // 消し終えるまでロックを持ち、PrepareWrite で外してから書く PNG と入れ違わない。
         const std::lock_guard lock(doomed_mutex_);
         if (doomed_files_.empty()) {
             return;

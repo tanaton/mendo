@@ -14,22 +14,17 @@
 
 namespace {
 
-template <typename GetDirFn>
-std::wstring QueryDirectory(GetDirFn get_dir)
+template <typename GetPathFn>
+std::wstring QueryPath(GetPathFn get_path)
 {
     wchar_t buf[MAX_PATH];
-    const UINT len = get_dir(buf, MAX_PATH);
+    const UINT len = get_path(buf, MAX_PATH);
     return (len > 0 && len < MAX_PATH) ? std::wstring{ buf, len } : std::wstring{};
 }
 
 std::wstring ExeDirectory()
 {
-    wchar_t buf[MAX_PATH];
-    const DWORD len = GetModuleFileNameW(nullptr, buf, MAX_PATH);
-    if (len == 0 || len >= MAX_PATH) {
-        return {};
-    }
-    return std::wstring{ path_util::ParentDirectory({ buf, len }) };
+    return path_util::ParentDirectory(QueryPath([](wchar_t* b, UINT n) static { return GetModuleFileNameW(nullptr, b, n); }));
 }
 
 // "." や相対パスを FileExplorer / 前回ファイル比較でそのまま扱えるよう絶対パス化する。
@@ -53,10 +48,10 @@ StartupArgKind ClassifyPath(const std::wstring& path)
 StartupPlan PlanStartup(std::wstring_view arg, std::wstring_view last_file)
 {
     MENDO_PROFILE("PlanStartup");
-    const std::wstring cwd = QueryDirectory([](wchar_t* b, UINT n) static { return GetCurrentDirectoryW(n, b); });
+    const std::wstring cwd = QueryPath([](wchar_t* b, UINT n) static { return GetCurrentDirectoryW(n, b); });
     const std::wstring ignored_cwds[]{
-        QueryDirectory(GetSystemDirectoryW),
-        QueryDirectory(GetWindowsDirectoryW),
+        QueryPath(GetSystemDirectoryW),
+        QueryPath(GetWindowsDirectoryW),
         ExeDirectory(),
     };
     const std::wstring_view ignored_cwd_views[]{ ignored_cwds[0], ignored_cwds[1], ignored_cwds[2] };

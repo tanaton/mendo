@@ -141,21 +141,15 @@ constexpr bool HitPaneHeaderButton(float dip_x, float dip_y, const PaneRect& rec
     return PointInRect(local_x, local_y, button);
 }
 
-constexpr PaneHeaderButton HitSidePaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_h, SidePaneHeaderButtons buttons)
+PaneHeaderButton HitSidePaneHeaderButton(float dip_x, float dip_y, const PaneRect& rect, float header_h, SidePaneHeaderButtons buttons)
 {
-    if (HitPaneHeaderButton(dip_x, dip_y, rect, header_h, PaneCloseButtonRect(rect.width, header_h))) {
-        return PaneHeaderButton::Close;
-    }
-    if (!buttons.has_file_buttons) {
-        return PaneHeaderButton::None;
-    }
-    if (HitPaneHeaderButton(dip_x, dip_y, rect, header_h, PaneRefreshButtonRect(rect.width, header_h))) {
-        return PaneHeaderButton::Refresh;
-    }
-    if (buttons.reveal_enabled && HitPaneHeaderButton(dip_x, dip_y, rect, header_h, PaneRevealButtonRect(rect.width, header_h))) {
-        return PaneHeaderButton::Reveal;
-    }
-    return PaneHeaderButton::None;
+    PaneHeaderButton hit = PaneHeaderButton::None;
+    ForEachPaneHeaderButton(rect.width, header_h, buttons.has_file_buttons, buttons.reveal_enabled, [&](const D2D1_RECT_F& local, PaneHeaderButton button, bool enabled) {
+        if (enabled && HitPaneHeaderButton(dip_x, dip_y, rect, header_h, local)) {
+            hit = button;
+        }
+    });
+    return hit;
 }
 
 bool IsOverPaneScrollbar(float dip_x, const PaneRect& rect, const PaneScrollInfo& scroll_info, bool may_grow = false) noexcept
@@ -410,10 +404,8 @@ MdPaneHitContext MakeMdPaneHitContext(const AppState& state, const PaneLayout& l
 std::optional<LinkHit> LinkAtHit(const AppState& state, const hit_test::HitResult& hit)
 {
     const auto& nodes = state.document.doc.GetNodes();
-    if (hit.node_index < 0 || hit.node_index >= static_cast<int>(nodes.size())) {
-        return std::nullopt;
-    }
-    return FindLinkHitAtPosition(nodes[hit.node_index], hit.char_pos);
+    const Node* node = NodeAt(nodes, hit.node_index);
+    return node ? FindLinkHitAtPosition(*node, hit.char_pos) : std::nullopt;
 }
 
 bool IsOverMdScrollbar(const AppState& state, const PaneLayout& layout, float dip_x, float dip_y) noexcept

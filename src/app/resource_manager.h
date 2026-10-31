@@ -102,7 +102,6 @@ private:
     // 保持範囲 (±EVICT_BUFFER_SCREENS) を越えて移動していたら、旧位置で積んだ図の描画待ちと画像のデコード待ちを捨てる。
     // FIFO のままだと TOC ジャンプや Ctrl+End の後に、見えている図や画像が旧位置の分の後回しになる。
     void DropQueuesIfJumped();
-    layout::HeightChangeRange TakeHeightChanges() noexcept;
     // height_changed_ が空でなければ、その範囲で再レイアウトさせる。
     void RecomputeChangedHeights();
 

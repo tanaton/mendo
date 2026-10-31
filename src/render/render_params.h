@@ -15,12 +15,10 @@
 
 struct InlineMathMasks;
 
-struct GesturePoint;
-
 // App がマウスジェスチャーとスワイプから作る (ResolveGestureOverlay)。
 struct GestureRenderState {
     // ジェスチャー中の軌跡。描かないときは null。
-    const std::vector<GesturePoint>* trail = nullptr;
+    const std::vector<DipPoint>* trail = nullptr;
     NavDirection direction = NavDirection::None;
 };
 

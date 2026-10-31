@@ -16,11 +16,6 @@ enum class GestureResult : uint8_t {
     Forward
 };
 
-struct GesturePoint {
-    float x = 0.0f;
-    float y = 0.0f;
-};
-
 class MouseGesture {
 public:
     static constexpr float GESTURE_THRESHOLD = 30.0f;
@@ -111,7 +106,7 @@ public:
     {
         return phase_ == GesturePhase::Tracking && direction_ != NavDirection::None;
     }
-    constexpr const std::vector<GesturePoint>& GetTrailPoints() const noexcept
+    constexpr const std::vector<DipPoint>& GetTrailPoints() const noexcept
     {
         return trail_points_;
     }
@@ -139,5 +134,5 @@ private:
     float start_x_ = 0.0f;
     float start_y_ = 0.0f;
     // clear で容量を残し、ジェスチャーごとの確保を避ける。
-    std::vector<GesturePoint> trail_points_;
+    std::vector<DipPoint> trail_points_;
 };

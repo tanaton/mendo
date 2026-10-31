@@ -324,7 +324,7 @@ IDWriteTextFormat* DWriteTextMeasurer::GetTextFormat(const DWriteContext& ctx, c
 
 IDWriteTextFormat* DWriteTextMeasurer::GetTableRowFormat(const DWriteContext& ctx, const NodeTableData& tbl, size_t r) noexcept
 {
-    return tbl.IsHeaderRow(r) ? ctx.h[3].Get() : ctx.body.Get();
+    return tbl.IsHeaderRow(r) ? ctx.h[Theme::kTableHeaderLevel - 1].Get() : ctx.body.Get();
 }
 
 bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, bool apply_code_size, float fit_width) const
@@ -373,7 +373,7 @@ bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
         italic.Update(r.italic(), wr);
         code.Update(r.code(), wr);
         if (r.code() && r.length > 0) {
-            code_tail_units = utf8_codec::DecodePrev(text, r.start + r.length).cp > 0xFFFF ? 2 : 1;
+            code_tail_units = utf8_codec::Utf16Units(utf8_codec::DecodePrev(text, r.start + r.length).cp);
         }
         strike.Update(r.strikethrough(), wr);
         link.Update(r.has_link(), wr);
@@ -616,11 +616,9 @@ void DWriteTextMeasurer::BuildRowCells(const NodeTableData& tbl, TableLayoutData
 float DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, TableLayoutData& tl, float max_width) const
 {
     MENDO_PROFILE("FinalizeTableLayout");
-    const float cell_padding = TABLE_CELL_PADDING;
-    const float border_width = TABLE_BORDER_WIDTH;
     const size_t col_count = tl.col_count;
-    const float borders_width = (static_cast<float>(col_count) + 1.0f) * border_width;
-    const float paddings_width = static_cast<float>(col_count) * cell_padding * 2.0f;
+    const float borders_width = (static_cast<float>(col_count) + 1.0f) * TABLE_BORDER_WIDTH;
+    const float paddings_width = static_cast<float>(col_count) * TABLE_CELL_PADDING * 2.0f;
 
     layout::ComputeColumnWidths(tl.col_widths, tl.natural_col_widths, max_width - borders_width - paddings_width);
 

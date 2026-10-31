@@ -128,8 +128,9 @@ private:
     // Clear が別名にして消すフォルダ (<cache_dir_>.deleting-*) を worker ですべて消す。
     // 消している途中で終了したり、中のファイルを開かれていて消し損ねたりしたものも拾う。
     void RemoveDoomedDirsAsync();
-    // path に書く前に呼び、Clear が消すよう控えた同じ名前を控えから外す (書いた後に消されない)。どのスレッドからでも呼べる。
-    void KeepFile(const std::filesystem::path& path);
+    // path に書く前に呼ぶ。親ディレクトリを作り、Clear が消すよう控えた同じ名前を控えから外す (書いた後に消されない)。
+    // どのスレッドからでも呼べる。
+    void PrepareWrite(const std::filesystem::path& path);
     // doomed_files_ を worker で消す。投げられなければその場で消す。
     void RemoveDoomedFilesAsync();
     void RemoveDoomedFiles();
@@ -140,7 +141,7 @@ private:
     {
         // DPR を 1/100 単位で量子化（典型値 100/125/150/175/200）。
         const uint32_t dpr_q = static_cast<uint32_t>(current_dpr_ * 100.0f + 0.5f);
-        return external_key ^ (static_cast<uint64_t>(dpr_q) * 0x9E3779B97F4A7C15ULL);
+        return external_key ^ (static_cast<uint64_t>(dpr_q) * kGoldenRatio64);
     }
 
     std::filesystem::path cache_dir_;

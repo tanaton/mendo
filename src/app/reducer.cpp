@@ -133,21 +133,6 @@ void ClearDrag(AppState& state, SideEffectList& effects)
     }
 }
 
-// 進行中の左ドラッグを終え、キャプチャを解放させる (右ボタンのジェスチャーが使っている間は持ち続ける)。
-void EndLeftDrag(AppState& state, SideEffectList& effects)
-{
-    ClearDrag(state, effects);
-    if (state.interaction.gesture.GetPhase() == GesturePhase::Idle) {
-        PushEffect(effects, effect::ReleaseCapture{});
-    }
-}
-
-void BeginLeftDrag(AppState& state, SideEffectList& effects, const LeftDragState& drag)
-{
-    state.view.drag = drag;
-    PushEffect(effects, effect::SetCapture{});
-}
-
 // 対象も忘れるので、次のホバーで同じ対象に戻っても表示し直す。対象が無ければ隠れているので何もしない。
 void ClearTooltip(AppState& state, SideEffectList& effects)
 {
@@ -285,7 +270,7 @@ void ReduceBlockHScrollDragStarted(AppState& state, SideEffectList& effects, con
     if (!geom.can_scroll()) {
         return;
     }
-    BeginLeftDrag(state, effects, { .kind = LeftDrag::BlockHScroll, .block_node = a.node_index, .start_x = a.dip_x, .start_scroll = state.view.GetBlockScrollX(geom) });
+    state.view.drag = { .kind = LeftDrag::BlockHScroll, .block_node = a.node_index, .start_x = a.dip_x, .start_scroll = state.view.GetBlockScrollX(geom) };
     PushEffect(effects, effect::InvalidateWindow{});
 }
 
@@ -477,7 +462,7 @@ void ReduceCaptureChanged(AppState& state, SideEffectList& effects)
         invalidate = true;
     }
     // キャプチャ喪失時 (Alt+Tab・他アプリの SetCapture 等) は WM_LBUTTONUP が
-    // 届かないため、進行中のドラッグをここで終える。キャプチャは既に無いので解放しない。
+    // 届かないため、進行中のドラッグをここで終える。
     if (state.view.drag.kind != LeftDrag::None) {
         ClearDrag(state, effects);
         invalidate = true;
@@ -487,9 +472,9 @@ void ReduceCaptureChanged(AppState& state, SideEffectList& effects)
     }
 }
 
-void ReduceSplitterDragStarted(AppState& state, SideEffectList& effects, const SplitterDragStartedAction& a)
+void ReduceSplitterDragStarted(AppState& state, const SplitterDragStartedAction& a)
 {
-    BeginLeftDrag(state, effects, { .kind = LeftDrag::Splitter, .pane = a.edge });
+    state.view.drag = { .kind = LeftDrag::Splitter, .pane = a.edge };
 }
 
 void MoveSplitterDrag(AppState& state, SideEffectList& effects, float dip_x)
@@ -522,7 +507,7 @@ void MoveTextSelectionDrag(AppState& state, SideEffectList& effects, int node_in
 void EndTextSelectionDrag(AppState& state, SideEffectList& effects, const LeftDragEndedAction& a)
 {
     MoveTextSelectionDrag(state, effects, a.node_index, a.text_pos);
-    EndLeftDrag(state, effects);
+    ClearDrag(state, effects);
 }
 
 void ReduceLeftDragEnded(AppState& state, SideEffectList& effects, const LeftDragEndedAction& a)
@@ -535,7 +520,7 @@ void ReduceLeftDragEnded(AppState& state, SideEffectList& effects, const LeftDra
         EndTextSelectionDrag(state, effects, a);
         return;
     }
-    EndLeftDrag(state, effects);
+    ClearDrag(state, effects);
     if (drag == LeftDrag::Splitter || drag == LeftDrag::MdScrollbar) {
         PushEffect(effects, effect::SettleViewport{});
     }
@@ -546,7 +531,7 @@ void ReduceLeftDragEnded(AppState& state, SideEffectList& effects, const LeftDra
 
 void ReduceSearchInputDragStarted(AppState& state, SideEffectList& effects, const SearchInputDragStartedAction& a)
 {
-    BeginLeftDrag(state, effects, { .kind = LeftDrag::SearchInput, .search_anchor = a.caret_pos });
+    state.view.drag = { .kind = LeftDrag::SearchInput, .search_anchor = a.caret_pos };
     PushEffect(effects, effect::SearchFocus{ a.caret_pos, a.caret_pos });
 }
 
@@ -560,12 +545,12 @@ void MoveSearchInputDrag(AppState& state, SideEffectList& effects, int caret)
     PushEffect(effects, effect::SearchFocus{ anchor, caret });
 }
 
-void ReduceMdScrollbarDragStarted(AppState& state, SideEffectList& effects, const MdScrollbarDragStartedAction& a)
+void ReduceMdScrollbarDragStarted(AppState& state, const MdScrollbarDragStartedAction& a)
 {
     const auto info = MdScrollInfo(state, ComputePaneLayout(state));
     auto& viewport = state.view.viewport;
     const auto grip = ComputeScrollbarDragGrip(ComputeThumbY(info, viewport.GetScrollY()), info.thumb_height, a.dip_y);
-    BeginLeftDrag(state, effects, { .kind = LeftDrag::MdScrollbar, .grip_offset = grip.drag_offset });
+    state.view.drag = { .kind = LeftDrag::MdScrollbar, .grip_offset = grip.drag_offset };
     // thumb 内クリックなら 1st jump は不要 (thumb-grip オフセット記録だけ)。
     if (!grip.inside_thumb) {
         viewport.ScrollTo(ScrollFromThumbY(info, a.dip_y - grip.drag_offset), info.max_scroll);
@@ -582,11 +567,11 @@ void MoveMdScrollbarDrag(AppState& state, float dip_y)
 void ReducePaneScrollbarDragStarted(AppState& state, SideEffectList& effects, const PaneScrollbarDragStartedAction& a)
 {
     const auto ctx = GetSidePaneContext(state, a.pane);
-    if (ctx.info.total_content <= ctx.info.content_height) {
+    if (!ShowsVScrollbar(ctx.info, false)) {
         return;
     }
     const auto grip = ComputeScrollbarDragGrip(ComputeThumbY(ctx.info, ctx.scroll.scroll_y), ctx.info.thumb_height, a.dip_y);
-    BeginLeftDrag(state, effects, { .kind = LeftDrag::PaneScrollbar, .pane = a.pane, .grip_offset = grip.drag_offset });
+    state.view.drag = { .kind = LeftDrag::PaneScrollbar, .pane = a.pane, .grip_offset = grip.drag_offset };
     if (!grip.inside_thumb) {
         ctx.scroll.scroll_y = ScrollFromThumbY(ctx.info, a.dip_y - grip.drag_offset);
         PushEffect(effects, effect::InvalidateWindow{});
@@ -609,7 +594,7 @@ void ReduceTextSelectionStarted(AppState& state, SideEffectList& effects, const 
     auto& selection = state.view.viewport.GetSelection();
     const bool had_selection = selection.active();
     selection.Clear();
-    BeginLeftDrag(state, effects, { .kind = LeftDrag::TextSelect, .select_node = a.node_index, .select_pos = a.text_pos, .click_x = a.click_x, .click_y = a.click_y });
+    state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = a.node_index, .select_pos = a.text_pos, .click_x = a.click_x, .click_y = a.click_y };
     if (had_selection) {
         PushEffect(effects, effect::InvalidateWindow{});
     }
@@ -642,10 +627,9 @@ void ReduceLeftDragMoved(AppState& state, SideEffectList& effects, const LeftDra
     std::unreachable();
 }
 
-void ReduceRightClickGestureStarted(AppState& state, SideEffectList& effects, const RightClickGestureStartedAction& a)
+void ReduceRightClickGestureStarted(AppState& state, const RightClickGestureStartedAction& a)
 {
     state.interaction.gesture.OnRButtonDown(a.dip_x, a.dip_y);
-    PushEffect(effects, effect::SetCapture{});
 }
 
 void ReduceRightClickGestureMoved(AppState& state, SideEffectList& effects, const RightClickGestureMovedAction& a)
@@ -660,9 +644,7 @@ void ReduceRightClickGestureCompleted(AppState& state, SideEffectList& effects, 
     if (state.interaction.gesture.GetPhase() == GesturePhase::Idle) {
         return;
     }
-    const auto result = state.interaction.gesture.OnRButtonUp();
-    PushEffect(effects, effect::ReleaseCapture{});
-    switch (result) {
+    switch (state.interaction.gesture.OnRButtonUp()) {
     case GestureResult::ShowContextMenu:
         PushEffect(effects, effect::ShowContextMenu{ a.screen_x, a.screen_y });
         break;
@@ -863,7 +845,7 @@ void ReduceSelectAll(AppState& state, SideEffectList& effects)
 void ReduceSelectWord(AppState& state, SideEffectList& effects, const SelectWordAction& a)
 {
     const auto& nodes = state.document.doc.GetNodes();
-    if (a.node_index < 0 || a.node_index >= static_cast<int>(nodes.size())) {
+    if (!NodeAt(nodes, a.node_index)) {
         return;
     }
     const auto wb = FindNodeWordBoundaries(nodes, static_cast<size_t>(a.node_index), a.text_pos);
@@ -885,7 +867,7 @@ void ReduceClearSelection(AppState& state, SideEffectList& effects)
     const bool visible = viewport.GetSelection().active() || dragging;
     // テキスト選択のドラッグ中なら LButtonUp を待たずに終える。
     if (dragging) {
-        EndLeftDrag(state, effects);
+        ClearDrag(state, effects);
     }
     viewport.ClearSelection();
     if (visible) {
@@ -1059,7 +1041,7 @@ void ResetPerNodeTransientState(AppState& state, SideEffectList& effects)
     // 待たせていたリロードは旧文書のもの。先に外し、ドラッグの終わりで読み直させない。
     view.reload_after_drag = false;
     if (IsDocumentBoundDrag(view.drag.kind)) {
-        EndLeftDrag(state, effects);
+        ClearDrag(state, effects);
     }
 }
 
@@ -1131,6 +1113,7 @@ SideEffectList Reduce(AppState& state, const AppAction& action, NodeLayoutAccess
     // 文書を差し替えた後 (読み込みの復元・リロード) では積まない。直後の App::RelayoutViewport が計測してから描き直させる。
     bool emit_scroll_effects = true;
     const float old_scroll = state.view.viewport.GetScrollY();
+    const bool had_capture = CaptureRequired(state);
 
     // clang-format off
     std::visit(overloaded{
@@ -1191,14 +1174,14 @@ SideEffectList Reduce(AppState& state, const AppAction& action, NodeLayoutAccess
         [&](const MouseLeaveAction&) { ReduceMouseLeave(state, effects); },
         [&](const CaptureChangedAction&) { ReduceCaptureChanged(state, effects); },
         [&](const PointerHoverAction& a) { ReducePointerHover(state, effects, a.hover); },
-        [&](const SplitterDragStartedAction& a) { ReduceSplitterDragStarted(state, effects, a); },
+        [&](const SplitterDragStartedAction& a) { ReduceSplitterDragStarted(state, a); },
         [&](const LeftDragMovedAction& a) { ReduceLeftDragMoved(state, effects, a); },
         [&](const LeftDragEndedAction& a) { ReduceLeftDragEnded(state, effects, a); },
         [&](const SearchInputDragStartedAction& a) { ReduceSearchInputDragStarted(state, effects, a); },
-        [&](const MdScrollbarDragStartedAction& a) { ReduceMdScrollbarDragStarted(state, effects, a); },
+        [&](const MdScrollbarDragStartedAction& a) { ReduceMdScrollbarDragStarted(state, a); },
         [&](const PaneScrollbarDragStartedAction& a) { ReducePaneScrollbarDragStarted(state, effects, a); },
         [&](const TextSelectionStartedAction& a) { ReduceTextSelectionStarted(state, effects, a); },
-        [&](const RightClickGestureStartedAction& a) { ReduceRightClickGestureStarted(state, effects, a); },
+        [&](const RightClickGestureStartedAction& a) { ReduceRightClickGestureStarted(state, a); },
         [&](const RightClickGestureMovedAction& a) { ReduceRightClickGestureMoved(state, effects, a); },
         [&](const RightClickGestureCompletedAction& a) { ReduceRightClickGestureCompleted(state, effects, a); },
         [&](const FilePaneDirectoryClickedAction& a) { ReduceFilePaneDirectoryClicked(state, effects, a); },
@@ -1231,6 +1214,11 @@ SideEffectList Reduce(AppState& state, const AppAction& action, NodeLayoutAccess
     // clang-format on
     if (emit_scroll_effects && state.view.viewport.GetScrollY() != old_scroll) {
         EmitScrollChangedSideEffects(state, effects);
+    }
+    // メニューのモーダルループより先に済ませるよう先頭に積む。
+    const bool needs_capture = CaptureRequired(state);
+    if (needs_capture != had_capture) {
+        effects.insert(effects.begin(), needs_capture ? SideEffect{ effect::SetCapture{} } : SideEffect{ effect::ReleaseCapture{} });
     }
     return effects;
 }

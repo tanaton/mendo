@@ -92,10 +92,23 @@ constexpr BrushId AlertBgBrushIdFromIndex(size_t idx) noexcept
     return BrushIdAt(BrushId::AlertNoteBg, idx);
 }
 
+// 参照カウントを持たない COM 実装の基底。寿命は実装側が管理する。
+template <class Iface>
+struct UncountedCom : Iface {
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return 1;
+    }
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        return 1;
+    }
+};
+
 // IDWriteTextLayout::SetDrawingEffect に渡す描画色の印。ブラシと違ってデバイスに依存しないので、
 // 計測ワーカーがテキストレイアウトを作るときに付けられ、デバイスを作り直しても付け直さずに済む。
 // 描画時に VisibleRunRenderer が BrushId の固定ブラシへ置き換える。静的な実体なので参照カウントは持たない。
-class BrushEffect final : public IUnknown {
+class BrushEffect final : public UncountedCom<IUnknown> {
 public:
     static BrushEffect* For(BrushId id) noexcept
     {
@@ -122,14 +135,6 @@ public:
         }
         *out = nullptr;
         return E_NOINTERFACE;
-    }
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override
-    {
-        return 1;
-    }
-    ULONG STDMETHODCALLTYPE Release() noexcept override
-    {
-        return 1;
     }
 
 private:

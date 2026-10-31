@@ -76,12 +76,12 @@ struct TableLayoutData {
     {
         return row_evicted_[r] != 0;
     }
-    // セル layout を持ちうる行があるか。
     // セル layout が生存しうる行範囲 [begin, end)。外の行は layout を持たない。
     constexpr std::pair<size_t, size_t> LiveRowRange() const noexcept
     {
         return { live_row_begin_, live_row_end_ };
     }
+    // セル layout を持ちうる行があるか。
     constexpr bool HasLiveRows() const noexcept
     {
         return live_row_begin_ < live_row_end_;
@@ -541,17 +541,20 @@ struct DiagramError {
     }
 };
 
-struct DiagramEntry {
+struct DiagramResult {
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
     float width = 0.0f;
     float height = 0.0f;
     // クリップボードコピー・保存用の元 PNG。bitmap と同時に設定/破棄する (EvictBitmap 含む)。
     // コードを書き換えた図の仮表示では別の図の絵なので捨て、描き直すまでボタンを出さない。
     PngBytes png;
-    // レンダリング失敗の理由。非空 = 失敗確定で、
+    // レンダリング失敗の理由。非空 = 失敗確定で bitmap は持たない。
     // プレースホルダにその文言を表示し再リクエストを止める。リロード・幅変更・
     // テーマ変更・デバイスロストでクリアされ再試行の契機になる。オフスクリーン evict では保持する。
     DiagramError error;
+};
+
+struct DiagramEntry : DiagramResult {
     // 図のコード部分のハッシュ (mermaid_util::DiagramCodeHash)。0 は未計算。ノードのテキストだけで決まるので、
     // 結果を捨てても (幅・テーマの変更を含む) 残し、結果を待つ図を要求し直すたびにテキストを読み直さない。
     uint64_t code_hash = 0;
@@ -585,11 +588,7 @@ struct DiagramEntry {
     // オフスクリーン evict は bitmap のみ破棄する別意図なのでこれを使わない。
     void ResetForRetry() noexcept
     {
-        bitmap.Reset();
-        width = 0.0f;
-        height = 0.0f;
-        png.reset();
-        error.clear();
+        static_cast<DiagramResult&>(*this) = {};
         stale = false;
     }
 
