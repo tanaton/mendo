@@ -143,11 +143,9 @@ TEST_F(DWriteInlineMathTest, WaitsForMetricsThenReplacesRangeWithObject)
     EXPECT_TRUE(cache[0].pending_math);
     auto requests = table_.TakeRequests();
     ASSERT_EQ(requests.size(), 1u);
-    EXPECT_EQ(requests[0].tex, "x^2");
-    EXPECT_FLOAT_EQ(requests[0].font_size, theme_.font_size_body);
-    EXPECT_EQ(requests[0].key, InlineMathKey("x^2", theme_.font_size_body));
+    EXPECT_EQ(requests[0], InlineMathKey("x^2", theme_.font_size_body));
 
-    table_.Resolve(requests[0].key, { 123.0f, 30.0f, 20.0f });
+    table_.Resolve(requests[0], { 123.0f, 30.0f, 20.0f });
     EXPECT_TRUE(cache.InvalidatePendingMathLayouts(true));
     EXPECT_FALSE(cache.InvalidatePendingMathLayouts(true)) << "印は 1 回で外す";
     ComputeLayout(engine_, nodes, cache, 800.0f);
@@ -175,7 +173,7 @@ TEST_F(DWriteInlineMathTest, ExpandToClustersCoversWholeFormula)
     auto [nodes, cache] = ParseAndLayout("a $E = mc^2$ b");
     auto requests = table_.TakeRequests();
     ASSERT_EQ(requests.size(), 1u);
-    table_.Resolve(requests[0].key, { 60.0f, 24.0f, 18.0f });
+    table_.Resolve(requests[0], { 60.0f, 24.0f, 18.0f });
     cache.InvalidatePendingMathLayouts(true);
     ComputeLayout(engine_, nodes, cache, 800.0f);
     auto* layout = cache[0].text_layout();
@@ -205,7 +203,7 @@ TEST_F(DWriteInlineMathTest, InlineAndDisplayMathShareRendering)
     ASSERT_EQ(nodes.size(), 1u);
     const auto requests = table_.TakeRequests();
     ASSERT_EQ(requests.size(), 1u);
-    EXPECT_EQ(requests[0].tex, "x");
+    EXPECT_EQ(requests[0], InlineMathKey("x", theme_.font_size_body));
 }
 
 // $$..$$ だけの段落 (引用の中も、```math も) は中央に置く。文中の $$..$$ は左揃えのまま。
@@ -214,12 +212,13 @@ TEST_F(DWriteInlineMathTest, BlockMathIsCentered)
     auto [nodes, cache] = ParseAndLayout("$$w$$\n\n> $$y=x$$\n\na $$z$$ b\n\n```math\na\nb\n```\n");
     ASSERT_EQ(nodes.size(), 4u);
     auto requests = table_.TakeRequests();
-    std::ranges::sort(requests, {}, &InlineMathItem::tex);
-    ASSERT_EQ(requests.size(), 4u);
-    EXPECT_EQ(requests[0].tex, "a\nb");
-    EXPECT_EQ(requests[1].tex, "w");
-    EXPECT_EQ(requests[2].tex, "y=x");
-    EXPECT_EQ(requests[3].tex, "z");
+    std::vector<uint64_t> expected;
+    for (const std::string_view tex : { "a\nb", "w", "y=x", "z" }) {
+        expected.push_back(InlineMathKey(tex, theme_.font_size_body));
+    }
+    std::ranges::sort(requests);
+    std::ranges::sort(expected);
+    EXPECT_EQ(requests, expected);
     EXPECT_EQ(cache[0].text_layout()->GetTextAlignment(), DWRITE_TEXT_ALIGNMENT_CENTER);
     EXPECT_EQ(cache[1].text_layout()->GetTextAlignment(), DWRITE_TEXT_ALIGNMENT_CENTER);
     EXPECT_EQ(cache[2].text_layout()->GetTextAlignment(), DWRITE_TEXT_ALIGNMENT_LEADING);
@@ -233,7 +232,7 @@ TEST_F(DWriteInlineMathTest, WideBlockMathShrinksToWidth)
     ASSERT_EQ(nodes.size(), 2u);
     auto requests = table_.TakeRequests();
     ASSERT_EQ(requests.size(), 1u);
-    table_.Resolve(requests[0].key, { 2000.0f, 40.0f, 30.0f });
+    table_.Resolve(requests[0], { 2000.0f, 40.0f, 30.0f });
     cache.InvalidatePendingMathLayouts(true);
     for (const float viewport : { 800.0f, 600.0f }) {
         SCOPED_TRACE(viewport);
@@ -282,7 +281,7 @@ TEST_F(DWriteInlineMathTest, SplitDisplayMathStaysAsText)
 TEST_F(DWriteInlineMathTest, FailedMathStaysAsText)
 {
     const uint64_t key = InlineMathKey(R"(\frac{a})", theme_.font_size_body);
-    table_.FindOrRequest(key, R"(\frac{a})", theme_.font_size_body);
+    table_.FindOrRequest(key);
     table_.Resolve(key, {});
     auto [nodes, cache] = ParseAndLayout(R"(a $\frac{a}$ b)");
     EXPECT_FALSE(cache[0].pending_math);
@@ -296,13 +295,11 @@ TEST_F(DWriteInlineMathTest, RequestsPerFontSizeAndMarksTableCells)
     ASSERT_EQ(nodes.size(), 3u);
     // ノードは並列に測るので、頼んだ順は決まらない。
     auto requests = table_.TakeRequests();
-    std::ranges::sort(requests, std::ranges::greater{}, &InlineMathItem::font_size);
-    ASSERT_EQ(requests.size(), 3u);
-    EXPECT_EQ(requests[0].tex, "x");
-    EXPECT_GT(requests[0].font_size, theme_.font_size_body);
-    EXPECT_FLOAT_EQ(requests[1].font_size, theme_.font_size_body);
-    EXPECT_FLOAT_EQ(requests[2].font_size, theme_.font_size_body);
-    EXPECT_NE(requests[0].key, InlineMathKey("x", theme_.font_size_body));
+    std::vector<uint64_t> expected{ InlineMathKey("x", theme_.GetHeadingSize(1)), InlineMathKey("x", theme_.font_size_body),
+                                    InlineMathKey("y", theme_.font_size_body) };
+    std::ranges::sort(requests);
+    std::ranges::sort(expected);
+    EXPECT_EQ(requests, expected);
     const auto* tl = cache[2].table_layout();
     ASSERT_NE(tl, nullptr);
     EXPECT_TRUE(tl->pending_math);
@@ -314,7 +311,32 @@ TEST_F(DWriteInlineMathTest, RequestsPerFontSizeAndMarksTableCells)
     EXPECT_TRUE(cache[2].layout_dirty);
 }
 
-// 計画は文字の大きさの規則を計測と別に持つ。ずれると計測が頼んだ数式が計画に無く、ディスクキャッシュも追い出しも効かない。
+// キーの大きさ (MathFontSize) は組んだ文字の大きさと同じ。ずれると数式の大きさが周りの文字と合わない。
+TEST_F(DWriteInlineMathTest, MathFontSizeMatchesLaidOutText)
+{
+    auto [nodes, cache] = ParseAndLayout("# $a$\n\n## $a$\n\n### $a$\n\n#### $a$\n\n##### $a$\n\n###### $a$\n\n"
+                                         "$a$\n\n> $a$\n\n- $a$\n\n| $a$ |\n|---|\n| $a$ |\n");
+    const auto laid_out_size = [](IDWriteTextLayout* layout) {
+        FLOAT size = 0.0f;
+        EXPECT_HRESULT_SUCCEEDED(layout->GetFontSize(0, &size));
+        return size;
+    };
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        SCOPED_TRACE(i);
+        if (const auto* table = nodes[i].table_data()) {
+            const auto* tl = cache[i].table_layout();
+            ASSERT_NE(tl, nullptr);
+            for (size_t r = 0; r < table->row_count; ++r) {
+                EXPECT_FLOAT_EQ(laid_out_size(tl->GetCellLayout(r, 0)), MathFontSize(theme_, *table, r));
+            }
+            continue;
+        }
+        ASSERT_NE(cache[i].text_layout(), nullptr);
+        EXPECT_FLOAT_EQ(laid_out_size(cache[i].text_layout()), MathFontSize(theme_, nodes[i]));
+    }
+}
+
+// 計測と計画はノードと run を別々にたどる。ずれると計測が頼んだ数式が計画に無く、描かれない。
 TEST_F(DWriteInlineMathTest, PlanCoversEveryMeasuredMath)
 {
     auto [nodes, cache] = ParseAndLayout("# $a$\n\n## $a$\n\n### $a$\n\n#### $a$\n\n##### $a$\n\n###### $a$\n\n"
@@ -327,9 +349,8 @@ TEST_F(DWriteInlineMathTest, PlanCoversEveryMeasuredMath)
         planned += c.items.size();
     }
     EXPECT_EQ(requests.size(), planned);
-    for (const auto& r : requests) {
-        SCOPED_TRACE(std::format("{} {}", r.tex, r.font_size));
-        EXPECT_TRUE(plan.ChunkOf(r.key));
+    for (const uint64_t key : requests) {
+        EXPECT_TRUE(plan.ChunkOf(key)) << key;
     }
 }
 
@@ -339,15 +360,15 @@ TEST(InlineMathTable, RequestsOnceAndWakesWhenQueueStarts)
     InlineMathTable table;
     int wakes = 0;
     table.SetWake([&] { ++wakes; });
-    EXPECT_FALSE(table.FindOrRequest(1, "a", 16.0f));
-    EXPECT_FALSE(table.FindOrRequest(1, "a", 16.0f));
-    EXPECT_FALSE(table.FindOrRequest(2, "b", 16.0f));
+    EXPECT_FALSE(table.FindOrRequest(1));
+    EXPECT_FALSE(table.FindOrRequest(1));
+    EXPECT_FALSE(table.FindOrRequest(2));
     EXPECT_EQ(wakes, 1);
     EXPECT_EQ(table.TakeRequests().size(), 2u);
 
     EXPECT_TRUE(table.HasUnresolved());
     table.Resolve(1, { 10.0f, 5.0f, 4.0f });
-    const auto found = table.FindOrRequest(1, "a", 16.0f);
+    const auto found = table.FindOrRequest(1);
     ASSERT_TRUE(found);
     EXPECT_FLOAT_EQ(found->width, 10.0f);
     EXPECT_TRUE(table.HasUnresolved());
@@ -619,13 +640,13 @@ TEST(InlineMathPlan, EditingFormulaMovesForcedCutsUntilNextBoundary)
 TEST(InlineMathTable, MarkRequestedSuppressesRequestsFromMeasuring)
 {
     InlineMathTable table;
-    table.FindOrRequest(1, "a", 16.0f);
+    table.FindOrRequest(1);
     table.Resolve(1, { 10.0f, 5.0f, 4.0f });
     table.TakeRequests();
     const InlineMathItem items[]{ { 1, "a", 16.0f }, { 2, "b", 16.0f } };
     table.MarkRequested(items);
-    EXPECT_TRUE(table.FindOrRequest(1, "a", 16.0f));
-    EXPECT_FALSE(table.FindOrRequest(2, "b", 16.0f));
+    EXPECT_TRUE(table.FindOrRequest(1));
+    EXPECT_FALSE(table.FindOrRequest(2));
     EXPECT_TRUE(table.TakeRequests().empty());
     EXPECT_TRUE(table.Resolve(2, { 10.0f, 5.0f, 4.0f }));
 }
@@ -634,32 +655,31 @@ TEST(InlineMathTable, MarkRequestedSuppressesRequestsFromMeasuring)
 TEST(InlineMathTable, ResolveAfterClearIsIgnored)
 {
     InlineMathTable table;
-    table.FindOrRequest(1, "a", 16.0f);
+    table.FindOrRequest(1);
     table.Clear();
     EXPECT_TRUE(table.TakeRequests().empty());
     EXPECT_FALSE(table.Resolve(1, { 10.0f, 5.0f, 4.0f }));
-    EXPECT_FALSE(table.FindOrRequest(1, "a", 16.0f)) << "忘れたので頼み直す";
+    EXPECT_FALSE(table.FindOrRequest(1)) << "忘れたので頼み直す";
     EXPECT_TRUE(table.Resolve(1, { 10.0f, 5.0f, 4.0f }));
 }
 
-// デバイスロストでは寸法を残したまま、描けた数式だけを頼み直す。
-TEST(InlineMathTable, RequestAllAgainKeepsMetrics)
+// 頼まなかったことにした数式は待ちから外れ、また測られたら頼み直す。結果が分かっている数式は残す。
+TEST(InlineMathTable, ForgetRequestDropsOnlyWaitingEntry)
 {
     InlineMathTable table;
-    table.FindOrRequest(1, "a", 16.0f);
-    table.FindOrRequest(2, "b", 16.0f);
-    table.FindOrRequest(3, "c", 16.0f);
-    table.FindOrRequest(4, "d", 16.0f);
+    table.FindOrRequest(1);
+    table.FindOrRequest(2);
     table.TakeRequests();
-    table.Resolve(1, { 10.0f, 5.0f, 4.0f });
-    table.Resolve(2, {});
-    table.Resolve(4, { 10.0f, 5.0f, 4.0f });
-    table.RequestAllAgain([](uint64_t key) { return key != 4; });
-    const auto again = table.TakeRequests();
-    ASSERT_EQ(again.size(), 1u);
-    EXPECT_EQ(again[0].key, 1u);
-    EXPECT_EQ(again[0].tex, "a");
-    EXPECT_TRUE(table.FindOrRequest(1, "a", 16.0f));
+    table.Resolve(2, { 10.0f, 5.0f, 4.0f });
+
+    table.ForgetRequest(1);
+    table.ForgetRequest(2);
+    table.ForgetRequest(3);
+    EXPECT_FALSE(table.HasUnresolved());
+    EXPECT_TRUE(table.Find(2));
+
+    EXPECT_FALSE(table.FindOrRequest(1));
+    EXPECT_EQ(table.TakeRequests(), (std::vector<uint64_t>{ 1 }));
 }
 
 // Find は分かっている寸法だけを返し、無くても頼まない。
@@ -667,7 +687,7 @@ TEST(InlineMathTable, FindDoesNotRequest)
 {
     InlineMathTable table;
     EXPECT_FALSE(table.Find(1));
-    table.FindOrRequest(1, "a", 16.0f);
+    table.FindOrRequest(1);
     table.TakeRequests();
     EXPECT_FALSE(table.Find(1)) << "待っている";
     table.Resolve(1, { 10.0f, 5.0f, 4.0f });

@@ -14,9 +14,9 @@ enum class StartupArgKind : uint8_t {
 // 起動時に OS から集めた情報。パスはすべて絶対パスで渡す。
 struct StartupContext {
     StartupArgKind arg_kind = StartupArgKind::None;
-    std::wstring_view arg_path;
     // arg_path が前回終了時のファイルと同じ表記か (大文字小文字は区別しない。File のときのみ意味を持つ)。
     bool arg_is_last_file = false;
+    std::wstring_view arg_path;
     // session::LoadLastFilePath 済み。空なら復元対象なし。
     std::wstring_view last_file;
     std::wstring_view cwd;

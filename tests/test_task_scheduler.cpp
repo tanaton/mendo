@@ -19,8 +19,7 @@
 
 TEST(TaskScheduler, SingleTaskExecutes)
 {
-    TaskScheduler sch;
-    sch.Init(1);
+    TaskScheduler sch{ 1 };
     std::atomic<bool> ran{false};
     sch.Post([&] { ran.store(true); });
     EXPECT_TRUE(PollUntil([&] { return ran.load(); }));
@@ -29,8 +28,7 @@ TEST(TaskScheduler, SingleTaskExecutes)
 
 TEST(TaskScheduler, MultipleTasksAllExecute)
 {
-    TaskScheduler sch;
-    sch.Init(2);
+    TaskScheduler sch{ 2 };
     constexpr int N = 100;
     std::atomic<int> count{0};
     for (int i = 0; i < N; ++i) {
@@ -43,8 +41,7 @@ TEST(TaskScheduler, MultipleTasksAllExecute)
 
 TEST(TaskScheduler, TasksRunOnWorkerThreadsNotCaller)
 {
-    TaskScheduler sch;
-    sch.Init(2);
+    TaskScheduler sch{ 2 };
     const auto caller_id = std::this_thread::get_id();
     std::atomic<bool> ran{false};
     std::atomic<bool> different_thread{false};
@@ -57,19 +54,28 @@ TEST(TaskScheduler, TasksRunOnWorkerThreadsNotCaller)
     sch.Shutdown();
 }
 
+namespace {
+
+// worker を 1 本塞ぎ、以降に積んだタスクを待たせる。戻り値に set_value すると走り出す。
+std::promise<void> BlockWorker(TaskScheduler& sch)
+{
+    std::promise<void> gate;
+    std::atomic<bool> blocking{ false };
+    sch.Post([&blocking, released = gate.get_future().share()] {
+        blocking.store(true);
+        released.wait();
+    });
+    EXPECT_TRUE(PollUntil([&] { return blocking.load(); }));
+    return gate;
+}
+
+} // namespace
+
 // PostFront は待っているタスクより先に実行される。
 TEST(TaskScheduler, PostFrontRunsBeforeQueuedTasks)
 {
-    TaskScheduler sch;
-    sch.Init(1);
-    std::promise<void> gate;
-    std::shared_future<void> gate_future = gate.get_future().share();
-    std::atomic<bool> blocking{ false };
-    sch.Post([&] {
-        blocking.store(true);
-        gate_future.wait();
-    });
-    ASSERT_TRUE(PollUntil([&] { return blocking.load(); }));
+    TaskScheduler sch{ 1 };
+    std::promise<void> gate = BlockWorker(sch);
 
     std::mutex m;
     std::vector<int> order;
@@ -79,7 +85,7 @@ TEST(TaskScheduler, PostFrontRunsBeforeQueuedTasks)
     };
     sch.Post([&] { record(1); });
     sch.Post([&] { record(2); });
-    EXPECT_TRUE(sch.PostFront([&] { record(0); }));
+    sch.PostFront([&] { record(0); });
     gate.set_value();
     EXPECT_TRUE(PollUntil([&] {
         const std::lock_guard lock(m);
@@ -87,6 +93,22 @@ TEST(TaskScheduler, PostFrontRunsBeforeQueuedTasks)
     }));
     sch.Shutdown();
     EXPECT_EQ(order, (std::vector<int>{ 0, 1, 2 }));
+}
+
+// タスクごとに結果を 1 回返す約束があるので、溜まっても捨てない。旧上限の 1024 を超えて積む。
+TEST(TaskScheduler, PostNeverDropsTasksWhileBacklogged)
+{
+    TaskScheduler sch{ 1 };
+    std::promise<void> gate = BlockWorker(sch);
+
+    constexpr int N = 5000;
+    std::atomic<int> count{ 0 };
+    for (int i = 0; i < N; ++i) {
+        EXPECT_TRUE(sch.Post([&] { count.fetch_add(1); }));
+    }
+    gate.set_value();
+    sch.Shutdown();
+    EXPECT_EQ(count.load(), N);
 }
 
 // ═══════════════════════════════════════════════
@@ -98,8 +120,7 @@ TEST(TaskScheduler, TasksDistributedAcrossWorkers)
     // 複数ワーカーで並行処理されることを観測する。
     // 各タスクがワーカーをブロックしている間に他のワーカーが別タスクを拾うはず。
     constexpr int WORKERS = 4;
-    TaskScheduler sch;
-    sch.Init(WORKERS);
+    TaskScheduler sch{ WORKERS };
 
     std::mutex m;
     std::set<std::thread::id> observed_threads;
@@ -134,8 +155,7 @@ TEST(TaskScheduler, TasksDistributedAcrossWorkers)
 TEST(TaskScheduler, ShutdownProcessesRemainingQueuedTasks)
 {
     // ドキュメント: 「キューに残っているタスクをすべて処理してから終了」
-    TaskScheduler sch;
-    sch.Init(1);
+    TaskScheduler sch{ 1 };
 
     std::atomic<int> count{0};
     std::atomic<bool> first_entered{false};
@@ -159,16 +179,14 @@ TEST(TaskScheduler, ShutdownProcessesRemainingQueuedTasks)
 
 TEST(TaskScheduler, ShutdownWithoutPostCompletes)
 {
-    TaskScheduler sch;
-    sch.Init(4);
+    TaskScheduler sch{ 4 };
     sch.Shutdown(); // タスクがなくても正常終了する
     SUCCEED();
 }
 
 TEST(TaskScheduler, ShutdownTwiceIsSafe)
 {
-    TaskScheduler sch;
-    sch.Init(2);
+    TaskScheduler sch{ 2 };
     std::atomic<int> count{0};
     sch.Post([&] { count.fetch_add(1); });
     EXPECT_TRUE(PollUntil([&] { return count.load() == 1; }));
@@ -181,8 +199,7 @@ TEST(TaskScheduler, DestructorJoinsWorkersEvenIfShutdownNotCalled)
 {
     std::atomic<int> count{0};
     {
-        TaskScheduler sch;
-        sch.Init(2);
+        TaskScheduler sch{ 2 };
         for (int i = 0; i < 10; ++i) {
             sch.Post([&] { count.fetch_add(1); });
         }
@@ -225,15 +242,15 @@ constexpr auto kPostRaceLoopTime = std::chrono::milliseconds(30);
 
 // 868f19d: shutdown_ を lock 外で store すると、worker が述語を評価してから wait に入るまでの
 // 隙間に store と notify_all が割り込み、通知を取りこぼして join が永久に戻らなかった。
-// Init 直後 (worker が初回の述語評価に向かう最中) に Shutdown を繰り返して隙間を突く。
+// 初回 Post の直後 (worker が初回の述語評価に向かう最中) に Shutdown を繰り返して隙間を突く。
 // 隙間は数命令幅なので検出は確率的 (修正前実装で数千回に 1 回程度ハング)。
-TEST(TaskScheduler, ShutdownRightAfterInitNeverHangs)
+TEST(TaskScheduler, ShutdownRightAfterStartNeverHangs)
 {
     EXPECT_TRUE(CompletesWithin(kHangBudget, [](std::atomic<int>& iteration) static {
         const auto deadline = std::chrono::steady_clock::now() + kShutdownRaceLoopTime;
         while (std::chrono::steady_clock::now() < deadline) {
-            TaskScheduler sch;
-            sch.Init(4);
+            TaskScheduler sch{ 4 };
+            sch.Post([] static noexcept {});
             sch.Shutdown();
             iteration.fetch_add(1);
         }
@@ -255,8 +272,7 @@ TEST(TaskScheduler, PostRacingShutdownRunsExactlyAcceptedTasks)
             std::atomic<bool> shutdown_returned{ false };
             std::atomic<int> started{ 0 };
             {
-                TaskScheduler sch;
-                sch.Init(2);
+                TaskScheduler sch{ 2 };
                 std::vector<std::thread> posters;
                 for (int p = 0; p < kPosters; ++p) {
                     posters.emplace_back([&] {
@@ -301,8 +317,7 @@ TEST(TaskScheduler, PostRacingShutdownRunsExactlyAcceptedTasks)
 
 TEST(TaskScheduler, AcceptsMoveOnlyCallable)
 {
-    TaskScheduler sch;
-    sch.Init(1);
+    TaskScheduler sch{ 1 };
     // 実行後のタスクは worker 側で破棄されるので、結果はタスク外の変数で受け取る。
     std::atomic<int> result{ 0 };
     auto ptr = std::make_unique<int>(42);
@@ -311,47 +326,18 @@ TEST(TaskScheduler, AcceptsMoveOnlyCallable)
     sch.Shutdown();
 }
 
-// ═══════════════════════════════════════════════
-// 初期化なしで Post → Shutdown してもクラッシュしない
-// ═══════════════════════════════════════════════
-
-TEST(TaskScheduler, PostWithoutInitThenInitProcessesQueued)
-{
-    TaskScheduler sch;
-    std::atomic<bool> ran{false};
-    sch.Post([&] { ran.store(true); }); // Init 前に Post
-    sch.Init(1); // ワーカー起動後にキュー消化
-    EXPECT_TRUE(PollUntil([&] { return ran.load(); }));
-    sch.Shutdown();
-}
-
 // ワーカーは遅延起動だが、ParallelFor の分割数は起動前から確定している必要がある。
 TEST(TaskScheduler, WorkerCountReportsConfiguredCountBeforeFirstPost)
 {
-    TaskScheduler sch;
-    EXPECT_EQ(sch.WorkerCount(), 0u);
-    sch.Init(3);
+    TaskScheduler sch{ 3 };
     EXPECT_EQ(sch.WorkerCount(), 3u);
     sch.Shutdown();
     EXPECT_EQ(sch.WorkerCount(), 0u);
 }
 
-TEST(TaskScheduler, ReinitAfterShutdownRunsTasks)
+TEST(TaskScheduler, ZeroThreadsThenShutdownIsSafe)
 {
-    TaskScheduler sch;
-    sch.Init(1);
-    sch.Shutdown();
-    sch.Init(2);
-    std::atomic<bool> ran{ false };
-    EXPECT_TRUE(sch.Post([&] { ran.store(true); }));
-    EXPECT_TRUE(PollUntil([&] { return ran.load(); }));
-    sch.Shutdown();
-}
-
-TEST(TaskScheduler, ZeroThreadsInitThenShutdownIsSafe)
-{
-    TaskScheduler sch;
-    sch.Init(0); // ワーカーなし
+    TaskScheduler sch{ 0 }; // ワーカーなし
     sch.Shutdown();
     SUCCEED();
 }
@@ -374,8 +360,7 @@ bool InExplicitMta()
 
 TEST(TaskScheduler, WorkerEntersMtaOnlyAfterEnsureWorkerCom)
 {
-    TaskScheduler sch;
-    sch.Init(1);
+    TaskScheduler sch{ 1 };
     std::atomic<bool> done{ false };
     bool before = true;
     bool after = false;

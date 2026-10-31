@@ -1,5 +1,4 @@
 #include "task_scheduler.h"
-#include "profiler.h"
 #include <windows.h>
 #include <objbase.h>
 #include <algorithm>
@@ -18,24 +17,14 @@ thread_local WorkerCom t_worker_com = WorkerCom::NotWorker;
 
 } // namespace
 
+TaskScheduler::TaskScheduler(int thread_count) noexcept
+    : thread_count_(static_cast<size_t>(std::max(thread_count, 0)))
+{
+}
+
 TaskScheduler::~TaskScheduler()
 {
     Shutdown();
-}
-
-void TaskScheduler::Init(int thread_count)
-{
-    const std::lock_guard lock(mutex_);
-    // 二重 Init で worker が累積しないよう、最初の指定を維持する。
-    if (thread_count_ != 0) {
-        return;
-    }
-    shutdown_ = false;
-    thread_count_ = static_cast<size_t>(std::max(thread_count, 0));
-    // Init 前に積まれたタスクを消化する。
-    if (!queue_.empty()) {
-        StartWorkersLocked();
-    }
 }
 
 void TaskScheduler::StartWorkersLocked()
@@ -62,10 +51,6 @@ bool TaskScheduler::PostImpl(std::move_only_function<void()> task, bool front)
             queue_.push_front(std::move(task));
         }
         else {
-            if (queue_.size() >= MAX_PENDING_TASKS) {
-                MENDO_TRACE("TaskScheduler: queue saturated, task dropped");
-                return false;
-            }
             queue_.push_back(std::move(task));
         }
         StartWorkersLocked();

@@ -1,11 +1,9 @@
 #pragma once
-#include "config_service.h"
 #include "theme.h"
+#include "ui_types.h"
 
 class ThemeService {
 public:
-    explicit ThemeService(ConfigService& config) noexcept;
-
     constexpr bool IsDarkMode() const noexcept
     {
         return theme_.dark;
@@ -28,16 +26,9 @@ public:
     // 寸法が変わる。色とフォントはそのまま。
     void ApplyZoom(ZoomLevel zoom);
 
-    void SaveDarkMode();
-    bool LoadDarkMode() const;
-
-    void SaveZoomLevel(ZoomLevel zoom);
-    ZoomLevel LoadZoomLevel() const;
-
 private:
     static Theme MakeTheme(bool dark, ZoomLevel zoom);
 
-    ConfigService& config_;
     // Init より前に読まれても (WM_NCHITTEST など) 不定値にならないよう値初期化する。
     Theme theme_{};
 };

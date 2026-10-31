@@ -140,17 +140,15 @@ inline ::testing::AssertionResult ParseInvariantsHold(std::string_view raw, cons
                 sink.Add("node {}: text [{}, +{}) exceeds raw size {}", i, start, node.GetText().size(), raw.size());
             }
         }
-        if (node.HasSourceOffset()) {
-            const size_t offset = node.SourceOffset();
-            if (offset >= raw.size()) {
-                sink.Add("node {}: source offset {} outside raw (size {})", i, offset, raw.size());
-                continue;
-            }
-            if (offset < prev_offset) {
-                sink.Add("node {}: source offset {} < previous {}", i, offset, prev_offset);
-            }
-            prev_offset = offset;
+        const size_t offset = node.SourceOffset();
+        if (offset >= raw.size()) {
+            sink.Add("node {}: source offset {} outside raw (size {})", i, offset, raw.size());
+            continue;
         }
+        if (offset < prev_offset) {
+            sink.Add("node {}: source offset {} < previous {}", i, offset, prev_offset);
+        }
+        prev_offset = offset;
 
         // 区切ったノードの並びは前後のフラグが対になり、同じ種別・同じ入れ子に収まり、空のノードを含まない。
         if (node.continues_prev() != (i > 0 && nodes[i - 1].continues_next())) {
@@ -182,14 +180,13 @@ inline ::testing::AssertionResult ParseInvariantsHold(std::string_view raw, cons
         }
     }
 
-    // FindNodeBySourceOffset (二分探索) が「offset <= d の最後のノード」の線形定義と一致するか。
+    // FindNodeBySourceOffset (二分探索) が「offset <= d の最後の位置を持つ最初のノード」の線形定義と一致するか。
     // 全 byte 位置について、線形の答えを掃引で求めて比較する。
     int expected = -1;
     size_t next = 0;
     for (size_t d = 0; d <= raw.size(); ++d) {
-        while (next < nodes.size() &&
-               (!nodes[next].HasSourceOffset() || nodes[next].SourceOffset() <= d)) {
-            if (nodes[next].HasSourceOffset()) {
+        while (next < nodes.size() && nodes[next].SourceOffset() <= d) {
+            if (expected < 0 || nodes[next].SourceOffset() != nodes[expected].SourceOffset()) {
                 expected = static_cast<int>(next);
             }
             ++next;

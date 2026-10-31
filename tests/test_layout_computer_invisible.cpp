@@ -14,7 +14,7 @@ Node MakeParagraphNode(int line_count = 0)
 {
     Node n;
     n.type = NodeType::Paragraph;
-    n.SetText("text", line_count);
+    SetTestText(n, "text", line_count);
     return n;
 }
 
@@ -22,7 +22,7 @@ Node MakeCodeBlockNode(SyntaxLanguage lang, int line_count = 1)
 {
     Node n;
     n.type = IsDiagramLanguage(lang) ? NodeType::Diagram : NodeType::CodeBlock;
-    n.SetText("code", line_count);
+    SetTestText(n, "code", line_count);
     n.code_language = lang;
     return n;
 }
@@ -43,7 +43,6 @@ NodeLayoutEntry MakeEntry(float height = 10.0f, bool measured = false)
     e.height = height;
     if (measured) {
         e.cached_width = 100.0f;
-        e.cached_height = height;
     }
     return e;
 }
@@ -78,16 +77,15 @@ TEST(EstimateInvisibleNodeHeight, GrowsToEstimateWhenSmaller)
     EXPECT_FLOAT_EQ(entry.height, estimated);
 }
 
-TEST(EstimateInvisibleNodeHeight, UsesCachedHeightWhenWidthMatches)
+TEST(EstimateInvisibleNodeHeight, KeepsMeasuredHeightWhenWidthMatches)
 {
-    auto node = MakeParagraphNode(/*line_count=*/0);
+    auto node = MakeParagraphNode(/*line_count=*/20);
     NodeLayoutEntry entry;
-    entry.height = 1.0f;
+    entry.height = 1.0f; // 推定値より小さい
     entry.cached_width = 200.0f;
-    entry.cached_height = 77.0f; // 推定値より大きい
     const auto& theme = GetLightTheme();
     EstimateInvisibleNodeHeight(node, entry, theme, 200.0f);
-    EXPECT_FLOAT_EQ(entry.height, 77.0f);
+    EXPECT_FLOAT_EQ(entry.height, 1.0f);
 }
 
 TEST(EstimateInvisibleNodeHeight, FallsBackToEstimateWhenWidthDiffers)
@@ -96,7 +94,6 @@ TEST(EstimateInvisibleNodeHeight, FallsBackToEstimateWhenWidthDiffers)
     NodeLayoutEntry entry;
     entry.height = 1.0f;
     entry.cached_width = 200.0f;
-    entry.cached_height = 5.0f; // 推定値より小さい設定
     const auto& theme = GetLightTheme();
     const float estimated = EstimateNodeHeight(node, theme, 0.0f);
     // node_width が cached_width と離れているので fallback は EstimateNodeHeight
@@ -108,17 +105,16 @@ TEST(EstimateInvisibleNodeHeight, TableCacheHitPreservesTableLayout)
 {
     auto node = MakeTableNode();
     NodeLayoutEntry entry;
-    entry.height = 1.0f;
+    entry.height = 200.0f;
     entry.cached_width = 300.0f;
-    entry.cached_height = 200.0f;
-    auto& tl = entry.ensure_table_layout(0, 2);
+    auto& tl = entry.set_table_layout(std::make_unique<TableLayoutData>(0, 2, false));
     tl.col_widths = { 100.0f, 200.0f };
     tl.CommitGeometry(300.0f);
     const auto& theme = GetLightTheme();
     // cache_hit = true 経路 → table_layout を保持
     EstimateInvisibleNodeHeight(node, entry, theme, 300.0f);
     EXPECT_FLOAT_EQ(entry.height, 200.0f);
-    EXPECT_TRUE(tl.HasGeometry());
+    EXPECT_EQ(entry.table_layout(), &tl);
 }
 
 TEST(EstimateInvisibleNodeHeight, NonDiagramCodeBlockGrowsNormally)

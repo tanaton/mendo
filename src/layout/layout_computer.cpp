@@ -42,16 +42,11 @@ void AccumulateTops(const std::vector<Node>& nodes, LayoutCache& cache, const Th
     }
 }
 
-// node_index より後ろで node_start を超える最初の source offset。見つからなければ fallback。
-// 途中に offset 無しノード (HR や空のルーズリスト等) が連続しても取り逃さないよう探索するが、
-// 末尾まで線形走査すると大規模ファイルのリロードが重くなるため上限を設ける
-// (通常は最初の有効 offset で見つかるため上限には届かない)。
-size_t NextSourceOffset(const std::vector<Node>& nodes, int node_index, size_t node_start, size_t fallback) noexcept
+// node_start を超える最初の source offset。見つからなければ fallback。
+size_t NextSourceOffset(const std::vector<Node>& nodes, size_t node_start, size_t fallback) noexcept
 {
-    constexpr int kMaxOffsetProbe = 4096;
-    const auto probe = nodes | std::views::drop(node_index + 1) | std::views::take(kMaxOffsetProbe);
-    const auto it = std::ranges::find_if(probe, [node_start](const Node& n) noexcept { return n.HasSourceOffset() && n.SourceOffset() > node_start; });
-    return it != probe.end() ? it->SourceOffset() : fallback;
+    const auto it = std::ranges::upper_bound(nodes, node_start, {}, &Node::SourceOffset);
+    return it != nodes.end() ? it->SourceOffset() : fallback;
 }
 } // namespace
 
@@ -65,9 +60,9 @@ float GetSpacingAbove(const Node& node, const Theme& theme) noexcept
         return theme.heading_spacing_above;
     case NodeType::CodeBlock:
     case NodeType::Diagram:
-    case NodeType::BlockQuote:
         return theme.code_block_spacing_above;
     case NodeType::Paragraph:
+        return node.quote_depth > 0 ? theme.code_block_spacing_above : 0.0f;
     case NodeType::HorizontalRule:
     case NodeType::ListItem:
     case NodeType::Table:
@@ -99,7 +94,6 @@ float GetSpacingBelow(const Node& node, const Theme& theme) noexcept
         return 0.0f;
     case NodeType::Table:
     case NodeType::Paragraph:
-    case NodeType::BlockQuote:
         return theme.paragraph_spacing;
     }
     std::unreachable();
@@ -184,16 +178,13 @@ float EstimateNodeHeight(const Node& node, const Theme& theme, float node_width)
     }
     case NodeType::HorizontalRule:
         return HorizontalRuleHeight(theme);
-    case NodeType::Table: {
-        const size_t row_count = node.has_table() ? std::max<size_t>(1u, node.table_data()->row_count) : 1u;
-        return line_height * 1.5f * static_cast<float>(row_count);
-    }
+    case NodeType::Table:
+        return line_height * 1.5f * static_cast<float>(node.table_data()->row_count);
     case NodeType::Image:
         return PlaceholderHeight(theme);
     case NodeType::ListItem:
     case NodeType::TaskListItem:
     case NodeType::Paragraph:
-    case NodeType::BlockQuote:
         if (!node.HasText()) {
             return EmptyTextNodeHeight(node, theme);
         }
@@ -295,17 +286,15 @@ void EstimateInvisibleNodeHeight(const Node& node, NodeLayoutEntry& entry, const
     if (IsBitmapDrawNode(node)) {
         return;
     }
-    // 同じ幅での実測キャッシュがあればそれを使い、無ければ推定値で成長させる。
+    // 同じ幅で実測していれば、height は実測値かそれ以上なので推定は要らない。
     constexpr float kCachedWidthEpsilon = 0.5f;
-    const bool cache_hit =
-        entry.is_measured() &&
-        std::abs(entry.cached_width - NodeLayoutWidth(node, node_width)) < kCachedWidthEpsilon &&
-        entry.cached_height > 0.0f;
-    const float fallback = cache_hit ? entry.cached_height : EstimateNodeHeight(node, theme, node_width);
+    if (entry.is_measured() && std::abs(entry.cached_width - NodeLayoutWidth(node, node_width)) < kCachedWidthEpsilon) {
+        return;
+    }
     // テーブルや折り返しが多い段落では推定値が実測値を大きく下回るため、
     // シュリンク方向の更新は後続ノードと重なる原因になる。よって既存値より小さくはしない。
     // 表の幾何は推定で伸ばした高さと食い違うが、計測が幾何の高さ (TotalHeight) で確定し直す。
-    entry.height = std::max(entry.height, fallback);
+    entry.height = std::max(entry.height, EstimateNodeHeight(node, theme, node_width));
 }
 
 void RecomputeYPositions(
@@ -352,9 +341,8 @@ float CalcScrollYForDiff(
     float node_y = cache.Top(static_cast<size_t>(changed_node));
     const float node_h = cache[changed_node].height;
 
-    // FindNodeBySourceOffset はソース位置を持つノードだけを返す。
     const auto node_start = nodes[changed_node].SourceOffset();
-    const size_t next_start = NextSourceOffset(nodes, changed_node, node_start, content.size());
+    const size_t next_start = NextSourceOffset(nodes, node_start, content.size());
     if (next_start > node_start) {
         const float fraction = static_cast<float>(diff_pos - node_start) / static_cast<float>(next_start - node_start);
         node_y += node_h * std::min(fraction, 1.0f);

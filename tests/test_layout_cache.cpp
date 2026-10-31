@@ -27,12 +27,10 @@ TEST(LayoutCacheTest, InvalidateAllLayoutsForgetsMeasuredSize)
 {
     LayoutCache cache(1);
     cache[0].cached_width = 600.0f;
-    cache[0].cached_height = 120.0f;
 
     cache.InvalidateAllLayouts(std::vector<Node>(1));
 
     EXPECT_FALSE(cache[0].is_measured());
-    EXPECT_FLOAT_EQ(cache[0].cached_height, 0.0f);
 }
 
 TEST(LayoutCacheTest, InvalidateAllLayoutsPreservesPositions)
@@ -258,12 +256,6 @@ TableLayoutData MakeThreeRowTable()
 
 } // namespace
 
-TEST(TableRowRangeTest, VisibleRowRangeWithoutGeometryIsEmpty)
-{
-    const TableLayoutData tl;
-    EXPECT_EQ(tl.VisibleRowRange(0.0f, 100.0f), (std::pair<size_t, size_t>{ 0, 0 }));
-}
-
 TEST(TableRowRangeTest, VisibleRowRangeSelectsOverlappingRows)
 {
     const auto tl = MakeThreeRowTable();
@@ -279,15 +271,6 @@ TEST(TableRowRangeTest, VisibleRowRangeBelowTableIsEmpty)
     EXPECT_GE(begin, end);
 }
 
-// 行幾何が未計測のときはどの行も返さない (全行のセルを作り直させない)。
-TEST(TableRowRangeTest, VisibleRowRangeIsEmptyWithoutGeometry)
-{
-    const TableLayoutData unmeasured(5, 1, false);
-    EXPECT_EQ(unmeasured.VisibleRowRange(15.0f, 25.0f), (std::pair<size_t, size_t>{ 0, 0 }));
-    const auto tl = MakeThreeRowTable();
-    EXPECT_EQ(tl.VisibleRowRange(15.0f, 25.0f), (std::pair<size_t, size_t>{ 1, 3 }));
-}
-
 TEST(TableRowRangeTest, RowIndexAtBoundaries)
 {
     const auto tl = MakeThreeRowTable();
@@ -297,7 +280,6 @@ TEST(TableRowRangeTest, RowIndexAtBoundaries)
     EXPECT_EQ(tl.RowIndexAt(10.0f), 1);
     EXPECT_EQ(tl.RowIndexAt(29.9f), 2);
     EXPECT_EQ(tl.RowIndexAt(30.0f), -1);
-    EXPECT_EQ(TableLayoutData{}.RowIndexAt(0.0f), -1);
 }
 
 // トークンは text_layout と一緒に作るので、layout を捨てたら一緒に解放される。

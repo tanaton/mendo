@@ -1,6 +1,7 @@
 #pragma once
 // DrawCommandList から型で描画コマンドを拾う helper。フィクスチャを問わず使えるよう、
 // cmd_gen_mock_test_base.h (MockLayoutTestBase を引き込む) から分けてある。
+#include "command_generator.h"
 #include "draw_command.h"
 #include <algorithm>
 #include <cstddef>
@@ -57,4 +58,17 @@ std::ptrdiff_t CountCmd(const DrawCommandList& cmds, Pred pred)
         const auto* p = std::get_if<T>(&c);
         return p && pred(*p);
     });
+}
+
+// factory が無いのでレイアウトを作らず、文字列を描かない。
+inline TextLayoutCache& NoTextLayouts()
+{
+    static TextLayoutCache text_layouts;
+    return text_layouts;
+}
+
+inline void InitWithoutText(CommandGenerator& gen, const Theme& theme)
+{
+    static const MdPaneFormats formats{};
+    gen.Init(theme, formats, NoTextLayouts());
 }

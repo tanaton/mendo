@@ -126,6 +126,9 @@ constexpr auto kKeyFileZoomLevel = "FileZoomLevel"sv;
 constexpr auto kKeyTocZoomLevel = "TocZoomLevel"sv;
 constexpr auto kSectionGeneral = "General"sv;
 constexpr auto kKeyLanguage = "Language"sv;
+constexpr auto kSectionView = "View"sv;
+constexpr auto kKeyDarkMode = "DarkMode"sv;
+constexpr auto kKeyZoomLevel = "ZoomLevel"sv;
 } // namespace
 
 void ConfigService::SetConfigDirOverride(const std::filesystem::path& dir)
@@ -378,4 +381,24 @@ void session::SaveLanguage(ConfigService& config, std::wstring_view lang_key)
 std::wstring session::LoadLanguage(const ConfigService& config)
 {
     return config.LoadWString(kSectionGeneral, kKeyLanguage);
+}
+
+void session::SaveDarkMode(ConfigService& config, bool dark)
+{
+    config.SaveBool(kSectionView, kKeyDarkMode, dark);
+}
+
+bool session::LoadDarkMode(const ConfigService& config)
+{
+    return config.LoadBool(kSectionView, kKeyDarkMode, false);
+}
+
+void session::SaveZoomLevel(ConfigService& config, ZoomLevel zoom)
+{
+    config.SaveZoomLevel(kSectionView, kKeyZoomLevel, zoom);
+}
+
+ZoomLevel session::LoadZoomLevel(const ConfigService& config)
+{
+    return config.LoadZoomLevel(kSectionView, kKeyZoomLevel);
 }

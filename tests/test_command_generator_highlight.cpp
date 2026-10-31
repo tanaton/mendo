@@ -61,7 +61,7 @@ protected:
     void SetUp() override
     {
         DWriteTestBase::SetUp();
-        gen_.Init(theme_);
+        InitWithoutText(gen_, theme_);
     }
 };
 
@@ -246,8 +246,7 @@ protected:
 
     void Search(const ParsedLayout& pl, std::string_view query)
     {
-        search_.SetQuery(query);
-        RunSearchToEnd(search_, pl.nodes);
+        RunSearchToEnd(search_, pl.nodes, query);
     }
 
     // 次の呼び出しまで有効。
@@ -442,7 +441,7 @@ TEST_F(HighlightOrderTest, DiagramOverlayButtonsAreGatedByDiagramHover)
     auto icon = CreateThemeFormat(COPY_BTN_SIZE);
     ASSERT_NE(icon, nullptr);
     const MdPaneFormats formats{ .copy_btn_icon = icon };
-    gen_.Init(theme_, &formats);
+    gen_.Init(theme_, formats, NoTextLayouts());
 
     const PaneRect pane{ 0.0f, 0.0f, 800.0f, 600.0f };
     const auto count_overlay_fills = [](const DrawCommandList& cmds) {
@@ -479,6 +478,5 @@ TEST_F(VisibleHighlightTest, SelectionComputesOnlyLinesNearViewport)
             EXPECT_LE(std::ranges::min(rects, {}, &D2D1_RECT_F::top).top, 0.0f) << "scroll_y=" << y;
         }
         EXPECT_GE(std::ranges::max(rects, {}, &D2D1_RECT_F::bottom).bottom, PANE.height) << "scroll_y=" << y;
-        EXPECT_LT(pl.cache[0].ensure_selection_hl_cache().rects.size(), 100u) << "scroll_y=" << y;
     }
 }

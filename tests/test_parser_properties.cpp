@@ -51,7 +51,7 @@ TEST(ParserProperty, ExampleFilesSatisfyStructuralInvariants)
 namespace {
 
 enum class WordKind : uint8_t {
-    Text, // Paragraph / ListItem / BlockQuote (tight は LI に、loose は P に入るため区別しない)
+    Text, // Paragraph / ListItem (tight は LI に、loose は P に入るため区別しない)
     Heading,
     Code,
     Table,

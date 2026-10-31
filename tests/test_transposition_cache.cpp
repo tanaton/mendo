@@ -85,36 +85,6 @@ TEST(TranspositionCache, Clear)
     EXPECT_EQ(cache.Size(), 0u);
 }
 
-TEST(TranspositionCache, ConstFind)
-{
-    TranspositionCache<int, std::string, 3> cache;
-    cache.Insert(1, "one");
-    cache.Insert(2, "two");
-
-    const auto& cref = cache;
-    const auto* v = cref.Find(2);
-    ASSERT_NE(v, nullptr);
-    EXPECT_EQ(*v, "two");
-}
-
-TEST(TranspositionCache, ConstFindDoesNotChangeOrder)
-{
-    TranspositionCache<int, int, 3> cache;
-    cache.Insert(1, 10);
-    cache.Insert(2, 20);
-    cache.Insert(3, 30);
-    // 内部 [3, 2, 1]
-
-    // const Find は順序を変更しない → [3, 2, 1] のまま
-    const auto& cref = cache;
-    (void)cref.Find(1);
-
-    // Insert(4) で末尾 (1) が捨てられる
-    cache.Insert(4, 40);
-    EXPECT_EQ(cache.Find(1), nullptr);
-    EXPECT_NE(cache.Find(4), nullptr);
-}
-
 TEST(TranspositionCache, SizeOne)
 {
     TranspositionCache<int, int, 1> cache;

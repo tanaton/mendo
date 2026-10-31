@@ -124,15 +124,6 @@ float MdMaxScroll(const AppState& state) noexcept
 
 namespace {
 
-// 待たせていたリロードを予約する。LButtonUp の処理中に文書を差し替えないよう、タイマーで後に回す。
-void ClearDrag(AppState& state, SideEffectList& effects)
-{
-    state.view.drag = {};
-    if (std::exchange(state.view.reload_after_drag, false)) {
-        PushEffect(effects, effect::SetTimer{ app_timer::Id::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_RETRY_MS });
-    }
-}
-
 // 対象も忘れるので、次のホバーで同じ対象に戻っても表示し直す。対象が無ければ隠れているので何もしない。
 void ClearTooltip(AppState& state, SideEffectList& effects)
 {
@@ -148,7 +139,10 @@ void EmitScrollChangedSideEffects(AppState& state, SideEffectList& effects)
 {
     ClearTooltip(state, effects);
     PushEffect(effects, effect::InvalidateWindow{});
-    PushEffect(effects, effect::BitmapManage{});
+    // ライブリサイズ中に上限へ収めても図や画像を取りに行かない。幅が決まるのはサイズ変更の終わり。
+    if (!state.window.is_sizing) {
+        PushEffect(effects, effect::BitmapManage{});
+    }
 }
 
 void ApplyScrollTarget(AppState& state, int node, float offset)
@@ -255,11 +249,10 @@ void ReduceHWheel(AppState& state, SideEffectList& effects, const HWheelAction& 
     }
 
     auto& swipe = state.interaction.swipe_detector;
-    const bool had_overlay = swipe.IsOverlayVisible();
     const auto old_direction = swipe.GetOverlayDirection();
     swipe.OnHWheel(a.delta, a.tick);
     PushEffect(effects, effect::SetTimer{ app_timer::Id::SWIPE_OVERLAY, static_cast<UINT>(SwipeDetector::COMMIT_TIMEOUT_MS) });
-    if (had_overlay != swipe.IsOverlayVisible() || old_direction != swipe.GetOverlayDirection()) {
+    if (old_direction != swipe.GetOverlayDirection()) {
         PushEffect(effects, effect::InvalidateWindow{});
     }
 }
@@ -464,7 +457,7 @@ void ReduceCaptureChanged(AppState& state, SideEffectList& effects)
     // キャプチャ喪失時 (Alt+Tab・他アプリの SetCapture 等) は WM_LBUTTONUP が
     // 届かないため、進行中のドラッグをここで終える。
     if (state.view.drag.kind != LeftDrag::None) {
-        ClearDrag(state, effects);
+        state.view.drag = {};
         invalidate = true;
     }
     if (invalidate) {
@@ -507,7 +500,7 @@ void MoveTextSelectionDrag(AppState& state, SideEffectList& effects, int node_in
 void EndTextSelectionDrag(AppState& state, SideEffectList& effects, const LeftDragEndedAction& a)
 {
     MoveTextSelectionDrag(state, effects, a.node_index, a.text_pos);
-    ClearDrag(state, effects);
+    state.view.drag = {};
 }
 
 void ReduceLeftDragEnded(AppState& state, SideEffectList& effects, const LeftDragEndedAction& a)
@@ -520,7 +513,7 @@ void ReduceLeftDragEnded(AppState& state, SideEffectList& effects, const LeftDra
         EndTextSelectionDrag(state, effects, a);
         return;
     }
-    ClearDrag(state, effects);
+    state.view.drag = {};
     if (drag == LeftDrag::Splitter || drag == LeftDrag::MdScrollbar) {
         PushEffect(effects, effect::SettleViewport{});
     }
@@ -722,7 +715,8 @@ void ContinueSearch(AppState& state, SideEffectList& effects, NodeLayoutAccess& 
 // 今のクエリで検索し直す。終わった時点で見ている位置の近くのマッチを選び、scroll_to_match ならそこへスクロールする。
 void RunSearchAndLocate(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout, bool scroll_to_match = false)
 {
-    state.search.search_state.BeginSearch();
+    // 入力欄は UTF-16、Document テキストは UTF-8。
+    state.search.search_state.BeginSearch(string_convert::WideToUtf8(state.search.query_wide));
     state.search.scroll_after_search = scroll_to_match;
     // クエリや前のマッチの消去を描画に出すため、始めの区切りは必ず描き直す。
     ContinueSearch(state, effects, layout, true);
@@ -746,7 +740,7 @@ void ToggleSearchBar(AppState& state, SideEffectList& effects, NodeLayoutAccess&
     }
     sg.search_state.Show();
     ResetSearchCaret(sg);
-    if (!sg.search_state.GetQuery().empty()) {
+    if (!sg.query_wide.empty()) {
         RunSearchAndLocate(state, effects, layout);
     }
     PushEffect(effects, effect::SearchFocus{});
@@ -775,14 +769,9 @@ void ReduceSearchTextChanged(AppState& state, SideEffectList& effects, NodeLayou
     if (text == sg.query_wide) {
         return;
     }
-    // 検索バー入力は IME 経由で wstring。表示とヒットテストにはこのまま使い、
-    // SearchState は Document テキスト (UTF-8) と比較するため変換して渡す。
     sg.query_wide.assign(text);
-    std::string text_utf8;
-    string_convert::WideToUtf8(text, text_utf8);
-    sg.search_state.SetQuery(text_utf8);
     if (text.empty()) {
-        sg.search_state.BeginSearch();
+        sg.search_state.BeginSearch({});
         PushEffect(effects, effect::InvalidateWindow{});
         return;
     }
@@ -792,9 +781,8 @@ void ReduceSearchTextChanged(AppState& state, SideEffectList& effects, NodeLayou
 
 void ReduceToggleCaseSensitive(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout)
 {
-    auto& ss = state.search.search_state;
-    ss.ToggleCaseSensitive();
-    if (!ss.GetQuery().empty()) {
+    state.search.search_state.ToggleCaseSensitive();
+    if (!state.search.query_wide.empty()) {
         RunSearchAndLocate(state, effects, layout);
     }
     PushEffect(effects, effect::InvalidateWindow{});
@@ -867,7 +855,7 @@ void ReduceClearSelection(AppState& state, SideEffectList& effects)
     const bool visible = viewport.GetSelection().active() || dragging;
     // テキスト選択のドラッグ中なら LButtonUp を待たずに終える。
     if (dragging) {
-        ClearDrag(state, effects);
+        state.view.drag = {};
     }
     viewport.ClearSelection();
     if (visible) {
@@ -989,7 +977,8 @@ void ReduceResize(AppState& state, SideEffectList& effects, const ResizeAction& 
     const float window_w_dip = PixelToDip(static_cast<float>(a.width), state.window.cached_dpi_scale);
     state.window.titlebar.UpdateLayout(window_w_dip);
     if (state.window.is_sizing) {
-        PushEffect(effects, effect::PerformSizingUpdate{});
+        state.view.viewport.ClampScroll(MdMaxScroll(state));
+        PushEffect(effects, effect::InvalidateWindow{});
     }
     else {
         PushEffect(effects, effect::SettleViewport{});
@@ -1027,7 +1016,7 @@ void ReduceSwipeOverlayTimeout(AppState& state, SideEffectList& effects)
 }
 
 // ノード/見出し index に結び付く一時状態 (選択・横スクロール・ホバー・目次の現在位置・ツールチップの対象・
-// 文書を対象にするドラッグ・ドラッグの後に回したリロード) を消す。文書を差し替えると別の要素を指すので、
+// 文書を対象にするドラッグ) を消す。文書を差し替えると別の要素を指すので、
 // ロードとリロードの両方で消す。ホバーは描画後に引き直される (App::RefreshHoverAtCursor)。
 void ResetPerNodeTransientState(AppState& state, SideEffectList& effects)
 {
@@ -1038,10 +1027,8 @@ void ResetPerNodeTransientState(AppState& state, SideEffectList& effects)
     view.active_toc_index = -1;
     // ツールチップの同一判定は node / TOC の index で行う。
     ClearTooltip(state, effects);
-    // 待たせていたリロードは旧文書のもの。先に外し、ドラッグの終わりで読み直させない。
-    view.reload_after_drag = false;
     if (IsDocumentBoundDrag(view.drag.kind)) {
-        ClearDrag(state, effects);
+        view.drag = {};
     }
 }
 
@@ -1053,7 +1040,7 @@ void ReduceDocumentOpened(AppState& state, SideEffectList& effects, const Docume
     // 旧文書のマッチ位置が新 nodes に対して誤用されるのを防ぐ。入力欄を空にしたときの EN_CHANGE は、
     // ここでクエリを先に空にしておくので何もせず終わる。
     auto& sg = state.search;
-    sg.search_state.Reset();
+    sg.search_state.Hide();
     sg.query_wide.clear();
     sg.ime_composition.clear();
     ResetSearchCaret(sg);
@@ -1078,8 +1065,7 @@ void ReduceDocumentReloaded(AppState& state, SideEffectList& effects, const Docu
 
 void ReduceReloadSettled(AppState& state, SideEffectList& effects, NodeLayoutAccess& layout)
 {
-    const auto& ss = state.search.search_state;
-    if (ss.IsVisible() && !ss.GetQuery().empty()) {
+    if (state.search.search_state.IsVisible() && !state.search.query_wide.empty()) {
         RunSearchAndLocate(state, effects, layout);
     }
 }

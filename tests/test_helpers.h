@@ -22,9 +22,9 @@
 #include "theme.h"
 
 // 検索を区切らずに最後まで進める。
-inline void RunSearchToEnd(SearchState& s, const std::vector<Node>& nodes)
+inline void RunSearchToEnd(SearchState& s, const std::vector<Node>& nodes, std::string_view query)
 {
-    s.BeginSearch();
+    s.BeginSearch(query);
     s.ContinueSearch(nodes, std::chrono::steady_clock::time_point::max());
 }
 
@@ -38,8 +38,7 @@ inline size_t CountOccurrences(std::string_view s, std::string_view needle)
     return n;
 }
 
-// 本番 API SetText は line_count を呼び出し側に渡させる契約だが、
-// 任意の文字列を受け取るテストヘルパーでは内容から自動算出したい。
+// line_count を内容から数える。
 inline void SetNodeTextCounted(Node& n, std::string_view sv)
 {
     const int32_t lc = static_cast<int32_t>(std::ranges::count(sv, '\n'));
@@ -192,7 +191,7 @@ inline Node MakeStressNode(size_t i, bool include_code_block)
         return n;
     }
     n.type = NodeType::Paragraph;
-    n.SetText("", 0);
+    n.SetText("");
     return n;
 }
 

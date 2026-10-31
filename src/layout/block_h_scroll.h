@@ -42,8 +42,8 @@ inline BlockHScrollGeometry GetBlockHScrollGeometry(
     BlockHScrollGeometry g;
     g.visible_width = visible_width;
     g.scroll_key = static_cast<int>(node_index);
-    // 表は描画と同じ TableWidth を使う。幾何が無効な間は GenTable も描かないのでスクロール不可。
-    if (const auto* tl = cache[node_index].table_layout(); node.type == NodeType::Table && tl && tl->HasGeometry()) {
+    // 表は描画と同じ TableWidth を使う。未計測の間は GenTable も描かないのでスクロール不可。
+    if (const auto* tl = cache[node_index].table_layout(); node.type == NodeType::Table && tl) {
         g.block_width = tl->TableWidth();
     }
     else if (node.type == NodeType::CodeBlock) {

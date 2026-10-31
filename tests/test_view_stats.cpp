@@ -64,8 +64,6 @@ const char* NodeTypeLabel(NodeType t)
         return "HR";
     case NodeType::ListItem:
         return "ListItem";
-    case NodeType::BlockQuote:
-        return "BlockQuote";
     case NodeType::Table:
         return "Table";
     case NodeType::TaskListItem:
@@ -116,7 +114,7 @@ TEST(ViewStats, DISABLED_BreakdownByNodeType)
 
     std::cout << "=== breakdown by NodeType (test.md) ===\n";
     for (NodeType type : { NodeType::Heading, NodeType::Paragraph, NodeType::CodeBlock,
-                           NodeType::ListItem, NodeType::BlockQuote, NodeType::Table }) {
+                           NodeType::ListItem, NodeType::Table }) {
         size_t view_count = 0, owned_count = 0;
         size_t view_chars = 0, owned_chars = 0;
         for (const auto& n : doc.GetNodes()) {
@@ -202,7 +200,7 @@ TEST(ViewStats, DISABLED_DumpFirstOwnedCodeBlocks)
         const size_t off = n.SourceOffset();
         std::cout << "[" << (is_view ? "view " : "owned") << "] source_offset=" << off
                   << " text.size()=" << text.size() << " line_count=" << n.line_count;
-        if (off != kUnsetSourceOffset && off < raw.size()) {
+        if (off < raw.size()) {
             const size_t avail = std::min<size_t>(text.size(), raw.size() - off);
             const std::string_view raw_slice = std::string_view{ raw }.substr(off, avail);
             const size_t first_diff = static_cast<size_t>(std::ranges::mismatch(raw_slice, text).in1 - raw_slice.begin());

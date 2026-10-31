@@ -288,8 +288,8 @@ void MermaidRenderer::Shutdown()
 
 void MermaidRenderer::ReleaseWebView()
 {
-    for (auto& w : ActiveWorkers()) {
-        DestroyWorker(w);
+    for (int i = 0; i < worker_count_; i++) {
+        DestroyWorker(workers_[i]);
     }
     worker_count_ = 0;
     webview_env_.Reset();
@@ -320,19 +320,19 @@ void MermaidRenderer::EnsureInitialized()
         return;
     }
 
-    // 最初は 1 つだけ起動し、待ちが溜まったら MaybeGrowWorkers で増やす。
-    worker_count_ = CreateWorkerWindow(0) ? 1 : 0;
-
-    if (worker_count_ == 0) {
-        // ワーカーウィンドウを 1 つも作れなければ、次回 RequestRender/RequestSvg で再試行する。
-        // 既にキューされた SVG リクエストは失敗で完了させ in-flight 固着を防ぐ。
-        DrainPendingRequests(/*cancelled=*/false);
-        return;
+    if (!IsWebViewGivenUp()) {
+        // 最初は 1 つだけ起動し、待ちが溜まったら MaybeGrowWorkers で増やす。
+        worker_count_ = CreateWorkerWindow(0) ? 1 : 0;
+        if (worker_count_ > 0) {
+            // WebView2環境の生成失敗はタイマーリトライで対処されるため、
+            // ワーカーウィンドウ作成完了時点で次段へ進む。
+            CreateWebView2Environment();
+            return;
+        }
+        webview_retry_at_ = std::chrono::steady_clock::now() + WEBVIEW_RETRY_AFTER;
     }
-
-    // WebView2環境の生成失敗はタイマーリトライで対処されるため、
-    // ワーカーウィンドウ作成完了時点で次段へ進む。
-    CreateWebView2Environment();
+    // 既にキューされたリクエストは失敗で完了させ in-flight 固着を防ぐ。
+    DrainPendingRequests(/*cancelled=*/false);
 }
 
 bool MermaidRenderer::CreateWorkerWindow(int index)
@@ -370,7 +370,7 @@ bool MermaidRenderer::CreateWorkerWindow(int index)
 
 MermaidRenderer::Worker* MermaidRenderer::FindIdleWorker() noexcept
 {
-    const auto workers = ActiveWorkers();
+    auto workers = ActiveWorkers();
     const auto it = std::ranges::find_if(workers, &Worker::IsIdle);
     return it != workers.end() ? &*it : nullptr;
 }
@@ -453,7 +453,7 @@ void MermaidRenderer::CreateWebView2Environment()
     options->put_AdditionalBrowserArguments(L"--disable-gpu");
 
     // clang-format off
-    CreateCoreWebView2EnvironmentWithOptions(
+    const HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(
         nullptr,
         user_data,
         options.Get(),
@@ -465,6 +465,10 @@ void MermaidRenderer::CreateWebView2Environment()
         ).Get()
     );
     // clang-format on
+    // ランタイムが無いときなどは呼び出しが失敗し、完了の通知は来ない。
+    if (FAILED(hr)) {
+        OnEnvironmentCreated(hr, nullptr);
+    }
 }
 
 void MermaidRenderer::OnEnvironmentCreated(HRESULT result, ICoreWebView2Environment* env)
@@ -477,14 +481,7 @@ void MermaidRenderer::OnEnvironmentCreated(HRESULT result, ICoreWebView2Environm
             SetTimer(hwnd_, std::to_underlying(app_timer::Id::MERMAID_INIT_RETRY), ENV_RETRY_INTERVAL_MS, nullptr);
             return;
         }
-        // リトライ上限。待機中リクエストを失敗で完了させてからワーカーを破棄し、
-        // 次回 RequestRender/RequestSvg でクリーンに再初期化させる。破棄しないと
-        // worker_count_ > 0 のままで EnsureInitialized が二度と走らず、以後の
-        // リクエストが処理も失敗もされず in-flight 固着する。
-        // Shutdown は使わない。関係のないディスクキャッシュの読み込みまで取り消し、共有 scheduler の完了待ちで UI を止める。
-        DrainPendingRequests(/*cancelled=*/false);
-        env_retry_count_ = 0;
-        ReleaseWebView();
+        AbandonWebView();
         return;
     }
     env_retry_count_ = 0;
@@ -492,6 +489,37 @@ void MermaidRenderer::OnEnvironmentCreated(HRESULT result, ICoreWebView2Environm
 
     for (int i = 0; i < worker_count_; i++) {
         SetupWorker(i);
+    }
+}
+
+void MermaidRenderer::AbandonWebView()
+{
+    // 待機中リクエストを失敗で完了させてからワーカーを破棄する。破棄しないと worker_count_ > 0 のままで
+    // EnsureInitialized が二度と走らず、以後のリクエストが処理も失敗もされず in-flight 固着する。
+    // Shutdown は使わない。関係のないディスクキャッシュの読み込みまで取り消し、共有 scheduler の完了待ちで UI を止める。
+    DrainPendingRequests(/*cancelled=*/false);
+    env_retry_count_ = 0;
+    ReleaseWebView();
+    webview_retry_at_ = std::chrono::steady_clock::now() + WEBVIEW_RETRY_AFTER;
+    // 図は待ちに残っていないので、要求し直させてエラーを見せる。
+    NotifyUpdate();
+}
+
+void MermaidRenderer::AbandonWorker(int index)
+{
+    // Shutdown の後に届いた起動の失敗。アイドル解放は起動途中のワーカーがあると走らないので、この形でしか来ない。
+    auto& w = workers_[index];
+    if (!w.hwnd) {
+        return;
+    }
+    RenderRequest req = std::exchange(w.current_request, {});
+    DestroyWorker(w);
+    // 図は結果を出さず、次の走査で要求し直させる。
+    FailCallbacksIfAny(req, /*cancelled=*/false);
+    ReleaseInflight(req);
+    // 他のワーカーが残っていれば待ちはそちらが引き受ける。
+    if (std::ranges::empty(ActiveWorkers())) {
+        AbandonWebView();
     }
 }
 
@@ -506,18 +534,24 @@ void MermaidRenderer::OnInitRetryTimer()
 void MermaidRenderer::SetupWorker(int index)
 {
     // clang-format off
-    webview_env_->CreateCoreWebView2Controller(
+    const HRESULT hr = webview_env_->CreateCoreWebView2Controller(
         workers_[index].hwnd,
         Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
             [this, index](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
                 if (SUCCEEDED(result) && controller) {
                     OnControllerCreated(index, controller);
                 }
+                else {
+                    AbandonWorker(index);
+                }
                 return S_OK;
             }
         ).Get()
     );
     // clang-format on
+    if (FAILED(hr)) {
+        AbandonWorker(index);
+    }
 }
 
 void MermaidRenderer::OnControllerCreated(int index, ICoreWebView2Controller* controller)
@@ -525,7 +559,7 @@ void MermaidRenderer::OnControllerCreated(int index, ICoreWebView2Controller* co
     auto& w = workers_[index];
     w.controller = controller;
     if (FAILED(controller->get_CoreWebView2(&w.webview)) || !w.webview) {
-        w.controller.Reset();
+        AbandonWorker(index);
         return;
     }
 
@@ -690,11 +724,10 @@ void MermaidRenderer::FailMathCallbackIfAny(RenderRequest& req, bool cancelled)
 void MermaidRenderer::DrainPendingRequests(bool cancelled)
 {
     // 待機中の SVG・インライン数式のリクエストを完了させ、呼び出し元の in-flight フラグ固着を防ぐ。
-    while (!pending_requests_.empty()) {
-        auto& req = pending_requests_.front();
+    // 数式の結果は図の走査を通ってここへ再入しうるので、先に取り出す。
+    for (auto& req : std::exchange(pending_requests_, {})) {
         FailCallbacksIfAny(req, cancelled);
         ReleaseInflight(req);
-        pending_requests_.pop_front();
     }
 }
 
@@ -777,6 +810,9 @@ void MermaidRenderer::RecoverWorker(int index)
         ++w.init_retries;
         SetupWorker(index);
     }
+    else {
+        AbandonWorker(index);
+    }
     // ワーカー状態の復旧が済んでから呼び、再入 (recompute → RequestRender) を安全にする。
     if (failed) {
         NotifyUpdate();
@@ -829,16 +865,20 @@ bool MermaidRenderer::RequestRender(
     }
 
     EnqueueWebRender(std::move(req));
-    return false;
+    // 走査のたびに true を返すと再レイアウトが続くので、文言を出すのは 1 回だけ。
+    if (!IsWebViewGivenUp() || diagram_entry.error.kind == DiagramError::Kind::WebViewUnavailable) {
+        return false;
+    }
+    ApplyResult(diagram_entry, CachedResult{ .error = { DiagramError::Kind::WebViewUnavailable } });
+    return true;
 }
 
 void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path png_path, Microsoft::WRL::ComPtr<IStream> captured_stream)
 {
     const bool captured = captured_stream != nullptr;
-    const uint64_t hash = req.code_hash;
     DiskLoad job{ .req = std::move(req), .captured_stream = std::move(captured_stream), .captured = captured, .drop_gen = disk_drop_gen_.load(std::memory_order_relaxed) };
     // ファイル読み込みと PNG デコードは worker で行う (UI では時間予算なしに積み上がる)。
-    const bool posted = bg_scheduler_->Post([this, job = std::move(job), path = std::move(png_path), guard = latch_.Acquire()]() mutable {
+    bg_scheduler_->Post([this, job = std::move(job), path = std::move(png_path), guard = latch_.Acquire()]() mutable {
         // インライン数式は取り消すと頼み直す契機が無いので、移動しても読む (DropQueued でも待ちに残す)。
         job.dropped = !job.captured && job.req.is_display() && job.drop_gen != disk_drop_gen_.load(std::memory_order_relaxed);
         if (!job.dropped) {
@@ -848,10 +888,6 @@ void MermaidRenderer::StartDiskLoad(RenderRequest req, std::filesystem::path png
             ::PostMessageW(hwnd_, app_msg::MERMAID_DISK_LOADED, 0, 0);
         }
     });
-    if (!posted) {
-        // 図は NeedsRender のまま残り次の走査で再要求される。
-        inflight_.erase(hash);
-    }
 }
 
 void MermaidRenderer::LoadDiskJob(DiskLoad& job, const std::filesystem::path& path)
@@ -906,10 +942,8 @@ void MermaidRenderer::LoadMathJob(DiskLoad& job)
         }
         req.math_layout = std::move(*layout);
     }
-    else if (req.math_cache_key != 0) {
-        if (auto with_boxes = mermaid_util::AppendMathBoxesChunk({ source->data(), source->size() }, req.math_layout); !with_boxes.empty()) {
-            job.png = std::make_shared<const ByteBuffer>(std::move(with_boxes));
-        }
+    else if (auto with_boxes = mermaid_util::AppendMathBoxesChunk({ source->data(), source->size() }, req.math_layout); !with_boxes.empty()) {
+        job.png = std::make_shared<const ByteBuffer>(std::move(with_boxes));
     }
     if (!req.math_page) {
         return;
@@ -1071,13 +1105,11 @@ void MermaidRenderer::RequestMathBatch(std::vector<InlineMathItem> items, uint64
         return;
     }
     // 当たれば WebView2 を起動しない。幅に依らないので、幅なしのキーとして引く。
-    if (cache_key != 0) {
-        if (const auto hit = file_cache_->Find(cache_key, cache_key, std::numeric_limits<float>::infinity(), /*touch=*/true)) {
-            if (auto png_path = file_cache_->PngPath(hit->key); !png_path.empty()) {
-                DecideMathPage(req, { hit->entry.css_width, hit->entry.css_height, file_cache_->Dpr() });
-                StartDiskLoad(std::move(req), std::move(png_path));
-                return;
-            }
+    if (const auto hit = file_cache_->Find(cache_key, cache_key, std::numeric_limits<float>::infinity(), /*touch=*/true)) {
+        if (auto png_path = file_cache_->PngPath(hit->key); !png_path.empty()) {
+            DecideMathPage(req, { hit->entry.css_width, hit->entry.css_height, file_cache_->Dpr() });
+            StartDiskLoad(std::move(req), std::move(png_path));
+            return;
         }
     }
     EnqueueWebRender(std::move(req));
@@ -1278,6 +1310,9 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
         if (w.init_retries < MAX_WORKER_RETRIES && w.webview) {
             ++w.init_retries;
             LogHrFailure("Navigate(retry)", w.webview->Navigate(APP_LOCAL_INDEX_URL));
+        }
+        else {
+            AbandonWorker(index);
         }
         return;
     }

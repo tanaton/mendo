@@ -227,7 +227,7 @@ INSTANTIATE_TEST_SUITE_P(
 //
 // effects から OS 側のキャプチャ保持を追跡する。ReleaseCapture / 外部からの奪取では
 // OS が同期的に WM_CAPTURECHANGED を送るため、CaptureChangedAction を入れ子で投入する。
-// マウスイベントは App (app_mouse.cpp) と同じ振り分けでアクションに変換する。
+// マウスイベントは App と同じ振り分けでアクションに変換する。
 
 namespace {
 

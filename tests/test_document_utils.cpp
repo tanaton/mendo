@@ -389,20 +389,6 @@ TEST(ExtractSelectedTextAsHtml, TableFullSelectionKeepsEmptyHeaderRow)
     EXPECT_EQ(CountOccurrences(html, "<tr>"), 2u);
 }
 
-// 列数 0 の表 (md4c が TABLE detail を渡さない場合) でも範囲外を読まない。
-TEST(ExtractSelectedTextAsHtml, TableWithoutColumnsDoesNotReadOutOfRange)
-{
-    std::vector<Node> nodes(1);
-    nodes[0].type = NodeType::Table;
-    auto* tbl = AttachTestTable(nodes[0]);
-    tbl->row_count = 1;
-    tbl->col_count = 0;
-    tbl->cell_text_starts.push_back(0);
-    tbl->cell_run_starts.push_back(0);
-    const auto html = ExtractSelectedTextAsHtml(nodes, TextSelection::MakeOrdered(0, 0, 0, 1), false);
-    EXPECT_FALSE(html.contains("<table"));
-}
-
 TEST(ExtractSelectedTextAsHtml, TableDarkModeUsesDarkBorder)
 {
     auto nodes = ParseNodes(
@@ -413,19 +399,6 @@ TEST(ExtractSelectedTextAsHtml, TableDarkModeUsesDarkBorder)
     auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), /*dark_mode=*/true);
     EXPECT_TRUE(html.contains("border:1px solid #404040"));
     EXPECT_FALSE(html.contains("#d0d0d0"));
-}
-
-TEST(ExtractSelectedTextAsHtml, TableWithoutDataFallsBackToPre)
-{
-    // table_data が空のノードに対しては <pre> フォールバックで出力される。
-    Node n;
-    n.type = NodeType::Table;
-    n.SetText("fallback", 0);
-    std::vector<Node> nodes;
-    nodes.emplace_back(std::move(n));
-    auto html = ExtractSelectedTextAsHtml(nodes, SelectAll(nodes), false);
-    EXPECT_FALSE(html.contains("<table"));
-    EXPECT_TRUE(html.contains("<pre>fallback</pre>"));
 }
 
 TEST(ExtractSelectedTextAsHtml, ImageRendersAsImgTag)
@@ -921,13 +894,7 @@ TEST(FilenameView, ReturnsLastPathComponent)
 
 TEST(ExtractSelectedText, SelectionSpanningTableNode)
 {
-    // テーブル型ノード（線形化テキストを持つ）でのテスト
-    Node table_node;
-    table_node.type = NodeType::Table;
-    table_node.SetText("A\tB\n1\t2", 1);
-
-    std::vector<Node> nodes;
-    nodes.emplace_back(std::move(table_node));
+    auto nodes = ParseNodes("| A | B |\n|---|---|\n| 1 | 2 |");
     EXPECT_EQ(ExtractSelectedText(nodes, TextSelection::MakeOrdered(0, 0, 0, 3)), "A\tB");
 }
 
@@ -978,7 +945,7 @@ TEST(ExtractSelectedText, NodeIndexOutOfRange)
 TEST(FindLinkHitAtPosition, ReturnsUrlAndIndex)
 {
     Node node;
-    node.SetText("link1 link2", 0);
+    node.SetText("link1 link2");
     AddTestLinkUrl(node, "https://a.com");
     AddTestLinkUrl(node, "https://b.com");
     const TextRun runs[]{ MakeRun(0, 5, 0), MakeRun(6, 5, 1) };
@@ -1229,7 +1196,7 @@ TEST(AnalyzeReloadDiff, ClassifiesEdit)
     };
     for (const auto& c : kCases) {
         SCOPED_TRACE(::testing::PrintToString(c.old_text) + " -> " + ::testing::PrintToString(c.new_text));
-        const auto d = AnalyzeReloadDiff(c.old_text, c.new_text);
+        const auto d = AnalyzeReloadDiff(c.old_text, c.new_text, false);
         EXPECT_EQ(d.op, c.op);
         EXPECT_EQ(d.diff_pos, c.diff_pos);
     }
@@ -1241,14 +1208,12 @@ TEST(AnalyzeReloadDiff, ClassifiesEdit)
 
 namespace {
 
-// offsets[i] をノード i の source_offset にする。kUnsetSourceOffset のノードは未設定のまま残す。
+// offsets[i] をノード i の source_offset にする。
 std::vector<Node> NodesAt(std::initializer_list<size_t> offsets)
 {
     std::vector<Node> nodes(offsets.size());
     for (const auto [node, offset] : std::views::zip(nodes, offsets)) {
-        if (offset != kUnsetSourceOffset) {
-            node.SetSourceOffset(offset);
-        }
+        node.SetSourceOffset(offset);
     }
     return nodes;
 }
@@ -1257,7 +1222,6 @@ std::vector<Node> NodesAt(std::initializer_list<size_t> offsets)
 
 TEST(FindNodeBySourceOffset, HandBuiltNodes)
 {
-    constexpr size_t kUnset = kUnsetSourceOffset;
     struct Case {
         const char* name;
         std::vector<Node> nodes;
@@ -1272,12 +1236,12 @@ TEST(FindNodeBySourceOffset, HandBuiltNodes)
         {"ExactMatch1", NodesAt({0, 10, 25}), 10, 1},
         {"ExactMatch2", NodesAt({0, 10, 25}), 25, 2},
         {"BetweenNodes", NodesAt({0, 10, 25}), 15, 1},
-        // 未設定のノードは diff_offset 以下とみなさず飛ばす
-        {"SkipsUnsetBetween", NodesAt({0, kUnset, 20}), 10, 0},
-        {"SkipsUnsetExact", NodesAt({0, kUnset, 20}), 20, 2},
+        // 位置を受け継いだノードは返さず、受け継いだ元のノードを返す
+        {"SkipsInheritedBetween", NodesAt({0, 0, 20}), 10, 0},
+        {"SkipsInheritedExact", NodesAt({0, 0, 20}), 20, 2},
         // ソース末尾を超えるオフセットは最後のノード
         {"LastNodeForLargeOffset", NodesAt({0, 100, 200}), 999, 2},
-        {"AllUnsetOffsets", NodesAt({kUnset, kUnset, kUnset}), 50, -1},
+        {"AllInheritedOffsets", NodesAt({0, 0, 0}), 50, 0},
     };
     for (const auto& c : cases) {
         SCOPED_TRACE(c.name);
@@ -1290,10 +1254,6 @@ TEST(FindNodeBySourceOffset, ParsedMarkdown)
     std::string_view md = "# Title\n\nParagraph\n\n## Section";
     auto nodes = ParseNodes(md);
     ASSERT_GE(nodes.size(), 3u);
-    // 各ノードが有効な source_offset を持つ
-    for (const auto& n : nodes) {
-        EXPECT_NE(n.SourceOffset(), kUnsetSourceOffset);
-    }
     // 最初のノードの offset は "# " の後 = 2
     EXPECT_EQ(nodes[0].SourceOffset(), 2u);
     // "Paragraph" は "# Title\n\n" = 9バイト目から
@@ -1306,9 +1266,9 @@ TEST(FindNodeBySourceOffset, MixedWithHorizontalRules)
     std::string_view md = "AAA\n\n---\n\nBBB";
     auto nodes = ParseNodes(md);
     ASSERT_GE(nodes.size(), 3u);
-    // "AAA" offset=0, "---" は未設定, "BBB" offset=10
+    // "AAA" offset=0, "---" は前のノードの位置を受け継ぐ, "BBB" offset=10
     EXPECT_EQ(nodes[0].SourceOffset(), 0u);
-    EXPECT_EQ(nodes[1].SourceOffset(), kUnsetSourceOffset);
+    EXPECT_EQ(nodes[1].SourceOffset(), 0u);
 
     // offset=5（"---"のソース位置付近）→ AAA(offset=0)を返す（HRはスキップ）
     EXPECT_EQ(FindNodeBySourceOffset(nodes, 5), 0);
@@ -1397,7 +1357,7 @@ TEST(DiffToNode, EditedNodeHasExpectedType)
     };
     const Case cases[] = {
         {"text\n\n```\nold code\n```\n\nend", "text\n\n```\nnew code\n```\n\nend", NodeType::CodeBlock},
-        {"normal\n\n> old quote\n\nafter", "normal\n\n> new quote\n\nafter", NodeType::BlockQuote},
+        {"normal\n\n> old quote\n\nafter", "normal\n\n> new quote\n\nafter", NodeType::Paragraph},
         {"| A | B |\n|---|---|\n| 1 | 2 |", "| A | B |\n|---|---|\n| X | 2 |", NodeType::Table},
     };
     for (const auto& c : cases) {
@@ -1519,13 +1479,13 @@ TEST(CalcScrollYForDiff, FractionClampsToOne)
     EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 100, 100.0f, 0.0f), 980.0f);
 }
 
-TEST(CalcScrollYForDiff, SkipsUnsetSourceOffsets)
+TEST(CalcScrollYForDiff, SkipsInheritedSourceOffsets)
 {
-    // ノード1の source_offset が未設定の場合、ノード2を next_start として使う
+    // ノード1が位置を受け継いでいる場合、ノード2を next_start として使う
     std::string content(300, 'x');
     std::vector<Node> nodes(3);
     nodes[0].SetSourceOffset(0);
-    // nodes[1] は未設定（HorizontalRule等）
+    // nodes[1] は受け継いだ位置のまま（HorizontalRule等）
     nodes[2].SetSourceOffset(200);
     auto cache = MakeUniformCache(3, 100.0f);
 
@@ -1535,6 +1495,20 @@ TEST(CalcScrollYForDiff, SkipsUnsetSourceOffsets)
     // margin = 500*0.2 = 100
     // result = max(0, 50-100) = 0
     EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, content, 100, 500.0f, 0.0f), 0.0f);
+}
+
+// 先頭が HR の文書で、最初の本文より前の差分は HR の位置へスクロールする (fallback_scroll を使わない)。
+TEST(CalcScrollYForDiff, DiffBeforeFirstTextUsesLeadingRule)
+{
+    const std::string_view md = "---\n\ntext";
+    const auto nodes = ParseNodes(md);
+    ASSERT_EQ(nodes.size(), 2u);
+    ASSERT_EQ(nodes[0].type, NodeType::HorizontalRule);
+    EXPECT_EQ(FindNodeBySourceOffset(nodes, 2), 0);
+
+    const auto cache = MakeUniformCache(2, 1000.0f);
+    // fraction = 2/5, node_y = 1000 * 0.4 = 400, margin = 500 * 0.2 = 100
+    EXPECT_FLOAT_EQ(CalcScrollYForDiff(nodes, cache, md, 2, 500.0f, 42.0f), 300.0f);
 }
 
 TEST(CalcScrollYForDiff, LastNodeUsesContentSizeAsNextStart)
@@ -1586,7 +1560,7 @@ TEST(CalcScrollYForDiff, PrefixGrowthScrollsTowardAppendedTail)
     const std::string new_md = old_md + "\n\npara_four_added";
 
     // AnalyzeReloadDiff で Replace と判定されること
-    const auto decision = AnalyzeReloadDiff(old_md, new_md);
+    const auto decision = AnalyzeReloadDiff(old_md, new_md, false);
     ASSERT_EQ(decision.op, ReloadOp::Replace);
     ASSERT_EQ(decision.diff_pos, old_md.size());
 

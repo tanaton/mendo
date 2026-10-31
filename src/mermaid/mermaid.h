@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <functional>
 #include <deque>
+#include <ranges>
 #include <span>
 #include <string>
 #include <unordered_set>
@@ -66,7 +67,7 @@ public:
     // bg_scheduler はディスクキャッシュの読み込みと PNG デコードを UI スレッド外で行う先で、
     // 読み込み完了は app_msg::MERMAID_DISK_LOADED で hwnd に通知され、受信側が ProcessDiskLoads を呼ぶ。
     // user_data_folder は WebView2 のセッションデータの保存先（空なら WebView2 既定の場所）。
-    // on_update は準備完了と結果が出たときに呼ぶ。準備前の要求と、結果を待つ図を要求し直させる。
+    // on_update は準備完了・結果が出たとき・WebView2 を諦めたときに呼ぶ。準備前の要求と、結果を待つ図を要求し直させる。
     void Init(HWND hwnd, IWICImagingFactory* wic, MermaidFileCache& file_cache,
               TaskScheduler& bg_scheduler,
               const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_update);
@@ -75,10 +76,9 @@ public:
     void RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback) override;
     // インライン数式を 1 ページに並べて描き、1 回のキャプチャで型を取る。図と同じワーカー枠を使う。
     // 1 つずつ描くとキャプチャの待ちで 1 個 66ms かかるが、まとめれば 1 個 0.5ms ほどで済む。
-    // items は kMaxInlineMathPerChunk 個までにする。cache_key (InlineMathChunk::key) があれば、ページを図と同じ
-    // ディスクキャッシュに置き、次からは WebView2 を起動せずに読む。0 ならキャッシュしない。
-    // want_page が無ければページをいつも返す。
-    void RequestMathBatch(std::vector<InlineMathItem> items, uint64_t cache_key, MathBatchCallback callback, MathPageGate want_page = {});
+    // items は kMaxInlineMathPerChunk 個までにする。ページは cache_key (InlineMathChunk::key) で図と同じ
+    // ディスクキャッシュに置き、次からは WebView2 を起動せずに読む。
+    void RequestMathBatch(std::vector<InlineMathItem> items, uint64_t cache_key, MathBatchCallback callback, MathPageGate want_page);
     void SetRenderTarget(ID2D1RenderTarget* render_target);
     // ワーカーは画面外に置くため、PNG は本体ウィンドウではなくその位置のモニタの DPR で描かれる。
     // ワーカーを起動する前にディスクキャッシュを引くときの DPR に使う。
@@ -107,11 +107,11 @@ private:
         std::string code;
         float max_width = 0.0f;
         bool dark_mode = false;
+        // 結果を width_free_hash で持つ。ディスクで当たったか、描いた結果が幅の上限より狭かった。
+        bool width_free = false;
         // 幅つきのキー。要求中の判定とエラー結果はこちらで持つ。
         uint64_t code_hash = 0;
         uint64_t width_free_hash = 0;
-        // 結果を width_free_hash で持つ。ディスクで当たったか、描いた結果が幅の上限より狭かった。
-        bool width_free = false;
         uint64_t CacheKey() const noexcept
         {
             return width_free ? width_free_hash : code_hash;
@@ -132,7 +132,6 @@ private:
         // キャッシュに入れず、結果は math_callback で返す。
         std::vector<InlineMathItem> math_items;
         MathBatchCallback math_callback;
-        // 0 ならディスクキャッシュに置かない。
         uint64_t math_cache_key = 0;
         // 呼んだら空にして、答えを math_page に持つ (DecideMathPage)。
         MathPageGate math_want_page;
@@ -210,6 +209,9 @@ private:
     static constexpr int MAX_WORKERS = 2;
     static constexpr int MAX_ENV_RETRIES = 3;
     static constexpr UINT ENV_RETRY_INTERVAL_MS = 500;
+    // 諦めてからこの間は起動し直さず、要求をすぐ失敗で返す。図は文言を出したまま走査ごとに要求するので、
+    // この後の走査で起動を試す。データフォルダの解放待ちのような一時的な失敗から、操作なしで戻るため。
+    static constexpr std::chrono::seconds WEBVIEW_RETRY_AFTER{ 30 };
     static constexpr int MAX_WORKER_RETRIES = 3;
     // 閉じると次の図で環境生成からやり直すため、読み進める間に閉じない程度に長めにする。
     static constexpr UINT IDLE_SHUTDOWN_MS = 60000;
@@ -254,9 +256,10 @@ private:
     // 進行中の要求をすべて捨てる。SVG 要求は cancelled=true で完了させる。
     void CancelPending();
 
-    std::span<Worker> ActiveWorkers() noexcept
+    // 破棄したスロット (AbandonWorker) は飛ばす。
+    auto ActiveWorkers() noexcept
     {
-        return { workers_, static_cast<size_t>(worker_count_) };
+        return std::span{ workers_, static_cast<size_t>(worker_count_) } | std::views::filter([](const Worker& w) static noexcept { return w.hwnd != nullptr; });
     }
     Worker* FindIdleWorker() noexcept;
 
@@ -269,6 +272,14 @@ private:
     void MaybeGrowWorkers();
     void ScheduleIdleShutdown();
     void ReleaseWebView();
+    // 応答できるワーカーが 1 つも残らないときの出口。環境を作れなかったときも通る。
+    void AbandonWebView();
+    bool IsWebViewGivenUp() const noexcept
+    {
+        return std::chrono::steady_clock::now() < webview_retry_at_;
+    }
+    // ワーカーの起動や再起動を諦める。処理中の要求を失敗で終え、最後の 1 つなら AbandonWebView へ進む。
+    void AbandonWorker(int index);
     void SetupWorker(int index);
     void OnControllerCreated(int index, ICoreWebView2Controller* controller);
     void RegisterWebViewHandlers(int index);
@@ -282,7 +293,7 @@ private:
     void ProcessQueue();
     void DrainPendingRequests(bool cancelled);
     void RenderInWorker(Worker& worker);
-    // WebView2 ワーカーでの描画待ちキューに積む。初期化前なら初期化を起動し、図の要求は捨てる。
+    // WebView2 ワーカーでの描画待ちキューに積む。初期化前なら初期化を起動し、図の要求は捨てる。諦めている間は失敗で返す。
     void EnqueueWebRender(RenderRequest req);
     // 要求の結果 (ビットマップかエラー) がキャッシュに入っていれば、通知して要求し直させる。
     void FinishWorkerRequest(Worker& worker);
@@ -329,13 +340,16 @@ private:
     Microsoft::WRL::ComPtr<ICoreWebView2Environment> webview_env_;
     std::wstring user_data_folder_;
     int env_retry_count_ = 0;
+    std::chrono::steady_clock::time_point webview_retry_at_{};
 
     Worker workers_[MAX_WORKERS];
+    // 使い始めたスロットの数。添字を捕まえた非同期コールバックが別のワーカーに届かないよう、破棄したスロットは使い回さない。
     int worker_count_ = 0;
     // 最初のワーカーの準備ができたか。アイドル解放で戻す。
     bool ready_ = false;
+    bool editing_diagrams_ = false;
     unsigned int request_counter_ = 0;
-    // 準備完了 (アイドル解放後の再初期化を含む) と結果が出たときに呼ぶ。準備前の描画要求は捨てているため再要求させる。
+    // 準備完了 (アイドル解放後の再初期化を含む)・結果が出たとき・諦めたときに呼ぶ。準備前の描画要求は捨てているため再要求させる。
     std::move_only_function<void()> on_update_;
 
     std::deque<RenderRequest> pending_requests_;
@@ -348,7 +362,6 @@ private:
     MermaidFileCache* file_cache_ = nullptr;
 
     TaskScheduler* bg_scheduler_ = nullptr;
-    bool editing_diagrams_ = false;
     PostedInbox<DiskLoad> disk_results_;
     // DropQueued / CancelPending で進め、投入済みのディスクキャッシュの読み込みを取り消す (ImageLoader の drop_gen_ と同じ)。
     std::atomic<uint32_t> disk_drop_gen_{ 0 };

@@ -70,11 +70,12 @@ struct ParseContext : NodeStorage {
         return cancel_requested;
     }
 
-    std::vector<size_t> blockquote_indices;
     // [id - 1] が脚注 id への参照数。md4c の ref_id はテーブル行の判定でも数えられて飛ぶので自前で数える。
     std::vector<uint32_t> footnote_ref_counts;
-    // 最後に記録したソース位置。RecordSourceOffset がこれより前の位置を記録しないために持つ。
+    // 最後に記録したソース位置。ノードの位置を単調非減少に保つ (本文の位置を持たないノードはこれを受け継ぐ)。
     size_t last_source_offset = 0;
+    // 現在ノードの本文の位置を記録した。していなければ本文を原文と突き合わせられない。
+    bool source_offset_recorded = false;
 
     // 装飾 span のネスト追跡は md4c 推奨のカウンタ方式。enter で +1, leave で -1。
     // [std::countr_zero(RunFlagOf(type))] が span の種別ごとの深さ。CommonMark で link はネスト禁止のため
@@ -100,14 +101,12 @@ struct ParseContext : NodeStorage {
     // span 切替 / ブロック退出時に FlushPendingRun が呼ばれて確定する。
     uint32_t pending_run_start = 0;
     bool has_pending_run = false;
-    // pending_run_start 以降に AppendDoc で押し込まれた改行の数。FlushPendingRun の count 走査を排除。
-    // md4c の \n を size==1 の単独 chunk としてしか OnText に渡さない契約 (BR/SOFTBR/HTML 改行/code 行末) に依存している。
-    int32_t pending_run_newlines = 0;
 
     int indent_level = 0;
     int blockquote_depth = 0;
     int blockquote_group_counter = 0;  // 最外側 blockquote に入るたびに進める group ID（ネスト中は共有）
     int outermost_quote_indent = 0;    // 最外側 blockquote 進入時の indent_level（描画時のバー起点）
+    size_t quote_first_node = 0;       // 最外側 blockquote の最初のノード番号（ノードを作らない引用では後続のノードを指す）
 
     // リスト追跡: 順序なしリストは -1、順序ありリストは次の番号 (0 以上)。
     // スタックアダプタを挟まず vector を直接扱う (back/push_back/pop_back)。
@@ -145,29 +144,6 @@ struct ParseContext : NodeStorage {
     // 区切った (色分けする) コードブロックの並びの先頭。パースを終えてから AnnotateCodeChunkLeads に渡す。
     std::vector<size_t> split_code_runs;
 
-    // 現在ノードのテキストを arena へコピーすることが確定しているか。span markup (** _ ` 等) の存在や、
-    // entity 解決 / BR / SOFTBR で text を置換するケースは current_text と raw_slice が
-    // 構造的に一致しなくなるため、FinalizeCurrentNode の memcmp を完全にスキップできる。
-    bool current_node_needs_copy = false;
-
-    // current_text が source の (offset, current_text.size()) 範囲とバイト一致するか。
-    // 一致するノードは arena にコピーせず DocumentData::raw を指せる。
-    // span マークアップ (** _ ` 等) や BR/SOFTBR/ENTITY 混在のノードは不一致で arena へのコピーに落ちる。
-    // offset は呼び出し側で SourceOffset() から取り出した値を渡す (FinalizeCurrentNode で再利用するため)。
-    bool CurrentTextMatchesRawSliceAt(size_t offset) const noexcept
-    {
-        // 高頻度呼び出し (100MB で 40万回超) のため MENDO_PROFILE は外す。
-        // zone overhead が ~120ms 単位で計測自体を歪めるため。
-        const size_t len = current_text.size();
-        if (offset + len > markdown.size()) {
-            return false;
-        }
-        // current_node_needs_copy で span/entity 混在は事前に弾けるため、ここまで来たノードは大半が
-        // 全長一致 (success) になる。probe 短絡は worst-case で len 分の比較が走り意味がないため、
-        // 1 回の memcmp に統一する。
-        return std::char_traits<char>::compare(markdown.data() + offset, current_text.data(), len) == 0;
-    }
-
     // 現在ノードのテキストと runs のスクラッチを Node に確定し、スクラッチをクリアする。
     // BeginNode 直前と各 OnLeaveBlock の current_node 解除直前に呼ぶ。
     // スクラッチの capacity は保持して次ノードで再利用する (確保回数削減のため)。
@@ -177,12 +153,11 @@ struct ParseContext : NodeStorage {
         FlushPendingRun();
         if (current_node) {
             if (!current_text.empty()) {
-                const auto offset = current_node->SourceOffset();
-                const bool matches_raw = !current_node_needs_copy && offset != kUnsetSourceOffset && CurrentTextMatchesRawSliceAt(offset);
-                const std::string_view text = matches_raw
-                                                  ? markdown.substr(offset, current_text.size())
-                                                  : arena.CopyText(current_text);
-                current_node->SetText(text);
+                // 原文とバイト一致するノードは arena にコピーせず DocumentData::raw を指す。span の記号や文字参照、
+                // BR/SOFTBR を含むノードは一致しないが、比較は最初の違いで止まる。
+                const std::string_view raw = source_offset_recorded ? markdown.substr(current_node->SourceOffset(), current_text.size()) : std::string_view{};
+                current_node->SetText(raw == current_text ? raw : arena.CopyText(current_text));
+                current_node->line_count = static_cast<int32_t>(std::ranges::count(current_text, '\n'));
             }
             if (!current_runs.empty()) {
                 current_node->SetRuns(arena.Copy(current_runs));
@@ -242,10 +217,11 @@ struct ParseContext : NodeStorage {
             current_node->quote_depth = SaturateToInt8(blockquote_depth);
             current_node->quote_outer_indent = SaturateToInt8(outermost_quote_indent);
         }
-        current_node_needs_copy = false;
+        current_node->SetSourceOffset(last_source_offset);
+        source_offset_recorded = false;
     }
 
-    // 区切るのは段落・引用・コードブロック (図と ```math を除く) だけ。見出しやリスト項目は区切ると記号や下線が増え、
+    // 区切るのは段落 (引用の中も含む)・コードブロック (図と ```math を除く) だけ。見出しやリスト項目は区切ると記号や下線が増え、
     // 図と数式は 1 つのコードから描く。
     bool CanSplitCurrentNode() const noexcept
     {
@@ -254,7 +230,6 @@ struct ParseContext : NodeStorage {
         }
         switch (current_node->type) {
         case NodeType::Paragraph:
-        case NodeType::BlockQuote:
             return true;
         case NodeType::CodeBlock:
             return current_node->code_language != SyntaxLanguage::Mermaid && current_node->code_language != SyntaxLanguage::LatexMath;
@@ -373,11 +348,10 @@ struct ParseContext : NodeStorage {
             const bool move_line = line_begin != std::string_view::npos;
             size_t cut = 0;
             if (move_line) {
-                // 行の頭に積んだ字下げは続きのノードへ移す。コードには run が無いので、テキストと改行の数だけ直せばよい。
+                // 行の頭に積んだ字下げは続きのノードへ移す。コードには run が無いので、テキストだけ直せばよい。
                 FlushPendingRun();
                 indent.assign(std::string_view{ current_text }.substr(line_begin));
                 current_text.resize(line_begin - 1);
-                current_node->line_count--;
             }
             else {
                 cut = FindChunkCut(chunk, kTextChunkTarget - std::min(current_text.size(), kTextChunkTarget));
@@ -460,22 +434,7 @@ struct ParseContext : NodeStorage {
         }
         current_node->SetSourceOffset(offset);
         last_source_offset = offset;
-    }
-
-    // 引用内の段落は BlockQuote ノードとして作り、Alert 検出対象に登録する。
-    void BeginParagraphNode()
-    {
-        BeginNode(NodeType::Paragraph);
-        MakeCurrentParagraph();
-    }
-
-    // 今のノードを段落にする。引用の中なら引用の段落 (BlockQuote) にして、Alert の検出に回す。
-    void MakeCurrentParagraph()
-    {
-        current_node->type = (blockquote_depth > 0) ? NodeType::BlockQuote : NodeType::Paragraph;
-        if (current_node->type == NodeType::BlockQuote) {
-            blockquote_indices.emplace_back(CurrentNodeIndex());
-        }
+        source_offset_recorded = true;
     }
 
     // md4c は tight list の LI 直下の段落を MD_BLOCK_P で囲まないため、LI 内で見出し / HR /
@@ -489,7 +448,7 @@ struct ParseContext : NodeStorage {
         if (list_counter.empty()) {
             return false;
         }
-        BeginParagraphNode();
+        BeginNode(NodeType::Paragraph);
         return true;
     }
 
@@ -599,9 +558,7 @@ struct ParseContext : NodeStorage {
         }
         // 1-char chunk fastpath: md4c は \n / 空白 / 単一 entity 等を size==1 で渡してくるので push_back に振り分ける。
         if (text.size() == 1) {
-            const char c = text[0];
-            pending_run_newlines += (c == '\n');
-            target->push_back(c);
+            target->push_back(text[0]);
         }
         else {
             target->append(text);
@@ -615,7 +572,6 @@ struct ParseContext : NodeStorage {
 
     // 未確定 TextRun を確定して runs に push する。
     // span 状態が変わる直前 (OnEnter/Leave Span)、セル切替、OnLeaveBlock の冒頭で呼ぶ。
-    // line_count はノード単位なので、セル内では更新しない。
     // active_text_buffer が非 null なら current_node も非 null (両者は対で更新される)。
     // 装飾もリンクも無い run は出さない。runs の隙間は既定スタイルとして扱われる。
     constexpr void FlushPendingRun()
@@ -626,7 +582,6 @@ struct ParseContext : NodeStorage {
                 const uint32_t length = static_cast<uint32_t>(buf->size() - pending_run_start);
                 const bool plain = current_run_flags == 0 && current_link_url_index < 0;
                 if (buf == &current_text) {
-                    current_node->line_count += pending_run_newlines;
                     if (!plain && current_runs.size() < kMaxRunsPerText) {
                         current_runs.push_back(MakeRun(pending_run_start, length));
                     }
@@ -644,7 +599,6 @@ struct ParseContext : NodeStorage {
             }
         }
         has_pending_run = false;
-        pending_run_newlines = 0;
     }
 
     // 装飾もリンクも無い表は cell_run_starts を持たない。セルごとに 4 byte で、短いセルが 1100 万個の 60MB の表では
@@ -662,10 +616,10 @@ struct ParseContext : NodeStorage {
 // 他の種別は payload を別の用途に使うため、昇格すると壊れる (issue#298)。
 constexpr bool IsImagePromotionCandidate(const Node& node) noexcept
 {
-    return node.type == NodeType::Paragraph || node.type == NodeType::BlockQuote;
+    return node.type == NodeType::Paragraph;
 }
 
-// MD_BLOCK_P 終了時、画像 span を含む段落 / 引用ブロックを Image ノードへ昇格させる。
+// MD_BLOCK_P 終了時、画像 span を含む段落を Image ノードへ昇格させる。
 void TryPromoteParagraphToImage(ParseContext* ctx)
 {
     auto* const cn = ctx->current_node;
@@ -696,13 +650,9 @@ void BeginTable(ParseContext* ctx, const MD_BLOCK_TABLE_DETAIL* detail)
 {
     ctx->BeginNode(NodeType::Table);
     ctx->indices.table_indices.emplace_back(ctx->CurrentNodeIndex());
-    // 後続の TR/TH/TD で nullable チェックなく参照できるよう先に確保する。
-    // これに依存して TR/TH/TD は has_table() ガードを省いている。
+    // Table ノードは必ず表を持つ (Node::table_data)。
     auto* const tbl = ctx->tables.emplace_back(std::make_unique<NodeTableData>()).get();
     ctx->current_node->set_table_data(tbl);
-    if (!detail) {
-        return;
-    }
     // md4c から正確なテーブルサイズが渡されるので、要素数が決まる配列は一度に reserve して
     // 余りを持たせない。セル本文の長さは分からないので concat_text は伸長に任せる。
     const size_t total_rows = static_cast<size_t>(detail->head_row_count) + detail->body_row_count;
@@ -739,7 +689,7 @@ void BeginTableCell(ParseContext* ctx, const MD_BLOCK_TD_DETAIL* detail)
 
     // 列単位の align は header 行 (1 行目) で決まる。col_count は BeginTable で確定済み。
     if (first_row) {
-        tbl->aligns.push_back(detail ? static_cast<TableAlign>(detail->align) : TableAlign::Default);
+        tbl->aligns.push_back(static_cast<TableAlign>(detail->align));
     }
 }
 
@@ -826,208 +776,23 @@ void LeaveCodeBlock(ParseContext* ctx)
     assert(ctx->current_runs.empty());
     if (ctx->current_text.ends_with('\n')) {
         ctx->current_text.pop_back();
-        cn->line_count--;
     }
     // ```math は $$..$$ だけの段落と同じく、段落の中にディスプレイ形式の数式として描く。テキストを $$ で囲んで
     // kMathDoubleDollar の run にし、選択・コピー・検索も段落の数式と同じに扱う。
     if (cn->code_language == SyntaxLanguage::LatexMath && !ctx->current_text.empty()) {
         ctx->current_text.insert(0, "$$");
         ctx->current_text.append("$$");
-        ctx->current_node_needs_copy = true;
         TextRun run;
         run.length = static_cast<uint32_t>(ctx->current_text.size());
         run.set_raw_flags(TextRun::kMathDoubleDollar);
         ctx->current_runs.push_back(run);
-        ctx->MakeCurrentParagraph();
+        cn->type = NodeType::Paragraph;
         cn->code_language = SyntaxLanguage::None;
     }
     else if (IsDiagramLanguage(cn->code_language)) {
         cn->type = NodeType::Diagram;
         ctx->indices.diagram_indices.emplace_back(ctx->CurrentNodeIndex());
     }
-}
-
-int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
-{
-    auto* const ctx = static_cast<ParseContext*>(userdata);
-    if (ctx->ShouldCancel()) {
-        return 1;
-    }
-
-    switch (type) {
-    case MD_BLOCK_DOC:
-        break;
-
-    case MD_BLOCK_H: {
-        auto* const h = static_cast<MD_BLOCK_H_DETAIL*>(detail);
-        ctx->BeginNode(NodeType::Heading);
-        ctx->current_node->heading_level = static_cast<int8_t>(h->level);
-        break;
-    }
-
-    case MD_BLOCK_P:
-        ctx->BeginParagraphNode();
-        break;
-
-    case MD_BLOCK_CODE: {
-        ctx->BeginNode(NodeType::CodeBlock);
-        auto* const code_detail = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
-        if (code_detail && code_detail->lang.text && code_detail->lang.size > 0) {
-            ctx->current_node->code_language = DetectLanguage(ctx->AttributeText(code_detail->lang));
-        }
-        break;
-    }
-
-    case MD_BLOCK_QUOTE:
-        if (ctx->blockquote_depth == 0) {
-            ++ctx->blockquote_group_counter;
-            ctx->outermost_quote_indent = ctx->indent_level + 1;
-        }
-        ctx->blockquote_depth++;
-        ctx->indent_level++;
-        break;
-
-    case MD_BLOCK_UL:
-        ctx->list_counter.push_back(-1); // unordered の番兵 (ordered の start は 0 以上)
-        ctx->indent_level++;
-        break;
-
-    case MD_BLOCK_OL: {
-        auto* const ol = static_cast<MD_BLOCK_OL_DETAIL*>(detail);
-        ctx->list_counter.push_back(static_cast<int>(ol->start));
-        ctx->indent_level++;
-        break;
-    }
-
-    case MD_BLOCK_LI:
-        BeginListItem(ctx, static_cast<const MD_BLOCK_LI_DETAIL*>(detail));
-        break;
-
-    case MD_BLOCK_HR:
-        ctx->BeginNode(NodeType::HorizontalRule);
-        break;
-
-    case MD_BLOCK_TABLE:
-        BeginTable(ctx, static_cast<const MD_BLOCK_TABLE_DETAIL*>(detail));
-        break;
-
-    case MD_BLOCK_THEAD:
-    case MD_BLOCK_TBODY:
-        break;
-
-    case MD_BLOCK_TR:
-        assert(ctx->current_node && ctx->current_node->type == NodeType::Table);
-        ++ctx->current_node->table_data()->row_count;
-        break;
-
-    case MD_BLOCK_TH:
-    case MD_BLOCK_TD:
-        BeginTableCell(ctx, static_cast<const MD_BLOCK_TD_DETAIL*>(detail));
-        break;
-
-    case MD_BLOCK_FOOTNOTE_DEF_SECTION:
-        ctx->BeginNode(NodeType::HorizontalRule);
-        ctx->EndNode();
-        ctx->indent_level++;
-        break;
-
-    case MD_BLOCK_FOOTNOTE_DEF:
-        BeginFootnoteDef(ctx, static_cast<const MD_BLOCK_FOOTNOTE_DEF_DETAIL*>(detail));
-        break;
-
-    case MD_BLOCK_HTML:
-        break;
-
-    default:
-        std::unreachable();
-    }
-
-    return 0;
-}
-
-// md4c は enter/leave が常にバランスするので、enter で積んだ深さやスタックは無条件に戻す。
-// キャンセル後は enter も leave も何もしないので、途中で止めても釣り合いは崩れない。
-int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
-{
-    auto* const ctx = static_cast<ParseContext*>(userdata);
-    if (ctx->ShouldCancel()) {
-        return 1;
-    }
-
-    ctx->FlushPendingRun();
-
-    switch (type) {
-    case MD_BLOCK_CODE:
-        LeaveCodeBlock(ctx);
-        // 他のリーフブロックと同様に leave で閉じる。残すと tight list でフェンス直後に
-        // MD_BLOCK_P 無しで届く本文がコードに混入する。
-        ctx->EndNode();
-        break;
-
-    case MD_BLOCK_QUOTE:
-        --ctx->blockquote_depth;
-        --ctx->indent_level;
-        break;
-
-    case MD_BLOCK_UL:
-    case MD_BLOCK_OL:
-        ctx->list_counter.pop_back();
-        --ctx->indent_level;
-        break;
-
-    case MD_BLOCK_TABLE: {
-        auto* const cn = ctx->current_node;
-        assert(cn && cn->has_table());
-        FinalizeTableOffsets(*cn->table_data());
-        // 以後 concat_text は伸縮しないので、本文として直接指す。
-        cn->SetText(cn->table_data()->concat_text);
-        ctx->EndNode();
-        break;
-    }
-
-    case MD_BLOCK_THEAD:
-    case MD_BLOCK_TBODY:
-    case MD_BLOCK_TR:
-        break;
-
-    case MD_BLOCK_TH:
-    case MD_BLOCK_TD:
-        // セル退出後は table ノード自体への AppendDoc は想定されないため nullptr に倒す。
-        // 次の TR/TD/TH 進入で再設定される。
-        ctx->active_text_buffer = nullptr;
-        break;
-
-    case MD_BLOCK_H:
-        // 見出しの中身は行内要素だけで、見出しは区切らないので current_node は見出しのまま。
-        assert(ctx->current_node && ctx->current_node->type == NodeType::Heading);
-        ctx->indices.toc_entries.emplace_back(static_cast<int>(ctx->CurrentNodeIndex()));
-        ctx->EndNode();
-        break;
-
-    case MD_BLOCK_P:
-        TryPromoteParagraphToImage(ctx);
-        ctx->EndNode();
-        break;
-
-    case MD_BLOCK_LI:
-    case MD_BLOCK_HR:
-    case MD_BLOCK_FOOTNOTE_DEF:
-        ctx->EndNode();
-        break;
-
-    case MD_BLOCK_FOOTNOTE_DEF_SECTION:
-        --ctx->indent_level;
-        break;
-
-    case MD_BLOCK_DOC:
-    case MD_BLOCK_HTML:
-        break;
-
-    default:
-        std::unreachable();
-    }
-
-    return 0;
 }
 
 struct AlertInfo {
@@ -1136,12 +901,8 @@ void TransformAlertNode(Node& node, TextArena& arena, const AlertInfo& info, siz
         new_runs.emplace_back(adjusted);
     }
 
-    // 全文走査で改行を数え直すと O(text) かかるため、ここで差分計算する。
-    // マーカー [!TYPE] 本体には改行が入らず、DetectAlertMarker が直後の改行を含めたときだけ
-    // 改行 1 個。marker_end 直前の 1 文字だけを見ればよい。
-    const int32_t marker_newlines = (marker_end > 0 && current_text[marker_end - 1] == '\n');
-    const int32_t new_line_count = node.line_count - marker_newlines + has_content;
-    node.SetText(arena.CopyText(new_text), new_line_count);
+    node.SetText(arena.CopyText(new_text));
+    node.line_count = static_cast<int32_t>(std::ranges::count(new_text, '\n'));
     node.SetRuns(arena.Copy(new_runs));
     node.alert_type = info.type;
     node.set_has_alert_label();
@@ -1150,42 +911,223 @@ void TransformAlertNode(Node& node, TextArena& arena, const AlertInfo& info, siz
 // nodes[i] が Alert マーカーを持ちうる位置 (最外側 blockquote の先頭段落) か。
 // GitHub 仕様: Alert は最外側 blockquote (quote_depth==1) でのみ認識し、ネスト内 (`> > [!NOTE]`) は通常の引用。
 // マーカーは blockquote の先頭でのみ有効で、"> intro" の後に続く段落の [!NOTE] は通常の引用。
-bool IsAlertHeadCandidate(const std::vector<Node>& nodes, size_t i) noexcept
+bool IsAlertHeadCandidate(const ParseContext& ctx, size_t i) noexcept
 {
-    const auto& node = nodes[i];
-    return node.type == NodeType::BlockQuote && node.quote_depth == 1 &&
-           (i == 0 || nodes[i - 1].blockquote_group != node.blockquote_group);
+    const auto& node = ctx.nodes[i];
+    return i == ctx.quote_first_node && node.type == NodeType::Paragraph && node.quote_depth == 1;
 }
 
-// 単一の BlockQuote ノードに対して Alert マーカーを検出・適用し、
-// 同一 blockquote_group の後続ノードに alert_type を伝播する。
-// 伝播先は先頭候補にならないので、先頭候補が既に alert_type を持つことはない。
-void DetectAlertAt(std::vector<Node>& nodes, TextArena& arena, size_t i)
+// 閉じた最外側の引用の先頭の段落で Alert マーカーを検出・適用し、引用の残りのノードに alert_type を伝播する。
+void DetectAlert(ParseContext* ctx)
 {
-    if (!IsAlertHeadCandidate(nodes, i)) {
+    const size_t head = ctx->quote_first_node;
+    if (head >= ctx->nodes.size() || !IsAlertHeadCandidate(*ctx, head)) {
         return;
     }
-    auto& node = nodes[i];
+    auto& node = ctx->nodes[head];
     const auto [info, marker_end] = DetectAlertMarker(node.GetText());
     if (!info) {
         return;
     }
-    const int group = node.blockquote_group;
-    TransformAlertNode(node, arena, *info, marker_end);
+    TransformAlertNode(node, ctx->arena, *info, marker_end);
 
-    // ノード種別に依存せず、グループIDで判定する（リスト等も含む）。
-    for (size_t j = i + 1; j < nodes.size(); j++) {
-        if (nodes[j].blockquote_group != group) {
-            break;
-        }
-        nodes[j].alert_type = info->type;
+    // 引用の後ろのノードはまだ無いので、ノード種別に依存せず末尾まで (リスト等も含む)。
+    for (Node& n : std::span{ ctx->nodes }.subspan(head + 1)) {
+        n.alert_type = info->type;
     }
+}
+
+int OnEnterBlock(MD_BLOCKTYPE type, void* detail, void* userdata)
+{
+    auto* const ctx = static_cast<ParseContext*>(userdata);
+    if (ctx->ShouldCancel()) {
+        return 1;
+    }
+
+    switch (type) {
+    case MD_BLOCK_DOC:
+        break;
+
+    case MD_BLOCK_H: {
+        auto* const h = static_cast<MD_BLOCK_H_DETAIL*>(detail);
+        ctx->BeginNode(NodeType::Heading);
+        ctx->current_node->heading_level = static_cast<int8_t>(h->level);
+        break;
+    }
+
+    case MD_BLOCK_P:
+        ctx->BeginNode(NodeType::Paragraph);
+        break;
+
+    case MD_BLOCK_CODE: {
+        ctx->BeginNode(NodeType::CodeBlock);
+        auto* const code_detail = static_cast<MD_BLOCK_CODE_DETAIL*>(detail);
+        if (code_detail->lang.text && code_detail->lang.size > 0) {
+            ctx->current_node->code_language = DetectLanguage(ctx->AttributeText(code_detail->lang));
+        }
+        break;
+    }
+
+    case MD_BLOCK_QUOTE:
+        if (ctx->blockquote_depth == 0) {
+            ++ctx->blockquote_group_counter;
+            ctx->outermost_quote_indent = ctx->indent_level + 1;
+            ctx->quote_first_node = ctx->nodes.size();
+        }
+        ctx->blockquote_depth++;
+        ctx->indent_level++;
+        break;
+
+    case MD_BLOCK_UL:
+        ctx->list_counter.push_back(-1); // unordered の番兵 (ordered の start は 0 以上)
+        ctx->indent_level++;
+        break;
+
+    case MD_BLOCK_OL: {
+        auto* const ol = static_cast<MD_BLOCK_OL_DETAIL*>(detail);
+        ctx->list_counter.push_back(static_cast<int>(ol->start));
+        ctx->indent_level++;
+        break;
+    }
+
+    case MD_BLOCK_LI:
+        BeginListItem(ctx, static_cast<const MD_BLOCK_LI_DETAIL*>(detail));
+        break;
+
+    case MD_BLOCK_HR:
+        ctx->BeginNode(NodeType::HorizontalRule);
+        break;
+
+    case MD_BLOCK_TABLE:
+        BeginTable(ctx, static_cast<const MD_BLOCK_TABLE_DETAIL*>(detail));
+        break;
+
+    case MD_BLOCK_THEAD:
+    case MD_BLOCK_TBODY:
+        break;
+
+    case MD_BLOCK_TR:
+        assert(ctx->current_node && ctx->current_node->type == NodeType::Table);
+        ++ctx->current_node->table_data()->row_count;
+        break;
+
+    case MD_BLOCK_TH:
+    case MD_BLOCK_TD:
+        BeginTableCell(ctx, static_cast<const MD_BLOCK_TD_DETAIL*>(detail));
+        break;
+
+    case MD_BLOCK_FOOTNOTE_DEF_SECTION:
+        ctx->BeginNode(NodeType::HorizontalRule);
+        ctx->EndNode();
+        ctx->indent_level++;
+        break;
+
+    case MD_BLOCK_FOOTNOTE_DEF:
+        BeginFootnoteDef(ctx, static_cast<const MD_BLOCK_FOOTNOTE_DEF_DETAIL*>(detail));
+        break;
+
+    case MD_BLOCK_HTML:
+        break;
+
+    default:
+        std::unreachable();
+    }
+
+    return 0;
+}
+
+// md4c は enter/leave が常にバランスするので、enter で積んだ深さやスタックは無条件に戻す。
+// キャンセル後は enter も leave も何もしないので、途中で止めても釣り合いは崩れない。
+int OnLeaveBlock(MD_BLOCKTYPE type, void* /*detail*/, void* userdata)
+{
+    auto* const ctx = static_cast<ParseContext*>(userdata);
+    if (ctx->ShouldCancel()) {
+        return 1;
+    }
+
+    ctx->FlushPendingRun();
+
+    switch (type) {
+    case MD_BLOCK_CODE:
+        LeaveCodeBlock(ctx);
+        // 他のリーフブロックと同様に leave で閉じる。残すと tight list でフェンス直後に
+        // MD_BLOCK_P 無しで届く本文がコードに混入する。
+        ctx->EndNode();
+        break;
+
+    case MD_BLOCK_QUOTE:
+        --ctx->blockquote_depth;
+        --ctx->indent_level;
+        if (ctx->blockquote_depth == 0) {
+            DetectAlert(ctx);
+        }
+        break;
+
+    case MD_BLOCK_UL:
+    case MD_BLOCK_OL:
+        ctx->list_counter.pop_back();
+        --ctx->indent_level;
+        break;
+
+    case MD_BLOCK_TABLE: {
+        auto* const cn = ctx->current_node;
+        assert(cn && cn->has_table());
+        FinalizeTableOffsets(*cn->table_data());
+        // 以後 concat_text は伸縮しないので、本文として直接指す。
+        cn->SetText(cn->table_data()->concat_text);
+        ctx->EndNode();
+        break;
+    }
+
+    case MD_BLOCK_THEAD:
+    case MD_BLOCK_TBODY:
+    case MD_BLOCK_TR:
+        break;
+
+    case MD_BLOCK_TH:
+    case MD_BLOCK_TD:
+        // セル退出後は table ノード自体への AppendDoc は想定されないため nullptr に倒す。
+        // 次の TR/TD/TH 進入で再設定される。
+        ctx->active_text_buffer = nullptr;
+        break;
+
+    case MD_BLOCK_H:
+        // 見出しの中身は行内要素だけで、見出しは区切らないので current_node は見出しのまま。
+        assert(ctx->current_node && ctx->current_node->type == NodeType::Heading);
+        ctx->indices.toc_entries.emplace_back(static_cast<int>(ctx->CurrentNodeIndex()));
+        ctx->EndNode();
+        break;
+
+    case MD_BLOCK_P:
+        TryPromoteParagraphToImage(ctx);
+        ctx->EndNode();
+        break;
+
+    case MD_BLOCK_LI:
+    case MD_BLOCK_HR:
+    case MD_BLOCK_FOOTNOTE_DEF:
+        ctx->EndNode();
+        break;
+
+    case MD_BLOCK_FOOTNOTE_DEF_SECTION:
+        --ctx->indent_level;
+        break;
+
+    case MD_BLOCK_DOC:
+    case MD_BLOCK_HTML:
+        break;
+
+    default:
+        std::unreachable();
+    }
+
+    return 0;
 }
 
 // 今の段落が Alert の先頭候補で、テキストが Alert マーカー ([!TYPE] と直後の改行) だけからなるか。
 bool IsAlertMarkerOnlyHead(const ParseContext* ctx)
 {
-    if (!ctx->current_node || !IsAlertHeadCandidate(ctx->nodes, ctx->CurrentNodeIndex())) {
+    if (!ctx->current_node || !IsAlertHeadCandidate(*ctx, ctx->CurrentNodeIndex())) {
         return false;
     }
     const auto [info, end] = DetectAlertMarker(ctx->current_text);
@@ -1193,7 +1135,7 @@ bool IsAlertMarkerOnlyHead(const ParseContext* ctx)
 }
 
 // "> [!NOTE]\n> ![img](p.png)" は md4c では 1 段落になり、画像段落として丸ごと Image に昇格すると
-// Alert 判定の対象 (引用ノード) が消える。マーカーだけのノードをここで閉じ、画像は同じ引用グループの
+// Alert 判定の対象 (引用の段落) が消える。マーカーだけのノードをここで閉じ、画像は同じ引用グループの
 // 次の段落で受けて、マーカーと画像が別段落の場合と同じ構造にする (Alert は後続ノードへ伝播する)。
 void SplitAlertMarkerBeforeImage(ParseContext* ctx)
 {
@@ -1203,7 +1145,7 @@ void SplitAlertMarkerBeforeImage(ParseContext* ctx)
     // [![badge](b.svg)](url) では MD_SPAN_A が先に来て URL を閉じるノードへ登録済みなので、新ノードへ登録し直す。
     const std::string_view link_url = ctx->OpenLinkUrl();
     ctx->EndNode();
-    ctx->BeginParagraphNode();
+    ctx->BeginNode(NodeType::Paragraph);
     ctx->ResolveLinkUrlIndex(link_url);
 }
 
@@ -1224,9 +1166,6 @@ int OnEnterSpan(MD_SPANTYPE type, void* detail, void* userdata)
     if (type == MD_SPAN_IMG && ctx->image_span_depth == 0 && static_cast<const MD_SPAN_IMG_DETAIL*>(detail)->src.size > 0) {
         SplitAlertMarkerBeforeImage(ctx);
     }
-    // span markup (** _ ` [] 等) は原文にあるが current_text には入らないため、
-    // どの span でも原文と一致しなくなる。FinalizeCurrentNode の memcmp をスキップさせる。
-    ctx->current_node_needs_copy = true;
 
     if (const uint8_t flag = RunFlagOf(type); flag != 0) {
         ++ctx->span_depths[std::countr_zero(flag)];
@@ -1336,7 +1275,7 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
 
     const std::string_view chunk{ text, static_cast<size_t>(size) };
 
-    if (!ctx->current_node->HasSourceOffset()) [[unlikely]] {
+    if (!ctx->source_offset_recorded) [[unlikely]] {
         ctx->RecordSourceOffset(chunk);
     }
 
@@ -1364,22 +1303,16 @@ int OnText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata)
         break;
 
     case MD_TEXT_ENTITY: {
-        // entity (`&amp;` 等) は現状文字に解決される。原文 (`&amp;`) と current_text (`&`) が
-        // 不一致になり arena へのコピーが確定。memcmp スキップフラグを立てる。
-        ctx->current_node_needs_copy = true;
         char entity_buf[4];
         ctx->AppendSplittable(ResolveHtmlEntity(chunk, entity_buf).value_or(chunk));
         break;
     }
 
     case MD_TEXT_BR:
-        // BR / SOFTBR は原文の `<br>` や 2 個の半角空白+改行を `\n`/` ` に置換するため raw_slice 不一致。
-        ctx->current_node_needs_copy = true;
         ctx->AppendLineBreak("\n");
         break;
 
     case MD_TEXT_SOFTBR:
-        ctx->current_node_needs_copy = true;
         // Alert マーカーだけの先頭行の後ろは改行のまま残す。空白にすると、GitHub が Alert にしない
         // 同じ行の "[!NOTE] 本文" と区別できない。
         ctx->AppendLineBreak(IsAlertMarkerOnlyHead(ctx) ? "\n" : " ");
@@ -1431,7 +1364,7 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
 
     MD_PARSER parser{};
     parser.abi_version = 0;
-    // Alert は引用ノードから自前で検出する。md4c の admonitions はネストした引用でも認識する等、GitHub と挙動が違うので外す。
+    // Alert は引用の先頭の段落から自前で検出する。md4c の admonitions はネストした引用でも認識する等、GitHub と挙動が違うので外す。
     parser.flags = (MD_DIALECT_GITHUB & ~MD_FLAG_ADMONITIONS) | MD_FLAG_LATEXMATHSPANS;
     parser.enter_block = OnEnterBlock;
     parser.leave_block = OnLeaveBlock;
@@ -1447,7 +1380,7 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
         ctx.FinalizeCurrentNode();
     }
 
-    // キャンセル時は中途半端な nodes の後処理 (脚注の戻りリンク・Alert 検出・詰め) を飛ばし、
+    // キャンセル時は中途半端な nodes の後処理 (脚注の戻りリンク・詰め) を飛ばし、
     // 呼び出し側がチェックしやすいよう空の NodeStorage を返す。
     if (ctx.cancel_requested) {
         return {};
@@ -1458,14 +1391,6 @@ NodeStorage ParseMarkdown(std::string_view markdown_text, std::stop_token stop_t
     for (const size_t first : ctx.split_code_runs) {
         const size_t last = ChunkRunLast(ctx.nodes, first);
         AnnotateCodeChunkLeads(std::span{ ctx.nodes }.subspan(first, last - first + 1));
-    }
-
-    {
-        // BlockQuote ノードから GitHub Alerts を検出し、マーカー除去・ラベル挿入・グルーピングを行う。
-        MENDO_PROFILE("DetectAlerts");
-        for (const size_t i : ctx.blockquote_indices) {
-            DetectAlertAt(ctx.nodes, ctx.arena, i);
-        }
     }
 
     // 予約や見積もりの余りを文書の寿命の間持ち続けないよう、大きく余ったときだけ詰める。

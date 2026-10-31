@@ -58,8 +58,8 @@ private:
 
 class PaneController;
 
-// セッション状態（最後に開いたファイル、ペイン構成、スクロール位置、言語）の永続化。
-// ConfigService のセクション "Session" / "Pane" / "General" を排他的に扱う。
+// セッション状態（最後に開いたファイル、ペイン構成、スクロール位置、言語、ダークモード、本文の倍率）の永続化。
+// ConfigService のセクション "Session" / "Pane" / "General" / "View" を排他的に扱う。
 namespace session {
 
 void SaveLastFilePath(ConfigService& config, std::wstring_view path);
@@ -79,5 +79,11 @@ ScrollPosition LoadScrollPosition(const ConfigService& config);
 // 選んだ言語 (i18n::ConfigLangKey)。空は OS に合わせる。
 void SaveLanguage(ConfigService& config, std::wstring_view lang_key);
 std::wstring LoadLanguage(const ConfigService& config);
+
+void SaveDarkMode(ConfigService& config, bool dark);
+bool LoadDarkMode(const ConfigService& config);
+
+void SaveZoomLevel(ConfigService& config, ZoomLevel zoom);
+ZoomLevel LoadZoomLevel(const ConfigService& config);
 
 } // namespace session

@@ -226,13 +226,13 @@ TEST_F(TableEvictionDWriteTest, EvictIsDifferentialAgainstLiveRange)
     auto& tl = *entry.table_layout();
 
     EvictWholeTable();
-    EXPECT_FALSE(tl.HasLiveRows()) << "全行 evict 後は生存範囲が空";
+    EXPECT_TRUE(tl.LiveRows().empty()) << "全行 evict 後は生存範囲が空";
 
     const YRange vp{ 0.0f, 80.0f };
     Restore(vp);
     const size_t restored_cells = CountNonNullCells(tl);
     ASSERT_GT(restored_cells, 0u);
-    EXPECT_TRUE(tl.HasLiveRows());
+    EXPECT_FALSE(tl.LiveRows().empty());
 
     EvictWholeTable();
     EXPECT_EQ(CountNonNullCells(tl), 0u) << "復元済み行は生存範囲に入り、再 evict される";
@@ -316,8 +316,7 @@ TEST_F(TableEvictionDWriteTest, ParallelCellBuildMatchesSerial)
     const auto md = MakeBigTableMd(400);
     auto serial = ParseAndLayout(md);
 
-    TaskScheduler scheduler;
-    scheduler.Init(3);
+    TaskScheduler scheduler{ 3 };
     measurer_.SetScheduler(&scheduler);
     auto parallel = ParseAndLayout(md);
     measurer_.SetScheduler(nullptr);
@@ -357,8 +356,7 @@ TEST_F(TableEvictionDWriteTest, ParallelRestoreMatchesSerial)
     };
 
     const auto serial = restore(nullptr);
-    TaskScheduler scheduler;
-    scheduler.Init(3);
+    TaskScheduler scheduler{ 3 };
     const auto parallel = restore(&scheduler);
     scheduler.Shutdown();
 

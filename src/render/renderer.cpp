@@ -30,15 +30,9 @@ bool Renderer::Init(HWND hwnd, const Theme& theme)
     RecreateAllTextFormats();
     DecodeAppIcon();
 
-    cmd_generator_.Init(theme, &fmt_.md, &text_layouts_);
+    cmd_generator_.Init(theme, fmt_.md, text_layouts_);
 
     return true;
-}
-
-void Renderer::TrimForMinimize() noexcept
-{
-    TrimDevice();
-    toc_titles_ = {};
 }
 
 void Renderer::PrepareChrome(const TitleBarRenderState& titlebar, const SidePaneState& sp)
@@ -55,13 +49,19 @@ void Renderer::PrepareChrome(const TitleBarRenderState& titlebar, const SidePane
         .item = { file_fmt.item.Get(), toc_fmt.item.Get() },
         .file_icon = file_fmt.icon.Get(),
     };
-    chrome::EmitSidePanes(frame_cmds_, text_layouts_, fmts, *theme_, sp, toc_titles_);
+    chrome::EmitSidePanes(frame_cmds_, text_layouts_, fmts, *theme_, sp);
 }
 
 std::optional<Renderer::FrameResult> Renderer::BeginFrame(const TitleBarRenderState& titlebar, const SidePaneState& side_panes)
 {
     if (device_lost_) {
-        return RecreateDeviceForFrame();
+        if (!CreateDevice()) {
+            return FrameResult::RetryLater;
+        }
+        if (on_device_lost_) {
+            on_device_lost_(rt());
+        }
+        return FrameResult::RedrawNow;
     }
     if (!rt()) {
         return FrameResult::Done;
@@ -122,7 +122,7 @@ void Renderer::GenOverlays(const RenderParams& p)
     }
     if (p.search_bar.visible) {
         const auto sbl = ComputeSearchBarLayout(md_pane_rect, !p.search_bar.query.empty());
-        const auto input = search_input_.Measure(p.search_bar, sbl.text_width());
+        const auto input = MeasureSearchInput(text_layouts_, fmt_.search_input.Get(), p.search_bar, sbl.text_width());
         overlay::EmitSearchBar(frame_cmds_, text_layouts_, fmt_.ui_icon.Get(), fmt_.search_count.Get(), sbl, p.search_bar, input);
     }
     if (const auto thumb = VScrollThumb(md_pane_rect, 0.0f, p.md.scroll_y, ComputeTotalContentHeight(p.md.cache, theme_->margin_bottom), p.md.cache.HasDirtyNodes())) {
@@ -134,28 +134,13 @@ Renderer::FrameResult Renderer::EndFrame()
 {
     const HRESULT hr = rt()->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
-        return RecreateDeviceForFrame();
+        device_lost_ = true;
     }
-    if (SUCCEEDED(hr)) {
+    else if (SUCCEEDED(hr)) {
         Present();
-        // REMOVED/RESET/HUNG/DRIVER_INTERNAL_ERROR で device_lost_ をセット済み。
-        // 次のフレームの BeginFrame で作り直す。
-        if (device_lost_) {
-            return FrameResult::RedrawNow;
-        }
     }
-    return FrameResult::Done;
-}
-
-bool Renderer::RecreateDevice()
-{
-    if (!CreateDevice()) {
-        return false;
-    }
-    if (on_device_lost_) {
-        on_device_lost_(rt());
-    }
-    return true;
+    // 作り直しは次のフレームの BeginFrame に任せる。
+    return device_lost_ ? FrameResult::RedrawNow : FrameResult::Done;
 }
 
 void Renderer::GenGestureTrail(const std::vector<DipPoint>& points)
@@ -248,16 +233,8 @@ void Renderer::RecreateBrushes()
         return;
     }
 
-    // 既存ブラシには SetColor のみ、未生成のものだけ CreateSolidColorBrush。
-    // テーマ切替時の 50 個ほどの COM オブジェクト再生成を回避する。
     for (size_t i = 0; i < brushes_.size(); ++i) {
-        auto& brush = brushes_[i];
-        if (brush) {
-            brush->SetColor(theme_->colors[i]);
-        }
-        else {
-            CreateSolidColorBrushOrFallback(target, theme_->colors[i], brush);
-        }
+        CreateSolidColorBrushOrFallback(target, theme_->colors[i], brushes_[i]);
     }
 }
 
@@ -287,7 +264,6 @@ void Renderer::RecreateAllTextFormats()
 
     // 古い書式のレイアウトは二度と引かれないので、まとめて捨てる。
     text_layouts_.SetFactory(dwrite_factory_.Get());
-    search_input_.SetFormat(dwrite_factory_.Get(), fmt_.search_input.Get());
 }
 
 void Renderer::CreateTextFormats(bool zoomed_only)

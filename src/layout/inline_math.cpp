@@ -23,6 +23,16 @@ uint64_t InlineMathKey(std::string_view tex, float font_size) noexcept
     return Fnv1a64(tex) ^ (size_term * kGoldenRatio64);
 }
 
+float MathFontSize(const Theme& theme, const Node& node) noexcept
+{
+    return node.type == NodeType::Heading ? theme.GetHeadingSize(node.heading_level) : theme.font_size_body;
+}
+
+float MathFontSize(const Theme& theme, const NodeTableData& table, size_t row) noexcept
+{
+    return table.IsHeaderRow(row) ? theme.GetHeadingSize(Theme::kTableHeaderLevel) : theme.font_size_body;
+}
+
 void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
 {
     // 平均してこの数ごとに区切る。上限 (kMaxInlineMathPerChunk) で区切ると、数式の増減でその後ろの区切りも
@@ -78,14 +88,14 @@ void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
                 continue;
             }
             for (size_t r = 0; r < tbl->row_count; ++r) {
-                const float size = tbl->IsHeaderRow(r) ? theme.GetHeadingSize(Theme::kTableHeaderLevel) : theme.font_size_body;
+                const float size = MathFontSize(theme, *tbl, r);
                 for (size_t c = 0; c < tbl->col_count; ++c) {
                     add_runs(tbl->GetCellText(r, c), tbl->GetCellRuns(r, c), size);
                 }
             }
             continue;
         }
-        add_runs(node.GetText(), node.runs(), node.type == NodeType::Heading ? theme.GetHeadingSize(node.heading_level) : theme.font_size_body);
+        add_runs(node.GetText(), node.runs(), MathFontSize(theme, node));
     }
     close();
     states_.assign(chunks_.size(), State::Idle);
@@ -122,21 +132,11 @@ std::optional<size_t> InlineMathPlan::ChunkOf(uint64_t key) const noexcept
     return it != chunk_of_.end() ? std::optional<size_t>{ it->second } : std::nullopt;
 }
 
-std::pair<InlineMathTable::Entry&, bool> InlineMathTable::Add(uint64_t key, std::string_view tex, float font_size)
-{
-    const auto [it, inserted] = entries_.try_emplace(key);
-    if (inserted) {
-        it->second.item = { key, std::string{ tex }, font_size };
-        ++unresolved_;
-    }
-    return { it->second, inserted };
-}
-
 void InlineMathTable::MarkRequested(std::span<const InlineMathItem> items)
 {
     const std::lock_guard lock(mutex_);
     for (const auto& item : items) {
-        Add(item.key, item.tex, item.font_size);
+        unresolved_ += entries_.try_emplace(item.key).second;
     }
 }
 
@@ -146,26 +146,22 @@ void InlineMathTable::SetWake(std::move_only_function<void()> wake)
     wake_ = std::move(wake);
 }
 
-void InlineMathTable::PushRequest(const InlineMathItem& item)
-{
-    const bool was_empty = requests_.empty();
-    requests_.push_back(item);
-    if (was_empty && wake_) {
-        wake_();
-    }
-}
-
-std::optional<InlineMathMetrics> InlineMathTable::FindOrRequest(uint64_t key, std::string_view tex, float font_size)
+std::optional<InlineMathMetrics> InlineMathTable::FindOrRequest(uint64_t key)
 {
     const std::lock_guard lock(mutex_);
-    const auto [e, added] = Add(key, tex, font_size);
+    const auto [it, added] = entries_.try_emplace(key);
     if (added) {
-        PushRequest(e.item);
+        ++unresolved_;
+        const bool was_empty = requests_.empty();
+        requests_.push_back(key);
+        if (was_empty && wake_) {
+            wake_();
+        }
     }
-    return e.metrics;
+    return it->second;
 }
 
-std::vector<InlineMathItem> InlineMathTable::TakeRequests()
+std::vector<uint64_t> InlineMathTable::TakeRequests()
 {
     const std::lock_guard lock(mutex_);
     return std::exchange(requests_, {});
@@ -178,18 +174,28 @@ bool InlineMathTable::Resolve(uint64_t key, InlineMathMetrics metrics)
     if (it == entries_.end()) {
         return false;
     }
-    if (!it->second.metrics) {
+    if (!it->second) {
         --unresolved_;
     }
-    it->second.metrics = metrics;
+    it->second = metrics;
     return true;
+}
+
+void InlineMathTable::ForgetRequest(uint64_t key)
+{
+    const std::lock_guard lock(mutex_);
+    const auto it = entries_.find(key);
+    if (it != entries_.end() && !it->second) {
+        entries_.erase(it);
+        --unresolved_;
+    }
 }
 
 std::optional<InlineMathMetrics> InlineMathTable::Find(uint64_t key)
 {
     const std::lock_guard lock(mutex_);
     const auto it = entries_.find(key);
-    return it != entries_.end() ? it->second.metrics : std::nullopt;
+    return it != entries_.end() ? it->second : std::nullopt;
 }
 
 bool InlineMathTable::HasUnresolved()
@@ -204,16 +210,6 @@ void InlineMathTable::Clear()
     entries_.clear();
     unresolved_ = 0;
     requests_.clear();
-}
-
-void InlineMathTable::RequestAllAgain(const std::function<bool(uint64_t)>& again)
-{
-    const std::lock_guard lock(mutex_);
-    for (const auto& [key, e] : entries_) {
-        if (e.metrics && e.metrics->ok() && again(key)) {
-            PushRequest(e.item);
-        }
-    }
 }
 
 namespace {

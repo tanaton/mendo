@@ -1,12 +1,15 @@
 #include <gtest/gtest.h>
 #include "resource_manager.h"
 #include "app_constants.h"
+#include "app_state.h"
 #include "document.h"
 #include "file_io.h"
 #include "layout_cache.h"
 #include "viewport_manager.h"
 #include "image_loader.h"
+#include "mermaid_file_cache.h"
 #include "mermaid_renderer_interface.h"
+#include "reducer_harness.h"
 #include "theme.h"
 #include "test_helpers.h"
 #include <algorithm>
@@ -139,15 +142,6 @@ struct CallbackTracker {
     layout::HeightChangeRange last_change = {};
     app_timer::Id last_set_timer_id{};
     UINT last_set_timer_ms = 0;
-    app_timer::Id last_killed_timer_id{};
-
-    float content_width = 800.0f;
-    float viewport_height = 600.0f;
-    Theme theme = [] static noexcept {
-        Theme t;
-        t.indent_width = 20.0f;
-        return t;
-    }();
 };
 
 struct TestResourceManagerHost final : ResourceManagerHost {
@@ -161,22 +155,9 @@ struct TestResourceManagerHost final : ResourceManagerHost {
         t->last_set_timer_id = id;
         t->last_set_timer_ms = ms;
     }
-    void KillTimer(app_timer::Id id) override
+    void KillTimer(app_timer::Id) override
     {
         t->kill_timer++;
-        t->last_killed_timer_id = id;
-    }
-    float MdContentWidth() override
-    {
-        return t->content_width;
-    }
-    float MdPaneHeight() override
-    {
-        return t->viewport_height;
-    }
-    const Theme& GetTheme() override
-    {
-        return t->theme;
     }
     void RecomputeLayout(layout::HeightChangeRange changed) override
     {
@@ -202,6 +183,23 @@ protected:
     // 画像の適用は doc_dir.empty() で早期 return するため、テスト用ドキュメントパスは
     // parent_path を持つ絶対パスでなければならない。
     static constexpr const wchar_t* kTestDocPath = L"C:\\dir\\test.md";
+    static constexpr float kContentWidth = 800.0f;
+    static constexpr float kViewportHeight = 600.0f;
+
+    void SetUp() override
+    {
+        InitReducerState(state_, theme_);
+        theme_.indent_width = 20.0f;
+        state_.view.panes.SetSidePaneVisible(PaneTarget::File, false);
+        state_.view.panes.SetSidePaneVisible(PaneTarget::Toc, false);
+        SetContentWidth(kContentWidth);
+    }
+
+    // 余白 0 なので、本文の幅はウィンドウの幅と同じ。
+    void SetContentWidth(float width)
+    {
+        SetWindowSize(state_, width, kViewportHeight);
+    }
 
     // Markdown を Document に流し込み、対応する LayoutCache をシードしたうえで
     // ResourceManager を初期化する。テストごとに 1 度だけ呼ぶ。
@@ -210,20 +208,15 @@ protected:
         std::string utf8(md);
         doc_ = Document::FromMarkdown(std::move(utf8), doc_path);
         cache_ = SeedLayoutCache(doc_.GetNodes().size(), block_height);
-        rm_.Init(
-            ResourceManagerDeps{
-                .doc = &doc_,
-                .cache = &cache_,
-                .viewport = &viewport_,
-                .image_loader = &image_loader_,
-                .mermaid = &mock_mermaid_,
-            },
-            host_);
+        rm_.Init(state_, image_loader_, mock_mermaid_, file_cache_, host_);
     }
 
-    Document doc_;
-    LayoutCache cache_;
-    ViewportManager viewport_;
+    Theme theme_{};
+    AppState state_;
+    MermaidFileCache file_cache_;
+    Document& doc_ = state_.document.doc;
+    LayoutCache& cache_ = state_.document.layout_cache;
+    ViewportManager& viewport_ = state_.view.viewport;
     ImageLoader image_loader_; // Init せずに使う（画像経路は通らないテストのみ）
     MockMermaidRenderer mock_mermaid_;
     CallbackTracker tracker_;
@@ -243,7 +236,7 @@ TEST_F(ResourceManagerTest, LoadImagesAppliesNothingWhenNoImagesInDocument)
 TEST_F(ResourceManagerTest, LoadImagesAppliesNothingWhenContentWidthIsZero)
 {
     LoadMarkdown("# heading\n\n![alt](image.png)\n");
-    tracker_.content_width = 0.0f;
+    SetContentWidth(0.0f);
     rm_.LoadImages();
     EXPECT_EQ(tracker_.recompute_layout, 0);
 }
@@ -478,7 +471,7 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesAllForReloadAppliesNothingWhenConte
 {
     LoadMarkdown("![alt](foo.png)\n");
     image_loader_.InsertCacheEntryForTest(L"C:\\dir\\foo.png", 1000.0f, 800.0f);
-    tracker_.content_width = 0.0f;
+    SetContentWidth(0.0f);
     EXPECT_FALSE(rm_.ApplyCachedImagesForReload({ 0, SIZE_MAX }));
 }
 
@@ -492,7 +485,7 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersInvokesRendererForVisibleDiagra
     rm_.RequestMermaidRenders();
     EXPECT_EQ(tracker_.recompute_layout, 0); // mock は bitmap をセットしない
     EXPECT_EQ(mock_mermaid_.request_render_count, 1);
-    EXPECT_FLOAT_EQ(mock_mermaid_.last_max_width, tracker_.content_width);
+    EXPECT_FLOAT_EQ(mock_mermaid_.last_max_width, kContentWidth);
     EXPECT_FALSE(mock_mermaid_.last_dark_mode);
 }
 
@@ -512,7 +505,7 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersSkipsBeyondVisibleRange)
 TEST_F(ResourceManagerTest, RequestMermaidRendersZeroWidthIsNoOp)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
-    tracker_.content_width = 0.0f;
+    SetContentWidth(0.0f);
     rm_.RequestMermaidRenders();
     EXPECT_EQ(tracker_.recompute_layout, 0);
     EXPECT_EQ(mock_mermaid_.request_render_count, 0);
@@ -557,13 +550,13 @@ TEST_F(ResourceManagerTest, ApplyCachedImagesForReloadDoesNotCarryChangeRange)
     EXPECT_EQ(tracker_.last_change.first, diagram);
 }
 
-TEST_F(ResourceManagerTest, ProcessMermaidBatchSkipsErroredDiagram)
+TEST_F(ResourceManagerTest, FlushPendingResourcesSkipsErroredDiagram)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
     ASSERT_FALSE(doc_.GetDiagramNodeIndices().empty());
     cache_.EnsureDiagram(doc_.GetDiagramNodeIndices()[0]).error = { DiagramError::Kind::Render, L"Parse error on line 1" };
 
-    rm_.ProcessMermaidBatch();
+    rm_.FlushPendingResources();
     EXPECT_EQ(mock_mermaid_.request_render_count, 0);
 }
 
@@ -574,13 +567,13 @@ TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeClearsError)
     ASSERT_FALSE(doc_.GetDiagramNodeIndices().empty());
     const size_t diagram_index = doc_.GetDiagramNodeIndices()[0];
 
-    tracker_.content_width = 800.0f;
+    SetContentWidth(800.0f);
     rm_.RequestMermaidRenders();
     ASSERT_EQ(mock_mermaid_.request_render_count, 1);
 
     cache_.EnsureDiagram(diagram_index).error = { DiagramError::Kind::Render, L"Parse error on line 1" };
 
-    tracker_.content_width = 1000.0f;
+    SetContentWidth(1000.0f);
     rm_.RequestMermaidRenders();
     EXPECT_TRUE(cache_.FindDiagram(diagram_index)->error.empty());
     EXPECT_EQ(mock_mermaid_.request_render_count, 2);
@@ -592,7 +585,7 @@ TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeKeepsBitmapAsStale)
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
     const size_t diagram_index = doc_.GetDiagramNodeIndices()[0];
     mock_mermaid_.sync_apply_bitmap = true;
-    tracker_.content_width = 800.0f;
+    SetContentWidth(800.0f);
     rm_.RequestMermaidRenders();
     auto& diagram = *cache_.FindDiagram(diagram_index);
     ASSERT_TRUE(diagram.bitmap);
@@ -600,7 +593,7 @@ TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeKeepsBitmapAsStale)
     diagram.width = 2000.0f;
 
     mock_mermaid_.sync_apply_bitmap = false;
-    tracker_.content_width = 1000.0f;
+    SetContentWidth(1000.0f);
     rm_.RequestMermaidRenders();
 
     EXPECT_TRUE(diagram.bitmap) << "描き直しの間も旧結果を表示する";
@@ -621,7 +614,7 @@ TEST_F(ResourceManagerTest, CarryOverUnchangedKeepsEditedDiagramAsStale)
     cache_[old_index].height = 321.0f;
 
     auto next = Document::FromMarkdown(std::string{ "# t\n\n```mermaid\ngraph TD;A-->C\n```\n\ntail\n" }, kTestDocPath);
-    auto next_cache = layout::MakeEstimatedLayoutCache(next.GetNodes(), tracker_.theme);
+    auto next_cache = layout::MakeEstimatedLayoutCache(next.GetNodes(), theme_);
     const size_t new_index = next.GetDiagramNodeIndices()[0];
 
     EXPECT_EQ(layout::CarryOverUnchanged(doc_.GetNodes(), cache_, next.GetNodes(), next_cache, FindUnchangedEnds(doc_.GetNodes(), next.GetNodes())).carried, next.GetNodes().size());
@@ -642,7 +635,7 @@ TEST_F(ResourceManagerTest, CarryOverUnchangedSkipsDiagramsWhenCountChanges)
     rm_.RequestMermaidRenders();
 
     auto next = Document::FromMarkdown(std::string{ "# t\n\n```mermaid\ngraph TD;X-->Y\n```\n\n```mermaid\ngraph TD;A-->C\n```\n\ntail\n" }, kTestDocPath);
-    auto next_cache = layout::MakeEstimatedLayoutCache(next.GetNodes(), tracker_.theme);
+    auto next_cache = layout::MakeEstimatedLayoutCache(next.GetNodes(), theme_);
 
     layout::CarryOverUnchanged(doc_.GetNodes(), cache_, next.GetNodes(), next_cache, FindUnchangedEnds(doc_.GetNodes(), next.GetNodes()));
     for (const size_t i : next.GetDiagramNodeIndices()) {
@@ -653,7 +646,7 @@ TEST_F(ResourceManagerTest, CarryOverUnchangedSkipsDiagramsWhenCountChanges)
 TEST_F(ResourceManagerTest, RequestMermaidRendersUsesDarkModeFromTheme)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
-    tracker_.theme.dark = true;
+    theme_.dark = true;
 
     rm_.RequestMermaidRenders();
     EXPECT_TRUE(mock_mermaid_.last_dark_mode);
@@ -700,13 +693,13 @@ TEST_F(ResourceManagerTest, InvalidateMermaidForWidthChangeFiresOnQuantizedWidth
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
 
     // 1 回目: 幅 800（最初の登録、last_mermaid_content_width_ をシードする）
-    tracker_.content_width = 800.0f;
+    SetContentWidth(800.0f);
     rm_.RequestMermaidRenders();
 
     const int initial_drop = mock_mermaid_.drop_queued_count;
 
     // 2 回目: QuantizeWidth(800) != QuantizeWidth(1000) → 幅変化検出
-    tracker_.content_width = 1000.0f;
+    SetContentWidth(1000.0f);
     rm_.RequestMermaidRenders();
 
     // 量子化幅が変化すると旧幅の描画待ちを捨てる。メモリキャッシュは幅込みのキーなので残す。
@@ -724,7 +717,7 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersDropsQueueAfterLargeJump)
     rm_.RequestMermaidRenders();
     EXPECT_EQ(mock_mermaid_.drop_queued_count, 0) << "小さな移動では捨てない";
 
-    viewport_.SetScrollY(tracker_.viewport_height * 20.0f);
+    viewport_.SetScrollY(kViewportHeight * 20.0f);
     rm_.RequestMermaidRenders();
     EXPECT_EQ(mock_mermaid_.drop_queued_count, 1);
 }
@@ -755,25 +748,6 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersRequestsVisibleFirst)
     EXPECT_LE(std::distance(order.begin(), last_below.base()), std::distance(order.begin(), first_above)) << "上側より先に下側を要求する";
 }
 
-// 図の要求と結果はコードのハッシュがキーなので、リロードで描画待ちを捨てない。
-TEST_F(ResourceManagerTest, CancelMermaidBatchKillsTimerAndKeepsQueue)
-{
-    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
-    rm_.CancelMermaidBatch();
-    EXPECT_EQ(mock_mermaid_.drop_queued_count, 0);
-    EXPECT_EQ(tracker_.kill_timer, 1);
-    EXPECT_EQ(tracker_.last_killed_timer_id, app_timer::Id::MERMAID_BATCH);
-}
-
-TEST_F(ResourceManagerTest, ScheduleMermaidBatchSetsTimer)
-{
-    LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
-    rm_.ScheduleMermaidBatch();
-    EXPECT_EQ(tracker_.set_timer, 1);
-    EXPECT_EQ(tracker_.last_set_timer_id, app_timer::Id::MERMAID_BATCH);
-    EXPECT_EQ(tracker_.last_set_timer_ms, 16u);
-}
-
 // 結果が出た通知で、待っていた図を要求し直して反映する。
 TEST_F(ResourceManagerTest, RequestMermaidRendersAgainAppliesResolvedDiagrams)
 {
@@ -789,22 +763,24 @@ TEST_F(ResourceManagerTest, RequestMermaidRendersAgainAppliesResolvedDiagrams)
     EXPECT_EQ(tracker_.recompute_layout, 1);
 }
 
-TEST_F(ResourceManagerTest, ProcessMermaidBatchKillsTimerWhenWidthIsZero)
+TEST_F(ResourceManagerTest, FlushPendingResourcesRequestsNothingWhenWidthIsZero)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
-    tracker_.content_width = 0.0f;
-    rm_.ProcessMermaidBatch();
-    EXPECT_EQ(tracker_.kill_timer, 1);
-    EXPECT_EQ(tracker_.last_killed_timer_id, app_timer::Id::MERMAID_BATCH);
+    SetContentWidth(0.0f);
+    rm_.FlushPendingResources();
+    EXPECT_EQ(mock_mermaid_.request_render_count, 0);
 }
 
-TEST_F(ResourceManagerTest, ProcessMermaidBatchKillsTimerWhenAllProcessed)
+// 再レイアウトの Flush の直後に SettleLayout が呼んでも、走査を繰り返さずタイマーに回す。
+TEST_F(ResourceManagerTest, FlushPendingResourcesThrottlesFollowingBitmapManage)
 {
     LoadMarkdown("```mermaid\ngraph TD;A-->B\n```\n");
-    rm_.ProcessMermaidBatch();
-    EXPECT_GE(mock_mermaid_.request_render_count, 1);
-    EXPECT_GE(tracker_.kill_timer, 1);
-    EXPECT_EQ(tracker_.last_killed_timer_id, app_timer::Id::MERMAID_BATCH);
+    rm_.FlushPendingResources();
+    EXPECT_EQ(mock_mermaid_.request_render_count, 1);
+
+    rm_.ScheduleBitmapManage();
+    EXPECT_EQ(mock_mermaid_.request_render_count, 1) << "直前の Flush があれば二重に走査しない";
+    EXPECT_EQ(tracker_.last_set_timer_id, app_timer::Id::BITMAP_MANAGE);
 }
 
 // ---- ビットマップ管理 ----
@@ -819,7 +795,7 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsNoOpsWhenViewportHeightIsZero)
     for (const size_t i : indices) {
         cache_.EnsureDiagram(i).png = std::make_shared<const ByteBuffer>(std::vector<uint8_t>(4, uint8_t{ 1 }));
     }
-    tracker_.viewport_height = 0.0f;
+    SetWindowSize(state_, kContentWidth, 0.0f);
     viewport_.SetScrollY(0.0f);
 
     rm_.EvictOffscreenBitmaps();
@@ -841,7 +817,7 @@ TEST_F(ResourceManagerTest, EvictOffscreenBitmapsKeepsEvictedNodesMeasured)
     }
     LoadMarkdown(md, /*block_height=*/100.0f);
     viewport_.SetScrollY(0.0f);
-    const float keep_bottom = tracker_.viewport_height * (1.0f + decltype(rm_)::LAYOUT_EVICT_BUFFER_SCREENS);
+    const float keep_bottom = kViewportHeight * (1.0f + decltype(rm_)::LAYOUT_EVICT_BUFFER_SCREENS);
     ASSERT_GT(cache_.Top(cache_.size() - 1), keep_bottom) << "前提: 末尾のノードが保持範囲外にあること";
 
     rm_.EvictOffscreenBitmaps();

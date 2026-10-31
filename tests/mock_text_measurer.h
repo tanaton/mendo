@@ -71,7 +71,8 @@ private:
         }
 
         const auto row_count = tbl->row_count;
-        auto& tl = entry.ensure_table_layout(row_count, col_count);
+        auto* const existing = entry.table_layout();
+        auto& tl = existing ? *existing : entry.set_table_layout(std::make_unique<TableLayoutData>(row_count, col_count, false));
         // 列幅は max_width/col_count の均等割り近似。実装 (dwrite_measurer の内容依存
         // ComputeColumnWidths) とは異なるため、TableWidth() / col_widths の絶対値は
         // 検証に使わないこと。行数・列数への依存形と border の入り方だけ実装に揃える。

@@ -50,11 +50,6 @@ public:
         std::vector<SearchMatch>().swap(pending_);
         std::vector<int>().swap(candidate_nodes_);
     }
-    void Reset() noexcept
-    {
-        Hide();
-        query_.clear();
-    }
 
     // マッチ列が変わるたびに進む世代カウンタ。
     // 描画側が検索ハイライト矩形のキャッシュ有効性判定に使う。キャッシュの世代の初期値 0 と
@@ -64,10 +59,6 @@ public:
         return generation_;
     }
 
-    constexpr const std::string& GetQuery() const noexcept
-    {
-        return query_;
-    }
     constexpr const std::vector<SearchMatch>& GetMatches() const noexcept
     {
         return matches_;
@@ -104,16 +95,16 @@ public:
         highlight_enabled_ = !highlight_enabled_;
     }
 
-    void SetQuery(std::string_view query);
     // 大きい文書でも入力や描画を止めないよう、検索を時間で区切って進める。
     // BeginSearch で始め、ContinueSearch で deadline まで (少なくとも 1 ノード) 進める。終わったら true。
+    // query は Document テキストと比べる UTF-8。空なら結果を消す。
     // 途中のマッチは見せず、終わるまで前回の結果 (件数・ハイライト) を見せ続け、終わったら差し替える。
     // 途中経過を見せると、保存のたびの再検索で 0 件・赤背景になりハイライトが消えるちらつきが出る (bd237563)。
     // 同期に戻すと大きい文書で UI が止まるので、区切ったまま見せ方で解決する。
     // 前回の検索を調べ切っていて、クエリを後ろへ伸ばしただけなら、前回マッチのあったノードだけを調べる
-    // (新しいクエリが現れるノードには前回のクエリも現れる)。文書を差し替えたら Reset するか、
+    // (新しいクエリが現れるノードには前回のクエリも現れる)。文書を差し替えたら Hide するか、
     // KeepMatchesOfUnchangedNodes の後に同じクエリで調べ直すこと。
-    void BeginSearch();
+    void BeginSearch(std::string_view query);
     bool ContinueSearch(const std::vector<Node>& nodes, std::chrono::steady_clock::time_point deadline);
     // 検索を止め、前回の結果を残す。
     void StopSearch() noexcept
@@ -167,17 +158,15 @@ private:
         bool fold = false;
     };
 
-    std::string query_;
-    // 進行中の検索。query_ が途中で変わっても検索の中身は変えない。
     QueryKey active_;
+    bool searching_ = false;
     // 進行中 (または直前) の検索が調べるノード。narrowing_ なら candidate_nodes_ の番号、でなければ全ノード。
     bool narrowing_ = false;
-    std::vector<int> candidate_nodes_;
-    size_t next_node_ = 0;
     // 継ぎ目をまたいだマッチが使った、ノード skip_node_ の先頭のバイト数。
     int skip_node_ = -1;
     size_t skip_bytes_ = 0;
-    bool searching_ = false;
+    std::vector<int> candidate_nodes_;
+    size_t next_node_ = 0;
     // matches_ を出した検索。completed_ なら matches_ はその全マッチ (上限で打ち切っていない)。
     QueryKey matched_;
     bool completed_ = false;

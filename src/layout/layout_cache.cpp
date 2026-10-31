@@ -78,9 +78,6 @@ const LineWindow& EnsureLineWindow(const NodeLayoutEntry& entry, YRange view)
 
 std::pair<size_t, size_t> TableLayoutData::VisibleRowRange(float local_top, float local_bottom) const noexcept
 {
-    if (!HasGeometry()) {
-        return { 0, 0 };
-    }
     size_t r_begin = 0;
     size_t r_end = row_count;
     const auto upper = std::ranges::upper_bound(row_cum_y, local_top);
@@ -97,9 +94,6 @@ std::pair<size_t, size_t> TableLayoutData::VisibleRowRange(float local_top, floa
 
 std::pair<size_t, size_t> TableLayoutData::VisibleColRange(float local_left, float local_right) const noexcept
 {
-    if (col_cum_x.empty()) {
-        return { 0, 0 };
-    }
     // 列 c の右端は col_cum_x[c + 1]、左端は col_cum_x[c]。
     const auto rights = std::ranges::subrange(col_cum_x.begin() + 1, col_cum_x.end());
     const auto c_begin = static_cast<size_t>(std::ranges::lower_bound(rights, local_left) - rights.begin());
@@ -137,9 +131,6 @@ void TableLayoutData::RebuildColCumX()
 
 int TableLayoutData::RowIndexAt(float local_y) const noexcept
 {
-    if (!HasGeometry()) {
-        return -1;
-    }
     const auto it = std::ranges::upper_bound(row_cum_y, local_y);
     if (it == row_cum_y.begin()) {
         return -1;
@@ -162,12 +153,12 @@ std::pair<float, float> NodeLayoutEntry::GetMatchYRange(
 
     if (const auto* tl = table_layout(); table_row >= 0 && tl) {
         const auto row = static_cast<size_t>(table_row);
-        if (row < tl->row_count && tl->HasGeometry()) {
+        if (row < tl->row_count) {
             base_y = entry_text_top + tl->row_cum_y[row];
             fallback_h = tl->row_heights[row];
-        }
-        if (row < tl->row_count && table_col >= 0 && static_cast<size_t>(table_col) < tl->col_count) {
-            layout = tl->GetCellLayout(row, static_cast<size_t>(table_col));
+            if (table_col >= 0 && static_cast<size_t>(table_col) < tl->col_count) {
+                layout = tl->GetCellLayout(row, static_cast<size_t>(table_col));
+            }
         }
         if (layout != nullptr) {
             base_y = TableCellTextOrigin(0.0f, base_y).y;
@@ -210,18 +201,6 @@ void BuryCells(TableLayoutData& tl, ReleasedLayouts& released) noexcept
     }
 }
 
-// [begin, end) のうち [keep_begin, keep_end) の外の番号を fn に渡す。
-template <class Fn>
-void ForEachOutsideKeep(size_t begin, size_t end, size_t keep_begin, size_t keep_end, Fn&& fn) noexcept
-{
-    for (size_t i = begin; i < std::min(end, keep_begin); ++i) {
-        fn(i);
-    }
-    for (size_t i = std::max(begin, keep_end); i < end; ++i) {
-        fn(i);
-    }
-}
-
 } // namespace
 
 void TableLayoutData::EvictRow(size_t r, ReleasedLayouts& released) noexcept
@@ -240,15 +219,7 @@ void TableLayoutData::EvictRow(size_t r, ReleasedLayouts& released) noexcept
 
 void TableLayoutData::EvictRowsOutside(size_t keep_begin, size_t keep_end, ReleasedLayouts& released) noexcept
 {
-    const size_t live_begin = live_row_begin_;
-    const size_t live_end = live_row_end_;
-    ForEachOutsideKeep(live_begin, live_end, keep_begin, keep_end, [&](size_t r) noexcept { EvictRow(r, released); });
-    live_row_begin_ = std::max(live_begin, keep_begin);
-    live_row_end_ = std::min(live_end, keep_end);
-    if (!HasLiveRows()) {
-        live_row_begin_ = 0;
-        live_row_end_ = 0;
-    }
+    live_rows_.ShrinkTo(keep_begin, keep_end, [&](size_t r) noexcept { EvictRow(r, released); });
 }
 
 namespace {
@@ -269,13 +240,13 @@ void EvictEntryLayout(NodeLayoutEntry& e, ReleasedLayouts& released) noexcept
 {
     // テーブルは列幅・行高さを残してセル layout だけ捨てる。幾何ごと捨てると再表示時に
     // 全セルの CreateTextLayout (巨大テーブルで秒単位) をやり直すことになる。
-    if (auto* tl = e.table_layout(); tl && tl->HasGeometry()) {
+    if (auto* tl = e.table_layout()) {
         e.invalidate_per_frame_hl_caches();
         tl->EvictRowsOutside(0, 0, released);
         return;
     }
     // レイアウトを持たないノード (HR / 画像 / 空テキスト) は計測済みのまま残す。
-    const bool had_layout = e.text_layout() || e.table_layout();
+    const bool had_layout = e.text_layout() != nullptr;
     ReleaseEntryLayouts(e, released);
     if (had_layout) {
         e.layout_dirty = true;
@@ -292,11 +263,9 @@ void LayoutCache::InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept
         auto& e = entries_[i];
         // 表の幾何も旧倍率のものなので残さない (計測で全部作り直す)。
         ReleaseEntryLayouts(e, released_layouts_);
-        // ズーム変更で計測条件が変わるので、諦めたノードも改めて試す。旧倍率の実測値も推定に使わせない。
+        // ズーム変更で計測条件が変わるので、測れなかったノードも改めて試す。旧倍率の実測値も推定に使わせない。
         e.layout_dirty = true;
-        e.measure_failures = 0;
         e.cached_width = NodeLayoutEntry::kUnmeasuredWidth;
-        e.cached_height = 0.0f;
         // 推定は高さを縮めないので、旧倍率の高さを残すとズームアウト後に総高さが過大なままになる。
         // 全レイアウトを捨てた直後は計測済みノードとの重なりが起きないので、推定からやり直させる。
         // ビットマップを描くノードの高さはビットマップ側で決まるので残す。
@@ -304,7 +273,7 @@ void LayoutCache::InvalidateAllLayouts(const std::vector<Node>& nodes) noexcept
             e.height = 0.0f;
         }
     }
-    ResetEvictionTracking();
+    live_nodes_ = {};
     has_dirty_nodes_ = true;
     // 高さを 0 にした分の Y は、次の Reestimate に推定から組み直させる。
     estimate_basis_ = {};
@@ -354,30 +323,11 @@ void LayoutCache::EvictDiagramBitmapsOutside(size_t first_keep_inclusive, size_t
 void LayoutCache::EvictTextLayouts(size_t first_keep_inclusive, size_t last_keep_exclusive) noexcept
 {
     const size_t n = entries_.size();
-    const size_t fk = std::min(first_keep_inclusive, n);
-    const size_t lk = std::min(last_keep_exclusive, n);
-
-    const auto evict_outside_keep = [&](size_t begin, size_t end) noexcept {
-        ForEachOutsideKeep(begin, end, fk, lk, [&](size_t i) noexcept { EvictEntryLayout(entries_[i], released_layouts_); });
-    };
-    // layout が生存しうるのは前回 keep 範囲と、その後に計測した範囲だけなので、その keep 外だけ走査する。
     // layout を作る経路 (MeasureIndicesParallel・表の行の復元・TakeEntries) はどれも NoteMaterialized を通るので、
-    // 前回の keep が無い (作った直後・全部捨てた直後) なら計測した範囲だけを見ればよい
-    // (30 万ノードの文書を開いた直後の 1 回目が 1.2ms → 0)。
-    evict_outside_keep(std::min(last_evict_fk_, n), std::min(last_evict_lk_, n));
-    evict_outside_keep(std::min(materialized_begin_, n), std::min(materialized_end_, n));
-    last_evict_fk_ = fk;
-    last_evict_lk_ = lk;
-    materialized_begin_ = SIZE_MAX;
-    materialized_end_ = 0;
-}
-
-void LayoutCache::ResetEvictionTracking() noexcept
-{
-    last_evict_fk_ = 0;
-    last_evict_lk_ = 0;
-    materialized_begin_ = SIZE_MAX;
-    materialized_end_ = 0;
+    // 記録した範囲の keep 外だけ走査すればよい (30 万ノードの文書を開いた直後の 1 回目が 1.2ms → 0)。
+    live_nodes_.ShrinkTo(std::min(first_keep_inclusive, n), std::min(last_keep_exclusive, n), [&](size_t i) noexcept {
+        EvictEntryLayout(entries_[i], released_layouts_);
+    });
 }
 
 void LayoutCache::EvictInvisibleTableRows(std::span<const size_t> table_indices, YRange keep) noexcept
@@ -387,7 +337,7 @@ void LayoutCache::EvictInvisibleTableRows(std::span<const size_t> table_indices,
             continue;
         }
         auto* tl = entries_[idx].table_layout();
-        if (!tl || !tl->HasGeometry()) {
+        if (!tl) {
             continue;
         }
         // 再可視化は dirty を経由せず LayoutEngine::MeasurePass の行復元で行う。
@@ -411,15 +361,13 @@ void LayoutCache::TakeEntries(LayoutCache& src, size_t from, size_t to, size_t c
             diagrams_.insert_or_assign(index - from + to, std::move(diagram));
         }
     }
-    // 次の evict で keep 範囲外に移った分も拾わせる。src で layout を持ちうるのは前回の keep の範囲と
-    // その後に計測した範囲だけなので、移した範囲と重なる分だけ記録する。丸ごと記録すると保存のたびに次の evict が
-    // 全エントリをなめる (30 万ノードの文書で 1.2ms、BM Reload/FirstEvictAfterCarryOver)。
-    for (const auto [begin, end] : { std::pair{ src.last_evict_fk_, src.last_evict_lk_ }, std::pair{ src.materialized_begin_, src.materialized_end_ } }) {
-        const size_t lo = std::max(begin, from);
-        const size_t hi = std::min(end, from + count);
-        if (lo < hi) {
-            NoteMaterialized(lo - from + to, hi - 1 - from + to);
-        }
+    // 次の evict で keep 範囲外に移った分も拾わせる。layout を持ちうるのは src の生存範囲だけなので、移した範囲と
+    // 重なる分だけ記録する。丸ごと記録すると保存のたびに次の evict が全エントリをなめる
+    // (30 万ノードの文書で 1.2ms、BM Reload/FirstEvictAfterCarryOver)。
+    const size_t lo = std::max(src.live_nodes_.begin, from);
+    const size_t hi = std::min(src.live_nodes_.end, from + count);
+    if (lo < hi) {
+        NoteMaterialized(lo - from + to, hi - 1 - from + to);
     }
 }
 

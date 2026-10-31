@@ -23,13 +23,6 @@ class NavHistory {
 public:
     static constexpr size_t MAX_HISTORY = 1024;
 
-    NavHistory() = default;
-    // 上限はテストで容量超過経路を少ない操作数で踏むために差し替え可能にしている。
-    explicit NavHistory(size_t max_history)
-        : max_history_(max_history)
-    {
-    }
-
     void Push(NavEntry current);
     // PushPending と GoBack/GoForward は、ロード結果で確定 (Commit) か取り消し (Rollback) をする。
     // 開けなかったファイルの分だけ履歴が重複したり、戻る/進むの位置がずれたりするのを防ぐ。
@@ -73,7 +66,6 @@ private:
     std::optional<std::pair<std::deque<NavEntry>, std::deque<NavEntry>>> saved_;
     // 確定待ちの戻る/進むの移動先。続く戻る/進むの起点になる。
     std::optional<NavEntry> chained_from_;
-    size_t max_history_ = MAX_HISTORY;
 };
 
 struct LinkClickResult {
@@ -85,7 +77,7 @@ struct LinkClickResult {
     Type type = Type::None;
     // Anchor: アンカー名 (UTF-8、先頭 '#' を除きパーセントデコード済み)。NavigateAnchorAction にそのまま渡せる。
     // ブラウザのアドレスバーなどからコピーしたリンクはエンコードされている。
-    // ExternalUrl: URL (UTF-8)。ShellOpen に渡す直前で wstring 化する。
+    // ExternalUrl: URL (UTF-8)。App::ShellOpenAsync に渡す直前で wstring 化する。
     std::string target;
 };
 

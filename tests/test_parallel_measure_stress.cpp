@@ -75,12 +75,11 @@ class ParallelMeasureStressTest : public ::testing::Test {
 protected:
     MockTextMeasurerWithTokens mock_;
     Theme theme_;
-    TaskScheduler task_scheduler_;
+    TaskScheduler task_scheduler_{ 2 };
 
     void SetUp() override
     {
         theme_ = GetLightTheme();
-        task_scheduler_.Init(2);
     }
     void TearDown() override
     {
@@ -159,8 +158,7 @@ protected:
 TEST_P(ParallelWorkerCountTest, BitExactAcrossWorkerCount)
 {
     const int worker_count = GetParam();
-    TaskScheduler ts;
-    ts.Init(worker_count);
+    TaskScheduler ts{ worker_count };
 
     constexpr size_t N = 2000;
     StressFixture s;
@@ -180,25 +178,12 @@ TEST_P(ParallelWorkerCountTest, BitExactAcrossWorkerCount)
 
 INSTANTIATE_TEST_SUITE_P(WorkerCounts, ParallelWorkerCountTest, ::testing::Values(1, 2, 8, 16));
 
-// ===== タスク 4: Post 失敗 fallback テスト =====
+// ===== タスク 4: worker の無い scheduler =====
 
-TEST(ParallelMeasurePostFailure, AllChunksFallbackOnSaturatedQueue)
+TEST(ParallelMeasureNoWorkers, AllChunksRunOnCaller)
 {
-    // worker 0 個で Init し、queue を MAX_PENDING_TASKS まで dummy で埋める。
-    // MeasureIndicesParallel の Post 試行はすべて false になり、fallback (UI スレッドで run_chunk 直接実行) を通る。
-    // dummy task は capture なし lambda なので Shutdown 時の dtor で安全に解放される (実行されない)。
-    TaskScheduler ts;
-    ts.Init(0);
+    TaskScheduler ts{ 0 };
     EXPECT_EQ(ts.WorkerCount(), 0u);
-
-    int posted = 0;
-    for (size_t k = 0; k < TaskScheduler::MAX_PENDING_TASKS; ++k) {
-        if (ts.Post([] static noexcept {})) {
-            ++posted;
-        }
-    }
-    EXPECT_EQ(posted, static_cast<int>(TaskScheduler::MAX_PENDING_TASKS));
-    EXPECT_FALSE(ts.Post([] static noexcept {})); // 1025 個目は false
 
     constexpr size_t N = 128;
     StressFixture f;

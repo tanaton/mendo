@@ -66,8 +66,6 @@ struct ViewState {
     // クリックした項目がペイン内で動いて見失うのを防ぐ。
     bool keep_toc_pane_once = false;
     LeftDragState drag;
-    // テキスト選択のドラッグ中に届いたリロード。差し替えると選択の途中でドラッグが終わるので、終わるまで待つ。
-    bool reload_after_drag = false;
 
     // 横スクロールをドラッグ中のブロック。ドラッグしていなければ -1。
     constexpr int HDragNode() const noexcept
@@ -108,7 +106,7 @@ struct SearchGroup {
     int caret_pos = -1;
     int selection_start = -1;
     std::wstring ime_composition;
-    // 入力欄に表示している検索クエリ。SearchState::GetQuery() の UTF-16 版。
+    // 入力欄の検索クエリ。表示とヒットテストにはこのまま使い、検索には UTF-8 にして渡す。
     std::wstring query_wide;
     // 区切った検索が終わったら、見つけたマッチへスクロールする。
     bool scroll_after_search = false;
@@ -120,12 +118,12 @@ struct WindowState {
     // 移動だけのサイズ変更ループでは終了時のレイアウト処理を省くため。
     bool size_changed_in_sizing = false;
     bool window_active = true;
+    // DPI が変わった。次の WM_SIZE は同じピクセルサイズでも処理する。
+    bool dpi_changed = false;
     float cached_dpi_scale = 1.0f;
     // 直近の WM_SIZE のクライアント領域 (物理 px)。ペイン配置の元になり、同じ大きさの WM_SIZE を無視するのにも使う。
     uint32_t client_width = 0;
     uint32_t client_height = 0;
-    // DPI が変わった。次の WM_SIZE は同じピクセルサイズでも処理する。
-    bool dpi_changed = false;
 
     constexpr float WidthDip() const noexcept
     {
@@ -215,6 +213,11 @@ inline SidePaneHeaderButtons SidePaneHeaderButtonsFor(const AppState& state, Pan
 
 // window の寸法・ペイン・テーマから組む。数十回の浮動小数演算なので持たずに毎回求める。
 PaneLayout ComputePaneLayout(const AppState& state) noexcept;
+// Mermaid のキャッシュキーに入るため、全経路でこの値を使う (ずれるとキャッシュを外す)。
+inline float MdContentWidth(const AppState& state) noexcept
+{
+    return state.theme->ContentWidth(ComputePaneLayout(state).md_rect.width);
+}
 // md_width は本文ペインの幅。配置を求め済みならその幅を渡す。
 BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node_index, float md_width) noexcept;
 inline BlockHScrollGeometry ResolveBlockHScrollGeometry(const AppState& state, int node_index) noexcept
@@ -228,6 +231,6 @@ inline PaneScrollInfo MdScrollInfo(const AppState& state, const PaneLayout& layo
 }
 inline SearchBarLayout SearchBarLayoutFor(const AppState& state, const PaneRect& md_rect) noexcept
 {
-    return ComputeSearchBarLayout(md_rect, !state.search.search_state.GetQuery().empty());
+    return ComputeSearchBarLayout(md_rect, !state.search.query_wide.empty());
 }
 float MdMaxScroll(const AppState& state) noexcept;

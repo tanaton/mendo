@@ -110,15 +110,12 @@ MermaidFileCache::IndexState& MermaidFileCache::Index()
     if (!index_) {
         if (auto loaded = LoadIndex()) {
             index_ = std::move(*loaded);
-            // 消し損ねたフォルダは図のキャッシュを初めて使うときに掃除する。起動を塞がないよう worker があるときだけ。
-            if (scheduler_) {
-                RemoveDoomedDirsAsync();
-            }
         }
         else {
             // 違う版 (古い描き方) や壊れた索引の PNG は引けないので、索引に載らないまま残さない。
             Clear();
         }
+        RemoveDoomedDirsAsync();
     }
     return *index_;
 }
@@ -295,7 +292,7 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
     }
 
     auto path = GetPngPath(key);
-    const bool posted = scheduler_->Post([this, key, path = std::move(path), data = std::move(png_data), latch_guard = latch_.Acquire()] {
+    scheduler_->Post([this, key, path = std::move(path), data = std::move(png_data), latch_guard = latch_.Acquire()] {
         // タスク完遂・キャンセルどちらの場合も pending を必ず解除する
         auto guard = ScopeGuard([this, key, &path] {
             bool evicted = false;
@@ -320,13 +317,6 @@ void MermaidFileCache::StoreAsync(uint64_t key, float css_width, float css_heigh
         // 書き込み失敗時はキャッシュ未保存のままになるが、再生成可能なので致命的ではない
         (void)WriteAllBytes(path, data->data(), data->size());
     });
-    if (!posted) {
-        // lambda 本体が走らず body 内 ScopeGuard は構築されないため pending_writes_ は解除されない。
-        // capture の latch::Guard は closure 破棄時に自動 Release されるので、ここでは Post 前に
-        // insert した key だけを巻き戻す (残すと Lookup が stale 扱いを抑止し続ける)。
-        const std::lock_guard lock(pending_mutex_);
-        pending_writes_.erase(key);
-    }
 }
 
 void MermaidFileCache::EvictIfNeeded(IndexState& index, uint32_t new_png_size)
@@ -365,30 +355,20 @@ void MermaidFileCache::Clear()
     if (cache_dir_.empty()) {
         return;
     }
-    // 満杯 (4096 件) を 1 件ずつ消すと UI が 1 秒近く止まる。フォルダごと別名へ移して worker で消す。
-    // 以降の書き込みは新しく作るフォルダへ着地し、移した側の読み込みは見つからずに作り直しへ回る。
-    // 索引に載っていない PNG (索引を書き戻す前に落ちたときなど) も残らない。
-    auto doomed = cache_dir_;
-    doomed += std::format(L"{}{}", kDoomedSuffix, GetTickCount64());
-    std::error_code ec;
-    std::filesystem::rename(cache_dir_, doomed, ec);
-    if (ec) {
-        // 中のファイル (書き込み中の PNG など) を開かれていると移せない。消せるものだけ、移せたときと同じく worker で消す。
-        std::unordered_set<std::wstring> names;
-        for (const auto& path : ListEntries(cache_dir_)) {
-            auto name = path.filename().native();
-            if (name.ends_with(L".png") || name == kIndexFileName) {
-                names.insert(std::move(name));
-            }
+    // 満杯 (4096 件) を 1 件ずつ消すと UI が 1 秒近く止まるので worker で消す。
+    // 索引に載っていない PNG (索引を書き戻す前に落ちたときなど) も残らないよう、フォルダを列挙して控える。
+    std::unordered_set<std::wstring> names;
+    for (const auto& path : ListEntries(cache_dir_)) {
+        auto name = path.filename().native();
+        if (name.ends_with(L".png") || name == kIndexFileName) {
+            names.insert(std::move(name));
         }
-        {
-            const std::lock_guard lock(doomed_mutex_);
-            doomed_files_.merge(names);
-        }
-        RemoveDoomedFilesAsync();
-        return;
     }
-    RemoveDoomedDirsAsync();
+    {
+        const std::lock_guard lock(doomed_mutex_);
+        doomed_files_.merge(names);
+    }
+    RemoveDoomedFilesAsync();
 }
 
 void MermaidFileCache::PrepareWrite(const std::filesystem::path& path)
@@ -422,12 +402,9 @@ void MermaidFileCache::RemoveDoomedFiles()
 
 void MermaidFileCache::RemoveDoomedDirsAsync()
 {
-    if (cache_dir_.empty()) {
-        return;
-    }
-    const auto remove = [dir = cache_dir_] { RemoveDoomedDirs(dir); };
-    if (!scheduler_ || !scheduler_->Post(remove)) {
-        remove();
+    // 起動を塞がないよう worker があるときだけ。
+    if (scheduler_ && !cache_dir_.empty()) {
+        scheduler_->Post([dir = cache_dir_] { RemoveDoomedDirs(dir); });
     }
 }
 

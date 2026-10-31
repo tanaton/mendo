@@ -327,7 +327,7 @@ IDWriteTextFormat* DWriteTextMeasurer::GetTableRowFormat(const DWriteContext& ct
     return tbl.IsHeaderRow(r) ? ctx.h[Theme::kTableHeaderLevel - 1].Get() : ctx.body.Get();
 }
 
-bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, bool apply_code_size, float fit_width) const
+bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, bool apply_code_size, float math_font_size, float fit_width) const
 {
     if (runs.empty()) {
         return false;
@@ -384,10 +384,10 @@ bool DWriteTextMeasurer::ApplyRunFormatting(IDWriteTextLayout* layout, std::span
     code.Flush();
     strike.Flush();
     link.Flush();
-    return ApplyInlineMath(layout, runs, text, fit_width);
+    return ApplyInlineMath(layout, runs, text, math_font_size, fit_width);
 }
 
-bool DWriteTextMeasurer::ApplyInlineMath(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, float fit_width) const
+bool DWriteTextMeasurer::ApplyInlineMath(IDWriteTextLayout* layout, std::span<const TextRun> runs, std::string_view text, float font_size, float fit_width) const
 {
     if (!inline_math_) {
         return false;
@@ -407,12 +407,8 @@ bool DWriteTextMeasurer::ApplyInlineMath(IDWriteTextLayout* layout, std::span<co
             continue;
         }
         const DWRITE_TEXT_RANGE wr = cursor.WideRange(r.start, r.length);
-        FLOAT font_size = 0.0f;
-        if (FAILED(layout->GetFontSize(wr.startPosition, &font_size)) || font_size <= 0.0f) {
-            continue;
-        }
         const uint64_t key = InlineMathKey(*tex, font_size);
-        if (const auto metrics = inline_math_->FindOrRequest(key, *tex, font_size)) {
+        if (const auto metrics = inline_math_->FindOrRequest(key)) {
             if (metrics->ok()) {
                 const float scale = fit_width > 0.0f && metrics->width > fit_width ? fit_width / metrics->width : 1.0f;
                 layout->SetInlineObject(MakeInlineMathObject(key, *metrics, scale).Get(), wr);
@@ -441,18 +437,19 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(
     }
 
     const float layout_width = layout::NodeLayoutWidth(node, max_width);
-    // 同じ幅で組んだ text_layout が残っていれば、高さも行もハイライト矩形も変わらない。
-    if (entry.text_layout() && entry.cached_height > 0.0f && entry.cached_width == layout_width) {
-        return entry.cached_height;
-    }
     // ブロック数式は図と同じく、幅に収まらなければ縮めて中央に置く (GitHub と同じ)。
     const bool block_math = IsBlockMath(node);
     if (entry.text_layout()) {
-        // 改行でしか折れておらず最も長い行が新しい幅に収まるなら、組み直しても行は同じ。左揃えなら幅は付け替えない
-        // (SetMaxWidth の後の GetMetrics は作り直しとほぼ同じだけかかる)。GetMetrics は前回の結果を返すだけ。
-        // 幅を変えたときの全ノードの計測し直しが test.md で 174ms → 143ms、README で 6.0ms → 3.1ms。
+        // GetMetrics は前回の結果を返すだけ。
         DWRITE_TEXT_METRICS metrics{};
         entry.text_layout()->GetMetrics(&metrics);
+        // 同じ幅で組んだ text_layout が残っていれば、高さも行もハイライト矩形も変わらない。
+        if (entry.cached_width == layout_width) {
+            return metrics.height;
+        }
+        // 改行でしか折れておらず最も長い行が新しい幅に収まるなら、組み直しても行は同じ。左揃えなら幅は付け替えない
+        // (SetMaxWidth の後の GetMetrics は作り直しとほぼ同じだけかかる)。
+        // 幅を変えたときの全ノードの計測し直しが test.md で 174ms → 143ms、README で 6.0ms → 3.1ms。
         if (metrics.lineCount == static_cast<UINT32>(node.line_count) + 1 && metrics.width <= layout_width &&
             entry.text_layout()->GetTextAlignment() == DWRITE_TEXT_ALIGNMENT_LEADING) {
             return metrics.height;
@@ -474,11 +471,11 @@ std::optional<float> DWriteTextMeasurer::MeasureNode(
     }
 
     entry.pending_math = ApplyRunFormatting(layout.Get(), node.runs(), text, /*apply_code_size=*/node.type != NodeType::Heading,
-                                            block_math ? layout_width : 0.0f);
+                                            MathFontSize(*theme_, node), block_math ? layout_width : 0.0f);
     if (block_math) {
         layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     }
-    if (node.type == NodeType::BlockQuote && node.alert_label_length() > 0) {
+    if (node.alert_label_length() > 0) {
         if (const auto idx = AlertColorIndex(node.alert_type); idx < ALERT_TYPE_COUNT) {
             Utf16OffsetCursor cursor{ text };
             layout->SetDrawingEffect(BrushEffect::For(AlertBrushIdFromIndex(idx)), cursor.WideRange(0, node.alert_label_length()));
@@ -503,7 +500,7 @@ ComPtr<IDWriteTextLayout> DWriteTextMeasurer::CreateCellLayout(const DWriteConte
     ComPtr<IDWriteTextLayout> cell_layout;
     const auto text = tbl.GetCellText(r, c);
     if (!text.empty() && SUCCEEDED(CreateDocTextLayout(ctx.factory.Get(), text, GetTableRowFormat(ctx, tbl, r), layout::kNoWrapLayoutWidth, layout::kNoWrapLayoutWidth, &cell_layout))) {
-        if (ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, /*apply_code_size=*/true, /*fit_width=*/0.0f)) {
+        if (ApplyRunFormatting(cell_layout.Get(), tbl.GetCellRuns(r, c), text, /*apply_code_size=*/true, MathFontSize(*theme_, tbl, r), /*fit_width=*/0.0f)) {
             std::atomic_ref{ tl.pending_math }.store(true, std::memory_order_relaxed);
         }
         // 揃えは折り返さない幅に影響しないので、自然幅の計測前に付けてよい。
@@ -626,7 +623,7 @@ float DWriteTextMeasurer::FinalizeTableLayout(const NodeTableData& tbl, TableLay
     // (row_heights[r] と行内セルの幅・高さキャッシュ) は重ならないので行チャンクで並列化する。
     // layout のある行と見積もるだけの行は 1 行の重さが桁で違うので、別の細かさで分ける。
     const float base_row_height = layout::TableBaseRowHeight(*theme_);
-    const auto [live_begin, live_end] = tl.LiveRowRange();
+    const auto [live_begin, live_end] = tl.LiveRows();
     const size_t live_count = live_end - live_begin;
     ParallelFor(scheduler_, live_count, TableRowsPerChunk(col_count), [&](size_t begin, size_t end) {
         for (size_t r = live_begin + begin; r < live_begin + end; r++) {
@@ -652,7 +649,7 @@ TableRestoreResult DWriteTextMeasurer::RestoreEvictedTableRows(const Node& node,
     TableRestoreResult result;
     auto* tl_ptr = entry.table_layout();
     const auto* tbl = node.table_data();
-    if (!ctx_.factory || !theme_ || !tl_ptr || !tbl || !tl_ptr->HasEvictedRows()) {
+    if (!ctx_.factory || !theme_ || !tl_ptr || !tl_ptr->HasEvictedRows()) {
         return result;
     }
     auto& tl = *tl_ptr;
@@ -691,13 +688,6 @@ std::optional<float> DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayo
 {
     MENDO_PROFILE("MeasureTable");
     const auto* tbl = node.table_data();
-    // パーサが NodeTableData::col_count に最大列数を保持済みなので全行走査は不要。
-    if (!tbl || tbl->row_count == 0 || tbl->col_count == 0) {
-        return 0.0f;
-    }
-
-    const size_t row_count = tbl->row_count;
-    const size_t col_count = tbl->col_count;
 
     // 超高速パス: 前回と max_width がほぼ一致し幾何が揃っていれば、
     // セル幅・行高さ・累積位置・行オフセットすべて変化しないため、幾何の高さのまま確定させる。
@@ -709,27 +699,25 @@ std::optional<float> DWriteTextMeasurer::MeasureTable(const Node& node, NodeLayo
         return tl_existing->TotalHeight();
     }
 
-    // セル layout の再作成 or SetMaxWidth で metrics が変わるため、ハイライト矩形の
-    // キャッシュは捨てる。選択ハイライトキャッシュは本文ノード専用だが、ノード型変更等で
-    // 残っている可能性に備えて落としておく。
+    // セル layout の再作成 or SetMaxWidth で metrics が変わるため、ハイライト矩形のキャッシュは捨てる。
     entry.invalidate_per_frame_hl_caches();
-
-    // インラインコードの背景は行の計測 (MeasureRowHeight) で作る。持たないテーブルには確保しない。
-    auto& tl = tl_existing ? *tl_existing
-                           : entry.ensure_table_layout(row_count, col_count, std::ranges::any_of(tbl->all_runs, [](const TextRun& r) static noexcept {
-        return r.code() && r.length > 0;
-    }));
-    assert(tl.row_count == row_count && tl.col_count == col_count);
 
     // 全セルを測り終えていれば、テキストレイアウトの作成をスキップして列幅の再計算だけ行う。
     // 自然幅はセルのテキストだけで決まり、evict しても残る。
-    if (tl.HasGeometry()) {
+    if (tl_existing) {
         // 行高さは FinalizeTableLayout が新しい列幅で全行測る。
-        RestoreRowsInViewport(*tbl, tl, viewport, nullptr);
+        RestoreRowsInViewport(*tbl, *tl_existing, viewport, nullptr);
+        return FinalizeTableLayout(*tbl, *tl_existing, max_width);
     }
-    else {
-        // 列幅判定に全行の自然幅が要るので、初回は全セルを測る。
-        MeasureTableCells(*tbl, tl);
-    }
-    return FinalizeTableLayout(*tbl, tl, max_width);
+
+    // インラインコードの背景は行の計測 (MeasureRowHeight) で作る。持たないテーブルには確保しない。
+    const bool has_inline_code = std::ranges::any_of(tbl->all_runs, [](const TextRun& r) static noexcept {
+        return r.code() && r.length > 0;
+    });
+    auto tl = std::make_unique<TableLayoutData>(tbl->row_count, tbl->col_count, has_inline_code);
+    // 列幅判定に全行の自然幅が要るので、初回は全セルを測る。
+    MeasureTableCells(*tbl, *tl);
+    const float height = FinalizeTableLayout(*tbl, *tl, max_width);
+    entry.set_table_layout(std::move(tl));
+    return height;
 }

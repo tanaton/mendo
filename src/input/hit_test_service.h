@@ -44,16 +44,13 @@ inline TableRowHit FindTableRow(const TableLayoutData& tl, float local_y) noexce
 }
 
 struct TableColHit {
-    int col = 0;
-    float cell_left = TABLE_BORDER_WIDTH;
+    int col;
+    float cell_left;
 };
 
-// テーブル左右の外側は端の列にクランプする。列幾何が無ければ先頭列。
+// テーブル左右の外側は端の列にクランプする。
 inline TableColHit FindTableCol(const TableLayoutData& tl, float local_x) noexcept
 {
-    if (!tl.HasGeometry()) {
-        return {};
-    }
     const size_t col_count = tl.col_count;
     const auto it = std::ranges::upper_bound(tl.col_cum_x, local_x + TABLE_BORDER_WIDTH);
     const auto pos = static_cast<size_t>(std::ranges::distance(tl.col_cum_x.begin(), it));

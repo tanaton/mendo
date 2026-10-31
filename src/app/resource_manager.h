@@ -10,32 +10,16 @@
 #include <string_view>
 #include <unordered_map>
 
-class Document;
-class ViewportManager;
+struct AppState;
 class ImageLoader;
 class IMermaidRenderer;
 class MermaidFileCache;
-
-// ResourceManager が依存するサービス群を 1 つにまとめる DI コンテナ。
-// 各ポインタは ResourceManager の生存期間中 valid である必要がある。
-struct ResourceManagerDeps {
-    Document* doc = nullptr;
-    LayoutCache* cache = nullptr;
-    ViewportManager* viewport = nullptr;
-    ImageLoader* image_loader = nullptr;
-    IMermaidRenderer* mermaid = nullptr;
-    // リロード時の高さ適用にだけ使う。nullptr なら適用しない。
-    MermaidFileCache* mermaid_file_cache = nullptr;
-};
 
 // ResourceManager が App に頼むこと。
 class ResourceManagerHost {
 public:
     virtual void SetTimer(app_timer::Id id, UINT ms) = 0;
     virtual void KillTimer(app_timer::Id id) = 0;
-    virtual float MdContentWidth() = 0;
-    virtual float MdPaneHeight() = 0;
-    virtual const Theme& GetTheme() = 0;
     // 画像・図の高さが changed の範囲で変わった。見ている位置を保って Y を組み直し、再描画させる。
     virtual void RecomputeLayout(layout::HeightChangeRange changed) = 0;
 
@@ -44,7 +28,7 @@ protected:
 };
 
 // 画像・Mermaidリソースのライフサイクル管理。
-// Appから画像読み込み、Mermaidバッチ処理、ビットマップ解放の責務を分離する。
+// Appから画像読み込み、Mermaidの要求、ビットマップ解放の責務を分離する。
 class ResourceManager {
 public:
     // 画像/図のビットマップを残す範囲。遅延レイアウトの計測範囲も兼ねる。範囲外へのスクロールは EnsureVisibleLayout が同期計測で拾う。
@@ -59,27 +43,27 @@ public:
     static constexpr float LAYOUT_EVICT_BUFFER_SCREENS = 8.0f;
     static_assert(EVICT_BUFFER_SCREENS < LAYOUT_EVICT_BUFFER_SCREENS);
 
-    constexpr void Init(const ResourceManagerDeps& deps, ResourceManagerHost& host) noexcept
+    // 渡すものはどれも ResourceManager より長生きする。
+    constexpr void Init(AppState& state, ImageLoader& image_loader, IMermaidRenderer& mermaid, MermaidFileCache& mermaid_file_cache, ResourceManagerHost& host) noexcept
     {
-        deps_ = deps;
+        state_ = &state;
+        image_loader_ = &image_loader;
+        mermaid_ = &mermaid;
+        mermaid_file_cache_ = &mermaid_file_cache;
         host_ = &host;
     }
 
     // range のノードの画像を全部走査、未キャッシュは無視（リロード時のスクロール計算前用）。高さを変えたら true。
-    // 読み込みは後続の RelayoutViewport (LoadImages) が起動する。
+    // 読み込みは後続の RelayoutViewport (FlushPendingResources) が起動する。
     bool ApplyCachedImagesForReload(VisibleRange range);
     // リロード直後のスクロール位置計算用に、range のノードの図の推定高さをディスクキャッシュにある寸法で上書きする。
-    // ビットマップは読まないので、描画は後続の RequestMermaidRenders に任せる。
+    // ビットマップは読まないので、描画は後続の RelayoutViewport (FlushPendingResources) に任せる。
     bool ApplyMermaidCacheHeightsForReload(VisibleRange range);
     void LoadImages();
     // 届いたデコード結果を取り込み、あれば適用して再レイアウトを 1 回行う。
     void OnImagesDecoded(std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kUploadSliceBudget);
 
     void RequestMermaidRenders();
-    void CancelMermaidBatch();
-    // レイアウトが落ち着いてから (次のタイマーで) 図を要求する。
-    void ScheduleMermaidBatch();
-    void ProcessMermaidBatch();
 
     void EvictOffscreenBitmaps();
     // 届いたデコード結果も ApplyCachedImages でまとめて適用し、再レイアウトを 1 回にする。
@@ -88,13 +72,13 @@ public:
     void OnBitmapManageTimer();
 
 private:
-    // 以下の適用と要求は再レイアウトしない。高さか表示が変わったノードは height_changed_ に溜まる。
+    // 以下の適用と要求は再レイアウトしない。高さか表示が変わったノードは changed に積む。
     // 可視範囲のみ走査し、未キャッシュは非同期ロード起動（通常描画用）。
-    void ApplyCachedImages();
+    void ApplyCachedImages(layout::HeightChangeRange& changed);
     // slices は走査する画像ノードの範囲の並び。start_loads なら未キャッシュの画像の読み込みを起動する。高さを変えたノードは changed に積む。
     void ApplyCachedImagesIn(std::span<const std::span<const size_t>> slices, bool start_loads, layout::HeightChangeRange& changed);
-    void RequestVisibleDiagrams();
-    void RequestDiagramRender(size_t i, float content_width, bool dark_mode);
+    void RequestVisibleDiagrams(layout::HeightChangeRange& changed);
+    void RequestDiagramRender(size_t i, float content_width, bool dark_mode, layout::HeightChangeRange& changed);
     // 画像・図の寸法が確定したノードの高さを決め、changed に積む。
     void ApplyBitmapHeight(size_t i, const DiagramEntry& bitmap, float node_width, layout::HeightChangeRange& changed);
     // 解決済みパスは src 単位でキャッシュする。開かない src も空文字列で覚え、毎回の解決を避ける。
@@ -102,8 +86,8 @@ private:
     // 保持範囲 (±EVICT_BUFFER_SCREENS) を越えて移動していたら、旧位置で積んだ図の描画待ちと画像のデコード待ちを捨てる。
     // FIFO のままだと TOC ジャンプや Ctrl+End の後に、見えている図や画像が旧位置の分の後回しになる。
     void DropQueuesIfJumped();
-    // height_changed_ が空でなければ、その範囲で再レイアウトさせる。
-    void RecomputeChangedHeights();
+    // changed が空でなければ、その範囲で再レイアウトさせる。Y の再計算を変わった範囲に限定する。
+    void RecomputeChangedHeights(const layout::HeightChangeRange& changed);
 
     struct BufferedRange {
         float viewport_top;
@@ -119,7 +103,10 @@ private:
     std::array<std::span<const size_t>, 3> PrioritizedSlices(std::span<const size_t> indices, float screens);
     void InvalidateMermaidForWidthChange(float content_width);
 
-    ResourceManagerDeps deps_{};
+    AppState* state_ = nullptr;
+    ImageLoader* image_loader_ = nullptr;
+    IMermaidRenderer* mermaid_ = nullptr;
+    MermaidFileCache* mermaid_file_cache_ = nullptr;
     ResourceManagerHost* host_ = nullptr;
 
     float last_mermaid_content_width_ = 0.0f;
@@ -127,6 +114,4 @@ private:
     std::unordered_map<std::string, std::wstring, StringTransparentHash, std::equal_to<>> resolved_image_paths_;
     std::wstring resolved_dir_;
     std::chrono::steady_clock::time_point last_flush_time_{};
-    // 画像/図の適用で高さを更新したノード範囲。Y 再計算をこの範囲に限定する。
-    layout::HeightChangeRange height_changed_ = {};
 };

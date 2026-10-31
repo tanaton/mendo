@@ -125,8 +125,7 @@ private:
     // 違う版か、ヘッダの壊れた索引なら nullopt。索引が無い・短いときは空の索引 (別のインスタンスが書き込み中でもよい)。
     std::optional<IndexState> LoadIndex() const;
     void EvictIfNeeded(IndexState& index, uint32_t new_png_size);
-    // Clear が別名にして消すフォルダ (<cache_dir_>.deleting-*) を worker ですべて消す。
-    // 消している途中で終了したり、中のファイルを開かれていて消し損ねたりしたものも拾う。
+    // 前の版の Clear が別名にして消し損ねたフォルダ (<cache_dir_>.deleting-*) を worker で消す。次の版で除く。
     void RemoveDoomedDirsAsync();
     // path に書く前に呼ぶ。親ディレクトリを作り、Clear が消すよう控えた同じ名前を控えから外す (書いた後に消されない)。
     // どのスレッドからでも呼べる。
@@ -158,7 +157,7 @@ private:
     mutable std::mutex pending_mutex_;
     // 書き込み中のキー → 書き込み中に追い出されたか (true なら worker が書き込み後に PNG を消す)。
     std::unordered_map<uint64_t, bool> pending_writes_;
-    // Clear が移せなかったフォルダで、worker がまだ消していないファイル名。消す間はロックを持つので、
+    // Clear が控えて、worker がまだ消していないファイル名。消す間はロックを持つので、
     // pending_mutex_ (UI の StoreAsync も取る) とは分ける。
     std::mutex doomed_mutex_;
     std::unordered_set<std::wstring> doomed_files_;

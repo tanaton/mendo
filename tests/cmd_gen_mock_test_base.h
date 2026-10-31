@@ -20,7 +20,7 @@ protected:
     void SetUp() override
     {
         ASSERT_NO_FATAL_FAILURE(MockLayoutTestBase::SetUp());
-        gen_.Init(theme_);
+        InitWithoutText(gen_, theme_);
     }
 
     static constexpr float kViewportW = 800.0f;

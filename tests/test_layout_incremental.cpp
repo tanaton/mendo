@@ -6,6 +6,7 @@
 #include <deque>
 #include <random>
 #include <string>
+#include "d2d_util.h"
 #include "document.h"
 #include "document_test_helpers.h"
 #include "layout.h"
@@ -34,8 +35,24 @@ public:
                                      YRange viewport = YRange::All()) const override
     {
         const auto height = MockTextMeasurer::MeasureNode(node, entry, max_width, viewport);
-        entry.ensure_table_layout(0, 0);
+        if (node.type != NodeType::Table) {
+            entry.set_text_layout(Marker());
+        }
         return height;
+    }
+
+private:
+    static Microsoft::WRL::ComPtr<IDWriteTextLayout> Marker()
+    {
+        static const auto layout = [] {
+            Microsoft::WRL::ComPtr<IDWriteFactory> factory;
+            DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(factory.GetAddressOf()));
+            const auto format = CreateTextFormat(factory.Get(), { .family = L"Segoe UI", .size = 12.0f, .locale = L"en-us" });
+            Microsoft::WRL::ComPtr<IDWriteTextLayout> text_layout;
+            factory->CreateTextLayout(L"m", 1, format.Get(), 100.0f, 100.0f, &text_layout);
+            return text_layout;
+        }();
+        return layout;
     }
 };
 
@@ -110,7 +127,7 @@ protected:
     MarkingMeasurer measurer_;
     Theme theme_{};
     LayoutEngine engine_;
-    TaskScheduler scheduler_;
+    TaskScheduler scheduler_{ 2 };
     std::vector<Node> nodes_;
     LayoutCache cache_;
     float width_ = 800.0f;
@@ -120,7 +137,6 @@ protected:
     {
         theme_ = GetLightTheme();
         ASSERT_TRUE(engine_.Init(&measurer_, theme_));
-        scheduler_.Init(2);
     }
     void TearDown() override
     {
@@ -301,12 +317,12 @@ TEST_F(IncrementalLayoutTest, EvictReleasesEverythingOutsideKeep)
                     continue;
                 }
                 // 行の幾何を持つ表は、作り直しを避けるため幾何だけ残してセルの layout を捨てる。
-                if (const auto* tl = cache_[i].table_layout(); tl && tl->HasGeometry()) {
+                if (const auto* tl = cache_[i].table_layout()) {
                     ASSERT_TRUE(std::ranges::none_of(tl->cell_layouts, [](const auto& cell) { return cell != nullptr; }))
                         << "keep 範囲外 i=" << i << " のセルの layout が残っている";
                     continue;
                 }
-                ASSERT_EQ(cache_[i].table_layout(), nullptr) << "keep 範囲外 i=" << i << " の layout が残っている";
+                ASSERT_EQ(cache_[i].text_layout(), nullptr) << "keep 範囲外 i=" << i << " の layout が残っている";
             }
         }
     }

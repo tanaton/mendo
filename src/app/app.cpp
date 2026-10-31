@@ -16,10 +16,10 @@
 #include "tooltip.h"
 #include "ui_constants.h"
 #include "win32_util.h"
+#include "window.h"
 #include <array>
 #include <cstddef>
 #include <memory_resource>
-#include <ranges>
 #include <thread>
 #include <utility>
 
@@ -48,8 +48,8 @@ bool App::Init(HWND hwnd)
     hwnd_ = hwnd;
 
     // 書式とブラシを 1 回で作るため、保存済みテーマ/ズームを Renderer 初期化前に読む。
-    state_.view.viewport.Zoom() = theme_service_.LoadZoomLevel();
-    theme_service_.Init(theme_service_.LoadDarkMode(), state_.view.viewport.Zoom());
+    state_.view.viewport.Zoom() = session::LoadZoomLevel(config_);
+    theme_service_.Init(session::LoadDarkMode(config_), state_.view.viewport.Zoom());
     const Theme& theme = theme_service_.GetTheme();
     if (!renderer_.Init(hwnd_, theme)) {
         return false;
@@ -61,30 +61,17 @@ bool App::Init(HWND hwnd)
         return false;
     }
 
-    // Mermaid 共有 scheduler_ と詰まり合わないよう分ける。
-    layout_scheduler_.Init(LayoutWorkerCount(std::thread::hardware_concurrency()));
     measurer_.SetScheduler(&layout_scheduler_);
 
     // PixelToDip 用に DPI スケールをキャッシュ（DpiChangedAction でも更新する）。
     state_.window.cached_dpi_scale = DpiScaleFrom(static_cast<float>(GetDpiForWindow(hwnd_)));
-
-    InitSharedScheduler();
 
     file_cache_.SetCacheDir(config_.GetConfigPath(L"MermaidCache"));
     file_cache_.Init(MermaidRenderer::EstimateWorkerDpr(), scheduler_);
 
     clipboard_manager_.Init(hwnd_, &mermaid_renderer_, renderer_.GetWICFactory(), [this](std::wstring_view m) { ShowToast(m); });
 
-    resource_manager_.Init(
-        ResourceManagerDeps{
-            .doc = &state_.document.doc,
-            .cache = &state_.document.layout_cache,
-            .viewport = &state_.view.viewport,
-            .image_loader = &image_loader_,
-            .mermaid = &mermaid_renderer_,
-            .mermaid_file_cache = &file_cache_,
-        },
-        *this);
+    resource_manager_.Init(state_, image_loader_, mermaid_renderer_, file_cache_, *this);
 
     mermaid_renderer_.Init(hwnd_, renderer_.GetWICFactory(), file_cache_, scheduler_,
                            config_.GetConfigPath(L"WebView2Data"), [this]() {
@@ -104,10 +91,9 @@ bool App::Init(HWND hwnd)
         // bitmap 残存ノードをスキップするため、LoadImages の前に破棄する必要がある。
         state_.document.layout_cache.InvalidateAllDiagramBitmaps();
         resource_manager_.LoadImages();
-        // インライン数式の型は旧デバイスのビットマップなので捨て、新しいデバイスで作り直す。寸法は同じなのでレイアウトはそのまま。組ごとに描いた数式は
-        // 見えたときに組を読み直す (ManageInlineMathPages) ので、全部の組は読まない。ここで頼み直すのは計画に無い数式だけ。
+        // インライン数式の型は旧デバイスのビットマップなので捨てる。寸法は同じなのでレイアウトはそのまま。
+        // 見えたときに組を読み直す (ManageInlineMathPages) ので、全部の組は読まない。
         math_masks_ = {};
-        inline_math_.RequestAllAgain([this](uint64_t key) { return !inline_math_plan_.ChunkOf(key); });
     });
 
     if (theme_service_.IsDarkMode()) {
@@ -144,11 +130,6 @@ bool App::Init(HWND hwnd)
     tooltip_.ApplyDarkMode(theme_service_.IsDarkMode());
 
     return true;
-}
-
-void App::InitSharedScheduler()
-{
-    scheduler_.Init(SharedWorkerCount(std::thread::hardware_concurrency()));
 }
 
 bool App::CreateRenderDevice()
@@ -364,16 +345,11 @@ void App::OnMermaidDiskLoaded()
 
 void App::OnInlineMathRequested()
 {
-    std::vector<InlineMathItem> unplanned;
-    for (auto& item : inline_math_.TakeRequests()) {
-        if (!RequestInlineMathChunk(item.key, false)) {
-            unplanned.push_back(std::move(item));
+    for (const uint64_t key : inline_math_.TakeRequests()) {
+        // 計画に無いのは、リロードの前に測って今の文書には無くなった数式だけ。描かずに待ちから外す。
+        if (!RequestInlineMathChunk(key, false)) {
+            inline_math_.ForgetRequest(key);
         }
-    }
-    // 計画と違う大きさで組んだ数式 (計画を作り直す前に測った数式など) は、キャッシュせずに描く。
-    for (auto&& part : unplanned | std::views::chunk(kMaxInlineMathPerChunk)) {
-        mermaid_renderer_.RequestMathBatch({ std::make_move_iterator(part.begin()), std::make_move_iterator(part.end()) }, 0,
-                                           [this](InlineMathBatchResult result) { OnInlineMathRendered(std::move(result), 0, 0); });
     }
 }
 
@@ -432,10 +408,7 @@ void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint6
     if (result.cancelled) {
         return;
     }
-    const bool planned = chunk_key != 0;
-    if (planned) {
-        inline_math_plan_.FinishChunk(chunk, chunk_key, result.failed);
-    }
+    inline_math_plan_.FinishChunk(chunk, chunk_key, result.failed);
     InlineMathPage* page = nullptr;
     bool lost = false;
     for (const auto& item : result.items) {
@@ -448,7 +421,7 @@ void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint6
             continue;
         }
         if (!page) {
-            page = &math_masks_.AddPage(result.page, planned);
+            page = &math_masks_.AddPage(result.page);
         }
         math_masks_.Assign(item.key, InlineMathMask{ page, item.src, item.dest });
     }
@@ -459,7 +432,7 @@ void App::OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint6
     // 組んだレイアウトはその数式の幅を空けたままなので、原文で組み直す。数式からノードは引けないので全部組み直す。
     if (lost) {
         cache.InvalidateAllLayouts(state_.document.doc.GetNodes());
-        RelayoutViewport(RelayoutResources::DiagramsBatched);
+        RelayoutViewport();
         return;
     }
     // 段落は組の結果が続けて届いても、まとめずに結果ごとに組み直す。数式 2940 個の文書を最小倍率・1600x1400 で開いても、
@@ -484,7 +457,7 @@ void App::RelayoutPendingInlineMath(bool tables)
         last_math_table_relayout_ = std::chrono::steady_clock::now();
     }
     if (state_.document.layout_cache.InvalidatePendingMathLayouts(tables)) {
-        RelayoutViewport(RelayoutResources::DiagramsBatched);
+        RelayoutViewport();
     }
     else {
         Invalidate();
@@ -601,9 +574,6 @@ void App::HandleTimer(UINT_PTR timer_id)
         }
         Invalidate();
         return;
-    case MERMAID_BATCH:
-        resource_manager_.ProcessMermaidBatch();
-        return;
     case BITMAP_MANAGE:
         resource_manager_.OnBitmapManageTimer();
         return;
@@ -662,18 +632,8 @@ void App::ShellOpenAsync(std::wstring target)
 
 void App::CancelPendingResources()
 {
-    resource_manager_.CancelMermaidBatch();
     mermaid_renderer_.DropQueued();
     image_loader_.DropQueued();
-}
-
-void App::RequestDroppedResourcesAgain()
-{
-    if (!std::exchange(resources_dropped_for_load_, false)) {
-        return;
-    }
-    resource_manager_.ScheduleBitmapManage();
-    Invalidate();
 }
 
 void App::StartLoadingAnimation()
@@ -715,7 +675,7 @@ void App::ShowHelpResource()
 
     std::string utf8(reinterpret_cast<const char*>(rc.data()), rc.size());
     Document help = Document::FromMarkdown(std::move(utf8), HELP_PATH);
-    LayoutCache estimated = layout::MakeEstimatedLayoutCache(help.GetNodes(), theme_service_.GetTheme(), MdContentWidth());
+    LayoutCache estimated = layout::MakeEstimatedLayoutCache(help.GetNodes(), theme_service_.GetTheme(), MdContentWidth(state_));
     OpenDocument(std::move(help), std::move(estimated), /*follow_file_pane=*/false, {});
 }
 
@@ -734,10 +694,8 @@ void App::ReplaceDocument(Document next, LayoutCache estimated)
 {
     // 以降、doc のノードと layout_cache のエントリは常に同数 (描画・ヒットテスト等はこれを前提にする)。
     assert(estimated.size() == next.GetNodes().size());
-    resources_dropped_for_load_ = false;
     Document old = std::exchange(state_.document.doc, std::move(next));
     LayoutCache old_cache = std::exchange(state_.document.layout_cache, std::move(estimated));
-    renderer_.ForgetDocumentText();
     old_cache.ReleaseDiagrams();
     // 表は 1 ノードにセルの数だけレイアウトを持つので、ノード数によらずワーカーで捨てる。
     scheduler_.Post([o = std::move(old_cache)] {});
@@ -752,7 +710,7 @@ void App::BeginAsyncLoad(std::wstring path, bool show_animation)
     }
     ReloadBase reload_base = ReloadBaseFor(state_.document.doc, path, prefix_shrink_retry_.Exhausted());
     // 進行中の読み込み (preload を含む) は置き換える。
-    load_coordinator_.Start(scheduler_, std::move(path), theme_service_.GetTheme(), MdContentWidth(), std::move(reload_base));
+    load_coordinator_.Start(scheduler_, std::move(path), theme_service_.GetTheme(), MdContentWidth(state_), std::move(reload_base));
 }
 
 void App::DeferReloadRetry()
@@ -762,9 +720,6 @@ void App::DeferReloadRetry()
     SetTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_RETRY_MS);
 }
 
-// reducer を経由せず App 層で直接実行する。ファイル I/O + パース + レイアウト初期化を含む
-// 大きな命令的ワークフローで、reducer 化すると effect variant と App::Execute が肥大化するため
-// 意図的に service 経路として分離している。
 // 読み込みとパースは大きさによらず worker で行い、UI スレッドではファイルに触れない (ネットワーク上のファイルで止まらない)。
 void App::LoadMarkdownFile(std::wstring_view path)
 {
@@ -778,11 +733,11 @@ void App::LoadMarkdownFile(std::wstring_view path)
         ShowHelpResource();
         return;
     }
-    // 旧文書の画像・図の待ちはもう要らない。差し替えずに終わったら RequestDroppedResourcesAgain が要求し直す。
-    // 開いている文書を開き直すとリロードとして扱われ、図と画像はコードやパスがキーなので待ちをそのまま使える。
+    // 旧文書の画像・図の待ちはもう要らない。文書を差し替えずに終わったら、表示を続ける文書のぶんを要求し直す
+    // (OnParseComplete・CancelOtherFileLoad)。開いている文書を開き直すとリロードとして扱われ、
+    // 図と画像はコードやパスがキーなので待ちをそのまま使える。
     if (!path_util::iequal(path, state_.document.doc.GetFilePath())) {
         CancelPendingResources();
-        resources_dropped_for_load_ = true;
     }
     BeginAsyncLoad(std::wstring{ path }, /*show_animation=*/true);
 }
@@ -797,15 +752,14 @@ void App::CancelOtherFileLoad()
     StopLoadingAnimation();
     load_coordinator_.Cancel();
     file_watcher_.ResumeWatching();
-    RequestDroppedResourcesAgain();
+    resource_manager_.ScheduleBitmapManage();
 }
 
 // Init より前に呼ばれるため、推定用のテーマは設定から直接作る。
 // 推定に使う寸法はライト/ダーク共通でズームだけに依存するので、ダークモード未読込でも結果は同じ。
 void App::StartPreloadAsync(std::wstring path)
 {
-    InitSharedScheduler();
-    load_coordinator_.Start(scheduler_, std::move(path), theme_service_.CreateTheme(theme_service_.LoadZoomLevel()));
+    load_coordinator_.Start(scheduler_, std::move(path), theme_service_.CreateTheme(session::LoadZoomLevel(config_)));
 }
 
 void App::HandleLoadFailureFallback(std::optional<FileLoadError> error)
@@ -838,25 +792,25 @@ void App::OnParseComplete()
 
     StopLoadingAnimation();
 
-    // ApplyReload / ReplaceWithResult のときだけ結果がある。
+    // Fail のときだけ結果が無い。
     AsyncLoadResult* const result = (outcome && *outcome) ? &**outcome : nullptr;
 
-    if (plan.step != ParseCompleteStep::ReplaceWithResult) {
-        RequestDroppedResourcesAgain();
+    // 読み始めに捨てた画像・図の待ちを、文書を差し替えずに終わるなら要求し直す。ApplyReload は ReloadDocument が要求する
+    // (ドラッグの後に回すときも、読み直しの結果でここか ReloadDocument を通る)。
+    if (plan.step != ParseCompleteStep::ReplaceWithResult && plan.step != ParseCompleteStep::ApplyReload) {
+        resource_manager_.ScheduleBitmapManage();
     }
 
     switch (plan.step) {
     case ParseCompleteStep::IgnoreStale:
-        return;
+        break;
     case ParseCompleteStep::Fail:
         MENDO_TRACE("OnParseComplete: no result (cancelled or load failed)");
         HandleLoadFailureFallback(plan.error);
         return;
     case ParseCompleteStep::Retry:
         // worker が作った推定済み LayoutCache は D2D 由来の参照を持たないので、文書ごと worker で捨てられる。
-        if (result) {
-            DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
-        }
+        DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
         DeferReloadRetry();
         return;
     case ParseCompleteStep::ReloadUnchanged:
@@ -873,7 +827,7 @@ void App::OnParseComplete()
         MENDO_TRACEF("OnParseComplete: reload node_count={} diff_pos={} new_size={}", result->doc.GetNodes().size(),
                      reload.decision.diff_pos, result->doc.GetRawText().size());
         prefix_shrink_retry_.Reset();
-        // 読み始めた後にテキスト選択のドラッグが始まった。読み直しはドラッグの終わりに回す。
+        // 読み始めた後にテキスト選択のドラッグが始まった。読み直しはドラッグの後に回す。
         if (DeferReloadWhileSelecting()) {
             DisposeOnWorkerIfLarge(scheduler_, result->doc.GetNodes().size(), kDisposeMinNodes, std::move(outcome));
             return;
@@ -907,7 +861,7 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
     }
     Dispatch(DocumentOpenedAction{ follow_file_pane });
 
-    RelayoutViewport(RelayoutResources::ImagesAndDiagrams);
+    RelayoutViewport();
 
     MENDO_TRACEF("FinishLoad: scroll_y={:.1f} max_scroll={:.1f}", state_.view.viewport.GetScrollY(), MdMaxScroll(state_));
 
@@ -940,13 +894,14 @@ void App::ReloadCurrentFile()
     BeginAsyncLoad(state_.document.doc.GetFilePath(), /*show_animation=*/false);
 }
 
-// FileWatcher は paused のまま残し、ドラッグの終わり (reducer の ClearDrag) で読み直させる。
+// 差し替えると選択の途中でドラッグが終わる。FileWatcher は paused のまま残し、終わるまで短い間隔で確かめ直す。
+// LButtonUp の処理中に文書を差し替えないよう、終わった直後も次のタイマーまで待つ。
 bool App::DeferReloadWhileSelecting()
 {
     if (state_.view.drag.kind != LeftDrag::TextSelect) {
         return false;
     }
-    state_.view.reload_after_drag = true;
+    DeferReloadRetry();
     return true;
 }
 
@@ -962,7 +917,6 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
 
     // 図と画像はコードやパスがキーなので、描画・デコード待ちも結果もそのまま使える。
     // 編集で画像が置かれた可能性があるので失敗記録は消す。
-    resource_manager_.CancelMermaidBatch();
     image_loader_.ResetFailedPaths();
 
     const PaneRect md = ComputePaneLayout(state_).md_rect;
@@ -985,7 +939,7 @@ void App::ReloadDocument(Document next, LayoutCache estimated, const UnchangedEn
     // スクロール位置を先に設定してから RelayoutViewport を呼ぶことで、変更箇所周辺の可視ノードが優先的に計測される。
     Dispatch(DocumentReloadedAction{ carry.ends, desired_scroll });
 
-    RelayoutViewport(RelayoutResources::ImagesAndDiagrams);
+    RelayoutViewport();
 
     MENDO_TRACEF("ReloadDocument: after-relayout scroll_y={:.1f} max_scroll={:.1f}", state_.view.viewport.GetScrollY(), MdMaxScroll(state_));
 
@@ -1005,7 +959,7 @@ bool App::ApplyCachedHeights(VisibleRange nodes)
 void App::StartFileWatch(FileWatchTarget target)
 {
     file_watcher_.StartWatching(std::move(target), [this] {
-        // 同じ ID の SetTimer は動いているタイマーを置き換えるので、通知のたびに待ち直しになる。
+        // 通知の後は読み直すまで監視を止めているので、続けて保存されても最初の通知から数える。
         SetTimer(app_timer::Id::FILE_RELOAD_DEBOUNCE, app_timer::FILE_RELOAD_DEBOUNCE_MS);
     });
 }
@@ -1070,10 +1024,6 @@ void App::Execute(const SideEffect& effect)
         },
         [this](const effect::SettleViewport&) {
             SettleViewport();
-        },
-        [this](const effect::PerformSizingUpdate&) {
-            ClampScrollToContent();
-            Invalidate();
         },
         [this](const effect::RendererResize& ev) {
             renderer_.Resize(ev.width, ev.height, ev.live);
@@ -1186,9 +1136,9 @@ void App::ApplyZoom()
     renderer_.OnThemeMetricsChanged();
     // 数式は文字の大きさごとに描くので、前の倍率の型は残しても使わない。新しい倍率で描き直させる。
     ForgetInlineMath();
-    RelayoutViewport(RelayoutResources::Diagrams);
+    RelayoutViewport();
     UpdateTitleBar();
-    theme_service_.SaveZoomLevel(state_.view.viewport.Zoom());
+    session::SaveZoomLevel(config_, state_.view.viewport.Zoom());
 }
 
 void App::ToggleDarkMode()
@@ -1202,8 +1152,8 @@ void App::ToggleDarkMode()
     tooltip_.ApplyDarkMode(dark);
     // メモリキャッシュはキーにダークモードを含むので消さず、往復時に再利用する。描画待ちは旧テーマの分なので捨てる。
     mermaid_renderer_.DropQueued();
-    RelayoutViewport(RelayoutResources::Diagrams);
-    theme_service_.SaveDarkMode();
+    RelayoutViewport();
+    session::SaveDarkMode(config_, dark);
 }
 
 App::HitResult App::HitTest(int px, int py)
@@ -1445,7 +1395,7 @@ void App::HandleOverlayButtonClick(const OverlayButtonHit& hit)
         const auto* diagram = state_.document.layout_cache.FindDiagram(hit.node);
         const PngBytes png = diagram ? diagram->png : nullptr;
         if (hit.kind == OverlayButton::DiagramCopy) {
-            clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, hit.node, png, MdContentWidth(), dark);
+            clipboard_manager_.CopyDiagramToClipboard(state_.document.doc, hit.node, png, MdContentWidth(state_), dark);
         }
         else {
             clipboard_manager_.SaveDiagramAsPng(state_.document.doc, hit.node, png);
@@ -1691,12 +1641,6 @@ void App::ClampScrollToContent()
     state_.view.viewport.ClampScroll(MdMaxScroll(state_));
 }
 
-// Mermaid のキャッシュキーに入るため、全経路でこの値を使う (ずれるとキャッシュを外す)。
-float App::MdContentWidth()
-{
-    return theme_service_.GetTheme().ContentWidth(ComputePaneLayout(state_).md_rect.width);
-}
-
 bool App::HasIdleWork()
 {
     return state_.document.layout_cache.HasDirtyNodes() || state_.search.search_state.IsSearching() || state_.document.layout_cache.HasReleasedLayouts() ||
@@ -1734,25 +1678,14 @@ void App::SettleLayout()
     }
 }
 
-void App::RelayoutViewport(RelayoutResources resources)
+void App::RelayoutViewport()
 {
     MENDO_PROFILE("RelayoutViewport");
     const PaneRect md = ComputePaneLayout(state_).md_rect;
     // 可視範囲を即時計測し、scroll_target があれば scroll_y を再評価する。
     layout_service_.ViewportLayout(state_.document.doc, state_.document.layout_cache, md.width, md.height);
     ClampScrollToContent();
-    switch (resources) {
-    case RelayoutResources::Diagrams:
-        resource_manager_.RequestMermaidRenders();
-        break;
-    case RelayoutResources::DiagramsBatched:
-        resource_manager_.ScheduleMermaidBatch();
-        break;
-    case RelayoutResources::ImagesAndDiagrams:
-        resource_manager_.LoadImages();
-        resource_manager_.RequestMermaidRenders();
-        break;
-    }
+    resource_manager_.FlushPendingResources();
     Invalidate();
     SettleLayout();
 }
@@ -1762,7 +1695,7 @@ void App::SettleViewport()
     MENDO_PROFILE("SettleViewport");
 
     state_.view.viewport.EnsureScrollTarget(state_.document.layout_cache);
-    RelayoutViewport(RelayoutResources::DiagramsBatched);
+    RelayoutViewport();
 }
 
 void App::OnDeferredLayout()
@@ -1785,23 +1718,11 @@ void App::OnDeferredLayout()
         return;
     }
 
-    // 同期ディスク I/O + PNG デコードで UI スレッドを長時間ブロックしないよう、
-    // Mermaid ファイルキャッシュの読み込みは時間予算付きバッチに回す。
-    resource_manager_.ScheduleMermaidBatch();
+    resource_manager_.FlushPendingResources();
     resource_manager_.ScheduleBitmapManage();
 
     ClampScrollToContent();
     Invalidate();
-}
-
-float App::MdPaneHeight()
-{
-    return ComputePaneLayout(state_).md_rect.height;
-}
-
-const Theme& App::GetTheme()
-{
-    return theme_service_.GetTheme();
 }
 
 void App::EnsureNodeLayout(int node_index)

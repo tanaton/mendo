@@ -7,13 +7,7 @@
 #include <string>
 #include <utility>
 
-// ini 永続化キー。既存設定との互換性のため値の変更は禁止。
 namespace {
-using namespace std::literals;
-constexpr auto kSectionView = "View"sv;
-constexpr auto kKeyDarkMode = "DarkMode"sv;
-constexpr auto kKeyZoomLevel = "ZoomLevel"sv;
-
 const Theme& BaseTheme(bool dark)
 {
     return dark ? GetDarkTheme() : GetLightTheme();
@@ -33,11 +27,6 @@ std::wstring ResolveFontFamily(IDWriteFontCollection* collection, std::span<cons
     return candidates.back();
 }
 } // namespace
-
-ThemeService::ThemeService(ConfigService& config) noexcept
-    : config_(config)
-{
-}
 
 Theme ThemeService::MakeTheme(bool dark, ZoomLevel zoom)
 {
@@ -86,24 +75,4 @@ void ThemeService::ApplyZoom(ZoomLevel zoom)
     next.monospace_font = std::move(theme_.monospace_font);
     next.icon_font = std::move(theme_.icon_font);
     theme_ = std::move(next);
-}
-
-void ThemeService::SaveDarkMode()
-{
-    config_.SaveBool(kSectionView, kKeyDarkMode, theme_.dark);
-}
-
-bool ThemeService::LoadDarkMode() const
-{
-    return config_.LoadBool(kSectionView, kKeyDarkMode, false);
-}
-
-void ThemeService::SaveZoomLevel(ZoomLevel zoom)
-{
-    config_.SaveZoomLevel(kSectionView, kKeyZoomLevel, zoom);
-}
-
-ZoomLevel ThemeService::LoadZoomLevel() const
-{
-    return config_.LoadZoomLevel(kSectionView, kKeyZoomLevel);
 }

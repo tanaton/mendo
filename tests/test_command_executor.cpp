@@ -402,50 +402,52 @@ TEST_F(CommandExecutorIntegrationTest, SyntaxTokensMatchSetDrawingEffectRtl)
 
 class InlineMathMasksTest : public CommandExecutorIntegrationTest {
 protected:
-    InlineMathPage& AddPage(bool reloadable)
+    InlineMathPage& AddPage()
     {
         const auto props = D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
         ComPtr<ID2D1Bitmap> bitmap;
         EXPECT_HRESULT_SUCCEEDED(rt_->CreateBitmap(D2D1::SizeU(10, 10), props, &bitmap));
-        return math_.AddPage(bitmap, reloadable);
+        return math_.AddPage(bitmap);
     }
 
     InlineMathMasks math_;
 };
 
-// ページが上限を超えたら、このフレームで描いていない読み直せるページを古い順に捨て、その型も消す。
+// ページが上限を超えたら、このフレームで描いていないページを古い順に捨て、その型も消す。
 TEST_F(InlineMathMasksTest, EvictsLeastRecentlyDrawnPages)
 {
     std::vector<InlineMathPage*> pages;
     for (uint64_t i = 0; i < 4; ++i) {
-        pages.push_back(&AddPage(/*reloadable=*/i < 3));
+        pages.push_back(&AddPage());
         math_.Assign(i, InlineMathMask{ pages.back(), {}, {} });
     }
     ASSERT_EQ(math_.page_bytes, 400u);
     math_.frame = 5;
     pages[1]->last_drawn = 3;
     pages[2]->last_drawn = 5;
+    pages[3]->last_drawn = 4;
 
     math_.EvictPages(400);
     EXPECT_EQ(math_.pages.size(), 4u) << "上限以内なら捨てない";
-    math_.EvictPages(150);
+    math_.EvictPages(250);
     EXPECT_EQ(math_.page_bytes, 200u);
     EXPECT_EQ(math_.pages.size(), 2u);
     EXPECT_EQ(math_.Find(0), nullptr);
     EXPECT_EQ(math_.Find(1), nullptr);
     EXPECT_NE(math_.Find(2), nullptr);
-    EXPECT_NE(math_.Find(3), nullptr) << "計画に無い数式のページは読み直せないので捨てない";
+    EXPECT_NE(math_.Find(3), nullptr);
     math_.EvictPages(0);
-    EXPECT_EQ(math_.pages.size(), 2u) << "このフレームで描いたページは捨てない";
+    EXPECT_EQ(math_.pages.size(), 1u) << "このフレームで描いたページは捨てない";
+    EXPECT_NE(math_.Find(2), nullptr);
 }
 
 // 読み直しで型がすべて別のページへ移ったら、前のページを捨てる。一部が残るページは残す。
 TEST_F(InlineMathMasksTest, AssignDropsPagesWithoutMasks)
 {
-    auto& old_page = AddPage(true);
+    auto& old_page = AddPage();
     math_.Assign(1, InlineMathMask{ &old_page, {}, {} });
     math_.Assign(2, InlineMathMask{ &old_page, {}, {} });
-    auto& new_page = AddPage(true);
+    auto& new_page = AddPage();
     math_.Assign(1, InlineMathMask{ &new_page, {}, {} });
     EXPECT_EQ(math_.pages.size(), 2u);
     EXPECT_EQ(old_page.masks, 1u);

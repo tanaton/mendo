@@ -29,8 +29,7 @@ SearchState Searched(const std::vector<Node>& nodes, std::string_view query, boo
     if (case_sensitive) {
         s.ToggleCaseSensitive();
     }
-    s.SetQuery(query);
-    RunSearchToEnd(s, nodes);
+    RunSearchToEnd(s, nodes, query);
     return s;
 }
 
@@ -44,7 +43,6 @@ TEST(SearchStateTest, InitiallyNotVisible)
 {
     SearchState s;
     EXPECT_FALSE(s.IsVisible());
-    EXPECT_TRUE(s.GetQuery().empty());
     EXPECT_EQ(s.GetMatchCount(), 0);
     EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
 }
@@ -58,15 +56,6 @@ TEST(SearchStateTest, ShowAndHide)
     EXPECT_FALSE(s.IsVisible());
 }
 
-TEST(SearchStateTest, HidePreservesQuery)
-{
-    SearchState s;
-    s.Show();
-    s.SetQuery("hello");
-    s.Hide();
-    EXPECT_EQ(s.GetQuery(), "hello");
-}
-
 TEST(SearchStateTest, HideClearsMatches)
 {
     auto s = Searched(TextNodes({ "hello world" }), "hello");
@@ -76,16 +65,6 @@ TEST(SearchStateTest, HideClearsMatches)
     EXPECT_EQ(s.GetMatchCount(), 0);
     EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
     EXPECT_EQ(s.GetMatches().capacity(), 0u) << "使わない間は結果の確保を返す";
-}
-
-TEST(SearchStateTest, ResetClearsQueryAndMatches)
-{
-    auto s = Searched(TextNodes({ "hello" }), "hello");
-    EXPECT_EQ(s.GetMatchCount(), 1);
-    s.Reset();
-    EXPECT_TRUE(s.GetQuery().empty());
-    EXPECT_EQ(s.GetMatchCount(), 0);
-    EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
 }
 
 // ═══════════════════════════════════════════════
@@ -326,7 +305,7 @@ TEST(SearchStateTest, SetCurrentMatchNearUsesTableRowY)
     LayoutCache cache(1);
     cache.SetTop(0, 0.0f);
     cache[0].height = 300.0f;
-    auto& tl = cache[0].ensure_table_layout(3, 1);
+    auto& tl = cache[0].set_table_layout(std::make_unique<TableLayoutData>(3, 1, false));
     tl.row_heights = { 100.0f, 100.0f, 100.0f };
     tl.row_cum_y = { 0.0f, 100.0f, 200.0f, 300.0f };
 
@@ -353,8 +332,7 @@ TEST(SearchStateTest, ContinueSearchYieldsAtDeadlineAndResumes)
 {
     const auto nodes = RepeatedTextNodes("x", 600);
     SearchState s;
-    s.SetQuery("x");
-    s.BeginSearch();
+    s.BeginSearch("x");
     const auto past = std::chrono::steady_clock::now() - std::chrono::seconds(1);
 
     const uint32_t gen = s.GetGeneration();
@@ -379,8 +357,7 @@ TEST(SearchStateTest, ShowsPreviousMatchesUntilSearchFinishes)
     const auto nodes = RepeatedTextNodes("x", 600);
     auto s = Searched(nodes, "x");
     s.NextMatch();
-    s.SetQuery("z");
-    s.BeginSearch();
+    s.BeginSearch("z");
 
     EXPECT_FALSE(s.ContinueSearch(nodes, std::chrono::steady_clock::now() - std::chrono::seconds(1)));
     EXPECT_EQ(s.GetMatchCount(), 600);
@@ -397,8 +374,7 @@ TEST(SearchStateTest, KeepsZeroResultWhileResearching)
     const auto nodes = RepeatedTextNodes("x", 600);
     auto s = Searched(nodes, "z");
     ASSERT_TRUE(s.HasResult());
-    s.SetQuery("w");
-    s.BeginSearch();
+    s.BeginSearch("w");
     EXPECT_FALSE(s.ContinueSearch(nodes, std::chrono::steady_clock::now() - std::chrono::seconds(1)));
     EXPECT_TRUE(s.HasResult());
     EXPECT_EQ(s.GetMatchCount(), 0);
@@ -409,8 +385,7 @@ TEST(SearchStateTest, StopSearchKeepsPreviousMatches)
 {
     const auto nodes = RepeatedTextNodes("x", 600);
     auto s = Searched(nodes, "x");
-    s.SetQuery("z");
-    s.BeginSearch();
+    s.BeginSearch("z");
     s.ContinueSearch(nodes, std::chrono::steady_clock::now() - std::chrono::seconds(1));
 
     s.StopSearch();
@@ -423,8 +398,7 @@ TEST(SearchStateTest, EmptyQueryClearsMatchesImmediately)
 {
     const auto nodes = RepeatedTextNodes("x", 3);
     auto s = Searched(nodes, "x");
-    s.SetQuery("");
-    s.BeginSearch();
+    s.BeginSearch("");
     EXPECT_FALSE(s.IsSearching());
     EXPECT_EQ(s.GetMatchCount(), 0);
 }
@@ -465,8 +439,7 @@ TEST(SearchStateTest, KeepMatchesOfUnchangedNodesDropsChangedRange)
     EXPECT_EQ(s.GetCurrentMatchIndex(), -1);
     EXPECT_TRUE(s.HasResult());
 
-    s.SetQuery("xy");
-    RunSearchToEnd(s, nodes);
+    RunSearchToEnd(s, nodes, "xy");
     EXPECT_EQ(s.GetMatchCount(), 5);
 }
 
@@ -486,8 +459,7 @@ TEST(SearchStateTest, ReExecuteSearchUpdatesMatches)
     auto s = Searched(nodes, "abc");
     EXPECT_EQ(s.GetMatchCount(), 2);
 
-    s.SetQuery("def");
-    RunSearchToEnd(s, nodes);
+    RunSearchToEnd(s, nodes, "def");
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].start_w, 4u);
 }
@@ -499,7 +471,7 @@ TEST(SearchStateTest, ReExecuteAfterCaseSensitiveChange)
     EXPECT_EQ(s.GetMatchCount(), 3);
 
     s.ToggleCaseSensitive();
-    RunSearchToEnd(s, nodes);
+    RunSearchToEnd(s, nodes, "abc");
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].start_w, 4u);
 }
@@ -538,11 +510,11 @@ TEST(SearchStateTest, BitmapNodesExcludedFromSearch)
 {
     Node img;
     img.type = NodeType::Image;
-    img.SetText("alt text with keyword", 0);
+    img.SetText("alt text with keyword");
     Node mermaid;
     mermaid.type = NodeType::Diagram;
     mermaid.code_language = SyntaxLanguage::Mermaid;
-    mermaid.SetText("graph keyword TD; A-->B", 0);
+    mermaid.SetText("graph keyword TD; A-->B");
 
     std::vector<Node> nodes;
     nodes.push_back(std::move(img));
@@ -558,7 +530,7 @@ TEST(SearchStateTest, NonMermaidCodeBlockIncludedInSearch)
     Node code;
     code.type = NodeType::CodeBlock;
     code.code_language = SyntaxLanguage::Cpp;
-    code.SetText("int main()", 0);
+    code.SetText("int main()");
     const auto s = Searched(Nodes(std::move(code)), "main");
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].node_index, 0);
@@ -577,8 +549,7 @@ TEST(SearchStateTest, TableMatchDoesNotCrossCellBoundary)
     EXPECT_EQ(s.GetMatchCount(), 0);
 
     // 同じ状態で表ノードを検索し直しても、セル内の一致は見つかる。
-    s.SetQuery("abc");
-    RunSearchToEnd(s, nodes);
+    RunSearchToEnd(s, nodes, "abc");
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].table_col, 0);
 }
@@ -629,8 +600,7 @@ TEST(SearchStateTest, ExtendingQueryMatchesFullSearch)
         SearchState s = Searched(nodes, "a", case_sensitive);
         for (const char* q : { "aa", "aab" }) {
             SCOPED_TRACE(q);
-            s.SetQuery(q);
-            RunSearchToEnd(s, nodes);
+            RunSearchToEnd(s, nodes, q);
             EXPECT_TRUE(SameMatches(s, Searched(nodes, q, case_sensitive)));
         }
     }
@@ -641,11 +611,9 @@ TEST(SearchStateTest, ExtendingQueryAfterStoppedSearchScansAll)
 {
     const auto nodes = TextNodes({ "ab", "ab", "ab" });
     SearchState s;
-    s.SetQuery("a");
-    s.BeginSearch();
+    s.BeginSearch("a");
     s.StopSearch();
-    s.SetQuery("ab");
-    RunSearchToEnd(s, nodes);
+    RunSearchToEnd(s, nodes, "ab");
     EXPECT_EQ(s.GetMatchCount(), 3);
 }
 
@@ -701,8 +669,7 @@ TEST(SearchStateTest, NarrowedSearchFindsMatchAcrossChunkSeam)
     const auto nodes = ChunkedTextNodes({ "zz fo", "o bar", "fo" });
     auto s = Searched(nodes, "fo");
     ASSERT_EQ(s.GetMatchCount(), 2);
-    s.SetQuery("foo b");
-    RunSearchToEnd(s, nodes);
+    RunSearchToEnd(s, nodes, "foo b");
     ASSERT_EQ(s.GetMatchCount(), 1);
     EXPECT_EQ(s.GetMatches()[0].node_index, 0);
     EXPECT_EQ(s.GetMatches()[0].next_length_w, 3u);

@@ -32,13 +32,6 @@ inline std::string_view AlertHeadText(AlertType type)
     }
 }
 
-inline std::string GenerateAnchorId(std::string_view text)
-{
-    std::string slug;
-    GenerateAnchorIdInto(text, slug);
-    return slug;
-}
-
 // text_pos にあるリンクの URL。
 inline std::optional<std::string_view> FindLinkAtPosition(const Node& node, uint32_t text_pos)
 {

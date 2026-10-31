@@ -8,7 +8,7 @@
 void NavHistory::PushCapped(std::deque<NavEntry>& stack, NavEntry e)
 {
     stack.push_back(std::move(e));
-    if (stack.size() > max_history_) {
+    if (stack.size() > MAX_HISTORY) {
         stack.pop_front();
     }
 }
@@ -60,7 +60,7 @@ bool NavHistory::Transfer(std::deque<NavEntry>& from, std::deque<NavEntry>& to, 
         saved_.emplace(back_stack_, forward_stack_);
     }
     // Push は進む履歴を空にして積むので back + forward は上限を超えず、移動で押し出しは起きない。
-    assert(back_stack_.size() + forward_stack_.size() <= max_history_);
+    assert(back_stack_.size() + forward_stack_.size() <= MAX_HISTORY);
     // 表示中の文書は確定前の移動先へまだ切り替わっていないので、続けて移動するときは移動先を起点にする。
     // current のまま積むと表示中の位置が履歴に重複する。
     to.push_back(chained_from_ ? std::move(*chained_from_) : std::move(current));

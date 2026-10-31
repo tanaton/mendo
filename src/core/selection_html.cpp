@@ -16,6 +16,7 @@
 #include <ranges>
 #include <span>
 #include <string>
+#include <utility>
 
 namespace {
 
@@ -89,60 +90,33 @@ constexpr InlineTag kInlineTags[]{
     { TextRun::kCode, "<code>", "</code>" },
 };
 
-// 開いたインラインタグを入れ子順に管理する。最大深さは <a><strong><em><s><code> の 5 段で、ヒープ割り当てなし。
-// 例外で抜けると書きかけの out は捨てられるので、閉じるのは正常に書き終えたときだけでよい。
-class InlineTagStack {
-public:
-    constexpr explicit InlineTagStack(std::string& out) noexcept : out_(out)
-    {}
-
-    // 開く順: <a> → kInlineTags の順 (<strong> → <em> → <s> → <code>。code は最内側)。
-    // 開いたタグと対の閉じタグをスタックにペアで積むため、フィールドと閉じ文字列のズレが起きない。
-    // s.link_url_index は InlineStateOf が link_urls の範囲に収めたもの。
-    constexpr void Open(const InlineState& s, std::span<const std::string_view> link_urls)
-    {
-        if (s.link_url_index >= 0) {
-            out_.append("<a href=\"");
-            AppendHtmlEscaped(out_, link_urls[static_cast<size_t>(s.link_url_index)]);
-            out_.append("\">");
-            Push("</a>");
-        }
-        for (const auto& tag : kInlineTags) {
-            if (s.flags & tag.flag) {
-                OpenTag(tag.open, tag.close);
-            }
+// 開く順: <a> → kInlineTags の順 (<strong> → <em> → <s> → <code>。code は最内側)。
+// s.link_url_index は InlineStateOf が link_urls の範囲に収めたもの。
+constexpr void OpenInline(std::string& out, const InlineState& s, std::span<const std::string_view> link_urls)
+{
+    if (s.link_url_index >= 0) {
+        out.append("<a href=\"");
+        AppendHtmlEscaped(out, link_urls[static_cast<size_t>(s.link_url_index)]);
+        out.append("\">");
+    }
+    for (const auto& tag : kInlineTags) {
+        if (s.flags & tag.flag) {
+            out.append(tag.open);
         }
     }
+}
 
-    constexpr void CloseAll()
-    {
-        while (count_ > 0) {
-            out_.append(close_stack_[--count_]);
+constexpr void CloseInline(std::string& out, const InlineState& s)
+{
+    for (const auto& tag : kInlineTags | std::views::reverse) {
+        if (s.flags & tag.flag) {
+            out.append(tag.close);
         }
     }
-
-    constexpr bool IsApplied() const noexcept
-    {
-        return count_ != 0;
+    if (s.link_url_index >= 0) {
+        out.append("</a>");
     }
-
-private:
-    constexpr void OpenTag(std::string_view open_tag, std::string_view close_tag)
-    {
-        out_.append(open_tag);
-        Push(close_tag);
-    }
-
-    constexpr void Push(std::string_view close_tag) noexcept
-    {
-        assert(count_ < close_stack_.size());
-        close_stack_[count_++] = close_tag;
-    }
-
-    std::string& out_;
-    std::array<std::string_view, 5> close_stack_{};
-    size_t count_ = 0;
-};
+}
 
 // 貼り付け先で読み込まれても外部アクセスの経路にならない src か。http(s) とスキームの無い相対パスだけ通す。
 // javascript: / file: / C:\ などのスキームと、認証付きで取りに行かれる //host・\\host (UNC) は外す。
@@ -189,8 +163,18 @@ constexpr void AppendInlineHtml(
         return;
     }
 
-    InlineTagStack tags(out);
     InlineState current;
+    // current のタグを開いている。例外で抜けると書きかけの out は捨てられるので、閉じるのは正常に書き終えたときだけでよい。
+    bool opened = false;
+    const auto close = [&] {
+        if (std::exchange(opened, false)) {
+            CloseInline(out, current);
+        }
+    };
+    const auto open = [&] {
+        OpenInline(out, current, link_urls);
+        opened = true;
+    };
     size_t run_idx = 0;
     uint32_t pos = start;
 
@@ -218,9 +202,9 @@ constexpr void AppendInlineHtml(
         }
 
         if (s != current) {
-            tags.CloseAll();
+            close();
             current = s;
-            tags.Open(current, link_urls);
+            open();
         }
 
         // LF の位置で区切り、連続する非 LF 区間をまとめて AppendHtmlEscaped に渡す。
@@ -231,14 +215,14 @@ constexpr void AppendInlineHtml(
             const uint32_t lf_pos = lf_ptr ? static_cast<uint32_t>(lf_ptr - text.data()) : text_end;
 
             if (batch < lf_pos) {
-                if (!tags.IsApplied()) {
-                    tags.Open(current, link_urls);
+                if (!opened) {
+                    open();
                 }
                 AppendHtmlEscaped(out, text.substr(batch, lf_pos - batch));
             }
 
             if (lf_ptr) {
-                tags.CloseAll();
+                close();
                 out.append("<br>");
                 batch = lf_pos + 1;
             }
@@ -248,7 +232,7 @@ constexpr void AppendInlineHtml(
         }
         pos = segment_end;
     }
-    tags.CloseAll();
+    close();
 }
 
 void AppendNodeInlineHtml(std::string& out, const Node& node, uint32_t start, uint32_t end)
@@ -404,15 +388,6 @@ constexpr void AppendTableCellStyle(std::string& out, TableAlign align, bool dar
 void AppendTableHtml(std::string& out, const Node& node, uint32_t start, uint32_t end, bool dark_mode)
 {
     const auto* tbl = node.table_data();
-    if (!tbl || tbl->row_count == 0 || tbl->col_count == 0) {
-        out.append("<pre>");
-        if (start < end) {
-            AppendHtmlEscaped(out, node.GetText().substr(start, end - start));
-        }
-        out.append("</pre>");
-        return;
-    }
-
     // [start, end) は呼び出し側で concat_text (= GetText) の長さにクランプ済み。
     if (start >= end) {
         return;
@@ -732,7 +707,12 @@ std::string ExtractSelectedTextAsHtml(const std::vector<Node>& nodes, const Text
             break;
         }
         case NodeType::Paragraph:
-            wrap_inline("<p>", "</p>");
+            if (node.quote_depth > 0) {
+                wrap_inline("<blockquote>", "</blockquote>");
+            }
+            else {
+                wrap_inline("<p>", "</p>");
+            }
             break;
         case NodeType::CodeBlock:
         case NodeType::Diagram:
@@ -748,9 +728,6 @@ std::string ExtractSelectedTextAsHtml(const std::vector<Node>& nodes, const Text
             if (closes) {
                 out.append(kCodeBlockClose);
             }
-            break;
-        case NodeType::BlockQuote:
-            wrap_inline("<blockquote>", "</blockquote>");
             break;
         case NodeType::ListItem:
             wrap_inline("<li>", "");

@@ -35,7 +35,7 @@ struct ReloadDecision {
 
 // 旧/新コンテンツの UTF-8 テキストを比較し、リロード方針を決定する純粋関数。
 // accept_prefix_shrink なら prefix shrink も defer せず Replace にする (PrefixShrinkRetry の上限後)。
-ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text, bool accept_prefix_shrink = false) noexcept;
+ReloadDecision AnalyzeReloadDiff(std::string_view old_text, std::string_view new_text, bool accept_prefix_shrink) noexcept;
 
 // 末尾を削っただけの保存は何度読み直しても prefix shrink になるため、defer 回数に上限を設け、
 // 超えたら縮んだ内容を確定版として受け入れる。

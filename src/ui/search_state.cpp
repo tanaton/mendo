@@ -15,22 +15,17 @@ size_t FindNext(std::string_view text, std::string_view query, bool fold, size_t
 }
 } // namespace
 
-void SearchState::SetQuery(std::string_view query)
-{
-    query_.assign(query);
-}
-
-void SearchState::BeginSearch()
+void SearchState::BeginSearch(std::string_view query)
 {
     StopSearch();
-    if (query_.empty()) {
+    if (query.empty()) {
         ClearMatches();
         return;
     }
     // ASCII 英字を含まないクエリは大文字小文字を無視しても通常一致と結果が同じなので、
     // 比較時の小文字化 (fold) を省く。文書の小文字コピーは持たず走査中に畳み込む。
-    const bool fold = !case_sensitive_ && ascii_util::HasAsciiLetter(query_);
-    std::string active = fold ? ascii_util::ToLowerAsciiCopy(query_) : query_;
+    const bool fold = !case_sensitive_ && ascii_util::HasAsciiLetter(query);
+    std::string active = fold ? ascii_util::ToLowerAsciiCopy(query) : std::string{ query };
     // 比べ方 (fold) が同じなら、前回のクエリを伸ばしたクエリは前回マッチのあったノードにしか現れない。
     narrowing_ = completed_ && fold == matched_.fold &&
                  active.size() > matched_.text.size() && active.starts_with(matched_.text);
