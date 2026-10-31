@@ -74,6 +74,7 @@ enum class OverlayButton : uint8_t {
     CodeCopy,
     DiagramSave,
     DiagramCopy,
+    DiagramView,
 };
 
 // マウス位置にあるオーバーレイボタン。マウス座標は 1 点なので同時に当たるのは 1 つだけ。

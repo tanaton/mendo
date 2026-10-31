@@ -16,7 +16,7 @@ using namespace std::literals;
 
 std::wstring mermaid_util::PageRenderMessage(PageRequest kind, unsigned id, bool dark, std::string_view code_utf8)
 {
-    static constexpr std::wstring_view kKinds[]{ L"mermaid", L"svg" };
+    static constexpr std::wstring_view kKinds[]{ L"mermaid", L"svg", L"view" };
     std::wstring msg = std::format(L"{}:{}:{}:", kKinds[std::to_underlying(kind)], id, dark ? 1 : 0);
     msg += string_convert::Utf8ToWide(code_utf8);
     return msg;
@@ -37,6 +37,27 @@ void mermaid_util::AppendPageMathItem(std::wstring& msg, std::string_view tex_ut
 std::wstring mermaid_util::PageCaptureMessage(unsigned id)
 {
     return std::format(L"capture:{}:", id);
+}
+
+std::wstring mermaid_util::ViewerInitMessage(bool dark, std::span<const std::wstring_view> labels)
+{
+    std::wstring msg = std::format(L"init:{}:", dark ? 1 : 0);
+    for (const std::wstring_view label : labels) {
+        msg += label;
+        msg += L'\n';
+    }
+    return msg;
+}
+
+std::wstring mermaid_util::ViewerLoadingMessage(bool dark)
+{
+    return std::format(L"loading:{}:", dark ? 1 : 0);
+}
+
+std::wstring mermaid_util::ViewerSvgMessage(bool dark, std::wstring svg)
+{
+    svg.insert(0, std::format(L"svg:{}:", dark ? 1 : 0));
+    return svg;
 }
 
 int mermaid_util::QuantizeWidth(float max_width) noexcept

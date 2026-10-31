@@ -42,6 +42,9 @@ END
 // Embedded HTML template for mermaid rendering host
 IDR_MERMAID_HTML RCDATA "mermaid.html"
 
+// Embedded HTML page of the diagram viewer window
+IDR_MERMAID_VIEWER_HTML RCDATA "mermaid_viewer.html"
+
 // Embedded help documents (UTF-8 Markdown)
 IDR_HELP_MD    RCDATA "help_ja.md"
 IDR_HELP_EN_MD RCDATA "help_en.md"

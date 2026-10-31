@@ -164,6 +164,8 @@ std::wstring_view OverlayButtonTooltipText(OverlayButton kind) noexcept
         return i18n::S().tooltip_copy_diagram;
     case OverlayButton::DiagramSave:
         return i18n::S().tooltip_save_image;
+    case OverlayButton::DiagramView:
+        return i18n::S().tooltip_view_diagram;
     case OverlayButton::CodeCopy:
     case OverlayButton::None:
         return i18n::S().tooltip_copy;

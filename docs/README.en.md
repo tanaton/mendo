@@ -92,7 +92,7 @@ Type `mendo` into the File Explorer address bar and press Enter.
 | Splitter drag | Resize pane width |
 | Click link | Open external link in browser / Jump to anchor |
 | Code block copy button | Copy code block as formatted text |
-| Mermaid diagram buttons | Save as PNG image / Copy to clipboard |
+| Mermaid diagram buttons | Save as PNG image / Copy to clipboard / Enlarge in a separate window |
 
 ## Context Menu
 

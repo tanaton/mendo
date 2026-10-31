@@ -28,6 +28,11 @@ void ApplyDarkModeToWindow(HWND hwnd, bool dark)
     SetWindowTheme(hwnd, dark ? L"DarkMode_Explorer" : L"Explorer", nullptr);
 }
 
+void SetCloaked(HWND hwnd, BOOL cloaked)
+{
+    DwmSetWindowAttribute(hwnd, DWMWA_CLOAK, &cloaked, sizeof(cloaked));
+}
+
 Tooltip::~Tooltip()
 {
     if (hwnd_) {

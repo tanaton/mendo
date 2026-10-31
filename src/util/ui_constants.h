@@ -364,11 +364,11 @@ inline constexpr float TOAST_OVERLAY_BOTTOM_OFFSET = 16.0f;
 inline constexpr float GESTURE_TRAIL_STROKE_WIDTH = 4.0f;
 
 // 要素の右上を基準にオーバーレイボタン（コピー/保存）の矩形を返す。
-// 図のボタンは右から 保存・コピー の順に、間隔 COPY_BTN_GAP で並ぶ。
+// 図のボタンは右から 保存・コピー・拡大表示 の順に、間隔 COPY_BTN_GAP で並ぶ。
 // anchor_right: 基準領域の右端, anchor_top: 基準領域の上端
 inline D2D1_RECT_F OverlayButtonRect(float anchor_right, float anchor_top, OverlayButton kind) noexcept
 {
-    const float slot = kind == OverlayButton::DiagramCopy ? 1.0f : 0.0f;
+    const float slot = kind == OverlayButton::DiagramView ? 2.0f : kind == OverlayButton::DiagramCopy ? 1.0f : 0.0f;
     const float bx = anchor_right - COPY_BTN_MARGIN - COPY_BTN_SIZE - slot * (COPY_BTN_SIZE + COPY_BTN_GAP);
     const float by = anchor_top + COPY_BTN_MARGIN;
     return D2D1::RectF(bx, by, bx + COPY_BTN_SIZE, by + COPY_BTN_SIZE);

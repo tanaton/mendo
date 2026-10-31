@@ -72,11 +72,6 @@ void PlaceImeWindowsBelowCaret(HWND edit)
     ImmReleaseContext(edit, himc);
 }
 
-void SetCloaked(HWND hwnd, BOOL cloaked)
-{
-    DwmSetWindowAttribute(hwnd, DWMWA_CLOAK, &cloaked, sizeof(cloaked));
-}
-
 // 確定前のコンポジション文字列 (D2D 描画用)。取得できなければ空。
 std::wstring GetImeCompositionString(HIMC himc)
 {
