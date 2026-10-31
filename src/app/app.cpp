@@ -77,7 +77,7 @@ bool App::Init(HWND hwnd)
                            config_.GetConfigPath(L"WebView2Data"), [this]() {
         // 結果を待っていた図を要求し直して反映する。
         resource_manager_.RequestMermaidRenders();
-    });
+    }, [this] { ShowToast(i18n::S().toast_diagram_view_failed); });
 
     if (!image_loader_.Init(renderer_.GetWICFactory(), hwnd_, app_msg::IMAGE_LOADED, scheduler_)) {
         MENDO_TRACE("ImageLoader::Init failed (WIC factory unavailable). Image rendering disabled.");
@@ -848,6 +848,8 @@ void App::OpenDocument(Document next, LayoutCache estimated, bool follow_file_pa
 
     ReplaceDocument(std::move(next), std::move(estimated));
     CancelPendingResources();
+    // 拡大表示は開いた文書の図なので一緒に閉じる。同じファイルの読み直し (ReloadDocument) では開いたときの図のまま残す。
+    mermaid_renderer_.CloseViewer();
     // 前の文書の数式を描いた型は、新しい文書ではほとんど使わない。同じファイルの読み直しは組んだレイアウトを
     // 引き継ぐので残す (ReloadDocument)。
     ForgetInlineMath();
@@ -1150,6 +1152,7 @@ void App::ToggleDarkMode()
     renderer_.OnThemeColorsChanged();
     ApplyDarkModeToWindow(hwnd_, dark);
     tooltip_.ApplyDarkMode(dark);
+    mermaid_renderer_.SetViewerDarkMode(dark);
     // メモリキャッシュはキーにダークモードを含むので消さず、往復時に再利用する。描画待ちは旧テーマの分なので捨てる。
     mermaid_renderer_.DropQueued();
     RelayoutViewport();
@@ -1388,6 +1391,11 @@ void App::HandleOverlayButtonClick(const OverlayButtonHit& hit)
     switch (hit.kind) {
     case OverlayButton::CodeCopy:
         clipboard_manager_.CopyCodeBlock(state_.document.doc, hit.node, dark);
+        return;
+    case OverlayButton::DiagramView:
+        if (const Node* node = NodeOfType(state_.document.doc.GetNodes(), hit.node, NodeType::Diagram)) {
+            mermaid_renderer_.OpenViewer(node->GetText(), MdContentWidth(state_), dark);
+        }
         return;
     case OverlayButton::DiagramCopy:
     case OverlayButton::DiagramSave: {

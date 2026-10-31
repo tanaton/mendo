@@ -50,6 +50,15 @@ struct Strings {
     // ダイアグラムコピーボタン tooltip
     std::wstring_view tooltip_copy_diagram;
 
+    // 拡大表示ボタン tooltip
+    std::wstring_view tooltip_view_diagram;
+
+    // 図の拡大表示ウィンドウ
+    std::wstring_view viewer_title;
+    std::wstring_view viewer_zoom_in;
+    std::wstring_view viewer_zoom_out;
+    std::wstring_view viewer_fit;
+
     // コンテキストメニュー
     std::wstring_view menu_edit_file;
     std::wstring_view menu_copy;
@@ -77,6 +86,7 @@ struct Strings {
     std::wstring_view toast_diagram_copying;
     std::wstring_view toast_diagram_copied;
     std::wstring_view toast_diagram_copy_failed;
+    std::wstring_view toast_diagram_view_failed;
 
     // ローディング
     std::wstring_view loading;
@@ -130,6 +140,11 @@ inline constexpr Strings kJa = {
     .tooltip_copy = L"書式付きコピー",
     .tooltip_save_image = L"画像を保存",
     .tooltip_copy_diagram = L"クリップボードにコピー",
+    .tooltip_view_diagram = L"拡大表示",
+    .viewer_title = L"図の拡大表示",
+    .viewer_zoom_in = L"拡大 (+)",
+    .viewer_zoom_out = L"縮小 (-)",
+    .viewer_fit = L"全体を表示 (0)",
     .menu_edit_file = L"エディタで開く",
     .menu_copy = L"コピー",
     .menu_copy_formatted = L"書式付きコピー",
@@ -149,6 +164,7 @@ inline constexpr Strings kJa = {
     .toast_diagram_copying = L"クリップボードにコピー中...",
     .toast_diagram_copied = L"クリップボードにコピーしました",
     .toast_diagram_copy_failed = L"コピーに失敗しました",
+    .toast_diagram_view_failed = L"図を開けませんでした",
     .loading = L"読み込み中...",
     .diagram_error = L"図の描画に失敗しました",
     .diagram_too_large = L"図が大きすぎるため表示できません",
@@ -190,6 +206,11 @@ inline constexpr Strings kEn = {
     .tooltip_copy = L"Copy as HTML",
     .tooltip_save_image = L"Save Image",
     .tooltip_copy_diagram = L"Copy to clipboard",
+    .tooltip_view_diagram = L"Enlarge",
+    .viewer_title = L"Diagram Viewer",
+    .viewer_zoom_in = L"Zoom In (+)",
+    .viewer_zoom_out = L"Zoom Out (-)",
+    .viewer_fit = L"Fit to Window (0)",
     .menu_edit_file = L"Open in Editor",
     .menu_copy = L"Copy",
     .menu_copy_formatted = L"Copy as HTML",
@@ -209,6 +230,7 @@ inline constexpr Strings kEn = {
     .toast_diagram_copying = L"Copying to clipboard...",
     .toast_diagram_copied = L"Copied to clipboard",
     .toast_diagram_copy_failed = L"Copy failed",
+    .toast_diagram_view_failed = L"Could not open the diagram",
     .loading = L"Loading...",
     .diagram_error = L"Failed to render diagram",
     .diagram_too_large = L"Diagram is too large to display",
@@ -250,6 +272,11 @@ inline constexpr Strings kZh = {
     .tooltip_copy = L"复制为 HTML",
     .tooltip_save_image = L"保存图像",
     .tooltip_copy_diagram = L"复制到剪贴板",
+    .tooltip_view_diagram = L"放大查看",
+    .viewer_title = L"图表查看器",
+    .viewer_zoom_in = L"放大 (+)",
+    .viewer_zoom_out = L"缩小 (-)",
+    .viewer_fit = L"适应窗口 (0)",
     .menu_edit_file = L"在编辑器中打开",
     .menu_copy = L"复制",
     .menu_copy_formatted = L"复制为 HTML",
@@ -269,6 +296,7 @@ inline constexpr Strings kZh = {
     .toast_diagram_copying = L"正在复制到剪贴板...",
     .toast_diagram_copied = L"已复制到剪贴板",
     .toast_diagram_copy_failed = L"复制失败",
+    .toast_diagram_view_failed = L"无法打开图表",
     .loading = L"正在加载...",
     .diagram_error = L"图表渲染失败",
     .diagram_too_large = L"图表过大，无法显示",
@@ -310,6 +338,11 @@ inline constexpr Strings kZhHant = {
     .tooltip_copy = L"複製為 HTML",
     .tooltip_save_image = L"儲存圖片",
     .tooltip_copy_diagram = L"複製到剪貼簿",
+    .tooltip_view_diagram = L"放大檢視",
+    .viewer_title = L"圖表檢視器",
+    .viewer_zoom_in = L"放大 (+)",
+    .viewer_zoom_out = L"縮小 (-)",
+    .viewer_fit = L"符合視窗 (0)",
     .menu_edit_file = L"在編輯器中開啟",
     .menu_copy = L"複製",
     .menu_copy_formatted = L"複製為 HTML",
@@ -329,6 +362,7 @@ inline constexpr Strings kZhHant = {
     .toast_diagram_copying = L"正在複製到剪貼簿...",
     .toast_diagram_copied = L"已複製到剪貼簿",
     .toast_diagram_copy_failed = L"複製失敗",
+    .toast_diagram_view_failed = L"無法開啟圖表",
     .loading = L"正在載入...",
     .diagram_error = L"無法繪製圖表",
     .diagram_too_large = L"圖表太大，無法顯示",
@@ -370,6 +404,11 @@ inline constexpr Strings kKo = {
     .tooltip_copy = L"HTML로 복사",
     .tooltip_save_image = L"이미지 저장",
     .tooltip_copy_diagram = L"클립보드에 복사",
+    .tooltip_view_diagram = L"크게 보기",
+    .viewer_title = L"다이어그램 보기",
+    .viewer_zoom_in = L"확대 (+)",
+    .viewer_zoom_out = L"축소 (-)",
+    .viewer_fit = L"창에 맞추기 (0)",
     .menu_edit_file = L"편집기에서 열기",
     .menu_copy = L"복사",
     .menu_copy_formatted = L"HTML로 복사",
@@ -389,6 +428,7 @@ inline constexpr Strings kKo = {
     .toast_diagram_copying = L"클립보드에 복사하는 중...",
     .toast_diagram_copied = L"클립보드에 복사했습니다",
     .toast_diagram_copy_failed = L"복사하지 못했습니다",
+    .toast_diagram_view_failed = L"다이어그램을 열 수 없습니다",
     .loading = L"불러오는 중...",
     .diagram_error = L"다이어그램을 그리지 못했습니다",
     .diagram_too_large = L"다이어그램이 너무 커서 표시할 수 없습니다",

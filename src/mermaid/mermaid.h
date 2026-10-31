@@ -68,9 +68,11 @@ public:
     // 読み込み完了は app_msg::MERMAID_DISK_LOADED で hwnd に通知され、受信側が ProcessDiskLoads を呼ぶ。
     // user_data_folder は WebView2 のセッションデータの保存先（空なら WebView2 既定の場所）。
     // on_update は準備完了・結果が出たとき・WebView2 を諦めたときに呼ぶ。準備前の要求と、結果を待つ図を要求し直させる。
+    // on_viewer_failed は拡大表示を開けなかったときに、ウィンドウを閉じてから呼ぶ。
     void Init(HWND hwnd, IWICImagingFactory* wic, MermaidFileCache& file_cache,
               TaskScheduler& bg_scheduler,
-              const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_update);
+              const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_update,
+              std::move_only_function<void()> on_viewer_failed);
 
     bool RequestRender(const Node& node, DiagramEntry& diagram_entry, float max_width, bool dark_mode) override;
     void RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback) override;
@@ -100,6 +102,12 @@ public:
     // 図のある文書を書き換えながら見ている (変更の通知で読み直した) 間は、保存のたびにコールドスタートしないよう長めに残す。
     void SetEditingDiagrams(bool editing);
 
+    // 図を別ウィンドウ (1 枚だけ) に開く。開いていれば中身を差し替える。code (UTF-8) は内部でコピーする。
+    void OpenViewer(std::string_view code, float max_width, bool dark_mode);
+    void CloseViewer();
+    // 開いていれば、倍率と位置を保って新しいテーマの図に差し替える。
+    void SetViewerDarkMode(bool dark_mode);
+
 private:
     struct RenderRequest {
         // UTF-8 の原文。呼び出し側の文字列の寿命から切り離して持つ。WebView2 向けの変換は描く直前に行い、
@@ -123,9 +131,8 @@ private:
         // プロセス障害からの requeue 済みフラグ。クラッシュ誘発入力での再起動ループを防ぐ。
         bool retried = false;
 
-        // SVGクリップボードコピー用リクエスト。true の場合キャッシュには入れず、
-        // SVG文字列を svg_callback で返す。
-        bool svg_only = false;
+        // Mermaid 以外 (クリップボード用・拡大表示用の SVG) はキャッシュに入れず、SVG文字列を svg_callback で返す。
+        mermaid_util::PageRequest page = mermaid_util::PageRequest::Mermaid;
         SvgCallback svg_callback;
 
         // インライン数式をまとめて描く要求 (RequestMathBatch)。空でなければこの種類で、code などは使わない。
@@ -152,10 +159,14 @@ private:
         {
             return !math_items.empty();
         }
+        bool is_svg() const noexcept
+        {
+            return page != mermaid_util::PageRequest::Mermaid;
+        }
         // 図の結果をキャッシュに持つ要求か。
         bool is_display() const noexcept
         {
-            return !svg_only && !is_math();
+            return !is_svg() && !is_math();
         }
     };
 
@@ -178,6 +189,22 @@ private:
         {
             return ready && !IsRendering();
         }
+    };
+
+    // 図の拡大表示ウィンドウ。ワーカーが描いた SVG を見えるビューに渡すだけで、mermaid はここでは動かない。
+    // PopupWindow はキャプチャを取り、ホイールを本体へ渡し、非アクティブで閉じるので、見ながら操作するこの窓には使えない。
+    struct Viewer {
+        HWND hwnd = nullptr;
+        Microsoft::WRL::ComPtr<ICoreWebView2Controller> controller;
+        Microsoft::WRL::ComPtr<ICoreWebView2> webview;
+        // 開いたときの図のまま。文書を読み直しても追従せず、テーマの切り替えだけはこのコードで描き直す。
+        std::string code;
+        float max_width = 0.0f;
+        bool dark_mode = false;
+        // ページが viewer-ready を返した。
+        bool page_ready = false;
+        // ページの準備より先に送ろうとした要求のうち最後のもの。読み込み中の表示も図も前の要求を打ち消すので 1 つで足りる。
+        std::wstring pending_msg;
     };
 
     // 描画結果。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。
@@ -283,6 +310,7 @@ private:
     void SetupWorker(int index);
     void OnControllerCreated(int index, ICoreWebView2Controller* controller);
     void RegisterWebViewHandlers(int index);
+    void RegisterResourceHandler(ICoreWebView2* webview);
     // 仮想ホスト app.local への要求に埋め込みリソースを返し、それ以外は遮断する。
     void OnWebResourceRequested(ICoreWebView2WebResourceRequestedEventArgs* args);
     // WebView2 プロセス障害 (ProcessFailed) からワーカーを復旧する。
@@ -290,11 +318,25 @@ private:
     void DestroyWorker(Worker& w);
     static void ResizeWorkerView(Worker& worker, int width, int height);
 
+    static LRESULT CALLBACK ViewerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    bool CreateViewerWindow();
+    void SetupViewer();
+    void OnViewerControllerCreated(ICoreWebView2Controller* controller);
+    void OnViewerMessage(std::wstring_view msg);
+    void ApplyViewerBounds();
+    void RequestViewerSvg();
+    // ページの準備ができていなければ pending_msg に残し、準備ができたら送る。
+    void PostToViewer(std::wstring msg);
+    // 前の図の結果が届いても捨てるよう、viewer_render_ も進める。
+    void DestroyViewer();
+    void FailViewer();
+
     void ProcessQueue();
     void DrainPendingRequests(bool cancelled);
     void RenderInWorker(Worker& worker);
     // WebView2 ワーカーでの描画待ちキューに積む。初期化前なら初期化を起動し、図の要求は捨てる。諦めている間は失敗で返す。
     void EnqueueWebRender(RenderRequest req);
+    void EnqueueSvg(mermaid_util::PageRequest page, std::string_view code, float max_width, bool dark_mode, SvgCallback callback);
     // 要求の結果 (ビットマップかエラー) がキャッシュに入っていれば、通知して要求し直させる。
     void FinishWorkerRequest(Worker& worker);
     // 要求をエラーで終える (SVG の要求なら失敗を知らせる)。
@@ -341,6 +383,11 @@ private:
     std::wstring user_data_folder_;
     int env_retry_count_ = 0;
     std::chrono::steady_clock::time_point webview_retry_at_{};
+
+    Viewer viewer_;
+    // 拡大表示の SVG の要求ごとに進め、新しい要求か閉じた後に届いた古い結果を捨てる。
+    unsigned int viewer_render_ = 0;
+    std::move_only_function<void()> on_viewer_failed_;
 
     Worker workers_[MAX_WORKERS];
     // 使い始めたスロットの数。添字を捕まえた非同期コールバックが別のワーカーに届かないよう、破棄したスロットは使い回さない。

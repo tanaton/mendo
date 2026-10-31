@@ -64,6 +64,18 @@ TEST_F(CopyButtonTest, CopyButtonRectIsInsideBlockTopRight)
     EXPECT_FLOAT_EQ(r.top, block_top + COPY_BTN_MARGIN);
 }
 
+// 図のボタンは右から 保存・コピー・拡大表示 の順に、重ならず並ぶ。
+TEST_F(CopyButtonTest, DiagramButtonsLineUpFromTheRight)
+{
+    const D2D1_RECT_F save = OverlayButtonRect(500.0f, 100.0f, OverlayButton::DiagramSave);
+    const D2D1_RECT_F copy = OverlayButtonRect(500.0f, 100.0f, OverlayButton::DiagramCopy);
+    const D2D1_RECT_F view = OverlayButtonRect(500.0f, 100.0f, OverlayButton::DiagramView);
+    EXPECT_FLOAT_EQ(save.right, 500.0f - COPY_BTN_MARGIN);
+    EXPECT_FLOAT_EQ(copy.right, save.left - COPY_BTN_GAP);
+    EXPECT_FLOAT_EQ(view.right, copy.left - COPY_BTN_GAP);
+    EXPECT_FLOAT_EQ(view.top, save.top);
+}
+
 // ---- CopyButtonHitTest ----
 
 TEST_F(CopyButtonTest, HitOnCopyButtonReturnsNodeIndex)

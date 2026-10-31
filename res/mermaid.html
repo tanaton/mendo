@@ -129,11 +129,11 @@
   }
 
   // 表示用 container を触らず SVG 文字列のみ返す。PNG キャプチャ無し。描けなければ投げる。
-  async function renderMermaidSvg(code, isDark) {
+  async function renderMermaidSvg(code, isDark, htmlLabels) {
     if (!mermaidReady()) {
       throw new Error('mermaid not loaded');
     }
-    ensureInitialized(isDark, false);
+    ensureInitialized(isDark, htmlLabels);
     renderCount++;
     const { svg } = await mermaid.render('mmd-svg-' + renderCount, code);
     return svg;
@@ -184,9 +184,10 @@
       [dark, pos] = readField(msg, pos);
       const code = msg.slice(pos);
       const isDark = dark === '1';
-      if (kind === 'svg') {
+      if (kind === 'svg' || kind === 'view') {
+        // 拡大表示 (view) は本文と同じ見た目にするので、数式のラベルも描く htmlLabels で描く。
         result = 'svg-result';
-        task = renderMermaidSvg(code, isDark);
+        task = renderMermaidSvg(code, isDark, kind === 'view');
       }
       else {
         result = 'render-result';

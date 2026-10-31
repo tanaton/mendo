@@ -31,6 +31,7 @@ constexpr bool IsWidthFree(float css_width, float max_width) noexcept
 enum class PageRequest : uint8_t {
     Mermaid, // 表示用の図 (render-result で大きさを返す)
     Svg,     // クリップボード用の SVG (svg-result)
+    View,    // 拡大表示用の SVG (svg-result)
 };
 std::wstring PageRenderMessage(PageRequest kind, unsigned id, bool dark, std::string_view code_utf8);
 // インライン数式のまとめ描きは "math:<ID>:<ページの幅>:" に、数式ごとに AppendPageMathItem を続ける。
@@ -39,6 +40,14 @@ std::wstring PageMathBatchMessage(unsigned id, int page_width);
 void AppendPageMathItem(std::wstring& msg, std::string_view tex_utf8, float font_size);
 // 新しい大きさで描き直したら capture-ready を返させる。
 std::wstring PageCaptureMessage(unsigned id);
+
+// mermaid_viewer.html の message の受け口に送る要求。
+// "init:<ダーク 0/1>:" に続けて、文言を改行で区切って並べる (i18n の決まった文言なので改行を含まない)。
+std::wstring ViewerInitMessage(bool dark, std::span<const std::wstring_view> labels);
+// "loading:<ダーク 0/1>:"。図を消して読み込み中の表示に戻す。
+std::wstring ViewerLoadingMessage(bool dark);
+// "svg:<ダーク 0/1>:<SVG>"。SVG を末尾に置き、エスケープしない。svg は大きいので写さずに使う。
+std::wstring ViewerSvgMessage(bool dark, std::wstring svg);
 
 int QuantizeWidth(float max_width) noexcept;
 

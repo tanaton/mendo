@@ -996,13 +996,13 @@ void CommandGenerator::EmitBlockHScrollbarIfActive(int node_index, float block_x
 
 void CommandGenerator::GenOverlayButtons(const Node& node, const DiagramEntry* diagram, float x, float cw, float entry_text_top, int node_index)
 {
-    // 図の保存/コピーは普段は隠し、マウスが図の画像領域へ入ったときだけ出す。
+    // 図のボタンは普段は隠し、マウスが図の画像領域へ入ったときだけ出す。
     if (node.type == NodeType::Diagram && frame_.params->hovered_diagram != node_index) {
         return;
     }
     layout::ForEachOverlayButton(node, diagram, x, cw, entry_text_top, *theme_, [&](const D2D1_RECT_F& btn, OverlayButton kind) {
-        // 保存は Download、コピーは Copy (Segoe Fluent Icons)。
-        const wchar_t icon = kind == OverlayButton::DiagramSave ? L'\uE896' : L'\uE8C8';
+        // 保存は Download、拡大表示は FullScreen、コピーは Copy (Segoe Fluent Icons)。
+        const wchar_t icon = kind == OverlayButton::DiagramSave ? L'\uE896' : kind == OverlayButton::DiagramView ? L'\uE740' : L'\uE8C8';
         GenOverlayButton(btn, icon, frame_.params->hovered == OverlayButtonHit{ node_index, kind });
     });
 }

@@ -2,11 +2,13 @@
 #include "app_constants.h"
 #include "d2d_util.h"
 #include "file_io.h"
+#include "i18n.h"
 #include "katex_chunk.h"
 #include "mermaid_file_cache.h"
 #include "resource.h"
 #include "string_convert.h"
 #include "task_scheduler.h"
+#include "tooltip.h"
 #include "ui_constants.h"
 #include "utility.h"
 #include "wic_util.h"
@@ -64,6 +66,22 @@ constexpr wchar_t HTML_RESPONSE_HEADERS[] =
     L"Content-Type: text/html; charset=utf-8\r\n"
     L"Content-Security-Policy: default-src 'none'; script-src https://app.local 'unsafe-inline' 'unsafe-eval'; "
     L"style-src 'unsafe-inline'; img-src data: blob:; font-src data:; worker-src 'none'; base-uri 'none'; form-action 'none'";
+
+constexpr std::wstring_view MERMAID_VIEWER_CLASS = L"mendo_MermaidViewer";
+constexpr wchar_t APP_LOCAL_VIEWER_URL[] = L"https://app.local/viewer.html";
+// 図の SVG を DOM に入れて利用者が触るページなので、動くスクリプトを nonce の付いたページ自身のものに限り、SVG の中の
+// イベントハンドラと javascript: を止める。mermaid を読まないので eval も外部のスクリプトも要らない。
+constexpr wchar_t VIEWER_RESPONSE_HEADERS[] =
+    L"Content-Type: text/html; charset=utf-8\r\n"
+    L"Content-Security-Policy: default-src 'none'; script-src 'nonce-viewer'; "
+    L"style-src 'unsafe-inline'; img-src data: blob:; font-src data:; base-uri 'none'; form-action 'none'";
+// ページの背景 (mermaid_viewer.html) と同じ。ページが出るまでの間に色が変わらないように合わせる。
+constexpr COLORREF ViewerBackground(bool dark) noexcept
+{
+    return dark ? RGB(30, 30, 30) : RGB(255, 255, 255);
+}
+// 最初の大きさ。本体に対する割合。
+constexpr int VIEWER_SIZE_PERCENT = 90;
 
 // WebView2 は CapturePreview に IsVisible=TRUE を要求するため、非表示にせず画面外の遠い位置に置く。
 constexpr int HOST_OFFSCREEN_POS = -32000;
@@ -157,6 +175,67 @@ void RestrictWebView(ICoreWebView2* webview)
         );
         // clang-format on
     }
+}
+
+// 倍率はページのボタンで変えるので、ブラウザのズームを重ねない。F5 の読み直しや Ctrl+P の印刷などのブラウザの操作も止める。
+void RestrictViewerInput(ICoreWebView2* webview)
+{
+    Microsoft::WRL::ComPtr<ICoreWebView2Settings> settings;
+    LogHrFailure("get_Settings", webview->get_Settings(&settings));
+    if (!settings) {
+        return;
+    }
+    LogHrFailure("put_IsZoomControlEnabled", settings->put_IsZoomControlEnabled(FALSE));
+    if (Microsoft::WRL::ComPtr<ICoreWebView2Settings3> settings3; SUCCEEDED(settings.As(&settings3))) {
+        LogHrFailure("put_AreBrowserAcceleratorKeysEnabled", settings3->put_AreBrowserAcceleratorKeysEnabled(FALSE));
+    }
+    if (Microsoft::WRL::ComPtr<ICoreWebView2Settings5> settings5; SUCCEEDED(settings.As(&settings5))) {
+        LogHrFailure("put_IsPinchZoomEnabled", settings5->put_IsPinchZoomEnabled(FALSE));
+    }
+    if (Microsoft::WRL::ComPtr<ICoreWebView2Settings6> settings6; SUCCEEDED(settings.As(&settings6))) {
+        LogHrFailure("put_IsSwipeNavigationEnabled", settings6->put_IsSwipeNavigationEnabled(FALSE));
+    }
+}
+
+void SetDefaultBackground(ICoreWebView2Controller* controller, COREWEBVIEW2_COLOR color)
+{
+    if (Microsoft::WRL::ComPtr<ICoreWebView2Controller2> controller2; SUCCEEDED(controller->QueryInterface(IID_PPV_ARGS(&controller2)))) {
+        LogHrFailure("put_DefaultBackgroundColor", controller2->put_DefaultBackgroundColor(color));
+    }
+}
+
+void SetViewerBackground(ICoreWebView2Controller* controller, bool dark)
+{
+    const COLORREF bg = ViewerBackground(dark);
+    SetDefaultBackground(controller, { 255, GetRValue(bg), GetGValue(bg), GetBValue(bg) });
+}
+
+// fn は NUL 終端のメッセージを受け取る。
+template <class Fn>
+void AddWebMessageHandler(ICoreWebView2* webview, Fn&& fn)
+{
+    // clang-format off
+    AddWebViewHandler(
+        webview,
+        "add_WebMessageReceived",
+        &ICoreWebView2::add_WebMessageReceived,
+        [fn = std::forward<Fn>(fn)](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
+            UniqueCoTaskMemStr msg;
+            if (SUCCEEDED(args->TryGetWebMessageAsString(msg.put())) && msg) {
+                fn(msg.get());
+            }
+            return S_OK;
+        }
+    );
+    // clang-format on
+}
+
+void BringToFront(HWND hwnd) noexcept
+{
+    if (IsIconic(hwnd)) {
+        ShowWindow(hwnd, SW_RESTORE);
+    }
+    SetForegroundWindow(hwnd);
 }
 
 // CreateStreamOnHGlobal のストリームはアパートメントに縛られないので worker から読める。
@@ -288,6 +367,7 @@ void MermaidRenderer::Shutdown()
 
 void MermaidRenderer::ReleaseWebView()
 {
+    DestroyViewer();
     for (int i = 0; i < worker_count_; i++) {
         DestroyWorker(workers_[i]);
     }
@@ -299,7 +379,8 @@ void MermaidRenderer::ReleaseWebView()
 void MermaidRenderer::Init(
     HWND hwnd, IWICImagingFactory* wic, MermaidFileCache& file_cache,
     TaskScheduler& bg_scheduler,
-    const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_update)
+    const std::filesystem::path& user_data_folder, std::move_only_function<void()> on_update,
+    std::move_only_function<void()> on_viewer_failed)
 {
     hwnd_ = hwnd;
     file_cache_ = &file_cache;
@@ -309,6 +390,7 @@ void MermaidRenderer::Init(
         user_data_folder_.assign(user_data_folder.native());
     }
     on_update_ = std::move(on_update);
+    on_viewer_failed_ = std::move(on_viewer_failed);
 }
 
 // WebView2 は図の描画要求が来てから起動し、ファイルの変更通知などで先に起動しない
@@ -410,7 +492,8 @@ void MermaidRenderer::SetEditingDiagrams(bool editing)
 void MermaidRenderer::OnIdleTimer()
 {
     KillTimer(hwnd_, std::to_underlying(app_timer::Id::MERMAID_IDLE));
-    if (!pending_requests_.empty()) {
+    // 拡大表示は同じ環境で動いている。閉じたときに張り直す。
+    if (!pending_requests_.empty() || viewer_.hwnd) {
         return;
     }
     // 起動途中や描画中のワーカーがあれば閉じない (非同期ハンドラが閉じたスロットを触らないように)。
@@ -449,6 +532,8 @@ void MermaidRenderer::CreateWebView2Environment()
 
     // 図は SVG 1 枚をオフスクリーンで描いて写すだけなので GPU プロセスは要らない。止めると mendo + WebView2 の
     // commit が 3 割強減り (シーケンス図 1 つで 262MB → 171MB)、描き終わるまでも 1〜2 割縮む。写した図は GPU ありと同じ。
+    // 拡大表示の見えるビューも同じ環境で動くが、4K のスクロールは 60fps で GPU ありと差が無く、GPU ありだと GPU プロセスが
+    // 最大 660MB まで膨らんで閉じた後も 220〜480MB 残るので、止めたままにする。
     const auto options = Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
     options->put_AdditionalBrowserArguments(L"--disable-gpu");
 
@@ -489,6 +574,9 @@ void MermaidRenderer::OnEnvironmentCreated(HRESULT result, ICoreWebView2Environm
 
     for (int i = 0; i < worker_count_; i++) {
         SetupWorker(i);
+    }
+    if (viewer_.hwnd) {
+        SetupViewer();
     }
 }
 
@@ -565,9 +653,7 @@ void MermaidRenderer::OnControllerCreated(int index, ICoreWebView2Controller* co
 
     controller->put_Bounds(RECT{ 0, 0, HOST_SIZE, HOST_SIZE });
     // インライン数式の型をアルファ付きでキャプチャするため。図はページの body が背景を塗る。
-    if (Microsoft::WRL::ComPtr<ICoreWebView2Controller2> controller2; SUCCEEDED(controller->QueryInterface(IID_PPV_ARGS(&controller2)))) {
-        LogHrFailure("put_DefaultBackgroundColor", controller2->put_DefaultBackgroundColor(COREWEBVIEW2_COLOR{ 0, 0, 0, 0 }));
-    }
+    SetDefaultBackground(controller, { 0, 0, 0, 0 });
     DisableWebViewChrome(w.webview.Get());
     RestrictWebView(w.webview.Get());
     RegisterWebViewHandlers(index);
@@ -580,20 +666,7 @@ void MermaidRenderer::RegisterWebViewHandlers(int index)
 {
     ICoreWebView2* webview = workers_[index].webview.Get();
 
-    // clang-format off
-    AddWebViewHandler(
-        webview,
-        "add_WebMessageReceived",
-        &ICoreWebView2::add_WebMessageReceived,
-        [this, index](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
-            UniqueCoTaskMemStr msg;
-            if (SUCCEEDED(args->TryGetWebMessageAsString(msg.put())) && msg) {
-                DispatchWebMessage(index, mermaid_util::ParseWebMessage(msg.get()));
-            }
-            return S_OK;
-        }
-    );
-    // clang-format on
+    AddWebMessageHandler(webview, [this, index](const wchar_t* msg) { DispatchWebMessage(index, mermaid_util::ParseWebMessage(msg)); });
 
     // レンダラ/ブラウザプロセスのクラッシュを放置するとワーカーが描画中 (IsRendering) の
     // まま恒久的にビジー扱いになり、全ワーカー喪失で以後の図が Loading 固着する。
@@ -609,6 +682,11 @@ void MermaidRenderer::RegisterWebViewHandlers(int index)
     );
     // clang-format on
 
+    RegisterResourceHandler(webview);
+}
+
+void MermaidRenderer::RegisterResourceHandler(ICoreWebView2* webview)
+{
     // 全URLをフィルタし、app.local 以外へのリクエストもここで遮断する。
     // clang-format off
     LogHrFailure("AddWebResourceRequestedFilter", webview->AddWebResourceRequestedFilter(L"*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL));
@@ -646,9 +724,11 @@ void MermaidRenderer::OnWebResourceRequested(ICoreWebView2WebResourceRequestedEv
 
     // mermaid の ESM ファイルは third_party/mermaid からの相対パスを名前にして埋め込んでいる。
     // 名前で引けるのはそれだけなので、数値 ID の他のリソースは返らない。path は NUL 終端した uri の末尾。
-    const bool is_html = url == APP_LOCAL_INDEX_URL;
+    const bool is_index = url == APP_LOCAL_INDEX_URL;
+    const bool is_viewer = url == APP_LOCAL_VIEWER_URL;
     const std::wstring_view path = url.substr(APP_LOCAL_ORIGIN_PREFIX.size());
-    const auto body = is_html                            ? LoadRcData(IDR_MERMAID_HTML)
+    const auto body = is_index                           ? LoadRcData(IDR_MERMAID_HTML)
+                      : is_viewer                        ? LoadRcData(IDR_MERMAID_VIEWER_HTML)
                       : path == KATEX_ALIAS_PATH         ? LoadRcData(KATEX_CHUNK_RESOURCE)
                       : mermaid_util::IsModulePath(path) ? LoadRcData(path.data())
                                                          : std::span<const std::byte>{};
@@ -662,7 +742,7 @@ void MermaidRenderer::OnWebResourceRequested(ICoreWebView2WebResourceRequestedEv
         respond(nullptr, 404, L"Not Found", L"");
         return;
     }
-    respond(stream.Get(), 200, L"OK", is_html ? HTML_RESPONSE_HEADERS : L"Content-Type: text/javascript; charset=utf-8");
+    respond(stream.Get(), 200, L"OK", is_index ? HTML_RESPONSE_HEADERS : is_viewer ? VIEWER_RESPONSE_HEADERS : L"Content-Type: text/javascript; charset=utf-8");
 }
 
 void MermaidRenderer::SetRenderTarget(ID2D1RenderTarget* render_target)
@@ -783,7 +863,7 @@ void MermaidRenderer::RecoverWorker(int index)
     // 入力での再起動ループは retried で 1 回に打ち切る。
     InvokeSvgCallbackIfAny(w.current_request, {}, false);
     bool failed = false;
-    if (w.IsRendering() && !w.current_request.svg_only) {
+    if (w.IsRendering() && !w.current_request.is_svg()) {
         if (!w.current_request.retried) {
             w.current_request.retried = true;
             pending_requests_.push_back(std::move(w.current_request));
@@ -1088,13 +1168,322 @@ void MermaidRenderer::EnqueueWebRender(RenderRequest req)
 
 void MermaidRenderer::RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback)
 {
+    EnqueueSvg(mermaid_util::PageRequest::Svg, code, max_width, dark_mode, std::move(callback));
+}
+
+void MermaidRenderer::EnqueueSvg(mermaid_util::PageRequest page, std::string_view code, float max_width, bool dark_mode, SvgCallback callback)
+{
     EnqueueWebRender(RenderRequest{
         .code = std::string{ code },
         .max_width = max_width,
         .dark_mode = dark_mode,
-        .svg_only = true,
+        .page = page,
         .svg_callback = std::move(callback),
     });
+}
+
+void MermaidRenderer::OpenViewer(std::string_view code, float max_width, bool dark_mode)
+{
+    if (viewer_.hwnd) {
+        BringToFront(viewer_.hwnd);
+        if (viewer_.code == code) {
+            return;
+        }
+    }
+    viewer_.code.assign(code);
+    viewer_.max_width = max_width;
+    viewer_.dark_mode = dark_mode;
+    if (viewer_.hwnd) {
+        PostToViewer(mermaid_util::ViewerLoadingMessage(dark_mode));
+    }
+    else if (!CreateViewerWindow()) {
+        FailViewer();
+        return;
+    }
+    else if (webview_env_) {
+        SetupViewer();
+    }
+    // 環境がまだ無ければ、下の要求が起動した環境の完了 (OnEnvironmentCreated) でビューを作る。
+    if (viewer_.hwnd) {
+        RequestViewerSvg();
+    }
+}
+
+void MermaidRenderer::CloseViewer()
+{
+    if (viewer_.hwnd) {
+        DestroyViewer();
+        ScheduleIdleShutdown();
+    }
+}
+
+void MermaidRenderer::SetViewerDarkMode(bool dark_mode)
+{
+    if (!viewer_.hwnd) {
+        return;
+    }
+    viewer_.dark_mode = dark_mode;
+    ApplyDarkModeToWindow(viewer_.hwnd, dark_mode);
+    InvalidateRect(viewer_.hwnd, nullptr, TRUE);
+    if (viewer_.controller) {
+        SetViewerBackground(viewer_.controller.Get(), dark_mode);
+    }
+    RequestViewerSvg();
+}
+
+void MermaidRenderer::DestroyViewer()
+{
+    ++viewer_render_;
+    Viewer viewer = std::exchange(viewer_, {});
+    if (viewer.controller) {
+        viewer.controller->Close();
+    }
+    if (viewer.hwnd) {
+        DestroyWindow(viewer.hwnd);
+    }
+}
+
+void MermaidRenderer::FailViewer()
+{
+    CloseViewer();
+    if (on_viewer_failed_) {
+        on_viewer_failed_();
+    }
+}
+
+LRESULT CALLBACK MermaidRenderer::ViewerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    auto* const self = BindWindowInstance<MermaidRenderer>(hwnd, msg, lParam);
+    if (!self) {
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+    auto& viewer = self->viewer_;
+    switch (msg) {
+    case WM_CLOSE:
+        self->CloseViewer();
+        return 0;
+
+    case WM_NCDESTROY:
+        // 本体と一緒に壊されたときも、壊れた hwnd を持ち続けない。
+        viewer.hwnd = nullptr;
+        break;
+
+    // 本体 (Win32Window) と同じく、開閉で DWM のアニメーションを出さない。閉じ方が多く (Esc・×・文書の切り替え・本体と
+    // 一緒に) どれも破棄の中の非表示化を通るので、ここで隠す。本体の最小化でも一緒に隠れるので、解くのも表示を開く
+    // 1 か所ではなくここで行う。WM_WINDOWPOSCHANGED は WM_SIZE を作るので既定の処理へ回す。
+    case WM_WINDOWPOSCHANGING:
+        if (reinterpret_cast<const WINDOWPOS*>(lParam)->flags & SWP_HIDEWINDOW) {
+            SetCloaked(hwnd, TRUE);
+        }
+        break;
+
+    case WM_WINDOWPOSCHANGED:
+        if (reinterpret_cast<const WINDOWPOS*>(lParam)->flags & SWP_SHOWWINDOW) {
+            UpdateWindow(hwnd);
+            SetCloaked(hwnd, FALSE);
+        }
+        break;
+
+    case WM_ERASEBKGND: {
+        RECT rc{};
+        GetClientRect(hwnd, &rc);
+        SetBkColor(reinterpret_cast<HDC>(wParam), ViewerBackground(viewer.dark_mode));
+        ExtTextOutW(reinterpret_cast<HDC>(wParam), 0, 0, ETO_OPAQUE, &rc, nullptr, 0, nullptr);
+        return 1;
+    }
+
+    case WM_SETFOCUS:
+        if (viewer.controller) {
+            LogHrFailure("MoveFocus", viewer.controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC));
+        }
+        return 0;
+
+    case WM_SIZE:
+        if (viewer.controller) {
+            LogHrFailure("put_IsVisible", viewer.controller->put_IsVisible(wParam != SIZE_MINIMIZED));
+            if (wParam != SIZE_MINIMIZED) {
+                self->ApplyViewerBounds();
+            }
+        }
+        return 0;
+
+    case WM_MOVE:
+        if (viewer.controller) {
+            LogHrFailure("NotifyParentWindowPositionChanged", viewer.controller->NotifyParentWindowPositionChanged());
+        }
+        return 0;
+
+    case WM_DPICHANGED: {
+        const RECT& r = *reinterpret_cast<const RECT*>(lParam);
+        SetWindowPos(hwnd, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
+        return 0;
+    }
+
+    default:
+        break;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+bool MermaidRenderer::CreateViewerWindow()
+{
+    static const bool registered = [] {
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = ViewerWndProc;
+        wc.hInstance = GetModuleHandleW(nullptr);
+        wc.hIcon = LoadIconW(wc.hInstance, MAKEINTRESOURCEW(IDI_APP_ICON));
+        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.lpszClassName = MERMAID_VIEWER_CLASS.data();
+        return RegisterClassExW(&wc) != 0;
+    }();
+    RECT owner{};
+    if (!registered || !GetWindowRect(hwnd_, &owner)) {
+        return false;
+    }
+    const int owner_w = owner.right - owner.left;
+    const int owner_h = owner.bottom - owner.top;
+    const int w = MulDiv(owner_w, VIEWER_SIZE_PERCENT, 100);
+    const int h = MulDiv(owner_h, VIEWER_SIZE_PERCENT, 100);
+    viewer_.hwnd = CreateWindowExW(
+        0,
+        MERMAID_VIEWER_CLASS.data(),
+        i18n::S().viewer_title.data(),
+        WS_OVERLAPPEDWINDOW,
+        owner.left + (owner_w - w) / 2, owner.top + (owner_h - h) / 2,
+        w, h,
+        hwnd_, nullptr, GetModuleHandleW(nullptr), this);
+    if (!viewer_.hwnd) {
+        return false;
+    }
+    ApplyDarkModeToWindow(viewer_.hwnd, viewer_.dark_mode);
+    // 表示の中の WM_WINDOWPOSCHANGED で解く。
+    SetCloaked(viewer_.hwnd, TRUE);
+    ShowWindow(viewer_.hwnd, SW_SHOW);
+    return true;
+}
+
+void MermaidRenderer::SetupViewer()
+{
+    const HWND hwnd = viewer_.hwnd;
+    // clang-format off
+    const HRESULT hr = webview_env_->CreateCoreWebView2Controller(
+        hwnd,
+        Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
+            [this, hwnd](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
+                // 作っている間に閉じられた。
+                if (viewer_.hwnd != hwnd) {
+                    if (controller) {
+                        controller->Close();
+                    }
+                    return S_OK;
+                }
+                if (SUCCEEDED(result) && controller) {
+                    OnViewerControllerCreated(controller);
+                }
+                else {
+                    FailViewer();
+                }
+                return S_OK;
+            }
+        ).Get()
+    );
+    // clang-format on
+    if (FAILED(hr)) {
+        FailViewer();
+    }
+}
+
+void MermaidRenderer::OnViewerControllerCreated(ICoreWebView2Controller* controller)
+{
+    viewer_.controller = controller;
+    if (FAILED(controller->get_CoreWebView2(&viewer_.webview)) || !viewer_.webview) {
+        FailViewer();
+        return;
+    }
+    SetViewerBackground(controller, viewer_.dark_mode);
+    ApplyViewerBounds();
+    ICoreWebView2* webview = viewer_.webview.Get();
+    DisableWebViewChrome(webview);
+    RestrictWebView(webview);
+    RestrictViewerInput(webview);
+
+    AddWebMessageHandler(webview, [this](const wchar_t* msg) { OnViewerMessage(msg); });
+    // clang-format off
+    AddWebViewHandler(
+        webview,
+        "add_ProcessFailed",
+        &ICoreWebView2::add_ProcessFailed,
+        [this](ICoreWebView2*, ICoreWebView2ProcessFailedEventArgs*) -> HRESULT {
+            FailViewer();
+            return S_OK;
+        }
+    );
+    // clang-format on
+    RegisterResourceHandler(webview);
+    LogHrFailure("Navigate(viewer)", webview->Navigate(APP_LOCAL_VIEWER_URL));
+}
+
+void MermaidRenderer::OnViewerMessage(std::wstring_view msg)
+{
+    if (msg == L"viewer-ready") {
+        viewer_.page_ready = true;
+        const auto& s = i18n::S();
+        // 並びは mermaid_viewer.html の init の受け口と同じ。
+        const std::wstring_view labels[]{ s.viewer_zoom_in, s.viewer_zoom_out, s.viewer_fit, s.loading };
+        PostToViewer(mermaid_util::ViewerInitMessage(viewer_.dark_mode, labels));
+        if (!viewer_.pending_msg.empty()) {
+            PostToViewer(std::exchange(viewer_.pending_msg, {}));
+        }
+        LogHrFailure("MoveFocus", viewer_.controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC));
+    }
+    else if (msg == L"viewer-close") {
+        // このビュー自身のイベントの中で閉じないよう、ウィンドウのメッセージに回す。
+        PostMessageW(viewer_.hwnd, WM_CLOSE, 0, 0);
+    }
+}
+
+void MermaidRenderer::ApplyViewerBounds()
+{
+    RECT rc{};
+    if (GetClientRect(viewer_.hwnd, &rc)) {
+        LogHrFailure("put_Bounds", viewer_.controller->put_Bounds(rc));
+    }
+}
+
+void MermaidRenderer::RequestViewerSvg()
+{
+    const unsigned int render = ++viewer_render_;
+    // clang-format off
+    EnqueueSvg(
+        mermaid_util::PageRequest::View,
+        viewer_.code,
+        viewer_.max_width,
+        viewer_.dark_mode,
+        [this, render](std::wstring svg, bool cancelled) {
+            if (render != viewer_render_) {
+                return;
+            }
+            if (!svg.empty()) {
+                PostToViewer(mermaid_util::ViewerSvgMessage(viewer_.dark_mode, std::move(svg)));
+            }
+            // 取り消されるのは Shutdown の中だけで、この後ウィンドウごと閉じる。
+            else if (!cancelled) {
+                FailViewer();
+            }
+        }
+    );
+    // clang-format on
+}
+
+void MermaidRenderer::PostToViewer(std::wstring msg)
+{
+    if (viewer_.page_ready) {
+        LogHrFailure("PostWebMessageAsString", viewer_.webview->PostWebMessageAsString(msg.c_str()));
+    }
+    else {
+        viewer_.pending_msg = std::move(msg);
+    }
 }
 
 void MermaidRenderer::RequestMathBatch(std::vector<InlineMathItem> items, uint64_t cache_key, MathBatchCallback callback, MathPageGate want_page)
@@ -1191,9 +1580,7 @@ void MermaidRenderer::RenderInWorker(Worker& worker)
     const int vp_phys = std::max(1, DipToPixelCeil(req.max_width, worker.dpr));
     ResizeWorkerView(worker, vp_phys, HOST_SIZE);
 
-    using mermaid_util::PageRequest;
-    const PageRequest kind = req.svg_only ? PageRequest::Svg : PageRequest::Mermaid;
-    PostToPage(worker, mermaid_util::PageRenderMessage(kind, req.request_id, req.dark_mode, req.code));
+    PostToPage(worker, mermaid_util::PageRenderMessage(req.page, req.request_id, req.dark_mode, req.code));
 }
 
 void MermaidRenderer::RenderMathInWorker(Worker& worker)
@@ -1290,7 +1677,7 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
         }
         return;
     case WebMessageKind::SvgResult:
-        if (req_id_match && w.current_request.svg_only) {
+        if (req_id_match && w.current_request.is_svg()) {
             InvokeSvgCallbackIfAny(w.current_request, std::wstring{ payload }, false);
             FinishWorkerRequest(w);
         }

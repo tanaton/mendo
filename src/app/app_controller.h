@@ -28,7 +28,7 @@ struct MdPaneHit {
     enum class Kind : uint8_t {
         SearchBar,
         NavButton,
-        OverlayButton, // コピー / ダイアグラムコピー / 保存
+        OverlayButton, // コピー / ダイアグラムコピー / 保存 / 拡大表示
         Scrollbar,
         Content,
     };

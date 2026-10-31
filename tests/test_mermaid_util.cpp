@@ -19,6 +19,27 @@ TEST(PageMessage, RenderMessagePutsRawCodeLast)
     EXPECT_EQ(mermaid_util::PageRenderMessage(mermaid_util::PageRequest::Mermaid, 7, false, "graph TD;\n  A[\"a:b\"]-->B;"),
               L"mermaid:7:0:graph TD;\n  A[\"a:b\"]-->B;");
     EXPECT_EQ(mermaid_util::PageRenderMessage(mermaid_util::PageRequest::Svg, 8, true, "x"), L"svg:8:1:x");
+    EXPECT_EQ(mermaid_util::PageRenderMessage(mermaid_util::PageRequest::View, 9, false, "x"), L"view:9:0:x");
+}
+
+// 文言は改行で区切るので、':' を含んでいても切り出せる。
+TEST(PageMessage, ViewerInitSeparatesLabelsByNewline)
+{
+    const std::wstring_view labels[]{ L"a:b", L"c" };
+    EXPECT_EQ(mermaid_util::ViewerInitMessage(true, labels), L"init:1:a:b\nc\n");
+    EXPECT_EQ(mermaid_util::ViewerInitMessage(false, {}), L"init:0:");
+}
+
+TEST(PageMessage, ViewerLoading)
+{
+    EXPECT_EQ(mermaid_util::ViewerLoadingMessage(true), L"loading:1:");
+}
+
+// SVG は末尾に置くので、':' を含んでいてもそのまま読める。
+TEST(PageMessage, ViewerSvgPutsSvgLast)
+{
+    EXPECT_EQ(mermaid_util::ViewerSvgMessage(false, L"<svg style=\"a:b\"/>"), L"svg:0:<svg style=\"a:b\"/>");
+    EXPECT_EQ(mermaid_util::ViewerSvgMessage(true, L"x"), L"svg:1:x");
 }
 
 // まとめ描きの数式は UTF-16 の長さで区切るので、TeX に ':' や BMP 外の文字 (サロゲートペア) があっても切り出せる。

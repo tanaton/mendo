@@ -413,7 +413,7 @@ TEST_F(VisibleHighlightTest, TableSearchHighlightAppearsAfterEvictedRowsRestore)
     EXPECT_GT(ComputedMatchCount(pl.cache[0]), 0u);
 }
 
-// 図の保存/コピーボタンは、その図の画像領域をホバーしている間だけ描く。
+// 図のボタンは、その図の画像領域をホバーしている間だけ描く。
 TEST_F(HighlightOrderTest, DiagramOverlayButtonsAreGatedByDiagramHover)
 {
     auto pl = ParseAndLayout("```mermaid\ngraph TD;A-->B\n```\n");
@@ -457,7 +457,7 @@ TEST_F(HighlightOrderTest, DiagramOverlayButtonsAreGatedByDiagramHover)
 
     DrawCommandList shown;
     gen_.GenerateMdPane(shown, { .nodes = pl.nodes, .cache = pl.cache, .selection = TextSelection{}, .md_pane_rect = pane, .hovered_diagram = idx }, 1.0f);
-    EXPECT_EQ(count_overlay_fills(shown), 2);
+    EXPECT_EQ(count_overlay_fills(shown), 3);
 }
 
 // 全行選択でも、矩形を引くのは可視範囲の前後の行だけ。スクロール先でも選択を描く。

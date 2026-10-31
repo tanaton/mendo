@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  /* 背景は mermaid.html の図の背景と、mermaid.cpp の ViewerBackground にそろえる。 */
+  :root { color-scheme: light; --bg: #ffffff; --fg: #333333; --bar: rgba(240, 240, 240, 0.94); --hover: rgba(0, 0, 0, 0.1); }
+  :root.dark { color-scheme: dark; --bg: #1e1e1e; --fg: #dddddd; --bar: rgba(50, 50, 50, 0.94); --hover: rgba(255, 255, 255, 0.15); }
+  html, body { margin: 0; overflow: hidden; background: var(--bg); color: var(--fg); font: 13px "Segoe UI", system-ui, sans-serif; user-select: none; }
+  #stage { position: absolute; inset: 0; overflow: auto; outline: none; cursor: grab; }
+  #stage.dragging { cursor: grabbing; }
+  /* 図が窓より小さいときは中央に置き、大きいときは左上からスクロールできるようにする (place-items の中央寄せだと上と左が切れる)。 */
+  #host { display: flex; width: max-content; height: max-content; min-width: 100%; min-height: 100%; box-sizing: border-box; padding: 16px; }
+  #host svg { flex: none; margin: auto; }
+  #loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  #bar { position: fixed; top: 12px; right: 28px; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 6px; background: var(--bar); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); }
+  #bar[hidden], #loading[hidden] { display: none; }
+  #bar button { width: 30px; height: 28px; padding: 0; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; font-size: 16px; display: flex; align-items: center; justify-content: center; }
+  #bar button:hover:enabled { background: var(--hover); }
+  #bar button:disabled { opacity: 0.35; }
+  #zoom { min-width: 48px; text-align: center; }
+</style>
+</head>
+<body>
+<div id="stage" tabindex="-1"><div id="host"></div></div>
+<div id="loading"></div>
+<div id="bar" hidden>
+  <button id="out">&#x2212;</button>
+  <span id="zoom"></span>
+  <button id="in">+</button>
+  <button id="fit"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 5.5v-4h4M10.5 1.5h4v4M14.5 10.5v4h-4M5.5 14.5h-4v-4"/></svg></button>
+</div>
+<script nonce="viewer">
+  const stage = document.getElementById('stage');
+  const host = document.getElementById('host');
+  const bar = document.getElementById('bar');
+  const loading = document.getElementById('loading');
+  const zoomLabel = document.getElementById('zoom');
+  const buttons = { in: document.getElementById('in'), out: document.getElementById('out'), fit: document.getElementById('fit') };
+
+  // 8 倍は試作で確かめた範囲。1000 メッセージのシーケンス図でも描けて、4K で 1 段の切り替えが約 100ms。
+  const STOPS = [0.05, 0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 1, 1.25, 1.5, 2, 3, 4, 6, 8];
+  const PADDING = 16;
+
+  let svg = null;
+  let natWidth = 0;
+  let natHeight = 0;
+  let zoom = 1;
+  let fitZoom = 1;
+  // 全体表示のままならウィンドウの大きさに追従する。ボタンで倍率を変えたら追従をやめる。
+  let fitting = true;
+
+  // 全体表示の倍率も止まる位置にする。すぐ隣の値は 1 回押しても見た目が変わらないので除く。
+  function zoomStops() {
+    return [...STOPS.filter(s => Math.abs(s / fitZoom - 1) > 0.1), fitZoom].sort((a, b) => a - b);
+  }
+
+  // dir の向きの次の倍率。端なら undefined。
+  function nextStop(dir) {
+    const stops = zoomStops();
+    return dir > 0 ? stops.find(s => s > zoom * 1.001) : stops.findLast(s => s < zoom * 0.999);
+  }
+
+  function applySize() {
+    svg.style.width = natWidth * zoom + 'px';
+    svg.style.height = natHeight * zoom + 'px';
+    zoomLabel.textContent = Math.round(zoom * 100) + '%';
+    buttons.in.disabled = nextStop(1) === undefined;
+    buttons.out.disabled = nextStop(-1) === undefined;
+  }
+
+  // 窓の大きさから全体表示の倍率を決め直す。本文より拡大する窓なので、小さな図は等倍のまま置く。
+  function layout() {
+    fitZoom = Math.min(1, (stage.clientWidth - PADDING * 2) / natWidth, (stage.clientHeight - PADDING * 2) / natHeight);
+    if (fitting) {
+      zoom = fitZoom;
+    }
+    applySize();
+  }
+
+  // 窓の中央に見えている点を動かさずに倍率を変える。図が窓より小さいと中央に置かれてスクロール量では位置が決まらないので、
+  // 図の実際の位置から求める。
+  function setZoom(next) {
+    const before = svg.getBoundingClientRect();
+    const cx = stage.clientWidth / 2;
+    const cy = stage.clientHeight / 2;
+    const ax = (cx - before.left) / zoom;
+    const ay = (cy - before.top) / zoom;
+    zoom = next;
+    applySize();
+    const after = svg.getBoundingClientRect();
+    stage.scrollLeft += after.left + ax * zoom - cx;
+    stage.scrollTop += after.top + ay * zoom - cy;
+  }
+
+  function fit() {
+    fitting = true;
+    layout();
+    stage.scrollLeft = 0;
+    stage.scrollTop = 0;
+  }
+
+  function step(dir) {
+    const next = nextStop(dir);
+    if (next !== undefined) {
+      fitting = false;
+      setZoom(next);
+    }
+  }
+
+  // ワーカーが描いた SVG をそのまま置く。ここで mermaid を読むと増えるメモリが 115〜172MB (SVG だけなら 65〜89MB) で、
+  // 開くまでが 450〜1160ms (同 100〜130ms) かかるので、このページは mermaid を持たない。
+  function showSvg(text) {
+    // 図が出ている間に届くのはテーマを切り替えた図で、倍率と位置を保つ。別の図は loading で先に消えている。
+    const keep = svg !== null;
+    const left = stage.scrollLeft;
+    const top = stage.scrollTop;
+    host.innerHTML = text;
+    svg = host.querySelector('svg');
+    if (!svg) {
+      return;
+    }
+    // 本文の幅に縮める指定を外して本来の大きさで扱う。viewBox の無い図は描かれた大きさを本来の大きさとする。
+    const box = svg.viewBox.baseVal;
+    const hasBox = box && box.width > 0 && box.height > 0;
+    const size = hasBox ? box : svg.getBoundingClientRect();
+    natWidth = size.width;
+    natHeight = size.height;
+    if (!hasBox) {
+      svg.setAttribute('viewBox', '0 0 ' + natWidth + ' ' + natHeight);
+    }
+    svg.removeAttribute('width');
+    svg.removeAttribute('height');
+    svg.style.maxWidth = 'none';
+    loading.hidden = true;
+    bar.hidden = false;
+    if (keep) {
+      layout();
+      stage.scrollLeft = left;
+      stage.scrollTop = top;
+    }
+    else {
+      fit();
+    }
+  }
+
+  new ResizeObserver(() => {
+    if (svg) {
+      layout();
+    }
+  }).observe(stage);
+
+  buttons.in.onclick = () => step(1);
+  buttons.out.onclick = () => step(-1);
+  buttons.fit.onclick = fit;
+  // ボタンにフォーカスを取られると矢印キーでスクロールできなくなる。
+  bar.addEventListener('mousedown', e => e.preventDefault());
+
+  let drag = null;
+  stage.addEventListener('pointerdown', e => {
+    // 右端と下端のスクロールバーはそのまま使わせる。
+    if (e.button !== 0 || e.clientX >= stage.clientWidth || e.clientY >= stage.clientHeight) {
+      return;
+    }
+    drag = { x: e.clientX, y: e.clientY, left: stage.scrollLeft, top: stage.scrollTop };
+    stage.setPointerCapture(e.pointerId);
+    stage.classList.add('dragging');
+    e.preventDefault();
+  });
+  stage.addEventListener('pointermove', e => {
+    if (drag) {
+      stage.scrollLeft = drag.left - (e.clientX - drag.x);
+      stage.scrollTop = drag.top - (e.clientY - drag.y);
+    }
+  });
+  const endDrag = () => {
+    drag = null;
+    stage.classList.remove('dragging');
+  };
+  stage.addEventListener('pointerup', endDrag);
+  stage.addEventListener('pointercancel', endDrag);
+
+  window.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      window.chrome.webview.postMessage('viewer-close');
+    }
+    else if (!svg || e.ctrlKey || e.altKey) {
+      return;
+    }
+    else if (e.key === '+' || e.key === '=') {
+      step(1);
+    }
+    else if (e.key === '-') {
+      step(-1);
+    }
+    else if (e.key === '0') {
+      fit();
+    }
+  });
+
+  function readField(msg, pos) {
+    const end = msg.indexOf(':', pos);
+    return [msg.slice(pos, end), end + 1];
+  }
+
+  // 要求の形は mermaid_util::Viewer*Message。
+  window.chrome.webview.addEventListener('message', e => {
+    const msg = e.data;
+    let [kind, pos] = readField(msg, 0);
+    let dark;
+    [dark, pos] = readField(msg, pos);
+    document.documentElement.classList.toggle('dark', dark === '1');
+    if (kind === 'init') {
+      [buttons.in.title, buttons.out.title, buttons.fit.title, loading.textContent] = msg.slice(pos).split('\n');
+      stage.focus();
+    }
+    else if (kind === 'loading') {
+      svg = null;
+      host.textContent = '';
+      bar.hidden = true;
+      loading.hidden = false;
+    }
+    else if (kind === 'svg') {
+      showSvg(msg.slice(pos));
+    }
+  });
+  window.chrome.webview.postMessage('viewer-ready');
+</script>
+</body>
+</html>

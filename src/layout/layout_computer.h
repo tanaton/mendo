@@ -110,7 +110,7 @@ void ForEachOverlayButton(const Node& node, const DiagramEntry* diagram, float x
     }
     else if (node.type == NodeType::Diagram && diagram && diagram->png) {
         const auto bmp = MermaidBitmapRect(diagram->width, diagram->height, x, w, top);
-        for (const auto kind : { OverlayButton::DiagramSave, OverlayButton::DiagramCopy }) {
+        for (const auto kind : { OverlayButton::DiagramSave, OverlayButton::DiagramCopy, OverlayButton::DiagramView }) {
             fn(OverlayButtonRect(bmp.right, bmp.top, kind), kind);
         }
     }

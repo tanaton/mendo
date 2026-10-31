@@ -17,3 +17,4 @@
 #define IDR_HELP_ZH_MD    305
 #define IDR_HELP_ZH_HANT_MD 306
 #define IDR_HELP_KO_MD    307
+#define IDR_MERMAID_VIEWER_HTML 308
