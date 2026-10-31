@@ -170,7 +170,7 @@ NodeWordRange FindNodeWordBoundaries(std::span<const Node> nodes, size_t node, u
         --r.start_node;
         r.start = FindWordBoundaries(prev, static_cast<uint32_t>(prev.size()) - 1).start;
     }
-    while (r.end == nodes[r.end_node].GetText().size() && r.end_node + 1 < nodes.size() && JoinsPrevInline(nodes[r.end_node + 1])) {
+    while (r.end == nodes[r.end_node].GetText().size() && JoinsNextInline(nodes, r.end_node)) {
         const std::string_view next = nodes[r.end_node + 1].GetText();
         if (next.empty() || CategorizeCodePoint(utf8_codec::DecodeAt(next, 0).cp) != category) {
             break;

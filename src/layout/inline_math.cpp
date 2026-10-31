@@ -4,6 +4,7 @@
 #include "theme.h"
 #include "utility.h"
 #include <wrl/implements.h>
+#include <algorithm>
 #include <cmath>
 
 std::optional<std::string_view> InlineMathTex(std::string_view text, const TextRun& run)
@@ -19,7 +20,7 @@ uint64_t InlineMathKey(std::string_view tex, float font_size) noexcept
 {
     // 1/8 DIP 単位に丸め、浮動小数の誤差で同じ大きさが別のキーにならないようにする。
     const auto size_term = static_cast<uint64_t>(std::lround(font_size * 8.0f));
-    return Fnv1a64(tex) ^ (size_term * 0x9E3779B97F4A7C15ULL);
+    return Fnv1a64(tex) ^ (size_term * kGoldenRatio64);
 }
 
 void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
@@ -72,8 +73,12 @@ void InlineMathPlan::Build(std::span<const Node> nodes, const Theme& theme)
     };
     for (const auto& node : nodes) {
         if (const auto* tbl = node.table_data()) {
+            // 文書を開くたび・ズームのたびに通るので、数式の無い巨大な表でセルを回らない。
+            if (std::ranges::none_of(tbl->all_runs, &TextRun::math)) {
+                continue;
+            }
             for (size_t r = 0; r < tbl->row_count; ++r) {
-                const float size = tbl->IsHeaderRow(r) ? theme.font_size_h[3] : theme.font_size_body;
+                const float size = tbl->IsHeaderRow(r) ? theme.GetHeadingSize(Theme::kTableHeaderLevel) : theme.font_size_body;
                 for (size_t c = 0; c < tbl->col_count; ++c) {
                     add_runs(tbl->GetCellText(r, c), tbl->GetCellRuns(r, c), size);
                 }

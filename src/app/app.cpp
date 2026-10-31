@@ -110,7 +110,9 @@ bool App::Init(HWND hwnd)
         inline_math_.RequestAllAgain([this](uint64_t key) { return !inline_math_plan_.ChunkOf(key); });
     });
 
-    RestoreTheme();
+    if (theme_service_.IsDarkMode()) {
+        ApplyDarkModeToWindow(hwnd_, true);
+    }
 
     cursors_.Load();
 
@@ -165,13 +167,6 @@ bool App::CreateRenderDevice()
     resource_manager_.OnImagesDecoded(kNoDeadline);
     mermaid_renderer_.ProcessDiskLoads(kNoDeadline);
     return true;
-}
-
-void App::RestoreTheme()
-{
-    if (theme_service_.IsDarkMode()) {
-        ApplyDarkModeToWindow(hwnd_, true);
-    }
 }
 
 void App::LoadInitialDocument()
@@ -805,7 +800,7 @@ void App::CancelOtherFileLoad()
     RequestDroppedResourcesAgain();
 }
 
-// Init (RestoreTheme) 前に呼ばれるため、推定用のテーマは設定から直接作る。
+// Init より前に呼ばれるため、推定用のテーマは設定から直接作る。
 // 推定に使う寸法はライト/ダーク共通でズームだけに依存するので、ダークモード未読込でも結果は同じ。
 void App::StartPreloadAsync(std::wstring path)
 {
@@ -1034,7 +1029,7 @@ void App::Execute(const SideEffect& effect)
             ::SetCapture(hwnd_);
         },
         [this](const effect::ReleaseCapture&) {
-            // ポップアップ (設定ダイアログなど) が持っているキャプチャまで外さない。
+            // ポップアップ (設定ダイアログなど) が持っているキャプチャまで外さない。奪われた通知からも届く。
             if (::GetCapture() == hwnd_) {
                 ::ReleaseCapture();
             }
@@ -1304,8 +1299,7 @@ void App::OnMouseWheel(int px, int py, int delta, bool ctrl)
 
 bool App::OnRButtonDown(int px, int py)
 {
-    // 左ドラッグ進行中にジェスチャを開始すると、完了時の ReleaseCapture が
-    // 進行中ドラッグのキャプチャを破壊する。
+    // 左ドラッグ中の移動は OnMouseMove にしか届かずジェスチャが進まない。離すとメニューが出てドラッグも切れる。
     if (state_.view.drag.kind != LeftDrag::None) {
         return false;
     }

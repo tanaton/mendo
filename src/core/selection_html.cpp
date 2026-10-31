@@ -38,8 +38,7 @@ constexpr const theme_palette::SharedColors& PaletteFor(bool dark_mode) noexcept
 // i と次のノードの間に改行を置くか。区切ったテキストの続きとは、区切るときに改行を取り除いたときだけ置く。
 constexpr bool LineBreakAfter(const std::vector<Node>& nodes, int i) noexcept
 {
-    const auto next = static_cast<size_t>(i) + 1;
-    return next >= nodes.size() || !JoinsPrevInline(nodes[next]);
+    return !JoinsNextInline(nodes, static_cast<size_t>(i));
 }
 
 constexpr std::string_view kHtmlEscapeChars = "&<>\"'";

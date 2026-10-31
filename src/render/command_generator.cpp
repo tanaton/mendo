@@ -530,20 +530,19 @@ void EmitTitleBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTe
     const float text_alpha = tb.window_active ? 1.0f : 0.5f;
     const auto is_hovered = [&](TitleBarHitZone z) noexcept { return tb.hovered_zone == z; };
 
-    const auto gen_button = [&](const D2D1_RECT_F& rect, wchar_t icon, bool show_bg, BrushId bg_id, BrushId text_id, float alpha) {
-        EmitButton(out, &text_layouts, icon_fmt, rect, { &icon, 1 }, { show_bg ? bg_id : BrushId::None }, text_id, alpha);
+    const auto gen_button = [&](const D2D1_RECT_F& rect, wchar_t icon, BrushId bg_id, BrushId text_id, float alpha) {
+        EmitButton(out, &text_layouts, icon_fmt, rect, { &icon, 1 }, { bg_id }, text_id, alpha);
     };
 
     const auto gen_plain = [&](TitleBarHitZone zone, wchar_t icon) {
-        gen_button(bar.GetButton(zone), icon, is_hovered(zone), BrushId::TitleBarButtonHover, BrushId::TitleBarText, text_alpha);
+        gen_button(bar.GetButton(zone), icon, is_hovered(zone) ? BrushId::TitleBarButtonHover : BrushId::None, BrushId::TitleBarText, text_alpha);
     };
     // active > hover の優先度
     const auto gen_toggle = [&](TitleBarHitZone zone, wchar_t icon, bool active) {
         gen_button(
             bar.GetButton(zone),
             icon,
-            active || is_hovered(zone),
-            active ? BrushId::TitleBarButtonActive : BrushId::TitleBarButtonHover,
+            active ? BrushId::TitleBarButtonActive : is_hovered(zone) ? BrushId::TitleBarButtonHover : BrushId::None,
             BrushId::TitleBarText,
             text_alpha);
     };
@@ -558,7 +557,7 @@ void EmitTitleBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTe
     gen_plain(TitleBarHitZone::Minimize, L'');
     gen_plain(TitleBarHitZone::Maximize, tb.is_maximized ? L'' : L'');
     if (is_hovered(TitleBarHitZone::Close)) {
-        gen_button(bar.GetButton(TitleBarHitZone::Close), L'', true, BrushId::TitleBarCloseRed, BrushId::OverlayWhite, 1.0f);
+        gen_button(bar.GetButton(TitleBarHitZone::Close), L'', BrushId::TitleBarCloseRed, BrushId::OverlayWhite, 1.0f);
     }
     else {
         gen_plain(TitleBarHitZone::Close, L'');
@@ -601,24 +600,33 @@ void EmitLeftText(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTe
     text_layouts.Emit(out, text, fmt, D2D1::Point2F(x, y), D2D1::SizeF(kLayoutWidth, height), BrushId::Text, 1.0f);
 }
 
+const wchar_t* PaneHeaderButtonIcon(PaneHeaderButton button) noexcept
+{
+    switch (button) {
+    case PaneHeaderButton::Close:
+        return L"";
+    case PaneHeaderButton::Refresh:
+        return L"";
+    case PaneHeaderButton::Reveal:
+        return L"";
+    case PaneHeaderButton::None:
+        break;
+    }
+    std::unreachable();
+}
+
 void EmitSidePaneHeader(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePaneFormats& fmts, float header_h,
                         const SidePaneInstance& pane, bool is_file_pane, std::wstring_view header_text)
 {
     const PaneRect& r = pane.rect;
     out.push_back(FillRectCmd{ .rect = D2D1::RectF(r.x, r.y, r.x + r.width, r.y + header_h), .brush_id = BrushId::Splitter });
 
-    // 無効なボタンはホバー状態が残っていても強調しない (ヘルプへ切替直後など)。
-    const auto gen_button = [&](const D2D1_RECT_F& local, std::wstring_view icon, PaneHeaderButton button, bool enabled = true) {
+    ForEachPaneHeaderButton(r.width, header_h, is_file_pane, pane.reveal_enabled, [&](const D2D1_RECT_F& local, PaneHeaderButton button, bool enabled) {
+        // 無効なボタンはホバー状態が残っていても強調しない (ヘルプへ切替直後など)。
         const bool hovered = enabled && pane.hovered_button == button;
-        EmitButton(out, &text_layouts, fmts.header_icon, OffsetRectF(local, r.x, r.y), icon, { hovered ? BrushId::PaneItemHover : BrushId::None },
+        EmitButton(out, &text_layouts, fmts.header_icon, OffsetRectF(local, r.x, r.y), PaneHeaderButtonIcon(button), { hovered ? BrushId::PaneItemHover : BrushId::None },
                    BrushId::Text, enabled ? 1.0f : DISABLED_UI_ALPHA);
-    };
-
-    gen_button(PaneCloseButtonRect(r.width, header_h), L"", PaneHeaderButton::Close);
-    if (is_file_pane) {
-        gen_button(PaneRefreshButtonRect(r.width, header_h), L"", PaneHeaderButton::Refresh);
-        gen_button(PaneRevealButtonRect(r.width, header_h), L"", PaneHeaderButton::Reveal, pane.reveal_enabled);
-    }
+    });
 
     // ボタンに重ならないよう切る。
     if (const auto text_rect = PaneHeaderTextRect(r.width, header_h, is_file_pane)) {

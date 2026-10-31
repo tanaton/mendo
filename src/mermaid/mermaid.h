@@ -182,15 +182,7 @@ private:
     };
 
     // 描画結果。同じコードは同じ結果になるので、失敗も成功と同じく覚えて描き直さない。
-    struct CachedResult {
-        Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-        float width = 0.0f;
-        float height = 0.0f;
-        // クリップボードコピー用 PNG。bitmap と同じ寿命で DiagramEntry へ伝播する。
-        PngBytes png;
-        // 非空なら失敗で、bitmap は持たない。
-        DiagramError error;
-    };
+    using CachedResult = DiagramResult;
 
     struct DiskLoad {
         RenderRequest req;
@@ -241,7 +233,7 @@ private:
     void RenderMathInWorker(Worker& worker);
     // ページに要求 (mermaid_util::Page*Message) を送る。結果と失敗はページが postMessage で返す。
     static void PostToPage(Worker& worker, const std::wstring& msg);
-    void OnMathResult(int worker_idx, std::wstring_view payload);
+    void OnMathResult(Worker& w, std::wstring_view payload);
     // ビューを描いたものの大きさ (PageRect) に合わせ、リサイズが描画に反映されたら capture-ready を返させる。
     void ScheduleCapture(Worker& w, const mermaid_util::RenderSize& size);
     // 描けない大きさのままキャプチャすると、毎回ビットマップ作成に失敗して描き直しを繰り返す。
@@ -320,9 +312,9 @@ private:
 
     void DispatchWebMessage(int index, const mermaid_util::ParsedWebMessage& parsed);
     void OnWorkerReady(Worker& worker, float dpr);
-    void OnRenderResult(int worker_idx, const mermaid_util::RenderSize& size);
+    void OnRenderResult(Worker& w, const mermaid_util::RenderSize& size);
     void DoCapturePreview(int worker_idx);
-    void OnCaptureComplete(int worker_idx, Microsoft::WRL::ComPtr<IStream> png_stream);
+    void OnCaptureComplete(Worker& w, Microsoft::WRL::ComPtr<IStream> png_stream);
     void InsertCache(uint64_t hash, CachedResult result);
     const CachedResult* FindCached(uint64_t code_hash, uint64_t width_free_hash, float max_width);
     // SVG とインライン数式の要求はキャッシュに入れないので、いつも描画させる。

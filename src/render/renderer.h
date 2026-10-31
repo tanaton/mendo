@@ -136,7 +136,7 @@ private:
 
     // 倍率が変わったら作り直す。
     void EnsurePaneListFormats(PaneTarget target, float zoom);
-    void GenGestureTrail(const std::vector<GesturePoint>& points);
+    void GenGestureTrail(const std::vector<DipPoint>& points);
 
     // ---- デバイスとスワップチェーン (renderer_device.cpp) ----
     bool CreateFactories(HWND hwnd);

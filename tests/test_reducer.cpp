@@ -959,6 +959,7 @@ TEST_F(ReducerTest, SplitterDragStarted_SetsTargetAndCaptures)
 {
     for (const auto edge : { PaneTarget::File, PaneTarget::Toc }) {
         SCOPED_TRACE(static_cast<int>(edge));
+        state.view.drag = {};
         auto effects = Reduce(state, SplitterDragStartedAction{ edge });
         EXPECT_EQ(state.view.drag.kind, LeftDrag::Splitter);
         EXPECT_EQ(state.view.drag.pane, edge);
@@ -1305,7 +1306,9 @@ TEST_F(ReducerTest, RightClickGestureCompleted_Pressed_ShowsContextMenu)
     auto effects = Reduce(state, RightClickGestureCompletedAction{ 400, 500 });
 
     EXPECT_EQ(state.interaction.gesture.GetPhase(), GesturePhase::Idle);
-    EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
+    // メニューはモーダルループを回すので、その前に解放する。
+    ASSERT_FALSE(effects.empty());
+    EXPECT_TRUE(std::holds_alternative<effect::ReleaseCapture>(effects.front()));
     const auto* menu = FindEffect<effect::ShowContextMenu>(effects);
     ASSERT_NE(menu, nullptr);
     EXPECT_EQ(menu->screen_x, 400);

@@ -34,7 +34,8 @@ ID2D1SolidColorBrush* FixedBrush(const FixedBrushArray& brushes, BrushId id) noe
 // 1 フレームに数十 ms かかる (1 万行で約 20ms)。可視縦範囲外のランを飛ばして描く。
 // 構文トークンがあれば、グリフランをトークン境界で分けて種別の色で描く。SetDrawingEffect は
 // 1 回ごとに既存の範囲数に比例して重くなる (巨大なコードブロックで O(n^2)) ので使わない。
-class VisibleRunRenderer final : public IDWriteTextRenderer {
+// スタック上でのみ使うので参照カウントは持たない。
+class VisibleRunRenderer final : public UncountedCom<IDWriteTextRenderer> {
 public:
     VisibleRunRenderer(ID2D1RenderTarget* rt, ID2D1Brush* default_brush, float cull_top, float cull_bottom,
         std::span<const SyntaxToken> tokens, const FixedBrushArray& brushes, InlineMathMasks* math) noexcept
@@ -55,15 +56,6 @@ public:
         }
         *out = nullptr;
         return E_NOINTERFACE;
-    }
-    // スタック上でのみ使うので参照カウントは持たない。
-    ULONG STDMETHODCALLTYPE AddRef() noexcept override
-    {
-        return 1;
-    }
-    ULONG STDMETHODCALLTYPE Release() noexcept override
-    {
-        return 1;
     }
 
     HRESULT STDMETHODCALLTYPE IsPixelSnappingDisabled(void*, BOOL* disabled) noexcept override
@@ -272,7 +264,7 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
         },
         [&](const FillRoundedRectCmd& c) {
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
-                const OpacityScope opacity{ c.opacity != 1.0f ? b : nullptr, c.opacity };
+                const OpacityScope opacity{ b, c.opacity };
                 rt->FillRoundedRectangle(D2D1_ROUNDED_RECT{ c.rect, c.rx, c.ry }, b);
             }
         },
@@ -291,7 +283,7 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
                 return;
             }
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
-                const OpacityScope opacity{ c.opacity != 1.0f ? b : nullptr, c.opacity };
+                const OpacityScope opacity{ b, c.opacity };
                 // 描画効果を BrushEffect から置き換えるため、D2D の DrawTextLayout ではなく自前のレンダラで描く。
                 VisibleRunRenderer renderer{ rt, b, c.cull_top, c.cull_bottom, c.syntax_tokens, brushes, math };
                 c.layout->Draw(nullptr, &renderer, c.origin.x, c.origin.y);
@@ -304,7 +296,7 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
         },
         [&](const FillEllipseCmd& c) {
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
-                const OpacityScope opacity{ c.opacity != 1.0f ? b : nullptr, c.opacity };
+                const OpacityScope opacity{ b, c.opacity };
                 rt->FillEllipse(D2D1::Ellipse(c.center, c.rx, c.ry), b);
             }
         },
@@ -318,7 +310,7 @@ void ExecuteDrawCommands(const DrawCommandList& cmds, ID2D1RenderTarget* rt, con
                 return;
             }
             if (auto* b = FixedBrush(brushes, c.brush_id)) {
-                const OpacityScope opacity{ c.opacity != 1.0f ? b : nullptr, c.opacity };
+                const OpacityScope opacity{ b, c.opacity };
                 rt->DrawGeometry(c.geometry, b, c.stroke_width, c.stroke_style);
             }
         },

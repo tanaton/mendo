@@ -268,12 +268,11 @@ void ResourceManager::ApplyCachedImagesIn(std::span<const std::span<const size_t
 void ResourceManager::RequestVisibleDiagrams()
 {
     const float content_width = host_->MdContentWidth();
-    InvalidateMermaidForWidthChange(content_width);
-
     if (content_width <= 0.0f) {
         return;
     }
 
+    InvalidateMermaidForWidthChange(content_width);
     DropQueuesIfJumped();
     const auto slices = PrioritizedSlices(deps_.doc->GetDiagramNodeIndices(), PREFETCH_BUFFER_SCREENS);
     const bool dark_mode = host_->GetTheme().dark;
@@ -324,15 +323,10 @@ void ResourceManager::DropQueuesIfJumped()
     last_request_scroll_ = scroll_y;
 }
 
-layout::HeightChangeRange ResourceManager::TakeHeightChanges() noexcept
-{
-    return std::exchange(height_changed_, {});
-}
-
 void ResourceManager::RecomputeChangedHeights()
 {
     if (!height_changed_.empty()) {
-        host_->RecomputeLayout(TakeHeightChanges());
+        host_->RecomputeLayout(std::exchange(height_changed_, {}));
     }
 }
 
@@ -363,10 +357,6 @@ std::array<std::span<const size_t>, 3> ResourceManager::PrioritizedSlices(std::s
 
 void ResourceManager::InvalidateMermaidForWidthChange(float content_width)
 {
-    if (content_width <= 0.0f) {
-        return;
-    }
-
     if (last_mermaid_content_width_ > 0.0f &&
         mermaid_util::QuantizeWidth(content_width) != mermaid_util::QuantizeWidth(last_mermaid_content_width_)) {
         const float min_width = std::min(content_width, last_mermaid_content_width_);
@@ -374,12 +364,8 @@ void ResourceManager::InvalidateMermaidForWidthChange(float content_width)
         // メモリキャッシュはキーに量子化幅を含むので消さず、幅を戻したときに再利用する。
         for (size_t i : deps_.doc->GetDiagramNodeIndices()) {
             auto* diagram = deps_.cache->FindDiagram(i);
-            if (diagram && diagram->bitmap && diagram->width > 0 &&
-                mermaid_util::IsWidthFree(diagram->width, min_width)) {
-                continue;
-            }
             // 幅が変わればエラー結果も変わりうるため、error 込みで再試行させる。描き直しの間は旧幅の結果を仮に表示する。
-            if (diagram) {
+            if (diagram && !(diagram->bitmap && diagram->width > 0 && mermaid_util::IsWidthFree(diagram->width, min_width))) {
                 diagram->MarkStale();
             }
         }

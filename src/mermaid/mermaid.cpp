@@ -785,16 +785,8 @@ void MermaidRenderer::RecoverWorker(int index)
 
 void MermaidRenderer::ApplyResult(DiagramEntry& diagram_entry, const CachedResult& result)
 {
-    if (!result.error.empty()) {
-        // 仮表示中の旧結果より、新しいコードのエラーを見せる。
-        diagram_entry.ResetForRetry();
-        diagram_entry.error = result.error;
-        return;
-    }
-    diagram_entry.bitmap = result.bitmap;
-    diagram_entry.width = result.width;
-    diagram_entry.height = result.height;
-    diagram_entry.png = result.png;
+    // エラーの結果は bitmap を持たないので、仮表示中の旧結果より新しいコードのエラーを見せる。
+    static_cast<DiagramResult&>(diagram_entry) = result;
     diagram_entry.stale = false;
 }
 
@@ -1190,9 +1182,8 @@ void MermaidRenderer::PostToPage(Worker& worker, const std::wstring& msg)
     LogHrFailure("PostWebMessageAsString", worker.webview->PostWebMessageAsString(msg.c_str()));
 }
 
-void MermaidRenderer::OnMathResult(int worker_idx, std::wstring_view payload)
+void MermaidRenderer::OnMathResult(Worker& w, std::wstring_view payload)
 {
-    auto& w = workers_[worker_idx];
     auto layout = mermaid_util::ParseMathBatch(payload, w.current_request.math_items.size());
     if (!layout || !FitsCapture(layout->size)) {
         FinishWorkerRequest(w);
@@ -1260,7 +1251,7 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
         return;
     case WebMessageKind::RenderResult:
         if (req_id_match && req.has_payload) {
-            OnRenderResult(index, mermaid_util::ParseRenderSize(payload));
+            OnRenderResult(w, mermaid_util::ParseRenderSize(payload));
         }
         return;
     case WebMessageKind::CaptureReady:
@@ -1281,7 +1272,7 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
         return;
     case WebMessageKind::MathResult:
         if (req_id_match && w.current_request.is_math()) {
-            OnMathResult(index, payload);
+            OnMathResult(w, payload);
         }
         return;
     case WebMessageKind::Failed:
@@ -1295,10 +1286,8 @@ void MermaidRenderer::DispatchWebMessage(int index, const mermaid_util::ParsedWe
     std::unreachable();
 }
 
-void MermaidRenderer::OnRenderResult(int worker_idx, const mermaid_util::RenderSize& size)
+void MermaidRenderer::OnRenderResult(Worker& w, const mermaid_util::RenderSize& size)
 {
-    auto& w = workers_[worker_idx];
-
     // リクエスト ID はメッセージハンドラで照合済み。
     if (size.width <= 0 || size.height <= 0) {
         // 大きさの無い図はキャプチャできない。放置すると「読み込み中」のまま固着する (issue #271)。
@@ -1344,7 +1333,7 @@ void MermaidRenderer::DoCapturePreview(int worker_idx)
             return S_OK;
         }
         if (SUCCEEDED(capture_hr)) {
-            OnCaptureComplete(worker_idx, png_stream);
+            OnCaptureComplete(worker, png_stream);
         }
         else {
             FinishWorkerRequest(worker);
@@ -1357,9 +1346,8 @@ void MermaidRenderer::DoCapturePreview(int worker_idx)
     }
 }
 
-void MermaidRenderer::OnCaptureComplete(int worker_idx, Microsoft::WRL::ComPtr<IStream> png_stream)
+void MermaidRenderer::OnCaptureComplete(Worker& w, Microsoft::WRL::ComPtr<IStream> png_stream)
 {
-    auto& w = workers_[worker_idx];
     // PNG の読み出しとデコードはディスクキャッシュと同じ経路で worker に任せ、UI スレッドを塞がない。
     // PNG バイト列は bitmap と同じ寿命でメモリ保持し、クリップボードコピーが
     // 非同期/退避され得る file_cache に依存しないようにする。shared で in-memory

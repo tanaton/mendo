@@ -35,6 +35,12 @@ constexpr bool IsSurrogate(uint32_t c) noexcept
     return c >= 0xD800u && c <= 0xDFFFu;
 }
 
+// cp を UTF-16 にしたときの code unit 数。
+constexpr uint32_t Utf16Units(uint32_t cp) noexcept
+{
+    return cp > 0xFFFF ? 2 : 1;
+}
+
 constexpr uint32_t SnapToCpStart(std::wstring_view text, uint32_t pos) noexcept
 {
     if (pos > 0) {

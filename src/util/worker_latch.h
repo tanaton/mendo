@@ -25,11 +25,7 @@ public:
     template <class Apply>
     std::vector<T> Drain(std::chrono::steady_clock::time_point deadline, Apply&& apply)
     {
-        std::vector<T> items;
-        {
-            const std::lock_guard lock(mutex_);
-            items.swap(items_);
-        }
+        std::vector<T> items = TakeAll();
         size_t done = 0;
         for (; done < items.size(); ++done) {
             if (done > 0 && std::chrono::steady_clock::now() >= deadline) {

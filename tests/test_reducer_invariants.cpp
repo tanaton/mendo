@@ -272,11 +272,6 @@ private:
     bool held_ = false;
 };
 
-bool CaptureRequired(const AppState& s) noexcept
-{
-    return (s.view.drag.kind != LeftDrag::None) || s.interaction.gesture.GetPhase() != GesturePhase::Idle;
-}
-
 class CaptureDriver {
 public:
     CaptureDriver(ReducerHarness& h, uint32_t seed) : h_(h), model_(h), rng_(seed) {}
@@ -524,6 +519,25 @@ TEST(ReducerCaptureInvariant, EscDuringTextDragReleasesCapture)
     model.Dispatch(ClearSelectionAction{});
 
     EXPECT_NE(h.state.view.drag.kind, LeftDrag::TextSelect);
+    EXPECT_FALSE(model.Held());
+}
+
+// ジェスチャー中に始めた左ドラッグは、右ボタンを離しても続く。キャプチャを返すと以後の移動と LButtonUp が届かない。
+TEST(ReducerCaptureInvariant, GestureEndDuringLeftDragKeepsCapture)
+{
+    ReducerHarness h({ .markdown = MakeHarnessMarkdown(3) });
+    CaptureModel model(h);
+    model.Dispatch(RightClickGestureStartedAction{ 300.0f, 300.0f });
+    model.Dispatch(RightClickGestureMovedAction{ 400.0f, 300.0f });
+    model.Dispatch(SplitterDragStartedAction{ PaneTarget::File });
+
+    model.Dispatch(RightClickGestureCompletedAction{ 0, 0 });
+
+    EXPECT_EQ(h.state.view.drag.kind, LeftDrag::Splitter);
+    EXPECT_TRUE(model.Held());
+
+    model.Dispatch(LeftDragEndedAction{});
+
     EXPECT_FALSE(model.Held());
 }
 

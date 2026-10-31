@@ -124,10 +124,10 @@ inline size_t BitmapBytes(ID2D1Bitmap* bitmap) noexcept
     return static_cast<size_t>(size.width) * size.height * bytes_per_pixel;
 }
 
-// null ブラシは no-op。
+// null ブラシと不透明は no-op。
 class OpacityScope {
 public:
-    OpacityScope(ID2D1SolidColorBrush* brush, float alpha) noexcept : brush_(brush)
+    OpacityScope(ID2D1SolidColorBrush* brush, float alpha) noexcept : brush_(alpha != 1.0f ? brush : nullptr)
     {
         if (brush_) {
             brush_->SetOpacity(alpha);

@@ -176,6 +176,7 @@ bool IsValidMathBox(const mermaid_util::MathBox& box, const mermaid_util::Render
 constexpr uint8_t kMathBoxesChunkType[4]{ 'm', 'd', 'M', 'B' };
 constexpr uint32_t kMathBoxesChunkVersion = 1;
 constexpr uint8_t kPngSignature[8]{ 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n' };
+constexpr uint8_t kIendChunkType[4]{ 'I', 'E', 'N', 'D' };
 
 // mdMB のデータ。版・ページの幅・高さ・DPR・箱の数と、箱ごとに x・y・幅・高さ・ベースライン (どれも 4 バイト)。
 constexpr size_t MathBoxesDataSize(size_t count) noexcept
@@ -213,8 +214,8 @@ ByteBuffer mermaid_util::AppendMathBoxesChunk(std::span<const uint8_t> png, cons
 {
     // IEND (長さ 0 + 種類 + CRC の 12 バイト) の直前に差し込む。
     constexpr size_t kIendSize = 12;
-    if (png.size() < sizeof(kPngSignature) + kIendSize || !std::ranges::equal(png.first(sizeof(kPngSignature)), kPngSignature) ||
-        !std::ranges::equal(png.last(kIendSize).subspan(4, 4), std::span<const uint8_t>{ reinterpret_cast<const uint8_t*>("IEND"), 4 })) {
+    if (png.size() < sizeof(kPngSignature) + kIendSize || !std::ranges::starts_with(png, kPngSignature) ||
+        !std::ranges::equal(png.last(kIendSize).subspan(4, 4), kIendChunkType)) {
         return {};
     }
     // 長さ (4) + 種類 (4) + データ + CRC (4)。CRC は種類とデータに掛ける。
@@ -244,7 +245,7 @@ ByteBuffer mermaid_util::AppendMathBoxesChunk(std::span<const uint8_t> png, cons
 
 std::optional<mermaid_util::MathBatchLayout> mermaid_util::ReadMathBoxesChunk(std::span<const uint8_t> png, size_t expected)
 {
-    if (png.size() < sizeof(kPngSignature) || !std::ranges::equal(png.first(sizeof(kPngSignature)), kPngSignature)) {
+    if (!std::ranges::starts_with(png, kPngSignature)) {
         return std::nullopt;
     }
     for (size_t pos = sizeof(kPngSignature); pos + 12 <= png.size();) {

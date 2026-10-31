@@ -175,6 +175,7 @@ private:
                    const std::stop_token& stop_token, ReloadBase reload_base);
     // sink 書き込みは Cancel との直列化のため lock 内で stop を再確認してから行う。
     void Publish(const std::stop_token& stop_token, AsyncLoadOutcome outcome);
+    void NotifyLocked() const noexcept;
 
     // sink を swap-out して mutex の外で破棄する。大きな文書は最後に Start した scheduler の worker に回す。
     void ResetSinks() noexcept;

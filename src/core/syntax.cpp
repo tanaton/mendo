@@ -157,20 +157,10 @@ constexpr size_t ScanCppRawString(std::string_view text, size_t quote_pos, size_
 {
     const std::string_view delim = text.substr(quote_pos + 1, paren - quote_pos - 1);
     const size_t end_marker_len = 1 + delim.size() + 1; // ')' + delim + '"'
-    size_t k = paren + 1;
-    while (k + end_marker_len <= text.size()) {
-        const size_t found = text.find(')', k);
-        if (found == npos || found + end_marker_len > text.size()) {
-            break;
-        }
-        if (text[found + 1 + delim.size()] != '"') {
-            k = found + 1;
-            continue;
-        }
-        if (text.substr(found + 1).starts_with(delim)) {
+    for (size_t found = text.find(')', paren + 1); found != npos && found + end_marker_len <= text.size(); found = text.find(')', found + 1)) {
+        if (text[found + 1 + delim.size()] == '"' && text.substr(found + 1).starts_with(delim)) {
             return found + end_marker_len;
         }
-        k = found + 1;
     }
     return text.size();
 }
@@ -1073,9 +1063,7 @@ bool ScanYamlValue(std::string_view text, size_t i, size_t eol, std::vector<Synt
         if (first && (c == '|' || c == '>')) {
             const size_t e = SkipBlanks(text, std::min(SkipChars(text, i + 1, "+-0123456789"), eol), eol);
             if (e == eol || text[e] == '#') {
-                if (e < eol && text[e] == '#') {
-                    EmitRange(tokens, e, eol, SyntaxTokenType::Comment);
-                }
+                EmitRange(tokens, e, eol, SyntaxTokenType::Comment);
                 return true;
             }
         }
@@ -1141,12 +1129,10 @@ void TokenizeYaml(std::string_view text, std::vector<SyntaxToken>& tokens)
         size_t indent = indent_end - pos;
         size_t i = indent_end;
         if ((line.starts_with("---") || line.starts_with("...")) && (line.size() == 3 || IsBlank(line[3]))) {
-            EmitRange(tokens, pos, pos + 3, SyntaxTokenType::Keyword);
-            i = pos + 3;
+            i = EmitRange(tokens, pos, pos + 3, SyntaxTokenType::Keyword);
         }
         else if (line.starts_with('%')) {
-            EmitRange(tokens, pos, eol, SyntaxTokenType::Preprocessor);
-            i = eol;
+            i = EmitRange(tokens, pos, eol, SyntaxTokenType::Preprocessor);
         }
         else {
             while (i < eol && text[i] == '-' && (i + 1 == eol || IsBlank(text[i + 1]))) {
@@ -1260,8 +1246,7 @@ void TokenizeToml(std::string_view text, std::vector<SyntaxToken>& tokens)
                 if (e < eol && text[e] == ']') {
                     e++;
                 }
-                EmitRange(tokens, i, e, SyntaxTokenType::Keyword);
-                i = e;
+                i = EmitRange(tokens, i, e, SyntaxTokenType::Keyword);
                 line_start = false;
                 continue;
             }
@@ -1300,8 +1285,7 @@ void TokenizeToml(std::string_view text, std::vector<SyntaxToken>& tokens)
             i++;
             continue;
         }
-        EmitRange(tokens, i, e, ClassifyScalar(text.substr(i, e - i)));
-        i = e;
+        i = EmitRange(tokens, i, e, ClassifyScalar(text.substr(i, e - i)));
     }
 }
 
@@ -1637,8 +1621,7 @@ void TokenizeMarkup(std::string_view text, std::vector<SyntaxToken>& tokens)
             }
             if (c == '"' || c == '\'') {
                 const size_t e = ScanString(text, j, c, true, false);
-                EmitRange(tokens, j, e, SyntaxTokenType::String);
-                j = e;
+                j = EmitRange(tokens, j, e, SyntaxTokenType::String);
                 continue;
             }
             if (c == '=') {
@@ -1689,16 +1672,14 @@ void TokenizeDockerfile(std::string_view text, std::vector<SyntaxToken>& tokens)
         const auto word = text.substr(i, j - i);
         size_t rest = i;
         if (kw::DOCKER_KEYWORDS.contains_ignore_case(word)) {
-            EmitRange(tokens, i, j, SyntaxTokenType::Keyword);
-            rest = j;
+            rest = EmitRange(tokens, i, j, SyntaxTokenType::Keyword);
             // FROM image AS stage の AS
             if (ascii_util::iequal(word, "from")) {
                 for (size_t k = SkipBlanks(text, j, end); k < end; k = SkipBlanks(text, k, end)) {
                     const size_t e = SkipWhile(text, k, end, [](char ch) { return !IsMarkupSpace(ch); });
                     if (ascii_util::iequal(text.substr(k, e - k), "as")) {
                         TokenizeShellRange(text, rest, k, tokens);
-                        EmitRange(tokens, k, e, SyntaxTokenType::Keyword);
-                        rest = e;
+                        rest = EmitRange(tokens, k, e, SyntaxTokenType::Keyword);
                         break;
                     }
                     k = std::max(e, k + 1);
@@ -1756,8 +1737,7 @@ void TokenizeMakeText(std::string_view text, size_t begin, size_t end, SyntaxTok
             const size_t e = ScanMakeVarRef(text, i, end);
             if (e > i + 1) {
                 EmitRange(tokens, seg, TrimEnd(text, seg, i), type);
-                EmitRange(tokens, i, e, SyntaxTokenType::Type);
-                seg = e;
+                seg = EmitRange(tokens, i, e, SyntaxTokenType::Type);
             }
             i = e;
             continue;
@@ -1780,8 +1760,7 @@ void TokenizeMakeRecipe(std::string_view text, size_t begin, size_t end, std::ve
         const size_t e = ScanMakeVarRef(text, i, end);
         if (e > i + 1) {
             TokenizeShellRange(text, seg, i, tokens);
-            EmitRange(tokens, i, e, SyntaxTokenType::Type);
-            seg = e;
+            seg = EmitRange(tokens, i, e, SyntaxTokenType::Type);
         }
         i = e;
     }
@@ -1966,13 +1945,7 @@ void TokenizeHaskell(std::string_view text, std::vector<SyntaxToken>& tokens)
         }
         if (c == '\'') {
             const size_t e = ScanHaskellChar(text, i);
-            if (e != npos) {
-                EmitRange(tokens, i, e, SyntaxTokenType::String);
-                i = e;
-            }
-            else {
-                i++;
-            }
+            i = e != npos ? EmitRange(tokens, i, e, SyntaxTokenType::String) : i + 1;
             continue;
         }
         if (IsAsciiDigit(c)) {
@@ -1991,8 +1964,7 @@ void TokenizeHaskell(std::string_view text, std::vector<SyntaxToken>& tokens)
             else if (col0 && c != '_') {
                 type = SyntaxTokenType::Function;
             }
-            EmitRange(tokens, i, e, type);
-            i = e;
+            i = EmitRange(tokens, i, e, type);
             continue;
         }
         i++;
@@ -2389,58 +2361,57 @@ VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bo
             command_pos = false;
             const auto word = text.substr(i, j - i);
             const bool is_map = kw::VIM_MAP_COMMANDS.contains(word);
-            if (j > i && (is_map || kw::VIM_COMMANDS.contains(word))) {
-                EmitRange(tokens, i, j, SyntaxTokenType::Keyword);
-                i = j < eol && text[j] == '!' ? j + 1 : j;
-                // マッピングの右辺は Vim のキー列なので、キー表記だけを色付けする (" もコメントではない)
-                if (is_map) {
-                    for (size_t k = text.find('<', i); k < eol; k = text.find('<', k + 1)) {
-                        if (const size_t e = ScanVimKeyNotation(text, k); e != npos) {
-                            EmitRange(tokens, k, e, SyntaxTokenType::Preprocessor);
-                            k = e - 1;
-                        }
-                    }
-                    break;
-                }
-                static constexpr std::string_view kFunctionCommands[]{ "fu", "fun", "func", "function", "def" };
-                if (std::ranges::contains(kFunctionCommands, word)) {
-                    const size_t name = SkipBlanks(text, i, eol);
-                    const size_t e = SkipWhile(text, name, eol, [](char c) { return !IsBlank(c) && c != '('; });
-                    i = EmitRange(tokens, name, e, SyntaxTokenType::Function);
-                    continue;
-                }
-                if (word == "au" || word == "autocmd") {
-                    if (const size_t cmd = SkipVimAutocmdHead(text, i); cmd != npos) {
-                        i = cmd;
-                        command_pos = true;
-                    }
-                    continue;
-                }
-                if (word == "lua") {
-                    const auto heredoc = ParseVimHeredoc(text, i, VimHeredoc::Kind::Lua);
-                    if (heredoc.kind == VimHeredoc::Kind::None) {
-                        TokenizeRange<LUA_LEXER_CONFIG>(text, i, kw::LUA_KEYWORDS, kw::LUA_TYPES, tokens);
-                    }
-                    return heredoc;
-                }
-                static constexpr std::string_view kScriptCommands[]{ "perl", "py3", "python3", "ruby" };
-                if (std::ranges::contains(kScriptCommands, word)) {
-                    return ParseVimHeredoc(text, i, VimHeredoc::Kind::Plain);
-                }
-                static constexpr std::string_view kLetCommands[]{ "let", "var", "const", "cons", "final" };
-                // 代入演算子は 1 つなので、前に = がある =<< は右辺の中 (文字列など) で本文の始まりではない。
-                const size_t op = std::ranges::contains(kLetCommands, word) ? text.find("=<<", i) : npos;
-                if (op != npos && !text.substr(i, op - i).contains('=')) {
-                    const auto heredoc = ParseVimHeredoc(text, op + 1, VimHeredoc::Kind::Text);
-                    TokenizeVimLine(text.substr(0, op), i, false, vim9, tokens);
-                    return heredoc;
+            if (!is_map && !kw::VIM_COMMANDS.contains(word)) {
+                // Plug 'x' 等のユーザー定義コマンド
+                if (IsAsciiUpper(text[i]) && (j == eol || !CharSet{ "(.:" }.contains(text[j]))) {
+                    i = EmitRange(tokens, i, j, SyntaxTokenType::Function);
                 }
                 continue;
             }
-            // Plug 'x' 等のユーザー定義コマンド
-            if (j > i && IsAsciiUpper(text[i]) && (j == eol || !CharSet{ "(.:" }.contains(text[j]))) {
-                EmitRange(tokens, i, j, SyntaxTokenType::Function);
-                i = j;
+            EmitRange(tokens, i, j, SyntaxTokenType::Keyword);
+            i = j < eol && text[j] == '!' ? j + 1 : j;
+            // マッピングの右辺は Vim のキー列なので、キー表記だけを色付けする (" もコメントではない)
+            if (is_map) {
+                for (size_t k = text.find('<', i); k < eol; k = text.find('<', k + 1)) {
+                    if (const size_t e = ScanVimKeyNotation(text, k); e != npos) {
+                        EmitRange(tokens, k, e, SyntaxTokenType::Preprocessor);
+                        k = e - 1;
+                    }
+                }
+                break;
+            }
+            static constexpr std::string_view kFunctionCommands[]{ "fu", "fun", "func", "function", "def" };
+            if (std::ranges::contains(kFunctionCommands, word)) {
+                const size_t name = SkipBlanks(text, i, eol);
+                const size_t e = SkipWhile(text, name, eol, [](char c) { return !IsBlank(c) && c != '('; });
+                i = EmitRange(tokens, name, e, SyntaxTokenType::Function);
+                continue;
+            }
+            if (word == "au" || word == "autocmd") {
+                if (const size_t cmd = SkipVimAutocmdHead(text, i); cmd != npos) {
+                    i = cmd;
+                    command_pos = true;
+                }
+                continue;
+            }
+            if (word == "lua") {
+                const auto heredoc = ParseVimHeredoc(text, i, VimHeredoc::Kind::Lua);
+                if (heredoc.kind == VimHeredoc::Kind::None) {
+                    TokenizeRange<LUA_LEXER_CONFIG>(text, i, kw::LUA_KEYWORDS, kw::LUA_TYPES, tokens);
+                }
+                return heredoc;
+            }
+            static constexpr std::string_view kScriptCommands[]{ "perl", "py3", "python3", "ruby" };
+            if (std::ranges::contains(kScriptCommands, word)) {
+                return ParseVimHeredoc(text, i, VimHeredoc::Kind::Plain);
+            }
+            static constexpr std::string_view kLetCommands[]{ "let", "var", "const", "cons", "final" };
+            // 代入演算子は 1 つなので、前に = がある =<< は右辺の中 (文字列など) で本文の始まりではない。
+            const size_t op = std::ranges::contains(kLetCommands, word) ? text.find("=<<", i) : npos;
+            if (op != npos && !text.substr(i, op - i).contains('=')) {
+                const auto heredoc = ParseVimHeredoc(text, op + 1, VimHeredoc::Kind::Text);
+                TokenizeVimLine(text.substr(0, op), i, false, vim9, tokens);
+                return heredoc;
             }
             continue;
         }
@@ -2464,8 +2435,7 @@ VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bo
         if (c == '"') {
             const size_t e = ScanString(text, i, '"', false);
             if (vim9 || (e > i + 1 && text[e - 1] == '"')) {
-                EmitRange(tokens, i, e, SyntaxTokenType::String);
-                i = e;
+                i = EmitRange(tokens, i, e, SyntaxTokenType::String);
                 continue;
             }
             EmitRange(tokens, i, eol, SyntaxTokenType::Comment);
@@ -2481,12 +2451,7 @@ VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bo
         }
         if (c == '<') {
             const size_t e = ScanVimKeyNotation(text, i);
-            if (e != npos) {
-                EmitRange(tokens, i, e, SyntaxTokenType::Preprocessor);
-                i = e;
-                continue;
-            }
-            i++;
+            i = e != npos ? EmitRange(tokens, i, e, SyntaxTokenType::Preprocessor) : i + 1;
             continue;
         }
         // オプション &tabstop / &l:sw、環境変数 $HOME、レジスタ @a
@@ -2496,8 +2461,7 @@ VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bo
             continue;
         }
         if (c == '@' && static_cast<unsigned char>(next) > ' ' && static_cast<unsigned char>(next) < 0x80) {
-            EmitRange(tokens, i, i + 2, SyntaxTokenType::Type);
-            i += 2;
+            i = EmitRange(tokens, i, i + 2, SyntaxTokenType::Type);
             continue;
         }
         if (IsAsciiDigit(c)) {
@@ -2520,8 +2484,7 @@ VimHeredoc TokenizeVimLine(std::string_view text, size_t i, bool command_pos, bo
             else if (vim9 && kw::VIM_TYPES.contains(word)) {
                 type = SyntaxTokenType::Type;
             }
-            EmitRange(tokens, i, e, type);
-            i = e;
+            i = EmitRange(tokens, i, e, type);
             continue;
         }
         i++;
