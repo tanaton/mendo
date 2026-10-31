@@ -76,6 +76,19 @@ TEST_F(DiagramPlaceholderTest, ErrorShowsErrorMessageInCautionColor)
 }
 
 // 言語で変わる文言は描くときに引くので、失敗した図も切り替えた言語の文言で出る。
+// コードで決まる失敗は要求を止める。WebView2 を起動できないだけなら、文言を出したまま要求を続ける。
+TEST(DiagramEntryTest, OnlySettledErrorsStopRendering)
+{
+    DiagramEntry diagram;
+    EXPECT_TRUE(diagram.NeedsRender());
+    diagram.error = { DiagramError::Kind::Render };
+    EXPECT_FALSE(diagram.NeedsRender());
+    diagram.error = { DiagramError::Kind::TooLarge };
+    EXPECT_FALSE(diagram.NeedsRender());
+    diagram.error = { DiagramError::Kind::WebViewUnavailable };
+    EXPECT_TRUE(diagram.NeedsRender());
+}
+
 TEST_F(DiagramPlaceholderTest, LocalizedErrorFollowsLanguageSwitch)
 {
     auto pl = ParseAndLayout("```mermaid\ngraph TD;A-->B\n```\n");
@@ -95,6 +108,8 @@ TEST_F(DiagramPlaceholderTest, LocalizedErrorFollowsLanguageSwitch)
         i18n::SetLanguage(language);
         error = { DiagramError::Kind::TooLarge };
         EXPECT_EQ(text_of(), language->diagram_too_large);
+        error = { DiagramError::Kind::WebViewUnavailable };
+        EXPECT_EQ(text_of(), language->diagram_webview_unavailable);
         error = { DiagramError::Kind::Render };
         EXPECT_EQ(text_of(), language->diagram_error);
     }

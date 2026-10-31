@@ -481,6 +481,8 @@ struct DiagramError {
         // message を出す。空なら汎用の文言を出す。
         Render,
         TooLarge,
+        // WebView2 を起動できない。コードで決まる結果ではないので文言だけを出し、要求は続ける。
+        WebViewUnavailable,
     };
     Kind kind = Kind::None;
     // Mermaid が返した文言 (表示用に整形済み)。Mermaid の文言は訳さないのでそのまま持つ。
@@ -489,6 +491,11 @@ struct DiagramError {
     bool empty() const noexcept
     {
         return kind == Kind::None;
+    }
+    // コードで決まる失敗。同じコードを描き直しても変わらない。
+    bool settled() const noexcept
+    {
+        return kind == Kind::Render || kind == Kind::TooLarge;
     }
     void clear() noexcept
     {
@@ -504,9 +511,9 @@ struct DiagramResult {
     // クリップボードコピー・保存用の元 PNG。bitmap と同時に設定/破棄する (EvictBitmap 含む)。
     // コードを書き換えた図の仮表示では別の図の絵なので捨て、描き直すまでボタンを出さない。
     PngBytes png;
-    // レンダリング失敗の理由。非空 = 失敗確定で bitmap は持たない。
-    // プレースホルダにその文言を表示し再リクエストを止める。リロード・幅変更・
-    // テーマ変更・デバイスロストでクリアされ再試行の契機になる。オフスクリーン evict では保持する。
+    // レンダリング失敗の理由。非空なら bitmap は持たず、プレースホルダにその文言を表示する。
+    // 確定した失敗 (settled) は再リクエストを止める。コードの書き換え・幅変更・テーマ変更・デバイスロストで
+    // クリアされ再試行の契機になる。オフスクリーン evict では保持する。
     DiagramError error;
 };
 
@@ -521,7 +528,7 @@ struct DiagramEntry : DiagramResult {
     // 未確定 (成功も失敗もしていない) か、仮表示中でレンダ要求すべき状態か。
     bool NeedsRender() const noexcept
     {
-        return (!bitmap || stale) && error.empty();
+        return (!bitmap || stale) && !error.settled();
     }
 
     // オフスクリーン evict 用。寸法とエラーはレイアウト維持/再試行抑止のため残す。

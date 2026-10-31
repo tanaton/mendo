@@ -1689,7 +1689,7 @@ private:
 WebView2 は起動時には作らず、最初の描画要求（`RequestRender` / `RequestSvg`）で `EnsureInitialized` が立ち上げる。
 
 1. 画面外に置いたポップアップウィンドウを作成（`CapturePreview` は可視状態を要求するため非表示にはしない）
-2. WebView2 環境とコントローラを非同期に生成。環境の生成に失敗したら `MERMAID_INIT_RETRY` タイマーで `ENV_RETRY_INTERVAL_MS`（500ms）おきに `MAX_ENV_RETRIES`（3 回）まで再試行し、上限に達したら待ちの要求を失敗で完了させて未初期化に戻す（`AbandonWebView`）。WebView2 ランタイムが無いときのように呼び出し自体が失敗して完了の通知が来ない場合も、同じ経路に入れる。コントローラを作れなかった・`get_CoreWebView2` が失敗した・再起動やページの読み込みの再試行が上限に達したワーカーは `AbandonWorker` で破棄して処理中の要求を失敗で返し、応答できるワーカーが 1 つも残らなければ `AbandonWebView` へ進む。図はエラーにせず、次の走査で要求し直す
+2. WebView2 環境とコントローラを非同期に生成。環境の生成に失敗したら `MERMAID_INIT_RETRY` タイマーで `ENV_RETRY_INTERVAL_MS`（500ms）おきに `MAX_ENV_RETRIES`（3 回）まで再試行し、上限に達したら待ちの要求を失敗で完了させて未初期化に戻す（`AbandonWebView`）。WebView2 ランタイムが無いときのように呼び出し自体が失敗して完了の通知が来ない場合も、同じ経路に入れる。コントローラを作れなかった・`get_CoreWebView2` が失敗した・再起動やページの読み込みの再試行が上限に達したワーカーは `AbandonWorker` で破棄して処理中の要求を失敗で返し、応答できるワーカーが 1 つも残らなければ `AbandonWebView` へ進む。`AbandonWebView` は `WEBVIEW_RETRY_AFTER`（30 秒）後を次に試す時刻にして図を要求し直させ、ディスクキャッシュに無い図を `DiagramError::Kind::WebViewUnavailable`（「WebView2 を利用できないため図を描画できません」）にする。このエラーはコードで決まる結果ではないので、キャッシュに入れず（`DiagramError::settled` が false）、文言を出したまま走査ごとに要求を続ける。その時刻までは `EnsureInitialized` が起動せず、SVG とインライン数式の要求もすぐ失敗で返す。時刻を過ぎた後の走査で起動を試すので、一時的な失敗からは操作なしで戻る
 3. `https://app.local/index.html` へ `Navigate` し、`WebResourceRequested` で HTML テンプレート（`IDR_MERMAID_HTML`）と mermaid の ESM ファイル（`.mjs`）を RCDATA から無圧縮のまま配信する
 4. 最初のワーカーの準備完了で `ready_` を立て `on_update_` を呼ぶ。準備前の描画要求は捨てているので、これで図の描画を要求し直させる
 

@@ -166,6 +166,8 @@ std::wstring_view DiagramErrorText(const DiagramError& error) noexcept
         return error.message.empty() ? i18n::S().diagram_error : std::wstring_view{ error.message };
     case DiagramError::Kind::TooLarge:
         return i18n::S().diagram_too_large;
+    case DiagramError::Kind::WebViewUnavailable:
+        return i18n::S().diagram_webview_unavailable;
     }
     return {};
 }
