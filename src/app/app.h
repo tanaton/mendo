@@ -32,18 +32,7 @@
 #include <string_view>
 #include <utility>
 
-// App が本体のウィンドウ (Win32Window) に頼むこと。ポップアップのモーダルループも回させる。
-// どれも呼び出し中に App::Dispatch へ入り直しうる (フォーカスの移動や入力欄の書き換えの通知)。
-class WindowHost : public ModalLoop {
-public:
-    // 検索の入力欄 (非表示の EDIT) にフォーカスを移し、[anchor, caret) を選択する。caret が -1 なら末尾まで。
-    virtual void FocusSearchEdit(int anchor, int caret) = 0;
-    // 本体にフォーカスを戻す。clear_text なら入力欄を空にする (文書の切り替え)。
-    virtual void UnfocusSearch(bool clear_text) = 0;
-
-protected:
-    ~WindowHost() = default;
-};
+class Win32Window;
 
 struct SystemCursors {
     HCURSOR arrow = nullptr;
@@ -77,7 +66,7 @@ struct SystemCursors {
 // ResourceManager と reducer が問い合わせる窓口も App が受ける。
 class App final : private ResourceManagerHost, private NodeLayoutAccess {
 public:
-    App(ConfigService& config, WindowHost& window) noexcept : config_(config), window_(window)
+    App(ConfigService& config, Win32Window& window) noexcept : config_(config), window_(window)
     {}
     bool Init(HWND hwnd);
 
@@ -271,21 +260,15 @@ private:
     // dirty が残っていれば空き時間の遅延レイアウト (HasIdleWork) が拾い、その完了時に画像と図を整理する。
     // 残っていなければ今整理させる。
     void SettleLayout();
-    // 可視範囲の図と画像の取りに行き方。
-    enum class RelayoutResources : uint8_t {
-        Diagrams,          // 図を今すぐ描き直す (テーマ・ズーム)
-        DiagramsBatched,   // 図のディスク読み込みを時間予算付きバッチに回す (リサイズ)
-        ImagesAndDiagrams, // 画像も読み込む (ロード・リロード)
-    };
     // 可視範囲を計測し直し、スクロール上限・図と画像・遅延レイアウト・目次を追従させる。
-    void RelayoutViewport(RelayoutResources resources);
+    void RelayoutViewport();
     // key の数式を含む組を描かせる (結果を待つ間は 1 回)。計画に無い数式なら false。wanted は InlineMathPlan::TakeChunk。
     bool RequestInlineMathChunk(uint64_t key, bool wanted);
     // 組のページ (A8、bytes バイト) を受け取るか (MathPageGate)。受け取るなら届くまで取り置く。
     bool ReserveInlineMathPage(size_t chunk, uint64_t chunk_key, size_t bytes);
     // 描いた後に呼ぶ。型の無い数式が見えていれば読み直させ、ページが上限を超えていれば捨てる。
     void ManageInlineMathPages();
-    // 型を描画側に渡し、寸法を待って原文のまま組んだ段落を組み直す。chunk と chunk_key は頼んだ組で、計画に無い数式は 0。
+    // 型を描画側に渡し、寸法を待って原文のまま組んだ段落を組み直す。chunk と chunk_key は頼んだ組。
     void OnInlineMathRendered(InlineMathBatchResult result, size_t chunk, uint64_t chunk_key);
     // 寸法を待って原文のまま組んだ段落を組み直す。tables が false なら表は待たせたままにする。
     void RelayoutPendingInlineMath(bool tables);
@@ -297,9 +280,6 @@ private:
     void OnDeferredLayout();
     // 捨てたテキストレイアウトが多ければワーカーで解放する。
     void DisposeReleasedLayouts();
-    float MdContentWidth() override;
-    float MdPaneHeight() override;
-    const Theme& GetTheme() override;
     // 画像・図の高さが変わった範囲の Y を組み直し、スクロールを収めて描き直す。
     void RecomputeLayout(layout::HeightChangeRange changed) override;
     void EnsureNodeLayout(int node_index) override;
@@ -326,8 +306,6 @@ private:
     // 読み込みが LOADING_SPINNER_DELAY_MS より長引いたらスピナーを出す。
     void ScheduleLoadingAnimation();
     void StopLoadingAnimation();
-    // StartPreloadAsync が Init より前に呼ぶことがある。2 回目は何もしない。
-    void InitSharedScheduler();
     // error があればトーストで知らせる。
     void HandleLoadFailureFallback(std::optional<FileLoadError> error);
     // nodes の範囲の推定高さを、図と画像のキャッシュにある実測の寸法で上書きする。変えたら true (Y は組み直さない)。
@@ -341,9 +319,6 @@ private:
     bool DeferReloadWhileSelecting();
 
     void CancelPendingResources();
-    // 読み込みの開始時に捨てた画像・図の待ちを、文書を差し替えずに終わったら (失敗・取り消し・開き直し・
-    // 読み直しの見送り) 表示を続ける文書のぶんだけ要求し直す。
-    void RequestDroppedResourcesAgain();
 
     // ---- テーマ ----
     void ApplyZoom();
@@ -361,17 +336,16 @@ private:
     SystemCursors cursors_;
     Tooltip tooltip_;
     bool in_modal_loop_ = false;
-    WindowHost& window_;
+    Win32Window& window_;
     // SetWindowTextW は変わったときだけ呼ぶ。
     std::wstring title_text_ = L"mendo";
     // 空なら非表示。フェードは毎フレームの全画面再描画を伴うので、表示と消去の 2 回だけ描き直す。
     std::wstring toast_message_;
-    // 別のファイルを読み始めたときに旧文書の画像・図の待ちを捨てた。文書を差し替えたら外す。
-    bool resources_dropped_for_load_ = false;
 
     Renderer renderer_;
-    TaskScheduler scheduler_;
-    TaskScheduler layout_scheduler_;
+    TaskScheduler scheduler_{ SharedWorkerCount(std::thread::hardware_concurrency()) };
+    // Mermaid 共有の scheduler_ と詰まり合わないよう分ける。
+    TaskScheduler layout_scheduler_{ LayoutWorkerCount(std::thread::hardware_concurrency()) };
     MermaidFileCache file_cache_; // mermaid_renderer_ より先に宣言する（mermaid_renderer_ は破棄時に file_cache_ を参照する）
     ClipboardManager clipboard_manager_; // mermaid_renderer_ より先に宣言する（~MermaidRenderer の CancelPending が in-flight コールバック経由で clipboard_manager_ に触るため、後に破棄させる）
     // インライン数式の寸法表。計測ワーカーが引き、描画の結果を OnInlineMathRendered で書く。
@@ -391,7 +365,7 @@ private:
     ImageLoader image_loader_;
     FileWatcher file_watcher_;
     ConfigService& config_;
-    ThemeService theme_service_{ config_ };
+    ThemeService theme_service_;
     // 起動時の読み込み (preload) も Init より前にここで始め、通知先は LoadInitialDocument の Attach で渡す。
     AsyncLoadCoordinator load_coordinator_;
     // スピナーは読み込みが長引いたときだけ出し、出ている間はタイマーごとに回す。

@@ -57,12 +57,8 @@ public:
     // params.loading_angle があれば、本文ペイン・検索バー・スクロールバーの代わりにスピナーを描く。
     FrameResult Render(const RenderParams& params);
     void SetDpi(float dpi) noexcept;
+    // 最小化中に D2D の内部キャッシュとドライバ側の一時確保を手放す。
     void TrimForMinimize() noexcept;
-    // 文書から作った描画用のテキスト (目次項目の UTF-16) を捨てる。文書を差し替えたら呼ぶ。
-    void ForgetDocumentText() noexcept
-    {
-        toc_titles_ = {};
-    }
     // 最初の描画の前に呼ぶ (App::CreateRenderDevice 参照)。既存のデバイスがあれば捨てて作り直す。
     bool CreateDevice();
     ID2D1RenderTarget* GetRenderTarget() const noexcept;
@@ -117,9 +113,9 @@ public:
         frame_acquired_ = true;
     }
 
-    int HitTestSearchInput(std::wstring_view query, float local_x, float max_width) const
+    int HitTestSearchInput(std::wstring_view query, float local_x, float max_width)
     {
-        return search_input_.HitTest(query, local_x, max_width);
+        return ::HitTestSearchInput(text_layouts_, fmt_.search_input.Get(), query, local_x, max_width);
     }
 
     // タイトルバーとサイドペインの描画コマンドを組み立てる。デバイスに依存しないので、
@@ -151,8 +147,6 @@ private:
     void AcquireFrame() noexcept;
     // EndDraw 後に呼ぶ。デバイスロスト系の失敗は device_lost_ で知らせる。
     void Present() noexcept;
-    // 最小化中に D2D の内部キャッシュとドライバ側の一時確保を手放す。
-    void TrimDevice() noexcept;
 
     ID2D1DeviceContext* rt() const noexcept
     {
@@ -166,8 +160,8 @@ private:
     // スワップチェーンのバッファの大きさ。ライブリサイズ中は描画面 (width_px_ x height_px_) より大きい。
     UINT buffer_width_ = 0;
     UINT buffer_height_ = 0;
-    // Resize / Present が DXGI_ERROR_DEVICE_REMOVED/RESET 等を検知したか、CreateSwapChainBitmap が失敗した。
-    // 次フレームの BeginFrame で RecreateDevice を呼んで戻す。
+    // EndDraw が D2DERR_RECREATE_TARGET を返したか、Resize / Present が DXGI_ERROR_DEVICE_REMOVED/RESET 等を
+    // 検知したか、CreateSwapChainBitmap が失敗した。次フレームの BeginFrame で作り直す。
     bool device_lost_ = false;
     bool frame_acquired_ = false;
     Microsoft::WRL::ComPtr<ID2D1Factory1> d2d_factory_;
@@ -186,11 +180,6 @@ private:
     void CreateTextFormats(bool zoomed_only = false);
 
     FrameResult EndFrame();
-    bool RecreateDevice();
-    FrameResult RecreateDeviceForFrame()
-    {
-        return RecreateDevice() ? FrameResult::RedrawNow : FrameResult::RetryLater;
-    }
 
     struct TextFormats {
         // CommandGenerator が参照する。
@@ -224,10 +213,7 @@ private:
     DrawCommandList frame_cmds_;
     // frame_cmds_ が指すジェスチャーの軌跡。次のフレームまで持つ。
     Microsoft::WRL::ComPtr<ID2D1PathGeometry> gesture_trail_;
-    // 目次項目の UTF-16。描いた項目だけ作り、ForgetDocumentText と最小化で捨てる。
-    std::vector<std::wstring> toc_titles_;
 
-    SearchInputLayout search_input_;
     // デバイスに依存しない PBGRA 変換済みのアイコン。デバイスロスト後もここから作り直す。
     Microsoft::WRL::ComPtr<IWICBitmap> app_icon_wic_;
     Microsoft::WRL::ComPtr<ID2D1Bitmap> app_icon_bitmap_;

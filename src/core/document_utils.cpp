@@ -125,12 +125,9 @@ const TextRun* FindRunAt(std::span<const TextRun> runs, uint32_t pos) noexcept
 
 NodeRunsAt FindRunsAt(const Node& node, uint32_t pos) noexcept
 {
-    if (node.type != NodeType::Table) {
-        return { node.runs(), pos };
-    }
     const auto* tbl = node.table_data();
-    if (!tbl || tbl->row_count == 0 || tbl->col_count == 0) {
-        return {};
+    if (!tbl) {
+        return { node.runs(), pos };
     }
     const size_t idx = tbl->CellIndexAt(pos);
     const size_t col_count = tbl->col_count;
@@ -194,17 +191,13 @@ bool NodeContentEquals(const Node& a, const Node& b) noexcept
         return false;
     }
     const auto* at = a.table_data();
-    const auto* bt = b.table_data();
-    if ((at == nullptr) != (bt == nullptr)) {
-        return false;
-    }
     // 表のテキストは concat_text そのものなので、NodeTableData の比較に任せて 2 回比べない。
     // 参照定義が後ろで変わると、前のノードはテキストが同じでもリンク先が変わる。
     if ((!at && a.GetText() != b.GetText()) || !std::ranges::equal(a.runs(), b.runs()) ||
         !std::ranges::equal(a.view_link_urls(), b.view_link_urls())) {
         return false;
     }
-    return a.image_src() == b.image_src() && (!at || *at == *bt);
+    return a.image_src() == b.image_src() && (!at || *at == *b.table_data());
 }
 
 } // namespace
@@ -225,30 +218,12 @@ UnchangedEnds FindUnchangedEnds(std::span<const Node> old_nodes, std::span<const
 
 int FindNodeBySourceOffset(const std::vector<Node>& nodes, size_t diff_offset) noexcept
 {
-    // source_offset はパース順で基本的に単調増加するため二分探索を使用。
-    // 未設定ノードに当たった場合は左に有効ノードを探してから判定する。
-    int lo = 0;
-    int hi = static_cast<int>(nodes.size()) - 1;
-    int result = -1;
-    while (lo <= hi) {
-        const int mid = lo + (hi - lo) / 2;
-        int probe = mid;
-        while (probe >= lo && !nodes[probe].HasSourceOffset()) {
-            probe--;
-        }
-        if (probe < lo) {
-            lo = mid + 1;
-            continue;
-        }
-        if (nodes[probe].SourceOffset() <= diff_offset) {
-            result = probe;
-            lo = mid + 1;
-        }
-        else {
-            hi = probe - 1;
-        }
+    // 本文の位置を持たないノードは前のノードの位置を受け継いでいるので、同じ位置の先頭のノードを返す。
+    const auto it = std::ranges::upper_bound(nodes, diff_offset, {}, &Node::SourceOffset);
+    if (it == nodes.begin()) {
+        return -1;
     }
-    return result;
+    return static_cast<int>(std::ranges::lower_bound(nodes, std::prev(it)->SourceOffset(), {}, &Node::SourceOffset) - nodes.begin());
 }
 
 std::vector<SyntaxToken> TokenizeCodeNode(const Node& node)

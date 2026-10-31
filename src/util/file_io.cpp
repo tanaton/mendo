@@ -57,10 +57,11 @@ std::optional<uint64_t> QueryFileSize(const wchar_t* path) noexcept
 
 } // namespace
 
-bool IsFileLargerThan(const wchar_t* path, size_t reference_size, size_t tolerance) noexcept
+bool IsFileLargerThan(const wchar_t* path, size_t reference_size) noexcept
 {
+    constexpr uint64_t kTolerance = 16;
     const auto size = QueryFileSize(path);
-    return size && *size > static_cast<uint64_t>(reference_size) + tolerance;
+    return size && *size > static_cast<uint64_t>(reference_size) + kTolerance;
 }
 
 bool WriteAllBytes(const std::filesystem::path& path, const void* data, size_t size, bool flush_buffers)

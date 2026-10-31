@@ -182,7 +182,7 @@ struct OpenedFile {
 // 読み込み済みコンテンツの後にファイルがさらに伸びていれば、エディタ側が
 // 書き込み途中である可能性が高い。BOM の 3 バイトずれ等を吸収するため
 // 16 バイトの許容範囲を持たせる。
-bool IsFileLargerThan(const wchar_t* path, size_t reference_size, size_t tolerance = 16) noexcept;
+bool IsFileLargerThan(const wchar_t* path, size_t reference_size) noexcept;
 
 // flush_buffers: true の場合、close 前に FlushFileBuffers でデータブロックを
 // ディスクへコミットする。rename と組み合わせて使う経路 (AtomicWriteAllBytes) 向け。

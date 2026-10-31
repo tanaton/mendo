@@ -356,7 +356,7 @@ protected:
     ComPtr<IWICImagingFactory> wic_factory_;
     ComPtr<ID2D1RenderTarget> render_target_;
     ImageLoader loader_;
-    TaskScheduler scheduler_;
+    TaskScheduler scheduler_{ 2 };
 
     void SetUp() override
     {
@@ -369,7 +369,6 @@ protected:
         render_target_ = CreateRenderTarget();
         ASSERT_TRUE(render_target_) << "レンダーターゲット作成に失敗";
 
-        scheduler_.Init(2);
         // テストでは PostMessage を受け取れないため HWND は nullptr にし、ProcessCompletedDecodes を手動で呼ぶ
         loader_.Init(wic_factory_.Get(), nullptr, 0, scheduler_);
         loader_.SetRenderTarget(render_target_.Get());
@@ -379,6 +378,19 @@ protected:
     {
         scheduler_.Shutdown();
         loader_.ClearCache();
+    }
+
+    // worker (2 つ) を塞ぎ、release を count_down するまで以降のタスクを待たせる。
+    void BlockWorkers(std::latch& release)
+    {
+        std::atomic<int> blocked{ 0 };
+        for (int i = 0; i < 2; ++i) {
+            scheduler_.Post([&] {
+                ++blocked;
+                release.wait();
+            });
+        }
+        ASSERT_TRUE(PollUntil([&] { return blocked.load() == 2; }));
     }
 
     // 非同期経路でデコードさせ、完了後にキャッシュされた結果を取り出す。
@@ -562,31 +574,43 @@ TEST_F(ImageLoaderTest, ClearCacheInvalidatesEntries)
     EXPECT_NE(first_bitmap, entry2.bitmap.Get());
 }
 
-// 始まっていないデコードを捨てたら、同じパスを要求し直せる。捨てた要求が後から走っても新しい要求を消さない。
+// 始まっていないデコードを捨てると読まずに返る。待つ間に要求し直されていれば、届いたときに読み直させる。失敗には数えない。
 TEST_F(ImageLoaderTest, DropQueuedAllowsRerequest)
 {
     ASSERT_TRUE(CreateTestImage(L"drop.png", GUID_ContainerFormatPng, 40, 40));
     const auto path = GetTestImagePath(L"drop.png");
 
-    // worker (2 つ) を塞ぎ、要求をキュー待ちのまま捨てる。
-    std::latch release{ 1 };
-    std::atomic<int> blocked{ 0 };
-    for (int i = 0; i < 2; ++i) {
-        scheduler_.Post([&] {
-            ++blocked;
-            release.wait();
-        });
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        // 要求をキュー待ちのまま捨てる。
+        std::latch release{ 1 };
+        BlockWorkers(release);
+        loader_.RequestLoadAsync(path, 0.0f);
+        loader_.DropQueued();
+        loader_.RequestLoadAsync(path, 0.0f);
+        release.count_down();
+        ASSERT_TRUE(PollUntil([&] { return loader_.ProcessCompletedDecodes(); }));
+        EXPECT_EQ(loader_.CacheSize(), 0u);
     }
-    ASSERT_TRUE(PollUntil([&] { return blocked.load() == 2; }));
-    loader_.RequestLoadAsync(path, 0.0f);
-    loader_.DropQueued();
-    release.count_down();
 
     DiagramEntry entry;
     EXPECT_TRUE(LoadAndGet(path, entry));
-    // Shutdown はキュー済みタスクを実行し切ってから戻るので、捨てた要求が結果を出していれば残る。
+}
+
+// 文書の切り替えで捨てた要求の結果は、要求し直されていなければ読み直させない。
+TEST_F(ImageLoaderTest, DropQueuedWithoutRerequestDoesNotAskToRequestAgain)
+{
+    ASSERT_TRUE(CreateTestImage(L"drop.png", GUID_ContainerFormatPng, 40, 40));
+
+    std::latch release{ 1 };
+    BlockWorkers(release);
+    loader_.RequestLoadAsync(GetTestImagePath(L"drop.png"), 0.0f);
+    loader_.DropQueued();
+    release.count_down();
+
+    // Shutdown はキュー済みタスクを実行し切ってから戻るので、捨てた要求の結果が届いている。
     scheduler_.Shutdown();
     EXPECT_FALSE(loader_.ProcessCompletedDecodes());
+    EXPECT_EQ(loader_.CacheSize(), 0u);
 }
 
 // ---- 異常系: ファイルが存在しない ----
@@ -967,12 +991,17 @@ TEST_F(ImageLoaderAsyncTest, CancelPendingClearsQueue)
     ASSERT_TRUE(CreateTestImage(L"cancel.png", GUID_ContainerFormatPng, 30, 30));
     auto path = GetTestImagePath(L"cancel.png");
 
+    // 要求をキュー待ちのまま取り消す。
+    std::latch release{ 1 };
+    BlockWorkers(release);
     loader_.RequestLoadAsync(path, 0.0f);
     loader_.CancelPending();
+    release.count_down();
 
     // Shutdown はキュー済みタスクを実行し切ってから戻るので、以降に結果が届くことはない
     scheduler_.Shutdown();
     EXPECT_FALSE(loader_.ProcessCompletedDecodes());
+    EXPECT_EQ(loader_.CacheSize(), 0u);
 }
 
 // ---- スレッドプールテスト ----

@@ -32,6 +32,7 @@ struct NodeSpec {
     std::string_view text;
     int8_t heading_level = 0;
     uint32_t table_rows = 0;
+    int8_t quote_depth = 0;
 };
 
 std::vector<Node> MakeNodes(std::initializer_list<NodeSpec> specs)
@@ -49,6 +50,7 @@ std::vector<Node> MakeNodes(std::initializer_list<NodeSpec> specs)
         if (spec.table_rows > 0) {
             AttachTestTable(n)->row_count = spec.table_rows;
         }
+        n.quote_depth = spec.quote_depth;
     }
     return nodes;
 }
@@ -277,21 +279,6 @@ TEST_F(LayoutTest, WidthChangeRecomputesLayouts)
 }
 
 // ---- 空のテーブル ----
-
-TEST_F(LayoutTest, EmptyTableMinimalHeight)
-{
-    Node node;
-    node.type = NodeType::Table;
-    AttachTestTable(node);
-    // 0 行 0 列の空テーブル (新方式は row_count/col_count 既定で 0)
-    std::vector<Node> nodes;
-    nodes.emplace_back(std::move(node));
-    LayoutCache cache(nodes.size());
-
-    ComputeLayout(engine_, nodes, cache, 800.0f);
-    // 空のテーブルはクラッシュせず、何らかの高さを持つこと
-    EXPECT_GE(cache[0].height, 0.0f);
-}
 
 // ---- インデントされたノード ----
 
@@ -805,7 +792,7 @@ TEST(RecomputeYPositionsTest, AllNodeTypesProduceValidPositions)
         { .type = NodeType::CodeBlock },
         { .type = NodeType::HorizontalRule },
         { .type = NodeType::ListItem },
-        { .type = NodeType::BlockQuote },
+        { .quote_depth = 1 },
         { .type = NodeType::Table },
     });
     auto cache = MakeMeasuredCache({ 20.0f, 30.0f, 50.0f, 5.0f, 18.0f, 25.0f, 60.0f });
@@ -894,7 +881,7 @@ TEST(RecomputeYPositionsTest, PairSpacingByNodeType)
     const Case cases[] = {
         { "CodeBlockHasSpacingAbove", { .type = NodeType::Paragraph }, { .type = NodeType::CodeBlock }, 20.0f, 50.0f, code_gap },
         { "CodeBlockHasSpacingBelow", { .type = NodeType::CodeBlock }, { .type = NodeType::Paragraph }, 50.0f, 20.0f, code_gap },
-        { "BlockQuoteHasSpacingAbove", { .type = NodeType::Paragraph }, { .type = NodeType::BlockQuote }, 20.0f, 30.0f, code_gap },
+        { "BlockQuoteHasSpacingAbove", { .type = NodeType::Paragraph }, { .quote_depth = 1 }, 20.0f, 30.0f, code_gap },
         { "ListItemUsesListItemSpacing", { NodeType::ListItem, "a" }, { NodeType::ListItem, "b" }, 18.0f, 18.0f, list_gap },
         { "TaskListItemUsesListItemSpacing", { NodeType::TaskListItem, "a" }, { NodeType::TaskListItem, "b" }, 18.0f, 18.0f, list_gap },
     };
@@ -1157,7 +1144,7 @@ TEST(EstimateNodeHeightsTest, AllNodeTypesProducePositiveHeight)
         { NodeType::CodeBlock, "content" },
         { NodeType::HorizontalRule },
         { NodeType::ListItem, "content" },
-        { NodeType::BlockQuote, "content" },
+        { NodeType::Paragraph, "content", 0, 0, 1 },
         { NodeType::Table, "content", 0, 1 },
         { NodeType::TaskListItem, "content" },
         { NodeType::Image },
@@ -1205,7 +1192,7 @@ TEST_F(LayoutTest, UnorderedListBulletCenteredWithRealLayout)
     float expected_y = SnapToPhysicalPixel(cache.Top(0) + lm.height * 0.5f, 1.0f);
 
     CommandGenerator gen;
-    gen.Init(theme_);
+    InitWithoutText(gen, theme_);
     PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
     DrawCommandList cmds;
     gen.GenerateMdPane(cmds, { .nodes = nodes, .cache = cache, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
@@ -1316,7 +1303,7 @@ TEST_F(LayoutTest, LooseListBulletCenteredOnFollowingParagraphLine)
     ASSERT_GT(lc, 0u);
 
     CommandGenerator gen;
-    gen.Init(theme_);
+    InitWithoutText(gen, theme_);
     PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
     DrawCommandList cmds;
     gen.GenerateMdPane(cmds, { .nodes = nodes, .cache = cache, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);
@@ -1350,7 +1337,7 @@ TEST_F(LayoutTest, LooseTaskListCheckboxIsEmitted)
     text_layouts.SetFactory(dwrite_factory_.Get());
     CommandGenerator gen;
     const MdPaneFormats formats{ .checkbox = icon_fmt };
-    gen.Init(theme_, &formats, &text_layouts);
+    gen.Init(theme_, formats, text_layouts);
     PaneRect md_pane{ 0, 0, 800.0f, 2000.0f };
     DrawCommandList cmds;
     gen.GenerateMdPane(cmds, { .nodes = nodes, .cache = cache, .selection = TextSelection{}, .md_pane_rect = md_pane }, 1.0f);

@@ -465,8 +465,7 @@ TEST(ChromeCommandsTest, FilePaneEmitsOnlyVisibleRows)
     };
     TextLayoutCache text_layouts;
     DrawCommandList cmds;
-    std::vector<std::wstring> toc_titles;
-    chrome::EmitSidePanes(cmds, text_layouts, {}, theme, sp, toc_titles);
+    chrome::EmitSidePanes(cmds, text_layouts, {}, theme, sp);
 
     const float content_top = PaneContentTop(kSidePane, theme.pane_header_height);
     const auto row_top = [&](int i) { return content_top + i * kItemHeight - kScroll; };
@@ -492,8 +491,7 @@ TEST(ChromeCommandsTest, DisabledPaneButtonIgnoresHover)
         };
         TextLayoutCache text_layouts;
         DrawCommandList cmds;
-        std::vector<std::wstring> toc_titles;
-        chrome::EmitSidePanes(cmds, text_layouts, {}, theme, sp, toc_titles);
+        chrome::EmitSidePanes(cmds, text_layouts, {}, theme, sp);
         EXPECT_EQ(FillBrushAt<FillRectCmd>(cmds, reveal), enabled ? std::optional(BrushId::PaneItemHover) : std::nullopt) << enabled;
     }
 }
@@ -515,8 +513,7 @@ TEST(ChromeCommandsTest, TocIndentsByLevelAndUnderlinesActive)
     };
     TextLayoutCache text_layouts;
     DrawCommandList cmds;
-    std::vector<std::wstring> toc_titles;
-    chrome::EmitSidePanes(cmds, text_layouts, {}, theme, sp, toc_titles);
+    chrome::EmitSidePanes(cmds, text_layouts, {}, theme, sp);
 
     const float content_top = PaneContentTop(kSidePane, theme.pane_header_height);
     EXPECT_EQ(RowFills(cmds, kSidePane, kItemHeight), (std::vector<std::pair<float, BrushId>>{ { content_top + 2 * kItemHeight, BrushId::PaneItemActive } }));
@@ -524,7 +521,4 @@ TEST(ChromeCommandsTest, TocIndentsByLevelAndUnderlinesActive)
     ASSERT_TRUE(underline);
     EXPECT_FLOAT_EQ(underline->p0.x, kSidePane.x + (8.0f + 2 * TOC_INDENT_PER_LEVEL) * kZoom);
     EXPECT_FLOAT_EQ(underline->p0.y, content_top + 3 * kItemHeight - 1.0f);
-    ASSERT_EQ(toc_titles.size(), 3u);
-    EXPECT_EQ(toc_titles[0], L"A");
-    EXPECT_EQ(toc_titles[2], L"C");
 }

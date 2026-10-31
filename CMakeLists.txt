@@ -106,7 +106,7 @@ set(MENDO_SRC_DIRS
     src/ui src/input src/io src/mermaid src/nav src/theme src/util
 )
 
-# ---- コアライブラリ（テスト可能なコード、WinMain/ウィンドウなし） ----
+# ---- コアライブラリ（テストがリンクするコード。WinMain・App・WebView2 は含まない） ----
 add_library(mendo_core STATIC
     # core - ドキュメントモデル・パース
     src/core/document.cpp
@@ -126,8 +126,6 @@ add_library(mendo_core STATIC
     # render - 描画パイプライン
     src/render/command_generator.cpp
     src/render/command_executor.cpp
-    # app - クリップボード操作 (CopyCodeBlock / SaveDiagramAsPng / CopyDiagramToClipboard)
-    src/app/clipboard_manager.cpp
     # ui - UIコンポーネント
     src/ui/context_menu.cpp
     src/ui/search_state.cpp
@@ -149,12 +147,13 @@ add_library(mendo_core STATIC
     src/nav/nav.cpp
     # theme - テーマ管理
     src/theme/theme.cpp
-    src/theme/theme_service.cpp
     # app - アプリケーション制御
     src/app/app_controller.cpp
+    src/app/clipboard_manager.cpp
     src/app/reducer.cpp
     src/app/resource_manager.cpp
     src/app/startup_plan.cpp
+    src/app/theme_service.cpp
     # util - ユーティリティ
     src/util/file_io.cpp
     src/util/pane_layout.cpp
@@ -270,7 +269,6 @@ if(MENDO_BUILD_TESTS)
     # CRT は CMAKE_MSVC_RUNTIME_LIBRARY を定義してあるので、gtest も静的リンク (/MT) で組まれる。
     FetchContent_MakeAvailable(googletest)
 
-    enable_testing()
     add_subdirectory(tests)
 endif()
 

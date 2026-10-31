@@ -319,21 +319,32 @@ private:
     std::optional<ModelEntry> chained_from_;
 };
 
-void RunNavHistoryModel(size_t max, uint32_t seed)
+void RunNavHistoryModel(uint32_t seed)
 {
+    constexpr size_t max = NavHistory::MAX_HISTORY;
     static const std::wstring kPaths[] = {
         L"a.md", L"C:\\docs\\long\\nested\\path\\b.md", L"c.md", L"D:\\x.md", L"e.markdown",
     };
-    NavHistory hist(max);
+    NavHistory hist;
     NavHistoryModel model(max);
     std::mt19937 rng(seed);
     auto pick = [&](int lo, int hi) {
         return std::uniform_int_distribution<int>(lo, hi)(rng);
     };
 
-    for (int step = 0; step < 3000; ++step) {
+    // 一様に選ぶと上限に届く前に Clear される。積むだけ・戻るだけ・進むだけの区間を混ぜ、上限と空の両端を踏む。
+    constexpr std::pair<int, int> kOpRanges[] = { { 0, 48 }, { 49, 72 }, { 73, 97 }, { 0, 99 } };
+    std::pair<int, int> op_range = kOpRanges[3];
+    int segment_left = 0;
+    bool reached_max = false;
+
+    for (int step = 0; step < 30000; ++step) {
+        if (segment_left-- == 0) {
+            op_range = kOpRanges[pick(0, 3)];
+            segment_left = pick(1, 3 * static_cast<int>(max));
+        }
         const ModelEntry cur{ kPaths[pick(0, 4)], pick(-1, 50), static_cast<float>(pick(-100, 100)) };
-        const int op = pick(0, 99);
+        const int op = pick(op_range.first, op_range.second);
         std::string label;
         if (op < 25) {
             label = "Push";
@@ -372,7 +383,7 @@ void RunNavHistoryModel(size_t max, uint32_t seed)
         }
         else {
             label = "Clear";
-            hist = NavHistory(max);
+            hist = NavHistory{};
             model.Clear();
         }
 
@@ -382,19 +393,19 @@ void RunNavHistoryModel(size_t max, uint32_t seed)
         ASSERT_LE(hist.BackSize() + hist.ForwardSize(), max);
         ASSERT_EQ(hist.CanGoBack(), model.BackSize() > 0);
         ASSERT_EQ(hist.CanGoForward(), model.ForwardSize() > 0);
+        reached_max |= hist.BackSize() + hist.ForwardSize() == max;
     }
+    EXPECT_TRUE(reached_max) << "seed=" << seed << " で上限に届いていない";
 }
 
 } // namespace
 
 TEST(NavHistoryModelTest, MatchesReferenceModel)
 {
-    for (size_t max : { size_t{ 1 }, size_t{ 3 }, size_t{ 8 } }) {
-        for (uint32_t seed : { 1u, 17u, 4242u }) {
-            RunNavHistoryModel(max, seed);
-            if (HasFatalFailure()) {
-                return;
-            }
+    for (uint32_t seed : { 1u, 17u, 4242u }) {
+        RunNavHistoryModel(seed);
+        if (HasFatalFailure()) {
+            return;
         }
     }
 }

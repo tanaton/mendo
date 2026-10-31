@@ -3,13 +3,11 @@
 #include "unicode_lower_table.h"
 #include "utf8_codec.h"
 #include <algorithm>
-#include <array>
 #include <charconv>
 #include <format>
 #include <iterator>
 #include <optional>
 #include <system_error>
-#include <utility>
 
 namespace {
 
@@ -51,34 +49,6 @@ size_t WriteLowerNonAscii(utf8_codec::DecodedCp decoded, const char* src, char* 
     return utf8_codec::EncodeCp(lower, dst);
 }
 
-// GenerateAnchorIdInto の ASCII 処理を 1 回の表引きで決める。SlugLower は A-Z のみ。
-enum AsciiSlugAction : uint8_t {
-    SlugSkip,
-    SlugKeep,
-    SlugHyphen,
-    SlugLower,
-};
-
-constexpr auto kAsciiSlugTable = [] static noexcept {
-    std::array<AsciiSlugAction, 128> t{};
-    for (size_t i = 0; i < t.size(); ++i) {
-        const char c = static_cast<char>(i);
-        if (ascii_util::IsAsciiLower(c) || ascii_util::IsAsciiDigit(c) || c == '-' || c == '_') {
-            t[i] = SlugKeep;
-        }
-        else if (ascii_util::IsAsciiUpper(c)) {
-            t[i] = SlugLower;
-        }
-        else if (c == ' ' || c == '\t') {
-            t[i] = SlugHyphen;
-        }
-        else {
-            t[i] = SlugSkip;
-        }
-    }
-    return t;
-}();
-
 // アンカー (GitHub 互換スラグ) に採用しない記号・句読点か。非 ASCII コードポイント単位で判定。
 // Unicode 全カテゴリテーブルは持たないため、主要な記号ブロックの近似で判定する
 // (文字 (Letter) を誤って落とすより、稀な記号を通す方向に倒す)。
@@ -102,32 +72,21 @@ constexpr bool IsAnchorSkippableSymbol(uint32_t cp) noexcept
 
 } // namespace
 
-void GenerateAnchorIdInto(std::string_view text, std::string& slug)
+std::string GenerateAnchorId(std::string_view text)
 {
-    slug.clear();
+    std::string slug;
     // 出力は入力サイズ以下で確定のため一括確保して書き出す。
     slug.resize_and_overwrite(text.size(), [text](char* buf, size_t /*count*/) noexcept -> size_t {
         char* dst = buf;
-        const size_t n = text.size();
         size_t pos = 0;
-        while (pos < n) {
-            const auto cu = static_cast<uint32_t>(static_cast<unsigned char>(text[pos]));
-            if (cu < 0x80) {
-                // ASCII ファストパス: 1 回の table lookup で分岐を絞る。
-                switch (kAsciiSlugTable[cu]) {
-                case SlugKeep:
-                    *dst++ = static_cast<char>(cu);
-                    break;
-                case SlugLower:
-                    *dst++ = static_cast<char>(cu | 0x20);
-                    break;
-                case SlugHyphen:
+        while (pos < text.size()) {
+            const char c = text[pos];
+            if (static_cast<unsigned char>(c) < 0x80) {
+                if (ascii_util::IsAsciiWordChar(c) || c == '-') {
+                    *dst++ = ascii_util::ToLowerAscii(c);
+                }
+                else if (c == ' ' || c == '\t') {
                     *dst++ = '-';
-                    break;
-                case SlugSkip:
-                    break;
-                default:
-                    std::unreachable();
                 }
                 ++pos;
                 continue;
@@ -141,6 +100,7 @@ void GenerateAnchorIdInto(std::string_view text, std::string& slug)
         }
         return static_cast<size_t>(dst - buf);
     });
+    return slug;
 }
 
 std::string ToLowerAnchorCopy(std::string_view text)
@@ -174,19 +134,14 @@ std::string ToLowerAnchorCopy(std::string_view text)
 std::string_view HeadingAnchorIndex::Add(std::string_view heading_text, int node_index)
 {
     ++heading_count_;
-    GenerateAnchorIdInto(heading_text, base_);
+    const std::string base = GenerateAnchorId(heading_text);
     // キーは索引の arena に置く。衝突 (同じ見出しの繰り返し) では捨てた分も arena に残るが、まれなので構わない。
-    auto result = entries_.try_emplace(std::pmr::string(base_, &arena_), Entry{ node_index });
+    auto result = entries_.try_emplace(std::pmr::string(base, &arena_), Entry{ node_index });
     if (!result.second) {
         // unordered_map は再ハッシュでも要素の参照が変わらない。
         int& counter = result.first->second.counter;
         do {
-            char digits[16];
-            const auto end = std::to_chars(digits, std::end(digits), ++counter).ptr;
-            candidate_.assign(base_);
-            candidate_ += '-';
-            candidate_.append(digits, end);
-            result = entries_.try_emplace(std::pmr::string(candidate_, &arena_), Entry{ node_index });
+            result = entries_.try_emplace(std::pmr::string(std::format("{}-{}", base, ++counter), &arena_), Entry{ node_index });
         } while (!result.second);
     }
     return result.first->first;

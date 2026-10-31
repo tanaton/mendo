@@ -24,7 +24,7 @@
 #include <unordered_map>
 
 // 繰り返し描く短い文字列 (アイコン・リスト番号・プレースホルダ・サイドペインの項目等) のテキストレイアウトを
-// (書式, 文字列, 箱の大きさ) ごとに作り置く。DrawText は呼ぶたびに内部でレイアウトを作るため、
+// (書式, 文字列, 箱の大きさ, 下線) ごとに作り置く。DrawText は呼ぶたびに内部でレイアウトを作るため、
 // これで得たレイアウトを DrawTextLayout で描く。キーで書式を参照して持つので、書式を作り直しても
 // 解放したアドレスが新しい書式に使い回されて別の大きさのレイアウトが返ることはなく、古いものは上限で捨てる。
 class TextLayoutCache {
@@ -35,22 +35,26 @@ public:
         entries_.clear();
     }
 
-    // 作れなければ nullptr。返したレイアウトは次の BeginFrame / SetFactory まで有効。
-    IDWriteTextLayout* Get(IDWriteTextFormat* fmt, std::wstring_view text, D2D1_SIZE_F box)
+    // 作れなければ nullptr。返したレイアウトは次の BeginFrame / SetFactory まで有効。underline は下線を引く範囲 (IME の合成中の文字列)。
+    IDWriteTextLayout* Get(IDWriteTextFormat* fmt, std::wstring_view text, D2D1_SIZE_F box, DWRITE_TEXT_RANGE underline = {})
     {
-        if (!factory_ || !fmt || text.empty()) {
-            return nullptr;
-        }
-        if (const auto it = entries_.find(KeyView{ fmt, text, box.width, box.height }); it != entries_.end()) {
+        if (const auto it = entries_.find(KeyView{ fmt, text, box.width, box.height, underline.startPosition, underline.length }); it != entries_.end()) {
             it->second.last_used = frame_;
             return it->second.layout.Get();
         }
         Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
-        if (FAILED(factory_->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), fmt, box.width, box.height, &layout))) {
+        if (factory_ && fmt && !text.empty()) {
+            factory_->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), fmt, box.width, box.height, &layout);
+        }
+        if (!layout) {
             return nullptr;
         }
+        if (underline.length > 0) {
+            layout->SetUnderline(TRUE, underline);
+        }
         auto* const raw = layout.Get();
-        entries_.emplace(Key{ Microsoft::WRL::ComPtr<IDWriteTextFormat>(fmt), std::wstring(text), box.width, box.height }, Entry{ std::move(layout), frame_ });
+        entries_.emplace(Key{ Microsoft::WRL::ComPtr<IDWriteTextFormat>(fmt), std::wstring(text), box.width, box.height, underline.startPosition, underline.length },
+                         Entry{ std::move(layout), frame_ });
         return raw;
     }
 
@@ -96,6 +100,8 @@ private:
         std::wstring_view text;
         float width;
         float height;
+        uint32_t underline_start;
+        uint32_t underline_length;
         bool operator==(const KeyView&) const = default;
     };
     struct Key {
@@ -103,9 +109,11 @@ private:
         std::wstring text;
         float width;
         float height;
+        uint32_t underline_start;
+        uint32_t underline_length;
         operator KeyView() const noexcept
         {
-            return { fmt.Get(), text, width, height };
+            return { fmt.Get(), text, width, height, underline_start, underline_length };
         }
     };
     struct KeyHash {
@@ -117,6 +125,8 @@ private:
             mix(std::hash<const void*>{}(k.fmt));
             mix(std::bit_cast<uint32_t>(k.width));
             mix(std::bit_cast<uint32_t>(k.height));
+            mix(k.underline_start);
+            mix(k.underline_length);
             return h;
         }
     };
@@ -175,44 +185,10 @@ struct SearchInputMetrics {
     float selection_width = 0.0f; // 0 なら選択なし
 };
 
-// 検索欄の文字列のレイアウト。表示テキスト (IME の合成中テキストを挿入したもの) と幅が前回と同じ間は使い回す。
-// ドラッグ選択中は WM_MOUSEMOVE ごとに HitTest が来るので、描画と同じレイアウトを引く。
-class SearchInputLayout {
-public:
-    // 書式を作り直したら呼ぶ。前の書式のレイアウトは捨てる。
-    void SetFormat(IDWriteFactory* factory, IDWriteTextFormat* fmt) noexcept
-    {
-        factory_ = factory;
-        fmt_ = fmt;
-        Forget();
-    }
-    // レイアウトを用意して選択範囲とキャレットの位置を測る。返す layout は次の Measure / SetFormat まで有効。
-    SearchInputMetrics Measure(const SearchBarRenderState& sb, float width);
-    // 文字列の左端から local_x の位置に置くキャレットの文字位置。表示用のレイアウトが同じ文字列・幅なら使い回す。
-    int HitTest(std::wstring_view query, float local_x, float width) const;
-
-private:
-    bool Holds(std::wstring_view text, DWRITE_TEXT_RANGE underline, float width) const noexcept
-    {
-        return layout_ && width_ == width && underline_.startPosition == underline.startPosition && underline_.length == underline.length && text_ == text;
-    }
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> Create(std::wstring_view text, float width) const;
-    void Forget() noexcept
-    {
-        layout_.Reset();
-        text_.clear();
-        width_ = -1.0f;
-        underline_ = {};
-    }
-
-    IDWriteFactory* factory_ = nullptr;
-    Microsoft::WRL::ComPtr<IDWriteTextFormat> fmt_;
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout_;
-    std::wstring text_;
-    std::wstring scratch_;
-    float width_ = -1.0f;
-    DWRITE_TEXT_RANGE underline_{};
-};
+// 検索欄の文字列のレイアウトを text_layouts から引き、選択範囲とキャレットの位置を測る。
+SearchInputMetrics MeasureSearchInput(TextLayoutCache& text_layouts, IDWriteTextFormat* fmt, const SearchBarRenderState& sb, float width);
+// 文字列の左端から local_x の位置に置くキャレットの文字位置。ドラッグ選択中は WM_MOUSEMOVE ごとに呼ばれるので、描画と同じレイアウトを引く。
+int HitTestSearchInput(TextLayoutCache& text_layouts, IDWriteTextFormat* fmt, std::wstring_view query, float local_x, float width);
 
 // 本文ペインに重ねるもの (変換は恒等、クリップ無しで描く)。文字列は text_layouts に作り置き、fmt が null なら描かない。
 namespace overlay {
@@ -245,9 +221,9 @@ struct SidePaneFormats {
     // ファイル一覧のアイコン。
     IDWriteTextFormat* file_icon = nullptr;
 };
-// 表示中のサイドペインとスプリッタ。toc_titles は目次項目の UTF-16 で、描いた項目だけ作る。
+// 表示中のサイドペインとスプリッタ。
 void EmitSidePanes(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePaneFormats& fmts, const Theme& theme,
-                   const SidePaneState& sp, std::vector<std::wstring>& toc_titles);
+                   const SidePaneState& sp);
 } // namespace chrome
 
 // ドキュメントデータとビューポート状態から DrawCommandList を生成する。
@@ -255,13 +231,13 @@ void EmitSidePanes(DrawCommandList& out, TextLayoutCache& text_layouts, const Si
 class CommandGenerator {
 public:
     // theme・formats・text_layouts は持ち主 (Renderer) のもので、作り直しても同じ場所を指したままでよい。
-    // formats と text_layouts は文字列 (リスト番号・チェックボックス・アイコン・プレースホルダ) に使い、null なら文字列を描かない。
+    // formats と text_layouts は文字列 (リスト番号・チェックボックス・アイコン・プレースホルダ) に使う。
     // 前フレームのレイアウトの破棄 (TextLayoutCache::BeginFrame) は持ち主が行う。
-    void Init(const Theme& theme, const MdPaneFormats* formats = nullptr, TextLayoutCache* text_layouts = nullptr) noexcept
+    void Init(const Theme& theme, const MdPaneFormats& formats, TextLayoutCache& text_layouts) noexcept
     {
         theme_ = &theme;
-        formats_ = formats ? formats : &kNoFormats;
-        text_layouts_ = text_layouts;
+        formats_ = &formats;
+        text_layouts_ = &text_layouts;
     }
 
     // Markdownコンテンツペインのすべての描画コマンドを out の後ろに積む。
@@ -291,9 +267,6 @@ private:
         D2D1::Matrix3x2F pane_transform;
         NodeOverhang overhang{};
     };
-
-    // 選択範囲外に出たノードの SelectionHlCache を前フレームとの差分区間だけ解放する。
-    void ReleaseStaleSelectionHlCaches(const LayoutCache& cache, const TextSelection& selection);
 
     void GenerateNode(const Node& node, const NodeLayoutEntry& entry, const DiagramEntry* diagram, int node_index, float entry_text_top);
 
@@ -338,13 +311,10 @@ private:
     std::span<const DWRITE_HIT_TEST_METRICS> HitTestRange(IDWriteTextLayout* layout, uint32_t start, uint32_t length);
     // 可視 Y 範囲と重なる矩形だけ FillRectCmd を積む。
     void EmitFillRectIfVisible(const D2D1_RECT_F& r, BrushId brush);
-    // HitTestTextRange の結果をレイアウト原点相対の D2D1_RECT_F に変換し out へ append する。
-    // SearchHlCache / SelectionHlCache の rebuild に共用する。
-    void CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::vector<D2D1_RECT_F>& out);
-    // 本文ノード（テーブル外）専用の選択ハイライト発行。
-    // (layout, doc_start, doc_length) 一致でフレーム間キャッシュをヒットさせ
-    // HitTestTextRange と UTF-8→UTF-16 decode の両方を省く。doc_start / doc_length は UTF-8 byte 単位。
-    void GenSelectionHighlightCached(const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y);
+    // 数式の一部に当たった選択や検索ヒットも数式全体を塗れるよう、クラスタまで広げて引く (HitTestRange)。
+    std::span<const DWRITE_HIT_TEST_METRICS> HitTestClusters(IDWriteTextLayout* layout, uint32_t start, uint32_t length);
+    // 本文ノード（テーブル外）専用の選択ハイライト発行。doc_start / doc_length は UTF-8 byte 単位。
+    void GenSelectionHighlight(const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y);
     // 本文ノードのマッチのうち可視範囲の前後の行にかかるものを描く。
     void GenSearchHighlights(const NodeLayoutEntry& entry, int node_index, float origin_x, float origin_y);
 
@@ -370,9 +340,8 @@ private:
     // 書式の揃えに従って origin から box の範囲に text を描く。
     void EmitText(std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, BrushId brush_id, float opacity = 1.0f);
 
-    inline static const MdPaneFormats kNoFormats{};
     const Theme* theme_ = nullptr;
-    const MdPaneFormats* formats_ = &kNoFormats;
+    const MdPaneFormats* formats_ = nullptr;
     TextLayoutCache* text_layouts_ = nullptr;
     FrameContext frame_;
 
@@ -380,9 +349,4 @@ private:
     DrawCommandList* cmds_ = nullptr;
 
     std::vector<DWRITE_HIT_TEST_METRICS> hit_test_buffer_;
-
-    // 前フレームの選択ノード範囲。範囲外に出たノードの selection_hl_cache を
-    // 解放するために使う。-1/-1 は「前フレームは非アクティブ」を示す。
-    int prev_sel_start_node_ = -1;
-    int prev_sel_end_node_ = -1;
 };

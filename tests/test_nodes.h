@@ -65,7 +65,8 @@ inline bool TextPointsIntoRaw(const Node& n, std::string_view raw) noexcept
 inline void SetTestText(Node& n, std::string_view text, int32_t line_count)
 {
     const std::scoped_lock lock{ test_nodes_detail::Mutex() };
-    n.SetText(test_nodes_detail::Arena().CopyText(text), line_count);
+    n.SetText(test_nodes_detail::Arena().CopyText(text));
+    n.line_count = line_count;
 }
 
 inline void SetTestRuns(Node& n, std::span<const TextRun> runs)

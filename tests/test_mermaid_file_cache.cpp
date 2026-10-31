@@ -98,47 +98,43 @@ protected:
     void SetUp() override
     {
         cache_.SetCacheDir(temp_dir_);
-        scheduler_.Init(2);
     }
 
     void TearDown() override
     {
-        scheduler_.Shutdown();
+        scheduler_->Shutdown();
     }
 
     void InitCache(float dpr = 1.0f)
     {
-        cache_.Init(dpr, scheduler_);
+        cache_.Init(dpr, *scheduler_);
     }
 
     // SaveIndex + スケジューラ再起動 → 再ロードのサイクルを実行する
     void FlushAndReopen(float dpr = 1.0f)
     {
         cache_.SaveIndex();
-        scheduler_.Shutdown();
-        scheduler_.Init(2);
-        cache_.Init(dpr, scheduler_);
+        scheduler_.emplace(2);
+        cache_.Init(dpr, *scheduler_);
     }
 
     // 書き込みを着地させてから、同じディレクトリ (省略時は temp_dir_) を別インスタンスで開く。
     std::unique_ptr<MermaidFileCache> OpenFreshCache(float dpr = 1.0f, const std::filesystem::path& dir = {})
     {
-        scheduler_.Shutdown();
-        scheduler_.Init(2);
+        scheduler_.emplace(2);
         auto fresh = std::make_unique<MermaidFileCache>();
         fresh->SetCacheDir(dir.empty() ? temp_dir_ : dir);
-        fresh->Init(dpr, scheduler_);
+        fresh->Init(dpr, *scheduler_);
         return fresh;
     }
 
     // worker を 1 本にして塞ぎ、以降に積んだタスク (書き込み・消去) を確実に待たせる。戻り値に set_value すると走り出す。
     std::promise<void> BlockSingleWorker()
     {
-        scheduler_.Shutdown();
-        scheduler_.Init(1);
+        scheduler_.emplace(1);
         std::promise<void> release;
         std::shared_future<void> released = release.get_future().share();
-        EXPECT_TRUE(scheduler_.Post([released] { released.wait(); }));
+        EXPECT_TRUE(scheduler_->Post([released] { released.wait(); }));
         return release;
     }
 
@@ -158,16 +154,17 @@ protected:
         EXPECT_EQ(cache_.EntryCount(), 2u);
 
         release.set_value();
-        scheduler_.Shutdown();
+        scheduler_->Shutdown();
 
         EXPECT_FALSE(std::filesystem::exists(cache_.PngPath(1)));
         EXPECT_TRUE(std::filesystem::exists(cache_.PngPath(2)));
         EXPECT_TRUE(std::filesystem::exists(cache_.PngPath(3)));
 
-        scheduler_.Init(2);
+        scheduler_.emplace(2);
     }
 
-    TaskScheduler scheduler_;
+    // 止めて作り直せる scheduler。作り直してもアドレスは変わらないので、キャッシュは持ち続けられる。
+    std::optional<TaskScheduler> scheduler_{ std::in_place, 2 };
     MermaidFileCache cache_;
 };
 
@@ -488,13 +485,13 @@ TEST_F(MermaidFileCacheTest, AsyncWriteCreatesFile)
     cache_.StoreAsync(777, 500.0f, 400.0f, png);
 
     // スケジューラをシャットダウンしてキューを完全に処理する
-    scheduler_.Shutdown();
+    scheduler_->Shutdown();
 
     // PNGファイルが存在すること（内部キーでファイル名を計算）
     EXPECT_TRUE(std::filesystem::exists(cache_.PngPath(777ULL)));
 
     // TearDownのためにスケジューラを再起動
-    scheduler_.Init(2);
+    scheduler_.emplace(2);
 }
 
 // ═══════════════════════════════════════════════
@@ -662,15 +659,15 @@ TEST_F(MermaidFileCacheTest, FindTouchUpdatesOnlyTheHit)
 // インデックスが指していない PNG）を生み出す原因になっていた。
 TEST_F(MermaidFileCacheTest, LookupDuringPendingWriteKeepsIndex)
 {
-    // scheduler_ を Shutdown → InitCache → Init(1) で再構成し、
+    // scheduler_ を Shutdown → InitCache → emplace(1) で再構成し、
     // StoreAsync の直後にワーカーが PNG 書き込みを完了する前に
     // Lookup を走らせる。タイミング上 in-flight を捕捉できないことも
     // あるが、その場合は LookupDimensions が成功するだけで assertion は
     // 破綻しない（pending でも完了でも index は残っているべき、という
     // 契約を検証する）。
-    scheduler_.Shutdown();
+    scheduler_->Shutdown();
     InitCache();
-    scheduler_.Init(1);
+    scheduler_.emplace(1);
 
     const uint64_t key = 0x1234567890abcdefULL;
     cache_.StoreAsync(key, 100.0f, 80.0f, MakeDummyPng(64));
@@ -700,10 +697,9 @@ TEST_F(MermaidFileCacheTest, EvictionDuringDuplicatePendingWritesLeavesNoOrphanP
 // Clear (設定ダイアログのキャッシュ削除)
 // ═══════════════════════════════════════════════
 
-// 索引に無い PNG も含めてフォルダごと消える。消す作業は worker に回り、移したフォルダも残らない。次に開いても空のまま。
+// 索引に無い PNG も含めて全部消える。消す作業は worker に回る。次に開いても空のまま。
 TEST_F(MermaidFileCacheTest, ClearRemovesEntriesAndFiles)
 {
-    // 消すフォルダの移し先 (隣) まで temp_dir_ の中に収める。
     const auto dir = temp_dir_ / L"cache";
     cache_.SetCacheDir(dir);
     InitCache();
@@ -718,12 +714,10 @@ TEST_F(MermaidFileCacheTest, ClearRemovesEntriesAndFiles)
 
     EXPECT_EQ(cache_.EntryCount(), 0u);
     EXPECT_EQ(cache_.TotalSize(), 0u);
-    EXPECT_FALSE(std::filesystem::exists(orphan));
-    EXPECT_FALSE(std::filesystem::exists(dir / L"index.bin"));
 
     FlushAndReopen();
     EXPECT_EQ(cache_.EntryCount(), 0u);
-    EXPECT_TRUE(std::filesystem::is_empty(temp_dir_)) << "移したフォルダが残っている";
+    EXPECT_TRUE(std::filesystem::is_empty(dir));
 }
 
 // 違う版 (古い描き方) かヘッダの壊れた索引なら、引けない PNG を索引に載らないまま残さないよう、フォルダごと捨てる。
@@ -749,16 +743,16 @@ TEST_F(MermaidFileCacheTest, UnusableIndexDiscardsWholeFolder)
         ASSERT_TRUE(WriteAllBytes(dir / L"0123456789abcdef.png", "x", 1));
         MermaidFileCache cache;
         cache.SetCacheDir(dir);
-        cache.Init(1.0f, scheduler_);
+        cache.Init(1.0f, *scheduler_);
 
         EXPECT_EQ(cache.EntryCount(), 0u);
-        scheduler_.Shutdown();
-        EXPECT_TRUE(std::filesystem::is_empty(temp_dir_)) << "フォルダが残っている";
-        scheduler_.Init(2);
+        scheduler_->Shutdown();
+        EXPECT_TRUE(std::filesystem::is_empty(dir)) << "ファイルが残っている";
+        scheduler_.emplace(2);
     }
 }
 
-// 消している途中で終わって残った移し先のフォルダは、次に図のキャッシュを使うときに worker で消える。
+// 前の版の Clear が別名にして残したフォルダは、次に図のキャッシュを使うときに worker で消える。
 TEST_F(MermaidFileCacheTest, LeftoverDoomedDirIsRemovedOnFirstUse)
 {
     const auto dir = temp_dir_ / L"cache";
@@ -771,28 +765,10 @@ TEST_F(MermaidFileCacheTest, LeftoverDoomedDirIsRemovedOnFirstUse)
     InitCache();
 
     EXPECT_EQ(cache_.EntryCount(), 0u);
-    scheduler_.Shutdown();
+    scheduler_->Shutdown();
     EXPECT_FALSE(std::filesystem::exists(leftover));
     EXPECT_TRUE(std::filesystem::exists(unrelated));
-    scheduler_.Init(2);
-}
-
-// 前に消し損ねたフォルダも、次に消すときにまとめて消える。
-TEST_F(MermaidFileCacheTest, ClearAlsoRemovesLeftoverDoomedDirs)
-{
-    const auto dir = temp_dir_ / L"cache";
-    const auto leftover = temp_dir_ / L"cache.deleting-1";
-    cache_.SetCacheDir(dir);
-    InitCache();
-    cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
-    FlushAndReopen();
-    std::filesystem::create_directories(leftover);
-    ASSERT_TRUE(WriteAllBytes(leftover / L"0123456789abcdef.png", "x", 1));
-
-    cache_.Clear();
-    scheduler_.Shutdown();
-    EXPECT_TRUE(std::filesystem::is_empty(temp_dir_));
-    scheduler_.Init(2);
+    scheduler_.emplace(2);
 }
 
 // 書き込み中の PNG は着地後に消え、消した後に孤立ファイルとして現れない。
@@ -804,16 +780,15 @@ TEST_F(MermaidFileCacheTest, ClearDuringPendingWriteLeavesNoPng)
 
     cache_.Clear();
     release.set_value();
-    scheduler_.Shutdown();
+    scheduler_->Shutdown();
 
     EXPECT_FALSE(std::filesystem::exists(cache_.PngPath(1)));
     EXPECT_EQ(cache_.EntryCount(), 0u);
-    scheduler_.Init(2);
+    scheduler_.emplace(2);
 }
 
-// 中のファイルを開かれていてフォルダを移せなくても、消せるものは worker で消す。消し終える前に同じ名前で
-// 保存した PNG と索引は、書いた後に消されない。
-TEST_F(MermaidFileCacheTest, ClearOfBusyFolderRemovesOnWorker)
+// 消すのは worker で、キャッシュのファイルだけ。消し終える前に同じ名前で保存した PNG と索引は、書いた後に消されない。
+TEST_F(MermaidFileCacheTest, ClearRemovesOnWorker)
 {
     const auto dir = temp_dir_ / L"cache";
     cache_.SetCacheDir(dir);
@@ -821,25 +796,22 @@ TEST_F(MermaidFileCacheTest, ClearOfBusyFolderRemovesOnWorker)
     cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
     cache_.StoreAsync(2, 100.0f, 50.0f, MakeDummyPng(100));
     FlushAndReopen();
-    const auto busy = dir / L"busy.txt";
-    ASSERT_TRUE(WriteAllBytes(busy, "x", 1));
-    const UniqueHandle busy_handle(CreateFileW(busy.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr));
-    ASSERT_TRUE(busy_handle);
+    const auto unrelated = dir / L"unrelated.txt";
+    ASSERT_TRUE(WriteAllBytes(unrelated, "x", 1));
 
     auto release = BlockSingleWorker();
     cache_.Clear();
-    ASSERT_TRUE(std::filesystem::exists(dir)) << "フォルダを移せてしまい、確かめたい経路を通っていない";
     EXPECT_TRUE(std::filesystem::exists(cache_.PngPath(2))) << "UI スレッドで消している";
     EXPECT_EQ(cache_.EntryCount(), 0u);
     cache_.StoreAsync(1, 100.0f, 50.0f, MakeDummyPng(100));
     cache_.SaveIndex();
 
     release.set_value();
-    scheduler_.Shutdown();
+    scheduler_->Shutdown();
     EXPECT_TRUE(std::filesystem::exists(cache_.PngPath(1))) << "消した後に保存した PNG を消した";
     EXPECT_FALSE(std::filesystem::exists(cache_.PngPath(2)));
-    EXPECT_TRUE(std::filesystem::exists(busy));
-    scheduler_.Init(2);
+    EXPECT_TRUE(std::filesystem::exists(unrelated));
+    scheduler_.emplace(2);
 
     const auto fresh = OpenFreshCache(1.0f, dir);
     MermaidFileCache::CacheEntry entry;

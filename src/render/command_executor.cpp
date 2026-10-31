@@ -203,10 +203,9 @@ private:
 
 } // namespace
 
-InlineMathPage& InlineMathMasks::AddPage(Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap, bool reloadable)
+InlineMathPage& InlineMathMasks::AddPage(Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap)
 {
-    auto& page = *pages.emplace_back(std::make_unique<InlineMathPage>(InlineMathPage{
-        .bitmap = std::move(bitmap), .reloadable = reloadable, .last_drawn = frame }));
+    auto& page = *pages.emplace_back(std::make_unique<InlineMathPage>(InlineMathPage{ .bitmap = std::move(bitmap), .last_drawn = frame }));
     page_bytes += BitmapBytes(page.bitmap.Get());
     return page;
 }
@@ -232,7 +231,7 @@ void InlineMathMasks::EvictPages(size_t budget)
     }
     std::vector<InlineMathPage*> order;
     for (const auto& p : pages) {
-        if (p->reloadable && p->last_drawn != frame) {
+        if (p->last_drawn != frame) {
             order.push_back(p.get());
         }
     }

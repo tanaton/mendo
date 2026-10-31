@@ -3,6 +3,7 @@
 // モックの固定行高では再現できない。
 #include <gtest/gtest.h>
 #include "command_generator.h"
+#include "draw_cmd_test_util.h"
 #include "draw_command.h"
 #include "dwrite_test_base.h"
 #include "search_state.h"
@@ -48,8 +49,7 @@ protected:
     void Load(Doc& d, const std::string& md)
     {
         d.pl = ParseAndLayout(md, VIEWPORT_W);
-        d.search.SetQuery("hit");
-        RunSearchToEnd(d.search, d.pl.nodes);
+        RunSearchToEnd(d.search, d.pl.nodes, "hit");
         for (const auto& m : d.search.GetMatches()) {
             const auto node = static_cast<size_t>(m.node_index);
             d.match_ys.push_back(d.pl.cache[node].GetMatchYRange(m.table_row, m.table_col, m.start_w, d.pl.cache.Top(node)).first);
@@ -96,7 +96,7 @@ TEST_F(SearchMatchYTest, MatchYRangeAgreesWithDrawnHighlight)
     Doc d;
     Load(d, MakeDoc(1, 1));
     CommandGenerator gen;
-    gen.Init(theme_);
+    InitWithoutText(gen, theme_);
 
     const auto& matches = d.search.GetMatches();
     for (int i = 0; i < static_cast<int>(matches.size()); i++) {

@@ -97,9 +97,6 @@ TEST(DocumentTest, SourceOffsetPointsToNodeTextStart)
     bool checked_any = false;
     for (const auto& n : nodes) {
         const size_t off = n.SourceOffset();
-        if (off == kUnsetSourceOffset) {
-            continue;
-        }
         if (!n.HasText()) {
             continue;
         }
@@ -127,9 +124,6 @@ TEST(DocumentTest, SourceOffsetSurvivesEmbeddedNullInCodeBlock)
     bool checked_any = false;
     for (const auto& n : nodes) {
         const size_t off = n.SourceOffset();
-        if (off == kUnsetSourceOffset) {
-            continue;
-        }
         EXPECT_LT(off, raw.size())
             << "source_offset must remain within input buffer when md4c emits MD_TEXT_NULLCHAR";
         checked_any = true;

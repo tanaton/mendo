@@ -6,7 +6,7 @@
 
 class ConfigService;
 
-class Win32Window final : public WindowHost {
+class Win32Window final : public ModalLoop {
 public:
     explicit Win32Window(ConfigService& config);
     ~Win32Window();
@@ -14,8 +14,11 @@ public:
     bool Create(HINSTANCE hInstance, int nCmdShow);
     int RunMessageLoop();
     void RunUntil(const bool& done) override;
-    void FocusSearchEdit(int anchor, int caret) override;
-    void UnfocusSearch(bool clear_text) override;
+    // 以下はどれも呼び出し中に App::Dispatch へ入り直しうる (フォーカスの移動や入力欄の書き換えの通知)。
+    // 検索の入力欄 (非表示の EDIT) にフォーカスを移し、[anchor, caret) を選択する。caret が -1 なら末尾まで。
+    void FocusSearchEdit(int anchor, int caret);
+    // 本体にフォーカスを戻す。clear_text なら入力欄を空にする (文書の切り替え)。
+    void UnfocusSearch(bool clear_text);
 
     // 起動時の準備 (preload・スクロール位置・ファイルペインのフォルダ) は Create より前に App へ直接頼む。
     App& app() noexcept

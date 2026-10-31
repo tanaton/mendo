@@ -564,18 +564,15 @@ TEST_F(ReducerTest, DocumentReloaded_ClearsNodeBoundState)
     EXPECT_TRUE(HidesTooltip(effects));
 }
 
-// 文書を対象にするドラッグはキャプチャごと終え、待たせていたリロードは旧文書のものなので予約しない。
+// 文書を対象にするドラッグはキャプチャごと終える。
 TEST_F(ReducerTest, DocumentReloaded_EndsDocumentBoundDrag)
 {
     state.view.drag = { .kind = LeftDrag::TextSelect, .select_node = 1 };
-    state.view.reload_after_drag = true;
 
     const auto effects = Reduce(state, DocumentReloadedAction{});
 
     EXPECT_EQ(state.view.drag.kind, LeftDrag::None);
-    EXPECT_FALSE(state.view.reload_after_drag);
     EXPECT_TRUE(HasEffect<effect::ReleaseCapture>(effects));
-    EXPECT_FALSE(HasEffect<effect::SetTimer>(effects));
 }
 
 // スプリッタのドラッグは文書と無関係なので続ける。
@@ -741,15 +738,29 @@ TEST_F(ReducerTest, Resize_Normal_SettlesViewport)
     EXPECT_TRUE(HasEffect<effect::SettleViewport>(effects));
 }
 
-TEST_F(ReducerTest, Resize_Sizing_EmitsSizingUpdate)
+TEST_F(ReducerTest, Resize_Sizing_RedrawsWithoutSettling)
 {
     state.window.is_sizing = true;
     state.window.cached_dpi_scale = 1.0f;
     auto effects = Reduce(state, ResizeAction{ 800, 600 });
 
     EXPECT_TRUE(HasEffect<effect::RendererResize>(effects));
-    EXPECT_TRUE(HasEffect<effect::PerformSizingUpdate>(effects));
+    EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
     EXPECT_FALSE(HasEffect<effect::SettleViewport>(effects));
+}
+
+// ライブリサイズ中はスクロールを上限に収めるだけで、幅が決まる前に図や画像を取りに行かない。
+TEST_F(ReducerTest, Resize_Sizing_ClampsScrollWithoutBitmapManage)
+{
+    state.window.is_sizing = true;
+    state.window.cached_dpi_scale = 1.0f;
+    Reduce(state, ResizeAction{ 800, 600 });
+    state.view.viewport.SetScrollY(100000.0f);
+
+    const auto effects = Reduce(state, ResizeAction{ 800, 500 });
+
+    EXPECT_FLOAT_EQ(state.view.viewport.GetScrollY(), MdMaxScroll(state));
+    EXPECT_FALSE(HasEffect<effect::BitmapManage>(effects));
 }
 
 // 最小化からの復元などで同じ大きさの WM_SIZE が来ても、描画面とレイアウトは作り直さない。
@@ -922,35 +933,6 @@ TEST_F(ReducerTest, CaptureChanged_ResetsLeftDrag)
         EXPECT_EQ(state.view.HDragNode(), -1);
         EXPECT_TRUE(HasEffect<effect::InvalidateWindow>(effects));
     }
-}
-
-namespace {
-bool HasReloadTimer(const SideEffectList& effects)
-{
-    const auto* t = FindEffect<effect::SetTimer>(effects);
-    return t && t->id == app_timer::Id::FILE_RELOAD_DEBOUNCE;
-}
-} // namespace
-
-// ドラッグ中に待たせたリロードは、ドラッグの終わり方によらず 1 回だけ予約する。
-TEST_F(ReducerTest, TextSelectionDragEnd_SchedulesDeferredReload)
-{
-    state.view.drag = { .kind = LeftDrag::TextSelect };
-    state.view.reload_after_drag = true;
-    auto effects = Reduce(state, LeftDragEndedAction{ -1, 0 });
-    EXPECT_TRUE(HasReloadTimer(effects));
-    EXPECT_FALSE(state.view.reload_after_drag);
-
-    state.view.drag = { .kind = LeftDrag::TextSelect };
-    EXPECT_FALSE(HasReloadTimer(Reduce(state, LeftDragEndedAction{ -1, 0 })));
-}
-
-TEST_F(ReducerTest, CaptureChanged_SchedulesDeferredReload)
-{
-    state.view.drag = { .kind = LeftDrag::TextSelect };
-    state.view.reload_after_drag = true;
-    EXPECT_TRUE(HasReloadTimer(Reduce(state, CaptureChangedAction{})));
-    EXPECT_FALSE(state.view.reload_after_drag);
 }
 
 // ---- SplitterDrag* テスト ----
@@ -1577,15 +1559,6 @@ TEST_F(ReducerTest, SyncActiveToc_FollowsLayoutChangeWithoutScroll)
 
     SyncActiveTocIndex(state);
     EXPECT_GE(state.view.active_toc_index, 1);
-}
-
-// ---- 副作用順序 (test_helpers.h::HasEffectInOrder) ----
-// PerformSizingUpdate はリサイズ済みの render target を読むため、順序そのものを検証する。
-TEST_F(ReducerTest, Resize_EmitsRendererResizeBeforeSizingUpdate)
-{
-    state.window.is_sizing = true;
-    auto effects = Reduce(state, ResizeAction{ 1024, 768 });
-    EXPECT_TRUE((HasEffectInOrder<effect::RendererResize, effect::PerformSizingUpdate>(effects)));
 }
 
 // ペイン配置はクライアント寸法と DPI から組む。DPI が変わると同じピクセル寸法でも DIP の幅が変わり、

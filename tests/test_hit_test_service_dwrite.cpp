@@ -8,6 +8,7 @@
 #include "dwrite_test_base.h"
 #include "block_h_scroll.h"
 #include "command_generator.h"
+#include "draw_cmd_test_util.h"
 #include "document_utils.h"
 #include "hit_test_service.h"
 #include "layout_computer.h"
@@ -164,7 +165,6 @@ TEST_F(HitTestDWriteTest, RightHalfOfLastLinkCharInTableCellHitsLink)
     const auto& node = pl.nodes[static_cast<size_t>(idx)];
     const auto* tl = pl.cache[idx].table_layout();
     ASSERT_NE(tl, nullptr);
-    ASSERT_TRUE(tl->HasGeometry());
     IDWriteTextLayout* cell = tl->GetCellLayout(1, 0);
     ASSERT_NE(cell, nullptr);
     FLOAT x = 0.0f, y = 0.0f;
@@ -273,7 +273,6 @@ protected:
         ASSERT_NE(pl_.cache[idx].table_layout(), nullptr);
         const auto& tl = *pl_.cache[idx].table_layout();
         t_ = { &tl, pl_.nodes[idx].table_data()->row_count, pl_.cache[idx].height, pl_.cache.Top(static_cast<size_t>(idx)) };
-        ASSERT_TRUE(tl.HasGeometry());
     }
 };
 
@@ -284,7 +283,7 @@ TEST_F(FindTableCellTest, BordersAttributedLikeDrawing)
     ASSERT_GE(col_count, 2u);
 
     CommandGenerator gen;
-    gen.Init(theme_);
+    InitWithoutText(gen, theme_);
     DrawCommandList cmds;
     gen.GenerateMdPane(cmds, { .nodes = pl_.nodes, .cache = pl_.cache, .selection = TextSelection{}, .md_pane_rect = PaneRect{ 0.0f, 0.0f, 4000.0f, 2000.0f } }, 1.0f);
 

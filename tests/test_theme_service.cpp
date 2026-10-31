@@ -5,7 +5,7 @@
 class ThemeServiceTest : public ::testing::Test {
 protected:
     ConfigService config_;
-    ThemeService service_{ config_ };
+    ThemeService service_;
 };
 
 TEST_F(ThemeServiceTest, InitiallyLightMode)
@@ -59,7 +59,7 @@ TEST_F(ThemeServiceTest, CreateThemeDarkModeWithZoom)
 
 TEST_F(ThemeServiceTest, LoadZoomLevelDefault)
 {
-    const int idx = service_.LoadZoomLevel().Index();
+    const int idx = session::LoadZoomLevel(config_).Index();
     EXPECT_GE(idx, 0);
     EXPECT_LT(idx, ZOOM_STEP_COUNT);
 }

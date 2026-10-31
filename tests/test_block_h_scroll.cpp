@@ -106,12 +106,12 @@ TEST(GetBlockHScrollGeometry, ScrollableCodeBlockUsesNaturalCodeWidth)
     EXPECT_EQ(g.scroll_key, 0);
 }
 
-// Table は描画と同じ TableWidth (配置後の列幅合計) を採用する。幾何を無効化した表は描画されないので、スクロールもさせない。
+// Table は描画と同じ TableWidth (配置後の列幅合計) を採用する。
 TEST(GetBlockHScrollGeometry, TableUsesLaidOutTableWidth)
 {
     const Theme theme = GetLightTheme();
     OneNodeDoc doc{ NodeType::Table };
-    auto& tl = doc.entry().ensure_table_layout(0, 2);
+    auto& tl = doc.entry().set_table_layout(std::make_unique<TableLayoutData>(0, 2, false));
     tl.col_widths = { 1000.0f, 1000.0f };
     tl.CommitGeometry(2000.0f);
 

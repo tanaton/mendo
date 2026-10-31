@@ -42,7 +42,8 @@ private:
         n.type = src.type;
         n.heading_level = src.heading_level;
         n.code_language = src.code_language;
-        n.SetText(src.GetText(), src.line_count);
+        n.SetText(src.GetText());
+        n.line_count = src.line_count;
         n.SetRuns(src.runs());
         n.payload_ = src.payload_;
         return n;

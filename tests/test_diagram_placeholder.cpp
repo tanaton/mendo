@@ -35,7 +35,7 @@ protected:
         formats_.placeholder_text = CreateTextFormat(dwrite_factory_.Get(), spec);
         ASSERT_NE(formats_.placeholder_text, nullptr);
         text_layouts_.SetFactory(dwrite_factory_.Get());
-        gen_.Init(theme_, &formats_, &text_layouts_);
+        gen_.Init(theme_, formats_, text_layouts_);
     }
 };
 

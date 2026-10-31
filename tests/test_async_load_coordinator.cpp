@@ -12,23 +12,19 @@
 
 namespace {
 
-// scheduler は fixture で 1 度だけ Init/Shutdown する。各テストの Init/Shutdown は
+// scheduler は fixture で 1 度だけ作って Shutdown する。テストごとに作ると
 // ワーカー thread の生成・join を毎回招きトータル数百ms に達するため。
 class AsyncLoadCoordinatorTest : public ::testing::Test {
 protected:
     static TaskScheduler scheduler_;
 
-    static void SetUpTestSuite()
-    {
-        scheduler_.Init(1);
-    }
     static void TearDownTestSuite()
     {
         scheduler_.Shutdown();
     }
 };
 
-TaskScheduler AsyncLoadCoordinatorTest::scheduler_;
+TaskScheduler AsyncLoadCoordinatorTest::scheduler_{ 1 };
 
 // 結果が出るまで待って取り出す。時間切れなら nullopt。
 std::optional<AsyncLoadOutcome> WaitForOutcome(AsyncLoadCoordinator& c)
@@ -55,25 +51,6 @@ TEST_F(AsyncLoadCoordinatorTest, CancelOnIdleIsSafe)
     AsyncLoadCoordinator c;
     c.Cancel();
     EXPECT_FALSE(c.IsActive());
-    EXPECT_FALSE(c.Take().has_value());
-}
-
-TEST_F(AsyncLoadCoordinatorTest, ShutdownSchedulerCausesReadFailedError)
-{
-    // Shutdown 済み scheduler への Post は false を返し、coordinator は同期的に
-    // error_=ReadFailed を立てて in_flight_=false に戻す経路を踏む。
-    TaskScheduler local;
-    local.Init(1);
-    local.Shutdown();
-
-    AsyncLoadCoordinator c;
-    c.Start(local, std::wstring(L"unused.md"), GetLightTheme());
-
-    EXPECT_FALSE(c.IsActive());
-    auto outcome = c.Take();
-    ASSERT_TRUE(outcome.has_value());
-    ASSERT_FALSE(outcome->has_value());
-    EXPECT_EQ(outcome->error(), FileLoadError::ReadFailed);
     EXPECT_FALSE(c.Take().has_value());
 }
 

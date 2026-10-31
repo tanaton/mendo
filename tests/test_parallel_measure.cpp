@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 #include <atomic>
 #include <chrono>
-#include <limits>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -22,12 +21,11 @@ namespace {
 
 class ParallelMeasureTest : public MockLayoutTestBase {
 protected:
-    TaskScheduler task_scheduler_;
+    TaskScheduler task_scheduler_{ 2 };
 
     void SetUp() override
     {
         MockLayoutTestBase::SetUp();
-        task_scheduler_.Init(2);
     }
     void TearDown() override
     {
@@ -41,8 +39,7 @@ class DirtyBatchSerialTest : public MockLayoutTestBase {};
 class ThrowingMeasurer : public MockTextMeasurer {
 public:
     const Node* throw_on = nullptr;
-    // throw_on の計測を最初の throw_times 回だけ失敗させる。worker から呼ばれるので試行回数は atomic。
-    int throw_times = std::numeric_limits<int>::max();
+    // throw_on の計測を失敗させる。worker から呼ばれるので試行回数は atomic。
     // 例外の代わりに、書式やレイアウトを作れなかったときと同じく nullopt で失敗させる。
     bool fail_with_nullopt = false;
     mutable std::atomic<int> attempts{ 0 };
@@ -50,7 +47,8 @@ public:
     std::optional<float> MeasureNode(const Node& node, NodeLayoutEntry& entry, float max_width,
                                      YRange viewport = YRange::All()) const override
     {
-        if (&node == throw_on && attempts.fetch_add(1) < throw_times) {
+        if (&node == throw_on) {
+            attempts.fetch_add(1);
             if (fail_with_nullopt) {
                 return std::nullopt;
             }
@@ -216,8 +214,8 @@ TEST_F(ParallelMeasureTest, EnsureVisibleLayoutParallelMatchesSerial)
 }
 
 // 並列計測の chunk が例外で落ちても、落ちる前に計測できたノードの高さを Y に反映し、
-// 計測できなかった dirty は HasDirtyNodes() で次回の再試行に回す。
-TEST_F(ParallelMeasureTest, ProcessDirtyBatchRetriesAfterChunkException)
+// 計測できなかったノードは再試行に回さず dirty を外す。
+TEST_F(ParallelMeasureTest, ProcessDirtyBatchGivesUpOnThrowingNode)
 {
     struct Case {
         size_t dirty_count;
@@ -250,16 +248,16 @@ TEST_F(ParallelMeasureTest, ProcessDirtyBatchRetriesAfterChunkException)
             : engine.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All());
         measurer.SetScheduler(nullptr);
 
-        EXPECT_TRUE(cache[thrower].layout_dirty);
-        EXPECT_TRUE(more);
-        EXPECT_TRUE(cache.HasDirtyNodes()) << "計測できなかった dirty の再試行が止まる";
+        EXPECT_FALSE(cache[thrower].layout_dirty);
+        EXPECT_FALSE(more);
+        EXPECT_FALSE(cache.HasDirtyNodes()) << "計測できなかったノードでダーティ処理が続いている";
         EXPECT_TRUE(YChainConsistent(nodes, cache, theme_));
     }
 }
 
-// 常に例外を投げるノードは kMaxMeasureAttempts 回で諦めて dirty を外し、ダーティ処理を止める。
-// 同じ chunk の他のノードは例外に巻き込まれず計測される。諦めた記録は全レイアウトの無効化で消え、再び試される。
-TEST_F(ThrowingMeasureTest, AlwaysThrowingNodeStopsRetryingAfterMaxAttempts)
+// 例外を投げるノードは 1 回で諦めて dirty を外し、ダーティ処理を止める。
+// 同じ chunk の他のノードは例外に巻き込まれず計測される。全レイアウトの無効化で再び試される。
+TEST_F(ThrowingMeasureTest, ThrowingNodeIsNotRetried)
 {
     constexpr size_t kFirstDirty = 5;
     constexpr size_t kDirtyCount = 10;
@@ -273,29 +271,27 @@ TEST_F(ThrowingMeasureTest, AlwaysThrowingNodeStopsRetryingAfterMaxAttempts)
     measurer_.throw_on = &nodes[kThrower];
 
     measurer_.SetScheduler(&task_scheduler_);
-    ASSERT_TRUE(engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All()));
+    EXPECT_FALSE(engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All()));
     for (size_t k = 0; k < kDirtyCount; ++k) {
         const size_t i = kFirstDirty + k;
+        EXPECT_FALSE(cache[i].layout_dirty) << "i=" << i;
         if (i != kThrower) {
-            EXPECT_FALSE(cache[i].layout_dirty) << "i=" << i << " は例外を投げたノードと同じ chunk でも計測される";
+            EXPECT_TRUE(cache[i].is_measured()) << "i=" << i << " は例外を投げたノードと同じ chunk でも計測される";
         }
     }
-    // RecomputeYPositions は末尾シフト時に dirty 残りを保守的に true と返すため、諦めた後に 1 バッチ余分に回りうる。
-    EXPECT_LE(1 + DrainDirtyBatches(engine_, nodes, cache), static_cast<int>(LayoutCache::kMaxMeasureAttempts) + 1);
-    EXPECT_EQ(measurer_.attempts.load(), LayoutCache::kMaxMeasureAttempts);
-    EXPECT_FALSE(cache.HasDirtyNodes()) << "諦めた後もダーティ処理が続いている";
-    EXPECT_FALSE(cache[kThrower].layout_dirty);
+    EXPECT_EQ(measurer_.attempts.load(), 1);
+    EXPECT_FALSE(cache.HasDirtyNodes());
     EXPECT_TRUE(YChainConsistent(nodes, cache, theme_));
 
     cache.InvalidateAllLayouts(nodes);
     cache[kThrower].layout_dirty = true;
     DrainDirtyBatches(engine_, nodes, cache);
     measurer_.SetScheduler(nullptr);
-    EXPECT_EQ(measurer_.attempts.load(), 2 * LayoutCache::kMaxMeasureAttempts) << "無効化後は改めて上限回数まで試す";
+    EXPECT_EQ(measurer_.attempts.load(), 2) << "無効化後は改めて試す";
 }
 
-// 測れない (nullopt) ノードも例外と同じく kMaxMeasureAttempts 回で諦め、描画のたびに測り直し続けない。
-TEST_F(ThrowingMeasureTest, UnmeasurableNodeStopsRetryingAfterMaxAttempts)
+// 測れない (nullopt) ノードも例外と同じく 1 回で諦め、描画のたびに測り直し続けない。
+TEST_F(ThrowingMeasureTest, UnmeasurableNodeIsNotRetried)
 {
     constexpr size_t kTarget = 8;
     measurer_.fail_with_nullopt = true;
@@ -307,65 +303,13 @@ TEST_F(ThrowingMeasureTest, UnmeasurableNodeStopsRetryingAfterMaxAttempts)
     DrainDirtyBatches(engine_, nodes, cache);
     measurer_.SetScheduler(nullptr);
 
-    EXPECT_EQ(measurer_.attempts.load(), LayoutCache::kMaxMeasureAttempts);
+    EXPECT_EQ(measurer_.attempts.load(), 1);
     EXPECT_FALSE(cache[kTarget].layout_dirty);
     EXPECT_FALSE(cache.HasDirtyNodes());
     EXPECT_TRUE(YChainConsistent(nodes, cache, theme_));
 }
 
-// 一時的な失敗は再試行で計測され、上限に達する前に成功すれば諦めない。成功すると失敗の記録は消える。
-TEST_F(ThrowingMeasureTest, TransientMeasureFailureIsRetriedUntilMeasured)
-{
-    constexpr size_t kThrower = 7;
-    auto [nodes, cache] = LayoutParagraphs(30);
-    const float measured_height = cache[kThrower].height;
-
-    cache[kThrower].layout_dirty = true;
-    cache[kThrower].height = 0.0f;
-    measurer_.throw_on = &nodes[kThrower];
-    measurer_.throw_times = LayoutCache::kMaxMeasureAttempts - 1;
-
-    measurer_.SetScheduler(&task_scheduler_);
-    DrainDirtyBatches(engine_, nodes, cache);
-    EXPECT_EQ(measurer_.attempts.load(), LayoutCache::kMaxMeasureAttempts);
-    EXPECT_FALSE(cache[kThrower].layout_dirty);
-    EXPECT_FLOAT_EQ(cache[kThrower].height, measured_height) << "最後の試行で計測できている";
-    EXPECT_TRUE(YChainConsistent(nodes, cache, theme_));
-
-    // 成功で失敗の記録が消えるので、後で失敗し始めても改めて上限回数まで試す。
-    measurer_.throw_times = std::numeric_limits<int>::max();
-    const int before = measurer_.attempts.load();
-    cache[kThrower].layout_dirty = true;
-    DrainDirtyBatches(engine_, nodes, cache);
-    measurer_.SetScheduler(nullptr);
-    EXPECT_EQ(measurer_.attempts.load() - before, LayoutCache::kMaxMeasureAttempts);
-}
-
-// 失敗回数は MeasureEntry を通るどの経路で成功しても 0 に戻る (並列計測以外の成功で残ると、
-// 以後の一時的な失敗 1 回で諦めてしまう)。
-TEST_F(ThrowingMeasureTest, MeasureSuccessOnAnyPathResetsFailureCount)
-{
-    constexpr size_t kThrower = 7;
-    auto [nodes, cache] = LayoutParagraphs(30);
-
-    cache[kThrower].layout_dirty = true;
-    measurer_.throw_on = &nodes[kThrower];
-    measurer_.throw_times = LayoutCache::kMaxMeasureAttempts - 1;
-    measurer_.SetScheduler(&task_scheduler_);
-    for (int k = 0; k + 1 < LayoutCache::kMaxMeasureAttempts; ++k) {
-        engine_.ProcessDirtyBatch(nodes, cache, 800.0f, kNoLayoutDeadline, YRange::All());
-    }
-    measurer_.SetScheduler(nullptr);
-    ASSERT_EQ(cache[kThrower].measure_failures, LayoutCache::kMaxMeasureAttempts - 1);
-    ASSERT_TRUE(cache[kThrower].layout_dirty);
-
-    // 幅変更の全レイアウトは ComputeLayout から直接計測する。
-    ComputeLayout(engine_, nodes, cache, 700.0f);
-    EXPECT_FALSE(cache[kThrower].layout_dirty);
-    EXPECT_EQ(cache[kThrower].measure_failures, 0);
-}
-
-// 測れなかった (例外でなく nullopt) ノードは dirty のまま残り、推定の高さを実測値として残さない。
+// 測れなかった (例外でなく nullopt) ノードは推定の高さを実測値として残さない。
 // 残すと同じ幅に戻ったとき EstimateInvisibleNodeHeight が推定値を実測値とみなす。
 TEST(MeasureEntryTest, UnmeasurableNodeCommitsNothing)
 {
@@ -378,15 +322,12 @@ TEST(MeasureEntryTest, UnmeasurableNodeCommitsNothing)
     const auto nodes = ParseNodes("text");
     NodeLayoutEntry entry;
     entry.height = 42.0f;
-    entry.measure_failures = 1;
 
     MeasureEntry(measurer, nodes[0], entry, 300.0f, YRange::All(), 0.0f, nullptr);
 
     EXPECT_TRUE(entry.layout_dirty);
     EXPECT_FALSE(entry.is_measured());
-    EXPECT_FLOAT_EQ(entry.cached_height, 0.0f);
     EXPECT_FLOAT_EQ(entry.height, 42.0f);
-    EXPECT_EQ(entry.measure_failures, 1);
 }
 
 TEST_F(DirtyBatchSerialTest, NoneDirtyReturnsNoneDirty)

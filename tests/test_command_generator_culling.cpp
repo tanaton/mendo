@@ -184,7 +184,7 @@ protected:
             L"Segoe UI Symbol", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, theme_.font_size_body, L"", &fmt_)));
         formats_ = { fmt_, fmt_, fmt_, fmt_ };
-        gen_.Init(theme_, &formats_);
+        gen_.Init(theme_, formats_, NoTextLayouts());
     }
 
     // 次の呼び出しまで有効。

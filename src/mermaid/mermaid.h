@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <functional>
 #include <deque>
+#include <ranges>
 #include <span>
 #include <string>
 #include <unordered_set>
@@ -75,10 +76,9 @@ public:
     void RequestSvg(std::string_view code, float max_width, bool dark_mode, SvgCallback callback) override;
     // インライン数式を 1 ページに並べて描き、1 回のキャプチャで型を取る。図と同じワーカー枠を使う。
     // 1 つずつ描くとキャプチャの待ちで 1 個 66ms かかるが、まとめれば 1 個 0.5ms ほどで済む。
-    // items は kMaxInlineMathPerChunk 個までにする。cache_key (InlineMathChunk::key) があれば、ページを図と同じ
-    // ディスクキャッシュに置き、次からは WebView2 を起動せずに読む。0 ならキャッシュしない。
-    // want_page が無ければページをいつも返す。
-    void RequestMathBatch(std::vector<InlineMathItem> items, uint64_t cache_key, MathBatchCallback callback, MathPageGate want_page = {});
+    // items は kMaxInlineMathPerChunk 個までにする。ページは cache_key (InlineMathChunk::key) で図と同じ
+    // ディスクキャッシュに置き、次からは WebView2 を起動せずに読む。
+    void RequestMathBatch(std::vector<InlineMathItem> items, uint64_t cache_key, MathBatchCallback callback, MathPageGate want_page);
     void SetRenderTarget(ID2D1RenderTarget* render_target);
     // ワーカーは画面外に置くため、PNG は本体ウィンドウではなくその位置のモニタの DPR で描かれる。
     // ワーカーを起動する前にディスクキャッシュを引くときの DPR に使う。
@@ -132,7 +132,6 @@ private:
         // キャッシュに入れず、結果は math_callback で返す。
         std::vector<InlineMathItem> math_items;
         MathBatchCallback math_callback;
-        // 0 ならディスクキャッシュに置かない。
         uint64_t math_cache_key = 0;
         // 呼んだら空にして、答えを math_page に持つ (DecideMathPage)。
         MathPageGate math_want_page;
@@ -254,9 +253,10 @@ private:
     // 進行中の要求をすべて捨てる。SVG 要求は cancelled=true で完了させる。
     void CancelPending();
 
-    std::span<Worker> ActiveWorkers() noexcept
+    // 破棄したスロット (AbandonWorker) は飛ばす。
+    auto ActiveWorkers() noexcept
     {
-        return { workers_, static_cast<size_t>(worker_count_) };
+        return std::span{ workers_, static_cast<size_t>(worker_count_) } | std::views::filter([](const Worker& w) static noexcept { return w.hwnd != nullptr; });
     }
     Worker* FindIdleWorker() noexcept;
 
@@ -269,6 +269,10 @@ private:
     void MaybeGrowWorkers();
     void ScheduleIdleShutdown();
     void ReleaseWebView();
+    // 応答できるワーカーが 1 つも残らないときの出口。環境を作れなかったときも通る。
+    void AbandonWebView();
+    // ワーカーの起動や再起動を諦める。処理中の要求を失敗で終え、最後の 1 つなら AbandonWebView へ進む。
+    void AbandonWorker(int index);
     void SetupWorker(int index);
     void OnControllerCreated(int index, ICoreWebView2Controller* controller);
     void RegisterWebViewHandlers(int index);
@@ -331,6 +335,7 @@ private:
     int env_retry_count_ = 0;
 
     Worker workers_[MAX_WORKERS];
+    // 使い始めたスロットの数。添字を捕まえた非同期コールバックが別のワーカーに届かないよう、破棄したスロットは使い回さない。
     int worker_count_ = 0;
     // 最初のワーカーの準備ができたか。アイドル解放で戻す。
     bool ready_ = false;

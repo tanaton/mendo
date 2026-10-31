@@ -115,8 +115,6 @@ struct InlineMathPage {
     Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
     // このページを指す型の数。読み直しで型がすべて別のページへ移ったら捨てる。
     size_t masks = 0;
-    // 組ごと描いてディスクキャッシュに置いたページ。計画に無い数式のページは読み直せないので捨てない。
-    bool reloadable = false;
     // 最後に描いたフレーム (InlineMathMasks::frame)。描くときに書く。
     uint64_t last_drawn = 0;
 };
@@ -146,10 +144,10 @@ struct InlineMathMasks {
         const auto it = masks.find(key);
         return it != masks.end() ? &it->second : nullptr;
     }
-    InlineMathPage& AddPage(Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap, bool reloadable);
+    InlineMathPage& AddPage(Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap);
     // key の型を置き換える。前の型のページを指す型が無くなったら、そのページを捨てる。
     void Assign(uint64_t key, const InlineMathMask& mask);
-    // ページの合計が budget を超えていたら、このフレームで描いていない読み直せるページを古い順に捨てる。
+    // ページの合計が budget を超えていたら、このフレームで描いていないページを古い順に捨てる。
     void EvictPages(size_t budget);
 };
 

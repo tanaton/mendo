@@ -1,5 +1,4 @@
 #pragma once
-#include "app_constants.h"
 #include "document_utils.h"
 #include "pane_layout.h"
 #include "ui_types.h"

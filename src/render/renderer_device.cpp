@@ -60,11 +60,8 @@ HANDLE D3DPrefetchDoneEvent() noexcept
 void Renderer::ConfigureFrameLatency() noexcept
 {
     frame_latency_waitable_.reset();
-    if (!swap_chain_) {
-        return;
-    }
     ComPtr<IDXGISwapChain2> sc2;
-    if (FAILED(swap_chain_.As(&sc2)) || !sc2) {
+    if (FAILED(swap_chain_.As(&sc2))) {
         return;
     }
     // 既定の MaximumFrameLatency=3 はホイール連打でカクつきの原因になる。1 まで詰める。
@@ -184,19 +181,12 @@ bool Renderer::CreateDeviceResources()
     // Waitable で GPU が次フレームのバッファを準備できるまで CPU を待たせる。
     // これがないと Present の Vsync ブロックで CPU が完全停止する。
     scd.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+    scd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 
-    const auto create_swap_chain = [&](DXGI_SWAP_EFFECT effect) {
-        scd.SwapEffect = effect;
-        return dxgi_factory->CreateSwapChainForHwnd(d3d_device_.Get(), hwnd_, &scd, nullptr, nullptr, &swap_chain_);
-    };
-    hr = create_swap_chain(DXGI_SWAP_EFFECT_FLIP_DISCARD);
+    hr = dxgi_factory->CreateSwapChainForHwnd(d3d_device_.Get(), hwnd_, &scd, nullptr, nullptr, &swap_chain_);
     if (FAILED(hr)) {
-        // FLIP_DISCARD は Windows 10 以降にしかないので、それより前の環境では FLIP_SEQUENTIAL に落とす。
-        hr = create_swap_chain(DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL);
-        if (FAILED(hr)) {
-            LogHrFailure("CreateSwapChainForHwnd (FLIP_SEQUENTIAL)", hr);
-            return false;
-        }
+        LogHrFailure("CreateSwapChainForHwnd", hr);
+        return false;
     }
 
     ConfigureFrameLatency();
@@ -296,7 +286,7 @@ void Renderer::SetDpi(float dpi) noexcept
     }
 }
 
-void Renderer::TrimDevice() noexcept
+void Renderer::TrimForMinimize() noexcept
 {
     if (!d2d_device_) {
         return;
@@ -355,10 +345,6 @@ bool Renderer::CreateDevice()
         return false;
     }
     device_lost_ = false;
-    // ブラシはデバイスに紐付くので、作り直しでは旧デバイスのものに SetColor せず作り直す。
-    for (auto& brush : brushes_) {
-        brush.Reset();
-    }
     RecreateBrushes();
     LoadAppIconBitmap();
     return true;

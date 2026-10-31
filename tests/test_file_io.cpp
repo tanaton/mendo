@@ -195,16 +195,6 @@ TEST_F(FileIoTest, IsFileLargerThan_MissingFile_ReturnsFalse)
     EXPECT_FALSE(IsFileLargerThan(path.c_str(), 1000));
 }
 
-TEST_F(FileIoTest, IsFileLargerThan_CustomTolerance)
-{
-    const auto path = WriteTempFile(L"custom_tol.bin", std::string(1100, 'f'));
-
-    // tolerance=50: 100 バイト差は超過 → true
-    EXPECT_TRUE(IsFileLargerThan(path.c_str(), 1000, 50));
-    // tolerance=200: 100 バイト差は範囲内 → false
-    EXPECT_FALSE(IsFileLargerThan(path.c_str(), 1000, 200));
-}
-
 // ═══════════════════════════════════════════════
 // AtomicWriteAllBytes: tmp → MoveFileExW(REPLACE_EXISTING) 経路
 // ═══════════════════════════════════════════════

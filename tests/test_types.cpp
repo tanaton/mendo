@@ -141,22 +141,6 @@ TEST(AlertColorIndex, MapsTypesInDeclarationOrder)
     EXPECT_EQ(AlertColorIndex(AlertType::Caution), 4u);
 }
 
-// ---- Node::line_count ----
-
-// line_count は呼び出し側が渡した値をそのまま持ち、テキストから数え直さない
-// (パーサがマーカー除去後に差分計算で渡すため)。
-TEST(NodeLineCount, SetTextStoresGivenValue)
-{
-    Node node;
-    node.SetText("a\nb\nc", 2);
-    EXPECT_EQ(node.GetText(), "a\nb\nc");
-    EXPECT_EQ(node.line_count, 2);
-    node.SetText("a\nb\nc\nd\ne", 7);
-    EXPECT_EQ(node.line_count, 7);
-    node.SetText("a\nb", 0);
-    EXPECT_EQ(node.line_count, 0);
-}
-
 // テキストと runs はコピーせず、渡した領域をそのまま指す (置き場所の寿命は呼び出し側が持つ)。
 TEST(NodeTest, SetTextAndRunsDoNotCopy)
 {
@@ -167,21 +151,11 @@ TEST(NodeTest, SetTextAndRunsDoNotCopy)
     const TextRun runs[]{ run };
 
     Node node;
-    node.SetText(text, 0);
+    node.SetText(text);
     node.SetRuns(runs);
     EXPECT_EQ(node.GetText().data(), text.data());
     ASSERT_EQ(node.runs().size(), 1u);
     EXPECT_EQ(node.runs().data(), runs);
-}
-
-TEST(NodeTest, SourceOffsetUnsetByDefault)
-{
-    Node node;
-    EXPECT_FALSE(node.HasSourceOffset());
-    EXPECT_EQ(node.SourceOffset(), kUnsetSourceOffset);
-    node.SetSourceOffset(0);
-    EXPECT_TRUE(node.HasSourceOffset());
-    EXPECT_EQ(node.SourceOffset(), 0u);
 }
 
 // payload は種別ごとに使い回すので、種別が合わないノードからは見えない。
@@ -226,18 +200,18 @@ TEST(NodeTest, TextStoredRegardlessOfType)
         Node node;
         node.type = c.type;
         node.code_language = c.language;
-        node.SetText(c.text, 0);
+        node.SetText(c.text);
         EXPECT_EQ(node.GetText(), c.text);
         EXPECT_EQ(node.code_language, c.language);
     }
 }
 
-// alert_type は伝播ロジック (parser.cpp の DetectAlertAt) で後続ノードにも付く。
+// alert_type は伝播ロジック (parser.cpp の DetectAlert) で後続ノードにも付く。
 // ラベル長は先頭のノードだけが持ち、伝播先ノードは 0 のはず。
 TEST(NodeTest, AlertLabelLengthOnlyOnHead)
 {
     Node body;
-    body.type = NodeType::BlockQuote;
+    body.quote_depth = 1;
     body.alert_type = AlertType::Warning;
     body.set_has_alert_label();
     EXPECT_EQ(body.alert_type, AlertType::Warning);

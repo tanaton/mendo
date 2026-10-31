@@ -241,7 +241,7 @@ TEST_F(CmdGenContentTest, MultipleHorizontalRulesGenerateHrLines)
 TEST_F(CmdGenContentTest, DarkThemeTableGeneratesCommands)
 {
     theme_ = GetDarkTheme();
-    gen_.Init(theme_);
+    InitWithoutText(gen_, theme_);
     ASSERT_TRUE(engine_.Init(&mock_, theme_));
 
     auto cmds = Generate("| A | B |\n|---|---|\n| 1 | 2 |");

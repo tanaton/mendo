@@ -26,7 +26,6 @@ constexpr ScrollTarget MakeHeadingTopTarget(int node, float heading_spacing_abov
 
 
 // スクロール、選択、ズームの純粋な状態管理。
-// Win32 API依存なし — 完全にテスト可能。
 class ViewportManager {
 public:
     // ---- スクロール ----

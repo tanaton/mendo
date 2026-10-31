@@ -31,32 +31,28 @@ int MeasureIndicesParallel(
         return deadline != kNoLayoutDeadline && taken.fetch_add(1, std::memory_order_relaxed) > 0 &&
                std::chrono::steady_clock::now() >= deadline;
     };
-    // ノード i を計測し、dirty のまま残したら true (期限を過ぎて手を付けなかったか、測れず再試行を待つ)。
-    // 例外はノード単位で捕まえ、同じ chunk の残りも計測する。失敗回数は worker が担当する自エントリにだけ書くので同期は要らない。
-    // DiagramEntry は計測中に追加・削除されないので、worker から読むだけなら同期は要らない。
-    const auto measure = [&](size_t i) {
-        if (past_deadline()) {
-            return true;
-        }
-        auto& entry = cache[i];
-        const DiagramEntry* bitmap = IsBitmapDrawNode(nodes[i]) ? cache.FindDiagram(i) : nullptr;
-        bool measured = false;
-        try {
-            measured = MeasureEntry(backend, nodes[i], entry, NodeContentWidth(nodes[i], theme, content_width), viewport, cache.Top(i), bitmap);
-        } catch (...) {
-            MENDO_TRACE("MeasureIndicesParallel: node measure threw exception");
-        }
-        return !measured && entry.RecordMeasureFailure(LayoutCache::kMaxMeasureAttempts);
-    };
     // 1 ノードの計測 (数百 µs) に比べ worker を起こす手間 (8 本で約 30µs) と chunk の取得は小さいので、1 ノード単位で配って
     // 1 画面分 (数十ノード) の dirty でも全 worker に行き渡らせる。scheduler が無ければ全体が 1 chunk になる。
     std::atomic<int> left{ 0 };
     ParallelFor(backend.Scheduler(), indices.size(), 1, [&](size_t begin, size_t end) {
         MENDO_PROFILE("MeasureNode.chunk");
         for (const size_t i : indices.subspan(begin, end - begin)) {
-            if (measure(i)) {
+            if (past_deadline()) {
                 left.fetch_add(1, std::memory_order_relaxed);
+                continue;
             }
+            auto& entry = cache[i];
+            // DiagramEntry は計測中に追加・削除されないので、worker から読むだけなら同期は要らない。
+            const DiagramEntry* bitmap = IsBitmapDrawNode(nodes[i]) ? cache.FindDiagram(i) : nullptr;
+            // 例外はノード単位で捕まえ、同じ chunk の残りも計測する。
+            try {
+                MeasureEntry(backend, nodes[i], entry, NodeContentWidth(nodes[i], theme, content_width), viewport, cache.Top(i), bitmap);
+            } catch (...) {
+                MENDO_TRACE("MeasureIndicesParallel: node measure threw exception");
+            }
+            // 測れなかったノードも再試行しない。失敗の実体はレイアウトや確保の失敗で数 ms では回復せず、残すと描画のたびに
+            // 測り直して失敗し続ける。次の幅変更やズームで改めて試す。
+            entry.layout_dirty = false;
         }
     });
     MENDO_PLOT("layout.parallel.left_count", static_cast<int64_t>(left.load(std::memory_order_relaxed)));
@@ -137,7 +133,7 @@ LayoutEngine::PassResult LayoutEngine::MeasurePass(
         // 未計測領域へのジャンプやスクロールバードラッグでは 1 画面分 (数十〜百ノード) を
         // 毎フレーム計測するため、scheduler があれば並列化する。
         const int left = layout::MeasureIndicesParallel(nodes, cache, content_width, *measurer_, dirty_indices, range, deadline);
-        // 計測できなかったノードと期限で残したノードは、次の呼び出しで計測させる。
+        // 期限で残したノードは、次の呼び出しで計測させる。
         result.remaining |= left > 0;
         height_changed = true;
     }
@@ -154,7 +150,7 @@ bool LayoutEngine::EnsureVisibleLayout(const std::vector<Node>& nodes, LayoutCac
 {
     MENDO_PROFILE("LayoutEngine::EnsureVisibleLayout");
     const YRange range{ viewport_top, viewport_bottom };
-    // 計測に失敗し続けるノードがあっても止まるよう回数に上限を設ける。
+    // 測ったノードが推定より縮むと次のノードが範囲に入るので繰り返す。1 回の手間に上限を設ける。
     constexpr int kMaxMeasurePasses = 8;
     bool updated = false;
     for (int pass = 0; pass < kMaxMeasurePasses; ++pass) {

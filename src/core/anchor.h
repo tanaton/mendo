@@ -9,10 +9,10 @@
 #include <string_view>
 #include <unordered_map>
 
-// GitHub スタイル: 小文字化、空白→'-'、CJK 保持、句読点スキップ。結果を slug に書く。
-void GenerateAnchorIdInto(std::string_view text, std::string& slug);
+// GitHub スタイル: 小文字化、空白→'-'、CJK 保持、句読点スキップ。
+std::string GenerateAnchorId(std::string_view text);
 
-// リンク先のアンカーを GenerateAnchorIdInto と同じ規則で小文字にする。
+// リンク先のアンカーを GenerateAnchorId と同じ規則で小文字にする。
 std::string ToLowerAnchorCopy(std::string_view text);
 
 // 見出しのアンカー (GitHub と同じスラグ) と、それを付けた見出しのノード番号の索引。
@@ -49,8 +49,6 @@ private:
     // 採用した連番付きスラグも登録し、同じ文字列の見出しが後に来たら衝突として扱う。
     std::pmr::unordered_map<std::pmr::string, Entry, StringTransparentHash, std::equal_to<>> entries_{ &arena_ };
     size_t heading_count_ = 0;
-    std::string base_;
-    std::string candidate_;
 };
 
 // 脚注参照の位置。id は脚注番号、ref_id は同じ脚注への何回目の参照か (どちらも 1 始まり)。

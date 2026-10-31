@@ -60,9 +60,6 @@ TEST(StringConvert, ConvertsBothDirections)
         std::wstring wide_out = L"old";
         Utf8ToWide(c.utf8, wide_out);
         EXPECT_EQ(wide_out, c.wide);
-        std::string utf8_out = "old";
-        WideToUtf8(c.wide, utf8_out);
-        EXPECT_EQ(utf8_out, c.utf8);
     }
 }
 

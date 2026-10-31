@@ -18,6 +18,11 @@
 
 namespace {
 
+bool IsQuoteParagraph(const Node& node)
+{
+    return node.type == NodeType::Paragraph && node.quote_depth > 0;
+}
+
 // 表のセル (row, col) にあるリンクの URL。リンクが無ければ nullopt。
 std::optional<std::string_view> CellLinkUrl(const Node& table, size_t row, size_t col)
 {
@@ -354,7 +359,7 @@ TEST(Parser, TightListInBlockquoteTextAfterHeadingStaysQuoted)
 {
     auto nodes = ParseNodes("> - # H\n>   text");
     ASSERT_EQ(nodes.size(), 3u);
-    EXPECT_EQ(nodes[2].type, NodeType::BlockQuote);
+    EXPECT_TRUE(IsQuoteParagraph(nodes[2]));
     EXPECT_EQ(nodes[2].GetText(), "text");
     EXPECT_EQ(nodes[2].blockquote_group, nodes[1].blockquote_group);
 }
@@ -364,23 +369,23 @@ TEST(Parser, TightListInBlockquoteTextAfterHeadingStaysQuoted)
 TEST(Parser, NestedBlockquotePreservesOuterStyle)
 {
     auto nodes = ParseNodes("> outer\n>\n> > inner\n>\n> still outer");
-    // 内側の引用ブロックが終了した後、"still outer"はまだBlockQuoteであるべき
+    // 内側の引用ブロックが終了した後、"still outer"はまだ引用の段落であるべき
     bool found_still_outer = false;
     for (const auto& node : nodes) {
         if (node.GetText().contains("still outer")) {
-            EXPECT_EQ(node.type, NodeType::BlockQuote)
-                << "内側の引用ブロック後のテキストはBlockQuoteのままであるべき";
+            EXPECT_TRUE(IsQuoteParagraph(node))
+                << "内側の引用ブロック後のテキストは引用の段落のままであるべき";
             found_still_outer = true;
         }
     }
     EXPECT_TRUE(found_still_outer) << "ノード内に'still outer'が見つかるべき";
 }
 
-TEST(Parser, SingleBlockquoteIsBlockQuoteType)
+TEST(Parser, SingleBlockquoteIsQuoteParagraph)
 {
     auto nodes = ParseNodes("> quoted text");
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
+    EXPECT_TRUE(IsQuoteParagraph(nodes[0]));
     EXPECT_EQ(nodes[0].GetText(), "quoted text");
 }
 
@@ -394,7 +399,7 @@ TEST(Parser, NestedBlockquote_SharesSameGroup)
     const int group = nodes[0].blockquote_group;
     EXPECT_GE(group, 0);
     for (const auto& n : nodes) {
-        if (n.type == NodeType::BlockQuote) {
+        if (IsQuoteParagraph(n)) {
             EXPECT_EQ(n.blockquote_group, group)
                 << "ネストの内外を問わず最外側 group を共有する";
         }
@@ -406,7 +411,7 @@ TEST(Parser, NestedBlockquote_QuoteDepthReflectsNesting)
     auto nodes = ParseNodes("> outer\n> > inner\n> > > deep");
     int max_depth = 0;
     for (const auto& n : nodes) {
-        if (n.type == NodeType::BlockQuote && n.quote_depth > max_depth) {
+        if (IsQuoteParagraph(n) && n.quote_depth > max_depth) {
             max_depth = n.quote_depth;
         }
     }
@@ -734,9 +739,9 @@ TEST(Parser, ComplexDocumentNodeCount)
 TEST(Parser, NodeTypesInComplexDocument)
 {
     auto nodes = ParseNodes(
-                     "# H\n\nP\n\n- L\n\n---\n\n> Q\n\n```\nC\n```\n");
+                     "# H\n\nP\n\n- L\n\n---\n\n```\nC\n```\n");
     for (const auto type : { NodeType::Heading, NodeType::Paragraph, NodeType::ListItem,
-                             NodeType::HorizontalRule, NodeType::BlockQuote, NodeType::CodeBlock }) {
+                             NodeType::HorizontalRule, NodeType::CodeBlock }) {
         SCOPED_TRACE(static_cast<int>(type));
         EXPECT_TRUE(std::ranges::any_of(nodes, [type](const Node& n) { return n.type == type; }));
     }
@@ -1093,7 +1098,7 @@ TEST(Parser, LatexDisplayMathInBlockquoteIsBlockMath)
 {
     auto nodes = ParseNodes("> $$y=x$$");
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
+    EXPECT_TRUE(IsQuoteParagraph(nodes[0]));
     EXPECT_EQ(MathRunTexts(nodes[0]), (std::vector<std::string_view>{ "$$y=x$$" }));
     EXPECT_TRUE(IsBlockMath(nodes[0]));
 }
@@ -1174,12 +1179,12 @@ TEST(Parser, MathFencedCodeBlockIsBlockMath)
     EXPECT_TRUE(result.indices.diagram_indices.empty());
 }
 
-// 引用の中の ```math は引用の段落 (BlockQuote) と同じ種別にする。空の ```math は数式が無いのでコードブロックのまま。
+// 引用の中の ```math は引用の段落と同じ種別にする。空の ```math は数式が無いのでコードブロックのまま。
 TEST(Parser, MathFencedCodeBlockInQuoteAndEmpty)
 {
     auto quoted = ParseNodes("> ```math\n> x\n> ```");
     ASSERT_EQ(quoted.size(), 1u);
-    EXPECT_EQ(quoted[0].type, NodeType::BlockQuote);
+    EXPECT_TRUE(IsQuoteParagraph(quoted[0]));
     EXPECT_TRUE(IsBlockMath(quoted[0]));
 
     auto empty = ParseNodes("```math\n```");
@@ -1225,7 +1230,7 @@ TEST(Parser, AlertMarkerBecomesLabelLine)
         SCOPED_TRACE(c.md);
         auto nodes = ParseNodes(c.md);
         ASSERT_EQ(nodes.size(), 1u);
-        EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
+        EXPECT_TRUE(IsQuoteParagraph(nodes[0]));
         EXPECT_EQ(nodes[0].alert_type, c.type);
         const std::string label{ AlertHeadText(c.type) };
         EXPECT_EQ(nodes[0].GetText(), label + "\n" + std::string{ c.body });
@@ -1337,8 +1342,8 @@ TEST(Parser, AlertRunsShiftExactlyPastLabelLine)
 TEST(Parser, AlertMultiParagraphGrouping)
 {
     auto nodes = ParseNodes("> [!NOTE]\n> First para\n>\n> Second para");
-    // 複数の BlockQuote ノードが生成され、すべて同じ alert_type を持つべき
-    EXPECT_GE(std::ranges::count_if(nodes, [](const Node& node) static { return node.type == NodeType::BlockQuote && node.alert_type == AlertType::Note; }), 2)
+    // 複数の引用の段落が生成され、すべて同じ alert_type を持つべき
+    EXPECT_GE(std::ranges::count_if(nodes, [](const Node& node) static { return IsQuoteParagraph(node) && node.alert_type == AlertType::Note; }), 2)
         << "複数段落のAlertは全ノードに伝播されるべき";
 }
 
@@ -1349,11 +1354,24 @@ TEST(Parser, AlertOnlyFirstNodeHasLabel)
     EXPECT_EQ(std::ranges::count_if(nodes, [](const Node& node) static { return node.alert_label_length() > 0; }), 1);
 }
 
+// ノードを作らない引用は Alert の検出を素通りし、後ろの段落を引用の先頭と取り違えない。
+TEST(Parser, AlertIgnoresQuoteWithoutNodes)
+{
+    for (const char* md : { ">\n\n[!NOTE]", "> <!-- c -->\n\n[!NOTE]", "- >\n- [!NOTE]" }) {
+        SCOPED_TRACE(md);
+        const auto nodes = ParseNodes(md);
+        ASSERT_FALSE(nodes.empty());
+        EXPECT_EQ(nodes.back().GetText(), "[!NOTE]");
+        EXPECT_EQ(nodes.back().alert_type, AlertType::None);
+        EXPECT_TRUE(ParseInvariantsHold(md, nodes));
+    }
+}
+
 TEST(Parser, RegularBlockquoteUnaffected)
 {
     auto nodes = ParseNodes("> Just a normal quote");
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
+    EXPECT_TRUE(IsQuoteParagraph(nodes[0]));
     EXPECT_EQ(nodes[0].alert_type, AlertType::None);
     EXPECT_EQ(nodes[0].alert_label_length(), 0u);
     EXPECT_EQ(nodes[0].GetText(), "Just a normal quote");
@@ -1372,7 +1390,7 @@ TEST(Parser, AlertFollowedByRegularBlockquote)
 {
     auto nodes = ParseNodes("> [!NOTE]\n> Alert text\n\n> Normal quote");
     // Alert と通常の blockquote が混在
-    auto quotes = nodes | std::views::filter([](const Node& node) static { return node.type == NodeType::BlockQuote; });
+    auto quotes = nodes | std::views::filter([](const Node& node) static { return IsQuoteParagraph(node); });
     EXPECT_TRUE(std::ranges::any_of(quotes, [](const Node& node) static { return node.alert_type != AlertType::None; }));
     EXPECT_TRUE(std::ranges::contains(quotes, AlertType::None, &Node::alert_type));
 }
@@ -1399,7 +1417,7 @@ TEST(Parser, AlertMarkerFollowedByImageStaysAlert)
         SCOPED_TRACE(md);
         const auto nodes = ParseNodes(md);
         ASSERT_EQ(nodes.size(), 2u);
-        EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
+        EXPECT_TRUE(IsQuoteParagraph(nodes[0]));
         EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
         EXPECT_EQ(nodes[0].GetText(), AlertHeadText(AlertType::Note));
         ASSERT_EQ(nodes[1].type, NodeType::Image);
@@ -1451,7 +1469,7 @@ TEST(Parser, AlertMarkerFollowedByImageWithoutSrcStaysOneAlertNode)
 {
     const auto nodes = ParseNodes("> [!NOTE]\n> ![alt]()");
     ASSERT_EQ(nodes.size(), 1u);
-    EXPECT_EQ(nodes[0].type, NodeType::BlockQuote);
+    EXPECT_TRUE(IsQuoteParagraph(nodes[0]));
     EXPECT_EQ(nodes[0].alert_type, AlertType::Note);
     EXPECT_TRUE(nodes[0].GetText().ends_with("alt"));
 }
@@ -1547,7 +1565,7 @@ TEST(Parser, SourceOffsetPointsAtTextStart)
         { "First\n\nSecond\n\nThird", { 0, 7, 15 } },
         { "```\nhello\n```", { 4 } },
         { "```cpp\nint x;\n```", { 7 } },
-        { "---", { kUnsetSourceOffset } },
+        { "---", { 0 } },
         { "あいう\n\ntest", { 0, 11 } },
         { "- A\n- B\n- C", { 2, 6, 10 } },
         { "1. First\n2. Second", { 3, 12 } },
@@ -1739,7 +1757,7 @@ TEST(Parser, FootnoteRefBecomesNumberedLinkAndDefinitionMovesToEnd)
     EXPECT_EQ(nodes[3].GetText(), "Note here. ↩");
     EXPECT_EQ(LinkUrlAt(nodes[3], "↩"), "#user-content-fnref-1");
     EXPECT_EQ(LinkUrlAt(nodes[3], "here"), "");
-    EXPECT_FALSE(nodes[3].HasSourceOffset()) << "末尾に並ぶ定義はソース位置の単調増加を崩さないよう持たない";
+    EXPECT_EQ(nodes[3].SourceOffset(), nodes[2].SourceOffset()) << "末尾に並ぶ定義はソース位置の単調増加を崩さないよう前のノードの位置を受け継ぐ";
     EXPECT_TRUE(ParseInvariantsHold(md, nodes));
     ASSERT_EQ(result.indices.footnote_def_indices.size(), 1u);
     EXPECT_EQ(result.indices.footnote_def_indices[0], 3);
@@ -1895,7 +1913,7 @@ bool StartsAtSourceOffset(std::string_view md, const Node& node)
 {
     const auto text = node.GetText();
     const auto word = text.substr(0, text.find_first_of(" \n"));
-    return node.HasSourceOffset() && md.substr(node.SourceOffset()).starts_with(word);
+    return md.substr(node.SourceOffset()).starts_with(word);
 }
 
 } // namespace
@@ -2031,7 +2049,7 @@ TEST(ParserChunks, QuoteChunksStayInAlertGroup)
     EXPECT_TRUE(ParseInvariantsHold(md, nodes));
     EXPECT_GT(nodes[0].alert_label_length(), 0u);
     for (const auto& node : nodes) {
-        EXPECT_EQ(node.type, NodeType::BlockQuote);
+        EXPECT_TRUE(IsQuoteParagraph(node));
         EXPECT_EQ(node.alert_type, AlertType::Note);
         EXPECT_EQ(node.alert_label_length() > 0, !node.continues_prev());
     }

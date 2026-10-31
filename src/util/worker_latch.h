@@ -70,8 +70,7 @@ private:
 // 共有 TaskScheduler に Post した worker のライフタイムを所有者が join できるようにする latch。
 // 利用パターン:
 //   auto guard = latch_.Acquire();        // Post 直前 (UI スレッド)
-//   const bool posted = scheduler.Post([this, g = std::move(guard)] { /* worker body */ });
-//   if (!posted) { /* g が destruct されて自動的に Release */ }
+//   scheduler.Post([this, g = std::move(guard)] { /* worker body */ });
 //   ...
 //   ~Owner() { latch_.Wait(); }            // 既に Post 済みの worker 完了を待つ
 //

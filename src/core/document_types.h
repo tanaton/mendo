@@ -18,7 +18,6 @@ enum class NodeType : uint8_t {
     CodeBlock,
     HorizontalRule,
     ListItem,
-    BlockQuote,
     Table,
     TaskListItem,
     Image,
@@ -161,11 +160,6 @@ struct NodeTableData {
     bool operator==(const NodeTableData&) const = default;
 };
 
-// Node::SourceOffset() が未設定のときに返す値。
-// HorizontalRule のようなテキストを持たないノードはオフセットを持たない。
-// 入力は md4c の制約で 2GB 未満なので、Node が 32bit で持つ値と同じにしておく。
-inline constexpr size_t kUnsetSourceOffset = std::numeric_limits<uint32_t>::max();
-
 // 1 ノードのリンク URL の上限。TextRun::link_url_index (int16_t) で引ける数まで。
 inline constexpr size_t kMaxLinkUrls = std::numeric_limits<int16_t>::max();
 
@@ -194,9 +188,9 @@ struct Node {
     // テキストは入力 (md4c の制約で 2GB 未満) に Alert ラベルと上限付きの脚注 backref を足した程度なので 32bit に収まる。
     uint32_t text_size_ = 0;
     uint32_t run_count_ = 0;
-    uint32_t source_offset_ = kUnsetSourceOffset;
+    uint32_t source_offset_ = 0;
     int32_t blockquote_group = -1; // 最外側 blockquote 単位のグループID（ネストしてもgroupは共有）
-    int32_t line_count = 0;        // テキスト内の改行数（パース時にカウント済み）
+    int32_t line_count = 0;        // テキスト内の改行数（パーサがテキストの確定時に数える）
 
     // --- 2 バイトアライメント ---
     // link_url_index (int16_t) で引ける数までしか持たない。
@@ -213,12 +207,8 @@ struct Node {
     SyntaxLanguage code_language = SyntaxLanguage::None;
     uint8_t flags_ = 0;
 
-    constexpr bool HasSourceOffset() const noexcept
-    {
-        return source_offset_ != kUnsetSourceOffset;
-    }
-
-    // DocumentData::raw 起算の UTF-8 byte オフセット。未設定時は kUnsetSourceOffset。
+    // DocumentData::raw 起算の UTF-8 byte オフセット。文書順で単調非減少で、本文の位置を持たないノード
+    // (HorizontalRule、空の LI、原文の途中から文書末尾へ移る脚注定義など) は前のノードの位置を受け継ぐ。
     constexpr size_t SourceOffset() const noexcept
     {
         return source_offset_;
@@ -226,7 +216,7 @@ struct Node {
 
     constexpr void SetSourceOffset(size_t offset) noexcept
     {
-        assert(offset < kUnsetSourceOffset);
+        assert(offset <= std::numeric_limits<uint32_t>::max());
         source_offset_ = static_cast<uint32_t>(offset);
     }
 
@@ -241,19 +231,12 @@ struct Node {
     }
 
     // text はノードより長く生きる領域 (DocumentData::raw / TextArena / テストでは静的文字列) を指すこと。
-    // line_count は変えない (パーサがテキスト確定前に積算している)。
+    // line_count は変えない。
     constexpr void SetText(std::string_view text) noexcept
     {
         assert(text.size() <= std::numeric_limits<uint32_t>::max());
         text_ = text.data();
         text_size_ = static_cast<uint32_t>(text.size());
-    }
-
-    // line_count は呼び出し側が数えた text 内の改行数。
-    constexpr void SetText(std::string_view text, int32_t line_count_value) noexcept
-    {
-        SetText(text);
-        line_count = line_count_value;
     }
 
     constexpr std::span<const TextRun> runs() const noexcept
@@ -268,16 +251,17 @@ struct Node {
         run_count_ = static_cast<uint32_t>(runs_value.size());
     }
 
-    // 種別が違う、または持っていなければ nullptr。
+    // 種別が違えば nullptr。Table ノードは必ず表を持つ。
     template <class Self>
     constexpr auto* table_data(this Self& self) noexcept
     {
+        assert(!self.has_table() || self.payload_.table);
         using T = std::conditional_t<std::is_const_v<Self>, const NodeTableData, NodeTableData>;
         return self.has_table() ? static_cast<T*>(self.payload_.table) : nullptr;
     }
     constexpr bool has_table() const noexcept
     {
-        return type == NodeType::Table && payload_.table != nullptr;
+        return type == NodeType::Table;
     }
     // 画像の記述どおりのパス。画像でなければ空 (パーサは src が空の段落を画像にしない)。
     // 読み込んだ画像の寸法はパース結果ではないので持たない (LayoutCache の DiagramEntry が持つ)。

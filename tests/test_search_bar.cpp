@@ -37,7 +37,7 @@ protected:
 
     SideEffectList Dispatch(const AppAction& action)
     {
-        return Reduce(state_, action, layout_);
+        return Reduce(state_, action, layout_, std::pmr::get_default_resource());
     }
 
     SearchBarRenderState RenderState() const
@@ -55,8 +55,7 @@ protected:
         SetDocument(md, 10.0f);
         ASSERT_EQ(Nodes().size(), static_cast<size_t>(count));
         auto& ss = state_.search.search_state;
-        ss.SetQuery("x");
-        ss.BeginSearch();
+        ss.BeginSearch("x");
         ss.ContinueSearch(Nodes(), std::chrono::steady_clock::now() - std::chrono::seconds(1));
         ASSERT_TRUE(ss.IsSearching());
     }
@@ -125,6 +124,20 @@ TEST_F(SearchBarTest, CloseHidesAndUnfocuses)
     EXPECT_TRUE(HasEffect<effect::SearchUnfocus>(effects));
 }
 
+// 閉じてもクエリは残し、開き直すと同じクエリで検索し直す。
+TEST_F(SearchBarTest, ReopenSearchesWithKeptQuery)
+{
+    SetDocument("hello world");
+    Dispatch(OpenSearchBarAction{});
+    Dispatch(SearchTextChangedAction{ L"hello" });
+    Dispatch(CloseSearchBarAction{});
+    EXPECT_EQ(state_.search.search_state.GetMatchCount(), 0);
+    EXPECT_EQ(state_.search.query_wide, L"hello");
+
+    Dispatch(OpenSearchBarAction{});
+    EXPECT_EQ(state_.search.search_state.GetMatchCount(), 1);
+}
+
 // ═══════════════════════════════════════════════
 // テキスト変更
 // ═══════════════════════════════════════════════
@@ -134,7 +147,7 @@ TEST_F(SearchBarTest, TextChangedEmptyQuery)
     SetDocument("hello world");
 
     Dispatch(SearchTextChangedAction{ L"" });
-    EXPECT_TRUE(state_.search.search_state.GetQuery().empty());
+    EXPECT_TRUE(state_.search.query_wide.empty());
     EXPECT_EQ(state_.search.search_state.GetMatchCount(), 0);
 }
 
@@ -274,7 +287,6 @@ TEST_F(SearchBarTest, DocumentOpenedClearsAll)
     EXPECT_EQ(rs.selection_start, -1);
     EXPECT_TRUE(rs.ime_composition.empty());
     EXPECT_TRUE(rs.query.empty());
-    EXPECT_TRUE(state_.search.search_state.GetQuery().empty());
     // 入力欄を空にした EN_CHANGE は何もせず終わる。
     EXPECT_TRUE(Dispatch(SearchTextChangedAction{ L"" }).empty());
 }
@@ -372,7 +384,7 @@ TEST_F(SearchBarTest, NextMatchAcrossTableRowsAdvancesScroll)
     SetDocument("| hit |\n|---|\n| hit |\n| hit |\n| hit |\n| hit |\n", 2000.0f);
     ASSERT_EQ(Nodes().size(), 1u);
     ASSERT_EQ(Nodes()[0].type, NodeType::Table);
-    auto& tl = state_.document.layout_cache[0].ensure_table_layout(5, 1);
+    auto& tl = state_.document.layout_cache[0].set_table_layout(std::make_unique<TableLayoutData>(5, 1, false));
     tl.row_heights = { 400.0f, 400.0f, 400.0f, 400.0f, 400.0f };
     tl.row_cum_y = { 0.0f, 400.0f, 800.0f, 1200.0f, 1600.0f, 2000.0f };
     SetPaneHeight(600.0f);

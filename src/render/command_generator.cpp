@@ -27,8 +27,6 @@ namespace {
 
 struct CmdGenStats {
     int64_t hittest_range = 0;
-    int64_t sel_hl_cache_hit = 0;
-    int64_t sel_hl_cache_miss = 0;
     int64_t search_hl_reset = 0;
     int64_t search_hl_computed = 0;
     int64_t search_hl_provisional = 0;
@@ -39,8 +37,6 @@ CmdGenStats g_cmd_gen_stats;
 void PublishCmdGenStats() noexcept
 {
     MENDO_PLOT("cmdgen.hittest_range", g_cmd_gen_stats.hittest_range);
-    MENDO_PLOT("cmdgen.sel_hl_cache_hit", g_cmd_gen_stats.sel_hl_cache_hit);
-    MENDO_PLOT("cmdgen.sel_hl_cache_miss", g_cmd_gen_stats.sel_hl_cache_miss);
     MENDO_PLOT("cmdgen.search_hl_reset", g_cmd_gen_stats.search_hl_reset);
     MENDO_PLOT("cmdgen.search_hl_computed", g_cmd_gen_stats.search_hl_computed);
     MENDO_PLOT("cmdgen.search_hl_provisional", g_cmd_gen_stats.search_hl_provisional);
@@ -188,8 +184,8 @@ struct ButtonBg {
     float opacity = 1.0f;
 };
 
-// アイコンや短い文字列を rect の中央に置くボタン。書式は左右・上下とも中央揃え。text_layouts が無ければ文字は描かない。
-void EmitButton(DrawCommandList& out, TextLayoutCache* text_layouts, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, std::wstring_view label,
+// アイコンや短い文字列を rect の中央に置くボタン。書式は左右・上下とも中央揃え。
+void EmitButton(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTextFormat* fmt, const D2D1_RECT_F& rect, std::wstring_view label,
                 ButtonBg bg, BrushId fg, float fg_opacity)
 {
     if (bg.brush != BrushId::None) {
@@ -200,9 +196,7 @@ void EmitButton(DrawCommandList& out, TextLayoutCache* text_layouts, IDWriteText
             out.push_back(FillRectCmd{ .rect = rect, .brush_id = bg.brush });
         }
     }
-    if (text_layouts) {
-        text_layouts->EmitCentered(out, label, fmt, rect, fg, fg_opacity);
-    }
+    text_layouts.EmitCentered(out, label, fmt, rect, fg, fg_opacity);
 }
 
 } // namespace
@@ -264,12 +258,10 @@ std::optional<FillRoundedRectCmd> VScrollThumb(const PaneRect& pane, float heade
     };
 }
 
-SearchInputMetrics SearchInputLayout::Measure(const SearchBarRenderState& sb, float width)
+SearchInputMetrics MeasureSearchInput(TextLayoutCache& text_layouts, IDWriteTextFormat* fmt, const SearchBarRenderState& sb, float width)
 {
     const bool has_comp = !sb.ime_composition.empty();
-    if (!factory_ || !fmt_ || (sb.query.empty() && !has_comp)) {
-        return {};
-    }
+    const D2D1_SIZE_F box{ width, SEARCH_INPUT_HEIGHT };
 
     const int comp_len = static_cast<int>(sb.ime_composition.size());
     int comp_start = 0;
@@ -281,27 +273,22 @@ SearchInputMetrics SearchInputLayout::Measure(const SearchBarRenderState& sb, fl
         }
     }
 
-    // IMEコンポジション中は確定済みテキストのキャレット位置に変換中テキストを挿入して表示する。
-    // 下線はレイアウト生成時にだけ付けるので、合成範囲もキーに含める。
-    scratch_.assign(sb.query);
-    scratch_.insert(static_cast<size_t>(comp_start), sb.ime_composition);
-    const DWRITE_TEXT_RANGE underline{ static_cast<UINT32>(comp_start), static_cast<UINT32>(comp_len) };
-    if (!Holds(scratch_, underline, width)) {
-        layout_ = Create(scratch_, width);
-        if (!layout_) {
-            Forget();
-            return {};
-        }
-        if (underline.length > 0) {
-            layout_->SetUnderline(TRUE, underline);
-        }
-        text_.swap(scratch_);
-        width_ = width;
-        underline_ = underline;
+    IDWriteTextLayout* layout = nullptr;
+    if (has_comp) {
+        // IMEコンポジション中は確定済みテキストのキャレット位置に変換中テキストを挿入して表示する。
+        std::wstring text(sb.query);
+        text.insert(static_cast<size_t>(comp_start), sb.ime_composition);
+        layout = text_layouts.Get(fmt, text, box, { static_cast<UINT32>(comp_start), static_cast<UINT32>(comp_len) });
     }
-    SearchInputMetrics m{ .layout = layout_.Get() };
+    else {
+        layout = text_layouts.Get(fmt, sb.query, box);
+    }
+    if (!layout) {
+        return {};
+    }
+    SearchInputMetrics m{ .layout = layout };
 
-    const int text_len = static_cast<int>(text_.size());
+    const int text_len = static_cast<int>(sb.query.size());
     const bool has_selection = !has_comp && sb.selection_start >= 0 && sb.caret_pos >= 0 && sb.selection_start != sb.caret_pos;
     if (has_selection) {
         const int sel_min = std::clamp(std::min(sb.selection_start, sb.caret_pos), 0, text_len);
@@ -310,7 +297,7 @@ SearchInputMetrics SearchInputLayout::Measure(const SearchBarRenderState& sb, fl
             // 単一行テキストなのでメトリクスは1つで十分
             DWRITE_HIT_TEST_METRICS htm_sel{};
             UINT32 actual = 0;
-            layout_->HitTestTextRange(static_cast<UINT32>(sel_min), static_cast<UINT32>(sel_max - sel_min), 0.0f, 0.0f, &htm_sel, 1, &actual);
+            layout->HitTestTextRange(static_cast<UINT32>(sel_min), static_cast<UINT32>(sel_max - sel_min), 0.0f, 0.0f, &htm_sel, 1, &actual);
             if (actual > 0) {
                 m.selection_x = htm_sel.left;
                 m.selection_width = htm_sel.width;
@@ -325,18 +312,14 @@ SearchInputMetrics SearchInputLayout::Measure(const SearchBarRenderState& sb, fl
     }
     FLOAT px, py;
     DWRITE_HIT_TEST_METRICS htm{};
-    layout_->HitTestTextPosition(static_cast<UINT32>(effective_pos), false, &px, &py, &htm);
+    layout->HitTestTextPosition(static_cast<UINT32>(effective_pos), false, &px, &py, &htm);
     m.caret_x = px;
     return m;
 }
 
-int SearchInputLayout::HitTest(std::wstring_view query, float local_x, float width) const
+int HitTestSearchInput(TextLayoutCache& text_layouts, IDWriteTextFormat* fmt, std::wstring_view query, float local_x, float width)
 {
-    if (query.empty() || !factory_ || !fmt_) {
-        return 0;
-    }
-    // IME 合成中は表示テキストが query と異なるので作り直す。
-    const auto layout = Holds(query, {}, width) ? layout_ : Create(query, width);
+    auto* const layout = text_layouts.Get(fmt, query, { width, SEARCH_INPUT_HEIGHT });
     if (!layout) {
         return 0;
     }
@@ -349,15 +332,6 @@ int SearchInputLayout::HitTest(std::wstring_view query, float local_x, float wid
     }
     // 結合文字やサロゲートペアの途中に置かないよう、クラスタの長さ分進める。
     return static_cast<int>(htm.textPosition + (is_trailing ? htm.length : 0));
-}
-
-Microsoft::WRL::ComPtr<IDWriteTextLayout> SearchInputLayout::Create(std::wstring_view text, float width) const
-{
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
-    if (FAILED(factory_->CreateTextLayout(text.data(), static_cast<UINT32>(text.size()), fmt_.Get(), width, SEARCH_INPUT_HEIGHT, &layout))) {
-        return nullptr;
-    }
-    return layout;
 }
 
 namespace overlay {
@@ -393,7 +367,7 @@ void EmitNavButtons(DrawCommandList& out, TextLayoutCache& text_layouts, IDWrite
     const auto emit_button = [&](const D2D1_RECT_F& rect, bool enabled, bool is_hovered, std::wstring_view arrow) {
         const float bg_alpha = !enabled ? (dark ? 0.08f : 0.05f) : is_hovered ? (dark ? 0.35f : 0.25f) : (dark ? 0.15f : 0.10f);
         const float text_alpha = !enabled ? (dark ? 0.2f : 0.15f) : is_hovered ? 1.0f : (dark ? 0.6f : 0.5f);
-        EmitButton(out, &text_layouts, fmt, rect, arrow, { BrushId::Overlay, NAV_BTN_CORNER, bg_alpha }, BrushId::Overlay, text_alpha);
+        EmitButton(out, text_layouts, fmt, rect, arrow, { BrushId::Overlay, NAV_BTN_CORNER, bg_alpha }, BrushId::Overlay, text_alpha);
     };
     // クリック判定 (NavButtonHitTest) と同じ矩形 API を使い、描画とヒットのズレを防ぐ
     emit_button(NavBackButtonRect(md_pane_rect), can_back, hovered == NavDirection::Back, L"\x25C0");
@@ -487,12 +461,12 @@ void EmitSearchBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteT
 
     const auto draw_icon_btn = [&](const D2D1_RECT_F& r, std::wstring_view icon, bool hovered, float alpha = 1.0f) {
         const ButtonBg bg{ hovered ? BrushId::TitleBarButtonHover : BrushId::None, SEARCH_BAR_CORNER };
-        EmitButton(out, &text_layouts, icon_fmt, r, icon, bg, BrushId::SearchInputText, alpha);
+        EmitButton(out, text_layouts, icon_fmt, r, icon, bg, BrushId::SearchInputText, alpha);
     };
 
     const auto draw_toggle_btn = [&](const D2D1_RECT_F& r, std::wstring_view label, IDWriteTextFormat* fmt, bool checked, bool hovered) {
         const BrushId bg = checked ? BrushId::TitleBarButtonActive : hovered ? BrushId::TitleBarButtonHover : BrushId::None;
-        EmitButton(out, &text_layouts, fmt, r, label, { bg, SEARCH_BAR_CORNER }, BrushId::SearchInputText, checked ? 1.0f : 0.5f);
+        EmitButton(out, text_layouts, fmt, r, label, { bg, SEARCH_BAR_CORNER }, BrushId::SearchInputText, checked ? 1.0f : 0.5f);
     };
 
     const float nav_alpha = sb.total_matches > 0 ? 1.0f : 0.3f;
@@ -531,7 +505,7 @@ void EmitTitleBar(DrawCommandList& out, TextLayoutCache& text_layouts, IDWriteTe
     const auto is_hovered = [&](TitleBarHitZone z) noexcept { return tb.hovered_zone == z; };
 
     const auto gen_button = [&](const D2D1_RECT_F& rect, wchar_t icon, BrushId bg_id, BrushId text_id, float alpha) {
-        EmitButton(out, &text_layouts, icon_fmt, rect, { &icon, 1 }, { bg_id }, text_id, alpha);
+        EmitButton(out, text_layouts, icon_fmt, rect, { &icon, 1 }, { bg_id }, text_id, alpha);
     };
 
     const auto gen_plain = [&](TitleBarHitZone zone, wchar_t icon) {
@@ -624,7 +598,7 @@ void EmitSidePaneHeader(DrawCommandList& out, TextLayoutCache& text_layouts, con
     ForEachPaneHeaderButton(r.width, header_h, is_file_pane, pane.reveal_enabled, [&](const D2D1_RECT_F& local, PaneHeaderButton button, bool enabled) {
         // 無効なボタンはホバー状態が残っていても強調しない (ヘルプへ切替直後など)。
         const bool hovered = enabled && pane.hovered_button == button;
-        EmitButton(out, &text_layouts, fmts.header_icon, OffsetRectF(local, r.x, r.y), PaneHeaderButtonIcon(button), { hovered ? BrushId::PaneItemHover : BrushId::None },
+        EmitButton(out, text_layouts, fmts.header_icon, OffsetRectF(local, r.x, r.y), PaneHeaderButtonIcon(button), { hovered ? BrushId::PaneItemHover : BrushId::None },
                    BrushId::Text, enabled ? 1.0f : DISABLED_UI_ALPHA);
     });
 
@@ -691,13 +665,11 @@ void EmitFileExplorer(DrawCommandList& out, TextLayoutCache& text_layouts, const
 }
 
 void EmitToc(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePaneFormats& fmts, float header_h,
-             const SidePaneState& sp, const SidePaneInstance& pane, std::vector<std::wstring>& toc_titles)
+             const SidePaneState& sp, const SidePaneInstance& pane)
 {
     const auto& entries = sp.toc_entries;
     const int active_index = sp.active_toc_index;
-    if (toc_titles.size() != entries.size()) {
-        toc_titles.assign(entries.size(), {});
-    }
+    std::wstring title;
     IDWriteTextFormat* const item_fmt = fmts.item[std::to_underlying(PaneTarget::Toc)];
     EmitSidePane(out, text_layouts, fmts, header_h, pane, false, entries.size(), i18n::S().pane_header_toc, [&](int i, const D2D1_RECT_F& row) {
         const Node& heading = sp.nodes[entries[i].node_index];
@@ -708,10 +680,8 @@ void EmitToc(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePane
         }
 
         const float text_left = row.left + (8.0f + (heading.heading_level - 1) * TOC_INDENT_PER_LEVEL) * pane.zoom;
-        auto& title = toc_titles[i];
-        if (title.empty()) {
-            DecodeForDWrite(TocItemText(heading.GetText()), title);
-        }
+        // 項目の文字列は持たない。見えている 40 行を描くたびに変換して 1 フレーム約 4µs (BM_TocFrame)。
+        DecodeForDWrite(TocItemText(heading.GetText()), title);
         EmitLeftText(out, text_layouts, item_fmt, title, text_left, row.top, pane.item_height);
 
         if (i == active_index) {
@@ -729,7 +699,7 @@ void EmitToc(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePane
 } // namespace
 
 void EmitSidePanes(DrawCommandList& out, TextLayoutCache& text_layouts, const SidePaneFormats& fmts, const Theme& theme,
-                   const SidePaneState& sp, std::vector<std::wstring>& toc_titles)
+                   const SidePaneState& sp)
 {
     const float header_h = theme.pane_header_height;
     const auto gen_splitter = [&](const PaneRect& r) {
@@ -741,7 +711,7 @@ void EmitSidePanes(DrawCommandList& out, TextLayoutCache& text_layouts, const Si
         gen_splitter(fp.rect);
     }
     if (const auto& tp = sp.Get(PaneTarget::Toc); tp.show) {
-        EmitToc(out, text_layouts, fmts, header_h, sp, tp, toc_titles);
+        EmitToc(out, text_layouts, fmts, header_h, sp, tp);
         gen_splitter(tp.rect);
     }
 }
@@ -750,36 +720,7 @@ void EmitSidePanes(DrawCommandList& out, TextLayoutCache& text_layouts, const Si
 
 void CommandGenerator::EmitText(std::wstring_view text, IDWriteTextFormat* fmt, D2D1_POINT_2F origin, D2D1_SIZE_F box, BrushId brush_id, float opacity)
 {
-    if (text_layouts_) {
-        text_layouts_->Emit(*cmds_, text, fmt, origin, box, brush_id, opacity);
-    }
-}
-
-// SelectionHlCache は lazy 確保のみで自動破棄経路が無く、選択範囲外に出たノード分が
-// 居残ってメモリが漸増する。前フレームの範囲との差分区間だけ巻き戻す
-// (Ctrl+A 後のドラッグ等で範囲全体を毎回走査しない)。
-void CommandGenerator::ReleaseStaleSelectionHlCaches(const LayoutCache& cache, const TextSelection& selection)
-{
-    const int new_start = selection.active() ? selection.start_node : -1;
-    const int new_end = selection.active() ? selection.end_node : -1;
-    if ((new_start != prev_sel_start_node_ || new_end != prev_sel_end_node_) && prev_sel_start_node_ >= 0) {
-        const int lo = prev_sel_start_node_;
-        const int hi = std::min(prev_sel_end_node_, static_cast<int>(cache.size()) - 1);
-        const auto invalidate_range = [&](int first, int last) {
-            for (int i = std::max(first, lo); i <= std::min(last, hi); i++) {
-                cache[i].invalidate_selection_hl_cache();
-            }
-        };
-        if (new_start < 0) {
-            invalidate_range(lo, hi);
-        }
-        else {
-            invalidate_range(lo, new_start - 1);
-            invalidate_range(new_end + 1, hi);
-        }
-    }
-    prev_sel_start_node_ = new_start;
-    prev_sel_end_node_ = new_end;
+    text_layouts_->Emit(*cmds_, text, fmt, origin, box, brush_id, opacity);
 }
 
 void CommandGenerator::GenerateMdPane(DrawCommandList& out, const MdPaneParams& p, float dpi_scale)
@@ -816,8 +757,6 @@ void CommandGenerator::GenerateMdPane(DrawCommandList& out, const MdPaneParams& 
         .pane_transform = pane_transform,
         .overhang = MaxNodeOverhang(),
     };
-
-    ReleaseStaleSelectionHlCaches(cache, p.selection);
 
     const int node_count = static_cast<int>(nodes.size());
     // 二分探索キーは未スナップのドキュメント Y (cache[i].text_top と同じ系)。
@@ -920,10 +859,6 @@ void CommandGenerator::GenerateNode(const Node& node, const NodeLayoutEntry& ent
         GenTaskListCheckbox(node, x, entry_text_top);
         break;
 
-    case NodeType::BlockQuote:
-        // バーと背景はグループ単位で GenBlockQuoteGroupDecorations から描画済み
-        break;
-
     case NodeType::Heading: {
         const int8_t lv = node.heading_level;
         if (lv <= 2) {
@@ -936,6 +871,7 @@ void CommandGenerator::GenerateNode(const Node& node, const NodeLayoutEntry& ent
     }
 
     case NodeType::Paragraph:
+        // 引用のバーと背景はグループ単位で GenBlockQuoteGroupDecorations から描画済み
         break;
 
     default:
@@ -964,11 +900,10 @@ BrushId GetNodeBaseBrush(const Node& node) noexcept
     switch (node.type) {
     case NodeType::Heading:
         return BrushId::Heading;
-    case NodeType::BlockQuote:
-        return (node.alert_type != AlertType::None) ? BrushId::Text : BrushId::BlockquoteText;
+    case NodeType::Paragraph:
+        return (node.quote_depth > 0 && node.alert_type == AlertType::None) ? BrushId::BlockquoteText : BrushId::Text;
     case NodeType::CodeBlock:
         return BrushId::CodeText;
-    case NodeType::Paragraph:
     case NodeType::HorizontalRule:
     case NodeType::ListItem:
     case NodeType::Table:
@@ -993,7 +928,7 @@ void CommandGenerator::GenNodeTextDecorations(const Node& node, const NodeLayout
     GenSearchHighlights(entry, node_index, text_x, entry_text_top);
 
     if (const auto [sel_start, sel_end] = frame_.params->selection.RangeIn(node_index, node.GetText().size()); sel_end > sel_start) {
-        GenSelectionHighlightCached(node, entry, sel_start, sel_end - sel_start, text_x, entry_text_top);
+        GenSelectionHighlight(node, entry, sel_start, sel_end - sel_start, text_x, entry_text_top);
     }
 
     auto cmd = MakeTextLayoutCmd(D2D1::Point2F(text_x, entry_text_top), entry.text_layout(), entry.height, GetNodeBaseBrush(node), frame_.visible);
@@ -1078,7 +1013,7 @@ void CommandGenerator::GenOverlayButton(D2D1_RECT_F btn, wchar_t icon, bool is_h
     const bool dark = theme_->dark;
     const float bg_alpha = is_hovered ? (dark ? 0.30f : 0.15f) : (dark ? 0.10f : 0.05f);
     const float text_alpha = is_hovered ? (dark ? 0.9f : 0.8f) : (dark ? 0.4f : 0.35f);
-    EmitButton(*cmds_, text_layouts_, formats_->copy_btn_icon.Get(), btn, { &icon, 1 }, { BrushId::Overlay, COPY_BTN_CORNER, bg_alpha }, BrushId::Overlay,
+    EmitButton(*cmds_, *text_layouts_, formats_->copy_btn_icon.Get(), btn, { &icon, 1 }, { BrushId::Overlay, COPY_BTN_CORNER, bg_alpha }, BrushId::Overlay,
                text_alpha);
 }
 
@@ -1268,7 +1203,7 @@ void CommandGenerator::GenTable(const Node& node, const NodeLayoutEntry& entry,
 {
     const auto* tbl = node.table_data();
     const auto* tl_ptr = entry.table_layout();
-    if (!tbl || tbl->row_count == 0 || !tl_ptr || !tl_ptr->HasGeometry()) {
+    if (!tl_ptr) {
         return;
     }
 
@@ -1356,14 +1291,10 @@ void CommandGenerator::EmitFillRectIfVisible(const D2D1_RECT_F& r, BrushId brush
     }
 }
 
-void CommandGenerator::CollectHitTestRects(IDWriteTextLayout* layout, uint32_t start, uint32_t length, std::vector<D2D1_RECT_F>& out)
+std::span<const DWRITE_HIT_TEST_METRICS> CommandGenerator::HitTestClusters(IDWriteTextLayout* layout, uint32_t start, uint32_t length)
 {
-    // 数式の一部に当たった検索ヒットや選択も、数式全体を塗る。引いた箱はキャッシュするので、数式の無い段落でも広げる。
     const auto range = ExpandToClusters(layout, start, length);
-    // 少しずつ追記されるので reserve はしない (要求ぴったりの再確保が毎回走る)。
-    for (const auto& m : HitTestRange(layout, range.startPosition, range.length)) {
-        out.emplace_back(RectFromHitTest(m));
-    }
+    return HitTestRange(layout, range.startPosition, range.length);
 }
 
 const LineWindow& CommandGenerator::LineWindowAround(const NodeLayoutEntry& entry, float origin_y) const
@@ -1371,44 +1302,25 @@ const LineWindow& CommandGenerator::LineWindowAround(const NodeLayoutEntry& entr
     return EnsureLineWindow(entry, frame_.visible.ToLocal(origin_y));
 }
 
-void CommandGenerator::GenSelectionHighlightCached(const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y)
+void CommandGenerator::GenSelectionHighlight(const Node& node, const NodeLayoutEntry& entry, uint32_t doc_start, uint32_t doc_length, float origin_x, float origin_y)
 {
     auto* layout = entry.text_layout();
     if (!layout || doc_length == 0) {
         return;
     }
-    auto& cache = entry.ensure_selection_hl_cache();
-    // キャッシュキーは UTF-8 byte 単位 (selection 状態と直接対応)。
-    // 位置変換は選択が変わったときだけ前方走査で行う。
-    if (cache.start != doc_start || cache.length != doc_length) {
-        Utf16OffsetCursor cursor{ node.GetText() };
-        const auto wr = cursor.WideRange(doc_start, doc_length);
-        cache.start = doc_start;
-        cache.length = doc_length;
-        cache.start_w = wr.startPosition;
-        cache.end_w = wr.startPosition + wr.length;
-    }
+    // 結果は持たない。全選択のまま画面いっぱいの 15KB の和文を描いても 1 フレーム 34〜43µs で (BM_SelectionFrame。
+    // キャッシュがあった頃は 0.4µs)、16.6ms に対して小さい。
+    Utf16OffsetCursor cursor{ node.GetText() };
+    const auto wr = cursor.WideRange(doc_start, doc_length);
     // 背の高いノードでは選択範囲を可視範囲の前後の行に絞って引き、全行選択でも矩形を可視行数ぶんで済ませる。
     const auto& window = LineWindowAround(entry, origin_y);
-    uint32_t begin = std::max(cache.start_w, window.text_begin);
-    uint32_t end = std::min(cache.end_w, window.text_end);
+    const uint32_t begin = std::max(wr.startPosition, window.text_begin);
+    const uint32_t end = std::min(wr.startPosition + wr.length, window.text_end);
     if (end <= begin) {
-        begin = end = 0;
+        return;
     }
-    if (begin != cache.rects_begin_w || end != cache.rects_end_w) {
-        MENDO_COUNT_INC(g_cmd_gen_stats.sel_hl_cache_miss);
-        cache.rects.clear();
-        if (end > begin) {
-            CollectHitTestRects(layout, begin, end - begin, cache.rects);
-        }
-        cache.rects_begin_w = begin;
-        cache.rects_end_w = end;
-    }
-    else {
-        MENDO_COUNT_INC(g_cmd_gen_stats.sel_hl_cache_hit);
-    }
-    for (const auto& local : cache.rects) {
-        EmitFillRectIfVisible(OffsetRectF(local, origin_x, origin_y), BrushId::Selection);
+    for (const auto& m : HitTestClusters(layout, begin, end - begin)) {
+        EmitFillRectIfVisible(RectFromHitTest(m, origin_x, origin_y), BrushId::Selection);
     }
 }
 
@@ -1458,7 +1370,11 @@ void CommandGenerator::EmitSearchSpan(SearchHlCache& cache, size_t span_index, I
         MENDO_COUNT_INC(g_cmd_gen_stats.search_hl_computed);
         span.begin = static_cast<uint32_t>(cache.rects.size());
         if (length_w > 0) {
-            CollectHitTestRects(layout, start_w, length_w, cache.rects);
+            // 引いた箱はキャッシュするので、数式の無い段落でも広げる。
+            // 少しずつ追記されるので reserve はしない (要求ぴったりの再確保が毎回走る)。
+            for (const auto& m : HitTestClusters(layout, start_w, length_w)) {
+                cache.rects.emplace_back(RectFromHitTest(m));
+            }
         }
         span.count = static_cast<uint32_t>(cache.rects.size()) - span.begin;
     }

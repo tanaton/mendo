@@ -123,7 +123,7 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::wstring path, Th
     loading_path_ = path;
 
     // 画像のデコードや図の読み込みが溜まっていても待たせない。リロードは旧文書の表示を続けるので、それらの待ちを捨てられない。
-    const bool posted = scheduler.PostFront([this, path = std::move(path), theme = std::move(theme), content_width, stop_token = stop_source_.get_token(), reload_base = std::move(reload_base), guard = latch_.Acquire()]() mutable {
+    scheduler.PostFront([this, path = std::move(path), theme = std::move(theme), content_width, stop_token = stop_source_.get_token(), reload_base = std::move(reload_base), guard = latch_.Acquire()]() mutable {
         try {
             RunWorker(path, theme, content_width, stop_token, std::move(reload_base));
         } catch (const std::bad_alloc&) {
@@ -131,16 +131,6 @@ void AsyncLoadCoordinator::Start(TaskScheduler& scheduler, std::wstring path, Th
             Publish(stop_token, std::unexpected(FileLoadError::TooLarge));
         }
     });
-
-    if (!posted) {
-        // Shutdown 後。lambda が走らないので latch::Guard は capture 内で
-        // destruct され自動的に Release される。in_flight_/outcome_ を整えて UI に通知することで
-        // 以降のリロードを再開可能にする。
-        const std::lock_guard lock(mutex_);
-        outcome_.emplace(std::unexpected(FileLoadError::ReadFailed));
-        in_flight_ = false;
-        NotifyLocked();
-    }
 }
 
 bool AsyncLoadCoordinator::Attach(HWND hwnd, UINT msg_id)

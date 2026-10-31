@@ -26,31 +26,27 @@ constexpr int LayoutWorkerCount(unsigned int cores) noexcept
 }
 
 // ワーカーは COM を初期化せずに起動する。COM を使うタスクは EnsureWorkerCom を呼ぶ。
-// Post() はスレッドセーフ。Init() / Shutdown() はUIスレッドから呼び出す。
+// Post() はスレッドセーフ。Shutdown() はUIスレッドから呼び出す。
 // ワーカーは初回 Post まで起動しない。小さい文書だけを開くセッションでスレッドを作らずに済む。
 class TaskScheduler {
 public:
-    // Why: 異常系（巨大ドキュメントの大量画像/Mermaid 要求）でキューが青天井に
-    // 膨らむのを防ぎ、move_only_function キャプチャによるヒープ消費を制限する。
-    static constexpr size_t MAX_PENDING_TASKS = 1024;
-
-    TaskScheduler() = default;
+    // Shutdown した後は使い直せない。
+    explicit TaskScheduler(int thread_count) noexcept;
     ~TaskScheduler();
 
     TaskScheduler(const TaskScheduler&) = delete;
     TaskScheduler& operator=(const TaskScheduler&) = delete;
 
-    void Init(int thread_count);
-
-    // 呼び出し側は戻り値を無視してもよい（破棄されたタスクは単に未実行）。
+    // Shutdown 後だけ false を返し、タスクは実行されない。呼び出し側は結果を待つ者のいない終了時のこととして無視してよい。
+    // キューに上限を置かない。数式の結果などタスクごとに 1 回返す約束があり、捨てると待つ側が固まる。
     bool Post(std::move_only_function<void()> task)
     {
         return PostImpl(std::move(task), /*front=*/false);
     }
-    // 待っているタスクより先に実行させる。上限 (MAX_PENDING_TASKS) は見ない。Shutdown 後だけ false。
-    bool PostFront(std::move_only_function<void()> task)
+    // 待っているタスクより先に実行させる。
+    void PostFront(std::move_only_function<void()> task)
     {
-        return PostImpl(std::move(task), /*front=*/true);
+        PostImpl(std::move(task), /*front=*/true);
     }
 
     void Shutdown();
@@ -61,7 +57,7 @@ public:
     // COM を使わない preload のパースまで待たされる。
     static void EnsureWorkerCom() noexcept;
 
-    // 起動前でも Init で指定した数を返す (ParallelFor の分割数に使うため)。Init 前 / Shutdown 後は 0。
+    // 起動前でも指定した数を返す (ParallelFor の分割数に使うため)。Shutdown 後は 0。
     size_t WorkerCount() const noexcept
     {
         return thread_count_;
@@ -73,7 +69,7 @@ private:
     void StartWorkersLocked();
     void WorkerLoop();
 
-    size_t thread_count_ = 0;
+    size_t thread_count_;
     std::vector<std::thread> workers_;
     std::deque<std::move_only_function<void()>> queue_;
     std::mutex mutex_;

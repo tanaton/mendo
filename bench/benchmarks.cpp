@@ -14,6 +14,8 @@
 #include <string>
 #include <string_view>
 #include "block_h_scroll.h"
+#include "command_generator.h"
+#include "draw_cmd_test_util.h"
 #include "doc_dwrite_bridge.h"
 #include "document.h"
 #include "document_utils.h"
@@ -25,6 +27,7 @@
 #include "layout_computer.h"
 #include "mock_text_measurer.h"
 #include "parsed_layout.h"
+#include "render_params.h"
 #include "reducer_harness.h"
 #include "task_scheduler.h"
 #include "test_helpers.h"
@@ -352,8 +355,7 @@ void BM_MeasureIndicesParallel(benchmark::State& state, bool parallel)
 {
     const auto n = static_cast<size_t>(state.range(0));
     SlowMockMeasurer mock;
-    TaskScheduler ts;
-    ts.Init(4);
+    TaskScheduler ts{ 4 };
     mock.SetTheme(GetLightTheme());
     mock.SetScheduler(parallel ? &ts : nullptr);
     std::vector<size_t> indices(n);
@@ -458,9 +460,8 @@ struct DWriteLayout {
     TaskScheduler scheduler;
     bool ok = false;
 
-    explicit DWriteLayout(int workers)
+    explicit DWriteLayout(int workers) : scheduler(workers)
     {
-        scheduler.Init(workers);
         if (FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(factory.GetAddressOf())))) {
             return;
         }
@@ -570,8 +571,8 @@ void BM_InlineMathLayout(benchmark::State& state)
     {
         LayoutCache warmup(doc.GetNodes().size());
         ComputeLayout(l.engine, doc.GetNodes(), warmup, 1200.0f);
-        for (const auto& item : table.TakeRequests()) {
-            table.Resolve(item.key, { 40.0f, 18.0f, 13.0f });
+        for (const uint64_t key : table.TakeRequests()) {
+            table.Resolve(key, { 40.0f, 18.0f, 13.0f });
         }
     }
     for (auto _ : state) {
@@ -918,6 +919,95 @@ void BM_TableSelectionHitTest(benchmark::State& state)
     state.counters["cells"] = static_cast<double>(table.row_count * table.col_count);
 }
 BENCHMARK(BM_TableSelectionHitTest)->Unit(benchmark::kMicrosecond);
+
+// 全選択のまま本文を描く 1 フレーム分のコマンド生成。step が 0 なら同じ位置、それ以外はその px ずつスクロールする。
+// 比較のために選択なしも測る。
+void BM_SelectionFrame(benchmark::State& state, std::string md, bool select, float step)
+{
+    if (md.empty()) {
+        md = RepeatTestMd(state, 4);
+        if (state.skipped()) {
+            return;
+        }
+    }
+    const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
+    DWriteLayout l(8);
+    if (l.SkipIfFailed(state)) {
+        return;
+    }
+    LayoutCache cache = layout::MakeEstimatedLayoutCache(doc.GetNodes(), l.theme);
+    ViewportManager viewport;
+    LayoutService service(l.engine, viewport);
+    const PaneRect pane{ .x = 0.0f, .y = 0.0f, .width = kViewWidth, .height = kViewHeight };
+    const float start_y = cache.Bottom(cache.size() - 1) * 0.5f;
+    viewport.SetScrollY(start_y);
+    service.EnsureVisibleLayout(doc, cache, kViewWidth, kViewHeight);
+    const auto last = static_cast<int>(doc.GetNodes().size()) - 1;
+    const TextSelection selection = select ? TextSelection::MakeOrdered(0, 0, last, static_cast<uint32_t>(doc.GetNodes().back().GetText().size())) : TextSelection{};
+    CommandGenerator generator;
+    InitWithoutText(generator, l.theme);
+    DrawCommandList cmds;
+    float offset = 0.0f;
+    for (auto _ : state) {
+        offset = offset + step > kViewHeight ? 0.0f : offset + step;
+        cmds.clear();
+        generator.GenerateMdPane(cmds, { .nodes = doc.GetNodes(), .cache = cache, .selection = selection, .md_pane_rect = pane, .scroll_y = start_y + offset }, 1.0f);
+        benchmark::DoNotOptimize(cmds.data());
+    }
+    state.counters["cmds"] = static_cast<double>(cmds.size());
+    int text_layouts = 0;
+    for (size_t i = 0; i < cache.size(); ++i) {
+        text_layouts += cache[i].text_layout() != nullptr;
+    }
+    state.counters["text_layouts"] = text_layouts;
+}
+// 1 段落が 15KB の和文。区切りの上限に近い、選択の位置変換がいちばん重い本文。
+std::string LongJapaneseParagraphs()
+{
+    std::string paragraph;
+    while (paragraph.size() < 15'000) {
+        paragraph += "吾輩は猫である。名前はまだ無い。どこで生れたかとんと見当がつかぬ。";
+    }
+    std::string md;
+    for (int i = 0; i < 40; ++i) {
+        md += paragraph;
+        md += "\n\n";
+    }
+    return md;
+}
+BENCHMARK_CAPTURE(BM_SelectionFrame, testmd_none_static, std::string{}, false, 0.0f)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_SelectionFrame, testmd_all_static, std::string{}, true, 0.0f)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_SelectionFrame, testmd_all_scroll, std::string{}, true, 3.0f)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_SelectionFrame, ja15kb_none_static, LongJapaneseParagraphs(), false, 0.0f)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_SelectionFrame, ja15kb_all_static, LongJapaneseParagraphs(), true, 0.0f)->Unit(benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(BM_SelectionFrame, ja15kb_all_scroll, LongJapaneseParagraphs(), true, 3.0f)->Unit(benchmark::kMicrosecond);
+
+// 2000 見出しの目次の 1 フレーム。書式が無いのでレイアウトは作らず、項目の文字列の手間だけを測る。
+void BM_TocFrame(benchmark::State& state)
+{
+    std::string md;
+    for (int i = 0; i < 2000; ++i) {
+        std::format_to(std::back_inserter(md), "## 見出しの文字列をすこし長めに書く Heading {}\n\n", i);
+    }
+    const auto doc = Document::FromMarkdown(std::move(md), L"bench.md");
+    const Theme theme = GetLightTheme();
+    const std::vector<FileEntry> files;
+    SidePaneState sp{
+        .panes = { {}, SidePaneInstance{ .rect = { .x = 0.0f, .y = 0.0f, .width = 300.0f, .height = kViewHeight }, .show = true, .zoom = 1.0f, .item_height = 24.0f } },
+        .file_entries = files,
+        .toc_entries = doc.GetToc(),
+        .nodes = doc.GetNodes(),
+        .active_toc_index = 3,
+    };
+    TextLayoutCache text_layouts;
+    DrawCommandList cmds;
+    for (auto _ : state) {
+        cmds.clear();
+        chrome::EmitSidePanes(cmds, text_layouts, {}, theme, sp);
+        benchmark::DoNotOptimize(cmds.data());
+    }
+}
+BENCHMARK(BM_TocFrame)->Unit(benchmark::kMicrosecond);
 
 // 2 万行 6 列の表。日本語・右揃え・中央揃えを含み、中身はほぼ行ごとに違う。
 Document MakeBenchTableDoc()

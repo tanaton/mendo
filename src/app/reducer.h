@@ -14,7 +14,6 @@ protected:
 };
 
 // 現在の状態を in-place で変更し、実行すべき副作用のリストを返す。一覧の領域は resource から取る。
-SideEffectList Reduce(AppState& state, const AppAction& action, NodeLayoutAccess& layout,
-                      std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+SideEffectList Reduce(AppState& state, const AppAction& action, NodeLayoutAccess& layout, std::pmr::memory_resource* resource);
 
 SearchBarRenderState BuildSearchBarRenderState(const AppState& state);

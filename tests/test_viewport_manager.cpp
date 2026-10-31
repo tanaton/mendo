@@ -210,9 +210,9 @@ TEST(ViewportManagerTest, ClearSelection)
 TEST(ViewportManagerTest, SelectAll)
 {
     std::vector<Node> nodes(3);
-    nodes[0].SetText("hello", 0);
-    nodes[1].SetText("world", 0);
-    nodes[2].SetText("end", 0);
+    nodes[0].SetText("hello");
+    nodes[1].SetText("world");
+    nodes[2].SetText("end");
 
     ViewportManager vm;
     vm.SelectAll(nodes);
