@@ -58,9 +58,9 @@ std::wstring SanitizeErrorMessage(std::wstring_view msg, size_t max_len);
 
 struct RequestPrefix {
     unsigned int id = 0;
-    std::wstring_view payload;
     bool valid = false;
     bool has_payload = false;
+    std::wstring_view payload;
 };
 RequestPrefix ParseRequestPrefix(std::wstring_view body) noexcept;
 

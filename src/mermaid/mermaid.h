@@ -107,11 +107,11 @@ private:
         std::string code;
         float max_width = 0.0f;
         bool dark_mode = false;
+        // 結果を width_free_hash で持つ。ディスクで当たったか、描いた結果が幅の上限より狭かった。
+        bool width_free = false;
         // 幅つきのキー。要求中の判定とエラー結果はこちらで持つ。
         uint64_t code_hash = 0;
         uint64_t width_free_hash = 0;
-        // 結果を width_free_hash で持つ。ディスクで当たったか、描いた結果が幅の上限より狭かった。
-        bool width_free = false;
         uint64_t CacheKey() const noexcept
         {
             return width_free ? width_free_hash : code_hash;
@@ -347,6 +347,7 @@ private:
     int worker_count_ = 0;
     // 最初のワーカーの準備ができたか。アイドル解放で戻す。
     bool ready_ = false;
+    bool editing_diagrams_ = false;
     unsigned int request_counter_ = 0;
     // 準備完了 (アイドル解放後の再初期化を含む)・結果が出たとき・諦めたときに呼ぶ。準備前の描画要求は捨てているため再要求させる。
     std::move_only_function<void()> on_update_;
@@ -361,7 +362,6 @@ private:
     MermaidFileCache* file_cache_ = nullptr;
 
     TaskScheduler* bg_scheduler_ = nullptr;
-    bool editing_diagrams_ = false;
     PostedInbox<DiskLoad> disk_results_;
     // DropQueued / CancelPending で進め、投入済みのディスクキャッシュの読み込みを取り消す (ImageLoader の drop_gen_ と同じ)。
     std::atomic<uint32_t> disk_drop_gen_{ 0 };

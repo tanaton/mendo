@@ -159,14 +159,14 @@ private:
     };
 
     QueryKey active_;
+    bool searching_ = false;
     // 進行中 (または直前) の検索が調べるノード。narrowing_ なら candidate_nodes_ の番号、でなければ全ノード。
     bool narrowing_ = false;
-    std::vector<int> candidate_nodes_;
-    size_t next_node_ = 0;
     // 継ぎ目をまたいだマッチが使った、ノード skip_node_ の先頭のバイト数。
     int skip_node_ = -1;
     size_t skip_bytes_ = 0;
-    bool searching_ = false;
+    std::vector<int> candidate_nodes_;
+    size_t next_node_ = 0;
     // matches_ を出した検索。completed_ なら matches_ はその全マッチ (上限で打ち切っていない)。
     QueryKey matched_;
     bool completed_ = false;

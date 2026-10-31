@@ -118,12 +118,12 @@ struct WindowState {
     // 移動だけのサイズ変更ループでは終了時のレイアウト処理を省くため。
     bool size_changed_in_sizing = false;
     bool window_active = true;
+    // DPI が変わった。次の WM_SIZE は同じピクセルサイズでも処理する。
+    bool dpi_changed = false;
     float cached_dpi_scale = 1.0f;
     // 直近の WM_SIZE のクライアント領域 (物理 px)。ペイン配置の元になり、同じ大きさの WM_SIZE を無視するのにも使う。
     uint32_t client_width = 0;
     uint32_t client_height = 0;
-    // DPI が変わった。次の WM_SIZE は同じピクセルサイズでも処理する。
-    bool dpi_changed = false;
 
     constexpr float WidthDip() const noexcept
     {
